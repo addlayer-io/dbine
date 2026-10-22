@@ -51,7 +51,9 @@ impl Grants {
     pub(crate) fn parse<S: AsRef<str>>(lines: &[S]) -> Grants {
         let mut g = Grants::default();
         for line in lines {
-            let Some((revoke, privs, target)) = parse_line(line.as_ref()) else { continue };
+            let Some((revoke, privs, target)) = parse_line(line.as_ref()) else {
+                continue;
+            };
             match (revoke, target) {
                 (false, None) => g.global.extend(privs),
                 (false, Some(db)) => g.schemas.push((db, privs)),
@@ -70,13 +72,23 @@ impl Grants {
     /// not partially revoked there.
     fn on(&self, db: &str, p: &str) -> bool {
         let has = |set: &HashSet<String>| set.contains(p) || set.contains("ALL_PRIVILEGES");
-        let granted = self.global(p) || self.schemas.iter().any(|(pat, set)| has(set) && like(pat, db));
-        granted && !self.revoked.iter().any(|(name, set)| has(set) && name == db)
+        let granted = self.global(p)
+            || self
+                .schemas
+                .iter()
+                .any(|(pat, set)| has(set) && like(pat, db));
+        granted
+            && !self
+                .revoked
+                .iter()
+                .any(|(name, set)| has(set) && name == db)
     }
 
     /// `p` on some database only.
     fn on_some(&self, p: &str) -> bool {
-        self.schemas.iter().any(|(_, set)| set.contains(p) || set.contains("ALL_PRIVILEGES"))
+        self.schemas
+            .iter()
+            .any(|(_, set)| set.contains(p) || set.contains("ALL_PRIVILEGES"))
     }
 }
 
@@ -101,7 +113,9 @@ fn parse_line(line: &str) -> Option<(bool, HashSet<String>, Option<String>)> {
 }
 
 fn strip_word<'a>(s: &'a str, word: &str) -> Option<&'a str> {
-    s.get(..word.len()).filter(|p| p.eq_ignore_ascii_case(word)).map(|_| &s[word.len()..])
+    s.get(..word.len())
+        .filter(|p| p.eq_ignore_ascii_case(word))
+        .map(|_| &s[word.len()..])
 }
 
 /// `SELECT (a, b), CREATE USER,DROP` into `{SELECT, CREATE_USER, DROP}`.
@@ -118,8 +132,19 @@ fn privileges(list: &str) -> HashSet<String> {
     }
     plain
         .split(',')
-        .map(|p| p.split_whitespace().collect::<Vec<_>>().join("_").to_ascii_uppercase())
-        .map(|p| if p == "ALL" { "ALL_PRIVILEGES".to_string() } else { p })
+        .map(|p| {
+            p.split_whitespace()
+                .collect::<Vec<_>>()
+                .join("_")
+                .to_ascii_uppercase()
+        })
+        .map(|p| {
+            if p == "ALL" {
+                "ALL_PRIVILEGES".to_string()
+            } else {
+                p
+            }
+        })
         .filter(|p| !p.is_empty())
         .collect()
 }
@@ -182,9 +207,16 @@ pub(crate) fn from_grants(product: Variant, g: &Grants, database: Option<&str>) 
     let profiler = if v == Variant::TiDb {
         Access::check(has("PROCESS"), "PROCESS")
     } else {
-        Access::check(has("PROCESS") || g.on("performance_schema", "SELECT"), "PROCESS (o SELECT sobre performance_schema)")
+        Access::check(
+            has("PROCESS") || g.on("performance_schema", "SELECT"),
+            "PROCESS (o SELECT sobre performance_schema)",
+        )
     };
-    let kill = if mariadb { "CONNECTION ADMIN o SUPER" } else { "CONNECTION_ADMIN o SUPER" };
+    let kill = if mariadb {
+        "CONNECTION ADMIN o SUPER"
+    } else {
+        "CONNECTION_ADMIN o SUPER"
+    };
     let create_database = if has("CREATE") {
         Access::Allowed
     } else if g.on_some("CREATE") {
@@ -199,7 +231,9 @@ pub(crate) fn from_grants(product: Variant, g: &Grants, database: Option<&str>) 
         profiler,
         kill_session: Access::check(has("CONNECTION_ADMIN") || sup, kill),
         create_database,
-        drop_database: database.map_or(Access::Unknown, |db| Access::check(g.on(db, "DROP"), "DROP sobre la base")),
+        drop_database: database.map_or(Access::Unknown, |db| {
+            Access::check(g.on(db, "DROP"), "DROP sobre la base")
+        }),
         manage_security: Access::check(has("CREATE_USER"), "CREATE USER"),
         create_schema: Access::Unknown,
     }
@@ -208,12 +242,21 @@ pub(crate) fn from_grants(product: Variant, g: &Grants, database: Option<&str>) 
 /// StarRocks' active roles (`root, db_admin`), allowing what the built-in
 /// ones grant. Custom roles aren't read: what they don't cover stays unknown.
 pub(crate) fn from_starrocks_roles(roles: &str, database: Option<&str>) -> Permissions {
-    let roles: Vec<String> =
-        roles.split(',').map(|r| r.trim().trim_matches(|c| c == '\'' || c == '`').to_ascii_lowercase()).collect();
+    let roles: Vec<String> = roles
+        .split(',')
+        .map(|r| {
+            r.trim()
+                .trim_matches(|c| c == '\'' || c == '`')
+                .to_ascii_lowercase()
+        })
+        .collect();
     let is = |r: &str| roles.iter().any(|x| x == r);
     let mut p = Permissions::default();
     if is("root") {
-        p = Permissions { kill_session: Access::Unknown, ..Permissions::all() };
+        p = Permissions {
+            kill_session: Access::Unknown,
+            ..Permissions::all()
+        };
     } else {
         if is("db_admin") {
             p.create_database = Access::Allowed;
@@ -233,9 +276,10 @@ pub(crate) fn from_starrocks_roles(roles: &str, database: Option<&str>) -> Permi
 async fn first_column(s: &mut MySqlSession, sql: &str) -> Result<Option<Vec<String>>> {
     match s.conn.query::<Row, _>(sql).await {
         Ok(rows) => Ok(Some(rows.iter().filter_map(|r| at(r, 0)).collect())),
-        Err(e @ (mysql_async::Error::Io(_) | mysql_async::Error::Driver(mysql_async::DriverError::ConnectionClosed))) => {
-            Err(err(e))
-        }
+        Err(
+            e @ (mysql_async::Error::Io(_)
+            | mysql_async::Error::Driver(mysql_async::DriverError::ConnectionClosed)),
+        ) => Err(err(e)),
         Err(e) => {
             tracing::debug!("{:?}: permissions check refused: {e}", s.variant);
             Ok(None)
@@ -277,17 +321,37 @@ mod tests {
     fn mysql_root_may_do_what_mysql_offers() {
         let p = from_grants(Variant::MySql, &Grants::parse(&MYSQL_ROOT), Some("ventas"));
         assert_eq!(
-            (&p.backup, &p.profiler, &p.kill_session, &p.create_database, &p.drop_database, &p.manage_security),
-            (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed)
+            (
+                &p.backup,
+                &p.profiler,
+                &p.kill_session,
+                &p.create_database,
+                &p.drop_database,
+                &p.manage_security
+            ),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
         );
         // No restore by SQL on MySQL.
         assert_eq!(p.restore, Access::Unknown);
-        assert_eq!(from_grants(Variant::MySql, &Grants::parse(&MYSQL_ROOT), None).drop_database, Access::Unknown);
+        assert_eq!(
+            from_grants(Variant::MySql, &Grants::parse(&MYSQL_ROOT), None).drop_database,
+            Access::Unknown
+        );
     }
 
     #[test]
     fn a_plain_account_is_denied_what_it_lacks() {
-        let g = Grants::parse(&["GRANT USAGE ON *.* TO `ana`@`%`", "GRANT SELECT, INSERT ON `ventas`.* TO `ana`@`%`"]);
+        let g = Grants::parse(&[
+            "GRANT USAGE ON *.* TO `ana`@`%`",
+            "GRANT SELECT, INSERT ON `ventas`.* TO `ana`@`%`",
+        ]);
         let p = from_grants(Variant::MySql, &g, Some("ventas"));
         assert!(denied(&p.backup, "BACKUP_ADMIN"));
         assert!(denied(&p.profiler, "PROCESS"));
@@ -318,9 +382,17 @@ mod tests {
 
     #[test]
     fn partial_revokes() {
-        let g = Grants::parse(&["GRANT DROP ON *.* TO `ana`@`%`", "REVOKE DROP ON `mysql`.* FROM `ana`@`%`"]);
-        assert!(from_grants(Variant::MySql, &g, Some("mysql")).drop_database.is_denied());
-        assert_eq!(from_grants(Variant::MySql, &g, Some("ventas")).drop_database, Access::Allowed);
+        let g = Grants::parse(&[
+            "GRANT DROP ON *.* TO `ana`@`%`",
+            "REVOKE DROP ON `mysql`.* FROM `ana`@`%`",
+        ]);
+        assert!(from_grants(Variant::MySql, &g, Some("mysql"))
+            .drop_database
+            .is_denied());
+        assert_eq!(
+            from_grants(Variant::MySql, &g, Some("ventas")).drop_database,
+            Access::Allowed
+        );
     }
 
     #[test]
@@ -331,44 +403,92 @@ mod tests {
             "GRANT PROCESS, CONNECTION ADMIN, CREATE USER ON *.* TO `lector`",
         ]);
         let p = from_grants(Variant::MariaDb, &g, Some("x"));
-        assert_eq!((&p.kill_session, &p.profiler, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.backup, &p.restore), (&Access::Unknown, &Access::Unknown));
-        let none = from_grants(Variant::MariaDb, &Grants::parse(&["GRANT USAGE ON *.* TO `ana`@`%`"]), None);
+        assert_eq!(
+            (&p.kill_session, &p.profiler, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
+        assert_eq!(
+            (&p.backup, &p.restore),
+            (&Access::Unknown, &Access::Unknown)
+        );
+        let none = from_grants(
+            Variant::MariaDb,
+            &Grants::parse(&["GRANT USAGE ON *.* TO `ana`@`%`"]),
+            None,
+        );
         assert!(denied(&none.kill_session, "CONNECTION ADMIN o SUPER"));
     }
 
     #[test]
     fn all_privileges_allows_everything() {
         for v in [Variant::TiDb, Variant::MariaDb] {
-            let p = from_grants(v, &Grants::parse(&["GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION"]), Some("d"));
-            assert!(!p.kill_session.is_denied() && !p.drop_database.is_denied() && !p.manage_security.is_denied());
+            let p = from_grants(
+                v,
+                &Grants::parse(&["GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION"]),
+                Some("d"),
+            );
+            assert!(
+                !p.kill_session.is_denied()
+                    && !p.drop_database.is_denied()
+                    && !p.manage_security.is_denied()
+            );
             assert_eq!(p.create_database, Access::Allowed);
         }
-        let p = from_grants(Variant::TiDb, &Grants::parse(&["GRANT ALL ON *.* TO 'root'@'%'"]), None);
-        assert_eq!((&p.backup, &p.restore), (&Access::Allowed, &Access::Allowed));
+        let p = from_grants(
+            Variant::TiDb,
+            &Grants::parse(&["GRANT ALL ON *.* TO 'root'@'%'"]),
+            None,
+        );
+        assert_eq!(
+            (&p.backup, &p.restore),
+            (&Access::Allowed, &Access::Allowed)
+        );
     }
 
     #[test]
     fn tidb_backup_restore_and_kill() {
-        let g = Grants::parse(&["GRANT PROCESS ON *.* TO 'ana'@'%'", "GRANT CREATE,DROP ON `x`.* TO 'ana'@'%'", "GRANT BACKUP_ADMIN ON *.* TO 'ana'@'%'"]);
+        let g = Grants::parse(&[
+            "GRANT PROCESS ON *.* TO 'ana'@'%'",
+            "GRANT CREATE,DROP ON `x`.* TO 'ana'@'%'",
+            "GRANT BACKUP_ADMIN ON *.* TO 'ana'@'%'",
+        ]);
         let p = from_grants(Variant::TiDb, &g, Some("x"));
-        assert_eq!((&p.backup, &p.profiler, &p.drop_database), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.backup, &p.profiler, &p.drop_database),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
         assert!(denied(&p.restore, "RESTORE_ADMIN"));
         assert!(denied(&p.kill_session, "CONNECTION_ADMIN o SUPER"));
-        let sup = from_grants(Variant::TiDb, &Grants::parse(&["GRANT SUPER ON *.* TO 'ana'@'%'"]), None);
-        assert_eq!((&sup.backup, &sup.restore, &sup.kill_session), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        let sup = from_grants(
+            Variant::TiDb,
+            &Grants::parse(&["GRANT SUPER ON *.* TO 'ana'@'%'"]),
+            None,
+        );
+        assert_eq!(
+            (&sup.backup, &sup.restore, &sup.kill_session),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
     }
 
     #[test]
     fn managed_services_have_no_backup_by_sql() {
         let p = from_grants(Variant::AuroraMySql, &Grants::parse(&MYSQL_ROOT), None);
-        assert_eq!((&p.backup, &p.restore), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.backup, &p.restore),
+            (&Access::Unknown, &Access::Unknown)
+        );
         assert_eq!(p.kill_session, Access::Allowed);
     }
 
     #[test]
     fn quoted_names() {
-        assert_eq!(parse_line("GRANT DROP ON `a``b`.* TO `u`@`%`").unwrap().2.as_deref(), Some("a`b"));
+        assert_eq!(
+            parse_line("GRANT DROP ON `a``b`.* TO `u`@`%`")
+                .unwrap()
+                .2
+                .as_deref(),
+            Some("a`b")
+        );
         assert!(parse_line("GRANT EXECUTE ON FUNCTION `d`.`f` TO `u`@`%`").is_none());
         assert!(parse_line("GRANT `r`@`%` TO `u`@`%`").is_none());
         assert!(parse_line("GRANT SELECT (`a`, `b`) ON `d`.`t` TO `u`@`%`").is_none());
@@ -378,9 +498,18 @@ mod tests {
     #[test]
     fn starrocks_roles() {
         let root = from_starrocks_roles("root", Some("d"));
-        assert_eq!((&root.backup, &root.drop_database, &root.kill_session), (&Access::Allowed, &Access::Allowed, &Access::Unknown));
+        assert_eq!(
+            (&root.backup, &root.drop_database, &root.kill_session),
+            (&Access::Allowed, &Access::Allowed, &Access::Unknown)
+        );
         let p = from_starrocks_roles("public, db_admin", None);
-        assert_eq!((&p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Unknown, &Access::Unknown));
-        assert_eq!(from_starrocks_roles("public", Some("d")), Permissions::default());
+        assert_eq!(
+            (&p.create_database, &p.drop_database, &p.manage_security),
+            (&Access::Allowed, &Access::Unknown, &Access::Unknown)
+        );
+        assert_eq!(
+            from_starrocks_roles("public", Some("d")),
+            Permissions::default()
+        );
     }
 }

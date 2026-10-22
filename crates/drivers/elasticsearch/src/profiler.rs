@@ -31,11 +31,16 @@ pub(crate) struct State {
     cpu: HashMap<String, f64>,
 }
 
-pub(crate) async fn start(s: &EsSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &EsSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let _ = opts;
     // Fails here (without the `monitor` privilege) rather than at the first poll.
     s.get_json(TASKS).await?;
-    let since = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+    let since = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64);
     Ok((
         State { sampler: Sampler::new(utc_ms(since)), cpu: HashMap::new() },
         ProfilerStarted::new(ProfilerMode::Sampled, "_tasks").note(
@@ -50,8 +55,12 @@ pub(crate) async fn poll(s: &EsSession, state: &mut State) -> Result<Vec<Profile
     let until = Instant::now() + SAMPLE_FOR;
     loop {
         let body = s.call(s.request("GET", TASKS).timeout(LIMIT)).await?;
-        let mut tasks = J::parse(&body).map(|t| samples(&t, &s.opaque_id)).unwrap_or_default();
-        state.cpu.retain(|id, _| tasks.iter().any(|t| &t.session == id));
+        let mut tasks = J::parse(&body)
+            .map(|t| samples(&t, &s.opaque_id))
+            .unwrap_or_default();
+        state
+            .cpu
+            .retain(|id, _| tasks.iter().any(|t| &t.session == id));
         for t in &mut tasks {
             if let Some(ms) = t.cpu_ms {
                 let most = state.cpu.entry(t.session.clone()).or_insert(ms);
@@ -71,13 +80,26 @@ pub(crate) async fn poll(s: &EsSession, state: &mut State) -> Result<Vec<Profile
 
 /// The running requests (not their per-shard children), except ours.
 fn samples(tasks: &J, own: &str) -> Vec<Sample> {
-    let nodes = || tasks.get("nodes").and_then(J::as_obj).into_iter().flatten().flat_map(|(_, n)| n.get("tasks").and_then(J::as_obj).into_iter().flatten());
+    let nodes = || {
+        tasks
+            .get("nodes")
+            .and_then(J::as_obj)
+            .into_iter()
+            .flatten()
+            .flat_map(|(_, n)| n.get("tasks").and_then(J::as_obj).into_iter().flatten())
+    };
     // Each task's parent, and its CPU time (ns) where the engine reports it.
-    let parent: HashMap<&str, &str> =
-        nodes().filter_map(|(id, t)| Some((id.as_str(), t.get("parent_task_id").and_then(J::as_str)?))).collect();
+    let parent: HashMap<&str, &str> = nodes()
+        .filter_map(|(id, t)| Some((id.as_str(), t.get("parent_task_id").and_then(J::as_str)?)))
+        .collect();
     let mut cpu: HashMap<&str, u64> = HashMap::new();
     for (id, t) in nodes() {
-        let Some(ns) = t.at(&["resource_stats", "total", "cpu_time_in_nanos"]).and_then(J::as_u64) else { continue };
+        let Some(ns) = t
+            .at(&["resource_stats", "total", "cpu_time_in_nanos"])
+            .and_then(J::as_u64)
+        else {
+            continue;
+        };
         let mut root = id.as_str();
         while let Some(p) = parent.get(root) {
             root = p;
@@ -86,21 +108,33 @@ fn samples(tasks: &J, own: &str) -> Vec<Sample> {
     }
     let mut out = Vec::new();
     for (_, node) in tasks.get("nodes").and_then(J::as_obj).into_iter().flatten() {
-        let host = node.get("host").or_else(|| node.get("name")).and_then(J::as_str);
+        let host = node
+            .get("host")
+            .or_else(|| node.get("name"))
+            .and_then(J::as_str);
         for (id, t) in node.get("tasks").and_then(J::as_obj).into_iter().flatten() {
             let opaque = t.at(&["headers", "X-Opaque-Id"]).and_then(J::as_str);
             if t.get("parent_task_id").is_some() || opaque == Some(own) {
                 continue;
             }
             let action = t.get("action").and_then(J::as_str).unwrap_or_default();
-            let (text, indices) = request_text(action, t.get("description").and_then(J::as_str).unwrap_or_default());
-            let started = t.get("start_time_in_millis").and_then(J::as_u64).unwrap_or(0) as i64;
+            let (text, indices) = request_text(
+                action,
+                t.get("description").and_then(J::as_str).unwrap_or_default(),
+            );
+            let started = t
+                .get("start_time_in_millis")
+                .and_then(J::as_u64)
+                .unwrap_or(0) as i64;
             out.push(Sample {
                 session: id.clone(),
                 started: utc_ms(started),
                 text,
                 running: true,
-                duration_ms: t.get("running_time_in_nanos").and_then(J::as_u64).map(|n| n as f64 / 1e6),
+                duration_ms: t
+                    .get("running_time_in_nanos")
+                    .and_then(J::as_u64)
+                    .map(|n| n as f64 / 1e6),
                 database: indices,
                 client: opaque.map(str::to_string),
                 cpu_ms: cpu.get(id.as_str()).map(|ns| *ns as f64 / 1e6),
@@ -124,9 +158,14 @@ fn request_text(action: &str, description: &str) -> (String, Option<String>) {
         .and_then(|r| r.split_once(']'))
         .map(|(i, _)| i.to_string())
         .filter(|i| !i.is_empty());
-    let source = description.find("source[").map(|i| &description[i + 7..]).and_then(|s| s.strip_suffix(']'));
+    let source = description
+        .find("source[")
+        .map(|i| &description[i + 7..])
+        .and_then(|s| s.strip_suffix(']'));
     match (action, &indices, source) {
-        ("indices:data/read/search", Some(i), Some(src)) => (format!("GET /{i}/_search\n{src}"), indices),
+        ("indices:data/read/search", Some(i), Some(src)) => {
+            (format!("GET /{i}/_search\n{src}"), indices)
+        }
         _ if description.is_empty() => (action.to_string(), indices),
         _ => (description.to_string(), indices),
     }
@@ -146,7 +185,12 @@ pub(crate) fn utc_ms(ms: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{milli:03}", sod / 3600, sod % 3600 / 60, sod % 60)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{milli:03}",
+        sod / 3600,
+        sod % 3600 / 60,
+        sod % 60
+    )
 }
 
 #[cfg(test)]
@@ -164,9 +208,15 @@ mod tests {
     fn search_descriptions_become_requests() {
         let d = r#"indices[books,films], search_type[QUERY_THEN_FETCH], source[{"query":{"match_all":{}}}]"#;
         let (text, db) = request_text("indices:data/read/search", d);
-        assert_eq!(text, "GET /books,films/_search\n{\"query\":{\"match_all\":{}}}");
+        assert_eq!(
+            text,
+            "GET /books,films/_search\n{\"query\":{\"match_all\":{}}}"
+        );
         assert_eq!(db.as_deref(), Some("books,films"));
-        assert_eq!(request_text("indices:data/read/scroll", "").0, "indices:data/read/scroll");
+        assert_eq!(
+            request_text("indices:data/read/scroll", "").0,
+            "indices:data/read/scroll"
+        );
     }
 
     #[test]
@@ -181,7 +231,14 @@ mod tests {
         .unwrap();
         let s = samples(&t, "me");
         assert_eq!(s.len(), 1);
-        assert_eq!((s[0].session.as_str(), s[0].duration_ms, s[0].client.as_deref()), ("n1:1", Some(5.0), Some("app")));
+        assert_eq!(
+            (
+                s[0].session.as_str(),
+                s[0].duration_ms,
+                s[0].client.as_deref()
+            ),
+            ("n1:1", Some(5.0), Some("app"))
+        );
         assert_eq!(s[0].cpu_ms, None);
     }
 

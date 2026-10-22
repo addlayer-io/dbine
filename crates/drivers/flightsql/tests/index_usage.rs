@@ -17,15 +17,21 @@ fn cfg() -> Option<ConnectionConfig> {
         driver: "flightsql".into(),
         host: url.host_str()?.into(),
         port: url.port().unwrap_or(0),
-        username: Some(std::env::var("DBINE_TEST_FLIGHTSQL_USER").unwrap_or_else(|_| "gizmosql_user".into())),
-        password: Some(std::env::var("DBINE_TEST_FLIGHTSQL_PASSWORD").unwrap_or_else(|_| "secreto1".into())),
+        username: Some(
+            std::env::var("DBINE_TEST_FLIGHTSQL_USER").unwrap_or_else(|_| "gizmosql_user".into()),
+        ),
+        password: Some(
+            std::env::var("DBINE_TEST_FLIGHTSQL_PASSWORD").unwrap_or_else(|_| "secreto1".into()),
+        ),
         ..Default::default()
     })
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
 }
 
 #[tokio::test]
@@ -46,11 +52,19 @@ async fn index_usage_live() {
     run(&mut s, "CREATE INDEX ixu_a ON ixu_t (a)").await;
     run(&mut s, "CREATE INDEX ixu_b ON ixu_t (b)").await;
     run(&mut s, "INSERT INTO ixu_p VALUES (1)").await;
-    run(&mut s, "INSERT INTO ixu_t SELECT i, 1, i, i * 2 FROM range(1, 201) r(i)").await;
+    run(
+        &mut s,
+        "INSERT INTO ixu_t SELECT i, 1, i, i * 2 FROM range(1, 201) r(i)",
+    )
+    .await;
     for i in 0..5 {
         run(&mut s, &format!("SELECT * FROM ixu_t WHERE a = {i}")).await;
     }
-    let t = ObjectRef { kind: "table".into(), schema: Some("main".into()), name: "ixu_t".into() };
+    let t = ObjectRef {
+        kind: "table".into(),
+        schema: Some("main".into()),
+        name: "ixu_t".into(),
+    };
     let r = s.index_usage(&t).await.unwrap().expect("report");
     eprintln!("{r:#?}");
     assert!(!r.stats_available && r.note.is_some());
@@ -60,11 +74,23 @@ async fn index_usage_live() {
     assert_eq!(r.indexes[1].key_columns, ["a"]);
     assert!(r.indexes.iter().all(|i| i.reads == 0 && !i.unused));
     assert_eq!(r.foreign_keys.len(), 1);
-    assert_eq!((r.foreign_keys[0].ref_table.as_str(), r.foreign_keys[0].ref_columns.clone()), ("ixu_p", vec!["id".to_string()]));
+    assert_eq!(
+        (
+            r.foreign_keys[0].ref_table.as_str(),
+            r.foreign_keys[0].ref_columns.clone()
+        ),
+        ("ixu_p", vec!["id".to_string()])
+    );
 
     run(&mut s, "DROP INDEX ixu_b").await;
     let r = s.index_usage(&t).await.unwrap().unwrap();
-    assert_eq!(r.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["PRIMARY KEY", "ixu_a"]);
+    assert_eq!(
+        r.indexes
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect::<Vec<_>>(),
+        ["PRIMARY KEY", "ixu_a"]
+    );
     run(&mut s, "DROP TABLE ixu_t").await;
     run(&mut s, "DROP TABLE ixu_p").await;
 }

@@ -65,14 +65,19 @@ fn opt<'a>(options: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> 
 }
 
 fn schema(db: &Option<String>) -> Result<&str> {
-    db.as_deref().filter(|d| !d.trim().is_empty()).ok_or_else(|| Error::Query("Falta el esquema.".into()))
+    db.as_deref()
+        .filter(|d| !d.trim().is_empty())
+        .ok_or_else(|| Error::Query("Falta el esquema.".into()))
 }
 
 /// A DIRECTORY object's name as the dictionary has it: simple names in
 /// upper case, anything else as written.
 fn directory(name: &str) -> String {
     let name = name.trim().trim_matches('"');
-    if name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '#')) {
+    if name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '#'))
+    {
         name.to_ascii_uppercase()
     } else {
         name.to_string()
@@ -83,7 +88,10 @@ fn directory(name: &str) -> String {
 fn file_name(name: &str) -> Result<&str> {
     let name = name.trim();
     if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
-        return Err(Error::Query("El archivo tiene que ser un nombre, sin carpetas (la carpeta la da el directorio).".into()));
+        return Err(Error::Query(
+            "El archivo tiene que ser un nombre, sin carpetas (la carpeta la da el directorio)."
+                .into(),
+        ));
     }
     Ok(name)
 }
@@ -140,7 +148,10 @@ pub(crate) fn script(action: &BackupAction) -> Result<String> {
                 Some(f) => lit(file_name(f)?),
                 None => format!(
                     "{} || TO_CHAR(SYSDATE, 'YYYYMMDD_HH24MISS') || '.dmp'",
-                    lit(&format!("{}_", schema.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_")))
+                    lit(&format!(
+                        "{}_",
+                        schema.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_")
+                    ))
                 ),
             };
             let files = format!(
@@ -159,14 +170,23 @@ pub(crate) fn script(action: &BackupAction) -> Result<String> {
             }
             Ok(job("EXPORT", &files, &body))
         }
-        BackupAction::Restore { source, database, options } => {
+        BackupAction::Restore {
+            source,
+            database,
+            options,
+        } => {
             let target = schema(database)?;
             let (dir, file) = location(source)?;
             let from = opt(options, "source_schema").unwrap_or(target);
             let exists = opt(options, "table_exists")
                 .filter(|a| matches!(*a, "APPEND" | "TRUNCATE" | "REPLACE"))
                 .unwrap_or("SKIP");
-            let log = format!("{}_import.log", file.strip_suffix(".dmp").or_else(|| file.strip_suffix(".DMP")).unwrap_or(file));
+            let log = format!(
+                "{}_import.log",
+                file.strip_suffix(".dmp")
+                    .or_else(|| file.strip_suffix(".DMP"))
+                    .unwrap_or(file)
+            );
             let files = format!("\x20 dump_file VARCHAR2(4000) := {};\n", lit(file));
             let mut body = format!(
                 "\x20 DBMS_DATAPUMP.ADD_FILE(h, dump_file, {d}, NULL, DBMS_DATAPUMP.KU$_FILE_TYPE_DUMP_FILE);\n\
@@ -177,14 +197,23 @@ pub(crate) fn script(action: &BackupAction) -> Result<String> {
                 f = schema_filter(from)
             );
             if from != target {
-                body += &format!("  DBMS_DATAPUMP.METADATA_REMAP(h, 'REMAP_SCHEMA', {}, {});\n", lit(from), lit(target));
+                body += &format!(
+                    "  DBMS_DATAPUMP.METADATA_REMAP(h, 'REMAP_SCHEMA', {}, {});\n",
+                    lit(from),
+                    lit(target)
+                );
             }
-            body += &format!("  DBMS_DATAPUMP.SET_PARAMETER(h, 'TABLE_EXISTS_ACTION', '{exists}');\n");
+            body +=
+                &format!("  DBMS_DATAPUMP.SET_PARAMETER(h, 'TABLE_EXISTS_ACTION', '{exists}');\n");
             Ok(job("IMPORT", &files, &body))
         }
         BackupAction::Delete { source } => {
             let (dir, file) = location(source)?;
-            Ok(format!("BEGIN\n  UTL_FILE.FREMOVE({}, {});\nEND;\n/", lit(&dir), lit(file)))
+            Ok(format!(
+                "BEGIN\n  UTL_FILE.FREMOVE({}, {});\nEND;\n/",
+                lit(&dir),
+                lit(file)
+            ))
         }
     }
 }
@@ -214,7 +243,10 @@ pub(crate) fn history(c: &Connection, database: Option<&str>) -> Result<Vec<Back
         let text = |i: usize| row.get::<Option<String>>(i).ok().flatten();
         let (owner, name) = (text(0).unwrap_or_default(), text(1).unwrap_or_default());
         let operation = text(2).unwrap_or_default();
-        let mut details = vec![("Dueño".to_string(), owner.clone()), ("Modo".to_string(), text(3).unwrap_or_default())];
+        let mut details = vec![
+            ("Dueño".to_string(), owner.clone()),
+            ("Modo".to_string(), text(3).unwrap_or_default()),
+        ];
         if let Some(n) = row.get::<Option<i64>>(5).ok().flatten() {
             details.push(("Sesiones conectadas".into(), n.to_string()));
         }
@@ -244,14 +276,21 @@ pub(crate) fn history(c: &Connection, database: Option<&str>) -> Result<Vec<Back
                 let text = |i: usize| row.get::<Option<String>>(i).ok().flatten();
                 let name = text(0).unwrap_or_default();
                 // Files named by DBine start with the schema.
-                let of = database.filter(|db| name.to_ascii_uppercase().starts_with(&format!("{}_", db.to_ascii_uppercase())));
+                let of = database.filter(|db| {
+                    name.to_ascii_uppercase()
+                        .starts_with(&format!("{}_", db.to_ascii_uppercase()))
+                });
                 out.push(BackupEntry {
                     id: format!("{DEFAULT_DIR}/{name}"),
                     database: of.map(str::to_string),
                     kind: Some("Archivo de Data Pump".into()),
                     started: text(2),
                     finished: text(3),
-                    size: row.get::<Option<i64>>(1).ok().flatten().and_then(|n| u64::try_from(n).ok()),
+                    size: row
+                        .get::<Option<i64>>(1)
+                        .ok()
+                        .flatten()
+                        .and_then(|n| u64::try_from(n).ok()),
                     location: Some(format!("{DEFAULT_DIR}/{name}")),
                     status: Some("Disponible".into()),
                     details: Vec::new(),
@@ -269,13 +308,23 @@ mod tests {
     use super::*;
 
     fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn export_a_schema() {
-        let s = script(&BackupAction::Backup { database: Some("HR".into()), options: opts(&[("file", "hr.dmp")]) }).unwrap();
-        assert!(s.contains("h := DBMS_DATAPUMP.OPEN('EXPORT', 'SCHEMA');"), "{s}");
+        let s = script(&BackupAction::Backup {
+            database: Some("HR".into()),
+            options: opts(&[("file", "hr.dmp")]),
+        })
+        .unwrap();
+        assert!(
+            s.contains("h := DBMS_DATAPUMP.OPEN('EXPORT', 'SCHEMA');"),
+            "{s}"
+        );
         assert!(s.contains("dump_file VARCHAR2(4000) := 'hr.dmp';"));
         assert!(s.contains("DBMS_DATAPUMP.ADD_FILE(h, dump_file, 'DATA_PUMP_DIR', NULL, DBMS_DATAPUMP.KU$_FILE_TYPE_DUMP_FILE);"));
         assert!(s.contains("DBMS_DATAPUMP.METADATA_FILTER(h, 'SCHEMA_EXPR', 'IN (''HR'')');"));
@@ -292,11 +341,18 @@ mod tests {
             options: opts(&[("directory", "my_dir"), ("consistent", "false")]),
         })
         .unwrap();
-        assert!(s.contains("'O_Brien_' || TO_CHAR(SYSDATE, 'YYYYMMDD_HH24MISS') || '.dmp'"), "{s}");
+        assert!(
+            s.contains("'O_Brien_' || TO_CHAR(SYSDATE, 'YYYYMMDD_HH24MISS') || '.dmp'"),
+            "{s}"
+        );
         assert!(s.contains("'MY_DIR'"));
         assert!(s.contains("'IN (''O''''Brien'')'"));
         assert!(!s.contains("FLASHBACK_TIME"));
-        assert!(script(&BackupAction::Backup { database: Some("X".into()), options: opts(&[("file", "../x.dmp")]) }).is_err());
+        assert!(script(&BackupAction::Backup {
+            database: Some("X".into()),
+            options: opts(&[("file", "../x.dmp")])
+        })
+        .is_err());
     }
 
     #[test]
@@ -311,14 +367,32 @@ mod tests {
         assert!(s.contains("'BK_DIR'") && s.contains("'hr_1_import.log'"));
         assert!(s.contains("DBMS_DATAPUMP.METADATA_REMAP(h, 'REMAP_SCHEMA', 'HR', 'HR2');"));
         assert!(s.contains("'TABLE_EXISTS_ACTION', 'REPLACE'"));
-        let same = script(&BackupAction::Restore { source: "hr.dmp".into(), database: Some("HR".into()), options: opts(&[]) }).unwrap();
-        assert!(same.contains("'DATA_PUMP_DIR'") && !same.contains("REMAP_SCHEMA") && same.contains("'SKIP'"));
+        let same = script(&BackupAction::Restore {
+            source: "hr.dmp".into(),
+            database: Some("HR".into()),
+            options: opts(&[]),
+        })
+        .unwrap();
+        assert!(
+            same.contains("'DATA_PUMP_DIR'")
+                && !same.contains("REMAP_SCHEMA")
+                && same.contains("'SKIP'")
+        );
     }
 
     #[test]
     fn delete_a_dump_file() {
-        let s = script(&BackupAction::Delete { source: "DATA_PUMP_DIR/a'b.dmp".into() }).unwrap();
-        assert_eq!(s, "BEGIN\n  UTL_FILE.FREMOVE('DATA_PUMP_DIR', 'a''b.dmp');\nEND;\n/");
-        assert!(script(&BackupAction::Delete { source: "DIR/".into() }).is_err());
+        let s = script(&BackupAction::Delete {
+            source: "DATA_PUMP_DIR/a'b.dmp".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            s,
+            "BEGIN\n  UTL_FILE.FREMOVE('DATA_PUMP_DIR', 'a''b.dmp');\nEND;\n/"
+        );
+        assert!(script(&BackupAction::Delete {
+            source: "DIR/".into()
+        })
+        .is_err());
     }
 }

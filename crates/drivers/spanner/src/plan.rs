@@ -21,7 +21,11 @@ fn text(v: &Value) -> String {
 }
 
 fn num(v: Option<&Value>) -> Option<f64> {
-    v.and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))).filter(|n| n.is_finite())
+    v.and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+    })
+    .filter(|n| n.is_finite())
 }
 
 /// `{"total": "1.36", "unit": "msecs"}` → milliseconds.
@@ -58,9 +62,20 @@ fn duration_ms(s: &str) -> Option<f64> {
 pub(crate) fn from_response(statement: &str, r: &Value, actual: bool) -> Option<Plan> {
     let plan = r.pointer("/stats/queryPlan")?;
     let nodes = plan.get("planNodes").and_then(Value::as_array)?;
-    let mut root = if nodes.is_empty() { PlanNode { op: "Query".into(), ..Default::default() } } else { node(nodes, 0, 0) };
-    if nodes.len() == 1 && nodes[0].get("displayName").and_then(Value::as_str) == Some("No query plan") {
-        root.warnings.push("El servidor no devolvió un plan (el emulador de Spanner no genera planes)".into());
+    let mut root = if nodes.is_empty() {
+        PlanNode {
+            op: "Query".into(),
+            ..Default::default()
+        }
+    } else {
+        node(nodes, 0, 0)
+    };
+    if nodes.len() == 1
+        && nodes[0].get("displayName").and_then(Value::as_str) == Some("No query plan")
+    {
+        root.warnings.push(
+            "El servidor no devolvió un plan (el emulador de Spanner no genera planes)".into(),
+        );
     }
     // Query totals (PROFILE): elapsed_time, cpu_time, rows_scanned…
     if let Some(Value::Object(qs)) = r.pointer("/stats/queryStats") {
@@ -78,7 +93,8 @@ pub(crate) fn from_response(statement: &str, r: &Value, actual: bool) -> Option<
         root.props.splice(0..0, top);
     }
     if let Some(n) = r.pointer("/stats/rowCountExact").and_then(|v| num(Some(v))) {
-        root.props.insert(0, ("Filas modificadas".into(), format!("{n}")));
+        root.props
+            .insert(0, ("Filas modificadas".into(), format!("{n}")));
     }
     Some(Plan {
         statement: statement.into(),
@@ -95,21 +111,32 @@ fn is_scalar(n: &Value) -> bool {
 
 /// The node at `i` (by its `index`, which is also its position).
 fn at(nodes: &[Value], i: usize) -> Option<&Value> {
-    nodes.iter().find(|n| n.get("index").and_then(|v| num(Some(v))).unwrap_or(0.0) as usize == i).or_else(|| nodes.get(i))
+    nodes
+        .iter()
+        .find(|n| n.get("index").and_then(|v| num(Some(v))).unwrap_or(0.0) as usize == i)
+        .or_else(|| nodes.get(i))
 }
 
 /// A scalar node as text: its short representation, or its name with the
 /// scalar nodes under it.
 fn scalar_text(nodes: &[Value], i: usize, depth: usize) -> String {
-    let Some(n) = at(nodes, i) else { return String::new() };
-    if let Some(d) = n.pointer("/shortRepresentation/description").and_then(Value::as_str) {
+    let Some(n) = at(nodes, i) else {
+        return String::new();
+    };
+    if let Some(d) = n
+        .pointer("/shortRepresentation/description")
+        .and_then(Value::as_str)
+    {
         return d.to_string();
     }
     let name = n.get("displayName").map(text).unwrap_or_default();
     if depth > 20 {
         return name;
     }
-    let args: Vec<String> = links(n).iter().map(|(c, _, _)| scalar_text(nodes, *c, depth + 1)).collect();
+    let args: Vec<String> = links(n)
+        .iter()
+        .map(|(c, _, _)| scalar_text(nodes, *c, depth + 1))
+        .collect();
     if args.is_empty() {
         name
     } else {
@@ -125,7 +152,11 @@ fn links(n: &Value) -> Vec<(usize, String, String)> {
             a.iter()
                 .filter_map(|l| {
                     let i = num(l.get("childIndex"))? as usize;
-                    Some((i, l.get("type").map(text).unwrap_or_default(), l.get("variable").map(text).unwrap_or_default()))
+                    Some((
+                        i,
+                        l.get("type").map(text).unwrap_or_default(),
+                        l.get("variable").map(text).unwrap_or_default(),
+                    ))
                 })
                 .collect()
         })
@@ -133,13 +164,28 @@ fn links(n: &Value) -> Vec<(usize, String, String)> {
 }
 
 fn node(nodes: &[Value], i: usize, depth: usize) -> PlanNode {
-    let Some(v) = at(nodes, i) else { return PlanNode { op: "?".into(), ..Default::default() } };
+    let Some(v) = at(nodes, i) else {
+        return PlanNode {
+            op: "?".into(),
+            ..Default::default()
+        };
+    };
     let meta = v.get("metadata").and_then(Value::as_object);
     let m = |k: &str| meta.and_then(|m| m.get(k)).map(text).unwrap_or_default();
-    let mut n = PlanNode { op: v.get("displayName").map(text).unwrap_or_default(), ..Default::default() };
+    let mut n = PlanNode {
+        op: v.get("displayName").map(text).unwrap_or_default(),
+        ..Default::default()
+    };
 
     let mut detail = Vec::new();
-    for k in ["scan_type", "call_type", "join_type", "iterator_type", "aggregation_type", "execution_method"] {
+    for k in [
+        "scan_type",
+        "call_type",
+        "join_type",
+        "iterator_type",
+        "aggregation_type",
+        "execution_method",
+    ] {
         if !m(k).is_empty() {
             detail.push(m(k));
         }
@@ -152,10 +198,14 @@ fn node(nodes: &[Value], i: usize, depth: usize) -> PlanNode {
         }
     }
     if m("Full scan") == "true" {
-        n.warnings.push(format!("Recorrido completo de {}", n.object.as_deref().unwrap_or("la tabla")));
+        n.warnings.push(format!(
+            "Recorrido completo de {}",
+            n.object.as_deref().unwrap_or("la tabla")
+        ));
     }
     if let Some(meta) = meta {
-        n.props.extend(meta.iter().map(|(k, v)| (k.clone(), text(v))));
+        n.props
+            .extend(meta.iter().map(|(k, v)| (k.clone(), text(v))));
     }
 
     if let Some(stats) = v.get("executionStats") {
@@ -165,7 +215,11 @@ fn node(nodes: &[Value], i: usize, depth: usize) -> PlanNode {
         if let Some(cpu) = stat_ms(stats.get("cpu_time")) {
             n.props.push(("CPU (ms)".into(), format!("{cpu}")));
         }
-        for (label, key) in [("Filas leídas", "scanned_rows"), ("Filas filtradas", "filtered_rows"), ("Bytes devueltos", "returned_bytes")] {
+        for (label, key) in [
+            ("Filas leídas", "scanned_rows"),
+            ("Filas filtradas", "filtered_rows"),
+            ("Bytes devueltos", "returned_bytes"),
+        ] {
             if let Some(x) = num(stats.pointer(&format!("/{key}/total"))) {
                 n.props.push((label.into(), format!("{x}")));
             }
@@ -254,21 +308,50 @@ mod tests {
         let root = &p.root;
         assert_eq!(root.op, "Distributed Union");
         assert_eq!(root.object.as_deref(), Some("Singers"));
-        assert!(root.props.iter().any(|(k, v)| k == "Split Range" && v == "true"));
-        assert!(root.props.iter().any(|(k, v)| k == "rows_scanned" && v == "6"));
-        assert_eq!((root.actual_rows, root.actual_ms, root.executions), (Some(1.0), Some(3.2), Some(1.0)));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Split Range" && v == "true"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "rows_scanned" && v == "6"));
+        assert_eq!(
+            (root.actual_rows, root.actual_ms, root.executions),
+            (Some(1.0), Some(3.2), Some(1.0))
+        );
         let apply = &root.children[0].children[0];
         assert_eq!(apply.op, "Cross Apply");
-        let [scan, filter] = &apply.children[..] else { panic!("{apply:#?}") };
-        assert_eq!((scan.detail.as_str(), scan.object.as_deref()), ("TableScan", Some("Singers")));
-        assert!(scan.warnings.iter().any(|w| w.starts_with("Recorrido completo")));
-        assert!(scan.props.iter().any(|(k, v)| k == "SingerId" && v == "SingerId"));
-        assert!(scan.props.iter().any(|(k, v)| k == "Filas leídas" && v == "5"));
+        let [scan, filter] = &apply.children[..] else {
+            panic!("{apply:#?}")
+        };
+        assert_eq!(
+            (scan.detail.as_str(), scan.object.as_deref()),
+            ("TableScan", Some("Singers"))
+        );
+        assert!(scan
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("Recorrido completo")));
+        assert!(scan
+            .props
+            .iter()
+            .any(|(k, v)| k == "SingerId" && v == "SingerId"));
+        assert!(scan
+            .props
+            .iter()
+            .any(|(k, v)| k == "Filas leídas" && v == "5"));
         assert_eq!(filter.props[0], ("Enlace".into(), "Map".into()));
-        assert!(filter.props.iter().any(|(k, v)| k == "Seek Condition" && v == "($MarketingBudget > 1000)"));
+        assert!(filter
+            .props
+            .iter()
+            .any(|(k, v)| k == "Seek Condition" && v == "($MarketingBudget > 1000)"));
         assert_eq!(filter.executions, Some(5.0));
         let idx = &filter.children[0];
-        assert_eq!((idx.detail.as_str(), idx.object.as_deref()), ("IndexScan", Some("AlbumsByBudget")));
+        assert_eq!(
+            (idx.detail.as_str(), idx.object.as_deref()),
+            ("IndexScan", Some("AlbumsByBudget"))
+        );
         assert!((idx.actual_ms.unwrap() - 0.0009).abs() < 1e-12);
     }
 

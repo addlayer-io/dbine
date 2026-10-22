@@ -31,7 +31,9 @@ pub struct SaveTextFileArgs {
 pub async fn save_text_file(args: SaveTextFileArgs) -> CommandResult<()> {
     tokio::fs::write(&args.path, args.contents)
         .await
-        .map_err(|e| crate::error::CommandError::Internal(format!("no se pudo escribir {}: {e}", args.path)))
+        .map_err(|e| {
+            crate::error::CommandError::Internal(format!("no se pudo escribir {}: {e}", args.path))
+        })
 }
 
 #[derive(serde::Deserialize)]
@@ -47,7 +49,7 @@ pub async fn save_binary_file(args: SaveBinaryFileArgs) -> CommandResult<()> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(args.base64.as_bytes())
         .map_err(|e| crate::error::CommandError::BadRequest(format!("imagen inválida: {e}")))?;
-    tokio::fs::write(&args.path, bytes)
-        .await
-        .map_err(|e| crate::error::CommandError::Internal(format!("no se pudo escribir {}: {e}", args.path)))
+    tokio::fs::write(&args.path, bytes).await.map_err(|e| {
+        crate::error::CommandError::Internal(format!("no se pudo escribir {}: {e}", args.path))
+    })
 }

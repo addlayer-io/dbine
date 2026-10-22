@@ -26,7 +26,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
 }
 
 /// Tables by name, without the database (each side has its own).
@@ -79,7 +81,10 @@ async fn compare_and_sync_everything() {
         eprintln!("DBINE_TEST_CLICKHOUSE_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == "clickhouse").unwrap();
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "clickhouse")
+        .unwrap();
     let mut admin = d.connect(&c, None).await.expect("connect");
     let (da, db) = ("dbine_cmp_a", "dbine_cmp_b");
     for n in [da, db] {
@@ -94,23 +99,50 @@ async fn compare_and_sync_everything() {
     let ta = read(&mut a).await;
     let tb = read(&mut b).await;
     let t = &ta["eventos"];
-    let ix = |n: &str| t.indexes.iter().find(|i| i.name == n).cloned().unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes));
+    let ix = |n: &str| {
+        t.indexes
+            .iter()
+            .find(|i| i.name == n)
+            .cloned()
+            .unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes))
+    };
     assert_eq!(ix("p_x").kind.as_deref(), Some("PROJECTION"));
     assert_eq!(ix("p_x").columns, ["(SELECT x, count() GROUP BY x)"]);
     assert_eq!(ix("ix_ng").columns, ["lower(x)"]);
     assert_eq!(ix("ix_set").columns, ["id", "d"]);
-    assert!(ix("ix_txt").kind.as_deref().is_some_and(|k| k.starts_with("text(")), "{:?}", ix("ix_txt"));
+    assert!(
+        ix("ix_txt")
+            .kind
+            .as_deref()
+            .is_some_and(|k| k.starts_with("text(")),
+        "{:?}",
+        ix("ix_txt")
+    );
     assert_eq!(t.checks.len(), 1, "{:?}", t.checks);
     assert_eq!(t.checks[0].name.as_deref(), Some("c_id"));
-    assert_eq!(t.options.get("assume:c_d").map(String::as_str), Some("d > '2000-01-01'"));
+    assert_eq!(
+        t.options.get("assume:c_d").map(String::as_str),
+        Some("d > '2000-01-01'")
+    );
 
     let tables: Vec<TableChange> = ta
         .iter()
         .filter_map(|(n, t)| match tb.get(n) {
-            None => Some(TableChange::Create { table: TableSchema { schema: Some(db.into()), ..t.clone() } }),
+            None => Some(TableChange::Create {
+                table: TableSchema {
+                    schema: Some(db.into()),
+                    ..t.clone()
+                },
+            }),
             Some(o) if o != t => Some(TableChange::Alter {
-                old: TableSchema { schema: Some(db.into()), ..o.clone() },
-                new: TableSchema { schema: Some(db.into()), ..t.clone() },
+                old: TableSchema {
+                    schema: Some(db.into()),
+                    ..o.clone()
+                },
+                new: TableSchema {
+                    schema: Some(db.into()),
+                    ..t.clone()
+                },
             }),
             Some(_) => None,
         })
@@ -126,7 +158,9 @@ async fn compare_and_sync_everything() {
     let tb2 = read(&mut b).await;
     assert_eq!(tb2, ta);
     let mut out = QueryOutcome::default();
-    b.execute("SELECT x FROM eventos", 10, &mut out).await.unwrap();
+    b.execute("SELECT x FROM eventos", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows, [[serde_json::json!("z")]]);
 
     drop((a, b));

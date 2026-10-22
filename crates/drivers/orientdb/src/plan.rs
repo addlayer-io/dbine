@@ -18,9 +18,19 @@ fn text(v: Option<&Value>) -> String {
 
 fn step(v: &Value, actual: bool) -> PlanNode {
     let desc = text(v.get("description"));
-    let first = desc.lines().next().unwrap_or_default().trim().trim_start_matches('+').trim().to_string();
+    let first = desc
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches('+')
+        .trim()
+        .to_string();
     let mut n = PlanNode {
-        op: text(v.get("name")).trim_end_matches("ExecutionStep").trim_end_matches("Step").to_string(),
+        op: text(v.get("name"))
+            .trim_end_matches("ExecutionStep")
+            .trim_end_matches("Step")
+            .to_string(),
         detail: first,
         ..Default::default()
     };
@@ -33,12 +43,24 @@ fn step(v: &Value, actual: bool) -> PlanNode {
         n.actual_ms = cost.map(|ns| ns / 1e6);
     }
     if desc.lines().count() > 1 {
-        n.props.push(("Descripción".into(), desc.trim().to_string()));
+        n.props
+            .push(("Descripción".into(), desc.trim().to_string()));
     }
-    if let Some(t) = v.get("targetNode").map(|t| text(Some(t))).filter(|t| !t.is_empty() && *t != text(v.get("name"))) {
+    if let Some(t) = v
+        .get("targetNode")
+        .map(|t| text(Some(t)))
+        .filter(|t| !t.is_empty() && *t != text(v.get("name")))
+    {
         n.props.push(("Destino".into(), t));
     }
-    n.children = chain(v.get("subSteps").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]), actual, true);
+    n.children = chain(
+        v.get("subSteps")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+        actual,
+        true,
+    );
     n
 }
 
@@ -67,13 +89,28 @@ fn totals(n: &mut PlanNode) -> f64 {
 }
 
 pub fn from_execution_plan(statement: &str, plan: &Value, actual: bool) -> Plan {
-    let steps = plan.get("steps").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-    let mut root = chain(steps, actual, false).pop().unwrap_or_else(|| PlanNode { op: "PLAN".into(), ..Default::default() });
+    let steps = plan
+        .get("steps")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let mut root = chain(steps, actual, false)
+        .pop()
+        .unwrap_or_else(|| PlanNode {
+            op: "PLAN".into(),
+            ..Default::default()
+        });
     if actual {
         totals(&mut root);
     }
     let raw = text(plan.get("prettyPrint"));
-    Plan { statement: statement.to_string(), root, actual, raw_format: "text".into(), raw }
+    Plan {
+        statement: statement.to_string(),
+        root,
+        actual,
+        raw_format: "text".into(),
+        raw,
+    }
 }
 
 #[cfg(test)]
@@ -96,7 +133,10 @@ mod tests {
         assert_eq!(plan.root.op, "Filter");
         assert_eq!(plan.root.actual_ms, Some(2.0));
         let fetch = &plan.root.children[0];
-        assert_eq!((fetch.op.as_str(), fetch.detail.as_str()), ("FetchFromClass", "FETCH FROM CLASS P"));
+        assert_eq!(
+            (fetch.op.as_str(), fetch.detail.as_str()),
+            ("FetchFromClass", "FETCH FROM CLASS P")
+        );
         assert_eq!(fetch.children.len(), 2);
         assert_eq!(plan.root.total_cost, Some(2_000_019.0));
         let est = from_execution_plan("q", &p, false);

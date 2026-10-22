@@ -31,7 +31,9 @@ const RETENTION_DAYS: f64 = 30.0;
 pub(crate) fn escape(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -93,13 +95,28 @@ impl DatabricksSession {
     }
 
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
-        let cat = if database.is_empty() { self.catalog.clone().unwrap_or_default() } else { database.to_string() };
+        let cat = if database.is_empty() {
+            self.catalog.clone().unwrap_or_default()
+        } else {
+            database.to_string()
+        };
         let mut out = Vec::new();
 
         // The warehouse's auto stop.
-        if let Ok(w) = self.api.get(&format!("/api/2.0/sql/warehouses/{}", escape(&self.warehouse))).await {
+        if let Ok(w) = self
+            .api
+            .get(&format!(
+                "/api/2.0/sql/warehouses/{}",
+                escape(&self.warehouse)
+            ))
+            .await
+        {
             let mins = w.get("auto_stop_mins").and_then(Json::as_i64).unwrap_or(0);
-            let name = w.get("name").and_then(Json::as_str).unwrap_or(&self.warehouse).to_string();
+            let name = w
+                .get("name")
+                .and_then(Json::as_str)
+                .unwrap_or(&self.warehouse)
+                .to_string();
             out.push(
                 HealthCheck::new(
                     "warehouse_auto_stop",
@@ -116,8 +133,15 @@ impl DatabricksSession {
         }
 
         // Predictive optimization of the catalog.
-        if let Ok(c) = self.api.get(&format!("/api/2.1/unity-catalog/catalogs/{}", escape(&cat))).await {
-            if let Some(v) = c.pointer("/effective_predictive_optimization_flag/value").and_then(Json::as_str) {
+        if let Ok(c) = self
+            .api
+            .get(&format!("/api/2.1/unity-catalog/catalogs/{}", escape(&cat)))
+            .await
+        {
+            if let Some(v) = c
+                .pointer("/effective_predictive_optimization_flag/value")
+                .and_then(Json::as_str)
+            {
                 let on = v.eq_ignore_ascii_case("ENABLE");
                 let mut check = HealthCheck::new(
                     "predictive_optimization",
@@ -127,19 +151,36 @@ impl DatabricksSession {
                 )
                 .detail("Con la optimización predictiva Databricks corre OPTIMIZE, VACUUM y ANALYZE solo en las tablas administradas que lo necesitan (se cobra como cómputo serverless). Sin ella hay que programarlos: si no, las tablas acumulan archivos chicos y archivos borrados que se pagan.");
                 if !on {
-                    check = check.fix(format!("ALTER CATALOG {} ENABLE PREDICTIVE OPTIMIZATION;", bt(&cat)));
+                    check = check.fix(format!(
+                        "ALTER CATALOG {} ENABLE PREDICTIVE OPTIMIZATION;",
+                        bt(&cat)
+                    ));
                 }
                 out.push(check);
             }
         }
 
         // The catalog's tables, without columns.
-        let Ok(schemas) = self.uc_list(&format!("/api/2.1/unity-catalog/schemas?catalog_name={}", escape(&cat)), "schemas", 10_000).await else {
+        let Ok(schemas) = self
+            .uc_list(
+                &format!(
+                    "/api/2.1/unity-catalog/schemas?catalog_name={}",
+                    escape(&cat)
+                ),
+                "schemas",
+                10_000,
+            )
+            .await
+        else {
             return Ok(out);
         };
         let mut tables: Vec<Json> = Vec::new();
         let mut failed = false;
-        for s in schemas.iter().filter_map(|s| s.get("name").and_then(Json::as_str)).filter(|s| *s != "information_schema") {
+        for s in schemas
+            .iter()
+            .filter_map(|s| s.get("name").and_then(Json::as_str))
+            .filter(|s| *s != "information_schema")
+        {
             let path = format!(
                 "/api/2.1/unity-catalog/tables?catalog_name={}&schema_name={}&omit_columns=true&max_results=1000",
                 escape(&cat),
@@ -159,7 +200,9 @@ impl DatabricksSession {
         let label = |t: &Json| {
             format!(
                 "{}.{}",
-                t.get("schema_name").and_then(Json::as_str).unwrap_or_default(),
+                t.get("schema_name")
+                    .and_then(Json::as_str)
+                    .unwrap_or_default(),
                 t.get("name").and_then(Json::as_str).unwrap_or_default()
             )
         };
@@ -167,20 +210,36 @@ impl DatabricksSession {
             format!(
                 "{}.{}.{}",
                 bt(&cat),
-                bt(t.get("schema_name").and_then(Json::as_str).unwrap_or_default()),
+                bt(t.get("schema_name")
+                    .and_then(Json::as_str)
+                    .unwrap_or_default()),
                 bt(t.get("name").and_then(Json::as_str).unwrap_or_default())
             )
         };
-        let format_of = |t: &Json| t.get("data_source_format").and_then(Json::as_str).unwrap_or_default().to_ascii_uppercase();
-        let is_table = |t: &Json| matches!(t.get("table_type").and_then(Json::as_str), Some("MANAGED" | "EXTERNAL"));
+        let format_of = |t: &Json| {
+            t.get("data_source_format")
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .to_ascii_uppercase()
+        };
+        let is_table = |t: &Json| {
+            matches!(
+                t.get("table_type").and_then(Json::as_str),
+                Some("MANAGED" | "EXTERNAL")
+            )
+        };
 
         // Delta tables that keep deleted files long.
         let long: Vec<(&Json, f64)> = tables
             .iter()
             .filter(|t| is_table(t) && format_of(t) == "DELTA")
             .filter_map(|t| {
-                let v = t.pointer("/properties/delta.deletedFileRetentionDuration").and_then(Json::as_str)?;
-                interval_days(v).filter(|d| *d > RETENTION_DAYS).map(|d| (t, d))
+                let v = t
+                    .pointer("/properties/delta.deletedFileRetentionDuration")
+                    .and_then(Json::as_str)?;
+                interval_days(v)
+                    .filter(|d| *d > RETENTION_DAYS)
+                    .map(|d| (t, d))
             })
             .collect();
         if !long.is_empty() {
@@ -202,7 +261,12 @@ impl DatabricksSession {
         let other: Vec<&Json> = tables
             .iter()
             .filter(|t| is_table(t))
-            .filter(|t| matches!(format_of(t).as_str(), "CSV" | "JSON" | "PARQUET" | "AVRO" | "ORC" | "TEXT"))
+            .filter(|t| {
+                matches!(
+                    format_of(t).as_str(),
+                    "CSV" | "JSON" | "PARQUET" | "AVRO" | "ORC" | "TEXT"
+                )
+            })
             .collect();
         out.push({
             let mut c = HealthCheck::new(

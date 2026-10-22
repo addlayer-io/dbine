@@ -11,16 +11,22 @@
 //! ```
 
 use dbine_driver::sql::{ScriptMode, StatementKind};
-use dbine_driver::{ConnectionConfig, Driver, Error, MessageLevel, MessageSinkRef, QueryOutcome, Session, TxState};
+use dbine_driver::{
+    ConnectionConfig, Driver, Error, MessageLevel, MessageSinkRef, QueryOutcome, Session, TxState,
+};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -33,12 +39,20 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 /// What the app's statement loop does: one `execute` per unit, going on
 /// after errors. Returns the errors by statement.
-async fn script(d: &dyn Driver, s: &mut Box<dyn Session>, sql: &str, out: &mut QueryOutcome) -> Vec<(usize, Error)> {
+async fn script(
+    d: &dyn Driver,
+    s: &mut Box<dyn Session>,
+    sql: &str,
+    out: &mut QueryOutcome,
+) -> Vec<(usize, Error)> {
     let mut errors = Vec::new();
     for (i, u) in d.split_script(sql).iter().enumerate() {
         if u.kind == StatementKind::ClientCommand {
@@ -58,7 +72,9 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, Error>
 }
 
 async fn count(s: &mut Box<dyn Session>, table: &str) -> String {
-    let out = run(s, &format!("SELECT count(*) FROM {table}")).await.unwrap();
+    let out = run(s, &format!("SELECT count(*) FROM {table}"))
+        .await
+        .unwrap();
     out.results[0].rows[0][0].as_str().unwrap().to_string()
 }
 
@@ -97,7 +113,9 @@ async fn exercise(id: &str, env: &str) {
     let mut out = QueryOutcome::default();
     let errors = script(d.as_ref(), &mut s, &sql, &mut out).await;
     assert_eq!(errors.len(), 1, "{id}: {errors:?}");
-    let (at, Error::Statement(e)) = &errors[0] else { panic!("{id}: {:?}", errors[0]) };
+    let (at, Error::Statement(e)) = &errors[0] else {
+        panic!("{id}: {:?}", errors[0])
+    };
     assert_eq!(*at, 2);
     assert_eq!(e.sqlstate.as_deref(), Some("42703"), "{id}: {e:?}");
     assert_eq!(e.code, e.sqlstate);
@@ -107,8 +125,16 @@ async fn exercise(id: &str, env: &str) {
         assert_eq!(e.offset, Some(7), "{id}: {e:?}");
         assert_eq!(e.line, Some(1));
     }
-    assert_eq!(count(&mut s, "dbine_script_t").await, "3", "{id}: the statements around the error stand");
-    let tags: Vec<_> = out.results.iter().map(|r| (r.tag.clone(), r.rows_affected)).collect();
+    assert_eq!(
+        count(&mut s, "dbine_script_t").await,
+        "3",
+        "{id}: the statements around the error stand"
+    );
+    let tags: Vec<_> = out
+        .results
+        .iter()
+        .map(|r| (r.tag.clone(), r.rows_affected))
+        .collect();
     eprintln!("{id}: tags {tags:?}");
     assert_eq!(tags[0], (Some("CREATE TABLE".into()), None));
     assert_eq!(tags[1], (Some("INSERT 0 2".into()), Some(2)));
@@ -116,15 +142,28 @@ async fn exercise(id: &str, env: &str) {
     assert_eq!(last.tag.as_deref(), Some("SELECT 3"));
     let types: Vec<_> = last.columns.iter().map(|c| c.type_name.as_str()).collect();
     // CockroachDB's INT is 64-bit.
-    assert_eq!(types, [if pg_like { "int4" } else { "int8" }, "text"], "{id}");
+    assert_eq!(
+        types,
+        [if pg_like { "int4" } else { "int8" }, "text"],
+        "{id}"
+    );
     if pg_like {
         assert!(tags.contains(&(Some("CREATE DATABASE".into()), None)));
         assert!(tags.contains(&(Some("VACUUM".into()), None)));
         assert!(tags.contains(&(Some("CREATE INDEX".into()), None)));
-        let notices: Vec<_> = out.log.iter().filter(|m| m.level != MessageLevel::Error).map(|m| (m.level, m.text.as_str(), m.statement)).collect();
+        let notices: Vec<_> = out
+            .log
+            .iter()
+            .filter(|m| m.level != MessageLevel::Error)
+            .map(|m| (m.level, m.text.as_str(), m.statement))
+            .collect();
         eprintln!("{id}: notices {notices:?}");
-        assert!(notices.iter().any(|(l, t, st)| *l == MessageLevel::Info && t.contains("uno; dos") && *st == Some(7)));
-        assert!(out.log.iter().any(|m| m.level == MessageLevel::Warning && m.text.contains("cuidado") && m.code.as_deref() == Some("01000")));
+        assert!(notices.iter().any(|(l, t, st)| *l == MessageLevel::Info
+            && t.contains("uno; dos")
+            && *st == Some(7)));
+        assert!(out.log.iter().any(|m| m.level == MessageLevel::Warning
+            && m.text.contains("cuidado")
+            && m.code.as_deref() == Some("01000")));
         run(&mut s, "DROP DATABASE dbine_script_db").await.unwrap();
 
         // Notices reach the sink while the statement still runs.
@@ -132,31 +171,60 @@ async fn exercise(id: &str, env: &str) {
         let started = Instant::now();
         let mut out = QueryOutcome::default();
         let sink = seen.clone();
-        out.message_sink = Some(MessageSinkRef(Arc::new(move |m| sink.lock().unwrap().push((started.elapsed(), m.text.clone())))));
+        out.message_sink = Some(MessageSinkRef(Arc::new(move |m| {
+            sink.lock()
+                .unwrap()
+                .push((started.elapsed(), m.text.clone()))
+        })));
         s.execute("DO $$ BEGIN RAISE NOTICE 'antes'; PERFORM pg_sleep(1.5); RAISE NOTICE 'después'; END $$", 10, &mut out).await.unwrap();
         let total = started.elapsed();
         let seen = seen.lock().unwrap();
-        assert!(seen[0].1.contains("antes") && seen[0].0 + Duration::from_millis(1000) < total, "{id}: {seen:?} / {total:?}");
+        assert!(
+            seen[0].1.contains("antes") && seen[0].0 + Duration::from_millis(1000) < total,
+            "{id}: {seen:?} / {total:?}"
+        );
     }
 
     // A transaction the user opens in autocommit mode.
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
     let mut out = QueryOutcome::default();
-    script(d.as_ref(), &mut s, "BEGIN; INSERT INTO dbine_script_t VALUES (4, 'd')", &mut out).await;
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Open), "{id}");
+    script(
+        d.as_ref(),
+        &mut s,
+        "BEGIN; INSERT INTO dbine_script_t VALUES (4, 'd')",
+        &mut out,
+    )
+    .await;
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Open),
+        "{id}"
+    );
     // CockroachDB readers wait for the open transaction's writes.
     if pg_like {
         assert_eq!(count(&mut other, "dbine_script_t").await, "3");
     }
     let errors = script(d.as_ref(), &mut s, "SELECT 1/0; SELECT 1", &mut out).await;
     assert_eq!(errors.len(), 2, "{id}: {errors:?}");
-    let Error::Statement(e) = &errors[1].1 else { panic!() };
+    let Error::Statement(e) = &errors[1].1 else {
+        panic!()
+    };
     assert_eq!(e.sqlstate.as_deref(), Some("25P02"), "{id}");
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Failed), "{id}");
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Failed),
+        "{id}"
+    );
     // COMMIT of an aborted transaction rolls it back: said, not hidden.
     let mut out = QueryOutcome::default();
-    assert!(script(d.as_ref(), &mut s, "COMMIT", &mut out).await.is_empty());
-    eprintln!("{id}: commit of a failed tx {:?} / {:?}", out.results.last().map(|r| &r.tag), out.log);
+    assert!(script(d.as_ref(), &mut s, "COMMIT", &mut out)
+        .await
+        .is_empty());
+    eprintln!(
+        "{id}: commit of a failed tx {:?} / {:?}",
+        out.results.last().map(|r| &r.tag),
+        out.log
+    );
     assert_eq!(out.results.last().unwrap().tag.as_deref(), Some("ROLLBACK"));
     assert!(out.log.iter().any(|m| m.level == MessageLevel::Warning));
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
@@ -167,11 +235,33 @@ async fn exercise(id: &str, env: &str) {
     s.set_autocommit(false).await.unwrap();
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
     let mut out = QueryOutcome::default();
-    assert!(script(d.as_ref(), &mut s, "INSERT INTO dbine_script_t VALUES (5, 'e')", &mut out).await.is_empty());
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Open), "{id}");
-    assert!(script(d.as_ref(), &mut s, "UPDATE dbine_script_t SET name = 'z' WHERE id = 1", &mut out).await.is_empty());
+    assert!(script(
+        d.as_ref(),
+        &mut s,
+        "INSERT INTO dbine_script_t VALUES (5, 'e')",
+        &mut out
+    )
+    .await
+    .is_empty());
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Open),
+        "{id}"
+    );
+    assert!(script(
+        d.as_ref(),
+        &mut s,
+        "UPDATE dbine_script_t SET name = 'z' WHERE id = 1",
+        &mut out
+    )
+    .await
+    .is_empty());
     if pg_like {
-        assert_eq!(count(&mut other, "dbine_script_t").await, "3", "{id}: not committed yet");
+        assert_eq!(
+            count(&mut other, "dbine_script_t").await,
+            "3",
+            "{id}: not committed yet"
+        );
     }
     s.rollback().await.unwrap();
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
@@ -181,16 +271,37 @@ async fn exercise(id: &str, env: &str) {
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
 
     let mut out = QueryOutcome::default();
-    assert!(script(d.as_ref(), &mut s, "INSERT INTO dbine_script_t VALUES (6, 'f')", &mut out).await.is_empty());
+    assert!(script(
+        d.as_ref(),
+        &mut s,
+        "INSERT INTO dbine_script_t VALUES (6, 'f')",
+        &mut out
+    )
+    .await
+    .is_empty());
     s.commit().await.unwrap();
-    assert_eq!(count(&mut other, "dbine_script_t").await, "4", "{id}: committed");
+    assert_eq!(
+        count(&mut other, "dbine_script_t").await,
+        "4",
+        "{id}: committed"
+    );
     s.commit().await.unwrap();
 
     // An error leaves it aborted; Commit then says nothing was committed.
     let mut out = QueryOutcome::default();
-    let errors = script(d.as_ref(), &mut s, "INSERT INTO dbine_script_t VALUES (7, 'g'); INSERT INTO dbine_script_t VALUES (1, 'dup')", &mut out).await;
+    let errors = script(
+        d.as_ref(),
+        &mut s,
+        "INSERT INTO dbine_script_t VALUES (7, 'g'); INSERT INTO dbine_script_t VALUES (1, 'dup')",
+        &mut out,
+    )
+    .await;
     assert_eq!(errors.len(), 1);
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Failed), "{id}");
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Failed),
+        "{id}"
+    );
     let e = s.commit().await.unwrap_err();
     assert!(matches!(e, Error::State(_)), "{e:?}");
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
@@ -200,11 +311,22 @@ async fn exercise(id: &str, env: &str) {
         // What can't run in a transaction block runs outside it.
         s.commit().await.unwrap();
         let mut out = QueryOutcome::default();
-        assert!(script(d.as_ref(), &mut s, "VACUUM dbine_script_t", &mut out).await.is_empty(), "{id}");
+        assert!(
+            script(d.as_ref(), &mut s, "VACUUM dbine_script_t", &mut out)
+                .await
+                .is_empty(),
+            "{id}"
+        );
     }
     // Back to autocommit: the open transaction is committed.
     let mut out = QueryOutcome::default();
-    script(d.as_ref(), &mut s, "INSERT INTO dbine_script_t VALUES (8, 'h')", &mut out).await;
+    script(
+        d.as_ref(),
+        &mut s,
+        "INSERT INTO dbine_script_t VALUES (8, 'h')",
+        &mut out,
+    )
+    .await;
     s.set_autocommit(true).await.unwrap();
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
     assert_eq!(count(&mut other, "dbine_script_t").await, "5");
@@ -212,17 +334,38 @@ async fn exercise(id: &str, env: &str) {
     // A failed query leaves no partial rows; psql meta-commands are the
     // client's: `\echo` prints, the statement after it runs.
     let mut out = QueryOutcome::default();
-    let errors = script(d.as_ref(), &mut s, "SELECT 10 / (x - 3) FROM generate_series(1, 5) x;\n\\echo hola\nSELECT 2 AS dos", &mut out).await;
+    let errors = script(
+        d.as_ref(),
+        &mut s,
+        "SELECT 10 / (x - 3) FROM generate_series(1, 5) x;\n\\echo hola\nSELECT 2 AS dos",
+        &mut out,
+    )
+    .await;
     assert_eq!(errors.len(), 1, "{id}: {errors:?}");
     assert_eq!(out.results.len(), 1, "{id}: {:?}", out.results);
     assert_eq!(out.results[0].columns[0].name, "dos");
-    assert!(out.log.iter().any(|m| m.text == "hola" && m.statement == Some(1)), "{id}: {:?}", out.log);
+    assert!(
+        out.log
+            .iter()
+            .any(|m| m.text == "hola" && m.statement == Some(1)),
+        "{id}: {:?}",
+        out.log
+    );
     // COPY … FROM stdin: refused before the server waits for the rows; the
     // rows are the client's (not sent).
     let mut out = QueryOutcome::default();
-    let errors = script(d.as_ref(), &mut s, "COPY dbine_script_t (id, name) FROM stdin;\n9\tx\n\\.\nSELECT 1", &mut out).await;
+    let errors = script(
+        d.as_ref(),
+        &mut s,
+        "COPY dbine_script_t (id, name) FROM stdin;\n9\tx\n\\.\nSELECT 1",
+        &mut out,
+    )
+    .await;
     assert_eq!(errors.len(), 1, "{id}: {errors:?}");
-    assert!(errors[0].1.to_string().contains("STDIN"), "{id}: {errors:?}");
+    assert!(
+        errors[0].1.to_string().contains("STDIN"),
+        "{id}: {errors:?}"
+    );
     assert_eq!(out.results.last().unwrap().tag.as_deref(), Some("SELECT 1"));
     assert_eq!(count(&mut s, "dbine_script_t").await, "5");
     // pg_dump: data rows with `'` or `;` end at their `\.`, and what
@@ -230,48 +373,124 @@ async fn exercise(id: &str, env: &str) {
     let mut out = QueryOutcome::default();
     let dump = "\\restrict X\nSET client_min_messages = warning;\nCOPY dbine_script_t (id, name) FROM stdin;\n1\tO'Brien\n2\ta;b\n\\.\n\nSELECT 'after copy' AS x;\n\\unrestrict X";
     let errors = script(d.as_ref(), &mut s, dump, &mut out).await;
-    assert!(matches!(&errors[..], [(2, Error::Statement(e))] if e.message.contains("STDIN")), "{id}: {errors:?}");
-    assert_eq!(out.results.last().unwrap().columns[0].name, "x", "{id}: {:?}", out.results);
-    assert_eq!(out.results.last().unwrap().rows[0][0].as_str(), Some("after copy"));
+    assert!(
+        matches!(&errors[..], [(2, Error::Statement(e))] if e.message.contains("STDIN")),
+        "{id}: {errors:?}"
+    );
+    assert_eq!(
+        out.results.last().unwrap().columns[0].name,
+        "x",
+        "{id}: {:?}",
+        out.results
+    );
+    assert_eq!(
+        out.results.last().unwrap().rows[0][0].as_str(),
+        Some("after copy")
+    );
     assert_eq!(count(&mut s, "dbine_script_t").await, "5");
     // A meta-command ends at its newline, whatever it holds.
     let mut out = QueryOutcome::default();
-    let errors = script(d.as_ref(), &mut s, "\\echo it's done\nSELECT 1 AS a;\nSELECT 2 AS b;\n\\set x 1;", &mut out).await;
+    let errors = script(
+        d.as_ref(),
+        &mut s,
+        "\\echo it's done\nSELECT 1 AS a;\nSELECT 2 AS b;\n\\set x 1;",
+        &mut out,
+    )
+    .await;
     assert!(errors.is_empty(), "{id}: {errors:?}");
-    let got: Vec<_> = out.results.iter().map(|r| (r.columns[0].name.clone(), r.tag.clone(), r.columns[0].type_name.is_empty())).collect();
-    assert_eq!(got, [("a".into(), Some("SELECT 1".into()), false), ("b".into(), Some("SELECT 1".into()), false)], "{id}");
-    assert!(out.log.iter().any(|m| m.text == "it's done" && m.statement == Some(0)), "{id}: {:?}", out.log);
-    assert!(out.log.iter().any(|m| m.level == MessageLevel::Warning && m.statement == Some(3)), "{id}: {:?}", out.log);
+    let got: Vec<_> = out
+        .results
+        .iter()
+        .map(|r| {
+            (
+                r.columns[0].name.clone(),
+                r.tag.clone(),
+                r.columns[0].type_name.is_empty(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("a".into(), Some("SELECT 1".into()), false),
+            ("b".into(), Some("SELECT 1".into()), false)
+        ],
+        "{id}"
+    );
+    assert!(
+        out.log
+            .iter()
+            .any(|m| m.text == "it's done" && m.statement == Some(0)),
+        "{id}: {:?}",
+        out.log
+    );
+    assert!(
+        out.log
+            .iter()
+            .any(|m| m.level == MessageLevel::Warning && m.statement == Some(3)),
+        "{id}: {:?}",
+        out.log
+    );
     // `\connect` stops the script.
     let mut out = QueryOutcome::default();
     let errors = script(d.as_ref(), &mut s, "\\connect otra\nSELECT 1", &mut out).await;
-    assert!(matches!(&errors[..], [(0, Error::Statement(e))] if e.fatal), "{id}: {errors:?}");
+    assert!(
+        matches!(&errors[..], [(0, Error::Statement(e))] if e.fatal),
+        "{id}: {errors:?}"
+    );
 
     // Column types inside a transaction block too, after the first query.
     let mut out = QueryOutcome::default();
     let sql = "BEGIN; SELECT 1 AS a; SELECT now() AS b; INSERT INTO dbine_script_t VALUES (9, 'i') RETURNING id; ROLLBACK";
     assert!(script(d.as_ref(), &mut s, sql, &mut out).await.is_empty());
-    let types: Vec<_> = out.results.iter().flat_map(|r| r.columns.iter().map(|c| c.type_name.clone())).collect();
+    let types: Vec<_> = out
+        .results
+        .iter()
+        .flat_map(|r| r.columns.iter().map(|c| c.type_name.clone()))
+        .collect();
     eprintln!("{id}: types in a transaction {types:?}");
-    assert!(types.iter().all(|t| !t.is_empty()) && types.len() == 3, "{id}: {types:?}");
+    assert!(
+        types.iter().all(|t| !t.is_empty()) && types.len() == 3,
+        "{id}: {types:?}"
+    );
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
 
     // CockroachDB's USE / SET database: the tab follows the session.
     if !pg_like {
         let mut out = QueryOutcome::default();
-        script(d.as_ref(), &mut s, "CREATE DATABASE IF NOT EXISTS dbine_script_db; USE dbine_script_db", &mut out).await;
+        script(
+            d.as_ref(),
+            &mut s,
+            "CREATE DATABASE IF NOT EXISTS dbine_script_db; USE dbine_script_db",
+            &mut out,
+        )
+        .await;
         assert_eq!(out.database.as_deref(), Some("dbine_script_db"), "{id}");
         let mut out = QueryOutcome::default();
-        script(d.as_ref(), &mut s, &format!("SET database = {}", cfg.database), &mut out).await;
+        script(
+            d.as_ref(),
+            &mut s,
+            &format!("SET database = {}", cfg.database),
+            &mut out,
+        )
+        .await;
         assert_eq!(out.database.as_deref(), Some(cfg.database.as_str()), "{id}");
         run(&mut s, "DROP DATABASE dbine_script_db").await.unwrap();
     }
 
     // Several statements in one text (other callers): the server is asked.
     run(&mut s, "BEGIN; SELECT 1").await.unwrap();
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Open), "{id}");
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Open),
+        "{id}"
+    );
     run(&mut s, "SELECT 1; COMMIT").await.unwrap();
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle), "{id}");
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Idle),
+        "{id}"
+    );
 
     run(&mut s, "DROP TABLE dbine_script_t").await.unwrap();
 }
@@ -317,19 +536,42 @@ async fn h2() {
     let mut out = QueryOutcome::default();
     let errors = script(d.as_ref(), &mut s, "CREATE TABLE dbine_script_h2 (id int PRIMARY KEY); INSERT INTO dbine_script_h2 VALUES (1); SELECT nope FROM dbine_script_h2; INSERT INTO dbine_script_h2 VALUES (2)", &mut out).await;
     assert_eq!(errors.len(), 1, "{errors:?}");
-    eprintln!("h2: {:?} / {:?}", errors[0].1, out.results.iter().map(|r| r.tag.clone()).collect::<Vec<_>>());
+    eprintln!(
+        "h2: {:?} / {:?}",
+        errors[0].1,
+        out.results
+            .iter()
+            .map(|r| r.tag.clone())
+            .collect::<Vec<_>>()
+    );
     assert_eq!(count(&mut s, "dbine_script_h2").await, "2");
 
     s.set_autocommit(false).await.unwrap();
     let mut out = QueryOutcome::default();
-    let errors = script(d.as_ref(), &mut s, "INSERT INTO dbine_script_h2 VALUES (3); INSERT INTO dbine_script_h2 VALUES (1)", &mut out).await;
+    let errors = script(
+        d.as_ref(),
+        &mut s,
+        "INSERT INTO dbine_script_h2 VALUES (3); INSERT INTO dbine_script_h2 VALUES (1)",
+        &mut out,
+    )
+    .await;
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Open));
-    assert_eq!(count(&mut other, "dbine_script_h2").await, "2", "not committed yet");
+    assert_eq!(
+        count(&mut other, "dbine_script_h2").await,
+        "2",
+        "not committed yet"
+    );
     s.rollback().await.unwrap();
     assert_eq!(count(&mut other, "dbine_script_h2").await, "2");
     let mut out = QueryOutcome::default();
-    script(d.as_ref(), &mut s, "INSERT INTO dbine_script_h2 VALUES (4)", &mut out).await;
+    script(
+        d.as_ref(),
+        &mut s,
+        "INSERT INTO dbine_script_h2 VALUES (4)",
+        &mut out,
+    )
+    .await;
     s.commit().await.unwrap();
     assert_eq!(count(&mut other, "dbine_script_h2").await, "3");
     s.set_autocommit(true).await.unwrap();

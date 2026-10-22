@@ -10,21 +10,21 @@
 //! `DELETE /solr/<name>` (see [`QUERY_HELP`]), so the designer's scripts
 //! create and drop a collection the same way on both modes.
 
-mod ddl;
-mod sync;
-mod monitor;
-mod plan;
-mod permissions;
-mod security;
 mod backup;
+mod ddl;
+mod monitor;
+mod permissions;
+mod plan;
 mod rename;
+mod security;
 mod stats;
+mod sync;
 pub mod transfer;
 
 use dbine_driver::{
-    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
-    Driver, DriverInfo, Error, Family, Field, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result,
-    Session, TableSchema,
+    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
+    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, MonitorSnapshot,
+    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema,
 };
 use dbine_driver_elasticsearch::console::{self, Command, Request};
 use dbine_driver_elasticsearch::flatten;
@@ -86,17 +86,28 @@ Extensiones de DBine (funcionan igual en standalone y en SolrCloud):\n\
 /// A Solr error body as one line.
 pub fn solr_error_message(status: u16, body: &str) -> String {
     let fallback = || format!("HTTP {status}: {}", http::clip(body.trim(), 500));
-    let Ok(j) = J::parse(body) else { return fallback() };
-    let Some(e) = j.get("error") else { return fallback() };
+    let Ok(j) = J::parse(body) else {
+        return fallback();
+    };
+    let Some(e) = j.get("error") else {
+        return fallback();
+    };
     if let Some(m) = e.get("msg").map(J::text).filter(|m| !m.is_empty()) {
         return m;
     }
-    e.get("trace").map(J::text).and_then(|t| t.lines().next().map(str::to_string)).unwrap_or_else(fallback)
+    e.get("trace")
+        .map(J::text)
+        .and_then(|t| t.lines().next().map(str::to_string))
+        .unwrap_or_else(fallback)
 }
 
 /// `/solr/…` for a console path; `/api/…` (v2) as is.
 pub fn normalize_path(path: &str) -> String {
-    let p = if path.starts_with('/') { path.to_string() } else { format!("/{path}") };
+    let p = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
     let head = p.split(['/', '?']).nth(1).unwrap_or("");
     if head == "solr" || head == "api" {
         p
@@ -114,8 +125,12 @@ fn param_is(req: &Request, key: &str, allowed: &[&str], default_ok: bool) -> boo
 
 /// Handlers of a core / collection that only read. `select`, `query` and
 /// `sql` also accept POST (JSON Request API, form bodies).
-const READ_HANDLERS: &[&str] = &["select", "query", "get", "terms", "suggest", "spell", "tvrh", "browse", "export", "sql"];
-const READ_CORE_ADMIN: &[&str] = &["luke", "ping", "system", "mbeans", "file", "segments", "plugins"];
+const READ_HANDLERS: &[&str] = &[
+    "select", "query", "get", "terms", "suggest", "spell", "tvrh", "browse", "export", "sql",
+];
+const READ_CORE_ADMIN: &[&str] = &[
+    "luke", "ping", "system", "mbeans", "file", "segments", "plugins",
+];
 const READ_ADMIN: &[&str] = &["info", "metrics", "zookeeper", "health"];
 
 /// Whether a request (with a normalized path) is allowed on a read-only
@@ -127,13 +142,23 @@ pub fn read_only_allows(req: &Request) -> bool {
     let segs = req.segments();
     match segs.as_slice() {
         ["api", ..] => get,
-        ["solr", "admin", "cores", ..] => (get || post) && param_is(req, "action", &["STATUS"], true),
+        ["solr", "admin", "cores", ..] => {
+            (get || post) && param_is(req, "action", &["STATUS"], true)
+        }
         ["solr", "admin", "collections", ..] => {
             (get || post)
                 && param_is(
                     req,
                     "action",
-                    &["LIST", "CLUSTERSTATUS", "LISTALIASES", "COLSTATUS", "REQUESTSTATUS", "OVERSEERSTATUS", "LISTSNAPSHOTS"],
+                    &[
+                        "LIST",
+                        "CLUSTERSTATUS",
+                        "LISTALIASES",
+                        "COLSTATUS",
+                        "REQUESTSTATUS",
+                        "OVERSEERSTATUS",
+                        "LISTSNAPSHOTS",
+                    ],
                     false,
                 )
         }
@@ -148,7 +173,8 @@ pub fn read_only_allows(req: &Request) -> bool {
 
 /// The collection a SQL statement reads (`… FROM <name> …`).
 pub fn sql_collection(stmt: &str) -> Option<String> {
-    let mut words = stmt.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '(' || c == ')');
+    let mut words =
+        stmt.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '(' || c == ')');
     while let Some(w) = words.next() {
         if w.eq_ignore_ascii_case("from") {
             let name = words.find(|w| !w.is_empty())?;
@@ -160,7 +186,8 @@ pub fn sql_collection(stmt: &str) -> Option<String> {
 }
 
 fn has_limit(stmt: &str) -> bool {
-    stmt.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|w| w.eq_ignore_ascii_case("limit"))
+    stmt.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .any(|w| w.eq_ignore_ascii_case("limit"))
 }
 
 /// Search handlers whose requests get a plan.
@@ -172,7 +199,9 @@ pub fn plan_target(req: &Request) -> Option<(String, String)> {
         return None;
     }
     match req.segments().as_slice() {
-        ["solr", core, handler] if PLAN_HANDLERS.contains(handler) => Some((core.to_string(), handler.to_string())),
+        ["solr", core, handler] if PLAN_HANDLERS.contains(handler) => {
+            Some((core.to_string(), handler.to_string()))
+        }
         _ => None,
     }
 }
@@ -186,7 +215,11 @@ pub fn debug_request(req: &Request, analyze: bool) -> Request {
     if !analyze {
         params.retain(|p| p.split('=').next() != Some("rows"));
     }
-    params.extend(if analyze { &["debug=query", "debug=timing", "wt=json"][..] } else { &["rows=0", "debug=query", "wt=json"][..] });
+    params.extend(if analyze {
+        &["debug=query", "debug=timing", "wt=json"][..]
+    } else {
+        &["rows=0", "debug=query", "wt=json"][..]
+    });
     let mut body = req.body.clone();
     if !analyze {
         if let Some(J::Obj(mut o)) = body.as_deref().and_then(|b| J::parse(b).ok()) {
@@ -196,11 +229,18 @@ pub fn debug_request(req: &Request, analyze: bool) -> Request {
             }
         }
     }
-    Request { path: format!("{path}?{}", params.join("&")), body, method: req.method.clone() }
+    Request {
+        path: format!("{path}?{}", params.join("&")),
+        body,
+        method: req.method.clone(),
+    }
 }
 
 fn rcol(name: &str) -> ResultColumn {
-    ResultColumn { name: name.to_string(), type_name: String::new() }
+    ResultColumn {
+        name: name.to_string(),
+        type_name: String::new(),
+    }
 }
 
 #[async_trait]
@@ -220,7 +260,10 @@ impl Driver for Solr {
     /// Cores / collections live right under the server: no databases to
     /// create or drop, and no foreign keys.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, ..Capabilities::default() }
+        Capabilities {
+            monitor: true,
+            ..Capabilities::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -240,7 +283,10 @@ impl Driver for Solr {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -249,7 +295,10 @@ impl Driver for Solr {
         Some(rename::spec())
     }
 
-    fn rename_script(&self, req: &dbine_driver::rename::RenameRequest) -> Result<dbine_driver::SyncScript> {
+    fn rename_script(
+        &self,
+        req: &dbine_driver::rename::RenameRequest,
+    ) -> Result<dbine_driver::SyncScript> {
         rename::script(req)
     }
 
@@ -276,19 +325,36 @@ impl Driver for Solr {
         ddl::collection_ddl(table, parts)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
         ddl::update_script(target, columns, rows)
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::atomic_update_script(target, changes)
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         ddl::delete_script(target, keys)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -296,7 +362,11 @@ impl Driver for Solr {
         ddl::sorted_browse(query, sort)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let base = http::base_url(cfg, 8983);
         let client = http::client(cfg, http::auth_from(cfg))?;
         let url = format!("{base}/solr/admin/info/system?wt=json");
@@ -307,12 +377,28 @@ impl Driver for Solr {
         if status >= 400 {
             return Err(Error::Connect(solr_error_message(status, &body)));
         }
-        let info = J::parse(&body)
-            .map_err(|_| Error::Connect(format!("El servidor no respondió como Solr: {}", http::clip(&body, 200))))?;
+        let info = J::parse(&body).map_err(|_| {
+            Error::Connect(format!(
+                "El servidor no respondió como Solr: {}",
+                http::clip(&body, 200)
+            ))
+        })?;
         let cloud = info.get("mode").and_then(J::as_str) == Some("solrcloud");
-        let number = info.at(&["lucene", "solr-spec-version"]).map(J::text).unwrap_or_default();
-        let version = format!("Apache Solr {number}{}", if cloud { " (SolrCloud)" } else { "" });
-        Ok(Box::new(SolrSession { client, base, read_only: cfg.read_only, cloud, version }))
+        let number = info
+            .at(&["lucene", "solr-spec-version"])
+            .map(J::text)
+            .unwrap_or_default();
+        let version = format!(
+            "Apache Solr {number}{}",
+            if cloud { " (SolrCloud)" } else { "" }
+        );
+        Ok(Box::new(SolrSession {
+            client,
+            base,
+            read_only: cfg.read_only,
+            cloud,
+            version,
+        }))
     }
 }
 
@@ -334,12 +420,22 @@ impl SolrSession {
     }
 
     async fn get_json(&self, path: &str) -> Result<J> {
-        let body = self.call(self.client.get(format!("{}{path}", self.base))).await?;
+        let body = self
+            .call(self.client.get(format!("{}{path}", self.base)))
+            .await?;
         J::parse(&body).map_err(|e| Error::Query(format!("Respuesta inesperada del servidor: {e}")))
     }
 
-    async fn run_request(&self, req: &Request, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let req = Request { path: normalize_path(&req.path), ..req.clone() };
+    async fn run_request(
+        &self,
+        req: &Request,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        let req = Request {
+            path: normalize_path(&req.path),
+            ..req.clone()
+        };
         if self.read_only && !read_only_allows(&req) {
             return Err(Error::Query(format!(
                 "Conexión de solo lectura: se bloqueó {} {}. Solo se permiten búsquedas (select, query, get, sql…) y consultas de administración.",
@@ -383,24 +479,48 @@ impl SolrSession {
 
     async fn exists(&self, name: &str) -> Result<bool> {
         if self.cloud {
-            let r = self.get_json("/solr/admin/collections?action=LIST&wt=json").await?;
-            return Ok(r.get("collections").and_then(J::as_arr).unwrap_or(&[]).iter().any(|c| c.as_str() == Some(name)));
+            let r = self
+                .get_json("/solr/admin/collections?action=LIST&wt=json")
+                .await?;
+            return Ok(r
+                .get("collections")
+                .and_then(J::as_arr)
+                .unwrap_or(&[])
+                .iter()
+                .any(|c| c.as_str() == Some(name)));
         }
-        let r = self.get_json(&format!("/solr/admin/cores?action=STATUS&core={name}&indexInfo=false&wt=json")).await?;
-        let loaded = r.at(&["status", name]).and_then(J::as_obj).is_some_and(|o| !o.is_empty());
+        let r = self
+            .get_json(&format!(
+                "/solr/admin/cores?action=STATUS&core={name}&indexInfo=false&wt=json"
+            ))
+            .await?;
+        let loaded = r
+            .at(&["status", name])
+            .and_then(J::as_obj)
+            .is_some_and(|o| !o.is_empty());
         Ok(loaded || r.at(&["initFailures", name]).is_some())
     }
 
     /// DBine's `PUT /solr/<name>` (create) and `DELETE /solr/<name>`
     /// (drop): a CoreAdmin call on a standalone server, a Collections API
     /// call on SolrCloud.
-    async fn manage_collection(&self, req: &Request, name: &str, out: &mut QueryOutcome) -> Result<()> {
-        let what = if self.cloud { "La colección" } else { "El core" };
+    async fn manage_collection(
+        &self,
+        req: &Request,
+        name: &str,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        let what = if self.cloud {
+            "La colección"
+        } else {
+            "El core"
+        };
         let exists = self.exists(name).await?;
         if req.method == "DELETE" {
             if !exists {
                 if req.query_param("if_exists") == Some("true") {
-                    out.messages.push(format!("{what} {name} no existe; no se borró nada."));
+                    out.messages
+                        .push(format!("{what} {name} no existe; no se borró nada."));
                     return Ok(());
                 }
                 return Err(Error::Query(format!("{what} {name} no existe.")));
@@ -416,7 +536,8 @@ impl SolrSession {
         }
         if exists {
             if req.query_param("if_not_exists") == Some("true") {
-                out.messages.push(format!("{what} {name} ya existe; no se creó."));
+                out.messages
+                    .push(format!("{what} {name} ya existe; no se creó."));
                 return Ok(());
             }
             return Err(Error::Query(format!("{what} {name} ya existe.")));
@@ -425,7 +546,11 @@ impl SolrSession {
             None => J::Obj(Vec::new()),
             Some(b) => match J::parse(b) {
                 Ok(j @ J::Obj(_)) => j,
-                _ => return Err(Error::Query(format!("El cuerpo de PUT /solr/{name} tiene que ser un objeto JSON."))),
+                _ => {
+                    return Err(Error::Query(format!(
+                        "El cuerpo de PUT /solr/{name} tiene que ser un objeto JSON."
+                    )))
+                }
             },
         };
         let mut params: Vec<(String, String)> = Vec::new();
@@ -450,7 +575,14 @@ impl SolrSession {
             }
             "/solr/admin/collections"
         } else {
-            params.push(("configSet".into(), if config.is_empty() { "_default".into() } else { config }));
+            params.push((
+                "configSet".into(),
+                if config.is_empty() {
+                    "_default".into()
+                } else {
+                    config
+                },
+            ));
             "/solr/admin/cores"
         };
         params.push(("action".into(), "CREATE".into()));
@@ -463,7 +595,10 @@ impl SolrSession {
             }
             // A core that failed to load stays registered: unload it.
             let _ = self
-                .call(self.client.get(format!("{}/solr/admin/cores?action=UNLOAD&core={name}&deleteInstanceDir=true", self.base)))
+                .call(self.client.get(format!(
+                    "{}/solr/admin/cores?action=UNLOAD&core={name}&deleteInstanceDir=true",
+                    self.base
+                )))
                 .await;
             let hint = if e.to_string().contains("Could not load conf") {
                 ". En modo standalone el configset tiene que estar en <SOLR_HOME>/configsets (en la imagen de Docker, \
@@ -472,7 +607,14 @@ impl SolrSession {
                 ""
             };
             let e = e.to_string();
-            return Err(Error::Query(format!("No se pudo crear el core {name}: {}{hint}", if hint.is_empty() { &e } else { e.trim_end_matches('.') })));
+            return Err(Error::Query(format!(
+                "No se pudo crear el core {name}: {}{hint}",
+                if hint.is_empty() {
+                    &e
+                } else {
+                    e.trim_end_matches('.')
+                }
+            )));
         }
         out.messages.push(format!("{what} {name} se creó."));
         Ok(())
@@ -483,7 +625,11 @@ impl SolrSession {
         let m = reqwest::Method::from_bytes(req.method.as_bytes()).unwrap_or(reqwest::Method::GET);
         let mut rb = self.client.request(m, format!("{}{}", self.base, req.path));
         if let Some(body) = &req.body {
-            let ct = if body.starts_with('{') || body.starts_with('[') { "application/json" } else { "application/x-www-form-urlencoded" };
+            let ct = if body.starts_with('{') || body.starts_with('[') {
+                "application/json"
+            } else {
+                "application/x-www-form-urlencoded"
+            };
             rb = rb.header("Content-Type", ct).body(body.clone());
         }
         let text = self.call(rb).await?;
@@ -496,13 +642,21 @@ impl SolrSession {
                 "Solr SQL solo está disponible en SolrCloud. En modo standalone usá GET /solr/<core>/select?q=…".into(),
             ));
         }
-        let coll = sql_collection(stmt)
-            .ok_or_else(|| Error::Query("No se encontró la colección de la consulta (FROM <colección>).".into()))?;
+        let coll = sql_collection(stmt).ok_or_else(|| {
+            Error::Query("No se encontró la colección de la consulta (FROM <colección>).".into())
+        })?;
         // Without LIMIT Solr streams the whole result through /export.
-        let stmt = if has_limit(stmt) { stmt.to_string() } else { format!("{stmt} LIMIT {}", max_rows + 1) };
+        let stmt = if has_limit(stmt) {
+            stmt.to_string()
+        } else {
+            format!("{stmt} LIMIT {}", max_rows + 1)
+        };
         let url = format!("{}/solr/{coll}/sql", self.base);
-        let text = self.call(self.client.post(url).form(&[("stmt", stmt.as_str())])).await?;
-        let resp = J::parse(&text).map_err(|e| Error::Query(format!("Respuesta SQL inesperada: {e}")))?;
+        let text = self
+            .call(self.client.post(url).form(&[("stmt", stmt.as_str())]))
+            .await?;
+        let resp =
+            J::parse(&text).map_err(|e| Error::Query(format!("Respuesta SQL inesperada: {e}")))?;
         push_response(&resp, max_rows, out)
     }
 }
@@ -526,17 +680,28 @@ fn push_response(resp: &J, max_rows: usize, out: &mut QueryOutcome) -> Result<()
         if let Some(e) = docs.iter().find_map(|d| d.get("EXCEPTION")) {
             return Err(Error::Query(e.text()));
         }
-        let rows = docs.iter().filter(|d| d.get("EOF").is_none()).filter_map(|d| d.as_obj().cloned());
+        let rows = docs
+            .iter()
+            .filter(|d| d.get("EOF").is_none())
+            .filter_map(|d| d.as_obj().cloned());
         flatten::push_docs(out, rows, max_rows);
         return Ok(());
     }
     let mut shown = false;
     if let Some(r) = resp.get("response") {
         let docs = r.get("docs").and_then(J::as_arr).unwrap_or(&[]);
-        flatten::push_docs(out, docs.iter().filter_map(|d| d.as_obj().cloned()), max_rows);
+        flatten::push_docs(
+            out,
+            docs.iter().filter_map(|d| d.as_obj().cloned()),
+            max_rows,
+        );
         if let Some(n) = r.get("numFound") {
-            let qtime = resp.at(&["responseHeader", "QTime"]).map(J::text).unwrap_or_default();
-            out.messages.push(format!("{} documentos coinciden ({qtime} ms).", n.text()));
+            let qtime = resp
+                .at(&["responseHeader", "QTime"])
+                .map(J::text)
+                .unwrap_or_default();
+            out.messages
+                .push(format!("{} documentos coinciden ({qtime} ms).", n.text()));
         }
         shown = true;
     } else if let Some(doc) = resp.get("doc") {
@@ -560,7 +725,11 @@ fn push_response(resp: &J, max_rows: usize, out: &mut QueryOutcome) -> Result<()
         // Admin and other responses: drop the header, flatten what's left.
         let rest = match resp {
             J::Obj(o) => {
-                let o: Obj = o.iter().filter(|(k, _)| k != "responseHeader").cloned().collect();
+                let o: Obj = o
+                    .iter()
+                    .filter(|(k, _)| k != "responseHeader")
+                    .cloned()
+                    .collect();
                 match o.as_slice() {
                     [(_, only)] if !only.is_scalar() => only.clone(),
                     _ => J::Obj(o),
@@ -575,19 +744,33 @@ fn push_response(resp: &J, max_rows: usize, out: &mut QueryOutcome) -> Result<()
 
 /// Pairs from Solr's flat `[value, count, value, count…]` lists.
 fn pairs(list: &J) -> Vec<(J, J)> {
-    list.as_arr().unwrap_or(&[]).chunks(2).map(|c| (c[0].clone(), c.get(1).cloned().unwrap_or(J::Null))).collect()
+    list.as_arr()
+        .unwrap_or(&[])
+        .chunks(2)
+        .map(|c| (c[0].clone(), c.get(1).cloned().unwrap_or(J::Null)))
+        .collect()
 }
 
 /// Classic faceting: one `field`/`value`/`count` table for the field
 /// facets, one `query`/`count` for the facet queries, ranges like fields.
 fn push_facet_counts(fc: &J, max_rows: usize, out: &mut QueryOutcome) {
     let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
-    for (field, list) in fc.get("facet_fields").and_then(J::as_obj).into_iter().flatten() {
+    for (field, list) in fc
+        .get("facet_fields")
+        .and_then(J::as_obj)
+        .into_iter()
+        .flatten()
+    {
         for (v, c) in pairs(list) {
             rows.push(vec![field.clone().into(), v.cell(), c.cell()]);
         }
     }
-    for (field, r) in fc.get("facet_ranges").and_then(J::as_obj).into_iter().flatten() {
+    for (field, r) in fc
+        .get("facet_ranges")
+        .and_then(J::as_obj)
+        .into_iter()
+        .flatten()
+    {
         for (v, c) in pairs(r.get("counts").unwrap_or(&J::Null)) {
             rows.push(vec![field.clone().into(), v.cell(), c.cell()]);
         }
@@ -598,13 +781,20 @@ fn push_facet_counts(fc: &J, max_rows: usize, out: &mut QueryOutcome) {
             out.push_row(r, max_rows);
         }
     }
-    if let Some(q) = fc.get("facet_queries").and_then(J::as_obj).filter(|q| !q.is_empty()) {
+    if let Some(q) = fc
+        .get("facet_queries")
+        .and_then(J::as_obj)
+        .filter(|q| !q.is_empty())
+    {
         out.begin_result(vec![rcol("query"), rcol("count")]);
         for (k, v) in q {
             out.push_row(vec![k.clone().into(), v.cell()], max_rows);
         }
     }
-    if let Some(p) = fc.get("facet_pivot").filter(|p| p.as_obj().is_some_and(|o| !o.is_empty())) {
+    if let Some(p) = fc
+        .get("facet_pivot")
+        .filter(|p| p.as_obj().is_some_and(|o| !o.is_empty()))
+    {
         flatten::push_text(out, &p.pretty(), max_rows);
     }
 }
@@ -616,7 +806,8 @@ fn push_json_facets(f: &J, max_rows: usize, out: &mut QueryOutcome) {
     for (name, v) in f.as_obj().into_iter().flatten() {
         match v.get("buckets").and_then(J::as_arr) {
             Some(b) => {
-                out.messages.push(format!("Faceta {name}: {} buckets.", b.len()));
+                out.messages
+                    .push(format!("Faceta {name}: {} buckets.", b.len()));
                 flatten::push_docs(out, b.iter().filter_map(|x| x.as_obj().cloned()), max_rows);
             }
             None => metrics.push((name.clone(), v.clone())),
@@ -657,18 +848,25 @@ impl Session for SolrSession {
             Ok(m) => monitor::from_core_metrics(&mut s, &m),
             Err(e) => refused.push(format!("admin/metrics de los cores ({e})")),
         }
-        match self.get_json("/solr/admin/cores?action=STATUS&wt=json").await {
+        match self
+            .get_json("/solr/admin/cores?action=STATUS&wt=json")
+            .await
+        {
             Ok(st) => monitor::cores(&mut s, &st),
             Err(e) => refused.push(format!("admin/cores ({e})")),
         }
         if self.cloud {
-            match self.get_json("/solr/admin/collections?action=CLUSTERSTATUS&wt=json").await {
+            match self
+                .get_json("/solr/admin/collections?action=CLUSTERSTATUS&wt=json")
+                .await
+            {
                 Ok(cs) => monitor::cluster(&mut s, &cs),
                 Err(e) => refused.push(format!("CLUSTERSTATUS ({e})")),
             }
         }
         if !refused.is_empty() {
-            s.notes.push(format!("No se pudieron leer: {}.", refused.join("; ")));
+            s.notes
+                .push(format!("No se pudieron leer: {}.", refused.join("; ")));
         }
         s.notes.push(
             "Solr no lista las consultas en curso ni las conexiones abiertas; se muestran los pedidos que Jetty está atendiendo."
@@ -704,23 +902,44 @@ impl Session for SolrSession {
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let mut names: Vec<String> = if self.cloud {
-            let r = self.get_json("/solr/admin/collections?action=LIST&wt=json").await?;
-            r.get("collections").and_then(J::as_arr).unwrap_or(&[]).iter().filter_map(|c| c.as_str().map(str::to_string)).collect()
+            let r = self
+                .get_json("/solr/admin/collections?action=LIST&wt=json")
+                .await?;
+            r.get("collections")
+                .and_then(J::as_arr)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|c| c.as_str().map(str::to_string))
+                .collect()
         } else {
-            let r = self.get_json("/solr/admin/cores?action=STATUS&indexInfo=false&wt=json").await?;
-            r.get("status").and_then(J::as_obj).into_iter().flatten().map(|(k, _)| k.clone()).collect()
+            let r = self
+                .get_json("/solr/admin/cores?action=STATUS&indexInfo=false&wt=json")
+                .await?;
+            r.get("status")
+                .and_then(J::as_obj)
+                .into_iter()
+                .flatten()
+                .map(|(k, _)| k.clone())
+                .collect()
         };
         names.retain(|n| !n.starts_with('.'));
         names.sort();
         Ok(names
             .into_iter()
-            .map(|name| DbObject { kind: kinds::COLLECTION.into(), schema: None, name, parent: None })
+            .map(|name| DbObject {
+                kind: kinds::COLLECTION.into(),
+                schema: None,
+                name,
+                parent: None,
+            })
             .collect())
     }
 
     async fn columns(&mut self, o: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let c = &o.name;
-        let fields = self.get_json(&format!("/solr/{c}/schema/fields?wt=json")).await?;
+        let fields = self
+            .get_json(&format!("/solr/{c}/schema/fields?wt=json"))
+            .await?;
         let key = self
             .get_json(&format!("/solr/{c}/schema/uniquekey?wt=json"))
             .await
@@ -729,7 +948,9 @@ impl Session for SolrSession {
         let internal = |n: &str| n.len() > 1 && n.starts_with('_') && n.ends_with('_');
         let mut out: Vec<ColumnInfo> = Vec::new();
         for f in fields.get("fields").and_then(J::as_arr).unwrap_or(&[]) {
-            let Some(name) = f.get("name").and_then(J::as_str).filter(|n| !internal(n)) else { continue };
+            let Some(name) = f.get("name").and_then(J::as_str).filter(|n| !internal(n)) else {
+                continue;
+            };
             let mut ty = f.get("type").map(J::text).unwrap_or_default();
             if f.get("multiValued").and_then(J::as_bool) == Some(true) {
                 ty.push_str("[]");
@@ -744,7 +965,10 @@ impl Session for SolrSession {
             });
         }
         // Fields actually in the index, which adds dynamic-field instances.
-        if let Ok(luke) = self.get_json(&format!("/solr/{c}/admin/luke?numTerms=0&wt=json")).await {
+        if let Ok(luke) = self
+            .get_json(&format!("/solr/{c}/admin/luke?numTerms=0&wt=json"))
+            .await
+        {
             for (name, f) in luke.get("fields").and_then(J::as_obj).into_iter().flatten() {
                 if internal(name) || out.iter().any(|x| x.name == *name) {
                     continue;
@@ -763,7 +987,9 @@ impl Session for SolrSession {
     }
 
     async fn definition(&mut self, o: &ObjectRef) -> Result<Option<String>> {
-        let s = self.get_json(&format!("/solr/{}/schema?wt=json", o.name)).await?;
+        let s = self
+            .get_json(&format!("/solr/{}/schema?wt=json", o.name))
+            .await?;
         Ok(Some(s.get("schema").unwrap_or(&s).pretty()))
     }
 
@@ -772,24 +998,43 @@ impl Session for SolrSession {
     /// key and, on SolrCloud, shards, replication factor and configset.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let cluster = if self.cloud {
-            Some(self.get_json("/solr/admin/collections?action=CLUSTERSTATUS&wt=json").await?)
+            Some(
+                self.get_json("/solr/admin/collections?action=CLUSTERSTATUS&wt=json")
+                    .await?,
+            )
         } else {
             None
         };
         let mut out = Vec::new();
         for o in self.list_objects().await? {
             let c = &o.name;
-            let fields = self.get_json(&format!("/solr/{c}/schema/fields?showDefaults=false&wt=json")).await?;
-            let key = self.get_json(&format!("/solr/{c}/schema/uniquekey?wt=json")).await.ok();
-            let key = key.as_ref().and_then(|k| k.get("uniqueKey")).and_then(J::as_str);
-            let status = cluster.as_ref().and_then(|s| s.at(&["cluster", "collections", c]));
+            let fields = self
+                .get_json(&format!(
+                    "/solr/{c}/schema/fields?showDefaults=false&wt=json"
+                ))
+                .await?;
+            let key = self
+                .get_json(&format!("/solr/{c}/schema/uniquekey?wt=json"))
+                .await
+                .ok();
+            let key = key
+                .as_ref()
+                .and_then(|k| k.get("uniqueKey"))
+                .and_then(J::as_str);
+            let status = cluster
+                .as_ref()
+                .and_then(|s| s.at(&["cluster", "collections", c]));
             out.push(ddl::collection_schema(c, &fields, key, status));
         }
         Ok(out)
     }
 
     /// `cursorMark` paging sorted by the uniqueKey, typed by the schema.
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -812,15 +1057,26 @@ impl Session for SolrSession {
     /// as in `execute`, without it they're skipped. Solr has no plan
     /// without running the search: the estimated plan asks for `rows=0`
     /// (the search still matches and counts, but returns no documents).
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let cmds = console::parse(text).map_err(Error::Query)?;
         if cmds.is_empty() {
-            return Err(Error::Query("No hay ninguna petición para ejecutar.".into()));
+            return Err(Error::Query(
+                "No hay ninguna petición para ejecutar.".into(),
+            ));
         }
         for c in &cmds {
             let r = match c {
                 Command::Sql(s) => {
-                    out.messages.push(format!("`{}`: Solr SQL no tiene plan de ejecución.", http::clip(s, 80)));
+                    out.messages.push(format!(
+                        "`{}`: Solr SQL no tiene plan de ejecución.",
+                        http::clip(s, 80)
+                    ));
                     if analyze {
                         self.run_sql(s, max_rows, out).await?;
                     }
@@ -828,10 +1084,15 @@ impl Session for SolrSession {
                 }
                 Command::Http(r) => r,
             };
-            let req = Request { path: normalize_path(&r.path), ..r.clone() };
+            let req = Request {
+                path: normalize_path(&r.path),
+                ..r.clone()
+            };
             let label = format!("{} {}", req.method, req.path);
             let Some((core, handler)) = plan_target(&req) else {
-                out.messages.push(format!("`{label}`: solo las búsquedas (select, query) tienen plan de ejecución."));
+                out.messages.push(format!(
+                    "`{label}`: solo las búsquedas (select, query) tienen plan de ejecución."
+                ));
                 if analyze {
                     self.run_request(r, max_rows, out).await?;
                 }
@@ -845,7 +1106,9 @@ impl Session for SolrSession {
                 Some(b) => format!("{label}\n{b}"),
                 None => label,
             };
-            out.plans.push(plan::from_debug(&statement, &core, &handler, &resp, analyze));
+            out.plans.push(plan::from_debug(
+                &statement, &core, &handler, &resp, analyze,
+            ));
         }
         Ok(())
     }
@@ -853,7 +1116,9 @@ impl Session for SolrSession {
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let cmds = console::parse(text).map_err(Error::Query)?;
         if cmds.is_empty() {
-            return Err(Error::Query("No hay ninguna petición para ejecutar.".into()));
+            return Err(Error::Query(
+                "No hay ninguna petición para ejecutar.".into(),
+            ));
         }
         for c in &cmds {
             match c {
@@ -875,20 +1140,42 @@ mod plan_tests {
     use super::*;
 
     fn req(method: &str, path: &str, body: Option<&str>) -> Request {
-        Request { method: method.into(), path: normalize_path(path), body: body.map(str::to_string) }
+        Request {
+            method: method.into(),
+            path: normalize_path(path),
+            body: body.map(str::to_string),
+        }
     }
 
     #[test]
     fn plan_requests() {
-        assert_eq!(plan_target(&req("GET", "/films/select?q=*:*", None)), Some(("films".into(), "select".into())));
-        assert_eq!(plan_target(&req("POST", "/solr/films/query", Some("{}"))), Some(("films".into(), "query".into())));
-        assert_eq!(plan_target(&req("GET", "/films/update?commit=true", None)), None);
+        assert_eq!(
+            plan_target(&req("GET", "/films/select?q=*:*", None)),
+            Some(("films".into(), "select".into()))
+        );
+        assert_eq!(
+            plan_target(&req("POST", "/solr/films/query", Some("{}"))),
+            Some(("films".into(), "query".into()))
+        );
+        assert_eq!(
+            plan_target(&req("GET", "/films/update?commit=true", None)),
+            None
+        );
         assert_eq!(plan_target(&req("GET", "/admin/cores", None)), None);
         let e = debug_request(&req("GET", "/films/select?q=a:b&rows=10", None), false);
-        assert_eq!(e.path, "/solr/films/select?q=a:b&rows=0&debug=query&wt=json");
+        assert_eq!(
+            e.path,
+            "/solr/films/select?q=a:b&rows=0&debug=query&wt=json"
+        );
         let a = debug_request(&req("GET", "/films/select", None), true);
-        assert_eq!(a.path, "/solr/films/select?debug=query&debug=timing&wt=json");
-        let j = debug_request(&req("POST", "/films/query", Some(r#"{"query":"*:*","limit":5}"#)), false);
+        assert_eq!(
+            a.path,
+            "/solr/films/select?debug=query&debug=timing&wt=json"
+        );
+        let j = debug_request(
+            &req("POST", "/films/query", Some(r#"{"query":"*:*","limit":5}"#)),
+            false,
+        );
         assert_eq!(j.body.as_deref(), Some(r#"{"query":"*:*","limit":0}"#));
     }
 }
@@ -899,13 +1186,20 @@ mod tests {
     use serde_json::json;
 
     fn req(method: &str, path: &str) -> Request {
-        Request { method: method.into(), path: normalize_path(path), body: None }
+        Request {
+            method: method.into(),
+            path: normalize_path(path),
+            body: None,
+        }
     }
 
     #[test]
     fn collection_commands() {
         assert_eq!(collection_command(&req("PUT", "/books")), Some("books"));
-        assert_eq!(collection_command(&req("DELETE", "/solr/books?if_exists=true")), Some("books"));
+        assert_eq!(
+            collection_command(&req("DELETE", "/solr/books?if_exists=true")),
+            Some("books")
+        );
         assert_eq!(collection_command(&req("PUT", "/books/schema")), None);
         assert_eq!(collection_command(&req("GET", "/books")), None);
         assert_eq!(collection_command(&req("DELETE", "/admin")), None);
@@ -915,7 +1209,10 @@ mod tests {
 
     #[test]
     fn paths_get_the_solr_prefix() {
-        assert_eq!(normalize_path("/core1/select?q=*:*"), "/solr/core1/select?q=*:*");
+        assert_eq!(
+            normalize_path("/core1/select?q=*:*"),
+            "/solr/core1/select?q=*:*"
+        );
         assert_eq!(normalize_path("/solr/core1/select"), "/solr/core1/select");
         assert_eq!(normalize_path("/api/cores"), "/api/cores");
         assert_eq!(normalize_path("/solrx/select"), "/solr/solrx/select");
@@ -928,21 +1225,36 @@ mod tests {
         assert!(read_only_allows(&req("GET", "/c/schema/fields")));
         assert!(read_only_allows(&req("GET", "/c/admin/luke")));
         assert!(read_only_allows(&req("GET", "/admin/cores?action=STATUS")));
-        assert!(read_only_allows(&req("GET", "/admin/collections?action=list")));
+        assert!(read_only_allows(&req(
+            "GET",
+            "/admin/collections?action=list"
+        )));
         assert!(read_only_allows(&req("GET", "/admin/info/system")));
         assert!(!read_only_allows(&req("GET", "/c/update?commit=true")));
         assert!(!read_only_allows(&req("POST", "/c/update")));
         assert!(!read_only_allows(&req("POST", "/c/schema")));
-        assert!(!read_only_allows(&req("GET", "/admin/cores?action=UNLOAD&core=c")));
-        assert!(!read_only_allows(&req("GET", "/admin/collections?action=DELETE&name=c")));
+        assert!(!read_only_allows(&req(
+            "GET",
+            "/admin/cores?action=UNLOAD&core=c"
+        )));
+        assert!(!read_only_allows(&req(
+            "GET",
+            "/admin/collections?action=DELETE&name=c"
+        )));
         assert!(!read_only_allows(&req("GET", "/c/stream?expr=update(x)")));
         assert!(!read_only_allows(&req("DELETE", "/api/collections/c")));
     }
 
     #[test]
     fn sql_helpers() {
-        assert_eq!(sql_collection("SELECT a FROM books WHERE x=1").as_deref(), Some("books"));
-        assert_eq!(sql_collection("select count(*) from \"my-coll\"").as_deref(), Some("my-coll"));
+        assert_eq!(
+            sql_collection("SELECT a FROM books WHERE x=1").as_deref(),
+            Some("books")
+        );
+        assert_eq!(
+            sql_collection("select count(*) from \"my-coll\"").as_deref(),
+            Some("my-coll")
+        );
         assert_eq!(sql_collection("select 1"), None);
         assert!(has_limit("select a from b LIMIT 5"));
         assert!(!has_limit("select limited from b"));
@@ -959,27 +1271,48 @@ mod tests {
         let mut out = QueryOutcome::default();
         push_response(&resp, 100, &mut out).unwrap();
         assert_eq!(out.results.len(), 2);
-        let names: Vec<_> = out.results[0].columns.iter().map(|c| c.name.as_str()).collect();
+        let names: Vec<_> = out.results[0]
+            .columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
         assert_eq!(names, ["id", "title", "price"]);
-        assert_eq!(out.results[0].rows[0], vec![json!("1"), json!("[\"a\"]"), json!(null)]);
-        assert_eq!(out.results[1].rows[1], vec![json!("cat"), json!("y"), json!(1)]);
+        assert_eq!(
+            out.results[0].rows[0],
+            vec![json!("1"), json!("[\"a\"]"), json!(null)]
+        );
+        assert_eq!(
+            out.results[1].rows[1],
+            vec![json!("cat"), json!("y"), json!(1)]
+        );
         assert!(out.messages[0].starts_with("2 documentos"));
     }
 
     #[test]
     fn sql_result_set() {
-        let ok = J::parse(r#"{"result-set":{"docs":[{"id":"1","n":2},{"EOF":true,"RESPONSE_TIME":3}]}}"#).unwrap();
+        let ok = J::parse(
+            r#"{"result-set":{"docs":[{"id":"1","n":2},{"EOF":true,"RESPONSE_TIME":3}]}}"#,
+        )
+        .unwrap();
         let mut out = QueryOutcome::default();
         push_response(&ok, 10, &mut out).unwrap();
         assert_eq!(out.results[0].rows, vec![vec![json!("1"), json!(2)]]);
-        let err = J::parse(r#"{"result-set":{"docs":[{"EXCEPTION":"bad column","EOF":true}]}}"#).unwrap();
-        assert_eq!(push_response(&err, 10, &mut out).unwrap_err().to_string(), "bad column");
+        let err =
+            J::parse(r#"{"result-set":{"docs":[{"EXCEPTION":"bad column","EOF":true}]}}"#).unwrap();
+        assert_eq!(
+            push_response(&err, 10, &mut out).unwrap_err().to_string(),
+            "bad column"
+        );
     }
 
     #[test]
     fn errors() {
-        let body = r#"{"responseHeader":{"status":400},"error":{"msg":"undefined field foo","code":400}}"#;
+        let body =
+            r#"{"responseHeader":{"status":400},"error":{"msg":"undefined field foo","code":400}}"#;
         assert_eq!(solr_error_message(400, body), "undefined field foo");
-        assert_eq!(solr_error_message(404, "<html>nope</html>"), "HTTP 404: <html>nope</html>");
+        assert_eq!(
+            solr_error_message(404, "<html>nope</html>"),
+            "HTTP 404: <html>nope</html>"
+        );
     }
 }

@@ -26,8 +26,15 @@ impl Dialect for Sqlite {
         let p = |i| t.arg_u32(i);
         // `UNSIGNED BIG INT` starts with a modifier: the whole spelling decides.
         let raw = t.raw.to_ascii_lowercase();
-        let n = if t.name.is_empty() && !raw.is_empty() { raw.as_str() } else { t.name.as_str() };
-        let int = |bytes| L::Int { bytes, unsigned: t.unsigned };
+        let n = if t.name.is_empty() && !raw.is_empty() {
+            raw.as_str()
+        } else {
+            t.name.as_str()
+        };
+        let int = |bytes| L::Int {
+            bytes,
+            unsigned: t.unsigned,
+        };
         match n {
             "boolean" | "bool" => L::Bool,
             "tinyint" => int(1),
@@ -36,26 +43,50 @@ impl Dialect for Sqlite {
             "int" | "int4" => int(4),
             // INTEGER is SQLite's 8-byte integer (the rowid).
             "integer" | "bigint" | "int8" => int(8),
-            "unsigned big int" => L::Int { bytes: 8, unsigned: true },
+            "unsigned big int" => L::Int {
+                bytes: 8,
+                unsigned: true,
+            },
             "real" | "double" | "double precision" | "float" => L::Float { bytes: 8 },
-            "numeric" | "decimal" => L::Decimal { precision: p(0), scale: p(1).or(p(0).map(|_| 0)) },
-            "char" | "character" | "nchar" | "native character" => L::Char { len: p(0), unicode: true },
-            "varchar" | "nvarchar" | "varying character" | "character varying" => L::Varchar { len: p(0), unicode: true },
+            "numeric" | "decimal" => L::Decimal {
+                precision: p(0),
+                scale: p(1).or(p(0).map(|_| 0)),
+            },
+            "char" | "character" | "nchar" | "native character" => L::Char {
+                len: p(0),
+                unicode: true,
+            },
+            "varchar" | "nvarchar" | "varying character" | "character varying" => L::Varchar {
+                len: p(0),
+                unicode: true,
+            },
             "text" | "clob" => L::Text { unicode: true },
             "blob" => L::Blob,
             // No type: BLOB affinity, stores anything as given.
             "" => L::Blob,
             "date" => L::Date,
-            "time" => L::Time { precision: None, tz: false },
-            "datetime" | "timestamp" => L::Timestamp { precision: None, tz: false },
+            "time" => L::Time {
+                precision: None,
+                tz: false,
+            },
+            "datetime" | "timestamp" => L::Timestamp {
+                precision: None,
+                tz: false,
+            },
             "uuid" => L::Uuid,
             "json" => L::Json { binary: false },
             // Affinity rules (https://sqlite.org/datatype3.html §3.1).
             _ if n.contains("int") => int(8),
-            _ if n.contains("char") || n.contains("clob") || n.contains("text") => L::Text { unicode: true },
+            _ if n.contains("char") || n.contains("clob") || n.contains("text") => {
+                L::Text { unicode: true }
+            }
             _ if n.contains("blob") => L::Blob,
-            _ if n.contains("real") || n.contains("floa") || n.contains("doub") => L::Float { bytes: 8 },
-            _ => L::Other { native: t.raw.clone() },
+            _ if n.contains("real") || n.contains("floa") || n.contains("doub") => {
+                L::Float { bytes: 8 }
+            }
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -71,7 +102,11 @@ impl Dialect for Sqlite {
                 3 => Rendered::exact("MEDIUMINT"),
                 4 => Rendered::exact("INT"),
                 8 => Rendered::exact("BIGINT"),
-                _ => Rendered::exact("NUMERIC").with(Loss, RangeLoss, "SQLite guarda enteros de hasta 8 bytes; los mayores quedan como número real."),
+                _ => Rendered::exact("NUMERIC").with(
+                    Loss,
+                    RangeLoss,
+                    "SQLite guarda enteros de hasta 8 bytes; los mayores quedan como número real.",
+                ),
             },
             L::Decimal { precision, scale } => {
                 let native = match (precision, scale) {
@@ -87,32 +122,78 @@ impl Dialect for Sqlite {
                 }
             }
             L::Float { .. } => Rendered::exact("REAL"),
-            L::Money => Rendered::exact("NUMERIC").with(Loss, PrecisionLoss, "SQLite guarda la moneda como número real: puede redondear."),
-            L::Char { len, .. } => Rendered::exact(len.map_or("CHAR".into(), |n| format!("CHAR({n})"))),
+            L::Money => Rendered::exact("NUMERIC").with(
+                Loss,
+                PrecisionLoss,
+                "SQLite guarda la moneda como número real: puede redondear.",
+            ),
+            L::Char { len, .. } => {
+                Rendered::exact(len.map_or("CHAR".into(), |n| format!("CHAR({n})")))
+            }
             L::Varchar { len: Some(n), .. } => Rendered::exact(format!("VARCHAR({n})")),
             L::Varchar { len: None, .. } | L::Text { .. } => Rendered::exact("TEXT"),
             L::Binary { .. } | L::Varbinary { .. } | L::Blob => Rendered::exact("BLOB"),
-            L::Bit { .. } => Rendered::exact("BLOB").with(Warning, TypeApproximated, "SQLite no tiene cadenas de bits: se guarda como binario."),
+            L::Bit { .. } => Rendered::exact("BLOB").with(
+                Warning,
+                TypeApproximated,
+                "SQLite no tiene cadenas de bits: se guarda como binario.",
+            ),
             L::Date => Rendered::exact("DATE"),
             L::Time { tz, .. } => {
                 let r = Rendered::exact("TIME");
-                if *tz { r.with(Loss, TimeZoneLoss, "SQLite no guarda zonas horarias.") } else { r }
+                if *tz {
+                    r.with(Loss, TimeZoneLoss, "SQLite no guarda zonas horarias.")
+                } else {
+                    r
+                }
             }
             L::Timestamp { tz, .. } => {
                 let r = Rendered::exact("DATETIME");
-                if *tz { r.with(Loss, TimeZoneLoss, "SQLite no guarda zonas horarias: conviene guardar en UTC.") } else { r }
+                if *tz {
+                    r.with(
+                        Loss,
+                        TimeZoneLoss,
+                        "SQLite no guarda zonas horarias: conviene guardar en UTC.",
+                    )
+                } else {
+                    r
+                }
             }
-            L::Interval => Rendered::exact("TEXT").with(Warning, TypeApproximated, "Intervalo como texto."),
+            L::Interval => {
+                Rendered::exact("TEXT").with(Warning, TypeApproximated, "Intervalo como texto.")
+            }
             L::Year => Rendered::exact("INTEGER"),
             L::Uuid => Rendered::exact("TEXT").with(Info, TypeChanged, "UUID como texto."),
-            L::Json { .. } => Rendered::exact("TEXT").with(Info, TypeChanged, "JSON como texto (las funciones json_* de SQLite lo leen)."),
+            L::Json { .. } => Rendered::exact("TEXT").with(
+                Info,
+                TypeChanged,
+                "JSON como texto (las funciones json_* de SQLite lo leen).",
+            ),
             L::Xml => Rendered::exact("TEXT"),
-            L::Enum { values } | L::Set { values } => Rendered::exact("TEXT")
-                .with(Warning, TypeApproximated, format!("SQLite no tiene enumerados: queda como texto. Valores: {}.", values.join(", "))),
-            L::Array { .. } | L::Map { .. } => Rendered::exact("TEXT").with(Warning, TypeApproximated, "SQLite no tiene arreglos ni mapas: se guarda como JSON en texto."),
-            L::Geometry { .. } => Rendered::exact("BLOB").with(Warning, TypeApproximated, "Dato espacial como binario (SpatiaLite lo interpreta)."),
+            L::Enum { values } | L::Set { values } => Rendered::exact("TEXT").with(
+                Warning,
+                TypeApproximated,
+                format!(
+                    "SQLite no tiene enumerados: queda como texto. Valores: {}.",
+                    values.join(", ")
+                ),
+            ),
+            L::Array { .. } | L::Map { .. } => Rendered::exact("TEXT").with(
+                Warning,
+                TypeApproximated,
+                "SQLite no tiene arreglos ni mapas: se guarda como JSON en texto.",
+            ),
+            L::Geometry { .. } => Rendered::exact("BLOB").with(
+                Warning,
+                TypeApproximated,
+                "Dato espacial como binario (SpatiaLite lo interpreta).",
+            ),
             L::Inet | L::MacAddr => Rendered::exact("TEXT"),
-            L::RowVersion => Rendered::exact("BLOB").with(Warning, TypeApproximated, "SQLite no tiene versión de fila automática."),
+            L::RowVersion => Rendered::exact("BLOB").with(
+                Warning,
+                TypeApproximated,
+                "SQLite no tiene versión de fila automática.",
+            ),
             L::Other { native } => Rendered::exact(native.clone()),
         }
     }
@@ -156,7 +237,11 @@ impl Dialect for Sqlite {
     /// an integer key keeps it as `INTEGER` (SQLite's integers are all 8
     /// bytes); anything else loses it.
     fn finalize(&self, t: &mut TableSchema, report: &mut crate::issue::Report) {
-        let pk: Vec<String> = t.primary_key.as_ref().map(|k| k.columns.clone()).unwrap_or_default();
+        let pk: Vec<String> = t
+            .primary_key
+            .as_ref()
+            .map(|k| k.columns.clone())
+            .unwrap_or_default();
         for c in &mut t.columns {
             if !c.auto_increment {
                 continue;
@@ -164,9 +249,22 @@ impl Dialect for Sqlite {
             // A key of any whole-number type counts (MySQL's BIGINT UNSIGNED,
             // Oracle's NUMBER(19) / INTEGER): the rowid goes up to 2^63 - 1.
             let logical = self.parse_type(&parse(&c.data_type));
-            let whole = matches!(logical, L::Int { .. } | L::Decimal { scale: Some(0) | None, .. });
+            let whole = matches!(
+                logical,
+                L::Int { .. }
+                    | L::Decimal {
+                        scale: Some(0) | None,
+                        ..
+                    }
+            );
             if pk.len() == 1 && pk[0] == c.name && whole {
-                if !matches!(logical, L::Int { bytes: 1..=8, unsigned: false }) {
+                if !matches!(
+                    logical,
+                    L::Int {
+                        bytes: 1..=8,
+                        unsigned: false
+                    }
+                ) {
                     report.push(
                         Severity::Loss,
                         IssueCode::RangeLoss,
@@ -202,15 +300,62 @@ mod tests {
     fn parses_declared_types() {
         assert_eq!(ty("INTEGER"), L::int(8));
         assert_eq!(ty("INT"), L::int(4));
-        assert_eq!(ty("UNSIGNED BIG INT"), L::Int { bytes: 8, unsigned: true });
-        assert_eq!(ty("INT UNSIGNED"), L::Int { bytes: 4, unsigned: true });
-        assert_eq!(ty("NUMERIC(10, 2)"), L::Decimal { precision: Some(10), scale: Some(2) });
-        assert_eq!(ty("DECIMAL(10)"), L::Decimal { precision: Some(10), scale: Some(0) });
-        assert_eq!(ty("VARCHAR(20)"), L::Varchar { len: Some(20), unicode: true });
-        assert_eq!(ty("NATIVE CHARACTER(70)"), L::Char { len: Some(70), unicode: true });
-        assert_eq!(ty("DATETIME"), L::Timestamp { precision: None, tz: false });
+        assert_eq!(
+            ty("UNSIGNED BIG INT"),
+            L::Int {
+                bytes: 8,
+                unsigned: true
+            }
+        );
+        assert_eq!(
+            ty("INT UNSIGNED"),
+            L::Int {
+                bytes: 4,
+                unsigned: true
+            }
+        );
+        assert_eq!(
+            ty("NUMERIC(10, 2)"),
+            L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }
+        );
+        assert_eq!(
+            ty("DECIMAL(10)"),
+            L::Decimal {
+                precision: Some(10),
+                scale: Some(0)
+            }
+        );
+        assert_eq!(
+            ty("VARCHAR(20)"),
+            L::Varchar {
+                len: Some(20),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            ty("NATIVE CHARACTER(70)"),
+            L::Char {
+                len: Some(70),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            ty("DATETIME"),
+            L::Timestamp {
+                precision: None,
+                tz: false
+            }
+        );
         assert_eq!(ty(""), L::Blob);
-        assert_eq!(ty("STRING"), L::Other { native: "STRING".into() });
+        assert_eq!(
+            ty("STRING"),
+            L::Other {
+                native: "STRING".into()
+            }
+        );
         assert_eq!(ty("VARCHAR2(10)"), L::Text { unicode: true });
     }
 

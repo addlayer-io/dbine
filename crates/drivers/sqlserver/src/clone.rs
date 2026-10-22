@@ -53,7 +53,12 @@ const INDEX_SET: &str =
     "SET ANSI_NULLS, ANSI_PADDING, ANSI_WARNINGS, ARITHABORT, CONCAT_NULL_YIELDS_NULL, QUOTED_IDENTIFIER ON; SET NUMERIC_ROUNDABORT OFF;";
 
 /// Entry point of [`dbine_driver::Driver::clone_script`].
-pub(crate) async fn clone_script(variant: Variant, source: &mut dyn Session, target: &mut dyn Session, tables: &[ObjectRef]) -> Result<CloneScript> {
+pub(crate) async fn clone_script(
+    variant: Variant,
+    source: &mut dyn Session,
+    target: &mut dyn Session,
+    tables: &[ObjectRef],
+) -> Result<CloneScript> {
     fn own(s: &mut dyn Session) -> Option<&mut SqlServerSession> {
         s.as_any()?.downcast_mut::<SqlServerSession>()
     }
@@ -64,10 +69,14 @@ pub(crate) async fn clone_script(variant: Variant, source: &mut dyn Session, tar
         ));
     }
     let (Some(src), Some(dst)) = (own(source), own(target)) else {
-        return Err(Error::Unsupported("clonar necesita dos sesiones de SQL Server".into()));
+        return Err(Error::Unsupported(
+            "clonar necesita dos sesiones de SQL Server".into(),
+        ));
     };
     if !clones(src.variant) || !clones(dst.variant) {
-        return Err(Error::Unsupported("solo se clona entre SQL Server y Azure SQL".into()));
+        return Err(Error::Unsupported(
+            "solo se clona entre SQL Server y Azure SQL".into(),
+        ));
     }
     let mut target = read_target(dst).await?;
     let mut source = read_source(src).await?;
@@ -77,31 +86,55 @@ pub(crate) async fn clone_script(variant: Variant, source: &mut dyn Session, tar
     // text), looked up by the target's collation.
     let mut asked: HashSet<String> = HashSet::new();
     for m in &mut source.modules {
-        let Some(user) = executes_as_named(m) else { continue };
+        let Some(user) = executes_as_named(m) else {
+            continue;
+        };
         // Spelled apart from the catalog's name: the same user (the source's
         // collation) or one renamed since the module was created.
         if let Some(catalog) = m.execute_as.clone().filter(|c| *c != user) {
             m.execute_as_renamed = src
-                .rows("SELECT 1 WHERE DATABASE_PRINCIPAL_ID(@P1) = DATABASE_PRINCIPAL_ID(@P2)", &[user.as_str(), catalog.as_str()])
+                .rows(
+                    "SELECT 1 WHERE DATABASE_PRINCIPAL_ID(@P1) = DATABASE_PRINCIPAL_ID(@P2)",
+                    &[user.as_str(), catalog.as_str()],
+                )
                 .await?
                 .is_empty();
         }
         if user == "dbo" || !asked.insert(user.clone()) {
             continue;
         }
-        let principal = |cmp: &str| format!("SELECT TOP 1 name FROM sys.database_principals WHERE {cmp} AND type NOT IN ('R', 'A')");
-        if !dst.rows(&principal("name = @P1"), &[user.as_str()]).await?.is_empty() {
+        let principal = |cmp: &str| {
+            format!("SELECT TOP 1 name FROM sys.database_principals WHERE {cmp} AND type NOT IN ('R', 'A')")
+        };
+        if !dst
+            .rows(&principal("name = @P1"), &[user.as_str()])
+            .await?
+            .is_empty()
+        {
             target.users.insert(user);
-        } else if let Some(there) = dst.rows(&principal("UPPER(name) = UPPER(@P1)"), &[user.as_str()]).await?.first().and_then(|r| s(r, 0)) {
+        } else if let Some(there) = dst
+            .rows(&principal("UPPER(name) = UPPER(@P1)"), &[user.as_str()])
+            .await?
+            .first()
+            .and_then(|r| s(r, 0))
+        {
             target.users_spelled.insert(user, there);
         }
     }
     // DBCC CHECKIDENT doesn't take memory-optimized tables: their identity
     // continues from the largest value copied. Whether that's where the
     // source is (their rows are in memory: cheap to ask).
-    for t in source.tables.iter_mut().filter(|t| t.memory.is_some() && t.identity_last.is_some()) {
+    for t in source
+        .tables
+        .iter_mut()
+        .filter(|t| t.memory.is_some() && t.identity_last.is_some())
+    {
         if let Some(c) = t.columns.iter().find(|c| c.identity.is_some()) {
-            let sql = format!("SELECT CAST(MAX({}) AS nvarchar(40)) FROM {}", q(&c.name), t.qname());
+            let sql = format!(
+                "SELECT CAST(MAX({}) AS nvarchar(40)) FROM {}",
+                q(&c.name),
+                t.qname()
+            );
             t.identity_max = src.rows(&sql, &[]).await?.first().and_then(|r| s(r, 0));
         }
     }
@@ -196,7 +229,10 @@ impl Compression {
     fn from_parts(parts: Vec<(i32, String)>) -> Self {
         match parts.first() {
             None => Compression::default(),
-            Some((_, first)) if parts.iter().all(|(_, c)| c == first) => Compression { all: Some(first.clone()), parts: Vec::new() },
+            Some((_, first)) if parts.iter().all(|(_, c)| c == first) => Compression {
+                all: Some(first.clone()),
+                parts: Vec::new(),
+            },
             Some(_) => Compression { all: None, parts },
         }
     }
@@ -241,13 +277,18 @@ pub(crate) struct Column {
 
 impl Column {
     fn alias(&self) -> bool {
-        !self.assembly && !self.type_name.is_empty() && !self.type_name.eq_ignore_ascii_case(&self.base)
+        !self.assembly
+            && !self.type_name.is_empty()
+            && !self.type_name.eq_ignore_ascii_case(&self.base)
     }
 
     /// Stored as LOB data (TEXTIMAGE_ON needs one): (max) types, text,
     /// ntext, image, xml and the large CLR types.
     fn is_lob(&self) -> bool {
-        matches!(self.base.to_ascii_lowercase().as_str(), "text" | "ntext" | "image" | "xml") || self.max_length == -1
+        matches!(
+            self.base.to_ascii_lowercase().as_str(),
+            "text" | "ntext" | "image" | "xml"
+        ) || self.max_length == -1
     }
 }
 
@@ -564,16 +605,38 @@ async fn exec(c: &mut Conn, sql: &str) -> tiberius::Result<()> {
 
 fn catalog_err(e: tiberius::error::Error) -> Error {
     match &e {
-        tiberius::error::Error::Server(t) => Error::Query(format!("catálogo del origen: {}", t.message())),
+        tiberius::error::Error::Server(t) => {
+            Error::Query(format!("catálogo del origen: {}", t.message()))
+        }
         _ => Error::Query(format!("catálogo del origen: {e}")),
     }
 }
 
 async fn read_target(dst: &mut SqlServerSession) -> Result<Target> {
-    let caps = dst.rows(CAPS_SQL, &[]).await?.first().map(caps_of).unwrap_or_default();
-    let default_schema = dst.rows("SELECT SCHEMA_NAME()", &[]).await?.first().and_then(|r| s(r, 0)).unwrap_or_else(|| "dbo".into());
-    let mut t = Target { caps, default_schema, ..Default::default() };
-    for r in dst.rows("SELECT name, CAST(type AS nvarchar(2)) FROM sys.filegroups", &[]).await? {
+    let caps = dst
+        .rows(CAPS_SQL, &[])
+        .await?
+        .first()
+        .map(caps_of)
+        .unwrap_or_default();
+    let default_schema = dst
+        .rows("SELECT SCHEMA_NAME()", &[])
+        .await?
+        .first()
+        .and_then(|r| s(r, 0))
+        .unwrap_or_else(|| "dbo".into());
+    let mut t = Target {
+        caps,
+        default_schema,
+        ..Default::default()
+    };
+    for r in dst
+        .rows(
+            "SELECT name, CAST(type AS nvarchar(2)) FROM sys.filegroups",
+            &[],
+        )
+        .await?
+    {
         match st(&r, 1).as_str() {
             "FX" => t.memory_filegroup = s(&r, 0),
             "FG" => t.filegroups.push(st(&r, 0)),
@@ -594,18 +657,31 @@ async fn read_target(dst: &mut SqlServerSession) -> Result<Target> {
 async fn extra_connections(src: &SqlServerSession, db: &str) -> Vec<Conn> {
     let opens = (0..EXTRA_CONNECTIONS).map(|_| async {
         let mut c = connect_once(src.config.clone()).await.ok()?;
-        let here = simple(&mut c, "SELECT DB_NAME()").await.ok()?.first().and_then(|r| s(r, 0));
+        let here = simple(&mut c, "SELECT DB_NAME()")
+            .await
+            .ok()?
+            .first()
+            .and_then(|r| s(r, 0));
         if here.as_deref() != Some(db) {
             exec(&mut c, &format!("USE {}", q(db))).await.ok()?;
         }
         exec(&mut c, PREAMBLE).await.ok()?;
         Some(c)
     });
-    futures::future::join_all(opens).await.into_iter().flatten().collect()
+    futures::future::join_all(opens)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 async fn read_source(src: &mut SqlServerSession) -> Result<Source> {
-    let db = src.rows("SELECT DB_NAME()", &[]).await?.first().and_then(|r| s(r, 0)).unwrap_or_default();
+    let db = src
+        .rows("SELECT DB_NAME()", &[])
+        .await?
+        .first()
+        .and_then(|r| s(r, 0))
+        .unwrap_or_default();
     let mut extra = extra_connections(src, &db).await;
     if !extra.is_empty() {
         let mut conns: Vec<&mut Conn> = extra.iter_mut().collect();
@@ -629,7 +705,15 @@ async fn read_source(src: &mut SqlServerSession) -> Result<Source> {
         5 => "SNAPSHOT",
         _ => "READ COMMITTED",
     };
-    if let Err(e) = exec(&mut src.client, &format!("SET TRANSACTION ISOLATION LEVEL {level}; SET LOCK_TIMEOUT {};", saved.1)).await {
+    if let Err(e) = exec(
+        &mut src.client,
+        &format!(
+            "SET TRANSACTION ISOLATION LEVEL {level}; SET LOCK_TIMEOUT {};",
+            saved.1
+        ),
+    )
+    .await
+    {
         tracing::debug!("sqlserver clone: could not restore the session: {e}");
     }
     r
@@ -640,7 +724,11 @@ async fn read_source(src: &mut SqlServerSession) -> Result<Source> {
 async fn run_parallel(conns: &mut [&mut Conn], sqls: &[String]) -> Result<Vec<Vec<Row>>> {
     let k = conns.len().max(1);
     let futs = conns.iter_mut().enumerate().map(|(j, c)| {
-        let mine: Vec<(usize, &String)> = sqls.iter().enumerate().filter(|(i, _)| i % k == j).collect();
+        let mine: Vec<(usize, &String)> = sqls
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % k == j)
+            .collect();
         async move {
             let mut out = Vec::new();
             for (i, sql) in mine {
@@ -673,16 +761,56 @@ fn source_queries(c: &Caps) -> Vec<String> {
     } else {
         "0, NULL, NULL, NULL, NULL"
     };
-    let periods = if c.temporal { "LEFT JOIN sys.periods p ON p.object_id = t.object_id" } else { "" };
-    let retention = if c.retention { "CAST(t.history_retention_period AS int), t.history_retention_period_unit_desc" } else { "NULL, NULL" };
-    let memory = if c.memory_optimized { "t.is_memory_optimized, t.durability_desc" } else { "CAST(0 AS bit), NULL" };
-    let graph = if c.graph { "t.is_node, t.is_edge" } else { "CAST(0 AS bit), CAST(0 AS bit)" };
-    let ledger = if c.ledger { "CAST(t.ledger_type AS int)" } else { "0" };
-    let hidden = if c.hidden { "c.is_hidden" } else { "CAST(0 AS bit)" };
-    let masked = if c.masked { "(SELECT mc.masking_function FROM sys.masked_columns mc WHERE mc.object_id = c.object_id AND mc.column_id = c.column_id)" } else { "NULL" };
-    let seqkey = if c.sequential_key { "i.optimize_for_sequential_key" } else { "CAST(0 AS bit)" };
-    let delay = if c.compression_delay { "CAST(ISNULL(i.compression_delay, 0) AS int)" } else { "0" };
-    let order = if c.ordered_columnstore { "CAST(ISNULL(ic.column_store_order_ordinal, 0) AS int)" } else { "0" };
+    let periods = if c.temporal {
+        "LEFT JOIN sys.periods p ON p.object_id = t.object_id"
+    } else {
+        ""
+    };
+    let retention = if c.retention {
+        "CAST(t.history_retention_period AS int), t.history_retention_period_unit_desc"
+    } else {
+        "NULL, NULL"
+    };
+    let memory = if c.memory_optimized {
+        "t.is_memory_optimized, t.durability_desc"
+    } else {
+        "CAST(0 AS bit), NULL"
+    };
+    let graph = if c.graph {
+        "t.is_node, t.is_edge"
+    } else {
+        "CAST(0 AS bit), CAST(0 AS bit)"
+    };
+    let ledger = if c.ledger {
+        "CAST(t.ledger_type AS int)"
+    } else {
+        "0"
+    };
+    let hidden = if c.hidden {
+        "c.is_hidden"
+    } else {
+        "CAST(0 AS bit)"
+    };
+    let masked = if c.masked {
+        "(SELECT mc.masking_function FROM sys.masked_columns mc WHERE mc.object_id = c.object_id AND mc.column_id = c.column_id)"
+    } else {
+        "NULL"
+    };
+    let seqkey = if c.sequential_key {
+        "i.optimize_for_sequential_key"
+    } else {
+        "CAST(0 AS bit)"
+    };
+    let delay = if c.compression_delay {
+        "CAST(ISNULL(i.compression_delay, 0) AS int)"
+    } else {
+        "0"
+    };
+    let order = if c.ordered_columnstore {
+        "CAST(ISNULL(ic.column_store_order_ordinal, 0) AS int)"
+    } else {
+        "0"
+    };
     // Before SQL Server 2017 there's no last_used_value: a current value
     // past the start says it was used; one still at the start can't tell.
     let used = if c.last_used_value {
@@ -939,15 +1067,26 @@ fn source_queries(c: &Caps) -> Vec<String> {
 
 async fn collect(conns: &mut [&mut Conn]) -> Result<Source> {
     let caps = {
-        let c = conns.first_mut().ok_or_else(|| Error::State("sin conexión al origen".into()))?;
-        simple(c, CAPS_SQL).await.map_err(catalog_err)?.first().map(caps_of).unwrap_or_default()
+        let c = conns
+            .first_mut()
+            .ok_or_else(|| Error::State("sin conexión al origen".into()))?;
+        simple(c, CAPS_SQL)
+            .await
+            .map_err(catalog_err)?
+            .first()
+            .map(caps_of)
+            .unwrap_or_default()
     };
     let rows = run_parallel(conns, &source_queries(&caps)).await?;
     Ok(parse(rows))
 }
 
 fn identity_of(r: &Row) -> Option<Identity> {
-    b(r, 11).then(|| Identity { seed: st(r, 12), increment: st(r, 13), not_for_replication: b(r, 14) })
+    b(r, 11).then(|| Identity {
+        seed: st(r, 12),
+        increment: st(r, 13),
+        not_for_replication: b(r, 14),
+    })
 }
 
 fn column_of(r: &Row, xml: &HashMap<i32, (String, String)>) -> Column {
@@ -973,7 +1112,9 @@ fn column_of(r: &Row, xml: &HashMap<i32, (String, String)>) -> Column {
         rowguidcol: b(r, 22),
         column_set: b(r, 23),
         filestream: b(r, 24),
-        xml_schema: xml.get(&n(r, 25)).map(|(sc, nm)| (sc.clone(), nm.clone(), b(r, 26))),
+        xml_schema: xml
+            .get(&n(r, 25))
+            .map(|(sc, nm)| (sc.clone(), nm.clone(), b(r, 26))),
         hidden: b(r, 27),
         masked: s(r, 28),
     }
@@ -982,7 +1123,9 @@ fn column_of(r: &Row, xml: &HashMap<i32, (String, String)>) -> Column {
 /// A boundary value as a constant of the function's parameter type.
 fn boundary_literal(base: &str, text: &str, ty: &str) -> String {
     match base {
-        "date" | "time" | "datetime" | "datetime2" | "smalldatetime" | "datetimeoffset" => format!("CONVERT({ty}, {}, 126)", lit(text)),
+        "date" | "time" | "datetime" | "datetime2" | "smalldatetime" | "datetimeoffset" => {
+            format!("CONVERT({ty}, {}, 126)", lit(text))
+        }
         "binary" | "varbinary" => text.to_string(),
         "char" | "varchar" => format!("'{}'", text.replace('\'', "''")),
         "nchar" | "nvarchar" => lit(text),
@@ -993,7 +1136,10 @@ fn boundary_literal(base: &str, text: &str, ty: &str) -> String {
 
 fn parse(mut rows: Vec<Vec<Row>>) -> Source {
     let mut take = |i: usize| std::mem::take(&mut rows[i]);
-    let mut src = Source { schemas: take(0).iter().map(|r| st(r, 0)).collect(), ..Default::default() };
+    let mut src = Source {
+        schemas: take(0).iter().map(|r| st(r, 0)).collect(),
+        ..Default::default()
+    };
 
     let xml: HashMap<i32, (String, String)> = take(19)
         .iter()
@@ -1017,7 +1163,10 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
                 _ => None,
             },
         });
-        let space = s(&r, 3).map(|name| Space { name, column: if st(&r, 4) == "PS" { s(&r, 5) } else { None } });
+        let space = s(&r, 3).map(|name| Space {
+            name,
+            column: if st(&r, 4) == "PS" { s(&r, 5) } else { None },
+        });
         tables.insert(
             id,
             Table {
@@ -1049,18 +1198,36 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
         let ut = UserType {
             schema: st(&r, 1),
             name: st(&r, 2),
-            base: Column { base: st(&r, 5), max_length: n(&r, 6), precision: n(&r, 7), scale: n(&r, 8), nullable: b(&r, 9), ..Default::default() },
+            base: Column {
+                base: st(&r, 5),
+                max_length: n(&r, 6),
+                precision: n(&r, 7),
+                scale: n(&r, 8),
+                nullable: b(&r, 9),
+                ..Default::default()
+            },
             table: None,
         };
         if b(&r, 4) {
             // CLR type: needs its assembly.
-            src.clr_objects.push(format!("tipo {}.{}", ut.schema, ut.name));
+            src.clr_objects
+                .push(format!("tipo {}.{}", ut.schema, ut.name));
             continue;
         }
         if let (true, Some(o)) = (b(&r, 3), tt_object) {
-            table_types.insert(o, TableType { memory_optimized: b(&r, 11), ..Default::default() });
+            table_types.insert(
+                o,
+                TableType {
+                    memory_optimized: b(&r, 11),
+                    ..Default::default()
+                },
+            );
             tt_slots.push((src.types.len(), o));
-            src.types.push(UserType { table: Some(TableType::default()), base: Column::default(), ..ut });
+            src.types.push(UserType {
+                table: Some(TableType::default()),
+                base: Column::default(),
+                ..ut
+            });
         } else {
             src.types.push(ut);
         }
@@ -1133,7 +1300,8 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
     for r in take(4) {
         let key = (n(&r, 0), n(&r, 1));
         let Some(i) = idx.get_mut(&key) else { continue };
-        let (col, key_ordinal, desc, included, part, order) = (st(&r, 2), n(&r, 3), b(&r, 4), b(&r, 5), n(&r, 6), n(&r, 7));
+        let (col, key_ordinal, desc, included, part, order) =
+            (st(&r, 2), n(&r, 3), b(&r, 4), b(&r, 5), n(&r, 6), n(&r, 7));
         if part == 1 {
             if let Some(sp) = &mut i.space {
                 sp.column = Some(col.clone());
@@ -1180,7 +1348,10 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
     }
     let mut parts: BTreeMap<(i32, i32), Vec<(i32, String)>> = BTreeMap::new();
     for r in take(5) {
-        parts.entry((n(&r, 0), n(&r, 1))).or_default().push((n(&r, 2), st(&r, 3)));
+        parts
+            .entry((n(&r, 0), n(&r, 1)))
+            .or_default()
+            .push((n(&r, 2), st(&r, 3)));
     }
     for (key, p) in parts {
         let c = Compression::from_parts(p);
@@ -1196,7 +1367,10 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
         // A partition scheme whose column wasn't found (shouldn't happen)
         // is left as a plain data space name.
         let i = Index {
-            space: i.space.map(|sp| Space { column: sp.column.filter(|c| !c.is_empty()), ..sp }),
+            space: i.space.map(|sp| Space {
+                column: sp.column.filter(|c| !c.is_empty()),
+                ..sp
+            }),
             ..i
         };
         if let Some(t) = tables.get_mut(&obj) {
@@ -1220,7 +1394,12 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
         };
         let name = st(&r, 1);
         if list.last().map(|x| &x.name) != Some(&name) {
-            list.push(Stat { name, filter: s(&r, 2), no_recompute: b(&r, 3), columns: Vec::new() });
+            list.push(Stat {
+                name,
+                filter: s(&r, 2),
+                no_recompute: b(&r, 3),
+                columns: Vec::new(),
+            });
         }
         if let Some(x) = list.last_mut() {
             x.columns.push(st(&r, 4));
@@ -1245,7 +1424,9 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
     }
 
     for r in take(8) {
-        let Some(t) = tables.get_mut(&n(&r, 0)) else { continue };
+        let Some(t) = tables.get_mut(&n(&r, 0)) else {
+            continue;
+        };
         let name = st(&r, 1);
         if t.fks.last().map(|x| &x.name) != Some(&name) {
             t.fks.push(ForeignKey {
@@ -1268,7 +1449,10 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
 
     let mut orders: HashMap<i32, Vec<(String, String)>> = HashMap::new();
     for r in take(10) {
-        orders.entry(n(&r, 0)).or_default().push((if b(&r, 2) { "First" } else { "Last" }.into(), st(&r, 1)));
+        orders
+            .entry(n(&r, 0))
+            .or_default()
+            .push((if b(&r, 2) { "First" } else { "Last" }.into(), st(&r, 1)));
     }
     for r in take(9) {
         let id = n(&r, 0);
@@ -1291,7 +1475,11 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
     for r in take(11) {
         let (from, column_level, to) = (n(&r, 0), b(&r, 1), n(&r, 2));
         if column_level {
-            let u = ColumnUse { column: st(&r, 3), default: b(&r, 4), function: to };
+            let u = ColumnUse {
+                column: st(&r, 3),
+                default: b(&r, 4),
+                function: to,
+            };
             let list = src.column_functions.entry(from).or_default();
             if !list.contains(&u) {
                 list.push(u);
@@ -1331,7 +1519,10 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
             unknown_use: b(&r, 14),
         });
     }
-    src.synonyms = take(14).iter().map(|r| (st(r, 0), st(r, 1), st(r, 2))).collect();
+    src.synonyms = take(14)
+        .iter()
+        .map(|r| (st(r, 0), st(r, 1), st(r, 2)))
+        .collect();
 
     for r in take(15) {
         let name = st(&r, 0);
@@ -1339,7 +1530,13 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
             src.functions.push(PartitionFunction {
                 name,
                 range_right: b(&r, 1),
-                param: Column { base: st(&r, 2), max_length: n(&r, 3), precision: n(&r, 4), scale: n(&r, 5), ..Default::default() },
+                param: Column {
+                    base: st(&r, 2),
+                    max_length: n(&r, 3),
+                    precision: n(&r, 4),
+                    scale: n(&r, 5),
+                    ..Default::default()
+                },
                 boundaries: Vec::new(),
             });
         }
@@ -1351,7 +1548,11 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
     for r in take(16) {
         let name = st(&r, 0);
         if src.schemes.last().map(|p| &p.name) != Some(&name) {
-            src.schemes.push(PartitionScheme { name, function: st(&r, 1), filegroups: Vec::new() });
+            src.schemes.push(PartitionScheme {
+                name,
+                function: st(&r, 1),
+                filegroups: Vec::new(),
+            });
         }
         if let Some(ps) = src.schemes.last_mut() {
             ps.filegroups.push(st(&r, 2));
@@ -1367,7 +1568,9 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
             3 => levels.push(("SCHEMA".to_string(), schema.unwrap_or_default())),
             _ => {
                 // An object sp_addextendedproperty can't address: skipped.
-                let (Some(schema), Some(l1t), Some(l1n)) = (schema, l1t, l1n) else { continue };
+                let (Some(schema), Some(l1t), Some(l1n)) = (schema, l1t, l1n) else {
+                    continue;
+                };
                 levels.push(("SCHEMA".into(), schema));
                 levels.push((l1t, l1n));
                 if let (Some(t), Some(nm)) = (l2t, l2n) {
@@ -1375,7 +1578,12 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
                 }
             }
         }
-        src.properties.push(ExtendedProperty { name: st(&r, 1), value: st(&r, 2), base_type: st(&r, 3), levels });
+        src.properties.push(ExtendedProperty {
+            name: st(&r, 1),
+            value: st(&r, 2),
+            base_type: st(&r, 3),
+            levels,
+        });
     }
 
     if let Some(r) = take(18).first() {
@@ -1422,7 +1630,12 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
             .tables
             .iter()
             .position(|t| key_eq((&t.schema, &t.name), (schema, &r.name)))
-            .ok_or_else(|| Error::Query(format!("La tabla «{schema}.{}» no existe en el origen", r.name)))?;
+            .ok_or_else(|| {
+                Error::Query(format!(
+                    "La tabla «{schema}.{}» no existe en el origen",
+                    r.name
+                ))
+            })?;
         picked.push(src.tables.swap_remove(pos));
     }
     // Graph and ledger tables: the engine writes their internal columns
@@ -1451,30 +1664,68 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
             ),
         });
     }
-    let cloned = |schema: &str, name: &str, list: &[Table]| list.iter().any(|t| key_eq((&t.schema, &t.name), (schema, name)));
+    let cloned = |schema: &str, name: &str, list: &[Table]| {
+        list.iter()
+            .any(|t| key_eq((&t.schema, &t.name), (schema, name)))
+    };
     let table_ids: HashSet<i32> = picked.iter().map(|t| t.id).collect();
     // Every source table's id (the ones not cloned included).
-    let all_table_ids: HashSet<i32> = picked.iter().chain(&excluded).chain(src.tables.iter()).map(|t| t.id).collect();
+    let all_table_ids: HashSet<i32> = picked
+        .iter()
+        .chain(&excluded)
+        .chain(src.tables.iter())
+        .map(|t| t.id)
+        .collect();
     // Every name the source uses in the objects' namespace, lowercase.
     let taken: HashSet<(String, String)> = picked
         .iter()
         .chain(&excluded)
         .chain(src.tables.iter())
         .map(|t| (t.schema.to_lowercase(), t.name.to_lowercase()))
-        .chain(src.modules.iter().map(|m| (m.schema.to_lowercase(), m.name.to_lowercase())))
-        .chain(src.synonyms.iter().map(|(sc, nm, _)| (sc.to_lowercase(), nm.to_lowercase())))
-        .chain(src.sequences.iter().map(|q| (q.schema.to_lowercase(), q.name.to_lowercase())))
+        .chain(
+            src.modules
+                .iter()
+                .map(|m| (m.schema.to_lowercase(), m.name.to_lowercase())),
+        )
+        .chain(
+            src.synonyms
+                .iter()
+                .map(|(sc, nm, _)| (sc.to_lowercase(), nm.to_lowercase())),
+        )
+        .chain(
+            src.sequences
+                .iter()
+                .map(|q| (q.schema.to_lowercase(), q.name.to_lowercase())),
+        )
         .collect();
-    let place = Placement { default_schema: &target.default_schema, taken: &taken };
+    let place = Placement {
+        default_schema: &target.default_schema,
+        taken: &taken,
+    };
 
     // ---- what the target can't take: adapted, and said.
     adapt_memory_optimized(&mut picked, target, &mut notes);
-    let view_names: HashMap<i32, String> = src.modules.iter().filter(|m| m.kind == "V").map(|m| (m.id, m.qname())).collect();
-    adapt_features(&mut picked, &mut src.view_indexes, &view_names, target, &mut notes);
+    let view_names: HashMap<i32, String> = src
+        .modules
+        .iter()
+        .filter(|m| m.kind == "V")
+        .map(|m| (m.id, m.qname()))
+        .collect();
+    adapt_features(
+        &mut picked,
+        &mut src.view_indexes,
+        &view_names,
+        target,
+        &mut notes,
+    );
 
     let mut before = Vec::new();
     for sc in &src.schemas {
-        before.push(format!("IF SCHEMA_ID({}) IS NULL EXEC({});", lit(sc), lit(&format!("CREATE SCHEMA {}", q(sc)))));
+        before.push(format!(
+            "IF SCHEMA_ID({}) IS NULL EXEC({});",
+            lit(sc),
+            lit(&format!("CREATE SCHEMA {}", q(sc)))
+        ));
     }
 
     // Filegroups and partition schemes the cloned tables use.
@@ -1494,17 +1745,38 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                 }
             }
         }
-        src.schemes.iter().filter(|p| names.iter().any(|x| x.eq_ignore_ascii_case(&p.name))).cloned().collect()
+        src.schemes
+            .iter()
+            .filter(|p| names.iter().any(|x| x.eq_ignore_ascii_case(&p.name)))
+            .cloned()
+            .collect()
     };
     let mut schemes = used_schemes;
-    let missing = adapt_filegroups(&mut picked, &mut src.view_indexes, &mut schemes, target, &mut notes);
+    let missing = adapt_filegroups(
+        &mut picked,
+        &mut src.view_indexes,
+        &mut schemes,
+        target,
+        &mut notes,
+    );
     for fg in &missing {
         before.push(create_filegroup(fg));
     }
-    if picked.iter().any(|t| t.memory.is_some()) && target.memory_filegroup.is_none() && !tc.azure_db() {
-        before.push(create_memory_filegroup(src.memory_filegroup.as_deref().unwrap_or("MEMORY_OPTIMIZED_DATA")));
+    if picked.iter().any(|t| t.memory.is_some())
+        && target.memory_filegroup.is_none()
+        && !tc.azure_db()
+    {
+        before.push(create_memory_filegroup(
+            src.memory_filegroup
+                .as_deref()
+                .unwrap_or("MEMORY_OPTIMIZED_DATA"),
+        ));
     }
-    for pf in src.functions.iter().filter(|f| schemes.iter().any(|p| p.function.eq_ignore_ascii_case(&f.name))) {
+    for pf in src.functions.iter().filter(|f| {
+        schemes
+            .iter()
+            .any(|p| p.function.eq_ignore_ascii_case(&f.name))
+    }) {
         before.push(partition_function(pf));
     }
     for ps in &schemes {
@@ -1527,7 +1799,12 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
     }
 
     // ---- code: which objects come along, in dependency order.
-    let module_ids: HashMap<i32, usize> = src.modules.iter().enumerate().map(|(i, m)| (m.id, i)).collect();
+    let module_ids: HashMap<i32, usize> = src
+        .modules
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.id, i))
+        .collect();
     let mut skipped: HashSet<i32> = HashSet::new();
     // Why a module isn't cloned, when it's the module itself (not tables
     // left out): the module where it starts and its cause, repeated by
@@ -1535,11 +1812,18 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
     let mut why: HashMap<i32, (String, String)> = HashMap::new();
     for m in &src.modules {
         if m.definition.is_none() {
-            let cause = "su definición está cifrada (WITH ENCRYPTION) o no se puede leer".to_string();
-            notes.push(format!("{} ({}): {cause}; no se clona", m.qname(), kind_name(&m.kind)));
+            let cause =
+                "su definición está cifrada (WITH ENCRYPTION) o no se puede leer".to_string();
+            notes.push(format!(
+                "{} ({}): {cause}; no se clona",
+                m.qname(),
+                kind_name(&m.kind)
+            ));
             skipped.insert(m.id);
             why.insert(m.id, (m.qname(), cause));
-        } else if let Some((user, cause)) = executes_as_named(m).and_then(|u| execute_as_problem(m, &u, target).map(|c| (u, c))) {
+        } else if let Some((user, cause)) =
+            executes_as_named(m).and_then(|u| execute_as_problem(m, &u, target).map(|c| (u, c)))
+        {
             notes.push(format!(
                 "{} ({}): se declara WITH EXECUTE AS {} y no se clona: {cause}",
                 m.qname(),
@@ -1560,11 +1844,19 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                 continue;
             }
             let missing_table = matches!(m.kind.as_str(), "V" | "FN" | "IF" | "TF")
-                && src.deps.get(&m.id).is_some_and(|d| d.iter().any(|x| all_table_ids.contains(x) && !table_ids.contains(x)));
-            let missing_module = src.deps.get(&m.id).is_some_and(|d| d.iter().any(|x| skipped.contains(x)))
+                && src.deps.get(&m.id).is_some_and(|d| {
+                    d.iter()
+                        .any(|x| all_table_ids.contains(x) && !table_ids.contains(x))
+                });
+            let missing_module = src
+                .deps
+                .get(&m.id)
+                .is_some_and(|d| d.iter().any(|x| skipped.contains(x)))
                 && m.kind != "P";
             let orphan_trigger = m.kind == "TR"
-                && m.parent.as_ref().is_some_and(|(p, _, _)| (all_table_ids.contains(p) && !table_ids.contains(p)) || skipped.contains(p));
+                && m.parent.as_ref().is_some_and(|(p, _, _)| {
+                    (all_table_ids.contains(p) && !table_ids.contains(p)) || skipped.contains(p)
+                });
             if missing_table || missing_module || orphan_trigger {
                 skipped.insert(m.id);
                 changed = true;
@@ -1572,9 +1864,16 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                 // is said (and passed on), adding the tables when those
                 // are missing too (fixing the cause alone wouldn't bring
                 // it); otherwise, the tables.
-                let skipped_deps: Vec<i32> =
-                    src.deps.get(&m.id).into_iter().flatten().copied().filter(|x| skipped.contains(x) && *x != m.id).collect();
-                let also_tables = missing_table || skipped_deps.iter().any(|x| !why.contains_key(x));
+                let skipped_deps: Vec<i32> = src
+                    .deps
+                    .get(&m.id)
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .filter(|x| skipped.contains(x) && *x != m.id)
+                    .collect();
+                let also_tables =
+                    missing_table || skipped_deps.iter().any(|x| !why.contains_key(x));
                 let cause = skipped_deps
                     .iter()
                     .filter(|x| why.contains_key(x))
@@ -1582,7 +1881,14 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                     .and_then(|x| why.get(x))
                     .filter(|_| !orphan_trigger)
                     .map(|(root, c)| {
-                        let c = if also_tables { format!("{c}; además, {} usa tablas u objetos que no se clonan", m.qname()) } else { c.clone() };
+                        let c = if also_tables {
+                            format!(
+                                "{c}; además, {} usa tablas u objetos que no se clonan",
+                                m.qname()
+                            )
+                        } else {
+                            c.clone()
+                        };
                         (root.clone(), c)
                     });
                 if m.definition.is_some() && !orphan_trigger {
@@ -1592,9 +1898,11 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                             m.qname(),
                             kind_name(&m.kind)
                         )),
-                        None => {
-                            notes.push(format!("{} ({}): usa tablas u objetos que no se clonan; no se crea", m.qname(), kind_name(&m.kind)))
-                        }
+                        None => notes.push(format!(
+                            "{} ({}): usa tablas u objetos que no se clonan; no se crea",
+                            m.qname(),
+                            kind_name(&m.kind)
+                        )),
                     }
                 }
                 if let Some(c) = cause {
@@ -1617,7 +1925,9 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
         let (mut mods, mut tabs) = (HashSet::new(), HashSet::new());
         let mut stack = vec![start];
         while let Some(id) = stack.pop() {
-            let Some(&i) = module_ids.get(&id) else { continue };
+            let Some(&i) = module_ids.get(&id) else {
+                continue;
+            };
             if !mods.insert(id) {
                 continue;
             }
@@ -1649,13 +1959,18 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
             if root == &f.qname() {
                 format!("{root}, que no se clona: {c}")
             } else {
-                format!("{}, que depende de {root}, y {root} no se clona: {c}", f.qname())
+                format!(
+                    "{}, que depende de {root}, y {root} no se clona: {c}",
+                    f.qname()
+                )
             }
         })
     };
     for t in &picked {
         for u in src.column_functions.get(&t.id).into_iter().flatten() {
-            let Some(&fi) = module_ids.get(&u.function) else { continue };
+            let Some(&fi) = module_ids.get(&u.function) else {
+                continue;
+            };
             let f = &src.modules[fi];
             let (mods, tabs) = needs(u.function);
             if mods.iter().any(|x| skipped.contains(x)) {
@@ -1668,7 +1983,11 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                             u.column
                         )));
                     }
-                    notes.push(format!("{}: la columna [{}] queda sin su DEFAULT porque usa {reason}", t.qname(), u.column));
+                    notes.push(format!(
+                        "{}: la columna [{}] queda sin su DEFAULT porque usa {reason}",
+                        t.qname(),
+                        u.column
+                    ));
                     dropped_defaults.push((t.id, u.column.clone()));
                     continue;
                 }
@@ -1691,7 +2010,11 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                 dropped_defaults.push((t.id, u.column.clone()));
                 continue;
             }
-            let has_view = mods.iter().any(|x| module_ids.get(x).is_some_and(|&i| src.modules[i].kind == "V"));
+            let has_view = mods.iter().any(|x| {
+                module_ids
+                    .get(x)
+                    .is_some_and(|&i| src.modules[i].kind == "V")
+            });
             if tabs.is_empty() && !has_view {
                 early.extend(mods);
             } else if tabs.contains(&t.id) {
@@ -1717,7 +2040,11 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
     let mut remaining: Vec<Table> = std::mem::take(&mut picked);
     let mut placed: HashSet<i32> = HashSet::new();
     while !remaining.is_empty() {
-        let ready = remaining.iter().position(|t| wait_for.get(&t.id).is_none_or(|d| d.iter().all(|x| placed.contains(x))));
+        let ready = remaining.iter().position(|t| {
+            wait_for
+                .get(&t.id)
+                .is_none_or(|d| d.iter().all(|x| placed.contains(x)))
+        });
         let t = match ready {
             Some(p) => remaining.remove(p),
             None => {
@@ -1745,7 +2072,8 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
     let mut detached_sql = Vec::new();
     for t in picked.iter_mut() {
         for c in t.columns.iter_mut() {
-            let is = |list: &[(i32, String)]| list.iter().any(|(id, col)| *id == t.id && *col == c.name);
+            let is =
+                |list: &[(i32, String)]| list.iter().any(|(id, col)| *id == t.id && *col == c.name);
             if is(&dropped_defaults) {
                 c.default = None;
             } else if is(&detach) {
@@ -1761,7 +2089,12 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
             }
         }
     }
-    let late: HashSet<i32> = prefix.values().flatten().copied().filter(|id| !early.contains(id)).collect();
+    let late: HashSet<i32> = prefix
+        .values()
+        .flatten()
+        .copied()
+        .filter(|id| !early.contains(id))
+        .collect();
     let order = module_order(&src.modules, &src.deps);
     for &i in &order {
         let m = &src.modules[i];
@@ -1784,7 +2117,11 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
         }
         create.push(create_table(t));
         out_tables.push(CloneTable {
-            table: ObjectRef { kind: "table".into(), schema: Some(t.schema.clone()), name: t.name.clone() },
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: Some(t.schema.clone()),
+                name: t.name.clone(),
+            },
             create: create.join("\n"),
             before_data: Vec::new(),
             after_data: after_data(t, &mut notes),
@@ -1820,7 +2157,11 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
         }
     }
     for (sc, name, base) in &src.synonyms {
-        after.push(format!("IF OBJECT_ID({}, 'SN') IS NULL\n    CREATE SYNONYM {} FOR {base};", lit(&qn(sc, name)), qn(sc, name)));
+        after.push(format!(
+            "IF OBJECT_ID({}, 'SN') IS NULL\n    CREATE SYNONYM {} FOR {base};",
+            lit(&qn(sc, name)),
+            qn(sc, name)
+        ));
     }
     let mut triggers = Vec::new();
     for &i in &order {
@@ -1837,7 +2178,8 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
             after.extend(module_sql(m, &place, &mut notes));
         }
         if m.kind == "V" {
-            let mut indexes: Vec<&Index> = src.view_indexes.get(&m.id).into_iter().flatten().collect();
+            let mut indexes: Vec<&Index> =
+                src.view_indexes.get(&m.id).into_iter().flatten().collect();
             indexes.sort_by_key(|i| i.rank());
             for i in indexes {
                 after.push(create_index(&m.qname(), i));
@@ -1855,12 +2197,27 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
     // out, saying why.
     for t in &picked {
         for ck in &t.checks {
-            let gone = src.deps.get(&ck.id).into_iter().flatten().filter(|x| skipped.contains(x)).min().and_then(|x| module_ids.get(x));
+            let gone = src
+                .deps
+                .get(&ck.id)
+                .into_iter()
+                .flatten()
+                .filter(|x| skipped.contains(x))
+                .min()
+                .and_then(|x| module_ids.get(x));
             if let Some(&fi) = gone {
                 let f = &src.modules[fi];
-                let reason =
-                    reason_of(f).unwrap_or_else(|| format!("{}, que no se clona (usa tablas u objetos que no se clonan)", f.qname()));
-                notes.push(format!("{}: la restricción CHECK [{}] no se crea porque usa {reason}", t.qname(), ck.name));
+                let reason = reason_of(f).unwrap_or_else(|| {
+                    format!(
+                        "{}, que no se clona (usa tablas u objetos que no se clonan)",
+                        f.qname()
+                    )
+                });
+                notes.push(format!(
+                    "{}: la restricción CHECK [{}] no se crea porque usa {reason}",
+                    t.qname(),
+                    ck.name
+                ));
                 continue;
             }
             after.push(check_constraint(t, ck));
@@ -1909,7 +2266,11 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
     for t in &picked {
         emitted.insert(key(&t.schema, &t.name));
     }
-    for m in src.modules.iter().filter(|m| !skipped.contains(&m.id) && m.kind != "TR") {
+    for m in src
+        .modules
+        .iter()
+        .filter(|m| !skipped.contains(&m.id) && m.kind != "TR")
+    {
         emitted.insert(key(&m.schema, &m.name));
     }
     for (sc, name, _) in &src.synonyms {
@@ -1919,10 +2280,13 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
         emitted.insert(key(&sq.schema, &sq.name));
     }
     for p in &src.properties {
-        let object_level = p.levels.len() >= 2 && !matches!(p.levels[1].0.as_str(), "TYPE" | "XML SCHEMA COLLECTION");
+        let object_level = p.levels.len() >= 2
+            && !matches!(p.levels[1].0.as_str(), "TYPE" | "XML SCHEMA COLLECTION");
         // DBine's own bookkeeping (delta's untrusted-key mark) belongs to
         // the source's sync state, not to its schema.
-        if (object_level && !emitted.contains(&key(&p.levels[0].1, &p.levels[1].1))) || p.name.eq_ignore_ascii_case(UNTRUSTED_MARK) {
+        if (object_level && !emitted.contains(&key(&p.levels[0].1, &p.levels[1].1)))
+            || p.name.eq_ignore_ascii_case(UNTRUSTED_MARK)
+        {
             continue;
         }
         after.push(extended_property(p));
@@ -1936,14 +2300,22 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
         ));
     }
     if !src.clr_objects.is_empty() {
-        notes.push(format!("objetos CLR que no se clonan (necesitan su assembly): {}", src.clr_objects.join(", ")));
+        notes.push(format!(
+            "objetos CLR que no se clonan (necesitan su assembly): {}",
+            src.clr_objects.join(", ")
+        ));
     }
     if src.principals > 0 {
         notes.push("los usuarios, roles y permisos de la base no forman parte del clon".into());
     }
     let mut seen = HashSet::new();
     notes.retain(|n| seen.insert(n.clone()));
-    Ok(CloneScript { before, tables: out_tables, after, notes })
+    Ok(CloneScript {
+        before,
+        tables: out_tables,
+        after,
+        notes,
+    })
 }
 
 fn kind_name(kind: &str) -> &'static str {
@@ -1968,16 +2340,27 @@ fn module_order(modules: &[Module], deps: &HashMap<i32, HashSet<i32>>) -> Vec<us
     let ids: HashMap<i32, usize> = modules.iter().enumerate().map(|(i, m)| (m.id, i)).collect();
     let mut sorted: Vec<usize> = (0..modules.len()).collect();
     sorted.sort_by(|&a, &b| {
-        (rank(&modules[a]), modules[a].schema.to_lowercase(), modules[a].name.to_lowercase()).cmp(&(
-            rank(&modules[b]),
-            modules[b].schema.to_lowercase(),
-            modules[b].name.to_lowercase(),
-        ))
+        (
+            rank(&modules[a]),
+            modules[a].schema.to_lowercase(),
+            modules[a].name.to_lowercase(),
+        )
+            .cmp(&(
+                rank(&modules[b]),
+                modules[b].schema.to_lowercase(),
+                modules[b].name.to_lowercase(),
+            ))
     });
     // A trigger also waits for its parent (a view with INSTEAD OF).
     let needs = |i: usize| -> HashSet<usize> {
         let m = &modules[i];
-        let mut v: HashSet<usize> = deps.get(&m.id).into_iter().flatten().filter_map(|d| ids.get(d).copied()).filter(|&d| d != i).collect();
+        let mut v: HashSet<usize> = deps
+            .get(&m.id)
+            .into_iter()
+            .flatten()
+            .filter_map(|d| ids.get(d).copied())
+            .filter(|&d| d != i)
+            .collect();
         if let Some((p, _, _)) = &m.parent {
             v.extend(ids.get(p).copied());
         }
@@ -1999,8 +2382,11 @@ fn module_order(modules: &[Module], deps: &HashMap<i32, HashSet<i32>>) -> Vec<us
             users[d].push(i);
         }
     }
-    let mut ready: std::collections::BinaryHeap<std::cmp::Reverse<(usize, usize)>> =
-        (0..modules.len()).filter(|&i| waiting[i] == 0).map(|i| std::cmp::Reverse((pos[i], i))).collect();
+    let mut ready: std::collections::BinaryHeap<std::cmp::Reverse<(usize, usize)>> = (0..modules
+        .len())
+        .filter(|&i| waiting[i] == 0)
+        .map(|i| std::cmp::Reverse((pos[i], i)))
+        .collect();
     let mut done = vec![false; modules.len()];
     let mut out = Vec::with_capacity(modules.len());
     while let Some(std::cmp::Reverse((_, i))) = ready.pop() {
@@ -2019,7 +2405,10 @@ fn module_order(modules: &[Module], deps: &HashMap<i32, HashSet<i32>>) -> Vec<us
 
 /// Every data space a (disk-based) table's storage names.
 fn spaces(t: &Table) -> impl Iterator<Item = &Space> {
-    t.space.iter().chain(t.pk.iter().flat_map(|p| p.space.iter())).chain(t.indexes.iter().flat_map(|i| i.space.iter()))
+    t.space
+        .iter()
+        .chain(t.pk.iter().flat_map(|p| p.space.iter()))
+        .chain(t.indexes.iter().flat_map(|i| i.space.iter()))
 }
 
 /// Memory-optimized tables need In-Memory OLTP on the target; without it
@@ -2094,7 +2483,10 @@ fn adapt_features(
         }
     }
     if !ordered.is_empty() {
-        notes.push(format!("el destino no tiene columnstore ordenado (SQL Server 2022): sin ORDER en {}", ordered.join(", ")));
+        notes.push(format!(
+            "el destino no tiene columnstore ordenado (SQL Server 2022): sin ORDER en {}",
+            ordered.join(", ")
+        ));
     }
     if !ordered_nc.is_empty() {
         notes.push(format!(
@@ -2103,10 +2495,16 @@ fn adapt_features(
         ));
     }
     if !seqkey.is_empty() {
-        notes.push(format!("el destino no tiene OPTIMIZE_FOR_SEQUENTIAL_KEY (SQL Server 2019): se omite en {}", seqkey.join(", ")));
+        notes.push(format!(
+            "el destino no tiene OPTIMIZE_FOR_SEQUENTIAL_KEY (SQL Server 2019): se omite en {}",
+            seqkey.join(", ")
+        ));
     }
     if !delay.is_empty() {
-        notes.push(format!("el destino no tiene COMPRESSION_DELAY: se omite en {}", delay.join(", ")));
+        notes.push(format!(
+            "el destino no tiene COMPRESSION_DELAY: se omite en {}",
+            delay.join(", ")
+        ));
     }
     let mut no_temporal = Vec::new();
     let mut no_retention = Vec::new();
@@ -2235,7 +2633,11 @@ fn create_memory_filegroup(name: &str) -> String {
 
 fn add_filegroup(name: &str, contains: &str, ext: &str) -> String {
     let fg = name.replace('\'', "''");
-    let guard = if contains.is_empty() { format!("name = N'{fg}'") } else { "type = 'FX'".into() };
+    let guard = if contains.is_empty() {
+        format!("name = N'{fg}'")
+    } else {
+        "type = 'FX'".into()
+    };
     format!(
         "IF NOT EXISTS (SELECT 1 FROM sys.filegroups WHERE {guard})
 BEGIN
@@ -2316,13 +2718,25 @@ fn type_sql(c: &Column) -> String {
 /// typed XML with its collection.
 fn declared_type(c: &Column) -> String {
     if c.assembly {
-        return if c.user_defined { qn(&c.type_schema, &c.type_name) } else { c.type_name.clone() };
+        return if c.user_defined {
+            qn(&c.type_schema, &c.type_name)
+        } else {
+            c.type_name.clone()
+        };
     }
     if c.alias() {
-        return if c.user_defined { qn(&c.type_schema, &c.type_name) } else { c.type_name.clone() };
+        return if c.user_defined {
+            qn(&c.type_schema, &c.type_name)
+        } else {
+            c.type_name.clone()
+        };
     }
     if let Some((sc, name, document)) = &c.xml_schema {
-        return format!("xml({} {})", if *document { "DOCUMENT" } else { "CONTENT" }, qn(sc, name));
+        return format!(
+            "xml({} {})",
+            if *document { "DOCUMENT" } else { "CONTENT" },
+            qn(sc, name)
+        );
     }
     type_sql(c)
 }
@@ -2346,7 +2760,10 @@ fn column_sql(c: &Column) -> String {
         s.push_str(" FILESTREAM");
     }
     if let (Some(coll), false) = (c.collation.as_deref(), c.alias()) {
-        if coll.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+        if coll
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
             s.push_str(&format!(" COLLATE {coll}"));
         }
     }
@@ -2354,18 +2771,28 @@ fn column_sql(c: &Column) -> String {
         s.push_str(" SPARSE");
     }
     if let Some(m) = &c.masked {
-        s.push_str(&format!(" MASKED WITH (FUNCTION = '{}')", m.replace('\'', "''")));
+        s.push_str(&format!(
+            " MASKED WITH (FUNCTION = '{}')",
+            m.replace('\'', "''")
+        ));
     }
     if let Some(id) = &c.identity {
         let num = |v: &str| {
             let v = v.trim();
-            if !v.is_empty() && v.chars().all(|ch| ch.is_ascii_digit() || ch == '-' || ch == '.') {
+            if !v.is_empty()
+                && v.chars()
+                    .all(|ch| ch.is_ascii_digit() || ch == '-' || ch == '.')
+            {
                 v.to_string()
             } else {
                 "1".into()
             }
         };
-        s.push_str(&format!(" IDENTITY({}, {})", num(&id.seed), num(&id.increment)));
+        s.push_str(&format!(
+            " IDENTITY({}, {})",
+            num(&id.seed),
+            num(&id.increment)
+        ));
         if id.not_for_replication {
             s.push_str(" NOT FOR REPLICATION");
         }
@@ -2383,14 +2810,21 @@ fn column_sql(c: &Column) -> String {
 /// ` ON [scheme]([column])` or ` ON [filegroup]`.
 fn on_clause(sp: Option<&Space>) -> String {
     match sp {
-        Some(Space { name, column: Some(c) }) => format!(" ON {}({})", q(name), q(c)),
+        Some(Space {
+            name,
+            column: Some(c),
+        }) => format!(" ON {}({})", q(name), q(c)),
         Some(Space { name, column: None }) => format!(" ON {}", q(name)),
         None => String::new(),
     }
 }
 
 fn key_list(i: &Index) -> String {
-    i.keys.iter().map(|(c, d)| format!("{} {}", q(c), if *d { "DESC" } else { "ASC" })).collect::<Vec<_>>().join(", ")
+    i.keys
+        .iter()
+        .map(|(c, d)| format!("{} {}", q(c), if *d { "DESC" } else { "ASC" }))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn plain_list(cols: &[String]) -> String {
@@ -2410,14 +2844,21 @@ fn compression_on_partitions(parts: &[(i32, String)]) -> Vec<String> {
     }
     groups
         .into_iter()
-        .map(|(c, ns)| format!("DATA_COMPRESSION = {c} ON PARTITIONS ({})", ns.iter().map(i32::to_string).collect::<Vec<_>>().join(", ")))
+        .map(|(c, ns)| {
+            format!(
+                "DATA_COMPRESSION = {c} ON PARTITIONS ({})",
+                ns.iter().map(i32::to_string).collect::<Vec<_>>().join(", ")
+            )
+        })
         .collect()
 }
 
 /// Rowstore compression options.
 fn rowstore_compression(c: &Compression) -> Vec<String> {
     match &c.all {
-        Some(x) if x.eq_ignore_ascii_case("ROW") || x.eq_ignore_ascii_case("PAGE") => vec![format!("DATA_COMPRESSION = {}", x.to_ascii_uppercase())],
+        Some(x) if x.eq_ignore_ascii_case("ROW") || x.eq_ignore_ascii_case("PAGE") => {
+            vec![format!("DATA_COMPRESSION = {}", x.to_ascii_uppercase())]
+        }
         Some(_) => Vec::new(),
         None => compression_on_partitions(&c.parts),
     }
@@ -2465,7 +2906,10 @@ fn with(w: Vec<String>) -> String {
 fn memory_index(i: &Index) -> String {
     match i.bucket_count {
         Some(n) if i.kind == 7 => {
-            format!("NONCLUSTERED HASH ({}) WITH (BUCKET_COUNT = {n})", plain_list(&i.keys.iter().map(|(c, _)| c.clone()).collect::<Vec<_>>()))
+            format!(
+                "NONCLUSTERED HASH ({}) WITH (BUCKET_COUNT = {n})",
+                plain_list(&i.keys.iter().map(|(c, _)| c.clone()).collect::<Vec<_>>())
+            )
         }
         _ => format!("NONCLUSTERED ({})", key_list(i)),
     }
@@ -2487,7 +2931,11 @@ pub(crate) fn create_table(t: &Table) -> String {
     let guard = format!("IF OBJECT_ID({}, 'U') IS NULL\n", lit(&t.qname()));
     if let Some(durability) = &t.memory {
         if let Some(pk) = &t.pk {
-            parts.push(format!("CONSTRAINT {} PRIMARY KEY {}", q(&pk.name), memory_index(pk)));
+            parts.push(format!(
+                "CONSTRAINT {} PRIMARY KEY {}",
+                q(&pk.name),
+                memory_index(pk)
+            ));
         }
         for i in &t.indexes {
             parts.push(if i.unique_constraint {
@@ -2495,7 +2943,12 @@ pub(crate) fn create_table(t: &Table) -> String {
             } else if i.kind == 5 {
                 format!("INDEX {} CLUSTERED COLUMNSTORE", q(&i.name))
             } else {
-                format!("INDEX {} {}{}", q(&i.name), if i.unique { "UNIQUE " } else { "" }, memory_index(i))
+                format!(
+                    "INDEX {} {}{}",
+                    q(&i.name),
+                    if i.unique { "UNIQUE " } else { "" },
+                    memory_index(i)
+                )
             });
         }
         return format!(
@@ -2519,24 +2972,39 @@ pub(crate) fn create_table(t: &Table) -> String {
     // TEXTIMAGE_ON only on a filegroup and with LOB columns: the server
     // keeps a table's LOB filegroup after its last LOB column is dropped,
     // but refuses the clause without one.
-    if let (Some(lob), Some(Space { column: None, .. }), true) = (&t.lob_space, &t.space, t.columns.iter().any(|c| c.computed.is_none() && c.is_lob())) {
+    if let (Some(lob), Some(Space { column: None, .. }), true) = (
+        &t.lob_space,
+        &t.space,
+        t.columns.iter().any(|c| c.computed.is_none() && c.is_lob()),
+    ) {
         storage.push_str(&format!(" TEXTIMAGE_ON {}", q(lob)));
     }
     // A heap's own compression (a clustered table's is its index's).
     let heap = rowstore_compression(&t.heap_compression);
-    format!("{guard}CREATE TABLE {} (\n    {}\n){storage}{};", t.qname(), parts.join(",\n    "), with(heap))
+    format!(
+        "{guard}CREATE TABLE {} (\n    {}\n){storage}{};",
+        t.qname(),
+        parts.join(",\n    "),
+        with(heap)
+    )
 }
 
 /// `CREATE … INDEX` (or the UNIQUE constraint) on `owner`, idempotent.
 pub(crate) fn create_index(owner: &str, i: &Index) -> String {
     let name = q(&i.name);
-    let filter = i.filter.as_deref().map(|f| format!(" WHERE {f}")).unwrap_or_default();
+    let filter = i
+        .filter
+        .as_deref()
+        .map(|f| format!(" WHERE {f}"))
+        .unwrap_or_default();
     let on = on_clause(i.space.as_ref());
     let create = match i.kind {
         5 | 6 => {
             let mut w = Vec::new();
             match &i.compression.all {
-                Some(c) if c.eq_ignore_ascii_case("COLUMNSTORE_ARCHIVE") => w.push("DATA_COMPRESSION = COLUMNSTORE_ARCHIVE".into()),
+                Some(c) if c.eq_ignore_ascii_case("COLUMNSTORE_ARCHIVE") => {
+                    w.push("DATA_COMPRESSION = COLUMNSTORE_ARCHIVE".into())
+                }
                 Some(_) => {}
                 None => w.extend(compression_on_partitions(&i.compression.parts)),
             }
@@ -2544,10 +3012,21 @@ pub(crate) fn create_index(owner: &str, i: &Index) -> String {
                 w.push(format!("COMPRESSION_DELAY = {}", i.compression_delay));
             }
             if i.kind == 5 {
-                let order = if i.columns.is_empty() { String::new() } else { format!(" ORDER ({})", plain_list(&i.columns)) };
-                format!("CREATE CLUSTERED COLUMNSTORE INDEX {name} ON {owner}{order}{}{on}", with(w))
+                let order = if i.columns.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ORDER ({})", plain_list(&i.columns))
+                };
+                format!(
+                    "CREATE CLUSTERED COLUMNSTORE INDEX {name} ON {owner}{order}{}{on}",
+                    with(w)
+                )
             } else {
-                let order = if i.cs_order.is_empty() { String::new() } else { format!(" ORDER ({})", plain_list(&i.cs_order)) };
+                let order = if i.cs_order.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ORDER ({})", plain_list(&i.cs_order))
+                };
                 format!("CREATE NONCLUSTERED COLUMNSTORE INDEX {name} ON {owner} ({}){order}{filter}{}{on}", plain_list(&i.columns), with(w))
             }
         }
@@ -2556,7 +3035,11 @@ pub(crate) fn create_index(owner: &str, i: &Index) -> String {
             let w = with(index_options(i, false));
             match (&i.xml_using, &i.xml_for) {
                 (Some(primary), Some(kind)) => {
-                    format!("CREATE XML INDEX {name} ON {owner} ({col}) USING XML INDEX {} FOR {}{w}", q(primary), kind.to_ascii_uppercase())
+                    format!(
+                        "CREATE XML INDEX {name} ON {owner} ({col}) USING XML INDEX {} FOR {}{w}",
+                        q(primary),
+                        kind.to_ascii_uppercase()
+                    )
                 }
                 _ => format!("CREATE PRIMARY XML INDEX {name} ON {owner} ({col}){w}"),
             }
@@ -2572,7 +3055,9 @@ pub(crate) fn create_index(owner: &str, i: &Index) -> String {
             }
             if !scheme.contains("AUTO") {
                 if let Some([l1, l2, l3, l4]) = &sp.grids {
-                    w.push(format!("GRIDS = (LEVEL_1 = {l1}, LEVEL_2 = {l2}, LEVEL_3 = {l3}, LEVEL_4 = {l4})"));
+                    w.push(format!(
+                        "GRIDS = (LEVEL_1 = {l1}, LEVEL_2 = {l2}, LEVEL_3 = {l3}, LEVEL_4 = {l4})"
+                    ));
                 }
             }
             if let Some(n) = sp.cells_per_object {
@@ -2585,16 +3070,28 @@ pub(crate) fn create_index(owner: &str, i: &Index) -> String {
                 _ => String::new(),
             };
             let col = i.keys.first().map(|(c, _)| q(c)).unwrap_or_default();
-            format!("CREATE SPATIAL INDEX {name} ON {owner} ({col}) USING {scheme}{}{on}", with(w))
+            format!(
+                "CREATE SPATIAL INDEX {name} ON {owner} ({col}) USING {scheme}{}{on}",
+                with(w)
+            )
         }
         // Only on a memory-optimized table, whose indexes normally come in
         // its CREATE TABLE; added afterwards the only way it allows.
         7 => format!("ALTER TABLE {owner} ADD INDEX {name} {}", memory_index(i)),
         _ if i.unique_constraint => {
-            format!("ALTER TABLE {owner} ADD CONSTRAINT {name} UNIQUE {} ({}){}{on}", clustering(i), key_list(i), with(index_options(i, true)))
+            format!(
+                "ALTER TABLE {owner} ADD CONSTRAINT {name} UNIQUE {} ({}){}{on}",
+                clustering(i),
+                key_list(i),
+                with(index_options(i, true))
+            )
         }
         _ => {
-            let include = if i.include.is_empty() { String::new() } else { format!(" INCLUDE ({})", plain_list(&i.include)) };
+            let include = if i.include.is_empty() {
+                String::new()
+            } else {
+                format!(" INCLUDE ({})", plain_list(&i.include))
+            };
             format!(
                 "CREATE {}{} INDEX {name} ON {owner} ({}){include}{filter}{}{on}",
                 if i.unique { "UNIQUE " } else { "" },
@@ -2637,12 +3134,24 @@ pub(crate) fn deferred_disables(t: &Table) -> Vec<String> {
         return Vec::new();
     }
     let owner = t.qname();
-    t.pk.iter().chain(t.indexes.iter()).filter(|i| i.disabled && referenceable(i)).map(|i| disable_index(&owner, &i.name)).collect()
+    t.pk.iter()
+        .chain(t.indexes.iter())
+        .filter(|i| i.disabled && referenceable(i))
+        .map(|i| disable_index(&owner, &i.name))
+        .collect()
 }
 
 fn statistics(owner: &str, x: &Stat) -> String {
-    let filter = x.filter.as_deref().map(|f| format!(" WHERE {f}")).unwrap_or_default();
-    let norecompute = if x.no_recompute { " WITH NORECOMPUTE" } else { "" };
+    let filter = x
+        .filter
+        .as_deref()
+        .map(|f| format!(" WHERE {f}"))
+        .unwrap_or_default();
+    let norecompute = if x.no_recompute {
+        " WITH NORECOMPUTE"
+    } else {
+        ""
+    };
     format!(
         "{INDEX_SET}\nIF NOT EXISTS (SELECT 1 FROM sys.stats WHERE object_id = OBJECT_ID({}) AND name = {})\n    CREATE STATISTICS {} ON {owner} ({}){filter}{norecompute};",
         lit(owner),
@@ -2663,7 +3172,13 @@ pub(crate) fn after_data(t: &Table, notes: &mut Vec<String>) -> Vec<String> {
         indexes.sort_by_key(|i| i.rank());
         for i in indexes {
             if i.disabled && referenceable(i) {
-                out.push(create_index(&owner, &Index { disabled: false, ..i.clone() }));
+                out.push(create_index(
+                    &owner,
+                    &Index {
+                        disabled: false,
+                        ..i.clone()
+                    },
+                ));
             } else {
                 out.push(create_index(&owner, i));
             }
@@ -2716,8 +3231,19 @@ fn fk_action(what: &str, desc: &str) -> String {
 /// added WITH NOCHECK; disabled there → disabled here too.
 pub(crate) fn foreign_key(t: &Table, fk: &ForeignKey) -> String {
     let owner = t.qname();
-    let check = if fk.not_trusted || fk.disabled { "NOCHECK" } else { "CHECK" };
-    let disable = if fk.disabled { format!("\n    ALTER TABLE {owner} NOCHECK CONSTRAINT {};", q(&fk.name)) } else { String::new() };
+    let check = if fk.not_trusted || fk.disabled {
+        "NOCHECK"
+    } else {
+        "CHECK"
+    };
+    let disable = if fk.disabled {
+        format!(
+            "\n    ALTER TABLE {owner} NOCHECK CONSTRAINT {};",
+            q(&fk.name)
+        )
+    } else {
+        String::new()
+    };
     format!(
         "IF OBJECT_ID({}, 'F') IS NULL\nBEGIN\n    ALTER TABLE {owner} WITH {check} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}){}{}{};{disable}\nEND",
         lit(&qn(&t.schema, &fk.name)),
@@ -2733,8 +3259,19 @@ pub(crate) fn foreign_key(t: &Table, fk: &ForeignKey) -> String {
 
 pub(crate) fn check_constraint(t: &Table, ck: &Check) -> String {
     let owner = t.qname();
-    let check = if ck.not_trusted || ck.disabled { "NOCHECK" } else { "CHECK" };
-    let disable = if ck.disabled { format!("\n    ALTER TABLE {owner} NOCHECK CONSTRAINT {};", q(&ck.name)) } else { String::new() };
+    let check = if ck.not_trusted || ck.disabled {
+        "NOCHECK"
+    } else {
+        "CHECK"
+    };
+    let disable = if ck.disabled {
+        format!(
+            "\n    ALTER TABLE {owner} NOCHECK CONSTRAINT {};",
+            q(&ck.name)
+        )
+    } else {
+        String::new()
+    };
     format!(
         "IF OBJECT_ID({}, 'C') IS NULL\nBEGIN\n    ALTER TABLE {owner} WITH {check} ADD CONSTRAINT {} CHECK {}{};{disable}\nEND",
         lit(&qn(&t.schema, &ck.name)),
@@ -2753,16 +3290,27 @@ pub(crate) fn enable_temporal(t: &Table, tmp: &Temporal) -> Vec<String> {
     // compiles the batch, even under an IF that skips it.
     let mut out = vec![format!(
         "IF NOT EXISTS (SELECT 1 FROM sys.periods WHERE object_id = OBJECT_ID({l}))\n    EXEC({});",
-        lit(&format!("ALTER TABLE {owner} ADD PERIOD FOR SYSTEM_TIME ({}, {})", q(&tmp.start), q(&tmp.end)))
+        lit(&format!(
+            "ALTER TABLE {owner} ADD PERIOD FOR SYSTEM_TIME ({}, {})",
+            q(&tmp.start),
+            q(&tmp.end)
+        ))
     )];
     for c in t.columns.iter().filter(|c| c.hidden) {
         out.push(format!(
             "IF COLUMNPROPERTY(OBJECT_ID({l}), {}, 'IsHidden') = 0\n    EXEC({});",
             lit(&c.name),
-            lit(&format!("ALTER TABLE {owner} ALTER COLUMN {} ADD HIDDEN", q(&c.name)))
+            lit(&format!(
+                "ALTER TABLE {owner} ALTER COLUMN {} ADD HIDDEN",
+                q(&c.name)
+            ))
         ));
     }
-    let retention = tmp.retention.as_deref().map(|r| format!(", HISTORY_RETENTION_PERIOD = {r}")).unwrap_or_default();
+    let retention = tmp
+        .retention
+        .as_deref()
+        .map(|r| format!(", HISTORY_RETENTION_PERIOD = {r}"))
+        .unwrap_or_default();
     out.push(format!(
         "IF OBJECTPROPERTY(OBJECT_ID({l}), 'TableTemporalType') <> 2\n    EXEC({});",
         lit(&format!(
@@ -2778,36 +3326,75 @@ pub(crate) fn user_type(t: &UserType) -> String {
     let body = match &t.table {
         Some(tt) => {
             // Table types take unnamed constraints and defaults.
-            let mut parts: Vec<String> = tt.columns.iter().map(|c| column_sql(&Column { default: None, ..c.clone() })).collect();
+            let mut parts: Vec<String> = tt
+                .columns
+                .iter()
+                .map(|c| {
+                    column_sql(&Column {
+                        default: None,
+                        ..c.clone()
+                    })
+                })
+                .collect();
             for c in &tt.columns {
                 if let Some((_, def)) = &c.default {
                     // Put back unnamed, right after the column.
-                    if let Some(p) = parts.iter_mut().find(|p| p.starts_with(&format!("{} ", q(&c.name)))) {
+                    if let Some(p) = parts
+                        .iter_mut()
+                        .find(|p| p.starts_with(&format!("{} ", q(&c.name))))
+                    {
                         p.push_str(&format!(" DEFAULT {def}"));
                     }
                 }
             }
             for i in &tt.indexes {
-                let kind = if i.kind == 7 { "NONCLUSTERED HASH" } else { clustering(i) };
-                let keys = if i.kind == 7 { plain_list(&i.keys.iter().map(|(c, _)| c.clone()).collect::<Vec<_>>()) } else { key_list(i) };
-                let bucket = i.bucket_count.filter(|_| i.kind == 7).map(|n| format!(" WITH (BUCKET_COUNT = {n})")).unwrap_or_default();
+                let kind = if i.kind == 7 {
+                    "NONCLUSTERED HASH"
+                } else {
+                    clustering(i)
+                };
+                let keys = if i.kind == 7 {
+                    plain_list(&i.keys.iter().map(|(c, _)| c.clone()).collect::<Vec<_>>())
+                } else {
+                    key_list(i)
+                };
+                let bucket = i
+                    .bucket_count
+                    .filter(|_| i.kind == 7)
+                    .map(|n| format!(" WITH (BUCKET_COUNT = {n})"))
+                    .unwrap_or_default();
                 parts.push(if i.primary {
                     format!("PRIMARY KEY {kind} ({keys}){bucket}")
                 } else if i.unique_constraint {
                     format!("UNIQUE {kind} ({keys}){bucket}")
                 } else {
-                    format!("INDEX {} {}{kind} ({keys}){bucket}", q(&i.name), if i.unique { "UNIQUE " } else { "" })
+                    format!(
+                        "INDEX {} {}{kind} ({keys}){bucket}",
+                        q(&i.name),
+                        if i.unique { "UNIQUE " } else { "" }
+                    )
                 });
             }
             for ck in &tt.checks {
                 parts.push(format!("CHECK {ck}"));
             }
-            let mo = if tt.memory_optimized { " WITH (MEMORY_OPTIMIZED = ON)" } else { "" };
+            let mo = if tt.memory_optimized {
+                " WITH (MEMORY_OPTIMIZED = ON)"
+            } else {
+                ""
+            };
             format!("AS TABLE (\n    {}\n){mo}", parts.join(",\n    "))
         }
-        None => format!("FROM {} {}", type_sql(&t.base), if t.base.nullable { "NULL" } else { "NOT NULL" }),
+        None => format!(
+            "FROM {} {}",
+            type_sql(&t.base),
+            if t.base.nullable { "NULL" } else { "NOT NULL" }
+        ),
     };
-    format!("IF TYPE_ID({}) IS NULL\n    CREATE TYPE {name} {body};", lit(&name))
+    format!(
+        "IF TYPE_ID({}) IS NULL\n    CREATE TYPE {name} {body};",
+        lit(&name)
+    )
 }
 
 pub(crate) fn sequence(sq: &Sequence) -> String {
@@ -2872,10 +3459,14 @@ pub(crate) fn module_sql(m: &Module, place: &Placement, notes: &mut Vec<String>)
     let mut def = m.definition.clone().unwrap_or_default();
     let header = parse_header(&def);
     let (mut schema, mut name) = match &header {
-        Some(h) => (h.schema.clone().unwrap_or_else(|| m.schema.clone()), h.name.clone()),
+        Some(h) => (
+            h.schema.clone().unwrap_or_else(|| m.schema.clone()),
+            h.name.clone(),
+        ),
         None => (m.schema.clone(), m.name.clone()),
     };
-    let mut as_user = header.as_ref().is_some_and(|h| h.schema.is_none()) && !m.schema.eq_ignore_ascii_case(place.default_schema);
+    let mut as_user = header.as_ref().is_some_and(|h| h.schema.is_none())
+        && !m.schema.eq_ignore_ascii_case(place.default_schema);
     let moved = !schema.eq_ignore_ascii_case(&m.schema);
     let renamed = name != m.name;
     if moved || renamed {
@@ -2935,7 +3526,11 @@ pub(crate) fn module_sql(m: &Module, place: &Placement, notes: &mut Vec<String>)
     }
     let inner = format!(
         "{}SET ANSI_NULLS {}; SET QUOTED_IDENTIFIER {}; EXEC({});",
-        if as_user { format!("EXECUTE AS USER = N'{CLONE_USER}'; ") } else { String::new() },
+        if as_user {
+            format!("EXECUTE AS USER = N'{CLONE_USER}'; ")
+        } else {
+            String::new()
+        },
         on(m.ansi_nulls),
         on(m.quoted_identifier),
         lit(&def)
@@ -2971,9 +3566,19 @@ DROP USER [{CLONE_USER}];",
     }
     let guard = format!("IF OBJECT_ID({}) IS NULL", lit(&m.qname()));
     let mut out = if !schema.eq_ignore_ascii_case(&m.schema) || name != m.name {
-        let mut s = format!("{guard}\nBEGIN\nIF OBJECT_ID({}) IS NULL\nBEGIN\n{create}\nEND", lit(&qn(&schema, &name)));
+        let mut s = format!(
+            "{guard}\nBEGIN\nIF OBJECT_ID({}) IS NULL\nBEGIN\n{create}\nEND",
+            lit(&qn(&schema, &name))
+        );
         if !schema.eq_ignore_ascii_case(&m.schema) {
-            s.push_str(&format!("\nEXEC({});", lit(&format!("ALTER SCHEMA {} TRANSFER {}", q(&m.schema), qn(&schema, &name)))));
+            s.push_str(&format!(
+                "\nEXEC({});",
+                lit(&format!(
+                    "ALTER SCHEMA {} TRANSFER {}",
+                    q(&m.schema),
+                    qn(&schema, &name)
+                ))
+            ));
         }
         if name != m.name {
             s.push_str(&format!(
@@ -2991,7 +3596,11 @@ DROP USER [{CLONE_USER}];",
     };
     if let Some((_, ps, pn)) = &m.parent {
         if m.disabled {
-            out.push_str(&format!("\nDISABLE TRIGGER {} ON {};", m.qname(), qn(ps, pn)));
+            out.push_str(&format!(
+                "\nDISABLE TRIGGER {} ON {};",
+                m.qname(),
+                qn(ps, pn)
+            ));
         }
         for (order, stmt) in &m.orders {
             out.push_str(&format!(
@@ -3091,7 +3700,9 @@ pub(crate) fn execute_as_clause(def: &str) -> Option<ExecAs> {
         let mut tok = String::new();
         if word {
             let mut j = i;
-            while j < b.len() && (b[j].is_ascii_alphanumeric() || matches!(b[j], b'_' | b'@' | b'#' | b'$')) {
+            while j < b.len()
+                && (b[j].is_ascii_alphanumeric() || matches!(b[j], b'_' | b'@' | b'#' | b'$'))
+            {
                 j += 1;
             }
             tok = String::from_utf8_lossy(&b[i..j]).to_ascii_uppercase();
@@ -3133,7 +3744,15 @@ pub(crate) fn execute_as_clause(def: &str) -> Option<ExecAs> {
 /// A module where its stored text says, the target's default schema being dbo.
 #[cfg(test)]
 pub(crate) fn module(m: &Module) -> String {
-    module_sql(m, &Placement { default_schema: "dbo", taken: &HashSet::new() }, &mut Vec::new()).unwrap_or_default()
+    module_sql(
+        m,
+        &Placement {
+            default_schema: "dbo",
+            taken: &HashSet::new(),
+        },
+        &mut Vec::new(),
+    )
+    .unwrap_or_default()
 }
 
 /// The name in a stored `CREATE [OR ALTER] VIEW | PROC[EDURE] | FUNCTION |
@@ -3230,7 +3849,10 @@ pub(crate) fn parse_header(def: &str) -> Option<Header> {
         }
         (j, w) = keyword(b, skip_blank(b, k));
     }
-    if !matches!(w.as_str(), "VIEW" | "PROC" | "PROCEDURE" | "FUNCTION" | "TRIGGER") {
+    if !matches!(
+        w.as_str(),
+        "VIEW" | "PROC" | "PROCEDURE" | "FUNCTION" | "TRIGGER"
+    ) {
         return None;
     }
     let start = skip_blank(b, j);
@@ -3255,7 +3877,12 @@ pub(crate) fn parse_header(def: &str) -> Option<Header> {
     if parts.nth(1).is_some() {
         return None;
     }
-    Some(Header { start, end, schema, name })
+    Some(Header {
+        start,
+        end,
+        schema,
+        name,
+    })
 }
 
 /// A line reading just `GO` inside a literal would split the batch in a
@@ -3264,7 +3891,13 @@ pub(crate) fn parse_header(def: &str) -> Option<Header> {
 fn guard_go(literal: &str) -> String {
     literal
         .split('\n')
-        .map(|line| if line.trim().eq_ignore_ascii_case("go") { format!("' + N'{line}") } else { line.to_string() })
+        .map(|line| {
+            if line.trim().eq_ignore_ascii_case("go") {
+                format!("' + N'{line}")
+            } else {
+                line.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -3273,19 +3906,27 @@ fn guard_go(literal: &str) -> String {
 /// keeping the value's type.
 pub(crate) fn extended_property(p: &ExtendedProperty) -> String {
     let mut list = Vec::new();
-    let mut args = vec![format!("@name = {}", lit(&p.name)), "@value = @v".to_string()];
+    let mut args = vec![
+        format!("@name = {}", lit(&p.name)),
+        "@value = @v".to_string(),
+    ];
     for i in 0..3 {
         match p.levels.get(i) {
             Some((t, nm)) => {
                 list.push(format!("{}, {}", lit(t), lit(nm)));
-                args.push(format!("@level{i}type = {}, @level{i}name = {}", lit(t), lit(nm)));
+                args.push(format!(
+                    "@level{i}type = {}, @level{i}name = {}",
+                    lit(t),
+                    lit(nm)
+                ));
             }
             None => list.push("NULL, NULL".into()),
         }
     }
     let value = match p.base_type.to_ascii_lowercase().as_str() {
         "varchar" | "char" => format!("CAST({} AS varchar(7500))", lit(&p.value)),
-        t @ ("int" | "bigint" | "smallint" | "tinyint" | "bit" | "float" | "real" | "date" | "datetime" | "datetime2" | "uniqueidentifier") => {
+        t @ ("int" | "bigint" | "smallint" | "tinyint" | "bit" | "float" | "real" | "date"
+        | "datetime" | "datetime2" | "uniqueidentifier") => {
             format!("CAST({} AS {t})", lit(&p.value))
         }
         _ => lit(&p.value),
@@ -3307,17 +3948,29 @@ pub(crate) fn extended_property(p: &ExtendedProperty) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn col(name: &str, base: &str) -> Column {
-        Column { name: name.into(), base: base.into(), type_name: base.into(), max_length: 4, precision: 10, ..Default::default() }
+        Column {
+            name: name.into(),
+            base: base.into(),
+            type_name: base.into(),
+            max_length: 4,
+            precision: 10,
+            ..Default::default()
+        }
     }
 
     fn table(schema: &str, name: &str) -> Table {
-        Table { id: 1, schema: schema.into(), name: name.into(), columns: vec![col("Id", "int")], ..Default::default() }
+        Table {
+            id: 1,
+            schema: schema.into(),
+            name: name.into(),
+            columns: vec![col("Id", "int")],
+            ..Default::default()
+        }
     }
 
     fn index(name: &str, kind: i32, keys: &[(&str, bool)]) -> Index {
@@ -3332,44 +3985,113 @@ mod tests {
     }
 
     fn fg(name: &str) -> Option<Space> {
-        Some(Space { name: name.into(), column: None })
+        Some(Space {
+            name: name.into(),
+            column: None,
+        })
     }
 
     fn ps(name: &str, column: &str) -> Option<Space> {
-        Some(Space { name: name.into(), column: Some(column.into()) })
+        Some(Space {
+            name: name.into(),
+            column: Some(column.into()),
+        })
     }
 
     #[test]
     fn columns_keep_every_attribute() {
         let id = Column {
-            identity: Some(Identity { seed: "1000".into(), increment: "5".into(), not_for_replication: true }),
+            identity: Some(Identity {
+                seed: "1000".into(),
+                increment: "5".into(),
+                not_for_replication: true,
+            }),
             ..col("Id", "bigint")
         };
-        assert_eq!(column_sql(&id), "[Id] bigint IDENTITY(1000, 5) NOT FOR REPLICATION NOT NULL");
+        assert_eq!(
+            column_sql(&id),
+            "[Id] bigint IDENTITY(1000, 5) NOT FOR REPLICATION NOT NULL"
+        );
         let g = Column {
             rowguidcol: true,
             default: Some(("DF_t_G".into(), "(newsequentialid())".into())),
             ..col("G", "uniqueidentifier")
         };
         assert_eq!(column_sql(&g), "[G] uniqueidentifier ROWGUIDCOL NOT NULL CONSTRAINT [DF_t_G] DEFAULT (newsequentialid())");
-        let name = Column { max_length: 200, collation: Some("Latin1_General_CS_AS".into()), nullable: true, sparse: true, ..col("N", "nvarchar") };
-        assert_eq!(column_sql(&name), "[N] nvarchar(100) COLLATE Latin1_General_CS_AS SPARSE NULL");
-        let calc = Column { computed: Some(("([dbo].[f]([Id]))".into(), true)), ..col("C", "int") };
-        assert_eq!(column_sql(&calc), "[C] AS ([dbo].[f]([Id])) PERSISTED NOT NULL");
-        let calc = Column { computed: Some(("([a]*(2))".into(), false)), nullable: true, ..col("C", "int") };
+        let name = Column {
+            max_length: 200,
+            collation: Some("Latin1_General_CS_AS".into()),
+            nullable: true,
+            sparse: true,
+            ..col("N", "nvarchar")
+        };
+        assert_eq!(
+            column_sql(&name),
+            "[N] nvarchar(100) COLLATE Latin1_General_CS_AS SPARSE NULL"
+        );
+        let calc = Column {
+            computed: Some(("([dbo].[f]([Id]))".into(), true)),
+            ..col("C", "int")
+        };
+        assert_eq!(
+            column_sql(&calc),
+            "[C] AS ([dbo].[f]([Id])) PERSISTED NOT NULL"
+        );
+        let calc = Column {
+            computed: Some(("([a]*(2))".into(), false)),
+            nullable: true,
+            ..col("C", "int")
+        };
         assert_eq!(column_sql(&calc), "[C] AS ([a]*(2))");
-        let alias = Column { type_name: "Code".into(), type_schema: "ven".into(), user_defined: true, max_length: 20, collation: Some("X".into()), ..col("Code", "varchar") };
+        let alias = Column {
+            type_name: "Code".into(),
+            type_schema: "ven".into(),
+            user_defined: true,
+            max_length: 20,
+            collation: Some("X".into()),
+            ..col("Code", "varchar")
+        };
         assert_eq!(column_sql(&alias), "[Code] [ven].[Code] NOT NULL");
-        let sysname = Column { type_name: "sysname".into(), max_length: 256, ..col("S", "nvarchar") };
+        let sysname = Column {
+            type_name: "sysname".into(),
+            max_length: 256,
+            ..col("S", "nvarchar")
+        };
         assert_eq!(column_sql(&sysname), "[S] sysname NOT NULL");
-        let masked = Column { masked: Some("partial(1,\"X\",0)".into()), max_length: 50, nullable: true, ..col("E", "varchar") };
-        assert_eq!(column_sql(&masked), "[E] varchar(50) MASKED WITH (FUNCTION = 'partial(1,\"X\",0)') NULL");
-        let doc = Column { xml_schema: Some(("ven".into(), "S".into(), true)), max_length: -1, nullable: true, ..col("D", "xml") };
+        let masked = Column {
+            masked: Some("partial(1,\"X\",0)".into()),
+            max_length: 50,
+            nullable: true,
+            ..col("E", "varchar")
+        };
+        assert_eq!(
+            column_sql(&masked),
+            "[E] varchar(50) MASKED WITH (FUNCTION = 'partial(1,\"X\",0)') NULL"
+        );
+        let doc = Column {
+            xml_schema: Some(("ven".into(), "S".into(), true)),
+            max_length: -1,
+            nullable: true,
+            ..col("D", "xml")
+        };
         assert_eq!(column_sql(&doc), "[D] xml(DOCUMENT [ven].[S]) NULL");
-        let geo = Column { type_name: "geography".into(), assembly: true, max_length: -1, nullable: true, ..col("L", "geography") };
+        let geo = Column {
+            type_name: "geography".into(),
+            assembly: true,
+            max_length: -1,
+            nullable: true,
+            ..col("L", "geography")
+        };
         assert_eq!(column_sql(&geo), "[L] geography NULL");
-        let set = Column { column_set: true, nullable: true, ..col("cs", "xml") };
-        assert_eq!(column_sql(&set), "[cs] xml COLUMN_SET FOR ALL_SPARSE_COLUMNS");
+        let set = Column {
+            column_set: true,
+            nullable: true,
+            ..col("cs", "xml")
+        };
+        assert_eq!(
+            column_sql(&set),
+            "[cs] xml COLUMN_SET FOR ALL_SPARSE_COLUMNS"
+        );
         for (base, len, p, sc, want) in [
             ("varchar", -1, 0, 0, "varchar(max)"),
             ("decimal", 9, 18, 2, "decimal(18, 2)"),
@@ -3378,36 +4100,75 @@ mod tests {
             ("float", 4, 24, 0, "float(24)"),
             ("binary", 16, 0, 0, "binary(16)"),
         ] {
-            assert_eq!(type_sql(&Column { base: base.into(), max_length: len, precision: p, scale: sc, ..Default::default() }), want);
+            assert_eq!(
+                type_sql(&Column {
+                    base: base.into(),
+                    max_length: len,
+                    precision: p,
+                    scale: sc,
+                    ..Default::default()
+                }),
+                want
+            );
         }
     }
 
     #[test]
     fn primary_key_and_storage_as_on_the_source() {
         let mut t = table("pt", "Docs");
-        t.columns.push(Column { max_length: -1, nullable: true, ..col("Body", "nvarchar") });
+        t.columns.push(Column {
+            max_length: -1,
+            nullable: true,
+            ..col("Body", "nvarchar")
+        });
         t.space = fg("FG_NEW");
         t.lob_space = Some("FG_LOB".into());
-        t.pk = Some(Index { primary: true, fill_factor: 90, space: fg("FG_NEW"), ..index("PK_Docs", 2, &[("Id", true)]) });
+        t.pk = Some(Index {
+            primary: true,
+            fill_factor: 90,
+            space: fg("FG_NEW"),
+            ..index("PK_Docs", 2, &[("Id", true)])
+        });
         let sql = create_table(&t);
-        assert!(sql.starts_with("IF OBJECT_ID(N'[pt].[Docs]', 'U') IS NULL\nCREATE TABLE [pt].[Docs] ("), "{sql}");
+        assert!(
+            sql.starts_with(
+                "IF OBJECT_ID(N'[pt].[Docs]', 'U') IS NULL\nCREATE TABLE [pt].[Docs] ("
+            ),
+            "{sql}"
+        );
         assert!(sql.contains("CONSTRAINT [PK_Docs] PRIMARY KEY NONCLUSTERED ([Id] DESC) WITH (FILLFACTOR = 90) ON [FG_NEW]"), "{sql}");
-        assert!(sql.ends_with(") ON [FG_NEW] TEXTIMAGE_ON [FG_LOB];"), "{sql}");
+        assert!(
+            sql.ends_with(") ON [FG_NEW] TEXTIMAGE_ON [FG_LOB];"),
+            "{sql}"
+        );
         // A LOB filegroup without LOB columns left: no TEXTIMAGE_ON.
-        let no_lob = Table { columns: vec![t.columns[0].clone()], ..t.clone() };
+        let no_lob = Table {
+            columns: vec![t.columns[0].clone()],
+            ..t.clone()
+        };
         assert!(create_table(&no_lob).ends_with(") ON [FG_NEW];"));
         // Partitioned: rows on the scheme, no TEXTIMAGE_ON; a heap's own
         // per-partition compression.
         let heap = Table {
             space: ps("ps_region", "Region"),
             pk: None,
-            heap_compression: Compression { all: None, parts: vec![(1, "PAGE".into()), (2, "NONE".into()), (3, "PAGE".into())] },
+            heap_compression: Compression {
+                all: None,
+                parts: vec![(1, "PAGE".into()), (2, "NONE".into()), (3, "PAGE".into())],
+            },
             ..t.clone()
         };
         assert!(create_table(&heap).ends_with(
             ") ON [ps_region]([Region]) WITH (DATA_COMPRESSION = PAGE ON PARTITIONS (1, 3), DATA_COMPRESSION = NONE ON PARTITIONS (2));"
         ));
-        let row = Table { heap_compression: Compression { all: Some("ROW".into()), parts: vec![] }, pk: None, ..t };
+        let row = Table {
+            heap_compression: Compression {
+                all: Some("ROW".into()),
+                parts: vec![],
+            },
+            pk: None,
+            ..t
+        };
         assert!(create_table(&row).contains("TEXTIMAGE_ON [FG_LOB] WITH (DATA_COMPRESSION = ROW);"));
     }
 
@@ -3415,18 +4176,43 @@ mod tests {
     fn memory_optimized_table_declares_its_indexes() {
         let mut t = table("dbo", "Sessions");
         t.memory = Some("SCHEMA_ONLY".into());
-        t.pk = Some(Index { primary: true, bucket_count: Some(1024), ..index("PK_S", 7, &[("Id", false)]) });
+        t.pk = Some(Index {
+            primary: true,
+            bucket_count: Some(1024),
+            ..index("PK_S", 7, &[("Id", false)])
+        });
         t.indexes = vec![
-            Index { unique: true, unique_constraint: true, bucket_count: Some(2048), ..index("UQ_T", 7, &[("Token", false)]) },
+            Index {
+                unique: true,
+                unique_constraint: true,
+                bucket_count: Some(2048),
+                ..index("UQ_T", 7, &[("Token", false)])
+            },
             index("IX_L", 2, &[("LastSeen", true)]),
             index("CCI", 5, &[]),
         ];
         let sql = create_table(&t);
-        assert!(sql.contains("CONSTRAINT [PK_S] PRIMARY KEY NONCLUSTERED HASH ([Id]) WITH (BUCKET_COUNT = 1024)"), "{sql}");
-        assert!(sql.contains("CONSTRAINT [UQ_T] UNIQUE NONCLUSTERED HASH ([Token]) WITH (BUCKET_COUNT = 2048)"), "{sql}");
-        assert!(sql.contains("INDEX [IX_L] NONCLUSTERED ([LastSeen] DESC)"), "{sql}");
+        assert!(
+            sql.contains(
+                "CONSTRAINT [PK_S] PRIMARY KEY NONCLUSTERED HASH ([Id]) WITH (BUCKET_COUNT = 1024)"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "CONSTRAINT [UQ_T] UNIQUE NONCLUSTERED HASH ([Token]) WITH (BUCKET_COUNT = 2048)"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("INDEX [IX_L] NONCLUSTERED ([LastSeen] DESC)"),
+            "{sql}"
+        );
         assert!(sql.contains("INDEX [CCI] CLUSTERED COLUMNSTORE"), "{sql}");
-        assert!(sql.ends_with(") WITH (MEMORY_OPTIMIZED = ON, DURABILITY = SCHEMA_ONLY);"), "{sql}");
+        assert!(
+            sql.ends_with(") WITH (MEMORY_OPTIMIZED = ON, DURABILITY = SCHEMA_ONLY);"),
+            "{sql}"
+        );
         // Nothing after the data but the identity, which CHECKIDENT refuses.
         t.identity_last = Some("10".into());
         t.identity_max = Some("8".into());
@@ -3439,9 +4225,19 @@ mod tests {
         let mut notes = Vec::new();
         adapt_memory_optimized(&mut list, &Target::default(), &mut notes);
         let sql = create_table(&list[0]);
-        assert!(!sql.contains("MEMORY_OPTIMIZED") && sql.contains("CONSTRAINT [PK_S] PRIMARY KEY NONCLUSTERED ([Id] ASC)"), "{sql}");
-        assert!(after_data(&list[0], &mut notes)[0].contains("CREATE UNIQUE NONCLUSTERED INDEX [UQ_T]") || list[0].indexes[0].unique_constraint);
-        assert!(notes[0].contains("In-Memory OLTP") && notes[0].contains("[dbo].[Sessions]"), "{notes:?}");
+        assert!(
+            !sql.contains("MEMORY_OPTIMIZED")
+                && sql.contains("CONSTRAINT [PK_S] PRIMARY KEY NONCLUSTERED ([Id] ASC)"),
+            "{sql}"
+        );
+        assert!(
+            after_data(&list[0], &mut notes)[0].contains("CREATE UNIQUE NONCLUSTERED INDEX [UQ_T]")
+                || list[0].indexes[0].unique_constraint
+        );
+        assert!(
+            notes[0].contains("In-Memory OLTP") && notes[0].contains("[dbo].[Sessions]"),
+            "{notes:?}"
+        );
     }
 
     #[test]
@@ -3457,19 +4253,48 @@ mod tests {
         nc.fill_factor = 80;
         nc.no_recompute = true;
         nc.sequential_key = true;
-        nc.compression = Compression { all: Some("PAGE".into()), parts: vec![] };
+        nc.compression = Compression {
+            all: Some("PAGE".into()),
+            parts: vec![],
+        };
         nc.space = ps("ps_day", "Day");
-        let uq = Index { unique: true, unique_constraint: true, row_locks: false, ..index("UQ_x", 1, &[("K", false)]) };
+        let uq = Index {
+            unique: true,
+            unique_constraint: true,
+            row_locks: false,
+            ..index("UQ_x", 1, &[("K", false)])
+        };
         let px = index("PX", 3, &[("Body", false)]);
-        let sx = Index { xml_using: Some("PX".into()), xml_for: Some("PATH".into()), ..index("SX", 3, &[("Body", false)]) };
-        let off = Index { disabled: true, ..index("IX_off", 2, &[("Z", false)]) };
+        let sx = Index {
+            xml_using: Some("PX".into()),
+            xml_for: Some("PATH".into()),
+            ..index("SX", 3, &[("Body", false)])
+        };
+        let off = Index {
+            disabled: true,
+            ..index("IX_off", 2, &[("Z", false)])
+        };
         t.indexes = vec![sx, nc, px, off, uq];
-        t.stats = vec![Stat { name: "ST".into(), columns: vec!["A".into(), "B".into()], filter: Some("([A]>(0))".into()), no_recompute: true }];
+        t.stats = vec![Stat {
+            name: "ST".into(),
+            columns: vec!["A".into(), "B".into()],
+            filter: Some("([A]>(0))".into()),
+            no_recompute: true,
+        }];
         t.identity_last = Some("41".into());
         let out = after_data(&t, &mut Vec::new());
-        let names: Vec<&str> = out.iter().map(|s| s.split("AND name = N'").nth(1).map_or("?", |r| r.split('\'').next().unwrap())).collect();
+        let names: Vec<&str> = out
+            .iter()
+            .map(|s| {
+                s.split("AND name = N'")
+                    .nth(1)
+                    .map_or("?", |r| r.split('\'').next().unwrap())
+            })
+            .collect();
         assert_eq!(names, ["UQ_x", "IX_f", "IX_off", "PX", "SX", "ST", "?"]);
-        assert!(out.iter().all(|s| s.starts_with(INDEX_SET) || s.starts_with("DECLARE")));
+        assert!(out
+            .iter()
+            .all(|s| s.starts_with(INDEX_SET) || s.starts_with("DECLARE")));
         assert!(out[0].contains("ALTER TABLE [s].[t] ADD CONSTRAINT [UQ_x] UNIQUE CLUSTERED ([K] ASC) WITH (ALLOW_ROW_LOCKS = OFF);"), "{}", out[0]);
         assert!(
             out[1].contains(
@@ -3480,18 +4305,47 @@ mod tests {
             "{}",
             out[1]
         );
-        assert!(out[2].contains("ALTER INDEX [IX_off] ON [s].[t] DISABLE;"), "{}", out[2]);
-        assert!(out[3].contains("CREATE PRIMARY XML INDEX [PX] ON [s].[t] ([Body]);"), "{}", out[3]);
-        assert!(out[4].contains("CREATE XML INDEX [SX] ON [s].[t] ([Body]) USING XML INDEX [PX] FOR PATH;"), "{}", out[4]);
-        assert!(out[5].contains("CREATE STATISTICS [ST] ON [s].[t] ([A], [B]) WHERE ([A]>(0)) WITH NORECOMPUTE;"), "{}", out[5]);
-        assert!(out[6].contains("DBCC CHECKIDENT(N'[s].[t]', RESEED, @v)"), "{}", out[6]);
+        assert!(
+            out[2].contains("ALTER INDEX [IX_off] ON [s].[t] DISABLE;"),
+            "{}",
+            out[2]
+        );
+        assert!(
+            out[3].contains("CREATE PRIMARY XML INDEX [PX] ON [s].[t] ([Body]);"),
+            "{}",
+            out[3]
+        );
+        assert!(
+            out[4].contains(
+                "CREATE XML INDEX [SX] ON [s].[t] ([Body]) USING XML INDEX [PX] FOR PATH;"
+            ),
+            "{}",
+            out[4]
+        );
+        assert!(
+            out[5].contains(
+                "CREATE STATISTICS [ST] ON [s].[t] ([A], [B]) WHERE ([A]>(0)) WITH NORECOMPUTE;"
+            ),
+            "{}",
+            out[5]
+        );
+        assert!(
+            out[6].contains("DBCC CHECKIDENT(N'[s].[t]', RESEED, @v)"),
+            "{}",
+            out[6]
+        );
     }
 
     #[test]
     fn identity_reseed_one_ahead_when_empty() {
         let sql = reseed("[s].[t]", "41").unwrap();
         assert!(sql.starts_with("DECLARE @v decimal(38, 0) = 41;"));
-        assert!(sql.contains("IF NOT EXISTS (SELECT 1 FROM [s].[t]) SET @v = @v + IDENT_INCR(N'[s].[t]');"), "{sql}");
+        assert!(
+            sql.contains(
+                "IF NOT EXISTS (SELECT 1 FROM [s].[t]) SET @v = @v + IDENT_INCR(N'[s].[t]');"
+            ),
+            "{sql}"
+        );
         assert!(reseed("[s].[t]", "4; DROP TABLE x").is_none());
     }
 
@@ -3499,7 +4353,10 @@ mod tests {
     fn columnstore_spatial_and_per_partition_compression() {
         let cci = Index {
             columns: vec!["Day".into(), "Store".into()],
-            compression: Compression { all: Some("COLUMNSTORE_ARCHIVE".into()), parts: vec![] },
+            compression: Compression {
+                all: Some("COLUMNSTORE_ARCHIVE".into()),
+                parts: vec![],
+            },
             compression_delay: 30,
             space: ps("ps", "Day"),
             ..index("CCI", 5, &[])
@@ -3509,19 +4366,31 @@ mod tests {
             "CREATE CLUSTERED COLUMNSTORE INDEX [CCI] ON [s].[t] ORDER ([Day], [Store]) WITH (DATA_COMPRESSION = COLUMNSTORE_ARCHIVE, COMPRESSION_DELAY = 30) ON [ps]([Day]);"
         ), "{sql}");
         let parts = Index {
-            compression: Compression { all: None, parts: vec![(1, "COLUMNSTORE_ARCHIVE".into()), (2, "COLUMNSTORE".into())] },
+            compression: Compression {
+                all: None,
+                parts: vec![(1, "COLUMNSTORE_ARCHIVE".into()), (2, "COLUMNSTORE".into())],
+            },
             ..index("CCI2", 5, &[])
         };
         assert!(create_index("[s].[t]", &parts).contains(
             "WITH (DATA_COMPRESSION = COLUMNSTORE_ARCHIVE ON PARTITIONS (1), DATA_COMPRESSION = COLUMNSTORE ON PARTITIONS (2));"
         ));
-        let ncci = Index { columns: vec!["Qty".into()], filter: Some("([Deleted]=(0))".into()), ..index("NCCI", 6, &[]) };
+        let ncci = Index {
+            columns: vec!["Qty".into()],
+            filter: Some("([Deleted]=(0))".into()),
+            ..index("NCCI", 6, &[])
+        };
         assert!(create_index("[s].[t]", &ncci).contains("CREATE NONCLUSTERED COLUMNSTORE INDEX [NCCI] ON [s].[t] ([Qty]) WHERE ([Deleted]=(0));"));
         let g = Index {
             spatial: Some(Spatial {
                 scheme: "GEOMETRY_GRID".into(),
                 bounding_box: Some([0.0, 0.0, 500.0, 200.5]),
-                grids: Some(["LOW".into(), "MEDIUM".into(), "HIGH".into(), "MEDIUM".into()]),
+                grids: Some([
+                    "LOW".into(),
+                    "MEDIUM".into(),
+                    "HIGH".into(),
+                    "MEDIUM".into(),
+                ]),
                 cells_per_object: Some(32),
             }),
             space: fg("FG_A"),
@@ -3541,8 +4410,15 @@ mod tests {
             space: ps("ps", "Day"),
             ..index("SA", 4, &[("Loc", false)])
         };
-        assert!(create_index("[s].[t]", &a).contains("USING GEOGRAPHY_AUTO_GRID WITH (CELLS_PER_OBJECT = 12);"));
-        assert_eq!(Compression::from_parts(vec![(1, "PAGE".into()), (2, "PAGE".into())]), Compression { all: Some("PAGE".into()), parts: vec![] });
+        assert!(create_index("[s].[t]", &a)
+            .contains("USING GEOGRAPHY_AUTO_GRID WITH (CELLS_PER_OBJECT = 12);"));
+        assert_eq!(
+            Compression::from_parts(vec![(1, "PAGE".into()), (2, "PAGE".into())]),
+            Compression {
+                all: Some("PAGE".into()),
+                parts: vec![]
+            }
+        );
     }
 
     #[test]
@@ -3550,22 +4426,54 @@ mod tests {
         let f = PartitionFunction {
             name: "pf_day".into(),
             range_right: true,
-            param: Column { base: "datetime2".into(), scale: 3, ..Default::default() },
-            boundaries: vec![boundary_literal("datetime2", "2024-01-01T00:00:00", "datetime2(3)"), boundary_literal("datetime2", "2025-01-01T00:00:00", "datetime2(3)")],
+            param: Column {
+                base: "datetime2".into(),
+                scale: 3,
+                ..Default::default()
+            },
+            boundaries: vec![
+                boundary_literal("datetime2", "2024-01-01T00:00:00", "datetime2(3)"),
+                boundary_literal("datetime2", "2025-01-01T00:00:00", "datetime2(3)"),
+            ],
         };
         let sql = partition_function(&f);
-        assert!(sql.starts_with("IF NOT EXISTS (SELECT 1 FROM sys.partition_functions WHERE name = N'pf_day')"));
+        assert!(sql.starts_with(
+            "IF NOT EXISTS (SELECT 1 FROM sys.partition_functions WHERE name = N'pf_day')"
+        ));
         assert!(sql.ends_with(
             "CREATE PARTITION FUNCTION [pf_day] (datetime2(3)) AS RANGE RIGHT FOR VALUES (CONVERT(datetime2(3), N'2024-01-01T00:00:00', 126), CONVERT(datetime2(3), N'2025-01-01T00:00:00', 126));"
         ), "{sql}");
-        assert_eq!(boundary_literal("nvarchar", "O'Hara", "nvarchar(10)"), "N'O''Hara'");
+        assert_eq!(
+            boundary_literal("nvarchar", "O'Hara", "nvarchar(10)"),
+            "N'O''Hara'"
+        );
         assert_eq!(boundary_literal("int", "100", "int"), "100");
-        assert_eq!(boundary_literal("uniqueidentifier", "00000000-0000-0000-0000-000000000001", "uniqueidentifier"), "CAST(N'00000000-0000-0000-0000-000000000001' AS uniqueidentifier)");
+        assert_eq!(
+            boundary_literal(
+                "uniqueidentifier",
+                "00000000-0000-0000-0000-000000000001",
+                "uniqueidentifier"
+            ),
+            "CAST(N'00000000-0000-0000-0000-000000000001' AS uniqueidentifier)"
+        );
         // The NEXT USED filegroup is the one listed past the partitions.
-        let s = PartitionScheme { name: "ps_day".into(), function: "pf_day".into(), filegroups: vec!["FG_OLD".into(), "PRIMARY".into(), "PRIMARY".into(), "FG_NEXT".into()] };
+        let s = PartitionScheme {
+            name: "ps_day".into(),
+            function: "pf_day".into(),
+            filegroups: vec![
+                "FG_OLD".into(),
+                "PRIMARY".into(),
+                "PRIMARY".into(),
+                "FG_NEXT".into(),
+            ],
+        };
         let sql = partition_scheme(&s);
         assert!(sql.contains("CREATE PARTITION SCHEME [ps_day] AS PARTITION [pf_day] TO ([FG_OLD], [PRIMARY], [PRIMARY], [FG_NEXT]);"), "{sql}");
-        assert!(sql.contains("IF EXISTS (SELECT 1 FROM sys.data_spaces WHERE name = N'ps_day')") && sql.contains("THROW 50000"), "{sql}");
+        assert!(
+            sql.contains("IF EXISTS (SELECT 1 FROM sys.data_spaces WHERE name = N'ps_day')")
+                && sql.contains("THROW 50000"),
+            "{sql}"
+        );
     }
 
     #[test]
@@ -3573,34 +4481,90 @@ mod tests {
         let mut t = table("s", "t");
         t.space = fg("FG_A");
         t.lob_space = Some("FG_LOB".into());
-        t.indexes = vec![Index { space: fg("FG_IX"), ..index("IX", 2, &[("Id", false)]) }, Index { space: ps("ps", "Id"), ..index("IX2", 2, &[("Id", false)]) }];
-        let schemes = vec![PartitionScheme { name: "ps".into(), function: "pf".into(), filegroups: vec!["FG_P".into(), "PRIMARY".into()] }];
-        let target = Target { filegroups: vec!["PRIMARY".into(), "fg_ix".into()], ..Default::default() };
+        t.indexes = vec![
+            Index {
+                space: fg("FG_IX"),
+                ..index("IX", 2, &[("Id", false)])
+            },
+            Index {
+                space: ps("ps", "Id"),
+                ..index("IX2", 2, &[("Id", false)])
+            },
+        ];
+        let schemes = vec![PartitionScheme {
+            name: "ps".into(),
+            function: "pf".into(),
+            filegroups: vec!["FG_P".into(), "PRIMARY".into()],
+        }];
+        let target = Target {
+            filegroups: vec!["PRIMARY".into(), "fg_ix".into()],
+            ..Default::default()
+        };
         let (mut tables, mut s2, mut notes) = (vec![t.clone()], schemes.clone(), Vec::new());
-        let missing = adapt_filegroups(&mut tables, &mut HashMap::new(), &mut s2, &target, &mut notes);
+        let missing = adapt_filegroups(
+            &mut tables,
+            &mut HashMap::new(),
+            &mut s2,
+            &target,
+            &mut notes,
+        );
         assert_eq!(missing, ["FG_P", "FG_A", "FG_LOB"]);
         // A scheme's name is never taken for a filegroup (a partitioned
         // table whose LOB space came back as its scheme).
         let mut on_scheme = t.clone();
         on_scheme.lob_space = Some("ps".into());
         let mut none = Vec::new();
-        assert_eq!(adapt_filegroups(&mut [on_scheme], &mut HashMap::new(), &mut schemes.clone(), &target, &mut none), ["FG_P", "FG_A"]);
+        assert_eq!(
+            adapt_filegroups(
+                &mut [on_scheme],
+                &mut HashMap::new(),
+                &mut schemes.clone(),
+                &target,
+                &mut none
+            ),
+            ["FG_P", "FG_A"]
+        );
         assert!(notes.is_empty());
         let fg_sql = create_filegroup("FG_A");
-        assert!(fg_sql.starts_with("IF NOT EXISTS (SELECT 1 FROM sys.filegroups WHERE name = N'FG_A')"));
-        assert!(fg_sql.contains("ADD FILEGROUP ' + QUOTENAME(@fg) + N';'") && fg_sql.contains("N'.ndf'") && fg_sql.contains("IF @edition = 8"));
+        assert!(
+            fg_sql.starts_with("IF NOT EXISTS (SELECT 1 FROM sys.filegroups WHERE name = N'FG_A')")
+        );
+        assert!(
+            fg_sql.contains("ADD FILEGROUP ' + QUOTENAME(@fg) + N';'")
+                && fg_sql.contains("N'.ndf'")
+                && fg_sql.contains("IF @edition = 8")
+        );
         let mo = create_memory_filegroup("MOD");
-        assert!(mo.starts_with("IF NOT EXISTS (SELECT 1 FROM sys.filegroups WHERE type = 'FX')") && mo.contains("CONTAINS MEMORY_OPTIMIZED_DATA"));
+        assert!(
+            mo.starts_with("IF NOT EXISTS (SELECT 1 FROM sys.filegroups WHERE type = 'FX')")
+                && mo.contains("CONTAINS MEMORY_OPTIMIZED_DATA")
+        );
 
         // Azure SQL Database: PRIMARY only; partitioning kept.
-        let azure = Target { caps: Caps { edition: 5, ..Default::default() }, ..target };
+        let azure = Target {
+            caps: Caps {
+                edition: 5,
+                ..Default::default()
+            },
+            ..target
+        };
         let (mut tables, mut s2, mut notes) = (vec![t], schemes, Vec::new());
-        assert!(adapt_filegroups(&mut tables, &mut HashMap::new(), &mut s2, &azure, &mut notes).is_empty());
+        assert!(adapt_filegroups(
+            &mut tables,
+            &mut HashMap::new(),
+            &mut s2,
+            &azure,
+            &mut notes
+        )
+        .is_empty());
         assert_eq!(s2[0].filegroups, ["PRIMARY", "PRIMARY"]);
         assert_eq!(tables[0].space, fg("PRIMARY"));
         assert_eq!(tables[0].lob_space.as_deref(), Some("PRIMARY"));
         assert_eq!(tables[0].indexes[1].space, ps("ps", "Id"));
-        assert!(notes[0].contains("Azure SQL Database") && notes[0].contains("FG_P, FG_A, FG_LOB"), "{notes:?}");
+        assert!(
+            notes[0].contains("Azure SQL Database") && notes[0].contains("FG_P, FG_A, FG_LOB"),
+            "{notes:?}"
+        );
     }
 
     #[test]
@@ -3619,37 +4583,102 @@ mod tests {
             not_trusted: true,
         };
         let sql = foreign_key(&t, &fk);
-        assert!(sql.starts_with("IF OBJECT_ID(N'[s].[FK_x]', 'F') IS NULL"), "{sql}");
+        assert!(
+            sql.starts_with("IF OBJECT_ID(N'[s].[FK_x]', 'F') IS NULL"),
+            "{sql}"
+        );
         assert!(sql.contains(
             "ALTER TABLE [s].[t] WITH NOCHECK ADD CONSTRAINT [FK_x] FOREIGN KEY ([A], [B]) REFERENCES [s].[p] ([Id], [R]) ON DELETE CASCADE ON UPDATE SET NULL NOT FOR REPLICATION;"
         ), "{sql}");
         assert!(sql.contains("ALTER TABLE [s].[t] NOCHECK CONSTRAINT [FK_x];"));
-        let trusted = ForeignKey { disabled: false, not_trusted: false, not_for_replication: false, on_delete: "NO_ACTION".into(), on_update: "CASCADE".into(), ..fk.clone() };
+        let trusted = ForeignKey {
+            disabled: false,
+            not_trusted: false,
+            not_for_replication: false,
+            on_delete: "NO_ACTION".into(),
+            on_update: "CASCADE".into(),
+            ..fk.clone()
+        };
         let sql = foreign_key(&t, &trusted);
-        assert!(sql.contains("WITH CHECK ADD CONSTRAINT [FK_x]") && sql.contains("REFERENCES [s].[p] ([Id], [R]) ON UPDATE CASCADE;") && !sql.contains("NOCHECK"), "{sql}");
-        let untrusted = ForeignKey { disabled: false, ..fk };
+        assert!(
+            sql.contains("WITH CHECK ADD CONSTRAINT [FK_x]")
+                && sql.contains("REFERENCES [s].[p] ([Id], [R]) ON UPDATE CASCADE;")
+                && !sql.contains("NOCHECK"),
+            "{sql}"
+        );
+        let untrusted = ForeignKey {
+            disabled: false,
+            ..fk
+        };
         let sql = foreign_key(&t, &untrusted);
-        assert!(sql.contains("WITH NOCHECK ADD") && !sql.contains("NOCHECK CONSTRAINT"), "{sql}");
+        assert!(
+            sql.contains("WITH NOCHECK ADD") && !sql.contains("NOCHECK CONSTRAINT"),
+            "{sql}"
+        );
 
-        let ck = Check { id: 0, name: "CK_a".into(), definition: "([dbo].[f]([A])=(1))".into(), disabled: true, not_trusted: true, not_for_replication: true };
+        let ck = Check {
+            id: 0,
+            name: "CK_a".into(),
+            definition: "([dbo].[f]([A])=(1))".into(),
+            disabled: true,
+            not_trusted: true,
+            not_for_replication: true,
+        };
         let sql = check_constraint(&t, &ck);
         assert!(sql.contains("ALTER TABLE [s].[t] WITH NOCHECK ADD CONSTRAINT [CK_a] CHECK NOT FOR REPLICATION ([dbo].[f]([A])=(1));"), "{sql}");
         assert!(sql.contains("NOCHECK CONSTRAINT [CK_a];"));
-        let ok = Check { disabled: false, not_trusted: false, not_for_replication: false, ..ck };
-        assert!(check_constraint(&t, &ok).contains("WITH CHECK ADD CONSTRAINT [CK_a] CHECK ([dbo].[f]([A])=(1));"));
+        let ok = Check {
+            disabled: false,
+            not_trusted: false,
+            not_for_replication: false,
+            ..ck
+        };
+        assert!(check_constraint(&t, &ok)
+            .contains("WITH CHECK ADD CONSTRAINT [CK_a] CHECK ([dbo].[f]([A])=(1));"));
     }
 
     #[test]
     fn temporal_created_plain_then_versioned() {
         let mut t = table("dbo", "Price");
-        t.columns.push(Column { hidden: true, scale: 7, ..col("ValidFrom", "datetime2") });
-        t.columns.push(Column { hidden: true, scale: 7, ..col("ValidTo", "datetime2") });
-        let tmp = Temporal { start: "ValidFrom".into(), end: "ValidTo".into(), history_schema: "hist".into(), history_table: "PriceHistory".into(), retention: Some("6 MONTHS".into()) };
+        t.columns.push(Column {
+            hidden: true,
+            scale: 7,
+            ..col("ValidFrom", "datetime2")
+        });
+        t.columns.push(Column {
+            hidden: true,
+            scale: 7,
+            ..col("ValidTo", "datetime2")
+        });
+        let tmp = Temporal {
+            start: "ValidFrom".into(),
+            end: "ValidTo".into(),
+            history_schema: "hist".into(),
+            history_table: "PriceHistory".into(),
+            retention: Some("6 MONTHS".into()),
+        };
         t.temporal = Some(tmp.clone());
         let create = create_table(&t);
-        assert!(!create.contains("PERIOD") && !create.contains("GENERATED") && !create.contains("HIDDEN"), "{create}");
-        assert!(create.contains("[ValidFrom] datetime2(7) NOT NULL"), "{create}");
-        let script = CloneTable { table: ObjectRef { kind: "table".into(), schema: None, name: "x".into() }, create, before_data: vec![], after_data: after_data(&t, &mut Vec::new()) };
+        assert!(
+            !create.contains("PERIOD")
+                && !create.contains("GENERATED")
+                && !create.contains("HIDDEN"),
+            "{create}"
+        );
+        assert!(
+            create.contains("[ValidFrom] datetime2(7) NOT NULL"),
+            "{create}"
+        );
+        let script = CloneTable {
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: "x".into(),
+            },
+            create,
+            before_data: vec![],
+            after_data: after_data(&t, &mut Vec::new()),
+        };
         assert!(script.before_data.is_empty() && script.after_data.is_empty());
         let on = enable_temporal(&t, &tmp);
         assert_eq!(on.len(), 4, "{on:?}");
@@ -3661,55 +4690,138 @@ mod tests {
         // A target without temporal tables: plain, said.
         let mut list = vec![t];
         let mut notes = Vec::new();
-        adapt_features(&mut list, &mut HashMap::new(), &HashMap::new(), &Target::default(), &mut notes);
-        assert!(list[0].temporal.is_none() && notes.iter().any(|n| n.contains("tablas temporales")), "{notes:?}");
+        adapt_features(
+            &mut list,
+            &mut HashMap::new(),
+            &HashMap::new(),
+            &Target::default(),
+            &mut notes,
+        );
+        assert!(
+            list[0].temporal.is_none() && notes.iter().any(|n| n.contains("tablas temporales")),
+            "{notes:?}"
+        );
     }
 
     #[test]
     fn newer_index_options_dropped_on_older_targets() {
         let mut t = table("s", "t");
         t.indexes = vec![
-            Index { columns: vec!["Day".into()], compression_delay: 5, ..index("CCI", 5, &[]) },
-            Index { sequential_key: true, ..index("IX", 2, &[("Id", false)]) },
+            Index {
+                columns: vec!["Day".into()],
+                compression_delay: 5,
+                ..index("CCI", 5, &[])
+            },
+            Index {
+                sequential_key: true,
+                ..index("IX", 2, &[("Id", false)])
+            },
         ];
         let mut list = vec![t];
         let mut notes = Vec::new();
-        adapt_features(&mut list, &mut HashMap::new(), &HashMap::new(), &Target::default(), &mut notes);
-        assert!(list[0].indexes[0].columns.is_empty() && list[0].indexes[0].compression_delay == 0 && !list[0].indexes[1].sequential_key);
+        adapt_features(
+            &mut list,
+            &mut HashMap::new(),
+            &HashMap::new(),
+            &Target::default(),
+            &mut notes,
+        );
+        assert!(
+            list[0].indexes[0].columns.is_empty()
+                && list[0].indexes[0].compression_delay == 0
+                && !list[0].indexes[1].sequential_key
+        );
         assert_eq!(notes.len(), 3, "{notes:?}");
-        let full = Target { caps: Caps { ordered_columnstore: true, sequential_key: true, compression_delay: true, temporal: true, retention: true, ..Default::default() }, ..Default::default() };
+        let full = Target {
+            caps: Caps {
+                ordered_columnstore: true,
+                sequential_key: true,
+                compression_delay: true,
+                temporal: true,
+                retention: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let mut t2 = table("s", "t");
-        t2.indexes = vec![Index { columns: vec!["Day".into()], ..index("CCI", 5, &[]) }];
+        t2.indexes = vec![Index {
+            columns: vec!["Day".into()],
+            ..index("CCI", 5, &[])
+        }];
         let mut list = vec![t2];
         let mut notes = Vec::new();
-        adapt_features(&mut list, &mut HashMap::new(), &HashMap::new(), &full, &mut notes);
+        adapt_features(
+            &mut list,
+            &mut HashMap::new(),
+            &HashMap::new(),
+            &full,
+            &mut notes,
+        );
         assert!(notes.is_empty() && !list[0].indexes[0].columns.is_empty());
     }
 
     #[test]
     fn types_sequences_and_synonym_values() {
-        let alias = UserType { schema: "ven".into(), name: "Code".into(), base: Column { base: "varchar".into(), max_length: 20, ..Default::default() }, table: None };
+        let alias = UserType {
+            schema: "ven".into(),
+            name: "Code".into(),
+            base: Column {
+                base: "varchar".into(),
+                max_length: 20,
+                ..Default::default()
+            },
+            table: None,
+        };
         assert_eq!(user_type(&alias), "IF TYPE_ID(N'[ven].[Code]') IS NULL\n    CREATE TYPE [ven].[Code] FROM varchar(20) NOT NULL;");
         let tt = UserType {
             schema: "ven".into(),
             name: "Lines".into(),
             base: Column::default(),
             table: Some(TableType {
-                columns: vec![col("Id", "int"), Column { nullable: true, default: Some(("DF__x".into(), "(N'x')".into())), max_length: 20, ..col("Note", "nvarchar") }],
+                columns: vec![
+                    col("Id", "int"),
+                    Column {
+                        nullable: true,
+                        default: Some(("DF__x".into(), "(N'x')".into())),
+                        max_length: 20,
+                        ..col("Note", "nvarchar")
+                    },
+                ],
                 indexes: vec![
-                    Index { primary: true, ..index("PK__x", 1, &[("Id", false)]) },
+                    Index {
+                        primary: true,
+                        ..index("PK__x", 1, &[("Id", false)])
+                    },
                     index("IX_Note", 2, &[("Note", true)]),
-                    Index { unique_constraint: true, bucket_count: Some(64), ..index("UQ__y", 7, &[("Note", false)]) },
+                    Index {
+                        unique_constraint: true,
+                        bucket_count: Some(64),
+                        ..index("UQ__y", 7, &[("Note", false)])
+                    },
                 ],
                 checks: vec!["([Id]>(0))".into()],
                 memory_optimized: true,
             }),
         };
         let sql = user_type(&tt);
-        assert!(sql.contains("[Note] nvarchar(10) NULL DEFAULT (N'x')"), "{sql}");
-        assert!(sql.contains("PRIMARY KEY CLUSTERED ([Id] ASC)") && sql.contains("INDEX [IX_Note] NONCLUSTERED ([Note] DESC)"), "{sql}");
-        assert!(sql.contains("UNIQUE NONCLUSTERED HASH ([Note]) WITH (BUCKET_COUNT = 64)") && sql.contains("CHECK ([Id]>(0))"), "{sql}");
-        assert!(sql.ends_with(") WITH (MEMORY_OPTIMIZED = ON);") && !sql.contains("DF__x"), "{sql}");
+        assert!(
+            sql.contains("[Note] nvarchar(10) NULL DEFAULT (N'x')"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("PRIMARY KEY CLUSTERED ([Id] ASC)")
+                && sql.contains("INDEX [IX_Note] NONCLUSTERED ([Note] DESC)"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("UNIQUE NONCLUSTERED HASH ([Note]) WITH (BUCKET_COUNT = 64)")
+                && sql.contains("CHECK ([Id]>(0))"),
+            "{sql}"
+        );
+        assert!(
+            sql.ends_with(") WITH (MEMORY_OPTIMIZED = ON);") && !sql.contains("DF__x"),
+            "{sql}"
+        );
 
         let sq = Sequence {
             schema: "s".into(),
@@ -3728,13 +4840,29 @@ mod tests {
         };
         assert!(sequence(&sq).ends_with("CREATE SEQUENCE [s].[q] AS int START WITH 1 INCREMENT BY 5 MINVALUE 1 MAXVALUE 100 NO CYCLE CACHE 20;"));
         assert_eq!(sequence_value(&sq).unwrap(), "ALTER SEQUENCE [s].[q] RESTART WITH 41;\nDECLARE @v sql_variant = NEXT VALUE FOR [s].[q];");
-        assert!(sequence_value(&Sequence { used: false, ..sq.clone() }).is_none());
-        assert!(sequence(&Sequence { cached: false, cycle: true, ..sq }).contains("CYCLE NO CACHE;"));
+        assert!(sequence_value(&Sequence {
+            used: false,
+            ..sq.clone()
+        })
+        .is_none());
+        assert!(sequence(&Sequence {
+            cached: false,
+            cycle: true,
+            ..sq
+        })
+        .contains("CYCLE NO CACHE;"));
     }
 
     #[test]
     fn modules_keep_their_options_triggers_their_state() {
-        let v = Module { id: 1, schema: "s".into(), name: "v".into(), kind: "V".into(), definition: Some("CREATE VIEW s.v AS SELECT 'x' AS a".into()), ..Default::default() };
+        let v = Module {
+            id: 1,
+            schema: "s".into(),
+            name: "v".into(),
+            kind: "V".into(),
+            definition: Some("CREATE VIEW s.v AS SELECT 'x' AS a".into()),
+            ..Default::default()
+        };
         let sql = module(&v);
         assert_eq!(
             sql,
@@ -3754,22 +4882,54 @@ mod tests {
             ..Default::default()
         };
         let sql = module(&tr);
-        assert!(sql.contains("SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON;"), "{sql}");
+        assert!(
+            sql.contains("SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON;"),
+            "{sql}"
+        );
         // The GO line can't split the batch in a client that splits on it.
-        assert!(sql.lines().all(|l| !l.trim().eq_ignore_ascii_case("go")), "{sql}");
+        assert!(
+            sql.lines().all(|l| !l.trim().eq_ignore_ascii_case("go")),
+            "{sql}"
+        );
         assert!(sql.contains("AS\n' + N'GO\nSELECT 1"), "{sql}");
-        assert!(sql.contains("\nDISABLE TRIGGER [s].[tr] ON [s].[t];"), "{sql}");
+        assert!(
+            sql.contains("\nDISABLE TRIGGER [s].[tr] ON [s].[t];"),
+            "{sql}"
+        );
         assert!(sql.contains("EXEC sp_settriggerorder @triggername = N'[s].[tr]', @order = N'First', @stmttype = N'INSERT';"), "{sql}");
     }
 
     #[test]
     fn modules_in_dependency_order() {
-        let m = |id, kind: &str, name: &str| Module { id, kind: kind.into(), schema: "s".into(), name: name.into(), definition: Some("x".into()), ..Default::default() };
+        let m = |id, kind: &str, name: &str| Module {
+            id,
+            kind: kind.into(),
+            schema: "s".into(),
+            name: name.into(),
+            definition: Some("x".into()),
+            ..Default::default()
+        };
         let mut tr = m(5, "TR", "a_trigger");
         tr.parent = Some((3, "s".into(), "v_z".into()));
-        let modules = vec![m(1, "P", "a_proc"), m(2, "FN", "f_b"), m(3, "V", "v_z"), m(4, "V", "v_a"), tr, m(6, "FN", "f_a")];
-        let deps: HashMap<i32, HashSet<i32>> = [(4, HashSet::from([3])), (3, HashSet::from([2])), (2, HashSet::from([6])), (1, HashSet::from([4]))].into();
-        let order: Vec<&str> = module_order(&modules, &deps).into_iter().map(|i| modules[i].name.as_str()).collect();
+        let modules = vec![
+            m(1, "P", "a_proc"),
+            m(2, "FN", "f_b"),
+            m(3, "V", "v_z"),
+            m(4, "V", "v_a"),
+            tr,
+            m(6, "FN", "f_a"),
+        ];
+        let deps: HashMap<i32, HashSet<i32>> = [
+            (4, HashSet::from([3])),
+            (3, HashSet::from([2])),
+            (2, HashSet::from([6])),
+            (1, HashSet::from([4])),
+        ]
+        .into();
+        let order: Vec<&str> = module_order(&modules, &deps)
+            .into_iter()
+            .map(|i| modules[i].name.as_str())
+            .collect();
         assert_eq!(order, ["f_a", "f_b", "v_z", "v_a", "a_proc", "a_trigger"]);
     }
 
@@ -3779,17 +4939,43 @@ mod tests {
             name: "MS_Description".into(),
             value: "Monto (sin IVA)".into(),
             base_type: "nvarchar".into(),
-            levels: vec![("SCHEMA".into(), "ven".into()), ("TABLE".into(), "Parent".into()), ("COLUMN".into(), "Amount".into())],
+            levels: vec![
+                ("SCHEMA".into(), "ven".into()),
+                ("TABLE".into(), "Parent".into()),
+                ("COLUMN".into(), "Amount".into()),
+            ],
         };
         let sql = extended_property(&p);
-        assert!(sql.starts_with("DECLARE @v sql_variant = N'Monto (sin IVA)';"), "{sql}");
+        assert!(
+            sql.starts_with("DECLARE @v sql_variant = N'Monto (sin IVA)';"),
+            "{sql}"
+        );
         assert!(sql.contains("fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'ven', N'TABLE', N'Parent', N'COLUMN', N'Amount')"), "{sql}");
         assert!(sql.contains("sp_addextendedproperty @name = N'MS_Description', @value = @v, @level0type = N'SCHEMA', @level0name = N'ven'"), "{sql}");
-        assert!(sql.contains("ELSE\n    EXEC sys.sp_updateextendedproperty"), "{sql}");
-        let db = ExtendedProperty { levels: vec![], base_type: "int".into(), value: "42".into(), ..p.clone() };
+        assert!(
+            sql.contains("ELSE\n    EXEC sys.sp_updateextendedproperty"),
+            "{sql}"
+        );
+        let db = ExtendedProperty {
+            levels: vec![],
+            base_type: "int".into(),
+            value: "42".into(),
+            ..p.clone()
+        };
         let sql = extended_property(&db);
-        assert!(sql.starts_with("DECLARE @v sql_variant = CAST(N'42' AS int);") && sql.contains("NULL, NULL, NULL, NULL, NULL, NULL"), "{sql}");
-        let ck = ExtendedProperty { levels: vec![("SCHEMA".into(), "ven".into()), ("TABLE".into(), "t".into()), ("CONSTRAINT".into(), "CK_x".into())], ..p };
+        assert!(
+            sql.starts_with("DECLARE @v sql_variant = CAST(N'42' AS int);")
+                && sql.contains("NULL, NULL, NULL, NULL, NULL, NULL"),
+            "{sql}"
+        );
+        let ck = ExtendedProperty {
+            levels: vec![
+                ("SCHEMA".into(), "ven".into()),
+                ("TABLE".into(), "t".into()),
+                ("CONSTRAINT".into(), "CK_x".into()),
+            ],
+            ..p
+        };
         assert!(extended_property(&ck).contains("IF OBJECT_ID(N'[ven].[CK_x]') IS NOT NULL\nBEGIN"));
     }
 
@@ -3798,68 +4984,202 @@ mod tests {
     fn script_from_a_fixture_source() {
         let mut parent = table("s", "Parent");
         parent.id = 10;
-        parent.pk = Some(Index { primary: true, ..index("PK_P", 1, &[("Id", false)]) });
+        parent.pk = Some(Index {
+            primary: true,
+            ..index("PK_P", 1, &[("Id", false)])
+        });
         let mut child = table("s", "Child");
         child.id = 11;
-        child.columns.push(Column { computed: Some(("([s].[f_calc]([Id]))".into(), false)), nullable: true, ..col("Calc", "int") });
-        child.checks = vec![Check { name: "CK_c".into(), definition: "([s].[f_ck]([Id])=(1))".into(), ..Default::default() }];
+        child.columns.push(Column {
+            computed: Some(("([s].[f_calc]([Id]))".into(), false)),
+            nullable: true,
+            ..col("Calc", "int")
+        });
+        child.checks = vec![Check {
+            name: "CK_c".into(),
+            definition: "([s].[f_ck]([Id])=(1))".into(),
+            ..Default::default()
+        }];
         child.fks = vec![
-            ForeignKey { name: "FK_p".into(), columns: vec!["Id".into()], ref_schema: "s".into(), ref_table: "Parent".into(), ref_columns: vec!["Id".into()], ..Default::default() },
-            ForeignKey { name: "FK_o".into(), columns: vec!["Id".into()], ref_schema: "s".into(), ref_table: "Other".into(), ref_columns: vec!["Id".into()], ..Default::default() },
+            ForeignKey {
+                name: "FK_p".into(),
+                columns: vec!["Id".into()],
+                ref_schema: "s".into(),
+                ref_table: "Parent".into(),
+                ref_columns: vec!["Id".into()],
+                ..Default::default()
+            },
+            ForeignKey {
+                name: "FK_o".into(),
+                columns: vec!["Id".into()],
+                ref_schema: "s".into(),
+                ref_table: "Other".into(),
+                ref_columns: vec!["Id".into()],
+                ..Default::default()
+            },
         ];
         child.space = ps("ps", "Id");
         let mut other = table("s", "Other");
         other.id = 12;
         let def = |s: &str| Some(s.to_string());
-        let m = |id, kind: &str, name: &str, d: Option<String>| Module { id, kind: kind.into(), schema: "s".into(), name: name.into(), definition: d, ansi_nulls: true, quoted_identifier: true, ..Default::default() };
-        let mut trig = m(24, "TR", "tr_other", def("CREATE TRIGGER s.tr_other ON s.Other AFTER INSERT AS SELECT 1"));
+        let m = |id, kind: &str, name: &str, d: Option<String>| Module {
+            id,
+            kind: kind.into(),
+            schema: "s".into(),
+            name: name.into(),
+            definition: d,
+            ansi_nulls: true,
+            quoted_identifier: true,
+            ..Default::default()
+        };
+        let mut trig = m(
+            24,
+            "TR",
+            "tr_other",
+            def("CREATE TRIGGER s.tr_other ON s.Other AFTER INSERT AS SELECT 1"),
+        );
         trig.parent = Some((12, "s".into(), "Other".into()));
         let src = Source {
             schemas: vec!["s".into()],
             tables: vec![parent, child, other],
-            functions: vec![PartitionFunction { name: "pf".into(), param: col("", "int"), boundaries: vec!["10".into()], ..Default::default() }],
+            functions: vec![PartitionFunction {
+                name: "pf".into(),
+                param: col("", "int"),
+                boundaries: vec!["10".into()],
+                ..Default::default()
+            }],
             schemes: vec![
-                PartitionScheme { name: "ps".into(), function: "pf".into(), filegroups: vec!["PRIMARY".into(), "PRIMARY".into()] },
-                PartitionScheme { name: "ps_unused".into(), function: "pf_unused".into(), filegroups: vec!["FG_X".into()] },
+                PartitionScheme {
+                    name: "ps".into(),
+                    function: "pf".into(),
+                    filegroups: vec!["PRIMARY".into(), "PRIMARY".into()],
+                },
+                PartitionScheme {
+                    name: "ps_unused".into(),
+                    function: "pf_unused".into(),
+                    filegroups: vec!["FG_X".into()],
+                },
             ],
             modules: vec![
-                m(20, "FN", "f_calc", def("CREATE FUNCTION s.f_calc(@x int) RETURNS int AS BEGIN RETURN @x END")),
-                m(21, "FN", "f_ck", def("CREATE FUNCTION s.f_ck(@x int) RETURNS int AS BEGIN RETURN 1 END")),
-                m(22, "V", "v_other", def("CREATE VIEW s.v_other AS SELECT * FROM s.Other")),
+                m(
+                    20,
+                    "FN",
+                    "f_calc",
+                    def("CREATE FUNCTION s.f_calc(@x int) RETURNS int AS BEGIN RETURN @x END"),
+                ),
+                m(
+                    21,
+                    "FN",
+                    "f_ck",
+                    def("CREATE FUNCTION s.f_ck(@x int) RETURNS int AS BEGIN RETURN 1 END"),
+                ),
+                m(
+                    22,
+                    "V",
+                    "v_other",
+                    def("CREATE VIEW s.v_other AS SELECT * FROM s.Other"),
+                ),
                 m(23, "P", "p_secret", None),
                 trig,
-                m(25, "V", "v_parent", def("CREATE VIEW s.v_parent AS SELECT * FROM s.Parent")),
+                m(
+                    25,
+                    "V",
+                    "v_parent",
+                    def("CREATE VIEW s.v_parent AS SELECT * FROM s.Parent"),
+                ),
             ],
             deps: [(22, HashSet::from([12])), (25, HashSet::from([10]))].into(),
-            column_functions: [(11, vec![ColumnUse { column: "Calc".into(), default: false, function: 20 }])].into(),
-            sequences: vec![Sequence { schema: "s".into(), name: "q".into(), type_sql: "int".into(), current: "5".into(), start: "1".into(), used: true, ..Default::default() }],
+            column_functions: [(
+                11,
+                vec![ColumnUse {
+                    column: "Calc".into(),
+                    default: false,
+                    function: 20,
+                }],
+            )]
+            .into(),
+            sequences: vec![Sequence {
+                schema: "s".into(),
+                name: "q".into(),
+                type_sql: "int".into(),
+                current: "5".into(),
+                start: "1".into(),
+                used: true,
+                ..Default::default()
+            }],
             synonyms: vec![("s".into(), "syn".into(), "[s].[Parent]".into())],
             properties: vec![
-                ExtendedProperty { name: "d".into(), value: "x".into(), levels: vec![("SCHEMA".into(), "s".into()), ("TABLE".into(), "Other".into())], ..Default::default() },
-                ExtendedProperty { name: "d".into(), value: "y".into(), levels: vec![("SCHEMA".into(), "s".into()), ("TABLE".into(), "Parent".into())], ..Default::default() },
+                ExtendedProperty {
+                    name: "d".into(),
+                    value: "x".into(),
+                    levels: vec![
+                        ("SCHEMA".into(), "s".into()),
+                        ("TABLE".into(), "Other".into()),
+                    ],
+                    ..Default::default()
+                },
+                ExtendedProperty {
+                    name: "d".into(),
+                    value: "y".into(),
+                    levels: vec![
+                        ("SCHEMA".into(), "s".into()),
+                        ("TABLE".into(), "Parent".into()),
+                    ],
+                    ..Default::default()
+                },
             ],
             ddl_triggers: 1,
             principals: 2,
             ..Default::default()
         };
-        let target = Target { caps: Caps { xtp: true, memory_optimized: true, temporal: true, ..Default::default() }, filegroups: vec!["PRIMARY".into()], ..Default::default() };
-        let tables = [ObjectRef { kind: "table".into(), schema: Some("s".into()), name: "Child".into() }, ObjectRef { kind: "table".into(), schema: None, name: "Parent".into() }]
-            .map(|mut r| {
-                if r.schema.is_none() {
-                    r.schema = Some("s".into());
-                }
-                r
-            });
+        let target = Target {
+            caps: Caps {
+                xtp: true,
+                memory_optimized: true,
+                temporal: true,
+                ..Default::default()
+            },
+            filegroups: vec!["PRIMARY".into()],
+            ..Default::default()
+        };
+        let tables = [
+            ObjectRef {
+                kind: "table".into(),
+                schema: Some("s".into()),
+                name: "Child".into(),
+            },
+            ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: "Parent".into(),
+            },
+        ]
+        .map(|mut r| {
+            if r.schema.is_none() {
+                r.schema = Some("s".into());
+            }
+            r
+        });
         let script = build(src.clone(), &target, &tables).unwrap();
         let find = |list: &[String], what: &str| list.iter().position(|s| s.contains(what));
         // Before: schema, the used partition function and scheme only, the
         // sequence, and the function a column uses.
         assert!(script.before[0].contains("CREATE SCHEMA [s]"));
-        assert!(find(&script.before, "PARTITION FUNCTION [pf]").is_some() && find(&script.before, "ps_unused").is_none());
+        assert!(
+            find(&script.before, "PARTITION FUNCTION [pf]").is_some()
+                && find(&script.before, "ps_unused").is_none()
+        );
         assert!(find(&script.before, "FG_X").is_none());
         assert!(find(&script.before, "CREATE SEQUENCE [s].[q]").is_some());
         assert!(find(&script.before, "CREATE FUNCTION s.f_calc").is_some());
-        assert_eq!(script.tables.iter().map(|t| t.table.name.as_str()).collect::<Vec<_>>(), ["Child", "Parent"]);
+        assert_eq!(
+            script
+                .tables
+                .iter()
+                .map(|t| t.table.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Child", "Parent"]
+        );
         assert!(script.tables[0].create.contains(") ON [ps]([Id]);"));
         // After: sequence value, synonym, code, then CHECKs (they may call
         // it), then FKs; the view over a table not cloned and the trigger
@@ -3871,25 +5191,56 @@ mod tests {
         let v = find(a, "CREATE VIEW s.v_parent").unwrap();
         let ck = find(a, "CONSTRAINT [CK_c] CHECK").unwrap();
         let fk = find(a, "CONSTRAINT [FK_p] FOREIGN KEY").unwrap();
-        assert!(seq < syn && syn < f_ck && f_ck < v && v < ck && ck < fk, "{a:#?}");
-        assert!(find(a, "f_calc").is_none() && find(a, "v_other").is_none() && find(a, "tr_other").is_none() && find(a, "FK_o").is_none());
+        assert!(
+            seq < syn && syn < f_ck && f_ck < v && v < ck && ck < fk,
+            "{a:#?}"
+        );
+        assert!(
+            find(a, "f_calc").is_none()
+                && find(a, "v_other").is_none()
+                && find(a, "tr_other").is_none()
+                && find(a, "FK_o").is_none()
+        );
         assert!(find(a, "N'Parent'").is_some() && find(a, "N'Other'").is_none());
         let notes = script.notes.join("\n");
-        for want in ["[s].[p_secret] (procedimiento): su definición está cifrada", "[s].[v_other] (vista): usa tablas", "[FK_o] apunta a s.Other", "trigger(s) de base (DDL)", "usuarios, roles y permisos", "[s].[q]: la secuencia"] {
+        for want in [
+            "[s].[p_secret] (procedimiento): su definición está cifrada",
+            "[s].[v_other] (vista): usa tablas",
+            "[FK_o] apunta a s.Other",
+            "trigger(s) de base (DDL)",
+            "usuarios, roles y permisos",
+            "[s].[q]: la secuencia",
+        ] {
             assert!(notes.contains(want), "missing «{want}» in:\n{notes}");
         }
         // A table the source doesn't have.
-        let bad = [ObjectRef { kind: "table".into(), schema: Some("s".into()), name: "Nope".into() }];
-        assert!(build(src, &target, &bad).unwrap_err().to_string().contains("s.Nope"));
+        let bad = [ObjectRef {
+            kind: "table".into(),
+            schema: Some("s".into()),
+            name: "Nope".into(),
+        }];
+        assert!(build(src, &target, &bad)
+            .unwrap_err()
+            .to_string()
+            .contains("s.Nope"));
     }
 
     fn tref(schema: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: "table".into(), schema: Some(schema.into()), name: name.into() }
+        ObjectRef {
+            kind: "table".into(),
+            schema: Some(schema.into()),
+            name: name.into(),
+        }
     }
 
     fn full_target() -> Target {
         Target {
-            caps: Caps { xtp: true, memory_optimized: true, temporal: true, ..Default::default() },
+            caps: Caps {
+                xtp: true,
+                memory_optimized: true,
+                temporal: true,
+                ..Default::default()
+            },
             default_schema: "dbo".into(),
             filegroups: vec!["PRIMARY".into()],
             ..Default::default()
@@ -3911,12 +5262,19 @@ mod tests {
 
     #[test]
     fn header_names_found_past_comments_and_quotes() {
-        let h = parse_header("-- x\n/* a /* nested */ b */ create or  alter\tVIEW [ven].[v]]x] AS SELECT 1").unwrap();
+        let h = parse_header(
+            "-- x\n/* a /* nested */ b */ create or  alter\tVIEW [ven].[v]]x] AS SELECT 1",
+        )
+        .unwrap();
         assert_eq!((h.schema.as_deref(), h.name.as_str()), (Some("ven"), "v]x"));
         let def = "CREATE PROC dbo . \"p q\" @a int AS SELECT 1";
         let h = parse_header(def).unwrap();
-        assert_eq!((h.schema.as_deref(), h.name.as_str(), &def[h.start..h.end]), (Some("dbo"), "p q", "dbo . \"p q\""));
-        let h = parse_header("CREATE FUNCTION fñ(@x int) RETURNS int AS BEGIN RETURN 1 END").unwrap();
+        assert_eq!(
+            (h.schema.as_deref(), h.name.as_str(), &def[h.start..h.end]),
+            (Some("dbo"), "p q", "dbo . \"p q\"")
+        );
+        let h =
+            parse_header("CREATE FUNCTION fñ(@x int) RETURNS int AS BEGIN RETURN 1 END").unwrap();
         assert_eq!((h.schema, h.name.as_str()), (None, "fñ"));
         let h = parse_header("CREATE TRIGGER db.s.tr ON s.t AFTER INSERT AS SELECT 1").unwrap();
         assert_eq!((h.schema.as_deref(), h.name.as_str()), (Some("s"), "tr"));
@@ -3929,33 +5287,77 @@ mod tests {
     #[test]
     fn renamed_and_moved_modules_keep_their_text() {
         let taken = HashSet::new();
-        let place = Placement { default_schema: "dbo", taken: &taken };
+        let place = Placement {
+            default_schema: "dbo",
+            taken: &taken,
+        };
         let mut notes = Vec::new();
-        let v = code(1, "V", "ven", "vNew", "CREATE VIEW ven.vOld AS SELECT Id FROM ven.T");
+        let v = code(
+            1,
+            "V",
+            "ven",
+            "vNew",
+            "CREATE VIEW ven.vOld AS SELECT Id FROM ven.T",
+        );
         let sql = module_sql(&v, &place, &mut notes).unwrap();
         assert!(sql.starts_with("IF OBJECT_ID(N'[ven].[vNew]') IS NULL\nBEGIN\nIF OBJECT_ID(N'[ven].[vOld]') IS NULL\nBEGIN\n"), "{sql}");
-        assert!(sql.contains("CREATE VIEW ven.vOld AS SELECT Id FROM ven.T"), "{sql}");
+        assert!(
+            sql.contains("CREATE VIEW ven.vOld AS SELECT Id FROM ven.T"),
+            "{sql}"
+        );
         assert!(sql.ends_with("EXEC sp_rename @objname = N'[ven].[vOld]', @newname = N'vNew', @objtype = N'OBJECT';\nEND"), "{sql}");
         assert!(!sql.contains("TRANSFER"));
-        let p = code(2, "P", "other", "pMoved", "CREATE PROCEDURE ven.pMoved AS SELECT 1 AS one");
+        let p = code(
+            2,
+            "P",
+            "other",
+            "pMoved",
+            "CREATE PROCEDURE ven.pMoved AS SELECT 1 AS one",
+        );
         let sql = module_sql(&p, &place, &mut notes).unwrap();
-        assert!(sql.contains("IF OBJECT_ID(N'[ven].[pMoved]') IS NULL"), "{sql}");
-        assert!(sql.contains("EXEC(N'ALTER SCHEMA [other] TRANSFER [ven].[pMoved]');") && !sql.contains("sp_rename"), "{sql}");
+        assert!(
+            sql.contains("IF OBJECT_ID(N'[ven].[pMoved]') IS NULL"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("EXEC(N'ALTER SCHEMA [other] TRANSFER [ven].[pMoved]');")
+                && !sql.contains("sp_rename"),
+            "{sql}"
+        );
         assert!(notes.is_empty(), "{notes:?}");
 
         // The old name belongs to another object now: pointed at the current one.
         let taken: HashSet<(String, String)> = [("ven".to_string(), "vold".to_string())].into();
-        let place = Placement { default_schema: "dbo", taken: &taken };
+        let place = Placement {
+            default_schema: "dbo",
+            taken: &taken,
+        };
         let sql = module_sql(&v, &place, &mut notes).unwrap();
-        assert!(sql.contains("CREATE VIEW [ven].[vNew] AS SELECT Id FROM ven.T") && !sql.contains("sp_rename"), "{sql}");
-        assert!(notes[0].contains("[ven].[vNew] (vista)") && notes[0].contains("[ven].[vOld]"), "{notes:?}");
+        assert!(
+            sql.contains("CREATE VIEW [ven].[vNew] AS SELECT Id FROM ven.T")
+                && !sql.contains("sp_rename"),
+            "{sql}"
+        );
+        assert!(
+            notes[0].contains("[ven].[vNew] (vista)") && notes[0].contains("[ven].[vOld]"),
+            "{notes:?}"
+        );
 
         // A trigger whose table changed schema can't be created from its text.
-        let mut tr = code(3, "TR", "other", "tr", "CREATE TRIGGER ven.tr ON ven.T AFTER INSERT AS SELECT 1");
+        let mut tr = code(
+            3,
+            "TR",
+            "other",
+            "tr",
+            "CREATE TRIGGER ven.tr ON ven.T AFTER INSERT AS SELECT 1",
+        );
         tr.parent = Some((9, "other".into(), "T".into()));
         let mut notes = Vec::new();
         assert!(module_sql(&tr, &place, &mut notes).is_none());
-        assert!(notes[0].contains("[other].[tr] (trigger)") && notes[0].contains("no se clona"), "{notes:?}");
+        assert!(
+            notes[0].contains("[other].[tr] (trigger)") && notes[0].contains("no se clona"),
+            "{notes:?}"
+        );
     }
 
     /// A CREATE with no schema lands in the creator's default schema and
@@ -3964,13 +5366,28 @@ mod tests {
     #[test]
     fn unqualified_modules_are_created_in_their_schema() {
         let taken = HashSet::new();
-        let place = Placement { default_schema: "dbo", taken: &taken };
+        let place = Placement {
+            default_schema: "dbo",
+            taken: &taken,
+        };
         let v = code(1, "V", "app", "vT", "CREATE VIEW vT AS SELECT Id FROM T");
         let sql = module_sql(&v, &place, &mut Vec::new()).unwrap();
         assert!(sql.starts_with("IF OBJECT_ID(N'[app].[vT]') IS NULL\nBEGIN\nIF USER_ID(N'dbine_clone_owner') IS NOT NULL DROP USER"), "{sql}");
-        assert!(sql.contains("CREATE USER [dbine_clone_owner] WITHOUT LOGIN WITH DEFAULT_SCHEMA = [app];"), "{sql}");
-        assert!(sql.contains("EXECUTE AS USER = N''dbine_clone_owner''; SET ANSI_NULLS ON;"), "{sql}");
-        assert!(sql.contains("CREATE VIEW vT AS SELECT Id FROM T") && sql.ends_with("DROP USER [dbine_clone_owner];\nEND"), "{sql}");
+        assert!(
+            sql.contains(
+                "CREATE USER [dbine_clone_owner] WITHOUT LOGIN WITH DEFAULT_SCHEMA = [app];"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("EXECUTE AS USER = N''dbine_clone_owner''; SET ANSI_NULLS ON;"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("CREATE VIEW vT AS SELECT Id FROM T")
+                && sql.ends_with("DROP USER [dbine_clone_owner];\nEND"),
+            "{sql}"
+        );
         // In the cloning user's own default schema: as it is.
         let d = code(2, "V", "dbo", "vD", "CREATE VIEW vD AS SELECT 1 AS a");
         assert_eq!(
@@ -3982,29 +5399,68 @@ mod tests {
     /// EXECUTE AS SELF binds a module to its creator: never the helper user.
     #[test]
     fn execute_as_self_is_never_bound_to_the_helper() {
-        assert!(executes_as_self("CREATE PROCEDURE pS WITH EXECUTE AS SELF AS SELECT 1"));
-        assert!(executes_as_self("CREATE PROC p\nWITH RECOMPILE, EXEC /* c */ AS\n  self AS SELECT 1"));
-        assert!(executes_as_self("CREATE FUNCTION f() RETURNS int WITH EXECUTE AS SELF AS BEGIN RETURN 1 END"));
-        assert!(!executes_as_self("CREATE PROCEDURE p WITH EXECUTE AS OWNER AS SELECT 'EXECUTE AS SELF'"));
-        assert!(!executes_as_self("CREATE PROCEDURE p AS -- EXECUTE AS SELF\nSELECT [EXECUTE AS SELF] = 1"));
-        assert!(!executes_as_self("CREATE PROCEDURE p WITH EXECUTE AS 'self' AS SELECT 1"));
-        assert!(!executes_as_self("CREATE PROCEDURE p AS SELECT 'it''s EXECUTE AS SELF' AS x"));
+        assert!(executes_as_self(
+            "CREATE PROCEDURE pS WITH EXECUTE AS SELF AS SELECT 1"
+        ));
+        assert!(executes_as_self(
+            "CREATE PROC p\nWITH RECOMPILE, EXEC /* c */ AS\n  self AS SELECT 1"
+        ));
+        assert!(executes_as_self(
+            "CREATE FUNCTION f() RETURNS int WITH EXECUTE AS SELF AS BEGIN RETURN 1 END"
+        ));
+        assert!(!executes_as_self(
+            "CREATE PROCEDURE p WITH EXECUTE AS OWNER AS SELECT 'EXECUTE AS SELF'"
+        ));
+        assert!(!executes_as_self(
+            "CREATE PROCEDURE p AS -- EXECUTE AS SELF\nSELECT [EXECUTE AS SELF] = 1"
+        ));
+        assert!(!executes_as_self(
+            "CREATE PROCEDURE p WITH EXECUTE AS 'self' AS SELECT 1"
+        ));
+        assert!(!executes_as_self(
+            "CREATE PROCEDURE p AS SELECT 'it''s EXECUTE AS SELF' AS x"
+        ));
 
         let taken = HashSet::new();
-        let place = Placement { default_schema: "dbo", taken: &taken };
-        let mut p = code(1, "P", "app", "pS", "CREATE PROCEDURE pS WITH EXECUTE AS SELF AS SELECT Id FROM T");
+        let place = Placement {
+            default_schema: "dbo",
+            taken: &taken,
+        };
+        let mut p = code(
+            1,
+            "P",
+            "app",
+            "pS",
+            "CREATE PROCEDURE pS WITH EXECUTE AS SELF AS SELECT Id FROM T",
+        );
         p.execute_as = Some("cv2_u".into());
         let mut notes = Vec::new();
         assert!(module_sql(&p, &place, &mut notes).is_none());
-        assert!(notes[0].contains("[app].[pS] (procedimiento): se declara WITH EXECUTE AS SELF") && notes[0].contains("[cv2_u]") && notes[0].contains("No se clona"), "{notes:?}");
+        assert!(
+            notes[0].contains("[app].[pS] (procedimiento): se declara WITH EXECUTE AS SELF")
+                && notes[0].contains("[cv2_u]")
+                && notes[0].contains("No se clona"),
+            "{notes:?}"
+        );
 
         // Qualified: created as the cloning user, which it runs as (said).
-        let mut q = code(2, "P", "app", "pQ", "CREATE PROCEDURE app.pQ WITH EXECUTE AS SELF AS SELECT 1");
+        let mut q = code(
+            2,
+            "P",
+            "app",
+            "pQ",
+            "CREATE PROCEDURE app.pQ WITH EXECUTE AS SELF AS SELECT 1",
+        );
         q.execute_as = Some("cv2_u".into());
         let mut notes = Vec::new();
         let sql = module_sql(&q, &place, &mut notes).unwrap();
         assert!(!sql.contains(CLONE_USER), "{sql}");
-        assert!(notes[0].contains("se ejecuta como el usuario con el que se clona (en el origen, como [cv2_u])"), "{notes:?}");
+        assert!(
+            notes[0].contains(
+                "se ejecuta como el usuario con el que se clona (en el origen, como [cv2_u])"
+            ),
+            "{notes:?}"
+        );
 
         // Any module created as the helper drops itself (and the helper) if
         // it still ended up bound to it.
@@ -4021,7 +5477,10 @@ mod tests {
     fn column_functions_over_tables_wait_for_them() {
         let mut item = table("dbo", "Item");
         item.id = 1;
-        item.columns.push(Column { default: Some(("DF_Item_V".into(), "([dbo].[fnCfg]())".into())), ..col("V", "int") });
+        item.columns.push(Column {
+            default: Some(("DF_Item_V".into(), "([dbo].[fnCfg]())".into())),
+            ..col("V", "int")
+        });
         let mut cfg = table("dbo", "Cfg");
         cfg.id = 2;
         let mut f = code(10, "FN", "dbo", "fnCfg", "CREATE FUNCTION dbo.fnCfg() RETURNS int WITH SCHEMABINDING AS BEGIN RETURN (SELECT V FROM dbo.Cfg) END");
@@ -4030,42 +5489,118 @@ mod tests {
             tables: vec![item, cfg],
             modules: vec![f],
             deps: [(10, HashSet::from([2]))].into(),
-            column_functions: [(1, vec![ColumnUse { column: "V".into(), default: true, function: 10 }])].into(),
+            column_functions: [(
+                1,
+                vec![ColumnUse {
+                    column: "V".into(),
+                    default: true,
+                    function: 10,
+                }],
+            )]
+            .into(),
             ..Default::default()
         };
-        let script = build(src.clone(), &full_target(), &[tref("dbo", "Item"), tref("dbo", "Cfg")]).unwrap();
-        assert_eq!(script.tables.iter().map(|t| t.table.name.as_str()).collect::<Vec<_>>(), ["Cfg", "Item"]);
+        let script = build(
+            src.clone(),
+            &full_target(),
+            &[tref("dbo", "Item"), tref("dbo", "Cfg")],
+        )
+        .unwrap();
+        assert_eq!(
+            script
+                .tables
+                .iter()
+                .map(|t| t.table.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Cfg", "Item"]
+        );
         let create = &script.tables[1].create;
-        let (f_at, t_at) = (create.find("CREATE FUNCTION dbo.fnCfg").unwrap(), create.find("CREATE TABLE [dbo].[Item]").unwrap());
-        assert!(f_at < t_at && create.contains("CONSTRAINT [DF_Item_V] DEFAULT ([dbo].[fnCfg]())"), "{create}");
-        assert!(script.before.iter().chain(&script.after).all(|s| !s.contains("fnCfg")), "{script:#?}");
+        let (f_at, t_at) = (
+            create.find("CREATE FUNCTION dbo.fnCfg").unwrap(),
+            create.find("CREATE TABLE [dbo].[Item]").unwrap(),
+        );
+        assert!(
+            f_at < t_at && create.contains("CONSTRAINT [DF_Item_V] DEFAULT ([dbo].[fnCfg]())"),
+            "{create}"
+        );
+        assert!(
+            script
+                .before
+                .iter()
+                .chain(&script.after)
+                .all(|s| !s.contains("fnCfg")),
+            "{script:#?}"
+        );
 
         // Not schema-bound: it binds at run time, so it goes before everything.
         let mut loose = src.clone();
         loose.modules[0].schema_bound = false;
-        let script = build(loose, &full_target(), &[tref("dbo", "Item"), tref("dbo", "Cfg")]).unwrap();
-        assert!(script.before.iter().any(|s| s.contains("CREATE FUNCTION dbo.fnCfg")));
+        let script = build(
+            loose,
+            &full_target(),
+            &[tref("dbo", "Item"), tref("dbo", "Cfg")],
+        )
+        .unwrap();
+        assert!(script
+            .before
+            .iter()
+            .any(|s| s.contains("CREATE FUNCTION dbo.fnCfg")));
         assert_eq!(script.tables[0].table.name, "Item");
 
         // The function reads the very table: its default comes after the code.
         let mut own = src.clone();
         own.deps = [(10, HashSet::from([1]))].into();
-        let script = build(own, &full_target(), &[tref("dbo", "Item"), tref("dbo", "Cfg")]).unwrap();
-        assert!(!script.tables[0].create.contains("DF_Item_V"), "{}", script.tables[0].create);
-        let f_at = script.after.iter().position(|s| s.contains("CREATE FUNCTION dbo.fnCfg")).unwrap();
-        let df_at = script.after.iter().position(|s| s.contains("ADD CONSTRAINT [DF_Item_V] DEFAULT ([dbo].[fnCfg]()) FOR [V]")).unwrap();
+        let script = build(
+            own,
+            &full_target(),
+            &[tref("dbo", "Item"), tref("dbo", "Cfg")],
+        )
+        .unwrap();
+        assert!(
+            !script.tables[0].create.contains("DF_Item_V"),
+            "{}",
+            script.tables[0].create
+        );
+        let f_at = script
+            .after
+            .iter()
+            .position(|s| s.contains("CREATE FUNCTION dbo.fnCfg"))
+            .unwrap();
+        let df_at = script
+            .after
+            .iter()
+            .position(|s| {
+                s.contains("ADD CONSTRAINT [DF_Item_V] DEFAULT ([dbo].[fnCfg]()) FOR [V]")
+            })
+            .unwrap();
         assert!(f_at < df_at, "{:#?}", script.after);
         assert!(script.after[df_at].starts_with("IF OBJECT_ID(N'[dbo].[DF_Item_V]', 'D') IS NULL"));
 
         // Cfg isn't cloned: the function can't be created, nor the default (said).
         let script = build(src.clone(), &full_target(), &[tref("dbo", "Item")]).unwrap();
-        assert!(!script.tables[0].create.contains("DF_Item_V") && script.after.iter().all(|s| !s.contains("fnCfg")));
+        assert!(
+            !script.tables[0].create.contains("DF_Item_V")
+                && script.after.iter().all(|s| !s.contains("fnCfg"))
+        );
         assert!(script.notes.iter().any(|n| n.contains("[dbo].[Item]: el DEFAULT de la columna [V] usa [dbo].[fnCfg]")), "{:?}", script.notes);
         // A computed column can't do without it: refused, saying why.
         let mut computed = src;
-        computed.column_functions = [(1, vec![ColumnUse { column: "V".into(), default: false, function: 10 }])].into();
-        let err = build(computed, &full_target(), &[tref("dbo", "Item")]).unwrap_err().to_string();
-        assert!(err.contains("la columna calculada [V] usa [dbo].[fnCfg]"), "{err}");
+        computed.column_functions = [(
+            1,
+            vec![ColumnUse {
+                column: "V".into(),
+                default: false,
+                function: 10,
+            }],
+        )]
+        .into();
+        let err = build(computed, &full_target(), &[tref("dbo", "Item")])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("la columna calculada [V] usa [dbo].[fnCfg]"),
+            "{err}"
+        );
     }
 
     /// WITH EXECUTE AS 'user' binds a module to a user, and users aren't
@@ -4076,28 +5611,96 @@ mod tests {
     fn execute_as_a_named_user_is_left_out_only_when_missing() {
         let mut t = table("app", "T");
         t.id = 1;
-        let mut pn = code(10, "P", "app", "pN", "CREATE PROCEDURE app.pN WITH EXECUTE AS 'cv3_u' AS SELECT Id FROM app.T");
+        let mut pn = code(
+            10,
+            "P",
+            "app",
+            "pN",
+            "CREATE PROCEDURE app.pN WITH EXECUTE AS 'cv3_u' AS SELECT Id FROM app.T",
+        );
         pn.execute_as = Some("cv3_u".into());
-        let mut pnu = code(11, "P", "app", "pNU", "CREATE PROCEDURE pNU WITH EXECUTE AS 'cv3_u' AS SELECT Id FROM T");
+        let mut pnu = code(
+            11,
+            "P",
+            "app",
+            "pNU",
+            "CREATE PROCEDURE pNU WITH EXECUTE AS 'cv3_u' AS SELECT Id FROM T",
+        );
         pnu.execute_as = Some("cv3_u".into());
-        let mut f = code(12, "FN", "app", "fN", "CREATE FUNCTION app.fN() RETURNS int WITH EXECUTE AS N'o''k' AS BEGIN RETURN 1 END");
+        let mut f = code(
+            12,
+            "FN",
+            "app",
+            "fN",
+            "CREATE FUNCTION app.fN() RETURNS int WITH EXECUTE AS N'o''k' AS BEGIN RETURN 1 END",
+        );
         f.execute_as = Some("o'k".into());
-        let v = code(13, "V", "app", "vF", "CREATE VIEW app.vF AS SELECT app.fN() AS x");
-        let mut s = code(14, "P", "app", "pS", "CREATE PROCEDURE app.pS WITH EXECUTE AS SELF AS SELECT 1");
+        let v = code(
+            13,
+            "V",
+            "app",
+            "vF",
+            "CREATE VIEW app.vF AS SELECT app.fN() AS x",
+        );
+        let mut s = code(
+            14,
+            "P",
+            "app",
+            "pS",
+            "CREATE PROCEDURE app.pS WITH EXECUTE AS SELF AS SELECT 1",
+        );
         s.execute_as = Some("cv3_u".into());
-        let o = code(15, "P", "app", "pO", "CREATE PROCEDURE app.pO WITH EXECUTE AS OWNER AS SELECT 1");
-        let mut d = code(16, "P", "app", "pD", "CREATE PROCEDURE app.pD WITH EXECUTE AS 'dbo' AS SELECT 1");
+        let o = code(
+            15,
+            "P",
+            "app",
+            "pO",
+            "CREATE PROCEDURE app.pO WITH EXECUTE AS OWNER AS SELECT 1",
+        );
+        let mut d = code(
+            16,
+            "P",
+            "app",
+            "pD",
+            "CREATE PROCEDURE app.pD WITH EXECUTE AS 'dbo' AS SELECT 1",
+        );
         d.execute_as = Some("dbo".into());
-        let mut h = code(17, "P", "app", "pH", "CREATE PROCEDURE app.pH WITH EXECUTE AS 'here_u' AS SELECT 1");
+        let mut h = code(
+            17,
+            "P",
+            "app",
+            "pH",
+            "CREATE PROCEDURE app.pH WITH EXECUTE AS 'here_u' AS SELECT 1",
+        );
         h.execute_as = Some("here_u".into());
-        let src = Source { tables: vec![t], modules: vec![pn, pnu, f, v, s, o, d, h], deps: [(13, HashSet::from([12]))].into(), ..Default::default() };
-        let target = Target { users: HashSet::from(["here_u".to_string()]), ..full_target() };
+        let src = Source {
+            tables: vec![t],
+            modules: vec![pn, pnu, f, v, s, o, d, h],
+            deps: [(13, HashSet::from([12]))].into(),
+            ..Default::default()
+        };
+        let target = Target {
+            users: HashSet::from(["here_u".to_string()]),
+            ..full_target()
+        };
         let script = build(src.clone(), &target, &[tref("app", "T")]).unwrap();
-        let sql = script.before.iter().chain(&script.after).chain(script.tables.iter().map(|t| &t.create)).cloned().collect::<Vec<_>>().join("\n");
+        let sql = script
+            .before
+            .iter()
+            .chain(&script.after)
+            .chain(script.tables.iter().map(|t| &t.create))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         for gone in ["pN ", "pNU", "fN", "vF", CLONE_USER] {
             assert!(!sql.contains(gone), "{gone} in:\n{sql}");
         }
-        for kept in ["app.pS", "app.pO", "app.pD WITH EXECUTE AS", "app.pH WITH EXECUTE AS"] {
+        for kept in [
+            "app.pS",
+            "app.pO",
+            "app.pD WITH EXECUTE AS",
+            "app.pH WITH EXECUTE AS",
+        ] {
             assert!(sql.contains(kept), "{kept} missing in:\n{sql}");
         }
         let notes = script.notes.join("\n");
@@ -4109,12 +5712,22 @@ mod tests {
         ] {
             assert!(notes.contains(want), "missing «{want}» in:\n{notes}");
         }
-        assert!(!notes.contains("pD") && !notes.contains("pH") && !notes.contains("tablas u objetos"), "{notes}");
+        assert!(
+            !notes.contains("pD") && !notes.contains("pH") && !notes.contains("tablas u objetos"),
+            "{notes}"
+        );
 
         // With every user on the target, everything comes.
-        let all = Target { users: HashSet::from(["here_u".to_string(), "cv3_u".to_string(), "o'k".to_string()]), ..full_target() };
+        let all = Target {
+            users: HashSet::from(["here_u".to_string(), "cv3_u".to_string(), "o'k".to_string()]),
+            ..full_target()
+        };
         let script = build(src, &all, &[tref("app", "T")]).unwrap();
-        assert!(script.notes.iter().all(|n| !n.contains("EXECUTE AS '")), "{:?}", script.notes);
+        assert!(
+            script.notes.iter().all(|n| !n.contains("EXECUTE AS '")),
+            "{:?}",
+            script.notes
+        );
         let sql = script.after.join("\n");
         for kept in ["pN ", "pNU", "fN", "vF"] {
             assert!(sql.contains(kept), "{kept} missing in:\n{sql}");
@@ -4127,14 +5740,34 @@ mod tests {
     fn column_functions_left_out_for_their_user_say_so() {
         let mut t = table("dbo", "Item");
         t.columns.push(col("V", "int"));
-        let mut f = code(10, "FN", "dbo", "fnU", "CREATE FUNCTION dbo.fnU() RETURNS int WITH EXECUTE AS 'gone_u' AS BEGIN RETURN 1 END");
+        let mut f = code(
+            10,
+            "FN",
+            "dbo",
+            "fnU",
+            "CREATE FUNCTION dbo.fnU() RETURNS int WITH EXECUTE AS 'gone_u' AS BEGIN RETURN 1 END",
+        );
         f.execute_as = Some("gone_u".into());
-        let w = code(11, "FN", "dbo", "fnW", "CREATE FUNCTION dbo.fnW() RETURNS int AS BEGIN RETURN dbo.fnU() END");
+        let w = code(
+            11,
+            "FN",
+            "dbo",
+            "fnW",
+            "CREATE FUNCTION dbo.fnW() RETURNS int AS BEGIN RETURN dbo.fnU() END",
+        );
         let src = Source {
             tables: vec![t],
             modules: vec![f, w],
             deps: [(11, HashSet::from([10]))].into(),
-            column_functions: [(1, vec![ColumnUse { column: "V".into(), default: true, function: 11 }])].into(),
+            column_functions: [(
+                1,
+                vec![ColumnUse {
+                    column: "V".into(),
+                    default: true,
+                    function: 11,
+                }],
+            )]
+            .into(),
             ..Default::default()
         };
         let script = build(src.clone(), &full_target(), &[tref("dbo", "Item")]).unwrap();
@@ -4143,10 +5776,23 @@ mod tests {
             notes.contains("[dbo].[Item]: la columna [V] queda sin su DEFAULT porque usa [dbo].[fnW], que depende de [dbo].[fnU], y [dbo].[fnU] no se clona: el usuario «gone_u» de EXECUTE AS no existe en el destino; crealo y volvé a clonar"),
             "{notes}"
         );
-        assert!(!notes.contains("tablas u objetos") && !notes.contains("que no se clona: usa"), "{notes}");
+        assert!(
+            !notes.contains("tablas u objetos") && !notes.contains("que no se clona: usa"),
+            "{notes}"
+        );
         let mut computed = src;
-        computed.column_functions = [(1, vec![ColumnUse { column: "V".into(), default: false, function: 10 }])].into();
-        let err = build(computed, &full_target(), &[tref("dbo", "Item")]).unwrap_err().to_string();
+        computed.column_functions = [(
+            1,
+            vec![ColumnUse {
+                column: "V".into(),
+                default: false,
+                function: 10,
+            }],
+        )]
+        .into();
+        let err = build(computed, &full_target(), &[tref("dbo", "Item")])
+            .unwrap_err()
+            .to_string();
         assert!(
             err.contains("[dbo].[Item]: la tabla no se puede crear igual porque la columna calculada [V] usa [dbo].[fnU], que no se clona: el usuario «gone_u» de EXECUTE AS no existe en el destino; crealo y volvé a clonar"),
             "{err}"
@@ -4161,9 +5807,24 @@ mod tests {
         let mut t = table("dbo", "T");
         t.columns.push(col("D", "int"));
         t.checks = vec![
-            Check { id: 30, name: "CK_T".into(), definition: "([dbo].[fC]([Id])=(1))".into(), ..Default::default() },
-            Check { id: 31, name: "CK_R".into(), definition: "([dbo].[fR]([Id])=(1))".into(), ..Default::default() },
-            Check { id: 32, name: "CK_ok".into(), definition: "([Id]>(0))".into(), ..Default::default() },
+            Check {
+                id: 30,
+                name: "CK_T".into(),
+                definition: "([dbo].[fC]([Id])=(1))".into(),
+                ..Default::default()
+            },
+            Check {
+                id: 31,
+                name: "CK_R".into(),
+                definition: "([dbo].[fR]([Id])=(1))".into(),
+                ..Default::default()
+            },
+            Check {
+                id: 32,
+                name: "CK_ok".into(),
+                definition: "([Id]>(0))".into(),
+                ..Default::default()
+            },
         ];
         let mut other = table("dbo", "Other");
         other.id = 2;
@@ -4174,13 +5835,28 @@ mod tests {
         let src = Source {
             tables: vec![t, other],
             modules: vec![fc, fr, g],
-            deps: [(30, HashSet::from([10, 1])), (31, HashSet::from([11])), (11, HashSet::from([2])), (12, HashSet::from([10, 2]))].into(),
-            column_functions: [(1, vec![ColumnUse { column: "D".into(), default: true, function: 12 }])].into(),
+            deps: [
+                (30, HashSet::from([10, 1])),
+                (31, HashSet::from([11])),
+                (11, HashSet::from([2])),
+                (12, HashSet::from([10, 2])),
+            ]
+            .into(),
+            column_functions: [(
+                1,
+                vec![ColumnUse {
+                    column: "D".into(),
+                    default: true,
+                    function: 12,
+                }],
+            )]
+            .into(),
             ..Default::default()
         };
         let script = build(src, &full_target(), &[tref("dbo", "T")]).unwrap();
         let notes = script.notes.join("\n");
-        let user = "el usuario «cv9_u» de EXECUTE AS no existe en el destino; crealo y volvé a clonar";
+        let user =
+            "el usuario «cv9_u» de EXECUTE AS no existe en el destino; crealo y volvé a clonar";
         for want in [
             format!("[dbo].[T]: la restricción CHECK [CK_T] no se crea porque usa [dbo].[fC], que no se clona: {user}"),
             "[dbo].[T]: la restricción CHECK [CK_R] no se crea porque usa [dbo].[fR], que no se clona (usa tablas u objetos que no se clonan)".into(),
@@ -4193,7 +5869,12 @@ mod tests {
             assert!(notes.contains(&want), "{want}\n---\n{notes}");
         }
         let after = script.after.join("\n");
-        assert!(!after.contains("CK_T") && !after.contains("CK_R") && after.contains("ADD CONSTRAINT [CK_ok]"), "{after}");
+        assert!(
+            !after.contains("CK_T")
+                && !after.contains("CK_R")
+                && after.contains("ADD CONSTRAINT [CK_ok]"),
+            "{after}"
+        );
     }
 
     /// The user checked is the one the module's text names (what its
@@ -4202,25 +5883,57 @@ mod tests {
     /// module is left out saying so.
     #[test]
     fn execute_as_checks_the_name_the_text_declares() {
-        assert_eq!(execute_as_clause("CREATE PROC p WITH EXECUTE AS N'o''k' AS SELECT 'x'"), Some(ExecAs::User("o'k".into())));
         assert_eq!(
-            execute_as_clause("CREATE PROC p WITH RECOMPILE, EXEC AS /* 'no' */ 'CV7_U' AS EXECUTE AS USER = 'z'"),
+            execute_as_clause("CREATE PROC p WITH EXECUTE AS N'o''k' AS SELECT 'x'"),
+            Some(ExecAs::User("o'k".into()))
+        );
+        assert_eq!(
+            execute_as_clause(
+                "CREATE PROC p WITH RECOMPILE, EXEC AS /* 'no' */ 'CV7_U' AS EXECUTE AS USER = 'z'"
+            ),
             Some(ExecAs::User("CV7_U".into()))
         );
         assert_eq!(execute_as_clause("CREATE PROC p WITH EXECUTE AS OWNER AS EXECUTE AS USER = 'z'; SELECT 'EXECUTE AS ''q'' x'"), None);
-        assert_eq!(execute_as_clause("CREATE PROC p WITH EXECUTE AS SELF AS SELECT 1"), Some(ExecAs::SelfUser));
+        assert_eq!(
+            execute_as_clause("CREATE PROC p WITH EXECUTE AS SELF AS SELECT 1"),
+            Some(ExecAs::SelfUser)
+        );
 
         let mut t = table("app", "T");
         t.id = 1;
-        let mut r = code(10, "P", "app", "pR", "CREATE PROCEDURE app.pR WITH EXECUTE AS 'cv6_old' AS SELECT 1");
+        let mut r = code(
+            10,
+            "P",
+            "app",
+            "pR",
+            "CREATE PROCEDURE app.pR WITH EXECUTE AS 'cv6_old' AS SELECT 1",
+        );
         r.execute_as = Some("cv6_new".into());
         r.execute_as_renamed = true;
-        let mut c = code(11, "P", "app", "pC", "CREATE PROCEDURE app.pC WITH EXECUTE AS 'CV7_U' AS SELECT 1");
+        let mut c = code(
+            11,
+            "P",
+            "app",
+            "pC",
+            "CREATE PROCEDURE app.pC WITH EXECUTE AS 'CV7_U' AS SELECT 1",
+        );
         c.execute_as = Some("cv7_u".into());
         assert_eq!(executes_as_named(&r).as_deref(), Some("cv6_old"));
         assert_eq!(executes_as_named(&c).as_deref(), Some("CV7_U"));
-        let src = Source { tables: vec![t], modules: vec![r, c], ..Default::default() };
-        let all_sql = |s: &CloneScript| s.before.iter().chain(&s.after).chain(s.tables.iter().map(|t| &t.create)).cloned().collect::<Vec<_>>().join("\n");
+        let src = Source {
+            tables: vec![t],
+            modules: vec![r, c],
+            ..Default::default()
+        };
+        let all_sql = |s: &CloneScript| {
+            s.before
+                .iter()
+                .chain(&s.after)
+                .chain(s.tables.iter().map(|t| &t.create))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
 
         // The target has the catalog's names only (and tells case apart).
         let target = Target {
@@ -4243,25 +5956,67 @@ mod tests {
 
         // A target that takes the text's spelling: pC comes; pR never does
         // (its text names a user the source no longer runs it as).
-        let ci = Target { users: HashSet::from(["cv6_new".to_string(), "cv6_old".to_string(), "CV7_U".to_string()]), ..full_target() };
+        let ci = Target {
+            users: HashSet::from([
+                "cv6_new".to_string(),
+                "cv6_old".to_string(),
+                "CV7_U".to_string(),
+            ]),
+            ..full_target()
+        };
         let script = build(src, &ci, &[tref("app", "T")]).unwrap();
         let sql = all_sql(&script);
-        assert!(sql.contains("CREATE PROCEDURE app.pC WITH EXECUTE AS ''''CV7_U''''") && !sql.contains("pR"), "{sql}");
-        assert!(script.notes.iter().any(|n| n.contains("[app].[pR]")) && !script.notes.iter().any(|n| n.contains("[app].[pC]")), "{:?}", script.notes);
+        assert!(
+            sql.contains("CREATE PROCEDURE app.pC WITH EXECUTE AS ''''CV7_U''''")
+                && !sql.contains("pR"),
+            "{sql}"
+        );
+        assert!(
+            script.notes.iter().any(|n| n.contains("[app].[pR]"))
+                && !script.notes.iter().any(|n| n.contains("[app].[pC]")),
+            "{:?}",
+            script.notes
+        );
     }
 
     /// Delta's untrusted-key mark is DBine's bookkeeping: never cloned.
     #[test]
     fn delta_mark_is_not_cloned() {
         let mut t = table("dbo", "T");
-        t.fks = vec![ForeignKey { name: "FK_T".into(), columns: vec!["Id".into()], ref_schema: "dbo".into(), ref_table: "T".into(), ref_columns: vec!["Id".into()], ..Default::default() }];
-        let levels = vec![("SCHEMA".into(), "dbo".into()), ("TABLE".into(), "T".into()), ("CONSTRAINT".into(), "FK_T".into())];
-        let mark = ExtendedProperty { name: UNTRUSTED_MARK.into(), value: "[dbo].[T]".into(), base_type: "nvarchar".into(), levels: levels.clone() };
-        let doc = ExtendedProperty { name: "MS_Description".into(), ..mark.clone() };
-        let src = Source { tables: vec![t], properties: vec![mark, doc], ..Default::default() };
+        t.fks = vec![ForeignKey {
+            name: "FK_T".into(),
+            columns: vec!["Id".into()],
+            ref_schema: "dbo".into(),
+            ref_table: "T".into(),
+            ref_columns: vec!["Id".into()],
+            ..Default::default()
+        }];
+        let levels = vec![
+            ("SCHEMA".into(), "dbo".into()),
+            ("TABLE".into(), "T".into()),
+            ("CONSTRAINT".into(), "FK_T".into()),
+        ];
+        let mark = ExtendedProperty {
+            name: UNTRUSTED_MARK.into(),
+            value: "[dbo].[T]".into(),
+            base_type: "nvarchar".into(),
+            levels: levels.clone(),
+        };
+        let doc = ExtendedProperty {
+            name: "MS_Description".into(),
+            ..mark.clone()
+        };
+        let src = Source {
+            tables: vec![t],
+            properties: vec![mark, doc],
+            ..Default::default()
+        };
         let script = build(src, &full_target(), &[tref("dbo", "T")]).unwrap();
         let sql = script.after.join("\n");
-        assert!(!sql.contains(UNTRUSTED_MARK) && sql.contains("N'MS_Description'"), "{sql}");
+        assert!(
+            !sql.contains(UNTRUSTED_MARK) && sql.contains("N'MS_Description'"),
+            "{sql}"
+        );
     }
 
     #[test]
@@ -4277,17 +6032,52 @@ mod tests {
         ledger.ledger = 3;
         let mut plain = table("dbo", "P");
         plain.id = 4;
-        plain.fks = vec![ForeignKey { name: "FK_P_L".into(), columns: vec!["Id".into()], ref_schema: "dbo".into(), ref_table: "L".into(), ref_columns: vec!["Id".into()], ..Default::default() }];
+        plain.fks = vec![ForeignKey {
+            name: "FK_P_L".into(),
+            columns: vec!["Id".into()],
+            ref_schema: "dbo".into(),
+            ref_table: "L".into(),
+            ref_columns: vec!["Id".into()],
+            ..Default::default()
+        }];
         let src = Source {
             tables: vec![node, edge, ledger, plain],
-            modules: vec![code(10, "V", "dbo", "L_Ledger", "CREATE VIEW [dbo].[L_Ledger] AS SELECT Id FROM [dbo].[L]")],
+            modules: vec![code(
+                10,
+                "V",
+                "dbo",
+                "L_Ledger",
+                "CREATE VIEW [dbo].[L_Ledger] AS SELECT Id FROM [dbo].[L]",
+            )],
             deps: [(10, HashSet::from([3]))].into(),
             ..Default::default()
         };
-        let script = build(src, &full_target(), &[tref("dbo", "Person"), tref("dbo", "Knows"), tref("dbo", "L"), tref("dbo", "P")]).unwrap();
-        assert_eq!(script.tables.iter().map(|t| t.table.name.as_str()).collect::<Vec<_>>(), ["P"]);
+        let script = build(
+            src,
+            &full_target(),
+            &[
+                tref("dbo", "Person"),
+                tref("dbo", "Knows"),
+                tref("dbo", "L"),
+                tref("dbo", "P"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            script
+                .tables
+                .iter()
+                .map(|t| t.table.name.as_str())
+                .collect::<Vec<_>>(),
+            ["P"]
+        );
         let notes = script.notes.join("\n");
-        for want in ["[dbo].[Person]: es una tabla de grafo (AS NODE)", "[dbo].[Knows]: es una tabla de grafo (AS EDGE)", "[dbo].[L]: es una tabla ledger", "[FK_P_L] apunta a dbo.L"] {
+        for want in [
+            "[dbo].[Person]: es una tabla de grafo (AS NODE)",
+            "[dbo].[Knows]: es una tabla de grafo (AS EDGE)",
+            "[dbo].[L]: es una tabla ledger",
+            "[FK_P_L] apunta a dbo.L",
+        ] {
             assert!(notes.contains(want), "missing «{want}» in:\n{notes}");
         }
         assert!(script.after.iter().all(|s| !s.contains("L_Ledger")));
@@ -4302,13 +6092,37 @@ mod tests {
             tables: vec![t],
             modules: vec![v],
             deps: [(10, HashSet::from([1]))].into(),
-            view_indexes: [(10, vec![Index { unique: true, ..index("CIX", 1, &[("Id", false)]) }])].into(),
-            view_stats: [(10, vec![Stat { name: "ST ]v'".into(), columns: vec!["n".into()], filter: None, no_recompute: false }])].into(),
+            view_indexes: [(
+                10,
+                vec![Index {
+                    unique: true,
+                    ..index("CIX", 1, &[("Id", false)])
+                }],
+            )]
+            .into(),
+            view_stats: [(
+                10,
+                vec![Stat {
+                    name: "ST ]v'".into(),
+                    columns: vec!["n".into()],
+                    filter: None,
+                    no_recompute: false,
+                }],
+            )]
+            .into(),
             ..Default::default()
         };
         let script = build(src, &full_target(), &[tref("s", "T")]).unwrap();
-        let ix = script.after.iter().position(|s| s.contains("CREATE UNIQUE CLUSTERED INDEX [CIX] ON [s].[v]")).unwrap();
-        let st = script.after.iter().position(|s| s.contains("CREATE STATISTICS [ST ]]v'] ON [s].[v] ([n]);")).unwrap();
+        let ix = script
+            .after
+            .iter()
+            .position(|s| s.contains("CREATE UNIQUE CLUSTERED INDEX [CIX] ON [s].[v]"))
+            .unwrap();
+        let st = script
+            .after
+            .iter()
+            .position(|s| s.contains("CREATE STATISTICS [ST ]]v'] ON [s].[v] ([n]);"))
+            .unwrap();
         assert!(ix < st, "{:#?}", script.after);
     }
 
@@ -4327,10 +6141,19 @@ mod tests {
             unknown_use: true,
             ..Default::default()
         };
-        let src = Source { sequences: vec![sq], ..Default::default() };
+        let src = Source {
+            sequences: vec![sq],
+            ..Default::default()
+        };
         let script = build(src, &full_target(), &[]).unwrap();
         assert!(script.after.iter().all(|s| !s.contains("RESTART")));
-        assert!(script.notes.iter().any(|n| n.contains("[s].[q]: el origen es anterior a SQL Server 2017") && n.contains("(10 más 5)")), "{:?}", script.notes);
+        assert!(
+            script.notes.iter().any(|n| n
+                .contains("[s].[q]: el origen es anterior a SQL Server 2017")
+                && n.contains("(10 más 5)")),
+            "{:?}",
+            script.notes
+        );
     }
 
     /// A disabled primary key or unique index is created enabled and
@@ -4339,39 +6162,115 @@ mod tests {
     fn disabled_keys_go_off_after_the_foreign_keys() {
         let mut parent = table("s", "P");
         parent.id = 1;
-        parent.pk = Some(Index { primary: true, disabled: true, ..index("PK_P", 2, &[("Id", false)]) });
+        parent.pk = Some(Index {
+            primary: true,
+            disabled: true,
+            ..index("PK_P", 2, &[("Id", false)])
+        });
         parent.indexes = vec![
-            Index { unique: true, unique_constraint: true, disabled: true, ..index("UQ_P", 2, &[("Code", false)]) },
-            Index { disabled: true, ..index("IX_P", 2, &[("Code", false)]) },
+            Index {
+                unique: true,
+                unique_constraint: true,
+                disabled: true,
+                ..index("UQ_P", 2, &[("Code", false)])
+            },
+            Index {
+                disabled: true,
+                ..index("IX_P", 2, &[("Code", false)])
+            },
         ];
         let mut child = table("s", "C");
         child.id = 2;
-        child.fks = vec![ForeignKey { name: "FK_C_P".into(), columns: vec!["Id".into()], ref_schema: "s".into(), ref_table: "P".into(), ref_columns: vec!["Id".into()], disabled: true, not_trusted: true, ..Default::default() }];
-        let src = Source { tables: vec![parent, child], ..Default::default() };
+        child.fks = vec![ForeignKey {
+            name: "FK_C_P".into(),
+            columns: vec!["Id".into()],
+            ref_schema: "s".into(),
+            ref_table: "P".into(),
+            ref_columns: vec!["Id".into()],
+            disabled: true,
+            not_trusted: true,
+            ..Default::default()
+        }];
+        let src = Source {
+            tables: vec![parent, child],
+            ..Default::default()
+        };
         let script = build(src, &full_target(), &[tref("s", "P"), tref("s", "C")]).unwrap();
         let p = &script.tables[0];
-        assert!(p.create.contains("CONSTRAINT [PK_P] PRIMARY KEY NONCLUSTERED"), "{}", p.create);
-        assert!(p.after_data.iter().any(|s| s.contains("ADD CONSTRAINT [UQ_P] UNIQUE") && !s.contains("DISABLE")), "{:#?}", p.after_data);
-        assert!(p.after_data.iter().any(|s| s.contains("ALTER INDEX [IX_P] ON [s].[P] DISABLE")), "{:#?}", p.after_data);
+        assert!(
+            p.create
+                .contains("CONSTRAINT [PK_P] PRIMARY KEY NONCLUSTERED"),
+            "{}",
+            p.create
+        );
+        assert!(
+            p.after_data
+                .iter()
+                .any(|s| s.contains("ADD CONSTRAINT [UQ_P] UNIQUE") && !s.contains("DISABLE")),
+            "{:#?}",
+            p.after_data
+        );
+        assert!(
+            p.after_data
+                .iter()
+                .any(|s| s.contains("ALTER INDEX [IX_P] ON [s].[P] DISABLE")),
+            "{:#?}",
+            p.after_data
+        );
         let a = &script.after;
-        let fk = a.iter().position(|s| s.contains("CONSTRAINT [FK_C_P] FOREIGN KEY")).unwrap();
-        let pk = a.iter().position(|s| s.contains("ALTER INDEX [PK_P] ON [s].[P] DISABLE")).unwrap();
-        let uq = a.iter().position(|s| s.contains("ALTER INDEX [UQ_P] ON [s].[P] DISABLE")).unwrap();
+        let fk = a
+            .iter()
+            .position(|s| s.contains("CONSTRAINT [FK_C_P] FOREIGN KEY"))
+            .unwrap();
+        let pk = a
+            .iter()
+            .position(|s| s.contains("ALTER INDEX [PK_P] ON [s].[P] DISABLE"))
+            .unwrap();
+        let uq = a
+            .iter()
+            .position(|s| s.contains("ALTER INDEX [UQ_P] ON [s].[P] DISABLE"))
+            .unwrap();
         assert!(fk < pk && fk < uq, "{a:#?}");
         assert!(a.iter().all(|s| !s.contains("[IX_P]")));
     }
 
     #[test]
     fn ordered_nonclustered_columnstore() {
-        let ncci = Index { columns: vec!["Qty".into(), "Day".into()], cs_order: vec!["Day".into()], ..index("NCCI", 6, &[]) };
-        assert!(create_index("[s].[t]", &ncci).contains("CREATE NONCLUSTERED COLUMNSTORE INDEX [NCCI] ON [s].[t] ([Qty], [Day]) ORDER ([Day]);"));
+        let ncci = Index {
+            columns: vec!["Qty".into(), "Day".into()],
+            cs_order: vec!["Day".into()],
+            ..index("NCCI", 6, &[])
+        };
+        assert!(create_index("[s].[t]", &ncci).contains(
+            "CREATE NONCLUSTERED COLUMNSTORE INDEX [NCCI] ON [s].[t] ([Qty], [Day]) ORDER ([Day]);"
+        ));
         let mut t = table("s", "t");
         t.indexes = vec![ncci];
         let mut list = vec![t];
         let mut notes = Vec::new();
         // SQL Server 2022: ordered clustered columnstore only.
-        let t2022 = Target { caps: Caps { ordered_columnstore: true, sequential_key: true, compression_delay: true, ..Default::default() }, ..Default::default() };
-        adapt_features(&mut list, &mut HashMap::new(), &HashMap::new(), &t2022, &mut notes);
-        assert!(list[0].indexes[0].cs_order.is_empty() && notes.len() == 1 && notes[0].contains("no agrupado ordenado") && notes[0].contains("[s].[t].NCCI"), "{notes:?}");
+        let t2022 = Target {
+            caps: Caps {
+                ordered_columnstore: true,
+                sequential_key: true,
+                compression_delay: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        adapt_features(
+            &mut list,
+            &mut HashMap::new(),
+            &HashMap::new(),
+            &t2022,
+            &mut notes,
+        );
+        assert!(
+            list[0].indexes[0].cs_order.is_empty()
+                && notes.len() == 1
+                && notes[0].contains("no agrupado ordenado")
+                && notes[0].contains("[s].[t].NCCI"),
+            "{notes:?}"
+        );
     }
 }

@@ -174,7 +174,14 @@ fn estimates(preset: &Preset, rows: &Rows) -> Vec<RowEstimate> {
         .filter_map(|r| {
             let schema = schema_of(preset, col(r, 0))?;
             let name = col(r, 1)?.trim_end().to_string();
-            Some(RowEstimate { object: ObjectRef { kind: kinds::TABLE.into(), schema, name }, rows: count(col(r, 2))? })
+            Some(RowEstimate {
+                object: ObjectRef {
+                    kind: kinds::TABLE.into(),
+                    schema,
+                    name,
+                },
+                rows: count(col(r, 2))?,
+            })
         })
         .collect()
 }
@@ -186,7 +193,10 @@ fn comments(preset: &Preset, rows: &Rows) -> Vec<ObjectComment> {
             let schema = schema_of(preset, col(r, 1))?;
             let name = col(r, 2)?.trim_end().to_string();
             let comment = col(r, 3)?.trim().to_string();
-            (!comment.is_empty()).then(|| ObjectComment { object: ObjectRef { kind, schema, name }, comment })
+            (!comment.is_empty()).then(|| ObjectComment {
+                object: ObjectRef { kind, schema, name },
+                comment,
+            })
         })
         .collect()
 }
@@ -246,27 +256,53 @@ mod tests {
         ];
         let e = estimates(preset("db2"), &rows);
         assert_eq!(e.len(), 1);
-        assert_eq!((e[0].object.kind.as_str(), e[0].object.schema.as_deref(), e[0].object.name.as_str(), e[0].rows), ("table", Some("APP"), "CLIENTES", 250));
+        assert_eq!(
+            (
+                e[0].object.kind.as_str(),
+                e[0].object.schema.as_deref(),
+                e[0].object.name.as_str(),
+                e[0].rows
+            ),
+            ("table", Some("APP"), "CLIENTES", 250)
+        );
         // CUBRID has no schemas: none on the reference either.
-        let e = estimates(preset("cubrid"), &vec![row(&[Some("dba"), Some("t"), Some("3")])]);
+        let e = estimates(
+            preset("cubrid"),
+            &vec![row(&[Some("dba"), Some("t"), Some("3")])],
+        );
         assert_eq!(e[0].object.schema, None);
     }
 
     #[test]
     fn comments_keep_their_kind() {
         let rows = vec![
-            row(&[Some("view"), Some("APP"), Some("V_CLIENTES"), Some("Clientes visibles ")]),
+            row(&[
+                Some("view"),
+                Some("APP"),
+                Some("V_CLIENTES"),
+                Some("Clientes visibles "),
+            ]),
             row(&[Some("procedure"), Some("APP"), Some("P_ALTA"), Some("  ")]),
             row(&[Some("sequence"), Some("SYSIBM"), Some("S"), Some("sistema")]),
         ];
         let c = comments(preset("db2"), &rows);
         assert_eq!(c.len(), 1);
-        assert_eq!((c[0].object.kind.as_str(), c[0].object.name.as_str(), c[0].comment.as_str()), ("view", "V_CLIENTES", "Clientes visibles"));
+        assert_eq!(
+            (
+                c[0].object.kind.as_str(),
+                c[0].object.name.as_str(),
+                c[0].comment.as_str()
+            ),
+            ("view", "V_CLIENTES", "Clientes visibles")
+        );
     }
 
     #[test]
     fn generic_preset_goes_by_the_dbms() {
-        assert!(matches!(engine(preset("odbc"), "Microsoft SQL Server 16.00.4135"), Eng::SqlServer));
+        assert!(matches!(
+            engine(preset("odbc"), "Microsoft SQL Server 16.00.4135"),
+            Eng::SqlServer
+        ));
         assert!(!rows_sql(engine(preset("odbc"), "Microsoft SQL Server 16.00.4135")).is_empty());
         assert!(rows_sql(engine(preset("odbc"), "SomethingElse 1.0")).is_empty());
         assert!(matches!(engine(preset("gbase8s"), ""), Eng::Informix));
@@ -274,7 +310,14 @@ mod tests {
 
     #[test]
     fn comment_kinds_are_listed_kinds() {
-        let listed = [kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION, kinds::SEQUENCE, kinds::SYNONYM, kinds::TYPE];
+        let listed = [
+            kinds::VIEW,
+            kinds::PROCEDURE,
+            kinds::FUNCTION,
+            kinds::SEQUENCE,
+            kinds::SYNONYM,
+            kinds::TYPE,
+        ];
         for p in PRESETS.iter() {
             for sql in comments_sql(design::eng(p)) {
                 // Every literal kind a query yields is one list_objects uses.

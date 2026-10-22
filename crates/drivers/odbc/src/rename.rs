@@ -13,7 +13,9 @@
 
 use crate::design;
 use crate::presets::Preset;
-use dbine_driver::rename::{quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
+use dbine_driver::rename::{
+    quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
 use dbine_driver::sql::{qualified_name, quote_ident, ScriptDialect};
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
@@ -143,9 +145,17 @@ pub fn spec(p: &Preset) -> Option<RenameSpec> {
 
 pub fn script(p: &Preset, dialect: &ScriptDialect, req: &RenameRequest) -> Result<SyncScript> {
     let Some(e) = engine(p) else {
-        return Err(Error::Unsupported(format!("{} no renombra objetos desde DBine", p.name)));
+        return Err(Error::Unsupported(format!(
+            "{} no renombra objetos desde DBine",
+            p.name
+        )));
     };
-    let refused = |what: &str| Err(Error::Unsupported(format!("{} no renombra {what} desde DBine", p.name)));
+    let refused = |what: &str| {
+        Err(Error::Unsupported(format!(
+            "{} no renombra {what} desde DBine",
+            p.name
+        )))
+    };
     let allowed = match &req.target {
         RenameTarget::Object { object, .. } => e.kinds.contains(&object.kind.as_str()),
         RenameTarget::Column { .. } => e.columns,
@@ -171,42 +181,94 @@ pub fn script(p: &Preset, dialect: &ScriptDialect, req: &RenameRequest) -> Resul
             let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
             let to = lit(&req.new_name);
             match target {
-                RenameTarget::Object { object, .. } => format!("EXEC sp_rename {}, {to}", lit(&object.name)),
-                RenameTarget::Column { table, column } => format!("EXEC sp_rename {}, {to}, 'column'", lit(&format!("{}.{column}", table.name))),
-                RenameTarget::Index { table, index } => format!("EXEC sp_rename {}, {to}, 'index'", lit(&format!("{}.{index}", table.name))),
+                RenameTarget::Object { object, .. } => {
+                    format!("EXEC sp_rename {}, {to}", lit(&object.name))
+                }
+                RenameTarget::Column { table, column } => format!(
+                    "EXEC sp_rename {}, {to}, 'column'",
+                    lit(&format!("{}.{column}", table.name))
+                ),
+                RenameTarget::Index { table, index } => format!(
+                    "EXEC sp_rename {}, {to}, 'index'",
+                    lit(&format!("{}.{index}", table.name))
+                ),
                 _ => unreachable!("checked above"),
             }
         }
         // The new name is unqualified: it stays in the old one's schema.
-        ("db2" | "db2zos" | "db2i", RenameTarget::Object { object, .. }) => format!("RENAME TABLE {} TO {new}", qn(object.schema(), &object.name)),
-        ("db2" | "db2zos" | "db2i" | "informix", RenameTarget::Index { table, index }) => format!("RENAME INDEX {} TO {new}", qn(table.schema(), index)),
-        ("db2" | "db2zos" | "vertica" | "exasol", RenameTarget::Column { table, column }) => {
-            format!("ALTER TABLE {} RENAME COLUMN {} TO {new}", qn(table.schema(), &table.name), quote_ident(q, column))
+        ("db2" | "db2zos" | "db2i", RenameTarget::Object { object, .. }) => format!(
+            "RENAME TABLE {} TO {new}",
+            qn(object.schema(), &object.name)
+        ),
+        ("db2" | "db2zos" | "db2i" | "informix", RenameTarget::Index { table, index }) => {
+            format!("RENAME INDEX {} TO {new}", qn(table.schema(), index))
         }
-        ("informix", RenameTarget::Object { object, .. }) => format!("RENAME TABLE {} TO {new}", qn(object.schema(), &object.name)),
-        ("informix", RenameTarget::Column { table, column }) => format!("RENAME COLUMN {}.{} TO {new}", qn(table.schema(), &table.name), quote_ident(q, column)),
+        ("db2" | "db2zos" | "vertica" | "exasol", RenameTarget::Column { table, column }) => {
+            format!(
+                "ALTER TABLE {} RENAME COLUMN {} TO {new}",
+                qn(table.schema(), &table.name),
+                quote_ident(q, column)
+            )
+        }
+        ("informix", RenameTarget::Object { object, .. }) => format!(
+            "RENAME TABLE {} TO {new}",
+            qn(object.schema(), &object.name)
+        ),
+        ("informix", RenameTarget::Column { table, column }) => format!(
+            "RENAME COLUMN {}.{} TO {new}",
+            qn(table.schema(), &table.name),
+            quote_ident(q, column)
+        ),
         // Unqualified, the new name would land in the default database.
         ("teradata", RenameTarget::Object { object, .. }) => {
-            let what = if object.kind == kinds::VIEW { "VIEW" } else { "TABLE" };
+            let what = if object.kind == kinds::VIEW {
+                "VIEW"
+            } else {
+                "TABLE"
+            };
             let to = match object.schema() {
                 Some(db) => format!("{}.{new}", quote_ident(q, db)),
                 None => new.clone(),
             };
-            format!("RENAME {what} {} TO {to}", qn(object.schema(), &object.name))
+            format!(
+                "RENAME {what} {} TO {to}",
+                qn(object.schema(), &object.name)
+            )
         }
         ("vertica", RenameTarget::Object { object, .. }) => {
-            let what = if object.kind == kinds::VIEW { "VIEW" } else { "TABLE" };
-            format!("ALTER {what} {} RENAME TO {new}", qn(object.schema(), &object.name))
+            let what = if object.kind == kinds::VIEW {
+                "VIEW"
+            } else {
+                "TABLE"
+            };
+            format!(
+                "ALTER {what} {} RENAME TO {new}",
+                qn(object.schema(), &object.name)
+            )
         }
-        ("vertica", RenameTarget::Schema { schema, .. }) => format!("ALTER SCHEMA {} RENAME TO {new}", quote_ident(q, schema)),
+        ("vertica", RenameTarget::Schema { schema, .. }) => {
+            format!("ALTER SCHEMA {} RENAME TO {new}", quote_ident(q, schema))
+        }
         ("exasol", RenameTarget::Object { object, .. }) => {
-            let what = if object.kind == kinds::VIEW { "VIEW" } else { "TABLE" };
-            format!("RENAME {what} {} TO {new}", qn(object.schema(), &object.name))
+            let what = if object.kind == kinds::VIEW {
+                "VIEW"
+            } else {
+                "TABLE"
+            };
+            format!(
+                "RENAME {what} {} TO {new}",
+                qn(object.schema(), &object.name)
+            )
         }
-        ("exasol", RenameTarget::Schema { schema, .. }) => format!("RENAME SCHEMA {} TO {new}", quote_ident(q, schema)),
+        ("exasol", RenameTarget::Schema { schema, .. }) => {
+            format!("RENAME SCHEMA {} TO {new}", quote_ident(q, schema))
+        }
         _ => return refused("eso"),
     };
-    Ok(SyncScript { statements: vec![statement], warnings: Vec::new() })
+    Ok(SyncScript {
+        statements: vec![statement],
+        warnings: Vec::new(),
+    })
 }
 
 #[cfg(test)]
@@ -220,7 +282,11 @@ mod tests {
     }
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: Some(schema.into()),
+            name: name.into(),
+        }
     }
 
     fn table() -> ObjectRef {
@@ -229,7 +295,12 @@ mod tests {
 
     fn run(id: &str, target: RenameTarget, new_name: &str) -> Result<String> {
         let p = preset(id);
-        let req = RenameRequest { target, new_name: new_name.into(), table: None, definition: None };
+        let req = RenameRequest {
+            target,
+            new_name: new_name.into(),
+            table: None,
+            definition: None,
+        };
         script(p, &crate::script_dialect(p), &req).map(|s| {
             assert_eq!(s.statements.len(), 1);
             s.statements[0].clone()
@@ -237,19 +308,31 @@ mod tests {
     }
 
     fn object(o: ObjectRef) -> RenameTarget {
-        RenameTarget::Object { object: o, parent: None }
+        RenameTarget::Object {
+            object: o,
+            parent: None,
+        }
     }
 
     fn column(c: &str) -> RenameTarget {
-        RenameTarget::Column { table: table(), column: c.into() }
+        RenameTarget::Column {
+            table: table(),
+            column: c.into(),
+        }
     }
 
     fn index(i: &str) -> RenameTarget {
-        RenameTarget::Index { table: table(), index: i.into() }
+        RenameTarget::Index {
+            table: table(),
+            index: i.into(),
+        }
     }
 
     fn schema(s: &str) -> RenameTarget {
-        RenameTarget::Schema { database: None, schema: s.into() }
+        RenameTarget::Schema {
+            database: None,
+            schema: s.into(),
+        }
     }
 
     fn unsupported(r: Result<String>) -> bool {
@@ -259,41 +342,105 @@ mod tests {
     #[test]
     fn db2() {
         for id in ["db2", "db2zos"] {
-            assert_eq!(run(id, object(table()), "SOCIOS").unwrap(), r#"RENAME TABLE "App"."Clientes" TO SOCIOS"#);
+            assert_eq!(
+                run(id, object(table()), "SOCIOS").unwrap(),
+                r#"RENAME TABLE "App"."Clientes" TO SOCIOS"#
+            );
             // Upper case is the folded case: anything else is quoted.
-            assert_eq!(run(id, object(table()), "Socios").unwrap(), r#"RENAME TABLE "App"."Clientes" TO "Socios""#);
-            assert_eq!(run(id, column("PEPE"), "NOMBRE").unwrap(), r#"ALTER TABLE "App"."Clientes" RENAME COLUMN "PEPE" TO NOMBRE"#);
-            assert_eq!(run(id, index("IX_PEPE"), "IX_NOMBRE").unwrap(), r#"RENAME INDEX "App"."IX_PEPE" TO IX_NOMBRE"#);
-            assert!(unsupported(run(id, object(obj(kinds::VIEW, "App", "V")), "W")));
+            assert_eq!(
+                run(id, object(table()), "Socios").unwrap(),
+                r#"RENAME TABLE "App"."Clientes" TO "Socios""#
+            );
+            assert_eq!(
+                run(id, column("PEPE"), "NOMBRE").unwrap(),
+                r#"ALTER TABLE "App"."Clientes" RENAME COLUMN "PEPE" TO NOMBRE"#
+            );
+            assert_eq!(
+                run(id, index("IX_PEPE"), "IX_NOMBRE").unwrap(),
+                r#"RENAME INDEX "App"."IX_PEPE" TO IX_NOMBRE"#
+            );
+            assert!(unsupported(run(
+                id,
+                object(obj(kinds::VIEW, "App", "V")),
+                "W"
+            )));
             assert!(unsupported(run(id, schema("App"), "X")));
-            assert!(unsupported(run(id, RenameTarget::Constraint { table: table(), constraint: "CK".into() }, "X")));
+            assert!(unsupported(run(
+                id,
+                RenameTarget::Constraint {
+                    table: table(),
+                    constraint: "CK".into()
+                },
+                "X"
+            )));
         }
-        assert_eq!(run("db2i", object(obj(kinds::VIEW, "APP", "V")), "W").unwrap(), r#"RENAME TABLE "APP"."V" TO W"#);
-        assert_eq!(run("db2i", index("IX"), "IX2").unwrap(), r#"RENAME INDEX "App"."IX" TO IX2"#);
+        assert_eq!(
+            run("db2i", object(obj(kinds::VIEW, "APP", "V")), "W").unwrap(),
+            r#"RENAME TABLE "APP"."V" TO W"#
+        );
+        assert_eq!(
+            run("db2i", index("IX"), "IX2").unwrap(),
+            r#"RENAME INDEX "App"."IX" TO IX2"#
+        );
         assert!(unsupported(run("db2i", column("PEPE"), "NOMBRE")));
         let s = spec(preset("db2")).unwrap();
-        assert!(s.transactional && s.replace == ReplaceStyle::CreateOrReplace && s.fold == Fold::Upper);
+        assert!(
+            s.transactional && s.replace == ReplaceStyle::CreateOrReplace && s.fold == Fold::Upper
+        );
         let z = spec(preset("db2zos")).unwrap();
         assert!(!z.transactional && z.replace == ReplaceStyle::DropCreate);
     }
 
     #[test]
     fn sybase_uses_sp_rename() {
-        assert_eq!(run("sybase", object(table()), "Socios").unwrap(), "EXEC sp_rename 'Clientes', 'Socios'");
-        assert_eq!(run("sybase", object(obj(kinds::VIEW, "dbo", "v_x")), "v y").unwrap(), "EXEC sp_rename 'v_x', 'v y'");
-        assert_eq!(run("sybase", column("pepe"), "O'Brien").unwrap(), "EXEC sp_rename 'Clientes.pepe', 'O''Brien', 'column'");
-        assert_eq!(run("sybase", index("ix_pepe"), "ix_nombre").unwrap(), "EXEC sp_rename 'Clientes.ix_pepe', 'ix_nombre', 'index'");
-        assert!(unsupported(run("sybase", object(obj(kinds::PROCEDURE, "dbo", "p")), "q")));
+        assert_eq!(
+            run("sybase", object(table()), "Socios").unwrap(),
+            "EXEC sp_rename 'Clientes', 'Socios'"
+        );
+        assert_eq!(
+            run("sybase", object(obj(kinds::VIEW, "dbo", "v_x")), "v y").unwrap(),
+            "EXEC sp_rename 'v_x', 'v y'"
+        );
+        assert_eq!(
+            run("sybase", column("pepe"), "O'Brien").unwrap(),
+            "EXEC sp_rename 'Clientes.pepe', 'O''Brien', 'column'"
+        );
+        assert_eq!(
+            run("sybase", index("ix_pepe"), "ix_nombre").unwrap(),
+            "EXEC sp_rename 'Clientes.ix_pepe', 'ix_nombre', 'index'"
+        );
+        assert!(unsupported(run(
+            "sybase",
+            object(obj(kinds::PROCEDURE, "dbo", "p")),
+            "q"
+        )));
         assert_eq!(spec(preset("sybase")).unwrap().fold, Fold::None);
     }
 
     #[test]
     fn informix() {
-        assert_eq!(run("informix", object(obj(kinds::TABLE, "informix", "clientes")), "socios").unwrap(), r#"RENAME TABLE "informix"."clientes" TO socios"#);
+        assert_eq!(
+            run(
+                "informix",
+                object(obj(kinds::TABLE, "informix", "clientes")),
+                "socios"
+            )
+            .unwrap(),
+            r#"RENAME TABLE "informix"."clientes" TO socios"#
+        );
         // Lower case is the folded case.
-        assert_eq!(run("informix", object(table()), "Socios").unwrap(), r#"RENAME TABLE "App"."Clientes" TO "Socios""#);
-        assert_eq!(run("informix", column("pepe"), "nombre").unwrap(), r#"RENAME COLUMN "App"."Clientes"."pepe" TO nombre"#);
-        assert_eq!(run("informix", index("ix_pepe"), "ix_nombre").unwrap(), r#"RENAME INDEX "App"."ix_pepe" TO ix_nombre"#);
+        assert_eq!(
+            run("informix", object(table()), "Socios").unwrap(),
+            r#"RENAME TABLE "App"."Clientes" TO "Socios""#
+        );
+        assert_eq!(
+            run("informix", column("pepe"), "nombre").unwrap(),
+            r#"RENAME COLUMN "App"."Clientes"."pepe" TO nombre"#
+        );
+        assert_eq!(
+            run("informix", index("ix_pepe"), "ix_nombre").unwrap(),
+            r#"RENAME INDEX "App"."ix_pepe" TO ix_nombre"#
+        );
         let s = spec(preset("informix")).unwrap();
         assert_eq!(s.tracked, [kinds::VIEW]);
         assert_eq!(s.fold, Fold::Lower);
@@ -301,35 +448,78 @@ mod tests {
 
     #[test]
     fn teradata() {
-        assert_eq!(run("teradata", object(obj(kinds::TABLE, "ventas", "Clientes")), "Socios").unwrap(), r#"RENAME TABLE "ventas"."Clientes" TO "ventas".Socios"#);
-        assert_eq!(run("teradata", object(obj(kinds::VIEW, "ventas", "v")), "w").unwrap(), r#"RENAME VIEW "ventas"."v" TO "ventas".w"#);
+        assert_eq!(
+            run(
+                "teradata",
+                object(obj(kinds::TABLE, "ventas", "Clientes")),
+                "Socios"
+            )
+            .unwrap(),
+            r#"RENAME TABLE "ventas"."Clientes" TO "ventas".Socios"#
+        );
+        assert_eq!(
+            run("teradata", object(obj(kinds::VIEW, "ventas", "v")), "w").unwrap(),
+            r#"RENAME VIEW "ventas"."v" TO "ventas".w"#
+        );
         assert!(unsupported(run("teradata", column("pepe"), "nombre")));
         assert!(unsupported(run("teradata", index("ix"), "ix2")));
     }
 
     #[test]
     fn vertica() {
-        assert_eq!(run("vertica", object(table()), "Socios").unwrap(), r#"ALTER TABLE "App"."Clientes" RENAME TO Socios"#);
-        assert_eq!(run("vertica", object(obj(kinds::VIEW, "App", "v")), "mi vista").unwrap(), r#"ALTER VIEW "App"."v" RENAME TO "mi vista""#);
-        assert_eq!(run("vertica", column("pepe"), "nombre").unwrap(), r#"ALTER TABLE "App"."Clientes" RENAME COLUMN "pepe" TO nombre"#);
-        assert_eq!(run("vertica", schema("App"), "ventas").unwrap(), r#"ALTER SCHEMA "App" RENAME TO ventas"#);
+        assert_eq!(
+            run("vertica", object(table()), "Socios").unwrap(),
+            r#"ALTER TABLE "App"."Clientes" RENAME TO Socios"#
+        );
+        assert_eq!(
+            run("vertica", object(obj(kinds::VIEW, "App", "v")), "mi vista").unwrap(),
+            r#"ALTER VIEW "App"."v" RENAME TO "mi vista""#
+        );
+        assert_eq!(
+            run("vertica", column("pepe"), "nombre").unwrap(),
+            r#"ALTER TABLE "App"."Clientes" RENAME COLUMN "pepe" TO nombre"#
+        );
+        assert_eq!(
+            run("vertica", schema("App"), "ventas").unwrap(),
+            r#"ALTER SCHEMA "App" RENAME TO ventas"#
+        );
         assert!(unsupported(run("vertica", index("ix"), "ix2")));
-        assert_eq!(spec(preset("vertica")).unwrap().replace, ReplaceStyle::CreateOrReplace);
+        assert_eq!(
+            spec(preset("vertica")).unwrap().replace,
+            ReplaceStyle::CreateOrReplace
+        );
     }
 
     #[test]
     fn exasol() {
-        assert_eq!(run("exasol", object(table()), "SOCIOS").unwrap(), r#"RENAME TABLE "App"."Clientes" TO SOCIOS"#);
-        assert_eq!(run("exasol", object(obj(kinds::VIEW, "APP", "V")), "w").unwrap(), r#"RENAME VIEW "APP"."V" TO "w""#);
-        assert_eq!(run("exasol", column("PEPE"), "NOMBRE").unwrap(), r#"ALTER TABLE "App"."Clientes" RENAME COLUMN "PEPE" TO NOMBRE"#);
-        assert_eq!(run("exasol", schema("APP"), "VENTAS").unwrap(), r#"RENAME SCHEMA "APP" TO VENTAS"#);
+        assert_eq!(
+            run("exasol", object(table()), "SOCIOS").unwrap(),
+            r#"RENAME TABLE "App"."Clientes" TO SOCIOS"#
+        );
+        assert_eq!(
+            run("exasol", object(obj(kinds::VIEW, "APP", "V")), "w").unwrap(),
+            r#"RENAME VIEW "APP"."V" TO "w""#
+        );
+        assert_eq!(
+            run("exasol", column("PEPE"), "NOMBRE").unwrap(),
+            r#"ALTER TABLE "App"."Clientes" RENAME COLUMN "PEPE" TO NOMBRE"#
+        );
+        assert_eq!(
+            run("exasol", schema("APP"), "VENTAS").unwrap(),
+            r#"RENAME SCHEMA "APP" TO VENTAS"#
+        );
         assert!(unsupported(run("exasol", index("ix"), "ix2")));
         assert_eq!(spec(preset("exasol")).unwrap().fold, Fold::Upper);
     }
 
     #[test]
     fn other_presets_do_not_rename() {
-        for p in PRESETS.iter().filter(|p| !["db2", "db2zos", "db2i", "sybase", "informix", "teradata", "vertica", "exasol"].contains(&p.id)) {
+        for p in PRESETS.iter().filter(|p| {
+            ![
+                "db2", "db2zos", "db2i", "sybase", "informix", "teradata", "vertica", "exasol",
+            ]
+            .contains(&p.id)
+        }) {
             assert!(spec(p).is_none(), "{}", p.id);
             assert!(unsupported(run(p.id, object(table()), "X")), "{}", p.id);
         }

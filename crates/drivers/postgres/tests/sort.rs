@@ -10,14 +10,18 @@
 //!   cargo test -p dbine-driver-postgres --test sort -- --ignored
 //! ```
 
-use dbine_driver::{ColumnFilter, ConnectionConfig, Driver, FilterOp, ObjectRef, QueryOutcome, Session, SortKey};
+use dbine_driver::{
+    ColumnFilter, ConnectionConfig, Driver, FilterOp, ObjectRef, QueryOutcome, Session, SortKey,
+};
 use std::sync::Arc;
 
 fn cfg(env: &str, driver: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -32,51 +36,119 @@ fn cfg(env: &str, driver: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     out
 }
 
 fn ids(out: &QueryOutcome) -> Vec<String> {
-    let r = out.results.iter().find(|r| !r.columns.is_empty()).expect("a result set");
-    let i = r.columns.iter().position(|c| c.name == "id").expect("the id column");
-    r.rows.iter().map(|row| match &row[i] { serde_json::Value::String(s) => s.clone(), v => v.to_string() }).collect()
+    let r = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .expect("a result set");
+    let i = r
+        .columns
+        .iter()
+        .position(|c| c.name == "id")
+        .expect("the id column");
+    r.rows
+        .iter()
+        .map(|row| match &row[i] {
+            serde_json::Value::String(s) => s.clone(),
+            v => v.to_string(),
+        })
+        .collect()
 }
 
 async fn exercise(id: &str, cfg: ConnectionConfig) {
     let d = driver(id);
     let mut s = d.connect(&cfg, None).await.unwrap();
     run(&mut s, "DROP TABLE IF EXISTS public.dbine_sort").await;
-    run(&mut s, "CREATE TABLE public.dbine_sort (id int PRIMARY KEY, \"Grupo Mixto\" text, \"Valor\" int)").await;
+    run(
+        &mut s,
+        "CREATE TABLE public.dbine_sort (id int PRIMARY KEY, \"Grupo Mixto\" text, \"Valor\" int)",
+    )
+    .await;
     run(&mut s, "INSERT INTO public.dbine_sort VALUES (1, 'b', 10), (2, 'a', 5), (3, 'b', 30), (4, 'a', 20), (5, 'c', 1), (6, 'a', 15)").await;
-    let obj = ObjectRef { kind: "table".into(), schema: Some("public".into()), name: "dbine_sort".into() };
-    let filter = [ColumnFilter { column: "Valor".into(), op: FilterOp::Ge, values: vec![serde_json::json!(5)], sql: None }];
-    let sort = [SortKey { column: "Grupo Mixto".into(), descending: false }, SortKey { column: "Valor".into(), descending: true }];
-    for (limit, want) in [(100, vec!["4", "6", "2", "3", "1"]), (3, vec!["4", "6", "2"])] {
-        let q = d.filtered_browse(&s.browse_query(&obj, limit), &filter).unwrap();
+    let obj = ObjectRef {
+        kind: "table".into(),
+        schema: Some("public".into()),
+        name: "dbine_sort".into(),
+    };
+    let filter = [ColumnFilter {
+        column: "Valor".into(),
+        op: FilterOp::Ge,
+        values: vec![serde_json::json!(5)],
+        sql: None,
+    }];
+    let sort = [
+        SortKey {
+            column: "Grupo Mixto".into(),
+            descending: false,
+        },
+        SortKey {
+            column: "Valor".into(),
+            descending: true,
+        },
+    ];
+    for (limit, want) in [
+        (100, vec!["4", "6", "2", "3", "1"]),
+        (3, vec!["4", "6", "2"]),
+    ] {
+        let q = d
+            .filtered_browse(&s.browse_query(&obj, limit), &filter)
+            .unwrap();
         let q = d.sorted_browse(&q, &sort).unwrap();
         assert_eq!(ids(&run(&mut s, &q).await), want, "{id}: {q}");
     }
     // A descending first key on the quoted column.
-    let q = d.sorted_browse(&s.browse_query(&obj, 100), &[SortKey { column: "Grupo Mixto".into(), descending: true }, SortKey { column: "id".into(), descending: false }]).unwrap();
-    assert_eq!(ids(&run(&mut s, &q).await), ["5", "1", "3", "2", "4", "6"], "{id}: {q}");
+    let q = d
+        .sorted_browse(
+            &s.browse_query(&obj, 100),
+            &[
+                SortKey {
+                    column: "Grupo Mixto".into(),
+                    descending: true,
+                },
+                SortKey {
+                    column: "id".into(),
+                    descending: false,
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        ids(&run(&mut s, &q).await),
+        ["5", "1", "3", "2", "4", "6"],
+        "{id}: {q}"
+    );
     run(&mut s, "DROP TABLE public.dbine_sort").await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn postgres_sorts_the_filtered_browse() {
-    let Some(c) = cfg("DBINE_TEST_POSTGRES_URL", "postgres") else { return };
+    let Some(c) = cfg("DBINE_TEST_POSTGRES_URL", "postgres") else {
+        return;
+    };
     exercise("postgres", c).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn cockroach_sorts_the_filtered_browse() {
-    let Some(c) = cfg("DBINE_TEST_COCKROACH_URL", "cockroachdb") else { return };
+    let Some(c) = cfg("DBINE_TEST_COCKROACH_URL", "cockroachdb") else {
+        return;
+    };
     exercise("cockroachdb", c).await;
 }

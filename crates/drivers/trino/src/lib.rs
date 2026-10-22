@@ -18,14 +18,15 @@ mod stats;
 mod sync;
 mod transfer;
 
+use async_trait::async_trait;
 use base64::Engine as _;
 use dbine_driver::sql::{quote_ident, select_top, Limit, Quote};
 use dbine_driver::{
-    json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
-    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef, QueryOutcome,
-    ResultColumn, Result, RowChange, SchemaInfo, Session, TableSchema,
+    json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
+    Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, SchemaInfo,
+    Session, TableSchema,
 };
-use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Deserialize;
 use serde_json::Value;
@@ -54,7 +55,12 @@ impl Flavor {
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     [Flavor::Trino, Flavor::Presto, Flavor::Starburst]
         .into_iter()
-        .map(|f| Arc::new(TrinoDriver { info: info(f), flavor: f }) as Arc<dyn Driver>)
+        .map(|f| {
+            Arc::new(TrinoDriver {
+                info: info(f),
+                flavor: f,
+            }) as Arc<dyn Driver>
+        })
         .collect()
 }
 
@@ -73,8 +79,14 @@ fn info(flavor: Flavor) -> DriverInfo {
         default_port: 8080,
         fields: vec![
             Field::host(),
-            Field::port().placeholder("8080").help("HTTP: 8080; con TLS, 8443 o 443."),
-            Field { label: "Catálogo", placeholder: "(ninguno)", ..Field::database() },
+            Field::port()
+                .placeholder("8080")
+                .help("HTTP: 8080; con TLS, 8443 o 443."),
+            Field {
+                label: "Catálogo",
+                placeholder: "(ninguno)",
+                ..Field::database()
+            },
             Field::new("schema", "Esquema", dbine_driver::FieldKind::Text).placeholder("(ninguno)"),
             Field::username().required(),
             Field::password().help("Solo con TLS: el servidor rechaza contraseñas por HTTP."),
@@ -84,7 +96,11 @@ fn info(flavor: Flavor) -> DriverInfo {
         ],
         databases_label: "Catálogos",
         has_schemas: true,
-        object_kinds: vec![ObjectKindInfo::tables(), ObjectKindInfo::views(), ObjectKindInfo::materialized_views()],
+        object_kinds: vec![
+            ObjectKindInfo::tables(),
+            ObjectKindInfo::views(),
+            ObjectKindInfo::materialized_views(),
+        ],
     }
 }
 
@@ -121,7 +137,12 @@ impl Driver for TrinoDriver {
     /// Databases are catalogs, which the server configures (`CREATE
     /// CATALOG` needs a connector and its properties): no create / drop.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, processes: true, cancel_query: true, ..Capabilities::default() }
+        Capabilities {
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Capabilities::default()
+        }
     }
 
     fn supports_profiler(&self) -> bool {
@@ -150,7 +171,10 @@ impl Driver for TrinoDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(self.flavor, changes)
     }
 
@@ -164,12 +188,26 @@ impl Driver for TrinoDriver {
         rename::script(self.flavor, req)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
-        Ok(literal::insert_script(target.schema(), &target.name, columns, rows))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        Ok(literal::insert_script(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
-        Ok(literal::update_script(target.schema(), &target.name, changes))
+        Ok(literal::update_script(
+            target.schema(),
+            &target.name,
+            changes,
+        ))
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
@@ -192,38 +230,69 @@ impl Driver for TrinoDriver {
 
     /// Never with an owner: it's handed over after the grants
     /// (`schema_owner_script`).
-    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        _owner: Option<&str>,
+    ) -> Result<String> {
         security::create_schema(name)
     }
 
     /// `ALTER SCHEMA … SET AUTHORIZATION`, after the grants: with
     /// `AUTHORIZATION` in the create, the creator would no longer own the
     /// schema it grants on.
-    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+    fn schema_owner_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: &str,
+    ) -> Result<Option<String>> {
         if self.flavor == Flavor::Presto {
             return Err(Error::Query("Presto no asigna dueño a un esquema".into()));
         }
         security::schema_owner(name, owner).map(Some)
     }
 
-    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
         if cascade && self.flavor == Flavor::Presto {
-            return Err(Error::Unsupported("Presto solo borra esquemas vacíos (no tiene CASCADE)".into()));
+            return Err(Error::Unsupported(
+                "Presto solo borra esquemas vacíos (no tiene CASCADE)".into(),
+            ));
         }
         security::drop_schema(name, cascade, self.flavor == Flavor::Presto)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
+        let host = if cfg.host.trim().is_empty() {
+            "localhost"
+        } else {
+            cfg.host.trim()
+        };
         let port = cfg.port_or(if cfg.encrypt { 8443 } else { 8080 });
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .danger_accept_invalid_certs(cfg.trust_server_certificate)
             .build()
             .map_err(Error::connect)?;
-        let user = cfg.username.clone().filter(|u| !u.is_empty()).unwrap_or_else(|| "dbine".into());
-        let catalog = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
+        let user = cfg
+            .username
+            .clone()
+            .filter(|u| !u.is_empty())
+            .unwrap_or_else(|| "dbine".into());
+        let catalog = database
+            .filter(|d| !d.is_empty())
+            .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
         let mut s = TrinoSession {
             conn: Arc::new(Conn {
                 http,
@@ -247,7 +316,11 @@ impl Driver for TrinoDriver {
         // Checks the address, the credentials and the catalog.
         let check = async {
             let mut out = QueryOutcome::default();
-            let sql = if s.state.catalog.is_some() { "SHOW SCHEMAS" } else { "SELECT 1" };
+            let sql = if s.state.catalog.is_some() {
+                "SHOW SCHEMAS"
+            } else {
+                "SELECT 1"
+            };
             s.run(sql, 1, &mut out).await
         };
         tokio::time::timeout(Duration::from_secs(20), check)
@@ -409,16 +482,14 @@ fn decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         match bytes[i] {
-            b'%' if i + 2 < bytes.len() => {
-                match u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                    Ok(b) => {
-                        out.push(b);
-                        i += 3;
-                        continue;
-                    }
-                    Err(_) => out.push(b'%'),
+            b'%' if i + 2 < bytes.len() => match u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                Ok(b) => {
+                    out.push(b);
+                    i += 3;
+                    continue;
                 }
-            }
+                Err(_) => out.push(b'%'),
+            },
             b'+' => out.push(b' '),
             b => out.push(b),
         }
@@ -437,7 +508,10 @@ impl SessionState {
     fn headers(&self, flavor: Flavor, user: &str) -> HeaderMap {
         let mut h = HeaderMap::new();
         let mut put = |name: &str, value: String| {
-            if let (Ok(n), Ok(v)) = (reqwest::header::HeaderName::try_from(flavor.header(name)), HeaderValue::from_str(&value)) {
+            if let (Ok(n), Ok(v)) = (
+                reqwest::header::HeaderName::try_from(flavor.header(name)),
+                HeaderValue::from_str(&value),
+            ) {
                 h.append(n, v);
             }
         };
@@ -455,14 +529,21 @@ impl SessionState {
         for (k, v) in &self.prepared {
             put("prepared-statement", format!("{}={}", encode(k), encode(v)));
         }
-        put("transaction-id", self.transaction.clone().unwrap_or_else(|| "NONE".into()));
+        put(
+            "transaction-id",
+            self.transaction.clone().unwrap_or_else(|| "NONE".into()),
+        );
         h
     }
 
     /// Apply the `X-Trino-Set-*` / `Clear-*` response headers.
     fn update(&mut self, flavor: Flavor, h: &HeaderMap) {
         let all = |name: &str| -> Vec<String> {
-            h.get_all(flavor.header(name)).iter().filter_map(|v| v.to_str().ok()).map(str::to_string).collect()
+            h.get_all(flavor.header(name))
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .map(str::to_string)
+                .collect()
         };
         if let Some(c) = all("set-catalog").pop() {
             self.catalog = Some(c);
@@ -513,9 +594,15 @@ impl TrinoSession {
         let mut started = false;
         let res = loop {
             let status = resp.status();
-            if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
                 let text = resp.text().await.unwrap_or_default();
-                break Err(Error::AuthFailed(if text.trim().is_empty() { format!("HTTP {status}") } else { text.trim().to_string() }));
+                break Err(Error::AuthFailed(if text.trim().is_empty() {
+                    format!("HTTP {status}")
+                } else {
+                    text.trim().to_string()
+                }));
             }
             if !status.is_success() {
                 let text = resp.text().await.unwrap_or_default();
@@ -539,20 +626,42 @@ impl TrinoSession {
             if !started {
                 if let Some(cols) = &page.columns {
                     if page.update_type.is_none() {
-                        out.begin_result(cols.iter().map(|c| ResultColumn { name: c.name.clone(), type_name: c.ty.clone() }).collect());
+                        out.begin_result(
+                            cols.iter()
+                                .map(|c| ResultColumn {
+                                    name: c.name.clone(),
+                                    type_name: c.ty.clone(),
+                                })
+                                .collect(),
+                        );
                         started = true;
                     }
                 }
             }
             if started {
-                let types: Vec<String> = out.results.last().map(|r| r.columns.iter().map(|c| c.type_name.clone()).collect()).unwrap_or_default();
+                let types: Vec<String> = out
+                    .results
+                    .last()
+                    .map(|r| r.columns.iter().map(|c| c.type_name.clone()).collect())
+                    .unwrap_or_default();
                 for row in page.data.unwrap_or_default() {
-                    out.push_row(row.into_iter().enumerate().map(|(i, v)| cell(v, types.get(i).map_or("", String::as_str))).collect(), max_rows);
+                    out.push_row(
+                        row.into_iter()
+                            .enumerate()
+                            .map(|(i, v)| cell(v, types.get(i).map_or("", String::as_str)))
+                            .collect(),
+                        max_rows,
+                    );
                 }
             }
             for w in page.warnings {
                 let code = w.warning_code.map(|c| c.name).filter(|n| !n.is_empty());
-                out.message(dbine_driver::Message { level: dbine_driver::MessageLevel::Warning, text: w.message, code, ..Default::default() });
+                out.message(dbine_driver::Message {
+                    level: dbine_driver::MessageLevel::Warning,
+                    text: w.message,
+                    code,
+                    ..Default::default()
+                });
             }
             let Some(next) = page.next_uri else {
                 if !started {
@@ -571,7 +680,11 @@ impl TrinoSession {
                 }
                 break Ok(());
             };
-            *self.in_flight.next_uri.lock().unwrap_or_else(|e| e.into_inner()) = Some(next.clone());
+            *self
+                .in_flight
+                .next_uri
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(next.clone());
             if self.in_flight.cancelled.load(Ordering::SeqCst) {
                 break Err(Error::Cancelled);
             }
@@ -580,7 +693,11 @@ impl TrinoSession {
                 Err(e) => break Err(http_error(e)),
             };
         };
-        *self.in_flight.next_uri.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .in_flight
+            .next_uri
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         // A statement stopped before its first row (cancelled, failed) has
         // no result set to show: only the error.
         if res.is_err() && started && out.results.last().is_some_and(|r| r.rows.is_empty()) {
@@ -596,22 +713,39 @@ impl TrinoSession {
         Ok(out
             .results
             .pop()
-            .map(|r| r.rows.into_iter().map(|row| row.iter().map(text).collect()).collect())
+            .map(|r| {
+                r.rows
+                    .into_iter()
+                    .map(|row| row.iter().map(text).collect())
+                    .collect()
+            })
             .unwrap_or_default())
     }
 
     /// The single text cell EXPLAIN returns.
     async fn plan_text(&mut self, sql: &str) -> Result<String> {
         let rows = self.strings(sql).await?;
-        Ok(rows.into_iter().filter_map(|r| r.into_iter().next()).collect::<Vec<_>>().join("\n"))
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.into_iter().next())
+            .collect::<Vec<_>>()
+            .join("\n"))
     }
 
     async fn estimated_plan(&mut self, stmt: &str) -> Result<dbine_driver::Plan> {
-        match self.plan_text(&format!("EXPLAIN (TYPE DISTRIBUTED, FORMAT JSON) {stmt}")).await {
+        match self
+            .plan_text(&format!("EXPLAIN (TYPE DISTRIBUTED, FORMAT JSON) {stmt}"))
+            .await
+        {
             Ok(raw) => plan::plan_json(stmt, &raw).map_err(Error::Query),
             Err(Error::Query(e)) => {
-                tracing::debug!("{:?}: EXPLAIN FORMAT JSON refused, trying text: {e}", self.flavor);
-                let raw = self.plan_text(&format!("EXPLAIN (TYPE DISTRIBUTED) {stmt}")).await?;
+                tracing::debug!(
+                    "{:?}: EXPLAIN FORMAT JSON refused, trying text: {e}",
+                    self.flavor
+                );
+                let raw = self
+                    .plan_text(&format!("EXPLAIN (TYPE DISTRIBUTED) {stmt}"))
+                    .await?;
                 let mut p = plan::analyze_text(stmt, &raw);
                 p.actual = false;
                 Ok(p)
@@ -621,16 +755,26 @@ impl TrinoSession {
     }
 
     fn catalog(&self) -> Result<String> {
-        self.state.catalog.clone().ok_or_else(|| Error::Query("Elegí un catálogo para ver sus objetos.".into()))
+        self.state
+            .catalog
+            .clone()
+            .ok_or_else(|| Error::Query("Elegí un catálogo para ver sus objetos.".into()))
     }
 
     /// An editor statement: in manual mode, opens the transaction first;
     /// a failure comes back with the server's error name and position.
-    async fn run_statement(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_statement(
+        &mut self,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let (w1, w2) = script::head(stmt);
-        let tx_control = matches!(w1.as_str(), "COMMIT" | "ROLLBACK") || (w1 == "START" && w2 == "TRANSACTION");
+        let tx_control =
+            matches!(w1.as_str(), "COMMIT" | "ROLLBACK") || (w1 == "START" && w2 == "TRANSACTION");
         if self.manual && self.state.transaction.is_none() && !tx_control {
-            self.run("START TRANSACTION", 1, &mut QueryOutcome::default()).await?;
+            self.run("START TRANSACTION", 1, &mut QueryOutcome::default())
+                .await?;
         }
         let r = self.run(stmt, max_rows, out).await;
         if r.is_err() && matches!(w1.as_str(), "COMMIT" | "ROLLBACK") {
@@ -666,7 +810,10 @@ impl TrinoSession {
 /// The trino CLI's reading of a script: `;` outside '…', "…" and
 /// comments; no backtick identifiers.
 fn script_dialect() -> dbine_driver::ScriptDialect {
-    dbine_driver::ScriptDialect { backtick_idents: false, ..dbine_driver::ScriptDialect::generic() }
+    dbine_driver::ScriptDialect {
+        backtick_idents: false,
+        ..dbine_driver::ScriptDialect::generic()
+    }
 }
 
 fn text(v: &Value) -> String {
@@ -690,10 +837,12 @@ fn cell(v: Value, ty: &str) -> Value {
             (None, Some(u)) => json_u64(u),
             _ => Value::Number(n),
         },
-        Value::String(s) if ty == "varbinary" => match base64::engine::general_purpose::STANDARD.decode(&s) {
-            Ok(b) => json_bytes(&b),
-            Err(_) => Value::String(s),
-        },
+        Value::String(s) if ty == "varbinary" => {
+            match base64::engine::general_purpose::STANDARD.decode(&s) {
+                Ok(b) => json_bytes(&b),
+                Err(_) => Value::String(s),
+            }
+        }
         Value::Array(_) | Value::Object(_) => Value::String(v.to_string()),
         v => v,
     }
@@ -703,14 +852,29 @@ fn cell(v: Value, ty: &str) -> Value {
 impl Session for TrinoSession {
     async fn server_version(&mut self) -> Result<String> {
         let rb = self.conn.http.get(format!("{}/v1/info", self.conn.base));
-        let info: Value = self.conn.auth(rb).send().await.map_err(http_error)?.json().await.map_err(Error::query)?;
-        let v = info.pointer("/nodeVersion/version").map(text).unwrap_or_default();
+        let info: Value = self
+            .conn
+            .auth(rb)
+            .send()
+            .await
+            .map_err(http_error)?
+            .json()
+            .await
+            .map_err(Error::query)?;
+        let v = info
+            .pointer("/nodeVersion/version")
+            .map(text)
+            .unwrap_or_default();
         Ok(format!("{} {v}", info_name(self.flavor)))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         let rows = self.strings("SHOW CATALOGS").await?;
-        Ok(rows.into_iter().filter_map(|mut r| (!r.is_empty()).then(|| r.remove(0))).filter(|c| c != "system").collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|mut r| (!r.is_empty()).then(|| r.remove(0)))
+            .filter(|c| c != "system")
+            .collect())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -746,7 +910,12 @@ impl Session for TrinoSession {
                 } else {
                     kinds::TABLE
                 };
-                DbObject { kind: kind.into(), schema: Some(r[0].clone()), name: r[1].clone(), parent: None }
+                DbObject {
+                    kind: kind.into(),
+                    schema: Some(r[0].clone()),
+                    name: r[1].clone(),
+                    parent: None,
+                }
             })
             .collect())
     }
@@ -754,19 +923,33 @@ impl Session for TrinoSession {
     /// The catalog's `information_schema.schemata`; information_schema is
     /// the system one.
     async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
-        let Ok(cat) = self.catalog() else { return Ok(None) };
-        let rows = self.strings(&format!("SELECT schema_name FROM {}.information_schema.schemata ORDER BY 1", quote_ident(Quote::Double, &cat))).await?;
+        let Ok(cat) = self.catalog() else {
+            return Ok(None);
+        };
+        let rows = self
+            .strings(&format!(
+                "SELECT schema_name FROM {}.information_schema.schemata ORDER BY 1",
+                quote_ident(Quote::Double, &cat)
+            ))
+            .await?;
         Ok(Some(
             rows.into_iter()
                 .filter_map(|r| r.into_iter().next())
-                .map(|name| SchemaInfo { system: name == "information_schema", name })
+                .map(|name| SchemaInfo {
+                    system: name == "information_schema",
+                    name,
+                })
                 .collect(),
         ))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let cat = self.catalog()?;
-        let schema = obj.schema().map(str::to_string).or(self.state.schema.clone()).unwrap_or_default();
+        let schema = obj
+            .schema()
+            .map(str::to_string)
+            .or(self.state.schema.clone())
+            .unwrap_or_default();
         let rows = self
             .strings(&format!(
                 "SELECT column_name, data_type, is_nullable, column_default FROM {}.information_schema.columns
@@ -800,7 +983,12 @@ impl Session for TrinoSession {
             .await?
             .into_iter()
             .filter(|o| o.kind == kinds::TABLE)
-            .map(|o| TableSchema { kind: o.kind, schema: o.schema, name: o.name, ..Default::default() })
+            .map(|o| TableSchema {
+                kind: o.kind,
+                schema: o.schema,
+                name: o.name,
+                ..Default::default()
+            })
             .collect();
         let rows = self
             .strings(&format!(
@@ -822,8 +1010,11 @@ impl Session for TrinoSession {
             ))
             .await
             .unwrap_or_default();
-        let index: std::collections::HashMap<(String, String), usize> =
-            tables.iter().enumerate().map(|(i, t)| ((t.schema.clone().unwrap_or_default(), t.name.clone()), i)).collect();
+        let index: std::collections::HashMap<(String, String), usize> = tables
+            .iter()
+            .enumerate()
+            .map(|(i, t)| ((t.schema.clone().unwrap_or_default(), t.name.clone()), i))
+            .collect();
         let find = |s: &str, n: &str| index.get(&(s.to_string(), n.to_string())).copied();
         for r in rows.into_iter().filter(|r| r.len() == 7) {
             if let Some(i) = find(&r[0], &r[1]) {
@@ -837,7 +1028,10 @@ impl Session for TrinoSession {
                 });
             }
         }
-        for r in comments.into_iter().filter(|r| r.len() == 3 && !r[2].is_empty()) {
+        for r in comments
+            .into_iter()
+            .filter(|r| r.len() == 3 && !r[2].is_empty())
+        {
             if let Some(i) = find(&r[0], &r[1]) {
                 tables[i].comment = Some(r[2].clone());
             }
@@ -853,10 +1047,21 @@ impl Session for TrinoSession {
             _ => return Ok(None),
         };
         let cat = self.catalog()?;
-        let schema = obj.schema().map(str::to_string).or(self.state.schema.clone()).unwrap_or_default();
-        let name = [cat.as_str(), &schema, &obj.name].iter().map(|p| quote_ident(Quote::Double, p)).collect::<Vec<_>>().join(".");
+        let schema = obj
+            .schema()
+            .map(str::to_string)
+            .or(self.state.schema.clone())
+            .unwrap_or_default();
+        let name = [cat.as_str(), &schema, &obj.name]
+            .iter()
+            .map(|p| quote_ident(Quote::Double, p))
+            .collect::<Vec<_>>()
+            .join(".");
         let rows = self.strings(&format!("SHOW CREATE {what} {name}")).await?;
-        Ok(rows.into_iter().next().and_then(|mut r| (!r.is_empty()).then(|| r.remove(0))))
+        Ok(rows
+            .into_iter()
+            .next()
+            .and_then(|mut r| (!r.is_empty()).then(|| r.remove(0))))
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
@@ -869,17 +1074,21 @@ impl Session for TrinoSession {
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let dialect = script_dialect();
         for unit in script::units(text, &dialect) {
-            self.run_statement(&unit.text, max_rows, out).await.map_err(|e| script::shift(e, &unit))?;
+            self.run_statement(&unit.text, max_rows, out)
+                .await
+                .map_err(|e| script::shift(e, &unit))?;
         }
         Ok(())
     }
 
     async fn transaction_state(&mut self) -> Result<Option<dbine_driver::TxState>> {
-        Ok(Some(match (&self.state.transaction, self.state.tx_failed) {
-            (None, _) => dbine_driver::TxState::Idle,
-            (Some(_), false) => dbine_driver::TxState::Open,
-            (Some(_), true) => dbine_driver::TxState::Failed,
-        }))
+        Ok(Some(
+            match (&self.state.transaction, self.state.tx_failed) {
+                (None, _) => dbine_driver::TxState::Idle,
+                (Some(_), false) => dbine_driver::TxState::Open,
+                (Some(_), true) => dbine_driver::TxState::Failed,
+            },
+        ))
     }
 
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
@@ -903,12 +1112,20 @@ impl Session for TrinoSession {
     /// Actual: each statement runs as with `execute`; a read then runs a
     /// second time under `EXPLAIN ANALYZE` (text only) for its figures,
     /// while a write gets its estimated plan before running.
-    async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         use plan::StmtKind;
         for unit in script::units(sql, &script_dialect()) {
             let stmt = unit.text;
             match (analyze, plan::classify(&stmt)) {
-                (false, StmtKind::Other) => out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt))),
+                (false, StmtKind::Other) => out
+                    .messages
+                    .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt))),
                 (false, _) => {
                     let p = self.estimated_plan(&stmt).await?;
                     out.plans.push(p);
@@ -959,14 +1176,20 @@ impl Session for TrinoSession {
         self.cancel_running(id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = self.profiler_begin(opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = self.profiler_next(&mut state).await;
         self.profiler = Some(state);
         r
@@ -978,7 +1201,11 @@ impl Session for TrinoSession {
         Ok(())
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -998,7 +1225,14 @@ impl Session for TrinoSession {
         let rt = self.rt.clone();
         Some(Arc::new(move || {
             in_flight.cancelled.store(true, Ordering::SeqCst);
-            let Some(uri) = in_flight.next_uri.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
+            let Some(uri) = in_flight
+                .next_uri
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+            else {
+                return;
+            };
             let conn = conn.clone();
             rt.spawn(async move {
                 if let Err(e) = conn.auth(conn.http.delete(&uri)).send().await {
@@ -1030,11 +1264,23 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(Some("memory"), "ventas", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(Some("memory"), "ventas", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
     use serde_json::json;
@@ -1045,64 +1291,125 @@ mod tests {
     fn schema_owner_goes_after_the_grants() {
         let ds = drivers();
         let trino = ds.iter().find(|d| d.info().id == "trino").unwrap();
-        assert_eq!(trino.create_schema_script(Some("hive"), "ventas", Some("ana")).unwrap(), "CREATE SCHEMA \"ventas\";");
         assert_eq!(
-            trino.schema_owner_script(Some("hive"), "ventas", "ana").unwrap().as_deref(),
+            trino
+                .create_schema_script(Some("hive"), "ventas", Some("ana"))
+                .unwrap(),
+            "CREATE SCHEMA \"ventas\";"
+        );
+        assert_eq!(
+            trino
+                .schema_owner_script(Some("hive"), "ventas", "ana")
+                .unwrap()
+                .as_deref(),
             Some("ALTER SCHEMA \"ventas\" SET AUTHORIZATION USER \"ana\";")
         );
         assert_eq!(
-            trino.schema_owner_script(None, "ventas", "lect IN hive").unwrap().as_deref(),
+            trino
+                .schema_owner_script(None, "ventas", "lect IN hive")
+                .unwrap()
+                .as_deref(),
             Some("ALTER SCHEMA \"ventas\" SET AUTHORIZATION ROLE \"lect\";")
         );
         assert!(trino.schema_owner_script(None, "ventas", " ").is_err());
         let presto = ds.iter().find(|d| d.info().id == "presto").unwrap();
-        assert!(matches!(presto.schema_owner_script(None, "ventas", "ana"), Err(Error::Query(_))));
+        assert!(matches!(
+            presto.schema_owner_script(None, "ventas", "ana"),
+            Err(Error::Query(_))
+        ));
     }
 
     #[test]
     fn cells_follow_their_types() {
-        assert_eq!(cell(json!(9007199254740993i64), "bigint"), json!("9007199254740993"));
+        assert_eq!(
+            cell(json!(9007199254740993i64), "bigint"),
+            json!("9007199254740993")
+        );
         assert_eq!(cell(json!(1), "integer"), json!(1));
         assert_eq!(cell(json!("1.50"), "decimal(10,2)"), json!("1.50"));
         assert_eq!(cell(json!("yv4="), "varbinary"), json!("0xCAFE"));
         assert_eq!(cell(json!([1, 2]), "array(integer)"), json!("[1,2]"));
-        assert_eq!(cell(json!({"a": 1}), "map(varchar, integer)"), json!("{\"a\":1}"));
+        assert_eq!(
+            cell(json!({"a": 1}), "map(varchar, integer)"),
+            json!("{\"a\":1}")
+        );
     }
 
     #[test]
     fn session_headers_round_trip() {
-        let mut st = SessionState { catalog: Some("memory".into()), ..Default::default() };
+        let mut st = SessionState {
+            catalog: Some("memory".into()),
+            ..Default::default()
+        };
         let mut h = HeaderMap::new();
         h.append("x-trino-set-schema", HeaderValue::from_static("s1"));
-        h.append("x-trino-set-session", HeaderValue::from_static("query_max_run_time=1h"));
-        h.append("x-trino-added-prepare", HeaderValue::from_static("q1=SELECT+%3F"));
-        h.append("x-trino-started-transaction-id", HeaderValue::from_static("tx1"));
+        h.append(
+            "x-trino-set-session",
+            HeaderValue::from_static("query_max_run_time=1h"),
+        );
+        h.append(
+            "x-trino-added-prepare",
+            HeaderValue::from_static("q1=SELECT+%3F"),
+        );
+        h.append(
+            "x-trino-started-transaction-id",
+            HeaderValue::from_static("tx1"),
+        );
         st.update(Flavor::Trino, &h);
         assert_eq!(st.schema.as_deref(), Some("s1"));
-        assert_eq!(st.properties.get("query_max_run_time").map(String::as_str), Some("1h"));
+        assert_eq!(
+            st.properties.get("query_max_run_time").map(String::as_str),
+            Some("1h")
+        );
         assert_eq!(st.prepared.get("q1").map(String::as_str), Some("SELECT ?"));
         let out = st.headers(Flavor::Presto, "me");
         assert_eq!(out.get("x-presto-user").unwrap(), "me");
         assert_eq!(out.get("x-presto-transaction-id").unwrap(), "tx1");
-        assert_eq!(out.get("x-presto-prepared-statement").unwrap(), "q1=SELECT%20%3F");
+        assert_eq!(
+            out.get("x-presto-prepared-statement").unwrap(),
+            "q1=SELECT%20%3F"
+        );
         let mut h = HeaderMap::new();
-        h.append("x-trino-clear-transaction-id", HeaderValue::from_static("true"));
-        h.append("x-trino-deallocated-prepare", HeaderValue::from_static("q1"));
+        h.append(
+            "x-trino-clear-transaction-id",
+            HeaderValue::from_static("true"),
+        );
+        h.append(
+            "x-trino-deallocated-prepare",
+            HeaderValue::from_static("q1"),
+        );
         st.update(Flavor::Trino, &h);
         assert!(st.transaction.is_none() && st.prepared.is_empty());
     }
 
     #[test]
     fn errors_are_classified() {
-        let e = query_error(QueryError { message: "Query was canceled".into(), error_name: "USER_CANCELED".into(), ..Default::default() });
+        let e = query_error(QueryError {
+            message: "Query was canceled".into(),
+            error_name: "USER_CANCELED".into(),
+            ..Default::default()
+        });
         assert!(matches!(e, Error::Cancelled));
         // The position comes from the message when there's no errorLocation.
-        let qe = QueryError { message: "line 2:6: Table 'x' does not exist".into(), error_name: "TABLE_NOT_FOUND".into(), ..Default::default() };
+        let qe = QueryError {
+            message: "line 2:6: Table 'x' does not exist".into(),
+            error_name: "TABLE_NOT_FOUND".into(),
+            ..Default::default()
+        };
         assert!(matches!(query_error(qe.clone()), Error::Query(_)));
         let se = statement_error(&qe, "select *\nfrom x");
-        assert_eq!((se.code.as_deref(), se.line, se.offset), (Some("TABLE_NOT_FOUND"), Some(2), Some(14)));
+        assert_eq!(
+            (se.code.as_deref(), se.line, se.offset),
+            (Some("TABLE_NOT_FOUND"), Some(2), Some(14))
+        );
         // errorLocation wins over the message.
-        let qe = QueryError { error_location: Some(ErrorLocation { line_number: 1, column_number: 8 }), ..qe };
+        let qe = QueryError {
+            error_location: Some(ErrorLocation {
+                line_number: 1,
+                column_number: 8,
+            }),
+            ..qe
+        };
         let se = statement_error(&qe, "select *\nfrom x");
         assert_eq!((se.line, se.offset), (Some(1), Some(7)));
         assert_eq!(lit("o'k"), "'o''k'");

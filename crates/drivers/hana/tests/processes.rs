@@ -69,17 +69,44 @@ async fn lists_and_cancels() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.id == worker_id).expect("the worker is listed");
+    let w = list
+        .iter()
+        .find(|p| p.id == worker_id)
+        .expect("the worker is listed");
     eprintln!("{w:#?}");
     assert!(w.active, "{w:?}");
-    assert!(w.sql.as_deref().unwrap_or("").contains("dbine_processes_test"), "{w:?}");
+    assert!(
+        w.sql
+            .as_deref()
+            .unwrap_or("")
+            .contains("dbine_processes_test"),
+        "{w:?}"
+    );
     assert!(!w.own);
-    assert!(list.iter().find(|p| p.id == own).expect("its own connection is listed").own);
+    assert!(
+        list.iter()
+            .find(|p| p.id == own)
+            .expect("its own connection is listed")
+            .own
+    );
 
     admin.cancel_query(&worker_id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), sleeping).await.expect("the statement stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), sleeping)
+        .await
+        .expect("the statement stopped")
+        .unwrap();
     assert!(r.is_err(), "the sleep was cancelled");
-    assert_eq!(scalar(&mut worker, "SELECT 1 FROM DUMMY").await, "1", "the connection is still open");
-    assert!(admin.cancel_query("1; DROP TABLE x").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query(&own).await.is_err(), "not its own connection");
+    assert_eq!(
+        scalar(&mut worker, "SELECT 1 FROM DUMMY").await,
+        "1",
+        "the connection is still open"
+    );
+    assert!(
+        admin.cancel_query("1; DROP TABLE x").await.is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin.cancel_query(&own).await.is_err(),
+        "not its own connection"
+    );
 }

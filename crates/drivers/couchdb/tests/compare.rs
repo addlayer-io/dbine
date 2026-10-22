@@ -28,7 +28,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, q: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(q, 10, &mut out).await.unwrap_or_else(|e| panic!("{q}: {e}"));
+    s.execute(q, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{q}: {e}"));
 }
 
 async fn schema(s: &mut Box<dyn Session>) -> TableSchema {
@@ -53,8 +55,12 @@ async fn compare_and_sync() {
 {"validate_doc_update": "function (n) { if (!n._deleted && !n.tipo) { throw({ forbidden: 'falta tipo' }); } }"}"#).await;
     run(&mut a, r#"POST _index
 {"index": {"fields": [{"tipo": "desc"}, {"fecha": "desc"}], "partial_filter_selector": {"activo": true}}, "name": "por_tipo", "type": "json"}"#).await;
-    run(&mut b, r#"POST _index
-{"index": {"fields": ["otro"]}, "name": "por_otro", "type": "json"}"#).await;
+    run(
+        &mut b,
+        r#"POST _index
+{"index": {"fields": ["otro"]}, "name": "por_otro", "type": "json"}"#,
+    )
+    .await;
 
     let src = schema(&mut a).await;
     let dst = schema(&mut b).await;
@@ -64,17 +70,28 @@ async fn compare_and_sync() {
     let mut new = dst.clone();
     new.checks = src.checks.clone();
     new.indexes.extend(src.indexes.iter().cloned());
-    let script = d.sync_script(&[TableChange::Alter { old: dst, new }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Alter { old: dst, new }])
+        .unwrap();
     println!("{script:#?}");
     for st in &script.statements {
         run(&mut b, st).await;
     }
     let after = schema(&mut b).await;
     assert_eq!(after.checks, src.checks);
-    assert!(src.indexes.iter().all(|i| after.indexes.contains(i)), "{:?}", after.indexes);
+    assert!(
+        src.indexes.iter().all(|i| after.indexes.contains(i)),
+        "{:?}",
+        after.indexes
+    );
     // The validation now applies.
     let mut out = QueryOutcome::default();
-    assert!(b.execute(r#"POST /dbine_cmp_dst {"x": 1}"#, 10, &mut out).await.is_err() || out.error.is_some());
+    assert!(
+        b.execute(r#"POST /dbine_cmp_dst {"x": 1}"#, 10, &mut out)
+            .await
+            .is_err()
+            || out.error.is_some()
+    );
 
     for db in ["dbine_cmp_src", "dbine_cmp_dst"] {
         admin.drop_database(db).await.unwrap();

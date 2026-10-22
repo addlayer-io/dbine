@@ -56,7 +56,14 @@ impl StateStore {
             )
             .map_err(db_err)?;
         let rows = st
-            .query_map([notebook], |r| Ok(FileGrant { notebook: r.get(0)?, target: r.get(1)?, pattern: r.get::<_, i64>(2)? != 0, granted_at: r.get(3)? }))
+            .query_map([notebook], |r| {
+                Ok(FileGrant {
+                    notebook: r.get(0)?,
+                    target: r.get(1)?,
+                    pattern: r.get::<_, i64>(2)? != 0,
+                    granted_at: r.get(3)?,
+                })
+            })
             .map_err(db_err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(db_err)
     }
@@ -82,12 +89,24 @@ impl StateStore {
 
     /// Whether it was there.
     pub fn remove_file_grant(&self, notebook: &str, target: &str) -> Result<bool> {
-        Ok(self.lock()?.execute("DELETE FROM notebook_file_grants WHERE notebook = ?1 AND target = ?2", [notebook, target]).map_err(db_err)? > 0)
+        Ok(self
+            .lock()?
+            .execute(
+                "DELETE FROM notebook_file_grants WHERE notebook = ?1 AND target = ?2",
+                [notebook, target],
+            )
+            .map_err(db_err)?
+            > 0)
     }
 
     /// Every grant of `notebook`, or every one (`None`). How many went.
     pub fn clear_file_grants(&self, notebook: Option<&str>) -> Result<usize> {
-        self.lock()?.execute("DELETE FROM notebook_file_grants WHERE ?1 IS NULL OR notebook = ?1", [notebook]).map_err(db_err)
+        self.lock()?
+            .execute(
+                "DELETE FROM notebook_file_grants WHERE ?1 IS NULL OR notebook = ?1",
+                [notebook],
+            )
+            .map_err(db_err)
     }
 
     pub fn file_record(&self, notebook: &str, path: &str) -> Result<Option<FileRecord>> {
@@ -119,12 +138,24 @@ mod tests {
     fn grants_and_records_are_local_and_per_notebook() {
         let s = StateStore::open_in_memory().unwrap();
         let rev = s.get_setting("local.revision").unwrap();
-        s.add_file_grants("/nb/a.ipynb", &[("/d/x.csv".into(), false), ("/d/v_*.csv".into(), true)]).unwrap();
-        s.add_file_grants("/nb/b.ipynb", &[("/d/x.csv".into(), false)]).unwrap();
+        s.add_file_grants(
+            "/nb/a.ipynb",
+            &[("/d/x.csv".into(), false), ("/d/v_*.csv".into(), true)],
+        )
+        .unwrap();
+        s.add_file_grants("/nb/b.ipynb", &[("/d/x.csv".into(), false)])
+            .unwrap();
         let first = s.list_file_grants(Some("/nb/a.ipynb")).unwrap();
-        assert_eq!(first.iter().map(|g| (g.target.as_str(), g.pattern)).collect::<Vec<_>>(), vec![("/d/v_*.csv", true), ("/d/x.csv", false)]);
+        assert_eq!(
+            first
+                .iter()
+                .map(|g| (g.target.as_str(), g.pattern))
+                .collect::<Vec<_>>(),
+            vec![("/d/v_*.csv", true), ("/d/x.csv", false)]
+        );
         // Granting again keeps the date.
-        s.add_file_grants("/nb/a.ipynb", &[("/d/x.csv".into(), false)]).unwrap();
+        s.add_file_grants("/nb/a.ipynb", &[("/d/x.csv".into(), false)])
+            .unwrap();
         assert_eq!(s.list_file_grants(Some("/nb/a.ipynb")).unwrap(), first);
         assert_eq!(s.list_file_grants(None).unwrap().len(), 3);
         assert!(s.remove_file_grant("/nb/a.ipynb", "/d/x.csv").unwrap());
@@ -134,11 +165,19 @@ mod tests {
         assert!(s.list_file_grants(None).unwrap().is_empty());
 
         assert!(s.file_record("/nb/a.ipynb", "/d/x.csv").unwrap().is_none());
-        let r = FileRecord { size: 3, mtime_ms: 10, sha256: "ab".into() };
+        let r = FileRecord {
+            size: 3,
+            mtime_ms: 10,
+            sha256: "ab".into(),
+        };
         s.put_file_record("/nb/a.ipynb", "/d/x.csv", &r).unwrap();
         assert_eq!(s.file_record("/nb/a.ipynb", "/d/x.csv").unwrap(), Some(r));
         assert!(s.file_record("/nb/b.ipynb", "/d/x.csv").unwrap().is_none());
-        let r2 = FileRecord { size: 4, mtime_ms: 11, sha256: "cd".into() };
+        let r2 = FileRecord {
+            size: 4,
+            mtime_ms: 11,
+            sha256: "cd".into(),
+        };
         s.put_file_record("/nb/a.ipynb", "/d/x.csv", &r2).unwrap();
         assert_eq!(s.file_record("/nb/a.ipynb", "/d/x.csv").unwrap(), Some(r2));
 

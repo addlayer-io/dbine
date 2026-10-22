@@ -19,8 +19,12 @@ fn config(env: &str, v: Variant) -> Option<ConnectionConfig> {
     };
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     Some(ConnectionConfig {
         driver: variant::info(v).id.to_string(),
         host: host.into(),
@@ -32,7 +36,10 @@ fn config(env: &str, v: Variant) -> Option<ConnectionConfig> {
 }
 
 fn driver(v: Variant) -> SqlServerDriver {
-    SqlServerDriver { info: variant::info(v), variant: v }
+    SqlServerDriver {
+        info: variant::info(v),
+        variant: v,
+    }
 }
 
 async fn run(s: &mut SqlServerSession, sql: &str) -> Result<QueryOutcome> {
@@ -42,8 +49,14 @@ async fn run(s: &mut SqlServerSession, sql: &str) -> Result<QueryOutcome> {
 
 async fn int(s: &mut SqlServerSession, sql: &str) -> i64 {
     let out = run(s, sql).await.unwrap_or_else(|e| panic!("{sql}: {e:?}"));
-    let r = out.results.iter().rfind(|r| !r.columns.is_empty()).expect("a result");
-    r.rows[0][0].as_i64().unwrap_or_else(|| panic!("{sql}: {:?}", r.rows[0][0]))
+    let r = out
+        .results
+        .iter()
+        .rfind(|r| !r.columns.is_empty())
+        .expect("a result");
+    r.rows[0][0]
+        .as_i64()
+        .unwrap_or_else(|| panic!("{sql}: {:?}", r.rows[0][0]))
 }
 
 /// Fire the interrupter after `after`, run `sql`, expect a cancel.
@@ -61,10 +74,20 @@ async fn cancel_during(s: &mut SqlServerSession, sql: &str, after: Duration) {
         *at.lock().unwrap() = Some(Instant::now());
         stop();
     });
-    let e = tokio::time::timeout(Duration::from_secs(25), run(s, sql)).await.expect("the cancel didn't stop it").unwrap_err();
+    let e = tokio::time::timeout(Duration::from_secs(25), run(s, sql))
+        .await
+        .expect("the cancel didn't stop it")
+        .unwrap_err();
     assert!(matches!(e, Error::Cancelled), "{sql}: {e:?}");
-    let fired = fired.lock().unwrap().expect("ended before the interrupter fired");
-    assert!(fired.elapsed() < Duration::from_secs(10), "{sql}: the cancel took {:?}", fired.elapsed());
+    let fired = fired
+        .lock()
+        .unwrap()
+        .expect("ended before the interrupter fired");
+    assert!(
+        fired.elapsed() < Duration::from_secs(10),
+        "{sql}: the cancel took {:?}",
+        fired.elapsed()
+    );
 }
 
 /// A batch that runs for a long time without sending anything. Babelfish
@@ -84,7 +107,12 @@ async fn keeps_session(env: &str, v: Variant) {
     let mut s = d.open(&cfg, None).await.expect("connect");
     let spid = int(&mut s, "SELECT CAST(@@SPID AS int)").await;
     let full = v != Variant::Babelfish;
-    run(&mut s, "CREATE TABLE #t (n int); INSERT INTO #t VALUES (1), (2)").await.unwrap();
+    run(
+        &mut s,
+        "CREATE TABLE #t (n int); INSERT INTO #t VALUES (1), (2)",
+    )
+    .await
+    .unwrap();
     if full {
         run(&mut s, "SET DATEFIRST 3").await.unwrap();
     }
@@ -92,12 +120,24 @@ async fn keeps_session(env: &str, v: Variant) {
 
     // A batch that waits.
     cancel_during(&mut s, slow(v), Duration::from_millis(500)).await;
-    assert_eq!(int(&mut s, "SELECT CAST(@@SPID AS int)").await, spid, "same session");
-    assert_eq!(int(&mut s, "SELECT COUNT(*) FROM #t").await, 2, "#temp table kept");
+    assert_eq!(
+        int(&mut s, "SELECT CAST(@@SPID AS int)").await,
+        spid,
+        "same session"
+    );
+    assert_eq!(
+        int(&mut s, "SELECT COUNT(*) FROM #t").await,
+        2,
+        "#temp table kept"
+    );
     let trancount = int(&mut s, "SELECT CAST(@@TRANCOUNT AS int)").await;
     eprintln!("{env}: @@TRANCOUNT after the cancel = {trancount}");
     if full {
-        assert_eq!(int(&mut s, "SELECT CAST(@@DATEFIRST AS int)").await, 3, "SET kept");
+        assert_eq!(
+            int(&mut s, "SELECT CAST(@@DATEFIRST AS int)").await,
+            3,
+            "SET kept"
+        );
         assert_eq!(trancount, 1, "the open transaction is the user's");
     }
     if trancount > 0 {
@@ -114,8 +154,17 @@ async fn keeps_session(env: &str, v: Variant) {
     assert_eq!(int(&mut s, "SELECT CAST(@@SPID AS int)").await, spid);
 
     // A script cancelled in its first batch doesn't go on with the next.
-    cancel_during(&mut s, &format!("{}\nGO\nINSERT INTO #t VALUES (3)", slow(v)), Duration::from_millis(500)).await;
-    assert_eq!(int(&mut s, "SELECT COUNT(*) FROM #t").await, 2, "the second batch didn't run");
+    cancel_during(
+        &mut s,
+        &format!("{}\nGO\nINSERT INTO #t VALUES (3)", slow(v)),
+        Duration::from_millis(500),
+    )
+    .await;
+    assert_eq!(
+        int(&mut s, "SELECT COUNT(*) FROM #t").await,
+        2,
+        "the second batch didn't run"
+    );
 
     // A cancel while nothing runs doesn't touch the next statement.
     s.interrupter().unwrap()();
@@ -127,7 +176,9 @@ async fn keeps_session(env: &str, v: Variant) {
         let handle = s.client.cancel_handle();
         let mut stream = s
             .client
-            .simple_query("SELECT TOP 20000 a.name FROM sys.all_objects a CROSS JOIN sys.all_objects b")
+            .simple_query(
+                "SELECT TOP 20000 a.name FROM sys.all_objects a CROSS JOIN sys.all_objects b",
+            )
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -160,18 +211,30 @@ async fn sqlserver_cancel_keeps_session() {
 #[ignore]
 async fn babelfish_cancel_ends_only_this_session() {
     let v = Variant::Babelfish;
-    let Some(cfg) = config("DBINE_TEST_BABELFISH_URL", v) else { return };
+    let Some(cfg) = config("DBINE_TEST_BABELFISH_URL", v) else {
+        return;
+    };
     let d = driver(v);
     let mut s = d.open(&cfg, None).await.expect("connect");
     let mut other = d.open(&cfg, None).await.unwrap();
     cancel_during(&mut s, slow(v), Duration::from_millis(500)).await;
-    assert!(run(&mut s, "SELECT 1").await.is_err(), "KILL ended the session");
-    assert_eq!(int(&mut other, "SELECT CAST(@@SPID AS int)").await, other.spid as i64);
+    assert!(
+        run(&mut s, "SELECT 1").await.is_err(),
+        "KILL ended the session"
+    );
+    assert_eq!(
+        int(&mut other, "SELECT CAST(@@SPID AS int)").await,
+        other.spid as i64
+    );
     // The attention itself works, late: Babelfish acknowledges it once the
     // batch is over, and the acknowledgement must not be read as the next
     // answer.
     let handle = other.client.cancel_handle();
-    let mut stream = other.client.simple_query("SELECT TOP 2000 a.name FROM sys.all_objects a CROSS JOIN sys.all_objects b").await.unwrap();
+    let mut stream = other
+        .client
+        .simple_query("SELECT TOP 2000 a.name FROM sys.all_objects a CROSS JOIN sys.all_objects b")
+        .await
+        .unwrap();
     handle.cancel();
     let mut rows = 0;
     let end = loop {
@@ -216,16 +279,29 @@ async fn spares_other_sessions(env: &str, v: Variant) {
         stop();
     });
     let t = Instant::now();
-    let e = tokio::time::timeout(Duration::from_secs(20), run(&mut s, slow(v))).await.expect("not cancelled").unwrap_err();
+    let e = tokio::time::timeout(Duration::from_secs(20), run(&mut s, slow(v)))
+        .await
+        .expect("not cancelled")
+        .unwrap_err();
     assert!(matches!(e, Error::Cancelled), "{e:?}");
-    assert!(t.elapsed() < Duration::from_secs(5), "the cancel reached the current connection");
+    assert!(
+        t.elapsed() < Duration::from_secs(5),
+        "the cancel reached the current connection"
+    );
     if v == Variant::Babelfish {
-        assert!(run(&mut s, "SELECT 1").await.is_err(), "KILL ended the current session");
+        assert!(
+            run(&mut s, "SELECT 1").await.is_err(),
+            "KILL ended the current session"
+        );
     } else {
         assert_eq!(int(&mut s, "SELECT CAST(@@SPID AS int)").await, new as i64);
     }
     for (o, spid) in others.iter_mut().zip(spids) {
-        assert_eq!(int(o, "SELECT CAST(@@SPID AS int)").await, spid as i64, "session {spid} survives");
+        assert_eq!(
+            int(o, "SELECT CAST(@@SPID AS int)").await,
+            spid as i64,
+            "session {spid} survives"
+        );
     }
 
     // A session id that isn't this session's is never killed: aim the
@@ -241,7 +317,10 @@ async fn spares_other_sessions(env: &str, v: Variant) {
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(!task.is_finished(), "another session was killed");
         babelfish_kill(s.config.clone(), victim, theirs).await;
-        let r = tokio::time::timeout(Duration::from_secs(5), task).await.expect("the verified KILL stops it").unwrap();
+        let r = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("the verified KILL stops it")
+            .unwrap();
         eprintln!("{env}: the other session, killed with its own login time: {r:?}");
         assert!(r.is_err());
     }

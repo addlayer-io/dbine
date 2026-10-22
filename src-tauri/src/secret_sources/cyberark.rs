@@ -32,13 +32,23 @@ pub struct Conjur<'a> {
 }
 
 /// `(value, username)`.
-pub async fn conjur_read(req: &Conjur<'_>, api_key: Option<&str>) -> Result<(String, Option<String>), String> {
+pub async fn conjur_read(
+    req: &Conjur<'_>,
+    api_key: Option<&str>,
+) -> Result<(String, Option<String>), String> {
     let client = https::client(req.url, "Conjur", req.ca_file, None)?;
     conjur_read_with(&client, req, api_key).await
 }
 
-pub async fn conjur_read_with(client: &reqwest::Client, req: &Conjur<'_>, api_key: Option<&str>) -> Result<(String, Option<String>), String> {
-    let key = api_key.map(str::trim).filter(|k| !k.is_empty()).ok_or("falta la clave de API de Conjur: escribila en el formulario")?;
+pub async fn conjur_read_with(
+    client: &reqwest::Client,
+    req: &Conjur<'_>,
+    api_key: Option<&str>,
+) -> Result<(String, Option<String>), String> {
+    let key = api_key
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .ok_or("falta la clave de API de Conjur: escribila en el formulario")?;
     let mut token = conjur_token(client, req, key).await?;
     let value = conjur_variable(client, req, &token, req.variable).await;
     let username = match (&value, req.username_variable.trim()) {
@@ -52,8 +62,17 @@ pub async fn conjur_read_with(client: &reqwest::Client, req: &Conjur<'_>, api_ke
 }
 
 /// The access token, as the `Authorization` header wants it (base64).
-async fn conjur_token(client: &reqwest::Client, req: &Conjur<'_>, api_key: &str) -> Result<String, String> {
-    let url = format!("{}/authn/{}/{}/authenticate", https::base(req.url), uri_encode(req.account.trim()), uri_encode(req.login.trim()));
+async fn conjur_token(
+    client: &reqwest::Client,
+    req: &Conjur<'_>,
+    api_key: &str,
+) -> Result<String, String> {
+    let url = format!(
+        "{}/authn/{}/{}/authenticate",
+        https::base(req.url),
+        uri_encode(req.account.trim()),
+        uri_encode(req.login.trim())
+    );
     let resp = client
         .post(url)
         .header("Accept-Encoding", "base64")
@@ -61,35 +80,67 @@ async fn conjur_token(client: &reqwest::Client, req: &Conjur<'_>, api_key: &str)
         .body(api_key.to_string())
         .send()
         .await
-        .map_err(|e| format!("no se pudo conectar con Conjur en {}: {}", https::base(req.url), e.without_url()))?;
+        .map_err(|e| {
+            format!(
+                "no se pudo conectar con Conjur en {}: {}",
+                https::base(req.url),
+                e.without_url()
+            )
+        })?;
     let status = resp.status().as_u16();
     let mut body = resp.text().await.unwrap_or_default();
     match status {
         200 => {
             let t = body.trim();
             // Asked in base64; a server that ignores it answers the JSON.
-            let token = if t.starts_with('{') { base64::engine::general_purpose::STANDARD.encode(t.as_bytes()) } else { t.to_string() };
+            let token = if t.starts_with('{') {
+                base64::engine::general_purpose::STANDARD.encode(t.as_bytes())
+            } else {
+                t.to_string()
+            };
             wipe(&mut body);
             if token.is_empty() {
                 return Err("Conjur no devolvió un token de acceso".into());
             }
             Ok(token)
         }
-        401 => Err(format!("Conjur rechazó el login «{}» o su clave de API", req.login.trim())),
-        404 => Err(format!("Conjur no tiene la cuenta «{}» (o la URL no es la de la API)", req.account.trim())),
+        401 => Err(format!(
+            "Conjur rechazó el login «{}» o su clave de API",
+            req.login.trim()
+        )),
+        404 => Err(format!(
+            "Conjur no tiene la cuenta «{}» (o la URL no es la de la API)",
+            req.account.trim()
+        )),
         _ => Err(conjur_error(status, &body)),
     }
 }
 
-async fn conjur_variable(client: &reqwest::Client, req: &Conjur<'_>, token: &str, id: &str) -> Result<String, String> {
+async fn conjur_variable(
+    client: &reqwest::Client,
+    req: &Conjur<'_>,
+    token: &str,
+    id: &str,
+) -> Result<String, String> {
     let id = id.trim();
-    let url = format!("{}/secrets/{}/variable/{}", https::base(req.url), uri_encode(req.account.trim()), uri_encode(id));
+    let url = format!(
+        "{}/secrets/{}/variable/{}",
+        https::base(req.url),
+        uri_encode(req.account.trim()),
+        uri_encode(id)
+    );
     let resp = client
         .get(url)
         .header("Authorization", format!("Token token=\"{token}\""))
         .send()
         .await
-        .map_err(|e| format!("no se pudo conectar con Conjur en {}: {}", https::base(req.url), e.without_url()))?;
+        .map_err(|e| {
+            format!(
+                "no se pudo conectar con Conjur en {}: {}",
+                https::base(req.url),
+                e.without_url()
+            )
+        })?;
     let status = resp.status().as_u16();
     let bytes = resp.bytes().await.unwrap_or_default();
     match status {
@@ -99,8 +150,12 @@ async fn conjur_variable(client: &reqwest::Client, req: &Conjur<'_>, token: &str
             format!("la variable «{id}» de Conjur no es texto")
         }),
         401 => Err("Conjur rechazó el token de acceso".into()),
-        403 => Err(format!("Conjur: permiso denegado para leer «{id}» (falta el privilegio execute)")),
-        404 => Err(format!("Conjur: no existe la variable «{id}» o todavía no tiene valor")),
+        403 => Err(format!(
+            "Conjur: permiso denegado para leer «{id}» (falta el privilegio execute)"
+        )),
+        404 => Err(format!(
+            "Conjur: no existe la variable «{id}» o todavía no tiene valor"
+        )),
         _ => Err(conjur_error(status, &String::from_utf8_lossy(&bytes))),
     }
 }
@@ -112,20 +167,46 @@ pub async fn conjur_whoami(req: &Conjur<'_>, api_key: &str) -> Result<String, St
     conjur_whoami_with(&client, req, api_key).await
 }
 
-pub async fn conjur_whoami_with(client: &reqwest::Client, req: &Conjur<'_>, api_key: &str) -> Result<String, String> {
-    let key = Some(api_key.trim()).filter(|k| !k.is_empty()).ok_or("falta la clave de API de Conjur")?;
+pub async fn conjur_whoami_with(
+    client: &reqwest::Client,
+    req: &Conjur<'_>,
+    api_key: &str,
+) -> Result<String, String> {
+    let key = Some(api_key.trim())
+        .filter(|k| !k.is_empty())
+        .ok_or("falta la clave de API de Conjur")?;
     let mut token = conjur_token(client, req, key).await?;
-    let resp = client.get(format!("{}/whoami", https::base(req.url))).header("Authorization", format!("Token token=\"{token}\"")).send().await;
+    let resp = client
+        .get(format!("{}/whoami", https::base(req.url)))
+        .header("Authorization", format!("Token token=\"{token}\""))
+        .send()
+        .await;
     wipe(&mut token);
-    let resp = resp.map_err(|e| format!("no se pudo conectar con Conjur en {}: {}", https::base(req.url), e.without_url()))?;
+    let resp = resp.map_err(|e| {
+        format!(
+            "no se pudo conectar con Conjur en {}: {}",
+            https::base(req.url),
+            e.without_url()
+        )
+    })?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
     match status {
         200 => {
             let json: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
-            let s = |k: &str| json.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
-            let user = Some(s("username")).filter(|u| !u.is_empty()).unwrap_or_else(|| req.login.trim().to_string());
-            let account = Some(s("account")).filter(|a| !a.is_empty()).unwrap_or_else(|| req.account.trim().to_string());
+            let s = |k: &str| {
+                json.get(k)
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string()
+            };
+            let user = Some(s("username"))
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| req.login.trim().to_string());
+            let account = Some(s("account"))
+                .filter(|a| !a.is_empty())
+                .unwrap_or_else(|| req.account.trim().to_string());
             Ok(format!("{user} ({account})"))
         }
         401 => Err("Conjur rechazó el token de acceso".into()),
@@ -135,21 +216,40 @@ pub async fn conjur_whoami_with(client: &reqwest::Client, req: &Conjur<'_>, api_
 
 pub fn conjur_error(status: u16, body: &str) -> String {
     let json: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    let msg = json.pointer("/error/message").and_then(Value::as_str).unwrap_or("");
+    let msg = json
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let msg = super::exec::first_lines(msg, 300);
-    if msg.is_empty() { format!("Conjur respondió {status}") } else { format!("Conjur respondió {status}: {msg}") }
+    if msg.is_empty() {
+        format!("Conjur respondió {status}")
+    } else {
+        format!("Conjur respondió {status}: {msg}")
+    }
 }
 
 /// The variables the login can see (`GET /resources/{account}?kind=variable`,
 /// paged), or a variable's JSON keys (`item`; read, keys taken, wiped).
-pub async fn conjur_browse(req: &Conjur<'_>, api_key: Option<&str>, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+pub async fn conjur_browse(
+    req: &Conjur<'_>,
+    api_key: Option<&str>,
+    at: super::browse::At<'_>,
+) -> Result<super::browse::Listing, String> {
     let client = https::client(req.url, "Conjur", req.ca_file, None)?;
     conjur_browse_with(&client, req, api_key, at).await
 }
 
-pub async fn conjur_browse_with(client: &reqwest::Client, req: &Conjur<'_>, api_key: Option<&str>, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+pub async fn conjur_browse_with(
+    client: &reqwest::Client,
+    req: &Conjur<'_>,
+    api_key: Option<&str>,
+    at: super::browse::At<'_>,
+) -> Result<super::browse::Listing, String> {
     use super::browse::{Entry, Listing, MAX_ENTRIES};
-    let key = api_key.map(str::trim).filter(|k| !k.is_empty()).ok_or("falta la clave de API de Conjur: escribila en el formulario")?;
+    let key = api_key
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .ok_or("falta la clave de API de Conjur: escribila en el formulario")?;
     let mut token = conjur_token(client, req, key).await?;
     let out = async {
         if let Some(item) = at.item {
@@ -160,13 +260,24 @@ pub async fn conjur_browse_with(client: &reqwest::Client, req: &Conjur<'_>, api_
         let prefix = format!("{}:variable:", req.account.trim());
         let mut out = Vec::new();
         for page in 0.. {
-            let url = format!("{}/resources/{}?kind=variable&limit={PAGE}&offset={}", https::base(req.url), uri_encode(req.account.trim()), page * PAGE);
+            let url = format!(
+                "{}/resources/{}?kind=variable&limit={PAGE}&offset={}",
+                https::base(req.url),
+                uri_encode(req.account.trim()),
+                page * PAGE
+            );
             let resp = client
                 .get(url)
                 .header("Authorization", format!("Token token=\"{token}\""))
                 .send()
                 .await
-                .map_err(|e| format!("no se pudo conectar con Conjur en {}: {}", https::base(req.url), e.without_url()))?;
+                .map_err(|e| {
+                    format!(
+                        "no se pudo conectar con Conjur en {}: {}",
+                        https::base(req.url),
+                        e.without_url()
+                    )
+                })?;
             let status = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
             match status {
@@ -175,9 +286,17 @@ pub async fn conjur_browse_with(client: &reqwest::Client, req: &Conjur<'_>, api_
                 403 => return Err("Conjur: permiso denegado para listar las variables".into()),
                 _ => return Err(conjur_error(status, &body)),
             }
-            let list: Vec<Value> = serde_json::from_str(&body).ok().and_then(|v: Value| v.as_array().cloned()).unwrap_or_default();
+            let list: Vec<Value> = serde_json::from_str(&body)
+                .ok()
+                .and_then(|v: Value| v.as_array().cloned())
+                .unwrap_or_default();
             let n = list.len();
-            out.extend(list.iter().filter_map(|r| r.get("id").and_then(Value::as_str)).filter_map(|id| id.strip_prefix(&prefix)).map(|v| Entry::named(v, "")));
+            out.extend(
+                list.iter()
+                    .filter_map(|r| r.get("id").and_then(Value::as_str))
+                    .filter_map(|id| id.strip_prefix(&prefix))
+                    .map(|v| Entry::named(v, "")),
+            );
             if n < PAGE || out.len() > MAX_ENTRIES {
                 break;
             }
@@ -221,18 +340,35 @@ pub fn ccp_endpoint(url: &str) -> String {
 }
 
 /// `(password, username)`. `passphrase`: the client key's or PKCS#12's.
-pub async fn ccp_read(req: &Ccp<'_>, passphrase: Option<&str>) -> Result<(String, Option<String>), String> {
+pub async fn ccp_read(
+    req: &Ccp<'_>,
+    passphrase: Option<&str>,
+) -> Result<(String, Option<String>), String> {
     let identity = match req.client_cert.trim() {
         "" => None,
         cert => Some(https::identity(cert, req.client_key, passphrase)?),
     };
-    let client = https::client(req.url, "Central Credential Provider", req.ca_file, identity)?;
+    let client = https::client(
+        req.url,
+        "Central Credential Provider",
+        req.ca_file,
+        identity,
+    )?;
     ccp_read_with(&client, req).await
 }
 
-pub async fn ccp_read_with(client: &reqwest::Client, req: &Ccp<'_>) -> Result<(String, Option<String>), String> {
+pub async fn ccp_read_with(
+    client: &reqwest::Client,
+    req: &Ccp<'_>,
+) -> Result<(String, Option<String>), String> {
     let mut q: Vec<(&str, &str)> = vec![("AppID", req.app_id.trim())];
-    for (k, v) in [("Safe", req.safe), ("Folder", req.folder), ("Object", req.object), ("UserName", req.account_user), ("Address", req.account_address)] {
+    for (k, v) in [
+        ("Safe", req.safe),
+        ("Folder", req.folder),
+        ("Object", req.object),
+        ("UserName", req.account_user),
+        ("Address", req.account_address),
+    ] {
         if !v.trim().is_empty() {
             q.push((k, v.trim()));
         }
@@ -243,7 +379,13 @@ pub async fn ccp_read_with(client: &reqwest::Client, req: &Ccp<'_>) -> Result<(S
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| format!("no se pudo conectar con el Central Credential Provider en {}: {}", https::base(req.url), e.without_url()))?;
+        .map_err(|e| {
+            format!(
+                "no se pudo conectar con el Central Credential Provider en {}: {}",
+                https::base(req.url),
+                e.without_url()
+            )
+        })?;
     let status = resp.status().as_u16();
     let mut body = resp.text().await.unwrap_or_default();
     let json: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
@@ -251,14 +393,26 @@ pub async fn ccp_read_with(client: &reqwest::Client, req: &Ccp<'_>) -> Result<(S
     if status != 200 {
         return Err(ccp_error(status, &json));
     }
-    let content = json.get("Content").and_then(Value::as_str).unwrap_or("").to_string();
+    let content = json
+        .get("Content")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     if content.is_empty() {
         return Err("el Central Credential Provider no devolvió la contraseña (Content)".into());
     }
     let username = if req.username {
-        match json.get("UserName").and_then(Value::as_str).filter(|u| !u.is_empty()) {
+        match json
+            .get("UserName")
+            .and_then(Value::as_str)
+            .filter(|u| !u.is_empty())
+        {
             Some(u) => Some(u.to_string()),
-            None => return Err("la cuenta del Central Credential Provider no tiene usuario (UserName)".into()),
+            None => {
+                return Err(
+                    "la cuenta del Central Credential Provider no tiene usuario (UserName)".into(),
+                )
+            }
         }
     } else {
         None
@@ -272,7 +426,13 @@ pub async fn ccp_read_with(client: &reqwest::Client, req: &Ccp<'_>) -> Result<(S
 /// certificate (when there is one) and the server's trust, with a request
 /// to the URL's root that carries no AppID and no query. Any HTTP answer
 /// means the TLS connection, client certificate included, was accepted.
-pub async fn ccp_handshake(url: &str, client_cert: &str, client_key: &str, ca_file: &str, passphrase: Option<&str>) -> Result<u16, String> {
+pub async fn ccp_handshake(
+    url: &str,
+    client_cert: &str,
+    client_key: &str,
+    ca_file: &str,
+    passphrase: Option<&str>,
+) -> Result<u16, String> {
     let identity = match client_cert.trim() {
         "" => None,
         cert => Some(https::identity(cert, client_key, passphrase)?),
@@ -287,13 +447,21 @@ pub async fn ccp_handshake_with(client: &reqwest::Client, url: &str) -> Result<u
         Some((scheme, rest)) => format!("{scheme}://{}/", rest.split('/').next().unwrap_or(rest)),
         None => format!("{base}/"),
     };
-    let resp = client.get(root).send().await.map_err(|e| format!("no se pudo conectar con el Central Credential Provider en {base}: {}", e.without_url()))?;
+    let resp = client.get(root).send().await.map_err(|e| {
+        format!(
+            "no se pudo conectar con el Central Credential Provider en {base}: {}",
+            e.without_url()
+        )
+    })?;
     Ok(resp.status().as_u16())
 }
 
 pub fn ccp_error(status: u16, json: &Value) -> String {
     let code = json.get("ErrorCode").and_then(Value::as_str).unwrap_or("");
-    let msg = super::exec::first_lines(json.get("ErrorMsg").and_then(Value::as_str).unwrap_or(""), 300);
+    let msg = super::exec::first_lines(
+        json.get("ErrorMsg").and_then(Value::as_str).unwrap_or(""),
+        300,
+    );
     match (status, code) {
         (_, "APPAP004E") => format!("CyberArk: no hay una cuenta que coincida con el pedido ({code}: {msg})"),
         (_, c) if !c.is_empty() => format!("el Central Credential Provider respondió {c}: {msg}"),
@@ -315,17 +483,35 @@ mod tests {
 
     #[test]
     fn ccp_endpoints() {
-        assert_eq!(ccp_endpoint("https://ccp.example.com/"), "https://ccp.example.com/AIMWebService/api/Accounts");
-        assert_eq!(ccp_endpoint("https://ccp.example.com/AIMWebServiceProd"), "https://ccp.example.com/AIMWebServiceProd/api/Accounts");
-        assert_eq!(ccp_endpoint("https://ccp/AIMWebService/api/Accounts"), "https://ccp/AIMWebService/api/Accounts");
+        assert_eq!(
+            ccp_endpoint("https://ccp.example.com/"),
+            "https://ccp.example.com/AIMWebService/api/Accounts"
+        );
+        assert_eq!(
+            ccp_endpoint("https://ccp.example.com/AIMWebServiceProd"),
+            "https://ccp.example.com/AIMWebServiceProd/api/Accounts"
+        );
+        assert_eq!(
+            ccp_endpoint("https://ccp/AIMWebService/api/Accounts"),
+            "https://ccp/AIMWebService/api/Accounts"
+        );
     }
 
     #[test]
     fn ccp_errors() {
-        let e = ccp_error(404, &json!({"ErrorCode": "APPAP004E", "ErrorMsg": "Password object matching query [Safe=DB;Object=x] was not found"}));
-        assert!(e.contains("no hay una cuenta") && e.contains("APPAP004E"), "{e}");
+        let e = ccp_error(
+            404,
+            &json!({"ErrorCode": "APPAP004E", "ErrorMsg": "Password object matching query [Safe=DB;Object=x] was not found"}),
+        );
+        assert!(
+            e.contains("no hay una cuenta") && e.contains("APPAP004E"),
+            "{e}"
+        );
         assert!(ccp_error(403, &Value::Null).contains("certificado de cliente"));
-        assert_eq!(conjur_error(500, r#"{"error":{"code":"internal","message":"boom"}}"#), "Conjur respondió 500: boom");
+        assert_eq!(
+            conjur_error(500, r#"{"error":{"code":"internal","message":"boom"}}"#),
+            "Conjur respondió 500: boom"
+        );
     }
 
     // ---- a mock of Conjur's API ----------------------------------------------------
@@ -387,7 +573,14 @@ mod tests {
     }
 
     fn conjur<'a>(url: &'a str, variable: &'a str, username_variable: &'a str) -> Conjur<'a> {
-        Conjur { url, account: "myorg", login: "host/apps/dbine", variable, username_variable, ca_file: "" }
+        Conjur {
+            url,
+            account: "myorg",
+            login: "host/apps/dbine",
+            variable,
+            username_variable,
+            ca_file: "",
+        }
     }
 
     /// Against a mock of Conjur's API: the host's login with a slash goes
@@ -397,22 +590,73 @@ mod tests {
     async fn conjur_against_a_mock() {
         let url = conjur_mock().await;
         let key = Some("dummy-api-key");
-        assert_eq!(conjur_read(&conjur(&url, "db/prod/password", ""), key).await.unwrap(), ("pg-secret-1".into(), None));
-        assert_eq!(conjur_read(&conjur(&url, "db/prod/password", "db/prod/username"), key).await.unwrap(), ("pg-secret-1".into(), Some("app_user".into())));
-        let e = conjur_read(&conjur(&url, "db/prod/password", ""), Some("wrong")).await.unwrap_err();
-        assert!(e.contains("rechazó el login «host/apps/dbine»") && !e.contains("wrong"), "{e}");
-        assert!(conjur_read(&conjur(&url, "db/forbidden", ""), key).await.unwrap_err().contains("permiso denegado"));
-        assert!(conjur_read(&conjur(&url, "db/none", ""), key).await.unwrap_err().contains("no existe la variable «db/none»"));
-        assert!(conjur_read(&conjur(&url, "db/prod/password", ""), None).await.unwrap_err().contains("clave de API"));
+        assert_eq!(
+            conjur_read(&conjur(&url, "db/prod/password", ""), key)
+                .await
+                .unwrap(),
+            ("pg-secret-1".into(), None)
+        );
+        assert_eq!(
+            conjur_read(&conjur(&url, "db/prod/password", "db/prod/username"), key)
+                .await
+                .unwrap(),
+            ("pg-secret-1".into(), Some("app_user".into()))
+        );
+        let e = conjur_read(&conjur(&url, "db/prod/password", ""), Some("wrong"))
+            .await
+            .unwrap_err();
+        assert!(
+            e.contains("rechazó el login «host/apps/dbine»") && !e.contains("wrong"),
+            "{e}"
+        );
+        assert!(conjur_read(&conjur(&url, "db/forbidden", ""), key)
+            .await
+            .unwrap_err()
+            .contains("permiso denegado"));
+        assert!(conjur_read(&conjur(&url, "db/none", ""), key)
+            .await
+            .unwrap_err()
+            .contains("no existe la variable «db/none»"));
+        assert!(conjur_read(&conjur(&url, "db/prod/password", ""), None)
+            .await
+            .unwrap_err()
+            .contains("clave de API"));
         // Browsing: the variables, then one's JSON keys (never values).
-        let l = conjur_browse(&conjur(&url, "", ""), key, Default::default()).await.unwrap();
-        let shown: Vec<(&str, &str, &str)> = l.entries.iter().map(|e| (e.id.as_str(), e.name.as_str(), e.path.as_str())).collect();
-        assert_eq!(shown, [("db/prod/json", "json", "db/prod"), ("db/prod/password", "password", "db/prod"), ("top", "top", "")]);
-        let at = crate::secret_sources::browse::At { item: Some("db/prod/json"), ..Default::default() };
+        let l = conjur_browse(&conjur(&url, "", ""), key, Default::default())
+            .await
+            .unwrap();
+        let shown: Vec<(&str, &str, &str)> = l
+            .entries
+            .iter()
+            .map(|e| (e.id.as_str(), e.name.as_str(), e.path.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("db/prod/json", "json", "db/prod"),
+                ("db/prod/password", "password", "db/prod"),
+                ("top", "top", "")
+            ]
+        );
+        let at = crate::secret_sources::browse::At {
+            item: Some("db/prod/json"),
+            ..Default::default()
+        };
         let l = conjur_browse(&conjur(&url, "", ""), key, at).await.unwrap();
         assert_eq!(l.fields.as_deref().unwrap(), ["password", "username"]);
-        let at = crate::secret_sources::browse::At { item: Some("db/prod/password"), ..Default::default() };
-        assert!(conjur_browse(&conjur(&url, "", ""), key, at).await.unwrap().fields.unwrap().is_empty(), "not JSON: no keys");
+        let at = crate::secret_sources::browse::At {
+            item: Some("db/prod/password"),
+            ..Default::default()
+        };
+        assert!(
+            conjur_browse(&conjur(&url, "", ""), key, at)
+                .await
+                .unwrap()
+                .fields
+                .unwrap()
+                .is_empty(),
+            "not JSON: no keys"
+        );
     }
 
     // ---- a mock of the CCP over TLS with client certificates -----------------------------
@@ -430,15 +674,20 @@ mod tests {
 
     /// A test CA, a server certificate for 127.0.0.1 and a client one.
     pub fn pki() -> Pki {
-        use rcgen::{BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair};
+        use rcgen::{
+            BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer,
+            KeyPair,
+        };
         let ca_key = KeyPair::generate().unwrap();
         let mut ca = CertificateParams::new(Vec::<String>::new()).unwrap();
-        ca.distinguished_name.push(DnType::CommonName, "DBine test CA");
+        ca.distinguished_name
+            .push(DnType::CommonName, "DBine test CA");
         ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         let ca_cert = ca.self_signed(&ca_key).unwrap();
         let issuer = Issuer::new(ca, ca_key);
         let server_key = KeyPair::generate().unwrap();
-        let mut sp = CertificateParams::new(vec!["127.0.0.1".to_string(), "localhost".to_string()]).unwrap();
+        let mut sp =
+            CertificateParams::new(vec!["127.0.0.1".to_string(), "localhost".to_string()]).unwrap();
         sp.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
         let server = sp.signed_by(&server_key, &issuer).unwrap();
         let client_key = KeyPair::generate().unwrap();
@@ -466,9 +715,14 @@ mod tests {
         for c in rustls_pki_types_from_pem(&p.ca_pem) {
             roots.add(c).unwrap();
         }
-        let verifier = rustls::server::WebPkiClientVerifier::builder(roots.into()).build().unwrap();
+        let verifier = rustls::server::WebPkiClientVerifier::builder(roots.into())
+            .build()
+            .unwrap();
         let config = std::sync::Arc::new(
-            rustls::ServerConfig::builder().with_client_cert_verifier(verifier).with_single_cert(vec![p.server_cert.clone()], p.server_key.clone_key()).unwrap(),
+            rustls::ServerConfig::builder()
+                .with_client_cert_verifier(verifier)
+                .with_single_cert(vec![p.server_cert.clone()], p.server_key.clone_key())
+                .unwrap(),
         );
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -484,12 +738,17 @@ mod tests {
                     let req = String::from_utf8_lossy(&buf[..n]).to_string();
                     let line = req.lines().next().unwrap_or("").to_string();
                     let path = line.split(' ').nth(1).unwrap_or("");
-                    let q: HashMap<String, String> = path.split_once('?').map(|(_, q)| url_pairs(q)).unwrap_or_default();
+                    let q: HashMap<String, String> = path
+                        .split_once('?')
+                        .map(|(_, q)| url_pairs(q))
+                        .unwrap_or_default();
                     let (status, body) = if !path.starts_with("/AIMWebService/api/Accounts?") {
                         ("404 Not Found", String::new())
                     } else if q.get("AppID").map(String::as_str) != Some("DBine") {
                         ("403 Forbidden", json!({"ErrorCode": "APPAP306E", "ErrorMsg": "Authentication failed for App ID"}).to_string())
-                    } else if q.get("Safe").map(String::as_str) == Some("DB") && q.get("Object").map(String::as_str) == Some("pg prod") {
+                    } else if q.get("Safe").map(String::as_str) == Some("DB")
+                        && q.get("Object").map(String::as_str) == Some("pg prod")
+                    {
                         ("200 OK", json!({"Content": "pg-secret-1", "UserName": "app_user", "Address": "db.example.com", "Safe": "DB", "Name": "pg prod"}).to_string())
                     } else {
                         ("404 Not Found", json!({"ErrorCode": "APPAP004E", "ErrorMsg": "Password object matching query was not found (Diagnostic Info: 5)"}).to_string())
@@ -533,11 +792,25 @@ mod tests {
 
     fn rustls_pki_types_from_pem(pem: &str) -> Vec<rustls::pki_types::CertificateDer<'static>> {
         use rustls::pki_types::pem::PemObject;
-        rustls::pki_types::CertificateDer::pem_slice_iter(pem.as_bytes()).map(|c| c.unwrap()).collect()
+        rustls::pki_types::CertificateDer::pem_slice_iter(pem.as_bytes())
+            .map(|c| c.unwrap())
+            .collect()
     }
 
     fn ccp<'a>(url: &'a str, cert: &'a str, key: &'a str, ca: &'a str, app: &'a str) -> Ccp<'a> {
-        Ccp { url, app_id: app, safe: "DB", folder: "", object: "pg prod", account_user: "", account_address: "", client_cert: cert, client_key: key, ca_file: ca, username: true }
+        Ccp {
+            url,
+            app_id: app,
+            safe: "DB",
+            folder: "",
+            object: "pg prod",
+            account_user: "",
+            account_address: "",
+            client_cert: cert,
+            client_key: key,
+            ca_file: ca,
+            username: true,
+        }
     }
 
     /// The CCP over TLS with client-certificate authentication, against a
@@ -557,7 +830,10 @@ mod tests {
         let ca = w("ca.pem", p.ca_pem.as_bytes());
         let cert = w("client.crt", p.client_cert_pem.as_bytes());
         let key = w("client.key", p.client_key_pem.as_bytes());
-        let both = w("client.pem", format!("{}{}", p.client_cert_pem, p.client_key_pem).as_bytes());
+        let both = w(
+            "client.pem",
+            format!("{}{}", p.client_cert_pem, p.client_key_pem).as_bytes(),
+        );
         // PKCS#12, with a passphrase.
         let mut store = p12_keystore::KeyStore::new();
         let chain = p12_keystore::PrivateKeyChain::new(
@@ -566,50 +842,145 @@ mod tests {
             [p12_keystore::Certificate::from_der(&p.client_cert_der).unwrap()],
         );
         store.add_entry("dbine", p12_keystore::KeyStoreEntry::PrivateKeyChain(chain));
-        let p12 = w("client.p12", &store.writer("dummy-p12-pass").write().unwrap());
+        let p12 = w(
+            "client.p12",
+            &store.writer("dummy-p12-pass").write().unwrap(),
+        );
         // An encrypted PKCS#8 key.
         let info = pkcs8::PrivateKeyInfoRef::try_from(p.client_key_der.as_slice()).unwrap();
-        let params = pkcs8::pkcs5::pbes2::Parameters::generate_pbkdf2_sha256_aes256cbc(2048, &[7u8; 16], [9u8; 16]).unwrap();
+        let params = pkcs8::pkcs5::pbes2::Parameters::generate_pbkdf2_sha256_aes256cbc(
+            2048, &[7u8; 16], [9u8; 16],
+        )
+        .unwrap();
         let enc = info.encrypt_with_params(params, "dummy-key-pass").unwrap();
-        let enc_key = w("client-enc.key", super::super::https::tests_pem("ENCRYPTED PRIVATE KEY", enc.as_bytes()).as_bytes());
+        let enc_key = w(
+            "client-enc.key",
+            super::super::https::tests_pem("ENCRYPTED PRIVATE KEY", enc.as_bytes()).as_bytes(),
+        );
 
         let want = ("pg-secret-1".to_string(), Some("app_user".to_string()));
-        assert_eq!(ccp_read(&ccp(&url, &cert, &key, &ca, "DBine"), None).await.unwrap(), want, "PEM, apart");
-        assert_eq!(ccp_read(&ccp(&url, &both, "", &ca, "DBine"), None).await.unwrap(), want, "PEM, together");
-        assert_eq!(ccp_read(&ccp(&url, &p12, "", &ca, "DBine"), Some("dummy-p12-pass")).await.unwrap(), want, "PKCS#12");
-        assert_eq!(ccp_read(&ccp(&url, &cert, &enc_key, &ca, "DBine"), Some("dummy-key-pass")).await.unwrap(), want, "encrypted key");
-        let e = ccp_read(&ccp(&url, &p12, "", &ca, "DBine"), Some("nope")).await.unwrap_err();
+        assert_eq!(
+            ccp_read(&ccp(&url, &cert, &key, &ca, "DBine"), None)
+                .await
+                .unwrap(),
+            want,
+            "PEM, apart"
+        );
+        assert_eq!(
+            ccp_read(&ccp(&url, &both, "", &ca, "DBine"), None)
+                .await
+                .unwrap(),
+            want,
+            "PEM, together"
+        );
+        assert_eq!(
+            ccp_read(&ccp(&url, &p12, "", &ca, "DBine"), Some("dummy-p12-pass"))
+                .await
+                .unwrap(),
+            want,
+            "PKCS#12"
+        );
+        assert_eq!(
+            ccp_read(
+                &ccp(&url, &cert, &enc_key, &ca, "DBine"),
+                Some("dummy-key-pass")
+            )
+            .await
+            .unwrap(),
+            want,
+            "encrypted key"
+        );
+        let e = ccp_read(&ccp(&url, &p12, "", &ca, "DBine"), Some("nope"))
+            .await
+            .unwrap_err();
         assert!(e.contains("PKCS#12") && !e.contains("nope"), "{e}");
-        assert!(ccp_read(&ccp(&url, &cert, &enc_key, &ca, "DBine"), Some("nope")).await.unwrap_err().contains("no es la correcta"));
-        assert!(ccp_read(&ccp(&url, &cert, &enc_key, &ca, "DBine"), None).await.unwrap_err().contains("está cifrada"));
+        assert!(
+            ccp_read(&ccp(&url, &cert, &enc_key, &ca, "DBine"), Some("nope"))
+                .await
+                .unwrap_err()
+                .contains("no es la correcta")
+        );
+        assert!(ccp_read(&ccp(&url, &cert, &enc_key, &ca, "DBine"), None)
+            .await
+            .unwrap_err()
+            .contains("está cifrada"));
         // Without a certificate the server refuses the handshake.
-        let e = ccp_read(&ccp(&url, "", "", &ca, "DBine"), None).await.unwrap_err();
-        assert!(e.starts_with("no se pudo conectar con el Central Credential Provider"), "{e}");
+        let e = ccp_read(&ccp(&url, "", "", &ca, "DBine"), None)
+            .await
+            .unwrap_err();
+        assert!(
+            e.starts_with("no se pudo conectar con el Central Credential Provider"),
+            "{e}"
+        );
         // Without the CA, the server isn't trusted.
-        assert!(ccp_read(&ccp(&url, &cert, &key, "", "DBine"), None).await.is_err());
+        assert!(ccp_read(&ccp(&url, &cert, &key, "", "DBine"), None)
+            .await
+            .is_err());
         // CyberArk's errors.
-        let e = ccp_read(&ccp(&url, &cert, &key, &ca, "Other"), None).await.unwrap_err();
+        let e = ccp_read(&ccp(&url, &cert, &key, &ca, "Other"), None)
+            .await
+            .unwrap_err();
         assert!(e.contains("APPAP306E"), "{e}");
         let mut other = ccp(&url, &cert, &key, &ca, "DBine");
         other.object = "missing";
-        assert!(ccp_read(&other, None).await.unwrap_err().contains("no hay una cuenta"));
+        assert!(ccp_read(&other, None)
+            .await
+            .unwrap_err()
+            .contains("no hay una cuenta"));
         // The account wizard's check: the TLS handshake with the client
         // certificate, no AppID sent; any HTTP answer is a yes.
-        assert_eq!(ccp_handshake(&url, &cert, &key, &ca, None).await.unwrap(), 404);
-        assert_eq!(ccp_handshake(&url, &p12, "", &ca, Some("dummy-p12-pass")).await.unwrap(), 404);
-        assert!(ccp_handshake(&url, &p12, "", &ca, Some("nope")).await.unwrap_err().contains("PKCS#12"));
-        assert!(ccp_handshake(&url, "", "", &ca, None).await.unwrap_err().starts_with("no se pudo conectar con el Central Credential Provider"), "the server wants a certificate");
-        assert!(ccp_handshake(&url, &cert, &key, "", None).await.is_err(), "a server not trusted");
-        assert!(ccp_handshake(&url.replace("https://", "http://"), &cert, &key, &ca, None).await.is_err());
+        assert_eq!(
+            ccp_handshake(&url, &cert, &key, &ca, None).await.unwrap(),
+            404
+        );
+        assert_eq!(
+            ccp_handshake(&url, &p12, "", &ca, Some("dummy-p12-pass"))
+                .await
+                .unwrap(),
+            404
+        );
+        assert!(ccp_handshake(&url, &p12, "", &ca, Some("nope"))
+            .await
+            .unwrap_err()
+            .contains("PKCS#12"));
+        assert!(
+            ccp_handshake(&url, "", "", &ca, None)
+                .await
+                .unwrap_err()
+                .starts_with("no se pudo conectar con el Central Credential Provider"),
+            "the server wants a certificate"
+        );
+        assert!(
+            ccp_handshake(&url, &cert, &key, "", None).await.is_err(),
+            "a server not trusted"
+        );
+        assert!(
+            ccp_handshake(&url.replace("https://", "http://"), &cert, &key, &ca, None)
+                .await
+                .is_err()
+        );
     }
 
     /// The account wizard's check for Conjur: authenticate, then whoami.
     #[tokio::test]
     async fn conjur_whoami_against_a_mock() {
         let url = conjur_mock().await;
-        assert_eq!(conjur_whoami(&conjur(&url, "", ""), "dummy-api-key").await.unwrap(), "host/apps/dbine (myorg)");
-        let e = conjur_whoami(&conjur(&url, "", ""), "wrong").await.unwrap_err();
-        assert!(e.contains("rechazó el login") && !e.contains("wrong"), "{e}");
-        assert!(conjur_whoami(&conjur(&url, "", ""), " ").await.unwrap_err().contains("clave de API"));
+        assert_eq!(
+            conjur_whoami(&conjur(&url, "", ""), "dummy-api-key")
+                .await
+                .unwrap(),
+            "host/apps/dbine (myorg)"
+        );
+        let e = conjur_whoami(&conjur(&url, "", ""), "wrong")
+            .await
+            .unwrap_err();
+        assert!(
+            e.contains("rechazó el login") && !e.contains("wrong"),
+            "{e}"
+        );
+        assert!(conjur_whoami(&conjur(&url, "", ""), " ")
+            .await
+            .unwrap_err()
+            .contains("clave de API"));
     }
 }

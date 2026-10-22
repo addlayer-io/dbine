@@ -41,8 +41,16 @@ fn run(inv: Invocation) -> std::io::Result<()> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let status = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status()?;
-    if status.success() { Ok(()) } else { Err(std::io::Error::other(format!("exit {status}"))) }
+    let status = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!("exit {status}")))
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -77,7 +85,11 @@ fn macos_invocation(title: &str, body: &str) -> Invocation {
         args.push(line.to_string());
     }
     args.extend(["--".to_string(), title.to_string(), body.to_string()]);
-    Invocation { program: "/usr/bin/osascript", args, env: Vec::new() }
+    Invocation {
+        program: "/usr/bin/osascript",
+        args,
+        env: Vec::new(),
+    }
 }
 
 const WINDOWS_TITLE_VAR: &str = "DBINE_NOTIFY_TITLE";
@@ -102,8 +114,13 @@ $t = [Windows.UI.Notifications.ToastNotification]::new($x); \
 fn windows_invocation(title: &str, body: &str) -> Invocation {
     Invocation {
         program: "powershell.exe",
-        args: ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCRIPT].map(String::from).to_vec(),
-        env: vec![(WINDOWS_TITLE_VAR, title.to_string()), (WINDOWS_BODY_VAR, body.to_string())],
+        args: ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCRIPT]
+            .map(String::from)
+            .to_vec(),
+        env: vec![
+            (WINDOWS_TITLE_VAR, title.to_string()),
+            (WINDOWS_BODY_VAR, body.to_string()),
+        ],
     }
 }
 
@@ -113,7 +130,9 @@ fn windows_invocation(title: &str, body: &str) -> Invocation {
 fn linux_invocation(title: &str, body: &str) -> Invocation {
     Invocation {
         program: "notify-send",
-        args: ["--app-name=DBine", "--", title, body].map(String::from).to_vec(),
+        args: ["--app-name=DBine", "--", title, body]
+            .map(String::from)
+            .to_vec(),
         env: Vec::new(),
     }
 }
@@ -148,9 +167,18 @@ mod tests {
         for &h in HOSTILE {
             let inv = windows_invocation(h, h);
             assert_eq!(inv.program, "powershell.exe");
-            assert_eq!(inv.args, ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCRIPT]);
+            assert_eq!(
+                inv.args,
+                ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCRIPT]
+            );
             assert!(!script_text(&inv).contains(h));
-            assert_eq!(inv.env, vec![(WINDOWS_TITLE_VAR, h.to_string()), (WINDOWS_BODY_VAR, h.to_string())]);
+            assert_eq!(
+                inv.env,
+                vec![
+                    (WINDOWS_TITLE_VAR, h.to_string()),
+                    (WINDOWS_BODY_VAR, h.to_string())
+                ]
+            );
         }
     }
 
@@ -161,7 +189,9 @@ mod tests {
         assert!(WINDOWS_SCRIPT.contains("SecurityElement]::Escape"));
         // No double quotes: nothing for the command-line quoting to get wrong.
         assert!(!WINDOWS_SCRIPT.contains('"'));
-        assert!(!WINDOWS_SCRIPT.contains(['\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}', '\u{201C}', '\u{201D}', '\u{201E}']));
+        assert!(!WINDOWS_SCRIPT.contains([
+            '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}', '\u{201C}', '\u{201D}', '\u{201E}'
+        ]));
     }
 
     #[test]
@@ -172,7 +202,17 @@ mod tests {
             let n = inv.args.len();
             assert_eq!(&inv.args[n - 3..], ["--", h, "body"]);
             let script: Vec<&str> = inv.args[..n - 3].iter().map(String::as_str).collect();
-            assert_eq!(script, ["-e", MACOS_SCRIPT[0], "-e", MACOS_SCRIPT[1], "-e", MACOS_SCRIPT[2]]);
+            assert_eq!(
+                script,
+                [
+                    "-e",
+                    MACOS_SCRIPT[0],
+                    "-e",
+                    MACOS_SCRIPT[1],
+                    "-e",
+                    MACOS_SCRIPT[2]
+                ]
+            );
             assert!(inv.env.is_empty());
         }
     }
@@ -198,12 +238,28 @@ mod tests {
     fn osascript_takes_argv_as_data() {
         for &h in HOSTILE {
             let out = Command::new("/usr/bin/osascript")
-                .args(["-e", "on run argv", "-e", "return item 1 of argv", "-e", "end run", "--", h])
+                .args([
+                    "-e",
+                    "on run argv",
+                    "-e",
+                    "return item 1 of argv",
+                    "-e",
+                    "end run",
+                    "--",
+                    h,
+                ])
                 .output()
                 .unwrap();
-            assert!(out.status.success(), "{h:?}: {}", String::from_utf8_lossy(&out.stderr));
+            assert!(
+                out.status.success(),
+                "{h:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
             let got = String::from_utf8_lossy(&out.stdout);
-            assert_eq!(got.strip_suffix('\n').unwrap_or(&got).replace('\r', "\n"), h.replace('\r', "\n"));
+            assert_eq!(
+                got.strip_suffix('\n').unwrap_or(&got).replace('\r', "\n"),
+                h.replace('\r', "\n")
+            );
         }
     }
 }

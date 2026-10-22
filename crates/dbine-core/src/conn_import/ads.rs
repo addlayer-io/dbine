@@ -60,18 +60,35 @@ fn strip_jsonc(s: &str) -> String {
 
 pub fn read(path: &Path) -> Result<Found> {
     let file = if path.is_dir() {
-        [path.join("settings.json"), path.join("User/settings.json"), path.join("azuredatastudio/User/settings.json")].into_iter().find(|p| p.is_file()).unwrap_or(path.join("settings.json"))
+        [
+            path.join("settings.json"),
+            path.join("User/settings.json"),
+            path.join("azuredatastudio/User/settings.json"),
+        ]
+        .into_iter()
+        .find(|p| p.is_file())
+        .unwrap_or(path.join("settings.json"))
     } else {
         path.to_path_buf()
     };
-    let text = std::fs::read_to_string(&file).map_err(|e| Error::Query(format!("no se pudo leer {}: {e}", file.display())))?;
-    let doc: Value = serde_json::from_str(&strip_jsonc(&text)).map_err(|e| Error::Query(format!("{} no es JSON válido: {e}", file.display())))?;
+    let text = std::fs::read_to_string(&file)
+        .map_err(|e| Error::Query(format!("no se pudo leer {}: {e}", file.display())))?;
+    let doc: Value = serde_json::from_str(&strip_jsonc(&text))
+        .map_err(|e| Error::Query(format!("{} no es JSON válido: {e}", file.display())))?;
     let groups: HashMap<String, (String, Option<String>)> = doc
         .get("datasource.connectionGroups")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|g| Some((g.get("id")?.as_str()?.to_string(), (g.get("name")?.as_str()?.to_string(), g.get("parentId").and_then(Value::as_str).map(String::from)))))
+        .filter_map(|g| {
+            Some((
+                g.get("id")?.as_str()?.to_string(),
+                (
+                    g.get("name")?.as_str()?.to_string(),
+                    g.get("parentId").and_then(Value::as_str).map(String::from),
+                ),
+            ))
+        })
         .collect();
     let folder_of = |mut id: Option<String>| {
         let mut path = Vec::new();
@@ -87,16 +104,50 @@ pub fn read(path: &Path) -> Result<Found> {
     };
     let mut candidates = Vec::new();
     let mut with_password = 0;
-    for (n, conn) in doc.get("datasource.connections").and_then(Value::as_array).into_iter().flatten().enumerate() {
+    for (n, conn) in doc
+        .get("datasource.connections")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
         let o = conn.get("options").cloned().unwrap_or(Value::Null);
-        let s = |k: &str| o.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
-        let provider = conn.get("providerName").and_then(Value::as_str).unwrap_or("MSSQL");
-        let server = if s("server").is_empty() { s("host") } else { s("server") };
-        let database = if s("database").is_empty() { s("dbname") } else { s("database") };
-        let name = [s("connectionName"), server.clone()].into_iter().find(|x| !x.is_empty()).unwrap_or_else(|| format!("Conexión {}", n + 1));
-        let key = conn.get("id").and_then(Value::as_str).map(String::from).unwrap_or_else(|| n.to_string());
+        let s = |k: &str| {
+            o.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
+        let provider = conn
+            .get("providerName")
+            .and_then(Value::as_str)
+            .unwrap_or("MSSQL");
+        let server = if s("server").is_empty() {
+            s("host")
+        } else {
+            s("server")
+        };
+        let database = if s("database").is_empty() {
+            s("dbname")
+        } else {
+            s("database")
+        };
+        let name = [s("connectionName"), server.clone()]
+            .into_iter()
+            .find(|x| !x.is_empty())
+            .unwrap_or_else(|| format!("Conexión {}", n + 1));
+        let key = conn
+            .get("id")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| n.to_string());
         let mut c = Candidate::new(key, name, provider.to_string());
-        let group = conn.get("groupId").or_else(|| o.get("groupId")).and_then(Value::as_str).map(String::from);
+        let group = conn
+            .get("groupId")
+            .or_else(|| o.get("groupId"))
+            .and_then(Value::as_str)
+            .map(String::from);
         c.folder = folder_of(group);
         if !c.set_driver(provider) {
             candidates.push(c);
@@ -110,22 +161,45 @@ pub fn read(path: &Path) -> Result<Found> {
         }
         c.config.database = database;
         c.config.username = Some(s("user")).filter(|u| !u.is_empty());
-        let port = o.get("port").map(|p| p.as_u64().map(|n| n as u16).unwrap_or_else(|| port_of(p.as_str().unwrap_or("")))).unwrap_or(0);
+        let port = o
+            .get("port")
+            .map(|p| {
+                p.as_u64()
+                    .map(|n| n as u16)
+                    .unwrap_or_else(|| port_of(p.as_str().unwrap_or("")))
+            })
+            .unwrap_or(0);
         if port != 0 {
             c.config.port = port;
         }
-        let encrypt = o.get("encrypt").map(|v| v.as_bool().unwrap_or_else(|| super::truthy(v.as_str().unwrap_or("")))).unwrap_or(false);
+        let encrypt = o
+            .get("encrypt")
+            .map(|v| {
+                v.as_bool()
+                    .unwrap_or_else(|| super::truthy(v.as_str().unwrap_or("")))
+            })
+            .unwrap_or(false);
         c.config.encrypt = encrypt;
-        c.config.trust_server_certificate = o.get("trustServerCertificate").and_then(Value::as_bool).unwrap_or(false);
+        c.config.trust_server_certificate = o
+            .get("trustServerCertificate")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         match s("authenticationType").as_str() {
             "Integrated" => c.notes.push(super::WINDOWS_AUTH.into()),
             "AzureMFA" | "AzureMFAAndUser" => {
-                c.config.options.insert("auth".into(), "entra_password".into());
+                c.config
+                    .options
+                    .insert("auth".into(), "entra_password".into());
                 c.notes.push("Entra ID con MFA no está en DBine: usá usuario y contraseña, una entidad de servicio o un token.".into());
             }
             _ => {}
         }
-        if conn.get("savePassword").or_else(|| o.get("savePassword")).and_then(Value::as_bool) == Some(true) {
+        if conn
+            .get("savePassword")
+            .or_else(|| o.get("savePassword"))
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
             with_password += 1;
         }
         candidates.push(c);
@@ -134,7 +208,11 @@ pub fn read(path: &Path) -> Result<Found> {
     if with_password > 0 {
         warnings.push("Azure Data Studio guarda las contraseñas en su propio almacén: se piden al conectar la primera vez.".into());
     }
-    Ok(Found { path: file, candidates, warnings })
+    Ok(Found {
+        path: file,
+        candidates,
+        warnings,
+    })
 }
 
 #[cfg(test)]
@@ -169,9 +247,33 @@ mod tests {
         let found = read(&f).unwrap();
         let c = &found.candidates;
         assert_eq!(c.len(), 3);
-        assert_eq!((c[0].name.as_str(), c[0].config.driver.as_str(), c[0].config.host.as_str(), c[0].config.database.as_str()), ("Ventas", "sqlserver", "srv.database.windows.net,1433", "ventas"));
-        assert_eq!((c[0].config.encrypt, c[0].folder.clone()), (true, vec!["Clientes".to_string(), "Acme".to_string()]));
-        assert_eq!((c[1].config.driver.as_str(), c[1].config.host.as_str(), c[1].config.port, c[1].config.database.as_str()), ("postgres", "pg", 5433, "app"));
+        assert_eq!(
+            (
+                c[0].name.as_str(),
+                c[0].config.driver.as_str(),
+                c[0].config.host.as_str(),
+                c[0].config.database.as_str()
+            ),
+            (
+                "Ventas",
+                "sqlserver",
+                "srv.database.windows.net,1433",
+                "ventas"
+            )
+        );
+        assert_eq!(
+            (c[0].config.encrypt, c[0].folder.clone()),
+            (true, vec!["Clientes".to_string(), "Acme".to_string()])
+        );
+        assert_eq!(
+            (
+                c[1].config.driver.as_str(),
+                c[1].config.host.as_str(),
+                c[1].config.port,
+                c[1].config.database.as_str()
+            ),
+            ("postgres", "pg", 5433, "app")
+        );
         assert!(c[1].folder.is_empty());
         assert!(c[2].unsupported.is_some());
         assert_eq!(found.warnings.len(), 1);

@@ -42,7 +42,9 @@
 //! so no row lands after it.
 
 use crate::CouchSession;
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{kinds, Error, Result};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -102,7 +104,10 @@ impl<'a> Scan<'a> {
     }
 
     fn bad(&self) -> Error {
-        Error::Query(format!("Respuesta inesperada de CouchDB: JSON inválido cerca del byte {}", self.i))
+        Error::Query(format!(
+            "Respuesta inesperada de CouchDB: JSON inválido cerca del byte {}",
+            self.i
+        ))
     }
 
     fn peek(&mut self) -> Option<u8> {
@@ -246,7 +251,8 @@ pub(crate) fn number_cell(t: &str) -> Cell {
 /// A JSON value's text as a cell. An explicit `null` is the JSON cell
 /// `null` (a null cell is a missing field); nested values keep their text.
 fn raw_cell(v: &[u8]) -> Result<Cell> {
-    let text = std::str::from_utf8(v).map_err(|e| Error::Query(format!("Respuesta inesperada de CouchDB: {e}")))?;
+    let text = std::str::from_utf8(v)
+        .map_err(|e| Error::Query(format!("Respuesta inesperada de CouchDB: {e}")))?;
     Ok(match v.first() {
         Some(b'"') => Cell::Text(serde_json::from_str(text)?),
         Some(b'{' | b'[') => Cell::Json(text.to_string()),
@@ -255,7 +261,11 @@ fn raw_cell(v: &[u8]) -> Result<Cell> {
             "true" => Cell::Bool(true),
             "false" => Cell::Bool(false),
             n if is_number(n) => number_cell(n),
-            _ => return Err(Error::Query(format!("Respuesta inesperada de CouchDB: valor «{text}»"))),
+            _ => {
+                return Err(Error::Query(format!(
+                    "Respuesta inesperada de CouchDB: valor «{text}»"
+                )))
+            }
         },
     })
 }
@@ -315,7 +325,11 @@ fn parse_doc(s: &mut Scan, keys_only: bool) -> Result<Doc> {
     let mut d = Vec::new();
     s.object(|k, s| {
         let v = s.value()?;
-        let cell = if keys_only && k != "_id" { Cell::Null } else { raw_cell(v)? };
+        let cell = if keys_only && k != "_id" {
+            Cell::Null
+        } else {
+            raw_cell(v)?
+        };
         d.push((k, cell));
         Ok(())
     })?;
@@ -323,7 +337,13 @@ fn parse_doc(s: &mut Scan, keys_only: bool) -> Result<Doc> {
 }
 
 fn doc_id(d: &Doc) -> Option<&str> {
-    d.iter().find(|(k, _)| k == "_id").and_then(|(_, c)| if let Cell::Text(s) = c { Some(s.as_str()) } else { None })
+    d.iter().find(|(k, _)| k == "_id").and_then(|(_, c)| {
+        if let Cell::Text(s) = c {
+            Some(s.as_str())
+        } else {
+            None
+        }
+    })
 }
 
 /// The documents of an `_all_docs?include_docs=true` reply: deleted and
@@ -384,15 +404,29 @@ impl KeyUnion {
 
 /// Where the id walk is.
 enum Walk {
-    All { next: Option<String>, more: bool },
-    Find { selector: Value, bookmark: Option<String>, more: bool },
+    All {
+        next: Option<String>,
+        more: bool,
+    },
+    Find {
+        selector: Value,
+        bookmark: Option<String>,
+        more: bool,
+    },
 }
 
 impl Walk {
     fn new(selector: Option<&Value>) -> Walk {
         match selector {
-            Some(s) => Walk::Find { selector: s.clone(), bookmark: None, more: true },
-            None => Walk::All { next: None, more: true },
+            Some(s) => Walk::Find {
+                selector: s.clone(),
+                bookmark: None,
+                more: true,
+            },
+            None => Walk::All {
+                next: None,
+                more: true,
+            },
         }
     }
 }
@@ -423,7 +457,12 @@ struct Slot {
 
 impl Slot {
     fn new(ids: Vec<String>) -> Slot {
-        Slot { ids, task: None, cut: false, whole: false }
+        Slot {
+            ids,
+            task: None,
+            cut: false,
+            whole: false,
+        }
     }
 }
 
@@ -487,8 +526,15 @@ impl<'s> Reader<'s> {
 
     fn spawn(&self, ids: &[String], cap: Option<usize>) -> Fetch {
         // Fields only: attachments as stubs; otherwise with their content.
-        let q = if self.keys_only { "include_docs=true" } else { "include_docs=true&attachments=true" };
-        let rq = self.s.request(reqwest::Method::POST, &format!("{}/_all_docs?{q}", self.db)).json(&json!({ "keys": ids }));
+        let q = if self.keys_only {
+            "include_docs=true"
+        } else {
+            "include_docs=true&attachments=true"
+        };
+        let rq = self
+            .s
+            .request(reqwest::Method::POST, &format!("{}/_all_docs?{q}", self.db))
+            .json(&json!({ "keys": ids }));
         let keys_only = self.keys_only;
         Task(tokio::spawn(async move {
             Ok(match CouchSession::fetch_capped(rq, cap).await? {
@@ -507,9 +553,16 @@ impl<'s> Reader<'s> {
             if self.pending.front().is_some_and(|s| s.task.is_none()) {
                 self.start(0);
             }
-            let Some(mut slot) = self.pending.pop_front() else { return Ok(None) };
-            let Some(mut t) = slot.task.take() else { return Err(Error::State("lectura sin pedido".into())) };
-            match (&mut t.0).await.map_err(|e| Error::State(format!("lectura interrumpida: {e}")))?? {
+            let Some(mut slot) = self.pending.pop_front() else {
+                return Ok(None);
+            };
+            let Some(mut t) = slot.task.take() else {
+                return Err(Error::State("lectura sin pedido".into()));
+            };
+            match (&mut t.0)
+                .await
+                .map_err(|e| Error::State(format!("lectura interrumpida: {e}")))??
+            {
                 None => {
                     // Cut off: again in smaller fetches, before anything
                     // after them; a single document, whole.
@@ -547,7 +600,8 @@ impl<'s> Reader<'s> {
         for s in std::mem::take(&mut self.pending) {
             let limit = if s.task.is_some() { 2 * n } else { n };
             if s.ids.len() > limit {
-                self.pending.extend(s.ids.chunks(n).map(|c| Slot::new(c.to_vec())));
+                self.pending
+                    .extend(s.ids.chunks(n).map(|c| Slot::new(c.to_vec())));
             } else {
                 self.pending.push_back(s);
             }
@@ -600,7 +654,12 @@ pub(crate) fn bulk_errors(reply: &Value, docs: usize) -> Option<String> {
                 Some(v) => v.to_string(),
                 None => String::new(),
             };
-            Some(format!("{} ({}: {})", text(r.get("id")), text(Some(e)), text(r.get("reason"))))
+            Some(format!(
+                "{} ({}: {})",
+                text(r.get("id")),
+                text(Some(e)),
+                text(r.get("reason"))
+            ))
         })
         .collect();
     if errors.is_empty() {
@@ -609,7 +668,12 @@ pub(crate) fn bulk_errors(reply: &Value, docs: usize) -> Option<String> {
     Some(format!(
         "_bulk_docs: fallaron {} de {docs} documentos. Primeros errores: {}",
         errors.len(),
-        errors.iter().take(3).cloned().collect::<Vec<_>>().join("; ")
+        errors
+            .iter()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("; ")
     ))
 }
 
@@ -617,9 +681,12 @@ pub(crate) fn bulk_errors(reply: &Value, docs: usize) -> Option<String> {
 /// content (base64). A stub (the content left on the server) can't be
 /// copied.
 fn attachments(j: &str) -> Result<Value> {
-    let v: Value = serde_json::from_str(j).map_err(|e| Error::Query(format!("_attachments no es JSON válido: {e}")))?;
+    let v: Value = serde_json::from_str(j)
+        .map_err(|e| Error::Query(format!("_attachments no es JSON válido: {e}")))?;
     let Value::Object(m) = v else {
-        return Err(Error::Query("_attachments tiene que ser un objeto con los adjuntos".into()));
+        return Err(Error::Query(
+            "_attachments tiene que ser un objeto con los adjuntos".into(),
+        ));
     };
     let mut out = serde_json::Map::new();
     for (name, a) in m {
@@ -685,7 +752,10 @@ fn doc_row(doc: &mut HashMap<String, Cell>, names: &[String], seen: &mut [bool])
                 c
             }
             // The same name asked for twice.
-            None => names[..i].iter().position(|m| m == n).map_or(Cell::Null, |j| row[j].clone()),
+            None => names[..i]
+                .iter()
+                .position(|m| m == n)
+                .map_or(Cell::Null, |j| row[j].clone()),
         };
         row.push(cell);
     }
@@ -706,7 +776,8 @@ impl Committed {
     fn add(&mut self, (rows, bytes): (u64, u64), progress: Progress<'_>, force: bool) {
         self.rows += rows;
         self.bytes += bytes;
-        let window = self.rows - self.reported_rows >= self.every_rows || self.bytes - self.reported_bytes >= self.every_bytes;
+        let window = self.rows - self.reported_rows >= self.every_rows
+            || self.bytes - self.reported_bytes >= self.every_bytes;
         if self.rows > self.reported_rows && (window || force) {
             self.reported_rows = self.rows;
             self.reported_bytes = self.bytes;
@@ -770,17 +841,27 @@ impl CouchSession {
 
     /// [`Self::fetch_bytes`], but `None` (the reply dropped half-read) as
     /// soon as the reply's body grows past `cap` bytes.
-    async fn fetch_capped(rq: reqwest::RequestBuilder, cap: Option<usize>) -> Result<Option<Vec<u8>>> {
+    async fn fetch_capped(
+        rq: reqwest::RequestBuilder,
+        cap: Option<usize>,
+    ) -> Result<Option<Vec<u8>>> {
         let mut resp = rq.send().await.map_err(|e| Error::Connect(e.to_string()))?;
         let status = resp.status();
         if !status.is_success() {
-            let bytes = resp.bytes().await.map_err(|e| Error::Connect(e.to_string()))?;
+            let bytes = resp
+                .bytes()
+                .await
+                .map_err(|e| Error::Connect(e.to_string()))?;
             let v: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
             let msg = match (v.get("error"), v.get("reason")) {
                 (Some(e), Some(r)) => format!("{}: {}", crate::as_text(e), crate::as_text(r)),
                 _ => format!("HTTP {status}: {}", String::from_utf8_lossy(&bytes)),
             };
-            return Err(if status == reqwest::StatusCode::UNAUTHORIZED { Error::AuthFailed(msg) } else { Error::Query(msg) });
+            return Err(if status == reqwest::StatusCode::UNAUTHORIZED {
+                Error::AuthFailed(msg)
+            } else {
+                Error::Query(msg)
+            });
         }
         // Sized once, not doubled as it grows (that holds up to three times
         // the reply): from the reply's length when it says it, otherwise
@@ -794,10 +875,17 @@ impl CouchSession {
             if n > cap {
                 return Ok(None);
             }
-            out.try_reserve_exact(n)
-                .map_err(|_| Error::Query(format!("La respuesta de CouchDB ({n} bytes) no entra en memoria.")))?;
+            out.try_reserve_exact(n).map_err(|_| {
+                Error::Query(format!(
+                    "La respuesta de CouchDB ({n} bytes) no entra en memoria."
+                ))
+            })?;
         }
-        while let Some(c) = resp.chunk().await.map_err(|e| Error::Connect(e.to_string()))? {
+        while let Some(c) = resp
+            .chunk()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?
+        {
             len += c.len();
             if len > cap {
                 return Ok(None);
@@ -809,8 +897,11 @@ impl CouchSession {
             }
         }
         if !parts.is_empty() {
-            out.try_reserve_exact(len)
-                .map_err(|_| Error::Query(format!("La respuesta de CouchDB ({len} bytes) no entra en memoria.")))?;
+            out.try_reserve_exact(len).map_err(|_| {
+                Error::Query(format!(
+                    "La respuesta de CouchDB ({len} bytes) no entra en memoria."
+                ))
+            })?;
             for c in parts {
                 out.extend_from_slice(&c);
             }
@@ -821,7 +912,8 @@ impl CouchSession {
     /// Send and parse the reply, failing with the server's error.
     async fn fetch(rq: reqwest::RequestBuilder) -> Result<Value> {
         let bytes = Self::fetch_bytes(rq).await?;
-        serde_json::from_slice(&bytes).map_err(|e| Error::Query(format!("Respuesta inesperada de CouchDB: {e}")))
+        serde_json::from_slice(&bytes)
+            .map_err(|e| Error::Query(format!("Respuesta inesperada de CouchDB: {e}")))
     }
 
     /// The next page of ids (design documents left out); `None` past the
@@ -851,7 +943,11 @@ impl CouchSession {
                 *more = next.is_some();
                 ids
             }
-            Walk::Find { selector, bookmark, more } => {
+            Walk::Find {
+                selector,
+                bookmark,
+                more,
+            } => {
                 if !*more {
                     return Ok(None);
                 }
@@ -859,9 +955,16 @@ impl CouchSession {
                 if let Some(b) = bookmark.as_deref() {
                     body["bookmark"] = Value::String(b.to_string());
                 }
-                let page = Self::fetch(self.request(reqwest::Method::POST, &format!("{db}/_find")).json(&body)).await?;
+                let page = Self::fetch(
+                    self.request(reqwest::Method::POST, &format!("{db}/_find"))
+                        .json(&body),
+                )
+                .await?;
                 let ids = ids_of(page.get("docs"), "_id");
-                *bookmark = page.get("bookmark").and_then(Value::as_str).map(str::to_string);
+                *bookmark = page
+                    .get("bookmark")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 *more = ids.len() >= ID_PAGE && bookmark.is_some();
                 ids
             }
@@ -887,23 +990,44 @@ impl CouchSession {
         let mut field = serde_json::Map::new();
         field.insert(name.replace('.', "\\."), json!({ "$exists": true }));
         let body = json!({ "selector": field, "fields": ["_id"], "limit": 1 });
-        let page = Self::fetch(self.request(reqwest::Method::POST, &format!("{db}/_find")).json(&body)).await?;
-        Ok(page.get("docs").and_then(Value::as_array).is_some_and(|d| !d.is_empty()))
+        let page = Self::fetch(
+            self.request(reqwest::Method::POST, &format!("{db}/_find"))
+                .json(&body),
+        )
+        .await?;
+        Ok(page
+            .get("docs")
+            .and_then(Value::as_array)
+            .is_some_and(|d| !d.is_empty()))
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         if spec.table.kind == kinds::VIEW {
             return dbine_driver::transfer::read_via_execute(self, spec, sink).await;
         }
         let db = self.db_path()?;
-        let selector: Option<Value> = match spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        let selector: Option<Value> = match spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
             Some(f) => {
-                let v: Value = serde_json::from_str(f)
-                    .map_err(|e| Error::Query(format!("El filtro tiene que ser un selector Mango en JSON: {e}")))?;
+                let v: Value = serde_json::from_str(f).map_err(|e| {
+                    Error::Query(format!(
+                        "El filtro tiene que ser un selector Mango en JSON: {e}"
+                    ))
+                })?;
                 // A whole `_find` body works too.
                 let sel = v.get("selector").cloned().unwrap_or(v);
                 if !sel.is_object() {
-                    return Err(Error::Query("El filtro tiene que ser un selector Mango (un objeto JSON).".into()));
+                    return Err(Error::Query(
+                        "El filtro tiene que ser un selector Mango (un objeto JSON).".into(),
+                    ));
                 }
                 Some(sel)
             }
@@ -933,7 +1057,11 @@ impl CouchSession {
             .iter()
             .map(|n| TransferColumn {
                 name: n.clone(),
-                type_name: if n == "_id" || n == "_rev" { "string".into() } else { String::new() },
+                type_name: if n == "_id" || n == "_rev" {
+                    "string".into()
+                } else {
+                    String::new()
+                },
                 nullable: n != "_id",
             })
             .collect();
@@ -947,18 +1075,25 @@ impl CouchSession {
                 }
             }
         }
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
         let mut seen = vec![false; names.len()];
         let mut builder = BatchBuilder::new();
         let mut r = Reader::new(this, &db, Walk::new(selector.as_ref()), false);
         while let Some(docs) = r.next().await? {
-            let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+            let mut s = sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?;
             for d in docs {
                 let mut d: HashMap<String, Cell> = d.into_iter().collect();
                 let row = doc_row(&mut d, &names, &mut seen);
                 if !asked {
                     if let Some(k) = d.keys().next() {
-                        let id = row.first().map(|c| c.to_json().to_string()).unwrap_or_default();
+                        let id = row
+                            .first()
+                            .map(|c| c.to_json().to_string())
+                            .unwrap_or_default();
                         return Err(Error::Query(format!(
                             "el documento {id} tiene el campo «{k}», que apareció mientras se copiaba (la base cambió durante la copia); volvé a copiarla"
                         )));
@@ -968,7 +1103,11 @@ impl CouchSession {
             }
         }
         drop(r);
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
@@ -981,7 +1120,9 @@ impl CouchSession {
     ) -> Result<u64> {
         self.refuse_if_read_only("Conexión de solo lectura: no se pueden cargar datos.")?;
         if spec.table.kind == kinds::VIEW {
-            return Err(Error::Unsupported("no se insertan documentos en una vista de CouchDB".into()));
+            return Err(Error::Unsupported(
+                "no se insertan documentos en una vista de CouchDB".into(),
+            ));
         }
         // A cancelled load waits for its requests off the worker (see `InFlight`).
         if !Handle::try_current().is_ok_and(|h| h.runtime_flavor() == RuntimeFlavor::MultiThread) {
@@ -989,11 +1130,16 @@ impl CouchSession {
                 "la carga masiva de CouchDB necesita el runtime multihilo: sin él no puede esperar los envíos en curso si se cancela".into(),
             ));
         }
-        let names: Vec<String> =
-            if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
         let path = format!("{}/_bulk_docs", self.db_path()?);
         let mut sent = InFlight(JoinSet::new());
-        let r = self.load_into(&path, &names, spec, source, progress, &mut sent).await;
+        let r = self
+            .load_into(&path, &names, spec, source, progress, &mut sent)
+            .await;
         if r.is_err() {
             // What the server already has commits anyway: wait for it
             // before returning, so nothing lands after the error.
@@ -1030,13 +1176,19 @@ impl CouchSession {
         let send = |body: Vec<u8>, n: usize, sent: &mut InFlight| {
             let mut body = body;
             body.extend_from_slice(b"]}");
-            let rq = self.request(reqwest::Method::POST, path).header(reqwest::header::CONTENT_TYPE, "application/json");
+            let rq = self
+                .request(reqwest::Method::POST, path)
+                .header(reqwest::header::CONTENT_TYPE, "application/json");
             sent.0.spawn(send_docs(rq, body, n));
         };
         while let Some(batch) = source.next().await {
             for row in batch.rows {
                 if row.len() != names.len() {
-                    return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), names.len())));
+                    return Err(Error::Query(format!(
+                        "la fila tiene {} valores y la carga {} columnas",
+                        row.len(),
+                        names.len()
+                    )));
                 }
                 one.clear();
                 write_doc(names, &row, &mut one)?;
@@ -1093,11 +1245,15 @@ async fn send_docs(rq: reqwest::RequestBuilder, body: Vec<u8>, docs: usize) -> R
     Ok((docs as u64, bytes))
 }
 
-fn joined(r: Option<std::result::Result<Result<(u64, u64)>, tokio::task::JoinError>>) -> Result<(u64, u64)> {
+fn joined(
+    r: Option<std::result::Result<Result<(u64, u64)>, tokio::task::JoinError>>,
+) -> Result<(u64, u64)> {
     match r {
         None => Ok((0, 0)),
         Some(Ok(r)) => r,
-        Some(Err(e)) => Err(Error::State(format!("envío de _bulk_docs interrumpido: {e}"))),
+        Some(Err(e)) => Err(Error::State(format!(
+            "envío de _bulk_docs interrumpido: {e}"
+        ))),
     }
 }
 
@@ -1131,22 +1287,44 @@ mod tests {
             Cell::Decimal("1.50".into()),
             Cell::Json("null".into()),
         ];
-        let doc = doc_json(&names(&["_id", "_rev", "title", "meta", "gone", "blob", "price", "none"]), &row);
-        assert_eq!(doc, r#"{"_id":"7","title":"Dune","meta":{"x":[1,2]},"blob":"0x01FF","price":"1.50","none":null}"#);
+        let doc = doc_json(
+            &names(&[
+                "_id", "_rev", "title", "meta", "gone", "blob", "price", "none",
+            ]),
+            &row,
+        );
+        assert_eq!(
+            doc,
+            r#"{"_id":"7","title":"Dune","meta":{"x":[1,2]},"blob":"0x01FF","price":"1.50","none":null}"#
+        );
     }
 
     #[test]
     fn documents_become_rows_and_back_exactly() {
         let src = r#"{"_id":"a","_rev":"1-x","n":5,"f":1.5,"big":18446744073709551615,"huge":123456789012345678901234567890,"neg":-9223372036854775809,"tiny":1.2345678901234568e-300,"ok":false,"tags":["p",1e400],"o":{"k":null,"b":123456789012345678901234567890},"z":null,"e":"","s":"ñ\"\\u"}"#;
         let d = read_doc(src);
-        let get = |k: &str| d.iter().find(|(n, _)| n == k).map(|(_, c)| c.clone()).unwrap();
+        let get = |k: &str| {
+            d.iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, c)| c.clone())
+                .unwrap()
+        };
         assert_eq!(get("n"), Cell::Int(5));
         assert_eq!(get("f"), Cell::Float(1.5));
         assert_eq!(get("big"), Cell::UInt(u64::MAX));
-        assert_eq!(get("huge"), Cell::Json("123456789012345678901234567890".into()));
+        assert_eq!(
+            get("huge"),
+            Cell::Json("123456789012345678901234567890".into())
+        );
         assert_eq!(get("neg"), Cell::Json("-9223372036854775809".into()));
-        assert_eq!(get("tiny"), Cell::Float("1.2345678901234568e-300".parse().unwrap()));
-        assert_eq!(get("o"), Cell::Json(r#"{"k":null,"b":123456789012345678901234567890}"#.into()));
+        assert_eq!(
+            get("tiny"),
+            Cell::Float("1.2345678901234568e-300".parse().unwrap())
+        );
+        assert_eq!(
+            get("o"),
+            Cell::Json(r#"{"k":null,"b":123456789012345678901234567890}"#.into())
+        );
         // An explicit null isn't a missing field.
         assert_eq!(get("z"), Cell::Json("null".into()));
         assert_eq!(get("s"), Cell::Text("ñ\"\\u".into()));
@@ -1159,11 +1337,21 @@ mod tests {
 
     #[test]
     fn missing_fields_are_null_cells_and_unasked_ones_stay() {
-        let mut d: HashMap<String, Cell> = read_doc(r#"{"_id":"a","b":1,"extra":2}"#).into_iter().collect();
+        let mut d: HashMap<String, Cell> = read_doc(r#"{"_id":"a","b":1,"extra":2}"#)
+            .into_iter()
+            .collect();
         let n = names(&["_id", "b", "missing", "b"]);
         let mut seen = vec![false; n.len()];
         let row = doc_row(&mut d, &n, &mut seen);
-        assert_eq!(row, vec![Cell::Text("a".into()), Cell::Int(1), Cell::Null, Cell::Int(1)]);
+        assert_eq!(
+            row,
+            vec![
+                Cell::Text("a".into()),
+                Cell::Int(1),
+                Cell::Null,
+                Cell::Int(1)
+            ]
+        );
         assert_eq!(seen, vec![true, true, false, false]);
         assert_eq!(d.keys().collect::<Vec<_>>(), vec!["extra"]);
     }
@@ -1177,7 +1365,13 @@ mod tests {
 {"id":"_design/v","key":"_design/v","value":{"rev":"1-z"},"doc":{"_id":"_design/v","views":{}}}
 ]}"#;
         let docs = reply_docs(body, false).unwrap();
-        assert_eq!(docs, vec![vec![("_id".to_string(), Cell::Text("b".into())), ("n".to_string(), Cell::Int(1))]]);
+        assert_eq!(
+            docs,
+            vec![vec![
+                ("_id".to_string(), Cell::Text("b".into())),
+                ("n".to_string(), Cell::Int(1))
+            ]]
+        );
         let keys = reply_docs(body, true).unwrap();
         assert_eq!(keys[0][1], ("n".to_string(), Cell::Null));
         assert!(reply_docs(b"{\"rows\":[{\"doc\":{\"a\":}}]}", false).is_err());
@@ -1199,7 +1393,8 @@ mod tests {
             doc_json(&n, &[Cell::Text("a1".into()), with]),
             r#"{"_id":"a1","_attachments":{"a.txt":{"content_type":"text/plain","data":"aG9sYQ=="}}}"#
         );
-        let stub = Cell::Json(r#"{"a.txt":{"content_type":"text/plain","stub":true,"length":4}}"#.into());
+        let stub =
+            Cell::Json(r#"{"a.txt":{"content_type":"text/plain","stub":true,"length":4}}"#.into());
         let mut out = Vec::new();
         let e = write_doc(&n, &[Cell::Text("a1".into()), stub], &mut out).unwrap_err();
         assert!(e.to_string().contains("sin su contenido"), "{e}");
@@ -1207,17 +1402,33 @@ mod tests {
 
     #[test]
     fn json_cells_are_checked_without_losing_digits() {
-        assert!(is_json(" [1e400, -12345678901234567890123, {\"a\": \"\\u00f1\"}, null] "));
-        for bad in ["{\"a\":01}", "{\"a\":1} x", "[1.]", "[-]", "{\"a\" 1}", "[\"\\x\"]", "nul"] {
+        assert!(is_json(
+            " [1e400, -12345678901234567890123, {\"a\": \"\\u00f1\"}, null] "
+        ));
+        for bad in [
+            "{\"a\":01}",
+            "{\"a\":1} x",
+            "[1.]",
+            "[-]",
+            "{\"a\" 1}",
+            "[\"\\x\"]",
+            "nul",
+        ] {
             assert!(!is_json(bad), "{bad}");
         }
         // Not JSON: sent as text, as the insert script does.
-        assert_eq!(doc_json(&names(&["j"]), &[Cell::Json("{nope".into())]), r#"{"j":"{nope"}"#);
+        assert_eq!(
+            doc_json(&names(&["j"]), &[Cell::Json("{nope".into())]),
+            r#"{"j":"{nope"}"#
+        );
     }
 
     #[test]
     fn per_document_errors() {
-        assert_eq!(bulk_errors(&json!([{"id": "a", "ok": true, "rev": "1-x"}]), 1), None);
+        assert_eq!(
+            bulk_errors(&json!([{"id": "a", "ok": true, "rev": "1-x"}]), 1),
+            None
+        );
         let reply = json!([{"id": "a", "ok": true}, {"id": "b", "error": "conflict", "reason": "Document update conflict."}]);
         assert_eq!(
             bulk_errors(&reply, 2).unwrap(),

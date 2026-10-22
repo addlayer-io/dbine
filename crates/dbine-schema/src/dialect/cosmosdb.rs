@@ -58,9 +58,21 @@ impl Dialect for CosmosDb {
         let name = t.name.clone();
         t.kind = dbine_driver::kinds::COLLECTION.into();
         schemaless_note(t, report, "Cosmos DB");
-        let key: Vec<String> = t.primary_key.as_ref().map(|k| k.columns.clone()).unwrap_or_default();
-        let paths: Vec<String> = if key.is_empty() { vec!["id".into()] } else { key.iter().take(3).cloned().collect() };
-        let pk = paths.iter().map(|p| format!("/{p}")).collect::<Vec<_>>().join(", ");
+        let key: Vec<String> = t
+            .primary_key
+            .as_ref()
+            .map(|k| k.columns.clone())
+            .unwrap_or_default();
+        let paths: Vec<String> = if key.is_empty() {
+            vec!["id".into()]
+        } else {
+            key.iter().take(3).cloned().collect()
+        };
+        let pk = paths
+            .iter()
+            .map(|p| format!("/{p}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         t.options.insert(PARTITION_KEY.into(), pk.clone());
         report.push(
             Severity::Info,
@@ -101,7 +113,13 @@ impl Dialect for CosmosDb {
                 );
                 kept.push(ix);
             } else if ix.columns.len() < 2 {
-                report.push(Severity::Info, IssueCode::IndexDropped, &name, Some(&ix.name), "Cosmos DB ya indexa cada campo: el índice simple no hace falta.");
+                report.push(
+                    Severity::Info,
+                    IssueCode::IndexDropped,
+                    &name,
+                    Some(&ix.name),
+                    "Cosmos DB ya indexa cada campo: el índice simple no hace falta.",
+                );
             } else {
                 ix.kind = Some("composite".into());
                 kept.push(ix);
@@ -119,7 +137,10 @@ mod tests {
     #[test]
     fn types() {
         let d = CosmosDb;
-        assert_eq!(d.parse_type(&parse("integer|number")), L::Float { bytes: 8 });
+        assert_eq!(
+            d.parse_type(&parse("integer|number")),
+            L::Float { bytes: 8 }
+        );
         assert_eq!(d.render_type(&L::int(8)).native, "integer");
         assert!(!d.render_type(&L::int(8)).notes.is_empty());
         assert!(!d.caps().nullability && !d.caps().foreign_keys);

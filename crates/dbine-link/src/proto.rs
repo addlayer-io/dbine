@@ -36,17 +36,30 @@ pub enum Call {
     /// The databases of a connection.
     Databases { connection_id: String },
     /// Who waits for whom.
-    Locks { connection_id: String, database: String },
+    Locks {
+        connection_id: String,
+        database: String,
+    },
     /// The sessions running something.
-    Processes { connection_id: String, database: String },
+    Processes {
+        connection_id: String,
+        database: String,
+    },
     /// The server's figures: CPU, memory, connections… (the Monitor).
     Monitor { connection_id: String },
     /// End a session. The phone asks its user first (biometrics or PIN).
-    Kill { connection_id: String, database: String, session_id: String },
+    Kill {
+        connection_id: String,
+        database: String,
+        session_id: String,
+    },
     /// What happened since the phone's last look: long queries that ended,
     /// task runs. `after: None` only asks where the list is; with another
     /// run's `boot`, all of this run's come back.
-    Events { after: Option<u64>, boot: Option<String> },
+    Events {
+        after: Option<u64>,
+        boot: Option<String>,
+    },
     /// The scheduled tasks, with their last run.
     Tasks,
     /// A task's last runs.
@@ -54,7 +67,10 @@ pub enum Call {
     /// "Ejecutar ahora". The phone asks its user first.
     RunTask { task_id: String },
     /// A database's health check.
-    Health { connection_id: String, database: String },
+    Health {
+        connection_id: String,
+        database: String,
+    },
     /// The editor's queries running now and the ones that ended lately.
     Queries,
     /// Cancel a running query (the phone asks its user first).
@@ -103,13 +119,21 @@ pub struct Response {
 impl Response {
     pub fn ok<T: Serialize>(id: u64, v: &T) -> Response {
         match serde_json::to_value(v) {
-            Ok(v) => Response { id, ok: Some(v), error: None },
+            Ok(v) => Response {
+                id,
+                ok: Some(v),
+                error: None,
+            },
             Err(e) => Response::error(id, e.to_string()),
         }
     }
 
     pub fn error(id: u64, e: impl Into<String>) -> Response {
-        Response { id, ok: None, error: Some(e.into()) }
+        Response {
+            id,
+            ok: None,
+            error: Some(e.into()),
+        }
     }
 }
 
@@ -275,15 +299,36 @@ mod tests {
 
     #[test]
     fn wire_format() {
-        let r = Request { id: 3, call: Call::Kill { connection_id: "c".into(), database: "".into(), session_id: "53".into() } };
+        let r = Request {
+            id: 3,
+            call: Call::Kill {
+                connection_id: "c".into(),
+                database: "".into(),
+                session_id: "53".into(),
+            },
+        };
         let j = serde_json::to_value(&r).unwrap();
-        assert_eq!(j, serde_json::json!({"id": 3, "call": "kill", "connection_id": "c", "database": "", "session_id": "53"}));
+        assert_eq!(
+            j,
+            serde_json::json!({"id": 3, "call": "kill", "connection_id": "c", "database": "", "session_id": "53"})
+        );
         assert_eq!(serde_json::from_value::<Request>(j).unwrap(), r);
         let hello: Request = serde_json::from_str(r#"{"id":1,"call":"hello"}"#).unwrap();
         assert_eq!(hello.call, Call::Hello);
-        assert_eq!(serde_json::to_string(&Response::error(1, "no")).unwrap(), r#"{"id":1,"error":"no"}"#);
+        assert_eq!(
+            serde_json::to_string(&Response::error(1, "no")).unwrap(),
+            r#"{"id":1,"error":"no"}"#
+        );
         // A call's fields sit next to the request's `id`: none may be called that.
-        let c = Request { id: 9, call: Call::CancelQuery { query_id: "q".into() } };
-        assert_eq!(serde_json::from_str::<Request>(&serde_json::to_string(&c).unwrap()).unwrap(), c);
+        let c = Request {
+            id: 9,
+            call: Call::CancelQuery {
+                query_id: "q".into(),
+            },
+        };
+        assert_eq!(
+            serde_json::from_str::<Request>(&serde_json::to_string(&c).unwrap()).unwrap(),
+            c
+        );
     }
 }

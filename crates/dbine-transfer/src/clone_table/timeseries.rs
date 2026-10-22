@@ -22,7 +22,10 @@
 
 use super::{column_differences, exec, scalar, CloneOptions, Ddl};
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{kinds, ColumnInfo, DdlParts, Driver, DriverInfo, Error, Language, ObjectRef, QueryOutcome, Result, Session, StatementResult, TableSchema};
+use dbine_driver::{
+    kinds, ColumnInfo, DdlParts, Driver, DriverInfo, Error, Language, ObjectRef, QueryOutcome,
+    Result, Session, StatementResult, TableSchema,
+};
 
 /// Kinds one engine can't clone faithfully: (driver id, kind, why). The
 /// explorer hides "Clonar…" for them (`NOT_CLONEABLE_ON` in
@@ -52,7 +55,10 @@ pub const NOT_CLONEABLE_ON: &[(&str, &str, &str)] = &[
 
 /// Why `kind` can't be cloned on the engine `driver_id`, if it can't.
 pub fn refused(driver_id: &str, kind: &str) -> Option<&'static str> {
-    NOT_CLONEABLE_ON.iter().find(|(d, k, _)| *d == driver_id && *k == kind).map(|(_, _, r)| *r)
+    NOT_CLONEABLE_ON
+        .iter()
+        .find(|(d, k, _)| *d == driver_id && *k == kind)
+        .map(|(_, _, r)| *r)
 }
 
 /// Why the engine would refuse `name` for a new table, or read it as
@@ -68,7 +74,10 @@ pub fn name_problem(info: &DriverInfo, name: &str) -> Option<String> {
     if info.dialect == "iotdb" {
         // A dot is a level of the path: `a.b` would be a device inside `a`.
         // Anything else would need backquotes the device path doesn't get.
-        let reserved = matches!(name.to_ascii_lowercase().as_str(), "time" | "timestamp" | "root");
+        let reserved = matches!(
+            name.to_ascii_lowercase().as_str(),
+            "time" | "timestamp" | "root"
+        );
         if !plain(name) || name.chars().all(|c| c.is_ascii_digit()) || reserved {
             return Some(format!(
                 "el nombre «{name}» no sirve para un dispositivo de IoTDB: solo letras sin tildes ni eñes, números y guion bajo (_), sin ser solo números ni time, timestamp o root (un punto pondría el clon dentro de otro dispositivo)"
@@ -85,7 +94,12 @@ async fn rows_of(s: &mut dyn Session, sql: &str, max_rows: usize) -> Result<Stat
     if let Some(e) = out.error {
         return Err(Error::Query(e));
     }
-    Ok(out.results.into_iter().rev().find(|r| !r.columns.is_empty()).unwrap_or_default())
+    Ok(out
+        .results
+        .into_iter()
+        .rev()
+        .find(|r| !r.columns.is_empty())
+        .unwrap_or_default())
 }
 
 /// An InfluxQL identifier, double-quoted.
@@ -102,7 +116,13 @@ pub fn influxql_drop(name: &str) -> String {
 /// An IoTDB device's full path, as its driver writes it (from the
 /// `DELETE TIMESERIES <device>.**` of its drop).
 fn iotdb_device(driver: &dyn Driver, t: &TableSchema) -> Result<String> {
-    let drop = driver.table_ddl(t, DdlParts { drop: true, ..Default::default() })?;
+    let drop = driver.table_ddl(
+        t,
+        DdlParts {
+            drop: true,
+            ..Default::default()
+        },
+    )?;
     drop.trim()
         .strip_prefix("DELETE TIMESERIES ")
         .and_then(|s| s.trim_end_matches(';').strip_suffix(".**"))
@@ -115,7 +135,10 @@ fn iotdb_device(driver: &dyn Driver, t: &TableSchema) -> Result<String> {
 /// compression and level, and the table's options.
 pub fn tdengine_body(definition: &str, name: &str) -> Option<String> {
     let head = format!("CREATE TABLE {} ", quote_ident(Quote::Backtick, name));
-    definition.trim().strip_prefix(&head).map(|b| b.trim().trim_end_matches(';').trim_end().to_string())
+    definition
+        .trim()
+        .strip_prefix(&head)
+        .map(|b| b.trim().trim_end_matches(';').trim_end().to_string())
 }
 
 /// Parts the structure leaves out that the clone would lose, or a table
@@ -123,7 +146,12 @@ pub fn tdengine_body(definition: &str, name: &str) -> Option<String> {
 pub async fn check(driver: &dyn Driver, s: &mut dyn Session, t: &TableSchema) -> Result<()> {
     let info = driver.info();
     if info.language == Language::Cql {
-        let counters: Vec<&str> = t.columns.iter().filter(|c| c.data_type.trim().eq_ignore_ascii_case("counter")).map(|c| c.name.as_str()).collect();
+        let counters: Vec<&str> = t
+            .columns
+            .iter()
+            .filter(|c| c.data_type.trim().eq_ignore_ascii_case("counter"))
+            .map(|c| c.name.as_str())
+            .collect();
         if !counters.is_empty() {
             return Err(Error::Unsupported(format!(
                 "no se puede clonar: la tabla tiene columnas counter ({}), y {} solo las cambia sumando (UPDATE … SET c = c + n), nunca con INSERT; un reintento de esa suma durante la copia duplicaría el valor sin avisar",
@@ -159,9 +187,17 @@ async fn iotdb_check(driver: &dyn Driver, s: &mut dyn Session, t: &TableSchema) 
 /// would lose, as `name (alias, tags…)`.
 fn iotdb_lost(r: &StatementResult, device: &str) -> Vec<String> {
     use serde_json::Value;
-    let col = |n: &str| r.columns.iter().position(|c| c.name.eq_ignore_ascii_case(n));
+    let col = |n: &str| {
+        r.columns
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(n))
+    };
     let (ts, view) = (col("Timeseries"), col("ViewType"));
-    let parts = [("alias", col("Alias")), ("tags", col("Tags")), ("atributos", col("Attributes"))];
+    let parts = [
+        ("alias", col("Alias")),
+        ("tags", col("Tags")),
+        ("atributos", col("Attributes")),
+    ];
     let set = |row: &[Value], i: Option<usize>| {
         i.and_then(|i| row.get(i)).is_some_and(|v| match v {
             Value::Null => false,
@@ -173,9 +209,16 @@ fn iotdb_lost(r: &StatementResult, device: &str) -> Vec<String> {
     let prefix = format!("{device}.");
     let mut lost = Vec::new();
     for row in &r.rows {
-        let full = ts.and_then(|i| row.get(i)).and_then(|v| v.as_str()).unwrap_or("?");
+        let full = ts
+            .and_then(|i| row.get(i))
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         let name = full.strip_prefix(&prefix).unwrap_or(full);
-        let mut what: Vec<&str> = parts.iter().filter(|(_, i)| set(row, *i)).map(|(w, _)| *w).collect();
+        let mut what: Vec<&str> = parts
+            .iter()
+            .filter(|(_, i)| set(row, *i))
+            .map(|(w, _)| *w)
+            .collect();
         if view.and_then(|i| row.get(i)).and_then(|v| v.as_str()) == Some("VIEW") {
             what.push("es una vista");
         }
@@ -196,7 +239,11 @@ fn influxql_tag_field_overlap(t: &TableSchema) -> Vec<&str> {
         .iter()
         .filter(|c| is_tag(c))
         .map(|c| c.name.as_str())
-        .filter(|n| t.columns.iter().any(|c| !is_tag(c) && c.name != "time" && c.name == *n))
+        .filter(|n| {
+            t.columns
+                .iter()
+                .any(|c| !is_tag(c) && c.name != "time" && c.name == *n)
+        })
         .collect();
     both.sort_unstable();
     both.dedup();
@@ -207,18 +254,33 @@ fn influxql_tag_field_overlap(t: &TableSchema) -> Vec<&str> {
 /// per type (a field's type is fixed per shard, not per measurement), as
 /// `«v»: float, integer`.
 fn influxql_mixed_fields(r: &StatementResult) -> Vec<String> {
-    let col = |n: &str| r.columns.iter().position(|c| c.name.eq_ignore_ascii_case(n));
-    let (Some(key), ty) = (col("fieldKey"), col("fieldType")) else { return Vec::new() };
+    let col = |n: &str| {
+        r.columns
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(n))
+    };
+    let (Some(key), ty) = (col("fieldKey"), col("fieldType")) else {
+        return Vec::new();
+    };
     let mut seen: Vec<(String, Vec<String>)> = Vec::new();
     for row in &r.rows {
-        let Some(name) = row.get(key).and_then(|v| v.as_str()) else { continue };
-        let t = ty.and_then(|i| row.get(i)).and_then(|v| v.as_str()).unwrap_or("?").to_string();
+        let Some(name) = row.get(key).and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let t = ty
+            .and_then(|i| row.get(i))
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
         match seen.iter_mut().find(|(n, _)| n == name) {
             Some((_, types)) => types.push(t),
             None => seen.push((name.to_string(), vec![t])),
         }
     }
-    seen.into_iter().filter(|(_, types)| types.len() > 1).map(|(n, types)| format!("«{n}»: {}", types.join(", "))).collect()
+    seen.into_iter()
+        .filter(|(_, types)| types.len() > 1)
+        .map(|(n, types)| format!("«{n}»: {}", types.join(", ")))
+        .collect()
 }
 
 /// InfluxDB 1: a tag and a field with the same name can't be written
@@ -227,14 +289,23 @@ fn influxql_mixed_fields(r: &StatementResult) -> Vec<String> {
 async fn influxql_check(s: &mut dyn Session, t: &TableSchema) -> Result<()> {
     let both = influxql_tag_field_overlap(t);
     if !both.is_empty() {
-        let list = both.iter().map(|n| format!("«{n}»")).collect::<Vec<_>>().join(", ");
+        let list = both
+            .iter()
+            .map(|n| format!("«{n}»"))
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(Error::Unsupported(format!(
             "no se puede clonar: en «{}», {list} {} a la vez tag y field; InfluxDB lo permite en un measurement que ya existe, pero no deja escribir un punto con un tag y un field del mismo nombre, así que el clon no podría tener los mismos datos",
             t.name,
             if both.len() == 1 { "es" } else { "son" }
         )));
     }
-    let fields = rows_of(s, &format!("SHOW FIELD KEYS FROM {}", influxql_ident(&t.name)), 100_000).await?;
+    let fields = rows_of(
+        s,
+        &format!("SHOW FIELD KEYS FROM {}", influxql_ident(&t.name)),
+        100_000,
+    )
+    .await?;
     let mixed = influxql_mixed_fields(&fields);
     if !mixed.is_empty() {
         return Err(Error::Unsupported(format!(
@@ -245,16 +316,33 @@ async fn influxql_check(s: &mut dyn Session, t: &TableSchema) -> Result<()> {
         )));
     }
     let r = rows_of(s, "SHOW RETENTION POLICIES", 1_000).await?;
-    let col = |n: &str| r.columns.iter().position(|c| c.name.eq_ignore_ascii_case(n));
+    let col = |n: &str| {
+        r.columns
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(n))
+    };
     let (Some(name), Some(default)) = (col("name"), col("default")) else {
-        return Err(Error::State("InfluxDB no informó sus políticas de retención".into()));
+        return Err(Error::State(
+            "InfluxDB no informó sus políticas de retención".into(),
+        ));
     };
     for row in &r.rows {
         if row.get(default).and_then(|v| v.as_bool()) == Some(true) {
             continue;
         }
-        let Some(rp) = row.get(name).and_then(|v| v.as_str()) else { continue };
-        let found = rows_of(s, &format!("SELECT * FROM {}.{} LIMIT 1", influxql_ident(rp), influxql_ident(&t.name)), 1).await?;
+        let Some(rp) = row.get(name).and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let found = rows_of(
+            s,
+            &format!(
+                "SELECT * FROM {}.{} LIMIT 1",
+                influxql_ident(rp),
+                influxql_ident(&t.name)
+            ),
+            1,
+        )
+        .await?;
         if !found.rows.is_empty() {
             return Err(Error::Unsupported(format!(
                 "no se puede clonar: «{}» tiene puntos en la política de retención «{rp}», que no es la predeterminada; el clon copia solo la predeterminada y esos puntos se perderían",
@@ -268,7 +356,12 @@ async fn influxql_check(s: &mut dyn Session, t: &TableSchema) -> Result<()> {
 /// The DDL where the engine makes the table with its first row (InfluxDB
 /// 1): no `CREATE` (empty), `DROP MEASUREMENT` to undo it.
 pub fn implicit_ddl(driver: &dyn Driver, t: &TableSchema) -> Option<Ddl> {
-    (driver.info().dialect == "influxql").then(|| Ddl { create: String::new(), indexes: None, foreign_keys: None, drop: influxql_drop(&t.name) })
+    (driver.info().dialect == "influxql").then(|| Ddl {
+        create: String::new(),
+        indexes: None,
+        foreign_keys: None,
+        drop: influxql_drop(&t.name),
+    })
 }
 
 /// What [`prepare`] decided, for the steps after the `CREATE`.
@@ -298,7 +391,10 @@ pub async fn prepare(
     notes: &mut Vec<String>,
 ) -> Result<Native> {
     let info = driver.info();
-    let mut native = Native { implicit: info.dialect == "influxql", ..Default::default() };
+    let mut native = Native {
+        implicit: info.dialect == "influxql",
+        ..Default::default()
+    };
     if native.implicit && !options.with_data {
         return Err(Error::Unsupported("no se puede clonar sin los datos: en InfluxDB un measurement existe solo mientras tiene puntos".into()));
     }
@@ -306,7 +402,11 @@ pub async fn prepare(
         let def = src.definition(source).await?.unwrap_or_default();
         let body = tdengine_body(&def, &original.name)
             .ok_or_else(|| Error::Unsupported("no se puede clonar: TDengine no devolvió la definición de la tabla (SHOW CREATE TABLE)".into()))?;
-        let name = dbine_driver::sql::qualified_name(Quote::Backtick, clone.schema.as_deref().filter(|s| !s.is_empty()), &clone.name);
+        let name = dbine_driver::sql::qualified_name(
+            Quote::Backtick,
+            clone.schema.as_deref().filter(|s| !s.is_empty()),
+            &clone.name,
+        );
         ddl.create = format!("CREATE TABLE {name} {body};");
         native.tdengine_body = Some(body);
     }
@@ -315,8 +415,14 @@ pub async fn prepare(
         // (`<name>.x`): the clone would hold them, and its drop
         // (`DELETE TIMESERIES <name>.**`) would take them.
         let device = iotdb_device(driver, clone)?;
-        if scalar(src, &format!("COUNT TIMESERIES {device}.**")).await?.unwrap_or(0) > 0 {
-            return Err(Error::State(format!("ya hay series bajo {device} (de otro dispositivo); elegí otro nombre")));
+        if scalar(src, &format!("COUNT TIMESERIES {device}.**"))
+            .await?
+            .unwrap_or(0)
+            > 0
+        {
+            return Err(Error::State(format!(
+                "ya hay series bajo {device} (de otro dispositivo); elegí otro nombre"
+            )));
         }
     }
     if options.with_data && info.language == Language::Cql {
@@ -352,7 +458,9 @@ pub async fn after_create(tgt: &mut dyn Session, native: &Native, clone: &Object
     if let Some(body) = &native.tdengine_body {
         let def = tgt.definition(clone).await?.unwrap_or_default();
         if tdengine_body(&def, &clone.name).as_deref() != Some(body.as_str()) {
-            return Err(Error::State(format!("el clon no quedó igual al original (TDengine lo creó así: {def}); no se clona")));
+            return Err(Error::State(format!(
+                "el clon no quedó igual al original (TDengine lo creó así: {def}); no se clona"
+            )));
         }
     }
     Ok(())
@@ -360,7 +468,14 @@ pub async fn after_create(tgt: &mut dyn Session, native: &Native, clone: &Object
 
 /// After the rows, where they made the table (InfluxDB 1): it has points,
 /// and the original's tags and fields with their types.
-pub async fn after_copy(tgt: &mut dyn Session, native: &Native, source: &ObjectRef, clone: &ObjectRef, source_cols: &[ColumnInfo], rows: u64) -> Result<()> {
+pub async fn after_copy(
+    tgt: &mut dyn Session,
+    native: &Native,
+    source: &ObjectRef,
+    clone: &ObjectRef,
+    source_cols: &[ColumnInfo],
+    rows: u64,
+) -> Result<()> {
     if !native.implicit {
         return Ok(());
     }
@@ -369,7 +484,10 @@ pub async fn after_copy(tgt: &mut dyn Session, native: &Native, source: &ObjectR
     }
     let diffs = column_differences(source_cols, &tgt.columns(clone).await?);
     if !diffs.is_empty() {
-        return Err(Error::State(format!("el clon no quedó igual al original ({}); no se clona", diffs.join("; "))));
+        return Err(Error::State(format!(
+            "el clon no quedó igual al original ({}); no se clona",
+            diffs.join("; ")
+        )));
     }
     Ok(())
 }
@@ -425,31 +543,107 @@ mod tests {
     fn tdengine_definitions() {
         let def = "CREATE TABLE `pk2` (`ts` TIMESTAMP ENCODE 'delta-i' COMPRESS 'lz4' LEVEL 'medium', `id` INT ENCODE 'simple8b' COMPRESS 'lz4' LEVEL 'medium' COMPOSITE KEY, `v` DOUBLE ENCODE 'delta-d' COMPRESS 'zstd' LEVEL 'high') COMMENT 'c' TTL 3;";
         let body = tdengine_body(def, "pk2").unwrap();
-        assert!(body.starts_with("(`ts` TIMESTAMP") && body.contains("COMPOSITE KEY") && body.ends_with("TTL 3"), "{body}");
-        assert_eq!(tdengine_body(&def.replace("`pk2`", "`pk2_1`"), "pk2_1").unwrap(), body);
+        assert!(
+            body.starts_with("(`ts` TIMESTAMP")
+                && body.contains("COMPOSITE KEY")
+                && body.ends_with("TTL 3"),
+            "{body}"
+        );
+        assert_eq!(
+            tdengine_body(&def.replace("`pk2`", "`pk2_1`"), "pk2_1").unwrap(),
+            body
+        );
         assert!(tdengine_body(def, "pk").is_none());
-        assert!(tdengine_body("CREATE STABLE `pk2` (`ts` TIMESTAMP) TAGS (`t` INT)", "pk2").is_none());
-        assert_eq!(tdengine_body("CREATE TABLE `a``b` (x INT)", "a`b").as_deref(), Some("(x INT)"));
+        assert!(
+            tdengine_body("CREATE STABLE `pk2` (`ts` TIMESTAMP) TAGS (`t` INT)", "pk2").is_none()
+        );
+        assert_eq!(
+            tdengine_body("CREATE TABLE `a``b` (x INT)", "a`b").as_deref(),
+            Some("(x INT)")
+        );
     }
 
     #[test]
     fn influxql_quoting() {
-        assert_eq!(influxql_drop(r#"m "x" \ y"#), r#"DROP MEASUREMENT "m \"x\" \\ y""#);
+        assert_eq!(
+            influxql_drop(r#"m "x" \ y"#),
+            r#"DROP MEASUREMENT "m \"x\" \\ y""#
+        );
     }
 
     #[test]
     fn iotdb_series_with_more_than_a_type() {
-        let cols = ["Timeseries", "Alias", "Database", "DataType", "Encoding", "Compression", "Tags", "Attributes", "Deadband", "DeadbandParameters", "ViewType"];
+        let cols = [
+            "Timeseries",
+            "Alias",
+            "Database",
+            "DataType",
+            "Encoding",
+            "Compression",
+            "Tags",
+            "Attributes",
+            "Deadband",
+            "DeadbandParameters",
+            "ViewType",
+        ];
         let r = StatementResult {
-            columns: cols.iter().map(|c| ResultColumn { name: c.to_string(), type_name: String::new() }).collect(),
+            columns: cols
+                .iter()
+                .map(|c| ResultColumn {
+                    name: c.to_string(),
+                    type_name: String::new(),
+                })
+                .collect(),
             rows: vec![
-                vec![json!("root.db.dn.s1"), json!(null), json!("root.db"), json!("INT32"), json!("TS_2DIFF"), json!("LZ4"), json!(null), json!(null), json!(null), json!(null), json!("BASE")],
-                vec![json!("root.db.dn.s2"), json!("alias2"), json!("root.db"), json!("INT32"), json!("TS_2DIFF"), json!("LZ4"), json!("{\"owner\":\"x\"}"), json!("{\"desc\":\"d\"}"), json!(null), json!(null), json!("BASE")],
-                vec![json!("root.db.dn.v"), json!(null), json!("root.db"), json!("INT32"), json!(null), json!(null), json!(null), json!(null), json!(null), json!(null), json!("VIEW")],
+                vec![
+                    json!("root.db.dn.s1"),
+                    json!(null),
+                    json!("root.db"),
+                    json!("INT32"),
+                    json!("TS_2DIFF"),
+                    json!("LZ4"),
+                    json!(null),
+                    json!(null),
+                    json!(null),
+                    json!(null),
+                    json!("BASE"),
+                ],
+                vec![
+                    json!("root.db.dn.s2"),
+                    json!("alias2"),
+                    json!("root.db"),
+                    json!("INT32"),
+                    json!("TS_2DIFF"),
+                    json!("LZ4"),
+                    json!("{\"owner\":\"x\"}"),
+                    json!("{\"desc\":\"d\"}"),
+                    json!(null),
+                    json!(null),
+                    json!("BASE"),
+                ],
+                vec![
+                    json!("root.db.dn.v"),
+                    json!(null),
+                    json!("root.db"),
+                    json!("INT32"),
+                    json!(null),
+                    json!(null),
+                    json!(null),
+                    json!(null),
+                    json!(null),
+                    json!(null),
+                    json!("VIEW"),
+                ],
             ],
             ..Default::default()
         };
-        assert_eq!(iotdb_lost(&r, "root.db.dn"), vec!["s2 (alias, tags, atributos)".to_string(), "v (es una vista)".to_string()]);
+        assert_eq!(
+            iotdb_lost(&r, "root.db.dn"),
+            vec![
+                "s2 (alias, tags, atributos)".to_string(),
+                "v (es una vista)".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -457,29 +651,58 @@ mod tests {
         let cass = info("cassandra", "", Language::Cql);
         let mut t = TableSchema::default();
         assert!(cql_ttl_note(&cass, &t).contains("ninguna fila vence"));
-        t.options.insert("default_time_to_live".into(), "86400".into());
+        t.options
+            .insert("default_time_to_live".into(), "86400".into());
         let n = cql_ttl_note(&cass, &t);
-        assert!(n.contains("86400 s") && n.contains("writetime") && n.contains("aunque en el original les quedara más o menos tiempo"), "{n}");
+        assert!(
+            n.contains("86400 s")
+                && n.contains("writetime")
+                && n.contains("aunque en el original les quedara más o menos tiempo"),
+            "{n}"
+        );
     }
 
     #[test]
     fn influxql_field_with_two_types() {
-        let col = |n: &str| ResultColumn { name: n.into(), type_name: String::new() };
+        let col = |n: &str| ResultColumn {
+            name: n.into(),
+            type_name: String::new(),
+        };
         let r = StatementResult {
             columns: vec![col("fieldKey"), col("fieldType")],
-            rows: vec![vec![json!("v"), json!("float")], vec![json!("w"), json!("string")], vec![json!("v"), json!("integer")]],
+            rows: vec![
+                vec![json!("v"), json!("float")],
+                vec![json!("w"), json!("string")],
+                vec![json!("v"), json!("integer")],
+            ],
             ..Default::default()
         };
         assert_eq!(influxql_mixed_fields(&r), vec!["«v»: float, integer"]);
-        let one = StatementResult { rows: vec![vec![json!("v"), json!("float")]], ..r };
+        let one = StatementResult {
+            rows: vec![vec![json!("v"), json!("float")]],
+            ..r
+        };
         assert!(influxql_mixed_fields(&one).is_empty());
     }
 
     #[test]
     fn influxql_tag_and_field_with_one_name() {
         use dbine_driver::ColumnDef;
-        let col = |name: &str, data_type: &str| ColumnDef { name: name.into(), data_type: data_type.into(), ..Default::default() };
-        let mut t = TableSchema { name: "dup".into(), columns: vec![col("time", "time"), col("host", "tag"), col("region", "tag"), col("v", "integer")], ..Default::default() };
+        let col = |name: &str, data_type: &str| ColumnDef {
+            name: name.into(),
+            data_type: data_type.into(),
+            ..Default::default()
+        };
+        let mut t = TableSchema {
+            name: "dup".into(),
+            columns: vec![
+                col("time", "time"),
+                col("host", "tag"),
+                col("region", "tag"),
+                col("v", "integer"),
+            ],
+            ..Default::default()
+        };
         assert!(influxql_tag_field_overlap(&t).is_empty());
         t.columns.push(col("host", "string"));
         t.columns.push(col("region", "float"));

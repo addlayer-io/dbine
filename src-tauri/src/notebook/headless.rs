@@ -43,7 +43,9 @@
 use super::access::Policy;
 use super::files::DataFile;
 use super::local::{self, LiveRows, LocalSource};
-use super::{CellKind, CellResult, Notebook, NotebookCell, NotebookTarget, StoredColumn, StoredStatement};
+use super::{
+    CellKind, CellResult, Notebook, NotebookCell, NotebookTarget, StoredColumn, StoredStatement,
+};
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
 use dbine_core::state::SavedConnection;
@@ -124,10 +126,18 @@ pub fn executable_cells(
     driver_of: &dyn Fn(&NotebookCell) -> Option<Arc<dyn dbine_driver::Driver>>,
 ) -> CommandResult<HashMap<String, super::params::PreparedCell>> {
     let declared = declared_parameters(nb);
-    if let Some(name) = params.keys().find(|k| !declared.iter().any(|d| d.eq_ignore_ascii_case(k))) {
-        return Err(CommandError::BadRequest(format!("el notebook no tiene el parámetro «{name}»: quitalo del paso")));
+    if let Some(name) = params
+        .keys()
+        .find(|k| !declared.iter().any(|d| d.eq_ignore_ascii_case(k)))
+    {
+        return Err(CommandError::BadRequest(format!(
+            "el notebook no tiene el parámetro «{name}»: quitalo del paso"
+        )));
     }
-    Ok(super::params::prepare_notebook(nb, params, driver_of)?.into_iter().map(|c| (c.id.clone(), c)).collect())
+    Ok(super::params::prepare_notebook(nb, params, driver_of)?
+        .into_iter()
+        .map(|c| (c.id.clone(), c))
+        .collect())
 }
 
 /// Each SQL cell's text as it runs (cell id → text, the values as the
@@ -138,7 +148,10 @@ pub fn executable_sources(
     params: &BTreeMap<String, Value>,
     driver_of: &dyn Fn(&NotebookCell) -> Option<Arc<dyn dbine_driver::Driver>>,
 ) -> CommandResult<HashMap<String, String>> {
-    Ok(executable_cells(nb, params, driver_of)?.into_iter().map(|(id, c)| (id, c.prepared.text)).collect())
+    Ok(executable_cells(nb, params, driver_of)?
+        .into_iter()
+        .map(|(id, c)| (id, c.prepared.text))
+        .collect())
 }
 
 /// A cell that writes a DataFrame to a table (`nb-write`): its target table
@@ -160,19 +173,42 @@ pub fn write_cell(c: &NotebookCell) -> Option<WriteCell> {
         return None;
     }
     let w = c.write.clone().unwrap_or_default();
-    let table = [w.schema.clone(), w.table.clone()].into_iter().flatten().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(".");
-    let mut target = [stored_text(w.target.as_ref()), table].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" › ");
+    let table = [w.schema.clone(), w.table.clone()]
+        .into_iter()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(".");
+    let mut target = [stored_text(w.target.as_ref()), table]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" › ");
     if w.create {
         target.push_str(" (nueva)");
     }
-    let mode = serde_json::to_value(w.mode).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
-    let mode = if w.mode.needs_key() { format!("{mode}: {}", w.keys.join(", ")) } else { mode };
-    Some(WriteCell { cell_id: c.id.clone(), name: w.source.clone().unwrap_or_default(), target, mode })
+    let mode = serde_json::to_value(w.mode)
+        .ok()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default();
+    let mode = if w.mode.needs_key() {
+        format!("{mode}: {}", w.keys.join(", "))
+    } else {
+        mode
+    };
+    Some(WriteCell {
+        cell_id: c.id.clone(),
+        name: w.source.clone().unwrap_or_default(),
+        target,
+        mode,
+    })
 }
 
 /// Whether the step authorizes this write cell exactly as it is now.
 pub fn write_authorized(w: &WriteCell, auth: &[WriteAuth]) -> bool {
-    auth.iter().any(|a| a.cell_id == w.cell_id && a.target == w.target && a.mode == w.mode)
+    auth.iter()
+        .any(|a| a.cell_id == w.cell_id && a.target == w.target && a.mode == w.mode)
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +238,11 @@ impl Resolved {
     }
 
     fn allowed(&self, opts: &Options) -> bool {
-        !self.needs_opt_in() || opts.unconfirmed.iter().any(|u| u.connection_id == self.connection_id && u.database == self.database)
+        !self.needs_opt_in()
+            || opts
+                .unconfirmed
+                .iter()
+                .any(|u| u.connection_id == self.connection_id && u.database == self.database)
     }
 
     fn refusal(&self) -> String {
@@ -247,7 +287,10 @@ pub enum Where {
 /// environments and their bindings), if it's in one.
 pub struct Context {
     connections: Vec<SavedConnection>,
-    project: Option<(dbine_core::state::Project, Option<crate::commands::projects::ProjectManifest>)>,
+    project: Option<(
+        dbine_core::state::Project,
+        Option<crate::commands::projects::ProjectManifest>,
+    )>,
 }
 
 impl Context {
@@ -262,40 +305,74 @@ impl Context {
             let manifest = crate::commands::projects::read_manifest(Path::new(&p.path)).manifest;
             (p, manifest)
         });
-        Ok(Self { connections, project })
+        Ok(Self {
+            connections,
+            project,
+        })
     }
 
     fn conn(&self, id: &str) -> Option<&SavedConnection> {
         self.connections.iter().find(|c| c.id == id)
     }
 
-    fn resolved(&self, c: &SavedConnection, database: String, environment: Option<(String, bool)>) -> Resolved {
-        let base = if database.is_empty() { c.name.clone() } else { format!("{} › {database}", c.name) };
+    fn resolved(
+        &self,
+        c: &SavedConnection,
+        database: String,
+        environment: Option<(String, bool)>,
+    ) -> Resolved {
+        let base = if database.is_empty() {
+            c.name.clone()
+        } else {
+            format!("{} › {database}", c.name)
+        };
         let (env, confirm_run) = environment.map_or((None, false), |(n, r)| (Some(n), r));
         Resolved {
             connection_id: c.id.clone(),
             database,
-            label: env.as_ref().map_or(base.clone(), |e| format!("{e} · {base}")),
+            label: env
+                .as_ref()
+                .map_or(base.clone(), |e| format!("{e} · {base}")),
             environment: env,
             confirm_run,
-            production: c.tags.iter().any(|t| crate::tasks::PROD_TAGS.contains(&t.trim().to_lowercase().as_str())),
+            production: c
+                .tags
+                .iter()
+                .any(|t| crate::tasks::PROD_TAGS.contains(&t.trim().to_lowercase().as_str())),
             read_only: c.config.read_only,
         }
     }
 
     fn environment(&self, env: &str) -> Result<Resolved, Problem> {
-        let missing = || Problem {
+        let missing = || {
+            Problem {
             kind: "environment",
             name: Some(env.to_string()),
             candidates: Vec::new(),
             message: format!("el entorno «{env}» del proyecto no tiene una base asignada en esta máquina: asignala en el proyecto"),
+        }
         };
-        let Some((p, manifest)) = &self.project else { return Err(missing()) };
-        let def = manifest.as_ref().and_then(|m| m.environments.iter().find(|e| e.name.eq_ignore_ascii_case(env)));
+        let Some((p, manifest)) = &self.project else {
+            return Err(missing());
+        };
+        let def = manifest.as_ref().and_then(|m| {
+            m.environments
+                .iter()
+                .find(|e| e.name.eq_ignore_ascii_case(env))
+        });
         let name = def.map_or(env.to_string(), |d| d.name.clone());
-        let bound = p.binding.environments.get(&name).or_else(|| p.binding.environments.get(env)).ok_or_else(missing)?;
+        let bound = p
+            .binding
+            .environments
+            .get(&name)
+            .or_else(|| p.binding.environments.get(env))
+            .ok_or_else(missing)?;
         let c = self.conn(&bound.connection_id).ok_or_else(missing)?;
-        Ok(self.resolved(c, bound.database.clone(), Some((name, def.is_some_and(|d| d.confirm_run)))))
+        Ok(self.resolved(
+            c,
+            bound.database.clone(),
+            Some((name, def.is_some_and(|d| d.confirm_run))),
+        ))
     }
 
     /// A project's notebook whose cells name no target: the project's
@@ -306,13 +383,23 @@ impl Context {
             return Some(self.environment(env).map(Where::Connection));
         }
         let d = p.binding.direct.as_ref()?;
-        self.conn(&d.connection_id).map(|c| Ok(Where::Connection(self.resolved(c, d.database.clone(), None))))
+        self.conn(&d.connection_id).map(|c| {
+            Ok(Where::Connection(self.resolved(
+                c,
+                d.database.clone(),
+                None,
+            )))
+        })
     }
 
     /// A stored target that isn't DataFrame SQL: an environment, or a
     /// connection by name (the step's choice first, else the one local
     /// connection with that name).
-    fn named(&self, t: &NotebookTarget, bindings: &BTreeMap<String, Binding>) -> Result<Where, Problem> {
+    fn named(
+        &self,
+        t: &NotebookTarget,
+        bindings: &BTreeMap<String, Binding>,
+    ) -> Result<Where, Problem> {
         if t.results {
             return Ok(Where::DataFrames);
         }
@@ -321,14 +408,24 @@ impl Context {
         }
         let name = t.connection.clone().unwrap_or_default();
         let db = |c: &SavedConnection, bound: &str| {
-            t.database.clone().filter(|d| !d.is_empty()).or_else(|| (!bound.is_empty()).then(|| bound.to_string())).or_else(|| Some(c.config.database.clone()).filter(|d| !d.is_empty())).unwrap_or_default()
+            t.database
+                .clone()
+                .filter(|d| !d.is_empty())
+                .or_else(|| (!bound.is_empty()).then(|| bound.to_string()))
+                .or_else(|| Some(c.config.database.clone()).filter(|d| !d.is_empty()))
+                .unwrap_or_default()
         };
         if let Some(b) = bindings.get(&name) {
             if let Some(c) = self.conn(&b.connection_id) {
-                return Ok(Where::Connection(self.resolved(c, db(c, &b.database), None)));
+                return Ok(Where::Connection(self.resolved(
+                    c,
+                    db(c, &b.database),
+                    None,
+                )));
             }
         }
-        let same: Vec<&SavedConnection> = self.connections.iter().filter(|c| c.name == name).collect();
+        let same: Vec<&SavedConnection> =
+            self.connections.iter().filter(|c| c.name == name).collect();
         match same.as_slice() {
             [c] => Ok(Where::Connection(self.resolved(c, db(c, ""), None))),
             [] => Err(Problem {
@@ -348,14 +445,27 @@ impl Context {
 
     /// Where `cell` runs, with the step's choices.
     /// A connection cell's driver (none for DataFrame SQL or an unresolved target).
-    pub fn driver_of(&self, state: &AppState, cell: &NotebookCell, nb: &Notebook, bindings: &BTreeMap<String, Binding>) -> Option<Arc<dyn dbine_driver::Driver>> {
+    pub fn driver_of(
+        &self,
+        state: &AppState,
+        cell: &NotebookCell,
+        nb: &Notebook,
+        bindings: &BTreeMap<String, Binding>,
+    ) -> Option<Arc<dyn dbine_driver::Driver>> {
         match self.resolve(cell, nb, bindings) {
-            Ok(Where::Connection(r)) => crate::commands::schema::driver_of(state, &r.connection_id).ok().cloned(),
+            Ok(Where::Connection(r)) => crate::commands::schema::driver_of(state, &r.connection_id)
+                .ok()
+                .cloned(),
             _ => None,
         }
     }
 
-    pub fn resolve(&self, cell: &NotebookCell, nb: &Notebook, bindings: &BTreeMap<String, Binding>) -> Result<Where, Problem> {
+    pub fn resolve(
+        &self,
+        cell: &NotebookCell,
+        nb: &Notebook,
+        bindings: &BTreeMap<String, Binding>,
+    ) -> Result<Where, Problem> {
         let pick = |t: &Option<NotebookTarget>| t.clone().filter(|t| !empty(t));
         if let Some(t) = pick(&cell.target).or_else(|| pick(&nb.target)) {
             return self.named(&t, bindings);
@@ -373,7 +483,9 @@ impl Context {
 }
 
 fn empty(t: &NotebookTarget) -> bool {
-    !t.results && t.connection.as_deref().unwrap_or("").is_empty() && t.environment.as_deref().unwrap_or("").is_empty()
+    !t.results
+        && t.connection.as_deref().unwrap_or("").is_empty()
+        && t.environment.as_deref().unwrap_or("").is_empty()
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +531,15 @@ fn stored_text(t: Option<&NotebookTarget>) -> String {
             .environment
             .clone()
             .filter(|e| !e.is_empty())
-            .unwrap_or_else(|| [t.connection.as_deref(), t.database.as_deref()].iter().flatten().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" › ")),
+            .unwrap_or_else(|| {
+                [t.connection.as_deref(), t.database.as_deref()]
+                    .iter()
+                    .flatten()
+                    .filter(|s| !s.is_empty())
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(" › ")
+            }),
     }
 }
 
@@ -447,18 +567,45 @@ fn read_notebook(path: &str) -> CommandResult<Notebook> {
 pub fn plan(state: &AppState, opts: &Options, policy: Policy) -> CommandResult<Plan> {
     let nb = read_notebook(&opts.path)?;
     let ctx = Context::new(state, Path::new(opts.path.trim()))?;
-    let mut out = Plan { parameters: declared_parameters(&nb), warnings: nb.warnings.clone(), ..Default::default() };
+    let mut out = Plan {
+        parameters: declared_parameters(&nb),
+        warnings: nb.warnings.clone(),
+        ..Default::default()
+    };
     let base = Path::new(opts.path.trim()).parent().map(Path::to_path_buf);
     let home = super::files::home_dir();
     let mut files: Vec<DataFile> = Vec::new();
-    out.write_cells.extend(nb.cells.iter().filter_map(write_cell));
-    for c in nb.cells.iter().filter(|c| c.kind == CellKind::Sql && !c.source.trim().is_empty()) {
-        let stored = stored_text(c.target.as_ref().filter(|t| !empty(t)).or(nb.target.as_ref().filter(|t| !empty(t))));
-        let mut cell = PlanCell { id: c.id.clone(), name: c.name.clone().unwrap_or_default(), dataframes: false, stored, target: None, problem: None, writes: None };
+    out.write_cells
+        .extend(nb.cells.iter().filter_map(write_cell));
+    for c in nb
+        .cells
+        .iter()
+        .filter(|c| c.kind == CellKind::Sql && !c.source.trim().is_empty())
+    {
+        let stored = stored_text(
+            c.target
+                .as_ref()
+                .filter(|t| !empty(t))
+                .or(nb.target.as_ref().filter(|t| !empty(t))),
+        );
+        let mut cell = PlanCell {
+            id: c.id.clone(),
+            name: c.name.clone().unwrap_or_default(),
+            dataframes: false,
+            stored,
+            target: None,
+            problem: None,
+            writes: None,
+        };
         match ctx.resolve(c, &nb, &opts.targets) {
             Ok(Where::DataFrames) => {
                 cell.dataframes = true;
-                match super::files::plan(&c.source, base.as_deref(), home.as_deref(), local::DEFAULT_ROW_CAP) {
+                match super::files::plan(
+                    &c.source,
+                    base.as_deref(),
+                    home.as_deref(),
+                    local::DEFAULT_ROW_CAP,
+                ) {
                     Ok(reads) => files.extend(reads.into_iter().flat_map(|r| r.files)),
                     Err(e) => out.file_problems.push(format!("{}: {e}", cell.name)),
                 }
@@ -467,7 +614,12 @@ pub fn plan(state: &AppState, opts: &Options, policy: Policy) -> CommandResult<P
                 if !r.read_only {
                     cell.writes = first_write(&ctx, &r.connection_id, &c.source);
                 }
-                if r.needs_opt_in() && !out.confirm.iter().any(|x| x.connection_id == r.connection_id && x.database == r.database) {
+                if r.needs_opt_in()
+                    && !out
+                        .confirm
+                        .iter()
+                        .any(|x| x.connection_id == r.connection_id && x.database == r.database)
+                {
                     out.confirm.push(r.clone());
                 }
                 cell.target = Some(r);
@@ -485,7 +637,14 @@ pub fn plan(state: &AppState, opts: &Options, policy: Policy) -> CommandResult<P
     };
     // Unattended: the default cloud credential chain (the AWS profile of
     // Settings › Notebooks lives in the app's settings, not here).
-    let access = super::access::Access { policy, notebook, grants, approved: Vec::new(), store: None, net: super::remote::Net::current(None) };
+    let access = super::access::Access {
+        policy,
+        notebook,
+        grants,
+        approved: Vec::new(),
+        store: None,
+        net: super::remote::Net::current(None),
+    };
     for f in files {
         match access.gate(std::slice::from_ref(&f)) {
             Ok(_) => out.files.push(f),
@@ -509,9 +668,18 @@ pub fn load(opts: &Options) -> CommandResult<Notebook> {
 /// the cell's source with its `{{markers}}` and the values of the
 /// parameters it uses that aren't credentials: a credential's value never
 /// enters it (it would be a digest of the secret kept in the task's JSON).
-pub fn writing_cells(state: &AppState, opts: &Options, nb: &Notebook) -> Vec<(String, Resolved, String, String)> {
-    let Ok(ctx) = Context::new(state, Path::new(opts.path.trim())) else { return Vec::new() };
-    let cells = executable_cells(nb, &opts.params, &|c| ctx.driver_of(state, c, nb, &opts.targets)).unwrap_or_default();
+pub fn writing_cells(
+    state: &AppState,
+    opts: &Options,
+    nb: &Notebook,
+) -> Vec<(String, Resolved, String, String)> {
+    let Ok(ctx) = Context::new(state, Path::new(opts.path.trim())) else {
+        return Vec::new();
+    };
+    let cells = executable_cells(nb, &opts.params, &|c| {
+        ctx.driver_of(state, c, nb, &opts.targets)
+    })
+    .unwrap_or_default();
     let mut out = Vec::new();
     for c in nb.cells.iter().filter(|c| c.kind == CellKind::Sql) {
         let prepared = cells.get(&c.id);
@@ -532,14 +700,29 @@ pub fn writing_cells(state: &AppState, opts: &Options, nb: &Notebook) -> Vec<(St
                         // vault, never the file); every other value, and the
                         // declarations of the parameters used (a default in
                         // the file included), is covered.
-                        let values: serde_json::Map<String, Value> = p.values.iter().filter(|(k, _)| !super::params::secret_name(k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+                        let values: serde_json::Map<String, Value> = p
+                            .values
+                            .iter()
+                            .filter(|(k, _)| !super::params::secret_name(k))
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
                         let used: Vec<Value> = nb
                             .parameters
                             .iter()
-                            .filter(|d| p.prepared.used.iter().any(|u| u.eq_ignore_ascii_case(&d.name)))
+                            .filter(|d| {
+                                p.prepared
+                                    .used
+                                    .iter()
+                                    .any(|u| u.eq_ignore_ascii_case(&d.name))
+                            })
                             .map(|d| serde_json::to_value(d).unwrap_or(Value::Null))
                             .collect();
-                        format!("{}\u{0}{}\u{0}{}", c.source, Value::Object(values), Value::Array(used))
+                        format!(
+                            "{}\u{0}{}\u{0}{}",
+                            c.source,
+                            Value::Object(values),
+                            Value::Array(used)
+                        )
                     }
                 };
                 out.push((c.name.clone().unwrap_or_default(), r, what, covered));
@@ -552,10 +735,18 @@ pub fn writing_cells(state: &AppState, opts: &Options, nb: &Notebook) -> Vec<(St
 /// The connections the step's cells run on (to read their saved passwords
 /// up front, with a time limit).
 pub fn connections(state: &AppState, opts: &Options) -> Vec<String> {
-    let Ok(nb) = read_notebook(&opts.path) else { return Vec::new() };
-    let Ok(ctx) = Context::new(state, Path::new(opts.path.trim())) else { return Vec::new() };
+    let Ok(nb) = read_notebook(&opts.path) else {
+        return Vec::new();
+    };
+    let Ok(ctx) = Context::new(state, Path::new(opts.path.trim())) else {
+        return Vec::new();
+    };
     let mut out: Vec<String> = Vec::new();
-    for c in nb.cells.iter().filter(|c| c.kind == CellKind::Sql && !c.source.trim().is_empty()) {
+    for c in nb
+        .cells
+        .iter()
+        .filter(|c| c.kind == CellKind::Sql && !c.source.trim().is_empty())
+    {
         if let Ok(Where::Connection(r)) = ctx.resolve(c, &nb, &opts.targets) {
             if !out.contains(&r.connection_id) {
                 out.push(r.connection_id);
@@ -568,7 +759,10 @@ pub fn connections(state: &AppState, opts: &Options) -> Vec<String> {
 // ---------------------------------------------------------------------------
 // Results
 
-fn statement_texts(results: &[&dbine_driver::StatementResult], script: &str) -> Vec<Option<String>> {
+fn statement_texts(
+    results: &[&dbine_driver::StatementResult],
+    script: &str,
+) -> Vec<Option<String>> {
     if results.len() == 1 && results[0].offset.is_none() {
         return vec![Some(script.to_string())];
     }
@@ -577,7 +771,11 @@ fn statement_texts(results: &[&dbine_driver::StatementResult], script: &str) -> 
         .enumerate()
         .map(|(i, r)| {
             let start = r.offset?;
-            let next = results[i + 1..].iter().filter_map(|x| x.offset).find(|&o| o > start).unwrap_or(script.len());
+            let next = results[i + 1..]
+                .iter()
+                .filter_map(|x| x.offset)
+                .find(|&o| o > start)
+                .unwrap_or(script.len());
             let text = script.get(start..next.min(script.len()))?;
             Some(text.trim_end().trim_end_matches(';').to_string())
         })
@@ -586,30 +784,57 @@ fn statement_texts(results: &[&dbine_driver::StatementResult], script: &str) -> 
 
 /// What a run leaves on the cell, as the tab's `outcomeToResult` does
 /// (the preview is cut when the file is written).
-pub fn outcome_to_result(o: &QueryOutcome, script: &str, ran_at: &str, engine: Option<String>, target_label: Option<String>) -> CellResult {
+pub fn outcome_to_result(
+    o: &QueryOutcome,
+    script: &str,
+    ran_at: &str,
+    engine: Option<String>,
+    target_label: Option<String>,
+) -> CellResult {
     let messages: Vec<String> = if o.log.is_empty() {
         o.messages.clone()
     } else {
-        o.log.iter().filter(|m| m.level != dbine_driver::MessageLevel::Error).map(|m| m.text.clone()).collect()
+        o.log
+            .iter()
+            .filter(|m| m.level != dbine_driver::MessageLevel::Error)
+            .map(|m| m.text.clone())
+            .collect()
     }
     .into_iter()
     .map(|m| m.trim().to_string())
     .filter(|m| !m.is_empty())
     .collect();
-    let errors: Vec<String> = if o.errors.is_empty() { o.error.iter().cloned().collect() } else { o.errors.iter().map(|e| e.message.clone()).collect() };
-    let kept: Vec<&dbine_driver::StatementResult> = o.results.iter().filter(|r| !r.columns.is_empty() || r.rows_affected.is_some()).collect();
+    let errors: Vec<String> = if o.errors.is_empty() {
+        o.error.iter().cloned().collect()
+    } else {
+        o.errors.iter().map(|e| e.message.clone()).collect()
+    };
+    let kept: Vec<&dbine_driver::StatementResult> = o
+        .results
+        .iter()
+        .filter(|r| !r.columns.is_empty() || r.rows_affected.is_some())
+        .collect();
     let texts = statement_texts(&kept, script);
     let results = kept
         .iter()
         .zip(texts)
         .map(|(r, text)| StoredStatement {
-            columns: r.columns.iter().map(|c| StoredColumn { name: c.name.clone(), type_name: c.type_name.clone() }).collect(),
+            columns: r
+                .columns
+                .iter()
+                .map(|c| StoredColumn {
+                    name: c.name.clone(),
+                    type_name: c.type_name.clone(),
+                })
+                .collect(),
             rows: r.rows.clone(),
             rows_total: r.total_rows.max(r.rows.len() as u64),
             rows_kept: r.rows.len() as u64,
             truncated: r.truncated || r.total_rows > r.rows.len() as u64,
             rows_affected: r.rows_affected,
-            statement: text.map(|t| t.trim().chars().take(4000).collect::<String>()).filter(|t| !t.is_empty()),
+            statement: text
+                .map(|t| t.trim().chars().take(4000).collect::<String>())
+                .filter(|t| !t.is_empty()),
         })
         .collect();
     CellResult {
@@ -631,7 +856,10 @@ fn complete_rows(o: &QueryOutcome) -> Option<LiveRows> {
         return None;
     }
     let r = o.results.iter().find(|r| !r.columns.is_empty())?;
-    (!r.truncated && r.total_rows <= r.rows.len() as u64).then(|| LiveRows { columns: r.columns.clone(), rows: r.rows.clone() })
+    (!r.truncated && r.total_rows <= r.rows.len() as u64).then(|| LiveRows {
+        columns: r.columns.clone(),
+        rows: r.rows.clone(),
+    })
 }
 
 fn failed(o: &QueryOutcome) -> bool {
@@ -662,33 +890,62 @@ struct Live {
 
 /// Settings › Notebooks and the editor's row limit, as the tab reads them.
 fn setting_u64(state: &AppState, key: &str) -> Option<u64> {
-    state.store.get_setting(key).ok().flatten().and_then(|v| v.as_f64()).filter(|n| *n >= 1.0).map(|n| n as u64)
+    state
+        .store
+        .get_setting(key)
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_f64())
+        .filter(|n| *n >= 1.0)
+        .map(|n| n as u64)
 }
 
 pub fn preview_limits(state: &AppState) -> super::PreviewLimits {
-    super::PreviewLimits::new(setting_u64(state, "notebook.rowsPerCell").map(|n| n as u32), setting_u64(state, "notebook.bytesPerCell"))
+    super::PreviewLimits::new(
+        setting_u64(state, "notebook.rowsPerCell").map(|n| n as u32),
+        setting_u64(state, "notebook.bytesPerCell"),
+    )
 }
 
 /// Run every SQL cell of the notebook in order; stop at the first that
 /// fails. `key`: the run's session prefix (`cancel_query` takes its
 /// sessions). Sessions opened here are closed at the end.
-pub async fn run(state: &AppState, key: &str, opts: &Options, policy: Policy) -> CommandResult<Ran> {
+pub async fn run(
+    state: &AppState,
+    key: &str,
+    opts: &Options,
+    policy: Policy,
+) -> CommandResult<Ran> {
     run_loaded(state, key, opts, policy, read_notebook(&opts.path)?).await
 }
 
 /// [`run`] on a notebook already read ([`load`]): the copy whose writes
 /// the task approved.
-pub async fn run_loaded(state: &AppState, key: &str, opts: &Options, policy: Policy, mut nb: Notebook) -> CommandResult<Ran> {
+pub async fn run_loaded(
+    state: &AppState,
+    key: &str,
+    opts: &Options,
+    policy: Policy,
+    mut nb: Notebook,
+) -> CommandResult<Ran> {
     let path = opts.path.trim().to_string();
     let ctx = Context::new(state, Path::new(&path))?;
-    let cells = executable_cells(&nb, &opts.params, &|c| ctx.driver_of(state, c, &nb, &opts.targets))?;
-    let sources: HashMap<String, String> = cells.iter().map(|(id, c)| (id.clone(), c.prepared.text.clone())).collect();
+    let cells = executable_cells(&nb, &opts.params, &|c| {
+        ctx.driver_of(state, c, &nb, &opts.targets)
+    })?;
+    let sources: HashMap<String, String> = cells
+        .iter()
+        .map(|(id, c)| (id.clone(), c.prepared.text.clone()))
+        .collect();
     let max_rows = setting_u64(state, "query.maxRows").unwrap_or(5000) as usize;
     let cap = setting_u64(state, "notebook.resultsRowCap").unwrap_or(local::DEFAULT_ROW_CAP);
     let tab = format!("{key}:nb");
     let mut sessions: Sessions = HashMap::new();
     // The connections and databases this run writes on (approved cells).
-    let write_pairs: HashSet<(String, String)> = writing_cells(state, opts, &nb).into_iter().map(|(_, r, _, _)| (r.connection_id, r.database)).collect();
+    let write_pairs: HashSet<(String, String)> = writing_cells(state, opts, &nb)
+        .into_iter()
+        .map(|(_, r, _, _)| (r.connection_id, r.database))
+        .collect();
     let mut live: HashMap<String, Live> = HashMap::new();
     let mut counter = 0u32;
     let mut run_seq = 0u64;
@@ -856,7 +1113,11 @@ pub async fn run_loaded(state: &AppState, key: &str, opts: &Options, policy: Pol
     result?;
     // Cells this run didn't reach keep no result: an old one would read as
     // this run's.
-    for c in nb.cells.iter_mut().filter(|c| matches!(c.kind, CellKind::Sql | CellKind::Write) && !reached.contains(&c.id)) {
+    for c in nb
+        .cells
+        .iter_mut()
+        .filter(|c| matches!(c.kind, CellKind::Sql | CellKind::Write) && !reached.contains(&c.id))
+    {
         c.result = None;
         c.write_result = None;
         c.execution_count = None;
@@ -865,7 +1126,11 @@ pub async fn run_loaded(state: &AppState, key: &str, opts: &Options, policy: Pol
     // error, a message) never reaches the copy, its export or the run's log.
     let secrets = credential_values(&opts.params, cells.values().map(|c| &c.values));
     scrub_credentials(&mut nb, &mut failure, &secrets);
-    Ok(Ran { notebook: nb, ran, failure })
+    Ok(Ran {
+        notebook: nb,
+        ran,
+        failure,
+    })
 }
 
 /// The sessions of a run: one per connection, database and whether it
@@ -874,13 +1139,21 @@ type Sessions = HashMap<(String, String, bool), (String, Arc<SessionEntry>)>;
 
 /// The run's session for `r`: writable (`writes`) or read-only, opened on
 /// first use and kept for the run.
-async fn session(state: &AppState, key: &str, sessions: &mut Sessions, r: &Resolved, writes: bool) -> CommandResult<Arc<SessionEntry>> {
+async fn session(
+    state: &AppState,
+    key: &str,
+    sessions: &mut Sessions,
+    r: &Resolved,
+    writes: bool,
+) -> CommandResult<Arc<SessionEntry>> {
     let id = (r.connection_id.clone(), r.database.clone(), writes);
     if let Some((_, e)) = sessions.get(&id) {
         return Ok(e.clone());
     }
     let skey = format!("{key}:{}", sessions.len());
-    let e = state.dedicated_session(&skey, &r.connection_id, &r.database, !writes).await?;
+    let e = state
+        .dedicated_session(&skey, &r.connection_id, &r.database, !writes)
+        .await?;
     sessions.insert(id, (skey, e.clone()));
     Ok(e)
 }
@@ -889,23 +1162,51 @@ async fn session(state: &AppState, key: &str, sessions: &mut Sessions, r: &Resol
 /// instead of `script` (the text that ran, the values as literals): the
 /// unit at the same place in the driver's cut of both. The whole source
 /// for a single result; no text when the cuts don't match.
-fn marker_statements(r: &mut CellResult, o: &QueryOutcome, script: &str, source: &str, driver: Option<&dyn dbine_driver::Driver>) {
-    let kept: Vec<&dbine_driver::StatementResult> = o.results.iter().filter(|r| !r.columns.is_empty() || r.rows_affected.is_some()).collect();
+fn marker_statements(
+    r: &mut CellResult,
+    o: &QueryOutcome,
+    script: &str,
+    source: &str,
+    driver: Option<&dyn dbine_driver::Driver>,
+) {
+    let kept: Vec<&dbine_driver::StatementResult> = o
+        .results
+        .iter()
+        .filter(|r| !r.columns.is_empty() || r.rows_affected.is_some())
+        .collect();
     let single = kept.len() == 1 && kept[0].offset.is_none();
-    let units = driver.map(|d| (d.split_script(script), d.split_script(source))).filter(|(a, b)| a.len() == b.len());
+    let units = driver
+        .map(|d| (d.split_script(script), d.split_script(source)))
+        .filter(|(a, b)| a.len() == b.len());
     for (s, k) in r.results.iter_mut().zip(&kept) {
         let text = if single {
             Some(source.to_string())
         } else {
-            units.as_ref().zip(k.offset).and_then(|((ran, src), o)| ran.iter().position(|u| u.start == o).map(|i| src[i].text.clone()))
+            units.as_ref().zip(k.offset).and_then(|((ran, src), o)| {
+                ran.iter()
+                    .position(|u| u.start == o)
+                    .map(|i| src[i].text.clone())
+            })
         };
-        s.statement = text.map(|t| t.trim().trim_end_matches(';').trim_end().chars().take(4000).collect::<String>()).filter(|t| !t.is_empty());
+        s.statement = text
+            .map(|t| {
+                t.trim()
+                    .trim_end_matches(';')
+                    .trim_end()
+                    .chars()
+                    .take(4000)
+                    .collect::<String>()
+            })
+            .filter(|t| !t.is_empty());
     }
 }
 
 /// The values of the credential parameters (a password's, a token's) a
 /// run had: the step's and each cell's.
-fn credential_values<'a>(params: &BTreeMap<String, Value>, cells: impl Iterator<Item = &'a serde_json::Map<String, Value>>) -> Vec<String> {
+fn credential_values<'a>(
+    params: &BTreeMap<String, Value>,
+    cells: impl Iterator<Item = &'a serde_json::Map<String, Value>>,
+) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let all = params.iter().chain(cells.flat_map(|m| m.iter()));
     for (_, v) in all.filter(|(k, _)| super::is_credential_param(k)) {
@@ -926,7 +1227,11 @@ fn credential_values<'a>(params: &BTreeMap<String, Value>, cells: impl Iterator<
 /// `***` for each of `secrets` (as given and as a SQL literal writes it,
 /// quotes doubled) in the statements, messages and errors of every
 /// result, and in the failure.
-fn scrub_credentials(nb: &mut Notebook, failure: &mut Option<(String, String)>, secrets: &[String]) {
+fn scrub_credentials(
+    nb: &mut Notebook,
+    failure: &mut Option<(String, String)>,
+    secrets: &[String],
+) {
     if secrets.is_empty() {
         return;
     }
@@ -935,7 +1240,12 @@ fn scrub_credentials(nb: &mut Notebook, failure: &mut Option<(String, String)>, 
             // As given, and as the engines' literals spell it: quotes
             // doubled, or backslashes doubled with `\'` or `''` quotes.
             let bs = s.replace('\\', "\\\\");
-            for form in [bs.replace('\'', "\\'"), bs.replace('\'', "''"), s.replace('\'', "''"), s.clone()] {
+            for form in [
+                bs.replace('\'', "\\'"),
+                bs.replace('\'', "''"),
+                s.replace('\'', "''"),
+                s.clone(),
+            ] {
                 if t.contains(&form) {
                     *t = t.replace(&form, "***");
                 }
@@ -944,7 +1254,10 @@ fn scrub_credentials(nb: &mut Notebook, failure: &mut Option<(String, String)>, 
     };
     for c in &mut nb.cells {
         if let Some(r) = c.result.as_mut() {
-            r.results.iter_mut().filter_map(|s| s.statement.as_mut()).for_each(scrub);
+            r.results
+                .iter_mut()
+                .filter_map(|s| s.statement.as_mut())
+                .for_each(scrub);
             r.messages.iter_mut().for_each(scrub);
             r.error.iter_mut().for_each(scrub);
         }
@@ -978,7 +1291,20 @@ async fn dataframes(
     policy: Policy,
 ) -> Result<QueryOutcome, String> {
     let base = frame_sources(ctx, nb, at, sources, live, script, opts)?;
-    let r = local::run_local(state, tab, script, max_rows, cap, &base, Some(path), None, policy, super::remote::Net::current(None)).await.map_err(|e| e.to_string())?;
+    let r = local::run_local(
+        state,
+        tab,
+        script,
+        max_rows,
+        cap,
+        &base,
+        Some(path),
+        None,
+        policy,
+        super::remote::Net::current(None),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     if let Some(a) = r.approval {
         return Err(unapproved(&a));
     }
@@ -997,18 +1323,51 @@ fn unapproved(a: &super::access::ApprovalRequest) -> String {
 /// The SQL cells above `at` as DataFrame sources of `script`: the ones it
 /// needs resolved (each one's opt-in checked), with the rows of their run
 /// here when complete.
-fn frame_sources(ctx: &Context, nb: &Notebook, at: usize, sources: &HashMap<String, String>, live: &HashMap<String, Live>, script: &str, opts: &Options) -> Result<Vec<LocalSource>, String> {
+fn frame_sources(
+    ctx: &Context,
+    nb: &Notebook,
+    at: usize,
+    sources: &HashMap<String, String>,
+    live: &HashMap<String, Live>,
+    script: &str,
+    opts: &Options,
+) -> Result<Vec<LocalSource>, String> {
     let above: Vec<&NotebookCell> = nb.cells[..at]
         .iter()
-        .filter(|c| c.kind == CellKind::Sql && c.name.is_some() && !sources.get(&c.id).map_or(c.source.as_str(), String::as_str).trim().is_empty())
+        .filter(|c| {
+            c.kind == CellKind::Sql
+                && c.name.is_some()
+                && !sources
+                    .get(&c.id)
+                    .map_or(c.source.as_str(), String::as_str)
+                    .trim()
+                    .is_empty()
+        })
         .collect();
     let mut base: Vec<LocalSource> = Vec::new();
     for c in &above {
         let local = matches!(ctx.resolve(c, nb, &opts.targets), Ok(Where::DataFrames));
-        let sql = sources.get(&c.id).cloned().unwrap_or_else(|| c.source.clone()).trim().to_string();
-        base.push(LocalSource { name: c.name.clone().unwrap_or_default(), local, sql, connection_id: None, database: None, run: None, rows: None, files_key: String::new() });
+        let sql = sources
+            .get(&c.id)
+            .cloned()
+            .unwrap_or_else(|| c.source.clone())
+            .trim()
+            .to_string();
+        base.push(LocalSource {
+            name: c.name.clone().unwrap_or_default(),
+            local,
+            sql,
+            connection_id: None,
+            database: None,
+            run: None,
+            rows: None,
+            files_key: String::new(),
+        });
     }
-    let needed: HashSet<String> = local::needed(script, &base).into_iter().map(|i| base[i].name.to_lowercase()).collect();
+    let needed: HashSet<String> = local::needed(script, &base)
+        .into_iter()
+        .map(|i| base[i].name.to_lowercase())
+        .collect();
     for (k, c) in above.iter().enumerate() {
         let s = &mut base[k];
         if s.local || !needed.contains(&s.name.to_lowercase()) {
@@ -1022,7 +1381,9 @@ fn frame_sources(ctx: &Context, nb: &Notebook, at: usize, sources: &HashMap<Stri
         if !r.allowed(opts) {
             return Err(format!("«{}»: {}", s.name, r.refusal()));
         }
-        if let Some(l) = live.get(&c.id).filter(|l| l.sql == s.sql && l.connection_id == r.connection_id && l.database == r.database) {
+        if let Some(l) = live.get(&c.id).filter(|l| {
+            l.sql == s.sql && l.connection_id == r.connection_id && l.database == r.database
+        }) {
             if let Some(rows) = complete_rows(&l.outcome) {
                 s.rows = Some(rows);
                 s.run = Some(l.run);
@@ -1057,9 +1418,22 @@ async fn write_unattended(
     use super::write::{prepare, run as write_run, WriteArgs, WriteTarget};
     let cell = &nb.cells[at];
     let w = cell.write.clone().unwrap_or_default();
-    let source = w.source.clone().filter(|s| !s.is_empty()).ok_or_else(|| "la celda de escritura no dice qué DataFrame escribe".to_string())?;
-    let table = w.table.clone().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).ok_or_else(|| "la celda de escritura no tiene tabla de destino".to_string())?;
-    let target = w.target.clone().filter(|t| !empty(t) && !t.results).ok_or_else(|| "la celda de escritura no tiene dónde escribir".to_string())?;
+    let source = w
+        .source
+        .clone()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "la celda de escritura no dice qué DataFrame escribe".to_string())?;
+    let table = w
+        .table
+        .clone()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| "la celda de escritura no tiene tabla de destino".to_string())?;
+    let target = w
+        .target
+        .clone()
+        .filter(|t| !empty(t) && !t.results)
+        .ok_or_else(|| "la celda de escritura no tiene dónde escribir".to_string())?;
     let r = match ctx.named(&target, &opts.targets) {
         Ok(Where::Connection(r)) => r,
         Ok(Where::DataFrames) => return Err("la celda de escritura no tiene dónde escribir".into()),
@@ -1068,7 +1442,10 @@ async fn write_unattended(
     if !r.allowed(opts) {
         return Err(r.refusal());
     }
-    let script = format!("SELECT * FROM {}", dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Double, &source));
+    let script = format!(
+        "SELECT * FROM {}",
+        dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Double, &source)
+    );
     let base = frame_sources(ctx, nb, at, sources, live, &script, opts)?;
     let args = WriteArgs {
         tab_id: tab.to_string(),
@@ -1079,17 +1456,29 @@ async fn write_unattended(
         notebook_path: Some(path.to_string()),
         approval: None,
         aws_profile: None,
-        target: WriteTarget { connection_id: r.connection_id.clone(), database: r.database.clone(), schema: w.schema.clone(), table, create: w.create },
+        target: WriteTarget {
+            connection_id: r.connection_id.clone(),
+            database: r.database.clone(),
+            schema: w.schema.clone(),
+            table,
+            create: w.create,
+        },
         mode: w.mode,
         keys: w.keys.clone(),
         mapping: w.mapping.clone(),
     };
-    let prepared = prepare(state, &args, policy, super::remote::Net::current(None)).await.map_err(|e| e.to_string())?;
+    let prepared = prepare(state, &args, policy, super::remote::Net::current(None))
+        .await
+        .map_err(|e| e.to_string())?;
     if let Some(a) = prepared.approval {
         return Err(unapproved(&a));
     }
-    let plan = prepared.plan.ok_or_else(|| "no se pudo preparar la escritura".to_string())?;
-    write_run(state, &args, &plan.token, plan.rows).await.map_err(|e| e.to_string())
+    let plan = prepared
+        .plan
+        .ok_or_else(|| "no se pudo preparar la escritura".to_string())?;
+    write_run(state, &args, &plan.token, plan.rows)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// DBine's own folders, when there's no app handle (the OS scheduler's
@@ -1105,10 +1494,18 @@ pub fn own_dirs() -> Vec<PathBuf> {
             dirs.extend([c, d]);
         }
         if let Some(h) = super::files::home_dir() {
-            dirs.extend([h.join("Library/Caches").join(id), h.join("Library/Logs").join(id), h.join(".cache").join(id), h.join(".local/share").join(id)]);
+            dirs.extend([
+                h.join("Library/Caches").join(id),
+                h.join("Library/Logs").join(id),
+                h.join(".cache").join(id),
+                h.join(".local/share").join(id),
+            ]);
         }
         for var in ["LOCALAPPDATA", "APPDATA"] {
-            if let Some(base) = std::env::var_os(var).map(PathBuf::from).filter(|p| p.is_absolute()) {
+            if let Some(base) = std::env::var_os(var)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+            {
                 dirs.push(base.join(id));
             }
         }

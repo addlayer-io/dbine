@@ -33,8 +33,19 @@ const MVIEW_COMMENTS: &str = "SELECT mview_name, comments FROM all_mview_comment
 /// One `ROWS` row as an estimate: a negative count (never seen, but
 /// guarded) is left out.
 fn estimate(name: String, rows: i64, flag: &str) -> Option<RowEstimate> {
-    let kind = if flag == "M" { kinds::MATERIALIZED_VIEW } else { kinds::TABLE };
-    (rows >= 0).then(|| RowEstimate { object: ObjectRef { kind: kind.into(), schema: None, name }, rows: rows as u64 })
+    let kind = if flag == "M" {
+        kinds::MATERIALIZED_VIEW
+    } else {
+        kinds::TABLE
+    };
+    (rows >= 0).then(|| RowEstimate {
+        object: ObjectRef {
+            kind: kind.into(),
+            schema: None,
+            name,
+        },
+        rows: rows as u64,
+    })
 }
 
 fn row_estimates(c: &Connection, owner: &str) -> Result<Vec<RowEstimate>> {
@@ -56,7 +67,14 @@ fn comments(c: &Connection, sql: &str, owner: &str, kind: &str) -> Result<Vec<Ob
         let name: String = row.get(0).map_err(err)?;
         let comment: Option<String> = row.get(1).map_err(err)?;
         if let Some(comment) = comment.filter(|s| !s.trim().is_empty()) {
-            out.push(ObjectComment { object: ObjectRef { kind: kind.into(), schema: None, name }, comment });
+            out.push(ObjectComment {
+                object: ObjectRef {
+                    kind: kind.into(),
+                    schema: None,
+                    name,
+                },
+                comment,
+            });
         }
     }
     Ok(out)
@@ -78,7 +96,10 @@ impl OracleSession {
         let owner = self.schema.clone();
         self.run(move |c| {
             let mut out = Vec::new();
-            for (sql, kind) in [(VIEW_COMMENTS, kinds::VIEW), (MVIEW_COMMENTS, kinds::MATERIALIZED_VIEW)] {
+            for (sql, kind) in [
+                (VIEW_COMMENTS, kinds::VIEW),
+                (MVIEW_COMMENTS, kinds::MATERIALIZED_VIEW),
+            ] {
                 match comments(c, sql, &owner, kind) {
                     Ok(v) => out.extend(v),
                     Err(e) => tracing::debug!("oracle: {kind} comments not read: {e}"),
@@ -97,7 +118,10 @@ mod tests {
     #[test]
     fn container_tables_are_materialized_views() {
         let t = estimate("CLIENTES".into(), 42, "T").unwrap();
-        assert_eq!((t.object.kind.as_str(), t.object.name.as_str(), t.rows), ("table", "CLIENTES", 42));
+        assert_eq!(
+            (t.object.kind.as_str(), t.object.name.as_str(), t.rows),
+            ("table", "CLIENTES", 42)
+        );
         assert!(t.object.schema.is_none());
         let m = estimate("MV_VENTAS".into(), 0, "M").unwrap();
         assert_eq!((m.object.kind.as_str(), m.rows), ("materialized_view", 0));

@@ -12,11 +12,19 @@
 
 use crate::{err, join_err, text, FirebirdSession};
 use dbine_driver::{Error, Field, FieldChoices, FieldKind, Result};
-use rsfbclient_core::{Dialect, FirebirdClientDbOps, FirebirdClientSqlOps, TrDataAccessMode, TrIsolationLevel, TrLockResolution, TrOp, TransactionConfiguration};
+use rsfbclient_core::{
+    Dialect, FirebirdClientDbOps, FirebirdClientSqlOps, TrDataAccessMode, TrIsolationLevel,
+    TrLockResolution, TrOp, TransactionConfiguration,
+};
 use rsfbclient_rust::RustFbClient;
 use std::collections::BTreeMap;
 
-const PAGE_SIZES: [(&str, &str); 4] = [("4096", "4096"), ("8192", "8192"), ("16384", "16384"), ("32768", "32768 (Firebird 4+)")];
+const PAGE_SIZES: [(&str, &str); 4] = [
+    ("4096", "4096"),
+    ("8192", "8192"),
+    ("16384", "16384"),
+    ("32768", "32768 (Firebird 4+)"),
+];
 
 pub(crate) fn fields() -> Vec<Field> {
     vec![
@@ -46,15 +54,27 @@ pub(crate) struct Plan {
 pub(crate) fn plan(name: &str, o: &BTreeMap<String, String>) -> Result<Plan> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(Error::Query("Falta la ruta o el alias de la base de datos.".into()));
+        return Err(Error::Query(
+            "Falta la ruta o el alias de la base de datos.".into(),
+        ));
     }
     let path = match opt(o, "folder") {
         Some(dir) => {
             if name.contains(['/', '\\']) {
-                return Err(Error::Query("con una carpeta, el nombre es solo el del archivo (sin carpetas)".into()));
+                return Err(Error::Query(
+                    "con una carpeta, el nombre es solo el del archivo (sin carpetas)".into(),
+                ));
             }
-            let sep = if dir.contains('\\') && !dir.contains('/') { '\\' } else { '/' };
-            let file = if name.contains('.') { name.to_string() } else { format!("{name}.fdb") };
+            let sep = if dir.contains('\\') && !dir.contains('/') {
+                '\\'
+            } else {
+                '/'
+            };
+            let file = if name.contains('.') {
+                name.to_string()
+            } else {
+                format!("{name}.fdb")
+            };
             format!("{}{sep}{file}", dir.trim_end_matches(['/', '\\']))
         }
         None => name.to_string(),
@@ -65,20 +85,33 @@ pub(crate) fn plan(name: &str, o: &BTreeMap<String, String>) -> Result<Plan> {
     let page_size = match opt(o, "page_size") {
         Some(p) => match PAGE_SIZES.iter().find(|(v, _)| *v == p) {
             Some(_) => Some(p.parse().unwrap_or(8192)),
-            None => return Err(Error::Query(format!("tamaño de página: «{p}» no es 4096, 8192, 16384 ni 32768"))),
+            None => {
+                return Err(Error::Query(format!(
+                    "tamaño de página: «{p}» no es 4096, 8192, 16384 ni 32768"
+                )))
+            }
         },
         None => None,
     };
     let alter = match opt(o, "charset") {
         Some(c) => {
             if !c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
-                return Err(Error::Query(format!("juego de caracteres: «{c}» no es un valor válido")));
+                return Err(Error::Query(format!(
+                    "juego de caracteres: «{c}» no es un valor válido"
+                )));
             }
-            Some(format!("ALTER DATABASE SET DEFAULT CHARACTER SET {}", c.to_ascii_uppercase()))
+            Some(format!(
+                "ALTER DATABASE SET DEFAULT CHARACTER SET {}",
+                c.to_ascii_uppercase()
+            ))
         }
         None => None,
     };
-    Ok(Plan { path, page_size, alter })
+    Ok(Plan {
+        path,
+        page_size,
+        alter,
+    })
 }
 
 pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String> {
@@ -97,17 +130,44 @@ impl FirebirdSession {
     /// The server's character sets (default NONE) and the current
     /// database's folder.
     pub(crate) async fn create_database_choices_impl(&mut self) -> Result<Vec<FieldChoices>> {
-        let charsets = self.rows("SELECT TRIM(RDB$CHARACTER_SET_NAME) FROM RDB$CHARACTER_SETS ORDER BY 1", vec![]).await.unwrap_or_default();
-        let file = self.rows("SELECT MON$DATABASE_NAME FROM MON$DATABASE", vec![]).await.ok().and_then(|r| r.first().and_then(|r| r.first()).and_then(text));
-        let folder = file.and_then(|f| f.rfind(['/', '\\']).map(|i| f[..i].to_string())).filter(|d| !d.is_empty());
+        let charsets = self
+            .rows(
+                "SELECT TRIM(RDB$CHARACTER_SET_NAME) FROM RDB$CHARACTER_SETS ORDER BY 1",
+                vec![],
+            )
+            .await
+            .unwrap_or_default();
+        let file = self
+            .rows("SELECT MON$DATABASE_NAME FROM MON$DATABASE", vec![])
+            .await
+            .ok()
+            .and_then(|r| r.first().and_then(|r| r.first()).and_then(text));
+        let folder = file
+            .and_then(|f| f.rfind(['/', '\\']).map(|i| f[..i].to_string()))
+            .filter(|d| !d.is_empty());
         Ok(vec![
-            FieldChoices { key: "folder".into(), default: None, values: folder.into_iter().collect() },
-            FieldChoices { key: "charset".into(), default: Some("NONE".into()), values: charsets.iter().filter_map(|r| r.first().and_then(text)).collect() },
+            FieldChoices {
+                key: "folder".into(),
+                default: None,
+                values: folder.into_iter().collect(),
+            },
+            FieldChoices {
+                key: "charset".into(),
+                default: Some("NONE".into()),
+                values: charsets
+                    .iter()
+                    .filter_map(|r| r.first().and_then(text))
+                    .collect(),
+            },
         ])
     }
 
     /// Create the file, then set its default character set on it.
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let p = plan(name, o)?;
         let mut t = self.target.clone();
         t.attach.db_name = p.path.clone();
@@ -117,7 +177,9 @@ impl FirebirdSession {
             // integers are little-endian (16384 arrived as 4194304 and the
             // server took its maximum): swapped here, it arrives right.
             let page_size = p.page_size.map(u32::swap_bytes);
-            let mut db = client.create_database(&t.attach, page_size, Dialect::D3).map_err(err)?;
+            let mut db = client
+                .create_database(&t.attach, page_size, Dialect::D3)
+                .map_err(err)?;
             let mut step = || -> Result<()> {
                 let Some(alter) = &p.alter else { return Ok(()) };
                 let conf = TransactionConfiguration {
@@ -126,11 +188,19 @@ impl FirebirdSession {
                     lock_resolution: TrLockResolution::Wait(None),
                 };
                 let mut tr = client.begin_transaction(&mut db, conf).map_err(err)?;
-                client.exec_immediate(&mut db, &mut tr, Dialect::D3, alter).map_err(err)?;
-                client.transaction_operation(&mut tr, TrOp::Commit).map_err(err)
+                client
+                    .exec_immediate(&mut db, &mut tr, Dialect::D3, alter)
+                    .map_err(err)?;
+                client
+                    .transaction_operation(&mut tr, TrOp::Commit)
+                    .map_err(err)
             };
             let r = step().map_err(|e| {
-                Error::Query(format!("la base «{}» se creó, pero falló este paso: {}\n{e}", p.path, p.alter.as_deref().unwrap_or_default()))
+                Error::Query(format!(
+                    "la base «{}» se creó, pero falló este paso: {}\n{e}",
+                    p.path,
+                    p.alter.as_deref().unwrap_or_default()
+                ))
             });
             let detached = client.detach_database(&mut db).map_err(err);
             r.and(detached)
@@ -145,15 +215,24 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script(" /data/v.fdb ", &o(&[("charset", "")])).unwrap(), "CREATE DATABASE '/data/v.fdb'");
+        assert_eq!(
+            script(" /data/v.fdb ", &o(&[("charset", "")])).unwrap(),
+            "CREATE DATABASE '/data/v.fdb'"
+        );
         assert_eq!(script("it's", &o(&[])).unwrap(), "CREATE DATABASE 'it''s'");
         let p = plan("ventas", &o(&[])).unwrap();
-        assert_eq!((p.path.as_str(), p.page_size, p.alter), ("ventas", None, None));
+        assert_eq!(
+            (p.path.as_str(), p.page_size, p.alter),
+            ("ventas", None, None)
+        );
     }
 
     #[test]
@@ -162,12 +241,19 @@ mod tests {
             script("ventas", &o(&[("folder", "/var/lib/firebird/data/"), ("page_size", "16384"), ("charset", "utf8")])).unwrap(),
             "CREATE DATABASE '/var/lib/firebird/data/ventas.fdb'\nPAGE_SIZE 16384;\nALTER DATABASE SET DEFAULT CHARACTER SET UTF8;"
         );
-        assert_eq!(plan("v.gdb", &o(&[("folder", "C:\\Datos")])).unwrap().path, "C:\\Datos\\v.gdb");
+        assert_eq!(
+            plan("v.gdb", &o(&[("folder", "C:\\Datos")])).unwrap().path,
+            "C:\\Datos\\v.gdb"
+        );
     }
 
     #[test]
     fn values_are_checked() {
-        for bad in [("page_size", "1000"), ("charset", "UTF8; DROP"), ("folder", "/x\u{1}y")] {
+        for bad in [
+            ("page_size", "1000"),
+            ("charset", "UTF8; DROP"),
+            ("folder", "/x\u{1}y"),
+        ] {
             assert!(script("v", &o(&[bad])).is_err(), "{bad:?}");
         }
         assert!(script("a/b", &o(&[("folder", "/data")])).is_err());

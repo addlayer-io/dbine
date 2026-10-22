@@ -10,11 +10,21 @@ use dbine_tunnel::{open, trusted_entry, Auth, Error, Hop, Spec};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn hop(host: &str, port: u16) -> Hop {
-    Hop { host: host.into(), port, user: "dbine".into() }
+    Hop {
+        host: host.into(),
+        port,
+        user: "dbine".into(),
+    }
 }
 
 fn spec(hops: Vec<Hop>, auth: Auth, trusted: Vec<String>) -> Spec {
-    Spec { hops, auth, target_host: "host.docker.internal".into(), target_port: 25010, trusted }
+    Spec {
+        hops,
+        auth,
+        target_host: "host.docker.internal".into(),
+        target_port: 25010,
+        trusted,
+    }
 }
 
 /// The fingerprint the tunnel reports for an unknown server.
@@ -28,8 +38,12 @@ async fn fingerprint(h: Hop) -> String {
 
 /// PostgreSQL answers an SSLRequest with one byte, 'S' or 'N'.
 async fn reaches_postgres(port: u16) {
-    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    s.write_all(&[0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f]).await.unwrap();
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .unwrap();
+    s.write_all(&[0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f])
+        .await
+        .unwrap();
     let mut b = [0u8; 1];
     s.read_exact(&mut b).await.unwrap();
     assert!(b[0] == b'S' || b[0] == b'N', "{b:?}");
@@ -45,37 +59,92 @@ async fn tunnels_through_ssh_to_postgres() {
 
     // A bare fingerprint (older versions) or one bound to another server isn't enough.
     for t in [fp.clone(), trusted_entry("127.0.0.1", 25023, &fp)] {
-        let e = open(&spec(vec![hop("127.0.0.1", 25022)], Auth::Password("pw".into()), vec![t])).await.err().unwrap();
+        let e = open(&spec(
+            vec![hop("127.0.0.1", 25022)],
+            Auth::Password("pw".into()),
+            vec![t],
+        ))
+        .await
+        .err()
+        .unwrap();
         assert!(matches!(e, Error::UnknownHost { .. }), "{e}");
     }
 
     // Password.
-    let t = open(&spec(vec![hop("127.0.0.1", 25022)], Auth::Password("pw".into()), vec![server.clone()])).await.unwrap();
+    let t = open(&spec(
+        vec![hop("127.0.0.1", 25022)],
+        Auth::Password("pw".into()),
+        vec![server.clone()],
+    ))
+    .await
+    .unwrap();
     reaches_postgres(t.local_port()).await;
     reaches_postgres(t.local_port()).await; // several connections through one tunnel
     assert!(t.is_alive());
     drop(t);
 
     // A wrong password.
-    let e = open(&spec(vec![hop("127.0.0.1", 25022)], Auth::Password("mal".into()), vec![server.clone()])).await.err().unwrap();
+    let e = open(&spec(
+        vec![hop("127.0.0.1", 25022)],
+        Auth::Password("mal".into()),
+        vec![server.clone()],
+    ))
+    .await
+    .err()
+    .unwrap();
     assert!(matches!(e, Error::Auth { .. }), "{e}");
 
     // A key with its passphrase; without it; with a wrong one.
-    let with = |p: Option<&str>| Auth::Key { path: key.clone().into(), passphrase: p.map(String::from) };
-    let t = open(&spec(vec![hop("127.0.0.1", 25022)], with(Some("frase123")), vec![server.clone()])).await.unwrap();
+    let with = |p: Option<&str>| Auth::Key {
+        path: key.clone().into(),
+        passphrase: p.map(String::from),
+    };
+    let t = open(&spec(
+        vec![hop("127.0.0.1", 25022)],
+        with(Some("frase123")),
+        vec![server.clone()],
+    ))
+    .await
+    .unwrap();
     reaches_postgres(t.local_port()).await;
-    let e = open(&spec(vec![hop("127.0.0.1", 25022)], with(None), vec![server.clone()])).await.err().unwrap();
+    let e = open(&spec(
+        vec![hop("127.0.0.1", 25022)],
+        with(None),
+        vec![server.clone()],
+    ))
+    .await
+    .err()
+    .unwrap();
     assert!(e.to_string().contains("frase"), "{e}");
-    let e = open(&spec(vec![hop("127.0.0.1", 25022)], with(Some("otra")), vec![server.clone()])).await.err().unwrap();
+    let e = open(&spec(
+        vec![hop("127.0.0.1", 25022)],
+        with(Some("otra")),
+        vec![server.clone()],
+    ))
+    .await
+    .err()
+    .unwrap();
     assert!(matches!(e, Error::Key { .. }), "{e}");
 
     // Through the bastion: each server's key is checked on its own.
-    let bastion = trusted_entry("127.0.0.1", 25023, &fingerprint(hop("127.0.0.1", 25023)).await);
+    let bastion = trusted_entry(
+        "127.0.0.1",
+        25023,
+        &fingerprint(hop("127.0.0.1", 25023)).await,
+    );
     let chain = vec![hop("127.0.0.1", 25023), hop("dbine-test-ssh", 22)];
     // Only the bastion is trusted: the next hop is asked about, even with
     // the same key trusted for the bastion's address.
-    let inner = match open(&spec(chain.clone(), Auth::Password("pw".into()), vec![bastion.clone(), trusted_entry("127.0.0.1", 25023, &fp)])).await {
-        Err(Error::UnknownHost { host, fingerprint, .. }) => {
+    let inner = match open(&spec(
+        chain.clone(),
+        Auth::Password("pw".into()),
+        vec![bastion.clone(), trusted_entry("127.0.0.1", 25023, &fp)],
+    ))
+    .await
+    {
+        Err(Error::UnknownHost {
+            host, fingerprint, ..
+        }) => {
             assert_eq!(host, "dbine-test-ssh");
             fingerprint
         }
@@ -83,11 +152,21 @@ async fn tunnels_through_ssh_to_postgres() {
         Ok(_) => panic!("the second server's key wasn't checked"),
     };
     assert_eq!(inner, fp, "same container, same key");
-    let t = open(&spec(chain, with(Some("frase123")), vec![bastion, trusted_entry("dbine-test-ssh", 22, &inner)])).await.unwrap();
+    let t = open(&spec(
+        chain,
+        with(Some("frase123")),
+        vec![bastion, trusted_entry("dbine-test-ssh", 22, &inner)],
+    ))
+    .await
+    .unwrap();
     reaches_postgres(t.local_port()).await;
 
     // A database that isn't there is an error when opening, not later.
-    let mut bad = spec(vec![hop("127.0.0.1", 25022)], Auth::Password("pw".into()), vec![server]);
+    let mut bad = spec(
+        vec![hop("127.0.0.1", 25022)],
+        Auth::Password("pw".into()),
+        vec![server],
+    );
     bad.target_port = 1;
     let e = open(&bad).await.err().unwrap();
     assert!(matches!(e, Error::Forward { .. }), "{e}");

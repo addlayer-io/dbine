@@ -21,7 +21,7 @@
 //! - Neptune: no user-defined indexes (`supports_index_usage` is false).
 //! - Graphs have no foreign keys: relationships are the links.
 
-use crate::{as_text, strs, CatalogEntry, Flavor, GraphSession, CONSTRAINT, RELATIONSHIP, LABEL};
+use crate::{as_text, strs, CatalogEntry, Flavor, GraphSession, CONSTRAINT, LABEL, RELATIONSHIP};
 use dbine_driver::{kinds, IndexUsage, IndexUsageReport, ObjectRef, Result};
 use serde_json::{Map, Value};
 
@@ -49,7 +49,12 @@ fn wanted(obj: &ObjectRef) -> Option<bool> {
 
 /// `SHOW INDEXES YIELD *` and `SHOW CONSTRAINTS YIELD *` rows as the report
 /// for `name` (a label or relationship type; `rel` as in [`wanted`]).
-pub(crate) fn neo4j_report(name: &str, rel: Option<bool>, indexes: &[Row], constraints: &[Row]) -> IndexUsageReport {
+pub(crate) fn neo4j_report(
+    name: &str,
+    rel: Option<bool>,
+    indexes: &[Row],
+    constraints: &[Row],
+) -> IndexUsageReport {
     let counted = indexes.iter().any(|r| r.contains_key("readCount"));
     let mut since: Option<String> = None;
     let mut out = Vec::new();
@@ -62,10 +67,17 @@ pub(crate) fn neo4j_report(name: &str, rel: Option<bool>, indexes: &[Row], const
         if rel.is_some_and(|w| w != is_rel) {
             continue;
         }
-        let owner = r.get("owningConstraint").filter(|v| !v.is_null()).map(as_text);
+        let owner = r
+            .get("owningConstraint")
+            .filter(|v| !v.is_null())
+            .map(as_text);
         let ctype = owner
             .as_ref()
-            .and_then(|o| constraints.iter().find(|c| c.get("name").map(as_text).as_ref() == Some(o)))
+            .and_then(|o| {
+                constraints
+                    .iter()
+                    .find(|c| c.get("name").map(as_text).as_ref() == Some(o))
+            })
             .and_then(|c| c.get("type"))
             .map(as_text)
             .unwrap_or_default();
@@ -113,13 +125,21 @@ pub(crate) fn neo4j_report(name: &str, rel: Option<bool>, indexes: &[Row], const
 /// `SHOW INDEXES` was refused (or failed): the indexes that back a
 /// constraint, from `SHOW CONSTRAINTS` (`ownedIndex`), without counters,
 /// and a note that names the missing privilege.
-pub(crate) fn refused_report(name: &str, rel: Option<bool>, constraints: &[Row], error: &str) -> IndexUsageReport {
+pub(crate) fn refused_report(
+    name: &str,
+    rel: Option<bool>,
+    constraints: &[Row],
+    error: &str,
+) -> IndexUsageReport {
     let rows: Vec<Row> = constraints
         .iter()
         .filter(|c| c.get("ownedIndex").is_some_and(|v| !v.is_null()))
         .map(|c| {
             let mut r = c.clone();
-            r.insert("owningConstraint".into(), c.get("name").cloned().unwrap_or(Value::Null));
+            r.insert(
+                "owningConstraint".into(),
+                c.get("name").cloned().unwrap_or(Value::Null),
+            );
             r.insert("type".into(), Value::from("CONSTRAINT"));
             r.remove("readCount");
             r
@@ -129,19 +149,32 @@ pub(crate) fn refused_report(name: &str, rel: Option<bool>, constraints: &[Row],
     r.since = None;
     r.stats_available = false;
     let l = error.to_ascii_lowercase();
-    r.note = Some(if l.contains("security") || l.contains("forbidden") || l.contains("permission") || l.contains("denied") || l.contains("not allowed") {
-        "El usuario no tiene el privilegio SHOW INDEX (GRANT SHOW INDEX ON DATABASE …): se listan solo los índices de las restricciones, sin contadores.".into()
-    } else {
-        format!("No se pudieron leer los índices (SHOW INDEXES): {error}. Se listan solo los de las restricciones, sin contadores.")
-    });
+    r.note = Some(
+        if l.contains("security")
+            || l.contains("forbidden")
+            || l.contains("permission")
+            || l.contains("denied")
+            || l.contains("not allowed")
+        {
+            "El usuario no tiene el privilegio SHOW INDEX (GRANT SHOW INDEX ON DATABASE …): se listan solo los índices de las restricciones, sin contadores.".into()
+        } else {
+            format!("No se pudieron leer los índices (SHOW INDEXES): {error}. Se listan solo los de las restricciones, sin contadores.")
+        },
+    );
     r
 }
 
 /// Memgraph's catalog entries (indexes and constraints) as the report for `name`.
-pub(crate) fn memgraph_report(name: &str, rel: Option<bool>, cat: &[CatalogEntry]) -> IndexUsageReport {
+pub(crate) fn memgraph_report(
+    name: &str,
+    rel: Option<bool>,
+    cat: &[CatalogEntry],
+) -> IndexUsageReport {
     let indexes = cat
         .iter()
-        .filter(|e| e.target.split(',').any(|t| t == name) && rel.is_none_or(|w| w == e.relationship))
+        .filter(|e| {
+            e.target.split(',').any(|t| t == name) && rel.is_none_or(|w| w == e.relationship)
+        })
         .filter(|e| e.kind == kinds::INDEX || (e.kind == CONSTRAINT && e.spec_kind == "UNIQUE"))
         .map(|e| IndexUsage {
             name: e.name.clone(),
@@ -153,7 +186,9 @@ pub(crate) fn memgraph_report(name: &str, rel: Option<bool>, cat: &[CatalogEntry
         .collect();
     IndexUsageReport {
         stats_available: false,
-        note: Some("Memgraph no lleva la cuenta del uso de sus índices: se listan sin contadores.".into()),
+        note: Some(
+            "Memgraph no lleva la cuenta del uso de sus índices: se listan sin contadores.".into(),
+        ),
         indexes,
         seek_scan_split: false,
         writes_counted: false,
@@ -162,12 +197,18 @@ pub(crate) fn memgraph_report(name: &str, rel: Option<bool>, cat: &[CatalogEntry
 }
 
 impl GraphSession {
-    pub(crate) async fn index_usage_report(&mut self, obj: &ObjectRef) -> Result<Option<IndexUsageReport>> {
+    pub(crate) async fn index_usage_report(
+        &mut self,
+        obj: &ObjectRef,
+    ) -> Result<Option<IndexUsageReport>> {
         let rel = wanted(obj);
         match self.flavor {
             Flavor::Neo4j => {
                 let ix = self.records("SHOW INDEXES YIELD *").await;
-                let cs = self.records("SHOW CONSTRAINTS YIELD *").await.unwrap_or_default();
+                let cs = self
+                    .records("SHOW CONSTRAINTS YIELD *")
+                    .await
+                    .unwrap_or_default();
                 Ok(Some(match ix {
                     Ok(ix) => neo4j_report(&obj.name, rel, &ix, &cs),
                     Err(e) => refused_report(&obj.name, rel, &cs, &e.to_string()),
@@ -193,23 +234,47 @@ mod tests {
 
     fn indexes() -> Vec<Row> {
         vec![
-            row(json!({"name": "index_lookup", "type": "LOOKUP", "entityType": "NODE", "labelsOrTypes": null, "properties": null, "readCount": 99, "trackedSince": "2024-01-01T00:00:00Z"})),
-            row(json!({"name": "pk_persona", "type": "RANGE", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["id"], "owningConstraint": "pk_persona", "readCount": 4, "lastRead": "2024-05-01T10:00:00.5Z", "trackedSince": "2024-01-02T00:00:00Z"})),
-            row(json!({"name": "ix_nombre", "type": "RANGE", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["nombre", "apellido"], "owningConstraint": null, "readCount": 6, "lastRead": "2024-05-02T10:00:00Z", "trackedSince": "2024-01-01T12:00:00+01:00"})),
-            row(json!({"name": "ix_bio", "type": "TEXT", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["bio"], "owningConstraint": null, "readCount": 0, "lastRead": null, "trackedSince": "2024-01-03T00:00:00Z"})),
-            row(json!({"name": "u_mail", "type": "RANGE", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["mail"], "owningConstraint": "u_mail", "readCount": 0, "trackedSince": "2024-01-03T00:00:00Z"})),
-            row(json!({"name": "ix_desde", "type": "RANGE", "entityType": "RELATIONSHIP", "labelsOrTypes": ["Persona"], "properties": ["desde"], "readCount": 1, "trackedSince": "2023-01-01T00:00:00Z"})),
+            row(
+                json!({"name": "index_lookup", "type": "LOOKUP", "entityType": "NODE", "labelsOrTypes": null, "properties": null, "readCount": 99, "trackedSince": "2024-01-01T00:00:00Z"}),
+            ),
+            row(
+                json!({"name": "pk_persona", "type": "RANGE", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["id"], "owningConstraint": "pk_persona", "readCount": 4, "lastRead": "2024-05-01T10:00:00.5Z", "trackedSince": "2024-01-02T00:00:00Z"}),
+            ),
+            row(
+                json!({"name": "ix_nombre", "type": "RANGE", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["nombre", "apellido"], "owningConstraint": null, "readCount": 6, "lastRead": "2024-05-02T10:00:00Z", "trackedSince": "2024-01-01T12:00:00+01:00"}),
+            ),
+            row(
+                json!({"name": "ix_bio", "type": "TEXT", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["bio"], "owningConstraint": null, "readCount": 0, "lastRead": null, "trackedSince": "2024-01-03T00:00:00Z"}),
+            ),
+            row(
+                json!({"name": "u_mail", "type": "RANGE", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["mail"], "owningConstraint": "u_mail", "readCount": 0, "trackedSince": "2024-01-03T00:00:00Z"}),
+            ),
+            row(
+                json!({"name": "ix_desde", "type": "RANGE", "entityType": "RELATIONSHIP", "labelsOrTypes": ["Persona"], "properties": ["desde"], "readCount": 1, "trackedSince": "2023-01-01T00:00:00Z"}),
+            ),
         ]
     }
 
     #[test]
     fn show_indexes_refused() {
         let cs = vec![
-            row(json!({"name": "pk_persona", "type": "NODE_KEY", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["id"], "ownedIndex": "pk_persona"})),
-            row(json!({"name": "n_nombre", "type": "NODE_PROPERTY_EXISTENCE", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["nombre"], "ownedIndex": null})),
-            row(json!({"name": "u_otro", "type": "UNIQUENESS", "entityType": "NODE", "labelsOrTypes": ["Otro"], "properties": ["x"], "ownedIndex": "u_otro"})),
+            row(
+                json!({"name": "pk_persona", "type": "NODE_KEY", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["id"], "ownedIndex": "pk_persona"}),
+            ),
+            row(
+                json!({"name": "n_nombre", "type": "NODE_PROPERTY_EXISTENCE", "entityType": "NODE", "labelsOrTypes": ["Persona"], "properties": ["nombre"], "ownedIndex": null}),
+            ),
+            row(
+                json!({"name": "u_otro", "type": "UNIQUENESS", "entityType": "NODE", "labelsOrTypes": ["Otro"], "properties": ["x"], "ownedIndex": "u_otro"}),
+            ),
         ];
-        let r = refused_report("Persona", Some(false), &cs, "Neo.ClientError.Security.Forbidden: Permission denied").derived();
+        let r = refused_report(
+            "Persona",
+            Some(false),
+            &cs,
+            "Neo.ClientError.Security.Forbidden: Permission denied",
+        )
+        .derived();
         assert!(!r.stats_available && r.since.is_none());
         assert!(r.note.as_deref().unwrap().contains("SHOW INDEX"));
         assert_eq!(r.indexes.len(), 1);
@@ -220,7 +285,10 @@ mod tests {
     }
 
     fn constraints() -> Vec<Row> {
-        vec![row(json!({"name": "pk_persona", "type": "NODE_KEY"})), row(json!({"name": "u_mail", "type": "UNIQUENESS"}))]
+        vec![
+            row(json!({"name": "pk_persona", "type": "NODE_KEY"})),
+            row(json!({"name": "u_mail", "type": "UNIQUENESS"})),
+        ]
     }
 
     #[test]
@@ -235,20 +303,33 @@ mod tests {
         assert!(get("u_mail").unique && !get("u_mail").primary_key);
         assert_eq!(get("ix_nombre").key_columns, ["nombre", "apellido"]);
         assert_eq!(get("ix_nombre").seeks, 6);
-        assert_eq!(get("pk_persona").last_read.as_deref(), Some("2024-05-01 10:00:00"));
+        assert_eq!(
+            get("pk_persona").last_read.as_deref(),
+            Some("2024-05-01 10:00:00")
+        );
         assert_eq!(r.since.as_deref(), Some("2024-01-01 12:00:00"));
         assert_eq!(get("ix_nombre").read_share, Some(0.6));
         assert_eq!(get("ix_bio").read_share, Some(0.0));
-        assert!(r.indexes.iter().all(|i| !i.unused && i.seek_health.is_none()));
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| !i.unused && i.seek_health.is_none()));
         // The relationship type of the same name, and either for a "table".
         let r = neo4j_report("Persona", Some(true), &indexes(), &constraints());
         assert_eq!(r.indexes.len(), 1);
-        assert_eq!(neo4j_report("Persona", None, &indexes(), &constraints()).indexes.len(), 5);
+        assert_eq!(
+            neo4j_report("Persona", None, &indexes(), &constraints())
+                .indexes
+                .len(),
+            5
+        );
     }
 
     #[test]
     fn neo4j_4_has_no_counters() {
-        let ix = vec![row(json!({"name": "ix", "type": "BTREE", "entityType": "NODE", "labelsOrTypes": ["A"], "properties": ["x"]}))];
+        let ix = vec![row(
+            json!({"name": "ix", "type": "BTREE", "entityType": "NODE", "labelsOrTypes": ["A"], "properties": ["x"]}),
+        )];
         let r = neo4j_report("A", None, &ix, &[]).derived();
         assert!(!r.stats_available);
         assert_eq!(r.indexes.len(), 1);

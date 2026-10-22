@@ -20,15 +20,24 @@ pub struct SaveArgs {
 }
 
 fn clean_folder(f: &str) -> String {
-    f.split('/').map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>().join("/")
+    f.split('/')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn save_library_script(state: State<'_, AppState>, args: SaveArgs) -> CommandResult<LibraryScript> {
+pub async fn save_library_script(
+    state: State<'_, AppState>,
+    args: SaveArgs,
+) -> CommandResult<LibraryScript> {
     let mut s = args.script;
     s.name = s.name.trim().to_string();
     if s.name.is_empty() {
-        return Err(CommandError::BadRequest("el script necesita un nombre".into()));
+        return Err(CommandError::BadRequest(
+            "el script necesita un nombre".into(),
+        ));
     }
     if s.id.is_empty() {
         s.id = uuid::Uuid::new_v4().to_string();
@@ -66,14 +75,19 @@ pub struct ImportOut {
 }
 
 /// Extensions read as scripts (import, and the git copy).
-pub(crate) const SCRIPT_EXTS: &[&str] = &["sql", "cql", "js", "json", "txt", "redis", "cypher", "flux", "ksql", "n1ql", "psql"];
+pub(crate) const SCRIPT_EXTS: &[&str] = &[
+    "sql", "cql", "js", "json", "txt", "redis", "cypher", "flux", "ksql", "n1ql", "psql",
+];
 
 /// A script's file extension, from the query language of the engines it's
 /// for (the first one that's known): every driver says its language, so
 /// this covers all of them. `*sql` or nothing: `.sql`.
 pub(crate) fn script_ext(engines: &[String]) -> &'static str {
     use dbine_driver::Language;
-    let info = engines.iter().filter(|e| !e.starts_with('*')).find_map(|e| crate::state::driver_info(e).ok());
+    let info = engines
+        .iter()
+        .filter(|e| !e.starts_with('*'))
+        .find_map(|e| crate::state::driver_info(e).ok());
     let Some(info) = info else { return "sql" };
     match info.language {
         Language::Sql => "sql",
@@ -127,22 +141,37 @@ fn collect(path: &Path, rel_folder: &str, out: &mut Vec<(PathBuf, String)>, dept
         if depth > 8 {
             return;
         }
-        let Ok(rd) = std::fs::read_dir(path) else { return };
+        let Ok(rd) = std::fs::read_dir(path) else {
+            return;
+        };
         let mut entries: Vec<_> = rd.flatten().map(|e| e.path()).collect();
         entries.sort();
         for p in entries {
-            if p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+            if p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+            {
                 continue;
             }
             let sub = if p.is_dir() {
-                let n = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                if rel_folder.is_empty() { n } else { format!("{rel_folder}/{n}") }
+                let n = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if rel_folder.is_empty() {
+                    n
+                } else {
+                    format!("{rel_folder}/{n}")
+                }
             } else {
                 rel_folder.to_string()
             };
             collect(&p, &sub, out, depth + 1);
         }
-    } else if path.extension().and_then(|e| e.to_str()).is_some_and(|e| SCRIPT_EXTS.contains(&e.to_ascii_lowercase().as_str())) {
+    } else if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| SCRIPT_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+    {
         out.push((path.to_path_buf(), rel_folder.to_string()));
     }
 }
@@ -151,20 +180,35 @@ fn collect(path: &Path, rel_folder: &str, out: &mut Vec<(PathBuf, String)>, dept
 /// name is the script's name, a leading `-- descripción` comment line its
 /// description.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn import_library_files(state: State<'_, AppState>, args: ImportArgs) -> CommandResult<ImportOut> {
+pub async fn import_library_files(
+    state: State<'_, AppState>,
+    args: ImportArgs,
+) -> CommandResult<ImportOut> {
     let mut files = Vec::new();
     for p in &args.paths {
         let path = Path::new(p);
         // A chosen folder becomes a Library folder itself.
-        let base = if path.is_dir() { path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() } else { String::new() };
+        let base = if path.is_dir() {
+            path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         collect(path, &base, &mut files, 0);
     }
     let existing = state.store.list_library()?;
     let mut imported = 0;
     let mut skipped = Vec::new();
     for (path, rel) in files {
-        let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        if std::fs::metadata(&path).map(|m| m.len() > MAX_BYTES).unwrap_or(true) {
+        let name = path
+            .file_stem()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if std::fs::metadata(&path)
+            .map(|m| m.len() > MAX_BYTES)
+            .unwrap_or(true)
+        {
             skipped.push(format!("{}: más de 2 MB", path.display()));
             continue;
         }
@@ -185,13 +229,25 @@ pub async fn import_library_files(state: State<'_, AppState>, args: ImportArgs) 
         let description = text
             .lines()
             .next()
-            .and_then(|l| l.trim().strip_prefix("--").or_else(|| l.trim().strip_prefix("//")))
+            .and_then(|l| {
+                l.trim()
+                    .strip_prefix("--")
+                    .or_else(|| l.trim().strip_prefix("//"))
+            })
             .map(|d| d.trim().to_string())
             .unwrap_or_default();
         let mut engines = args.engines.clone();
         engines.sort();
         engines.dedup();
-        state.store.save_library_script(&LibraryScript { id, name, folder, description, engines, text, updated_at: String::new() })?;
+        state.store.save_library_script(&LibraryScript {
+            id,
+            name,
+            folder,
+            description,
+            engines,
+            text,
+            updated_at: String::new(),
+        })?;
         imported += 1;
     }
     Ok(ImportOut { imported, skipped })
@@ -206,9 +262,22 @@ pub struct ExportArgs {
 }
 
 pub(crate) fn safe_name(s: &str) -> String {
-    let n: String = s.chars().map(|c| if r#"/\:*?"<>|"#.contains(c) || c.is_control() { '_' } else { c }).collect();
+    let n: String = s
+        .chars()
+        .map(|c| {
+            if r#"/\:*?"<>|"#.contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
     let n = n.trim().trim_matches('.').to_string();
-    if n.is_empty() { "script".into() } else { n }
+    if n.is_empty() {
+        "script".into()
+    } else {
+        n
+    }
 }
 
 /// Write scripts as files, in subfolders like the Library's.
@@ -217,7 +286,10 @@ pub async fn export_library(state: State<'_, AppState>, args: ExportArgs) -> Com
     let all = state.store.list_library()?;
     let root = PathBuf::from(&args.dir);
     let mut n = 0;
-    for s in all.iter().filter(|s| args.ids.is_empty() || args.ids.contains(&s.id)) {
+    for s in all
+        .iter()
+        .filter(|s| args.ids.is_empty() || args.ids.contains(&s.id))
+    {
         let mut dir = root.clone();
         for part in s.folder.split('/').filter(|p| !p.is_empty()) {
             dir.push(safe_name(part));
@@ -226,10 +298,13 @@ pub async fn export_library(state: State<'_, AppState>, args: ExportArgs) -> Com
         let ext = script_ext(&s.engines);
         // The description as a first comment line, where the language has comments.
         let body = match line_comment(ext) {
-            Some(c) if !s.description.is_empty() && !s.text.trim_start().starts_with(c) => format!("{c} {}\n{}", s.description, s.text),
+            Some(c) if !s.description.is_empty() && !s.text.trim_start().starts_with(c) => {
+                format!("{c} {}\n{}", s.description, s.text)
+            }
             _ => s.text.clone(),
         };
-        std::fs::write(dir.join(format!("{}.{ext}", safe_name(&s.name))), body).map_err(|e| CommandError::Internal(e.to_string()))?;
+        std::fs::write(dir.join(format!("{}.{ext}", safe_name(&s.name))), body)
+            .map_err(|e| CommandError::Internal(e.to_string()))?;
         n += 1;
     }
     Ok(n)

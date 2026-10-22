@@ -20,7 +20,9 @@ use crate::monitor::duration_ms;
 use crate::{as_text, Flavor, GraphSession};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -38,10 +40,15 @@ fn now() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
 }
 
-pub(crate) async fn start(s: &mut GraphSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &mut GraphSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let started = match s.flavor {
         Flavor::Neo4j => {
-            s.records("SHOW TRANSACTIONS").await.map_err(|e| show_refused(e, "SHOW TRANSACTIONS"))?;
+            s.records("SHOW TRANSACTIONS")
+                .await
+                .map_err(|e| show_refused(e, "SHOW TRANSACTIONS"))?;
             ProfilerStarted::new(ProfilerMode::Sampled, "SHOW TRANSACTIONS").note(
                 "Neo4j solo muestra las consultas en curso: las que duran menos de una décima de segundo pueden no verse \
                  (el registro de consultas va a un archivo del servidor). Sin el privilegio SHOW TRANSACTION, un \
@@ -50,7 +57,9 @@ pub(crate) async fn start(s: &mut GraphSession, opts: &ProfilerOptions) -> Resul
             .units(Some("páginas"), None)
         }
         Flavor::Memgraph => {
-            s.records("SHOW TRANSACTIONS").await.map_err(|e| show_refused(e, "SHOW TRANSACTIONS"))?;
+            s.records("SHOW TRANSACTIONS")
+                .await
+                .map_err(|e| show_refused(e, "SHOW TRANSACTIONS"))?;
             ProfilerStarted::new(ProfilerMode::Sampled, "SHOW TRANSACTIONS").note(
                 "Memgraph solo muestra las transacciones en curso, de todo el servidor: las consultas que duran menos \
                  de una décima de segundo pueden no verse. Sin el privilegio TRANSACTION_MANAGEMENT, un usuario solo \
@@ -58,7 +67,9 @@ pub(crate) async fn start(s: &mut GraphSession, opts: &ProfilerOptions) -> Resul
             )
         }
         Flavor::Neptune => {
-            let c = s.neptune_client().ok_or_else(|| Error::State("sin cliente de Neptune".into()))?;
+            let c = s
+                .neptune_client()
+                .ok_or_else(|| Error::State("sin cliente de Neptune".into()))?;
             c.json("/openCypher/status").await?;
             ProfilerStarted::new(ProfilerMode::Sampled, "/openCypher/status, /gremlin/status, /sparql/status").note(
                 "Neptune solo muestra las consultas en curso del cluster, sin usuario ni cliente: las que duran menos \
@@ -66,37 +77,62 @@ pub(crate) async fn start(s: &mut GraphSession, opts: &ProfilerOptions) -> Resul
             )
         }
     };
-    let database = if s.flavor == Flavor::Neo4j { opts.database.clone() } else { String::new() };
-    Ok((State { sampler: Sampler::new(now()), database, first_seen: HashMap::new() }, started))
+    let database = if s.flavor == Flavor::Neo4j {
+        opts.database.clone()
+    } else {
+        String::new()
+    };
+    Ok((
+        State {
+            sampler: Sampler::new(now()),
+            database,
+            first_seen: HashMap::new(),
+        },
+        started,
+    ))
 }
 
 fn show_refused(e: Error, what: &str) -> Error {
     match e {
-        Error::Query(m) => Error::Query(format!("El servidor no permite listar las transacciones ({what}): {m}")),
+        Error::Query(m) => Error::Query(format!(
+            "El servidor no permite listar las transacciones ({what}): {m}"
+        )),
         e => e,
     }
 }
 
-pub(crate) async fn poll(s: &mut GraphSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
+pub(crate) async fn poll(
+    s: &mut GraphSession,
+    state: &mut State,
+) -> Result<Vec<ProfiledStatement>> {
     let mut out = Vec::new();
     let until = Instant::now() + SAMPLE_FOR;
     loop {
         let samples = match s.flavor {
             Flavor::Neo4j => {
                 let rows = s.records("SHOW TRANSACTIONS YIELD *").await?;
-                rows.iter().filter_map(|r| neo4j_sample(r, &s.tag, &state.database)).collect()
+                rows.iter()
+                    .filter_map(|r| neo4j_sample(r, &s.tag, &state.database))
+                    .collect()
             }
             Flavor::Memgraph => {
                 let rows = s.records("SHOW TRANSACTIONS").await?;
-                rows.iter().filter_map(|r| memgraph_sample(r, &s.tag, &mut state.first_seen)).collect()
+                rows.iter()
+                    .filter_map(|r| memgraph_sample(r, &s.tag, &mut state.first_seen))
+                    .collect()
             }
             Flavor::Neptune => {
-                let c = s.neptune_client().ok_or_else(|| Error::State("sin cliente de Neptune".into()))?;
+                let c = s
+                    .neptune_client()
+                    .ok_or_else(|| Error::State("sin cliente de Neptune".into()))?;
                 neptune_samples(&c, &mut state.first_seen).await?
             }
         };
         // Forget the first sightings of queries that are gone.
-        let live: std::collections::HashSet<&str> = samples.iter().map(|x: &Sample| x.session.as_str()).collect();
+        let live: std::collections::HashSet<&str> = samples
+            .iter()
+            .map(|x: &Sample| x.session.as_str())
+            .collect();
         state.first_seen.retain(|k, _| live.contains(k.as_str()));
         out.extend(state.sampler.feed(samples));
         if Instant::now() + SAMPLE_EVERY > until {
@@ -123,16 +159,30 @@ fn neo4j_sample(r: &Map<String, Value>, tag: &str, database: &str) -> Option<Sam
     if is_own(r.get("metaData"), tag) || (!database.is_empty() && db.as_deref() != Some(database)) {
         return None;
     }
-    let started = r.get("currentQueryStartTime").or_else(|| r.get("startTime")).map(as_text).and_then(|t| utc(&t))?;
-    let application = r.get("metaData").and_then(|m| m.get("app")).and_then(Value::as_str).filter(|a| !a.is_empty());
+    let started = r
+        .get("currentQueryStartTime")
+        .or_else(|| r.get("startTime"))
+        .map(as_text)
+        .and_then(|t| utc(&t))?;
+    let application = r
+        .get("metaData")
+        .and_then(|m| m.get("app"))
+        .and_then(Value::as_str)
+        .filter(|a| !a.is_empty());
     let mut detail = Vec::new();
     // Only worth showing when it isn't plainly running (blocked, waiting…).
-    if let Some(st) = text(r, "currentQueryStatus").or_else(|| text(r, "status")).filter(|s| !s.eq_ignore_ascii_case("running")) {
+    if let Some(st) = text(r, "currentQueryStatus")
+        .or_else(|| text(r, "status"))
+        .filter(|s| !s.eq_ignore_ascii_case("running"))
+    {
         detail.push(st);
     }
     // Pages read from the page cache, whether they were there or not.
     let pages = |k: &str| r.get(k).and_then(Value::as_u64);
-    let reads = match (pages("currentQueryPageHits"), pages("currentQueryPageFaults")) {
+    let reads = match (
+        pages("currentQueryPageHits"),
+        pages("currentQueryPageFaults"),
+    ) {
         (None, None) => None,
         (h, f) => Some(h.unwrap_or(0) + f.unwrap_or(0)),
     };
@@ -141,7 +191,10 @@ fn neo4j_sample(r: &Map<String, Value>, tag: &str, database: &str) -> Option<Sam
         started,
         text: query,
         running: true,
-        duration_ms: r.get("currentQueryElapsedTime").or_else(|| r.get("elapsedTime")).and_then(duration_ms),
+        duration_ms: r
+            .get("currentQueryElapsedTime")
+            .or_else(|| r.get("elapsedTime"))
+            .and_then(duration_ms),
         database: db,
         user: text(r, "username"),
         client: text(r, "clientAddress"),
@@ -155,7 +208,11 @@ fn neo4j_sample(r: &Map<String, Value>, tag: &str, database: &str) -> Option<Sam
 }
 
 /// A Memgraph transaction with its queries, except ours.
-fn memgraph_sample(r: &Map<String, Value>, tag: &str, first_seen: &mut HashMap<String, String>) -> Option<Sample> {
+fn memgraph_sample(
+    r: &Map<String, Value>,
+    tag: &str,
+    first_seen: &mut HashMap<String, String>,
+) -> Option<Sample> {
     if is_own(r.get("metadata"), tag) {
         return None;
     }
@@ -167,12 +224,19 @@ fn memgraph_sample(r: &Map<String, Value>, tag: &str, first_seen: &mut HashMap<S
         return None;
     }
     let id = text(r, "transaction_id")?;
-    let elapsed = r.get("elapsed_ms").and_then(|v| v.as_f64().or_else(|| as_text(v).parse().ok()));
+    let elapsed = r
+        .get("elapsed_ms")
+        .and_then(|v| v.as_f64().or_else(|| as_text(v).parse().ok()));
     let started = r
         .get("start_time")
         .map(as_text)
         .and_then(|t| utc(&t))
-        .unwrap_or_else(|| first_seen.entry(id.clone()).or_insert_with(|| since(elapsed)).clone());
+        .unwrap_or_else(|| {
+            first_seen
+                .entry(id.clone())
+                .or_insert_with(|| since(elapsed))
+                .clone()
+        });
     Some(Sample {
         session: id,
         started,
@@ -188,12 +252,21 @@ fn memgraph_sample(r: &Map<String, Value>, tag: &str, first_seen: &mut HashMap<S
 /// When a query that has run for `elapsed` ms started.
 fn since(elapsed: Option<f64>) -> String {
     let back = chrono::Duration::milliseconds(elapsed.unwrap_or(0.0) as i64);
-    (Utc::now() - back).format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+    (Utc::now() - back)
+        .format("%Y-%m-%d %H:%M:%S%.3f")
+        .to_string()
 }
 
-async fn neptune_samples(c: &crate::neptune::Client, first_seen: &mut HashMap<String, String>) -> Result<Vec<Sample>> {
+async fn neptune_samples(
+    c: &crate::neptune::Client,
+    first_seen: &mut HashMap<String, String>,
+) -> Result<Vec<Sample>> {
     let (mut out, mut failed) = (Vec::new(), Vec::new());
-    for (path, language) in [("/openCypher/status", "openCypher"), ("/gremlin/status", "Gremlin"), ("/sparql/status", "SPARQL")] {
+    for (path, language) in [
+        ("/openCypher/status", "openCypher"),
+        ("/gremlin/status", "Gremlin"),
+        ("/sparql/status", "SPARQL"),
+    ] {
         match c.json(path).await {
             Ok(v) => out.extend(neptune_queries(&v, language, first_seen)),
             // An endpoint may be off (SPARQL on a property-graph cluster…).
@@ -206,13 +279,30 @@ async fn neptune_samples(c: &crate::neptune::Client, first_seen: &mut HashMap<St
     }
 }
 
-fn neptune_queries(v: &Value, language: &str, first_seen: &mut HashMap<String, String>) -> Vec<Sample> {
+fn neptune_queries(
+    v: &Value,
+    language: &str,
+    first_seen: &mut HashMap<String, String>,
+) -> Vec<Sample> {
     let mut out = Vec::new();
-    for q in v.get("queries").and_then(Value::as_array).into_iter().flatten() {
-        let (Some(id), Some(text)) = (q.get("queryId").map(as_text), q.get("queryString").map(as_text)) else { continue };
+    for q in v
+        .get("queries")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(id), Some(text)) = (
+            q.get("queryId").map(as_text),
+            q.get("queryString").map(as_text),
+        ) else {
+            continue;
+        };
         let elapsed = q.pointer("/queryEvalStats/elapsed").and_then(Value::as_f64);
         let session = format!("{language}:{id}");
-        let started = first_seen.entry(session.clone()).or_insert_with(|| since(elapsed)).clone();
+        let started = first_seen
+            .entry(session.clone())
+            .or_insert_with(|| since(elapsed))
+            .clone();
         let waited = q.pointer("/queryEvalStats/waited").and_then(Value::as_f64);
         out.push(Sample {
             session,
@@ -251,10 +341,22 @@ mod tests {
 
     #[test]
     fn times_become_utc() {
-        assert_eq!(utc("2026-09-27T21:04:54.508Z").as_deref(), Some("2026-09-27 21:04:54.508"));
-        assert_eq!(utc("2026-09-27T23:04:54.5+02:00").as_deref(), Some("2026-09-27 21:04:54.500"));
-        assert_eq!(utc("2026-09-27T21:04:54.972958Z[Etc/UTC]").as_deref(), Some("2026-09-27 21:04:54.972"));
-        assert_eq!(utc("2026-09-27T21:04:54").as_deref(), Some("2026-09-27 21:04:54.000"));
+        assert_eq!(
+            utc("2026-09-27T21:04:54.508Z").as_deref(),
+            Some("2026-09-27 21:04:54.508")
+        );
+        assert_eq!(
+            utc("2026-09-27T23:04:54.5+02:00").as_deref(),
+            Some("2026-09-27 21:04:54.500")
+        );
+        assert_eq!(
+            utc("2026-09-27T21:04:54.972958Z[Etc/UTC]").as_deref(),
+            Some("2026-09-27 21:04:54.972")
+        );
+        assert_eq!(
+            utc("2026-09-27T21:04:54").as_deref(),
+            Some("2026-09-27 21:04:54.000")
+        );
         assert_eq!(utc("nope"), None);
     }
 
@@ -292,6 +394,9 @@ mod tests {
         let first = neptune_queries(&v, "openCypher", &mut seen);
         let again = neptune_queries(&v, "openCypher", &mut seen);
         assert_eq!(first[0].started, again[0].started);
-        assert_eq!((first[0].session.as_str(), first[0].duration_ms), ("openCypher:a1", Some(300.0)));
+        assert_eq!(
+            (first[0].session.as_str(), first[0].duration_ms),
+            ("openCypher:a1", Some(300.0))
+        );
     }
 }

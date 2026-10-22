@@ -49,13 +49,18 @@ mod tests {
     fn backup(db: Option<&str>, path: &str) -> Result<String> {
         script(&BackupAction::Backup {
             database: db.map(Into::into),
-            options: [("path".to_string(), path.to_string())].into_iter().collect(),
+            options: [("path".to_string(), path.to_string())]
+                .into_iter()
+                .collect(),
         })
     }
 
     #[test]
     fn writes_the_script() {
-        assert_eq!(backup(Some("main"), "/tmp/o'k.db").unwrap(), "VACUUM \"main\" INTO '/tmp/o''k.db';");
+        assert_eq!(
+            backup(Some("main"), "/tmp/o'k.db").unwrap(),
+            "VACUUM \"main\" INTO '/tmp/o''k.db';"
+        );
         assert_eq!(backup(None, " c.db ").unwrap(), "VACUUM INTO 'c.db';");
         assert!(backup(Some("main"), "  ").is_err());
         assert!(script(&BackupAction::Delete { source: "x".into() }).is_err());
@@ -72,7 +77,10 @@ mod tests {
         c.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT); INSERT INTO t (s) VALUES ('a'), ('b');").unwrap();
         let sql = backup(Some("main"), copy.to_str().unwrap()).unwrap();
         c.execute_batch(&sql).unwrap();
-        let n: i64 = Connection::open(&copy).unwrap().query_row("SELECT count(*) FROM t", [], |r| r.get(0)).unwrap();
+        let n: i64 = Connection::open(&copy)
+            .unwrap()
+            .query_row("SELECT count(*) FROM t", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 2);
         assert!(c.execute_batch(&sql).is_err());
         std::fs::remove_dir_all(&dir).unwrap();

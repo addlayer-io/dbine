@@ -23,7 +23,8 @@ const MAX_TEXT: usize = 20000;
 pub const MAX_ROWS: usize = 2000;
 
 /// Why 2.x has neither, in Spanish (for the error and the docs).
-pub const V2_UNSUPPORTED: &str = "InfluxDB 2 no tiene una API que liste ni cancele las consultas de otros clientes";
+pub const V2_UNSUPPORTED: &str =
+    "InfluxDB 2 no tiene una API que liste ni cancele las consultas de otros clientes";
 /// Why 3.x can't cancel, in Spanish.
 pub const V3_NO_CANCEL: &str = "InfluxDB 3 no permite cancelar la consulta de otro cliente (no tiene KILL QUERY ni una API para eso)";
 
@@ -50,10 +51,25 @@ fn text(v: Option<&J>) -> Option<String> {
 /// `SHOW QUERIES` result (the first statement's) → processes.
 pub fn v1_rows(result: &J) -> Vec<ServerProcess> {
     let mut out = Vec::new();
-    for s in result.get("series").and_then(J::as_array).into_iter().flatten() {
-        let cols: Vec<&str> = s.get("columns").and_then(J::as_array).into_iter().flatten().filter_map(J::as_str).collect();
+    for s in result
+        .get("series")
+        .and_then(J::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let cols: Vec<&str> = s
+            .get("columns")
+            .and_then(J::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(J::as_str)
+            .collect();
         for r in s.get("values").and_then(J::as_array).into_iter().flatten() {
-            let row: BTreeMap<&str, &J> = cols.iter().copied().zip(r.as_array().into_iter().flatten()).collect();
+            let row: BTreeMap<&str, &J> = cols
+                .iter()
+                .copied()
+                .zip(r.as_array().into_iter().flatten())
+                .collect();
             let get = |k: &str| text(row.get(k).copied());
             let Some(id) = get("qid") else { continue };
             let query = get("query").unwrap_or_default();
@@ -66,7 +82,10 @@ pub fn v1_rows(result: &J) -> Vec<ServerProcess> {
                 status,
                 database: get("database"),
                 command: command(&query),
-                elapsed_ms: get("duration").as_deref().and_then(go_duration).map(|s| (s.max(0.0) * 1000.0) as u64),
+                elapsed_ms: get("duration")
+                    .as_deref()
+                    .and_then(go_duration)
+                    .map(|s| (s.max(0.0) * 1000.0) as u64),
                 sql: Some(clip(&query)).filter(|q| !q.is_empty()),
                 ..Default::default()
             });
@@ -94,9 +113,12 @@ pub fn v3_rows(cols: &[String], rows: &[Vec<J>], now_ms: i64) -> Vec<ServerProce
             let query = get("query_text").unwrap_or_default();
             let issued = get("issue_time").and_then(|t| {
                 // `cell` already turned the `T` into a space.
-                chrono::NaiveDateTime::parse_from_str(&t.trim_end_matches('Z').replacen('T', " ", 1), "%Y-%m-%d %H:%M:%S%.f")
-                    .ok()
-                    .map(|d| d.and_utc().timestamp_millis())
+                chrono::NaiveDateTime::parse_from_str(
+                    &t.trim_end_matches('Z').replacen('T', " ", 1),
+                    "%Y-%m-%d %H:%M:%S%.f",
+                )
+                .ok()
+                .map(|d| d.and_utc().timestamp_millis())
             });
             Some(ServerProcess {
                 id,
@@ -129,7 +151,14 @@ mod tests {
         let p = v1_rows(&r);
         assert!(p[0].own && p[0].active);
         assert_eq!(p[1].id, "5");
-        assert_eq!((p[1].elapsed_ms, p[1].command.as_deref(), p[1].database.as_deref()), (Some(2500), Some("SELECT"), Some("telegraf")));
+        assert_eq!(
+            (
+                p[1].elapsed_ms,
+                p[1].command.as_deref(),
+                p[1].database.as_deref()
+            ),
+            (Some(2500), Some("SELECT"), Some("telegraf"))
+        );
         assert!(!p[1].own && p[1].active);
         assert!(!p[2].active);
         assert_eq!(v1_qid(" 5 "), Some(5));
@@ -138,14 +167,47 @@ mod tests {
 
     #[test]
     fn system_queries() {
-        let cols: Vec<String> = ["id", "query_type", "phase", "issue_time", "query_text", "running"].map(String::from).to_vec();
+        let cols: Vec<String> = [
+            "id",
+            "query_type",
+            "phase",
+            "issue_time",
+            "query_text",
+            "running",
+        ]
+        .map(String::from)
+        .to_vec();
         let rows = vec![
-            vec![json!("a1"), json!("sql"), json!("EXECUTING"), json!("2026-10-03T22:00:00.000"), json!("SELECT * FROM cpu"), json!(true)],
-            vec![json!("b2"), json!("sql"), json!("PLANNED"), json!("2026-10-03 22:00:09.500"), json!(V3_QUERIES), json!(true)],
+            vec![
+                json!("a1"),
+                json!("sql"),
+                json!("EXECUTING"),
+                json!("2026-10-03T22:00:00.000"),
+                json!("SELECT * FROM cpu"),
+                json!(true),
+            ],
+            vec![
+                json!("b2"),
+                json!("sql"),
+                json!("PLANNED"),
+                json!("2026-10-03 22:00:09.500"),
+                json!(V3_QUERIES),
+                json!(true),
+            ],
         ];
-        let now = chrono::NaiveDateTime::parse_from_str("2026-10-03T22:00:10", "%Y-%m-%dT%H:%M:%S").unwrap().and_utc().timestamp_millis();
+        let now = chrono::NaiveDateTime::parse_from_str("2026-10-03T22:00:10", "%Y-%m-%dT%H:%M:%S")
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
         let p = v3_rows(&cols, &rows, now);
-        assert_eq!((p[0].elapsed_ms, p[0].status.as_deref(), p[0].command.as_deref()), (Some(10000), Some("EXECUTING"), Some("SELECT")));
+        assert_eq!(
+            (
+                p[0].elapsed_ms,
+                p[0].status.as_deref(),
+                p[0].command.as_deref()
+            ),
+            (Some(10000), Some("EXECUTING"), Some("SELECT"))
+        );
         assert!(!p[0].own && p[1].own);
     }
 }

@@ -7,7 +7,9 @@
 
 use crate::IotDbSession;
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use serde_json::Value as J;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -26,12 +28,19 @@ pub(crate) struct State {
 }
 
 fn now() -> String {
-    chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+    chrono::Utc::now()
+        .format("%Y-%m-%d %H:%M:%S%.3f")
+        .to_string()
 }
 
-pub(crate) async fn start(s: &IotDbSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &IotDbSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     s.query(LOOK, 10).await.map_err(|e| match e {
-        Error::Query(m) => Error::Query(format!("El servidor no permite listar las consultas (SHOW QUERIES): {m}")),
+        Error::Query(m) => Error::Query(format!(
+            "El servidor no permite listar las consultas (SHOW QUERIES): {m}"
+        )),
         e => e,
     })?;
     let mut note = String::from(
@@ -39,10 +48,20 @@ pub(crate) async fn start(s: &IotDbSession, opts: &ProfilerOptions) -> Result<(S
          segundo pueden no verse.",
     );
     if !opts.database.is_empty() {
-        note.push_str(&format!(" Se muestran las que nombran {} en sus rutas.", opts.database));
+        note.push_str(&format!(
+            " Se muestran las que nombran {} en sus rutas.",
+            opts.database
+        ));
     }
-    let state = State { sampler: Sampler::new(now()), database: opts.database.clone(), first_seen: HashMap::new() };
-    Ok((state, ProfilerStarted::new(ProfilerMode::Sampled, "SHOW QUERIES").note(note)))
+    let state = State {
+        sampler: Sampler::new(now()),
+        database: opts.database.clone(),
+        first_seen: HashMap::new(),
+    };
+    Ok((
+        state,
+        ProfilerStarted::new(ProfilerMode::Sampled, "SHOW QUERIES").note(note),
+    ))
 }
 
 pub(crate) async fn poll(s: &IotDbSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
@@ -50,8 +69,17 @@ pub(crate) async fn poll(s: &IotDbSession, state: &mut State) -> Result<Vec<Prof
     let until = Instant::now() + SAMPLE_FOR;
     loop {
         let t = s.query(LOOK, 10_000).await?;
-        let col = |name: &str| t.columns.iter().position(|c| c.name.eq_ignore_ascii_case(name));
-        let (ids, nodes, elapsed, statements) = (col("QueryId"), col("DataNodeId"), col("ElapsedTime"), col("Statement"));
+        let col = |name: &str| {
+            t.columns
+                .iter()
+                .position(|c| c.name.eq_ignore_ascii_case(name))
+        };
+        let (ids, nodes, elapsed, statements) = (
+            col("QueryId"),
+            col("DataNodeId"),
+            col("ElapsedTime"),
+            col("Statement"),
+        );
         let get = |r: &[J], i: Option<usize>| i.and_then(|i| r.get(i)).cloned().unwrap_or(J::Null);
         let mut samples = Vec::new();
         for r in &t.rows {
@@ -78,7 +106,13 @@ pub(crate) async fn poll(s: &IotDbSession, state: &mut State) -> Result<Vec<Prof
 
 /// One `SHOW QUERIES` row, except the profiler's own look and statements
 /// that don't name the database.
-fn sample(id: String, text: String, elapsed_s: Option<f64>, node: J, state: &mut State) -> Option<Sample> {
+fn sample(
+    id: String,
+    text: String,
+    elapsed_s: Option<f64>,
+    node: J,
+    state: &mut State,
+) -> Option<Sample> {
     if text.trim() == LOOK || text.trim().is_empty() {
         return None;
     }
@@ -94,7 +128,9 @@ fn sample(id: String, text: String, elapsed_s: Option<f64>, node: J, state: &mut
         .entry(id.clone())
         .or_insert_with(|| {
             let back = chrono::Duration::milliseconds(ms.unwrap_or(0.0) as i64);
-            (chrono::Utc::now() - back).format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+            (chrono::Utc::now() - back)
+                .format("%Y-%m-%d %H:%M:%S%.3f")
+                .to_string()
         })
         .clone();
     let node = match node {
@@ -139,12 +175,40 @@ mod tests {
 
     #[test]
     fn rows_become_samples() {
-        let mut st = State { sampler: Sampler::new(""), database: "root.sg".into(), first_seen: HashMap::new() };
-        let a = sample("q1".into(), "SELECT * FROM root.sg.d".into(), Some(0.25), J::from(1), &mut st).unwrap();
-        assert_eq!((a.duration_ms, a.detail.as_deref()), (Some(250.0), Some("DataNode 1")));
-        let b = sample("q1".into(), "SELECT * FROM root.sg.d".into(), Some(0.5), J::from(1), &mut st).unwrap();
+        let mut st = State {
+            sampler: Sampler::new(""),
+            database: "root.sg".into(),
+            first_seen: HashMap::new(),
+        };
+        let a = sample(
+            "q1".into(),
+            "SELECT * FROM root.sg.d".into(),
+            Some(0.25),
+            J::from(1),
+            &mut st,
+        )
+        .unwrap();
+        assert_eq!(
+            (a.duration_ms, a.detail.as_deref()),
+            (Some(250.0), Some("DataNode 1"))
+        );
+        let b = sample(
+            "q1".into(),
+            "SELECT * FROM root.sg.d".into(),
+            Some(0.5),
+            J::from(1),
+            &mut st,
+        )
+        .unwrap();
         assert_eq!(a.started, b.started);
         assert!(sample("q2".into(), LOOK.into(), Some(0.0), J::Null, &mut st).is_none());
-        assert!(sample("q3".into(), "SELECT * FROM root.other.d".into(), Some(0.0), J::Null, &mut st).is_none());
+        assert!(sample(
+            "q3".into(),
+            "SELECT * FROM root.other.d".into(),
+            Some(0.0),
+            J::Null,
+            &mut st
+        )
+        .is_none());
     }
 }

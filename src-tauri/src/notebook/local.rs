@@ -38,10 +38,15 @@ use crate::commands::chart::{aggregate_on, read, Fail, Stop, CLIENT_ROW_CAP};
 use crate::commands::projects::sha256_hex;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
-use dbine_driver::aggregate::{from_grouped, AggFn, AggregateMethod, AggregateSpec, ChartAggregate, ChartKind, Measure};
+use dbine_driver::aggregate::{
+    from_grouped, AggFn, AggregateMethod, AggregateSpec, ChartAggregate, ChartKind, Measure,
+};
 use dbine_driver::sql::{name_tokens, quote_ident, Quote, ScriptDialect, TokenKind};
 use dbine_driver::transfer::{BatchSource, Cell, LoadSpec, RowBatch, TransferColumn};
-use dbine_driver::{ConnectionConfig, ObjectRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, ScriptError, Session};
+use dbine_driver::{
+    ConnectionConfig, ObjectRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, ScriptError,
+    Session,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -78,18 +83,99 @@ fn dialect() -> ScriptDialect {
 
 /// Words a cell can't be named: DuckDB would read them as SQL.
 const RESERVED: &[&str] = &[
-    "all", "and", "any", "array", "as", "asc", "between", "both", "by", "case", "cast", "check", "collate", "column", "constraint", "create",
-    "cross", "current_date", "current_time", "current_timestamp", "current_user", "default", "delete", "desc", "distinct", "do", "drop",
-    "else", "end", "except", "exists", "false", "fetch", "for", "foreign", "from", "full", "grant", "group", "having", "in", "inner",
-    "insert", "intersect", "into", "is", "join", "lateral", "left", "like", "limit", "natural", "not", "null", "offset", "on", "only", "or",
-    "order", "outer", "pivot", "primary", "qualify", "references", "returning", "right", "select", "set", "some", "table", "then", "to",
-    "true", "union", "unique", "unpivot", "update", "user", "using", "values", "when", "where", "window", "with",
+    "all",
+    "and",
+    "any",
+    "array",
+    "as",
+    "asc",
+    "between",
+    "both",
+    "by",
+    "case",
+    "cast",
+    "check",
+    "collate",
+    "column",
+    "constraint",
+    "create",
+    "cross",
+    "current_date",
+    "current_time",
+    "current_timestamp",
+    "current_user",
+    "default",
+    "delete",
+    "desc",
+    "distinct",
+    "do",
+    "drop",
+    "else",
+    "end",
+    "except",
+    "exists",
+    "false",
+    "fetch",
+    "for",
+    "foreign",
+    "from",
+    "full",
+    "grant",
+    "group",
+    "having",
+    "in",
+    "inner",
+    "insert",
+    "intersect",
+    "into",
+    "is",
+    "join",
+    "lateral",
+    "left",
+    "like",
+    "limit",
+    "natural",
+    "not",
+    "null",
+    "offset",
+    "on",
+    "only",
+    "or",
+    "order",
+    "outer",
+    "pivot",
+    "primary",
+    "qualify",
+    "references",
+    "returning",
+    "right",
+    "select",
+    "set",
+    "some",
+    "table",
+    "then",
+    "to",
+    "true",
+    "union",
+    "unique",
+    "unpivot",
+    "update",
+    "user",
+    "using",
+    "values",
+    "when",
+    "where",
+    "window",
+    "with",
 ];
 
 /// A cell name usable as a table: a letter or `_`, then letters, digits or
 /// `_` (ASCII), at most 63, and not an SQL keyword.
 pub fn valid_name(name: &str) -> bool {
-    let first_ok = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    let first_ok = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
     first_ok
         && name.len() <= MAX_NAME
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
@@ -101,7 +187,8 @@ pub fn valid_name(name: &str) -> bool {
 /// quoted identifier outside strings and comments, and not right after a
 /// `.` (`t.c1` is a column). DuckDB's identifiers are case-insensitive.
 pub fn references(sql: &str, known: &[String]) -> Vec<String> {
-    let by_lower: HashMap<String, &String> = known.iter().map(|n| (n.to_ascii_lowercase(), n)).collect();
+    let by_lower: HashMap<String, &String> =
+        known.iter().map(|n| (n.to_ascii_lowercase(), n)).collect();
     let toks = name_tokens(sql, &dialect());
     let mut seen = HashSet::new();
     let mut out = Vec::new();
@@ -189,40 +276,59 @@ fn hint(type_name: &str) -> Option<DuckType> {
         .unwrap_or_default();
     Some(match b.as_str() {
         "bool" | "boolean" | "bit" => DuckType::Boolean,
-        "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "int2" | "int4" | "int8" | "smallserial" | "serial" | "bigserial" | "long"
-        | "short" | "int16" | "int32" | "uint8" | "uint16" | "uint32" | "utinyint" | "usmallint" | "uinteger" => DuckType::BigInt,
+        "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "int2" | "int4" | "int8"
+        | "smallserial" | "serial" | "bigserial" | "long" | "short" | "int16" | "int32"
+        | "uint8" | "uint16" | "uint32" | "utinyint" | "usmallint" | "uinteger" => DuckType::BigInt,
         "bigint" | "int64" if !unsigned => DuckType::BigInt,
-        "bigint" | "uint64" | "int128" | "uint128" | "int256" | "uint256" | "hugeint" | "ubigint" | "uhugeint" => DuckType::HugeInt,
-        "real" | "float" | "float4" | "float8" | "double" | "double precision" | "float32" | "float64" | "binary_float" | "binary_double" => {
-            DuckType::Double
-        }
+        "bigint" | "uint64" | "int128" | "uint128" | "int256" | "uint256" | "hugeint"
+        | "ubigint" | "uhugeint" => DuckType::HugeInt,
+        "real" | "float" | "float4" | "float8" | "double" | "double precision" | "float32"
+        | "float64" | "binary_float" | "binary_double" => DuckType::Double,
         "money" => DuckType::Decimal(19, 4),
         "smallmoney" => DuckType::Decimal(10, 4),
-        "decimal" | "numeric" | "number" | "dec" | "decimal32" | "decimal64" | "decimal128" => match args.as_slice() {
-            [p] if (1..=38).contains(p) => DuckType::Decimal(*p as u8, 0),
-            [p, s] if (1..=38).contains(p) && s <= p => DuckType::Decimal(*p as u8, *s as u8),
-            // No precision given: the values say it (see `infer`).
-            _ => DuckType::Decimal(0, 0),
-        },
+        "decimal" | "numeric" | "number" | "dec" | "decimal32" | "decimal64" | "decimal128" => {
+            match args.as_slice() {
+                [p] if (1..=38).contains(p) => DuckType::Decimal(*p as u8, 0),
+                [p, s] if (1..=38).contains(p) && s <= p => DuckType::Decimal(*p as u8, *s as u8),
+                // No precision given: the values say it (see `infer`).
+                _ => DuckType::Decimal(0, 0),
+            }
+        }
         "date" | "date32" => DuckType::Date,
         "time" | "time without time zone" => DuckType::Time,
-        "timestamp" | "datetime" | "datetime2" | "smalldatetime" | "timestamp without time zone" | "datetime64" => DuckType::Timestamp,
-        "timestamptz" | "timestamp with time zone" | "timestamp with local time zone" | "datetimeoffset" => DuckType::TimestampTz,
+        "timestamp"
+        | "datetime"
+        | "datetime2"
+        | "smalldatetime"
+        | "timestamp without time zone"
+        | "datetime64" => DuckType::Timestamp,
+        "timestamptz"
+        | "timestamp with time zone"
+        | "timestamp with local time zone"
+        | "datetimeoffset" => DuckType::TimestampTz,
         "uuid" | "uniqueidentifier" | "guid" => DuckType::Uuid,
-        "json" | "jsonb" | "document" | "object" | "array" | "map" | "struct" | "variant" | "list" => DuckType::Json,
+        "json" | "jsonb" | "document" | "object" | "array" | "map" | "struct" | "variant"
+        | "list" => DuckType::Json,
         "geometry" => DuckType::Geometry,
         _ => DuckType::Varchar,
     })
 }
 
 fn digits(s: &str, from: usize, n: usize) -> bool {
-    s.as_bytes().get(from..from + n).is_some_and(|b| b.iter().all(u8::is_ascii_digit))
+    s.as_bytes()
+        .get(from..from + n)
+        .is_some_and(|b| b.iter().all(u8::is_ascii_digit))
 }
 fn at(s: &str, i: usize, c: u8) -> bool {
     s.as_bytes().get(i) == Some(&c)
 }
 fn looks_date(s: &str) -> bool {
-    s.len() == 10 && digits(s, 0, 4) && at(s, 4, b'-') && digits(s, 5, 2) && at(s, 7, b'-') && digits(s, 8, 2)
+    s.len() == 10
+        && digits(s, 0, 4)
+        && at(s, 4, b'-')
+        && digits(s, 5, 2)
+        && at(s, 7, b'-')
+        && digits(s, 8, 2)
 }
 fn looks_time(s: &str) -> bool {
     digits(s, 0, 2) && at(s, 2, b':') && digits(s, 3, 2)
@@ -231,14 +337,26 @@ fn looks_timestamp(s: &str) -> bool {
     s.len() >= 10
         && s.is_char_boundary(10)
         && looks_date(&s[..10])
-        && (s.len() == 10 || ((at(s, 10, b' ') || at(s, 10, b'T')) && s.is_char_boundary(11) && looks_time(&s[11..])))
+        && (s.len() == 10
+            || ((at(s, 10, b' ') || at(s, 10, b'T'))
+                && s.is_char_boundary(11)
+                && looks_time(&s[11..])))
 }
 /// `0x…` hex, whole (a value cut at the driver's limit ends in `…`).
 fn looks_wkb(s: &str) -> bool {
-    s.strip_prefix("0x").is_some_and(|h| h.len() >= 10 && h.len() % 2 == 0 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+    s.strip_prefix("0x").is_some_and(|h| {
+        h.len() >= 10 && h.len() % 2 == 0 && h.bytes().all(|b| b.is_ascii_hexdigit())
+    })
 }
 fn looks_uuid(s: &str) -> bool {
-    s.len() == 36 && s.char_indices().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { c == '-' } else { c.is_ascii_hexdigit() })
+    s.len() == 36
+        && s.char_indices().all(|(i, c)| {
+            if [8, 13, 18, 23].contains(&i) {
+                c == '-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        })
 }
 fn as_bool(v: &Value) -> Option<bool> {
     match v {
@@ -300,7 +418,9 @@ fn fits<'a>(ty: DuckType, mut values: impl Iterator<Item = &'a Value>) -> bool {
                 DuckType::Double | DuckType::Decimal(..) => is_number(v),
                 DuckType::Date => v.as_str().is_some_and(looks_date),
                 DuckType::Time => v.as_str().is_some_and(looks_time),
-                DuckType::Timestamp | DuckType::TimestampTz => v.as_str().is_some_and(looks_timestamp),
+                DuckType::Timestamp | DuckType::TimestampTz => {
+                    v.as_str().is_some_and(looks_timestamp)
+                }
                 DuckType::Uuid => v.as_str().is_some_and(looks_uuid),
                 DuckType::Json => is_json(v),
                 DuckType::Geometry => v.as_str().is_some_and(looks_wkb),
@@ -325,7 +445,11 @@ fn decimal_shape(v: &Value) -> Option<(usize, usize)> {
     let s = s.strip_prefix('-').unwrap_or(s);
     let (int, frac) = s.split_once('.').unwrap_or((s, ""));
     let digits = |p: &str| p.bytes().all(|b| b.is_ascii_digit());
-    let ok = !int.is_empty() && digits(int) && digits(frac) && !(int.len() > 1 && int.starts_with('0')) && (frac.is_empty() || !s.ends_with('.'));
+    let ok = !int.is_empty()
+        && digits(int)
+        && digits(frac)
+        && !(int.len() > 1 && int.starts_with('0'))
+        && (frac.is_empty() || !s.ends_with('.'));
     ok.then(|| (int.len(), frac.len()))
 }
 
@@ -368,10 +492,24 @@ where
     let all_null = values.clone().all(Value::is_null);
     match hint(type_name) {
         Some(DuckType::Varchar) => return DuckType::Varchar,
-        Some(DuckType::Decimal(0, 0)) => return exact_numeric(values.clone()).or_else(|| fits(DuckType::Double, values.clone()).then_some(DuckType::Double)).unwrap_or(if all_null { DuckType::Double } else { DuckType::Varchar }),
+        Some(DuckType::Decimal(0, 0)) => {
+            return exact_numeric(values.clone())
+                .or_else(|| fits(DuckType::Double, values.clone()).then_some(DuckType::Double))
+                .unwrap_or(if all_null {
+                    DuckType::Double
+                } else {
+                    DuckType::Varchar
+                })
+        }
         Some(t) if all_null || fits(t, values.clone()) => return t,
-        Some(DuckType::BigInt) if fits(DuckType::HugeInt, values.clone()) => return DuckType::HugeInt,
-        Some(DuckType::BigInt | DuckType::HugeInt | DuckType::Decimal(..)) if fits(DuckType::Double, values.clone()) => return DuckType::Double,
+        Some(DuckType::BigInt) if fits(DuckType::HugeInt, values.clone()) => {
+            return DuckType::HugeInt
+        }
+        Some(DuckType::BigInt | DuckType::HugeInt | DuckType::Decimal(..))
+            if fits(DuckType::Double, values.clone()) =>
+        {
+            return DuckType::Double
+        }
         Some(_) => return DuckType::Varchar,
         None if all_null => return DuckType::Varchar,
         None => {}
@@ -388,7 +526,11 @@ where
     } else if only(&|v| v.as_str().is_some_and(looks_date)) {
         DuckType::Date
     } else if only(&|v| v.as_str().is_some_and(looks_timestamp)) {
-        if values.clone().any(|v| v.as_str().is_some_and(has_zone)) { DuckType::TimestampTz } else { DuckType::Timestamp }
+        if values.clone().any(|v| v.as_str().is_some_and(has_zone)) {
+            DuckType::TimestampTz
+        } else {
+            DuckType::Timestamp
+        }
     } else if only(&|v| v.as_str().is_some_and(looks_uuid)) {
         DuckType::Uuid
     } else if only(&|v| v.is_object() || v.is_array()) {
@@ -416,7 +558,10 @@ pub fn to_cell(v: &Value, ty: DuckType) -> Cell {
         DuckType::BigInt => as_i64(v).map_or_else(|| Cell::Text(text_of(v)), Cell::Int),
         DuckType::Double => match v {
             Value::Number(n) => Cell::Float(n.as_f64().unwrap_or(f64::NAN)),
-            other => other.as_str().and_then(|s| s.trim().parse().ok()).map_or_else(|| Cell::Text(text_of(other)), Cell::Float),
+            other => other
+                .as_str()
+                .and_then(|s| s.trim().parse().ok())
+                .map_or_else(|| Cell::Text(text_of(other)), Cell::Float),
         },
         _ => Cell::Text(text_of(v)),
     }
@@ -429,7 +574,11 @@ pub fn column_names(cols: &[ResultColumn]) -> Vec<String> {
     cols.iter()
         .enumerate()
         .map(|(i, c)| {
-            let base = if c.name.trim().is_empty() { format!("col{}", i + 1) } else { c.name.clone() };
+            let base = if c.name.trim().is_empty() {
+                format!("col{}", i + 1)
+            } else {
+                c.name.clone()
+            };
             let mut name = base.clone();
             let mut n = 2;
             while !seen.insert(name.to_lowercase()) {
@@ -487,7 +636,17 @@ pub fn source_key(src: &LocalSource, cap: u64, deps: &[String]) -> String {
         (Some(_), None) => "rows".to_string(),
         _ => "query".to_string(),
     };
-    let key = serde_json::json!([src.name.to_ascii_lowercase(), src.local, src.sql.trim(), src.connection_id, src.database, origin, cap, deps, src.files_key]);
+    let key = serde_json::json!([
+        src.name.to_ascii_lowercase(),
+        src.local,
+        src.sql.trim(),
+        src.connection_id,
+        src.database,
+        origin,
+        cap,
+        deps,
+        src.files_key
+    ]);
     sha256_hex(key.to_string().as_bytes())
 }
 
@@ -498,7 +657,10 @@ pub fn source_key(src: &LocalSource, cap: u64, deps: &[String]) -> String {
 pub fn needed(sql: &str, sources: &[LocalSource]) -> Vec<usize> {
     fn direct(sql: &str, above: &[LocalSource]) -> Vec<usize> {
         let names: Vec<String> = above.iter().map(|s| s.name.clone()).collect();
-        references(sql, &names).into_iter().filter_map(|n| above.iter().rposition(|s| s.name.eq_ignore_ascii_case(&n))).collect()
+        references(sql, &names)
+            .into_iter()
+            .filter_map(|n| above.iter().rposition(|s| s.name.eq_ignore_ascii_case(&n)))
+            .collect()
     }
     fn visit(i: usize, sources: &[LocalSource], out: &mut Vec<usize>, seen: &mut HashSet<usize>) {
         if !seen.insert(i) {
@@ -547,8 +709,14 @@ pub(crate) struct CellRun {
 impl CellRun {
     fn of(sql: &str, tables: &HashMap<String, Loaded>) -> Self {
         let known: Vec<String> = tables.keys().cloned().collect();
-        let used = references(sql, &known).into_iter().filter_map(|n| tables.get(&n).map(|l| (n, l.key.clone()))).collect();
-        CellRun { sql: sql.to_string(), tables: used }
+        let used = references(sql, &known)
+            .into_iter()
+            .filter_map(|n| tables.get(&n).map(|l| (n, l.key.clone())))
+            .collect();
+        CellRun {
+            sql: sql.to_string(),
+            tables: used,
+        }
     }
 }
 
@@ -616,7 +784,11 @@ pub async fn open_sandboxed() -> CommandResult<Box<dyn Session>> {
 /// lockdown when `spatial` (a cell uses `ST_Contains`, `ST_Point`…): it
 /// can't be loaded once the session is locked.
 pub async fn open_sandboxed_with(spatial: bool) -> CommandResult<Box<dyn Session>> {
-    let mut cfg = ConnectionConfig { driver: "duckdb".into(), host: ":memory:".into(), ..Default::default() };
+    let mut cfg = ConnectionConfig {
+        driver: "duckdb".into(),
+        host: ":memory:".into(),
+        ..Default::default()
+    };
     cfg.options.insert("isolated".into(), "true".into());
     let mut s = dbine_drivers::open_session(&cfg, None).await?;
     if spatial {
@@ -630,22 +802,41 @@ pub async fn open_sandboxed_with(spatial: bool) -> CommandResult<Box<dyn Session
 pub(crate) async fn has_spatial(s: &mut dyn Session) -> bool {
     let mut out = QueryOutcome::default();
     // (duckdb_extensions() lists the extensions folder, which a locked session can't.)
-    s.execute("SELECT count(*) FROM duckdb_functions() WHERE lower(function_name) = 'st_point'", 1, &mut out).await.is_ok()
-        && first_value(&out).and_then(Value::as_u64).is_some_and(|n| n > 0)
+    s.execute(
+        "SELECT count(*) FROM duckdb_functions() WHERE lower(function_name) = 'st_point'",
+        1,
+        &mut out,
+    )
+    .await
+    .is_ok()
+        && first_value(&out)
+            .and_then(Value::as_u64)
+            .is_some_and(|n| n > 0)
 }
 
 /// Whether `sql` (a results cell, or the results cells it uses) needs the
 /// `spatial` extension in the notebook's session: it calls an `ST_…`
 /// function (outside strings and comments).
 pub fn uses_spatial(sql: &str) -> bool {
-    name_tokens(sql, &dialect()).iter().any(|t| t.kind == TokenKind::Name && !sql[t.start..].starts_with('"') && t.text.len() > 3 && t.text[..3].eq_ignore_ascii_case("st_"))
+    name_tokens(sql, &dialect()).iter().any(|t| {
+        t.kind == TokenKind::Name
+            && !sql[t.start..].starts_with('"')
+            && t.text.len() > 3
+            && t.text[..3].eq_ignore_ascii_case("st_")
+    })
 }
 
 /// [`SANDBOX`], then a check that it holds.
 pub async fn sandbox(s: &mut dyn Session) -> CommandResult<()> {
-    let fail = |e: String| CommandError::Internal(format!("no se pudo aislar la base en memoria de las celdas DataFrame SQL: {e}"));
+    let fail = |e: String| {
+        CommandError::Internal(format!(
+            "no se pudo aislar la base en memoria de las celdas DataFrame SQL: {e}"
+        ))
+    };
     let mut out = QueryOutcome::default();
-    s.execute(SANDBOX, 10, &mut out).await.map_err(|e| fail(e.to_string()))?;
+    s.execute(SANDBOX, 10, &mut out)
+        .await
+        .map_err(|e| fail(e.to_string()))?;
     if let Some(e) = out.error {
         return Err(fail(e));
     }
@@ -653,8 +844,18 @@ pub async fn sandbox(s: &mut dyn Session) -> CommandResult<()> {
     s.execute("SELECT current_setting('enable_external_access')::VARCHAR, current_setting('lock_configuration')::VARCHAR", 10, &mut out)
         .await
         .map_err(|e| fail(e.to_string()))?;
-    let row = out.results.iter().find(|r| !r.columns.is_empty()).and_then(|r| r.rows.first()).cloned().unwrap_or_default();
-    let is = |i: usize, want: &str| row.get(i).map(text_of).is_some_and(|v| v.eq_ignore_ascii_case(want));
+    let row = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .and_then(|r| r.rows.first())
+        .cloned()
+        .unwrap_or_default();
+    let is = |i: usize, want: &str| {
+        row.get(i)
+            .map(text_of)
+            .is_some_and(|v| v.eq_ignore_ascii_case(want))
+    };
     if !(is(0, "false") && is(1, "true")) {
         return Err(fail(format!("{row:?}")));
     }
@@ -664,7 +865,11 @@ pub async fn sandbox(s: &mut dyn Session) -> CommandResult<()> {
 /// The tab's DuckDB session, opened (and locked down) the first time. When
 /// a cell needs `spatial` and the session was opened without it, it is
 /// opened again with it (its tables are loaded again as needed).
-async fn duck_entry(state: &AppState, key: &str, spatial: bool) -> CommandResult<Arc<SessionEntry>> {
+async fn duck_entry(
+    state: &AppState,
+    key: &str,
+    spatial: bool,
+) -> CommandResult<Arc<SessionEntry>> {
     if let Some(e) = state.sessions.get(key).map(|e| e.clone()) {
         if !spatial || has_spatial(&mut **e.session.lock().await).await {
             return Ok(e);
@@ -695,13 +900,26 @@ pub(crate) async fn exec(s: &mut dyn Session, sql: &str) -> CommandResult<QueryO
 }
 
 pub(crate) fn first_value(out: &QueryOutcome) -> Option<&Value> {
-    out.results.iter().find(|r| !r.columns.is_empty()).and_then(|r| r.rows.first()).and_then(|r| r.first())
+    out.results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .and_then(|r| r.rows.first())
+        .and_then(|r| r.first())
 }
 
 /// The tables the session has now (lowercase).
 pub(crate) async fn existing_tables(s: &mut dyn Session) -> CommandResult<HashSet<String>> {
-    let out = exec(s, "SELECT lower(table_name) FROM duckdb_tables() WHERE schema_name = 'main'").await?;
-    Ok(out.results.iter().flat_map(|r| r.rows.iter()).filter_map(|r| r.first().and_then(Value::as_str).map(String::from)).collect())
+    let out = exec(
+        s,
+        "SELECT lower(table_name) FROM duckdb_tables() WHERE schema_name = 'main'",
+    )
+    .await?;
+    Ok(out
+        .results
+        .iter()
+        .flat_map(|r| r.rows.iter())
+        .filter_map(|r| r.first().and_then(Value::as_str).map(String::from))
+        .collect())
 }
 
 /// Batches of the rows as cells of the columns' types.
@@ -720,7 +938,13 @@ impl BatchSource for Rows<'_> {
         let end = (self.at + BATCH_ROWS).min(self.rows.len());
         let rows: Vec<Vec<Cell>> = self.rows[self.at..end]
             .iter()
-            .map(|r| self.types.iter().enumerate().map(|(i, t)| to_cell(r.get(i).unwrap_or(&Value::Null), *t)).collect())
+            .map(|r| {
+                self.types
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| to_cell(r.get(i).unwrap_or(&Value::Null), *t))
+                    .collect()
+            })
             .collect();
         self.at = end;
         let bytes = rows.iter().flatten().map(Cell::size).sum();
@@ -729,19 +953,49 @@ impl BatchSource for Rows<'_> {
 }
 
 /// `CREATE OR REPLACE TABLE` the source's table and append its rows.
-async fn load_table(s: &mut dyn Session, name: &str, columns: &[ResultColumn], rows: &[Vec<Value>], types: &[DuckType]) -> CommandResult<u64> {
+async fn load_table(
+    s: &mut dyn Session,
+    name: &str,
+    columns: &[ResultColumn],
+    rows: &[Vec<Value>],
+    types: &[DuckType],
+) -> CommandResult<u64> {
     let names = column_names(columns);
-    let defs: Vec<String> = names.iter().zip(types).map(|(n, t)| format!("{} {}", quote_ident(Quote::Double, n), t.sql())).collect();
-    exec(s, &format!("CREATE OR REPLACE TABLE main.{} ({})", quote_ident(Quote::Double, name), defs.join(", "))).await?;
+    let defs: Vec<String> = names
+        .iter()
+        .zip(types)
+        .map(|(n, t)| format!("{} {}", quote_ident(Quote::Double, n), t.sql()))
+        .collect();
+    exec(
+        s,
+        &format!(
+            "CREATE OR REPLACE TABLE main.{} ({})",
+            quote_ident(Quote::Double, name),
+            defs.join(", ")
+        ),
+    )
+    .await?;
     let spec = LoadSpec {
-        table: ObjectRef { kind: "table".into(), schema: Some("main".into()), name: name.to_string() },
+        table: ObjectRef {
+            kind: "table".into(),
+            schema: Some("main".into()),
+            name: name.to_string(),
+        },
         columns: names.clone(),
         table_lock: false,
         keep_identity: false,
         commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
         commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
     };
-    let cols: Vec<TransferColumn> = names.iter().zip(types).map(|(n, t)| TransferColumn { name: n.clone(), type_name: t.sql(), nullable: true }).collect();
+    let cols: Vec<TransferColumn> = names
+        .iter()
+        .zip(types)
+        .map(|(n, t)| TransferColumn {
+            name: n.clone(),
+            type_name: t.sql(),
+            nullable: true,
+        })
+        .collect();
     let mut src = Rows { rows, types, at: 0 };
     Ok(s.bulk_load(&spec, &cols, &mut src, &|_| {}).await?)
 }
@@ -752,9 +1006,30 @@ async fn load_table(s: &mut dyn Session, name: &str, columns: &[ResultColumn], r
 /// column (WKB hex) is loaded as text and rebuilt as `GEOMETRY` with
 /// `ST_GeomFromWKB` (DuckDB's own, no extension needed) when every value
 /// converts. Returns the rows and the columns left as text.
-async fn load_rows(s: &mut dyn Session, name: &str, columns: &[ResultColumn], rows: &[Vec<Value>]) -> CommandResult<(u64, Vec<String>)> {
-    let inferred: Vec<DuckType> = (0..columns.len()).map(|i| infer(&columns[i].type_name, rows.iter().map(move |r| r.get(i).unwrap_or(&Value::Null)))).collect();
-    let types: Vec<DuckType> = inferred.iter().map(|t| if *t == DuckType::Geometry { DuckType::Varchar } else { *t }).collect();
+async fn load_rows(
+    s: &mut dyn Session,
+    name: &str,
+    columns: &[ResultColumn],
+    rows: &[Vec<Value>],
+) -> CommandResult<(u64, Vec<String>)> {
+    let inferred: Vec<DuckType> = (0..columns.len())
+        .map(|i| {
+            infer(
+                &columns[i].type_name,
+                rows.iter().map(move |r| r.get(i).unwrap_or(&Value::Null)),
+            )
+        })
+        .collect();
+    let types: Vec<DuckType> = inferred
+        .iter()
+        .map(|t| {
+            if *t == DuckType::Geometry {
+                DuckType::Varchar
+            } else {
+                *t
+            }
+        })
+        .collect();
     let names = column_names(columns);
     let q = |n: &str| quote_ident(Quote::Double, n);
     let (n, mut as_text) = 'load: {
@@ -771,10 +1046,11 @@ async fn load_rows(s: &mut dyn Session, name: &str, columns: &[ResultColumn], ro
         let mut select = Vec::new();
         let mut as_text = Vec::new();
         for (c, t) in names.iter().zip(&types) {
-            let ok = *t == DuckType::Varchar || {
-                let bad = exec(s, &format!("SELECT count(*) FROM main.{} WHERE {c} IS NOT NULL AND TRY_CAST({c} AS {ty}) IS NULL", q(&stage), c = q(c), ty = t.sql())).await?;
-                first_value(&bad).and_then(Value::as_u64) == Some(0)
-            };
+            let ok = *t == DuckType::Varchar
+                || {
+                    let bad = exec(s, &format!("SELECT count(*) FROM main.{} WHERE {c} IS NOT NULL AND TRY_CAST({c} AS {ty}) IS NULL", q(&stage), c = q(c), ty = t.sql())).await?;
+                    first_value(&bad).and_then(Value::as_u64) == Some(0)
+                };
             if ok {
                 select.push(format!("CAST({c} AS {ty}) AS {c}", c = q(c), ty = t.sql()));
             } else {
@@ -782,7 +1058,16 @@ async fn load_rows(s: &mut dyn Session, name: &str, columns: &[ResultColumn], ro
                 as_text.push(c.clone());
             }
         }
-        exec(s, &format!("CREATE OR REPLACE TABLE main.{} AS SELECT {} FROM main.{}", q(name), select.join(", "), q(&stage))).await?;
+        exec(
+            s,
+            &format!(
+                "CREATE OR REPLACE TABLE main.{} AS SELECT {} FROM main.{}",
+                q(name),
+                select.join(", "),
+                q(&stage)
+            ),
+        )
+        .await?;
         exec(s, &format!("DROP TABLE main.{}", q(&stage))).await?;
         (n, as_text)
     };
@@ -793,14 +1078,32 @@ async fn load_rows(s: &mut dyn Session, name: &str, columns: &[ResultColumn], ro
             continue;
         }
         let wkb = format!("TRY(ST_GeomFromWKB(unhex(substr({}, 3))))", q(c));
-        let bad = exec(s, &format!("SELECT count(*) FROM main.{} WHERE {} IS NOT NULL AND {wkb} IS NULL", q(name), q(c))).await;
+        let bad = exec(
+            s,
+            &format!(
+                "SELECT count(*) FROM main.{} WHERE {} IS NOT NULL AND {wkb} IS NULL",
+                q(name),
+                q(c)
+            ),
+        )
+        .await;
         match bad {
-            Ok(bad) if first_value(&bad).and_then(Value::as_u64) == Some(0) => geo.push(format!("{wkb} AS {}", q(c))),
+            Ok(bad) if first_value(&bad).and_then(Value::as_u64) == Some(0) => {
+                geo.push(format!("{wkb} AS {}", q(c)))
+            }
             _ => as_text.push(c.clone()),
         }
     }
     if !geo.is_empty() {
-        exec(s, &format!("CREATE OR REPLACE TABLE main.{t} AS SELECT * REPLACE ({}) FROM main.{t}", geo.join(", "), t = q(name))).await?;
+        exec(
+            s,
+            &format!(
+                "CREATE OR REPLACE TABLE main.{t} AS SELECT * REPLACE ({}) FROM main.{t}",
+                geo.join(", "),
+                t = q(name)
+            ),
+        )
+        .await?;
     }
     Ok((n, as_text))
 }
@@ -842,9 +1145,23 @@ pub(crate) type Fetched = (Vec<ResultColumn>, Vec<Vec<Value>>, bool);
 
 /// The rows of `query` read on `s` (read-only, see the module docs): its
 /// first result set, up to `cap` rows, and whether it was cut.
-pub(crate) async fn read_source(driver: &dyn dbine_driver::Driver, s: &mut dyn Session, name: &str, query: &str, cap: u64, stop: &Stop<'_>) -> CommandResult<Fetched> {
+pub(crate) async fn read_source(
+    driver: &dyn dbine_driver::Driver,
+    s: &mut dyn Session,
+    name: &str,
+    query: &str,
+    cap: u64,
+    stop: &Stop<'_>,
+) -> CommandResult<Fetched> {
     let on_cap = Arc::new(Notify::new());
-    let sink = Arc::new(Mutex::new(Collect { cap, index: None, columns: Vec::new(), rows: Vec::new(), capped: false, on_cap: on_cap.clone() }));
+    let sink = Arc::new(Mutex::new(Collect {
+        cap,
+        index: None,
+        columns: Vec::new(),
+        rows: Vec::new(),
+        capped: false,
+        on_cap: on_cap.clone(),
+    }));
     let max = usize::try_from(cap.saturating_add(1)).unwrap_or(usize::MAX);
     match read(driver, s, query, query, max, Some(RowSinkRef(sink.clone())), Some(&on_cap), stop).await {
         Ok(_) => {}
@@ -856,18 +1173,35 @@ pub(crate) async fn read_source(driver: &dyn dbine_driver::Driver, s: &mut dyn S
         }
         Err(Fail::Failed(e)) => return Err(CommandError::Sql(format!("la celda «{name}» falló al volver a ejecutarse: {e}"))),
     }
-    let mut c = sink.lock().map_err(|_| CommandError::Internal("filas de la celda".into()))?;
+    let mut c = sink
+        .lock()
+        .map_err(|_| CommandError::Internal("filas de la celda".into()))?;
     if c.index.is_none() {
-        return Err(CommandError::BadRequest(format!("la celda «{name}» no devolvió un resultado con columnas")));
+        return Err(CommandError::BadRequest(format!(
+            "la celda «{name}» no devolvió un resultado con columnas"
+        )));
     }
-    Ok((std::mem::take(&mut c.columns), std::mem::take(&mut c.rows), c.capped))
+    Ok((
+        std::mem::take(&mut c.columns),
+        std::mem::take(&mut c.rows),
+        c.capped,
+    ))
 }
 
 /// The source's query run again on its connection, on a read-only session
 /// of its own.
-async fn rerun(state: &AppState, tab: &str, src: &LocalSource, cap: u64, duck: &SessionEntry) -> CommandResult<Fetched> {
+async fn rerun(
+    state: &AppState,
+    tab: &str,
+    src: &LocalSource,
+    cap: u64,
+    duck: &SessionEntry,
+) -> CommandResult<Fetched> {
     let Some(conn) = src.connection_id.as_deref().filter(|c| !c.is_empty()) else {
-        return Err(CommandError::BadRequest(format!("la celda «{}» no tiene dónde ejecutarse: elegí su conexión", src.name)));
+        return Err(CommandError::BadRequest(format!(
+            "la celda «{}» no tiene dónde ejecutarse: elegí su conexión",
+            src.name
+        )));
     };
     let database = src.database.clone().unwrap_or_default();
     let driver = crate::commands::schema::driver_of(state, conn)?;
@@ -876,10 +1210,16 @@ async fn rerun(state: &AppState, tab: &str, src: &LocalSource, cap: u64, duck: &
     let r = {
         let mut s = entry.session.lock().await;
         // A cancel of the notebook's run stops this read too.
-        let stop = Stop { cancel: &duck.cancel, cancelled: &duck.cancelled, interrupter: entry.interrupter.as_ref() };
+        let stop = Stop {
+            cancel: &duck.cancel,
+            cancelled: &duck.cancelled,
+            interrupter: entry.interrupter.as_ref(),
+        };
         read_source(driver.as_ref(), &mut **s, &src.name, &src.sql, cap, &stop).await
     };
-    state.sessions.remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
+    state
+        .sessions
+        .remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
     r
 }
 
@@ -905,7 +1245,14 @@ where
     let mut keys: HashMap<usize, String> = HashMap::new();
     for i in needed(sql, sources) {
         let src = &sources[i];
-        let deps: Vec<String> = if src.local { needed(&src.sql, &sources[..i]).iter().filter_map(|j| keys.get(j).cloned()).collect() } else { Vec::new() };
+        let deps: Vec<String> = if src.local {
+            needed(&src.sql, &sources[..i])
+                .iter()
+                .filter_map(|j| keys.get(j).cloned())
+                .collect()
+        } else {
+            Vec::new()
+        };
         let k = source_key(src, cap, &deps);
         keys.insert(i, k.clone());
         let lname = src.name.to_ascii_lowercase();
@@ -917,8 +1264,20 @@ where
         } else {
             "query"
         };
-        if let Some(l) = tables.get(&lname).filter(|l| l.key == k && present.contains(&lname)) {
-            loaded.push(LoadedTable { name: src.name.clone(), rows: l.rows, capped: l.capped, cached: true, origin, as_text: l.as_text, elapsed_ms: 0, files: Vec::new() });
+        if let Some(l) = tables
+            .get(&lname)
+            .filter(|l| l.key == k && present.contains(&lname))
+        {
+            loaded.push(LoadedTable {
+                name: src.name.clone(),
+                rows: l.rows,
+                capped: l.capped,
+                cached: true,
+                origin,
+                as_text: l.as_text,
+                elapsed_ms: 0,
+                files: Vec::new(),
+            });
             continue;
         }
         let (rows, capped, as_text) = if src.local {
@@ -928,9 +1287,15 @@ where
             }
             let body = stmts[0].text.trim().trim_end_matches(';').trim();
             let table = quote_ident(Quote::Double, &src.name);
-            exec(s, &format!("CREATE OR REPLACE TABLE main.{table} AS SELECT * FROM ({body}) LIMIT {}", cap + 1))
-                .await
-                .map_err(|e| CommandError::Sql(format!("la celda «{}»: {e}", src.name)))?;
+            exec(
+                s,
+                &format!(
+                    "CREATE OR REPLACE TABLE main.{table} AS SELECT * FROM ({body}) LIMIT {}",
+                    cap + 1
+                ),
+            )
+            .await
+            .map_err(|e| CommandError::Sql(format!("la celda «{}»: {e}", src.name)))?;
             let n = exec(s, &format!("SELECT count(*) FROM main.{table}")).await?;
             let n = first_value(&n).and_then(Value::as_u64).unwrap_or(0);
             if n > cap {
@@ -941,12 +1306,19 @@ where
             let (columns, rows, capped) = match &src.rows {
                 Some(live) => {
                     let take = (cap as usize).min(live.rows.len());
-                    (live.columns.clone(), live.rows[..take].to_vec(), live.rows.len() as u64 > cap)
+                    (
+                        live.columns.clone(),
+                        live.rows[..take].to_vec(),
+                        live.rows.len() as u64 > cap,
+                    )
                 }
                 None => rerun(i).await?,
             };
             if columns.is_empty() {
-                return Err(CommandError::BadRequest(format!("la celda «{}» no devolvió un resultado con columnas", src.name)));
+                return Err(CommandError::BadRequest(format!(
+                    "la celda «{}» no devolvió un resultado con columnas",
+                    src.name
+                )));
             }
             let (n, text) = load_rows(s, &src.name, &columns, &rows).await?;
             if !text.is_empty() {
@@ -957,15 +1329,37 @@ where
         if capped {
             out.warning(format!("«{}» se cargó con las primeras {cap} filas (el tope por tabla de Configuración › Notebooks)", src.name));
         }
-        tables.insert(lname, Loaded { key: k, rows, capped, as_text });
-        loaded.push(LoadedTable { name: src.name.clone(), rows, capped, cached: false, origin, as_text, elapsed_ms: t0.elapsed().as_millis() as u64, files: Vec::new() });
+        tables.insert(
+            lname,
+            Loaded {
+                key: k,
+                rows,
+                capped,
+                as_text,
+            },
+        );
+        loaded.push(LoadedTable {
+            name: src.name.clone(),
+            rows,
+            capped,
+            cached: false,
+            origin,
+            as_text,
+            elapsed_ms: t0.elapsed().as_millis() as u64,
+            files: Vec::new(),
+        });
     }
     Ok(loaded)
 }
 
 /// The rows of a reader call, read on the reader session: up to `cap`,
 /// and whether there were more. A cancel of the run interrupts it.
-async fn read_file(reader: &mut dyn Session, r: &FileRead, cap: u64, cancel: Option<&Notify>) -> CommandResult<Fetched> {
+async fn read_file(
+    reader: &mut dyn Session,
+    r: &FileRead,
+    cap: u64,
+    cancel: Option<&Notify>,
+) -> CommandResult<Fetched> {
     // In a transaction of its own: `st_read` needs one open while its rows
     // are fetched (the session is dropped after this read).
     let mut begin = QueryOutcome::default();
@@ -997,7 +1391,10 @@ async fn read_file(reader: &mut dyn Session, r: &FileRead, cap: u64, cancel: Opt
         return Err(CommandError::Sql(format!("«{}»: {e}", r.display)));
     }
     let Some(res) = out.results.into_iter().find(|r| !r.columns.is_empty()) else {
-        return Err(CommandError::BadRequest(format!("«{}» no devolvió columnas", r.display)));
+        return Err(CommandError::BadRequest(format!(
+            "«{}» no devolvió columnas",
+            r.display
+        )));
     };
     let mut rows = res.rows;
     let capped = rows.len() as u64 > cap;
@@ -1058,16 +1455,41 @@ pub(crate) async fn load_files(
             continue;
         }
         let t0 = std::time::Instant::now();
-        if let Some(l) = tables.get(&r.table).filter(|l| l.key == r.key && present.contains(&r.table)) {
-            loaded.push(LoadedTable { name: r.display.clone(), rows: l.rows, capped: l.capped, cached: true, origin: "file", as_text: l.as_text, elapsed_ms: 0, files: r.files.clone() });
+        if let Some(l) = tables
+            .get(&r.table)
+            .filter(|l| l.key == r.key && present.contains(&r.table))
+        {
+            loaded.push(LoadedTable {
+                name: r.display.clone(),
+                rows: l.rows,
+                capped: l.capped,
+                cached: true,
+                origin: "file",
+                as_text: l.as_text,
+                elapsed_ms: 0,
+                files: r.files.clone(),
+            });
             continue;
         }
         // Only what `allowed_files` let through is ever granted.
         // (an object found by an approved pattern goes with its pattern)
-        let ok: HashSet<&str> = allowed.iter().flat_map(|f| f.all()).map(|f| f.path.as_str()).collect();
-        let approved = |f: &DataFile| ok.contains(f.path.as_str()) || f.host.is_some() && f.pattern.as_deref().is_some_and(|p| ok.contains(p) && super::remote::url_pattern_matches(p, &f.path));
+        let ok: HashSet<&str> = allowed
+            .iter()
+            .flat_map(|f| f.all())
+            .map(|f| f.path.as_str())
+            .collect();
+        let approved = |f: &DataFile| {
+            ok.contains(f.path.as_str())
+                || f.host.is_some()
+                    && f.pattern.as_deref().is_some_and(|p| {
+                        ok.contains(p) && super::remote::url_pattern_matches(p, &f.path)
+                    })
+        };
         if let Some(f) = r.files.iter().flat_map(|f| f.all()).find(|f| !approved(f)) {
-            return Err(CommandError::BadRequest(format!("no se permitió leer «{}»", f.display)));
+            return Err(CommandError::BadRequest(format!(
+                "no se permitió leer «{}»",
+                f.display
+            )));
         }
         let (columns, rows, capped) = match &r.kind {
             files::ReadKind::Sqlite { .. } => read_sqlite(r, cap, cancel).await?,
@@ -1078,7 +1500,8 @@ pub(crate) async fn load_files(
                 let mut _tmp = None;
                 let mut job = r.clone();
                 let paths = if r.remote {
-                    let tmp = super::remote::TempDir::new("remote").map_err(CommandError::Internal)?;
+                    let tmp =
+                        super::remote::TempDir::new("remote").map_err(CommandError::Internal)?;
                     let never = Notify::new();
                     let got = tokio::select! {
                         g = super::remote::download(&r.files, net, &tmp.0) => g?,
@@ -1088,7 +1511,8 @@ pub(crate) async fn load_files(
                     _tmp = Some(tmp);
                     got
                 } else if r.gpkg_copy {
-                    let tmp = super::remote::TempDir::new("gpkg").map_err(CommandError::Internal)?;
+                    let tmp =
+                        super::remote::TempDir::new("gpkg").map_err(CommandError::Internal)?;
                     let copy = files::gpkg_copy(&r.files[0], &tmp.0).map_err(CommandError::Sql)?;
                     job.text = r.text_for(std::slice::from_ref(&copy));
                     _tmp = Some(tmp);
@@ -1107,7 +1531,15 @@ pub(crate) async fn load_files(
         if capped {
             out.warning(format!("«{}» se cargó con las primeras {cap} filas (el tope por tabla de Configuración › Notebooks)", r.display));
         }
-        tables.insert(r.table.clone(), Loaded { key: r.key.clone(), rows: n, capped, as_text: !text.is_empty() });
+        tables.insert(
+            r.table.clone(),
+            Loaded {
+                key: r.key.clone(),
+                rows: n,
+                capped,
+                as_text: !text.is_empty(),
+            },
+        );
         loaded.push(LoadedTable {
             name: r.display.clone(),
             rows: n,
@@ -1154,18 +1586,25 @@ where
     }
     for &i in &locals {
         if let Some(e) = files::refused(&sources[i].sql) {
-            return Err(CommandError::BadRequest(format!("la celda «{}»: {e}", sources[i].name)));
+            return Err(CommandError::BadRequest(format!(
+                "la celda «{}»: {e}",
+                sources[i].name
+            )));
         }
     }
     let home = files::home_dir();
     let net = &access.net;
-    let cell = files::plan_with(sql, base, home.as_deref(), cap, net).map_err(CommandError::BadRequest)?;
+    let cell =
+        files::plan_with(sql, base, home.as_deref(), cap, net).map_err(CommandError::BadRequest)?;
     let mut sources = sources.to_vec();
     let mut reads = cell.clone();
     // Which source each of `reads` belongs to (`None`: the cell's own).
     let mut owner: Vec<Option<usize>> = vec![None; reads.len()];
     for &i in &locals {
-        let r = files::plan_with(&sources[i].sql, base, home.as_deref(), cap, net).map_err(|e| CommandError::BadRequest(format!("la celda «{}»: {e}", sources[i].name)))?;
+        let r =
+            files::plan_with(&sources[i].sql, base, home.as_deref(), cap, net).map_err(|e| {
+                CommandError::BadRequest(format!("la celda «{}»: {e}", sources[i].name))
+            })?;
         if !r.is_empty() {
             sources[i].sql = files::rewrite(&sources[i].sql, &r);
             owner.extend(r.iter().map(|_| Some(i)));
@@ -1184,8 +1623,14 @@ where
         Err(super::access::Gate::Blocked(e)) => return Err(CommandError::BadRequest(e)),
         Err(super::access::Gate::Ask(files)) => return Ok(Prepared::Ask(files)),
     };
-    if let Some(f) = wanted.iter().find(|f| !allowed.iter().any(|a| a.path == f.path)) {
-        return Err(CommandError::BadRequest(format!("no se permitió leer «{}»", f.display)));
+    if let Some(f) = wanted
+        .iter()
+        .find(|f| !allowed.iter().any(|a| a.path == f.path))
+    {
+        return Err(CommandError::BadRequest(format!(
+            "no se permitió leer «{}»",
+            f.display
+        )));
     }
     // Approved: the objects behind each URL and pattern (a HEAD, a listing),
     // and the reads' keys with their versions.
@@ -1206,36 +1651,58 @@ where
                 }
             }
             if objects.len() > files::MAX_FILES {
-                return Err(CommandError::BadRequest(format!("«{}» lee más de {} archivos", r.call.function, files::MAX_FILES)));
+                return Err(CommandError::BadRequest(format!(
+                    "«{}» lee más de {} archivos",
+                    r.call.function,
+                    files::MAX_FILES
+                )));
             }
             r.files = objects;
             r.rekey(cap);
         }
     }
     for (i, src) in sources.iter_mut().enumerate() {
-        let keys: Vec<&str> = reads.iter().zip(&owner).filter(|(_, o)| **o == Some(i)).map(|(r, _)| r.key.as_str()).collect();
+        let keys: Vec<&str> = reads
+            .iter()
+            .zip(&owner)
+            .filter(|(_, o)| **o == Some(i))
+            .map(|(r, _)| r.key.as_str())
+            .collect();
         if !keys.is_empty() {
             src.files_key = keys.join(",");
         }
     }
     // The change notice covers each file and its sidecars, and each object.
     let mut every: Vec<DataFile> = Vec::new();
-    for f in reads.iter().flat_map(|r| r.files.iter()).flat_map(|f| f.all()) {
+    for f in reads
+        .iter()
+        .flat_map(|r| r.files.iter())
+        .flat_map(|f| f.all())
+    {
         if !every.iter().any(|x| x.path == f.path) {
             every.push(f.clone());
         }
     }
     let seen = super::access::changes(access, &every).await;
-    let mut from_files = if reads.is_empty() { Vec::new() } else { load_files(s, tables, present, &reads, &allowed, cap, out, cancel, net).await? };
+    let mut from_files = if reads.is_empty() {
+        Vec::new()
+    } else {
+        load_files(s, tables, present, &reads, &allowed, cap, out, cancel, net).await?
+    };
     super::access::remember(access, &seen);
     // The change notice, on each file whose content changed.
-    let before = |path: &str| seen.iter().find(|x| x.path == path).and_then(|x| x.previous_mtime_ms);
+    let before = |path: &str| {
+        seen.iter()
+            .find(|x| x.path == path)
+            .and_then(|x| x.previous_mtime_ms)
+    };
     for f in from_files.iter_mut().flat_map(|l| l.files.iter_mut()) {
         for c in f.sidecars.iter_mut() {
             c.previous_mtime_ms = before(&c.path);
         }
         // A sidecar that changed is the file's content changing too.
-        f.previous_mtime_ms = before(&f.path).or_else(|| f.sidecars.iter().find_map(|c| c.previous_mtime_ms));
+        f.previous_mtime_ms =
+            before(&f.path).or_else(|| f.sidecars.iter().find_map(|c| c.previous_mtime_ms));
     }
     let mut loaded = materialize(s, tables, present, sql, &sources, cap, out, rerun).await?;
     loaded.extend(from_files);
@@ -1246,7 +1713,13 @@ where
 /// DataFrame SQL cell's run and a write cell's DataFrame share. `sql`
 /// comes back with each reader call replaced by its table.
 pub(crate) enum Staged {
-    Ready { entry: Arc<SessionEntry>, sql: String, loaded: Vec<LoadedTable>, out: QueryOutcome, snapshot: CellRun },
+    Ready {
+        entry: Arc<SessionEntry>,
+        sql: String,
+        loaded: Vec<LoadedTable>,
+        out: QueryOutcome,
+        snapshot: CellRun,
+    },
     /// Files nobody allowed yet: nothing was read.
     Ask(super::access::ApprovalRequest),
 }
@@ -1265,7 +1738,10 @@ pub(crate) async fn stage(
     net: super::remote::Net,
 ) -> CommandResult<Staged> {
     if let Some(bad) = sources.iter().find(|s| !valid_name(&s.name)) {
-        return Err(CommandError::BadRequest(format!("«{}» no es un nombre de tabla válido", bad.name)));
+        return Err(CommandError::BadRequest(format!(
+            "«{}» no es un nombre de tabla válido",
+            bad.name
+        )));
     }
     // What it may read: never the blocked files; the notebook's grants;
     // the files the user just approved for this run (the token is spent).
@@ -1278,32 +1754,66 @@ pub(crate) async fn stage(
         Some(nb) => state.store.list_file_grants(Some(nb))?,
         None => Vec::new(),
     };
-    let access = super::access::Access { policy, notebook: notebook.clone(), grants, approved, store: Some(state.store.as_ref()), net };
+    let access = super::access::Access {
+        policy,
+        notebook: notebook.clone(),
+        grants,
+        approved,
+        store: Some(state.store.as_ref()),
+        net,
+    };
     let key = session_key(tab);
     // Spatial functions in the cell, or in a DataFrame SQL cell it uses.
-    let spatial = uses_spatial(sql) || needed(sql, sources).iter().any(|&i| sources[i].local && uses_spatial(&sources[i].sql));
+    let spatial = uses_spatial(sql)
+        || needed(sql, sources)
+            .iter()
+            .any(|&i| sources[i].local && uses_spatial(&sources[i].sql));
     let entry = duck_entry(state, &key, spatial).await?;
     entry.cancelled.store(false, Ordering::SeqCst);
 
     // What's loaded, if it's still the same session.
     let mut tables: HashMap<String, Loaded> = {
-        let mut all = CATALOGS.lock().map_err(|_| CommandError::Internal("tablas del notebook".into()))?;
+        let mut all = CATALOGS
+            .lock()
+            .map_err(|_| CommandError::Internal("tablas del notebook".into()))?;
         all.retain(|_, c| c.entry.strong_count() > 0);
         match all.get(&key) {
-            Some(c) if c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry)) => c.tables.clone(),
+            Some(c) if c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry)) => {
+                c.tables.clone()
+            }
             _ => HashMap::new(),
         }
     };
     let mut out = QueryOutcome::default();
     let mut s = entry.session.lock().await;
-    let present = if tables.is_empty() { HashSet::new() } else { existing_tables(&mut **s).await? };
+    let present = if tables.is_empty() {
+        HashSet::new()
+    } else {
+        existing_tables(&mut **s).await?
+    };
     let duck = entry.clone();
     let rerun = |i: usize| {
         let (src, duck) = (sources[i].clone(), duck.clone());
         async move { rerun(state, tab, &src, cap, &duck).await }
     };
-    let base = notebook_path.filter(|p| !p.trim().is_empty()).and_then(|p| std::path::Path::new(p).parent()).map(std::path::Path::to_path_buf);
-    let prepared = prepare(&mut **s, &mut tables, &present, sql, sources, cap, base.as_deref(), &access, &mut out, Some(&entry.cancel), rerun).await;
+    let base = notebook_path
+        .filter(|p| !p.trim().is_empty())
+        .and_then(|p| std::path::Path::new(p).parent())
+        .map(std::path::Path::to_path_buf);
+    let prepared = prepare(
+        &mut **s,
+        &mut tables,
+        &present,
+        sql,
+        sources,
+        cap,
+        base.as_deref(),
+        &access,
+        &mut out,
+        Some(&entry.cancel),
+        rerun,
+    )
+    .await;
     drop(s);
     let snapshot = match &prepared {
         Ok(Prepared::Ready(rewritten, _)) => Some(CellRun::of(rewritten, &tables)),
@@ -1314,11 +1824,28 @@ pub(crate) async fn stage(
             Some(c) if c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry)) => c.runs,
             _ => HashMap::new(),
         };
-        all.insert(key.clone(), Catalog { entry: Arc::downgrade(&entry), tables, runs });
+        all.insert(
+            key.clone(),
+            Catalog {
+                entry: Arc::downgrade(&entry),
+                tables,
+                runs,
+            },
+        );
     }
     match (prepared?, snapshot) {
-        (Prepared::Ready(sql, loaded), Some(snapshot)) => Ok(Staged::Ready { entry, sql, loaded, out, snapshot }),
-        (Prepared::Ask(files), _) => Ok(Staged::Ask(super::access::ask(tab, notebook.as_deref(), files)?)),
+        (Prepared::Ready(sql, loaded), Some(snapshot)) => Ok(Staged::Ready {
+            entry,
+            sql,
+            loaded,
+            out,
+            snapshot,
+        }),
+        (Prepared::Ask(files), _) => Ok(Staged::Ask(super::access::ask(
+            tab,
+            notebook.as_deref(),
+            files,
+        )?)),
         (Prepared::Ready(..), None) => Err(CommandError::Internal("tablas del notebook".into())),
     }
 }
@@ -1348,9 +1875,33 @@ pub async fn run_local(
     let started = std::time::Instant::now();
     let key = session_key(tab);
     let cell_sql = sql;
-    let (entry, sql, loaded, mut out, snapshot) = match stage(state, tab, sql, cap, sources, notebook_path, approval, policy, net).await? {
-        Staged::Ready { entry, sql, loaded, out, snapshot } => (entry, sql, loaded, out, snapshot),
-        Staged::Ask(approval) => return Ok(RunLocalResponse { outcome: QueryOutcome::default(), loaded: Vec::new(), approval: Some(approval) }),
+    let (entry, sql, loaded, mut out, snapshot) = match stage(
+        state,
+        tab,
+        sql,
+        cap,
+        sources,
+        notebook_path,
+        approval,
+        policy,
+        net,
+    )
+    .await?
+    {
+        Staged::Ready {
+            entry,
+            sql,
+            loaded,
+            out,
+            snapshot,
+        } => (entry, sql, loaded, out, snapshot),
+        Staged::Ask(approval) => {
+            return Ok(RunLocalResponse {
+                outcome: QueryOutcome::default(),
+                loaded: Vec::new(),
+                approval: Some(approval),
+            })
+        }
     };
     let mut s = entry.session.lock().await;
     let sql = sql.as_str();
@@ -1368,9 +1919,15 @@ pub async fn run_local(
         Some(Err(e)) => run.push_error(ScriptError::new(e.to_string())),
         Some(Ok(())) => {}
     }
-    let error = run.error.take().or_else(|| run.errors.first().map(|e| e.message.clone()));
+    let error = run
+        .error
+        .take()
+        .or_else(|| run.errors.first().map(|e| e.message.clone()));
     if let (None, Ok(mut all)) = (&error, CATALOGS.lock()) {
-        if let Some(c) = all.get_mut(&key).filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry))) {
+        if let Some(c) = all
+            .get_mut(&key)
+            .filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry)))
+        {
             c.runs.insert(cell_sql.to_string(), snapshot);
         }
     }
@@ -1378,7 +1935,11 @@ pub async fn run_local(
     out.absorb(run);
     out.error = error;
     out.elapsed_ms = started.elapsed().as_millis() as u64;
-    Ok(RunLocalResponse { outcome: out, loaded, approval: None })
+    Ok(RunLocalResponse {
+        outcome: out,
+        loaded,
+        approval: None,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1394,7 +1955,9 @@ enum Reuse {
 impl Reuse {
     fn not_run(self) -> CommandError {
         CommandError::BadRequest(match self {
-            Reuse::Chart => "Ejecutá la celda para calcular el gráfico sobre todo su resultado".into(),
+            Reuse::Chart => {
+                "Ejecutá la celda para calcular el gráfico sobre todo su resultado".into()
+            }
             Reuse::Export => "Ejecutá la celda para exportar todo su resultado".into(),
         })
     }
@@ -1410,18 +1973,36 @@ impl Reuse {
 /// the tab's session `entry` (locked: `s`), with its SQL as it ran checked
 /// again with the cell's refusals, and only while every table it read is
 /// still there and loaded from the same source. Nothing is loaded here.
-async fn last_run(entry: &Arc<SessionEntry>, s: &mut dyn Session, tab: &str, sql: &str, why: Reuse) -> CommandResult<CellRun> {
+async fn last_run(
+    entry: &Arc<SessionEntry>,
+    s: &mut dyn Session,
+    tab: &str,
+    sql: &str,
+    why: Reuse,
+) -> CommandResult<CellRun> {
     let key = session_key(tab);
     let (run, tables) = {
-        let all = CATALOGS.lock().map_err(|_| CommandError::Internal("tablas del notebook".into()))?;
-        let c = all.get(&key).filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, entry))).ok_or_else(|| why.not_run())?;
-        (c.runs.get(sql).cloned().ok_or_else(|| why.not_run())?, c.tables.clone())
+        let all = CATALOGS
+            .lock()
+            .map_err(|_| CommandError::Internal("tablas del notebook".into()))?;
+        let c = all
+            .get(&key)
+            .filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, entry)))
+            .ok_or_else(|| why.not_run())?;
+        (
+            c.runs.get(sql).cloned().ok_or_else(|| why.not_run())?,
+            c.tables.clone(),
+        )
     };
     if let Some(e) = files::refused(&run.sql) {
         return Err(CommandError::BadRequest(e));
     }
     let present = existing_tables(s).await?;
-    if run.tables.iter().any(|(t, k)| !present.contains(t) || tables.get(t).map(|l| &l.key) != Some(k)) {
+    if run
+        .tables
+        .iter()
+        .any(|(t, k)| !present.contains(t) || tables.get(t).map(|l| &l.key) != Some(k))
+    {
         return Err(why.changed());
     }
     Ok(run)
@@ -1437,15 +2018,27 @@ async fn last_run(entry: &Arc<SessionEntry>, s: &mut dyn Session, tab: &str, sql
 /// since, it asks to run the cell first. While it runs, the tab's session
 /// is also registered as `export_key`, so `cancel_query` on it stops the
 /// export.
-pub async fn export_local(state: &AppState, tab: &str, sql: &str, export_key: &str, out: &mut QueryOutcome) -> CommandResult<()> {
+pub async fn export_local(
+    state: &AppState,
+    tab: &str,
+    sql: &str,
+    export_key: &str,
+    out: &mut QueryOutcome,
+) -> CommandResult<()> {
     let sql = sql.trim();
     if sql.is_empty() {
-        return Err(CommandError::BadRequest("no hay consulta para exportar".into()));
+        return Err(CommandError::BadRequest(
+            "no hay consulta para exportar".into(),
+        ));
     }
     if let Some(e) = files::refused(sql) {
         return Err(CommandError::BadRequest(e));
     }
-    let entry = state.sessions.get(&session_key(tab)).map(|e| e.clone()).ok_or_else(|| Reuse::Export.not_run())?;
+    let entry = state
+        .sessions
+        .get(&session_key(tab))
+        .map(|e| e.clone())
+        .ok_or_else(|| Reuse::Export.not_run())?;
     // Cleared before it can be cancelled: a cancel while it waits for the
     // session (a cell running) still lands.
     entry.cancelled.store(false, Ordering::SeqCst);
@@ -1466,14 +2059,20 @@ pub async fn export_local(state: &AppState, tab: &str, sql: &str, export_key: &s
         match finished {
             None | Some(Err(dbine_driver::Error::Cancelled)) => Err(CommandError::Cancelled),
             Some(Err(e)) => Err(CommandError::Sql(e.to_string())),
-            Some(Ok(())) => match out.error.take().or_else(|| out.errors.first().map(|e| e.message.clone())) {
+            Some(Ok(())) => match out
+                .error
+                .take()
+                .or_else(|| out.errors.first().map(|e| e.message.clone()))
+            {
                 Some(e) => Err(CommandError::Sql(e)),
                 None => Ok(()),
             },
         }
     }
     .await;
-    state.sessions.remove_if(export_key, |_, e| Arc::ptr_eq(e, &entry));
+    state
+        .sessions
+        .remove_if(export_key, |_, e| Arc::ptr_eq(e, &entry));
     r
 }
 
@@ -1490,27 +2089,76 @@ pub async fn export_local(state: &AppState, tab: &str, sql: &str, export_key: &s
 /// and no query runs again. When the session is gone, the cell hasn't run
 /// in it, or a table it read was loaded again since, it asks to run the
 /// cell first.
-pub async fn aggregate_local(state: &AppState, tab: &str, sql: &str, chart: &ChartKind) -> CommandResult<ChartAggregate> {
+pub async fn aggregate_local(
+    state: &AppState,
+    tab: &str,
+    sql: &str,
+    chart: &ChartKind,
+) -> CommandResult<ChartAggregate> {
     let sql = sql.trim();
     if sql.is_empty() {
-        return Err(CommandError::BadRequest("no hay consulta para el gráfico".into()));
+        return Err(CommandError::BadRequest(
+            "no hay consulta para el gráfico".into(),
+        ));
     }
     if let Some(e) = files::refused(sql) {
         return Err(CommandError::BadRequest(e));
     }
-    let entry = state.sessions.get(&session_key(tab)).map(|e| e.clone()).ok_or_else(|| Reuse::Chart.not_run())?;
+    let entry = state
+        .sessions
+        .get(&session_key(tab))
+        .map(|e| e.clone())
+        .ok_or_else(|| Reuse::Chart.not_run())?;
     let mut s = entry.session.lock().await;
     entry.cancelled.store(false, Ordering::SeqCst);
     let run = last_run(&entry, &mut **s, tab, sql, Reuse::Chart).await?;
-    let driver = dbine_drivers::find("duckdb").ok_or_else(|| CommandError::Internal("esta versión no incluye el driver de DuckDB".into()))?;
-    let stop = Stop { cancel: &entry.cancel, cancelled: &entry.cancelled, interrupter: entry.interrupter.as_ref() };
-    let mut a = aggregate_on(driver.as_ref(), &mut **s, &run.sql, chart, CLIENT_ROW_CAP, &stop).await?;
+    let driver = dbine_drivers::find("duckdb").ok_or_else(|| {
+        CommandError::Internal("esta versión no incluye el driver de DuckDB".into())
+    })?;
+    let stop = Stop {
+        cancel: &entry.cancel,
+        cancelled: &entry.cancelled,
+        interrupter: entry.interrupter.as_ref(),
+    };
+    let mut a = aggregate_on(
+        driver.as_ref(),
+        &mut **s,
+        &run.sql,
+        chart,
+        CLIENT_ROW_CAP,
+        &stop,
+    )
+    .await?;
     if a.rows_scanned.is_none() && a.method == AggregateMethod::Server {
         // Groups were cut: the rows they cover, counted by DuckDB too.
-        let spec = AggregateSpec { x: None, split: None, measures: vec![Measure { column: None, func: AggFn::Count }], max_groups: 1 };
+        let spec = AggregateSpec {
+            x: None,
+            split: None,
+            measures: vec![Measure {
+                column: None,
+                func: AggFn::Count,
+            }],
+            max_groups: 1,
+        };
         if let Ok(count) = driver.aggregate_query(&run.sql, &spec) {
-            if let Ok((out, _)) = read(driver.as_ref(), &mut **s, &run.sql, &count, 2, None, None, &stop).await {
-                let rows = out.results.iter().find(|r| !r.columns.is_empty()).map(|r| r.rows.as_slice()).unwrap_or_default();
+            if let Ok((out, _)) = read(
+                driver.as_ref(),
+                &mut **s,
+                &run.sql,
+                &count,
+                2,
+                None,
+                None,
+                &stop,
+            )
+            .await
+            {
+                let rows = out
+                    .results
+                    .iter()
+                    .find(|r| !r.columns.is_empty())
+                    .map(|r| r.rows.as_slice())
+                    .unwrap_or_default();
                 a.rows_scanned = from_grouped(&spec, rows).ok().and_then(|t| t.rows_scanned);
             }
         }

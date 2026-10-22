@@ -27,21 +27,37 @@ const DB2_ADMIN: &str = "SYSADM, SYSCTRL o SYSMAINT";
 /// (`AUTHORITY` then its `Y` / `N` / `*` columns).
 pub(crate) fn db2_held(rows: &[Vec<Option<String>>]) -> Vec<String> {
     rows.iter()
-        .filter(|r| r.iter().skip(1).any(|c| c.as_deref().map(str::trim) == Some("Y")))
-        .filter_map(|r| r.first().cloned().flatten().map(|a| a.trim().to_uppercase()))
+        .filter(|r| {
+            r.iter()
+                .skip(1)
+                .any(|c| c.as_deref().map(str::trim) == Some("Y"))
+        })
+        .filter_map(|r| {
+            r.first()
+                .cloned()
+                .flatten()
+                .map(|a| a.trim().to_uppercase())
+        })
         .collect()
 }
 
 pub(crate) fn db2(held: &[String]) -> Permissions {
     let has = |a: &str| held.iter().any(|h| h == a);
-    let admin = Access::check(has("SYSADM") || has("SYSCTRL") || has("SYSMAINT"), DB2_ADMIN);
+    let admin = Access::check(
+        has("SYSADM") || has("SYSCTRL") || has("SYSMAINT"),
+        DB2_ADMIN,
+    );
     Permissions {
         backup: admin.clone(),
         kill_session: admin,
         manage_security: Access::check(has("SECADM") || has("ACCESSCTRL"), "SECADM o ACCESSCTRL"),
         // Without DBADM a user may still create the schema named after
         // itself: not a denial.
-        create_schema: if has("DBADM") { Access::Allowed } else { Access::Unknown },
+        create_schema: if has("DBADM") {
+            Access::Allowed
+        } else {
+            Access::Unknown
+        },
         ..Default::default()
     }
 }
@@ -53,12 +69,16 @@ pub(crate) fn ase(roles: &str, owner: Option<bool>) -> Permissions {
     let (sa, sso, oper) = (has("sa_role"), has("sso_role"), has("oper_role"));
     let dump = match (sa || oper, owner) {
         (true, _) | (_, Some(true)) => Access::Allowed,
-        (false, Some(false)) => Access::Denied { missing: "sa_role, oper_role o ser el dueño de la base".into() },
+        (false, Some(false)) => Access::Denied {
+            missing: "sa_role, oper_role o ser el dueño de la base".into(),
+        },
         (false, None) => Access::Unknown,
     };
     let drop = match (sa, owner) {
         (true, _) | (_, Some(true)) => Access::Allowed,
-        (false, Some(false)) => Access::Denied { missing: "sa_role o ser el dueño de la base".into() },
+        (false, Some(false)) => Access::Denied {
+            missing: "sa_role o ser el dueño de la base".into(),
+        },
         (false, None) => Access::Unknown,
     };
     Permissions {
@@ -91,9 +111,13 @@ pub(crate) async fn check(s: &OdbcSession, database: Option<&str>) -> Result<Per
             }
         }
         "sybase" => {
-            let Ok(roles) = s.query("select show_role()".into(), Vec::new()).await else { return Ok(Permissions::default()) };
+            let Ok(roles) = s.query("select show_role()".into(), Vec::new()).await else {
+                return Ok(Permissions::default());
+            };
             let roles = first(&roles).unwrap_or_default();
-            let db = database.filter(|d| !d.trim().is_empty()).unwrap_or(&s.database);
+            let db = database
+                .filter(|d| !d.trim().is_empty())
+                .unwrap_or(&s.database);
             let owner = if db.is_empty() {
                 None
             } else {
@@ -101,7 +125,11 @@ pub(crate) async fn check(s: &OdbcSession, database: Option<&str>) -> Result<Per
                     "select case when suid = suser_id() then 1 else 0 end from master..sysdatabases where name = {}",
                     lit(db)
                 );
-                s.query(sql, Vec::new()).await.ok().and_then(|r| first(&r)).map(|v| v.trim() == "1")
+                s.query(sql, Vec::new())
+                    .await
+                    .ok()
+                    .and_then(|r| first(&r))
+                    .map(|v| v.trim() == "1")
             };
             ase(&roles, owner)
         }
@@ -114,7 +142,9 @@ mod tests {
     use super::*;
 
     fn row(a: &str, cols: &[&str]) -> Vec<Option<String>> {
-        std::iter::once(Some(a.to_string())).chain(cols.iter().map(|c| Some(c.to_string()))).collect()
+        std::iter::once(Some(a.to_string()))
+            .chain(cols.iter().map(|c| Some(c.to_string())))
+            .collect()
     }
 
     #[test]
@@ -128,14 +158,31 @@ mod tests {
         let held = db2_held(&rows);
         assert_eq!(held, ["SYSMAINT", "ACCESSCTRL"]);
         let p = db2(&held);
-        assert_eq!((p.backup.clone(), p.kill_session.clone(), p.manage_security.clone()), (Access::Allowed, Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (
+                p.backup.clone(),
+                p.kill_session.clone(),
+                p.manage_security.clone()
+            ),
+            (Access::Allowed, Access::Allowed, Access::Allowed)
+        );
         assert_eq!(p.restore, Access::Unknown);
 
         let p = db2(&["DBADM".to_string()]);
-        assert_eq!(p.backup, Access::Denied { missing: DB2_ADMIN.into() });
+        assert_eq!(
+            p.backup,
+            Access::Denied {
+                missing: DB2_ADMIN.into()
+            }
+        );
         assert_eq!(p.create_schema, Access::Allowed);
         assert_eq!(db2(&[]).create_schema, Access::Unknown);
-        assert_eq!(p.manage_security, Access::Denied { missing: "SECADM o ACCESSCTRL".into() });
+        assert_eq!(
+            p.manage_security,
+            Access::Denied {
+                missing: "SECADM o ACCESSCTRL".into()
+            }
+        );
     }
 
     #[test]
@@ -147,15 +194,39 @@ mod tests {
         assert_eq!(p.create_database, Access::Allowed);
 
         let owner = ase("", Some(true));
-        assert_eq!((owner.backup.clone(), owner.restore.clone(), owner.drop_database.clone()), (Access::Allowed, Access::Allowed, Access::Allowed));
-        assert_eq!(owner.kill_session, Access::Denied { missing: "sa_role".into() });
+        assert_eq!(
+            (
+                owner.backup.clone(),
+                owner.restore.clone(),
+                owner.drop_database.clone()
+            ),
+            (Access::Allowed, Access::Allowed, Access::Allowed)
+        );
+        assert_eq!(
+            owner.kill_session,
+            Access::Denied {
+                missing: "sa_role".into()
+            }
+        );
         assert_eq!(owner.create_database, Access::Unknown);
-        assert_eq!(owner.manage_security, Access::Denied { missing: "sso_role".into() });
+        assert_eq!(
+            owner.manage_security,
+            Access::Denied {
+                missing: "sso_role".into()
+            }
+        );
 
         let nobody = ase("", Some(false));
-        assert!(nobody.backup.is_denied() && nobody.restore.is_denied() && nobody.drop_database.is_denied());
+        assert!(
+            nobody.backup.is_denied()
+                && nobody.restore.is_denied()
+                && nobody.drop_database.is_denied()
+        );
         let oper = ase("OPER_ROLE", Some(false));
-        assert_eq!((oper.backup, oper.drop_database.is_denied()), (Access::Allowed, true));
+        assert_eq!(
+            (oper.backup, oper.drop_database.is_denied()),
+            (Access::Allowed, true)
+        );
         assert_eq!(ase("", None).backup, Access::Unknown);
     }
 }

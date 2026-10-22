@@ -13,7 +13,6 @@
 mod create_db;
 mod ddl;
 mod index_usage;
-mod sync;
 mod permissions;
 mod plan;
 mod processes;
@@ -23,22 +22,26 @@ mod rename;
 mod security;
 mod stats;
 mod steps;
+mod sync;
 mod transfer;
 
-use ddl::{path, q, split_schema};
-use dbine_driver::sql::{split_script, split_statements, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind};
+use dbine_driver::sql::{
+    split_script, split_statements, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
+};
 use dbine_driver::{
-    async_trait, json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
-    DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Message, MessageLevel, Metric, MetricUnit,
-    MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session,
+    async_trait, json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
+    FieldKind, Language, Message, MessageLevel, Metric, MetricUnit, MonitorSnapshot, MonitorTable,
+    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session,
     TableSchema, TxState,
 };
-use steps::Step;
+use ddl::{path, q, split_schema};
 use serde_json::{json, Value};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use steps::Step;
 use tokio::sync::Notify;
 
 /// Documents sampled to infer a collection's fields.
@@ -51,7 +54,11 @@ const TX_TIMEOUT: &str = "1h";
 /// cbq's reading of a script: SQL++ strings take backslash escapes, and
 /// there are no `BEGIN … END` bodies (`BEGIN WORK` is a statement).
 fn dialect() -> ScriptDialect {
-    ScriptDialect { backslash_escapes: true, compound_blocks: false, ..ScriptDialect::generic() }
+    ScriptDialect {
+        backslash_escapes: true,
+        compound_blocks: false,
+        ..ScriptDialect::generic()
+    }
 }
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
@@ -68,12 +75,18 @@ fn info() -> DriverInfo {
         default_port: 8093,
         fields: vec![
             Field::host(),
-            Field::port().placeholder("8093").help("Servicio de consultas: 8093; con TLS, 18093."),
+            Field::port()
+                .placeholder("8093")
+                .help("Servicio de consultas: 8093; con TLS, 18093."),
             Field::new("mgmt_port", "Puerto de administración", FieldKind::Number)
                 .placeholder("8091")
                 .help("Cluster manager (buckets, scopes, métricas): 8091; con TLS, 18091.")
                 .advanced(),
-            Field { label: "Bucket", placeholder: "(ninguno)", ..Field::database() },
+            Field {
+                label: "Bucket",
+                placeholder: "(ninguno)",
+                ..Field::database()
+            },
             Field::username().required(),
             Field::password(),
             Field::encrypt(),
@@ -129,7 +142,10 @@ impl Driver for CouchbaseDriver {
 
     /// cbq goes on after a failed statement (unless `-exit-on-error`).
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     /// SQL++ transactions (`BEGIN WORK` … `COMMIT`): the txid the server
@@ -145,15 +161,26 @@ impl Driver for CouchbaseDriver {
 
     /// "Nueva base de datos"'s options (see [`create_db`]).
     fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
-        create_db::fields().into_iter().map(create_db::grouped).collect()
+        create_db::fields()
+            .into_iter()
+            .map(create_db::grouped)
+            .collect()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
     /// "Propiedades" of a bucket (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -182,7 +209,10 @@ impl Driver for CouchbaseDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -199,11 +229,20 @@ impl Driver for CouchbaseDriver {
         ddl::table_ddl(table, parts)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
         ddl::insert_script(target, columns, rows)
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::update_script(target, changes)
     }
 
@@ -223,24 +262,60 @@ impl Driver for CouchbaseDriver {
     /// that take a scope (Enterprise Edition) can be granted on a new one.
     /// `DROP SCOPE` always takes its collections with it.
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
-        Some(dbine_driver::SchemaSpec { owner: false, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: true, privileges: security::scope_roles(), grant_option: false })
+        Some(dbine_driver::SchemaSpec {
+            owner: false,
+            owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+            cascade: true,
+            privileges: security::scope_roles(),
+            grant_option: false,
+        })
     }
 
     /// `name` is `bucket.scope`, or a bare scope of the menu's bucket.
-    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         ddl::create_scope(&ddl::full_scope(database, name), owner)
     }
 
-    fn schema_grant_script(&self, database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
-        let object = ObjectRef { kind: "schema".into(), schema: None, name: ddl::full_scope(database, name) };
-        security::script(&dbine_driver::SecurityAction::Grant { privileges: privileges.to_vec(), object: Some(object), to: to.to_string(), grantable })
+    fn schema_grant_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        privileges: &[String],
+        to: &str,
+        grantable: bool,
+    ) -> Result<String> {
+        let object = ObjectRef {
+            kind: "schema".into(),
+            schema: None,
+            name: ddl::full_scope(database, name),
+        };
+        security::script(&dbine_driver::SecurityAction::Grant {
+            privileges: privileges.to_vec(),
+            object: Some(object),
+            to: to.to_string(),
+            grantable,
+        })
     }
 
-    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
         ddl::drop_scope(&ddl::full_scope(database, name), cascade)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -248,20 +323,36 @@ impl Driver for CouchbaseDriver {
         ddl::sorted_browse(query, sort)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
+        let host = if cfg.host.trim().is_empty() {
+            "localhost"
+        } else {
+            cfg.host.trim()
+        };
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .danger_accept_invalid_certs(cfg.trust_server_certificate)
             .build()
             .map_err(Error::connect)?;
-        let mgmt_port: u16 = cfg.option("mgmt_port").and_then(|p| p.trim().parse().ok()).unwrap_or(if cfg.encrypt { 18091 } else { 8091 });
-        let bucket = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
+        let mgmt_port: u16 = cfg
+            .option("mgmt_port")
+            .and_then(|p| p.trim().parse().ok())
+            .unwrap_or(if cfg.encrypt { 18091 } else { 8091 });
+        let bucket = database
+            .filter(|d| !d.is_empty())
+            .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
         let s = CbSession {
             conn: Arc::new(Conn {
                 http,
-                query: format!("{scheme}://{host}:{}", cfg.port_or(if cfg.encrypt { 18093 } else { 8093 })),
+                query: format!(
+                    "{scheme}://{host}:{}",
+                    cfg.port_or(if cfg.encrypt { 18093 } else { 8093 })
+                ),
                 mgmt: format!("{scheme}://{host}:{mgmt_port}"),
                 user: cfg.username.clone().unwrap_or_default(),
                 password: cfg.password.clone().unwrap_or_default(),
@@ -277,7 +368,9 @@ impl Driver for CouchbaseDriver {
         let check = async {
             s.query("SELECT RAW 1", None).await?;
             if let Some(b) = &s.bucket {
-                s.conn.mgmt_get(&format!("/pools/default/buckets/{}", encode(b))).await?;
+                s.conn
+                    .mgmt_get(&format!("/pools/default/buckets/{}", encode(b)))
+                    .await?;
             }
             Ok::<_, Error>(())
         };
@@ -307,7 +400,13 @@ fn http_error(e: reqwest::Error) -> Error {
 
 fn encode(s: &str) -> String {
     s.bytes()
-        .map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
         .collect()
 }
 
@@ -319,11 +418,19 @@ fn encode(s: &str) -> String {
 fn query_error(errors: &[Value], statement: Option<&str>) -> Error {
     let first = errors.first().cloned().unwrap_or(Value::Null);
     let code = first.get("code").and_then(Value::as_i64).unwrap_or(0);
-    let msg = first.get("msg").and_then(Value::as_str).unwrap_or("error de Couchbase").to_string();
+    let msg = first
+        .get("msg")
+        .and_then(Value::as_str)
+        .unwrap_or("error de Couchbase")
+        .to_string();
     match code {
         10000 | 13014 => Error::AuthFailed(msg),
         2120 if msg.contains("authenticate") => Error::AuthFailed(msg),
-        1010 | 1260 | 5010 if msg.to_ascii_lowercase().contains("stop") || msg.contains("cancel") => Error::Cancelled,
+        1010 | 1260 | 5010
+            if msg.to_ascii_lowercase().contains("stop") || msg.contains("cancel") =>
+        {
+            Error::Cancelled
+        }
         _ => {
             let mut text = msg;
             // Transaction errors carry the data service's reason inside.
@@ -345,7 +452,11 @@ fn query_error(errors: &[Value], statement: Option<&str>) -> Error {
             }
             let at = |k: &str| first.get(k).and_then(Value::as_u64).map(|n| n as u32);
             if let (Some(line), Some(stmt)) = (at("line"), statement) {
-                se = se.at_line(line).at_offset(steps::offset_of(stmt, line, at("column").unwrap_or(1)));
+                se = se.at_line(line).at_offset(steps::offset_of(
+                    stmt,
+                    line,
+                    at("column").unwrap_or(1),
+                ));
             }
             Error::Statement(Box::new(se))
         }
@@ -356,7 +467,9 @@ fn query_error(errors: &[Value], statement: Option<&str>) -> Error {
 fn tx_gone(e: &Error) -> bool {
     match e {
         Error::Statement(se) => {
-            se.code.as_deref() == Some("17004") || se.message.contains("is not present") || se.message.to_ascii_lowercase().contains("expired")
+            se.code.as_deref() == Some("17004")
+                || se.message.contains("is not present")
+                || se.message.to_ascii_lowercase().contains("expired")
         }
         _ => false,
     }
@@ -379,18 +492,25 @@ enum TxEffect {
 
 /// The txid of a `BEGIN WORK` reply.
 fn txid_of(v: &Value) -> Option<String> {
-    v.pointer("/results/0/txid").and_then(Value::as_str).map(str::to_string)
+    v.pointer("/results/0/txid")
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn tx_effect(stmt: &str) -> TxEffect {
-    let words: Vec<String> = stmt.split_whitespace().take(3).map(|w| w.trim_end_matches(';').to_ascii_uppercase()).collect();
+    let words: Vec<String> = stmt
+        .split_whitespace()
+        .take(3)
+        .map(|w| w.trim_end_matches(';').to_ascii_uppercase())
+        .collect();
     let w = |i: usize| words.get(i).map(String::as_str).unwrap_or("");
     match w(0) {
         "BEGIN" if matches!(w(1), "" | "WORK" | "TRANSACTION" | "TRAN") => TxEffect::Begin,
         "START" if matches!(w(1), "WORK" | "TRANSACTION" | "TRAN") => TxEffect::Begin,
         "COMMIT" => TxEffect::Commit,
         "ROLLBACK" if !(w(1) == "TO" || w(2) == "TO") => TxEffect::Rollback,
-        "SELECT" | "WITH" | "INSERT" | "UPSERT" | "UPDATE" | "DELETE" | "MERGE" | "EXECUTE" | "INFER" => TxEffect::Data,
+        "SELECT" | "WITH" | "INSERT" | "UPSERT" | "UPDATE" | "DELETE" | "MERGE" | "EXECUTE"
+        | "INFER" => TxEffect::Data,
         _ => TxEffect::Other,
     }
 }
@@ -414,8 +534,15 @@ impl Conn {
                 Error::Query(format!("HTTP {status}: {}", text.trim()))
             }
         })?;
-        if let Some(errs) = v.get("errors").and_then(Value::as_array).filter(|e| !e.is_empty()) {
-            return Err(query_error(errs, body.get("statement").and_then(Value::as_str)));
+        if let Some(errs) = v
+            .get("errors")
+            .and_then(Value::as_array)
+            .filter(|e| !e.is_empty())
+        {
+            return Err(query_error(
+                errs,
+                body.get("statement").and_then(Value::as_str),
+            ));
         }
         if v.get("status").and_then(Value::as_str) == Some("stopped") {
             return Err(Error::Cancelled);
@@ -424,19 +551,30 @@ impl Conn {
     }
 
     async fn mgmt_send(&self, rb: reqwest::RequestBuilder) -> Result<String> {
-        let resp = rb.basic_auth(&self.user, Some(&self.password)).send().await.map_err(http_error)?;
+        let resp = rb
+            .basic_auth(&self.user, Some(&self.password))
+            .send()
+            .await
+            .map_err(http_error)?;
         let status = resp.status();
         let text = resp.text().await.map_err(http_error)?;
         match status.as_u16() {
             200..=299 => Ok(text),
-            401 => Err(Error::AuthFailed("Couchbase rechazó el usuario o la contraseña.".into())),
-            403 => Err(Error::Query(format!("Sin permiso en el cluster manager: {}", text.trim()))),
+            401 => Err(Error::AuthFailed(
+                "Couchbase rechazó el usuario o la contraseña.".into(),
+            )),
+            403 => Err(Error::Query(format!(
+                "Sin permiso en el cluster manager: {}",
+                text.trim()
+            ))),
             _ => Err(Error::Query(format!("HTTP {status}: {}", text.trim()))),
         }
     }
 
     async fn mgmt_get(&self, path: &str) -> Result<Value> {
-        let text = self.mgmt_send(self.http.get(format!("{}{path}", self.mgmt))).await?;
+        let text = self
+            .mgmt_send(self.http.get(format!("{}{path}", self.mgmt)))
+            .await?;
         serde_json::from_str(&text).map_err(Error::query)
     }
 }
@@ -480,7 +618,10 @@ pub struct CbSession {
 static SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn context_id() -> String {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     format!("dbine-{t:x}-{}", SEQ.fetch_add(1, Ordering::Relaxed))
 }
 
@@ -520,7 +661,10 @@ fn tabulate(results: &[Value], signature: Option<&Value>) -> (Vec<String>, Vec<V
                 return (cols, Vec::new());
             }
         }
-        return (vec!["value".into()], results.iter().map(|v| vec![cell(v)]).collect());
+        return (
+            vec!["value".into()],
+            results.iter().map(|v| vec![cell(v)]).collect(),
+        );
     }
     // Named projections (no `*`) keep their order and their MISSING fields.
     let mut cols: Vec<String> = signature
@@ -535,27 +679,49 @@ fn tabulate(results: &[Value], signature: Option<&Value>) -> (Vec<String>, Vec<V
             }
         }
     }
-    let rows = results.iter().map(|r| cols.iter().map(|c| r.get(c).map(cell).unwrap_or(Value::Null)).collect()).collect();
+    let rows = results
+        .iter()
+        .map(|r| {
+            cols.iter()
+                .map(|c| r.get(c).map(cell).unwrap_or(Value::Null))
+                .collect()
+        })
+        .collect();
     (cols, rows)
 }
 
 fn first_word(stmt: &str) -> String {
-    stmt.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_uppercase()
+    stmt.trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_ascii_uppercase()
 }
 
 /// Statements `EXPLAIN` takes (it never runs them).
 fn explainable(stmt: &str) -> bool {
-    matches!(first_word(stmt).as_str(), "SELECT" | "WITH" | "INSERT" | "UPSERT" | "UPDATE" | "DELETE" | "MERGE")
+    matches!(
+        first_word(stmt).as_str(),
+        "SELECT" | "WITH" | "INSERT" | "UPSERT" | "UPDATE" | "DELETE" | "MERGE"
+    )
 }
 
 /// The keyspace of a `CREATE COLLECTION` statement.
 fn created_collection(stmt: &str) -> Option<String> {
     let words: Vec<&str> = stmt.split_whitespace().collect();
-    if words.len() < 3 || !words[0].eq_ignore_ascii_case("CREATE") || !words[1].eq_ignore_ascii_case("COLLECTION") {
+    if words.len() < 3
+        || !words[0].eq_ignore_ascii_case("CREATE")
+        || !words[1].eq_ignore_ascii_case("COLLECTION")
+    {
         return None;
     }
-    let ks = if words.len() >= 6 && words[2].eq_ignore_ascii_case("IF") { words[5] } else { words[2] };
-    Some(ks.trim_end_matches(';').to_string()).filter(|k| !k.is_empty() && !k.eq_ignore_ascii_case("IF"))
+    let ks = if words.len() >= 6 && words[2].eq_ignore_ascii_case("IF") {
+        words[5]
+    } else {
+        words[2]
+    };
+    Some(ks.trim_end_matches(';').to_string())
+        .filter(|k| !k.is_empty() && !k.eq_ignore_ascii_case("IF"))
 }
 
 fn json_type(v: &Value) -> &'static str {
@@ -580,7 +746,9 @@ fn num(v: Option<&Value>) -> Option<f64> {
 
 impl CbSession {
     fn context(&self) -> Option<String> {
-        self.bucket.as_ref().map(|b| format!("default:{}.`_default`", q(b)))
+        self.bucket
+            .as_ref()
+            .map(|b| format!("default:{}.`_default`", q(b)))
     }
 
     fn body(&self, stmt: &str, id: Option<&str>) -> Value {
@@ -598,18 +766,33 @@ impl CbSession {
     }
 
     async fn query(&self, stmt: &str, id: Option<&str>) -> Result<Value> {
-        self.cancel.run(self.conn.post_query(&self.body(stmt, id))).await
+        self.cancel
+            .run(self.conn.post_query(&self.body(stmt, id)))
+            .await
     }
 
     async fn results(&self, stmt: &str) -> Result<Vec<Value>> {
         let v = self.query(stmt, None).await?;
-        Ok(v.get("results").and_then(Value::as_array).cloned().unwrap_or_default())
+        Ok(v.get("results")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
 
     /// Run one statement (with `extra` request fields) into `out`.
-    async fn run(&mut self, stmt: &str, extra: Option<Value>, max_rows: usize, out: &mut QueryOutcome) -> Result<Value> {
+    async fn run(
+        &mut self,
+        stmt: &str,
+        extra: Option<Value>,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<Value> {
         let id = context_id();
-        *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
+        *self
+            .cancel
+            .current
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
         let mut body = self.body(stmt, Some(&id));
         if let Some(t) = &self.txid {
             body["txid"] = Value::String(t.clone());
@@ -620,9 +803,17 @@ impl CbSession {
             }
         }
         let r = self.cancel.run(self.conn.post_query(&body)).await;
-        *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .cancel
+            .current
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         let v = r?;
-        let results = v.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
+        let results = v
+            .get("results")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let signature = v.get("signature").filter(|s| !s.is_null());
         let mutations = v.pointer("/metrics/mutationCount").and_then(Value::as_u64);
         if results.is_empty() && matches!(tx_effect(stmt), TxEffect::Commit | TxEffect::Rollback) {
@@ -632,7 +823,14 @@ impl CbSession {
             out.push_affected(mutations.unwrap_or(0));
         } else {
             let (cols, rows) = tabulate(&results, signature);
-            out.begin_result(cols.into_iter().map(|name| ResultColumn { name, type_name: String::new() }).collect());
+            out.begin_result(
+                cols.into_iter()
+                    .map(|name| ResultColumn {
+                        name,
+                        type_name: String::new(),
+                    })
+                    .collect(),
+            );
             for r in rows {
                 out.push_row(r, max_rows);
             }
@@ -640,7 +838,12 @@ impl CbSession {
                 out.info(format!("{m} documentos modificados"));
             }
         }
-        for w in v.get("warnings").and_then(Value::as_array).into_iter().flatten() {
+        for w in v
+            .get("warnings")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             out.message(Message {
                 level: MessageLevel::Warning,
                 text: w.get("msg").map(text).unwrap_or_else(|| w.to_string()),
@@ -653,13 +856,20 @@ impl CbSession {
 
     /// An editor statement: in the open transaction, opening one first in
     /// manual mode, and keeping the txid `BEGIN WORK` returns.
-    async fn run_stmt(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_stmt(
+        &mut self,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let effect = tx_effect(stmt);
         if self.manual && self.txid.is_none() && effect == TxEffect::Data {
             self.begin(out).await?;
         }
         if effect == TxEffect::Begin && self.txid.is_none() {
-            let v = self.run(stmt, Some(json!({"txtimeout": TX_TIMEOUT})), max_rows, out).await?;
+            let v = self
+                .run(stmt, Some(json!({"txtimeout": TX_TIMEOUT})), max_rows, out)
+                .await?;
             self.txid = txid_of(&v);
             out.info("Transacción iniciada.");
             return Ok(());
@@ -667,8 +877,12 @@ impl CbSession {
         match self.run(stmt, None, max_rows, out).await {
             Ok(_) => {
                 match effect {
-                    TxEffect::Commit if self.txid.take().is_some() => out.info("Transacción confirmada."),
-                    TxEffect::Rollback if self.txid.take().is_some() => out.info("Transacción deshecha."),
+                    TxEffect::Commit if self.txid.take().is_some() => {
+                        out.info("Transacción confirmada.")
+                    }
+                    TxEffect::Rollback if self.txid.take().is_some() => {
+                        out.info("Transacción deshecha.")
+                    }
                     _ => {}
                 }
                 Ok(())
@@ -676,7 +890,9 @@ impl CbSession {
             Err(e) => {
                 // A failed COMMIT ends the transaction too (the server
                 // rolls it back).
-                if self.txid.is_some() && (tx_gone(&e) || matches!(effect, TxEffect::Commit | TxEffect::Rollback)) {
+                if self.txid.is_some()
+                    && (tx_gone(&e) || matches!(effect, TxEffect::Commit | TxEffect::Rollback))
+                {
                     self.txid = None;
                     out.warning("La transacción ya no está abierta en el servidor: sus cambios no se guardaron.");
                 }
@@ -697,7 +913,9 @@ impl CbSession {
 
     /// `COMMIT` / `ROLLBACK` of the open transaction, if any.
     async fn end_tx(&mut self, stmt: &str) -> Result<()> {
-        let Some(t) = self.txid.take() else { return Ok(()) };
+        let Some(t) = self.txid.take() else {
+            return Ok(());
+        };
         let mut b = self.body(stmt, None);
         b["txid"] = Value::String(t);
         match self.cancel.run(self.conn.post_query(&b)).await {
@@ -710,7 +928,11 @@ impl CbSession {
     /// next statement of the script (an index, an insert) needs it.
     async fn wait_for(&self, keyspace: &str) {
         for _ in 0..40 {
-            if self.query(&format!("SELECT RAW 1 FROM {keyspace} LIMIT 1"), None).await.is_ok() {
+            if self
+                .query(&format!("SELECT RAW 1 FROM {keyspace} LIMIT 1"), None)
+                .await
+                .is_ok()
+            {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
@@ -718,12 +940,18 @@ impl CbSession {
     }
 
     fn bucket(&self) -> Result<String> {
-        self.bucket.clone().ok_or_else(|| Error::Query("Elegí un bucket para ver sus colecciones.".into()))
+        self.bucket
+            .clone()
+            .ok_or_else(|| Error::Query("Elegí un bucket para ver sus colecciones.".into()))
     }
 
     async fn explain_plan(&self, stmt: &str) -> Result<dbine_driver::Plan> {
         let r = self.results(&format!("EXPLAIN {stmt}")).await?;
-        let p = r.first().and_then(|x| x.get("plan")).cloned().unwrap_or(Value::Null);
+        let p = r
+            .first()
+            .and_then(|x| x.get("plan"))
+            .cloned()
+            .unwrap_or(Value::Null);
         Ok(plan::from_json(stmt, &p, false))
     }
 
@@ -743,9 +971,25 @@ impl CbSession {
             .into_iter()
             .map(|r| {
                 let has_bucket = r.get("bucket_id").is_some();
-                let scope = if has_bucket { r.get("scope_id").map(text).unwrap_or_default() } else { "_default".into() };
-                let coll = if has_bucket { r.get("keyspace_id").map(text).unwrap_or_default() } else { "_default".into() };
-                (scope, coll, r.get("name").map(text).unwrap_or_default(), r.get("is_primary").and_then(Value::as_bool).unwrap_or(false), r.get("def").map(text).unwrap_or_default())
+                let scope = if has_bucket {
+                    r.get("scope_id").map(text).unwrap_or_default()
+                } else {
+                    "_default".into()
+                };
+                let coll = if has_bucket {
+                    r.get("keyspace_id").map(text).unwrap_or_default()
+                } else {
+                    "_default".into()
+                };
+                (
+                    scope,
+                    coll,
+                    r.get("name").map(text).unwrap_or_default(),
+                    r.get("is_primary")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    r.get("def").map(text).unwrap_or_default(),
+                )
             })
             .collect())
     }
@@ -755,20 +999,40 @@ impl CbSession {
 impl Session for CbSession {
     async fn server_version(&mut self) -> Result<String> {
         let v = self.conn.mgmt_get("/pools").await.ok();
-        let impl_version = v.as_ref().and_then(|v| v.get("implementationVersion")).map(text);
+        let impl_version = v
+            .as_ref()
+            .and_then(|v| v.get("implementationVersion"))
+            .map(text);
         match impl_version {
             Some(iv) => Ok(format!("Couchbase Server {iv}")),
             None => {
                 let r = self.results("SELECT RAW version()").await?;
-                Ok(format!("Couchbase Query {}", r.first().map(text).unwrap_or_default()))
+                Ok(format!(
+                    "Couchbase Query {}",
+                    r.first().map(text).unwrap_or_default()
+                ))
             }
         }
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
-        match self.conn.mgmt_get("/pools/default/buckets?skipMap=true").await {
-            Ok(v) => Ok(v.as_array().into_iter().flatten().filter_map(|b| b.get("name").map(text)).collect()),
-            Err(_) => Ok(self.results("SELECT RAW name FROM system:buckets ORDER BY name").await?.iter().map(text).collect()),
+        match self
+            .conn
+            .mgmt_get("/pools/default/buckets?skipMap=true")
+            .await
+        {
+            Ok(v) => Ok(v
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|b| b.get("name").map(text))
+                .collect()),
+            Err(_) => Ok(self
+                .results("SELECT RAW name FROM system:buckets ORDER BY name")
+                .await?
+                .iter()
+                .map(text)
+                .collect()),
         }
     }
 
@@ -802,12 +1066,27 @@ impl Session for CbSession {
                 .map(|r| (r.get("scope").map(text).unwrap_or_default(), r.get("name").map(text).unwrap_or_default()))
                 .collect(),
         };
-        for (scope, coll) in scopes.into_iter().filter(|(s, _)| !s.starts_with("_system")) {
-            out.push(DbObject { kind: kinds::COLLECTION.into(), schema: Some(format!("{b}.{scope}")), name: coll, parent: None });
+        for (scope, coll) in scopes
+            .into_iter()
+            .filter(|(s, _)| !s.starts_with("_system"))
+        {
+            out.push(DbObject {
+                kind: kinds::COLLECTION.into(),
+                schema: Some(format!("{b}.{scope}")),
+                name: coll,
+                parent: None,
+            });
         }
         if let Ok(ix) = self.indexes().await {
-            for (scope, coll, name, _, _) in ix.into_iter().filter(|(s, ..)| !s.starts_with("_system")) {
-                out.push(DbObject { kind: kinds::INDEX.into(), schema: Some(format!("{b}.{scope}")), name, parent: Some(coll) });
+            for (scope, coll, name, _, _) in
+                ix.into_iter().filter(|(s, ..)| !s.starts_with("_system"))
+            {
+                out.push(DbObject {
+                    kind: kinds::INDEX.into(),
+                    schema: Some(format!("{b}.{scope}")),
+                    name,
+                    parent: Some(coll),
+                });
             }
         }
         if let Ok(fns) = self
@@ -829,7 +1108,9 @@ impl Session for CbSession {
     /// dropped. `_system` (Couchbase's own, 7.6+) is marked system: its
     /// collections aren't listed, so the tree never shows it.
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
-        let Ok(b) = self.bucket() else { return Ok(None) };
+        let Ok(b) = self.bucket() else {
+            return Ok(None);
+        };
         let names: Vec<String> = match self.conn.mgmt_get(&format!("/pools/default/buckets/{}/scopes", encode(&b))).await {
             Ok(v) => v.get("scopes").and_then(Value::as_array).into_iter().flatten().map(|s| s.get("name").map(text).unwrap_or_default()).collect(),
             Err(_) => self
@@ -843,7 +1124,10 @@ impl Session for CbSession {
             names
                 .into_iter()
                 .filter(|s| !s.is_empty())
-                .map(|s| dbine_driver::SchemaInfo { system: s.starts_with("_system"), name: format!("{b}.{s}") })
+                .map(|s| dbine_driver::SchemaInfo {
+                    system: s.starts_with("_system"),
+                    name: format!("{b}.{s}"),
+                })
                 .collect(),
         ))
     }
@@ -854,7 +1138,12 @@ impl Session for CbSession {
         if obj.kind != kinds::COLLECTION {
             return Ok(Vec::new());
         }
-        let docs = self.results(&format!("SELECT RAW d FROM {} AS d LIMIT {SAMPLE}", path(obj.schema(), &obj.name))).await?;
+        let docs = self
+            .results(&format!(
+                "SELECT RAW d FROM {} AS d LIMIT {SAMPLE}",
+                path(obj.schema(), &obj.name)
+            ))
+            .await?;
         let mut cols: Vec<(String, Vec<&'static str>, usize)> = Vec::new();
         for d in docs.iter().filter_map(Value::as_object) {
             for (k, v) in d {
@@ -870,7 +1159,14 @@ impl Session for CbSession {
             }
         }
         let n = docs.len();
-        let mut out = vec![ColumnInfo { name: "_id".into(), data_type: "string".into(), nullable: false, primary_key: true, auto_increment: false, default_value: None }];
+        let mut out = vec![ColumnInfo {
+            name: "_id".into(),
+            data_type: "string".into(),
+            nullable: false,
+            primary_key: true,
+            auto_increment: false,
+            default_value: None,
+        }];
         out.extend(cols.into_iter().map(|(name, types, seen)| ColumnInfo {
             name,
             data_type: types.join(" | "),
@@ -887,17 +1183,34 @@ impl Session for CbSession {
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let b = self.bucket()?;
         let mut out = Vec::new();
-        for o in self.list_objects().await?.into_iter().filter(|o| o.kind == kinds::COLLECTION) {
-            let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+        for o in self
+            .list_objects()
+            .await?
+            .into_iter()
+            .filter(|o| o.kind == kinds::COLLECTION)
+        {
+            let obj = ObjectRef {
+                kind: o.kind.clone(),
+                schema: o.schema.clone(),
+                name: o.name.clone(),
+            };
             let cols = self.columns(&obj).await.unwrap_or_default();
             out.push(TableSchema {
                 kind: o.kind,
                 schema: o.schema,
                 name: o.name,
-                primary_key: Some(dbine_driver::KeyDef { name: None, columns: vec!["_id".into()] }),
+                primary_key: Some(dbine_driver::KeyDef {
+                    name: None,
+                    columns: vec!["_id".into()],
+                }),
                 columns: cols
                     .into_iter()
-                    .map(|c| dbine_driver::ColumnDef { name: c.name, data_type: c.data_type, nullable: c.nullable, ..Default::default() })
+                    .map(|c| dbine_driver::ColumnDef {
+                        name: c.name,
+                        data_type: c.data_type,
+                        nullable: c.nullable,
+                        ..Default::default()
+                    })
                     .collect(),
                 ..Default::default()
             });
@@ -913,10 +1226,21 @@ impl Session for CbSession {
             .await?;
         for r in rows {
             let has_bucket = r.get("bucket_id").is_some();
-            let scope = if has_bucket { r.get("scope_id").map(text).unwrap_or_default() } else { "_default".into() };
-            let coll = if has_bucket { r.get("keyspace_id").map(text).unwrap_or_default() } else { "_default".into() };
+            let scope = if has_bucket {
+                r.get("scope_id").map(text).unwrap_or_default()
+            } else {
+                "_default".into()
+            };
+            let coll = if has_bucket {
+                r.get("keyspace_id").map(text).unwrap_or_default()
+            } else {
+                "_default".into()
+            };
             let schema = format!("{b}.{scope}");
-            if let Some(t) = out.iter_mut().find(|t| t.name == coll && t.schema.as_deref() == Some(schema.as_str())) {
+            if let Some(t) = out
+                .iter_mut()
+                .find(|t| t.name == coll && t.schema.as_deref() == Some(schema.as_str()))
+            {
                 t.indexes.push(ddl::index_from_row(&r));
             }
         }
@@ -927,7 +1251,10 @@ impl Session for CbSession {
         let b = self.bucket()?;
         match obj.kind.as_str() {
             kinds::INDEX => {
-                let scope = obj.schema().and_then(split_schema).map(|(_, s)| s.to_string());
+                let scope = obj
+                    .schema()
+                    .and_then(split_schema)
+                    .map(|(_, s)| s.to_string());
                 Ok(self
                     .indexes()
                     .await?
@@ -936,7 +1263,11 @@ impl Session for CbSession {
                     .map(|(.., def)| format!("{def};")))
             }
             kinds::COLLECTION => {
-                let scope = obj.schema().and_then(split_schema).map(|(_, s)| s.to_string()).unwrap_or_else(|| "_default".into());
+                let scope = obj
+                    .schema()
+                    .and_then(split_schema)
+                    .map(|(_, s)| s.to_string())
+                    .unwrap_or_else(|| "_default".into());
                 let mut lines = Vec::new();
                 let max_ttl = self
                     .conn
@@ -951,7 +1282,9 @@ impl Session for CbSession {
                             .get("collections")?
                             .as_array()?
                             .iter()
-                            .find(|c| c.get("name").map(text).as_deref() == Some(obj.name.as_str()))?
+                            .find(|c| {
+                                c.get("name").map(text).as_deref() == Some(obj.name.as_str())
+                            })?
                             .get("maxTTL")?
                             .as_i64()
                     })
@@ -970,12 +1303,22 @@ impl Session for CbSession {
             }
             kinds::FUNCTION => {
                 let r = self
-                    .results(&format!("SELECT RAW f FROM system:functions AS f WHERE f.identity.name = {}", serde_json::to_string(&obj.name).unwrap_or_default()))
+                    .results(&format!(
+                        "SELECT RAW f FROM system:functions AS f WHERE f.identity.name = {}",
+                        serde_json::to_string(&obj.name).unwrap_or_default()
+                    ))
                     .await?;
                 Ok(r.first().map(|f| {
-                    let params = f.pointer("/definition/parameters").and_then(Value::as_array).map(|a| a.iter().map(text).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+                    let params = f
+                        .pointer("/definition/parameters")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().map(text).collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default();
                     match f.pointer("/definition/expression").map(text) {
-                        Some(e) => format!("CREATE OR REPLACE FUNCTION {}({params}) {{\n    {e}\n}};", q(&obj.name)),
+                        Some(e) => format!(
+                            "CREATE OR REPLACE FUNCTION {}({params}) {{\n    {e}\n}};",
+                            q(&obj.name)
+                        ),
                         None => serde_json::to_string_pretty(f).unwrap_or_default(),
                     }
                 }))
@@ -985,14 +1328,21 @@ impl Session for CbSession {
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        format!("SELECT META(d).id AS _id, d.*\nFROM {} AS d\nLIMIT {limit}", path(obj.schema(), &obj.name))
+        format!(
+            "SELECT META(d).id AS _id, d.*\nFROM {} AS d\nLIMIT {limit}",
+            path(obj.schema(), &obj.name)
+        )
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         let own = out.current_statement.is_none();
         let units = split_script(text, &dialect());
-        for (i, u) in units.iter().filter(|u| u.kind != StatementKind::ClientCommand).enumerate() {
+        for (i, u) in units
+            .iter()
+            .filter(|u| u.kind != StatementKind::ClientCommand)
+            .enumerate()
+        {
             let step = Step::start(out, own, i, u.start, u.line);
             let r = self.run_stmt(&u.text, max_rows, out).await;
             step.end(out, r)?;
@@ -1004,7 +1354,11 @@ impl Session for CbSession {
     }
 
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
-        Ok(Some(if self.txid.is_some() { TxState::Open } else { TxState::Idle }))
+        Ok(Some(if self.txid.is_some() {
+            TxState::Open
+        } else {
+            TxState::Idle
+        }))
     }
 
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
@@ -1026,7 +1380,13 @@ impl Session for CbSession {
     /// Actual: each statement runs with `profile: timings`; the executed
     /// plan comes back with per-operator figures on Enterprise Edition.
     /// Community Edition doesn't profile: the estimated plan is shown then.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         for stmt in split_statements(text) {
             let plannable = explainable(&stmt);
@@ -1035,11 +1395,16 @@ impl Session for CbSession {
                     let p = self.explain_plan(&stmt).await?;
                     out.plans.push(p);
                 } else {
-                    out.info(format!("Sin plan (no se ejecutó): {}", stmt.chars().take(80).collect::<String>()));
+                    out.info(format!(
+                        "Sin plan (no se ejecutó): {}",
+                        stmt.chars().take(80).collect::<String>()
+                    ));
                 }
                 continue;
             }
-            let v = self.run(&stmt, Some(json!({"profile": "timings"})), max_rows, out).await?;
+            let v = self
+                .run(&stmt, Some(json!({"profile": "timings"})), max_rows, out)
+                .await?;
             if let Some(t) = v.pointer("/profile/executionTimings") {
                 out.plans.push(plan::from_json(&stmt, t, true));
             } else if plannable {
@@ -1063,10 +1428,20 @@ impl Session for CbSession {
         Some(Arc::new(move || {
             cancel.flag.store(true, Ordering::SeqCst);
             cancel.notify.notify_waiters();
-            let Some(id) = cancel.current.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
+            let Some(id) = cancel
+                .current
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+            else {
+                return;
+            };
             let conn = conn.clone();
             rt.spawn(async move {
-                let stmt = format!("DELETE FROM system:active_requests WHERE clientContextID = {}", serde_json::to_string(&id).unwrap_or_default());
+                let stmt = format!(
+                    "DELETE FROM system:active_requests WHERE clientContextID = {}",
+                    serde_json::to_string(&id).unwrap_or_default()
+                );
                 if let Err(e) = conn.post_query(&json!({"statement": stmt})).await {
                     tracing::debug!("couchbase cancel failed: {e}");
                 }
@@ -1076,30 +1451,48 @@ impl Session for CbSession {
 
     /// A Couchbase bucket of 100 MB without flush (see [`create_db`]).
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.create_database_with_impl(name, &std::collections::BTreeMap::new()).await
+        self.create_database_with_impl(name, &std::collections::BTreeMap::new())
+            .await
     }
 
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.conn.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden borrar bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden borrar bases.".into(),
+            ));
         }
-        let rb = self.conn.http.delete(format!("{}/pools/default/buckets/{}", self.conn.mgmt, encode(name)));
+        let rb = self.conn.http.delete(format!(
+            "{}/pools/default/buckets/{}",
+            self.conn.mgmt,
+            encode(name)
+        ));
         self.conn.mgmt_send(rb).await.map(|_| ())
     }
 
@@ -1111,14 +1504,20 @@ impl Session for CbSession {
         security::grants(self, principal).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1131,7 +1530,11 @@ impl Session for CbSession {
         }
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -1165,7 +1568,11 @@ impl Session for CbSession {
                 None
             }
         };
-        let buckets = self.cancel.run(self.conn.mgmt_get("/pools/default/buckets?skipMap=true")).await.ok();
+        let buckets = self
+            .cancel
+            .run(self.conn.mgmt_get("/pools/default/buckets?skipMap=true"))
+            .await
+            .ok();
         let vitals = self
             .cancel
             .run(async {
@@ -1194,7 +1601,19 @@ impl Session for CbSession {
             .await
             .ok();
         let last = |i: usize| -> Option<f64> {
-            let vals = range.as_ref()?.get(i)?.get("data")?.as_array()?.first()?.get("values")?.as_array()?.last()?.get(1)?.as_str()?.parse().ok();
+            let vals = range
+                .as_ref()?
+                .get(i)?
+                .get("data")?
+                .as_array()?
+                .first()?
+                .get("values")?
+                .as_array()?
+                .last()?
+                .get(1)?
+                .as_str()?
+                .parse()
+                .ok();
             vals
         };
         let active = self.results("SELECT r.requestId, r.users, r.state, r.elapsedTime, r.statement, r.remoteAddr FROM system:active_requests AS r").await.ok();
@@ -1203,54 +1622,202 @@ impl Session for CbSession {
             .await
             .ok();
 
-        let nodes: Vec<Value> = pool.as_ref().and_then(|p| p.get("nodes")).and_then(Value::as_array).cloned().unwrap_or_default();
+        let nodes: Vec<Value> = pool
+            .as_ref()
+            .and_then(|p| p.get("nodes"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let nsum = |f: &dyn Fn(&Value) -> Option<f64>| -> Option<f64> {
             let v: Vec<f64> = nodes.iter().filter_map(f).collect();
             (!v.is_empty()).then(|| v.iter().sum())
         };
-        let cpu = nsum(&|n| num(n.pointer("/systemStats/cpu_utilization_rate"))).map(|s| s / nodes.len().max(1) as f64);
+        let cpu = nsum(&|n| num(n.pointer("/systemStats/cpu_utilization_rate")))
+            .map(|s| s / nodes.len().max(1) as f64);
         let mem_total = nsum(&|n| num(n.pointer("/systemStats/mem_total")));
         let mem_free = nsum(&|n| num(n.pointer("/systemStats/mem_free")));
-        let istat = |k: &'static str| nsum(&move |n: &Value| num(n.get("interestingStats").and_then(|s| s.get(k))));
+        let istat = |k: &'static str| {
+            nsum(&move |n: &Value| num(n.get("interestingStats").and_then(|s| s.get(k))))
+        };
         let (gets, hits) = (istat("cmd_get"), istat("get_hits"));
         let st = pool.as_ref().and_then(|p| p.get("storageTotals"));
         let v = |k: &str| vitals.as_ref().and_then(|x| num(x.get(k)));
         use MetricUnit::*;
         snap.metrics = vec![
             Metric::new("cpu", "CPU del servidor", "CPU", Percent, cpu),
-            Metric::new("cpu_query", "CPU del servicio de consultas", "CPU", Percent, v("cpu.user.percent").zip(v("cpu.sys.percent")).map(|(u, s)| (u + s) * 100.0)),
-            Metric::new("mem_used", "Memoria usada (hosts)", "Memoria", Bytes, mem_total.zip(mem_free).map(|(t, f)| t - f)).max(mem_total),
-            Metric::new("mem_cache", "RAM de datos (buckets)", "Memoria", Bytes, istat("mem_used")).max(st.and_then(|s| num(s.pointer("/ram/quotaTotal")))),
-            Metric::new("connections", "Conexiones (datos)", "Conexiones", Count, last(0)),
-            Metric::new("active_sessions", "Consultas en curso", "Conexiones", Count, v("request.active.count").or(active.as_ref().map(|a| a.len().saturating_sub(1) as f64))),
-            Metric::new("queued", "Consultas en cola", "Conexiones", Count, v("request.queued.count")),
-            Metric::new("queries", "Consultas", "Actividad", Count, last(1).or(v("request.completed.count"))).counter(),
-            Metric::new("ops", "Operaciones de datos por segundo", "Actividad", Count, istat("ops")),
-            Metric::new("query_time", "Tiempo medio de consulta", "Actividad", Millis, vitals.as_ref().and_then(|x| x.get("request_time.mean")).and_then(Value::as_str).and_then(plan::duration_ms)),
-            Metric::new("cache_hit", "Aciertos de caché (gets)", "Caché", Percent, gets.zip(hits).filter(|(g, _)| *g > 0.0).map(|(g, h)| h / g * 100.0)),
-            Metric::new("disk_fetches", "Lecturas desde disco por segundo", "Disco", Count, istat("ep_bg_fetched")),
-            Metric::new("storage_used", "Espacio en disco de los datos", "Almacenamiento", Bytes, istat("couch_docs_actual_disk_size")).max(st.and_then(|s| num(s.pointer("/hdd/total")))),
+            Metric::new(
+                "cpu_query",
+                "CPU del servicio de consultas",
+                "CPU",
+                Percent,
+                v("cpu.user.percent")
+                    .zip(v("cpu.sys.percent"))
+                    .map(|(u, s)| (u + s) * 100.0),
+            ),
+            Metric::new(
+                "mem_used",
+                "Memoria usada (hosts)",
+                "Memoria",
+                Bytes,
+                mem_total.zip(mem_free).map(|(t, f)| t - f),
+            )
+            .max(mem_total),
+            Metric::new(
+                "mem_cache",
+                "RAM de datos (buckets)",
+                "Memoria",
+                Bytes,
+                istat("mem_used"),
+            )
+            .max(st.and_then(|s| num(s.pointer("/ram/quotaTotal")))),
+            Metric::new(
+                "connections",
+                "Conexiones (datos)",
+                "Conexiones",
+                Count,
+                last(0),
+            ),
+            Metric::new(
+                "active_sessions",
+                "Consultas en curso",
+                "Conexiones",
+                Count,
+                v("request.active.count")
+                    .or(active.as_ref().map(|a| a.len().saturating_sub(1) as f64)),
+            ),
+            Metric::new(
+                "queued",
+                "Consultas en cola",
+                "Conexiones",
+                Count,
+                v("request.queued.count"),
+            ),
+            Metric::new(
+                "queries",
+                "Consultas",
+                "Actividad",
+                Count,
+                last(1).or(v("request.completed.count")),
+            )
+            .counter(),
+            Metric::new(
+                "ops",
+                "Operaciones de datos por segundo",
+                "Actividad",
+                Count,
+                istat("ops"),
+            ),
+            Metric::new(
+                "query_time",
+                "Tiempo medio de consulta",
+                "Actividad",
+                Millis,
+                vitals
+                    .as_ref()
+                    .and_then(|x| x.get("request_time.mean"))
+                    .and_then(Value::as_str)
+                    .and_then(plan::duration_ms),
+            ),
+            Metric::new(
+                "cache_hit",
+                "Aciertos de caché (gets)",
+                "Caché",
+                Percent,
+                gets.zip(hits)
+                    .filter(|(g, _)| *g > 0.0)
+                    .map(|(g, h)| h / g * 100.0),
+            ),
+            Metric::new(
+                "disk_fetches",
+                "Lecturas desde disco por segundo",
+                "Disco",
+                Count,
+                istat("ep_bg_fetched"),
+            ),
+            Metric::new(
+                "storage_used",
+                "Espacio en disco de los datos",
+                "Almacenamiento",
+                Bytes,
+                istat("couch_docs_actual_disk_size"),
+            )
+            .max(st.and_then(|s| num(s.pointer("/hdd/total")))),
             Metric::new("items", "Documentos", "Datos", Count, istat("curr_items")),
-            Metric::new("uptime", "Tiempo activo", "Servidor", Seconds, nodes.iter().filter_map(|n| num(n.get("uptime"))).reduce(f64::min)),
+            Metric::new(
+                "uptime",
+                "Tiempo activo",
+                "Servidor",
+                Seconds,
+                nodes
+                    .iter()
+                    .filter_map(|n| num(n.get("uptime")))
+                    .reduce(f64::min),
+            ),
         ];
 
-        let mut t = MonitorTable::new("nodes", "Nodos del cluster", &["host", "servicios", "estado", "membresía", "versión", "CPU %", "memoria libre", "tiempo activo (s)"]);
+        let mut t = MonitorTable::new(
+            "nodes",
+            "Nodos del cluster",
+            &[
+                "host",
+                "servicios",
+                "estado",
+                "membresía",
+                "versión",
+                "CPU %",
+                "memoria libre",
+                "tiempo activo (s)",
+            ],
+        );
         for n in &nodes {
             t.rows.push(vec![
                 n.get("hostname").cloned().unwrap_or(Value::Null),
-                Value::String(n.get("services").and_then(Value::as_array).map(|a| a.iter().map(text).collect::<Vec<_>>().join(", ")).unwrap_or_default()),
+                Value::String(
+                    n.get("services")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().map(text).collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default(),
+                ),
                 n.get("status").cloned().unwrap_or(Value::Null),
                 n.get("clusterMembership").cloned().unwrap_or(Value::Null),
                 n.get("version").cloned().unwrap_or(Value::Null),
-                n.pointer("/systemStats/cpu_utilization_rate").cloned().unwrap_or(Value::Null),
-                n.pointer("/systemStats/mem_free").cloned().unwrap_or(Value::Null),
+                n.pointer("/systemStats/cpu_utilization_rate")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                n.pointer("/systemStats/mem_free")
+                    .cloned()
+                    .unwrap_or(Value::Null),
                 n.get("uptime").cloned().unwrap_or(Value::Null),
             ]);
         }
         snap.tables.push(t);
-        let mut t = MonitorTable::new("databases", "Buckets", &["bucket", "tipo", "documentos", "RAM usada", "cuota RAM", "% cuota", "disco", "datos", "ops/s"]);
-        for b in buckets.as_ref().and_then(Value::as_array).into_iter().flatten().take(200) {
-            let bs = |k: &str| b.pointer(&format!("/basicStats/{k}")).cloned().unwrap_or(Value::Null);
+        let mut t = MonitorTable::new(
+            "databases",
+            "Buckets",
+            &[
+                "bucket",
+                "tipo",
+                "documentos",
+                "RAM usada",
+                "cuota RAM",
+                "% cuota",
+                "disco",
+                "datos",
+                "ops/s",
+            ],
+        );
+        for b in buckets
+            .as_ref()
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .take(200)
+        {
+            let bs = |k: &str| {
+                b.pointer(&format!("/basicStats/{k}"))
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            };
             t.rows.push(vec![
                 b.get("name").cloned().unwrap_or(Value::Null),
                 b.get("bucketType").cloned().unwrap_or(Value::Null),
@@ -1264,19 +1831,58 @@ impl Session for CbSession {
             ]);
         }
         snap.tables.push(t);
-        let mut t = MonitorTable::new("queries", "Consultas en curso", &["id", "usuarios", "estado", "duración", "cliente", "consulta"]);
-        for r in active.iter().flatten().filter(|r| !r.get("statement").map(text).unwrap_or_default().contains("system:active_requests")).take(200) {
+        let mut t = MonitorTable::new(
+            "queries",
+            "Consultas en curso",
+            &[
+                "id",
+                "usuarios",
+                "estado",
+                "duración",
+                "cliente",
+                "consulta",
+            ],
+        );
+        for r in active
+            .iter()
+            .flatten()
+            .filter(|r| {
+                !r.get("statement")
+                    .map(text)
+                    .unwrap_or_default()
+                    .contains("system:active_requests")
+            })
+            .take(200)
+        {
             t.rows.push(vec![
                 r.get("requestId").cloned().unwrap_or(Value::Null),
                 r.get("users").cloned().unwrap_or(Value::Null),
                 r.get("state").cloned().unwrap_or(Value::Null),
                 r.get("elapsedTime").cloned().unwrap_or(Value::Null),
                 r.get("remoteAddr").cloned().unwrap_or(Value::Null),
-                Value::String(r.get("statement").map(text).unwrap_or_default().chars().take(2000).collect()),
+                Value::String(
+                    r.get("statement")
+                        .map(text)
+                        .unwrap_or_default()
+                        .chars()
+                        .take(2000)
+                        .collect(),
+                ),
             ]);
         }
         snap.tables.push(t);
-        let mut t = MonitorTable::new("completed", "Consultas recientes lentas", &["inicio", "duración", "filas", "estado", "usuarios", "consulta"]);
+        let mut t = MonitorTable::new(
+            "completed",
+            "Consultas recientes lentas",
+            &[
+                "inicio",
+                "duración",
+                "filas",
+                "estado",
+                "usuarios",
+                "consulta",
+            ],
+        );
         for r in completed.iter().flatten() {
             t.rows.push(vec![
                 r.get("requestTime").cloned().unwrap_or(Value::Null),
@@ -1284,7 +1890,14 @@ impl Session for CbSession {
                 r.get("resultCount").cloned().unwrap_or(Value::Null),
                 r.get("state").cloned().unwrap_or(Value::Null),
                 r.get("users").cloned().unwrap_or(Value::Null),
-                Value::String(r.get("statement").map(text).unwrap_or_default().chars().take(2000).collect()),
+                Value::String(
+                    r.get("statement")
+                        .map(text)
+                        .unwrap_or_default()
+                        .chars()
+                        .take(2000)
+                        .collect(),
+                ),
             ]);
         }
         snap.tables.push(t);
@@ -1294,16 +1907,26 @@ impl Session for CbSession {
                 snap.info.push(("Cluster".into(), name));
             }
             if let Some(q) = num(p.get("memoryQuota")) {
-                snap.info.push(("Cuota de memoria de datos".into(), format!("{q} MiB")));
+                snap.info
+                    .push(("Cuota de memoria de datos".into(), format!("{q} MiB")));
             }
         }
         if let Some(n) = nodes.first() {
-            snap.info.push(("Versión".into(), n.get("version").map(text).unwrap_or_default()));
+            snap.info.push((
+                "Versión".into(),
+                n.get("version").map(text).unwrap_or_default(),
+            ));
         }
         snap.info.push(("Nodos".into(), nodes.len().to_string()));
         if let Some(x) = &vitals {
-            snap.info.push(("Servicio de consultas".into(), x.get("version").map(text).unwrap_or_default()));
-            snap.info.push(("Núcleos (consultas)".into(), x.get("cores").map(text).unwrap_or_default()));
+            snap.info.push((
+                "Servicio de consultas".into(),
+                x.get("version").map(text).unwrap_or_default(),
+            ));
+            snap.info.push((
+                "Núcleos (consultas)".into(),
+                x.get("cores").map(text).unwrap_or_default(),
+            ));
         } else {
             snap.notes.push("No se pudo leer /admin/vitals del servicio de consultas: faltan su CPU y los tiempos de consulta.".into());
         }
@@ -1317,7 +1940,10 @@ impl Session for CbSession {
         permissions::check(self, database).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         self.index_usage_report(table).await
     }
 }
@@ -1335,22 +1961,43 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(Some("b"), "s", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(Some("b"), "s", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
 
     #[test]
     fn documents_become_rows() {
-        let r = vec![json!({"_id": "k1", "a": 1, "n": {"z": true}}), json!({"_id": "k2", "b": [1, 2], "a": 9007199254740993i64})];
+        let r = vec![
+            json!({"_id": "k1", "a": 1, "n": {"z": true}}),
+            json!({"_id": "k2", "b": [1, 2], "a": 9007199254740993i64}),
+        ];
         let (cols, rows) = tabulate(&r, None);
         assert_eq!(cols, ["_id", "a", "n", "b"]);
-        assert_eq!(rows[0], vec![json!("k1"), json!(1), json!("{\"z\":true}"), Value::Null]);
+        assert_eq!(
+            rows[0],
+            vec![json!("k1"), json!(1), json!("{\"z\":true}"), Value::Null]
+        );
         assert_eq!(rows[1][1], json!("9007199254740993"));
-        let (cols, _) = tabulate(&[json!({"b": 1})], Some(&json!({"a": "json", "b": "number"})));
+        let (cols, _) = tabulate(
+            &[json!({"b": 1})],
+            Some(&json!({"a": "json", "b": "number"})),
+        );
         assert_eq!(cols, ["a", "b"]);
         let (cols, rows) = tabulate(&[json!("8.0.2"), json!(null)], None);
         assert_eq!((cols, rows.len()), (vec!["value".to_string()], 2));
@@ -1360,26 +2007,71 @@ mod tests {
 
     #[test]
     fn errors_and_statements() {
-        assert!(matches!(query_error(&[json!({"code": 10000, "msg": "Authentication Failed"})], None), Error::AuthFailed(_)));
-        let e = query_error(&[json!({"code": 3000, "msg": "syntax error", "line": 2, "column": 3})], Some("SELECT\n  SELEC 1")).to_script_error();
-        assert_eq!((e.code.as_deref(), e.line, e.offset), (Some("3000"), Some(2), Some(9)));
-        assert!(query_error(&[json!({"code": 12003, "msg": "x"}), json!({"msg": "y"})], None).to_string() == "x\ny");
+        assert!(matches!(
+            query_error(
+                &[json!({"code": 10000, "msg": "Authentication Failed"})],
+                None
+            ),
+            Error::AuthFailed(_)
+        ));
+        let e = query_error(
+            &[json!({"code": 3000, "msg": "syntax error", "line": 2, "column": 3})],
+            Some("SELECT\n  SELEC 1"),
+        )
+        .to_script_error();
+        assert_eq!(
+            (e.code.as_deref(), e.line, e.offset),
+            (Some("3000"), Some(2), Some(9))
+        );
+        assert!(
+            query_error(
+                &[json!({"code": 12003, "msg": "x"}), json!({"msg": "y"})],
+                None
+            )
+            .to_string()
+                == "x\ny"
+        );
         let e = json!({"code": 17007, "msg": "Commit Transaction statement error", "cause": {"cause": {"error_description": "Durability requirements are impossible to achieve"}}});
         assert_eq!(query_error(&[e], None).to_string(), "Commit Transaction statement error (Durability requirements are impossible to achieve)");
-        assert!(tx_gone(&query_error(&[json!({"code": 17004, "msg": "transaction (x) is not present"})], None)));
+        assert!(tx_gone(&query_error(
+            &[json!({"code": 17004, "msg": "transaction (x) is not present"})],
+            None
+        )));
         assert_eq!(tx_effect("begin work"), TxEffect::Begin);
-        assert_eq!(tx_effect("START TRANSACTION ISOLATION LEVEL READ COMMITTED"), TxEffect::Begin);
+        assert_eq!(
+            tx_effect("START TRANSACTION ISOLATION LEVEL READ COMMITTED"),
+            TxEffect::Begin
+        );
         assert_eq!(tx_effect("COMMIT WORK"), TxEffect::Commit);
-        assert_eq!(tx_effect("ROLLBACK TRANSACTION TO SAVEPOINT s1"), TxEffect::Other);
+        assert_eq!(
+            tx_effect("ROLLBACK TRANSACTION TO SAVEPOINT s1"),
+            TxEffect::Other
+        );
         assert_eq!(tx_effect("rollback"), TxEffect::Rollback);
         assert_eq!(tx_effect("UPSERT INTO b VALUES ('k', {})"), TxEffect::Data);
         assert_eq!(tx_effect("CREATE INDEX i ON b(a)"), TxEffect::Other);
-        assert_eq!(txid_of(&json!({"results": [{"txid": "t1"}]})).as_deref(), Some("t1"));
-        assert!(explainable("select 1") && explainable("UPSERT INTO x VALUES ('k', {})") && !explainable("CREATE INDEX i ON c(a)"));
+        assert_eq!(
+            txid_of(&json!({"results": [{"txid": "t1"}]})).as_deref(),
+            Some("t1")
+        );
+        assert!(
+            explainable("select 1")
+                && explainable("UPSERT INTO x VALUES ('k', {})")
+                && !explainable("CREATE INDEX i ON c(a)")
+        );
         assert_ne!(context_id(), context_id());
-        assert_eq!(created_collection("CREATE COLLECTION `b`.`s`.`c` IF NOT EXISTS").as_deref(), Some("`b`.`s`.`c`"));
-        assert_eq!(created_collection("create collection b.s.c WITH {\"maxTTL\": 1}").as_deref(), Some("b.s.c"));
-        assert_eq!(created_collection("CREATE COLLECTION IF NOT EXISTS b.s.c").as_deref(), Some("b.s.c"));
+        assert_eq!(
+            created_collection("CREATE COLLECTION `b`.`s`.`c` IF NOT EXISTS").as_deref(),
+            Some("`b`.`s`.`c`")
+        );
+        assert_eq!(
+            created_collection("create collection b.s.c WITH {\"maxTTL\": 1}").as_deref(),
+            Some("b.s.c")
+        );
+        assert_eq!(
+            created_collection("CREATE COLLECTION IF NOT EXISTS b.s.c").as_deref(),
+            Some("b.s.c")
+        );
         assert_eq!(created_collection("CREATE INDEX i ON c(a)"), None);
     }
 
@@ -1387,9 +2079,18 @@ mod tests {
     fn browse_and_info() {
         let d = drivers();
         assert!(d[0].capabilities().monitor && d[0].supports_explain());
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let s = CbSession {
-            conn: Arc::new(Conn { http: reqwest::Client::new(), query: String::new(), mgmt: String::new(), user: String::new(), password: String::new(), read_only: true }),
+            conn: Arc::new(Conn {
+                http: reqwest::Client::new(),
+                query: String::new(),
+                mgmt: String::new(),
+                user: String::new(),
+                password: String::new(),
+                read_only: true,
+            }),
             bucket: Some("b".into()),
             cancel: Arc::new(Cancel::default()),
             rt: rt.handle().clone(),
@@ -1397,14 +2098,25 @@ mod tests {
             txid: None,
             manual: false,
         };
-        let o = ObjectRef { kind: kinds::COLLECTION.into(), schema: Some("b.inv".into()), name: "hotel".into() };
-        assert_eq!(s.browse_query(&o, 5), "SELECT META(d).id AS _id, d.*\nFROM `b`.`inv`.`hotel` AS d\nLIMIT 5");
+        let o = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.inv".into()),
+            name: "hotel".into(),
+        };
+        assert_eq!(
+            s.browse_query(&o, 5),
+            "SELECT META(d).id AS _id, d.*\nFROM `b`.`inv`.`hotel` AS d\nLIMIT 5"
+        );
         let b = s.body("select 1", Some("x"));
         assert_eq!(b["query_context"], json!("default:`b`.`_default`"));
         assert_eq!(b["readonly"], json!(true));
         // Read-only refuses bucket create/drop before any request.
         let mut s = s;
-        assert!(matches!(rt.block_on(s.create_database("x")), Err(Error::Query(m)) if m.contains("solo lectura")));
-        assert!(matches!(rt.block_on(s.drop_database("b")), Err(Error::Query(m)) if m.contains("solo lectura")));
+        assert!(
+            matches!(rt.block_on(s.create_database("x")), Err(Error::Query(m)) if m.contains("solo lectura"))
+        );
+        assert!(
+            matches!(rt.block_on(s.drop_database("b")), Err(Error::Query(m)) if m.contains("solo lectura"))
+        );
     }
 }

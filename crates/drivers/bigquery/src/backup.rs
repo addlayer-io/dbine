@@ -48,28 +48,44 @@ fn opt<'a>(options: &'a BTreeMap<String, String>, key: &str) -> &'a str {
 
 /// A dataset id: letters, digits and `_`, up to 1024.
 fn check_dataset(d: &str) -> Result<&str> {
-    if !d.is_empty() && d.len() <= 1024 && d.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    if !d.is_empty() && d.len() <= 1024 && d.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
         Ok(d)
     } else {
-        Err(Error::Query(format!("'{d}' no es un dataset válido: letras, números y _")))
+        Err(Error::Query(format!(
+            "'{d}' no es un dataset válido: letras, números y _"
+        )))
     }
 }
 
 /// A snapshot time as the history writes it (`2026-09-29T14:00:00.123456Z`).
 fn check_time(t: &str) -> Result<&str> {
-    if !t.is_empty() && t.chars().all(|c| c.is_ascii_digit() || "-:.TZ ".contains(c)) {
+    if !t.is_empty()
+        && t.chars()
+            .all(|c| c.is_ascii_digit() || "-:.TZ ".contains(c))
+    {
         Ok(t)
     } else {
-        Err(Error::Query(format!("'{t}' no es un momento válido (2026-09-29T14:00:00Z)")))
+        Err(Error::Query(format!(
+            "'{t}' no es un momento válido (2026-09-29T14:00:00Z)"
+        )))
     }
 }
 
 /// `<snapshot dataset>/<dataset>@<snapshot time>`.
 fn parse_source(source: &str) -> Result<(&str, &str, &str)> {
-    let bad = || Error::Query(format!("'{source}' no es un backup: tiene que ser <dataset de snapshots>/<dataset>@<momento>"));
+    let bad = || {
+        Error::Query(format!(
+            "'{source}' no es un backup: tiene que ser <dataset de snapshots>/<dataset>@<momento>"
+        ))
+    };
     let (sets, time) = source.trim().split_once('@').ok_or_else(bad)?;
     let (snap, base) = sets.split_once('/').ok_or_else(bad)?;
-    Ok((check_dataset(snap.trim())?, check_dataset(base.trim())?, check_time(time.trim())?))
+    Ok((
+        check_dataset(snap.trim())?,
+        check_dataset(base.trim())?,
+        check_time(time.trim())?,
+    ))
 }
 
 /// The snapshots of one backup, as the `FOR` loop's query.
@@ -92,7 +108,9 @@ pub fn script(action: &BackupAction) -> Result<String> {
                 s => check_dataset(s)?,
             };
             if snap == ds {
-                return Err(Error::Query("El dataset de los snapshots tiene que ser otro".into()));
+                return Err(Error::Query(
+                    "El dataset de los snapshots tiene que ser otro".into(),
+                ));
             }
             let at = match opt(options, "as_of") {
                 "" => "CURRENT_TIMESTAMP()".to_string(),
@@ -101,11 +119,17 @@ pub fn script(action: &BackupAction) -> Result<String> {
             let expire = match opt(options, "expire_days") {
                 "" => String::new(),
                 d => {
-                    let days: u32 = d.parse().ok().filter(|d| *d > 0).ok_or_else(|| Error::Query(format!("'{d}' no es una cantidad de días válida")))?;
+                    let days: u32 = d.parse().ok().filter(|d| *d > 0).ok_or_else(|| {
+                        Error::Query(format!("'{d}' no es una cantidad de días válida"))
+                    })?;
                     format!(" OPTIONS(expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {days} DAY))")
                 }
             };
-            let stmt = format!("CREATE SNAPSHOT TABLE {}.`%s_%s` CLONE {}.`%s` FOR SYSTEM_TIME AS OF %T{expire}", ident(snap), ident(ds));
+            let stmt = format!(
+                "CREATE SNAPSHOT TABLE {}.`%s_%s` CLONE {}.`%s` FOR SYSTEM_TIME AS OF %T{expire}",
+                ident(snap),
+                ident(ds)
+            );
             Ok(format!(
                 "-- Snapshot de cada tabla de {ds} en {snap}, todas al mismo momento.\n\
                  DECLARE snapshot_time TIMESTAMP DEFAULT {at};\n\
@@ -119,13 +143,21 @@ pub fn script(action: &BackupAction) -> Result<String> {
                 lit(&stmt)
             ))
         }
-        BackupAction::Restore { source, database, options } => {
+        BackupAction::Restore {
+            source,
+            database,
+            options,
+        } => {
             let (snap, base, time) = parse_source(source)?;
             let target = match database.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
                 Some(t) => check_dataset(t)?,
                 None => base,
             };
-            let create = if opt(options, "replace") == "true" { "CREATE OR REPLACE TABLE" } else { "CREATE TABLE" };
+            let create = if opt(options, "replace") == "true" {
+                "CREATE OR REPLACE TABLE"
+            } else {
+                "CREATE TABLE"
+            };
             let stmt = format!("{create} {}.`%s` CLONE {}.`%s`", ident(target), ident(snap));
             Ok(format!(
                 "-- Restaura el backup de {base} del {time} en {target}.\n\
@@ -177,7 +209,11 @@ pub fn entries(rows: &[crate::ddl::Row]) -> Vec<BackupEntry> {
     rows.iter()
         .filter_map(|r| {
             let get = |k: &str| r.get(k).cloned();
-            let (snap, base, time) = (get("table_schema")?, get("base_table_schema")?, get("snapshot_time")?);
+            let (snap, base, time) = (
+                get("table_schema")?,
+                get("base_table_schema")?,
+                get("snapshot_time")?,
+            );
             let mut details = Vec::new();
             if let Some(n) = get("tables") {
                 details.push(("Tablas".to_string(), n));
@@ -202,11 +238,21 @@ pub fn entries(rows: &[crate::ddl::Row]) -> Vec<BackupEntry> {
 }
 
 pub async fn history(s: &BigQuerySession, database: Option<&str>) -> Result<Vec<BackupEntry>> {
-    let Some(ds) = database.map(str::trim).filter(|d| !d.is_empty()).map(str::to_string).or_else(|| s.dataset.clone()) else {
+    let Some(ds) = database
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(str::to_string)
+        .or_else(|| s.dataset.clone())
+    else {
         return Ok(Vec::new());
     };
     let meta = s.api.get(&["datasets", &ds], &[]).await?;
-    let region = meta.get("location").and_then(|l| l.as_str()).map(str::to_string).or_else(|| s.api.location.clone()).unwrap_or_else(|| "US".into());
+    let region = meta
+        .get("location")
+        .and_then(|l| l.as_str())
+        .map(str::to_string)
+        .or_else(|| s.api.location.clone())
+        .unwrap_or_else(|| "US".into());
     Ok(entries(&s.named_rows(&history_sql(&region, &ds)).await?))
 }
 
@@ -215,47 +261,113 @@ mod tests {
     use super::*;
 
     fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn backup_script() {
-        let s = script(&BackupAction::Backup { database: Some("ventas".into()), options: opts(&[("expire_days", "30")]) }).unwrap();
-        assert!(s.contains("DECLARE snapshot_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP();"), "{s}");
-        assert!(s.contains("CREATE SCHEMA IF NOT EXISTS `ventas_backups`;"), "{s}");
+        let s = script(&BackupAction::Backup {
+            database: Some("ventas".into()),
+            options: opts(&[("expire_days", "30")]),
+        })
+        .unwrap();
+        assert!(
+            s.contains("DECLARE snapshot_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP();"),
+            "{s}"
+        );
+        assert!(
+            s.contains("CREATE SCHEMA IF NOT EXISTS `ventas_backups`;"),
+            "{s}"
+        );
         assert!(s.contains("FROM `ventas`.INFORMATION_SCHEMA.TABLES"), "{s}");
         assert!(s.contains(
             "EXECUTE IMMEDIATE FORMAT('CREATE SNAPSHOT TABLE `ventas_backups`.`%s_%s` CLONE `ventas`.`%s` FOR SYSTEM_TIME AS OF %T OPTIONS(expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 30 DAY))', t.table_name, stamp, t.table_name, snapshot_time);"
         ), "{s}");
-        let s = script(&BackupAction::Backup { database: Some("ventas".into()), options: opts(&[("snapshot_dataset", "bk"), ("as_of", "2026-09-29 10:00:00 UTC")]) }).unwrap();
-        assert!(s.contains("DEFAULT TIMESTAMP '2026-09-29 10:00:00 UTC';"), "{s}");
+        let s = script(&BackupAction::Backup {
+            database: Some("ventas".into()),
+            options: opts(&[
+                ("snapshot_dataset", "bk"),
+                ("as_of", "2026-09-29 10:00:00 UTC"),
+            ]),
+        })
+        .unwrap();
+        assert!(
+            s.contains("DEFAULT TIMESTAMP '2026-09-29 10:00:00 UTC';"),
+            "{s}"
+        );
         assert!(s.contains("`bk`.`%s_%s`") && !s.contains("OPTIONS"), "{s}");
-        assert!(script(&BackupAction::Backup { database: Some("ventas".into()), options: opts(&[("snapshot_dataset", "ventas")]) }).is_err());
-        assert!(script(&BackupAction::Backup { database: Some("ven`tas".into()), options: BTreeMap::new() }).is_err());
-        assert!(script(&BackupAction::Backup { database: Some("v".into()), options: opts(&[("expire_days", "0")]) }).is_err());
+        assert!(script(&BackupAction::Backup {
+            database: Some("ventas".into()),
+            options: opts(&[("snapshot_dataset", "ventas")])
+        })
+        .is_err());
+        assert!(script(&BackupAction::Backup {
+            database: Some("ven`tas".into()),
+            options: BTreeMap::new()
+        })
+        .is_err());
+        assert!(script(&BackupAction::Backup {
+            database: Some("v".into()),
+            options: opts(&[("expire_days", "0")])
+        })
+        .is_err());
     }
 
     #[test]
     fn restore_and_delete_scripts() {
         let src = "ventas_backups/ventas@2026-09-29T14:00:00.123456Z";
-        let r = script(&BackupAction::Restore { source: src.into(), database: Some("ventas_copia".into()), options: BTreeMap::new() }).unwrap();
-        assert!(r.contains("FROM `ventas_backups`.INFORMATION_SCHEMA.TABLE_SNAPSHOTS"), "{r}");
+        let r = script(&BackupAction::Restore {
+            source: src.into(),
+            database: Some("ventas_copia".into()),
+            options: BTreeMap::new(),
+        })
+        .unwrap();
+        assert!(
+            r.contains("FROM `ventas_backups`.INFORMATION_SCHEMA.TABLE_SNAPSHOTS"),
+            "{r}"
+        );
         assert!(r.contains("WHERE base_table_schema = 'ventas' AND snapshot_time = TIMESTAMP '2026-09-29T14:00:00.123456Z'"), "{r}");
-        assert!(r.contains("CREATE SCHEMA IF NOT EXISTS `ventas_copia`;"), "{r}");
+        assert!(
+            r.contains("CREATE SCHEMA IF NOT EXISTS `ventas_copia`;"),
+            "{r}"
+        );
         assert!(r.contains("FORMAT('CREATE TABLE `ventas_copia`.`%s` CLONE `ventas_backups`.`%s`', s.base_table_name, s.table_name)"), "{r}");
         assert!(r.contains("RAISE USING MESSAGE"), "{r}");
-        let r = script(&BackupAction::Restore { source: src.into(), database: None, options: opts(&[("replace", "true")]) }).unwrap();
+        let r = script(&BackupAction::Restore {
+            source: src.into(),
+            database: None,
+            options: opts(&[("replace", "true")]),
+        })
+        .unwrap();
         assert!(r.contains("CREATE OR REPLACE TABLE `ventas`.`%s`"), "{r}");
         let d = script(&BackupAction::Delete { source: src.into() }).unwrap();
-        assert!(d.contains("FORMAT('DROP SNAPSHOT TABLE IF EXISTS `ventas_backups`.`%s`', s.table_name)"), "{d}");
-        assert!(script(&BackupAction::Delete { source: "ventas@x".into() }).is_err());
-        assert!(script(&BackupAction::Delete { source: "a/b@2026'; DROP".into() }).is_err());
+        assert!(
+            d.contains(
+                "FORMAT('DROP SNAPSHOT TABLE IF EXISTS `ventas_backups`.`%s`', s.table_name)"
+            ),
+            "{d}"
+        );
+        assert!(script(&BackupAction::Delete {
+            source: "ventas@x".into()
+        })
+        .is_err());
+        assert!(script(&BackupAction::Delete {
+            source: "a/b@2026'; DROP".into()
+        })
+        .is_err());
     }
 
     #[test]
     fn history_rows() {
         let q = history_sql("EU", "ventas");
-        assert!(q.contains("FROM `region-eu`.INFORMATION_SCHEMA.TABLE_SNAPSHOTS") && q.contains("WHERE base_table_schema = 'ventas'"), "{q}");
+        assert!(
+            q.contains("FROM `region-eu`.INFORMATION_SCHEMA.TABLE_SNAPSHOTS")
+                && q.contains("WHERE base_table_schema = 'ventas'"),
+            "{q}"
+        );
         let row: crate::ddl::Row = [
             ("table_schema", "ventas_backups"),
             ("base_table_schema", "ventas"),
@@ -270,7 +382,9 @@ mod tests {
         assert_eq!(e.len(), 1);
         assert_eq!(e[0].id, "ventas_backups/ventas@2026-09-29T14:00:00.123456Z");
         assert_eq!(e[0].location.as_deref(), Some("ventas_backups"));
-        assert!(e[0].details.contains(&("Incluye".into(), "clientes, pedidos".into())));
+        assert!(e[0]
+            .details
+            .contains(&("Incluye".into(), "clientes, pedidos".into())));
         // The id round-trips into the restore script.
         assert!(parse_source(&e[0].id).is_ok());
     }

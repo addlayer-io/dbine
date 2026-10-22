@@ -21,16 +21,25 @@ mod v2;
 mod v3;
 
 use dbine_driver::{
-    async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, Driver, DriverInfo, Error, ObjectRef, Result,
-    RowChange, Session, TableSchema,
+    async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, Driver, DriverInfo,
+    Error, ObjectRef, Result, RowChange, Session, TableSchema,
 };
 use std::sync::Arc;
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![
-        Arc::new(InfluxDriver { info: v2::info(), api: Api::Flux }),
-        Arc::new(InfluxDriver { info: v1::info(), api: Api::InfluxQl }),
-        Arc::new(InfluxDriver { info: v3::info(), api: Api::Sql }),
+        Arc::new(InfluxDriver {
+            info: v2::info(),
+            api: Api::Flux,
+        }),
+        Arc::new(InfluxDriver {
+            info: v1::info(),
+            api: Api::InfluxQl,
+        }),
+        Arc::new(InfluxDriver {
+            info: v3::info(),
+            api: Api::Sql,
+        }),
     ]
 }
 
@@ -68,7 +77,10 @@ impl Driver for InfluxDriver {
     /// Flux has no statement terminator: the script is one unit.
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
         match self.api {
-            Api::Flux => dbine_driver::ScriptDialect { semicolons: false, ..dbine_driver::ScriptDialect::generic() },
+            Api::Flux => dbine_driver::ScriptDialect {
+                semicolons: false,
+                ..dbine_driver::ScriptDialect::generic()
+            },
             Api::InfluxQl | Api::Sql => dbine_driver::ScriptDialect::generic(),
         }
     }
@@ -90,13 +102,21 @@ impl Driver for InfluxDriver {
         create_db::fields(self.api)
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(self.api, name, options)
     }
 
     /// "Propiedades": retention policies (v1), the bucket's retention and
     /// description (v2), the retention period (v3); see [`properties`].
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(self.api, database, changes)
     }
 
@@ -139,19 +159,28 @@ impl Driver for InfluxDriver {
     /// Measurements have no DDL: they appear when points are written.
     fn table_ddl(&self, _table: &TableSchema, _parts: DdlParts) -> Result<String> {
         Err(Error::Unsupported(
-            "InfluxDB no tiene DDL de measurements: se crean al escribir puntos (line protocol).".into(),
+            "InfluxDB no tiene DDL de measurements: se crean al escribir puntos (line protocol)."
+                .into(),
         ))
     }
 
     /// Measurements (v1, v2) and tables (v3) take their tags and fields
     /// from the points written: there is no schema to alter.
-    fn sync_script(&self, _changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        _changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         Err(Error::Unsupported(
             "InfluxDB no tiene esquema que sincronizar: los measurements y sus campos aparecen al escribir puntos y no se modifican con DDL".into(),
         ))
     }
 
-    fn insert_script(&self, _target: &ObjectRef, _columns: &[String], _rows: &[Vec<serde_json::Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        _target: &ObjectRef,
+        _columns: &[String],
+        _rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
         Err(Error::Unsupported(
             match self.api {
                 Api::Flux => "Flux no tiene un lenguaje de inserción: los puntos se escriben con line protocol (/api/v2/write).",
@@ -178,7 +207,11 @@ impl Driver for InfluxDriver {
 
     /// InfluxQL (1.x) deletes points by time and tags; Flux and the SQL of
     /// InfluxDB 3 have no statement for it.
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         match self.api {
             Api::InfluxQl => v1::delete_script(&target.name, keys),
             Api::Flux => Err(Error::Unsupported(
@@ -190,7 +223,11 @@ impl Driver for InfluxDriver {
         }
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         match self.api {
             Api::Flux => v2::filtered_browse(browse, filters),
             Api::InfluxQl => v1::filtered_browse(browse, filters),
@@ -206,7 +243,11 @@ impl Driver for InfluxDriver {
         }
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         match self.api {
             Api::Flux => v2::connect(cfg, database).await,
             Api::InfluxQl => v1::connect(cfg, database).await,
@@ -221,10 +262,21 @@ mod tests {
 
     #[test]
     fn updates_are_unsupported() {
-        let target = ObjectRef { kind: "measurement".into(), schema: None, name: "cpu".into() };
-        let change = RowChange { key: vec![("time".into(), serde_json::json!(1))], set: vec![("v".into(), serde_json::json!(2))], ..Default::default() };
+        let target = ObjectRef {
+            kind: "measurement".into(),
+            schema: None,
+            name: "cpu".into(),
+        };
+        let change = RowChange {
+            key: vec![("time".into(), serde_json::json!(1))],
+            set: vec![("v".into(), serde_json::json!(2))],
+            ..Default::default()
+        };
         for d in drivers() {
-            assert!(matches!(d.update_script(&target, &[change.clone()]), Err(Error::Unsupported(_))));
+            assert!(matches!(
+                d.update_script(&target, &[change.clone()]),
+                Err(Error::Unsupported(_))
+            ));
         }
     }
 }

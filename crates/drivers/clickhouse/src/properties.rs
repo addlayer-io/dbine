@@ -27,13 +27,18 @@ const SETTABLE: &[&str] = &["MaterializedPostgreSQL", "DataLakeCatalog"];
 const SETTINGS: &str = "Configuración (SETTINGS)";
 
 fn setting_name(v: &str) -> bool {
-    !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !v.starts_with(|c: char| c.is_ascii_digit())
+    !v.is_empty()
+        && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !v.starts_with(|c: char| c.is_ascii_digit())
 }
 
 /// A setting's value as SQL: numbers and booleans bare, anything else as a
 /// string literal.
 fn setting_value(v: &str) -> String {
-    let number = !v.is_empty() && v.parse::<f64>().is_ok() && v.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'));
+    let number = !v.is_empty()
+        && v.parse::<f64>().is_ok()
+        && v.chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'));
     if number || matches!(v, "true" | "false") {
         v.to_string()
     } else {
@@ -45,10 +50,16 @@ fn setting_value(v: &str) -> String {
 fn setting_lines(v: &str) -> Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for line in v.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let (k, val) = line.split_once('=').ok_or_else(|| Error::Query(format!("configuración: «{line}» no tiene la forma nombre = valor")))?;
+        let (k, val) = line.split_once('=').ok_or_else(|| {
+            Error::Query(format!(
+                "configuración: «{line}» no tiene la forma nombre = valor"
+            ))
+        })?;
         let k = k.trim();
         if !setting_name(k) {
-            return Err(Error::Query(format!("configuración: «{k}» no es un nombre de setting")));
+            return Err(Error::Query(format!(
+                "configuración: «{k}» no es un nombre de setting"
+            )));
         }
         out.push((k.to_string(), val.trim().trim_matches('\'').to_string()));
     }
@@ -99,7 +110,10 @@ pub(crate) fn engine_settings(engine_full: &str) -> Vec<(String, String)> {
         .filter_map(|p| {
             let (k, v) = p.split_once('=')?;
             let v = v.trim();
-            let v = v.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')).unwrap_or(v);
+            let v = v
+                .strip_prefix('\'')
+                .and_then(|v| v.strip_suffix('\''))
+                .unwrap_or(v);
             Some((k.trim().to_string(), v.to_string()))
         })
         .filter(|(k, _)| setting_name(k))
@@ -107,15 +121,24 @@ pub(crate) fn engine_settings(engine_full: &str) -> Vec<(String, String)> {
 }
 
 /// The statements for `changes`: the comment, then the settings.
-pub(crate) fn alter(flavor: Flavor, database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
+pub(crate) fn alter(
+    flavor: Flavor,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
     if flavor == Flavor::Timeplus {
-        return Err(Error::Unsupported("Timeplus Proton no modifica las propiedades de una base".into()));
+        return Err(Error::Unsupported(
+            "Timeplus Proton no modifica las propiedades de una base".into(),
+        ));
     }
     let db = q(database);
     let (mut out, mut settings) = (Vec::new(), Vec::new());
     for (key, value) in changes {
         match key.as_str() {
-            "comment" => out.push(format!("ALTER DATABASE {db} MODIFY COMMENT {}", literal(value.trim()))),
+            "comment" => out.push(format!(
+                "ALTER DATABASE {db} MODIFY COMMENT {}",
+                literal(value.trim())
+            )),
             "settings_add" => {
                 for (k, v) in setting_lines(value)? {
                     settings.push(format!("{k} = {}", setting_value(&v)));
@@ -125,7 +148,9 @@ pub(crate) fn alter(flavor: Flavor, database: &str, changes: &BTreeMap<String, S
                 Some(name) if setting_name(name) => {
                     let v = value.trim();
                     if v.is_empty() {
-                        return Err(Error::Query(format!("{name}: el valor no puede quedar vacío")));
+                        return Err(Error::Query(format!(
+                            "{name}: el valor no puede quedar vacío"
+                        )));
                     }
                     settings.push(format!("{name} = {}", setting_value(v)));
                 }
@@ -139,14 +164,20 @@ pub(crate) fn alter(flavor: Flavor, database: &str, changes: &BTreeMap<String, S
     Ok(out)
 }
 
-pub(crate) fn script(flavor: Flavor, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
+pub(crate) fn script(
+    flavor: Flavor,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<String> {
     Ok(alter(flavor, database, changes)?.join(";\n"))
 }
 
 impl ClickHouseSession {
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         if self.flavor == Flavor::Timeplus {
-            return Err(Error::Unsupported("Timeplus Proton no muestra las propiedades de una base".into()));
+            return Err(Error::Unsupported(
+                "Timeplus Proton no muestra las propiedades de una base".into(),
+            ));
         }
         let p = [("db", database)];
         let rows = self
@@ -156,18 +187,34 @@ impl ClickHouseSession {
                 &p,
             )
             .await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
         let col = |i: usize| r.get(i).map(text).unwrap_or_default();
         let (engine, engine_full) = (col(0), col(1));
-        let general = |label: &str, value: String| PropertyInfo { group: String::new(), label: label.into(), value };
+        let general = |label: &str, value: String| PropertyInfo {
+            group: String::new(),
+            label: label.into(),
+            value,
+        };
         let mut info = vec![
-            general("Motor (ENGINE)", if engine_full.is_empty() { engine.clone() } else { engine_full.clone() }),
+            general(
+                "Motor (ENGINE)",
+                if engine_full.is_empty() {
+                    engine.clone()
+                } else {
+                    engine_full.clone()
+                },
+            ),
             general("UUID", col(4)),
             general("Ruta de datos", col(2)),
             general("Ruta de metadatos", col(3)),
         ];
         if col(6) == "1" {
-            info.push(general("Externa", "Sí: sus tablas están en otro servidor o catálogo".into()));
+            info.push(general(
+                "Externa",
+                "Sí: sus tablas están en otro servidor o catálogo".into(),
+            ));
         }
         let tables = self
             .rows("SELECT toString(count()) FROM system.tables WHERE database = {db:String} AND NOT is_temporary", &p)
@@ -211,15 +258,32 @@ impl ClickHouseSession {
             );
             values.insert("settings_add".into(), String::new());
         }
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings: BTreeMap::new() })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings: BTreeMap::new(),
+        })
     }
 
     /// One request per statement; a later failure says how many ran.
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let statements = alter(self.flavor, database, changes)?;
         for (i, sql) in statements.iter().enumerate() {
             if let Err(e) = self.rows(sql, &[]).await {
-                return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+                return Err(if i == 0 {
+                    e
+                } else {
+                    Error::Query(format!(
+                        "se aplicaron {i} de {} cambios; falló: {sql}\n{e}",
+                        statements.len()
+                    ))
+                });
             }
         }
         Ok(())
@@ -231,7 +295,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -248,18 +315,35 @@ mod tests {
              ALTER DATABASE `ven\\`tas` MODIFY SETTING x_y = 10;\n\
              ALTER DATABASE `ven\\`tas` MODIFY SETTING flag = true"
         );
-        assert_eq!(script(Flavor::ClickHouse, "v", &c(&[("comment", "")])).unwrap(), "ALTER DATABASE `v` MODIFY COMMENT ''");
+        assert_eq!(
+            script(Flavor::ClickHouse, "v", &c(&[("comment", "")])).unwrap(),
+            "ALTER DATABASE `v` MODIFY COMMENT ''"
+        );
     }
 
     #[test]
     fn values_are_checked() {
-        for bad in [("setting:a b", "1"), ("setting:x", " "), ("settings_add", "x"), ("settings_add", "x;y = 1"), ("engine", "Memory")] {
-            assert!(script(Flavor::ClickHouse, "v", &c(&[bad])).is_err(), "{bad:?}");
+        for bad in [
+            ("setting:a b", "1"),
+            ("setting:x", " "),
+            ("settings_add", "x"),
+            ("settings_add", "x;y = 1"),
+            ("engine", "Memory"),
+        ] {
+            assert!(
+                script(Flavor::ClickHouse, "v", &c(&[bad])).is_err(),
+                "{bad:?}"
+            );
         }
         assert!(script(Flavor::Timeplus, "v", &c(&[])).is_err());
         // A value can't break out of its literal.
         assert_eq!(
-            script(Flavor::ClickHouse, "v", &c(&[("setting:s", "x', y = 1 --")])).unwrap(),
+            script(
+                Flavor::ClickHouse,
+                "v",
+                &c(&[("setting:s", "x', y = 1 --")])
+            )
+            .unwrap(),
             "ALTER DATABASE `v` MODIFY SETTING s = 'x\\', y = 1 --'"
         );
     }

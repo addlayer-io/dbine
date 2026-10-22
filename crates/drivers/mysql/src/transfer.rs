@@ -53,7 +53,10 @@ use crate::cells::{type_name, value_text};
 use crate::session::{lit, MySqlSession};
 use crate::{err, Variant};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, RowBatch,
+    TransferColumn,
+};
 use dbine_driver::{Error, Result, Session};
 use futures::channel::{mpsc, oneshot};
 use futures::future::{select, Either};
@@ -108,13 +111,17 @@ pub(crate) fn kind(col: &Column, utc: bool) -> Kind {
     let unsigned = col.flags().contains(ColumnFlags::UNSIGNED_FLAG);
     match col.column_type() {
         MYSQL_TYPE_LONGLONG if unsigned => Kind::UInt,
-        MYSQL_TYPE_TINY | MYSQL_TYPE_SHORT | MYSQL_TYPE_INT24 | MYSQL_TYPE_LONG | MYSQL_TYPE_LONGLONG | MYSQL_TYPE_YEAR => Kind::Int,
+        MYSQL_TYPE_TINY | MYSQL_TYPE_SHORT | MYSQL_TYPE_INT24 | MYSQL_TYPE_LONG
+        | MYSQL_TYPE_LONGLONG | MYSQL_TYPE_YEAR => Kind::Int,
         MYSQL_TYPE_FLOAT => Kind::Float,
         MYSQL_TYPE_DOUBLE => Kind::Double,
         MYSQL_TYPE_DECIMAL | MYSQL_TYPE_NEWDECIMAL => Kind::Decimal,
         MYSQL_TYPE_DATE | MYSQL_TYPE_NEWDATE => Kind::Date,
         MYSQL_TYPE_TIMESTAMP | MYSQL_TYPE_TIMESTAMP2 if utc => Kind::Timestamp,
-        MYSQL_TYPE_DATETIME | MYSQL_TYPE_DATETIME2 | MYSQL_TYPE_TIMESTAMP | MYSQL_TYPE_TIMESTAMP2 => Kind::DateTime,
+        MYSQL_TYPE_DATETIME
+        | MYSQL_TYPE_DATETIME2
+        | MYSQL_TYPE_TIMESTAMP
+        | MYSQL_TYPE_TIMESTAMP2 => Kind::DateTime,
         MYSQL_TYPE_TIME | MYSQL_TYPE_TIME2 => Kind::Time,
         MYSQL_TYPE_JSON => Kind::Json,
         MYSQL_TYPE_BIT => Kind::Bit,
@@ -128,8 +135,19 @@ pub(crate) fn kind(col: &Column, utc: bool) -> Kind {
 /// StarRocks' `LARGEINT` (its catalog says `bigint unsigned`; a value past
 /// 64 bits stays an exact decimal) and `JSON`.
 fn refine(k: Kind, catalog_type: Option<&str>) -> Kind {
-    let Some(t) = catalog_type.map(str::to_ascii_lowercase) else { return k };
-    let int = ["tinyint", "smallint", "mediumint", "int", "bigint", "largeint"].iter().any(|p| t.starts_with(p));
+    let Some(t) = catalog_type.map(str::to_ascii_lowercase) else {
+        return k;
+    };
+    let int = [
+        "tinyint",
+        "smallint",
+        "mediumint",
+        "int",
+        "bigint",
+        "largeint",
+    ]
+    .iter()
+    .any(|p| t.starts_with(p));
     match k {
         Kind::Text if int => Kind::Int,
         Kind::Text if t.starts_with("decimal") => Kind::Decimal,
@@ -194,7 +212,11 @@ pub(crate) fn to_cell(kind: Kind, v: Value) -> Cell {
         }
         Value::Time(neg, days, h, mi, s, us) => {
             let hours = u64::from(days) * 24 + u64::from(h);
-            let t = format!("{}{hours:02}:{mi:02}:{s:02}{}", if neg { "-" } else { "" }, frac(us));
+            let t = format!(
+                "{}{hours:02}:{mi:02}:{s:02}{}",
+                if neg { "-" } else { "" },
+                frac(us)
+            );
             if neg || hours >= 24 {
                 Cell::Text(t)
             } else {
@@ -233,9 +255,14 @@ fn bytes_cell(kind: Kind, b: Vec<u8>) -> Cell {
         _ => match text(b) {
             Err(b) => Cell::Bytes(b),
             Ok(s) => match kind {
-                Kind::Int => s.parse::<i64>().map_or_else(|_| s.parse::<u64>().map_or_else(|_| number_text(s), Cell::UInt), Cell::Int),
+                Kind::Int => s.parse::<i64>().map_or_else(
+                    |_| s.parse::<u64>().map_or_else(|_| number_text(s), Cell::UInt),
+                    Cell::Int,
+                ),
                 Kind::UInt => s.parse::<u64>().map_or_else(|_| number_text(s), Cell::UInt),
-                Kind::Float => s.parse::<f64>().map_or(Cell::Text(s), |f| Cell::Float(f32_value(f))),
+                Kind::Float => s
+                    .parse::<f64>()
+                    .map_or(Cell::Text(s), |f| Cell::Float(f32_value(f))),
                 Kind::Double => s.parse::<f64>().map_or(Cell::Text(s), Cell::Float),
                 Kind::Decimal => Cell::Decimal(s),
                 Kind::Date => Cell::Date(s),
@@ -282,7 +309,11 @@ impl Reader {
             .iter()
             .map(|c| {
                 let name = c.name_str();
-                let catalog = self.catalog.iter().find(|(n, _, _)| n.eq_ignore_ascii_case(&name)).map(|(_, t, _)| t.as_str());
+                let catalog = self
+                    .catalog
+                    .iter()
+                    .find(|(n, _, _)| n.eq_ignore_ascii_case(&name))
+                    .map(|(_, t, _)| t.as_str());
                 refine(kind(c, self.utc), catalog)
             })
             .collect();
@@ -295,9 +326,21 @@ impl Reader {
                 .filter(|(i, _)| Some(*i) != hidden)
                 .map(|(_, c)| {
                     let name = c.name_str().into_owned();
-                    match self.catalog.iter().find(|(n, _, _)| n.eq_ignore_ascii_case(&name)) {
-                        Some((_, t, nullable)) => TransferColumn { name, type_name: t.clone(), nullable: *nullable },
-                        None => TransferColumn { name, type_name: type_name(c.column_type()), nullable: true },
+                    match self
+                        .catalog
+                        .iter()
+                        .find(|(n, _, _)| n.eq_ignore_ascii_case(&name))
+                    {
+                        Some((_, t, nullable)) => TransferColumn {
+                            name,
+                            type_name: t.clone(),
+                            nullable: *nullable,
+                        },
+                        None => TransferColumn {
+                            name,
+                            type_name: type_name(c.column_type()),
+                            nullable: true,
+                        },
                     }
                 })
                 .collect();
@@ -311,7 +354,9 @@ impl Reader {
                 self.last_id = match values.get(c.index) {
                     Some(Value::Int(i)) => Some(*i),
                     Some(Value::UInt(u)) => i64::try_from(*u).ok(),
-                    Some(Value::Bytes(b)) => std::str::from_utf8(b).ok().and_then(|s| s.parse().ok()),
+                    Some(Value::Bytes(b)) => {
+                        std::str::from_utf8(b).ok().and_then(|s| s.parse().ok())
+                    }
                     _ => self.last_id,
                 };
             }
@@ -339,17 +384,45 @@ impl Reader {
 }
 
 /// Read `spec`'s table in typed batches (see the module docs).
-pub(crate) async fn read_batches(s: &mut MySqlSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut MySqlSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let v = s.variant;
-    let catalog: Vec<(String, String, bool)> =
-        s.columns(&spec.table).await.unwrap_or_default().into_iter().map(|c| (c.name, c.data_type, c.nullable)).collect();
+    let catalog: Vec<(String, String, bool)> = s
+        .columns(&spec.table)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| (c.name, c.data_type, c.nullable))
+        .collect();
     // TIMESTAMPs in UTC; the session's zone comes back afterwards.
-    let zone = if v == Variant::Manticore { None } else { switch_zone(&mut s.conn).await };
-    let mut reader =
-        Reader { sink, builder: BatchBuilder::new(), began: false, utc: zone.is_some(), catalog, cursor: None, last_id: None };
-    let r = if v == Variant::Manticore { read_manticore(s, spec, &mut reader).await } else { read_plain(s, spec, &mut reader).await };
+    let zone = if v == Variant::Manticore {
+        None
+    } else {
+        switch_zone(&mut s.conn).await
+    };
+    let mut reader = Reader {
+        sink,
+        builder: BatchBuilder::new(),
+        began: false,
+        utc: zone.is_some(),
+        catalog,
+        cursor: None,
+        last_id: None,
+    };
+    let r = if v == Variant::Manticore {
+        read_manticore(s, spec, &mut reader).await
+    } else {
+        read_plain(s, spec, &mut reader).await
+    };
     if let Some(z) = zone {
-        if let Err(e) = s.conn.query_drop(format!("SET time_zone = {}", lit(&z))).await {
+        if let Err(e) = s
+            .conn
+            .query_drop(format!("SET time_zone = {}", lit(&z)))
+            .await
+        {
             tracing::debug!("mysql: restoring time_zone: {e}");
         }
     }
@@ -359,7 +432,11 @@ pub(crate) async fn read_batches(s: &mut MySqlSession, spec: &ReadSpec, sink: Ba
 
 /// `SET time_zone = '+00:00'`, returning the previous zone.
 async fn switch_zone(conn: &mut Conn) -> Option<String> {
-    let row: Row = conn.query_first("SELECT @@SESSION.time_zone").await.ok().flatten()?;
+    let row: Row = conn
+        .query_first("SELECT @@SESSION.time_zone")
+        .await
+        .ok()
+        .flatten()?;
     let zone = row.as_ref(0).and_then(value_text)?;
     conn.query_drop("SET time_zone = '+00:00'").await.ok()?;
     Some(zone)
@@ -367,7 +444,11 @@ async fn switch_zone(conn: &mut Conn) -> Option<String> {
 
 fn column_list(columns: &Option<Vec<String>>) -> String {
     match columns {
-        Some(c) if !c.is_empty() => c.iter().map(|c| quote_ident(Quote::Backtick, c)).collect::<Vec<_>>().join(", "),
+        Some(c) if !c.is_empty() => c
+            .iter()
+            .map(|c| quote_ident(Quote::Backtick, c))
+            .collect::<Vec<_>>()
+            .join(", "),
         _ => "*".into(),
     }
 }
@@ -411,14 +492,21 @@ async fn read_manticore(s: &mut MySqlSession, spec: &ReadSpec, reader: &mut Read
         if let Some(id) = reader.last_id {
             conds.push(format!("id > {id}"));
         }
-        let wher = if conds.is_empty() { String::new() } else { format!(" WHERE {}", conds.join(" AND ")) };
+        let wher = if conds.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", conds.join(" AND "))
+        };
         let sql = format!("SELECT {list} FROM {table}{wher} ORDER BY id ASC LIMIT {MANTICORE_PAGE} OPTION max_matches={MANTICORE_PAGE}");
         let mut result = s.conn.query_iter(sql.as_str()).await.map_err(err)?;
         if reader.cursor.is_none() {
             let cols = result.columns().unwrap_or_else(|| Vec::new().into());
-            let index = cols.iter().rposition(|c| c.name_str().eq_ignore_ascii_case("id")).ok_or_else(|| {
-                Error::Query("Manticore: la tabla no devolvió la columna id".into())
-            })?;
+            let index = cols
+                .iter()
+                .rposition(|c| c.name_str().eq_ignore_ascii_case("id"))
+                .ok_or_else(|| {
+                    Error::Query("Manticore: la tabla no devolvió la columna id".into())
+                })?;
             reader.cursor = Some(Cursor { index, hidden });
         }
         let n = reader.pump(&mut result).await?;
@@ -449,8 +537,9 @@ pub(crate) enum Mode {
 
 pub(crate) fn mode_of(data_type: &str) -> Mode {
     match data_type.to_ascii_lowercase().as_str() {
-        "binary" | "varbinary" | "tinyblob" | "blob" | "mediumblob" | "longblob" | "geometry" | "point" | "linestring"
-        | "polygon" | "multipoint" | "multilinestring" | "multipolygon" | "geometrycollection" | "geomcollection" => Mode::Hex,
+        "binary" | "varbinary" | "tinyblob" | "blob" | "mediumblob" | "longblob" | "geometry"
+        | "point" | "linestring" | "polygon" | "multipoint" | "multilinestring"
+        | "multipolygon" | "geometrycollection" | "geomcollection" => Mode::Hex,
         "bit" => Mode::Bit,
         "float" => Mode::Float,
         _ => Mode::Plain,
@@ -470,7 +559,10 @@ fn put_hex(out: &mut Vec<u8>, b: &[u8]) {
 /// Bytes as `LOAD DATA` reads them with `ESCAPED BY '\\'`.
 pub(crate) fn put_escaped(out: &mut Vec<u8>, b: &[u8]) {
     let mut rest = b;
-    while let Some(i) = rest.iter().position(|c| matches!(c, b'\\' | b'\t' | b'\n' | b'\r' | 0)) {
+    while let Some(i) = rest
+        .iter()
+        .position(|c| matches!(c, b'\\' | b'\t' | b'\n' | b'\r' | 0))
+    {
         out.extend_from_slice(&rest[..i]);
         out.extend_from_slice(match rest[i] {
             b'\\' => b"\\\\",
@@ -499,7 +591,9 @@ fn uuid_bytes(s: &str) -> Option<Vec<u8>> {
     if hex.len() != 32 {
         return None;
     }
-    hex.chunks(2).map(|p| u8::from_str_radix(std::str::from_utf8(p).ok()?, 16).ok()).collect()
+    hex.chunks(2)
+        .map(|p| u8::from_str_radix(std::str::from_utf8(p).ok()?, 16).ok())
+        .collect()
 }
 
 /// A cell's text, as the server parses it (`None` for NULL, and for bytes,
@@ -513,9 +607,13 @@ fn cell_text(c: &Cell) -> Result<Option<std::borrow::Cow<'_, str>>> {
         Cell::UInt(u) => Cow::Owned(u.to_string()),
         Cell::Float(f) => Cow::Owned(float_text(*f)?),
         Cell::DateTimeTz(s) => Cow::Owned(to_utc(s).unwrap_or_else(|| s.clone())),
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::Uuid(s) | Cell::Json(s) => {
-            Cow::Borrowed(s.as_str())
-        }
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => Cow::Borrowed(s.as_str()),
     }))
 }
 
@@ -554,9 +652,12 @@ pub(crate) fn put_field(out: &mut Vec<u8>, c: &Cell, mode: Mode) -> Result<()> {
             None => put_hex(out, s.as_bytes()),
         },
         (Mode::Hex, c) => put_hex(out, cell_text(c)?.unwrap_or_default().as_bytes()),
-        (Mode::Bit, Cell::Bytes(b)) if b.len() <= 8 => {
-            write!(out, "{}", b.iter().fold(0u64, |acc, x| (acc << 8) | u64::from(*x))).map_err(Error::from)?
-        }
+        (Mode::Bit, Cell::Bytes(b)) if b.len() <= 8 => write!(
+            out,
+            "{}",
+            b.iter().fold(0u64, |acc, x| (acc << 8) | u64::from(*x))
+        )
+        .map_err(Error::from)?,
         (_, Cell::Bytes(b)) => put_escaped(out, utf8_text(b)?),
         (Mode::Float, Cell::Float(f)) => put_escaped(out, float_text(f32_value(*f))?.as_bytes()),
         (_, c) => put_escaped(out, cell_text(c)?.unwrap_or_default().as_bytes()),
@@ -622,10 +723,14 @@ pub(crate) fn put_row(out: &mut Vec<u8>, row: &[Cell], modes: &[Mode]) -> Result
 fn param(c: &Cell, mode: Mode) -> Result<Value> {
     Ok(match (mode, c) {
         (_, Cell::Null) => Value::NULL,
-        (_, Cell::Bytes(b)) if mode == Mode::Bit && b.len() <= 8 => Value::UInt(b.iter().fold(0u64, |acc, x| (acc << 8) | u64::from(*x))),
+        (_, Cell::Bytes(b)) if mode == Mode::Bit && b.len() <= 8 => {
+            Value::UInt(b.iter().fold(0u64, |acc, x| (acc << 8) | u64::from(*x)))
+        }
         (Mode::Hex, Cell::Bytes(b)) => Value::Bytes(b.clone()),
         (_, Cell::Bytes(b)) => Value::Bytes(utf8_text(b)?.to_vec()),
-        (Mode::Hex, Cell::Uuid(s)) => Value::Bytes(uuid_bytes(s).unwrap_or_else(|| s.as_bytes().to_vec())),
+        (Mode::Hex, Cell::Uuid(s)) => {
+            Value::Bytes(uuid_bytes(s).unwrap_or_else(|| s.as_bytes().to_vec()))
+        }
         (_, Cell::Bool(b)) => Value::Int(i64::from(*b)),
         (_, Cell::Int(i)) => Value::Int(*i),
         (_, Cell::UInt(u)) => Value::UInt(*u),
@@ -667,22 +772,45 @@ pub(crate) fn to_utc(s: &str) -> Option<String> {
         let (base, off) = s.split_at(i);
         let sign = if off.starts_with('-') { -1 } else { 1 };
         let off = &off[1..];
-        let (h, m) = off.split_once(':').unwrap_or((off.get(..2)?, off.get(2..).unwrap_or("0")));
-        (base, sign, h.parse::<i64>().ok()?, if m.is_empty() { 0 } else { m.parse::<i64>().ok()? })
+        let (h, m) = off
+            .split_once(':')
+            .unwrap_or((off.get(..2)?, off.get(2..).unwrap_or("0")));
+        (
+            base,
+            sign,
+            h.parse::<i64>().ok()?,
+            if m.is_empty() {
+                0
+            } else {
+                m.parse::<i64>().ok()?
+            },
+        )
     };
     let (date, time) = base.split_once([' ', 'T'])?;
     let mut d = date.splitn(3, '-');
-    let (y, mo, da): (i64, i64, i64) = (d.next()?.parse().ok()?, d.next()?.parse().ok()?, d.next()?.parse().ok()?);
+    let (y, mo, da): (i64, i64, i64) = (
+        d.next()?.parse().ok()?,
+        d.next()?.parse().ok()?,
+        d.next()?.parse().ok()?,
+    );
     let (hms, fraction) = match time.split_once('.') {
         Some((a, b)) => (a, format!(".{b}")),
         None => (time, String::new()),
     };
     let mut t = hms.splitn(3, ':');
-    let (h, mi, sec): (i64, i64, i64) = (t.next()?.parse().ok()?, t.next()?.parse().ok()?, t.next().unwrap_or("0").parse().ok()?);
+    let (h, mi, sec): (i64, i64, i64) = (
+        t.next()?.parse().ok()?,
+        t.next()?.parse().ok()?,
+        t.next().unwrap_or("0").parse().ok()?,
+    );
     let minutes = days_from_civil(y, mo, da) * 1440 + h * 60 + mi - sign * (oh * 60 + om);
     let (days, m) = (minutes.div_euclid(1440), minutes.rem_euclid(1440));
     let (y, mo, da) = civil_from_days(days);
-    Some(format!("{y:04}-{mo:02}-{da:02} {:02}:{:02}:{sec:02}{fraction}", m / 60, m % 60))
+    Some(format!(
+        "{y:04}-{mo:02}-{da:02} {:02}:{:02}:{sec:02}{fraction}",
+        m / 60,
+        m % 60
+    ))
 }
 
 /// Days since 1970-01-01 (proleptic Gregorian).
@@ -718,8 +846,14 @@ enum Path {
 
 fn path(v: Variant) -> Option<Path> {
     match v.base() {
-        Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase | Variant::SingleStore => Some(Path::LocalInfile),
-        Variant::StarRocks | Variant::Doris | Variant::Databend | Variant::GreptimeDb => Some(Path::TextInserts),
+        Variant::MySql
+        | Variant::MariaDb
+        | Variant::TiDb
+        | Variant::OceanBase
+        | Variant::SingleStore => Some(Path::LocalInfile),
+        Variant::StarRocks | Variant::Doris | Variant::Databend | Variant::GreptimeDb => {
+            Some(Path::TextInserts)
+        }
         _ => None,
     }
 }
@@ -741,7 +875,10 @@ impl Window {
         if v.base() == Variant::TiDb {
             bytes = bytes.min(TIDB_WINDOW);
         }
-        Window { rows: spec.commit_rows.max(1), bytes }
+        Window {
+            rows: spec.commit_rows.max(1),
+            bytes,
+        }
     }
     fn full(&self, rows: u64, bytes: u64) -> bool {
         rows >= self.rows || bytes >= self.bytes
@@ -749,10 +886,17 @@ impl Window {
 }
 
 /// Bulk load `source` into `spec.table` (see the module docs).
-pub(crate) async fn bulk_load(s: &mut MySqlSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &mut MySqlSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     let v = s.variant;
     let Some(p) = path(v) else {
-        return Err(Error::Unsupported("Manticore Search no tiene carga masiva: se usan INSERT".into()));
+        return Err(Error::Unsupported(
+            "Manticore Search no tiene carga masiva: se usan INSERT".into(),
+        ));
     };
     let table = qualified_name(Quote::Backtick, spec.table.schema(), &spec.table.name);
     let window = Window::new(v, spec);
@@ -764,7 +908,18 @@ pub(crate) async fn bulk_load(s: &mut MySqlSession, spec: &LoadSpec, source: &mu
     let r = if v.base() == Variant::TiDb {
         // TiDB's LOAD DATA commits by itself (autocommit off or not, and the
         // open transaction with it): a failed window would stay loaded.
-        load_prepared(&mut s.conn, &table, spec, &modes, &window, None, source, progress, 0).await
+        load_prepared(
+            &mut s.conn,
+            &table,
+            spec,
+            &modes,
+            &window,
+            None,
+            source,
+            progress,
+            0,
+        )
+        .await
     } else {
         load_local(&mut s.conn, &table, spec, &modes, &window, source, progress).await
     };
@@ -783,7 +938,10 @@ pub(crate) async fn bulk_load(s: &mut MySqlSession, spec: &LoadSpec, source: &mu
 
 /// Each load column's mode, from the target's catalog.
 async fn target_modes(conn: &mut Conn, spec: &LoadSpec) -> Result<Vec<Mode>> {
-    let schema = spec.table.schema().map_or_else(|| "DATABASE()".to_string(), lit);
+    let schema = spec
+        .table
+        .schema()
+        .map_or_else(|| "DATABASE()".to_string(), lit);
     let sql = format!(
         "SELECT COLUMN_NAME, DATA_TYPE, EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = {schema} AND TABLE_NAME = {}",
         lit(&spec.table.name)
@@ -792,15 +950,28 @@ async fn target_modes(conn: &mut Conn, spec: &LoadSpec) -> Result<Vec<Mode>> {
     let types: Vec<(String, Mode)> = rows
         .iter()
         .filter_map(|r| {
-            let extra = r.as_ref(2).and_then(value_text).unwrap_or_default().to_ascii_lowercase();
-            let mode = if extra.contains("auto_increment") { Mode::Auto } else { mode_of(&r.as_ref(1).and_then(value_text)?) };
+            let extra = r
+                .as_ref(2)
+                .and_then(value_text)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let mode = if extra.contains("auto_increment") {
+                Mode::Auto
+            } else {
+                mode_of(&r.as_ref(1).and_then(value_text)?)
+            };
             Some((r.as_ref(0).and_then(value_text)?, mode))
         })
         .collect();
     Ok(spec
         .columns
         .iter()
-        .map(|c| types.iter().find(|(n, _)| n.eq_ignore_ascii_case(c)).map_or(Mode::Plain, |(_, m)| *m))
+        .map(|c| {
+            types
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(c))
+                .map_or(Mode::Plain, |(_, m)| *m)
+        })
         .collect())
 }
 
@@ -812,7 +983,12 @@ struct Saved {
     locked: bool,
 }
 
-async fn prepare_session(conn: &mut Conn, v: Variant, spec: &LoadSpec, table: &str) -> Result<Saved> {
+async fn prepare_session(
+    conn: &mut Conn,
+    v: Variant,
+    spec: &LoadSpec,
+    table: &str,
+) -> Result<Saved> {
     let row: Row = conn
         .query_first("SELECT @@SESSION.sql_mode, @@SESSION.time_zone, @@SESSION.autocommit")
         .await
@@ -820,15 +996,33 @@ async fn prepare_session(conn: &mut Conn, v: Variant, spec: &LoadSpec, table: &s
         .ok_or_else(|| Error::Query("no se pudo leer la configuración de la sesión".into()))?;
     let get = |i| row.as_ref(i).and_then(value_text).unwrap_or_default();
     let (sql_mode, time_zone, autocommit) = (get(0), get(1), get(2));
-    let mut modes: Vec<&str> =
-        sql_mode.split(',').filter(|m| !m.is_empty() && !m.eq_ignore_ascii_case("NO_BACKSLASH_ESCAPES")).collect();
-    if spec.keep_identity && !modes.iter().any(|m| m.eq_ignore_ascii_case("NO_AUTO_VALUE_ON_ZERO")) {
+    let mut modes: Vec<&str> = sql_mode
+        .split(',')
+        .filter(|m| !m.is_empty() && !m.eq_ignore_ascii_case("NO_BACKSLASH_ESCAPES"))
+        .collect();
+    if spec.keep_identity
+        && !modes
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case("NO_AUTO_VALUE_ON_ZERO"))
+    {
         modes.push("NO_AUTO_VALUE_ON_ZERO");
     }
     // sql_mode first: the literals after it depend on backslash escapes.
-    conn.query_drop(format!("SET SESSION sql_mode = '{}'", modes.join(",").replace('\'', "''"))).await.map_err(err)?;
-    conn.query_drop("SET time_zone = '+00:00', autocommit = 0").await.map_err(err)?;
-    let mut saved = Saved { sql_mode, time_zone, autocommit, locked: false };
+    conn.query_drop(format!(
+        "SET SESSION sql_mode = '{}'",
+        modes.join(",").replace('\'', "''")
+    ))
+    .await
+    .map_err(err)?;
+    conn.query_drop("SET time_zone = '+00:00', autocommit = 0")
+        .await
+        .map_err(err)?;
+    let mut saved = Saved {
+        sql_mode,
+        time_zone,
+        autocommit,
+        locked: false,
+    };
     if spec.table_lock && v.is_mysql_server() {
         match conn.query_drop(format!("LOCK TABLES {table} WRITE")).await {
             Ok(()) => saved.locked = true,
@@ -873,8 +1067,12 @@ async fn check_warnings(conn: &mut Conn, loaded: &[String]) -> Result<()> {
         .iter()
         .filter_map(|r| {
             let level = r.as_ref(0).and_then(value_text)?;
-            let message = r.as_ref(2).and_then(value_text).unwrap_or_else(|| level.clone());
-            let computed = warned_column(&message).is_some_and(|c| !loaded.iter().any(|l| l.eq_ignore_ascii_case(&c)));
+            let message = r
+                .as_ref(2)
+                .and_then(value_text)
+                .unwrap_or_else(|| level.clone());
+            let computed = warned_column(&message)
+                .is_some_and(|c| !loaded.iter().any(|l| l.eq_ignore_ascii_case(&c)));
             (!level.eq_ignore_ascii_case("note") && !computed).then_some(message)
         })
         .take(5)
@@ -882,7 +1080,10 @@ async fn check_warnings(conn: &mut Conn, loaded: &[String]) -> Result<()> {
     if found.is_empty() {
         Ok(())
     } else {
-        Err(Error::Query(format!("el servidor rechazó filas de la carga: {}", found.join("; "))))
+        Err(Error::Query(format!(
+            "el servidor rechazó filas de la carga: {}",
+            found.join("; ")
+        )))
     }
 }
 
@@ -890,7 +1091,12 @@ async fn check_warnings(conn: &mut Conn, loaded: &[String]) -> Result<()> {
 fn warned_column(message: &str) -> Option<String> {
     let at = message.find("column '")? + "column '".len();
     let rest = &message[at..];
-    Some(rest[..rest.rfind('\'')?].split("' at row").next()?.to_string())
+    Some(
+        rest[..rest.rfind('\'')?]
+            .split("' at row")
+            .next()?
+            .to_string(),
+    )
 }
 
 /// `LOAD DATA` answered that local files are off (MySQL's 3948,
@@ -912,7 +1118,9 @@ type Chunk = <<InfileData as futures::Stream>::Item as OkOf>::Ok;
 type Tx = mpsc::Sender<io::Result<Chunk>>;
 
 async fn send(tx: &mut Tx, item: io::Result<Chunk>) -> Result<()> {
-    tx.send(item).await.map_err(|_| Error::Connect("la conexión dejó de recibir la carga".into()))
+    tx.send(item)
+        .await
+        .map_err(|_| Error::Connect("la conexión dejó de recibir la carga".into()))
 }
 
 /// Hands `buf` to the stream once it holds `chunk` bytes.
@@ -931,7 +1139,14 @@ async fn send_full(tx: &mut Tx, buf: &mut Vec<u8>, chunk: usize, sent: &mut u64)
 /// the row. A field or slice of at most `chunk / 4` bytes encodes to at
 /// most `chunk / 2` (hex or escapes double it), and the buffer is under
 /// `chunk` before it: each packet stays under `2 * chunk`.
-async fn put_row_chunked(tx: &mut Tx, buf: &mut Vec<u8>, row: &[Cell], modes: &[Mode], chunk: usize, sent: &mut u64) -> Result<()> {
+async fn put_row_chunked(
+    tx: &mut Tx,
+    buf: &mut Vec<u8>,
+    row: &[Cell],
+    modes: &[Mode],
+    chunk: usize,
+    sent: &mut u64,
+) -> Result<()> {
     let piece = (chunk / 4).max(1);
     for (i, c) in row.iter().enumerate() {
         if i > 0 {
@@ -992,7 +1207,8 @@ async fn produce(
             // A bad value ends the file before its row (whole rows only, the
             // window is rolled back) without breaking the connection.
             check_row(row, modes)?;
-            let put = match put_row_chunked(&mut tx, &mut buf, row, modes, chunk, &mut bytes).await {
+            let put = match put_row_chunked(&mut tx, &mut buf, row, modes, chunk, &mut bytes).await
+            {
                 Ok(()) => send_full(&mut tx, &mut buf, chunk, &mut bytes).await,
                 e => e,
             };
@@ -1087,7 +1303,15 @@ async fn load_local(
             Ok(Box::pin(rx) as InfileData)
         });
         let query = conn.query_drop(sql.as_str());
-        let producer = Box::pin(produce(started_rx, tx, &mut pending, source, modes, window, chunk));
+        let producer = Box::pin(produce(
+            started_rx,
+            tx,
+            &mut pending,
+            source,
+            modes,
+            window,
+            chunk,
+        ));
         let outcome = match select(query, producer).await {
             Either::Right((produced, query)) => match (query.await, produced) {
                 (Err(e), _) => Err(e),
@@ -1097,15 +1321,26 @@ async fn load_local(
             // A refusal comes before the server asks for the data, so the
             // producer (waiting for that request) never took a batch.
             Either::Left((Err(e), _)) => Err(e),
-            Either::Left((Ok(()), _)) => return Err(Error::State("el servidor no pidió los datos de LOAD DATA".into())),
+            Either::Left((Ok(()), _)) => {
+                return Err(Error::State(
+                    "el servidor no pidió los datos de LOAD DATA".into(),
+                ))
+            }
         };
         let (sent, ended) = match outcome {
             Ok(p) => p,
             Err(e) if first && pending.is_some() && local_infile_refused(&e) => {
-                tracing::info!("mysql: LOAD DATA LOCAL refused ({e}); loading with prepared INSERTs");
+                tracing::info!(
+                    "mysql: LOAD DATA LOCAL refused ({e}); loading with prepared INSERTs"
+                );
                 // No stale handler left behind for later statements.
-                conn.set_infile_handler(async { Err(mysql_async::LocalInfileError::NoHandler.into()) });
-                return load_prepared(conn, table, spec, modes, window, pending, source, progress, total).await;
+                conn.set_infile_handler(async {
+                    Err(mysql_async::LocalInfileError::NoHandler.into())
+                });
+                return load_prepared(
+                    conn, table, spec, modes, window, pending, source, progress, total,
+                )
+                .await;
             }
             Err(e) => return Err(err(e)),
         };
@@ -1156,7 +1391,11 @@ async fn load_prepared(
     let budget = (max_packet as usize / 2).clamp(64 * 1024, PREPARED_STATEMENT);
     let head = format!(
         "INSERT INTO {table} ({}) VALUES ",
-        spec.columns.iter().map(|c| quote_ident(Quote::Backtick, c)).collect::<Vec<_>>().join(", ")
+        spec.columns
+            .iter()
+            .map(|c| quote_ident(Quote::Backtick, c))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
     let one = format!("({})", vec!["?"; ncols].join(", "));
     let statement = |n: usize| {
@@ -1176,8 +1415,15 @@ async fn load_prepared(
     let (mut params, mut in_stmt, mut stmt_bytes) = (Vec::<Value>::new(), 0usize, 0usize);
     let (mut win_rows, mut win_bytes) = (0u64, 0u64);
 
-    async fn flush(conn: &mut Conn, sql: &str, params: &mut Vec<Value>, loaded: &[String]) -> Result<()> {
-        conn.exec_drop(sql, Params::Positional(std::mem::take(params))).await.map_err(err)?;
+    async fn flush(
+        conn: &mut Conn,
+        sql: &str,
+        params: &mut Vec<Value>,
+        loaded: &[String],
+    ) -> Result<()> {
+        conn.exec_drop(sql, Params::Positional(std::mem::take(params)))
+            .await
+            .map_err(err)?;
         check_warnings(conn, loaded).await
     }
 
@@ -1244,7 +1490,11 @@ async fn load_text(
 ) -> Result<u64> {
     let head = format!(
         "INSERT INTO {table} ({}) VALUES ",
-        spec.columns.iter().map(|c| quote_ident(Quote::Backtick, c)).collect::<Vec<_>>().join(", ")
+        spec.columns
+            .iter()
+            .map(|c| quote_ident(Quote::Backtick, c))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
     let limit = (window.bytes as usize).clamp(64 * 1024, TEXT_STATEMENT);
     let (mut sql, mut in_stmt, mut total) = (String::with_capacity(limit + 64 * 1024), 0u64, 0u64);
@@ -1283,9 +1533,18 @@ mod tests {
 
     #[test]
     fn the_column_a_warning_names() {
-        assert_eq!(warned_column("Incorrect decimal value: '12.7050' for column 'total_iva'").as_deref(), Some("total_iva"));
-        assert_eq!(warned_column("Data truncated for column 'total_iva' at row 1").as_deref(), Some("total_iva"));
-        assert_eq!(warned_column("Out of range value for column 'a'b' at row 3").as_deref(), Some("a'b"));
+        assert_eq!(
+            warned_column("Incorrect decimal value: '12.7050' for column 'total_iva'").as_deref(),
+            Some("total_iva")
+        );
+        assert_eq!(
+            warned_column("Data truncated for column 'total_iva' at row 1").as_deref(),
+            Some("total_iva")
+        );
+        assert_eq!(
+            warned_column("Out of range value for column 'a'b' at row 3").as_deref(),
+            Some("a'b")
+        );
         assert_eq!(warned_column("Duplicate entry '1' for key 'PRIMARY'"), None);
     }
 
@@ -1318,7 +1577,8 @@ mod tests {
 
     /// Lines and fields split at unescaped tabs and newlines.
     fn parse(data: &[u8]) -> Vec<Vec<Option<Vec<u8>>>> {
-        let (mut rows, mut row, mut field, mut escaped) = (Vec::new(), Vec::new(), Vec::new(), false);
+        let (mut rows, mut row, mut field, mut escaped) =
+            (Vec::new(), Vec::new(), Vec::new(), false);
         for &c in data {
             if escaped {
                 field.push(c);
@@ -1339,15 +1599,32 @@ mod tests {
     }
 
     fn unhex(s: &[u8]) -> Vec<u8> {
-        s.chunks(2).map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap()).collect()
+        s.chunks(2)
+            .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
+            .collect()
     }
 
     #[test]
     fn transfer_tsv_round_trips_text_nulls_and_unicode() {
-        let texts = ["", "plain", "tab\there", "line\nbreak\r\n", "back\\slash", "\\N", "nul\0byte", "ñandú 🦀 日本", "\u{1A}"];
+        let texts = [
+            "",
+            "plain",
+            "tab\there",
+            "line\nbreak\r\n",
+            "back\\slash",
+            "\\N",
+            "nul\0byte",
+            "ñandú 🦀 日本",
+            "\u{1A}",
+        ];
         let mut out = Vec::new();
         for t in texts {
-            put_row(&mut out, &[Cell::Text(t.into()), Cell::Null, Cell::Int(-5)], &[Mode::Plain; 3]).unwrap();
+            put_row(
+                &mut out,
+                &[Cell::Text(t.into()), Cell::Null, Cell::Int(-5)],
+                &[Mode::Plain; 3],
+            )
+            .unwrap();
         }
         let rows = parse(&out);
         assert_eq!(rows.len(), texts.len());
@@ -1363,8 +1640,16 @@ mod tests {
         let all: Vec<u8> = (0..=255u8).chain((0..=255u8).rev()).collect();
         let text: Vec<u8> = (0..=127u8).chain("ñ🦀".bytes()).collect();
         let mut out = Vec::new();
-        put_row(&mut out, &[Cell::Bytes(all.clone()), Cell::Bytes(text.clone()), Cell::Bytes(vec![])], &[Mode::Hex, Mode::Plain, Mode::Hex])
-            .unwrap();
+        put_row(
+            &mut out,
+            &[
+                Cell::Bytes(all.clone()),
+                Cell::Bytes(text.clone()),
+                Cell::Bytes(vec![]),
+            ],
+            &[Mode::Hex, Mode::Plain, Mode::Hex],
+        )
+        .unwrap();
         let rows = parse(&out);
         assert_eq!(rows.len(), 1);
         assert_eq!(unhex(rows[0][0].as_ref().unwrap()), all);
@@ -1378,16 +1663,30 @@ mod tests {
     fn transfer_non_utf8_bytes_into_text_fail() {
         for bad in [vec![0xFF, 0xFE], vec![0x61, 0xFF, 0x62], vec![0xC3]] {
             for mode in [Mode::Plain, Mode::Auto, Mode::Float] {
-                assert!(param(&Cell::Bytes(bad.clone()), mode).is_err(), "{bad:?} {mode:?}");
-                assert!(put_field(&mut Vec::new(), &Cell::Bytes(bad.clone()), mode).is_err(), "{bad:?} {mode:?}");
+                assert!(
+                    param(&Cell::Bytes(bad.clone()), mode).is_err(),
+                    "{bad:?} {mode:?}"
+                );
+                assert!(
+                    put_field(&mut Vec::new(), &Cell::Bytes(bad.clone()), mode).is_err(),
+                    "{bad:?} {mode:?}"
+                );
             }
-            assert_eq!(param(&Cell::Bytes(bad.clone()), Mode::Hex).unwrap(), Value::Bytes(bad.clone()));
+            assert_eq!(
+                param(&Cell::Bytes(bad.clone()), Mode::Hex).unwrap(),
+                Value::Bytes(bad.clone())
+            );
             assert!(put_field(&mut Vec::new(), &Cell::Bytes(bad.clone()), Mode::Hex).is_ok());
         }
-        assert_eq!(param(&Cell::Bytes("ñ".into()), Mode::Plain).unwrap(), Value::Bytes("ñ".into()));
+        assert_eq!(
+            param(&Cell::Bytes("ñ".into()), Mode::Plain).unwrap(),
+            Value::Bytes("ñ".into())
+        );
         let big = [vec![b'a'; 100], vec![0xFF]].concat();
         assert!(big_field(&Cell::Bytes(big.clone()), Mode::Plain, 10).is_err());
-        assert!(big_field(&Cell::Bytes(big), Mode::Hex, 10).unwrap().is_some());
+        assert!(big_field(&Cell::Bytes(big), Mode::Hex, 10)
+            .unwrap()
+            .is_some());
     }
 
     /// FLT_MAX reads as the f32's exact value (its shortest text,
@@ -1396,21 +1695,42 @@ mod tests {
     #[test]
     fn transfer_float_extremes_stay_in_range() {
         let max = f64::from(f32::MAX);
-        assert_eq!(to_cell(Kind::Float, Value::Float(f32::MAX)), Cell::Float(max));
-        assert_eq!(to_cell(Kind::Float, Value::Float(f32::MIN)), Cell::Float(-max));
+        assert_eq!(
+            to_cell(Kind::Float, Value::Float(f32::MAX)),
+            Cell::Float(max)
+        );
+        assert_eq!(
+            to_cell(Kind::Float, Value::Float(f32::MIN)),
+            Cell::Float(-max)
+        );
         assert_eq!(to_cell(Kind::Float, Value::Float(0.1)), Cell::Float(0.1));
-        assert_eq!(to_cell(Kind::Float, Value::Float(f32::MIN_POSITIVE)), Cell::Float(1.1754944e-38));
-        assert_eq!(to_cell(Kind::Float, Value::Bytes(b"3.4028235e38".to_vec())), Cell::Float(max));
+        assert_eq!(
+            to_cell(Kind::Float, Value::Float(f32::MIN_POSITIVE)),
+            Cell::Float(1.1754944e-38)
+        );
+        assert_eq!(
+            to_cell(Kind::Float, Value::Bytes(b"3.4028235e38".to_vec())),
+            Cell::Float(max)
+        );
         // A double column keeps any double.
-        assert_eq!(to_cell(Kind::Double, Value::Bytes(b"3.4028235e38".to_vec())), Cell::Float(3.4028235e38));
+        assert_eq!(
+            to_cell(Kind::Double, Value::Bytes(b"3.4028235e38".to_vec())),
+            Cell::Float(3.4028235e38)
+        );
         for f in [3.4028235e38, -3.4028235e38] {
             let mut out = Vec::new();
             put_field(&mut out, &Cell::Float(f), Mode::Float).unwrap();
             let back: f64 = std::str::from_utf8(&out).unwrap().parse().unwrap();
             assert!(back.abs() <= max && back as f32 == f as f32, "{back}");
-            assert_eq!(param(&Cell::Float(f), Mode::Float).unwrap(), Value::Double(f.signum() * max));
+            assert_eq!(
+                param(&Cell::Float(f), Mode::Float).unwrap(),
+                Value::Double(f.signum() * max)
+            );
         }
-        assert_eq!(param(&Cell::Float(3.4028235e38), Mode::Plain).unwrap(), Value::Double(3.4028235e38));
+        assert_eq!(
+            param(&Cell::Float(3.4028235e38), Mode::Plain).unwrap(),
+            Value::Double(3.4028235e38)
+        );
         assert_eq!(mode_of("FLOAT"), Mode::Float);
     }
 
@@ -1422,13 +1742,20 @@ mod tests {
         let chunk = 64 * 1024;
         let blob: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
         let text = "ñ\t\\x".repeat(200_000);
-        let row = vec![Cell::Int(1), Cell::Bytes(blob.clone()), Cell::Text(text.clone()), Cell::Null];
+        let row = vec![
+            Cell::Int(1),
+            Cell::Bytes(blob.clone()),
+            Cell::Text(text.clone()),
+            Cell::Null,
+        ];
         let modes = [Mode::Plain, Mode::Hex, Mode::Plain, Mode::Plain];
         let (mut tx, rx) = mpsc::channel::<io::Result<Chunk>>(4);
         let (pieces, sent) = futures::executor::block_on(async {
             let producer = async {
                 let (mut buf, mut sent) = (Vec::new(), 0u64);
-                put_row_chunked(&mut tx, &mut buf, &row, &modes, chunk, &mut sent).await.unwrap();
+                put_row_chunked(&mut tx, &mut buf, &row, &modes, chunk, &mut sent)
+                    .await
+                    .unwrap();
                 sent += buf.len() as u64;
                 send(&mut tx, Ok(Chunk::from(buf))).await.unwrap();
                 drop(tx);
@@ -1439,7 +1766,11 @@ mod tests {
             (pieces, sent)
         });
         assert!(pieces.len() > 10);
-        assert!(pieces.iter().all(|p| p.len() < 2 * chunk), "{:?}", pieces.iter().map(Vec::len).max());
+        assert!(
+            pieces.iter().all(|p| p.len() < 2 * chunk),
+            "{:?}",
+            pieces.iter().map(Vec::len).max()
+        );
         let all = pieces.concat();
         assert_eq!(all.len() as u64, sent);
         let rows = parse(&all);
@@ -1474,7 +1805,9 @@ mod tests {
         let (pieces, sent) = futures::executor::block_on(async {
             let producer = async {
                 let (mut buf, mut sent) = (Vec::new(), 0u64);
-                put_row_chunked(&mut tx, &mut buf, &row, &modes, chunk, &mut sent).await.unwrap();
+                put_row_chunked(&mut tx, &mut buf, &row, &modes, chunk, &mut sent)
+                    .await
+                    .unwrap();
                 sent += buf.len() as u64;
                 send(&mut tx, Ok(Chunk::from(buf))).await.unwrap();
                 drop(tx);
@@ -1485,7 +1818,11 @@ mod tests {
             (pieces, sent)
         });
         assert!(pieces.len() > 10);
-        assert!(pieces.iter().all(|p| p.len() < 2 * chunk), "{:?}", pieces.iter().map(Vec::len).max());
+        assert!(
+            pieces.iter().all(|p| p.len() < 2 * chunk),
+            "{:?}",
+            pieces.iter().map(Vec::len).max()
+        );
         let all = pieces.concat();
         assert_eq!(all.len() as u64, sent);
         let rows = parse(&all);
@@ -1513,7 +1850,16 @@ mod tests {
             Cell::Decimal("-12345678901234567890.123456789".into()),
             Cell::DateTimeTz("2024-01-01 01:30:00.5+03:00".into()),
         ];
-        let modes = [Mode::Plain, Mode::Plain, Mode::Plain, Mode::Plain, Mode::Bit, Mode::Hex, Mode::Plain, Mode::Plain];
+        let modes = [
+            Mode::Plain,
+            Mode::Plain,
+            Mode::Plain,
+            Mode::Plain,
+            Mode::Bit,
+            Mode::Hex,
+            Mode::Plain,
+            Mode::Plain,
+        ];
         put_row(&mut out, &row, &modes).unwrap();
         let r = &parse(&out)[0];
         let s = |i: usize| String::from_utf8(r[i].clone().unwrap()).unwrap();
@@ -1530,10 +1876,22 @@ mod tests {
 
     #[test]
     fn transfer_utc_conversion() {
-        assert_eq!(to_utc("2024-03-01 00:10:00-01:00").as_deref(), Some("2024-03-01 01:10:00"));
-        assert_eq!(to_utc("2024-03-01 00:10:00+01:00").as_deref(), Some("2024-02-29 23:10:00"));
-        assert_eq!(to_utc("1999-12-31T23:59:59.123456Z").as_deref(), Some("1999-12-31 23:59:59.123456"));
-        assert_eq!(to_utc("2000-01-01 00:00:00+0530").as_deref(), Some("1999-12-31 18:30:00"));
+        assert_eq!(
+            to_utc("2024-03-01 00:10:00-01:00").as_deref(),
+            Some("2024-03-01 01:10:00")
+        );
+        assert_eq!(
+            to_utc("2024-03-01 00:10:00+01:00").as_deref(),
+            Some("2024-02-29 23:10:00")
+        );
+        assert_eq!(
+            to_utc("1999-12-31T23:59:59.123456Z").as_deref(),
+            Some("1999-12-31 23:59:59.123456")
+        );
+        assert_eq!(
+            to_utc("2000-01-01 00:00:00+0530").as_deref(),
+            Some("1999-12-31 18:30:00")
+        );
         assert_eq!(to_utc("nonsense"), None);
         for d in [-800_000, -1, 0, 59, 60, 10_957, 2_932_896] {
             let (y, m, dd) = civil_from_days(d);
@@ -1543,34 +1901,88 @@ mod tests {
 
     #[test]
     fn transfer_cells_from_values() {
-        assert_eq!(to_cell(Kind::UInt, Value::UInt(u64::MAX)), Cell::UInt(u64::MAX));
+        assert_eq!(
+            to_cell(Kind::UInt, Value::UInt(u64::MAX)),
+            Cell::UInt(u64::MAX)
+        );
         assert_eq!(to_cell(Kind::Int, Value::UInt(7)), Cell::Int(7));
         assert_eq!(to_cell(Kind::Float, Value::Float(0.1)), Cell::Float(0.1));
-        assert_eq!(to_cell(Kind::Decimal, Value::Bytes(b"-1.50".to_vec())), Cell::Decimal("-1.50".into()));
-        assert_eq!(to_cell(Kind::Date, Value::Date(2024, 2, 29, 0, 0, 0, 0)), Cell::Date("2024-02-29".into()));
+        assert_eq!(
+            to_cell(Kind::Decimal, Value::Bytes(b"-1.50".to_vec())),
+            Cell::Decimal("-1.50".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Date, Value::Date(2024, 2, 29, 0, 0, 0, 0)),
+            Cell::Date("2024-02-29".into())
+        );
         assert_eq!(
             to_cell(Kind::Timestamp, Value::Date(2024, 2, 29, 1, 2, 3, 4)),
             Cell::DateTimeTz("2024-02-29 01:02:03.000004+00:00".into())
         );
-        assert_eq!(to_cell(Kind::Time, Value::Time(false, 0, 23, 59, 59, 0)), Cell::Time("23:59:59".into()));
-        assert_eq!(to_cell(Kind::Time, Value::Time(true, 0, 1, 0, 0, 0)), Cell::Text("-01:00:00".into()));
-        assert_eq!(to_cell(Kind::Time, Value::Time(false, 34, 22, 59, 59, 0)), Cell::Text("838:59:59".into()));
-        assert_eq!(to_cell(Kind::Time, Value::Bytes(b"-838:59:59".to_vec())), Cell::Text("-838:59:59".into()));
-        assert_eq!(to_cell(Kind::Bit, Value::Bytes(vec![1, 0])), Cell::UInt(256));
-        assert_eq!(to_cell(Kind::Json, Value::Bytes(b"{\"a\":1}".to_vec())), Cell::Json("{\"a\":1}".into()));
-        assert_eq!(to_cell(Kind::Bytes, Value::Bytes(vec![0xff])), Cell::Bytes(vec![0xff]));
-        assert_eq!(to_cell(Kind::Text, Value::Bytes(vec![0xff])), Cell::Bytes(vec![0xff]));
+        assert_eq!(
+            to_cell(Kind::Time, Value::Time(false, 0, 23, 59, 59, 0)),
+            Cell::Time("23:59:59".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Time, Value::Time(true, 0, 1, 0, 0, 0)),
+            Cell::Text("-01:00:00".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Time, Value::Time(false, 34, 22, 59, 59, 0)),
+            Cell::Text("838:59:59".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Time, Value::Bytes(b"-838:59:59".to_vec())),
+            Cell::Text("-838:59:59".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Bit, Value::Bytes(vec![1, 0])),
+            Cell::UInt(256)
+        );
+        assert_eq!(
+            to_cell(Kind::Json, Value::Bytes(b"{\"a\":1}".to_vec())),
+            Cell::Json("{\"a\":1}".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Bytes, Value::Bytes(vec![0xff])),
+            Cell::Bytes(vec![0xff])
+        );
+        assert_eq!(
+            to_cell(Kind::Text, Value::Bytes(vec![0xff])),
+            Cell::Bytes(vec![0xff])
+        );
         // Text protocol: numbers parsed by the column's type.
-        assert_eq!(to_cell(Kind::Int, Value::Bytes(b"-9".to_vec())), Cell::Int(-9));
-        assert_eq!(to_cell(Kind::Int, Value::Bytes(b"170141183460469231731687303715884105727".to_vec())).clone(),
-            Cell::Decimal("170141183460469231731687303715884105727".into()));
-        assert_eq!(to_cell(Kind::Double, Value::Bytes(b"2.5".to_vec())), Cell::Float(2.5));
-        assert_eq!(to_cell(Kind::Timestamp, Value::Bytes(b"2024-01-01 00:00:00".to_vec())), Cell::DateTimeTz("2024-01-01 00:00:00+00:00".into()));
+        assert_eq!(
+            to_cell(Kind::Int, Value::Bytes(b"-9".to_vec())),
+            Cell::Int(-9)
+        );
+        assert_eq!(
+            to_cell(
+                Kind::Int,
+                Value::Bytes(b"170141183460469231731687303715884105727".to_vec())
+            )
+            .clone(),
+            Cell::Decimal("170141183460469231731687303715884105727".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Double, Value::Bytes(b"2.5".to_vec())),
+            Cell::Float(2.5)
+        );
+        assert_eq!(
+            to_cell(
+                Kind::Timestamp,
+                Value::Bytes(b"2024-01-01 00:00:00".to_vec())
+            ),
+            Cell::DateTimeTz("2024-01-01 00:00:00+00:00".into())
+        );
     }
 
     #[test]
     fn transfer_literals() {
-        assert_eq!(literal(&Cell::Text("it's a \\ test".into())).unwrap(), "'it''s a \\\\ test'");
+        assert_eq!(
+            literal(&Cell::Text("it's a \\ test".into())).unwrap(),
+            "'it''s a \\\\ test'"
+        );
         assert_eq!(literal(&Cell::Bytes(vec![0, 0xab])).unwrap(), "X'00AB'");
         assert_eq!(literal(&Cell::Null).unwrap(), "NULL");
         assert_eq!(literal(&Cell::Bool(false)).unwrap(), "FALSE");

@@ -16,68 +16,80 @@ pub mod aggregate;
 pub mod alter;
 pub mod backup;
 pub mod config;
-pub mod dependencies;
 pub mod ddl;
+pub mod dependencies;
 pub mod error;
+pub mod filter;
+pub mod health;
 pub mod index_usage;
 pub mod info;
 pub mod keys;
-pub mod filter;
 pub mod model;
 pub mod monitor;
 pub mod params;
 pub mod permissions;
-pub mod security;
-pub mod sort;
 pub mod plan;
 pub mod profiler;
 pub mod read_only;
 pub mod rename;
 pub mod runtime;
 pub mod schema;
-pub mod health;
-pub mod stats;
 pub mod search;
+pub mod security;
 pub mod serde_static;
+pub mod sort;
 pub mod sql;
+pub mod stats;
 pub mod transfer;
 pub mod write;
 
-pub use aggregate::{AggFn, AggregateMethod, AggregateSpec, BoxStats, ChartAggregate, ChartKind, ChartSeries, Histogram, Measure};
+pub use aggregate::{
+    AggFn, AggregateMethod, AggregateSpec, BoxStats, ChartAggregate, ChartKind, ChartSeries,
+    Histogram, Measure,
+};
 pub use alter::{SyncScript, TableChange};
 pub use backup::{BackupAction, BackupEntry, BackupSpec};
 pub use config::ConnectionConfig;
-pub use dependencies::{Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation};
+pub use dependencies::{
+    Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation,
+};
 pub use error::{ConnectFailure, ConnectFailureKind, Error, Result};
-pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
+pub use filter::{ColumnFilter, FilterOp};
 pub use index_usage::{IndexUsage, IndexUsageReport};
 pub use info::{
-    kinds, DatabaseProperties, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo,
-    PropertyInfo,
+    kinds, DatabaseProperties, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection,
+    FieldWhen, Language, ObjectKindInfo, PropertyInfo,
 };
-pub use filter::{ColumnFilter, FilterOp};
-pub use sort::SortKey;
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
 pub use model::{
-    is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64, ColumnInfo, DbObject, Message, MessageLevel, MessageSinkRef, ObjectRef, Plan,
-    PlanNode, ProgressSinkRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, ScriptError, StatementEnd, StatementResult,
-    TxState, RowChange, SchemaInfo,
+    is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64,
+    ColumnInfo, DbObject, Message, MessageLevel, MessageSinkRef, ObjectRef, Plan, PlanNode,
+    ProgressSinkRef, QueryOutcome, ResultColumn, RowChange, RowSink, RowSinkRef, SchemaInfo,
+    ScriptError, StatementEnd, StatementResult, TxState,
 };
+pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
+pub use sort::SortKey;
 
-pub use security::{Grant, Principal, PrincipalKind, SchemaOwnerKinds, SchemaSpec, SecurityAction, SecuritySpec};
-pub use monitor::{BlockedSession, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ServerProcess};
+pub use monitor::{
+    BlockedSession, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ServerProcess,
+};
 pub use params::{BoundPart, BoundStatement, ParamValue};
 pub use permissions::{Access, Permissions};
 pub use profiler::{ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted};
 pub use schema::{
-    Capabilities, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, KeyDef, TableSchema,
+    Capabilities, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef,
+    IndexDef, KeyDef, TableSchema,
+};
+pub use security::{
+    Grant, Principal, PrincipalKind, SchemaOwnerKinds, SchemaSpec, SecurityAction, SecuritySpec,
 };
 
 pub use sql::{ScriptDefaults, ScriptDialect, ScriptMode, ScriptStatement, StatementKind};
 
 pub use transfer::{
-    BatchBuilder, BatchSink, BatchSinkRef, BatchSource, BucketSum, Buckets, Cell, CloneScript, CloneTable, CopySpec, DeltaDepth, DeltaResult, DeltaSpec,
-    LoadSpec, ReadSpec, RowBatch, TransferColumn,
+    BatchBuilder, BatchSink, BatchSinkRef, BatchSource, BucketSum, Buckets, Cell, CloneScript,
+    CloneTable, CopySpec, DeltaDepth, DeltaResult, DeltaSpec, LoadSpec, ReadSpec, RowBatch,
+    TransferColumn,
 };
 
 pub use write::{WriteMode, WriteResult, WriteSpec};
@@ -125,9 +137,16 @@ pub trait Driver: Send + Sync {
     /// first (a clustered index makes the table unreadable…). `index` is as
     /// [`Session::index_usage`] reported it: what can't be disabled (a
     /// primary key on most engines) is refused with [`Error::Unsupported`].
-    fn index_toggle_script(&self, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+    fn index_toggle_script(
+        &self,
+        table: &ObjectRef,
+        index: &IndexUsage,
+        enable: bool,
+    ) -> Result<SyncScript> {
         let _ = (table, index, enable);
-        Err(Error::Unsupported("este motor no deshabilita índices".into()))
+        Err(Error::Unsupported(
+            "este motor no deshabilita índices".into(),
+        ))
     }
 
     /// What "Renombrar…" renames on this engine and how it puts back the
@@ -154,9 +173,16 @@ pub trait Driver: Send + Sync {
     /// and not atomically. `objects`: what the database holds, for engines
     /// that move it piece by piece (empty for a native rename). Warnings:
     /// the sessions it ends, what isn't moved, that it isn't atomic.
-    fn rename_database_script(&self, database: &str, new_name: &str, objects: &[rename::DatabaseObject]) -> Result<SyncScript> {
+    fn rename_database_script(
+        &self,
+        database: &str,
+        new_name: &str,
+        objects: &[rename::DatabaseObject],
+    ) -> Result<SyncScript> {
         let _ = (database, new_name, objects);
-        Err(Error::Unsupported("este motor no renombra bases de datos".into()))
+        Err(Error::Unsupported(
+            "este motor no renombra bases de datos".into(),
+        ))
     }
 
     /// "Asignar login…" in the Users and permissions tab: a user of the
@@ -172,9 +198,16 @@ pub trait Driver: Send + Sync {
     /// for the server login `login` (offered where
     /// [`Driver::supports_map_login`]). `default_schema` is ignored where
     /// the engine has none.
-    fn map_login_script(&self, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+    fn map_login_script(
+        &self,
+        login: &str,
+        user: &str,
+        default_schema: Option<&str>,
+    ) -> Result<String> {
         let _ = (login, user, default_schema);
-        Err(Error::Unsupported("este motor no asigna logins del servidor a usuarios de la base".into()))
+        Err(Error::Unsupported(
+            "este motor no asigna logins del servidor a usuarios de la base".into(),
+        ))
     }
 
     /// Its sessions implement [`Session::index_usage`]: the explorer lists a
@@ -220,30 +253,53 @@ pub trait Driver: Send + Sync {
     /// tables), in an order that respects dependencies. SQL engines build it
     /// with [`alter::sync_script`] and their [`alter::AlterStyle`].
     fn sync_script(&self, _changes: &[TableChange]) -> Result<SyncScript> {
-        Err(Error::Unsupported("este motor no aplica cambios de esquema".into()))
+        Err(Error::Unsupported(
+            "este motor no aplica cambios de esquema".into(),
+        ))
     }
 
     /// DDL in the driver's language for a table (or collection, index…):
     /// what the designer runs and what the script generator writes.
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
         let _ = (table, parts);
-        Err(Error::Unsupported("este motor no genera DDL de tablas".into()))
+        Err(Error::Unsupported(
+            "este motor no genera DDL de tablas".into(),
+        ))
     }
 
     /// Rows as a script in the driver's language that inserts them (SQL
     /// INSERTs, `insertMany`, `_bulk`, Redis commands…): copy, import and
     /// the database script use it. `target` is the table / collection.
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
         if self.info().language != Language::Sql {
-            return Err(Error::Unsupported("este motor no genera scripts de inserción".into()));
+            return Err(Error::Unsupported(
+                "este motor no genera scripts de inserción".into(),
+            ));
         }
         let quote = match self.info().dialect {
             "mssql" | "sybase" => sql::Quote::Bracket,
-            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => sql::Quote::Backtick,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => {
+                sql::Quote::Backtick
+            }
             _ => sql::Quote::Double,
         };
-        let flavor = ddl::SqlFlavor { quote, ..ddl::SqlFlavor::ansi() };
-        Ok(ddl::insert_script(&flavor, target.schema(), &target.name, columns, rows, 100))
+        let flavor = ddl::SqlFlavor {
+            quote,
+            ..ddl::SqlFlavor::ansi()
+        };
+        Ok(ddl::insert_script(
+            &flavor,
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+            100,
+        ))
     }
 
     /// The browse query (`Session::browse_query`) restricted by the data
@@ -255,17 +311,24 @@ pub trait Driver: Send + Sync {
             return Ok(browse.to_string());
         }
         if !matches!(self.info().language, Language::Sql | Language::Cql) {
-            return Err(Error::Unsupported("este motor no filtra en el servidor".into()));
+            return Err(Error::Unsupported(
+                "este motor no filtra en el servidor".into(),
+            ));
         }
         let dialect = self.info().dialect;
         let quote = match dialect {
             "mssql" | "sybase" => sql::Quote::Bracket,
-            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => sql::Quote::Backtick,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => {
+                sql::Quote::Backtick
+            }
             _ => sql::Quote::Double,
         };
         let bits = matches!(dialect, "mssql" | "sybase" | "oracle" | "db2" | "informix");
         let unicode = matches!(dialect, "mssql" | "sybase");
-        let flavor = ddl::SqlFlavor { quote, ..ddl::SqlFlavor::ansi() };
+        let flavor = ddl::SqlFlavor {
+            quote,
+            ..ddl::SqlFlavor::ansi()
+        };
         let literal = |v: &serde_json::Value| match v {
             serde_json::Value::String(t) if unicode => format!("N'{}'", t.replace('\'', "''")),
             serde_json::Value::Bool(b) if bits => (if *b { "1" } else { "0" }).to_string(),
@@ -274,12 +337,18 @@ pub trait Driver: Send + Sync {
         let style = filter::SqlFilterStyle {
             quote,
             literal: &literal,
-            like: if dialect == "postgres" { "ILIKE" } else { "LIKE" },
+            like: if dialect == "postgres" {
+                "ILIKE"
+            } else {
+                "LIKE"
+            },
             true_literal: if bits { "1" } else { "TRUE" },
             false_literal: if bits { "0" } else { "FALSE" },
         };
         let cond = filter::sql_condition(filters, &style)?;
-        filter::insert_where(browse, &cond).ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+        filter::insert_where(browse, &cond).ok_or_else(|| {
+            Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+        })
     }
 
     /// The browse query (already filtered by [`Driver::filtered_browse`])
@@ -294,25 +363,32 @@ pub trait Driver: Send + Sync {
             return Ok(query.to_string());
         }
         if !matches!(self.info().language, Language::Sql | Language::Cql) {
-            return Err(Error::Unsupported("este motor no ordena en el servidor".into()));
+            return Err(Error::Unsupported(
+                "este motor no ordena en el servidor".into(),
+            ));
         }
         let dialect = self.info().dialect;
         // SQL dialects whose browse query isn't plain SQL over a table
         // (Cosmos's `c`, N1QL's `d.*`, PartiQL, ksqlDB push queries,
         // InfluxQL and IoTDB time series): their driver sorts, or not.
-        if matches!(dialect, "cosmos" | "n1ql" | "partiql" | "ksql" | "influxql" | "iotdb") {
-            return Err(Error::Unsupported("este motor todavía no ordena en el servidor".into()));
+        if matches!(
+            dialect,
+            "cosmos" | "n1ql" | "partiql" | "ksql" | "influxql" | "iotdb"
+        ) {
+            return Err(Error::Unsupported(
+                "este motor todavía no ordena en el servidor".into(),
+            ));
         }
         let quote = match dialect {
             "mssql" | "sybase" | "access" => sql::Quote::Bracket,
-            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" | "spanner" | "drill" | "tdengine" | "orientdb" => {
-                sql::Quote::Backtick
-            }
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks"
+            | "spanner" | "drill" | "tdengine" | "orientdb" => sql::Quote::Backtick,
             _ => sql::Quote::Double,
         };
         let backslash = sql::ScriptDialect::for_hint(dialect).backslash_escapes;
-        sort::set_order_by_in(query, &sort::order_list(sort, quote), backslash)
-            .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+        sort::set_order_by_in(query, &sort::order_list(sort, quote), backslash).ok_or_else(|| {
+            Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+        })
     }
 
     /// `query` (the user's, one `SELECT` / `WITH`) wrapped in a `GROUP BY`
@@ -327,11 +403,18 @@ pub trait Driver: Send + Sync {
     /// its rows itself.
     fn aggregate_query(&self, query: &str, spec: &aggregate::AggregateSpec) -> Result<String> {
         if self.info().language != Language::Sql {
-            return Err(Error::Unsupported("este motor no agrupa gráficos en el servidor".into()));
+            return Err(Error::Unsupported(
+                "este motor no agrupa gráficos en el servidor".into(),
+            ));
         }
-        let shape = aggregate::SqlShape::for_dialect(self.info().dialect)
-            .ok_or_else(|| Error::Unsupported("este motor no agrupa gráficos en el servidor".into()))?;
-        let one = aggregate::single_read(&self.split_script(query), &self.script_dialect(), shape.derived_with)?;
+        let shape = aggregate::SqlShape::for_dialect(self.info().dialect).ok_or_else(|| {
+            Error::Unsupported("este motor no agrupa gráficos en el servidor".into())
+        })?;
+        let one = aggregate::single_read(
+            &self.split_script(query),
+            &self.script_dialect(),
+            shape.derived_with,
+        )?;
         aggregate::grouped_sql(&shape, &one, spec)
     }
 
@@ -341,15 +424,27 @@ pub trait Driver: Send + Sync {
     /// user runs it. `target` is the table / collection.
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         if self.info().language != Language::Sql {
-            return Err(Error::Unsupported("este motor no genera scripts de actualización".into()));
+            return Err(Error::Unsupported(
+                "este motor no genera scripts de actualización".into(),
+            ));
         }
         let quote = match self.info().dialect {
             "mssql" | "sybase" => sql::Quote::Bracket,
-            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => sql::Quote::Backtick,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => {
+                sql::Quote::Backtick
+            }
             _ => sql::Quote::Double,
         };
-        let flavor = ddl::SqlFlavor { quote, ..ddl::SqlFlavor::ansi() };
-        Ok(ddl::update_script(&flavor, target.schema(), &target.name, changes))
+        let flavor = ddl::SqlFlavor {
+            quote,
+            ..ddl::SqlFlavor::ansi()
+        };
+        Ok(ddl::update_script(
+            &flavor,
+            target.schema(),
+            &target.name,
+            changes,
+        ))
     }
 
     /// What the "Usuarios y permisos" tab offers (see [`security`]);
@@ -363,7 +458,9 @@ pub trait Driver: Send + Sync {
     /// `ACL SETUSER…`). DBine shows it and runs it only on the user's click.
     fn security_script(&self, action: &security::SecurityAction) -> Result<String> {
         let _ = action;
-        Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no administra usuarios desde DBine".into(),
+        ))
     }
 
     /// What "Nuevo esquema…" / "Borrar esquema…" offer (see
@@ -396,26 +493,45 @@ pub trait Driver: Send + Sync {
     /// The code that creates database `name` with `options` (field key →
     /// value; a missing or empty value means the server's default), as
     /// [`Session::create_database_with`] runs it: what "Ver script" shows.
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         let _ = (name, options);
-        Err(Error::Unsupported("este motor no genera el script de creación de una base".into()))
+        Err(Error::Unsupported(
+            "este motor no genera el script de creación de una base".into(),
+        ))
     }
 
     /// The code that applies `changes` (field key → new value, only the
     /// ones the user changed; see [`Session::database_properties`]) to
     /// `database`, as [`Session::alter_database`] runs it.
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         let _ = (database, changes);
-        Err(Error::Unsupported("este motor no modifica las propiedades de una base".into()))
+        Err(Error::Unsupported(
+            "este motor no modifica las propiedades de una base".into(),
+        ))
     }
 
     /// The code that creates schema `name` (quoted as the engine needs) in
     /// `database`, owned by `owner` when given. `owner` comes only when the
     /// spec says `owner` and [`Driver::schema_owner_script`] returned
     /// `None` for it. DBine shows it and runs it only on the user's click.
-    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         let _ = (database, name, owner);
-        Err(Error::Unsupported("este motor no crea esquemas desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no crea esquemas desde DBine".into(),
+        ))
     }
 
     /// The code that hands the new schema `name` to `owner`, run after the
@@ -432,7 +548,12 @@ pub trait Driver: Send + Sync {
     /// superuser (`ALTER SCHEMA … OWNER TO`). An invalid owner is an error,
     /// never `Unsupported` (an older plugin host answers that, read as
     /// `None`).
-    fn schema_owner_script(&self, database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+    fn schema_owner_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        owner: &str,
+    ) -> Result<Option<String>> {
         let _ = (database, name, owner);
         Ok(None)
     }
@@ -442,34 +563,73 @@ pub trait Driver: Send + Sync {
     /// [`Driver::security_script`] with a `SecurityAction::Grant` whose
     /// object is `ObjectRef { kind: "schema", schema: None, name }`;
     /// engines whose schema path depends on the database override it.
-    fn schema_grant_script(&self, database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
+    fn schema_grant_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        privileges: &[String],
+        to: &str,
+        grantable: bool,
+    ) -> Result<String> {
         let _ = database;
-        let object = ObjectRef { kind: "schema".into(), schema: None, name: name.to_string() };
-        self.security_script(&security::SecurityAction::Grant { privileges: privileges.to_vec(), object: Some(object), to: to.to_string(), grantable })
+        let object = ObjectRef {
+            kind: "schema".into(),
+            schema: None,
+            name: name.to_string(),
+        };
+        self.security_script(&security::SecurityAction::Grant {
+            privileges: privileges.to_vec(),
+            object: Some(object),
+            to: to.to_string(),
+            grantable,
+        })
     }
 
     /// The code that drops schema `name` of `database`; `cascade`: with its
     /// objects (only asked when the spec says `cascade`).
-    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
         let _ = (database, name, cascade);
-        Err(Error::Unsupported("este motor no borra esquemas desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no borra esquemas desde DBine".into(),
+        ))
     }
 
     /// Code in the driver's language that deletes the rows with these keys
     /// (`DELETE … WHERE <key>` in SQL, `deleteOne` in MongoDB, `DEL` in
     /// Redis…): data compare's sync script uses it. Each key is the row's
     /// key columns with their values. `target` is the table / collection.
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         if self.info().language != Language::Sql {
-            return Err(Error::Unsupported("este motor no genera scripts de borrado".into()));
+            return Err(Error::Unsupported(
+                "este motor no genera scripts de borrado".into(),
+            ));
         }
         let quote = match self.info().dialect {
             "mssql" | "sybase" => sql::Quote::Bracket,
-            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => sql::Quote::Backtick,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => {
+                sql::Quote::Backtick
+            }
             _ => sql::Quote::Double,
         };
-        let flavor = ddl::SqlFlavor { quote, ..ddl::SqlFlavor::ansi() };
-        Ok(ddl::delete_script(&flavor, target.schema(), &target.name, keys))
+        let flavor = ddl::SqlFlavor {
+            quote,
+            ..ddl::SqlFlavor::ansi()
+        };
+        Ok(ddl::delete_script(
+            &flavor,
+            target.schema(),
+            &target.name,
+            keys,
+        ))
     }
 
     /// Statements around a table's data in a generated script, for engines
@@ -546,7 +706,11 @@ pub trait Driver: Send + Sync {
     }
 
     /// Open a session on `database` (the config's default when `None`).
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>>;
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>>;
 
     /// Its sessions implement [`Session::bulk_load`], the engine's native
     /// bulk load (see [`transfer`]). Without it the migration writes
@@ -573,7 +737,9 @@ pub trait Driver: Send + Sync {
         progress: transfer::Progress<'_>,
     ) -> Result<u64> {
         let _ = (source, target, spec, progress);
-        Err(Error::Unsupported("este motor no copia tablas directamente entre bases".into()))
+        Err(Error::Unsupported(
+            "este motor no copia tablas directamente entre bases".into(),
+        ))
     }
 
     /// [`Driver::clone_script`] works: a same-engine migration can leave
@@ -586,7 +752,12 @@ pub trait Driver: Send + Sync {
     /// tables (see [`transfer::CloneScript`]), adapted to what `target`
     /// supports. `source` is only read from; nothing runs on `target` (it's
     /// asked about its capabilities only).
-    async fn clone_script(&self, source: &mut dyn Session, target: &mut dyn Session, tables: &[ObjectRef]) -> Result<transfer::CloneScript> {
+    async fn clone_script(
+        &self,
+        source: &mut dyn Session,
+        target: &mut dyn Session,
+        tables: &[ObjectRef],
+    ) -> Result<transfer::CloneScript> {
         let _ = (source, target, tables);
         Err(Error::Unsupported("este motor no clona bases".into()))
     }
@@ -608,7 +779,9 @@ pub trait Driver: Send + Sync {
     /// rows of these buckets.
     fn delta_filter(&self, spec: &transfer::DeltaSpec, buckets: &[i64]) -> Result<String> {
         let _ = (spec, buckets);
-        Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+        Err(Error::Unsupported(
+            "este motor no sincroniza por filas".into(),
+        ))
     }
 
     /// What the Backups tab offers for the engine's own backups (see
@@ -624,7 +797,9 @@ pub trait Driver: Send + Sync {
     /// click, in [`backup::BackupSpec::script_database`].
     fn backup_script(&self, action: &backup::BackupAction) -> Result<String> {
         let _ = action;
-        Err(Error::Unsupported("este motor no tiene backups propios".into()))
+        Err(Error::Unsupported(
+            "este motor no tiene backups propios".into(),
+        ))
     }
 }
 
@@ -688,18 +863,24 @@ pub trait Session: Send {
         if on {
             Ok(())
         } else {
-            Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()))
+            Err(Error::Unsupported(
+                "este motor no permite transacciones manuales desde DBine".into(),
+            ))
         }
     }
 
     /// Commit the open transaction (nothing to do when there's none).
     async fn commit(&mut self) -> Result<()> {
-        Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no permite transacciones manuales desde DBine".into(),
+        ))
     }
 
     /// Roll back the open transaction (nothing to do when there's none).
     async fn rollback(&mut self) -> Result<()> {
-        Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no permite transacciones manuales desde DBine".into(),
+        ))
     }
 
     /// Run one statement as a read the server enforces: a single statement
@@ -716,14 +897,28 @@ pub trait Session: Send {
     /// **before running anything**: the app then runs it with the values as
     /// literals ([`Driver::param_literal`]). Notebook parameters
     /// (docs/notebooks.md#parameters).
-    async fn execute_bound(&mut self, statement: &params::BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn execute_bound(
+        &mut self,
+        statement: &params::BoundStatement,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let _ = (statement, max_rows, out);
-        Err(Error::Unsupported("este motor no recibe parámetros aparte del texto".into()))
+        Err(Error::Unsupported(
+            "este motor no recibe parámetros aparte del texto".into(),
+        ))
     }
 
-    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let _ = (statement, max_rows, out);
-        Err(Error::Unsupported("este motor no asegura lecturas de solo lectura en el servidor".into()))
+        Err(Error::Unsupported(
+            "este motor no asegura lecturas de solo lectura en el servidor".into(),
+        ))
     }
 
     /// Execution plans of a script, pushed to `out.plans`.
@@ -732,9 +927,17 @@ pub trait Session: Send {
     ///   to `out` too) and the plans carry actual figures. Engines that can
     ///   only get actual figures by running a statement again must not do so
     ///   for statements that write (give the estimated plan for those).
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let _ = (text, analyze, max_rows, out);
-        Err(Error::Unsupported("este motor todavía no muestra planes de ejecución".into()))
+        Err(Error::Unsupported(
+            "este motor todavía no muestra planes de ejecución".into(),
+        ))
     }
 
     /// Something that stops the statement in flight from another thread,
@@ -752,15 +955,29 @@ pub trait Session: Send {
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let objects = self.list_objects().await?;
         let mut out = Vec::new();
-        for o in objects.into_iter().filter(|o| o.kind == kinds::TABLE || o.kind == kinds::COLLECTION) {
-            let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+        for o in objects
+            .into_iter()
+            .filter(|o| o.kind == kinds::TABLE || o.kind == kinds::COLLECTION)
+        {
+            let obj = ObjectRef {
+                kind: o.kind.clone(),
+                schema: o.schema.clone(),
+                name: o.name.clone(),
+            };
             let cols = self.columns(&obj).await?;
-            let pk: Vec<String> = cols.iter().filter(|c| c.primary_key).map(|c| c.name.clone()).collect();
+            let pk: Vec<String> = cols
+                .iter()
+                .filter(|c| c.primary_key)
+                .map(|c| c.name.clone())
+                .collect();
             out.push(TableSchema {
                 kind: o.kind,
                 schema: o.schema,
                 name: o.name,
-                primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk }),
+                primary_key: (!pk.is_empty()).then(|| KeyDef {
+                    name: None,
+                    columns: pk,
+                }),
                 columns: cols
                     .into_iter()
                     .map(|c| ColumnDef {
@@ -781,7 +998,9 @@ pub trait Session: Send {
     /// Create a database (keyspace, dataset…) on the server.
     async fn create_database(&mut self, name: &str) -> Result<()> {
         let _ = name;
-        Err(Error::Unsupported("este motor no crea bases desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no crea bases desde DBine".into(),
+        ))
     }
 
     /// The server's suggestions and defaults for
@@ -794,11 +1013,17 @@ pub trait Session: Send {
     /// Create database `name` with `options` (see
     /// [`Driver::create_database_fields`]). Without options it's
     /// [`Session::create_database`].
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         if options.values().all(|v| v.trim().is_empty()) {
             return self.create_database(name).await;
         }
-        Err(Error::Unsupported("este motor no admite opciones al crear una base".into()))
+        Err(Error::Unsupported(
+            "este motor no admite opciones al crear una base".into(),
+        ))
     }
 
     /// "Propiedades" of `database`: what can be changed, its current
@@ -806,25 +1031,37 @@ pub trait Session: Send {
     /// `Capabilities::database_properties`.
     async fn database_properties(&mut self, database: &str) -> Result<info::DatabaseProperties> {
         let _ = database;
-        Err(Error::Unsupported("este motor no muestra las propiedades de una base".into()))
+        Err(Error::Unsupported(
+            "este motor no muestra las propiedades de una base".into(),
+        ))
     }
 
     /// Apply `changes` to `database` (see [`Driver::alter_database_script`]).
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         let _ = (database, changes);
-        Err(Error::Unsupported("este motor no modifica las propiedades de una base".into()))
+        Err(Error::Unsupported(
+            "este motor no modifica las propiedades de una base".into(),
+        ))
     }
 
     /// Drop a database (keyspace, dataset…) and everything in it.
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         let _ = name;
-        Err(Error::Unsupported("este motor no borra bases desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no borra bases desde DBine".into(),
+        ))
     }
 
     /// A snapshot of the server's health for the monitor dashboard (see
     /// [`monitor`]). Drivers that implement it set `Capabilities::monitor`.
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
-        Err(Error::Unsupported("este motor todavía no ofrece monitoreo".into()))
+        Err(Error::Unsupported(
+            "este motor todavía no ofrece monitoreo".into(),
+        ))
     }
 
     /// The sessions in blocking chains right now: those waiting on another
@@ -832,13 +1069,17 @@ pub trait Session: Send {
     /// when nothing is blocked. Drivers that implement it set
     /// `Capabilities::blocking`.
     async fn blocking(&mut self) -> Result<Vec<monitor::BlockedSession>> {
-        Err(Error::Unsupported("este motor no informa bloqueos entre sesiones".into()))
+        Err(Error::Unsupported(
+            "este motor no informa bloqueos entre sesiones".into(),
+        ))
     }
 
     /// The server's (or, when `SecuritySpec::per_database`, the
     /// session's database's) users and roles.
     async fn principals(&mut self) -> Result<Vec<security::Principal>> {
-        Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no administra usuarios desde DBine".into(),
+        ))
     }
 
     /// The server's logins with no user in the session's database, for
@@ -846,13 +1087,17 @@ pub trait Session: Send {
     /// they can't be read from here: the dialog then lets the user type
     /// the login.
     async fn unmapped_logins(&mut self) -> Result<Vec<String>> {
-        Err(Error::Unsupported("este motor no lista los logins del servidor".into()))
+        Err(Error::Unsupported(
+            "este motor no lista los logins del servidor".into(),
+        ))
     }
 
     /// A user's or role's permissions, direct and through its roles.
     async fn grants(&mut self, principal: &str) -> Result<Vec<security::Grant>> {
         let _ = principal;
-        Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no administra usuarios desde DBine".into(),
+        ))
     }
 
     /// End another session of the server (its id as `blocking` or the
@@ -860,14 +1105,18 @@ pub trait Session: Send {
     /// implement it set `Capabilities::kill_session`.
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         let _ = id;
-        Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into()))
+        Err(Error::Unsupported(
+            "este motor no permite terminar sesiones desde DBine".into(),
+        ))
     }
 
     /// The server's sessions and running requests (the Monitor's
     /// "Procesos"), lighter than [`Session::monitor`]: the list polls every
     /// few seconds. Drivers that implement it set `Capabilities::processes`.
     async fn processes(&mut self) -> Result<Vec<monitor::ServerProcess>> {
-        Err(Error::Unsupported("este motor no lista sus procesos".into()))
+        Err(Error::Unsupported(
+            "este motor no lista sus procesos".into(),
+        ))
     }
 
     /// Stop the statement another session is running (its id as
@@ -875,14 +1124,18 @@ pub trait Session: Send {
     /// implement it set `Capabilities::cancel_query`.
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         let _ = id;
-        Err(Error::Unsupported("este motor no permite cancelar consultas de otras sesiones".into()))
+        Err(Error::Unsupported(
+            "este motor no permite cancelar consultas de otras sesiones".into(),
+        ))
     }
 
     /// Start watching the statements run against a database (see
     /// [`profiler`]). The session is dedicated to it until `profiler_stop`.
     async fn profiler_start(&mut self, opts: &ProfilerOptions) -> Result<ProfilerStarted> {
         let _ = opts;
-        Err(Error::Unsupported("este motor no permite ver las consultas de otros clientes".into()))
+        Err(Error::Unsupported(
+            "este motor no permite ver las consultas de otros clientes".into(),
+        ))
     }
 
     /// The statements seen since the last poll, oldest first.
@@ -899,13 +1152,19 @@ pub trait Session: Send {
     /// on drivers whose [`Driver::key_search`] is `Some`.
     async fn scan_keys(&mut self, scan: &KeyScan) -> Result<KeyPage> {
         let _ = scan;
-        Err(Error::Unsupported("este motor no busca claves en el servidor".into()))
+        Err(Error::Unsupported(
+            "este motor no busca claves en el servidor".into(),
+        ))
     }
 
     /// Read a table in batches (see [`transfer`]), handing them to `sink`;
     /// returns the rows read. The default runs `browse_query` and turns its
     /// grid values into cells; drivers override it to read typed values.
-    async fn read_batches(&mut self, spec: &transfer::ReadSpec, sink: transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &transfer::ReadSpec,
+        sink: transfer::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_via_execute(self, spec, sink).await
     }
 
@@ -920,7 +1179,9 @@ pub trait Session: Send {
         progress: transfer::Progress<'_>,
     ) -> Result<u64> {
         let _ = (spec, columns, source, progress);
-        Err(Error::Unsupported("este motor no tiene carga masiva".into()))
+        Err(Error::Unsupported(
+            "este motor no tiene carga masiva".into(),
+        ))
     }
 
     /// The concrete session, for [`Driver::copy_native`] (a driver finds
@@ -931,16 +1192,27 @@ pub trait Session: Send {
 
     /// Rows and smallest / largest value of an integer column (to size a
     /// sync's range buckets); `None` when the table is empty.
-    async fn key_range(&mut self, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
+    async fn key_range(
+        &mut self,
+        table: &ObjectRef,
+        column: &str,
+    ) -> Result<Option<(i64, i64, u64)>> {
         let _ = (table, column);
-        Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+        Err(Error::Unsupported(
+            "este motor no sincroniza por filas".into(),
+        ))
     }
 
     /// Each bucket's row count and hash sum (see [`transfer::DeltaSpec`]).
     /// Only reads.
-    async fn delta_summary(&mut self, spec: &transfer::DeltaSpec) -> Result<Vec<transfer::BucketSum>> {
+    async fn delta_summary(
+        &mut self,
+        spec: &transfer::DeltaSpec,
+    ) -> Result<Vec<transfer::BucketSum>> {
         let _ = spec;
-        Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+        Err(Error::Unsupported(
+            "este motor no sincroniza por filas".into(),
+        ))
     }
 
     /// Make the rows of `buckets` equal to `source`'s (the source's rows of
@@ -955,7 +1227,9 @@ pub trait Session: Send {
         progress: transfer::Progress<'_>,
     ) -> Result<transfer::DeltaResult> {
         let _ = (spec, buckets, columns, source, progress);
-        Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+        Err(Error::Unsupported(
+            "este motor no sincroniza por filas".into(),
+        ))
     }
 
     /// Write `source`'s rows into `spec.table` by `spec.mode` (see
@@ -972,7 +1246,9 @@ pub trait Session: Send {
         progress: transfer::Progress<'_>,
     ) -> Result<write::WriteResult> {
         let _ = (spec, columns, source, progress);
-        Err(Error::Unsupported("este motor no escribe filas por modo".into()))
+        Err(Error::Unsupported(
+            "este motor no escribe filas por modo".into(),
+        ))
     }
 
     /// The backups the server has (of `database`, or all of them when
@@ -993,7 +1269,11 @@ pub trait Session: Send {
     /// What depends on `target` (see [`dependencies`]). The default scans
     /// the catalog's foreign keys and every object's source; drivers whose
     /// engine tracks dependencies override it with catalog queries.
-    async fn dependents(&mut self, target: &DependencyTarget, scan: &DependencyScan) -> Result<DependencyReport> {
+    async fn dependents(
+        &mut self,
+        target: &DependencyTarget,
+        scan: &DependencyScan,
+    ) -> Result<DependencyReport> {
         dependencies::scan(self, target, scan).await
     }
 
@@ -1021,7 +1301,10 @@ pub trait Session: Send {
 
     /// "Buscar en la base" in one catalog query (see [`search`]). `None`:
     /// the app scans each object's definition itself, with progress.
-    async fn search_code(&mut self, query: &search::CodeSearch) -> Result<Option<search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &search::CodeSearch,
+    ) -> Result<Option<search::CodeSearchReport>> {
         let _ = query;
         Ok(None)
     }
@@ -1076,11 +1359,25 @@ mod tests {
 
     #[test]
     fn sorted_browse_by_default() {
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
-        let eq = |c: &str| ColumnFilter { column: c.into(), op: FilterOp::Eq, values: vec![serde_json::json!(1)], sql: None };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
+        let eq = |c: &str| ColumnFilter {
+            column: c.into(),
+            op: FilterOp::Eq,
+            values: vec![serde_json::json!(1)],
+            sql: None,
+        };
         // Filters first, then the sort: WHERE, ORDER BY, LIMIT.
         let pg = with(Language::Sql, "postgres");
-        let q = sql::select_top(sql::Quote::Double, sql::Limit::Limit, Some("public"), "t", 200);
+        let q = sql::select_top(
+            sql::Quote::Double,
+            sql::Limit::Limit,
+            Some("public"),
+            "t",
+            200,
+        );
         let q = pg.filtered_browse(&q, &[eq("a")]).unwrap();
         assert_eq!(
             pg.sorted_browse(&q, &[k("b", true), k("c", false)]).unwrap(),
@@ -1089,9 +1386,18 @@ mod tests {
         let ms = with(Language::Sql, "mssql");
         let q = sql::select_top(sql::Quote::Bracket, sql::Limit::Top, Some("dbo"), "t", 200);
         let q = ms.filtered_browse(&q, &[eq("a")]).unwrap();
-        assert_eq!(ms.sorted_browse(&q, &[k("b", false)]).unwrap(), "SELECT TOP (200) *\nFROM [dbo].[t]\nWHERE [a] = 1\nORDER BY [b] ASC");
+        assert_eq!(
+            ms.sorted_browse(&q, &[k("b", false)]).unwrap(),
+            "SELECT TOP (200) *\nFROM [dbo].[t]\nWHERE [a] = 1\nORDER BY [b] ASC"
+        );
         let ora = with(Language::Sql, "oracle");
-        let q = sql::select_top(sql::Quote::Double, sql::Limit::FetchFirst, Some("HR"), "EMP", 10);
+        let q = sql::select_top(
+            sql::Quote::Double,
+            sql::Limit::FetchFirst,
+            Some("HR"),
+            "EMP",
+            10,
+        );
         let q = ora.filtered_browse(&q, &[eq("DEPT")]).unwrap();
         assert_eq!(
             ora.sorted_browse(&q, &[k("SAL", true)]).unwrap(),
@@ -1099,23 +1405,46 @@ mod tests {
         );
         let my = with(Language::Sql, "mysql");
         let q = sql::select_top(sql::Quote::Backtick, sql::Limit::Limit, Some("db"), "t", 5);
-        assert_eq!(my.sorted_browse(&q, &[k("b", true)]).unwrap(), "SELECT *\nFROM `db`.`t`\nORDER BY `b` DESC\nLIMIT 5");
+        assert_eq!(
+            my.sorted_browse(&q, &[k("b", true)]).unwrap(),
+            "SELECT *\nFROM `db`.`t`\nORDER BY `b` DESC\nLIMIT 5"
+        );
         let cql = with(Language::Cql, "cql");
-        let q = cql.filtered_browse("SELECT * FROM ks.t LIMIT 50;", &[eq("a")]).unwrap();
-        assert_eq!(cql.sorted_browse(&q, &[k("ts", true)]).unwrap(), "SELECT * FROM ks.t\nWHERE \"a\" = 1\nORDER BY \"ts\" DESC\nLIMIT 50;");
+        let q = cql
+            .filtered_browse("SELECT * FROM ks.t LIMIT 50;", &[eq("a")])
+            .unwrap();
+        assert_eq!(
+            cql.sorted_browse(&q, &[k("ts", true)]).unwrap(),
+            "SELECT * FROM ks.t\nWHERE \"a\" = 1\nORDER BY \"ts\" DESC\nLIMIT 50;"
+        );
         // Empty sort: the query as is, on any engine.
         let mongo = with(Language::Json, "");
-        assert_eq!(mongo.sorted_browse("db.t.find({})", &[]).unwrap(), "db.t.find({})");
-        assert!(matches!(mongo.sorted_browse("db.t.find({})", &[k("a", false)]), Err(Error::Unsupported(_))));
-        assert!(matches!(with(Language::Sql, "cosmos").sorted_browse("SELECT TOP 5 * FROM c", &[k("a", false)]), Err(Error::Unsupported(_))));
-        assert!(matches!(pg.sorted_browse("SHOW TABLES", &[k("a", false)]), Err(Error::Unsupported(_))));
+        assert_eq!(
+            mongo.sorted_browse("db.t.find({})", &[]).unwrap(),
+            "db.t.find({})"
+        );
+        assert!(matches!(
+            mongo.sorted_browse("db.t.find({})", &[k("a", false)]),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            with(Language::Sql, "cosmos").sorted_browse("SELECT TOP 5 * FROM c", &[k("a", false)]),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            pg.sorted_browse("SHOW TABLES", &[k("a", false)]),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn map_login_is_unsupported_by_default() {
         let d = bare();
         assert!(!d.supports_map_login());
-        assert!(matches!(d.map_login_script("ana", "ana", None), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            d.map_login_script("ana", "ana", None),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -1123,7 +1452,14 @@ mod tests {
         let d = bare();
         assert!(d.rename_spec().is_none());
         let req = RenameRequest {
-            target: RenameTarget::Object { object: ObjectRef { kind: "table".into(), schema: None, name: "t".into() }, parent: None },
+            target: RenameTarget::Object {
+                object: ObjectRef {
+                    kind: "table".into(),
+                    schema: None,
+                    name: "t".into(),
+                },
+                parent: None,
+            },
             new_name: "u".into(),
             table: None,
             definition: None,
@@ -1135,10 +1471,22 @@ mod tests {
     fn schemas_are_unsupported_by_default() {
         let d = bare();
         assert!(d.schema_spec().is_none());
-        assert!(matches!(d.create_schema_script(None, "ventas", Some("ana")), Err(Error::Unsupported(_))));
-        assert!(matches!(d.schema_owner_script(None, "ventas", "ana"), Ok(None)));
-        assert!(matches!(d.schema_grant_script(None, "ventas", &["USAGE".into()], "ana", false), Err(Error::Unsupported(_))));
-        assert!(matches!(d.drop_schema_script(None, "ventas", true), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            d.create_schema_script(None, "ventas", Some("ana")),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            d.schema_owner_script(None, "ventas", "ana"),
+            Ok(None)
+        ));
+        assert!(matches!(
+            d.schema_grant_script(None, "ventas", &["USAGE".into()], "ana", false),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            d.drop_schema_script(None, "ventas", true),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     /// A session that only implements the required methods.
@@ -1172,7 +1520,10 @@ mod tests {
     /// The default's future is ready at once: poll it without a runtime.
     fn ready<T>(f: impl std::future::Future<Output = T>) -> T {
         let mut f = std::pin::pin!(f);
-        match f.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
+        match f
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+        {
             std::task::Poll::Ready(v) => v,
             std::task::Poll::Pending => panic!("the default list_schemas waited"),
         }
@@ -1183,10 +1534,19 @@ mod tests {
         let d = bare();
         assert_eq!(d.script_mode(), sql::ScriptMode::Whole);
         assert_eq!(d.script_dialect(), sql::ScriptDialect::generic());
-        assert_eq!(d.script_defaults(), sql::ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true });
+        assert_eq!(
+            d.script_defaults(),
+            sql::ScriptDefaults {
+                continue_on_error: false,
+                confirm_unsafe_dml: true
+            }
+        );
         assert!(!d.supports_manual_transactions());
         let st = d.split_script("select 1; select 2");
-        assert_eq!(st.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), vec!["select 1", "select 2"]);
+        assert_eq!(
+            st.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            vec!["select 1", "select 2"]
+        );
     }
 
     #[test]
@@ -1194,7 +1554,10 @@ mod tests {
         let mut s = BareSession;
         assert_eq!(ready(s.transaction_state()).unwrap(), None);
         assert!(ready(s.set_autocommit(true)).is_ok());
-        assert!(matches!(ready(s.set_autocommit(false)), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            ready(s.set_autocommit(false)),
+            Err(Error::Unsupported(_))
+        ));
         assert!(matches!(ready(s.commit()), Err(Error::Unsupported(_))));
         assert!(matches!(ready(s.rollback()), Err(Error::Unsupported(_))));
         let mut ro = read_only::ReadOnlySession::new(Box::new(BareSession));

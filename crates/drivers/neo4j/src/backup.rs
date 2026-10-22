@@ -50,7 +50,9 @@ pub fn script(f: Flavor, action: &BackupAction) -> Result<String> {
 fn unsupported(f: Flavor) -> &'static str {
     match f {
         Flavor::Neo4j => "Neo4j hace backups con neo4j-admin (Enterprise), fuera de Cypher",
-        Flavor::Neptune => "los snapshots de Neptune se hacen con la API de AWS (RDS), no con openCypher",
+        Flavor::Neptune => {
+            "los snapshots de Neptune se hacen con la API de AWS (RDS), no con openCypher"
+        }
         Flavor::Memgraph => "",
     }
 }
@@ -60,7 +62,11 @@ pub async fn history(s: &mut GraphSession, database: Option<&str>) -> Result<Vec
     if s.flavor != Flavor::Memgraph {
         return Err(Error::Unsupported(unsupported(s.flavor).into()));
     }
-    let current = if s.db.is_empty() { MEMGRAPH_DEFAULT_DB.to_string() } else { s.db.clone() };
+    let current = if s.db.is_empty() {
+        MEMGRAPH_DEFAULT_DB.to_string()
+    } else {
+        s.db.clone()
+    };
     // Snapshots are per database (Enterprise's multi-tenancy): switch only
     // when asked for another one, so Community's single database works.
     let db = match database.map(str::trim).filter(|d| !d.is_empty()) {
@@ -75,7 +81,10 @@ pub async fn history(s: &mut GraphSession, database: Option<&str>) -> Result<Vec
         .iter()
         .filter_map(|r| {
             let path = r.get("path").map(as_text).filter(|p| !p.is_empty())?;
-            let created = r.get("creation_time").map(as_text).filter(|t| !t.is_empty());
+            let created = r
+                .get("creation_time")
+                .map(as_text)
+                .filter(|t| !t.is_empty());
             let mut details = Vec::new();
             if let Some(ts) = r.get("timestamp").map(as_text).filter(|t| !t.is_empty()) {
                 details.push(("Timestamp de la transacción".to_string(), ts));
@@ -101,7 +110,9 @@ pub async fn history(s: &mut GraphSession, database: Option<&str>) -> Result<Vec
 /// Memgraph's human sizes ("483B", "1.50KiB", "12.00MiB") in bytes.
 fn size(t: &str) -> Option<u64> {
     let t = t.trim();
-    let split = t.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(t.len());
+    let split = t
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(t.len());
     let n: f64 = t[..split].parse().ok()?;
     let unit = match t[split..].trim() {
         "" | "B" => 1u64,
@@ -125,24 +136,62 @@ mod tests {
         assert!(spec(Flavor::Neptune).is_none());
         let s = spec(Flavor::Memgraph).unwrap();
         assert!(s.restore && s.history && !s.delete && !s.server_wide);
-        let b = BackupAction::Backup { database: None, options: BTreeMap::new() };
-        assert!(matches!(script(Flavor::Neo4j, &b), Err(Error::Unsupported(_))));
-        assert!(matches!(script(Flavor::Neptune, &b), Err(Error::Unsupported(_))));
+        let b = BackupAction::Backup {
+            database: None,
+            options: BTreeMap::new(),
+        };
+        assert!(matches!(
+            script(Flavor::Neo4j, &b),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(Flavor::Neptune, &b),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn memgraph_scripts() {
-        let b = BackupAction::Backup { database: Some("memgraph".into()), options: BTreeMap::new() };
+        let b = BackupAction::Backup {
+            database: Some("memgraph".into()),
+            options: BTreeMap::new(),
+        };
         assert_eq!(script(Flavor::Memgraph, &b).unwrap(), "CREATE SNAPSHOT;");
         let path = "/var/lib/memgraph/snapshots/20260929131451823773_timestamp_390";
-        let r = BackupAction::Restore { source: path.into(), database: None, options: BTreeMap::new() };
-        assert_eq!(script(Flavor::Memgraph, &r).unwrap(), format!("RECOVER SNAPSHOT '{path}' FORCE;"));
+        let r = BackupAction::Restore {
+            source: path.into(),
+            database: None,
+            options: BTreeMap::new(),
+        };
+        assert_eq!(
+            script(Flavor::Memgraph, &r).unwrap(),
+            format!("RECOVER SNAPSHOT '{path}' FORCE;")
+        );
         let opts = BTreeMap::from([("force".to_string(), "false".to_string())]);
-        let r = BackupAction::Restore { source: "/tmp/it's".into(), database: None, options: opts };
-        assert_eq!(script(Flavor::Memgraph, &r).unwrap(), "RECOVER SNAPSHOT '/tmp/it\\'s';");
-        let r = BackupAction::Restore { source: " ".into(), database: None, options: BTreeMap::new() };
+        let r = BackupAction::Restore {
+            source: "/tmp/it's".into(),
+            database: None,
+            options: opts,
+        };
+        assert_eq!(
+            script(Flavor::Memgraph, &r).unwrap(),
+            "RECOVER SNAPSHOT '/tmp/it\\'s';"
+        );
+        let r = BackupAction::Restore {
+            source: " ".into(),
+            database: None,
+            options: BTreeMap::new(),
+        };
         assert!(script(Flavor::Memgraph, &r).is_err());
-        assert!(matches!(script(Flavor::Memgraph, &BackupAction::Delete { source: path.into() }), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(
+                Flavor::Memgraph,
+                &BackupAction::Delete {
+                    source: path.into()
+                }
+            ),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]

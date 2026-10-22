@@ -11,12 +11,20 @@
 use dbine_driver::{Access, ConnectionConfig, QueryOutcome, Session};
 
 fn cfg(url: &str, user: &str, password: &str) -> ConnectionConfig {
-    ConnectionConfig { driver: "iotdb".into(), host: url.into(), username: Some(user.into()), password: Some(password.into()), ..Default::default() }
+    ConnectionConfig {
+        driver: "iotdb".into(),
+        host: url.into(),
+        username: Some(user.into()),
+        password: Some(password.into()),
+        ..Default::default()
+    }
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
 }
 
 fn denied(a: &Access, what: &str) -> bool {
@@ -28,9 +36,26 @@ async fn check(url: &str) {
     let mut root = d.connect(&cfg(url, "root", "root"), None).await.unwrap();
     let p = root.permissions(Some("root.dbine_perm")).await.unwrap();
     eprintln!("{url} root: {p:?}");
-    assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
+    assert_eq!(
+        (
+            &p.profiler,
+            &p.create_database,
+            &p.drop_database,
+            &p.manage_security
+        ),
+        (
+            &Access::Allowed,
+            &Access::Allowed,
+            &Access::Allowed,
+            &Access::Allowed
+        )
+    );
 
-    for sql in ["DROP USER dbine_perm_ltd", "DROP USER dbine_perm_ops", "DROP ROLE dbine_perm_ops"] {
+    for sql in [
+        "DROP USER dbine_perm_ltd",
+        "DROP USER dbine_perm_ops",
+        "DROP ROLE dbine_perm_ops",
+    ] {
         let _ = root.execute(sql, 10, &mut QueryOutcome::default()).await;
     }
     for sql in [
@@ -45,19 +70,38 @@ async fn check(url: &str) {
         run(&mut root, sql).await;
     }
 
-    let mut s = d.connect(&cfg(url, "dbine_perm_ltd", "ltd_pw_123"), None).await.unwrap();
+    let mut s = d
+        .connect(&cfg(url, "dbine_perm_ltd", "ltd_pw_123"), None)
+        .await
+        .unwrap();
     let p = s.permissions(Some("root.dbine_perm")).await.unwrap();
     eprintln!("{url} reader: {p:?}");
-    assert!(denied(&p.profiler, "MAINTAIN") && denied(&p.create_database, "MANAGE_DATABASE"), "{p:?}");
-    assert!(denied(&p.drop_database, "MANAGE_DATABASE") && denied(&p.manage_security, "MANAGE_USER"), "{p:?}");
+    assert!(
+        denied(&p.profiler, "MAINTAIN") && denied(&p.create_database, "MANAGE_DATABASE"),
+        "{p:?}"
+    );
+    assert!(
+        denied(&p.drop_database, "MANAGE_DATABASE") && denied(&p.manage_security, "MANAGE_USER"),
+        "{p:?}"
+    );
 
-    let mut s = d.connect(&cfg(url, "dbine_perm_ops", "ops_pw_123"), None).await.unwrap();
+    let mut s = d
+        .connect(&cfg(url, "dbine_perm_ops", "ops_pw_123"), None)
+        .await
+        .unwrap();
     let p = s.permissions(Some("root.dbine_perm")).await.unwrap();
     eprintln!("{url} ops: {p:?}");
-    assert_eq!((&p.profiler, &p.create_database, &p.drop_database), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+    assert_eq!(
+        (&p.profiler, &p.create_database, &p.drop_database),
+        (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+    );
     assert!(denied(&p.manage_security, "MANAGE_USER"), "{p:?}");
 
-    for sql in ["DROP USER dbine_perm_ltd", "DROP USER dbine_perm_ops", "DROP ROLE dbine_perm_ops"] {
+    for sql in [
+        "DROP USER dbine_perm_ltd",
+        "DROP USER dbine_perm_ops",
+        "DROP ROLE dbine_perm_ops",
+    ] {
         run(&mut root, sql).await;
     }
 }

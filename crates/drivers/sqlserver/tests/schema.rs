@@ -12,8 +12,12 @@ use serde_json::json;
 fn parse_url(url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: "sqlserver".into(),
         host: host.into(),
@@ -26,7 +30,9 @@ fn parse_url(url: &str) -> ConnectionConfig {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
 }
 
 const SOURCE: &str = "
@@ -75,7 +81,11 @@ async fn schema_round_trip() {
         let _ = admin.drop_database(db).await;
         admin.create_database(db).await.expect("create_database");
     }
-    assert!(admin.list_databases().await.unwrap().contains(&"dbine_ddl_src".to_string()));
+    assert!(admin
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_ddl_src".to_string()));
 
     let mut src = d.connect(&cfg, Some("dbine_ddl_src")).await.unwrap();
     run(&mut src, SOURCE).await;
@@ -87,15 +97,35 @@ async fn schema_round_trip() {
     assert_eq!(clientes.columns[1].comment.as_deref(), Some("Correo único"));
     assert!(clientes.columns[0].auto_increment);
     assert_eq!(clientes.columns[1].data_type, "nvarchar(120)");
-    assert_eq!(clientes.primary_key.as_ref().unwrap().name.as_deref(), Some("PK_clientes"));
-    assert!(clientes.indexes.iter().any(|i| i.name == "UX_clientes_email" && i.unique));
+    assert_eq!(
+        clientes.primary_key.as_ref().unwrap().name.as_deref(),
+        Some("PK_clientes")
+    );
+    assert!(clientes
+        .indexes
+        .iter()
+        .any(|i| i.name == "UX_clientes_email" && i.unique));
     let items = &schema[1];
-    assert_eq!(items.primary_key.as_ref().unwrap().columns, ["pedido_id", "linea"]);
+    assert_eq!(
+        items.primary_key.as_ref().unwrap().columns,
+        ["pedido_id", "linea"]
+    );
     assert_eq!(items.foreign_keys.len(), 2);
-    let fk = items.foreign_keys.iter().find(|f| f.name.as_deref() == Some("FK_items_pedidos")).unwrap();
-    assert_eq!((fk.ref_table.as_str(), fk.on_delete.as_deref()), ("pedidos", Some("CASCADE")));
+    let fk = items
+        .foreign_keys
+        .iter()
+        .find(|f| f.name.as_deref() == Some("FK_items_pedidos"))
+        .unwrap();
+    assert_eq!(
+        (fk.ref_table.as_str(), fk.on_delete.as_deref()),
+        ("pedidos", Some("CASCADE"))
+    );
     let pedidos = &schema[2];
-    let ix = pedidos.indexes.iter().find(|i| i.name == "IX_pedidos_estado").unwrap();
+    let ix = pedidos
+        .indexes
+        .iter()
+        .find(|i| i.name == "IX_pedidos_estado")
+        .unwrap();
     assert_eq!(ix.columns, ["estado", "total"]);
     assert_eq!(ix.filter.as_deref(), Some("[estado] IS NOT NULL"));
     assert_eq!(pedidos.columns[4].data_type, "AS ([total]*(2))");
@@ -103,10 +133,30 @@ async fn schema_round_trip() {
     // Round trip: every CREATE, then indexes and foreign keys, into a fresh database.
     let mut script = vec!["CREATE SCHEMA ventas".to_string()];
     for t in &schema {
-        script.push(d.table_ddl(t, DdlParts { create: true, if_exists: true, ..Default::default() }).unwrap());
+        script.push(
+            d.table_ddl(
+                t,
+                DdlParts {
+                    create: true,
+                    if_exists: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
     }
     for t in &schema {
-        script.push(d.table_ddl(t, DdlParts { indexes: true, foreign_keys: true, ..Default::default() }).unwrap());
+        script.push(
+            d.table_ddl(
+                t,
+                DdlParts {
+                    indexes: true,
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
     }
     let script = script.join(&format!("\n{}\n", d.script_separator()));
     eprintln!("{script}");
@@ -116,15 +166,38 @@ async fn schema_round_trip() {
     assert_eq!(copy, schema);
 
     // Data through insert_script, and the FK cascade works on the copy.
-    let target = |n: &str| ObjectRef { kind: "table".into(), schema: Some("ventas".into()), name: n.into() };
+    let target = |n: &str| ObjectRef {
+        kind: "table".into(),
+        schema: Some("ventas".into()),
+        name: n.into(),
+    };
     let ins = d
-        .insert_script(&target("clientes"), &["email".into(), "nombre".into()], &[vec![json!("a@x.com"), json!("Año O'Brien")], vec![json!("b@x.com"), json!("Beto")]])
+        .insert_script(
+            &target("clientes"),
+            &["email".into(), "nombre".into()],
+            &[
+                vec![json!("a@x.com"), json!("Año O'Brien")],
+                vec![json!("b@x.com"), json!("Beto")],
+            ],
+        )
         .unwrap();
     run(&mut dst, &ins).await;
-    let ins = d.insert_script(&target("pedidos"), &["cliente_id".into(), "estado".into(), "total".into()], &[vec![json!(1), json!("nuevo"), json!(10.5)]]).unwrap();
+    let ins = d
+        .insert_script(
+            &target("pedidos"),
+            &["cliente_id".into(), "estado".into(), "total".into()],
+            &[vec![json!(1), json!("nuevo"), json!(10.5)]],
+        )
+        .unwrap();
     run(&mut dst, &ins).await;
     let mut out = QueryOutcome::default();
-    dst.execute("SELECT nombre FROM ventas.clientes WHERE id = 1", 10, &mut out).await.unwrap();
+    dst.execute(
+        "SELECT nombre FROM ventas.clientes WHERE id = 1",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results[0].rows[0][0], json!("Año O'Brien"));
 
     // The session's own database can't be dropped from it.
@@ -134,5 +207,9 @@ async fn schema_round_trip() {
     for db in ["dbine_ddl_src", "dbine_ddl_dst"] {
         admin.drop_database(db).await.expect("drop_database");
     }
-    assert!(!admin.list_databases().await.unwrap().contains(&"dbine_ddl_dst".to_string()));
+    assert!(!admin
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_ddl_dst".to_string()));
 }

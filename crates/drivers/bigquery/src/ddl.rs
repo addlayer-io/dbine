@@ -3,12 +3,12 @@
 //! the designer and the templates. Also turns the dataset's
 //! INFORMATION_SCHEMA rows into [`TableSchema`]s.
 
-use dbine_driver::{
-    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, ForeignKeyDef, KeyDef, RowChange,
-    TableSchema,
-};
 use dbine_driver::filter::{insert_where, sql_condition, ColumnFilter, FilterOp, SqlFilterStyle};
 use dbine_driver::sql::Quote;
+use dbine_driver::{
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, ForeignKeyDef,
+    KeyDef, RowChange, TableSchema,
+};
 use dbine_driver::{Error, Result};
 use serde_json::Value as Json;
 use std::collections::HashMap;
@@ -79,12 +79,21 @@ fn has(s: &Option<String>) -> Option<&str> {
 }
 
 fn cols(names: &[String]) -> String {
-    names.iter().map(|c| ident(c)).collect::<Vec<_>>().join(", ")
+    names
+        .iter()
+        .map(|c| ident(c))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// `a, b` or `` `a`, `b` `` → quoted list.
 fn name_list(v: &str) -> String {
-    v.split(',').map(|c| c.trim().trim_matches('`')).filter(|c| !c.is_empty()).map(ident).collect::<Vec<_>>().join(", ")
+    v.split(',')
+        .map(|c| c.trim().trim_matches('`'))
+        .filter(|c| !c.is_empty())
+        .map(ident)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// A column as CREATE TABLE and `ADD COLUMN` write it.
@@ -94,7 +103,13 @@ pub fn column_def(c: &ColumnDef) -> String {
         l.push_str(&format!(" DEFAULT {d}"));
     }
     // An ARRAY is never NULL (it's empty) and takes no NOT NULL.
-    if !c.nullable && !c.data_type.trim_start().to_ascii_uppercase().starts_with("ARRAY") {
+    if !c.nullable
+        && !c
+            .data_type
+            .trim_start()
+            .to_ascii_uppercase()
+            .starts_with("ARRAY")
+    {
         l.push_str(" NOT NULL");
     }
     if let Some(cm) = has(&c.comment) {
@@ -107,22 +122,41 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     let name = table_name(t);
     let mut out = Vec::new();
     if parts.drop {
-        out.push(format!("DROP TABLE {}{name};", if parts.if_exists { "IF EXISTS " } else { "" }));
+        out.push(format!(
+            "DROP TABLE {}{name};",
+            if parts.if_exists { "IF EXISTS " } else { "" }
+        ));
     }
     if parts.create {
-        let mut lines: Vec<String> = t.columns.iter().map(|c| format!("  {}", column_def(c))).collect();
+        let mut lines: Vec<String> = t
+            .columns
+            .iter()
+            .map(|c| format!("  {}", column_def(c)))
+            .collect();
         if let Some(pk) = t.primary_key.as_ref().filter(|k| !k.columns.is_empty()) {
-            lines.push(format!("  PRIMARY KEY ({}) NOT ENFORCED", cols(&pk.columns)));
+            lines.push(format!(
+                "  PRIMARY KEY ({}) NOT ENFORCED",
+                cols(&pk.columns)
+            ));
         }
         let mut s = format!(
             "CREATE TABLE {}{name} (\n{}\n)",
-            if parts.if_exists && !parts.drop { "IF NOT EXISTS " } else { "" },
+            if parts.if_exists && !parts.drop {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             lines.join(",\n")
         );
         if let Some(p) = t.options.get(PARTITION_BY).filter(|v| !v.trim().is_empty()) {
             s.push_str(&format!("\nPARTITION BY {}", p.trim()));
         }
-        if let Some(c) = t.options.get(CLUSTER_BY).map(|v| name_list(v)).filter(|v| !v.is_empty()) {
+        if let Some(c) = t
+            .options
+            .get(CLUSTER_BY)
+            .map(|v| name_list(v))
+            .filter(|v| !v.is_empty())
+        {
             s.push_str(&format!("\nCLUSTER BY {c}"));
         }
         if let Some(cm) = has(&t.comment) {
@@ -133,7 +167,11 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     }
     // Search and vector indexes are BigQuery's only ones.
     if parts.indexes {
-        out.extend(t.indexes.iter().filter_map(|ix| crate::indexes::create(t, ix, parts.if_exists)));
+        out.extend(
+            t.indexes
+                .iter()
+                .filter_map(|ix| crate::indexes::create(t, ix, parts.if_exists)),
+        );
     }
     if parts.foreign_keys {
         for fk in &t.foreign_keys {
@@ -149,8 +187,17 @@ fn fk_clause(t: &TableSchema, fk: &ForeignKeyDef) -> String {
         name: fk.ref_table.clone(),
         ..Default::default()
     });
-    let named = fk.name.as_deref().filter(|n| !n.is_empty()).map(|n| format!("CONSTRAINT {} ", ident(n))).unwrap_or_default();
-    format!("{named}FOREIGN KEY ({}) REFERENCES {target}({}) NOT ENFORCED", cols(&fk.columns), cols(&fk.ref_columns))
+    let named = fk
+        .name
+        .as_deref()
+        .filter(|n| !n.is_empty())
+        .map(|n| format!("CONSTRAINT {} ", ident(n)))
+        .unwrap_or_default();
+    format!(
+        "{named}FOREIGN KEY ({}) REFERENCES {target}({}) NOT ENFORCED",
+        cols(&fk.columns),
+        cols(&fk.ref_columns)
+    )
 }
 
 pub fn value(v: &Json) -> String {
@@ -163,13 +210,24 @@ pub fn value(v: &Json) -> String {
     }
 }
 
-pub fn insert_script(dataset: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Json>]) -> String {
-    let name = table_name(&TableSchema { schema: dataset.map(str::to_string), name: table.into(), ..Default::default() });
+pub fn insert_script(
+    dataset: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Json>],
+) -> String {
+    let name = table_name(&TableSchema {
+        schema: dataset.map(str::to_string),
+        name: table.into(),
+        ..Default::default()
+    });
     let head = format!("INSERT INTO {name} ({}) VALUES", cols(columns));
     rows.chunks(100)
         .map(|chunk| {
-            let tuples: Vec<String> =
-                chunk.iter().map(|r| format!("({})", r.iter().map(value).collect::<Vec<_>>().join(", "))).collect();
+            let tuples: Vec<String> = chunk
+                .iter()
+                .map(|r| format!("({})", r.iter().map(value).collect::<Vec<_>>().join(", ")))
+                .collect();
             format!("{head}\n  {};", tuples.join(",\n  "))
         })
         .collect::<Vec<_>>()
@@ -179,18 +237,36 @@ pub fn insert_script(dataset: Option<&str>, table: &str, columns: &[String], row
 /// `UPDATE … SET … WHERE …;` per edited row. BigQuery rejects an UPDATE
 /// without WHERE, so a row without key columns gets `WHERE TRUE`.
 pub fn update_script(dataset: Option<&str>, table: &str, changes: &[RowChange]) -> String {
-    let name = table_name(&TableSchema { schema: dataset.map(str::to_string), name: table.into(), ..Default::default() });
+    let name = table_name(&TableSchema {
+        schema: dataset.map(str::to_string),
+        name: table.into(),
+        ..Default::default()
+    });
     changes
         .iter()
         .filter(|c| !c.set.is_empty())
         .map(|c| {
-            let set: Vec<String> = c.set.iter().map(|(k, v)| format!("{} = {}", ident(k), value(v))).collect();
+            let set: Vec<String> = c
+                .set
+                .iter()
+                .map(|(k, v)| format!("{} = {}", ident(k), value(v)))
+                .collect();
             let wh: Vec<String> = c
                 .key
                 .iter()
-                .map(|(k, v)| if v.is_null() { format!("{} IS NULL", ident(k)) } else { format!("{} = {}", ident(k), value(v)) })
+                .map(|(k, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", ident(k))
+                    } else {
+                        format!("{} = {}", ident(k), value(v))
+                    }
+                })
                 .collect();
-            let wh = if wh.is_empty() { "TRUE".to_string() } else { wh.join(" AND ") };
+            let wh = if wh.is_empty() {
+                "TRUE".to_string()
+            } else {
+                wh.join(" AND ")
+            };
             format!("UPDATE {name} SET {} WHERE {wh};", set.join(", "))
         })
         .collect::<Vec<_>>()
@@ -201,12 +277,24 @@ pub fn update_script(dataset: Option<&str>, table: &str, changes: &[RowChange]) 
 /// [`update_script`]. A key without columns is skipped: it would delete
 /// the whole table.
 pub fn delete_script(dataset: Option<&str>, table: &str, keys: &[Vec<(String, Json)>]) -> String {
-    let name = table_name(&TableSchema { schema: dataset.map(str::to_string), name: table.into(), ..Default::default() });
+    let name = table_name(&TableSchema {
+        schema: dataset.map(str::to_string),
+        name: table.into(),
+        ..Default::default()
+    });
     keys.iter()
         .filter(|k| !k.is_empty())
         .map(|k| {
-            let wh: Vec<String> =
-                k.iter().map(|(c, v)| if v.is_null() { format!("{} IS NULL", ident(c)) } else { format!("{} = {}", ident(c), value(v)) }).collect();
+            let wh: Vec<String> = k
+                .iter()
+                .map(|(c, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", ident(c))
+                    } else {
+                        format!("{} = {}", ident(c), value(v))
+                    }
+                })
+                .collect();
             format!("DELETE FROM {name} WHERE {};", wh.join(" AND "))
         })
         .collect::<Vec<_>>()
@@ -220,18 +308,28 @@ pub fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<String>
     if filters.is_empty() {
         return Ok(browse.to_string());
     }
-    let style = SqlFilterStyle { quote: Quote::Backtick, literal: &value, like: "LIKE", true_literal: "TRUE", false_literal: "FALSE" };
+    let style = SqlFilterStyle {
+        quote: Quote::Backtick,
+        literal: &value,
+        like: "LIKE",
+        true_literal: "TRUE",
+        false_literal: "FALSE",
+    };
     let mut parts = Vec::new();
     for f in filters {
         let c = sql_condition(std::slice::from_ref(f), &style)?;
-        let like = matches!(f.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith);
+        let like = matches!(
+            f.op,
+            FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith
+        );
         parts.push(match c.strip_suffix(" ESCAPE '\\'") {
             Some(s) if like => s.to_string(),
             _ => c,
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 /// The (filtered) browse query with `ORDER BY` the grid's sort keys,
@@ -244,18 +342,51 @@ pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<Stri
     if sort.is_empty() {
         return Ok(query.to_string());
     }
-    if query.as_bytes().windows(2).any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"')) {
-        return Err(Error::Unsupported("con comillas escapadas en el filtro, BigQuery no ordena en el servidor".into()));
+    if query
+        .as_bytes()
+        .windows(2)
+        .any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"'))
+    {
+        return Err(Error::Unsupported(
+            "con comillas escapadas en el filtro, BigQuery no ordena en el servidor".into(),
+        ));
     }
-    let order = sort.iter().map(|k| format!("{} {}", ident(&k.column), if k.descending { "DESC" } else { "ASC" })).collect::<Vec<_>>().join(", ");
-    dbine_driver::sort::set_order_by(query, &order)
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+    let order = sort
+        .iter()
+        .map(|k| {
+            format!(
+                "{} {}",
+                ident(&k.column),
+                if k.descending { "DESC" } else { "ASC" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    dbine_driver::sort::set_order_by(query, &order).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+    })
 }
 
 pub fn designer() -> DesignerSpec {
     let mut d = DesignerSpec::sql_table(vec![
-        "INT64", "NUMERIC", "NUMERIC(10, 2)", "BIGNUMERIC", "FLOAT64", "BOOL", "STRING", "STRING(100)", "BYTES", "DATE",
-        "DATETIME", "TIME", "TIMESTAMP", "JSON", "GEOGRAPHY", "INTERVAL", "ARRAY<STRING>", "ARRAY<INT64>",
+        "INT64",
+        "NUMERIC",
+        "NUMERIC(10, 2)",
+        "BIGNUMERIC",
+        "FLOAT64",
+        "BOOL",
+        "STRING",
+        "STRING(100)",
+        "BYTES",
+        "DATE",
+        "DATETIME",
+        "TIME",
+        "TIMESTAMP",
+        "JSON",
+        "GEOGRAPHY",
+        "INTERVAL",
+        "ARRAY<STRING>",
+        "ARRAY<INT64>",
         "STRUCT<a INT64, b STRING>",
     ]);
     d.auto_increment = false;
@@ -273,7 +404,11 @@ pub fn designer() -> DesignerSpec {
 }
 
 pub fn templates() -> Vec<CreateTemplate> {
-    let t = |kind, label, template: &str| CreateTemplate { kind, label, template: template.to_string() };
+    let t = |kind, label, template: &str| CreateTemplate {
+        kind,
+        label,
+        template: template.to_string(),
+    };
     vec![
         t(kinds::VIEW, "Nueva vista", "CREATE VIEW `{name}`\nOPTIONS(description = '')\nAS\nSELECT *\nFROM `tabla`;\n"),
         t(
@@ -333,7 +468,11 @@ pub fn assemble(
     let mut out: Vec<TableSchema> = tables
         .iter()
         .map(|r| {
-            let mut t = TableSchema { kind: kinds::TABLE.into(), name: g(r, "table_name"), ..Default::default() };
+            let mut t = TableSchema {
+                kind: kinds::TABLE.into(),
+                name: g(r, "table_name"),
+                ..Default::default()
+            };
             if let Some(ddl) = r.get("ddl") {
                 if let Some(p) = ddl_clause(ddl, "PARTITION BY ") {
                     t.options.insert(PARTITION_BY.into(), p);
@@ -351,7 +490,9 @@ pub fn assemble(
     let mut cols: Vec<&Row> = columns.iter().collect();
     cols.sort_by_key(|r| num(r, "ordinal_position"));
     for r in cols {
-        let Some(i) = find(&out, &g(r, "table_name")) else { continue };
+        let Some(i) = find(&out, &g(r, "table_name")) else {
+            continue;
+        };
         let name = g(r, "column_name");
         let comment = descriptions
             .iter()
@@ -361,7 +502,10 @@ pub fn assemble(
         out[i].columns.push(ColumnDef {
             data_type: g(r, "data_type"),
             nullable: g(r, "is_nullable") != "NO",
-            default_value: r.get("column_default").filter(|d| !d.eq_ignore_ascii_case("NULL")).cloned(),
+            default_value: r
+                .get("column_default")
+                .filter(|d| !d.eq_ignore_ascii_case("NULL"))
+                .cloned(),
             comment,
             name,
             ..Default::default()
@@ -375,14 +519,26 @@ pub fn assemble(
 
     // Keys, column by column in order; foreign keys by constraint name.
     let mut keys: Vec<&Row> = keys.iter().collect();
-    keys.sort_by_key(|r| (g(r, "table_name"), g(r, "constraint_name"), num(r, "ordinal_position")));
+    keys.sort_by_key(|r| {
+        (
+            g(r, "table_name"),
+            g(r, "constraint_name"),
+            num(r, "ordinal_position"),
+        )
+    });
     let mut fks: Vec<(usize, String, ForeignKeyDef, Vec<usize>)> = Vec::new();
     for r in &keys {
-        let Some(i) = find(&out, &g(r, "table_name")) else { continue };
+        let Some(i) = find(&out, &g(r, "table_name")) else {
+            continue;
+        };
         let (cname, col) = (g(r, "constraint_name"), g(r, "column_name"));
         if g(r, "constraint_type") == "PRIMARY KEY" {
             // BigQuery names it itself (`<table>.pk$`); it can't be named.
-            out[i].primary_key.get_or_insert_with(KeyDef::default).columns.push(col);
+            out[i]
+                .primary_key
+                .get_or_insert_with(KeyDef::default)
+                .columns
+                .push(col);
             continue;
         }
         let at = match fks.iter().position(|f| f.0 == i && f.1 == cname) {
@@ -390,21 +546,42 @@ pub fn assemble(
             None => {
                 // Generated names (`fk$1`) can't be created again.
                 let name = Some(cname.clone()).filter(|n| !n.contains('$'));
-                fks.push((i, cname, ForeignKeyDef { name, ..Default::default() }, Vec::new()));
+                fks.push((
+                    i,
+                    cname,
+                    ForeignKeyDef {
+                        name,
+                        ..Default::default()
+                    },
+                    Vec::new(),
+                ));
                 fks.len() - 1
             }
         };
         fks[at].2.columns.push(col);
-        fks[at].3.extend(r.get("position_in_unique_constraint").and_then(|p| p.parse::<usize>().ok()));
+        fks[at].3.extend(
+            r.get("position_in_unique_constraint")
+                .and_then(|p| p.parse::<usize>().ok()),
+        );
     }
     // Referenced table and columns (in the order of its primary key).
     for (i, cname, mut fk, positions) in fks {
-        let target: Vec<&Row> = refs.iter().filter(|r| g(r, "constraint_name") == cname).collect();
+        let target: Vec<&Row> = refs
+            .iter()
+            .filter(|r| g(r, "constraint_name") == cname)
+            .collect();
         if let Some(r) = target.first() {
             fk.ref_table = g(r, "table_name");
-            fk.ref_schema = r.get("table_schema").filter(|s| s.as_str() != dataset).cloned();
+            fk.ref_schema = r
+                .get("table_schema")
+                .filter(|s| s.as_str() != dataset)
+                .cloned();
         }
-        let pk = out.iter().find(|t| t.name == fk.ref_table).and_then(|t| t.primary_key.as_ref()).map(|k| k.columns.clone());
+        let pk = out
+            .iter()
+            .find(|t| t.name == fk.ref_table)
+            .and_then(|t| t.primary_key.as_ref())
+            .map(|k| k.columns.clone());
         fk.ref_columns = match pk {
             Some(pk)
                 if fk.ref_schema.is_none()
@@ -428,27 +605,52 @@ mod tests {
     #[test]
     fn sorted_browse_after_the_filter() {
         use dbine_driver::SortKey;
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let browse = "SELECT *\nFROM `ds1`.`t`\nLIMIT 200";
         assert_eq!(sorted_browse(browse, &[]).unwrap(), browse);
-        assert_eq!(sorted_browse(browse, &[k("a", false)]).unwrap(), "SELECT *\nFROM `ds1`.`t`\nORDER BY `a` ASC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(browse, &[k("a", false)]).unwrap(),
+            "SELECT *\nFROM `ds1`.`t`\nORDER BY `a` ASC\nLIMIT 200"
+        );
         assert_eq!(
             sorted_browse(browse, &[k("Grupo Mixto", false), k("v", true)]).unwrap(),
             "SELECT *\nFROM `ds1`.`t`\nORDER BY `Grupo Mixto` ASC, `v` DESC\nLIMIT 200"
         );
-        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let w = filtered_browse(browse, &[f("n", FilterOp::Ge, vec![json!(5)])]).unwrap();
-        assert_eq!(sorted_browse(&w, &[k("x", true)]).unwrap(), "SELECT *\nFROM `ds1`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(&w, &[k("x", true)]).unwrap(),
+            "SELECT *\nFROM `ds1`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200"
+        );
         // GoogleSQL escapes in names: a backtick can't close the quote.
-        assert_eq!(sorted_browse(browse, &[k("a`b\\", false)]).unwrap(), "SELECT *\nFROM `ds1`.`t`\nORDER BY `a\\`b\\\\` ASC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(browse, &[k("a`b\\", false)]).unwrap(),
+            "SELECT *\nFROM `ds1`.`t`\nORDER BY `a\\`b\\\\` ASC\nLIMIT 200"
+        );
         // A backslash-escaped quote in the filter: refused, not misplaced.
         let w = filtered_browse(browse, &[f("n", FilterOp::Eq, vec![json!("O'Brien")])]).unwrap();
-        assert!(matches!(sorted_browse(&w, &[k("a", false)]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            sorted_browse(&w, &[k("a", false)]),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn filtered_browse_uses_googlesql_literals() {
-        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let browse = "SELECT *\nFROM `ds`.`t`\nLIMIT 200";
         assert_eq!(
             filtered_browse(
@@ -467,7 +669,10 @@ mod tests {
     }
 
     fn row(pairs: &[(&str, &str)]) -> Row {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn sample() -> Vec<TableSchema> {
@@ -476,22 +681,91 @@ mod tests {
             row(&[("table_name", "clientes")]),
         ];
         let columns = vec![
-            row(&[("table_name", "pedidos"), ("column_name", "cliente_id"), ("ordinal_position", "2"), ("is_nullable", "YES"), ("data_type", "INT64"), ("column_default", "NULL")]),
-            row(&[("table_name", "pedidos"), ("column_name", "id"), ("ordinal_position", "1"), ("is_nullable", "NO"), ("data_type", "INT64"), ("column_default", "NULL")]),
-            row(&[("table_name", "pedidos"), ("column_name", "estado"), ("ordinal_position", "3"), ("is_nullable", "YES"), ("data_type", "STRING(20)"), ("column_default", "'nuevo'")]),
-            row(&[("table_name", "clientes"), ("column_name", "id"), ("ordinal_position", "1"), ("is_nullable", "NO"), ("data_type", "INT64")]),
-            row(&[("table_name", "una_vista"), ("column_name", "x"), ("ordinal_position", "1"), ("data_type", "INT64")]),
+            row(&[
+                ("table_name", "pedidos"),
+                ("column_name", "cliente_id"),
+                ("ordinal_position", "2"),
+                ("is_nullable", "YES"),
+                ("data_type", "INT64"),
+                ("column_default", "NULL"),
+            ]),
+            row(&[
+                ("table_name", "pedidos"),
+                ("column_name", "id"),
+                ("ordinal_position", "1"),
+                ("is_nullable", "NO"),
+                ("data_type", "INT64"),
+                ("column_default", "NULL"),
+            ]),
+            row(&[
+                ("table_name", "pedidos"),
+                ("column_name", "estado"),
+                ("ordinal_position", "3"),
+                ("is_nullable", "YES"),
+                ("data_type", "STRING(20)"),
+                ("column_default", "'nuevo'"),
+            ]),
+            row(&[
+                ("table_name", "clientes"),
+                ("column_name", "id"),
+                ("ordinal_position", "1"),
+                ("is_nullable", "NO"),
+                ("data_type", "INT64"),
+            ]),
+            row(&[
+                ("table_name", "una_vista"),
+                ("column_name", "x"),
+                ("ordinal_position", "1"),
+                ("data_type", "INT64"),
+            ]),
         ];
-        let options = vec![row(&[("table_name", "pedidos"), ("option_name", "description"), ("option_value", "\"Pedidos \\\"del día\\\"\"")])];
-        let desc = vec![row(&[("table_name", "pedidos"), ("column_name", "cliente_id"), ("description", "dueño")])];
+        let options = vec![row(&[
+            ("table_name", "pedidos"),
+            ("option_name", "description"),
+            ("option_value", "\"Pedidos \\\"del día\\\"\""),
+        ])];
+        let desc = vec![row(&[
+            ("table_name", "pedidos"),
+            ("column_name", "cliente_id"),
+            ("description", "dueño"),
+        ])];
         let keys = vec![
-            row(&[("table_name", "pedidos"), ("constraint_name", "pedidos.pk$"), ("constraint_type", "PRIMARY KEY"), ("column_name", "id"), ("ordinal_position", "1")]),
-            row(&[("table_name", "clientes"), ("constraint_name", "clientes.pk$"), ("constraint_type", "PRIMARY KEY"), ("column_name", "id"), ("ordinal_position", "1")]),
-            row(&[("table_name", "pedidos"), ("constraint_name", "fk_cliente"), ("constraint_type", "FOREIGN KEY"), ("column_name", "cliente_id"), ("ordinal_position", "1"), ("position_in_unique_constraint", "1")]),
+            row(&[
+                ("table_name", "pedidos"),
+                ("constraint_name", "pedidos.pk$"),
+                ("constraint_type", "PRIMARY KEY"),
+                ("column_name", "id"),
+                ("ordinal_position", "1"),
+            ]),
+            row(&[
+                ("table_name", "clientes"),
+                ("constraint_name", "clientes.pk$"),
+                ("constraint_type", "PRIMARY KEY"),
+                ("column_name", "id"),
+                ("ordinal_position", "1"),
+            ]),
+            row(&[
+                ("table_name", "pedidos"),
+                ("constraint_name", "fk_cliente"),
+                ("constraint_type", "FOREIGN KEY"),
+                ("column_name", "cliente_id"),
+                ("ordinal_position", "1"),
+                ("position_in_unique_constraint", "1"),
+            ]),
         ];
         let refs = vec![
-            row(&[("constraint_name", "fk_cliente"), ("table_schema", "ds"), ("table_name", "clientes"), ("column_name", "id")]),
-            row(&[("constraint_name", "pedidos.pk$"), ("table_schema", "ds"), ("table_name", "pedidos"), ("column_name", "id")]),
+            row(&[
+                ("constraint_name", "fk_cliente"),
+                ("table_schema", "ds"),
+                ("table_name", "clientes"),
+                ("column_name", "id"),
+            ]),
+            row(&[
+                ("constraint_name", "pedidos.pk$"),
+                ("table_schema", "ds"),
+                ("table_name", "pedidos"),
+                ("column_name", "id"),
+            ]),
         ];
         assemble("ds", &tables, &columns, &options, &desc, &keys, &refs)
     }
@@ -500,9 +774,17 @@ mod tests {
     fn update_script_per_row() {
         let c = RowChange {
             key: vec![("id".into(), json!(7)), ("region".into(), Json::Null)],
-            set: vec![("nombre".into(), json!("O'Brien")), ("baja".into(), Json::Null)], ..Default::default()
+            set: vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("baja".into(), Json::Null),
+            ],
+            ..Default::default()
         };
-        let all = RowChange { key: vec![], set: vec![("activo".into(), json!(false))], ..Default::default() };
+        let all = RowChange {
+            key: vec![],
+            set: vec![("activo".into(), json!(false))],
+            ..Default::default()
+        };
         assert_eq!(
             update_script(Some("ventas"), "clientes", &[c, RowChange::default(), all]),
             "UPDATE `ventas`.`clientes` SET `nombre` = 'O\\'Brien', `baja` = NULL WHERE `id` = 7 AND `region` IS NULL;\n\
@@ -512,7 +794,13 @@ mod tests {
 
     #[test]
     fn delete_script_per_row() {
-        let keys = vec![vec![("nombre".into(), json!("O'Brien")), ("region".into(), Json::Null)], vec![]];
+        let keys = vec![
+            vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("region".into(), Json::Null),
+            ],
+            vec![],
+        ];
         assert_eq!(
             delete_script(Some("ventas"), "clientes", &keys),
             "DELETE FROM `ventas`.`clientes` WHERE `nombre` = 'O\\'Brien' AND `region` IS NULL;"
@@ -522,15 +810,30 @@ mod tests {
     #[test]
     fn catalog_rows_become_tables() {
         let s = sample();
-        assert_eq!(s.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), vec!["clientes", "pedidos"]);
+        assert_eq!(
+            s.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+            vec!["clientes", "pedidos"]
+        );
         let p = &s[1];
-        assert_eq!(p.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["id", "cliente_id", "estado"]);
+        assert_eq!(
+            p.columns
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["id", "cliente_id", "estado"]
+        );
         assert!(!p.columns[0].nullable && p.columns[1].nullable);
         assert_eq!(p.columns[0].default_value, None);
         assert_eq!(p.columns[2].default_value.as_deref(), Some("'nuevo'"));
         assert_eq!(p.columns[1].comment.as_deref(), Some("dueño"));
         assert_eq!(p.comment.as_deref(), Some("Pedidos \"del día\""));
-        assert_eq!(p.primary_key, Some(KeyDef { name: None, columns: vec!["id".into()] }));
+        assert_eq!(
+            p.primary_key,
+            Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()]
+            })
+        );
         assert_eq!(
             p.foreign_keys,
             vec![ForeignKeyDef {
@@ -543,37 +846,78 @@ mod tests {
                 on_update: None
             }]
         );
-        assert_eq!(p.options.get(PARTITION_BY).map(String::as_str), Some("DATE(creado)"));
-        assert_eq!(p.options.get(CLUSTER_BY).map(String::as_str), Some("cliente_id, estado"));
+        assert_eq!(
+            p.options.get(PARTITION_BY).map(String::as_str),
+            Some("DATE(creado)")
+        );
+        assert_eq!(
+            p.options.get(CLUSTER_BY).map(String::as_str),
+            Some("cliente_id, estado")
+        );
     }
 
     #[test]
     fn ddl_with_keys_partitioning_and_descriptions() {
         let p = &sample()[1];
-        let all = DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true };
+        let all = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            indexes: true,
+            foreign_keys: true,
+        };
         let s = table_ddl(p, all);
         assert!(s.starts_with("DROP TABLE IF EXISTS `pedidos`;\nCREATE TABLE `pedidos` (\n  `id` INT64 NOT NULL,\n"), "{s}");
         assert!(s.contains("  `cliente_id` INT64 OPTIONS(description='dueño'),\n"));
-        assert!(s.contains("  `estado` STRING(20) DEFAULT 'nuevo',\n  PRIMARY KEY (`id`) NOT ENFORCED\n)"));
+        assert!(s.contains(
+            "  `estado` STRING(20) DEFAULT 'nuevo',\n  PRIMARY KEY (`id`) NOT ENFORCED\n)"
+        ));
         assert!(s.contains(")\nPARTITION BY DATE(creado)\nCLUSTER BY `cliente_id`, `estado`\nOPTIONS(description='Pedidos \"del día\"');"));
         assert!(s.ends_with(
             "ALTER TABLE `pedidos` ADD CONSTRAINT `fk_cliente` FOREIGN KEY (`cliente_id`) REFERENCES `clientes`(`id`) NOT ENFORCED;"
         ));
-        let only = table_ddl(p, DdlParts { create: true, if_exists: true, ..Default::default() });
-        assert!(only.starts_with("CREATE TABLE IF NOT EXISTS `pedidos`") && !only.contains("ALTER"));
+        let only = table_ddl(
+            p,
+            DdlParts {
+                create: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            only.starts_with("CREATE TABLE IF NOT EXISTS `pedidos`") && !only.contains("ALTER")
+        );
         let mut arr = p.clone();
         arr.schema = Some("otro".into());
         arr.columns[2].data_type = "ARRAY<STRING>".into();
         arr.columns[2].nullable = false;
-        let s = table_ddl(&arr, DdlParts { create: true, foreign_keys: true, ..Default::default() });
+        let s = table_ddl(
+            &arr,
+            DdlParts {
+                create: true,
+                foreign_keys: true,
+                ..Default::default()
+            },
+        );
         assert!(s.contains("`estado` ARRAY<STRING> DEFAULT 'nuevo',"), "{s}");
-        assert!(s.contains("CREATE TABLE `otro`.`pedidos`") && s.contains("REFERENCES `otro`.`clientes`(`id`)"));
+        assert!(
+            s.contains("CREATE TABLE `otro`.`pedidos`")
+                && s.contains("REFERENCES `otro`.`clientes`(`id`)")
+        );
     }
 
     #[test]
     fn inserts_use_googlesql_literals() {
-        let rows = vec![vec![json!(1), json!("O'Brien \\ x\ny"), Json::Null], vec![json!(2), json!(true), json!(1.5)]];
-        let s = insert_script(Some("ds"), "t", &["a".into(), "b".into(), "c".into()], &rows);
+        let rows = vec![
+            vec![json!(1), json!("O'Brien \\ x\ny"), Json::Null],
+            vec![json!(2), json!(true), json!(1.5)],
+        ];
+        let s = insert_script(
+            Some("ds"),
+            "t",
+            &["a".into(), "b".into(), "c".into()],
+            &rows,
+        );
         assert_eq!(s, "INSERT INTO `ds`.`t` (`a`, `b`, `c`) VALUES\n  (1, 'O\\'Brien \\\\ x\\ny', NULL),\n  (2, TRUE, 1.5);");
         assert_eq!(ident("a`b"), "`a\\`b`");
         assert_eq!(unquote("'a\\'b'"), "a'b");
@@ -583,8 +927,17 @@ mod tests {
     #[test]
     fn templates_cover_the_kinds() {
         let t = templates();
-        for k in [kinds::VIEW, kinds::MATERIALIZED_VIEW, kinds::FUNCTION, kinds::PROCEDURE] {
-            assert!(t.iter().any(|x| x.kind == k && x.template.contains("`{name}`")), "{k}");
+        for k in [
+            kinds::VIEW,
+            kinds::MATERIALIZED_VIEW,
+            kinds::FUNCTION,
+            kinds::PROCEDURE,
+        ] {
+            assert!(
+                t.iter()
+                    .any(|x| x.kind == k && x.template.contains("`{name}`")),
+                "{k}"
+            );
         }
     }
 }

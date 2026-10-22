@@ -17,7 +17,9 @@
 
 use crate::schema::{q, string_literal};
 use crate::{dialect, Flavor, DICTIONARY};
-use dbine_driver::rename::{quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
+use dbine_driver::rename::{
+    quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
 use dbine_driver::{kinds, Error, ObjectRef, Result, SyncScript, TableSchema};
 
 pub fn spec(flavor: Flavor) -> RenameSpec {
@@ -73,7 +75,8 @@ fn mentions(expr: &str, column: &str) -> bool {
     if expr.contains(&q(column)) {
         return true;
     }
-    expr.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == column)
+    expr.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .any(|w| w == column)
 }
 
 fn key_message(column: &str) -> String {
@@ -87,8 +90,12 @@ fn view_message(column: &str) -> String {
 /// The key columns `database_schema` reports: the primary key and the
 /// expressions of the sorting, partition and sampling keys.
 fn in_key(t: &TableSchema, column: &str) -> bool {
-    t.primary_key.as_ref().is_some_and(|k| k.columns.iter().any(|c| c == column || mentions(c, column)))
-        || ["order_by", "partition_by", "sample_by"].iter().any(|k| t.options.get(*k).is_some_and(|e| mentions(e, column)))
+    t.primary_key
+        .as_ref()
+        .is_some_and(|k| k.columns.iter().any(|c| c == column || mentions(c, column)))
+        || ["order_by", "partition_by", "sample_by"]
+            .iter()
+            .any(|k| t.options.get(*k).is_some_and(|e| mentions(e, column)))
 }
 
 /// A regular expression for `column` as a whole name in a query.
@@ -106,7 +113,10 @@ fn word_regex(column: &str) -> String {
 /// Stops the script, before the rename, when the column is in a key or a
 /// materialized view reads it (`SELECT *` included).
 fn guard(table: &ObjectRef, column: &str) -> String {
-    let db = table.schema().map(string_literal).unwrap_or_else(|| "currentDatabase()".into());
+    let db = table
+        .schema()
+        .map(string_literal)
+        .unwrap_or_else(|| "currentDatabase()".into());
     let (t, c) = (string_literal(&table.name), string_literal(column));
     format!(
         "SELECT\n  throwIf((SELECT count() FROM system.columns WHERE database = {db} AND table = {t} AND name = {c}\n    \
@@ -131,7 +141,11 @@ pub fn script(flavor: Flavor, req: &RenameRequest) -> Result<SyncScript> {
     // The views put back with the new name are rewritten by the shared
     // reference rewriting, which quotes with MySQL's backticks: a backslash
     // there is an escape for ClickHouse. A name that would need it is refused.
-    if req.new_name.chars().any(|c| c == '\\' || c == '`' || c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) {
+    if req
+        .new_name
+        .chars()
+        .any(|c| c == '\\' || c == '`' || c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
+    {
         return Err(Error::Query("El nombre nuevo no puede tener barras invertidas (\\), comillas invertidas (`) ni caracteres de control".into()));
     }
     // Quoted, the new name goes through `q`, which escapes backslashes too.
@@ -168,17 +182,33 @@ pub fn script(flavor: Flavor, req: &RenameRequest) -> Result<SyncScript> {
             }
             let alter = if stream { "STREAM" } else { "TABLE" };
             warnings.push("Los diccionarios y las tablas Distributed que leen la columna no se detectan: hay que revisarlos.".into());
-            vec![guard(table, column), format!("ALTER {alter} {} RENAME COLUMN {} TO {new};", qualified(table), q(column))]
+            vec![
+                guard(table, column),
+                format!(
+                    "ALTER {alter} {} RENAME COLUMN {} TO {new};",
+                    qualified(table),
+                    q(column)
+                ),
+            ]
         }
         RenameTarget::Schema { schema, .. } => {
             warnings.push("Solo las bases de datos con el motor Atomic se pueden renombrar; con otro motor, ClickHouse lo rechaza. También lo rechaza si un diccionario lee una de sus tablas.".into());
             // Requests name the session's database, which is the one renamed:
             // the session moves away first and then into the new name.
-            vec!["USE system;".into(), format!("RENAME DATABASE {} TO {new};", q(schema)), format!("USE {new};")]
+            vec![
+                "USE system;".into(),
+                format!("RENAME DATABASE {} TO {new};", q(schema)),
+                format!("USE {new};"),
+            ]
         }
-        RenameTarget::Index { .. } | RenameTarget::Constraint { .. } => unreachable!("refused by the spec"),
+        RenameTarget::Index { .. } | RenameTarget::Constraint { .. } => {
+            unreachable!("refused by the spec")
+        }
     };
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 #[cfg(test)]
@@ -187,82 +217,205 @@ mod tests {
     use dbine_driver::KeyDef;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: schema.map(str::to_string), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(str::to_string),
+            name: name.into(),
+        }
     }
 
     fn req(target: RenameTarget, new: &str) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: None }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: None,
+        }
     }
 
     fn object(kind: &str, schema: Option<&str>, name: &str, new: &str) -> RenameRequest {
-        req(RenameTarget::Object { object: obj(kind, schema, name), parent: None }, new)
+        req(
+            RenameTarget::Object {
+                object: obj(kind, schema, name),
+                parent: None,
+            },
+            new,
+        )
     }
 
     #[test]
     fn tables_views_and_materialized_views() {
-        let s = script(Flavor::ClickHouse, &object(kinds::TABLE, Some("ventas"), "T", "Nueva")).unwrap();
-        assert_eq!(s.statements, ["RENAME TABLE `ventas`.`T` TO `ventas`.Nueva;"]);
+        let s = script(
+            Flavor::ClickHouse,
+            &object(kinds::TABLE, Some("ventas"), "T", "Nueva"),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["RENAME TABLE `ventas`.`T` TO `ventas`.Nueva;"]
+        );
         assert_eq!(s.warnings.len(), 1);
-        let s = script(Flavor::ClickHouse, &object(kinds::VIEW, None, "v", "mi vista")).unwrap();
+        let s = script(
+            Flavor::ClickHouse,
+            &object(kinds::VIEW, None, "v", "mi vista"),
+        )
+        .unwrap();
         assert_eq!(s.statements, ["RENAME TABLE `v` TO `mi vista`;"]);
         assert!(s.warnings.is_empty());
-        let s = script(Flavor::ClickHouse, &object(kinds::MATERIALIZED_VIEW, Some("db"), "mv", "select")).unwrap();
+        let s = script(
+            Flavor::ClickHouse,
+            &object(kinds::MATERIALIZED_VIEW, Some("db"), "mv", "select"),
+        )
+        .unwrap();
         assert_eq!(s.statements, ["RENAME TABLE `db`.`mv` TO `db`.`select`;"]);
     }
 
     #[test]
     fn a_backslash_cannot_end_the_quoted_names() {
-        let s = script(Flavor::ClickHouse, &object(kinds::TABLE, Some("d\\"), "t\\", "x; DROP TABLE y; --")).unwrap();
-        assert_eq!(s.statements, ["RENAME TABLE `d\\\\`.`t\\\\` TO `d\\\\`.`x; DROP TABLE y; --`;"]);
+        let s = script(
+            Flavor::ClickHouse,
+            &object(kinds::TABLE, Some("d\\"), "t\\", "x; DROP TABLE y; --"),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["RENAME TABLE `d\\\\`.`t\\\\` TO `d\\\\`.`x; DROP TABLE y; --`;"]
+        );
     }
 
     #[test]
     fn new_names_the_reference_rewriting_cannot_quote_are_refused() {
         for bad in ["x\\", "a`b", "a\nb", "a\u{2028}b"] {
             let e = script(Flavor::ClickHouse, &object(kinds::TABLE, None, "t", bad)).unwrap_err();
-            assert!(matches!(&e, Error::Query(m) if m.contains("nombre nuevo")), "{bad:?}: {e:?}");
-            let col = req(RenameTarget::Column { table: obj(kinds::TABLE, None, "t"), column: "c".into() }, bad);
+            assert!(
+                matches!(&e, Error::Query(m) if m.contains("nombre nuevo")),
+                "{bad:?}: {e:?}"
+            );
+            let col = req(
+                RenameTarget::Column {
+                    table: obj(kinds::TABLE, None, "t"),
+                    column: "c".into(),
+                },
+                bad,
+            );
             assert!(script(Flavor::Timeplus, &col).is_err(), "{bad:?}");
         }
     }
 
     #[test]
     fn dictionaries() {
-        let s = script(Flavor::ClickHouse, &object(DICTIONARY, Some("db"), "d", "d2")).unwrap();
+        let s = script(
+            Flavor::ClickHouse,
+            &object(DICTIONARY, Some("db"), "d", "d2"),
+        )
+        .unwrap();
         assert_eq!(s.statements, ["RENAME DICTIONARY `db`.`d` TO `db`.d2;"]);
     }
 
     #[test]
     fn databases_move_the_session_away() {
-        let s = script(Flavor::ClickHouse, &req(RenameTarget::Schema { database: Some("old".into()), schema: "old".into() }, "Nueva-Base")).unwrap();
-        assert_eq!(s.statements, ["USE system;", "RENAME DATABASE `old` TO `Nueva-Base`;", "USE `Nueva-Base`;"]);
+        let s = script(
+            Flavor::ClickHouse,
+            &req(
+                RenameTarget::Schema {
+                    database: Some("old".into()),
+                    schema: "old".into(),
+                },
+                "Nueva-Base",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            [
+                "USE system;",
+                "RENAME DATABASE `old` TO `Nueva-Base`;",
+                "USE `Nueva-Base`;"
+            ]
+        );
         assert!(s.warnings[0].contains("Atomic"));
     }
 
     #[test]
     fn columns_keep_case_and_are_guarded() {
-        let s = script(Flavor::ClickHouse, &req(RenameTarget::Column { table: obj(kinds::TABLE, Some("db"), "T"), column: "pepe".into() }, "Juan")).unwrap();
+        let s = script(
+            Flavor::ClickHouse,
+            &req(
+                RenameTarget::Column {
+                    table: obj(kinds::TABLE, Some("db"), "T"),
+                    column: "pepe".into(),
+                },
+                "Juan",
+            ),
+        )
+        .unwrap();
         assert_eq!(s.statements.len(), 2);
-        assert_eq!(s.statements[1], "ALTER TABLE `db`.`T` RENAME COLUMN `pepe` TO Juan;");
+        assert_eq!(
+            s.statements[1],
+            "ALTER TABLE `db`.`T` RENAME COLUMN `pepe` TO Juan;"
+        );
         let g = &s.statements[0];
-        assert!(g.contains("database = 'db' AND table = 'T' AND name = 'pepe'"), "{g}");
-        assert!(g.contains("is_in_sorting_key") && g.contains("dependencies_table") && g.contains("FORMAT Null"), "{g}");
+        assert!(
+            g.contains("database = 'db' AND table = 'T' AND name = 'pepe'"),
+            "{g}"
+        );
+        assert!(
+            g.contains("is_in_sorting_key")
+                && g.contains("dependencies_table")
+                && g.contains("FORMAT Null"),
+            "{g}"
+        );
         // Unqualified: the session's database.
-        let s = script(Flavor::ClickHouse, &req(RenameTarget::Column { table: obj(kinds::TABLE, None, "T"), column: "a.b".into() }, "c")).unwrap();
+        let s = script(
+            Flavor::ClickHouse,
+            &req(
+                RenameTarget::Column {
+                    table: obj(kinds::TABLE, None, "T"),
+                    column: "a.b".into(),
+                },
+                "c",
+            ),
+        )
+        .unwrap();
         assert!(s.statements[0].contains("database = currentDatabase()"));
-        assert!(s.statements[0].contains(r"(^|[^A-Za-z0-9_])a\\.b([^A-Za-z0-9_]|$)"), "{}", s.statements[0]);
+        assert!(
+            s.statements[0].contains(r"(^|[^A-Za-z0-9_])a\\.b([^A-Za-z0-9_]|$)"),
+            "{}",
+            s.statements[0]
+        );
         assert_eq!(s.statements[1], "ALTER TABLE `T` RENAME COLUMN `a.b` TO c;");
     }
 
     #[test]
     fn key_columns_are_refused() {
-        let mut t = TableSchema { name: "T".into(), primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }), ..Default::default() };
-        t.options.insert("partition_by".into(), "toYYYYMM(fecha)".into());
-        t.options.insert("order_by".into(), "(id, `cliente id`)".into());
-        let col = |c: &str| RenameRequest { table: Some(t.clone()), ..req(RenameTarget::Column { table: obj(kinds::TABLE, None, "T"), column: c.into() }, "x") };
+        let mut t = TableSchema {
+            name: "T".into(),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            ..Default::default()
+        };
+        t.options
+            .insert("partition_by".into(), "toYYYYMM(fecha)".into());
+        t.options
+            .insert("order_by".into(), "(id, `cliente id`)".into());
+        let col = |c: &str| RenameRequest {
+            table: Some(t.clone()),
+            ..req(
+                RenameTarget::Column {
+                    table: obj(kinds::TABLE, None, "T"),
+                    column: c.into(),
+                },
+                "x",
+            )
+        };
         for c in ["id", "fecha", "cliente id"] {
             let e = script(Flavor::ClickHouse, &col(c)).unwrap_err();
-            assert!(matches!(&e, Error::Unsupported(m) if m.contains(&format!("«{c}»")) && m.contains("clave")), "{e:?}");
+            assert!(
+                matches!(&e, Error::Unsupported(m) if m.contains(&format!("«{c}»")) && m.contains("clave")),
+                "{e:?}"
+            );
         }
         assert!(script(Flavor::ClickHouse, &col("fechas")).is_ok());
         assert!(script(Flavor::ClickHouse, &col("pepe")).is_ok());
@@ -274,18 +427,52 @@ mod tests {
         assert_eq!(s.statements, ["RENAME STREAM `s` TO s2;"]);
         let s = script(Flavor::Timeplus, &object(kinds::VIEW, None, "v", "v2")).unwrap();
         assert_eq!(s.statements, ["RENAME STREAM `v` TO v2;"]);
-        let s = script(Flavor::Timeplus, &req(RenameTarget::Column { table: obj(kinds::STREAM, None, "s"), column: "pepe".into() }, "juan")).unwrap();
-        assert_eq!(s.statements[1], "ALTER STREAM `s` RENAME COLUMN `pepe` TO juan;");
+        let s = script(
+            Flavor::Timeplus,
+            &req(
+                RenameTarget::Column {
+                    table: obj(kinds::STREAM, None, "s"),
+                    column: "pepe".into(),
+                },
+                "juan",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements[1],
+            "ALTER STREAM `s` RENAME COLUMN `pepe` TO juan;"
+        );
         assert_eq!(spec(Flavor::Timeplus).replace, ReplaceStyle::DropCreate);
-        let db = req(RenameTarget::Schema { database: None, schema: "default".into() }, "x");
-        assert!(matches!(script(Flavor::Timeplus, &db), Err(Error::Unsupported(_))));
+        let db = req(
+            RenameTarget::Schema {
+                database: None,
+                schema: "default".into(),
+            },
+            "x",
+        );
+        assert!(matches!(
+            script(Flavor::Timeplus, &db),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn what_is_not_renamed() {
-        let ix = req(RenameTarget::Index { table: obj(kinds::TABLE, None, "T"), index: "ix".into() }, "iy");
-        assert!(matches!(script(Flavor::ClickHouse, &ix), Err(Error::Unsupported(_))));
-        assert!(matches!(script(Flavor::ClickHouse, &object(kinds::FUNCTION, None, "f", "g")), Err(Error::Unsupported(_))));
+        let ix = req(
+            RenameTarget::Index {
+                table: obj(kinds::TABLE, None, "T"),
+                index: "ix".into(),
+            },
+            "iy",
+        );
+        assert!(matches!(
+            script(Flavor::ClickHouse, &ix),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(Flavor::ClickHouse, &object(kinds::FUNCTION, None, "f", "g")),
+            Err(Error::Unsupported(_))
+        ));
         let s = spec(Flavor::ClickHouse);
         assert_eq!(s.replace, ReplaceStyle::CreateOrReplace);
         assert!(s.columns && s.schemas && !s.indexes && !s.transactional);

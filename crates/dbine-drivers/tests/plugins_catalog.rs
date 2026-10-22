@@ -9,10 +9,16 @@
 #[test]
 fn lists_the_built_in_drivers_and_the_catalog() {
     // The catalog's versions, not the drivers installed on this machine.
-    std::env::set_var("DBINE_DRIVERS_DIR", std::env::temp_dir().join("dbine-test-no-drivers"));
+    std::env::set_var(
+        "DBINE_DRIVERS_DIR",
+        std::env::temp_dir().join("dbine-test-no-drivers"),
+    );
     let mut expected: Vec<String> = Vec::new();
     for (package, drivers) in dbine_drivers::packages() {
-        assert!(dbine_drivers::BUILT_IN.contains(&package), "{package} isn't built in");
+        assert!(
+            dbine_drivers::BUILT_IN.contains(&package),
+            "{package} isn't built in"
+        );
         expected.extend(drivers.iter().map(|d| d.info().name.to_string()));
     }
     let downloadable = dbine_drivers::plugins::packages();
@@ -21,7 +27,10 @@ fn lists_the_built_in_drivers_and_the_catalog() {
     }
     expected.extend(downloadable.into_iter().flat_map(|p| p.drivers));
     expected.sort();
-    let mut listed: Vec<String> = dbine_drivers::infos().into_iter().map(|i| i.name.to_string()).collect();
+    let mut listed: Vec<String> = dbine_drivers::infos()
+        .into_iter()
+        .map(|i| i.name.to_string())
+        .collect();
     listed.sort();
     assert_eq!(listed, expected);
     println!("{} engines: {}", listed.len(), listed.join(", "));

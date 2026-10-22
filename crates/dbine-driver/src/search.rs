@@ -65,7 +65,11 @@ pub fn line_matches(line: &str, q: &CodeSearch) -> bool {
     if q.text.is_empty() {
         return false;
     }
-    let (hay, needle) = if q.case_sensitive { (line.to_string(), q.text.clone()) } else { (line.to_lowercase(), q.text.to_lowercase()) };
+    let (hay, needle) = if q.case_sensitive {
+        (line.to_string(), q.text.clone())
+    } else {
+        (line.to_lowercase(), q.text.to_lowercase())
+    };
     let mut from = 0;
     while let Some(i) = hay[from..].find(&needle) {
         let at = from + i;
@@ -84,7 +88,14 @@ pub fn line_matches(line: &str, q: &CodeSearch) -> bool {
 }
 
 /// The hits in one object's `source`.
-pub fn hits_in(kind: &str, schema: Option<&str>, name: &str, parent: Option<&str>, source: &str, q: &CodeSearch) -> Vec<CodeHit> {
+pub fn hits_in(
+    kind: &str,
+    schema: Option<&str>,
+    name: &str,
+    parent: Option<&str>,
+    source: &str,
+    q: &CodeSearch,
+) -> Vec<CodeHit> {
     source
         .lines()
         .enumerate()
@@ -105,22 +116,49 @@ mod tests {
     use super::*;
 
     fn q(text: &str, case: bool, word: bool) -> CodeSearch {
-        CodeSearch { text: text.into(), case_sensitive: case, whole_word: word, ..Default::default() }
+        CodeSearch {
+            text: text.into(),
+            case_sensitive: case,
+            whole_word: word,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn plain_case_and_whole_word() {
-        assert!(line_matches("SELECT * FROM Clientes c", &q("clientes", false, false)));
-        assert!(!line_matches("SELECT * FROM Clientes c", &q("clientes", true, false)));
-        assert!(!line_matches("FROM ClientesHistorico", &q("clientes", false, true)));
-        assert!(line_matches("FROM dbo.Clientes;", &q("clientes", false, true)));
-        assert!(line_matches("x ClientesH, Clientes", &q("clientes", false, true)), "a later whole-word match counts");
+        assert!(line_matches(
+            "SELECT * FROM Clientes c",
+            &q("clientes", false, false)
+        ));
+        assert!(!line_matches(
+            "SELECT * FROM Clientes c",
+            &q("clientes", true, false)
+        ));
+        assert!(!line_matches(
+            "FROM ClientesHistorico",
+            &q("clientes", false, true)
+        ));
+        assert!(line_matches(
+            "FROM dbo.Clientes;",
+            &q("clientes", false, true)
+        ));
+        assert!(
+            line_matches("x ClientesH, Clientes", &q("clientes", false, true)),
+            "a later whole-word match counts"
+        );
         assert!(!line_matches("anything", &q("", false, false)));
     }
 
     #[test]
     fn hits_carry_their_line() {
-        let h = hits_in("view", Some("dbo"), "v", None, "CREATE VIEW v AS\n  SELECT id\n  FROM ventas", &q("ventas", false, true));
+        let h = hits_in(
+            "view",
+            Some("dbo"),
+            "v",
+            None,
+            "CREATE VIEW v AS\n  SELECT id\n  FROM ventas",
+            &q("ventas", false, true),
+        );
         assert_eq!(h.len(), 1);
         assert_eq!((h[0].line, h[0].text.as_str()), (3, "FROM ventas"));
     }

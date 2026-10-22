@@ -60,7 +60,10 @@ pub fn browse(table: &str, columns: &[(String, bool)], limit: u32) -> Option<Str
             }
         })
         .collect();
-    Some(format!("SELECT {}\nFROM {table} t\nFETCH FIRST {limit} ROWS ONLY", list.join(", ")))
+    Some(format!(
+        "SELECT {}\nFROM {table} t\nFETCH FIRST {limit} ROWS ONLY",
+        list.join(", ")
+    ))
 }
 
 /// `sql` (one query) run again with its object columns (`columns`: name and
@@ -80,7 +83,11 @@ pub fn wrap(sql: &str, columns: &[(String, bool)]) -> String {
             }
         })
         .collect();
-    format!("WITH \"DBINE_Q\" ({}) AS (\n{body}\n)\nSELECT {}\nFROM \"DBINE_Q\" q", names.join(", "), list.join(", "))
+    format!(
+        "WITH \"DBINE_Q\" ({}) AS (\n{body}\n)\nSELECT {}\nFROM \"DBINE_Q\" q",
+        names.join(", "),
+        list.join(", ")
+    )
 }
 
 /// Which result columns of `sql` are geometries turned into text by
@@ -95,7 +102,9 @@ pub fn converted(sql: &str, names: &[&str]) -> Vec<bool> {
         let start = from + i + FUNCTION.len();
         from = start;
         // The call's closing parenthesis, then `[AS] alias`.
-        let Some(end) = closing_paren(&sql[start..]).map(|k| start + k + 1) else { break };
+        let Some(end) = closing_paren(&sql[start..]).map(|k| start + k + 1) else {
+            break;
+        };
         if let Some(alias) = sql.get(end..).and_then(alias_after) {
             aliases.push(alias);
         }
@@ -145,7 +154,9 @@ fn alias_after(rest: &str) -> Option<String> {
     let mut s = rest.trim_start();
     // Byte-safe: `get` is `None` when byte 2 falls inside a character.
     if let (Some(kw), Some(after)) = (s.get(..2), s.get(2..)) {
-        if kw.eq_ignore_ascii_case("AS") && after.starts_with(|c: char| c.is_whitespace() || c == '"') {
+        if kw.eq_ignore_ascii_case("AS")
+            && after.starts_with(|c: char| c.is_whitespace() || c == '"')
+        {
             s = after.trim_start();
         }
     }
@@ -166,10 +177,17 @@ fn alias_after(rest: &str) -> Option<String> {
         }
         return None;
     }
-    let word: String = s.chars().take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '#')).collect();
+    let word: String = s
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '#'))
+        .collect();
     let up = word.to_ascii_uppercase();
-    (!word.is_empty() && !matches!(up.as_str(), "FROM" | "AS" | "END" | "WHERE" | "UNION" | "ORDER" | "GROUP" | "FETCH"))
-        .then_some(up)
+    (!word.is_empty()
+        && !matches!(
+            up.as_str(),
+            "FROM" | "AS" | "END" | "WHERE" | "UNION" | "ORDER" | "GROUP" | "FETCH"
+        ))
+    .then_some(up)
 }
 
 /// The query's columns could not be converted: what to do instead.
@@ -199,10 +217,25 @@ mod tests {
 
     #[test]
     fn wrap_renames_by_position() {
-        let w = wrap("SELECT a.id, b.id, a.g FROM a JOIN b ON a.id = b.id ORDER BY 1 DESC;", &[("ID".into(), false), ("ID".into(), false), ("G".into(), true)]);
+        let w = wrap(
+            "SELECT a.id, b.id, a.g FROM a JOIN b ON a.id = b.id ORDER BY 1 DESC;",
+            &[
+                ("ID".into(), false),
+                ("ID".into(), false),
+                ("G".into(), true),
+            ],
+        );
         assert!(w.starts_with("WITH \"DBINE_Q\" (\"C1\", \"C2\", \"C3\") AS (\nSELECT a.id, b.id, a.g FROM a JOIN b ON a.id = b.id ORDER BY 1 DESC\n)\n"), "{w}");
-        assert!(w.contains("SELECT q.\"C1\" AS \"ID\", q.\"C2\" AS \"ID\", CASE WHEN q.\"C3\".SDO_SRID"), "{w}");
-        assert!(w.ends_with("SDO_UTIL.TO_WKTGEOMETRY(q.\"C3\") AS \"G\"\nFROM \"DBINE_Q\" q"), "{w}");
+        assert!(
+            w.contains(
+                "SELECT q.\"C1\" AS \"ID\", q.\"C2\" AS \"ID\", CASE WHEN q.\"C3\".SDO_SRID"
+            ),
+            "{w}"
+        );
+        assert!(
+            w.ends_with("SDO_UTIL.TO_WKTGEOMETRY(q.\"C3\") AS \"G\"\nFROM \"DBINE_Q\" q"),
+            "{w}"
+        );
     }
 
     #[test]
@@ -215,7 +248,10 @@ mod tests {
             converted(sql, &["ID", "SHAPE", "Mixed", "SDO_UTIL.TO_WKTGEOMETRY(H)"]),
             [false, true, true, true]
         );
-        assert_eq!(converted("SELECT SDO_UTIL.TO_WKTGEOMETRY(g) FROM t", &["X"]), [false]);
+        assert_eq!(
+            converted("SELECT SDO_UTIL.TO_WKTGEOMETRY(g) FROM t", &["X"]),
+            [false]
+        );
     }
 
     #[test]
@@ -238,8 +274,14 @@ mod tests {
         let sql = "select sdo_util.to_wktgeometry(f('it''s )')) g from t";
         assert_eq!(converted(sql, &["G"]), [true]);
         // Unclosed quote or parenthesis: nothing is converted, no panic.
-        assert_eq!(converted("select sdo_util.to_wktgeometry(\"x) g", &["G"]), [false]);
-        assert_eq!(converted("select sdo_util.to_wktgeometry('x) g", &["G"]), [false]);
+        assert_eq!(
+            converted("select sdo_util.to_wktgeometry(\"x) g", &["G"]),
+            [false]
+        );
+        assert_eq!(
+            converted("select sdo_util.to_wktgeometry('x) g", &["G"]),
+            [false]
+        );
     }
 
     #[test]

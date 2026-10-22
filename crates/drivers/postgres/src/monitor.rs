@@ -31,7 +31,10 @@ const MAX_TEXT: usize = 2000;
 const QUERY_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub(crate) async fn snapshot(s: &PgSession) -> MonitorSnapshot {
-    let mut m = Mon { s, snap: MonitorSnapshot::default() };
+    let mut m = Mon {
+        s,
+        snap: MonitorSnapshot::default(),
+    };
     match s.variant {
         Variant::Cockroach => cockroach(&mut m).await,
         Variant::Redshift => redshift(&mut m).await,
@@ -59,7 +62,11 @@ impl Mon<'_> {
             Ok(r) => Some(r),
             Err(e) => {
                 let reason = reason(&e.to_string());
-                self.note(if reason.is_empty() { format!("{what}.") } else { format!("{what}: {reason}") });
+                self.note(if reason.is_empty() {
+                    format!("{what}.")
+                } else {
+                    format!("{what}: {reason}")
+                });
                 None
             }
         }
@@ -101,7 +108,14 @@ impl Mon<'_> {
 
     /// A table with the first `cols.len()` cells of each row; the columns in
     /// `bytes` are byte counts shown as sizes.
-    fn table(&mut self, key: &str, title: &str, cols: &[&str], rows: &[SimpleQueryRow], bytes: &[usize]) {
+    fn table(
+        &mut self,
+        key: &str,
+        title: &str,
+        cols: &[&str],
+        rows: &[SimpleQueryRow],
+        bytes: &[usize],
+    ) {
         let mut t = MonitorTable::new(key, title, cols);
         t.rows = rows
             .iter()
@@ -128,7 +142,11 @@ impl Mon<'_> {
             self.snap.tables.push(MonitorTable::new(key, title, &[]));
             return;
         };
-        let cols: Vec<String> = first.columns().iter().map(|c| c.name().to_string()).collect();
+        let cols: Vec<String> = first
+            .columns()
+            .iter()
+            .map(|c| c.name().to_string())
+            .collect();
         let refs: Vec<&str> = cols.iter().map(String::as_str).collect();
         self.table(key, title, &refs, rows, &[]);
     }
@@ -141,11 +159,17 @@ fn f(r: &SimpleQueryRow, name: &str) -> Option<f64> {
 
 /// The sum of a numeric column over the rows; `None` when none has it.
 fn sum(rows: &[SimpleQueryRow], name: &str) -> Option<f64> {
-    rows.iter().filter_map(|r| f(r, name)).fold(None, |acc, v| Some(acc.unwrap_or(0.0) + v))
+    rows.iter()
+        .filter_map(|r| f(r, name))
+        .fold(None, |acc, v| Some(acc.unwrap_or(0.0) + v))
 }
 
 fn max_of(rows: &[SimpleQueryRow], name: &str) -> Option<f64> {
-    rows.iter().filter_map(|r| f(r, name)).fold(None, |acc: Option<f64>, v| Some(acc.map_or(v, |a| a.max(v))))
+    rows.iter()
+        .filter_map(|r| f(r, name))
+        .fold(None, |acc: Option<f64>, v| {
+            Some(acc.map_or(v, |a| a.max(v)))
+        })
 }
 
 /// A text cell as JSON: plain numbers become numbers (they sort as such),
@@ -154,7 +178,8 @@ fn json_cell(v: Option<&str>) -> Value {
     let Some(t) = v else { return Value::Null };
     let numeric = !t.is_empty()
         && t.len() <= 16
-        && t.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-')
+        && t.chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '-')
         && !(t.len() > 1 && t.starts_with('0') && !t.starts_with("0."));
     if numeric {
         if let Ok(i) = t.parse::<i64>() {
@@ -254,16 +279,33 @@ async fn postgres(m: &mut Mon<'_>) {
     {
         m.info("Versión", cell(&r, "version").unwrap_or_default());
         if v == Variant::Aurora {
-            if let Some(a) = m.quiet("SELECT aurora_version() AS v").await.and_then(|r| r.first().and_then(|r| cell(r, "v"))) {
+            if let Some(a) = m
+                .quiet("SELECT aurora_version() AS v")
+                .await
+                .and_then(|r| r.first().and_then(|r| cell(r, "v")))
+            {
                 m.info("Versión de Aurora", a);
             }
         }
         in_recovery = cell(&r, "role").as_deref() == Some("r");
-        m.info("Rol", if in_recovery { "Réplica (en recuperación)" } else { "Primario" });
+        m.info(
+            "Rol",
+            if in_recovery {
+                "Réplica (en recuperación)"
+            } else {
+                "Primario"
+            },
+        );
         m.info("Servidor", cell(&r, "addr").unwrap_or_default());
         m.info("Base actual", cell(&r, "db").unwrap_or_default());
         m.info("Iniciado", cell(&r, "started").unwrap_or_default());
-        m.metric(Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, f(&r, "uptime")));
+        m.metric(Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            U::Seconds,
+            f(&r, "uptime"),
+        ));
     }
 
     let mut block = 8192.0;
@@ -308,8 +350,16 @@ async fn postgres(m: &mut Mon<'_>) {
     // workers too).
     // Before 10 only client backends show up, except in openGauss, whose
     // background threads have no client port.
-    let clients = if ver >= 100000 { "backend_type = 'client backend'" } else { "client_port IS NOT NULL" };
-    let waiting = if ver >= 90600 { "wait_event_type = 'Lock'" } else { "waiting" };
+    let clients = if ver >= 100000 {
+        "backend_type = 'client backend'"
+    } else {
+        "client_port IS NOT NULL"
+    };
+    let waiting = if ver >= 90600 {
+        "wait_event_type = 'Lock'"
+    } else {
+        "waiting"
+    };
     if let Some(r) = m
         .row(
             &format!(
@@ -349,12 +399,63 @@ async fn postgres(m: &mut Mon<'_>) {
         blks_read = f(&r, "blks_read");
         let tx = add(f(&r, "commits"), f(&r, "rollbacks"));
         m.metric(Metric::new("transactions", "Transacciones", "Actividad", U::Count, tx).counter());
-        m.metric(Metric::new("rollbacks", "Rollbacks", "Actividad", U::Count, f(&r, "rollbacks")).counter());
-        m.metric(Metric::new("rows_read", "Filas leídas", "Actividad", U::Count, f(&r, "tup_returned")).counter());
-        m.metric(Metric::new("rows_written", "Filas escritas", "Actividad", U::Count, f(&r, "tup_written")).counter());
-        m.metric(Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, ratio(f(&r, "blks_hit"), blks_read)));
-        m.metric(Metric::new("deadlocks", "Deadlocks", "Bloqueos", U::Count, f(&r, "deadlocks")).counter());
-        m.metric(Metric::new("temp_bytes", "Archivos temporales", "Disco", U::Bytes, f(&r, "temp_bytes")).counter());
+        m.metric(
+            Metric::new(
+                "rollbacks",
+                "Rollbacks",
+                "Actividad",
+                U::Count,
+                f(&r, "rollbacks"),
+            )
+            .counter(),
+        );
+        m.metric(
+            Metric::new(
+                "rows_read",
+                "Filas leídas",
+                "Actividad",
+                U::Count,
+                f(&r, "tup_returned"),
+            )
+            .counter(),
+        );
+        m.metric(
+            Metric::new(
+                "rows_written",
+                "Filas escritas",
+                "Actividad",
+                U::Count,
+                f(&r, "tup_written"),
+            )
+            .counter(),
+        );
+        m.metric(Metric::new(
+            "cache_hit",
+            "Aciertos de caché",
+            "Caché",
+            U::Percent,
+            ratio(f(&r, "blks_hit"), blks_read),
+        ));
+        m.metric(
+            Metric::new(
+                "deadlocks",
+                "Deadlocks",
+                "Bloqueos",
+                U::Count,
+                f(&r, "deadlocks"),
+            )
+            .counter(),
+        );
+        m.metric(
+            Metric::new(
+                "temp_bytes",
+                "Archivos temporales",
+                "Disco",
+                U::Bytes,
+                f(&r, "temp_bytes"),
+            )
+            .counter(),
+        );
     }
 
     // Disk I/O: pg_stat_io on 16+; before that, blocks read into
@@ -368,11 +469,38 @@ async fn postgres(m: &mut Mon<'_>) {
             "SELECT sum(reads * op_bytes) AS r, sum(writes * op_bytes) AS w FROM pg_stat_io"
         };
         if let Some(r) = m.row(sql, "No se pudo leer la E/S (pg_stat_io)").await {
-            m.metric(Metric::new("disk_read", "Lectura de disco", "Disco", U::Bytes, f(&r, "r")).counter());
-            m.metric(Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, f(&r, "w")).counter());
+            m.metric(
+                Metric::new(
+                    "disk_read",
+                    "Lectura de disco",
+                    "Disco",
+                    U::Bytes,
+                    f(&r, "r"),
+                )
+                .counter(),
+            );
+            m.metric(
+                Metric::new(
+                    "disk_write",
+                    "Escritura en disco",
+                    "Disco",
+                    U::Bytes,
+                    f(&r, "w"),
+                )
+                .counter(),
+            );
         }
     } else if !no_checkpoints {
-        m.metric(Metric::new("disk_read", "Lectura de disco", "Disco", U::Bytes, blks_read.map(|b| b * block)).counter());
+        m.metric(
+            Metric::new(
+                "disk_read",
+                "Lectura de disco",
+                "Disco",
+                U::Bytes,
+                blks_read.map(|b| b * block),
+            )
+            .counter(),
+        );
     }
     if !no_checkpoints {
         let sql = if ver >= 170000 {
@@ -383,11 +511,29 @@ async fn postgres(m: &mut Mon<'_>) {
              FROM pg_stat_bgwriter"
         };
         if let Some(r) = m.row(sql, "No se pudieron leer los checkpoints").await {
-            m.metric(Metric::new("checkpoints", "Checkpoints", "Disco", U::Count, f(&r, "checkpoints")).counter());
+            m.metric(
+                Metric::new(
+                    "checkpoints",
+                    "Checkpoints",
+                    "Disco",
+                    U::Count,
+                    f(&r, "checkpoints"),
+                )
+                .counter(),
+            );
             written = f(&r, "written").map(|b| b * block);
         }
         if ver < 160000 {
-            m.metric(Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, written).counter());
+            m.metric(
+                Metric::new(
+                    "disk_write",
+                    "Escritura en disco",
+                    "Disco",
+                    U::Bytes,
+                    written,
+                )
+                .counter(),
+            );
         }
         if !in_recovery {
             let wal = if ver >= 100000 {
@@ -396,7 +542,10 @@ async fn postgres(m: &mut Mon<'_>) {
                 "SELECT pg_xlog_location_diff(pg_current_xlog_location(), '0/0') AS wal"
             };
             if let Some(r) = m.row(wal, "No se pudo leer la posición del WAL").await {
-                m.metric(Metric::new("wal_bytes", "WAL generado", "Disco", U::Bytes, f(&r, "wal")).counter());
+                m.metric(
+                    Metric::new("wal_bytes", "WAL generado", "Disco", U::Bytes, f(&r, "wal"))
+                        .counter(),
+                );
             }
         }
     }
@@ -405,9 +554,28 @@ async fn postgres(m: &mut Mon<'_>) {
     if v == Variant::OpenGauss {
         opengauss(m).await;
     } else if has_ext("pg_stat_statements") {
-        let (total, mean) = if ver >= 130000 { ("total_exec_time", "mean_exec_time") } else { ("total_time", "mean_time") };
-        if let Some(r) = m.row("SELECT sum(calls) AS calls FROM pg_stat_statements", "No se pudo leer pg_stat_statements").await {
-            m.metric(Metric::new("queries", "Consultas", "Actividad", U::Count, f(&r, "calls")).counter());
+        let (total, mean) = if ver >= 130000 {
+            ("total_exec_time", "mean_exec_time")
+        } else {
+            ("total_time", "mean_time")
+        };
+        if let Some(r) = m
+            .row(
+                "SELECT sum(calls) AS calls FROM pg_stat_statements",
+                "No se pudo leer pg_stat_statements",
+            )
+            .await
+        {
+            m.metric(
+                Metric::new(
+                    "queries",
+                    "Consultas",
+                    "Actividad",
+                    U::Count,
+                    f(&r, "calls"),
+                )
+                .counter(),
+            );
         }
         if let Some(rows) = m
             .quiet(&format!(
@@ -474,7 +642,11 @@ async fn postgres(m: &mut Mon<'_>) {
     {
         m.table("queries", "Consultas en curso", &["PID", "Usuario", "Base", "Duración (s)", "Espera", "Consulta"], &rows, &[]);
     }
-    let blocked_by = if ver >= 90600 { "array_to_string(pg_blocking_pids(a.pid), ', ')" } else { "''" };
+    let blocked_by = if ver >= 90600 {
+        "array_to_string(pg_blocking_pids(a.pid), ', ')"
+    } else {
+        "''"
+    };
     if let Some(rows) = m
         .quiet(&format!(
             "SELECT a.pid, a.usename, a.datname, l.locktype, l.mode,
@@ -502,7 +674,13 @@ async fn postgres(m: &mut Mon<'_>) {
             )
             .await
         {
-            m.table("waits", "Esperas principales", &["Tipo", "Evento", "Sesiones"], &rows, &[]);
+            m.table(
+                "waits",
+                "Esperas principales",
+                &["Tipo", "Evento", "Sesiones"],
+                &rows,
+                &[],
+            );
         }
     }
 
@@ -675,7 +853,13 @@ async fn replication(m: &mut Mon<'_>, in_recovery: bool) {
             )
             .await
         {
-            m.metric(Metric::new("replication_lag", "Retraso de réplica", "Replicación", U::Seconds, f(&r, "lag")));
+            m.metric(Metric::new(
+                "replication_lag",
+                "Retraso de réplica",
+                "Replicación",
+                U::Seconds,
+                f(&r, "lag"),
+            ));
         }
         if ver >= 90600 {
             if let Some(rows) = m
@@ -703,14 +887,33 @@ async fn replication(m: &mut Mon<'_>, in_recovery: bool) {
          FROM pg_stat_replication ORDER BY 1"
             .to_string()
     };
-    if let Some(rows) = m.rows(&sql, "No se pudieron leer las réplicas (pg_stat_replication)").await {
+    if let Some(rows) = m
+        .rows(
+            &sql,
+            "No se pudieron leer las réplicas (pg_stat_replication)",
+        )
+        .await
+    {
         m.info("Réplicas conectadas", rows.len().to_string());
         if !rows.is_empty() {
-            m.metric(Metric::new("replication_lag", "Retraso de réplica", "Replicación", U::Seconds, max_of(&rows, "lag_s")));
+            m.metric(Metric::new(
+                "replication_lag",
+                "Retraso de réplica",
+                "Replicación",
+                U::Seconds,
+                max_of(&rows, "lag_s"),
+            ));
             m.table(
                 "replication",
                 "Réplicas",
-                &["Aplicación", "Cliente", "Estado", "Sincronía", "Retraso (s)", "Retraso"],
+                &[
+                    "Aplicación",
+                    "Cliente",
+                    "Estado",
+                    "Sincronía",
+                    "Retraso (s)",
+                    "Retraso",
+                ],
                 &rows,
                 &[5],
             );
@@ -726,7 +929,13 @@ async fn replication(m: &mut Mon<'_>, in_recovery: bool) {
             .await
             .filter(|r| !r.is_empty())
         {
-            m.table("slots", "Slots de replicación", &["Slot", "Tipo", "Activo", "WAL retenido"], &rows, &[3]);
+            m.table(
+                "slots",
+                "Slots de replicación",
+                &["Slot", "Tipo", "Activo", "WAL retenido"],
+                &rows,
+                &[3],
+            );
         }
     }
 }
@@ -803,7 +1012,8 @@ async fn segments(m: &mut Mon<'_>) {
 
 /// openGauss: host CPU and memory from `dbe_perf`, statement counts.
 async fn opengauss(m: &mut Mon<'_>) {
-    const NO_PERF: &str = "Sin el rol monadmin o sysadmin no se ven el CPU ni la memoria (dbe_perf)";
+    const NO_PERF: &str =
+        "Sin el rol monadmin o sysadmin no se ven el CPU ni la memoria (dbe_perf)";
     if let Some(rows) = m
         .rows("SELECT name, value FROM dbe_perf.os_runtime WHERE name IN ('NUM_CPUS', 'BUSY_TIME', 'LOAD', 'PHYSICAL_MEMORY_BYTES')", NO_PERF)
         .await
@@ -893,7 +1103,11 @@ async fn cockroach(m: &mut Mon<'_>) {
         m.info("ID del clúster", cell(&r, "cluster").unwrap_or_default());
         m.info("Zona horaria", cell(&r, "tz").unwrap_or_default());
     }
-    let list = CRDB_METRICS.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ");
+    let list = CRDB_METRICS
+        .iter()
+        .map(|n| format!("'{n}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
     if let Some(rows) = m
         .rows(
             &format!("SELECT name, value FROM crdb_internal.node_metrics WHERE name IN ({list})"),
@@ -947,7 +1161,22 @@ async fn cockroach(m: &mut Mon<'_>) {
         }
     };
     if let Some(rows) = sessions {
-        m.table("sessions", "Sesiones", &["Nodo", "Sesión", "Usuario", "Cliente", "Aplicación", "Estado", "Conectada (s)", "Consulta"], &rows, &[]);
+        m.table(
+            "sessions",
+            "Sesiones",
+            &[
+                "Nodo",
+                "Sesión",
+                "Usuario",
+                "Cliente",
+                "Aplicación",
+                "Estado",
+                "Conectada (s)",
+                "Consulta",
+            ],
+            &rows,
+            &[],
+        );
     }
     let queries_sql = format!(
         "SELECT query_id, node_id, user_name, application_name,
@@ -959,10 +1188,29 @@ async fn cockroach(m: &mut Mon<'_>) {
     );
     let queries = match m.quiet(&queries_sql).await {
         Some(rows) => Some(rows),
-        None => m.quiet(&queries_sql.replace("crdb_internal.cluster_queries", "[SHOW CLUSTER STATEMENTS]")).await,
+        None => {
+            m.quiet(
+                &queries_sql.replace("crdb_internal.cluster_queries", "[SHOW CLUSTER STATEMENTS]"),
+            )
+            .await
+        }
     };
     if let Some(rows) = queries {
-        m.table("queries", "Consultas en curso", &["Consulta", "Nodo", "Usuario", "Aplicación", "Duración (s)", "Fase", "Texto"], &rows, &[]);
+        m.table(
+            "queries",
+            "Consultas en curso",
+            &[
+                "Consulta",
+                "Nodo",
+                "Usuario",
+                "Aplicación",
+                "Duración (s)",
+                "Fase",
+                "Texto",
+            ],
+            &rows,
+            &[],
+        );
     }
     if let Some(rows) = m
         .quiet(
@@ -984,7 +1232,13 @@ async fn cockroach(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.table("databases", "Bases", &["Base", "Dueño", "Tablas"], &rows, &[]);
+        m.table(
+            "databases",
+            "Bases",
+            &["Base", "Dueño", "Tablas"],
+            &rows,
+            &[],
+        );
     }
     m.note(
         "CockroachDB solo calcula el tamaño de bases y tablas recorriendo sus rangos, y los bloqueos con crdb_internal.cluster_locks \
@@ -996,11 +1250,19 @@ async fn cockroach(m: &mut Mon<'_>) {
 // Redshift (provisioned: stv / stl / svv; Serverless: sys_*).
 
 async fn redshift(m: &mut Mon<'_>) {
-    if let Some(r) = m.row("SELECT version() AS version, current_database() AS db", "No se pudo leer la versión").await {
+    if let Some(r) = m
+        .row(
+            "SELECT version() AS version, current_database() AS db",
+            "No se pudo leer la versión",
+        )
+        .await
+    {
         m.info("Versión", cell(&r, "version").unwrap_or_default());
         m.info("Base actual", cell(&r, "db").unwrap_or_default());
     }
-    let provisioned = m.quiet("SELECT count(DISTINCT node) AS nodes, count(*) AS slices FROM stv_slices").await;
+    let provisioned = m
+        .quiet("SELECT count(DISTINCT node) AS nodes, count(*) AS slices FROM stv_slices")
+        .await;
     let Some(slices) = provisioned else {
         return redshift_serverless(m).await;
     };
@@ -1008,8 +1270,20 @@ async fn redshift(m: &mut Mon<'_>) {
         m.info("Nodos de cómputo", cell(r, "nodes").unwrap_or_default());
         m.info("Slices", cell(r, "slices").unwrap_or_default());
     }
-    if let Some(r) = m.row("SELECT count(*) AS n FROM stv_sessions", "No se pudieron leer las sesiones (stv_sessions)").await {
-        m.metric(Metric::new("connections", "Conexiones", "Conexiones", U::Count, f(&r, "n")));
+    if let Some(r) = m
+        .row(
+            "SELECT count(*) AS n FROM stv_sessions",
+            "No se pudieron leer las sesiones (stv_sessions)",
+        )
+        .await
+    {
+        m.metric(Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            U::Count,
+            f(&r, "n"),
+        ));
     }
     if let Some(r) = m
         .row(
@@ -1020,8 +1294,20 @@ async fn redshift(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("active_sessions", "Consultas ejecutándose", "Conexiones", U::Count, f(&r, "running").or(Some(0.0))));
-        m.metric(Metric::new("wlm_queued", "Consultas en cola (WLM)", "Conexiones", U::Count, f(&r, "queued").or(Some(0.0))));
+        m.metric(Metric::new(
+            "active_sessions",
+            "Consultas ejecutándose",
+            "Conexiones",
+            U::Count,
+            f(&r, "running").or(Some(0.0)),
+        ));
+        m.metric(Metric::new(
+            "wlm_queued",
+            "Consultas en cola (WLM)",
+            "Conexiones",
+            U::Count,
+            f(&r, "queued").or(Some(0.0)),
+        ));
     }
     if let Some(r) = m
         .row(
@@ -1030,13 +1316,28 @@ async fn redshift(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("queries_per_min", "Consultas (último minuto)", "Actividad", U::Count, f(&r, "n")));
+        m.metric(Metric::new(
+            "queries_per_min",
+            "Consultas (último minuto)",
+            "Actividad",
+            U::Count,
+            f(&r, "n"),
+        ));
     }
     if let Some(r) = m
-        .row("SELECT count(*) AS n FROM svv_transactions WHERE NOT granted", "No se pudieron leer los bloqueos (svv_transactions)")
+        .row(
+            "SELECT count(*) AS n FROM svv_transactions WHERE NOT granted",
+            "No se pudieron leer los bloqueos (svv_transactions)",
+        )
         .await
     {
-        m.metric(Metric::new("locks_waiting", "Bloqueos en espera", "Bloqueos", U::Count, f(&r, "n")));
+        m.metric(Metric::new(
+            "locks_waiting",
+            "Bloqueos en espera",
+            "Bloqueos",
+            U::Count,
+            f(&r, "n"),
+        ));
     }
     if let Some(rows) = m
         .rows(
@@ -1092,7 +1393,13 @@ async fn redshift_tables(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.table("databases", "Bases y tamaños", &["Base", "Tamaño", "Tablas"], &rows, &[1]);
+        m.table(
+            "databases",
+            "Bases y tamaños",
+            &["Base", "Tamaño", "Tablas"],
+            &rows,
+            &[1],
+        );
     }
     if let Some(rows) = m
         .quiet(
@@ -1149,37 +1456,92 @@ async fn redshift_serverless(m: &mut Mon<'_>) {
 // Denodo, Yellowbrick: system views shown as the server returns them.
 
 async fn denodo(m: &mut Mon<'_>) {
-    if let Some(v) = m.quiet("SELECT version() AS v").await.and_then(|r| r.first().and_then(|r| r.get(0).map(str::to_string))) {
+    if let Some(v) = m
+        .quiet("SELECT version() AS v")
+        .await
+        .and_then(|r| r.first().and_then(|r| r.get(0).map(str::to_string)))
+    {
         m.info("Versión", v);
     }
     if let Some(rows) = m
-        .rows("SELECT * FROM GET_SESSIONS()", "No se pudieron leer las sesiones (GET_SESSIONS, requiere un usuario administrador)")
+        .rows(
+            "SELECT * FROM GET_SESSIONS()",
+            "No se pudieron leer las sesiones (GET_SESSIONS, requiere un usuario administrador)",
+        )
         .await
     {
-        m.metric(Metric::new("connections", "Sesiones", "Conexiones", U::Count, Some(rows.len() as f64)));
+        m.metric(Metric::new(
+            "connections",
+            "Sesiones",
+            "Conexiones",
+            U::Count,
+            Some(rows.len() as f64),
+        ));
         m.table_as_is("sessions", "Sesiones", &rows);
     }
     m.note("Denodo no expone por VQL el CPU, la memoria ni las consultas en curso: están en Denodo Monitor y por JMX.");
 }
 
 async fn yellowbrick(m: &mut Mon<'_>) {
-    if let Some(r) = m.row("SELECT version() AS version, current_database() AS db", "No se pudo leer la versión").await {
+    if let Some(r) = m
+        .row(
+            "SELECT version() AS version, current_database() AS db",
+            "No se pudo leer la versión",
+        )
+        .await
+    {
         m.info("Versión", cell(&r, "version").unwrap_or_default());
         m.info("Base actual", cell(&r, "db").unwrap_or_default());
     }
-    if let Some(rows) = m.rows(&format!("SELECT * FROM sys.session LIMIT {MAX_ROWS}"), "No se pudieron leer las sesiones (sys.session)").await {
-        m.metric(Metric::new("connections", "Conexiones", "Conexiones", U::Count, Some(rows.len() as f64)));
+    if let Some(rows) = m
+        .rows(
+            &format!("SELECT * FROM sys.session LIMIT {MAX_ROWS}"),
+            "No se pudieron leer las sesiones (sys.session)",
+        )
+        .await
+    {
+        m.metric(Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            U::Count,
+            Some(rows.len() as f64),
+        ));
         m.table_as_is("sessions", "Sesiones", &rows);
     }
-    if let Some(rows) = m.rows(&format!("SELECT * FROM sys.query LIMIT {MAX_ROWS}"), "No se pudieron leer las consultas en curso (sys.query)").await {
-        m.metric(Metric::new("active_sessions", "Consultas en curso", "Conexiones", U::Count, Some(rows.len() as f64)));
+    if let Some(rows) = m
+        .rows(
+            &format!("SELECT * FROM sys.query LIMIT {MAX_ROWS}"),
+            "No se pudieron leer las consultas en curso (sys.query)",
+        )
+        .await
+    {
+        m.metric(Metric::new(
+            "active_sessions",
+            "Consultas en curso",
+            "Conexiones",
+            U::Count,
+            Some(rows.len() as f64),
+        ));
         m.table_as_is("queries", "Consultas en curso", &rows);
     }
-    if let Some(rows) = m.quiet(&format!("SELECT * FROM sys.database LIMIT {MAX_ROWS}")).await {
+    if let Some(rows) = m
+        .quiet(&format!("SELECT * FROM sys.database LIMIT {MAX_ROWS}"))
+        .await
+    {
         m.table_as_is("databases", "Bases", &rows);
     }
-    if let Some(rows) = m.quiet(&format!("SELECT * FROM sys.worker LIMIT {MAX_ROWS}")).await {
-        m.metric(Metric::new("nodes", "Workers", "Cluster", U::Count, Some(rows.len() as f64)));
+    if let Some(rows) = m
+        .quiet(&format!("SELECT * FROM sys.worker LIMIT {MAX_ROWS}"))
+        .await
+    {
+        m.metric(Metric::new(
+            "nodes",
+            "Workers",
+            "Cluster",
+            U::Count,
+            Some(rows.len() as f64),
+        ));
         m.table_as_is("nodes", "Workers", &rows);
     }
     m.note("Yellowbrick no expone por SQL el CPU ni la memoria de los workers: están en Yellowbrick Manager.");
@@ -1200,7 +1562,10 @@ async fn materialize(m: &mut Mon<'_>) {
         m.info("Clúster de esta sesión", cell(&r, "cluster").unwrap_or_default());
         m.metric(Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, f(&r, "uptime")));
     }
-    let max_conn = m.quiet("SHOW max_connections").await.and_then(|r| r.first().and_then(|r| r.get(0).and_then(num)));
+    let max_conn = m
+        .quiet("SHOW max_connections")
+        .await
+        .and_then(|r| r.first().and_then(|r| r.get(0).and_then(num)));
     if let Some(rows) = m
         .rows(
             &format!(
@@ -1312,19 +1677,57 @@ async fn risingwave(m: &mut Mon<'_>) {
         )
         .await
     {
-        let compute = rows.iter().filter(|r| cell(r, "type").as_deref() == Some("WORKER_TYPE_COMPUTE_NODE")).count();
-        m.metric(Metric::new("nodes", "Nodos", "Cluster", U::Count, Some(rows.len() as f64)));
-        m.metric(Metric::new("compute_nodes", "Nodos de cómputo", "Cluster", U::Count, Some(compute as f64)));
+        let compute = rows
+            .iter()
+            .filter(|r| cell(r, "type").as_deref() == Some("WORKER_TYPE_COMPUTE_NODE"))
+            .count();
+        m.metric(Metric::new(
+            "nodes",
+            "Nodos",
+            "Cluster",
+            U::Count,
+            Some(rows.len() as f64),
+        ));
+        m.metric(Metric::new(
+            "compute_nodes",
+            "Nodos de cómputo",
+            "Cluster",
+            U::Count,
+            Some(compute as f64),
+        ));
         m.table(
             "nodes",
             "Nodos del clúster",
-            &["ID", "Host", "Puerto", "Tipo", "Estado", "Paralelismo", "Versión", "CPUs", "Memoria del host", "Iniciado"],
+            &[
+                "ID",
+                "Host",
+                "Puerto",
+                "Tipo",
+                "Estado",
+                "Paralelismo",
+                "Versión",
+                "CPUs",
+                "Memoria del host",
+                "Iniciado",
+            ],
             &rows,
             &[8],
         );
     }
-    if let Some(rows) = m.rows("SHOW PROCESSLIST", "No se pudieron leer las sesiones (SHOW PROCESSLIST)").await {
-        m.metric(Metric::new("connections", "Conexiones", "Conexiones", U::Count, Some(rows.len() as f64)));
+    if let Some(rows) = m
+        .rows(
+            "SHOW PROCESSLIST",
+            "No se pudieron leer las sesiones (SHOW PROCESSLIST)",
+        )
+        .await
+    {
+        m.metric(Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            U::Count,
+            Some(rows.len() as f64),
+        ));
         m.table_as_is("sessions", "Sesiones", &rows);
     }
     if let Some(rows) = m
@@ -1339,14 +1742,28 @@ async fn risingwave(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.table("top_objects", "Objetos más grandes (estado)", &["Esquema", "Objeto", "Tipo", "Claves", "Tamaño"], &rows, &[4]);
+        m.table(
+            "top_objects",
+            "Objetos más grandes (estado)",
+            &["Esquema", "Objeto", "Tipo", "Claves", "Tamaño"],
+            &rows,
+            &[4],
+        );
     }
     if let Some(r) = m
-        .quiet("SELECT sum(total_key_size + total_value_size) AS bytes FROM rw_catalog.rw_table_stats")
+        .quiet(
+            "SELECT sum(total_key_size + total_value_size) AS bytes FROM rw_catalog.rw_table_stats",
+        )
         .await
         .and_then(|r| r.into_iter().next())
     {
-        m.metric(Metric::new("storage_used", "Estado almacenado", "Almacenamiento", U::Bytes, f(&r, "bytes").or(Some(0.0))));
+        m.metric(Metric::new(
+            "storage_used",
+            "Estado almacenado",
+            "Almacenamiento",
+            U::Bytes,
+            f(&r, "bytes").or(Some(0.0)),
+        ));
     }
     if let Some(rows) = m
         .quiet(&format!("SELECT id, name, status, parallelism FROM rw_catalog.rw_streaming_jobs ORDER BY id LIMIT {MAX_ROWS}"))
@@ -1424,8 +1841,26 @@ async fn cratedb(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("queries", "Consultas", "Actividad", U::Count, f(&r, "total")).counter());
-        m.metric(Metric::new("failed_queries", "Consultas con error", "Actividad", U::Count, f(&r, "failed")).counter());
+        m.metric(
+            Metric::new(
+                "queries",
+                "Consultas",
+                "Actividad",
+                U::Count,
+                f(&r, "total"),
+            )
+            .counter(),
+        );
+        m.metric(
+            Metric::new(
+                "failed_queries",
+                "Consultas con error",
+                "Actividad",
+                U::Count,
+                f(&r, "failed"),
+            )
+            .counter(),
+        );
     }
     if let Some(rows) = m
         .rows(
@@ -1453,7 +1888,13 @@ async fn cratedb(m: &mut Mon<'_>) {
         .await
         .and_then(|r| r.into_iter().next())
     {
-        m.metric(Metric::new("data_size", "Datos (shards primarios)", "Almacenamiento", U::Bytes, f(&r, "bytes").or(Some(0.0))));
+        m.metric(Metric::new(
+            "data_size",
+            "Datos (shards primarios)",
+            "Almacenamiento",
+            U::Bytes,
+            f(&r, "bytes").or(Some(0.0)),
+        ));
     }
     if let Some(rows) = m
         .quiet(&format!(
@@ -1462,9 +1903,33 @@ async fn cratedb(m: &mut Mon<'_>) {
         ))
         .await
     {
-        m.metric(Metric::new("underreplicated_shards", "Shards sub-replicados", "Cluster", U::Count, sum(&rows, "underreplicated_shards").or(Some(0.0))));
-        m.metric(Metric::new("missing_shards", "Shards faltantes", "Cluster", U::Count, sum(&rows, "missing_shards").or(Some(0.0))));
-        m.table("health", "Salud de las tablas", &["Esquema", "Tabla", "Salud", "Shards faltantes", "Shards sub-replicados"], &rows, &[]);
+        m.metric(Metric::new(
+            "underreplicated_shards",
+            "Shards sub-replicados",
+            "Cluster",
+            U::Count,
+            sum(&rows, "underreplicated_shards").or(Some(0.0)),
+        ));
+        m.metric(Metric::new(
+            "missing_shards",
+            "Shards faltantes",
+            "Cluster",
+            U::Count,
+            sum(&rows, "missing_shards").or(Some(0.0)),
+        ));
+        m.table(
+            "health",
+            "Salud de las tablas",
+            &[
+                "Esquema",
+                "Tabla",
+                "Salud",
+                "Shards faltantes",
+                "Shards sub-replicados",
+            ],
+            &rows,
+            &[],
+        );
     }
     if let Some(rows) = m.quiet("SELECT id, severity, description FROM sys.checks WHERE NOT passed ORDER BY severity DESC").await {
         for r in &rows {
@@ -1473,26 +1938,42 @@ async fn cratedb(m: &mut Mon<'_>) {
             }
         }
     }
-    m.note("CrateDB no bloquea filas ni tiene transacciones: no hay bloqueos ni esperas que mostrar.");
+    m.note(
+        "CrateDB no bloquea filas ni tiene transacciones: no hay bloqueos ni esperas que mostrar.",
+    );
 }
 
 // ---------------------------------------------------------------------------
 // H2 (PostgreSQL server mode): INFORMATION_SCHEMA and the JVM.
 
 async fn h2(m: &mut Mon<'_>) {
-    if let Some(v) = m.quiet("SELECT H2VERSION() AS v").await.and_then(|r| r.first().and_then(|r| cell(r, "v"))) {
+    if let Some(v) = m
+        .quiet("SELECT H2VERSION() AS v")
+        .await
+        .and_then(|r| r.first().and_then(|r| cell(r, "v")))
+    {
         m.info("Versión", format!("H2 {v}"));
     }
-    if let Some(p) = m.quiet("SELECT DATABASE_PATH() AS p").await.and_then(|r| r.first().and_then(|r| cell(r, "p"))) {
+    if let Some(p) = m
+        .quiet("SELECT DATABASE_PATH() AS p")
+        .await
+        .and_then(|r| r.first().and_then(|r| cell(r, "p")))
+    {
         m.info("Archivo de la base", p);
     }
     if let Some(r) = m
-        .row("SELECT MEMORY_USED() AS used, MEMORY_FREE() AS free", "No se pudo leer la memoria de la JVM")
+        .row(
+            "SELECT MEMORY_USED() AS used, MEMORY_FREE() AS free",
+            "No se pudo leer la memoria de la JVM",
+        )
         .await
     {
         // Kilobytes.
         let used = f(&r, "used").map(|k| k * 1024.0);
-        m.metric(Metric::new("mem_used", "Memoria de la JVM", "Memoria", U::Bytes, used).max(add(used, f(&r, "free").map(|k| k * 1024.0))));
+        m.metric(
+            Metric::new("mem_used", "Memoria de la JVM", "Memoria", U::Bytes, used)
+                .max(add(used, f(&r, "free").map(|k| k * 1024.0))),
+        );
     }
     if let Some(rows) = m
         .rows(
@@ -1569,11 +2050,19 @@ mod tests {
         assert_eq!(json_cell(Some("-1.5")), serde_json::json!(-1.5));
         assert_eq!(json_cell(Some("0.25")), serde_json::json!(0.25));
         assert_eq!(json_cell(Some("007")), Value::String("007".into()));
-        assert_eq!(json_cell(Some("10.0.0.1")), Value::String("10.0.0.1".into()));
-        assert_eq!(json_cell(Some("2024-01-31")), Value::String("2024-01-31".into()));
+        assert_eq!(
+            json_cell(Some("10.0.0.1")),
+            Value::String("10.0.0.1".into())
+        );
+        assert_eq!(
+            json_cell(Some("2024-01-31")),
+            Value::String("2024-01-31".into())
+        );
         assert_eq!(json_cell(None), Value::Null);
         let long = "x".repeat(MAX_TEXT + 10);
-        let Value::String(cut) = json_cell(Some(&long)) else { panic!() };
+        let Value::String(cut) = json_cell(Some(&long)) else {
+            panic!()
+        };
         assert_eq!(cut.chars().count(), MAX_TEXT + 1);
     }
 
@@ -1595,7 +2084,10 @@ mod tests {
 
     #[test]
     fn server_reasons_lose_the_severity() {
-        assert_eq!(reason("ERROR: permission denied for view x\nDetalle: y"), "permission denied for view x");
+        assert_eq!(
+            reason("ERROR: permission denied for view x\nDetalle: y"),
+            "permission denied for view x"
+        );
         assert_eq!(reason("se cerró la conexión"), "se cerró la conexión");
     }
 

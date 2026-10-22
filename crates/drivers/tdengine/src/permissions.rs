@@ -37,17 +37,30 @@ fn flag(r: &Map<String, Value>, k: &str) -> Option<bool> {
 
 pub(crate) fn decide(me: &Me, database: Option<&str>) -> Permissions {
     let database = database.is_some_and(|d| !d.trim().is_empty());
-    let Some(superuser) = me.superuser else { return Permissions::default() };
+    let Some(superuser) = me.superuser else {
+        return Permissions::default();
+    };
     if superuser {
         return Permissions {
             profiler: Access::Allowed,
             create_database: Access::Allowed,
-            drop_database: if database { Access::Allowed } else { Access::Unknown },
+            drop_database: if database {
+                Access::Allowed
+            } else {
+                Access::Unknown
+            },
             manage_security: Access::Allowed,
             ..Default::default()
         };
     }
-    Permissions { profiler: if me.sysinfo == Some(true) { Access::Allowed } else { Access::Unknown }, ..Default::default() }
+    Permissions {
+        profiler: if me.sysinfo == Some(true) {
+            Access::Allowed
+        } else {
+            Access::Unknown
+        },
+        ..Default::default()
+    }
 }
 
 /// The refusal a SYSINFO 0 user gets.
@@ -59,14 +72,22 @@ pub(crate) async fn check(s: &TdSession, database: Option<&str>) -> Result<Permi
     let me = match s.records("SHOW USERS").await {
         Ok(rows) => {
             let user = &s.conn.user;
-            let row = rows.iter().find(|r| r.get("name").map(text).as_deref() == Some(user.as_str()));
+            let row = rows
+                .iter()
+                .find(|r| r.get("name").map(text).as_deref() == Some(user.as_str()));
             match row {
-                Some(r) => Me { superuser: flag(r, "super"), sysinfo: flag(r, "sysinfo") },
+                Some(r) => Me {
+                    superuser: flag(r, "super"),
+                    sysinfo: flag(r, "sysinfo"),
+                },
                 None => Me::default(),
             }
         }
         Err(e @ Error::Connect(_)) => return Err(e),
-        Err(e) if permission_denied(&e) => Me { superuser: Some(false), sysinfo: Some(false) },
+        Err(e) if permission_denied(&e) => Me {
+            superuser: Some(false),
+            sysinfo: Some(false),
+        },
         Err(e) => {
             tracing::debug!("tdengine: permissions check refused: {e}");
             Me::default()
@@ -81,29 +102,79 @@ mod tests {
 
     #[test]
     fn root_may_do_everything() {
-        let me = Me { superuser: Some(true), sysinfo: Some(true) };
+        let me = Me {
+            superuser: Some(true),
+            sysinfo: Some(true),
+        };
         let p = decide(&me, Some("db"));
-        assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (
+                &p.profiler,
+                &p.create_database,
+                &p.drop_database,
+                &p.manage_security
+            ),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
         assert_eq!(decide(&me, None).drop_database, Access::Unknown);
     }
 
     #[test]
     fn plain_users_are_never_denied() {
-        let p = decide(&Me { superuser: Some(false), sysinfo: Some(true) }, Some("db"));
-        assert_eq!(p, Permissions { profiler: Access::Allowed, ..Default::default() });
+        let p = decide(
+            &Me {
+                superuser: Some(false),
+                sysinfo: Some(true),
+            },
+            Some("db"),
+        );
+        assert_eq!(
+            p,
+            Permissions {
+                profiler: Access::Allowed,
+                ..Default::default()
+            }
+        );
         // SYSINFO 0: SHOW USERS refused.
-        assert_eq!(decide(&Me { superuser: Some(false), sysinfo: Some(false) }, Some("db")), Permissions::default());
+        assert_eq!(
+            decide(
+                &Me {
+                    superuser: Some(false),
+                    sysinfo: Some(false)
+                },
+                Some("db")
+            ),
+            Permissions::default()
+        );
     }
 
     #[test]
     fn nothing_known() {
         assert_eq!(decide(&Me::default(), Some("db")), Permissions::default());
-        assert!(permission_denied(&Error::Query("Permission denied or target object not exist".into())));
+        assert!(permission_denied(&Error::Query(
+            "Permission denied or target object not exist".into()
+        )));
     }
 
     #[test]
     fn flags_as_the_server_sends_them() {
-        let r: Map<String, Value> = serde_json::from_value(serde_json::json!({ "super": 1, "sysinfo": "0", "createdb": true })).unwrap();
-        assert_eq!((flag(&r, "super"), flag(&r, "sysinfo"), flag(&r, "createdb"), flag(&r, "x")), (Some(true), Some(false), Some(true), None));
+        let r: Map<String, Value> = serde_json::from_value(
+            serde_json::json!({ "super": 1, "sysinfo": "0", "createdb": true }),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                flag(&r, "super"),
+                flag(&r, "sysinfo"),
+                flag(&r, "createdb"),
+                flag(&r, "x")
+            ),
+            (Some(true), Some(false), Some(true), None)
+        );
     }
 }

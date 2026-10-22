@@ -19,18 +19,22 @@ mod stats;
 mod steps;
 mod transfer;
 
-use dbine_driver::{
-    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
-    Driver, DriverInfo, Error, Family, Field, FieldKind, KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax, Language,
-    ObjectKindInfo, ObjectRef, MonitorSnapshot, QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema,
-};
 use dbine_driver::keys::{glob_escape, has_wildcards};
+use dbine_driver::{
+    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
+    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, KeyEntry, KeyPage,
+    KeyScan, KeySearch, KeySyntax, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
+    QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema,
+};
 use redis::aio::MultiplexedConnection;
-use steps::Step;
-use redis::{AsyncConnectionConfig, ConnectionAddr, ErrorKind, IntoConnectionInfo, RedisConnectionInfo, RedisError, Value};
+use redis::{
+    AsyncConnectionConfig, ConnectionAddr, ErrorKind, IntoConnectionInfo, RedisConnectionInfo,
+    RedisError, Value,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use steps::Step;
 
 /// Keys `list_objects` returns at most (SCAN stops there); the explorer
 /// searches with `scan_keys` instead.
@@ -44,9 +48,15 @@ const KEY_TYPES: &[&str] = &["string", "hash", "list", "set", "zset", "stream", 
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![
-        Arc::new(RedisDriver { info: info("redis", "Redis") }),
-        Arc::new(RedisDriver { info: info("valkey", "Valkey") }),
-        Arc::new(RedisDriver { info: info("dragonfly", "Dragonfly") }),
+        Arc::new(RedisDriver {
+            info: info("redis", "Redis"),
+        }),
+        Arc::new(RedisDriver {
+            info: info("valkey", "Valkey"),
+        }),
+        Arc::new(RedisDriver {
+            info: info("dragonfly", "Dragonfly"),
+        }),
     ]
 }
 
@@ -87,7 +97,8 @@ fn db_index(name: &str) -> Result<i64> {
     if n.is_empty() {
         return Ok(0);
     }
-    n.parse().map_err(|_| Error::Connect(format!("'{name}' no es una base de Redis (db0, db1…)")))
+    n.parse()
+        .map_err(|_| Error::Connect(format!("'{name}' no es una base de Redis (db0, db1…)")))
 }
 
 #[async_trait]
@@ -99,7 +110,10 @@ impl Driver for RedisDriver {
     /// As redis-cli with a piped script: a failed command doesn't stop the script (the tab's
     /// toggle overrides it).
     fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
-        dbine_driver::ScriptDefaults { continue_on_error: true, ..dbine_driver::ScriptDefaults::for_language(self.info().language) }
+        dbine_driver::ScriptDefaults {
+            continue_on_error: true,
+            ..dbine_driver::ScriptDefaults::for_language(self.info().language)
+        }
     }
 
     /// Redis' databases are a fixed, numbered set (`databases` in the
@@ -150,11 +164,19 @@ impl Driver for RedisDriver {
     }
 
     fn key_search(&self) -> Option<KeySearch> {
-        Some(KeySearch { syntax: KeySyntax::Glob, separator: ":", types: KEY_TYPES.to_vec(), case_sensitive: true })
+        Some(KeySearch {
+            syntax: KeySyntax::Glob,
+            separator: ":",
+            types: KEY_TYPES.to_vec(),
+            case_sensitive: true,
+        })
     }
 
     /// No schema to sync: keys are data, not tables.
-    fn sync_script(&self, _changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        _changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         Err(Error::Unsupported("Redis no tiene esquema: las keys son datos (no tablas con columnas), así que no hay cambios de esquema que aplicar; para llevar keys de una base a otra usá la copia de datos o la exportación".into()))
     }
 
@@ -179,36 +201,68 @@ impl Driver for RedisDriver {
         ddl::table_ddl(table, parts)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
         ddl::insert_script(target, columns, rows)
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::update_script(target, changes)
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         ddl::delete_script(target, keys)
     }
 
     /// Redis commands read whole keys (a string, a hash, a list…): nothing
     /// to filter by column on the server.
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         if filters.is_empty() {
             return Ok(browse.to_string());
         }
-        Err(Error::Unsupported("Redis lee claves enteras: no filtra por columna en el servidor".into()))
+        Err(Error::Unsupported(
+            "Redis lee claves enteras: no filtra por columna en el servidor".into(),
+        ))
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let db = db_index(database.filter(|d| !d.is_empty()).unwrap_or(&cfg.database))?;
-        let host = if cfg.host.trim().is_empty() { "localhost".to_string() } else { cfg.host.trim().to_string() };
+        let host = if cfg.host.trim().is_empty() {
+            "localhost".to_string()
+        } else {
+            cfg.host.trim().to_string()
+        };
         let port = cfg.port_or(6379);
         let addr = if cfg.encrypt {
             // redis' rustls needs a process-wide crypto provider when more
             // than one is compiled in; a second install is a no-op error.
             let _ = rustls::crypto::ring::default_provider().install_default();
-            ConnectionAddr::TcpTls { host, port, insecure: cfg.trust_server_certificate, tls_params: None }
+            ConnectionAddr::TcpTls {
+                host,
+                port,
+                insecure: cfg.trust_server_certificate,
+                tls_params: None,
+            }
         } else {
             ConnectionAddr::Tcp(host, port)
         };
@@ -219,21 +273,39 @@ impl Driver for RedisDriver {
         if let Some(p) = cfg.password.as_deref().filter(|p| !p.is_empty()) {
             redis_info = redis_info.set_password(p);
         }
-        let conn_info = addr.into_connection_info().map_err(connect_err)?.set_redis_settings(redis_info);
+        let conn_info = addr
+            .into_connection_info()
+            .map_err(connect_err)?
+            .set_redis_settings(redis_info);
         let client = redis::Client::open(conn_info).map_err(connect_err)?;
         let config = AsyncConnectionConfig::new()
             .set_connection_timeout(Some(Duration::from_secs(15)))
             .set_response_timeout(Some(Duration::from_secs(300)));
-        let conn = tokio::time::timeout(Duration::from_secs(20), client.get_multiplexed_async_connection_with_config(&config))
-            .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(connect_err)?;
-        Ok(Box::new(RedisSession { conn, client, db, read_only: cfg.read_only, types: HashMap::new(), profiler: None, scan_type: true, multi: false, queued: 0, queued_db: None }))
+        let conn = tokio::time::timeout(
+            Duration::from_secs(20),
+            client.get_multiplexed_async_connection_with_config(&config),
+        )
+        .await
+        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+        .map_err(connect_err)?;
+        Ok(Box::new(RedisSession {
+            conn,
+            client,
+            db,
+            read_only: cfg.read_only,
+            types: HashMap::new(),
+            profiler: None,
+            scan_type: true,
+            multi: false,
+            queued: 0,
+            queued_db: None,
+        }))
     }
 }
 
 fn is_auth(e: &RedisError) -> bool {
-    e.kind() == ErrorKind::AuthenticationFailed || matches!(e.code(), Some("WRONGPASS" | "NOAUTH" | "NOPERM"))
+    e.kind() == ErrorKind::AuthenticationFailed
+        || matches!(e.code(), Some("WRONGPASS" | "NOAUTH" | "NOPERM"))
 }
 
 fn connect_err(e: RedisError) -> Error {
@@ -332,10 +404,17 @@ impl RedisSession {
     }
 
     /// One editor command into `out`.
-    async fn command(&mut self, cmd: &[Vec<u8>], max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn command(
+        &mut self,
+        cmd: &[Vec<u8>],
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let name = String::from_utf8_lossy(&cmd[0]).to_ascii_uppercase();
         if command::is_streaming(&name) {
-            return Err(Error::Unsupported(format!("El editor no admite {name}: deja la conexión ocupada.")));
+            return Err(Error::Unsupported(format!(
+                "El editor no admite {name}: deja la conexión ocupada."
+            )));
         }
         let args: Vec<&[u8]> = cmd.iter().map(Vec::as_slice).collect();
         let reply = self.send_raw(&args).await.map_err(command_err);
@@ -352,7 +431,9 @@ impl RedisSession {
             ("EXEC" | "DISCARD", _) => {
                 self.multi = false;
                 // EXEC switches to the last queued SELECT that didn't fail.
-                if let (Some((at, db)), "EXEC", Ok(Value::Array(items))) = (self.queued_db.take(), name.as_str(), &reply) {
+                if let (Some((at, db)), "EXEC", Ok(Value::Array(items))) =
+                    (self.queued_db.take(), name.as_str(), &reply)
+                {
                     if !matches!(items.get(at), Some(Value::ServerError(_))) {
                         switch_to = Some(db);
                     }
@@ -361,7 +442,12 @@ impl RedisSession {
             _ => {}
         }
         let reply = reply?;
-        let select = (name == "SELECT").then(|| cmd.get(1).and_then(|d| std::str::from_utf8(d).ok()?.parse::<i64>().ok())).flatten();
+        let select = (name == "SELECT")
+            .then(|| {
+                cmd.get(1)
+                    .and_then(|d| std::str::from_utf8(d).ok()?.parse::<i64>().ok())
+            })
+            .flatten();
         if was_multi && self.multi && name != "MULTI" {
             if let Some(db) = select {
                 self.queued_db = Some((self.queued, db));
@@ -380,7 +466,10 @@ impl RedisSession {
             // As redis-cli: a command that failed inside the transaction is
             // an error line of the reply; the others were applied.
             if let Value::Array(items) = &reply {
-                let failed = items.iter().filter(|v| matches!(v, Value::ServerError(_))).count();
+                let failed = items
+                    .iter()
+                    .filter(|v| matches!(v, Value::ServerError(_)))
+                    .count();
                 if failed > 0 {
                     out.warning(format!(
                         "EXEC: {failed} de {} comandos de la transacción fallaron; los demás se aplicaron.",
@@ -390,7 +479,16 @@ impl RedisSession {
             }
         }
         let table = shape::shape(cmd, reply);
-        out.begin_result(table.columns.iter().map(|c| ResultColumn { name: c.clone(), type_name: String::new() }).collect());
+        out.begin_result(
+            table
+                .columns
+                .iter()
+                .map(|c| ResultColumn {
+                    name: c.clone(),
+                    type_name: String::new(),
+                })
+                .collect(),
+        );
         if let Some(m) = table.message {
             out.info(m);
         }
@@ -452,14 +550,22 @@ impl Session for RedisSession {
     async fn server_version(&mut self) -> Result<String> {
         let text = shape::text_of(&self.run(&[b"INFO", b"server"]).await?);
         let field = |k: &str| {
-            text.lines().find_map(|l| l.trim().strip_prefix(k).and_then(|r| r.strip_prefix(':')).map(str::to_string))
+            text.lines().find_map(|l| {
+                l.trim()
+                    .strip_prefix(k)
+                    .and_then(|r| r.strip_prefix(':'))
+                    .map(str::to_string)
+            })
         };
         Ok(if let Some(v) = field("valkey_version") {
             format!("Valkey {v}")
         } else if let Some(v) = field("dragonfly_version") {
             format!("Dragonfly {}", v.trim_start_matches("df-v"))
         } else {
-            let mode = field("redis_mode").filter(|m| m != "standalone").map(|m| format!(" ({m})")).unwrap_or_default();
+            let mode = field("redis_mode")
+                .filter(|m| m != "standalone")
+                .map(|m| format!(" ({m})"))
+                .unwrap_or_default();
             format!("Redis {}{mode}", field("redis_version").unwrap_or_default())
         })
     }
@@ -468,7 +574,12 @@ impl Session for RedisSession {
         let n = match self.run(&[b"CONFIG", b"GET", b"databases"]).await {
             Ok(v) => {
                 let t = shape::shape(&[b"CONFIG".to_vec(), b"GET".to_vec()], v);
-                t.rows.first().and_then(|r| r.get(1)).and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(16)
+                t.rows
+                    .first()
+                    .and_then(|r| r.get(1))
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(16)
             }
             Err(_) => 16,
         };
@@ -480,8 +591,17 @@ impl Session for RedisSession {
         let mut keys: Vec<Vec<u8>> = Vec::new();
         let mut cursor = String::from("0");
         loop {
-            let reply = self.run(&[b"SCAN", cursor.as_bytes(), b"COUNT", SCAN_COUNT.to_string().as_bytes()]).await?;
-            let Value::Array(mut parts) = reply else { break };
+            let reply = self
+                .run(&[
+                    b"SCAN",
+                    cursor.as_bytes(),
+                    b"COUNT",
+                    SCAN_COUNT.to_string().as_bytes(),
+                ])
+                .await?;
+            let Value::Array(mut parts) = reply else {
+                break;
+            };
             if parts.len() != 2 {
                 break;
             }
@@ -506,13 +626,22 @@ impl Session for RedisSession {
         for k in &keys {
             pipe.cmd("TYPE").arg(k.as_slice());
         }
-        let types: Vec<Value> = if keys.is_empty() { Vec::new() } else { pipe.query_async(&mut self.conn).await.map_err(err)? };
+        let types: Vec<Value> = if keys.is_empty() {
+            Vec::new()
+        } else {
+            pipe.query_async(&mut self.conn).await.map_err(err)?
+        };
         self.types.clear();
         let mut out = Vec::with_capacity(keys.len());
         for (k, t) in keys.into_iter().zip(types) {
             let name = String::from_utf8_lossy(&k).into_owned();
             self.types.insert(name.clone(), shape::text_of(&t));
-            out.push(DbObject { kind: kinds::KEY.into(), schema: None, name, parent: None });
+            out.push(DbObject {
+                kind: kinds::KEY.into(),
+                schema: None,
+                name,
+                parent: None,
+            });
         }
         Ok(out)
     }
@@ -527,7 +656,11 @@ impl Session for RedisSession {
             t => t.to_string(),
         };
         let want = scan.count.clamp(1, 5000) as usize;
-        let wanted_type = scan.key_type.as_deref().filter(|t| !t.is_empty()).map(server_type);
+        let wanted_type = scan
+            .key_type
+            .as_deref()
+            .filter(|t| !t.is_empty())
+            .map(server_type);
         let first = scan.cursor.is_none();
         let mut cursor = scan.cursor.clone().unwrap_or_else(|| "0".into());
         let mut names: Vec<Vec<u8>> = Vec::new();
@@ -538,7 +671,14 @@ impl Session for RedisSession {
         let count = SCAN_COUNT.to_string();
         let mut scanned = 0u64;
         loop {
-            let mut args: Vec<&[u8]> = vec![b"SCAN", cursor.as_bytes(), b"MATCH", pattern.as_bytes(), b"COUNT", count.as_bytes()];
+            let mut args: Vec<&[u8]> = vec![
+                b"SCAN",
+                cursor.as_bytes(),
+                b"MATCH",
+                pattern.as_bytes(),
+                b"COUNT",
+                count.as_bytes(),
+            ];
             let by_server = wanted_type.filter(|_| self.scan_type);
             if let Some(t) = by_server {
                 args.extend([b"TYPE".as_slice(), t.as_bytes()]);
@@ -551,7 +691,9 @@ impl Session for RedisSession {
                 }
                 r => r?,
             };
-            let Value::Array(mut parts) = reply else { break };
+            let Value::Array(mut parts) = reply else {
+                break;
+            };
             if parts.len() != 2 {
                 break;
             }
@@ -575,9 +717,16 @@ impl Session for RedisSession {
         // Every key's type and time to live in one round trip.
         let mut pipe = redis::pipe();
         for k in &names {
-            pipe.cmd("TYPE").arg(k.as_slice()).cmd("PTTL").arg(k.as_slice());
+            pipe.cmd("TYPE")
+                .arg(k.as_slice())
+                .cmd("PTTL")
+                .arg(k.as_slice());
         }
-        let meta: Vec<Value> = if names.is_empty() { Vec::new() } else { pipe.query_async(&mut self.conn).await.map_err(err)? };
+        let meta: Vec<Value> = if names.is_empty() {
+            Vec::new()
+        } else {
+            pipe.query_async(&mut self.conn).await.map_err(err)?
+        };
         let mut keys = Vec::with_capacity(names.len());
         for (k, m) in names.into_iter().zip(meta.chunks(2)) {
             let t = shape::text_of(&m[0]);
@@ -590,10 +739,23 @@ impl Session for RedisSession {
                 Some(Value::Int(ms)) if *ms >= 0 => Some(*ms),
                 _ => None,
             };
-            keys.push(KeyEntry { name, key_type: Some(type_label(&t).to_string()), ttl_ms });
+            keys.push(KeyEntry {
+                name,
+                key_type: Some(type_label(&t).to_string()),
+                ttl_ms,
+            });
         }
-        let total = if first { self.int(&[b"DBSIZE"]).await.map(|n| n.max(0) as u64) } else { None };
-        Ok(KeyPage { keys, cursor: (cursor != "0").then_some(cursor), total, scanned })
+        let total = if first {
+            self.int(&[b"DBSIZE"]).await.map(|n| n.max(0) as u64)
+        } else {
+            None
+        };
+        Ok(KeyPage {
+            keys,
+            cursor: (cursor != "0").then_some(cursor),
+            total,
+            scanned,
+        })
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -605,10 +767,15 @@ impl Session for RedisSession {
             "set" => vec![col("value", "string", true)],
             "zset" => vec![col("member", "string", true), col("score", "double", false)],
             "stream" => {
-                let v = self.run(&[b"XRANGE", obj.name.as_bytes(), b"-", b"+", b"COUNT", b"100"]).await?;
+                let v = self
+                    .run(&[b"XRANGE", obj.name.as_bytes(), b"-", b"+", b"COUNT", b"100"])
+                    .await?;
                 let table = shape::shape(&[b"XRANGE".to_vec()], v);
                 let mut cols = vec![col("id", "stream id", true)];
-                cols.extend(table.columns.iter().skip(1).map(|c| ColumnInfo { nullable: true, ..col(c, "string", false) }));
+                cols.extend(table.columns.iter().skip(1).map(|c| ColumnInfo {
+                    nullable: true,
+                    ..col(c, "string", false)
+                }));
                 cols
             }
             "ReJSON-RL" => vec![col("value", "json", false)],
@@ -685,7 +852,10 @@ impl Session for RedisSession {
     }
 
     /// Facts only: nothing is set per database (see [`properties`]).
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
@@ -717,7 +887,10 @@ impl Session for RedisSession {
         security::grants(self, principal).await.map_err(no_acl)
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         if let Some(old) = self.profiler.take() {
             profiler::stop(old).await?;
         }
@@ -727,7 +900,11 @@ impl Session for RedisSession {
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        profiler::poll(self.profiler.as_mut().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?)
+        profiler::poll(
+            self.profiler
+                .as_mut()
+                .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?,
+        )
     }
 
     async fn profiler_stop(&mut self) -> Result<()> {
@@ -737,7 +914,11 @@ impl Session for RedisSession {
         }
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read(self, spec, sink).await
     }
 
@@ -756,7 +937,9 @@ impl Session for RedisSession {
     /// unless the editor run continues on errors, as redis-cli does (see
     /// `Step::end`).
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let script = command::parse_placed(text).map_err(|(m, line, at)| Error::from(ScriptError::new(m).at_line(line).at_offset(at)))?;
+        let script = command::parse_placed(text).map_err(|(m, line, at)| {
+            Error::from(ScriptError::new(m).at_line(line).at_offset(at))
+        })?;
         if self.read_only {
             if let Some(w) = script.iter().find(|c| !command::is_read(&c.args)) {
                 return Err(Error::Query(format!(
@@ -772,7 +955,9 @@ impl Session for RedisSession {
             step.end(out, r)?;
         }
         if self.multi {
-            out.warning("MULTI sigue abierto: los comandos siguientes se encolan hasta EXEC o DISCARD.");
+            out.warning(
+                "MULTI sigue abierto: los comandos siguientes se encolan hasta EXEC o DISCARD.",
+            );
         }
         Ok(())
     }
@@ -790,10 +975,18 @@ mod tests {
 
     #[test]
     fn no_server_side_filters() {
-        let f = dbine_driver::ColumnFilter { column: "value".into(), op: dbine_driver::FilterOp::Eq, values: vec![serde_json::json!("a")], sql: None };
+        let f = dbine_driver::ColumnFilter {
+            column: "value".into(),
+            op: dbine_driver::FilterOp::Eq,
+            values: vec![serde_json::json!("a")],
+            sql: None,
+        };
         for d in drivers() {
             assert_eq!(d.filtered_browse("GET k", &[]).unwrap(), "GET k");
-            assert!(matches!(d.filtered_browse("GET k", &[f.clone()]), Err(Error::Unsupported(_))));
+            assert!(matches!(
+                d.filtered_browse("GET k", &[f.clone()]),
+                Err(Error::Unsupported(_))
+            ));
         }
     }
 

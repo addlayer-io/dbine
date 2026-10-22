@@ -14,7 +14,14 @@ pub const MAX: usize = 3;
 /// What the model is told: the rules and the answer's format, in the UI
 /// language (`prompts/<lang>.json` in dbine-ai).
 pub fn system_prompt(p: &Prompts, engine: &str, language: &str) -> String {
-    p.fill("optimizer.system", &[("engine", engine), ("language", language), ("max", &MAX.to_string())])
+    p.fill(
+        "optimizer.system",
+        &[
+            ("engine", engine),
+            ("language", language),
+            ("max", &MAX.to_string()),
+        ],
+    )
 }
 
 /// The query, the structure and the plan, in tags (the same in every language).
@@ -36,8 +43,14 @@ pub fn structure(tables: &[TableSchema], query: &str, budget: usize, p: &Prompts
         let n = t.name.to_lowercase();
         !n.is_empty()
             && q.match_indices(&n).any(|(i, _)| {
-                let before = q[..i].chars().last().is_none_or(|c| !c.is_alphanumeric() && c != '_');
-                let after = q[i + n.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_');
+                let before = q[..i]
+                    .chars()
+                    .last()
+                    .is_none_or(|c| !c.is_alphanumeric() && c != '_');
+                let after = q[i + n.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| !c.is_alphanumeric() && c != '_');
                 before && after
             })
     };
@@ -53,7 +66,11 @@ pub fn structure(tables: &[TableSchema], query: &str, budget: usize, p: &Prompts
 }
 
 fn table_line(t: &TableSchema, p: &Prompts) -> String {
-    let pk: Vec<&str> = t.primary_key.as_ref().map(|k| k.columns.iter().map(String::as_str).collect()).unwrap_or_default();
+    let pk: Vec<&str> = t
+        .primary_key
+        .as_ref()
+        .map(|k| k.columns.iter().map(String::as_str).collect())
+        .unwrap_or_default();
     let cols: Vec<String> = t
         .columns
         .iter()
@@ -79,7 +96,11 @@ fn table_line(t: &TableSchema, p: &Prompts) -> String {
             ix.name,
             if ix.unique { " UNIQUE" } else { "" },
             ix.columns.join(", "),
-            if ix.include.is_empty() { String::new() } else { format!(" INCLUDE ({})", ix.include.join(", ")) }
+            if ix.include.is_empty() {
+                String::new()
+            } else {
+                format!(" INCLUDE ({})", ix.include.join(", "))
+            }
         ));
     }
     line
@@ -102,7 +123,11 @@ fn tag<'a>(text: &'a str, names: [&str; 2]) -> Option<&'a str> {
 pub fn repair_prompt(p: &Prompts, failed: &[(Candidate, String)]) -> String {
     let mut s = format!("{}\n", p.text("optimizer.repair"));
     for (c, error) in failed {
-        s.push_str(&format!("\n<failed>\n<query>\n{}\n</query>\n<error>{}</error>\n</failed>\n", c.sql.trim(), error.trim()));
+        s.push_str(&format!(
+            "\n<failed>\n<query>\n{}\n</query>\n<error>{}</error>\n</failed>\n",
+            c.sql.trim(),
+            error.trim()
+        ));
     }
     s
 }
@@ -119,13 +144,23 @@ fn unfence(s: &str) -> String {
     let t = s.trim();
     if let Some(rest) = t.strip_prefix("```") {
         let body = rest.split_once('\n').map_or("", |(_, b)| b);
-        return body.trim_end().strip_suffix("```").unwrap_or(body).trim().to_string();
+        return body
+            .trim_end()
+            .strip_suffix("```")
+            .unwrap_or(body)
+            .trim()
+            .to_string();
     }
     t.to_string()
 }
 
 fn normalized(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").trim_end_matches(';').trim().to_lowercase()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches(';')
+        .trim()
+        .to_lowercase()
 }
 
 /// The alternatives in an answer, in the format the prompt asks for. What
@@ -133,11 +168,24 @@ fn normalized(s: &str) -> String {
 pub fn parse(answer: &str, original: &str) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = Vec::new();
     let mut seen = vec![normalized(original)];
-    let open = if answer.contains("<alternative>") { "<alternative>" } else { "<alternativa>" };
+    let open = if answer.contains("<alternative>") {
+        "<alternative>"
+    } else {
+        "<alternativa>"
+    };
     for chunk in answer.split(open).skip(1) {
-        let end = ["</alternative>", "</alternativa>"].iter().filter_map(|c| chunk.find(c)).min().unwrap_or(chunk.len());
+        let end = ["</alternative>", "</alternativa>"]
+            .iter()
+            .filter_map(|c| chunk.find(c))
+            .min()
+            .unwrap_or(chunk.len());
         let chunk = &chunk[..end];
-        let Some(query) = tag(chunk, ["query", "consulta"]).map(unfence).filter(|q| !q.is_empty()) else { continue };
+        let Some(query) = tag(chunk, ["query", "consulta"])
+            .map(unfence)
+            .filter(|q| !q.is_empty())
+        else {
+            continue;
+        };
         let n = normalized(&query);
         if seen.contains(&n) {
             continue;
@@ -148,8 +196,12 @@ pub fn parse(answer: &str, original: &str) -> Vec<Candidate> {
             source: Source::Ai,
             rule: None,
             params: Default::default(),
-            title: tag(chunk, ["title", "titulo"]).map(str::to_string).filter(|t| !t.is_empty()),
-            explanation: tag(chunk, ["explanation", "explicacion"]).map(str::to_string).filter(|t| !t.is_empty()),
+            title: tag(chunk, ["title", "titulo"])
+                .map(str::to_string)
+                .filter(|t| !t.is_empty()),
+            explanation: tag(chunk, ["explanation", "explicacion"])
+                .map(str::to_string)
+                .filter(|t| !t.is_empty()),
             sql: query,
             verify: true,
         });
@@ -185,39 +237,84 @@ mod tests {
         assert!(says_none("NONE") && says_none("ninguna") && !says_none("<alternative>"));
         // The tags the Spanish-only prompt asked for still read.
         let old = parse("<alternativa><titulo>EXISTS</titulo><explicacion>Corta antes.</explicacion><consulta>SELECT 9</consulta></alternativa>", "x");
-        assert_eq!((old[0].sql.as_str(), old[0].title.as_deref(), old[0].explanation.as_deref()), ("SELECT 9", Some("EXISTS"), Some("Corta antes.")));
+        assert_eq!(
+            (
+                old[0].sql.as_str(),
+                old[0].title.as_deref(),
+                old[0].explanation.as_deref()
+            ),
+            ("SELECT 9", Some("EXISTS"), Some("Corta antes."))
+        );
     }
 
     #[test]
     fn structure_has_only_the_tables_named() {
         let ts = vec![
-            table(Some("dbo"), "orders", &[("id", "int", false), ("note", "text", true)], &["id"], &[(&["note"], false)]),
+            table(
+                Some("dbo"),
+                "orders",
+                &[("id", "int", false), ("note", "text", true)],
+                &["id"],
+                &[(&["note"], false)],
+            ),
             table(None, "order_items", &[("id", "int", false)], &[], &[]),
         ];
         let es = prompts::get("es");
         let s = structure(&ts, "SELECT * FROM dbo.Orders o", 10_000, es);
         assert_eq!(s, "dbo.orders(id int PK, note text)\n  índice ix0 (note)\n");
         assert_eq!(structure(&ts, "SELECT * FROM orders", 5, es), "");
-        assert!(structure(&ts, "SELECT * FROM orders", 10_000, prompts::get("en")).contains("  index ix0 (note)"));
+        assert!(
+            structure(&ts, "SELECT * FROM orders", 10_000, prompts::get("en"))
+                .contains("  index ix0 (note)")
+        );
     }
 
     #[test]
     fn prompts_carry_query_structure_and_plan() {
         let u = user_prompt("SELECT 1", "t(a int)\n", "Seq Scan on t");
-        assert!(u.contains("<original_query>\nSELECT 1\n</original_query>") && u.contains("<structure>") && u.contains("<plan>\nSeq Scan on t"));
+        assert!(
+            u.contains("<original_query>\nSELECT 1\n</original_query>")
+                && u.contains("<structure>")
+                && u.contains("<plan>\nSeq Scan on t")
+        );
         assert!(!user_prompt("SELECT 1", "", "").contains("<plan>"));
         let sys = system_prompt(prompts::get("es"), "PostgreSQL", "SQL");
         assert!(sys.contains("como máximo 3") && sys.contains("en español."));
         // The UI language's file: the rules and the answer language in it.
         let en = system_prompt(prompts::get("en-US"), "PostgreSQL", "SQL");
-        assert!(en.contains("PostgreSQL") && en.contains("English") && !en.contains("Respondé"), "{en}");
+        assert!(
+            en.contains("PostgreSQL") && en.contains("English") && !en.contains("Respondé"),
+            "{en}"
+        );
         for l in prompts::LANGS {
             let s = system_prompt(prompts::get(l), "PostgreSQL", "SQL");
             // The limit of 3 alternatives ("as many as 3", "최대 3개", "最多 3 个"…).
-            assert!(["<alternative>", "<title>", "<explanation>", "<query>", "NONE", "3"].iter().all(|t| s.contains(t)), "{l}: {s}");
+            assert!(
+                [
+                    "<alternative>",
+                    "<title>",
+                    "<explanation>",
+                    "<query>",
+                    "NONE",
+                    "3"
+                ]
+                .iter()
+                .all(|t| s.contains(t)),
+                "{l}: {s}"
+            );
         }
-        let c = parse("<alternative><query>SELECT b FROM t</query></alternative>", "SELECT a FROM t");
-        let r = repair_prompt(prompts::get("en"), &[(c[0].clone(), "Invalid column name 'b'.".into())]);
-        assert!(r.contains("<query>\nSELECT b FROM t\n</query>\n<error>Invalid column name 'b'.</error>") && r.contains("NONE"));
+        let c = parse(
+            "<alternative><query>SELECT b FROM t</query></alternative>",
+            "SELECT a FROM t",
+        );
+        let r = repair_prompt(
+            prompts::get("en"),
+            &[(c[0].clone(), "Invalid column name 'b'.".into())],
+        );
+        assert!(
+            r.contains(
+                "<query>\nSELECT b FROM t\n</query>\n<error>Invalid column name 'b'.</error>"
+            ) && r.contains("NONE")
+        );
     }
 }

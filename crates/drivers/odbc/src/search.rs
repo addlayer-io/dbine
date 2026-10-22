@@ -83,7 +83,9 @@ fn split_kw<'a>(sql: &'a str, kw: &str) -> Vec<&'a str> {
 /// other shape.
 pub(crate) fn bulk(sql: &str, keys: usize) -> Option<Bulk> {
     let sql = sql.trim();
-    if !sql.get(..6)?.eq_ignore_ascii_case("SELECT") || !sql.as_bytes().get(6)?.is_ascii_whitespace() {
+    if !sql.get(..6)?.eq_ignore_ascii_case("SELECT")
+        || !sql.as_bytes().get(6)?.is_ascii_whitespace()
+    {
         return None;
     }
     for kw in ["UNION", "GROUP BY", "HAVING", "LIMIT", "FETCH"] {
@@ -94,7 +96,12 @@ pub(crate) fn bulk(sql: &str, keys: usize) -> Option<Bulk> {
     let from_at = find_kw(sql, "FROM", 0)?;
     let cols = sql[6..from_at].trim();
     let upper = cols.to_ascii_uppercase();
-    if cols.is_empty() || cols == "*" || upper.starts_with("DISTINCT ") || upper.starts_with("TOP ") || upper.starts_with("FIRST ") {
+    if cols.is_empty()
+        || cols == "*"
+        || upper.starts_with("DISTINCT ")
+        || upper.starts_with("TOP ")
+        || upper.starts_with("FIRST ")
+    {
         return None;
     }
     let where_at = find_kw(sql, "WHERE", from_at)?;
@@ -134,7 +141,11 @@ pub(crate) fn bulk(sql: &str, keys: usize) -> Option<Bulk> {
     if let Some(o) = order {
         out.push_str(&format!(" ORDER BY {o}"));
     }
-    Some(Bulk { sql: out, keys, ordered: order.is_some() })
+    Some(Bulk {
+        sql: out,
+        keys,
+        ordered: order.is_some(),
+    })
 }
 
 /// Where a kind's source comes from, as `definition` reads it.
@@ -151,8 +162,16 @@ fn plan_for(s: &OdbcSession, kind: &str) -> Option<Plan> {
     let e = design::eng(s.preset);
     let own = structure::definition_sql(e, kind);
     if !own.is_empty() {
-        let keys = if structure::definition_takes_schema(e) { 2 } else { 1 };
-        return own.iter().map(|sql| bulk(sql, keys)).collect::<Option<Vec<_>>>().map(Plan::Built);
+        let keys = if structure::definition_takes_schema(e) {
+            2
+        } else {
+            1
+        };
+        return own
+            .iter()
+            .map(|sql| bulk(sql, keys))
+            .collect::<Option<Vec<_>>>()
+            .map(Plan::Built);
     }
     if structure::named_definition_sql(e, kind).is_some() {
         return None;
@@ -199,7 +218,11 @@ impl Grouped {
             if r.len() < keys {
                 continue;
             }
-            let key = r.split_off(r.len() - keys).into_iter().map(|k| k.unwrap_or_default().trim_end().to_string()).collect();
+            let key = r
+                .split_off(r.len() - keys)
+                .into_iter()
+                .map(|k| k.unwrap_or_default().trim_end().to_string())
+                .collect();
             map.entry(key).or_default().push(r);
         }
         Grouped(map)
@@ -221,21 +244,36 @@ impl Grouped {
 }
 
 impl OdbcSession {
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
         if self.preset.is_generic() || q.text.is_empty() {
             return Ok(None);
         }
         let kinds: Vec<String> = if q.kinds.is_empty() {
-            info(self.preset).object_kinds.iter().filter(|k| k.has_definition).map(|k| k.id.to_string()).collect()
+            info(self.preset)
+                .object_kinds
+                .iter()
+                .filter(|k| k.has_definition)
+                .map(|k| k.id.to_string())
+                .collect()
         } else {
             q.kinds.clone()
         };
         let mut plans = HashMap::new();
         for k in &kinds {
-            let Some(p) = plan_for(self, k) else { return Ok(None) };
+            let Some(p) = plan_for(self, k) else {
+                return Ok(None);
+            };
             plans.insert(k.clone(), p);
         }
-        let objects: Vec<DbObject> = self.list_objects().await?.into_iter().filter(|o| plans.contains_key(&o.kind)).collect();
+        let objects: Vec<DbObject> = self
+            .list_objects()
+            .await?
+            .into_iter()
+            .filter(|o| plans.contains_key(&o.kind))
+            .collect();
 
         // Each query once (Sybase reads views and routines with the same one).
         let mut results: HashMap<String, Grouped> = HashMap::new();
@@ -249,7 +287,9 @@ impl OdbcSession {
                 if !results.contains_key(&b.sql) {
                     // `definition` would fail on its own query too, or the
                     // scan reads around it: let the scan decide.
-                    let Ok(rows) = self.query(b.sql.clone(), Vec::new()).await else { return Ok(None) };
+                    let Ok(rows) = self.query(b.sql.clone(), Vec::new()).await else {
+                        return Ok(None);
+                    };
                     results.insert(b.sql.clone(), Grouped::new(rows, b.keys));
                 }
             }
@@ -261,11 +301,17 @@ impl OdbcSession {
             let source = match &plans[&o.kind] {
                 Plan::Nothing => None,
                 Plan::Built(bulks) => {
-                    let params: &[P] = if structure::definition_takes_schema(e) { &[P::Schema, P::Name] } else { &[P::Name] };
+                    let params: &[P] = if structure::definition_takes_schema(e) {
+                        &[P::Schema, P::Name]
+                    } else {
+                        &[P::Name]
+                    };
                     let key = key_of(o, params);
                     let mut sets = Vec::new();
                     for b in bulks {
-                        let Some(rows) = results[&b.sql].rows(&key) else { return Ok(None) };
+                        let Some(rows) = results[&b.sql].rows(&key) else {
+                            return Ok(None);
+                        };
                         if !b.ordered && rows.len() > 1 {
                             return Ok(None);
                         }
@@ -274,7 +320,9 @@ impl OdbcSession {
                     structure::build(e, &o.kind, self.quote, o.schema.as_deref(), &o.name, &sets)
                 }
                 Plan::Joined(b, params, join) => {
-                    let Some(rows) = results[&b.sql].rows(&key_of(o, params)) else { return Ok(None) };
+                    let Some(rows) = results[&b.sql].rows(&key_of(o, params)) else {
+                        return Ok(None);
+                    };
                     let parts: Vec<String> = rows.iter().filter_map(|r| col(r, 0)).collect();
                     if !b.ordered && parts.len() > 1 {
                         return Ok(None);
@@ -285,7 +333,14 @@ impl OdbcSession {
             };
             report.scanned += 1;
             let Some(source) = source else { continue };
-            report.hits.extend(hits_in(&o.kind, o.schema.as_deref(), &o.name, o.parent.as_deref(), &source, q));
+            report.hits.extend(hits_in(
+                &o.kind,
+                o.schema.as_deref(),
+                &o.name,
+                o.parent.as_deref(),
+                &source,
+                q,
+            ));
             if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                 report.hits.truncate(q.max_hits);
                 report.truncated = true;
@@ -303,8 +358,19 @@ mod tests {
 
     #[test]
     fn bulk_keeps_the_query_and_moves_the_keys() {
-        let b = bulk("SELECT TEXT FROM SYSCAT.VIEWS WHERE VIEWSCHEMA = ? AND VIEWNAME = ?", 2).unwrap();
-        assert_eq!(b, Bulk { sql: "SELECT TEXT, VIEWSCHEMA, VIEWNAME FROM SYSCAT.VIEWS".into(), keys: 2, ordered: false });
+        let b = bulk(
+            "SELECT TEXT FROM SYSCAT.VIEWS WHERE VIEWSCHEMA = ? AND VIEWNAME = ?",
+            2,
+        )
+        .unwrap();
+        assert_eq!(
+            b,
+            Bulk {
+                sql: "SELECT TEXT, VIEWSCHEMA, VIEWNAME FROM SYSCAT.VIEWS".into(),
+                keys: 2,
+                ordered: false
+            }
+        );
         let b = bulk(
             "SELECT c.text FROM syscomments c JOIN sysobjects o ON o.id = c.id WHERE user_name(o.uid) = ? AND o.name = ? ORDER BY c.number, c.colid2, c.colid",
             2,
@@ -334,21 +400,52 @@ mod tests {
         )
         .unwrap();
         assert!(b.sql.ends_with("AND d.TYPESCHEMA = 'SYSIBM'"), "{}", b.sql);
-        assert_eq!(bulk("SELECT vclass_def FROM db_vclass WHERE vclass_name = ?", 1).unwrap().sql, "SELECT vclass_def, vclass_name FROM db_vclass");
+        assert_eq!(
+            bulk("SELECT vclass_def FROM db_vclass WHERE vclass_name = ?", 1)
+                .unwrap()
+                .sql,
+            "SELECT vclass_def, vclass_name FROM db_vclass"
+        );
     }
 
     #[test]
     fn bulk_refuses_other_shapes() {
         assert_eq!(bulk("SELECT GET_DDL(?)", 1), None);
-        assert_eq!(bulk("SELECT * FROM _V_SEQUENCE WHERE SCHEMA = ? AND SEQNAME = ?", 2), None);
+        assert_eq!(
+            bulk(
+                "SELECT * FROM _V_SEQUENCE WHERE SCHEMA = ? AND SEQNAME = ?",
+                2
+            ),
+            None
+        );
         assert_eq!(bulk("SELECT a FROM t WHERE s = ? OR n = ?", 2), None);
         assert_eq!(bulk("SELECT a FROM t WHERE s >= ? AND n = ?", 2), None);
-        assert_eq!(bulk("SELECT a FROM t WHERE s = ?", 2), None, "a key missing");
-        assert_eq!(bulk("SELECT DISTINCT a FROM t WHERE s = ? AND n = ?", 2), None);
-        assert_eq!(bulk("SELECT a FROM t WHERE s = ? AND n = ? UNION SELECT b FROM u", 2), None);
+        assert_eq!(
+            bulk("SELECT a FROM t WHERE s = ?", 2),
+            None,
+            "a key missing"
+        );
+        assert_eq!(
+            bulk("SELECT DISTINCT a FROM t WHERE s = ? AND n = ?", 2),
+            None
+        );
+        assert_eq!(
+            bulk(
+                "SELECT a FROM t WHERE s = ? AND n = ? UNION SELECT b FROM u",
+                2
+            ),
+            None
+        );
         // Keywords inside quotes or parentheses aren't the query's.
-        let b = bulk("SELECT 'x FROM y', (SELECT 1 FROM z WHERE k = 1) FROM t WHERE s = ? AND n = ?", 2).unwrap();
-        assert_eq!(b.sql, "SELECT 'x FROM y', (SELECT 1 FROM z WHERE k = 1), s, n FROM t");
+        let b = bulk(
+            "SELECT 'x FROM y', (SELECT 1 FROM z WHERE k = 1) FROM t WHERE s = ? AND n = ?",
+            2,
+        )
+        .unwrap();
+        assert_eq!(
+            b.sql,
+            "SELECT 'x FROM y', (SELECT 1 FROM z WHERE k = 1), s, n FROM t"
+        );
     }
 
     /// Every preset's view / routine / structure query either becomes a
@@ -360,15 +457,28 @@ mod tests {
             let e = design::eng(p);
             for def in [p.defs.table, p.defs.view, p.defs.procedure, p.defs.function] {
                 if let Def::Sql(sql, params, _) = def {
-                    if params.iter().all(|x| matches!(x, P::Schema | P::Name)) && bulk(sql, params.len()).is_some() {
+                    if params.iter().all(|x| matches!(x, P::Schema | P::Name))
+                        && bulk(sql, params.len()).is_some()
+                    {
                         bulked += 1;
                     } else {
-                        assert!(sql.contains("GET_") || params.iter().any(|x| matches!(x, P::Catalog | P::Qualified)), "{}: {sql}", p.id);
+                        assert!(
+                            sql.contains("GET_")
+                                || params
+                                    .iter()
+                                    .any(|x| matches!(x, P::Catalog | P::Qualified)),
+                            "{}: {sql}",
+                            p.id
+                        );
                     }
                 }
             }
             for kind in [kinds::SEQUENCE, kinds::SYNONYM, kinds::TYPE] {
-                let keys = if structure::definition_takes_schema(e) { 2 } else { 1 };
+                let keys = if structure::definition_takes_schema(e) {
+                    2
+                } else {
+                    1
+                };
                 for sql in structure::definition_sql(e, kind) {
                     assert!(bulk(sql, keys).is_some(), "{} {kind}: {sql}", p.id);
                     bulked += 1;
@@ -380,11 +490,35 @@ mod tests {
 
     #[test]
     fn grouping_by_key() {
-        let row = |t: &str, s: &str, n: &str| vec![Some(t.to_string()), Some(s.to_string()), Some(n.to_string())];
-        let g = Grouped::new(vec![row("a", "DBO  ", "V"), row("b", "DBO", "V"), row("c", "dbo", "W")], 2);
+        let row = |t: &str, s: &str, n: &str| {
+            vec![
+                Some(t.to_string()),
+                Some(s.to_string()),
+                Some(n.to_string()),
+            ]
+        };
+        let g = Grouped::new(
+            vec![
+                row("a", "DBO  ", "V"),
+                row("b", "DBO", "V"),
+                row("c", "dbo", "W"),
+            ],
+            2,
+        );
         let k = |s: &str, n: &str| vec![s.to_string(), n.to_string()];
-        assert_eq!(g.rows(&k("DBO", "V")).unwrap().len(), 2, "trailing blanks don't count");
-        assert_eq!(g.rows(&k("DBO", "X")).unwrap().len(), 0, "no rows: no source");
-        assert!(g.rows(&k("DBO", "W")).is_none(), "only in another case: the server decides");
+        assert_eq!(
+            g.rows(&k("DBO", "V")).unwrap().len(),
+            2,
+            "trailing blanks don't count"
+        );
+        assert_eq!(
+            g.rows(&k("DBO", "X")).unwrap().len(),
+            0,
+            "no rows: no source"
+        );
+        assert!(
+            g.rows(&k("DBO", "W")).is_none(),
+            "only in another case: the server decides"
+        );
     }
 }

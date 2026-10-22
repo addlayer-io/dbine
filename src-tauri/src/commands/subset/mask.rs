@@ -23,12 +23,20 @@ pub enum MaskRule {
     #[default]
     Keep,
     /// A made-up value of a kind.
-    Fake { kind: FakeKind },
+    Fake {
+        kind: FakeKind,
+    },
     /// The date moved up to `days` days either way.
-    ShiftDate { days: i64 },
+    ShiftDate {
+        days: i64,
+    },
     /// The number moved up to `percent` % either way.
-    Noise { percent: f64 },
-    Fixed { value: String },
+    Noise {
+        percent: f64,
+    },
+    Fixed {
+        value: String,
+    },
     Null,
     /// A hash of the value (salted with the run's seed).
     Hash,
@@ -98,13 +106,22 @@ pub struct Shape {
 
 impl Shape {
     pub fn of(data_type: &str) -> Shape {
-        Shape { len: datagen::length(data_type), numeric: is_numeric(data_type) }
+        Shape {
+            len: datagen::length(data_type),
+            numeric: is_numeric(data_type),
+        }
     }
 }
 
 pub fn is_numeric(data_type: &str) -> bool {
     let t = data_type.to_ascii_lowercase();
-    ["int", "dec", "num", "money", "float", "real", "double", "serial"].iter().any(|w| t.contains(w)) && !t.contains("interval") && !t.contains("point")
+    [
+        "int", "dec", "num", "money", "float", "real", "double", "serial",
+    ]
+    .iter()
+    .any(|w| t.contains(w))
+        && !t.contains("interval")
+        && !t.contains("point")
 }
 
 fn is_dateish(data_type: &str) -> bool {
@@ -114,7 +131,10 @@ fn is_dateish(data_type: &str) -> bool {
 
 fn is_texty(data_type: &str) -> bool {
     let t = data_type.to_ascii_lowercase();
-    t.is_empty() || ["char", "text", "string", "clob", "str", "varchar"].iter().any(|w| t.contains(w))
+    t.is_empty()
+        || ["char", "text", "string", "clob", "str", "varchar"]
+            .iter()
+            .any(|w| t.contains(w))
 }
 
 /// A value as text, for hashing and comparing (`12` and `"12"` alike).
@@ -155,14 +175,19 @@ impl Masker {
 
     /// HMAC-SHA256(key, tag || 0x00 || value).
     fn digest(&self, rule: &MaskRule, v: &Value) -> [u8; 32] {
-        hmac_sha256(&self.key, &[rule.tag().as_bytes(), &[0u8], canonical(v).as_bytes()])
+        hmac_sha256(
+            &self.key,
+            &[rule.tag().as_bytes(), &[0u8], canonical(v).as_bytes()],
+        )
     }
 
     /// The value's generator, seeded from the whole HMAC (its four 64-bit
     /// words folded together).
     fn rng(&self, rule: &MaskRule, v: &Value) -> Rng {
         let d = self.digest(rule, v);
-        let seed = d.chunks_exact(8).fold(0u64, |acc, w| acc ^ u64::from_le_bytes(w.try_into().unwrap_or_default()));
+        let seed = d.chunks_exact(8).fold(0u64, |acc, w| {
+            acc ^ u64::from_le_bytes(w.try_into().unwrap_or_default())
+        });
         Rng::new(Some(seed))
     }
 
@@ -203,7 +228,9 @@ impl Masker {
                 // `row` keeps emails apart: two different originals rarely
                 // land on the same one.
                 let row = rng.next() % 1_000_000;
-                kind.generator().and_then(|g| datagen::fake(g, &mut rng, row, shape.len)).unwrap_or_else(|| v.clone())
+                kind.generator()
+                    .and_then(|g| datagen::fake(g, &mut rng, row, shape.len))
+                    .unwrap_or_else(|| v.clone())
             }
         }
     }
@@ -233,11 +260,15 @@ fn hmac_sha256(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
 /// Every digit replaced, the rest kept (`20-12345678-9` → `27-48291034-1`).
 /// A number stays a number with as many digits.
 fn document(rng: &mut Rng, v: &Value, len: Option<usize>) -> Value {
-    let digit = |rng: &mut Rng, first: bool| char::from(b'0' + rng.range(if first { 1 } else { 0 }, 9) as u8);
+    let digit = |rng: &mut Rng, first: bool| {
+        char::from(b'0' + rng.range(if first { 1 } else { 0 }, 9) as u8)
+    };
     match v {
         Value::Number(n) if n.is_i64() || n.is_u64() => {
             let n_digits = n.to_string().trim_start_matches('-').len().clamp(1, 18);
-            let s: String = (0..n_digits).map(|i| digit(rng, i == 0 && n_digits > 1)).collect();
+            let s: String = (0..n_digits)
+                .map(|i| digit(rng, i == 0 && n_digits > 1))
+                .collect();
             json!(s.parse::<i64>().unwrap_or(0))
         }
         Value::Number(_) => json!(rng.range(1, 99_999_999)),
@@ -247,16 +278,32 @@ fn document(rng: &mut Rng, v: &Value, len: Option<usize>) -> Value {
                 let fresh: String = (0..8).map(|i| digit(rng, i == 0)).collect();
                 return Value::String(clip(fresh, len));
             }
-            Value::String(s.chars().map(|c| if c.is_ascii_digit() { digit(rng, false) } else { c }).collect())
+            Value::String(
+                s.chars()
+                    .map(|c| {
+                        if c.is_ascii_digit() {
+                            digit(rng, false)
+                        } else {
+                            c
+                        }
+                    })
+                    .collect(),
+            )
         }
     }
 }
 
 /// `YYYY-MM-DD…` with the date moved; whatever follows (time, zone) kept.
 fn shift_date(rng: &mut Rng, v: &Value, days: i64) -> Value {
-    let Value::String(s) = v else { return v.clone() };
-    let Some(head) = s.get(..10) else { return v.clone() };
-    let Ok(d) = NaiveDate::parse_from_str(head, "%Y-%m-%d") else { return v.clone() };
+    let Value::String(s) = v else {
+        return v.clone();
+    };
+    let Some(head) = s.get(..10) else {
+        return v.clone();
+    };
+    let Ok(d) = NaiveDate::parse_from_str(head, "%Y-%m-%d") else {
+        return v.clone();
+    };
     let mut by = rng.range(-days, days);
     if by == 0 && days > 0 {
         by = if rng.next() % 2 == 0 { 1 } else { -1 };
@@ -272,7 +319,9 @@ fn shift_date(rng: &mut Rng, v: &Value, days: i64) -> Value {
 fn noise(rng: &mut Rng, v: &Value, percent: f64) -> Value {
     let factor = 1.0 + (rng.float() * 2.0 - 1.0) * percent / 100.0;
     match v {
-        Value::Number(n) if n.is_i64() || n.is_u64() => json!((n.as_f64().unwrap_or(0.0) * factor).round() as i64),
+        Value::Number(n) if n.is_i64() || n.is_u64() => {
+            json!((n.as_f64().unwrap_or(0.0) * factor).round() as i64)
+        }
         Value::Number(n) => json!(n.as_f64().unwrap_or(0.0) * factor),
         Value::String(s) => match s.trim().parse::<f64>() {
             Ok(x) => {
@@ -324,8 +373,9 @@ fn words(name: &str) -> Vec<String> {
 
 /// Who a `name` / `nombre` column belongs to when it's a person's.
 const PERSONISH: &[&str] = &[
-    "customer", "client", "cliente", "user", "usuario", "contact", "contacto", "employee", "empleado", "person", "persona", "owner", "titular",
-    "full", "completo", "display", "patient", "paciente", "member", "socio", "alumno", "student",
+    "customer", "client", "cliente", "user", "usuario", "contact", "contacto", "employee",
+    "empleado", "person", "persona", "owner", "titular", "full", "completo", "display", "patient",
+    "paciente", "member", "socio", "alumno", "student",
 ];
 
 /// The masking rule a column gets by default when its name and type say it
@@ -356,18 +406,66 @@ pub fn suggest(name: &str, data_type: &str) -> Option<MaskRule> {
         return None;
     }
     // Identity documents, bank accounts and cards: same shape, other digits.
-    if has(&["dni", "documento", "document", "passport", "pasaporte", "cuit", "cuil", "nif", "nie", "rut", "cpf", "ssn", "curp", "ruc", "iban", "cbu", "cvu", "card", "tarjeta", "ccnum"])
-        || contains(&["nrodoc", "numdoc", "taxid", "nationalid", "cardnumber", "creditcard", "accountnumber", "nrocuenta", "numerocuenta"])
-    {
-        return (text || numeric).then(|| MaskRule::Fake { kind: FakeKind::Document });
+    if has(&[
+        "dni",
+        "documento",
+        "document",
+        "passport",
+        "pasaporte",
+        "cuit",
+        "cuil",
+        "nif",
+        "nie",
+        "rut",
+        "cpf",
+        "ssn",
+        "curp",
+        "ruc",
+        "iban",
+        "cbu",
+        "cvu",
+        "card",
+        "tarjeta",
+        "ccnum",
+    ]) || contains(&[
+        "nrodoc",
+        "numdoc",
+        "taxid",
+        "nationalid",
+        "cardnumber",
+        "creditcard",
+        "accountnumber",
+        "nrocuenta",
+        "numerocuenta",
+    ]) {
+        return (text || numeric).then(|| MaskRule::Fake {
+            kind: FakeKind::Document,
+        });
     }
-    if has(&["phone", "telefono", "tel", "celular", "movil", "mobile", "cell", "fax", "whatsapp"]) || contains(&["phone", "telefono"]) {
-        return if numeric { fake(FakeKind::Document) } else if text { fake(FakeKind::Phone) } else { None };
+    if has(&[
+        "phone", "telefono", "tel", "celular", "movil", "mobile", "cell", "fax", "whatsapp",
+    ]) || contains(&["phone", "telefono"])
+    {
+        return if numeric {
+            fake(FakeKind::Document)
+        } else if text {
+            fake(FakeKind::Phone)
+        } else {
+            None
+        };
     }
     if !text {
         return None;
     }
-    if has(&["password", "passwd", "pwd", "clave", "contrasena", "secret", "token"]) {
+    if has(&[
+        "password",
+        "passwd",
+        "pwd",
+        "clave",
+        "contrasena",
+        "secret",
+        "token",
+    ]) {
         return Some(MaskRule::Hash);
     }
     if has(&["email", "mail", "correo"]) || contains(&["email", "correo"]) {
@@ -379,7 +477,15 @@ pub fn suggest(name: &str, data_type: &str) -> Option<MaskRule> {
     if contains(&["lastname", "surname", "apellido", "familyname"]) {
         return fake(FakeKind::LastName);
     }
-    if has(&["address", "addr", "direccion", "calle", "domicilio", "street"]) || contains(&["address", "direccion", "domicilio"]) {
+    if has(&[
+        "address",
+        "addr",
+        "direccion",
+        "calle",
+        "domicilio",
+        "street",
+    ]) || contains(&["address", "direccion", "domicilio"])
+    {
         return fake(FakeKind::Address);
     }
     let named = has(&["name", "nombre"]);
@@ -394,7 +500,10 @@ mod tests {
     use super::*;
 
     fn text(len: usize) -> Shape {
-        Shape { len: Some(len), numeric: false }
+        Shape {
+            len: Some(len),
+            numeric: false,
+        }
     }
 
     fn hex(d: [u8; 32]) -> String {
@@ -404,12 +513,24 @@ mod tests {
     #[test]
     fn hmac_matches_rfc_4231() {
         // Test case 1.
-        assert_eq!(hex(hmac_sha256(&[0x0b; 20], &[b"Hi There"])), "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+        assert_eq!(
+            hex(hmac_sha256(&[0x0b; 20], &[b"Hi There"])),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
         // Test case 2, the message split in parts.
-        assert_eq!(hex(hmac_sha256(b"Jefe", &[b"what do ya want ", b"for nothing?"])), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+        assert_eq!(
+            hex(hmac_sha256(
+                b"Jefe",
+                &[b"what do ya want ", b"for nothing?"]
+            )),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
         // Test case 6: a key longer than the block is hashed first.
         assert_eq!(
-            hex(hmac_sha256(&[0xaa; 131], &[b"Test Using Larger Than Block-Size Key - Hash Key First"])),
+            hex(hmac_sha256(
+                &[0xaa; 131],
+                &[b"Test Using Larger Than Block-Size Key - Hash Key First"]
+            )),
             "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
         );
     }
@@ -420,14 +541,20 @@ mod tests {
         let (a, b) = (Masker::random().unwrap(), Masker::random().unwrap());
         assert_ne!(a.key, b.key);
         let v = json!("ana@empresa.com");
-        assert_eq!(a.apply(&rule, &v, text(100)), a.apply(&rule, &v, text(100)), "one run masks the same way");
+        assert_eq!(
+            a.apply(&rule, &v, text(100)),
+            a.apply(&rule, &v, text(100)),
+            "one run masks the same way"
+        );
         assert_ne!(a.apply(&rule, &v, text(100)), b.apply(&rule, &v, text(100)));
     }
 
     #[test]
     fn same_value_same_mask_within_a_run() {
         let m = Masker::with_seed(42);
-        let rule = MaskRule::Fake { kind: FakeKind::Email };
+        let rule = MaskRule::Fake {
+            kind: FakeKind::Email,
+        };
         let a = m.apply(&rule, &json!("ana@empresa.com"), text(100));
         let b = m.apply(&rule, &json!("ana@empresa.com"), text(100));
         let c = m.apply(&rule, &json!("juan@empresa.com"), text(100));
@@ -435,40 +562,138 @@ mod tests {
         assert_ne!(a, c);
         assert!(a.as_str().unwrap().contains('@'));
         // Another run, another mask.
-        assert_ne!(Masker::with_seed(43).apply(&rule, &json!("ana@empresa.com"), text(100)), a);
+        assert_ne!(
+            Masker::with_seed(43).apply(&rule, &json!("ana@empresa.com"), text(100)),
+            a
+        );
         // `12` and `"12"` are the same value (a key read as text on one side).
         let h = MaskRule::Hash;
-        assert_eq!(m.apply(&h, &json!(12), Shape { len: None, numeric: true }), m.apply(&h, &json!("12"), Shape { len: None, numeric: true }));
+        assert_eq!(
+            m.apply(
+                &h,
+                &json!(12),
+                Shape {
+                    len: None,
+                    numeric: true
+                }
+            ),
+            m.apply(
+                &h,
+                &json!("12"),
+                Shape {
+                    len: None,
+                    numeric: true
+                }
+            )
+        );
     }
 
     #[test]
     fn rules_keep_types_and_shapes() {
         let m = Masker::with_seed(7);
-        let doc = m.apply(&MaskRule::Fake { kind: FakeKind::Document }, &json!("20-12345678-9"), text(20));
+        let doc = m.apply(
+            &MaskRule::Fake {
+                kind: FakeKind::Document,
+            },
+            &json!("20-12345678-9"),
+            text(20),
+        );
         let s = doc.as_str().unwrap();
         assert_eq!(s.len(), 13);
         assert_eq!((&s[2..3], &s[11..12]), ("-", "-"));
         assert_ne!(s, "20-12345678-9");
-        let n = m.apply(&MaskRule::Fake { kind: FakeKind::Document }, &json!(30123456), Shape { len: None, numeric: true });
+        let n = m.apply(
+            &MaskRule::Fake {
+                kind: FakeKind::Document,
+            },
+            &json!(30123456),
+            Shape {
+                len: None,
+                numeric: true,
+            },
+        );
         assert_eq!(n.as_i64().unwrap().to_string().len(), 8);
 
-        let d = m.apply(&MaskRule::ShiftDate { days: 10 }, &json!("1990-05-17 08:30:00"), text(30));
+        let d = m.apply(
+            &MaskRule::ShiftDate { days: 10 },
+            &json!("1990-05-17 08:30:00"),
+            text(30),
+        );
         let shifted = NaiveDate::parse_from_str(&d.as_str().unwrap()[..10], "%Y-%m-%d").unwrap();
         let by = (shifted - NaiveDate::from_ymd_opt(1990, 5, 17).unwrap()).num_days();
         assert!(by != 0 && by.abs() <= 10, "{by}");
         assert!(d.as_str().unwrap().ends_with(" 08:30:00"));
 
-        let x = m.apply(&MaskRule::Noise { percent: 10.0 }, &json!(1000), Shape::default()).as_i64().unwrap();
+        let x = m
+            .apply(
+                &MaskRule::Noise { percent: 10.0 },
+                &json!(1000),
+                Shape::default(),
+            )
+            .as_i64()
+            .unwrap();
         assert!((900..=1100).contains(&x));
-        let y = m.apply(&MaskRule::Noise { percent: 10.0 }, &json!("250.50"), text(20));
+        let y = m.apply(
+            &MaskRule::Noise { percent: 10.0 },
+            &json!("250.50"),
+            text(20),
+        );
         assert_eq!(y.as_str().unwrap().split_once('.').unwrap().1.len(), 2);
 
-        assert_eq!(m.apply(&MaskRule::Fixed { value: "7".into() }, &json!(3), Shape { len: None, numeric: true }), json!(7));
-        assert_eq!(m.apply(&MaskRule::Fixed { value: "xxxxxx".into() }, &json!("a"), text(3)), json!("xxx"));
+        assert_eq!(
+            m.apply(
+                &MaskRule::Fixed { value: "7".into() },
+                &json!(3),
+                Shape {
+                    len: None,
+                    numeric: true
+                }
+            ),
+            json!(7)
+        );
+        assert_eq!(
+            m.apply(
+                &MaskRule::Fixed {
+                    value: "xxxxxx".into()
+                },
+                &json!("a"),
+                text(3)
+            ),
+            json!("xxx")
+        );
         assert_eq!(m.apply(&MaskRule::Null, &json!("a"), text(3)), Value::Null);
-        assert_eq!(m.apply(&MaskRule::Fake { kind: FakeKind::Name }, &Value::Null, text(30)), Value::Null, "NULL stays NULL");
-        assert_eq!(m.apply(&MaskRule::Hash, &json!("secreto"), text(8)).as_str().unwrap().len(), 8);
-        assert!(m.apply(&MaskRule::Fake { kind: FakeKind::Name }, &json!("María Pérez"), text(5)).as_str().unwrap().chars().count() <= 5);
+        assert_eq!(
+            m.apply(
+                &MaskRule::Fake {
+                    kind: FakeKind::Name
+                },
+                &Value::Null,
+                text(30)
+            ),
+            Value::Null,
+            "NULL stays NULL"
+        );
+        assert_eq!(
+            m.apply(&MaskRule::Hash, &json!("secreto"), text(8))
+                .as_str()
+                .unwrap()
+                .len(),
+            8
+        );
+        assert!(
+            m.apply(
+                &MaskRule::Fake {
+                    kind: FakeKind::Name
+                },
+                &json!("María Pérez"),
+                text(5)
+            )
+            .as_str()
+            .unwrap()
+            .chars()
+            .count()
+                <= 5
+        );
     }
 
     #[test]
@@ -488,8 +713,16 @@ mod tests {
             ("cbu", "char(22)", fake(FakeKind::Document)),
             ("card_number", "varchar(19)", fake(FakeKind::Document)),
             ("direccion", "varchar(200)", fake(FakeKind::Address)),
-            ("FechaNacimiento", "date", Some(MaskRule::ShiftDate { days: 180 })),
-            ("birth_date", "timestamp", Some(MaskRule::ShiftDate { days: 180 })),
+            (
+                "FechaNacimiento",
+                "date",
+                Some(MaskRule::ShiftDate { days: 180 }),
+            ),
+            (
+                "birth_date",
+                "timestamp",
+                Some(MaskRule::ShiftDate { days: 180 }),
+            ),
             ("password", "varchar(64)", Some(MaskRule::Hash)),
             // Not personal data.
             ("product_name", "varchar(50)", None),

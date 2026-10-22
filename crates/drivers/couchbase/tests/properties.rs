@@ -23,12 +23,18 @@ fn cfg() -> Option<ConnectionConfig> {
         password: Some(PASS.into()),
         ..Default::default()
     };
-    c.options.insert("mgmt_port".into(), std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()));
+    c.options.insert(
+        "mgmt_port".into(),
+        std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()),
+    );
     Some(c)
 }
 
 fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -38,25 +44,52 @@ async fn couchbase_properties() {
         eprintln!("DBINE_TEST_COUCHBASE_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_couchbase::drivers().into_iter().next().unwrap();
+    let d = dbine_driver_couchbase::drivers()
+        .into_iter()
+        .next()
+        .unwrap();
     assert!(d.capabilities().database_properties);
     let mut s = d.connect(&cfg, None).await.unwrap();
     let b = "dbine_props";
     let _ = s.drop_database(b).await;
-    s.create_database_with(b, &c(&[("ram_quota", "100"), ("replicas", "1"), ("eviction", "valueOnly")])).await.unwrap();
+    s.create_database_with(
+        b,
+        &c(&[
+            ("ram_quota", "100"),
+            ("replicas", "1"),
+            ("eviction", "valueOnly"),
+        ]),
+    )
+    .await
+    .unwrap();
 
     let p = s.database_properties(b).await.unwrap();
     eprintln!("{:?}\n{:?}", p.values, p.info);
     assert_eq!(p.values.get("ram_quota").map(String::as_str), Some("100"));
     assert_eq!(p.values.get("replicas").map(String::as_str), Some("1"));
     assert_eq!(p.values.get("flush").map(String::as_str), Some(""));
-    assert_eq!(p.values.get("eviction").map(String::as_str), Some("valueOnly"));
+    assert_eq!(
+        p.values.get("eviction").map(String::as_str),
+        Some("valueOnly")
+    );
     assert!(p.info.iter().any(|i| i.label == "Documentos"));
     assert!(p.warnings.contains_key("replicas"));
 
-    let mut changes = c(&[("ram_quota", "128"), ("replicas", "0"), ("flush", "true"), ("eviction", "fullEviction"), ("durability", "majority")]);
+    let mut changes = c(&[
+        ("ram_quota", "128"),
+        ("replicas", "0"),
+        ("flush", "true"),
+        ("eviction", "fullEviction"),
+        ("durability", "majority"),
+    ]);
     // The ones this server reports (version and edition dependent).
-    for (k, v) in [("rank", "10"), ("memory_low_watermark", "70"), ("memory_high_watermark", "80"), ("expiry_pager", "300"), ("access_scanner", "")] {
+    for (k, v) in [
+        ("rank", "10"),
+        ("memory_low_watermark", "70"),
+        ("memory_high_watermark", "80"),
+        ("expiry_pager", "300"),
+        ("access_scanner", ""),
+    ] {
         if p.values.contains_key(k) {
             changes.insert(k.into(), v.into());
         }
@@ -71,8 +104,13 @@ async fn couchbase_properties() {
     }
 
     // The server's refusal comes back as is.
-    let e = s.alter_database(b, &c(&[("ram_quota", "1048576")])).await.unwrap_err();
+    let e = s
+        .alter_database(b, &c(&[("ram_quota", "1048576")]))
+        .await
+        .unwrap_err();
     eprintln!("{e}");
-    assert!(d.alter_database_script(b, &c(&[("replicas", "4")])).is_err());
+    assert!(d
+        .alter_database_script(b, &c(&[("replicas", "4")]))
+        .is_err());
     s.drop_database(b).await.unwrap();
 }

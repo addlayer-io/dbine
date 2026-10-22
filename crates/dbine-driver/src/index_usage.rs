@@ -52,7 +52,15 @@ fn yes() -> bool {
 
 impl Default for IndexUsageReport {
     fn default() -> Self {
-        IndexUsageReport { since: None, stats_available: false, note: None, indexes: Vec::new(), foreign_keys: Vec::new(), seek_scan_split: true, writes_counted: true }
+        IndexUsageReport {
+            since: None,
+            stats_available: false,
+            note: None,
+            indexes: Vec::new(),
+            foreign_keys: Vec::new(),
+            seek_scan_split: true,
+            writes_counted: true,
+        }
     }
 }
 
@@ -144,7 +152,11 @@ impl IndexUsageReport {
         let stats = self.stats_available;
         let writes = stats && self.writes_counted;
         for i in &mut self.indexes {
-            i.reads = if stats { i.seeks + i.scans + i.lookups } else { 0 };
+            i.reads = if stats {
+                i.seeks + i.scans + i.lookups
+            } else {
+                0
+            };
         }
         let total: u64 = self.indexes.iter().map(|i| i.reads).sum();
         for i in &mut self.indexes {
@@ -152,7 +164,8 @@ impl IndexUsageReport {
             i.unused = writes && !i.disabled && i.reads == 0 && i.updates > 0;
             i.writes_per_read = (writes && i.reads > 0).then(|| i.updates as f64 / i.reads as f64);
             let probes = i.seeks + i.scans;
-            i.seek_ratio = (stats && self.seek_scan_split && probes > 0).then(|| i.seeks as f64 / probes as f64);
+            i.seek_ratio = (stats && self.seek_scan_split && probes > 0)
+                .then(|| i.seeks as f64 / probes as f64);
             i.seek_health = i.seek_ratio.map(|r| SeekHealth::of(r, &i.kind));
         }
     }
@@ -169,14 +182,27 @@ mod tests {
     use super::*;
 
     fn ix(name: &str, seeks: u64, scans: u64, lookups: u64, updates: u64) -> IndexUsage {
-        IndexUsage { name: name.into(), kind: "NONCLUSTERED".into(), seeks, scans, lookups, updates, ..Default::default() }
+        IndexUsage {
+            name: name.into(),
+            kind: "NONCLUSTERED".into(),
+            seeks,
+            scans,
+            lookups,
+            updates,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn reads_share_and_unused() {
         let r = IndexUsageReport {
             stats_available: true,
-            indexes: vec![ix("pk", 6, 1, 0, 10), ix("a", 2, 0, 1, 4), ix("b", 0, 0, 0, 7), ix("c", 0, 0, 0, 0)],
+            indexes: vec![
+                ix("pk", 6, 1, 0, 10),
+                ix("a", 2, 0, 1, 4),
+                ix("b", 0, 0, 0, 7),
+                ix("c", 0, 0, 0, 0),
+            ],
             ..Default::default()
         }
         .derived();
@@ -189,36 +215,71 @@ mod tests {
         assert!(get("b").unused, "written, never read");
         assert!(!get("c").unused, "never written either");
         assert!(!get("a").unused);
-        assert_eq!(get("a").writes_per_read.map(|v| (v * 1000.0).round() / 1000.0), Some(1.333));
+        assert_eq!(
+            get("a")
+                .writes_per_read
+                .map(|v| (v * 1000.0).round() / 1000.0),
+            Some(1.333)
+        );
         assert_eq!(get("b").writes_per_read, None);
     }
 
     #[test]
     fn a_disabled_index_is_not_unused() {
-        let off = IndexUsage { disabled: true, ..ix("off", 0, 0, 0, 5) };
-        let r = IndexUsageReport { stats_available: true, indexes: vec![ix("pk", 3, 0, 0, 5), off], ..Default::default() }.derived();
+        let off = IndexUsage {
+            disabled: true,
+            ..ix("off", 0, 0, 0, 5)
+        };
+        let r = IndexUsageReport {
+            stats_available: true,
+            indexes: vec![ix("pk", 3, 0, 0, 5), off],
+            ..Default::default()
+        }
+        .derived();
         assert!(!r.indexes[1].unused);
     }
 
     #[test]
     fn no_reads_means_no_share() {
-        let r = IndexUsageReport { stats_available: true, indexes: vec![ix("a", 0, 0, 0, 3), ix("b", 0, 0, 0, 0)], ..Default::default() }.derived();
+        let r = IndexUsageReport {
+            stats_available: true,
+            indexes: vec![ix("a", 0, 0, 0, 3), ix("b", 0, 0, 0, 0)],
+            ..Default::default()
+        }
+        .derived();
         assert!(r.indexes.iter().all(|i| i.read_share.is_none()));
         assert!(r.indexes[0].unused);
     }
 
     #[test]
     fn without_stats_nothing_is_derived() {
-        let r = IndexUsageReport { stats_available: false, indexes: vec![ix("a", 5, 0, 0, 3), ix("b", 0, 0, 0, 9)], ..Default::default() }.derived();
-        assert!(r.indexes.iter().all(|i| i.reads == 0 && i.read_share.is_none() && !i.unused && i.writes_per_read.is_none()));
+        let r = IndexUsageReport {
+            stats_available: false,
+            indexes: vec![ix("a", 5, 0, 0, 3), ix("b", 0, 0, 0, 9)],
+            ..Default::default()
+        }
+        .derived();
+        assert!(r.indexes.iter().all(|i| i.reads == 0
+            && i.read_share.is_none()
+            && !i.unused
+            && i.writes_per_read.is_none()));
     }
 
     #[test]
     fn without_write_counts_no_unused_or_writes_per_read() {
-        let r = IndexUsageReport { stats_available: true, writes_counted: false, indexes: vec![ix("a", 5, 0, 0, 3), ix("b", 0, 0, 0, 9)], ..Default::default() }.derived();
+        let r = IndexUsageReport {
+            stats_available: true,
+            writes_counted: false,
+            indexes: vec![ix("a", 5, 0, 0, 3), ix("b", 0, 0, 0, 9)],
+            ..Default::default()
+        }
+        .derived();
         assert_eq!(r.indexes[0].reads, 5);
         assert_eq!(r.indexes[0].read_share, Some(1.0));
-        assert!(r.indexes.iter().all(|i| !i.unused && i.writes_per_read.is_none()));
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| !i.unused && i.writes_per_read.is_none()));
         assert!(IndexUsageReport::default().writes_counted);
     }
 
@@ -226,7 +287,15 @@ mod tests {
     fn seek_health_thresholds() {
         let r = IndexUsageReport {
             stats_available: true,
-            indexes: vec![ix("all", 10, 0, 0, 0), ix("80", 8, 2, 0, 0), ix("79", 79, 21, 0, 0), ix("50", 5, 5, 0, 0), ix("49", 49, 51, 0, 0), ix("scans", 0, 7, 0, 0), ix("none", 0, 0, 3, 1)],
+            indexes: vec![
+                ix("all", 10, 0, 0, 0),
+                ix("80", 8, 2, 0, 0),
+                ix("79", 79, 21, 0, 0),
+                ix("50", 5, 5, 0, 0),
+                ix("49", 49, 51, 0, 0),
+                ix("scans", 0, 7, 0, 0),
+                ix("none", 0, 0, 3, 1),
+            ],
             ..Default::default()
         }
         .derived();
@@ -240,18 +309,43 @@ mod tests {
         assert_eq!(get("scans").seek_ratio, Some(0.0));
         assert_eq!(get("scans").seek_health, Some(SeekHealth::Bad));
         // Only lookups: no seeks or scans to compare.
-        assert_eq!((get("none").seek_ratio, get("none").seek_health), (None, None));
+        assert_eq!(
+            (get("none").seek_ratio, get("none").seek_health),
+            (None, None)
+        );
     }
 
     #[test]
     fn columnstore_is_never_bad() {
-        let cs = |kind: &str| IndexUsage { name: "cs".into(), kind: kind.into(), seeks: 1, scans: 99, ..Default::default() };
-        let r = IndexUsageReport { stats_available: true, indexes: vec![cs("CLUSTERED COLUMNSTORE"), cs("nonclustered columnstore")], ..Default::default() }.derived();
-        assert!(r.indexes.iter().all(|i| i.seek_health == Some(SeekHealth::Good)));
-        assert_eq!(SeekHealth::of(0.6, "NONCLUSTERED COLUMNSTORE"), SeekHealth::Good);
+        let cs = |kind: &str| IndexUsage {
+            name: "cs".into(),
+            kind: kind.into(),
+            seeks: 1,
+            scans: 99,
+            ..Default::default()
+        };
+        let r = IndexUsageReport {
+            stats_available: true,
+            indexes: vec![cs("CLUSTERED COLUMNSTORE"), cs("nonclustered columnstore")],
+            ..Default::default()
+        }
+        .derived();
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| i.seek_health == Some(SeekHealth::Good)));
+        assert_eq!(
+            SeekHealth::of(0.6, "NONCLUSTERED COLUMNSTORE"),
+            SeekHealth::Good
+        );
         assert_eq!(SeekHealth::of(0.6, "NONCLUSTERED"), SeekHealth::Warn);
         // Without counters there's no health.
-        let r = IndexUsageReport { stats_available: false, indexes: vec![ix("a", 0, 9, 0, 0)], ..Default::default() }.derived();
+        let r = IndexUsageReport {
+            stats_available: false,
+            indexes: vec![ix("a", 0, 9, 0, 0)],
+            ..Default::default()
+        }
+        .derived();
         assert_eq!(r.indexes[0].seek_health, None);
         assert_eq!(serde_json::to_value(SeekHealth::Bad).unwrap(), "bad");
     }
@@ -259,8 +353,17 @@ mod tests {
     #[test]
     fn reads_without_derived_fields() {
         // A host that didn't fill the derived fields (they're recomputed by the app).
-        let r: IndexUsageReport = serde_json::from_str(r#"{"indexes":[{"name":"a","kind":"CLUSTERED","seeks":1}]}"#).unwrap();
-        assert_eq!((r.indexes[0].reads, r.indexes[0].read_share, r.stats_available), (0, None, false));
+        let r: IndexUsageReport =
+            serde_json::from_str(r#"{"indexes":[{"name":"a","kind":"CLUSTERED","seeks":1}]}"#)
+                .unwrap();
+        assert_eq!(
+            (
+                r.indexes[0].reads,
+                r.indexes[0].read_share,
+                r.stats_available
+            ),
+            (0, None, false)
+        );
         assert!(r.writes_counted && r.seek_scan_split);
     }
 }

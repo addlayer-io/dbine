@@ -20,7 +20,11 @@ pub(crate) fn estimates(schema: &str, rows: &[Vec<String>]) -> Vec<RowEstimate> 
         .filter_map(|r| {
             let n: i64 = r[1].trim().parse().ok().filter(|n| *n >= 0)?;
             Some(RowEstimate {
-                object: ObjectRef { kind: kinds::TABLE.into(), schema: Some(schema.to_string()), name: r[0].clone() },
+                object: ObjectRef {
+                    kind: kinds::TABLE.into(),
+                    schema: Some(schema.to_string()),
+                    name: r[0].clone(),
+                },
                 rows: n as u64,
             })
         })
@@ -28,7 +32,9 @@ pub(crate) fn estimates(schema: &str, rows: &[Vec<String>]) -> Vec<RowEstimate> 
 }
 
 pub(crate) async fn row_estimates(s: &DrillSession) -> Result<Vec<RowEstimate>> {
-    let Ok(schema) = s.schema() else { return Ok(Vec::new()) };
+    let Ok(schema) = s.schema() else {
+        return Ok(Vec::new());
+    };
     let rows = s
         .strings(&format!(
             "SELECT TABLE_NAME, NUM_ROWS FROM INFORMATION_SCHEMA.`TABLES`
@@ -46,9 +52,20 @@ mod tests {
 
     #[test]
     fn num_rows() {
-        let rows = vec![vec!["ventas".to_string(), "1200".to_string()], vec!["x".into(), "".into()], vec!["y".into(), "-1".into()]];
+        let rows = vec![
+            vec!["ventas".to_string(), "1200".to_string()],
+            vec!["x".into(), "".into()],
+            vec!["y".into(), "-1".into()],
+        ];
         let e = estimates("dfs.tmp", &rows);
         assert_eq!(e.len(), 1);
-        assert_eq!((e[0].object.schema.as_deref(), e[0].object.name.as_str(), e[0].rows), (Some("dfs.tmp"), "ventas", 1200));
+        assert_eq!(
+            (
+                e[0].object.schema.as_deref(),
+                e[0].object.name.as_str(),
+                e[0].rows
+            ),
+            (Some("dfs.tmp"), "ventas", 1200)
+        );
     }
 }

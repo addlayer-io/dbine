@@ -16,10 +16,10 @@ pub mod approvals;
 pub mod commands;
 pub(crate) mod reads;
 mod server;
-pub(crate) mod tools;
-mod write;
 #[cfg(test)]
 mod tests;
+pub(crate) mod tools;
+mod write;
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
@@ -89,7 +89,11 @@ pub fn check_level(_level: McpLevel) -> CommandResult<()> {
 pub fn check_override(value: Option<&str>) -> CommandResult<()> {
     match value {
         None => Ok(()),
-        Some(v) => check_level(McpLevel::parse(v).ok_or_else(|| CommandError::BadRequest(format!("nivel de MCP desconocido: {v}")))?),
+        Some(v) => {
+            check_level(McpLevel::parse(v).ok_or_else(|| {
+                CommandError::BadRequest(format!("nivel de MCP desconocido: {v}"))
+            })?)
+        }
     }
 }
 
@@ -110,7 +114,11 @@ fn default_port() -> u16 {
 
 impl Default for McpConfig {
     fn default() -> Self {
-        Self { enabled: false, port: DEFAULT_PORT, default_level: McpLevel::Schema }
+        Self {
+            enabled: false,
+            port: DEFAULT_PORT,
+            default_level: McpLevel::Schema,
+        }
     }
 }
 
@@ -143,13 +151,19 @@ pub struct Effective {
 }
 
 pub fn is_prod(conn: &SavedConnection) -> bool {
-    conn.tags.iter().any(|t| t.trim().eq_ignore_ascii_case("prod"))
+    conn.tags
+        .iter()
+        .any(|t| t.trim().eq_ignore_ascii_case("prod"))
 }
 
 /// The connection's override, else the global default; a `prod` tag or a
 /// read-only connection caps it at `read`.
 pub fn effective_level(conn: &SavedConnection, default: McpLevel) -> Effective {
-    let asked = conn.mcp_level.as_deref().and_then(McpLevel::parse).unwrap_or(default);
+    let asked = conn
+        .mcp_level
+        .as_deref()
+        .and_then(McpLevel::parse)
+        .unwrap_or(default);
     let cap = if asked > McpLevel::Read {
         if is_prod(conn) {
             Some(Cap::Prod)
@@ -161,7 +175,10 @@ pub fn effective_level(conn: &SavedConnection, default: McpLevel) -> Effective {
     } else {
         None
     };
-    Effective { level: if cap.is_some() { McpLevel::Read } else { asked }, cap }
+    Effective {
+        level: if cap.is_some() { McpLevel::Read } else { asked },
+        cap,
+    }
 }
 
 // -- tokens ---------------------------------------------------------------------------
@@ -184,7 +201,11 @@ pub fn hash_token(token: &str) -> String {
 /// Whether `token` is the one `hash` was made from (constant time).
 pub fn verify_token(token: &str, hash: &str) -> bool {
     let h = hash_token(token);
-    h.len() == hash.len() && h.bytes().zip(hash.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+    h.len() == hash.len()
+        && h.bytes()
+            .zip(hash.bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0
 }
 
 // -- settings -------------------------------------------------------------------------
@@ -200,7 +221,10 @@ pub fn load_config(state: &AppState) -> McpConfig {
 }
 
 fn save_config(state: &AppState, cfg: &McpConfig) -> CommandResult<()> {
-    Ok(state.store.set_setting(CONFIG_KEY, Some(&serde_json::to_value(cfg).map_err(|e| CommandError::Internal(e.to_string()))?))?)
+    Ok(state.store.set_setting(
+        CONFIG_KEY,
+        Some(&serde_json::to_value(cfg).map_err(|e| CommandError::Internal(e.to_string()))?),
+    )?)
 }
 
 pub fn load_clients(state: &AppState) -> Vec<McpClient> {
@@ -214,7 +238,10 @@ pub fn load_clients(state: &AppState) -> Vec<McpClient> {
 }
 
 fn save_clients(state: &AppState, clients: &[McpClient]) -> CommandResult<()> {
-    Ok(state.store.set_setting(CLIENTS_KEY, Some(&serde_json::to_value(clients).map_err(|e| CommandError::Internal(e.to_string()))?))?)
+    Ok(state.store.set_setting(
+        CLIENTS_KEY,
+        Some(&serde_json::to_value(clients).map_err(|e| CommandError::Internal(e.to_string()))?),
+    )?)
 }
 
 // -- runtime --------------------------------------------------------------------------
@@ -253,10 +280,11 @@ impl McpRuntime {
     /// The runtime with its activity log next to the state; starts the
     /// server when it's on.
     pub fn open(state: AppState, dir: &std::path::Path) -> Self {
-        let activity = activity::ActivityLog::open(&dir.join("dbine-mcp-activity.sqlite")).unwrap_or_else(|e| {
-            tracing::warn!(%e, "mcp activity log unavailable, keeping it in memory");
-            activity::ActivityLog::in_memory()
-        });
+        let activity = activity::ActivityLog::open(&dir.join("dbine-mcp-activity.sqlite"))
+            .unwrap_or_else(|e| {
+                tracing::warn!(%e, "mcp activity log unavailable, keeping it in memory");
+                activity::ActivityLog::in_memory()
+            });
         let rt = Self::with_log(state, activity);
         rt.apply();
         rt
@@ -281,7 +309,11 @@ impl McpRuntime {
         let mut server = self.inner.server.lock().unwrap_or_else(|e| e.into_inner());
         if !cfg.enabled {
             *server = None;
-            *self.inner.last_error.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            *self
+                .inner
+                .last_error
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
             return;
         }
         if server.as_ref().is_some_and(|s| s.port == cfg.port) {
@@ -290,7 +322,11 @@ impl McpRuntime {
         // A server that just stopped may hold the port for a moment.
         let restarting = server.take().is_some();
         let result = self.start(cfg.port, restarting);
-        let mut err = self.inner.last_error.lock().unwrap_or_else(|e| e.into_inner());
+        let mut err = self
+            .inner
+            .last_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         match result {
             Ok(running) => {
                 tracing::info!(port = running.port, "mcp server listening on 127.0.0.1");
@@ -309,7 +345,9 @@ impl McpRuntime {
         let mut attempt = 0;
         let bound = loop {
             match std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)) {
-                Err(e) if restarting && e.kind() == std::io::ErrorKind::AddrInUse && attempt < 20 => {
+                Err(e)
+                    if restarting && e.kind() == std::io::ErrorKind::AddrInUse && attempt < 20 =>
+                {
                     attempt += 1;
                     std::thread::sleep(std::time::Duration::from_millis(25));
                 }
@@ -336,24 +374,37 @@ impl McpRuntime {
                 }
             };
             let app = server::router(inner, bound);
-            if let Err(e) = axum::serve(listener, app).with_graceful_shutdown(async move {
-                let _ = rx.await;
-            })
-            .await
+            if let Err(e) = axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = rx.await;
+                })
+                .await
             {
                 tracing::error!(%e, "mcp server stopped");
             }
         });
-        Ok(Running { port: bound, shutdown: Some(tx) })
+        Ok(Running {
+            port: bound,
+            shutdown: Some(tx),
+        })
     }
 
     /// The port it listens on, when running.
     pub fn running_port(&self) -> Option<u16> {
-        self.inner.server.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|s| s.port)
+        self.inner
+            .server
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|s| s.port)
     }
 
     pub fn last_error(&self) -> Option<String> {
-        self.inner.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.inner
+            .last_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Tell the UI about pending writes (`mcp-approvals`, the whole list, to
@@ -361,7 +412,9 @@ impl McpRuntime {
     /// in each request's `presenter`) forward when one arrives, even if it
     /// was hidden or minimized.
     pub fn attach(&self, app: tauri::AppHandle) {
-        self.inner.approvals.set_sink(Arc::new(move |pending, new| announce(&app, pending, new)));
+        self.inner
+            .approvals
+            .set_sink(Arc::new(move |pending, new| announce(&app, pending, new)));
     }
 
     /// Send the pending list again (its presenter may have changed: the
@@ -385,8 +438,14 @@ fn announce(app: &tauri::AppHandle, pending: &[approvals::ApprovalRequest], new:
         presenter: &'a str,
     }
     let target = crate::windows::target_window(app);
-    let presenter = target.as_ref().map(|w| w.label()).unwrap_or(crate::windows::MAIN);
-    let list: Vec<Presented> = pending.iter().map(|request| Presented { request, presenter }).collect();
+    let presenter = target
+        .as_ref()
+        .map(|w| w.label())
+        .unwrap_or(crate::windows::MAIN);
+    let list: Vec<Presented> = pending
+        .iter()
+        .map(|request| Presented { request, presenter })
+        .collect();
     let _ = app.emit("mcp-approvals", list);
     if new {
         if let Some(win) = target {
@@ -403,7 +462,9 @@ impl Inner {
     pub fn authenticate(&self, token: &str) -> Option<McpClient> {
         let _guard = self.clients_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut clients = load_clients(&self.state);
-        let i = clients.iter().position(|c| verify_token(token, &c.token_hash))?;
+        let i = clients
+            .iter()
+            .position(|c| verify_token(token, &c.token_hash))?;
         let now = chrono::Utc::now();
         // At most one write a minute per client.
         let stale = clients[i]
@@ -423,12 +484,16 @@ impl Inner {
     pub fn create_client(&self, name: &str) -> CommandResult<(McpClient, String)> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(CommandError::BadRequest("el cliente necesita un nombre".into()));
+            return Err(CommandError::BadRequest(
+                "el cliente necesita un nombre".into(),
+            ));
         }
         let _guard = self.clients_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut clients = load_clients(&self.state);
         if clients.iter().any(|c| c.name.eq_ignore_ascii_case(name)) {
-            return Err(CommandError::BadRequest(format!("ya hay un cliente llamado «{name}»")));
+            return Err(CommandError::BadRequest(format!(
+                "ya hay un cliente llamado «{name}»"
+            )));
         }
         let token = new_token();
         let client = McpClient {

@@ -17,7 +17,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
+    WindowEvent,
+};
 
 /// The label of the window `tauri.conf.json` creates.
 pub const MAIN: &str = "main";
@@ -50,7 +53,10 @@ fn primary_label() -> String {
 
 /// The lowest `win-N` (N ≥ 2) no open window uses.
 fn free_label(taken: &HashSet<String>) -> String {
-    (2u32..).map(|n| format!("{PREFIX}{n}")).find(|l| !taken.contains(l)).expect("unbounded range")
+    (2u32..)
+        .map(|n| format!("{PREFIX}{n}"))
+        .find(|l| !taken.contains(l))
+        .expect("unbounded range")
 }
 
 /// Order of windows in lists: `main` first, then `win-N` by N.
@@ -58,7 +64,10 @@ fn label_rank(label: &str) -> u32 {
     if label == MAIN {
         1
     } else {
-        label.strip_prefix(PREFIX).and_then(|n| n.parse().ok()).unwrap_or(u32::MAX)
+        label
+            .strip_prefix(PREFIX)
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(u32::MAX)
     }
 }
 
@@ -73,7 +82,11 @@ fn touch(mru: &mut Vec<String>, label: &str) {
 fn successor(mru: &[String], open: &[String], gone: &str) -> Option<String> {
     mru.iter()
         .find(|l| *l != gone && open.contains(l))
-        .or_else(|| open.iter().filter(|l| *l != gone).min_by_key(|l| label_rank(l)))
+        .or_else(|| {
+            open.iter()
+                .filter(|l| *l != gone)
+                .min_by_key(|l| label_rank(l))
+        })
         .cloned()
 }
 
@@ -136,7 +149,9 @@ pub fn spawn_new(app: &AppHandle) {
 /// Whether the window-state plugin remembers a geometry for `label`.
 fn has_saved_state(app: &AppHandle, label: &str) -> bool {
     use tauri_plugin_window_state::AppHandleExt;
-    let Ok(dir) = app.path().app_config_dir() else { return false };
+    let Ok(dir) = app.path().app_config_dir() else {
+        return false;
+    };
     std::fs::read(dir.join(app.filename()))
         .ok()
         .and_then(|b| serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&b).ok())
@@ -210,7 +225,9 @@ pub fn request_quit(app: &AppHandle) -> bool {
         bring_forward(&w);
         return true;
     }
-    let Some(w) = target_window(app) else { return false };
+    let Some(w) = target_window(app) else {
+        return false;
+    };
     bring_forward(&w);
     let _ = app.emit_to(w.label(), "quit-requested", ());
     true
@@ -221,7 +238,9 @@ pub fn request_quit(app: &AppHandle) -> bool {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn quit_needs_ui(app: &AppHandle) -> bool {
     quit_owner(app).is_some()
-        || app.try_state::<TaskRegistry>().is_some_and(|r| !r.is_empty())
+        || app
+            .try_state::<TaskRegistry>()
+            .is_some_and(|r| !r.is_empty())
         || crate::commands::projects::has_unsaved(app)
 }
 
@@ -243,12 +262,20 @@ pub fn on_window_event(w: &Window, e: &WindowEvent) {
                 }
             }
             if label == primary_label() {
-                let open: Vec<String> = app.webview_windows().into_keys().filter(|l| *l != label).collect();
+                let open: Vec<String> = app
+                    .webview_windows()
+                    .into_keys()
+                    .filter(|l| *l != label)
+                    .collect();
                 let mru = lock(&MRU).clone();
                 if let Some(next) = successor(&mru, &open, &label) {
                     *lock(&PRIMARY) = Some(next.clone());
                     tracing::info!(from = %label, to = %next, "primary window promoted");
-                    let _ = app.emit_to(next.as_str(), "window-role", serde_json::json!({ "primary": true }));
+                    let _ = app.emit_to(
+                        next.as_str(),
+                        "window-role",
+                        serde_json::json!({ "primary": true }),
+                    );
                 }
             }
             // A pending MCP approval shown in this window moves to another.
@@ -323,7 +350,11 @@ impl TaskRegistry {
         labels
             .into_iter()
             .flat_map(|l| {
-                m[l].iter().map(move |t| RunningTask { label: l.clone(), id: t.id.clone(), title: t.title.clone() })
+                m[l].iter().map(move |t| RunningTask {
+                    label: l.clone(),
+                    id: t.id.clone(),
+                    title: t.title.clone(),
+                })
             })
             .collect()
     }
@@ -362,7 +393,9 @@ pub async fn window_close(app: AppHandle, window: WebviewWindow) -> CommandResul
     if let Err(e) = app.save_window_state(StateFlags::all() - StateFlags::VISIBLE) {
         tracing::warn!("saving the window state on close: {e}");
     }
-    window.destroy().map_err(|e| CommandError::Internal(e.to_string()))
+    window
+        .destroy()
+        .map_err(|e| CommandError::Internal(e.to_string()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -405,7 +438,10 @@ pub fn quit_begin(window: WebviewWindow) -> bool {
     let app = window.app_handle();
     let busy = {
         let mut owner = lock(&QUIT_OWNER);
-        let other = owner.as_deref().filter(|l| *l != window.label()).and_then(|l| app.get_webview_window(l));
+        let other = owner
+            .as_deref()
+            .filter(|l| *l != window.label())
+            .and_then(|l| app.get_webview_window(l));
         if other.is_none() {
             *owner = Some(window.label().to_string());
         }
@@ -481,7 +517,10 @@ mod tests {
     }
 
     fn task(id: &str) -> TaskSummary {
-        TaskSummary { id: id.into(), title: format!("Tarea {id}") }
+        TaskSummary {
+            id: id.into(),
+            title: format!("Tarea {id}"),
+        }
     }
 
     #[test]
@@ -490,7 +529,10 @@ mod tests {
         r.report("win-2", vec![task("b")]);
         r.report("main", vec![task("a1"), task("a2")]);
         let all = r.all();
-        let ids: Vec<(&str, &str)> = all.iter().map(|t| (t.label.as_str(), t.id.as_str())).collect();
+        let ids: Vec<(&str, &str)> = all
+            .iter()
+            .map(|t| (t.label.as_str(), t.id.as_str()))
+            .collect();
         assert_eq!(ids, [("main", "a1"), ("main", "a2"), ("win-2", "b")]);
         assert_eq!(all[2].title, "Tarea b");
 
@@ -503,8 +545,16 @@ mod tests {
 
     #[test]
     fn reads_the_ui_report() {
-        let args: TasksReportArgs =
-            serde_json::from_value(serde_json::json!({ "tasks": [{ "id": "t1", "title": "Exportar" }] })).unwrap();
-        assert_eq!(args.tasks, [TaskSummary { id: "t1".into(), title: "Exportar".into() }]);
+        let args: TasksReportArgs = serde_json::from_value(
+            serde_json::json!({ "tasks": [{ "id": "t1", "title": "Exportar" }] }),
+        )
+        .unwrap();
+        assert_eq!(
+            args.tasks,
+            [TaskSummary {
+                id: "t1".into(),
+                title: "Exportar".into()
+            }]
+        );
     }
 }

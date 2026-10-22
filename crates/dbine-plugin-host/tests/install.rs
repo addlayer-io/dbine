@@ -3,7 +3,9 @@
 
 use dbine_driver::runtime::{set_components_dir, set_progress_sink, ComponentProgress};
 use dbine_driver::{ConnectionConfig, Driver, QueryOutcome};
-use dbine_plugin::install::{ensure, exe_name, hosts_dir, installed, remove_stale, Catalog, HostAsset};
+use dbine_plugin::install::{
+    ensure, exe_name, hosts_dir, installed, remove_stale, Catalog, HostAsset,
+};
 use dbine_plugin::{DriverMeta, Launcher, RemoteDriver};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
@@ -32,13 +34,19 @@ fn serve(body: Vec<u8>) -> (String, Arc<Mutex<Vec<Option<u64>>>>) {
                 req.extend_from_slice(&buf[..n]);
             }
             let text = String::from_utf8_lossy(&req).to_lowercase();
-            let from = text.lines().find_map(|l| l.strip_prefix("range: bytes=")).and_then(|r| r.trim_end_matches('-').parse::<u64>().ok());
+            let from = text
+                .lines()
+                .find_map(|l| l.strip_prefix("range: bytes="))
+                .and_then(|r| r.trim_end_matches('-').parse::<u64>().ok());
             seen.lock().unwrap().push(from);
             let (status, part) = match from {
                 Some(f) => ("206 Partial Content", &body[f as usize..]),
                 None => ("200 OK", &body[..]),
             };
-            let head = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", part.len());
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                part.len()
+            );
             let _ = s.write_all(head.as_bytes());
             let _ = s.write_all(part);
         }
@@ -58,12 +66,27 @@ async fn downloads_resumes_checks_and_runs_a_host() {
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     gz.write_all(&std::fs::read(EXE).unwrap()).unwrap();
     let gz = gz.finish().unwrap();
-    let sha: String = Sha256::digest(&gz).iter().map(|b| format!("{b:02x}")).collect();
+    let sha: String = Sha256::digest(&gz)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     let (base_url, ranges) = serve(gz.clone());
     let file = "dbine-driver-sqlite-1.2.0+p1.e1-test.gz".to_string();
     let version = "1.2.0+p1.e1".to_string();
-    let mut catalog = Catalog { target: "test".into(), base_url, ..Default::default() };
-    catalog.hosts.insert("sqlite".into(), HostAsset { version: version.clone(), file: file.clone(), size: gz.len() as u64, sha256: sha.clone() });
+    let mut catalog = Catalog {
+        target: "test".into(),
+        base_url,
+        ..Default::default()
+    };
+    catalog.hosts.insert(
+        "sqlite".into(),
+        HostAsset {
+            version: version.clone(),
+            file: file.clone(),
+            size: gz.len() as u64,
+            sha256: sha.clone(),
+        },
+    );
 
     // What an update leaves behind: another version of the driver, a folder
     // of the 0.1.x layout, a cut download of another file.
@@ -71,25 +94,53 @@ async fn downloads_resumes_checks_and_runs_a_host() {
     std::fs::create_dir_all(dir.join("0.1.0")).unwrap();
     let old = dir.join(exe_name("sqlite", "1.1.0+p1.e1"));
     std::fs::write(&old, b"old").unwrap();
-    std::fs::write(dir.join("dbine-driver-postgres-0.9.0+p1.e1-test.gz.part"), b"x").unwrap();
+    std::fs::write(
+        dir.join("dbine-driver-postgres-0.9.0+p1.e1-test.gz.part"),
+        b"x",
+    )
+    .unwrap();
 
     // A cut download: half of it is already there.
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join(format!("{file}.part")), &gz[..gz.len() / 2]).unwrap();
 
     remove_stale(&catalog);
-    assert!(!old.exists() && !dir.join("0.1.0").exists() && !dir.join("dbine-driver-postgres-0.9.0+p1.e1-test.gz.part").exists());
-    assert!(dir.join(format!("{file}.part")).exists(), "the current file's cut download is kept, to resume it");
+    assert!(
+        !old.exists()
+            && !dir.join("0.1.0").exists()
+            && !dir
+                .join("dbine-driver-postgres-0.9.0+p1.e1-test.gz.part")
+                .exists()
+    );
+    assert!(
+        dir.join(format!("{file}.part")).exists(),
+        "the current file's cut download is kept, to resume it"
+    );
 
-    let exe = ensure(&catalog, "sqlite", "SQLite", vec!["sqlite".into()]).await.unwrap();
+    let exe = ensure(&catalog, "sqlite", "SQLite", vec!["sqlite".into()])
+        .await
+        .unwrap();
     assert_eq!(exe, dir.join(exe_name("sqlite", &version)));
-    assert_eq!(ranges.lock().unwrap().as_slice(), &[Some((gz.len() / 2) as u64)], "it resumed where the cut left it");
+    assert_eq!(
+        ranges.lock().unwrap().as_slice(),
+        &[Some((gz.len() / 2) as u64)],
+        "it resumed where the cut left it"
+    );
     assert!(!dir.join(format!("{file}.part")).exists());
-    assert_eq!(installed(&catalog).iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), vec!["sqlite"]);
+    assert_eq!(
+        installed(&catalog)
+            .iter()
+            .map(|(p, _)| p.as_str())
+            .collect::<Vec<_>>(),
+        vec!["sqlite"]
+    );
     {
         let ev = events.lock().unwrap();
         let last = ev.last().expect("progress");
-        assert_eq!((last.done, last.total, last.drivers.clone()), (gz.len() as u64, gz.len() as u64, vec!["sqlite".to_string()]));
+        assert_eq!(
+            (last.done, last.total, last.drivers.clone()),
+            (gz.len() as u64, gz.len() as u64, vec!["sqlite".to_string()])
+        );
     }
 
     // Already there: no second download.
@@ -97,12 +148,24 @@ async fn downloads_resumes_checks_and_runs_a_host() {
     assert_eq!(ranges.lock().unwrap().len(), 1);
 
     // The downloaded host serves the driver.
-    let (_, drivers) = dbine_drivers::packages().into_iter().find(|(p, _)| *p == "sqlite").unwrap();
+    let (_, drivers) = dbine_drivers::packages()
+        .into_iter()
+        .find(|(p, _)| *p == "sqlite")
+        .unwrap();
     let meta = DriverMeta::of("sqlite", drivers[0].as_ref());
-    let launcher = Launcher::at("sqlite", exe, vec!["--package".into(), "sqlite".into()], None);
+    let launcher = Launcher::at(
+        "sqlite",
+        exe,
+        vec!["--package".into(), "sqlite".into()],
+        None,
+    );
     let remote = RemoteDriver::new(meta, launcher);
     let db = tempfile::tempdir().unwrap();
-    let cfg = ConnectionConfig { driver: "sqlite".into(), host: db.path().join("x.db").display().to_string(), ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: db.path().join("x.db").display().to_string(),
+        ..Default::default()
+    };
     let mut s = remote.connect(&cfg, None).await.unwrap();
     let mut out = QueryOutcome::default();
     s.execute("SELECT 40 + 2 AS n", 10, &mut out).await.unwrap();
@@ -110,8 +173,19 @@ async fn downloads_resumes_checks_and_runs_a_host() {
 
     // A file that doesn't match its SHA-256 is refused and removed.
     let mut bad = catalog.clone();
-    bad.hosts.insert("otro".into(), HostAsset { version: "1.0.0".into(), file: "otro.gz".into(), size: gz.len() as u64, sha256: "0".repeat(64) });
-    let err = ensure(&bad, "otro", "Otro", vec![]).await.unwrap_err().to_string();
+    bad.hosts.insert(
+        "otro".into(),
+        HostAsset {
+            version: "1.0.0".into(),
+            file: "otro.gz".into(),
+            size: gz.len() as u64,
+            sha256: "0".repeat(64),
+        },
+    );
+    let err = ensure(&bad, "otro", "Otro", vec![])
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("SHA-256"), "{err}");
     assert!(!dir.join("otro.gz.part").exists());
 }

@@ -30,16 +30,28 @@ pub(crate) fn path(name: &str, o: &BTreeMap<String, String>) -> Result<String> {
     let mut query = Vec::new();
     for (key, what) in [("q", "shards"), ("n", "réplicas")] {
         if let Some(v) = opt(o, key) {
-            let n = v.parse::<u32>().ok().filter(|n| (1..=1024).contains(n)).ok_or_else(|| Error::Query(format!("{what}: «{v}» no es un valor válido")))?;
+            let n = v
+                .parse::<u32>()
+                .ok()
+                .filter(|n| (1..=1024).contains(n))
+                .ok_or_else(|| Error::Query(format!("{what}: «{v}» no es un valor válido")))?;
             query.push(format!("{key}={n}"));
         }
     }
     match opt(o, "partitioned") {
         None | Some("false") => {}
         Some("true") => query.push("partitioned=true".into()),
-        Some(v) => return Err(Error::Query(format!("particionada: «{v}» no es un valor válido"))),
+        Some(v) => {
+            return Err(Error::Query(format!(
+                "particionada: «{v}» no es un valor válido"
+            )))
+        }
     }
-    let q = if query.is_empty() { String::new() } else { format!("?{}", query.join("&")) };
+    let q = if query.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", query.join("&"))
+    };
     Ok(format!("/{}{q}", seg(name)))
 }
 
@@ -52,16 +64,29 @@ impl CouchSession {
     /// The cluster's `q` and `n` (`[cluster]` of the node's config; needs
     /// an admin, otherwise nothing is suggested).
     pub(crate) async fn create_database_choices_impl(&mut self) -> Result<Vec<FieldChoices>> {
-        let Ok(c) = self.call(Method::GET, "/_node/_local/_config/cluster", None).await else {
+        let Ok(c) = self
+            .call(Method::GET, "/_node/_local/_config/cluster", None)
+            .await
+        else {
             return Ok(Vec::new());
         };
         Ok(["q", "n"]
             .into_iter()
-            .filter_map(|k| c.get(k).and_then(Value::as_str).map(|v| FieldChoices { key: k.into(), default: Some(v.into()), values: Vec::new() }))
+            .filter_map(|k| {
+                c.get(k).and_then(Value::as_str).map(|v| FieldChoices {
+                    key: k.into(),
+                    default: Some(v.into()),
+                    values: Vec::new(),
+                })
+            })
             .collect())
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         self.refuse_if_read_only("Conexión de solo lectura: no se puede crear una base.")?;
         let p = path(name, o)?;
         self.call(Method::PUT, &p, None).await.map(|_| ())
@@ -73,7 +98,10 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -84,12 +112,24 @@ mod tests {
 
     #[test]
     fn every_option() {
-        assert_eq!(script("ventas", &o(&[("q", "8"), ("n", "1"), ("partitioned", "true")])).unwrap(), "PUT /ventas?q=8&n=1&partitioned=true");
+        assert_eq!(
+            script(
+                "ventas",
+                &o(&[("q", "8"), ("n", "1"), ("partitioned", "true")])
+            )
+            .unwrap(),
+            "PUT /ventas?q=8&n=1&partitioned=true"
+        );
     }
 
     #[test]
     fn values_are_checked() {
-        for bad in [("q", "0"), ("q", "8&n=9"), ("n", "-1"), ("partitioned", "yes")] {
+        for bad in [
+            ("q", "0"),
+            ("q", "8&n=9"),
+            ("n", "-1"),
+            ("partitioned", "yes"),
+        ] {
             assert!(script("v", &o(&[bad])).is_err(), "{bad:?}");
         }
         assert!(script("Ventas", &o(&[])).is_err());

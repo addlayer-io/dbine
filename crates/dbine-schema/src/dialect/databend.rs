@@ -29,43 +29,95 @@ impl Dialect for Databend {
         let u = t.unsigned;
         match t.name.as_str() {
             "boolean" | "bool" => L::Bool,
-            "tinyint" | "int8" => L::Int { bytes: 1, unsigned: u },
-            "smallint" | "int16" => L::Int { bytes: 2, unsigned: u },
-            "int" | "integer" | "int32" => L::Int { bytes: 4, unsigned: u },
-            "bigint" | "int64" => L::Int { bytes: 8, unsigned: u },
-            "uint8" => L::Int { bytes: 1, unsigned: true },
-            "uint16" => L::Int { bytes: 2, unsigned: true },
-            "uint32" => L::Int { bytes: 4, unsigned: true },
-            "uint64" => L::Int { bytes: 8, unsigned: true },
-            "decimal" | "numeric" => L::Decimal { precision: p(0).or(Some(18)), scale: p(1).or(Some(0)) },
+            "tinyint" | "int8" => L::Int {
+                bytes: 1,
+                unsigned: u,
+            },
+            "smallint" | "int16" => L::Int {
+                bytes: 2,
+                unsigned: u,
+            },
+            "int" | "integer" | "int32" => L::Int {
+                bytes: 4,
+                unsigned: u,
+            },
+            "bigint" | "int64" => L::Int {
+                bytes: 8,
+                unsigned: u,
+            },
+            "uint8" => L::Int {
+                bytes: 1,
+                unsigned: true,
+            },
+            "uint16" => L::Int {
+                bytes: 2,
+                unsigned: true,
+            },
+            "uint32" => L::Int {
+                bytes: 4,
+                unsigned: true,
+            },
+            "uint64" => L::Int {
+                bytes: 8,
+                unsigned: true,
+            },
+            "decimal" | "numeric" => L::Decimal {
+                precision: p(0).or(Some(18)),
+                scale: p(1).or(Some(0)),
+            },
             "float" | "float32" | "real" => L::Float { bytes: 4 },
             "double" | "float64" | "double precision" => L::Float { bytes: 8 },
-            "varchar" | "string" | "text" | "char" | "character varying" => L::Text { unicode: true },
+            "varchar" | "string" | "text" | "char" | "character varying" => {
+                L::Text { unicode: true }
+            }
             "binary" | "varbinary" | "blob" | "bytea" => L::Blob,
             "date" => L::Date,
             // Stored as UTC microseconds, shown in the session's zone.
-            "timestamp" | "datetime" => L::Timestamp { precision: Some(6), tz: true },
+            "timestamp" | "datetime" => L::Timestamp {
+                precision: Some(6),
+                tz: true,
+            },
             "interval" => L::Interval,
             "variant" | "json" => L::Json { binary: true },
             "array" => match t.args.as_slice() {
-                [of] => L::Array { of: Box::new(nested(self, of)) },
-                _ => L::Other { native: t.raw.clone() },
+                [of] => L::Array {
+                    of: Box::new(nested(self, of)),
+                },
+                _ => L::Other {
+                    native: t.raw.clone(),
+                },
             },
             "map" => match t.args.as_slice() {
-                [k, v] => L::Map { key: Box::new(nested(self, k)), value: Box::new(nested(self, v)) },
-                _ => L::Other { native: t.raw.clone() },
+                [k, v] => L::Map {
+                    key: Box::new(nested(self, k)),
+                    value: Box::new(nested(self, v)),
+                },
+                _ => L::Other {
+                    native: t.raw.clone(),
+                },
             },
             "tuple" => L::Json { binary: false },
-            "geometry" => L::Geometry { kind: None, srid: None, geography: false },
-            "geography" => L::Geometry { kind: None, srid: None, geography: true },
-            _ => L::Other { native: t.raw.clone() },
+            "geometry" => L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false,
+            },
+            "geography" => L::Geometry {
+                kind: None,
+                srid: None,
+                geography: true,
+            },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
     fn render_type(&self, t: &L) -> Rendered {
         use IssueCode::*;
         use Severity::*;
-        let text = |why: &str| Rendered::exact("VARCHAR").with(Warning, TypeApproximated, why.to_string());
+        let text =
+            |why: &str| Rendered::exact("VARCHAR").with(Warning, TypeApproximated, why.to_string());
         match t {
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
@@ -129,12 +181,16 @@ impl Dialect for Databend {
             DefaultValue::Null => "NULL".into(),
             DefaultValue::Number(n) => n.clone(),
             DefaultValue::Text(s) => quote(s),
-            DefaultValue::Bool(b) if matches!(ty, L::Bool) => if *b { "TRUE" } else { "FALSE" }.into(),
+            DefaultValue::Bool(b) if matches!(ty, L::Bool) => {
+                if *b { "TRUE" } else { "FALSE" }.into()
+            }
             DefaultValue::Bool(b) => if *b { "1" } else { "0" }.into(),
             DefaultValue::CurrentTimestamp => "now()".into(),
             DefaultValue::CurrentDate => "today()".into(),
             DefaultValue::NewUuid => "uuid()".into(),
-            DefaultValue::CurrentTime | DefaultValue::NextVal(_) | DefaultValue::Expr(_) => return None,
+            DefaultValue::CurrentTime | DefaultValue::NextVal(_) | DefaultValue::Expr(_) => {
+                return None
+            }
         })
     }
 
@@ -181,21 +237,56 @@ mod tests {
     #[test]
     fn parses() {
         assert_eq!(p("BOOLEAN"), L::Bool);
-        assert_eq!(p("TINYINT UNSIGNED"), L::Int { bytes: 1, unsigned: true });
+        assert_eq!(
+            p("TINYINT UNSIGNED"),
+            L::Int {
+                bytes: 1,
+                unsigned: true
+            }
+        );
         assert_eq!(p("Nullable(Int32)"), L::int(4));
-        assert_eq!(p("UInt64"), L::Int { bytes: 8, unsigned: true });
+        assert_eq!(
+            p("UInt64"),
+            L::Int {
+                bytes: 8,
+                unsigned: true
+            }
+        );
         assert_eq!(p("BIGINT"), L::int(8));
-        assert_eq!(p("DECIMAL(10, 2)"), L::Decimal { precision: Some(10), scale: Some(2) });
+        assert_eq!(
+            p("DECIMAL(10, 2)"),
+            L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }
+        );
         assert_eq!(p("Float32"), L::Float { bytes: 4 });
         assert_eq!(p("DOUBLE"), L::Float { bytes: 8 });
         assert_eq!(p("VARCHAR"), L::Text { unicode: true });
         assert_eq!(p("String"), L::Text { unicode: true });
         assert_eq!(p("BINARY"), L::Blob);
         assert_eq!(p("DATE"), L::Date);
-        assert_eq!(p("TIMESTAMP"), L::Timestamp { precision: Some(6), tz: true });
+        assert_eq!(
+            p("TIMESTAMP"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: true
+            }
+        );
         assert_eq!(p("VARIANT"), L::Json { binary: true });
-        assert_eq!(p("ARRAY(INT32)"), L::Array { of: Box::new(L::int(4)) });
-        assert_eq!(p("MAP(STRING, INT64)"), L::Map { key: Box::new(L::Text { unicode: true }), value: Box::new(L::int(8)) });
+        assert_eq!(
+            p("ARRAY(INT32)"),
+            L::Array {
+                of: Box::new(L::int(4))
+            }
+        );
+        assert_eq!(
+            p("MAP(STRING, INT64)"),
+            L::Map {
+                key: Box::new(L::Text { unicode: true }),
+                value: Box::new(L::int(8))
+            }
+        );
         assert_eq!(p("TUPLE(INT, STRING)"), L::Json { binary: false });
         assert_eq!(p("INTERVAL"), L::Interval);
         assert!(matches!(p("BITMAP"), L::Other { .. }));
@@ -205,47 +296,151 @@ mod tests {
     fn renders() {
         let r = |t: L| Databend.render_type(&t).native;
         assert_eq!(r(L::Bool), "BOOLEAN");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }), "INT UNSIGNED");
-        assert_eq!(r(L::Int { bytes: 3, unsigned: false }), "INT");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "INT UNSIGNED"
+        );
+        assert_eq!(
+            r(L::Int {
+                bytes: 3,
+                unsigned: false
+            }),
+            "INT"
+        );
         assert_eq!(r(L::int(16)), "DECIMAL(39, 0)");
-        assert_eq!(r(L::Decimal { precision: Some(60), scale: Some(4) }), "DECIMAL(60, 4)");
-        assert_eq!(r(L::Decimal { precision: None, scale: None }), "DECIMAL(38, 10)");
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(60),
+                scale: Some(4)
+            }),
+            "DECIMAL(60, 4)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: None,
+                scale: None
+            }),
+            "DECIMAL(38, 10)"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "FLOAT");
         assert_eq!(r(L::Float { bytes: 8 }), "DOUBLE");
         assert_eq!(r(L::Money), "DECIMAL(19, 4)");
-        assert_eq!(r(L::Char { len: Some(2), unicode: true }), "VARCHAR");
-        assert_eq!(r(L::Varchar { len: Some(20), unicode: true }), "VARCHAR");
+        assert_eq!(
+            r(L::Char {
+                len: Some(2),
+                unicode: true
+            }),
+            "VARCHAR"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(20),
+                unicode: true
+            }),
+            "VARCHAR"
+        );
         assert_eq!(r(L::Text { unicode: false }), "VARCHAR");
         assert_eq!(r(L::Binary { len: Some(4) }), "BINARY");
         assert_eq!(r(L::Blob), "BINARY");
         assert_eq!(r(L::Bit { len: Some(3) }), "BIGINT UNSIGNED");
         assert_eq!(r(L::Date), "DATE");
-        assert_eq!(r(L::Time { precision: None, tz: true }), "VARCHAR");
-        assert_eq!(r(L::Timestamp { precision: Some(3), tz: true }), "TIMESTAMP");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: true
+            }),
+            "VARCHAR"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }),
+            "TIMESTAMP"
+        );
         assert_eq!(r(L::Interval), "VARCHAR");
         assert_eq!(r(L::Year), "SMALLINT");
         assert_eq!(r(L::Uuid), "VARCHAR");
         assert_eq!(r(L::Json { binary: false }), "VARIANT");
         assert_eq!(r(L::Xml), "VARCHAR");
-        assert_eq!(r(L::Enum { values: vec!["a".into()] }), "VARCHAR");
-        assert_eq!(r(L::Set { values: vec!["a".into()] }), "ARRAY(VARCHAR)");
-        assert_eq!(r(L::Array { of: Box::new(L::int(8)) }), "ARRAY(BIGINT)");
-        assert_eq!(r(L::Map { key: Box::new(L::Text { unicode: true }), value: Box::new(L::Bool) }), "MAP(VARCHAR, BOOLEAN)");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "VARCHAR");
+        assert_eq!(
+            r(L::Enum {
+                values: vec!["a".into()]
+            }),
+            "VARCHAR"
+        );
+        assert_eq!(
+            r(L::Set {
+                values: vec!["a".into()]
+            }),
+            "ARRAY(VARCHAR)"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(8))
+            }),
+            "ARRAY(BIGINT)"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Text { unicode: true }),
+                value: Box::new(L::Bool)
+            }),
+            "MAP(VARCHAR, BOOLEAN)"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "VARCHAR"
+        );
         assert_eq!(r(L::Inet), "VARCHAR");
         assert_eq!(r(L::MacAddr), "VARCHAR");
         assert_eq!(r(L::RowVersion), "BINARY");
-        let ts = Databend.render_type(&L::Timestamp { precision: Some(9), tz: false });
+        let ts = Databend.render_type(&L::Timestamp {
+            precision: Some(9),
+            tz: false,
+        });
         assert!(ts.notes.iter().any(|n| n.code == IssueCode::PrecisionLoss));
     }
 
     #[test]
     fn defaults_and_finalize() {
-        let ts = L::Timestamp { precision: None, tz: true };
-        assert_eq!(Databend.render_default(&DefaultValue::CurrentTimestamp, &ts).as_deref(), Some("now()"));
-        assert_eq!(Databend.render_default(&DefaultValue::NewUuid, &L::Uuid).as_deref(), Some("uuid()"));
-        assert_eq!(Databend.render_default(&DefaultValue::Bool(false), &L::Bool).as_deref(), Some("FALSE"));
-        let mut t = TableSchema { name: "t".into(), primary_key: Some(dbine_driver::KeyDef { name: None, columns: vec!["id".into()] }), ..Default::default() };
+        let ts = L::Timestamp {
+            precision: None,
+            tz: true,
+        };
+        assert_eq!(
+            Databend
+                .render_default(&DefaultValue::CurrentTimestamp, &ts)
+                .as_deref(),
+            Some("now()")
+        );
+        assert_eq!(
+            Databend
+                .render_default(&DefaultValue::NewUuid, &L::Uuid)
+                .as_deref(),
+            Some("uuid()")
+        );
+        assert_eq!(
+            Databend
+                .render_default(&DefaultValue::Bool(false), &L::Bool)
+                .as_deref(),
+            Some("FALSE")
+        );
+        let mut t = TableSchema {
+            name: "t".into(),
+            primary_key: Some(dbine_driver::KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            ..Default::default()
+        };
         let mut rep = Report::default();
         Databend.finalize(&mut t, &mut rep);
         assert!(t.primary_key.is_none());

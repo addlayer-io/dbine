@@ -30,7 +30,10 @@ fn config() -> Option<ConnectionConfig> {
 }
 
 fn changes(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[tokio::test]
@@ -43,7 +46,11 @@ async fn database_properties() {
     let d = dbine_driver_firebird::drivers().remove(0);
     assert!(d.capabilities().database_properties);
     let mut s = d.connect(&base, None).await.unwrap();
-    let folder = base.database.rsplit_once('/').map(|(dir, _)| dir.to_string()).unwrap();
+    let folder = base
+        .database
+        .rsplit_once('/')
+        .map(|(dir, _)| dir.to_string())
+        .unwrap();
     let file = format!("{folder}/dbine_props.fdb");
     let _ = s.drop_database(&file).await;
     s.create_database(&file).await.unwrap();
@@ -53,12 +60,24 @@ async fn database_properties() {
     assert_eq!(p.values["charset"], "NONE");
     assert_eq!(p.values["linger"], "0");
     assert_eq!(p.values["sql_security"], "INVOKER");
-    assert_eq!((p.values["publication"].as_str(), p.values["publication_all"].as_str()), ("", ""));
-    assert!(p.info.iter().any(|i| i.label == "Archivo" && i.value == file));
+    assert_eq!(
+        (
+            p.values["publication"].as_str(),
+            p.values["publication_all"].as_str()
+        ),
+        ("", "")
+    );
+    assert!(p
+        .info
+        .iter()
+        .any(|i| i.label == "Archivo" && i.value == file));
     assert!(p.info.iter().any(|i| i.label == "Tamaño de página"));
     assert!(p.choices[0].values.contains(&"UTF8".to_string()));
     // The session's own database, with an empty name.
-    assert_eq!(s.database_properties("").await.unwrap().info[0].value, base.database);
+    assert_eq!(
+        s.database_properties("").await.unwrap().info[0].value,
+        base.database
+    );
 
     let ch = changes(&[
         ("charset", "utf8"),
@@ -82,14 +101,30 @@ async fn database_properties() {
         assert_eq!(p.values.get(k).map(String::as_str), Some(v), "{k}");
     }
 
-    s.alter_database(&file, &changes(&[("comment", ""), ("linger", "0"), ("publication", ""), ("publication_all", "")])).await.unwrap();
+    s.alter_database(
+        &file,
+        &changes(&[
+            ("comment", ""),
+            ("linger", "0"),
+            ("publication", ""),
+            ("publication_all", ""),
+        ]),
+    )
+    .await
+    .unwrap();
     let p = s.database_properties(&file).await.unwrap();
     for k in ["comment", "publication", "publication_all"] {
         assert_eq!(p.values[k], "", "{k}");
     }
     assert_eq!(p.values["linger"], "0");
 
-    let e = s.alter_database(&file, &changes(&[("charset", "NO_SUCH_CS"), ("comment", "x")])).await.unwrap_err();
+    let e = s
+        .alter_database(
+            &file,
+            &changes(&[("charset", "NO_SUCH_CS"), ("comment", "x")]),
+        )
+        .await
+        .unwrap_err();
     eprintln!("{e}");
     s.drop_database(&file).await.unwrap();
 }

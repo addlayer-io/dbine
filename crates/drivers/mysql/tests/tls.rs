@@ -24,7 +24,12 @@ fn setup() -> Option<(ConnectionConfig, String)> {
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap();
     let (user, pass) = auth.split_once(':').unwrap();
-    let (host, port) = hostport.split('/').next().unwrap().rsplit_once(':').unwrap();
+    let (host, port) = hostport
+        .split('/')
+        .next()
+        .unwrap()
+        .rsplit_once(':')
+        .unwrap();
     let cfg = ConnectionConfig {
         host: host.into(),
         port: port.parse().unwrap(),
@@ -37,7 +42,10 @@ fn setup() -> Option<(ConnectionConfig, String)> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 /// Cloud SQL with its CA checks only the chain, so only that CA is
@@ -48,7 +56,10 @@ async fn cloud_sql_trusts_only_the_instance_ca() {
     let Some((mut cfg, ca)) = setup() else { return };
     let d = driver("cloudsql-mysql");
     cfg.options.insert("ca_cert".into(), ca);
-    let s = d.connect(&cfg, None).await.expect("the instance CA connects");
+    let s = d
+        .connect(&cfg, None)
+        .await
+        .expect("the instance CA connects");
     drop(s);
 
     // Another CA (Amazon's RDS bundle) didn't sign the server's certificate.
@@ -57,8 +68,12 @@ async fn cloud_sql_trusts_only_the_instance_ca() {
     let other = dir.join("other.pem");
     let rds = include_bytes!("../../postgres/src/rds-global-bundle.pem");
     std::fs::write(&other, rds).unwrap();
-    cfg.options.insert("ca_cert".into(), other.to_string_lossy().into_owned());
-    assert!(d.connect(&cfg, None).await.is_err(), "a certificate from another CA was accepted");
+    cfg.options
+        .insert("ca_cert".into(), other.to_string_lossy().into_owned());
+    assert!(
+        d.connect(&cfg, None).await.is_err(),
+        "a certificate from another CA was accepted"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -70,11 +85,18 @@ async fn plain_mysql_checks_the_name_and_plain_connections_still_work() {
     let Some((mut cfg, ca)) = setup() else { return };
     let d = driver("mysql");
     cfg.options.insert("ca_cert".into(), ca);
-    assert!(d.connect(&cfg, None).await.is_err(), "a certificate for another name was accepted");
+    assert!(
+        d.connect(&cfg, None).await.is_err(),
+        "a certificate for another name was accepted"
+    );
     cfg.trust_server_certificate = true;
-    d.connect(&cfg, None).await.expect("trusting the server certificate connects");
+    d.connect(&cfg, None)
+        .await
+        .expect("trusting the server certificate connects");
     cfg.trust_server_certificate = false;
     cfg.encrypt = false;
     cfg.options.clear();
-    d.connect(&cfg, None).await.expect("a connection without TLS");
+    d.connect(&cfg, None)
+        .await
+        .expect("a connection without TLS");
 }

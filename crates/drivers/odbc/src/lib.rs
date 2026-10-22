@@ -33,13 +33,14 @@ mod sync;
 mod transfer;
 
 use dbine_driver::sql::{
-    leading_keyword, qualified_name, select_top, split_script, split_statements, strip_comments, Limit, Quote, ScriptDefaults,
-    ScriptDialect, ScriptMode, StatementKind,
+    leading_keyword, qualified_name, select_top, split_script, split_statements, strip_comments,
+    Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
 };
 use dbine_driver::{
-    async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
-    DesignerSpec, Driver, DriverInfo, Error, Field, FieldKind, ForeignKeyDef, IndexDef, KeyDef, Language, ObjectKindInfo,
-    MonitorSnapshot, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema, TxState,
+    async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
+    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Field, FieldKind, ForeignKeyDef,
+    IndexDef, KeyDef, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result,
+    ResultColumn, Session, TableSchema, TxState,
 };
 use odbc::{kind_of, Conn, ConnectOptions, StmtSlot};
 use presets::{Batch, Def, LimitStyle, Preset, P, PRESETS, V};
@@ -47,7 +48,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
-    PRESETS.iter().map(|p| Arc::new(OdbcDriver { preset: p, info: info(p) }) as Arc<dyn Driver>).collect()
+    PRESETS
+        .iter()
+        .map(|p| {
+            Arc::new(OdbcDriver {
+                preset: p,
+                info: info(p),
+            }) as Arc<dyn Driver>
+        })
+        .collect()
 }
 
 /// Names of the ODBC drivers installed on this machine (odbcinst.ini, or
@@ -125,16 +134,26 @@ fn info(p: &'static Preset) -> DriverInfo {
             });
         }
         for (key, label, placeholder, required, help) in p.extra_options {
-            let mut f = Field::new(key, label, FieldKind::Text).placeholder(placeholder).help(help);
+            let mut f = Field::new(key, label, FieldKind::Text)
+                .placeholder(placeholder)
+                .help(help);
             if *required {
                 f = f.required();
             }
             fields.push(f);
         }
         if p.uses_part(|v| matches!(v, V::Database), "{database}") {
-            let kind = if p.database_file() { FieldKind::File } else { FieldKind::Text };
+            let kind = if p.database_file() {
+                FieldKind::File
+            } else {
+                FieldKind::Text
+            };
             let mut f = Field::new("database", p.database_label, kind);
-            f = if p.database_required { f.required() } else { f.placeholder("(la predeterminada)") };
+            f = if p.database_required {
+                f.required()
+            } else {
+                f.placeholder("(la predeterminada)")
+            };
             fields.push(f);
         }
         if p.uses_part(|v| matches!(v, V::User), "{user}") {
@@ -198,7 +217,10 @@ impl Driver for OdbcDriver {
             table.schema.as_deref().filter(|s| !s.is_empty()),
             &table.name,
         );
-        (format!("SET IDENTITY_INSERT {name} ON"), format!("SET IDENTITY_INSERT {name} OFF"))
+        (
+            format!("SET IDENTITY_INSERT {name} ON"),
+            format!("SET IDENTITY_INSERT {name} OFF"),
+        )
     }
 
     fn info(&self) -> &DriverInfo {
@@ -212,18 +234,27 @@ impl Driver for OdbcDriver {
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
         match security::dialect(self.preset) {
             Some(d) => security::script(d, action),
-            None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
+            None => Err(Error::Unsupported(
+                security::unsupported(self.preset).into(),
+            )),
         }
     }
     fn supports_map_login(&self) -> bool {
         security::dialect(self.preset).is_some_and(security::supports_map_login)
     }
-    fn map_login_script(&self, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+    fn map_login_script(
+        &self,
+        login: &str,
+        user: &str,
+        default_schema: Option<&str>,
+    ) -> Result<String> {
         // ASE users have no default schema.
         let _ = default_schema;
         match security::dialect(self.preset) {
             Some(d) => security::map_login_script(d, login, user),
-            None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
+            None => Err(Error::Unsupported(
+                security::unsupported(self.preset).into(),
+            )),
         }
     }
 
@@ -231,16 +262,32 @@ impl Driver for OdbcDriver {
         schemas::spec(self.preset)
     }
 
-    fn create_schema_script(&self, _database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         schemas::create(self.preset, name, owner)
     }
 
-    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+    fn schema_owner_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: &str,
+    ) -> Result<Option<String>> {
         schemas::owner(self.preset, name, owner)
     }
 
-    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
-        schemas::drop(self.preset, name, cascade).ok_or_else(|| Error::Unsupported("este motor no borra esquemas desde DBine".into()))
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
+        schemas::drop(self.preset, name, cascade)
+            .ok_or_else(|| Error::Unsupported("este motor no borra esquemas desde DBine".into()))
     }
 
     fn backup(&self) -> Option<dbine_driver::BackupSpec> {
@@ -264,9 +311,14 @@ impl Driver for OdbcDriver {
     }
 
     fn aggregate_query(&self, query: &str, spec: &dbine_driver::AggregateSpec) -> Result<String> {
-        let shape = design::aggregate_shape(self.preset)
-            .ok_or_else(|| Error::Unsupported("este origen ODBC no agrupa gráficos en el servidor".into()))?;
-        let one = dbine_driver::aggregate::single_read(&self.split_script(query), &self.script_dialect(), shape.derived_with)?;
+        let shape = design::aggregate_shape(self.preset).ok_or_else(|| {
+            Error::Unsupported("este origen ODBC no agrupa gráficos en el servidor".into())
+        })?;
+        let one = dbine_driver::aggregate::single_read(
+            &self.split_script(query),
+            &self.script_dialect(),
+            shape.derived_with,
+        )?;
         dbine_driver::aggregate::grouped_sql(&shape, &one, spec)
     }
 
@@ -275,7 +327,10 @@ impl Driver for OdbcDriver {
     }
 
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: continues_on_error(self.preset), confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: continues_on_error(self.preset),
+            confirm_unsafe_dml: true,
+        }
     }
 
     fn supports_manual_transactions(&self) -> bool {
@@ -291,11 +346,19 @@ impl Driver for OdbcDriver {
         create_db::fields(self.preset)
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(self.preset, name, options)
     }
 
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(self.preset, database, changes)
     }
 
@@ -327,11 +390,19 @@ impl Driver for OdbcDriver {
         index_usage::toggle_supported(self.preset)
     }
 
-    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+    fn index_toggle_script(
+        &self,
+        table: &ObjectRef,
+        index: &dbine_driver::IndexUsage,
+        enable: bool,
+    ) -> Result<dbine_driver::SyncScript> {
         index_usage::toggle_script(self.preset, table, index, enable)
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(self.preset, changes)
     }
 
@@ -344,19 +415,42 @@ impl Driver for OdbcDriver {
         rename::script(self.preset, &self.script_dialect(), req)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
-        Ok(design::insert_script(self.preset, target.schema(), &target.name, columns, rows))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(design::insert_script(
+            self.preset,
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         design::update_script(self.preset, target.schema(), &target.name, changes)
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         design::delete_script(self.preset, target.schema(), &target.name, keys)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         design::filtered_browse(self.preset, browse, filters)
     }
 
@@ -368,26 +462,43 @@ impl Driver for OdbcDriver {
         design::script_separator(self.preset)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let preset = self.preset;
         // Single-namespace engines always use the configured database; the
         // others (and the generic catalog) take the one the explorer asks for.
         let db = if preset.databases_label.is_empty() {
             cfg.database.trim().to_string()
         } else {
-            database.filter(|d| !d.is_empty()).unwrap_or(&cfg.database).trim().to_string()
+            database
+                .filter(|d| !d.is_empty())
+                .unwrap_or(&cfg.database)
+                .trim()
+                .to_string()
         };
         // dBase: the folder of the .dbf files, also when a file was picked.
         let db = if preset.id == "dbase" && std::path::Path::new(&db).is_file() {
-            std::path::Path::new(&db).parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or(db)
+            std::path::Path::new(&db)
+                .parent()
+                .map(|d| d.to_string_lossy().into_owned())
+                .unwrap_or(db)
         } else {
             db
         };
         let conn_str = connstr::build(preset, cfg, &db)?;
-        let file = preset.database_file().then(|| cfg.database.trim().to_string()).filter(|f| !f.is_empty());
+        let file = preset
+            .database_file()
+            .then(|| cfg.database.trim().to_string())
+            .filter(|f| !f.is_empty());
         let catalog = (preset.is_generic() && !db.is_empty()).then(|| db.clone());
         let library = cfg.option("odbc_library").map(str::to_string);
-        let batch = cfg.option("batch_mode").and_then(Batch::from_option).unwrap_or(preset.batch);
+        let batch = cfg
+            .option("batch_mode")
+            .and_then(Batch::from_option)
+            .unwrap_or(preset.batch);
         let read_only = cfg.read_only;
 
         let task = tokio::task::spawn_blocking(move || -> Result<_> {
@@ -408,10 +519,16 @@ impl Driver for OdbcDriver {
             let escape = conn.info_string(ffi::SQL_SEARCH_PATTERN_ESCAPE);
             Ok((api, conn, dbms, version, quote, current, escape))
         });
-        let (api, conn, dbms, version, quote_char, current, escape) = tokio::time::timeout(CONNECT_TIMEOUT, task)
-            .await
-            .map_err(|_| Error::Connect(format!("No hubo respuesta del servidor en {} s.", CONNECT_TIMEOUT.as_secs())))?
-            .map_err(|e| Error::State(e.to_string()))??;
+        let (api, conn, dbms, version, quote_char, current, escape) =
+            tokio::time::timeout(CONNECT_TIMEOUT, task)
+                .await
+                .map_err(|_| {
+                    Error::Connect(format!(
+                        "No hubo respuesta del servidor en {} s.",
+                        CONNECT_TIMEOUT.as_secs()
+                    ))
+                })?
+                .map_err(|e| Error::State(e.to_string()))??;
 
         let quote = preset.quote.unwrap_or(match quote_char.trim() {
             "`" => Quote::Backtick,
@@ -419,11 +536,17 @@ impl Driver for OdbcDriver {
             _ => Quote::Double,
         });
         let limit = preset.limit.unwrap_or_else(|| guess_limit(&dbms));
-        let database = [db, current].into_iter().find(|d| !d.is_empty()).unwrap_or_else(|| "default".into());
+        let database = [db, current]
+            .into_iter()
+            .find(|d| !d.is_empty())
+            .unwrap_or_else(|| "default".into());
         Ok(Box::new(OdbcSession {
             preset,
             api,
-            inner: Arc::new(Inner { conn: Mutex::new(conn), slot: StmtSlot::default() }),
+            inner: Arc::new(Inner {
+                conn: Mutex::new(conn),
+                slot: StmtSlot::default(),
+            }),
             quote,
             limit,
             batch,
@@ -449,10 +572,21 @@ fn script_dialect(p: &Preset) -> ScriptDialect {
         // disql: PL blocks ended by `/`, as in SQL*Plus.
         "dameng" => ScriptDialect::oracle(),
         // beeline / impala-shell / spark-sql: backslash escapes in strings.
-        "hive" | "impala" | "spark" | "kyuubi" | "cloudera" => ScriptDialect { backslash_escapes: true, compound_blocks: false, ..generic },
+        "hive" | "impala" | "spark" | "kyuubi" | "cloudera" => ScriptDialect {
+            backslash_escapes: true,
+            compound_blocks: false,
+            ..generic
+        },
         // PLvSQL and Python UDF bodies go between `$$`.
-        "vertica" | "sqream" => ScriptDialect { dollar_quotes: true, ..generic },
-        "access" | "dbase" => ScriptDialect { bracket_idents: true, backtick_idents: false, ..generic },
+        "vertica" | "sqream" => ScriptDialect {
+            dollar_quotes: true,
+            ..generic
+        },
+        "access" | "dbase" => ScriptDialect {
+            bracket_idents: true,
+            backtick_idents: false,
+            ..generic
+        },
         _ => ScriptDialect::for_hint(p.dialect),
     }
 }
@@ -466,7 +600,10 @@ fn script_dialect(p: &Preset) -> ScriptDialect {
 /// macros hold `;` between parentheses (`CREATE MACRO m AS (…; …;)`) and
 /// `REPLACE PROCEDURE` heads a body; [`teradata_statements`] keeps both
 /// whole, and "Todo el texto de una vez" still sends the script as is.
-const WHOLE_SCRIPT: &[&str] = &["odbc", "teradata", "informix", "gbase8s", "exasol", "netezza", "nuodb", "virtuoso", "iris", "cache", "maxdb", "ingres", "altibase"];
+const WHOLE_SCRIPT: &[&str] = &[
+    "odbc", "teradata", "informix", "gbase8s", "exasol", "netezza", "nuodb", "virtuoso", "iris",
+    "cache", "maxdb", "ingres", "altibase",
+];
 
 fn script_mode(p: &Preset) -> ScriptMode {
     if WHOLE_SCRIPT.contains(&p.id) {
@@ -483,14 +620,38 @@ fn script_mode(p: &Preset) -> ScriptMode {
 fn continues_on_error(p: &Preset) -> bool {
     matches!(
         p.id,
-        "db2" | "db2i" | "db2zos" | "sybase" | "sqlanywhere" | "teradata" | "vertica" | "exasol" | "netezza" | "monetdb" | "dameng" | "altibase"
+        "db2"
+            | "db2i"
+            | "db2zos"
+            | "sybase"
+            | "sqlanywhere"
+            | "teradata"
+            | "vertica"
+            | "exasol"
+            | "netezza"
+            | "monetdb"
+            | "dameng"
+            | "altibase"
     )
 }
 
 /// Engines without transactions (or whose ODBC drivers refuse autocommit
 /// off): no Auto/Manual switch.
 fn has_transactions(p: &Preset) -> bool {
-    !matches!(p.id, "hive" | "impala" | "spark" | "kyuubi" | "cloudera" | "netsuite" | "heavydb" | "machbase" | "dbase" | "ocient" | "sqream")
+    !matches!(
+        p.id,
+        "hive"
+            | "impala"
+            | "spark"
+            | "kyuubi"
+            | "cloudera"
+            | "netsuite"
+            | "heavydb"
+            | "machbase"
+            | "dbase"
+            | "ocient"
+            | "sqream"
+    )
 }
 
 /// The statements `execute` runs one by one: on presets the app runs
@@ -505,7 +666,11 @@ fn unit_statements(text: &str, d: &ScriptDialect) -> Vec<String> {
         .map(|s| strip_comments(&s.text, d, true).trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    if pieces.len() > 1 && pieces.iter().any(|p| leading_keyword(p, d).as_deref() == Some("end")) {
+    if pieces.len() > 1
+        && pieces
+            .iter()
+            .any(|p| leading_keyword(p, d).as_deref() == Some("end"))
+    {
         return vec![text.trim().to_string()];
     }
     pieces
@@ -516,7 +681,10 @@ fn unit_statements(text: &str, d: &ScriptDialect) -> Vec<String> {
 /// (so its `BEGIN … END` body stays whole) and the pieces of a statement
 /// whose parentheses are still open joined back (a macro's body).
 fn teradata_statements(text: &str, d: &ScriptDialect) -> Vec<String> {
-    teradata_units(text, d).into_iter().map(|(s, _)| s).collect()
+    teradata_units(text, d)
+        .into_iter()
+        .map(|(s, _)| s)
+        .collect()
 }
 
 /// [`teradata_statements`], each with its byte offset in `text`.
@@ -525,7 +693,10 @@ fn teradata_units(text: &str, d: &ScriptDialect) -> Vec<(String, usize)> {
     let mut lex = text.to_string();
     for u in split_script(text, d) {
         let head = &text[u.start..];
-        if head.len() > 7 && head[..7].eq_ignore_ascii_case("replace") && head.as_bytes()[7].is_ascii_whitespace() {
+        if head.len() > 7
+            && head[..7].eq_ignore_ascii_case("replace")
+            && head.as_bytes()[7].is_ascii_whitespace()
+        {
             lex.replace_range(u.start..u.start + 7, "CREATE ");
         }
     }
@@ -547,7 +718,14 @@ fn teradata_units(text: &str, d: &ScriptDialect) -> Vec<(String, usize)> {
         }
     }
     if let Some((start, _)) = open {
-        out.push((text[start..].trim().trim_end_matches(';').trim_end().to_string(), start));
+        out.push((
+            text[start..]
+                .trim()
+                .trim_end_matches(';')
+                .trim_end()
+                .to_string(),
+            start,
+        ));
     }
     out.retain(|(s, _)| !s.is_empty());
     out
@@ -590,7 +768,12 @@ fn placed_statements(p: &Preset, batch: Batch, text: &str) -> Result<Vec<(String
             Ok(split_script(text, &d)
                 .into_iter()
                 .filter(|s| s.kind != StatementKind::ClientCommand)
-                .map(|s| (strip_comments(&s.text, &d, false).trim().to_string(), s.start))
+                .map(|s| {
+                    (
+                        strip_comments(&s.text, &d, false).trim().to_string(),
+                        s.start,
+                    )
+                })
                 .filter(|(s, _)| !s.is_empty())
                 .collect())
         }
@@ -604,23 +787,32 @@ fn locate(text: &str, pieces: Vec<String>) -> Vec<(String, usize)> {
     let mut from = 0;
     pieces
         .into_iter()
-        .map(|s| {
-            match text.get(from..).and_then(|rest| rest.find(s.as_str())) {
+        .map(
+            |s| match text.get(from..).and_then(|rest| rest.find(s.as_str())) {
                 Some(i) => {
                     let at = from + i;
                     from = at + s.len();
                     (s, at)
                 }
                 None => (s, from),
-            }
-        })
+            },
+        )
         .collect()
 }
 
 /// Row-limit syntax for the generic preset, from the DBMS name.
 fn guess_limit(dbms: &str) -> LimitStyle {
     let d = dbms.to_ascii_lowercase();
-    if ["sql server", "adaptive server", "sql anywhere", "teradata", "sybase"].iter().any(|n| d.contains(n)) {
+    if [
+        "sql server",
+        "adaptive server",
+        "sql anywhere",
+        "teradata",
+        "sybase",
+    ]
+    .iter()
+    .any(|n| d.contains(n))
+    {
         LimitStyle::Top
     } else if ["db2", "oracle", "derby"].iter().any(|n| d.contains(n)) {
         LimitStyle::FetchFirst
@@ -635,8 +827,14 @@ fn browse(quote: Quote, limit: LimitStyle, schema: Option<&str>, name: &str, n: 
     match limit {
         LimitStyle::Limit => select_top(quote, Limit::Limit, schema, name, n),
         LimitStyle::FetchFirst => select_top(quote, Limit::FetchFirst, schema, name, n),
-        LimitStyle::Top => format!("SELECT TOP {n} *\nFROM {}", qualified_name(quote, schema, name)),
-        LimitStyle::First => format!("SELECT FIRST {n} *\nFROM {}", qualified_name(quote, schema, name)),
+        LimitStyle::Top => format!(
+            "SELECT TOP {n} *\nFROM {}",
+            qualified_name(quote, schema, name)
+        ),
+        LimitStyle::First => format!(
+            "SELECT FIRST {n} *\nFROM {}",
+            qualified_name(quote, schema, name)
+        ),
     }
 }
 
@@ -648,7 +846,10 @@ fn split_go(sql: &str) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for unit in dbine_driver::sql::split_script(sql, &dbine_driver::ScriptDialect::tsql()) {
         if let Some(e) = unit.error {
-            return Err(dbine_driver::ScriptError::new(e).at_line(unit.line).fatal().into());
+            return Err(dbine_driver::ScriptError::new(e)
+                .at_line(unit.line)
+                .fatal()
+                .into());
         }
         for _ in 0..unit.repeat.max(1) {
             out.push(unit.text.clone());
@@ -680,10 +881,12 @@ fn format_type(name: &str, sql_type: i16, size: Option<u64>, digits: Option<u64>
         return name.to_string();
     }
     match sql_type {
-        SQL_CHAR | SQL_VARCHAR | SQL_WCHAR | SQL_WVARCHAR | SQL_BINARY | SQL_VARBINARY => match size {
-            Some(s) if s > 0 && s < (1 << 30) => format!("{name}({s})"),
-            _ => name.to_string(),
-        },
+        SQL_CHAR | SQL_VARCHAR | SQL_WCHAR | SQL_WVARCHAR | SQL_BINARY | SQL_VARBINARY => {
+            match size {
+                Some(s) if s > 0 && s < (1 << 30) => format!("{name}({s})"),
+                _ => name.to_string(),
+            }
+        }
         SQL_NUMERIC | SQL_DECIMAL => match (size, digits) {
             (Some(p), Some(s)) if p > 0 => format!("{name}({p},{s})"),
             (Some(p), None) if p > 0 => format!("{name}({p})"),
@@ -734,16 +937,24 @@ fn col(r: &[Option<String>], i: usize) -> Option<String> {
 }
 
 fn num(r: &[Option<String>], i: usize) -> Option<u64> {
-    col(r, i).and_then(|s| s.trim().parse::<i64>().ok()).and_then(|v| u64::try_from(v).ok())
+    col(r, i)
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .and_then(|v| u64::try_from(v).ok())
 }
 
 impl OdbcSession {
     /// Runs `f` on a blocking thread with the connection locked.
-    async fn run<T: Send + 'static>(&self, f: impl FnOnce(&Conn, &StmtSlot) -> Result<T> + Send + 'static) -> Result<T> {
+    async fn run<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&Conn, &StmtSlot) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
         let inner = self.inner.clone();
         tokio::task::spawn_blocking(move || {
             let conn = inner.conn.lock().unwrap_or_else(|e| e.into_inner());
-            inner.slot.cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
+            inner
+                .slot
+                .cancelled
+                .store(false, std::sync::atomic::Ordering::SeqCst);
             f(&conn, &inner.slot)
         })
         .await
@@ -757,7 +968,11 @@ impl OdbcSession {
             let p: Vec<&str> = params.iter().map(String::as_str).collect();
             st.exec_params(&sql, &p)?;
             let n = st.num_cols()?;
-            let cols = if n > 0 { st.describe(n)?.into_iter().map(|c| c.name).collect() } else { Vec::new() };
+            let cols = if n > 0 {
+                st.describe(n)?.into_iter().map(|c| c.name).collect()
+            } else {
+                Vec::new()
+            };
             Ok((cols, st.text_rows()?))
         })
         .await
@@ -779,7 +994,13 @@ impl OdbcSession {
     }
 }
 
-fn run_one(c: &Conn, slot: &StmtSlot, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+fn run_one(
+    c: &Conn,
+    slot: &StmtSlot,
+    sql: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     let st = c.stmt(slot)?;
     let rc = st.exec(sql)?;
     for d in st.diag_messages() {
@@ -796,7 +1017,14 @@ fn run_one(c: &Conn, slot: &StmtSlot, sql: &str, max_rows: usize, out: &mut Quer
         if n > 0 {
             let cols = st.describe(n)?;
             let kinds: Vec<_> = cols.iter().map(|c| kind_of(c.sql_type)).collect();
-            out.begin_result(cols.into_iter().map(|c| ResultColumn { name: c.name, type_name: c.type_name }).collect());
+            out.begin_result(
+                cols.into_iter()
+                    .map(|c| ResultColumn {
+                        name: c.name,
+                        type_name: c.type_name,
+                    })
+                    .collect(),
+            );
             let mut seen = 0usize;
             while st.fetch()? {
                 if seen < max_rows {
@@ -834,13 +1062,21 @@ fn run_one(c: &Conn, slot: &StmtSlot, sql: &str, max_rows: usize, out: &mut Quer
 #[async_trait]
 impl Session for OdbcSession {
     async fn server_version(&mut self) -> Result<String> {
-        Ok(if self.version.is_empty() { self.preset.name.to_string() } else { self.version.clone() })
+        Ok(if self.version.is_empty() {
+            self.preset.name.to_string()
+        } else {
+            self.version.clone()
+        })
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         if let Some(sql) = self.preset.databases_sql {
             let rows = self.query(sql.to_string(), Vec::new()).await?;
-            return Ok(rows.iter().filter_map(|r| col(r, 0)).map(|s| s.trim().to_string()).collect());
+            return Ok(rows
+                .iter()
+                .filter_map(|r| col(r, 0))
+                .map(|s| s.trim().to_string())
+                .collect());
         }
         if !self.preset.databases_label.is_empty() {
             // SQL_ALL_CATALOGS: catalog "%", schema and table "".
@@ -852,7 +1088,11 @@ impl Session for OdbcSession {
                 })
                 .await
                 .unwrap_or_default();
-            let mut v: Vec<String> = rows.iter().filter_map(|r| col(r, 0)).filter(|s| !s.is_empty()).collect();
+            let mut v: Vec<String> = rows
+                .iter()
+                .filter_map(|r| col(r, 0))
+                .filter(|s| !s.is_empty())
+                .collect();
             v.dedup();
             if !v.is_empty() {
                 return Ok(v);
@@ -888,11 +1128,20 @@ impl Session for OdbcSession {
             })
             .await?;
 
-        let schema_of = |s: Option<String>| if preset.has_schemas { s.filter(|s| !s.is_empty()) } else { None };
+        let schema_of = |s: Option<String>| {
+            if preset.has_schemas {
+                s.filter(|s| !s.is_empty())
+            } else {
+                None
+            }
+        };
         let mut out = Vec::new();
         for r in &tables {
             let schema = col(r, 1);
-            if schema.as_deref().is_some_and(|s| preset.is_system_schema(s)) {
+            if schema
+                .as_deref()
+                .is_some_and(|s| preset.is_system_schema(s))
+            {
                 continue;
             }
             let kind = match col(r, 3).unwrap_or_default().to_ascii_uppercase().as_str() {
@@ -901,18 +1150,29 @@ impl Session for OdbcSession {
                 _ => continue,
             };
             let Some(name) = col(r, 2) else { continue };
-            out.push(DbObject { kind: kind.into(), schema: schema_of(schema), name, parent: None });
+            out.push(DbObject {
+                kind: kind.into(),
+                schema: schema_of(schema),
+                name,
+                parent: None,
+            });
         }
         let mut routines = Vec::new();
         for r in &procs {
             let schema = col(r, 1);
-            if schema.as_deref().is_some_and(|s| preset.is_system_schema(s)) {
+            if schema
+                .as_deref()
+                .is_some_and(|s| preset.is_system_schema(s))
+            {
                 continue;
             }
             let Some(name) = col(r, 2) else { continue };
             // PROCEDURE_TYPE: 2 = returns a value. SQL Server and ASE say 2
             // for every procedure (the return code), so there it means nothing.
-            let kind = if col(r, 7).as_deref().map(str::trim) == Some("2") && preset.functions && typed_routines {
+            let kind = if col(r, 7).as_deref().map(str::trim) == Some("2")
+                && preset.functions
+                && typed_routines
+            {
                 kinds::FUNCTION
             } else {
                 kinds::PROCEDURE
@@ -933,8 +1193,15 @@ impl Session for OdbcSession {
                 Ok(rows) => out.extend(rows.iter().filter_map(|r| {
                     let (kind, name) = (col(r, 0)?, col(r, 2)?.trim_end().to_string());
                     let schema = col(r, 1).map(|s| s.trim_end().to_string());
-                    let kind = [kinds::SEQUENCE, kinds::SYNONYM, kinds::TYPE].into_iter().find(|k| *k == kind.trim())?;
-                    Some(DbObject { kind: kind.into(), schema: schema_of(schema), name, parent: None })
+                    let kind = [kinds::SEQUENCE, kinds::SYNONYM, kinds::TYPE]
+                        .into_iter()
+                        .find(|k| *k == kind.trim())?;
+                    Some(DbObject {
+                        kind: kind.into(),
+                        schema: schema_of(schema),
+                        name,
+                        parent: None,
+                    })
                 })),
                 Err(e) => tracing::debug!("odbc: object list failed: {e}"),
             }
@@ -946,10 +1213,19 @@ impl Session for OdbcSession {
     /// Presets with "Nuevo esquema…" (see `schemas::list_sql`): their
     /// catalog, else SQLTables' SQL_ALL_SCHEMAS; `None` when both fail.
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
-        let Some(sql) = schemas::list_sql(self.preset) else { return Ok(None) };
+        let Some(sql) = schemas::list_sql(self.preset) else {
+            return Ok(None);
+        };
         if let Some(sql) = sql {
             match self.query(sql.to_string(), Vec::new()).await {
-                Ok(rows) => return Ok(Some(schemas::infos(self.preset, &rows, 0, schemas::flag_col(self.preset)))),
+                Ok(rows) => {
+                    return Ok(Some(schemas::infos(
+                        self.preset,
+                        &rows,
+                        0,
+                        schemas::flag_col(self.preset),
+                    )))
+                }
                 Err(e) => tracing::debug!("odbc: schema list failed, trying SQLTables: {e}"),
             }
         }
@@ -1005,14 +1281,18 @@ impl Session for OdbcSession {
             .enumerate()
             .map(|(i, r)| {
                 let type_name = col(r, 5).unwrap_or_default();
-                let sql_type = col(r, 4).and_then(|s| s.trim().parse::<i16>().ok()).unwrap_or(0);
+                let sql_type = col(r, 4)
+                    .and_then(|s| s.trim().parse::<i16>().ok())
+                    .unwrap_or(0);
                 let name = col(r, 3).unwrap_or_default();
                 let lower = type_name.to_ascii_lowercase();
                 let info = ColumnInfo {
                     data_type: format_type(&type_name, sql_type, num(r, 6), num(r, 8)),
                     nullable: col(r, 10).as_deref().map(str::trim) != Some("0"),
                     primary_key: pk_names.contains(&name),
-                    auto_increment: lower.contains("identity") || lower.contains("serial") || lower.contains("auto_increment"),
+                    auto_increment: lower.contains("identity")
+                        || lower.contains("serial")
+                        || lower.contains("auto_increment"),
                     default_value: col(r, 12).filter(|d| !d.is_empty()),
                     name,
                 };
@@ -1036,12 +1316,21 @@ impl Session for OdbcSession {
                 }
                 sets.push(self.query(sql.to_string(), params).await?);
             }
-            return Ok(structure::build(e, &obj.kind, self.quote, obj.schema(), &obj.name, &sets));
+            return Ok(structure::build(
+                e,
+                &obj.kind,
+                self.quote,
+                obj.schema(),
+                &obj.name,
+                &sets,
+            ));
         }
         if let Some(sql) = structure::named_definition_sql(e, &obj.kind) {
             let params = vec![obj.schema().unwrap_or("").to_string(), obj.name.clone()];
             let (cols, rows) = self.query_named(sql.to_string(), params).await?;
-            return Ok(rows.first().and_then(|r| structure::build_named(e, &obj.kind, self.quote, obj.schema(), &obj.name, &cols, r)));
+            return Ok(rows.first().and_then(|r| {
+                structure::build_named(e, &obj.kind, self.quote, obj.schema(), &obj.name, &cols, r)
+            }));
         }
         let def = match obj.kind.as_str() {
             kinds::TABLE => defs.table,
@@ -1066,11 +1355,17 @@ impl Session for OdbcSession {
                     })
                     .collect();
                 self.query(sql.to_string(), values).await.map(|rows| {
-                    rows.iter().filter_map(|r| col(r, 0)).collect::<Vec<_>>().join(join)
+                    rows.iter()
+                        .filter_map(|r| col(r, 0))
+                        .collect::<Vec<_>>()
+                        .join(join)
                 })
             }
             Def::Show(prefix) => {
-                let sql = format!("{prefix} {}", qualified_name(self.quote, obj.schema(), &obj.name));
+                let sql = format!(
+                    "{prefix} {}",
+                    qualified_name(self.quote, obj.schema(), &obj.name)
+                );
                 self.query(sql, Vec::new()).await.map(|rows| {
                     rows.iter()
                         .filter_map(|r| col(r, 0))
@@ -1100,13 +1395,18 @@ impl Session for OdbcSession {
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let dialect = script_dialect(self.preset);
         let stmts = match (script_mode(self.preset), self.batch) {
-            (ScriptMode::PerStatement, Batch::Statements) => locate(text, unit_statements(text, &dialect)),
+            (ScriptMode::PerStatement, Batch::Statements) => {
+                locate(text, unit_statements(text, &dialect))
+            }
             _ => placed_statements(self.preset, self.batch, text)?,
         };
         if stmts.is_empty() {
             return Ok(());
         }
-        let stmts: Vec<(String, usize, u32)> = stmts.into_iter().map(|(s, at)| (s, at, steps::line_at(text, at))).collect();
+        let stmts: Vec<(String, usize, u32)> = stmts
+            .into_iter()
+            .map(|(s, at)| (s, at, steps::line_at(text, at)))
+            .collect();
         // `Whole` presets split the script here: as the app would, editor
         // runs go on after errors (`out.continue_on_error`) and report each
         // statement live (`out.progress_sink`).
@@ -1136,7 +1436,9 @@ impl Session for OdbcSession {
                                     local.database = Some(now);
                                 }
                             }
-                            _ if local.results[before..].iter().any(|r| r.columns.is_empty()) => changed = Some(true),
+                            _ if local.results[before..].iter().any(|r| r.columns.is_empty()) => {
+                                changed = Some(true)
+                            }
                             _ => {}
                         }
                     }
@@ -1166,14 +1468,21 @@ impl Session for OdbcSession {
         if !has_transactions(self.preset) {
             return Ok(None);
         }
-        Ok(Some(if self.manual && self.dirty { TxState::Open } else { TxState::Idle }))
+        Ok(Some(if self.manual && self.dirty {
+            TxState::Open
+        } else {
+            TxState::Idle
+        }))
     }
 
     /// `SQL_ATTR_AUTOCOMMIT`: off, the driver keeps a transaction open
     /// until Commit / Rollback (`SQLEndTran`).
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
         if !on && !has_transactions(self.preset) {
-            return Err(Error::Unsupported(format!("{} no tiene transacciones", self.preset.name)));
+            return Err(Error::Unsupported(format!(
+                "{} no tiene transacciones",
+                self.preset.name
+            )));
         }
         self.run(move |c, _| c.set_autocommit(on)).await?;
         self.manual = !on;
@@ -1200,7 +1509,13 @@ impl Session for OdbcSession {
         Ok(())
     }
 
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let dialect = explain::dialect(self.preset.id, &self.dbms);
         if let explain::Dialect::Unsupported(why) = dialect {
             return Err(Error::Unsupported(why.into()));
@@ -1213,7 +1528,8 @@ impl Session for OdbcSession {
         let (local, err) = self
             .run(move |c, slot| {
                 let mut local = fork;
-                let r = explain::explain_all(dialect, c, slot, &stmts, analyze, max_rows, &mut local);
+                let r =
+                    explain::explain_all(dialect, c, slot, &stmts, analyze, max_rows, &mut local);
                 Ok((local, r.err()))
             })
             .await?;
@@ -1233,7 +1549,9 @@ impl Session for OdbcSession {
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let preset = self.preset;
         let esc = self.escape.clone();
-        let raw = self.run(move |c, slot| catalog_schema(c, slot, preset, &esc)).await?;
+        let raw = self
+            .run(move |c, slot| catalog_schema(c, slot, preset, &esc))
+            .await?;
         let mut tables = build_schema(preset, raw);
         // CHECKs and INCLUDE columns from the engine's own catalog.
         let e = design::eng(preset);
@@ -1252,14 +1570,19 @@ impl Session for OdbcSession {
         Ok(tables)
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let preset = self.preset;
         if !index_usage::supported(preset) {
             return Ok(None);
         }
         let esc = self.escape.clone();
         let (schema, name) = (table.schema().map(str::to_string), table.name.clone());
-        let raw = self.run(move |c, slot| catalog_table(c, slot, preset, &esc, schema, name)).await?;
+        let raw = self
+            .run(move |c, slot| catalog_table(c, slot, preset, &esc, schema, name))
+            .await?;
         let mut tables = build_schema(preset, raw);
         let e = design::eng(preset);
         if let Some(sql) = structure::include_sql(e) {
@@ -1269,7 +1592,13 @@ impl Session for OdbcSession {
             }
         }
         let usage = match index_usage::counters_sql(e) {
-            Some(sql) => match self.query(sql.to_string(), index_usage::counters_params(e, table.schema(), &table.name)).await {
+            Some(sql) => match self
+                .query(
+                    sql.to_string(),
+                    index_usage::counters_params(e, table.schema(), &table.name),
+                )
+                .await
+            {
                 Ok(rows) => Some(index_usage::parse_counters(&rows)),
                 Err(err) => {
                     tracing::debug!("odbc: index counters not read: {err}");
@@ -1279,7 +1608,12 @@ impl Session for OdbcSession {
             None => None,
         };
         let since = match (usage.is_some(), index_usage::since_sql(e)) {
-            (true, Some(sql)) => self.query(sql.to_string(), Vec::new()).await.ok().and_then(|r| r.into_iter().next()).and_then(|r| col(&r, 0)),
+            (true, Some(sql)) => self
+                .query(sql.to_string(), Vec::new())
+                .await
+                .ok()
+                .and_then(|r| r.into_iter().next())
+                .and_then(|r| col(&r, 0)),
             _ => None,
         };
         let report = index_usage::assemble(preset, tables.first(), usage.as_deref(), since);
@@ -1305,12 +1639,22 @@ impl Session for OdbcSession {
 
     /// The generic preset keeps the plain create (its quoting comes from
     /// the driver); Sybase ASE and Netezza take their options.
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
-        if !matches!(design::eng(self.preset), design::Eng::Ase | design::Eng::Netezza) {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
+        if !matches!(
+            design::eng(self.preset),
+            design::Eng::Ase | design::Eng::Netezza
+        ) {
             if options.values().all(|v| v.trim().is_empty()) {
                 return self.create_database(name).await;
             }
-            return Err(Error::Unsupported(format!("{} no admite opciones al crear una base", self.preset.name)));
+            return Err(Error::Unsupported(format!(
+                "{} no admite opciones al crear una base",
+                self.preset.name
+            )));
         }
         self.create_database_with_impl(name, options).await
     }
@@ -1327,19 +1671,32 @@ impl Session for OdbcSession {
     }
 
     /// "Chequeo de salud" for the presets whose catalog answers it (see `health`).
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -1358,35 +1715,45 @@ impl Session for OdbcSession {
             database: self.database.clone(),
             file: self.file.clone(),
         };
-        self.run(move |c, slot| Ok(monitor::collect(preset, &ctx, &mut ConnSource { c, slot }))).await
+        self.run(move |c, slot| Ok(monitor::collect(preset, &ctx, &mut ConnSource { c, slot })))
+            .await
     }
 
     async fn blocking(&mut self) -> Result<Vec<dbine_driver::BlockedSession>> {
         let preset = self.preset;
         if !blocking::supports_blocking(preset) {
-            return Err(Error::Unsupported("este motor no informa bloqueos entre sesiones".into()));
+            return Err(Error::Unsupported(
+                "este motor no informa bloqueos entre sesiones".into(),
+            ));
         }
-        self.run(move |c, slot| blocking::collect(preset, &mut ConnSource { c, slot })).await
+        self.run(move |c, slot| blocking::collect(preset, &mut ConnSource { c, slot }))
+            .await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
         match security::dialect(self.preset) {
             Some(d) => security::principals(self, d).await,
-            None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
+            None => Err(Error::Unsupported(
+                security::unsupported(self.preset).into(),
+            )),
         }
     }
 
     async fn unmapped_logins(&mut self) -> Result<Vec<String>> {
         match security::dialect(self.preset) {
             Some(d) => security::unmapped_logins(self, d).await,
-            None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
+            None => Err(Error::Unsupported(
+                security::unsupported(self.preset).into(),
+            )),
         }
     }
 
     async fn grants(&mut self, principal: &str) -> Result<Vec<dbine_driver::Grant>> {
         match security::dialect(self.preset) {
             Some(d) => security::grants(self, d, principal).await,
-            None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
+            None => Err(Error::Unsupported(
+                security::unsupported(self.preset).into(),
+            )),
         }
     }
 
@@ -1396,10 +1763,13 @@ impl Session for OdbcSession {
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         if !blocking::supports_kill(self.preset) {
-            return Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no permite terminar sesiones desde DBine".into(),
+            ));
         }
         let sql = blocking::kill_sql(self.preset, id)?;
-        self.run(move |c, slot| c.stmt(slot)?.exec(&sql).map(|_| ())).await
+        self.run(move |c, slot| c.stmt(slot)?.exec(&sql).map(|_| ()))
+            .await
     }
 
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
@@ -1407,19 +1777,26 @@ impl Session for OdbcSession {
         if let Some(why) = processes::unsupported_reason(preset) {
             return Err(Error::Unsupported(why.into()));
         }
-        self.run(move |c, slot| processes::collect(preset, &mut ConnSource { c, slot })).await
+        self.run(move |c, slot| processes::collect(preset, &mut ConnSource { c, slot }))
+            .await
     }
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         let (preset, id) = (self.preset, id.to_string());
-        self.run(move |c, slot| processes::cancel(preset, &mut ConnSource { c, slot }, &id)).await
+        self.run(move |c, slot| processes::cancel(preset, &mut ConnSource { c, slot }, &id))
+            .await
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         let sql = transfer::select_sql(self.quote, spec);
         let sizes = transfer::sizes_reliable(self.preset);
         let wanted = spec.columns.as_ref().map(Vec::len);
-        self.run(move |c, slot| transfer::read(c, slot, &sql, sizes, wanted, sink)).await
+        self.run(move |c, slot| transfer::read(c, slot, &sql, sizes, wanted, sink))
+            .await
     }
 
     async fn bulk_load(
@@ -1452,7 +1829,10 @@ impl monitor::Source for ConnSource<'_> {
             let n = st.num_cols()?;
             if n > 0 {
                 let cols = st.describe(n)?.into_iter().map(|c| c.name).collect();
-                return Ok(monitor::Set { cols, rows: st.text_rows()? });
+                return Ok(monitor::Set {
+                    cols,
+                    rows: st.text_rows()?,
+                });
             }
             if !st.more_results()? {
                 return Ok(monitor::Set::default());
@@ -1466,8 +1846,15 @@ impl OdbcSession {
     /// them from `master` and then goes back to the session's database.
     async fn database_ddl(&mut self, verb: &'static str, name: &str) -> Result<()> {
         let caps = design::capabilities(self.preset);
-        if !(if verb == "CREATE" { caps.create_database } else { caps.drop_database }) {
-            return Err(Error::Unsupported(format!("{} no crea ni borra bases desde DBine", self.preset.name)));
+        if !(if verb == "CREATE" {
+            caps.create_database
+        } else {
+            caps.drop_database
+        }) {
+            return Err(Error::Unsupported(format!(
+                "{} no crea ni borra bases desde DBine",
+                self.preset.name
+            )));
         }
         let name = name.trim();
         if name.is_empty() {
@@ -1476,7 +1863,11 @@ impl OdbcSession {
         let q = |n: &str| dbine_driver::sql::quote_ident(self.quote, n);
         let stmt = format!("{verb} DATABASE {}", q(name));
         let stmts = if design::eng(self.preset) == design::Eng::Ase {
-            vec!["USE master".to_string(), stmt, format!("USE {}", q(&self.database))]
+            vec![
+                "USE master".to_string(),
+                stmt,
+                format!("USE {}", q(&self.database)),
+            ]
         } else {
             vec![stmt]
         };
@@ -1509,7 +1900,12 @@ struct RawSchema {
 /// and SQLPrimaryKeys / SQLForeignKeys / SQLStatistics per table (they take
 /// no patterns). Keys and indexes are best effort: a driver that fails
 /// them leaves the table without.
-fn catalog_schema(c: &Conn, slot: &StmtSlot, preset: &'static Preset, esc: &str) -> Result<RawSchema> {
+fn catalog_schema(
+    c: &Conn,
+    slot: &StmtSlot,
+    preset: &'static Preset,
+    esc: &str,
+) -> Result<RawSchema> {
     let all = {
         let st = c.stmt(slot)?;
         st.tables(None, Some("%"), Some("%"), None)?;
@@ -1517,7 +1913,12 @@ fn catalog_schema(c: &Conn, slot: &StmtSlot, preset: &'static Preset, esc: &str)
     };
     let tables: Rows = all
         .into_iter()
-        .filter(|r| matches!(col(r, 3).unwrap_or_default().to_ascii_uppercase().as_str(), "TABLE" | "BASE TABLE"))
+        .filter(|r| {
+            matches!(
+                col(r, 3).unwrap_or_default().to_ascii_uppercase().as_str(),
+                "TABLE" | "BASE TABLE"
+            )
+        })
         .filter(|r| !col(r, 1).is_some_and(|s| preset.is_system_schema(&s)))
         .filter(|r| col(r, 2).is_some())
         .collect();
@@ -1551,17 +1952,33 @@ fn catalog_schema(c: &Conn, slot: &StmtSlot, preset: &'static Preset, esc: &str)
     }
     let mut per_table = Vec::with_capacity(tables.len());
     for t in &tables {
-        per_table.push(table_keys(c, slot, preset, col(t, 1).as_deref(), &col(t, 2).unwrap_or_default()));
+        per_table.push(table_keys(
+            c,
+            slot,
+            preset,
+            col(t, 1).as_deref(),
+            &col(t, 2).unwrap_or_default(),
+        ));
         if slot.is_cancelled() {
             return Err(Error::Query("Cancelado".into()));
         }
     }
-    Ok(RawSchema { tables, columns, per_table })
+    Ok(RawSchema {
+        tables,
+        columns,
+        per_table,
+    })
 }
 
 /// A table's SQLPrimaryKeys, SQLForeignKeys and SQLStatistics rows (empty
 /// where the preset has none or the driver refuses the call).
-fn table_keys(c: &Conn, slot: &StmtSlot, preset: &'static Preset, schema: Option<&str>, name: &str) -> (Rows, Rows, Rows) {
+fn table_keys(
+    c: &Conn,
+    slot: &StmtSlot,
+    preset: &'static Preset,
+    schema: Option<&str>,
+    name: &str,
+) -> (Rows, Rows, Rows) {
     let catalog = |what: &str, f: &dyn Fn(&odbc::Stmt) -> Result<()>| -> Rows {
         c.stmt(slot)
             .and_then(|st| {
@@ -1574,13 +1991,28 @@ fn table_keys(c: &Conn, slot: &StmtSlot, preset: &'static Preset, schema: Option
             })
     };
     let pk = catalog("SQLPrimaryKeys", &|st| st.primary_keys(schema, name));
-    let fk = if design::reports_foreign_keys(preset) { catalog("SQLForeignKeys", &|st| st.foreign_keys(schema, name)) } else { Vec::new() };
-    let ix = if design::has_indexes(preset) { catalog("SQLStatistics", &|st| st.statistics(schema, name)) } else { Vec::new() };
+    let fk = if design::reports_foreign_keys(preset) {
+        catalog("SQLForeignKeys", &|st| st.foreign_keys(schema, name))
+    } else {
+        Vec::new()
+    };
+    let ix = if design::has_indexes(preset) {
+        catalog("SQLStatistics", &|st| st.statistics(schema, name))
+    } else {
+        Vec::new()
+    };
     (pk, fk, ix)
 }
 
 /// [`catalog_schema`] for one table: its columns and keys.
-fn catalog_table(c: &Conn, slot: &StmtSlot, preset: &'static Preset, esc: &str, schema: Option<String>, name: String) -> Result<RawSchema> {
+fn catalog_table(
+    c: &Conn,
+    slot: &StmtSlot,
+    preset: &'static Preset,
+    esc: &str,
+    schema: Option<String>,
+    name: String,
+) -> Result<RawSchema> {
     let columns = {
         let st = c.stmt(slot)?;
         let sp = schema.as_deref().map(|s| connstr::escape_pattern(s, esc));
@@ -1589,8 +2021,18 @@ fn catalog_table(c: &Conn, slot: &StmtSlot, preset: &'static Preset, esc: &str, 
     };
     let keys = table_keys(c, slot, preset, schema.as_deref(), &name);
     // An SQLTables row: catalog, schema, name, type, remarks.
-    let tables = vec![vec![None, schema, Some(name), Some("TABLE".to_string()), None]];
-    Ok(RawSchema { tables, columns, per_table: vec![keys] })
+    let tables = vec![vec![
+        None,
+        schema,
+        Some(name),
+        Some("TABLE".to_string()),
+        None,
+    ]];
+    Ok(RawSchema {
+        tables,
+        columns,
+        per_table: vec![keys],
+    })
 }
 
 /// SQLForeignKeys UPDATE_RULE / DELETE_RULE.
@@ -1610,7 +2052,13 @@ fn int(r: &[Option<String>], i: usize) -> i64 {
 
 fn build_schema(preset: &'static Preset, raw: RawSchema) -> Vec<TableSchema> {
     let strip = design::strips_identity_suffix(preset);
-    let schema_of = |s: Option<String>| if preset.has_schemas { s.filter(|s| !s.is_empty()) } else { None };
+    let schema_of = |s: Option<String>| {
+        if preset.has_schemas {
+            s.filter(|s| !s.is_empty())
+        } else {
+            None
+        }
+    };
     let mut out = Vec::with_capacity(raw.tables.len());
     for (t, (pk, fk, ix)) in raw.tables.iter().zip(raw.per_table) {
         let (schema, name) = (col(t, 1), col(t, 2).unwrap_or_default());
@@ -1618,12 +2066,19 @@ fn build_schema(preset: &'static Preset, raw: RawSchema) -> Vec<TableSchema> {
             .columns
             .iter()
             .enumerate()
-            .filter(|(_, r)| col(r, 2).as_deref() == Some(name.as_str()) && (col(r, 1) == schema || col(r, 1).is_none()))
+            .filter(|(_, r)| {
+                col(r, 2).as_deref() == Some(name.as_str())
+                    && (col(r, 1) == schema || col(r, 1).is_none())
+            })
             .map(|(i, r)| {
                 let type_name = col(r, 5).unwrap_or_default();
-                let sql_type = col(r, 4).and_then(|s| s.trim().parse::<i16>().ok()).unwrap_or(0);
+                let sql_type = col(r, 4)
+                    .and_then(|s| s.trim().parse::<i16>().ok())
+                    .unwrap_or(0);
                 let lower = type_name.to_ascii_lowercase();
-                let auto = lower.contains("identity") || lower.contains("serial") || lower.contains("auto_increment");
+                let auto = lower.contains("identity")
+                    || lower.contains("serial")
+                    || lower.contains("auto_increment");
                 let mut base = type_name.clone();
                 if strip && auto {
                     for suffix in [" identity", " auto_increment"] {
@@ -1647,10 +2102,16 @@ fn build_schema(preset: &'static Preset, raw: RawSchema) -> Vec<TableSchema> {
         cols.sort_by_key(|(ord, i, _)| (*ord, *i));
         // Several catalogs may report the same table (no catalog filter).
         let mut seen = std::collections::HashSet::new();
-        let columns: Vec<ColumnDef> = cols.into_iter().map(|(_, _, c)| c).filter(|c| seen.insert(c.name.clone())).collect();
+        let columns: Vec<ColumnDef> = cols
+            .into_iter()
+            .map(|(_, _, c)| c)
+            .filter(|c| seen.insert(c.name.clone()))
+            .collect();
 
-        let mut pk_rows: Vec<(i64, String, Option<String>)> =
-            pk.iter().filter_map(|r| Some((int(r, 4), col(r, 3)?, col(r, 5)))).collect();
+        let mut pk_rows: Vec<(i64, String, Option<String>)> = pk
+            .iter()
+            .filter_map(|r| Some((int(r, 4), col(r, 3)?, col(r, 5))))
+            .collect();
         pk_rows.sort();
         pk_rows.dedup_by(|a, b| a.1 == b.1);
         let primary_key = (!pk_rows.is_empty()).then(|| KeyDef {
@@ -1662,15 +2123,23 @@ fn build_schema(preset: &'static Preset, raw: RawSchema) -> Vec<TableSchema> {
         // KEY_SEQ that restarts at 1.
         let mut foreign_keys: Vec<ForeignKeyDef> = Vec::new();
         for r in &fk {
-            let (Some(ref_table), Some(pcol), Some(fcol)) = (col(r, 2), col(r, 3), col(r, 7)) else { continue };
+            let (Some(ref_table), Some(pcol), Some(fcol)) = (col(r, 2), col(r, 3), col(r, 7))
+            else {
+                continue;
+            };
             let fk_name = col(r, 11).filter(|n| !n.is_empty());
             let ref_schema = schema_of(col(r, 1));
             let seq = int(r, 8);
-            let existing = foreign_keys.iter_mut().rev().find(|f| match (&fk_name, &f.name) {
-                (Some(a), Some(b)) => a == b,
-                (None, None) => f.ref_table == ref_table && f.ref_schema == ref_schema && seq > 1,
-                _ => false,
-            });
+            let existing = foreign_keys
+                .iter_mut()
+                .rev()
+                .find(|f| match (&fk_name, &f.name) {
+                    (Some(a), Some(b)) => a == b,
+                    (None, None) => {
+                        f.ref_table == ref_table && f.ref_schema == ref_schema && seq > 1
+                    }
+                    _ => false,
+                });
             match existing {
                 Some(f) => {
                     f.columns.push(fcol);
@@ -1694,7 +2163,14 @@ fn build_schema(preset: &'static Preset, raw: RawSchema) -> Vec<TableSchema> {
             .iter()
             .filter(|r| int(r, 6) != 0)
             .filter_map(|r| {
-                Some((col(r, 5)?, int(r, 7), col(r, 8)?, col(r, 3).as_deref().map(str::trim) == Some("0"), int(r, 6), col(r, 12)))
+                Some((
+                    col(r, 5)?,
+                    int(r, 7),
+                    col(r, 8)?,
+                    col(r, 3).as_deref().map(str::trim) == Some("0"),
+                    int(r, 6),
+                    col(r, 12),
+                ))
             })
             .collect();
         ix_rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
@@ -1713,7 +2189,9 @@ fn build_schema(preset: &'static Preset, raw: RawSchema) -> Vec<TableSchema> {
             }
         }
         if let Some(k) = &primary_key {
-            indexes.retain(|i| k.name.as_deref() != Some(i.name.as_str()) && !(i.unique && i.columns == k.columns));
+            indexes.retain(|i| {
+                k.name.as_deref() != Some(i.name.as_str()) && !(i.unique && i.columns == k.columns)
+            });
         }
 
         out.push(TableSchema {
@@ -1740,11 +2218,23 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(None, "VENTAS", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(None, "VENTAS", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
 
@@ -1764,10 +2254,22 @@ mod tests {
 
     #[test]
     fn browse_per_limit_style() {
-        assert_eq!(browse(Quote::Double, LimitStyle::FetchFirst, Some("S"), "T", 5), "SELECT *\nFROM \"S\".\"T\"\nFETCH FIRST 5 ROWS ONLY");
-        assert_eq!(browse(Quote::Bracket, LimitStyle::Top, Some("dbo"), "t", 5), "SELECT TOP 5 *\nFROM [dbo].[t]");
-        assert_eq!(browse(Quote::Double, LimitStyle::First, None, "t", 5), "SELECT FIRST 5 *\nFROM \"t\"");
-        assert_eq!(browse(Quote::Backtick, LimitStyle::Limit, Some("db"), "t", 5), "SELECT *\nFROM `db`.`t`\nLIMIT 5");
+        assert_eq!(
+            browse(Quote::Double, LimitStyle::FetchFirst, Some("S"), "T", 5),
+            "SELECT *\nFROM \"S\".\"T\"\nFETCH FIRST 5 ROWS ONLY"
+        );
+        assert_eq!(
+            browse(Quote::Bracket, LimitStyle::Top, Some("dbo"), "t", 5),
+            "SELECT TOP 5 *\nFROM [dbo].[t]"
+        );
+        assert_eq!(
+            browse(Quote::Double, LimitStyle::First, None, "t", 5),
+            "SELECT FIRST 5 *\nFROM \"t\""
+        );
+        assert_eq!(
+            browse(Quote::Backtick, LimitStyle::Limit, Some("db"), "t", 5),
+            "SELECT *\nFROM `db`.`t`\nLIMIT 5"
+        );
     }
 
     #[test]
@@ -1779,10 +2281,22 @@ mod tests {
 
     #[test]
     fn types_carry_their_size() {
-        assert_eq!(format_type("nvarchar", ffi::SQL_WVARCHAR, Some(50), None), "nvarchar(50)");
-        assert_eq!(format_type("varchar", ffi::SQL_VARCHAR, Some(0), None), "varchar");
-        assert_eq!(format_type("decimal", ffi::SQL_DECIMAL, Some(18), Some(2)), "decimal(18,2)");
-        assert_eq!(format_type("int", ffi::SQL_INTEGER, Some(10), Some(0)), "int");
+        assert_eq!(
+            format_type("nvarchar", ffi::SQL_WVARCHAR, Some(50), None),
+            "nvarchar(50)"
+        );
+        assert_eq!(
+            format_type("varchar", ffi::SQL_VARCHAR, Some(0), None),
+            "varchar"
+        );
+        assert_eq!(
+            format_type("decimal", ffi::SQL_DECIMAL, Some(18), Some(2)),
+            "decimal(18,2)"
+        );
+        assert_eq!(
+            format_type("int", ffi::SQL_INTEGER, Some(10), Some(0)),
+            "int"
+        );
     }
 
     #[test]
@@ -1794,12 +2308,17 @@ mod tests {
                       -- ( not counted\nSELECT (1);\nREPLACE VIEW v AS SELECT 1 AS a;";
         let st = preset_statements(p, Batch::Statements, script).unwrap();
         assert_eq!(st.len(), 4, "{st:#?}");
-        assert!(st[0].starts_with("CREATE MACRO") && st[0].ends_with(')') && st[0].contains("SELECT 2"));
+        assert!(
+            st[0].starts_with("CREATE MACRO") && st[0].ends_with(')') && st[0].contains("SELECT 2")
+        );
         assert!(st[1].starts_with("REPLACE PROCEDURE") && st[1].ends_with("END"));
         assert!(st[2].ends_with("SELECT (1)"));
         assert_eq!(st[3], "REPLACE VIEW v AS SELECT 1 AS a");
         // Other presets and "Todo el texto de una vez" are unchanged.
-        assert_eq!(preset_statements(p, Batch::Script, script).unwrap().len(), 1);
+        assert_eq!(
+            preset_statements(p, Batch::Script, script).unwrap().len(),
+            1
+        );
     }
 
     fn preset(id: &str) -> &'static Preset {
@@ -1823,39 +2342,81 @@ mod tests {
         // and the unit the app sends isn't cut again by the driver.
         let d = script_dialect(preset("db2"));
         let script = "--#SET TERMINATOR @\nBEGIN ATOMIC\n  DECLARE x INT;\n  SET x = 1;\nEND@\n--#SET TERMINATOR ;\nVALUES 1;";
-        let units: Vec<_> = split_script(script, &d).into_iter().filter(|u| u.kind != StatementKind::ClientCommand).collect();
+        let units: Vec<_> = split_script(script, &d)
+            .into_iter()
+            .filter(|u| u.kind != StatementKind::ClientCommand)
+            .collect();
         assert_eq!(units.len(), 2, "{units:?}");
-        assert_eq!(unit_statements(&units[0].text, &d), vec![units[0].text.clone()]);
+        assert_eq!(
+            unit_statements(&units[0].text, &d),
+            vec![units[0].text.clone()]
+        );
         assert_eq!(unit_statements("values 1; values 2", &d).len(), 2);
         let proc = "CREATE PROCEDURE p() LANGUAGE SQL BEGIN DECLARE x INT; SET x = 1; END";
-        assert_eq!(unit_statements(&format!("{proc};\nVALUES 1"), &d), vec![proc.to_string(), "VALUES 1".to_string()]);
+        assert_eq!(
+            unit_statements(&format!("{proc};\nVALUES 1"), &d),
+            vec![proc.to_string(), "VALUES 1".to_string()]
+        );
 
         // Hive: backslash escapes.
         let d = script_dialect(preset("hive"));
-        assert_eq!(unit_statements("select 'it\\'s;' from t; select 2", &d).len(), 2);
+        assert_eq!(
+            unit_statements("select 'it\\'s;' from t; select 2", &d).len(),
+            2
+        );
         // Vertica: dollar-quoted bodies.
         let d = script_dialect(preset("vertica"));
-        assert_eq!(unit_statements("CREATE PROCEDURE p() AS $$ BEGIN PERFORM 1; END $$; SELECT 1", &d).len(), 2);
+        assert_eq!(
+            unit_statements(
+                "CREATE PROCEDURE p() AS $$ BEGIN PERFORM 1; END $$; SELECT 1",
+                &d
+            )
+            .len(),
+            2
+        );
     }
 
     #[test]
     fn diagnostics_become_errors_and_messages() {
         use odbc::Diag;
-        let d = |state: &str, native: i32, m: &str| Diag { state: state.into(), native, message: m.into() };
-        let e = odbc::query_error(&[d("01000", 0, "printed"), d("42S02", -204, "undefined name")]).to_script_error();
-        assert_eq!((e.sqlstate.as_deref(), e.code.as_deref(), e.fatal), (Some("42S02"), Some("-204"), false));
+        let d = |state: &str, native: i32, m: &str| Diag {
+            state: state.into(),
+            native,
+            message: m.into(),
+        };
+        let e = odbc::query_error(&[d("01000", 0, "printed"), d("42S02", -204, "undefined name")])
+            .to_script_error();
+        assert_eq!(
+            (e.sqlstate.as_deref(), e.code.as_deref(), e.fatal),
+            (Some("42S02"), Some("-204"), false)
+        );
         assert!(odbc::query_error(&[d("08S01", 0, "link down")]).ends_script());
-        assert!(matches!(odbc::query_error(&[d("HY008", 0, "cancelled")]), Error::Cancelled));
-        assert_eq!(d("01000", 0, "x").to_message().level, dbine_driver::MessageLevel::Info);
+        assert!(matches!(
+            odbc::query_error(&[d("HY008", 0, "cancelled")]),
+            Error::Cancelled
+        ));
+        assert_eq!(
+            d("01000", 0, "x").to_message().level,
+            dbine_driver::MessageLevel::Info
+        );
         let w = d("01003", 8153, "NULL eliminated").to_message();
-        assert_eq!((w.level, w.code.as_deref()), (dbine_driver::MessageLevel::Warning, Some("8153")));
+        assert_eq!(
+            (w.level, w.code.as_deref()),
+            (dbine_driver::MessageLevel::Warning, Some("8153"))
+        );
     }
 
     #[test]
     fn go_and_versions() {
-        assert_eq!(split_go("select 1\nGO\n go \nselect 2").unwrap(), vec!["select 1", "select 2"]);
+        assert_eq!(
+            split_go("select 1\nGO\n go \nselect 2").unwrap(),
+            vec!["select 1", "select 2"]
+        );
         // The shared lexer: GO N, GO with a comment, GO inside comments and strings.
-        assert_eq!(split_go("select 1\nGO 3\nselect 2\ngo -- end").unwrap(), vec!["select 1", "select 1", "select 1", "select 2"]);
+        assert_eq!(
+            split_go("select 1\nGO 3\nselect 2\ngo -- end").unwrap(),
+            vec!["select 1", "select 1", "select 1", "select 2"]
+        );
         assert_eq!(split_go("/*\nGO\n*/ select 1\nGO").unwrap().len(), 1);
         assert_eq!(split_go("select 'a\nGO\nb'").unwrap().len(), 1);
         assert!(split_go("select 1\nGO 0").is_err());
@@ -1869,19 +2430,34 @@ mod tests {
     fn whole_script_statements_are_placed() {
         let script = "-- head\nselect 1;\n\n/* c */ select 2;\nselect 3";
         let got = placed_statements(preset("informix"), Batch::Statements, script).unwrap();
-        let lines: Vec<u32> = got.iter().map(|(_, at)| steps::line_at(script, *at)).collect();
-        assert_eq!(got.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>(), ["select 1", "select 2", "select 3"]);
+        let lines: Vec<u32> = got
+            .iter()
+            .map(|(_, at)| steps::line_at(script, *at))
+            .collect();
+        assert_eq!(
+            got.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>(),
+            ["select 1", "select 2", "select 3"]
+        );
         assert_eq!(lines, [2, 4, 5]);
         let td = "CREATE MACRO m AS (SELECT 1; SELECT 2;);\nSELECT 3;";
         let got = placed_statements(preset("teradata"), Batch::Statements, td).unwrap();
         assert_eq!(got.len(), 2, "{got:?}");
         assert_eq!(&td[got[1].1..], "SELECT 3;");
-        assert_eq!(placed_statements(preset("odbc"), Batch::Script, " x ").unwrap(), vec![(" x ".to_string(), 0)]);
-        assert_eq!(locate("a; b; a", vec!["a".into(), "b".into(), "a".into(), "zz".into()]), vec![
-            ("a".to_string(), 0),
-            ("b".to_string(), 3),
-            ("a".to_string(), 6),
-            ("zz".to_string(), 7)
-        ]);
+        assert_eq!(
+            placed_statements(preset("odbc"), Batch::Script, " x ").unwrap(),
+            vec![(" x ".to_string(), 0)]
+        );
+        assert_eq!(
+            locate(
+                "a; b; a",
+                vec!["a".into(), "b".into(), "a".into(), "zz".into()]
+            ),
+            vec![
+                ("a".to_string(), 0),
+                ("b".to_string(), 3),
+                ("a".to_string(), 6),
+                ("zz".to_string(), 7)
+            ]
+        );
     }
 }

@@ -24,7 +24,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn exec(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n{sql}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{sql}"));
     out
 }
 
@@ -45,13 +47,34 @@ async fn tdengine() {
     let mut admin = d.connect(&c, None).await.unwrap();
     exec(&mut admin, "CREATE DATABASE IF NOT EXISTS dbine_prof").await;
     let have = exec(&mut admin, "SELECT COUNT(*) FROM dbine_prof.big").await;
-    if have.results.first().and_then(|r| r.rows.first()).and_then(|r| r[0].as_u64()) != Some(ROWS) {
+    if have
+        .results
+        .first()
+        .and_then(|r| r.rows.first())
+        .and_then(|r| r[0].as_u64())
+        != Some(ROWS)
+    {
         exec(&mut admin, "DROP TABLE IF EXISTS dbine_prof.big").await;
-        exec(&mut admin, "CREATE TABLE dbine_prof.big (ts TIMESTAMP, v INT)").await;
+        exec(
+            &mut admin,
+            "CREATE TABLE dbine_prof.big (ts TIMESTAMP, v INT)",
+        )
+        .await;
         for b in 0..ROWS / 20_000 {
-            let vals: Vec<String> =
-                (0..20_000u64).map(|i| format!("({}, {})", 1_700_000_000_000 + b * 20_000 + i, (b * 20_000 + i) * 7919 % 1_000_003)).collect();
-            exec(&mut admin, &format!("INSERT INTO dbine_prof.big VALUES {}", vals.join(" "))).await;
+            let vals: Vec<String> = (0..20_000u64)
+                .map(|i| {
+                    format!(
+                        "({}, {})",
+                        1_700_000_000_000 + b * 20_000 + i,
+                        (b * 20_000 + i) * 7919 % 1_000_003
+                    )
+                })
+                .collect();
+            exec(
+                &mut admin,
+                &format!("INSERT INTO dbine_prof.big VALUES {}", vals.join(" ")),
+            )
+            .await;
         }
     }
 
@@ -66,7 +89,12 @@ async fn tdengine() {
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_millis(250)).await;
         let list = admin.processes().await.unwrap();
-        if let Some(w) = list.into_iter().find(|p| p.sql.as_deref().unwrap_or("").contains("dbine_processes_test")) {
+        if let Some(w) = list.into_iter().find(|p| {
+            p.sql
+                .as_deref()
+                .unwrap_or("")
+                .contains("dbine_processes_test")
+        }) {
             found = Some(w);
             break;
         }
@@ -78,8 +106,20 @@ async fn tdengine() {
     assert!(w.id.parse::<u32>().is_ok(), "a conn_id: {}", w.id);
 
     admin.cancel_query(&w.id).await.unwrap();
-    let failed = tokio::time::timeout(Duration::from_secs(10), slow).await.expect("the query stopped").unwrap();
+    let failed = tokio::time::timeout(Duration::from_secs(10), slow)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     assert!(failed, "the query was killed");
-    assert!(admin.cancel_query("1; DROP DATABASE dbine_prof").await.is_err(), "the id is validated");
-    assert!(admin.processes().await.unwrap().iter().any(|p| !p.active), "idle connections are listed too");
+    assert!(
+        admin
+            .cancel_query("1; DROP DATABASE dbine_prof")
+            .await
+            .is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin.processes().await.unwrap().iter().any(|p| !p.active),
+        "idle connections are listed too"
+    );
 }

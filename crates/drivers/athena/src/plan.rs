@@ -29,7 +29,9 @@ pub(crate) fn classify(stmt: &str) -> StmtKind {
     match words.first().map(String::as_str) {
         Some("select" | "with" | "values" | "table") => StmtKind::Read,
         Some("insert" | "update" | "delete" | "merge") => StmtKind::Write,
-        Some("create") if words.iter().any(|w| w == "as") && words.iter().any(|w| w == "table") => StmtKind::Write,
+        Some("create") if words.iter().any(|w| w == "as") && words.iter().any(|w| w == "table") => {
+            StmtKind::Write
+        }
         _ => StmtKind::Other,
     }
 }
@@ -88,12 +90,20 @@ fn text(v: &Value) -> String {
 }
 
 fn num(v: Option<&Value>) -> Option<f64> {
-    v.and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).filter(|n| n.is_finite())
+    v.and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    })
+    .filter(|n| n.is_finite())
 }
 
 /// Fragment ids in `[1, 2]`.
 fn ids(s: &str) -> Vec<String> {
-    s.trim_matches(['[', ']', ' ']).split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+    s.trim_matches(['[', ']', ' '])
+        .split(',')
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
 }
 
 /// Sums `self_cost` up the tree into `total_cost` (when any is known).
@@ -109,7 +119,11 @@ fn cumulate(n: &mut PlanNode) -> Option<f64> {
 
 /// Replaces every `RemoteSource` leaf's children with the fragments it
 /// reads, recursively.
-fn stitch(n: &mut PlanNode, fragments: &mut BTreeMap<String, PlanNode>, sources: &dyn Fn(&PlanNode) -> Vec<String>) {
+fn stitch(
+    n: &mut PlanNode,
+    fragments: &mut BTreeMap<String, PlanNode>,
+    sources: &dyn Fn(&PlanNode) -> Vec<String>,
+) {
     for id in sources(n) {
         if let Some(mut f) = fragments.remove(&id) {
             stitch(&mut f, fragments, sources);
@@ -136,16 +150,26 @@ pub(crate) fn plan_json(statement: &str, raw: &str) -> Result<Plan, String> {
     let mut root = if v.get("name").is_some() {
         json_node(&v)
     } else {
-        let Value::Object(m) = &v else { return Err("plan JSON inesperado".into()) };
-        let mut fragments: BTreeMap<String, PlanNode> =
-            m.iter().map(|(id, n)| (id.clone(), with_fragment(json_node(n), id))).collect();
+        let Value::Object(m) = &v else {
+            return Err("plan JSON inesperado".into());
+        };
+        let mut fragments: BTreeMap<String, PlanNode> = m
+            .iter()
+            .map(|(id, n)| (id.clone(), with_fragment(json_node(n), id)))
+            .collect();
         let first = m.keys().next().cloned().ok_or("plan vacío")?;
         let mut root = fragments.remove(&first).expect("first fragment");
         stitch(&mut root, &mut fragments, &remote_ids);
         root
     };
     cumulate(&mut root);
-    Ok(Plan { statement: statement.into(), root, actual: false, raw_format: "json".into(), raw: raw.trim().into() })
+    Ok(Plan {
+        statement: statement.into(),
+        root,
+        actual: false,
+        raw_format: "json".into(),
+        raw: raw.trim().into(),
+    })
 }
 
 fn with_fragment(mut n: PlanNode, id: &str) -> PlanNode {
@@ -155,7 +179,10 @@ fn with_fragment(mut n: PlanNode, id: &str) -> PlanNode {
 
 fn json_node(v: &Value) -> PlanNode {
     let s = |k: &str| v.get(k).map(text).unwrap_or_default();
-    let mut n = PlanNode { op: s("name"), ..Default::default() };
+    let mut n = PlanNode {
+        op: s("name"),
+        ..Default::default()
+    };
     let mut detail = Vec::new();
     match v.get("descriptor") {
         Some(Value::Object(d)) => {
@@ -163,8 +190,15 @@ fn json_node(v: &Value) -> PlanNode {
                 let val = text(val);
                 if k == "table" {
                     n.object = Some(val.clone());
-                } else if matches!(k.as_str(), "type" | "criteria" | "orderBy" | "partitioning" | "count" | "keys") {
-                    detail.push(if k == "type" || k == "criteria" { val.clone() } else { format!("{k} = {val}") });
+                } else if matches!(
+                    k.as_str(),
+                    "type" | "criteria" | "orderBy" | "partitioning" | "count" | "keys"
+                ) {
+                    detail.push(if k == "type" || k == "criteria" {
+                        val.clone()
+                    } else {
+                        format!("{k} = {val}")
+                    });
                 }
                 n.props.push((k.clone(), val));
             }
@@ -190,17 +224,33 @@ fn json_node(v: &Value) -> PlanNode {
         }
     }
     if let Some(Value::Array(details)) = v.get("details") {
-        n.props.extend(details.iter().map(|d| (String::new(), text(d))));
+        n.props
+            .extend(details.iter().map(|d| (String::new(), text(d))));
     }
     if let Some(Value::Array(outputs)) = v.get("outputs") {
-        let layout: Vec<String> =
-            outputs.iter().map(|o| format!("{}:{}", text(o.get("name").unwrap_or(&Value::Null)), text(o.get("type").unwrap_or(&Value::Null)))).collect();
+        let layout: Vec<String> = outputs
+            .iter()
+            .map(|o| {
+                format!(
+                    "{}:{}",
+                    text(o.get("name").unwrap_or(&Value::Null)),
+                    text(o.get("type").unwrap_or(&Value::Null))
+                )
+            })
+            .collect();
         n.props.push(("Layout".into(), layout.join(", ")));
     }
     if let Some(Value::Array(r)) = v.get("remoteSources") {
-        n.props.push(("remoteSources".into(), format!("[{}]", r.iter().map(text).collect::<Vec<_>>().join(", "))));
+        n.props.push((
+            "remoteSources".into(),
+            format!("[{}]", r.iter().map(text).collect::<Vec<_>>().join(", ")),
+        ));
     }
-    n.children = v.get("children").and_then(Value::as_array).map(|c| c.iter().map(json_node).collect()).unwrap_or_default();
+    n.children = v
+        .get("children")
+        .and_then(Value::as_array)
+        .map(|c| c.iter().map(json_node).collect())
+        .unwrap_or_default();
     n
 }
 
@@ -220,8 +270,14 @@ pub(crate) fn explain_text(rows: &[Vec<Option<String>>]) -> String {
 /// `Timeline`, `Rows`, `OutputStage`) plus the execution's own statistics
 /// (`DataScannedInBytes`…) as root props. `None` when Athena gave no
 /// stages (DDL, or statistics not available).
-pub(crate) fn runtime_plan(statement: &str, stats: &Value, props: Vec<(String, String)>) -> Option<Plan> {
-    let stage = stats.get("OutputStage").filter(|s| s.get("QueryStagePlan").is_some_and(|p| !p.is_null()))?;
+pub(crate) fn runtime_plan(
+    statement: &str,
+    stats: &Value,
+    props: Vec<(String, String)>,
+) -> Option<Plan> {
+    let stage = stats
+        .get("OutputStage")
+        .filter(|s| s.get("QueryStagePlan").is_some_and(|p| !p.is_null()))?;
     let mut root = stage_tree(stage);
     let mut top = props;
     for (label, group, key) in [
@@ -230,9 +286,21 @@ pub(crate) fn runtime_plan(statement: &str, stats: &Value, props: Vec<(String, S
         ("Filas devueltas", "Rows", "OutputRows"),
         ("Bytes devueltos", "Rows", "OutputBytes"),
         ("En cola (ms)", "Timeline", "QueryQueueTimeInMillis"),
-        ("Planificación (ms)", "Timeline", "QueryPlanningTimeInMillis"),
-        ("Ejecución del motor (ms)", "Timeline", "EngineExecutionTimeInMillis"),
-        ("Tiempo total (ms)", "Timeline", "TotalExecutionTimeInMillis"),
+        (
+            "Planificación (ms)",
+            "Timeline",
+            "QueryPlanningTimeInMillis",
+        ),
+        (
+            "Ejecución del motor (ms)",
+            "Timeline",
+            "EngineExecutionTimeInMillis",
+        ),
+        (
+            "Tiempo total (ms)",
+            "Timeline",
+            "TotalExecutionTimeInMillis",
+        ),
     ] {
         if let Some(n) = num(stats.get(group).and_then(|g| g.get(key))) {
             top.push((label.into(), fmt_num(n)));
@@ -255,9 +323,25 @@ fn stage_tree(stage: &Value) -> PlanNode {
     let mut subs: BTreeMap<String, PlanNode> = stage
         .get("SubStages")
         .and_then(Value::as_array)
-        .map(|a| a.iter().map(|s| (num(s.get("StageId")).map(fmt_num).unwrap_or_default(), stage_tree(s))).collect())
+        .map(|a| {
+            a.iter()
+                .map(|s| {
+                    (
+                        num(s.get("StageId")).map(fmt_num).unwrap_or_default(),
+                        stage_tree(s),
+                    )
+                })
+                .collect()
+        })
         .unwrap_or_default();
-    let mut n = stage.get("QueryStagePlan").filter(|p| !p.is_null()).map(stage_op).unwrap_or_else(|| PlanNode { op: "Stage".into(), ..Default::default() });
+    let mut n = stage
+        .get("QueryStagePlan")
+        .filter(|p| !p.is_null())
+        .map(stage_op)
+        .unwrap_or_else(|| PlanNode {
+            op: "Stage".into(),
+            ..Default::default()
+        });
     stitch(&mut n, &mut subs, &remote_ids);
     n.children.extend(subs.into_values());
     n.actual_rows = num(stage.get("OutputRows"));
@@ -269,7 +353,11 @@ fn stage_tree(stage: &Value) -> PlanNode {
     if let Some(s) = stage.get("State").and_then(Value::as_str) {
         props.push(("Estado".into(), s.to_string()));
     }
-    for (label, key) in [("Filas de entrada", "InputRows"), ("Bytes de entrada", "InputBytes"), ("Bytes de salida", "OutputBytes")] {
+    for (label, key) in [
+        ("Filas de entrada", "InputRows"),
+        ("Bytes de entrada", "InputBytes"),
+        ("Bytes de salida", "OutputBytes"),
+    ] {
         if let Some(v) = num(stage.get(key)) {
             props.push((label.into(), fmt_num(v)));
         }
@@ -283,7 +371,10 @@ fn stage_tree(stage: &Value) -> PlanNode {
 fn stage_op(v: &Value) -> PlanNode {
     let name = v.get("Name").map(text).unwrap_or_default();
     let id = v.get("Identifier").map(text).unwrap_or_default();
-    let mut n = PlanNode { op: name.clone(), ..Default::default() };
+    let mut n = PlanNode {
+        op: name.clone(),
+        ..Default::default()
+    };
     if !id.is_empty() {
         if name.contains("Scan") || name == "TableWriter" {
             n.object = Some(id.trim_matches(['[', ']']).to_string());
@@ -293,9 +384,16 @@ fn stage_op(v: &Value) -> PlanNode {
         n.props.push(("Identificador".into(), id));
     }
     if let Some(Value::Array(r)) = v.get("RemoteSources") {
-        n.props.push(("remoteSources".into(), format!("[{}]", r.iter().map(text).collect::<Vec<_>>().join(", "))));
+        n.props.push((
+            "remoteSources".into(),
+            format!("[{}]", r.iter().map(text).collect::<Vec<_>>().join(", ")),
+        ));
     }
-    n.children = v.get("Children").and_then(Value::as_array).map(|c| c.iter().map(stage_op).collect()).unwrap_or_default();
+    n.children = v
+        .get("Children")
+        .and_then(Value::as_array)
+        .map(|c| c.iter().map(stage_op).collect())
+        .unwrap_or_default();
     n
 }
 
@@ -337,15 +435,24 @@ mod tests {
         let p = plan_json("q", JSON).unwrap();
         let root = &p.root;
         assert_eq!(root.op, "Output");
-        assert!(root.props.iter().any(|(k, v)| k.is_empty() && v == "_col1 := count"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k.is_empty() && v == "_col1 := count"));
         let remote = &root.children[0];
         assert_eq!(remote.op, "RemoteSource");
         let join = &remote.children[0];
-        assert_eq!((join.op.as_str(), join.detail.as_str()), ("InnerJoin", "(nationkey_2 = nationkey)"));
+        assert_eq!(
+            (join.op.as_str(), join.detail.as_str()),
+            ("InnerJoin", "(nationkey_2 = nationkey)")
+        );
         assert_eq!(join.self_cost, Some(53837.2));
         let scan = &join.children[0];
         assert_eq!(scan.object.as_deref(), Some("tpch:tiny:customer"));
-        assert_eq!((scan.est_rows, scan.self_cost), (Some(1364.13), Some(12277.2)));
+        assert_eq!(
+            (scan.est_rows, scan.self_cost),
+            (Some(1364.13), Some(12277.2))
+        );
         let nation = &join.children[1].children[0];
         assert_eq!(nation.op, "TableScan");
         assert!((root.total_cost.unwrap() - (53837.2 + 12277.2 + 527.0)).abs() < 1e-6);
@@ -378,27 +485,50 @@ mod tests {
     #[test]
     fn runtime_statistics_tree() {
         let v: Value = serde_json::from_str(RUNTIME).unwrap();
-        let p = runtime_plan("q", &v, vec![("Datos escaneados (bytes)".into(), "2400000".into())]).unwrap();
+        let p = runtime_plan(
+            "q",
+            &v,
+            vec![("Datos escaneados (bytes)".into(), "2400000".into())],
+        )
+        .unwrap();
         assert!(p.actual);
         let root = &p.root;
         assert_eq!(root.op, "Output");
         assert_eq!(root.props[0].0, "Datos escaneados (bytes)");
-        assert!(root.props.iter().any(|(k, v)| k == "Tiempo total (ms)" && v == "1594"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Tiempo total (ms)" && v == "1594"));
         assert_eq!((root.actual_rows, root.actual_ms), (Some(5.0), Some(12.0)));
         let remote = &root.children[0].children[0];
         assert_eq!(remote.op, "RemoteSource");
         let agg = &remote.children[0];
-        assert_eq!((agg.op.as_str(), agg.detail.as_str()), ("Aggregate", "name"));
+        assert_eq!(
+            (agg.op.as_str(), agg.detail.as_str()),
+            ("Aggregate", "name")
+        );
         assert_eq!(agg.actual_ms, Some(1320.0));
         assert!(agg.props.iter().any(|(k, v)| k == "Etapa" && v == "1"));
-        assert_eq!(agg.children[0].object.as_deref(), Some("awsdatacatalog:sales:orders"));
+        assert_eq!(
+            agg.children[0].object.as_deref(),
+            Some("awsdatacatalog:sales:orders")
+        );
         assert!(runtime_plan("q", &serde_json::json!({"Timeline": {}}), vec![]).is_none());
-        assert!(runtime_plan("q", &serde_json::json!({"OutputStage": {"QueryStagePlan": null}}), vec![]).is_none());
+        assert!(runtime_plan(
+            "q",
+            &serde_json::json!({"OutputStage": {"QueryStagePlan": null}}),
+            vec![]
+        )
+        .is_none());
     }
 
     #[test]
     fn explain_rows_drop_the_header() {
-        let rows = vec![vec![Some("Query Plan".to_string())], vec![Some("{".into())], vec![Some("}".into())]];
+        let rows = vec![
+            vec![Some("Query Plan".to_string())],
+            vec![Some("{".into())],
+            vec![Some("}".into())],
+        ];
         assert_eq!(explain_text(&rows), "{\n}");
     }
 

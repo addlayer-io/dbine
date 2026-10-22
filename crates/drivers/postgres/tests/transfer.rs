@@ -10,7 +10,9 @@
 //! and drops the databases `dbine_xfer_<test>_src` and `dbine_xfer_<test>_dst`.
 //! CockroachDB: `DBINE_TEST_COCKROACH_URL`, by default `dbine-test-cockroach`.
 
-use dbine_driver::transfer::{BatchSink, BatchSource, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -20,9 +22,13 @@ use tokio::sync::mpsc;
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -35,19 +41,27 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 1000, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 1000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
     out
 }
 
 async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
     let out = run(s, sql).await;
-    out.results[0].rows[0][0].as_str().map(str::to_string).unwrap_or_else(|| out.results[0].rows[0][0].to_string())
+    out.results[0].rows[0][0]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| out.results[0].rows[0][0].to_string())
 }
 
 /// Batches into a bounded channel (blocking the reader when it's full).
@@ -71,13 +85,27 @@ impl BatchSource for ChannelSource {
 }
 
 fn obj(name: &str) -> ObjectRef {
-    ObjectRef { kind: "table".into(), schema: Some("public".into()), name: name.into() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: Some("public".into()),
+        name: name.into(),
+    }
 }
 
 /// read_batches on `src` piped into bulk_load on `dst`; the rows loaded.
-async fn read_and_load(src: Box<dyn Session>, dst: Box<dyn Session>, from: &str, to: &str, columns: Vec<String>) -> (u64, Box<dyn Session>, Box<dyn Session>) {
+async fn read_and_load(
+    src: Box<dyn Session>,
+    dst: Box<dyn Session>,
+    from: &str,
+    to: &str,
+    columns: Vec<String>,
+) -> (u64, Box<dyn Session>, Box<dyn Session>) {
     let (tx, rx) = mpsc::channel(16);
-    let read = ReadSpec { table: obj(from), columns: Some(columns.clone()), filter: None };
+    let read = ReadSpec {
+        table: obj(from),
+        columns: Some(columns.clone()),
+        filter: None,
+    };
     let load = LoadSpec {
         table: obj(to),
         columns,
@@ -95,7 +123,10 @@ async fn read_and_load(src: Box<dyn Session>, dst: Box<dyn Session>, from: &str,
     let mut dst = dst;
     let loader = tokio::spawn(async move {
         let mut source = ChannelSource(rx);
-        let n = dst.bulk_load(&load, &[], &mut source, &|_| {}).await.expect("bulk_load");
+        let n = dst
+            .bulk_load(&load, &[], &mut source, &|_| {})
+            .await
+            .expect("bulk_load");
         (n, dst)
     });
     let (read, src) = reader.await.unwrap();
@@ -104,9 +135,20 @@ async fn read_and_load(src: Box<dyn Session>, dst: Box<dyn Session>, from: &str,
     (loaded, src, dst)
 }
 
-async fn native(d: &Arc<dyn Driver>, src: &mut Box<dyn Session>, dst: &mut Box<dyn Session>, from: &str, to: &str, columns: Vec<String>) -> u64 {
+async fn native(
+    d: &Arc<dyn Driver>,
+    src: &mut Box<dyn Session>,
+    dst: &mut Box<dyn Session>,
+    from: &str,
+    to: &str,
+    columns: Vec<String>,
+) -> u64 {
     let spec = CopySpec {
-        source: ReadSpec { table: obj(from), columns: Some(columns.clone()), filter: None },
+        source: ReadSpec {
+            table: obj(from),
+            columns: Some(columns.clone()),
+            filter: None,
+        },
         target: LoadSpec {
             table: obj(to),
             columns,
@@ -116,7 +158,9 @@ async fn native(d: &Arc<dyn Driver>, src: &mut Box<dyn Session>, dst: &mut Box<d
             commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
         },
     };
-    d.copy_native(src.as_mut(), dst.as_mut(), &spec, &|_| {}).await.expect("copy_native")
+    d.copy_native(src.as_mut(), dst.as_mut(), &spec, &|_| {})
+        .await
+        .expect("copy_native")
 }
 
 struct Pg {
@@ -129,26 +173,48 @@ struct Pg {
 }
 
 async fn setup(tag: &str) -> Pg {
-    let url = std::env::var("DBINE_TEST_POSTGRES_URL").unwrap_or_else(|_| "postgres://postgres:pw@localhost:25010/postgres".into());
+    let url = std::env::var("DBINE_TEST_POSTGRES_URL")
+        .unwrap_or_else(|_| "postgres://postgres:pw@localhost:25010/postgres".into());
     let cfg = parse_url("postgres", &url);
     let d = driver("postgres");
     let mut admin = d.connect(&cfg, None).await.expect("connect");
-    let (src_db, dst_db) = (format!("dbine_xfer_{tag}_src"), format!("dbine_xfer_{tag}_dst"));
+    let (src_db, dst_db) = (
+        format!("dbine_xfer_{tag}_src"),
+        format!("dbine_xfer_{tag}_dst"),
+    );
     for db in [&src_db, &dst_db] {
-        run(&mut admin, &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)")).await;
+        run(
+            &mut admin,
+            &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
+        )
+        .await;
         run(&mut admin, &format!("CREATE DATABASE {db}")).await;
     }
     let src = d.connect(&cfg, Some(&src_db)).await.unwrap();
     let mut dst = d.connect(&cfg, Some(&dst_db)).await.unwrap();
     run(&mut dst, "CREATE EXTENSION dblink").await;
-    Pg { d, admin, src, dst, password: cfg.password.unwrap_or_default(), tag: tag.to_string() }
+    Pg {
+        d,
+        admin,
+        src,
+        dst,
+        password: cfg.password.unwrap_or_default(),
+        tag: tag.to_string(),
+    }
 }
 
 async fn teardown(mut pg: Pg) {
     drop(pg.src);
     drop(pg.dst);
-    for db in [format!("dbine_xfer_{}_src", pg.tag), format!("dbine_xfer_{}_dst", pg.tag)] {
-        run(&mut pg.admin, &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)")).await;
+    for db in [
+        format!("dbine_xfer_{}_src", pg.tag),
+        format!("dbine_xfer_{}_dst", pg.tag),
+    ] {
+        run(
+            &mut pg.admin,
+            &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
+        )
+        .await;
     }
 }
 
@@ -190,22 +256,46 @@ async fn transfer_postgres_all_types() {
     for t in ["via_batches", "via_binary", "via_native"] {
         run(&mut pg.dst, &format!("CREATE TABLE {t} ({TYPES})")).await;
     }
-    let cols: Vec<String> =
-        "id b i2 i4 i8 f4 f8 n n_free t vc c by u d tm ts tstz j jb arr iv m".split(' ').map(str::to_string).collect();
+    let cols: Vec<String> = "id b i2 i4 i8 f4 f8 n n_free t vc c by u d tm ts tstz j jb arr iv m"
+        .split(' ')
+        .map(str::to_string)
+        .collect();
 
     // All the columns: arrays, interval and money make the load use COPY's
     // text format. Without them it's binary.
-    let Pg { d, admin, src, dst, password, tag } = pg;
+    let Pg {
+        d,
+        admin,
+        src,
+        dst,
+        password,
+        tag,
+    } = pg;
     let (n, src, dst) = read_and_load(src, dst, "src", "via_batches", cols.clone()).await;
     eprintln!("read_batches → bulk_load (text COPY): {n} rows");
     let (nb, src, dst) = read_and_load(src, dst, "src", "via_binary", cols[..20].to_vec()).await;
     eprintln!("read_batches → bulk_load (binary COPY): {nb} rows");
     assert_eq!(n, nb);
-    let mut pg = Pg { d, admin, src, dst, password, tag };
+    let mut pg = Pg {
+        d,
+        admin,
+        src,
+        dst,
+        password,
+        tag,
+    };
     let d = pg.d.clone();
     // money's binary value depends on the server's lc_monetary: the native
     // copy refuses it (see transfer_postgres_native_refuses_server_bound_types).
-    let n2 = native(&d, &mut pg.src, &mut pg.dst, "src", "via_native", cols[..22].to_vec()).await;
+    let n2 = native(
+        &d,
+        &mut pg.src,
+        &mut pg.dst,
+        "src",
+        "via_native",
+        cols[..22].to_vec(),
+    )
+    .await;
     eprintln!("copy_native: {n2} rows");
     assert_eq!(n, n2);
 
@@ -216,7 +306,10 @@ async fn transfer_postgres_all_types() {
     let (a, b) = except_both_ways(&mut pg, "via_batches", select, record).await;
     eprintln!("via_batches: EXCEPT target→source {a}, source→target {b}");
     assert_eq!((a, b), (0, 0), "via_batches");
-    let (select_native, record_native) = (select.trim_end_matches(", m"), record.trim_end_matches(", m money"));
+    let (select_native, record_native) = (
+        select.trim_end_matches(", m"),
+        record.trim_end_matches(", m money"),
+    );
     let (a, b) = except_both_ways(&mut pg, "via_native", select_native, record_native).await;
     eprintln!("via_native: EXCEPT target→source {a}, source→target {b}");
     assert_eq!((a, b), (0, 0), "via_native");
@@ -233,7 +326,8 @@ async fn transfer_postgres_all_types() {
 #[ignore]
 async fn transfer_benchmark_1m() {
     let mut pg = setup("bench").await;
-    let def = "id bigint, n int, amount numeric(12,2), name text, ts timestamptz, flag bool, u uuid";
+    let def =
+        "id bigint, n int, amount numeric(12,2), name text, ts timestamptz, flag bool, u uuid";
     run(&mut pg.src, &format!("CREATE TABLE src ({def})")).await;
     run(
         &mut pg.src,
@@ -244,18 +338,41 @@ async fn transfer_benchmark_1m() {
     for t in ["via_batches", "via_native"] {
         run(&mut pg.dst, &format!("CREATE TABLE {t} ({def})")).await;
     }
-    let cols: Vec<String> = "id n amount name ts flag u".split(' ').map(str::to_string).collect();
-    let Pg { d, admin, src, dst, password, tag } = pg;
+    let cols: Vec<String> = "id n amount name ts flag u"
+        .split(' ')
+        .map(str::to_string)
+        .collect();
+    let Pg {
+        d,
+        admin,
+        src,
+        dst,
+        password,
+        tag,
+    } = pg;
     let t0 = Instant::now();
     let (n, src, dst) = read_and_load(src, dst, "src", "via_batches", cols.clone()).await;
     let e1 = t0.elapsed().as_secs_f64();
-    let mut pg = Pg { d, admin, src, dst, password, tag };
+    let mut pg = Pg {
+        d,
+        admin,
+        src,
+        dst,
+        password,
+        tag,
+    };
     let d = pg.d.clone();
     let t0 = Instant::now();
     let n2 = native(&d, &mut pg.src, &mut pg.dst, "src", "via_native", cols).await;
     let e2 = t0.elapsed().as_secs_f64();
-    eprintln!("read_batches → bulk_load: {n} rows in {e1:.2} s = {:.0} rows/s", n as f64 / e1);
-    eprintln!("copy_native:             {n2} rows in {e2:.2} s = {:.0} rows/s", n2 as f64 / e2);
+    eprintln!(
+        "read_batches → bulk_load: {n} rows in {e1:.2} s = {:.0} rows/s",
+        n as f64 / e1
+    );
+    eprintln!(
+        "copy_native:             {n2} rows in {e2:.2} s = {:.0} rows/s",
+        n2 as f64 / e2
+    );
     let select = "SELECT id, n, amount, name, ts, flag, u";
     let record = "id bigint, n int, amount numeric, name text, ts timestamptz, flag bool, u uuid";
     for t in ["via_batches", "via_native"] {
@@ -270,7 +387,11 @@ async fn transfer_benchmark_1m() {
 /// DMY dates, 15-digit floats (the pre-12 default), SQL-standard
 /// intervals. The read must override all of it.
 async fn unportable_text_output(s: &mut Box<dyn Session>) {
-    for set in ["SET DateStyle = 'SQL, DMY'", "SET extra_float_digits = 0", "SET IntervalStyle = sql_standard"] {
+    for set in [
+        "SET DateStyle = 'SQL, DMY'",
+        "SET extra_float_digits = 0",
+        "SET IntervalStyle = sql_standard",
+    ] {
         run(s, set).await;
     }
 }
@@ -293,25 +414,68 @@ async fn transfer_postgres_text_output_and_far_dates() {
     run(&mut pg.dst, &format!("CREATE TABLE via_batches ({def})")).await;
 
     unportable_text_output(&mut pg.src).await;
-    let read = ReadSpec { table: obj("src"), columns: None, filter: Some("id = 1".into()) };
+    let read = ReadSpec {
+        table: obj("src"),
+        columns: None,
+        filter: Some("id = 1".into()),
+    };
     let sink = Arc::new(Mutex::new(Collect(Vec::new())));
-    assert_eq!(pg.src.read_batches(&read, sink.clone()).await.expect("read_batches"), 1);
+    assert_eq!(
+        pg.src
+            .read_batches(&read, sink.clone())
+            .await
+            .expect("read_batches"),
+        1
+    );
     let row = sink.lock().unwrap().0[0].rows[0].clone();
     eprintln!("row: {row:?}");
-    assert_eq!(row[1], Cell::Text("10000-01-01".into()), "a date after 9999 stays AD");
+    assert_eq!(
+        row[1],
+        Cell::Text("10000-01-01".into()),
+        "a date after 9999 stays AD"
+    );
     assert_eq!(row[2], Cell::Text("10000-01-01 10:00:00".into()));
     assert_eq!(row[3], Cell::Text("294276-12-31 23:59:59+00:00".into()));
-    assert_eq!(row[4], Cell::Text("{0.30000000000000004}".into()), "every float digit");
-    assert_eq!(row[5], Cell::Text("{2024-04-03,2024-12-31}".into()), "ISO dates");
-    assert_eq!(row[6], Cell::Text("-1 days +02:00:00".into()), "postgres interval style");
+    assert_eq!(
+        row[4],
+        Cell::Text("{0.30000000000000004}".into()),
+        "every float digit"
+    );
+    assert_eq!(
+        row[5],
+        Cell::Text("{2024-04-03,2024-12-31}".into()),
+        "ISO dates"
+    );
+    assert_eq!(
+        row[6],
+        Cell::Text("-1 days +02:00:00".into()),
+        "postgres interval style"
+    );
     assert_eq!(row[7], Cell::Float(0.1 + 0.2));
 
     unportable_text_output(&mut pg.src).await;
-    let cols: Vec<String> = "id d ts tstz fa da iv f8".split(' ').map(str::to_string).collect();
-    let Pg { d, admin, src, dst, password, tag } = pg;
+    let cols: Vec<String> = "id d ts tstz fa da iv f8"
+        .split(' ')
+        .map(str::to_string)
+        .collect();
+    let Pg {
+        d,
+        admin,
+        src,
+        dst,
+        password,
+        tag,
+    } = pg;
     let (n, src, dst) = read_and_load(src, dst, "src", "via_batches", cols).await;
     assert_eq!(n, 2);
-    let mut pg = Pg { d, admin, src, dst, password, tag };
+    let mut pg = Pg {
+        d,
+        admin,
+        src,
+        dst,
+        password,
+        tag,
+    };
     let (a, b) = except_both_ways(
         &mut pg,
         "via_batches",
@@ -327,12 +491,24 @@ async fn transfer_postgres_text_output_and_far_dates() {
 #[ignore]
 async fn transfer_postgres_native_refuses_server_bound_types() {
     let mut pg = setup("bound").await;
-    for (table, def) in [("m", "id int, m money"), ("ma", "id int, m money[]"), ("r", "id int, r regclass"), ("o", "id int, o oid")] {
+    for (table, def) in [
+        ("m", "id int, m money"),
+        ("ma", "id int, m money[]"),
+        ("r", "id int, r regclass"),
+        ("o", "id int, o oid"),
+    ] {
         run(&mut pg.src, &format!("CREATE TABLE {table} ({def})")).await;
         run(&mut pg.dst, &format!("CREATE TABLE {table} ({def})")).await;
-        let columns: Vec<String> = def.split(", ").map(|c| c.split(' ').next().unwrap().to_string()).collect();
+        let columns: Vec<String> = def
+            .split(", ")
+            .map(|c| c.split(' ').next().unwrap().to_string())
+            .collect();
         let spec = CopySpec {
-            source: ReadSpec { table: obj(table), columns: Some(columns.clone()), filter: None },
+            source: ReadSpec {
+                table: obj(table),
+                columns: Some(columns.clone()),
+                filter: None,
+            },
             target: LoadSpec {
                 table: obj(table),
                 columns,
@@ -342,18 +518,32 @@ async fn transfer_postgres_native_refuses_server_bound_types() {
                 commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
             },
         };
-        let r = pg.d.copy_native(pg.src.as_mut(), pg.dst.as_mut(), &spec, &|_| {}).await;
-        assert!(matches!(r, Err(dbine_driver::Error::Unsupported(_))), "{def}: {r:?}");
+        let r =
+            pg.d.copy_native(pg.src.as_mut(), pg.dst.as_mut(), &spec, &|_| {})
+                .await;
+        assert!(
+            matches!(r, Err(dbine_driver::Error::Unsupported(_))),
+            "{def}: {r:?}"
+        );
     }
     teardown(pg).await;
 }
 
 /// copy_native from `src` (id, v) into `to`, in windows of `commit_rows`:
 /// its result and every progress report.
-async fn native_windows(pg: &mut Pg, to: &str, filter: Option<&str>, commit_rows: u64) -> (dbine_driver::Result<u64>, Vec<u64>) {
+async fn native_windows(
+    pg: &mut Pg,
+    to: &str,
+    filter: Option<&str>,
+    commit_rows: u64,
+) -> (dbine_driver::Result<u64>, Vec<u64>) {
     let columns = vec!["id".to_string(), "v".to_string()];
     let spec = CopySpec {
-        source: ReadSpec { table: obj("src"), columns: Some(columns.clone()), filter: filter.map(Into::into) },
+        source: ReadSpec {
+            table: obj("src"),
+            columns: Some(columns.clone()),
+            filter: filter.map(Into::into),
+        },
         target: LoadSpec {
             table: obj(to),
             columns,
@@ -365,7 +555,11 @@ async fn native_windows(pg: &mut Pg, to: &str, filter: Option<&str>, commit_rows
     };
     let seen = Mutex::new(Vec::new());
     let d = pg.d.clone();
-    let r = d.copy_native(pg.src.as_mut(), pg.dst.as_mut(), &spec, &|n| seen.lock().unwrap().push(n)).await;
+    let r = d
+        .copy_native(pg.src.as_mut(), pg.dst.as_mut(), &spec, &|n| {
+            seen.lock().unwrap().push(n)
+        })
+        .await;
     (r, seen.into_inner().unwrap())
 }
 
@@ -386,7 +580,14 @@ async fn transfer_postgres_native_commit_windows() {
     let (r, seen) = native_windows(&mut pg, "w20", Some("id <= 20"), 7).await;
     assert_eq!((r.unwrap(), seen), (20, vec![7, 14, 20]));
     for (t, n) in [("w21", "21"), ("w20", "20")] {
-        assert_eq!(scalar(&mut pg.dst, &format!("SELECT count(DISTINCT id)::text FROM {t}")).await, n);
+        assert_eq!(
+            scalar(
+                &mut pg.dst,
+                &format!("SELECT count(DISTINCT id)::text FROM {t}")
+            )
+            .await,
+            n
+        );
     }
     let (r, seen) = native_windows(&mut pg, "wall", None, 1000).await;
     assert_eq!(r.unwrap(), 50_000);
@@ -399,7 +600,10 @@ async fn transfer_postgres_native_commit_windows() {
     let (r, seen) = native_windows(&mut pg, "strict", None, 1000).await;
     eprintln!("strict: {r:?}, progress {seen:?}");
     assert!(r.is_err());
-    assert_eq!(scalar(&mut pg.dst, "SELECT count(*)::text FROM strict").await, "24000");
+    assert_eq!(
+        scalar(&mut pg.dst, "SELECT count(*)::text FROM strict").await,
+        "24000"
+    );
     assert_eq!(seen.last(), Some(&24_000));
     teardown(pg).await;
 }
@@ -423,7 +627,8 @@ impl BatchSink for Collect {
 #[ignore]
 async fn transfer_cockroach() {
     use dbine_driver::Cell;
-    let url = std::env::var("DBINE_TEST_COCKROACH_URL").unwrap_or_else(|_| "postgres://root@localhost:26014/defaultdb".into());
+    let url = std::env::var("DBINE_TEST_COCKROACH_URL")
+        .unwrap_or_else(|_| "postgres://root@localhost:26014/defaultdb".into());
     let cfg = parse_url("cockroachdb", &url);
     let d = driver("cockroachdb");
     assert!(!d.supports_bulk_load());
@@ -445,12 +650,19 @@ async fn transfer_cockroach() {
     )
     .await;
     let read = ReadSpec {
-        table: ObjectRef { kind: "table".into(), schema: Some("public".into()), name: "dbine_xfer_src".into() },
+        table: ObjectRef {
+            kind: "table".into(),
+            schema: Some("public".into()),
+            name: "dbine_xfer_src".into(),
+        },
         columns: None,
         filter: Some("id <= 2 OR id > 1000".into()),
     };
     let sink = Arc::new(Mutex::new(Collect(Vec::new())));
-    let n = s.read_batches(&read, sink.clone()).await.expect("read_batches");
+    let n = s
+        .read_batches(&read, sink.clone())
+        .await
+        .expect("read_batches");
     assert_eq!(n, 2002);
     let batches = std::mem::take(&mut sink.lock().unwrap().0);
     let mut rows: Vec<&Vec<Cell>> = batches.iter().flat_map(|b| b.rows.iter()).collect();

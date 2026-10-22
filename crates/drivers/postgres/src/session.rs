@@ -5,13 +5,14 @@
 //! shows what did work instead of failing.
 
 use crate::catalog::{cell, first_cell, info_type, lit, rows, system_schema, user_schema};
-use crate::{err, Variant};
 use crate::plan::{self, StmtKind};
-use dbine_driver::sql::{qualified_name, select_top, Limit, Quote, ScriptStatement};
 use crate::script;
+use crate::{err, Variant};
+use dbine_driver::sql::{qualified_name, select_top, Limit, Quote, ScriptStatement};
 use dbine_driver::{
-    async_trait, kinds, ColumnDef, ColumnInfo, DbObject, Error, KeyDef, ObjectRef, Plan, QueryOutcome, ResultColumn,
-    Result, ScriptError, Session, StatementResult, TableSchema, TxState,
+    async_trait, kinds, ColumnDef, ColumnInfo, DbObject, Error, KeyDef, ObjectRef, Plan,
+    QueryOutcome, Result, ResultColumn, ScriptError, Session, StatementResult, TableSchema,
+    TxState,
 };
 use futures::{pin_mut, StreamExt};
 use postgres_native_tls::MakeTlsConnector;
@@ -69,7 +70,20 @@ impl PgSession {
         database: String,
         notices: mpsc::UnboundedReceiver<DbError>,
     ) -> Self {
-        Self { client, tls, variant, version, database, notices, profiler: None, autocommit: true, tx: TxState::Idle, tx_unsure: false, simple: false, identity: None }
+        Self {
+            client,
+            tls,
+            variant,
+            version,
+            database,
+            notices,
+            profiler: None,
+            autocommit: true,
+            tx: TxState::Idle,
+            tx_unsure: false,
+            simple: false,
+            identity: None,
+        }
     }
 
     /// `pg_proc` filter for plain functions and procedures (no aggregates
@@ -130,18 +144,30 @@ impl PgSession {
 
     /// Like [`Self::text`], but a statement still running after `limit`
     /// is cancelled on the server (the monitor must never hang).
-    pub(crate) async fn text_within(&self, sql: &str, limit: std::time::Duration) -> Result<Vec<SimpleQueryRow>> {
+    pub(crate) async fn text_within(
+        &self,
+        sql: &str,
+        limit: std::time::Duration,
+    ) -> Result<Vec<SimpleQueryRow>> {
         let query = self.client.simple_query(sql);
         futures::pin_mut!(query);
         match tokio::time::timeout(limit, &mut query).await {
             Ok(r) => Ok(rows(r.map_err(err)?)),
             Err(_) => {
-                if let Err(e) = self.client.cancel_token().cancel_query(self.tls.clone()).await {
+                if let Err(e) = self
+                    .client
+                    .cancel_token()
+                    .cancel_query(self.tls.clone())
+                    .await
+                {
                     tracing::debug!("{:?}: cancel failed: {e}", self.variant);
                 }
                 // Let the cancelled statement finish so the connection is free.
                 let _ = query.await;
-                Err(Error::Query(format!("sin respuesta en {} s", limit.as_secs())))
+                Err(Error::Query(format!(
+                    "sin respuesta en {} s",
+                    limit.as_secs()
+                )))
             }
         }
     }
@@ -187,13 +213,23 @@ impl PgSession {
                 .text(&sql)
                 .await?
                 .iter()
-                .map(|r| DbObject { kind: s_get(r, 0), schema: Some(s_get(r, 1)), name: s_get(r, 2), parent: None })
+                .map(|r| DbObject {
+                    kind: s_get(r, 0),
+                    schema: Some(s_get(r, 1)),
+                    name: s_get(r, 2),
+                    parent: None,
+                })
                 .collect());
         }
         let rows = self.client.query(&sql, &[]).await.map_err(err)?;
         Ok(rows
             .iter()
-            .map(|r| DbObject { kind: r.get(0), schema: Some(r.get(1)), name: r.get(2), parent: None })
+            .map(|r| DbObject {
+                kind: r.get(0),
+                schema: Some(r.get(1)),
+                name: r.get(2),
+                parent: None,
+            })
             .collect())
     }
 
@@ -225,7 +261,9 @@ impl PgSession {
                         name: s_get(r, 2),
                         parent: r.get(3).map(str::to_string),
                     })),
-                    Err(e) => tracing::debug!("{:?}: routines/triggers unavailable: {e}", self.variant),
+                    Err(e) => {
+                        tracing::debug!("{:?}: routines/triggers unavailable: {e}", self.variant)
+                    }
                 }
                 continue;
             }
@@ -256,7 +294,12 @@ impl PgSession {
              WHERE c.relkind IN ('r', 'v') AND {}",
             self.filter("n.nspname")
         );
-        let mut out = text_objects(&self.first_working(&[svv, pg_class, self.info_schema_relations()]).await?, true);
+        let mut out = text_objects(
+            &self
+                .first_working(&[svv, pg_class, self.info_schema_relations()])
+                .await?,
+            true,
+        );
         // Stored procedures and Python/SQL UDFs; pg_proc_info has prokind.
         let routines = format!(
             "SELECT CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS kind,
@@ -319,11 +362,17 @@ impl PgSession {
         let what = match obj.kind.as_str() {
             // H2 writes its DDL with SCRIPT, not SHOW CREATE.
             kinds::TABLE if self.variant == Variant::H2 => {
-                let rows = self.text(&format!("SCRIPT NODATA NOPASSWORDS NOSETTINGS TABLE {q}")).await?;
+                let rows = self
+                    .text(&format!("SCRIPT NODATA NOPASSWORDS NOSETTINGS TABLE {q}"))
+                    .await?;
                 let ddl: Vec<String> = rows
                     .iter()
                     .filter_map(|r| r.get(0).map(str::to_string))
-                    .filter(|l| !l.starts_with("--") && !l.starts_with("CREATE USER") && !l.starts_with("CREATE SCHEMA"))
+                    .filter(|l| {
+                        !l.starts_with("--")
+                            && !l.starts_with("CREATE USER")
+                            && !l.starts_with("CREATE SCHEMA")
+                    })
                     .collect();
                 return Ok((!ddl.is_empty()).then(|| ddl.join("\n")));
             }
@@ -334,7 +383,11 @@ impl PgSession {
                     lit(self.variant, obj.schema().unwrap_or("doc")),
                     lit(self.variant, &obj.name)
                 );
-                let def = self.text(&sql).await?.first().and_then(|r| r.get(0).map(str::to_string));
+                let def = self
+                    .text(&sql)
+                    .await?
+                    .first()
+                    .and_then(|r| r.get(0).map(str::to_string));
                 return Ok(def.map(|d| format!("CREATE OR REPLACE VIEW {q} AS\n{d}")));
             }
             kinds::VIEW => "VIEW",
@@ -343,7 +396,9 @@ impl PgSession {
             crate::SINK => "SINK",
             _ => return Ok(None),
         };
-        Ok(self.show_statement(&format!("SHOW CREATE {what} {q}"), "create_sql").await)
+        Ok(self
+            .show_statement(&format!("SHOW CREATE {what} {q}"), "create_sql")
+            .await)
     }
 
     async fn denodo_objects(&self) -> Result<Vec<DbObject>> {
@@ -352,7 +407,9 @@ impl PgSession {
              FROM GET_VIEWS() WHERE input_database_name = {}",
             lit(self.variant, &self.database)
         );
-        let rows = self.first_working(&[self.info_schema_relations(), get_views]).await?;
+        let rows = self
+            .first_working(&[self.info_schema_relations(), get_views])
+            .await?;
         Ok(text_objects(&rows, false))
     }
 
@@ -398,7 +455,10 @@ impl PgSession {
     }
 
     async fn denodo_columns(&self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
-        match self.info_schema_columns("information_schema.columns", obj).await {
+        match self
+            .info_schema_columns("information_schema.columns", obj)
+            .await
+        {
             Ok(c) if !c.is_empty() => return Ok(c),
             Ok(_) => {}
             Err(e) => tracing::debug!("denodo: information_schema.columns unavailable: {e}"),
@@ -415,7 +475,8 @@ impl PgSession {
             .map(|r| ColumnInfo {
                 name: cell(r, "column_name").unwrap_or_default(),
                 data_type: cell(r, "column_vdp_type").unwrap_or_default(),
-                nullable: cell(r, "column_is_nullable").is_none_or(|n| n == "t" || n.eq_ignore_ascii_case("true")),
+                nullable: cell(r, "column_is_nullable")
+                    .is_none_or(|n| n == "t" || n.eq_ignore_ascii_case("true")),
                 primary_key: false,
                 auto_increment: false,
                 default_value: None,
@@ -424,7 +485,11 @@ impl PgSession {
     }
 
     async fn pg_columns(&self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
-        let identity = if self.version >= 100000 { "a.attidentity <> ''" } else { "false" };
+        let identity = if self.version >= 100000 {
+            "a.attidentity <> ''"
+        } else {
+            "false"
+        };
         let hidden = if self.variant == Variant::Cockroach {
             // CockroachDB's implicit `rowid` key is a hidden column.
             " AND NOT EXISTS (SELECT 1 FROM information_schema.columns ic
@@ -454,7 +519,9 @@ impl PgSession {
                 .map(|r| {
                     let default_value = r.get(3).map(str::to_string);
                     let auto_increment = s_bool(r, 5)
-                        || default_value.as_deref().is_some_and(|d| d.starts_with("nextval(") || d == "unique_rowid()");
+                        || default_value
+                            .as_deref()
+                            .is_some_and(|d| d.starts_with("nextval(") || d == "unique_rowid()");
                     ColumnInfo {
                         name: s_get(r, 0),
                         data_type: s_get(r, 1),
@@ -466,13 +533,19 @@ impl PgSession {
                 })
                 .collect());
         }
-        let rows = self.client.query(&sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?;
+        let rows = self
+            .client
+            .query(&sql, &[&obj.schema().unwrap_or(""), &obj.name])
+            .await
+            .map_err(err)?;
         Ok(rows
             .iter()
             .map(|r| {
                 let default_value: Option<String> = r.get(3);
                 let auto_increment = r.get::<_, bool>(5)
-                    || default_value.as_deref().is_some_and(|d| d.starts_with("nextval(") || d == "unique_rowid()");
+                    || default_value
+                        .as_deref()
+                        .is_some_and(|d| d.starts_with("nextval(") || d == "unique_rowid()");
                 ColumnInfo {
                     name: r.get(0),
                     data_type: r.get(1),
@@ -493,14 +566,19 @@ impl PgSession {
             regclass = self.regclass()
         );
         let (relkind, nsp, def): (String, String, String) = if self.simple {
-            let rows = self.inlined(&sql, &[obj.schema().unwrap_or(""), &obj.name]).await?;
+            let rows = self
+                .inlined(&sql, &[obj.schema().unwrap_or(""), &obj.name])
+                .await?;
             let Some(r) = rows.first() else {
                 return Ok(None);
             };
             (s_get(r, 0), s_get(r, 1), s_get(r, 2))
         } else {
-            let Some(r) =
-                self.client.query_opt(&sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?
+            let Some(r) = self
+                .client
+                .query_opt(&sql, &[&obj.schema().unwrap_or(""), &obj.name])
+                .await
+                .map_err(err)?
             else {
                 return Ok(None);
             };
@@ -517,7 +595,11 @@ impl PgSession {
 
     async fn pg_routine_definition(&self, obj: &ObjectRef) -> Result<Option<String>> {
         // openGauss returns a record (headerlines, definition).
-        let def = if self.variant == Variant::OpenGauss { "(pg_get_functiondef(p.oid)).definition" } else { "pg_get_functiondef(p.oid)" };
+        let def = if self.variant == Variant::OpenGauss {
+            "(pg_get_functiondef(p.oid)).definition"
+        } else {
+            "pg_get_functiondef(p.oid)"
+        };
         let sql = format!(
             "SELECT {def}
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -527,9 +609,17 @@ impl PgSession {
             self.routine_filter()
         );
         if self.simple {
-            return Ok(joined_text(self.inlined(&sql, &[obj.schema().unwrap_or(""), &obj.name]).await?));
+            return Ok(joined_text(
+                self.inlined(&sql, &[obj.schema().unwrap_or(""), &obj.name])
+                    .await?,
+            ));
         }
-        joined(self.client.query(&sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?)
+        joined(
+            self.client
+                .query(&sql, &[&obj.schema().unwrap_or(""), &obj.name])
+                .await
+                .map_err(err)?,
+        )
     }
 
     async fn pg_trigger_definition(&self, obj: &ObjectRef) -> Result<Option<String>> {
@@ -539,16 +629,26 @@ impl PgSession {
                AND (n.nspname = $1::text OR ($1::text = '' AND pg_table_is_visible(c.oid)))
              ORDER BY c.relname";
         if self.simple {
-            return Ok(joined_text(self.inlined(sql, &[obj.schema().unwrap_or(""), &obj.name]).await?));
+            return Ok(joined_text(
+                self.inlined(sql, &[obj.schema().unwrap_or(""), &obj.name])
+                    .await?,
+            ));
         }
-        joined(self.client.query(sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?)
+        joined(
+            self.client
+                .query(sql, &[&obj.schema().unwrap_or(""), &obj.name])
+                .await
+                .map_err(err)?,
+        )
     }
 
     /// The first cell of a `SHOW CREATE …`-like statement, `None` if the
     /// engine refuses it.
     async fn show_statement(&self, sql: &str, column: &str) -> Option<String> {
         match self.text(sql).await {
-            Ok(rows) => rows.first().and_then(|r| cell(r, column).or_else(|| r.get(r.len().saturating_sub(1)).map(str::to_string))),
+            Ok(rows) => rows.first().and_then(|r| {
+                cell(r, column).or_else(|| r.get(r.len().saturating_sub(1)).map(str::to_string))
+            }),
             Err(e) => {
                 tracing::debug!("{:?}: {sql}: {e}", self.variant);
                 None
@@ -583,8 +683,12 @@ impl PgSession {
                     lit(v, schema),
                     lit(v, &obj.name)
                 );
-                let parts: Vec<String> =
-                    self.text(&sql).await?.iter().filter_map(|r| r.get(0).map(str::to_string)).collect();
+                let parts: Vec<String> = self
+                    .text(&sql)
+                    .await?
+                    .iter()
+                    .filter_map(|r| r.get(0).map(str::to_string))
+                    .collect();
                 Ok((!parts.is_empty()).then(|| parts.join("\n\n")))
             }
             _ => Ok(None),
@@ -593,7 +697,13 @@ impl PgSession {
 }
 
 impl PgSession {
-    async fn explain_script(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain_script(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let v = self.variant;
         let can_analyze = v.can_analyze();
         if analyze && !can_analyze {
@@ -602,18 +712,26 @@ impl PgSession {
                 v.info().name
             ));
         }
-        for stmt in dbine_driver::sql::split_script(sql, &script::DIALECT).into_iter().map(|u| u.text) {
+        for stmt in dbine_driver::sql::split_script(sql, &script::DIALECT)
+            .into_iter()
+            .map(|u| u.text)
+        {
             let mut kind = plan::classify(&stmt);
             if kind == StmtKind::Write && !v.explains_writes() {
                 if !analyze {
-                    out.messages.push(format!("Sin plan ({} no explica escrituras): {}", v.info().name, plan::short(&stmt)));
+                    out.messages.push(format!(
+                        "Sin plan ({} no explica escrituras): {}",
+                        v.info().name,
+                        plan::short(&stmt)
+                    ));
                     continue;
                 }
                 kind = StmtKind::Other;
             }
             match (analyze, kind) {
                 (false, StmtKind::Other) => {
-                    out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
+                    out.messages
+                        .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
                 }
                 (false, _) => {
                     let p = self.plan_of(&stmt, false).await?;
@@ -651,14 +769,21 @@ impl PgSession {
     /// A failed statement leaves no result, as in psql: no rows or columns
     /// the server sent before the error (a division by zero on the third
     /// row, a cancelled query).
-    async fn run_statement(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_statement(
+        &mut self,
+        sql: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let v = self.variant;
         let head = script::head(sql);
         let begin = !self.autocommit && self.tx == TxState::Idle && !script::no_begin(v, &head);
         let verb = script::verb(sql, &head);
         let returns_rows = match verb.as_str() {
             "select" | "values" | "table" | "show" | "explain" => true,
-            "insert" | "update" | "delete" | "merge" => sql.to_ascii_lowercase().contains("returning"),
+            "insert" | "update" | "delete" | "merge" => {
+                sql.to_ascii_lowercase().contains("returning")
+            }
             _ => false,
         };
         let catalog = v.has_pg_catalog();
@@ -687,7 +812,10 @@ impl PgSession {
                     return (false, Err(script::statement_error(e, "")));
                 }
             }
-            (begin, run_script(client, notices, sql, Some(&head), max_rows, out).await)
+            (
+                begin,
+                run_script(client, notices, sql, Some(&head), max_rows, out).await,
+            )
         };
         // Polled in this order: the describe is sent first.
         let (stmt, (began, res)) = futures::join!(describe, run);
@@ -708,7 +836,11 @@ impl PgSession {
             && matches!(&out.results[first..], [r] if !r.columns.is_empty());
         let stmt = match stmt {
             Some(s) => Some(s),
-            None if res.is_ok() && after => match self.client.prepare(&format!("{}{sql}", script::DESCRIBE)).await {
+            None if res.is_ok() && after => match self
+                .client
+                .prepare(&format!("{}{sql}", script::DESCRIBE))
+                .await
+            {
                 Ok(s) => Some(s),
                 Err(e) => {
                     tracing::debug!("{v:?}: column types unavailable: {e}");
@@ -753,16 +885,28 @@ impl PgSession {
     async fn plan_of(&self, stmt: &str, actual: bool) -> Result<Plan> {
         match self.variant {
             Variant::Cockroach => {
-                let q = if actual { format!("EXPLAIN ANALYZE {stmt}") } else { format!("EXPLAIN (VERBOSE) {stmt}") };
+                let q = if actual {
+                    format!("EXPLAIN ANALYZE {stmt}")
+                } else {
+                    format!("EXPLAIN (VERBOSE) {stmt}")
+                };
                 Ok(plan::cockroach_text(stmt, &self.lines(&q).await?, actual))
             }
-            Variant::Redshift => Ok(plan::pg_text(stmt, &self.lines(&format!("EXPLAIN {stmt}")).await?, false)),
+            Variant::Redshift => Ok(plan::pg_text(
+                stmt,
+                &self.lines(&format!("EXPLAIN {stmt}")).await?,
+                false,
+            )),
             // The query as H2 will run it, with the access path in comments.
-            Variant::H2 => Ok(plan::h2_text(stmt, &self.lines(&format!("EXPLAIN {stmt}")).await?)),
+            Variant::H2 => Ok(plan::h2_text(
+                stmt,
+                &self.lines(&format!("EXPLAIN {stmt}")).await?,
+            )),
             // Their own operator trees, as text.
-            Variant::RisingWave | Variant::Materialize | Variant::CrateDb => {
-                Ok(plan::tree_text(stmt, &self.lines(&format!("EXPLAIN {stmt}")).await?))
-            }
+            Variant::RisingWave | Variant::Materialize | Variant::CrateDb => Ok(plan::tree_text(
+                stmt,
+                &self.lines(&format!("EXPLAIN {stmt}")).await?,
+            )),
             _ => {
                 let q = if actual {
                     format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {stmt}")
@@ -772,8 +916,15 @@ impl PgSession {
                 match self.lines(&q).await {
                     Ok(raw) => plan::pg_json(stmt, &raw, actual).map_err(Error::Query),
                     Err(e) => {
-                        tracing::debug!("{:?}: EXPLAIN FORMAT JSON refused, trying text: {e}", self.variant);
-                        let q = if actual { format!("EXPLAIN ANALYZE {stmt}") } else { format!("EXPLAIN {stmt}") };
+                        tracing::debug!(
+                            "{:?}: EXPLAIN FORMAT JSON refused, trying text: {e}",
+                            self.variant
+                        );
+                        let q = if actual {
+                            format!("EXPLAIN ANALYZE {stmt}")
+                        } else {
+                            format!("EXPLAIN {stmt}")
+                        };
                         Ok(plan::pg_text(stmt, &self.lines(&q).await?, actual))
                     }
                 }
@@ -784,7 +935,11 @@ impl PgSession {
     /// The first cell of every row, one per line (EXPLAIN's output).
     async fn lines(&self, sql: &str) -> Result<String> {
         let rows = self.text(sql).await?;
-        Ok(rows.iter().filter_map(|r| r.get(0)).collect::<Vec<_>>().join("\n"))
+        Ok(rows
+            .iter()
+            .filter_map(|r| r.get(0))
+            .collect::<Vec<_>>()
+            .join("\n"))
     }
 }
 
@@ -807,7 +962,10 @@ fn text_objects(rows: &[SimpleQueryRow], with_schema: bool) -> Vec<DbObject> {
 impl Session for PgSession {
     async fn server_version(&mut self) -> Result<String> {
         match self.client.simple_query("SELECT version()").await {
-            Ok(msgs) => Ok(crate::cloud_auth::with_identity(first_cell(&msgs).unwrap_or_default(), self.identity.as_deref())),
+            Ok(msgs) => Ok(crate::cloud_auth::with_identity(
+                first_cell(&msgs).unwrap_or_default(),
+                self.identity.as_deref(),
+            )),
             Err(e) if self.variant == Variant::Denodo => {
                 tracing::debug!("denodo: version() unavailable: {e}");
                 Ok("Denodo".into())
@@ -817,8 +975,10 @@ impl Session for PgSession {
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
-        let mut queries =
-            vec!["SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1".to_string()];
+        let mut queries = vec![
+            "SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1"
+                .to_string(),
+        ];
         match self.variant {
             Variant::Redshift => queries.push("SELECT datname FROM pg_database ORDER BY 1".into()),
             Variant::Denodo => queries.push("SELECT db_name FROM GET_DATABASES()".into()),
@@ -851,7 +1011,10 @@ impl Session for PgSession {
                 let mut out = match self.pg_relations().await {
                     Ok(r) => r,
                     Err(e) => {
-                        tracing::debug!("{:?}: pg_class unavailable, using information_schema: {e}", self.variant);
+                        tracing::debug!(
+                            "{:?}: pg_class unavailable, using information_schema: {e}",
+                            self.variant
+                        );
                         text_objects(&self.text(&self.info_schema_relations()).await?, true)
                     }
                 };
@@ -889,7 +1052,10 @@ impl Session for PgSession {
         let mut out: Vec<dbine_driver::SchemaInfo> = rows
             .iter()
             .filter_map(|r| r.get(0).map(str::to_string))
-            .map(|name| dbine_driver::SchemaInfo { system: system_schema(v, &name), name })
+            .map(|name| dbine_driver::SchemaInfo {
+                system: system_schema(v, &name),
+                name,
+            })
             .collect();
         out.dedup_by(|a, b| a.name == b.name);
         Ok(Some(out))
@@ -902,8 +1068,12 @@ impl Session for PgSession {
             _ => match self.pg_columns(obj).await {
                 Ok(c) => Ok(c),
                 Err(e) => {
-                    tracing::debug!("{:?}: pg_attribute unavailable, using information_schema: {e}", self.variant);
-                    self.info_schema_columns("information_schema.columns", obj).await
+                    tracing::debug!(
+                        "{:?}: pg_attribute unavailable, using information_schema: {e}",
+                        self.variant
+                    );
+                    self.info_schema_columns("information_schema.columns", obj)
+                        .await
                 }
             },
         }
@@ -916,15 +1086,26 @@ impl Session for PgSession {
         match self.variant {
             Variant::Redshift => return self.redshift_definition(obj).await,
             Variant::Denodo => {
-                let q = format!("DESC VQL VIEW {}", dbine_driver::sql::quote_ident(Quote::Double, &obj.name));
+                let q = format!(
+                    "DESC VQL VIEW {}",
+                    dbine_driver::sql::quote_ident(Quote::Double, &obj.name)
+                );
                 return Ok(self.show_statement(&q, "result").await);
             }
-            Variant::RisingWave | Variant::Materialize | Variant::CrateDb | Variant::H2 => return self.show_create(obj).await,
+            Variant::RisingWave | Variant::Materialize | Variant::CrateDb | Variant::H2 => {
+                return self.show_create(obj).await
+            }
             Variant::Cockroach
-                if matches!(obj.kind.as_str(), kinds::TABLE | kinds::VIEW | kinds::MATERIALIZED_VIEW) =>
+                if matches!(
+                    obj.kind.as_str(),
+                    kinds::TABLE | kinds::VIEW | kinds::MATERIALIZED_VIEW
+                ) =>
             {
                 let q = qualified_name(Quote::Double, obj.schema(), &obj.name);
-                if let Some(d) = self.show_statement(&format!("SHOW CREATE {q}"), "create_statement").await {
+                if let Some(d) = self
+                    .show_statement(&format!("SHOW CREATE {q}"), "create_statement")
+                    .await
+                {
                     return Ok(Some(d));
                 }
             }
@@ -979,7 +1160,10 @@ impl Session for PgSession {
         if units.is_empty() && !commands.is_empty() {
             return Ok(());
         }
-        if let Some(u) = units.iter().find(|u| script::copy_from_stdin(&u.text, &script::head(&u.text))) {
+        if let Some(u) = units
+            .iter()
+            .find(|u| script::copy_from_stdin(&u.text, &script::head(&u.text)))
+        {
             return Err(Error::Statement(Box::new(ScriptError::new(format!(
                 "{}: COPY … FROM STDIN lee los datos desde psql y el editor no los envía. \
                  Usá Importar datos, o COPY … FROM 'archivo' en el servidor.",
@@ -991,7 +1175,9 @@ impl Session for PgSession {
                 Some(stmts) => {
                     let mut res = Ok(());
                     for stmt in stmts {
-                        res = run_script(&self.client, &mut self.notices, &stmt, None, max_rows, out).await;
+                        res =
+                            run_script(&self.client, &mut self.notices, &stmt, None, max_rows, out)
+                                .await;
                         if res.is_err() {
                             break;
                         }
@@ -1001,7 +1187,10 @@ impl Session for PgSession {
                 None => run_script(&self.client, &mut self.notices, sql, None, max_rows, out).await,
             };
             self.drain_notices(out);
-            if units.iter().any(|u| script::controls_transaction(&script::head(&u.text))) {
+            if units
+                .iter()
+                .any(|u| script::controls_transaction(&script::head(&u.text)))
+            {
                 self.tx_unsure = true;
             } else if res.is_err() {
                 self.tx = script::next_state(self.variant, self.tx, &[], false);
@@ -1039,9 +1228,17 @@ impl Session for PgSession {
     /// (VERBOSE)` / `EXPLAIN ANALYZE`); Redshift only with the estimated
     /// text plan; a variant that refuses `FORMAT JSON` falls back to the
     /// text format. Denodo has no EXPLAIN.
-    async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if self.variant == Variant::Denodo {
-            return Err(Error::Unsupported("Denodo no ofrece planes de ejecución (EXPLAIN) por esta conexión".into()));
+            return Err(Error::Unsupported(
+                "Denodo no ofrece planes de ejecución (EXPLAIN) por esta conexión".into(),
+            ));
         }
         while self.notices.try_recv().is_ok() {}
         let res = self.explain_script(sql, analyze, max_rows, out).await;
@@ -1057,7 +1254,11 @@ impl Session for PgSession {
             // CockroachDB says it; elsewhere a transaction block's now() is
             // its start, not this statement's.
             let cockroach = self.variant == Variant::Cockroach;
-            let probe = if cockroach { "SHOW TRANSACTION STATUS" } else { "SELECT now() <> statement_timestamp()" };
+            let probe = if cockroach {
+                "SHOW TRANSACTION STATUS"
+            } else {
+                "SELECT now() <> statement_timestamp()"
+            };
             match self.client.simple_query(probe).await {
                 Ok(msgs) => {
                     let cell = crate::catalog::first_cell(&msgs).unwrap_or_default();
@@ -1069,7 +1270,9 @@ impl Session for PgSession {
                         _ => TxState::Idle,
                     };
                 }
-                Err(e) if e.code() == Some(&SqlState::IN_FAILED_SQL_TRANSACTION) => self.tx = TxState::Failed,
+                Err(e) if e.code() == Some(&SqlState::IN_FAILED_SQL_TRANSACTION) => {
+                    self.tx = TxState::Failed
+                }
                 Err(e) => tracing::debug!("{:?}: transaction state unknown: {e}", self.variant),
             }
             self.tx_unsure = false;
@@ -1151,7 +1354,12 @@ impl Session for PgSession {
     /// A future dropped half-way (a timeout, the caller gave up) queues a
     /// `ROLLBACK` on the connection, which runs after what is in flight: the
     /// session is never left inside the read-only transaction.
-    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let v = self.variant;
         if !v.enforces_read_only() {
             return Err(Error::Unsupported(format!(
@@ -1178,7 +1386,10 @@ impl Session for PgSession {
             return Err(Error::State(OPEN_TRANSACTION.into()));
         }
         while self.notices.try_recv().is_ok() {}
-        self.client.batch_execute("START TRANSACTION READ ONLY").await.map_err(crate::err)?;
+        self.client
+            .batch_execute("START TRANSACTION READ ONLY")
+            .await
+            .map_err(crate::err)?;
         // The warning arrives before the command completes.
         let mut nested = false;
         while let Ok(n) = self.notices.try_recv() {
@@ -1189,7 +1400,8 @@ impl Session for PgSession {
             return Err(Error::State(OPEN_TRANSACTION.into()));
         }
         let guard = RollbackOnDrop(Some(&self.client));
-        let res = read_only_statement(&self.client, &mut self.notices, v, statement, max_rows, out).await;
+        let res =
+            read_only_statement(&self.client, &mut self.notices, v, statement, max_rows, out).await;
         guard.disarm();
         let rolled = self.client.batch_execute("ROLLBACK").await;
         while self.notices.try_recv().is_ok() {}
@@ -1204,17 +1416,38 @@ impl Session for PgSession {
             Err(e) if self.variant == Variant::Denodo => {
                 tracing::debug!("denodo: information_schema unavailable: {e}");
                 let mut out = Vec::new();
-                for o in self.list_objects().await?.into_iter().filter(|o| o.kind == kinds::TABLE) {
-                    let obj = ObjectRef { kind: o.kind.clone(), schema: None, name: o.name.clone() };
+                for o in self
+                    .list_objects()
+                    .await?
+                    .into_iter()
+                    .filter(|o| o.kind == kinds::TABLE)
+                {
+                    let obj = ObjectRef {
+                        kind: o.kind.clone(),
+                        schema: None,
+                        name: o.name.clone(),
+                    };
                     let cols = self.denodo_columns(&obj).await?;
-                    let pk: Vec<String> = cols.iter().filter(|c| c.primary_key).map(|c| c.name.clone()).collect();
+                    let pk: Vec<String> = cols
+                        .iter()
+                        .filter(|c| c.primary_key)
+                        .map(|c| c.name.clone())
+                        .collect();
                     out.push(TableSchema {
                         kind: o.kind,
                         name: o.name,
-                        primary_key: (!pk.is_empty()).then_some(KeyDef { name: None, columns: pk }),
+                        primary_key: (!pk.is_empty()).then_some(KeyDef {
+                            name: None,
+                            columns: pk,
+                        }),
                         columns: cols
                             .into_iter()
-                            .map(|c| ColumnDef { name: c.name, data_type: c.data_type, nullable: c.nullable, ..Default::default() })
+                            .map(|c| ColumnDef {
+                                name: c.name,
+                                data_type: c.data_type,
+                                nullable: c.nullable,
+                                ..Default::default()
+                            })
                             .collect(),
                         ..Default::default()
                     });
@@ -1227,13 +1460,19 @@ impl Session for PgSession {
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
         if self.variant == Variant::Denodo {
-            return Err(Error::Unsupported("las bases de Denodo se crean desde Denodo".into()));
+            return Err(Error::Unsupported(
+                "las bases de Denodo se crean desde Denodo".into(),
+            ));
         }
         if self.variant == Variant::CrateDb {
-            return Err(Error::Unsupported("CrateDB tiene una sola base por clúster: se organizan en esquemas".into()));
+            return Err(Error::Unsupported(
+                "CrateDB tiene una sola base por clúster: se organizan en esquemas".into(),
+            ));
         }
         if self.variant == Variant::H2 {
-            return Err(Error::Unsupported("H2 crea la base al conectarse a un nombre nuevo (con -ifNotExists)".into()));
+            return Err(Error::Unsupported(
+                "H2 crea la base al conectarse a un nombre nuevo (con -ifNotExists)".into(),
+            ));
         }
         self.create_db(name).await
     }
@@ -1242,27 +1481,44 @@ impl Session for PgSession {
         self.create_database_choices_impl().await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.variant == Variant::Denodo {
-            return Err(Error::Unsupported("las bases de Denodo se borran desde Denodo".into()));
+            return Err(Error::Unsupported(
+                "las bases de Denodo se borran desde Denodo".into(),
+            ));
         }
         if self.variant == Variant::CrateDb {
-            return Err(Error::Unsupported("CrateDB tiene una sola base por clúster: se organizan en esquemas".into()));
+            return Err(Error::Unsupported(
+                "CrateDB tiene una sola base por clúster: se organizan en esquemas".into(),
+            ));
         }
         if self.variant == Variant::H2 {
-            return Err(Error::Unsupported("H2 no borra bases por SQL: se borran sus archivos (o DROP ALL OBJECTS)".into()));
+            return Err(Error::Unsupported(
+                "H2 no borra bases por SQL: se borran sus archivos (o DROP ALL OBJECTS)".into(),
+            ));
         }
         self.drop_db(name).await
     }
@@ -1299,14 +1555,20 @@ impl Session for PgSession {
         crate::security::grants(self, principal).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = crate::profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = crate::profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1319,7 +1581,11 @@ impl Session for PgSession {
         }
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         self.require_extended()?;
         crate::transfer::read_batches(self, spec, sink).await
     }
@@ -1346,22 +1612,41 @@ impl Session for PgSession {
     ) -> Result<dbine_driver::WriteResult> {
         self.require_extended()?;
         if !crate::transfer::bulk_capable(self.variant) {
-            return Err(Error::Unsupported(format!("{} no tiene COPY FROM STDIN", self.variant.info().name)));
+            return Err(Error::Unsupported(format!(
+                "{} no tiene COPY FROM STDIN",
+                self.variant.info().name
+            )));
         }
         let tx = self.variant.manual_transactions();
-        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::Postgres, spec, columns, source, progress, tx).await
+        dbine_driver::write::staged_write(
+            self,
+            dbine_driver::write::StageFlavor::Postgres,
+            spec,
+            columns,
+            source,
+            progress,
+            tx,
+        )
+        .await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
         Some(self)
     }
 
-    async fn key_range(&mut self, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
+    async fn key_range(
+        &mut self,
+        table: &ObjectRef,
+        column: &str,
+    ) -> Result<Option<(i64, i64, u64)>> {
         self.require_extended()?;
         crate::delta::key_range(self, table, column).await
     }
 
-    async fn delta_summary(&mut self, spec: &dbine_driver::DeltaSpec) -> Result<Vec<dbine_driver::BucketSum>> {
+    async fn delta_summary(
+        &mut self,
+        spec: &dbine_driver::DeltaSpec,
+    ) -> Result<Vec<dbine_driver::BucketSum>> {
         self.require_extended()?;
         crate::delta::summary(self, spec).await
     }
@@ -1400,7 +1685,10 @@ impl Session for PgSession {
         crate::permissions::check(self, database).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         if !crate::index_usage::supported(self.variant) {
             return Ok(None);
         }
@@ -1408,7 +1696,10 @@ impl Session for PgSession {
     }
 
     /// The engine's own "Chequeo de salud" findings (see `health`).
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
@@ -1423,7 +1714,10 @@ impl Session for PgSession {
     }
 
     /// "Buscar en la base" from the catalog (see `search`).
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 }
@@ -1436,8 +1730,16 @@ fn inline(v: Variant, sql: &str, params: &[&str]) -> String {
     let mut chars = sql.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
         if c == '$' {
-            let digits: String = sql[i + 1..].chars().take_while(char::is_ascii_digit).collect();
-            if let Some(p) = digits.parse::<usize>().ok().filter(|n| *n >= 1).and_then(|n| params.get(n - 1)) {
+            let digits: String = sql[i + 1..]
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            if let Some(p) = digits
+                .parse::<usize>()
+                .ok()
+                .filter(|n| *n >= 1)
+                .and_then(|n| params.get(n - 1))
+            {
                 out.push_str(&lit(v, p));
                 for _ in 0..digits.len() {
                     chars.next();
@@ -1457,16 +1759,29 @@ fn s_get(r: &SimpleQueryRow, i: usize) -> String {
 
 /// A text-protocol boolean (`t` / `true`).
 fn s_bool(r: &SimpleQueryRow, i: usize) -> bool {
-    matches!(r.get(i).map(str::to_ascii_lowercase).as_deref(), Some("t" | "true" | "1"))
+    matches!(
+        r.get(i).map(str::to_ascii_lowercase).as_deref(),
+        Some("t" | "true" | "1")
+    )
 }
 
 /// [`joined`] over text-protocol rows.
 fn joined_text(rows: Vec<SimpleQueryRow>) -> Option<String> {
-    join_definitions(&rows.iter().filter_map(|r| r.get(0).map(str::to_string)).collect::<Vec<_>>())
+    join_definitions(
+        &rows
+            .iter()
+            .filter_map(|r| r.get(0).map(str::to_string))
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn joined(rows: Vec<tokio_postgres::Row>) -> Result<Option<String>> {
-    Ok(join_definitions(&rows.iter().filter_map(|r| r.try_get::<_, Option<String>>(0).ok().flatten()).collect::<Vec<_>>()))
+    Ok(join_definitions(
+        &rows
+            .iter()
+            .filter_map(|r| r.try_get::<_, Option<String>>(0).ok().flatten())
+            .collect::<Vec<_>>(),
+    ))
 }
 
 /// Several definitions of one name (overloads, a trigger on several
@@ -1477,7 +1792,13 @@ pub(crate) fn join_definitions(parts: &[String]) -> Option<String> {
     match parts {
         [] => None,
         [one] => Some(one.clone()),
-        _ => Some(parts.iter().map(|p| p.trim_end().trim_end_matches(';')).collect::<Vec<_>>().join(";\n\n")),
+        _ => Some(
+            parts
+                .iter()
+                .map(|p| p.trim_end().trim_end_matches(';'))
+                .collect::<Vec<_>>()
+                .join(";\n\n"),
+        ),
     }
 }
 
@@ -1487,7 +1808,8 @@ pub(crate) fn join_definitions(parts: &[String]) -> Option<String> {
 /// PostgreSQL's lexer). `None`: send the script as is (other engines, a
 /// single statement).
 fn one_by_one(v: Variant, units: &[ScriptStatement]) -> Option<Vec<String>> {
-    (v == Variant::Materialize && units.len() > 1).then(|| units.iter().map(|u| u.text.clone()).collect())
+    (v == Variant::Materialize && units.len() > 1)
+        .then(|| units.iter().map(|u| u.text.clone()).collect())
 }
 
 const OPEN_TRANSACTION: &str =
@@ -1511,8 +1833,22 @@ fn read_only_refusal(sql: &str) -> Option<String> {
     let first = head.first().map(String::as_str).unwrap_or("");
     let refused = matches!(
         first,
-        "begin" | "start" | "commit" | "end" | "rollback" | "abort" | "savepoint" | "release" | "prepare" | "deallocate"
-            | "set" | "reset" | "discard" | "load" | "checkpoint" | "copy"
+        "begin"
+            | "start"
+            | "commit"
+            | "end"
+            | "rollback"
+            | "abort"
+            | "savepoint"
+            | "release"
+            | "prepare"
+            | "deallocate"
+            | "set"
+            | "reset"
+            | "discard"
+            | "load"
+            | "checkpoint"
+            | "copy"
     );
     if refused {
         return Some(format!(
@@ -1521,7 +1857,10 @@ fn read_only_refusal(sql: &str) -> Option<String> {
         ));
     }
     let lower = sql.to_ascii_lowercase();
-    if let Some(f) = ["dblink", "pg_background"].into_iter().find(|f| lower.contains(f)) {
+    if let Some(f) = ["dblink", "pg_background"]
+        .into_iter()
+        .find(|f| lower.contains(f))
+    {
         return Some(format!(
             "{f}: abre otra sesión con su propia transacción, que la de solo lectura no protege; una lectura protegida no lo usa."
         ));
@@ -1530,7 +1869,10 @@ fn read_only_refusal(sql: &str) -> Option<String> {
     // (`set_config('transaction_read_only', 'off', true)`); its own writes
     // still fail, and nothing runs after it, but a read never needs it.
     if lower.contains("set_config") {
-        return Some("set_config cambia la configuración de la sesión: una lectura protegida no lo usa.".into());
+        return Some(
+            "set_config cambia la configuración de la sesión: una lectura protegida no lo usa."
+                .into(),
+        );
     }
     None
 }
@@ -1571,15 +1913,26 @@ async fn read_only_statement(
             v.info().name
         ))
     };
-    match client.simple_query("SELECT current_setting('transaction_read_only')").await {
+    match client
+        .simple_query("SELECT current_setting('transaction_read_only')")
+        .await
+    {
         Ok(msgs) => match first_cell(&msgs) {
             Some(s) if s == "on" => {}
-            other => return Err(unconfirmed(format!("transaction_read_only = {}", other.unwrap_or_default()))),
+            other => {
+                return Err(unconfirmed(format!(
+                    "transaction_read_only = {}",
+                    other.unwrap_or_default()
+                )))
+            }
         },
         Err(e) if e.as_db_error().is_some() => return Err(unconfirmed(crate::err(e).to_string())),
         Err(e) => return Err(crate::err(e)),
     }
-    let prepared = client.prepare(statement).await.map_err(|e| script::statement_error(e, statement))?;
+    let prepared = client
+        .prepare(statement)
+        .await
+        .map_err(|e| script::statement_error(e, statement))?;
     let head = script::head(statement);
     let first = out.results.len();
     let res = run_script(client, notices, statement, Some(&head), max_rows, out).await;
@@ -1612,7 +1965,10 @@ async fn run_script(
     out: &mut QueryOutcome,
 ) -> Result<()> {
     let verb = head.map(|h| script::verb(sql, h));
-    let stream = client.simple_query_raw(sql).await.map_err(|e| script::statement_error(e, sql))?;
+    let stream = client
+        .simple_query_raw(sql)
+        .await
+        .map_err(|e| script::statement_error(e, sql))?;
     pin_mut!(stream);
     // Whether the statement in progress returned a row description.
     let mut has_rows = false;
@@ -1634,11 +1990,18 @@ async fn run_script(
             SimpleQueryMessage::RowDescription(cols) => {
                 has_rows = true;
                 out.begin_result(
-                    cols.iter().map(|c| ResultColumn { name: c.name().to_string(), type_name: String::new() }).collect(),
+                    cols.iter()
+                        .map(|c| ResultColumn {
+                            name: c.name().to_string(),
+                            type_name: String::new(),
+                        })
+                        .collect(),
                 );
             }
             SimpleQueryMessage::Row(row) => {
-                let cells = (0..row.len()).map(|i| row.get(i).map_or(serde_json::Value::Null, Into::into)).collect();
+                let cells = (0..row.len())
+                    .map(|i| row.get(i).map_or(serde_json::Value::Null, Into::into))
+                    .collect();
                 out.push_row(cells, max_rows);
             }
             SimpleQueryMessage::CommandComplete(n) => {
@@ -1650,7 +2013,11 @@ async fn run_script(
                                 r.tag = tag;
                             }
                         } else {
-                            out.results.push(StatementResult { rows_affected: script::affected(v, n), tag, ..Default::default() });
+                            out.results.push(StatementResult {
+                                rows_affected: script::affected(v, n),
+                                tag,
+                                ..Default::default()
+                            });
                         }
                     }
                     _ if !has_rows => out.push_affected(n),
@@ -1670,7 +2037,16 @@ mod tests {
 
     #[test]
     fn read_only_refuses_what_the_transaction_cant_hold_back() {
-        for ok in ["SELECT 1", "select * from t;", "WITH x AS (SELECT 1) SELECT * FROM x", "SHOW search_path", "EXPLAIN SELECT 1", "VALUES (1)", "TABLE t", "SELECT 'a;b'"] {
+        for ok in [
+            "SELECT 1",
+            "select * from t;",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            "SHOW search_path",
+            "EXPLAIN SELECT 1",
+            "VALUES (1)",
+            "TABLE t",
+            "SELECT 'a;b'",
+        ] {
             assert_eq!(read_only_refusal(ok), None, "{ok}");
         }
         for bad in [
@@ -1701,8 +2077,20 @@ mod tests {
 
     #[test]
     fn variants_that_enforce_read_only() {
-        let on: Vec<_> = Variant::ALL.into_iter().filter(|v| v.enforces_read_only()).collect();
-        for v in [Variant::Edb, Variant::Kingbase, Variant::OpenGauss, Variant::Denodo, Variant::RisingWave, Variant::Materialize, Variant::CrateDb, Variant::H2] {
+        let on: Vec<_> = Variant::ALL
+            .into_iter()
+            .filter(|v| v.enforces_read_only())
+            .collect();
+        for v in [
+            Variant::Edb,
+            Variant::Kingbase,
+            Variant::OpenGauss,
+            Variant::Denodo,
+            Variant::RisingWave,
+            Variant::Materialize,
+            Variant::CrateDb,
+            Variant::H2,
+        ] {
             assert!(!on.contains(&v), "{v:?}");
         }
         assert!(on.contains(&Variant::Postgres) && on.contains(&Variant::Cockroach));
@@ -1711,11 +2099,18 @@ mod tests {
     #[test]
     fn parameters_are_inlined_as_literals() {
         assert_eq!(
-            inline(Variant::Postgres, "WHERE n = $1::text AND r = $2::text OR $1::text = ''", &["pub'lic", "t"]),
+            inline(
+                Variant::Postgres,
+                "WHERE n = $1::text AND r = $2::text OR $1::text = ''",
+                &["pub'lic", "t"]
+            ),
             "WHERE n = E'pub''lic'::text AND r = E't'::text OR E'pub''lic'::text = ''"
         );
         // `$10` is not `$1` followed by 0, and unknown or dollar-quoted text stays.
-        assert_eq!(inline(Variant::Postgres, "$10 $3 $$x$$", &["a"]), "$10 $3 $$x$$");
+        assert_eq!(
+            inline(Variant::Postgres, "$10 $3 $$x$$", &["a"]),
+            "$10 $3 $$x$$"
+        );
         assert_eq!(inline(Variant::Redshift, "$1", &["a\\b"]), "'a\\\\b'");
     }
 
@@ -1727,6 +2122,9 @@ mod tests {
         assert!(one_by_one(Variant::Postgres, &script).is_none());
         assert!(one_by_one(Variant::Materialize, &units("SELECT 1;")).is_none());
         // Dollar quotes stay whole.
-        assert_eq!(one_by_one(Variant::Materialize, &units("SELECT $$a;b$$; SELECT 2")).unwrap(), ["SELECT $$a;b$$", "SELECT 2"]);
+        assert_eq!(
+            one_by_one(Variant::Materialize, &units("SELECT $$a;b$$; SELECT 2")).unwrap(),
+            ["SELECT $$a;b$$", "SELECT 2"]
+        );
     }
 }

@@ -29,8 +29,12 @@ const NEW: &str = "dbine_dbren_nueva";
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.trim_end_matches('/').parse().unwrap()));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| {
+        (h, p.trim_end_matches('/').parse().unwrap())
+    });
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -42,12 +46,17 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.map_err(|e| e.to_string())?;
+    s.execute(sql, 100, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     match out.error.take() {
         Some(e) => Err(format!("{e:?}")),
         None => Ok(out),
@@ -61,8 +70,19 @@ async fn ok(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
 /// The first column of each row, as text.
 async fn col(s: &mut Box<dyn Session>, sql: &str) -> Vec<String> {
     let out = ok(s, sql).await;
-    let rs = out.results.iter().find(|r| !r.columns.is_empty()).unwrap_or_else(|| panic!("{sql}: no rows"));
-    rs.rows.iter().map(|r| r[0].as_str().map(str::to_string).unwrap_or_else(|| r[0].to_string())).collect()
+    let rs = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .unwrap_or_else(|| panic!("{sql}: no rows"));
+    rs.rows
+        .iter()
+        .map(|r| {
+            r[0].as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| r[0].to_string())
+        })
+        .collect()
 }
 
 async fn one(s: &mut Box<dyn Session>, sql: &str) -> String {
@@ -70,7 +90,14 @@ async fn one(s: &mut Box<dyn Session>, sql: &str) -> String {
 }
 
 /// Code kinds the app reads a definition for (`MOVED_CODE`).
-const MOVED_CODE: &[&str] = &[kinds::VIEW, kinds::MATERIALIZED_VIEW, kinds::PROCEDURE, kinds::FUNCTION, kinds::TRIGGER, "event"];
+const MOVED_CODE: &[&str] = &[
+    kinds::VIEW,
+    kinds::MATERIALIZED_VIEW,
+    kinds::PROCEDURE,
+    kinds::FUNCTION,
+    kinds::TRIGGER,
+    "event",
+];
 
 /// `RenameImpact::objects`, as `rename_database_impact` builds it.
 async fn objects(d: &Arc<dyn Driver>, cfg: &ConnectionConfig) -> Vec<DatabaseObject> {
@@ -82,12 +109,26 @@ async fn objects(d: &Arc<dyn Driver>, cfg: &ConnectionConfig) -> Vec<DatabaseObj
             continue;
         }
         let definition = if code {
-            let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
-            Some(s.definition(&r).await.unwrap().unwrap_or_else(|| panic!("no definition for {}", o.name)))
+            let r = ObjectRef {
+                kind: o.kind.clone(),
+                schema: o.schema.clone(),
+                name: o.name.clone(),
+            };
+            Some(
+                s.definition(&r)
+                    .await
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("no definition for {}", o.name)),
+            )
         } else {
             None
         };
-        out.push(DatabaseObject { kind: o.kind, schema: o.schema, name: o.name, definition });
+        out.push(DatabaseObject {
+            kind: o.kind,
+            schema: o.schema,
+            name: o.name,
+            definition,
+        });
     }
     out
 }
@@ -137,8 +178,16 @@ async fn flow(id: &str, env: &str, code: bool) {
     assert!(spec.databases && spec.database_moves);
     let objects = objects(&d, &cfg).await;
     let kinds_of: Vec<&str> = objects.iter().map(|o| o.kind.as_str()).collect();
-    assert_eq!(kinds_of.iter().filter(|k| **k == kinds::TABLE).count(), 2, "{kinds_of:?}");
-    assert_eq!(kinds_of.iter().filter(|k| **k == kinds::VIEW).count(), 2, "{kinds_of:?}");
+    assert_eq!(
+        kinds_of.iter().filter(|k| **k == kinds::TABLE).count(),
+        2,
+        "{kinds_of:?}"
+    );
+    assert_eq!(
+        kinds_of.iter().filter(|k| **k == kinds::VIEW).count(),
+        2,
+        "{kinds_of:?}"
+    );
     if code {
         for k in [kinds::FUNCTION, kinds::PROCEDURE, kinds::TRIGGER] {
             assert!(kinds_of.contains(&k), "{k}: {kinds_of:?}");
@@ -173,15 +222,35 @@ async fn flow(id: &str, env: &str, code: bool) {
     )
     .await;
     assert_eq!(fk, NEW);
-    assert!(run(&mut s, "INSERT INTO pedidos VALUES (20, 99, 1)").await.is_err(), "the foreign key let an orphan in");
+    assert!(
+        run(&mut s, "INSERT INTO pedidos VALUES (20, 99, 1)")
+            .await
+            .is_err(),
+        "the foreign key let an orphan in"
+    );
     // The views read the new tables.
-    assert_eq!(one(&mut s, "SELECT total FROM v_resumen WHERE nombre = 'Ana'").await, "150");
-    let views = col(&mut s, &format!("SELECT VIEW_DEFINITION FROM information_schema.VIEWS WHERE TABLE_SCHEMA = '{NEW}'")).await;
-    assert!(views.iter().all(|v| !v.contains(OLD) || v.contains(NEW)), "{views:?}");
+    assert_eq!(
+        one(&mut s, "SELECT total FROM v_resumen WHERE nombre = 'Ana'").await,
+        "150"
+    );
+    let views = col(
+        &mut s,
+        &format!(
+            "SELECT VIEW_DEFINITION FROM information_schema.VIEWS WHERE TABLE_SCHEMA = '{NEW}'"
+        ),
+    )
+    .await;
+    assert!(
+        views.iter().all(|v| !v.contains(OLD) || v.contains(NEW)),
+        "{views:?}"
+    );
     if code {
         // The trigger runs the function, both in the new database.
         ok(&mut s, "INSERT INTO pedidos VALUES (21, 2, 4)").await;
-        assert_eq!(one(&mut s, "SELECT total FROM pedidos WHERE id = 21").await, "8");
+        assert_eq!(
+            one(&mut s, "SELECT total FROM pedidos WHERE id = 21").await,
+            "8"
+        );
         assert_eq!(one(&mut s, "SELECT f_doble(21)").await, "42");
         // The procedure reads the new table (it named the old database).
         assert_eq!(one(&mut s, "CALL p_total()").await, "165");
@@ -211,12 +280,33 @@ async fn refused(id: &str, env: &str, extra: &str) {
     eprintln!("statement 1: {err}");
     assert!(err.contains("nada cambió"), "{err}");
     let dbs = col(&mut root, "SHOW DATABASES").await;
-    assert!(dbs.iter().any(|x| x == OLD) && !dbs.iter().any(|x| x == NEW), "{dbs:?}");
-    let count = |t: &str, c: &str| format!("SELECT COUNT(*) FROM information_schema.{t} WHERE {c} = '{OLD}'");
-    assert_eq!(one(&mut root, &count("TABLES", "TABLE_SCHEMA")).await, if id == "mariadb" && extra.contains("SEQUENCE") { "5" } else { "4" });
-    assert_eq!(one(&mut root, &count("ROUTINES", "ROUTINE_SCHEMA")).await, "2");
-    assert_eq!(one(&mut root, &count("TRIGGERS", "TRIGGER_SCHEMA")).await, "1");
-    assert_eq!(one(&mut root, &format!("SELECT COUNT(*) FROM {OLD}.pedidos")).await, "3");
+    assert!(
+        dbs.iter().any(|x| x == OLD) && !dbs.iter().any(|x| x == NEW),
+        "{dbs:?}"
+    );
+    let count = |t: &str, c: &str| {
+        format!("SELECT COUNT(*) FROM information_schema.{t} WHERE {c} = '{OLD}'")
+    };
+    assert_eq!(
+        one(&mut root, &count("TABLES", "TABLE_SCHEMA")).await,
+        if id == "mariadb" && extra.contains("SEQUENCE") {
+            "5"
+        } else {
+            "4"
+        }
+    );
+    assert_eq!(
+        one(&mut root, &count("ROUTINES", "ROUTINE_SCHEMA")).await,
+        "2"
+    );
+    assert_eq!(
+        one(&mut root, &count("TRIGGERS", "TRIGGER_SCHEMA")).await,
+        "1"
+    );
+    assert_eq!(
+        one(&mut root, &format!("SELECT COUNT(*) FROM {OLD}.pedidos")).await,
+        "3"
+    );
     clean(&mut root).await;
 }
 
@@ -241,7 +331,11 @@ async fn sql_mode_flow(id: &str, env: &str) {
     ok(&mut root, &format!("DROP DATABASE IF EXISTS {SENTINEL}")).await;
     ok(&mut root, &format!("CREATE DATABASE {SENTINEL}")).await;
     ok(&mut root, "SET @dbine_test_mode = @@SESSION.sql_mode").await;
-    ok(&mut root, "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES')").await;
+    ok(
+        &mut root,
+        "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES')",
+    )
+    .await;
     // Under the default mode, `'a\'; SELECT '` is one string, the body ends
     // at the first END and DROP DATABASE runs on its own.
     ok(&mut root, &format!(r"CREATE PROCEDURE {OLD}.p_ataque() BEGIN SELECT 'a\'; SELECT '; END; DROP DATABASE {SENTINEL}; SELECT '; END")).await;
@@ -249,7 +343,14 @@ async fn sql_mode_flow(id: &str, env: &str) {
     ok(&mut root, "SET SESSION sql_mode = @dbine_test_mode").await;
     let call = |db: &str| format!("CALL {db}.p_nbe()");
     let row = |o: &QueryOutcome| -> Vec<String> {
-        o.results.iter().find(|r| !r.columns.is_empty()).unwrap().rows[0].iter().map(|c| c.as_str().unwrap_or_default().to_string()).collect()
+        o.results
+            .iter()
+            .find(|r| !r.columns.is_empty())
+            .unwrap()
+            .rows[0]
+            .iter()
+            .map(|c| c.as_str().unwrap_or_default().to_string())
+            .collect()
     };
     let before = ok(&mut root, &call(OLD)).await;
     assert_eq!(row(&before), [r"C:\tmp\", "it's", r"\'"]);
@@ -276,9 +377,17 @@ async fn sql_mode_flow(id: &str, env: &str) {
     let after = ok(&mut root, &call(NEW)).await;
     assert_eq!(row(&after), row(&before));
     // Everything else moved too, and nothing extra ran.
-    assert_eq!(one(&mut root, &format!("SELECT {NEW}.f_doble(21)")).await, "42");
+    assert_eq!(
+        one(&mut root, &format!("SELECT {NEW}.f_doble(21)")).await,
+        "42"
+    );
     let dbs = col(&mut root, "SHOW DATABASES").await;
-    assert!(dbs.iter().any(|x| x == SENTINEL) && dbs.iter().any(|x| x == NEW) && !dbs.iter().any(|x| x == OLD), "{dbs:?}");
+    assert!(
+        dbs.iter().any(|x| x == SENTINEL)
+            && dbs.iter().any(|x| x == NEW)
+            && !dbs.iter().any(|x| x == OLD),
+        "{dbs:?}"
+    );
     clean(&mut root).await;
     ok(&mut root, &format!("DROP DATABASE IF EXISTS {SENTINEL}")).await;
 }
@@ -299,7 +408,11 @@ async fn mariadb_rename_database_refuses_oracle_mode() {
     setup(&mut root, true).await;
     ok(&mut root, "SET @dbine_test_mode = @@SESSION.sql_mode").await;
     ok(&mut root, "SET SESSION sql_mode = ORACLE").await;
-    ok(&mut root, &format!("CREATE PROCEDURE {OLD}.p_ora AS BEGIN SELECT 1 FROM DUAL; END")).await;
+    ok(
+        &mut root,
+        &format!("CREATE PROCEDURE {OLD}.p_ora AS BEGIN SELECT 1 FROM DUAL; END"),
+    )
+    .await;
     ok(&mut root, "SET SESSION sql_mode = @dbine_test_mode").await;
     let objects_now = objects(&d, &cfg).await;
     match d.rename_database_script(OLD, NEW, &objects_now) {
@@ -319,17 +432,36 @@ async fn mariadb_rename_database_refuses_oracle_mode() {
             let (i, e) = failed.expect("the script ran whole");
             eprintln!("stopped at statement {}: {e}", i + 1);
             assert!(e.contains("sql_mode no admitido"), "{e}");
-            assert!(!script.statements[..i].iter().any(|s| s.contains("CREATE DATABASE")), "it got past CREATE DATABASE");
+            assert!(
+                !script.statements[..i]
+                    .iter()
+                    .any(|s| s.contains("CREATE DATABASE")),
+                "it got past CREATE DATABASE"
+            );
         }
     }
     // Nothing changed.
     let dbs = col(&mut root, "SHOW DATABASES").await;
-    assert!(dbs.iter().any(|x| x == OLD) && !dbs.iter().any(|x| x == NEW), "{dbs:?}");
-    let count = |t: &str, c: &str| format!("SELECT COUNT(*) FROM information_schema.{t} WHERE {c} = '{OLD}'");
+    assert!(
+        dbs.iter().any(|x| x == OLD) && !dbs.iter().any(|x| x == NEW),
+        "{dbs:?}"
+    );
+    let count = |t: &str, c: &str| {
+        format!("SELECT COUNT(*) FROM information_schema.{t} WHERE {c} = '{OLD}'")
+    };
     assert_eq!(one(&mut root, &count("TABLES", "TABLE_SCHEMA")).await, "4");
-    assert_eq!(one(&mut root, &count("ROUTINES", "ROUTINE_SCHEMA")).await, "3");
-    assert_eq!(one(&mut root, &count("TRIGGERS", "TRIGGER_SCHEMA")).await, "1");
-    assert_eq!(one(&mut root, &format!("SELECT COUNT(*) FROM {OLD}.pedidos")).await, "3");
+    assert_eq!(
+        one(&mut root, &count("ROUTINES", "ROUTINE_SCHEMA")).await,
+        "3"
+    );
+    assert_eq!(
+        one(&mut root, &count("TRIGGERS", "TRIGGER_SCHEMA")).await,
+        "1"
+    );
+    assert_eq!(
+        one(&mut root, &format!("SELECT COUNT(*) FROM {OLD}.pedidos")).await,
+        "3"
+    );
     clean(&mut root).await;
 }
 
@@ -372,7 +504,12 @@ async fn mariadb_rename_database_refuses_an_event() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn mariadb_rename_database_refuses_a_sequence() {
-    refused("mariadb", "DBINE_TEST_MARIADB_URL", "CREATE SEQUENCE {OLD}.s_pedidos").await;
+    refused(
+        "mariadb",
+        "DBINE_TEST_MARIADB_URL",
+        "CREATE SEQUENCE {OLD}.s_pedidos",
+    )
+    .await;
 }
 
 /// TiDB moves the tables but leaves their foreign keys on the old

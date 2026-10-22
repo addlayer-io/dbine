@@ -15,8 +15,12 @@ fn env(k: &str) -> Option<String> {
 }
 
 fn cfg() -> Option<ConnectionConfig> {
-    let mut c = ConnectionConfig { driver: "athena".into(), ..Default::default() };
-    c.options.insert("output_location".into(), env("DBINE_TEST_ATHENA_OUTPUT")?);
+    let mut c = ConnectionConfig {
+        driver: "athena".into(),
+        ..Default::default()
+    };
+    c.options
+        .insert("output_location".into(), env("DBINE_TEST_ATHENA_OUTPUT")?);
     if let Some(r) = env("AWS_REGION") {
         c.options.insert("region".into(), r);
     }
@@ -50,7 +54,12 @@ async fn athena() {
     let mut found = None;
     for _ in 0..15 {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        if let Some(p) = admin.processes().await.unwrap().into_iter().find(|p| p.sql.as_deref().unwrap_or("").contains("dbine_processes_test")) {
+        if let Some(p) = admin.processes().await.unwrap().into_iter().find(|p| {
+            p.sql
+                .as_deref()
+                .unwrap_or("")
+                .contains("dbine_processes_test")
+        }) {
             found = Some(p);
             break;
         }
@@ -60,8 +69,14 @@ async fn athena() {
     assert!(w.active && !w.own, "{w:?}");
 
     admin.cancel_query(&w.id).await.unwrap();
-    let (r, _worker) = tokio::time::timeout(Duration::from_secs(60), running).await.expect("the query stopped").unwrap();
+    let (r, _worker) = tokio::time::timeout(Duration::from_secs(60), running)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     assert!(r.is_err(), "the query was cancelled");
     assert!(admin.cancel_query(&w.id).await.is_err(), "it already ended");
-    assert!(admin.cancel_query("../x").await.is_err(), "the id is validated");
+    assert!(
+        admin.cancel_query("../x").await.is_err(),
+        "the id is validated"
+    );
 }

@@ -41,35 +41,74 @@ async fn clickhouse_options() {
         eprintln!("DBINE_TEST_CLICKHOUSE_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == "clickhouse").unwrap();
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "clickhouse")
+        .unwrap();
     let mut s = d.connect(&cfg, None).await.unwrap();
     let _ = s.drop_database("dbine_create_opts").await;
     let _ = s.drop_database("dbine_create_plain").await;
 
     let choices = s.create_database_choices().await.unwrap();
-    let get = |k: &str| choices.iter().find(|c| c.key == k).unwrap_or_else(|| panic!("{k}"));
+    let get = |k: &str| {
+        choices
+            .iter()
+            .find(|c| c.key == k)
+            .unwrap_or_else(|| panic!("{k}"))
+    };
     assert_eq!(get("engine").default.as_deref(), Some("Atomic"));
     assert!(!get("cluster").values.is_empty(), "system.clusters");
 
-    let options: BTreeMap<String, String> =
-        [("engine", "Memory"), ("comment", "ventas 'históricas' \\ 2026")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
+    let options: BTreeMap<String, String> = [
+        ("engine", "Memory"),
+        ("comment", "ventas 'históricas' \\ 2026"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
     let row = scalar(&mut s, "SELECT concat(engine, '|', comment) FROM system.databases WHERE name = 'dbine_create_opts'").await;
     assert_eq!(row, "Memory|ventas 'históricas' \\ 2026");
     s.drop_database("dbine_create_opts").await.unwrap();
 
-    let options: BTreeMap<String, String> = [("engine", "Atomic"), ("comment", "x")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
+    let options: BTreeMap<String, String> = [("engine", "Atomic"), ("comment", "x")]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
     assert_eq!(scalar(&mut s, "SELECT concat(engine, '|', comment) FROM system.databases WHERE name = 'dbine_create_opts'").await, "Atomic|x");
     s.drop_database("dbine_create_opts").await.unwrap();
 
     // A bad value never reaches the server.
-    let bad: BTreeMap<String, String> = [("engine", "Replicated"), ("zoo_path", "/a'); DROP")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    assert!(s.create_database_with("dbine_create_opts", &bad).await.is_err());
+    let bad: BTreeMap<String, String> = [("engine", "Replicated"), ("zoo_path", "/a'); DROP")]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    assert!(s
+        .create_database_with("dbine_create_opts", &bad)
+        .await
+        .is_err());
 
     // Without options it's the plain create (Atomic).
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
-    assert_eq!(scalar(&mut s, "SELECT engine FROM system.databases WHERE name = 'dbine_create_plain'").await, "Atomic");
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        scalar(
+            &mut s,
+            "SELECT engine FROM system.databases WHERE name = 'dbine_create_plain'"
+        )
+        .await,
+        "Atomic"
+    );
     s.drop_database("dbine_create_plain").await.unwrap();
 }

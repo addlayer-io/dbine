@@ -34,14 +34,24 @@ pub(crate) struct Checks {
 
 impl Checks {
     fn all(v: bool) -> Self {
-        Checks { monitor: Some(v), create_snapshot: Some(v), manage: Some(v), manage_security: Some(v), ..Default::default() }
+        Checks {
+            monitor: Some(v),
+            create_snapshot: Some(v),
+            manage: Some(v),
+            manage_security: Some(v),
+            ..Default::default()
+        }
     }
 }
 
 pub(crate) fn decide(c: &Checks) -> Permissions {
-    let access = |v: Option<bool>, missing: &str| v.map_or(Access::Unknown, |ok| Access::check(ok, missing));
+    let access =
+        |v: Option<bool>, missing: &str| v.map_or(Access::Unknown, |ok| Access::check(ok, missing));
     let (monitor, security) = if c.opensearch {
-        ("cluster:monitor/tasks/lists (cluster_monitor)", "acceso a la API REST de seguridad (all_access o security_rest_api_access)")
+        (
+            "cluster:monitor/tasks/lists (cluster_monitor)",
+            "acceso a la API REST de seguridad (all_access o security_rest_api_access)",
+        )
     } else {
         ("monitor", "manage_security")
     };
@@ -84,7 +94,12 @@ fn answered(status: u16) -> Option<bool> {
     }
 }
 
-async fn send(s: &EsSession, method: &str, path: &str, body: Option<Value>) -> Result<(u16, String)> {
+async fn send(
+    s: &EsSession,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+) -> Result<(u16, String)> {
     let mut rb = s.request(method, path);
     if let Some(b) = body {
         rb = rb.json(&b);
@@ -106,7 +121,11 @@ async fn elastic(s: &EsSession) -> Result<Checks> {
 }
 
 async fn opensearch(s: &EsSession) -> Result<Checks> {
-    let prefix = if s.opendistro { "/_opendistro/_security" } else { "/_plugins/_security" };
+    let prefix = if s.opendistro {
+        "/_opendistro/_security"
+    } else {
+        "/_plugins/_security"
+    };
     let (status, text) = send(s, "GET", &format!("{prefix}/authinfo"), None).await?;
     if status >= 300 {
         if security_off(status, &text) {
@@ -126,13 +145,23 @@ async fn opensearch(s: &EsSession) -> Result<Checks> {
         return Ok(Checks::all(true));
     }
     let users_path = format!("{prefix}/api/internalusers");
-    let (tasks, users) =
-        tokio::join!(send(s, "GET", "/_tasks?actions=indices:data/read/*", None), send(s, "GET", &users_path, None));
-    Ok(Checks { monitor: answered(tasks?.0), manage_security: answered(users?.0), ..Default::default() })
+    let (tasks, users) = tokio::join!(
+        send(s, "GET", "/_tasks?actions=indices:data/read/*", None),
+        send(s, "GET", &users_path, None)
+    );
+    Ok(Checks {
+        monitor: answered(tasks?.0),
+        manage_security: answered(users?.0),
+        ..Default::default()
+    })
 }
 
 pub(crate) async fn check(s: &EsSession) -> Result<Permissions> {
-    let mut c = if s.opensearch { opensearch(s).await? } else { elastic(s).await? };
+    let mut c = if s.opensearch {
+        opensearch(s).await?
+    } else {
+        elastic(s).await?
+    };
     c.opensearch = s.opensearch;
     Ok(decide(&c))
 }
@@ -148,9 +177,20 @@ mod tests {
     #[test]
     fn a_superuser_may_do_everything_offered() {
         let p = decide(&Checks::all(true));
-        assert_eq!((&p.backup, &p.restore, &p.profiler, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.backup, &p.restore, &p.profiler, &p.manage_security),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
         // No databases nor sessions to end.
-        assert_eq!((&p.create_database, &p.drop_database, &p.kill_session), (&Access::Unknown, &Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.create_database, &p.drop_database, &p.kill_session),
+            (&Access::Unknown, &Access::Unknown, &Access::Unknown)
+        );
     }
 
     #[test]
@@ -160,18 +200,28 @@ mod tests {
         assert!(denied(&p.restore, "manage"));
         assert!(denied(&p.profiler, "monitor"));
         assert!(denied(&p.manage_security, "manage_security"));
-        let c = Checks { monitor: Some(false), manage_security: Some(false), opensearch: true, ..Default::default() };
+        let c = Checks {
+            monitor: Some(false),
+            manage_security: Some(false),
+            opensearch: true,
+            ..Default::default()
+        };
         let p = decide(&c);
         assert!(denied(&p.profiler, "cluster_monitor"));
         assert!(denied(&p.manage_security, "API REST de seguridad"));
-        assert_eq!((&p.backup, &p.restore), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.backup, &p.restore),
+            (&Access::Unknown, &Access::Unknown)
+        );
     }
 
     #[test]
     fn read_only_mode_is_not_a_missing_privilege() {
         // `decide` has no read-only input: the server's answer is all.
         let p = decide(&Checks::all(true));
-        assert!(![&p.backup, &p.restore, &p.profiler, &p.manage_security].iter().any(|a| denied(a, "solo lectura")));
+        assert!(![&p.backup, &p.restore, &p.profiler, &p.manage_security]
+            .iter()
+            .any(|a| denied(a, "solo lectura")));
     }
 
     #[test]
@@ -180,15 +230,30 @@ mod tests {
             r#"{"username":"ana","has_all_requested":false,"cluster":{"monitor":true,"manage_security":false,"create_snapshot":false,"manage":false},"index":{}}"#,
         )
         .unwrap();
-        assert_eq!((c.monitor, c.create_snapshot, c.manage, c.manage_security), (Some(true), Some(false), Some(false), Some(false)));
+        assert_eq!(
+            (c.monitor, c.create_snapshot, c.manage, c.manage_security),
+            (Some(true), Some(false), Some(false), Some(false))
+        );
         assert!(cluster_privileges("{}").is_none());
     }
 
     #[test]
     fn recognizes_a_server_without_security() {
-        assert!(security_off(400, r#"{"error":"no handler found for uri [/_security/user/_has_privileges] and method [POST]"}"#));
-        assert!(security_off(500, r#"{"error":{"reason":"Security must be explicitly enabled when using a [basic] license."}}"#));
-        assert!(!security_off(403, r#"{"error":{"type":"security_exception"}}"#));
-        assert_eq!((answered(200), answered(403), answered(401), answered(500)), (Some(true), Some(false), Some(false), None));
+        assert!(security_off(
+            400,
+            r#"{"error":"no handler found for uri [/_security/user/_has_privileges] and method [POST]"}"#
+        ));
+        assert!(security_off(
+            500,
+            r#"{"error":{"reason":"Security must be explicitly enabled when using a [basic] license."}}"#
+        ));
+        assert!(!security_off(
+            403,
+            r#"{"error":{"type":"security_exception"}}"#
+        ));
+        assert_eq!(
+            (answered(200), answered(403), answered(401), answered(500)),
+            (Some(true), Some(false), Some(false), None)
+        );
     }
 }

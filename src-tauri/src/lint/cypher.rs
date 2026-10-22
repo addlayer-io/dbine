@@ -5,8 +5,9 @@ use super::Finding;
 
 /// Words that start a clause: they end a MATCH pattern.
 const CLAUSES: &[&str] = &[
-    "match", "optional", "where", "return", "with", "create", "merge", "set", "delete", "detach", "remove", "unwind", "call", "order",
-    "skip", "limit", "union", "foreach", "yield", "load", "using", "on", "finish",
+    "match", "optional", "where", "return", "with", "create", "merge", "set", "delete", "detach",
+    "remove", "unwind", "call", "order", "skip", "limit", "union", "foreach", "yield", "load",
+    "using", "on", "finish",
 ];
 
 /// One comma-separated part of a pattern.
@@ -20,7 +21,13 @@ struct Part {
 }
 
 pub(super) fn lint(script: &str, out: &mut Vec<Finding>) {
-    let all = tokens(script, Options { backtick_names: true, ..Options::default() });
+    let all = tokens(
+        script,
+        Options {
+            backtick_names: true,
+            ..Options::default()
+        },
+    );
     for stmt in all.split(|x| x.p(';') && x.depth == 0) {
         statement(stmt, out);
     }
@@ -50,7 +57,9 @@ fn statement(t: &[Tok], out: &mut Vec<Finding>) {
             continue;
         }
         let d = x.depth;
-        let end = (i + 1..t.len()).find(|&k| t[k].depth < d || (t[k].depth == d && CLAUSES.iter().any(|c| t[k].is(c)))).unwrap_or(t.len());
+        let end = (i + 1..t.len())
+            .find(|&k| t[k].depth < d || (t[k].depth == d && CLAUSES.iter().any(|c| t[k].is(c))))
+            .unwrap_or(t.len());
         let parts = parts(t, i + 1, end, d);
         if x.is("match") {
             for p in &parts {
@@ -67,7 +76,10 @@ fn statement(t: &[Tok], out: &mut Vec<Finding>) {
                 for m in 0..n {
                     if parts[n].vars.iter().any(|v| parts[m].vars.contains(v)) {
                         let (from, to) = (group[n], group[m]);
-                        group.iter_mut().filter(|g| **g == from).for_each(|g| *g = to);
+                        group
+                            .iter_mut()
+                            .filter(|g| **g == from)
+                            .for_each(|g| *g = to);
                     }
                 }
             }
@@ -99,7 +111,10 @@ fn parts(t: &[Tok], a: usize, b: usize, d: u32) -> Vec<Part> {
         }
         let part = out.last_mut().unwrap();
         // `p = (a)-->(b)`: the path's name.
-        if matches!(x.k, C::Word | C::Name) && t.get(i + 1).is_some_and(|n| n.p('=')) && x.depth == d {
+        if matches!(x.k, C::Word | C::Name)
+            && t.get(i + 1).is_some_and(|n| n.p('='))
+            && x.depth == d
+        {
             part.vars.push(x.body().to_string());
             i += 2;
             continue;
@@ -107,7 +122,8 @@ fn parts(t: &[Tok], a: usize, b: usize, d: u32) -> Vec<Part> {
         if x.p('(') && !(i > a && t[i - 1].k == C::Word) {
             // A node: (var:Label {props}).
             let close = closing(t, i).min(b);
-            part.first.get_or_insert((x.start, t.get(close).map_or(x.end, |c| c.end)));
+            part.first
+                .get_or_insert((x.start, t.get(close).map_or(x.end, |c| c.end)));
             element(t, i + 1, close, part);
             i = close + 1;
             continue;
@@ -128,7 +144,10 @@ fn parts(t: &[Tok], a: usize, b: usize, d: u32) -> Vec<Part> {
 /// The inside of a node or relationship.
 fn element(t: &[Tok], a: usize, b: usize, part: &mut Part) {
     let mut k = a;
-    if let Some(v) = t.get(k).filter(|v| k < b && matches!(v.k, C::Word | C::Name)) {
+    if let Some(v) = t
+        .get(k)
+        .filter(|v| k < b && matches!(v.k, C::Word | C::Name))
+    {
         part.vars.push(v.body().to_string());
         k += 1;
     }

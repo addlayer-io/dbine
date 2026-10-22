@@ -9,7 +9,7 @@
 use crate::ddl::{check_index_name, path_segment};
 use crate::json::{Obj, J};
 use crate::KIND_ALIAS;
-use dbine_driver::rename::{Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle};
+use dbine_driver::rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget};
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
 pub(crate) const NOTE: &str = "Un índice no se renombra en el lugar: se bloquea su escritura, se clona con el nombre nuevo (_clone), \
@@ -43,9 +43,26 @@ fn s(v: &str) -> J {
 /// `{ "<index>": { "aliases": {…}, … }, … }` (a `GET /<name>` reply) as
 /// (index, its aliases) pairs.
 fn indices(definition: &str) -> Result<Vec<(String, Obj)>> {
-    let j = J::parse(definition).map_err(|e| Error::Query(format!("La definición leída del servidor no es JSON válido: {e}")))?;
-    let all = j.as_obj().ok_or_else(|| Error::Query("La definición leída del servidor no tiene el formato esperado.".into()))?;
-    Ok(all.iter().map(|(index, v)| (index.clone(), v.get("aliases").and_then(J::as_obj).cloned().unwrap_or_default())).collect())
+    let j = J::parse(definition).map_err(|e| {
+        Error::Query(format!(
+            "La definición leída del servidor no es JSON válido: {e}"
+        ))
+    })?;
+    let all = j.as_obj().ok_or_else(|| {
+        Error::Query("La definición leída del servidor no tiene el formato esperado.".into())
+    })?;
+    Ok(all
+        .iter()
+        .map(|(index, v)| {
+            (
+                index.clone(),
+                v.get("aliases")
+                    .and_then(J::as_obj)
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+        })
+        .collect())
 }
 
 /// An `add` action for `alias` on `index`, with the alias's own settings.
@@ -56,7 +73,10 @@ fn add(index: &str, alias: &str, props: &J) -> J {
 }
 
 fn aliases_request(actions: Vec<J>) -> String {
-    format!("POST /_aliases\n{}", obj(vec![("actions", J::Arr(actions))]).pretty())
+    format!(
+        "POST /_aliases\n{}",
+        obj(vec![("actions", J::Arr(actions))]).pretty()
+    )
 }
 
 fn index_script(old: &str, new: &str, definition: Option<&str>) -> Result<SyncScript> {
@@ -70,7 +90,11 @@ Mientras dura, «{old}» no acepta escrituras."
         ),
     ];
     let aliases = match definition {
-        Some(d) => indices(d)?.into_iter().find(|(i, _)| i == old).map(|(_, a)| a).unwrap_or_default(),
+        Some(d) => indices(d)?
+            .into_iter()
+            .find(|(i, _)| i == old)
+            .map(|(_, a)| a)
+            .unwrap_or_default(),
         None => {
             warnings.push(format!("No se pudo leer la definición de «{old}»: si tiene alias, se pierden al borrarlo y hay que volver a crearlos sobre «{new}»."));
             Vec::new()
@@ -82,7 +106,14 @@ Mientras dura, «{old}» no acepta escrituras."
     let mut statements = vec![
         format!("PUT /{po}/_block/write"),
         // The copy inherits the block: it's taken off in the same call.
-        format!("POST /{po}/_clone/{pn}\n{}", obj(vec![("settings", obj(vec![("index.blocks.write", J::Null)]))]).pretty()),
+        format!(
+            "POST /{po}/_clone/{pn}\n{}",
+            obj(vec![(
+                "settings",
+                obj(vec![("index.blocks.write", J::Null)])
+            )])
+            .pretty()
+        ),
         // The clone may answer before its primaries are active; the old
         // index isn't deleted until they are (a timeout stops the script).
         format!("GET /_cluster/health/{pn}?wait_for_status=yellow&timeout=120s"),
@@ -91,26 +122,49 @@ Mientras dura, «{old}» no acepta escrituras."
         statements.push(format!("DELETE /{po}"));
     } else {
         let names: Vec<String> = aliases.iter().map(|(a, _)| format!("«{a}»")).collect();
-        warnings.push(format!("Los alias de «{old}» ({}) pasan a «{new}» en el mismo paso que borra el original.", names.join(", ")));
-        let mut actions: Vec<J> = aliases.iter().map(|(a, props)| add(new, a, props)).collect();
+        warnings.push(format!(
+            "Los alias de «{old}» ({}) pasan a «{new}» en el mismo paso que borra el original.",
+            names.join(", ")
+        ));
+        let mut actions: Vec<J> = aliases
+            .iter()
+            .map(|(a, props)| add(new, a, props))
+            .collect();
         actions.push(obj(vec![("remove_index", obj(vec![("index", s(old))]))]));
         statements.push(aliases_request(actions));
     }
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 fn alias_script(old: &str, new: &str, definition: Option<&str>) -> Result<SyncScript> {
-    let definition = definition.ok_or_else(|| Error::Query(format!("No se pudo leer a qué índices apunta el alias «{old}».")))?;
+    let definition = definition.ok_or_else(|| {
+        Error::Query(format!(
+            "No se pudo leer a qué índices apunta el alias «{old}»."
+        ))
+    })?;
     let mut actions = Vec::new();
     for (index, aliases) in indices(definition)? {
-        let Some((_, props)) = aliases.iter().find(|(a, _)| a == old) else { continue };
-        actions.push(obj(vec![("remove", obj(vec![("index", s(&index)), ("alias", s(old))]))]));
+        let Some((_, props)) = aliases.iter().find(|(a, _)| a == old) else {
+            continue;
+        };
+        actions.push(obj(vec![(
+            "remove",
+            obj(vec![("index", s(&index)), ("alias", s(old))]),
+        )]));
         actions.push(add(&index, new, props));
     }
     if actions.is_empty() {
-        return Err(Error::Query(format!("El alias «{old}» no apunta a ningún índice.")));
+        return Err(Error::Query(format!(
+            "El alias «{old}» no apunta a ningún índice."
+        )));
     }
-    Ok(SyncScript { statements: vec![aliases_request(actions)], warnings: Vec::new() })
+    Ok(SyncScript {
+        statements: vec![aliases_request(actions)],
+        warnings: Vec::new(),
+    })
 }
 
 /// The requests that rename the target.
@@ -146,7 +200,14 @@ mod tests {
 
     fn req(kind: &str, name: &str, new: &str, definition: Option<&str>) -> RenameRequest {
         RenameRequest {
-            target: RenameTarget::Object { object: ObjectRef { kind: kind.into(), schema: None, name: name.into() }, parent: None },
+            target: RenameTarget::Object {
+                object: ObjectRef {
+                    kind: kind.into(),
+                    schema: None,
+                    name: name.into(),
+                },
+                parent: None,
+            },
             new_name: new.into(),
             table: None,
             definition: definition.map(str::to_string),
@@ -159,27 +220,62 @@ mod tests {
     fn index_is_cloned_and_its_aliases_moved() {
         let s = script(&req(kinds::INDEX, "clientes", "clientes_v2", Some(DEF))).unwrap();
         assert_eq!(s.statements[0], "PUT /clientes/_block/write");
-        assert!(s.statements[1].starts_with("POST /clientes/_clone/clientes_v2\n"), "{}", s.statements[1]);
+        assert!(
+            s.statements[1].starts_with("POST /clientes/_clone/clientes_v2\n"),
+            "{}",
+            s.statements[1]
+        );
         let body = J::parse(s.statements[1].split_once('\n').unwrap().1).unwrap();
         assert_eq!(body.at(&["settings", "index.blocks.write"]), Some(&J::Null));
-        assert_eq!(s.statements[2], "GET /_cluster/health/clientes_v2?wait_for_status=yellow&timeout=120s");
+        assert_eq!(
+            s.statements[2],
+            "GET /_cluster/health/clientes_v2?wait_for_status=yellow&timeout=120s"
+        );
         let (head, body) = s.statements[3].split_once('\n').unwrap();
         assert_eq!(head, "POST /_aliases");
         let actions = J::parse(body).unwrap();
         let actions = actions.get("actions").and_then(J::as_arr).unwrap();
         assert_eq!(actions.len(), 3);
-        assert_eq!(actions[0].at(&["add", "index"]).and_then(J::as_str), Some("clientes_v2"));
-        assert_eq!(actions[0].at(&["add", "alias"]).and_then(J::as_str), Some("activos"));
-        assert_eq!(actions[0].at(&["add", "index_routing"]).and_then(J::as_str), Some("1"));
+        assert_eq!(
+            actions[0].at(&["add", "index"]).and_then(J::as_str),
+            Some("clientes_v2")
+        );
+        assert_eq!(
+            actions[0].at(&["add", "alias"]).and_then(J::as_str),
+            Some("activos")
+        );
+        assert_eq!(
+            actions[0].at(&["add", "index_routing"]).and_then(J::as_str),
+            Some("1")
+        );
         assert!(actions[0].at(&["add", "filter", "term"]).is_some());
-        assert_eq!(actions[1].at(&["add", "is_write_index"]).and_then(J::as_bool), Some(true));
-        assert_eq!(actions[2].at(&["remove_index", "index"]).and_then(J::as_str), Some("clientes"));
-        assert!(s.warnings.iter().any(|w| w.contains("«activos», «escritura»")));
+        assert_eq!(
+            actions[1]
+                .at(&["add", "is_write_index"])
+                .and_then(J::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            actions[2]
+                .at(&["remove_index", "index"])
+                .and_then(J::as_str),
+            Some("clientes")
+        );
+        assert!(s
+            .warnings
+            .iter()
+            .any(|w| w.contains("«activos», «escritura»")));
     }
 
     #[test]
     fn index_without_aliases_is_deleted() {
-        let s = script(&req(kinds::INDEX, "logs", "logs2", Some(r#"{"logs": {"aliases": {}}}"#))).unwrap();
+        let s = script(&req(
+            kinds::INDEX,
+            "logs",
+            "logs2",
+            Some(r#"{"logs": {"aliases": {}}}"#),
+        ))
+        .unwrap();
         assert_eq!(s.statements.len(), 4);
         assert_eq!(s.statements[3], "DELETE /logs");
         let s = script(&req(kinds::INDEX, "logs", "logs2", None)).unwrap();
@@ -189,8 +285,14 @@ mod tests {
 
     #[test]
     fn index_names_are_checked() {
-        assert!(script(&req(kinds::INDEX, "logs", "Logs", None)).unwrap_err().to_string().contains("minúsculas"));
-        assert!(script(&req(KIND_ALIAS, "a", "b c", Some(DEF))).unwrap_err().to_string().contains("alias"));
+        assert!(script(&req(kinds::INDEX, "logs", "Logs", None))
+            .unwrap_err()
+            .to_string()
+            .contains("minúsculas"));
+        assert!(script(&req(KIND_ALIAS, "a", "b c", Some(DEF)))
+            .unwrap_err()
+            .to_string()
+            .contains("alias"));
     }
 
     #[test]
@@ -201,28 +303,55 @@ mod tests {
         let actions = J::parse(s.statements[0].split_once('\n').unwrap().1).unwrap();
         let a = actions.get("actions").and_then(J::as_arr).unwrap();
         assert_eq!(a.len(), 4);
-        assert_eq!(a[0].at(&["remove", "alias"]).and_then(J::as_str), Some("todos"));
+        assert_eq!(
+            a[0].at(&["remove", "alias"]).and_then(J::as_str),
+            Some("todos")
+        );
         assert_eq!(a[1].at(&["add", "alias"]).and_then(J::as_str), Some("todo"));
-        assert_eq!(a[1].at(&["add", "is_write_index"]).and_then(J::as_bool), Some(true));
+        assert_eq!(
+            a[1].at(&["add", "is_write_index"]).and_then(J::as_bool),
+            Some(true)
+        );
         assert_eq!(a[3].at(&["add", "index"]).and_then(J::as_str), Some("i2"));
         assert!(script(&req(KIND_ALIAS, "todos", "todo", None)).is_err());
     }
 
     #[test]
     fn fields_and_streams_are_refused() {
-        let t = ObjectRef { kind: kinds::INDEX.into(), schema: None, name: "i".into() };
-        let col = RenameRequest { target: RenameTarget::Column { table: t, column: "a".into() }, new_name: "b".into(), table: None, definition: None };
+        let t = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "i".into(),
+        };
+        let col = RenameRequest {
+            target: RenameTarget::Column {
+                table: t,
+                column: "a".into(),
+            },
+            new_name: "b".into(),
+            table: None,
+            definition: None,
+        };
         assert!(script(&col).unwrap_err().to_string().contains("reindexar"));
-        assert!(script(&req(kinds::STREAM, "s", "s2", None)).unwrap_err().to_string().contains("data stream"));
+        assert!(script(&req(kinds::STREAM, "s", "s2", None))
+            .unwrap_err()
+            .to_string()
+            .contains("data stream"));
         let sp = spec();
-        assert_eq!(sp.kinds, vec![kinds::INDEX.to_string(), KIND_ALIAS.to_string()]);
+        assert_eq!(
+            sp.kinds,
+            vec![kinds::INDEX.to_string(), KIND_ALIAS.to_string()]
+        );
         assert!(!sp.columns);
     }
 
     #[test]
     fn index_names_go_encoded_into_the_request_lines() {
         let s = index_script("x\ndelete\tvictim", "nuevo", None).unwrap();
-        assert!(s.statements.iter().all(|st| !st.lines().next().unwrap_or("").contains('\t')));
+        assert!(s
+            .statements
+            .iter()
+            .all(|st| !st.lines().next().unwrap_or("").contains('\t')));
         assert!(s.statements[0].starts_with("PUT /x%0Adelete%09victim/_block/write"));
         assert!(check_index_name("a\nb").is_err());
     }

@@ -16,7 +16,9 @@
 //! - `DBINE_TEST_COCKROACH_URL` (default `dbine-test-cockroach`, insecure).
 
 use dbine_driver::{ConnectionConfig, ObjectRef, QueryOutcome, Session};
-use dbine_transfer::clone_table::{clone_table, CloneControl, CloneOptions, CloneReport, CloneRequest, ConfigEndpoints};
+use dbine_transfer::clone_table::{
+    clone_table, CloneControl, CloneOptions, CloneReport, CloneRequest, ConfigEndpoints,
+};
 use dbine_transfer::Endpoints;
 use std::sync::Arc;
 
@@ -43,20 +45,36 @@ fn config(driver: &str, var: &str, default: &str) -> (ConnectionConfig, String) 
 
 fn endpoints(driver: &str, var: &str, default: &str) -> Arc<ConfigEndpoints> {
     let (config, db) = config(driver, var, default);
-    let d = dbine_drivers::find(driver).unwrap_or_else(|| panic!("no driver {driver}")).clone();
-    Arc::new(ConfigEndpoints { driver: d, config, database: Some(db) })
+    let d = dbine_drivers::find(driver)
+        .unwrap_or_else(|| panic!("no driver {driver}"))
+        .clone();
+    Arc::new(ConfigEndpoints {
+        driver: d,
+        config,
+        database: Some(db),
+    })
 }
 
 async fn rows(s: &mut dyn Session, sql: &str) -> Vec<Vec<String>> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100_000, &mut out).await.unwrap_or_else(|e| panic!("{e}\n{sql}"));
+    s.execute(sql, 100_000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{sql}"));
     if let Some(e) = out.error {
         panic!("{e}\n{sql}");
     }
     out.results
         .iter()
         .flat_map(|r| r.rows.iter())
-        .map(|r| r.iter().map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())).collect())
+        .map(|r| {
+            r.iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| v.to_string())
+                })
+                .collect()
+        })
         .collect()
 }
 
@@ -64,17 +82,47 @@ async fn one(s: &mut dyn Session, sql: &str) -> String {
     rows(s, sql).await.remove(0).remove(0)
 }
 
-async fn clone(e: &Arc<ConfigEndpoints>, table: &str, name: &str, with_data: bool) -> Result<CloneReport, String> {
-    clone_with(e, table, name, CloneOptions { with_data, with_indexes: true }).await
+async fn clone(
+    e: &Arc<ConfigEndpoints>,
+    table: &str,
+    name: &str,
+    with_data: bool,
+) -> Result<CloneReport, String> {
+    clone_with(
+        e,
+        table,
+        name,
+        CloneOptions {
+            with_data,
+            with_indexes: true,
+        },
+    )
+    .await
 }
 
-async fn clone_with(e: &Arc<ConfigEndpoints>, table: &str, name: &str, options: CloneOptions) -> Result<CloneReport, String> {
+async fn clone_with(
+    e: &Arc<ConfigEndpoints>,
+    table: &str,
+    name: &str,
+    options: CloneOptions,
+) -> Result<CloneReport, String> {
     let req = CloneRequest {
-        source: ObjectRef { kind: "table".into(), schema: Some(SCHEMA.into()), name: table.into() },
+        source: ObjectRef {
+            kind: "table".into(),
+            schema: Some(SCHEMA.into()),
+            name: table.into(),
+        },
         new_name: name.into(),
         options,
     };
-    let r = clone_table(e.clone() as Arc<dyn Endpoints>, req, &CloneControl::default(), |_| {}).await.map_err(|e| e.to_string());
+    let r = clone_table(
+        e.clone() as Arc<dyn Endpoints>,
+        req,
+        &CloneControl::default(),
+        |_| {},
+    )
+    .await
+    .map_err(|e| e.to_string());
     println!("{table} → {name}: {r:?}");
     r
 }
@@ -131,32 +179,55 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
     // Everything kept; the index name another table has is avoided.
     let r = clone(&e, "ser", "ser_c2", true).await.unwrap();
     assert_eq!(r.rows, 31);
-    assert!(r.notes.iter().any(|n| n.contains("ser_c2_pkey")), "{:?}", r.notes);
-    assert!(r.notes.iter().any(|n| n.contains("compartida")), "{:?}", r.notes);
+    assert!(
+        r.notes.iter().any(|n| n.contains("ser_c2_pkey")),
+        "{:?}",
+        r.notes
+    );
+    assert!(
+        r.notes.iter().any(|n| n.contains("compartida")),
+        "{:?}",
+        r.notes
+    );
     let (a, b) = (columns(s, "ser").await, columns(s, "ser_c2").await);
     println!("{a:?}\n{b:?}");
     assert_eq!(b[0][1], "ALWAYS", "identity ALWAYS");
     assert_eq!(b[3][3], "C", "collation");
     assert_eq!(b[4][2], "ALWAYS", "generated");
     assert_eq!(b[2][4], a[2][4], "shared sequence");
-    assert!(b[1][4].contains("ser_c2_n_seq"), "serial with its own sequence: {}", b[1][4]);
+    assert!(
+        b[1][4].contains("ser_c2_n_seq"),
+        "serial with its own sequence: {}",
+        b[1][4]
+    );
     let data = |t: &str| format!("SELECT id, n, k, s, g FROM {SCHEMA}.{t} ORDER BY id");
     assert_eq!(rows(s, &data("ser")).await, rows(s, &data("ser_c2")).await);
     // The identity continues where the original's does (300, after the
     // deletes), stepping by 5; the serial after 40.
-    let next = rows(s, &format!("INSERT INTO {SCHEMA}.ser_c2 (s) VALUES ('nuevo') RETURNING id, n")).await;
+    let next = rows(
+        s,
+        &format!("INSERT INTO {SCHEMA}.ser_c2 (s) VALUES ('nuevo') RETURNING id, n"),
+    )
+    .await;
     assert_eq!(next, vec![vec!["300".to_string(), "41".to_string()]]);
     let pk = one(s, &format!("SELECT conname FROM pg_constraint WHERE conrelid = '{SCHEMA}.ser_c2'::regclass AND contype = 'p'")).await;
     assert_ne!(pk, "ser_c2_pkey");
 
     // Without rows: the counters start over, with the original's options.
     clone(&e, "ser", "ser_c3", false).await.unwrap();
-    let next = rows(s, &format!("INSERT INTO {SCHEMA}.ser_c3 (s) VALUES ('x') RETURNING id, n")).await;
+    let next = rows(
+        s,
+        &format!("INSERT INTO {SCHEMA}.ser_c3 (s) VALUES ('x') RETURNING id, n"),
+    )
+    .await;
     assert_eq!(next, vec![vec!["100".to_string(), "1".to_string()]]);
 
     // A name an index already has: refused in Spanish, nothing created.
     let err = clone(&e, "ser", "ser_s_idx", true).await.unwrap_err();
-    assert!(err.contains("ya existe") && err.contains("ser_s_idx"), "{err}");
+    assert!(
+        err.contains("ya existe") && err.contains("ser_s_idx"),
+        "{err}"
+    );
 
     // Partitioned, a partition, an inheritance parent: refused.
     let err = clone(&e, "part", "part_c", true).await.unwrap_err();
@@ -194,7 +265,9 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
              WHERE conrelid = '{SCHEMA}.{t}'::regclass AND contype IN ('c', 'f', 'x') ORDER BY 1, 2"
         )
     };
-    let persistence = |t: &str| format!("SELECT relpersistence::text FROM pg_class WHERE oid = '{SCHEMA}.{t}'::regclass");
+    let persistence = |t: &str| {
+        format!("SELECT relpersistence::text FROM pg_class WHERE oid = '{SCHEMA}.{t}'::regclass")
+    };
     clone(&e, "nv", "nv_c2", true).await.unwrap();
     let (a, b) = (rows(s, &defs("nv")).await, rows(s, &defs("nv_c2")).await);
     assert_eq!(a.len(), 5);
@@ -206,9 +279,29 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
     let data = |t: &str| format!("SELECT id, x, p, r::text FROM {SCHEMA}.{t} ORDER BY id");
     assert_eq!(rows(s, &data("nv")).await, rows(s, &data("nv_c2")).await);
     // Without indexes: the EXCLUDE goes too, and the notes say so.
-    let r = clone_with(&e, "nv", "nv_c3", CloneOptions { with_data: false, with_indexes: false }).await.unwrap();
-    assert!(r.notes.iter().any(|n| n.contains("EXCLUDE") && n.contains("ex_r")), "{:?}", r.notes);
-    let ix = one(s, &format!("SELECT count(*) FROM pg_index WHERE indrelid = '{SCHEMA}.nv_c3'::regclass")).await;
+    let r = clone_with(
+        &e,
+        "nv",
+        "nv_c3",
+        CloneOptions {
+            with_data: false,
+            with_indexes: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        r.notes
+            .iter()
+            .any(|n| n.contains("EXCLUDE") && n.contains("ex_r")),
+        "{:?}",
+        r.notes
+    );
+    let ix = one(
+        s,
+        &format!("SELECT count(*) FROM pg_index WHERE indrelid = '{SCHEMA}.nv_c3'::regclass"),
+    )
+    .await;
     assert_eq!(ix, "1");
 
     // Comments on the table, a column, an index and constraints: all on
@@ -242,7 +335,15 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
     let renamed: Vec<Vec<String>> = rows(s, &com("adv3"))
         .await
         .into_iter()
-        .map(|r| r.into_iter().map(|v| v.replacen("i ix_", "i adv3_k_ix_", 1).replacen("c ck_", "c adv3_k_ck_", 1).replacen("c pk_adv3", "c pk_adv3_k", 1)).collect())
+        .map(|r| {
+            r.into_iter()
+                .map(|v| {
+                    v.replacen("i ix_", "i adv3_k_ix_", 1)
+                        .replacen("c ck_", "c adv3_k_ck_", 1)
+                        .replacen("c pk_adv3", "c pk_adv3_k", 1)
+                })
+                .collect()
+        })
         .collect();
     let mut got = rows(s, &com("adv3_k")).await;
     got.sort();
@@ -250,8 +351,24 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
     let mut renamed = renamed;
     renamed.sort();
     assert_eq!(renamed, got);
-    let r = clone_with(&e, "adv3", "adv3_n", CloneOptions { with_data: true, with_indexes: false }).await.unwrap();
-    assert!(r.notes.iter().any(|n| n.contains("comentarios") && n.contains("ix_inc")), "{:?}", r.notes);
+    let r = clone_with(
+        &e,
+        "adv3",
+        "adv3_n",
+        CloneOptions {
+            with_data: true,
+            with_indexes: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        r.notes
+            .iter()
+            .any(|n| n.contains("comentarios") && n.contains("ix_inc")),
+        "{:?}",
+        r.notes
+    );
     let ck = one(s, &format!("SELECT obj_description(oid, 'pg_constraint') FROM pg_constraint WHERE conrelid = '{SCHEMA}.adv3_n'::regclass AND contype = 'c'")).await;
     assert_eq!(ck, "ck com");
 
@@ -283,18 +400,32 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
         )
     };
     let sec = rows(s, &table("sec")).await;
-    assert_eq!(sec, vec![vec!["true", "true", "autovacuum_enabled=false,fillfactor=60", "autovacuum_enabled=false"]]);
+    assert_eq!(
+        sec,
+        vec![vec![
+            "true",
+            "true",
+            "autovacuum_enabled=false,fillfactor=60",
+            "autovacuum_enabled=false"
+        ]]
+    );
     assert_eq!(sec, rows(s, &table("sec_c")).await);
     let policies = |t: &str| {
         format!("SELECT policyname, permissive, cmd, roles::text, COALESCE(qual, ''), COALESCE(with_check, '') FROM pg_policies WHERE schemaname = '{SCHEMA}' AND tablename = '{t}' ORDER BY 1")
     };
     assert_eq!(rows(s, &policies("sec")).await.len(), 2);
-    assert_eq!(rows(s, &policies("sec")).await, rows(s, &policies("sec_c")).await);
+    assert_eq!(
+        rows(s, &policies("sec")).await,
+        rows(s, &policies("sec_c")).await
+    );
     let attrs = |t: &str| {
         format!("SELECT attname, attstorage::text, attstattarget::text, attcompression::text FROM pg_attribute WHERE attrelid = '{SCHEMA}.{t}'::regclass AND attnum > 0 ORDER BY attnum")
     };
     assert_eq!(rows(s, &attrs("sec")).await, rows(s, &attrs("sec_c")).await);
-    assert_eq!(rows(s, &format!("SELECT count(*) FROM {SCHEMA}.sec_c")).await, vec![vec!["2".to_string()]]);
+    assert_eq!(
+        rows(s, &format!("SELECT count(*) FROM {SCHEMA}.sec_c")).await,
+        vec![vec!["2".to_string()]]
+    );
 
     // REPLICA IDENTITY, CLUSTER ON, extended statistics and a policy that
     // reads the table itself: the clone's are the original's, on its
@@ -323,7 +454,13 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
     .await;
     let r = clone(&e, "b1", "b1_c", true).await.unwrap();
     assert_eq!(r.rows, 2);
-    assert!(r.notes.iter().all(|n| !n.contains("CLUSTER") && !n.contains("réplica")), "{:?}", r.notes);
+    assert!(
+        r.notes
+            .iter()
+            .all(|n| !n.contains("CLUSTER") && !n.contains("réplica")),
+        "{:?}",
+        r.notes
+    );
     let rel = |t: &str| {
         format!(
             "SELECT c.relreplident::text, COALESCE((SELECT ic.relname::text FROM pg_index x JOIN pg_class ic ON ic.oid = x.indexrelid
@@ -333,7 +470,10 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
              FROM pg_class c WHERE c.oid = '{SCHEMA}.{t}'::regclass"
         )
     };
-    assert_eq!(rows(s, &rel("b1_c")).await, vec![vec!["f".to_string(), "b1_c_ix".to_string(), String::new()]]);
+    assert_eq!(
+        rows(s, &rel("b1_c")).await,
+        vec![vec!["f".to_string(), "b1_c_ix".to_string(), String::new()]]
+    );
     let stats = |t: &str| {
         format!(
             "SELECT stxname::text, replace(pg_get_statisticsobjdef(oid), '{t}', 'T'), COALESCE(stxstattarget::text, '-1'),
@@ -341,8 +481,11 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
              FROM pg_statistic_ext WHERE stxrelid = '{SCHEMA}.{t}'::regclass ORDER BY 1"
         )
     };
-    let renamed: Vec<Vec<String>> =
-        rows(s, &stats("b1")).await.into_iter().map(|r| r.into_iter().map(|v| v.replace("b1_", "b1_c_")).collect()).collect();
+    let renamed: Vec<Vec<String>> = rows(s, &stats("b1"))
+        .await
+        .into_iter()
+        .map(|r| r.into_iter().map(|v| v.replace("b1_", "b1_c_")).collect())
+        .collect();
     assert_eq!(renamed.len(), 2);
     assert_eq!(rows(s, &stats("b1_c")).await, renamed);
     let pol = format!("SELECT policyname::text, qual FROM pg_policies WHERE schemaname = '{SCHEMA}' AND tablename = 'b1_c' ORDER BY 1");
@@ -357,14 +500,63 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
     assert_eq!(one(s, &deps).await, "0");
     // USING INDEX (a UNIQUE constraint's) and CLUSTER ON the primary key.
     clone(&e, "b2", "b2_c", false).await.unwrap();
-    assert_eq!(rows(s, &rel("b2_c")).await, vec![vec!["i".to_string(), "b2_c_pkey".to_string(), "b2_c_u".to_string()]]);
+    assert_eq!(
+        rows(s, &rel("b2_c")).await,
+        vec![vec![
+            "i".to_string(),
+            "b2_c_pkey".to_string(),
+            "b2_c_u".to_string()
+        ]]
+    );
     // Without indexes: what needs one stays out, and the notes say so.
-    let r = clone_with(&e, "b1", "b1_n", CloneOptions { with_data: false, with_indexes: false }).await.unwrap();
-    assert!(r.notes.iter().any(|n| n.contains("CLUSTER") && n.contains("b1_ix")), "{:?}", r.notes);
-    assert_eq!(rows(s, &rel("b1_n")).await, vec![vec!["f".to_string(), String::new(), String::new()]]);
-    let r = clone_with(&e, "b2", "b2_n", CloneOptions { with_data: false, with_indexes: false }).await.unwrap();
-    assert!(r.notes.iter().any(|n| n.contains("REPLICA IDENTITY USING INDEX b2_u")), "{:?}", r.notes);
-    assert_eq!(rows(s, &rel("b2_n")).await, vec![vec!["d".to_string(), "b2_n_pkey".to_string(), String::new()]]);
+    let r = clone_with(
+        &e,
+        "b1",
+        "b1_n",
+        CloneOptions {
+            with_data: false,
+            with_indexes: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        r.notes
+            .iter()
+            .any(|n| n.contains("CLUSTER") && n.contains("b1_ix")),
+        "{:?}",
+        r.notes
+    );
+    assert_eq!(
+        rows(s, &rel("b1_n")).await,
+        vec![vec!["f".to_string(), String::new(), String::new()]]
+    );
+    let r = clone_with(
+        &e,
+        "b2",
+        "b2_n",
+        CloneOptions {
+            with_data: false,
+            with_indexes: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        r.notes
+            .iter()
+            .any(|n| n.contains("REPLICA IDENTITY USING INDEX b2_u")),
+        "{:?}",
+        r.notes
+    );
+    assert_eq!(
+        rows(s, &rel("b2_n")).await,
+        vec![vec![
+            "d".to_string(),
+            "b2_n_pkey".to_string(),
+            String::new()
+        ]]
+    );
 
     if timescale {
         rows(
@@ -391,19 +583,39 @@ async fn postgres_family(e: Arc<ConfigEndpoints>, timescale: bool) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "needs dbine-test-postgres"]
 async fn postgres() {
-    postgres_family(endpoints("postgres", "DBINE_TEST_PG_URL", "postgres://postgres:pw@localhost:25010/postgres"), false).await;
+    postgres_family(
+        endpoints(
+            "postgres",
+            "DBINE_TEST_PG_URL",
+            "postgres://postgres:pw@localhost:25010/postgres",
+        ),
+        false,
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "needs dbine-test-timescale"]
 async fn timescale() {
-    postgres_family(endpoints("timescaledb", "DBINE_TEST_TIMESCALE_URL", "postgres://postgres:pw@localhost:25015/postgres"), true).await;
+    postgres_family(
+        endpoints(
+            "timescaledb",
+            "DBINE_TEST_TIMESCALE_URL",
+            "postgres://postgres:pw@localhost:25015/postgres",
+        ),
+        true,
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "needs dbine-test-cockroach"]
 async fn cockroach() {
-    let e = endpoints("cockroachdb", "DBINE_TEST_COCKROACH_URL", "postgresql://root@localhost:26014/defaultdb");
+    let e = endpoints(
+        "cockroachdb",
+        "DBINE_TEST_COCKROACH_URL",
+        "postgresql://root@localhost:26014/defaultdb",
+    );
     let mut w = e.open_target().await.unwrap();
     let s = &mut *w;
     rows(
@@ -440,14 +652,22 @@ async fn cockroach() {
     assert_eq!(b[6][4], a[6][4], "shared sequence");
     let data = |t: &str| format!("SELECT id, a, b, v, c, s, k FROM {SCHEMA}.{t} ORDER BY id");
     assert_eq!(rows(s, &data("cc")).await, rows(s, &data("cc_c2")).await);
-    let next = one(s, &format!("INSERT INTO {SCHEMA}.cc_c2 (a) VALUES (1) RETURNING id")).await;
+    let next = one(
+        s,
+        &format!("INSERT INTO {SCHEMA}.cc_c2 (a) VALUES (1) RETURNING id"),
+    )
+    .await;
     assert_eq!(next, "150");
 
     let r = clone(&e, "sr", "sr_c2", true).await.unwrap();
     assert_eq!(r.rows, 5);
     let b = columns(s, "sr_c2").await;
     assert!(b[0][4].contains("sr_c2_id_seq"), "{:?}", b[0]);
-    let next = one(s, &format!("INSERT INTO {SCHEMA}.sr_c2 (x) VALUES (6) RETURNING id")).await;
+    let next = one(
+        s,
+        &format!("INSERT INTO {SCHEMA}.sr_c2 (x) VALUES (6) RETURNING id"),
+    )
+    .await;
     assert_eq!(next, "6");
 
     // Index names are per table here: another table's is a valid name.
@@ -486,7 +706,13 @@ async fn cockroach() {
          UNION ALL SELECT obj_description(oid, 'pg_constraint') FROM pg_constraint
          WHERE conrelid = '{SCHEMA}.sr_k'::regclass AND conname = 'sr_k_ck_ok' ORDER BY 1"
     );
-    assert_eq!(rows(s, &com).await, vec![vec!["ck com".to_string()], vec!["comentario idx".to_string()]]);
+    assert_eq!(
+        rows(s, &com).await,
+        vec![
+            vec!["ck com".to_string()],
+            vec!["comentario idx".to_string()]
+        ]
+    );
 
     // Hash-sharded indexes and primary key (on a hidden shard column the
     // clone gets from the index), column families, zone configurations and
@@ -513,17 +739,50 @@ async fn cockroach() {
     assert!(r.notes.is_empty(), "{:?}", r.notes);
     let got = one(s, &create("cadv_c")).await;
     println!("{got}");
-    for part in ["FAMILY f1 (id, t)", "FAMILY f2 (j, n, g)", "INDEX cadv_c_hs (n ASC) USING HASH WITH (bucket_count=16)", "UNIQUE INDEX cadv_c_uh (g ASC) USING HASH WITH (bucket_count=8)", "gc.ttlseconds = 600", "cadv_c@cadv_c_t CONFIGURE ZONE USING\n\tgc.ttlseconds = 700", "ENABLE ROW LEVEL SECURITY", "CREATE POLICY p1 ON"] {
+    for part in [
+        "FAMILY f1 (id, t)",
+        "FAMILY f2 (j, n, g)",
+        "INDEX cadv_c_hs (n ASC) USING HASH WITH (bucket_count=16)",
+        "UNIQUE INDEX cadv_c_uh (g ASC) USING HASH WITH (bucket_count=8)",
+        "gc.ttlseconds = 600",
+        "cadv_c@cadv_c_t CONFIGURE ZONE USING\n\tgc.ttlseconds = 700",
+        "ENABLE ROW LEVEL SECURITY",
+        "CREATE POLICY p1 ON",
+    ] {
         assert!(got.contains(part), "{part}: {got}");
     }
-    let r = clone_with(&e, "cadv", "cadv_n", CloneOptions { with_data: true, with_indexes: false }).await.unwrap();
-    assert!(r.notes.iter().any(|n| n.contains("zona") && n.contains("cadv_t")), "{:?}", r.notes);
+    let r = clone_with(
+        &e,
+        "cadv",
+        "cadv_n",
+        CloneOptions {
+            with_data: true,
+            with_indexes: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        r.notes
+            .iter()
+            .any(|n| n.contains("zona") && n.contains("cadv_t")),
+        "{:?}",
+        r.notes
+    );
     let got = one(s, &create("cadv_n")).await;
-    assert!(got.contains("FAMILY f2 (j, n, g)") && got.contains("gc.ttlseconds = 600") && !got.contains("USING HASH"), "{got}");
+    assert!(
+        got.contains("FAMILY f2 (j, n, g)")
+            && got.contains("gc.ttlseconds = 600")
+            && !got.contains("USING HASH"),
+        "{got}"
+    );
     let r = clone(&e, "hpk", "hpk_c", true).await.unwrap();
     assert_eq!(r.rows, 2);
     let got = one(s, &create("hpk_c")).await;
-    assert!(got.contains("CONSTRAINT hpk_c_pkey PRIMARY KEY (id ASC) USING HASH WITH (bucket_count=4)"), "{got}");
+    assert!(
+        got.contains("CONSTRAINT hpk_c_pkey PRIMARY KEY (id ASC) USING HASH WITH (bucket_count=4)"),
+        "{got}"
+    );
 
     // Row-level TTL (its expiration column hidden, the rows' own values),
     // a NOT VISIBLE column and ON UPDATE: kept, with and without indexes
@@ -548,26 +807,58 @@ async fn cockroach() {
              FROM information_schema.columns WHERE table_schema = '{SCHEMA}' AND table_name = '{t}' ORDER BY ordinal_position"
         )
     };
-    let options = |t: &str| format!("SELECT array_to_string(reloptions, ',') FROM pg_class WHERE oid = '{SCHEMA}.{t}'::regclass");
+    let options = |t: &str| {
+        format!("SELECT array_to_string(reloptions, ',') FROM pg_class WHERE oid = '{SCHEMA}.{t}'::regclass")
+    };
     for (name, with_indexes) in [("tt_c", true), ("tt_n", false)] {
-        let r = clone_with(&e, "tt", name, CloneOptions { with_data: true, with_indexes }).await.unwrap();
+        let r = clone_with(
+            &e,
+            "tt",
+            name,
+            CloneOptions {
+                with_data: true,
+                with_indexes,
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(r.rows, 2);
         assert_eq!(rows(s, &hidden("tt")).await, rows(s, &hidden(name)).await);
         assert_eq!(one(s, &options("tt")).await, one(s, &options(name)).await);
-        let data = |t: &str| format!("SELECT id, v, crdb_internal_expiration::STRING FROM {SCHEMA}.{t} ORDER BY id");
+        let data = |t: &str| {
+            format!("SELECT id, v, crdb_internal_expiration::STRING FROM {SCHEMA}.{t} ORDER BY id")
+        };
         assert_eq!(rows(s, &data("tt")).await, rows(s, &data(name)).await);
     }
     for (name, with_indexes) in [("k4_c", true), ("k4_n", false)] {
-        let r = clone_with(&e, "k4", name, CloneOptions { with_data: true, with_indexes }).await.unwrap();
+        let r = clone_with(
+            &e,
+            "k4",
+            name,
+            CloneOptions {
+                with_data: true,
+                with_indexes,
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(r.rows, 2);
         assert_eq!(rows(s, &hidden("k4")).await, rows(s, &hidden(name)).await);
-        let data = |t: &str| format!("SELECT id, j::STRING, a, b, secret FROM {SCHEMA}.{t} ORDER BY id");
+        let data =
+            |t: &str| format!("SELECT id, j::STRING, a, b, secret FROM {SCHEMA}.{t} ORDER BY id");
         assert_eq!(rows(s, &data("k4")).await, rows(s, &data(name)).await);
         let com = format!("SELECT col_description('{SCHEMA}.{name}'::regclass, 5)");
         assert_eq!(one(s, &com).await, "oculta");
     }
     let got = one(s, &create("k4_c")).await;
-    for part in ["secret STRING NOT VISIBLE NULL", "INVERTED INDEX k4_c_j_idx (j)", "INDEX k4_c_a_idx (a ASC) STORING (b)", "UNIQUE INDEX k4_c_b_key (b ASC) WHERE a > 0:::INT8", "((a + b) ASC)", "CHECK (a >= 0:::INT8)"] {
+    for part in [
+        "secret STRING NOT VISIBLE NULL",
+        "INVERTED INDEX k4_c_j_idx (j)",
+        "INDEX k4_c_a_idx (a ASC) STORING (b)",
+        "UNIQUE INDEX k4_c_b_key (b ASC) WHERE a > 0:::INT8",
+        "((a + b) ASC)",
+        "CHECK (a >= 0:::INT8)",
+    ] {
         assert!(got.contains(part), "{part}: {got}");
     }
 

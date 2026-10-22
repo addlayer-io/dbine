@@ -43,8 +43,13 @@ pub(crate) fn dryrun_allows(reply: &Value) -> Option<bool> {
     }
 }
 
-pub(crate) fn decide(backup: &[Option<bool>], monitor: Option<bool>, setuser: Option<bool>) -> Permissions {
-    let access = |v: Option<bool>, missing: &str| v.map_or(Access::Unknown, |ok| Access::check(ok, missing));
+pub(crate) fn decide(
+    backup: &[Option<bool>],
+    monitor: Option<bool>,
+    setuser: Option<bool>,
+) -> Permissions {
+    let access =
+        |v: Option<bool>, missing: &str| v.map_or(Access::Unknown, |ok| Access::check(ok, missing));
     // Either command makes a backup.
     let backup = if backup.contains(&Some(true)) {
         Some(true)
@@ -78,12 +83,21 @@ impl RedisSession {
     async fn dryrun(&mut self, user: &str, command: &[&[u8]]) -> Result<Option<bool>> {
         let mut args: Vec<&[u8]> = vec![b"ACL", b"DRYRUN", user.as_bytes()];
         args.extend_from_slice(command);
-        Ok(self.permission_reply(&args).await?.as_ref().and_then(dryrun_allows))
+        Ok(self
+            .permission_reply(&args)
+            .await?
+            .as_ref()
+            .and_then(dryrun_allows))
     }
 }
 
 pub(crate) async fn check(s: &mut RedisSession) -> Result<Permissions> {
-    let Some(user) = s.permission_reply(&[b"ACL", b"WHOAMI"]).await?.map(|v| text_of(&v)).and_then(|t| user_name(&t)) else {
+    let Some(user) = s
+        .permission_reply(&[b"ACL", b"WHOAMI"])
+        .await?
+        .map(|v| text_of(&v))
+        .and_then(|t| user_name(&t))
+    else {
         return Ok(Permissions::default());
     };
     let bgsave = s.dryrun(&user, &[b"BGSAVE"]).await?;
@@ -93,7 +107,9 @@ pub(crate) async fn check(s: &mut RedisSession) -> Result<Permissions> {
     }
     let save = s.dryrun(&user, &[b"SAVE"]).await?;
     let monitor = s.dryrun(&user, &[b"MONITOR"]).await?;
-    let setuser = s.dryrun(&user, &[b"ACL", b"SETUSER", b"dbine_check"]).await?;
+    let setuser = s
+        .dryrun(&user, &[b"ACL", b"SETUSER", b"dbine_check"])
+        .await?;
     Ok(decide(&[bgsave, save], monitor, setuser))
 }
 
@@ -117,16 +133,42 @@ mod tests {
         assert_eq!(dryrun_allows(&Value::Okay), Some(true));
         assert_eq!(dryrun_allows(&Value::SimpleString("OK".into())), Some(true));
         let no = |t: &str| Value::BulkString(t.as_bytes().to_vec());
-        assert_eq!(dryrun_allows(&no("User ana has no permissions to run the 'monitor' command")), Some(false));
-        assert_eq!(dryrun_allows(&no("This user has no permissions to run the 'MONITOR' command")), Some(false));
+        assert_eq!(
+            dryrun_allows(&no(
+                "User ana has no permissions to run the 'monitor' command"
+            )),
+            Some(false)
+        );
+        assert_eq!(
+            dryrun_allows(&no(
+                "This user has no permissions to run the 'MONITOR' command"
+            )),
+            Some(false)
+        );
         assert_eq!(dryrun_allows(&Value::Nil), None);
     }
 
     #[test]
     fn decides_from_the_answers() {
         let p = decide(&[Some(true), Some(true)], Some(true), Some(true));
-        assert_eq!((&p.backup, &p.profiler, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.restore, &p.kill_session, &p.create_database, &p.drop_database), (&Access::Unknown, &Access::Unknown, &Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.backup, &p.profiler, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
+        assert_eq!(
+            (
+                &p.restore,
+                &p.kill_session,
+                &p.create_database,
+                &p.drop_database
+            ),
+            (
+                &Access::Unknown,
+                &Access::Unknown,
+                &Access::Unknown,
+                &Access::Unknown
+            )
+        );
 
         let p = decide(&[Some(false), Some(false)], Some(false), Some(false));
         assert!(denied(&p.backup, "BGSAVE"));
@@ -134,8 +176,17 @@ mod tests {
         assert!(denied(&p.manage_security, "ACL SETUSER"));
 
         // SAVE alone still makes a backup; an unanswered one decides nothing.
-        assert_eq!(decide(&[Some(false), Some(true)], None, None).backup, Access::Allowed);
-        assert_eq!(decide(&[Some(false), None], None, None).backup, Access::Unknown);
-        assert_eq!(decide(&[Some(false), None], None, None).profiler, Access::Unknown);
+        assert_eq!(
+            decide(&[Some(false), Some(true)], None, None).backup,
+            Access::Allowed
+        );
+        assert_eq!(
+            decide(&[Some(false), None], None, None).backup,
+            Access::Unknown
+        );
+        assert_eq!(
+            decide(&[Some(false), None], None, None).profiler,
+            Access::Unknown
+        );
     }
 }

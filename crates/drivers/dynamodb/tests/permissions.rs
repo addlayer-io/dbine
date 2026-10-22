@@ -11,7 +11,11 @@ use dbine_driver::{ConnectionConfig, Permissions, QueryOutcome};
 
 fn cfg(read_only: bool) -> Option<ConnectionConfig> {
     let url = std::env::var("DBINE_TEST_DYNAMODB_URL").ok()?;
-    let mut c = ConnectionConfig { driver: "dynamodb".into(), read_only, ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "dynamodb".into(),
+        read_only,
+        ..Default::default()
+    };
     for (k, v) in [
         ("region", "us-east-1"),
         ("auth_mode", "keys"),
@@ -36,11 +40,17 @@ async fn iam_and_read_only() {
     let p = s.permissions(None).await.unwrap();
     eprintln!("credentials: {p:?}");
     assert_eq!(p, Permissions::default());
-    let mut s = d.connect(&cfg(true).unwrap(), None).await.expect("connect read-only");
+    let mut s = d
+        .connect(&cfg(true).unwrap(), None)
+        .await
+        .expect("connect read-only");
     let p = s.permissions(None).await.unwrap();
     eprintln!("read-only connection: {p:?}");
     assert_eq!(p, Permissions::default());
     // The read-only mode still blocks the backup.
     let mut out = QueryOutcome::default();
-    assert!(s.execute("CREATE BACKUP \"b\" FOR TABLE \"t\"", 10, &mut out).await.is_err());
+    assert!(s
+        .execute("CREATE BACKUP \"b\" FOR TABLE \"t\"", 10, &mut out)
+        .await
+        .is_err());
 }

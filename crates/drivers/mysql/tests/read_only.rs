@@ -16,8 +16,12 @@ use std::sync::Arc;
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
-    let (host, port) = hostpart.rsplit_once(':').map_or((hostpart, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (host, port) = hostpart
+        .rsplit_once(':')
+        .map_or((hostpart, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -29,7 +33,10 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, Error> {
@@ -63,7 +70,12 @@ async fn exercise(id: &str, env: &str) {
     let mut cfg = parse_url(id, &url);
     let d = driver(id);
     let mut admin = d.connect(&cfg, None).await.expect("connect");
-    run(&mut admin, "DROP DATABASE IF EXISTS dbine_ro; CREATE DATABASE dbine_ro").await.unwrap();
+    run(
+        &mut admin,
+        "DROP DATABASE IF EXISTS dbine_ro; CREATE DATABASE dbine_ro",
+    )
+    .await
+    .unwrap();
     let mut s = d.connect(&cfg, Some("dbine_ro")).await.unwrap();
     run(
         &mut s,
@@ -99,13 +111,19 @@ async fn exercise(id: &str, env: &str) {
         let by_read = read(&mut s, sql, max).await.unwrap_or_else(|e| panic!("{id}: {sql}: {e}"));
         assert_eq!(shape(&by_read), shape(&by_execute), "{id}: {sql}");
     }
-    let out = read(&mut s, "SELECT * FROM ti ORDER BY id", 2).await.unwrap();
+    let out = read(&mut s, "SELECT * FROM ti ORDER BY id", 2)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows.len(), 2);
     assert!(out.results[0].truncated, "{id}");
     let row = &out.results[0].rows[0];
     eprintln!("{id}: {row:?}");
     assert_eq!(row[2], json!(1.1), "{id}: FLOAT");
-    assert_eq!(row[3], json!("2024-03-09 13:05:07.120"), "{id}: DATETIME(3)");
+    assert_eq!(
+        row[3],
+        json!("2024-03-09 13:05:07.120"),
+        "{id}: DATETIME(3)"
+    );
     assert_eq!(row[6], json!("0xCAFE"), "{id}: VARBINARY");
     assert_eq!(row[7], json!("1.50"), "{id}: DECIMAL");
 
@@ -137,18 +155,55 @@ async fn exercise(id: &str, env: &str) {
         eprintln!("{id}: {sql} -> {e}");
         assert!(!matches!(e, Error::Unsupported(_)), "{id}: {sql}: {e}");
     }
-    let e = read(&mut s, "SELECT wi()", 100).await.unwrap_err().to_string();
+    let e = read(&mut s, "SELECT wi()", 100)
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(e.contains("READ ONLY"), "{id}: {e}");
 
     // Nothing changed, and the session is as it was: read-write, no open
     // transaction, usable for both kinds of runs.
-    assert_eq!(scalar(&mut s, "SELECT COUNT(*) FROM ti").await, json!(3), "{id}");
-    assert_eq!(scalar(&mut s, "SELECT COUNT(*) FROM tm").await, json!(1), "{id}");
-    assert_eq!(run(&mut s, "SHOW TABLES").await.unwrap().results[0].rows.len(), 2, "{id}");
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle), "{id}");
-    assert_eq!(scalar(&mut s, "SELECT @@session.transaction_read_only").await, json!(0), "{id}");
-    run(&mut s, "INSERT INTO ti (id) VALUES (10); DELETE FROM ti WHERE id = 10").await.unwrap();
-    assert_eq!(read(&mut s, "SELECT COUNT(*) FROM ti", 10).await.unwrap().results[0].rows[0][0], json!(3));
+    assert_eq!(
+        scalar(&mut s, "SELECT COUNT(*) FROM ti").await,
+        json!(3),
+        "{id}"
+    );
+    assert_eq!(
+        scalar(&mut s, "SELECT COUNT(*) FROM tm").await,
+        json!(1),
+        "{id}"
+    );
+    assert_eq!(
+        run(&mut s, "SHOW TABLES").await.unwrap().results[0]
+            .rows
+            .len(),
+        2,
+        "{id}"
+    );
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Idle),
+        "{id}"
+    );
+    assert_eq!(
+        scalar(&mut s, "SELECT @@session.transaction_read_only").await,
+        json!(0),
+        "{id}"
+    );
+    run(
+        &mut s,
+        "INSERT INTO ti (id) VALUES (10); DELETE FROM ti WHERE id = 10",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        read(&mut s, "SELECT COUNT(*) FROM ti", 10)
+            .await
+            .unwrap()
+            .results[0]
+            .rows[0][0],
+        json!(3)
+    );
 
     // Cancelled (KILL QUERY): rolled back, the session as it was.
     let stop = s.interrupter().expect("interrupter");
@@ -160,45 +215,108 @@ async fn exercise(id: &str, env: &str) {
     let e = read(&mut s, "SELECT SLEEP(10)", 10).await.unwrap_err();
     t.await.unwrap();
     assert!(matches!(e, Error::Cancelled), "{id}: {e}");
-    assert!(started.elapsed() < std::time::Duration::from_secs(8), "{id}");
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle), "{id}");
-    assert_eq!(scalar(&mut s, "SELECT @@session.transaction_read_only").await, json!(0), "{id}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(8),
+        "{id}"
+    );
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Idle),
+        "{id}"
+    );
+    assert_eq!(
+        scalar(&mut s, "SELECT @@session.transaction_read_only").await,
+        json!(0),
+        "{id}"
+    );
 
     // Dropped half-way (the app's timeout): the next call settles it first.
-    let dropped = tokio::time::timeout(std::time::Duration::from_millis(300), read(&mut s, "SELECT SLEEP(2)", 10)).await;
+    let dropped = tokio::time::timeout(
+        std::time::Duration::from_millis(300),
+        read(&mut s, "SELECT SLEEP(2)", 10),
+    )
+    .await;
     assert!(dropped.is_err(), "{id}");
-    assert_eq!(scalar(&mut s, "SELECT @@session.transaction_read_only").await, json!(0), "{id}: after a dropped read");
-    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle), "{id}");
-    run(&mut s, "INSERT INTO ti (id) VALUES (12); DELETE FROM ti WHERE id = 12").await.unwrap();
-    let dropped = tokio::time::timeout(std::time::Duration::from_millis(300), read(&mut s, "SELECT SLEEP(2)", 10)).await;
+    assert_eq!(
+        scalar(&mut s, "SELECT @@session.transaction_read_only").await,
+        json!(0),
+        "{id}: after a dropped read"
+    );
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(TxState::Idle),
+        "{id}"
+    );
+    run(
+        &mut s,
+        "INSERT INTO ti (id) VALUES (12); DELETE FROM ti WHERE id = 12",
+    )
+    .await
+    .unwrap();
+    let dropped = tokio::time::timeout(
+        std::time::Duration::from_millis(300),
+        read(&mut s, "SELECT SLEEP(2)", 10),
+    )
+    .await;
     assert!(dropped.is_err(), "{id}");
-    assert_eq!(read(&mut s, "SELECT COUNT(*) FROM ti", 10).await.unwrap().results[0].rows[0][0], json!(3), "{id}");
+    assert_eq!(
+        read(&mut s, "SELECT COUNT(*) FROM ti", 10)
+            .await
+            .unwrap()
+            .results[0]
+            .rows[0][0],
+        json!(3),
+        "{id}"
+    );
     // The new connection keeps the database, and cancelling reaches it.
-    assert_eq!(scalar(&mut s, "SELECT DATABASE()").await, json!("dbine_ro"), "{id}");
+    assert_eq!(
+        scalar(&mut s, "SELECT DATABASE()").await,
+        json!("dbine_ro"),
+        "{id}"
+    );
     let stop = s.interrupter().expect("interrupter");
     let t = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         stop();
     });
     let started = std::time::Instant::now();
-    assert!(matches!(read(&mut s, "SELECT SLEEP(10)", 10).await, Err(Error::Cancelled)), "{id}");
+    assert!(
+        matches!(
+            read(&mut s, "SELECT SLEEP(10)", 10).await,
+            Err(Error::Cancelled)
+        ),
+        "{id}"
+    );
     t.await.unwrap();
-    assert!(started.elapsed() < std::time::Duration::from_secs(8), "{id}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(8),
+        "{id}"
+    );
 
     // A transaction the user left open isn't committed by START TRANSACTION.
     s.set_autocommit(false).await.unwrap();
-    run(&mut s, "INSERT INTO ti (id) VALUES (11)").await.unwrap();
+    run(&mut s, "INSERT INTO ti (id) VALUES (11)")
+        .await
+        .unwrap();
     let e = read(&mut s, "SELECT 1", 10).await.unwrap_err();
     eprintln!("{id}: open transaction -> {e}");
     s.rollback().await.unwrap();
     s.set_autocommit(true).await.unwrap();
-    assert_eq!(scalar(&mut s, "SELECT COUNT(*) FROM ti").await, json!(3), "{id}");
+    assert_eq!(
+        scalar(&mut s, "SELECT COUNT(*) FROM ti").await,
+        json!(3),
+        "{id}"
+    );
 
     // A read-only connection stays read-only after a protected read.
     cfg.read_only = true;
     let mut ro = d.connect(&cfg, Some("dbine_ro")).await.unwrap();
     read(&mut ro, "SELECT 1", 10).await.unwrap();
-    assert_eq!(scalar(&mut ro, "SELECT @@session.transaction_read_only").await, json!(1), "{id}");
+    assert_eq!(
+        scalar(&mut ro, "SELECT @@session.transaction_read_only").await,
+        json!(1),
+        "{id}"
+    );
 
     run(&mut admin, "DROP DATABASE dbine_ro").await.unwrap();
 }

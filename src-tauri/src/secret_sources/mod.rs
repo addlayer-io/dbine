@@ -17,27 +17,29 @@
 #[allow(dead_code, unused_imports)]
 pub(crate) mod cloud_auth;
 
+pub mod accounts;
 mod aws;
 mod azure;
-pub mod exec;
-mod gcp;
-mod keepass;
-mod onepassword;
-mod vault;
-mod zoho;
+mod bitwarden;
+pub mod browse;
 mod cyberark;
 mod delinea;
+pub mod exec;
+mod gcp;
 mod https;
-mod vault_db;
-mod bitwarden;
+mod keepass;
+mod onepassword;
 mod rsa_lc;
 mod ssm;
-pub mod browse;
-pub mod accounts;
+mod vault;
+mod vault_db;
+mod zoho;
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::{driver_info, field_applies, AppState};
-use dbine_core::secret_sources::{self as defs, MasterSource, SecretSource, SecretSources, TOKEN_PREFIX};
+use dbine_core::secret_sources::{
+    self as defs, MasterSource, SecretSource, SecretSources, TOKEN_PREFIX,
+};
 use dbine_core::secrets::{self, Secrets};
 use dbine_core::StateStore;
 use dbine_driver::{ConnectionConfig, DriverInfo};
@@ -57,7 +59,9 @@ pub struct Resolved {
 
 impl std::fmt::Debug for Resolved {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Resolved").field("chars", &self.value.chars().count()).finish_non_exhaustive()
+        f.debug_struct("Resolved")
+            .field("chars", &self.value.chars().count())
+            .finish_non_exhaustive()
     }
 }
 
@@ -79,7 +83,11 @@ pub enum Origin<'a> {
     /// confirmed, a definition that came from outside doesn't. `duplicate_of`:
     /// the connection a new form was copied from ("Duplicar conexión"), whose
     /// unconfirmed definitions the copy can't be told apart from.
-    Form { id: Option<&'a str>, duplicate_of: Option<&'a str>, name: &'a str },
+    Form {
+        id: Option<&'a str>,
+        duplicate_of: Option<&'a str>,
+        name: &'a str,
+    },
 }
 
 impl Origin<'_> {
@@ -135,7 +143,10 @@ fn cache_key(connection_id: &str, digest: &str) -> String {
 /// Drop a connection's resolved values (disconnect, edit, delete).
 pub fn forget_cached(connection_id: &str) {
     let prefix = format!("{connection_id}\u{0}");
-    CACHE.lock().unwrap_or_else(|e| e.into_inner()).retain(|k, _| !k.starts_with(&prefix));
+    CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|k, _| !k.starts_with(&prefix));
 }
 
 /// Drop every resolved value (an account changed or was removed).
@@ -154,7 +165,10 @@ pub fn field_label(info: Option<&DriverInfo>, field: &str) -> String {
     match field {
         "ssh.password" => "Contraseña del túnel SSH".into(),
         "ssh.passphrase" => "Frase de paso de la clave SSH".into(),
-        _ => info.and_then(|i| i.fields.iter().find(|f| f.key == field)).map(|f| f.label.to_string()).unwrap_or_else(|| field.to_string()),
+        _ => info
+            .and_then(|i| i.fields.iter().find(|f| f.key == field))
+            .map(|f| f.label.to_string())
+            .unwrap_or_else(|| field.to_string()),
     }
 }
 
@@ -165,7 +179,10 @@ pub fn applies(info: Option<&DriverInfo>, cfg: &ConnectionConfig, field: &str) -
     match field {
         "ssh.password" => crate::tunnels::enabled(cfg) && ssh_auth() == "password",
         "ssh.passphrase" => crate::tunnels::enabled(cfg) && ssh_auth() == "key",
-        _ => info.is_some_and(|i| i.fields.iter().any(|f| f.key == field && f.secret) && field_applies(&i.fields, cfg, field)),
+        _ => info.is_some_and(|i| {
+            i.fields.iter().any(|f| f.key == field && f.secret)
+                && field_applies(&i.fields, cfg, field)
+        }),
     }
 }
 
@@ -192,7 +209,9 @@ fn provider(src: &SecretSource) -> &'static str {
 
 /// `~/` is the home folder.
 pub(crate) fn expand_home(p: &str) -> std::path::PathBuf {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from);
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from);
     match (p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\")), home) {
         (Some(rest), Some(h)) => h.join(rest),
         _ => std::path::PathBuf::from(p),
@@ -205,23 +224,48 @@ pub const NEEDS_MASTER: &str = "se necesita la contraseña maestra";
 
 /// A field's tokens by slot (`""`, `client_secret`…) out of a connection's.
 pub fn field_tokens(tokens: &Secrets, field: &str) -> Secrets {
-    tokens.iter().filter_map(|(k, v)| defs::token_parts(k).filter(|(f, _)| *f == field).map(|(_, slot)| (slot.to_string(), v.clone()))).collect()
+    tokens
+        .iter()
+        .filter_map(|(k, v)| {
+            defs::token_parts(k)
+                .filter(|(f, _)| *f == field)
+                .map(|(_, slot)| (slot.to_string(), v.clone()))
+        })
+        .collect()
 }
 
 /// The master password of a KeePass or Zoho Vault definition: kept, asked
 /// (typed this run, else [`NEEDS_MASTER`]), a command's output, or none.
 async fn master_password(src: &SecretSource, slots: &Secrets) -> Result<Option<String>, String> {
     let (master, command) = match src {
-        SecretSource::KeePass { master, master_command, .. }
-        | SecretSource::Zoho { master, master_command, .. }
-        | SecretSource::Delinea { master, master_command, .. }
-        | SecretSource::Bitwarden { master, master_command, .. } => (*master, master_command),
+        SecretSource::KeePass {
+            master,
+            master_command,
+            ..
+        }
+        | SecretSource::Zoho {
+            master,
+            master_command,
+            ..
+        }
+        | SecretSource::Delinea {
+            master,
+            master_command,
+            ..
+        }
+        | SecretSource::Bitwarden {
+            master,
+            master_command,
+            ..
+        } => (*master, master_command),
         _ => return Ok(None),
     };
     let typed = slots.get("").filter(|t| !t.is_empty()).cloned();
     match master {
         MasterSource::None => Ok(None),
-        MasterSource::Keychain => typed.map(Some).ok_or_else(|| "falta la contraseña maestra: escribila en el formulario".to_string()),
+        MasterSource::Keychain => typed
+            .map(Some)
+            .ok_or_else(|| "falta la contraseña maestra: escribila en el formulario".to_string()),
         MasterSource::Ask => typed.map(Some).ok_or_else(|| NEEDS_MASTER.to_string()),
         MasterSource::Command => exec::run(exec::shell_command(command), exec::COMMAND_LIMIT)
             .await
@@ -238,7 +282,10 @@ fn asks_again(src: &SecretSource, message: &str) -> Option<bool> {
     }
     match message {
         NEEDS_MASTER => Some(false),
-        keepass::WRONG_KEY | zoho::WRONG_PASSPHRASE | delinea::WRONG_PASSWORD | bitwarden::WRONG_PASSWORD => Some(true),
+        keepass::WRONG_KEY
+        | zoho::WRONG_PASSPHRASE
+        | delinea::WRONG_PASSWORD
+        | bitwarden::WRONG_PASSWORD => Some(true),
         _ => None,
     }
 }
@@ -248,9 +295,19 @@ fn command_failure(f: exec::Failure) -> String {
     match f {
         Spawn(e) => format!("no se pudo ejecutar el comando: {e}"),
         Timeout(d) => format!("el comando no terminó en {} s y se detuvo", d.as_secs()),
-        Exit { code: Some(c), stderr } if stderr.is_empty() => format!("el comando terminó con el código {c}, sin mensaje de error"),
-        Exit { code: Some(c), stderr } => format!("el comando terminó con el código {c}: {stderr}"),
-        Exit { code: None, stderr } if stderr.is_empty() => "el comando terminó por una señal".into(),
+        Exit {
+            code: Some(c),
+            stderr,
+        } if stderr.is_empty() => {
+            format!("el comando terminó con el código {c}, sin mensaje de error")
+        }
+        Exit {
+            code: Some(c),
+            stderr,
+        } => format!("el comando terminó con el código {c}: {stderr}"),
+        Exit { code: None, stderr } if stderr.is_empty() => {
+            "el comando terminó por una señal".into()
+        }
         Exit { code: None, stderr } => format!("el comando terminó por una señal: {stderr}"),
         TooLong => "el comando devolvió más de 64 KB".into(),
         NotText => "la salida del comando no es texto".into(),
@@ -266,38 +323,120 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
         let r = vault_db::test(&vault_db_source(src, slots)).await;
         return finish(src, r);
     }
-    if let SecretSource::Conjur { url, account, login, variable, username_variable, ca_file, .. } = src {
-        let req = cyberark::Conjur { url, account, login, variable, username_variable, ca_file };
+    if let SecretSource::Conjur {
+        url,
+        account,
+        login,
+        variable,
+        username_variable,
+        ca_file,
+        ..
+    } = src
+    {
+        let req = cyberark::Conjur {
+            url,
+            account,
+            login,
+            variable,
+            username_variable,
+            ca_file,
+        };
         let (mut raw, username) = cyberark::conjur_read(&req, token).await?;
         let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
         defs::wipe(&mut raw);
         return finish(src, picked.map(|v| (v, username)));
     }
-    if let SecretSource::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, fill_username, .. } = src {
-        let req = cyberark::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, username: *fill_username };
+    if let SecretSource::Ccp {
+        url,
+        app_id,
+        safe,
+        folder,
+        object,
+        account_user,
+        account_address,
+        client_cert,
+        client_key,
+        ca_file,
+        fill_username,
+        ..
+    } = src
+    {
+        let req = cyberark::Ccp {
+            url,
+            app_id,
+            safe,
+            folder,
+            object,
+            account_user,
+            account_address,
+            client_cert,
+            client_key,
+            ca_file,
+            username: *fill_username,
+        };
         return finish(src, cyberark::ccp_read(&req, token).await);
     }
-    if let SecretSource::Delinea { url, platform_url, username, domain, secret_name, attribute, fill_username, user_field, .. } = src {
+    if let SecretSource::Delinea {
+        url,
+        platform_url,
+        username,
+        domain,
+        secret_name,
+        attribute,
+        fill_username,
+        user_field,
+        ..
+    } = src
+    {
         let mut password = master_password(src, slots).await?.unwrap_or_default();
-        let req = delinea::Request { url, platform_url, username, domain, secret: secret_name, field: attribute, fill_username: *fill_username, user_field };
+        let req = delinea::Request {
+            url,
+            platform_url,
+            username,
+            domain,
+            secret: secret_name,
+            field: attribute,
+            fill_username: *fill_username,
+            user_field,
+        };
         let r = delinea::read(&req, &password).await;
         defs::wipe(&mut password);
         return finish(src, r);
     }
-    if let SecretSource::KeePass { file, entry, attribute, key_file, fill_username, user_field, .. } = src {
+    if let SecretSource::KeePass {
+        file,
+        entry,
+        attribute,
+        key_file,
+        fill_username,
+        user_field,
+        ..
+    } = src
+    {
         let mut master = master_password(src, slots).await?;
         let req = keepass::Request {
             file: expand_home(file.trim()),
             entry: entry.clone(),
             attribute: attribute.clone(),
-            key_file: Some(key_file.trim()).filter(|k| !k.is_empty()).map(expand_home),
+            key_file: Some(key_file.trim())
+                .filter(|k| !k.is_empty())
+                .map(expand_home),
             username: *fill_username,
             user_field: user_field.clone(),
         };
         let r = keepass::read(req, master.take()).await;
         return finish(src, r);
     }
-    if let SecretSource::Zoho { data_center, secret_name, attribute, client_id, fill_username, user_field, .. } = src {
+    if let SecretSource::Zoho {
+        data_center,
+        secret_name,
+        attribute,
+        client_id,
+        fill_username,
+        user_field,
+        ..
+    } = src
+    {
         let passphrase = master_password(src, slots).await?.unwrap_or_default();
         let creds = zoho::Creds {
             client_id: client_id.trim().to_string(),
@@ -305,33 +444,72 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
             refresh_token: slots.get("refresh_token").cloned().unwrap_or_default(),
             passphrase,
         };
-        let req = zoho::Request { data_center, secret: secret_name, attribute, username: *fill_username, user_field };
+        let req = zoho::Request {
+            data_center,
+            secret: secret_name,
+            attribute,
+            username: *fill_username,
+            user_field,
+        };
         let r = zoho::read(&req, &creds).await;
         return finish(src, r);
     }
-    if let SecretSource::Bitwarden { server, item, attribute, client_id, fill_username, user_field, .. } = src {
+    if let SecretSource::Bitwarden {
+        server,
+        item,
+        attribute,
+        client_id,
+        fill_username,
+        user_field,
+        ..
+    } = src
+    {
         let password = master_password(src, slots).await?.unwrap_or_default();
-        let creds = bitwarden::Creds { client_id: client_id.trim().to_string(), client_secret: slots.get("client_secret").cloned().unwrap_or_default(), password };
-        let req = bitwarden::Request { server, item, attribute, username: *fill_username, user_field };
+        let creds = bitwarden::Creds {
+            client_id: client_id.trim().to_string(),
+            client_secret: slots.get("client_secret").cloned().unwrap_or_default(),
+            password,
+        };
+        let req = bitwarden::Request {
+            server,
+            item,
+            attribute,
+            username: *fill_username,
+            user_field,
+        };
         // The notes (or any field) may be JSON: its key.
-        let r = bitwarden::read(&req, &creds).await.and_then(|(mut raw, mut username)| {
-            let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
-            defs::wipe(&mut raw);
-            if picked.is_err() {
-                if let Some(u) = &mut username {
-                    defs::wipe(u);
+        let r = bitwarden::read(&req, &creds)
+            .await
+            .and_then(|(mut raw, mut username)| {
+                let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
+                defs::wipe(&mut raw);
+                if picked.is_err() {
+                    if let Some(u) = &mut username {
+                        defs::wipe(u);
+                    }
                 }
-            }
-            picked.map(|v| (v, username))
-        });
+                picked.map(|v| (v, username))
+            });
         return finish(src, r);
     }
     let mut raw = match src {
-        SecretSource::Command { command, .. } => exec::run(exec::shell_command(command), exec::COMMAND_LIMIT).await.map(exec::trim_newline).map_err(command_failure)?,
-        SecretSource::OnePassword { reference, account, fill_username, user_field, .. } => {
+        SecretSource::Command { command, .. } => {
+            exec::run(exec::shell_command(command), exec::COMMAND_LIMIT)
+                .await
+                .map(exec::trim_newline)
+                .map_err(command_failure)?
+        }
+        SecretSource::OnePassword {
+            reference,
+            account,
+            fill_username,
+            user_field,
+            ..
+        } => {
             if *fill_username {
                 // One `op` call for both: one unlock prompt.
-                let (mut value, mut user) = onepassword::read_with_user(reference, user_field, account).await?;
+                let (mut value, mut user) =
+                    onepassword::read_with_user(reference, user_field, account).await?;
                 let picked = defs::pick_json(&value, src.json_key()).map_err(|e| e.to_string());
                 defs::wipe(&mut value);
                 if picked.is_err() {
@@ -341,15 +519,68 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
             }
             onepassword::read(reference, account).await?
         }
-        SecretSource::Vault { address, path, key, namespace, kv_version, ca_file, auth, approle_mount, role_id, .. } => {
-            let req = vault::Request { address, path, key, namespace, kv_version: *kv_version, ca_file };
+        SecretSource::Vault {
+            address,
+            path,
+            key,
+            namespace,
+            kv_version,
+            ca_file,
+            auth,
+            approle_mount,
+            role_id,
+            ..
+        } => {
+            let req = vault::Request {
+                address,
+                path,
+                key,
+                namespace,
+                kv_version: *kv_version,
+                ca_file,
+            };
             vault::read(&req, &vault::Auth::of(*auth, approle_mount, role_id, slots)).await?
         }
-        SecretSource::Aws { secret_id, region, profile, .. } => aws::get_secret(secret_id, region, profile).await?,
-        SecretSource::Azure { vault_url, name, version, tenant, .. } => azure::get_secret(vault_url, name, version, tenant).await?,
-        SecretSource::Gcp { project, secret, version, account, .. } => gcp::get_secret(project, secret, version, account).await?,
-        SecretSource::BitwardenSm { server, secret, .. } => bitwarden::read_secret(server, secret, token).await?,
-        SecretSource::Ssm { parameter, version, region, profile, list_index, .. } => ssm::get_parameter(&ssm::Request { parameter, version, region, profile, list_index }).await?,
+        SecretSource::Aws {
+            secret_id,
+            region,
+            profile,
+            ..
+        } => aws::get_secret(secret_id, region, profile).await?,
+        SecretSource::Azure {
+            vault_url,
+            name,
+            version,
+            tenant,
+            ..
+        } => azure::get_secret(vault_url, name, version, tenant).await?,
+        SecretSource::Gcp {
+            project,
+            secret,
+            version,
+            account,
+            ..
+        } => gcp::get_secret(project, secret, version, account).await?,
+        SecretSource::BitwardenSm { server, secret, .. } => {
+            bitwarden::read_secret(server, secret, token).await?
+        }
+        SecretSource::Ssm {
+            parameter,
+            version,
+            region,
+            profile,
+            list_index,
+            ..
+        } => {
+            ssm::get_parameter(&ssm::Request {
+                parameter,
+                version,
+                region,
+                profile,
+                list_index,
+            })
+            .await?
+        }
         SecretSource::KeePass { .. }
         | SecretSource::Zoho { .. }
         | SecretSource::VaultDb { .. }
@@ -360,7 +591,14 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
     };
     let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
     let username = match src {
-        SecretSource::Aws { fill_username: true, .. } | SecretSource::Ssm { fill_username: true, .. } => Some(defs::pick_json(&raw, "username").map_err(|e| e.to_string())),
+        SecretSource::Aws {
+            fill_username: true,
+            ..
+        }
+        | SecretSource::Ssm {
+            fill_username: true,
+            ..
+        } => Some(defs::pick_json(&raw, "username").map_err(|e| e.to_string())),
         _ => None,
     };
     defs::wipe(&mut raw);
@@ -377,11 +615,30 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
 
 /// A Vault database role's definition, with the field's kept slots.
 fn vault_db_source<'a>(src: &'a SecretSource, slots: &'a Secrets) -> vault_db::Source<'a> {
-    let SecretSource::VaultDb { address, mount, role, static_role, namespace, ca_file, auth, approle_mount, role_id, .. } = src else {
+    let SecretSource::VaultDb {
+        address,
+        mount,
+        role,
+        static_role,
+        namespace,
+        ca_file,
+        auth,
+        approle_mount,
+        role_id,
+        ..
+    } = src
+    else {
         unreachable!("a vault_db definition")
     };
     vault_db::Source {
-        req: vault_db::Request { address, namespace, ca_file, mount, role, static_role: *static_role },
+        req: vault_db::Request {
+            address,
+            namespace,
+            ca_file,
+            mount,
+            role,
+            static_role: *static_role,
+        },
         auth: vault::Auth::of(*auth, approle_mount, role_id, slots),
     }
 }
@@ -405,7 +662,10 @@ pub async fn release_all_leases() {
 }
 
 /// A provider that gives the value and the username itself.
-fn finish(_src: &SecretSource, r: Result<(String, Option<String>), String>) -> Result<Resolved, String> {
+fn finish(
+    _src: &SecretSource,
+    r: Result<(String, Option<String>), String>,
+) -> Result<Resolved, String> {
     let (value, username) = r?;
     let resolved = Resolved { value, username };
     if resolved.value.is_empty() {
@@ -424,14 +684,22 @@ fn trusted(store: &StateStore, origin: Origin<'_>, field: &str, src: &SecretSour
         // The edited connection's own unconfirmed definition, or one that
         // came from outside. Saved connections that can't be listed: nothing
         // can be told, so it asks.
-        Origin::Form { id, duplicate_of, .. } => match store.list_connections() {
+        Origin::Form {
+            id, duplicate_of, ..
+        } => match store.list_connections() {
             Ok(saved) => !defs::needs_confirmation(&saved, id, duplicate_of, field, src),
             Err(_) => false,
         },
     }
 }
 
-fn check_trust(store: &StateStore, origin: Origin<'_>, info: Option<&DriverInfo>, field: &str, src: &SecretSource) -> CommandResult<()> {
+fn check_trust(
+    store: &StateStore,
+    origin: Origin<'_>,
+    info: Option<&DriverInfo>,
+    field: &str,
+    src: &SecretSource,
+) -> CommandResult<()> {
     if trusted(store, origin, field, src) {
         return Ok(());
     }
@@ -450,7 +718,13 @@ pub fn token_key(field: &str) -> String {
     defs::token_key(field, "")
 }
 
-fn unlock_error(origin: Origin<'_>, info: Option<&DriverInfo>, field: &str, src: &SecretSource, wrong: bool) -> CommandError {
+fn unlock_error(
+    origin: Origin<'_>,
+    info: Option<&DriverInfo>,
+    field: &str,
+    src: &SecretSource,
+    wrong: bool,
+) -> CommandError {
     CommandError::SecretSourceUnlock(Box::new(Unlock {
         connection_id: Some(origin.id().to_string()).filter(|i| !i.is_empty()),
         connection_name: origin.name().to_string(),
@@ -464,7 +738,13 @@ fn unlock_error(origin: Origin<'_>, info: Option<&DriverInfo>, field: &str, src:
 /// Resolve the sources of the fields in use and put the values in `cfg`
 /// (`password`, or the option of the field). `tokens`: the connection's
 /// kept Vault tokens.
-pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &SecretSources, tokens: &Secrets, origin: Origin<'_>) -> CommandResult<()> {
+pub async fn fill(
+    store: &StateStore,
+    cfg: &mut ConnectionConfig,
+    sources: &SecretSources,
+    tokens: &Secrets,
+    origin: Origin<'_>,
+) -> CommandResult<()> {
     if sources.is_empty() {
         return Ok(());
     }
@@ -474,7 +754,9 @@ pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &Secr
             continue;
         }
         let label = field_label(info, field);
-        src.validate().map_err(|e| CommandError::SecretSource(format!("el origen de «{label}» no es válido: {e}")))?;
+        src.validate().map_err(|e| {
+            CommandError::SecretSource(format!("el origen de «{label}» no es válido: {e}"))
+        })?;
         check_trust(store, origin, info, field, src)?;
         let digest = defs::digest(origin.id(), field, src);
         let key = cache_key(origin.id(), &digest);
@@ -484,27 +766,50 @@ pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &Secr
             // connection is open (vault_db.rs), not in the minute's cache.
             None if matches!(src, SecretSource::VaultDb { .. }) => {
                 // Through an account: the account's Vault and sign-in.
-                let x = accounts::expand(store, src, field_tokens(tokens, field))
-                    .map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))))?;
-                let key = if saved { key } else { format!("form:{}\u{0}{digest}", uuid::Uuid::new_v4()) };
+                let x = accounts::expand(store, src, field_tokens(tokens, field)).map_err(|m| {
+                    CommandError::SecretSource(format!(
+                        "no se pudo obtener «{label}» de {}: {m}",
+                        provider(src)
+                    ))
+                })?;
+                let key = if saved {
+                    key
+                } else {
+                    format!("form:{}\u{0}{digest}", uuid::Uuid::new_v4())
+                };
                 vault_db::acquire(&key, saved, &vault_db_source(&x.src, &x.slots))
                     .await
-                    .map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))))?
+                    .map_err(|m| {
+                        CommandError::SecretSource(format!(
+                            "no se pudo obtener «{label}» de {}: {m}",
+                            provider(src)
+                        ))
+                    })?
             }
             Some(r) => r,
             None => {
                 // A definition naming an account runs with the account's sign-in.
-                let x = accounts::expand(store, src, field_tokens(tokens, field))
-                    .map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))))?;
+                let x = accounts::expand(store, src, field_tokens(tokens, field)).map_err(|m| {
+                    CommandError::SecretSource(format!(
+                        "no se pudo obtener «{label}» de {}: {m}",
+                        provider(src)
+                    ))
+                })?;
                 let r = fetch(&x.src, &x.slots).await;
                 accounts::after_run(&x, r.as_ref().map(|_| ()).map_err(String::as_str));
                 let fetched = r.map_err(|m| match asks_again(&x.src, &m) {
                     Some(wrong) => unlock_error(origin, info, field, src, wrong),
-                    None => CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))),
+                    None => CommandError::SecretSource(format!(
+                        "no se pudo obtener «{label}» de {}: {m}",
+                        provider(src)
+                    )),
                 })?;
                 let r = Arc::new(fetched);
                 if saved {
-                    CACHE.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (Instant::now(), r.clone()));
+                    CACHE
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(key, (Instant::now(), r.clone()));
                 }
                 r
             }
@@ -523,13 +828,29 @@ pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &Secr
 
 /// The Vault tokens among a connection's stored secrets.
 pub fn tokens_of(stored: &Secrets) -> Secrets {
-    stored.iter().filter(|(k, _)| k.starts_with(TOKEN_PREFIX)).map(|(k, v)| (k.clone(), v.clone())).collect()
+    stored
+        .iter()
+        .filter(|(k, _)| k.starts_with(TOKEN_PREFIX))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }
 
 /// Take the tokens typed in a form out of its options.
 pub fn take_tokens(cfg: &mut ConnectionConfig) -> Secrets {
-    let keys: Vec<String> = cfg.options.keys().filter(|k| k.starts_with(TOKEN_PREFIX)).cloned().collect();
-    keys.into_iter().filter_map(|k| cfg.options.remove(&k).filter(|v| !v.is_empty()).map(|v| (k, v))).collect()
+    let keys: Vec<String> = cfg
+        .options
+        .keys()
+        .filter(|k| k.starts_with(TOKEN_PREFIX))
+        .cloned()
+        .collect();
+    keys.into_iter()
+        .filter_map(|k| {
+            cfg.options
+                .remove(&k)
+                .filter(|v| !v.is_empty())
+                .map(|v| (k, v))
+        })
+        .collect()
 }
 
 // ---- commands ---------------------------------------------------------------
@@ -537,7 +858,14 @@ pub fn take_tokens(cfg: &mut ConnectionConfig) -> Secrets {
 /// A form's tokens for a field: typed now (`typed`, `token` the main one),
 /// else kept for the saved connection (the keychain; a master password
 /// asked this run).
-fn form_slots(state: &AppState, id: Option<&str>, field: &str, src: &SecretSource, typed: Secrets, token: Option<String>) -> Secrets {
+fn form_slots(
+    state: &AppState,
+    id: Option<&str>,
+    field: &str,
+    src: &SecretSource,
+    typed: Secrets,
+    token: Option<String>,
+) -> Secrets {
     let mut slots: Secrets = typed.into_iter().filter(|(_, v)| !v.is_empty()).collect();
     if let Some(t) = token.filter(|t| !t.is_empty()) {
         slots.insert(String::new(), t);
@@ -552,7 +880,9 @@ fn form_slots(state: &AppState, id: Option<&str>, field: &str, src: &SecretSourc
             known.extend(t.clone());
         }
         for (slot, v) in field_tokens(&known, field) {
-            if wanted.contains(&slot.as_str()) || (slot.is_empty() && src.master() == Some(MasterSource::Ask)) {
+            if wanted.contains(&slot.as_str())
+                || (slot.is_empty() && src.master() == Some(MasterSource::Ask))
+            {
                 slots.entry(slot).or_insert(v);
             }
         }
@@ -594,28 +924,59 @@ pub struct TestSecretSourceResult {
 /// "Probar" next to a field: resolve the form's definition and say how long
 /// the value is.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn test_secret_source(state: State<'_, AppState>, args: TestSecretSourceArgs) -> CommandResult<TestSecretSourceResult> {
-    args.source.validate().map_err(|e| CommandError::BadRequest(e.to_string()))?;
+pub async fn test_secret_source(
+    state: State<'_, AppState>,
+    args: TestSecretSourceArgs,
+) -> CommandResult<TestSecretSourceResult> {
+    args.source
+        .validate()
+        .map_err(|e| CommandError::BadRequest(e.to_string()))?;
     let id = args.connection_id.as_deref().filter(|i| !i.is_empty());
     let saved = match id {
         Some(i) => state.store.get_connection(i)?,
         None => None,
     };
     let name = saved.as_ref().map(|c| c.name.clone()).unwrap_or_default();
-    let driver = args.driver.clone().or_else(|| saved.as_ref().map(|c| c.config.driver.clone()));
+    let driver = args
+        .driver
+        .clone()
+        .or_else(|| saved.as_ref().map(|c| c.config.driver.clone()));
     let info = driver.as_deref().and_then(|d| driver_info(d).ok());
-    let origin = Origin::Form { id, duplicate_of: args.duplicate_of.as_deref().filter(|i| !i.is_empty()), name: &name };
+    let origin = Origin::Form {
+        id,
+        duplicate_of: args.duplicate_of.as_deref().filter(|i| !i.is_empty()),
+        name: &name,
+    };
     check_trust(&state.store, origin, info, &args.field, &args.source)?;
-    let slots = form_slots(&state, id, &args.field, &args.source, args.tokens.unwrap_or_default(), args.token);
+    let slots = form_slots(
+        &state,
+        id,
+        &args.field,
+        &args.source,
+        args.tokens.unwrap_or_default(),
+        args.token,
+    );
     let label = field_label(info, &args.field);
-    let x = accounts::expand(&state.store, &args.source, slots).map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(&args.source))))?;
+    let x = accounts::expand(&state.store, &args.source, slots).map_err(|m| {
+        CommandError::SecretSource(format!(
+            "no se pudo obtener «{label}» de {}: {m}",
+            provider(&args.source)
+        ))
+    })?;
     let r = fetch(&x.src, &x.slots).await;
     accounts::after_run(&x, r.as_ref().map(|_| ()).map_err(String::as_str));
     let r = r.map_err(|m| match asks_again(&x.src, &m) {
         Some(wrong) => unlock_error(origin, info, &args.field, &args.source, wrong),
-        None => CommandError::SecretSource(format!("no se pudo obtener «{}» de {}: {m}", field_label(info, &args.field), provider(&args.source))),
+        None => CommandError::SecretSource(format!(
+            "no se pudo obtener «{}» de {}: {m}",
+            field_label(info, &args.field),
+            provider(&args.source)
+        )),
     })?;
-    Ok(TestSecretSourceResult { chars: r.value.chars().count(), username: r.username.is_some() })
+    Ok(TestSecretSourceResult {
+        chars: r.value.chars().count(),
+        username: r.username.is_some(),
+    })
 }
 
 #[derive(Deserialize)]
@@ -630,11 +991,20 @@ pub struct UnlockSecretSourceArgs {
 /// memory (with what else was typed for it) until it fails, the connection
 /// is edited or DBine closes; never in the keychain.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn unlock_secret_source(state: State<'_, AppState>, args: UnlockSecretSourceArgs) -> CommandResult<()> {
+pub async fn unlock_secret_source(
+    state: State<'_, AppState>,
+    args: UnlockSecretSourceArgs,
+) -> CommandResult<()> {
     if args.value.is_empty() {
-        return Err(CommandError::BadRequest("falta la contraseña maestra".into()));
+        return Err(CommandError::BadRequest(
+            "falta la contraseña maestra".into(),
+        ));
     }
-    state.typed_secrets.entry(args.connection_id.clone()).or_default().insert(defs::token_key(&args.field, ""), args.value);
+    state
+        .typed_secrets
+        .entry(args.connection_id.clone())
+        .or_default()
+        .insert(defs::token_key(&args.field, ""), args.value);
     forget_cached(&args.connection_id);
     Ok(())
 }
@@ -650,7 +1020,9 @@ pub struct ApproveSecretSourceArgs {
 /// The user confirmed a definition in the dialog that showed it.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn approve_secret_source(args: ApproveSecretSourceArgs) -> CommandResult<()> {
-    args.source.validate().map_err(|e| CommandError::BadRequest(e.to_string()))?;
+    args.source
+        .validate()
+        .map_err(|e| CommandError::BadRequest(e.to_string()))?;
     let id = args.connection_id.as_deref().unwrap_or("");
     defs::approve(&defs::digest(id, &args.field, &args.source))?;
     forget_cached(id);
@@ -663,19 +1035,29 @@ pub(crate) mod tests {
 
     /// A fresh folder under the system's temp dir.
     pub fn temp_dir(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("dbine-test-{name}-{}-{}", std::process::id(), uuid::Uuid::new_v4()));
+        let d = std::env::temp_dir().join(format!(
+            "dbine-test-{name}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
 
     fn cmd(c: &str) -> SecretSource {
-        SecretSource::Command { command: c.into(), json_key: String::new() }
+        SecretSource::Command {
+            command: c.into(),
+            json_key: String::new(),
+        }
     }
 
     #[test]
     fn which_fields_apply() {
         let info = driver_info("postgres").ok();
-        let mut cfg = ConnectionConfig { driver: "postgres".into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            driver: "postgres".into(),
+            ..Default::default()
+        };
         assert!(applies(info, &cfg, "password"));
         assert!(!applies(info, &cfg, "ssh.password"), "no tunnel");
         cfg.options.insert("ssh.enabled".into(), "true".into());
@@ -693,13 +1075,37 @@ pub(crate) mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn json_keys_and_usernames() {
-        let r = fetch(&SecretSource::Command { command: r#"printf '{"username":"app","password":"pw"}'"#.into(), json_key: "password".into() }, &Secrets::new()).await.unwrap();
+        let r = fetch(
+            &SecretSource::Command {
+                command: r#"printf '{"username":"app","password":"pw"}'"#.into(),
+                json_key: "password".into(),
+            },
+            &Secrets::new(),
+        )
+        .await
+        .unwrap();
         assert_eq!((r.value.as_str(), r.username.as_deref()), ("pw", None));
-        let e = fetch(&SecretSource::Command { command: "printf plain".into(), json_key: "password".into() }, &Secrets::new()).await.unwrap_err();
-        assert!(e.contains("no es un objeto JSON") && !e.contains("plain"), "{e}");
+        let e = fetch(
+            &SecretSource::Command {
+                command: "printf plain".into(),
+                json_key: "password".into(),
+            },
+            &Secrets::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            e.contains("no es un objeto JSON") && !e.contains("plain"),
+            "{e}"
+        );
         let e = fetch(&cmd("true"), &Secrets::new()).await.unwrap_err();
         assert_eq!(e, "el comando no devolvió nada");
-        let e = fetch(&cmd("echo leaked-stdout; echo 'denied' >&2; exit 2"), &Secrets::new()).await.unwrap_err();
+        let e = fetch(
+            &cmd("echo leaked-stdout; echo 'denied' >&2; exit 2"),
+            &Secrets::new(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(e, "el comando terminó con el código 2: denied");
     }
 
@@ -712,7 +1118,11 @@ pub(crate) mod tests {
         let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
         let marker = dir.join("ran");
         let src = cmd(&format!("touch '{}'; printf pw", marker.display()));
-        let mut cfg = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "h".into(),
+            ..Default::default()
+        };
         let sources: SecretSources = [("password".to_string(), src.clone())].into();
         defs::write(&mut cfg, &sources);
         let id = format!("imported-{}", uuid::Uuid::new_v4());
@@ -732,49 +1142,188 @@ pub(crate) mod tests {
         let mut run_cfg = cfg.clone();
         defs::take(&mut run_cfg).unwrap();
         // Connecting: refused, with what to show.
-        let e = fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Saved { id: &id, name: "Imported" }).await.unwrap_err();
-        let CommandError::SecretSourceApproval(a) = &e else { panic!("{e:?}") };
-        assert_eq!((a.connection_name.as_str(), a.field.as_str(), &a.source), ("Imported", "password", &src));
+        let e = fill(
+            &store,
+            &mut run_cfg,
+            &sources,
+            &Secrets::new(),
+            Origin::Saved {
+                id: &id,
+                name: "Imported",
+            },
+        )
+        .await
+        .unwrap_err();
+        let CommandError::SecretSourceApproval(a) = &e else {
+            panic!("{e:?}")
+        };
+        assert_eq!(
+            (a.connection_name.as_str(), a.field.as_str(), &a.source),
+            ("Imported", "password", &src)
+        );
         let json = serde_json::to_value(&e).unwrap();
         assert_eq!(json["kind"], "secret_source_approval");
-        assert!(!json["message"].as_str().unwrap().contains("touch"), "the message (what MCP sees) has no command text");
+        assert!(
+            !json["message"].as_str().unwrap().contains("touch"),
+            "the message (what MCP sees) has no command text"
+        );
         assert!(!marker.exists(), "it didn't run");
         // The form editing it, unchanged: refused too.
-        assert!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Form { id: Some(&id), duplicate_of: None, name: "Imported" }).await.is_err());
+        assert!(fill(
+            &store,
+            &mut run_cfg,
+            &sources,
+            &Secrets::new(),
+            Origin::Form {
+                id: Some(&id),
+                duplicate_of: None,
+                name: "Imported"
+            }
+        )
+        .await
+        .is_err());
         // A copy in a new form: refused (same text as the unconfirmed one).
-        assert!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Form { id: None, duplicate_of: None, name: "" }).await.is_err());
+        assert!(fill(
+            &store,
+            &mut run_cfg,
+            &sources,
+            &Secrets::new(),
+            Origin::Form {
+                id: None,
+                duplicate_of: None,
+                name: ""
+            }
+        )
+        .await
+        .is_err());
         assert!(!marker.exists());
         // Padded (the form trims it): still the same definition, refused.
-        let padded: SecretSources = [("password".to_string(), cmd(&format!(" touch '{}'; printf pw ", marker.display())))].into();
-        for origin in [Origin::Form { id: Some(&id), duplicate_of: None, name: "Imported" }, Origin::Form { id: None, duplicate_of: None, name: "" }] {
-            assert!(matches!(fill(&store, &mut run_cfg, &padded, &Secrets::new(), origin).await, Err(CommandError::SecretSourceApproval(_))));
+        let padded: SecretSources = [(
+            "password".to_string(),
+            cmd(&format!(" touch '{}'; printf pw ", marker.display())),
+        )]
+        .into();
+        for origin in [
+            Origin::Form {
+                id: Some(&id),
+                duplicate_of: None,
+                name: "Imported",
+            },
+            Origin::Form {
+                id: None,
+                duplicate_of: None,
+                name: "",
+            },
+        ] {
+            assert!(matches!(
+                fill(&store, &mut run_cfg, &padded, &Secrets::new(), origin).await,
+                Err(CommandError::SecretSourceApproval(_))
+            ));
         }
         assert!(!marker.exists());
         // Anything else typed over the unconfirmed field of the connection
         // it came with: asks too (the form rewrites what it loads).
-        let typed: SecretSources = [("password".to_string(), cmd(&format!("touch '{}'; printf typed", marker.display())))].into();
-        let e = fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: Some(&id), duplicate_of: None, name: "Imported" }).await.unwrap_err();
+        let typed: SecretSources = [(
+            "password".to_string(),
+            cmd(&format!("touch '{}'; printf typed", marker.display())),
+        )]
+        .into();
+        let e = fill(
+            &store,
+            &mut run_cfg,
+            &typed,
+            &Secrets::new(),
+            Origin::Form {
+                id: Some(&id),
+                duplicate_of: None,
+                name: "Imported",
+            },
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
         assert!(!marker.exists());
         // Typed in a new form: runs.
-        fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap();
+        fill(
+            &store,
+            &mut run_cfg,
+            &typed,
+            &Secrets::new(),
+            Origin::Form {
+                id: None,
+                duplicate_of: None,
+                name: "",
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(run_cfg.password.as_deref(), Some("typed"));
         std::fs::remove_file(&marker).unwrap();
         // Confirmed: runs, and the value goes where the driver reads it.
         defs::approve(&defs::digest(&id, "password", &src)).unwrap();
-        fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Saved { id: &id, name: "Imported" }).await.unwrap();
+        fill(
+            &store,
+            &mut run_cfg,
+            &sources,
+            &Secrets::new(),
+            Origin::Saved {
+                id: &id,
+                name: "Imported",
+            },
+        )
+        .await
+        .unwrap();
         assert!(marker.exists());
         assert_eq!(run_cfg.password.as_deref(), Some("pw"));
         // Cached for the burst: a second session doesn't run it again.
         std::fs::remove_file(&marker).unwrap();
-        fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Saved { id: &id, name: "Imported" }).await.unwrap();
+        fill(
+            &store,
+            &mut run_cfg,
+            &sources,
+            &Secrets::new(),
+            Origin::Saved {
+                id: &id,
+                name: "Imported",
+            },
+        )
+        .await
+        .unwrap();
         assert!(!marker.exists(), "reused");
         forget_cached(&id);
-        fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Saved { id: &id, name: "Imported" }).await.unwrap();
+        fill(
+            &store,
+            &mut run_cfg,
+            &sources,
+            &Secrets::new(),
+            Origin::Saved {
+                id: &id,
+                name: "Imported",
+            },
+        )
+        .await
+        .unwrap();
         assert!(marker.exists(), "after a disconnect it runs again");
         // The text changes: asks again.
-        let changed: SecretSources = [("password".to_string(), cmd(&format!("touch '{}'; printf pw2", marker.display())))].into();
-        assert!(matches!(fill(&store, &mut run_cfg, &changed, &Secrets::new(), Origin::Saved { id: &id, name: "Imported" }).await, Err(CommandError::SecretSourceApproval(_))));
+        let changed: SecretSources = [(
+            "password".to_string(),
+            cmd(&format!("touch '{}'; printf pw2", marker.display())),
+        )]
+        .into();
+        assert!(matches!(
+            fill(
+                &store,
+                &mut run_cfg,
+                &changed,
+                &Secrets::new(),
+                Origin::Saved {
+                    id: &id,
+                    name: "Imported"
+                }
+            )
+            .await,
+            Err(CommandError::SecretSourceApproval(_))
+        ));
         // The state never got a value.
         let snap = serde_json::to_string(&store.snapshot().unwrap()).unwrap();
         assert!(!snap.contains("\"pw\"") && !snap.contains("typed\""));
@@ -793,7 +1342,11 @@ pub(crate) mod tests {
         let marker = dir.join("ran");
         let body = format!("touch '{}'; printf pw", marker.display());
         // As stored by the import: the BOM is in the state, not validated.
-        let mut cfg = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "h".into(),
+            ..Default::default()
+        };
         let json = serde_json::json!({ "password": { "kind": "command", "command": format!("\u{FEFF}{body}") } }).to_string();
         cfg.options.insert(defs::OPTION.into(), json);
         let id = format!("imported-bom-{}", uuid::Uuid::new_v4());
@@ -811,26 +1364,55 @@ pub(crate) mod tests {
             })
             .unwrap();
         // What the copy's form sends: trimmed by JavaScript (no BOM), or edited.
-        let mut run_cfg = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
-        let copy = Origin::Form { id: None, duplicate_of: Some(&id), name: "" };
+        let mut run_cfg = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "h".into(),
+            ..Default::default()
+        };
+        let copy = Origin::Form {
+            id: None,
+            duplicate_of: Some(&id),
+            name: "",
+        };
         for text in [body.clone(), format!("{body}; printf more")] {
             let sources: SecretSources = [("password".to_string(), cmd(&text))].into();
-            let e = fill(&store, &mut run_cfg, &sources, &Secrets::new(), copy).await.unwrap_err();
+            let e = fill(&store, &mut run_cfg, &sources, &Secrets::new(), copy)
+                .await
+                .unwrap_err();
             assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
             let e = check_trust(&store, copy, None, "password", &cmd(&text)).unwrap_err();
             assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
-            let e = browse::may_browse(&store, None, Some(&id), None, "password", &cmd(&text)).unwrap_err();
+            let e = browse::may_browse(&store, None, Some(&id), None, "password", &cmd(&text))
+                .unwrap_err();
             assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
         }
         // The trimmed text is the stored definition's canonical form: a new
         // form (not a copy) asks for it too.
         let sources: SecretSources = [("password".to_string(), cmd(&body))].into();
-        let new_form = Origin::Form { id: None, duplicate_of: None, name: "" };
-        assert!(matches!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), new_form).await, Err(CommandError::SecretSourceApproval(_))));
+        let new_form = Origin::Form {
+            id: None,
+            duplicate_of: None,
+            name: "",
+        };
+        assert!(matches!(
+            fill(&store, &mut run_cfg, &sources, &Secrets::new(), new_form).await,
+            Err(CommandError::SecretSourceApproval(_))
+        ));
         // The stored one with its BOM doesn't run as a saved connection: an
         // invisible character isn't a valid definition.
         let stored: SecretSources = defs::read(&cfg).unwrap();
-        let e = fill(&store, &mut run_cfg, &stored, &Secrets::new(), Origin::Saved { id: &id, name: "Imported" }).await.unwrap_err();
+        let e = fill(
+            &store,
+            &mut run_cfg,
+            &stored,
+            &Secrets::new(),
+            Origin::Saved {
+                id: &id,
+                name: "Imported",
+            },
+        )
+        .await
+        .unwrap_err();
         assert!(e.to_string().contains("caracteres invisibles"), "{e}");
         assert!(!marker.exists(), "nothing ran");
         assert_eq!(run_cfg.password, None);
@@ -865,38 +1447,104 @@ pub(crate) mod tests {
         let dir = temp_dir("kp-master");
         let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
         let file = kdbx(&dir);
-        let form = Origin::Form { id: None, duplicate_of: None, name: "" };
-        let base = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
+        let form = Origin::Form {
+            id: None,
+            duplicate_of: None,
+            name: "",
+        };
+        let base = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "h".into(),
+            ..Default::default()
+        };
         let run = |src: SecretSource, tokens: Secrets| {
             let store = &store;
             let mut cfg = base.clone();
             async move {
                 let sources: SecretSources = [("password".to_string(), src)].into();
-                fill(store, &mut cfg, &sources, &tokens, form).await.map(|_| (cfg.password.unwrap_or_default(), cfg.username.unwrap_or_default()))
+                fill(store, &mut cfg, &sources, &tokens, form)
+                    .await
+                    .map(|_| {
+                        (
+                            cfg.password.unwrap_or_default(),
+                            cfg.username.unwrap_or_default(),
+                        )
+                    })
             }
         };
         let kept: Secrets = [(defs::token_key("password", ""), "dummy-master".to_string())].into();
-        assert_eq!(run(kp(&file, MasterSource::Keychain, ""), kept.clone()).await.unwrap(), ("pg-secret-1".into(), "app_user".into()));
-        let e = run(kp(&file, MasterSource::Keychain, ""), Secrets::new()).await.unwrap_err();
+        assert_eq!(
+            run(kp(&file, MasterSource::Keychain, ""), kept.clone())
+                .await
+                .unwrap(),
+            ("pg-secret-1".into(), "app_user".into())
+        );
+        let e = run(kp(&file, MasterSource::Keychain, ""), Secrets::new())
+            .await
+            .unwrap_err();
         assert!(e.to_string().contains("escribila en el formulario"), "{e}");
         // Asked: no password yet → Unlock; typed → opens; wrong → Unlock again.
-        let e = run(kp(&file, MasterSource::Ask, ""), Secrets::new()).await.unwrap_err();
-        let CommandError::SecretSourceUnlock(u) = &e else { panic!("{e:?}") };
-        assert_eq!((u.kind, u.wrong, u.field.as_str()), ("keepass", false, "password"));
+        let e = run(kp(&file, MasterSource::Ask, ""), Secrets::new())
+            .await
+            .unwrap_err();
+        let CommandError::SecretSourceUnlock(u) = &e else {
+            panic!("{e:?}")
+        };
+        assert_eq!(
+            (u.kind, u.wrong, u.field.as_str()),
+            ("keepass", false, "password")
+        );
         let json = serde_json::to_value(&e).unwrap();
         assert_eq!(json["kind"], "secret_source_unlock");
-        assert!(!json["message"].as_str().unwrap().contains(".kdbx"), "the message (what MCP sees) has no path");
-        assert_eq!(run(kp(&file, MasterSource::Ask, ""), kept.clone()).await.unwrap().0, "pg-secret-1");
+        assert!(
+            !json["message"].as_str().unwrap().contains(".kdbx"),
+            "the message (what MCP sees) has no path"
+        );
+        assert_eq!(
+            run(kp(&file, MasterSource::Ask, ""), kept.clone())
+                .await
+                .unwrap()
+                .0,
+            "pg-secret-1"
+        );
         let wrong: Secrets = [(defs::token_key("password", ""), "nope".to_string())].into();
-        let e = run(kp(&file, MasterSource::Ask, ""), wrong.clone()).await.unwrap_err();
-        assert!(matches!(&e, CommandError::SecretSourceUnlock(u) if u.wrong), "{e:?}");
+        let e = run(kp(&file, MasterSource::Ask, ""), wrong.clone())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&e, CommandError::SecretSourceUnlock(u) if u.wrong),
+            "{e:?}"
+        );
         // Kept but wrong: an error, not a prompt.
-        let e = run(kp(&file, MasterSource::Keychain, ""), wrong).await.unwrap_err();
-        assert!(matches!(&e, CommandError::SecretSource(m) if m.contains(keepass::WRONG_KEY)), "{e:?}");
+        let e = run(kp(&file, MasterSource::Keychain, ""), wrong)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&e, CommandError::SecretSource(m) if m.contains(keepass::WRONG_KEY)),
+            "{e:?}"
+        );
         // From a command.
-        assert_eq!(run(kp(&file, MasterSource::Command, "printf 'dummy-master\\n'"), Secrets::new()).await.unwrap().0, "pg-secret-1");
-        let e = run(kp(&file, MasterSource::Command, "echo denied >&2; exit 3"), Secrets::new()).await.unwrap_err();
-        assert!(e.to_string().contains("la contraseña maestra: el comando terminó con el código 3: denied"), "{e}");
+        assert_eq!(
+            run(
+                kp(&file, MasterSource::Command, "printf 'dummy-master\\n'"),
+                Secrets::new()
+            )
+            .await
+            .unwrap()
+            .0,
+            "pg-secret-1"
+        );
+        let e = run(
+            kp(&file, MasterSource::Command, "echo denied >&2; exit 3"),
+            Secrets::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("la contraseña maestra: el comando terminó con el código 3: denied"),
+            "{e}"
+        );
     }
 
     /// An imported KeePass definition points at a local file: it's not
@@ -907,7 +1555,11 @@ pub(crate) mod tests {
         let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
         let file = kdbx(&dir);
         let src = kp(&file, MasterSource::Keychain, "");
-        let mut cfg = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "h".into(),
+            ..Default::default()
+        };
         let sources: SecretSources = [("password".to_string(), src.clone())].into();
         defs::write(&mut cfg, &sources);
         let id = format!("imported-kp-{}", uuid::Uuid::new_v4());
@@ -926,13 +1578,36 @@ pub(crate) mod tests {
             .unwrap();
         defs::take(&mut cfg).unwrap();
         let kept: Secrets = [(defs::token_key("password", ""), "dummy-master".to_string())].into();
-        for origin in [Origin::Saved { id: &id, name: "Imported" }, Origin::Form { id: None, duplicate_of: None, name: "" }] {
-            let e = fill(&store, &mut cfg, &sources, &kept, origin).await.unwrap_err();
+        for origin in [
+            Origin::Saved {
+                id: &id,
+                name: "Imported",
+            },
+            Origin::Form {
+                id: None,
+                duplicate_of: None,
+                name: "",
+            },
+        ] {
+            let e = fill(&store, &mut cfg, &sources, &kept, origin)
+                .await
+                .unwrap_err();
             assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
             assert_eq!(cfg.password, None);
         }
         defs::approve(&defs::digest(&id, "password", &src)).unwrap();
-        fill(&store, &mut cfg, &sources, &kept, Origin::Saved { id: &id, name: "Imported" }).await.unwrap();
+        fill(
+            &store,
+            &mut cfg,
+            &sources,
+            &kept,
+            Origin::Saved {
+                id: &id,
+                name: "Imported",
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(cfg.password.as_deref(), Some("pg-secret-1"));
         defs::forget(&[defs::digest(&id, "password", &src)]).unwrap();
         forget_cached(&id);
@@ -942,7 +1617,10 @@ pub(crate) mod tests {
     fn tokens_by_field_and_slot() {
         let all: Secrets = [
             (defs::token_key("password", ""), "m".to_string()),
-            (defs::token_key("password", "refresh_token"), "r".to_string()),
+            (
+                defs::token_key("password", "refresh_token"),
+                "r".to_string(),
+            ),
             (defs::token_key("ssh.password", ""), "s".to_string()),
         ]
         .into();
@@ -973,8 +1651,16 @@ pub(crate) mod tests {
         use axum::routing::{get, post, put};
         use axum::{Json, Router};
         use serde_json::{json, Value};
-        let m = Arc::new(VaultMock { ttl: Mutex::new((3600, true)), ..Default::default() });
-        let tok = |h: &HeaderMap| h.get("x-vault-token").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let m = Arc::new(VaultMock {
+            ttl: Mutex::new((3600, true)),
+            ..Default::default()
+        });
+        let tok = |h: &HeaderMap| {
+            h.get("x-vault-token")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string()
+        };
         let app = Router::new()
             .route(
                 "/v1/database/creds/{role}",
@@ -1054,7 +1740,11 @@ pub(crate) mod tests {
             ca_file: String::new(),
             auth,
             approle_mount: String::new(),
-            role_id: if auth == defs::VaultAuth::Approle { "role-1".into() } else { String::new() },
+            role_id: if auth == defs::VaultAuth::Approle {
+                "role-1".into()
+            } else {
+                String::new()
+            },
             secret_account: String::new(),
         }
     }
@@ -1066,12 +1756,29 @@ pub(crate) mod tests {
         let (addr, m) = vault_mock().await;
         let src = vault_db_src(&addr, "", defs::VaultAuth::Token);
         let slots: Secrets = [(String::new(), "root".to_string())].into();
-        let l = browse::list(&src, &slots, Default::default()).await.unwrap();
-        let shown: Vec<(&str, &str)> = l.entries.iter().map(|e| (e.path.as_str(), e.id.as_str())).collect();
-        assert_eq!(shown, [("roles", "admin"), ("roles", "ro")], "no static roles here (404)");
-        assert_eq!(*m.issued.lock().unwrap(), 0, "browsing issues no credentials");
+        let l = browse::list(&src, &slots, Default::default())
+            .await
+            .unwrap();
+        let shown: Vec<(&str, &str)> = l
+            .entries
+            .iter()
+            .map(|e| (e.path.as_str(), e.id.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [("roles", "admin"), ("roles", "ro")],
+            "no static roles here (404)"
+        );
+        assert_eq!(
+            *m.issued.lock().unwrap(),
+            0,
+            "browsing issues no credentials"
+        );
         let none: Secrets = [(String::new(), "nope".to_string())].into();
-        assert!(browse::list(&src, &none, Default::default()).await.unwrap_err().contains("permiso denegado"));
+        assert!(browse::list(&src, &none, Default::default())
+            .await
+            .unwrap_err()
+            .contains("permiso denegado"));
     }
 
     /// Browsing what came from outside asks to confirm it first: the form's
@@ -1092,23 +1799,46 @@ pub(crate) mod tests {
             user_field: String::new(),
             secret_account: String::new(),
         };
-        let mut cfg = ConnectionConfig { driver: "postgres".into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            driver: "postgres".into(),
+            ..Default::default()
+        };
         defs::write(&mut cfg, &[("password".to_string(), src.clone())].into());
-        let saved = dbine_core::SavedConnection { id: format!("imported-browse-{}", uuid::Uuid::new_v4()), name: "imp".into(), color: None, config: cfg, save_password: true, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() };
+        let saved = dbine_core::SavedConnection {
+            id: format!("imported-browse-{}", uuid::Uuid::new_v4()),
+            name: "imp".into(),
+            color: None,
+            config: cfg,
+            save_password: true,
+            folder_id: None,
+            tags: vec![],
+            mcp_level: None,
+            updated_at: String::new(),
+        };
         store.save_connection(&saved).unwrap();
         // A new form, the imported definition typed as is: confirm it first.
-        assert!(matches!(browse::may_browse(&store, None, None, None, "password", &src), Err(CommandError::SecretSourceApproval(_))));
+        assert!(matches!(
+            browse::may_browse(&store, None, None, None, "password", &src),
+            Err(CommandError::SecretSourceApproval(_))
+        ));
         // Editing the imported connection, even with another definition.
         let mut other = src.clone();
         if let SecretSource::KeePass { file, .. } = &mut other {
             *file = "~/mine.kdbx".into();
         }
-        let e = browse::may_browse(&store, Some(&saved), None, None, "password", &other).unwrap_err();
-        assert!(matches!(&e, CommandError::SecretSourceApproval(a) if a.source == src), "the saved one is shown: {e:?}");
+        let e =
+            browse::may_browse(&store, Some(&saved), None, None, "password", &other).unwrap_err();
+        assert!(
+            matches!(&e, CommandError::SecretSourceApproval(a) if a.source == src),
+            "the saved one is shown: {e:?}"
+        );
         // Confirmed: browsing goes on.
         defs::approve(&defs::digest(&saved.id, "password", &src)).unwrap();
         assert!(browse::may_browse(&store, Some(&saved), None, None, "password", &other).is_ok());
-        assert!(browse::may_browse(&store, None, None, None, "password", &other).is_ok(), "typed in a new form");
+        assert!(
+            browse::may_browse(&store, None, None, None, "password", &other).is_ok(),
+            "typed in a new form"
+        );
         defs::forget(&[defs::digest(&saved.id, "password", &src)]).unwrap();
     }
 
@@ -1127,13 +1857,26 @@ pub(crate) mod tests {
         let sources: SecretSources = [("password".to_string(), src.clone())].into();
         defs::approve(&defs::digest(&id, "password", &src)).unwrap();
         let root: Secrets = [(defs::token_key("password", ""), "root".to_string())].into();
-        let base = ConnectionConfig { driver: "postgres".into(), host: "h".into(), username: Some("typed-user".into()), ..Default::default() };
-        let saved = Origin::Saved { id: &id, name: "Vault DB" };
+        let base = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "h".into(),
+            username: Some("typed-user".into()),
+            ..Default::default()
+        };
+        let saved = Origin::Saved {
+            id: &id,
+            name: "Vault DB",
+        };
         let connect = || {
             let (store, sources, root, base) = (&store, &sources, &root, base.clone());
             async move {
                 let mut cfg = base;
-                fill(store, &mut cfg, sources, root, saved).await.map(|_| (cfg.username.unwrap_or_default(), cfg.password.unwrap_or_default()))
+                fill(store, &mut cfg, sources, root, saved).await.map(|_| {
+                    (
+                        cfg.username.unwrap_or_default(),
+                        cfg.password.unwrap_or_default(),
+                    )
+                })
             }
         };
         // Two sessions: one lease, its user and password together.
@@ -1146,7 +1889,10 @@ pub(crate) mod tests {
         *m.ttl.lock().unwrap() = (5, true);
         assert_eq!(connect().await.unwrap().1, "pw-2");
         assert_eq!(connect().await.unwrap().1, "pw-2", "renewed, not replaced");
-        assert_eq!(m.renewed.lock().unwrap().as_slice(), ["database/creds/ro/L2"]);
+        assert_eq!(
+            m.renewed.lock().unwrap().as_slice(),
+            ["database/creds/ro/L2"]
+        );
         // One that can't be renewed is replaced; the old one waits for the
         // connection to close (a session may still use it).
         vault_db::release(&id).await;
@@ -1159,37 +1905,83 @@ pub(crate) mod tests {
         assert_eq!(vault_db::held_count(&id), (0, 0));
         let mut revoked = m.revoked.lock().unwrap().clone();
         revoked.sort();
-        assert_eq!(revoked, ["database/creds/ro/L1", "database/creds/ro/L2", "database/creds/ro/L3", "database/creds/ro/L4"]);
+        assert_eq!(
+            revoked,
+            [
+                "database/creds/ro/L1",
+                "database/creds/ro/L2",
+                "database/creds/ro/L3",
+                "database/creds/ro/L4"
+            ]
+        );
         // After a disconnect, new credentials.
         *m.ttl.lock().unwrap() = (3600, true);
         assert_eq!(connect().await.unwrap().1, "pw-5");
         vault_db::release(&id).await;
         // Test: issued and revoked at once, never held.
         let r = fetch(&src, &field_tokens(&root, "password")).await.unwrap();
-        assert_eq!((r.value.as_str(), r.username.as_deref()), ("pw-6", Some("v-ro-6")));
-        assert_eq!(m.revoked.lock().unwrap().last().map(String::as_str), Some("database/creds/ro/L6"));
+        assert_eq!(
+            (r.value.as_str(), r.username.as_deref()),
+            ("pw-6", Some("v-ro-6"))
+        );
+        assert_eq!(
+            m.revoked.lock().unwrap().last().map(String::as_str),
+            Some("database/creds/ro/L6")
+        );
         // Errors carry Vault's reason, never a value.
-        let e = fetch(&vault_db_src(&addr, "nope", defs::VaultAuth::Token), &field_tokens(&root, "password")).await.unwrap_err();
+        let e = fetch(
+            &vault_db_src(&addr, "nope", defs::VaultAuth::Token),
+            &field_tokens(&root, "password"),
+        )
+        .await
+        .unwrap_err();
         assert!(e.contains("no existe el rol «nope»"), "{e}");
         let bad: Secrets = [(String::new(), "wrong".to_string())].into();
-        assert!(fetch(&src, &bad).await.unwrap_err().contains("permiso denegado"));
+        assert!(fetch(&src, &bad)
+            .await
+            .unwrap_err()
+            .contains("permiso denegado"));
         // AppRole: signs in with the role ID and the kept secret ID; the
         // token goes with the lease and is revoked after it.
         let approle = vault_db_src(&addr, "ro", defs::VaultAuth::Approle);
         let ar_sources: SecretSources = [("password".to_string(), approle.clone())].into();
         defs::approve(&defs::digest(&id, "password", &approle)).unwrap();
-        let sid: Secrets = [(defs::token_key("password", "secret_id"), "dummy-secret-id".to_string())].into();
+        let sid: Secrets = [(
+            defs::token_key("password", "secret_id"),
+            "dummy-secret-id".to_string(),
+        )]
+        .into();
         let mut cfg = base.clone();
-        fill(&store, &mut cfg, &ar_sources, &sid, saved).await.unwrap();
+        fill(&store, &mut cfg, &ar_sources, &sid, saved)
+            .await
+            .unwrap();
         assert_eq!(cfg.username.as_deref(), Some("v-ro-7"));
-        assert_eq!(m.tokens.lock().unwrap().last().map(String::as_str), Some("at-approle"));
+        assert_eq!(
+            m.tokens.lock().unwrap().last().map(String::as_str),
+            Some("at-approle")
+        );
         let before = *m.tokens_revoked.lock().unwrap();
         vault_db::release(&id).await;
-        assert_eq!(*m.tokens_revoked.lock().unwrap(), before + 1, "the AppRole token too");
-        let wrong: Secrets = [(defs::token_key("password", "secret_id"), "nope".to_string())].into();
-        let e = fill(&store, &mut base.clone(), &ar_sources, &wrong, saved).await.unwrap_err().to_string();
-        assert!(e.contains("role_id o el secret_id") && !e.contains("nope"), "{e}");
-        defs::forget(&[defs::digest(&id, "password", &src), defs::digest(&id, "password", &approle)]).unwrap();
+        assert_eq!(
+            *m.tokens_revoked.lock().unwrap(),
+            before + 1,
+            "the AppRole token too"
+        );
+        let wrong: Secrets =
+            [(defs::token_key("password", "secret_id"), "nope".to_string())].into();
+        let e = fill(&store, &mut base.clone(), &ar_sources, &wrong, saved)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("role_id o el secret_id") && !e.contains("nope"),
+            "{e}"
+        );
+        defs::forget(&[
+            defs::digest(&id, "password", &src),
+            defs::digest(&id, "password", &approle),
+        ])
+        .unwrap();
     }
 
     /// "Probar conexión": the credentials the form's test leased are revoked
@@ -1202,19 +1994,34 @@ pub(crate) mod tests {
         let src = vault_db_src(&addr, "ro", defs::VaultAuth::Token);
         let sources: SecretSources = [("password".to_string(), src)].into();
         let root: Secrets = [(defs::token_key("password", ""), "root".to_string())].into();
-        let base = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
-        let form = Origin::Form { id: None, duplicate_of: None, name: "" };
+        let base = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "h".into(),
+            ..Default::default()
+        };
+        let form = Origin::Form {
+            id: None,
+            duplicate_of: None,
+            name: "",
+        };
         let m2 = m.clone();
         let user = with_form_leases(async {
             let mut cfg = base.clone();
             fill(&store, &mut cfg, &sources, &root, form).await.unwrap();
             // While the test's session is open, the lease is still there.
-            assert!(m2.revoked.lock().unwrap().is_empty(), "not revoked while the test runs");
+            assert!(
+                m2.revoked.lock().unwrap().is_empty(),
+                "not revoked while the test runs"
+            );
             cfg.username.unwrap_or_default()
         })
         .await;
         let lease = format!("database/creds/ro/L{}", user.trim_start_matches("v-ro-"));
-        assert_eq!(m.revoked.lock().unwrap().as_slice(), [lease], "revoked right after the test");
+        assert_eq!(
+            m.revoked.lock().unwrap().as_slice(),
+            [lease],
+            "revoked right after the test"
+        );
         // Outside a test's scope (a form's other uses) nothing changes: the
         // two-minute fallback still applies, nothing is revoked yet.
         let mut cfg = base.clone();
@@ -1227,14 +2034,30 @@ pub(crate) mod tests {
     async fn approle_signs_in_for_kv_too() {
         let (addr, m) = vault_mock().await;
         let client = reqwest::Client::new();
-        let conn = vault::Conn { address: &addr, namespace: "" };
+        let conn = vault::Conn {
+            address: &addr,
+            namespace: "",
+        };
         let slots: Secrets = [("secret_id".to_string(), "dummy-secret-id".to_string())].into();
-        let login = vault::login(&client, &conn, &vault::Auth::of(defs::VaultAuth::Approle, "", "role-1", &slots)).await.unwrap();
+        let login = vault::login(
+            &client,
+            &conn,
+            &vault::Auth::of(defs::VaultAuth::Approle, "", "role-1", &slots),
+        )
+        .await
+        .unwrap();
         assert_eq!((login.token.as_str(), login.owned), ("at-approle", true));
         login.done(&client, &conn).await;
         assert_eq!(*m.tokens_revoked.lock().unwrap(), 1);
         let none = Secrets::new();
-        let e = vault::login(&client, &conn, &vault::Auth::of(defs::VaultAuth::Approle, "", "role-1", &none)).await.err().unwrap();
+        let e = vault::login(
+            &client,
+            &conn,
+            &vault::Auth::of(defs::VaultAuth::Approle, "", "role-1", &none),
+        )
+        .await
+        .err()
+        .unwrap();
         assert!(e.contains("AppRole"), "{e}");
     }
 
@@ -1252,15 +2075,26 @@ pub(crate) mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let dir = temp_dir("e2e");
         let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
-        let base = ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("postgres".into()), ..Default::default() };
-        let mut tries: Vec<(&str, SecretSource, Secrets)> = vec![("command", cmd("printf 'pw\\n'"), Secrets::new())];
+        let base = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "127.0.0.1".into(),
+            port: 25010,
+            database: "postgres".into(),
+            username: Some("postgres".into()),
+            ..Default::default()
+        };
+        let mut tries: Vec<(&str, SecretSource, Secrets)> =
+            vec![("command", cmd("printf 'pw\\n'"), Secrets::new())];
         // KeePass: the entry has the user and the password.
-        let mut db = keepass::tests::sample_db(::keepass::config::OuterCipherConfig::ChaCha20, false);
-        db.root_mut().add_entry().edit(|e: &mut ::keepass::db::EntryMut<'_>| {
-            e.set_unprotected(::keepass::db::fields::TITLE, "dbine-test-postgres");
-            e.set_unprotected(::keepass::db::fields::USERNAME, "postgres");
-            e.set_protected(::keepass::db::fields::PASSWORD, "pw");
-        });
+        let mut db =
+            keepass::tests::sample_db(::keepass::config::OuterCipherConfig::ChaCha20, false);
+        db.root_mut()
+            .add_entry()
+            .edit(|e: &mut ::keepass::db::EntryMut<'_>| {
+                e.set_unprotected(::keepass::db::fields::TITLE, "dbine-test-postgres");
+                e.set_unprotected(::keepass::db::fields::USERNAME, "postgres");
+                e.set_protected(::keepass::db::fields::PASSWORD, "pw");
+            });
         let key_file = dir.join("db.keyx");
         std::fs::write(&key_file, b"dbine-live-test-key-file-0123456789").unwrap();
         let file = dir.join("live.kdbx");
@@ -1276,7 +2110,11 @@ pub(crate) mod tests {
             user_field: String::new(),
             secret_account: String::new(),
         };
-        tries.push(("keepass", keepass, [(token_key("password"), "dummy-master".to_string())].into()));
+        tries.push((
+            "keepass",
+            keepass,
+            [(token_key("password"), "dummy-master".to_string())].into(),
+        ));
         if let Ok(addr) = std::env::var("DBINE_TEST_VAULT") {
             let vault = SecretSource::Vault {
                 address: addr,
@@ -1290,7 +2128,11 @@ pub(crate) mod tests {
                 role_id: String::new(),
                 secret_account: String::new(),
             };
-            tries.push(("vault", vault, [(token_key("password"), "dbine-root".to_string())].into()));
+            tries.push((
+                "vault",
+                vault,
+                [(token_key("password"), "dbine-root".to_string())].into(),
+            ));
         }
         for (what, src, tokens) in tries {
             let mut cfg = base.clone();
@@ -1298,9 +2140,23 @@ pub(crate) mod tests {
                 cfg.username = Some("someone-else".into());
             }
             let sources: SecretSources = [("password".to_string(), src)].into();
-            fill(&store, &mut cfg, &sources, &tokens, Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap_or_else(|e| panic!("{what}: {e}"));
+            fill(
+                &store,
+                &mut cfg,
+                &sources,
+                &tokens,
+                Origin::Form {
+                    id: None,
+                    duplicate_of: None,
+                    name: "",
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{what}: {e}"));
             assert_eq!(cfg.username.as_deref(), Some("postgres"), "{what}");
-            let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap_or_else(|e| panic!("{what}: connect: {e}"));
+            let mut s = dbine_drivers::open_session(&cfg, None)
+                .await
+                .unwrap_or_else(|e| panic!("{what}: connect: {e}"));
             let v = s.server_version().await.unwrap();
             eprintln!("{what}: connected, {v}");
         }
@@ -1317,44 +2173,107 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn live_vault_database() {
-        let Ok(addr) = std::env::var("DBINE_TEST_VAULT_DB") else { return };
+        let Ok(addr) = std::env::var("DBINE_TEST_VAULT_DB") else {
+            return;
+        };
         let _ = rustls::crypto::ring::default_provider().install_default();
         let dir = temp_dir("vault-db-live");
         let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
         // Asked to the server itself, as its superuser, in the container.
         let role_exists = async |name: &str| {
-            let q = format!("SELECT count(*) FROM pg_roles WHERE rolname = '{}'", name.replace('\'', "''"));
-            let out = tokio::process::Command::new("docker").args(["exec", "dbine-test-postgres", "psql", "-U", "postgres", "-tAc", &q]).output().await.unwrap();
+            let q = format!(
+                "SELECT count(*) FROM pg_roles WHERE rolname = '{}'",
+                name.replace('\'', "''")
+            );
+            let out = tokio::process::Command::new("docker")
+                .args([
+                    "exec",
+                    "dbine-test-postgres",
+                    "psql",
+                    "-U",
+                    "postgres",
+                    "-tAc",
+                    &q,
+                ])
+                .output()
+                .await
+                .unwrap();
             String::from_utf8_lossy(&out.stdout).trim() == "1"
         };
-        let base = ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
-        let mut tries: Vec<(&str, SecretSource, Secrets)> = vec![("token", vault_db_src(&addr, "ro", defs::VaultAuth::Token), [(defs::token_key("password", ""), "dbine-root".to_string())].into())];
-        if let Some((role_id, secret_id)) = std::env::var("DBINE_TEST_VAULT_APPROLE").ok().and_then(|v| v.split_once(':').map(|(a, b)| (a.to_string(), b.to_string()))) {
+        let base = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "127.0.0.1".into(),
+            port: 25010,
+            database: "postgres".into(),
+            username: Some("someone-else".into()),
+            ..Default::default()
+        };
+        let mut tries: Vec<(&str, SecretSource, Secrets)> = vec![(
+            "token",
+            vault_db_src(&addr, "ro", defs::VaultAuth::Token),
+            [(defs::token_key("password", ""), "dbine-root".to_string())].into(),
+        )];
+        if let Some((role_id, secret_id)) =
+            std::env::var("DBINE_TEST_VAULT_APPROLE")
+                .ok()
+                .and_then(|v| {
+                    v.split_once(':')
+                        .map(|(a, b)| (a.to_string(), b.to_string()))
+                })
+        {
             let mut src = vault_db_src(&addr, "ro", defs::VaultAuth::Approle);
-            if let SecretSource::VaultDb { role_id: r, approle_mount, .. } = &mut src {
+            if let SecretSource::VaultDb {
+                role_id: r,
+                approle_mount,
+                ..
+            } = &mut src
+            {
                 *r = role_id;
                 *approle_mount = "approle".into();
             }
-            tries.push(("approle", src, [(defs::token_key("password", "secret_id"), secret_id)].into()));
+            tries.push((
+                "approle",
+                src,
+                [(defs::token_key("password", "secret_id"), secret_id)].into(),
+            ));
         }
         for (what, src, tokens) in tries {
             let id = format!("vdb-live-{what}-{}", uuid::Uuid::new_v4());
             let sources: SecretSources = [("password".to_string(), src.clone())].into();
             defs::approve(&defs::digest(&id, "password", &src)).unwrap();
-            let origin = Origin::Saved { id: &id, name: "live" };
+            let origin = Origin::Saved {
+                id: &id,
+                name: "live",
+            };
             let mut cfg = base.clone();
-            fill(&store, &mut cfg, &sources, &tokens, origin).await.unwrap_or_else(|e| panic!("{what}: {e}"));
+            fill(&store, &mut cfg, &sources, &tokens, origin)
+                .await
+                .unwrap_or_else(|e| panic!("{what}: {e}"));
             let user = cfg.username.clone().unwrap();
             assert!(user.starts_with("v-"), "{what}: a user Vault made: {user}");
-            let mut s1 = dbine_drivers::open_session(&cfg, None).await.unwrap_or_else(|e| panic!("{what}: connect: {e}"));
-            eprintln!("{what}: connected as a Vault user, {}", s1.server_version().await.unwrap());
+            let mut s1 = dbine_drivers::open_session(&cfg, None)
+                .await
+                .unwrap_or_else(|e| panic!("{what}: connect: {e}"));
+            eprintln!(
+                "{what}: connected as a Vault user, {}",
+                s1.server_version().await.unwrap()
+            );
             // A second session of the same connection: the same user.
             let mut cfg2 = base.clone();
-            fill(&store, &mut cfg2, &sources, &tokens, origin).await.unwrap();
-            assert_eq!(cfg2.username.as_deref(), Some(user.as_str()), "{what}: one lease for the connection");
+            fill(&store, &mut cfg2, &sources, &tokens, origin)
+                .await
+                .unwrap();
+            assert_eq!(
+                cfg2.username.as_deref(),
+                Some(user.as_str()),
+                "{what}: one lease for the connection"
+            );
             let mut s2 = dbine_drivers::open_session(&cfg2, None).await.unwrap();
             s2.server_version().await.unwrap();
-            assert!(role_exists(&user).await, "{what}: the role exists while connected");
+            assert!(
+                role_exists(&user).await,
+                "{what}: the role exists while connected"
+            );
             drop(s1);
             drop(s2);
             tokio::time::sleep(Duration::from_millis(300)).await;
@@ -1377,12 +2296,19 @@ pub(crate) mod tests {
         if let SecretSource::VaultDb { static_role, .. } = &mut st {
             *static_role = true;
         }
-        let r = fetch(&st, &[(String::new(), "dbine-root".to_string())].into()).await.unwrap();
+        let r = fetch(&st, &[(String::new(), "dbine-root".to_string())].into())
+            .await
+            .unwrap();
         assert_eq!(r.username.as_deref(), Some("static_app"));
         let mut cfg = base.clone();
         cfg.username = r.username.clone();
         cfg.password = Some(r.value.clone());
-        dbine_drivers::open_session(&cfg, None).await.unwrap().server_version().await.unwrap();
+        dbine_drivers::open_session(&cfg, None)
+            .await
+            .unwrap()
+            .server_version()
+            .await
+            .unwrap();
         eprintln!("static role: connected as static_app");
     }
 
@@ -1395,7 +2321,12 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore]
     async fn live_conjur() {
-        let (Ok(url), Ok(key)) = (std::env::var("DBINE_TEST_CONJUR"), std::env::var("DBINE_TEST_CONJUR_KEY")) else { return };
+        let (Ok(url), Ok(key)) = (
+            std::env::var("DBINE_TEST_CONJUR"),
+            std::env::var("DBINE_TEST_CONJUR_KEY"),
+        ) else {
+            return;
+        };
         let _ = rustls::crypto::ring::default_provider().install_default();
         let dir = temp_dir("conjur-live");
         let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
@@ -1410,16 +2341,47 @@ pub(crate) mod tests {
             secret_account: String::new(),
         };
         let tokens: Secrets = [(defs::token_key("password", ""), key.clone())].into();
-        let mut cfg = ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "127.0.0.1".into(),
+            port: 25010,
+            database: "postgres".into(),
+            username: Some("someone-else".into()),
+            ..Default::default()
+        };
         let sources: SecretSources = [("password".to_string(), src("db/prod/password"))].into();
-        fill(&store, &mut cfg, &sources, &tokens, Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap();
-        assert_eq!(cfg.username.as_deref(), Some("postgres"), "the user from the second variable");
+        fill(
+            &store,
+            &mut cfg,
+            &sources,
+            &tokens,
+            Origin::Form {
+                id: None,
+                duplicate_of: None,
+                name: "",
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            cfg.username.as_deref(),
+            Some("postgres"),
+            "the user from the second variable"
+        );
         let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap();
         eprintln!("conjur: connected, {}", s.server_version().await.unwrap());
-        let e = fetch(&src("db/forbidden"), &field_tokens(&tokens, "password")).await.unwrap_err();
-        assert!(e.contains("permiso denegado") || e.contains("no existe"), "{e}");
+        let e = fetch(&src("db/forbidden"), &field_tokens(&tokens, "password"))
+            .await
+            .unwrap_err();
+        assert!(
+            e.contains("permiso denegado") || e.contains("no existe"),
+            "{e}"
+        );
         let wrong: Secrets = [(String::new(), "wrong-key".to_string())].into();
         let e = fetch(&src("db/prod/password"), &wrong).await.unwrap_err();
-        assert!(e.contains("rechazó el login") && !e.contains("wrong-key"), "{e}");
+        assert!(
+            e.contains("rechazó el login") && !e.contains("wrong-key"),
+            "{e}"
+        );
     }
 }

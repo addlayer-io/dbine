@@ -20,7 +20,9 @@ type Row = Map<String, Value>;
 
 /// The transactions a `status` says this one waits for.
 pub(crate) fn blockers(status: &str) -> Vec<String> {
-    let Some(rest) = status.trim().strip_prefix("Blocked by:") else { return Vec::new() };
+    let Some(rest) = status.trim().strip_prefix("Blocked by:") else {
+        return Vec::new();
+    };
     rest.trim()
         .trim_start_matches('[')
         .trim_end_matches(']')
@@ -31,30 +33,54 @@ pub(crate) fn blockers(status: &str) -> Vec<String> {
 }
 
 fn text(r: &Row, k: &str) -> Option<String> {
-    r.get(k).map(as_text).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    r.get(k)
+        .map(as_text)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// "NODE 2, 7" from `resourceInformation`.
 fn object(r: &Row) -> Option<String> {
     let info = r.get("resourceInformation")?.as_object()?;
-    let kind = info.get("resourceType").map(as_text).filter(|s| !s.is_empty())?;
-    let ids: Vec<String> = info.get("resourceIds").and_then(Value::as_array).map(|a| a.iter().map(as_text).collect()).unwrap_or_default();
-    Some(if ids.is_empty() { kind } else { format!("{kind} {}", ids.join(", ")) })
+    let kind = info
+        .get("resourceType")
+        .map(as_text)
+        .filter(|s| !s.is_empty())?;
+    let ids: Vec<String> = info
+        .get("resourceIds")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(as_text).collect())
+        .unwrap_or_default();
+    Some(if ids.is_empty() {
+        kind
+    } else {
+        format!("{kind} {}", ids.join(", "))
+    })
 }
 
 /// The chain out of `SHOW TRANSACTIONS YIELD *` rows.
 pub(crate) fn chain(rows: &[Row]) -> Vec<BlockedSession> {
-    let by_id = |id: &str| rows.iter().find(|r| text(r, "transactionId").as_deref() == Some(id));
+    let by_id = |id: &str| {
+        rows.iter()
+            .find(|r| text(r, "transactionId").as_deref() == Some(id))
+    };
     let mut out = Vec::new();
     let mut heads = BTreeSet::new();
     let mut waiters = BTreeSet::new();
     for r in rows {
         let status = text(r, "status").unwrap_or_default();
         let blocked_by = blockers(&status);
-        let Some(first) = blocked_by.first().cloned() else { continue };
-        let Some(id) = text(r, "transactionId") else { continue };
+        let Some(first) = blocked_by.first().cloned() else {
+            continue;
+        };
+        let Some(id) = text(r, "transactionId") else {
+            continue;
+        };
         let info = r.get("resourceInformation").and_then(Value::as_object);
-        let mode = info.and_then(|i| i.get("lockMode")).map(as_text).filter(|s| !s.is_empty());
+        let mode = info
+            .and_then(|i| i.get("lockMode"))
+            .map(as_text)
+            .filter(|s| !s.is_empty());
         let waited = info
             .and_then(|i| i.get("waitTimeMillis"))
             .and_then(Value::as_f64)
@@ -92,7 +118,10 @@ pub(crate) fn chain(rows: &[Row]) -> Vec<BlockedSession> {
                 (Some(s), _) => s,
                 (None, _) => "retiene el bloqueo".into(),
             }),
-            waited_ms: r.and_then(|r| r.get("elapsedTime")).and_then(duration_ms).map(|v| v.max(0.0) as u64),
+            waited_ms: r
+                .and_then(|r| r.get("elapsedTime"))
+                .and_then(duration_ms)
+                .map(|v| v.max(0.0) as u64),
             object: None,
             sql: running,
         });
@@ -102,7 +131,11 @@ pub(crate) fn chain(rows: &[Row]) -> Vec<BlockedSession> {
 
 fn client(r: &Row) -> Option<String> {
     let addr = text(r, "clientAddress");
-    let app = r.get("metaData").and_then(|m| m.get("app")).map(as_text).filter(|s| !s.is_empty());
+    let app = r
+        .get("metaData")
+        .and_then(|m| m.get("app"))
+        .map(as_text)
+        .filter(|s| !s.is_empty());
     match (addr, app) {
         (Some(a), Some(p)) => Some(format!("{a} · {p}")),
         (a, p) => a.or(p),
@@ -111,9 +144,13 @@ fn client(r: &Row) -> Option<String> {
 
 /// A Neo4j transaction id: `<database>-transaction-<n>`.
 pub(crate) fn valid_id(id: &str) -> bool {
-    let Some((db, n)) = id.rsplit_once("-transaction-") else { return false };
+    let Some((db, n)) = id.rsplit_once("-transaction-") else {
+        return false;
+    };
     !db.is_empty()
-        && db.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        && db
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
         && !n.is_empty()
         && n.chars().all(|c| c.is_ascii_digit())
 }
@@ -126,12 +163,18 @@ pub async fn blocking(s: &mut GraphSession) -> Result<Vec<BlockedSession>> {
 pub async fn kill(s: &mut GraphSession, id: &str) -> Result<()> {
     let id = id.trim();
     if !valid_id(id) {
-        return Err(Error::Query(format!("«{id}» no es un id de transacción de Neo4j")));
+        return Err(Error::Query(format!(
+            "«{id}» no es un id de transacción de Neo4j"
+        )));
     }
-    let rows = s.records(&format!("TERMINATE TRANSACTION {}", cypher::string(id))).await?;
+    let rows = s
+        .records(&format!("TERMINATE TRANSACTION {}", cypher::string(id)))
+        .await?;
     // Neo4j answers with one row per id, its `message` saying whether it was found.
     match rows.first().and_then(|r| text(r, "message")) {
-        Some(m) if !m.to_ascii_lowercase().contains("terminated") => Err(Error::Query(format!("No se pudo terminar {id}: {m}"))),
+        Some(m) if !m.to_ascii_lowercase().contains("terminated") => {
+            Err(Error::Query(format!("No se pudo terminar {id}: {m}")))
+        }
         _ => Ok(()),
     }
 }
@@ -147,19 +190,29 @@ mod tests {
 
     #[test]
     fn parses_blocked_by() {
-        assert_eq!(blockers("Blocked by: [neo4j-transaction-47]"), vec!["neo4j-transaction-47"]);
-        assert_eq!(blockers("Blocked by: [a-transaction-1, a-transaction-2]"), vec!["a-transaction-1", "a-transaction-2"]);
+        assert_eq!(
+            blockers("Blocked by: [neo4j-transaction-47]"),
+            vec!["neo4j-transaction-47"]
+        );
+        assert_eq!(
+            blockers("Blocked by: [a-transaction-1, a-transaction-2]"),
+            vec!["a-transaction-1", "a-transaction-2"]
+        );
         assert!(blockers("Running").is_empty());
     }
 
     #[test]
     fn builds_the_chain() {
         let rows = vec![
-            row(json!({"transactionId": "neo4j-transaction-50", "status": "Blocked by: [neo4j-transaction-47]",
+            row(
+                json!({"transactionId": "neo4j-transaction-50", "status": "Blocked by: [neo4j-transaction-47]",
                 "username": "neo4j", "database": "neo4j", "clientAddress": "127.0.0.1:1", "currentQuery": "MATCH (n) SET n.v = 2",
-                "resourceInformation": {"waitTimeMillis": 3033, "lockMode": "EXCLUSIVE", "resourceType": "NODE", "resourceIds": [2]}})),
-            row(json!({"transactionId": "neo4j-transaction-47", "status": "Running", "username": "neo4j", "database": "neo4j",
-                "currentQuery": "MATCH (n) SET n.v = 1", "elapsedTime": "PT6.5S"})),
+                "resourceInformation": {"waitTimeMillis": 3033, "lockMode": "EXCLUSIVE", "resourceType": "NODE", "resourceIds": [2]}}),
+            ),
+            row(
+                json!({"transactionId": "neo4j-transaction-47", "status": "Running", "username": "neo4j", "database": "neo4j",
+                "currentQuery": "MATCH (n) SET n.v = 1", "elapsedTime": "PT6.5S"}),
+            ),
             row(json!({"transactionId": "neo4j-transaction-9", "status": "Running"})),
         ];
         let c = chain(&rows);

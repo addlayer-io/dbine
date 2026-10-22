@@ -26,14 +26,38 @@ const SESSION_IDLE: Duration = Duration::from_secs(4 * 60 * 60);
 /// The workbench modules `module_opened` can name: the tab kinds of the UI
 /// (`web/src/stores/tabs.ts`) and the side panels that aren't tabs.
 const MODULES: &[&str] = &[
-    "query", "object", "designer", "diagram", "monitor", "profiler", "migration", "connection", "compare",
-    "dataCompare", "security", "backups", "indexes", "dependencies", "file", "fileDiff",
+    "query",
+    "object",
+    "designer",
+    "diagram",
+    "monitor",
+    "profiler",
+    "migration",
+    "connection",
+    "compare",
+    "dataCompare",
+    "security",
+    "backups",
+    "indexes",
+    "dependencies",
+    "file",
+    "fileDiff",
     // side panels
-    "ai", "projects", "library", "history",
+    "ai",
+    "projects",
+    "library",
+    "history",
 ];
 
 /// What `feature_used` can name: an action done, not a screen opened.
-const FEATURES: &[&str] = &["ai_message", "mcp_tool", "schema_sync", "data_sync", "migration_run", "multi_db_run"];
+const FEATURES: &[&str] = &[
+    "ai_message",
+    "mcp_tool",
+    "schema_sync",
+    "data_sync",
+    "migration_run",
+    "multi_db_run",
+];
 
 /// The kind of AI provider an `ai_message` used (never the model or the text).
 const PROVIDERS: &[&str] = &["embedded", "ollama", "lm_studio", "claude_code", "codex"];
@@ -89,7 +113,12 @@ pub async fn track_event(app: tauri::AppHandle, args: TrackEventArgs) -> Command
         // Anything else isn't on the list: it never leaves.
         _ => return Ok(()),
     }
-    post(&args.event, props, &args.locale, &app.package_info().version.to_string());
+    post(
+        &args.event,
+        props,
+        &args.locale,
+        &app.package_info().version.to_string(),
+    );
     Ok(())
 }
 
@@ -110,7 +139,10 @@ fn feature_props(feature: Option<&str>, provider: Option<&str>) -> Option<Map<St
 pub fn track_backend_feature(state: &crate::state::AppState, feature: &'static str) {
     static SENT: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
     // Tests run the MCP server: they never report.
-    if cfg!(test) || disabled_by_env() || state.store.get_setting("telemetry.consent").ok().flatten() == Some(Value::Bool(false)) {
+    if cfg!(test)
+        || disabled_by_env()
+        || state.store.get_setting("telemetry.consent").ok().flatten() == Some(Value::Bool(false))
+    {
         return;
     }
     {
@@ -127,7 +159,11 @@ pub fn track_backend_feature(state: &crate::state::AppState, feature: &'static s
 
 /// Send an event already checked against the lists, in the background.
 fn post(event: &str, props: Map<String, Value>, locale: &str, version: &str) {
-    let locale: String = locale.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(16).collect();
+    let locale: String = locale
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(16)
+        .collect();
     let (os_name, os_version) = os();
     let event = json!([{
         "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -146,8 +182,15 @@ fn post(event: &str, props: Map<String, Value>, locale: &str, version: &str) {
     tauri::async_runtime::spawn(async move {
         let mut waits = RETRY_MINUTES.iter();
         loop {
-            let sent = client().post(INGEST_URL).header("App-Key", APP_KEY).json(&event).send().await;
-            let Err(e) = sent.and_then(|r| r.error_for_status()) else { return };
+            let sent = client()
+                .post(INGEST_URL)
+                .header("App-Key", APP_KEY)
+                .json(&event)
+                .send()
+                .await;
+            let Err(e) = sent.and_then(|r| r.error_for_status()) else {
+                return;
+            };
             // Logged (not shown): the only way to tell why a machine's events
             // never arrive (proxy, firewall, TLS). The event carries nothing
             // identifying, and neither does the error. The whole chain:
@@ -186,7 +229,11 @@ const RETRY_MINUTES: &[u64] = &[1, 2, 3, 5, 8, 13, 21];
 /// server asking to slow down. Anything else (a bad key or event) won't
 /// change by waiting.
 fn retryable(status: Option<reqwest::StatusCode>) -> bool {
-    status.map_or(true, |s| s.is_server_error() || s == reqwest::StatusCode::TOO_MANY_REQUESTS || s == reqwest::StatusCode::REQUEST_TIMEOUT)
+    status.map_or(true, |s| {
+        s.is_server_error()
+            || s == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || s == reqwest::StatusCode::REQUEST_TIMEOUT
+    })
 }
 
 /// The user turned telemetry off during this run (`telemetry.consent` set to
@@ -198,12 +245,18 @@ pub(crate) static OPTED_OUT: AtomicBool = AtomicBool::new(false);
 fn disabled_by_env() -> bool {
     let set = |k: &str| std::env::var(k).ok().map(|v| v.trim().to_ascii_lowercase());
     set("DO_NOT_TRACK").is_some_and(|v| !v.is_empty() && v != "0" && v != "false")
-        || set("DBINE_TELEMETRY").is_some_and(|v| matches!(v.as_str(), "0" | "false" | "off" | "no"))
+        || set("DBINE_TELEMETRY")
+            .is_some_and(|v| matches!(v.as_str(), "0" | "false" | "off" | "no"))
 }
 
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap_or_default())
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .unwrap_or_default()
+    })
 }
 
 /// Aptabase's format: epoch seconds followed by 8 random digits.
@@ -217,8 +270,15 @@ fn session_id() -> String {
             id.clone()
         }
         _ => {
-            let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
-            let random = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap_or_default()) % 100_000_000;
+            let secs = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or_default();
+            let random = u64::from_le_bytes(
+                uuid::Uuid::new_v4().as_bytes()[..8]
+                    .try_into()
+                    .unwrap_or_default(),
+            ) % 100_000_000;
             let id = (secs * 100_000_000 + random).to_string();
             *s = Some((id.clone(), now));
             id
@@ -256,9 +316,19 @@ fn os_version() -> String {
 fn os_version() -> String {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new("cmd").args(["/C", "ver"]).creation_flags(CREATE_NO_WINDOW).output();
-    let text = out.map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
-    text.rsplit(' ').next().unwrap_or_default().trim().trim_end_matches(']').to_string()
+    let out = std::process::Command::new("cmd")
+        .args(["/C", "ver"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    let text = out
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+    text.rsplit(' ')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_end_matches(']')
+        .to_string()
 }
 
 /// The distribution and its version, e.g. "ubuntu 24.04".
@@ -272,7 +342,9 @@ fn os_version() -> String {
             .map(|v| v.trim_matches('"').to_string())
             .unwrap_or_default()
     };
-    format!("{} {}", field("ID"), field("VERSION_ID")).trim().to_string()
+    format!("{} {}", field("ID"), field("VERSION_ID"))
+        .trim()
+        .to_string()
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -310,7 +382,10 @@ mod feature_tests {
         assert!(p.get("provider").is_none());
         let p = feature_props(Some("ai_message"), Some("embedded")).unwrap();
         assert_eq!(p.get("provider"), Some(&Value::String("embedded".into())));
-        assert!(feature_props(Some("ai_message"), Some("qwen2.5-coder-32b")).is_none(), "a model name never leaves");
+        assert!(
+            feature_props(Some("ai_message"), Some("qwen2.5-coder-32b")).is_none(),
+            "a model name never leaves"
+        );
         assert!(feature_props(Some("ai_message"), None).is_none());
         assert!(feature_props(Some("select * from people"), None).is_none());
         assert!(MODULES.contains(&"ai") && MODULES.contains(&"indexes"));

@@ -17,7 +17,10 @@ pub const NOTE: &str = "Databricks no tiene índices secundarios (Delta usa esta
 
 /// One table's foreign key columns (`:p0` schema, `:p1` table), in key order.
 pub fn foreign_keys_sql(catalog: &str) -> String {
-    let is = format!("{}.information_schema", quote_ident(Quote::Backtick, catalog));
+    let is = format!(
+        "{}.information_schema",
+        quote_ident(Quote::Backtick, catalog)
+    );
     format!(
         "SELECT k.constraint_name, k.column_name, u.table_schema, u.table_name, u.column_name, r.delete_rule, r.update_rule
          FROM {is}.referential_constraints r
@@ -32,7 +35,12 @@ pub fn foreign_keys_sql(catalog: &str) -> String {
 /// Its rows grouped by constraint.
 pub fn foreign_keys(rows: &[Vec<Option<String>>]) -> Vec<ForeignKeyDef> {
     let cell = |r: &[Option<String>], i: usize| r.get(i).cloned().flatten().unwrap_or_default();
-    let rule = |r: &[Option<String>], i: usize| r.get(i).cloned().flatten().filter(|v| !matches!(v.as_str(), "" | "NO ACTION" | "RESTRICT"));
+    let rule = |r: &[Option<String>], i: usize| {
+        r.get(i)
+            .cloned()
+            .flatten()
+            .filter(|v| !matches!(v.as_str(), "" | "NO ACTION" | "RESTRICT"))
+    };
     let mut out: Vec<ForeignKeyDef> = Vec::new();
     for r in rows {
         let name = Some(cell(r, 0));
@@ -55,8 +63,15 @@ pub fn foreign_keys(rows: &[Vec<Option<String>>]) -> Vec<ForeignKeyDef> {
     out
 }
 
-pub(crate) async fn report(s: &mut DatabricksSession, table: &ObjectRef) -> Result<IndexUsageReport> {
-    let schema = table.schema().or(s.schema.as_deref()).unwrap_or("default").to_string();
+pub(crate) async fn report(
+    s: &mut DatabricksSession,
+    table: &ObjectRef,
+) -> Result<IndexUsageReport> {
+    let schema = table
+        .schema()
+        .or(s.schema.as_deref())
+        .unwrap_or("default")
+        .to_string();
     let foreign_keys = match s.catalog().map(foreign_keys_sql) {
         Ok(sql) => match s.text_rows(&sql, &[&schema, &table.name]).await {
             Ok(rows) => foreign_keys(&rows),
@@ -68,7 +83,13 @@ pub(crate) async fn report(s: &mut DatabricksSession, table: &ObjectRef) -> Resu
         },
         Err(_) => Vec::new(),
     };
-    Ok(IndexUsageReport { note: Some(NOTE.into()), foreign_keys, seek_scan_split: false, writes_counted: false, ..Default::default() })
+    Ok(IndexUsageReport {
+        note: Some(NOTE.into()),
+        foreign_keys,
+        seek_scan_split: false,
+        writes_counted: false,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]
@@ -76,13 +97,18 @@ mod tests {
     use super::*;
 
     fn row(v: &[&str]) -> Vec<Option<String>> {
-        v.iter().map(|c| (!c.is_empty()).then(|| c.to_string())).collect()
+        v.iter()
+            .map(|c| (!c.is_empty()).then(|| c.to_string()))
+            .collect()
     }
 
     #[test]
     fn query_and_rows() {
         let q = foreign_keys_sql("main");
-        assert!(q.contains("FROM `main`.information_schema.referential_constraints r"), "{q}");
+        assert!(
+            q.contains("FROM `main`.information_schema.referential_constraints r"),
+            "{q}"
+        );
         assert!(q.contains("WHERE k.table_schema = :p0 AND k.table_name = :p1"));
         let fks = foreign_keys(&[
             row(&["fk_c", "a", "s", "c", "x", "NO ACTION", "NO ACTION"]),
@@ -90,7 +116,25 @@ mod tests {
             row(&["fk_d", "d", "s2", "d", "id", "CASCADE", ""]),
         ]);
         assert_eq!(fks.len(), 2);
-        assert_eq!((fks[0].columns.clone(), fks[0].ref_columns.clone(), fks[0].on_delete.clone()), (vec!["a".into(), "b".into()], vec!["x".into(), "y".into()], None));
-        assert_eq!((fks[1].ref_schema.as_deref(), fks[1].ref_table.as_str(), fks[1].on_delete.as_deref()), (Some("s2"), "d", Some("CASCADE")));
+        assert_eq!(
+            (
+                fks[0].columns.clone(),
+                fks[0].ref_columns.clone(),
+                fks[0].on_delete.clone()
+            ),
+            (
+                vec!["a".into(), "b".into()],
+                vec!["x".into(), "y".into()],
+                None
+            )
+        );
+        assert_eq!(
+            (
+                fks[1].ref_schema.as_deref(),
+                fks[1].ref_table.as_str(),
+                fks[1].on_delete.as_deref()
+            ),
+            (Some("s2"), "d", Some("CASCADE"))
+        );
     }
 }

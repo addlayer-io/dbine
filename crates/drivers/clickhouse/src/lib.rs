@@ -25,15 +25,16 @@ mod stats;
 mod sync;
 mod transfer;
 
+use async_trait::async_trait;
 use dbine_driver::sql::{
     split_script, strip_comments, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
 };
 use dbine_driver::{
-    json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
-    DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef, QueryOutcome,
-    ResultColumn, Result, RowChange, ScriptError, Session, TableSchema,
+    json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
+    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language,
+    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, ScriptError, Session,
+    TableSchema,
 };
-use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -69,14 +70,22 @@ impl Flavor {
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![
-        Arc::new(ClickHouseDriver { info: info(Flavor::ClickHouse), flavor: Flavor::ClickHouse }),
-        Arc::new(ClickHouseDriver { info: info(Flavor::Timeplus), flavor: Flavor::Timeplus }),
+        Arc::new(ClickHouseDriver {
+            info: info(Flavor::ClickHouse),
+            flavor: Flavor::ClickHouse,
+        }),
+        Arc::new(ClickHouseDriver {
+            info: info(Flavor::Timeplus),
+            flavor: Flavor::Timeplus,
+        }),
     ]
 }
 
 fn info(flavor: Flavor) -> DriverInfo {
     let mut fields = Field::server_set();
-    fields[1] = Field::port().placeholder("8123").help("HTTP: 8123; con TLS, 8443.");
+    fields[1] = Field::port()
+        .placeholder("8123")
+        .help("HTTP: 8123; con TLS, 8443.");
     fields[3] = Field::username().placeholder("default");
     let (id, name, family, object_kinds) = match flavor {
         Flavor::ClickHouse => (
@@ -92,7 +101,9 @@ fn info(flavor: Flavor) -> DriverInfo {
             ],
         ),
         Flavor::Timeplus => {
-            fields[1] = Field::port().placeholder("8123").help("Consultas por lotes: 8123. El puerto 3218 corre consultas de streaming.");
+            fields[1] = Field::port()
+                .placeholder("8123")
+                .help("Consultas por lotes: 8123. El puerto 3218 corre consultas de streaming.");
             (
                 "timeplus",
                 "Timeplus Proton",
@@ -137,7 +148,12 @@ impl Driver for ClickHouseDriver {
     fn param_literal(&self, value: &dbine_driver::ParamValue) -> dbine_driver::Result<String> {
         match value {
             dbine_driver::ParamValue::Text(s) => Ok(schema::string_literal(s)),
-            other => dbine_driver::params::literal(self.info.language, self.info.dialect, self.info.id, other),
+            other => dbine_driver::params::literal(
+                self.info.language,
+                self.info.dialect,
+                self.info.id,
+                other,
+            ),
         }
     }
 
@@ -146,12 +162,20 @@ impl Driver for ClickHouseDriver {
         create_db::fields(self.flavor)
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(self.flavor, name, options)
     }
 
     /// "Propiedades" (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(self.flavor, database, changes)
     }
 
@@ -174,7 +198,10 @@ impl Driver for ClickHouseDriver {
     /// clickhouse-client --multiquery stops at the first error (unless
     /// `--ignore-error`).
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: false,
+            confirm_unsafe_dml: true,
+        }
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -208,7 +235,9 @@ impl Driver for ClickHouseDriver {
 
     fn backup_script(&self, action: &dbine_driver::BackupAction) -> Result<String> {
         if self.flavor != Flavor::ClickHouse {
-            return Err(Error::Unsupported("Timeplus Proton no tiene backups propios que se puedan restaurar".into()));
+            return Err(Error::Unsupported(
+                "Timeplus Proton no tiene backups propios que se puedan restaurar".into(),
+            ));
         }
         backup::script(action)
     }
@@ -235,7 +264,10 @@ impl Driver for ClickHouseDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(self.flavor, changes)
     }
 
@@ -269,19 +301,43 @@ impl Driver for ClickHouseDriver {
         transfer::copy_native(source, target, spec, progress).await
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
-        Ok(schema::insert_script(target.schema(), &target.name, columns, rows))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        Ok(schema::insert_script(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
-        Ok(schema::update_script(self.flavor, target.schema(), &target.name, changes))
+        Ok(schema::update_script(
+            self.flavor,
+            target.schema(),
+            &target.name,
+            changes,
+        ))
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
-        Ok(schema::delete_script(self.flavor, target.schema(), &target.name, keys))
+        Ok(schema::delete_script(
+            self.flavor,
+            target.schema(),
+            &target.name,
+            keys,
+        ))
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         schema::filtered_browse(browse, filters)
     }
 
@@ -289,9 +345,17 @@ impl Driver for ClickHouseDriver {
         schema::sorted_browse(query, sort)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
+        let host = if cfg.host.trim().is_empty() {
+            "localhost"
+        } else {
+            cfg.host.trim()
+        };
         let port = cfg.port_or(if cfg.encrypt { 8443 } else { 8123 });
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
@@ -307,7 +371,11 @@ impl Driver for ClickHouseDriver {
             conn: Arc::new(Conn {
                 http,
                 url: format!("{scheme}://{host}:{port}/"),
-                user: cfg.username.clone().filter(|u| !u.is_empty()).unwrap_or_else(|| "default".into()),
+                user: cfg
+                    .username
+                    .clone()
+                    .filter(|u| !u.is_empty())
+                    .unwrap_or_else(|| "default".into()),
                 password: cfg.password.clone().unwrap_or_default(),
                 locked_settings: AtomicBool::new(false),
                 server_readonly: AtomicBool::new(false),
@@ -342,7 +410,9 @@ struct Conn {
 
 impl Conn {
     fn post(&self) -> reqwest::RequestBuilder {
-        self.http.post(&self.url).basic_auth(&self.user, Some(&self.password))
+        self.http
+            .post(&self.url)
+            .basic_auth(&self.user, Some(&self.password))
     }
 }
 
@@ -383,7 +453,11 @@ impl ClickHouseSession {
             q.push(("session_id".into(), self.session_id.clone()));
             q.push(("session_timeout".into(), "3600".into()));
         }
-        q.extend(params.iter().map(|(k, v)| (format!("param_{k}"), v.to_string())));
+        q.extend(
+            params
+                .iter()
+                .map(|(k, v)| (format!("param_{k}"), v.to_string())),
+        );
         *self.in_flight.lock().unwrap_or_else(|e| e.into_inner()) = Some(query_id);
         // Proton spells types in lower case.
         let sql = match self.flavor {
@@ -395,18 +469,30 @@ impl ClickHouseSession {
         let mut attempts = 0;
         let resp = loop {
             let locked = self.conn.locked_settings.load(Ordering::Relaxed);
-            let mut settings: Vec<(&str, &str)> = if locked { Vec::new() } else { OUTPUT_SETTINGS.to_vec() };
+            let mut settings: Vec<(&str, &str)> = if locked {
+                Vec::new()
+            } else {
+                OUTPUT_SETTINGS.to_vec()
+            };
             let readonly = self.sends_readonly();
             if readonly {
                 settings.push(("readonly", "1"));
             }
-            let resp = self.conn.post().query(&q).query(&settings).body(sql.clone()).send().await.map_err(|e| {
-                if e.is_connect() || e.is_timeout() {
-                    Error::Connect(e.to_string())
-                } else {
-                    Error::Query(e.to_string())
-                }
-            })?;
+            let resp = self
+                .conn
+                .post()
+                .query(&q)
+                .query(&settings)
+                .body(sql.clone())
+                .send()
+                .await
+                .map_err(|e| {
+                    if e.is_connect() || e.is_timeout() {
+                        Error::Connect(e.to_string())
+                    } else {
+                        Error::Query(e.to_string())
+                    }
+                })?;
             if resp.status().is_success() {
                 break resp;
             }
@@ -435,7 +521,11 @@ impl ClickHouseSession {
             }
             return Err(server_error(status.as_u16(), text.trim()));
         };
-        let format = resp.headers().get(self.flavor.header("format")).and_then(|v| v.to_str().ok()).map(str::to_string);
+        let format = resp
+            .headers()
+            .get(self.flavor.header("format"))
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         Ok(match format.as_deref() {
             Some(FORMAT) => Body::Rows(resp),
             Some(_) => Body::Text(resp),
@@ -460,11 +550,21 @@ impl ClickHouseSession {
     /// The user's profile's own `readonly`, asked without any setting (0
     /// when it can't be read, so DBine keeps sending its own).
     async fn profile_readonly(&self) -> i64 {
-        let resp = match self.conn.post().body("SELECT getSetting('readonly')").send().await {
+        let resp = match self
+            .conn
+            .post()
+            .body("SELECT getSetting('readonly')")
+            .send()
+            .await
+        {
             Ok(r) if r.status().is_success() => r,
             _ => return 0,
         };
-        resp.text().await.ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0)
+        resp.text()
+            .await
+            .ok()
+            .and_then(|t| t.trim().parse().ok())
+            .unwrap_or(0)
     }
 
     /// Whether requests carry `readonly = 1` (DBine's read-only mode, unless
@@ -487,7 +587,9 @@ impl ClickHouseSession {
             None => ("", ""),
         };
         let engines = match self.flavor {
-            Flavor::ClickHouse => "engine NOT IN ('View', 'LiveView', 'WindowView', 'MaterializedView', 'Dictionary')",
+            Flavor::ClickHouse => {
+                "engine NOT IN ('View', 'LiveView', 'WindowView', 'MaterializedView', 'Dictionary')"
+            }
             Flavor::Timeplus => "engine IN ('Stream', 'MergeTree')",
         };
         let tables = self
@@ -526,7 +628,15 @@ impl ClickHouseSession {
             )
             .await
             .unwrap_or_default();
-        Ok(schema::assemble(self.flavor, &db, schema::Catalog { tables, columns, indexes }))
+        Ok(schema::assemble(
+            self.flavor,
+            &db,
+            schema::Catalog {
+                tables,
+                columns,
+                indexes,
+            },
+        ))
     }
 
     /// Run a catalog query and collect its rows (at most 100 000).
@@ -593,23 +703,36 @@ fn use_target(stmt: &str) -> Option<String> {
 
 /// The statements of a script, with their byte offsets.
 fn statements(sql: &str) -> Vec<(String, usize)> {
-    split_script(sql, &dialect()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).map(|s| (s.text, s.start)).collect()
+    split_script(sql, &dialect())
+        .into_iter()
+        .filter(|s| s.kind != StatementKind::ClientCommand)
+        .map(|s| (s.text, s.start))
+        .collect()
 }
 
 /// A statement of `script` (at byte `start`) failed: ClickHouse's error
 /// code, and where (`failed at position N`, 1-based, in the statement).
 fn stmt_err(e: Error, script: &str, start: usize) -> Error {
     let Error::Query(msg) = e else { return e };
-    let Some(code) = exception_code(&msg) else { return Error::Query(msg) };
+    let Some(code) = exception_code(&msg) else {
+        return Error::Query(msg);
+    };
     let mut se = ScriptError::new(msg.clone()).with_code(code.to_string());
-    let position = msg.split("failed at position ").nth(1).and_then(|r| r.split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok());
+    let position = msg.split("failed at position ").nth(1).and_then(|r| {
+        r.split(|c: char| !c.is_ascii_digit())
+            .next()?
+            .parse::<usize>()
+            .ok()
+    });
     let start = start.min(script.len());
     if let Some(p) = position.filter(|p| *p >= 1) {
         let mut at = (start + p - 1).min(script.len());
         while !script.is_char_boundary(at) {
             at -= 1;
         }
-        se = se.at_offset(at).at_line(script[..at].matches('\n').count() as u32 + 1);
+        se = se
+            .at_offset(at)
+            .at_line(script[..at].matches('\n').count() as u32 + 1);
     } else {
         se = se.at_line(script[..start].matches('\n').count() as u32 + 1);
     }
@@ -619,7 +742,11 @@ fn stmt_err(e: Error, script: &str, start: usize) -> Error {
 /// `Code: 516. DB::Exception: …` → the right error kind.
 fn server_error(status: u16, text: &str) -> Error {
     let code = exception_code(text);
-    let msg = if text.is_empty() { format!("HTTP {status}") } else { text.to_string() };
+    let msg = if text.is_empty() {
+        format!("HTTP {status}")
+    } else {
+        text.to_string()
+    };
     match (status, code) {
         (_, Some(394)) => Error::Cancelled,
         (401 | 403, _) | (_, Some(192 | 193 | 194 | 516)) => Error::AuthFailed(msg),
@@ -640,7 +767,10 @@ fn refused_setting(text: &str) -> Option<Refused> {
     if exception_code(text) != Some(READONLY) {
         return None;
     }
-    if OUTPUT_SETTINGS.iter().any(|(k, _)| text.contains(&format!("'{k}'"))) {
+    if OUTPUT_SETTINGS
+        .iter()
+        .any(|(k, _)| text.contains(&format!("'{k}'")))
+    {
         Some(Refused::Output)
     } else if text.contains("'readonly'") {
         Some(Refused::ReadOnly)
@@ -651,7 +781,10 @@ fn refused_setting(text: &str) -> Option<Refused> {
 
 fn exception_code(text: &str) -> Option<u32> {
     let rest = &text[text.find("Code: ")? + 6..];
-    rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    rest.split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// An exception the server wrote into a 200 response after it had started
@@ -683,14 +816,22 @@ struct Lines {
 
 impl Lines {
     fn new(resp: reqwest::Response) -> Self {
-        Self { resp, buf: Vec::new(), eof: false }
+        Self {
+            resp,
+            buf: Vec::new(),
+            eof: false,
+        }
     }
 
     async fn next(&mut self) -> Result<Option<String>> {
         loop {
             if let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
                 let line: Vec<u8> = self.buf.drain(..=pos).collect();
-                return Ok(Some(String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string()));
+                return Ok(Some(
+                    String::from_utf8_lossy(&line)
+                        .trim_end_matches(['\n', '\r'])
+                        .to_string(),
+                ));
             }
             if self.eof {
                 if self.buf.is_empty() {
@@ -699,7 +840,12 @@ impl Lines {
                 let line = String::from_utf8_lossy(&std::mem::take(&mut self.buf)).to_string();
                 return Ok(Some(line));
             }
-            match self.resp.chunk().await.map_err(|e| Error::Query(e.to_string()))? {
+            match self
+                .resp
+                .chunk()
+                .await
+                .map_err(|e| Error::Query(e.to_string()))?
+            {
                 Some(c) => self.buf.extend_from_slice(&c),
                 None => self.eof = true,
             }
@@ -719,7 +865,12 @@ impl Lines {
 /// `stop_at_limit` stops reading once past `max_rows` (streaming queries
 /// never end on their own); otherwise the rest is counted, not kept.
 /// Returns whether it stopped early.
-async fn read_rows(resp: reqwest::Response, out: &mut QueryOutcome, max_rows: usize, stop_at_limit: bool) -> Result<bool> {
+async fn read_rows(
+    resp: reqwest::Response,
+    out: &mut QueryOutcome,
+    max_rows: usize,
+    stop_at_limit: bool,
+) -> Result<bool> {
     let mut lines = Lines::new(resp);
     let mut header: Vec<Vec<String>> = Vec::new();
     let mut types: Vec<String> = Vec::new();
@@ -727,10 +878,16 @@ async fn read_rows(resp: reqwest::Response, out: &mut QueryOutcome, max_rows: us
         if line.trim().is_empty() {
             continue;
         }
-        let parsed = if line.trim() == "__exception__" { None } else { split_row(&line) };
+        let parsed = if line.trim() == "__exception__" {
+            None
+        } else {
+            split_row(&line)
+        };
         let Some(cells) = parsed else {
             let rest = format!("{line}\n{}", lines.rest().await);
-            return Err(body_exception(&rest).unwrap_or_else(|| Error::Query(format!("respuesta inesperada: {}", rest.trim()))));
+            return Err(body_exception(&rest).unwrap_or_else(|| {
+                Error::Query(format!("respuesta inesperada: {}", rest.trim()))
+            }));
         };
         if header.len() < 2 {
             header.push(
@@ -745,12 +902,23 @@ async fn read_rows(resp: reqwest::Response, out: &mut QueryOutcome, max_rows: us
             if header.len() == 2 {
                 types = header[1].clone();
                 out.begin_result(
-                    header[0].iter().zip(&types).map(|(n, t)| ResultColumn { name: n.clone(), type_name: t.clone() }).collect(),
+                    header[0]
+                        .iter()
+                        .zip(&types)
+                        .map(|(n, t)| ResultColumn {
+                            name: n.clone(),
+                            type_name: t.clone(),
+                        })
+                        .collect(),
                 );
             }
             continue;
         }
-        let row = cells.into_iter().enumerate().map(|(i, raw)| raw_cell(raw, types.get(i).map_or("", String::as_str))).collect();
+        let row = cells
+            .into_iter()
+            .enumerate()
+            .map(|(i, raw)| raw_cell(raw, types.get(i).map_or("", String::as_str)))
+            .collect();
         out.push_row(row, max_rows);
         if stop_at_limit && out.results.last().is_some_and(|r| r.truncated) {
             return Ok(true);
@@ -765,11 +933,15 @@ async fn read_rows(resp: reqwest::Response, out: &mut QueryOutcome, max_rows: us
 /// A text body (the statement picked its own `FORMAT`): one row per line.
 async fn read_text(resp: reqwest::Response, out: &mut QueryOutcome, max_rows: usize) -> Result<()> {
     let mut lines = Lines::new(resp);
-    out.begin_result(vec![ResultColumn { name: "result".into(), type_name: String::new() }]);
+    out.begin_result(vec![ResultColumn {
+        name: "result".into(),
+        type_name: String::new(),
+    }]);
     while let Some(line) = lines.next().await? {
         if line.trim() == "__exception__" {
             let rest = lines.rest().await;
-            return Err(body_exception(&format!("__exception__\n{rest}")).unwrap_or_else(|| Error::Query(rest)));
+            return Err(body_exception(&format!("__exception__\n{rest}"))
+                .unwrap_or_else(|| Error::Query(rest)));
         }
         out.push_row(vec![line.into()], max_rows);
     }
@@ -781,7 +953,9 @@ fn base_type(t: &str) -> String {
     let mut t = t.trim();
     loop {
         let lower = t.to_ascii_lowercase();
-        let inner = ["nullable(", "lowcardinality("].iter().find_map(|w| lower.starts_with(w).then_some(w.len()));
+        let inner = ["nullable(", "lowcardinality("]
+            .iter()
+            .find_map(|w| lower.starts_with(w).then_some(w.len()));
         match inner {
             Some(n) if t.ends_with(')') => t = &t[n..t.len() - 1],
             _ => return lower,
@@ -825,7 +999,11 @@ fn split_row(line: &str) -> Option<Vec<&str>> {
         }
     }
     let last = inner[start..].trim();
-    if in_str || depth != 0 || (last.is_empty() && !out.is_empty()) || out.iter().any(|e| e.is_empty()) {
+    if in_str
+        || depth != 0
+        || (last.is_empty() && !out.is_empty())
+        || out.iter().any(|e| e.is_empty())
+    {
         return None;
     }
     if !last.is_empty() {
@@ -874,7 +1052,10 @@ fn numbers_exact(raw: &str) -> bool {
             }
             continue;
         }
-        if c.is_ascii_digit() || c == '-' || (!token.is_empty() && matches!(c, '+' | '.' | 'e' | 'E')) {
+        if c.is_ascii_digit()
+            || c == '-'
+            || (!token.is_empty() && matches!(c, '+' | '.' | 'e' | 'E'))
+        {
             token.push(c);
             continue;
         }
@@ -931,7 +1112,11 @@ fn text(v: &Value) -> String {
 impl Session for ClickHouseSession {
     async fn server_version(&mut self) -> Result<String> {
         let rows = self.rows("SELECT version()", &[]).await?;
-        let v = rows.first().and_then(|r| r.first()).map(text).unwrap_or_default();
+        let v = rows
+            .first()
+            .and_then(|r| r.first())
+            .map(text)
+            .unwrap_or_default();
         Ok(match self.flavor {
             Flavor::ClickHouse => format!("ClickHouse {v}"),
             Flavor::Timeplus => format!("Timeplus Proton {v}"),
@@ -952,14 +1137,20 @@ impl Session for ClickHouseSession {
         self.cancel_running(id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = self.profiler_begin(opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = self.profiler_next(&mut state).await;
         self.profiler = Some(state);
         r
@@ -1002,7 +1193,13 @@ impl Session for ClickHouseSession {
             })
             .collect();
         // SQL user-defined functions are global, not per database.
-        if let Ok(funcs) = self.rows("SELECT name FROM system.functions WHERE origin = 'SQLUserDefined' ORDER BY name", &[]).await {
+        if let Ok(funcs) = self
+            .rows(
+                "SELECT name FROM system.functions WHERE origin = 'SQLUserDefined' ORDER BY name",
+                &[],
+            )
+            .await
+        {
             out.extend(funcs.iter().map(|r| DbObject {
                 kind: kinds::FUNCTION.into(),
                 schema: None,
@@ -1031,9 +1228,16 @@ impl Session for ClickHouseSession {
                     name: text(&r[0]),
                     nullable: is_nullable(&data_type),
                     data_type,
-                    primary_key: matches!(r[4], Value::Number(ref n) if n.as_u64() == Some(1)) || text(&r[4]) == "1",
+                    primary_key: matches!(r[4], Value::Number(ref n) if n.as_u64() == Some(1))
+                        || text(&r[4]) == "1",
                     auto_increment: false,
-                    default_value: (!expr.is_empty()).then(|| if kind == "DEFAULT" || kind.is_empty() { expr } else { format!("{kind} {expr}") }),
+                    default_value: (!expr.is_empty()).then(|| {
+                        if kind == "DEFAULT" || kind.is_empty() {
+                            expr
+                        } else {
+                            format!("{kind} {expr}")
+                        }
+                    }),
                 }
             })
             .collect())
@@ -1042,7 +1246,10 @@ impl Session for ClickHouseSession {
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
         if obj.kind == kinds::FUNCTION {
             let rows = self
-                .rows("SELECT create_query FROM system.functions WHERE name = {n:String}", &[("n", &obj.name)])
+                .rows(
+                    "SELECT create_query FROM system.functions WHERE name = {n:String}",
+                    &[("n", &obj.name)],
+                )
                 .await?;
             return Ok(rows.first().and_then(|r| r.first()).map(text));
         }
@@ -1053,15 +1260,25 @@ impl Session for ClickHouseSession {
                 &[("db", &db), ("t", &obj.name)],
             )
             .await?;
-        Ok(rows.first().and_then(|r| r.first()).map(text).filter(|s| !s.is_empty()))
+        Ok(rows
+            .first()
+            .and_then(|r| r.first())
+            .map(text)
+            .filter(|s| !s.is_empty()))
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
         if self.flavor == Flavor::Timeplus && obj.kind == kinds::STREAM {
             // table() reads what the stream holds instead of waiting for new events.
-            return format!("SELECT *\nFROM table({})\nLIMIT {limit}", schema::q(&obj.name));
+            return format!(
+                "SELECT *\nFROM table({})\nLIMIT {limit}",
+                schema::q(&obj.name)
+            );
         }
-        format!("SELECT *\nFROM {}\nLIMIT {limit}", schema::qualified(obj.schema(), &obj.name))
+        format!(
+            "SELECT *\nFROM {}\nLIMIT {limit}",
+            schema::qualified(obj.schema(), &obj.name)
+        )
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -1078,7 +1295,9 @@ impl Session for ClickHouseSession {
                                 if let Some(f) = self.interrupter() {
                                     f();
                                 }
-                                out.info(format!("Se detuvo la consulta al llegar a {max_rows} filas."));
+                                out.info(format!(
+                                    "Se detuvo la consulta al llegar a {max_rows} filas."
+                                ));
                             }
                         }
                     }
@@ -1105,28 +1324,49 @@ impl Session for ClickHouseSession {
     /// nothing else as JSON, so other statements get no plan. It has no
     /// analyzing EXPLAIN either: with `analyze` the script runs as with
     /// `execute` and the plans are the estimated ones.
-    async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if analyze {
-            out.messages.push("ClickHouse no da cifras reales por operador: se muestran los planes estimados.".into());
+            out.messages.push(
+                "ClickHouse no da cifras reales por operador: se muestran los planes estimados."
+                    .into(),
+            );
         }
         let res = async {
             let d = dialect();
-            for stmt in statements(sql).into_iter().map(|(s, _)| strip_comments(&s, &d, false).trim().to_string()).filter(|s| !s.is_empty()) {
+            for stmt in statements(sql)
+                .into_iter()
+                .map(|(s, _)| strip_comments(&s, &d, false).trim().to_string())
+                .filter(|s| !s.is_empty())
+            {
                 if plan::explainable(&stmt) {
                     let q = format!("EXPLAIN json = 1, indexes = 1, description = 1 {stmt}");
                     let raw = match self.send(&q, &[], true).await? {
                         Body::Rows(resp) => {
                             let mut local = QueryOutcome::default();
                             read_rows(resp, &mut local, 1, false).await?;
-                            local.results.pop().and_then(|r| r.rows.into_iter().next()).and_then(|r| r.into_iter().next())
+                            local
+                                .results
+                                .pop()
+                                .and_then(|r| r.rows.into_iter().next())
+                                .and_then(|r| r.into_iter().next())
                         }
                         _ => None,
                     };
                     self.done();
-                    let raw = raw.map(|v| text(&v)).ok_or_else(|| Error::Query("EXPLAIN no devolvió un plan".into()))?;
-                    out.plans.push(plan::plan_json(&stmt, &raw).map_err(Error::Query)?);
+                    let raw = raw
+                        .map(|v| text(&v))
+                        .ok_or_else(|| Error::Query("EXPLAIN no devolvió un plan".into()))?;
+                    out.plans
+                        .push(plan::plan_json(&stmt, &raw).map_err(Error::Query)?);
                 } else if !analyze {
-                    out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
+                    out.messages
+                        .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
                 }
                 if analyze {
                     self.execute(&stmt, max_rows, out).await?;
@@ -1145,7 +1385,10 @@ impl Session for ClickHouseSession {
     }
 
     /// The table's skip indexes, projections and sorting key (see [`index_usage`]).
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(self, table).await.map(Some)
     }
 
@@ -1161,7 +1404,11 @@ impl Session for ClickHouseSession {
         self.backup_history(database).await
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -1190,12 +1437,19 @@ impl Session for ClickHouseSession {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
     /// "Chequeo de salud" of the database (see `health`).
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
@@ -1207,21 +1461,33 @@ impl Session for ClickHouseSession {
         stats::object_comments(self).await
     }
 
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if name == self.database {
-            return Err(Error::Query("no se puede borrar la base de esta sesión".into()));
+            return Err(Error::Query(
+                "no se puede borrar la base de esta sesión".into(),
+            ));
         }
         let sql = format!("DROP DATABASE {}", schema::q(name));
         self.send(&sql, &[], false).await?;
@@ -1234,7 +1500,9 @@ impl Session for ClickHouseSession {
         let in_flight = self.in_flight.clone();
         let rt = self.rt.clone();
         Some(Arc::new(move || {
-            let Some(id) = in_flight.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
+            let Some(id) = in_flight.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+                return;
+            };
             let conn = conn.clone();
             rt.spawn(async move {
                 // The id is a UUID we generated: safe to inline.
@@ -1262,7 +1530,10 @@ mod tests {
         assert_eq!(use_target("USE `a\\`b`").as_deref(), Some("a`b"));
         assert_eq!(use_target("SELECT 1"), None);
         assert_eq!(use_target("user_function()"), None);
-        assert_eq!(use_target("/* a /* b */ c */ USE x # note").as_deref(), Some("x"));
+        assert_eq!(
+            use_target("/* a /* b */ c */ USE x # note").as_deref(),
+            Some("x")
+        );
     }
 
     /// clickhouse-client nests block comments and takes `#` as a line
@@ -1270,8 +1541,14 @@ mod tests {
     #[test]
     fn nested_and_hash_comments_hold_semicolons() {
         let d = dialect();
-        let units = split_script("/* outer /* nested ; */ c ; */ SELECT 1;\nSELECT 1 # trailing ; comment\n;SELECT 2", &d);
-        let texts: Vec<String> = units.iter().map(|u| strip_comments(&u.text, &d, false).trim().to_string()).collect();
+        let units = split_script(
+            "/* outer /* nested ; */ c ; */ SELECT 1;\nSELECT 1 # trailing ; comment\n;SELECT 2",
+            &d,
+        );
+        let texts: Vec<String> = units
+            .iter()
+            .map(|u| strip_comments(&u.text, &d, false).trim().to_string())
+            .collect();
         assert_eq!(texts, ["SELECT 1", "SELECT 1", "SELECT 2"]);
     }
 
@@ -1281,11 +1558,20 @@ mod tests {
     #[test]
     fn cells_follow_their_types() {
         assert_eq!(cell(json!("42"), "Nullable(Int64)"), json!(42));
-        assert_eq!(cell(json!("18446744073709551615"), "UInt64"), json!("18446744073709551615"));
+        assert_eq!(
+            cell(json!("18446744073709551615"), "UInt64"),
+            json!("18446744073709551615")
+        );
         assert_eq!(cell(json!("1.50"), "Decimal(10, 2)"), json!("1.50"));
         assert_eq!(cell(json!([1, 2]), "Array(UInt8)"), json!("[1,2]"));
-        assert_eq!(cell(json!({"k": 1}), "Map(String, UInt8)"), json!("{\"k\":1}"));
-        assert_eq!(cell(json!("2024-01-31 13:45:00"), "DateTime"), json!("2024-01-31 13:45:00"));
+        assert_eq!(
+            cell(json!({"k": 1}), "Map(String, UInt8)"),
+            json!("{\"k\":1}")
+        );
+        assert_eq!(
+            cell(json!("2024-01-31 13:45:00"), "DateTime"),
+            json!("2024-01-31 13:45:00")
+        );
         assert_eq!(cell(json!("7"), "int64"), json!(7));
     }
 
@@ -1293,10 +1579,24 @@ mod tests {
     fn unquoted_numbers_keep_their_digits() {
         let line = r#"["1", 9007199254740993, 12345678901234567890.123, 18446744073709551615, 170141183460469231731687303715884105727, [170141183460469231731687303715884105727], {"a\/b,]":1}, 1.5, null, true, "x\"],"]"#;
         let types = [
-            "String", "Int64", "Decimal(38, 3)", "UInt64", "Int128", "Array(Int128)", "Map(String, UInt8)", "Float64",
-            "Nullable(Int64)", "Bool", "String",
+            "String",
+            "Int64",
+            "Decimal(38, 3)",
+            "UInt64",
+            "Int128",
+            "Array(Int128)",
+            "Map(String, UInt8)",
+            "Float64",
+            "Nullable(Int64)",
+            "Bool",
+            "String",
         ];
-        let cells: Vec<Value> = split_row(line).unwrap().into_iter().zip(types).map(|(r, t)| raw_cell(r, t)).collect();
+        let cells: Vec<Value> = split_row(line)
+            .unwrap()
+            .into_iter()
+            .zip(types)
+            .map(|(r, t)| raw_cell(r, t))
+            .collect();
         assert_eq!(
             cells,
             vec![
@@ -1316,18 +1616,42 @@ mod tests {
         // Quoted (`output_format_json_quote_*` on) reads the same.
         let quoted = split_row(r#"["9007199254740993", "1.50", ["1", "2"], 42]"#).unwrap();
         let types = ["Int64", "Decimal(10, 2)", "Array(Int64)", "Int32"];
-        let cells: Vec<Value> = quoted.into_iter().zip(types).map(|(r, t)| raw_cell(r, t)).collect();
-        assert_eq!(cells, vec![json!("9007199254740993"), json!("1.50"), json!("[\"1\",\"2\"]"), json!(42)]);
+        let cells: Vec<Value> = quoted
+            .into_iter()
+            .zip(types)
+            .map(|(r, t)| raw_cell(r, t))
+            .collect();
+        assert_eq!(
+            cells,
+            vec![
+                json!("9007199254740993"),
+                json!("1.50"),
+                json!("[\"1\",\"2\"]"),
+                json!(42)
+            ]
+        );
         assert_eq!(split_row("[]"), Some(vec![]));
-        for bad in ["__exception__", "Code: 395. DB::Exception: boom", "[1,]", "[1", r#"["a]"#, "{\"exception\": \"x\"}"] {
+        for bad in [
+            "__exception__",
+            "Code: 395. DB::Exception: boom",
+            "[1,]",
+            "[1",
+            r#"["a]"#,
+            "{\"exception\": \"x\"}",
+        ] {
             assert_eq!(split_row(bad), None, "{bad}");
         }
     }
 
     #[test]
     fn readonly_refusals_are_recognized() {
-        let refused = |s: &str| refused_setting(&format!("Code: 164. DB::Exception: Cannot modify '{s}' setting in readonly mode. (READONLY)"));
-        assert_eq!(refused("http_write_exception_in_output_format"), Some(Refused::Output));
+        let refused = |s: &str| {
+            refused_setting(&format!("Code: 164. DB::Exception: Cannot modify '{s}' setting in readonly mode. (READONLY)"))
+        };
+        assert_eq!(
+            refused("http_write_exception_in_output_format"),
+            Some(Refused::Output)
+        );
         assert_eq!(refused("readonly"), Some(Refused::ReadOnly));
         assert_eq!(refused_setting("Code: 164. DB::Exception: ro_user: Cannot execute query in readonly mode. (READONLY)"), None);
     }
@@ -1340,8 +1664,17 @@ mod tests {
 
     #[test]
     fn scripts_split_like_clickhouse_client() {
-        let s = statements("SELECT 'it\\'s; ok';\nSELECT $h$a;b$h$; SELECT `a;b` FROM t;\n-- only a comment;\n");
-        assert_eq!(s.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["SELECT 'it\\'s; ok'", "SELECT $h$a;b$h$", "SELECT `a;b` FROM t"]);
+        let s = statements(
+            "SELECT 'it\\'s; ok';\nSELECT $h$a;b$h$; SELECT `a;b` FROM t;\n-- only a comment;\n",
+        );
+        assert_eq!(
+            s.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(),
+            [
+                "SELECT 'it\\'s; ok'",
+                "SELECT $h$a;b$h$",
+                "SELECT `a;b` FROM t"
+            ]
+        );
         // No procedural bodies: `begin` is just a word.
         assert_eq!(statements("create table event (id Int8, begin Int8) engine = Memory; insert into event values (1, 2)").len(), 2);
     }
@@ -1351,17 +1684,35 @@ mod tests {
         let script = "SELECT 1;\nSELEC 2";
         let msg = "Code: 62. DB::Exception: Syntax error: failed at position 1 ('SELEC') (line 1, col 1): SELEC 2. Expected one of: … (SYNTAX_ERROR) (version 24.8.4.13 (official build))";
         let e = stmt_err(Error::Query(msg.into()), script, 10).to_script_error();
-        assert_eq!((e.code.as_deref(), e.offset, e.line), (Some("62"), Some(10), Some(2)));
+        assert_eq!(
+            (e.code.as_deref(), e.offset, e.line),
+            (Some("62"), Some(10), Some(2))
+        );
         let e = stmt_err(Error::Query("Code: 60. DB::Exception: Unknown table expression identifier 'nope'. (UNKNOWN_TABLE)".into()), script, 10);
         assert_eq!(e.to_script_error().line, Some(2));
-        assert!(matches!(stmt_err(Error::Cancelled, script, 0), Error::Cancelled));
+        assert!(matches!(
+            stmt_err(Error::Cancelled, script, 0),
+            Error::Cancelled
+        ));
     }
 
     #[test]
     fn exceptions_are_classified() {
-        assert!(matches!(server_error(500, "Code: 60. DB::Exception: Table x doesn't exist"), Error::Query(_)));
-        assert!(matches!(server_error(403, "Code: 516. DB::Exception: dbine: Authentication failed"), Error::AuthFailed(_)));
-        assert!(matches!(server_error(500, "Code: 394. DB::Exception: Query was cancelled"), Error::Cancelled));
+        assert!(matches!(
+            server_error(500, "Code: 60. DB::Exception: Table x doesn't exist"),
+            Error::Query(_)
+        ));
+        assert!(matches!(
+            server_error(
+                403,
+                "Code: 516. DB::Exception: dbine: Authentication failed"
+            ),
+            Error::AuthFailed(_)
+        ));
+        assert!(matches!(
+            server_error(500, "Code: 394. DB::Exception: Query was cancelled"),
+            Error::Cancelled
+        ));
         let e = body_exception("\r\n__exception__\r\nabc\r\nCode: 395. DB::Exception: boom\n288 abc\r\n__exception__\r\n");
         assert!(matches!(e, Some(Error::Query(m)) if m.starts_with("Code: 395")));
         assert!(body_exception("").is_none());
@@ -1370,7 +1721,10 @@ mod tests {
     #[test]
     fn engines_map_to_kinds() {
         assert_eq!(kind_of("MergeTree", Flavor::ClickHouse), kinds::TABLE);
-        assert_eq!(kind_of("MaterializedView", Flavor::ClickHouse), kinds::MATERIALIZED_VIEW);
+        assert_eq!(
+            kind_of("MaterializedView", Flavor::ClickHouse),
+            kinds::MATERIALIZED_VIEW
+        );
         assert_eq!(kind_of("Dictionary", Flavor::ClickHouse), DICTIONARY);
         assert_eq!(kind_of("Stream", Flavor::Timeplus), kinds::STREAM);
     }

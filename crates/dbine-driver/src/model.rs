@@ -158,7 +158,10 @@ pub struct ScriptError {
 
 impl ScriptError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), ..Default::default() }
+        Self {
+            message: message.into(),
+            ..Default::default()
+        }
     }
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
@@ -423,7 +426,12 @@ impl QueryOutcome {
         // ([`Self::message`] adopts earlier plain ones first): count them,
         // as the count itself doesn't cross the wire. Older hosts send no
         // log, so all their messages are plain.
-        other.logged = other.log.iter().filter(|m| m.level != MessageLevel::Error).count().min(other.messages.len());
+        other.logged = other
+            .log
+            .iter()
+            .filter(|m| m.level != MessageLevel::Error)
+            .count()
+            .min(other.messages.len());
         let statement = other.current_statement.or(self.current_statement);
         for m in &mut other.log {
             m.statement = m.statement.or(statement);
@@ -464,11 +472,19 @@ impl QueryOutcome {
     }
 
     pub fn info(&mut self, text: impl Into<String>) {
-        self.message(Message { level: MessageLevel::Info, text: text.into(), ..Default::default() });
+        self.message(Message {
+            level: MessageLevel::Info,
+            text: text.into(),
+            ..Default::default()
+        });
     }
 
     pub fn warning(&mut self, text: impl Into<String>) {
-        self.message(Message { level: MessageLevel::Warning, text: text.into(), ..Default::default() });
+        self.message(Message {
+            level: MessageLevel::Warning,
+            text: text.into(),
+            ..Default::default()
+        });
     }
 
     /// Record a failed statement: in `errors`, in `log` as an error, and in
@@ -477,7 +493,13 @@ impl QueryOutcome {
         if e.statement.is_none() {
             e.statement = self.current_statement;
         }
-        self.message(Message { level: MessageLevel::Error, text: e.message.clone(), statement: e.statement, code: e.code.clone(), line: e.line });
+        self.message(Message {
+            level: MessageLevel::Error,
+            text: e.message.clone(),
+            statement: e.statement,
+            code: e.code.clone(),
+            line: e.line,
+        });
         if self.error.is_none() {
             self.error = Some(e.message.clone());
         }
@@ -488,7 +510,12 @@ impl QueryOutcome {
     /// `log`) join `log` as `Info`, stamped with the running statement.
     pub fn adopt_plain_messages(&mut self) {
         while self.logged < self.messages.len() {
-            let m = Message { level: MessageLevel::Info, text: self.messages[self.logged].clone(), statement: self.current_statement, ..Default::default() };
+            let m = Message {
+                level: MessageLevel::Info,
+                text: self.messages[self.logged].clone(),
+                statement: self.current_statement,
+                ..Default::default()
+            };
             self.logged += 1;
             if let Some(sink) = &self.message_sink {
                 (sink.0)(&m);
@@ -507,7 +534,10 @@ impl QueryOutcome {
                 }
             }
         }
-        self.results.push(StatementResult { columns, ..Default::default() });
+        self.results.push(StatementResult {
+            columns,
+            ..Default::default()
+        });
     }
 
     /// Add a row to the current result set, keeping at most `max_rows`.
@@ -535,7 +565,10 @@ impl QueryOutcome {
 
     /// Record a statement that returned no rows.
     pub fn push_affected(&mut self, n: u64) {
-        self.results.push(StatementResult { rows_affected: Some(n), ..Default::default() });
+        self.results.push(StatementResult {
+            rows_affected: Some(n),
+            ..Default::default()
+        });
     }
 }
 
@@ -600,15 +633,26 @@ pub fn is_spatial_type(name: &str) -> bool {
     let base = n.split(|c: char| c == '(' || c == ' ').next().unwrap_or("");
     matches!(
         base,
-        "geometry" | "geography" | "point" | "linestring" | "polygon" | "multipoint" | "multilinestring"
-            | "multipolygon" | "geometrycollection" | "geomcollection" | "st_geometry" | "st_point"
+        "geometry"
+            | "geography"
+            | "point"
+            | "linestring"
+            | "polygon"
+            | "multipoint"
+            | "multilinestring"
+            | "multipolygon"
+            | "geometrycollection"
+            | "geomcollection"
+            | "st_geometry"
+            | "st_point"
     )
 }
 
 /// A blob that is a SpatiaLite or GeoPackage geometry (by its header and,
 /// for SpatiaLite, its markers): SQLite has no spatial column type to go by.
 pub fn is_spatial_blob(b: &[u8]) -> bool {
-    let spatialite = b.len() >= 44 && b[0] == 0x00 && b[1] <= 1 && b[38] == 0x7C && b[b.len() - 1] == 0xFE;
+    let spatialite =
+        b.len() >= 44 && b[0] == 0x00 && b[1] <= 1 && b[38] == 0x7C && b[b.len() - 1] == 0xFE;
     let geopackage = b.len() >= 8 && b[0] == b'G' && b[1] == b'P' && b[2] == 0;
     spatialite || geopackage
 }
@@ -619,10 +663,14 @@ mod tests {
 
     #[test]
     fn schema_info_reads_back_and_defaults_to_user() {
-        let s = SchemaInfo { name: "ventas".into(), system: true };
+        let s = SchemaInfo {
+            name: "ventas".into(),
+            system: true,
+        };
         let back: SchemaInfo = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
         assert_eq!(back, s);
-        let bare: SchemaInfo = serde_json::from_value(serde_json::json!({ "name": "dbo" })).unwrap();
+        let bare: SchemaInfo =
+            serde_json::from_value(serde_json::json!({ "name": "dbo" })).unwrap();
         assert!(!bare.system);
     }
 
@@ -652,8 +700,14 @@ mod tests {
             }
         }
         let sink = Arc::new(Mutex::new(Count(Vec::new())));
-        let mut o = QueryOutcome { sink: Some(RowSinkRef(sink.clone())), ..Default::default() };
-        o.begin_result(vec![ResultColumn { name: "a".into(), type_name: String::new() }]);
+        let mut o = QueryOutcome {
+            sink: Some(RowSinkRef(sink.clone())),
+            ..Default::default()
+        };
+        o.begin_result(vec![ResultColumn {
+            name: "a".into(),
+            type_name: String::new(),
+        }]);
         o.push_row(vec![1.into()], 1);
         o.push_row(vec![2.into()], 1);
         assert!(o.results[0].rows.is_empty(), "nothing buffered");
@@ -685,10 +739,20 @@ mod tests {
         assert_eq!(o.results[0].statement, None);
         assert!(o.log.is_empty() && o.errors.is_empty() && o.transaction.is_none());
         // Absorbed (as the plugin client does), its plain messages join the log.
-        let mut app = QueryOutcome { current_statement: Some(2), ..Default::default() };
+        let mut app = QueryOutcome {
+            current_statement: Some(2),
+            ..Default::default()
+        };
         app.absorb(o);
         assert_eq!(app.messages, vec!["hola"]);
-        assert_eq!(app.log, vec![Message { text: "hola".into(), statement: Some(2), ..Default::default() }]);
+        assert_eq!(
+            app.log,
+            vec![Message {
+                text: "hola".into(),
+                statement: Some(2),
+                ..Default::default()
+            }]
+        );
     }
 
     #[test]
@@ -698,26 +762,57 @@ mod tests {
         host.messages.push("plain before".into());
         host.info("logged");
         host.messages.push("plain after".into());
-        let wire: QueryOutcome = serde_json::from_value(serde_json::to_value(&host).unwrap()).unwrap();
-        let mut app = QueryOutcome { current_statement: Some(3), ..Default::default() };
+        let wire: QueryOutcome =
+            serde_json::from_value(serde_json::to_value(&host).unwrap()).unwrap();
+        let mut app = QueryOutcome {
+            current_statement: Some(3),
+            ..Default::default()
+        };
         app.absorb(wire);
-        let log: Vec<_> = app.log.iter().map(|m| (m.text.as_str(), m.statement)).collect();
-        assert_eq!(log, vec![("plain before", Some(3)), ("logged", Some(3)), ("plain after", Some(3))]);
+        let log: Vec<_> = app
+            .log
+            .iter()
+            .map(|m| (m.text.as_str(), m.statement))
+            .collect();
+        assert_eq!(
+            log,
+            vec![
+                ("plain before", Some(3)),
+                ("logged", Some(3)),
+                ("plain after", Some(3))
+            ]
+        );
         assert_eq!(app.messages, vec!["plain before", "logged", "plain after"]);
         // Its errors too.
         let mut host = QueryOutcome::default();
         host.push_error(ScriptError::new("falló"));
-        let wire: QueryOutcome = serde_json::from_value(serde_json::to_value(&host).unwrap()).unwrap();
+        let wire: QueryOutcome =
+            serde_json::from_value(serde_json::to_value(&host).unwrap()).unwrap();
         app.absorb(wire);
-        assert_eq!((app.errors[0].statement, app.log[3].statement), (Some(3), Some(3)));
+        assert_eq!(
+            (app.errors[0].statement, app.log[3].statement),
+            (Some(3), Some(3))
+        );
     }
 
     #[test]
     fn new_fields_round_trip() {
         let mut o = QueryOutcome::default();
-        o.results.push(StatementResult { statement: Some(1), offset: Some(10), line: Some(2), tag: Some("INSERT 0 1".into()), elapsed_ms: Some(4), ..Default::default() });
+        o.results.push(StatementResult {
+            statement: Some(1),
+            offset: Some(10),
+            line: Some(2),
+            tag: Some("INSERT 0 1".into()),
+            elapsed_ms: Some(4),
+            ..Default::default()
+        });
         o.warning("cuidado");
-        o.push_error(ScriptError::new("no existe").with_code("208").with_sqlstate("42S02").at_line(3));
+        o.push_error(
+            ScriptError::new("no existe")
+                .with_code("208")
+                .with_sqlstate("42S02")
+                .at_line(3),
+        );
         o.transaction = Some(TxState::Open);
         let v = serde_json::to_value(&o).unwrap();
         assert_eq!(v["log"][0]["level"], "warning");
@@ -740,7 +835,9 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let s2 = seen.clone();
         let mut o = QueryOutcome {
-            message_sink: Some(MessageSinkRef(Arc::new(move |m: &Message| s2.lock().unwrap().push(m.text.clone())))),
+            message_sink: Some(MessageSinkRef(Arc::new(move |m: &Message| {
+                s2.lock().unwrap().push(m.text.clone())
+            }))),
             current_statement: Some(0),
             ..Default::default()
         };
@@ -752,15 +849,31 @@ mod tests {
         child.messages.push("d".into());
         child.info("e");
         o.merge(child);
-        let texts: Vec<_> = o.log.iter().map(|m| (m.text.as_str(), m.statement)).collect();
-        assert_eq!(texts, vec![("a", Some(0)), ("b", Some(1)), ("c", Some(1)), ("d", Some(1)), ("e", Some(1))]);
+        let texts: Vec<_> = o
+            .log
+            .iter()
+            .map(|m| (m.text.as_str(), m.statement))
+            .collect();
+        assert_eq!(
+            texts,
+            vec![
+                ("a", Some(0)),
+                ("b", Some(1)),
+                ("c", Some(1)),
+                ("d", Some(1)),
+                ("e", Some(1))
+            ]
+        );
         assert_eq!(o.messages, vec!["a", "b", "c", "d", "e"]);
         assert_eq!(*seen.lock().unwrap(), vec!["a", "b", "c", "d", "e"]);
     }
 
     #[test]
     fn statement_errors_keep_their_details() {
-        let e: crate::Error = ScriptError::new("syntax").with_code("102").at_offset(7).into();
+        let e: crate::Error = ScriptError::new("syntax")
+            .with_code("102")
+            .at_offset(7)
+            .into();
         assert!(e.is_query() && !e.ends_script());
         assert_eq!(e.to_string(), "syntax");
         assert_eq!(e.to_script_error().offset, Some(7));
@@ -772,7 +885,10 @@ mod tests {
     fn big_integers_become_strings() {
         assert_eq!(json_i64(42), serde_json::json!(42));
         assert_eq!(json_i64(i64::MAX), serde_json::json!("9223372036854775807"));
-        assert_eq!(json_u64(u64::MAX), serde_json::json!("18446744073709551615"));
+        assert_eq!(
+            json_u64(u64::MAX),
+            serde_json::json!("18446744073709551615")
+        );
     }
 
     #[test]
@@ -792,7 +908,14 @@ mod tests {
 
     #[test]
     fn spatial_types_and_blobs() {
-        for t in ["geometry", "GEOGRAPHY", "POINT", "ST_GEOMETRY(4326)", "MultiPolygon", "geometry(Point,4326)"] {
+        for t in [
+            "geometry",
+            "GEOGRAPHY",
+            "POINT",
+            "ST_GEOMETRY(4326)",
+            "MultiPolygon",
+            "geometry(Point,4326)",
+        ] {
             assert!(is_spatial_type(t), "{t}");
         }
         for t in ["Udt", "BLOB", "pointer", "varchar(10)", ""] {

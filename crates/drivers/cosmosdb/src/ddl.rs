@@ -21,7 +21,8 @@
 //! Also here: the designer, the templates and the scripts DBine writes.
 
 use dbine_driver::{
-    kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, Result, RowChange, TableSchema,
+    kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, Result,
+    RowChange, TableSchema,
 };
 use serde_json::{json, Map, Value};
 
@@ -109,7 +110,10 @@ pub(crate) fn q(name: &str) -> String {
 }
 
 pub(crate) fn opt<'a>(t: &'a TableSchema, key: &str) -> Option<&'a str> {
-    t.options.get(key).map(|v| v.trim()).filter(|v| !v.is_empty())
+    t.options
+        .get(key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
 }
 
 /// A field name as a path (`email` → `/email`; paths stay as they are).
@@ -128,12 +132,23 @@ pub fn field_of(path: &str) -> String {
 }
 
 fn partition_key(t: &TableSchema) -> Result<Value> {
-    let raw = opt(t, PARTITION_KEY).ok_or_else(|| Error::Query("Falta la clave de partición (por ejemplo /categoria).".into()))?;
-    let paths: Vec<String> = raw.split(',').map(str::trim).filter(|p| !p.is_empty()).map(path).collect();
+    let raw = opt(t, PARTITION_KEY).ok_or_else(|| {
+        Error::Query("Falta la clave de partición (por ejemplo /categoria).".into())
+    })?;
+    let paths: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(path)
+        .collect();
     Ok(match paths.len() {
         1 => json!({ "paths": paths, "kind": "Hash" }),
         2 | 3 => json!({ "paths": paths, "kind": "MultiHash", "version": 2 }),
-        _ => return Err(Error::Query("La clave de partición jerárquica admite hasta 3 rutas.".into())),
+        _ => {
+            return Err(Error::Query(
+                "La clave de partición jerárquica admite hasta 3 rutas.".into(),
+            ))
+        }
     })
 }
 
@@ -155,11 +170,18 @@ fn is_composite(i: &IndexDef) -> bool {
 /// Index kinds that are entries of the indexing policy's lists, with their
 /// list: spatial, full-text and vector indexes (one path each; the entry's
 /// other keys, like `types` or `type`, are the index's options).
-pub const POLICY_KINDS: &[(&str, &str)] = &[("SPATIAL", "spatialIndexes"), ("FULLTEXT", "fullTextIndexes"), ("vector", "vectorIndexes")];
+pub const POLICY_KINDS: &[(&str, &str)] = &[
+    ("SPATIAL", "spatialIndexes"),
+    ("FULLTEXT", "fullTextIndexes"),
+    ("vector", "vectorIndexes"),
+];
 
 fn policy_list(i: &IndexDef) -> Option<&'static str> {
     let k = i.kind.as_deref()?.trim();
-    POLICY_KINDS.iter().find(|(kind, _)| kind.eq_ignore_ascii_case(k)).map(|(_, list)| *list)
+    POLICY_KINDS
+        .iter()
+        .find(|(kind, _)| kind.eq_ignore_ascii_case(k))
+        .map(|(_, list)| *list)
 }
 
 /// An indexing policy entry as an index (see [`POLICY_KINDS`]).
@@ -169,7 +191,14 @@ pub fn policy_index(kind: &str, n: usize, entry: &Value) -> IndexDef {
         .into_iter()
         .flatten()
         .filter(|(k, _)| *k != "path")
-        .map(|(k, v)| (k.clone(), v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())))
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                v.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| v.to_string()),
+            )
+        })
         .collect();
     IndexDef {
         name: format!("{}_{n}", kind.to_lowercase()),
@@ -183,9 +212,15 @@ pub fn policy_index(kind: &str, n: usize, entry: &Value) -> IndexDef {
 /// The indexing policy entry of a spatial, full-text or vector index.
 fn policy_entry(i: &IndexDef) -> Value {
     let mut e = Map::new();
-    e.insert("path".into(), path(i.columns.first().map(String::as_str).unwrap_or_default()).into());
+    e.insert(
+        "path".into(),
+        path(i.columns.first().map(String::as_str).unwrap_or_default()).into(),
+    );
     for (k, v) in &i.options {
-        e.insert(k.clone(), serde_json::from_str(v).unwrap_or_else(|_| Value::String(v.clone())));
+        e.insert(
+            k.clone(),
+            serde_json::from_str(v).unwrap_or_else(|_| Value::String(v.clone())),
+        );
     }
     Value::Object(e)
 }
@@ -196,7 +231,9 @@ pub fn container_body(t: &TableSchema, indexes: bool) -> Result<Value> {
     let mut body = Map::new();
     body.insert("partitionKey".into(), partition_key(t)?);
     if let Some(ttl) = opt(t, DEFAULT_TTL) {
-        let n: i64 = ttl.parse().map_err(|_| Error::Query(format!("El TTL «{ttl}» no es un número entero.")))?;
+        let n: i64 = ttl
+            .parse()
+            .map_err(|_| Error::Query(format!("El TTL «{ttl}» no es un número entero.")))?;
         body.insert("defaultTtl".into(), n.into());
     }
     let mut policy = match opt(t, INDEXING_POLICY) {
@@ -204,7 +241,9 @@ pub fn container_body(t: &TableSchema, indexes: bool) -> Result<Value> {
             serde_json::from_str::<Value>(p)
                 .ok()
                 .filter(Value::is_object)
-                .ok_or_else(|| Error::Query("La política de indexación no es un objeto JSON válido.".into()))?,
+                .ok_or_else(|| {
+                    Error::Query("La política de indexación no es un objeto JSON válido.".into())
+                })?,
         ),
         None => None,
     };
@@ -214,7 +253,10 @@ pub fn container_body(t: &TableSchema, indexes: bool) -> Result<Value> {
         let mut lists: Vec<(&str, Value)> = Vec::new();
         for i in &t.indexes {
             if i.columns.is_empty() {
-                return Err(Error::Query(format!("El índice {} no tiene campos.", i.name)));
+                return Err(Error::Query(format!(
+                    "El índice {} no tiene campos.",
+                    i.name
+                )));
             }
             if let Some(list) = policy_list(i) {
                 lists.push((list, policy_entry(i)));
@@ -226,9 +268,13 @@ pub fn container_body(t: &TableSchema, indexes: bool) -> Result<Value> {
                         i.name
                     )));
                 }
-                composites.push(Value::Array(i.columns.iter().map(|c| composite_path(c)).collect()));
+                composites.push(Value::Array(
+                    i.columns.iter().map(|c| composite_path(c)).collect(),
+                ));
             } else {
-                uniques.push(json!({ "paths": i.columns.iter().map(|c| path(c)).collect::<Vec<_>>() }));
+                uniques.push(
+                    json!({ "paths": i.columns.iter().map(|c| path(c)).collect::<Vec<_>>() }),
+                );
             }
         }
         if !composites.is_empty() {
@@ -258,8 +304,18 @@ pub fn container_body(t: &TableSchema, indexes: bool) -> Result<Value> {
         "manual" | "autoscale" => {
             let mode = opt(t, THROUGHPUT_MODE).unwrap_or_default();
             let ru = opt(t, THROUGHPUT).unwrap_or(if mode == "manual" { "400" } else { "1000" });
-            let n: i64 = ru.parse().ok().filter(|n| *n > 0).ok_or_else(|| Error::Query(format!("Las RU/s «{ru}» no son un número entero positivo.")))?;
-            body.insert(if mode == "manual" { MANUAL_KEY } else { AUTOSCALE_KEY }.into(), n.into());
+            let n: i64 = ru.parse().ok().filter(|n| *n > 0).ok_or_else(|| {
+                Error::Query(format!("Las RU/s «{ru}» no son un número entero positivo."))
+            })?;
+            body.insert(
+                if mode == "manual" {
+                    MANUAL_KEY
+                } else {
+                    AUTOSCALE_KEY
+                }
+                .into(),
+                n.into(),
+            );
         }
         _ => {}
     }
@@ -272,13 +328,21 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     let mut stmts = Vec::new();
     if parts.drop {
-        stmts.push(format!("DROP CONTAINER {}{};", if parts.if_exists { "IF EXISTS " } else { "" }, q(&t.name)));
+        stmts.push(format!(
+            "DROP CONTAINER {}{};",
+            if parts.if_exists { "IF EXISTS " } else { "" },
+            q(&t.name)
+        ));
     }
     if parts.create {
         let body = container_body(t, parts.indexes)?;
         stmts.push(format!(
             "CREATE CONTAINER {}{} {};",
-            if parts.if_exists { "IF NOT EXISTS " } else { "" },
+            if parts.if_exists {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             q(&t.name),
             serde_json::to_string_pretty(&body)?
         ));
@@ -314,7 +378,11 @@ pub fn insert_script(container: &str, columns: &[String], rows: &[Vec<Value>]) -
         if doc.is_empty() {
             continue;
         }
-        out.push_str(&format!("INSERT INTO {} {};\n", q(container), Value::Object(doc)));
+        out.push_str(&format!(
+            "INSERT INTO {} {};\n",
+            q(container),
+            Value::Object(doc)
+        ));
     }
     out
 }
@@ -323,7 +391,11 @@ pub fn insert_script(container: &str, columns: &[String], rows: &[Vec<Value>]) -
 /// text whether or not serde_json keeps insertion order (a workspace
 /// feature can turn it on).
 fn script_obj(pairs: &[(String, Value)]) -> Value {
-    let mut v: Vec<(String, Value)> = pairs.iter().filter(|(c, _)| !SYSTEM_PROPS.contains(&c.as_str())).cloned().collect();
+    let mut v: Vec<(String, Value)> = pairs
+        .iter()
+        .filter(|(c, _)| !SYSTEM_PROPS.contains(&c.as_str()))
+        .cloned()
+        .collect();
     v.sort_by(|a, b| a.0.cmp(&b.0));
     Value::Object(v.into_iter().collect())
 }
@@ -343,7 +415,12 @@ fn key_filter(key: &[(String, Value)]) -> Value {
 pub fn update_script(container: &str, changes: &[RowChange]) -> String {
     let mut out = String::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
-        out.push_str(&format!("UPDATE {} SET {} WHERE {};\n", q(container), script_obj(&ch.set), key_filter(&ch.key)));
+        out.push_str(&format!(
+            "UPDATE {} SET {} WHERE {};\n",
+            q(container),
+            script_obj(&ch.set),
+            key_filter(&ch.key)
+        ));
     }
     out
 }
@@ -381,11 +458,27 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
             Value::Number(n) if f.column == "id" => Value::String(n.to_string()).to_string(),
             other => other.to_string(),
         };
-        let first = || f.values.first().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)));
-        let text = || first().map(|v| Value::String(v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())).to_string());
+        let first = || {
+            f.values.first().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })
+        };
+        let text = || {
+            first().map(|v| {
+                Value::String(
+                    v.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| v.to_string()),
+                )
+                .to_string()
+            })
+        };
         let list = || {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{}» necesita al menos un valor", f.column)));
+                return Err(Error::Query(format!(
+                    "el filtro de «{}» necesita al menos un valor",
+                    f.column
+                )));
             }
             Ok(f.values.iter().map(lit).collect::<Vec<_>>().join(", "))
         };
@@ -423,7 +516,9 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     };
     insert_where(select, &parts.join("\n  AND "))
         .map(|s| format!("{head}{s}"))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+        .ok_or_else(|| {
+            Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+        })
 }
 
 /// The browse query (filtered or not) sorted by the grid's column: an
@@ -449,12 +544,19 @@ pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<Str
         };
     };
     let dir = if k.descending { "DESC" } else { "ASC" };
-    Ok(format!("{}\nORDER BY c[{}] {dir}", browse.trim_end().trim_end_matches(';').trim_end(), Value::String(k.column.clone())))
+    Ok(format!(
+        "{}\nORDER BY c[{}] {dir}",
+        browse.trim_end().trim_end_matches(';').trim_end(),
+        Value::String(k.column.clone())
+    ))
 }
 
 /// The `SELECT` that finds the documents an UPDATE's WHERE fields match.
 pub fn update_query(filter: &Map<String, Value>) -> String {
-    let conds: Vec<String> = filter.iter().map(|(k, v)| format!("c[{}] = {v}", Value::String(k.clone()))).collect();
+    let conds: Vec<String> = filter
+        .iter()
+        .map(|(k, v)| format!("c[{}] = {v}", Value::String(k.clone())))
+        .collect();
     format!("SELECT * FROM c WHERE {}", conds.join(" AND "))
 }
 
@@ -462,7 +564,9 @@ pub fn update_query(filter: &Map<String, Value>) -> String {
 /// properties dropped. The `id` can't change (that would be a new document).
 pub fn apply_set(mut doc: Value, set: &Map<String, Value>) -> Result<Value> {
     let id = doc.get("id").cloned();
-    let m = doc.as_object_mut().ok_or_else(|| Error::Query("El documento leído no es un objeto JSON.".into()))?;
+    let m = doc
+        .as_object_mut()
+        .ok_or_else(|| Error::Query("El documento leído no es un objeto JSON.".into()))?;
     for k in SYSTEM_PROPS {
         m.remove(*k);
     }
@@ -470,7 +574,9 @@ pub fn apply_set(mut doc: Value, set: &Map<String, Value>) -> Result<Value> {
         m.insert(k.clone(), v.clone());
     }
     if m.get("id") != id.as_ref() {
-        return Err(Error::Query("UPDATE no cambia el «id» de un documento; usá INSERT y borrá el anterior.".into()));
+        return Err(Error::Query(
+            "UPDATE no cambia el «id» de un documento; usá INSERT y borrá el anterior.".into(),
+        ));
     }
     Ok(doc)
 }
@@ -479,17 +585,47 @@ pub fn apply_set(mut doc: Value, set: &Map<String, Value>) -> Result<Value> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Admin {
-    CreateContainer { name: String, if_not_exists: bool, body: Value },
-    DropContainer { name: String, if_exists: bool },
-    Insert { container: String, upsert: bool, doc: Value },
-    Update { container: String, set: Map<String, Value>, filter: Map<String, Value> },
-    Delete { container: String, filter: Map<String, Value> },
+    CreateContainer {
+        name: String,
+        if_not_exists: bool,
+        body: Value,
+    },
+    DropContainer {
+        name: String,
+        if_exists: bool,
+    },
+    Insert {
+        container: String,
+        upsert: bool,
+        doc: Value,
+    },
+    Update {
+        container: String,
+        set: Map<String, Value>,
+        filter: Map<String, Value>,
+    },
+    Delete {
+        container: String,
+        filter: Map<String, Value>,
+    },
     /// A database user (resource tokens; see security.rs).
-    CreateUser { name: String },
-    DropUser { name: String },
+    CreateUser {
+        name: String,
+    },
+    DropUser {
+        name: String,
+    },
     /// `mode`: `All` or `Read`, on a container.
-    Grant { mode: String, container: String, user: String },
-    Revoke { mode: String, container: String, user: String },
+    Grant {
+        mode: String,
+        container: String,
+        user: String,
+    },
+    Revoke {
+        mode: String,
+        container: String,
+        user: String,
+    },
 }
 
 const USAGE: &str = "Cosmos DB acepta consultas SELECT, `USE <contenedor>` y estas sentencias de DBine: CREATE CONTAINER [IF NOT EXISTS] \"c\" { …JSON… } · DROP CONTAINER [IF EXISTS] \"c\" · \
@@ -509,7 +645,9 @@ struct Cursor<'a> {
 impl<'a> Cursor<'a> {
     fn keyword(&mut self, kw: &str) -> bool {
         let s = self.s.trim_start();
-        let end = s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len());
+        let end = s
+            .find(|c: char| !c.is_ascii_alphabetic())
+            .unwrap_or(s.len());
         if s[..end].eq_ignore_ascii_case(kw) {
             self.s = &s[end..];
             true
@@ -546,7 +684,10 @@ impl<'a> Cursor<'a> {
             }
             return Err(Error::Query("Falta cerrar las comillas del nombre.".into()));
         }
-        let end = self.s.find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-'))).unwrap_or(self.s.len());
+        let end = self
+            .s
+            .find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-')))
+            .unwrap_or(self.s.len());
         if end == 0 {
             return Err(usage());
         }
@@ -558,11 +699,16 @@ impl<'a> Cursor<'a> {
     fn body(&mut self) -> Result<Value> {
         let text = self.s.trim();
         if text.is_empty() {
-            return Err(Error::Query("Falta el cuerpo JSON después del nombre.".into()));
+            return Err(Error::Query(
+                "Falta el cuerpo JSON después del nombre.".into(),
+            ));
         }
-        let v: Value = serde_json::from_str(text).map_err(|e| Error::Query(format!("El cuerpo no es un JSON válido: {e}")))?;
+        let v: Value = serde_json::from_str(text)
+            .map_err(|e| Error::Query(format!("El cuerpo no es un JSON válido: {e}")))?;
         if !v.is_object() {
-            return Err(Error::Query("El cuerpo tiene que ser un objeto JSON ({ … }).".into()));
+            return Err(Error::Query(
+                "El cuerpo tiene que ser un objeto JSON ({ … }).".into(),
+            ));
         }
         Ok(v)
     }
@@ -600,7 +746,9 @@ pub fn parse_admin(stmt: &str) -> Result<Option<Admin>> {
         } else if c.keyword("read") {
             "Read"
         } else {
-            return Err(Error::Query("Cosmos DB otorga ALL o READ sobre un contenedor.".into()));
+            return Err(Error::Query(
+                "Cosmos DB otorga ALL o READ sobre un contenedor.".into(),
+            ));
         }
         .to_string();
         c.expect("on")?;
@@ -608,7 +756,19 @@ pub fn parse_admin(stmt: &str) -> Result<Option<Admin>> {
         c.expect(if grant { "to" } else { "from" })?;
         let user = c.ident()?;
         c.end()?;
-        return Ok(Some(if grant { Admin::Grant { mode, container, user } } else { Admin::Revoke { mode, container, user } }));
+        return Ok(Some(if grant {
+            Admin::Grant {
+                mode,
+                container,
+                user,
+            }
+        } else {
+            Admin::Revoke {
+                mode,
+                container,
+                user,
+            }
+        }));
     }
     if c.keyword("create") {
         if c.keyword("user") {
@@ -624,7 +784,11 @@ pub fn parse_admin(stmt: &str) -> Result<Option<Admin>> {
         }
         let name = c.ident()?;
         let body = c.body()?;
-        return Ok(Some(Admin::CreateContainer { name, if_not_exists, body }));
+        return Ok(Some(Admin::CreateContainer {
+            name,
+            if_not_exists,
+            body,
+        }));
     }
     if c.keyword("drop") {
         if c.keyword("user") {
@@ -652,9 +816,15 @@ pub fn parse_admin(stmt: &str) -> Result<Option<Admin>> {
             return Err(Error::Query("El SET del UPDATE no tiene campos.".into()));
         }
         if !filter.contains_key("id") {
-            return Err(Error::Query("El WHERE del UPDATE tiene que incluir el «id» del documento.".into()));
+            return Err(Error::Query(
+                "El WHERE del UPDATE tiene que incluir el «id» del documento.".into(),
+            ));
         }
-        return Ok(Some(Admin::Update { container, set, filter }));
+        return Ok(Some(Admin::Update {
+            container,
+            set,
+            filter,
+        }));
     }
     if c.keyword("delete") {
         c.expect("from")?;
@@ -663,7 +833,9 @@ pub fn parse_admin(stmt: &str) -> Result<Option<Admin>> {
         let filter = c.object()?;
         c.end()?;
         if !filter.get("id").is_some_and(Value::is_string) {
-            return Err(Error::Query("El WHERE del DELETE tiene que incluir el «id» (texto) del documento.".into()));
+            return Err(Error::Query(
+                "El WHERE del DELETE tiene que incluir el «id» (texto) del documento.".into(),
+            ));
         }
         return Ok(Some(Admin::Delete { container, filter }));
     }
@@ -677,7 +849,11 @@ pub fn parse_admin(stmt: &str) -> Result<Option<Admin>> {
     c.expect("into")?;
     let container = c.ident()?;
     let doc = c.body()?;
-    Ok(Some(Admin::Insert { container, upsert, doc }))
+    Ok(Some(Admin::Insert {
+        container,
+        upsert,
+        doc,
+    }))
 }
 
 /// Splits a script on `;` outside quotes, comments and JSON bodies (where
@@ -737,7 +913,10 @@ pub fn split_script(text: &str) -> Vec<String> {
         }
     }
     out.push(cur);
-    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    out.into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// The partition key header value of a document: its values at the
@@ -765,7 +944,12 @@ mod tests {
     #[test]
     fn filtered_browse_in_cosmos_sql() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         assert_eq!(
             filtered_browse(
                 "-- container: from orders\nSELECT TOP 200 * FROM c",
@@ -785,16 +969,34 @@ mod tests {
     #[test]
     fn sorted_browse_by_one_property() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let b = "-- container: from orders\nSELECT TOP 200 * FROM c";
-        assert_eq!(sorted_browse(b, &[k("total", true)]).unwrap(), "-- container: from orders\nSELECT TOP 200 * FROM c\nORDER BY c[\"total\"] DESC");
-        let f = filtered_browse(b, &[ColumnFilter { column: "g".into(), op: FilterOp::Eq, values: vec![json!("offset")], sql: None }]).unwrap();
+        assert_eq!(
+            sorted_browse(b, &[k("total", true)]).unwrap(),
+            "-- container: from orders\nSELECT TOP 200 * FROM c\nORDER BY c[\"total\"] DESC"
+        );
+        let f = filtered_browse(
+            b,
+            &[ColumnFilter {
+                column: "g".into(),
+                op: FilterOp::Eq,
+                values: vec![json!("offset")],
+                sql: None,
+            }],
+        )
+        .unwrap();
         assert_eq!(
             sorted_browse(&f, &[k("we\"ird] 'n'", false), k("we\"ird] 'n'", true)]).unwrap(),
             "-- container: from orders\nSELECT TOP 200 * FROM c\nWHERE c[\"g\"] = \"offset\"\nORDER BY c[\"we\\\"ird] 'n'\"] ASC"
         );
         assert!(crate::parse_located(&sorted_browse(&f, &[k("a", false)]).unwrap()).is_ok());
-        assert!(matches!(sorted_browse(b, &[k("a", false), k("b", true)]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            sorted_browse(b, &[k("a", false), k("b", true)]),
+            Err(Error::Unsupported(_))
+        ));
         assert_eq!(sorted_browse(b, &[]).unwrap(), b);
     }
 
@@ -803,8 +1005,18 @@ mod tests {
             kind: kinds::COLLECTION.into(),
             name: "items".into(),
             indexes: vec![
-                IndexDef { name: "uq".into(), columns: vec!["email".into(), "/tenant".into()], unique: true, ..Default::default() },
-                IndexDef { name: "byNameAge".into(), columns: vec!["name".into(), "age DESC".into()], kind: Some(COMPOSITE.into()), ..Default::default() },
+                IndexDef {
+                    name: "uq".into(),
+                    columns: vec!["email".into(), "/tenant".into()],
+                    unique: true,
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "byNameAge".into(),
+                    columns: vec!["name".into(), "age DESC".into()],
+                    kind: Some(COMPOSITE.into()),
+                    ..Default::default()
+                },
             ],
             options: BTreeMap::from([
                 (PARTITION_KEY.to_string(), "/cat".to_string()),
@@ -818,17 +1030,46 @@ mod tests {
 
     #[test]
     fn container_ddl_parses_back() {
-        let ddl = table_ddl(&items(), DdlParts { drop: true, if_exists: true, create: true, indexes: true, ..Default::default() }).unwrap();
+        let ddl = table_ddl(
+            &items(),
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let stmts = split_script(&ddl);
         assert_eq!(stmts.len(), 2, "{ddl}");
-        assert_eq!(parse_admin(&stmts[0]).unwrap(), Some(Admin::DropContainer { name: "items".into(), if_exists: true }));
-        let Some(Admin::CreateContainer { name, if_not_exists, body }) = parse_admin(&stmts[1]).unwrap() else { panic!("{ddl}") };
+        assert_eq!(
+            parse_admin(&stmts[0]).unwrap(),
+            Some(Admin::DropContainer {
+                name: "items".into(),
+                if_exists: true
+            })
+        );
+        let Some(Admin::CreateContainer {
+            name,
+            if_not_exists,
+            body,
+        }) = parse_admin(&stmts[1]).unwrap()
+        else {
+            panic!("{ddl}")
+        };
         assert_eq!(name, "items");
         assert!(if_not_exists);
-        assert_eq!(body["partitionKey"], json!({ "paths": ["/cat"], "kind": "Hash" }));
+        assert_eq!(
+            body["partitionKey"],
+            json!({ "paths": ["/cat"], "kind": "Hash" })
+        );
         assert_eq!(body["defaultTtl"], 3600);
         assert_eq!(body[AUTOSCALE_KEY], 4000);
-        assert_eq!(body["uniqueKeyPolicy"], json!({ "uniqueKeys": [{ "paths": ["/email", "/tenant"] }] }));
+        assert_eq!(
+            body["uniqueKeyPolicy"],
+            json!({ "uniqueKeys": [{ "paths": ["/email", "/tenant"] }] })
+        );
         assert_eq!(
             body["indexingPolicy"]["compositeIndexes"],
             json!([[{ "path": "/name", "order": "ascending" }, { "path": "/age", "order": "descending" }]])
@@ -839,12 +1080,19 @@ mod tests {
     fn options_and_errors() {
         let mut t = items();
         t.indexes.clear();
-        t.options.insert(PARTITION_KEY.into(), "tenant, /user".into());
+        t.options
+            .insert(PARTITION_KEY.into(), "tenant, /user".into());
         t.options.insert(THROUGHPUT_MODE.into(), "manual".into());
         t.options.remove(THROUGHPUT);
-        t.options.insert(INDEXING_POLICY.into(), "{\"indexingMode\": \"none\", \"automatic\": false}".into());
+        t.options.insert(
+            INDEXING_POLICY.into(),
+            "{\"indexingMode\": \"none\", \"automatic\": false}".into(),
+        );
         let b = container_body(&t, true).unwrap();
-        assert_eq!(b["partitionKey"], json!({ "paths": ["/tenant", "/user"], "kind": "MultiHash", "version": 2 }));
+        assert_eq!(
+            b["partitionKey"],
+            json!({ "paths": ["/tenant", "/user"], "kind": "MultiHash", "version": 2 })
+        );
         assert_eq!(b[MANUAL_KEY], 400);
         assert_eq!(b["indexingPolicy"]["indexingMode"], "none");
         assert!(b.get("uniqueKeyPolicy").is_none());
@@ -852,8 +1100,15 @@ mod tests {
         t.options.insert(INDEXING_POLICY.into(), "nope".into());
         assert!(container_body(&t, true).is_err());
         t.options.remove(INDEXING_POLICY);
-        t.indexes.push(IndexDef { name: "one".into(), columns: vec!["a".into()], ..Default::default() });
-        assert!(container_body(&t, true).unwrap_err().to_string().contains("compuesto"));
+        t.indexes.push(IndexDef {
+            name: "one".into(),
+            columns: vec!["a".into()],
+            ..Default::default()
+        });
+        assert!(container_body(&t, true)
+            .unwrap_err()
+            .to_string()
+            .contains("compuesto"));
         t.options.remove(PARTITION_KEY);
         assert!(container_body(&t, false).is_err());
     }
@@ -861,10 +1116,20 @@ mod tests {
     #[test]
     fn statements() {
         assert_eq!(parse_admin("SELECT * FROM c").unwrap(), None);
-        assert_eq!(parse_admin("drop container \"a\"\"b\"").unwrap(), Some(Admin::DropContainer { name: "a\"b".into(), if_exists: false }));
+        assert_eq!(
+            parse_admin("drop container \"a\"\"b\"").unwrap(),
+            Some(Admin::DropContainer {
+                name: "a\"b".into(),
+                if_exists: false
+            })
+        );
         assert_eq!(
             parse_admin("UPSERT INTO items {\"id\": \"1\"}").unwrap(),
-            Some(Admin::Insert { container: "items".into(), upsert: true, doc: json!({ "id": "1" }) })
+            Some(Admin::Insert {
+                container: "items".into(),
+                upsert: true,
+                doc: json!({ "id": "1" })
+            })
         );
         assert!(parse_admin("CREATE CONTAINER x").is_err());
         assert!(parse_admin("CREATE TABLE x {}").is_err());
@@ -874,8 +1139,20 @@ mod tests {
 
     #[test]
     fn inserts_are_documents() {
-        let cols = vec!["id".to_string(), "name".into(), "addr".into(), "gone".into(), "_ts".into()];
-        let rows = vec![vec![json!(7), json!("it's \"q\"; x"), json!({ "city": "Rosario" }), Value::Null, json!(1)]];
+        let cols = vec![
+            "id".to_string(),
+            "name".into(),
+            "addr".into(),
+            "gone".into(),
+            "_ts".into(),
+        ];
+        let rows = vec![vec![
+            json!(7),
+            json!("it's \"q\"; x"),
+            json!({ "city": "Rosario" }),
+            Value::Null,
+            json!(1),
+        ]];
         let s = insert_script("it\"ems", &cols, &rows);
         let stmts = split_script(&s);
         assert_eq!(stmts.len(), 1, "{s}");
@@ -894,21 +1171,53 @@ mod tests {
         let changes = vec![
             RowChange {
                 key: vec![("id".into(), json!(7)), ("_etag".into(), json!("e"))],
-                set: vec![("name".into(), json!("it's \"q\"; x")), ("gone".into(), Value::Null)], ..Default::default()
+                set: vec![
+                    ("name".into(), json!("it's \"q\"; x")),
+                    ("gone".into(), Value::Null),
+                ],
+                ..Default::default()
             },
-            RowChange { key: vec![("id".into(), json!("8"))], set: vec![], ..Default::default() },
+            RowChange {
+                key: vec![("id".into(), json!("8"))],
+                set: vec![],
+                ..Default::default()
+            },
         ];
         let s = update_script("it\"ems", &changes);
         assert_eq!(s, "UPDATE \"it\"\"ems\" SET {\"gone\":null,\"name\":\"it's \\\"q\\\"; x\"} WHERE {\"id\":\"7\"};\n");
         let stmts = split_script(&s);
         assert_eq!(stmts.len(), 1, "{s}");
-        let Some(Admin::Update { container, set, filter }) = parse_admin(&stmts[0]).unwrap() else { panic!("{s}") };
+        let Some(Admin::Update {
+            container,
+            set,
+            filter,
+        }) = parse_admin(&stmts[0]).unwrap()
+        else {
+            panic!("{s}")
+        };
         assert_eq!(container, "it\"ems");
-        assert_eq!(Value::Object(set.clone()), json!({ "name": "it's \"q\"; x", "gone": null }));
-        assert_eq!(update_query(&filter), "SELECT * FROM c WHERE c[\"id\"] = \"7\"");
-        let doc = apply_set(json!({ "id": "7", "name": "a", "k": 1, "_etag": "e", "_ts": 1 }), &set).unwrap();
-        assert_eq!(doc, json!({ "id": "7", "name": "it's \"q\"; x", "gone": null, "k": 1 }));
-        assert!(apply_set(json!({ "id": "7" }), &Map::from_iter([("id".to_string(), json!("9"))])).is_err());
+        assert_eq!(
+            Value::Object(set.clone()),
+            json!({ "name": "it's \"q\"; x", "gone": null })
+        );
+        assert_eq!(
+            update_query(&filter),
+            "SELECT * FROM c WHERE c[\"id\"] = \"7\""
+        );
+        let doc = apply_set(
+            json!({ "id": "7", "name": "a", "k": 1, "_etag": "e", "_ts": 1 }),
+            &set,
+        )
+        .unwrap();
+        assert_eq!(
+            doc,
+            json!({ "id": "7", "name": "it's \"q\"; x", "gone": null, "k": 1 })
+        );
+        assert!(apply_set(
+            json!({ "id": "7" }),
+            &Map::from_iter([("id".to_string(), json!("9"))])
+        )
+        .is_err());
         assert!(parse_admin("UPDATE c SET {\"a\": 1} WHERE {\"b\": 2}").is_err());
         assert!(parse_admin("UPDATE c SET {} WHERE {\"id\": \"1\"}").is_err());
     }
@@ -917,7 +1226,10 @@ mod tests {
     fn deletes_parse_back() {
         let keys = vec![
             vec![("id".into(), json!(7)), ("_etag".into(), json!("e"))],
-            vec![("id".into(), json!("it's \"q\"; x")), ("cat".into(), json!("a"))],
+            vec![
+                ("id".into(), json!("it's \"q\"; x")),
+                ("cat".into(), json!("a")),
+            ],
         ];
         let s = delete_script("it\"ems", &keys).unwrap();
         assert_eq!(
@@ -927,9 +1239,14 @@ mod tests {
         );
         let stmts = split_script(&s);
         assert_eq!(stmts.len(), 2, "{s}");
-        let Some(Admin::Delete { container, filter }) = parse_admin(&stmts[1]).unwrap() else { panic!("{s}") };
+        let Some(Admin::Delete { container, filter }) = parse_admin(&stmts[1]).unwrap() else {
+            panic!("{s}")
+        };
         assert_eq!(container, "it\"ems");
-        assert_eq!(Value::Object(filter), json!({ "id": "it's \"q\"; x", "cat": "a" }));
+        assert_eq!(
+            Value::Object(filter),
+            json!({ "id": "it's \"q\"; x", "cat": "a" })
+        );
         assert!(delete_script("c", &[vec![("name".into(), json!("x"))]]).is_err());
         assert!(delete_script("c", &[vec![]]).is_err());
         assert!(parse_admin("DELETE FROM c WHERE {\"b\": 2}").is_err());
@@ -941,7 +1258,10 @@ mod tests {
     fn partition_key_values() {
         let doc = json!({ "cat": "a", "t": { "u": 3 } });
         assert_eq!(partition_key_header(&doc, &["/cat".into()]), "[\"a\"]");
-        assert_eq!(partition_key_header(&doc, &["/cat".into(), "/t/u".into()]), "[\"a\",3]");
+        assert_eq!(
+            partition_key_header(&doc, &["/cat".into(), "/t/u".into()]),
+            "[\"a\",3]"
+        );
         assert_eq!(partition_key_header(&doc, &["/x".into()]), "[{}]");
     }
 
@@ -950,7 +1270,10 @@ mod tests {
         for t in create_templates() {
             let stmts = split_script(&t.template.replace("{name}", "x"));
             assert_eq!(stmts.len(), 1);
-            assert!(matches!(parse_admin(&stmts[0]).unwrap(), Some(Admin::CreateContainer { .. })));
+            assert!(matches!(
+                parse_admin(&stmts[0]).unwrap(),
+                Some(Admin::CreateContainer { .. })
+            ));
         }
     }
 }

@@ -5,7 +5,10 @@
 use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
-use dbine_driver::{kinds, DdlParts, Driver, Language, ObjectRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, TableSchema};
+use dbine_driver::{
+    kinds, DdlParts, Driver, Language, ObjectRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef,
+    TableSchema,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -122,7 +125,15 @@ impl InsertSink {
 impl RowSink for InsertSink {
     fn begin(&mut self, index: usize, columns: &[ResultColumn]) -> std::io::Result<()> {
         if index == 0 {
-            self.columns = columns.iter().map(|c| self.rename.get(&c.name).cloned().unwrap_or_else(|| c.name.clone())).collect();
+            self.columns = columns
+                .iter()
+                .map(|c| {
+                    self.rename
+                        .get(&c.name)
+                        .cloned()
+                        .unwrap_or_else(|| c.name.clone())
+                })
+                .collect();
         }
         Ok(())
     }
@@ -151,8 +162,14 @@ fn data_tables<'a>(tables: &[&'a ObjectRef], picked: Option<&[ObjectRef]>) -> Ve
     let Some(picked) = picked else {
         return tables.to_vec();
     };
-    let same = |a: &ObjectRef, b: &ObjectRef| a.kind == b.kind && a.schema() == b.schema() && a.name == b.name;
-    tables.iter().copied().filter(|t| picked.iter().any(|p| same(t, p))).collect()
+    let same = |a: &ObjectRef, b: &ObjectRef| {
+        a.kind == b.kind && a.schema() == b.schema() && a.name == b.name
+    };
+    tables
+        .iter()
+        .copied()
+        .filter(|t| picked.iter().any(|p| same(t, p)))
+        .collect()
 }
 
 /// Text for a `--` or `//` comment line of a generated script: a name from
@@ -160,7 +177,15 @@ fn data_tables<'a>(tables: &[&'a ObjectRef], picked: Option<&[ObjectRef]>) -> Ve
 /// statement. Line breaks (CR, LF, NEL, U+2028/U+2029) and other control
 /// characters become `?`.
 pub(crate) fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// `DROP VIEW …` and friends for objects that aren't tables (SQL and CQL
@@ -169,11 +194,17 @@ pub(crate) fn drop_other(driver: &dyn Driver, obj: &ObjectRef, if_exists: bool) 
     let id = driver.info().id;
     // A MongoDB view is a collection: dropping it doesn't touch its source.
     if matches!(id, "mongodb" | "ferretdb" | "documentdb") && obj.kind == kinds::VIEW {
-        return Some(format!("db.getCollection({}).drop()", serde_json::to_string(&obj.name).unwrap_or_default()));
+        return Some(format!(
+            "db.getCollection({}).drop()",
+            serde_json::to_string(&obj.name).unwrap_or_default()
+        ));
     }
     // OrientDB functions are records of OFunction.
     if id == "orientdb" && obj.kind == kinds::FUNCTION {
-        return Some(format!("DELETE FROM OFunction WHERE name = '{}'", obj.name.replace('\\', "\\\\").replace('\'', "\\'")));
+        return Some(format!(
+            "DELETE FROM OFunction WHERE name = '{}'",
+            obj.name.replace('\\', "\\\\").replace('\'', "\\'")
+        ));
     }
     // CQL drops the same way (keyspace-qualified, double quotes).
     if !matches!(driver.info().language, Language::Sql | Language::Cql) {
@@ -181,10 +212,26 @@ pub(crate) fn drop_other(driver: &dyn Driver, obj: &ObjectRef, if_exists: bool) 
     }
     // SQL Server's full-text catalogs and stoplists: no schema, and no
     // `IF EXISTS` in their DROP.
-    if driver.info().dialect == "mssql" && matches!(obj.kind.as_str(), "fulltext_catalog" | "fulltext_stoplist") {
-        let (view, what) = if obj.kind == "fulltext_catalog" { ("sys.fulltext_catalogs", "FULLTEXT CATALOG") } else { ("sys.fulltext_stoplists", "FULLTEXT STOPLIST") };
-        let drop = format!("DROP {what} {};", dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Bracket, &obj.name));
-        return Some(if if_exists { format!("IF EXISTS (SELECT 1 FROM {view} WHERE name = N'{}')\n    {drop}", obj.name.replace('\'', "''")) } else { drop });
+    if driver.info().dialect == "mssql"
+        && matches!(obj.kind.as_str(), "fulltext_catalog" | "fulltext_stoplist")
+    {
+        let (view, what) = if obj.kind == "fulltext_catalog" {
+            ("sys.fulltext_catalogs", "FULLTEXT CATALOG")
+        } else {
+            ("sys.fulltext_stoplists", "FULLTEXT STOPLIST")
+        };
+        let drop = format!(
+            "DROP {what} {};",
+            dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Bracket, &obj.name)
+        );
+        return Some(if if_exists {
+            format!(
+                "IF EXISTS (SELECT 1 FROM {view} WHERE name = N'{}')\n    {drop}",
+                obj.name.replace('\'', "''")
+            )
+        } else {
+            drop
+        });
     }
     let keyword = match obj.kind.as_str() {
         kinds::VIEW => "VIEW",
@@ -207,33 +254,73 @@ pub(crate) fn drop_other(driver: &dyn Driver, obj: &ObjectRef, if_exists: bool) 
     let dialect = driver.info().dialect;
     let quote = match dialect {
         "mssql" | "sybase" => dbine_driver::sql::Quote::Bracket,
-        "mysql" | "bigquery" | "spanner" | "hive" | "clickhouse" | "sparksql" | "databricks" | "orientdb" | "tdengine" => dbine_driver::sql::Quote::Backtick,
+        "mysql" | "bigquery" | "spanner" | "hive" | "clickhouse" | "sparksql" | "databricks"
+        | "orientdb" | "tdengine" => dbine_driver::sql::Quote::Backtick,
         _ => dbine_driver::sql::Quote::Double,
     };
     // These don't take (or may not take) `IF EXISTS` in DROP (Oracle only
     // from 23ai); the object is there anyway when a compare drops it.
     let no_if_exists = matches!(dialect, "db2" | "teradata" | "oracle" | "sybase")
-        || matches!(driver.info().id, "hana" | "netezza" | "dameng" | "altibase" | "cubrid" | "ingres" | "mimer" | "edb" | "firebird");
+        || matches!(
+            driver.info().id,
+            "hana"
+                | "netezza"
+                | "dameng"
+                | "altibase"
+                | "cubrid"
+                | "ingres"
+                | "mimer"
+                | "edb"
+                | "firebird"
+        );
     let if_exists = if_exists && !no_if_exists;
     // Oracle and HANA list public synonyms under the schema PUBLIC.
-    if obj.kind == kinds::SYNONYM && obj.schema().is_some_and(|s| s.eq_ignore_ascii_case("PUBLIC")) && matches!(driver.info().id, "oracle" | "oracle_adb" | "hana") {
-        return Some(format!("DROP PUBLIC SYNONYM {};", dbine_driver::sql::quote_ident(quote, &obj.name)));
+    if obj.kind == kinds::SYNONYM
+        && obj
+            .schema()
+            .is_some_and(|s| s.eq_ignore_ascii_case("PUBLIC"))
+        && matches!(driver.info().id, "oracle" | "oracle_adb" | "hana")
+    {
+        return Some(format!(
+            "DROP PUBLIC SYNONYM {};",
+            dbine_driver::sql::quote_ident(quote, &obj.name)
+        ));
     }
     // TDengine's streams aren't qualified with a database (`DROP STREAM db.s`
     // is a syntax error), even though the explorer lists them under one.
-    let schema = if obj.kind == kinds::STREAM && driver.info().id == "tdengine" { None } else { obj.schema() };
+    let schema = if obj.kind == kinds::STREAM && driver.info().id == "tdengine" {
+        None
+    } else {
+        obj.schema()
+    };
     let name = dbine_driver::sql::qualified_name(quote, schema, &obj.name);
     // An Oracle type something depends on is only dropped with FORCE.
-    let force = if obj.kind == kinds::TYPE && dialect == "oracle" && !matches!(driver.info().id, "dameng") { " FORCE" } else { "" };
-    Some(format!("DROP {keyword} {}{name}{force};", if if_exists { "IF EXISTS " } else { "" }))
+    let force = if obj.kind == kinds::TYPE
+        && dialect == "oracle"
+        && !matches!(driver.info().id, "dameng")
+    {
+        " FORCE"
+    } else {
+        ""
+    };
+    Some(format!(
+        "DROP {keyword} {}{name}{force};",
+        if if_exists { "IF EXISTS " } else { "" }
+    ))
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn generate_script(app: AppHandle, state: State<'_, AppState>, args: GenerateArgs) -> CommandResult<GenerateResult> {
+pub async fn generate_script(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: GenerateArgs,
+) -> CommandResult<GenerateResult> {
     let driver = driver_of(&state, &args.connection_id)?;
     let key = format!("script:{}", args.script_id);
     // Reading only: the script is written, never run here.
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, true)
+        .await?;
     let res = generate(Some(&app), driver, &entry, &args).await;
     state.sessions.remove(&key);
     if res.is_err() {
@@ -255,20 +342,30 @@ pub(crate) async fn generate(
     let io = |e: std::io::Error| CommandError::Internal(e.to_string());
     // Another engine: the tables are converted and its driver writes.
     let src_id = driver.info().id;
-    let other_engine = args.target_driver.as_deref().filter(|t| !t.is_empty() && *t != src_id);
+    let other_engine = args
+        .target_driver
+        .as_deref()
+        .filter(|t| !t.is_empty() && *t != src_id);
     let w: &'static Arc<dyn Driver> = match other_engine {
-        Some(t) => dbine_drivers::find(t).ok_or_else(|| CommandError::BadRequest(format!("esta versión no incluye el driver '{t}'")))?,
+        Some(t) => dbine_drivers::find(t).ok_or_else(|| {
+            CommandError::BadRequest(format!("esta versión no incluye el driver '{t}'"))
+        })?,
         None => driver,
     };
     let out = Arc::new(Mutex::new(match &args.path {
-        Some(p) => Out::File(std::io::BufWriter::new(std::fs::File::create(p).map_err(io)?)),
+        Some(p) => Out::File(std::io::BufWriter::new(
+            std::fs::File::create(p).map_err(io)?,
+        )),
         None => Out::Mem(String::new()),
     }));
     let write = |s: &str| out.lock().expect("script output").write(s).map_err(io);
     let sep = w.script_separator();
     let end_block = |text: &str| -> String {
         let t = text.trim_end();
-        match (sep.is_empty(), w.info().language == Language::Sql && !t.ends_with(';')) {
+        match (
+            sep.is_empty(),
+            w.info().language == Language::Sql && !t.ends_with(';'),
+        ) {
             (false, _) => format!("{t}\n{sep}\n\n"),
             (true, true) => format!("{t};\n\n"),
             (true, false) => format!("{t}\n\n"),
@@ -276,16 +373,17 @@ pub(crate) async fn generate(
     };
 
     let mut s = entry.session.lock().await;
-    let schemas: HashMap<(Option<String>, String), TableSchema> = if o.create || o.indexes || o.foreign_keys || o.drop || o.data {
-        s.database_schema()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|t| ((t.schema.clone(), t.name.clone()), t))
-            .collect()
-    } else {
-        HashMap::new()
-    };
+    let schemas: HashMap<(Option<String>, String), TableSchema> =
+        if o.create || o.indexes || o.foreign_keys || o.drop || o.data {
+            s.database_schema()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| ((t.schema.clone(), t.name.clone()), t))
+                .collect()
+        } else {
+            HashMap::new()
+        };
     // Converted for the other engine, keyed by the source's name.
     type Key = (Option<String>, String);
     let mut renames: HashMap<Key, HashMap<String, String>> = HashMap::new();
@@ -303,24 +401,43 @@ pub(crate) async fn generate(
             // same-named tables in two schemas don't collide.
             let opts = dbine_schema::Options {
                 keep_schemas: w.info().has_schemas,
-                rename_schemas: crate::commands::migration::default_schema_rename(driver.info().dialect, w.info().dialect),
+                rename_schemas: crate::commands::migration::default_schema_rename(
+                    driver.info().dialect,
+                    w.info().dialect,
+                ),
                 ..dbine_schema::Options::default()
             };
             let conv = dbine_schema::convert(&sel, src_id, t, &opts)
                 .map_err(|e| CommandError::BadRequest(e.to_string()))?;
             for i in &conv.issues {
-                if matches!(i.severity, dbine_schema::Severity::Loss | dbine_schema::Severity::Dropped) {
-                    notes.push(format!("{}{}: {}", i.table, i.object.as_deref().map(|o| format!(" · {o}")).unwrap_or_default(), i.message));
+                if matches!(
+                    i.severity,
+                    dbine_schema::Severity::Loss | dbine_schema::Severity::Dropped
+                ) {
+                    notes.push(format!(
+                        "{}{}: {}",
+                        i.table,
+                        i.object
+                            .as_deref()
+                            .map(|o| format!(" · {o}"))
+                            .unwrap_or_default(),
+                        i.message
+                    ));
                 }
             }
             let mut m = HashMap::new();
             for (src, dst) in sel.iter().zip(conv.tables.into_iter()) {
                 let key = (src.schema.clone(), src.name.clone());
-                let qualified = src.schema.as_deref().map_or(src.name.clone(), |sc| format!("{sc}.{}", src.name));
+                let qualified = src
+                    .schema
+                    .as_deref()
+                    .map_or(src.name.clone(), |sc| format!("{sc}.{}", src.name));
                 let r: HashMap<String, String> = conv
                     .columns
                     .iter()
-                    .filter(|c| (c.table == src.name || c.table == qualified) && !c.column.is_empty())
+                    .filter(|c| {
+                        (c.table == src.name || c.table == qualified) && !c.column.is_empty()
+                    })
                     .map(|c| (c.column.clone(), c.target_column.clone()))
                     .collect();
                 renames.insert(key.clone(), r);
@@ -329,18 +446,30 @@ pub(crate) async fn generate(
             m
         }
     };
-    let table_schema = |obj: &ObjectRef| schemas.get(&(obj.schema.clone(), obj.name.clone())).cloned();
+    let table_schema = |obj: &ObjectRef| {
+        schemas
+            .get(&(obj.schema.clone(), obj.name.clone()))
+            .cloned()
+    };
 
     let tables: Vec<&ObjectRef> = args.objects.iter().filter(|o| is_table(&o.kind)).collect();
     let others: Vec<&ObjectRef> = args.objects.iter().filter(|o| !is_table(&o.kind)).collect();
-    let (triggers, code): (Vec<&&ObjectRef>, Vec<&&ObjectRef>) = others.iter().partition(|o| o.kind == kinds::TRIGGER);
+    let (triggers, code): (Vec<&&ObjectRef>, Vec<&&ObjectRef>) =
+        others.iter().partition(|o| o.kind == kinds::TRIGGER);
     // The tables whose rows go out (step 5).
-    let with_data: Vec<&ObjectRef> = if o.data { data_tables(&tables, args.data_tables.as_deref()) } else { Vec::new() };
+    let with_data: Vec<&ObjectRef> = if o.data {
+        data_tables(&tables, args.data_tables.as_deref())
+    } else {
+        Vec::new()
+    };
     // Code (views, routines, triggers) only goes out on the same engine.
     let same_engine = other_engine.is_none();
     // Exactly the steps the loops below take, so `done` ends at `total`.
     let total = [
-        (o.drop, tables.len() + if same_engine { others.len() } else { 0 }),
+        (
+            o.drop,
+            tables.len() + if same_engine { others.len() } else { 0 },
+        ),
         (o.create || o.indexes, tables.len()),
         (o.definitions && same_engine, code.len()),
         (o.data, with_data.len()),
@@ -359,27 +488,48 @@ pub(crate) async fn generate(
     let progress = |done: usize, current: &str, force: bool| {
         let now = std::time::Instant::now();
         let mut last = last_emit.lock().expect("script progress");
-        if !force && last.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(150)) {
+        if !force
+            && last.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(150))
+        {
             return;
         }
         *last = Some(now);
         if let Some(app) = app {
-            let _ = app.emit("script-progress", ScriptProgress { id: args.script_id.clone(), done, total, current: current.to_string() });
+            let _ = app.emit(
+                "script-progress",
+                ScriptProgress {
+                    id: args.script_id.clone(),
+                    done,
+                    total,
+                    current: current.to_string(),
+                },
+            );
         }
     };
     progress(0, "", true);
-    let label = |obj: &ObjectRef| obj.schema().map_or(obj.name.clone(), |sc| format!("{sc}.{}", obj.name));
+    let label = |obj: &ObjectRef| {
+        obj.schema()
+            .map_or(obj.name.clone(), |sc| format!("{sc}.{}", obj.name))
+    };
 
     if matches!(driver.info().language, Language::Sql | Language::Cql) {
         write(&format!(
             "-- DBine · script de {} · {}\n\n",
-            if args.database.is_empty() { "la base".into() } else { comment_text(&args.database) },
+            if args.database.is_empty() {
+                "la base".into()
+            } else {
+                comment_text(&args.database)
+            },
             chrono::Local::now().format("%Y-%m-%d %H:%M")
         ))?;
     }
 
     if let Some(t) = other_engine {
-        let c = if w.info().language == Language::Sql { "--" } else { "//" };
+        let c = if w.info().language == Language::Sql {
+            "--"
+        } else {
+            "//"
+        };
         let mut head = format!("{c} Convertido de {} a {}: tipos, valores por defecto, claves e índices (dbine-schema).\n", driver.info().name, w.info().name);
         if o.definitions && !others.is_empty() {
             head.push_str(&format!("{c} Vistas, rutinas y triggers no se convierten a otro motor: se omitieron {} objeto(s).\n", others.len()));
@@ -404,7 +554,8 @@ pub(crate) async fn generate(
             }
             seen.sort();
             for sc in seen {
-                if let Some(stmt) = crate::commands::migration::create_schema(w.info().dialect, &sc) {
+                if let Some(stmt) = crate::commands::migration::create_schema(w.info().dialect, &sc)
+                {
                     write(&end_block(&stmt))?;
                 }
             }
@@ -423,7 +574,14 @@ pub(crate) async fn generate(
         for obj in tables.iter().rev() {
             progress(done, &label(obj), false);
             if let Some(t) = table_schema(obj) {
-                let ddl = w.table_ddl(&t, DdlParts { drop: true, if_exists: o.if_exists, ..Default::default() })?;
+                let ddl = w.table_ddl(
+                    &t,
+                    DdlParts {
+                        drop: true,
+                        if_exists: o.if_exists,
+                        ..Default::default()
+                    },
+                )?;
                 write(&end_block(&ddl))?;
             }
             done += 1;
@@ -438,7 +596,12 @@ pub(crate) async fn generate(
             progress(done, &label(obj), false);
             match table_schema(obj) {
                 Some(t) => {
-                    let parts = DdlParts { create: o.create, indexes: o.indexes, if_exists: o.if_exists && !o.drop, ..Default::default() };
+                    let parts = DdlParts {
+                        create: o.create,
+                        indexes: o.indexes,
+                        if_exists: o.if_exists && !o.drop,
+                        ..Default::default()
+                    };
                     write(&end_block(&w.table_ddl(&t, parts)?))?;
                 }
                 // Engines that report no structure: their own source, if any.
@@ -473,15 +636,23 @@ pub(crate) async fn generate(
                 return Err(CommandError::Cancelled);
             }
             progress(done, &label(obj), true);
-            let (before, after) = table_schema(obj).map(|t| w.data_load_wrap(&t)).unwrap_or_default();
+            let (before, after) = table_schema(obj)
+                .map(|t| w.data_load_wrap(&t))
+                .unwrap_or_default();
             if !before.is_empty() {
                 write(&format!("{before}\n"))?;
             }
-            let limit = o.data_limit.map_or(1_000_000_000, |l| l.min(u32::MAX as u64) as u32);
+            let limit = o
+                .data_limit
+                .map_or(1_000_000_000, |l| l.min(u32::MAX as u64) as u32);
             let query = s.browse_query(obj, limit);
             let key = (obj.schema.clone(), obj.name.clone());
             let target = match (other_engine, table_schema(obj)) {
-                (Some(_), Some(t)) => ObjectRef { kind: kinds::TABLE.into(), schema: t.schema.clone(), name: t.name.clone() },
+                (Some(_), Some(t)) => ObjectRef {
+                    kind: kinds::TABLE.into(),
+                    schema: t.schema.clone(),
+                    name: t.name.clone(),
+                },
                 _ => (*obj).clone(),
             };
             let sink = Arc::new(Mutex::new(InsertSink {
@@ -493,14 +664,19 @@ pub(crate) async fn generate(
                 out: out.clone(),
                 rows: 0,
             }));
-            let mut result = QueryOutcome { sink: Some(RowSinkRef(sink.clone())), ..Default::default() };
+            let mut result = QueryOutcome {
+                sink: Some(RowSinkRef(sink.clone())),
+                ..Default::default()
+            };
             let run = tokio::select! {
                 r = s.execute(&query, usize::MAX, &mut result) => Some(r),
                 _ = entry.cancel.notified() => None,
             };
             match run {
                 None => return Err(CommandError::Cancelled),
-                Some(Err(e)) => return Err(CommandError::Sql(format!("datos de {}: {e}", label(obj)))),
+                Some(Err(e)) => {
+                    return Err(CommandError::Sql(format!("datos de {}: {e}", label(obj))))
+                }
                 Some(Ok(())) => {}
             }
             if let Some(e) = result.sink_error.take() {
@@ -514,7 +690,11 @@ pub(crate) async fn generate(
             if !after.is_empty() {
                 write(&format!("{after}\n"))?;
             }
-            write(&if sep.is_empty() { "\n".to_string() } else { format!("{sep}\n\n") })?;
+            write(&if sep.is_empty() {
+                "\n".to_string()
+            } else {
+                format!("{sep}\n\n")
+            })?;
             done += 1;
         }
     }
@@ -524,7 +704,13 @@ pub(crate) async fn generate(
         for obj in &tables {
             progress(done, &label(obj), false);
             if let Some(t) = table_schema(obj).filter(|t| !t.foreign_keys.is_empty()) {
-                let fk = w.table_ddl(&t, DdlParts { foreign_keys: true, ..Default::default() })?;
+                let fk = w.table_ddl(
+                    &t,
+                    DdlParts {
+                        foreign_keys: true,
+                        ..Default::default()
+                    },
+                )?;
                 if !fk.trim().is_empty() {
                     write(&end_block(&fk))?;
                 }
@@ -547,7 +733,10 @@ pub(crate) async fn generate(
     }
     progress(total, "", true);
 
-    let out = Arc::try_unwrap(out).map_err(|_| CommandError::Internal("script en uso".into()))?.into_inner().expect("script output");
+    let out = Arc::try_unwrap(out)
+        .map_err(|_| CommandError::Internal("script en uso".into()))?
+        .into_inner()
+        .expect("script output");
     let script = match out {
         Out::File(mut f) => {
             f.flush().map_err(io)?;
@@ -555,7 +744,11 @@ pub(crate) async fn generate(
         }
         Out::Mem(m) => Some(m),
     };
-    Ok(GenerateResult { script, objects: args.objects.len(), rows })
+    Ok(GenerateResult {
+        script,
+        objects: args.objects.len(),
+        rows,
+    })
 }
 
 // -- run a script file ------------------------------------------------------------------
@@ -592,13 +785,20 @@ const RUN_CHUNK: usize = 256 * 1024;
 /// Oracle at `/` lines, the others at lines ending a statement (`;`).
 /// Each chunk goes to the driver's `execute`, which splits it further.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn run_script_file(app: AppHandle, state: State<'_, AppState>, args: RunFileArgs) -> CommandResult<RunFileResult> {
+pub async fn run_script_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: RunFileArgs,
+) -> CommandResult<RunFileResult> {
     let started = std::time::Instant::now();
     let driver = driver_of(&state, &args.connection_id)?;
     let go_batches = matches!(driver.info().dialect, "mssql" | "sybase");
     let key = format!("run:{}", args.run_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
-    let file = std::fs::File::open(&args.path).map_err(|e| CommandError::BadRequest(format!("no se pudo abrir {}: {e}", args.path)))?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, false)
+        .await?;
+    let file = std::fs::File::open(&args.path)
+        .map_err(|e| CommandError::BadRequest(format!("no se pudo abrir {}: {e}", args.path)))?;
     let total_bytes = file.metadata().map(|m| m.len()).unwrap_or(0);
     let mut reader = BufReader::new(file);
 
@@ -611,7 +811,8 @@ pub async fn run_script_file(app: AppHandle, state: State<'_, AppState>, args: R
 
     loop {
         line.clear();
-        let n = tokio::task::block_in_place(|| reader.read_line(&mut line)).map_err(|e| CommandError::Internal(e.to_string()))?;
+        let n = tokio::task::block_in_place(|| reader.read_line(&mut line))
+            .map_err(|e| CommandError::Internal(e.to_string()))?;
         let eof = n == 0;
         bytes += n as u64;
         if !eof {
@@ -628,7 +829,11 @@ pub async fn run_script_file(app: AppHandle, state: State<'_, AppState>, args: R
                 break;
             }
             let text = std::mem::take(&mut chunk);
-            let count = if go_batches { 1 } else { dbine_driver::sql::split_statements(&text).len().max(1) as u64 };
+            let count = if go_batches {
+                1
+            } else {
+                dbine_driver::sql::split_statements(&text).len().max(1) as u64
+            };
             let mut out = QueryOutcome::default();
             let run = {
                 let mut s = entry.session.lock().await;
@@ -643,14 +848,31 @@ pub async fn run_script_file(app: AppHandle, state: State<'_, AppState>, args: R
                     break;
                 }
                 Some(Err(e)) => {
-                    errors.push(format!("{} — {e}", text.trim().lines().next().unwrap_or("").chars().take(120).collect::<String>()));
+                    errors.push(format!(
+                        "{} — {e}",
+                        text.trim()
+                            .lines()
+                            .next()
+                            .unwrap_or("")
+                            .chars()
+                            .take(120)
+                            .collect::<String>()
+                    ));
                     if !args.continue_on_error {
                         break;
                     }
                 }
                 Some(Ok(())) => statements += count,
             }
-            let _ = app.emit("script-run-progress", RunProgress { id: args.run_id.clone(), statements, bytes, total_bytes });
+            let _ = app.emit(
+                "script-run-progress",
+                RunProgress {
+                    id: args.run_id.clone(),
+                    statements,
+                    bytes,
+                    total_bytes,
+                },
+            );
         }
         if eof {
             break;
@@ -658,7 +880,11 @@ pub async fn run_script_file(app: AppHandle, state: State<'_, AppState>, args: R
     }
     state.sessions.remove(&key);
     result?;
-    Ok(RunFileResult { statements, errors, elapsed_ms: started.elapsed().as_millis() as u64 })
+    Ok(RunFileResult {
+        statements,
+        errors,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
 }
 
 #[cfg(test)]
@@ -667,29 +893,55 @@ mod tests {
 
     #[test]
     fn a_name_cannot_end_a_comment_line() {
-        let c = format!("-- {}", comment_text("db\nDROP TABLE t;\r\u{85}\u{2028}\u{2029}x"));
+        let c = format!(
+            "-- {}",
+            comment_text("db\nDROP TABLE t;\r\u{85}\u{2028}\u{2029}x")
+        );
         assert_eq!(c, "-- db?DROP TABLE t;????x");
     }
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: Some(schema.into()),
+            name: name.into(),
+        }
     }
 
     #[test]
     fn data_goes_out_only_for_the_picked_tables() {
-        let (a, b, c) = (obj(kinds::TABLE, "dbo", "a"), obj(kinds::TABLE, "dbo", "b"), obj(kinds::COLLECTION, "dbo", "c"));
+        let (a, b, c) = (
+            obj(kinds::TABLE, "dbo", "a"),
+            obj(kinds::TABLE, "dbo", "b"),
+            obj(kinds::COLLECTION, "dbo", "c"),
+        );
         let tables = vec![&a, &b, &c];
         let names = |v: Vec<&ObjectRef>| v.iter().map(|o| o.name.clone()).collect::<Vec<_>>();
         // None: every table, as before.
         assert_eq!(names(data_tables(&tables, None)), ["a", "b", "c"]);
         // A subset, in the order of `tables`; one that isn't selected is ignored.
-        let picked = vec![c.clone(), a.clone(), obj(kinds::TABLE, "dbo", "not_selected")];
+        let picked = vec![
+            c.clone(),
+            a.clone(),
+            obj(kinds::TABLE, "dbo", "not_selected"),
+        ];
         assert_eq!(names(data_tables(&tables, Some(&picked))), ["a", "c"]);
         // Kind and schema count; an empty schema is no schema.
-        let picked = vec![obj(kinds::VIEW, "dbo", "a"), obj(kinds::TABLE, "other", "b")];
+        let picked = vec![
+            obj(kinds::VIEW, "dbo", "a"),
+            obj(kinds::TABLE, "other", "b"),
+        ];
         assert!(data_tables(&tables, Some(&picked)).is_empty());
-        let bare = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "t".into() };
-        let empty_schema = ObjectRef { kind: kinds::TABLE.into(), schema: Some(String::new()), name: "t".into() };
+        let bare = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let empty_schema = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some(String::new()),
+            name: "t".into(),
+        };
         assert_eq!(data_tables(&[&bare], Some(&[empty_schema])).len(), 1);
         // Picked, but none of them: no data at all.
         assert!(data_tables(&tables, Some(&[])).is_empty());
@@ -699,7 +951,13 @@ mod tests {
     fn streams_drop_and_tdengine_quotes() {
         let td = dbine_drivers::find("tdengine").unwrap();
         // TDengine: backticks, and a stream is never qualified with its database.
-        assert_eq!(drop_other(td.as_ref(), &obj(kinds::STREAM, "db", "s1"), true).as_deref(), Some("DROP STREAM IF EXISTS `s1`;"));
-        assert_eq!(drop_other(td.as_ref(), &obj(kinds::VIEW, "db", "v"), false).as_deref(), Some("DROP VIEW `db`.`v`;"));
+        assert_eq!(
+            drop_other(td.as_ref(), &obj(kinds::STREAM, "db", "s1"), true).as_deref(),
+            Some("DROP STREAM IF EXISTS `s1`;")
+        );
+        assert_eq!(
+            drop_other(td.as_ref(), &obj(kinds::VIEW, "db", "v"), false).as_deref(),
+            Some("DROP VIEW `db`.`v`;")
+        );
     }
 }

@@ -61,7 +61,11 @@ pub(crate) const SEQUENCE_COLS: &str = "start_value, increment, ordered, comment
 /// A sequence's CREATE from its [`SEQUENCE_COLS`].
 pub(crate) fn sequence_ddl(schema: &str, name: &str, r: &[Option<String>]) -> String {
     let keys = ["start_value", "increment", "ordered", "comment"];
-    let row: ddl::Row = keys.iter().zip(r).filter_map(|(k, v)| Some((k.to_string(), v.clone()?))).collect();
+    let row: ddl::Row = keys
+        .iter()
+        .zip(r)
+        .filter_map(|(k, v)| Some((k.to_string(), v.clone()?)))
+        .collect();
     ddl::sequence_sql(Some(schema), name, &row)
 }
 
@@ -75,7 +79,10 @@ fn narrow(expr: &str, q: &CodeSearch) -> (String, Option<String>) {
     if q.case_sensitive {
         (format!("CONTAINS({expr}, ?)"), Some(q.text.clone()))
     } else if q.text.is_ascii() {
-        (format!("CONTAINS(LOWER({expr}), ?)"), Some(q.text.to_ascii_lowercase()))
+        (
+            format!("CONTAINS(LOWER({expr}), ?)"),
+            Some(q.text.to_ascii_lowercase()),
+        )
     } else {
         ("TRUE".into(), None)
     }
@@ -107,7 +114,11 @@ fn plan(q: &CodeSearch) -> Option<Vec<&'static str>> {
     if q.text.is_empty() || q.kinds.is_empty() {
         return None;
     }
-    let covered: Option<Vec<_>> = q.kinds.iter().map(|k| COVERED.iter().find(|c| *c == k).copied()).collect();
+    let covered: Option<Vec<_>> = q
+        .kinds
+        .iter()
+        .map(|k| COVERED.iter().find(|c| *c == k).copied())
+        .collect();
     covered.map(|c| COVERED.into_iter().filter(|k| c.contains(k)).collect())
 }
 
@@ -116,18 +127,30 @@ fn plan(q: &CodeSearch) -> Option<Vec<&'static str>> {
 type Sources = BTreeMap<(String, String), Option<String>>;
 
 impl SnowflakeSession {
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
         let Some(plan) = plan(q) else { return Ok(None) };
-        let Ok(db) = self.database() else { return Ok(None) };
-        let is = format!("{}.INFORMATION_SCHEMA", qualified_name(Quote::Double, None, &db));
+        let Ok(db) = self.database() else {
+            return Ok(None);
+        };
+        let is = format!(
+            "{}.INFORMATION_SCHEMA",
+            qualified_name(Quote::Double, None, &db)
+        );
         let mut report = CodeSearchReport::default();
         for kind in plan {
             let mut sources = Sources::new();
             if kind == kinds::SEQUENCE {
                 // `definition` would try GET_DDL if this failed.
-                let Ok(rows) = self.text_rows(&sequences_sql(&is), &[]).await else { return Ok(None) };
+                let Ok(rows) = self.text_rows(&sequences_sql(&is), &[]).await else {
+                    return Ok(None);
+                };
                 for r in rows {
-                    let (Some(schema), Some(name)) = (r[0].clone(), r[1].clone()) else { continue };
+                    let (Some(schema), Some(name)) = (r[0].clone(), r[1].clone()) else {
+                        continue;
+                    };
                     let ddl = sequence_ddl(&schema, &name, &r[2..]);
                     sources.insert((schema, name), Some(ddl));
                 }
@@ -135,10 +158,14 @@ impl SnowflakeSession {
                 let (sql, arg) = routines_sql(&is, kind, q);
                 let args: Vec<&str> = arg.as_deref().into_iter().collect();
                 // `list_objects` leaves them out if this view can't be read.
-                let Ok(rows) = self.text_rows(&sql, &args).await else { return Ok(None) };
+                let Ok(rows) = self.text_rows(&sql, &args).await else {
+                    return Ok(None);
+                };
                 let mut non_null: BTreeMap<(String, String), usize> = BTreeMap::new();
                 for r in rows {
-                    let (Some(schema), Some(name)) = (r[0].clone(), r[1].clone()) else { continue };
+                    let (Some(schema), Some(name)) = (r[0].clone(), r[1].clone()) else {
+                        continue;
+                    };
                     let key = (schema, name);
                     let source = sources.entry(key.clone()).or_default();
                     if r[2].as_deref() == Some("1") {
@@ -155,7 +182,9 @@ impl SnowflakeSession {
             for ((schema, name), source) in &sources {
                 report.scanned += 1;
                 let Some(source) = source else { continue };
-                report.hits.extend(hits_in(kind, Some(schema), name, None, source, q));
+                report
+                    .hits
+                    .extend(hits_in(kind, Some(schema), name, None, source, q));
                 if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                     report.hits.truncate(q.max_hits);
                     report.truncated = true;
@@ -182,27 +211,53 @@ mod tests {
     }
 
     fn q(text: &str, case: bool, kinds: &[&str]) -> CodeSearch {
-        CodeSearch { text: text.into(), case_sensitive: case, kinds: kinds.iter().map(|k| k.to_string()).collect(), ..Default::default() }
+        CodeSearch {
+            text: text.into(),
+            case_sensitive: case,
+            kinds: kinds.iter().map(|k| k.to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn only_kinds_with_a_catalog_source() {
-        assert_eq!(plan(&q("x", false, &["procedure", "function"])), Some(vec!["function", "procedure"]));
+        assert_eq!(
+            plan(&q("x", false, &["procedure", "function"])),
+            Some(vec!["function", "procedure"])
+        );
         assert_eq!(plan(&q("x", false, &["sequence"])), Some(vec!["sequence"]));
-        assert_eq!(plan(&q("x", false, &[])), None, "every kind: tables need GET_DDL");
+        assert_eq!(
+            plan(&q("x", false, &[])),
+            None,
+            "every kind: tables need GET_DDL"
+        );
         assert_eq!(plan(&q("x", false, &["function", "view"])), None);
         assert_eq!(plan(&q("", false, &["function"])), None);
     }
 
     #[test]
     fn text_goes_as_a_bind() {
-        let (sql, arg) = routines_sql("\"DB\".INFORMATION_SCHEMA", kinds::FUNCTION, &q("100%_x'", true, &["function"]));
-        assert!(sql.contains("IFF(CONTAINS('CREATE OR REPLACE FUNCTION ' || function_name"), "{sql}");
+        let (sql, arg) = routines_sql(
+            "\"DB\".INFORMATION_SCHEMA",
+            kinds::FUNCTION,
+            &q("100%_x'", true, &["function"]),
+        );
+        assert!(
+            sql.contains("IFF(CONTAINS('CREATE OR REPLACE FUNCTION ' || function_name"),
+            "{sql}"
+        );
         assert!(sql.ends_with("FROM \"DB\".INFORMATION_SCHEMA.FUNCTIONS WHERE function_schema <> 'INFORMATION_SCHEMA'"), "{sql}");
         assert!(!sql.contains("100%"), "never in the SQL");
-        assert_eq!(arg.as_deref(), Some("100%_x'"), "as is: CONTAINS has no wildcards");
+        assert_eq!(
+            arg.as_deref(),
+            Some("100%_x'"),
+            "as is: CONTAINS has no wildcards"
+        );
         let (sql, arg) = routines_sql("I", kinds::PROCEDURE, &q("Ventas", false, &["procedure"]));
-        assert!(sql.contains("IFF(CONTAINS(LOWER('CREATE OR REPLACE PROCEDURE "), "{sql}");
+        assert!(
+            sql.contains("IFF(CONTAINS(LOWER('CREATE OR REPLACE PROCEDURE "),
+            "{sql}"
+        );
         assert_eq!(arg.as_deref(), Some("ventas"));
         let (sql, arg) = routines_sql("I", kinds::PROCEDURE, &q("Año", false, &["procedure"]));
         assert!(sql.contains("IFF(TRUE, ") && arg.is_none(), "{sql}");
@@ -210,9 +265,20 @@ mod tests {
 
     #[test]
     fn sequences_as_definition_builds_them() {
-        let r = [Some("10".to_string()), Some("5".to_string()), Some("NO".to_string()), None];
+        let r = [
+            Some("10".to_string()),
+            Some("5".to_string()),
+            Some("NO".to_string()),
+            None,
+        ];
         let src = sequence_ddl("APP", "SEQ_FOLIO", &r);
-        assert!(src.starts_with("CREATE OR REPLACE SEQUENCE ") && src.contains("START WITH 10 INCREMENT BY 5"), "{src}");
-        assert!(sequences_sql("I").starts_with(&format!("SELECT sequence_schema, sequence_name, {SEQUENCE_COLS} FROM I.SEQUENCES")));
+        assert!(
+            src.starts_with("CREATE OR REPLACE SEQUENCE ")
+                && src.contains("START WITH 10 INCREMENT BY 5"),
+            "{src}"
+        );
+        assert!(sequences_sql("I").starts_with(&format!(
+            "SELECT sequence_schema, sequence_name, {SEQUENCE_COLS} FROM I.SEQUENCES"
+        )));
     }
 }

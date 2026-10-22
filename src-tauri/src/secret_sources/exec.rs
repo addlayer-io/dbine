@@ -57,7 +57,9 @@ pub fn shell_command(command: &str) -> tokio::process::Command {
     {
         // cmd.exe takes the line as is after `/s /c "…"` (outer quotes
         // stripped); `/d` skips AutoRun.
-        let root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        let root = std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
         let mut c = tokio::process::Command::new(root.join("System32").join("cmd.exe"));
         c.raw_arg(format!("/d /s /c \"{command}\""));
         c
@@ -86,8 +88,15 @@ pub async fn run(cmd: tokio::process::Command, limit: Duration) -> Result<String
 }
 
 /// [`run`] with another cap on stdout (a listing is longer than a secret).
-pub async fn run_capped(mut cmd: tokio::process::Command, limit: Duration, max_stdout: u64) -> Result<String, Failure> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+pub async fn run_capped(
+    mut cmd: tokio::process::Command,
+    limit: Duration,
+    max_stdout: u64,
+) -> Result<String, Failure> {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     #[cfg(unix)]
     cmd.process_group(0);
     #[cfg(windows)]
@@ -99,7 +108,10 @@ pub async fn run_capped(mut cmd: tokio::process::Command, limit: Duration, max_s
     let mut stderr = child.stderr.take().expect("piped");
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let work = async {
-        let (mut o, mut e) = ((&mut stdout).take(max_stdout + 1), (&mut stderr).take(MAX_STDERR));
+        let (mut o, mut e) = (
+            (&mut stdout).take(max_stdout + 1),
+            (&mut stderr).take(MAX_STDERR),
+        );
         let (a, b) = tokio::join!(o.read_to_end(&mut out), e.read_to_end(&mut err));
         let status = child.wait().await;
         (a, b, status)
@@ -113,7 +125,11 @@ pub async fn run_capped(mut cmd: tokio::process::Command, limit: Duration, max_s
         // Not reaped yet, so the group id is still the child's.
         let too_long = out.len() as u64 > max_stdout;
         wipe_bytes(&mut out);
-        return Err(if too_long { Failure::TooLong } else { Failure::Timeout(limit) });
+        return Err(if too_long {
+            Failure::TooLong
+        } else {
+            Failure::Timeout(limit)
+        });
     };
     let status = status.map_err(|e| Failure::Spawn(e.to_string()))?;
     if read.is_err() {
@@ -122,7 +138,10 @@ pub async fn run_capped(mut cmd: tokio::process::Command, limit: Duration, max_s
     }
     if !status.success() {
         wipe_bytes(&mut out);
-        return Err(Failure::Exit { code: status.code(), stderr: first_lines(&String::from_utf8_lossy(&err), STDERR_SHOWN) });
+        return Err(Failure::Exit {
+            code: status.code(),
+            stderr: first_lines(&String::from_utf8_lossy(&err), STDERR_SHOWN),
+        });
     }
     if out.len() as u64 > max_stdout {
         wipe_bytes(&mut out);
@@ -140,7 +159,12 @@ pub async fn run_capped(mut cmd: tokio::process::Command, limit: Duration, max_s
 
 /// stderr for a message: trimmed, lines joined, at most `max` characters.
 pub fn first_lines(s: &str, max: usize) -> String {
-    let joined = s.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" · ");
+    let joined = s
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
     match joined.char_indices().nth(max) {
         Some((i, _)) => format!("{}…", &joined[..i]),
         None => joined,
@@ -167,18 +191,35 @@ mod tests {
     fn newlines_and_stderr() {
         assert_eq!(trim_newline("s3cr3t\n".into()), "s3cr3t");
         assert_eq!(trim_newline("s3cr3t\r\n\n".into()), "s3cr3t");
-        assert_eq!(trim_newline(" with spaces \n".into()), " with spaces ", "only the line break goes");
-        assert_eq!(first_lines("\n  error: one\n\n two  \n", 100), "error: one · two");
-        assert_eq!(first_lines(&"x".repeat(500), 10), format!("{}…", "x".repeat(10)));
+        assert_eq!(
+            trim_newline(" with spaces \n".into()),
+            " with spaces ",
+            "only the line break goes"
+        );
+        assert_eq!(
+            first_lines("\n  error: one\n\n two  \n", 100),
+            "error: one · two"
+        );
+        assert_eq!(
+            first_lines(&"x".repeat(500), 10),
+            format!("{}…", "x".repeat(10))
+        );
     }
 
     #[cfg(unix)]
     #[tokio::test]
     async fn output_exit_codes_and_timeouts() {
-        let ok = run(shell_command("printf 'hunter2\\n'"), COMMAND_LIMIT).await.unwrap();
+        let ok = run(shell_command("printf 'hunter2\\n'"), COMMAND_LIMIT)
+            .await
+            .unwrap();
         assert_eq!(trim_newline(ok), "hunter2");
         // A failure shows stderr, never stdout.
-        let e = run(shell_command("echo the-secret; echo 'vault: permission denied' >&2; exit 3"), COMMAND_LIMIT).await.unwrap_err();
+        let e = run(
+            shell_command("echo the-secret; echo 'vault: permission denied' >&2; exit 3"),
+            COMMAND_LIMIT,
+        )
+        .await
+        .unwrap_err();
         match e {
             Failure::Exit { code, stderr } => {
                 assert_eq!(code, Some(3));
@@ -188,22 +229,44 @@ mod tests {
         }
         // No stdin: a command that reads it gets EOF at once.
         let e = run(shell_command("read x && echo got-$x"), COMMAND_LIMIT).await;
-        assert!(matches!(e, Err(Failure::Exit { code: Some(1), .. })), "{e:?}");
+        assert!(
+            matches!(e, Err(Failure::Exit { code: Some(1), .. })),
+            "{e:?}"
+        );
         // The limit kills it, grandchildren included.
-        let marker = std::env::temp_dir().join(format!("dbine-secret-timeout-{}", std::process::id()));
+        let marker =
+            std::env::temp_dir().join(format!("dbine-secret-timeout-{}", std::process::id()));
         let _ = std::fs::remove_file(&marker);
         let started = std::time::Instant::now();
         let line = format!("(sleep 3; touch '{}') & sleep 20", marker.display());
-        let e = run(shell_command(&line), Duration::from_millis(500)).await.unwrap_err();
+        let e = run(shell_command(&line), Duration::from_millis(500))
+            .await
+            .unwrap_err();
         assert_eq!(e, Failure::Timeout(Duration::from_millis(500)));
-        assert!(started.elapsed() < Duration::from_secs(3), "returned at the limit");
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "returned at the limit"
+        );
         tokio::time::sleep(Duration::from_secs(4)).await;
-        assert!(!marker.exists(), "the background child was killed with the group");
+        assert!(
+            !marker.exists(),
+            "the background child was killed with the group"
+        );
         // Too much output.
-        let e = run(shell_command("head -c 70000 /dev/zero | tr '\\0' a"), COMMAND_LIMIT).await.unwrap_err();
+        let e = run(
+            shell_command("head -c 70000 /dev/zero | tr '\\0' a"),
+            COMMAND_LIMIT,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(e, Failure::TooLong);
         // A program that doesn't exist.
-        let e = run(tokio::process::Command::new("/nonexistent/dbine-op"), COMMAND_LIMIT).await.unwrap_err();
+        let e = run(
+            tokio::process::Command::new("/nonexistent/dbine-op"),
+            COMMAND_LIMIT,
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(e, Failure::Spawn(_)));
     }
 }

@@ -12,7 +12,9 @@
 //! and `REVOKE … FROM …`. A permission's id is its container's name.
 
 use crate::{enc, CosmosSession};
-use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use serde_json::Value;
 
 pub fn spec() -> SecuritySpec {
@@ -28,18 +30,31 @@ pub fn spec() -> SecuritySpec {
 }
 
 fn s(v: &Value, k: &str) -> String {
-    v.get(k).and_then(Value::as_str).unwrap_or_default().to_string()
+    v.get(k)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 pub async fn principals(c: &CosmosSession) -> Result<Vec<Principal>> {
-    let users = c.list(&format!("{}/users", c.db_path()?), "users", &c.db_link()?, "Users").await?;
+    let users = c
+        .list(
+            &format!("{}/users", c.db_path()?),
+            "users",
+            &c.db_link()?,
+            "Users",
+        )
+        .await?;
     Ok(users
         .iter()
         .map(|u| Principal {
             name: s(u, "id"),
             kind: PrincipalKind::User,
             can_login: Some(false),
-            details: vec![("Acceso".into(), "con los tokens de recurso que pide la aplicación con la clave de la cuenta".into())],
+            details: vec![(
+                "Acceso".into(),
+                "con los tokens de recurso que pide la aplicación con la clave de la cuenta".into(),
+            )],
             ..Default::default()
         })
         .collect())
@@ -60,10 +75,22 @@ pub(crate) async fn permissions(c: &CosmosSession, user: &str) -> Result<Vec<Val
 
 /// A permission's resource (`dbs/<db>/colls/<c>[/docs/<d>…]`, by name or
 /// by `_rid`) as the object it grants: the container, or the path under it.
-fn resource_object(resource: &str, containers: &[(String, String)]) -> (Option<String>, Option<String>) {
-    let tail = resource.trim_matches('/').split_once("/colls/").map(|(_, t)| t).unwrap_or(resource);
-    let (coll, rest) = tail.split_once('/').map_or((tail, None), |(c, r)| (c, Some(r)));
-    let name = containers.iter().find(|(_, rid)| rid.trim_end_matches('=') == coll.trim_end_matches('=') && !rid.is_empty()).map_or(coll, |(n, _)| n.as_str());
+fn resource_object(
+    resource: &str,
+    containers: &[(String, String)],
+) -> (Option<String>, Option<String>) {
+    let tail = resource
+        .trim_matches('/')
+        .split_once("/colls/")
+        .map(|(_, t)| t)
+        .unwrap_or(resource);
+    let (coll, rest) = tail
+        .split_once('/')
+        .map_or((tail, None), |(c, r)| (c, Some(r)));
+    let name = containers
+        .iter()
+        .find(|(_, rid)| rid.trim_end_matches('=') == coll.trim_end_matches('=') && !rid.is_empty())
+        .map_or(coll, |(n, _)| n.as_str());
     match rest {
         None => (Some(name.to_string()), Some(kinds::COLLECTION.to_string())),
         Some(r) => (Some(format!("{name}/{r}")), Some("resource".to_string())),
@@ -72,13 +99,23 @@ fn resource_object(resource: &str, containers: &[(String, String)]) -> (Option<S
 
 fn grant_of(p: &Value, containers: &[(String, String)]) -> Grant {
     let (object, object_kind) = resource_object(&s(p, "resource"), containers);
-    Grant { privilege: s(p, "permissionMode").to_uppercase(), object, object_kind, ..Default::default() }
+    Grant {
+        privilege: s(p, "permissionMode").to_uppercase(),
+        object,
+        object_kind,
+        ..Default::default()
+    }
 }
 
 pub async fn grants(c: &CosmosSession, principal: &str) -> Result<Vec<Grant>> {
     let perms = permissions(c, principal).await?;
     let containers: Vec<(String, String)> = c
-        .list(&format!("{}/colls", c.db_path()?), "colls", &c.db_link()?, "DocumentCollections")
+        .list(
+            &format!("{}/colls", c.db_path()?),
+            "colls",
+            &c.db_link()?,
+            "DocumentCollections",
+        )
         .await?
         .iter()
         .map(|x| (s(x, "id"), s(x, "_rid")))
@@ -97,14 +134,18 @@ fn mode(p: &[String]) -> Result<&'static str> {
         [one] if one.trim().eq_ignore_ascii_case("all") => Ok("ALL"),
         [one] if one.trim().eq_ignore_ascii_case("read") => Ok("READ"),
         [] => Err(Error::Query("elegí ALL o READ".into())),
-        _ => Err(Error::Query("Cosmos DB otorga un solo permiso por contenedor: ALL o READ".into())),
+        _ => Err(Error::Query(
+            "Cosmos DB otorga un solo permiso por contenedor: ALL o READ".into(),
+        )),
     }
 }
 
 fn container(object: &Option<ObjectRef>) -> Result<String> {
     match object {
         Some(o) if o.kind == kinds::COLLECTION => Ok(q(&o.name)),
-        _ => Err(Error::Query("en Cosmos DB los permisos son sobre un contenedor: elegí uno".into())),
+        _ => Err(Error::Query(
+            "en Cosmos DB los permisos son sobre un contenedor: elegí uno".into(),
+        )),
     }
 }
 
@@ -153,29 +194,92 @@ mod tests {
     use serde_json::json;
 
     fn coll(name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: name.into() })
+        Some(ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: None,
+            name: name.into(),
+        })
     }
 
     #[test]
     fn scripts_parse_back() {
         let sc = |a| script(&a).unwrap();
-        let create = sc(SecurityAction::CreateUser { name: "ana \"b\"".into(), password: None });
+        let create = sc(SecurityAction::CreateUser {
+            name: "ana \"b\"".into(),
+            password: None,
+        });
         assert_eq!(create, r#"CREATE USER "ana ""b""";"#);
-        assert_eq!(parse_admin(create.trim_end_matches(';')).unwrap(), Some(Admin::CreateUser { name: "ana \"b\"".into() }));
-        assert!(script(&SecurityAction::CreateUser { name: "a/b".into(), password: None }).is_err());
-        let g = sc(SecurityAction::Grant { privileges: vec!["read".into()], object: coll("items"), to: "ana".into(), grantable: false });
+        assert_eq!(
+            parse_admin(create.trim_end_matches(';')).unwrap(),
+            Some(Admin::CreateUser {
+                name: "ana \"b\"".into()
+            })
+        );
+        assert!(script(&SecurityAction::CreateUser {
+            name: "a/b".into(),
+            password: None
+        })
+        .is_err());
+        let g = sc(SecurityAction::Grant {
+            privileges: vec!["read".into()],
+            object: coll("items"),
+            to: "ana".into(),
+            grantable: false,
+        });
         assert_eq!(g, r#"GRANT READ ON "items" TO "ana";"#);
-        assert_eq!(parse_admin(g.trim_end_matches(';')).unwrap(), Some(Admin::Grant { mode: "Read".into(), container: "items".into(), user: "ana".into() }));
-        let r = sc(SecurityAction::Revoke { privileges: vec!["ALL".into()], object: coll("it\"ems"), from: "ana".into() });
-        assert_eq!(parse_admin(r.trim_end_matches(';')).unwrap(), Some(Admin::Revoke { mode: "All".into(), container: "it\"ems".into(), user: "ana".into() }));
-        assert_eq!(sc(SecurityAction::Drop { name: "ana".into(), kind: PrincipalKind::User }), r#"DROP USER "ana";"#);
+        assert_eq!(
+            parse_admin(g.trim_end_matches(';')).unwrap(),
+            Some(Admin::Grant {
+                mode: "Read".into(),
+                container: "items".into(),
+                user: "ana".into()
+            })
+        );
+        let r = sc(SecurityAction::Revoke {
+            privileges: vec!["ALL".into()],
+            object: coll("it\"ems"),
+            from: "ana".into(),
+        });
+        assert_eq!(
+            parse_admin(r.trim_end_matches(';')).unwrap(),
+            Some(Admin::Revoke {
+                mode: "All".into(),
+                container: "it\"ems".into(),
+                user: "ana".into()
+            })
+        );
+        assert_eq!(
+            sc(SecurityAction::Drop {
+                name: "ana".into(),
+                kind: PrincipalKind::User
+            }),
+            r#"DROP USER "ana";"#
+        );
         assert!(parse_admin("GRANT WRITE ON c TO u").is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["ALL".into(), "READ".into()], object: coll("c"), to: "a".into(), grantable: false }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["ALL".into()], object: None, to: "a".into(), grantable: false }).is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["ALL".into(), "READ".into()],
+            object: coll("c"),
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["ALL".into()],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
         for a in [
-            SecurityAction::SetPassword { name: "a".into(), password: "p".into() },
+            SecurityAction::SetPassword {
+                name: "a".into(),
+                password: "p".into(),
+            },
             SecurityAction::CreateRole { name: "r".into() },
-            SecurityAction::AddMember { role: "r".into(), member: "a".into() },
+            SecurityAction::AddMember {
+                role: "r".into(),
+                member: "a".into(),
+            },
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
@@ -184,11 +288,30 @@ mod tests {
     #[test]
     fn reads_permissions() {
         let containers = vec![("items".to_string(), "abcAAA==".to_string())];
-        let g = grant_of(&json!({"id": "items", "permissionMode": "Read", "resource": "dbs/db/colls/items"}), &containers);
-        assert_eq!((g.privilege.as_str(), g.object.as_deref(), g.object_kind.as_deref()), ("READ", Some("items"), Some(kinds::COLLECTION)));
-        let g = grant_of(&json!({"permissionMode": "All", "resource": "dbs/xyz==/colls/abcAAA==/"}), &containers);
+        let g = grant_of(
+            &json!({"id": "items", "permissionMode": "Read", "resource": "dbs/db/colls/items"}),
+            &containers,
+        );
+        assert_eq!(
+            (
+                g.privilege.as_str(),
+                g.object.as_deref(),
+                g.object_kind.as_deref()
+            ),
+            ("READ", Some("items"), Some(kinds::COLLECTION))
+        );
+        let g = grant_of(
+            &json!({"permissionMode": "All", "resource": "dbs/xyz==/colls/abcAAA==/"}),
+            &containers,
+        );
         assert_eq!(g.object.as_deref(), Some("items"));
-        let g = grant_of(&json!({"permissionMode": "All", "resource": "dbs/db/colls/items/docs/d1"}), &containers);
-        assert_eq!((g.object.as_deref(), g.object_kind.as_deref()), (Some("items/docs/d1"), Some("resource")));
+        let g = grant_of(
+            &json!({"permissionMode": "All", "resource": "dbs/db/colls/items/docs/d1"}),
+            &containers,
+        );
+        assert_eq!(
+            (g.object.as_deref(), g.object_kind.as_deref()),
+            (Some("items/docs/d1"), Some("resource"))
+        );
     }
 }

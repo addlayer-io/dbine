@@ -49,7 +49,10 @@ pub(crate) fn f(r: &Row, i: usize) -> Option<f64> {
     if let Ok(Some(v)) = r.try_get::<bool, _>(i) {
         return Some(if v { 1.0 } else { 0.0 });
     }
-    r.try_get::<&str, _>(i).ok().flatten().and_then(dbine_driver::monitor::num)
+    r.try_get::<&str, _>(i)
+        .ok()
+        .flatten()
+        .and_then(dbine_driver::monitor::num)
 }
 
 /// What the probes couldn't read, folded into notes at the end.
@@ -65,7 +68,10 @@ impl Gaps {
     pub(crate) fn into_notes(self, permission: &str) -> Vec<String> {
         let mut notes = Vec::new();
         if !self.denied.is_empty() {
-            notes.push(format!("Sin el permiso {permission} no se ven: {}.", self.denied.join(", ")));
+            notes.push(format!(
+                "Sin el permiso {permission} no se ven: {}.",
+                self.denied.join(", ")
+            ));
         }
         notes.extend(self.notes);
         notes
@@ -74,13 +80,28 @@ impl Gaps {
 
 fn denied(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
-    m.contains("permission") || m.contains("permiso") || m.contains("view server") || m.contains("view database")
+    m.contains("permission")
+        || m.contains("permiso")
+        || m.contains("view server")
+        || m.contains("view database")
 }
 
 impl SqlServerSession {
     /// Rows of a monitor query, or `None` (and a gap) when it fails.
-    pub(crate) async fn probe(&mut self, what: &'static str, sql: &str, gaps: &mut Gaps) -> Option<Vec<Row>> {
-        let res = async { self.client.simple_query(sql).await?.into_first_result().await }.await;
+    pub(crate) async fn probe(
+        &mut self,
+        what: &'static str,
+        sql: &str,
+        gaps: &mut Gaps,
+    ) -> Option<Vec<Row>> {
+        let res = async {
+            self.client
+                .simple_query(sql)
+                .await?
+                .into_first_result()
+                .await
+        }
+        .await;
         match res {
             Ok(rows) => Some(rows),
             Err(e) => {
@@ -102,10 +123,18 @@ impl SqlServerSession {
     }
 }
 
-pub(crate) fn table(key: &str, title: &str, cols: &[&str], rows: Option<Vec<Row>>) -> Option<MonitorTable> {
+pub(crate) fn table(
+    key: &str,
+    title: &str,
+    cols: &[&str],
+    rows: Option<Vec<Row>>,
+) -> Option<MonitorTable> {
     let rows = rows?;
     let mut t = MonitorTable::new(key, title, cols);
-    t.rows = rows.into_iter().map(|r| r.into_iter().map(crate::cell).collect()).collect();
+    t.rows = rows
+        .into_iter()
+        .map(|r| r.into_iter().map(crate::cell).collect())
+        .collect();
     Some(t)
 }
 
@@ -122,7 +151,8 @@ const INFO: &str = "SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128
 
 const TIMEZONE: &str = "SELECT CAST(CURRENT_TIMEZONE() AS nvarchar(128))";
 
-const SYS_INFO: &str = "SELECT CAST(DATEDIFF(SECOND, sqlserver_start_time, SYSDATETIME()) AS float),
+const SYS_INFO: &str =
+    "SELECT CAST(DATEDIFF(SECOND, sqlserver_start_time, SYSDATETIME()) AS float),
        CAST(cpu_count AS float), CAST(physical_memory_kb AS float) * 1024
   FROM sys.dm_os_sys_info";
 
@@ -165,7 +195,8 @@ const LOCK_COUNTS: &str = "SELECT CAST(COUNT(*) AS float),
        CAST(SUM(CASE WHEN request_status = N'WAIT' THEN 1 ELSE 0 END) AS float)
   FROM sys.dm_tran_locks";
 
-const STORAGE: &str = "SELECT CAST(SUM(CAST(size AS bigint)) * 8192 AS float) FROM sys.master_files";
+const STORAGE: &str =
+    "SELECT CAST(SUM(CAST(size AS bigint)) * 8192 AS float) FROM sys.master_files";
 
 const SESSIONS: &str = "SELECT TOP (200) s.session_id, s.login_name, DB_NAME(s.database_id), s.host_name, s.program_name,
        c.client_net_address, COALESCE(r.status, s.status),
@@ -224,7 +255,8 @@ const REQUEST_COLS: &[&str] = &[
     "Sentencia",
 ];
 
-const BLOCKING: &str = "SELECT TOP (200) wt.session_id, wt.blocking_session_id, DB_NAME(r.database_id), wt.wait_type,
+const BLOCKING: &str =
+    "SELECT TOP (200) wt.session_id, wt.blocking_session_id, DB_NAME(r.database_id), wt.wait_type,
        CAST(wt.wait_duration_ms AS float), LEFT(wt.resource_description, 400), LEFT(t.text, 2000)
   FROM sys.dm_os_waiting_tasks wt
   LEFT JOIN sys.dm_exec_requests r ON r.session_id = wt.session_id
@@ -232,8 +264,15 @@ const BLOCKING: &str = "SELECT TOP (200) wt.session_id, wt.blocking_session_id, 
  WHERE wt.blocking_session_id IS NOT NULL AND wt.blocking_session_id <> wt.session_id
  ORDER BY wt.wait_duration_ms DESC";
 
-const BLOCKING_COLS: &[&str] =
-    &["Sesión", "Bloqueada por", "Base", "Espera", "Espera (ms)", "Recurso", "Consulta"];
+const BLOCKING_COLS: &[&str] = &[
+    "Sesión",
+    "Bloqueada por",
+    "Base",
+    "Espera",
+    "Espera (ms)",
+    "Recurso",
+    "Consulta",
+];
 
 /// Waits that are idle time, not work waiting on something.
 const BENIGN_WAITS: &str = "N'BROKER_EVENTHANDLER', N'BROKER_RECEIVE_WAITFOR', N'BROKER_TASK_STOP',
@@ -269,7 +308,14 @@ fn waits_sql(view: &str) -> String {
     )
 }
 
-const WAIT_COLS: &[&str] = &["Espera", "Tareas", "Tiempo (ms)", "Señal (ms)", "Máximo (ms)", "Promedio (ms)"];
+const WAIT_COLS: &[&str] = &[
+    "Espera",
+    "Tareas",
+    "Tiempo (ms)",
+    "Señal (ms)",
+    "Máximo (ms)",
+    "Promedio (ms)",
+];
 
 const DATABASES: &str = "SELECT d.name, d.state_desc, d.recovery_model_desc,
        CAST(ROUND(SUM(CASE WHEN f.type = 0 THEN CAST(f.size AS bigint) ELSE 0 END) * 8 / 1024.0, 1) AS float),
@@ -281,8 +327,16 @@ const DATABASES: &str = "SELECT d.name, d.state_desc, d.recovery_model_desc,
           d.log_reuse_wait_desc, d.user_access_desc
  ORDER BY d.database_id";
 
-const DATABASE_COLS: &[&str] =
-    &["Base", "Estado", "Recuperación", "Datos (MB)", "Log (MB)", "Compatibilidad", "Espera del log", "Acceso"];
+const DATABASE_COLS: &[&str] = &[
+    "Base",
+    "Estado",
+    "Recuperación",
+    "Datos (MB)",
+    "Log (MB)",
+    "Compatibilidad",
+    "Espera del log",
+    "Acceso",
+];
 
 const TOP_OBJECTS: &str = "SELECT TOP (20) s.name + N'.' + o.name, o.type_desc,
        CAST(SUM(CASE WHEN ps.index_id IN (0, 1) THEN ps.row_count ELSE 0 END) AS float),
@@ -297,7 +351,8 @@ const TOP_OBJECTS: &str = "SELECT TOP (20) s.name + N'.' + o.name, o.type_desc,
 
 const TOP_OBJECT_COLS: &[&str] = &["Objeto", "Tipo", "Filas", "Reservado (MB)", "Usado (MB)"];
 
-const REPLICAS: &str = "SELECT ag.name, ar.replica_server_name, ars.role_desc, ars.synchronization_health_desc,
+const REPLICAS: &str =
+    "SELECT ag.name, ar.replica_server_name, ars.role_desc, ars.synchronization_health_desc,
        DB_NAME(drs.database_id), drs.synchronization_state_desc,
        CAST(drs.log_send_queue_size AS float), CAST(drs.redo_queue_size AS float),
        CAST(drs.secondary_lag_seconds AS float), CAST(ars.is_local AS int)
@@ -321,7 +376,8 @@ const REPLICA_COLS: &[&str] = &[
 
 // Azure SQL Database: database-scoped views.
 
-const AZ_RESOURCES: &str = "SELECT TOP (1) CAST(avg_cpu_percent AS float), CAST(avg_data_io_percent AS float),
+const AZ_RESOURCES: &str =
+    "SELECT TOP (1) CAST(avg_cpu_percent AS float), CAST(avg_data_io_percent AS float),
        CAST(avg_log_write_percent AS float), CAST(avg_memory_usage_percent AS float),
        CAST(max_worker_percent AS float), CAST(max_session_percent AS float)
   FROM sys.dm_db_resource_stats ORDER BY end_time DESC";
@@ -347,8 +403,16 @@ const WH_HISTORY: &str = "SELECT TOP (50) distributed_statement_id, login_name, 
  WHERE start_time >= DATEADD(HOUR, -1, SYSUTCDATETIME())
  ORDER BY start_time DESC";
 
-const WH_HISTORY_COLS: &[&str] =
-    &["ID", "Usuario", "Estado", "Inicio (UTC)", "Duración (ms)", "Filas", "Leído de disco (MB)", "Consulta"];
+const WH_HISTORY_COLS: &[&str] = &[
+    "ID",
+    "Usuario",
+    "Estado",
+    "Inicio (UTC)",
+    "Duración (ms)",
+    "Filas",
+    "Leído de disco (MB)",
+    "Consulta",
+];
 
 const WH_SESSIONS: &str = "SELECT TOP (200) s.session_id, s.login_name, DB_NAME(s.database_id), s.host_name, s.program_name,
        COALESCE(r.status, s.status),
@@ -359,7 +423,16 @@ const WH_SESSIONS: &str = "SELECT TOP (200) s.session_id, s.login_name, DB_NAME(
  WHERE s.is_user_process = 1
  ORDER BY CASE WHEN r.session_id IS NULL THEN 1 ELSE 0 END, s.session_id";
 
-const WH_SESSION_COLS: &[&str] = &["ID", "Usuario", "Base", "Equipo", "Programa", "Estado", "Duración (s)", "Comando"];
+const WH_SESSION_COLS: &[&str] = &[
+    "ID",
+    "Usuario",
+    "Base",
+    "Equipo",
+    "Programa",
+    "Estado",
+    "Duración (s)",
+    "Comando",
+];
 
 const WH_REQUESTS: &str = "SELECT TOP (200) r.session_id, r.status, r.command, s.login_name,
        CAST(r.total_elapsed_time AS float) / 1000, r.cpu_time, r.wait_type,
@@ -369,8 +442,17 @@ const WH_REQUESTS: &str = "SELECT TOP (200) r.session_id, r.status, r.command, s
  WHERE s.is_user_process = 1 AND r.session_id <> @@SPID
  ORDER BY r.total_elapsed_time DESC";
 
-const WH_REQUEST_COLS: &[&str] =
-    &["ID", "Estado", "Comando", "Usuario", "Duración (s)", "CPU (ms)", "Espera", "Bloqueada por", "ID distribuido"];
+const WH_REQUEST_COLS: &[&str] = &[
+    "ID",
+    "Estado",
+    "Comando",
+    "Usuario",
+    "Duración (s)",
+    "CPU (ms)",
+    "Espera",
+    "Bloqueada por",
+    "ID distribuido",
+];
 
 /// The performance counters that matter, by counter name (the instance
 /// is "" or "_Total"; the object's prefix names the instance).
@@ -379,14 +461,20 @@ struct Counters(Vec<(String, String, f64)>);
 
 impl Counters {
     fn get(&self, object: &str, counter: &str) -> Option<f64> {
-        self.0.iter().find(|(o, c, _)| o.ends_with(object) && c == counter).map(|(_, _, v)| *v)
+        self.0
+            .iter()
+            .find(|(o, c, _)| o.ends_with(object) && c == counter)
+            .map(|(_, _, v)| *v)
     }
 }
 
 pub async fn snapshot(s: &mut SqlServerSession) -> Result<MonitorSnapshot> {
     let mut snap = MonitorSnapshot::default();
     let mut gaps = Gaps::default();
-    let info = s.probe("la versión", INFO, &mut gaps).await.and_then(|r| r.into_iter().next());
+    let info = s
+        .probe("la versión", INFO, &mut gaps)
+        .await
+        .and_then(|r| r.into_iter().next());
     let engine_edition = info.as_ref().and_then(|r| f(r, 2)).unwrap_or(0.0) as i64;
     if info.as_ref().and_then(|r| f(r, 8)) == Some(1.0) {
         // Babelfish answers on the same port: PostgreSQL's views instead.
@@ -404,7 +492,16 @@ pub async fn snapshot(s: &mut SqlServerSession) -> Result<MonitorSnapshot> {
     let mut hadr = false;
     if let Some(r) = &info {
         let edition = text(r, 1).unwrap_or_default();
-        snap.info.push(("Versión".into(), format!("{} {}", text(r, 0).unwrap_or_default(), text(r, 4).unwrap_or_default()).trim().into()));
+        snap.info.push((
+            "Versión".into(),
+            format!(
+                "{} {}",
+                text(r, 0).unwrap_or_default(),
+                text(r, 4).unwrap_or_default()
+            )
+            .trim()
+            .into(),
+        ));
         snap.info.push(("Edición".into(), edition));
         if let Some(n) = text(r, 3) {
             snap.info.push(("Servidor".into(), n));
@@ -418,10 +515,16 @@ pub async fn snapshot(s: &mut SqlServerSession) -> Result<MonitorSnapshot> {
         hadr = f(r, 6) == Some(1.0);
         max_connections = f(r, 7).filter(|m| *m > 0.0);
         if let Some(m) = max_connections {
-            snap.info.push(("Conexiones máximas".into(), format!("{m}")));
+            snap.info
+                .push(("Conexiones máximas".into(), format!("{m}")));
         }
     }
-    if let Some(tz) = s.probe("la zona horaria", TIMEZONE, &mut gaps).await.and_then(|r| r.into_iter().next()).and_then(|r| text(&r, 0)) {
+    if let Some(tz) = s
+        .probe("la zona horaria", TIMEZONE, &mut gaps)
+        .await
+        .and_then(|r| r.into_iter().next())
+        .and_then(|r| text(&r, 0))
+    {
         snap.info.push(("Zona horaria".into(), tz));
     }
     match flavor {
@@ -441,21 +544,43 @@ fn first(rows: Option<Vec<Row>>) -> Option<Row> {
     rows.and_then(|r| r.into_iter().next())
 }
 
-async fn server(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &mut Gaps, max_conn: Option<f64>, hadr: bool) {
+async fn server(
+    s: &mut SqlServerSession,
+    snap: &mut MonitorSnapshot,
+    gaps: &mut Gaps,
+    max_conn: Option<f64>,
+    hadr: bool,
+) {
     let m = &mut snap.metrics;
     // CPU and uptime.
     let sys = first(s.probe("el tiempo activo", SYS_INFO, gaps).await);
     let cpu = first(s.probe("el uso de CPU", CPU_RING, gaps).await);
-    let (sql_cpu, idle) = (cpu.as_ref().and_then(|r| f(r, 0)), cpu.as_ref().and_then(|r| f(r, 1)));
+    let (sql_cpu, idle) = (
+        cpu.as_ref().and_then(|r| f(r, 0)),
+        cpu.as_ref().and_then(|r| f(r, 1)),
+    );
     // Both at 0 means the scheduler monitor hasn't sampled yet (or can't
     // read the host, as under emulation): unknown, not 100 %.
     let sampled = !(sql_cpu == Some(0.0) && idle == Some(0.0));
-    let host = idle.filter(|_| sampled).map(|i| (100.0 - i).clamp(0.0, 100.0));
+    let host = idle
+        .filter(|_| sampled)
+        .map(|i| (100.0 - i).clamp(0.0, 100.0));
     m.push(Metric::new("cpu", "CPU del servidor", "CPU", U::Percent, host).max(Some(100.0)));
-    m.push(Metric::new("cpu_sql", "CPU de SQL Server", "CPU", U::Percent, sql_cpu).max(Some(100.0)));
+    m.push(
+        Metric::new("cpu_sql", "CPU de SQL Server", "CPU", U::Percent, sql_cpu).max(Some(100.0)),
+    );
     let cpu_ms = first(s.probe("el tiempo de CPU", CPU_TIME, gaps).await).and_then(|r| f(&r, 0));
     // ms of CPU → seconds × 100: the rate is the % of one core.
-    m.push(Metric::new("cpu_time", "CPU del proceso", "CPU", U::Percent, cpu_ms.map(|ms| ms / 10.0)).counter());
+    m.push(
+        Metric::new(
+            "cpu_time",
+            "CPU del proceso",
+            "CPU",
+            U::Percent,
+            cpu_ms.map(|ms| ms / 10.0),
+        )
+        .counter(),
+    );
     if cpu.is_some() && !sampled {
         snap.notes.push("El monitor de CPU de SQL Server todavía no tiene muestras (se toman cada minuto) o no puede leer el uso del equipo.".into());
     }
@@ -464,7 +589,10 @@ async fn server(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &mut
             snap.info.push(("Núcleos".into(), format!("{n}")));
         }
         if let Some(b) = f(r, 2) {
-            snap.info.push(("Memoria del equipo".into(), format!("{:.1} GB", b / 1_073_741_824.0)));
+            snap.info.push((
+                "Memoria del equipo".into(),
+                format!("{:.1} GB", b / 1_073_741_824.0),
+            ));
         }
     }
 
@@ -478,91 +606,350 @@ async fn server(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &mut
             .collect(),
     );
     let mem = first(s.probe("la memoria", MEMORY, gaps).await);
-    let target = counters.get("Memory Manager", "Target Server Memory (KB)").map(|k| k * 1024.0);
+    let target = counters
+        .get("Memory Manager", "Target Server Memory (KB)")
+        .map(|k| k * 1024.0);
     let total = mem.as_ref().and_then(|r| f(r, 1));
     let process = mem.as_ref().and_then(|r| f(r, 0));
-    let used = counters.get("Memory Manager", "Total Server Memory (KB)").map(|k| k * 1024.0).or(process);
+    let used = counters
+        .get("Memory Manager", "Total Server Memory (KB)")
+        .map(|k| k * 1024.0)
+        .or(process);
     let ceiling = match (target, total) {
         (Some(t), Some(p)) => Some(t.min(p)),
         (t, p) => t.or(p),
     };
-    m.push(Metric::new("mem_used", "Memoria de SQL Server", "Memoria", U::Bytes, used).max(ceiling));
-    m.push(Metric::new("mem_process", "Memoria del proceso", "Memoria", U::Bytes, process).max(total));
-    m.push(Metric::new("mem_cache", "Caché de datos (buffer pool)", "Memoria", U::Bytes, counters.get("Memory Manager", "Database Cache Memory (KB)").map(|k| k * 1024.0)));
+    m.push(
+        Metric::new(
+            "mem_used",
+            "Memoria de SQL Server",
+            "Memoria",
+            U::Bytes,
+            used,
+        )
+        .max(ceiling),
+    );
+    m.push(
+        Metric::new(
+            "mem_process",
+            "Memoria del proceso",
+            "Memoria",
+            U::Bytes,
+            process,
+        )
+        .max(total),
+    );
+    m.push(Metric::new(
+        "mem_cache",
+        "Caché de datos (buffer pool)",
+        "Memoria",
+        U::Bytes,
+        counters
+            .get("Memory Manager", "Database Cache Memory (KB)")
+            .map(|k| k * 1024.0),
+    ));
     let host_used = mem.as_ref().and_then(|r| Some(f(r, 1)? - f(r, 2)?));
-    m.push(Metric::new("mem_host", "Memoria del equipo en uso", "Memoria", U::Bytes, host_used).max(total));
+    m.push(
+        Metric::new(
+            "mem_host",
+            "Memoria del equipo en uso",
+            "Memoria",
+            U::Bytes,
+            host_used,
+        )
+        .max(total),
+    );
 
     // Connections.
     let counts = first(s.probe("las sesiones", SESSION_COUNTS, gaps).await);
-    let conns = counters.get("General Statistics", "User Connections").or(counts.as_ref().and_then(|r| f(r, 0)));
+    let conns = counters
+        .get("General Statistics", "User Connections")
+        .or(counts.as_ref().and_then(|r| f(r, 0)));
     m.push(Metric::new("connections", "Conexiones", "Conexiones", U::Count, conns).max(max_conn));
-    m.push(Metric::new("active_sessions", "Sesiones activas", "Conexiones", U::Count, counts.as_ref().and_then(|r| f(r, 1))));
+    m.push(Metric::new(
+        "active_sessions",
+        "Sesiones activas",
+        "Conexiones",
+        U::Count,
+        counts.as_ref().and_then(|r| f(r, 1)),
+    ));
 
     // Activity.
-    m.push(Metric::new("queries", "Lotes (batch requests)", "Actividad", U::Count, counters.get("SQL Statistics", "Batch Requests/sec")).counter());
-    m.push(Metric::new("transactions", "Transacciones", "Actividad", U::Count, counters.get("Databases", "Transactions/sec")).counter());
-    m.push(Metric::new("compilations", "Compilaciones", "Actividad", U::Count, counters.get("SQL Statistics", "SQL Compilations/sec")).counter());
-    m.push(Metric::new("recompilations", "Recompilaciones", "Actividad", U::Count, counters.get("SQL Statistics", "SQL Re-Compilations/sec")).counter());
-    m.push(Metric::new("errors", "Errores", "Actividad", U::Count, counters.get("SQL Errors", "Errors/sec")).counter());
+    m.push(
+        Metric::new(
+            "queries",
+            "Lotes (batch requests)",
+            "Actividad",
+            U::Count,
+            counters.get("SQL Statistics", "Batch Requests/sec"),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "transactions",
+            "Transacciones",
+            "Actividad",
+            U::Count,
+            counters.get("Databases", "Transactions/sec"),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "compilations",
+            "Compilaciones",
+            "Actividad",
+            U::Count,
+            counters.get("SQL Statistics", "SQL Compilations/sec"),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "recompilations",
+            "Recompilaciones",
+            "Actividad",
+            U::Count,
+            counters.get("SQL Statistics", "SQL Re-Compilations/sec"),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "errors",
+            "Errores",
+            "Actividad",
+            U::Count,
+            counters.get("SQL Errors", "Errors/sec"),
+        )
+        .counter(),
+    );
 
     // Cache.
-    let hit = match (counters.get("Buffer Manager", "Buffer cache hit ratio"), counters.get("Buffer Manager", "Buffer cache hit ratio base")) {
+    let hit = match (
+        counters.get("Buffer Manager", "Buffer cache hit ratio"),
+        counters.get("Buffer Manager", "Buffer cache hit ratio base"),
+    ) {
         (Some(v), Some(b)) if b > 0.0 => Some((v / b * 100.0).min(100.0)),
         _ => None,
     };
-    m.push(Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit).max(Some(100.0)));
-    m.push(Metric::new("page_life", "Esperanza de vida de página", "Caché", U::Seconds, counters.get("Buffer Manager", "Page life expectancy")));
+    m.push(
+        Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit).max(Some(100.0)),
+    );
+    m.push(Metric::new(
+        "page_life",
+        "Esperanza de vida de página",
+        "Caché",
+        U::Seconds,
+        counters.get("Buffer Manager", "Page life expectancy"),
+    ));
 
     // Disk and network.
     let io = first(s.probe("la E/S de archivos", FILE_IO, gaps).await);
-    m.push(Metric::new("disk_read", "Lectura en disco", "Disco", U::Bytes, io.as_ref().and_then(|r| f(r, 0))).counter());
-    m.push(Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, io.as_ref().and_then(|r| f(r, 1))).counter());
-    m.push(Metric::new("io_stall", "Espera de E/S", "Disco", U::Millis, io.as_ref().and_then(|r| f(r, 4))).counter());
-    m.push(Metric::new("log_flushes", "Vaciados del log", "Disco", U::Count, counters.get("Databases", "Log Flushes/sec")).counter());
+    m.push(
+        Metric::new(
+            "disk_read",
+            "Lectura en disco",
+            "Disco",
+            U::Bytes,
+            io.as_ref().and_then(|r| f(r, 0)),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "disk_write",
+            "Escritura en disco",
+            "Disco",
+            U::Bytes,
+            io.as_ref().and_then(|r| f(r, 1)),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "io_stall",
+            "Espera de E/S",
+            "Disco",
+            U::Millis,
+            io.as_ref().and_then(|r| f(r, 4)),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "log_flushes",
+            "Vaciados del log",
+            "Disco",
+            U::Count,
+            counters.get("Databases", "Log Flushes/sec"),
+        )
+        .counter(),
+    );
     let packets = first(s.probe("los paquetes de red", PACKETS, gaps).await);
-    m.push(Metric::new("packets_in", "Paquetes recibidos", "Red", U::Count, packets.as_ref().and_then(|r| f(r, 0))).counter());
-    m.push(Metric::new("packets_out", "Paquetes enviados", "Red", U::Count, packets.as_ref().and_then(|r| f(r, 1))).counter());
+    m.push(
+        Metric::new(
+            "packets_in",
+            "Paquetes recibidos",
+            "Red",
+            U::Count,
+            packets.as_ref().and_then(|r| f(r, 0)),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "packets_out",
+            "Paquetes enviados",
+            "Red",
+            U::Count,
+            packets.as_ref().and_then(|r| f(r, 1)),
+        )
+        .counter(),
+    );
 
     // Storage.
-    let storage = first(s.probe("el tamaño de los archivos", STORAGE, gaps).await).and_then(|r| f(&r, 0));
-    m.push(Metric::new("storage_used", "Espacio de datos y logs", "Almacenamiento", U::Bytes, storage));
+    let storage =
+        first(s.probe("el tamaño de los archivos", STORAGE, gaps).await).and_then(|r| f(&r, 0));
+    m.push(Metric::new(
+        "storage_used",
+        "Espacio de datos y logs",
+        "Almacenamiento",
+        U::Bytes,
+        storage,
+    ));
 
     // Locks.
     let locks = first(s.probe("los bloqueos", LOCK_COUNTS, gaps).await);
     let blocked = counters.get("General Statistics", "Processes blocked");
-    m.push(Metric::new("locks_waiting", "Bloqueos en espera", "Bloqueos", U::Count, locks.as_ref().and_then(|r| f(r, 1)).or(blocked)));
-    m.push(Metric::new("locks_held", "Bloqueos retenidos", "Bloqueos", U::Count, locks.as_ref().and_then(|r| f(r, 0))));
-    m.push(Metric::new("blocked_sessions", "Procesos bloqueados", "Bloqueos", U::Count, blocked));
-    m.push(Metric::new("deadlocks", "Deadlocks", "Bloqueos", U::Count, counters.get("Locks", "Number of Deadlocks/sec")).counter());
-    m.push(Metric::new("lock_waits", "Esperas de bloqueo", "Bloqueos", U::Count, counters.get("Locks", "Lock Waits/sec")).counter());
+    m.push(Metric::new(
+        "locks_waiting",
+        "Bloqueos en espera",
+        "Bloqueos",
+        U::Count,
+        locks.as_ref().and_then(|r| f(r, 1)).or(blocked),
+    ));
+    m.push(Metric::new(
+        "locks_held",
+        "Bloqueos retenidos",
+        "Bloqueos",
+        U::Count,
+        locks.as_ref().and_then(|r| f(r, 0)),
+    ));
+    m.push(Metric::new(
+        "blocked_sessions",
+        "Procesos bloqueados",
+        "Bloqueos",
+        U::Count,
+        blocked,
+    ));
+    m.push(
+        Metric::new(
+            "deadlocks",
+            "Deadlocks",
+            "Bloqueos",
+            U::Count,
+            counters.get("Locks", "Number of Deadlocks/sec"),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "lock_waits",
+            "Esperas de bloqueo",
+            "Bloqueos",
+            U::Count,
+            counters.get("Locks", "Lock Waits/sec"),
+        )
+        .counter(),
+    );
 
-    m.push(Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, sys.as_ref().and_then(|r| f(r, 0))));
+    m.push(Metric::new(
+        "uptime",
+        "Tiempo activo",
+        "Servidor",
+        U::Seconds,
+        sys.as_ref().and_then(|r| f(r, 0)),
+    ));
 
     // Tables.
     let tables = [
-        table("sessions", "Sesiones", SESSION_COLS, s.probe("las sesiones", SESSIONS, gaps).await),
-        table("queries", "Consultas en curso", REQUEST_COLS, s.probe("las consultas en curso", REQUESTS, gaps).await),
-        table("locks", "Bloqueos / esperas", BLOCKING_COLS, s.probe("los bloqueos", BLOCKING, gaps).await),
-        table("waits", "Esperas principales (desde el inicio)", WAIT_COLS, s.probe("las esperas", &waits_sql("sys.dm_os_wait_stats"), gaps).await),
-        table("databases", "Bases y tamaños", DATABASE_COLS, s.probe("los tamaños de las bases", DATABASES, gaps).await),
-        table("top_objects", "Objetos más grandes (base actual)", TOP_OBJECT_COLS, s.probe("los objetos más grandes", TOP_OBJECTS, gaps).await),
+        table(
+            "sessions",
+            "Sesiones",
+            SESSION_COLS,
+            s.probe("las sesiones", SESSIONS, gaps).await,
+        ),
+        table(
+            "queries",
+            "Consultas en curso",
+            REQUEST_COLS,
+            s.probe("las consultas en curso", REQUESTS, gaps).await,
+        ),
+        table(
+            "locks",
+            "Bloqueos / esperas",
+            BLOCKING_COLS,
+            s.probe("los bloqueos", BLOCKING, gaps).await,
+        ),
+        table(
+            "waits",
+            "Esperas principales (desde el inicio)",
+            WAIT_COLS,
+            s.probe("las esperas", &waits_sql("sys.dm_os_wait_stats"), gaps)
+                .await,
+        ),
+        table(
+            "databases",
+            "Bases y tamaños",
+            DATABASE_COLS,
+            s.probe("los tamaños de las bases", DATABASES, gaps).await,
+        ),
+        table(
+            "top_objects",
+            "Objetos más grandes (base actual)",
+            TOP_OBJECT_COLS,
+            s.probe("los objetos más grandes", TOP_OBJECTS, gaps).await,
+        ),
     ];
     snap.tables.extend(tables.into_iter().flatten());
     if hadr {
         replicas(s, snap, gaps).await;
     } else {
-        snap.metrics.push(Metric::new("replication_lag", "Retraso de réplica", "Replicación", U::Seconds, None));
+        snap.metrics.push(Metric::new(
+            "replication_lag",
+            "Retraso de réplica",
+            "Replicación",
+            U::Seconds,
+            None,
+        ));
         snap.info.push(("Always On".into(), "No habilitado".into()));
     }
 }
 
 async fn replicas(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &mut Gaps) {
-    let Some(rows) = s.probe("las réplicas de Always On", REPLICAS, gaps).await else { return };
-    let lag = rows.iter().filter_map(|r| f(r, 8)).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.max(v))));
-    if let Some(role) = rows.iter().find(|r| f(r, 9) == Some(1.0)).and_then(|r| text(r, 2)) {
+    let Some(rows) = s.probe("las réplicas de Always On", REPLICAS, gaps).await else {
+        return;
+    };
+    let lag = rows
+        .iter()
+        .filter_map(|r| f(r, 8))
+        .fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.max(v))));
+    if let Some(role) = rows
+        .iter()
+        .find(|r| f(r, 9) == Some(1.0))
+        .and_then(|r| text(r, 2))
+    {
         snap.info.push(("Rol (Always On)".into(), role));
     }
-    snap.metrics.push(Metric::new("replication_lag", "Retraso de réplica", "Replicación", U::Seconds, lag));
+    snap.metrics.push(Metric::new(
+        "replication_lag",
+        "Retraso de réplica",
+        "Replicación",
+        U::Seconds,
+        lag,
+    ));
     let mut t = MonitorTable::new("replication", "Réplicas (Always On)", REPLICA_COLS);
     t.rows = rows
         .into_iter()
@@ -575,16 +962,73 @@ async fn replicas(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &m
     snap.tables.push(t);
 }
 
-async fn azure_db(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &mut Gaps, max_conn: Option<f64>) {
-    let res = first(s.probe("el uso de recursos (sys.dm_db_resource_stats)", AZ_RESOURCES, gaps).await);
+async fn azure_db(
+    s: &mut SqlServerSession,
+    snap: &mut MonitorSnapshot,
+    gaps: &mut Gaps,
+    max_conn: Option<f64>,
+) {
+    let res = first(
+        s.probe(
+            "el uso de recursos (sys.dm_db_resource_stats)",
+            AZ_RESOURCES,
+            gaps,
+        )
+        .await,
+    );
     let m = &mut snap.metrics;
     let pct = |i: usize| res.as_ref().and_then(|r| f(r, i));
     m.push(Metric::new("cpu", "CPU de la base", "CPU", U::Percent, pct(0)).max(Some(100.0)));
-    m.push(Metric::new("mem_percent", "Memoria usada", "Memoria", U::Percent, pct(3)).max(Some(100.0)));
-    m.push(Metric::new("data_io", "E/S de datos (del límite)", "Disco", U::Percent, pct(1)).max(Some(100.0)));
-    m.push(Metric::new("log_write", "Escritura del log (del límite)", "Disco", U::Percent, pct(2)).max(Some(100.0)));
-    m.push(Metric::new("workers", "Workers (del límite)", "Conexiones", U::Percent, pct(4)).max(Some(100.0)));
-    m.push(Metric::new("sessions_pct", "Sesiones (del límite)", "Conexiones", U::Percent, pct(5)).max(Some(100.0)));
+    m.push(
+        Metric::new(
+            "mem_percent",
+            "Memoria usada",
+            "Memoria",
+            U::Percent,
+            pct(3),
+        )
+        .max(Some(100.0)),
+    );
+    m.push(
+        Metric::new(
+            "data_io",
+            "E/S de datos (del límite)",
+            "Disco",
+            U::Percent,
+            pct(1),
+        )
+        .max(Some(100.0)),
+    );
+    m.push(
+        Metric::new(
+            "log_write",
+            "Escritura del log (del límite)",
+            "Disco",
+            U::Percent,
+            pct(2),
+        )
+        .max(Some(100.0)),
+    );
+    m.push(
+        Metric::new(
+            "workers",
+            "Workers (del límite)",
+            "Conexiones",
+            U::Percent,
+            pct(4),
+        )
+        .max(Some(100.0)),
+    );
+    m.push(
+        Metric::new(
+            "sessions_pct",
+            "Sesiones (del límite)",
+            "Conexiones",
+            U::Percent,
+            pct(5),
+        )
+        .max(Some(100.0)),
+    );
     if res.is_some() && pct(0).is_none() {
         snap.notes.push("sys.dm_db_resource_stats está vacío en master: conectate a una base de usuario para ver CPU, memoria y E/S.".into());
     }
@@ -599,22 +1043,100 @@ async fn azure_db(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &m
     );
     let counts = first(s.probe("las sesiones", SESSION_COUNTS, gaps).await);
     let m = &mut snap.metrics;
-    m.push(Metric::new("connections", "Conexiones", "Conexiones", U::Count, counts.as_ref().and_then(|r| f(r, 0))).max(max_conn));
-    m.push(Metric::new("active_sessions", "Sesiones activas", "Conexiones", U::Count, counts.as_ref().and_then(|r| f(r, 1))));
-    m.push(Metric::new("queries", "Lotes (batch requests)", "Actividad", U::Count, counters.get("SQL Statistics", "Batch Requests/sec")).counter());
-    m.push(Metric::new("transactions", "Transacciones", "Actividad", U::Count, counters.get("Databases", "Transactions/sec")).counter());
-    m.push(Metric::new("deadlocks", "Deadlocks", "Bloqueos", U::Count, counters.get("Locks", "Number of Deadlocks/sec")).counter());
+    m.push(
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            U::Count,
+            counts.as_ref().and_then(|r| f(r, 0)),
+        )
+        .max(max_conn),
+    );
+    m.push(Metric::new(
+        "active_sessions",
+        "Sesiones activas",
+        "Conexiones",
+        U::Count,
+        counts.as_ref().and_then(|r| f(r, 1)),
+    ));
+    m.push(
+        Metric::new(
+            "queries",
+            "Lotes (batch requests)",
+            "Actividad",
+            U::Count,
+            counters.get("SQL Statistics", "Batch Requests/sec"),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "transactions",
+            "Transacciones",
+            "Actividad",
+            U::Count,
+            counters.get("Databases", "Transactions/sec"),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "deadlocks",
+            "Deadlocks",
+            "Bloqueos",
+            U::Count,
+            counters.get("Locks", "Number of Deadlocks/sec"),
+        )
+        .counter(),
+    );
 
     let io = first(s.probe("la E/S de archivos", FILE_IO, gaps).await);
     let m = &mut snap.metrics;
-    m.push(Metric::new("disk_read", "Lectura en disco", "Disco", U::Bytes, io.as_ref().and_then(|r| f(r, 0))).counter());
-    m.push(Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, io.as_ref().and_then(|r| f(r, 1))).counter());
+    m.push(
+        Metric::new(
+            "disk_read",
+            "Lectura en disco",
+            "Disco",
+            U::Bytes,
+            io.as_ref().and_then(|r| f(r, 0)),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "disk_write",
+            "Escritura en disco",
+            "Disco",
+            U::Bytes,
+            io.as_ref().and_then(|r| f(r, 1)),
+        )
+        .counter(),
+    );
 
     let st = first(s.probe("el tamaño de la base", AZ_STORAGE, gaps).await);
     let used = st.as_ref().and_then(|r| f(r, 1));
     let max = st.as_ref().and_then(|r| f(r, 2)).filter(|m| *m > 0.0);
-    snap.metrics.push(Metric::new("storage_used", "Espacio usado", "Almacenamiento", U::Bytes, used).max(max));
-    snap.metrics.push(Metric::new("storage_allocated", "Espacio asignado", "Almacenamiento", U::Bytes, st.as_ref().and_then(|r| f(r, 0))).max(max));
+    snap.metrics.push(
+        Metric::new(
+            "storage_used",
+            "Espacio usado",
+            "Almacenamiento",
+            U::Bytes,
+            used,
+        )
+        .max(max),
+    );
+    snap.metrics.push(
+        Metric::new(
+            "storage_allocated",
+            "Espacio asignado",
+            "Almacenamiento",
+            U::Bytes,
+            st.as_ref().and_then(|r| f(r, 0)),
+        )
+        .max(max),
+    );
     if let Some(r) = &st {
         if let Some(so) = text(r, 3) {
             snap.info.push(("Objetivo de servicio".into(), so));
@@ -624,16 +1146,65 @@ async fn azure_db(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &m
         }
     }
     let locks = first(s.probe("los bloqueos", LOCK_COUNTS, gaps).await);
-    snap.metrics.push(Metric::new("locks_waiting", "Bloqueos en espera", "Bloqueos", U::Count, locks.as_ref().and_then(|r| f(r, 1))));
-    snap.metrics.push(Metric::new("locks_held", "Bloqueos retenidos", "Bloqueos", U::Count, locks.as_ref().and_then(|r| f(r, 0))));
+    snap.metrics.push(Metric::new(
+        "locks_waiting",
+        "Bloqueos en espera",
+        "Bloqueos",
+        U::Count,
+        locks.as_ref().and_then(|r| f(r, 1)),
+    ));
+    snap.metrics.push(Metric::new(
+        "locks_held",
+        "Bloqueos retenidos",
+        "Bloqueos",
+        U::Count,
+        locks.as_ref().and_then(|r| f(r, 0)),
+    ));
 
     let tables = [
-        table("sessions", "Sesiones", SESSION_COLS, s.probe("las sesiones", SESSIONS, gaps).await),
-        table("queries", "Consultas en curso", REQUEST_COLS, s.probe("las consultas en curso", REQUESTS, gaps).await),
-        table("locks", "Bloqueos / esperas", BLOCKING_COLS, s.probe("los bloqueos", BLOCKING, gaps).await),
-        table("waits", "Esperas principales de la base", WAIT_COLS, s.probe("las esperas", &waits_sql("sys.dm_db_wait_stats"), gaps).await),
-        table("databases", "Bases", &["Base", "Estado", "Compatibilidad", "Objetivo de servicio", "Nivel"], s.probe("las bases", AZ_DATABASES, gaps).await),
-        table("top_objects", "Objetos más grandes", TOP_OBJECT_COLS, s.probe("los objetos más grandes", TOP_OBJECTS, gaps).await),
+        table(
+            "sessions",
+            "Sesiones",
+            SESSION_COLS,
+            s.probe("las sesiones", SESSIONS, gaps).await,
+        ),
+        table(
+            "queries",
+            "Consultas en curso",
+            REQUEST_COLS,
+            s.probe("las consultas en curso", REQUESTS, gaps).await,
+        ),
+        table(
+            "locks",
+            "Bloqueos / esperas",
+            BLOCKING_COLS,
+            s.probe("los bloqueos", BLOCKING, gaps).await,
+        ),
+        table(
+            "waits",
+            "Esperas principales de la base",
+            WAIT_COLS,
+            s.probe("las esperas", &waits_sql("sys.dm_db_wait_stats"), gaps)
+                .await,
+        ),
+        table(
+            "databases",
+            "Bases",
+            &[
+                "Base",
+                "Estado",
+                "Compatibilidad",
+                "Objetivo de servicio",
+                "Nivel",
+            ],
+            s.probe("las bases", AZ_DATABASES, gaps).await,
+        ),
+        table(
+            "top_objects",
+            "Objetos más grandes",
+            TOP_OBJECT_COLS,
+            s.probe("los objetos más grandes", TOP_OBJECTS, gaps).await,
+        ),
     ];
     snap.tables.extend(tables.into_iter().flatten());
     snap.notes.push("Azure SQL Database informa CPU, memoria y E/S como porcentaje del límite del nivel de servicio, promediado cada 15 s.".into());
@@ -643,26 +1214,68 @@ async fn azure_db(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &m
 async fn warehouse(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &mut Gaps) {
     let counts = first(s.probe("las sesiones", SESSION_COUNTS, gaps).await);
     let m = &mut snap.metrics;
-    m.push(Metric::new("connections", "Conexiones", "Conexiones", U::Count, counts.as_ref().and_then(|r| f(r, 0))));
-    m.push(Metric::new("active_sessions", "Sesiones activas", "Conexiones", U::Count, counts.as_ref().and_then(|r| f(r, 1))));
-    let history = s.probe("el historial de Query Insights", WH_HISTORY, gaps).await;
+    m.push(Metric::new(
+        "connections",
+        "Conexiones",
+        "Conexiones",
+        U::Count,
+        counts.as_ref().and_then(|r| f(r, 0)),
+    ));
+    m.push(Metric::new(
+        "active_sessions",
+        "Sesiones activas",
+        "Conexiones",
+        U::Count,
+        counts.as_ref().and_then(|r| f(r, 1)),
+    ));
+    let history = s
+        .probe("el historial de Query Insights", WH_HISTORY, gaps)
+        .await;
     if let Some(h) = &history {
         let n = h.len() as f64;
         let scanned: f64 = h.iter().filter_map(|r| f(r, 6)).sum();
-        snap.metrics.push(Metric::new("queries_last_hour", "Consultas en la última hora (hasta 50)", "Actividad", U::Count, Some(n)));
-        snap.metrics.push(Metric::new("scanned_last_hour", "Leído de disco en esas consultas", "Actividad", U::Bytes, Some(scanned * 1_048_576.0)));
+        snap.metrics.push(Metric::new(
+            "queries_last_hour",
+            "Consultas en la última hora (hasta 50)",
+            "Actividad",
+            U::Count,
+            Some(n),
+        ));
+        snap.metrics.push(Metric::new(
+            "scanned_last_hour",
+            "Leído de disco en esas consultas",
+            "Actividad",
+            U::Bytes,
+            Some(scanned * 1_048_576.0),
+        ));
     }
     let tables = [
-        table("sessions", "Sesiones", WH_SESSION_COLS, s.probe("las sesiones", WH_SESSIONS, gaps).await),
-        table("queries", "Consultas en curso", WH_REQUEST_COLS, s.probe("las consultas en curso", WH_REQUESTS, gaps).await),
-        table("history", "Consultas recientes (última hora)", WH_HISTORY_COLS, history),
+        table(
+            "sessions",
+            "Sesiones",
+            WH_SESSION_COLS,
+            s.probe("las sesiones", WH_SESSIONS, gaps).await,
+        ),
+        table(
+            "queries",
+            "Consultas en curso",
+            WH_REQUEST_COLS,
+            s.probe("las consultas en curso", WH_REQUESTS, gaps).await,
+        ),
+        table(
+            "history",
+            "Consultas recientes (última hora)",
+            WH_HISTORY_COLS,
+            history,
+        ),
     ];
     snap.tables.extend(tables.into_iter().flatten());
     snap.notes.push(
         "Fabric no expone CPU, memoria ni disco del almacén por T-SQL: el consumo de capacidad está en la app Microsoft Fabric Capacity Metrics."
             .into(),
     );
-    snap.notes.push("Query Insights guarda las consultas terminadas con unos minutos de demora.".into());
+    snap.notes
+        .push("Query Insights guarda las consultas terminadas con unos minutos de demora.".into());
 }
 
 #[cfg(test)]
@@ -672,18 +1285,27 @@ mod tests {
     #[test]
     fn permission_errors_fold_into_one_note() {
         let mut g = Gaps::default();
-        assert!(denied("VIEW SERVER STATE permission was denied on object 'server'"));
+        assert!(denied(
+            "VIEW SERVER STATE permission was denied on object 'server'"
+        ));
         assert!(!denied("Invalid object name 'sys.dm_os_ring_buffers'."));
         g.denied.extend(["el uso de CPU", "la memoria"]);
         g.notes.push("No se pudo leer x: y".into());
         let n = g.into_notes("VIEW SERVER STATE");
-        assert_eq!(n[0], "Sin el permiso VIEW SERVER STATE no se ven: el uso de CPU, la memoria.");
+        assert_eq!(
+            n[0],
+            "Sin el permiso VIEW SERVER STATE no se ven: el uso de CPU, la memoria."
+        );
         assert_eq!(n.len(), 2);
     }
 
     #[test]
     fn counters_match_any_instance_prefix() {
-        let c = Counters(vec![("MSSQL$SQLEXPRESS:Buffer Manager".into(), "Page life expectancy".into(), 300.0)]);
+        let c = Counters(vec![(
+            "MSSQL$SQLEXPRESS:Buffer Manager".into(),
+            "Page life expectancy".into(),
+            300.0,
+        )]);
         assert_eq!(c.get("Buffer Manager", "Page life expectancy"), Some(300.0));
         assert_eq!(c.get("Buffer Manager", "Other"), None);
     }
@@ -714,7 +1336,13 @@ OUTER APPLY sys.dm_exec_input_buffer(s.session_id, NULL) ib";
 
 pub async fn blocking(s: &mut SqlServerSession) -> Result<Vec<dbine_driver::BlockedSession>> {
     let rows = s.rows(BLOCKING_CHAINS, &[]).await?;
-    let text = |r: &Row, i: usize| r.try_get::<&str, _>(i).ok().flatten().map(str::to_string).filter(|v| !v.is_empty());
+    let text = |r: &Row, i: usize| {
+        r.try_get::<&str, _>(i)
+            .ok()
+            .flatten()
+            .map(str::to_string)
+            .filter(|v| !v.is_empty())
+    };
     Ok(rows
         .iter()
         .map(|r| dbine_driver::BlockedSession {
@@ -724,7 +1352,11 @@ pub async fn blocking(s: &mut SqlServerSession) -> Result<Vec<dbine_driver::Bloc
             client: text(r, 3),
             database: text(r, 4),
             wait: text(r, 5),
-            waited_ms: r.try_get::<i64, _>(6).ok().flatten().map(|v| v.max(0) as u64),
+            waited_ms: r
+                .try_get::<i64, _>(6)
+                .ok()
+                .flatten()
+                .map(|v| v.max(0) as u64),
             object: text(r, 7),
             sql: text(r, 8).map(|q| q.trim().to_string()),
         })
@@ -732,6 +1364,8 @@ pub async fn blocking(s: &mut SqlServerSession) -> Result<Vec<dbine_driver::Bloc
 }
 
 pub async fn kill(s: &mut SqlServerSession, id: &str) -> Result<()> {
-    let id: u32 = id.trim().parse().map_err(|_| dbine_driver::Error::Query(format!("«{id}» no es un id de sesión de SQL Server")))?;
+    let id: u32 = id.trim().parse().map_err(|_| {
+        dbine_driver::Error::Query(format!("«{id}» no es un id de sesión de SQL Server"))
+    })?;
     s.rows(&format!("KILL {id}"), &[]).await.map(|_| ())
 }

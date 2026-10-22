@@ -15,7 +15,7 @@
 //! For the HTTP versions the "script" is the request that runs: method,
 //! path and JSON body.
 
-use crate::create_db::{bad, influxql_duration, segments, seconds};
+use crate::create_db::{bad, influxql_duration, seconds, segments};
 use crate::http::{self, send_err};
 use crate::v1::{ident, InfluxQlSession};
 use crate::v2::FluxSession;
@@ -79,7 +79,12 @@ fn influxql(database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<St
         .into_iter()
         .map(|(rp, parts)| {
             let parts: Vec<String> = parts.into_iter().flatten().collect();
-            format!("ALTER RETENTION POLICY {} ON {} {}", ident(rp), ident(database), parts.join(" "))
+            format!(
+                "ALTER RETENTION POLICY {} ON {} {}",
+                ident(rp),
+                ident(database),
+                parts.join(" ")
+            )
         })
         .collect())
 }
@@ -94,9 +99,15 @@ fn bucket_patch(changes: &BTreeMap<String, String>) -> Result<Option<J>> {
         let value = value.trim();
         match key.as_str() {
             "retention" => {
-                let s = if value.is_empty() { 0 } else { seconds(value, "retención")? };
+                let s = if value.is_empty() {
+                    0
+                } else {
+                    seconds(value, "retención")?
+                };
                 if s != 0 && s < 3600 {
-                    return Err(Error::Query(format!("retención: «{value}» es menos de una hora (el mínimo)")));
+                    return Err(Error::Query(format!(
+                        "retención: «{value}» es menos de una hora (el mínimo)"
+                    )));
                 }
                 rule.insert("everySeconds".into(), json!(s));
             }
@@ -145,16 +156,36 @@ fn v3_body(database: &str, changes: &BTreeMap<String, String>) -> Result<Option<
 }
 
 /// What runs, in order: InfluxQL statements (v1) or requests (v2, v3).
-pub(crate) fn alter(api: Api, database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
+pub(crate) fn alter(
+    api: Api,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
     Ok(match api {
         Api::InfluxQl => influxql(database, changes)?,
-        Api::Flux => bucket_patch(changes)?.map(|b| format!("PATCH {}\n{b}", bucket_placeholder(database))).into_iter().collect(),
-        Api::Sql => v3_body(database, changes)?.map(|b| format!("PUT {V3_PATH}\n{b}")).into_iter().collect(),
+        Api::Flux => bucket_patch(changes)?
+            .map(|b| format!("PATCH {}\n{b}", bucket_placeholder(database)))
+            .into_iter()
+            .collect(),
+        Api::Sql => v3_body(database, changes)?
+            .map(|b| format!("PUT {V3_PATH}\n{b}"))
+            .into_iter()
+            .collect(),
     })
 }
 
-pub(crate) fn script(api: Api, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
-    Ok(alter(api, database, changes)?.join(if matches!(api, Api::InfluxQl) { ";\n" } else { "\n\n" }))
+pub(crate) fn script(
+    api: Api,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<String> {
+    Ok(
+        alter(api, database, changes)?.join(if matches!(api, Api::InfluxQl) {
+            ";\n"
+        } else {
+            "\n\n"
+        }),
+    )
 }
 
 /// `720h0m0s` as `720h` (zero parts dropped); `0s` is `INF` for a
@@ -168,7 +199,11 @@ fn tidy_influxql(v: &str, inf: bool) -> String {
                 "0s".into()
             }
         }
-        Some(s) => s.iter().filter(|(n, _)| *n > 0).map(|(n, u)| format!("{n}{u}")).collect(),
+        Some(s) => s
+            .iter()
+            .filter(|(n, _)| *n > 0)
+            .map(|(n, u)| format!("{n}{u}"))
+            .collect(),
         None => v.to_string(),
     }
 }
@@ -189,7 +224,11 @@ fn human_seconds(mut s: u64) -> String {
 }
 
 fn fact(group: &str, label: &str, value: impl Into<String>) -> PropertyInfo {
-    PropertyInfo { group: group.into(), label: label.into(), value: value.into() }
+    PropertyInfo {
+        group: group.into(),
+        label: label.into(),
+        value: value.into(),
+    }
 }
 
 /// Rows of the first series of each statement's result.
@@ -200,7 +239,12 @@ fn series_rows(results: &[J], i: usize) -> Vec<Vec<J>> {
         .and_then(|s| s.as_array())
         .into_iter()
         .flatten()
-        .flat_map(|s| s.get("values").and_then(|v| v.as_array()).cloned().unwrap_or_default())
+        .flat_map(|s| {
+            s.get("values")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
+        })
         .filter_map(|r| r.as_array().cloned())
         .collect()
 }
@@ -219,14 +263,18 @@ fn partial(i: usize, n: usize, step: &str, e: Error) -> Error {
     if i == 0 {
         e
     } else {
-        Error::Query(format!("se aplicaron {i} de {n} cambios; falló: {step}\n{e}"))
+        Error::Query(format!(
+            "se aplicaron {i} de {n} cambios; falló: {step}\n{e}"
+        ))
     }
 }
 
 impl InfluxQlSession {
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         let db = ident(database);
-        let results = self.query(&format!("SHOW RETENTION POLICIES ON {db}")).await?;
+        let results = self
+            .query(&format!("SHOW RETENTION POLICIES ON {db}"))
+            .await?;
         let rps = series_rows(&results, 0);
         let mut fields = Vec::new();
         let mut values = BTreeMap::new();
@@ -242,10 +290,34 @@ impl InfluxQlSession {
                 default_rp = name.clone();
             }
             let current = [
-                ("duration", "retención (DURATION)", FieldKind::Text, tidy_influxql(&text(r.get(1)), true)),
-                ("shard_duration", "duración de cada shard (SHARD DURATION)", FieldKind::Text, tidy_influxql(&text(r.get(2)), false)),
-                ("replication", "réplicas (REPLICATION)", FieldKind::Number, text(r.get(3))),
-                ("default", "predeterminada (DEFAULT)", FieldKind::Bool, if is_default { "true".into() } else { String::new() }),
+                (
+                    "duration",
+                    "retención (DURATION)",
+                    FieldKind::Text,
+                    tidy_influxql(&text(r.get(1)), true),
+                ),
+                (
+                    "shard_duration",
+                    "duración de cada shard (SHARD DURATION)",
+                    FieldKind::Text,
+                    tidy_influxql(&text(r.get(2)), false),
+                ),
+                (
+                    "replication",
+                    "réplicas (REPLICATION)",
+                    FieldKind::Number,
+                    text(r.get(3)),
+                ),
+                (
+                    "default",
+                    "predeterminada (DEFAULT)",
+                    FieldKind::Bool,
+                    if is_default {
+                        "true".into()
+                    } else {
+                        String::new()
+                    },
+                ),
             ];
             for (what, label, kind, value) in current {
                 let key = intern(&format!("rp:{name}:{what}"));
@@ -255,7 +327,11 @@ impl InfluxQlSession {
                     "replication" => "Solo cuenta en InfluxDB Enterprise (cluster).",
                     _ => "Donde se escribe y se lee cuando no se indica una política. Para quitarla, se marca otra.",
                 };
-                fields.push(Field::new(key, intern(&format!("{name}: {label}")), kind).help(help).group(RP_GROUP));
+                fields.push(
+                    Field::new(key, intern(&format!("{name}: {label}")), kind)
+                        .help(help)
+                        .group(RP_GROUP),
+                );
                 values.insert(key.to_string(), value);
                 if what == "duration" {
                     warnings.insert(key.to_string(), SHORTER.to_string());
@@ -263,7 +339,8 @@ impl InfluxQlSession {
                 if what == "default" {
                     warnings.insert(
                         key.to_string(),
-                        "Las escrituras y consultas que no nombran una política pasan a usar esta.".to_string(),
+                        "Las escrituras y consultas que no nombran una política pasan a usar esta."
+                            .to_string(),
                     );
                 }
             }
@@ -274,26 +351,52 @@ impl InfluxQlSession {
             fact("", "Política predeterminada", default_rp),
         ];
         // Estimates: cheap even on large databases (the exact counts aren't).
-        if let Ok(r) = self.query(&format!("SHOW MEASUREMENT CARDINALITY ON {db}; SHOW SERIES CARDINALITY ON {db}")).await {
+        if let Ok(r) = self
+            .query(&format!(
+                "SHOW MEASUREMENT CARDINALITY ON {db}; SHOW SERIES CARDINALITY ON {db}"
+            ))
+            .await
+        {
             for (i, label) in [(0, "Measurements (estimado)"), (1, "Series (estimado)")] {
-                let n = series_rows(&r, i).iter().filter_map(|row| row.first().and_then(J::as_u64)).sum::<u64>();
+                let n = series_rows(&r, i)
+                    .iter()
+                    .filter_map(|row| row.first().and_then(J::as_u64))
+                    .sum::<u64>();
                 info.push(fact("", label, n.to_string()));
             }
         }
         if let Ok(r) = self.query("SHOW SHARD GROUPS").await {
-            let groups = series_rows(&r, 0).iter().filter(|row| text(row.get(1)) == database).count();
+            let groups = series_rows(&r, 0)
+                .iter()
+                .filter(|row| text(row.get(1)) == database)
+                .count();
             info.push(fact("", "Grupos de shards", groups.to_string()));
         }
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden modificar las propiedades de una base.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden modificar las propiedades de una base."
+                    .into(),
+            ));
         }
         let steps = influxql(database, changes)?;
         for (i, step) in steps.iter().enumerate() {
-            self.write_statement(step).await.map_err(|e| partial(i, steps.len(), step, e))?;
+            self.write_statement(step)
+                .await
+                .map_err(|e| partial(i, steps.len(), step, e))?;
         }
         Ok(())
     }
@@ -301,17 +404,31 @@ impl InfluxQlSession {
 
 impl FluxSession {
     async fn bucket_by_name(&self, name: &str) -> Result<J> {
-        let v = self.get(BUCKETS, &[("org", self.org.as_str()), ("name", name)]).await?;
-        v.pointer("/buckets/0").cloned().ok_or_else(|| Error::Query(format!("No existe el bucket «{name}».")))
+        let v = self
+            .get(BUCKETS, &[("org", self.org.as_str()), ("name", name)])
+            .await?;
+        v.pointer("/buckets/0")
+            .cloned()
+            .ok_or_else(|| Error::Query(format!("No existe el bucket «{name}».")))
     }
 
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         let b = self.bucket_by_name(database).await?;
-        let s = |p: &str| b.pointer(p).and_then(J::as_str).unwrap_or_default().to_string();
+        let s = |p: &str| {
+            b.pointer(p)
+                .and_then(J::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
         let time = |p: &str| http::iso_time(&s(p)).unwrap_or_else(|| s(p));
         let rule = b.pointer("/retentionRules/0");
-        let every = rule.and_then(|r| r.get("everySeconds")).and_then(J::as_u64).unwrap_or(0);
-        let shard = rule.and_then(|r| r.get("shardGroupDurationSeconds")).and_then(J::as_u64);
+        let every = rule
+            .and_then(|r| r.get("everySeconds"))
+            .and_then(J::as_u64)
+            .unwrap_or(0);
+        let shard = rule
+            .and_then(|r| r.get("shardGroupDurationSeconds"))
+            .and_then(J::as_u64);
         let kind = match s("/type").as_str() {
             "system" => "del sistema (system)".to_string(),
             "user" => "de usuario (user)".to_string(),
@@ -319,7 +436,11 @@ impl FluxSession {
         };
         let info = vec![
             fact("", "Id", s("/id")),
-            fact("", "Organización", format!("{} ({})", self.org, s("/orgID"))),
+            fact(
+                "",
+                "Organización",
+                format!("{} ({})", self.org, s("/orgID")),
+            ),
             fact("", "Tipo", kind),
             fact("", "Creado", time("/createdAt")),
             fact("", "Modificado", time("/updatedAt")),
@@ -330,10 +451,14 @@ impl FluxSession {
                 .placeholder("30d o 0")
                 .help("0 o vacía: los datos no vencen. Con unidad (s, m, h, d, w); mínimo 1h.")
                 .group("Retención"),
-            Field::new("shard_duration", "Duración de cada grupo de shards (shardGroupDurationSeconds)", FieldKind::Text)
-                .placeholder("1d")
-                .help("Mínimo 1h. Vale para los grupos de shards nuevos.")
-                .group("Retención"),
+            Field::new(
+                "shard_duration",
+                "Duración de cada grupo de shards (shardGroupDurationSeconds)",
+                FieldKind::Text,
+            )
+            .placeholder("1d")
+            .help("Mínimo 1h. Vale para los grupos de shards nuevos.")
+            .group("Retención"),
         ];
         let mut values = BTreeMap::new();
         values.insert("description".into(), s("/description"));
@@ -342,40 +467,85 @@ impl FluxSession {
             values.insert("shard_duration".into(), human_seconds(sh));
         }
         let warnings = [("retention".to_string(), SHORTER.to_string())].into();
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         self.check_writable("Conexión de solo lectura: no se pueden modificar buckets.")?;
-        let Some(body) = bucket_patch(changes)? else { return Ok(()) };
-        let id = self.bucket_by_name(database).await?.get("id").and_then(J::as_str).unwrap_or_default().to_string();
+        let Some(body) = bucket_patch(changes)? else {
+            return Ok(());
+        };
+        let id = self
+            .bucket_by_name(database)
+            .await?
+            .get("id")
+            .and_then(J::as_str)
+            .unwrap_or_default()
+            .to_string();
         if id.is_empty() {
-            return Err(Error::Query(format!("No se encontró el id del bucket «{database}».")));
+            return Err(Error::Query(format!(
+                "No se encontró el id del bucket «{database}»."
+            )));
         }
-        self.send(self.http.patch(format!("{}{BUCKETS}/{id}", self.base)).json(&body)).await?;
+        self.send(
+            self.http
+                .patch(format!("{}{BUCKETS}/{id}", self.base))
+                .json(&body),
+        )
+        .await?;
         Ok(())
     }
 }
 
 /// `3.11.5` → (3, 11).
 fn major_minor(version: &str) -> Option<(u32, u32)> {
-    let mut it = version.split(|c: char| !c.is_ascii_digit()).filter(|p| !p.is_empty()).map(|p| p.parse::<u32>().ok());
+    let mut it = version
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.parse::<u32>().ok());
     Some((it.next()??, it.next()??))
 }
 
 impl SqlSession {
     /// A query in `db` (not necessarily the session's), as JSON rows.
     async fn sql_in(&self, db: &str, q: &str) -> Result<Vec<J>> {
-        let req = self.http.post(format!("{}/api/v3/query_sql", self.base)).json(&json!({ "db": db, "q": q, "format": "json" }));
+        let req = self
+            .http
+            .post(format!("{}/api/v3/query_sql", self.base))
+            .json(&json!({ "db": db, "q": q, "format": "json" }));
         let body = http::text(self.auth(req).send().await.map_err(send_err)?).await?;
-        Ok(serde_json::from_str::<J>(&body)?.as_array().cloned().unwrap_or_default())
+        Ok(serde_json::from_str::<J>(&body)?
+            .as_array()
+            .cloned()
+            .unwrap_or_default())
     }
 
     async fn version(&self) -> Option<String> {
-        let resp = self.auth(self.http.get(format!("{}/ping", self.base))).send().await.ok()?;
-        let header = resp.headers().get("X-Influxdb-Version").and_then(|v| v.to_str().ok()).map(str::to_string);
+        let resp = self
+            .auth(self.http.get(format!("{}/ping", self.base)))
+            .send()
+            .await
+            .ok()?;
+        let header = resp
+            .headers()
+            .get("X-Influxdb-Version")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         let v: J = serde_json::from_str(&resp.text().await.ok()?).unwrap_or_default();
-        v.get("version").and_then(J::as_str).map(str::to_string).or(header)
+        v.get("version")
+            .and_then(J::as_str)
+            .map(str::to_string)
+            .or(header)
     }
 
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
@@ -387,15 +557,38 @@ impl SqlSession {
         }
         // The catalog's view of every database lives in `_internal`.
         let retention = self
-            .sql_in("_internal", &format!("SELECT retention_period_ns FROM system.databases WHERE database_name = {lit}"))
+            .sql_in(
+                "_internal",
+                &format!(
+                    "SELECT retention_period_ns FROM system.databases WHERE database_name = {lit}"
+                ),
+            )
             .await
             .ok()
             .and_then(|rows| rows.first().cloned());
-        let ns = retention.as_ref().and_then(|r| r.get("retention_period_ns")).and_then(J::as_u64);
+        let ns = retention
+            .as_ref()
+            .and_then(|r| r.get("retention_period_ns"))
+            .and_then(J::as_u64);
         let mut values = BTreeMap::new();
-        values.insert("retention".to_string(), ns.filter(|n| *n > 0).map(|n| human_seconds(n / 1_000_000_000)).unwrap_or_default());
-        if let Ok(rows) = self.sql_in(database, "SELECT count(*) AS n FROM information_schema.tables WHERE table_schema = 'iox'").await {
-            info.push(fact("", "Tablas (measurements)", text(rows.first().and_then(|r| r.get("n")))));
+        values.insert(
+            "retention".to_string(),
+            ns.filter(|n| *n > 0)
+                .map(|n| human_seconds(n / 1_000_000_000))
+                .unwrap_or_default(),
+        );
+        if let Ok(rows) = self
+            .sql_in(
+                database,
+                "SELECT count(*) AS n FROM information_schema.tables WHERE table_schema = 'iox'",
+            )
+            .await
+        {
+            info.push(fact(
+                "",
+                "Tablas (measurements)",
+                text(rows.first().and_then(|r| r.get("n"))),
+            ));
         }
         if let Ok(rows) = self
             .sql_in(database, "SELECT count(*) AS files, sum(size_bytes) AS bytes, sum(row_count) AS row_count FROM system.parquet_files")
@@ -414,22 +607,46 @@ impl SqlSession {
         let mut warnings = BTreeMap::new();
         if can_alter {
             fields.push(
-                Field::new("retention", "Período de retención (retention_period)", FieldKind::Text)
-                    .placeholder("30d")
-                    .help("Vacío: los datos no vencen. Con unidad (s, m, h, d, w)."),
+                Field::new(
+                    "retention",
+                    "Período de retención (retention_period)",
+                    FieldKind::Text,
+                )
+                .placeholder("30d")
+                .help("Vacío: los datos no vencen. Con unidad (s, m, h, d, w)."),
             );
             warnings.insert("retention".to_string(), SHORTER.to_string());
         } else {
             values.clear();
-            info.push(fact("", "Retención", "Esta versión no permite cambiarla (llegó en InfluxDB 3.2)."));
+            info.push(fact(
+                "",
+                "Retención",
+                "Esta versión no permite cambiarla (llegó en InfluxDB 3.2).",
+            ));
         }
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
-        let Some(body) = v3_body(database, changes)? else { return Ok(()) };
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
+        let Some(body) = v3_body(database, changes)? else {
+            return Ok(());
+        };
         let url = format!("{}{V3_PATH}", self.base);
-        self.configure(self.http.put(url).json(&body), "Conexión de solo lectura: no se pueden modificar bases.").await
+        self.configure(
+            self.http.put(url).json(&body),
+            "Conexión de solo lectura: no se pueden modificar bases.",
+        )
+        .await
     }
 }
 
@@ -438,7 +655,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -459,7 +679,10 @@ mod tests {
             "ALTER RETENTION POLICY \"autogen\" ON \"métricas\" DURATION 30d REPLICATION 2 SHARD DURATION 1d;\n\
              ALTER RETENTION POLICY \"un:año\" ON \"métricas\" DURATION INF DEFAULT"
         );
-        assert_eq!(script(Api::InfluxQl, "a\"b", &c(&[("rp:x\"y:duration", "1h")])).unwrap(), "ALTER RETENTION POLICY \"x\\\"y\" ON \"a\\\"b\" DURATION 1h");
+        assert_eq!(
+            script(Api::InfluxQl, "a\"b", &c(&[("rp:x\"y:duration", "1h")])).unwrap(),
+            "ALTER RETENTION POLICY \"x\\\"y\" ON \"a\\\"b\" DURATION 1h"
+        );
     }
 
     #[test]
@@ -484,11 +707,28 @@ mod tests {
             "PATCH /api/v2/buckets/(id del bucket «b»)\n\
              {\"description\":\"métricas\",\"retentionRules\":[{\"everySeconds\":2592000,\"shardGroupDurationSeconds\":86400,\"type\":\"expire\"}]}"
         );
-        assert_eq!(bucket_patch(&c(&[("retention", "")])).unwrap().unwrap(), json!({ "retentionRules": [{ "type": "expire", "everySeconds": 0 }] }));
-        assert_eq!(bucket_patch(&c(&[("shard_duration", "2h")])).unwrap().unwrap(), json!({ "retentionRules": [{ "type": "expire", "shardGroupDurationSeconds": 7200 }] }));
-        assert_eq!(bucket_patch(&c(&[("description", "")])).unwrap().unwrap(), json!({ "description": "" }));
+        assert_eq!(
+            bucket_patch(&c(&[("retention", "")])).unwrap().unwrap(),
+            json!({ "retentionRules": [{ "type": "expire", "everySeconds": 0 }] })
+        );
+        assert_eq!(
+            bucket_patch(&c(&[("shard_duration", "2h")]))
+                .unwrap()
+                .unwrap(),
+            json!({ "retentionRules": [{ "type": "expire", "shardGroupDurationSeconds": 7200 }] })
+        );
+        assert_eq!(
+            bucket_patch(&c(&[("description", "")])).unwrap().unwrap(),
+            json!({ "description": "" })
+        );
         assert!(script(Api::Flux, "b", &c(&[])).unwrap().is_empty());
-        for bad in [("retention", "30m"), ("retention", "-1d"), ("shard_duration", "0"), ("shard_duration", "1x"), ("name", "otro")] {
+        for bad in [
+            ("retention", "30m"),
+            ("retention", "-1d"),
+            ("shard_duration", "0"),
+            ("shard_duration", "1x"),
+            ("name", "otro"),
+        ] {
             assert!(script(Api::Flux, "b", &c(&[bad])).is_err(), "{bad:?}");
         }
     }
@@ -499,8 +739,17 @@ mod tests {
             script(Api::Sql, "d", &c(&[("retention", "7D")])).unwrap(),
             "PUT /api/v3/configure/database\n{\"db\":\"d\",\"retention_period\":\"7d\"}"
         );
-        assert_eq!(script(Api::Sql, "d", &c(&[("retention", "")])).unwrap(), "PUT /api/v3/configure/database\n{\"db\":\"d\",\"retention_period\":null}");
-        for bad in [("retention", "INF"), ("retention", "0d"), ("retention", "1y"), ("retention", "7d\"}"), ("other", "1")] {
+        assert_eq!(
+            script(Api::Sql, "d", &c(&[("retention", "")])).unwrap(),
+            "PUT /api/v3/configure/database\n{\"db\":\"d\",\"retention_period\":null}"
+        );
+        for bad in [
+            ("retention", "INF"),
+            ("retention", "0d"),
+            ("retention", "1y"),
+            ("retention", "7d\"}"),
+            ("other", "1"),
+        ] {
             assert!(script(Api::Sql, "d", &c(&[bad])).is_err(), "{bad:?}");
         }
     }

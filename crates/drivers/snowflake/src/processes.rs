@@ -20,16 +20,27 @@ const MAX_ROWS: usize = 2000;
 /// A query id as Snowflake prints it (`01b2c3d4-0000-1234-0000-…`).
 pub(crate) fn query_id(id: &str) -> Option<&str> {
     let id = id.trim();
-    (!id.is_empty() && id.len() <= 64 && id.contains('-') && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')).then_some(id)
+    (!id.is_empty()
+        && id.len() <= 64
+        && id.contains('-')
+        && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+    .then_some(id)
 }
 
 fn get<'a>(s: &'a Set, row: usize, name: &str) -> Option<&'a str> {
     let i = s.cols.iter().position(|c| c.eq_ignore_ascii_case(name))?;
-    s.rows.get(row)?.get(i)?.as_deref().map(str::trim).filter(|v| !v.is_empty())
+    s.rows
+        .get(row)?
+        .get(i)?
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
 }
 
 fn num(s: &Set, row: usize, name: &str) -> Option<u64> {
-    get(s, row, name).and_then(|v| v.parse::<f64>().ok()).map(|v| v.max(0.0) as u64)
+    get(s, row, name)
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| v.max(0.0) as u64)
 }
 
 /// The rows of the listing query.
@@ -83,9 +94,16 @@ async fn warehouse_running(r: &(dyn Runner + Sync)) -> Result<()> {
     let Some(wh) = r.warehouse() else {
         return Err(Error::Query("Snowflake necesita un warehouse para listar las consultas en curso: la conexión no tiene uno".into()));
     };
-    let w = r.rows(&format!("SHOW WAREHOUSES LIKE '{}'", wh.replace('\'', "''").replace('\\', "\\\\"))).await?;
-    let on = (0..w.rows.len())
-        .any(|i| get(&w, i, "name").is_some_and(|n| n.eq_ignore_ascii_case(&wh)) && get(&w, i, "state").is_some_and(|s| s.eq_ignore_ascii_case("STARTED")));
+    let w = r
+        .rows(&format!(
+            "SHOW WAREHOUSES LIKE '{}'",
+            wh.replace('\'', "''").replace('\\', "\\\\")
+        ))
+        .await?;
+    let on = (0..w.rows.len()).any(|i| {
+        get(&w, i, "name").is_some_and(|n| n.eq_ignore_ascii_case(&wh))
+            && get(&w, i, "state").is_some_and(|s| s.eq_ignore_ascii_case("STARTED"))
+    });
     if on {
         Ok(())
     } else {
@@ -115,19 +133,33 @@ fn first(s: &Set) -> Option<&str> {
 }
 
 pub(crate) async fn cancel(r: &(dyn Runner + Sync), id: &str) -> Result<()> {
-    let id = query_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta de Snowflake", id.trim())))?;
+    let id = query_id(id).ok_or_else(|| {
+        Error::Query(format!(
+            "«{}» no es un id de consulta de Snowflake",
+            id.trim()
+        ))
+    })?;
     // "query [01b…] terminated." or "Identified SQL statement is not
     // currently executing."
-    let answer = r.rows(&format!("SELECT SYSTEM$CANCEL_QUERY('{id}')")).await?;
+    let answer = r
+        .rows(&format!("SELECT SYSTEM$CANCEL_QUERY('{id}')"))
+        .await?;
     match first(&answer) {
         Some(t) if t.contains("terminated") => Ok(()),
-        _ => Err(Error::Query(format!("no se pudo cancelar la consulta {id}: ya terminó o no existe"))),
+        _ => Err(Error::Query(format!(
+            "no se pudo cancelar la consulta {id}: ya terminó o no existe"
+        ))),
     }
 }
 
 /// Ends the session that runs query `id` (the process list's ids).
 pub(crate) async fn abort_session_of(r: &(dyn Runner + Sync), id: &str) -> Result<()> {
-    let id = query_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta de Snowflake", id.trim())))?;
+    let id = query_id(id).ok_or_else(|| {
+        Error::Query(format!(
+            "«{}» no es un id de consulta de Snowflake",
+            id.trim()
+        ))
+    })?;
     let found = r
         .rows(&format!(
             "SELECT session_id, (session_id::varchar = CURRENT_SESSION()) AS own
@@ -139,9 +171,14 @@ pub(crate) async fn abort_session_of(r: &(dyn Runner + Sync), id: &str) -> Resul
         .and_then(|v| v.parse().ok())
         .ok_or_else(|| Error::Query(format!("no se encontró la sesión de la consulta {id}")))?;
     if matches!(get(&found, 0, "own"), Some("true" | "TRUE" | "1")) {
-        return Err(Error::Query("esa es la sesión con la que DBine está consultando: no se puede terminar desde acá".into()));
+        return Err(Error::Query(
+            "esa es la sesión con la que DBine está consultando: no se puede terminar desde acá"
+                .into(),
+        ));
     }
-    r.rows(&format!("SELECT SYSTEM$ABORT_SESSION({session})")).await.map(|_| ())
+    r.rows(&format!("SELECT SYSTEM$ABORT_SESSION({session})"))
+        .await
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -150,7 +187,10 @@ mod tests {
 
     #[test]
     fn query_ids_are_checked() {
-        assert_eq!(query_id(" 01b2c3d4-0000-1234-0000-00a1b2c3d4e5 "), Some("01b2c3d4-0000-1234-0000-00a1b2c3d4e5"));
+        assert_eq!(
+            query_id(" 01b2c3d4-0000-1234-0000-00a1b2c3d4e5 "),
+            Some("01b2c3d4-0000-1234-0000-00a1b2c3d4e5")
+        );
         assert_eq!(query_id("1721330303831000000"), None, "a transaction id");
         assert_eq!(query_id("x'); DROP"), None);
     }
@@ -158,13 +198,29 @@ mod tests {
     #[test]
     fn history_rows_become_processes() {
         let cols = [
-            "QUERY_ID", "EXECUTION_STATUS", "USER_NAME", "WAREHOUSE_NAME", "SESSION_ID", "DATABASE_NAME", "SCHEMA_NAME",
-            "QUERY_TYPE", "ELAPSED", "BYTES_SCANNED", "QUERY_TEXT", "OWN",
+            "QUERY_ID",
+            "EXECUTION_STATUS",
+            "USER_NAME",
+            "WAREHOUSE_NAME",
+            "SESSION_ID",
+            "DATABASE_NAME",
+            "SCHEMA_NAME",
+            "QUERY_TYPE",
+            "ELAPSED",
+            "BYTES_SCANNED",
+            "QUERY_TEXT",
+            "OWN",
         ];
-        let row = ["01b2-c3", "QUEUED", "ANA", "WH", "123", "DB", "PUBLIC", "SELECT", "1500", "", "select 1", "false"];
+        let row = [
+            "01b2-c3", "QUEUED", "ANA", "WH", "123", "DB", "PUBLIC", "SELECT", "1500", "",
+            "select 1", "false",
+        ];
         let s = Set {
             cols: cols.iter().map(|c| c.to_string()).collect(),
-            rows: vec![row.iter().map(|v| (!v.is_empty()).then(|| v.to_string())).collect()],
+            rows: vec![row
+                .iter()
+                .map(|v| (!v.is_empty()).then(|| v.to_string()))
+                .collect()],
         };
         let p = &rows(&s)[0];
         assert_eq!(p.id, "01b2-c3");

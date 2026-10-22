@@ -25,7 +25,9 @@ pub(crate) fn classify(stmt: &str) -> StmtKind {
     match words.first().map(String::as_str) {
         Some("select" | "with" | "values" | "table") => StmtKind::Read,
         Some("insert" | "update" | "delete" | "merge") => StmtKind::Write,
-        Some("create") if words.iter().any(|w| w == "as") && words.iter().any(|w| w == "table") => StmtKind::Write,
+        Some("create") if words.iter().any(|w| w == "as") && words.iter().any(|w| w == "table") => {
+            StmtKind::Write
+        }
         _ => StmtKind::Other,
     }
 }
@@ -76,8 +78,13 @@ fn fmt_num(n: f64) -> String {
 
 fn estimate_warning(est: f64, act: f64) -> Option<String> {
     let (lo, hi) = if est < act { (est, act) } else { (act, est) };
-    (hi - lo >= 100.0 && hi >= 10.0 * lo.max(1.0))
-        .then(|| format!("Estimación de filas errada: {} estimadas, {} reales", fmt_num(est), fmt_num(act)))
+    (hi - lo >= 100.0 && hi >= 10.0 * lo.max(1.0)).then(|| {
+        format!(
+            "Estimación de filas errada: {} estimadas, {} reales",
+            fmt_num(est),
+            fmt_num(act)
+        )
+    })
 }
 
 fn text(v: &Value) -> String {
@@ -90,12 +97,20 @@ fn text(v: &Value) -> String {
 }
 
 fn num(v: Option<&Value>) -> Option<f64> {
-    v.and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).filter(|n| n.is_finite())
+    v.and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    })
+    .filter(|n| n.is_finite())
 }
 
 /// Fragment ids in `[1, 2]`.
 fn ids(s: &str) -> Vec<String> {
-    s.trim_matches(['[', ']', ' ']).split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+    s.trim_matches(['[', ']', ' '])
+        .split(',')
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
 }
 
 /// Sums `self_cost` up the tree into `total_cost` (when any is known).
@@ -111,7 +126,11 @@ fn cumulate(n: &mut PlanNode) -> Option<f64> {
 
 /// Replaces every `RemoteSource` leaf's children with the fragments it
 /// reads, recursively.
-fn stitch(n: &mut PlanNode, fragments: &mut BTreeMap<String, PlanNode>, sources: &dyn Fn(&PlanNode) -> Vec<String>) {
+fn stitch(
+    n: &mut PlanNode,
+    fragments: &mut BTreeMap<String, PlanNode>,
+    sources: &dyn Fn(&PlanNode) -> Vec<String>,
+) {
     for id in sources(n) {
         if let Some(mut f) = fragments.remove(&id) {
             stitch(&mut f, fragments, sources);
@@ -138,16 +157,26 @@ pub(crate) fn plan_json(statement: &str, raw: &str) -> Result<Plan, String> {
     let mut root = if v.get("name").is_some() {
         json_node(&v)
     } else {
-        let Value::Object(m) = &v else { return Err("plan JSON inesperado".into()) };
-        let mut fragments: BTreeMap<String, PlanNode> =
-            m.iter().map(|(id, n)| (id.clone(), with_fragment(json_node(n), id))).collect();
+        let Value::Object(m) = &v else {
+            return Err("plan JSON inesperado".into());
+        };
+        let mut fragments: BTreeMap<String, PlanNode> = m
+            .iter()
+            .map(|(id, n)| (id.clone(), with_fragment(json_node(n), id)))
+            .collect();
         let first = m.keys().next().cloned().ok_or("plan vacío")?;
         let mut root = fragments.remove(&first).expect("first fragment");
         stitch(&mut root, &mut fragments, &remote_ids);
         root
     };
     cumulate(&mut root);
-    Ok(Plan { statement: statement.into(), root, actual: false, raw_format: "json".into(), raw: raw.trim().into() })
+    Ok(Plan {
+        statement: statement.into(),
+        root,
+        actual: false,
+        raw_format: "json".into(),
+        raw: raw.trim().into(),
+    })
 }
 
 fn with_fragment(mut n: PlanNode, id: &str) -> PlanNode {
@@ -157,7 +186,10 @@ fn with_fragment(mut n: PlanNode, id: &str) -> PlanNode {
 
 fn json_node(v: &Value) -> PlanNode {
     let s = |k: &str| v.get(k).map(text).unwrap_or_default();
-    let mut n = PlanNode { op: s("name"), ..Default::default() };
+    let mut n = PlanNode {
+        op: s("name"),
+        ..Default::default()
+    };
     let mut detail = Vec::new();
     match v.get("descriptor") {
         Some(Value::Object(d)) => {
@@ -165,8 +197,15 @@ fn json_node(v: &Value) -> PlanNode {
                 let val = text(val);
                 if k == "table" {
                     n.object = Some(val.clone());
-                } else if matches!(k.as_str(), "type" | "criteria" | "orderBy" | "partitioning" | "count" | "keys") {
-                    detail.push(if k == "type" || k == "criteria" { val.clone() } else { format!("{k} = {val}") });
+                } else if matches!(
+                    k.as_str(),
+                    "type" | "criteria" | "orderBy" | "partitioning" | "count" | "keys"
+                ) {
+                    detail.push(if k == "type" || k == "criteria" {
+                        val.clone()
+                    } else {
+                        format!("{k} = {val}")
+                    });
                 }
                 n.props.push((k.clone(), val));
             }
@@ -192,17 +231,33 @@ fn json_node(v: &Value) -> PlanNode {
         }
     }
     if let Some(Value::Array(details)) = v.get("details") {
-        n.props.extend(details.iter().map(|d| (String::new(), text(d))));
+        n.props
+            .extend(details.iter().map(|d| (String::new(), text(d))));
     }
     if let Some(Value::Array(outputs)) = v.get("outputs") {
-        let layout: Vec<String> =
-            outputs.iter().map(|o| format!("{}:{}", text(o.get("name").unwrap_or(&Value::Null)), text(o.get("type").unwrap_or(&Value::Null)))).collect();
+        let layout: Vec<String> = outputs
+            .iter()
+            .map(|o| {
+                format!(
+                    "{}:{}",
+                    text(o.get("name").unwrap_or(&Value::Null)),
+                    text(o.get("type").unwrap_or(&Value::Null))
+                )
+            })
+            .collect();
         n.props.push(("Layout".into(), layout.join(", ")));
     }
     if let Some(Value::Array(r)) = v.get("remoteSources") {
-        n.props.push(("remoteSources".into(), format!("[{}]", r.iter().map(text).collect::<Vec<_>>().join(", "))));
+        n.props.push((
+            "remoteSources".into(),
+            format!("[{}]", r.iter().map(text).collect::<Vec<_>>().join(", ")),
+        ));
     }
-    n.children = v.get("children").and_then(Value::as_array).map(|c| c.iter().map(json_node).collect()).unwrap_or_default();
+    n.children = v
+        .get("children")
+        .and_then(Value::as_array)
+        .map(|c| c.iter().map(json_node).collect())
+        .unwrap_or_default();
     n
 }
 
@@ -220,14 +275,21 @@ pub(crate) fn analyze_text(statement: &str, raw: &str) -> Plan {
         }
         if let Some(rest) = line.strip_prefix("Fragment ") {
             let id = rest.split_whitespace().next().unwrap_or("").to_string();
-            fragments.push((id, vec![("Fragmento".into(), rest.trim().to_string())], Vec::new()));
+            fragments.push((
+                id,
+                vec![("Fragmento".into(), rest.trim().to_string())],
+                Vec::new(),
+            ));
             continue;
         }
         let Some((_, header, items)) = fragments.last_mut() else {
             preamble.push(split_prop(line.trim()));
             continue;
         };
-        let lead: String = line.chars().take_while(|c| matches!(c, ' ' | '│' | '└' | '├' | '─')).collect();
+        let lead: String = line
+            .chars()
+            .take_while(|c| matches!(c, ' ' | '│' | '└' | '├' | '─'))
+            .collect();
         let t = line[lead.len()..].trim();
         let branch = lead.chars().position(|c| c == '└' || c == '├');
         if let Some(depth) = branch {
@@ -254,16 +316,28 @@ pub(crate) fn analyze_text(statement: &str, raw: &str) -> Plan {
             stitch(&mut r, &mut trees, &remote_ids);
             r
         }
-        None => PlanNode { op: "Query".into(), ..Default::default() },
+        None => PlanNode {
+            op: "Query".into(),
+            ..Default::default()
+        },
     };
     root.props.splice(0..0, preamble);
     cumulate(&mut root);
-    Plan { statement: statement.into(), root, actual: true, raw_format: "text".into(), raw: raw.trim_end().into() }
+    Plan {
+        statement: statement.into(),
+        root,
+        actual: true,
+        raw_format: "text".into(),
+        raw: raw.trim_end().into(),
+    }
 }
 
 /// `TopN[count = 5]` or `Values`: an identifier, then `[` or nothing.
 fn is_operator(t: &str) -> bool {
-    let name: String = t.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    let name: String = t
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
     !name.is_empty() && (t.len() == name.len() || t[name.len()..].starts_with('['))
 }
 
@@ -280,7 +354,10 @@ fn text_node(t: &str) -> PlanNode {
         Some(i) => (&t[..i], t[i + 1..].strip_suffix(']').unwrap_or(&t[i + 1..])),
         None => (t, ""),
     };
-    let mut n = PlanNode { op: op.trim().to_string(), ..Default::default() };
+    let mut n = PlanNode {
+        op: op.trim().to_string(),
+        ..Default::default()
+    };
     let mut detail = Vec::new();
     for (k, v) in top_level_args(args) {
         if k == "table" {
@@ -358,7 +435,11 @@ fn duration_ms(s: &str) -> Option<f64> {
 fn text_prop(n: &mut PlanNode, t: &str) {
     if let Some(est) = t.strip_prefix("Estimates: ") {
         // Several `{…}/{…}` for fused operators: the last is the output.
-        let last = est.rsplit('/').next().unwrap_or(est).trim_matches(['{', '}']);
+        let last = est
+            .rsplit('/')
+            .next()
+            .unwrap_or(est)
+            .trim_matches(['{', '}']);
         for (k, v) in last.split(", ").filter_map(|p| p.split_once(": ")) {
             match k {
                 "rows" => n.est_rows = v.split_whitespace().next().and_then(count),
@@ -444,15 +525,24 @@ mod tests {
         let p = plan_json("q", JSON).unwrap();
         let root = &p.root;
         assert_eq!(root.op, "Output");
-        assert!(root.props.iter().any(|(k, v)| k.is_empty() && v == "_col1 := count"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k.is_empty() && v == "_col1 := count"));
         let remote = &root.children[0];
         assert_eq!(remote.op, "RemoteSource");
         let join = &remote.children[0];
-        assert_eq!((join.op.as_str(), join.detail.as_str()), ("InnerJoin", "(nationkey_2 = nationkey)"));
+        assert_eq!(
+            (join.op.as_str(), join.detail.as_str()),
+            ("InnerJoin", "(nationkey_2 = nationkey)")
+        );
         assert_eq!(join.self_cost, Some(53837.2));
         let scan = &join.children[0];
         assert_eq!(scan.object.as_deref(), Some("tpch:tiny:customer"));
-        assert_eq!((scan.est_rows, scan.self_cost), (Some(1364.13), Some(12277.2)));
+        assert_eq!(
+            (scan.est_rows, scan.self_cost),
+            (Some(1364.13), Some(12277.2))
+        );
         let nation = &join.children[1].children[0];
         assert_eq!(nation.op, "TableScan");
         assert!((root.total_cost.unwrap() - (53837.2 + 12277.2 + 527.0)).abs() < 1e-6);
@@ -497,9 +587,15 @@ Fragment 3 [SOURCE]
         let p = analyze_text("q", ANALYZE);
         assert!(p.actual);
         let root = &p.root;
-        assert_eq!((root.op.as_str(), root.detail.as_str()), ("TopN", "count = 5 · orderBy = [count DESC NULLS LAST]"));
+        assert_eq!(
+            (root.op.as_str(), root.detail.as_str()),
+            ("TopN", "count = 5 · orderBy = [count DESC NULLS LAST]")
+        );
         assert_eq!(root.props[0], ("Trino version".into(), "483".into()));
-        assert!(root.props.iter().any(|(k, v)| k == "Fragmento" && v == "1 [SINGLE]"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Fragmento" && v == "1 [SINGLE]"));
         assert_eq!(root.actual_rows, Some(5.0));
         let remote = &root.children[0];
         assert_eq!(remote.op, "RemoteSource");
@@ -509,10 +605,18 @@ Fragment 3 [SOURCE]
         assert_eq!(join.self_cost, Some(52_580.0));
         assert!(join.warnings.iter().any(|w| w.starts_with("Estimación")));
         assert_eq!(join.actual_ms, Some(12.0));
-        let [scan, nation] = &join.children[..] else { panic!("{join:#?}") };
+        let [scan, nation] = &join.children[..] else {
+            panic!("{join:#?}")
+        };
         assert_eq!(scan.object.as_deref(), Some("tpch:tiny:customer"));
-        assert_eq!((scan.est_rows, scan.actual_rows), (Some(1364.0), Some(1361.0)));
-        assert!(scan.props.iter().any(|(k, v)| k == "acctbal" && v == "tpch:acctbal"));
+        assert_eq!(
+            (scan.est_rows, scan.actual_rows),
+            (Some(1364.0), Some(1361.0))
+        );
+        assert!(scan
+            .props
+            .iter()
+            .any(|(k, v)| k == "acctbal" && v == "tpch:acctbal"));
         assert_eq!(nation.actual_rows, Some(25.0));
         assert!(root.total_cost.is_some());
     }

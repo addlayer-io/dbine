@@ -23,7 +23,9 @@
 use crate::session::{at, lit, named, MySqlSession};
 use crate::Variant;
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use mysql_async::Row;
 use std::collections::HashMap;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -31,10 +33,18 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 /// Rows read from a history per poll.
 const BATCH: usize = 2000;
 /// Consumers `events_statements_history_long` needs, in dependency order.
-const LONG: [&str; 4] =
-    ["global_instrumentation", "thread_instrumentation", "events_statements_current", "events_statements_history_long"];
-const SHORT: [&str; 4] =
-    ["global_instrumentation", "thread_instrumentation", "events_statements_current", "events_statements_history"];
+const LONG: [&str; 4] = [
+    "global_instrumentation",
+    "thread_instrumentation",
+    "events_statements_current",
+    "events_statements_history_long",
+];
+const SHORT: [&str; 4] = [
+    "global_instrumentation",
+    "thread_instrumentation",
+    "events_statements_current",
+    "events_statements_history",
+];
 
 pub(crate) struct State {
     kind: Kind,
@@ -54,7 +64,13 @@ enum Source {
     /// Performance Schema: `table`, this connection's thread, and a
     /// timer (picoseconds) at a known epoch time (µs); `cpu`: the table has
     /// `CPU_TIME` (MySQL 8.0.28+).
-    Ps { table: &'static str, own: u64, timer: u64, epoch_us: i64, cpu: bool },
+    Ps {
+        table: &'static str,
+        own: u64,
+        timer: u64,
+        epoch_us: i64,
+        cpu: bool,
+    },
     /// TiDB's slow query log.
     SlowLog,
     /// OceanBase's SQL audit.
@@ -101,7 +117,10 @@ impl Clock {
     }
 }
 
-pub(crate) async fn start(s: &mut MySqlSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &mut MySqlSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let v = s.variant;
     let mut restore = Vec::new();
     let clock = clock(s).await;
@@ -133,7 +152,9 @@ pub(crate) async fn start(s: &mut MySqlSession, opts: &ProfilerOptions) -> Resul
                 _ => {}
             }
             // Fail now rather than at every poll.
-            s.rows(&sql).await.map_err(|e| Error::Query(format!("no se pudo leer {source} ({e})")))?;
+            s.rows(&sql)
+                .await
+                .map_err(|e| Error::Query(format!("no se pudo leer {source} ({e})")))?;
             if !notes.is_empty() {
                 started = started.note(notes.join(" "));
             }
@@ -147,14 +168,26 @@ pub(crate) async fn start(s: &mut MySqlSession, opts: &ProfilerOptions) -> Resul
             (Kind::Sampled(sampling), started)
         }
     };
-    Ok((State { kind, database: opts.database.clone(), restore }, started))
+    Ok((
+        State {
+            kind,
+            database: opts.database.clone(),
+            restore,
+        },
+        started,
+    ))
 }
 
-pub(crate) async fn poll(s: &mut MySqlSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
+pub(crate) async fn poll(
+    s: &mut MySqlSession,
+    state: &mut State,
+) -> Result<Vec<ProfiledStatement>> {
     let db = state.database.clone();
     let mut out = match &mut state.kind {
         Kind::History(h) => {
-            let rows = s.rows(&history_sql(h.source, h.after - margin(h.source), &db)).await?;
+            let rows = s
+                .rows(&history_sql(h.source, h.after - margin(h.source), &db))
+                .await?;
             h.read(&rows)
         }
         Kind::Sampled(p) => {
@@ -189,13 +222,26 @@ pub(crate) async fn stop(s: &mut MySqlSession, state: State) -> Result<()> {
 /// `UNIX_TIMESTAMP()`.
 async fn clock(s: &mut MySqlSession) -> Clock {
     for sql in ["SELECT UNIX_TIMESTAMP(NOW(6))", "SELECT UNIX_TIMESTAMP()"] {
-        let t = s.optional_rows(sql).await.first().and_then(|r| at(r, 0)).and_then(|t| t.parse::<f64>().ok());
+        let t = s
+            .optional_rows(sql)
+            .await
+            .first()
+            .and_then(|r| at(r, 0))
+            .and_then(|t| t.parse::<f64>().ok());
         if let Some(secs) = t {
-            return Clock { epoch_us: (secs * 1e6) as i64, at: Instant::now() };
+            return Clock {
+                epoch_us: (secs * 1e6) as i64,
+                at: Instant::now(),
+            };
         }
     }
-    let local = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_micros() as i64);
-    Clock { epoch_us: local, at: Instant::now() }
+    let local = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_micros() as i64);
+    Clock {
+        epoch_us: local,
+        at: Instant::now(),
+    }
 }
 
 // ------------------------------------------------------------ complete
@@ -213,7 +259,11 @@ fn margin(source: Source) -> i64 {
 
 impl History {
     fn new(source: Source, after: i64) -> Self {
-        Self { source, after, seen: HashMap::new() }
+        Self {
+            source,
+            after,
+            seen: HashMap::new(),
+        }
     }
 
     fn read(&mut self, rows: &[Row]) -> Vec<ProfiledStatement> {
@@ -221,7 +271,9 @@ impl History {
         let num = |r: &Row, n: &str| get(r, n).and_then(|v| v.parse::<f64>().ok());
         let mut out = Vec::new();
         for r in rows {
-            let (Some(id), Some(end)) = (get(r, "id"), num(r, "end")) else { continue };
+            let (Some(id), Some(end)) = (get(r, "id"), num(r, "end")) else {
+                continue;
+            };
             let end = end as i64;
             if self.seen.contains_key(&id) {
                 continue;
@@ -236,11 +288,17 @@ impl History {
             // Start: epoch µs, or a Performance Schema timer.
             let start = num(r, "start").unwrap_or(0.0) as i64;
             let start = match self.source {
-                Source::Ps { timer, epoch_us, .. } => epoch_us + (start - timer as i64) / 1_000_000,
+                Source::Ps {
+                    timer, epoch_us, ..
+                } => epoch_us + (start - timer as i64) / 1_000_000,
                 _ => start,
             };
             let affected = num(r, "affected").unwrap_or(0.0) as u64;
-            let rows = if affected > 0 { Some(affected) } else { num(r, "sent").map(|n| n as u64) };
+            let rows = if affected > 0 {
+                Some(affected)
+            } else {
+                num(r, "sent").map(|n| n as u64)
+            };
             out.push(ProfiledStatement {
                 time: utc(start),
                 duration_ms: num(r, "ms"),
@@ -337,7 +395,11 @@ async fn performance_schema(
              WHERE t.PROCESSLIST_ID = CONNECTION_ID()",
         )
         .await
-        .map_err(|e| format!("No se puede leer Performance Schema ({e}): se muestrean las consultas en curso."))?;
+        .map_err(|e| {
+            format!(
+                "No se puede leer Performance Schema ({e}): se muestrean las consultas en curso."
+            )
+        })?;
     let (own, timer, epoch_us) = calib
         .first()
         .and_then(|r| {
@@ -352,7 +414,11 @@ async fn performance_schema(
         .filter_map(|r| Some((at(r, 0)?, at(r, 1)?.eq_ignore_ascii_case("YES"))))
         .collect();
     let off = |names: &[&str]| -> Vec<String> {
-        names.iter().filter(|n| !consumers.get(**n).copied().unwrap_or(false)).map(|n| n.to_string()).collect()
+        names
+            .iter()
+            .filter(|n| !consumers.get(**n).copied().unwrap_or(false))
+            .map(|n| n.to_string())
+            .collect()
     };
     // CPU_TIME (MySQL 8.0.28+) is measured only while the
     // events_statements_cpu consumer is on; otherwise it reads 0.
@@ -366,8 +432,21 @@ async fn performance_schema(
         .first()
         .is_some();
     let cpu_off = has_cpu && !off(&[CPU]).is_empty();
-    let history = |table, cpu| History::new(Source::Ps { table, own, timer, epoch_us, cpu }, timer as i64);
-    let complete = |source: &str| ProfilerStarted::new(ProfilerMode::Complete, source).units(Some("filas"), None);
+    let history = |table, cpu| {
+        History::new(
+            Source::Ps {
+                table,
+                own,
+                timer,
+                epoch_us,
+                cpu,
+            },
+            timer as i64,
+        )
+    };
+    let complete = |source: &str| {
+        ProfilerStarted::new(ProfilerMode::Complete, source).units(Some("filas"), None)
+    };
     let source = "performance_schema.events_statements_history_long";
     let mut missing = off(&LONG);
     let long_on = missing.is_empty();
@@ -377,11 +456,20 @@ async fn performance_schema(
     if missing.is_empty() {
         let mut started = complete(source);
         if cpu_off {
-            started = started.note(format!("El consumidor {CPU} de Performance Schema está desactivado: no se ve la CPU."));
+            started = started.note(format!(
+                "El consumidor {CPU} de Performance Schema está desactivado: no se ve la CPU."
+            ));
         }
-        return Ok((history("events_statements_history_long", has_cpu && !cpu_off), started));
+        return Ok((
+            history("events_statements_history_long", has_cpu && !cpu_off),
+            started,
+        ));
     }
-    let list = missing.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
+    let list = missing
+        .iter()
+        .map(|n| lit(n))
+        .collect::<Vec<_>>()
+        .join(", ");
     let mut refused = None;
     if opts.change_server {
         match s.rows(&format!("UPDATE performance_schema.setup_consumers SET ENABLED = 'YES' WHERE NAME IN ({list})")).await {
@@ -405,7 +493,8 @@ async fn performance_schema(
     }
     let why = match refused {
         Some(e) => format!("No se pudo activar events_statements_history_long ({e})"),
-        None => "events_statements_history_long está desactivado y la conexión es de solo lectura".into(),
+        None => "events_statements_history_long está desactivado y la conexión es de solo lectura"
+            .into(),
     };
     if off(&SHORT).is_empty() {
         return Ok((
@@ -433,8 +522,11 @@ async fn slow_log(
         .and_then(|r| at(r, 0))
         .and_then(|v| v.parse::<i64>().ok())
         .ok_or_else(String::new)?;
-    let mut started =
-        ProfilerStarted::new(ProfilerMode::Complete, "information_schema.CLUSTER_SLOW_QUERY").units(Some("claves"), Some("claves"));
+    let mut started = ProfilerStarted::new(
+        ProfilerMode::Complete,
+        "information_schema.CLUSTER_SLOW_QUERY",
+    )
+    .units(Some("claves"), Some("claves"));
     if was > 0 {
         if !opts.change_server {
             return Err(format!(
@@ -455,13 +547,18 @@ async fn slow_log(
         for sql in restore.drain(..) {
             let _ = s.rows(&sql).await;
         }
-        return Err(format!("No se puede leer CLUSTER_SLOW_QUERY ({e}): se muestrean las consultas en curso."));
+        return Err(format!(
+            "No se puede leer CLUSTER_SLOW_QUERY ({e}): se muestrean las consultas en curso."
+        ));
     }
     Ok((history, started))
 }
 
 /// OceanBase: its SQL audit, on by default (`ob_enable_sql_audit`).
-async fn sql_audit(s: &mut MySqlSession, clock: &Clock) -> std::result::Result<(History, ProfilerStarted), String> {
+async fn sql_audit(
+    s: &mut MySqlSession,
+    clock: &Clock,
+) -> std::result::Result<(History, ProfilerStarted), String> {
     let history = History::new(Source::SqlAudit, clock.now());
     match s.rows(&history_sql(Source::SqlAudit, clock.now(), "")).await {
         Ok(_) => Ok((history, ProfilerStarted::new(ProfilerMode::Complete, "GV$OB_SQL_AUDIT"))),
@@ -501,12 +598,16 @@ impl Sampling {
         for r in rows {
             // Manticore lists each worker thread of a search: one per
             // connection.
-            if let Some(s) = self.sample(r, now, db).filter(|s| samples.iter().all(|o| o.session != s.session)) {
+            if let Some(s) = self
+                .sample(r, now, db)
+                .filter(|s| samples.iter().all(|o| o.session != s.session))
+            {
                 samples.push(s);
             }
         }
         // A connection that went idle starts afresh next time.
-        self.seen.retain(|k, _| samples.iter().any(|s| s.session == *k));
+        self.seen
+            .retain(|k, _| samples.iter().any(|s| s.session == *k));
         samples
     }
 
@@ -523,13 +624,18 @@ impl Sampling {
             return None;
         }
         let command = get(&["COMMAND"]).unwrap_or_default().to_ascii_lowercase();
-        if matches!(command.as_str(), "sleep" | "daemon" | "connect" | "killed" | "binlog dump" | "binlog dump gtid") {
+        if matches!(
+            command.as_str(),
+            "sleep" | "daemon" | "connect" | "killed" | "binlog dump" | "binlog dump gtid"
+        ) {
             return None;
         }
         let database = get(&["DB", "database"]);
         if !db.is_empty() {
             // Old Doris prefixes the cluster: "default_cluster:db".
-            let d = database.as_deref().map(|d| d.rsplit(':').next().unwrap_or(d));
+            let d = database
+                .as_deref()
+                .map(|d| d.rsplit(':').next().unwrap_or(d));
             if !d.is_some_and(|d| d.eq_ignore_ascii_case(db)) {
                 return None;
             }
@@ -538,7 +644,11 @@ impl Sampling {
         // time, whole seconds on most engines.
         let num = |names: &[&str]| get(names).and_then(|v| v.parse::<f64>().ok());
         let (exact, elapsed_ms, coarse) = if let Some(ms) = num(&["start_ms"]) {
-            (Some(ms as i64 * 1000), num(&["elapsed_ms"]).unwrap_or(0.0), false)
+            (
+                Some(ms as i64 * 1000),
+                num(&["elapsed_ms"]).unwrap_or(0.0),
+                false,
+            )
         } else if let Some(ms) = num(&["TIME_MS"]) {
             (None, ms, false)
         } else if get(&["This/prev job time"]).is_some() {
@@ -551,20 +661,37 @@ impl Sampling {
         let computed = exact.unwrap_or(now - (elapsed_ms * 1000.0) as i64);
         // One statement from the next on the same connection: the query id
         // where there is one, else the text.
-        let key = format!("{}\n{text}", get(&["QUERY_ID", "QueryId", "query_id", "TxnStart"]).unwrap_or_default());
+        let key = format!(
+            "{}\n{text}",
+            get(&["QUERY_ID", "QueryId", "query_id", "TxnStart"]).unwrap_or_default()
+        );
         let tolerance = match (exact, coarse) {
             (Some(_), _) => 0,
             _ if self.sql.starts_with("SHOW THREADS") => i64::MAX,
             (None, true) => 1_200_000,
             (None, false) => 50_000,
         };
-        let same = self.seen.get(&session).is_some_and(|s| s.key == key && (computed - s.started).abs() <= tolerance);
+        let same = self
+            .seen
+            .get(&session)
+            .is_some_and(|s| s.key == key && (computed - s.started).abs() <= tolerance);
         if !same {
-            self.seen.insert(session.clone(), Seen { key, started: computed, earliest: computed });
+            self.seen.insert(
+                session.clone(),
+                Seen {
+                    key,
+                    started: computed,
+                    earliest: computed,
+                },
+            );
         }
         let seen = self.seen.get_mut(&session)?;
         seen.earliest = seen.earliest.min(computed);
-        let duration_ms = if exact.is_some() { elapsed_ms } else { ((now - seen.earliest) as f64 / 1000.0).max(elapsed_ms) };
+        let duration_ms = if exact.is_some() {
+            elapsed_ms
+        } else {
+            ((now - seen.earliest) as f64 / 1000.0).max(elapsed_ms)
+        };
         let state = get(&["STATE", "State"]).filter(|s| !s.eq_ignore_ascii_case("ok"));
         Some(Sample {
             session,
@@ -590,9 +717,14 @@ impl Sampling {
 /// The statement in a Manticore worker thread's info: `6 ch 0: api-search
 /// query="" comment="" index="t" SELECT …` → `SELECT …`.
 fn manticore_text(info: &str) -> String {
-    let Some(i) = info.find("api-search ") else { return info.to_string() };
+    let Some(i) = info.find("api-search ") else {
+        return info.to_string();
+    };
     let rest = &info[i..];
-    match rest.find("index=\"").and_then(|j| rest[j + 7..].find('"').map(|k| j + 7 + k + 1)) {
+    match rest
+        .find("index=\"")
+        .and_then(|j| rest[j + 7..].find('"').map(|k| j + 7 + k + 1))
+    {
         Some(end) => rest[end..].trim_start().to_string(),
         None => info.to_string(),
     }
@@ -611,7 +743,13 @@ fn utc(us: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}", rem / 3_600_000, rem / 60_000 % 60, rem / 1000 % 60, rem % 1000)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}",
+        rem / 3_600_000,
+        rem / 60_000 % 60,
+        rem / 1000 % 60,
+        rem % 1000
+    )
 }
 
 #[cfg(test)]
@@ -627,9 +765,18 @@ mod tests {
 
     #[test]
     fn history_reads_cpu_where_the_table_has_it() {
-        let ps = |cpu| Source::Ps { table: "events_statements_history_long", own: 1, timer: 0, epoch_us: 0, cpu };
+        let ps = |cpu| Source::Ps {
+            table: "events_statements_history_long",
+            own: 1,
+            timer: 0,
+            epoch_us: 0,
+            cpu,
+        };
         let with = history_sql(ps(true), 0, "");
-        assert!(with.contains("e.CPU_TIME / 1000000000 AS cpu_ms") && with.contains("e.ROWS_EXAMINED AS read_n"));
+        assert!(
+            with.contains("e.CPU_TIME / 1000000000 AS cpu_ms")
+                && with.contains("e.ROWS_EXAMINED AS read_n")
+        );
         let without = history_sql(ps(false), 0, "");
         assert!(without.contains("NULL AS cpu_ms") && !without.contains("CPU_TIME"));
         let tidb = history_sql(Source::SlowLog, 0, "");
@@ -638,7 +785,10 @@ mod tests {
 
     #[test]
     fn manticore_worker_info() {
-        assert_eq!(manticore_text(r#"6 ch 0: api-search query="" comment="" index="t" SELECT 1 FROM t"#), "SELECT 1 FROM t");
+        assert_eq!(
+            manticore_text(r#"6 ch 0: api-search query="" comment="" index="t" SELECT 1 FROM t"#),
+            "SELECT 1 FROM t"
+        );
         assert_eq!(manticore_text("SELECT 1"), "SELECT 1");
     }
 }

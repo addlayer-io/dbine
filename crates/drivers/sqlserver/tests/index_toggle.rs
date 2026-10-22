@@ -6,8 +6,12 @@ use dbine_driver::{kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session};
 fn parse_url(url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: "sqlserver".into(),
         host: host.into(),
@@ -48,16 +52,32 @@ async fn disable_and_enable() {
     .await;
     let mut s = d.connect(&cfg, Some("dbine_toggle")).await.unwrap();
     run(&mut s, "CREATE TABLE dbo.Pedidos (id int CONSTRAINT PK_Pedidos PRIMARY KEY, fecha date)\nGO\nCREATE INDEX IX_Fecha ON dbo.Pedidos (fecha)").await;
-    let t = ObjectRef { kind: kinds::TABLE.into(), schema: Some("dbo".into()), name: "Pedidos".into() };
+    let t = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: Some("dbo".into()),
+        name: "Pedidos".into(),
+    };
     assert!(!disabled(&mut s, &t, "IX_Fecha").await);
 
-    let ix = s.index_usage(&t).await.unwrap().unwrap().indexes.into_iter().find(|i| i.name == "IX_Fecha").unwrap();
+    let ix = s
+        .index_usage(&t)
+        .await
+        .unwrap()
+        .unwrap()
+        .indexes
+        .into_iter()
+        .find(|i| i.name == "IX_Fecha")
+        .unwrap();
     for st in d.index_toggle_script(&t, &ix, false).unwrap().statements {
         run(&mut s, &st).await;
     }
     assert!(disabled(&mut s, &t, "IX_Fecha").await);
     // The table still reads: only the clustered index takes it offline.
-    run(&mut s, "SELECT COUNT(*) FROM dbo.Pedidos WHERE fecha > '2026-01-01'").await;
+    run(
+        &mut s,
+        "SELECT COUNT(*) FROM dbo.Pedidos WHERE fecha > '2026-01-01'",
+    )
+    .await;
 
     for st in d.index_toggle_script(&t, &ix, true).unwrap().statements {
         run(&mut s, &st).await;

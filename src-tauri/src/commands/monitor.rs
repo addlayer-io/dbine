@@ -13,11 +13,17 @@ pub struct MonitorArgs {
 /// seconds, so it gets its own session: polling never waits behind the
 /// explorer or a running query.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn monitor_snapshot(state: State<'_, AppState>, args: MonitorArgs) -> CommandResult<MonitorSnapshot> {
+pub async fn monitor_snapshot(
+    state: State<'_, AppState>,
+    args: MonitorArgs,
+) -> CommandResult<MonitorSnapshot> {
     let key = format!("monitor:{}", args.connection_id);
     let entry = state.session(&key, &args.connection_id, "").await?;
     let result = entry.session.lock().await.monitor().await;
-    if matches!(result, Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))) {
+    if matches!(
+        result,
+        Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))
+    ) {
         // A dropped connection would fail every poll: reconnect next time.
         state.sessions.remove(&key);
     }
@@ -27,11 +33,17 @@ pub async fn monitor_snapshot(state: State<'_, AppState>, args: MonitorArgs) -> 
 /// The sessions in blocking chains (the Monitor's "Bloqueos"), on the
 /// monitor's own session.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn monitor_blocking(state: State<'_, AppState>, args: MonitorArgs) -> CommandResult<Vec<dbine_driver::BlockedSession>> {
+pub async fn monitor_blocking(
+    state: State<'_, AppState>,
+    args: MonitorArgs,
+) -> CommandResult<Vec<dbine_driver::BlockedSession>> {
     let key = format!("monitor:{}", args.connection_id);
     let entry = state.session(&key, &args.connection_id, "").await?;
     let result = entry.session.lock().await.blocking().await;
-    if matches!(result, Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))) {
+    if matches!(
+        result,
+        Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))
+    ) {
         state.sessions.remove(&key);
     }
     Ok(result?)
@@ -47,7 +59,10 @@ pub struct KillSessionArgs {
 /// End a server session (the user confirmed it). Refused on read-only
 /// connections.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn monitor_kill_session(state: State<'_, AppState>, args: KillSessionArgs) -> CommandResult<()> {
+pub async fn monitor_kill_session(
+    state: State<'_, AppState>,
+    args: KillSessionArgs,
+) -> CommandResult<()> {
     let key = format!("monitor:{}", args.connection_id);
     let entry = state.session(&key, &args.connection_id, "").await?;
     let result = entry.session.lock().await.kill_session(&args.id).await;
@@ -57,11 +72,17 @@ pub async fn monitor_kill_session(state: State<'_, AppState>, args: KillSessionA
 /// The server's sessions (the Monitor's "Procesos"). The list polls on its
 /// own session, so it never waits behind a dashboard snapshot.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn monitor_processes(state: State<'_, AppState>, args: MonitorArgs) -> CommandResult<Vec<dbine_driver::ServerProcess>> {
+pub async fn monitor_processes(
+    state: State<'_, AppState>,
+    args: MonitorArgs,
+) -> CommandResult<Vec<dbine_driver::ServerProcess>> {
     let key = format!("processes:{}", args.connection_id);
     let entry = state.session(&key, &args.connection_id, "").await?;
     let result = entry.session.lock().await.processes().await;
-    if matches!(result, Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))) {
+    if matches!(
+        result,
+        Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))
+    ) {
         state.sessions.remove(&key);
     }
     Ok(result?)
@@ -70,7 +91,10 @@ pub async fn monitor_processes(state: State<'_, AppState>, args: MonitorArgs) ->
 /// Stop another session's statement and leave the session open (the user
 /// confirmed it). Refused on read-only connections.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn monitor_cancel_query(state: State<'_, AppState>, args: KillSessionArgs) -> CommandResult<()> {
+pub async fn monitor_cancel_query(
+    state: State<'_, AppState>,
+    args: KillSessionArgs,
+) -> CommandResult<()> {
     let key = format!("monitor:{}", args.connection_id);
     let entry = state.session(&key, &args.connection_id, "").await?;
     let result = entry.session.lock().await.cancel_query(&args.id).await;

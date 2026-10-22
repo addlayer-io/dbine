@@ -82,7 +82,8 @@ const TIDB: &str = "SELECT /*+ MAX_EXECUTION_TIME(5000) */
  ORDER BY (p.COMMAND = 'Sleep'), p.ID LIMIT {MAX_ROWS}";
 
 /// TiDB before CLUSTER_TIDB_TRX (5.x).
-const TIDB_PLAIN: &str = "SELECT ID AS pid, USER AS puser, HOST AS phost, DB AS pdb, COMMAND AS pcmd, STATE AS pstate,
+const TIDB_PLAIN: &str =
+    "SELECT ID AS pid, USER AS puser, HOST AS phost, DB AS pdb, COMMAND AS pcmd, STATE AS pstate,
        TIME * 1000 AS ptime_ms, LEFT(INFO, {MAX_TEXT}) AS pinfo, (ID = CONNECTION_ID()) AS pown
   FROM information_schema.CLUSTER_PROCESSLIST
  ORDER BY (COMMAND = 'Sleep'), ID LIMIT {MAX_ROWS}";
@@ -100,16 +101,29 @@ const SHOW: &str = "SHOW FULL PROCESSLIST";
 
 /// The queries to try, in order, for a variant.
 fn queries(v: Variant) -> Vec<String> {
-    let fill = |sql: &str| sql.replace("{MAX_TEXT}", &MAX_TEXT.to_string()).replace("{MAX_ROWS}", &MAX_ROWS.to_string());
+    let fill = |sql: &str| {
+        sql.replace("{MAX_TEXT}", &MAX_TEXT.to_string())
+            .replace("{MAX_ROWS}", &MAX_ROWS.to_string())
+    };
     match v {
         Variant::MySql => vec![
-            fill(MYSQL_PS).replace("{cpu}", "CASE WHEN e.END_EVENT_ID IS NULL THEN e.CPU_TIME DIV 1000000000 END"),
+            fill(MYSQL_PS).replace(
+                "{cpu}",
+                "CASE WHEN e.END_EVENT_ID IS NULL THEN e.CPU_TIME DIV 1000000000 END",
+            ),
             fill(MYSQL_PS).replace("{cpu}", "NULL"),
-            fill(PROCESSLIST).replace("{time}", "p.TIME * 1000").replace("{reads}", "NULL"),
+            fill(PROCESSLIST)
+                .replace("{time}", "p.TIME * 1000")
+                .replace("{reads}", "NULL"),
             SHOW.into(),
         ],
         Variant::MariaDb => {
-            vec![fill(PROCESSLIST).replace("{time}", "ROUND(p.TIME_MS)").replace("{reads}", "p.EXAMINED_ROWS"), SHOW.into()]
+            vec![
+                fill(PROCESSLIST)
+                    .replace("{time}", "ROUND(p.TIME_MS)")
+                    .replace("{reads}", "p.EXAMINED_ROWS"),
+                SHOW.into(),
+            ]
         }
         Variant::TiDb => vec![fill(TIDB), fill(TIDB_PLAIN), SHOW.into()],
         Variant::Databend => vec![fill(DATABEND)],
@@ -144,11 +158,15 @@ struct Raw {
 }
 
 fn text(r: &mysql_async::Row, names: &[&str]) -> Option<String> {
-    named(r, names).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    named(r, names)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn number(r: &mysql_async::Row, names: &[&str]) -> Option<u64> {
-    text(r, names).and_then(|s| s.parse::<f64>().ok()).map(|v| v.max(0.0) as u64)
+    text(r, names)
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.max(0.0) as u64)
 }
 
 fn flag(r: &mysql_async::Row, names: &[&str]) -> Option<bool> {
@@ -162,7 +180,8 @@ fn raw(r: &mysql_async::Row, tidb: bool) -> Raw {
     let last = text(r, &["plast_sql"]);
     let info = text(r, &["pinfo", "Info", "query"]);
     // GreptimeDB: its own row is the listing query, marked.
-    let marked = named(r, &[OWN_MARK]).map(|_| info.as_deref().is_some_and(|q| q.contains(OWN_MARK)));
+    let marked =
+        named(r, &[OWN_MARK]).map(|_| info.as_deref().is_some_and(|q| q.contains(OWN_MARK)));
     Raw {
         id: text(r, &["pid", "Id", "ID"]).unwrap_or_default(),
         user: text(r, &["puser", "User"]),
@@ -177,7 +196,11 @@ fn raw(r: &mysql_async::Row, tidb: bool) -> Raw {
         reads: number(r, &["preads"]),
         in_trx: flag(r, &["pin_trx"]).unwrap_or(false),
         lock_wait: flag(r, &["plock_wait"]).unwrap_or(false),
-        last_sql: if tidb { last.and_then(|j| last_digest(&j)) } else { last },
+        last_sql: if tidb {
+            last.and_then(|j| last_digest(&j))
+        } else {
+            last
+        },
         system: flag(r, &["psystem"]),
         own: flag(r, &["pown"]).or(marked),
     }
@@ -246,20 +269,40 @@ fn system_thread(r: &Raw) -> bool {
     let cmd = r.command.as_deref().unwrap_or("");
     user.eq_ignore_ascii_case("system user")
         || user.eq_ignore_ascii_case("event_scheduler")
-        || ["Daemon", "Binlog Dump", "Binlog Dump GTID", "Slave_IO", "Slave_SQL", "Slave_worker"].iter().any(|c| cmd.eq_ignore_ascii_case(c))
+        || [
+            "Daemon",
+            "Binlog Dump",
+            "Binlog Dump GTID",
+            "Slave_IO",
+            "Slave_SQL",
+            "Slave_worker",
+        ]
+        .iter()
+        .any(|c| cmd.eq_ignore_ascii_case(c))
 }
 
 /// A row as the Monitor shows it. `me` is this connection's id; `waits`
 /// maps a waiting session to (its blocker, what it waits on).
 fn process(r: Raw, me: &str, waits: &HashMap<String, (String, Option<String>)>) -> ServerProcess {
     let system = r.system.unwrap_or(false) || system_thread(&r);
-    let idle = r.command.as_deref().is_some_and(|c| c.eq_ignore_ascii_case("Sleep"));
+    let idle = r
+        .command
+        .as_deref()
+        .is_some_and(|c| c.eq_ignore_ascii_case("Sleep"));
     let active = !idle && !system;
     let own = r.own.unwrap_or(r.id == me);
     let wait = waits.get(&r.id);
     let state = r.state.clone().filter(|s| s != "0");
-    let status = if idle && r.in_trx { Some("inactiva con transacción abierta".to_string()) } else { state.clone().or(r.command.clone()) };
-    let command = if active { r.info.as_deref().and_then(first_word).or(r.command.clone()) } else { r.command.clone() };
+    let status = if idle && r.in_trx {
+        Some("inactiva con transacción abierta".to_string())
+    } else {
+        state.clone().or(r.command.clone())
+    };
+    let command = if active {
+        r.info.as_deref().and_then(first_word).or(r.command.clone())
+    } else {
+        r.command.clone()
+    };
     let sql = if active {
         r.info.clone()
     } else if idle && r.in_trx {
@@ -311,9 +354,15 @@ pub(crate) async fn processes(s: &mut MySqlSession) -> Result<Vec<ServerProcess>
         }
     }
     let Some(rows) = rows else {
-        return Err(first_err.unwrap_or_else(|| Error::Query("no se pudo leer la lista de procesos".into())));
+        return Err(first_err
+            .unwrap_or_else(|| Error::Query("no se pudo leer la lista de procesos".into())));
     };
-    let mut raws: Vec<Raw> = rows.iter().take(MAX_ROWS).map(|r| raw(r, tidb)).filter(|r| !r.id.is_empty()).collect();
+    let mut raws: Vec<Raw> = rows
+        .iter()
+        .take(MAX_ROWS)
+        .map(|r| raw(r, tidb))
+        .filter(|r| !r.id.is_empty())
+        .collect();
     raws.dedup_by(|a, b| a.id == b.id);
 
     // The last statement of idle sessions holding a transaction, where the
@@ -324,7 +373,11 @@ pub(crate) async fn processes(s: &mut MySqlSession) -> Result<Vec<ServerProcess>
         .filter_map(|r| r.id.parse().ok())
         .collect();
     if !missing.is_empty() && s.variant.is_mysql_server() {
-        let list = missing.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
+        let list = missing
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!(
             "SELECT t.PROCESSLIST_ID, LEFT(e.SQL_TEXT, {MAX_TEXT})
                FROM performance_schema.threads t
@@ -332,7 +385,9 @@ pub(crate) async fn processes(s: &mut MySqlSession) -> Result<Vec<ServerProcess>
               WHERE t.PROCESSLIST_ID IN ({list})"
         );
         for r in s.optional_rows(&sql).await {
-            let (Some(id), Some(q)) = (crate::session::at(&r, 0), crate::session::at(&r, 1)) else { continue };
+            let (Some(id), Some(q)) = (crate::session::at(&r, 0), crate::session::at(&r, 1)) else {
+                continue;
+            };
             if let Some(p) = raws.iter_mut().find(|p| p.id == id) {
                 p.last_sql = Some(q);
             }
@@ -341,12 +396,19 @@ pub(crate) async fn processes(s: &mut MySqlSession) -> Result<Vec<ServerProcess>
 
     // Who blocks whom, only when someone waits on a lock.
     let mut waits = HashMap::new();
-    let waiting = raws.iter().any(|r| r.lock_wait || r.state.as_deref().is_some_and(|st| st.starts_with("Waiting for") && st.contains("lock")));
+    let waiting = raws.iter().any(|r| {
+        r.lock_wait
+            || r.state
+                .as_deref()
+                .is_some_and(|st| st.starts_with("Waiting for") && st.contains("lock"))
+    });
     if waiting && s.variant.has_lock_waits() {
         match s.wait_edges().await {
             Ok(edges) => {
                 for e in edges {
-                    waits.entry(e.waiter.to_string()).or_insert((e.blocker.to_string(), e.wait));
+                    waits
+                        .entry(e.waiter.to_string())
+                        .or_insert((e.blocker.to_string(), e.wait));
                 }
             }
             Err(e) => tracing::debug!("{:?} processes: lock waits: {e}", s.variant),
@@ -359,10 +421,13 @@ pub(crate) async fn processes(s: &mut MySqlSession) -> Result<Vec<ServerProcess>
 /// A Databend session id: a UUID (letters, digits and dashes).
 pub(crate) fn databend_id(id: &str) -> Result<&str> {
     let id = id.trim();
-    if !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
         Ok(id)
     } else {
-        Err(Error::Query(format!("«{id}» no es un id de sesión de Databend")))
+        Err(Error::Query(format!(
+            "«{id}» no es un id de sesión de Databend"
+        )))
     }
 }
 
@@ -371,25 +436,38 @@ fn greptime_id(id: &str) -> Result<&str> {
     let id = id.trim();
     let ok = id.rsplit_once('/').is_some_and(|(addr, n)| {
         !addr.is_empty()
-            && addr.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '-' | '_' | '[' | ']'))
+            && addr.chars().all(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '-' | '_' | '[' | ']')
+            })
             && !n.is_empty()
             && n.chars().all(|c| c.is_ascii_digit())
     });
     if ok {
         Ok(id)
     } else {
-        Err(Error::Query(format!("«{id}» no es un id de proceso de GreptimeDB")))
+        Err(Error::Query(format!(
+            "«{id}» no es un id de proceso de GreptimeDB"
+        )))
     }
 }
 
 pub(crate) async fn cancel(s: &mut MySqlSession, id: &str) -> Result<()> {
-    let own = || Error::Query("esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá".into());
+    let own = || {
+        Error::Query(
+            "esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá"
+                .into(),
+        )
+    };
     let sql = match s.variant {
         // Its own listing query is over by now: nothing of DBine's to hit.
         Variant::GreptimeDb => format!("KILL '{}'", greptime_id(id)?),
         Variant::Databend => {
             let id = databend_id(id)?;
-            let me = s.rows("SELECT connection_id()").await?.first().and_then(|r| crate::session::at(r, 0));
+            let me = s
+                .rows("SELECT connection_id()")
+                .await?
+                .first()
+                .and_then(|r| crate::session::at(r, 0));
             if me.as_deref() == Some(id) {
                 return Err(own());
             }
@@ -397,7 +475,11 @@ pub(crate) async fn cancel(s: &mut MySqlSession, id: &str) -> Result<()> {
         }
         v => {
             let n = session_id(id)?;
-            let me = s.rows("SELECT CONNECTION_ID()").await?.first().and_then(|r| crate::session::at(r, 0));
+            let me = s
+                .rows("SELECT CONNECTION_ID()")
+                .await?
+                .first()
+                .and_then(|r| crate::session::at(r, 0));
             if me.and_then(|m| m.parse::<u64>().ok()) == Some(n) {
                 return Err(own());
             }
@@ -427,7 +509,10 @@ mod tests {
     #[test]
     fn first_words() {
         assert_eq!(first_word("  select 1").as_deref(), Some("SELECT"));
-        assert_eq!(first_word("/*+ HINT */ (SELECT 1)").as_deref(), Some("SELECT"));
+        assert_eq!(
+            first_word("/*+ HINT */ (SELECT 1)").as_deref(),
+            Some("SELECT")
+        );
         assert_eq!(first_word("  "), None);
     }
 
@@ -443,7 +528,10 @@ mod tests {
 
     #[test]
     fn rows_become_processes() {
-        let waits = HashMap::from([("12".to_string(), ("9".to_string(), Some("LOCK WAIT RECORD X".to_string())))]);
+        let waits = HashMap::from([(
+            "12".to_string(),
+            ("9".to_string(), Some("LOCK WAIT RECORD X".to_string())),
+        )]);
         let running = Raw {
             id: "12".into(),
             command: Some("Query".into()),
@@ -460,24 +548,45 @@ mod tests {
         assert_eq!(p.wait.as_deref(), Some("LOCK WAIT RECORD X"));
         assert_eq!(p.sql.as_deref(), Some("update t set v = 1"));
 
-        let idle = Raw { id: "9".into(), command: Some("Sleep".into()), in_trx: true, last_sql: Some("update t".into()), ..Default::default() };
+        let idle = Raw {
+            id: "9".into(),
+            command: Some("Sleep".into()),
+            in_trx: true,
+            last_sql: Some("update t".into()),
+            ..Default::default()
+        };
         let p = process(idle, "5", &waits);
         assert!(!p.active);
-        assert_eq!(p.status.as_deref(), Some("inactiva con transacción abierta"));
+        assert_eq!(
+            p.status.as_deref(),
+            Some("inactiva con transacción abierta")
+        );
         assert_eq!(p.sql.as_deref(), Some("update t"));
 
-        let sleeping = Raw { id: "5".into(), command: Some("Sleep".into()), info: Some("old".into()), ..Default::default() };
+        let sleeping = Raw {
+            id: "5".into(),
+            command: Some("Sleep".into()),
+            info: Some("old".into()),
+            ..Default::default()
+        };
         let p = process(sleeping, "5", &waits);
         assert!(p.own && p.sql.is_none() && p.status.as_deref() == Some("Sleep"));
 
-        let daemon = Raw { id: "1".into(), user: Some("event_scheduler".into()), command: Some("Daemon".into()), ..Default::default() };
+        let daemon = Raw {
+            id: "1".into(),
+            user: Some("event_scheduler".into()),
+            command: Some("Daemon".into()),
+            ..Default::default()
+        };
         let p = process(daemon, "5", &waits);
         assert!(p.system && !p.active);
     }
 
     #[test]
     fn only_engines_with_sessions_end_them() {
-        assert!(can_kill(Variant::MySql) && can_kill(Variant::Doris) && can_kill(Variant::Databend));
+        assert!(
+            can_kill(Variant::MySql) && can_kill(Variant::Doris) && can_kill(Variant::Databend)
+        );
         assert!(!can_kill(Variant::Manticore) && !can_kill(Variant::GreptimeDb));
         for v in Variant::ALL {
             assert!(!queries(v.base()).is_empty());

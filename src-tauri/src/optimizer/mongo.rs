@@ -14,14 +14,23 @@ pub fn where_to_operators(src: &str) -> Vec<Candidate> {
     while let Some(p) = src[from..].find("$where") {
         let at = from + p;
         from = at + 6;
-        let Some((pair_start, pair_end, js)) = where_pair(src, at) else { continue };
-        let Some(filter) = translate(&js) else { continue };
+        let Some((pair_start, pair_end, js)) = where_pair(src, at) else {
+            continue;
+        };
+        let Some(filter) = translate(&js) else {
+            continue;
+        };
         let quoted_keys = src[pair_start..at].ends_with(['"', '\'']);
         let text = filter
             .iter()
             .map(|(k, v)| {
-                let simple = k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !k.starts_with(|c: char| c.is_ascii_digit());
-                let key = if simple && !quoted_keys { k.clone() } else { Value::String(k.clone()).to_string() };
+                let simple = k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    && !k.starts_with(|c: char| c.is_ascii_digit());
+                let key = if simple && !quoted_keys {
+                    k.clone()
+                } else {
+                    Value::String(k.clone()).to_string()
+                };
                 format!("{key}: {}", mongo_value(v))
             })
             .collect::<Vec<_>>()
@@ -45,7 +54,13 @@ pub fn where_to_operators(src: &str) -> Vec<Candidate> {
 /// `{ "$gt": 30 }` as mongosh writes it (keys unquoted).
 fn mongo_value(v: &Value) -> String {
     match v {
-        Value::Object(m) => format!("{{ {} }}", m.iter().map(|(k, v)| format!("{k}: {}", mongo_value(v))).collect::<Vec<_>>().join(", ")),
+        Value::Object(m) => format!(
+            "{{ {} }}",
+            m.iter()
+                .map(|(k, v)| format!("{k}: {}", mongo_value(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         other => other.to_string(),
     }
 }
@@ -140,17 +155,27 @@ pub fn translate(js: &str) -> Option<Map<String, Value>> {
                 filter.insert(path, value);
             }
             (None, Some(o)) => {
-                filter.insert(path, Value::Object(Map::from_iter([(o.to_string(), value)])));
+                filter.insert(
+                    path,
+                    Value::Object(Map::from_iter([(o.to_string(), value)])),
+                );
             }
-            (Some(Value::Object(m)), Some(o)) if !m.contains_key(o) && m.keys().all(|k| k.starts_with('$')) => {
+            (Some(Value::Object(m)), Some(o))
+                if !m.contains_key(o) && m.keys().all(|k| k.starts_with('$')) =>
+            {
                 m.insert(o.to_string(), value);
             }
-            (Some(Value::Object(m)), None) if m.keys().all(|k| k.starts_with('$')) && !m.contains_key("$eq") => {
+            (Some(Value::Object(m)), None)
+                if m.keys().all(|k| k.starts_with('$')) && !m.contains_key("$eq") =>
+            {
                 m.insert("$eq".into(), value);
             }
             (Some(existing), Some(o)) if !existing.is_object() => {
                 let eq = existing.take();
-                *existing = Value::Object(Map::from_iter([("$eq".to_string(), eq), (o.to_string(), value)]));
+                *existing = Value::Object(Map::from_iter([
+                    ("$eq".to_string(), eq),
+                    (o.to_string(), value),
+                ]));
             }
             _ => return None,
         }
@@ -160,8 +185,20 @@ pub fn translate(js: &str) -> Option<Map<String, Value>> {
 
 /// `this.f OP literal` or `literal OP this.f`.
 fn comparison(p: &str) -> Option<(String, &'static str, Value)> {
-    const OPS: &[(&str, &str)] = &[("===", "==="), ("!==", "!=="), ("==", "=="), ("!=", "!="), (">=", ">="), ("<=", "<="), (">", ">"), ("<", "<")];
-    let (pos, op) = OPS.iter().filter_map(|(o, canon)| p.find(o).map(|i| (i, (*o, *canon)))).min_by_key(|(i, (o, _))| (*i, std::cmp::Reverse(o.len())))?;
+    const OPS: &[(&str, &str)] = &[
+        ("===", "==="),
+        ("!==", "!=="),
+        ("==", "=="),
+        ("!=", "!="),
+        (">=", ">="),
+        ("<=", "<="),
+        (">", ">"),
+        ("<", "<"),
+    ];
+    let (pos, op) = OPS
+        .iter()
+        .filter_map(|(o, canon)| p.find(o).map(|i| (i, (*o, *canon))))
+        .min_by_key(|(i, (o, _))| (*i, std::cmp::Reverse(o.len())))?;
     let (l, r) = (p[..pos].trim(), p[pos + op.0.len()..].trim());
     let flip = |o: &'static str| match o {
         ">" => "<",
@@ -180,7 +217,13 @@ fn comparison(p: &str) -> Option<(String, &'static str, Value)> {
 fn field(s: &str) -> Option<String> {
     let path = s.strip_prefix("this.").or_else(|| s.strip_prefix("obj."))?;
     // `this.a.length` is JavaScript's, not a field.
-    let ok = !path.is_empty() && path.split('.').all(|p| !p.is_empty() && p != "length" && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$'));
+    let ok = !path.is_empty()
+        && path.split('.').all(|p| {
+            !p.is_empty()
+                && p != "length"
+                && p.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        });
     ok.then(|| path.to_string())
 }
 
@@ -215,13 +258,28 @@ mod tests {
 
     #[test]
     fn simple_where_becomes_operators() {
-        assert_eq!(rewrite(r#"db.people.find({ $where: "this.age > 30" })"#), vec![r#"db.people.find({ age: { $gt: 30 } })"#]);
         assert_eq!(
-            rewrite(r#"db.people.find({ city: "X", $where: "this.age >= 18 && this.age < 65 && this.name == 'Ana'" }).limit(5)"#),
-            vec![r#"db.people.find({ city: "X", age: { $gte: 18, $lt: 65 }, name: "Ana" }).limit(5)"#]
+            rewrite(r#"db.people.find({ $where: "this.age > 30" })"#),
+            vec![r#"db.people.find({ age: { $gt: 30 } })"#]
         );
-        assert_eq!(rewrite(r#"{"find": "p", "filter": {"$where": "function() { return 10 < this.a.b; }"}}"#), vec![r#"{"find": "p", "filter": {"a.b": { $gt: 10 }}}"#]);
-        assert_eq!(rewrite("db.p.find({$where: 'this.x != null'})"), vec!["db.p.find({x: { $ne: null }})"]);
+        assert_eq!(
+            rewrite(
+                r#"db.people.find({ city: "X", $where: "this.age >= 18 && this.age < 65 && this.name == 'Ana'" }).limit(5)"#
+            ),
+            vec![
+                r#"db.people.find({ city: "X", age: { $gte: 18, $lt: 65 }, name: "Ana" }).limit(5)"#
+            ]
+        );
+        assert_eq!(
+            rewrite(
+                r#"{"find": "p", "filter": {"$where": "function() { return 10 < this.a.b; }"}}"#
+            ),
+            vec![r#"{"find": "p", "filter": {"a.b": { $gt: 10 }}}"#]
+        );
+        assert_eq!(
+            rewrite("db.p.find({$where: 'this.x != null'})"),
+            vec!["db.p.find({x: { $ne: null }})"]
+        );
         assert!(where_to_operators("db.p.find({$where: 'this.x == 1'})")[0].verify);
     }
 
@@ -237,7 +295,10 @@ mod tests {
             "this.a == 1 && this.a == 2",
             "function(x) { return this.a > 1; }",
         ] {
-            assert!(rewrite(&format!("db.p.find({{$where: \"{js}\"}})")).is_empty(), "{js}");
+            assert!(
+                rewrite(&format!("db.p.find({{$where: \"{js}\"}})")).is_empty(),
+                "{js}"
+            );
         }
         assert!(rewrite("db.p.find({a: 1})").is_empty());
     }

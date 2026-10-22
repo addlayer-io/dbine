@@ -9,9 +9,11 @@ use crate::err;
 use dbine_driver::{Access, Error, Permissions, Result};
 use tokio_postgres::{Client, SimpleQueryMessage};
 
-pub const SQL: &str = "SELECT current_user AS me, rolsuper, rolcreaterole FROM pg_roles WHERE rolname = current_user";
+pub const SQL: &str =
+    "SELECT current_user AS me, rolsuper, rolcreaterole FROM pg_roles WHERE rolname = current_user";
 /// Apart: a cluster that refuses it mustn't cost the check above.
-pub const CREATE_SQL: &str = "SELECT has_database_privilege(current_database(), 'CREATE') AS can_create";
+pub const CREATE_SQL: &str =
+    "SELECT has_database_privilege(current_database(), 'CREATE') AS can_create";
 
 /// The login's name and role attributes as `pg_roles` gives them, and
 /// whether it may create schemas (`None`: unknown).
@@ -77,20 +79,51 @@ mod tests {
 
     #[test]
     fn admin_or_createrole_manage_roles() {
-        assert_eq!(map("admin", false, false, None).manage_security, Access::Allowed);
-        assert_eq!(map("app", false, true, None).manage_security, Access::Allowed);
-        assert_eq!(map("app", true, false, None).manage_security, Access::Allowed);
+        assert_eq!(
+            map("admin", false, false, None).manage_security,
+            Access::Allowed
+        );
+        assert_eq!(
+            map("app", false, true, None).manage_security,
+            Access::Allowed
+        );
+        assert_eq!(
+            map("app", true, false, None).manage_security,
+            Access::Allowed
+        );
         let p = map("lector", false, false, None);
-        assert_eq!(p.manage_security, Access::Denied { missing: "CREATEROLE".into() });
+        assert_eq!(
+            p.manage_security,
+            Access::Denied {
+                missing: "CREATEROLE".into()
+            }
+        );
         // Nothing else is DSQL's to check.
-        assert_eq!(Permissions { manage_security: Access::Unknown, ..p }, Permissions::default());
+        assert_eq!(
+            Permissions {
+                manage_security: Access::Unknown,
+                ..p
+            },
+            Permissions::default()
+        );
     }
 
     #[test]
     fn schemas_need_create_on_the_database() {
-        assert_eq!(map("admin", false, false, Some(false)).create_schema, Access::Allowed);
-        assert_eq!(map("app", false, false, Some(true)).create_schema, Access::Allowed);
-        assert_eq!(map("app", false, false, Some(false)).create_schema, Access::Denied { missing: "CREATE sobre la base postgres".into() });
+        assert_eq!(
+            map("admin", false, false, Some(false)).create_schema,
+            Access::Allowed
+        );
+        assert_eq!(
+            map("app", false, false, Some(true)).create_schema,
+            Access::Allowed
+        );
+        assert_eq!(
+            map("app", false, false, Some(false)).create_schema,
+            Access::Denied {
+                missing: "CREATE sobre la base postgres".into()
+            }
+        );
         assert_eq!(map("app", false, true, None).create_schema, Access::Unknown);
     }
 }

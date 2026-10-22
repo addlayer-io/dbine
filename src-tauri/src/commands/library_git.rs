@@ -65,19 +65,30 @@ struct Entry {
 // -- git -----------------------------------------------------------------------------
 
 fn repo_dir(app: &AppHandle) -> CommandResult<PathBuf> {
-    let base = app.path().app_data_dir().map_err(|e| CommandError::Internal(e.to_string()))?;
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| CommandError::Internal(e.to_string()))?;
     Ok(base.join("library-git"))
 }
 
 fn config(state: &AppState) -> CommandResult<Option<Config>> {
-    Ok(state.store.get_setting(SETTING)?.and_then(|v| serde_json::from_value(v).ok()).filter(|c: &Config| !c.remote.is_empty()))
+    Ok(state
+        .store
+        .get_setting(SETTING)?
+        .and_then(|v| serde_json::from_value(v).ok())
+        .filter(|c: &Config| !c.remote.is_empty()))
 }
 
 fn configured(state: &AppState, app: &AppHandle) -> CommandResult<(Config, PathBuf)> {
-    let cfg = config(state)?.ok_or_else(|| CommandError::BadRequest("la biblioteca no está vinculada a un repositorio".into()))?;
+    let cfg = config(state)?.ok_or_else(|| {
+        CommandError::BadRequest("la biblioteca no está vinculada a un repositorio".into())
+    })?;
     let dir = repo_dir(app)?;
     if !dir.join(".git").is_dir() {
-        return Err(CommandError::BadRequest("falta la copia local del repositorio: volvé a vincularlo".into()));
+        return Err(CommandError::BadRequest(
+            "falta la copia local del repositorio: volvé a vincularlo".into(),
+        ));
     }
     Ok((cfg, dir))
 }
@@ -123,7 +134,12 @@ fn write_library(dir: &Path, scripts: &[LibraryScript], folders: &[String]) -> C
     let mut taken = HashSet::new();
     let mut entries = Vec::new();
     for s in scripts {
-        let mut base: Vec<String> = s.folder.split('/').filter(|p| !p.is_empty()).map(safe_name).collect();
+        let mut base: Vec<String> = s
+            .folder
+            .split('/')
+            .filter(|p| !p.is_empty())
+            .map(safe_name)
+            .collect();
         let name = safe_name(&s.name);
         let ext = crate::commands::library::script_ext(&s.engines);
         let mut file = format!("{name}.{ext}");
@@ -158,20 +174,39 @@ fn write_library(dir: &Path, scripts: &[LibraryScript], folders: &[String]) -> C
         if taken.contains(&e.path.to_lowercase()) {
             continue;
         }
-        let Ok(full) = resolve_entry(dir, &e.path) else { continue };
-        if std::fs::symlink_metadata(&full).is_ok_and(|m| !m.is_dir()) && std::fs::remove_file(&full).is_ok() {
+        let Ok(full) = resolve_entry(dir, &e.path) else {
+            continue;
+        };
+        if std::fs::symlink_metadata(&full).is_ok_and(|m| !m.is_dir())
+            && std::fs::remove_file(&full).is_ok()
+        {
             remove_empty_parents(dir, &full);
         }
     }
-    let mut all_folders: BTreeSet<String> = folders.iter().filter(|f| !f.is_empty()).cloned().collect();
-    all_folders.extend(scripts.iter().map(|s| s.folder.clone()).filter(|f| !f.is_empty()));
-    let manifest = Manifest { version: 1, folders: all_folders.into_iter().collect(), scripts: entries };
-    let json = serde_json::to_string_pretty(&manifest).map_err(|e| CommandError::Internal(e.to_string()))?;
+    let mut all_folders: BTreeSet<String> =
+        folders.iter().filter(|f| !f.is_empty()).cloned().collect();
+    all_folders.extend(
+        scripts
+            .iter()
+            .map(|s| s.folder.clone())
+            .filter(|f| !f.is_empty()),
+    );
+    let manifest = Manifest {
+        version: 1,
+        folders: all_folders.into_iter().collect(),
+        scripts: entries,
+    };
+    let json = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| CommandError::Internal(e.to_string()))?;
     std::fs::write(new_file(dir, MANIFEST)?, json + "\n").map_err(io)
 }
 
 fn path_of(base: &[String], file: &str) -> String {
-    base.iter().cloned().chain(std::iter::once(file.to_string())).collect::<Vec<_>>().join("/")
+    base.iter()
+        .cloned()
+        .chain(std::iter::once(file.to_string()))
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Empty folders left by a deleted file, up to `root` (never `root` itself
@@ -192,21 +227,28 @@ fn loose_files(dir: &Path, known: &HashSet<String>) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack = vec![(dir.to_path_buf(), String::new(), 0)];
     while let Some((d, rel, depth)) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             if name.starts_with('.') {
                 continue;
             }
-            let r = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+            let r = if rel.is_empty() {
+                name.clone()
+            } else {
+                format!("{rel}/{name}")
+            };
             let p = e.path();
             let Ok(kind) = e.file_type() else { continue };
             if kind.is_dir() {
                 if depth < 12 {
                     stack.push((p, r, depth + 1));
                 }
-            } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| crate::commands::library::SCRIPT_EXTS.contains(&x.to_ascii_lowercase().as_str()))
-                && !known.contains(&r.to_lowercase())
+            } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| {
+                crate::commands::library::SCRIPT_EXTS.contains(&x.to_ascii_lowercase().as_str())
+            }) && !known.contains(&r.to_lowercase())
             {
                 out.push(r);
             }
@@ -230,13 +272,20 @@ pub struct Applied {
 fn read_into_library(state: &AppState, dir: &Path, mirror: bool) -> CommandResult<Applied> {
     let dir = &canonical_root(dir)?;
     let manifest = read_manifest(dir);
-    let current: HashMap<String, LibraryScript> = state.store.list_library()?.into_iter().map(|s| (s.id.clone(), s)).collect();
+    let current: HashMap<String, LibraryScript> = state
+        .store
+        .list_library()?
+        .into_iter()
+        .map(|s| (s.id.clone(), s))
+        .collect();
     let mut applied = Applied::default();
     let mut seen = HashSet::new();
     for e in &manifest.scripts {
         // A path that leaves the working copy (absolute, `..`, `.git`, a
         // symlink out) is skipped like a missing file.
-        let Some(bytes) = existing_file(dir, &e.path).and_then(|p| std::fs::read(p).ok()) else { continue };
+        let Some(bytes) = existing_file(dir, &e.path).and_then(|p| std::fs::read(p).ok()) else {
+            continue;
+        };
         let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
         seen.insert(e.id.clone());
         let script = LibraryScript {
@@ -266,11 +315,20 @@ fn read_into_library(state: &AppState, dir: &Path, mirror: bool) -> CommandResul
         }
     }
     // Hand-added files: new scripts for any SQL engine.
-    let known: HashSet<String> = manifest.scripts.iter().map(|e| e.path.to_lowercase()).collect();
+    let known: HashSet<String> = manifest
+        .scripts
+        .iter()
+        .map(|e| e.path.to_lowercase())
+        .collect();
     for rel in loose_files(dir, &known) {
-        let Some(bytes) = existing_file(dir, &rel).and_then(|p| std::fs::read(p).ok()) else { continue };
+        let Some(bytes) = existing_file(dir, &rel).and_then(|p| std::fs::read(p).ok()) else {
+            continue;
+        };
         let (folder, file) = rel.rsplit_once('/').unwrap_or(("", rel.as_str()));
-        let name = Path::new(file).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = Path::new(file)
+            .file_stem()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         let id = uuid::Uuid::new_v4().to_string();
         seen.insert(id.clone());
         state.store.save_library_script(&LibraryScript {
@@ -278,7 +336,12 @@ fn read_into_library(state: &AppState, dir: &Path, mirror: bool) -> CommandResul
             name,
             folder: folder.to_string(),
             description: String::new(),
-            engines: crate::commands::library::engines_for_ext(Path::new(file).extension().and_then(|x| x.to_str()).unwrap_or("sql")),
+            engines: crate::commands::library::engines_for_ext(
+                Path::new(file)
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("sql"),
+            ),
             text: String::from_utf8_lossy(&bytes).replace("\r\n", "\n"),
             updated_at: String::new(),
         })?;
@@ -293,12 +356,19 @@ fn read_into_library(state: &AppState, dir: &Path, mirror: bool) -> CommandResul
     // Folders (empty ones included) travel in the manifest.
     let mut folders: BTreeSet<String> = library_folders(state)?.into_iter().collect();
     folders.extend(manifest.folders.iter().cloned());
-    state.store.set_setting("library.folders", Some(&serde_json::json!(folders.into_iter().collect::<Vec<_>>())))?;
+    state.store.set_setting(
+        "library.folders",
+        Some(&serde_json::json!(folders.into_iter().collect::<Vec<_>>())),
+    )?;
     Ok(applied)
 }
 
 fn library_folders(state: &AppState) -> CommandResult<Vec<String>> {
-    Ok(state.store.get_setting("library.folders")?.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default())
+    Ok(state
+        .store
+        .get_setting("library.folders")?
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default())
 }
 
 fn sync_working_copy(state: &AppState, dir: &Path) -> CommandResult<()> {
@@ -332,7 +402,10 @@ pub struct GitStatus {
     pub fetch_error: Option<String>,
 }
 
-async fn status_of(dir: &Path, fetch: bool) -> CommandResult<(Vec<Change>, u32, u32, Option<String>, Option<String>)> {
+async fn status_of(
+    dir: &Path,
+    fetch: bool,
+) -> CommandResult<(Vec<Change>, u32, u32, Option<String>, Option<String>)> {
     git(dir, &["add", "-A"]).await?;
     let porcelain = git(dir, &["status", "--porcelain=v1", "-uall"]).await?;
     let changes = porcelain
@@ -348,18 +421,44 @@ async fn status_of(dir: &Path, fetch: bool) -> CommandResult<(Vec<Change>, u32, 
                 c if c.starts_with('R') => "renamed",
                 _ => "modified",
             };
-            Change { state, path: path.trim_matches('"').to_string() }
+            Change {
+                state,
+                path: path.trim_matches('"').to_string(),
+            }
         })
         .filter(|c| c.path != MANIFEST)
         .collect();
-    let fetch_error = if fetch { git(dir, &["fetch", "--quiet", "origin"]).await.err().map(|e| e.to_string()) } else { None };
+    let fetch_error = if fetch {
+        git(dir, &["fetch", "--quiet", "origin"])
+            .await
+            .err()
+            .map(|e| e.to_string())
+    } else {
+        None
+    };
     let (mut ahead, mut behind) = (0, 0);
-    if let Ok(counts) = git(dir, &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]).await {
+    if let Ok(counts) = git(
+        dir,
+        &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+    )
+    .await
+    {
         let mut it = counts.split_whitespace().map(|n| n.parse().unwrap_or(0));
         ahead = it.next().unwrap_or(0);
         behind = it.next().unwrap_or(0);
     }
-    let last = git(dir, &["log", "-1", "--date=format:%d/%m/%Y %H:%M", "--format=%s · %an · %cd"]).await.ok().filter(|s| !s.is_empty());
+    let last = git(
+        dir,
+        &[
+            "log",
+            "-1",
+            "--date=format:%d/%m/%Y %H:%M",
+            "--format=%s · %an · %cd",
+        ],
+    )
+    .await
+    .ok()
+    .filter(|s| !s.is_empty());
     Ok((changes, ahead, behind, last, fetch_error))
 }
 
@@ -371,7 +470,11 @@ pub struct StatusArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn library_git_status(app: AppHandle, state: State<'_, AppState>, args: Option<StatusArgs>) -> CommandResult<GitStatus> {
+pub async fn library_git_status(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: Option<StatusArgs>,
+) -> CommandResult<GitStatus> {
     let version = super::git_cli::version().await;
     let empty = |git: Option<String>| GitStatus {
         git,
@@ -384,13 +487,20 @@ pub async fn library_git_status(app: AppHandle, state: State<'_, AppState>, args
         last_commit: None,
         fetch_error: None,
     };
-    let Some(cfg) = config(&state)? else { return Ok(empty(version)) };
+    let Some(cfg) = config(&state)? else {
+        return Ok(empty(version));
+    };
     let dir = repo_dir(&app)?;
     if version.is_none() || !dir.join(".git").is_dir() {
-        return Ok(GitStatus { remote: Some(cfg.remote), branch: Some(cfg.branch), ..empty(version) });
+        return Ok(GitStatus {
+            remote: Some(cfg.remote),
+            branch: Some(cfg.branch),
+            ..empty(version)
+        });
     }
     sync_working_copy(&state, &dir)?;
-    let (changes, ahead, behind, last_commit, fetch_error) = status_of(&dir, args.unwrap_or_default().fetch).await?;
+    let (changes, ahead, behind, last_commit, fetch_error) =
+        status_of(&dir, args.unwrap_or_default().fetch).await?;
     Ok(GitStatus {
         git: version,
         remote: Some(cfg.remote),
@@ -424,36 +534,74 @@ pub struct LinkOut {
 /// Link the Library to a repo: clone it, bring in the scripts it has (none of
 /// the Library's are deleted), and push the Library's there.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn library_git_link(app: AppHandle, state: State<'_, AppState>, args: LinkArgs) -> CommandResult<LinkOut> {
+pub async fn library_git_link(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: LinkArgs,
+) -> CommandResult<LinkOut> {
     link(&state, &repo_dir(&app)?, args).await
 }
 
 async fn link(state: &AppState, dir: &Path, args: LinkArgs) -> CommandResult<LinkOut> {
     let remote = args.remote.trim().to_string();
     if remote.is_empty() {
-        return Err(CommandError::BadRequest("falta la URL del repositorio".into()));
+        return Err(CommandError::BadRequest(
+            "falta la URL del repositorio".into(),
+        ));
     }
-    let branch = if args.branch.trim().is_empty() { "main".to_string() } else { args.branch.trim().to_string() };
+    let branch = if args.branch.trim().is_empty() {
+        "main".to_string()
+    } else {
+        args.branch.trim().to_string()
+    };
     let dir = dir.to_path_buf();
     if dir.exists() {
         // A previous link: start over from the remote.
         std::fs::remove_dir_all(&dir).map_err(io)?;
     }
-    let parent = dir.parent().map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir);
+    let parent = dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
     std::fs::create_dir_all(&parent).map_err(io)?;
     let target = dir.to_string_lossy().to_string();
     git(&parent, &["clone", "--quiet", &remote, &target]).await?;
     // The branch: the remote's if it has it, else a new one.
-    let has_branch = git(&dir, &["ls-remote", "--exit-code", "--heads", "origin", &branch]).await.is_ok();
+    let has_branch = git(
+        &dir,
+        &["ls-remote", "--exit-code", "--heads", "origin", &branch],
+    )
+    .await
+    .is_ok();
     if has_branch {
-        git(&dir, &["checkout", "--quiet", "-B", &branch, &format!("origin/{branch}")]).await?;
+        git(
+            &dir,
+            &[
+                "checkout",
+                "--quiet",
+                "-B",
+                &branch,
+                &format!("origin/{branch}"),
+            ],
+        )
+        .await?;
     } else if git(&dir, &["rev-parse", "--verify", "HEAD"]).await.is_ok() {
         git(&dir, &["checkout", "--quiet", "-B", &branch]).await?;
     } else {
         // An empty repo: the first commit starts the branch.
-        git(&dir, &["symbolic-ref", "HEAD", &format!("refs/heads/{branch}")]).await?;
+        git(
+            &dir,
+            &["symbolic-ref", "HEAD", &format!("refs/heads/{branch}")],
+        )
+        .await?;
     }
-    state.store.set_setting(SETTING, Some(&serde_json::json!(Config { remote: remote.clone(), branch: branch.clone() })))?;
+    state.store.set_setting(
+        SETTING,
+        Some(&serde_json::json!(Config {
+            remote: remote.clone(),
+            branch: branch.clone()
+        })),
+    )?;
     let applied = read_into_library(state, &dir, false)?;
     sync_working_copy(state, &dir)?;
     git(&dir, &["add", "-A"]).await?;
@@ -482,7 +630,12 @@ pub async fn library_git_unlink(app: AppHandle, state: State<'_, AppState>) -> C
 
 async fn commit(dir: &Path, message: &str) -> CommandResult<()> {
     let mut args = identity(dir).await;
-    args.extend(["commit".into(), "--quiet".into(), "-m".into(), message.to_string()]);
+    args.extend([
+        "commit".into(),
+        "--quiet".into(),
+        "-m".into(),
+        message.to_string(),
+    ]);
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     git(dir, &refs).await.map(|_| ())
 }
@@ -493,14 +646,24 @@ pub struct CommitArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn library_git_commit(app: AppHandle, state: State<'_, AppState>, args: CommitArgs) -> CommandResult<()> {
+pub async fn library_git_commit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: CommitArgs,
+) -> CommandResult<()> {
     let (_, dir) = configured(&state, &app)?;
     sync_working_copy(&state, &dir)?;
     git(&dir, &["add", "-A"]).await?;
     if git(&dir, &["status", "--porcelain"]).await?.is_empty() {
-        return Err(CommandError::BadRequest("no hay cambios para confirmar".into()));
+        return Err(CommandError::BadRequest(
+            "no hay cambios para confirmar".into(),
+        ));
     }
-    let message = if args.message.trim().is_empty() { "Cambios en la biblioteca" } else { args.message.trim() };
+    let message = if args.message.trim().is_empty() {
+        "Cambios en la biblioteca"
+    } else {
+        args.message.trim()
+    };
     commit(&dir, message).await
 }
 
@@ -520,7 +683,13 @@ async fn pull(state: &AppState, dir: &Path, branch: &str) -> CommandResult<PullO
         commit(dir, "Cambios en la biblioteca").await?;
     }
     let mut args = identity(dir).await;
-    args.extend(["pull".into(), "--quiet".into(), "--rebase".into(), "origin".into(), branch.to_string()]);
+    args.extend([
+        "pull".into(),
+        "--quiet".into(),
+        "--rebase".into(),
+        "origin".into(),
+        branch.to_string(),
+    ]);
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     if let Err(e) = git(dir, &refs).await {
         let conflicts: Vec<String> = git(dir, &["diff", "--name-only", "--diff-filter=U"])
@@ -533,14 +702,23 @@ async fn pull(state: &AppState, dir: &Path, branch: &str) -> CommandResult<PullO
         if conflicts.is_empty() {
             return Err(e);
         }
-        return Ok(PullOut { applied: Applied::default(), conflicts });
+        return Ok(PullOut {
+            applied: Applied::default(),
+            conflicts,
+        });
     }
     let applied = read_into_library(state, dir, true)?;
-    Ok(PullOut { applied, conflicts: vec![] })
+    Ok(PullOut {
+        applied,
+        conflicts: vec![],
+    })
 }
 
 #[tauri::command]
-pub async fn library_git_pull(app: AppHandle, state: State<'_, AppState>) -> CommandResult<PullOut> {
+pub async fn library_git_pull(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<PullOut> {
     let (cfg, dir) = configured(&state, &app)?;
     pull(&state, &dir, &cfg.branch).await
 }
@@ -548,7 +726,9 @@ pub async fn library_git_pull(app: AppHandle, state: State<'_, AppState>) -> Com
 #[tauri::command]
 pub async fn library_git_push(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
     let (cfg, dir) = configured(&state, &app)?;
-    git(&dir, &["push", "--quiet", "-u", "origin", &cfg.branch]).await.map(|_| ())
+    git(&dir, &["push", "--quiet", "-u", "origin", &cfg.branch])
+        .await
+        .map(|_| ())
 }
 
 #[derive(Deserialize)]
@@ -559,7 +739,11 @@ pub struct SyncArgs {
 
 /// Commit what changed, pull, and push: the Library and the repo end equal.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn library_git_sync(app: AppHandle, state: State<'_, AppState>, args: SyncArgs) -> CommandResult<PullOut> {
+pub async fn library_git_sync(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: SyncArgs,
+) -> CommandResult<PullOut> {
     let (cfg, dir) = configured(&state, &app)?;
     sync(&state, &dir, &cfg.branch, &args.message).await
 }
@@ -569,11 +753,27 @@ async fn sync(state: &AppState, dir: &Path, branch: &str, message: &str) -> Comm
     sync_working_copy(state, &dir)?;
     git(&dir, &["add", "-A"]).await?;
     if !git(&dir, &["status", "--porcelain"]).await?.is_empty() {
-        let message = if message.trim().is_empty() { "Cambios en la biblioteca" } else { message.trim() };
+        let message = if message.trim().is_empty() {
+            "Cambios en la biblioteca"
+        } else {
+            message.trim()
+        };
         commit(&dir, message).await?;
     }
-    let remote_has_branch = git(&dir, &["ls-remote", "--exit-code", "--heads", "origin", branch]).await.is_ok();
-    let out = if remote_has_branch { pull(state, &dir, branch).await? } else { PullOut { applied: Applied::default(), conflicts: vec![] } };
+    let remote_has_branch = git(
+        &dir,
+        &["ls-remote", "--exit-code", "--heads", "origin", branch],
+    )
+    .await
+    .is_ok();
+    let out = if remote_has_branch {
+        pull(state, &dir, branch).await?
+    } else {
+        PullOut {
+            applied: Applied::default(),
+            conflicts: vec![],
+        }
+    };
     if out.conflicts.is_empty() {
         git(&dir, &["push", "--quiet", "-u", "origin", branch]).await?;
     }
@@ -589,7 +789,11 @@ pub struct ResolveArgs {
 
 /// Settle a conflicting pull by keeping one side whole.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn library_git_resolve(app: AppHandle, state: State<'_, AppState>, args: ResolveArgs) -> CommandResult<Applied> {
+pub async fn library_git_resolve(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ResolveArgs,
+) -> CommandResult<Applied> {
     let (cfg, dir) = configured(&state, &app)?;
     resolve(&state, &dir, &cfg.branch, &args.keep).await
 }
@@ -601,7 +805,11 @@ async fn resolve(state: &AppState, dir: &Path, branch: &str, keep: &str) -> Comm
             git(&dir, &["fetch", "--quiet", "origin"]).await?;
             // The working copy is DBine's own clone of the Library, never
             // the user's files.
-            git(&dir, &["reset", "--quiet", "--hard", &format!("origin/{branch}")]).await?;
+            git(
+                &dir,
+                &["reset", "--quiet", "--hard", &format!("origin/{branch}")],
+            )
+            .await?;
             git(&dir, &["clean", "-fdq"]).await?;
             read_into_library(state, &dir, true)
         }
@@ -611,10 +819,23 @@ async fn resolve(state: &AppState, dir: &Path, branch: &str, keep: &str) -> Comm
             if !git(&dir, &["status", "--porcelain"]).await?.is_empty() {
                 commit(&dir, "Cambios en la biblioteca").await?;
             }
-            git(&dir, &["push", "--quiet", "--force-with-lease", "-u", "origin", branch]).await?;
+            git(
+                &dir,
+                &[
+                    "push",
+                    "--quiet",
+                    "--force-with-lease",
+                    "-u",
+                    "origin",
+                    branch,
+                ],
+            )
+            .await?;
             Ok(Applied::default())
         }
-        _ => Err(CommandError::BadRequest("elegí qué versión conservar".into())),
+        _ => Err(CommandError::BadRequest(
+            "elegí qué versión conservar".into(),
+        )),
     }
 }
 
@@ -640,12 +861,36 @@ mod tests {
         let d = std::env::temp_dir().join(format!("dbine-libgit-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("README.md"), "mine").unwrap();
-        let a = script("1", "Mantenimiento/Índices", "Reindexar", &["sqlserver"], "ALTER INDEX ALL ON t REBUILD;");
-        let b = script("2", "", "Colecciones", &["mongodb"], "db.getCollectionNames()");
-        let c = script("3", "Mantenimiento/Índices", "Reindexar", &["postgres"], "REINDEX TABLE t;");
+        let a = script(
+            "1",
+            "Mantenimiento/Índices",
+            "Reindexar",
+            &["sqlserver"],
+            "ALTER INDEX ALL ON t REBUILD;",
+        );
+        let b = script(
+            "2",
+            "",
+            "Colecciones",
+            &["mongodb"],
+            "db.getCollectionNames()",
+        );
+        let c = script(
+            "3",
+            "Mantenimiento/Índices",
+            "Reindexar",
+            &["postgres"],
+            "REINDEX TABLE t;",
+        );
         write_library(&d, &[a.clone(), b.clone(), c], &["Vacía".into()]).unwrap();
-        assert_eq!(std::fs::read_to_string(d.join("Mantenimiento/Índices/Reindexar.sql")).unwrap(), a.text);
-        assert!(d.join("Mantenimiento/Índices/Reindexar (2).sql").is_file(), "same name, second file");
+        assert_eq!(
+            std::fs::read_to_string(d.join("Mantenimiento/Índices/Reindexar.sql")).unwrap(),
+            a.text
+        );
+        assert!(
+            d.join("Mantenimiento/Índices/Reindexar (2).sql").is_file(),
+            "same name, second file"
+        );
         assert!(d.join("Colecciones.js").is_file());
         let m = read_manifest(&d);
         assert_eq!(m.scripts.len(), 3);
@@ -657,7 +902,11 @@ mod tests {
         assert!(d.join("README.md").is_file());
         // Hand-added files are found; hidden folders are not.
         std::fs::write(d.join("nuevo.sql"), "SELECT 1").unwrap();
-        let known: HashSet<String> = read_manifest(&d).scripts.iter().map(|e| e.path.to_lowercase()).collect();
+        let known: HashSet<String> = read_manifest(&d)
+            .scripts
+            .iter()
+            .map(|e| e.path.to_lowercase())
+            .collect();
         assert_eq!(loose_files(&d, &known), vec!["nuevo.sql".to_string()]);
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -682,7 +931,16 @@ mod tests {
             })
             .collect();
         std::fs::create_dir_all(d.join(".dbine")).unwrap();
-        std::fs::write(d.join(MANIFEST), serde_json::to_string(&Manifest { version: 1, folders: vec![], scripts }).unwrap()).unwrap();
+        std::fs::write(
+            d.join(MANIFEST),
+            serde_json::to_string(&Manifest {
+                version: 1,
+                folders: vec![],
+                scripts,
+            })
+            .unwrap(),
+        )
+        .unwrap();
     }
 
     /// A manifest from the repo can't make DBine read or delete files outside
@@ -723,7 +981,13 @@ mod tests {
         hostile_manifest(&d, &paths);
         let state = AppState::new(dbine_core::StateStore::open_in_memory().unwrap());
         let applied = read_into_library(&state, &d, false).unwrap();
-        let texts: Vec<String> = state.store.list_library().unwrap().into_iter().map(|s| s.text).collect();
+        let texts: Vec<String> = state
+            .store
+            .list_library()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.text)
+            .collect();
         assert_eq!(applied.added, 1);
         assert_eq!(texts, vec!["SELECT 1".to_string()]);
 
@@ -731,13 +995,22 @@ mod tests {
         // a symlink inside goes itself, its target stays.
         hostile_manifest(&d, &paths);
         write_library(&d, &[], &[]).unwrap();
-        assert_eq!(std::fs::read_to_string(outside.join("victim.sql")).unwrap(), "secret");
+        assert_eq!(
+            std::fs::read_to_string(outside.join("victim.sql")).unwrap(),
+            "secret"
+        );
         assert!(d.join(".git/config").is_file());
         assert!(!d.join("ok.sql").exists());
         #[cfg(unix)]
         {
-            assert!(std::fs::symlink_metadata(d.join("alias.sql")).is_err(), "the link itself is removed");
-            assert!(std::fs::symlink_metadata(d.join("link")).is_ok(), "a folder link isn't removed");
+            assert!(
+                std::fs::symlink_metadata(d.join("alias.sql")).is_err(),
+                "the link itself is removed"
+            );
+            assert!(
+                std::fs::symlink_metadata(d.join("link")).is_ok(),
+                "a folder link isn't removed"
+            );
             // Writing a script into a folder that links out is refused.
             let s = script("1", "link", "x", &["postgres"], "SELECT 2");
             assert!(write_library(&d, &[s], &[]).is_err());
@@ -779,40 +1052,119 @@ mod tests {
         let (a, b) = (machine(), machine());
         let (da, db) = (root.join("a"), root.join("b"));
         let names = |s: &AppState| {
-            let mut v: Vec<(String, String)> = s.store.list_library().unwrap().into_iter().map(|s| (s.name, s.text)).collect();
+            let mut v: Vec<(String, String)> = s
+                .store
+                .list_library()
+                .unwrap()
+                .into_iter()
+                .map(|s| (s.name, s.text))
+                .collect();
             v.sort();
             v
         };
 
         // A has two scripts and links the empty repo: they're pushed.
-        a.store.save_library_script(&script("s1", "Índices", "Reindexar", &["sqlserver"], "REBUILD 1")).unwrap();
-        a.store.save_library_script(&script("s2", "", "Colecciones", &["mongodb"], "db.x.find()")).unwrap();
-        let out = link(&a, &da, LinkArgs { remote: url.clone(), branch: "main".into() }).await.unwrap();
+        a.store
+            .save_library_script(&script(
+                "s1",
+                "Índices",
+                "Reindexar",
+                &["sqlserver"],
+                "REBUILD 1",
+            ))
+            .unwrap();
+        a.store
+            .save_library_script(&script(
+                "s2",
+                "",
+                "Colecciones",
+                &["mongodb"],
+                "db.x.find()",
+            ))
+            .unwrap();
+        let out = link(
+            &a,
+            &da,
+            LinkArgs {
+                remote: url.clone(),
+                branch: "main".into(),
+            },
+        )
+        .await
+        .unwrap();
         assert!(out.pushed);
 
         // B links it: gets both, engines included.
-        link(&b, &db, LinkArgs { remote: url.clone(), branch: "main".into() }).await.unwrap();
+        link(
+            &b,
+            &db,
+            LinkArgs {
+                remote: url.clone(),
+                branch: "main".into(),
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(names(&b), names(&a));
-        assert_eq!(b.store.list_library().unwrap().iter().find(|s| s.id == "s2").unwrap().engines, vec!["mongodb".to_string()]);
+        assert_eq!(
+            b.store
+                .list_library()
+                .unwrap()
+                .iter()
+                .find(|s| s.id == "s2")
+                .unwrap()
+                .engines,
+            vec!["mongodb".to_string()]
+        );
 
         // B edits one and deletes the other; A gets both changes.
-        b.store.save_library_script(&script("s1", "Índices", "Reindexar", &["sqlserver"], "REBUILD 2")).unwrap();
+        b.store
+            .save_library_script(&script(
+                "s1",
+                "Índices",
+                "Reindexar",
+                &["sqlserver"],
+                "REBUILD 2",
+            ))
+            .unwrap();
         b.store.delete_library_script("s2").unwrap();
         sync(&b, &db, "main", "editar").await.unwrap();
         let got = sync(&a, &da, "main", "").await.unwrap();
         assert!(got.conflicts.is_empty());
         assert_eq!((got.applied.updated, got.applied.deleted), (1, 1));
-        assert_eq!(names(&a), vec![("Reindexar".to_string(), "REBUILD 2".to_string())]);
+        assert_eq!(
+            names(&a),
+            vec![("Reindexar".to_string(), "REBUILD 2".to_string())]
+        );
 
         // Both edit the same script: A's sync stops on the conflict;
         // keeping the repo's version leaves A like B.
-        b.store.save_library_script(&script("s1", "Índices", "Reindexar", &["sqlserver"], "REBUILD B")).unwrap();
+        b.store
+            .save_library_script(&script(
+                "s1",
+                "Índices",
+                "Reindexar",
+                &["sqlserver"],
+                "REBUILD B",
+            ))
+            .unwrap();
         sync(&b, &db, "main", "").await.unwrap();
-        a.store.save_library_script(&script("s1", "Índices", "Reindexar", &["sqlserver"], "REBUILD A")).unwrap();
+        a.store
+            .save_library_script(&script(
+                "s1",
+                "Índices",
+                "Reindexar",
+                &["sqlserver"],
+                "REBUILD A",
+            ))
+            .unwrap();
         let clash = sync(&a, &da, "main", "").await.unwrap();
         assert_eq!(clash.conflicts, vec!["Índices/Reindexar.sql".to_string()]);
         resolve(&a, &da, "main", "remote").await.unwrap();
-        assert_eq!(names(&a), vec![("Reindexar".to_string(), "REBUILD B".to_string())]);
+        assert_eq!(
+            names(&a),
+            vec![("Reindexar".to_string(), "REBUILD B".to_string())]
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

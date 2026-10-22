@@ -19,7 +19,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -34,7 +36,10 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str, check: bool) {
@@ -46,9 +51,20 @@ async fn run(s: &mut Box<dyn Session>, sql: &str, check: bool) {
     }
 }
 
-async fn as_user(d: &Arc<dyn Driver>, admin: &ConnectionConfig, user: &str, pass: Option<&str>) -> Box<dyn Session> {
-    let cfg = ConnectionConfig { username: Some(user.into()), password: pass.map(Into::into), ..admin.clone() };
-    d.connect(&cfg, None).await.unwrap_or_else(|e| panic!("connect as {user}: {e}"))
+async fn as_user(
+    d: &Arc<dyn Driver>,
+    admin: &ConnectionConfig,
+    user: &str,
+    pass: Option<&str>,
+) -> Box<dyn Session> {
+    let cfg = ConnectionConfig {
+        username: Some(user.into()),
+        password: pass.map(Into::into),
+        ..admin.clone()
+    };
+    d.connect(&cfg, None)
+        .await
+        .unwrap_or_else(|e| panic!("connect as {user}: {e}"))
 }
 
 fn denied(a: &Access, what: &str) -> bool {
@@ -77,15 +93,32 @@ async fn postgres() {
     let d = driver("postgres");
     let mut s = d.connect(&admin, None).await.unwrap();
     assert_eq!(s.permissions(Some("postgres")).await.unwrap(), ADMIN_PG);
-    assert_eq!(s.permissions(None).await.unwrap().drop_database, Access::Unknown);
+    assert_eq!(
+        s.permissions(None).await.unwrap().drop_database,
+        Access::Unknown
+    );
 
-    let cleanup = ["DROP DATABASE IF EXISTS dbine_perm_db", "DROP ROLE IF EXISTS dbine_perm_lim", "DROP ROLE IF EXISTS dbine_perm_opt"];
+    let cleanup = [
+        "DROP DATABASE IF EXISTS dbine_perm_db",
+        "DROP ROLE IF EXISTS dbine_perm_lim",
+        "DROP ROLE IF EXISTS dbine_perm_opt",
+    ];
     for sql in cleanup {
         run(&mut s, sql, true).await;
     }
-    run(&mut s, "CREATE ROLE dbine_perm_lim LOGIN PASSWORD 'pw'", true).await;
+    run(
+        &mut s,
+        "CREATE ROLE dbine_perm_lim LOGIN PASSWORD 'pw'",
+        true,
+    )
+    .await;
     run(&mut s, "CREATE ROLE dbine_perm_opt LOGIN PASSWORD 'pw' CREATEDB CREATEROLE IN ROLE pg_monitor, pg_signal_backend", true).await;
-    run(&mut s, "CREATE DATABASE dbine_perm_db OWNER dbine_perm_opt", true).await;
+    run(
+        &mut s,
+        "CREATE DATABASE dbine_perm_db OWNER dbine_perm_opt",
+        true,
+    )
+    .await;
 
     let mut lim = as_user(&d, &admin, "dbine_perm_lim", Some("pw")).await;
     let p = lim.permissions(Some("dbine_perm_db")).await.unwrap();
@@ -99,8 +132,17 @@ async fn postgres() {
     drop(lim);
 
     let mut opt = as_user(&d, &admin, "dbine_perm_opt", Some("pw")).await;
-    assert_eq!(opt.permissions(Some("dbine_perm_db")).await.unwrap(), ADMIN_PG);
-    assert!(denied(&opt.permissions(Some("postgres")).await.unwrap().drop_database, "dueño"));
+    assert_eq!(
+        opt.permissions(Some("dbine_perm_db")).await.unwrap(),
+        ADMIN_PG
+    );
+    assert!(denied(
+        &opt.permissions(Some("postgres"))
+            .await
+            .unwrap()
+            .drop_database,
+        "dueño"
+    ));
     drop(opt);
 
     for sql in cleanup {
@@ -118,9 +160,16 @@ async fn cockroach() {
     };
     let d = driver("cockroachdb");
     let mut s = d.connect(&admin, None).await.unwrap();
-    assert_eq!(s.permissions(Some("defaultdb")).await.unwrap(), Permissions::all());
+    assert_eq!(
+        s.permissions(Some("defaultdb")).await.unwrap(),
+        Permissions::all()
+    );
 
-    let cleanup = ["DROP DATABASE IF EXISTS dbine_perm_db CASCADE", "DROP USER IF EXISTS dbine_perm_lim", "DROP USER IF EXISTS dbine_perm_opt"];
+    let cleanup = [
+        "DROP DATABASE IF EXISTS dbine_perm_db CASCADE",
+        "DROP USER IF EXISTS dbine_perm_lim",
+        "DROP USER IF EXISTS dbine_perm_opt",
+    ];
     // System privileges keep a user from being dropped (the users may not exist).
     for u in ["dbine_perm_lim", "dbine_perm_opt"] {
         run(&mut s, &format!("REVOKE SYSTEM ALL FROM {u}"), false).await;
@@ -129,10 +178,25 @@ async fn cockroach() {
         run(&mut s, sql, true).await;
     }
     run(&mut s, "CREATE USER dbine_perm_lim", true).await;
-    run(&mut s, "CREATE USER dbine_perm_opt WITH CREATEDB CREATEROLE", true).await;
-    run(&mut s, "GRANT SYSTEM VIEWACTIVITY, CANCELQUERY TO dbine_perm_opt", true).await;
+    run(
+        &mut s,
+        "CREATE USER dbine_perm_opt WITH CREATEDB CREATEROLE",
+        true,
+    )
+    .await;
+    run(
+        &mut s,
+        "GRANT SYSTEM VIEWACTIVITY, CANCELQUERY TO dbine_perm_opt",
+        true,
+    )
+    .await;
     run(&mut s, "CREATE DATABASE dbine_perm_db", true).await;
-    run(&mut s, "ALTER DATABASE dbine_perm_db OWNER TO dbine_perm_opt", true).await;
+    run(
+        &mut s,
+        "ALTER DATABASE dbine_perm_db OWNER TO dbine_perm_opt",
+        true,
+    )
+    .await;
 
     let mut lim = as_user(&d, &admin, "dbine_perm_lim", None).await;
     let p = lim.permissions(Some("dbine_perm_db")).await.unwrap();
@@ -143,11 +207,17 @@ async fn cockroach() {
     assert!(denied(&p.drop_database, "dueño"));
     assert!(denied(&p.manage_security, "CREATEROLE"));
     assert!(denied(&p.create_schema, "CREATE sobre la base"));
-    assert_eq!((p.profiler, p.kill_session), (Access::Unknown, Access::Unknown));
+    assert_eq!(
+        (p.profiler, p.kill_session),
+        (Access::Unknown, Access::Unknown)
+    );
     drop(lim);
 
     let mut opt = as_user(&d, &admin, "dbine_perm_opt", None).await;
-    assert_eq!(opt.permissions(Some("dbine_perm_db")).await.unwrap(), Permissions::all());
+    assert_eq!(
+        opt.permissions(Some("dbine_perm_db")).await.unwrap(),
+        Permissions::all()
+    );
     let other = opt.permissions(Some("defaultdb")).await.unwrap();
     eprintln!("cockroach owner on defaultdb: {other:?}");
     assert!(denied(&other.backup, "BACKUP"));
@@ -170,7 +240,11 @@ async fn h2() {
     };
     let d = driver("h2");
     let mut s = d.connect(&admin, None).await.unwrap();
-    let all = Permissions { create_database: Access::Unknown, drop_database: Access::Unknown, ..Permissions::all() };
+    let all = Permissions {
+        create_database: Access::Unknown,
+        drop_database: Access::Unknown,
+        ..Permissions::all()
+    };
     assert_eq!(s.permissions(None).await.unwrap(), all);
 
     run(&mut s, "DROP USER IF EXISTS DBINE_PERM_LIM", true).await;
@@ -178,7 +252,13 @@ async fn h2() {
     let mut lim = as_user(&d, &admin, "DBINE_PERM_LIM", Some("pw")).await;
     let p = lim.permissions(None).await.unwrap();
     eprintln!("h2 limited: {p:?}");
-    for a in [&p.backup, &p.restore, &p.profiler, &p.kill_session, &p.manage_security] {
+    for a in [
+        &p.backup,
+        &p.restore,
+        &p.profiler,
+        &p.kill_session,
+        &p.manage_security,
+    ] {
         assert!(denied(a, "ADMIN"), "{p:?}");
     }
     drop(lim);
@@ -200,10 +280,20 @@ async fn opengauss() {
     assert_eq!(s.permissions(Some("postgres")).await.unwrap(), ADMIN_PG);
 
     run(&mut s, "DROP USER IF EXISTS dbine_perm_lim", true).await;
-    run(&mut s, "CREATE USER dbine_perm_lim PASSWORD 'Dbine@1234'", true).await;
+    run(
+        &mut s,
+        "CREATE USER dbine_perm_lim PASSWORD 'Dbine@1234'",
+        true,
+    )
+    .await;
     // The new user's password only has openGauss's sha256 hash, which the
     // client can't log in with: become it in this session instead.
-    run(&mut s, "SET ROLE dbine_perm_lim PASSWORD 'Dbine@1234'", true).await;
+    run(
+        &mut s,
+        "SET ROLE dbine_perm_lim PASSWORD 'Dbine@1234'",
+        true,
+    )
+    .await;
     let p = s.permissions(Some("postgres")).await.unwrap();
     eprintln!("opengauss limited: {p:?}");
     assert!(denied(&p.profiler, "MONADMIN"));
@@ -229,7 +319,10 @@ async fn materialize() {
     let mut s = d.connect(&admin, None).await.unwrap();
     let p = s.permissions(Some("materialize")).await.unwrap();
     eprintln!("materialize: {p:?}");
-    assert_eq!((p.create_database, p.manage_security), (Access::Allowed, Access::Allowed));
+    assert_eq!(
+        (p.create_database, p.manage_security),
+        (Access::Allowed, Access::Allowed)
+    );
     assert_eq!(p.kill_session, Access::Unknown);
 
     run(&mut s, "DROP ROLE IF EXISTS dbine_perm_lim", true).await;

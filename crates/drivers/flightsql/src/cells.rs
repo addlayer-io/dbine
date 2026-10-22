@@ -8,7 +8,9 @@ use dbine_driver::{json_bytes, json_f64, json_i64, json_u64};
 use serde_json::Value;
 
 fn display(a: &dyn Array, row: usize) -> Value {
-    arrow_cast::display::array_value_to_string(a, row).map(Value::String).unwrap_or(Value::Null)
+    arrow_cast::display::array_value_to_string(a, row)
+        .map(Value::String)
+        .unwrap_or(Value::Null)
 }
 
 /// One cell: integers checked for JS precision, binaries as `0x…`, dates
@@ -34,9 +36,12 @@ pub fn cell(a: &dyn Array, row: usize) -> Value {
         DataType::Utf8 => Value::String(a.as_string::<i32>().value(row).to_string()),
         DataType::LargeUtf8 => Value::String(a.as_string::<i64>().value(row).to_string()),
         DataType::Utf8View => Value::String(a.as_string_view().value(row).to_string()),
-        DataType::Binary | DataType::LargeBinary | DataType::BinaryView | DataType::FixedSizeBinary(_) => {
-            binary_at(a, row).map(|b| json_bytes(&b)).unwrap_or(Value::Null)
-        }
+        DataType::Binary
+        | DataType::LargeBinary
+        | DataType::BinaryView
+        | DataType::FixedSizeBinary(_) => binary_at(a, row)
+            .map(|b| json_bytes(&b))
+            .unwrap_or(Value::Null),
         DataType::Timestamp(..) => match display(a, row) {
             Value::String(s) => Value::String(s.replacen('T', " ", 1)),
             v => v,
@@ -60,8 +65,13 @@ pub fn binary_at(a: &dyn Array, row: usize) -> Option<Vec<u8>> {
 
 /// `GetSqlInfo` rows: (info id, value of the dense union).
 pub fn sql_info_rows(b: &RecordBatch) -> Vec<(u32, Value)> {
-    let (Some(ids), Some(values)) = (b.column_by_name("info_name"), b.column_by_name("value")) else { return Vec::new() };
-    let Some(u) = values.as_any().downcast_ref::<UnionArray>() else { return Vec::new() };
+    let (Some(ids), Some(values)) = (b.column_by_name("info_name"), b.column_by_name("value"))
+    else {
+        return Vec::new();
+    };
+    let Some(u) = values.as_any().downcast_ref::<UnionArray>() else {
+        return Vec::new();
+    };
     let ids = ids.as_primitive::<UInt32Type>();
     (0..b.num_rows())
         .map(|r| {
@@ -74,13 +84,19 @@ pub fn sql_info_rows(b: &RecordBatch) -> Vec<(u32, Value)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow_array::{ArrayRef, BinaryArray, Int64Array, StringArray, TimestampMillisecondArray, UInt64Array};
+    use arrow_array::{
+        ArrayRef, BinaryArray, Int64Array, StringArray, TimestampMillisecondArray, UInt64Array,
+    };
     use serde_json::json;
     use std::sync::Arc;
 
     #[test]
     fn cells() {
-        let big: ArrayRef = Arc::new(Int64Array::from(vec![Some(9007199254740993), None, Some(1)]));
+        let big: ArrayRef = Arc::new(Int64Array::from(vec![
+            Some(9007199254740993),
+            None,
+            Some(1),
+        ]));
         assert_eq!(cell(big.as_ref(), 0), json!("9007199254740993"));
         assert_eq!(cell(big.as_ref(), 1), Value::Null);
         assert_eq!(cell(big.as_ref(), 2), json!(1));

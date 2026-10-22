@@ -29,7 +29,9 @@ fn config(env: &str) -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
@@ -41,7 +43,9 @@ async fn try_run(s: &mut Box<dyn Session>, sql: &str) {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn dba_and_limited_user() {
-    let Some(cfg) = config("DBINE_TEST_ORACLE_ADMIN_URL") else { return };
+    let Some(cfg) = config("DBINE_TEST_ORACLE_ADMIN_URL") else {
+        return;
+    };
     let d = dbine_driver_oracle::drivers().remove(0);
     let mut admin = d.connect(&cfg, None).await.unwrap();
     let p = admin.permissions(Some("HR")).await.unwrap();
@@ -49,8 +53,16 @@ async fn dba_and_limited_user() {
     assert_eq!(p, Permissions::all());
 
     try_run(&mut admin, "DROP USER DBINE_PERM CASCADE").await;
-    run(&mut admin, "CREATE USER DBINE_PERM IDENTIFIED BY \"Perm_123\" QUOTA 10M ON USERS").await;
-    run(&mut admin, "GRANT CREATE SESSION, CREATE TABLE TO DBINE_PERM").await;
+    run(
+        &mut admin,
+        "CREATE USER DBINE_PERM IDENTIFIED BY \"Perm_123\" QUOTA 10M ON USERS",
+    )
+    .await;
+    run(
+        &mut admin,
+        "GRANT CREATE SESSION, CREATE TABLE TO DBINE_PERM",
+    )
+    .await;
 
     let mut user_cfg = cfg.clone();
     user_cfg.username = Some("DBINE_PERM".into());
@@ -58,21 +70,58 @@ async fn dba_and_limited_user() {
     let mut u = d.connect(&user_cfg, None).await.unwrap();
     let own = u.permissions(Some("DBINE_PERM")).await.unwrap();
     println!("own schema: {own:?}");
-    assert_eq!((own.backup, own.restore), (Access::Allowed, Access::Allowed));
+    assert_eq!(
+        (own.backup, own.restore),
+        (Access::Allowed, Access::Allowed)
+    );
     let other = u.permissions(Some("SYSTEM")).await.unwrap();
     println!("another schema: {other:?}");
-    assert_eq!(other.backup, Access::Denied { missing: "DATAPUMP_EXP_FULL_DATABASE".into() });
-    assert_eq!(other.restore, Access::Denied { missing: "DATAPUMP_IMP_FULL_DATABASE".into() });
+    assert_eq!(
+        other.backup,
+        Access::Denied {
+            missing: "DATAPUMP_EXP_FULL_DATABASE".into()
+        }
+    );
+    assert_eq!(
+        other.restore,
+        Access::Denied {
+            missing: "DATAPUMP_IMP_FULL_DATABASE".into()
+        }
+    );
     assert!(other.profiler.is_denied());
-    assert_eq!(other.kill_session, Access::Denied { missing: "ALTER SYSTEM".into() });
-    assert_eq!(other.create_database, Access::Denied { missing: "CREATE USER".into() });
-    assert_eq!(other.create_schema, Access::Denied { missing: "CREATE USER".into() });
-    assert_eq!(other.drop_database, Access::Denied { missing: "DROP USER".into() });
+    assert_eq!(
+        other.kill_session,
+        Access::Denied {
+            missing: "ALTER SYSTEM".into()
+        }
+    );
+    assert_eq!(
+        other.create_database,
+        Access::Denied {
+            missing: "CREATE USER".into()
+        }
+    );
+    assert_eq!(
+        other.create_schema,
+        Access::Denied {
+            missing: "CREATE USER".into()
+        }
+    );
+    assert_eq!(
+        other.drop_database,
+        Access::Denied {
+            missing: "DROP USER".into()
+        }
+    );
     assert!(other.manage_security.is_denied());
     drop(u);
 
     // Roles are enabled at login: a new session sees them.
-    run(&mut admin, "GRANT SELECT_CATALOG_ROLE, DATAPUMP_EXP_FULL_DATABASE TO DBINE_PERM").await;
+    run(
+        &mut admin,
+        "GRANT SELECT_CATALOG_ROLE, DATAPUMP_EXP_FULL_DATABASE TO DBINE_PERM",
+    )
+    .await;
     let mut u = d.connect(&user_cfg, None).await.unwrap();
     let p = u.permissions(Some("SYSTEM")).await.unwrap();
     println!("with roles: {p:?}");

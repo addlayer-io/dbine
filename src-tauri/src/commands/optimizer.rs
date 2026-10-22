@@ -37,14 +37,24 @@ fn ai_runs() -> &'static DashMap<String, Cancel> {
     R.get_or_init(DashMap::new)
 }
 
-async fn structure(state: &AppState, connection_id: &str, database: &str) -> CommandResult<Arc<Vec<TableSchema>>> {
+async fn structure(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+) -> CommandResult<Arc<Vec<TableSchema>>> {
     let key = format!("{connection_id}\u{0}{database}");
     if let Some(e) = schemas().get(&key) {
         if e.0.elapsed() < SCHEMA_TTL {
             return Ok(e.1.clone());
         }
     }
-    let tables = Arc::new(state.meta_read(connection_id, database, Duration::from_secs(60), |s| Box::pin(s.database_schema())).await?);
+    let tables = Arc::new(
+        state
+            .meta_read(connection_id, database, Duration::from_secs(60), |s| {
+                Box::pin(s.database_schema())
+            })
+            .await?,
+    );
     schemas().insert(key, (Instant::now(), tables.clone()));
     Ok(tables)
 }
@@ -52,13 +62,17 @@ async fn structure(state: &AppState, connection_id: &str, database: &str) -> Com
 /// The statement writes (SQL only; other languages are refused by the
 /// read-only session itself).
 pub(crate) fn writes(driver: &dyn Driver, sql: &str) -> bool {
-    driver.info().language == Language::Sql && dbine_driver::read_only::first_write_in(sql, &driver.script_dialect()).is_some()
+    driver.info().language == Language::Sql
+        && dbine_driver::read_only::first_write_in(sql, &driver.script_dialect()).is_some()
 }
 
 /// CREATE INDEX in the driver's language; a plain one when the driver
 /// doesn't generate DDL.
 fn index_script(driver: &dyn Driver, t: &TableSchema) -> Option<String> {
-    let parts = DdlParts { indexes: true, ..Default::default() };
+    let parts = DdlParts {
+        indexes: true,
+        ..Default::default()
+    };
     if let Ok(s) = driver.table_ddl(t, parts) {
         if !s.trim().is_empty() {
             return Some(s);
@@ -74,7 +88,15 @@ fn index_script(driver: &dyn Driver, t: &TableSchema) -> Option<String> {
         Some(s) => format!("{}.{}", id(s), id(&t.name)),
         None => id(&t.name),
     };
-    Some(format!("CREATE INDEX {} ON {table} ({});", id(&ix.name), ix.columns.iter().map(|c| id(c)).collect::<Vec<_>>().join(", ")))
+    Some(format!(
+        "CREATE INDEX {} ON {table} ({});",
+        id(&ix.name),
+        ix.columns
+            .iter()
+            .map(|c| id(c))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
 }
 
 #[derive(Deserialize)]
@@ -106,7 +128,10 @@ pub struct Analysis {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn optimizer_analyze(state: State<'_, AppState>, args: AnalyzeArgs) -> CommandResult<Analysis> {
+pub async fn optimizer_analyze(
+    state: State<'_, AppState>,
+    args: AnalyzeArgs,
+) -> CommandResult<Analysis> {
     let driver = driver_of(&state, &args.connection_id)?;
     let info = driver.info();
     let mut skipped = Vec::new();
@@ -124,7 +149,9 @@ pub async fn optimizer_analyze(state: State<'_, AppState>, args: AnalyzeArgs) ->
     let mut plans = Vec::new();
     if driver.supports_explain() {
         let key = format!("optimize:{}", args.run_id);
-        let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+        let entry = state
+            .dedicated_session(&key, &args.connection_id, &args.database, true)
+            .await?;
         let mut out = QueryOutcome::default();
         let r = {
             let mut s = entry.session.lock().await;
@@ -140,15 +167,34 @@ pub async fn optimizer_analyze(state: State<'_, AppState>, args: AnalyzeArgs) ->
             None => return Err(CommandError::Cancelled),
         }
     }
-    Ok(build(driver.as_ref(), &args.sql, tables.as_deref().map(Vec::as_slice), plans, skipped))
+    Ok(build(
+        driver.as_ref(),
+        &args.sql,
+        tables.as_deref().map(Vec::as_slice),
+        plans,
+        skipped,
+    ))
 }
 
 /// The analysis of `sql` once the structure and the plans are read.
-pub(crate) fn build(driver: &dyn Driver, sql: &str, tables: Option<&[TableSchema]>, plans: Vec<Plan>, skipped: Vec<String>) -> Analysis {
+pub(crate) fn build(
+    driver: &dyn Driver,
+    sql: &str,
+    tables: Option<&[TableSchema]>,
+    plans: Vec<Plan>,
+    skipped: Vec<String>,
+) -> Analysis {
     let info = driver.info();
     let (candidates, notes) = optimizer::rewrites(sql, info.language, info.dialect, tables);
     let ddl = |t: &TableSchema| index_script(driver, t);
-    let found = hints::from_plans(&plans, sql, info.dialect, info.language != Language::Sql, tables, &ddl);
+    let found = hints::from_plans(
+        &plans,
+        sql,
+        info.dialect,
+        info.language != Language::Sql,
+        tables,
+        &ddl,
+    );
     let costs: Vec<f64> = plans.iter().filter_map(|p| p.root.total_cost).collect();
     Analysis {
         language: info.language,
@@ -198,12 +244,19 @@ pub struct AiOut {
 /// The engine's error for each candidate that doesn't compile: its estimated
 /// plan is asked for on a read-only session, so nothing runs. Engines without
 /// plans can't tell: their candidates pass, and Compare shows any error.
-async fn compile_errors(state: &AppState, driver: &dyn Driver, args: &AiArgs, cands: &[Candidate]) -> CommandResult<Vec<Option<String>>> {
+async fn compile_errors(
+    state: &AppState,
+    driver: &dyn Driver,
+    args: &AiArgs,
+    cands: &[Candidate],
+) -> CommandResult<Vec<Option<String>>> {
     if !driver.supports_explain() || cands.is_empty() {
         return Ok(vec![None; cands.len()]);
     }
     let key = format!("optimize:{}", args.run_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, true)
+        .await?;
     let mut errors = Vec::with_capacity(cands.len());
     let mut cancelled = false;
     for c in cands {
@@ -223,21 +276,32 @@ async fn compile_errors(state: &AppState, driver: &dyn Driver, args: &AiArgs, ca
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, args: AiArgs) -> CommandResult<AiOut> {
+pub async fn optimizer_ai(
+    state: State<'_, AppState>,
+    ai: State<'_, AiRuntime>,
+    args: AiArgs,
+) -> CommandResult<AiOut> {
     let driver = driver_of(&state, &args.connection_id)?;
     let info = driver.info();
     let cancel = Cancel::new();
     ai_runs().insert(args.run_id.clone(), cancel.clone());
     let result = async {
         let mut sent = Vec::new();
-        let budget = if args.provider.local() { 12_000 } else { 60_000 };
+        let budget = if args.provider.local() {
+            12_000
+        } else {
+            60_000
+        };
         // The instructions go in the UI language (English when unknown).
         let p = dbine_ai::prompts::get(args.ui_language.as_deref().unwrap_or(""));
         let structure_text = match structure(&state, &args.connection_id, &args.database).await {
             Ok(t) => {
                 let s = prompts::structure(&t, &args.sql, budget, p);
                 if !s.is_empty() {
-                    sent.push(format!("{} tablas", s.lines().filter(|l| !l.starts_with("  ")).count()));
+                    sent.push(format!(
+                        "{} tablas",
+                        s.lines().filter(|l| !l.starts_with("  ")).count()
+                    ));
                 }
                 s
             }
@@ -265,7 +329,10 @@ pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, 
             kind: args.provider,
             model: args.model.clone(),
             system: prompts::system_prompt(p, info.name, &language),
-            messages: vec![ChatMessage { role: "user".into(), content: prompts::user_prompt(&args.sql, &structure_text, &plan) }],
+            messages: vec![ChatMessage {
+                role: "user".into(),
+                content: prompts::user_prompt(&args.sql, &structure_text, &plan),
+            }],
             lang: p.lang(),
         };
         let text = dbine_ai::chat(&req, &ai.endpoints, &|_| {}, &cancel).await?;
@@ -285,12 +352,23 @@ pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, 
         let mut discarded = failed.len();
         if !failed.is_empty() {
             let mut req = req;
-            req.messages.push(ChatMessage { role: "assistant".into(), content: text });
-            req.messages.push(ChatMessage { role: "user".into(), content: prompts::repair_prompt(p, &failed) });
+            req.messages.push(ChatMessage {
+                role: "assistant".into(),
+                content: text,
+            });
+            req.messages.push(ChatMessage {
+                role: "user".into(),
+                content: prompts::repair_prompt(p, &failed),
+            });
             let fixed_text = dbine_ai::chat(&req, &ai.endpoints, &|_| {}, &cancel).await?;
             let fixed: Vec<Candidate> = prompts::parse(&fixed_text, &args.sql)
                 .into_iter()
-                .filter(|f| !candidates.iter().chain(failed.iter().map(|(c, _)| c)).any(|c: &Candidate| c.sql.trim() == f.sql.trim()))
+                .filter(|f| {
+                    !candidates
+                        .iter()
+                        .chain(failed.iter().map(|(c, _)| c))
+                        .any(|c: &Candidate| c.sql.trim() == f.sql.trim())
+                })
                 .take(failed.len())
                 .collect();
             let errors = compile_errors(&state, driver.as_ref(), &args, &fixed).await?;
@@ -300,14 +378,21 @@ pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, 
                         candidates.push(c);
                         discarded -= 1;
                     }
-                    Some(e) => tracing::debug!("optimizer: an AI alternative still doesn't compile: {e}"),
+                    Some(e) => {
+                        tracing::debug!("optimizer: an AI alternative still doesn't compile: {e}")
+                    }
                 }
             }
         }
         for (i, c) in candidates.iter_mut().enumerate() {
             c.id = format!("ai-{}-{i}", args.run_id);
         }
-        Ok(AiOut { candidates, none, sent, discarded })
+        Ok(AiOut {
+            candidates,
+            none,
+            sent,
+            discarded,
+        })
     }
     .await;
     ai_runs().remove(&args.run_id);
@@ -338,14 +423,22 @@ struct Progress<'a> {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn optimizer_compare(app: AppHandle, state: State<'_, AppState>, args: CompareArgs) -> CommandResult<Vec<Measure>> {
+pub async fn optimizer_compare(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: CompareArgs,
+) -> CommandResult<Vec<Measure>> {
     let driver = driver_of(&state, &args.connection_id)?;
     let info = driver.info();
-    let Some(original) = args.versions.first() else { return Ok(Vec::new()) };
+    let Some(original) = args.versions.first() else {
+        return Ok(Vec::new());
+    };
     let original_writes = writes(driver.as_ref(), &original.sql);
     let ordered = optimizer::ordered(&original.sql, info.language, info.dialect);
     let key = format!("optimize:{}", args.run_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, true)
+        .await?;
     let mut measures = Vec::new();
     {
         let mut s = entry.session.lock().await;
@@ -366,7 +459,13 @@ pub async fn optimizer_compare(app: AppHandle, state: State<'_, AppState>, args:
                 m = compare::measure(&mut **s, v, &o, &cancelled) => m,
                 _ = entry.cancel.notified() => break,
             };
-            let _ = app.emit("optimizer-progress", Progress { run_id: &args.run_id, measure: &m });
+            let _ = app.emit(
+                "optimizer-progress",
+                Progress {
+                    run_id: &args.run_id,
+                    measure: &m,
+                },
+            );
             measures.push(m);
         }
     }
@@ -390,7 +489,11 @@ pub async fn optimizer_cancel(state: State<'_, AppState>, args: CancelArgs) -> C
     if let Some((_, c)) = ai_runs().remove(&args.run_id) {
         c.cancel();
     }
-    if let Some(entry) = state.sessions.get(&format!("optimize:{}", args.run_id)).map(|e| e.clone()) {
+    if let Some(entry) = state
+        .sessions
+        .get(&format!("optimize:{}", args.run_id))
+        .map(|e| e.clone())
+    {
         entry.cancelled.store(true, Ordering::SeqCst);
         if let Some(i) = &entry.interrupter {
             i();

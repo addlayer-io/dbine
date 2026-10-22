@@ -19,15 +19,29 @@ const MAX_ROWS: usize = 2000;
 
 /// A `requestId`: a UUID.
 pub(crate) fn valid_request_id(id: &str) -> bool {
-    id.len() == 36 && id.char_indices().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { c == '-' } else { c.is_ascii_hexdigit() })
+    id.len() == 36
+        && id.char_indices().all(|(i, c)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                c == '-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        })
 }
 
 fn s<'a>(r: &'a Value, k: &str) -> Option<&'a str> {
-    r.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
+    r.get(k)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
 }
 
 pub(crate) fn rows(results: &[Value], own_ctx: &str) -> Vec<ServerProcess> {
-    let ms = |r: &Value, k: &str| s(r, k).and_then(plan::duration_ms).map(|v| v.max(0.0) as u64);
+    let ms = |r: &Value, k: &str| {
+        s(r, k)
+            .and_then(plan::duration_ms)
+            .map(|v| v.max(0.0) as u64)
+    };
     let mut out: Vec<ServerProcess> = results
         .iter()
         .filter_map(|r| {
@@ -40,7 +54,8 @@ pub(crate) fn rows(results: &[Value], own_ctx: &str) -> Vec<ServerProcess> {
                 user: s(r, "users").map(str::to_string),
                 host: s(r, "remoteAddr").map(str::to_string),
                 program: s(r, "userAgent").map(str::to_string),
-                database: s(r, "queryContext").map(|c| c.trim_start_matches("default:").to_string()),
+                database: s(r, "queryContext")
+                    .map(|c| c.trim_start_matches("default:").to_string()),
                 command: s(r, "statementType").map(str::to_string),
                 elapsed_ms: ms(r, "elapsedTime"),
                 cpu_ms: ms(r, "cpuTime"),
@@ -65,16 +80,26 @@ pub(crate) async fn processes(s: &CbSession) -> Result<Vec<ServerProcess>> {
         "timeout": "5s",
     });
     let v = s.cancel.run(s.conn.post_query(&body)).await?;
-    Ok(rows(v.get("results").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]), &own))
+    Ok(rows(
+        v.get("results")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+        &own,
+    ))
 }
 
 pub(crate) async fn cancel(s: &CbSession, id: &str) -> Result<()> {
     if s.conn.read_only {
-        return Err(Error::Query("Conexión de solo lectura: no se pueden cancelar consultas.".into()));
+        return Err(Error::Query(
+            "Conexión de solo lectura: no se pueden cancelar consultas.".into(),
+        ));
     }
     let id = id.trim();
     if !valid_request_id(id) {
-        return Err(Error::Query(format!("«{id}» no es un id de consulta (requestId)")));
+        return Err(Error::Query(format!(
+            "«{id}» no es un id de consulta (requestId)"
+        )));
     }
     s.cancel.flag.store(false, Ordering::SeqCst);
     let quoted = serde_json::to_string(id).unwrap_or_default();
@@ -86,11 +111,19 @@ pub(crate) async fn cancel(s: &CbSession, id: &str) -> Result<()> {
         .await?;
     // DBine's own requests (the listing) have ended by the time a row can
     // be picked: there's no session of its own to protect.
-    if found.get("results").and_then(Value::as_array).is_none_or(|a| a.is_empty()) {
-        return Err(Error::Query(format!("la consulta {id} ya terminó o no existe")));
+    if found
+        .get("results")
+        .and_then(Value::as_array)
+        .is_none_or(|a| a.is_empty())
+    {
+        return Err(Error::Query(format!(
+            "la consulta {id} ya terminó o no existe"
+        )));
     }
     let stmt = format!("DELETE FROM system:active_requests WHERE requestId = {quoted}");
-    s.cancel.run(s.conn.post_query(&json!({ "statement": stmt }))).await?;
+    s.cancel
+        .run(s.conn.post_query(&json!({ "statement": stmt })))
+        .await?;
     Ok(())
 }
 
@@ -111,9 +144,15 @@ mod tests {
         let p = rows(&r, "me");
         assert_eq!(p.len(), 2);
         assert_eq!(p[0].elapsed_ms, Some(2500));
-        assert_eq!((p[0].database.as_deref(), p[0].reads), (Some("`b`.`_default`"), Some(12)));
+        assert_eq!(
+            (p[0].database.as_deref(), p[0].reads),
+            (Some("`b`.`_default`"), Some(12))
+        );
         assert!(p[1].own && p[1].active);
-        assert_eq!((p[1].elapsed_ms, p[1].cpu_ms, p[1].command.as_deref()), (Some(5), Some(0), Some("SELECT")));
+        assert_eq!(
+            (p[1].elapsed_ms, p[1].cpu_ms, p[1].command.as_deref()),
+            (Some(5), Some(0), Some("SELECT"))
+        );
         assert!(valid_request_id("3a41b771-da0e-480d-a3a2-43505058e00f"));
         assert!(!valid_request_id("1\" OR 1=1") && !valid_request_id(""));
     }

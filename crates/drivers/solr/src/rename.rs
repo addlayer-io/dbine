@@ -6,7 +6,7 @@
 //! CoreAdmin call is sent as is and the server refuses it there
 //! ([`CLOUD`] explains why).
 
-use dbine_driver::rename::{Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle};
+use dbine_driver::rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget};
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
 pub(crate) const NOTE: &str = "Solo en modo standalone: el core se renombra con CoreAdmin RENAME y su carpeta en el disco conserva el nombre anterior. \
@@ -32,7 +32,11 @@ pub(crate) fn spec() -> RenameSpec {
 
 /// Solr's rule for core and collection names.
 fn check_name(name: &str) -> Result<()> {
-    let ok = !name.is_empty() && !name.starts_with('-') && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    let ok = !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
     if ok {
         Ok(())
     } else {
@@ -55,7 +59,10 @@ pub(crate) fn script(req: &RenameRequest) -> Result<SyncScript> {
 
 /// The request is CoreAdmin's `RENAME` (sent to SolrCloud, it's refused).
 pub(crate) fn is_core_rename(req: &dbine_driver_elasticsearch::console::Request) -> bool {
-    matches!(req.segments().as_slice(), ["solr", "admin", "cores", ..]) && req.query_param("action").is_some_and(|a| a.eq_ignore_ascii_case("RENAME"))
+    matches!(req.segments().as_slice(), ["solr", "admin", "cores", ..])
+        && req
+            .query_param("action")
+            .is_some_and(|a| a.eq_ignore_ascii_case("RENAME"))
 }
 
 #[cfg(test)]
@@ -64,28 +71,68 @@ mod tests {
     use dbine_driver::ObjectRef;
 
     fn req(target: RenameTarget, new: &str) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: None }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: None,
+        }
     }
 
     fn collection(name: &str) -> RenameTarget {
-        RenameTarget::Object { object: ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: name.into() }, parent: None }
+        RenameTarget::Object {
+            object: ObjectRef {
+                kind: kinds::COLLECTION.into(),
+                schema: None,
+                name: name.into(),
+            },
+            parent: None,
+        }
     }
 
     #[test]
     fn core_rename() {
         let s = script(&req(collection("libros"), "Libros_v2.1")).unwrap();
-        assert_eq!(s.statements, vec!["GET /solr/admin/cores?action=RENAME&core=libros&other=Libros_v2.1"]);
-        assert!(script(&req(collection("libros"), "mis libros")).unwrap_err().to_string().contains("no es válido"));
+        assert_eq!(
+            s.statements,
+            vec!["GET /solr/admin/cores?action=RENAME&core=libros&other=Libros_v2.1"]
+        );
+        assert!(script(&req(collection("libros"), "mis libros"))
+            .unwrap_err()
+            .to_string()
+            .contains("no es válido"));
         assert!(script(&req(collection("libros"), "-x")).is_err());
         let console = dbine_driver_elasticsearch::console::parse(&s.statements[0]).unwrap();
-        let dbine_driver_elasticsearch::console::Command::Http(r) = &console[0] else { panic!() };
+        let dbine_driver_elasticsearch::console::Command::Http(r) = &console[0] else {
+            panic!()
+        };
         assert!(is_core_rename(r));
     }
 
     #[test]
     fn fields_are_refused() {
-        let t = ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: "c".into() };
-        assert!(script(&req(RenameTarget::Column { table: t, column: "a".into() }, "b")).unwrap_err().to_string().contains("reindexar"));
-        assert!(script(&req(RenameTarget::Schema { database: None, schema: "s".into() }, "b")).is_err());
+        let t = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: None,
+            name: "c".into(),
+        };
+        assert!(script(&req(
+            RenameTarget::Column {
+                table: t,
+                column: "a".into()
+            },
+            "b"
+        ))
+        .unwrap_err()
+        .to_string()
+        .contains("reindexar"));
+        assert!(script(&req(
+            RenameTarget::Schema {
+                database: None,
+                schema: "s".into()
+            },
+            "b"
+        ))
+        .is_err());
     }
 }

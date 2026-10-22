@@ -13,12 +13,24 @@
 
 use super::{db2_auths, first, get, ident, lit, privileges, role, rows, user, Dialect, Row};
 use crate::OdbcSession;
-use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use std::collections::{HashMap, HashSet};
 
 pub fn spec_i() -> SecuritySpec {
     SecuritySpec {
-        privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "ALTER", "INDEX", "REFERENCES", "EXECUTE", "ALL"],
+        privileges: vec![
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "ALTER",
+            "INDEX",
+            "REFERENCES",
+            "EXECUTE",
+            "ALL",
+        ],
         object_kinds: vec![kinds::TABLE, kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION],
         create_user: false,
         create_role: false,
@@ -31,9 +43,33 @@ pub fn spec_i() -> SecuritySpec {
 pub fn spec_z() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
-            "SELECT", "INSERT", "UPDATE", "DELETE", "ALTER", "INDEX", "REFERENCES", "TRIGGER", "CREATEIN", "ALTERIN", "DROPIN",
-            "BINDADD", "CREATEDBA", "CREATEDBC", "CREATEALIAS", "CREATETMTABLE", "MONITOR1", "MONITOR2", "DISPLAY", "TRACE",
-            "SQLADM", "DATAACCESS", "ACCESSCTRL", "SYSOPR", "SYSCTRL", "SYSADM", "ALL",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "ALTER",
+            "INDEX",
+            "REFERENCES",
+            "TRIGGER",
+            "CREATEIN",
+            "ALTERIN",
+            "DROPIN",
+            "BINDADD",
+            "CREATEDBA",
+            "CREATEDBC",
+            "CREATEALIAS",
+            "CREATETMTABLE",
+            "MONITOR1",
+            "MONITOR2",
+            "DISPLAY",
+            "TRACE",
+            "SQLADM",
+            "DATAACCESS",
+            "ACCESSCTRL",
+            "SYSOPR",
+            "SYSCTRL",
+            "SYSADM",
+            "ALL",
         ],
         // "" = the subsystem (system privileges).
         object_kinds: vec!["", "schema", kinds::TABLE, kinds::VIEW],
@@ -72,18 +108,29 @@ pub(super) fn i_principal(u: &Row, is_group: bool) -> Principal {
         ("user_class_name", "Clase"),
         ("special_authorities", "Autorizaciones especiales"),
         ("previous_signon", "Último ingreso"),
-        ("password_expiration_interval", "Vencimiento de la contraseña"),
+        (
+            "password_expiration_interval",
+            "Vencimiento de la contraseña",
+        ),
     ] {
         let v = get(u, k);
         if !v.is_empty() && v != "*NONE" {
             details.push((label.to_string(), v.to_string()));
         }
     }
-    let base = if is_group { role(Dialect::Db2i, &name) } else { user(&name) };
+    let base = if is_group {
+        role(Dialect::Db2i, &name)
+    } else {
+        user(&name)
+    };
     Principal {
         superuser: Some(special.contains("*ALLOBJ") || special.contains("*SECADM")),
         disabled: Some(get(u, "status").eq_ignore_ascii_case("*DISABLED")),
-        can_login: if is_group { Some(false) } else { Some(!get(u, "status").eq_ignore_ascii_case("*DISABLED")) },
+        can_login: if is_group {
+            Some(false)
+        } else {
+            Some(!get(u, "status").eq_ignore_ascii_case("*DISABLED"))
+        },
         member_of: groups_of(u),
         system: name.starts_with('Q') || name.eq_ignore_ascii_case("PUBLIC"),
         details,
@@ -94,9 +141,17 @@ pub(super) fn i_principal(u: &Row, is_group: bool) -> Principal {
 async fn i_profiles(s: &OdbcSession) -> Result<(Vec<Row>, HashSet<String>)> {
     let all = rows(s, "SELECT * FROM QSYS2.USER_INFO").await?;
     // A group profile: one that's someone's group, or flagged as such.
-    let mut groups: HashSet<String> = all.iter().flat_map(groups_of).map(|g| g.to_ascii_uppercase()).collect();
+    let mut groups: HashSet<String> = all
+        .iter()
+        .flat_map(groups_of)
+        .map(|g| g.to_ascii_uppercase())
+        .collect();
     for u in &all {
-        if get(u, "group_member_indicator").eq_ignore_ascii_case("YES") || get(u, "group_id_number").parse::<u64>().is_ok_and(|n| n > 0) {
+        if get(u, "group_member_indicator").eq_ignore_ascii_case("YES")
+            || get(u, "group_id_number")
+                .parse::<u64>()
+                .is_ok_and(|n| n > 0)
+        {
             groups.insert(get(u, "authorization_name").to_ascii_uppercase());
         }
     }
@@ -105,7 +160,15 @@ async fn i_profiles(s: &OdbcSession) -> Result<(Vec<Row>, HashSet<String>)> {
 
 pub async fn i_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
     let (all, groups) = i_profiles(s).await?;
-    Ok(all.iter().map(|u| i_principal(u, groups.contains(&get(u, "authorization_name").to_ascii_uppercase()))).collect())
+    Ok(all
+        .iter()
+        .map(|u| {
+            i_principal(
+                u,
+                groups.contains(&get(u, "authorization_name").to_ascii_uppercase()),
+            )
+        })
+        .collect())
 }
 
 fn table_kind(t: &str) -> &'static str {
@@ -120,7 +183,10 @@ pub async fn i_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
     let (all, _) = i_profiles(s).await?;
     let name = super::grantee(principal).1;
     let mut who = vec![(name.to_string(), None::<String>)];
-    if let Some(u) = all.iter().find(|u| get(u, "authorization_name").eq_ignore_ascii_case(name)) {
+    if let Some(u) = all
+        .iter()
+        .find(|u| get(u, "authorization_name").eq_ignore_ascii_case(name))
+    {
         who.extend(groups_of(u).into_iter().map(|g| (g.clone(), Some(g))));
     }
     let mut out = Vec::new();
@@ -133,19 +199,46 @@ pub async fn i_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
             Ok(rs) => {
                 for r in rs {
                     let object = format!("{}.{}", get(&r, "table_schema"), get(&r, "table_name"));
-                    out.extend(db2_auths(&r, Some(object), Some(table_kind(get(&r, "objtype"))), &via));
+                    out.extend(db2_auths(
+                        &r,
+                        Some(object),
+                        Some(table_kind(get(&r, "objtype"))),
+                        &via,
+                    ));
                 }
             }
             Err(e) if via.is_none() => return Err(e),
             Err(_) => {}
         }
-        let routines = format!("SELECT * FROM QSYS2.SYSROUTINEAUTH WHERE GRANTEE = {}", lit(&n));
+        let routines = format!(
+            "SELECT * FROM QSYS2.SYSROUTINEAUTH WHERE GRANTEE = {}",
+            lit(&n)
+        );
         for r in rows(s, &routines).await.unwrap_or_default() {
-            let kind = if get(&r, "routine_type").eq_ignore_ascii_case("FUNCTION") { kinds::FUNCTION } else { kinds::PROCEDURE };
+            let kind = if get(&r, "routine_type").eq_ignore_ascii_case("FUNCTION") {
+                kinds::FUNCTION
+            } else {
+                kinds::PROCEDURE
+            };
             let schema = get(&r, "specific_schema");
-            let object = format!("{}.{}", if schema.is_empty() { get(&r, "routine_schema") } else { schema }, get(&r, "routine_name"));
+            let object = format!(
+                "{}.{}",
+                if schema.is_empty() {
+                    get(&r, "routine_schema")
+                } else {
+                    schema
+                },
+                get(&r, "routine_name")
+            );
             let grantable = get(&r, "is_grantable").eq_ignore_ascii_case("YES");
-            out.push(Grant { privilege: "EXECUTE".into(), object: Some(object), object_kind: Some(kind.into()), grantable, denied: false, via: via.clone() });
+            out.push(Grant {
+                privilege: "EXECUTE".into(),
+                object: Some(object),
+                object_kind: Some(kind.into()),
+                grantable,
+                denied: false,
+                via: via.clone(),
+            });
         }
     }
     Ok(out)
@@ -174,16 +267,27 @@ pub async fn z_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
                 can_login: None,
                 superuser: Some(sysadm.contains(name)),
                 system: name.eq_ignore_ascii_case("PUBLIC") || name.starts_with("SYSIBM"),
-                details: vec![("Autenticación".into(), "del sistema (RACF u otro gestor de seguridad)".into())],
+                details: vec![(
+                    "Autenticación".into(),
+                    "del sistema (RACF u otro gestor de seguridad)".into(),
+                )],
                 ..user(name)
             });
         }
     }
-    for r in rows(s, "SELECT NAME, DEFINER, REMARKS FROM SYSIBM.SYSROLES").await.unwrap_or_default() {
+    for r in rows(s, "SELECT NAME, DEFINER, REMARKS FROM SYSIBM.SYSROLES")
+        .await
+        .unwrap_or_default()
+    {
         let mut p = role(d, get(&r, "name"));
-        p.details.push(("Miembros".into(), "los usuarios de un contexto de confianza (CREATE TRUSTED CONTEXT … DEFAULT ROLE)".into()));
+        p.details.push((
+            "Miembros".into(),
+            "los usuarios de un contexto de confianza (CREATE TRUSTED CONTEXT … DEFAULT ROLE)"
+                .into(),
+        ));
         if !get(&r, "definer").is_empty() {
-            p.details.push(("Definido por".into(), get(&r, "definer").to_string()));
+            p.details
+                .push(("Definido por".into(), get(&r, "definer").to_string()));
         }
         out.push(p);
     }
@@ -204,23 +308,51 @@ pub(super) fn z_privilege(g: Grant) -> Grant {
 
 pub async fn z_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
     let (is_role, name) = super::grantee(principal);
-    let who = format!("GRANTEE = {} AND GRANTEETYPE = '{}'", lit(name), if is_role { "L" } else { " " });
+    let who = format!(
+        "GRANTEE = {} AND GRANTEETYPE = '{}'",
+        lit(name),
+        if is_role { "L" } else { " " }
+    );
     let mut out = Vec::new();
     for r in rows(s, &format!("SELECT * FROM SYSIBM.SYSUSERAUTH WHERE {who}")).await? {
         out.extend(db2_auths(&r, None, None, &None));
     }
-    for r in rows(s, &format!("SELECT * FROM SYSIBM.SYSDBAUTH WHERE {who}")).await.unwrap_or_default() {
-        out.extend(db2_auths(&r, Some(get(&r, "name").to_string()), Some("database"), &None));
+    for r in rows(s, &format!("SELECT * FROM SYSIBM.SYSDBAUTH WHERE {who}"))
+        .await
+        .unwrap_or_default()
+    {
+        out.extend(db2_auths(
+            &r,
+            Some(get(&r, "name").to_string()),
+            Some("database"),
+            &None,
+        ));
     }
-    for r in rows(s, &format!("SELECT * FROM SYSIBM.SYSSCHEMAAUTH WHERE {who}")).await.unwrap_or_default() {
-        out.extend(db2_auths(&r, Some(get(&r, "schemaname").to_string()), Some("schema"), &None));
+    for r in rows(
+        s,
+        &format!("SELECT * FROM SYSIBM.SYSSCHEMAAUTH WHERE {who}"),
+    )
+    .await
+    .unwrap_or_default()
+    {
+        out.extend(db2_auths(
+            &r,
+            Some(get(&r, "schemaname").to_string()),
+            Some("schema"),
+            &None,
+        ));
     }
     let tables = format!(
         "SELECT a.*, t.TYPE AS OBJTYPE FROM SYSIBM.SYSTABAUTH a LEFT JOIN SYSIBM.SYSTABLES t ON t.CREATOR = a.TCREATOR AND t.NAME = a.TTNAME WHERE a.{who}"
     );
     for r in rows(s, &tables).await.unwrap_or_default() {
         let object = format!("{}.{}", get(&r, "tcreator"), get(&r, "ttname"));
-        out.extend(db2_auths(&r, Some(object), Some(table_kind(get(&r, "objtype"))), &None));
+        out.extend(db2_auths(
+            &r,
+            Some(object),
+            Some(table_kind(get(&r, "objtype"))),
+            &None,
+        ));
     }
     // The same privilege from several grantors: once, grantable if any is.
     let mut merged: HashMap<(String, Option<String>), Grant> = HashMap::new();
@@ -235,7 +367,10 @@ pub async fn z_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
             }
         }
     }
-    Ok(order.into_iter().filter_map(|k| merged.remove(&k)).collect())
+    Ok(order
+        .into_iter()
+        .filter_map(|k| merged.remove(&k))
+        .collect())
 }
 
 // scripts --------------------------------------------------------------------
@@ -299,4 +434,3 @@ pub fn script(d: Dialect, a: &SecurityAction) -> Result<String> {
         },
     })
 }
-

@@ -21,8 +21,17 @@ fn key(a: &str, db: &str) -> String {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn security_principals(state: State<'_, AppState>, args: PrincipalsArgs) -> CommandResult<Vec<Principal>> {
-    let entry = state.session(&key(&args.connection_id, &args.database), &args.connection_id, &args.database).await?;
+pub async fn security_principals(
+    state: State<'_, AppState>,
+    args: PrincipalsArgs,
+) -> CommandResult<Vec<Principal>> {
+    let entry = state
+        .session(
+            &key(&args.connection_id, &args.database),
+            &args.connection_id,
+            &args.database,
+        )
+        .await?;
     let r = entry.session.lock().await.principals().await;
     Ok(r?)
 }
@@ -31,8 +40,17 @@ pub async fn security_principals(state: State<'_, AppState>, args: PrincipalsArg
 /// `Unsupported` where the engine can't list them from there (the dialog
 /// lets the user type the login).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn security_unmapped_logins(state: State<'_, AppState>, args: PrincipalsArgs) -> CommandResult<Vec<String>> {
-    let entry = state.session(&key(&args.connection_id, &args.database), &args.connection_id, &args.database).await?;
+pub async fn security_unmapped_logins(
+    state: State<'_, AppState>,
+    args: PrincipalsArgs,
+) -> CommandResult<Vec<String>> {
+    let entry = state
+        .session(
+            &key(&args.connection_id, &args.database),
+            &args.connection_id,
+            &args.database,
+        )
+        .await?;
     let r = entry.session.lock().await.unmapped_logins().await;
     Ok(r?)
 }
@@ -46,8 +64,17 @@ pub struct GrantsArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn security_grants(state: State<'_, AppState>, args: GrantsArgs) -> CommandResult<Vec<Grant>> {
-    let entry = state.session(&key(&args.connection_id, &args.database), &args.connection_id, &args.database).await?;
+pub async fn security_grants(
+    state: State<'_, AppState>,
+    args: GrantsArgs,
+) -> CommandResult<Vec<Grant>> {
+    let entry = state
+        .session(
+            &key(&args.connection_id, &args.database),
+            &args.connection_id,
+            &args.database,
+        )
+        .await?;
     let r = entry.session.lock().await.grants(&args.principal).await;
     Ok(r?)
 }
@@ -66,9 +93,17 @@ pub struct SecurityScript {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn security_script(state: State<'_, AppState>, args: ScriptArgs) -> CommandResult<SecurityScript> {
-    let cfg = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("la conexión ya no existe".into()))?.config;
-    let driver = dbine_drivers::find(&cfg.driver).ok_or_else(|| CommandError::BadRequest(format!("no hay driver '{}'", cfg.driver)))?;
+pub async fn security_script(
+    state: State<'_, AppState>,
+    args: ScriptArgs,
+) -> CommandResult<SecurityScript> {
+    let cfg = state
+        .store
+        .get_connection(&args.connection_id)?
+        .ok_or_else(|| CommandError::NotFound("la conexión ya no existe".into()))?
+        .config;
+    let driver = dbine_drivers::find(&cfg.driver)
+        .ok_or_else(|| CommandError::BadRequest(format!("no hay driver '{}'", cfg.driver)))?;
     let script = driver.security_script(&args.action)?;
     let shown = match args.action.password().filter(|p| !p.is_empty()) {
         Some(p) => mask(&script, p),
@@ -90,11 +125,23 @@ pub struct MapLoginArgs {
 /// a server login to a user of the tab's database. No password in it, so
 /// `shown` is the script itself; it runs like the other changes.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn security_map_login_script(state: State<'_, AppState>, args: MapLoginArgs) -> CommandResult<SecurityScript> {
-    let cfg = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("la conexión ya no existe".into()))?.config;
-    let driver = dbine_drivers::find(&cfg.driver).ok_or_else(|| CommandError::BadRequest(format!("no hay driver '{}'", cfg.driver)))?;
-    let script = driver.map_login_script(&args.login, &args.user, args.default_schema.as_deref())?;
-    Ok(SecurityScript { shown: script.clone(), script })
+pub async fn security_map_login_script(
+    state: State<'_, AppState>,
+    args: MapLoginArgs,
+) -> CommandResult<SecurityScript> {
+    let cfg = state
+        .store
+        .get_connection(&args.connection_id)?
+        .ok_or_else(|| CommandError::NotFound("la conexión ya no existe".into()))?
+        .config;
+    let driver = dbine_drivers::find(&cfg.driver)
+        .ok_or_else(|| CommandError::BadRequest(format!("no hay driver '{}'", cfg.driver)))?;
+    let script =
+        driver.map_login_script(&args.login, &args.user, args.default_schema.as_deref())?;
+    Ok(SecurityScript {
+        shown: script.clone(),
+        script,
+    })
 }
 
 /// The script with the password hidden, however the engine escaped it
@@ -128,12 +175,27 @@ mod tests {
         let p = r#"a'b\c"d"#;
         for script in [
             format!("CREATE USER x PASSWORD '{}';", p.replace('\'', "''")),
-            format!("CREATE USER x IDENTIFIED BY '{}';", p.replace('\\', "\\\\").replace('\'', "\\'")),
-            format!("db.createUser({{ pwd: {} }})", serde_json::to_string(p).unwrap()),
-            format!("CREATE ROLE x PASSWORD E'{}';", p.replace('\\', "\\\\").replace('\'', "''")),
+            format!(
+                "CREATE USER x IDENTIFIED BY '{}';",
+                p.replace('\\', "\\\\").replace('\'', "\\'")
+            ),
+            format!(
+                "db.createUser({{ pwd: {} }})",
+                serde_json::to_string(p).unwrap()
+            ),
+            format!(
+                "CREATE ROLE x PASSWORD E'{}';",
+                p.replace('\\', "\\\\").replace('\'', "''")
+            ),
         ] {
             let m = mask(&script, p);
-            assert!(m.contains("••••••") && !m.contains("a'b") && !m.contains("a''b") && !m.contains("a\\'b"), "{m}");
+            assert!(
+                m.contains("••••••")
+                    && !m.contains("a'b")
+                    && !m.contains("a''b")
+                    && !m.contains("a\\'b"),
+                "{m}"
+            );
         }
     }
 }

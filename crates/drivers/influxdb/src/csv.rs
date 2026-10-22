@@ -100,14 +100,26 @@ pub fn parse(text: &str) -> Result<Vec<Table>, String> {
             in_table = true;
             let names = &rec[1.min(rec.len())..];
             error_table = names.first().is_some_and(|n| n == "error");
-            keep = (0..names.len()).filter(|&i| names[i] != "result" || names.len() == 1).collect();
+            keep = (0..names.len())
+                .filter(|&i| names[i] != "result" || names.len() == 1)
+                .collect();
             let columns: Vec<String> = keep.iter().map(|&i| names[i].clone()).collect();
-            let col_types: Vec<String> = keep.iter().map(|&i| types.get(i).cloned().unwrap_or_default()).collect();
+            let col_types: Vec<String> = keep
+                .iter()
+                .map(|&i| types.get(i).cloned().unwrap_or_default())
+                .collect();
             if !error_table {
-                current = match tables.iter().position(|t| t.columns == columns && t.types == col_types) {
+                current = match tables
+                    .iter()
+                    .position(|t| t.columns == columns && t.types == col_types)
+                {
                     Some(i) => i,
                     None => {
-                        tables.push(Table { columns, types: col_types, rows: Vec::new() });
+                        tables.push(Table {
+                            columns,
+                            types: col_types,
+                            rows: Vec::new(),
+                        });
                         tables.len() - 1
                     }
                 };
@@ -127,7 +139,11 @@ pub fn parse(text: &str) -> Result<Vec<Table>, String> {
             .iter()
             .map(|&i| {
                 let raw = cells.get(i).map(String::as_str).unwrap_or("");
-                let raw = if raw.is_empty() { defaults.get(i).map(String::as_str).unwrap_or("") } else { raw };
+                let raw = if raw.is_empty() {
+                    defaults.get(i).map(String::as_str).unwrap_or("")
+                } else {
+                    raw
+                };
                 typed(raw, types.get(i).map(String::as_str).unwrap_or(""))
             })
             .collect();
@@ -145,7 +161,9 @@ fn typed(raw: &str, datatype: &str) -> J {
         "unsignedLong" => raw.parse::<u64>().map_or_else(|_| raw.into(), json_u64),
         "double" => raw.parse::<f64>().map_or_else(|_| raw.into(), json_f64),
         "boolean" => J::Bool(raw == "true"),
-        t if t.starts_with("dateTime") => crate::http::iso_time(raw).unwrap_or_else(|| raw.to_string()).into(),
+        t if t.starts_with("dateTime") => crate::http::iso_time(raw)
+            .unwrap_or_else(|| raw.to_string())
+            .into(),
         _ => raw.into(),
     }
 }
@@ -174,7 +192,16 @@ mod tests {
         let t = parse(SAMPLE).unwrap();
         assert_eq!(t.len(), 2);
         assert_eq!(t[0].columns, ["table", "_time", "_value", "_field", "host"]);
-        assert_eq!(t[0].rows[0], vec![json!(0), json!("2024-01-31 13:45:00"), json!(3), json!("n"), json!("a")]);
+        assert_eq!(
+            t[0].rows[0],
+            vec![
+                json!(0),
+                json!("2024-01-31 13:45:00"),
+                json!(3),
+                json!("n"),
+                json!("a")
+            ]
+        );
         // Empty long is null; a quoted comma stays in the cell.
         assert_eq!(t[0].rows[1][2], J::Null);
         assert_eq!(t[0].rows[1][4], json!("b,c"));
@@ -200,7 +227,10 @@ mod tests {
     #[test]
     fn quoted_newlines_and_quotes() {
         let r = records("a,\"x\ny \"\"z\"\"\",c\n\nd\n");
-        assert_eq!(r[0], Some(vec!["a".to_string(), "x\ny \"z\"".into(), "c".into()]));
+        assert_eq!(
+            r[0],
+            Some(vec!["a".to_string(), "x\ny \"z\"".into(), "c".into()])
+        );
         assert_eq!(r[1], None);
         assert_eq!(r[2], Some(vec!["d".to_string()]));
     }

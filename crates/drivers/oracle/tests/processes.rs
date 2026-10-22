@@ -38,7 +38,9 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> dbine_driver::Result<QueryO
 async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
     let o = run(s, sql).await.unwrap();
     let v = &o.results.last().unwrap().rows[0][0];
-    v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())
+    v.as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| v.to_string())
 }
 
 const SESSION_ID: &str =
@@ -73,25 +75,64 @@ async fn lists_and_cancels() {
     tokio::time::sleep(Duration::from_millis(2500)).await;
 
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.id == worker_id).expect("the worker is listed");
+    let w = list
+        .iter()
+        .find(|p| p.id == worker_id)
+        .expect("the worker is listed");
     eprintln!("{w:#?}");
     assert!(w.active, "{w:?}");
-    assert!(w.sql.as_deref().unwrap_or("").contains("dbine_processes_test"), "{w:?}");
+    assert!(
+        w.sql
+            .as_deref()
+            .unwrap_or("")
+            .contains("dbine_processes_test"),
+        "{w:?}"
+    );
     assert!(w.elapsed_ms.unwrap_or(0) >= 1000, "{w:?}");
     assert_eq!(w.command.as_deref(), Some("SELECT"));
     assert!(!w.own && !w.system);
-    assert!(list.iter().find(|p| p.id == own).expect("its own session is listed").own);
-    assert!(list.iter().any(|p| p.system), "background processes are listed");
+    assert!(
+        list.iter()
+            .find(|p| p.id == own)
+            .expect("its own session is listed")
+            .own
+    );
+    assert!(
+        list.iter().any(|p| p.system),
+        "background processes are listed"
+    );
 
     // The worker is a DBine session: the server would stop the statement,
     // but this client library never returns from the break it gets for it,
     // so cancelling is refused (that tab would hang) and ending it works.
-    let refused = admin.cancel_query(&worker_id).await.unwrap_err().to_string();
+    let refused = admin
+        .cancel_query(&worker_id)
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(refused.contains("es de DBine"), "{refused}");
-    assert!(admin.processes().await.unwrap().iter().find(|p| p.id == worker_id).expect("still connected").active);
+    assert!(
+        admin
+            .processes()
+            .await
+            .unwrap()
+            .iter()
+            .find(|p| p.id == worker_id)
+            .expect("still connected")
+            .active
+    );
     admin.kill_session(&worker_id).await.unwrap();
-    let (r, _) = tokio::time::timeout(Duration::from_secs(15), sleeping).await.expect("the worker was freed").unwrap();
+    let (r, _) = tokio::time::timeout(Duration::from_secs(15), sleeping)
+        .await
+        .expect("the worker was freed")
+        .unwrap();
     assert!(r.is_err());
-    assert!(admin.cancel_query("1; DROP TABLE x").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query(&own).await.is_err(), "not its own session");
+    assert!(
+        admin.cancel_query("1; DROP TABLE x").await.is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin.cancel_query(&own).await.is_err(),
+        "not its own session"
+    );
 }

@@ -1,7 +1,7 @@
 use crate::error::{CommandError, CommandResult};
 use crate::state::{driver_info, meta_key, AppState, SessionEntry};
-use dbine_driver::sql::{create_table_from_columns, Quote};
 use dbine_core::cache::kinds as cache_kinds;
+use dbine_driver::sql::{create_table_from_columns, Quote};
 use dbine_driver::{ColumnInfo, DbObject, ObjectRef, SchemaInfo};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -14,16 +14,36 @@ pub struct DatabaseArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn list_databases(state: State<'_, AppState>, args: DatabaseArgs) -> CommandResult<Vec<String>> {
-    let dbs = state.meta_read(&args.connection_id, "", META_LIMIT, |s| Box::pin(s.list_databases())).await?;
+pub async fn list_databases(
+    state: State<'_, AppState>,
+    args: DatabaseArgs,
+) -> CommandResult<Vec<String>> {
+    let dbs = state
+        .meta_read(&args.connection_id, "", META_LIMIT, |s| {
+            Box::pin(s.list_databases())
+        })
+        .await?;
     state.cache_put(&args.connection_id, "", cache_kinds::DATABASES, "", &dbs);
     Ok(dbs)
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn list_objects(state: State<'_, AppState>, args: DatabaseArgs) -> CommandResult<Vec<DbObject>> {
-    let objects = state.meta_read(&args.connection_id, &args.database, META_LIMIT, |s| Box::pin(s.list_objects())).await?;
-    state.cache_put(&args.connection_id, &args.database, cache_kinds::OBJECTS, "", &objects);
+pub async fn list_objects(
+    state: State<'_, AppState>,
+    args: DatabaseArgs,
+) -> CommandResult<Vec<DbObject>> {
+    let objects = state
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, |s| {
+            Box::pin(s.list_objects())
+        })
+        .await?;
+    state.cache_put(
+        &args.connection_id,
+        &args.database,
+        cache_kinds::OBJECTS,
+        "",
+        &objects,
+    );
     Ok(objects)
 }
 
@@ -44,7 +64,10 @@ pub struct DatabaseObjects {
 /// What the explorer tree loads for a database: `list_objects` plus the
 /// schema list, read on the same session and cached together.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn list_database_objects(state: State<'_, AppState>, args: DatabaseArgs) -> CommandResult<DatabaseObjects> {
+pub async fn list_database_objects(
+    state: State<'_, AppState>,
+    args: DatabaseArgs,
+) -> CommandResult<DatabaseObjects> {
     let read = state
         .meta_read(&args.connection_id, &args.database, META_LIMIT, |s| {
             Box::pin(async move {
@@ -59,8 +82,20 @@ pub async fn list_database_objects(state: State<'_, AppState>, args: DatabaseArg
             })
         })
         .await?;
-    state.cache_put(&args.connection_id, &args.database, cache_kinds::OBJECTS, "", &read.objects);
-    state.cache_put(&args.connection_id, &args.database, CACHE_SCHEMAS, "", &read.schemas);
+    state.cache_put(
+        &args.connection_id,
+        &args.database,
+        cache_kinds::OBJECTS,
+        "",
+        &read.objects,
+    );
+    state.cache_put(
+        &args.connection_id,
+        &args.database,
+        CACHE_SCHEMAS,
+        "",
+        &read.schemas,
+    );
     Ok(read)
 }
 
@@ -80,29 +115,46 @@ pub struct CachedArgs {
 /// `dbine_core::cache`), to show at once while the server is asked again;
 /// `null` when there's nothing yet.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_cached(state: State<'_, AppState>, args: CachedArgs) -> CommandResult<Option<serde_json::Value>> {
-    let Some(cache) = state.cache.get() else { return Ok(None) };
-    let raw = cache.get(&args.connection_id, &args.database, &args.kind, &args.item).unwrap_or_else(|e| {
-        tracing::warn!("explorer cache read failed: {e}");
-        None
-    });
+pub async fn get_cached(
+    state: State<'_, AppState>,
+    args: CachedArgs,
+) -> CommandResult<Option<serde_json::Value>> {
+    let Some(cache) = state.cache.get() else {
+        return Ok(None);
+    };
+    let raw = cache
+        .get(&args.connection_id, &args.database, &args.kind, &args.item)
+        .unwrap_or_else(|e| {
+            tracing::warn!("explorer cache read failed: {e}");
+            None
+        });
     // An entry from another version that no longer parses is just a miss.
     Ok(raw.and_then(|r| serde_json::from_str(&r).ok()))
 }
 
 /// The cache's name for an object's columns.
 pub fn cache_item(object: &ObjectRef) -> String {
-    format!("{}\u{1}{}\u{1}{}", object.kind, object.schema().unwrap_or(""), object.name)
+    format!(
+        "{}\u{1}{}\u{1}{}",
+        object.kind,
+        object.schema().unwrap_or(""),
+        object.name
+    )
 }
 
 /// What the login may do (backups, profiler, ending sessions…), for
 /// turning off the actions the server would refuse. `database` "": the
 /// connection's server-level actions.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_permissions(state: State<'_, AppState>, args: DatabaseArgs) -> CommandResult<dbine_driver::Permissions> {
+pub async fn get_permissions(
+    state: State<'_, AppState>,
+    args: DatabaseArgs,
+) -> CommandResult<dbine_driver::Permissions> {
     let db = Some(args.database.clone()).filter(|d| !d.is_empty());
     state
-        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| Box::pin(async move { s.permissions(db.as_deref()).await }))
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
+            Box::pin(async move { s.permissions(db.as_deref()).await })
+        })
         .await
 }
 
@@ -110,10 +162,15 @@ pub async fn get_permissions(state: State<'_, AppState>, args: DatabaseArgs) -> 
 /// (reads, read share, unused) filled here for every driver. `None`: the
 /// driver doesn't report it.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_index_usage(state: State<'_, AppState>, args: ObjectArgs) -> CommandResult<Option<dbine_driver::IndexUsageReport>> {
+pub async fn get_index_usage(
+    state: State<'_, AppState>,
+    args: ObjectArgs,
+) -> CommandResult<Option<dbine_driver::IndexUsageReport>> {
     let object = args.object;
     let report = state
-        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| Box::pin(async move { s.index_usage(&object).await }))
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
+            Box::pin(async move { s.index_usage(&object).await })
+        })
         .await?;
     Ok(report.map(dbine_driver::IndexUsageReport::derived))
 }
@@ -130,7 +187,10 @@ pub struct IndexToggleArgs {
 /// "Deshabilitar / Habilitar índice": the engine's statements, with what to
 /// know first. They run like a schema sync (`schema_sync_run`).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn index_toggle_script(state: State<'_, AppState>, args: IndexToggleArgs) -> CommandResult<dbine_driver::SyncScript> {
+pub async fn index_toggle_script(
+    state: State<'_, AppState>,
+    args: IndexToggleArgs,
+) -> CommandResult<dbine_driver::SyncScript> {
     let driver = crate::commands::schema::driver_of(&state, &args.connection_id)?;
     Ok(driver.index_toggle_script(&args.table, &args.index, args.enable)?)
 }
@@ -146,13 +206,30 @@ pub struct DependentsArgs {
 /// The generic scan reads every definition one by one, so it gets longer
 /// than other catalog reads.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_dependents(state: State<'_, AppState>, args: DependentsArgs) -> CommandResult<dbine_driver::DependencyReport> {
-    let id = state.store.get_connection(&args.connection_id)?.map(|c| c.config.driver).unwrap_or_default();
-    let driver = dbine_drivers::find(&id).ok_or_else(|| dbine_driver::Error::Unsupported(format!("driver desconocido: {id}")))?;
-    let scan = dbine_driver::DependencyScan::new(driver.info(), driver.script_dialect(), driver.capabilities().foreign_keys);
+pub async fn get_dependents(
+    state: State<'_, AppState>,
+    args: DependentsArgs,
+) -> CommandResult<dbine_driver::DependencyReport> {
+    let id = state
+        .store
+        .get_connection(&args.connection_id)?
+        .map(|c| c.config.driver)
+        .unwrap_or_default();
+    let driver = dbine_drivers::find(&id)
+        .ok_or_else(|| dbine_driver::Error::Unsupported(format!("driver desconocido: {id}")))?;
+    let scan = dbine_driver::DependencyScan::new(
+        driver.info(),
+        driver.script_dialect(),
+        driver.capabilities().foreign_keys,
+    );
     let target = args.target;
     state
-        .meta_read(&args.connection_id, &args.database, DEPENDENTS_LIMIT, move |s| Box::pin(async move { s.dependents(&target, &scan).await }))
+        .meta_read(
+            &args.connection_id,
+            &args.database,
+            DEPENDENTS_LIMIT,
+            move |s| Box::pin(async move { s.dependents(&target, &scan).await }),
+        )
         .await
 }
 
@@ -167,9 +244,16 @@ pub struct ScanKeysArgs {
 
 /// One page of a server-side key search (Redis, etcd).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn scan_keys(state: State<'_, AppState>, args: ScanKeysArgs) -> CommandResult<dbine_driver::KeyPage> {
+pub async fn scan_keys(
+    state: State<'_, AppState>,
+    args: ScanKeysArgs,
+) -> CommandResult<dbine_driver::KeyPage> {
     let scan = args.scan;
-    state.meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| Box::pin(async move { s.scan_keys(&scan).await })).await
+    state
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
+            Box::pin(async move { s.scan_keys(&scan).await })
+        })
+        .await
 }
 
 #[derive(Deserialize)]
@@ -184,15 +268,34 @@ pub const META_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 /// Time limit of reading a whole database's structure (big databases).
 pub const SCHEMA_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 
-async fn meta(state: &AppState, connection_id: &str, database: &str) -> CommandResult<Arc<SessionEntry>> {
-    state.session(&meta_key(connection_id, database), connection_id, database).await
+async fn meta(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+) -> CommandResult<Arc<SessionEntry>> {
+    state
+        .session(&meta_key(connection_id, database), connection_id, database)
+        .await
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_columns(state: State<'_, AppState>, args: ObjectArgs) -> CommandResult<Vec<ColumnInfo>> {
+pub async fn get_columns(
+    state: State<'_, AppState>,
+    args: ObjectArgs,
+) -> CommandResult<Vec<ColumnInfo>> {
     let object = args.object.clone();
-    let columns = state.meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| Box::pin(async move { s.columns(&object).await })).await?;
-    state.cache_put(&args.connection_id, &args.database, cache_kinds::COLUMNS, &cache_item(&args.object), &columns);
+    let columns = state
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
+            Box::pin(async move { s.columns(&object).await })
+        })
+        .await?;
+    state.cache_put(
+        &args.connection_id,
+        &args.database,
+        cache_kinds::COLUMNS,
+        &cache_item(&args.object),
+        &columns,
+    );
     Ok(columns)
 }
 
@@ -203,26 +306,42 @@ pub async fn get_columns(state: State<'_, AppState>, args: ObjectArgs) -> Comman
 pub async fn get_definition(state: State<'_, AppState>, args: ObjectArgs) -> CommandResult<String> {
     let object = args.object.clone();
     let def = state
-        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| Box::pin(async move { s.definition(&object).await }))
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
+            Box::pin(async move { s.definition(&object).await })
+        })
         .await?;
     if let Some(def) = def {
         return Ok(def);
     }
-    let not_found = || CommandError::NotFound("el servidor no devolvió la definición (¿sin permisos?)".into());
+    let not_found =
+        || CommandError::NotFound("el servidor no devolvió la definición (¿sin permisos?)".into());
     if args.object.kind != dbine_driver::kinds::TABLE {
         return Err(not_found());
     }
     if let Some(ddl) = table_ddl_from_schema(&state, &args).await {
         return Ok(ddl);
     }
-    let driver = state.store.get_connection(&args.connection_id)?.map(|c| c.config.driver).unwrap_or_default();
+    let driver = state
+        .store
+        .get_connection(&args.connection_id)?
+        .map(|c| c.config.driver)
+        .unwrap_or_default();
     let info = driver_info(&driver)?;
     if info.language != dbine_driver::Language::Sql {
         return Err(not_found());
     }
     let object = args.object.clone();
-    let cols = state.meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| Box::pin(async move { s.columns(&object).await })).await?;
-    Ok(create_table_from_columns(quote_of(info.dialect), args.object.schema(), &args.object.name, &cols))
+    let cols = state
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
+            Box::pin(async move { s.columns(&object).await })
+        })
+        .await?;
+    Ok(create_table_from_columns(
+        quote_of(info.dialect),
+        args.object.schema(),
+        &args.object.name,
+        &cols,
+    ))
 }
 
 /// The table's full DDL (create, indexes, foreign keys) from the driver's
@@ -232,7 +351,12 @@ async fn table_ddl_from_schema(state: &AppState, args: &ObjectArgs) -> Option<St
     let driver = crate::commands::schema::driver_of(state, &args.connection_id).ok()?;
     // There's no per-table structure read: the database's, within the
     // explorer's time limit.
-    let tables = match state.meta_read(&args.connection_id, &args.database, META_LIMIT, |s| Box::pin(s.database_schema())).await {
+    let tables = match state
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, |s| {
+            Box::pin(s.database_schema())
+        })
+        .await
+    {
         Ok(t) => t,
         Err(e) => {
             tracing::debug!(error = %e.to_string(), "definition: database schema");
@@ -240,19 +364,37 @@ async fn table_ddl_from_schema(state: &AppState, args: &ObjectArgs) -> Option<St
         }
     };
     let table = find_table(&tables, &args.object)?;
-    let parts = dbine_driver::DdlParts { create: true, indexes: true, foreign_keys: true, ..Default::default() };
-    driver.table_ddl(table, parts).ok().filter(|d| !d.trim().is_empty())
+    let parts = dbine_driver::DdlParts {
+        create: true,
+        indexes: true,
+        foreign_keys: true,
+        ..Default::default()
+    };
+    driver
+        .table_ddl(table, parts)
+        .ok()
+        .filter(|d| !d.trim().is_empty())
 }
 
 /// The object's table among the database's: same schema, or, when the
 /// object names none, the first one with that name.
-fn find_table<'a>(tables: &'a [dbine_driver::TableSchema], object: &ObjectRef) -> Option<&'a dbine_driver::TableSchema> {
-    let named = |t: &&dbine_driver::TableSchema| t.name == object.name && t.kind == dbine_driver::kinds::TABLE;
+fn find_table<'a>(
+    tables: &'a [dbine_driver::TableSchema],
+    object: &ObjectRef,
+) -> Option<&'a dbine_driver::TableSchema> {
+    let named = |t: &&dbine_driver::TableSchema| {
+        t.name == object.name && t.kind == dbine_driver::kinds::TABLE
+    };
     match object.schema() {
-        Some(s) => tables.iter().filter(named).find(|t| t.schema.as_deref() == Some(s)),
+        Some(s) => tables
+            .iter()
+            .filter(named)
+            .find(|t| t.schema.as_deref() == Some(s)),
         None => {
             let mut it = tables.iter().filter(named);
-            let first = it.clone().find(|t| t.schema.as_deref().is_none_or(str::is_empty));
+            let first = it
+                .clone()
+                .find(|t| t.schema.as_deref().is_none_or(str::is_empty));
             first.or_else(|| it.next())
         }
     }
@@ -264,22 +406,50 @@ mod tests {
     use dbine_driver::TableSchema;
 
     fn t(schema: Option<&str>, name: &str) -> TableSchema {
-        TableSchema { kind: "table".into(), schema: schema.map(str::to_string), name: name.into(), ..Default::default() }
+        TableSchema {
+            kind: "table".into(),
+            schema: schema.map(str::to_string),
+            name: name.into(),
+            ..Default::default()
+        }
     }
 
     fn obj(schema: Option<&str>, name: &str) -> ObjectRef {
-        ObjectRef { kind: "table".into(), schema: schema.map(str::to_string), name: name.into() }
+        ObjectRef {
+            kind: "table".into(),
+            schema: schema.map(str::to_string),
+            name: name.into(),
+        }
     }
 
     #[test]
     fn finds_the_table_by_schema_and_name() {
-        let tables = vec![t(Some("dbo"), "Person"), t(Some("hr"), "Person"), t(Some("hr"), "Other")];
-        assert_eq!(find_table(&tables, &obj(Some("hr"), "Person")).unwrap().schema.as_deref(), Some("hr"));
+        let tables = vec![
+            t(Some("dbo"), "Person"),
+            t(Some("hr"), "Person"),
+            t(Some("hr"), "Other"),
+        ];
+        assert_eq!(
+            find_table(&tables, &obj(Some("hr"), "Person"))
+                .unwrap()
+                .schema
+                .as_deref(),
+            Some("hr")
+        );
         assert!(find_table(&tables, &obj(Some("x"), "Person")).is_none());
         assert!(find_table(&tables, &obj(Some("dbo"), "person")).is_none());
-        assert_eq!(find_table(&tables, &obj(None, "Person")).unwrap().schema.as_deref(), Some("dbo"));
+        assert_eq!(
+            find_table(&tables, &obj(None, "Person"))
+                .unwrap()
+                .schema
+                .as_deref(),
+            Some("dbo")
+        );
         let plain = vec![t(Some("a"), "T"), t(None, "T")];
-        assert!(find_table(&plain, &obj(None, "T")).unwrap().schema.is_none());
+        assert!(find_table(&plain, &obj(None, "T"))
+            .unwrap()
+            .schema
+            .is_none());
     }
 
     struct Engine(dbine_driver::DriverInfo);
@@ -289,7 +459,11 @@ mod tests {
         fn info(&self) -> &dbine_driver::DriverInfo {
             &self.0
         }
-        async fn connect(&self, _: &dbine_driver::ConnectionConfig, _: Option<&str>) -> dbine_driver::Result<Box<dyn dbine_driver::Session>> {
+        async fn connect(
+            &self,
+            _: &dbine_driver::ConnectionConfig,
+            _: Option<&str>,
+        ) -> dbine_driver::Result<Box<dyn dbine_driver::Session>> {
             Err(dbine_driver::Error::Unsupported("test".into()))
         }
     }
@@ -311,12 +485,30 @@ mod tests {
 
     #[test]
     fn sort_falls_back_when_the_engine_cant() {
-        let key = [dbine_driver::SortKey { column: "a".into(), descending: true }];
+        let key = [dbine_driver::SortKey {
+            column: "a".into(),
+            descending: true,
+        }];
         let q = "SELECT *\nFROM \"t\"\nLIMIT 5".to_string();
         let sql = engine(dbine_driver::Language::Sql);
-        assert_eq!(sort_browse(&sql, q.clone(), &[]).unwrap(), (q.clone(), true, None));
-        assert_eq!(sort_browse(&sql, q.clone(), &key).unwrap(), ("SELECT *\nFROM \"t\"\nORDER BY \"a\" DESC\nLIMIT 5".to_string(), true, None));
-        let (query, server, why) = sort_browse(&engine(dbine_driver::Language::Json), "db.t.find({})".into(), &key).unwrap();
+        assert_eq!(
+            sort_browse(&sql, q.clone(), &[]).unwrap(),
+            (q.clone(), true, None)
+        );
+        assert_eq!(
+            sort_browse(&sql, q.clone(), &key).unwrap(),
+            (
+                "SELECT *\nFROM \"t\"\nORDER BY \"a\" DESC\nLIMIT 5".to_string(),
+                true,
+                None
+            )
+        );
+        let (query, server, why) = sort_browse(
+            &engine(dbine_driver::Language::Json),
+            "db.t.find({})".into(),
+            &key,
+        )
+        .unwrap();
         assert_eq!((query.as_str(), server), ("db.t.find({})", false));
         assert!(why.is_some());
     }
@@ -376,7 +568,10 @@ pub struct FilteredBrowse {
 
 /// The browse query of an object with the data grid's column filters.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn filtered_browse_query(state: State<'_, AppState>, args: FilteredBrowseArgs) -> CommandResult<FilteredBrowse> {
+pub async fn filtered_browse_query(
+    state: State<'_, AppState>,
+    args: FilteredBrowseArgs,
+) -> CommandResult<FilteredBrowse> {
     let entry = meta(&state, &args.connection_id, &args.database).await?;
     let browse = {
         let s = entry.session.lock().await;
@@ -389,11 +584,21 @@ pub async fn filtered_browse_query(state: State<'_, AppState>, args: FilteredBro
         Err(e) => return Err(e.into()),
     };
     let (query, sort_server_side, sort_reason) = sort_browse(driver.as_ref(), query, &args.sort)?;
-    Ok(FilteredBrowse { query, server_side, reason, sort_server_side, sort_reason })
+    Ok(FilteredBrowse {
+        query,
+        server_side,
+        reason,
+        sort_server_side,
+        sort_reason,
+    })
 }
 
 /// `query` with the grid's sort, or as it was and why the engine can't.
-fn sort_browse(driver: &dyn dbine_driver::Driver, query: String, sort: &[dbine_driver::SortKey]) -> CommandResult<(String, bool, Option<String>)> {
+fn sort_browse(
+    driver: &dyn dbine_driver::Driver,
+    query: String,
+    sort: &[dbine_driver::SortKey],
+) -> CommandResult<(String, bool, Option<String>)> {
     if sort.is_empty() {
         return Ok((query, true, None));
     }

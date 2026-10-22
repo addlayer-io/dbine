@@ -86,7 +86,9 @@ fn flag(o: &BTreeMap<String, String>, k: &str) -> bool {
 /// (`Disk('backups', 'x.zip')`, `File('…')`, `S3('…', …)`): one call,
 /// its quotes and parentheses balanced, nothing after it.
 fn is_location(s: &str) -> bool {
-    let Some(open) = s.find('(') else { return false };
+    let Some(open) = s.find('(') else {
+        return false;
+    };
     if !matches!(&s[..open], "Disk" | "File" | "S3" | "AzureBlobStorage") {
         return false;
     }
@@ -127,11 +129,17 @@ fn location(o: &BTreeMap<String, String>, database: &str) -> Result<String> {
             })
         }
         dest => {
-            let name = opt(o, "name").map(str::to_string).unwrap_or_else(|| default_name(database));
+            let name = opt(o, "name")
+                .map(str::to_string)
+                .unwrap_or_else(|| default_name(database));
             if dest == "file" {
                 Ok(format!("File({})", lit(&name)))
             } else {
-                Ok(format!("Disk({}, {})", lit(opt(o, "disk").unwrap_or("backups")), lit(&name)))
+                Ok(format!(
+                    "Disk({}, {})",
+                    lit(opt(o, "disk").unwrap_or("backups")),
+                    lit(&name)
+                ))
             }
         }
     }
@@ -139,7 +147,9 @@ fn location(o: &BTreeMap<String, String>, database: &str) -> Result<String> {
 
 /// `ventas-20260929-154500.zip` (UTC).
 fn default_name(database: &str) -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
     // Days to a civil date (Howard Hinnant's algorithm).
     let z = days + 719_468;
@@ -151,14 +161,31 @@ fn default_name(database: &str) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    let safe: String = database.chars().map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
-    format!("{safe}-{y:04}{m:02}{d:02}-{:02}{:02}{:02}.zip", rest / 3600, rest % 3600 / 60, rest % 60)
+    let safe: String = database
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!(
+        "{safe}-{y:04}{m:02}{d:02}-{:02}{:02}{:02}.zip",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
 }
 
 pub(crate) fn script(action: &BackupAction) -> Result<String> {
     match action {
         BackupAction::Backup { database, options } => {
-            let db = database.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| Error::Query("falta la base".into()))?;
+            let db = database
+                .as_deref()
+                .filter(|d| !d.is_empty())
+                .ok_or_else(|| Error::Query("falta la base".into()))?;
             let mut sql = format!("BACKUP DATABASE {} TO {}", q(db), location(options, db)?);
             if let Some(base) = opt(options, "base_backup") {
                 if !is_location(base) {
@@ -173,7 +200,11 @@ pub(crate) fn script(action: &BackupAction) -> Result<String> {
             }
             Ok(sql + ";")
         }
-        BackupAction::Restore { source, database, options } => {
+        BackupAction::Restore {
+            source,
+            database,
+            options,
+        } => {
             let source = source.trim();
             if source.is_empty() {
                 return Err(Error::Query("falta el backup a restaurar".into()));
@@ -181,7 +212,11 @@ pub(crate) fn script(action: &BackupAction) -> Result<String> {
             let from = if is_location(source) {
                 source.to_string()
             } else {
-                format!("Disk({}, {})", lit(opt(options, "disk").unwrap_or("backups")), lit(source))
+                format!(
+                    "Disk({}, {})",
+                    lit(opt(options, "disk").unwrap_or("backups")),
+                    lit(source)
+                )
             };
             let what = match database.as_deref().filter(|d| !d.is_empty()) {
                 Some(db) => match opt(options, "from_database").filter(|f| *f != db) {
@@ -199,9 +234,9 @@ pub(crate) fn script(action: &BackupAction) -> Result<String> {
             }
             Ok(sql + ";")
         }
-        BackupAction::Delete { .. } => {
-            Err(Error::Unsupported("ClickHouse no borra backups por SQL: se borran del disco o del bucket".into()))
-        }
+        BackupAction::Delete { .. } => Err(Error::Unsupported(
+            "ClickHouse no borra backups por SQL: se borran del disco o del bucket".into(),
+        )),
     }
 }
 
@@ -223,7 +258,9 @@ const HISTORY_PLAIN: &str = "SELECT id, name, base_backup_name, toString(status)
 /// `ALL`…, the database when it names one).
 fn target(query: &str) -> (Option<String>, Option<String>) {
     let mut words = query.split_whitespace().skip(1);
-    let Some(what) = words.next().map(str::to_uppercase) else { return (None, None) };
+    let Some(what) = words.next().map(str::to_uppercase) else {
+        return (None, None);
+    };
     let db = if what == "DATABASE" {
         let rest = query.trim_start();
         let rest = rest[rest.to_uppercase().find("DATABASE").map_or(0, |i| i + 8)..].trim_start();
@@ -243,7 +280,10 @@ fn target(query: &str) -> (Option<String>, Option<String>) {
             }
             Some(name)
         } else {
-            rest.split(|c: char| c.is_whitespace() || c == ';').next().filter(|s| !s.is_empty()).map(str::to_string)
+            rest.split(|c: char| c.is_whitespace() || c == ';')
+                .next()
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
         }
     } else {
         None
@@ -314,7 +354,9 @@ impl ClickHouseSession {
             .iter()
             .filter(|r| r.len() >= 11)
             .map(|r| entry(r))
-            .filter(|e| database.is_none() || e.database.is_none() || e.database.as_deref() == database)
+            .filter(|e| {
+                database.is_none() || e.database.is_none() || e.database.as_deref() == database
+            })
             .collect())
     }
 }
@@ -324,24 +366,45 @@ mod tests {
     use super::*;
 
     fn opts(kv: &[(&str, &str)]) -> BTreeMap<String, String> {
-        kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        kv.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn writes_the_scripts() {
         let b = |db: &str, kv: &[(&str, &str)]| {
-            script(&BackupAction::Backup { database: Some(db.into()), options: opts(kv) }).unwrap()
+            script(&BackupAction::Backup {
+                database: Some(db.into()),
+                options: opts(kv),
+            })
+            .unwrap()
         };
         assert_eq!(
             b("ven`tas", &[("disk", "backups"), ("name", "o'k.zip")]),
             "BACKUP DATABASE `ven\\`tas` TO Disk('backups', 'o\\'k.zip');"
         );
         assert_eq!(
-            b("v", &[("destination", "file"), ("name", "/b/v/"), ("async", "true")]),
+            b(
+                "v",
+                &[
+                    ("destination", "file"),
+                    ("name", "/b/v/"),
+                    ("async", "true")
+                ]
+            ),
             "BACKUP DATABASE `v` TO File('/b/v/') ASYNC;"
         );
         assert_eq!(
-            b("v", &[("destination", "s3"), ("s3_url", "https://x/b.zip"), ("s3_access_key", "K"), ("s3_secret_key", "S")]),
+            b(
+                "v",
+                &[
+                    ("destination", "s3"),
+                    ("s3_url", "https://x/b.zip"),
+                    ("s3_access_key", "K"),
+                    ("s3_secret_key", "S")
+                ]
+            ),
             "BACKUP DATABASE `v` TO S3('https://x/b.zip', 'K', 'S');"
         );
         assert_eq!(
@@ -349,7 +412,10 @@ mod tests {
             "BACKUP DATABASE `v` TO Disk('backups', 'i.zip') SETTINGS base_backup = Disk('backups', 'f.zip');"
         );
         let auto = b("mi base", &[]);
-        assert!(auto.starts_with("BACKUP DATABASE `mi base` TO Disk('backups', 'mi_base-2"), "{auto}");
+        assert!(
+            auto.starts_with("BACKUP DATABASE `mi base` TO Disk('backups', 'mi_base-2"),
+            "{auto}"
+        );
         assert!(script(&BackupAction::Backup {
             database: Some("v".into()),
             options: opts(&[("base_backup", "Disk('a'); DROP DATABASE v; SELECT ('')")])
@@ -357,16 +423,30 @@ mod tests {
         .is_err());
 
         let r = |src: &str, db: Option<&str>, kv: &[(&str, &str)]| {
-            script(&BackupAction::Restore { source: src.into(), database: db.map(Into::into), options: opts(kv) }).unwrap()
+            script(&BackupAction::Restore {
+                source: src.into(),
+                database: db.map(Into::into),
+                options: opts(kv),
+            })
+            .unwrap()
         };
-        assert_eq!(r("Disk('backups', 'v.zip')", Some("v"), &[]), "RESTORE DATABASE `v` FROM Disk('backups', 'v.zip');");
+        assert_eq!(
+            r("Disk('backups', 'v.zip')", Some("v"), &[]),
+            "RESTORE DATABASE `v` FROM Disk('backups', 'v.zip');"
+        );
         assert_eq!(
             r("v.zip", Some("v2"), &[("from_database", "v"), ("allow_non_empty_tables", "true")]),
             "RESTORE DATABASE `v` AS `v2` FROM Disk('backups', 'v.zip') SETTINGS allow_non_empty_tables = true;"
         );
-        assert_eq!(r("File('/b/x/')", None, &[("async", "true")]), "RESTORE ALL FROM File('/b/x/') ASYNC;");
+        assert_eq!(
+            r("File('/b/x/')", None, &[("async", "true")]),
+            "RESTORE ALL FROM File('/b/x/') ASYNC;"
+        );
         // Not a location: taken as a file name, quoted.
-        assert_eq!(r("Disk('a'); DROP", Some("v"), &[]), "RESTORE DATABASE `v` FROM Disk('backups', 'Disk(\\'a\\'); DROP');");
+        assert_eq!(
+            r("Disk('a'); DROP", Some("v"), &[]),
+            "RESTORE DATABASE `v` FROM Disk('backups', 'Disk(\\'a\\'); DROP');"
+        );
         assert!(script(&BackupAction::Delete { source: "x".into() }).is_err());
         assert!(spec(Flavor::Timeplus).is_none());
         assert!(spec(Flavor::ClickHouse).is_some_and(|s| s.restore && s.history && !s.delete));
@@ -374,9 +454,18 @@ mod tests {
 
     #[test]
     fn reads_what_a_statement_is_of() {
-        assert_eq!(target("BACKUP DATABASE `a``b` TO Disk('x', 'y')"), (Some("DATABASE".into()), Some("a`b".into())));
-        assert_eq!(target("restore database v AS w FROM File('x')"), (Some("DATABASE".into()), Some("v".into())));
-        assert_eq!(target("BACKUP TABLE v.t TO File('x')"), (Some("TABLE".into()), None));
+        assert_eq!(
+            target("BACKUP DATABASE `a``b` TO Disk('x', 'y')"),
+            (Some("DATABASE".into()), Some("a`b".into()))
+        );
+        assert_eq!(
+            target("restore database v AS w FROM File('x')"),
+            (Some("DATABASE".into()), Some("v".into()))
+        );
+        assert_eq!(
+            target("BACKUP TABLE v.t TO File('x')"),
+            (Some("TABLE".into()), None)
+        );
         assert_eq!(target(""), (None, None));
         assert!(is_location("S3('https://x/a.zip', 'k', 's\\')')"));
         assert!(!is_location("Disk('a') x"));

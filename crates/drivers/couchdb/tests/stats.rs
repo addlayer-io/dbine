@@ -38,13 +38,26 @@ async fn couchdb_stats() {
     s.create_database("dbine_stats").await.unwrap();
     let mut out = QueryOutcome::default();
     for (id, n) in [("a", 1), ("b", 2), ("c", 3)] {
-        s.execute(&format!("POST /dbine_stats {{\"_id\": \"{id}\", \"n\": {n}}}"), 10, &mut out).await.unwrap();
+        s.execute(
+            &format!("POST /dbine_stats {{\"_id\": \"{id}\", \"n\": {n}}}"),
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap();
     }
     let mut s = d.connect(&c, Some("dbine_stats")).await.unwrap();
 
     let rows = s.row_estimates().await.unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!((rows[0].object.kind.as_str(), rows[0].object.name.as_str(), rows[0].rows), ("collection", "_all_docs", 3));
+    assert_eq!(
+        (
+            rows[0].object.kind.as_str(),
+            rows[0].object.name.as_str(),
+            rows[0].rows
+        ),
+        ("collection", "_all_docs", 3)
+    );
     assert!(s.object_comments().await.unwrap().is_empty());
 
     let mut admin = d.connect(&c, None).await.unwrap();

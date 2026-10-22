@@ -61,7 +61,15 @@ struct Hasher {
 
 impl Hasher {
     fn new(cap: usize, ordered: bool) -> Self {
-        Self { cap, ordered, rows: 0, shape: Vec::new(), chain: Sha256::new(), sum: 0, mix: 0 }
+        Self {
+            cap,
+            ordered,
+            rows: 0,
+            shape: Vec::new(),
+            chain: Sha256::new(),
+            sum: 0,
+            mix: 0,
+        }
     }
 
     fn checksum(&self) -> String {
@@ -73,7 +81,11 @@ impl Hasher {
             h.update(self.sum.to_le_bytes());
             h.update(self.mix.to_le_bytes());
         }
-        h.finalize().iter().take(12).map(|b| format!("{b:02x}")).collect()
+        h.finalize()
+            .iter()
+            .take(12)
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 }
 
@@ -135,14 +147,23 @@ struct Run {
 async fn run_once(session: &mut dyn Session, sql: &str, o: &Options) -> Result<Run, String> {
     let hasher = Arc::new(Mutex::new(Hasher::new(o.max_rows, o.ordered)));
     let sink: Arc<Mutex<dyn RowSink>> = hasher.clone();
-    let mut out = QueryOutcome { sink: Some(RowSinkRef(sink)), ..Default::default() };
+    let mut out = QueryOutcome {
+        sink: Some(RowSinkRef(sink)),
+        ..Default::default()
+    };
     let started = Instant::now();
-    let r = session.execute(sql, o.max_rows.saturating_add(1), &mut out).await;
+    let r = session
+        .execute(sql, o.max_rows.saturating_add(1), &mut out)
+        .await;
     let ms = started.elapsed().as_secs_f64() * 1000.0;
     if let Err(e) = r {
         return Err(e.to_string());
     }
-    if let Some(e) = out.error.clone().or_else(|| out.errors.first().map(|e| e.message.clone())) {
+    if let Some(e) = out
+        .error
+        .clone()
+        .or_else(|| out.errors.first().map(|e| e.message.clone()))
+    {
         return Err(e);
     }
     let h = hasher.lock().map_err(|_| "error interno".to_string())?;
@@ -151,12 +172,25 @@ async fn run_once(session: &mut dyn Session, sql: &str, o: &Options) -> Result<R
     if kept > 0 && h.rows == 0 {
         return Err("el driver no entregó las filas para compararlas".into());
     }
-    Ok(Run { ms, rows: h.rows, truncated: h.rows as usize > o.max_rows, checksum: h.checksum() })
+    Ok(Run {
+        ms,
+        rows: h.rows,
+        truncated: h.rows as usize > o.max_rows,
+        checksum: h.checksum(),
+    })
 }
 
 /// Measure one version. `cancelled` is checked between runs.
-pub async fn measure(session: &mut dyn Session, v: &Version, o: &Options, cancelled: &(dyn Fn() -> bool + Sync)) -> Measure {
-    let mut m = Measure { id: v.id.clone(), ..Default::default() };
+pub async fn measure(
+    session: &mut dyn Session,
+    v: &Version,
+    o: &Options,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Measure {
+    let mut m = Measure {
+        id: v.id.clone(),
+        ..Default::default()
+    };
     if o.execute {
         match run_once(session, &v.sql, o).await {
             Err(e) => m.error = Some(e),
@@ -200,10 +234,14 @@ pub async fn measure(session: &mut dyn Session, v: &Version, o: &Options, cancel
 
 /// Each measure against the original's (the first): same rows, same checksum.
 pub fn mark_equivalence(measures: &mut [Measure]) {
-    let Some(first) = measures.first().cloned() else { return };
-    let comparable = |m: &Measure| m.executed && m.error.is_none() && !m.truncated && m.checksum.is_some();
+    let Some(first) = measures.first().cloned() else {
+        return;
+    };
+    let comparable =
+        |m: &Measure| m.executed && m.error.is_none() && !m.truncated && m.checksum.is_some();
     for m in measures.iter_mut().skip(1) {
-        m.equivalent = (comparable(&first) && comparable(m)).then(|| m.checksum == first.checksum && m.rows == first.rows);
+        m.equivalent = (comparable(&first) && comparable(m))
+            .then(|| m.checksum == first.checksum && m.rows == first.rows);
     }
     if let Some(f) = measures.first_mut() {
         f.equivalent = comparable(f).then_some(true);
@@ -217,7 +255,20 @@ mod tests {
 
     fn hash(rows: &[Vec<serde_json::Value>], ordered: bool) -> String {
         let mut h = Hasher::new(100, ordered);
-        h.begin(0, &[ResultColumn { name: "a".into(), type_name: String::new() }, ResultColumn { name: "b".into(), type_name: String::new() }]).unwrap();
+        h.begin(
+            0,
+            &[
+                ResultColumn {
+                    name: "a".into(),
+                    type_name: String::new(),
+                },
+                ResultColumn {
+                    name: "b".into(),
+                    type_name: String::new(),
+                },
+            ],
+        )
+        .unwrap();
         for r in rows {
             h.row(0, r).unwrap();
         }
@@ -235,13 +286,34 @@ mod tests {
         c.push(vec![json!(1), json!("x")]);
         assert_ne!(hash(&a, false), hash(&c, false));
         // "1" (text) isn't 1 (a number), and NULL isn't 'null'.
-        assert_ne!(hash(&[vec![json!("1"), json!(null)]], false), hash(&[vec![json!(1), json!("null")]], false));
+        assert_ne!(
+            hash(&[vec![json!("1"), json!(null)]], false),
+            hash(&[vec![json!(1), json!("null")]], false)
+        );
     }
 
     #[test]
     fn equivalence_needs_both_sides_verifiable() {
-        let ok = |id: &str, sum: &str, rows: u64| Measure { id: id.into(), executed: true, checksum: Some(sum.into()), rows: Some(rows), ..Default::default() };
-        let mut ms = vec![ok("o", "aa", 2), ok("same", "aa", 2), ok("diff", "bb", 2), Measure { truncated: true, ..ok("cut", "aa", 2) }, Measure { id: "plan".into(), ..Default::default() }];
+        let ok = |id: &str, sum: &str, rows: u64| Measure {
+            id: id.into(),
+            executed: true,
+            checksum: Some(sum.into()),
+            rows: Some(rows),
+            ..Default::default()
+        };
+        let mut ms = vec![
+            ok("o", "aa", 2),
+            ok("same", "aa", 2),
+            ok("diff", "bb", 2),
+            Measure {
+                truncated: true,
+                ..ok("cut", "aa", 2)
+            },
+            Measure {
+                id: "plan".into(),
+                ..Default::default()
+            },
+        ];
         mark_equivalence(&mut ms);
         let eq: Vec<Option<bool>> = ms.iter().map(|m| m.equivalent).collect();
         assert_eq!(eq, vec![Some(true), Some(true), Some(false), None, None]);

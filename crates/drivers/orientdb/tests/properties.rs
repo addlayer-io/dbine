@@ -10,7 +10,10 @@ use dbine_driver::ConnectionConfig;
 use std::collections::BTreeMap;
 
 fn changes(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -31,7 +34,10 @@ async fn orientdb_properties() {
         password: Some(pass.into()),
         ..Default::default()
     };
-    let d = dbine_driver_orientdb::drivers().into_iter().find(|d| d.info().id == "orientdb").unwrap();
+    let d = dbine_driver_orientdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "orientdb")
+        .unwrap();
     assert!(d.capabilities().database_properties);
     let mut s = d.connect(&cfg, None).await.unwrap();
     let _ = s.drop_database("dbine_props").await;
@@ -39,7 +45,10 @@ async fn orientdb_properties() {
 
     let p = s.database_properties("dbine_props").await.unwrap();
     eprintln!("{:#?}\n{:?}", p.info, p.values);
-    assert!(p.info.iter().any(|i| i.label == "Almacenamiento" && i.value == "plocal"));
+    assert!(p
+        .info
+        .iter()
+        .any(|i| i.label == "Almacenamiento" && i.value == "plocal"));
     assert!(p.info.iter().any(|i| i.label == "Tamaño"));
     assert_eq!(p.values.get("validation").map(String::as_str), Some("true"));
     assert_eq!(p.values.get("strict_sql").map(String::as_str), Some("true"));
@@ -82,11 +91,22 @@ async fn orientdb_properties() {
     assert!(p.fields.iter().any(|f| f.key == "custom:dbineNota"));
 
     // An existing custom attribute changes through its own field.
-    s.alter_database("dbine_props", &changes(&[("custom:dbineNota", "otra"), ("validation", "true")])).await.unwrap();
+    s.alter_database(
+        "dbine_props",
+        &changes(&[("custom:dbineNota", "otra"), ("validation", "true")]),
+    )
+    .await
+    .unwrap();
     let p = s.database_properties("dbine_props").await.unwrap();
-    assert_eq!(p.values.get("custom:dbineNota").map(String::as_str), Some("otra"));
+    assert_eq!(
+        p.values.get("custom:dbineNota").map(String::as_str),
+        Some("otra")
+    );
     assert_eq!(p.values.get("validation").map(String::as_str), Some("true"));
 
-    assert!(s.alter_database("dbine_props", &changes(&[("charset", "UTF 8")])).await.is_err());
+    assert!(s
+        .alter_database("dbine_props", &changes(&[("charset", "UTF 8")]))
+        .await
+        .is_err());
     s.drop_database("dbine_props").await.unwrap();
 }

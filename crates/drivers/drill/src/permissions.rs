@@ -21,7 +21,10 @@ const MISSING: &str = "administrador de Drill (security.admin.users o security.a
 pub(crate) fn profiler_access(cluster: &Value) -> Access {
     match cluster.get("authEnabled").and_then(Value::as_bool) {
         Some(false) => Access::Allowed,
-        Some(true) => Access::check(cluster.get("adminUsers").is_some() || cluster.get("processUser").is_some(), MISSING),
+        Some(true) => Access::check(
+            cluster.get("adminUsers").is_some() || cluster.get("processUser").is_some(),
+            MISSING,
+        ),
         None => Access::Unknown,
     }
 }
@@ -32,7 +35,10 @@ pub(crate) async fn check(s: &DrillSession) -> Result<Permissions> {
         Err(e @ Error::Connect(_)) => return Err(e),
         Err(_) => Access::Unknown,
     };
-    Ok(Permissions { profiler, ..Default::default() })
+    Ok(Permissions {
+        profiler,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]
@@ -42,10 +48,18 @@ mod tests {
 
     #[test]
     fn admin_settings_show_only_to_admins() {
-        assert_eq!(profiler_access(&json!({"currentVersion": "1.22.0", "authEnabled": false})), Access::Allowed);
+        assert_eq!(
+            profiler_access(&json!({"currentVersion": "1.22.0", "authEnabled": false})),
+            Access::Allowed
+        );
         let admin = json!({"authEnabled": true, "processUser": "drill", "adminUsers": "drill,ana", "adminUserGroups": ""});
         assert_eq!(profiler_access(&admin), Access::Allowed);
-        assert_eq!(profiler_access(&json!({"authEnabled": true})), Access::Denied { missing: MISSING.into() });
+        assert_eq!(
+            profiler_access(&json!({"authEnabled": true})),
+            Access::Denied {
+                missing: MISSING.into()
+            }
+        );
         assert_eq!(profiler_access(&json!({"drillbits": []})), Access::Unknown);
     }
 }

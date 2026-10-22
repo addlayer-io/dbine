@@ -13,20 +13,47 @@
 //!   grants of `SYS_…_ROLE` roles) and table permissions in
 //!   `SYS.SYSTABAUTH`.
 
-use super::{db2_auths, get, grantee, lit, option, password, privileges, rows, unsupported_action, user, with_roles, Dialect, Row};
+use super::{
+    db2_auths, get, grantee, lit, option, password, privileges, rows, unsupported_action, user,
+    with_roles, Dialect, Row,
+};
 use crate::OdbcSession;
-use dbine_driver::{kinds, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use std::collections::HashMap;
 
 pub fn spec_ase() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
-            "SELECT", "INSERT", "UPDATE", "DELETE", "REFERENCES", "EXECUTE", "TRUNCATE TABLE", "UPDATE STATISTICS", "DELETE STATISTICS",
-            "CREATE TABLE", "CREATE VIEW", "CREATE PROCEDURE", "CREATE FUNCTION", "CREATE DEFAULT", "CREATE RULE", "CREATE TRIGGER",
-            "DUMP DATABASE", "DUMP TRANSACTION", "ALL",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "REFERENCES",
+            "EXECUTE",
+            "TRUNCATE TABLE",
+            "UPDATE STATISTICS",
+            "DELETE STATISTICS",
+            "CREATE TABLE",
+            "CREATE VIEW",
+            "CREATE PROCEDURE",
+            "CREATE FUNCTION",
+            "CREATE DEFAULT",
+            "CREATE RULE",
+            "CREATE TRIGGER",
+            "DUMP DATABASE",
+            "DUMP TRANSACTION",
+            "ALL",
         ],
         // "" = the database (command permissions).
-        object_kinds: vec!["", kinds::TABLE, kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION],
+        object_kinds: vec![
+            "",
+            kinds::TABLE,
+            kinds::VIEW,
+            kinds::PROCEDURE,
+            kinds::FUNCTION,
+        ],
         create_user: true,
         create_role: true,
         passwords: true,
@@ -38,12 +65,36 @@ pub fn spec_ase() -> SecuritySpec {
 pub fn spec_sa() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
-            "SELECT", "INSERT", "UPDATE", "DELETE", "ALTER", "REFERENCES", "LOAD", "TRUNCATE", "EXECUTE", "ALL", "CREATE TABLE",
-            "CREATE ANY TABLE", "CREATE VIEW", "CREATE ANY VIEW", "CREATE PROCEDURE", "CREATE ANY PROCEDURE", "SELECT ANY TABLE",
-            "BACKUP DATABASE", "MANAGE ANY USER", "MONITOR", "SERVER OPERATOR",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "ALTER",
+            "REFERENCES",
+            "LOAD",
+            "TRUNCATE",
+            "EXECUTE",
+            "ALL",
+            "CREATE TABLE",
+            "CREATE ANY TABLE",
+            "CREATE VIEW",
+            "CREATE ANY VIEW",
+            "CREATE PROCEDURE",
+            "CREATE ANY PROCEDURE",
+            "SELECT ANY TABLE",
+            "BACKUP DATABASE",
+            "MANAGE ANY USER",
+            "MONITOR",
+            "SERVER OPERATOR",
         ],
         // "" = system privileges.
-        object_kinds: vec!["", kinds::TABLE, kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION],
+        object_kinds: vec![
+            "",
+            kinds::TABLE,
+            kinds::VIEW,
+            kinds::PROCEDURE,
+            kinds::FUNCTION,
+        ],
         create_user: true,
         create_role: true,
         passwords: true,
@@ -103,22 +154,40 @@ const ASE_ROLE_LOGINS: &str = "SELECT lr.suid, r.name AS role_name FROM master..
 pub async fn ase_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
     let d = Dialect::Ase;
     let users = rows(s, ASE_USERS).await?;
-    let roles = rows(s, "SELECT srid, name FROM master..syssrvroles").await.unwrap_or_default();
+    let roles = rows(s, "SELECT srid, name FROM master..syssrvroles")
+        .await
+        .unwrap_or_default();
     let grants = rows(s, ASE_ROLE_LOGINS).await.unwrap_or_default();
-    let groups: HashMap<String, String> = users.iter().filter(|u| ase_group(u)).map(|u| (get(u, "uid").to_string(), get(u, "name").to_string())).collect();
+    let groups: HashMap<String, String> = users
+        .iter()
+        .filter(|u| ase_group(u))
+        .map(|u| (get(u, "uid").to_string(), get(u, "name").to_string()))
+        .collect();
     let mut out = Vec::new();
     for u in users.iter().filter(|u| !ase_group(u)) {
         let name = get(u, "name").to_string();
         let suid = get(u, "suid");
-        let mut member_of: Vec<String> = groups.get(get(u, "gid")).filter(|g| *g != "public").cloned().into_iter().collect();
-        let my_roles: Vec<String> = grants.iter().filter(|g| get(g, "suid") == suid).map(|g| get(g, "role_name").to_string()).collect();
+        let mut member_of: Vec<String> = groups
+            .get(get(u, "gid"))
+            .filter(|g| *g != "public")
+            .cloned()
+            .into_iter()
+            .collect();
+        let my_roles: Vec<String> = grants
+            .iter()
+            .filter(|g| get(g, "suid") == suid)
+            .map(|g| get(g, "role_name").to_string())
+            .collect();
         member_of.extend(my_roles.iter().map(|r| super::role_name(d, r)));
         let mut details = Vec::new();
         if let Some(l) = Some(get(u, "login_name")).filter(|l| !l.is_empty() && *l != name) {
             details.push(("Login".to_string(), l.to_string()));
         }
         if !get(u, "default_db").is_empty() {
-            details.push(("Base predeterminada".into(), get(u, "default_db").to_string()));
+            details.push((
+                "Base predeterminada".into(),
+                get(u, "default_db").to_string(),
+            ));
         }
         let status: i64 = get(u, "login_status").parse().unwrap_or(0);
         out.push(Principal {
@@ -173,9 +242,18 @@ pub(super) fn ase_grant(r: &Row, via: Option<String>) -> Grant {
             format!("{owner}.{obj}")
         }
     });
-    let kind = object.as_ref().map(|_| ase_kind(get(r, "objtype")).to_string());
+    let kind = object
+        .as_ref()
+        .map(|_| ase_kind(get(r, "objtype")).to_string());
     let pt = get(r, "protecttype");
-    Grant { privilege: ase_action(get(r, "action")), object, object_kind: kind, grantable: pt == "0", denied: pt == "2", via }
+    Grant {
+        privilege: ase_action(get(r, "action")),
+        object,
+        object_kind: kind,
+        grantable: pt == "0",
+        denied: pt == "2",
+        via,
+    }
 }
 
 const ASE_PROTECTS: &str = "SELECT p.id, p.action, p.protecttype, o.name AS objname, USER_NAME(o.uid) AS owner, o.type AS objtype
@@ -195,13 +273,26 @@ pub async fn ase_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> 
         let me = users.iter().find(|u| get(u, "name") == name);
         match me {
             Some(u) => {
-                who.push((format!("p.uid = {}", get(u, "uid").parse::<i64>().unwrap_or(-1)), None));
+                who.push((
+                    format!("p.uid = {}", get(u, "uid").parse::<i64>().unwrap_or(-1)),
+                    None,
+                ));
                 if !ase_group(u) {
-                    if let Some(g) = users.iter().find(|g| ase_group(g) && get(g, "uid") == get(u, "gid") && get(g, "uid") != "0") {
-                        who.push((format!("p.uid = {}", get(g, "uid").parse::<i64>().unwrap_or(-1)), Some(get(g, "name").to_string())));
+                    if let Some(g) = users.iter().find(|g| {
+                        ase_group(g) && get(g, "uid") == get(u, "gid") && get(g, "uid") != "0"
+                    }) {
+                        who.push((
+                            format!("p.uid = {}", get(g, "uid").parse::<i64>().unwrap_or(-1)),
+                            Some(get(g, "name").to_string()),
+                        ));
                     }
                     let suid = get(u, "suid");
-                    for g in rows(s, ASE_ROLE_LOGINS).await.unwrap_or_default().iter().filter(|g| get(g, "suid") == suid) {
+                    for g in rows(s, ASE_ROLE_LOGINS)
+                        .await
+                        .unwrap_or_default()
+                        .iter()
+                        .filter(|g| get(g, "suid") == suid)
+                    {
                         let r = get(g, "role_name");
                         who.push((role_uid(r), Some(super::role_name(Dialect::Ase, r))));
                     }
@@ -277,10 +368,14 @@ pub fn ase_script(a: &SecurityAction) -> Result<String> {
 pub fn ase_map_login(login: &str, user: &str) -> Result<String> {
     let (login, user) = (login.trim(), user.trim());
     if login.is_empty() {
-        return Err(dbine_driver::Error::Query("elegí o escribí el login".into()));
+        return Err(dbine_driver::Error::Query(
+            "elegí o escribí el login".into(),
+        ));
     }
     if user.is_empty() {
-        return Err(dbine_driver::Error::Query("escribí el nombre del usuario".into()));
+        return Err(dbine_driver::Error::Query(
+            "escribí el nombre del usuario".into(),
+        ));
     }
     Ok(format!("exec sp_adduser {}, {}", lit(login), lit(user)))
 }
@@ -294,7 +389,12 @@ pub const ASE_UNMAPPED_LOGINS: &str = "SELECT l.name FROM master..syslogins l
  ORDER BY l.name";
 
 pub async fn ase_unmapped_logins(s: &OdbcSession) -> Result<Vec<String>> {
-    Ok(rows(s, ASE_UNMAPPED_LOGINS).await?.iter().map(|r| get(r, "name").to_string()).filter(|n| !n.is_empty()).collect())
+    Ok(rows(s, ASE_UNMAPPED_LOGINS)
+        .await?
+        .iter()
+        .map(|r| get(r, "name").to_string())
+        .filter(|n| !n.is_empty())
+        .collect())
 }
 
 // SQL Anywhere ---------------------------------------------------------------
@@ -310,7 +410,12 @@ pub(super) fn sa_privilege(role: &str) -> Option<String> {
 }
 
 async fn sa_members(s: &OdbcSession) -> Vec<Row> {
-    rows(s, "SELECT role_name, grantee_name, grant_type FROM SYS.SYSROLEGRANTS").await.unwrap_or_default()
+    rows(
+        s,
+        "SELECT role_name, grantee_name, grant_type FROM SYS.SYSROLEGRANTS",
+    )
+    .await
+    .unwrap_or_default()
 }
 
 pub async fn sa_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
@@ -327,21 +432,38 @@ pub async fn sa_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
     for u in &users {
         let name = get(u, "user_name").to_string();
         let ty = get(u, "user_type");
-        let member_of: Vec<String> = members.iter().filter(|m| get(m, "grantee_name") == name).map(|m| get(m, "role_name").to_string()).collect();
-        let system = matches!(ty, "1" | "5" | "9") || name.starts_with("SYS_") || matches!(name.as_str(), "SYS" | "PUBLIC" | "dbo" | "diagnostics" | "rs_systabgroup" | "SA_DEBUG");
+        let member_of: Vec<String> = members
+            .iter()
+            .filter(|m| get(m, "grantee_name") == name)
+            .map(|m| get(m, "role_name").to_string())
+            .collect();
+        let system = matches!(ty, "1" | "5" | "9")
+            || name.starts_with("SYS_")
+            || matches!(
+                name.as_str(),
+                "SYS" | "PUBLIC" | "dbo" | "diagnostics" | "rs_systabgroup" | "SA_DEBUG"
+            );
         if matches!(ty, "12" | "14") {
             let mut details = Vec::new();
             if ty == "14" {
                 details.push(("Tipo".to_string(), "usuario que también es rol".to_string()));
             }
-            for (k, label) in [("last_login_time", "Último ingreso"), ("lock_time", "Bloqueado desde"), ("failed_login_attempts", "Intentos fallidos")] {
+            for (k, label) in [
+                ("last_login_time", "Último ingreso"),
+                ("lock_time", "Bloqueado desde"),
+                ("failed_login_attempts", "Intentos fallidos"),
+            ] {
                 let v = get(u, k);
                 if !v.is_empty() && v != "0" {
                     details.push((label.to_string(), v.to_string()));
                 }
             }
             out.push(Principal {
-                superuser: Some(member_of.iter().any(|r| r == "SYS_AUTH_DBA_ROLE" || r == "SYS_AUTH_SSO_ROLE")),
+                superuser: Some(
+                    member_of
+                        .iter()
+                        .any(|r| r == "SYS_AUTH_DBA_ROLE" || r == "SYS_AUTH_SSO_ROLE"),
+                ),
                 can_login: Some(get(u, "has_password") == "1"),
                 disabled: Some(!get(u, "lock_time").is_empty()),
                 system,
@@ -354,7 +476,12 @@ pub async fn sa_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
             if sa_privilege(&name).is_some() && matches!(ty, "1" | "5" | "9") {
                 continue;
             }
-            out.push(Principal { member_of, system, superuser: Some(name == "SYS_AUTH_DBA_ROLE"), ..super::role(d, &name) });
+            out.push(Principal {
+                member_of,
+                system,
+                superuser: Some(name == "SYS_AUTH_DBA_ROLE"),
+                ..super::role(d, &name)
+            });
         }
     }
     Ok(out)
@@ -378,7 +505,10 @@ pub async fn sa_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
     let mut members: HashMap<String, Vec<String>> = HashMap::new();
     for m in &all {
         if sa_privilege(get(m, "role_name")).is_none() {
-            members.entry(get(m, "grantee_name").to_ascii_lowercase()).or_default().push(get(m, "role_name").to_string());
+            members
+                .entry(get(m, "grantee_name").to_ascii_lowercase())
+                .or_default()
+                .push(get(m, "role_name").to_string());
         }
     }
     Ok(with_roles(principal, &members, |n, via| {
@@ -387,12 +517,26 @@ pub async fn sa_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
             if let Some(p) = sa_privilege(get(m, "role_name")) {
                 // grant_type, right to left: granted, admin, inheritable.
                 let admin = get(m, "grant_type").chars().rev().nth(1) == Some('1');
-                out.push(Grant { privilege: p, grantable: admin, via: via.clone(), ..Default::default() });
+                out.push(Grant {
+                    privilege: p,
+                    grantable: admin,
+                    via: via.clone(),
+                    ..Default::default()
+                });
             }
         }
         for r in tabs.iter().filter(|r| get(r, "grantee") == n) {
-            let kind = if get(r, "objtype").eq_ignore_ascii_case("VIEW") { kinds::VIEW } else { kinds::TABLE };
-            out.extend(db2_auths(r, Some(format!("{}.{}", get(r, "tcreator"), get(r, "ttname"))), Some(kind), &via));
+            let kind = if get(r, "objtype").eq_ignore_ascii_case("VIEW") {
+                kinds::VIEW
+            } else {
+                kinds::TABLE
+            };
+            out.extend(db2_auths(
+                r,
+                Some(format!("{}.{}", get(r, "tcreator"), get(r, "ttname"))),
+                Some(kind),
+                &via,
+            ));
         }
         for p in procs.iter().filter(|p| get(p, "grantee") == n) {
             out.push(Grant {
@@ -445,4 +589,3 @@ pub fn sa_script(a: &SecurityAction) -> Result<String> {
         SecurityAction::RemoveMember { role, member } => format!("REVOKE ROLE {} FROM {};", sa_ident(grantee(role).1), sa_ident(grantee(member).1)),
     })
 }
-

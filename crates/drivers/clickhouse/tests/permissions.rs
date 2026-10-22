@@ -23,7 +23,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
 }
 
 fn denied(a: &Access, what: &str) -> bool {
@@ -41,10 +43,19 @@ async fn admin_plain_and_read_only_users() {
     let mut admin = d.connect(&base, None).await.expect("connect");
     let p = admin.permissions(Some("default")).await.unwrap();
     eprintln!("admin: {p:?}");
-    assert_eq!((&p.backup, &p.restore, &p.profiler), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-    assert_eq!((&p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+    assert_eq!(
+        (&p.backup, &p.restore, &p.profiler),
+        (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+    );
+    assert_eq!(
+        (&p.create_database, &p.drop_database, &p.manage_security),
+        (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+    );
     let p = admin.permissions(None).await.unwrap();
-    assert_eq!((&p.backup, &p.restore, &p.drop_database), (&Access::Unknown, &Access::Unknown, &Access::Unknown));
+    assert_eq!(
+        (&p.backup, &p.restore, &p.drop_database),
+        (&Access::Unknown, &Access::Unknown, &Access::Unknown)
+    );
 
     for sql in [
         "DROP USER IF EXISTS dbine_perm_ltd, dbine_perm_ro, dbine_perm_one",
@@ -57,9 +68,16 @@ async fn admin_plain_and_read_only_users() {
     ] {
         run(&mut admin, sql).await;
     }
-    let user = |u: &str, pw: &str| ConnectionConfig { username: Some(u.into()), password: Some(pw.into()), ..base.clone() };
+    let user = |u: &str, pw: &str| ConnectionConfig {
+        username: Some(u.into()),
+        password: Some(pw.into()),
+        ..base.clone()
+    };
 
-    let mut s = d.connect(&user("dbine_perm_ltd", "ltd"), None).await.expect("connect as plain user");
+    let mut s = d
+        .connect(&user("dbine_perm_ltd", "ltd"), None)
+        .await
+        .expect("connect as plain user");
     let p = s.permissions(Some("default")).await.unwrap();
     eprintln!("plain: {p:?}");
     assert!(denied(&p.backup, "BACKUP"));
@@ -70,24 +88,46 @@ async fn admin_plain_and_read_only_users() {
     assert!(denied(&p.manage_security, "ACCESS MANAGEMENT"));
 
     // CREATE DATABASE on a single name: it may create that one, so unknown.
-    let mut s = d.connect(&user("dbine_perm_one", "one"), None).await.expect("connect as named-grant user");
+    let mut s = d
+        .connect(&user("dbine_perm_one", "one"), None)
+        .await
+        .expect("connect as named-grant user");
     let p = s.permissions(Some("default")).await.unwrap();
     eprintln!("named create: {p:?}");
     assert_eq!(p.create_database, Access::Unknown);
     assert!(denied(&p.drop_database, "DROP DATABASE"));
 
-    let mut s = d.connect(&user("dbine_perm_ro", "ro"), None).await.expect("connect as read-only user");
+    let mut s = d
+        .connect(&user("dbine_perm_ro", "ro"), None)
+        .await
+        .expect("connect as read-only user");
     let p = s.permissions(Some("default")).await.unwrap();
     eprintln!("read-only profile: {p:?}");
     assert!(denied(&p.drop_database, "readonly = 0"));
     assert!(denied(&p.restore, "readonly = 0"));
 
-    let mut s = d.connect(&ConnectionConfig { read_only: true, ..base.clone() }, None).await.expect("connect read-only");
+    let mut s = d
+        .connect(
+            &ConnectionConfig {
+                read_only: true,
+                ..base.clone()
+            },
+            None,
+        )
+        .await
+        .expect("connect read-only");
     let p = s.permissions(Some("default")).await.unwrap();
     eprintln!("read-only connection: {p:?}");
     // What the server grants: DBine's read-only mode isn't a missing privilege.
-    assert_eq!((&p.drop_database, &p.restore, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+    assert_eq!(
+        (&p.drop_database, &p.restore, &p.manage_security),
+        (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+    );
     assert_eq!(p.profiler, Access::Allowed);
 
-    run(&mut admin, "DROP USER IF EXISTS dbine_perm_ltd, dbine_perm_ro, dbine_perm_one").await;
+    run(
+        &mut admin,
+        "DROP USER IF EXISTS dbine_perm_ltd, dbine_perm_ro, dbine_perm_one",
+    )
+    .await;
 }

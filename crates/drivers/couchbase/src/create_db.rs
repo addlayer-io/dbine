@@ -69,51 +69,106 @@ fn bad(what: &str, v: &str) -> Error {
     Error::Query(format!("{what}: «{v}» no es un valor válido"))
 }
 
-fn one_of<'a>(o: &'a BTreeMap<String, String>, key: &str, what: &str, allowed: &[&str]) -> Result<Option<&'a str>> {
+fn one_of<'a>(
+    o: &'a BTreeMap<String, String>,
+    key: &str,
+    what: &str,
+    allowed: &[&str],
+) -> Result<Option<&'a str>> {
     match opt(o, key) {
         Some(v) if !allowed.contains(&v) => Err(bad(what, v)),
         v => Ok(v),
     }
 }
 
-fn number(o: &BTreeMap<String, String>, key: &str, what: &str, range: std::ops::RangeInclusive<u64>) -> Result<Option<u64>> {
-    opt(o, key).map(|v| v.parse::<u64>().ok().filter(|n| range.contains(n)).ok_or_else(|| bad(what, v))).transpose()
+fn number(
+    o: &BTreeMap<String, String>,
+    key: &str,
+    what: &str,
+    range: std::ops::RangeInclusive<u64>,
+) -> Result<Option<u64>> {
+    opt(o, key)
+        .map(|v| {
+            v.parse::<u64>()
+                .ok()
+                .filter(|n| range.contains(n))
+                .ok_or_else(|| bad(what, v))
+        })
+        .transpose()
 }
 
 /// A bucket name, checked: letters, digits and `_ - . %`, up to 100.
 pub(crate) fn bucket_name(name: &str) -> Result<&str> {
     let n = name.trim();
-    if n.is_empty() || n.len() > 100 || !n.chars().all(|c| c.is_ascii_alphanumeric() || "_-.%".contains(c)) {
-        return Err(Error::Query(format!("«{name}» no es un nombre de bucket válido: letras, números y _ - . % (hasta 100)")));
+    if n.is_empty()
+        || n.len() > 100
+        || !n
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_-.%".contains(c))
+    {
+        return Err(Error::Query(format!(
+            "«{name}» no es un nombre de bucket válido: letras, números y _ - . % (hasta 100)"
+        )));
     }
     Ok(n)
 }
 
 /// The form fields of the create, in order.
-pub(crate) fn form(name: &str, o: &BTreeMap<String, String>) -> Result<Vec<(&'static str, String)>> {
+pub(crate) fn form(
+    name: &str,
+    o: &BTreeMap<String, String>,
+) -> Result<Vec<(&'static str, String)>> {
     let n = bucket_name(name)?;
-    let kind = one_of(o, "bucket_type", "tipo de bucket", &["couchbase", "ephemeral"])?.unwrap_or("couchbase");
+    let kind = one_of(
+        o,
+        "bucket_type",
+        "tipo de bucket",
+        &["couchbase", "ephemeral"],
+    )?
+    .unwrap_or("couchbase");
     let ram = number(o, "ram_quota", "memoria", 100..=1_048_576)?.unwrap_or(100);
     let flush = match opt(o, "flush") {
         None | Some("false") => "0",
         Some("true") => "1",
         Some(v) => return Err(bad("vaciar el bucket", v)),
     };
-    let mut out = vec![("name", n.to_string()), ("ramQuota", ram.to_string()), ("bucketType", kind.to_string()), ("flushEnabled", flush.into())];
+    let mut out = vec![
+        ("name", n.to_string()),
+        ("ramQuota", ram.to_string()),
+        ("bucketType", kind.to_string()),
+        ("flushEnabled", flush.into()),
+    ];
     if let Some(r) = one_of(o, "replicas", "réplicas", &["0", "1", "2", "3"])? {
         out.push(("replicaNumber", r.into()));
     }
-    let evictions: &[&str] = if kind == "ephemeral" { &["noEviction", "nruEviction"] } else { &["valueOnly", "fullEviction"] };
+    let evictions: &[&str] = if kind == "ephemeral" {
+        &["noEviction", "nruEviction"]
+    } else {
+        &["valueOnly", "fullEviction"]
+    };
     if let Some(e) = one_of(o, "eviction", "política de desalojo", evictions)? {
         out.push(("evictionPolicy", e.into()));
     }
-    let levels: &[&str] =
-        if kind == "ephemeral" { &["none", "majority"] } else { &["none", "majority", "majorityAndPersistActive", "persistToMajority"] };
+    let levels: &[&str] = if kind == "ephemeral" {
+        &["none", "majority"]
+    } else {
+        &[
+            "none",
+            "majority",
+            "majorityAndPersistActive",
+            "persistToMajority",
+        ]
+    };
     if let Some(d) = one_of(o, "durability", "durabilidad mínima", levels)? {
         out.push(("durabilityMinLevel", d.into()));
     }
     if kind == "couchbase" {
-        if let Some(s) = one_of(o, "storage_backend", "almacenamiento", &["couchstore", "magma"])? {
+        if let Some(s) = one_of(
+            o,
+            "storage_backend",
+            "almacenamiento",
+            &["couchstore", "magma"],
+        )? {
             out.push(("storageBackend", s.into()));
         }
     }
@@ -124,7 +179,10 @@ pub(crate) fn form(name: &str, o: &BTreeMap<String, String>) -> Result<Vec<(&'st
 }
 
 pub(crate) fn body(form: &[(&str, String)]) -> String {
-    form.iter().map(|(k, v)| format!("{k}={}", encode(v))).collect::<Vec<_>>().join("&")
+    form.iter()
+        .map(|(k, v)| format!("{k}={}", encode(v)))
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 /// What "Ver script" shows: the request and its form.
@@ -139,7 +197,10 @@ impl CbSession {
         let Ok(pool) = self.conn.mgmt_get("/pools/default").await else {
             return Ok(Vec::new());
         };
-        let ram = |k: &str| pool.pointer(&format!("/storageTotals/ram/{k}")).and_then(Value::as_u64);
+        let ram = |k: &str| {
+            pool.pointer(&format!("/storageTotals/ram/{k}"))
+                .and_then(Value::as_u64)
+        };
         let mut values = vec!["100".to_string()];
         if let (Some(total), Some(used)) = (ram("quotaTotal"), ram("quotaUsed")) {
             let free = total.saturating_sub(used) / (1024 * 1024);
@@ -148,14 +209,28 @@ impl CbSession {
             }
         }
         Ok(vec![
-            FieldChoices { key: "ram_quota".into(), default: Some("100".into()), values },
-            FieldChoices { key: "replicas".into(), default: Some("1".into()), values: Vec::new() },
+            FieldChoices {
+                key: "ram_quota".into(),
+                default: Some("100".into()),
+                values,
+            },
+            FieldChoices {
+                key: "replicas".into(),
+                default: Some("1".into()),
+                values: Vec::new(),
+            },
         ])
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.conn.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden crear bases.".into(),
+            ));
         }
         let form = form(name, o)?;
         let name = form[0].1.clone();
@@ -163,7 +238,10 @@ impl CbSession {
             .conn
             .http
             .post(format!("{}{PATH}", self.conn.mgmt))
-            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
             .body(body(&form));
         self.conn.mgmt_send(rb).await?;
         // The bucket takes a moment before its scopes answer.
@@ -194,7 +272,10 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -247,7 +328,14 @@ mod tests {
         ] {
             assert!(script("v", &o(&[bad])).is_err(), "{bad:?}");
         }
-        assert!(script("v", &o(&[("bucket_type", "ephemeral"), ("durability", "persistToMajority")])).is_err());
+        assert!(script(
+            "v",
+            &o(&[
+                ("bucket_type", "ephemeral"),
+                ("durability", "persistToMajority")
+            ])
+        )
+        .is_err());
         assert!(script("a&b=c", &o(&[])).is_err());
     }
 }

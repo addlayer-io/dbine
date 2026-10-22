@@ -10,8 +10,8 @@
 use crate::{text, PhoenixSession, Req, Resp};
 use dbine_driver::sql::split_statements;
 use dbine_driver::{
-    kinds, ColumnDef, ColumnInfo, DbObject, DriverInfo, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Plan,
-    PlanNode, QueryOutcome, Result, TableSchema,
+    kinds, ColumnDef, ColumnInfo, DbObject, DriverInfo, Family, Field, FieldKind, Language,
+    ObjectKindInfo, ObjectRef, Plan, PlanNode, QueryOutcome, Result, TableSchema,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -63,9 +63,18 @@ pub(crate) fn url_path(path: Option<&str>) -> String {
 
 /// Rows of a result as maps by upper-case column name.
 fn named(out: QueryOutcome) -> Vec<HashMap<String, Value>> {
-    let Some(r) = out.results.into_iter().next() else { return Vec::new() };
-    let names: Vec<String> = r.columns.iter().map(|c| c.name.to_ascii_uppercase()).collect();
-    r.rows.into_iter().map(|row| names.iter().cloned().zip(row).collect()).collect()
+    let Some(r) = out.results.into_iter().next() else {
+        return Vec::new();
+    };
+    let names: Vec<String> = r
+        .columns
+        .iter()
+        .map(|c| c.name.to_ascii_uppercase())
+        .collect();
+    r.rows
+        .into_iter()
+        .map(|row| names.iter().cloned().zip(row).collect())
+        .collect()
 }
 
 fn s(row: &HashMap<String, Value>, k: &str) -> String {
@@ -89,7 +98,9 @@ fn type_text(row: &HashMap<String, Value>) -> String {
     let size = s(row, "COLUMN_SIZE");
     let scale = s(row, "DECIMAL_DIGITS");
     match base.to_ascii_uppercase().as_str() {
-        "VARCHAR" | "CHAR" | "CHARACTER" | "CHARACTER VARYING" | "BINARY" | "VARBINARY" if !size.is_empty() && size != "0" => {
+        "VARCHAR" | "CHAR" | "CHARACTER" | "CHARACTER VARYING" | "BINARY" | "VARBINARY"
+            if !size.is_empty() && size != "0" =>
+        {
             format!("{base}({size})")
         }
         "DECIMAL" | "NUMERIC" if !size.is_empty() && size != "0" => {
@@ -112,12 +123,22 @@ pub(crate) fn plan_from_indented(statement: &str, raw: &str) -> Plan {
             Some(i) if l.ends_with(')') => (&l[..i], &l[i + 1..l.len() - 1]),
             _ => (l, ""),
         };
-        let mut n = PlanNode { op: op.to_string(), ..Default::default() };
+        let mut n = PlanNode {
+            op: op.to_string(),
+            ..Default::default()
+        };
         for part in split_top(detail) {
             let (k, v) = part.split_once('=').unwrap_or(("", part));
             match k.trim() {
                 "rowcount" => n.est_rows = v.trim().parse().ok(),
-                "table" => n.object = Some(v.trim().trim_matches(|c| c == '[' || c == ']').replace("], [", ".").replace(", ", ".")),
+                "table" => {
+                    n.object = Some(
+                        v.trim()
+                            .trim_matches(|c| c == '[' || c == ']')
+                            .replace("], [", ".")
+                            .replace(", ", "."),
+                    )
+                }
                 _ => {}
             }
             if !part.trim().is_empty() {
@@ -145,8 +166,17 @@ pub(crate) fn plan_from_indented(statement: &str, raw: &str) -> Plan {
             parent.children.push(child);
         }
     }
-    let root = stack.pop().map(|(_, n)| n).unwrap_or_else(|| PlanNode { op: "PLAN".into(), ..Default::default() });
-    Plan { statement: statement.to_string(), root, actual: false, raw_format: "text".into(), raw: raw.to_string() }
+    let root = stack.pop().map(|(_, n)| n).unwrap_or_else(|| PlanNode {
+        op: "PLAN".into(),
+        ..Default::default()
+    });
+    Plan {
+        statement: statement.to_string(),
+        root,
+        actual: false,
+        raw_format: "text".into(),
+        raw: raw.to_string(),
+    }
 }
 
 /// `a=[x, y], b=[z]` split at the commas outside brackets and parentheses.
@@ -181,9 +211,21 @@ impl PhoenixSession {
             Resp::Properties(p) => p,
             _ => Vec::new(),
         };
-        let get = |k: &str| props.iter().find(|(n, _)| n.contains(k)).map(|(_, v)| text(v)).unwrap_or_default();
+        let get = |k: &str| {
+            props
+                .iter()
+                .find(|(n, _)| n.contains(k))
+                .map(|(_, v)| text(v))
+                .unwrap_or_default()
+        };
         let (name, version) = (get("PRODUCT_NAME"), get("PRODUCT_VERSION"));
-        Ok(format!("Avatica: {} {}", if name.is_empty() { "servidor" } else { &name }, version).trim().to_string())
+        Ok(format!(
+            "Avatica: {} {}",
+            if name.is_empty() { "servidor" } else { &name },
+            version
+        )
+        .trim()
+        .to_string())
     }
 
     pub(crate) async fn avatica_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -206,10 +248,16 @@ impl PhoenixSession {
 
     pub(crate) async fn avatica_columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let mut rows = self
-            .metadata(Req::Columns { schema: obj.schema().map(str::to_string), table: Some(obj.name.clone()) })
+            .metadata(Req::Columns {
+                schema: obj.schema().map(str::to_string),
+                table: Some(obj.name.clone()),
+            })
             .await?;
         // The patterns are LIKE patterns: keep the exact names only.
-        rows.retain(|r| s(r, "TABLE_NAME") == obj.name && obj.schema().is_none_or(|sc| s(r, "TABLE_SCHEM") == sc));
+        rows.retain(|r| {
+            s(r, "TABLE_NAME") == obj.name
+                && obj.schema().is_none_or(|sc| s(r, "TABLE_SCHEM") == sc)
+        });
         rows.sort_by_key(|r| s(r, "ORDINAL_POSITION").parse::<i64>().unwrap_or(0));
         Ok(rows
             .iter()
@@ -231,11 +279,24 @@ impl PhoenixSession {
             .await?
             .into_iter()
             .filter(|o| o.kind == kinds::TABLE)
-            .map(|o| TableSchema { kind: o.kind, schema: o.schema, name: o.name, ..Default::default() })
+            .map(|o| TableSchema {
+                kind: o.kind,
+                schema: o.schema,
+                name: o.name,
+                ..Default::default()
+            })
             .collect();
-        let index: HashMap<(String, String), usize> =
-            tables.iter().enumerate().map(|(i, t)| ((t.schema.clone().unwrap_or_default(), t.name.clone()), i)).collect();
-        let mut rows = self.metadata(Req::Columns { schema: None, table: None }).await?;
+        let index: HashMap<(String, String), usize> = tables
+            .iter()
+            .enumerate()
+            .map(|(i, t)| ((t.schema.clone().unwrap_or_default(), t.name.clone()), i))
+            .collect();
+        let mut rows = self
+            .metadata(Req::Columns {
+                schema: None,
+                table: None,
+            })
+            .await?;
         rows.sort_by_key(|r| s(r, "ORDINAL_POSITION").parse::<i64>().unwrap_or(0));
         for r in &rows {
             if let Some(&i) = index.get(&(s(r, "TABLE_SCHEM"), s(r, "TABLE_NAME"))) {
@@ -254,22 +315,45 @@ impl PhoenixSession {
 
     /// `EXPLAIN PLAN FOR` each query; with `analyze`, the statements also
     /// run (Avatica has no measured plans).
-    pub(crate) async fn avatica_explain(&mut self, script: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    pub(crate) async fn avatica_explain(
+        &mut self,
+        script: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let mut noted = false;
         for stmt in split_statements(script) {
-            let first = stmt.split_whitespace().next().unwrap_or_default().to_ascii_uppercase();
-            if matches!(first.as_str(), "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "UPSERT" | "VALUES") {
+            let first = stmt
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_ascii_uppercase();
+            if matches!(
+                first.as_str(),
+                "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "UPSERT" | "VALUES"
+            ) {
                 let mut local = QueryOutcome::default();
-                self.run(&format!("EXPLAIN PLAN FOR {stmt}"), 10_000, &mut local).await?;
-                let raw: Vec<String> =
-                    local.results.pop().map(|r| r.rows.iter().filter_map(|row| row.first().map(text)).collect()).unwrap_or_default();
+                self.run(&format!("EXPLAIN PLAN FOR {stmt}"), 10_000, &mut local)
+                    .await?;
+                let raw: Vec<String> = local
+                    .results
+                    .pop()
+                    .map(|r| {
+                        r.rows
+                            .iter()
+                            .filter_map(|row| row.first().map(text))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 out.plans.push(plan_from_indented(&stmt, &raw.join("\n")));
                 if analyze && !noted {
                     out.messages.push("Avatica no da cifras reales por paso: se muestra el plan estimado junto al resultado.".into());
                     noted = true;
                 }
             } else if !analyze {
-                out.messages.push(format!("Sin plan para «{}».", stmt.trim()));
+                out.messages
+                    .push(format!("Sin plan para «{}».", stmt.trim()));
             }
             if analyze {
                 self.run(&stmt, max_rows, out).await?;
@@ -287,9 +371,19 @@ mod tests {
     fn paths_and_types() {
         assert_eq!(url_path(None), "/");
         assert_eq!(url_path(Some(" / ")), "/");
-        assert_eq!(url_path(Some("druid/v2/sql/avatica")), "/druid/v2/sql/avatica/");
+        assert_eq!(
+            url_path(Some("druid/v2/sql/avatica")),
+            "/druid/v2/sql/avatica/"
+        );
         let row = |t: &str, size: &str, scale: &str| -> HashMap<String, Value> {
-            [("TYPE_NAME", t), ("COLUMN_SIZE", size), ("DECIMAL_DIGITS", scale)].iter().map(|(k, v)| (k.to_string(), Value::from(*v))).collect()
+            [
+                ("TYPE_NAME", t),
+                ("COLUMN_SIZE", size),
+                ("DECIMAL_DIGITS", scale),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), Value::from(*v)))
+            .collect()
         };
         assert_eq!(type_text(&row("VARCHAR", "20", "")), "VARCHAR(20)");
         assert_eq!(type_text(&row("DECIMAL", "10", "2")), "DECIMAL(10,2)");
@@ -309,6 +403,9 @@ mod tests {
         assert_eq!(scan.op, "EnumerableTableScan");
         assert_eq!(scan.object.as_deref(), Some("hr.emps"));
         assert_eq!(p.root.children[1].op, "EnumerableValues");
-        assert_eq!(split_top("a=[x, y], b=(1, 2), c=3"), vec!["a=[x, y]", "b=(1, 2)", "c=3"]);
+        assert_eq!(
+            split_top("a=[x, y], b=(1, 2), c=3"),
+            vec!["a=[x, y]", "b=(1, 2)", "c=3"]
+        );
     }
 }

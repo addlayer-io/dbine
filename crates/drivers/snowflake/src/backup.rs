@@ -95,7 +95,8 @@ fn stamp() -> String {
 /// `base.esquema` (each part may be "quoted") → `"BASE"."ESQUEMA"`.
 /// Unquoted parts are uppercased, as Snowflake resolves them.
 fn qualified(path: &str) -> Result<String> {
-    let parts = parse_path(path, true).ok_or_else(|| Error::Query(format!("«{path}» no es un nombre válido")))?;
+    let parts = parse_path(path, true)
+        .ok_or_else(|| Error::Query(format!("«{path}» no es un nombre válido")))?;
     Ok(parts.iter().map(|p| q(p)).collect::<Vec<_>>().join("."))
 }
 
@@ -141,7 +142,9 @@ fn parse_path(path: &str, fold: bool) -> Option<Vec<String>> {
 
 /// `AT (TIMESTAMP => '…'::TIMESTAMP_TZ)`, or nothing.
 fn at(o: &BTreeMap<String, String>) -> String {
-    opt(o, "at").map(|t| format!(" AT (TIMESTAMP => {}::TIMESTAMP_TZ)", lit(t))).unwrap_or_default()
+    opt(o, "at")
+        .map(|t| format!(" AT (TIMESTAMP => {}::TIMESTAMP_TZ)", lit(t)))
+        .unwrap_or_default()
 }
 
 /// A history id of a backup set: `<uuid>@"DB"."SCHEMA"."SET"`.
@@ -152,22 +155,40 @@ fn parse_set_id(source: &str) -> Option<(String, String)> {
         return None;
     }
     let parts = parse_path(set, false)?;
-    (parts.len() == 3).then(|| (id.to_string(), parts.iter().map(|p| q(p)).collect::<Vec<_>>().join(".")))
+    (parts.len() == 3).then(|| {
+        (
+            id.to_string(),
+            parts.iter().map(|p| q(p)).collect::<Vec<_>>().join("."),
+        )
+    })
 }
 
 fn database(d: &Option<String>) -> Result<&str> {
-    d.as_deref().map(str::trim).filter(|d| !d.is_empty()).ok_or_else(|| Error::Query("falta la base".into()))
+    d.as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .ok_or_else(|| Error::Query("falta la base".into()))
 }
 
 pub fn script(action: &BackupAction) -> Result<String> {
     match action {
-        BackupAction::Backup { database: db, options } => {
+        BackupAction::Backup {
+            database: db,
+            options,
+        } => {
             let db = database(db)?;
             if opt(options, "method") == Some("clone") {
-                let name = opt(options, "clone_name").map_or_else(|| format!("{db}{CLONE_MARK}{}", stamp()), str::to_string);
-                return Ok(format!("CREATE DATABASE {} CLONE {}{};", q(&name), q(db), at(options)));
+                let name = opt(options, "clone_name")
+                    .map_or_else(|| format!("{db}{CLONE_MARK}{}", stamp()), str::to_string);
+                return Ok(format!(
+                    "CREATE DATABASE {} CLONE {}{};",
+                    q(&name),
+                    q(db),
+                    at(options)
+                ));
             }
-            let set_name = opt(options, "set_name").map_or_else(|| format!("{db}_BACKUPS"), str::to_string);
+            let set_name =
+                opt(options, "set_name").map_or_else(|| format!("{db}_BACKUPS"), str::to_string);
             let schema = match opt(options, "set_schema") {
                 Some(s) => qualified(s)?,
                 None => format!("{}.{}", q(db), q("PUBLIC")),
@@ -182,7 +203,11 @@ pub fn script(action: &BackupAction) -> Result<String> {
                 q(db)
             ))
         }
-        BackupAction::Restore { source, database: db, options } => {
+        BackupAction::Restore {
+            source,
+            database: db,
+            options,
+        } => {
             let target = database(db)?;
             let source = source.trim();
             if source.is_empty() {
@@ -194,7 +219,9 @@ pub fn script(action: &BackupAction) -> Result<String> {
                     // A database (a clone, or the same one at a past moment).
                     let parts = parse_path(source, false)
                         .filter(|p| p.len() == 1)
-                        .ok_or_else(|| Error::Query(format!("«{source}» no es un backup ni una base")))?;
+                        .ok_or_else(|| {
+                            Error::Query(format!("«{source}» no es un backup ni una base"))
+                        })?;
                     format!("CLONE {}{}", q(&parts[0]), at(options))
                 }
             };
@@ -208,14 +235,19 @@ pub fn script(action: &BackupAction) -> Result<String> {
                 ))
             } else {
                 if source == target {
-                    return Err(Error::Query("la base ya existe: elegí otro nombre o reemplazala".into()));
+                    return Err(Error::Query(
+                        "la base ya existe: elegí otro nombre o reemplazala".into(),
+                    ));
                 }
                 Ok(format!("CREATE DATABASE {} {from};", q(target)))
             }
         }
         BackupAction::Delete { source } => {
             if let Some((id, set)) = parse_set_id(source) {
-                return Ok(format!("ALTER BACKUP SET {set} DELETE BACKUP IDENTIFIER {};", lit(&id)));
+                return Ok(format!(
+                    "ALTER BACKUP SET {set} DELETE BACKUP IDENTIFIER {};",
+                    lit(&id)
+                ));
             }
             let name = source.trim();
             if !name.contains(CLONE_MARK) || parse_path(name, false).is_none_or(|p| p.len() != 1) {
@@ -232,17 +264,25 @@ pub fn script(action: &BackupAction) -> Result<String> {
 fn when(v: Option<&String>) -> Option<String> {
     let e = v?.split(' ').next()?;
     let (secs, nanos) = crate::epoch(e)?;
-    Some(chrono::DateTime::from_timestamp(secs, nanos)?.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    Some(
+        chrono::DateTime::from_timestamp(secs, nanos)?
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    )
 }
 
 fn get(r: &Row, k: &str) -> Option<String> {
-    r.get(k).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    r.get(k)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// A backup of `SHOW BACKUPS IN BACKUP SET`; `set` is the set's quoted name.
 fn set_entry(r: &Row, set: &str, db: &str, policy: Option<&str>) -> BackupEntry {
     let id = get(r, "backup_id").unwrap_or_default();
-    let mut details = vec![("Backup set".to_string(), set.to_string()), ("Id".into(), id.clone())];
+    let mut details = vec![
+        ("Backup set".to_string(), set.to_string()),
+        ("Id".into(), id.clone()),
+    ];
     if let Some(e) = when(r.get("expire_on")) {
         details.push(("Vence".into(), e));
     }
@@ -292,7 +332,9 @@ fn clone_entry(r: &Row, db: &str) -> BackupEntry {
 
 /// A `SHOW … LIKE` pattern matching `name` literally.
 fn like_exact(name: &str) -> String {
-    name.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    name.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 impl SnowflakeSession {
@@ -306,23 +348,38 @@ impl SnowflakeSession {
         let mut out = Vec::new();
         // Accounts without backup sets (or roles that can't see them) still
         // get the clones.
-        let sets = self.named_rows("SHOW BACKUP SETS IN ACCOUNT").await.unwrap_or_default();
+        let sets = self
+            .named_rows("SHOW BACKUP SETS IN ACCOUNT")
+            .await
+            .unwrap_or_default();
         for s in sets.iter().filter(|s| {
             get(s, "object_kind").is_some_and(|k| k.eq_ignore_ascii_case("DATABASE"))
                 && get(s, "object_name").as_deref() == Some(db.as_str())
         }) {
-            let (Some(d), Some(sc), Some(n)) = (get(s, "database_name"), get(s, "schema_name"), get(s, "name")) else {
+            let (Some(d), Some(sc), Some(n)) = (
+                get(s, "database_name"),
+                get(s, "schema_name"),
+                get(s, "name"),
+            ) else {
                 continue;
             };
             let set = format!("{}.{}.{}", q(&d), q(&sc), q(&n));
             let policy = get(s, "backup_policy_name");
             // Without OWNERSHIP of the set its backups can't be listed.
-            if let Ok(rows) = self.named_rows(&format!("SHOW BACKUPS IN BACKUP SET {set}")).await {
-                out.extend(rows.iter().map(|r| set_entry(r, &set, &db, policy.as_deref())));
+            if let Ok(rows) = self
+                .named_rows(&format!("SHOW BACKUPS IN BACKUP SET {set}"))
+                .await
+            {
+                out.extend(
+                    rows.iter()
+                        .map(|r| set_entry(r, &set, &db, policy.as_deref())),
+                );
             }
         }
         let pattern = format!("{}{}%", like_exact(&db), like_exact(CLONE_MARK));
-        let clones = self.named_rows(&format!("SHOW DATABASES LIKE {}", lit(&pattern))).await?;
+        let clones = self
+            .named_rows(&format!("SHOW DATABASES LIKE {}", lit(&pattern)))
+            .await?;
         out.extend(clones.iter().map(|r| clone_entry(r, &db)));
         out.sort_by(|a, b| b.started.cmp(&a.started));
         Ok(out)
@@ -334,15 +391,24 @@ mod tests {
     use super::*;
 
     fn opts(kv: &[(&str, &str)]) -> BTreeMap<String, String> {
-        kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        kv.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn backup(db: &str, kv: &[(&str, &str)]) -> Result<String> {
-        script(&BackupAction::Backup { database: Some(db.into()), options: opts(kv) })
+        script(&BackupAction::Backup {
+            database: Some(db.into()),
+            options: opts(kv),
+        })
     }
 
     fn restore(src: &str, db: &str, kv: &[(&str, &str)]) -> Result<String> {
-        script(&BackupAction::Restore { source: src.into(), database: Some(db.into()), options: opts(kv) })
+        script(&BackupAction::Restore {
+            source: src.into(),
+            database: Some(db.into()),
+            options: opts(kv),
+        })
     }
 
     #[test]
@@ -378,8 +444,14 @@ mod tests {
         );
         let swap = restore(id, "V", &[("mode", "swap")]).unwrap();
         assert!(swap.starts_with("CREATE DATABASE \"V_ANTERIOR_2"), "{swap}");
-        assert!(swap.contains("\nALTER DATABASE \"V\" SWAP WITH \"V_ANTERIOR_2"), "{swap}");
-        assert_eq!(restore("V_BKP_1", "V3", &[]).unwrap(), "CREATE DATABASE \"V3\" CLONE \"V_BKP_1\";");
+        assert!(
+            swap.contains("\nALTER DATABASE \"V\" SWAP WITH \"V_ANTERIOR_2"),
+            "{swap}"
+        );
+        assert_eq!(
+            restore("V_BKP_1", "V3", &[]).unwrap(),
+            "CREATE DATABASE \"V3\" CLONE \"V_BKP_1\";"
+        );
         assert_eq!(
             restore("V", "V_AYER", &[("at", "2026-09-28 00:00:00 +00:00")]).unwrap(),
             "CREATE DATABASE \"V_AYER\" CLONE \"V\" AT (TIMESTAMP => '2026-09-28 00:00:00 +00:00'::TIMESTAMP_TZ);"
@@ -393,16 +465,27 @@ mod tests {
             del(id).unwrap(),
             "ALTER BACKUP SET \"V\".\"PUBLIC\".\"V_BACKUPS\" DELETE BACKUP IDENTIFIER '29c2c1b9-6599-4f0b-87b8-d43377fd7c77';"
         );
-        assert_eq!(del("V_BKP_20260929_154500").unwrap(), "DROP DATABASE \"V_BKP_20260929_154500\";");
+        assert_eq!(
+            del("V_BKP_20260929_154500").unwrap(),
+            "DROP DATABASE \"V_BKP_20260929_154500\";"
+        );
         assert!(del("VENTAS").is_err());
         assert!(del("V_BKP_1; DROP DATABASE X").is_err());
     }
 
     #[test]
     fn history_rows() {
-        let row = |kv: &[(&str, &str)]| -> Row { kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() };
+        let row = |kv: &[(&str, &str)]| -> Row {
+            kv.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
         let e = set_entry(
-            &row(&[("backup_id", "abc-1"), ("created_on", "1790000000.000000000"), ("expire_on", "1790086400.5")]),
+            &row(&[
+                ("backup_id", "abc-1"),
+                ("created_on", "1790000000.000000000"),
+                ("expire_on", "1790086400.5"),
+            ]),
             "\"V\".\"PUBLIC\".\"S\"",
             "V",
             Some("P"),
@@ -411,8 +494,14 @@ mod tests {
         assert_eq!(e.started.as_deref(), Some("2026-09-21T14:13:20Z"));
         assert!(e.restorable);
         assert!(parse_set_id(&e.id).is_some());
-        let c = clone_entry(&row(&[("name", "V_BKP_1"), ("created_on", "1790000000.0 -0700")]), "V");
-        assert_eq!((c.id.as_str(), c.kind.as_deref()), ("V_BKP_1", Some("Clon")));
+        let c = clone_entry(
+            &row(&[("name", "V_BKP_1"), ("created_on", "1790000000.0 -0700")]),
+            "V",
+        );
+        assert_eq!(
+            (c.id.as_str(), c.kind.as_deref()),
+            ("V_BKP_1", Some("Clon"))
+        );
         assert_eq!(like_exact("A_B%"), "A\\_B\\%");
     }
 }

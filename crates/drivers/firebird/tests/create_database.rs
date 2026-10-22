@@ -40,17 +40,42 @@ async fn file_page_size_and_charset() {
     let choices = s.create_database_choices().await.unwrap();
     let get = |k: &str| choices.iter().find(|c| c.key == k).unwrap();
     assert!(get("charset").values.iter().any(|c| c == "WIN1252"));
-    let dir = get("folder").values.first().cloned().expect("the current database's folder");
+    let dir = get("folder")
+        .values
+        .first()
+        .cloned()
+        .expect("the current database's folder");
     assert_eq!(dir, base.database.rsplit_once('/').unwrap().0);
 
     let path = format!("{dir}/dbine_create_opts.fdb");
     let _ = s.drop_database(&path).await;
-    let options: BTreeMap<String, String> =
-        [("folder", dir.as_str()), ("page_size", "16384"), ("charset", "win1252")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
+    let options: BTreeMap<String, String> = [
+        ("folder", dir.as_str()),
+        ("page_size", "16384"),
+        ("charset", "win1252"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
 
-    let mut n = d.connect(&ConnectionConfig { database: path.clone(), ..base.clone() }, None).await.unwrap();
+    let mut n = d
+        .connect(
+            &ConnectionConfig {
+                database: path.clone(),
+                ..base.clone()
+            },
+            None,
+        )
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
     n.execute("SELECT MON$PAGE_SIZE, TRIM(RDB$CHARACTER_SET_NAME) FROM MON$DATABASE CROSS JOIN RDB$DATABASE", 10, &mut out).await.unwrap();
     let row = &out.results.last().unwrap().rows[0];
@@ -63,6 +88,8 @@ async fn file_page_size_and_charset() {
     // Without options: the plain create, by path.
     let plain = format!("{dir}/dbine_create_plain.fdb");
     let _ = s.drop_database(&plain).await;
-    s.create_database_with(&plain, &BTreeMap::new()).await.unwrap();
+    s.create_database_with(&plain, &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database(&plain).await.unwrap();
 }

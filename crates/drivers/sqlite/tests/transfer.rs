@@ -3,7 +3,9 @@
 //! (1M rows in release; `cargo test --release -p dbine-driver-sqlite --test
 //! transfer -- --nocapture` prints the rates).
 
-use dbine_driver::transfer::{BatchSink, BatchSource, Cell, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, Cell, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{kinds, ConnectionConfig, Error, ObjectRef, QueryOutcome, Session};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -16,8 +18,18 @@ fn temp_db(tag: &str) -> std::path::PathBuf {
 }
 
 async fn open(path: &std::path::Path, read_only: bool) -> Box<dyn Session> {
-    let cfg = ConnectionConfig { driver: "sqlite".into(), host: path.display().to_string(), read_only, ..Default::default() };
-    dbine_driver_sqlite::drivers().pop().unwrap().connect(&cfg, None).await.unwrap()
+    let cfg = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: path.display().to_string(),
+        read_only,
+        ..Default::default()
+    };
+    dbine_driver_sqlite::drivers()
+        .pop()
+        .unwrap()
+        .connect(&cfg, None)
+        .await
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
@@ -26,7 +38,11 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) {
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: kinds::TABLE.into(), schema: None, name: name.into() }
+    ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: name.into(),
+    }
 }
 
 #[derive(Default)]
@@ -48,7 +64,10 @@ impl BatchSink for Collect {
     }
 }
 
-async fn read_all(s: &mut Box<dyn Session>, spec: &ReadSpec) -> (Vec<TransferColumn>, Vec<Vec<Cell>>) {
+async fn read_all(
+    s: &mut Box<dyn Session>,
+    spec: &ReadSpec,
+) -> (Vec<TransferColumn>, Vec<Vec<Cell>>) {
     let sink = Arc::new(Mutex::new(Collect::default()));
     let n = s.read_batches(spec, sink.clone()).await.unwrap();
     let c = std::mem::take(&mut *sink.lock().unwrap());
@@ -61,7 +80,13 @@ struct VecSource(std::vec::IntoIter<RowBatch>);
 
 impl VecSource {
     fn new(rows: Vec<Vec<Cell>>, per: usize) -> Self {
-        let batches: Vec<RowBatch> = rows.chunks(per).map(|c| RowBatch { rows: c.to_vec(), bytes: 0 }).collect();
+        let batches: Vec<RowBatch> = rows
+            .chunks(per)
+            .map(|c| RowBatch {
+                rows: c.to_vec(),
+                bytes: 0,
+            })
+            .collect();
         VecSource(batches.into_iter())
     }
 }
@@ -102,8 +127,19 @@ async fn read_is_typed_and_blobs_whole() {
          INSERT INTO t VALUES (3, 9223372036854775807, -0.25, 'x', zeroblob(5242880), 7, 'no-date');",
     )
     .await;
-    let (cols, rows) = read_all(&mut s, &ReadSpec { table: table("t"), columns: None, filter: None }).await;
-    assert_eq!(cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "i", "r", "s", "b", "n", "d"]);
+    let (cols, rows) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: table("t"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
+    assert_eq!(
+        cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["id", "i", "r", "s", "b", "n", "d"]
+    );
     assert_eq!(cols[4].type_name, "BLOB");
     assert!(!cols[0].nullable && !cols[3].nullable && cols[1].nullable);
     assert_eq!(
@@ -118,19 +154,43 @@ async fn read_is_typed_and_blobs_whole() {
             Cell::Text("2024-01-31".into())
         ]
     );
-    assert_eq!(rows[1][1..], [Cell::Null, Cell::Null, Cell::Text(String::new()), Cell::Null, Cell::Null, Cell::Null]);
+    assert_eq!(
+        rows[1][1..],
+        [
+            Cell::Null,
+            Cell::Null,
+            Cell::Text(String::new()),
+            Cell::Null,
+            Cell::Null,
+            Cell::Null
+        ]
+    );
     assert_eq!(rows[2][4], Cell::Bytes(vec![0; 5 * 1024 * 1024]));
     assert_eq!(rows[2][5], Cell::Int(7));
 
     // Column subset and filter.
-    let spec = ReadSpec { table: table("t"), columns: Some(vec!["s".into(), "id".into()]), filter: Some("id >= 2".into()) };
+    let spec = ReadSpec {
+        table: table("t"),
+        columns: Some(vec!["s".into(), "id".into()]),
+        filter: Some("id >= 2".into()),
+    };
     let (cols, rows) = read_all(&mut s, &spec).await;
     assert_eq!(cols.len(), 2);
-    assert_eq!(rows, vec![vec![Cell::Text(String::new()), Cell::Int(2)], vec![Cell::Text("x".into()), Cell::Int(3)]]);
+    assert_eq!(
+        rows,
+        vec![
+            vec![Cell::Text(String::new()), Cell::Int(2)],
+            vec![Cell::Text("x".into()), Cell::Int(3)]
+        ]
+    );
 
     // An unknown column is an error (SQLite would read a bare "nope" as a
     // string literal).
-    let spec = ReadSpec { table: table("t"), columns: Some(vec!["id".into(), "nope".into()]), filter: None };
+    let spec = ReadSpec {
+        table: table("t"),
+        columns: Some(vec!["id".into(), "nope".into()]),
+        filter: None,
+    };
     let sink = Arc::new(Mutex::new(Collect::default()));
     let e = s.read_batches(&spec, sink).await.unwrap_err();
     assert!(matches!(&e, Error::Query(m) if m.contains("nope")), "{e:?}");
@@ -145,12 +205,39 @@ async fn read_is_typed_and_blobs_whole() {
          CREATE TABLE z (k INTEGER PRIMARY KEY DESC, x INTEGER);",
     )
     .await;
-    let (cols, rows) = read_all(&mut s, &ReadSpec { table: table("v"), columns: None, filter: None }).await;
+    let (cols, rows) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: table("v"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     assert!(cols[1].nullable && rows[0][1] == Cell::Null);
-    let (cols, _) = read_all(&mut s, &ReadSpec { table: table("w"), columns: None, filter: None }).await;
+    let (cols, _) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: table("w"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     assert!(!cols[0].nullable && cols[1].nullable);
-    let (cols, _) = read_all(&mut s, &ReadSpec { table: table("z"), columns: None, filter: None }).await;
-    assert!(cols[0].nullable, "INTEGER PRIMARY KEY DESC is no rowid alias");
+    let (cols, _) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: table("z"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
+    assert!(
+        cols[0].nullable,
+        "INTEGER PRIMARY KEY DESC is no rowid alias"
+    );
     drop(s);
     let _ = std::fs::remove_file(&path);
 }
@@ -166,7 +253,15 @@ fn sample_rows() -> Vec<Vec<Cell>> {
             Cell::Decimal("12.25".into()),
             Cell::Date("2024-02-29".into()),
         ],
-        vec![Cell::Int(2), Cell::Null, Cell::Null, Cell::Text(String::new()), Cell::Null, Cell::Null, Cell::Null],
+        vec![
+            Cell::Int(2),
+            Cell::Null,
+            Cell::Null,
+            Cell::Text(String::new()),
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+        ],
         vec![
             Cell::Int(3),
             Cell::Bool(true),
@@ -189,18 +284,32 @@ async fn bulk_load_round_trip_with_windows() {
     let c2 = committed.clone();
     let progress = move |n: u64| c2.lock().unwrap().push(n);
     let mut src = VecSource::new(sample_rows(), 2);
-    let n = s.bulk_load(&load_spec("t", &cols, 2), &[], &mut src, &progress).await.unwrap();
+    let n = s
+        .bulk_load(&load_spec("t", &cols, 2), &[], &mut src, &progress)
+        .await
+        .unwrap();
     assert_eq!(n, 3);
     assert_eq!(*committed.lock().unwrap(), vec![2, 3]);
 
-    let (_, rows) = read_all(&mut s, &ReadSpec { table: table("t"), columns: None, filter: None }).await;
+    let (_, rows) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: table("t"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     let want = sample_rows();
     assert_eq!(rows[0][..5], want[0][..5]);
     assert_eq!(rows[0][4], Cell::Bytes(big_blob()));
     assert_eq!(rows[0][5], Cell::Float(12.25)); // NUMERIC affinity
     assert_eq!(rows[1], want[1]);
     assert_eq!(rows[2][1], Cell::Int(1));
-    assert_eq!(rows[2][3], Cell::Text("123e4567-e89b-12d3-a456-426614174000".into()));
+    assert_eq!(
+        rows[2][3],
+        Cell::Text("123e4567-e89b-12d3-a456-426614174000".into())
+    );
     assert_eq!(rows[2][4], Cell::Bytes(vec![]));
     assert_eq!(rows[2][5], Cell::Float(u64::MAX as f64)); // NUMERIC affinity turns the digits into a REAL
     assert_eq!(rows[2][6], Cell::Text("2024-01-01 10:00:00+02:00".into()));
@@ -208,13 +317,43 @@ async fn bulk_load_round_trip_with_windows() {
     // A failing row rolls back its window only: the first one stays.
     run(&mut s, "DELETE FROM t").await;
     let bad = vec![
-        vec![Cell::Int(1), Cell::Null, Cell::Null, Cell::Text("ok".into()), Cell::Null, Cell::Null, Cell::Null],
-        vec![Cell::Int(2), Cell::Null, Cell::Null, Cell::Null, Cell::Null, Cell::Null, Cell::Null],
+        vec![
+            Cell::Int(1),
+            Cell::Null,
+            Cell::Null,
+            Cell::Text("ok".into()),
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+        ],
+        vec![
+            Cell::Int(2),
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+        ],
     ];
     let mut src = VecSource::new(bad, 1);
-    let e = s.bulk_load(&load_spec("t", &cols, 1), &[], &mut src, &|_| {}).await.unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.contains("fila 2") && m.contains("NOT NULL")), "{e:?}");
-    let (_, rows) = read_all(&mut s, &ReadSpec { table: table("t"), columns: Some(vec!["id".into()]), filter: None }).await;
+    let e = s
+        .bulk_load(&load_spec("t", &cols, 1), &[], &mut src, &|_| {})
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&e, Error::Query(m) if m.contains("fila 2") && m.contains("NOT NULL")),
+        "{e:?}"
+    );
+    let (_, rows) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: table("t"),
+            columns: Some(vec!["id".into()]),
+            filter: None,
+        },
+    )
+    .await;
     assert_eq!(rows, vec![vec![Cell::Int(1)]]);
 
     // The connection is usable afterwards (no transaction left open).
@@ -224,7 +363,10 @@ async fn bulk_load_round_trip_with_windows() {
     drop(s);
     let mut ro = open(&path, true).await;
     let mut src = VecSource::new(sample_rows(), 10);
-    assert!(ro.bulk_load(&load_spec("t", &cols, 10), &[], &mut src, &|_| {}).await.is_err());
+    assert!(ro
+        .bulk_load(&load_spec("t", &cols, 10), &[], &mut src, &|_| {})
+        .await
+        .is_err());
     drop(ro);
     let _ = std::fs::remove_file(&path);
 }
@@ -236,57 +378,114 @@ async fn native_copy_between_files() {
     run(&mut src, DDL).await;
     let mut src_load = VecSource::new(sample_rows(), 10);
     let cols = ["id", "i", "r", "s", "b", "n", "d"];
-    src.bulk_load(&load_spec("t", &cols, 100), &[], &mut src_load, &|_| {}).await.unwrap();
+    src.bulk_load(&load_spec("t", &cols, 100), &[], &mut src_load, &|_| {})
+        .await
+        .unwrap();
     drop(src);
 
     let d = dbine_driver_sqlite::drivers().pop().unwrap();
-    assert!(d.supports_bulk_load() && d.supports_native_copy("sqlite") && !d.supports_native_copy("libsql"));
+    assert!(
+        d.supports_bulk_load()
+            && d.supports_native_copy("sqlite")
+            && !d.supports_native_copy("libsql")
+    );
     // The source opens read-only, as the migration opens it.
     let mut src = open(&a, true).await;
     let mut dst = open(&b, false).await;
     run(&mut dst, DDL).await;
     let before = std::fs::read(&a).unwrap();
     let spec = CopySpec {
-        source: ReadSpec { table: table("t"), columns: None, filter: None },
+        source: ReadSpec {
+            table: table("t"),
+            columns: None,
+            filter: None,
+        },
         target: load_spec("t", &cols, 100),
     };
     let done = AtomicU64::new(0);
-    let n = d.copy_native(&mut *src, &mut *dst, &spec, &|n| done.store(n, Ordering::SeqCst)).await.unwrap();
+    let n = d
+        .copy_native(&mut *src, &mut *dst, &spec, &|n| {
+            done.store(n, Ordering::SeqCst)
+        })
+        .await
+        .unwrap();
     assert_eq!((n, done.load(Ordering::SeqCst)), (3, 3));
-    let all = ReadSpec { table: table("t"), columns: None, filter: None };
-    assert_eq!(read_all(&mut src, &all).await.1, read_all(&mut dst, &all).await.1);
-    assert_eq!(std::fs::read(&a).unwrap(), before, "the source file must not change");
+    let all = ReadSpec {
+        table: table("t"),
+        columns: None,
+        filter: None,
+    };
+    assert_eq!(
+        read_all(&mut src, &all).await.1,
+        read_all(&mut dst, &all).await.1
+    );
+    assert_eq!(
+        std::fs::read(&a).unwrap(),
+        before,
+        "the source file must not change"
+    );
     // Nothing stays attached.
     let mut out = QueryOutcome::default();
-    dst.execute("SELECT count(*) FROM pragma_database_list WHERE name = 'dbine_copy_src'", 10, &mut out).await.unwrap();
+    dst.execute(
+        "SELECT count(*) FROM pragma_database_list WHERE name = 'dbine_copy_src'",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!(0));
 
     // A subset into other column names.
     run(&mut dst, "CREATE TABLE u (k INTEGER, v TEXT)").await;
     let mut spec = CopySpec {
-        source: ReadSpec { table: table("t"), columns: Some(vec!["id".into(), "s".into()]), filter: None },
+        source: ReadSpec {
+            table: table("t"),
+            columns: Some(vec!["id".into(), "s".into()]),
+            filter: None,
+        },
         target: load_spec("u", &["k", "v"], 100),
     };
-    assert_eq!(d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap(), 3);
+    assert_eq!(
+        d.copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+            .await
+            .unwrap(),
+        3
+    );
 
     // A filter would run against the target's tables: the migration reads
     // by batches instead.
     spec.source.filter = Some("id > 1".into());
-    assert!(matches!(d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await, Err(Error::Unsupported(_))));
+    assert!(matches!(
+        d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await,
+        Err(Error::Unsupported(_))
+    ));
 
     // An unknown source column is an error, not the string 'nope'.
     spec.source.filter = None;
     spec.source.columns = Some(vec!["id".into(), "nope".into()]);
-    let e = d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap_err();
+    let e = d
+        .copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+        .await
+        .unwrap_err();
     assert!(matches!(&e, Error::Query(m) if m.contains("nope")), "{e:?}");
-    let u = ReadSpec { table: table("u"), columns: None, filter: None };
+    let u = ReadSpec {
+        table: table("u"),
+        columns: None,
+        filter: None,
+    };
     assert_eq!(read_all(&mut dst, &u).await.1.len(), 3);
 
     // An in-memory source can't be attached: the migration falls back.
     let mut mem = open(std::path::Path::new(":memory:"), false).await;
     run(&mut mem, DDL).await;
-    let spec = CopySpec { source: all.clone(), target: load_spec("t", &cols, 100) };
-    assert!(matches!(d.copy_native(&mut *mem, &mut *dst, &spec, &|_| {}).await, Err(Error::Unsupported(_))));
+    let spec = CopySpec {
+        source: all.clone(),
+        target: load_spec("t", &cols, 100),
+    };
+    assert!(matches!(
+        d.copy_native(&mut *mem, &mut *dst, &spec, &|_| {}).await,
+        Err(Error::Unsupported(_))
+    ));
     drop((src, dst));
     let _ = std::fs::remove_file(&a);
     let _ = std::fs::remove_file(&b);
@@ -294,7 +493,9 @@ async fn native_copy_between_files() {
 
 async fn count(s: &mut Box<dyn Session>, t: &str) -> serde_json::Value {
     let mut out = QueryOutcome::default();
-    s.execute(&format!("SELECT count(*) FROM {t}"), 10, &mut out).await.unwrap();
+    s.execute(&format!("SELECT count(*) FROM {t}"), 10, &mut out)
+        .await
+        .unwrap();
     out.results[0].rows[0][0].clone()
 }
 
@@ -303,10 +504,19 @@ async fn nan_is_refused_not_nulled() {
     let path = temp_db("nan");
     let mut s = open(&path, false).await;
     run(&mut s, "CREATE TABLE f (id INTEGER, r REAL)").await;
-    let rows = vec![vec![Cell::Int(1), Cell::Float(1.0)], vec![Cell::Int(2), Cell::Float(f64::NAN)]];
+    let rows = vec![
+        vec![Cell::Int(1), Cell::Float(1.0)],
+        vec![Cell::Int(2), Cell::Float(f64::NAN)],
+    ];
     let mut src = VecSource::new(rows, 10);
-    let e = s.bulk_load(&load_spec("f", &["id", "r"], 100), &[], &mut src, &|_| {}).await.unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.contains("NaN") && m.contains("fila 2") && m.contains("\"r\"")), "{e:?}");
+    let e = s
+        .bulk_load(&load_spec("f", &["id", "r"], 100), &[], &mut src, &|_| {})
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&e, Error::Query(m) if m.contains("NaN") && m.contains("fila 2") && m.contains("\"r\"")),
+        "{e:?}"
+    );
     assert_eq!(count(&mut s, "f").await, serde_json::json!(0));
     drop(s);
     let _ = std::fs::remove_file(&path);
@@ -347,13 +557,21 @@ async fn dropped_load_commits_nothing_later() {
     // waits while its batches queue up.
     let mut other = open(&path, false).await;
     run(&mut other, "BEGIN IMMEDIATE").await;
-    let mut src = StallSource { left: 6, per: 200, next_id: 0 };
+    let mut src = StallSource {
+        left: 6,
+        per: 200,
+        next_id: 0,
+    };
     let reported = Arc::new(AtomicU64::new(0));
     let r2 = reported.clone();
     let progress = move |n: u64| r2.store(n, Ordering::SeqCst);
     let spec = load_spec("a", &["id"], 200);
     let load = s.bulk_load(&spec, &[], &mut src, &progress);
-    assert!(tokio::time::timeout(std::time::Duration::from_millis(300), load).await.is_err());
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(300), load)
+            .await
+            .is_err()
+    );
     // Let the load's thread go on: it must roll back, not commit.
     run(&mut other, "COMMIT").await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -387,11 +605,21 @@ impl BatchSource for SlowSource {
 async fn parallel_loads_into_one_file_take_turns() {
     let path = temp_db("parallel");
     let mut a = open(&path, false).await;
-    run(&mut a, "CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER)").await;
+    run(
+        &mut a,
+        "CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER)",
+    )
+    .await;
     let mut b = open(&path, false).await;
-    let batch = |id: i64| RowBatch { rows: vec![vec![Cell::Int(id)]], bytes: 0 };
+    let batch = |id: i64| RowBatch {
+        rows: vec![vec![Cell::Int(id)]],
+        bytes: 0,
+    };
     // `a`'s one window stays open about 6 s; `b` starts while it's open.
-    let mut slow = SlowSource(vec![batch(1), batch(2), batch(3), batch(4)], std::time::Duration::from_millis(1_500));
+    let mut slow = SlowSource(
+        vec![batch(1), batch(2), batch(3), batch(4)],
+        std::time::Duration::from_millis(1_500),
+    );
     let mut quick = VecSource::new(vec![vec![Cell::Int(1)]], 1);
     let spec_a = load_spec("a", &["id"], 1_000);
     let spec_b = load_spec("b", &["id"], 1_000);
@@ -415,11 +643,21 @@ async fn parallel_loads_into_one_file_take_turns() {
 async fn outside_write_gets_in_while_a_window_waits() {
     let path = temp_db("outside");
     let mut a = open(&path, false).await;
-    run(&mut a, "CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER)").await;
+    run(
+        &mut a,
+        "CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER)",
+    )
+    .await;
     let mut b = open(&path, false).await;
-    let batch = |id: i64| RowBatch { rows: vec![vec![Cell::Int(id)]], bytes: 0 };
+    let batch = |id: i64| RowBatch {
+        rows: vec![vec![Cell::Int(id)]],
+        bytes: 0,
+    };
     // Without a bound, `a`'s one window would stay open about 9 s.
-    let mut slow = SlowSource((1..=6).map(batch).collect(), std::time::Duration::from_millis(1_500));
+    let mut slow = SlowSource(
+        (1..=6).map(batch).collect(),
+        std::time::Duration::from_millis(1_500),
+    );
     let commits = Arc::new(Mutex::new(Vec::new()));
     let c2 = commits.clone();
     let progress = move |n: u64| c2.lock().unwrap().push(n);
@@ -437,7 +675,10 @@ async fn outside_write_gets_in_while_a_window_waits() {
     assert!(indexed.is_ok(), "{indexed:?}");
     assert!(took < std::time::Duration::from_secs(4), "{took:?}");
     let commits = commits.lock().unwrap().clone();
-    assert!(commits.len() > 1 && commits.last() == Some(&6), "{commits:?}");
+    assert!(
+        commits.len() > 1 && commits.last() == Some(&6),
+        "{commits:?}"
+    );
     assert_eq!(count(&mut b, "a").await, serde_json::json!(6));
     drop((a, b));
     let _ = std::fs::remove_file(&path);
@@ -482,15 +723,34 @@ async fn native_copy_lets_other_writes_in() {
          INSERT INTO t SELECT CASE WHEN x = 1 THEN -5 ELSE x * 3 END, printf('row %08d %s', x, hex(randomblob(40))) FROM c",
     )
     .await;
-    run(&mut src, "INSERT INTO r VALUES ('a', 1), ('b', 2), (NULL, 3)").await;
+    run(
+        &mut src,
+        "INSERT INTO r VALUES ('a', 1), ('b', 2), (NULL, 3)",
+    )
+    .await;
     let mut dst = open(&b, false).await;
     // A costly check makes the copy outlast the busy timeout (5 s) in one
     // statement.
-    run(&mut dst, "CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT CHECK (length(randomblob(30000)) > 0))").await;
-    run(&mut dst, "CREATE TABLE r (rowid TEXT, v INTEGER); CREATE TABLE z (x INTEGER)").await;
+    run(
+        &mut dst,
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT CHECK (length(randomblob(30000)) > 0))",
+    )
+    .await;
+    run(
+        &mut dst,
+        "CREATE TABLE r (rowid TEXT, v INTEGER); CREATE TABLE z (x INTEGER)",
+    )
+    .await;
     let mut other = open(&b, false).await;
     let d = dbine_driver_sqlite::drivers().pop().unwrap();
-    let spec = CopySpec { source: ReadSpec { table: table("t"), columns: None, filter: None }, target: load_spec("t", &["id", "s"], 0) };
+    let spec = CopySpec {
+        source: ReadSpec {
+            table: table("t"),
+            columns: None,
+            filter: None,
+        },
+        target: load_spec("t", &["id", "s"], 0),
+    };
     let commits = Arc::new(Mutex::new(Vec::new()));
     let c2 = commits.clone();
     let progress = move |n: u64| c2.lock().unwrap().push(n);
@@ -499,7 +759,9 @@ async fn native_copy_lets_other_writes_in() {
     let write = async {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         let mut out = QueryOutcome::default();
-        other.execute("INSERT INTO z VALUES (1)", 10, &mut out).await
+        other
+            .execute("INSERT INTO z VALUES (1)", 10, &mut out)
+            .await
     };
     let (copied, wrote) = tokio::join!(copy, write);
     let took = started.elapsed();
@@ -507,20 +769,61 @@ async fn native_copy_lets_other_writes_in() {
     assert!(wrote.is_ok(), "{wrote:?}");
     let commits = commits.lock().unwrap().clone();
     assert_eq!(commits.last(), Some(&20_000), "{commits:?}");
-    println!("native copy of 20k rows: {took:?} in {} commits", commits.len());
-    let all = ReadSpec { table: table("t"), columns: None, filter: None };
-    assert_eq!(read_all(&mut src, &all).await.1, read_all(&mut dst, &all).await.1);
+    println!(
+        "native copy of 20k rows: {took:?} in {} commits",
+        commits.len()
+    );
+    let all = ReadSpec {
+        table: table("t"),
+        columns: None,
+        filter: None,
+    };
+    assert_eq!(
+        read_all(&mut src, &all).await.1,
+        read_all(&mut dst, &all).await.1
+    );
 
     // A column that takes the name `rowid` goes under `_rowid_`.
-    let spec = CopySpec { source: ReadSpec { table: table("r"), columns: None, filter: None }, target: load_spec("r", &["rowid", "v"], 0) };
-    assert_eq!(d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap(), 3);
-    let r = ReadSpec { table: table("r"), columns: None, filter: None };
-    assert_eq!(read_all(&mut src, &r).await.1, read_all(&mut dst, &r).await.1);
+    let spec = CopySpec {
+        source: ReadSpec {
+            table: table("r"),
+            columns: None,
+            filter: None,
+        },
+        target: load_spec("r", &["rowid", "v"], 0),
+    };
+    assert_eq!(
+        d.copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+            .await
+            .unwrap(),
+        3
+    );
+    let r = ReadSpec {
+        table: table("r"),
+        columns: None,
+        filter: None,
+    };
+    assert_eq!(
+        read_all(&mut src, &r).await.1,
+        read_all(&mut dst, &r).await.1
+    );
     // An empty table copies nothing.
     run(&mut src, "CREATE TABLE e (x INTEGER)").await;
     run(&mut dst, "CREATE TABLE e (x INTEGER)").await;
-    let spec = CopySpec { source: ReadSpec { table: table("e"), columns: None, filter: None }, target: load_spec("e", &["x"], 0) };
-    assert_eq!(d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap(), 0);
+    let spec = CopySpec {
+        source: ReadSpec {
+            table: table("e"),
+            columns: None,
+            filter: None,
+        },
+        target: load_spec("e", &["x"], 0),
+    };
+    assert_eq!(
+        d.copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+            .await
+            .unwrap(),
+        0
+    );
     drop((src, dst, other));
     let _ = std::fs::remove_file(&a);
     let _ = std::fs::remove_file(&b);
@@ -540,16 +843,46 @@ async fn native_copy_without_rowid_is_bounded() {
     )
     .await;
     let mut dst = open(&b, false).await;
-    run(&mut dst, "CREATE TABLE w (k TEXT PRIMARY KEY, v INTEGER) WITHOUT ROWID; CREATE TABLE h (x INTEGER)").await;
+    run(
+        &mut dst,
+        "CREATE TABLE w (k TEXT PRIMARY KEY, v INTEGER) WITHOUT ROWID; CREATE TABLE h (x INTEGER)",
+    )
+    .await;
     let d = dbine_driver_sqlite::drivers().pop().unwrap();
-    let spec = CopySpec { source: ReadSpec { table: table("w"), columns: None, filter: None }, target: load_spec("w", &["k", "v"], 0) };
-    assert_eq!(d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap(), 2);
+    let spec = CopySpec {
+        source: ReadSpec {
+            table: table("w"),
+            columns: None,
+            filter: None,
+        },
+        target: load_spec("w", &["k", "v"], 0),
+    };
+    assert_eq!(
+        d.copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+            .await
+            .unwrap(),
+        2
+    );
 
-    let spec = CopySpec { source: ReadSpec { table: table("huge"), columns: None, filter: None }, target: load_spec("h", &["x"], 0) };
+    let spec = CopySpec {
+        source: ReadSpec {
+            table: table("huge"),
+            columns: None,
+            filter: None,
+        },
+        target: load_spec("h", &["x"], 0),
+    };
     let t = Instant::now();
     let r = d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await;
-    assert!(matches!(&r, Err(Error::Unsupported(m)) if m.contains("vista")), "{r:?}");
-    assert!(t.elapsed() < std::time::Duration::from_secs(4), "{:?}", t.elapsed());
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("vista")),
+        "{r:?}"
+    );
+    assert!(
+        t.elapsed() < std::time::Duration::from_secs(4),
+        "{:?}",
+        t.elapsed()
+    );
     assert_eq!(count(&mut dst, "h").await, serde_json::json!(0));
     // No transaction left open.
     run(&mut dst, "INSERT INTO h VALUES (1)").await;
@@ -570,7 +903,9 @@ impl BatchSource for TimedSource {
         if Instant::now() >= self.until {
             return None;
         }
-        let rows = (self.next..self.next + 500).map(|i| vec![Cell::Int(i)]).collect();
+        let rows = (self.next..self.next + 500)
+            .map(|i| vec![Cell::Int(i)])
+            .collect();
         self.next += 500;
         Some(RowBatch { rows, bytes: 0 })
     }
@@ -587,14 +922,26 @@ async fn queued_outside_writes_all_get_in() {
     let path = temp_db("queued");
     let mut setup = open(&path, false).await;
     run(&mut setup, "CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER); CREATE TABLE c (id INTEGER); CREATE TABLE z (k INTEGER)").await;
-    let (mut la, mut lb, mut lc) = (open(&path, false).await, open(&path, false).await, open(&path, false).await);
+    let (mut la, mut lb, mut lc) = (
+        open(&path, false).await,
+        open(&path, false).await,
+        open(&path, false).await,
+    );
     let mut w = Vec::new();
     for _ in 0..6 {
         w.push(open(&path, false).await);
     }
     let until = Instant::now() + Duration::from_secs(9);
-    let (mut sa, mut sb, mut sc) = (TimedSource { until, next: 0 }, TimedSource { until, next: 0 }, TimedSource { until, next: 0 });
-    let (pa, pb, pc) = (load_spec("a", &["id"], 10_000_000), load_spec("b", &["id"], 10_000_000), load_spec("c", &["id"], 10_000_000));
+    let (mut sa, mut sb, mut sc) = (
+        TimedSource { until, next: 0 },
+        TimedSource { until, next: 0 },
+        TimedSource { until, next: 0 },
+    );
+    let (pa, pb, pc) = (
+        load_spec("a", &["id"], 10_000_000),
+        load_spec("b", &["id"], 10_000_000),
+        load_spec("c", &["id"], 10_000_000),
+    );
     // All asked for at once; each holds the file 150 ms once it gets it
     // (an index on a small table, a table emptied).
     let write = |mut s: Box<dyn Session>, k: i64| async move {
@@ -604,7 +951,9 @@ async fn queued_outside_writes_all_get_in() {
         let r = s.execute("BEGIN IMMEDIATE", 10, &mut out).await;
         let waited = t.elapsed();
         if r.is_ok() {
-            s.execute(&format!("INSERT INTO z VALUES ({k})"), 10, &mut out).await.unwrap();
+            s.execute(&format!("INSERT INTO z VALUES ({k})"), 10, &mut out)
+                .await
+                .unwrap();
             tokio::time::sleep(Duration::from_millis(150)).await;
             s.execute("COMMIT", 10, &mut out).await.unwrap();
         }
@@ -613,8 +962,14 @@ async fn queued_outside_writes_all_get_in() {
     let mut w = w.into_iter();
     let mut next = || w.next().unwrap();
     let writes = async {
-        let (x1, x2, x3, x4, x5, x6) =
-            tokio::join!(write(next(), 1), write(next(), 2), write(next(), 3), write(next(), 4), write(next(), 5), write(next(), 6));
+        let (x1, x2, x3, x4, x5, x6) = tokio::join!(
+            write(next(), 1),
+            write(next(), 2),
+            write(next(), 3),
+            write(next(), 4),
+            write(next(), 5),
+            write(next(), 6)
+        );
         [x1, x2, x3, x4, x5, x6]
     };
     let (ra, rb, rc, xs) = tokio::join!(
@@ -623,9 +978,18 @@ async fn queued_outside_writes_all_get_in() {
         lc.bulk_load(&pc, &[], &mut sc, &|_| {}),
         writes
     );
-    println!("outside writes waited {:?}", xs.iter().map(|x| x.1).collect::<Vec<_>>());
+    println!(
+        "outside writes waited {:?}",
+        xs.iter().map(|x| x.1).collect::<Vec<_>>()
+    );
     for (i, x) in xs.iter().enumerate() {
-        assert!(x.0.is_ok(), "outside write {} after {:?}: {:?}", i + 1, x.1, x.0);
+        assert!(
+            x.0.is_ok(),
+            "outside write {} after {:?}: {:?}",
+            i + 1,
+            x.1,
+            x.0
+        );
     }
     for (t, r) in [("a", ra), ("b", rb), ("c", rc)] {
         let n = r.unwrap();
@@ -656,20 +1020,52 @@ async fn same_file_filtered_copy_is_native() {
     let mut dst = open(&path, false).await;
     let d = dbine_driver_sqlite::drivers().pop().unwrap();
     let filter = Some("id % 2 = 0 OR id IN (SELECT id FROM keep)".to_string());
-    let read = ReadSpec { table: table("t"), columns: None, filter: filter.clone() };
-    let spec = CopySpec { source: read.clone(), target: load_spec("u", &["id", "v"], 0) };
-    assert_eq!(d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap(), 2_502);
-    let u = ReadSpec { table: table("u"), columns: None, filter: None };
-    assert_eq!(read_all(&mut dst, &u).await.1, read_all(&mut src, &read).await.1);
+    let read = ReadSpec {
+        table: table("t"),
+        columns: None,
+        filter: filter.clone(),
+    };
+    let spec = CopySpec {
+        source: read.clone(),
+        target: load_spec("u", &["id", "v"], 0),
+    };
+    assert_eq!(
+        d.copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+            .await
+            .unwrap(),
+        2_502
+    );
+    let u = ReadSpec {
+        table: table("u"),
+        columns: None,
+        filter: None,
+    };
+    assert_eq!(
+        read_all(&mut dst, &u).await.1,
+        read_all(&mut src, &read).await.1
+    );
     // A view goes in one statement, filtered too.
     let spec = CopySpec {
-        source: ReadSpec { table: table("tv"), columns: None, filter: Some("id <= 10".into()) },
+        source: ReadSpec {
+            table: table("tv"),
+            columns: None,
+            filter: Some("id <= 10".into()),
+        },
         target: load_spec("w", &["id", "v"], 0),
     };
-    assert_eq!(d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap(), 10);
+    assert_eq!(
+        d.copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+            .await
+            .unwrap(),
+        10
+    );
     // What isn't one condition goes by batches.
     let spec = CopySpec {
-        source: ReadSpec { table: table("t"), columns: None, filter: Some("id > 1 LIMIT 5".into()) },
+        source: ReadSpec {
+            table: table("t"),
+            columns: None,
+            filter: Some("id > 1 LIMIT 5".into()),
+        },
         target: load_spec("w", &["id", "v"], 0),
     };
     let r = d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await;
@@ -687,7 +1083,9 @@ impl BatchSink for Pipe {
         Ok(())
     }
     fn batch(&mut self, b: RowBatch) -> std::io::Result<()> {
-        self.0.blocking_send(b).map_err(|_| std::io::Error::other("la carga terminó"))
+        self.0
+            .blocking_send(b)
+            .map_err(|_| std::io::Error::other("la carga terminó"))
     }
 }
 
@@ -717,12 +1115,23 @@ async fn same_file_by_batches(wal: bool) -> (dbine_driver::Result<u64>, serde_js
     let dst = open(&path, false).await;
     let (tx, rx) = tokio::sync::mpsc::channel(4);
     let sink: dbine_driver::transfer::BatchSinkRef = Arc::new(Mutex::new(Pipe(tx)));
-    let spec = ReadSpec { table: table("t"), columns: None, filter: None };
+    let spec = ReadSpec {
+        table: table("t"),
+        columns: None,
+        filter: None,
+    };
     let read = src.read_batches(&spec, sink);
     let load = async move {
         let mut dst = dst;
         let mut source = PipeSource(rx);
-        let r = dst.bulk_load(&load_spec("u", &["id", "v"], 20_000), &[], &mut source, &|_| {}).await;
+        let r = dst
+            .bulk_load(
+                &load_spec("u", &["id", "v"], 20_000),
+                &[],
+                &mut source,
+                &|_| {},
+            )
+            .await;
         drop(source);
         (r, dst)
     };
@@ -741,7 +1150,10 @@ async fn same_file_by_batches(wal: bool) -> (dbine_driver::Result<u64>, serde_js
 #[tokio::test(flavor = "multi_thread")]
 async fn same_file_by_batches_fails_clearly() {
     let (r, n) = same_file_by_batches(false).await;
-    assert!(matches!(&r, Err(Error::Query(m)) if m.contains("WAL")), "{r:?}");
+    assert!(
+        matches!(&r, Err(Error::Query(m)) if m.contains("WAL")),
+        "{r:?}"
+    );
     assert_eq!(n, serde_json::json!(0));
     let (r, n) = same_file_by_batches(true).await;
     assert_eq!(r.unwrap(), 200_000);
@@ -754,15 +1166,32 @@ async fn same_file_by_batches_fails_clearly() {
 async fn unattachable_source_falls_back() {
     let (a, b) = (temp_db("bad-src"), temp_db("bad-dst"));
     let mut src = open(&a, false).await;
-    run(&mut src, "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)").await;
+    run(
+        &mut src,
+        "CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)",
+    )
+    .await;
     std::fs::remove_file(&a).unwrap();
     let mut dst = open(&b, false).await;
     run(&mut dst, "CREATE TABLE t (id INTEGER)").await;
     let d = dbine_driver_sqlite::drivers().pop().unwrap();
-    let spec = CopySpec { source: ReadSpec { table: table("t"), columns: None, filter: None }, target: load_spec("t", &["id"], 100) };
+    let spec = CopySpec {
+        source: ReadSpec {
+            table: table("t"),
+            columns: None,
+            filter: None,
+        },
+        target: load_spec("t", &["id"], 100),
+    };
     let r = d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await;
-    assert!(matches!(&r, Err(Error::Unsupported(m)) if m.contains("adjuntar")), "{r:?}");
-    assert_eq!(read_all(&mut src, &spec.source).await.1, vec![vec![Cell::Int(1)]]);
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("adjuntar")),
+        "{r:?}"
+    );
+    assert_eq!(
+        read_all(&mut src, &spec.source).await.1,
+        vec![vec![Cell::Int(1)]]
+    );
     drop((src, dst));
     let _ = std::fs::remove_file(&a);
     let _ = std::fs::remove_file(&b);
@@ -772,10 +1201,20 @@ async fn unattachable_source_falls_back() {
 /// the read's rate and the native copy's, each checked by count.
 #[tokio::test]
 async fn load_benchmark() {
-    let n: i64 = if cfg!(debug_assertions) { 100_000 } else { 1_000_000 };
+    let n: i64 = if cfg!(debug_assertions) {
+        100_000
+    } else {
+        1_000_000
+    };
     let rows: Vec<Vec<Cell>> = (0..n)
         .map(|i| {
-            vec![Cell::Int(i), Cell::Int(i * 7), Cell::Float(i as f64 / 3.0), Cell::Text(format!("row {i:08}")), Cell::Bytes(vec![(i % 256) as u8; 16])]
+            vec![
+                Cell::Int(i),
+                Cell::Int(i * 7),
+                Cell::Float(i as f64 / 3.0),
+                Cell::Text(format!("row {i:08}")),
+                Cell::Bytes(vec![(i % 256) as u8; 16]),
+            ]
         })
         .collect();
     let ddl = "CREATE TABLE big (id INTEGER PRIMARY KEY, a INTEGER, f REAL, s TEXT, b BLOB)";
@@ -785,23 +1224,60 @@ async fn load_benchmark() {
     run(&mut s, ddl).await;
     let mut src = VecSource::new(rows, 1_000);
     let t = Instant::now();
-    let loaded = s.bulk_load(&load_spec("big", &cols, LoadSpec::DEFAULT_COMMIT_ROWS), &[], &mut src, &|_| {}).await.unwrap();
+    let loaded = s
+        .bulk_load(
+            &load_spec("big", &cols, LoadSpec::DEFAULT_COMMIT_ROWS),
+            &[],
+            &mut src,
+            &|_| {},
+        )
+        .await
+        .unwrap();
     let load = t.elapsed();
     assert_eq!(loaded, n as u64);
 
     let t = Instant::now();
-    let (_, back) = read_all(&mut s, &ReadSpec { table: table("big"), columns: None, filter: None }).await;
+    let (_, back) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: table("big"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     let read = t.elapsed();
     assert_eq!(back.len(), n as usize);
-    assert_eq!(back[12_345], vec![Cell::Int(12_345), Cell::Int(86_415), Cell::Float(12_345.0 / 3.0), Cell::Text("row 00012345".into()), Cell::Bytes(vec![(12_345 % 256) as u8; 16])]);
+    assert_eq!(
+        back[12_345],
+        vec![
+            Cell::Int(12_345),
+            Cell::Int(86_415),
+            Cell::Float(12_345.0 / 3.0),
+            Cell::Text("row 00012345".into()),
+            Cell::Bytes(vec![(12_345 % 256) as u8; 16])
+        ]
+    );
     drop(back);
 
     let mut dst = open(&b, false).await;
     run(&mut dst, ddl).await;
     let d = dbine_driver_sqlite::drivers().pop().unwrap();
-    let spec = CopySpec { source: ReadSpec { table: table("big"), columns: None, filter: None }, target: load_spec("big", &cols, 0) };
+    let spec = CopySpec {
+        source: ReadSpec {
+            table: table("big"),
+            columns: None,
+            filter: None,
+        },
+        target: load_spec("big", &cols, 0),
+    };
     let t = Instant::now();
-    assert_eq!(d.copy_native(&mut *s, &mut *dst, &spec, &|_| {}).await.unwrap(), n as u64);
+    assert_eq!(
+        d.copy_native(&mut *s, &mut *dst, &spec, &|_| {})
+            .await
+            .unwrap(),
+        n as u64
+    );
     let native = t.elapsed();
     let rate = |d: std::time::Duration| (n as f64 / d.as_secs_f64()) as u64;
     println!(
@@ -833,10 +1309,29 @@ async fn native_copy_leaves_computed_columns_to_the_engine() {
     .await;
     let mut dst = open(&path, false).await;
     let d = dbine_driver_sqlite::drivers().pop().unwrap();
-    let spec = CopySpec { source: ReadSpec { table: table("t"), columns: Some(vec!["id".into(), "m".into()]), filter: None }, target: load_spec("u", &["id", "m"], 0) };
-    assert_eq!(d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap(), 2);
-    let all = |t: &str| ReadSpec { table: table(t), columns: Some(vec!["id".into(), "m".into(), "doble".into()]), filter: None };
-    assert_eq!(read_all(&mut dst, &all("u")).await.1, read_all(&mut src, &all("t")).await.1);
+    let spec = CopySpec {
+        source: ReadSpec {
+            table: table("t"),
+            columns: Some(vec!["id".into(), "m".into()]),
+            filter: None,
+        },
+        target: load_spec("u", &["id", "m"], 0),
+    };
+    assert_eq!(
+        d.copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+            .await
+            .unwrap(),
+        2
+    );
+    let all = |t: &str| ReadSpec {
+        table: table(t),
+        columns: Some(vec!["id".into(), "m".into(), "doble".into()]),
+        filter: None,
+    };
+    assert_eq!(
+        read_all(&mut dst, &all("u")).await.1,
+        read_all(&mut src, &all("t")).await.1
+    );
     drop((src, dst));
     let _ = std::fs::remove_file(&path);
 }

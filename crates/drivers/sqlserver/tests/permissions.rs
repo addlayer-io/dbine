@@ -24,7 +24,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
@@ -32,9 +34,15 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) {
 #[ignore]
 async fn admin_and_limited_login() {
     let Some(cfg) = cfg() else { return };
-    let d = dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == "sqlserver").unwrap();
+    let d = dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "sqlserver")
+        .unwrap();
     let mut admin = d.connect(&cfg, Some("master")).await.unwrap();
-    assert_eq!(admin.permissions(Some("master")).await.unwrap(), Permissions::all());
+    assert_eq!(
+        admin.permissions(Some("master")).await.unwrap(),
+        Permissions::all()
+    );
 
     run(
         &mut admin,
@@ -63,9 +71,24 @@ async fn admin_and_limited_login() {
     println!("ana: {p:?}");
     assert_eq!(p.backup, Access::Allowed);
     assert!(p.restore.is_denied());
-    assert_eq!(p.profiler, Access::Denied { missing: "VIEW SERVER STATE".into() });
-    assert_eq!(p.kill_session, Access::Denied { missing: "ALTER ANY CONNECTION".into() });
-    assert_eq!(p.create_database, Access::Denied { missing: "CREATE ANY DATABASE".into() });
+    assert_eq!(
+        p.profiler,
+        Access::Denied {
+            missing: "VIEW SERVER STATE".into()
+        }
+    );
+    assert_eq!(
+        p.kill_session,
+        Access::Denied {
+            missing: "ALTER ANY CONNECTION".into()
+        }
+    );
+    assert_eq!(
+        p.create_database,
+        Access::Denied {
+            missing: "CREATE ANY DATABASE".into()
+        }
+    );
     assert!(p.drop_database.is_denied());
     assert!(p.manage_security.is_denied());
     drop(ana);
@@ -77,12 +100,23 @@ async fn admin_and_limited_login() {
     let mut bea = d.connect(&bea_cfg, Some("master")).await.unwrap();
     let p = bea.permissions(Some("dbine_perm")).await.unwrap();
     println!("bea: {p:?}");
-    assert_eq!((p.backup, p.restore, p.drop_database, p.manage_security), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
+    assert_eq!(
+        (p.backup, p.restore, p.drop_database, p.manage_security),
+        (
+            Access::Allowed,
+            Access::Allowed,
+            Access::Allowed,
+            Access::Allowed
+        )
+    );
     assert_eq!(p.profiler, Access::Allowed);
     assert!(p.kill_session.is_denied());
     assert!(p.create_database.is_denied());
     // Server level: nothing to drop.
-    assert_eq!(bea.permissions(None).await.unwrap().drop_database, Access::Unknown);
+    assert_eq!(
+        bea.permissions(None).await.unwrap().drop_database,
+        Access::Unknown
+    );
     drop(bea);
 
     run(

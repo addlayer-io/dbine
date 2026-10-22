@@ -26,40 +26,80 @@ fn display(t: &TableSchema) -> String {
 fn split_type(t: &str) -> (String, Option<u64>) {
     let t = t.trim().to_uppercase();
     let (base, len) = match t.split_once('(') {
-        Some((b, rest)) => (b.trim().to_string(), rest.trim_end_matches(')').trim().parse().ok()),
+        Some((b, rest)) => (
+            b.trim().to_string(),
+            rest.trim_end_matches(')').trim().parse().ok(),
+        ),
         None => (t.clone(), None),
     };
-    (if base == "BINARY" { "VARCHAR".into() } else { base }, len)
+    (
+        if base == "BINARY" {
+            "VARCHAR".into()
+        } else {
+            base
+        },
+        len,
+    )
 }
 
 fn squash(s: &str) -> String {
-    s.to_uppercase().split_whitespace().collect::<String>().replace("BINARY(", "VARCHAR(")
+    s.to_uppercase()
+        .split_whitespace()
+        .collect::<String>()
+        .replace("BINARY(", "VARCHAR(")
 }
 
 pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
-    let (mut drops, mut alters, mut creates, mut warnings) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut drops, mut alters, mut creates, mut warnings) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for ch in changes {
         match ch {
-            TableChange::Create { table } => creates.push(table_ddl(table, DdlParts { create: true, indexes: true, ..Default::default() })),
+            TableChange::Create { table } => creates.push(table_ddl(
+                table,
+                DdlParts {
+                    create: true,
+                    indexes: true,
+                    ..Default::default()
+                },
+            )),
             TableChange::Drop { table } => {
                 warnings.push(format!(
                     "Se borra {} {} con todos sus datos{}.",
-                    if is_stable(table) { "la supertabla" } else { "la tabla" },
+                    if is_stable(table) {
+                        "la supertabla"
+                    } else {
+                        "la tabla"
+                    },
                     display(table),
-                    if is_stable(table) { " y sus subtablas" } else { "" }
+                    if is_stable(table) {
+                        " y sus subtablas"
+                    } else {
+                        ""
+                    }
                 ));
-                drops.push(table_ddl(table, DdlParts { drop: true, ..Default::default() }));
+                drops.push(table_ddl(
+                    table,
+                    DdlParts {
+                        drop: true,
+                        ..Default::default()
+                    },
+                ));
             }
             TableChange::Alter { old, new } => alter(old, new, &mut alters, &mut warnings),
         }
     }
-    Ok(SyncScript { statements: [drops, alters, creates].concat(), warnings })
+    Ok(SyncScript {
+        statements: [drops, alters, creates].concat(),
+        warnings,
+    })
 }
 
 fn alter(old: &TableSchema, new: &TableSchema, out: &mut Vec<String>, warnings: &mut Vec<String>) {
     let tname = display(new);
     if old.kind == SUBTABLE || new.kind == SUBTABLE {
-        warnings.push(format!("{tname} es una subtabla: su estructura es la de su supertabla; se deja como está."));
+        warnings.push(format!(
+            "{tname} es una subtabla: su estructura es la de su supertabla; se deja como está."
+        ));
         return;
     }
     let stable = is_stable(old);
@@ -68,24 +108,50 @@ fn alter(old: &TableSchema, new: &TableSchema, out: &mut Vec<String>, warnings: 
         return;
     }
     let what = if stable { "STABLE" } else { "TABLE" };
-    let head = format!("ALTER {what} {}", qualified(new.schema.as_deref(), &new.name));
+    let head = format!(
+        "ALTER {what} {}",
+        qualified(new.schema.as_deref(), &new.name)
+    );
     let eq = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
 
     // Tag indexes, by name: dropped before the tags change, made after.
-    let same_ix = |a: &IndexDef, b: &IndexDef| eq(&a.name, &b.name) && a.columns.len() == b.columns.len() && a.columns.iter().zip(&b.columns).all(|(x, y)| eq(x, y));
-    for o in old.indexes.iter().filter(|o| !new.indexes.iter().any(|n| same_ix(o, n))) {
-        out.push(format!("DROP INDEX {};", qualified(new.schema.as_deref(), &o.name)));
+    let same_ix = |a: &IndexDef, b: &IndexDef| {
+        eq(&a.name, &b.name)
+            && a.columns.len() == b.columns.len()
+            && a.columns.iter().zip(&b.columns).all(|(x, y)| eq(x, y))
+    };
+    for o in old
+        .indexes
+        .iter()
+        .filter(|o| !new.indexes.iter().any(|n| same_ix(o, n)))
+    {
+        out.push(format!(
+            "DROP INDEX {};",
+            qualified(new.schema.as_deref(), &o.name)
+        ));
     }
-    let add_ix: Vec<String> = new.indexes.iter().filter(|n| !old.indexes.iter().any(|o| same_ix(o, n))).map(|n| index_ddl(new, n)).collect();
+    let add_ix: Vec<String> = new
+        .indexes
+        .iter()
+        .filter(|n| !old.indexes.iter().any(|o| same_ix(o, n)))
+        .map(|n| index_ddl(new, n))
+        .collect();
 
     for o in &old.columns {
         let kind = if is_tag(o) { "TAG" } else { "COLUMN" };
         match new.columns.iter().find(|n| eq(&n.name, &o.name)) {
             None if old.columns.first().is_some_and(|f| std::ptr::eq(f, o)) => {
-                warnings.push(format!("{tname}.{}: la primera columna (marca de tiempo) no se puede borrar; se deja.", o.name));
+                warnings.push(format!(
+                    "{tname}.{}: la primera columna (marca de tiempo) no se puede borrar; se deja.",
+                    o.name
+                ));
             }
             None => {
-                warnings.push(format!("Se borra {} {tname}.{} con sus datos.", if is_tag(o) { "el tag" } else { "la columna" }, o.name));
+                warnings.push(format!(
+                    "Se borra {} {tname}.{} con sus datos.",
+                    if is_tag(o) { "el tag" } else { "la columna" },
+                    o.name
+                ));
                 out.push(format!("{head} DROP {kind} {};", q(&o.name)));
             }
             Some(n) if is_tag(n) != is_tag(o) => {
@@ -93,9 +159,15 @@ fn alter(old: &TableSchema, new: &TableSchema, out: &mut Vec<String>, warnings: 
             }
             Some(n) if squash(&n.data_type) != squash(&o.data_type) => {
                 let ((ob, ol), (nb, nl)) = (split_type(&o.data_type), split_type(&n.data_type));
-                let widen = ob == nb && matches!(nb.as_str(), "VARCHAR" | "NCHAR" | "VARBINARY" | "GEOMETRY") && matches!((ol, nl), (Some(a), Some(b)) if b > a);
+                let widen = ob == nb
+                    && matches!(nb.as_str(), "VARCHAR" | "NCHAR" | "VARBINARY" | "GEOMETRY")
+                    && matches!((ol, nl), (Some(a), Some(b)) if b > a);
                 if widen {
-                    out.push(format!("{head} MODIFY {kind} {} {};", q(&n.name), n.data_type));
+                    out.push(format!(
+                        "{head} MODIFY {kind} {} {};",
+                        q(&n.name),
+                        n.data_type
+                    ));
                 } else {
                     warnings.push(format!(
                         "{tname}.{}: {} → {}. TDengine solo agranda VARCHAR, NCHAR, VARBINARY y GEOMETRY; se deja como está.",
@@ -106,16 +178,31 @@ fn alter(old: &TableSchema, new: &TableSchema, out: &mut Vec<String>, warnings: 
             Some(_) => {}
         }
     }
-    for n in new.columns.iter().filter(|n| !old.columns.iter().any(|o| eq(&o.name, &n.name))) {
+    for n in new
+        .columns
+        .iter()
+        .filter(|n| !old.columns.iter().any(|o| eq(&o.name, &n.name)))
+    {
         let kind = if is_tag(n) { "TAG" } else { "COLUMN" };
         out.push(format!("{head} ADD {kind} {} {};", q(&n.name), n.data_type));
     }
     if old.comment.as_deref().unwrap_or("") != new.comment.as_deref().unwrap_or("") {
-        out.push(format!("{head} COMMENT {};", lit(new.comment.as_deref().unwrap_or(""))));
+        out.push(format!(
+            "{head} COMMENT {};",
+            lit(new.comment.as_deref().unwrap_or(""))
+        ));
     }
-    let ttl = |t: &TableSchema| t.options.get("ttl").map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    let ttl = |t: &TableSchema| {
+        t.options
+            .get("ttl")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
     if !stable && ttl(old) != ttl(new) {
-        out.push(format!("{head} TTL {};", ttl(new).unwrap_or_else(|| "0".into())));
+        out.push(format!(
+            "{head} TTL {};",
+            ttl(new).unwrap_or_else(|| "0".into())
+        ));
     }
     out.extend(add_ix);
 }
@@ -126,7 +213,12 @@ mod tests {
     use dbine_driver::kinds;
 
     fn c(name: &str, ty: &str, tag: bool) -> ColumnDef {
-        let mut c = ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() };
+        let mut c = ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable: true,
+            ..Default::default()
+        };
         if tag {
             c.options.insert(TAG.into(), "true".into());
         }
@@ -138,24 +230,54 @@ mod tests {
             kind: SUPERTABLE.into(),
             schema: Some("iot".into()),
             name: "medidas".into(),
-            columns: vec![c("ts", "TIMESTAMP", false), c("v", "DOUBLE", false), c("nota", "VARCHAR(20)", false), c("loc", "VARCHAR(20)", true), c("grp", "INT", true)],
+            columns: vec![
+                c("ts", "TIMESTAMP", false),
+                c("v", "DOUBLE", false),
+                c("nota", "VARCHAR(20)", false),
+                c("loc", "VARCHAR(20)", true),
+                c("grp", "INT", true),
+            ],
             ..Default::default()
         }
     }
 
     #[test]
     fn tag_indexes() {
-        let ix = |n: &str, c: &str| IndexDef { name: n.into(), columns: vec![c.into()], ..Default::default() };
+        let ix = |n: &str, c: &str| IndexDef {
+            name: n.into(),
+            columns: vec![c.into()],
+            ..Default::default()
+        };
         let mut old = st();
         old.indexes = vec![ix("ix_grp", "grp"), ix("ix_viejo", "loc")];
         let mut new = st();
         new.indexes = vec![ix("ix_grp", "grp"), ix("ix_loc", "loc")];
-        let s = sync_script(&[TableChange::Alter { old, new: new.clone() }]).unwrap();
-        assert_eq!(s.statements, vec!["DROP INDEX `iot`.`ix_viejo`;", "CREATE INDEX `ix_loc` ON `iot`.`medidas` (`loc`);"]);
+        let s = sync_script(&[TableChange::Alter {
+            old,
+            new: new.clone(),
+        }])
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            vec![
+                "DROP INDEX `iot`.`ix_viejo`;",
+                "CREATE INDEX `ix_loc` ON `iot`.`medidas` (`loc`);"
+            ]
+        );
         let s = sync_script(&[TableChange::Create { table: new }]).unwrap();
         assert!(s.statements[0].ends_with("CREATE INDEX `ix_grp` ON `iot`.`medidas` (`grp`);\nCREATE INDEX `ix_loc` ON `iot`.`medidas` (`loc`);"), "{}", s.statements[0]);
-        assert!(crate::ddl::is_implicit_index("medidas", Some("loc"), "loc_medidas", "loc"));
-        assert!(!crate::ddl::is_implicit_index("medidas", Some("loc"), "ix_grp", "grp"));
+        assert!(crate::ddl::is_implicit_index(
+            "medidas",
+            Some("loc"),
+            "loc_medidas",
+            "loc"
+        ));
+        assert!(!crate::ddl::is_implicit_index(
+            "medidas",
+            Some("loc"),
+            "ix_grp",
+            "grp"
+        ));
     }
 
     #[test]
@@ -185,20 +307,36 @@ mod tests {
 
     #[test]
     fn tables_create_drop_and_guards() {
-        let t = TableSchema { kind: kinds::TABLE.into(), columns: vec![c("ts", "TIMESTAMP", false), c("v", "DOUBLE", false)], ..st() };
+        let t = TableSchema {
+            kind: kinds::TABLE.into(),
+            columns: vec![c("ts", "TIMESTAMP", false), c("v", "DOUBLE", false)],
+            ..st()
+        };
         let mut n = t.clone();
         n.columns.remove(0);
         n.options.insert("ttl".into(), "7".into());
-        let s = sync_script(&[TableChange::Alter { old: t.clone(), new: n }]).unwrap();
+        let s = sync_script(&[TableChange::Alter {
+            old: t.clone(),
+            new: n,
+        }])
+        .unwrap();
         assert_eq!(s.statements, vec!["ALTER TABLE `iot`.`medidas` TTL 7;"]);
         assert!(s.warnings[0].contains("primera columna"));
 
-        let s = sync_script(&[TableChange::Alter { old: t.clone(), new: st() }]).unwrap();
+        let s = sync_script(&[TableChange::Alter {
+            old: t.clone(),
+            new: st(),
+        }])
+        .unwrap();
         assert!(s.statements.is_empty() && s.warnings[0].contains("supertabla"));
 
         let mut other = t.clone();
         other.name = "vieja".into();
-        let s = sync_script(&[TableChange::Create { table: st() }, TableChange::Drop { table: other }]).unwrap();
+        let s = sync_script(&[
+            TableChange::Create { table: st() },
+            TableChange::Drop { table: other },
+        ])
+        .unwrap();
         assert_eq!(s.statements[0], "DROP TABLE `iot`.`vieja`;");
         assert!(s.statements[1].starts_with("CREATE STABLE `iot`.`medidas`"));
     }

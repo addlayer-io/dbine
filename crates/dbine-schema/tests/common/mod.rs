@@ -17,9 +17,13 @@ pub fn config(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (rest, query) = rest.split_once('?').unwrap_or((rest, ""));
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap_or(0)));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap_or(0)));
     let mut cfg = ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -50,12 +54,18 @@ pub async fn session(driver: &str, env: &str) -> Option<Box<dyn Session>> {
     };
     let cfg = config(driver, &url);
     let d = dbine_drivers::find(driver).unwrap_or_else(|| panic!("no driver {driver}"));
-    Some(d.connect(&cfg, None).await.unwrap_or_else(|e| panic!("{driver}: {e}")))
+    Some(
+        d.connect(&cfg, None)
+            .await
+            .unwrap_or_else(|e| panic!("{driver}: {e}")),
+    )
 }
 
 pub async fn exec(s: &mut Box<dyn Session>, script: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(script, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{script}"));
+    s.execute(script, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{script}"));
 }
 
 /// Run each statement on its own, ignoring errors (cleanup).
@@ -69,7 +79,10 @@ pub async fn exec_quiet(s: &mut Box<dyn Session>, statements: &[&str]) {
 /// The tables named `names` (case-insensitive) as the engine reports them.
 pub async fn read(s: &mut Box<dyn Session>, names: &[&str]) -> Vec<TableSchema> {
     let all = s.database_schema().await.expect("database_schema");
-    let mut out: Vec<TableSchema> = all.into_iter().filter(|t| names.iter().any(|n| n.eq_ignore_ascii_case(&t.name))).collect();
+    let mut out: Vec<TableSchema> = all
+        .into_iter()
+        .filter(|t| names.iter().any(|n| n.eq_ignore_ascii_case(&t.name)))
+        .collect();
     out.sort_by_key(|t| names.iter().position(|n| n.eq_ignore_ascii_case(&t.name)));
     out
 }
@@ -80,12 +93,25 @@ pub fn target_ddl(driver: &str, tables: &[TableSchema]) -> Vec<String> {
     let d = dbine_drivers::find(driver).unwrap();
     let mut out = Vec::new();
     for t in tables {
-        let parts = DdlParts { create: true, indexes: true, ..Default::default() };
-        out.push(d.table_ddl(t, parts).unwrap_or_else(|e| panic!("table_ddl {}: {e}", t.name)));
+        let parts = DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        out.push(
+            d.table_ddl(t, parts)
+                .unwrap_or_else(|e| panic!("table_ddl {}: {e}", t.name)),
+        );
     }
     for t in tables.iter().filter(|t| !t.foreign_keys.is_empty()) {
-        let parts = DdlParts { foreign_keys: true, ..Default::default() };
-        out.push(d.table_ddl(t, parts).unwrap_or_else(|e| panic!("table_ddl fk {}: {e}", t.name)));
+        let parts = DdlParts {
+            foreign_keys: true,
+            ..Default::default()
+        };
+        out.push(
+            d.table_ddl(t, parts)
+                .unwrap_or_else(|e| panic!("table_ddl fk {}: {e}", t.name)),
+        );
     }
     out
 }
@@ -108,11 +134,26 @@ pub async fn round_trip(
     names: &[&str],
 ) -> RoundTrip {
     let tables = read(src, names).await;
-    assert_eq!(tables.len(), names.len(), "no se leyeron todas las tablas de origen: {:?}", tables.iter().map(|t| &t.name).collect::<Vec<_>>());
-    let conversion = convert(&tables, src_driver, dst_driver, &Options::default()).expect("convert");
+    assert_eq!(
+        tables.len(),
+        names.len(),
+        "no se leyeron todas las tablas de origen: {:?}",
+        tables.iter().map(|t| &t.name).collect::<Vec<_>>()
+    );
+    let conversion =
+        convert(&tables, src_driver, dst_driver, &Options::default()).expect("convert");
     let d = dbine_drivers::find(dst_driver).unwrap();
     for t in conversion.tables.iter().rev() {
-        let drop = d.table_ddl(t, DdlParts { drop: true, if_exists: true, ..Default::default() }).unwrap_or_default();
+        let drop = d
+            .table_ddl(
+                t,
+                DdlParts {
+                    drop: true,
+                    if_exists: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap_or_default();
         exec_quiet(dst, &[drop.as_str()]).await;
     }
     let ddl = target_ddl(dst_driver, &conversion.tables);
@@ -121,10 +162,17 @@ pub async fn round_trip(
     }
     let target_names: Vec<&str> = conversion.tables.iter().map(|t| t.name.as_str()).collect();
     let back = read(dst, &target_names).await;
-    RoundTrip { conversion, ddl, back }
+    RoundTrip {
+        conversion,
+        ddl,
+        back,
+    }
 }
 
 /// Column `c` of table `t` as read back.
 pub fn col<'a>(t: &'a TableSchema, c: &str) -> &'a dbine_driver::ColumnDef {
-    t.columns.iter().find(|x| x.name.eq_ignore_ascii_case(c)).unwrap_or_else(|| panic!("no column {c} in {}", t.name))
+    t.columns
+        .iter()
+        .find(|x| x.name.eq_ignore_ascii_case(c))
+        .unwrap_or_else(|| panic!("no column {c} in {}", t.name))
 }

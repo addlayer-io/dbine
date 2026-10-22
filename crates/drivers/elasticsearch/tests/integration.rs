@@ -11,7 +11,10 @@
 //!   cargo test -p dbine-driver-elasticsearch -- --ignored
 //! ```
 
-use dbine_driver::{ColumnDef, ConnectionConfig, DdlParts, Driver, Error, ObjectRef, QueryOutcome, Session, TableSchema};
+use dbine_driver::{
+    ColumnDef, ConnectionConfig, DdlParts, Driver, Error, ObjectRef, QueryOutcome, Session,
+    TableSchema,
+};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -19,11 +22,19 @@ use std::time::{Duration, Instant};
 const INDEX: &str = "dbine_books";
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_elasticsearch::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_elasticsearch::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn session(id: &str, url: &str, read_only: bool) -> Box<dyn Session> {
-    let cfg = ConnectionConfig { driver: id.into(), host: url.into(), read_only, ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: id.into(),
+        host: url.into(),
+        read_only,
+        ..Default::default()
+    };
     driver(id).connect(&cfg, None).await.expect("connect")
 }
 
@@ -33,7 +44,11 @@ async fn run(s: &mut Box<dyn Session>, text: &str, max_rows: usize) -> Result<Qu
 }
 
 fn col_names(out: &QueryOutcome, i: usize) -> Vec<String> {
-    out.results[i].columns.iter().map(|c| c.name.clone()).collect()
+    out.results[i]
+        .columns
+        .iter()
+        .map(|c| c.name.clone())
+        .collect()
 }
 
 const SEED: &str = r#"
@@ -75,16 +90,45 @@ async fn exercise(id: &str, url: &str) {
 
     // Explorer.
     let objs = s.list_objects().await.unwrap();
-    assert!(objs.iter().any(|o| o.name == INDEX && o.kind == "index"), "{objs:?}");
-    assert!(objs.iter().any(|o| o.name == "dbine_books_alias" && o.kind == "alias"), "{objs:?}");
-    assert!(!objs.iter().any(|o| o.name.starts_with('.')), "system indices hidden");
-    let obj = ObjectRef { kind: "index".into(), schema: None, name: INDEX.into() };
-    let cols: Vec<String> = s.columns(&obj).await.unwrap().into_iter().map(|c| format!("{}:{}", c.name, c.data_type)).collect();
-    for want in ["title:text", "title.keyword:keyword", "author:object", "author.name:keyword", "year:integer"] {
+    assert!(
+        objs.iter().any(|o| o.name == INDEX && o.kind == "index"),
+        "{objs:?}"
+    );
+    assert!(
+        objs.iter()
+            .any(|o| o.name == "dbine_books_alias" && o.kind == "alias"),
+        "{objs:?}"
+    );
+    assert!(
+        !objs.iter().any(|o| o.name.starts_with('.')),
+        "system indices hidden"
+    );
+    let obj = ObjectRef {
+        kind: "index".into(),
+        schema: None,
+        name: INDEX.into(),
+    };
+    let cols: Vec<String> = s
+        .columns(&obj)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| format!("{}:{}", c.name, c.data_type))
+        .collect();
+    for want in [
+        "title:text",
+        "title.keyword:keyword",
+        "author:object",
+        "author.name:keyword",
+        "year:integer",
+    ] {
         assert!(cols.contains(&want.to_string()), "{want} in {cols:?}");
     }
     let def = s.definition(&obj).await.unwrap().unwrap();
-    assert!(def.contains("\"mappings\"") && def.contains("\"settings\""), "{def}");
+    assert!(
+        def.contains("\"mappings\"") && def.contains("\"settings\""),
+        "{def}"
+    );
 
     // Browse.
     let q = s.browse_query(&obj, 100);
@@ -92,8 +136,17 @@ async fn exercise(id: &str, url: &str) {
     assert_eq!(out.results.len(), 1);
     assert_eq!(out.results[0].rows.len(), 5);
     let names = col_names(&out, 0);
-    assert_eq!(&names[..6], ["_index", "_id", "_score", "title", "genre", "year"]);
-    assert!(out.results[0].rows[0][6].as_str().unwrap().starts_with("{\"name\""), "nested as JSON string");
+    assert_eq!(
+        &names[..6],
+        ["_index", "_id", "_score", "title", "genre", "year"]
+    );
+    assert!(
+        out.results[0].rows[0][6]
+            .as_str()
+            .unwrap()
+            .starts_with("{\"name\""),
+        "nested as JSON string"
+    );
 
     // max_rows.
     let out = run(&mut s, &q, 2).await.unwrap();
@@ -113,7 +166,10 @@ async fn exercise(id: &str, url: &str) {
     assert_eq!(out.results[0].rows[0][0], "scifi");
     assert_eq!(out.results[0].rows[0][1], 3);
     assert_eq!(col_names(&out, 1), ["aggregation", "value"]);
-    assert!(col_names(&out, 2).contains(&"index".to_string()), "_cat as rows");
+    assert!(
+        col_names(&out, 2).contains(&"index".to_string()),
+        "_cat as rows"
+    );
     assert_eq!(out.results[2].rows.len(), 1);
     assert_eq!(col_names(&out, 3), ["response"]);
 
@@ -131,26 +187,54 @@ async fn exercise(id: &str, url: &str) {
     assert_eq!(out.results[2].rows.len(), 2);
 
     // SQL, with the cursor closed after max_rows.
-    let out = run(&mut s, "SELECT title, year FROM dbine_books ORDER BY year", 2).await.unwrap();
+    let out = run(
+        &mut s,
+        "SELECT title, year FROM dbine_books ORDER BY year",
+        2,
+    )
+    .await
+    .unwrap();
     let r = &out.results[0];
     assert_eq!(col_names(&out, 0), ["title", "year"]);
     assert_eq!(r.rows[0][0], "Emma");
     assert_eq!(r.rows.len(), 2);
     assert!(r.truncated, "{r:?}");
-    let out = run(&mut s, "SELECT genre, COUNT(*) AS n FROM dbine_books GROUP BY genre;\nSHOW TABLES", 100).await.unwrap();
+    let out = run(
+        &mut s,
+        "SELECT genre, COUNT(*) AS n FROM dbine_books GROUP BY genre;\nSHOW TABLES",
+        100,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results.len(), 2);
     assert_eq!(out.results[0].rows.len(), 2);
     assert!(!out.results[1].rows.is_empty());
 
     // Errors: the earlier results stay, the message is the server's.
     let mut out = QueryOutcome::default();
-    let e = s.execute("GET /dbine_books/_count\n\nGET /no_such_index/_search", 10, &mut out).await.unwrap_err();
-    assert!(e.is_query() && e.to_string().contains("index_not_found"), "{e:?}");
+    let e = s
+        .execute(
+            "GET /dbine_books/_count\n\nGET /no_such_index/_search",
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        e.is_query() && e.to_string().contains("index_not_found"),
+        "{e:?}"
+    );
     // With its code and place: the second request, on line 3.
     let se = e.to_script_error();
-    assert_eq!((se.code.as_deref(), se.line, se.offset), (Some("index_not_found_exception"), Some(3), Some(25)), "{se:?}");
+    assert_eq!(
+        (se.code.as_deref(), se.line, se.offset),
+        (Some("index_not_found_exception"), Some(3), Some(25)),
+        "{se:?}"
+    );
     assert_eq!(out.results.len(), 1);
-    let e = run(&mut s, "SELECT nope FROM dbine_books", 10).await.unwrap_err();
+    let e = run(&mut s, "SELECT nope FROM dbine_books", 10)
+        .await
+        .unwrap_err();
     assert!(e.is_query(), "{e:?}");
 
     // Interrupter: nothing running, must not panic.
@@ -158,12 +242,24 @@ async fn exercise(id: &str, url: &str) {
 
     // Read-only.
     let mut ro = session(id, url, true).await;
-    let out = run(&mut ro, "POST /dbine_books/_search\n{\"size\":1}", 10).await.unwrap();
+    let out = run(&mut ro, "POST /dbine_books/_search\n{\"size\":1}", 10)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows.len(), 1);
-    run(&mut ro, "SELECT title FROM dbine_books", 10).await.unwrap();
-    for w in ["DELETE /dbine_books", "POST /dbine_books/_doc\n{\"a\":1}", "PUT /x", "POST /dbine_books/_delete_by_query\n{}"] {
+    run(&mut ro, "SELECT title FROM dbine_books", 10)
+        .await
+        .unwrap();
+    for w in [
+        "DELETE /dbine_books",
+        "POST /dbine_books/_doc\n{\"a\":1}",
+        "PUT /x",
+        "POST /dbine_books/_delete_by_query\n{}",
+    ] {
         let e = run(&mut ro, w, 10).await.unwrap_err();
-        assert!(e.is_query() && e.to_string().contains("solo lectura"), "{w}: {e:?}");
+        assert!(
+            e.is_query() && e.to_string().contains("solo lectura"),
+            "{w}: {e:?}"
+        );
     }
 
     run(&mut s, "DELETE /dbine_books", 10).await.unwrap();
@@ -187,7 +283,10 @@ fn col(name: &str, ty: &str, opts: &[(&str, &str)]) -> ColumnDef {
     ColumnDef {
         name: name.into(),
         data_type: ty.into(),
-        options: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        options: opts
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
         ..Default::default()
     }
 }
@@ -212,7 +311,14 @@ async fn designer_on(id: &str, url: &str) {
         name: "ddltest_books".into(),
         comment: Some("Libros".into()),
         columns: vec![
-            col("title", "text", &[("analyzer", "english"), ("extra", r#"{"fields":{"raw":{"type":"keyword"}}}"#)]),
+            col(
+                "title",
+                "text",
+                &[
+                    ("analyzer", "english"),
+                    ("extra", r#"{"fields":{"raw":{"type":"keyword"}}}"#),
+                ],
+            ),
             col("author.name", "keyword", &[("doc_values", "false")]),
             col("year", "integer", &[]),
             col("published", "date", &[("format", "yyyy-MM-dd")]),
@@ -221,35 +327,87 @@ async fn designer_on(id: &str, url: &str) {
             col("tags.label", "keyword", &[]),
             col("vec", vec_type, &[("dims", "3")]),
         ],
-        options: [("number_of_shards", "1"), ("number_of_replicas", "0"), ("aliases", "ddltest_alias"), ("dynamic", "strict")]
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect(),
+        options: [
+            ("number_of_shards", "1"),
+            ("number_of_replicas", "0"),
+            ("aliases", "ddltest_alias"),
+            ("dynamic", "strict"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect(),
         ..Default::default()
     };
     table.columns[2].comment = Some("Año".into());
     if os {
         table.options.insert("knn".into(), "true".into());
     }
-    let all = DdlParts { drop: true, if_exists: true, create: true, ..Default::default() };
+    let all = DdlParts {
+        drop: true,
+        if_exists: true,
+        create: true,
+        ..Default::default()
+    };
     let text = d.table_ddl(&table, all).unwrap();
-    run(&mut s, &text, 10).await.unwrap_or_else(|e| panic!("{text}\n{e}"));
+    run(&mut s, &text, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{text}\n{e}"));
     // Guarded drop of an index that isn't there.
-    run(&mut s, "DELETE /ddltest_nope?ignore_unavailable=true", 10).await.unwrap();
+    run(&mut s, "DELETE /ddltest_nope?ignore_unavailable=true", 10)
+        .await
+        .unwrap();
 
     let schema = s.database_schema().await.unwrap();
-    let got = schema.iter().find(|t| t.name == "ddltest_books").expect("index in database_schema");
-    let cols: Vec<String> = got.columns.iter().map(|c| format!("{}:{}", c.name, c.data_type)).collect();
-    for c in ["title:text", "author:object", "author.name:keyword", "year:integer", "tags:nested", "tags.label:keyword"] {
+    let got = schema
+        .iter()
+        .find(|t| t.name == "ddltest_books")
+        .expect("index in database_schema");
+    let cols: Vec<String> = got
+        .columns
+        .iter()
+        .map(|c| format!("{}:{}", c.name, c.data_type))
+        .collect();
+    for c in [
+        "title:text",
+        "author:object",
+        "author.name:keyword",
+        "year:integer",
+        "tags:nested",
+        "tags.label:keyword",
+    ] {
         assert!(cols.contains(&c.to_string()), "{c} in {cols:?}");
     }
     assert!(cols.contains(&format!("vec:{vec_type}")), "{cols:?}");
     let o = |k: &str| got.options.get(k).cloned().unwrap_or_default();
-    assert_eq!((o("number_of_shards"), o("number_of_replicas"), o("aliases"), o("dynamic")), ("1".into(), "0".into(), "ddltest_alias".into(), "strict".into()));
+    assert_eq!(
+        (
+            o("number_of_shards"),
+            o("number_of_replicas"),
+            o("aliases"),
+            o("dynamic")
+        ),
+        (
+            "1".into(),
+            "0".into(),
+            "ddltest_alias".into(),
+            "strict".into()
+        )
+    );
     assert_eq!(got.comment.as_deref(), Some("Libros"));
-    assert_eq!(got.columns.iter().find(|c| c.name == "year").unwrap().comment.as_deref(), Some("Año"));
+    assert_eq!(
+        got.columns
+            .iter()
+            .find(|c| c.name == "year")
+            .unwrap()
+            .comment
+            .as_deref(),
+        Some("Año")
+    );
     let title = got.columns.iter().find(|c| c.name == "title").unwrap();
-    assert_eq!(title.options.get("analyzer").map(String::as_str), Some("english"));
+    assert_eq!(
+        title.options.get("analyzer").map(String::as_str),
+        Some("english")
+    );
     assert!(title.options.get("extra").unwrap().contains("raw"));
 
     // Round trip: the index read back, recreated under another name.
@@ -257,49 +415,117 @@ async fn designer_on(id: &str, url: &str) {
     copy.name = "ddltest_copy".into();
     copy.options.remove("aliases");
     let text = d.table_ddl(&copy, all).unwrap();
-    run(&mut s, &text, 10).await.unwrap_or_else(|e| panic!("{text}\n{e}"));
+    run(&mut s, &text, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{text}\n{e}"));
     let again = s.database_schema().await.unwrap();
     let copied = again.iter().find(|t| t.name == "ddltest_copy").unwrap();
     assert_eq!(copied.columns, got.columns);
 
     // Insert script: nested values as JSON text, `_id` to the action line.
-    let target = ObjectRef { kind: "index".into(), schema: None, name: "ddltest_books".into() };
-    let columns: Vec<String> = ["_id", "title", "author", "year", "tags", "vec"].iter().map(|c| c.to_string()).collect();
+    let target = ObjectRef {
+        kind: "index".into(),
+        schema: None,
+        name: "ddltest_books".into(),
+    };
+    let columns: Vec<String> = ["_id", "title", "author", "year", "tags", "vec"]
+        .iter()
+        .map(|c| c.to_string())
+        .collect();
     let rows = vec![
-        vec![json!("a"), json!("Dune"), json!(r#"{"name":"Herbert"}"#), json!(1965), json!(r#"[{"label":"scifi"}]"#), json!("[1,0,0]")],
-        vec![json!("b"), json!("Emma"), json!(r#"{"name":"Austen"}"#), json!(1815), serde_json::Value::Null, json!([0, 1, 0])],
+        vec![
+            json!("a"),
+            json!("Dune"),
+            json!(r#"{"name":"Herbert"}"#),
+            json!(1965),
+            json!(r#"[{"label":"scifi"}]"#),
+            json!("[1,0,0]"),
+        ],
+        vec![
+            json!("b"),
+            json!("Emma"),
+            json!(r#"{"name":"Austen"}"#),
+            json!(1815),
+            serde_json::Value::Null,
+            json!([0, 1, 0]),
+        ],
     ];
     let text = d.insert_script(&target, &columns, &rows).unwrap();
-    run(&mut s, &text, 10).await.unwrap_or_else(|e| panic!("{text}\n{e}"));
-    let out = run(&mut s, "GET /ddltest_books/_search\n{\"query\": {\"term\": {\"author.name\": \"Herbert\"}}}", 10).await.unwrap();
+    run(&mut s, &text, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{text}\n{e}"));
+    let out = run(
+        &mut s,
+        "GET /ddltest_books/_search\n{\"query\": {\"term\": {\"author.name\": \"Herbert\"}}}",
+        10,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results[0].rows.len(), 1);
     let out = run(&mut s, "GET /ddltest_books/_doc/b", 10).await.unwrap();
     assert!(format!("{:?}", out.results).contains("Austen"));
     // Strict mapping: a bad row makes the script fail.
-    let bad = d.insert_script(&target, &["nope".to_string()], &[vec![json!(1)]]).unwrap();
+    let bad = d
+        .insert_script(&target, &["nope".to_string()], &[vec![json!(1)]])
+        .unwrap();
     let e = run(&mut s, &bad, 10).await.unwrap_err();
-    assert!(e.is_query() && e.to_string().starts_with("_bulk: fallaron 1 de 1"), "{e:?}");
+    assert!(
+        e.is_query() && e.to_string().starts_with("_bulk: fallaron 1 de 1"),
+        "{e:?}"
+    );
 
     // Create templates, each run as is.
     for t in d.create_templates() {
-        let text = t.template.replace("{name}", &format!("ddltest-{}", t.kind.replace('_', "-")));
+        let text = t
+            .template
+            .replace("{name}", &format!("ddltest-{}", t.kind.replace('_', "-")));
         let text = text.replace("mi_indice", "ddltest_books");
-        run(&mut s, &text, 10).await.unwrap_or_else(|e| panic!("{}: {e}\n{text}", t.label));
+        run(&mut s, &text, 10)
+            .await
+            .unwrap_or_else(|e| panic!("{}: {e}\n{text}", t.label));
     }
     let objs = s.list_objects().await.unwrap();
-    assert!(objs.iter().any(|o| o.kind == "stream" && o.name == "ddltest-stream"), "{objs:?}");
-    assert!(objs.iter().any(|o| o.kind == "alias" && o.name == "ddltest-alias"), "{objs:?}");
-    let ds = ObjectRef { kind: "stream".into(), schema: None, name: "ddltest-stream".into() };
-    let text = d.insert_script(&ds, &["@timestamp".to_string(), "message".to_string()], &[vec![json!("2024-05-01T00:00:00Z"), json!("hola")]]).unwrap();
-    run(&mut s, &text, 10).await.unwrap_or_else(|e| panic!("{text}\n{e}"));
+    assert!(
+        objs.iter()
+            .any(|o| o.kind == "stream" && o.name == "ddltest-stream"),
+        "{objs:?}"
+    );
+    assert!(
+        objs.iter()
+            .any(|o| o.kind == "alias" && o.name == "ddltest-alias"),
+        "{objs:?}"
+    );
+    let ds = ObjectRef {
+        kind: "stream".into(),
+        schema: None,
+        name: "ddltest-stream".into(),
+    };
+    let text = d
+        .insert_script(
+            &ds,
+            &["@timestamp".to_string(), "message".to_string()],
+            &[vec![json!("2024-05-01T00:00:00Z"), json!("hola")]],
+        )
+        .unwrap();
+    run(&mut s, &text, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{text}\n{e}"));
     let out = run(&mut s, "GET /ddltest-stream/_count", 10).await.unwrap();
-    assert!(format!("{:?}", out.results).contains(r#"\"count\": 1"#), "{:?}", out.results);
+    assert!(
+        format!("{:?}", out.results).contains(r#"\"count\": 1"#),
+        "{:?}",
+        out.results
+    );
 
     run(&mut s, &cleanup(os), 10).await.unwrap();
 }
 
 fn cleanup(os: bool) -> String {
-    let policy = if os { "DELETE /_plugins/_ism/policies/ddltest-policy" } else { "DELETE /_ilm/policy/ddltest-policy" };
+    let policy = if os {
+        "DELETE /_plugins/_ism/policies/ddltest-policy"
+    } else {
+        "DELETE /_ilm/policy/ddltest-policy"
+    };
     format!(
         "DELETE /_data_stream/ddltest-stream\n\nDELETE /_index_template/ddltest-stream-template\n\nDELETE /_index_template/ddltest-index-template\n\nDELETE /_ingest/pipeline/ddltest-pipeline\n\n{policy}\n\nDELETE /ddltest_books\n\nDELETE /ddltest_copy"
     )
@@ -319,13 +545,31 @@ async fn designer_and_scripts() {
 #[tokio::test]
 #[ignore]
 async fn bad_host_is_a_connect_error() {
-    let cfg = ConnectionConfig { driver: "elasticsearch".into(), host: "127.0.0.1".into(), port: 1, ..Default::default() };
-    let e = driver("elasticsearch").connect(&cfg, None).await.err().unwrap();
+    let cfg = ConnectionConfig {
+        driver: "elasticsearch".into(),
+        host: "127.0.0.1".into(),
+        port: 1,
+        ..Default::default()
+    };
+    let e = driver("elasticsearch")
+        .connect(&cfg, None)
+        .await
+        .err()
+        .unwrap();
     assert!(matches!(e, Error::Connect(_)), "{e:?}");
 }
 
 fn dump(n: &dbine_driver::PlanNode, depth: usize) {
-    eprintln!("{}{} [{}] {:?} rows={:?} ms={:?} {:?}", "  ".repeat(depth), n.op, n.detail, n.object, n.actual_rows, n.actual_ms, n.warnings);
+    eprintln!(
+        "{}{} [{}] {:?} rows={:?} ms={:?} {:?}",
+        "  ".repeat(depth),
+        n.op,
+        n.detail,
+        n.object,
+        n.actual_rows,
+        n.actual_ms,
+        n.warnings
+    );
     for c in &n.children {
         dump(c, depth + 1);
     }
@@ -355,7 +599,10 @@ async fn plans_on(id: &str, url: &str) {
     assert!(out.results.is_empty(), "{:?}", out.results);
     assert_eq!(out.plans.len(), 2, "{:?}", out.messages);
     assert!(out.messages.iter().any(|m| m.contains("PUT")));
-    assert!(run(&mut s, "GET /dbine_plan/_doc/x1", 5).await.is_err(), "the PUT ran");
+    assert!(
+        run(&mut s, "GET /dbine_plan/_doc/x1", 5).await.is_err(),
+        "the PUT ran"
+    );
     for p in &out.plans {
         eprintln!("--- {id} estimated: {}", p.statement);
         dump(&p.root, 0);
@@ -399,7 +646,9 @@ async fn explain_plans() {
 #[tokio::test]
 #[ignore]
 async fn opendistro() {
-    let Ok(url) = std::env::var("DBINE_TEST_OPENDISTRO_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_OPENDISTRO_URL") else {
+        return;
+    };
     exercise("opendistro", &url).await;
     let mut s = session("opendistro", &url, false).await;
     assert!(s.server_version().await.unwrap().starts_with("Open Distro"));
@@ -412,21 +661,43 @@ async fn check_monitor(id: &str, url: &str) {
     let mut s = session(id, url, false).await;
     let snap = s.monitor().await.expect("monitor");
     for m in &snap.metrics {
-        eprintln!("{:<22} {:?} max={:?} counter={}", m.key, m.value, m.max, m.counter);
+        eprintln!(
+            "{:<22} {:?} max={:?} counter={}",
+            m.key, m.value, m.max, m.counter
+        );
     }
     for t in &snap.tables {
         eprintln!("table {} rows={}", t.key, t.rows.len());
     }
     eprintln!("info {:?}\nnotes {:?}", snap.info, snap.notes);
     let has = |k: &str| snap.metrics.iter().any(|m| m.key == k && m.value.is_some());
-    for k in ["cpu", "cpu_time", "mem_used", "heap_used", "connections", "queries", "storage_used", "uptime", "nodes"] {
+    for k in [
+        "cpu",
+        "cpu_time",
+        "mem_used",
+        "heap_used",
+        "connections",
+        "queries",
+        "storage_used",
+        "uptime",
+        "nodes",
+    ] {
         assert!(has(k), "{id}: {k}");
     }
     let table = |k: &str| snap.tables.iter().find(|t| t.key == k);
-    assert!(table("nodes").is_some_and(|t| !t.rows.is_empty()), "{id}: nodes");
+    assert!(
+        table("nodes").is_some_and(|t| !t.rows.is_empty()),
+        "{id}: nodes"
+    );
     assert!(table("queries").is_some(), "{id}: tasks");
     assert!(table("databases").is_some(), "{id}: indices");
-    assert!(snap.notes.iter().all(|n| !n.contains("No se pudieron leer")), "{:?}", snap.notes);
+    assert!(
+        snap.notes
+            .iter()
+            .all(|n| !n.contains("No se pudieron leer")),
+        "{:?}",
+        snap.notes
+    );
 }
 
 #[tokio::test]
@@ -457,12 +728,17 @@ async fn profile(id: &str, env: &str) {
     let mut w = session(id, &url, false).await;
     let mut seed = String::from("POST /_bulk?refresh=true\n");
     for n in 0..2000 {
-        seed.push_str(&format!("{{\"index\":{{\"_index\":\"dbine_prof\"}}}}\n{{\"n\":{n}}}\n"));
+        seed.push_str(&format!(
+            "{{\"index\":{{\"_index\":\"dbine_prof\"}}}}\n{{\"n\":{n}}}\n"
+        ));
     }
     let _ = run(&mut w, "DELETE /dbine_prof", 10).await;
     run(&mut w, &seed, 10).await.expect("seed");
 
-    let opts = dbine_driver::ProfilerOptions { database: "default".into(), change_server: false };
+    let opts = dbine_driver::ProfilerOptions {
+        database: "default".into(),
+        change_server: false,
+    };
     let started = p.profiler_start(&opts).await.expect("profiler_start");
     eprintln!("{id}: {started:?}");
     let marker = format!("dbine_prof_{}", std::process::id());
@@ -492,13 +768,31 @@ async fn profile(id: &str, env: &str) {
     let mine: Vec<_> = got.iter().filter(|s| s.text.contains(&marker)).collect();
     eprintln!("{id}: {mine:#?}");
     assert_eq!(mine.len(), 1, "{id}: the slow search once");
-    assert!(mine[0].text.starts_with("GET /dbine_prof/_search"), "{id}: {}", mine[0].text);
+    assert!(
+        mine[0].text.starts_with("GET /dbine_prof/_search"),
+        "{id}: {}",
+        mine[0].text
+    );
     assert_eq!(mine[0].database.as_deref(), Some("dbine_prof"));
-    assert!(mine[0].duration_ms.unwrap_or(0.0) >= 200.0, "{id}: duration {:?}", mine[0].duration_ms);
+    assert!(
+        mine[0].duration_ms.unwrap_or(0.0) >= 200.0,
+        "{id}: duration {:?}",
+        mine[0].duration_ms
+    );
     // Only OpenSearch reports a task's CPU time.
-    assert_eq!(mine[0].cpu_ms.is_some_and(|ms| ms > 0.0), id == "opensearch", "{id}: CPU {:?}", mine[0].cpu_ms);
-    assert!(got.iter().all(|s| !s.text.contains("_tasks")), "{id}: its own requests are left out");
-    run(&mut w, "DELETE /dbine_prof", 10).await.expect("cleanup");
+    assert_eq!(
+        mine[0].cpu_ms.is_some_and(|ms| ms > 0.0),
+        id == "opensearch",
+        "{id}: CPU {:?}",
+        mine[0].cpu_ms
+    );
+    assert!(
+        got.iter().all(|s| !s.text.contains("_tasks")),
+        "{id}: its own requests are left out"
+    );
+    run(&mut w, "DELETE /dbine_prof", 10)
+        .await
+        .expect("cleanup");
 }
 
 #[tokio::test]
@@ -527,16 +821,37 @@ async fn delete_script_runs() {
     let url = std::env::var("DBINE_TEST_ELASTICSEARCH_URL").expect("DBINE_TEST_ELASTICSEARCH_URL");
     let mut s = session("elasticsearch", &url, false).await;
     run(&mut s, "DELETE /dbine_del", 10).await.ok();
-    let obj = ObjectRef { kind: dbine_driver::kinds::INDEX.into(), schema: None, name: "dbine_del".into() };
+    let obj = ObjectRef {
+        kind: dbine_driver::kinds::INDEX.into(),
+        schema: None,
+        name: "dbine_del".into(),
+    };
     let d = driver("elasticsearch");
     let ins = d
-        .insert_script(&obj, &["_id".to_string(), "n".into()], &[vec![json!("O'Brien \"Bob\" a/b"), json!(1)], vec![json!("b"), json!(2)], vec![json!("keep"), json!(3)]])
+        .insert_script(
+            &obj,
+            &["_id".to_string(), "n".into()],
+            &[
+                vec![json!("O'Brien \"Bob\" a/b"), json!(1)],
+                vec![json!("b"), json!(2)],
+                vec![json!("keep"), json!(3)],
+            ],
+        )
         .unwrap();
     run(&mut s, &ins, 10).await.expect(&ins);
-    let keys = vec![vec![("_id".to_string(), json!("O'Brien \"Bob\" a/b"))], vec![("_id".to_string(), json!("b"))]];
+    let keys = vec![
+        vec![("_id".to_string(), json!("O'Brien \"Bob\" a/b"))],
+        vec![("_id".to_string(), json!("b"))],
+    ];
     let script = d.delete_script(&obj, &keys).unwrap();
     run(&mut s, &script, 10).await.expect(&script);
-    let out = run(&mut s, "GET /dbine_del/_search\n{\"query\": {\"match_all\": {}}}", 10).await.unwrap();
+    let out = run(
+        &mut s,
+        "GET /dbine_del/_search\n{\"query\": {\"match_all\": {}}}",
+        10,
+    )
+    .await
+    .unwrap();
     let rows = serde_json::to_string(&out.results[0].rows).unwrap();
     assert_eq!(out.results[0].rows.len(), 1, "{rows}");
     assert!(rows.contains("keep"), "{rows}");

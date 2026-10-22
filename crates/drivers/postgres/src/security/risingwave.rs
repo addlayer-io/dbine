@@ -13,12 +13,23 @@ use super::{privileges, q, yes};
 use crate::catalog::cell;
 use crate::session::PgSession;
 use dbine_driver::sql::{qualified_name, Quote};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use std::collections::HashMap;
 
 pub(super) fn spec(object_kinds: Vec<&'static str>) -> SecuritySpec {
     SecuritySpec {
-        privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "USAGE", "CREATE", "CONNECT", "ALL PRIVILEGES"],
+        privileges: vec![
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "USAGE",
+            "CREATE",
+            "CONNECT",
+            "ALL PRIVILEGES",
+        ],
         // A named database isn't an explorer kind, so it isn't filtered.
         object_kinds: std::iter::once("database").chain(object_kinds).collect(),
         create_user: true,
@@ -31,8 +42,13 @@ pub(super) fn spec(object_kinds: Vec<&'static str>) -> SecuritySpec {
 
 pub(super) async fn principals(s: &PgSession) -> Result<Vec<Principal>> {
     // `SELECT *`: `is_admin` came in later versions.
-    let rows = s.text("SELECT * FROM rw_catalog.rw_users ORDER BY name").await?;
-    Ok(rows.iter().map(|r| user(cell(r, "name").unwrap_or_default(), |c| yes(r, c))).collect())
+    let rows = s
+        .text("SELECT * FROM rw_catalog.rw_users ORDER BY name")
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| user(cell(r, "name").unwrap_or_default(), |c| yes(r, c)))
+        .collect())
 }
 
 /// A `rw_users` row; `flag` reads its boolean columns.
@@ -63,7 +79,10 @@ fn user(name: String, flag: impl Fn(&str) -> bool) -> Principal {
 
 const SYSTEM_SCHEMAS: &str = "('pg_catalog', 'information_schema', 'rw_catalog')";
 
-pub(super) async fn grants(s: &PgSession, via: &HashMap<String, Option<String>>) -> Result<Vec<(String, Grant)>> {
+pub(super) async fn grants(
+    s: &PgSession,
+    via: &HashMap<String, Option<String>>,
+) -> Result<Vec<(String, Grant)>> {
     let relation = |table: &str, kind: &str| {
         format!(
             "SELECT s.name || '.' || o.name AS object, '{kind}' AS kind, u.name AS owner, unnest(o.acl) AS item
@@ -91,13 +110,25 @@ pub(super) async fn grants(s: &PgSession, via: &HashMap<String, Option<String>>)
     ];
     // Every user, not just the ones looked up: an item is only told apart
     // from another user's (`a=r/b=w/root` is user `a=r/b`'s) by knowing them.
-    let users: Vec<String> = s.text("SELECT name FROM rw_catalog.rw_users").await?.iter().filter_map(|r| cell(r, "name")).collect();
+    let users: Vec<String> = s
+        .text("SELECT name FROM rw_catalog.rw_users")
+        .await?
+        .iter()
+        .filter_map(|r| cell(r, "name"))
+        .collect();
     let names: Vec<&str> = users.iter().map(String::as_str).collect();
     let mut out = Vec::new();
     for sql in queries {
         for r in s.text(&sql).await? {
-            let (Some(item), Some(object), Some(kind)) = (cell(&r, "item"), cell(&r, "object"), cell(&r, "kind")) else { continue };
-            let Some(acl) = parse_acl_item(&item, &names).filter(|a| via.contains_key(&a.grantee)) else { continue };
+            let (Some(item), Some(object), Some(kind)) =
+                (cell(&r, "item"), cell(&r, "object"), cell(&r, "kind"))
+            else {
+                continue;
+            };
+            let Some(acl) = parse_acl_item(&item, &names).filter(|a| via.contains_key(&a.grantee))
+            else {
+                continue;
+            };
             // What the owner holds by owning it.
             if cell(&r, "owner").is_some_and(|o| o == acl.grantee && o == acl.grantor) {
                 continue;
@@ -152,7 +183,10 @@ fn parse_acl_item(item: &str, names: &[&str]) -> Option<AclItem> {
     names.iter().find_map(|name| {
         let rest = item.strip_prefix(name)?.strip_prefix('=')?;
         let (letters, grantor) = rest.split_once('/')?;
-        if letters.is_empty() || !letters.chars().all(|c| c.is_ascii_alphabetic() || c == '*') || !names.contains(&grantor) {
+        if letters.is_empty()
+            || !letters.chars().all(|c| c.is_ascii_alphabetic() || c == '*')
+            || !names.contains(&grantor)
+        {
             return None;
         }
         let mut privileges: Vec<(&'static str, bool)> = Vec::new();
@@ -165,7 +199,11 @@ fn parse_acl_item(item: &str, names: &[&str]) -> Option<AclItem> {
                 privileges.push((p, false));
             }
         }
-        Some(AclItem { grantee: name.to_string(), privileges, grantor: grantor.to_string() })
+        Some(AclItem {
+            grantee: name.to_string(),
+            privileges,
+            grantor: grantor.to_string(),
+        })
     })
 }
 
@@ -188,32 +226,60 @@ fn no_roles() -> Error {
 }
 
 fn no_database() -> Error {
-    Error::Query("en RisingWave los permisos sobre la base llevan su nombre: elegí el tipo «base» y cuál".into())
+    Error::Query(
+        "en RisingWave los permisos sobre la base llevan su nombre: elegí el tipo «base» y cuál"
+            .into(),
+    )
 }
 
 pub(super) fn script(a: &SecurityAction) -> Result<String> {
     let lit = |s: &str| crate::catalog::lit(crate::Variant::RisingWave, s);
     Ok(match a {
-        SecurityAction::CreateUser { name, password } => match password.as_deref().filter(|p| !p.is_empty()) {
-            Some(p) => format!("CREATE USER {} WITH LOGIN PASSWORD {};", q(name), lit(p)),
-            None => format!("CREATE USER {} WITH LOGIN;", q(name)),
-        },
-        SecurityAction::CreateRole { .. } | SecurityAction::AddMember { .. } | SecurityAction::RemoveMember { .. } => return Err(no_roles()),
-        SecurityAction::Drop { name, .. } => format!("DROP USER {};", q(name)),
-        SecurityAction::SetPassword { name, password } => format!("ALTER USER {} WITH PASSWORD {};", q(name), lit(password)),
-        SecurityAction::SetLogin { name, enabled } => {
-            format!("ALTER USER {} WITH {};", q(name), if *enabled { "LOGIN" } else { "NOLOGIN" })
+        SecurityAction::CreateUser { name, password } => {
+            match password.as_deref().filter(|p| !p.is_empty()) {
+                Some(p) => format!("CREATE USER {} WITH LOGIN PASSWORD {};", q(name), lit(p)),
+                None => format!("CREATE USER {} WITH LOGIN;", q(name)),
+            }
         }
-        SecurityAction::Grant { object: None, .. } | SecurityAction::Revoke { object: None, .. } => return Err(no_database()),
-        SecurityAction::Grant { privileges: p, object: Some(o), to, grantable } => format!(
+        SecurityAction::CreateRole { .. }
+        | SecurityAction::AddMember { .. }
+        | SecurityAction::RemoveMember { .. } => return Err(no_roles()),
+        SecurityAction::Drop { name, .. } => format!("DROP USER {};", q(name)),
+        SecurityAction::SetPassword { name, password } => {
+            format!("ALTER USER {} WITH PASSWORD {};", q(name), lit(password))
+        }
+        SecurityAction::SetLogin { name, enabled } => {
+            format!(
+                "ALTER USER {} WITH {};",
+                q(name),
+                if *enabled { "LOGIN" } else { "NOLOGIN" }
+            )
+        }
+        SecurityAction::Grant { object: None, .. }
+        | SecurityAction::Revoke { object: None, .. } => return Err(no_database()),
+        SecurityAction::Grant {
+            privileges: p,
+            object: Some(o),
+            to,
+            grantable,
+        } => format!(
             "GRANT {} ON {} TO {}{};",
             privileges(p)?,
             target(o),
             q(to),
             if *grantable { " WITH GRANT OPTION" } else { "" }
         ),
-        SecurityAction::Revoke { privileges: p, object: Some(o), from } => {
-            format!("REVOKE {} ON {} FROM {};", privileges(p)?, target(o), q(from))
+        SecurityAction::Revoke {
+            privileges: p,
+            object: Some(o),
+            from,
+        } => {
+            format!(
+                "REVOKE {} ON {} FROM {};",
+                privileges(p)?,
+                target(o),
+                q(from)
+            )
         }
     })
 }
@@ -223,21 +289,58 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: Some("pub\"lic".into()), name: "fac\"turas".into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: Some("pub\"lic".into()),
+            name: "fac\"turas".into(),
+        })
     }
 
     #[test]
     fn scripts_quote_and_escape() {
         let s = |a| script(&a).unwrap();
         assert_eq!(
-            s(SecurityAction::CreateUser { name: "ana\"x".into(), password: Some("p'w\\".into()) }),
+            s(SecurityAction::CreateUser {
+                name: "ana\"x".into(),
+                password: Some("p'w\\".into())
+            }),
             "CREATE USER \"ana\"\"x\" WITH LOGIN PASSWORD 'p''w\\';"
         );
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: None }), "CREATE USER \"ana\" WITH LOGIN;");
-        assert_eq!(s(SecurityAction::Drop { name: "ana".into(), kind: PrincipalKind::User }), "DROP USER \"ana\";");
-        assert_eq!(s(SecurityAction::SetPassword { name: "ana".into(), password: "x'y".into() }), "ALTER USER \"ana\" WITH PASSWORD 'x''y';");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: false }), "ALTER USER \"ana\" WITH NOLOGIN;");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: true }), "ALTER USER \"ana\" WITH LOGIN;");
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: None
+            }),
+            "CREATE USER \"ana\" WITH LOGIN;"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "ana".into(),
+                kind: PrincipalKind::User
+            }),
+            "DROP USER \"ana\";"
+        );
+        assert_eq!(
+            s(SecurityAction::SetPassword {
+                name: "ana".into(),
+                password: "x'y".into()
+            }),
+            "ALTER USER \"ana\" WITH PASSWORD 'x''y';"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: false
+            }),
+            "ALTER USER \"ana\" WITH NOLOGIN;"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: true
+            }),
+            "ALTER USER \"ana\" WITH LOGIN;"
+        );
         assert_eq!(
             s(SecurityAction::Grant { privileges: vec!["select".into(), "update".into()], object: obj("table"), to: "ana".into(), grantable: true }),
             "GRANT SELECT, UPDATE ON TABLE \"pub\"\"lic\".\"fac\"\"turas\" TO \"ana\" WITH GRANT OPTION;"
@@ -246,7 +349,11 @@ mod tests {
         assert_eq!(
             s(SecurityAction::Grant {
                 privileges: vec!["connect".into(), "CREATE".into()],
-                object: Some(ObjectRef { kind: "database".into(), schema: None, name: "d\"ev".into() }),
+                object: Some(ObjectRef {
+                    kind: "database".into(),
+                    schema: None,
+                    name: "d\"ev".into()
+                }),
                 to: "ana".into(),
                 grantable: true
             }),
@@ -255,21 +362,38 @@ mod tests {
         assert_eq!(
             s(SecurityAction::Revoke {
                 privileges: vec!["CONNECT".into()],
-                object: Some(ObjectRef { kind: "database".into(), schema: None, name: "dev".into() }),
+                object: Some(ObjectRef {
+                    kind: "database".into(),
+                    schema: None,
+                    name: "dev".into()
+                }),
                 from: "ana".into()
             }),
             "REVOKE CONNECT ON DATABASE \"dev\" FROM \"ana\";"
         );
-        for (kind, word) in [("materialized_view", "MATERIALIZED VIEW"), ("view", "VIEW"), ("source", "SOURCE"), ("sink", "SINK")] {
+        for (kind, word) in [
+            ("materialized_view", "MATERIALIZED VIEW"),
+            ("view", "VIEW"),
+            ("source", "SOURCE"),
+            ("sink", "SINK"),
+        ] {
             assert_eq!(
-                s(SecurityAction::Revoke { privileges: vec!["SELECT".into()], object: obj(kind), from: "ana".into() }),
+                s(SecurityAction::Revoke {
+                    privileges: vec!["SELECT".into()],
+                    object: obj(kind),
+                    from: "ana".into()
+                }),
                 format!("REVOKE SELECT ON {word} \"pub\"\"lic\".\"fac\"\"turas\" FROM \"ana\";")
             );
         }
         assert_eq!(
             s(SecurityAction::Grant {
                 privileges: vec!["USAGE".into(), "create".into()],
-                object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "ventas".into() }),
+                object: Some(ObjectRef {
+                    kind: "schema".into(),
+                    schema: None,
+                    name: "ventas".into()
+                }),
                 to: "ana".into(),
                 grantable: false
             }),
@@ -280,7 +404,18 @@ mod tests {
     #[test]
     fn spec_follows_the_explorer() {
         let s = super::super::spec(crate::Variant::RisingWave).unwrap();
-        assert_eq!(s.object_kinds, vec!["database", "schema", "table", "view", "materialized_view", "source", "sink"]);
+        assert_eq!(
+            s.object_kinds,
+            vec![
+                "database",
+                "schema",
+                "table",
+                "view",
+                "materialized_view",
+                "source",
+                "sink"
+            ]
+        );
         assert!(s.privileges.contains(&"CONNECT"));
         assert!(!s.create_role && !s.membership && s.create_user && s.passwords);
         let h2 = super::super::spec(crate::Variant::H2).unwrap();
@@ -290,16 +425,40 @@ mod tests {
     #[test]
     fn no_roles_nor_database_grants() {
         assert!(script(&SecurityAction::CreateRole { name: "r".into() }).is_err());
-        assert!(script(&SecurityAction::AddMember { role: "r".into(), member: "a".into() }).is_err());
-        assert!(script(&SecurityAction::RemoveMember { role: "r".into(), member: "a".into() }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["CONNECT".into()], object: None, to: "a".into(), grantable: false }).is_err());
-        assert!(script(&SecurityAction::Revoke { privileges: vec!["CONNECT".into()], object: None, from: "a".into() }).is_err());
+        assert!(script(&SecurityAction::AddMember {
+            role: "r".into(),
+            member: "a".into()
+        })
+        .is_err());
+        assert!(script(&SecurityAction::RemoveMember {
+            role: "r".into(),
+            member: "a".into()
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["CONNECT".into()],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Revoke {
+            privileges: vec!["CONNECT".into()],
+            object: None,
+            from: "a".into()
+        })
+        .is_err());
     }
 
     #[test]
     fn privilege_names_cannot_inject() {
         for bad in ["SELECT; DROP USER root", "SELECT --", "SEL'ECT", ""] {
-            let a = SecurityAction::Grant { privileges: vec![bad.into()], object: obj("table"), to: "a".into(), grantable: false };
+            let a = SecurityAction::Grant {
+                privileges: vec![bad.into()],
+                object: obj("table"),
+                to: "a".into(),
+                grantable: false,
+            };
             assert!(script(&a).is_err(), "{bad}");
         }
     }
@@ -309,17 +468,44 @@ mod tests {
         let item = parse_acl_item("ana=r*wa/root", &["ana", "root"]).unwrap();
         assert_eq!(
             item,
-            AclItem { grantee: "ana".into(), privileges: vec![("SELECT", true), ("UPDATE", false), ("INSERT", false)], grantor: "root".into() }
+            AclItem {
+                grantee: "ana".into(),
+                privileges: vec![("SELECT", true), ("UPDATE", false), ("INSERT", false)],
+                grantor: "root".into()
+            }
         );
-        assert_eq!(parse_acl_item("ana=CU/root", &["ana", "root"]).unwrap().privileges, vec![("CREATE", false), ("USAGE", false)]);
-        assert_eq!(parse_acl_item("ana=c*C/root", &["ana", "root"]).unwrap().privileges, vec![("CONNECT", true), ("CREATE", false)]);
+        assert_eq!(
+            parse_acl_item("ana=CU/root", &["ana", "root"])
+                .unwrap()
+                .privileges,
+            vec![("CREATE", false), ("USAGE", false)]
+        );
+        assert_eq!(
+            parse_acl_item("ana=c*C/root", &["ana", "root"])
+                .unwrap()
+                .privileges,
+            vec![("CONNECT", true), ("CREATE", false)]
+        );
         // Unquoted names: "a=b" is its own user, not "a".
         assert!(parse_acl_item("a=b=r/root", &["a", "root"]).is_none());
-        assert_eq!(parse_acl_item("a=b=r/root", &["a", "a=b", "root"]).unwrap().grantee, "a=b");
-        assert_eq!(parse_acl_item("odd\"n,a=me=r/ro/ot", &["odd\"n,a=me", "ro/ot"]).unwrap().grantor, "ro/ot");
+        assert_eq!(
+            parse_acl_item("a=b=r/root", &["a", "a=b", "root"])
+                .unwrap()
+                .grantee,
+            "a=b"
+        );
+        assert_eq!(
+            parse_acl_item("odd\"n,a=me=r/ro/ot", &["odd\"n,a=me", "ro/ot"])
+                .unwrap()
+                .grantor,
+            "ro/ot"
+        );
         // "a=r/b"'s UPDATE isn't "a"'s SELECT: the grantor must be a user.
         let item = parse_acl_item("a=r/b=w/root", &["a", "a=r/b", "root"]).unwrap();
-        assert_eq!((item.grantee.as_str(), item.privileges.as_slice()), ("a=r/b", &[("UPDATE", false)][..]));
+        assert_eq!(
+            (item.grantee.as_str(), item.privileges.as_slice()),
+            ("a=r/b", &[("UPDATE", false)][..])
+        );
         assert!(parse_acl_item("a=r/b=w/root", &["a", "root"]).is_none());
         assert!(parse_acl_item("anabel=r/root", &["ana", "root"]).is_none());
         assert!(parse_acl_item("ana=/root", &["ana", "root"]).is_none());
@@ -327,10 +513,26 @@ mod tests {
 
     #[test]
     fn users_from_the_catalog() {
-        let u = user("rwadmin".into(), |c| matches!(c, "can_login" | "is_super" | "is_admin"));
-        assert_eq!((u.kind, u.can_login, u.superuser, u.disabled, u.system), (PrincipalKind::User, Some(true), Some(true), Some(false), true));
-        assert!(u.details.contains(&("Administrador del clúster".to_string(), "sí".to_string())));
+        let u = user("rwadmin".into(), |c| {
+            matches!(c, "can_login" | "is_super" | "is_admin")
+        });
+        assert_eq!(
+            (u.kind, u.can_login, u.superuser, u.disabled, u.system),
+            (
+                PrincipalKind::User,
+                Some(true),
+                Some(true),
+                Some(false),
+                true
+            )
+        );
+        assert!(u
+            .details
+            .contains(&("Administrador del clúster".to_string(), "sí".to_string())));
         let u = user("ana".into(), |_| false);
-        assert_eq!((u.disabled, u.system, u.details.len()), (Some(true), false, 1));
+        assert_eq!(
+            (u.disabled, u.system, u.details.len()),
+            (Some(true), false, 1)
+        );
     }
 }

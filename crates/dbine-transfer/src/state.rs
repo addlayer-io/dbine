@@ -191,17 +191,28 @@ impl Store {
     /// Open (or create) the state file.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let conn = Connection::open(path).map_err(err)?;
-        conn.pragma_update(None, "journal_mode", "WAL").map_err(err)?;
+        conn.pragma_update(None, "journal_mode", "WAL")
+            .map_err(err)?;
         // FULL: a commit survives a power cut too, not only a killed
         // process (a lost `begin_copy` would resume on top of rows).
-        conn.pragma_update(None, "synchronous", "FULL").map_err(err)?;
-        conn.busy_timeout(std::time::Duration::from_secs(5)).map_err(err)?;
+        conn.pragma_update(None, "synchronous", "FULL")
+            .map_err(err)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(err)?;
         conn.execute_batch(SCHEMA).map_err(err)?;
         // State files from before sync by rows.
-        if conn.prepare("SELECT delta FROM transfer_tables LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE transfer_tables ADD COLUMN delta INTEGER NOT NULL DEFAULT 0").map_err(err)?;
+        if conn
+            .prepare("SELECT delta FROM transfer_tables LIMIT 0")
+            .is_err()
+        {
+            conn.execute_batch(
+                "ALTER TABLE transfer_tables ADD COLUMN delta INTEGER NOT NULL DEFAULT 0",
+            )
+            .map_err(err)?;
         }
-        Ok(Store { conn: Mutex::new(conn) })
+        Ok(Store {
+            conn: Mutex::new(conn),
+        })
     }
 
     /// At startup: runs left `running` by a process that ended become
@@ -247,16 +258,23 @@ impl Store {
 
     pub fn run_spec(&self, id: &str) -> Result<Option<RunSpec>> {
         let json: Option<String> = lock(&self.conn)
-            .query_row("SELECT spec_json FROM transfer_runs WHERE id = ?1", [id], |r| r.get(0))
+            .query_row(
+                "SELECT spec_json FROM transfer_runs WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(err)?;
-        json.map(|j| serde_json::from_str(&j).map_err(err)).transpose()
+        json.map(|j| serde_json::from_str(&j).map_err(err))
+            .transpose()
     }
 
     pub fn tables(&self, run_id: &str) -> Result<Vec<TableState>> {
         let c = lock(&self.conn);
         let mut st = c
-            .prepare(&format!("SELECT {TABLE_COLUMNS} FROM transfer_tables WHERE run_id = ?1 ORDER BY rowid"))
+            .prepare(&format!(
+                "SELECT {TABLE_COLUMNS} FROM transfer_tables WHERE run_id = ?1 ORDER BY rowid"
+            ))
             .map_err(err)?;
         let rows = st.query_map([run_id], table_row).map_err(err)?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
@@ -265,7 +283,9 @@ impl Store {
     pub fn table(&self, run_id: &str, name: &str) -> Result<Option<TableState>> {
         lock(&self.conn)
             .query_row(
-                &format!("SELECT {TABLE_COLUMNS} FROM transfer_tables WHERE run_id = ?1 AND name = ?2"),
+                &format!(
+                    "SELECT {TABLE_COLUMNS} FROM transfer_tables WHERE run_id = ?1 AND name = ?2"
+                ),
                 params![run_id, name],
                 table_row,
             )
@@ -319,19 +339,31 @@ impl Store {
 
     /// Add a job to the run's spec (the live queue), so a resume knows it.
     pub(crate) fn add_job(&self, id: &str, job: &TransferJob) -> Result<()> {
-        let mut spec = self.run_spec(id)?.ok_or_else(|| Error::State("la transferencia no existe".into()))?;
+        let mut spec = self
+            .run_spec(id)?
+            .ok_or_else(|| Error::State("la transferencia no existe".into()))?;
         if spec.jobs.iter().any(|j| j.name == job.name) {
             return Ok(());
         }
         spec.jobs.push(job.clone());
         let json = serde_json::to_string(&spec).map_err(err)?;
-        lock(&self.conn).execute("UPDATE transfer_runs SET spec_json = ?2 WHERE id = ?1", params![id, json]).map_err(err)?;
+        lock(&self.conn)
+            .execute(
+                "UPDATE transfer_runs SET spec_json = ?2 WHERE id = ?1",
+                params![id, json],
+            )
+            .map_err(err)?;
         Ok(())
     }
 
     /// Register a table as pending. One already there keeps its flags; only
     /// a finished (failed, cancelled) one goes back to pending.
-    pub(crate) fn add_table(&self, run_id: &str, name: &str, rows_total: Option<u64>) -> Result<()> {
+    pub(crate) fn add_table(
+        &self,
+        run_id: &str,
+        name: &str,
+        rows_total: Option<u64>,
+    ) -> Result<()> {
         lock(&self.conn)
             .execute(
                 "INSERT INTO transfer_tables (run_id, name, status, rows_total) VALUES (?1, ?2, 'pending', ?3)
@@ -372,10 +404,16 @@ impl Store {
 
     pub(crate) fn set_rows_done(&self, run_id: &str, name: &str, rows: u64) -> Result<()> {
         let c = lock(&self.conn);
-        c.execute("UPDATE transfer_tables SET rows_done = ?3 WHERE run_id = ?1 AND name = ?2", params![run_id, name, rows as i64])
-            .map_err(err)?;
-        c.execute("UPDATE transfer_runs SET updated_at = ?2, updated_ms = ?3 WHERE id = ?1", params![run_id, now(), now_ms()])
-            .map_err(err)?;
+        c.execute(
+            "UPDATE transfer_tables SET rows_done = ?3 WHERE run_id = ?1 AND name = ?2",
+            params![run_id, name, rows as i64],
+        )
+        .map_err(err)?;
+        c.execute(
+            "UPDATE transfer_runs SET updated_at = ?2, updated_ms = ?3 WHERE id = ?1",
+            params![run_id, now(), now_ms()],
+        )
+        .map_err(err)?;
         Ok(())
     }
 
@@ -390,7 +428,14 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn finish_table(&self, run_id: &str, name: &str, status: TableStatus, error: Option<&str>, stats: Option<&CopyStats>) -> Result<()> {
+    pub(crate) fn finish_table(
+        &self,
+        run_id: &str,
+        name: &str,
+        status: TableStatus,
+        error: Option<&str>,
+        stats: Option<&CopyStats>,
+    ) -> Result<()> {
         let stats = stats.map(serde_json::to_string).transpose().map_err(err)?;
         lock(&self.conn)
             .execute(
@@ -425,7 +470,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dbine-transfer-sync-{}", std::process::id()));
         let _ = std::fs::remove_file(&dir);
         let store = Store::open(&dir).unwrap();
-        let sync: i64 = lock(&store.conn).query_row("PRAGMA synchronous", [], |r| r.get(0)).unwrap();
+        let sync: i64 = lock(&store.conn)
+            .query_row("PRAGMA synchronous", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(sync, 2, "synchronous=FULL");
         drop(store);
         let _ = std::fs::remove_file(&dir);

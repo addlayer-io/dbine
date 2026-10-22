@@ -10,7 +10,9 @@
 //! ```
 
 use dbine_driver::read_only::ReadOnlySession;
-use dbine_driver::transfer::{BatchSink, BatchSource, Cell, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, Cell, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{async_trait, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
 use std::io;
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
@@ -43,7 +45,9 @@ fn driver() -> Arc<dyn Driver> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{e}\n{sql}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{sql}"));
     if let Some(e) = &out.error {
         panic!("{e}\n{sql}");
     }
@@ -55,11 +59,18 @@ async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> serde_json::Value {
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: name.into() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbo".into()),
+        name: name.into(),
+    }
 }
 
 async fn fresh_databases() {
-    let mut admin = driver().connect(&config(), Some("master")).await.expect("connect");
+    let mut admin = driver()
+        .connect(&config(), Some("master"))
+        .await
+        .expect("connect");
     for db in [SRC_DB, DST_DB] {
         run(
             &mut admin,
@@ -162,7 +173,9 @@ struct Receive(Arc<Mutex<mpsc::Receiver<RowBatch>>>);
 impl BatchSource for Receive {
     async fn next(&mut self) -> Option<RowBatch> {
         let rx = self.0.clone();
-        tokio::task::spawn_blocking(move || rx.lock().unwrap().recv().ok()).await.unwrap()
+        tokio::task::spawn_blocking(move || rx.lock().unwrap().recv().ok())
+            .await
+            .unwrap()
     }
 }
 
@@ -173,9 +186,15 @@ async fn copy_native(spec: &CopySpec, decoded: bool) -> u64 {
         std::env::remove_var("DBINE_SQLSERVER_NO_RAW");
     }
     let d = driver();
-    assert!(d.supports_bulk_load() && d.supports_native_copy("sqlserver") && d.supports_native_copy("azuresql"));
+    assert!(
+        d.supports_bulk_load()
+            && d.supports_native_copy("sqlserver")
+            && d.supports_native_copy("azuresql")
+    );
     // The source through the app's read-only wrapper.
-    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(d.connect(&config(), Some(SRC_DB)).await.unwrap()));
+    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(
+        d.connect(&config(), Some(SRC_DB)).await.unwrap(),
+    ));
     let mut dst = d.connect(&config(), Some(DST_DB)).await.unwrap();
     let last = Mutex::new(0u64);
     let n = d
@@ -242,7 +261,10 @@ const COLUMNS: &[(&str, &str)] = &[
 
 fn create_all_types(name: &str) -> String {
     let cols: Vec<String> = COLUMNS.iter().map(|(n, t)| format!("[{n}] {t}")).collect();
-    format!("CREATE TABLE dbo.[{name}] ({}, c_calc AS (CAST(c_int AS bigint) * 2), c_rv rowversion)", cols.join(", "))
+    format!(
+        "CREATE TABLE dbo.[{name}] ({}, c_calc AS (CAST(c_int AS bigint) * 2), c_rv rowversion)",
+        cols.join(", ")
+    )
 }
 
 fn compare_list() -> String {
@@ -251,11 +273,14 @@ fn compare_list() -> String {
         .map(|(n, t)| {
             let ty = t.split([' ', '(']).next().unwrap();
             match ty {
-                "char" | "varchar" | "nchar" | "nvarchar" | "image" | "geography" | "geometry" | "hierarchyid" => {
+                "char" | "varchar" | "nchar" | "nvarchar" | "image" | "geography" | "geometry"
+                | "hierarchyid" => {
                     format!("CAST([{n}] AS varbinary(max)) AS [{n}]")
                 }
                 "text" => format!("CAST(CAST([{n}] AS varchar(max)) AS varbinary(max)) AS [{n}]"),
-                "ntext" | "xml" => format!("CAST(CAST([{n}] AS nvarchar(max)) AS varbinary(max)) AS [{n}]"),
+                "ntext" | "xml" => {
+                    format!("CAST(CAST([{n}] AS nvarchar(max)) AS varbinary(max)) AS [{n}]")
+                }
                 "datetimeoffset" => format!("CAST([{n}] AS nvarchar(40)) AS [{n}]"),
                 _ => format!("[{n}]"),
             }
@@ -328,7 +353,11 @@ async fn transfer_every_type() {
     let mut src = driver().connect(&config(), Some(SRC_DB)).await.unwrap();
     let mut dst = driver().connect(&config(), Some(DST_DB)).await.unwrap();
     // Sessions ask for 32767-byte packets (the server grants 32576).
-    let packet = scalar(&mut dst, "SELECT net_packet_size FROM sys.dm_exec_connections WHERE session_id = @@SPID").await;
+    let packet = scalar(
+        &mut dst,
+        "SELECT net_packet_size FROM sys.dm_exec_connections WHERE session_id = @@SPID",
+    )
+    .await;
     assert!(packet.as_i64().unwrap() > 32_000, "packet size {packet}");
     run(&mut src, &create_all_types("alltypes")).await;
     run(&mut src, ROWS_SQL).await;
@@ -339,22 +368,58 @@ async fn transfer_every_type() {
     // 1. read_batches → bulk_load, two rows per commit window.
     let mut ro = ReadOnlySession::new(driver().connect(&config(), Some(SRC_DB)).await.unwrap());
     let sink = Arc::new(Mutex::new(Collect::default()));
-    let read = ro.read_batches(&ReadSpec { table: table("alltypes"), columns: None, filter: None }, sink.clone()).await.unwrap();
+    let read = ro
+        .read_batches(
+            &ReadSpec {
+                table: table("alltypes"),
+                columns: None,
+                filter: None,
+            },
+            sink.clone(),
+        )
+        .await
+        .unwrap();
     assert_eq!(read, 4);
     let collected = std::mem::take(&mut *sink.lock().unwrap());
     let names: Vec<&str> = collected.columns.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names, insertable(), "computed and rowversion columns are skipped");
+    assert_eq!(
+        names,
+        insertable(),
+        "computed and rowversion columns are skipped"
+    );
     let rows: Vec<&Vec<Cell>> = collected.batches.iter().flat_map(|b| &b.rows).collect();
-    let at = |row: usize, name: &str| rows[row][names.iter().position(|n| *n == name).unwrap()].clone();
-    assert_eq!(at(0, "c_money"), Cell::Decimal("922337203685477.5807".into()));
-    assert_eq!(at(0, "c_money_nn"), Cell::Decimal("-922337203685477.5808".into()));
-    assert_eq!(at(0, "c_dec"), Cell::Decimal("-1234567890123456789012345678.0123456789".into()));
-    assert_eq!(at(0, "c_dto"), Cell::DateTimeTz("2024-02-29 23:30:00.1234567-03:00".into()));
-    assert_eq!(at(0, "c_dto3"), Cell::DateTimeTz("0001-01-01 14:00:00.000+14:00".into()));
+    let at =
+        |row: usize, name: &str| rows[row][names.iter().position(|n| *n == name).unwrap()].clone();
+    assert_eq!(
+        at(0, "c_money"),
+        Cell::Decimal("922337203685477.5807".into())
+    );
+    assert_eq!(
+        at(0, "c_money_nn"),
+        Cell::Decimal("-922337203685477.5808".into())
+    );
+    assert_eq!(
+        at(0, "c_dec"),
+        Cell::Decimal("-1234567890123456789012345678.0123456789".into())
+    );
+    assert_eq!(
+        at(0, "c_dto"),
+        Cell::DateTimeTz("2024-02-29 23:30:00.1234567-03:00".into())
+    );
+    assert_eq!(
+        at(0, "c_dto3"),
+        Cell::DateTimeTz("0001-01-01 14:00:00.000+14:00".into())
+    );
     assert_eq!(at(0, "c_time"), Cell::Time("23:59:59.9999999".into()));
-    assert_eq!(at(0, "c_dt"), Cell::DateTime("1753-01-01 00:00:00.0033333".into()));
+    assert_eq!(
+        at(0, "c_dt"),
+        Cell::DateTime("1753-01-01 00:00:00.0033333".into())
+    );
     assert_eq!(at(0, "c_date"), Cell::Date("0001-01-01".into()));
-    assert_eq!(at(0, "c_guid"), Cell::Uuid("6F9619FF-8B86-D011-B42D-00C04FC964FF".into()));
+    assert_eq!(
+        at(0, "c_guid"),
+        Cell::Uuid("6F9619FF-8B86-D011-B42D-00C04FC964FF".into())
+    );
     assert_eq!(at(0, "c_bit"), Cell::Bool(true));
     assert!(matches!(at(0, "c_vbmax"), Cell::Bytes(b) if b.len() == 5 * 1024 * 1024));
     assert!(matches!(at(0, "c_xml"), Cell::Text(t) if t.contains("<b>ñ</b>")));
@@ -362,14 +427,26 @@ async fn transfer_every_type() {
     assert_eq!(at(1, "c_money"), Cell::Null);
     let progress = Mutex::new(Vec::new());
     let loaded = dst
-        .bulk_load(&load_spec("t_bulk", 2), &collected.columns, &mut Replay(collected.batches.into_iter()), &|c| progress.lock().unwrap().push(c))
+        .bulk_load(
+            &load_spec("t_bulk", 2),
+            &collected.columns,
+            &mut Replay(collected.batches.into_iter()),
+            &|c| progress.lock().unwrap().push(c),
+        )
         .await
         .unwrap();
     assert_eq!(loaded, 4);
     assert_eq!(*progress.lock().unwrap().last().unwrap(), 4);
 
     // 2. Native copy, raw TDS rows.
-    let spec = |t: &str| CopySpec { source: ReadSpec { table: table("alltypes"), columns: None, filter: None }, target: load_spec(t, 3) };
+    let spec = |t: &str| CopySpec {
+        source: ReadSpec {
+            table: table("alltypes"),
+            columns: None,
+            filter: None,
+        },
+        target: load_spec(t, 3),
+    };
     assert_eq!(copy_native(&spec("t_raw"), false).await, 4);
     assert_eq!(last_mode(), "raw");
     // 3. Native copy, decoded.
@@ -386,19 +463,51 @@ async fn transfer_every_type() {
 
     // A filtered read, and the load refusing what it can't write.
     let spec = CopySpec {
-        source: ReadSpec { table: table("alltypes"), columns: Some(vec!["id".into(), "c_int".into()]), filter: Some("id > 10".into()) },
-        target: LoadSpec { columns: vec!["id".into(), "c_int".into()], ..load_spec("t_bulk", 100) },
+        source: ReadSpec {
+            table: table("alltypes"),
+            columns: Some(vec!["id".into(), "c_int".into()]),
+            filter: Some("id > 10".into()),
+        },
+        target: LoadSpec {
+            columns: vec!["id".into(), "c_int".into()],
+            ..load_spec("t_bulk", 100)
+        },
     };
-    run(&mut dst, "CREATE TABLE dbo.small (id int IDENTITY PRIMARY KEY, c_int int NOT NULL)").await;
-    let spec = CopySpec { target: LoadSpec { table: table("small"), ..spec.target }, ..spec };
+    run(
+        &mut dst,
+        "CREATE TABLE dbo.small (id int IDENTITY PRIMARY KEY, c_int int NOT NULL)",
+    )
+    .await;
+    let spec = CopySpec {
+        target: LoadSpec {
+            table: table("small"),
+            ..spec.target
+        },
+        ..spec
+    };
     assert_eq!(copy_native(&spec, false).await, 3);
-    let bad = LoadSpec { keep_identity: false, ..spec.target.clone() };
-    let e = dst.bulk_load(&bad, &[], &mut Replay(Vec::new().into_iter()), &|_| {}).await.unwrap_err();
+    let bad = LoadSpec {
+        keep_identity: false,
+        ..spec.target.clone()
+    };
+    let e = dst
+        .bulk_load(&bad, &[], &mut Replay(Vec::new().into_iter()), &|_| {})
+        .await
+        .unwrap_err();
     assert!(e.to_string().contains("identidad"), "{e}");
-    let calc = LoadSpec { columns: vec!["c_calc".into()], ..load_spec("t_bulk", 100) };
-    assert!(dst.bulk_load(&calc, &[], &mut Replay(Vec::new().into_iter()), &|_| {}).await.is_err());
+    let calc = LoadSpec {
+        columns: vec!["c_calc".into()],
+        ..load_spec("t_bulk", 100)
+    };
+    assert!(dst
+        .bulk_load(&calc, &[], &mut Replay(Vec::new().into_iter()), &|_| {})
+        .await
+        .is_err());
     // The session is usable after a refused load.
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM dbo.small").await, serde_json::json!(3));
+    assert_eq!(
+        scalar(&mut dst, "SELECT COUNT(*) FROM dbo.small").await,
+        serde_json::json!(3)
+    );
 }
 
 // ------------------------------------------------------------ benchmark
@@ -410,7 +519,10 @@ const MIXED: &str = "(id int IDENTITY PRIMARY KEY, a int NOT NULL, b bigint NULL
 #[ignore]
 async fn transfer_benchmark_1m() {
     modes();
-    let rows: u64 = std::env::var("DBINE_BENCH_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(1_000_000);
+    let rows: u64 = std::env::var("DBINE_BENCH_ROWS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1_000_000);
     let mut admin = driver().connect(&config(), Some("master")).await.unwrap();
     for db in ["dbine_bench_src", "dbine_bench_dst"] {
         run(
@@ -425,7 +537,10 @@ async fn transfer_benchmark_1m() {
         )
         .await;
     }
-    let mut src = driver().connect(&config(), Some("dbine_bench_src")).await.unwrap();
+    let mut src = driver()
+        .connect(&config(), Some("dbine_bench_src"))
+        .await
+        .unwrap();
     run(&mut src, &format!("CREATE TABLE dbo.mixed {MIXED}")).await;
     let t = Instant::now();
     run(
@@ -441,8 +556,14 @@ async fn transfer_benchmark_1m() {
     )
     .await;
     eprintln!("generated {rows} rows in {:.1?}", t.elapsed());
-    let mut dst = driver().connect(&config(), Some("dbine_bench_dst")).await.unwrap();
-    let cols: Vec<String> = ["id", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"].iter().map(|s| s.to_string()).collect();
+    let mut dst = driver()
+        .connect(&config(), Some("dbine_bench_dst"))
+        .await
+        .unwrap();
+    let cols: Vec<String> = ["id", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let load = |t: &str| LoadSpec {
         table: table(t),
         columns: cols.clone(),
@@ -451,9 +572,20 @@ async fn transfer_benchmark_1m() {
         commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
         commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
     };
-    let copy = |t: &str| CopySpec { source: ReadSpec { table: table("mixed"), columns: None, filter: None }, target: load(t) };
+    let copy = |t: &str| CopySpec {
+        source: ReadSpec {
+            table: table("mixed"),
+            columns: None,
+            filter: None,
+        },
+        target: load(t),
+    };
     let mut report = Vec::new();
-    for (path, t) in [("copy_native raw", "m_raw"), ("copy_native decoded", "m_dec"), ("read_batches → bulk_load", "m_bulk")] {
+    for (path, t) in [
+        ("copy_native raw", "m_raw"),
+        ("copy_native decoded", "m_dec"),
+        ("read_batches → bulk_load", "m_bulk"),
+    ] {
         run(&mut dst, &format!("CREATE TABLE dbo.{t} {MIXED}")).await;
         let start = Instant::now();
         let n = match path {
@@ -471,7 +603,10 @@ async fn transfer_benchmark_1m() {
         };
         let secs = start.elapsed().as_secs_f64();
         assert_eq!(n, rows);
-        let line = format!("{path:<26} {n} rows in {secs:.2} s = {:.0} rows/s", n as f64 / secs);
+        let line = format!(
+            "{path:<26} {n} rows in {secs:.2} s = {:.0} rows/s",
+            n as f64 / secs
+        );
         eprintln!("{line}");
         report.push(line);
         let list = cols.join(", ");
@@ -499,17 +634,50 @@ async fn transfer_benchmark_1m() {
         ),
     )
     .await;
-    report.push(format!("{:<26} {:.0} rows/s", "server INSERT…SELECT", rows as f64 / start.elapsed().as_secs_f64()));
+    report.push(format!(
+        "{:<26} {:.0} rows/s",
+        "server INSERT…SELECT",
+        rows as f64 / start.elapsed().as_secs_f64()
+    ));
     let sink = Arc::new(Mutex::new(Collect::default()));
-    let mut ro = ReadOnlySession::new(driver().connect(&config(), Some("dbine_bench_src")).await.unwrap());
+    let mut ro = ReadOnlySession::new(
+        driver()
+            .connect(&config(), Some("dbine_bench_src"))
+            .await
+            .unwrap(),
+    );
     let start = Instant::now();
-    ro.read_batches(&ReadSpec { table: table("mixed"), columns: None, filter: None }, sink.clone()).await.unwrap();
-    report.push(format!("{:<26} {:.0} rows/s", "read_batches only", rows as f64 / start.elapsed().as_secs_f64()));
+    ro.read_batches(
+        &ReadSpec {
+            table: table("mixed"),
+            columns: None,
+            filter: None,
+        },
+        sink.clone(),
+    )
+    .await
+    .unwrap();
+    report.push(format!(
+        "{:<26} {:.0} rows/s",
+        "read_batches only",
+        rows as f64 / start.elapsed().as_secs_f64()
+    ));
     let batches = std::mem::take(&mut sink.lock().unwrap().batches);
     run(&mut dst, &format!("CREATE TABLE dbo.m_mem {MIXED}")).await;
     let start = Instant::now();
-    dst.bulk_load(&load("m_mem"), &[], &mut Replay(batches.into_iter()), &|_| {}).await.unwrap();
-    report.push(format!("{:<26} {:.0} rows/s", "bulk_load only (memory)", rows as f64 / start.elapsed().as_secs_f64()));
+    dst.bulk_load(
+        &load("m_mem"),
+        &[],
+        &mut Replay(batches.into_iter()),
+        &|_| {},
+    )
+    .await
+    .unwrap();
+    report.push(format!(
+        "{:<26} {:.0} rows/s",
+        "bulk_load only (memory)",
+        rows as f64 / start.elapsed().as_secs_f64()
+    ));
     eprintln!("\n{}", report.join("\n"));
     // Free the server's memory (the test container shares a VM with others).
     drop((src, dst, ro));
@@ -525,9 +693,14 @@ async fn copy_native_bench(spec: &CopySpec, decoded: bool) -> u64 {
         std::env::remove_var("DBINE_SQLSERVER_NO_RAW");
     }
     let d = driver();
-    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(d.connect(&config(), Some("dbine_bench_src")).await.unwrap()));
+    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(
+        d.connect(&config(), Some("dbine_bench_src")).await.unwrap(),
+    ));
     let mut dst = d.connect(&config(), Some("dbine_bench_dst")).await.unwrap();
-    let n = d.copy_native(&mut *src, &mut *dst, spec, &|_| {}).await.unwrap();
+    let n = d
+        .copy_native(&mut *src, &mut *dst, spec, &|_| {})
+        .await
+        .unwrap();
     std::env::remove_var("DBINE_SQLSERVER_NO_RAW");
     n
 }
@@ -536,16 +709,34 @@ async fn copy_native_bench(spec: &CopySpec, decoded: bool) -> u64 {
 async fn bench_read_then_load(load: &LoadSpec) -> u64 {
     let (tx, rx) = mpsc::sync_channel(16);
     let reader = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
-            let src = driver().connect(&config(), Some("dbine_bench_src")).await.unwrap();
+            let src = driver()
+                .connect(&config(), Some("dbine_bench_src"))
+                .await
+                .unwrap();
             let mut src = ReadOnlySession::new(src);
-            let spec = ReadSpec { table: table("mixed"), columns: None, filter: None };
-            src.read_batches(&spec, Arc::new(Mutex::new(Channel(tx)))).await.unwrap()
+            let spec = ReadSpec {
+                table: table("mixed"),
+                columns: None,
+                filter: None,
+            };
+            src.read_batches(&spec, Arc::new(Mutex::new(Channel(tx))))
+                .await
+                .unwrap()
         })
     });
-    let mut dst = driver().connect(&config(), Some("dbine_bench_dst")).await.unwrap();
-    let loaded = dst.bulk_load(load, &[], &mut Receive(Arc::new(Mutex::new(rx))), &|_| {}).await.unwrap();
+    let mut dst = driver()
+        .connect(&config(), Some("dbine_bench_dst"))
+        .await
+        .unwrap();
+    let loaded = dst
+        .bulk_load(load, &[], &mut Receive(Arc::new(Mutex::new(rx))), &|_| {})
+        .await
+        .unwrap();
     assert_eq!(reader.join().unwrap(), loaded);
     loaded
 }
@@ -572,8 +763,19 @@ async fn copy_native_fails_fast_when_the_load_fails() {
     .await;
     run(&mut dst, "CREATE TABLE dbo.dup (id int NOT NULL PRIMARY KEY, v varchar(20) NOT NULL); INSERT INTO dbo.dup VALUES (5, 'ya estaba')").await;
     let spec = CopySpec {
-        source: ReadSpec { table: table("dup"), columns: None, filter: None },
-        target: LoadSpec { table: table("dup"), columns: vec!["id".into(), "v".into()], table_lock: false, keep_identity: false, commit_rows: 1000, commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES },
+        source: ReadSpec {
+            table: table("dup"),
+            columns: None,
+            filter: None,
+        },
+        target: LoadSpec {
+            table: table("dup"),
+            columns: vec!["id".into(), "v".into()],
+            table_lock: false,
+            keep_identity: false,
+            commit_rows: 1000,
+            commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+        },
     };
     let d = driver();
     for decoded in [false, true] {
@@ -587,12 +789,27 @@ async fn copy_native_fails_fast_when_the_load_fails() {
         let copy = d.copy_native(&mut *s, &mut *t, &spec, &|_| {});
         let res = tokio::time::timeout(std::time::Duration::from_secs(60), copy).await;
         std::env::remove_var("DBINE_SQLSERVER_NO_RAW");
-        let e = res.unwrap_or_else(|_| panic!("the copy hung after the load failed (decoded: {decoded})")).unwrap_err();
-        assert!(e.to_string().contains("PRIMARY KEY") || e.to_string().contains("duplicate"), "{e}");
+        let e = res
+            .unwrap_or_else(|_| panic!("the copy hung after the load failed (decoded: {decoded})"))
+            .unwrap_err();
+        assert!(
+            e.to_string().contains("PRIMARY KEY") || e.to_string().contains("duplicate"),
+            "{e}"
+        );
         assert_eq!(last_mode(), if decoded { "decoded" } else { "raw" });
         // Both sessions still work after the failed copy.
-        assert_eq!(scalar(&mut s, "SELECT COUNT(*) FROM dbo.dup").await.as_i64(), Some(40000));
-        assert_eq!(scalar(&mut t, "SELECT COUNT(*) FROM dbo.dup").await.as_i64(), Some(1));
+        assert_eq!(
+            scalar(&mut s, "SELECT COUNT(*) FROM dbo.dup")
+                .await
+                .as_i64(),
+            Some(40000)
+        );
+        assert_eq!(
+            scalar(&mut t, "SELECT COUNT(*) FROM dbo.dup")
+                .await
+                .as_i64(),
+            Some(1)
+        );
     }
 }
 
@@ -614,12 +831,31 @@ async fn copy_native_decimal_38_38() {
     .await;
     run(&mut dst, create).await;
     let spec = CopySpec {
-        source: ReadSpec { table: table("dec38"), columns: None, filter: None },
-        target: LoadSpec { table: table("dec38"), columns: vec!["id".into(), "d".into()], table_lock: true, keep_identity: false, commit_rows: 100, commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES },
+        source: ReadSpec {
+            table: table("dec38"),
+            columns: None,
+            filter: None,
+        },
+        target: LoadSpec {
+            table: table("dec38"),
+            columns: vec!["id".into(), "d".into()],
+            table_lock: true,
+            keep_identity: false,
+            commit_rows: 100,
+            commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+        },
     };
     assert_eq!(copy_native(&spec, true).await, 5);
     assert_eq!(last_mode(), "decoded");
-    let diff = |a: &str, b: &str| format!("SELECT COUNT_BIG(*) FROM (SELECT id, d FROM [{a}].dbo.dec38 EXCEPT SELECT id, d FROM [{b}].dbo.dec38) x");
-    assert_eq!(scalar(&mut dst, &diff(SRC_DB, DST_DB)).await.as_i64(), Some(0));
-    assert_eq!(scalar(&mut dst, &diff(DST_DB, SRC_DB)).await.as_i64(), Some(0));
+    let diff = |a: &str, b: &str| {
+        format!("SELECT COUNT_BIG(*) FROM (SELECT id, d FROM [{a}].dbo.dec38 EXCEPT SELECT id, d FROM [{b}].dbo.dec38) x")
+    };
+    assert_eq!(
+        scalar(&mut dst, &diff(SRC_DB, DST_DB)).await.as_i64(),
+        Some(0)
+    );
+    assert_eq!(
+        scalar(&mut dst, &diff(DST_DB, SRC_DB)).await.as_i64(),
+        Some(0)
+    );
 }

@@ -198,10 +198,35 @@ pub struct Features {
     pub operators: Vec<&'static str>,
 }
 
-const ALL_OPS: &[&str] = &["eq", "ne", "lt", "le", "gt", "ge", "like", "not_like", "in", "not_in", "between", "is_null", "is_not_null"];
-const ALL_AGGREGATES: &[Aggregate] =
-    &[Aggregate::Count, Aggregate::Sum, Aggregate::Avg, Aggregate::Min, Aggregate::Max, Aggregate::CountDistinct];
-const ALL_JOINS: &[JoinKind] = &[JoinKind::Inner, JoinKind::Left, JoinKind::Right, JoinKind::Full];
+const ALL_OPS: &[&str] = &[
+    "eq",
+    "ne",
+    "lt",
+    "le",
+    "gt",
+    "ge",
+    "like",
+    "not_like",
+    "in",
+    "not_in",
+    "between",
+    "is_null",
+    "is_not_null",
+];
+const ALL_AGGREGATES: &[Aggregate] = &[
+    Aggregate::Count,
+    Aggregate::Sum,
+    Aggregate::Avg,
+    Aggregate::Min,
+    Aggregate::Max,
+    Aggregate::CountDistinct,
+];
+const ALL_JOINS: &[JoinKind] = &[
+    JoinKind::Inner,
+    JoinKind::Left,
+    JoinKind::Right,
+    JoinKind::Full,
+];
 
 /// How the engine limits a `SELECT`, as its browse query does it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,7 +294,10 @@ impl Dialect {
             features,
             nested_joins: info.dialect == "access",
             unicode_strings: matches!(info.dialect, "mssql" | "sybase"),
-            bit_booleans: matches!(info.dialect, "mssql" | "sybase" | "oracle" | "db2" | "informix"),
+            bit_booleans: matches!(
+                info.dialect,
+                "mssql" | "sybase" | "oracle" | "db2" | "informix"
+            ),
             cosmos: info.dialect == "cosmos",
             influxql: info.dialect == "influxql",
             iotdb: info.dialect == "iotdb",
@@ -284,8 +312,8 @@ impl Dialect {
 fn default_quote(dialect: &str) -> Quote {
     match dialect {
         "mssql" | "sybase" | "access" => Quote::Bracket,
-        "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" | "spanner" | "n1ql" | "ksql" | "orientdb"
-        | "iotdb" | "tdengine" | "drill" => Quote::Backtick,
+        "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" | "spanner"
+        | "n1ql" | "ksql" | "orientdb" | "iotdb" | "tdengine" | "drill" => Quote::Backtick,
         _ => Quote::Double,
     }
 }
@@ -313,7 +341,9 @@ fn sqlite_outer_joins(version: Option<&str>) -> bool {
     let Some(v) = version.and_then(|v| v.rsplit_once("SQLite ").map(|(_, v)| v)) else {
         return false;
     };
-    let mut n = v.split(|c: char| !c.is_ascii_digit()).map(|p| p.parse::<u32>().unwrap_or(0));
+    let mut n = v
+        .split(|c: char| !c.is_ascii_digit())
+        .map(|p| p.parse::<u32>().unwrap_or(0));
     (n.next().unwrap_or(0), n.next().unwrap_or(0)) >= (3, 39)
 }
 
@@ -327,12 +357,18 @@ pub fn features(info: &DriverInfo, sqlite_version: Option<&str>) -> Features {
     } else {
         match (info.id, info.dialect) {
             // One table (container, measurement, device, stream, class) per query.
-            (_, "cosmos" | "partiql" | "influxql" | "iotdb" | "tdengine" | "ksql" | "orientdb") => vec![],
+            (_, "cosmos" | "partiql" | "influxql" | "iotdb" | "tdengine" | "ksql" | "orientdb") => {
+                vec![]
+            }
             (_, "mysql" | "access") => three,
             (_, "sqlite") if !sqlite_outer_joins(sqlite_version) => vec![Inner, Left],
             (_, "n1ql") => vec![Inner, Left],
             ("heavydb", _) => vec![Inner, Left],
-            ("sybase" | "cubrid" | "ignite" | "nuodb" | "openedge" | "zen" | "machbase" | "netsuite", _) => three,
+            (
+                "sybase" | "cubrid" | "ignite" | "nuodb" | "openedge" | "zen" | "machbase"
+                | "netsuite",
+                _,
+            ) => three,
             _ => ALL_JOINS.to_vec(),
         }
     };
@@ -347,12 +383,14 @@ pub fn features(info: &DriverInfo, sqlite_version: Option<&str>) -> Features {
         or_groups: true,
         operators: ALL_OPS.to_vec(),
     };
-    let no_count_distinct = |f: &mut Features| f.aggregates.retain(|a| *a != Aggregate::CountDistinct);
+    let no_count_distinct =
+        |f: &mut Features| f.aggregates.retain(|a| *a != Aggregate::CountDistinct);
     match info.dialect {
         "cosmos" => {
             f.having = false;
             no_count_distinct(&mut f);
-            f.operators.retain(|o| !matches!(*o, "is_null" | "is_not_null"));
+            f.operators
+                .retain(|o| !matches!(*o, "is_null" | "is_not_null"));
         }
         "partiql" => {
             f.group_by = false;
@@ -414,7 +452,10 @@ pub struct TableRef {
 /// `(prefix, target)` of a browse query: its leading comment lines, and the
 /// first `FROM`'s target up to unquoted whitespace or `;`.
 fn from_target(browse: &str) -> Option<(String, String)> {
-    let prefix: Vec<&str> = browse.lines().take_while(|l| l.trim_start().starts_with("--")).collect();
+    let prefix: Vec<&str> = browse
+        .lines()
+        .take_while(|l| l.trim_start().starts_with("--"))
+        .collect();
     let chars: Vec<char> = browse.chars().collect();
     let mut i = 0;
     let mut close: Option<char> = None;
@@ -434,7 +475,10 @@ fn from_target(browse: &str) -> Option<(String, String)> {
             close = Some(']');
         } else if (i == 0 || chars[i - 1].is_whitespace())
             && chars.len() > i + 5
-            && chars[i..i + 4].iter().collect::<String>().eq_ignore_ascii_case("from")
+            && chars[i..i + 4]
+                .iter()
+                .collect::<String>()
+                .eq_ignore_ascii_case("from")
             && chars[i + 4].is_whitespace()
         {
             let mut j = i + 4;
@@ -472,7 +516,10 @@ impl TableRef {
     }
 
     fn plain(quote: Quote, table: &SpecTable) -> Self {
-        Self { target: qualified_name(quote, table.schema.as_deref(), &table.name), prefix: String::new() }
+        Self {
+            target: qualified_name(quote, table.schema.as_deref(), &table.name),
+            prefix: String::new(),
+        }
     }
 }
 
@@ -482,7 +529,12 @@ impl TableRef {
 /// engine doesn't have, tables left unjoined…). `limit` is the row limit
 /// to apply (the spec's, or the preview's). Tables missing from `refs` are
 /// named with the dialect's quoting.
-pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>, limit: Option<u32>) -> (String, Vec<String>) {
+pub fn generate(
+    spec: &QuerySpec,
+    d: &Dialect,
+    refs: &HashMap<String, TableRef>,
+    limit: Option<u32>,
+) -> (String, Vec<String>) {
     let mut warn: Vec<String> = Vec::new();
     let f = &d.features;
     let mut tables: Vec<&SpecTable> = spec.tables.iter().collect();
@@ -490,7 +542,10 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
         return (String::new(), warn);
     }
     if f.joins.is_empty() && tables.len() > 1 {
-        warn.push(format!("este motor consulta una tabla a la vez: se usa solo «{}»", tables[0].name));
+        warn.push(format!(
+            "este motor consulta una tabla a la vez: se usa solo «{}»",
+            tables[0].name
+        ));
         tables.truncate(1);
     }
     let multi = tables.len() > 1;
@@ -500,7 +555,11 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
     let mut aliases: HashMap<&str, String> = HashMap::new();
     let mut taken: Vec<String> = Vec::new();
     for t in &tables {
-        let base = if t.alias.trim().is_empty() { t.name.clone() } else { t.alias.trim().to_string() };
+        let base = if t.alias.trim().is_empty() {
+            t.name.clone()
+        } else {
+            t.alias.trim().to_string()
+        };
         let mut alias = base.clone();
         let mut n = 2;
         while taken.iter().any(|a| a.eq_ignore_ascii_case(&alias)) {
@@ -510,22 +569,38 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
         taken.push(alias.clone());
         aliases.insert(t.id.as_str(), alias);
     }
-    let reference = |t: &SpecTable| refs.get(&t.id).cloned().unwrap_or_else(|| TableRef::plain(d.quote, t));
+    let reference = |t: &SpecTable| {
+        refs.get(&t.id)
+            .cloned()
+            .unwrap_or_else(|| TableRef::plain(d.quote, t))
+    };
 
     // A column of a table on the canvas, qualified when there are several.
     let column = |table: &str, name: &str| -> Option<String> {
         let alias = aliases.get(table)?;
         Some(if d.cosmos {
-            if name == "*" { "*".to_string() } else { format!("c[\"{}\"]", name.replace('\\', "\\\\").replace('"', "\\\"")) }
+            if name == "*" {
+                "*".to_string()
+            } else {
+                format!("c[\"{}\"]", name.replace('\\', "\\\\").replace('"', "\\\""))
+            }
         } else if name == "*" {
-            if multi { format!("{}.*", q(alias)) } else { "*".to_string() }
+            if multi {
+                format!("{}.*", q(alias))
+            } else {
+                "*".to_string()
+            }
         } else if multi {
             format!("{}.{}", q(alias), q(name))
         } else {
             q(name)
         })
     };
-    let rows: Vec<(&SpecColumn, String)> = spec.columns.iter().filter_map(|c| column(&c.table, &c.column).map(|e| (c, e))).collect();
+    let rows: Vec<(&SpecColumn, String)> = spec
+        .columns
+        .iter()
+        .filter_map(|c| column(&c.table, &c.column).map(|e| (c, e)))
+        .collect();
 
     let mut unsupported_agg: Vec<&'static str> = Vec::new();
     let value = |c: &SpecColumn, expr: &str, unsupported: &mut Vec<&'static str>| -> String {
@@ -539,13 +614,15 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
     let mut select: Vec<String> = Vec::new();
     for (c, e) in rows.iter().filter(|(c, _)| c.show) {
         let v = value(c, e, &mut unsupported_agg);
-        select.push(if c.alias.trim().is_empty() || (c.column == "*" && c.aggregate == Aggregate::None) {
-            v
-        } else if d.cosmos {
-            format!("{v} AS {}", c.alias.trim())
-        } else {
-            format!("{v} AS {}", q(c.alias.trim()))
-        });
+        select.push(
+            if c.alias.trim().is_empty() || (c.column == "*" && c.aggregate == Aggregate::None) {
+                v
+            } else if d.cosmos {
+                format!("{v} AS {}", c.alias.trim())
+            } else {
+                format!("{v} AS {}", q(c.alias.trim()))
+            },
+        );
     }
     if select.is_empty() {
         select.push("*".into());
@@ -555,9 +632,14 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
     let grouped = rows.iter().any(|(c, _)| c.aggregate != Aggregate::None);
     let mut group: Vec<String> = Vec::new();
     if grouped {
-        for (c, e) in rows.iter().filter(|(c, _)| c.aggregate == Aggregate::None && (c.show || c.sort != SortDir::None)) {
+        for (c, e) in rows
+            .iter()
+            .filter(|(c, _)| c.aggregate == Aggregate::None && (c.show || c.sort != SortDir::None))
+        {
             if c.column == "*" {
-                warn.push("con funciones de agregado no se puede mostrar «*»: elegí las columnas".into());
+                warn.push(
+                    "con funciones de agregado no se puede mostrar «*»: elegí las columnas".into(),
+                );
                 continue;
             }
             if !group.contains(e) {
@@ -578,14 +660,29 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
     for g in 0..groups {
         let (mut w, mut h) = (Vec::new(), Vec::new());
         for (c, e) in &rows {
-            let Some(Some(cond)) = c.filters.get(g) else { continue };
+            let Some(Some(cond)) = c.filters.get(g) else {
+                continue;
+            };
             let agg = c.aggregate != Aggregate::None;
-            let expr = if agg { value(c, e, &mut unsupported_agg) } else { e.clone() };
+            let expr = if agg {
+                value(c, e, &mut unsupported_agg)
+            } else {
+                e.clone()
+            };
             if !f.operators.contains(&cond.op.as_str()) {
-                warn.push(format!("este motor no ofrece el operador «{}»", op_label(&cond.op)));
+                warn.push(format!(
+                    "este motor no ofrece el operador «{}»",
+                    op_label(&cond.op)
+                ));
             }
-            let Some(text) = condition(d, &expr, cond, if agg { "" } else { &c.data_type }) else { continue };
-            if agg { h.push(text) } else { w.push(text) }
+            let Some(text) = condition(d, &expr, cond, if agg { "" } else { &c.data_type }) else {
+                continue;
+            };
+            if agg {
+                h.push(text)
+            } else {
+                w.push(text)
+            }
         }
         mixed |= !w.is_empty() && !h.is_empty();
         if !w.is_empty() {
@@ -599,7 +696,10 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
         warn.push("las condiciones sobre agregados van a HAVING y las demás a WHERE: cada parte combina sus grupos O por separado".into());
     }
     if !f.or_groups && (where_groups.len() > 1 || having_groups.len() > 1) {
-        warn.push("este motor no combina condiciones con OR: se usa solo el primer grupo de filtros".into());
+        warn.push(
+            "este motor no combina condiciones con OR: se usa solo el primer grupo de filtros"
+                .into(),
+        );
         where_groups.truncate(1);
         having_groups.truncate(1);
     }
@@ -609,8 +709,12 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
     }
 
     // ORDER BY, in the grid's sort order.
-    let mut sorted: Vec<(usize, &SpecColumn, &String)> =
-        rows.iter().enumerate().filter(|(_, (c, _))| c.sort != SortDir::None && c.column != "*").map(|(i, (c, e))| (i, *c, e)).collect();
+    let mut sorted: Vec<(usize, &SpecColumn, &String)> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, (c, _))| c.sort != SortDir::None && c.column != "*")
+        .map(|(i, (c, e))| (i, *c, e))
+        .collect();
     sorted.sort_by_key(|(i, c, _)| (c.sort_order.unwrap_or(u32::MAX), *i));
     let mut order: Vec<String> = Vec::new();
     if !sorted.is_empty() && !f.order_by {
@@ -618,11 +722,21 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
     } else {
         for (_, c, e) in sorted {
             if d.influxql && !c.column.eq_ignore_ascii_case("time") {
-                warn.push(format!("InfluxQL ordena solo por time: «{}» no puede ir en ORDER BY", c.column));
+                warn.push(format!(
+                    "InfluxQL ordena solo por time: «{}» no puede ir en ORDER BY",
+                    c.column
+                ));
                 continue;
             }
-            let v = if c.aggregate == Aggregate::None { e.clone() } else { aggregate(d, c.aggregate, e) };
-            order.push(format!("{v}{}", if c.sort == SortDir::Desc { " DESC" } else { "" }));
+            let v = if c.aggregate == Aggregate::None {
+                e.clone()
+            } else {
+                aggregate(d, c.aggregate, e)
+            };
+            order.push(format!(
+                "{v}{}",
+                if c.sort == SortDir::Desc { " DESC" } else { "" }
+            ));
         }
     }
     unsupported_agg.sort();
@@ -637,14 +751,22 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
     let target = |t: &SpecTable| {
         let r = reference(t);
         let alias = &aliases[t.id.as_str()];
-        if *alias == t.name { r.target } else { format!("{} {}", r.target, q(alias)) }
+        if *alias == t.name {
+            r.target
+        } else {
+            format!("{} {}", r.target, q(alias))
+        }
     };
     let mut from = target(tables[0]);
     let mut placed: Vec<&str> = vec![tables[0].id.as_str()];
     let usable: Vec<&SpecJoin> = spec
         .joins
         .iter()
-        .filter(|j| j.left != j.right && aliases.contains_key(j.left.as_str()) && aliases.contains_key(j.right.as_str()))
+        .filter(|j| {
+            j.left != j.right
+                && aliases.contains_key(j.left.as_str())
+                && aliases.contains_key(j.right.as_str())
+        })
         .collect();
     let mut joined = 0;
     while placed.len() < tables.len() {
@@ -652,15 +774,20 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
             !placed.contains(&t.id.as_str())
                 && usable.iter().any(|j| {
                     !j.on.is_empty()
-                        && ((j.left == t.id && placed.contains(&j.right.as_str())) || (j.right == t.id && placed.contains(&j.left.as_str())))
+                        && ((j.left == t.id && placed.contains(&j.right.as_str()))
+                            || (j.right == t.id && placed.contains(&j.left.as_str())))
                 })
         });
-        let Some(t) = next.or_else(|| tables.iter().find(|t| !placed.contains(&t.id.as_str()))) else { break };
+        let Some(t) = next.or_else(|| tables.iter().find(|t| !placed.contains(&t.id.as_str())))
+        else {
+            break;
+        };
         let between: Vec<&&SpecJoin> = usable
             .iter()
             .filter(|j| {
                 !j.on.is_empty()
-                    && ((j.left == t.id && placed.contains(&j.right.as_str())) || (j.right == t.id && placed.contains(&j.left.as_str())))
+                    && ((j.left == t.id && placed.contains(&j.right.as_str()))
+                        || (j.right == t.id && placed.contains(&j.left.as_str())))
             })
             .collect();
         if d.nested_joins && joined > 0 {
@@ -668,12 +795,26 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
         }
         if between.is_empty() {
             warn.push(format!("«{}» no está unida a las demás tablas: se combina con todas sus filas (CROSS JOIN)", t.name));
-            from.push_str(&if d.nested_joins { format!(", {}", target(t)) } else { format!("\nCROSS JOIN {}", target(t)) });
+            from.push_str(&if d.nested_joins {
+                format!(", {}", target(t))
+            } else {
+                format!("\nCROSS JOIN {}", target(t))
+            });
         } else {
-            let kind_of = |j: &SpecJoin| if j.right == t.id { j.kind } else { j.kind.flipped() };
+            let kind_of = |j: &SpecJoin| {
+                if j.right == t.id {
+                    j.kind
+                } else {
+                    j.kind.flipped()
+                }
+            };
             let kind = kind_of(between[0]);
             if between.iter().any(|j| kind_of(j) != kind) {
-                warn.push(format!("«{}» tiene uniones de distinto tipo con las demás tablas: se usa {}", t.name, kind.sql()));
+                warn.push(format!(
+                    "«{}» tiene uniones de distinto tipo con las demás tablas: se usa {}",
+                    t.name,
+                    kind.sql()
+                ));
             }
             if !f.joins.contains(&kind) {
                 warn.push(format!("este motor no tiene {}", kind.sql()));
@@ -681,20 +822,31 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
             let mut on: Vec<String> = Vec::new();
             for j in &between {
                 for p in &j.on {
-                    if let (Some(l), Some(r)) = (column(&j.left, &p.left), column(&j.right, &p.right)) {
+                    if let (Some(l), Some(r)) =
+                        (column(&j.left, &p.left), column(&j.right, &p.right))
+                    {
                         on.push(format!("{l} = {r}"));
                     }
                 }
             }
-            let on = if d.nested_joins && on.len() > 1 { format!("({})", on.join(" AND ")) } else { on.join(" AND ") };
+            let on = if d.nested_joins && on.len() > 1 {
+                format!("({})", on.join(" AND "))
+            } else {
+                on.join(" AND ")
+            };
             from.push_str(&format!("\n{} {} ON {on}", kind.sql(), target(t)));
         }
         joined += 1;
         placed.push(t.id.as_str());
     }
     for j in &spec.joins {
-        if j.on.is_empty() && aliases.contains_key(j.left.as_str()) && aliases.contains_key(j.right.as_str()) {
-            warn.push("una unión no tiene columnas: arrastrá una columna sobre otra para unirlas".into());
+        if j.on.is_empty()
+            && aliases.contains_key(j.left.as_str())
+            && aliases.contains_key(j.right.as_str())
+        {
+            warn.push(
+                "una unión no tiene columnas: arrastrá una columna sobre otra para unirlas".into(),
+            );
         }
     }
 
@@ -736,7 +888,17 @@ pub fn generate(spec: &QuerySpec, d: &Dialect, refs: &HashMap<String, TableRef>,
         if groups.len() == 1 {
             groups[0].join("\n  AND ")
         } else {
-            groups.iter().map(|g| if g.len() > 1 { format!("({})", g.join(" AND ")) } else { g[0].clone() }).collect::<Vec<_>>().join("\n   OR ")
+            groups
+                .iter()
+                .map(|g| {
+                    if g.len() > 1 {
+                        format!("({})", g.join(" AND "))
+                    } else {
+                        g[0].clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n   OR ")
         }
     };
     if !where_groups.is_empty() {
@@ -803,7 +965,15 @@ fn op_label(op: &str) -> &str {
 
 fn aggregate(d: &Dialect, a: Aggregate, expr: &str) -> String {
     let star = expr == "*" || expr.ends_with(".*");
-    let arg = if star { if d.cosmos { "1" } else { "*" } } else { expr };
+    let arg = if star {
+        if d.cosmos {
+            "1"
+        } else {
+            "*"
+        }
+    } else {
+        expr
+    };
     match a {
         Aggregate::None => expr.to_string(),
         Aggregate::Count => format!("COUNT({arg})"),
@@ -827,15 +997,26 @@ fn literal(d: &Dialect, value: &str, data_type: &str, text: bool) -> String {
     }
     let ty = data_type.to_ascii_lowercase();
     if !text {
-        if ty.contains("bool") && (v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("false")) {
+        if ty.contains("bool")
+            && (v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("false"))
+        {
             let on = v.eq_ignore_ascii_case("true");
-            return if d.bit_booleans { (if on { "1" } else { "0" }).into() } else { (if on { "TRUE" } else { "FALSE" }).into() };
+            return if d.bit_booleans {
+                (if on { "1" } else { "0" }).into()
+            } else {
+                (if on { "TRUE" } else { "FALSE" }).into()
+            };
         }
         let numeric_type = ty.is_empty()
-            || ["int", "dec", "num", "float", "double", "real", "money", "serial", "bit"].iter().any(|n| ty.contains(n));
+            || [
+                "int", "dec", "num", "float", "double", "real", "money", "serial", "bit",
+            ]
+            .iter()
+            .any(|n| ty.contains(n));
         let number = !v.is_empty()
             && v.parse::<f64>().is_ok()
-            && v.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | 'e' | 'E'));
+            && v.chars()
+                .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | 'e' | 'E'));
         if numeric_type && number {
             return v.to_string();
         }
@@ -844,12 +1025,22 @@ fn literal(d: &Dialect, value: &str, data_type: &str, text: bool) -> String {
         return format!("'{}'", v.replace('\\', "\\\\").replace('\'', "\\'"));
     }
     let quoted = format!("'{}'", v.replace('\'', "''"));
-    if d.unicode_strings { format!("N{quoted}") } else { quoted }
+    if d.unicode_strings {
+        format!("N{quoted}")
+    } else {
+        quoted
+    }
 }
 
 /// A filter cell as SQL; `None` while its value is still empty.
 fn condition(d: &Dialect, expr: &str, c: &Condition, data_type: &str) -> Option<String> {
-    let lit = |s: &str, text: bool| if c.raw { s.trim().to_string() } else { literal(d, s, data_type, text) };
+    let lit = |s: &str, text: bool| {
+        if c.raw {
+            s.trim().to_string()
+        } else {
+            literal(d, s, data_type, text)
+        }
+    };
     let v = c.value.trim();
     let needs_value = !matches!(c.op.as_str(), "is_null" | "is_not_null");
     if needs_value && v.is_empty() {
@@ -871,13 +1062,22 @@ fn condition(d: &Dialect, expr: &str, c: &Condition, data_type: &str) -> Option<
             let list = if c.raw {
                 v.to_string()
             } else {
-                v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| literal(d, s, data_type, false)).collect::<Vec<_>>().join(", ")
+                v.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| literal(d, s, data_type, false))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             };
-            Some(format!("{expr} {}IN ({list})", if c.op == "not_in" { "NOT " } else { "" }))
+            Some(format!(
+                "{expr} {}IN ({list})",
+                if c.op == "not_in" { "NOT " } else { "" }
+            ))
         }
         "between" => {
             let hi = c.value2.trim();
-            (!hi.is_empty()).then(|| format!("{expr} BETWEEN {} AND {}", lit(v, false), lit(hi, false)))
+            (!hi.is_empty())
+                .then(|| format!("{expr} BETWEEN {} AND {}", lit(v, false), lit(hi, false)))
         }
         _ => None,
     }
@@ -892,12 +1092,31 @@ struct Probe {
     version: Option<String>,
 }
 
-async fn probe(s: &mut Box<dyn Session>, objects: Vec<ObjectRef>, sqlite: bool) -> dbine_driver::Result<Probe> {
-    let browses = objects.iter().map(|o| s.browse_query(o, SENTINEL)).collect();
-    let sentinel = ObjectRef { kind: dbine_driver::kinds::TABLE.into(), schema: None, name: "dbine_t".into() };
+async fn probe(
+    s: &mut Box<dyn Session>,
+    objects: Vec<ObjectRef>,
+    sqlite: bool,
+) -> dbine_driver::Result<Probe> {
+    let browses = objects
+        .iter()
+        .map(|o| s.browse_query(o, SENTINEL))
+        .collect();
+    let sentinel = ObjectRef {
+        kind: dbine_driver::kinds::TABLE.into(),
+        schema: None,
+        name: "dbine_t".into(),
+    };
     let sample = s.browse_query(objects.first().unwrap_or(&sentinel), SENTINEL);
-    let version = if sqlite { s.server_version().await.ok() } else { None };
-    Ok(Probe { browses, sample, version })
+    let version = if sqlite {
+        s.server_version().await.ok()
+    } else {
+        None
+    };
+    Ok(Probe {
+        browses,
+        sample,
+        version,
+    })
 }
 
 /// The engine's dialect and the names of the spec's tables, from the
@@ -910,13 +1129,19 @@ async fn context(
 ) -> CommandResult<(Dialect, HashMap<String, TableRef>)> {
     let info = driver_of(state, connection_id)?.info();
     if !builds(info) {
-        return Err(CommandError::BadRequest("el constructor de consultas es para motores SQL y CQL".into()));
+        return Err(CommandError::BadRequest(
+            "el constructor de consultas es para motores SQL y CQL".into(),
+        ));
     }
     let objects: Vec<ObjectRef> = spec
         .tables
         .iter()
         .map(|t| ObjectRef {
-            kind: if t.kind.is_empty() { dbine_driver::kinds::TABLE.into() } else { t.kind.clone() },
+            kind: if t.kind.is_empty() {
+                dbine_driver::kinds::TABLE.into()
+            } else {
+                t.kind.clone()
+            },
             schema: t.schema.clone(),
             name: t.name.clone(),
         })
@@ -928,10 +1153,21 @@ async fn context(
             let mut s = entry.session.lock().await;
             probe(&mut s, objects, sqlite).await?
         }
-        None => state.meta_read(connection_id, &spec.database, READ_LIMIT, move |s| Box::pin(probe(s, objects, sqlite))).await?,
+        None => {
+            state
+                .meta_read(connection_id, &spec.database, READ_LIMIT, move |s| {
+                    Box::pin(probe(s, objects, sqlite))
+                })
+                .await?
+        }
     };
     let d = Dialect::resolve(info, &p.sample, p.version.as_deref());
-    let refs = spec.tables.iter().zip(&p.browses).map(|(t, b)| (t.id.clone(), TableRef::of(b, d.quote, t))).collect();
+    let refs = spec
+        .tables
+        .iter()
+        .zip(&p.browses)
+        .map(|(t, b)| (t.id.clone(), TableRef::of(b, d.quote, t)))
+        .collect();
     Ok((d, refs))
 }
 
@@ -953,10 +1189,23 @@ pub struct BuiltQuery {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn build_query(state: State<'_, AppState>, args: BuildQueryArgs) -> CommandResult<BuiltQuery> {
-    let (d, refs) = context(&state, &args.connection_id, args.session_id.as_deref(), &args.spec).await?;
+pub async fn build_query(
+    state: State<'_, AppState>,
+    args: BuildQueryArgs,
+) -> CommandResult<BuiltQuery> {
+    let (d, refs) = context(
+        &state,
+        &args.connection_id,
+        args.session_id.as_deref(),
+        &args.spec,
+    )
+    .await?;
     let (sql, warnings) = generate(&args.spec, &d, &refs, args.spec.limit);
-    Ok(BuiltQuery { sql, warnings, features: d.features })
+    Ok(BuiltQuery {
+        sql,
+        warnings,
+        features: d.features,
+    })
 }
 
 #[derive(Deserialize)]
@@ -982,15 +1231,32 @@ pub struct BuiltPreview {
 /// "Ejecutar vista previa": the query with at most [`PREVIEW_ROWS`] rows,
 /// on a read-only session of its own.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn preview_built_query(state: State<'_, AppState>, args: PreviewArgs) -> CommandResult<BuiltPreview> {
-    let (d, refs) = context(&state, &args.connection_id, Some(&args.session_id), &args.spec).await?;
-    let limit = Some(args.spec.limit.map_or(PREVIEW_ROWS, |n| n.min(PREVIEW_ROWS)));
+pub async fn preview_built_query(
+    state: State<'_, AppState>,
+    args: PreviewArgs,
+) -> CommandResult<BuiltPreview> {
+    let (d, refs) = context(
+        &state,
+        &args.connection_id,
+        Some(&args.session_id),
+        &args.spec,
+    )
+    .await?;
+    let limit = Some(
+        args.spec
+            .limit
+            .map_or(PREVIEW_ROWS, |n| n.min(PREVIEW_ROWS)),
+    );
     let (sql, _) = generate(&args.spec, &d, &refs, limit);
     if sql.is_empty() {
-        return Err(CommandError::BadRequest("agregá una tabla para consultar".into()));
+        return Err(CommandError::BadRequest(
+            "agregá una tabla para consultar".into(),
+        ));
     }
     let key = format!("qb-preview:{}", args.session_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.spec.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.spec.database, true)
+        .await?;
     let started = Instant::now();
     let mut out = QueryOutcome::default();
     let run = {
@@ -1002,7 +1268,11 @@ pub async fn preview_built_query(state: State<'_, AppState>, args: PreviewArgs) 
     if let Some(e) = out.error.take() {
         return Err(CommandError::Sql(e));
     }
-    let r = out.results.into_iter().rev().find(|r| !r.columns.is_empty());
+    let r = out
+        .results
+        .into_iter()
+        .rev()
+        .find(|r| !r.columns.is_empty());
     Ok(match r {
         Some(r) => BuiltPreview {
             sql,
@@ -1011,7 +1281,13 @@ pub async fn preview_built_query(state: State<'_, AppState>, args: PreviewArgs) 
             rows: r.rows,
             elapsed_ms: started.elapsed().as_millis() as u64,
         },
-        None => BuiltPreview { sql, columns: Vec::new(), rows: Vec::new(), truncated: false, elapsed_ms: started.elapsed().as_millis() as u64 },
+        None => BuiltPreview {
+            sql,
+            columns: Vec::new(),
+            rows: Vec::new(),
+            truncated: false,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        },
     })
 }
 
@@ -1042,26 +1318,58 @@ mod tests {
         dialect("sqlserver", "mssql", "SELECT TOP (7919) *\nFROM [dbo].[t]")
     }
     fn postgres() -> Dialect {
-        dialect("postgres", "postgres", "SELECT *\nFROM \"public\".\"t\"\nLIMIT 7919")
+        dialect(
+            "postgres",
+            "postgres",
+            "SELECT *\nFROM \"public\".\"t\"\nLIMIT 7919",
+        )
     }
     fn oracle() -> Dialect {
-        dialect("oracle", "oracle", "SELECT *\nFROM \"HR\".\"T\"\nFETCH FIRST 7919 ROWS ONLY")
+        dialect(
+            "oracle",
+            "oracle",
+            "SELECT *\nFROM \"HR\".\"T\"\nFETCH FIRST 7919 ROWS ONLY",
+        )
     }
     fn mysql() -> Dialect {
         dialect("mysql", "mysql", "SELECT *\nFROM `db`.`t`\nLIMIT 7919")
     }
 
     fn table(id: &str, schema: Option<&str>, name: &str) -> SpecTable {
-        SpecTable { id: id.into(), kind: "table".into(), schema: schema.map(Into::into), name: name.into(), alias: String::new() }
+        SpecTable {
+            id: id.into(),
+            kind: "table".into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+            alias: String::new(),
+        }
     }
     fn col(table: &str, name: &str) -> SpecColumn {
-        SpecColumn { id: format!("{table}.{name}"), table: table.into(), column: name.into(), ..Default::default() }
+        SpecColumn {
+            id: format!("{table}.{name}"),
+            table: table.into(),
+            column: name.into(),
+            ..Default::default()
+        }
     }
     fn cond(op: &str, value: &str) -> Option<Condition> {
-        Some(Condition { op: op.into(), value: value.into(), ..Default::default() })
+        Some(Condition {
+            op: op.into(),
+            value: value.into(),
+            ..Default::default()
+        })
     }
     fn join(kind: JoinKind, left: &str, right: &str, l: &str, r: &str) -> SpecJoin {
-        SpecJoin { id: format!("{left}-{right}"), kind, left: left.into(), right: right.into(), on: vec![JoinPair { left: l.into(), right: r.into() }] }
+        SpecJoin {
+            id: format!("{left}-{right}"),
+            kind,
+            left: left.into(),
+            right: right.into(),
+            on: vec![JoinPair {
+                left: l.into(),
+                right: r.into(),
+            }],
+        }
     }
     fn gen(spec: &QuerySpec, d: &Dialect) -> (String, Vec<String>) {
         generate(spec, d, &HashMap::new(), spec.limit)
@@ -1070,7 +1378,13 @@ mod tests {
     fn one_table(schema: &str) -> QuerySpec {
         QuerySpec {
             tables: vec![table("a", Some(schema), "orders")],
-            columns: vec![col("a", "id"), SpecColumn { alias: "Cliente".into(), ..col("a", "customer") }],
+            columns: vec![
+                col("a", "id"),
+                SpecColumn {
+                    alias: "Cliente".into(),
+                    ..col("a", "customer")
+                },
+            ],
             limit: Some(10),
             ..Default::default()
         }
@@ -1079,14 +1393,20 @@ mod tests {
     #[test]
     fn sql_server_uses_top_and_brackets() {
         let (sql, w) = gen(&one_table("dbo"), &mssql());
-        assert_eq!(sql, "SELECT TOP (10) [id], [customer] AS [Cliente]\nFROM [dbo].[orders]");
+        assert_eq!(
+            sql,
+            "SELECT TOP (10) [id], [customer] AS [Cliente]\nFROM [dbo].[orders]"
+        );
         assert!(w.is_empty());
     }
 
     #[test]
     fn postgres_uses_limit_and_double_quotes() {
         let (sql, _) = gen(&one_table("public"), &postgres());
-        assert_eq!(sql, "SELECT \"id\", \"customer\" AS \"Cliente\"\nFROM \"public\".\"orders\"\nLIMIT 10");
+        assert_eq!(
+            sql,
+            "SELECT \"id\", \"customer\" AS \"Cliente\"\nFROM \"public\".\"orders\"\nLIMIT 10"
+        );
     }
 
     #[test]
@@ -1098,7 +1418,10 @@ mod tests {
     #[test]
     fn mysql_uses_backticks() {
         let (sql, _) = gen(&one_table("shop"), &mysql());
-        assert_eq!(sql, "SELECT `id`, `customer` AS `Cliente`\nFROM `shop`.`orders`\nLIMIT 10");
+        assert_eq!(
+            sql,
+            "SELECT `id`, `customer` AS `Cliente`\nFROM `shop`.`orders`\nLIMIT 10"
+        );
     }
 
     #[test]
@@ -1128,7 +1451,10 @@ mod tests {
 
     fn two_tables(kind: JoinKind) -> QuerySpec {
         QuerySpec {
-            tables: vec![table("c", Some("public"), "customers"), table("o", Some("public"), "orders")],
+            tables: vec![
+                table("c", Some("public"), "customers"),
+                table("o", Some("public"), "orders"),
+            ],
             joins: vec![join(kind, "c", "o", "id", "customer_id")],
             columns: vec![col("c", "name"), col("o", "total")],
             ..Default::default()
@@ -1150,7 +1476,10 @@ mod tests {
         let mut s = two_tables(JoinKind::Left);
         s.tables.reverse();
         let (sql, _) = gen(&s, &postgres());
-        assert!(sql.contains("FROM \"public\".\"orders\"\nRIGHT JOIN \"public\".\"customers\" ON"), "{sql}");
+        assert!(
+            sql.contains("FROM \"public\".\"orders\"\nRIGHT JOIN \"public\".\"customers\" ON"),
+            "{sql}"
+        );
     }
 
     #[test]
@@ -1165,9 +1494,18 @@ mod tests {
     #[test]
     fn self_join_gets_a_second_alias() {
         let s = QuerySpec {
-            tables: vec![table("e", Some("dbo"), "emp"), table("m", Some("dbo"), "emp")],
+            tables: vec![
+                table("e", Some("dbo"), "emp"),
+                table("m", Some("dbo"), "emp"),
+            ],
             joins: vec![join(JoinKind::Inner, "e", "m", "boss_id", "id")],
-            columns: vec![col("e", "name"), SpecColumn { alias: "boss".into(), ..col("m", "name") }],
+            columns: vec![
+                col("e", "name"),
+                SpecColumn {
+                    alias: "boss".into(),
+                    ..col("m", "name")
+                },
+            ],
             ..Default::default()
         };
         let (sql, _) = gen(&s, &mssql());
@@ -1189,10 +1527,16 @@ mod tests {
     #[test]
     fn aggregates_group_by_the_plain_columns_and_filter_with_having() {
         let s = QuerySpec {
-            tables: vec![table("c", Some("public"), "customers"), table("o", Some("public"), "orders")],
+            tables: vec![
+                table("c", Some("public"), "customers"),
+                table("o", Some("public"), "orders"),
+            ],
             joins: vec![join(JoinKind::Inner, "c", "o", "id", "customer_id")],
             columns: vec![
-                SpecColumn { sort: SortDir::Asc, ..col("c", "name") },
+                SpecColumn {
+                    sort: SortDir::Asc,
+                    ..col("c", "name")
+                },
                 SpecColumn {
                     aggregate: Aggregate::Sum,
                     alias: "total".into(),
@@ -1201,8 +1545,16 @@ mod tests {
                     filters: vec![cond("gt", "100")],
                     ..col("o", "total")
                 },
-                SpecColumn { show: false, filters: vec![cond("eq", "AR")], data_type: "varchar(2)".into(), ..col("c", "country") },
-                SpecColumn { aggregate: Aggregate::CountDistinct, ..col("o", "id") },
+                SpecColumn {
+                    show: false,
+                    filters: vec![cond("eq", "AR")],
+                    data_type: "varchar(2)".into(),
+                    ..col("c", "country")
+                },
+                SpecColumn {
+                    aggregate: Aggregate::CountDistinct,
+                    ..col("o", "id")
+                },
             ],
             limit: Some(5),
             ..Default::default()
@@ -1223,9 +1575,21 @@ mod tests {
         let s = QuerySpec {
             tables: vec![table("a", Some("dbo"), "t")],
             columns: vec![
-                SpecColumn { filters: vec![cond("eq", "x"), cond("like", "y%")], data_type: "nvarchar(10)".into(), ..col("a", "name") },
-                SpecColumn { filters: vec![cond("ge", "3"), None], data_type: "int".into(), ..col("a", "n") },
-                SpecColumn { show: false, filters: vec![None, cond("is_null", "")], ..col("a", "d") },
+                SpecColumn {
+                    filters: vec![cond("eq", "x"), cond("like", "y%")],
+                    data_type: "nvarchar(10)".into(),
+                    ..col("a", "name")
+                },
+                SpecColumn {
+                    filters: vec![cond("ge", "3"), None],
+                    data_type: "int".into(),
+                    ..col("a", "n")
+                },
+                SpecColumn {
+                    show: false,
+                    filters: vec![None, cond("is_null", "")],
+                    ..col("a", "d")
+                },
             ],
             ..Default::default()
         };
@@ -1236,7 +1600,19 @@ mod tests {
     #[test]
     fn literals_follow_the_column_type() {
         let d = postgres();
-        let c = |op: &str, v: &str, ty: &str| condition(&d, "x", &Condition { op: op.into(), value: v.into(), ..Default::default() }, ty).unwrap();
+        let c = |op: &str, v: &str, ty: &str| {
+            condition(
+                &d,
+                "x",
+                &Condition {
+                    op: op.into(),
+                    value: v.into(),
+                    ..Default::default()
+                },
+                ty,
+            )
+            .unwrap()
+        };
         assert_eq!(c("eq", "12", "integer"), "x = 12");
         assert_eq!(c("eq", "12", "text"), "x = '12'");
         assert_eq!(c("eq", "O'Brien", "text"), "x = 'O''Brien'");
@@ -1244,19 +1620,55 @@ mod tests {
         assert_eq!(c("in", "1, 2,3", "int"), "x IN (1, 2, 3)");
         assert_eq!(c("not_in", "a,b", "text"), "x NOT IN ('a', 'b')");
         assert_eq!(c("like", "1%", "int"), "x LIKE '1%'");
-        let raw = Condition { op: "ge".into(), value: "CURRENT_DATE - 7".into(), raw: true, ..Default::default() };
-        assert_eq!(condition(&d, "x", &raw, "date").unwrap(), "x >= CURRENT_DATE - 7");
-        let between = Condition { op: "between".into(), value: "1".into(), value2: "9".into(), ..Default::default() };
-        assert_eq!(condition(&d, "x", &between, "int").unwrap(), "x BETWEEN 1 AND 9");
-        assert_eq!(condition(&mssql(), "x", &Condition { op: "eq".into(), value: "true".into(), ..Default::default() }, "boolean").unwrap(), "x = 1");
+        let raw = Condition {
+            op: "ge".into(),
+            value: "CURRENT_DATE - 7".into(),
+            raw: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            condition(&d, "x", &raw, "date").unwrap(),
+            "x >= CURRENT_DATE - 7"
+        );
+        let between = Condition {
+            op: "between".into(),
+            value: "1".into(),
+            value2: "9".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            condition(&d, "x", &between, "int").unwrap(),
+            "x BETWEEN 1 AND 9"
+        );
+        assert_eq!(
+            condition(
+                &mssql(),
+                "x",
+                &Condition {
+                    op: "eq".into(),
+                    value: "true".into(),
+                    ..Default::default()
+                },
+                "boolean"
+            )
+            .unwrap(),
+            "x = 1"
+        );
     }
 
     #[test]
     fn access_nests_joins_and_has_no_full() {
         let d = dialect("access", "access", "SELECT TOP 7919 *\nFROM [t]");
         let s = QuerySpec {
-            tables: vec![table("a", None, "a"), table("b", None, "b"), table("c", None, "c")],
-            joins: vec![join(JoinKind::Inner, "a", "b", "id", "a_id"), join(JoinKind::Left, "b", "c", "id", "b_id")],
+            tables: vec![
+                table("a", None, "a"),
+                table("b", None, "b"),
+                table("c", None, "c"),
+            ],
+            joins: vec![
+                join(JoinKind::Inner, "a", "b", "id", "a_id"),
+                join(JoinKind::Left, "b", "c", "id", "b_id"),
+            ],
             ..Default::default()
         };
         let (sql, _) = gen(&s, &d);
@@ -1266,57 +1678,120 @@ mod tests {
 
     #[test]
     fn browse_targets_are_reused() {
-        assert_eq!(from_target("SELECT *\nFROM `p`.`ds`.`t`\nLIMIT 5").unwrap().1, "`p`.`ds`.`t`");
-        assert_eq!(from_target("SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nLIMIT 5").unwrap().1, "`b`.`s`.`c`");
-        assert_eq!(from_target("SELECT *\nFROM root.sg.d1\nORDER BY time DESC\nLIMIT 5").unwrap().1, "root.sg.d1");
-        assert_eq!(from_target("SELECT * FROM \"my from\" LIMIT 5").unwrap().1, "\"my from\"");
+        assert_eq!(
+            from_target("SELECT *\nFROM `p`.`ds`.`t`\nLIMIT 5")
+                .unwrap()
+                .1,
+            "`p`.`ds`.`t`"
+        );
+        assert_eq!(
+            from_target("SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nLIMIT 5")
+                .unwrap()
+                .1,
+            "`b`.`s`.`c`"
+        );
+        assert_eq!(
+            from_target("SELECT *\nFROM root.sg.d1\nORDER BY time DESC\nLIMIT 5")
+                .unwrap()
+                .1,
+            "root.sg.d1"
+        );
+        assert_eq!(
+            from_target("SELECT * FROM \"my from\" LIMIT 5").unwrap().1,
+            "\"my from\""
+        );
         let (prefix, target) = from_target("-- container: people\nSELECT TOP 5 * FROM c").unwrap();
-        assert_eq!((prefix.as_str(), target.as_str()), ("-- container: people", "c"));
+        assert_eq!(
+            (prefix.as_str(), target.as_str()),
+            ("-- container: people", "c")
+        );
     }
 
     #[test]
     fn cosmos_names_fields_on_the_container() {
-        let d = dialect("cosmosdb", "cosmos", "-- container: people\nSELECT TOP 7919 * FROM c");
+        let d = dialect(
+            "cosmosdb",
+            "cosmos",
+            "-- container: people\nSELECT TOP 7919 * FROM c",
+        );
         let mut refs = HashMap::new();
-        refs.insert("p".to_string(), TableRef { target: "c".into(), prefix: "-- container: people".into() });
+        refs.insert(
+            "p".to_string(),
+            TableRef {
+                target: "c".into(),
+                prefix: "-- container: people".into(),
+            },
+        );
         let s = QuerySpec {
             tables: vec![table("p", None, "people")],
-            columns: vec![SpecColumn { filters: vec![cond("eq", "Ana")], data_type: "string".into(), ..col("p", "name") }],
+            columns: vec![SpecColumn {
+                filters: vec![cond("eq", "Ana")],
+                data_type: "string".into(),
+                ..col("p", "name")
+            }],
             limit: Some(3),
             ..Default::default()
         };
         let (sql, _) = generate(&s, &d, &refs, s.limit);
-        assert_eq!(sql, "-- container: people\nSELECT TOP 3 c[\"name\"]\nFROM c\nWHERE c[\"name\"] = 'Ana'");
+        assert_eq!(
+            sql,
+            "-- container: people\nSELECT TOP 3 c[\"name\"]\nFROM c\nWHERE c[\"name\"] = 'Ana'"
+        );
         assert!(d.features.joins.is_empty());
     }
 
     #[test]
     fn cql_is_single_table_with_allow_filtering() {
-        let d = Dialect::resolve(&info("cassandra", Language::Cql, ""), "SELECT *\nFROM \"ks\".\"t\"\nLIMIT 7919", None);
+        let d = Dialect::resolve(
+            &info("cassandra", Language::Cql, ""),
+            "SELECT *\nFROM \"ks\".\"t\"\nLIMIT 7919",
+            None,
+        );
         let s = QuerySpec {
             tables: vec![table("a", Some("ks"), "t"), table("b", Some("ks"), "u")],
-            columns: vec![SpecColumn { filters: vec![cond("eq", "1")], data_type: "int".into(), ..col("a", "k") }],
+            columns: vec![SpecColumn {
+                filters: vec![cond("eq", "1")],
+                data_type: "int".into(),
+                ..col("a", "k")
+            }],
             limit: Some(20),
             ..Default::default()
         };
         let (sql, w) = gen(&s, &d);
-        assert_eq!(sql, "SELECT \"k\"\nFROM \"ks\".\"t\"\nWHERE \"k\" = 1\nLIMIT 20\nALLOW FILTERING");
+        assert_eq!(
+            sql,
+            "SELECT \"k\"\nFROM \"ks\".\"t\"\nWHERE \"k\" = 1\nLIMIT 20\nALLOW FILTERING"
+        );
         assert_eq!(w.len(), 2, "{w:?}");
     }
 
     #[test]
     fn ksql_keeps_emit_changes_and_the_semicolon() {
-        let d = dialect("ksqldb", "ksql", "SELECT * FROM `s` EMIT CHANGES LIMIT 7919;");
-        let s = QuerySpec { tables: vec![table("a", None, "s")], limit: Some(4), ..Default::default() };
+        let d = dialect(
+            "ksqldb",
+            "ksql",
+            "SELECT * FROM `s` EMIT CHANGES LIMIT 7919;",
+        );
+        let s = QuerySpec {
+            tables: vec![table("a", None, "s")],
+            limit: Some(4),
+            ..Default::default()
+        };
         assert_eq!(gen(&s, &d).0, "SELECT *\nFROM `s`\nEMIT CHANGES\nLIMIT 4;");
     }
 
     #[test]
     fn sqlite_outer_joins_need_3_39() {
         let sqlite = info("sqlite", Language::Sql, "sqlite");
-        assert!(features(&sqlite, Some("SQLite 3.45.1")).joins.contains(&JoinKind::Full));
-        assert!(features(&sqlite, Some("libSQL (0.24) · SQLite 3.39.0")).joins.contains(&JoinKind::Right));
-        assert!(!features(&sqlite, Some("SQLite 3.31.1")).joins.contains(&JoinKind::Right));
+        assert!(features(&sqlite, Some("SQLite 3.45.1"))
+            .joins
+            .contains(&JoinKind::Full));
+        assert!(features(&sqlite, Some("libSQL (0.24) · SQLite 3.39.0"))
+            .joins
+            .contains(&JoinKind::Right));
+        assert!(!features(&sqlite, Some("SQLite 3.31.1"))
+            .joins
+            .contains(&JoinKind::Right));
     }
 
     #[test]
@@ -1339,7 +1814,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("qb.sqlite");
         let _ = std::fs::remove_file(&path);
-        let cfg = dbine_driver::ConnectionConfig { driver: "sqlite".into(), host: path.to_string_lossy().into(), ..Default::default() };
+        let cfg = dbine_driver::ConnectionConfig {
+            driver: "sqlite".into(),
+            host: path.to_string_lossy().into(),
+            ..Default::default()
+        };
         let driver = dbine_drivers::find("sqlite").expect("sqlite driver");
         let mut s = driver.connect(&cfg, None).await.unwrap();
         for stmt in [
@@ -1356,30 +1835,71 @@ mod tests {
             tables: vec![table("c", None, "customers"), table("o", None, "orders")],
             joins: vec![join(JoinKind::Left, "c", "o", "id", "customer_id")],
             columns: vec![
-                SpecColumn { sort: SortDir::Asc, ..col("c", "name") },
-                SpecColumn { aggregate: Aggregate::Sum, alias: "total".into(), ..col("o", "total") },
-                SpecColumn { aggregate: Aggregate::Count, alias: "n".into(), ..col("o", "id") },
+                SpecColumn {
+                    sort: SortDir::Asc,
+                    ..col("c", "name")
+                },
+                SpecColumn {
+                    aggregate: Aggregate::Sum,
+                    alias: "total".into(),
+                    ..col("o", "total")
+                },
+                SpecColumn {
+                    aggregate: Aggregate::Count,
+                    alias: "n".into(),
+                    ..col("o", "id")
+                },
             ],
             limit: Some(10),
             ..Default::default()
         };
-        let objects = spec.tables.iter().map(|t| ObjectRef { kind: "table".into(), schema: None, name: t.name.clone() }).collect();
+        let objects = spec
+            .tables
+            .iter()
+            .map(|t| ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: t.name.clone(),
+            })
+            .collect();
         let p = probe(&mut s, objects, true).await.unwrap();
         let d = Dialect::resolve(driver.info(), &p.sample, p.version.as_deref());
-        let refs = spec.tables.iter().zip(&p.browses).map(|(t, b)| (t.id.clone(), TableRef::of(b, d.quote, t))).collect();
+        let refs = spec
+            .tables
+            .iter()
+            .zip(&p.browses)
+            .map(|(t, b)| (t.id.clone(), TableRef::of(b, d.quote, t)))
+            .collect();
         let (sql, warnings) = generate(&spec, &d, &refs, spec.limit);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert!(sql.contains("LEFT JOIN"), "{sql}");
 
         let mut out = QueryOutcome::default();
         s.execute(&sql, 100, &mut out).await.unwrap();
-        let r = out.results.iter().find(|r| !r.columns.is_empty()).expect("a result");
+        let r = out
+            .results
+            .iter()
+            .find(|r| !r.columns.is_empty())
+            .expect("a result");
         let rows: Vec<(String, Option<f64>, i64)> = r
             .rows
             .iter()
-            .map(|row| (row[0].as_str().unwrap().to_string(), row[1].as_f64(), row[2].as_i64().unwrap()))
+            .map(|row| {
+                (
+                    row[0].as_str().unwrap().to_string(),
+                    row[1].as_f64(),
+                    row[2].as_i64().unwrap(),
+                )
+            })
             .collect();
-        assert_eq!(rows, vec![("Ana".into(), Some(25.0), 2), ("Beto".into(), Some(7.0), 1), ("Caro".into(), None, 0)]);
+        assert_eq!(
+            rows,
+            vec![
+                ("Ana".into(), Some(25.0), 2),
+                ("Beto".into(), Some(7.0), 1),
+                ("Caro".into(), None, 0)
+            ]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

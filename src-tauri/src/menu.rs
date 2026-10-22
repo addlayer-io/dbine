@@ -11,9 +11,9 @@ use crate::error::CommandResult;
 use serde::Deserialize;
 #[cfg(target_os = "macos")]
 use tauri::menu::{AboutMetadata, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::AppHandle;
 #[cfg(target_os = "macos")]
 use tauri::Runtime;
-use tauri::AppHandle;
 
 /// The item that opens a window; the backend handles it.
 const NEW_WINDOW: &str = "file.newWindow";
@@ -112,8 +112,10 @@ pub async fn app_menu_set(app: AppHandle, args: AppMenuArgs) -> CommandResult<bo
         if let Some(text) = &args.dock_new_window {
             crate::dock_macos::set_label(text);
         }
-        let menu = build(&app, &args.menus).map_err(|e| crate::error::CommandError::Internal(e.to_string()))?;
-        app.set_menu(menu).map_err(|e| crate::error::CommandError::Internal(e.to_string()))?;
+        let menu = build(&app, &args.menus)
+            .map_err(|e| crate::error::CommandError::Internal(e.to_string()))?;
+        app.set_menu(menu)
+            .map_err(|e| crate::error::CommandError::Internal(e.to_string()))?;
         Ok(true)
     }
     #[cfg(not(target_os = "macos"))]
@@ -126,7 +128,9 @@ pub async fn app_menu_set(app: AppHandle, args: AppMenuArgs) -> CommandResult<bo
 /// Forward clicks on the UI's items to the target window's UI.
 pub fn on_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     use tauri::Emitter;
-    let Some(id) = item_id(event.id().as_ref()) else { return };
+    let Some(id) = item_id(event.id().as_ref()) else {
+        return;
+    };
     if id == NEW_WINDOW {
         crate::windows::spawn_new(app);
     } else if let Some(w) = crate::windows::target_window(app) {
@@ -145,9 +149,17 @@ fn build<R: Runtime>(app: &AppHandle<R>, menus: &[MenuSpec]) -> tauri::Result<Me
         let mut window_menu = false;
         for entry in &spec.items {
             items.push(match entry {
-                Entry::Item { id, label, accelerator } => {
-                    Box::new(MenuItem::with_id(app, event_id(id), label, true, accelerator.as_deref())?)
-                }
+                Entry::Item {
+                    id,
+                    label,
+                    accelerator,
+                } => Box::new(MenuItem::with_id(
+                    app,
+                    event_id(id),
+                    label,
+                    true,
+                    accelerator.as_deref(),
+                )?),
                 Entry::Separator => Box::new(PredefinedMenuItem::separator(app)?),
                 Entry::Native { item, label } => {
                     window_menu |= matches!(item, NativeItem::Minimize | NativeItem::Zoom);
@@ -167,7 +179,11 @@ fn build<R: Runtime>(app: &AppHandle<R>, menus: &[MenuSpec]) -> tauri::Result<Me
 }
 
 #[cfg(target_os = "macos")]
-fn native<R: Runtime>(app: &AppHandle<R>, item: NativeItem, text: Option<&str>) -> tauri::Result<PredefinedMenuItem<R>> {
+fn native<R: Runtime>(
+    app: &AppHandle<R>,
+    item: NativeItem,
+    text: Option<&str>,
+) -> tauri::Result<PredefinedMenuItem<R>> {
     use NativeItem::*;
     match item {
         // The window icon too, so a dev build (no bundle) shows DBine's icon.
@@ -234,19 +250,45 @@ mod tests {
         assert_eq!(args.menus.len(), 4);
         assert_eq!(
             item_ids(&args.menus),
-            ["app.settings", "file.newConnection", "file.newQuery", "help.checkUpdates", "help.support"],
+            [
+                "app.settings",
+                "file.newConnection",
+                "file.newQuery",
+                "help.checkUpdates",
+                "help.support"
+            ],
         );
         assert_eq!(
             args.menus[3].items[0],
-            Entry::Item { id: "help.checkUpdates".into(), label: "Buscar actualizaciones…".into(), accelerator: None },
+            Entry::Item {
+                id: "help.checkUpdates".into(),
+                label: "Buscar actualizaciones…".into(),
+                accelerator: None
+            },
         );
         let app = &args.menus[0].items;
-        assert_eq!(app[0], Entry::Native { item: NativeItem::About, label: Some("Acerca de DBine".into()) });
+        assert_eq!(
+            app[0],
+            Entry::Native {
+                item: NativeItem::About,
+                label: Some("Acerca de DBine".into())
+            }
+        );
         assert_eq!(app[2], Entry::Separator);
-        assert_eq!(app[3], Entry::Native { item: NativeItem::HideOthers, label: None });
+        assert_eq!(
+            app[3],
+            Entry::Native {
+                item: NativeItem::HideOthers,
+                label: None
+            }
+        );
         assert_eq!(
             args.menus[1].items[0],
-            Entry::Item { id: "file.newConnection".into(), label: "Nueva conexión".into(), accelerator: None },
+            Entry::Item {
+                id: "file.newConnection".into(),
+                label: "Nueva conexión".into(),
+                accelerator: None
+            },
         );
     }
 
@@ -255,7 +297,9 @@ mod tests {
         let none: AppMenuArgs = serde_json::from_value(serde_json::json!({ "menus": [] })).unwrap();
         assert_eq!(none.dock_new_window, None);
         for key in ["dock_new_window", "dockNewWindow"] {
-            let args: AppMenuArgs = serde_json::from_value(serde_json::json!({ "menus": [], key: "Nueva ventana" })).unwrap();
+            let args: AppMenuArgs =
+                serde_json::from_value(serde_json::json!({ "menus": [], key: "Nueva ventana" }))
+                    .unwrap();
             assert_eq!(args.dock_new_window.as_deref(), Some("Nueva ventana"));
         }
     }

@@ -16,10 +16,21 @@ use std::collections::BTreeMap;
 
 async fn open() -> Option<(Box<dyn Session>, String)> {
     let url = std::env::var("DBINE_TEST_BIGQUERY_URL").ok()?;
-    let mut c = ConnectionConfig { driver: "bigquery".into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "bigquery".into(),
+        ..Default::default()
+    };
     c.options.insert("project_id".into(), "test".into());
     c.options.insert("endpoint_url".into(), url.clone());
-    Some((dbine_driver_bigquery::drivers().pop().unwrap().connect(&c, None).await.unwrap(), url))
+    Some((
+        dbine_driver_bigquery::drivers()
+            .pop()
+            .unwrap()
+            .connect(&c, None)
+            .await
+            .unwrap(),
+        url,
+    ))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -33,18 +44,38 @@ async fn bigquery_properties() {
     let d = dbine_driver_bigquery::drivers().pop().unwrap();
     assert!(d.capabilities().database_properties);
     let _ = s.drop_database("dbine_props").await;
-    let o: BTreeMap<String, String> =
-        [("description", "antes"), ("labels", "equipo=ventas"), ("table_expiration_days", "30")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    let o: BTreeMap<String, String> = [
+        ("description", "antes"),
+        ("labels", "equipo=ventas"),
+        ("table_expiration_days", "30"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
     s.create_database_with("dbine_props", &o).await.unwrap();
 
     let p = s.database_properties("dbine_props").await.unwrap();
-    assert_eq!(p.values.get("description").map(String::as_str), Some("antes"));
-    assert_eq!(p.values.get("label:equipo").map(String::as_str), Some("ventas"));
-    assert!(p.fields.iter().any(|f| f.key == "label:equipo"), "a field per label");
+    assert_eq!(
+        p.values.get("description").map(String::as_str),
+        Some("antes")
+    );
+    assert_eq!(
+        p.values.get("label:equipo").map(String::as_str),
+        Some("ventas")
+    );
+    assert!(
+        p.fields.iter().any(|f| f.key == "label:equipo"),
+        "a field per label"
+    );
     assert!(p.info.iter().any(|i| i.label == "Ubicación"));
     assert!(p.warnings.contains_key("storage_billing_model"));
     if !emulator {
-        assert_eq!(p.values.get("default_table_expiration_days").map(String::as_str), Some("30"));
+        assert_eq!(
+            p.values
+                .get("default_table_expiration_days")
+                .map(String::as_str),
+            Some("30")
+        );
     }
 
     let changes: BTreeMap<String, String> = [
@@ -57,11 +88,20 @@ async fn bigquery_properties() {
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    eprintln!("{}", d.alter_database_script("dbine_props", &changes).unwrap());
+    eprintln!(
+        "{}",
+        d.alter_database_script("dbine_props", &changes).unwrap()
+    );
     s.alter_database("dbine_props", &changes).await.unwrap();
 
     // A bad value never reaches the API.
-    assert!(s.alter_database("dbine_props", &[("max_time_travel_hours".to_string(), "50".to_string())].into()).await.is_err());
+    assert!(s
+        .alter_database(
+            "dbine_props",
+            &[("max_time_travel_hours".to_string(), "50".to_string())].into()
+        )
+        .await
+        .is_err());
 
     if emulator {
         eprintln!("emulator: datasets.patch accepted, read-back skipped (it doesn't keep changes)");
@@ -71,7 +111,10 @@ async fn bigquery_properties() {
         assert_eq!(p.values["default_table_expiration_days"], "7");
         assert_eq!(p.values["max_time_travel_hours"], "72");
         assert!(!p.values.contains_key("label:equipo"));
-        assert_eq!(p.values.get("label:entorno").map(String::as_str), Some("prod"));
+        assert_eq!(
+            p.values.get("label:entorno").map(String::as_str),
+            Some("prod")
+        );
     }
     s.drop_database("dbine_props").await.unwrap();
 }

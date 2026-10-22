@@ -63,7 +63,11 @@ fn q(f: &SqlFlavor, name: &str) -> String {
 }
 
 fn table_name(f: &SqlFlavor, t: &TableSchema) -> String {
-    qualified_name(f.quote, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name)
+    qualified_name(
+        f.quote,
+        t.schema.as_deref().filter(|s| !s.is_empty()),
+        &t.name,
+    )
 }
 
 fn lit(s: &str) -> String {
@@ -73,12 +77,23 @@ fn lit(s: &str) -> String {
 fn fk_clause(f: &SqlFlavor, t: &TableSchema, fk: &crate::schema::ForeignKeyDef) -> String {
     let cols: Vec<String> = fk.columns.iter().map(|c| q(f, c)).collect();
     let refs: Vec<String> = fk.ref_columns.iter().map(|c| q(f, c)).collect();
-    let target = qualified_name(f.quote, fk.ref_schema.as_deref().or(t.schema.as_deref()).filter(|s| !s.is_empty()), &fk.ref_table);
+    let target = qualified_name(
+        f.quote,
+        fk.ref_schema
+            .as_deref()
+            .or(t.schema.as_deref())
+            .filter(|s| !s.is_empty()),
+        &fk.ref_table,
+    );
     let mut s = String::new();
     if let Some(n) = fk.name.as_deref().filter(|n| !n.is_empty()) {
         s.push_str(&format!("CONSTRAINT {} ", q(f, n)));
     }
-    s.push_str(&format!("FOREIGN KEY ({}) REFERENCES {target} ({})", cols.join(", "), refs.join(", ")));
+    s.push_str(&format!(
+        "FOREIGN KEY ({}) REFERENCES {target} ({})",
+        cols.join(", "),
+        refs.join(", ")
+    ));
     if let Some(a) = fk.on_delete.as_deref().filter(|a| !a.is_empty()) {
         s.push_str(&format!(" ON DELETE {a}"));
     }
@@ -91,11 +106,19 @@ fn fk_clause(f: &SqlFlavor, t: &TableSchema, fk: &crate::schema::ForeignKeyDef) 
 /// A column as CREATE TABLE writes it: name, type, identity, default,
 /// nullability and (inline) comment.
 pub fn column_def(f: &SqlFlavor, t: &TableSchema, c: &crate::schema::ColumnDef) -> String {
-    let in_pk = t.primary_key.as_ref().is_some_and(|k| k.columns.iter().any(|p| p == &c.name));
+    let in_pk = t
+        .primary_key
+        .as_ref()
+        .is_some_and(|k| k.columns.iter().any(|p| p == &c.name));
     column_def_inner(f, c, in_pk, false)
 }
 
-fn column_def_inner(f: &SqlFlavor, c: &crate::schema::ColumnDef, in_pk: bool, inline_pk: bool) -> String {
+fn column_def_inner(
+    f: &SqlFlavor,
+    c: &crate::schema::ColumnDef,
+    in_pk: bool,
+    inline_pk: bool,
+) -> String {
     let mut l = format!("{} {}", q(f, &c.name), c.data_type);
     if inline_pk {
         l.push_str(" PRIMARY KEY AUTOINCREMENT");
@@ -131,25 +154,56 @@ pub fn table_ddl(f: &SqlFlavor, t: &TableSchema, parts: DdlParts) -> String {
     let mut out: Vec<String> = Vec::new();
 
     if parts.drop {
-        out.push(format!("DROP TABLE {}{name};", if parts.if_exists && f.if_exists { "IF EXISTS " } else { "" }));
+        out.push(format!(
+            "DROP TABLE {}{name};",
+            if parts.if_exists && f.if_exists {
+                "IF EXISTS "
+            } else {
+                ""
+            }
+        ));
     }
 
     if parts.create {
-        let pk_cols: Vec<&str> = t.primary_key.as_ref().map(|k| k.columns.iter().map(String::as_str).collect()).unwrap_or_default();
+        let pk_cols: Vec<&str> = t
+            .primary_key
+            .as_ref()
+            .map(|k| k.columns.iter().map(String::as_str).collect())
+            .unwrap_or_default();
         // SQLite's AUTOINCREMENT only exists as an inline single-column key.
         let sqlite_inline_pk = f.auto_increment == AutoIncrement::SqliteAutoincrement
             && pk_cols.len() == 1
-            && t.columns.iter().any(|c| c.name == pk_cols[0] && c.auto_increment);
+            && t.columns
+                .iter()
+                .any(|c| c.name == pk_cols[0] && c.auto_increment);
         let mut lines: Vec<String> = t
             .columns
             .iter()
-            .map(|c| format!("    {}", column_def_inner(f, c, pk_cols.contains(&c.name.as_str()), sqlite_inline_pk && c.name == pk_cols[0])))
+            .map(|c| {
+                format!(
+                    "    {}",
+                    column_def_inner(
+                        f,
+                        c,
+                        pk_cols.contains(&c.name.as_str()),
+                        sqlite_inline_pk && c.name == pk_cols[0]
+                    )
+                )
+            })
             .collect();
         if !pk_cols.is_empty() && !sqlite_inline_pk {
             let cols: Vec<String> = pk_cols.iter().map(|c| q(f, c)).collect();
-            let named = t.primary_key.as_ref().and_then(|k| k.name.as_deref()).filter(|n| !n.is_empty());
+            let named = t
+                .primary_key
+                .as_ref()
+                .and_then(|k| k.name.as_deref())
+                .filter(|n| !n.is_empty());
             lines.push(match named {
-                Some(n) => format!("    CONSTRAINT {} PRIMARY KEY ({})", q(f, n), cols.join(", ")),
+                Some(n) => format!(
+                    "    CONSTRAINT {} PRIMARY KEY ({})",
+                    q(f, n),
+                    cols.join(", ")
+                ),
                 None => format!("    PRIMARY KEY ({})", cols.join(", ")),
             });
         }
@@ -163,7 +217,11 @@ pub fn table_ddl(f: &SqlFlavor, t: &TableSchema, parts: DdlParts) -> String {
         }
         let mut create = format!(
             "CREATE TABLE {}{name} (\n{}\n)",
-            if parts.if_exists && f.if_exists && !parts.drop { "IF NOT EXISTS " } else { "" },
+            if parts.if_exists && f.if_exists && !parts.drop {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             lines.join(",\n")
         );
         if f.inline_comments {
@@ -179,7 +237,11 @@ pub fn table_ddl(f: &SqlFlavor, t: &TableSchema, parts: DdlParts) -> String {
             }
             for c in &t.columns {
                 if let Some(cm) = c.comment.as_deref().filter(|s| !s.is_empty()) {
-                    out.push(format!("COMMENT ON COLUMN {name}.{} IS {};", q(f, &c.name), lit(cm)));
+                    out.push(format!(
+                        "COMMENT ON COLUMN {name}.{} IS {};",
+                        q(f, &c.name),
+                        lit(cm)
+                    ));
                 }
             }
         }
@@ -191,7 +253,11 @@ pub fn table_ddl(f: &SqlFlavor, t: &TableSchema, parts: DdlParts) -> String {
             let mut s = format!(
                 "CREATE {}INDEX {}{} ON {name} ({})",
                 if ix.unique { "UNIQUE " } else { "" },
-                if parts.if_exists && f.if_exists { "IF NOT EXISTS " } else { "" },
+                if parts.if_exists && f.if_exists {
+                    "IF NOT EXISTS "
+                } else {
+                    ""
+                },
                 q(f, &ix.name),
                 cols.join(", ")
             );
@@ -221,7 +287,11 @@ pub fn table_ddl(f: &SqlFlavor, t: &TableSchema, parts: DdlParts) -> String {
 pub fn check_clause(f: &SqlFlavor, c: &crate::schema::CheckDef) -> String {
     let expr = c.expression.trim();
     // Engines report it with or without the outer parentheses.
-    let expr = if expr.starts_with('(') && balanced_outer(expr) { expr.to_string() } else { format!("({expr})") };
+    let expr = if expr.starts_with('(') && balanced_outer(expr) {
+        expr.to_string()
+    } else {
+        format!("({expr})")
+    };
     match c.name.as_deref().filter(|n| !n.is_empty()) {
         Some(n) => format!("CONSTRAINT {} CHECK {expr}", q(f, n)),
         None => format!("CHECK {expr}"),
@@ -250,7 +320,13 @@ pub(crate) fn balanced_outer(s: &str) -> bool {
 pub fn sql_literal(f: &SqlFlavor, v: &Value) -> String {
     match v {
         Value::Null => "NULL".into(),
-        Value::Bool(b) => if *b { f.true_literal.into() } else { f.false_literal.into() },
+        Value::Bool(b) => {
+            if *b {
+                f.true_literal.into()
+            } else {
+                f.false_literal.into()
+            }
+        }
         Value::Number(n) => n.to_string(),
         Value::String(s) => lit(s),
         other => lit(&other.to_string()),
@@ -259,8 +335,17 @@ pub fn sql_literal(f: &SqlFlavor, v: &Value) -> String {
 
 /// `INSERT` statements for rows, `batch` rows per statement when the
 /// dialect takes several.
-pub fn insert_script(f: &SqlFlavor, schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>], batch: usize) -> String {
-    insert_script_with(f, schema, table, columns, rows, batch, &|v| sql_literal(f, v))
+pub fn insert_script(
+    f: &SqlFlavor,
+    schema: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+    batch: usize,
+) -> String {
+    insert_script_with(f, schema, table, columns, rows, batch, &|v| {
+        sql_literal(f, v)
+    })
 }
 
 /// [`insert_script`] with the engine's own literals (`lit`).
@@ -283,7 +368,10 @@ pub fn insert_script_with(
             if per == 1 {
                 format!("{head} {};", tuple(&chunk[0]))
             } else {
-                format!("{head}\n  {};", chunk.iter().map(tuple).collect::<Vec<_>>().join(",\n  "))
+                format!(
+                    "{head}\n  {};",
+                    chunk.iter().map(tuple).collect::<Vec<_>>().join(",\n  ")
+                )
             }
         })
         .collect::<Vec<_>>()
@@ -305,16 +393,30 @@ pub fn update_script_with(
         .iter()
         .filter(|c| !c.set.is_empty())
         .map(|c| {
-            let set: Vec<String> = c.set.iter().map(|(k, v)| format!("{} = {}", quote_ident(quote, k), lit(v))).collect();
+            let set: Vec<String> = c
+                .set
+                .iter()
+                .map(|(k, v)| format!("{} = {}", quote_ident(quote, k), lit(v)))
+                .collect();
             let wh: Vec<String> = c
                 .key
                 .iter()
-                .map(|(k, v)| if v.is_null() { format!("{} IS NULL", quote_ident(quote, k)) } else { format!("{} = {}", quote_ident(quote, k), lit(v)) })
+                .map(|(k, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", quote_ident(quote, k))
+                    } else {
+                        format!("{} = {}", quote_ident(quote, k), lit(v))
+                    }
+                })
                 .collect();
             if wh.is_empty() {
                 format!("UPDATE {name} SET {};", set.join(", "))
             } else {
-                format!("UPDATE {name} SET {} WHERE {};", set.join(", "), wh.join(" AND "))
+                format!(
+                    "UPDATE {name} SET {} WHERE {};",
+                    set.join(", "),
+                    wh.join(" AND ")
+                )
             }
         })
         .collect::<Vec<_>>()
@@ -322,7 +424,12 @@ pub fn update_script_with(
 }
 
 /// [`update_script_with`] with the flavor's literals.
-pub fn update_script(f: &SqlFlavor, schema: Option<&str>, table: &str, changes: &[crate::RowChange]) -> String {
+pub fn update_script(
+    f: &SqlFlavor,
+    schema: Option<&str>,
+    table: &str,
+    changes: &[crate::RowChange],
+) -> String {
     update_script_with(f.quote, schema, table, changes, &|v| sql_literal(f, v))
 }
 
@@ -341,7 +448,13 @@ pub fn delete_script_with(
         .map(|k| {
             let wh: Vec<String> = k
                 .iter()
-                .map(|(c, v)| if v.is_null() { format!("{} IS NULL", quote_ident(quote, c)) } else { format!("{} = {}", quote_ident(quote, c), lit(v)) })
+                .map(|(c, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", quote_ident(quote, c))
+                    } else {
+                        format!("{} = {}", quote_ident(quote, c), lit(v))
+                    }
+                })
                 .collect();
             format!("DELETE FROM {name} WHERE {};", wh.join(" AND "))
         })
@@ -350,7 +463,12 @@ pub fn delete_script_with(
 }
 
 /// [`delete_script_with`] with the flavor's literals.
-pub fn delete_script(f: &SqlFlavor, schema: Option<&str>, table: &str, keys: &[Vec<(String, Value)>]) -> String {
+pub fn delete_script(
+    f: &SqlFlavor,
+    schema: Option<&str>,
+    table: &str,
+    keys: &[Vec<(String, Value)>],
+) -> String {
     delete_script_with(f.quote, schema, table, keys, &|v| sql_literal(f, v))
 }
 
@@ -360,7 +478,14 @@ mod tests {
 
     #[test]
     fn deletes_by_key_and_never_the_whole_table() {
-        let keys = vec![vec![("id".into(), Value::from(7)), ("region".into(), Value::Null)], vec![], vec![("id".into(), Value::from("O'B"))]];
+        let keys = vec![
+            vec![
+                ("id".into(), Value::from(7)),
+                ("region".into(), Value::Null),
+            ],
+            vec![],
+            vec![("id".into(), Value::from("O'B"))],
+        ];
         assert_eq!(
             delete_script(&SqlFlavor::ansi(), Some("dbo"), "clientes", &keys),
             "DELETE FROM \"dbo\".\"clientes\" WHERE \"id\" = 7 AND \"region\" IS NULL;\nDELETE FROM \"dbo\".\"clientes\" WHERE \"id\" = 'O''B';"
@@ -370,10 +495,23 @@ mod tests {
     #[test]
     fn updates_by_key_with_null_keys() {
         let c = crate::RowChange {
-            key: vec![("id".into(), Value::from(7)), ("region".into(), Value::Null)],
-            set: vec![("nombre".into(), Value::from("O'Brien")), ("activo".into(), Value::Bool(false)), ("baja".into(), Value::Null)], ..Default::default()
+            key: vec![
+                ("id".into(), Value::from(7)),
+                ("region".into(), Value::Null),
+            ],
+            set: vec![
+                ("nombre".into(), Value::from("O'Brien")),
+                ("activo".into(), Value::Bool(false)),
+                ("baja".into(), Value::Null),
+            ],
+            ..Default::default()
         };
-        let s = update_script(&SqlFlavor::ansi(), Some("dbo"), "clientes", &[c, crate::RowChange::default()]);
+        let s = update_script(
+            &SqlFlavor::ansi(),
+            Some("dbo"),
+            "clientes",
+            &[c, crate::RowChange::default()],
+        );
         assert_eq!(
             s,
             "UPDATE \"dbo\".\"clientes\" SET \"nombre\" = 'O''Brien', \"activo\" = FALSE, \"baja\" = NULL WHERE \"id\" = 7 AND \"region\" IS NULL;"
@@ -388,11 +526,32 @@ mod tests {
             schema: Some("dbo".into()),
             name: "pedidos".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "int".into(), nullable: false, auto_increment: true, ..Default::default() },
-                ColumnDef { name: "cliente_id".into(), data_type: "int".into(), nullable: true, comment: Some("dueño".into()), ..Default::default() },
-                ColumnDef { name: "estado".into(), data_type: "varchar(20)".into(), nullable: false, default_value: Some("'nuevo'".into()), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    nullable: false,
+                    auto_increment: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "cliente_id".into(),
+                    data_type: "int".into(),
+                    nullable: true,
+                    comment: Some("dueño".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "estado".into(),
+                    data_type: "varchar(20)".into(),
+                    nullable: false,
+                    default_value: Some("'nuevo'".into()),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some("pk_pedidos".into()), columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("pk_pedidos".into()),
+                columns: vec!["id".into()],
+            }),
             foreign_keys: vec![ForeignKeyDef {
                 name: Some("fk_cliente".into()),
                 columns: vec!["cliente_id".into()],
@@ -401,18 +560,37 @@ mod tests {
                 on_delete: Some("CASCADE".into()),
                 ..Default::default()
             }],
-            indexes: vec![IndexDef { name: "ix_estado".into(), columns: vec!["estado".into()], ..Default::default() }],
+            indexes: vec![IndexDef {
+                name: "ix_estado".into(),
+                columns: vec!["estado".into()],
+                ..Default::default()
+            }],
             comment: Some("Pedidos".into()),
             ..Default::default()
         }
     }
-    const ALL: DdlParts = DdlParts { drop: false, if_exists: false, create: true, indexes: true, foreign_keys: true };
+    const ALL: DdlParts = DdlParts {
+        drop: false,
+        if_exists: false,
+        create: true,
+        indexes: true,
+        foreign_keys: true,
+    };
 
     #[test]
     fn sql_server_flavor() {
-        let f = SqlFlavor { quote: Quote::Bracket, auto_increment: AutoIncrement::Identity, comment_on: false, if_exists: true, ..SqlFlavor::ansi() };
+        let f = SqlFlavor {
+            quote: Quote::Bracket,
+            auto_increment: AutoIncrement::Identity,
+            comment_on: false,
+            if_exists: true,
+            ..SqlFlavor::ansi()
+        };
         let s = table_ddl(&f, &t(), ALL);
-        assert!(s.contains("CREATE TABLE [dbo].[pedidos] (\n    [id] int IDENTITY(1,1) NOT NULL,"), "{s}");
+        assert!(
+            s.contains("CREATE TABLE [dbo].[pedidos] (\n    [id] int IDENTITY(1,1) NOT NULL,"),
+            "{s}"
+        );
         assert!(s.contains("[estado] varchar(20) DEFAULT 'nuevo' NOT NULL"));
         assert!(s.contains("CONSTRAINT [pk_pedidos] PRIMARY KEY ([id])"));
         assert!(s.contains("CREATE INDEX [ix_estado] ON [dbo].[pedidos] ([estado]);"));
@@ -421,7 +599,15 @@ mod tests {
 
     #[test]
     fn postgres_comments_and_drop() {
-        let s = table_ddl(&SqlFlavor::ansi(), &t(), DdlParts { drop: true, if_exists: true, ..ALL });
+        let s = table_ddl(
+            &SqlFlavor::ansi(),
+            &t(),
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                ..ALL
+            },
+        );
         assert!(s.starts_with("DROP TABLE IF EXISTS \"dbo\".\"pedidos\";"));
         assert!(s.contains("\"id\" int GENERATED BY DEFAULT AS IDENTITY NOT NULL"));
         assert!(s.contains("COMMENT ON TABLE \"dbo\".\"pedidos\" IS 'Pedidos';"));
@@ -430,12 +616,20 @@ mod tests {
 
     #[test]
     fn sqlite_inline_key_and_foreign_keys() {
-        let f = SqlFlavor { auto_increment: AutoIncrement::SqliteAutoincrement, comment_on: false, fk_inline: true, ..SqlFlavor::ansi() };
+        let f = SqlFlavor {
+            auto_increment: AutoIncrement::SqliteAutoincrement,
+            comment_on: false,
+            fk_inline: true,
+            ..SqlFlavor::ansi()
+        };
         let mut tt = t();
         tt.schema = None;
         tt.columns[0].data_type = "INTEGER".into();
         let s = table_ddl(&f, &tt, ALL);
-        assert!(s.contains("\"id\" INTEGER PRIMARY KEY AUTOINCREMENT,"), "{s}");
+        assert!(
+            s.contains("\"id\" INTEGER PRIMARY KEY AUTOINCREMENT,"),
+            "{s}"
+        );
         assert!(!s.contains("CONSTRAINT \"pk_pedidos\""));
         assert!(s.contains("    CONSTRAINT \"fk_cliente\" FOREIGN KEY (\"cliente_id\") REFERENCES \"clientes\" (\"id\") ON DELETE CASCADE\n);"));
         assert!(!s.contains("ALTER TABLE"));
@@ -443,8 +637,21 @@ mod tests {
 
     #[test]
     fn mysql_inline_comments() {
-        let f = SqlFlavor { quote: Quote::Backtick, auto_increment: AutoIncrement::AutoIncrementKeyword, comment_on: false, inline_comments: true, ..SqlFlavor::ansi() };
-        let s = table_ddl(&f, &t(), DdlParts { create: true, ..Default::default() });
+        let f = SqlFlavor {
+            quote: Quote::Backtick,
+            auto_increment: AutoIncrement::AutoIncrementKeyword,
+            comment_on: false,
+            inline_comments: true,
+            ..SqlFlavor::ansi()
+        };
+        let s = table_ddl(
+            &f,
+            &t(),
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
         assert!(s.contains("`id` int AUTO_INCREMENT NOT NULL"));
         assert!(s.contains("`cliente_id` int NULL COMMENT 'dueño'"));
         assert!(s.ends_with(") COMMENT='Pedidos';"));
@@ -453,10 +660,30 @@ mod tests {
     #[test]
     fn inserts_batch_and_escape() {
         let f = SqlFlavor::ansi();
-        let rows = vec![vec![json!(1), json!("O'Brien"), Value::Null], vec![json!(2), json!(true), json!(1.5)]];
-        let s = insert_script(&f, None, "t", &["a".into(), "b".into(), "c".into()], &rows, 100);
+        let rows = vec![
+            vec![json!(1), json!("O'Brien"), Value::Null],
+            vec![json!(2), json!(true), json!(1.5)],
+        ];
+        let s = insert_script(
+            &f,
+            None,
+            "t",
+            &["a".into(), "b".into(), "c".into()],
+            &rows,
+            100,
+        );
         assert_eq!(s, "INSERT INTO \"t\" (\"a\", \"b\", \"c\") VALUES\n  (1, 'O''Brien', NULL),\n  (2, TRUE, 1.5);");
-        let one = insert_script(&SqlFlavor { multi_row_insert: false, ..f }, None, "t", &["a".into()], &[vec![json!(1)], vec![json!(2)]], 100);
+        let one = insert_script(
+            &SqlFlavor {
+                multi_row_insert: false,
+                ..f
+            },
+            None,
+            "t",
+            &["a".into()],
+            &[vec![json!(1)], vec![json!(2)]],
+            100,
+        );
         assert_eq!(one.lines().count(), 2);
     }
 }

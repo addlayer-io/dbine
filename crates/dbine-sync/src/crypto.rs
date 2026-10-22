@@ -40,18 +40,32 @@ impl Kdf {
     pub fn generate() -> Self {
         let mut salt = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut salt);
-        Self { alg: "argon2id".into(), salt: B64.encode(salt), m_cost: 64 * 1024, t_cost: 3, p_cost: 1 }
+        Self {
+            alg: "argon2id".into(),
+            salt: B64.encode(salt),
+            m_cost: 64 * 1024,
+            t_cost: 3,
+            p_cost: 1,
+        }
     }
 
     #[cfg(test)]
     pub fn fast() -> Self {
-        Self { m_cost: 1024, t_cost: 1, ..Self::generate() }
+        Self {
+            m_cost: 1024,
+            t_cost: 1,
+            ..Self::generate()
+        }
     }
 }
 
 /// The policy `Kdf::fast()` passes (tests only).
 #[cfg(test)]
-pub const FAST_POLICY: KdfPolicy = KdfPolicy { min_m_cost: 1024, min_t_cost: 1, ..POLICY };
+pub const FAST_POLICY: KdfPolicy = KdfPolicy {
+    min_m_cost: 1024,
+    min_t_cost: 1,
+    ..POLICY
+};
 
 /// A derived key; it zeroes itself when dropped.
 pub struct Key([u8; 32]);
@@ -96,9 +110,14 @@ impl Kdf {
     /// Reject an unknown algorithm or parameters outside `policy`.
     pub fn check(&self, policy: &KdfPolicy) -> Result<()> {
         if self.alg != "argon2id" {
-            return Err(SyncError::Format(format!("algoritmo de clave desconocido: {}", self.alg)));
+            return Err(SyncError::Format(format!(
+                "algoritmo de clave desconocido: {}",
+                self.alg
+            )));
         }
-        let salt = B64.decode(&self.salt).map_err(|_| SyncError::Format("sal inválida".into()))?;
+        let salt = B64
+            .decode(&self.salt)
+            .map_err(|_| SyncError::Format("sal inválida".into()))?;
         let ok = (policy.min_salt..=policy.max_salt).contains(&salt.len())
             && (policy.min_m_cost..=policy.max_m_cost).contains(&self.m_cost)
             && (policy.min_t_cost..=policy.max_t_cost).contains(&self.t_cost)
@@ -118,7 +137,9 @@ pub fn derive(passphrase: &str, kdf: &Kdf) -> Result<Key> {
 /// `derive` with an explicit policy (tests use a cheaper one).
 pub fn derive_with(passphrase: &str, kdf: &Kdf, policy: &KdfPolicy) -> Result<Key> {
     kdf.check(policy)?;
-    let salt = B64.decode(&kdf.salt).map_err(|_| SyncError::Format("sal inválida".into()))?;
+    let salt = B64
+        .decode(&kdf.salt)
+        .map_err(|_| SyncError::Format("sal inválida".into()))?;
     let params = Params::new(kdf.m_cost, kdf.t_cost, kdf.p_cost, Some(32))
         .map_err(|e| SyncError::Format(format!("parámetros de clave inválidos: {e}")))?;
     let mut out = [0u8; 32];
@@ -160,19 +181,34 @@ pub fn seal(key: &Key, header: Header, plain: &[u8]) -> Result<Vec<u8>> {
     rand::thread_rng().fill_bytes(&mut nonce);
     let cipher = XChaCha20Poly1305::new((&key.0).into());
     let data = cipher
-        .encrypt(XNonce::from_slice(&nonce), Payload { msg: plain, aad: &aad(&header)? })
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: plain,
+                aad: &aad(&header)?,
+            },
+        )
         .map_err(|_| SyncError::Format("no se pudo cifrar".into()))?;
-    Ok(serde_json::to_vec_pretty(&Envelope { header, nonce: B64.encode(nonce), data: B64.encode(data) })?)
+    Ok(serde_json::to_vec_pretty(&Envelope {
+        header,
+        nonce: B64.encode(nonce),
+        data: B64.encode(data),
+    })?)
 }
 
 /// The header of a backup file (no passphrase needed).
 pub fn peek(file: &[u8]) -> Result<Header> {
-    let env: Envelope = serde_json::from_slice(file).map_err(|_| SyncError::Format("el archivo no es un backup de DBine".into()))?;
+    let env: Envelope = serde_json::from_slice(file)
+        .map_err(|_| SyncError::Format("el archivo no es un backup de DBine".into()))?;
     if env.header.format != FORMAT {
-        return Err(SyncError::Format("el archivo no es un backup de DBine".into()));
+        return Err(SyncError::Format(
+            "el archivo no es un backup de DBine".into(),
+        ));
     }
     if env.header.version > VERSION {
-        return Err(SyncError::Format("el backup lo escribió una versión más nueva de DBine: actualizá la app".into()));
+        return Err(SyncError::Format(
+            "el backup lo escribió una versión más nueva de DBine: actualizá la app".into(),
+        ));
     }
     Ok(env.header)
 }
@@ -181,13 +217,23 @@ pub fn peek(file: &[u8]) -> Result<Header> {
 pub fn open(key: &Key, file: &[u8]) -> Result<Vec<u8>> {
     peek(file)?;
     let env: Envelope = serde_json::from_slice(file)?;
-    let nonce = B64.decode(&env.nonce).map_err(|_| SyncError::Format("nonce inválido".into()))?;
+    let nonce = B64
+        .decode(&env.nonce)
+        .map_err(|_| SyncError::Format("nonce inválido".into()))?;
     if nonce.len() != 24 {
         return Err(SyncError::Format("nonce inválido".into()));
     }
-    let data = B64.decode(&env.data).map_err(|_| SyncError::Format("contenido inválido".into()))?;
+    let data = B64
+        .decode(&env.data)
+        .map_err(|_| SyncError::Format("contenido inválido".into()))?;
     XChaCha20Poly1305::new((&key.0).into())
-        .decrypt(XNonce::from_slice(&nonce), Payload { msg: &data, aad: &aad(&env.header)? })
+        .decrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &data,
+                aad: &aad(&env.header)?,
+            },
+        )
         // A wrong key and a tampered file look the same to an AEAD.
         .map_err(|_| SyncError::WrongPassphrase)
 }
@@ -212,18 +258,41 @@ mod tests {
     fn roundtrip_and_nothing_readable_in_the_file() {
         let kdf = Kdf::fast();
         let key = derive_with("una frase larga", &kdf, &FAST_POLICY).unwrap();
-        let file = seal(&key, header(kdf.clone()), b"host=prod.example password=hunter2").unwrap();
+        let file = seal(
+            &key,
+            header(kdf.clone()),
+            b"host=prod.example password=hunter2",
+        )
+        .unwrap();
         let text = String::from_utf8(file.clone()).unwrap();
         assert!(!text.contains("hunter2") && !text.contains("prod.example"));
-        assert_eq!(open(&derive_with("una frase larga", &kdf, &FAST_POLICY).unwrap(), &file).unwrap(), b"host=prod.example password=hunter2");
+        assert_eq!(
+            open(
+                &derive_with("una frase larga", &kdf, &FAST_POLICY).unwrap(),
+                &file
+            )
+            .unwrap(),
+            b"host=prod.example password=hunter2"
+        );
         assert_eq!(peek(&file).unwrap().device, "mac");
     }
 
     #[test]
     fn wrong_passphrase_fails() {
         let kdf = Kdf::fast();
-        let file = seal(&derive_with("correcta", &kdf, &FAST_POLICY).unwrap(), header(kdf.clone()), b"x").unwrap();
-        assert!(matches!(open(&derive_with("incorrecta", &kdf, &FAST_POLICY).unwrap(), &file), Err(SyncError::WrongPassphrase)));
+        let file = seal(
+            &derive_with("correcta", &kdf, &FAST_POLICY).unwrap(),
+            header(kdf.clone()),
+            b"x",
+        )
+        .unwrap();
+        assert!(matches!(
+            open(
+                &derive_with("incorrecta", &kdf, &FAST_POLICY).unwrap(),
+                &file
+            ),
+            Err(SyncError::WrongPassphrase)
+        ));
     }
 
     #[test]
@@ -231,7 +300,9 @@ mod tests {
         let kdf = Kdf::fast();
         let key = derive_with("frase", &kdf, &FAST_POLICY).unwrap();
         let file = seal(&key, header(kdf), b"x").unwrap();
-        let tampered = String::from_utf8(file).unwrap().replace("\"mac\"", "\"otra\"");
+        let tampered = String::from_utf8(file)
+            .unwrap()
+            .replace("\"mac\"", "\"otra\"");
         assert!(open(&key, tampered.as_bytes()).is_err());
     }
 
@@ -241,7 +312,13 @@ mod tests {
     }
 
     fn weak(m_cost: u32, t_cost: u32, p_cost: u32, salt_len: usize) -> Kdf {
-        Kdf { alg: "argon2id".into(), salt: B64.encode(vec![7u8; salt_len]), m_cost, t_cost, p_cost }
+        Kdf {
+            alg: "argon2id".into(),
+            salt: B64.encode(vec![7u8; salt_len]),
+            m_cost,
+            t_cost,
+            p_cost,
+        }
     }
 
     #[test]
@@ -253,24 +330,47 @@ mod tests {
 
     #[test]
     fn parameters_below_the_floor_are_rejected() {
-        for k in [weak(8, 1, 1, 16), weak(64 * 1024 - 1, 3, 1, 16), weak(64 * 1024, 2, 1, 16), weak(64 * 1024, 3, 0, 16), weak(64 * 1024, 3, 1, 8)] {
-            assert!(matches!(k.check(&POLICY), Err(SyncError::Format(_))), "{k:?}");
+        for k in [
+            weak(8, 1, 1, 16),
+            weak(64 * 1024 - 1, 3, 1, 16),
+            weak(64 * 1024, 2, 1, 16),
+            weak(64 * 1024, 3, 0, 16),
+            weak(64 * 1024, 3, 1, 8),
+        ] {
+            assert!(
+                matches!(k.check(&POLICY), Err(SyncError::Format(_))),
+                "{k:?}"
+            );
             // `derive` refuses before hashing.
-            assert!(matches!(derive("frase", &k), Err(SyncError::Format(_))), "{k:?}");
+            assert!(
+                matches!(derive("frase", &k), Err(SyncError::Format(_))),
+                "{k:?}"
+            );
         }
     }
 
     #[test]
     fn parameters_above_the_ceiling_are_rejected() {
         // Checked before Argon2 allocates anything (4 GiB here).
-        for k in [weak(4 * 1024 * 1024, 3, 1, 16), weak(64 * 1024, 1000, 1, 16), weak(64 * 1024, 3, 64, 16), weak(64 * 1024, 3, 1, 4096)] {
-            assert!(matches!(derive("frase", &k), Err(SyncError::Format(_))), "{k:?}");
+        for k in [
+            weak(4 * 1024 * 1024, 3, 1, 16),
+            weak(64 * 1024, 1000, 1, 16),
+            weak(64 * 1024, 3, 64, 16),
+            weak(64 * 1024, 3, 1, 4096),
+        ] {
+            assert!(
+                matches!(derive("frase", &k), Err(SyncError::Format(_))),
+                "{k:?}"
+            );
         }
     }
 
     #[test]
     fn unknown_algorithm_is_rejected() {
-        let k = Kdf { alg: "pbkdf2".into(), ..Kdf::generate() };
+        let k = Kdf {
+            alg: "pbkdf2".into(),
+            ..Kdf::generate()
+        };
         assert!(matches!(derive("frase", &k), Err(SyncError::Format(_))));
     }
 }

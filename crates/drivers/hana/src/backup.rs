@@ -71,7 +71,9 @@ fn tenant(name: &str) -> String {
 
 /// `DBINE_20260929_154500` (UTC).
 fn default_prefix() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
     // Days to a civil date (Howard Hinnant's algorithm).
     let z = days + 719_468;
@@ -83,7 +85,12 @@ fn default_prefix() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("DBINE_{y:04}{m:02}{d:02}_{:02}{:02}{:02}", rest / 3600, rest % 3600 / 60, rest % 60)
+    format!(
+        "DBINE_{y:04}{m:02}{d:02}_{:02}{:02}{:02}",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
 }
 
 /// A history id: `<backup id>` of the connected database, or
@@ -104,8 +111,14 @@ pub fn script(action: &BackupAction) -> Result<String> {
                 "incremental" => " INCREMENTAL",
                 _ => "",
             };
-            let target = opt(options, "tenant").map(|t| format!(" FOR {}", tenant(t))).unwrap_or_default();
-            let using = if opt(options, "destination") == Some("backint") { "BACKINT" } else { "FILE" };
+            let target = opt(options, "tenant")
+                .map(|t| format!(" FOR {}", tenant(t)))
+                .unwrap_or_default();
+            let using = if opt(options, "destination") == Some("backint") {
+                "BACKINT"
+            } else {
+                "FILE"
+            };
             let prefix = opt(options, "prefix").map_or_else(default_prefix, str::to_string);
             let mut sql = format!("BACKUP DATA{kind}{target} USING {using} ({})", lit(&prefix));
             if let Some(c) = opt(options, "comment") {
@@ -113,7 +126,9 @@ pub fn script(action: &BackupAction) -> Result<String> {
             }
             Ok(sql + ";")
         }
-        BackupAction::Restore { source, database, .. } => {
+        BackupAction::Restore {
+            source, database, ..
+        } => {
             let source = source.trim();
             if source.is_empty() {
                 return Err(Error::Query("falta el backup a restaurar".into()));
@@ -144,13 +159,23 @@ pub fn script(action: &BackupAction) -> Result<String> {
                 None => format!("USING FILE ({})", lit(source)),
             };
             let t = tenant(db);
-            Ok(format!("ALTER SYSTEM STOP DATABASE {t};\nRECOVER DATA FOR {t} {using} CLEAR LOG;"))
+            Ok(format!(
+                "ALTER SYSTEM STOP DATABASE {t};\nRECOVER DATA FOR {t} {using} CLEAR LOG;"
+            ))
         }
         BackupAction::Delete { source } => {
-            let (id, db) = parse_id(source)
-                .ok_or_else(|| Error::Query(format!("«{}» no es un id de backup del catálogo", source.trim())))?;
-            let target = db.map(|d| format!(" FOR {}", tenant(d))).unwrap_or_default();
-            Ok(format!("BACKUP CATALOG DELETE{target} BACKUP_ID {id} COMPLETE;"))
+            let (id, db) = parse_id(source).ok_or_else(|| {
+                Error::Query(format!(
+                    "«{}» no es un id de backup del catálogo",
+                    source.trim()
+                ))
+            })?;
+            let target = db
+                .map(|d| format!(" FOR {}", tenant(d)))
+                .unwrap_or_default();
+            Ok(format!(
+                "BACKUP CATALOG DELETE{target} BACKUP_ID {id} COMPLETE;"
+            ))
         }
     }
 }
@@ -169,7 +194,12 @@ fn history_sql(all: bool) -> String {
             " AND F.DATABASE_NAME = C.DATABASE_NAME",
         )
     } else {
-        ("M_BACKUP_CATALOG", "M_BACKUP_CATALOG_FILES", "CAST(NULL AS NVARCHAR(256))", "")
+        (
+            "M_BACKUP_CATALOG",
+            "M_BACKUP_CATALOG_FILES",
+            "CAST(NULL AS NVARCHAR(256))",
+            "",
+        )
     };
     format!(
         "SELECT TO_VARCHAR(C.BACKUP_ID), C.ENTRY_TYPE_NAME, C.STATE_NAME,
@@ -197,11 +227,15 @@ fn kind(t: &str) -> String {
 }
 
 fn at(r: &[HdbValue<'static>], i: usize) -> Option<String> {
-    r.get(i).and_then(text).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    r.get(i)
+        .and_then(text)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn when(s: Option<String>) -> Option<String> {
-    s.filter(|s| !s.starts_with("1970")).map(|s| format!("{}Z", s.replacen(' ', "T", 1)))
+    s.filter(|s| !s.starts_with("1970"))
+        .map(|s| format!("{}Z", s.replacen(' ', "T", 1)))
 }
 
 /// One catalog row; `current` is the connected database's name.
@@ -222,7 +256,11 @@ fn entry(r: &[HdbValue<'static>], current: &str) -> BackupEntry {
         details.push(("Mensaje".into(), m));
     }
     BackupEntry {
-        id: if other && !database.is_empty() { format!("{backup_id}@{database}") } else { backup_id },
+        id: if other && !database.is_empty() {
+            format!("{backup_id}@{database}")
+        } else {
+            backup_id
+        },
         restorable: status.as_deref() == Some("successful")
             && type_name == "complete data backup"
             && !database.eq_ignore_ascii_case("SYSTEMDB"),
@@ -263,31 +301,59 @@ mod tests {
     use super::*;
 
     fn opts(kv: &[(&str, &str)]) -> BTreeMap<String, String> {
-        kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        kv.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn backup(kv: &[(&str, &str)]) -> String {
-        script(&BackupAction::Backup { database: None, options: opts(kv) }).unwrap()
+        script(&BackupAction::Backup {
+            database: None,
+            options: opts(kv),
+        })
+        .unwrap()
     }
 
     fn restore(source: &str, db: Option<&str>) -> Result<String> {
-        script(&BackupAction::Restore { source: source.into(), database: db.map(Into::into), options: opts(&[]) })
+        script(&BackupAction::Restore {
+            source: source.into(),
+            database: db.map(Into::into),
+            options: opts(&[]),
+        })
     }
 
     #[test]
     fn backup_scripts() {
-        assert_eq!(backup(&[("prefix", "full_1")]), "BACKUP DATA USING FILE ('full_1');");
         assert_eq!(
-            backup(&[("kind", "differential"), ("tenant", "h01"), ("prefix", "/b/o'k"), ("comment", "a'b")]),
+            backup(&[("prefix", "full_1")]),
+            "BACKUP DATA USING FILE ('full_1');"
+        );
+        assert_eq!(
+            backup(&[
+                ("kind", "differential"),
+                ("tenant", "h01"),
+                ("prefix", "/b/o'k"),
+                ("comment", "a'b")
+            ]),
             "BACKUP DATA DIFFERENTIAL FOR \"H01\" USING FILE ('/b/o''k') COMMENT 'a''b';"
         );
         assert_eq!(
-            backup(&[("kind", "incremental"), ("destination", "backint"), ("prefix", "x")]),
+            backup(&[
+                ("kind", "incremental"),
+                ("destination", "backint"),
+                ("prefix", "x")
+            ]),
             "BACKUP DATA INCREMENTAL USING BACKINT ('x');"
         );
         let auto = backup(&[]);
-        assert!(auto.starts_with("BACKUP DATA USING FILE ('DBINE_2"), "{auto}");
-        assert_eq!(backup(&[("tenant", "a\"b"), ("prefix", "p")]), "BACKUP DATA FOR \"A\"\"B\" USING FILE ('p');");
+        assert!(
+            auto.starts_with("BACKUP DATA USING FILE ('DBINE_2"),
+            "{auto}"
+        );
+        assert_eq!(
+            backup(&[("tenant", "a\"b"), ("prefix", "p")]),
+            "BACKUP DATA FOR \"A\"\"B\" USING FILE ('p');"
+        );
     }
 
     #[test]
@@ -310,8 +376,14 @@ mod tests {
         assert!(restore(" ", Some("H01")).is_err());
 
         let del = |s: &str| script(&BackupAction::Delete { source: s.into() });
-        assert_eq!(del("42").unwrap(), "BACKUP CATALOG DELETE BACKUP_ID 42 COMPLETE;");
-        assert_eq!(del("42@h01").unwrap(), "BACKUP CATALOG DELETE FOR \"H01\" BACKUP_ID 42 COMPLETE;");
+        assert_eq!(
+            del("42").unwrap(),
+            "BACKUP CATALOG DELETE BACKUP_ID 42 COMPLETE;"
+        );
+        assert_eq!(
+            del("42@h01").unwrap(),
+            "BACKUP CATALOG DELETE FOR \"H01\" BACKUP_ID 42 COMPLETE;"
+        );
         assert!(del("42; DROP").is_err());
         let s = spec();
         assert!(s.restore && s.delete && s.history && s.server_wide);
@@ -342,10 +414,16 @@ mod tests {
         assert_eq!(e.started.as_deref(), Some("2026-09-29T15:45:00Z"));
         assert_eq!(e.size, Some(1_048_576));
         assert!(e.restorable);
-        let e = entry(&row(Some("H02"), "differential data backup", "successful"), "SYSTEMDB");
+        let e = entry(
+            &row(Some("H02"), "differential data backup", "successful"),
+            "SYSTEMDB",
+        );
         assert_eq!(e.id, "42@H02");
         assert!(!e.restorable);
-        let e = entry(&row(Some("SYSTEMDB"), "complete data backup", "successful"), "SYSTEMDB");
+        let e = entry(
+            &row(Some("SYSTEMDB"), "complete data backup", "successful"),
+            "SYSTEMDB",
+        );
         assert_eq!(e.id, "42");
         assert!(!e.restorable);
         assert!(history_sql(true).contains("SYS_DATABASES.M_BACKUP_CATALOG C"));

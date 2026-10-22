@@ -49,7 +49,10 @@ pub fn is_transient(e: &Error) -> bool {
         Error::Io(io) => {
             matches!(
                 io.kind(),
-                ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted | ErrorKind::BrokenPipe | ErrorKind::TimedOut
+                ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::BrokenPipe
+                    | ErrorKind::TimedOut
             ) || transient_text(&io.to_string())
         }
         _ => false,
@@ -75,24 +78,50 @@ mod tests {
     #[test]
     fn classifies() {
         assert!(is_transient(&Error::Connect("refused".into())));
-        assert!(is_transient(&Error::Query("Transaction was deadlocked on lock resources".into())));
-        assert!(is_transient(&Error::Query("Connection reset by peer".into())));
-        assert!(is_transient(&Error::Io(std::io::Error::from(ErrorKind::BrokenPipe))));
-        assert!(!is_transient(&Error::Query("Violation of PRIMARY KEY constraint".into())));
-        assert!(is_transient(&Error::Query("Execution Timeout Expired".into())));
-        assert!(is_transient(&Error::Query("A transport-level error has occurred when receiving results".into())));
+        assert!(is_transient(&Error::Query(
+            "Transaction was deadlocked on lock resources".into()
+        )));
+        assert!(is_transient(&Error::Query(
+            "Connection reset by peer".into()
+        )));
+        assert!(is_transient(&Error::Io(std::io::Error::from(
+            ErrorKind::BrokenPipe
+        ))));
+        assert!(!is_transient(&Error::Query(
+            "Violation of PRIMARY KEY constraint".into()
+        )));
+        assert!(is_transient(&Error::Query(
+            "Execution Timeout Expired".into()
+        )));
+        assert!(is_transient(&Error::Query(
+            "A transport-level error has occurred when receiving results".into()
+        )));
         assert!(is_transient(&Error::Query("deadlock detected".into())));
-        assert!(is_transient(&Error::Query("server closed the connection unexpectedly".into())));
+        assert!(is_transient(&Error::Query(
+            "server closed the connection unexpectedly".into()
+        )));
     }
 
     #[test]
     fn identifiers_and_engine_errors_are_not_transient() {
-        assert!(!is_transient(&Error::Query("Cannot insert the value NULL into column 'session_timeout'".into())));
-        assert!(!is_transient(&Error::Query("Violation of UNIQUE KEY constraint 'UQ_connection_id'".into())));
-        assert!(!is_transient(&Error::Query("null value in column \"connection_id\" violates not-null constraint".into())));
-        assert!(!is_transient(&Error::Query("insert or update violates foreign key constraint \"fk_transport_deadlock\"".into())));
-        assert!(!is_transient(&Error::State("la tabla de destino no coincide: falta la columna «connection_string»".into())));
-        assert!(!is_transient(&Error::State("error inesperado: connection reset".into())));
+        assert!(!is_transient(&Error::Query(
+            "Cannot insert the value NULL into column 'session_timeout'".into()
+        )));
+        assert!(!is_transient(&Error::Query(
+            "Violation of UNIQUE KEY constraint 'UQ_connection_id'".into()
+        )));
+        assert!(!is_transient(&Error::Query(
+            "null value in column \"connection_id\" violates not-null constraint".into()
+        )));
+        assert!(!is_transient(&Error::Query(
+            "insert or update violates foreign key constraint \"fk_transport_deadlock\"".into()
+        )));
+        assert!(!is_transient(&Error::State(
+            "la tabla de destino no coincide: falta la columna «connection_string»".into()
+        )));
+        assert!(!is_transient(&Error::State(
+            "error inesperado: connection reset".into()
+        )));
         assert!(!is_transient(&Error::AuthFailed("login failed".into())));
         assert!(!is_transient(&Error::Unsupported("x".into())));
         assert!(!is_transient(&Error::Cancelled));

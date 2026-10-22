@@ -55,11 +55,18 @@ pub(crate) fn millis(v: &str, what: &str) -> Result<u64> {
         .filter(|n| *n > 0 && unit > 0)
         .and_then(|n| n.checked_mul(unit))
         .filter(|n| *n <= i64::MAX as u64)
-        .ok_or_else(|| Error::Query(format!("{what}: «{v}» no es una duración válida (por ejemplo 7d, 12h o 3600000)")))
+        .ok_or_else(|| {
+            Error::Query(format!(
+                "{what}: «{v}» no es una duración válida (por ejemplo 7d, 12h o 3600000)"
+            ))
+        })
 }
 
 pub(crate) fn count(v: &str, what: &str) -> Result<u32> {
-    v.parse::<u32>().ok().filter(|n| (1..=10_000).contains(n)).ok_or_else(|| Error::Query(format!("{what}: «{v}» no es un valor válido")))
+    v.parse::<u32>()
+        .ok()
+        .filter(|n| (1..=10_000).contains(n))
+        .ok_or_else(|| Error::Query(format!("{what}: «{v}» no es un valor válido")))
 }
 
 /// The statement that creates `name`.
@@ -69,25 +76,48 @@ pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String>
         with.push(format!("TTL={}", millis(v, "TTL")?));
     }
     for (key, prop, what) in [
-        ("schema_replication_factor", "SCHEMA_REPLICATION_FACTOR", "réplicas del esquema"),
-        ("data_replication_factor", "DATA_REPLICATION_FACTOR", "réplicas de los datos"),
+        (
+            "schema_replication_factor",
+            "SCHEMA_REPLICATION_FACTOR",
+            "réplicas del esquema",
+        ),
+        (
+            "data_replication_factor",
+            "DATA_REPLICATION_FACTOR",
+            "réplicas de los datos",
+        ),
     ] {
         if let Some(v) = opt(o, key) {
             with.push(format!("{prop}={}", count(v, what)?));
         }
     }
     if let Some(v) = opt(o, "time_partition_interval") {
-        with.push(format!("TIME_PARTITION_INTERVAL={}", millis(v, "intervalo de partición")?));
+        with.push(format!(
+            "TIME_PARTITION_INTERVAL={}",
+            millis(v, "intervalo de partición")?
+        ));
     }
     for (key, prop, what) in [
-        ("schema_region_group_num", "SCHEMA_REGION_GROUP_NUM", "grupos de regiones de esquema"),
-        ("data_region_group_num", "DATA_REGION_GROUP_NUM", "grupos de regiones de datos"),
+        (
+            "schema_region_group_num",
+            "SCHEMA_REGION_GROUP_NUM",
+            "grupos de regiones de esquema",
+        ),
+        (
+            "data_region_group_num",
+            "DATA_REGION_GROUP_NUM",
+            "grupos de regiones de datos",
+        ),
     ] {
         if let Some(v) = opt(o, key) {
             with.push(format!("{prop}={}", count(v, what)?));
         }
     }
-    let with = if with.is_empty() { String::new() } else { format!(" WITH {}", with.join(", ")) };
+    let with = if with.is_empty() {
+        String::new()
+    } else {
+        format!(" WITH {}", with.join(", "))
+    };
     Ok(format!("CREATE DATABASE {}{with}", database_path(name)))
 }
 
@@ -106,21 +136,33 @@ impl IotDbSession {
         for row in &t.rows {
             // A first column of timestamps, if any, is skipped by matching
             // the name anywhere but the value.
-            let (Some(k), Some(v)) = (row.iter().rev().nth(1), row.last()) else { continue };
+            let (Some(k), Some(v)) = (row.iter().rev().nth(1), row.last()) else {
+                continue;
+            };
             let key = match text(k).as_str() {
                 "SchemaReplicationFactor" => "schema_replication_factor",
                 "DataReplicationFactor" => "data_replication_factor",
                 "TimePartitionInterval" => "time_partition_interval",
                 _ => continue,
             };
-            out.push(FieldChoices { key: key.into(), default: Some(text(v)), values: Vec::new() });
+            out.push(FieldChoices {
+                key: key.into(),
+                default: Some(text(v)),
+                values: Vec::new(),
+            });
         }
         Ok(out)
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden crear bases.".into(),
+            ));
         }
         self.non_query(&script(name, o)?).await
     }
@@ -131,12 +173,18 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script("planta", &o(&[("ttl", " ")])).unwrap(), "CREATE DATABASE root.planta");
+        assert_eq!(
+            script("planta", &o(&[("ttl", " ")])).unwrap(),
+            "CREATE DATABASE root.planta"
+        );
     }
 
     #[test]
@@ -157,12 +205,22 @@ mod tests {
             "CREATE DATABASE root.planta WITH TTL=3600000, SCHEMA_REPLICATION_FACTOR=1, DATA_REPLICATION_FACTOR=3, \
              TIME_PARTITION_INTERVAL=86400000, SCHEMA_REGION_GROUP_NUM=1, DATA_REGION_GROUP_NUM=2"
         );
-        assert_eq!(script("p", &o(&[("ttl", "604800000")])).unwrap(), "CREATE DATABASE root.p WITH TTL=604800000");
+        assert_eq!(
+            script("p", &o(&[("ttl", "604800000")])).unwrap(),
+            "CREATE DATABASE root.p WITH TTL=604800000"
+        );
     }
 
     #[test]
     fn values_are_checked() {
-        for bad in [("ttl", "0"), ("ttl", "1y"), ("ttl", "-5"), ("ttl", "1h, DATA_REPLICATION_FACTOR=9"), ("data_region_group_num", "0"), ("schema_replication_factor", "x")] {
+        for bad in [
+            ("ttl", "0"),
+            ("ttl", "1y"),
+            ("ttl", "-5"),
+            ("ttl", "1h, DATA_REPLICATION_FACTOR=9"),
+            ("data_region_group_num", "0"),
+            ("schema_replication_factor", "x"),
+        ] {
             assert!(script("p", &o(&[bad])).is_err(), "{bad:?}");
         }
     }

@@ -13,8 +13,8 @@ mod jumplist_windows;
 mod link;
 mod lint;
 mod mcp;
-mod notebook;
 mod menu;
+mod notebook;
 mod open_files;
 mod optimizer;
 mod secret_sources;
@@ -49,7 +49,8 @@ pub(crate) fn prepare_exit(app: &tauri::AppHandle) {
     use tauri_plugin_window_state::AppHandleExt;
     QUIT_CONFIRMED.store(true, std::sync::atomic::Ordering::SeqCst);
     if let Err(e) = app.save_window_state(
-        tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE,
+        tauri_plugin_window_state::StateFlags::all()
+            - tauri_plugin_window_state::StateFlags::VISIBLE,
     ) {
         tracing::warn!("saving the window state on quit: {e}");
     }
@@ -70,9 +71,17 @@ pub(crate) fn exit_cleanup(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     // The timeout's timer must be created inside the runtime.
     tauri::async_runtime::block_on(async {
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), commands::profiler::stop_all(&state)).await;
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            commands::profiler::stop_all(&state),
+        )
+        .await;
         // Vault's database credentials held by open connections: revoked.
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), secret_sources::release_all_leases()).await;
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            secret_sources::release_all_leases(),
+        )
+        .await;
     });
 }
 
@@ -89,7 +98,11 @@ pub fn log_dir() -> Option<&'static std::path::Path> {
 fn append_app_log_raw(line: &str) {
     let Some(dir) = LOG_DIR.get() else { return };
     let _ = std::fs::create_dir_all(dir);
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("app.log")) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("app.log"))
+    {
         let _ = writeln!(f, "{line}");
     }
 }
@@ -141,7 +154,8 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE,
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::VISIBLE,
                 )
                 .build(),
         )
@@ -151,7 +165,10 @@ pub fn run() {
             let deferred = identifier::state_dirs_now().filter(|_| identifier::on_old_dirs());
             let dir = match &deferred {
                 Some((config, _)) => config.clone(),
-                None => app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir().join("dbine")),
+                None => app
+                    .path()
+                    .app_config_dir()
+                    .unwrap_or_else(|_| std::env::temp_dir().join("dbine")),
             };
             let _ = std::fs::create_dir_all(&dir);
             let state_path = dir.join("dbine-state.sqlite");
@@ -163,8 +180,9 @@ pub fn run() {
 
             // 2. Tracing to stdout (for `cargo tauri dev`) and to a daily
             //    rolling file (so a crashed GUI app leaves evidence behind).
-            let (file_writer, file_guard) =
-                tracing_appender::non_blocking(tracing_appender::rolling::daily(&logs_dir, "app.log"));
+            let (file_writer, file_guard) = tracing_appender::non_blocking(
+                tracing_appender::rolling::daily(&logs_dir, "app.log"),
+            );
             // Keep the guard for the whole process: dropping it would close
             // the writer mid-line.
             Box::leak(Box::new(file_guard));
@@ -172,8 +190,15 @@ pub fn run() {
                 // The updater plugin logs a missing latest.json (releases up
                 // to 0.1.3) as an ERROR; commands/updates.rs already logs
                 // every check failure, with the GitHub fallback.
-                .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,tauri_plugin_updater=off")))
-                .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(file_writer))
+                .with(
+                    EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| EnvFilter::new("info,tauri_plugin_updater=off")),
+                )
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(false)
+                        .with_writer(file_writer),
+                )
                 .with(tracing_subscriber::fmt::layer())
                 .try_init();
 
@@ -220,14 +245,19 @@ pub fn run() {
                 Err(e) => tracing::warn!("explorer cache unavailable: {e}"),
             }
             // 5. Cloud backup: its manager and the background task.
-            let _ = state.sync.set(sync::SyncManager::new(state.clone(), &dir, &app.config().identifier));
+            let _ = state.sync.set(sync::SyncManager::new(
+                state.clone(),
+                &dir,
+                &app.config().identifier,
+            ));
             // 4b. The local MCP server (off unless the user turned it on; docs/mcp.md).
             app.manage(mcp::McpRuntime::open(state.clone(), &dir));
             app.state::<mcp::McpRuntime>().attach(app.handle().clone());
             // The phone app's server (off unless the user turned it on;
             // docs/mobile-companion.md).
             app.manage(link::LinkRuntime::new(state.clone()));
-            app.state::<link::LinkRuntime>().attach(app.handle().clone());
+            app.state::<link::LinkRuntime>()
+                .attach(app.handle().clone());
             // The OS scheduler's entries follow the app (moved, updated).
             // Not while this start runs on the old identifier's folders: the
             // entries keep their old labels until the state is copied.
@@ -598,21 +628,34 @@ pub fn run() {
             // one to ask. (An OS quit on macOS — Dock › Salir, app switcher,
             // logout — never gets here: `dock_macos` answers
             // `applicationShouldTerminate:`.)
-            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
-                if !QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) && windows::request_quit(app) {
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = &event
+            {
+                if !QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst)
+                    && windows::request_quit(app)
+                {
                     api.prevent_exit();
                 }
             }
             // Dock click with every window minimized or hidden (macOS).
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows: false, .. } = &event {
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = &event
+            {
                 windows::reopen(app);
             }
             // Files opened from Finder ("Open with", a double click, a drop
             // on the Dock icon), at launch and while running.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &event {
-                open_files::received(app, urls.iter().filter_map(|u| u.to_file_path().ok()).collect(), None);
+                open_files::received(
+                    app,
+                    urls.iter().filter_map(|u| u.to_file_path().ok()).collect(),
+                    None,
+                );
             }
             if let tauri::RunEvent::Exit = event {
                 exit_cleanup(app);

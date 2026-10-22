@@ -41,7 +41,9 @@
 
 use super::files::{has_glob, wild, DataFile};
 use crate::error::{CommandError, CommandResult};
-use crate::secret_sources::cloud_auth::{self, amz_date, hex, hmac, sha256, uri_encode, AwsCreds, AwsFiles};
+use crate::secret_sources::cloud_auth::{
+    self, amz_date, hex, hmac, sha256, uri_encode, AwsCreds, AwsFiles,
+};
 use reqwest::Url;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -62,7 +64,17 @@ const META_TIMEOUT: Duration = Duration::from_secs(60);
 const AZURE_VERSION: &str = "2021-08-06";
 
 /// The readers that read URLs; `st_read` only `https://`.
-pub const REMOTE_READERS: &[&str] = &["read_csv", "read_csv_auto", "read_parquet", "parquet_scan", "read_json", "read_json_auto", "read_ndjson", "read_ndjson_auto", "st_read"];
+pub const REMOTE_READERS: &[&str] = &[
+    "read_csv",
+    "read_csv_auto",
+    "read_parquet",
+    "parquet_scan",
+    "read_json",
+    "read_json_auto",
+    "read_ndjson",
+    "read_ndjson_auto",
+    "st_read",
+];
 
 /// Query parameters that carry a signature or a credential (lowercase).
 const SIGNED_PARAMS: &[&str] = &[
@@ -149,9 +161,19 @@ impl Net {
     /// This machine's: the profile set in Settings › Notebooks (checked) and
     /// `AZURE_STORAGE_ACCOUNT`.
     pub fn current(aws_profile: Option<&str>) -> Self {
-        let aws_profile = aws_profile.map(str::trim).filter(|p| dbine_core::secret_sources::valid_aws_profile(p)).map(str::to_string);
-        let azure_account = std::env::var("AZURE_STORAGE_ACCOUNT").ok().map(|a| a.trim().to_ascii_lowercase()).filter(|a| valid_azure_account(a));
-        Net { aws_profile, azure_account, ..Default::default() }
+        let aws_profile = aws_profile
+            .map(str::trim)
+            .filter(|p| dbine_core::secret_sources::valid_aws_profile(p))
+            .map(str::to_string);
+        let azure_account = std::env::var("AZURE_STORAGE_ACCOUNT")
+            .ok()
+            .map(|a| a.trim().to_ascii_lowercase())
+            .filter(|a| valid_azure_account(a));
+        Net {
+            aws_profile,
+            azure_account,
+            ..Default::default()
+        }
     }
 
     fn allow_local(&self) -> bool {
@@ -185,7 +207,9 @@ impl Net {
 /// The scheme of `p` when it is written as a URL (`https`, `s3`…).
 pub fn scheme_of(p: &str) -> Option<String> {
     let (s, _) = p.split_once("://")?;
-    let ok = s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    let ok = s.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
     ok.then(|| s.to_ascii_lowercase())
 }
 
@@ -203,7 +227,8 @@ fn signed(p: &str) -> String {
 
 fn valid_s3_bucket(b: &str) -> bool {
     (3..=63).contains(&b.len())
-        && b.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-'))
+        && b.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-'))
         && b.starts_with(|c: char| c.is_ascii_alphanumeric())
         && b.ends_with(|c: char| c.is_ascii_alphanumeric())
         && !b.contains("..")
@@ -211,18 +236,27 @@ fn valid_s3_bucket(b: &str) -> bool {
 
 fn valid_gcs_bucket(b: &str) -> bool {
     (3..=222).contains(&b.len())
-        && b.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_'))
+        && b.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_'))
         && b.starts_with(|c: char| c.is_ascii_alphanumeric())
         && b.ends_with(|c: char| c.is_ascii_alphanumeric())
         && b.split('.').all(|l| !l.is_empty() && l.len() <= 63)
 }
 
 fn valid_azure_account(a: &str) -> bool {
-    (3..=24).contains(&a.len()) && a.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    (3..=24).contains(&a.len())
+        && a.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
 fn valid_azure_container(c: &str) -> bool {
-    c == "$root" || ((3..=63).contains(&c.len()) && c.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') && !c.starts_with('-') && !c.ends_with('-') && !c.contains("--"))
+    c == "$root"
+        || ((3..=63).contains(&c.len())
+            && c.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            && !c.starts_with('-')
+            && !c.ends_with('-')
+            && !c.contains("--"))
 }
 
 /// An object key: not empty, no `.` / `..` segments, no control characters.
@@ -230,15 +264,21 @@ fn check_key(p: &str, key: &str) -> Result<(), String> {
     if key.is_empty() || key.ends_with('/') {
         return Err(format!("«{p}» no nombra un archivo: escribí el objeto (…/archivo.parquet) o un patrón (…/*.parquet)"));
     }
-    if key.split('/').any(|s| s == "." || s == "..") || key.chars().any(|c| c.is_control() || c == '\\') {
-        return Err(format!("«{p}» tiene segmentos «.» o «..» o caracteres de control"));
+    if key.split('/').any(|s| s == "." || s == "..")
+        || key.chars().any(|c| c.is_control() || c == '\\')
+    {
+        return Err(format!(
+            "«{p}» tiene segmentos «.» o «..» o caracteres de control"
+        ));
     }
     Ok(())
 }
 
 /// `p` as a URL a cell may read; `Ok(None)` when it isn't written as a URL.
 pub fn parse(p: &str, net: &Net) -> Result<Option<RemoteUrl>, String> {
-    let Some(scheme) = scheme_of(p) else { return Ok(None) };
+    let Some(scheme) = scheme_of(p) else {
+        return Ok(None);
+    };
     let rest = &p[scheme.len() + 3..];
     match scheme.as_str() {
         "https" => parse_https(p, net).map(Some),
@@ -302,7 +342,9 @@ fn parse_https(p: &str, net: &Net) -> Result<RemoteUrl, String> {
     if !u.username().is_empty() || u.password().is_some() {
         return Err(userinfo(p));
     }
-    let Some(host) = u.host_str().filter(|h| !h.is_empty()) else { return Err(format!("«{p}» no tiene servidor")) };
+    let Some(host) = u.host_str().filter(|h| !h.is_empty()) else {
+        return Err(format!("«{p}» no tiene servidor"));
+    };
     if u.path().contains(['*', '[']) {
         return Err(format!("«{p}»: una URL https:// no puede ser un patrón; los patrones (*.parquet) van solo en s3://, gs:// y az://"));
     }
@@ -321,12 +363,30 @@ fn parse_https(p: &str, net: &Net) -> Result<RemoteUrl, String> {
         Some(port) => format!("{host}:{port}"),
         None => host.to_string(),
     };
-    let key = format!("{}{}", u.path().trim_start_matches('/'), u.query().map(|q| format!("?{q}")).unwrap_or_default());
+    let key = format!(
+        "{}{}",
+        u.path().trim_start_matches('/'),
+        u.query().map(|q| format!("?{q}")).unwrap_or_default()
+    );
     check_key(p, u.path().trim_start_matches('/'))?;
-    Ok(RemoteUrl { cloud: Cloud::Https, canonical: c.to_string(), host: authority.clone(), bucket: authority, container: String::new(), key, glob: false })
+    Ok(RemoteUrl {
+        cloud: Cloud::Https,
+        canonical: c.to_string(),
+        host: authority.clone(),
+        bucket: authority,
+        container: String::new(),
+        key,
+        glob: false,
+    })
 }
 
-fn parse_azure(p: &str, scheme: &str, auth: &str, key: &str, net: &Net) -> Result<RemoteUrl, String> {
+fn parse_azure(
+    p: &str,
+    scheme: &str,
+    auth: &str,
+    key: &str,
+    net: &Net,
+) -> Result<RemoteUrl, String> {
     let bad_form = || {
         format!("«{p}»: escribí az://<cuenta>.blob.core.windows.net/<contenedor>/<archivo>, abfss://<contenedor>@<cuenta>.dfs.core.windows.net/<archivo> o, con AZURE_STORAGE_ACCOUNT definida, az://<contenedor>/<archivo>")
     };
@@ -335,26 +395,40 @@ fn parse_azure(p: &str, scheme: &str, auth: &str, key: &str, net: &Net) -> Resul
         if host.contains('@') || container.contains(':') {
             return Err(userinfo(p));
         }
-        let account = host.strip_suffix(".dfs.core.windows.net").or_else(|| host.strip_suffix(".blob.core.windows.net")).ok_or_else(bad_form)?;
+        let account = host
+            .strip_suffix(".dfs.core.windows.net")
+            .or_else(|| host.strip_suffix(".blob.core.windows.net"))
+            .ok_or_else(bad_form)?;
         (account.to_string(), container.to_string(), key.to_string())
     } else {
         if auth.contains('@') {
             return Err(userinfo(p));
         }
-        match auth.strip_suffix(".blob.core.windows.net").or_else(|| auth.strip_suffix(".dfs.core.windows.net")) {
+        match auth
+            .strip_suffix(".blob.core.windows.net")
+            .or_else(|| auth.strip_suffix(".dfs.core.windows.net"))
+        {
             Some(account) => {
                 let (container, blob) = key.split_once('/').ok_or_else(bad_form)?;
                 (account.to_string(), container.to_string(), blob.to_string())
             }
             None if auth.contains('.') => return Err(bad_form()),
-            None => (net.azure_account.clone().ok_or_else(bad_form)?, auth.to_string(), key.to_string()),
+            None => (
+                net.azure_account.clone().ok_or_else(bad_form)?,
+                auth.to_string(),
+                key.to_string(),
+            ),
         }
     };
     if !valid_azure_account(&account) {
-        return Err(format!("«{account}» no es un nombre de cuenta de Azure Storage válido"));
+        return Err(format!(
+            "«{account}» no es un nombre de cuenta de Azure Storage válido"
+        ));
     }
     if !valid_azure_container(&container) {
-        return Err(format!("«{container}» no es un nombre de contenedor de Azure válido"));
+        return Err(format!(
+            "«{container}» no es un nombre de contenedor de Azure válido"
+        ));
     }
     check_key(p, &blob)?;
     Ok(RemoteUrl {
@@ -385,13 +459,26 @@ pub fn url_pattern_matches(pattern: &str, url: &str) -> bool {
             Some(&"**") => (0..=name.len()).any(|k| go(&pat[1..], &name[k..])),
             Some(p) => {
                 let Some(n) = name.first() else { return false };
-                let hit = if has_glob(p) { wild(&p.chars().collect::<Vec<_>>(), &n.chars().collect::<Vec<_>>()) } else { p == n };
+                let hit = if has_glob(p) {
+                    wild(
+                        &p.chars().collect::<Vec<_>>(),
+                        &n.chars().collect::<Vec<_>>(),
+                    )
+                } else {
+                    p == n
+                };
                 hit && go(&pat[1..], &name[1..])
             }
         }
     }
-    let (Some((pa, pp)), Some((ua, up))) = (split_authority(pattern), split_authority(url)) else { return false };
-    pa == ua && go(&pp.split('/').collect::<Vec<_>>(), &up.split('/').collect::<Vec<_>>())
+    let (Some((pa, pp)), Some((ua, up))) = (split_authority(pattern), split_authority(url)) else {
+        return false;
+    };
+    pa == ua
+        && go(
+            &pp.split('/').collect::<Vec<_>>(),
+            &up.split('/').collect::<Vec<_>>(),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +487,11 @@ pub fn url_pattern_matches(pattern: &str, url: &str) -> bool {
 /// `localhost` and the names that stand for this computer, the local
 /// network or a cloud's metadata service.
 pub fn name_blocked(host: &str) -> bool {
-    let h = host.trim_end_matches('.').trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    let h = host
+        .trim_end_matches('.')
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
     h == "localhost"
         || h.ends_with(".localhost")
         || h.ends_with(".local")
@@ -421,8 +512,15 @@ pub fn ip_blocked(ip: IpAddr) -> bool {
             }
             let s = v.segments();
             // NAT64 (64:ff9b::/96) and the deprecated IPv4-compatible ::a.b.c.d.
-            if s[0] == 0x64 && s[1] == 0xff9b && s[2..6] == [0, 0, 0, 0] || s[..6] == [0, 0, 0, 0, 0, 0] && !v.is_loopback() && !v.is_unspecified() {
-                return v4_blocked(Ipv4Addr::new((s[6] >> 8) as u8, s[6] as u8, (s[7] >> 8) as u8, s[7] as u8));
+            if s[0] == 0x64 && s[1] == 0xff9b && s[2..6] == [0, 0, 0, 0]
+                || s[..6] == [0, 0, 0, 0, 0, 0] && !v.is_loopback() && !v.is_unspecified()
+            {
+                return v4_blocked(Ipv4Addr::new(
+                    (s[6] >> 8) as u8,
+                    s[6] as u8,
+                    (s[7] >> 8) as u8,
+                    s[7] as u8,
+                ));
             }
             v.is_loopback()
                 || v.is_unspecified()
@@ -465,9 +563,15 @@ async fn connect(url: &Url, net: &Net) -> Result<reqwest::Client, String> {
         return Err(format!("«{url}»: solo https://"));
     }
     let port = url.port_or_known_default().unwrap_or(443);
-    let host = url.host_str().ok_or_else(|| format!("«{url}» no tiene servidor"))?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| format!("«{url}» no tiene servidor"))?;
     let local_ok = net.allow_local();
-    let literal = host.trim_start_matches('[').trim_end_matches(']').parse::<IpAddr>().ok();
+    let literal = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+        .ok();
     let (name, addrs): (Option<String>, Vec<SocketAddr>) = match literal {
         Some(ip) => (None, vec![SocketAddr::new(ip, port)]),
         None => {
@@ -475,16 +579,20 @@ async fn connect(url: &Url, net: &Net) -> Result<reqwest::Client, String> {
             if net.check_names() && name_blocked(d) {
                 return Err(local_host(d));
             }
-            let found: Vec<SocketAddr> = tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((d, port)))
-                .await
-                .map_err(|_| format!("no se pudo resolver «{d}»: tardó demasiado"))?
-                .map_err(|e| format!("no se pudo resolver «{d}»: {e}"))?
-                .collect();
+            let found: Vec<SocketAddr> =
+                tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((d, port)))
+                    .await
+                    .map_err(|_| format!("no se pudo resolver «{d}»: tardó demasiado"))?
+                    .map_err(|e| format!("no se pudo resolver «{d}»: {e}"))?
+                    .collect();
             (Some(d.to_string()), found)
         }
     };
     if addrs.is_empty() {
-        return Err(format!("no se encontró la dirección de «{}»", url.host_str().unwrap_or("")));
+        return Err(format!(
+            "no se encontró la dirección de «{}»",
+            url.host_str().unwrap_or("")
+        ));
     }
     if !local_ok {
         if let Some(a) = addrs.iter().find(|a| ip_blocked(a.ip())) {
@@ -509,12 +617,21 @@ async fn connect(url: &Url, net: &Net) -> Result<reqwest::Client, String> {
 }
 
 fn origin(u: &Url) -> (String, Option<String>, Option<u16>) {
-    (u.scheme().to_string(), u.host_str().map(str::to_ascii_lowercase), u.port_or_known_default())
+    (
+        u.scheme().to_string(),
+        u.host_str().map(str::to_ascii_lowercase),
+        u.port_or_known_default(),
+    )
 }
 
 /// `method url`, the headers made for each URL it goes to (`sign`),
 /// following redirects only within the same scheme, host and port.
-async fn send(net: &Net, method: reqwest::Method, url: Url, sign: &(dyn Fn(&reqwest::Method, &Url) -> Vec<(String, String)> + Sync)) -> Result<(reqwest::Response, Url), String> {
+async fn send(
+    net: &Net,
+    method: reqwest::Method,
+    url: Url,
+    sign: &(dyn Fn(&reqwest::Method, &Url) -> Vec<(String, String)> + Sync),
+) -> Result<(reqwest::Response, Url), String> {
     let mut url = url;
     for _ in 0..=MAX_REDIRECTS {
         let client = connect(&url, net).await?;
@@ -522,11 +639,23 @@ async fn send(net: &Net, method: reqwest::Method, url: Url, sign: &(dyn Fn(&reqw
         for (k, v) in sign(&method, &url) {
             req = req.header(k, v);
         }
-        let resp = req.send().await.map_err(|e| format!("no se pudo leer «{}»: {}", url.host_str().unwrap_or(""), e.without_url()))?;
-        let location = resp.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()).map(str::to_string);
+        let resp = req.send().await.map_err(|e| {
+            format!(
+                "no se pudo leer «{}»: {}",
+                url.host_str().unwrap_or(""),
+                e.without_url()
+            )
+        })?;
+        let location = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|l| l.to_str().ok())
+            .map(str::to_string);
         match (resp.status().is_redirection(), location) {
             (true, Some(loc)) => {
-                let next = url.join(&loc).map_err(|_| format!("«{url}» redirige a una dirección que no es válida"))?;
+                let next = url
+                    .join(&loc)
+                    .map_err(|_| format!("«{url}» redirige a una dirección que no es válida"))?;
                 if origin(&next) != origin(&url) {
                     return Err(format!(
                         "«{}» redirige a «{}»: DBine sigue redirecciones solo dentro del mismo servidor; escribí la URL final",
@@ -550,7 +679,10 @@ async fn send(net: &Net, method: reqwest::Method, url: Url, sign: &(dyn Fn(&reqw
 enum Auth {
     /// No sign-in found (why, for the message when the object needs one).
     Anonymous(Option<String>),
-    Aws { creds: AwsCreds, region: String },
+    Aws {
+        creds: AwsCreds,
+        region: String,
+    },
     Bearer(String),
 }
 
@@ -559,7 +691,11 @@ enum Auth {
 fn aws_region(net: &Net) -> String {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
     let files = AwsFiles::load(&env);
-    let profile = net.aws_profile.clone().or_else(|| env("AWS_PROFILE")).unwrap_or_else(|| "default".into());
+    let profile = net
+        .aws_profile
+        .clone()
+        .or_else(|| env("AWS_PROFILE"))
+        .unwrap_or_else(|| "default".into());
     env("AWS_REGION")
         .or_else(|| env("AWS_DEFAULT_REGION"))
         .or_else(|| files.get(&profile, "region"))
@@ -571,8 +707,17 @@ async fn auth_for(cloud: Cloud, net: &Net) -> Auth {
     #[cfg(test)]
     if let Some(t) = &net.test {
         return match cloud {
-            Cloud::S3 => t.aws.clone().map_or(Auth::Anonymous(Some("sin credenciales de prueba".into())), |creds| Auth::Aws { creds, region: "us-east-1".into() }),
-            Cloud::Gcs | Cloud::Azure => t.token.clone().map_or(Auth::Anonymous(Some("sin token de prueba".into())), Auth::Bearer),
+            Cloud::S3 => t.aws.clone().map_or(
+                Auth::Anonymous(Some("sin credenciales de prueba".into())),
+                |creds| Auth::Aws {
+                    creds,
+                    region: "us-east-1".into(),
+                },
+            ),
+            Cloud::Gcs | Cloud::Azure => t.token.clone().map_or(
+                Auth::Anonymous(Some("sin token de prueba".into())),
+                Auth::Bearer,
+            ),
             Cloud::Https => Auth::Anonymous(None),
         };
     }
@@ -582,9 +727,16 @@ async fn auth_for(cloud: Cloud, net: &Net) -> Auth {
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
             let files = AwsFiles::load(&env);
             let named = net.aws_profile.is_some();
-            let profile = net.aws_profile.clone().or_else(|| env("AWS_PROFILE")).unwrap_or_else(|| "default".into());
+            let profile = net
+                .aws_profile
+                .clone()
+                .or_else(|| env("AWS_PROFILE"))
+                .unwrap_or_else(|| "default".into());
             match cloud_auth::aws_credentials(named, &profile, &files, &env).await {
-                Ok((creds, _)) => Auth::Aws { creds, region: aws_region(net) },
+                Ok((creds, _)) => Auth::Aws {
+                    creds,
+                    region: aws_region(net),
+                },
                 Err(e) => Auth::Anonymous(Some(e.to_string())),
             }
         }
@@ -592,7 +744,8 @@ async fn auth_for(cloud: Cloud, net: &Net) -> Auth {
             Ok((t, _, _)) => Auth::Bearer(t),
             Err(e) => Auth::Anonymous(Some(e.to_string())),
         },
-        Cloud::Azure => match cloud_auth::azure_token_for("https://storage.azure.com/", None).await {
+        Cloud::Azure => match cloud_auth::azure_token_for("https://storage.azure.com/", None).await
+        {
             Ok((t, _)) => Auth::Bearer(t),
             Err(e) => Auth::Anonymous(Some(e.to_string())),
         },
@@ -607,7 +760,10 @@ fn needs_sign_in(cloud: Cloud, what: &str, why: Option<&str>) -> String {
         Cloud::Https => "el servidor pide credenciales, y estas celdas no las mandan a sitios web",
     };
     match why {
-        Some(w) => format!("«{what}» necesita credenciales y no hay una sesión que sirva: {how} ({})", cloud_auth::short(w, 200)),
+        Some(w) => format!(
+            "«{what}» necesita credenciales y no hay una sesión que sirva: {how} ({})",
+            cloud_auth::short(w, 200)
+        ),
         None => format!("«{what}»: el acceso fue denegado: {how}, con una cuenta que pueda leerlo"),
     }
 }
@@ -623,7 +779,11 @@ fn s3_base(bucket: &str, region: &str, net: &Net) -> String {
         return format!("{e}/{bucket}");
     }
     let _ = net;
-    let suffix = if region.starts_with("cn-") { "amazonaws.com.cn" } else { "amazonaws.com" };
+    let suffix = if region.starts_with("cn-") {
+        "amazonaws.com.cn"
+    } else {
+        "amazonaws.com"
+    };
     // A bucket with dots doesn't match the wildcard certificate: path style.
     if bucket.contains('.') {
         format!("https://s3.{region}.{suffix}/{bucket}")
@@ -651,37 +811,79 @@ fn azure_base(account: &str, net: &Net) -> String {
 }
 
 /// SigV4 headers of an S3 request (unsigned payload).
-fn s3_sign(method: &reqwest::Method, url: &Url, creds: &AwsCreds, region: &str, unix: u64) -> Vec<(String, String)> {
+fn s3_sign(
+    method: &reqwest::Method,
+    url: &Url,
+    creds: &AwsCreds,
+    region: &str,
+    unix: u64,
+) -> Vec<(String, String)> {
     let (stamp, date) = amz_date(unix);
     let host = match url.port() {
         Some(p) => format!("{}:{p}", url.host_str().unwrap_or("")),
         None => url.host_str().unwrap_or("").to_string(),
     };
-    let mut query: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (uri_encode(&k), uri_encode(&v))).collect();
+    let mut query: Vec<(String, String)> = url
+        .query_pairs()
+        .map(|(k, v)| (uri_encode(&k), uri_encode(&v)))
+        .collect();
     query.sort();
-    let query = query.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("&");
-    let mut signed: Vec<(String, String)> = vec![("host".into(), host), ("x-amz-content-sha256".into(), "UNSIGNED-PAYLOAD".into()), ("x-amz-date".into(), stamp.clone())];
+    let query = query
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let mut signed: Vec<(String, String)> = vec![
+        ("host".into(), host),
+        ("x-amz-content-sha256".into(), "UNSIGNED-PAYLOAD".into()),
+        ("x-amz-date".into(), stamp.clone()),
+    ];
     if let Some(t) = &creds.session_token {
         signed.push(("x-amz-security-token".into(), t.clone()));
     }
     signed.sort();
     let canonical_headers: String = signed.iter().map(|(k, v)| format!("{k}:{v}\n")).collect();
-    let names = signed.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(";");
-    let canonical = format!("{}\n{}\n{query}\n{canonical_headers}\n{names}\nUNSIGNED-PAYLOAD", method.as_str(), url.path());
+    let names = signed
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .collect::<Vec<_>>()
+        .join(";");
+    let canonical = format!(
+        "{}\n{}\n{query}\n{canonical_headers}\n{names}\nUNSIGNED-PAYLOAD",
+        method.as_str(),
+        url.path()
+    );
     let scope = format!("{date}/{region}/s3/aws4_request");
-    let to_sign = format!("AWS4-HMAC-SHA256\n{stamp}\n{scope}\n{}", hex(&sha256(&[canonical.as_bytes()])));
-    let mut key = hmac(format!("AWS4{}", creds.secret_access_key).as_bytes(), date.as_bytes());
+    let to_sign = format!(
+        "AWS4-HMAC-SHA256\n{stamp}\n{scope}\n{}",
+        hex(&sha256(&[canonical.as_bytes()]))
+    );
+    let mut key = hmac(
+        format!("AWS4{}", creds.secret_access_key).as_bytes(),
+        date.as_bytes(),
+    );
     for part in [region, "s3", "aws4_request"] {
         key = hmac(&key, part.as_bytes());
     }
     let signature = hex(&hmac(&key, to_sign.as_bytes()));
     let mut out: Vec<(String, String)> = signed.into_iter().filter(|(k, _)| k != "host").collect();
-    out.push(("authorization".into(), format!("AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={names}, Signature={signature}", creds.access_key_id)));
+    out.push((
+        "authorization".into(),
+        format!(
+            "AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={names}, Signature={signature}",
+            creds.access_key_id
+        ),
+    ));
     out
 }
 
 /// The headers of a request with `auth` (Azure's version header too).
-fn headers_for(cloud: Cloud, auth: &Auth, method: &reqwest::Method, url: &Url) -> Vec<(String, String)> {
+fn headers_for(
+    cloud: Cloud,
+    auth: &Auth,
+    method: &reqwest::Method,
+    url: &Url,
+) -> Vec<(String, String)> {
     let mut h = match auth {
         Auth::Aws { creds, region } => s3_sign(method, url, creds, region, cloud_auth::now()),
         Auth::Bearer(t) => vec![("authorization".into(), format!("Bearer {t}"))],
@@ -717,7 +919,10 @@ fn http_date_ms(s: &str) -> i64 {
 }
 
 fn version_of(etag: Option<&str>, last_modified: Option<&str>, size: u64) -> Option<String> {
-    match (etag.map(str::trim).filter(|e| !e.is_empty()), last_modified.map(str::trim).filter(|l| !l.is_empty())) {
+    match (
+        etag.map(str::trim).filter(|e| !e.is_empty()),
+        last_modified.map(str::trim).filter(|l| !l.is_empty()),
+    ) {
         (Some(e), _) => Some(format!("etag:{}", e.trim_matches('"'))),
         (None, Some(l)) => Some(format!("lm:{l}:{size}")),
         _ => None,
@@ -732,7 +937,10 @@ pub struct Session<'a> {
 
 impl<'a> Session<'a> {
     pub fn new(net: &'a Net) -> Self {
-        Session { net, auths: Vec::new() }
+        Session {
+            net,
+            auths: Vec::new(),
+        }
     }
 
     async fn auth(&mut self, cloud: Cloud) -> Auth {
@@ -758,28 +966,55 @@ impl<'a> Session<'a> {
                     Auth::Aws { region, .. } => region.clone(),
                     _ => aws_region(self.net),
                 };
-                format!("{}/{}", s3_base(&u.bucket, &region, self.net), enc_path(key))
+                format!(
+                    "{}/{}",
+                    s3_base(&u.bucket, &region, self.net),
+                    enc_path(key)
+                )
             }
             Cloud::Gcs => format!("{}/{}/{}", gcs_base(self.net), u.bucket, enc_path(key)),
-            Cloud::Azure => format!("{}/{}/{}", azure_base(&u.bucket, self.net), u.container, enc_path(key)),
+            Cloud::Azure => format!(
+                "{}/{}/{}",
+                azure_base(&u.bucket, self.net),
+                u.container,
+                enc_path(key)
+            ),
         };
         Url::parse(&s).map_err(|e| format!("«{}»: {e}", u.canonical))
     }
 
     /// `method` on one object, signed; an S3 bucket in another region is
     /// asked again there (the region its answer names).
-    async fn request(&mut self, u: &RemoteUrl, key: &str, method: reqwest::Method) -> Result<reqwest::Response, String> {
+    async fn request(
+        &mut self,
+        u: &RemoteUrl,
+        key: &str,
+        method: reqwest::Method,
+    ) -> Result<reqwest::Response, String> {
         let mut auth = self.auth(u.cloud).await;
         for _ in 0..2 {
             let url = self.object_url(u, key, &auth)?;
             let a = auth.clone();
             let cloud = u.cloud;
-            let (resp, _) = send(self.net, method.clone(), url, &|m, url| headers_for(cloud, &a, m, url)).await?;
+            let (resp, _) = send(self.net, method.clone(), url, &|m, url| {
+                headers_for(cloud, &a, m, url)
+            })
+            .await?;
             if u.cloud == Cloud::S3 {
-                let region = resp.headers().get("x-amz-bucket-region").and_then(|r| r.to_str().ok()).map(str::to_string);
+                let region = resp
+                    .headers()
+                    .get("x-amz-bucket-region")
+                    .and_then(|r| r.to_str().ok())
+                    .map(str::to_string);
                 if let (Auth::Aws { creds, region: was }, Some(r)) = (&auth, region) {
-                    if r != *was && dbine_core::secret_sources::valid_aws_region(&r) && matches!(resp.status().as_u16(), 301 | 400) {
-                        auth = Auth::Aws { creds: creds.clone(), region: r };
+                    if r != *was
+                        && dbine_core::secret_sources::valid_aws_region(&r)
+                        && matches!(resp.status().as_u16(), 301 | 400)
+                    {
+                        auth = Auth::Aws {
+                            creds: creds.clone(),
+                            region: r,
+                        };
                         self.set_auth(u.cloud, auth.clone());
                         continue;
                     }
@@ -787,11 +1022,19 @@ impl<'a> Session<'a> {
             }
             return Ok(resp);
         }
-        Err(format!("«{}»: el bucket no responde en su región", u.canonical))
+        Err(format!(
+            "«{}»: el bucket no responde en su región",
+            u.canonical
+        ))
     }
 
     /// The status of a response as an error for `what`, or `Ok` for a 2xx.
-    async fn check(&mut self, u: &RemoteUrl, what: &str, resp: &reqwest::Response) -> Result<(), String> {
+    async fn check(
+        &mut self,
+        u: &RemoteUrl,
+        what: &str,
+        resp: &reqwest::Response,
+    ) -> Result<(), String> {
         let status = resp.status().as_u16();
         match status {
             200..=299 => Ok(()),
@@ -800,7 +1043,11 @@ impl<'a> Session<'a> {
                     Auth::Anonymous(why) => why.or_else(|| Some("sin sesión".into())),
                     _ => None,
                 };
-                Err(needs_sign_in(u.cloud, what, why.as_deref().filter(|_| u.cloud != Cloud::Https)))
+                Err(needs_sign_in(
+                    u.cloud,
+                    what,
+                    why.as_deref().filter(|_| u.cloud != Cloud::Https),
+                ))
             }
             404 => Err(format!("no existe «{what}»")),
             _ => Err(format!("«{what}»: el servidor respondió {status}")),
@@ -810,23 +1057,44 @@ impl<'a> Session<'a> {
     /// One object's size, time and version (`HEAD`). A server that refuses
     /// `HEAD` (405, 501) leaves it unknown: it is read every time.
     pub async fn head(&mut self, u: &RemoteUrl) -> Result<Object, String> {
-        let resp = tokio::time::timeout(META_TIMEOUT, self.request(u, &u.key, reqwest::Method::HEAD)).await.map_err(|_| format!("«{}» tardó demasiado en responder", u.canonical))??;
+        let resp =
+            tokio::time::timeout(META_TIMEOUT, self.request(u, &u.key, reqwest::Method::HEAD))
+                .await
+                .map_err(|_| format!("«{}» tardó demasiado en responder", u.canonical))??;
         if matches!(resp.status().as_u16(), 405 | 501) {
-            return Ok(Object { url: u.canonical.clone(), key: u.key.clone(), size: 0, mtime_ms: 0, version: None });
+            return Ok(Object {
+                url: u.canonical.clone(),
+                key: u.key.clone(),
+                size: 0,
+                mtime_ms: 0,
+                version: None,
+            });
         }
         self.check(u, &u.canonical, &resp).await?;
         let h = resp.headers();
         let get = |k: &str| h.get(k).and_then(|v| v.to_str().ok()).map(str::to_string);
-        let size = get("content-length").and_then(|s| s.parse().ok()).unwrap_or(0);
+        let size = get("content-length")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         let lm = get("last-modified");
         let version = version_of(get("etag").as_deref(), lm.as_deref(), size);
-        Ok(Object { url: u.canonical.clone(), key: u.key.clone(), size, mtime_ms: lm.as_deref().map_or(0, http_date_ms), version })
+        Ok(Object {
+            url: u.canonical.clone(),
+            key: u.key.clone(),
+            size,
+            mtime_ms: lm.as_deref().map_or(0, http_date_ms),
+            version,
+        })
     }
 
     /// The objects under `u`'s key up to its first glob character, those
     /// that match its pattern ([`url_pattern_matches`]), at most `max`.
     pub async fn list(&mut self, u: &RemoteUrl, max: usize) -> Result<Vec<Object>, String> {
-        let prefix: String = u.key.chars().take_while(|c| !matches!(c, '*' | '?' | '[')).collect();
+        let prefix: String = u
+            .key
+            .chars()
+            .take_while(|c| !matches!(c, '*' | '?' | '['))
+            .collect();
         let mut out: Vec<Object> = Vec::new();
         let mut next: Option<String> = None;
         let started = std::time::Instant::now();
@@ -839,7 +1107,10 @@ impl<'a> Session<'a> {
                 if url_pattern_matches(&u.canonical, &o.url) && !o.key.ends_with('/') {
                     out.push(o);
                     if out.len() > max {
-                        return Err(format!("«{}» abarca demasiados archivos (hasta {max})", u.canonical));
+                        return Err(format!(
+                            "«{}» abarca demasiados archivos (hasta {max})",
+                            u.canonical
+                        ));
                     }
                 }
             }
@@ -852,7 +1123,12 @@ impl<'a> Session<'a> {
         Ok(out)
     }
 
-    async fn list_page(&mut self, u: &RemoteUrl, prefix: &str, next: Option<&str>) -> Result<(Vec<Object>, Option<String>), String> {
+    async fn list_page(
+        &mut self,
+        u: &RemoteUrl,
+        prefix: &str,
+        next: Option<&str>,
+    ) -> Result<(Vec<Object>, Option<String>), String> {
         let mut auth = self.auth(u.cloud).await;
         for _ in 0..2 {
             let mut url = match u.cloud {
@@ -861,29 +1137,44 @@ impl<'a> Session<'a> {
                         Auth::Aws { region, .. } => region.clone(),
                         _ => aws_region(self.net),
                     };
-                    Url::parse(&format!("{}/", s3_base(&u.bucket, &region, self.net))).map_err(|e| e.to_string())?
+                    Url::parse(&format!("{}/", s3_base(&u.bucket, &region, self.net)))
+                        .map_err(|e| e.to_string())?
                 }
-                Cloud::Gcs => Url::parse(&format!("{}/storage/v1/b/{}/o", gcs_base(self.net), u.bucket)).map_err(|e| e.to_string())?,
-                Cloud::Azure => Url::parse(&format!("{}/{}", azure_base(&u.bucket, self.net), u.container)).map_err(|e| e.to_string())?,
+                Cloud::Gcs => Url::parse(&format!(
+                    "{}/storage/v1/b/{}/o",
+                    gcs_base(self.net),
+                    u.bucket
+                ))
+                .map_err(|e| e.to_string())?,
+                Cloud::Azure => Url::parse(&format!(
+                    "{}/{}",
+                    azure_base(&u.bucket, self.net),
+                    u.container
+                ))
+                .map_err(|e| e.to_string())?,
                 Cloud::Https => return Err("una URL https:// no se lista".into()),
             };
             {
                 let mut q = url.query_pairs_mut();
                 match u.cloud {
                     Cloud::S3 => {
-                        q.append_pair("list-type", "2").append_pair("prefix", prefix);
+                        q.append_pair("list-type", "2")
+                            .append_pair("prefix", prefix);
                         if let Some(n) = next {
                             q.append_pair("continuation-token", n);
                         }
                     }
                     Cloud::Gcs => {
-                        q.append_pair("prefix", prefix).append_pair("fields", "items(name,size,etag,updated),nextPageToken");
+                        q.append_pair("prefix", prefix)
+                            .append_pair("fields", "items(name,size,etag,updated),nextPageToken");
                         if let Some(n) = next {
                             q.append_pair("pageToken", n);
                         }
                     }
                     _ => {
-                        q.append_pair("restype", "container").append_pair("comp", "list").append_pair("prefix", prefix);
+                        q.append_pair("restype", "container")
+                            .append_pair("comp", "list")
+                            .append_pair("prefix", prefix);
                         if let Some(n) = next {
                             q.append_pair("marker", n);
                         }
@@ -894,12 +1185,24 @@ impl<'a> Session<'a> {
             let cloud = u.cloud;
             let sign = |m: &reqwest::Method, url: &Url| headers_for(cloud, &a, m, url);
             let fut = send(self.net, reqwest::Method::GET, url, &sign);
-            let (resp, _) = tokio::time::timeout(META_TIMEOUT, fut).await.map_err(|_| format!("listar «{}» tardó demasiado", u.canonical))??;
+            let (resp, _) = tokio::time::timeout(META_TIMEOUT, fut)
+                .await
+                .map_err(|_| format!("listar «{}» tardó demasiado", u.canonical))??;
             if u.cloud == Cloud::S3 {
-                let region = resp.headers().get("x-amz-bucket-region").and_then(|r| r.to_str().ok()).map(str::to_string);
+                let region = resp
+                    .headers()
+                    .get("x-amz-bucket-region")
+                    .and_then(|r| r.to_str().ok())
+                    .map(str::to_string);
                 if let (Auth::Aws { creds, region: was }, Some(r)) = (&auth, region) {
-                    if r != *was && dbine_core::secret_sources::valid_aws_region(&r) && matches!(resp.status().as_u16(), 301 | 400) {
-                        auth = Auth::Aws { creds: creds.clone(), region: r };
+                    if r != *was
+                        && dbine_core::secret_sources::valid_aws_region(&r)
+                        && matches!(resp.status().as_u16(), 301 | 400)
+                    {
+                        auth = Auth::Aws {
+                            creds: creds.clone(),
+                            region: r,
+                        };
                         self.set_auth(u.cloud, auth.clone());
                         continue;
                     }
@@ -909,14 +1212,21 @@ impl<'a> Session<'a> {
             let body = read_small(resp, 32 * 1024 * 1024).await?;
             return Ok(parse_listing(u, &body));
         }
-        Err(format!("«{}»: el bucket no responde en su región", u.canonical))
+        Err(format!(
+            "«{}»: el bucket no responde en su región",
+            u.canonical
+        ))
     }
 }
 
 /// A response body of at most `max` bytes, as text.
 async fn read_small(mut resp: reqwest::Response, max: usize) -> Result<String, String> {
     let mut buf = Vec::new();
-    while let Some(c) = resp.chunk().await.map_err(|e| e.without_url().to_string())? {
+    while let Some(c) = resp
+        .chunk()
+        .await
+        .map_err(|e| e.without_url().to_string())?
+    {
         buf.extend_from_slice(&c);
         if buf.len() > max {
             return Err("la respuesta del listado es demasiado grande".into());
@@ -932,7 +1242,9 @@ fn tags<'x>(xml: &'x str, open: &str) -> Vec<&'x str> {
     let mut at = 0;
     while let Some(i) = xml[at..].find(&open) {
         let from = at + i + open.len();
-        let Some(j) = xml[from..].find(&close) else { break };
+        let Some(j) = xml[from..].find(&close) else {
+            break;
+        };
         out.push(&xml[from..from + j]);
         at = from + j + close.len();
     }
@@ -940,7 +1252,12 @@ fn tags<'x>(xml: &'x str, open: &str) -> Vec<&'x str> {
 }
 
 fn unescape(s: &str) -> String {
-    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&#39;", "'").replace("&amp;", "&")
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
 }
 
 /// One page of a listing: its objects and the token of the next page.
@@ -948,18 +1265,32 @@ pub fn parse_listing(u: &RemoteUrl, body: &str) -> (Vec<Object>, Option<String>)
     let canonical = |key: &str| match u.cloud {
         Cloud::S3 => format!("s3://{}/{key}", u.bucket),
         Cloud::Gcs => format!("gs://{}/{key}", u.bucket),
-        _ => format!("az://{}.blob.core.windows.net/{}/{key}", u.bucket, u.container),
+        _ => format!(
+            "az://{}.blob.core.windows.net/{}/{key}",
+            u.bucket, u.container
+        ),
     };
     let first = |x: &str, t: &str| tags(x, t).first().map(|s| unescape(s));
     match u.cloud {
         Cloud::Gcs => {
             let v: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
-            let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+            let items = v
+                .get("items")
+                .and_then(|i| i.as_array())
+                .cloned()
+                .unwrap_or_default();
             let objs = items
                 .iter()
                 .filter_map(|it| {
                     let key = it.get("name")?.as_str()?.to_string();
-                    let size = it.get("size").and_then(|s| s.as_str().and_then(|s| s.parse().ok()).or_else(|| s.as_u64())).unwrap_or(0);
+                    let size = it
+                        .get("size")
+                        .and_then(|s| {
+                            s.as_str()
+                                .and_then(|s| s.parse().ok())
+                                .or_else(|| s.as_u64())
+                        })
+                        .unwrap_or(0);
                     let updated = it.get("updated").and_then(|s| s.as_str());
                     Some(Object {
                         url: canonical(&key),
@@ -970,7 +1301,13 @@ pub fn parse_listing(u: &RemoteUrl, body: &str) -> (Vec<Object>, Option<String>)
                     })
                 })
                 .collect();
-            (objs, v.get("nextPageToken").and_then(|t| t.as_str()).filter(|t| !t.is_empty()).map(str::to_string))
+            (
+                objs,
+                v.get("nextPageToken")
+                    .and_then(|t| t.as_str())
+                    .filter(|t| !t.is_empty())
+                    .map(str::to_string),
+            )
         }
         Cloud::S3 => {
             let objs = tags(body, "<Contents>")
@@ -979,20 +1316,41 @@ pub fn parse_listing(u: &RemoteUrl, body: &str) -> (Vec<Object>, Option<String>)
                     let key = first(c, "<Key>")?;
                     let size = first(c, "<Size>").and_then(|s| s.parse().ok()).unwrap_or(0);
                     let lm = first(c, "<LastModified>");
-                    Some(Object { url: canonical(&key), version: version_of(first(c, "<ETag>").as_deref(), lm.as_deref(), size), mtime_ms: lm.as_deref().map_or(0, http_date_ms), size, key })
+                    Some(Object {
+                        url: canonical(&key),
+                        version: version_of(first(c, "<ETag>").as_deref(), lm.as_deref(), size),
+                        mtime_ms: lm.as_deref().map_or(0, http_date_ms),
+                        size,
+                        key,
+                    })
                 })
                 .collect();
             let more = first(body, "<IsTruncated>").is_some_and(|t| t == "true");
-            (objs, if more { first(body, "<NextContinuationToken>").filter(|t| !t.is_empty()) } else { None })
+            (
+                objs,
+                if more {
+                    first(body, "<NextContinuationToken>").filter(|t| !t.is_empty())
+                } else {
+                    None
+                },
+            )
         }
         _ => {
             let objs = tags(body, "<Blob>")
                 .into_iter()
                 .filter_map(|b| {
                     let key = first(b, "<Name>")?;
-                    let size = first(b, "<Content-Length>").and_then(|s| s.parse().ok()).unwrap_or(0);
+                    let size = first(b, "<Content-Length>")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
                     let lm = first(b, "<Last-Modified>");
-                    Some(Object { url: canonical(&key), version: version_of(first(b, "<Etag>").as_deref(), lm.as_deref(), size), mtime_ms: lm.as_deref().map_or(0, http_date_ms), size, key })
+                    Some(Object {
+                        url: canonical(&key),
+                        version: version_of(first(b, "<Etag>").as_deref(), lm.as_deref(), size),
+                        mtime_ms: lm.as_deref().map_or(0, http_date_ms),
+                        size,
+                        key,
+                    })
                 })
                 .collect();
             (objs, first(body, "<NextMarker>").filter(|t| !t.is_empty()))
@@ -1017,12 +1375,25 @@ pub fn pending_file(u: &RemoteUrl) -> DataFile {
 
 /// The objects an approved entry stands for (a `HEAD` for one URL, a
 /// listing for a pattern), as the files the read reads.
-pub async fn expand(entry: &DataFile, net: &Net, session: &mut Session<'_>, max: usize) -> CommandResult<Vec<DataFile>> {
-    let u = parse(&entry.path, net).map_err(CommandError::BadRequest)?.ok_or_else(|| CommandError::BadRequest(format!("«{}» no es una URL", entry.path)))?;
+pub async fn expand(
+    entry: &DataFile,
+    net: &Net,
+    session: &mut Session<'_>,
+    max: usize,
+) -> CommandResult<Vec<DataFile>> {
+    let u = parse(&entry.path, net)
+        .map_err(CommandError::BadRequest)?
+        .ok_or_else(|| CommandError::BadRequest(format!("«{}» no es una URL", entry.path)))?;
     let objects = if u.glob {
-        let found = session.list(&u, max).await.map_err(CommandError::BadRequest)?;
+        let found = session
+            .list(&u, max)
+            .await
+            .map_err(CommandError::BadRequest)?;
         if found.is_empty() {
-            return Err(CommandError::BadRequest(format!("ningún archivo coincide con «{}»", u.canonical)));
+            return Err(CommandError::BadRequest(format!(
+                "ningún archivo coincide con «{}»",
+                u.canonical
+            )));
         }
         found
     } else {
@@ -1031,7 +1402,11 @@ pub async fn expand(entry: &DataFile, net: &Net, session: &mut Session<'_>, max:
     let mut out = Vec::new();
     for o in objects {
         if o.size > MAX_OBJECT_BYTES {
-            return Err(CommandError::BadRequest(format!("«{}» pesa más de {} GB, el máximo por archivo", o.url, MAX_OBJECT_BYTES >> 30)));
+            return Err(CommandError::BadRequest(format!(
+                "«{}» pesa más de {} GB, el máximo por archivo",
+                o.url,
+                MAX_OBJECT_BYTES >> 30
+            )));
         }
         out.push(DataFile {
             path: o.url.clone(),
@@ -1053,14 +1428,18 @@ pub struct TempDir(pub PathBuf);
 
 impl TempDir {
     pub fn new(tag: &str) -> Result<Self, String> {
-        let dir = std::env::temp_dir().join(format!("dbine-{tag}-{}", uuid::Uuid::new_v4().simple()));
+        let dir =
+            std::env::temp_dir().join(format!("dbine-{tag}-{}", uuid::Uuid::new_v4().simple()));
         let mut b = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-        b.create(&dir).map_err(|e| format!("no se pudo preparar la carpeta temporal: {e}"))?;
+        b.create(&dir)
+            .map_err(|e| format!("no se pudo preparar la carpeta temporal: {e}"))?;
         // Canonical (macOS' temp folder is under a symlink): DuckDB's
         // `allowed_paths` compares the real path.
-        let dir = std::fs::canonicalize(&dir).map(super::files::plain_path).unwrap_or(dir);
+        let dir = std::fs::canonicalize(&dir)
+            .map(super::files::plain_path)
+            .unwrap_or(dir);
         Ok(TempDir(dir))
     }
 }
@@ -1077,8 +1456,22 @@ impl Drop for TempDir {
 fn local_name(key: &str) -> PathBuf {
     let mut p = PathBuf::new();
     for seg in key.split('?').next().unwrap_or(key).split('/') {
-        let s: String = seg.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '=' | '+' | ' ' | ',' | '@') { c } else { '_' }).collect();
-        let s = if s.is_empty() || s.chars().all(|c| c == '.') { "_".to_string() } else { s };
+        let s: String = seg
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '=' | '+' | ' ' | ',' | '@')
+                {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let s = if s.is_empty() || s.chars().all(|c| c == '.') {
+            "_".to_string()
+        } else {
+            s
+        };
         p.push(s);
     }
     p
@@ -1093,34 +1486,70 @@ pub async fn download(files: &[DataFile], net: &Net, dir: &Path) -> CommandResul
     let mut total: u64 = 0;
     let mut out = Vec::new();
     for (i, f) in files.iter().enumerate() {
-        let u = parse(&f.path, net).map_err(CommandError::BadRequest)?.ok_or_else(|| CommandError::BadRequest(format!("«{}» no es una URL", f.path)))?;
+        let u = parse(&f.path, net)
+            .map_err(CommandError::BadRequest)?
+            .ok_or_else(|| CommandError::BadRequest(format!("«{}» no es una URL", f.path)))?;
         if u.glob {
-            return Err(CommandError::BadRequest(format!("«{}» es un patrón, no un archivo", f.path)));
+            return Err(CommandError::BadRequest(format!(
+                "«{}» es un patrón, no un archivo",
+                f.path
+            )));
         }
-        let resp = session.request(&u, &u.key, reqwest::Method::GET).await.map_err(CommandError::BadRequest)?;
-        session.check(&u, &u.canonical, &resp).await.map_err(CommandError::BadRequest)?;
+        let resp = session
+            .request(&u, &u.key, reqwest::Method::GET)
+            .await
+            .map_err(CommandError::BadRequest)?;
+        session
+            .check(&u, &u.canonical, &resp)
+            .await
+            .map_err(CommandError::BadRequest)?;
         if resp.content_length().is_some_and(|n| n > MAX_OBJECT_BYTES) {
-            return Err(CommandError::BadRequest(format!("«{}» pesa más de {} GB, el máximo por archivo", u.canonical, MAX_OBJECT_BYTES >> 30)));
+            return Err(CommandError::BadRequest(format!(
+                "«{}» pesa más de {} GB, el máximo por archivo",
+                u.canonical,
+                MAX_OBJECT_BYTES >> 30
+            )));
         }
         let path = dir.join(i.to_string()).join(local_name(&u.key));
         if let Some(p) = path.parent() {
-            std::fs::create_dir_all(p).map_err(|e| CommandError::Internal(format!("carpeta temporal: {e}")))?;
+            std::fs::create_dir_all(p)
+                .map_err(|e| CommandError::Internal(format!("carpeta temporal: {e}")))?;
         }
-        let mut file = tokio::fs::File::create(&path).await.map_err(|e| CommandError::Internal(format!("archivo temporal: {e}")))?;
+        let mut file = tokio::fs::File::create(&path)
+            .await
+            .map_err(|e| CommandError::Internal(format!("archivo temporal: {e}")))?;
         let mut resp = resp;
         let mut size: u64 = 0;
-        while let Some(chunk) = resp.chunk().await.map_err(|e| CommandError::BadRequest(format!("se cortó la descarga de «{}»: {}", u.canonical, e.without_url())))? {
+        while let Some(chunk) = resp.chunk().await.map_err(|e| {
+            CommandError::BadRequest(format!(
+                "se cortó la descarga de «{}»: {}",
+                u.canonical,
+                e.without_url()
+            ))
+        })? {
             size += chunk.len() as u64;
             total += chunk.len() as u64;
             if size > MAX_OBJECT_BYTES {
-                return Err(CommandError::BadRequest(format!("«{}» pesa más de {} GB, el máximo por archivo", u.canonical, MAX_OBJECT_BYTES >> 30)));
+                return Err(CommandError::BadRequest(format!(
+                    "«{}» pesa más de {} GB, el máximo por archivo",
+                    u.canonical,
+                    MAX_OBJECT_BYTES >> 30
+                )));
             }
             if total > MAX_CALL_BYTES {
-                return Err(CommandError::BadRequest(format!("los archivos de «{}» pesan más de {} GB en total", u.canonical, MAX_CALL_BYTES >> 30)));
+                return Err(CommandError::BadRequest(format!(
+                    "los archivos de «{}» pesan más de {} GB en total",
+                    u.canonical,
+                    MAX_CALL_BYTES >> 30
+                )));
             }
-            file.write_all(&chunk).await.map_err(|e| CommandError::Internal(format!("archivo temporal: {e}")))?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| CommandError::Internal(format!("archivo temporal: {e}")))?;
         }
-        file.flush().await.map_err(|e| CommandError::Internal(format!("archivo temporal: {e}")))?;
+        file.flush()
+            .await
+            .map_err(|e| CommandError::Internal(format!("archivo temporal: {e}")))?;
         out.push(path.to_string_lossy().to_string());
     }
     Ok(out)

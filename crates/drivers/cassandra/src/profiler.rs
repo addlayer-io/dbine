@@ -20,7 +20,9 @@
 use crate::{boolean, int, text, CassandraSession, Flavor};
 use chrono::{DateTime, Utc};
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use scylla::cluster::Node;
 use scylla::policies::load_balancing::{NodeIdentifier, SingleTargetLoadBalancingPolicy};
 use scylla::statement::{Consistency, Statement};
@@ -45,11 +47,21 @@ pub(crate) enum State {
     /// `system_views.queries` on every node. `skew` is the server's clock
     /// minus ours (ms); `first` has, per node and thread, the statement it
     /// ran at the last look, how long it had been running and when it began.
-    Queries { sampler: Sampler, skew: i64, first: HashMap<String, (String, i64, String)> },
+    Queries {
+        sampler: Sampler,
+        skew: i64,
+        first: HashMap<String, (String, i64, String)>,
+    },
     /// `audit.audit_log` of `ks`, one partition per day and node. `after`
     /// is the newest entry read (ms); `seen`, the entries read within the
     /// lag. `restore` has `system.config`'s settings as they were.
-    Audit { ks: String, nodes: Vec<String>, after: i64, seen: HashMap<String, i64>, restore: Vec<(String, String)> },
+    Audit {
+        ks: String,
+        nodes: Vec<String>,
+        after: i64,
+        seen: HashMap<String, i64>,
+        restore: Vec<(String, String)>,
+    },
 }
 
 async fn rows(s: &CassandraSession, cql: &str) -> Result<Vec<Row>> {
@@ -59,10 +71,16 @@ async fn rows(s: &CassandraSession, cql: &str) -> Result<Vec<Row>> {
 /// The server's clock, in ms.
 async fn server_now(s: &CassandraSession) -> Result<i64> {
     let r = rows(s, "SELECT toUnixTimestamp(now()) FROM system.local").await?;
-    Ok(r.first().map(|r| int(r, 0)).filter(|n| *n > 0).unwrap_or_else(|| Utc::now().timestamp_millis()))
+    Ok(r.first()
+        .map(|r| int(r, 0))
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| Utc::now().timestamp_millis()))
 }
 
-pub(crate) async fn start(s: &CassandraSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &CassandraSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     match s.flavor {
         Flavor::Keyspaces => Err(Error::Unsupported(
             "Amazon Keyspaces no muestra las consultas de otros clientes por CQL (quedan en CloudTrail)".into(),
@@ -88,18 +106,28 @@ pub(crate) async fn start(s: &CassandraSession, opts: &ProfilerOptions) -> Resul
     }
 }
 
-async fn audit_start(s: &CassandraSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+async fn audit_start(
+    s: &CassandraSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let ks = Some(opts.database.trim())
         .filter(|k| !k.is_empty())
         .map(str::to_string)
         .or_else(|| s.keyspace.clone())
         .ok_or_else(|| Error::Query("Elegí un keyspace para ver sus consultas.".into()))?;
     let setting = |name: &'static str| async move {
-        let r = rows(s, &format!("SELECT value FROM system.config WHERE name = '{name}' {OWN}")).await?;
+        let r = rows(
+            s,
+            &format!("SELECT value FROM system.config WHERE name = '{name}' {OWN}"),
+        )
+        .await?;
         Ok::<_, Error>(r.first().map(|r| unquote(&text(r, 0))))
     };
     let mode = setting("audit").await?.ok_or_else(|| {
-        Error::Unsupported("esta versión de ScyllaDB no tiene auditoría (llegó a la edición abierta en la 2025.1)".into())
+        Error::Unsupported(
+            "esta versión de ScyllaDB no tiene auditoría (llegó a la edición abierta en la 2025.1)"
+                .into(),
+        )
     })?;
     if !mode.split(',').any(|m| m.trim() == "table") {
         return Err(Error::Query(format!(
@@ -109,7 +137,11 @@ async fn audit_start(s: &CassandraSession, opts: &ProfilerOptions) -> Result<(St
     let categories = setting("audit_categories").await?.unwrap_or_default();
     let keyspaces = setting("audit_keyspaces").await?.unwrap_or_default();
     let has = |list: &str, item: &str| list.split(',').any(|x| x.trim().eq_ignore_ascii_case(item));
-    let missing: Vec<&str> = CATEGORIES.iter().copied().filter(|c| !has(&categories, c)).collect();
+    let missing: Vec<&str> = CATEGORIES
+        .iter()
+        .copied()
+        .filter(|c| !has(&categories, c))
+        .collect();
     let audited = has(&keyspaces, &ks);
     let mut started = ProfilerStarted::new(ProfilerMode::Complete, "audit.audit_log");
     let mut restore: Vec<(String, String)> = Vec::new();
@@ -120,27 +152,44 @@ async fn audit_start(s: &CassandraSession, opts: &ProfilerOptions) -> Result<(St
             )));
         }
         if !missing.is_empty() {
-            started = started.note(format!("La auditoría no registra las categorías {}.", missing.join(", ")));
+            started = started.note(format!(
+                "La auditoría no registra las categorías {}.",
+                missing.join(", ")
+            ));
         }
     } else {
         let join = |list: &str, add: &[&str]| {
-            let mut v: Vec<&str> = list.split(',').map(str::trim).filter(|x| !x.is_empty()).collect();
+            let mut v: Vec<&str> = list
+                .split(',')
+                .map(str::trim)
+                .filter(|x| !x.is_empty())
+                .collect();
             v.extend(add);
             v.join(",")
         };
         let mut changes = Vec::new();
         if !missing.is_empty() {
-            changes.push(("audit_categories", categories.clone(), join(&categories, &missing)));
+            changes.push((
+                "audit_categories",
+                categories.clone(),
+                join(&categories, &missing),
+            ));
         }
         if !audited {
-            changes.push(("audit_keyspaces", keyspaces.clone(), join(&keyspaces, &[ks.as_str()])));
+            changes.push((
+                "audit_keyspaces",
+                keyspaces.clone(),
+                join(&keyspaces, &[ks.as_str()]),
+            ));
         }
         for (name, was, now) in changes {
             if let Err(e) = set(s, name, &now).await {
                 for (name, was) in &restore {
                     let _ = set(s, name, was).await;
                 }
-                return Err(Error::Query(format!("No se pudo cambiar {name} de ScyllaDB: {e}")));
+                return Err(Error::Query(format!(
+                    "No se pudo cambiar {name} de ScyllaDB: {e}"
+                )));
             }
             started = started.change(format!("{name} = {now} (estaba en «{was}»)"));
             restore.push((name.to_string(), was));
@@ -148,7 +197,10 @@ async fn audit_start(s: &CassandraSession, opts: &ProfilerOptions) -> Result<(St
     }
     // The audit log's partitions are per node, by the address it listens on.
     let mut nodes = Vec::new();
-    for cql in ["SELECT listen_address, broadcast_address FROM system.local", "SELECT peer, peer FROM system.peers"] {
+    for cql in [
+        "SELECT listen_address, broadcast_address FROM system.local",
+        "SELECT peer, peer FROM system.peers",
+    ] {
         for r in rows(s, &format!("{cql} {OWN}")).await? {
             for i in 0..2 {
                 let a = text(&r, i);
@@ -159,18 +211,43 @@ async fn audit_start(s: &CassandraSession, opts: &ProfilerOptions) -> Result<(St
         }
     }
     let after = server_now(s).await?;
-    let state = State::Audit { ks, nodes, after, seen: HashMap::new(), restore };
-    Ok((state, started.note("La auditoría de ScyllaDB no registra la duración ni las filas de cada sentencia.")))
+    let state = State::Audit {
+        ks,
+        nodes,
+        after,
+        seen: HashMap::new(),
+        restore,
+    };
+    Ok((
+        state,
+        started.note(
+            "La auditoría de ScyllaDB no registra la duración ni las filas de cada sentencia.",
+        ),
+    ))
 }
 
 async fn set(s: &CassandraSession, name: &str, value: &str) -> Result<()> {
-    let cql = format!("UPDATE system.config SET value = '{}' WHERE name = '{name}' {OWN}", value.replace('\'', "''"));
-    s.session.query_unpaged(cql, ()).await.map(|_| ()).map_err(|e| Error::Query(e.to_string()))
+    let cql = format!(
+        "UPDATE system.config SET value = '{}' WHERE name = '{name}' {OWN}",
+        value.replace('\'', "''")
+    );
+    s.session
+        .query_unpaged(cql, ())
+        .await
+        .map(|_| ())
+        .map_err(|e| Error::Query(e.to_string()))
 }
 
-pub(crate) async fn poll(s: &CassandraSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
+pub(crate) async fn poll(
+    s: &CassandraSession,
+    state: &mut State,
+) -> Result<Vec<ProfiledStatement>> {
     match state {
-        State::Queries { sampler, skew, first } => {
+        State::Queries {
+            sampler,
+            skew,
+            first,
+        } => {
             let mut out = Vec::new();
             let until = Instant::now() + SAMPLE_FOR;
             loop {
@@ -178,7 +255,8 @@ pub(crate) async fn poll(s: &CassandraSession, state: &mut State) -> Result<Vec<
                 for node in s.session.get_cluster_state().get_nodes_info() {
                     samples.extend(node_queries(s, node, *skew, first).await?);
                 }
-                let live: std::collections::HashSet<&str> = samples.iter().map(|x| x.session.as_str()).collect();
+                let live: std::collections::HashSet<&str> =
+                    samples.iter().map(|x| x.session.as_str()).collect();
                 first.retain(|k, _| live.contains(k.as_str()));
                 out.extend(sampler.feed(samples));
                 if Instant::now() + SAMPLE_EVERY > until {
@@ -189,9 +267,18 @@ pub(crate) async fn poll(s: &CassandraSession, state: &mut State) -> Result<Vec<
             out.sort_by(|a, b| a.time.cmp(&b.time));
             Ok(out)
         }
-        State::Audit { ks, nodes, after, seen, .. } => {
+        State::Audit {
+            ks,
+            nodes,
+            after,
+            seen,
+            ..
+        } => {
             let from = *after - LAG_MS;
-            let today = Utc::now().timestamp_millis().max(*after).div_euclid(86_400_000);
+            let today = Utc::now()
+                .timestamp_millis()
+                .max(*after)
+                .div_euclid(86_400_000);
             let days: Vec<String> = (from.div_euclid(86_400_000)..=today)
                 .map(|d| format!("'{}+0000'", stamp(d * 86_400_000)))
                 .collect();
@@ -208,7 +295,11 @@ pub(crate) async fn poll(s: &CassandraSession, state: &mut State) -> Result<Vec<
             // node or a node down would fail the default LOCAL_QUORUM.
             let mut st = Statement::new(cql);
             st.set_consistency(Consistency::LocalOne);
-            let res = s.session.query_unpaged(st, ()).await.map_err(|e| Error::Query(e.to_string()))?;
+            let res = s
+                .session
+                .query_unpaged(st, ())
+                .await
+                .map_err(|e| Error::Query(e.to_string()))?;
             let mut out = Vec::new();
             for r in all_rows(res)? {
                 let (id, ms) = (text(&r, 0), int(&r, 1));
@@ -258,9 +349,18 @@ async fn node_queries(
     skew: i64,
     first: &mut HashMap<String, (String, i64, String)>,
 ) -> Result<Vec<Sample>> {
-    let mut st = Statement::new(format!("SELECT thread_id, queued_micros, running_micros, task FROM system_views.queries {OWN}"));
-    st.set_load_balancing_policy(Some(SingleTargetLoadBalancingPolicy::new(NodeIdentifier::Node(node.clone()), None)));
-    let res = s.session.query_unpaged(st, ()).await.map_err(|e| Error::Query(e.to_string()))?;
+    let mut st = Statement::new(format!(
+        "SELECT thread_id, queued_micros, running_micros, task FROM system_views.queries {OWN}"
+    ));
+    st.set_load_balancing_policy(Some(SingleTargetLoadBalancingPolicy::new(
+        NodeIdentifier::Node(node.clone()),
+        None,
+    )));
+    let res = s
+        .session
+        .query_unpaged(st, ())
+        .await
+        .map_err(|e| Error::Query(e.to_string()))?;
     let list = all_rows(res)?;
     let now = Utc::now().timestamp_millis() + skew;
     let addr = node.address.ip().to_string();
@@ -306,7 +406,10 @@ async fn node_queries(
 
 fn all_rows(res: scylla::response::query_result::QueryResult) -> Result<Vec<Row>> {
     let res = res.into_rows_result().map_err(Error::query)?;
-    let list = res.rows::<Row>().map_err(Error::query)?.collect::<std::result::Result<Vec<_>, _>>();
+    let list = res
+        .rows::<Row>()
+        .map_err(Error::query)?
+        .collect::<std::result::Result<Vec<_>, _>>();
     list.map_err(Error::query)
 }
 
@@ -321,7 +424,10 @@ fn parse_task(task: &str) -> (String, Option<String>) {
         Some(i) if rest.ends_with(']') => &rest[..i],
         _ => rest,
     };
-    let rest = rest.strip_prefix("QUERY ").or_else(|| rest.strip_prefix("EXECUTE ")).unwrap_or(rest);
+    let rest = rest
+        .strip_prefix("QUERY ")
+        .or_else(|| rest.strip_prefix("EXECUTE "))
+        .unwrap_or(rest);
     (rest.trim().to_string(), consistency)
 }
 
@@ -345,7 +451,10 @@ mod tests {
     fn tasks() {
         assert_eq!(
             parse_task("QUERY SELECT * FROM ks.t WHERE a = 1; [pageSize = 100] at consistency ONE"),
-            ("SELECT * FROM ks.t WHERE a = 1;".to_string(), Some("ONE".to_string()))
+            (
+                "SELECT * FROM ks.t WHERE a = 1;".to_string(),
+                Some("ONE".to_string())
+            )
         );
         assert_eq!(parse_task("something else").0, "something else");
     }

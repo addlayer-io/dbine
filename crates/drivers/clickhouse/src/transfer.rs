@@ -25,7 +25,10 @@
 
 use super::{body_exception, server_error, ClickHouseSession, Error, Flavor, Result};
 use dbine_driver::kinds;
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec,
+    TransferColumn,
+};
 use dbine_driver::{ObjectRef, Session};
 use futures::channel::mpsc;
 use futures::SinkExt;
@@ -48,21 +51,35 @@ const MARK: &[u8] = b"__exception__\r\n";
 pub(crate) enum Ty {
     Nullable(Box<Ty>),
     Bool,
-    Int { bytes: usize, signed: bool },
+    Int {
+        bytes: usize,
+        signed: bool,
+    },
     F32,
     F64,
     BF16,
-    Decimal { bytes: usize, scale: u32 },
+    Decimal {
+        bytes: usize,
+        scale: u32,
+    },
     Str,
     Fixed(usize),
     Date,
     Date32,
-    DateTime { tz: Option<String> },
-    DateTime64 { scale: u32, tz: Option<String> },
+    DateTime {
+        tz: Option<String>,
+    },
+    DateTime64 {
+        scale: u32,
+        tz: Option<String>,
+    },
     Uuid,
     Ipv4,
     Ipv6,
-    Enum { bytes: usize, values: Vec<(i16, String)> },
+    Enum {
+        bytes: usize,
+        values: Vec<(i16, String)>,
+    },
     Array(Box<Ty>),
     Tuple(Vec<(Option<String>, Ty)>),
     Map(Box<Ty>, Box<Ty>),
@@ -84,7 +101,15 @@ fn render(ty: &Ty) -> String {
         Ty::F64 => "Float64".into(),
         Ty::BF16 => "BFloat16".into(),
         // The widest precision of the same width: the same bytes.
-        Ty::Decimal { bytes, scale } => format!("Decimal({}, {scale})", match bytes { 4 => 9, 8 => 18, 16 => 38, _ => 76 }),
+        Ty::Decimal { bytes, scale } => format!(
+            "Decimal({}, {scale})",
+            match bytes {
+                4 => 9,
+                8 => 18,
+                16 => 38,
+                _ => 76,
+            }
+        ),
         Ty::Str | Ty::DtText(_) => "String".into(),
         Ty::Fixed(n) => format!("FixedString({n})"),
         Ty::Date => "Date".into(),
@@ -99,7 +124,11 @@ fn render(ty: &Ty) -> String {
         Ty::Enum { bytes, values } => format!(
             "Enum{}({})",
             bytes * 8,
-            values.iter().map(|(n, s)| format!("'{}' = {n}", literal(s))).collect::<Vec<_>>().join(", ")
+            values
+                .iter()
+                .map(|(n, s)| format!("'{}' = {n}", literal(s)))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         Ty::Array(t) => format!("Array({})", render(t)),
         Ty::Map(k, v) => format!("Map({}, {})", render(k), render(v)),
@@ -134,18 +163,28 @@ fn type_name(ty: &Ty) -> String {
 /// `ty` with its zoned `DateTime`s turned into `DtText`.
 fn text_leaves(ty: &Ty, server_utc: bool) -> Ty {
     match ty {
-        Ty::DateTime { .. } | Ty::DateTime64 { .. } if zoned(ty, server_utc) => Ty::DtText(Box::new(ty.clone())),
+        Ty::DateTime { .. } | Ty::DateTime64 { .. } if zoned(ty, server_utc) => {
+            Ty::DtText(Box::new(ty.clone()))
+        }
         Ty::Nullable(t) => Ty::Nullable(Box::new(text_leaves(t, server_utc))),
         Ty::Array(t) => Ty::Array(Box::new(text_leaves(t, server_utc))),
-        Ty::Map(k, v) => Ty::Map(Box::new(text_leaves(k, server_utc)), Box::new(text_leaves(v, server_utc))),
-        Ty::Tuple(e) => Ty::Tuple(e.iter().map(|(n, t)| (n.clone(), text_leaves(t, server_utc))).collect()),
+        Ty::Map(k, v) => Ty::Map(
+            Box::new(text_leaves(k, server_utc)),
+            Box::new(text_leaves(v, server_utc)),
+        ),
+        Ty::Tuple(e) => Ty::Tuple(
+            e.iter()
+                .map(|(n, t)| (n.clone(), text_leaves(t, server_utc)))
+                .collect(),
+        ),
         t => t.clone(),
     }
 }
 
 /// Top-level arguments of `Name(a, b, …)`, respecting quotes and parens.
 fn split_args(s: &str) -> Vec<&str> {
-    let (mut out, mut depth, mut start, mut quote, mut escaped) = (Vec::new(), 0i32, 0, None::<char>, false);
+    let (mut out, mut depth, mut start, mut quote, mut escaped) =
+        (Vec::new(), 0i32, 0, None::<char>, false);
     for (i, c) in s.char_indices() {
         if let Some(q) = quote {
             if escaped {
@@ -227,7 +266,12 @@ pub(crate) fn parse_type(s: &str) -> Option<Ty> {
         Some(_) => return None,
         None => (s, Vec::new()),
     };
-    let key: String = name.trim().chars().filter(|c| *c != '_').collect::<String>().to_ascii_lowercase();
+    let key: String = name
+        .trim()
+        .chars()
+        .filter(|c| *c != '_')
+        .collect::<String>()
+        .to_ascii_lowercase();
     let int = |bytes, signed| Ty::Int { bytes, signed };
     let num = |i: usize| -> Option<u32> { args.get(i)?.trim().parse().ok() };
     let tz = |i: usize| -> Option<Option<String>> {
@@ -256,17 +300,35 @@ pub(crate) fn parse_type(s: &str) -> Option<Ty> {
         ("float32", 0) => Ty::F32,
         ("float64", 0) => Ty::F64,
         ("bfloat16", 0) => Ty::BF16,
-        ("decimal", 1 | 2) => Ty::Decimal { bytes: decimal_bytes(num(0)?)?, scale: if args.len() == 2 { num(1)? } else { 0 } },
-        ("decimal32", 1) => Ty::Decimal { bytes: 4, scale: num(0)? },
-        ("decimal64", 1) => Ty::Decimal { bytes: 8, scale: num(0)? },
-        ("decimal128", 1) => Ty::Decimal { bytes: 16, scale: num(0)? },
-        ("decimal256", 1) => Ty::Decimal { bytes: 32, scale: num(0)? },
+        ("decimal", 1 | 2) => Ty::Decimal {
+            bytes: decimal_bytes(num(0)?)?,
+            scale: if args.len() == 2 { num(1)? } else { 0 },
+        },
+        ("decimal32", 1) => Ty::Decimal {
+            bytes: 4,
+            scale: num(0)?,
+        },
+        ("decimal64", 1) => Ty::Decimal {
+            bytes: 8,
+            scale: num(0)?,
+        },
+        ("decimal128", 1) => Ty::Decimal {
+            bytes: 16,
+            scale: num(0)?,
+        },
+        ("decimal256", 1) => Ty::Decimal {
+            bytes: 32,
+            scale: num(0)?,
+        },
         ("string", 0) => Ty::Str,
         ("fixedstring", 1) => Ty::Fixed(num(0)? as usize),
         ("date", 0) => Ty::Date,
         ("date32", 0) => Ty::Date32,
         ("datetime", 0 | 1) => Ty::DateTime { tz: tz(0)? },
-        ("datetime64", 1 | 2) => Ty::DateTime64 { scale: num(0)?, tz: tz(1)? },
+        ("datetime64", 1 | 2) => Ty::DateTime64 {
+            scale: num(0)?,
+            tz: tz(1)?,
+        },
         ("uuid", 0) => Ty::Uuid,
         ("ipv4", 0) => Ty::Ipv4,
         ("ipv6", 0) => Ty::Ipv6,
@@ -278,15 +340,27 @@ pub(crate) fn parse_type(s: &str) -> Option<Ty> {
                     Some((rest.trim().strip_prefix('=')?.trim().parse().ok()?, name))
                 })
                 .collect::<Option<Vec<_>>>()?;
-            Ty::Enum { bytes: if key == "enum8" { 1 } else { 2 }, values }
+            Ty::Enum {
+                bytes: if key == "enum8" { 1 } else { 2 },
+                values,
+            }
         }
         ("array", 1) => Ty::Array(Box::new(parse_type(args[0])?)),
-        ("map", 2) => Ty::Map(Box::new(parse_type(args[0])?), Box::new(parse_type(args[1])?)),
-        ("tuple", n) if n > 0 => Ty::Tuple(args.iter().map(|a| tuple_element(a)).collect::<Option<_>>()?),
+        ("map", 2) => Ty::Map(
+            Box::new(parse_type(args[0])?),
+            Box::new(parse_type(args[1])?),
+        ),
+        ("tuple", n) if n > 0 => Ty::Tuple(
+            args.iter()
+                .map(|a| tuple_element(a))
+                .collect::<Option<_>>()?,
+        ),
         ("point", 0) => point(),
         ("ring" | "linestring", 0) => Ty::Array(Box::new(point())),
         ("polygon" | "multilinestring", 0) => Ty::Array(Box::new(Ty::Array(Box::new(point())))),
-        ("multipolygon", 0) => Ty::Array(Box::new(Ty::Array(Box::new(Ty::Array(Box::new(point())))))),
+        ("multipolygon", 0) => {
+            Ty::Array(Box::new(Ty::Array(Box::new(Ty::Array(Box::new(point()))))))
+        }
         _ => return None,
     })
 }
@@ -342,7 +416,11 @@ fn variable_type(t: &str) -> bool {
         _ => (t, Vec::new()),
     };
     // A named tuple element is `name Type`: the type is the last word.
-    let key = name.rsplit(char::is_whitespace).next().unwrap_or("").to_ascii_lowercase();
+    let key = name
+        .rsplit(char::is_whitespace)
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
     key == "dynamic" || key == "variant" || args.iter().any(|a| variable_type(a))
 }
 
@@ -435,7 +513,8 @@ impl<'a> Rd<'a> {
         self.take(usize::try_from(n).map_err(|_| Short::Bad("longitud inválida".into()))?)
     }
     fn str(&mut self) -> D<String> {
-        String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Short::Bad("texto no UTF-8 en el encabezado".into()))
+        String::from_utf8(self.bytes()?.to_vec())
+            .map_err(|_| Short::Bad("texto no UTF-8 en el encabezado".into()))
     }
 }
 
@@ -479,7 +558,9 @@ pub(crate) fn skip(r: &mut Rd, ty: &Ty) -> D<()> {
             let n = r.leb()?;
             match width(t) {
                 Some(w) => {
-                    let total = n.checked_mul(w as u64).and_then(|t| usize::try_from(t).ok());
+                    let total = n
+                        .checked_mul(w as u64)
+                        .and_then(|t| usize::try_from(t).ok());
                     r.take(total.ok_or_else(|| Short::Bad("longitud inválida".into()))?)?;
                 }
                 None => {
@@ -528,7 +609,11 @@ const P19: u128 = 10_000_000_000_000_000_000;
 /// A little-endian integer of any width as decimal digits.
 pub(crate) fn big_text(le: &[u8], signed: bool) -> String {
     if le.len() <= 8 {
-        return if signed { i64_le(le).to_string() } else { u64_le(le).to_string() };
+        return if signed {
+            i64_le(le).to_string()
+        } else {
+            u64_le(le).to_string()
+        };
     }
     let neg = signed && le.last().is_some_and(|x| x & 0x80 != 0);
     let mut limbs: Vec<u64> = le.chunks(8).map(u64_le).collect();
@@ -576,8 +661,17 @@ fn with_scale(int: String, scale: u32) -> String {
         None => (false, int.as_str()),
     };
     let s = scale as usize;
-    let d = if d.len() <= s { format!("{}{d}", "0".repeat(s + 1 - d.len())) } else { d.to_string() };
-    format!("{}{}.{}", if neg { "-" } else { "" }, &d[..d.len() - s], &d[d.len() - s..])
+    let d = if d.len() <= s {
+        format!("{}{d}", "0".repeat(s + 1 - d.len()))
+    } else {
+        d.to_string()
+    };
+    format!(
+        "{}{}.{}",
+        if neg { "-" } else { "" },
+        &d[..d.len() - s],
+        &d[d.len() - s..]
+    )
 }
 
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
@@ -622,7 +716,13 @@ fn fmt_date(days: i64) -> String {
 /// `scale` digits.
 fn fmt_datetime(secs: i64, frac: u64, scale: u32) -> String {
     let (days, sod) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    let mut s = format!("{} {:02}:{:02}:{:02}", fmt_date(days), sod / 3600, sod / 60 % 60, sod % 60);
+    let mut s = format!(
+        "{} {:02}:{:02}:{:02}",
+        fmt_date(days),
+        sod / 3600,
+        sod / 60 % 60,
+        sod % 60
+    );
     if scale > 0 {
         s.push_str(&format!(".{frac:0width$}", width = scale as usize));
     }
@@ -633,7 +733,14 @@ fn fmt_uuid(b: &[u8; 16]) -> String {
     let hi = u64::from_le_bytes(b[..8].try_into().expect("8"));
     let lo = u64::from_le_bytes(b[8..].try_into().expect("8"));
     let h = format!("{hi:016x}{lo:016x}");
-    format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..]
+    )
 }
 
 /// One value as a cell.
@@ -658,8 +765,12 @@ pub(crate) fn read_cell(r: &mut Rd, ty: &Ty) -> D<Cell> {
         }
         Ty::F32 => Cell::Float(f64::from(f32::from_le_bytes(r.arr()?))),
         Ty::F64 => Cell::Float(f64::from_le_bytes(r.arr()?)),
-        Ty::BF16 => Cell::Float(f64::from(f32::from_bits(u32::from(u16::from_le_bytes(r.arr()?)) << 16))),
-        Ty::Decimal { bytes, scale } => Cell::Decimal(with_scale(big_text(r.take(*bytes)?, true), *scale)),
+        Ty::BF16 => Cell::Float(f64::from(f32::from_bits(
+            u32::from(u16::from_le_bytes(r.arr()?)) << 16,
+        ))),
+        Ty::Decimal { bytes, scale } => {
+            Cell::Decimal(with_scale(big_text(r.take(*bytes)?, true), *scale))
+        }
         Ty::Str | Ty::DtText(_) => {
             let b = r.bytes()?;
             match std::str::from_utf8(b) {
@@ -678,13 +789,20 @@ pub(crate) fn read_cell(r: &mut Rd, ty: &Ty) -> D<Cell> {
         }
         Ty::Date => Cell::Date(fmt_date(i64::from(u16::from_le_bytes(r.arr()?)))),
         Ty::Date32 => Cell::Date(fmt_date(i64::from(i32::from_le_bytes(r.arr()?)))),
-        Ty::DateTime { .. } => Cell::DateTimeTz(format!("{}+00:00", fmt_datetime(i64::from(u32::from_le_bytes(r.arr()?)), 0, 0))),
+        Ty::DateTime { .. } => Cell::DateTimeTz(format!(
+            "{}+00:00",
+            fmt_datetime(i64::from(u32::from_le_bytes(r.arr()?)), 0, 0)
+        )),
         Ty::DateTime64 { scale, .. } => {
             let ticks = i64::from_le_bytes(r.arr()?);
             let div = 10i64.pow((*scale).min(18));
             Cell::DateTimeTz(format!(
                 "{}+00:00",
-                fmt_datetime(ticks.div_euclid(div), ticks.rem_euclid(div) as u64, (*scale).min(18))
+                fmt_datetime(
+                    ticks.div_euclid(div),
+                    ticks.rem_euclid(div) as u64,
+                    (*scale).min(18)
+                )
             ))
         }
         Ty::Uuid => Cell::Uuid(fmt_uuid(&r.arr()?)),
@@ -692,7 +810,12 @@ pub(crate) fn read_cell(r: &mut Rd, ty: &Ty) -> D<Cell> {
         Ty::Ipv6 => Cell::Text(Ipv6Addr::from(r.arr::<16>()?).to_string()),
         Ty::Enum { bytes, values } => {
             let v = i64_le(r.take(*bytes)?) as i16;
-            Cell::Text(values.iter().find(|(n, _)| *n == v).map_or_else(|| v.to_string(), |(_, s)| s.clone()))
+            Cell::Text(
+                values
+                    .iter()
+                    .find(|(n, _)| *n == v)
+                    .map_or_else(|| v.to_string(), |(_, s)| s.clone()),
+            )
         }
         Ty::Array(_) | Ty::Tuple(_) | Ty::Map(..) => Cell::Json(read_json(r, ty)?.text()),
     })
@@ -846,7 +969,10 @@ impl Parser<'_> {
             b'n' => self.word("null", J::Null),
             _ => {
                 let start = self.i;
-                while matches!(self.peek(), Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')) {
+                while matches!(
+                    self.peek(),
+                    Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')
+                ) {
                     self.i += 1;
                 }
                 let n = &self.s[start..self.i];
@@ -880,7 +1006,8 @@ impl Parser<'_> {
             }
         }
         self.i += 1;
-        serde_json::from_str(self.s.get(start..self.i).ok_or_else(|| self.bad())?).map_err(|_| self.bad())
+        serde_json::from_str(self.s.get(start..self.i).ok_or_else(|| self.bad())?)
+            .map_err(|_| self.bad())
     }
 }
 
@@ -933,10 +1060,17 @@ fn cell_json(c: Cell) -> D<J> {
         Cell::Bool(b) => J::Bool(b),
         Cell::Int(i) => J::Num(i.to_string()),
         Cell::UInt(u) => J::Num(u.to_string()),
-        Cell::Float(f) => serde_json::Number::from_f64(f).map_or_else(|| J::Str(f.to_string()), |n| J::Num(n.to_string())),
+        Cell::Float(f) => serde_json::Number::from_f64(f)
+            .map_or_else(|| J::Str(f.to_string()), |n| J::Num(n.to_string())),
         Cell::Bytes(_) => return Err(nested_bytes()),
         Cell::Json(s) => parse_json(&s).unwrap_or(J::Str(s)),
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => J::Str(s),
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s) => J::Str(s),
     })
 }
 
@@ -959,9 +1093,11 @@ fn read_json(r: &mut Rd, ty: &Ty) -> D<J> {
             }
             J::Arr(items)
         }
-        Ty::Tuple(e) if e.iter().all(|(n, _)| n.is_some()) => {
-            J::Obj(e.iter().map(|(n, t)| Ok((n.clone().unwrap_or_default(), read_json(r, t)?))).collect::<D<_>>()?)
-        }
+        Ty::Tuple(e) if e.iter().all(|(n, _)| n.is_some()) => J::Obj(
+            e.iter()
+                .map(|(n, t)| Ok((n.clone().unwrap_or_default(), read_json(r, t)?)))
+                .collect::<D<_>>()?,
+        ),
         Ty::Tuple(e) => J::Arr(e.iter().map(|(_, t)| read_json(r, t)).collect::<D<_>>()?),
         Ty::Map(k, v) => {
             let n = r.leb()?;
@@ -1002,9 +1138,14 @@ impl<'a> Sc<'a> {
             Cell::UInt(u) => Sc::U(*u),
             Cell::Float(f) => Sc::F(*f),
             Cell::Bytes(b) => Sc::B(b),
-            Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => {
-                Sc::S(Cow::Borrowed(s))
-            }
+            Cell::Decimal(s)
+            | Cell::Text(s)
+            | Cell::Date(s)
+            | Cell::Time(s)
+            | Cell::DateTime(s)
+            | Cell::DateTimeTz(s)
+            | Cell::Uuid(s)
+            | Cell::Json(s) => Sc::S(Cow::Borrowed(s)),
         }
     }
 
@@ -1027,7 +1168,9 @@ impl<'a> Sc<'a> {
     fn shown(&self) -> String {
         match (self, self.text()) {
             (Sc::Null, _) => "NULL".into(),
-            (_, Some(t)) if t.chars().count() > 80 => format!("«{}…»", t.chars().take(80).collect::<String>()),
+            (_, Some(t)) if t.chars().count() > 80 => {
+                format!("«{}…»", t.chars().take(80).collect::<String>())
+            }
             (_, Some(t)) => format!("«{t}»"),
             (Sc::B(b), None) => format!("un valor binario de {} bytes", b.len()),
             (_, None) => "el valor".into(),
@@ -1088,7 +1231,12 @@ pub(crate) fn int_le(text: &str, bytes: usize, signed: bool) -> Option<Vec<u8>> 
     if neg && !signed && !zero {
         return None;
     }
-    let bits = limbs.iter().enumerate().rev().find(|(_, l)| **l != 0).map_or(0, |(i, l)| i * 64 + 64 - l.leading_zeros() as usize);
+    let bits = limbs
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, l)| **l != 0)
+        .map_or(0, |(i, l)| i * 64 + 64 - l.leading_zeros() as usize);
     let max = if signed { bytes * 8 - 1 } else { bytes * 8 };
     let power_of_two = limbs.iter().map(|l| l.count_ones()).sum::<u32>() == 1;
     if !(bits <= max || (neg && signed && bits == max + 1 && power_of_two)) {
@@ -1112,7 +1260,11 @@ pub(crate) fn int_le(text: &str, bytes: usize, signed: bool) -> Option<Vec<u8>> 
 
 /// `-12.345` at scale 2 → the scaled integer's bytes (rounded half away
 /// from zero).
-pub(crate) fn decimal_le(text: &str, scale: u32, bytes: usize) -> std::result::Result<Vec<u8>, String> {
+pub(crate) fn decimal_le(
+    text: &str,
+    scale: u32,
+    bytes: usize,
+) -> std::result::Result<Vec<u8>, String> {
     let bad = || format!("«{text}» no es un número decimal");
     let t = text.trim();
     let (sign, body) = match t.as_bytes().first() {
@@ -1121,7 +1273,9 @@ pub(crate) fn decimal_le(text: &str, scale: u32, bytes: usize) -> std::result::R
         _ => ("", t),
     };
     let (int, frac) = body.split_once('.').unwrap_or((body, ""));
-    if (int.is_empty() && frac.is_empty()) || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+    if (int.is_empty() && frac.is_empty())
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+    {
         return Err(bad());
     }
     let s = scale as usize;
@@ -1149,7 +1303,8 @@ pub(crate) fn decimal_le(text: &str, scale: u32, bytes: usize) -> std::result::R
     if digits.is_empty() {
         digits.push('0');
     }
-    int_le(&format!("{sign}{digits}"), bytes, true).ok_or_else(|| format!("«{text}» no entra en el tipo decimal"))
+    int_le(&format!("{sign}{digits}"), bytes, true)
+        .ok_or_else(|| format!("«{text}» no entra en el tipo decimal"))
 }
 
 /// `YYYY-MM-DD[ T]HH:MM[:SS[.fff]][Z|±HH[:MM]]` → (seconds since the epoch
@@ -1157,7 +1312,12 @@ pub(crate) fn decimal_le(text: &str, scale: u32, bytes: usize) -> std::result::R
 pub(crate) fn parse_datetime(s: &str) -> Option<(i64, u32, Option<i64>)> {
     let s = s.trim();
     let b = s.as_bytes();
-    let num = |r: Range<usize>| -> Option<i64> { s.get(r.clone()).filter(|x| x.bytes().all(|c| c.is_ascii_digit()))?.parse().ok() };
+    let num = |r: Range<usize>| -> Option<i64> {
+        s.get(r.clone())
+            .filter(|x| x.bytes().all(|c| c.is_ascii_digit()))?
+            .parse()
+            .ok()
+    };
     if b.len() < 10 || b[4] != b'-' || b[7] != b'-' {
         return None;
     }
@@ -1172,7 +1332,12 @@ pub(crate) fn parse_datetime(s: &str) -> Option<(i64, u32, Option<i64>)> {
     let (mut sod, mut nanos, mut offset) = (0i64, 0u32, None);
     if let Some(t) = rest.strip_prefix([' ', 'T']) {
         let tb = t.as_bytes();
-        let tnum = |r: Range<usize>| -> Option<i64> { t.get(r).filter(|x| x.bytes().all(|c| c.is_ascii_digit()))?.parse().ok() };
+        let tnum = |r: Range<usize>| -> Option<i64> {
+            t.get(r)
+                .filter(|x| x.bytes().all(|c| c.is_ascii_digit()))?
+                .parse()
+                .ok()
+        };
         if tb.len() < 5 || tb[2] != b':' {
             return None;
         }
@@ -1188,7 +1353,10 @@ pub(crate) fn parse_datetime(s: &str) -> Option<(i64, u32, Option<i64>)> {
             return None;
         }
         if tb.get(i) == Some(&b'.') {
-            let f: String = t[i + 1..].chars().take_while(char::is_ascii_digit).collect();
+            let f: String = t[i + 1..]
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
             i += 1 + f.len();
             // Digits past nanoseconds that aren't zeros would be lost.
             if f.bytes().skip(9).any(|c| c != b'0') {
@@ -1216,7 +1384,10 @@ pub(crate) fn parse_datetime(s: &str) -> Option<(i64, u32, Option<i64>)> {
                 }
                 let (hh, mm) = match digits.len() {
                     2 => (digits.parse::<i64>().ok()?, 0),
-                    4 => (digits[..2].parse::<i64>().ok()?, digits[2..].parse::<i64>().ok()?),
+                    4 => (
+                        digits[..2].parse::<i64>().ok()?,
+                        digits[2..].parse::<i64>().ok()?,
+                    ),
                     _ => return None,
                 };
                 if hh > 23 || mm > 59 {
@@ -1230,7 +1401,12 @@ pub(crate) fn parse_datetime(s: &str) -> Option<(i64, u32, Option<i64>)> {
 }
 
 fn parse_uuid(s: &str) -> Option<u128> {
-    let hex: String = s.trim().trim_matches(['{', '}']).chars().filter(|c| *c != '-').collect();
+    let hex: String = s
+        .trim()
+        .trim_matches(['{', '}'])
+        .chars()
+        .filter(|c| *c != '-')
+        .collect();
     if hex.len() != 32 {
         return None;
     }
@@ -1290,16 +1466,25 @@ pub(crate) fn encode(ty: &Ty, v: Sc, out: &mut Vec<u8>) -> std::result::Result<(
                 Sc::I(_) | Sc::U(_) | Sc::S(_) => v.text().expect("text"),
                 _ => return Err(bad(&v)),
             };
-            out.extend(int_le(&text, *bytes, *signed).ok_or_else(|| format!("«{text}» no entra en el tipo entero"))?);
+            out.extend(
+                int_le(&text, *bytes, *signed)
+                    .ok_or_else(|| format!("«{text}» no entra en el tipo entero"))?,
+            );
         }
         Ty::F32 => out.extend((float_of(&v).ok_or_else(|| bad(&v))? as f32).to_le_bytes()),
         Ty::F64 => out.extend(float_of(&v).ok_or_else(|| bad(&v))?.to_le_bytes()),
-        Ty::BF16 => out.extend((((float_of(&v).ok_or_else(|| bad(&v))? as f32).to_bits() >> 16) as u16).to_le_bytes()),
+        Ty::BF16 => out.extend(
+            (((float_of(&v).ok_or_else(|| bad(&v))? as f32).to_bits() >> 16) as u16).to_le_bytes(),
+        ),
         Ty::Decimal { bytes, scale } => {
             if matches!(v, Sc::F(f) if !f.is_finite()) || matches!(v, Sc::B(_) | Sc::Bool(_)) {
                 return Err(bad(&v));
             }
-            out.extend(decimal_le(&v.text().ok_or_else(|| bad(&v))?, *scale, *bytes)?);
+            out.extend(decimal_le(
+                &v.text().ok_or_else(|| bad(&v))?,
+                *scale,
+                *bytes,
+            )?);
         }
         Ty::DtText(t) => {
             // Checked here (read as UTC); the server places it in its zone.
@@ -1331,20 +1516,40 @@ pub(crate) fn encode(ty: &Ty, v: Sc, out: &mut Vec<u8>) -> std::result::Result<(
             out.extend(std::iter::repeat_n(0, n - b.len()));
         }
         Ty::Date | Ty::Date32 => {
-            let (secs, nanos, _) = v.text().as_deref().and_then(parse_datetime).ok_or_else(|| bad(&v))?;
+            let (secs, nanos, _) = v
+                .text()
+                .as_deref()
+                .and_then(parse_datetime)
+                .ok_or_else(|| bad(&v))?;
             // A time of day would be dropped: only midnight fits.
             if secs.rem_euclid(86_400) != 0 || nanos != 0 {
-                return Err(format!("{} tiene hora y una columna {} guarda solo la fecha: la hora se perdería", v.shown(), type_name(ty)));
+                return Err(format!(
+                    "{} tiene hora y una columna {} guarda solo la fecha: la hora se perdería",
+                    v.shown(),
+                    type_name(ty)
+                ));
             }
             let days = secs.div_euclid(86_400);
             if *ty == Ty::Date {
-                out.extend(u16::try_from(days).map_err(|_| format!("{} está fuera del rango de Date", v.shown()))?.to_le_bytes());
+                out.extend(
+                    u16::try_from(days)
+                        .map_err(|_| format!("{} está fuera del rango de Date", v.shown()))?
+                        .to_le_bytes(),
+                );
             } else {
-                out.extend(i32::try_from(days).map_err(|_| format!("{} está fuera del rango de Date32", v.shown()))?.to_le_bytes());
+                out.extend(
+                    i32::try_from(days)
+                        .map_err(|_| format!("{} está fuera del rango de Date32", v.shown()))?
+                        .to_le_bytes(),
+                );
             }
         }
         Ty::DateTime { .. } => {
-            let (secs, nanos, off) = v.text().as_deref().and_then(parse_datetime).ok_or_else(|| bad(&v))?;
+            let (secs, nanos, off) = v
+                .text()
+                .as_deref()
+                .and_then(parse_datetime)
+                .ok_or_else(|| bad(&v))?;
             if nanos != 0 {
                 return Err(format!(
                     "{} tiene fracciones de segundo y una columna {} guarda segundos enteros: se perderían",
@@ -1353,10 +1558,18 @@ pub(crate) fn encode(ty: &Ty, v: Sc, out: &mut Vec<u8>) -> std::result::Result<(
                 ));
             }
             let secs = secs - off.unwrap_or(0);
-            out.extend(u32::try_from(secs).map_err(|_| format!("{} está fuera del rango de DateTime", v.shown()))?.to_le_bytes());
+            out.extend(
+                u32::try_from(secs)
+                    .map_err(|_| format!("{} está fuera del rango de DateTime", v.shown()))?
+                    .to_le_bytes(),
+            );
         }
         Ty::DateTime64 { scale, .. } => {
-            let (secs, nanos, off) = v.text().as_deref().and_then(parse_datetime).ok_or_else(|| bad(&v))?;
+            let (secs, nanos, off) = v
+                .text()
+                .as_deref()
+                .and_then(parse_datetime)
+                .ok_or_else(|| bad(&v))?;
             let scale = (*scale).min(9);
             if nanos % 10u32.pow(9 - scale) != 0 {
                 return Err(format!(
@@ -1365,13 +1578,22 @@ pub(crate) fn encode(ty: &Ty, v: Sc, out: &mut Vec<u8>) -> std::result::Result<(
                     type_name(ty)
                 ));
             }
-            let ticks = i128::from(secs - off.unwrap_or(0)) * 10i128.pow(scale) + i128::from(nanos / 10u32.pow(9 - scale));
-            out.extend(i64::try_from(ticks).map_err(|_| format!("{} está fuera del rango de DateTime64", v.shown()))?.to_le_bytes());
+            let ticks = i128::from(secs - off.unwrap_or(0)) * 10i128.pow(scale)
+                + i128::from(nanos / 10u32.pow(9 - scale));
+            out.extend(
+                i64::try_from(ticks)
+                    .map_err(|_| format!("{} está fuera del rango de DateTime64", v.shown()))?
+                    .to_le_bytes(),
+            );
         }
         Ty::Uuid => {
             let u = match &v {
                 Sc::B(b) if b.len() == 16 => u128::from_be_bytes((*b).try_into().expect("16")),
-                _ => v.text().as_deref().and_then(parse_uuid).ok_or_else(|| bad(&v))?,
+                _ => v
+                    .text()
+                    .as_deref()
+                    .and_then(parse_uuid)
+                    .ok_or_else(|| bad(&v))?,
             };
             out.extend(((u >> 64) as u64).to_le_bytes());
             out.extend((u as u64).to_le_bytes());
@@ -1380,7 +1602,11 @@ pub(crate) fn encode(ty: &Ty, v: Sc, out: &mut Vec<u8>) -> std::result::Result<(
             let n = match &v {
                 Sc::I(i) => u32::try_from(*i).map_err(|_| bad(&v))?,
                 Sc::U(u) => u32::try_from(*u).map_err(|_| bad(&v))?,
-                _ => u32::from(v.text().and_then(|s| s.trim().parse::<Ipv4Addr>().ok()).ok_or_else(|| bad(&v))?),
+                _ => u32::from(
+                    v.text()
+                        .and_then(|s| s.trim().parse::<Ipv4Addr>().ok())
+                        .ok_or_else(|| bad(&v))?,
+                ),
             };
             out.extend(n.to_le_bytes());
         }
@@ -1392,7 +1618,11 @@ pub(crate) fn encode(ty: &Ty, v: Sc, out: &mut Vec<u8>) -> std::result::Result<(
                     let t = t.trim();
                     match t.parse::<Ipv6Addr>() {
                         Ok(a) => a.octets(),
-                        Err(_) => t.parse::<Ipv4Addr>().map_err(|_| bad(&v))?.to_ipv6_mapped().octets(),
+                        Err(_) => t
+                            .parse::<Ipv4Addr>()
+                            .map_err(|_| bad(&v))?
+                            .to_ipv6_mapped()
+                            .octets(),
                     }
                 }
             };
@@ -1400,18 +1630,27 @@ pub(crate) fn encode(ty: &Ty, v: Sc, out: &mut Vec<u8>) -> std::result::Result<(
         }
         Ty::Enum { bytes, values } => {
             let n = match &v {
-                Sc::I(i) => i16::try_from(*i).ok().filter(|n| values.iter().any(|(x, _)| x == n)),
+                Sc::I(i) => i16::try_from(*i)
+                    .ok()
+                    .filter(|n| values.iter().any(|(x, _)| x == n)),
                 Sc::S(s) => values
                     .iter()
                     .find(|(_, name)| name == s)
                     .map(|(n, _)| *n)
-                    .or_else(|| s.trim().parse().ok().filter(|n| values.iter().any(|(x, _)| x == n))),
+                    .or_else(|| {
+                        s.trim()
+                            .parse()
+                            .ok()
+                            .filter(|n| values.iter().any(|(x, _)| x == n))
+                    }),
                 _ => None,
             }
             .ok_or_else(|| format!("{} no es un valor de {}", v.shown(), type_name(ty)))?;
             out.extend(&n.to_le_bytes()[..*bytes]);
         }
-        Ty::Nullable(_) | Ty::Array(_) | Ty::Tuple(_) | Ty::Map(..) => unreachable!("handled above"),
+        Ty::Nullable(_) | Ty::Array(_) | Ty::Tuple(_) | Ty::Map(..) => {
+            unreachable!("handled above")
+        }
     }
     Ok(())
 }
@@ -1436,7 +1675,11 @@ fn encode_json(ty: &Ty, v: &J, out: &mut Vec<u8>) -> std::result::Result<(), Str
             }
         }
         (Ty::Tuple(e), J::Obj(m)) => {
-            let keys: Vec<String> = e.iter().enumerate().map(|(i, (n, _))| n.clone().unwrap_or_else(|| (i + 1).to_string())).collect();
+            let keys: Vec<String> = e
+                .iter()
+                .enumerate()
+                .map(|(i, (n, _))| n.clone().unwrap_or_else(|| (i + 1).to_string()))
+                .collect();
             if let Some((extra, _)) = m.iter().find(|(k, _)| !keys.contains(k)) {
                 return Err(format!("«{extra}» no es un elemento de {}", type_name(ty)));
             }
@@ -1471,9 +1714,22 @@ fn encode_json(ty: &Ty, v: &J, out: &mut Vec<u8>) -> std::result::Result<(), Str
             }
         }
         // A nested document written as a string.
-        (Ty::Array(_) | Ty::Tuple(_) | Ty::Map(..), J::Str(s)) => encode_json(ty, &parse_json(s)?, out)?,
-        (Ty::Array(_) | Ty::Tuple(_) | Ty::Map(..), v) => return Err(format!("{} no es un valor de tipo {}", v.text(), type_name(ty))),
-        (t, J::Null) => return Err(format!("null en un elemento de tipo {} que no admite nulos", type_name(t))),
+        (Ty::Array(_) | Ty::Tuple(_) | Ty::Map(..), J::Str(s)) => {
+            encode_json(ty, &parse_json(s)?, out)?
+        }
+        (Ty::Array(_) | Ty::Tuple(_) | Ty::Map(..), v) => {
+            return Err(format!(
+                "{} no es un valor de tipo {}",
+                v.text(),
+                type_name(ty)
+            ))
+        }
+        (t, J::Null) => {
+            return Err(format!(
+                "null en un elemento de tipo {} que no admite nulos",
+                type_name(t)
+            ))
+        }
         (t, v) => encode(t, Sc::json(v), out)?,
     }
     Ok(())
@@ -1540,8 +1796,19 @@ pub(crate) fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 
 impl Stream {
     fn new(resp: reqwest::Response, flavor: Flavor) -> Self {
-        let marker = resp.headers().get(flavor.header("exception-tag")).map(|t| [MARK, t.as_bytes()].concat());
-        Stream { resp, buf: Vec::with_capacity(SEND_CHUNK), pos: 0, last: 0..0, eof: false, marker, scanned: 0 }
+        let marker = resp
+            .headers()
+            .get(flavor.header("exception-tag"))
+            .map(|t| [MARK, t.as_bytes()].concat());
+        Stream {
+            resp,
+            buf: Vec::with_capacity(SEND_CHUNK),
+            pos: 0,
+            last: 0..0,
+            eof: false,
+            marker,
+            scanned: 0,
+        }
     }
 
     fn limit(&self) -> usize {
@@ -1581,14 +1848,18 @@ impl Stream {
             }
         }
         let text = String::from_utf8_lossy(&self.buf[at.min(self.buf.len())..]).into_owned();
-        body_exception(&text).unwrap_or_else(|| Error::Query(format!("respuesta RowBinary inválida: {why}")))
+        body_exception(&text)
+            .unwrap_or_else(|| Error::Query(format!("respuesta RowBinary inválida: {why}")))
     }
 
     /// The next value `f` reads, `None` at the end.
     async fn next<T>(&mut self, mut f: impl FnMut(&mut Rd) -> D<T>) -> Result<Option<T>> {
         loop {
             let limit = self.limit();
-            let mut r = Rd { b: &self.buf[..limit], p: self.pos };
+            let mut r = Rd {
+                b: &self.buf[..limit],
+                p: self.pos,
+            };
             match f(&mut r) {
                 Ok(v) => {
                     self.last = self.pos..r.p;
@@ -1597,7 +1868,11 @@ impl Stream {
                 }
                 Err(Short::More) if !self.eof => self.fill().await?,
                 Err(Short::More) if self.pos == self.buf.len() => return Ok(None),
-                Err(Short::More) => return Err(self.failure(self.pos, "la respuesta terminó en medio de una fila").await),
+                Err(Short::More) => {
+                    return Err(self
+                        .failure(self.pos, "la respuesta terminó en medio de una fila")
+                        .await)
+                }
                 Err(Short::Bad(m)) => return Err(self.failure(self.pos, &m).await),
                 Err(Short::Unsupported(m)) => return Err(Error::Unsupported(m)),
             }
@@ -1630,7 +1905,10 @@ struct Window<'a> {
 
 impl<'a> Window<'a> {
     /// Start the request `build` makes around the streamed body.
-    fn start(build: impl FnOnce(reqwest::Body) -> reqwest::RequestBuilder, kill: Option<Box<dyn FnOnce() + Send>>) -> Window<'a> {
+    fn start(
+        build: impl FnOnce(reqwest::Body) -> reqwest::RequestBuilder,
+        kill: Option<Box<dyn FnOnce() + Send>>,
+    ) -> Window<'a> {
         let (tx, rx) = mpsc::channel::<io::Result<Vec<u8>>>(4);
         let req = build(reqwest::Body::wrap_stream(rx));
         let task = tokio::spawn(async move {
@@ -1672,7 +1950,9 @@ impl<'a> Window<'a> {
             return Err(match self.task.take() {
                 Some(t) => match t.await {
                     Ok(Err(e)) => e,
-                    Ok(Ok(())) => Error::Query("el servidor terminó la carga antes de tiempo".into()),
+                    Ok(Ok(())) => {
+                        Error::Query("el servidor terminó la carga antes de tiempo".into())
+                    }
                     Err(e) => Error::Query(e.to_string()),
                 },
                 None => Error::State("carga cerrada".into()),
@@ -1690,7 +1970,10 @@ impl<'a> Window<'a> {
         // Every sender gone: the body ends and the server commits.
         self.tx = None;
         self.cut = None;
-        let task = self.task.as_mut().ok_or_else(|| Error::State("carga cerrada".into()))?;
+        let task = self
+            .task
+            .as_mut()
+            .ok_or_else(|| Error::State("carga cerrada".into()))?;
         let done = task.await;
         self.task = None;
         done.map_err(|e| Error::Query(e.to_string()))??;
@@ -1717,7 +2000,9 @@ impl Drop for Window<'_> {
             // reported, before the load returns: nothing commits after.
             None => {
                 use std::future::Future;
-                let Some(mut t) = self.task.take() else { return };
+                let Some(mut t) = self.task.take() else {
+                    return;
+                };
                 let wait = || {
                     let until = std::time::Instant::now() + SETTLE;
                     while !t.is_finished() && std::time::Instant::now() < until {
@@ -1725,7 +2010,9 @@ impl Drop for Window<'_> {
                     }
                 };
                 match tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()) {
-                    Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(wait),
+                    Ok(tokio::runtime::RuntimeFlavor::MultiThread) => {
+                        tokio::task::block_in_place(wait)
+                    }
                     // The request runs on this very thread: waiting would
                     // never end.
                     Ok(_) => {}
@@ -1792,7 +2079,12 @@ pub(crate) fn exception_text(body: &[u8], tag: Option<&str>) -> String {
             _ => String::new(),
         },
     };
-    let mut text = text.split("__exception__").next().unwrap_or_default().trim().to_string();
+    let mut text = text
+        .split("__exception__")
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     // The block ends with `<length> <tag>`.
     if let Some(t) = tag {
         if let Some((head, last)) = text.rsplit_once('\n') {
@@ -1822,7 +2114,10 @@ struct Header {
 impl ClickHouseSession {
     fn request(&self, settings: &[(&str, String)]) -> (reqwest::RequestBuilder, String) {
         let query_id = uuid::Uuid::new_v4().to_string();
-        let mut q: Vec<(&str, String)> = vec![("database", self.database.clone()), ("query_id", query_id.clone())];
+        let mut q: Vec<(&str, String)> = vec![
+            ("database", self.database.clone()),
+            ("query_id", query_id.clone()),
+        ];
         if self.sends_readonly() {
             q.push(("readonly", "1".into()));
         }
@@ -1833,7 +2128,13 @@ impl ClickHouseSession {
 
     /// Run a query whose result streams back.
     async fn open(&self, sql: String) -> Result<reqwest::Response> {
-        let resp = self.request(&[]).0.body(sql).send().await.map_err(net_err)?;
+        let resp = self
+            .request(&[])
+            .0
+            .body(sql)
+            .send()
+            .await
+            .map_err(net_err)?;
         if !resp.status().is_success() {
             return Err(error_response(resp).await);
         }
@@ -1842,13 +2143,26 @@ impl ClickHouseSession {
 
     /// Names and types of `select`'s columns (no rows read).
     async fn header(&self, select: &str) -> Result<Header> {
-        let resp = self.open(format!("{select} LIMIT 0 FORMAT RowBinaryWithNamesAndTypes")).await?;
-        let tz = resp.headers().get(self.flavor.header("timezone")).and_then(|v| v.to_str().ok()).map(str::to_string);
+        let resp = self
+            .open(format!(
+                "{select} LIMIT 0 FORMAT RowBinaryWithNamesAndTypes"
+            ))
+            .await?;
+        let tz = resp
+            .headers()
+            .get(self.flavor.header("timezone"))
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         let mut st = Stream::new(resp, self.flavor);
         let head = st.next(read_header).await;
         self.done();
-        let (names, types) = head?.ok_or_else(|| Error::Query("la consulta no devolvió columnas".into()))?;
-        Ok(Header { names, types, server_utc: tz.as_deref().is_none_or(utc) })
+        let (names, types) =
+            head?.ok_or_else(|| Error::Query("la consulta no devolvió columnas".into()))?;
+        Ok(Header {
+            names,
+            types,
+            server_utc: tz.as_deref().is_none_or(utc),
+        })
     }
 
     /// Start a commit window: `insert`, its body sent as it's produced.
@@ -1875,9 +2189,15 @@ impl ClickHouseSession {
         if self.flavor != Flavor::ClickHouse {
             return Vec::new();
         }
-        let mut s = vec![("async_insert", "0".to_string()), ("insert_deduplicate", "0".to_string())];
+        let mut s = vec![
+            ("async_insert", "0".to_string()),
+            ("insert_deduplicate", "0".to_string()),
+        ];
         if spec.commit_rows > 0 {
-            s.push(("max_insert_block_size", spec.commit_rows.max(1_048_576).to_string()));
+            s.push((
+                "max_insert_block_size",
+                spec.commit_rows.max(1_048_576).to_string(),
+            ));
         }
         s
     }
@@ -1885,18 +2205,38 @@ impl ClickHouseSession {
 
 fn limits(spec: &LoadSpec) -> (u64, u64) {
     (
-        if spec.commit_rows == 0 { u64::MAX } else { spec.commit_rows },
-        if spec.commit_bytes == 0 { u64::MAX } else { spec.commit_bytes },
+        if spec.commit_rows == 0 {
+            u64::MAX
+        } else {
+            spec.commit_rows
+        },
+        if spec.commit_bytes == 0 {
+            u64::MAX
+        } else {
+            spec.commit_bytes
+        },
     )
 }
 
 // ---------------------------------------------------------------- reading
 
-pub(crate) async fn read_batches(s: &mut ClickHouseSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut ClickHouseSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let from = read_from(s.flavor, &spec.table);
-    let cols = spec.columns.as_deref().map_or_else(|| "*".to_string(), column_list);
+    let cols = spec
+        .columns
+        .as_deref()
+        .map_or_else(|| "*".to_string(), column_list);
     let head = s.header(&format!("SELECT {cols} FROM {from}")).await?;
-    if let Some((n, t)) = head.names.iter().zip(&head.types).find(|(_, t)| variable_type(t)) {
+    if let Some((n, t)) = head
+        .names
+        .iter()
+        .zip(&head.types)
+        .find(|(_, t)| variable_type(t))
+    {
         return Err(variable_unsupported(n, t));
     }
     // Types the decoder doesn't know are read as text.
@@ -1916,7 +2256,11 @@ pub(crate) async fn read_batches(s: &mut ClickHouseSession, spec: &ReadSpec, sin
         .names
         .iter()
         .zip(&head.types)
-        .map(|(n, t)| TransferColumn { name: n.clone(), type_name: t.clone(), nullable: super::is_nullable(t) })
+        .map(|(n, t)| TransferColumn {
+            name: n.clone(),
+            type_name: t.clone(),
+            nullable: super::is_nullable(t),
+        })
         .collect();
     let select = format!(
         "SELECT {} FROM {from}{} FORMAT RowBinaryWithNamesAndTypes",
@@ -1926,10 +2270,16 @@ pub(crate) async fn read_batches(s: &mut ClickHouseSession, spec: &ReadSpec, sin
     let resp = s.open(select).await?;
     let mut st = Stream::new(resp, s.flavor);
     let result = async {
-        let (_, types) = st.next(read_header).await?.ok_or_else(|| Error::Query("la respuesta no trae encabezado".into()))?;
+        let (_, types) = st
+            .next(read_header)
+            .await?
+            .ok_or_else(|| Error::Query("la respuesta no trae encabezado".into()))?;
         let tys = types
             .iter()
-            .map(|t| parse_type(t).ok_or_else(|| Error::Query(format!("tipo no soportado en la lectura: {t}"))))
+            .map(|t| {
+                parse_type(t)
+                    .ok_or_else(|| Error::Query(format!("tipo no soportado en la lectura: {t}")))
+            })
             .collect::<Result<Vec<_>>>()?;
         if tys.len() != columns.len() {
             return Err(Error::Query("la lectura devolvió otras columnas".into()));
@@ -2081,21 +2431,49 @@ fn insert_sql(table: &str, cols: &str, plan: &[Col], types: &[String]) -> String
     )
 }
 
-pub(crate) async fn bulk_load(s: &mut ClickHouseSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &mut ClickHouseSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if spec.columns.is_empty() {
         return Err(Error::Query("la carga no tiene columnas".into()));
     }
     let cols = column_list(&spec.columns);
-    let head = s.header(&format!("SELECT {cols} FROM {}", read_from(s.flavor, &spec.table))).await?;
+    let head = s
+        .header(&format!(
+            "SELECT {cols} FROM {}",
+            read_from(s.flavor, &spec.table)
+        ))
+        .await?;
     let plan = load_plan(&head, s.flavor)?;
     let table = qualified(spec.table.schema(), &spec.table.name);
     let insert = insert_sql(&table, &cols, &plan, &head.types);
     let mut settings = s.insert_settings(spec);
-    if plan.iter().any(|c| matches!(c, Col::Input { how: Conv::Cast, .. })) {
+    if plan.iter().any(|c| {
+        matches!(
+            c,
+            Col::Input {
+                how: Conv::Cast,
+                ..
+            }
+        )
+    }) {
         // Text with an offset (`…+00:00`) in the nested zoned DateTimes.
         settings.push(("cast_string_to_date_time_mode", "best_effort".into()));
     }
-    if s.flavor == Flavor::ClickHouse && plan.iter().any(|c| matches!(c, Col::Input { send: Ty::Nullable(_), how: Conv::BestEffort { .. } })) {
+    if s.flavor == Flavor::ClickHouse
+        && plan.iter().any(|c| {
+            matches!(
+                c,
+                Col::Input {
+                    send: Ty::Nullable(_),
+                    how: Conv::BestEffort { .. }
+                }
+            )
+        })
+    {
         // The NULL guard above relies on `if` evaluating lazily (the
         // default, but a profile can turn it off).
         settings.push(("short_circuit_function_evaluation", "enable".into()));
@@ -2108,7 +2486,11 @@ pub(crate) async fn bulk_load(s: &mut ClickHouseSession, spec: &LoadSpec, source
         while let Some(batch) = source.next().await {
             for row in &batch.rows {
                 if row.len() != plan.len() {
-                    return Err(Error::Query(format!("una fila trae {} valores y la carga tiene {} columnas", row.len(), plan.len())));
+                    return Err(Error::Query(format!(
+                        "una fila trae {} valores y la carga tiene {} columnas",
+                        row.len(),
+                        plan.len()
+                    )));
                 }
                 let w = match &mut window {
                     Some(w) => w,
@@ -2116,8 +2498,13 @@ pub(crate) async fn bulk_load(s: &mut ClickHouseSession, spec: &LoadSpec, source
                 };
                 let before = w.buf.len();
                 for (i, (c, col)) in row.iter().zip(&plan).enumerate() {
-                    col.encode(c, &mut w.buf)
-                        .map_err(|e| Error::Query(format!("fila {}, columna «{}»: {e}", total + w.rows + 1, spec.columns[i])))?;
+                    col.encode(c, &mut w.buf).map_err(|e| {
+                        Error::Query(format!(
+                            "fila {}, columna «{}»: {e}",
+                            total + w.rows + 1,
+                            spec.columns[i]
+                        ))
+                    })?;
                 }
                 w.rows += 1;
                 w.bytes += (w.buf.len() - before) as u64;
@@ -2125,7 +2512,11 @@ pub(crate) async fn bulk_load(s: &mut ClickHouseSession, spec: &LoadSpec, source
                     w.flush().await?;
                 }
                 if w.rows >= max_rows || w.bytes >= max_bytes {
-                    total += window.take().expect("window").commit(Some((progress, total))).await?;
+                    total += window
+                        .take()
+                        .expect("window")
+                        .commit(Some((progress, total)))
+                        .await?;
                     progress(total);
                 }
             }
@@ -2147,8 +2538,14 @@ fn ch_session(s: &mut dyn Session) -> Option<&mut ClickHouseSession> {
     s.as_any()?.downcast_mut::<ClickHouseSession>()
 }
 
-pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Session, spec: &CopySpec, progress: Progress<'_>) -> Result<u64> {
-    let unsupported = |why: String| Error::Unsupported(format!("copia directa no disponible: {why}"));
+pub(crate) async fn copy_native(
+    source: &mut dyn Session,
+    target: &mut dyn Session,
+    spec: &CopySpec,
+    progress: Progress<'_>,
+) -> Result<u64> {
+    let unsupported =
+        |why: String| Error::Unsupported(format!("copia directa no disponible: {why}"));
     let (Some(src), Some(dst)) = (ch_session(source), ch_session(target)) else {
         return Err(unsupported("las sesiones no son de ClickHouse".into()));
     };
@@ -2156,20 +2553,41 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
         return Err(unsupported("origen y destino son motores distintos".into()));
     }
     let src_from = read_from(src.flavor, &spec.source.table);
-    let src_cols = spec.source.columns.as_deref().map_or_else(|| "*".to_string(), column_list);
-    let a = src.header(&format!("SELECT {src_cols} FROM {src_from}")).await?;
+    let src_cols = spec
+        .source
+        .columns
+        .as_deref()
+        .map_or_else(|| "*".to_string(), column_list);
+    let a = src
+        .header(&format!("SELECT {src_cols} FROM {src_from}"))
+        .await?;
     let dst_cols = column_list(&spec.target.columns);
-    let b = dst.header(&format!("SELECT {dst_cols} FROM {}", read_from(dst.flavor, &spec.target.table))).await?;
+    let b = dst
+        .header(&format!(
+            "SELECT {dst_cols} FROM {}",
+            read_from(dst.flavor, &spec.target.table)
+        ))
+        .await?;
     if a.types.len() != b.types.len() {
-        return Err(unsupported("origen y destino tienen distinta cantidad de columnas".into()));
+        return Err(unsupported(
+            "origen y destino tienen distinta cantidad de columnas".into(),
+        ));
     }
     // Types the walker doesn't know (JSON…) travel as
     // their text and the target parses them back (through `input()`).
     let mut tys = Vec::with_capacity(a.types.len());
     let (mut exprs, mut structure, mut as_text) = (Vec::new(), Vec::new(), false);
-    for (i, ((sn, st), (dn, dt))) in a.names.iter().zip(&a.types).zip(b.names.iter().zip(&b.types)).enumerate() {
+    for (i, ((sn, st), (dn, dt))) in a
+        .names
+        .iter()
+        .zip(&a.types)
+        .zip(b.names.iter().zip(&b.types))
+        .enumerate()
+    {
         if st != dt {
-            return Err(unsupported(format!("la columna «{sn}» ({st}) no tiene el mismo tipo en «{dn}» ({dt})")));
+            return Err(unsupported(format!(
+                "la columna «{sn}» ({st}) no tiene el mismo tipo en «{dn}» ({dt})"
+            )));
         }
         if variable_type(st) {
             return Err(variable_unsupported(sn, st));
@@ -2182,13 +2600,26 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
                 structure.push(format!("c{i} {st}"));
             }
             None if st.to_ascii_lowercase().contains("aggregatefunction") => {
-                return Err(unsupported(format!("la columna «{sn}» guarda estados de agregación ({st})")));
+                return Err(unsupported(format!(
+                    "la columna «{sn}» guarda estados de agregación ({st})"
+                )));
             }
             None => {
                 let nullable = super::is_nullable(st);
-                tys.push(if nullable { Ty::Nullable(Box::new(Ty::Str)) } else { Ty::Str });
+                tys.push(if nullable {
+                    Ty::Nullable(Box::new(Ty::Str))
+                } else {
+                    Ty::Str
+                });
                 exprs.push(format!("toString({q})"));
-                structure.push(format!("c{i} {}", if nullable { "Nullable(String)" } else { "String" }));
+                structure.push(format!(
+                    "c{i} {}",
+                    if nullable {
+                        "Nullable(String)"
+                    } else {
+                        "String"
+                    }
+                ));
                 as_text = true;
             }
         }
@@ -2236,7 +2667,11 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
                 w.flush().await?;
             }
             if w.rows >= max_rows || w.bytes >= max_bytes {
-                total += window.take().expect("window").commit(Some((progress, total))).await?;
+                total += window
+                    .take()
+                    .expect("window")
+                    .commit(Some((progress, total)))
+                    .await?;
                 progress(total);
             }
         }
@@ -2275,23 +2710,68 @@ mod tests {
 
     #[test]
     fn types_parse() {
-        assert_eq!(parse_type("LowCardinality(Nullable(String))"), Some(Ty::Nullable(Box::new(Ty::Str))));
-        assert_eq!(parse_type("nullable(int64)"), Some(Ty::Nullable(Box::new(Ty::Int { bytes: 8, signed: true }))));
+        assert_eq!(
+            parse_type("LowCardinality(Nullable(String))"),
+            Some(Ty::Nullable(Box::new(Ty::Str)))
+        );
+        assert_eq!(
+            parse_type("nullable(int64)"),
+            Some(Ty::Nullable(Box::new(Ty::Int {
+                bytes: 8,
+                signed: true
+            })))
+        );
         assert_eq!(parse_type("fixed_string(4)"), Some(Ty::Fixed(4)));
-        assert_eq!(parse_type("Decimal(76, 3)"), Some(Ty::Decimal { bytes: 32, scale: 3 }));
-        assert_eq!(parse_type("Decimal(10, 2)"), Some(Ty::Decimal { bytes: 8, scale: 2 }));
-        assert_eq!(parse_type("DateTime64(6, 'Europe/Madrid')"), Some(Ty::DateTime64 { scale: 6, tz: Some("Europe/Madrid".into()) }));
+        assert_eq!(
+            parse_type("Decimal(76, 3)"),
+            Some(Ty::Decimal {
+                bytes: 32,
+                scale: 3
+            })
+        );
+        assert_eq!(
+            parse_type("Decimal(10, 2)"),
+            Some(Ty::Decimal { bytes: 8, scale: 2 })
+        );
+        assert_eq!(
+            parse_type("DateTime64(6, 'Europe/Madrid')"),
+            Some(Ty::DateTime64 {
+                scale: 6,
+                tz: Some("Europe/Madrid".into())
+            })
+        );
         assert_eq!(
             parse_type(r"Enum8('c' = -2, 'a\'b' = 1)"),
-            Some(Ty::Enum { bytes: 1, values: vec![(-2, "c".into()), (1, "a'b".into())] })
+            Some(Ty::Enum {
+                bytes: 1,
+                values: vec![(-2, "c".into()), (1, "a'b".into())]
+            })
         );
         assert_eq!(
             parse_type("Tuple(p UInt8, `q r` String)"),
-            Some(Ty::Tuple(vec![(Some("p".into()), Ty::Int { bytes: 1, signed: false }), (Some("q r".into()), Ty::Str)]))
+            Some(Ty::Tuple(vec![
+                (
+                    Some("p".into()),
+                    Ty::Int {
+                        bytes: 1,
+                        signed: false
+                    }
+                ),
+                (Some("q r".into()), Ty::Str)
+            ]))
         );
-        assert_eq!(parse_type("Map(String, Array(UInt8))").map(|t| matches!(t, Ty::Map(..))), Some(true));
+        assert_eq!(
+            parse_type("Map(String, Array(UInt8))").map(|t| matches!(t, Ty::Map(..))),
+            Some(true)
+        );
         assert_eq!(parse_type("Point"), Some(point()));
-        assert_eq!(parse_type("SimpleAggregateFunction(sum, UInt64)"), Some(Ty::Int { bytes: 8, signed: false }));
+        assert_eq!(
+            parse_type("SimpleAggregateFunction(sum, UInt64)"),
+            Some(Ty::Int {
+                bytes: 8,
+                signed: false
+            })
+        );
         assert!(parse_type("JSON").is_none());
         assert!(parse_type("Dynamic").is_none());
         assert!(parse_type("Array(Variant(String, UInt8))").is_none());
@@ -2305,63 +2785,170 @@ mod tests {
         same("UInt8", Cell::Int(255));
         same("UInt32", Cell::Int(4_294_967_295));
         same("UInt64", Cell::UInt(u64::MAX));
-        same("Int128", Cell::Decimal("-170141183460469231731687303715884105728".into()));
-        same("UInt128", Cell::Decimal("340282366920938463463374607431768211455".into()));
-        same("Int256", Cell::Decimal("-57896044618658097711785492504343953926634992332820282019728792003956564819968".into()));
-        same("Int256", Cell::Decimal("57896044618658097711785492504343953926634992332820282019728792003956564819967".into()));
-        same("UInt256", Cell::Decimal("115792089237316195423570985008687907853269984665640564039457584007913129639935".into()));
+        same(
+            "Int128",
+            Cell::Decimal("-170141183460469231731687303715884105728".into()),
+        );
+        same(
+            "UInt128",
+            Cell::Decimal("340282366920938463463374607431768211455".into()),
+        );
+        same(
+            "Int256",
+            Cell::Decimal(
+                "-57896044618658097711785492504343953926634992332820282019728792003956564819968"
+                    .into(),
+            ),
+        );
+        same(
+            "Int256",
+            Cell::Decimal(
+                "57896044618658097711785492504343953926634992332820282019728792003956564819967"
+                    .into(),
+            ),
+        );
+        same(
+            "UInt256",
+            Cell::Decimal(
+                "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+                    .into(),
+            ),
+        );
         same("Int256", Cell::Decimal("-1".into()));
         same("Float64", Cell::Float(1.5e300));
         same("Float32", Cell::Float(0.5));
         same("Bool", Cell::Bool(true));
         same("Decimal(10, 2)", Cell::Decimal("-12345678.90".into()));
         same("Decimal(9, 9)", Cell::Decimal("0.000000001".into()));
-        same("Decimal(76, 10)", Cell::Decimal("-123456789012345678901234567890123456789012345678901234567890.0123456789".into()));
+        same(
+            "Decimal(76, 10)",
+            Cell::Decimal(
+                "-123456789012345678901234567890123456789012345678901234567890.0123456789".into(),
+            ),
+        );
         same("String", Cell::Text("héllo".into()));
         same("String", Cell::Bytes(vec![0xff, 0x00, 0xfe]));
         same("FixedString(4)", Cell::Text("ab".into()));
         same("FixedString(2)", Cell::Bytes(vec![0x00, 0xff]));
         same("Date", Cell::Date("2149-06-06".into()));
         same("Date32", Cell::Date("1900-01-01".into()));
-        same("DateTime", Cell::DateTimeTz("2024-02-29 23:59:59+00:00".into()));
-        same("DateTime64(3)", Cell::DateTimeTz("1969-12-31 23:59:59.999+00:00".into()));
-        same("DateTime64(9, 'UTC')", Cell::DateTimeTz("2262-04-11 23:47:16.854775807+00:00".into()));
-        same("UUID", Cell::Uuid("61f0c404-5cb3-11e7-907b-a6006ad3dba0".into()));
+        same(
+            "DateTime",
+            Cell::DateTimeTz("2024-02-29 23:59:59+00:00".into()),
+        );
+        same(
+            "DateTime64(3)",
+            Cell::DateTimeTz("1969-12-31 23:59:59.999+00:00".into()),
+        );
+        same(
+            "DateTime64(9, 'UTC')",
+            Cell::DateTimeTz("2262-04-11 23:47:16.854775807+00:00".into()),
+        );
+        same(
+            "UUID",
+            Cell::Uuid("61f0c404-5cb3-11e7-907b-a6006ad3dba0".into()),
+        );
         same("IPv4", Cell::Text("116.106.34.242".into()));
         same("IPv6", Cell::Text("2001:db8::ff00:42:8329".into()));
         same("Enum16('a' = 1, 'b' = 1000)", Cell::Text("b".into()));
         same("Nullable(Int32)", Cell::Null);
         same("Array(Nullable(Int32))", Cell::Json("[1,null,3]".into()));
-        same("Map(String, Array(UInt8))", Cell::Json(r#"{"a":[1,2]}"#.into()));
-        same("Tuple(p UInt8, q String)", Cell::Json(r#"{"p":1,"q":"x"}"#.into()));
-        same("Tuple(UInt8, Decimal(5, 2))", Cell::Json(r#"[1,"2.50"]"#.into()));
-        same("Array(DateTime)", Cell::Json(r#"["2024-01-01 10:00:00+00:00"]"#.into()));
-        same("MultiPolygon", Cell::Json("[[[[1.0,2.0],[3.0,4.0]]]]".into()));
+        same(
+            "Map(String, Array(UInt8))",
+            Cell::Json(r#"{"a":[1,2]}"#.into()),
+        );
+        same(
+            "Tuple(p UInt8, q String)",
+            Cell::Json(r#"{"p":1,"q":"x"}"#.into()),
+        );
+        same(
+            "Tuple(UInt8, Decimal(5, 2))",
+            Cell::Json(r#"[1,"2.50"]"#.into()),
+        );
+        same(
+            "Array(DateTime)",
+            Cell::Json(r#"["2024-01-01 10:00:00+00:00"]"#.into()),
+        );
+        same(
+            "MultiPolygon",
+            Cell::Json("[[[[1.0,2.0],[3.0,4.0]]]]".into()),
+        );
     }
 
     #[test]
     fn values_convert_to_the_target_type() {
-        assert_eq!(round("DateTime", Cell::DateTimeTz("2024-01-01 12:00:00+02:00".into())), Cell::DateTimeTz("2024-01-01 10:00:00+00:00".into()));
-        assert_eq!(round("DateTime", Cell::DateTime("2024-01-01T12:00:00".into())), Cell::DateTimeTz("2024-01-01 12:00:00+00:00".into()));
-        assert_eq!(round("DateTime64(3)", Cell::Text("2024-01-01 12:00:00.123000Z".into())), Cell::DateTimeTz("2024-01-01 12:00:00.123+00:00".into()));
-        assert_eq!(round("Date", Cell::DateTimeTz("2024-05-06 00:00:00-05:00".into())), Cell::Date("2024-05-06".into()));
-        assert_eq!(round("Decimal(10, 2)", Cell::Decimal("1.005".into())), Cell::Decimal("1.01".into()));
-        assert_eq!(round("Decimal(10, 2)", Cell::Decimal("-1.004".into())), Cell::Decimal("-1.00".into()));
-        assert_eq!(round("Decimal(10, 2)", Cell::Decimal("9.999".into())), Cell::Decimal("10.00".into()));
-        assert_eq!(round("Decimal(10, 2)", Cell::Float(2.5)), Cell::Decimal("2.50".into()));
-        assert_eq!(round("Decimal(10, 2)", Cell::Int(7)), Cell::Decimal("7.00".into()));
+        assert_eq!(
+            round(
+                "DateTime",
+                Cell::DateTimeTz("2024-01-01 12:00:00+02:00".into())
+            ),
+            Cell::DateTimeTz("2024-01-01 10:00:00+00:00".into())
+        );
+        assert_eq!(
+            round("DateTime", Cell::DateTime("2024-01-01T12:00:00".into())),
+            Cell::DateTimeTz("2024-01-01 12:00:00+00:00".into())
+        );
+        assert_eq!(
+            round(
+                "DateTime64(3)",
+                Cell::Text("2024-01-01 12:00:00.123000Z".into())
+            ),
+            Cell::DateTimeTz("2024-01-01 12:00:00.123+00:00".into())
+        );
+        assert_eq!(
+            round("Date", Cell::DateTimeTz("2024-05-06 00:00:00-05:00".into())),
+            Cell::Date("2024-05-06".into())
+        );
+        assert_eq!(
+            round("Decimal(10, 2)", Cell::Decimal("1.005".into())),
+            Cell::Decimal("1.01".into())
+        );
+        assert_eq!(
+            round("Decimal(10, 2)", Cell::Decimal("-1.004".into())),
+            Cell::Decimal("-1.00".into())
+        );
+        assert_eq!(
+            round("Decimal(10, 2)", Cell::Decimal("9.999".into())),
+            Cell::Decimal("10.00".into())
+        );
+        assert_eq!(
+            round("Decimal(10, 2)", Cell::Float(2.5)),
+            Cell::Decimal("2.50".into())
+        );
+        assert_eq!(
+            round("Decimal(10, 2)", Cell::Int(7)),
+            Cell::Decimal("7.00".into())
+        );
         assert_eq!(round("Int32", Cell::Text("42".into())), Cell::Int(42));
         assert_eq!(round("Int32", Cell::Float(3.0)), Cell::Int(3));
         assert_eq!(round("UInt8", Cell::Bool(true)), Cell::Int(1));
         assert_eq!(round("Int128", Cell::Int(-5)), Cell::Decimal("-5".into()));
         assert_eq!(round("String", Cell::Int(5)), Cell::Text("5".into()));
-        assert_eq!(round("String", Cell::Json("{\"a\":1}".into())), Cell::Text("{\"a\":1}".into()));
-        assert_eq!(round("UUID", Cell::Bytes((0u8..16).collect())), Cell::Uuid("00010203-0405-0607-0809-0a0b0c0d0e0f".into()));
-        assert_eq!(round("IPv6", Cell::Text("1.2.3.4".into())), Cell::Text("::ffff:1.2.3.4".into()));
-        assert_eq!(round("Enum8('a' = 1)", Cell::Int(1)), Cell::Text("a".into()));
+        assert_eq!(
+            round("String", Cell::Json("{\"a\":1}".into())),
+            Cell::Text("{\"a\":1}".into())
+        );
+        assert_eq!(
+            round("UUID", Cell::Bytes((0u8..16).collect())),
+            Cell::Uuid("00010203-0405-0607-0809-0a0b0c0d0e0f".into())
+        );
+        assert_eq!(
+            round("IPv6", Cell::Text("1.2.3.4".into())),
+            Cell::Text("::ffff:1.2.3.4".into())
+        );
+        assert_eq!(
+            round("Enum8('a' = 1)", Cell::Int(1)),
+            Cell::Text("a".into())
+        );
         assert_eq!(round("Bool", Cell::Text("false".into())), Cell::Bool(false));
-        assert_eq!(round("Float64", Cell::Decimal("0.1".into())), Cell::Float(0.1));
-        assert_eq!(round("Map(UInt8, String)", Cell::Json(r#"[[1,"x"]]"#.into())), Cell::Json(r#"{"1":"x"}"#.into()));
+        assert_eq!(
+            round("Float64", Cell::Decimal("0.1".into())),
+            Cell::Float(0.1)
+        );
+        assert_eq!(
+            round("Map(UInt8, String)", Cell::Json(r#"[[1,"x"]]"#.into())),
+            Cell::Json(r#"{"1":"x"}"#.into())
+        );
     }
 
     #[test]
@@ -2369,7 +2956,14 @@ mod tests {
         let enc = |ty: &str, c: Cell| encode(&parse_type(ty).unwrap(), Sc::of(&c), &mut Vec::new());
         assert!(enc("Int8", Cell::Int(128)).is_err());
         assert!(enc("UInt64", Cell::Int(-1)).is_err());
-        assert!(enc("Int256", Cell::Decimal("57896044618658097711785492504343953926634992332820282019728792003956564819968".into())).is_err());
+        assert!(enc(
+            "Int256",
+            Cell::Decimal(
+                "57896044618658097711785492504343953926634992332820282019728792003956564819968"
+                    .into()
+            )
+        )
+        .is_err());
         assert!(enc("Int32", Cell::Null).is_err());
         assert!(enc("Decimal(4, 2)", Cell::Decimal("100.00".into())).is_ok());
         assert!(enc("Decimal(4, 2)", Cell::Decimal("1e5".into())).is_err());
@@ -2395,7 +2989,13 @@ mod tests {
     fn plans_route_zoned_and_unknown_columns_through_input() {
         let head = Header {
             names: vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()],
-            types: vec!["Int32".into(), "DateTime('Europe/Madrid')".into(), "JSON".into(), "DateTime".into(), "Nullable(DateTime('Asia/Tokyo'))".into()],
+            types: vec![
+                "Int32".into(),
+                "DateTime('Europe/Madrid')".into(),
+                "JSON".into(),
+                "DateTime".into(),
+                "Nullable(DateTime('Asia/Tokyo'))".into(),
+            ],
             server_utc: true,
         };
         let plan = load_plan(&head, Flavor::ClickHouse).unwrap();
@@ -2406,24 +3006,60 @@ mod tests {
              if(isNull(c4), NULL, parseDateTime64BestEffort(assumeNotNull(c4), 0, 'Asia/Tokyo')) \
              FROM input('c0 Int32, c1 String, c2 String, c3 DateTime, c4 Nullable(String)') FORMAT RowBinary"
         );
-        let head = Header { names: vec!["a".into()], types: vec!["Nullable(DateTime64(3))".into()], server_utc: false };
+        let head = Header {
+            names: vec!["a".into()],
+            types: vec!["Nullable(DateTime64(3))".into()],
+            server_utc: false,
+        };
         let plan = load_plan(&head, Flavor::ClickHouse).unwrap();
-        assert!(insert_sql("t", "a", &plan, &head.types).contains("parseDateTime64BestEffort(assumeNotNull(c0), 3)"));
-        let head = Header { names: vec!["a".into()], types: vec!["Int8".into()], server_utc: false };
-        assert_eq!(insert_sql("t", "a", &load_plan(&head, Flavor::ClickHouse).unwrap(), &head.types), "INSERT INTO t (a) FORMAT RowBinary");
+        assert!(insert_sql("t", "a", &plan, &head.types)
+            .contains("parseDateTime64BestEffort(assumeNotNull(c0), 3)"));
+        let head = Header {
+            names: vec!["a".into()],
+            types: vec!["Int8".into()],
+            server_utc: false,
+        };
+        assert_eq!(
+            insert_sql(
+                "t",
+                "a",
+                &load_plan(&head, Flavor::ClickHouse).unwrap(),
+                &head.types
+            ),
+            "INSERT INTO t (a) FORMAT RowBinary"
+        );
     }
 
     /// Dynamic and Variant can't be carried as text without losing NULL and
     /// each value's subtype: Unsupported, never silent.
     #[test]
     fn dynamic_and_variant_columns_are_unsupported() {
-        for t in ["Dynamic", "Dynamic(max_types=8)", "Variant(String, UInt64)", "Array(Variant(String, UInt8))", "Tuple(a Int8, `b c` Dynamic)", "Map(String, Dynamic)"] {
+        for t in [
+            "Dynamic",
+            "Dynamic(max_types=8)",
+            "Variant(String, UInt64)",
+            "Array(Variant(String, UInt8))",
+            "Tuple(a Int8, `b c` Dynamic)",
+            "Map(String, Dynamic)",
+        ] {
             assert!(variable_type(t), "{t}");
-            let head = Header { names: vec!["v".into()], types: vec![t.into()], server_utc: true };
-            let Err(Error::Unsupported(m)) = load_plan(&head, Flavor::ClickHouse) else { panic!("{t}") };
+            let head = Header {
+                names: vec!["v".into()],
+                types: vec![t.into()],
+                server_utc: true,
+            };
+            let Err(Error::Unsupported(m)) = load_plan(&head, Flavor::ClickHouse) else {
+                panic!("{t}")
+            };
             assert!(m.contains("«v»") && m.contains("Dynamic o Variant"), "{m}");
         }
-        for t in ["String", "JSON", "Tuple(dynamic String, variant Int8)", "Enum8('Dynamic' = 1)", "Nullable(DateTime('Asia/Tokyo'))"] {
+        for t in [
+            "String",
+            "JSON",
+            "Tuple(dynamic String, variant Int8)",
+            "Enum8('Dynamic' = 1)",
+            "Nullable(DateTime('Asia/Tokyo'))",
+        ] {
             assert!(!variable_type(t), "{t}");
         }
     }
@@ -2431,20 +3067,47 @@ mod tests {
     /// Messages name types as ClickHouse spells them, not Rust's Debug.
     #[test]
     fn nested_errors_speak_the_users_types() {
-        let head = Header { names: vec!["a".into()], types: vec!["Array(DateTime('Asia/Tokyo'))".into()], server_utc: true };
+        let head = Header {
+            names: vec!["a".into()],
+            types: vec!["Array(DateTime('Asia/Tokyo'))".into()],
+            server_utc: true,
+        };
         let plan = load_plan(&head, Flavor::ClickHouse).unwrap();
-        let e = plan[0].encode(&Cell::Json("[null]".into()), &mut Vec::new()).unwrap_err();
-        assert_eq!(e, "null en un elemento de tipo DateTime('Asia/Tokyo') que no admite nulos");
-        let e = plan[0].encode(&Cell::Json("[[1]]".into()), &mut Vec::new()).unwrap_err();
+        let e = plan[0]
+            .encode(&Cell::Json("[null]".into()), &mut Vec::new())
+            .unwrap_err();
+        assert_eq!(
+            e,
+            "null en un elemento de tipo DateTime('Asia/Tokyo') que no admite nulos"
+        );
+        let e = plan[0]
+            .encode(&Cell::Json("[[1]]".into()), &mut Vec::new())
+            .unwrap_err();
         assert!(!e.contains("DtText") && !e.contains("Some("), "{e}");
-        let e = encode(&parse_type("Array(Int8)").unwrap(), Sc::S("nope".into()), &mut Vec::new()).unwrap_err();
+        let e = encode(
+            &parse_type("Array(Int8)").unwrap(),
+            Sc::S("nope".into()),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(!e.contains("S(") && !e.contains("Int {"), "{e}");
         let t = parse_type("Tuple(x Int8, y Nullable(Int8))").unwrap();
-        assert_eq!(encode(&t, Sc::S(r#"{"y":1}"#.into()), &mut Vec::new()).unwrap_err(), "falta el elemento «x» de Tuple(`x` Int8, `y` Nullable(Int8))");
+        assert_eq!(
+            encode(&t, Sc::S(r#"{"y":1}"#.into()), &mut Vec::new()).unwrap_err(),
+            "falta el elemento «x» de Tuple(`x` Int8, `y` Nullable(Int8))"
+        );
         let mut out = Vec::new();
         encode(&t, Sc::S(r#"{"x":1}"#.into()), &mut out).unwrap();
         assert_eq!(out, [1, 1]);
-        let e = encode(&Ty::Int { bytes: 1, signed: true }, Sc::S("x".into()), &mut Vec::new()).unwrap_err();
+        let e = encode(
+            &Ty::Int {
+                bytes: 1,
+                signed: true,
+            },
+            Sc::S("x".into()),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(e.contains("«x»"), "{e}");
     }
 
@@ -2452,13 +3115,34 @@ mod tests {
     /// runs over the nested column too and throws on them.
     #[test]
     fn nullable_zoned_datetimes_skip_null_slots() {
-        let head = Header { names: vec!["d".into()], types: vec!["Nullable(DateTime('Asia/Tokyo'))".into()], server_utc: true };
-        let sql = insert_sql("t", "d", &load_plan(&head, Flavor::ClickHouse).unwrap(), &head.types);
+        let head = Header {
+            names: vec!["d".into()],
+            types: vec!["Nullable(DateTime('Asia/Tokyo'))".into()],
+            server_utc: true,
+        };
+        let sql = insert_sql(
+            "t",
+            "d",
+            &load_plan(&head, Flavor::ClickHouse).unwrap(),
+            &head.types,
+        );
         assert!(sql.contains("if(isNull(c0), NULL, parseDateTime64BestEffort(assumeNotNull(c0), 0, 'Asia/Tokyo'))"), "{sql}");
         assert!(!sql.contains("OrNull"));
-        let head = Header { names: vec!["d".into()], types: vec!["DateTime('Asia/Tokyo')".into()], server_utc: true };
-        let sql = insert_sql("t", "d", &load_plan(&head, Flavor::ClickHouse).unwrap(), &head.types);
-        assert!(sql.contains("SELECT parseDateTime64BestEffort(c0, 0, 'Asia/Tokyo')"), "{sql}");
+        let head = Header {
+            names: vec!["d".into()],
+            types: vec!["DateTime('Asia/Tokyo')".into()],
+            server_utc: true,
+        };
+        let sql = insert_sql(
+            "t",
+            "d",
+            &load_plan(&head, Flavor::ClickHouse).unwrap(),
+            &head.types,
+        );
+        assert!(
+            sql.contains("SELECT parseDateTime64BestEffort(c0, 0, 'Asia/Tokyo')"),
+            "{sql}"
+        );
     }
 
     /// A NULL into a non-nullable column that goes through `input()` is an
@@ -2467,12 +3151,19 @@ mod tests {
     fn nulls_into_non_nullable_input_columns_are_errors() {
         let head = Header {
             names: vec!["d".into(), "j".into(), "n".into()],
-            types: vec!["DateTime('Asia/Tokyo')".into(), "JSON".into(), "Nullable(DateTime('Asia/Tokyo'))".into()],
+            types: vec![
+                "DateTime('Asia/Tokyo')".into(),
+                "JSON".into(),
+                "Nullable(DateTime('Asia/Tokyo'))".into(),
+            ],
             server_utc: true,
         };
         let plan = load_plan(&head, Flavor::ClickHouse).unwrap();
         for c in &plan[..2] {
-            assert_eq!(c.encode(&Cell::Null, &mut Vec::new()).unwrap_err(), "NULL en una columna que no admite nulos");
+            assert_eq!(
+                c.encode(&Cell::Null, &mut Vec::new()).unwrap_err(),
+                "NULL en una columna que no admite nulos"
+            );
         }
         assert!(plan[2].encode(&Cell::Null, &mut Vec::new()).is_ok());
     }
@@ -2487,7 +3178,11 @@ mod tests {
             "Map(UInt8, Nullable(DateTime64(3, 'Asia/Tokyo')))".into(),
             "Tuple(a DateTime('UTC'), `b c` DateTime)".into(),
         ];
-        let head = Header { names: vec!["i".into(), "a".into(), "m".into(), "t".into()], types, server_utc: false };
+        let head = Header {
+            names: vec!["i".into(), "a".into(), "m".into(), "t".into()],
+            types,
+            server_utc: false,
+        };
         let plan = load_plan(&head, Flavor::ClickHouse).unwrap();
         let sql = insert_sql("t", "i, a, m, t", &plan, &head.types);
         assert_eq!(
@@ -2496,9 +3191,19 @@ mod tests {
         );
         // Leaves are checked on the client.
         let mut out = Vec::new();
-        plan[1].encode(&Cell::Json(r#"["2024-01-01 10:00:00+00:00","2024-01-01 10:00:00"]"#.into()), &mut out).unwrap();
-        assert!(plan[1].encode(&Cell::Json(r#"["garbage"]"#.into()), &mut Vec::new()).is_err());
-        assert!(matches!(load_plan(&head, Flavor::Timeplus), Err(Error::Unsupported(_))));
+        plan[1]
+            .encode(
+                &Cell::Json(r#"["2024-01-01 10:00:00+00:00","2024-01-01 10:00:00"]"#.into()),
+                &mut out,
+            )
+            .unwrap();
+        assert!(plan[1]
+            .encode(&Cell::Json(r#"["garbage"]"#.into()), &mut Vec::new())
+            .is_err());
+        assert!(matches!(
+            load_plan(&head, Flavor::Timeplus),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -2515,26 +3220,66 @@ mod tests {
     fn nested_values_are_lossless() {
         let t = parse_type("Map(String, UInt8)").unwrap();
         let mut out = Vec::new();
-        encode(&t, Sc::of(&Cell::Json(r#"{"b":1,"a":2,"b":3}"#.into())), &mut out).unwrap();
+        encode(
+            &t,
+            Sc::of(&Cell::Json(r#"{"b":1,"a":2,"b":3}"#.into())),
+            &mut out,
+        )
+        .unwrap();
         assert_eq!(out, [3, 1, b'b', 1, 1, b'a', 2, 1, b'b', 3]);
-        assert_eq!(read_cell(&mut Rd::new(&out), &t).unwrap(), Cell::Json(r#"{"b":1,"a":2,"b":3}"#.into()));
-        same("Array(Map(String, Array(Int8)))", Cell::Json(r#"[{"z":[1],"a":[],"z":[-1]}]"#.into()));
-        same("Array(Int128)", Cell::Json(r#"["-170141183460469231731687303715884105728"]"#.into()));
-        same("Tuple(z UInt8, a String)", Cell::Json(r#"{"z":1,"a":"x"}"#.into()));
-        assert_eq!(round("Array(Decimal(38, 20))", Cell::Json("[12345678901234567.12345678901234567891]".into())), Cell::Json(r#"["12345678901234567.12345678901234567891"]"#.into()));
-        assert!(encode(&parse_type("Tuple(a UInt8)").unwrap(), Sc::of(&Cell::Json(r#"{"a":1,"x":2}"#.into())), &mut Vec::new()).is_err());
+        assert_eq!(
+            read_cell(&mut Rd::new(&out), &t).unwrap(),
+            Cell::Json(r#"{"b":1,"a":2,"b":3}"#.into())
+        );
+        same(
+            "Array(Map(String, Array(Int8)))",
+            Cell::Json(r#"[{"z":[1],"a":[],"z":[-1]}]"#.into()),
+        );
+        same(
+            "Array(Int128)",
+            Cell::Json(r#"["-170141183460469231731687303715884105728"]"#.into()),
+        );
+        same(
+            "Tuple(z UInt8, a String)",
+            Cell::Json(r#"{"z":1,"a":"x"}"#.into()),
+        );
+        assert_eq!(
+            round(
+                "Array(Decimal(38, 20))",
+                Cell::Json("[12345678901234567.12345678901234567891]".into())
+            ),
+            Cell::Json(r#"["12345678901234567.12345678901234567891"]"#.into())
+        );
+        assert!(encode(
+            &parse_type("Tuple(a UInt8)").unwrap(),
+            Sc::of(&Cell::Json(r#"{"a":1,"x":2}"#.into())),
+            &mut Vec::new()
+        )
+        .is_err());
         let t = parse_type("Array(String)").unwrap();
         let bytes = [1u8, 3, 0xff, 0x00, 0xfe];
-        assert!(matches!(read_cell(&mut Rd::new(&bytes), &t), Err(Short::Unsupported(_))));
+        assert!(matches!(
+            read_cell(&mut Rd::new(&bytes), &t),
+            Err(Short::Unsupported(_))
+        ));
         let t = parse_type("Map(String, UInt8)").unwrap();
-        assert!(matches!(read_cell(&mut Rd::new(&[1, 1, 0xff, 7]), &t), Err(Short::Unsupported(_))));
+        assert!(matches!(
+            read_cell(&mut Rd::new(&[1, 1, 0xff, 7]), &t),
+            Err(Short::Unsupported(_))
+        ));
     }
 
     #[test]
     fn json_parser_keeps_order_and_spelling() {
-        let j = parse_json(r#" {"b": [1, -2.50e3, true, null, "\u00e9\""], "a": {}, "b": 1e400} "#).unwrap();
-        assert_eq!(j.text(), r#"{"b":[1,-2.50e3,true,null,"é\""],"a":{},"b":1e400}"#);
-        for bad in ["", "{", "[1,]", "{\"a\"}", "tru", "1 2", "\"x", "[01]", "[1.]", "[-]", "[1e]", "[.5]"] {
+        let j = parse_json(r#" {"b": [1, -2.50e3, true, null, "\u00e9\""], "a": {}, "b": 1e400} "#)
+            .unwrap();
+        assert_eq!(
+            j.text(),
+            r#"{"b":[1,-2.50e3,true,null,"é\""],"a":{},"b":1e400}"#
+        );
+        for bad in [
+            "", "{", "[1,]", "{\"a\"}", "tru", "1 2", "\"x", "[01]", "[1.]", "[-]", "[1e]", "[.5]",
+        ] {
             assert!(parse_json(bad).is_err(), "{bad}");
         }
     }
@@ -2544,11 +3289,19 @@ mod tests {
     #[test]
     fn error_bodies_keep_only_the_exception() {
         let mut body = vec![0xffu8; 100_000];
-        body.extend_from_slice(b"Code: 395. DB::Exception: boom. (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO)\n");
-        assert_eq!(exception_text(&body, None), "Code: 395. DB::Exception: boom. (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO)");
+        body.extend_from_slice(
+            b"Code: 395. DB::Exception: boom. (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO)\n",
+        );
+        assert_eq!(
+            exception_text(&body, None),
+            "Code: 395. DB::Exception: boom. (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO)"
+        );
         let mut body = b"\x01\x02Code: 1 in data".to_vec();
         body.extend_from_slice(b"\r\n__exception__\r\nabcdef\r\nCode: 395. DB::Exception: boom\r\n30 abcdef\r\n__exception__\r\n");
-        assert_eq!(exception_text(&body, Some("abcdef")), "Code: 395. DB::Exception: boom");
+        assert_eq!(
+            exception_text(&body, Some("abcdef")),
+            "Code: 395. DB::Exception: boom"
+        );
         assert_eq!(exception_text(&[0xff; 10_000], None), "");
         assert_eq!(exception_text(b"Syntax error", None), "Syntax error");
     }
@@ -2564,12 +3317,16 @@ mod tests {
             let mut got = Vec::new();
             let mut buf = [0u8; 65536];
             loop {
-                match tokio::time::timeout(std::time::Duration::from_secs(5), sock.read(&mut buf)).await {
+                match tokio::time::timeout(std::time::Duration::from_secs(5), sock.read(&mut buf))
+                    .await
+                {
                     Ok(Ok(n)) if n > 0 => got.extend_from_slice(&buf[..n]),
                     _ => return (got, false),
                 }
                 if got.ends_with(b"\r\n0\r\n\r\n") {
-                    let _ = sock.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n").await;
+                    let _ = sock
+                        .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+                        .await;
                     return (got, true);
                 }
             }
@@ -2591,7 +3348,11 @@ mod tests {
             }
             drop(w);
             let (got, finished) = server.await.unwrap();
-            assert!(!finished && !got.ends_with(b"\r\n0\r\n\r\n"), "the body ended cleanly ({} bytes)", got.len());
+            assert!(
+                !finished && !got.ends_with(b"\r\n0\r\n\r\n"),
+                "the body ended cleanly ({} bytes)",
+                got.len()
+            );
         }
         // Committed, the body does end.
         let (url, server) = recorder().await;
@@ -2628,7 +3389,9 @@ mod tests {
             // The server takes its time to write the part, then commits.
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             c.store(true, SeqCst);
-            let _ = sock.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n").await;
+            let _ = sock
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+                .await;
         });
         let client = reqwest::Client::new();
         let reported = AtomicU64::new(0);
@@ -2641,7 +3404,10 @@ mod tests {
             _ = body_rx => {}
         }
         // The commit's future is dropped (a cancel) right after the body ended.
-        assert!(committed.load(SeqCst), "the window committed after the load returned");
+        assert!(
+            committed.load(SeqCst),
+            "the window committed after the load returned"
+        );
         assert_eq!(reported.load(SeqCst), 13);
     }
 
@@ -2665,14 +3431,40 @@ mod tests {
         ] {
             assert!(parse_datetime(bad).is_none(), "{bad}");
             let mut out = Vec::new();
-            assert!(encode(&Ty::DateTime { tz: Some("UTC".into()) }, Sc::S(Cow::Borrowed(bad)), &mut out).is_err(), "{bad}");
-            let zoned = Ty::Array(Box::new(Ty::Nullable(Box::new(Ty::DtText(Box::new(Ty::DateTime { tz: Some("Asia/Tokyo".into()) }))))));
+            assert!(
+                encode(
+                    &Ty::DateTime {
+                        tz: Some("UTC".into())
+                    },
+                    Sc::S(Cow::Borrowed(bad)),
+                    &mut out
+                )
+                .is_err(),
+                "{bad}"
+            );
+            let zoned = Ty::Array(Box::new(Ty::Nullable(Box::new(Ty::DtText(Box::new(
+                Ty::DateTime {
+                    tz: Some("Asia/Tokyo".into()),
+                },
+            ))))));
             let cell = format!("[\"{bad}\", null]");
-            assert!(encode(&zoned, Sc::S(Cow::Borrowed(&cell)), &mut Vec::new()).is_err(), "{bad}");
+            assert!(
+                encode(&zoned, Sc::S(Cow::Borrowed(&cell)), &mut Vec::new()).is_err(),
+                "{bad}"
+            );
         }
-        assert_eq!(parse_datetime("2024-02-29 23:59:59"), Some((days_from_civil(2024, 2, 29) * 86_400 + 86_399, 0, None)));
-        assert_eq!(parse_datetime("2000-02-29").map(|p| p.0), Some(days_from_civil(2000, 2, 29) * 86_400));
-        assert_eq!(parse_datetime("2024-01-01 00:00:00.123456789000").map(|p| p.1), Some(123_456_789));
+        assert_eq!(
+            parse_datetime("2024-02-29 23:59:59"),
+            Some((days_from_civil(2024, 2, 29) * 86_400 + 86_399, 0, None))
+        );
+        assert_eq!(
+            parse_datetime("2000-02-29").map(|p| p.0),
+            Some(days_from_civil(2000, 2, 29) * 86_400)
+        );
+        assert_eq!(
+            parse_datetime("2024-01-01 00:00:00.123456789000").map(|p| p.1),
+            Some(123_456_789)
+        );
     }
 
     /// A part the column can't hold (a time of day into a Date, fractions
@@ -2680,7 +3472,13 @@ mod tests {
     /// zero, never dropped; a zero part still loads.
     #[test]
     fn date_time_parts_the_column_cant_hold_are_refused() {
-        let enc = |ty: &str, s: &str| encode(&parse_type(ty).unwrap(), Sc::S(Cow::Borrowed(s)), &mut Vec::new());
+        let enc = |ty: &str, s: &str| {
+            encode(
+                &parse_type(ty).unwrap(),
+                Sc::S(Cow::Borrowed(s)),
+                &mut Vec::new(),
+            )
+        };
         for (ty, bad) in [
             ("Date", "2024-05-06 23:00:00"),
             ("Date", "2024-05-06 00:00:00.5"),
@@ -2697,9 +3495,22 @@ mod tests {
             assert!(e.contains("perder"), "{ty} {bad}: {e}");
         }
         // Zoned columns (text checked here, parsed by the server).
-        let zoned = Ty::DtText(Box::new(Ty::DateTime64 { scale: 3, tz: Some("Asia/Tokyo".into()) }));
-        assert!(encode(&zoned, Sc::S(Cow::Borrowed("2024-01-01 00:00:00.0001")), &mut Vec::new()).is_err());
-        assert!(encode(&zoned, Sc::S(Cow::Borrowed("2024-01-01 00:00:00.1230")), &mut Vec::new()).is_ok());
+        let zoned = Ty::DtText(Box::new(Ty::DateTime64 {
+            scale: 3,
+            tz: Some("Asia/Tokyo".into()),
+        }));
+        assert!(encode(
+            &zoned,
+            Sc::S(Cow::Borrowed("2024-01-01 00:00:00.0001")),
+            &mut Vec::new()
+        )
+        .is_err());
+        assert!(encode(
+            &zoned,
+            Sc::S(Cow::Borrowed("2024-01-01 00:00:00.1230")),
+            &mut Vec::new()
+        )
+        .is_ok());
         for (ty, ok) in [
             ("Date", "2024-05-06"),
             ("Date", "2024-05-06 00:00:00.000"),
@@ -2718,9 +3529,20 @@ mod tests {
     fn quoted_names_with_parentheses() {
         assert!(variable_type("Tuple(`a(` Variant(String, UInt64))"));
         assert!(variable_type("Tuple(`a(` Dynamic)"));
-        assert!(variable_type("Array(Tuple(`x)(` Nullable(String), `b(` Variant(String, UInt64)))"));
+        assert!(variable_type(
+            "Array(Tuple(`x)(` Nullable(String), `b(` Variant(String, UInt64)))"
+        ));
         assert!(!variable_type("Tuple(`a(` String, `variant` UInt8)"));
-        assert_eq!(parse_type("Tuple(`a(` UInt8)"), Some(Ty::Tuple(vec![(Some("a(".into()), Ty::Int { bytes: 1, signed: false })])));
+        assert_eq!(
+            parse_type("Tuple(`a(` UInt8)"),
+            Some(Ty::Tuple(vec![(
+                Some("a(".into()),
+                Ty::Int {
+                    bytes: 1,
+                    signed: false
+                }
+            )]))
+        );
     }
 
     #[test]

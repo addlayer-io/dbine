@@ -19,7 +19,10 @@ fn display(t: &TableSchema) -> String {
 }
 
 fn key_cols(t: &TableSchema) -> Vec<String> {
-    t.primary_key.as_ref().map(|k| k.columns.iter().map(|c| c.to_lowercase()).collect()).unwrap_or_default()
+    t.primary_key
+        .as_ref()
+        .map(|k| k.columns.iter().map(|c| c.to_lowercase()).collect())
+        .unwrap_or_default()
 }
 
 pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
@@ -98,7 +101,12 @@ mod tests {
     use dbine_driver::{IndexDef, KeyDef};
 
     fn col(name: &str, ty: &str, nullable: bool) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), nullable, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable,
+            ..Default::default()
+        }
     }
 
     fn table(name: &str, cols: Vec<ColumnDef>) -> TableSchema {
@@ -107,21 +115,45 @@ mod tests {
             schema: Some("DBINE".into()),
             name: name.into(),
             columns: cols,
-            primary_key: Some(KeyDef { name: Some("PK".into()), columns: vec!["ID".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("PK".into()),
+                columns: vec!["ID".into()],
+            }),
             ..Default::default()
         }
     }
 
     fn ix(name: &str, col: &str) -> IndexDef {
-        IndexDef { name: name.into(), columns: vec![col.into()], unique: false, kind: Some("global".into()), filter: None, ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            columns: vec![col.into()],
+            unique: false,
+            kind: Some("global".into()),
+            filter: None,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn alter_adds_drops_and_reindexes() {
-        let mut old = table("CLIENTES", vec![col("ID", "INTEGER", false), col("NOMBRE", "VARCHAR(10)", true), col("BAJA", "DATE", true)]);
+        let mut old = table(
+            "CLIENTES",
+            vec![
+                col("ID", "INTEGER", false),
+                col("NOMBRE", "VARCHAR(10)", true),
+                col("BAJA", "DATE", true),
+            ],
+        );
         old.indexes.push(ix("IX_NOMBRE", "NOMBRE"));
         old.indexes.push(ix("IX_BAJA", "BAJA"));
-        let mut new = table("CLIENTES", vec![col("ID", "INTEGER", false), col("NOMBRE", "VARCHAR(20)", true), col("EMAIL", "VARCHAR", false)]);
+        let mut new = table(
+            "CLIENTES",
+            vec![
+                col("ID", "INTEGER", false),
+                col("NOMBRE", "VARCHAR(20)", true),
+                col("EMAIL", "VARCHAR", false),
+            ],
+        );
         new.columns[2].options.insert("family".into(), "CF1".into());
         new.columns[2].default_value = Some("'-'".into());
         new.indexes.push(ix("IX_NOMBRE", "EMAIL"));
@@ -137,21 +169,39 @@ mod tests {
             ]
         );
         let w = s.warnings.join("\n");
-        assert!(w.contains("DBINE.CLIENTES.EMAIL se agrega aceptando NULL"), "{w}");
-        assert!(w.contains("DBINE.CLIENTES.NOMBRE: este motor no modifica columnas"), "{w}");
+        assert!(
+            w.contains("DBINE.CLIENTES.EMAIL se agrega aceptando NULL"),
+            "{w}"
+        );
+        assert!(
+            w.contains("DBINE.CLIENTES.NOMBRE: este motor no modifica columnas"),
+            "{w}"
+        );
         assert!(w.contains("Se borra la columna DBINE.CLIENTES.BAJA"), "{w}");
     }
 
     #[test]
     fn primary_key_stays() {
-        let old = table("T", vec![col("ID", "INTEGER", false), col("B", "INTEGER", true)]);
+        let old = table(
+            "T",
+            vec![col("ID", "INTEGER", false), col("B", "INTEGER", true)],
+        );
         let mut new = table("T", vec![col("B", "INTEGER", true)]);
-        new.primary_key = Some(KeyDef { name: Some("PK".into()), columns: vec!["B".into()] });
+        new.primary_key = Some(KeyDef {
+            name: Some("PK".into()),
+            columns: vec!["B".into()],
+        });
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert!(s.statements.is_empty(), "{:?}", s.statements);
         let w = s.warnings.join("\n");
-        assert!(w.contains("La clave primaria de DBINE.T no se cambia"), "{w}");
-        assert!(w.contains("DBINE.T.ID es parte de la clave primaria"), "{w}");
+        assert!(
+            w.contains("La clave primaria de DBINE.T no se cambia"),
+            "{w}"
+        );
+        assert!(
+            w.contains("DBINE.T.ID es parte de la clave primaria"),
+            "{w}"
+        );
     }
 
     #[test]
@@ -159,7 +209,11 @@ mod tests {
         let mut a = table("NUEVA", vec![col("ID", "INTEGER", false)]);
         a.indexes.push(ix("IX_ID", "ID"));
         let b = table("VIEJA", vec![col("ID", "INTEGER", false)]);
-        let s = sync_script(&[TableChange::Create { table: a }, TableChange::Drop { table: b }]).unwrap();
+        let s = sync_script(&[
+            TableChange::Create { table: a },
+            TableChange::Drop { table: b },
+        ])
+        .unwrap();
         assert_eq!(
             s.statements,
             vec![

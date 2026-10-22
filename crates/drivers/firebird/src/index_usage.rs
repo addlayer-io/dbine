@@ -23,7 +23,13 @@ pub const NOTE: &str = "Firebird no registra cuántas veces se usa cada índice 
 /// The report for `t` (`None`: the table isn't there): the primary key
 /// first, then the indexes in the schema's order.
 pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
-    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() } };
+    let Some(t) = t else {
+        return IndexUsageReport {
+            note: Some(NOTE.into()),
+            writes_counted: false,
+            ..Default::default()
+        };
+    };
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
         indexes.push(IndexUsage {
@@ -38,7 +44,11 @@ pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
     for ix in &t.indexes {
         let mut kind: Vec<&str> = Vec::new();
         let flags = ix.kind.as_deref().unwrap_or("");
-        kind.push(if flags.contains("DESC") { "DESC" } else { "ASC" });
+        kind.push(if flags.contains("DESC") {
+            "DESC"
+        } else {
+            "ASC"
+        });
         if flags.contains("COMPUTED") {
             kind.push("COMPUTED");
         }
@@ -56,7 +66,14 @@ pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
             ..Default::default()
         });
     }
-    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), writes_counted: false, ..Default::default() }.derived()
+    IndexUsageReport {
+        note: Some(NOTE.into()),
+        indexes,
+        foreign_keys: t.foreign_keys.clone(),
+        writes_counted: false,
+        ..Default::default()
+    }
+    .derived()
 }
 
 /// "Deshabilitar / Habilitar índice": `ALTER INDEX … INACTIVE` and
@@ -71,7 +88,8 @@ pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
 /// `CREATE UNIQUE INDEX` with what the report carries, so for unique
 /// indexes the server decides and the script warns.
 pub fn toggle_script(index: &IndexUsage, enable: bool) -> Result<SyncScript> {
-    let generated = index.name.starts_with("RDB$") || (index.unique && index.name.starts_with("INTEG_"));
+    let generated =
+        index.name.starts_with("RDB$") || (index.unique && index.name.starts_with("INTEG_"));
     if index.primary_key || generated {
         return Err(Error::Unsupported(format!(
             "{} respalda una restricción (PRIMARY KEY, FOREIGN KEY o UNIQUE): Firebird no deja desactivar esos índices.",
@@ -81,14 +99,23 @@ pub fn toggle_script(index: &IndexUsage, enable: bool) -> Result<SyncScript> {
     let name = quote_ident(Quote::Double, &index.name);
     let mut warnings = Vec::new();
     if enable {
-        warnings.push("Activar un índice lo reconstruye entero: en una tabla grande tarda.".to_string());
+        warnings.push(
+            "Activar un índice lo reconstruye entero: en una tabla grande tarda.".to_string(),
+        );
     } else {
-        warnings.push("Firebird deja de mantenerlo; al activarlo lo reconstruye entero.".to_string());
+        warnings
+            .push("Firebird deja de mantenerlo; al activarlo lo reconstruye entero.".to_string());
         if index.unique {
             warnings.push("Si este índice respalda una restricción UNIQUE, Firebird no lo deja desactivar y el script falla.".to_string());
         }
     }
-    Ok(SyncScript { statements: vec![format!("ALTER INDEX {name} {}", if enable { "ACTIVE" } else { "INACTIVE" })], warnings })
+    Ok(SyncScript {
+        statements: vec![format!(
+            "ALTER INDEX {name} {}",
+            if enable { "ACTIVE" } else { "INACTIVE" }
+        )],
+        warnings,
+    })
 }
 
 #[cfg(test)]
@@ -101,10 +128,23 @@ mod tests {
     fn key_first_then_indexes_with_their_kind() {
         let t = TableSchema {
             name: "T".into(),
-            primary_key: Some(KeyDef { name: Some("PK_T".into()), columns: vec!["ID".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("PK_T".into()),
+                columns: vec!["ID".into()],
+            }),
             indexes: vec![
-                IndexDef { name: "UQ_CODE".into(), columns: vec!["CODE".into()], unique: true, ..Default::default() },
-                IndexDef { name: "IX_N".into(), columns: vec!["N".into()], kind: Some("DESC".into()), ..Default::default() },
+                IndexDef {
+                    name: "UQ_CODE".into(),
+                    columns: vec!["CODE".into()],
+                    unique: true,
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "IX_N".into(),
+                    columns: vec!["N".into()],
+                    kind: Some("DESC".into()),
+                    ..Default::default()
+                },
                 IndexDef {
                     name: "IX_UP".into(),
                     columns: vec!["(UPPER(T))".into()],
@@ -114,42 +154,99 @@ mod tests {
                     ..Default::default()
                 },
             ],
-            foreign_keys: vec![ForeignKeyDef { columns: vec!["P_ID".into()], ref_table: "P".into(), ref_columns: vec!["ID".into()], ..Default::default() }],
+            foreign_keys: vec![ForeignKeyDef {
+                columns: vec!["P_ID".into()],
+                ref_table: "P".into(),
+                ref_columns: vec!["ID".into()],
+                ..Default::default()
+            }],
             ..Default::default()
         };
         let r = report(Some(&t));
         assert!(!r.stats_available && r.note.is_some());
-        let got: Vec<(&str, &str)> = r.indexes.iter().map(|i| (i.name.as_str(), i.kind.as_str())).collect();
-        assert_eq!(got, [("PK_T", "ASC"), ("UQ_CODE", "ASC"), ("IX_N", "DESC"), ("IX_UP", "ASC COMPUTED INACTIVE")]);
+        let got: Vec<(&str, &str)> = r
+            .indexes
+            .iter()
+            .map(|i| (i.name.as_str(), i.kind.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("PK_T", "ASC"),
+                ("UQ_CODE", "ASC"),
+                ("IX_N", "DESC"),
+                ("IX_UP", "ASC COMPUTED INACTIVE")
+            ]
+        );
         assert!(r.indexes[0].primary_key && r.indexes[1].unique && !r.indexes[2].unique);
-        assert_eq!(r.indexes.iter().map(|i| i.disabled).collect::<Vec<_>>(), [false, false, false, true]);
+        assert_eq!(
+            r.indexes.iter().map(|i| i.disabled).collect::<Vec<_>>(),
+            [false, false, false, true]
+        );
         assert_eq!(r.indexes[3].filter.as_deref(), Some("T IS NOT NULL"));
         assert_eq!(r.foreign_keys, t.foreign_keys);
         assert!(r.indexes.iter().all(|i| !i.unused));
         // An unnamed key (RDB$PRIMARYn).
-        let t = TableSchema { primary_key: Some(KeyDef { name: None, columns: vec!["ID".into()] }), ..Default::default() };
+        let t = TableSchema {
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["ID".into()],
+            }),
+            ..Default::default()
+        };
         assert_eq!(report(Some(&t)).indexes[0].name, "PRIMARY KEY");
         assert!(report(None).indexes.is_empty());
     }
 
     #[test]
     fn toggle_scripts() {
-        let ix = IndexUsage { name: "IX_Fecha".into(), kind: "ASC".into(), ..Default::default() };
+        let ix = IndexUsage {
+            name: "IX_Fecha".into(),
+            kind: "ASC".into(),
+            ..Default::default()
+        };
         let off = toggle_script(&ix, false).unwrap();
         assert_eq!(off.statements, ["ALTER INDEX \"IX_Fecha\" INACTIVE"]);
-        assert_eq!(off.warnings, ["Firebird deja de mantenerlo; al activarlo lo reconstruye entero."]);
+        assert_eq!(
+            off.warnings,
+            ["Firebird deja de mantenerlo; al activarlo lo reconstruye entero."]
+        );
         let on = toggle_script(&ix, true).unwrap();
         assert_eq!(on.statements, ["ALTER INDEX \"IX_Fecha\" ACTIVE"]);
         assert!(on.warnings[0].contains("reconstruye"));
         // A unique index may be a UNIQUE constraint: the server decides, with a warning.
-        let uq = IndexUsage { name: "UQ_CODE".into(), unique: true, ..Default::default() };
+        let uq = IndexUsage {
+            name: "UQ_CODE".into(),
+            unique: true,
+            ..Default::default()
+        };
         let w = toggle_script(&uq, false).unwrap().warnings;
         assert!(w.len() == 2 && w[1].contains("UNIQUE"), "{w:?}");
         // Constraint indexes are refused.
-        let pk = IndexUsage { name: "PK_T".into(), primary_key: true, unique: true, ..Default::default() };
-        for ix in [pk, IndexUsage { name: "RDB$FOREIGN12".into(), ..Default::default() }, IndexUsage { name: "INTEG_7".into(), unique: true, ..Default::default() }] {
+        let pk = IndexUsage {
+            name: "PK_T".into(),
+            primary_key: true,
+            unique: true,
+            ..Default::default()
+        };
+        for ix in [
+            pk,
+            IndexUsage {
+                name: "RDB$FOREIGN12".into(),
+                ..Default::default()
+            },
+            IndexUsage {
+                name: "INTEG_7".into(),
+                unique: true,
+                ..Default::default()
+            },
+        ] {
             for enable in [false, true] {
-                assert!(matches!(toggle_script(&ix, enable), Err(Error::Unsupported(m)) if m.contains("restricción")), "{}", ix.name);
+                assert!(
+                    matches!(toggle_script(&ix, enable), Err(Error::Unsupported(m)) if m.contains("restricción")),
+                    "{}",
+                    ix.name
+                );
             }
         }
     }

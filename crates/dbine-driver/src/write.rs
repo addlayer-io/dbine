@@ -49,7 +49,12 @@ pub enum WriteMode {
 }
 
 impl WriteMode {
-    pub const ALL: [WriteMode; 4] = [WriteMode::Insert, WriteMode::Update, WriteMode::Upsert, WriteMode::Replace];
+    pub const ALL: [WriteMode; 4] = [
+        WriteMode::Insert,
+        WriteMode::Update,
+        WriteMode::Upsert,
+        WriteMode::Replace,
+    ];
 
     /// The mode matches rows by key columns.
     pub fn needs_key(self) -> bool {
@@ -82,20 +87,28 @@ impl WriteSpec {
                 return Err(Error::Query("hay una columna de destino sin nombre".into()));
             }
             if !seen.insert(c.to_lowercase()) {
-                return Err(Error::Query(format!("la columna de destino «{c}» está repetida")));
+                return Err(Error::Query(format!(
+                    "la columna de destino «{c}» está repetida"
+                )));
             }
         }
         if self.mode.needs_key() {
             if self.key.is_empty() {
-                return Err(Error::Query("elegí la columna clave para actualizar por clave".into()));
+                return Err(Error::Query(
+                    "elegí la columna clave para actualizar por clave".into(),
+                ));
             }
             for k in &self.key {
                 if !self.columns.iter().any(|c| c.eq_ignore_ascii_case(k)) {
-                    return Err(Error::Query(format!("la clave «{k}» no está entre las columnas que se escriben")));
+                    return Err(Error::Query(format!(
+                        "la clave «{k}» no está entre las columnas que se escriben"
+                    )));
                 }
             }
             if self.mode == WriteMode::Update && self.non_key().is_empty() {
-                return Err(Error::Query("no hay columnas para actualizar además de la clave".into()));
+                return Err(Error::Query(
+                    "no hay columnas para actualizar además de la clave".into(),
+                ));
             }
         }
         Ok(())
@@ -103,7 +116,10 @@ impl WriteSpec {
 
     /// The columns that aren't part of the key.
     pub fn non_key(&self) -> Vec<&String> {
-        self.columns.iter().filter(|c| !self.key.iter().any(|k| k.eq_ignore_ascii_case(c))).collect()
+        self.columns
+            .iter()
+            .filter(|c| !self.key.iter().any(|k| k.eq_ignore_ascii_case(c)))
+            .collect()
     }
 }
 
@@ -200,20 +216,59 @@ pub fn staged_plan(flavor: StageFlavor, spec: &WriteSpec, stage: &str) -> Result
     let (staging, create, drop) = match flavor {
         StageFlavor::SqlServer { .. } => {
             let name = format!("#{stage}");
-            let cols = spec.columns.iter().map(|c| id(c)).collect::<Vec<_>>().join(", ");
+            let cols = spec
+                .columns
+                .iter()
+                .map(|c| id(c))
+                .collect::<Vec<_>>()
+                .join(", ");
             let s = id(&name);
-            (ObjectRef { kind: "table".into(), schema: None, name }, format!("SELECT TOP 0 {cols} INTO {s} FROM {target}"), vec![format!("DROP TABLE {s}")])
+            (
+                ObjectRef {
+                    kind: "table".into(),
+                    schema: None,
+                    name,
+                },
+                format!("SELECT TOP 0 {cols} INTO {s} FROM {target}"),
+                vec![format!("DROP TABLE {s}")],
+            )
         }
         StageFlavor::Postgres | StageFlavor::MySql | StageFlavor::Sqlite => {
-            let cols = spec.columns.iter().map(|c| id(c)).collect::<Vec<_>>().join(", ");
+            let cols = spec
+                .columns
+                .iter()
+                .map(|c| id(c))
+                .collect::<Vec<_>>()
+                .join(", ");
             let s = id(stage);
-            let temp = if flavor == StageFlavor::Sqlite { "TEMP" } else { "TEMPORARY" };
-            let drop = if flavor == StageFlavor::MySql { format!("DROP TEMPORARY TABLE {s}") } else { format!("DROP TABLE {s}") };
-            (ObjectRef { kind: "table".into(), schema: None, name: stage.to_string() }, format!("CREATE {temp} TABLE {s} AS SELECT {cols} FROM {target} LIMIT 0"), vec![drop])
+            let temp = if flavor == StageFlavor::Sqlite {
+                "TEMP"
+            } else {
+                "TEMPORARY"
+            };
+            let drop = if flavor == StageFlavor::MySql {
+                format!("DROP TEMPORARY TABLE {s}")
+            } else {
+                format!("DROP TABLE {s}")
+            };
+            (
+                ObjectRef {
+                    kind: "table".into(),
+                    schema: None,
+                    name: stage.to_string(),
+                },
+                format!("CREATE {temp} TABLE {s} AS SELECT {cols} FROM {target} LIMIT 0"),
+                vec![drop],
+            )
         }
         StageFlavor::Oracle => {
             let name = stage.to_ascii_uppercase();
-            let cols = spec.columns.iter().map(|c| id(c)).collect::<Vec<_>>().join(", ");
+            let cols = spec
+                .columns
+                .iter()
+                .map(|c| id(c))
+                .collect::<Vec<_>>()
+                .join(", ");
             let s = id(&name);
             (
                 ObjectRef { kind: "table".into(), schema: None, name },
@@ -223,26 +278,59 @@ pub fn staged_plan(flavor: StageFlavor, spec: &WriteSpec, stage: &str) -> Result
             )
         }
         StageFlavor::DuckDb => {
-            let cols = spec.columns.iter().map(|c| id(c)).collect::<Vec<_>>().join(", ");
-            let r = ObjectRef { kind: "table".into(), schema: spec.table.schema.clone(), name: stage.to_string() };
+            let cols = spec
+                .columns
+                .iter()
+                .map(|c| id(c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let r = ObjectRef {
+                kind: "table".into(),
+                schema: spec.table.schema.clone(),
+                name: stage.to_string(),
+            };
             let s = qualified_name(q, r.schema(), &r.name);
-            (r, format!("CREATE TABLE {s} AS SELECT {cols} FROM {target} LIMIT 0"), vec![format!("DROP TABLE {s}")])
+            (
+                r,
+                format!("CREATE TABLE {s} AS SELECT {cols} FROM {target} LIMIT 0"),
+                vec![format!("DROP TABLE {s}")],
+            )
         }
     };
     let s = qualified_name(q, staging.schema(), &staging.name);
-    let cols = spec.columns.iter().map(|c| id(c)).collect::<Vec<_>>().join(", ");
-    let s_cols = spec.columns.iter().map(|c| format!("s.{}", id(c))).collect::<Vec<_>>().join(", ");
-    let on = spec.key.iter().map(|k| format!("t.{k} = s.{k}", k = id(k))).collect::<Vec<_>>().join(" AND ");
+    let cols = spec
+        .columns
+        .iter()
+        .map(|c| id(c))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let s_cols = spec
+        .columns
+        .iter()
+        .map(|c| format!("s.{}", id(c)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let on = spec
+        .key
+        .iter()
+        .map(|k| format!("t.{k} = s.{k}", k = id(k)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
     let rest = spec.non_key();
 
-    let insert_all = Step { sql: format!("INSERT INTO {target} ({cols}) SELECT {cols} FROM {s}"), counts: Counts::Inserted, count: Some(format!("SELECT count(*) FROM {s}")) };
+    let insert_all = Step {
+        sql: format!("INSERT INTO {target} ({cols}) SELECT {cols} FROM {s}"),
+        counts: Counts::Inserted,
+        count: Some(format!("SELECT count(*) FROM {s}")),
+    };
     let missing = format!("FROM {s} s WHERE NOT EXISTS (SELECT 1 FROM {target} t WHERE {on})");
     let insert_missing = Step {
         sql: format!("INSERT INTO {target} ({cols}) SELECT {s_cols} {missing}"),
         counts: Counts::Inserted,
         count: Some(format!("SELECT count(*) {missing}")),
     };
-    let matched = format!("SELECT count(*) FROM {s} s WHERE EXISTS (SELECT 1 FROM {target} t WHERE {on})");
+    let matched =
+        format!("SELECT count(*) FROM {s} s WHERE EXISTS (SELECT 1 FROM {target} t WHERE {on})");
     let update = (!rest.is_empty()).then(|| {
         let sql = match flavor {
             StageFlavor::SqlServer { .. } => {
@@ -266,37 +354,67 @@ pub fn staged_plan(flavor: StageFlavor, spec: &WriteSpec, stage: &str) -> Result
     });
     let mut apply = match spec.mode {
         WriteMode::Insert => vec![insert_all],
-        WriteMode::Replace => vec![Step { sql: format!("DELETE FROM {target}"), counts: Counts::Deleted, count: Some(format!("SELECT count(*) FROM {target}")) }, insert_all],
+        WriteMode::Replace => vec![
+            Step {
+                sql: format!("DELETE FROM {target}"),
+                counts: Counts::Deleted,
+                count: Some(format!("SELECT count(*) FROM {target}")),
+            },
+            insert_all,
+        ],
         WriteMode::Update => update.into_iter().collect(),
         WriteMode::Upsert => update.into_iter().chain([insert_missing]).collect(),
     };
-    if let StageFlavor::SqlServer { identity_insert: true } = flavor {
+    if let StageFlavor::SqlServer {
+        identity_insert: true,
+    } = flavor
+    {
         // Around each insert: only one table per session may have it on.
         let mut wrapped = Vec::new();
         for st in apply {
             if st.counts == Counts::Inserted {
-                wrapped.push(Step { sql: format!("SET IDENTITY_INSERT {target} ON"), counts: Counts::Nothing, count: None });
+                wrapped.push(Step {
+                    sql: format!("SET IDENTITY_INSERT {target} ON"),
+                    counts: Counts::Nothing,
+                    count: None,
+                });
                 wrapped.push(st);
-                wrapped.push(Step { sql: format!("SET IDENTITY_INSERT {target} OFF"), counts: Counts::Nothing, count: None });
+                wrapped.push(Step {
+                    sql: format!("SET IDENTITY_INSERT {target} OFF"),
+                    counts: Counts::Nothing,
+                    count: None,
+                });
             } else {
                 wrapped.push(st);
             }
         }
         apply = wrapped;
     }
-    Ok(StagedPlan { staging, create, apply, drop })
+    Ok(StagedPlan {
+        staging,
+        create,
+        apply,
+        drop,
+    })
 }
 
 /// A staging table's name, unique enough to never meet another one.
 pub fn stage_name() -> String {
-    let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     format!("dbine_w_{:x}", n ^ (std::process::id() as u128) << 64)
 }
 
 async fn run(s: &mut (impl Session + ?Sized), sql: &str) -> Result<QueryOutcome> {
     let mut out = QueryOutcome::default();
     s.execute(sql, 1, &mut out).await?;
-    if let Some(e) = out.error.take().or_else(|| out.errors.first().map(|e| e.message.clone())) {
+    if let Some(e) = out
+        .error
+        .take()
+        .or_else(|| out.errors.first().map(|e| e.message.clone()))
+    {
         return Err(Error::Query(e));
     }
     Ok(out)
@@ -305,10 +423,22 @@ async fn run(s: &mut (impl Session + ?Sized), sql: &str) -> Result<QueryOutcome>
 /// The number a `SELECT count(*)` returned.
 async fn run_count(s: &mut (impl Session + ?Sized), sql: &str) -> Result<u64> {
     let out = run(s, sql).await?;
-    let v = out.results.iter().find(|r| !r.columns.is_empty()).and_then(|r| r.rows.first()).and_then(|r| r.first()).cloned();
+    let v = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .and_then(|r| r.rows.first())
+        .and_then(|r| r.first())
+        .cloned();
     match v {
-        Some(serde_json::Value::Number(n)) => Ok(n.as_u64().or_else(|| n.as_f64().map(|f| f as u64)).unwrap_or(0)),
-        Some(serde_json::Value::String(t)) => t.trim().parse().map_err(|_| Error::Query(format!("la cuenta de filas no es un número: {t}"))),
+        Some(serde_json::Value::Number(n)) => Ok(n
+            .as_u64()
+            .or_else(|| n.as_f64().map(|f| f as u64))
+            .unwrap_or(0)),
+        Some(serde_json::Value::String(t)) => t
+            .trim()
+            .parse()
+            .map_err(|_| Error::Query(format!("la cuenta de filas no es un número: {t}"))),
         _ => Err(Error::Query("la cuenta de filas no devolvió nada".into())),
     }
 }
@@ -329,7 +459,17 @@ pub async fn staged_write<S: Session + ?Sized>(
 ) -> Result<WriteResult> {
     let plan = staged_plan(flavor, spec, &stage_name())?;
     run(s, &plan.create).await?;
-    let r = apply(s, &plan, flavor, spec, columns, source, progress, transactional).await;
+    let r = apply(
+        s,
+        &plan,
+        flavor,
+        spec,
+        columns,
+        source,
+        progress,
+        transactional,
+    )
+    .await;
     // The staging table goes whatever happened (a failed load may have
     // closed the session, and the temporary table with it).
     for d in &plan.drop {
@@ -359,7 +499,10 @@ async fn apply<S: Session + ?Sized>(
         commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
     };
     s.bulk_load(&load, columns, source, progress).await?;
-    let mut out = WriteResult { atomic: transactional, ..Default::default() };
+    let mut out = WriteResult {
+        atomic: transactional,
+        ..Default::default()
+    };
     if transactional {
         s.set_autocommit(false).await?;
     }
@@ -409,7 +552,11 @@ mod tests {
 
     fn spec(mode: WriteMode, key: &[&str]) -> WriteSpec {
         WriteSpec {
-            table: ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "ventas".into() },
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: Some("dbo".into()),
+                name: "ventas".into(),
+            },
             columns: vec!["id".into(), "region".into(), "total".into()],
             key: key.iter().map(|k| k.to_string()).collect(),
             mode,
@@ -423,11 +570,23 @@ mod tests {
     #[test]
     fn the_spec_is_checked_before_anything_runs() {
         assert!(spec(WriteMode::Insert, &[]).check().is_ok());
-        assert!(spec(WriteMode::Update, &[]).check().unwrap_err().to_string().contains("clave"));
-        assert!(spec(WriteMode::Upsert, &["nope"]).check().unwrap_err().to_string().contains("«nope»"));
+        assert!(spec(WriteMode::Update, &[])
+            .check()
+            .unwrap_err()
+            .to_string()
+            .contains("clave"));
+        assert!(spec(WriteMode::Upsert, &["nope"])
+            .check()
+            .unwrap_err()
+            .to_string()
+            .contains("«nope»"));
         let mut only_key = spec(WriteMode::Update, &["id"]);
         only_key.columns = vec!["id".into()];
-        assert!(only_key.check().unwrap_err().to_string().contains("además de la clave"));
+        assert!(only_key
+            .check()
+            .unwrap_err()
+            .to_string()
+            .contains("además de la clave"));
         // Upsert with only the key: inserts the missing keys.
         only_key.mode = WriteMode::Upsert;
         assert!(only_key.check().is_ok());
@@ -438,9 +597,19 @@ mod tests {
 
     #[test]
     fn sql_server_stages_in_tempdb_and_updates_from_a_join() {
-        let p = staged_plan(StageFlavor::SqlServer { identity_insert: false }, &spec(WriteMode::Upsert, &["id"]), "dbine_w_1").unwrap();
+        let p = staged_plan(
+            StageFlavor::SqlServer {
+                identity_insert: false,
+            },
+            &spec(WriteMode::Upsert, &["id"]),
+            "dbine_w_1",
+        )
+        .unwrap();
         assert_eq!(p.staging.name, "#dbine_w_1");
-        assert_eq!(p.create, "SELECT TOP 0 [id], [region], [total] INTO [#dbine_w_1] FROM [dbo].[ventas]");
+        assert_eq!(
+            p.create,
+            "SELECT TOP 0 [id], [region], [total] INTO [#dbine_w_1] FROM [dbo].[ventas]"
+        );
         assert_eq!(
             sqls(&p),
             [
@@ -450,7 +619,14 @@ mod tests {
         );
         assert_eq!(p.drop, ["DROP TABLE [#dbine_w_1]"]);
         // An identity column written: each insert between ON and OFF.
-        let p = staged_plan(StageFlavor::SqlServer { identity_insert: true }, &spec(WriteMode::Replace, &[]), "x").unwrap();
+        let p = staged_plan(
+            StageFlavor::SqlServer {
+                identity_insert: true,
+            },
+            &spec(WriteMode::Replace, &[]),
+            "x",
+        )
+        .unwrap();
         assert_eq!(
             sqls(&p),
             [
@@ -464,7 +640,13 @@ mod tests {
 
     #[test]
     fn each_family_has_its_update_from_join() {
-        let up = |f| staged_plan(f, &spec(WriteMode::Update, &["id"]), "w").unwrap().apply[0].sql.clone();
+        let up = |f| {
+            staged_plan(f, &spec(WriteMode::Update, &["id"]), "w")
+                .unwrap()
+                .apply[0]
+                .sql
+                .clone()
+        };
         assert_eq!(up(StageFlavor::Postgres), "UPDATE \"dbo\".\"ventas\" AS t SET \"region\" = s.\"region\", \"total\" = s.\"total\" FROM \"w\" AS s WHERE t.\"id\" = s.\"id\"");
         assert_eq!(up(StageFlavor::MySql), "UPDATE `dbo`.`ventas` AS t INNER JOIN `w` AS s ON t.`id` = s.`id` SET t.`region` = s.`region`, t.`total` = s.`total`");
         assert_eq!(up(StageFlavor::Oracle), "MERGE INTO \"dbo\".\"ventas\" t USING \"W\" s ON (t.\"id\" = s.\"id\") WHEN MATCHED THEN UPDATE SET t.\"region\" = s.\"region\", t.\"total\" = s.\"total\"");
@@ -473,9 +655,20 @@ mod tests {
         assert_eq!(p.create, "CREATE TEMPORARY TABLE \"w\" AS SELECT \"id\", \"region\", \"total\" FROM \"dbo\".\"ventas\" LIMIT 0");
         let p = staged_plan(StageFlavor::MySql, &spec(WriteMode::Insert, &[]), "w").unwrap();
         assert_eq!(p.drop, ["DROP TEMPORARY TABLE `w`"]);
-        let p = staged_plan(StageFlavor::Oracle, &spec(WriteMode::Insert, &[]), "dbine_w_1").unwrap();
+        let p = staged_plan(
+            StageFlavor::Oracle,
+            &spec(WriteMode::Insert, &[]),
+            "dbine_w_1",
+        )
+        .unwrap();
         assert_eq!(p.create, "CREATE GLOBAL TEMPORARY TABLE \"DBINE_W_1\" ON COMMIT PRESERVE ROWS AS SELECT \"id\", \"region\", \"total\" FROM \"dbo\".\"ventas\" WHERE 1 = 0");
-        assert_eq!(p.drop, ["TRUNCATE TABLE \"DBINE_W_1\"", "DROP TABLE \"DBINE_W_1\" PURGE"]);
+        assert_eq!(
+            p.drop,
+            [
+                "TRUNCATE TABLE \"DBINE_W_1\"",
+                "DROP TABLE \"DBINE_W_1\" PURGE"
+            ]
+        );
         let p = staged_plan(StageFlavor::Sqlite, &spec(WriteMode::Insert, &[]), "w").unwrap();
         assert!(p.create.starts_with("CREATE TEMP TABLE \"w\""));
     }
@@ -485,8 +678,19 @@ mod tests {
         let mut s = spec(WriteMode::Upsert, &["i]d"]);
         s.columns = vec!["i]d".into(), "a\"b".into(), "c`d".into()];
         s.table.name = "t]x".into();
-        let p = staged_plan(StageFlavor::SqlServer { identity_insert: false }, &s, "w").unwrap();
-        assert!(p.apply[0].sql.contains("[dbo].[t]]x]"), "{}", p.apply[0].sql);
+        let p = staged_plan(
+            StageFlavor::SqlServer {
+                identity_insert: false,
+            },
+            &s,
+            "w",
+        )
+        .unwrap();
+        assert!(
+            p.apply[0].sql.contains("[dbo].[t]]x]"),
+            "{}",
+            p.apply[0].sql
+        );
         assert!(p.apply[0].sql.contains("t.[i]]d] = s.[i]]d]"));
         let p = staged_plan(StageFlavor::Postgres, &s, "w").unwrap();
         assert!(p.apply[0].sql.contains("\"a\"\"b\" = s.\"a\"\"b\""));
@@ -497,7 +701,10 @@ mod tests {
     #[test]
     fn replace_deletes_then_inserts_and_upsert_with_only_the_key_inserts_the_missing_ones() {
         let p = staged_plan(StageFlavor::Postgres, &spec(WriteMode::Replace, &[]), "w").unwrap();
-        assert_eq!(p.apply.iter().map(|s| s.counts).collect::<Vec<_>>(), [Counts::Deleted, Counts::Inserted]);
+        assert_eq!(
+            p.apply.iter().map(|s| s.counts).collect::<Vec<_>>(),
+            [Counts::Deleted, Counts::Inserted]
+        );
         assert_eq!(p.apply[0].sql, "DELETE FROM \"dbo\".\"ventas\"");
         let mut k = spec(WriteMode::Upsert, &["id"]);
         k.columns = vec!["id".into()];
@@ -509,6 +716,9 @@ mod tests {
     #[test]
     fn stage_names_are_plain_identifiers() {
         let n = stage_name();
-        assert!(n.starts_with("dbine_w_") && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'), "{n}");
+        assert!(
+            n.starts_with("dbine_w_") && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+            "{n}"
+        );
     }
 }

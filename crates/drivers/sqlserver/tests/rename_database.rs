@@ -32,7 +32,10 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> dbine_driver::Result<()> {
@@ -42,7 +45,9 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> dbine_driver::Result<()> {
 
 async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     match &out.results.last().unwrap().rows[0][0] {
         Value::String(v) => v.clone(),
         Value::Null => "NULL".into(),
@@ -51,26 +56,47 @@ async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
 }
 
 async fn drop_if_there(master: &mut Box<dyn Session>, db: &str) {
-    if master.list_databases().await.unwrap().iter().any(|x| x == db) {
+    if master
+        .list_databases()
+        .await
+        .unwrap()
+        .iter()
+        .any(|x| x == db)
+    {
         master.drop_database(db).await.unwrap();
     }
 }
 
 /// Creates `old` with a table and a row and opens a second session on it.
 /// Returns a session on `master` (the spec's `database_from`) and that one.
-async fn setup(d: &Arc<dyn Driver>, cfg: &ConnectionConfig, old: &str, new: &str) -> (Box<dyn Session>, Box<dyn Session>) {
+async fn setup(
+    d: &Arc<dyn Driver>,
+    cfg: &ConnectionConfig,
+    old: &str,
+    new: &str,
+) -> (Box<dyn Session>, Box<dyn Session>) {
     let spec = d.rename_spec().unwrap();
     assert!(spec.databases && !spec.database_moves);
     let from = spec.database_from.clone().unwrap();
     assert_eq!(from, "master");
-    let mut master = d.connect(cfg, Some(&from)).await.expect("connect to master");
+    let mut master = d
+        .connect(cfg, Some(&from))
+        .await
+        .expect("connect to master");
     drop_if_there(&mut master, old).await;
     drop_if_there(&mut master, new).await;
     master.create_database(old).await.unwrap();
     {
         let mut s = d.connect(cfg, Some(old)).await.unwrap();
-        run(&mut s, "CREATE TABLE dbo.t (id int PRIMARY KEY, name nvarchar(20))").await.unwrap();
-        run(&mut s, "INSERT INTO dbo.t VALUES (1, N'uno')").await.unwrap();
+        run(
+            &mut s,
+            "CREATE TABLE dbo.t (id int PRIMARY KEY, name nvarchar(20))",
+        )
+        .await
+        .unwrap();
+        run(&mut s, "INSERT INTO dbo.t VALUES (1, N'uno')")
+            .await
+            .unwrap();
     }
     let mut other = d.connect(cfg, Some(old)).await.unwrap();
     assert_eq!(scalar(&mut other, "SELECT COUNT(*) FROM dbo.t").await, "1");
@@ -78,7 +104,12 @@ async fn setup(d: &Arc<dyn Driver>, cfg: &ConnectionConfig, old: &str, new: &str
 }
 
 /// Runs the script's statements one by one in `master`, as the app does.
-async fn rename(d: &Arc<dyn Driver>, master: &mut Box<dyn Session>, old: &str, new: &str) -> dbine_driver::Result<()> {
+async fn rename(
+    d: &Arc<dyn Driver>,
+    master: &mut Box<dyn Session>,
+    old: &str,
+    new: &str,
+) -> dbine_driver::Result<()> {
     let script = d.rename_database_script(old, new, &[]).unwrap();
     eprintln!("{script:#?}");
     for stmt in &script.statements {
@@ -88,12 +119,21 @@ async fn rename(d: &Arc<dyn Driver>, master: &mut Box<dyn Session>, old: &str, n
 }
 
 /// The new name is there with the row, the old one is gone.
-async fn check_renamed(d: &Arc<dyn Driver>, cfg: &ConnectionConfig, master: &mut Box<dyn Session>, old: &str, new: &str) {
+async fn check_renamed(
+    d: &Arc<dyn Driver>,
+    cfg: &ConnectionConfig,
+    master: &mut Box<dyn Session>,
+    old: &str,
+    new: &str,
+) {
     let dbs = master.list_databases().await.unwrap();
     assert!(dbs.iter().any(|x| x == new), "{dbs:?}");
     assert!(!dbs.iter().any(|x| x == old), "{dbs:?}");
     let mut renamed = d.connect(cfg, Some(new)).await.unwrap();
-    assert_eq!(scalar(&mut renamed, "SELECT name FROM dbo.t WHERE id = 1").await, "uno");
+    assert_eq!(
+        scalar(&mut renamed, "SELECT name FROM dbo.t WHERE id = 1").await,
+        "uno"
+    );
     assert_eq!(scalar(&mut renamed, "SELECT DB_NAME()").await, new);
 }
 
@@ -108,7 +148,11 @@ async fn sqlserver_rename_database() {
     let (old, new) = ("dbine_rendb_old", "dbine_rendb_new]x");
 
     let spec = d.rename_spec().unwrap();
-    assert!(spec.database_note.as_deref().unwrap().contains("SINGLE_USER WITH ROLLBACK IMMEDIATE"));
+    assert!(spec
+        .database_note
+        .as_deref()
+        .unwrap()
+        .contains("SINGLE_USER WITH ROLLBACK IMMEDIATE"));
     let (mut master, mut other) = setup(&d, &cfg, old, new).await;
     rename(&d, &mut master, old, new).await.unwrap();
     check_renamed(&d, &cfg, &mut master, old, new).await;
@@ -122,19 +166,44 @@ async fn sqlserver_rename_database() {
     let lit = new.replace('\'', "''");
     let mut left = String::new();
     for _ in 0..20 {
-        left = scalar(&mut master, &format!("SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE database_id = DB_ID(N'{lit}')")).await;
+        left = scalar(
+            &mut master,
+            &format!(
+                "SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE database_id = DB_ID(N'{lit}')"
+            ),
+        )
+        .await;
         if left == "0" {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
     assert_eq!(left, "0");
-    assert_eq!(scalar(&mut master, &format!("SELECT user_access_desc FROM sys.databases WHERE name = N'{lit}'")).await, "MULTI_USER");
-    assert_eq!(scalar(&mut master, &format!("SELECT COALESCE(CAST(DB_ID(N'{old}') AS varchar(10)), 'NULL')")).await, "NULL");
+    assert_eq!(
+        scalar(
+            &mut master,
+            &format!("SELECT user_access_desc FROM sys.databases WHERE name = N'{lit}'")
+        )
+        .await,
+        "MULTI_USER"
+    );
+    assert_eq!(
+        scalar(
+            &mut master,
+            &format!("SELECT COALESCE(CAST(DB_ID(N'{old}') AS varchar(10)), 'NULL')")
+        )
+        .await,
+        "NULL"
+    );
 
     drop(other);
     master.drop_database(new).await.unwrap();
-    assert!(!master.list_databases().await.unwrap().iter().any(|x| x == new));
+    assert!(!master
+        .list_databases()
+        .await
+        .unwrap()
+        .iter()
+        .any(|x| x == new));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -151,8 +220,16 @@ async fn babelfish_rename_database() {
     // Babelfish doesn't end it, and refuses while it's there (the note
     // says to close it first): nothing was renamed.
     eprintln!("with another session open: {with_other:?}");
-    assert!(matches!(&with_other, Err(e) if e.to_string().contains("exclusively locked")), "{with_other:?}");
-    assert!(master.list_databases().await.unwrap().iter().any(|x| x == old));
+    assert!(
+        matches!(&with_other, Err(e) if e.to_string().contains("exclusively locked")),
+        "{with_other:?}"
+    );
+    assert!(master
+        .list_databases()
+        .await
+        .unwrap()
+        .iter()
+        .any(|x| x == old));
     drop(other);
     let mut after = Err(dbine_driver::Error::Query("not run".into()));
     for _ in 0..20 {

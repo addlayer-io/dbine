@@ -6,8 +6,10 @@
 
 use dbine_driver::transfer::{BatchSinkRef, Progress};
 use dbine_driver::{
-    async_trait, BatchSource, BucketSum, Buckets, Cell, ColumnInfo, ConnectionConfig, CopySpec, DbObject, DeltaDepth, DeltaResult, DeltaSpec, Driver,
-    DriverInfo, Error, Family, Language, LoadSpec, ObjectRef, QueryOutcome, ReadSpec, Result, RowBatch, Session, StatementResult, TransferColumn,
+    async_trait, BatchSource, BucketSum, Buckets, Cell, ColumnInfo, ConnectionConfig, CopySpec,
+    DbObject, DeltaDepth, DeltaResult, DeltaSpec, Driver, DriverInfo, Error, Family, Language,
+    LoadSpec, ObjectRef, QueryOutcome, ReadSpec, Result, RowBatch, Session, StatementResult,
+    TransferColumn,
 };
 use dbine_transfer::{Endpoints, Event, TransferJob, TransferMode};
 use std::collections::{BTreeMap, HashMap};
@@ -110,10 +112,15 @@ impl Default for Fake {
 impl Fake {
     /// A source table of `n` rows `(i, "row i")`, and an empty target one.
     pub fn table(&self, name: &str, n: usize) {
-        let rows = (0..n).map(|i| vec![Cell::Int(i as i64), Cell::Text(format!("row {i}"))]).collect();
+        let rows = (0..n)
+            .map(|i| vec![Cell::Int(i as i64), Cell::Text(format!("row {i}"))])
+            .collect();
         self.source.lock().unwrap().insert(name.into(), rows);
         self.target.lock().unwrap().insert(name.into(), Vec::new());
-        self.target_columns.lock().unwrap().insert(name.into(), vec![col("id", "int"), col("name", "text")]);
+        self.target_columns
+            .lock()
+            .unwrap()
+            .insert(name.into(), vec![col("id", "int"), col("name", "text")]);
     }
 
     /// The target table as a copy of the source one.
@@ -132,16 +139,29 @@ impl Fake {
     }
 
     pub fn target_rows(&self, name: &str) -> Table {
-        self.target.lock().unwrap().get(name).cloned().unwrap_or_default()
+        self.target
+            .lock()
+            .unwrap()
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn count(&self, stmt: &str) -> usize {
-        self.log.lock().unwrap().iter().filter(|s| *s == stmt).count()
+        self.log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| *s == stmt)
+            .count()
     }
 
     fn fault(&self, table: &str, rows: usize) -> Result<()> {
         let mut faults = self.faults.lock().unwrap();
-        if let Some(f) = faults.iter_mut().find(|f| f.table == table && f.times > 0 && rows >= f.after_rows) {
+        if let Some(f) = faults
+            .iter_mut()
+            .find(|f| f.table == table && f.times > 0 && rows >= f.after_rows)
+        {
             f.times -= 1;
             return Err((f.error)());
         }
@@ -155,11 +175,16 @@ impl Fake {
 const COLUMNS: [&str; 2] = ["id", "name"];
 
 fn index(column: &str) -> usize {
-    COLUMNS.iter().position(|c| *c == column).unwrap_or_else(|| panic!("no column {column}"))
+    COLUMNS
+        .iter()
+        .position(|c| *c == column)
+        .unwrap_or_else(|| panic!("no column {column}"))
 }
 
 fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3))
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 fn key_text(key: &[String], row: &[Cell]) -> String {
@@ -169,8 +194,16 @@ fn key_text(key: &[String], row: &[Cell]) -> String {
 
 fn bucket_of(b: &Buckets, key: &[String], row: &[Cell]) -> i64 {
     match b {
-        Buckets::Range { column, lo, hi, width, n } => {
-            let Cell::Int(v) = row[index(column)] else { panic!("not an integer key") };
+        Buckets::Range {
+            column,
+            lo,
+            hi,
+            width,
+            n,
+        } => {
+            let Cell::Int(v) = row[index(column)] else {
+                panic!("not an integer key")
+            };
             if v < *lo {
                 -1
             } else if v > *hi {
@@ -194,7 +227,14 @@ fn row_hash(depth: DeltaDepth, key: &[String], row: &[Cell]) -> u64 {
 type Filter = (Vec<String>, Buckets, Vec<i64>);
 
 pub fn col(name: &str, t: &str) -> ColumnInfo {
-    ColumnInfo { name: name.into(), data_type: t.into(), nullable: true, primary_key: false, auto_increment: false, default_value: None }
+    ColumnInfo {
+        name: name.into(),
+        data_type: t.into(),
+        nullable: true,
+        primary_key: false,
+        auto_increment: false,
+        default_value: None,
+    }
 }
 
 pub struct FakeDriver {
@@ -230,11 +270,23 @@ impl Driver for FakeDriver {
     }
 
     async fn connect(&self, _: &ConnectionConfig, _: Option<&str>) -> Result<Box<dyn Session>> {
-        Ok(Box::new(FakeSession { fake: self.fake.clone(), source: self.source }))
+        Ok(Box::new(FakeSession {
+            fake: self.fake.clone(),
+            source: self.source,
+        }))
     }
 
-    fn insert_script(&self, target: &ObjectRef, _columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
-        Ok(format!("INSERT {}\n{}", target.name, serde_json::to_string(rows)?))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        _columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(format!(
+            "INSERT {}\n{}",
+            target.name,
+            serde_json::to_string(rows)?
+        ))
     }
 
     fn supports_bulk_load(&self) -> bool {
@@ -245,18 +297,43 @@ impl Driver for FakeDriver {
         target == "fake" && self.fake.native != Native::Off
     }
 
-    async fn copy_native(&self, source: &mut dyn Session, target: &mut dyn Session, spec: &CopySpec, progress: Progress<'_>) -> Result<u64> {
+    async fn copy_native(
+        &self,
+        source: &mut dyn Session,
+        target: &mut dyn Session,
+        spec: &CopySpec,
+        progress: Progress<'_>,
+    ) -> Result<u64> {
         if self.fake.native == Native::Unsupported {
             return Err(Error::Unsupported("no con estas versiones".into()));
         }
         // The driver finds its own sessions.
-        let src = source.as_any().and_then(|a| a.downcast_mut::<FakeSession>()).map(|s| s.source);
-        let tgt = target.as_any().and_then(|a| a.downcast_mut::<FakeSession>()).map(|s| s.source);
+        let src = source
+            .as_any()
+            .and_then(|a| a.downcast_mut::<FakeSession>())
+            .map(|s| s.source);
+        let tgt = target
+            .as_any()
+            .and_then(|a| a.downcast_mut::<FakeSession>())
+            .map(|s| s.source);
         assert_eq!((src, tgt), (Some(true), Some(false)));
         self.fake.native_calls.fetch_add(1, Ordering::SeqCst);
-        let rows = self.fake.source.lock().unwrap().get(&spec.source.table.name).cloned().unwrap_or_default();
+        let rows = self
+            .fake
+            .source
+            .lock()
+            .unwrap()
+            .get(&spec.source.table.name)
+            .cloned()
+            .unwrap_or_default();
         let n = rows.len() as u64;
-        self.fake.target.lock().unwrap().entry(spec.target.table.name.clone()).or_default().extend(rows);
+        self.fake
+            .target
+            .lock()
+            .unwrap()
+            .entry(spec.target.table.name.clone())
+            .or_default()
+            .extend(rows);
         progress(n);
         Ok(n)
     }
@@ -294,7 +371,14 @@ impl Session for FakeSession {
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
-        Ok(self.fake.target_columns.lock().unwrap().get(&obj.name).cloned().unwrap_or_default())
+        Ok(self
+            .fake
+            .target_columns
+            .lock()
+            .unwrap()
+            .get(&obj.name)
+            .cloned()
+            .unwrap_or_default())
     }
 
     async fn definition(&mut self, _: &ObjectRef) -> Result<Option<String>> {
@@ -305,23 +389,45 @@ impl Session for FakeSession {
         format!("PROBE {}", obj.name)
     }
 
-    async fn execute(&mut self, text: &str, _max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn execute(
+        &mut self,
+        text: &str,
+        _max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         assert!(!self.source, "the source is only read: {text}");
         let f = &self.fake;
         let (head, body) = text.split_once('\n').unwrap_or((text, ""));
         let (verb, table) = head.split_once(' ').unwrap_or((head, ""));
         match verb {
-            "TRUNCATE" => f.target.lock().unwrap().entry(table.into()).or_default().clear(),
+            "TRUNCATE" => f
+                .target
+                .lock()
+                .unwrap()
+                .entry(table.into())
+                .or_default()
+                .clear(),
             "PROBE" => {
                 let n = f.target.lock().unwrap().get(table).map_or(0, |t| t.len());
-                out.results.push(StatementResult { total_rows: n as u64, ..Default::default() });
+                out.results.push(StatementResult {
+                    total_rows: n as u64,
+                    ..Default::default()
+                });
             }
             "INSERT" => {
                 let have = f.target.lock().unwrap().get(table).map_or(0, |t| t.len());
                 f.fault(table, have)?;
                 let rows: Vec<Vec<serde_json::Value>> = serde_json::from_str(body)?;
-                let rows = rows.iter().map(|r| r.iter().map(Cell::from_json).collect()).collect::<Vec<_>>();
-                f.target.lock().unwrap().entry(table.into()).or_default().extend(rows);
+                let rows = rows
+                    .iter()
+                    .map(|r| r.iter().map(Cell::from_json).collect())
+                    .collect::<Vec<_>>();
+                f.target
+                    .lock()
+                    .unwrap()
+                    .entry(table.into())
+                    .or_default()
+                    .extend(rows);
                 return Ok(());
             }
             "SLEEP" => {
@@ -351,18 +457,35 @@ impl Session for FakeSession {
             g.acquire().await.unwrap().forget();
         }
         f.filters.lock().unwrap().push(spec.filter.clone());
-        let mut rows = f.source.lock().unwrap().get(&name).cloned().unwrap_or_default();
+        let mut rows = f
+            .source
+            .lock()
+            .unwrap()
+            .get(&name)
+            .cloned()
+            .unwrap_or_default();
         if let Some(filter) = &spec.filter {
             let (key, buckets, only): Filter = serde_json::from_str(filter)?;
             rows.retain(|r| only.contains(&bucket_of(&buckets, &key, r)));
         }
         let columns = vec![
-            TransferColumn { name: "id".into(), type_name: "int".into(), nullable: true },
-            TransferColumn { name: "name".into(), type_name: "text".into(), nullable: true },
+            TransferColumn {
+                name: "id".into(),
+                type_name: "int".into(),
+                nullable: true,
+            },
+            TransferColumn {
+                name: "name".into(),
+                type_name: "text".into(),
+                nullable: true,
+            },
         ];
         sink.lock().unwrap().begin(&columns)?;
         for chunk in rows.chunks(1000) {
-            let batch = RowBatch { rows: chunk.to_vec(), bytes: chunk.iter().flatten().map(Cell::size).sum() };
+            let batch = RowBatch {
+                rows: chunk.to_vec(),
+                bytes: chunk.iter().flatten().map(Cell::size).sum(),
+            };
             sink.lock().unwrap().batch(batch)?;
             let produced = f.produced.fetch_add(1, Ordering::SeqCst) + 1;
             let window = produced - f.finished.load(Ordering::SeqCst);
@@ -374,7 +497,13 @@ impl Session for FakeSession {
         Ok(rows.len() as u64)
     }
 
-    async fn bulk_load(&mut self, spec: &LoadSpec, columns: &[TransferColumn], source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+    async fn bulk_load(
+        &mut self,
+        spec: &LoadSpec,
+        columns: &[TransferColumn],
+        source: &mut dyn BatchSource,
+        progress: Progress<'_>,
+    ) -> Result<u64> {
         assert!(!self.source);
         assert!(!columns.is_empty());
         let f = self.fake.clone();
@@ -396,12 +525,22 @@ impl Session for FakeSession {
             f.finished.fetch_add(1, Ordering::SeqCst);
             if staged.len() as u64 >= spec.commit_rows {
                 committed += staged.len() as u64;
-                f.target.lock().unwrap().entry(table.clone()).or_default().append(&mut staged);
+                f.target
+                    .lock()
+                    .unwrap()
+                    .entry(table.clone())
+                    .or_default()
+                    .append(&mut staged);
                 progress(committed);
             }
         }
         committed += staged.len() as u64;
-        f.target.lock().unwrap().entry(table.clone()).or_default().append(&mut staged);
+        f.target
+            .lock()
+            .unwrap()
+            .entry(table.clone())
+            .or_default()
+            .append(&mut staged);
         progress(committed);
         Ok(committed)
     }
@@ -410,9 +549,22 @@ impl Session for FakeSession {
         Some(self)
     }
 
-    async fn key_range(&mut self, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
-        let side = if self.source { &self.fake.source } else { &self.fake.target };
-        let rows = side.lock().unwrap().get(&table.name).cloned().unwrap_or_default();
+    async fn key_range(
+        &mut self,
+        table: &ObjectRef,
+        column: &str,
+    ) -> Result<Option<(i64, i64, u64)>> {
+        let side = if self.source {
+            &self.fake.source
+        } else {
+            &self.fake.target
+        };
+        let rows = side
+            .lock()
+            .unwrap()
+            .get(&table.name)
+            .cloned()
+            .unwrap_or_default();
         let i = index(column);
         let mut values = Vec::with_capacity(rows.len());
         for r in &rows {
@@ -421,20 +573,45 @@ impl Session for FakeSession {
                 _ => return Err(Error::Query(format!("{column} no es entera"))),
             }
         }
-        Ok(values.iter().min().map(|lo| (*lo, *values.iter().max().unwrap(), rows.len() as u64)))
+        Ok(values
+            .iter()
+            .min()
+            .map(|lo| (*lo, *values.iter().max().unwrap(), rows.len() as u64)))
     }
 
     async fn delta_summary(&mut self, spec: &DeltaSpec) -> Result<Vec<BucketSum>> {
-        let side = if self.source { &self.fake.source } else { &self.fake.target };
-        let rows = side.lock().unwrap().get(&spec.table.name).cloned().unwrap_or_default();
-        self.fake.summaries.lock().unwrap().push(spec.buckets.clone());
+        let side = if self.source {
+            &self.fake.source
+        } else {
+            &self.fake.target
+        };
+        let rows = side
+            .lock()
+            .unwrap()
+            .get(&spec.table.name)
+            .cloned()
+            .unwrap_or_default();
+        self.fake
+            .summaries
+            .lock()
+            .unwrap()
+            .push(spec.buckets.clone());
         let mut sums: BTreeMap<i64, (u64, u128)> = BTreeMap::new();
         for r in &rows {
-            let e = sums.entry(bucket_of(&spec.buckets, &spec.key, r)).or_default();
+            let e = sums
+                .entry(bucket_of(&spec.buckets, &spec.key, r))
+                .or_default();
             e.0 += 1;
             e.1 += row_hash(spec.depth, &spec.key, r) as u128;
         }
-        Ok(sums.into_iter().map(|(bucket, (rows, sum))| BucketSum { bucket, rows, sum: sum.to_string() }).collect())
+        Ok(sums
+            .into_iter()
+            .map(|(bucket, (rows, sum))| BucketSum {
+                bucket,
+                rows,
+                sum: sum.to_string(),
+            })
+            .collect())
     }
 
     async fn delta_apply(
@@ -460,9 +637,13 @@ impl Session for FakeSession {
         f.fault(&table, have)?;
         let mut target = f.target.lock().unwrap();
         let rows = target.entry(table).or_default();
-        let (scope, mut keep): (Table, Table) =
-            std::mem::take(rows).into_iter().partition(|r| buckets.is_empty() || buckets.contains(&bucket_of(&spec.buckets, &spec.key, r)));
-        let mut old: HashMap<String, Vec<Cell>> = scope.into_iter().map(|r| (key_text(&spec.key, &r), r)).collect();
+        let (scope, mut keep): (Table, Table) = std::mem::take(rows).into_iter().partition(|r| {
+            buckets.is_empty() || buckets.contains(&bucket_of(&spec.buckets, &spec.key, r))
+        });
+        let mut old: HashMap<String, Vec<Cell>> = scope
+            .into_iter()
+            .map(|r| (key_text(&spec.key, &r), r))
+            .collect();
         let mut result = DeltaResult::default();
         for r in &incoming {
             match old.remove(&key_text(&spec.key, r)) {
@@ -487,9 +668,21 @@ pub struct FakeEndpoints {
 
 impl FakeEndpoints {
     pub fn new(fake: Arc<Fake>) -> Arc<Self> {
-        let source: Arc<dyn Driver> = Arc::new(FakeDriver { info: info("fake"), fake: fake.clone(), source: true });
-        let target: Arc<dyn Driver> = Arc::new(FakeDriver { info: info(fake.target_id), fake: fake.clone(), source: false });
-        Arc::new(FakeEndpoints { fake, source, target })
+        let source: Arc<dyn Driver> = Arc::new(FakeDriver {
+            info: info("fake"),
+            fake: fake.clone(),
+            source: true,
+        });
+        let target: Arc<dyn Driver> = Arc::new(FakeDriver {
+            info: info(fake.target_id),
+            fake: fake.clone(),
+            source: false,
+        });
+        Arc::new(FakeEndpoints {
+            fake,
+            source,
+            target,
+        })
     }
 }
 
@@ -502,10 +695,16 @@ impl Endpoints for FakeEndpoints {
         self.target.clone()
     }
     async fn open_source(&self) -> Result<Box<dyn Session>> {
-        Ok(Box::new(FakeSession { fake: self.fake.clone(), source: true }))
+        Ok(Box::new(FakeSession {
+            fake: self.fake.clone(),
+            source: true,
+        }))
     }
     async fn open_target(&self) -> Result<Box<dyn Session>> {
-        Ok(Box::new(FakeSession { fake: self.fake.clone(), source: false }))
+        Ok(Box::new(FakeSession {
+            fake: self.fake.clone(),
+            source: false,
+        }))
     }
     fn native_copy_allowed(&self) -> bool {
         self.fake.native_allowed && self.source.supports_native_copy(self.target.info().id)
@@ -514,10 +713,18 @@ impl Endpoints for FakeEndpoints {
 
 /// A job copying table `name` into the same name.
 pub fn job(name: &str, estimate: Option<u64>) -> TransferJob {
-    let table = ObjectRef { kind: "table".into(), schema: None, name: name.into() };
+    let table = ObjectRef {
+        kind: "table".into(),
+        schema: None,
+        name: name.into(),
+    };
     TransferJob {
         name: name.into(),
-        source: ReadSpec { table: table.clone(), columns: None, filter: None },
+        source: ReadSpec {
+            table: table.clone(),
+            columns: None,
+            filter: None,
+        },
         target: LoadSpec {
             table,
             columns: vec!["id".into(), "name".into()],
@@ -540,7 +747,14 @@ pub fn job(name: &str, estimate: Option<u64>) -> TransferJob {
 
 /// A job syncing table `name` by rows on `key`.
 pub fn delta_job(name: &str, key: &str, estimate: Option<u64>) -> TransferJob {
-    TransferJob { mode: TransferMode::Delta { key: vec![key.into()], depth: DeltaDepth::Full, max_cores: 0 }, ..job(name, estimate) }
+    TransferJob {
+        mode: TransferMode::Delta {
+            key: vec![key.into()],
+            depth: DeltaDepth::Full,
+            max_cores: 0,
+        },
+        ..job(name, estimate)
+    }
 }
 
 /// Collects a run's events.

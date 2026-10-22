@@ -102,9 +102,15 @@ fn jmx_attr<'a>(attrs: &'a Value, name: &str) -> Option<&'a Value> {
 }
 
 async fn jmx(s: &mut GraphSession, bean: &str) -> Result<Vec<Value>> {
-    let q = format!("CALL dbms.queryJmx({}) YIELD name, attributes RETURN name, attributes", cypher::string(bean));
+    let q = format!(
+        "CALL dbms.queryJmx({}) YIELD name, attributes RETURN name, attributes",
+        cypher::string(bean)
+    );
     let (_, rows) = s.query(&q).await?;
-    Ok(rows.into_iter().filter_map(|r| r.into_iter().nth(1)).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| r.into_iter().nth(1))
+        .collect())
 }
 
 pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
@@ -117,8 +123,16 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
     snap.info.push(("Protocolo".into(), s.bolt_server()));
 
     // JMX: operating system, memory, runtime, threads, GC.
-    let (mut cpu, mut cpu_time, mut heap, mut heap_max, mut os_used, mut os_total, mut uptime, mut threads) =
-        (None, None, None, None, None, None, None, None);
+    let (
+        mut cpu,
+        mut cpu_time,
+        mut heap,
+        mut heap_max,
+        mut os_used,
+        mut os_total,
+        mut uptime,
+        mut threads,
+    ) = (None, None, None, None, None, None, None, None);
     let (mut fds, mut fds_max, mut gc_ms, mut gc_count) = (None, None, None::<f64>, None::<f64>);
     match jmx(s, "java.lang:type=OperatingSystem").await {
         Ok(beans) => {
@@ -126,8 +140,10 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
                 let load = f(jmx_attr(a, "CpuLoad")).or_else(|| f(jmx_attr(a, "SystemCpuLoad")));
                 cpu = load.filter(|l| *l >= 0.0).map(|l| l * 100.0);
                 cpu_time = f(jmx_attr(a, "ProcessCpuTime")).map(|ns| ns / 1e7);
-                os_total = f(jmx_attr(a, "TotalMemorySize")).or_else(|| f(jmx_attr(a, "TotalPhysicalMemorySize")));
-                let free = f(jmx_attr(a, "FreeMemorySize")).or_else(|| f(jmx_attr(a, "FreePhysicalMemorySize")));
+                os_total = f(jmx_attr(a, "TotalMemorySize"))
+                    .or_else(|| f(jmx_attr(a, "TotalPhysicalMemorySize")));
+                let free = f(jmx_attr(a, "FreeMemorySize"))
+                    .or_else(|| f(jmx_attr(a, "FreePhysicalMemorySize")));
                 os_used = os_total.zip(free).map(|(t, f)| t - f);
                 fds = f(jmx_attr(a, "OpenFileDescriptorCount"));
                 fds_max = f(jmx_attr(a, "MaxFileDescriptorCount"));
@@ -135,11 +151,18 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
                     snap.info.push(("Procesadores".into(), n.to_string()));
                 }
                 if let (Some(n), Some(v)) = (jmx_attr(a, "Name"), jmx_attr(a, "Version")) {
-                    snap.info.push(("Sistema operativo".into(), format!("{} {}", as_text(n), as_text(v))));
+                    snap.info.push((
+                        "Sistema operativo".into(),
+                        format!("{} {}", as_text(n), as_text(v)),
+                    ));
                 }
             }
             if let Ok(b) = jmx(s, "java.lang:type=Memory").await {
-                if let Some(u) = b.first().and_then(|a| jmx_attr(a, "HeapMemoryUsage")).and_then(|v| v.get("properties")) {
+                if let Some(u) = b
+                    .first()
+                    .and_then(|a| jmx_attr(a, "HeapMemoryUsage"))
+                    .and_then(|v| v.get("properties"))
+                {
                     heap = f(u.get("used"));
                     heap_max = f(u.get("max")).filter(|m| *m > 0.0);
                 }
@@ -148,7 +171,8 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
                 if let Some(a) = b.first() {
                     uptime = f(jmx_attr(a, "Uptime")).map(|ms| ms / 1000.0);
                     if let Some(v) = jmx_attr(a, "VmName").zip(jmx_attr(a, "VmVersion")) {
-                        snap.info.push(("JVM".into(), format!("{} {}", as_text(v.0), as_text(v.1))));
+                        snap.info
+                            .push(("JVM".into(), format!("{} {}", as_text(v.0), as_text(v.1))));
                     }
                 }
             }
@@ -166,18 +190,90 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
                 }
             }
         }
-        Err(e) => soft(e, "Sin acceso a dbms.queryJmx (CPU, memoria y tiempo activo no disponibles)", &mut notes)?,
+        Err(e) => soft(
+            e,
+            "Sin acceso a dbms.queryJmx (CPU, memoria y tiempo activo no disponibles)",
+            &mut notes,
+        )?,
     }
     let m = &mut snap.metrics;
-    m.push(Metric::new("cpu", "CPU del servidor", "CPU", MetricUnit::Percent, cpu).max(Some(100.0)));
-    m.push(Metric::new("cpu_time", "CPU del proceso", "CPU", MetricUnit::Percent, cpu_time).counter());
-    m.push(Metric::new("mem_used", "Heap de la JVM", "Memoria", MetricUnit::Bytes, heap).max(heap_max));
-    m.push(Metric::new("os_mem_used", "Memoria del sistema", "Memoria", MetricUnit::Bytes, os_used).max(os_total));
-    m.push(Metric::new("gc_time", "Tiempo en GC", "Memoria", MetricUnit::Millis, gc_ms).counter());
-    m.push(Metric::new("gc_count", "Recolecciones de GC", "Memoria", MetricUnit::Count, gc_count).counter());
-    m.push(Metric::new("threads", "Hilos", "Servidor", MetricUnit::Count, threads));
-    m.push(Metric::new("open_files", "Archivos abiertos", "Servidor", MetricUnit::Count, fds).max(fds_max));
-    m.push(Metric::new("uptime", "Tiempo activo", "Servidor", MetricUnit::Seconds, uptime));
+    m.push(
+        Metric::new("cpu", "CPU del servidor", "CPU", MetricUnit::Percent, cpu).max(Some(100.0)),
+    );
+    m.push(
+        Metric::new(
+            "cpu_time",
+            "CPU del proceso",
+            "CPU",
+            MetricUnit::Percent,
+            cpu_time,
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "mem_used",
+            "Heap de la JVM",
+            "Memoria",
+            MetricUnit::Bytes,
+            heap,
+        )
+        .max(heap_max),
+    );
+    m.push(
+        Metric::new(
+            "os_mem_used",
+            "Memoria del sistema",
+            "Memoria",
+            MetricUnit::Bytes,
+            os_used,
+        )
+        .max(os_total),
+    );
+    m.push(
+        Metric::new(
+            "gc_time",
+            "Tiempo en GC",
+            "Memoria",
+            MetricUnit::Millis,
+            gc_ms,
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "gc_count",
+            "Recolecciones de GC",
+            "Memoria",
+            MetricUnit::Count,
+            gc_count,
+        )
+        .counter(),
+    );
+    m.push(Metric::new(
+        "threads",
+        "Hilos",
+        "Servidor",
+        MetricUnit::Count,
+        threads,
+    ));
+    m.push(
+        Metric::new(
+            "open_files",
+            "Archivos abiertos",
+            "Servidor",
+            MetricUnit::Count,
+            fds,
+        )
+        .max(fds_max),
+    );
+    m.push(Metric::new(
+        "uptime",
+        "Tiempo activo",
+        "Servidor",
+        MetricUnit::Seconds,
+        uptime,
+    ));
 
     // Connections.
     let mut connections = None;
@@ -198,12 +294,33 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
     let (mut active, mut waiting, mut locks, mut tx_counter) = (None, None, None, None);
     match s.records("SHOW TRANSACTIONS YIELD *").await {
         Ok(rows) => {
-            let mut sessions =
-                MonitorTable::new("sessions", "Sesiones", &["id", "usuario", "base", "cliente", "estado", "duración (ms)", "consulta actual"]);
+            let mut sessions = MonitorTable::new(
+                "sessions",
+                "Sesiones",
+                &[
+                    "id",
+                    "usuario",
+                    "base",
+                    "cliente",
+                    "estado",
+                    "duración (ms)",
+                    "consulta actual",
+                ],
+            );
             let mut queries = MonitorTable::new(
                 "queries",
                 "Consultas en curso",
-                &["id", "usuario", "base", "duración (ms)", "CPU (ms)", "espera (ms)", "memoria (bytes)", "page hits", "consulta"],
+                &[
+                    "id",
+                    "usuario",
+                    "base",
+                    "duración (ms)",
+                    "CPU (ms)",
+                    "espera (ms)",
+                    "memoria (bytes)",
+                    "page hits",
+                    "consulta",
+                ],
             );
             let (mut a, mut w, mut l) = (0.0, 0.0, 0.0);
             let mut max_tx: Option<f64> = None;
@@ -211,8 +328,16 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
                 let g = |k: &str| r.get(k).cloned().unwrap_or(Value::Null);
                 let status = r.get("status").map(as_text).unwrap_or_default();
                 let query = r.get("currentQuery").map(as_text).unwrap_or_default();
-                let own = r.get("metaData").and_then(|m| m.get("dbine")).and_then(Value::as_str) == Some(s.tag.as_str());
-                if let Some(n) = r.get("transactionId").map(as_text).and_then(|id| id.rsplit('-').next().and_then(|n| n.parse::<f64>().ok())) {
+                let own = r
+                    .get("metaData")
+                    .and_then(|m| m.get("dbine"))
+                    .and_then(Value::as_str)
+                    == Some(s.tag.as_str());
+                if let Some(n) = r
+                    .get("transactionId")
+                    .map(as_text)
+                    .and_then(|id| id.rsplit('-').next().and_then(|n| n.parse::<f64>().ok()))
+                {
                     max_tx = Some(max_tx.map_or(n, |m| m.max(n)));
                 }
                 if status.starts_with("Blocked") {
@@ -235,7 +360,12 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
                     ]);
                 }
                 if !query.is_empty() && queries.rows.len() < MAX_ROWS {
-                    let ms = |k: &str| r.get(k).and_then(duration_ms).map(Value::from).unwrap_or(Value::Null);
+                    let ms = |k: &str| {
+                        r.get(k)
+                            .and_then(duration_ms)
+                            .map(Value::from)
+                            .unwrap_or(Value::Null)
+                    };
                     queries.rows.push(vec![
                         g("currentQueryId"),
                         g("username"),
@@ -253,20 +383,77 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             snap.tables.push(sessions);
             snap.tables.push(queries);
         }
-        Err(e) => soft(e, "No se pudieron listar las transacciones (SHOW TRANSACTIONS)", &mut notes)?,
+        Err(e) => soft(
+            e,
+            "No se pudieron listar las transacciones (SHOW TRANSACTIONS)",
+            &mut notes,
+        )?,
     }
     let m = &mut snap.metrics;
-    m.push(Metric::new("connections", "Conexiones", "Conexiones", MetricUnit::Count, connections));
-    m.push(Metric::new("active_sessions", "Consultas en ejecución", "Conexiones", MetricUnit::Count, active));
-    m.push(Metric::new("transactions", "Transacciones iniciadas (base actual)", "Actividad", MetricUnit::Count, tx_counter).counter());
-    m.push(Metric::new("locks_waiting", "Transacciones bloqueadas", "Bloqueos", MetricUnit::Count, waiting));
-    m.push(Metric::new("locks_held", "Bloqueos tomados", "Bloqueos", MetricUnit::Count, locks));
+    m.push(Metric::new(
+        "connections",
+        "Conexiones",
+        "Conexiones",
+        MetricUnit::Count,
+        connections,
+    ));
+    m.push(Metric::new(
+        "active_sessions",
+        "Consultas en ejecución",
+        "Conexiones",
+        MetricUnit::Count,
+        active,
+    ));
+    m.push(
+        Metric::new(
+            "transactions",
+            "Transacciones iniciadas (base actual)",
+            "Actividad",
+            MetricUnit::Count,
+            tx_counter,
+        )
+        .counter(),
+    );
+    m.push(Metric::new(
+        "locks_waiting",
+        "Transacciones bloqueadas",
+        "Bloqueos",
+        MetricUnit::Count,
+        waiting,
+    ));
+    m.push(Metric::new(
+        "locks_held",
+        "Bloqueos tomados",
+        "Bloqueos",
+        MetricUnit::Count,
+        locks,
+    ));
 
     // Graph size (count store: constant time).
-    let nodes = s.strings("MATCH (n) RETURN count(n)").await.ok().and_then(|v| v.first().and_then(|x| num(x)));
-    let rels = s.strings("MATCH ()-[r]->() RETURN count(r)").await.ok().and_then(|v| v.first().and_then(|x| num(x)));
-    snap.metrics.push(Metric::new("nodes", "Nodos", "Almacenamiento", MetricUnit::Count, nodes));
-    snap.metrics.push(Metric::new("relationships", "Relaciones", "Almacenamiento", MetricUnit::Count, rels));
+    let nodes = s
+        .strings("MATCH (n) RETURN count(n)")
+        .await
+        .ok()
+        .and_then(|v| v.first().and_then(|x| num(x)));
+    let rels = s
+        .strings("MATCH ()-[r]->() RETURN count(r)")
+        .await
+        .ok()
+        .and_then(|v| v.first().and_then(|x| num(x)));
+    snap.metrics.push(Metric::new(
+        "nodes",
+        "Nodos",
+        "Almacenamiento",
+        MetricUnit::Count,
+        nodes,
+    ));
+    snap.metrics.push(Metric::new(
+        "relationships",
+        "Relaciones",
+        "Almacenamiento",
+        MetricUnit::Count,
+        rels,
+    ));
 
     // Databases.
     match s.query_on("SHOW DATABASES YIELD name, type, currentStatus, role, address, default, home, store, lastCommittedTxn, replicationLag", Some("system")).await {
@@ -295,20 +482,37 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
     }
 
     // Cluster servers (Enterprise).
-    match s.query_on("SHOW SERVERS YIELD name, address, state, health, hosting", Some("system")).await {
+    match s
+        .query_on(
+            "SHOW SERVERS YIELD name, address, state, health, hosting",
+            Some("system"),
+        )
+        .await
+    {
         Ok((cols, rows)) => {
-            let mut t = MonitorTable::new("nodes", "Servidores del cluster", &["nombre", "dirección", "estado", "salud", "bases"]);
+            let mut t = MonitorTable::new(
+                "nodes",
+                "Servidores del cluster",
+                &["nombre", "dirección", "estado", "salud", "bases"],
+            );
             for r in rows.iter().take(MAX_ROWS) {
                 t.rows.push(
                     ["name", "address", "state", "health", "hosting"]
                         .iter()
-                        .map(|c| cols.iter().position(|x| x == c).and_then(|i| r.get(i)).map(crate::value::cell).unwrap_or(Value::Null))
+                        .map(|c| {
+                            cols.iter()
+                                .position(|x| x == c)
+                                .and_then(|i| r.get(i))
+                                .map(crate::value::cell)
+                                .unwrap_or(Value::Null)
+                        })
                         .collect(),
                 );
             }
             snap.tables.push(t);
         }
-        Err(Error::Query(_)) => notes.push("SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.".into()),
+        Err(Error::Query(_)) => notes
+            .push("SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.".into()),
         Err(e) => return Err(e),
     }
 
@@ -316,16 +520,30 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
     const KEYS: &[(&str, &str)] = &[
         ("server.memory.heap.max_size", "Heap máximo"),
         ("server.memory.pagecache.size", "Page cache"),
-        ("db.memory.transaction.total.max", "Memoria máx. de transacciones"),
+        (
+            "db.memory.transaction.total.max",
+            "Memoria máx. de transacciones",
+        ),
         ("db.transaction.timeout", "Timeout de transacción"),
         ("server.bolt.thread_pool_max_size", "Hilos Bolt máx."),
         ("initial.dbms.default_database", "Base predeterminada"),
     ];
     if let Ok(rows) = s.records("CALL dbms.listConfig() YIELD name, value").await {
         for (k, label) in KEYS {
-            if let Some(v) = rows.iter().find(|r| r.get("name").and_then(Value::as_str) == Some(k)).and_then(|r| r.get("value")) {
+            if let Some(v) = rows
+                .iter()
+                .find(|r| r.get("name").and_then(Value::as_str) == Some(k))
+                .and_then(|r| r.get("value"))
+            {
                 let v = as_text(v);
-                snap.info.push((label.to_string(), if v.is_empty() { "(automático)".into() } else { v }));
+                snap.info.push((
+                    label.to_string(),
+                    if v.is_empty() {
+                        "(automático)".into()
+                    } else {
+                        v
+                    },
+                ));
             }
         }
     }
@@ -340,10 +558,13 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
 
 async fn key_values(s: &mut GraphSession, q: &str) -> Result<Map<String, Value>> {
     let (_, rows) = s.query(q).await?;
-    Ok(rows.into_iter().filter_map(|r| {
-        let mut it = r.into_iter();
-        Some((as_text(&it.next()?), it.next().unwrap_or(Value::Null)))
-    }).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| {
+            let mut it = r.into_iter();
+            Some((as_text(&it.next()?), it.next().unwrap_or(Value::Null)))
+        })
+        .collect())
 }
 
 pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
@@ -369,15 +590,75 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
     let n = |k: &str| f(kv.get(k));
     let limit = size("memory_limit").or_else(|| size("tenant_memory_limit"));
     let m = &mut snap.metrics;
-    m.push(Metric::new("mem_used", "Memoria residente", "Memoria", MetricUnit::Bytes, size("memory_res")).max(limit));
-    m.push(Metric::new("mem_tracked", "Memoria contabilizada", "Memoria", MetricUnit::Bytes, size("memory_tracked").or_else(|| size("memory_usage"))).max(limit));
-    m.push(Metric::new("mem_peak", "Pico de memoria", "Memoria", MetricUnit::Bytes, size("peak_memory_res")));
-    m.push(Metric::new("graph_mem", "Memoria del grafo", "Memoria", MetricUnit::Bytes, size("graph_memory_tracked")));
-    m.push(Metric::new("query_mem", "Memoria de consultas", "Memoria", MetricUnit::Bytes, size("query_memory_tracked")));
-    m.push(Metric::new("storage_used", "Espacio en disco", "Almacenamiento", MetricUnit::Bytes, size("disk_usage")));
-    m.push(Metric::new("nodes", "Nodos", "Almacenamiento", MetricUnit::Count, n("vertex_count")));
-    m.push(Metric::new("relationships", "Relaciones", "Almacenamiento", MetricUnit::Count, n("edge_count")));
-    m.push(Metric::new("unreleased_deltas", "Deltas sin liberar", "Almacenamiento", MetricUnit::Count, n("unreleased_delta_objects")));
+    m.push(
+        Metric::new(
+            "mem_used",
+            "Memoria residente",
+            "Memoria",
+            MetricUnit::Bytes,
+            size("memory_res"),
+        )
+        .max(limit),
+    );
+    m.push(
+        Metric::new(
+            "mem_tracked",
+            "Memoria contabilizada",
+            "Memoria",
+            MetricUnit::Bytes,
+            size("memory_tracked").or_else(|| size("memory_usage")),
+        )
+        .max(limit),
+    );
+    m.push(Metric::new(
+        "mem_peak",
+        "Pico de memoria",
+        "Memoria",
+        MetricUnit::Bytes,
+        size("peak_memory_res"),
+    ));
+    m.push(Metric::new(
+        "graph_mem",
+        "Memoria del grafo",
+        "Memoria",
+        MetricUnit::Bytes,
+        size("graph_memory_tracked"),
+    ));
+    m.push(Metric::new(
+        "query_mem",
+        "Memoria de consultas",
+        "Memoria",
+        MetricUnit::Bytes,
+        size("query_memory_tracked"),
+    ));
+    m.push(Metric::new(
+        "storage_used",
+        "Espacio en disco",
+        "Almacenamiento",
+        MetricUnit::Bytes,
+        size("disk_usage"),
+    ));
+    m.push(Metric::new(
+        "nodes",
+        "Nodos",
+        "Almacenamiento",
+        MetricUnit::Count,
+        n("vertex_count"),
+    ));
+    m.push(Metric::new(
+        "relationships",
+        "Relaciones",
+        "Almacenamiento",
+        MetricUnit::Count,
+        n("edge_count"),
+    ));
+    m.push(Metric::new(
+        "unreleased_deltas",
+        "Deltas sin liberar",
+        "Almacenamiento",
+        MetricUnit::Count,
+        n("unreleased_delta_objects"),
+    ));
     for (k, label) in [
         ("storage_mode", "Modo de almacenamiento"),
         ("global_storage_mode", "Modo de almacenamiento"),
@@ -398,20 +679,47 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
     let mut active = None;
     match s.records("SHOW TRANSACTIONS").await {
         Ok(rows) => {
-            let mut t = MonitorTable::new("sessions", "Transacciones", &["id", "usuario", "estado", "inicio", "duración (ms)", "metadatos", "consulta actual"]);
+            let mut t = MonitorTable::new(
+                "sessions",
+                "Transacciones",
+                &[
+                    "id",
+                    "usuario",
+                    "estado",
+                    "inicio",
+                    "duración (ms)",
+                    "metadatos",
+                    "consulta actual",
+                ],
+            );
             let mut a = 0.0;
             for r in &rows {
-                let own = r.get("metadata").and_then(|m| m.get("dbine")).and_then(Value::as_str) == Some(s.tag.as_str());
-                let query = r.get("query").map(|q| match q {
-                    Value::Array(a) => a.iter().map(as_text).collect::<Vec<_>>().join("; "),
-                    other => as_text(other),
-                }).unwrap_or_default();
+                let own = r
+                    .get("metadata")
+                    .and_then(|m| m.get("dbine"))
+                    .and_then(Value::as_str)
+                    == Some(s.tag.as_str());
+                let query = r
+                    .get("query")
+                    .map(|q| match q {
+                        Value::Array(a) => a.iter().map(as_text).collect::<Vec<_>>().join("; "),
+                        other => as_text(other),
+                    })
+                    .unwrap_or_default();
                 if !own {
                     a += 1.0;
                 }
                 if t.rows.len() < MAX_ROWS {
                     let g = |k: &str| r.get(k).map(crate::value::cell).unwrap_or(Value::Null);
-                    t.rows.push(vec![g("transaction_id"), g("username"), g("status"), g("start_time"), g("elapsed_ms"), g("metadata"), clip(&query)]);
+                    t.rows.push(vec![
+                        g("transaction_id"),
+                        g("username"),
+                        g("status"),
+                        g("start_time"),
+                        g("elapsed_ms"),
+                        g("metadata"),
+                        clip(&query),
+                    ]);
                 }
             }
             active = Some(a);
@@ -419,13 +727,29 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
         }
         Err(e) => soft(e, "SHOW TRANSACTIONS", &mut notes)?,
     }
-    snap.metrics.push(Metric::new("active_sessions", "Transacciones activas", "Conexiones", MetricUnit::Count, active));
+    snap.metrics.push(Metric::new(
+        "active_sessions",
+        "Transacciones activas",
+        "Conexiones",
+        MetricUnit::Count,
+        active,
+    ));
 
     // Logged-in sessions.
     match s.records("SHOW ACTIVE USERS INFO").await {
         Ok(rows) => {
-            snap.metrics.push(Metric::new("connections", "Sesiones abiertas", "Conexiones", MetricUnit::Count, Some(rows.len() as f64)));
-            let mut t = MonitorTable::new("connections", "Sesiones abiertas", &["usuario", "sesión", "inicio"]);
+            snap.metrics.push(Metric::new(
+                "connections",
+                "Sesiones abiertas",
+                "Conexiones",
+                MetricUnit::Count,
+                Some(rows.len() as f64),
+            ));
+            let mut t = MonitorTable::new(
+                "connections",
+                "Sesiones abiertas",
+                &["usuario", "sesión", "inicio"],
+            );
             for r in rows.iter().take(MAX_ROWS) {
                 t.rows.push(r.values().map(crate::value::cell).collect());
             }
@@ -462,7 +786,8 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
     if let Ok(rows) = s.records("SHOW DATABASES").await {
         let mut t = MonitorTable::new("databases", "Bases de datos", &["nombre"]);
         for r in rows.iter().take(MAX_ROWS) {
-            t.rows.push(vec![r.values().next().cloned().unwrap_or(Value::Null)]);
+            t.rows
+                .push(vec![r.values().next().cloned().unwrap_or(Value::Null)]);
         }
         snap.tables.push(t);
     }
@@ -497,7 +822,11 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             ("storage_snapshot_interval_sec", "Intervalo de snapshot (s)"),
             ("log_level", "Nivel de log"),
         ] {
-            if let Some(v) = rows.iter().find(|r| r.get("name").and_then(Value::as_str) == Some(k)).and_then(|r| r.get("current_value")) {
+            if let Some(v) = rows
+                .iter()
+                .find(|r| r.get("name").and_then(Value::as_str) == Some(k))
+                .and_then(|r| r.get("current_value"))
+            {
                 snap.info.push((label.to_string(), as_text(v)));
             }
         }
@@ -512,7 +841,9 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
 
 /// `/status` `startTime`: "Tue Nov 12 18:42:11 UTC 2024".
 pub fn neptune_start(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-    chrono::NaiveDateTime::parse_from_str(s.trim(), "%a %b %d %H:%M:%S UTC %Y").ok().map(|d| d.and_utc())
+    chrono::NaiveDateTime::parse_from_str(s.trim(), "%a %b %d %H:%M:%S UTC %Y")
+        .ok()
+        .map(|d| d.and_utc())
 }
 
 pub async fn neptune(s: &mut GraphSession) -> Result<MonitorSnapshot> {
@@ -545,17 +876,59 @@ pub async fn neptune(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             snap.info.push((k.clone(), as_text(v)));
         }
     }
-    let uptime = st.get("startTime").and_then(Value::as_str).and_then(neptune_start).map(|t| (chrono::Utc::now() - t).num_seconds() as f64);
-    snap.metrics.push(Metric::new("uptime", "Tiempo activo", "Servidor", MetricUnit::Seconds, uptime));
+    let uptime = st
+        .get("startTime")
+        .and_then(Value::as_str)
+        .and_then(neptune_start)
+        .map(|t| (chrono::Utc::now() - t).num_seconds() as f64);
+    snap.metrics.push(Metric::new(
+        "uptime",
+        "Tiempo activo",
+        "Servidor",
+        MetricUnit::Seconds,
+        uptime,
+    ));
 
     match c.json("/openCypher/status").await {
         Ok(q) => {
             let accepted = f(q.get("acceptedQueryCount"));
             let running = f(q.get("runningQueryCount"));
-            snap.metrics.push(Metric::new("queries", "Consultas aceptadas", "Actividad", MetricUnit::Count, accepted).counter());
-            snap.metrics.push(Metric::new("active_sessions", "Consultas en ejecución", "Conexiones", MetricUnit::Count, running));
-            let mut t = MonitorTable::new("queries", "Consultas en curso", &["id", "espera (ms)", "duración (ms)", "cancelada", "consulta"]);
-            for x in q.get("queries").and_then(Value::as_array).cloned().unwrap_or_default().iter().take(MAX_ROWS) {
+            snap.metrics.push(
+                Metric::new(
+                    "queries",
+                    "Consultas aceptadas",
+                    "Actividad",
+                    MetricUnit::Count,
+                    accepted,
+                )
+                .counter(),
+            );
+            snap.metrics.push(Metric::new(
+                "active_sessions",
+                "Consultas en ejecución",
+                "Conexiones",
+                MetricUnit::Count,
+                running,
+            ));
+            let mut t = MonitorTable::new(
+                "queries",
+                "Consultas en curso",
+                &[
+                    "id",
+                    "espera (ms)",
+                    "duración (ms)",
+                    "cancelada",
+                    "consulta",
+                ],
+            );
+            for x in q
+                .get("queries")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .take(MAX_ROWS)
+            {
                 let ev = x.get("queryEvalStats");
                 let e = |k: &str| ev.and_then(|e| e.get(k)).cloned().unwrap_or(Value::Null);
                 t.rows.push(vec![

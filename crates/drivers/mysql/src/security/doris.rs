@@ -15,14 +15,24 @@ use super::common::{bare_role, q, role, unsupported, who, Who};
 use super::starrocks::identity;
 use super::{account, new_user, split_top, unquote};
 use crate::session::{lit, named, MySqlSession};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use mysql_async::Row;
 use std::collections::HashSet;
 
 pub fn spec() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
-            "SELECT_PRIV", "LOAD_PRIV", "ALTER_PRIV", "CREATE_PRIV", "DROP_PRIV", "SHOW_VIEW_PRIV", "USAGE_PRIV", "GRANT_PRIV", "ADMIN_PRIV",
+            "SELECT_PRIV",
+            "LOAD_PRIV",
+            "ALTER_PRIV",
+            "CREATE_PRIV",
+            "DROP_PRIV",
+            "SHOW_VIEW_PRIV",
+            "USAGE_PRIV",
+            "GRANT_PRIV",
+            "ADMIN_PRIV",
             "NODE_PRIV",
         ],
         // "" = everything (`*.*.*`), "schema" = one database (`db.*`).
@@ -64,8 +74,16 @@ const COLUMNS: [(&str, &str); 9] = [
 /// database.
 fn object_name(key: &str, kind: &str) -> String {
     let key = key.trim();
-    let key = if kind == "schema" { key.strip_suffix(".*").unwrap_or(key) } else { key };
-    let key = if kind == "schema" || kind == "table" { key.strip_prefix("internal.").unwrap_or(key) } else { key };
+    let key = if kind == "schema" {
+        key.strip_suffix(".*").unwrap_or(key)
+    } else {
+        key
+    };
+    let key = if kind == "schema" || kind == "table" {
+        key.strip_prefix("internal.").unwrap_or(key)
+    } else {
+        key
+    };
     if kind == "resource" && key == "%" {
         return "*".into();
     }
@@ -81,7 +99,11 @@ fn privilege(p: &str) -> Option<String> {
         return None;
     }
     Some(match p.split_once('[') {
-        Some((n, cols)) => format!("{}({})", n.trim().to_uppercase(), cols.trim_end_matches(']').trim()),
+        Some((n, cols)) => format!(
+            "{}({})",
+            n.trim().to_uppercase(),
+            cols.trim_end_matches(']').trim()
+        ),
         None => p.to_uppercase(),
     })
 }
@@ -95,15 +117,23 @@ pub(super) fn parse_column(text: &str, kind: &str) -> Vec<Triple> {
     }
     let mut out = Vec::new();
     if kind.is_empty() {
-        out.extend(text.split(',').filter_map(privilege).map(|p| (p, None, None)));
+        out.extend(
+            text.split(',')
+                .filter_map(privilege)
+                .map(|p| (p, None, None)),
+        );
         return out;
     }
     for entry in text.split("; ") {
-        let Some((key, privs)) = entry.split_once(": ") else { continue };
+        let Some((key, privs)) = entry.split_once(": ") else {
+            continue;
+        };
         let object = object_name(key, kind);
         // Everyone reads information_schema and mysql, and uses the
         // normal workload group: not grants of this principal.
-        if (kind == "schema" && (object == "information_schema" || object == "mysql")) || (kind == "workload_group" && object == "normal") {
+        if (kind == "schema" && (object == "information_schema" || object == "mysql"))
+            || (kind == "workload_group" && object == "normal")
+        {
             continue;
         }
         // Column privileges: `Select_priv[id]` split by commas outside brackets.
@@ -134,11 +164,19 @@ fn split_privs(s: &str) -> Vec<String> {
 }
 
 fn row_grants(r: &Row) -> Vec<Triple> {
-    COLUMNS.iter().flat_map(|(col, kind)| parse_column(&named(r, &[col]).unwrap_or_default(), kind)).collect()
+    COLUMNS
+        .iter()
+        .flat_map(|(col, kind)| parse_column(&named(r, &[col]).unwrap_or_default(), kind))
+        .collect()
 }
 
 fn list(s: Option<String>) -> Vec<String> {
-    s.unwrap_or_default().split(',').map(str::trim).filter(|r| !r.is_empty()).map(unquote).collect()
+    s.unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map(unquote)
+        .collect()
 }
 
 pub async fn principals(s: &mut MySqlSession) -> Result<Vec<Principal>> {
@@ -150,8 +188,14 @@ pub async fn principals(s: &mut MySqlSession) -> Result<Vec<Principal>> {
     let mut out = Vec::new();
     for r in &rows {
         let name = identity(&named(r, &["UserIdentity"]).unwrap_or_default());
-        let user = name.rsplit_once('@').map_or(name.as_str(), |(u, _)| u).to_string();
-        let mut details = vec![("Host".into(), name.rsplit_once('@').map_or("%", |(_, h)| h).to_string())];
+        let user = name
+            .rsplit_once('@')
+            .map_or(name.as_str(), |(u, _)| u)
+            .to_string();
+        let mut details = vec![(
+            "Host".into(),
+            name.rsplit_once('@').map_or("%", |(_, h)| h).to_string(),
+        )];
         if let Some(c) = named(r, &["Comment"]).filter(|c| !c.is_empty() && c != "NULL") {
             details.push(("Comentario".into(), c));
         }
@@ -191,16 +235,31 @@ pub async fn principals(s: &mut MySqlSession) -> Result<Vec<Principal>> {
 
 pub async fn grants(s: &mut MySqlSession, principal: &str) -> Result<Vec<Grant>> {
     let roles = s.optional_rows("SHOW ROLES").await;
-    let role_row = |n: &str| roles.iter().find(|r| named(r, &["Name"]).as_deref() == Some(n));
-    let grant = |(privilege, object, object_kind): Triple, via: Option<String>| Grant { privilege, object, object_kind, via, ..Default::default() };
+    let role_row = |n: &str| {
+        roles
+            .iter()
+            .find(|r| named(r, &["Name"]).as_deref() == Some(n))
+    };
+    let grant = |(privilege, object, object_kind): Triple, via: Option<String>| Grant {
+        privilege,
+        object,
+        object_kind,
+        via,
+        ..Default::default()
+    };
     match who(principal) {
         Who::Role(r) | Who::Group(r) => {
             let row = role_row(r).ok_or_else(|| Error::Query(format!("no existe el rol «{r}»")))?;
-            Ok(row_grants(row).into_iter().map(|t| grant(t, None)).collect())
+            Ok(row_grants(row)
+                .into_iter()
+                .map(|t| grant(t, None))
+                .collect())
         }
         Who::User(u) => {
             let rows = s.rows(&format!("SHOW GRANTS FOR {}", account(u))).await?;
-            let Some(row) = rows.first() else { return Ok(Vec::new()) };
+            let Some(row) = rows.first() else {
+                return Ok(Vec::new());
+            };
             let mut through = Vec::new();
             let mut seen = HashSet::new();
             for r in list(named(row, &["Roles"])) {
@@ -210,7 +269,11 @@ pub async fn grants(s: &mut MySqlSession, principal: &str) -> Result<Vec<Grant>>
                     }
                 }
             }
-            let mut out: Vec<Grant> = row_grants(row).into_iter().filter(|t| !seen.contains(t)).map(|t| grant(t, None)).collect();
+            let mut out: Vec<Grant> = row_grants(row)
+                .into_iter()
+                .filter(|t| !seen.contains(t))
+                .map(|t| grant(t, None))
+                .collect();
             out.append(&mut through);
             Ok(out)
         }
@@ -229,7 +292,10 @@ fn privileges(p: &[String]) -> Result<String> {
     let mut out = Vec::new();
     for x in p {
         let (name, cols) = match x.split_once('(') {
-            Some((n, c)) => (n.trim(), Some(c.trim().strip_suffix(')').ok_or_else(|| bad(x))?)),
+            Some((n, c)) => (
+                n.trim(),
+                Some(c.trim().strip_suffix(')').ok_or_else(|| bad(x))?),
+            ),
             None => (x.trim(), None),
         };
         if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic() || c == '_') {
@@ -238,7 +304,12 @@ fn privileges(p: &[String]) -> Result<String> {
         let name = name.to_uppercase();
         match cols {
             Some(c) => {
-                let cols: Vec<String> = c.split(',').map(|c| unquote(c.trim())).filter(|c| !c.is_empty()).map(|c| q(&c)).collect();
+                let cols: Vec<String> = c
+                    .split(',')
+                    .map(|c| unquote(c.trim()))
+                    .filter(|c| !c.is_empty())
+                    .map(|c| q(&c))
+                    .collect();
                 if cols.is_empty() {
                     return Err(bad(x));
                 }
@@ -252,20 +323,39 @@ fn privileges(p: &[String]) -> Result<String> {
 
 /// The privilege level.
 fn level(object: &Option<ObjectRef>) -> Result<String> {
-    let Some(o) = object else { return Ok("*.*.*".into()) };
+    let Some(o) = object else {
+        return Ok("*.*.*".into());
+    };
     // `ctl.db` / `db.t` / `ctl.db.t`: Doris names have no dots.
     let parts: Vec<&str> = o.schema().into_iter().chain(o.name.split('.')).collect();
-    let dotted = |ps: &[&str]| ps.iter().map(|p| if *p == "*" { "*".to_string() } else { q(p) }).collect::<Vec<_>>().join(".");
+    let dotted = |ps: &[&str]| {
+        ps.iter()
+            .map(|p| if *p == "*" { "*".to_string() } else { q(p) })
+            .collect::<Vec<_>>()
+            .join(".")
+    };
     Ok(match o.kind.as_str() {
         "catalog" => format!("{}.*.*", q(&o.name)),
-        "schema" | "database" => format!("{}.*", dotted(&split_top(&o.name, ".").into_iter().collect::<Vec<_>>())),
+        "schema" | "database" => format!(
+            "{}.*",
+            dotted(&split_top(&o.name, ".").into_iter().collect::<Vec<_>>())
+        ),
         "table" | "view" | "materialized_view" if parts.len() >= 2 => dotted(&parts),
-        "table" | "view" | "materialized_view" => return Err(Error::Query(format!("indicá la base de «{}»: Doris lee un nombre solo como una base", o.name))),
+        "table" | "view" | "materialized_view" => {
+            return Err(Error::Query(format!(
+                "indicá la base de «{}»: Doris lee un nombre solo como una base",
+                o.name
+            )))
+        }
         "resource" => format!("RESOURCE {}", lit(&o.name)),
         "workload_group" => format!("WORKLOAD GROUP {}", lit(&o.name)),
         "compute_group" => format!("COMPUTE GROUP {}", lit(&o.name)),
         "storage_vault" => format!("STORAGE VAULT {}", lit(&o.name)),
-        k => return Err(Error::Query(format!("Doris no otorga permisos sobre «{k}»"))),
+        k => {
+            return Err(Error::Query(format!(
+                "Doris no otorga permisos sobre «{k}»"
+            )))
+        }
     })
 }
 
@@ -281,7 +371,9 @@ fn grantee(name: &str) -> Result<String> {
 fn member(name: &str) -> Result<String> {
     match who(name) {
         Who::User(u) => Ok(account(u)),
-        _ => Err(unsupported("Doris no permite roles dentro de roles: solo los usuarios son miembros")),
+        _ => Err(unsupported(
+            "Doris no permite roles dentro de roles: solo los usuarios son miembros",
+        )),
     }
 }
 
@@ -314,65 +406,222 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        })
     }
 
     #[test]
     fn writes_the_scripts() {
         let s = |a| script(&a).unwrap();
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: Some("p'w".into()) }), "CREATE USER 'ana'@'%' IDENTIFIED BY 'p''w';");
-        assert_eq!(s(SecurityAction::CreateRole { name: "role:lect".into() }), "CREATE ROLE `lect`;");
-        assert_eq!(s(SecurityAction::Drop { name: "role:lect".into(), kind: PrincipalKind::Role }), "DROP ROLE `lect`;");
-        assert_eq!(s(SecurityAction::Drop { name: "ana@%".into(), kind: PrincipalKind::User }), "DROP USER 'ana'@'%';");
-        assert_eq!(s(SecurityAction::SetPassword { name: "ana@%".into(), password: "n'".into() }), "SET PASSWORD FOR 'ana'@'%' = PASSWORD('n''');");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ana@%".into(), enabled: true }), "ALTER USER 'ana'@'%' ACCOUNT_UNLOCK;");
-        assert!(matches!(script(&SecurityAction::SetLogin { name: "ana@%".into(), enabled: false }), Err(Error::Unsupported(_))));
-        let grant = |p: &[&str], object, to: &str| SecurityAction::Grant { privileges: p.iter().map(|x| x.to_string()).collect(), object, to: to.into(), grantable: false };
-        assert_eq!(s(grant(&["select_priv", "LOAD_PRIV"], obj("table", Some("ventas"), "fac`t"), "ana@%")), "GRANT SELECT_PRIV, LOAD_PRIV ON `ventas`.`fac``t` TO 'ana'@'%';");
-        assert_eq!(s(grant(&["SELECT_PRIV(id, `total`)"], obj("table", Some("v"), "f"), "role:r")), "GRANT SELECT_PRIV(`id`, `total`) ON `v`.`f` TO ROLE 'r';");
-        assert_eq!(s(grant(&["LOAD_PRIV"], obj("schema", None, "ventas"), "role:r")), "GRANT LOAD_PRIV ON `ventas`.* TO ROLE 'r';");
-        assert_eq!(s(grant(&["LOAD_PRIV"], obj("schema", None, "hive.ventas"), "role:r")), "GRANT LOAD_PRIV ON `hive`.`ventas`.* TO ROLE 'r';");
-        assert_eq!(s(grant(&["NODE_PRIV"], None, "role:r")), "GRANT NODE_PRIV ON *.*.* TO ROLE 'r';");
-        assert_eq!(s(grant(&["CREATE_PRIV"], obj("catalog", None, "internal"), "ana@%")), "GRANT CREATE_PRIV ON `internal`.*.* TO 'ana'@'%';");
-        assert_eq!(s(grant(&["USAGE_PRIV"], obj("resource", None, "*"), "ana@%")), "GRANT USAGE_PRIV ON RESOURCE '*' TO 'ana'@'%';");
-        assert_eq!(s(grant(&["USAGE_PRIV"], obj("workload_group", None, "g'1"), "ana@%")), "GRANT USAGE_PRIV ON WORKLOAD GROUP 'g''1' TO 'ana'@'%';");
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["ALTER_PRIV".into()], object: obj("table", Some("hive"), "db.t"), from: "role:r".into() }),
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: Some("p'w".into())
+            }),
+            "CREATE USER 'ana'@'%' IDENTIFIED BY 'p''w';"
+        );
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "role:lect".into()
+            }),
+            "CREATE ROLE `lect`;"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "role:lect".into(),
+                kind: PrincipalKind::Role
+            }),
+            "DROP ROLE `lect`;"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "ana@%".into(),
+                kind: PrincipalKind::User
+            }),
+            "DROP USER 'ana'@'%';"
+        );
+        assert_eq!(
+            s(SecurityAction::SetPassword {
+                name: "ana@%".into(),
+                password: "n'".into()
+            }),
+            "SET PASSWORD FOR 'ana'@'%' = PASSWORD('n''');"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ana@%".into(),
+                enabled: true
+            }),
+            "ALTER USER 'ana'@'%' ACCOUNT_UNLOCK;"
+        );
+        assert!(matches!(
+            script(&SecurityAction::SetLogin {
+                name: "ana@%".into(),
+                enabled: false
+            }),
+            Err(Error::Unsupported(_))
+        ));
+        let grant = |p: &[&str], object, to: &str| SecurityAction::Grant {
+            privileges: p.iter().map(|x| x.to_string()).collect(),
+            object,
+            to: to.into(),
+            grantable: false,
+        };
+        assert_eq!(
+            s(grant(
+                &["select_priv", "LOAD_PRIV"],
+                obj("table", Some("ventas"), "fac`t"),
+                "ana@%"
+            )),
+            "GRANT SELECT_PRIV, LOAD_PRIV ON `ventas`.`fac``t` TO 'ana'@'%';"
+        );
+        assert_eq!(
+            s(grant(
+                &["SELECT_PRIV(id, `total`)"],
+                obj("table", Some("v"), "f"),
+                "role:r"
+            )),
+            "GRANT SELECT_PRIV(`id`, `total`) ON `v`.`f` TO ROLE 'r';"
+        );
+        assert_eq!(
+            s(grant(
+                &["LOAD_PRIV"],
+                obj("schema", None, "ventas"),
+                "role:r"
+            )),
+            "GRANT LOAD_PRIV ON `ventas`.* TO ROLE 'r';"
+        );
+        assert_eq!(
+            s(grant(
+                &["LOAD_PRIV"],
+                obj("schema", None, "hive.ventas"),
+                "role:r"
+            )),
+            "GRANT LOAD_PRIV ON `hive`.`ventas`.* TO ROLE 'r';"
+        );
+        assert_eq!(
+            s(grant(&["NODE_PRIV"], None, "role:r")),
+            "GRANT NODE_PRIV ON *.*.* TO ROLE 'r';"
+        );
+        assert_eq!(
+            s(grant(
+                &["CREATE_PRIV"],
+                obj("catalog", None, "internal"),
+                "ana@%"
+            )),
+            "GRANT CREATE_PRIV ON `internal`.*.* TO 'ana'@'%';"
+        );
+        assert_eq!(
+            s(grant(&["USAGE_PRIV"], obj("resource", None, "*"), "ana@%")),
+            "GRANT USAGE_PRIV ON RESOURCE '*' TO 'ana'@'%';"
+        );
+        assert_eq!(
+            s(grant(
+                &["USAGE_PRIV"],
+                obj("workload_group", None, "g'1"),
+                "ana@%"
+            )),
+            "GRANT USAGE_PRIV ON WORKLOAD GROUP 'g''1' TO 'ana'@'%';"
+        );
+        assert_eq!(
+            s(SecurityAction::Revoke {
+                privileges: vec!["ALTER_PRIV".into()],
+                object: obj("table", Some("hive"), "db.t"),
+                from: "role:r".into()
+            }),
             "REVOKE ALTER_PRIV ON `hive`.`db`.`t` FROM ROLE 'r';"
         );
         assert!(script(&grant(&["SELECT_PRIV"], obj("table", None, "f"), "ana@%")).is_err());
         assert!(script(&grant(&["SELECT_PRIV; DROP"], None, "ana@%")).is_err());
         assert!(script(&grant(&["SELECT_PRIV(a"], None, "ana@%")).is_err());
         assert!(matches!(
-            script(&SecurityAction::Grant { privileges: vec!["SELECT_PRIV".into()], object: None, to: "ana@%".into(), grantable: true }),
+            script(&SecurityAction::Grant {
+                privileges: vec!["SELECT_PRIV".into()],
+                object: None,
+                to: "ana@%".into(),
+                grantable: true
+            }),
             Err(Error::Unsupported(_))
         ));
-        assert_eq!(s(SecurityAction::AddMember { role: "role:lect".into(), member: "ana@%".into() }), "GRANT 'lect' TO 'ana'@'%';");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "role:lect".into(), member: "ana@%".into() }), "REVOKE 'lect' FROM 'ana'@'%';");
-        assert!(matches!(script(&SecurityAction::AddMember { role: "role:lect".into(), member: "role:sup".into() }), Err(Error::Unsupported(_))));
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "role:lect".into(),
+                member: "ana@%".into()
+            }),
+            "GRANT 'lect' TO 'ana'@'%';"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "role:lect".into(),
+                member: "ana@%".into()
+            }),
+            "REVOKE 'lect' FROM 'ana'@'%';"
+        );
+        assert!(matches!(
+            script(&SecurityAction::AddMember {
+                role: "role:lect".into(),
+                member: "role:sup".into()
+            }),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn parses_privilege_columns() {
-        let t = |p: &str, o: Option<&str>, k: Option<&str>| (p.to_string(), o.map(String::from), k.map(String::from));
-        assert_eq!(parse_column("Node_priv,Admin_priv", ""), vec![t("NODE_PRIV", None, None), t("ADMIN_PRIV", None, None)]);
+        let t = |p: &str, o: Option<&str>, k: Option<&str>| {
+            (p.to_string(), o.map(String::from), k.map(String::from))
+        };
+        assert_eq!(
+            parse_column("Node_priv,Admin_priv", ""),
+            vec![t("NODE_PRIV", None, None), t("ADMIN_PRIV", None, None)]
+        );
         assert_eq!(parse_column("NULL", "schema"), vec![]);
         assert_eq!(
             parse_column("internal.dbine_secx: Select_priv,Load_priv; internal.information_schema: Select_priv; internal.mysql: Select_priv", "schema"),
             vec![t("SELECT_PRIV", Some("dbine_secx"), Some("schema")), t("LOAD_PRIV", Some("dbine_secx"), Some("schema"))]
         );
         // A role's database key ends in `.*`.
-        assert_eq!(parse_column("internal.dbine_secx.*: Drop_priv", "schema"), vec![t("DROP_PRIV", Some("dbine_secx"), Some("schema"))]);
-        assert_eq!(parse_column("hive.ventas: Select_priv", "schema"), vec![t("SELECT_PRIV", Some("hive.ventas"), Some("schema"))]);
+        assert_eq!(
+            parse_column("internal.dbine_secx.*: Drop_priv", "schema"),
+            vec![t("DROP_PRIV", Some("dbine_secx"), Some("schema"))]
+        );
+        assert_eq!(
+            parse_column("hive.ventas: Select_priv", "schema"),
+            vec![t("SELECT_PRIV", Some("hive.ventas"), Some("schema"))]
+        );
         assert_eq!(
             parse_column("internal.dbine_secx.f: Select_priv,Alter_priv; internal.dbine_secx.v: Show_view_priv", "table"),
             vec![t("SELECT_PRIV", Some("dbine_secx.f"), Some("table")), t("ALTER_PRIV", Some("dbine_secx.f"), Some("table")), t("SHOW_VIEW_PRIV", Some("dbine_secx.v"), Some("table"))]
         );
-        assert_eq!(parse_column("internal.d.f: Select_priv[id, total],Load_priv[id]", "table"), vec![t("SELECT_PRIV(id, total)", Some("d.f"), Some("table")), t("LOAD_PRIV(id)", Some("d.f"), Some("table"))]);
-        assert_eq!(parse_column("internal: Create_priv", "catalog"), vec![t("CREATE_PRIV", Some("internal"), Some("catalog"))]);
-        assert_eq!(parse_column("%: Usage_priv", "resource"), vec![t("USAGE_PRIV", Some("*"), Some("resource"))]);
-        assert_eq!(parse_column("normal: Usage_priv; etl: Usage_priv", "workload_group"), vec![t("USAGE_PRIV", Some("etl"), Some("workload_group"))]);
+        assert_eq!(
+            parse_column(
+                "internal.d.f: Select_priv[id, total],Load_priv[id]",
+                "table"
+            ),
+            vec![
+                t("SELECT_PRIV(id, total)", Some("d.f"), Some("table")),
+                t("LOAD_PRIV(id)", Some("d.f"), Some("table"))
+            ]
+        );
+        assert_eq!(
+            parse_column("internal: Create_priv", "catalog"),
+            vec![t("CREATE_PRIV", Some("internal"), Some("catalog"))]
+        );
+        assert_eq!(
+            parse_column("%: Usage_priv", "resource"),
+            vec![t("USAGE_PRIV", Some("*"), Some("resource"))]
+        );
+        assert_eq!(
+            parse_column("normal: Usage_priv; etl: Usage_priv", "workload_group"),
+            vec![t("USAGE_PRIV", Some("etl"), Some("workload_group"))]
+        );
         // Doris 1.x / 2.0: `Select_priv  (false)`.
-        assert_eq!(parse_column("internal.d: Select_priv  (false)", "schema"), vec![t("SELECT_PRIV", Some("d"), Some("schema"))]);
+        assert_eq!(
+            parse_column("internal.d: Select_priv  (false)", "schema"),
+            vec![t("SELECT_PRIV", Some("d"), Some("schema"))]
+        );
     }
 }

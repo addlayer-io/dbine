@@ -27,7 +27,10 @@ fn cfg() -> Option<ConnectionConfig> {
         password: Some(PASS.into()),
         ..Default::default()
     };
-    c.options.insert("mgmt_port".into(), std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()));
+    c.options.insert(
+        "mgmt_port".into(),
+        std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()),
+    );
     Some(c)
 }
 
@@ -37,9 +40,25 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> dbine_driver::Result<QueryO
 }
 
 async fn scopes(c: &ConnectionConfig) -> Vec<String> {
-    let url = format!("http://{}:{}/pools/default/buckets/{BUCKET}/scopes", c.host, c.options["mgmt_port"]);
-    let v: Value = reqwest::Client::new().get(url).basic_auth(USER, Some(PASS)).send().await.unwrap().json().await.unwrap();
-    v["scopes"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_string()).collect()
+    let url = format!(
+        "http://{}:{}/pools/default/buckets/{BUCKET}/scopes",
+        c.host, c.options["mgmt_port"]
+    );
+    let v: Value = reqwest::Client::new()
+        .get(url)
+        .basic_auth(USER, Some(PASS))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    v["scopes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap().to_string())
+        .collect()
 }
 
 #[tokio::test]
@@ -55,39 +74,102 @@ async fn create_grant_and_drop_scopes() {
     let mut s = d.connect(&c, Some(BUCKET)).await.unwrap();
     let _ = run(&mut s, "DROP USER dbine_scope_u").await;
     let script = |a: SecurityAction| d.security_script(&a).unwrap();
-    run(&mut s, &script(SecurityAction::CreateUser { name: "dbine_scope_u".into(), password: Some("Pw_12345x".into()) })).await.unwrap();
+    run(
+        &mut s,
+        &script(SecurityAction::CreateUser {
+            name: "dbine_scope_u".into(),
+            password: Some("Pw_12345x".into()),
+        }),
+    )
+    .await
+    .unwrap();
 
     let full = format!("{BUCKET}.ventas");
     // The dialog's name with its bucket, or bare with the menu's bucket: the same scope.
-    assert_eq!(d.create_schema_script(Some(BUCKET), "ventas", None).unwrap(), d.create_schema_script(None, &full, None).unwrap());
-    run(&mut s, &d.create_schema_script(Some(BUCKET), "ventas", None).unwrap()).await.unwrap();
+    assert_eq!(
+        d.create_schema_script(Some(BUCKET), "ventas", None)
+            .unwrap(),
+        d.create_schema_script(None, &full, None).unwrap()
+    );
+    run(
+        &mut s,
+        &d.create_schema_script(Some(BUCKET), "ventas", None)
+            .unwrap(),
+    )
+    .await
+    .unwrap();
     assert!(scopes(&c).await.contains(&"ventas".to_string()));
     // Empty, it's in the tree already (and can be dropped from there).
     let listed = s.list_schemas().await.unwrap().expect("scopes listed");
-    assert!(listed.iter().any(|x| x.name == full) && listed.iter().any(|x| x.name == format!("{BUCKET}._default")), "{listed:?}");
-    assert!(listed.iter().all(|x| x.system == x.name.contains("._system")), "{listed:?}");
+    assert!(
+        listed.iter().any(|x| x.name == full)
+            && listed
+                .iter()
+                .any(|x| x.name == format!("{BUCKET}._default")),
+        "{listed:?}"
+    );
+    assert!(
+        listed
+            .iter()
+            .all(|x| x.system == x.name.contains("._system")),
+        "{listed:?}"
+    );
     // Listed as the tree shows it once it holds a collection.
-    run(&mut s, &format!("CREATE COLLECTION default:`{BUCKET}`.`ventas`.`pedidos`")).await.unwrap();
+    run(
+        &mut s,
+        &format!("CREATE COLLECTION default:`{BUCKET}`.`ventas`.`pedidos`"),
+    )
+    .await
+    .unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let objs = s.list_objects().await.unwrap();
-    assert!(objs.iter().any(|o| o.kind == kinds::COLLECTION && o.schema.as_deref() == Some(full.as_str()) && o.name == "pedidos"), "{objs:?}");
+    assert!(
+        objs.iter().any(|o| o.kind == kinds::COLLECTION
+            && o.schema.as_deref() == Some(full.as_str())
+            && o.name == "pedidos"),
+        "{objs:?}"
+    );
 
-    let grant = d.schema_grant_script(Some(BUCKET), "ventas", &["query_select".into(), "data_reader".into()], "dbine_scope_u", false).unwrap();
+    let grant = d
+        .schema_grant_script(
+            Some(BUCKET),
+            "ventas",
+            &["query_select".into(), "data_reader".into()],
+            "dbine_scope_u",
+            false,
+        )
+        .unwrap();
     assert_eq!(
         grant,
         script(SecurityAction::Grant {
             privileges: vec!["query_select".into(), "data_reader".into()],
-            object: Some(ObjectRef { kind: "schema".into(), schema: None, name: full.clone() }),
+            object: Some(ObjectRef {
+                kind: "schema".into(),
+                schema: None,
+                name: full.clone()
+            }),
             to: "dbine_scope_u".into(),
             grantable: false,
         })
     );
     let enterprise = run(&mut s, &grant).await;
-    let info = run(&mut s, "SELECT RAW u.`roles` FROM system:user_info u WHERE u.id = 'dbine_scope_u'").await.unwrap();
-    let roles = info.results[0].rows.first().map(|r| r[0].to_string()).unwrap_or_default();
+    let info = run(
+        &mut s,
+        "SELECT RAW u.`roles` FROM system:user_info u WHERE u.id = 'dbine_scope_u'",
+    )
+    .await
+    .unwrap();
+    let roles = info.results[0]
+        .rows
+        .first()
+        .map(|r| r[0].to_string())
+        .unwrap_or_default();
     let ee = enterprise.is_ok();
     match enterprise {
-        Ok(_) => assert!(roles.contains("query_select") && roles.contains("\"scope_name\":\"ventas\""), "{roles}"),
+        Ok(_) => assert!(
+            roles.contains("query_select") && roles.contains("\"scope_name\":\"ventas\""),
+            "{roles}"
+        ),
         Err(e) => {
             eprintln!("Community Edition refuses the scope roles: {e}");
             assert!(e.to_string().contains("not valid"), "{e}");
@@ -95,14 +177,28 @@ async fn create_grant_and_drop_scopes() {
     }
     let grants = s.grants("dbine_scope_u").await.unwrap();
     if ee {
-        assert!(grants.iter().any(|g| g.object.as_deref() == Some(full.as_str()) && g.object_kind.as_deref() == Some("schema")));
+        assert!(grants
+            .iter()
+            .any(|g| g.object.as_deref() == Some(full.as_str())
+                && g.object_kind.as_deref() == Some("schema")));
     }
 
     // Without "con su contenido" nothing is written; with it the scope and its collection go.
     assert!(d.drop_schema_script(Some(BUCKET), "ventas", false).is_err());
-    run(&mut s, &d.drop_schema_script(Some(BUCKET), "ventas", true).unwrap()).await.unwrap();
+    run(
+        &mut s,
+        &d.drop_schema_script(Some(BUCKET), "ventas", true).unwrap(),
+    )
+    .await
+    .unwrap();
     assert!(!scopes(&c).await.contains(&"ventas".to_string()));
-    assert!(!s.list_schemas().await.unwrap().unwrap().iter().any(|x| x.name == full));
+    assert!(!s
+        .list_schemas()
+        .await
+        .unwrap()
+        .unwrap()
+        .iter()
+        .any(|x| x.name == full));
 
     let _ = run(&mut s, "DROP USER dbine_scope_u").await;
     drop(s);

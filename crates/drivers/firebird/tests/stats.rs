@@ -44,7 +44,11 @@ async fn estimates_and_comments() {
     };
     let d = dbine_driver_firebird::drivers().remove(0);
     let mut m = d.connect(&base, None).await.unwrap();
-    let folder = base.database.rsplit_once('/').map(|(dir, _)| dir.to_string()).unwrap();
+    let folder = base
+        .database
+        .rsplit_once('/')
+        .map(|(dir, _)| dir.to_string())
+        .unwrap();
     let file = format!("{folder}/dbine_stats.fdb");
     let _ = m.drop_database(&file).await;
     m.create_database(&file).await.unwrap();
@@ -58,8 +62,16 @@ async fn estimates_and_comments() {
     run(&mut s, "EXECUTE BLOCK AS DECLARE i INTEGER = 1; BEGIN WHILE (i <= 250) DO BEGIN INSERT INTO clientes VALUES (:i, 'c' || :i); INSERT INTO eventos VALUES (:i); i = i + 1; END END").await;
     run(&mut s, "COMMIT").await;
     run(&mut s, "SET STATISTICS INDEX pk_clientes").await;
-    run(&mut s, "CREATE VIEW v_clientes AS SELECT id, nombre FROM clientes").await;
-    run(&mut s, "CREATE PROCEDURE p_hola RETURNS (x INTEGER) AS BEGIN x = 1; SUSPEND; END").await;
+    run(
+        &mut s,
+        "CREATE VIEW v_clientes AS SELECT id, nombre FROM clientes",
+    )
+    .await;
+    run(
+        &mut s,
+        "CREATE PROCEDURE p_hola RETURNS (x INTEGER) AS BEGIN x = 1; SUSPEND; END",
+    )
+    .await;
     run(&mut s, "CREATE SEQUENCE sq_pedidos").await;
     run(&mut s, "CREATE DOMAIN d_importe AS NUMERIC(12, 2)").await;
     run(&mut s, "COMMIT").await;
@@ -71,24 +83,45 @@ async fn estimates_and_comments() {
 
     let est = s.row_estimates().await.unwrap();
     eprintln!("{est:?}");
-    let rows = |name: &str| est.iter().find(|e| e.object.kind == "table" && e.object.name == name).map(|e| e.rows);
+    let rows = |name: &str| {
+        est.iter()
+            .find(|e| e.object.kind == "table" && e.object.name == name)
+            .map(|e| e.rows)
+    };
     assert_eq!(rows("CLIENTES"), Some(250));
     assert_eq!(rows("EVENTOS"), None, "no unique index: no estimate");
 
     let comments = s.object_comments().await.unwrap();
     eprintln!("{comments:?}");
     let comment = |kind: &str, name: &str| {
-        comments.iter().find(|c| c.object.kind == kind && c.object.name == name).map(|c| c.comment.clone())
+        comments
+            .iter()
+            .find(|c| c.object.kind == kind && c.object.name == name)
+            .map(|c| c.comment.clone())
     };
-    assert_eq!(comment("view", "V_CLIENTES").as_deref(), Some("Clientes visibles"));
+    assert_eq!(
+        comment("view", "V_CLIENTES").as_deref(),
+        Some("Clientes visibles")
+    );
     assert_eq!(comment("procedure", "P_HOLA").as_deref(), Some("Saluda"));
-    assert_eq!(comment("sequence", "SQ_PEDIDOS").as_deref(), Some("Numera pedidos"));
-    assert_eq!(comment("type", "D_IMPORTE").as_deref(), Some("Importe en pesos"));
+    assert_eq!(
+        comment("sequence", "SQ_PEDIDOS").as_deref(),
+        Some("Numera pedidos")
+    );
+    assert_eq!(
+        comment("type", "D_IMPORTE").as_deref(),
+        Some("Importe en pesos")
+    );
 
     // Every commented object is one list_objects returns, with the same kind.
     let objects = s.list_objects().await.unwrap();
     for c in &comments {
-        assert!(objects.iter().any(|o| o.kind == c.object.kind && o.name == c.object.name), "{c:?}");
+        assert!(
+            objects
+                .iter()
+                .any(|o| o.kind == c.object.kind && o.name == c.object.name),
+            "{c:?}"
+        );
     }
 
     drop(s);

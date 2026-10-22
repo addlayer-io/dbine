@@ -5,8 +5,8 @@
 use dbine_driver::{ConnectionConfig, Error, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::tasks::{ScheduledTask, TaskRun};
@@ -261,7 +261,12 @@ pub struct StateChange {
 
 impl StateChange {
     fn new(kind: &str, id: Option<&str>) -> Self {
-        Self { kind: kind.into(), id: id.map(Into::into), connection_id: None, database: None }
+        Self {
+            kind: kind.into(),
+            id: id.map(Into::into),
+            connection_id: None,
+            database: None,
+        }
     }
 
     fn scoped(mut self, connection_id: &str, database: Option<&str>) -> Self {
@@ -452,33 +457,59 @@ impl StateStore {
         .map_err(db_err)?;
         // Added after the first release: state files from then lack it.
         let has_folder: bool = conn
-            .query_row("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'folder_id'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'folder_id'",
+                [],
+                |r| r.get(0),
+            )
             .map_err(db_err)?;
         if !has_folder {
-            conn.execute_batch("ALTER TABLE connections ADD COLUMN folder_id TEXT").map_err(db_err)?;
+            conn.execute_batch("ALTER TABLE connections ADD COLUMN folder_id TEXT")
+                .map_err(db_err)?;
         }
         let has_tags: bool = conn
-            .query_row("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'tags_json'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'tags_json'",
+                [],
+                |r| r.get(0),
+            )
             .map_err(db_err)?;
         if !has_tags {
-            conn.execute_batch("ALTER TABLE connections ADD COLUMN tags_json TEXT").map_err(db_err)?;
+            conn.execute_batch("ALTER TABLE connections ADD COLUMN tags_json TEXT")
+                .map_err(db_err)?;
         }
         let has_mcp: bool = conn
-            .query_row("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'mcp_level'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'mcp_level'",
+                [],
+                |r| r.get(0),
+            )
             .map_err(db_err)?;
         if !has_mcp {
-            conn.execute_batch("ALTER TABLE connections ADD COLUMN mcp_level TEXT").map_err(db_err)?;
+            conn.execute_batch("ALTER TABLE connections ADD COLUMN mcp_level TEXT")
+                .map_err(db_err)?;
         }
         // Folders were listed by name; existing ones start equal (0) and keep that order.
         let has_folder_order: bool = conn
-            .query_row("SELECT COUNT(*) FROM pragma_table_info('folders') WHERE name = 'sort_order'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('folders') WHERE name = 'sort_order'",
+                [],
+                |r| r.get(0),
+            )
             .map_err(db_err)?;
         if !has_folder_order {
-            conn.execute_batch("ALTER TABLE folders ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0").map_err(db_err)?;
+            conn.execute_batch(
+                "ALTER TABLE folders ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
+            )
+            .map_err(db_err)?;
         }
         // Where a run came from (a saved query, a project's file): added with the timeline.
         let has_origin: bool = conn
-            .query_row("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'query_id'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'query_id'",
+                [],
+                |r| r.get(0),
+            )
             .map_err(db_err)?;
         if !has_origin {
             conn.execute_batch(
@@ -492,10 +523,17 @@ impl StateStore {
         // connection for this run only, until "Guardar conexión"
         // (`add_temporary_connection`).
         let has_temporary: bool = conn
-            .query_row("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'temporary'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'temporary'",
+                [],
+                |r| r.get(0),
+            )
             .map_err(db_err)?;
         if !has_temporary {
-            conn.execute_batch("ALTER TABLE connections ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0").map_err(db_err)?;
+            conn.execute_batch(
+                "ALTER TABLE connections ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0",
+            )
+            .map_err(db_err)?;
         }
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS query_history_by_query ON query_history(query_id) WHERE query_id IS NOT NULL;
@@ -504,10 +542,14 @@ impl StateStore {
              DELETE FROM query_versions WHERE query_id NOT IN (SELECT id FROM queries);",
         )
         .map_err(db_err)?;
-        let store = Self { conn: Mutex::new(conn), hook: RwLock::new(None) };
+        let store = Self {
+            conn: Mutex::new(conn),
+            hook: RwLock::new(None),
+        };
         store.scrub_url_tokens(|id, token| {
             let mut kept = crate::secrets::get(id)?;
-            kept.entry("auth_token".into()).or_insert_with(|| token.to_string());
+            kept.entry("auth_token".into())
+                .or_insert_with(|| token.to_string());
             crate::secrets::set(id, &kept)
         })?;
         Ok(store)
@@ -527,12 +569,16 @@ impl StateStore {
         };
         let rows: Vec<(String, String, String)> = {
             let mut st = c.prepare("SELECT id, name, config_json FROM connections WHERE lower(config_json) LIKE '%token=%'").map_err(db_err)?;
-            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(db_err)?;
+            let rows = st
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map_err(db_err)?;
             rows.collect::<rusqlite::Result<_>>().map_err(db_err)?
         };
         let mut changed = false;
         for (id, name, json) in rows {
-            let Ok(mut cfg) = serde_json::from_str::<ConnectionConfig>(&json) else { continue };
+            let Ok(mut cfg) = serde_json::from_str::<ConnectionConfig>(&json) else {
+                continue;
+            };
             if cfg.driver != "libsql" || !has_token(&cfg.host) {
                 continue;
             }
@@ -543,7 +589,9 @@ impl StateStore {
             }
             cfg.host = base.clone();
             let new_name = if has_token(&name) {
-                Some(crate::conn_import::redact_url(&name)).filter(|n| !n.trim().is_empty()).unwrap_or(base)
+                Some(crate::conn_import::redact_url(&name))
+                    .filter(|n| !n.trim().is_empty())
+                    .unwrap_or(base)
             } else {
                 name.clone()
             };
@@ -573,7 +621,9 @@ impl StateStore {
     }
 
     pub(crate) fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
-        self.conn.lock().map_err(|_| Error::State("state store poisoned".into()))
+        self.conn
+            .lock()
+            .map_err(|_| Error::State("state store poisoned".into()))
     }
 
     /// Called after every successful write, with no lock held (the hook may
@@ -601,10 +651,17 @@ impl StateStore {
 
     /// A connection by id, saved or temporary.
     pub fn get_connection(&self, id: &str) -> Result<Option<SavedConnection>> {
-        Ok(self.query_connections("WHERE id = ?1", [id])?.into_iter().next())
+        Ok(self
+            .query_connections("WHERE id = ?1", [id])?
+            .into_iter()
+            .next())
     }
 
-    fn query_connections<P: rusqlite::Params>(&self, filter: &str, params: P) -> Result<Vec<SavedConnection>> {
+    fn query_connections<P: rusqlite::Params>(
+        &self,
+        filter: &str,
+        params: P,
+    ) -> Result<Vec<SavedConnection>> {
         let c = self.lock()?;
         let mut stmt = c
             .prepare(&format!(
@@ -612,24 +669,38 @@ impl StateStore {
                    FROM connections {filter} ORDER BY sort_order, name COLLATE NOCASE"
             ))
             .map_err(db_err)?;
-        let rows = stmt.query_map(params, |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, Option<String>>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, bool>(4)?,
-                r.get::<_, String>(5)?,
-                r.get::<_, Option<String>>(6)?,
-                r.get::<_, Option<String>>(7)?,
-                r.get::<_, Option<String>>(8)?,
-            ))
-        })
-        .map_err(db_err)?;
+        let rows = stmt
+            .query_map(params, |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, bool>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<String>>(7)?,
+                    r.get::<_, Option<String>>(8)?,
+                ))
+            })
+            .map_err(db_err)?;
         rows.map(|row| {
-            let (id, name, color, json, save_password, updated_at, folder_id, tags, mcp_level) = row.map_err(db_err)?;
-            let tags = tags.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-            Ok(SavedConnection { id, name, color, config: serde_json::from_str(&json)?, save_password, folder_id, tags, mcp_level, updated_at })
+            let (id, name, color, json, save_password, updated_at, folder_id, tags, mcp_level) =
+                row.map_err(db_err)?;
+            let tags = tags
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default();
+            Ok(SavedConnection {
+                id,
+                name,
+                color,
+                config: serde_json::from_str(&json)?,
+                save_password,
+                folder_id,
+                tags,
+                mcp_level,
+                updated_at,
+            })
         })
         .collect()
     }
@@ -656,7 +727,16 @@ impl StateStore {
             )
             .map_err(db_err)?;
         self.notify(StateChange::new("connection", Some(&conn.id)));
-        Ok(SavedConnection { config, updated_at: ts, color: None, save_password: false, folder_id: None, tags: Vec::new(), mcp_level: None, ..conn.clone() })
+        Ok(SavedConnection {
+            config,
+            updated_at: ts,
+            color: None,
+            save_password: false,
+            folder_id: None,
+            tags: Vec::new(),
+            mcp_level: None,
+            ..conn.clone()
+        })
     }
 
     pub fn list_temporary_connections(&self) -> Result<Vec<SavedConnection>> {
@@ -666,7 +746,11 @@ impl StateStore {
     pub fn is_temporary_connection(&self, id: &str) -> Result<bool> {
         let n: i64 = self
             .lock()?
-            .query_row("SELECT COUNT(*) FROM connections WHERE id = ?1 AND temporary = 1", [id], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM connections WHERE id = ?1 AND temporary = 1",
+                [id],
+                |r| r.get(0),
+            )
             .map_err(db_err)?;
         Ok(n > 0)
     }
@@ -675,7 +759,10 @@ impl StateStore {
     /// queries and migrations). Only the app calls it, when it starts: a
     /// scheduled task opening the store meanwhile must not.
     pub fn purge_temporary_connections(&self) -> Result<usize> {
-        let n = self.lock()?.execute("DELETE FROM connections WHERE temporary = 1", []).map_err(db_err)?;
+        let n = self
+            .lock()?
+            .execute("DELETE FROM connections WHERE temporary = 1", [])
+            .map_err(db_err)?;
         Ok(n)
     }
 
@@ -700,11 +787,17 @@ impl StateStore {
         .map_err(db_err)?;
         self.touch()?;
         self.notify(StateChange::new("connection", Some(&conn.id)));
-        Ok(SavedConnection { config, updated_at: ts, ..conn.clone() })
+        Ok(SavedConnection {
+            config,
+            updated_at: ts,
+            ..conn.clone()
+        })
     }
 
     pub fn delete_connection(&self, id: &str) -> Result<()> {
-        self.lock()?.execute("DELETE FROM connections WHERE id = ?1", [id]).map_err(db_err)?;
+        self.lock()?
+            .execute("DELETE FROM connections WHERE id = ?1", [id])
+            .map_err(db_err)?;
         self.touch()?;
         self.notify(StateChange::new("connection", Some(id)));
         Ok(())
@@ -729,28 +822,42 @@ impl StateStore {
     /// folders, of the level under `parent`; `None` = top level) end up in it,
     /// in that order. One transaction. Refuses to put a folder inside itself
     /// or one of its descendants.
-    pub fn reorder_explorer(&self, kind: ExplorerItem, parent: Option<&str>, ids: &[String]) -> Result<()> {
+    pub fn reorder_explorer(
+        &self,
+        kind: ExplorerItem,
+        parent: Option<&str>,
+        ids: &[String],
+    ) -> Result<()> {
         let mut c = self.lock()?;
         let tx = c.transaction().map_err(db_err)?;
         if kind == ExplorerItem::Folder {
             let mut at = parent.map(str::to_string);
             while let Some(id) = at {
                 if ids.contains(&id) {
-                    return Err(Error::State("una carpeta no puede ir dentro de sí misma".into()));
+                    return Err(Error::State(
+                        "una carpeta no puede ir dentro de sí misma".into(),
+                    ));
                 }
                 at = tx
-                    .query_row("SELECT parent_id FROM folders WHERE id = ?1", [&id], |r| r.get(0))
+                    .query_row("SELECT parent_id FROM folders WHERE id = ?1", [&id], |r| {
+                        r.get(0)
+                    })
                     .optional()
                     .map_err(db_err)?
                     .flatten();
             }
         }
         let sql = match kind {
-            ExplorerItem::Connection => "UPDATE connections SET folder_id = ?2, sort_order = ?3 WHERE id = ?1",
-            ExplorerItem::Folder => "UPDATE folders SET parent_id = ?2, sort_order = ?3 WHERE id = ?1",
+            ExplorerItem::Connection => {
+                "UPDATE connections SET folder_id = ?2, sort_order = ?3 WHERE id = ?1"
+            }
+            ExplorerItem::Folder => {
+                "UPDATE folders SET parent_id = ?2, sort_order = ?3 WHERE id = ?1"
+            }
         };
         for (i, id) in ids.iter().enumerate() {
-            tx.execute(sql, params![id, parent, i as i64]).map_err(db_err)?;
+            tx.execute(sql, params![id, parent, i as i64])
+                .map_err(db_err)?;
         }
         bump(&tx)?;
         tx.commit().map_err(db_err)?;
@@ -767,7 +874,14 @@ impl StateStore {
             .prepare("SELECT id, name, parent_id, color FROM folders ORDER BY sort_order, name COLLATE NOCASE")
             .map_err(db_err)?;
         let rows = stmt
-            .query_map([], |r| Ok(ConnectionFolder { id: r.get(0)?, name: r.get(1)?, parent_id: r.get(2)?, color: r.get(3)? }))
+            .query_map([], |r| {
+                Ok(ConnectionFolder {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    parent_id: r.get(2)?,
+                    color: r.get(3)?,
+                })
+            })
             .map_err(db_err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(db_err)
     }
@@ -780,9 +894,14 @@ impl StateStore {
             let mut at = Some(parent.clone());
             while let Some(id) = at {
                 if id == f.id {
-                    return Err(Error::State("una carpeta no puede ir dentro de sí misma".into()));
+                    return Err(Error::State(
+                        "una carpeta no puede ir dentro de sí misma".into(),
+                    ));
                 }
-                at = folders.iter().find(|x| x.id == id).and_then(|x| x.parent_id.clone());
+                at = folders
+                    .iter()
+                    .find(|x| x.id == id)
+                    .and_then(|x| x.parent_id.clone());
             }
         }
         // New, or moved to another folder: last in its level.
@@ -806,13 +925,24 @@ impl StateStore {
         let mut c = self.lock()?;
         let tx = c.transaction().map_err(db_err)?;
         let parent: Option<String> = tx
-            .query_row("SELECT parent_id FROM folders WHERE id = ?1", [id], |r| r.get(0))
+            .query_row("SELECT parent_id FROM folders WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
             .optional()
             .map_err(db_err)?
             .flatten();
-        tx.execute("UPDATE connections SET folder_id = ?2 WHERE folder_id = ?1", params![id, parent]).map_err(db_err)?;
-        tx.execute("UPDATE folders SET parent_id = ?2 WHERE parent_id = ?1", params![id, parent]).map_err(db_err)?;
-        tx.execute("DELETE FROM folders WHERE id = ?1", [id]).map_err(db_err)?;
+        tx.execute(
+            "UPDATE connections SET folder_id = ?2 WHERE folder_id = ?1",
+            params![id, parent],
+        )
+        .map_err(db_err)?;
+        tx.execute(
+            "UPDATE folders SET parent_id = ?2 WHERE parent_id = ?1",
+            params![id, parent],
+        )
+        .map_err(db_err)?;
+        tx.execute("DELETE FROM folders WHERE id = ?1", [id])
+            .map_err(db_err)?;
         bump(&tx)?;
         tx.commit().map_err(db_err)?;
         drop(c);
@@ -824,13 +954,16 @@ impl StateStore {
 
     pub fn list_queries(&self, connection_id: &str, database: &str) -> Result<Vec<SavedQuery>> {
         let c = self.lock()?;
-        let mut stmt = c.prepare(
-            "SELECT id, connection_id, database, name, sql, updated_at, last_run_at
+        let mut stmt = c
+            .prepare(
+                "SELECT id, connection_id, database, name, sql, updated_at, last_run_at
                FROM queries WHERE connection_id = ?1 AND database = ?2
               ORDER BY name COLLATE NOCASE",
             )
             .map_err(db_err)?;
-        let rows = stmt.query_map([connection_id, database], row_to_query).map_err(db_err)?;
+        let rows = stmt
+            .query_map([connection_id, database], row_to_query)
+            .map_err(db_err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(db_err)
     }
 
@@ -856,20 +989,32 @@ impl StateStore {
         )
         .map_err(db_err)?;
         self.touch()?;
-        self.notify(StateChange::new("query", Some(&q.id)).scoped(&q.connection_id, Some(&q.database)));
-        Ok(SavedQuery { updated_at: ts, ..q.clone() })
+        self.notify(
+            StateChange::new("query", Some(&q.id)).scoped(&q.connection_id, Some(&q.database)),
+        );
+        Ok(SavedQuery {
+            updated_at: ts,
+            ..q.clone()
+        })
     }
 
     pub fn mark_query_run(&self, id: &str) -> Result<()> {
-        self.lock()?.execute("UPDATE queries SET last_run_at = ?2 WHERE id = ?1", params![id, now()]).map_err(db_err)?;
+        self.lock()?
+            .execute(
+                "UPDATE queries SET last_run_at = ?2 WHERE id = ?1",
+                params![id, now()],
+            )
+            .map_err(db_err)?;
         Ok(())
     }
 
     pub fn delete_query(&self, id: &str) -> Result<()> {
         {
             let c = self.lock()?;
-            c.execute("DELETE FROM queries WHERE id = ?1", [id]).map_err(db_err)?;
-            c.execute("DELETE FROM query_versions WHERE query_id = ?1", [id]).map_err(db_err)?;
+            c.execute("DELETE FROM queries WHERE id = ?1", [id])
+                .map_err(db_err)?;
+            c.execute("DELETE FROM query_versions WHERE query_id = ?1", [id])
+                .map_err(db_err)?;
         }
         self.touch()?;
         self.notify(StateChange::new("query", Some(id)));
@@ -879,7 +1024,11 @@ impl StateStore {
     // -- saved migrations ---------------------------------------------------
 
     /// A database's saved migrations, newest first.
-    pub fn list_migrations(&self, connection_id: &str, database: &str) -> Result<Vec<SavedMigration>> {
+    pub fn list_migrations(
+        &self,
+        connection_id: &str,
+        database: &str,
+    ) -> Result<Vec<SavedMigration>> {
         let c = self.lock()?;
         let mut stmt = c
             .prepare(
@@ -888,7 +1037,9 @@ impl StateStore {
                   ORDER BY created_at DESC, id",
             )
             .map_err(db_err)?;
-        let rows = stmt.query_map([connection_id, database], row_to_migration).map_err(db_err)?;
+        let rows = stmt
+            .query_map([connection_id, database], row_to_migration)
+            .map_err(db_err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(db_err)
     }
 
@@ -918,29 +1069,43 @@ impl StateStore {
             )
             .map_err(db_err)?;
         self.touch()?;
-        let saved = self.get_migration(&m.id)?.ok_or_else(|| Error::State("saved migration vanished".into()))?;
-        self.notify(StateChange::new("migration", Some(&m.id)).scoped(&m.connection_id, Some(&m.database)));
+        let saved = self
+            .get_migration(&m.id)?
+            .ok_or_else(|| Error::State("saved migration vanished".into()))?;
+        self.notify(
+            StateChange::new("migration", Some(&m.id)).scoped(&m.connection_id, Some(&m.database)),
+        );
         Ok(saved)
     }
 
     pub fn rename_migration(&self, id: &str, name: &str) -> Result<SavedMigration> {
         let n = self
             .lock()?
-            .execute("UPDATE migrations SET name = ?2, updated_at = ?3 WHERE id = ?1", params![id, name, now()])
+            .execute(
+                "UPDATE migrations SET name = ?2, updated_at = ?3 WHERE id = ?1",
+                params![id, name, now()],
+            )
             .map_err(db_err)?;
         if n == 0 {
             return Err(Error::State("la migración ya no existe".into()));
         }
         self.touch()?;
-        let saved = self.get_migration(id)?.ok_or_else(|| Error::State("la migración ya no existe".into()))?;
-        self.notify(StateChange::new("migration", Some(id)).scoped(&saved.connection_id, Some(&saved.database)));
+        let saved = self
+            .get_migration(id)?
+            .ok_or_else(|| Error::State("la migración ya no existe".into()))?;
+        self.notify(
+            StateChange::new("migration", Some(id))
+                .scoped(&saved.connection_id, Some(&saved.database)),
+        );
         Ok(saved)
     }
 
     /// Link a run to it: it becomes its current run (a run already linked, resumed or retried,
     /// stays where it is).
     pub fn link_migration_run(&self, id: &str, run_id: &str) -> Result<SavedMigration> {
-        let mut m = self.get_migration(id)?.ok_or_else(|| Error::State("la migración ya no existe".into()))?;
+        let mut m = self
+            .get_migration(id)?
+            .ok_or_else(|| Error::State("la migración ya no existe".into()))?;
         if !m.run_ids.iter().any(|r| r == run_id) {
             m.run_ids.push(run_id.to_string());
         }
@@ -948,14 +1113,28 @@ impl StateStore {
     }
 
     /// A copy as a new draft: same configuration, no runs.
-    pub fn duplicate_migration(&self, id: &str, new_id: &str, name: &str) -> Result<SavedMigration> {
-        let m = self.get_migration(id)?.ok_or_else(|| Error::State("la migración ya no existe".into()))?;
-        self.save_migration(&SavedMigration { id: new_id.into(), name: name.into(), run_ids: vec![], ..m })
+    pub fn duplicate_migration(
+        &self,
+        id: &str,
+        new_id: &str,
+        name: &str,
+    ) -> Result<SavedMigration> {
+        let m = self
+            .get_migration(id)?
+            .ok_or_else(|| Error::State("la migración ya no existe".into()))?;
+        self.save_migration(&SavedMigration {
+            id: new_id.into(),
+            name: name.into(),
+            run_ids: vec![],
+            ..m
+        })
     }
 
     /// Only the entry: neither the source, the target nor the runs' records are touched.
     pub fn delete_migration(&self, id: &str) -> Result<()> {
-        self.lock()?.execute("DELETE FROM migrations WHERE id = ?1", [id]).map_err(db_err)?;
+        self.lock()?
+            .execute("DELETE FROM migrations WHERE id = ?1", [id])
+            .map_err(db_err)?;
         self.touch()?;
         self.notify(StateChange::new("migration", Some(id)));
         Ok(())
@@ -1000,18 +1179,38 @@ impl StateStore {
         .map_err(db_err)?;
         let id = c.last_insert_rowid();
         if id % 200 == 0 {
-            c.execute("DELETE FROM query_history WHERE id <= ?1", [id - HISTORY_MAX]).map_err(db_err)?;
+            c.execute(
+                "DELETE FROM query_history WHERE id <= ?1",
+                [id - HISTORY_MAX],
+            )
+            .map_err(db_err)?;
         }
         drop(c);
-        self.notify(StateChange::new("history", Some(&id.to_string())).scoped(&e.connection_id, Some(&e.database)));
+        self.notify(
+            StateChange::new("history", Some(&id.to_string()))
+                .scoped(&e.connection_id, Some(&e.database)),
+        );
         Ok(())
     }
 
     /// Newest first; `search` matches the text, the host, the database or the
     /// connection; `before` pages (an id from the previous page).
-    pub fn list_history(&self, search: Option<&str>, before: Option<i64>, limit: u32) -> Result<Vec<HistoryEntry>> {
+    pub fn list_history(
+        &self,
+        search: Option<&str>,
+        before: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<HistoryEntry>> {
         let c = self.lock()?;
-        let like = search.filter(|s| !s.trim().is_empty()).map(|s| format!("%{}%", s.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")));
+        let like = search.filter(|s| !s.trim().is_empty()).map(|s| {
+            format!(
+                "%{}%",
+                s.trim()
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_")
+            )
+        });
         let mut stmt = c
             .prepare(
                 "SELECT id, connection_id, connection_name, driver, host, database, sql, started_at, duration_ms, rows, error, query_id, project_id, file_path
@@ -1021,13 +1220,20 @@ impl StateStore {
                  ORDER BY id DESC LIMIT ?3",
             )
             .map_err(db_err)?;
-        let rows = stmt.query_map(params![like, before, limit], row_to_history).map_err(db_err)?;
+        let rows = stmt
+            .query_map(params![like, before, limit], row_to_history)
+            .map_err(db_err)?;
         rows.collect::<std::result::Result<_, _>>().map_err(db_err)
     }
 
     /// The runs of one saved query, or of one project file, newest first
     /// (a tab's timeline).
-    pub fn list_history_of(&self, query_id: Option<&str>, file: Option<(&str, &str)>, limit: u32) -> Result<Vec<HistoryEntry>> {
+    pub fn list_history_of(
+        &self,
+        query_id: Option<&str>,
+        file: Option<(&str, &str)>,
+        limit: u32,
+    ) -> Result<Vec<HistoryEntry>> {
         let c = self.lock()?;
         let (project, path) = file.unzip();
         let mut stmt = c
@@ -1038,7 +1244,9 @@ impl StateStore {
                  ORDER BY id DESC LIMIT ?4",
             )
             .map_err(db_err)?;
-        let rows = stmt.query_map(params![query_id, project, path, limit], row_to_history).map_err(db_err)?;
+        let rows = stmt
+            .query_map(params![query_id, project, path, limit], row_to_history)
+            .map_err(db_err)?;
         rows.collect::<std::result::Result<_, _>>().map_err(db_err)
     }
 
@@ -1050,7 +1258,9 @@ impl StateStore {
             Some(ids) => {
                 let mut n = 0;
                 for id in ids {
-                    n += c.execute("DELETE FROM query_history WHERE id = ?1", [id]).map_err(db_err)?;
+                    n += c
+                        .execute("DELETE FROM query_history WHERE id = ?1", [id])
+                        .map_err(db_err)?;
                 }
                 n
             }
@@ -1067,7 +1277,13 @@ impl StateStore {
     /// the newest one, or (with `throttle`) the newest is younger than that.
     /// `saved_at`: when the text was saved (RFC 3339). Prunes the query's old
     /// versions afterwards. `None` when nothing was recorded.
-    pub fn add_query_version(&self, query_id: &str, sql: &str, saved_at: &str, throttle: Option<chrono::Duration>) -> Result<Option<QueryVersion>> {
+    pub fn add_query_version(
+        &self,
+        query_id: &str,
+        sql: &str,
+        saved_at: &str,
+        throttle: Option<chrono::Duration>,
+    ) -> Result<Option<QueryVersion>> {
         if sql.trim().is_empty() {
             return Ok(None);
         }
@@ -1085,7 +1301,9 @@ impl StateStore {
             if *h == hash {
                 return Ok(None);
             }
-            if let (Some(min), Some(prev), Some(this)) = (throttle, parse_ts(at), parse_ts(saved_at)) {
+            if let (Some(min), Some(prev), Some(this)) =
+                (throttle, parse_ts(at), parse_ts(saved_at))
+            {
                 if this - prev < min {
                     return Ok(None);
                 }
@@ -1102,7 +1320,14 @@ impl StateStore {
         .map_err(db_err)?;
         let id = c.last_insert_rowid();
         prune_versions(&c, query_id, chrono::Utc::now())?;
-        Ok(Some(QueryVersion { id, query_id: query_id.to_string(), saved_at: saved_at.to_string(), added, removed, sql: None }))
+        Ok(Some(QueryVersion {
+            id,
+            query_id: query_id.to_string(),
+            saved_at: saved_at.to_string(),
+            added,
+            removed,
+            sql: None,
+        }))
     }
 
     /// The versions around a save of a query's text (`before`: the query as
@@ -1111,17 +1336,31 @@ impl StateStore {
     /// at all, a query from before the timeline), so the state before an
     /// edit can always come back. Then the new text, throttled unless `force`
     /// (an explicit save, a run, closing the tab).
-    pub fn version_query_save(&self, query_id: &str, before: Option<&SavedQuery>, sql: &str, force: bool) -> Result<()> {
+    pub fn version_query_save(
+        &self,
+        query_id: &str,
+        before: Option<&SavedQuery>,
+        sql: &str,
+        force: bool,
+    ) -> Result<()> {
         let min = chrono::Duration::seconds(VERSION_THROTTLE_SECS);
         let now = chrono::Utc::now();
         if let Some(b) = before.filter(|b| b.sql != sql && !b.sql.trim().is_empty()) {
             let newest: Option<String> = self
                 .lock()?
-                .query_row("SELECT hash FROM query_versions WHERE query_id = ?1 ORDER BY id DESC LIMIT 1", [query_id], |r| r.get(0))
+                .query_row(
+                    "SELECT hash FROM query_versions WHERE query_id = ?1 ORDER BY id DESC LIMIT 1",
+                    [query_id],
+                    |r| r.get(0),
+                )
                 .optional()
                 .map_err(db_err)?;
             let stood = parse_ts(&b.updated_at).is_none_or(|at| now - at >= min);
-            let at = if parse_ts(&b.updated_at).is_some() { b.updated_at.clone() } else { now.to_rfc3339() };
+            let at = if parse_ts(&b.updated_at).is_some() {
+                b.updated_at.clone()
+            } else {
+                now.to_rfc3339()
+            };
             match newest {
                 None => {
                     self.add_query_version(query_id, &b.sql, &at, None)?;
@@ -1144,7 +1383,14 @@ impl StateStore {
             .map_err(db_err)?;
         let rows = stmt
             .query_map([query_id], |r| {
-                Ok(QueryVersion { id: r.get(0)?, query_id: r.get(1)?, saved_at: r.get(2)?, added: r.get(3)?, removed: r.get(4)?, sql: None })
+                Ok(QueryVersion {
+                    id: r.get(0)?,
+                    query_id: r.get(1)?,
+                    saved_at: r.get(2)?,
+                    added: r.get(3)?,
+                    removed: r.get(4)?,
+                    sql: None,
+                })
             })
             .map_err(db_err)?;
         rows.collect::<std::result::Result<_, _>>().map_err(db_err)
@@ -1172,12 +1418,18 @@ impl StateStore {
         )
         .map_err(db_err)?;
         drop(c);
-        self.notify(StateChange::new("backup", Some(&b.id)).scoped(&b.connection_id, Some(&b.database)));
+        self.notify(
+            StateChange::new("backup", Some(&b.id)).scoped(&b.connection_id, Some(&b.database)),
+        );
         Ok(())
     }
 
     /// A connection's copies (of one database, or all when `None`), newest first.
-    pub fn list_backups(&self, connection_id: &str, database: Option<&str>) -> Result<Vec<BackupCopy>> {
+    pub fn list_backups(
+        &self,
+        connection_id: &str,
+        database: Option<&str>,
+    ) -> Result<Vec<BackupCopy>> {
         let c = self.lock()?;
         let mut stmt = c
             .prepare(
@@ -1207,17 +1459,26 @@ impl StateStore {
     pub fn get_backup(&self, id: &str) -> Result<Option<BackupCopy>> {
         let conn: Option<String> = self
             .lock()?
-            .query_row("SELECT connection_id FROM backups WHERE id = ?1", [id], |r| r.get(0))
+            .query_row(
+                "SELECT connection_id FROM backups WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(db_err)?;
         Ok(match conn {
-            Some(conn) => self.list_backups(&conn, None)?.into_iter().find(|b| b.id == id),
+            Some(conn) => self
+                .list_backups(&conn, None)?
+                .into_iter()
+                .find(|b| b.id == id),
             None => None,
         })
     }
 
     pub fn delete_backup(&self, id: &str) -> Result<()> {
-        self.lock()?.execute("DELETE FROM backups WHERE id = ?1", [id]).map_err(db_err)?;
+        self.lock()?
+            .execute("DELETE FROM backups WHERE id = ?1", [id])
+            .map_err(db_err)?;
         self.notify(StateChange::new("backup", Some(id)));
         Ok(())
     }
@@ -1228,9 +1489,18 @@ impl StateStore {
 
     pub fn list_tasks(&self) -> Result<Vec<ScheduledTask>> {
         let c = self.lock()?;
-        let mut stmt = c.prepare("SELECT task_json FROM scheduled_tasks").map_err(db_err)?;
-        let rows: Vec<String> = stmt.query_map([], |r| r.get(0)).map_err(db_err)?.collect::<std::result::Result<_, _>>().map_err(db_err)?;
-        let mut tasks: Vec<ScheduledTask> = rows.iter().filter_map(|j| serde_json::from_str(j).ok()).collect();
+        let mut stmt = c
+            .prepare("SELECT task_json FROM scheduled_tasks")
+            .map_err(db_err)?;
+        let rows: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .map_err(db_err)?
+            .collect::<std::result::Result<_, _>>()
+            .map_err(db_err)?;
+        let mut tasks: Vec<ScheduledTask> = rows
+            .iter()
+            .filter_map(|j| serde_json::from_str(j).ok())
+            .collect();
         tasks.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         Ok(tasks)
     }
@@ -1238,7 +1508,11 @@ impl StateStore {
     pub fn get_task(&self, id: &str) -> Result<Option<ScheduledTask>> {
         let j: Option<String> = self
             .lock()?
-            .query_row("SELECT task_json FROM scheduled_tasks WHERE id = ?1", [id], |r| r.get(0))
+            .query_row(
+                "SELECT task_json FROM scheduled_tasks WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(db_err)?;
         Ok(j.and_then(|j| serde_json::from_str(&j).ok()))
@@ -1265,8 +1539,10 @@ impl StateStore {
     pub fn delete_task(&self, id: &str) -> Result<()> {
         let mut c = self.lock()?;
         let tx = c.transaction().map_err(db_err)?;
-        tx.execute("DELETE FROM task_runs WHERE task_id = ?1", [id]).map_err(db_err)?;
-        tx.execute("DELETE FROM scheduled_tasks WHERE id = ?1", [id]).map_err(db_err)?;
+        tx.execute("DELETE FROM task_runs WHERE task_id = ?1", [id])
+            .map_err(db_err)?;
+        tx.execute("DELETE FROM scheduled_tasks WHERE id = ?1", [id])
+            .map_err(db_err)?;
         tx.commit().map_err(db_err)?;
         drop(c);
         self.notify(StateChange::new("scheduled_task", Some(id)));
@@ -1300,9 +1576,15 @@ impl StateStore {
         let mut stmt = c
             .prepare("SELECT run_json FROM task_runs WHERE (?1 IS NULL OR task_id = ?1) ORDER BY started_at DESC LIMIT ?2")
             .map_err(db_err)?;
-        let rows: Vec<String> =
-            stmt.query_map(params![task_id, limit], |r| r.get(0)).map_err(db_err)?.collect::<std::result::Result<_, _>>().map_err(db_err)?;
-        Ok(rows.iter().filter_map(|j| serde_json::from_str(j).ok()).collect())
+        let rows: Vec<String> = stmt
+            .query_map(params![task_id, limit], |r| r.get(0))
+            .map_err(db_err)?
+            .collect::<std::result::Result<_, _>>()
+            .map_err(db_err)?;
+        Ok(rows
+            .iter()
+            .filter_map(|j| serde_json::from_str(j).ok())
+            .collect())
     }
 
     // -- library --------------------------------------------------------
@@ -1327,7 +1609,15 @@ impl StateStore {
             .map_err(db_err)?;
         rows.map(|row| {
             let (id, name, folder, description, engines, text, updated_at) = row.map_err(db_err)?;
-            Ok(LibraryScript { id, name, folder, description, engines: serde_json::from_str(&engines).unwrap_or_default(), text, updated_at })
+            Ok(LibraryScript {
+                id,
+                name,
+                folder,
+                description,
+                engines: serde_json::from_str(&engines).unwrap_or_default(),
+                text,
+                updated_at,
+            })
         })
         .collect()
     }
@@ -1344,11 +1634,16 @@ impl StateStore {
             .map_err(db_err)?;
         self.touch()?;
         self.notify(StateChange::new("library", Some(&s.id)));
-        Ok(LibraryScript { updated_at: ts, ..s.clone() })
+        Ok(LibraryScript {
+            updated_at: ts,
+            ..s.clone()
+        })
     }
 
     pub fn delete_library_script(&self, id: &str) -> Result<()> {
-        self.lock()?.execute("DELETE FROM library WHERE id = ?1", [id]).map_err(db_err)?;
+        self.lock()?
+            .execute("DELETE FROM library WHERE id = ?1", [id])
+            .map_err(db_err)?;
         self.touch()?;
         self.notify(StateChange::new("library", Some(id)));
         Ok(())
@@ -1386,13 +1681,23 @@ impl StateStore {
         let ts = now();
         let c = self.lock()?;
         let taken: Option<String> = c
-            .query_row("SELECT id FROM projects WHERE path = ?1 AND id <> ?2", params![p.path, p.id], |r| r.get(0))
+            .query_row(
+                "SELECT id FROM projects WHERE path = ?1 AND id <> ?2",
+                params![p.path, p.id],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(db_err)?;
         if taken.is_some() {
-            return Err(Error::State("esa carpeta ya está vinculada como proyecto".into()));
+            return Err(Error::State(
+                "esa carpeta ya está vinculada como proyecto".into(),
+            ));
         }
-        let created = if p.created_at.is_empty() { ts.clone() } else { p.created_at.clone() };
+        let created = if p.created_at.is_empty() {
+            ts.clone()
+        } else {
+            p.created_at.clone()
+        };
         c.execute(
             "INSERT INTO projects (id, name, path, binding_json, sort_order, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -1424,12 +1729,15 @@ impl StateStore {
             return Err(Error::State("el proyecto no existe".into()));
         }
         self.notify(StateChange::new("project", Some(id)));
-        self.get_project(id)?.ok_or_else(|| Error::State("el proyecto no existe".into()))
+        self.get_project(id)?
+            .ok_or_else(|| Error::State("el proyecto no existe".into()))
     }
 
     /// Removes the row only: the folder is the user's and stays as it is.
     pub fn delete_project(&self, id: &str) -> Result<()> {
-        self.lock()?.execute("DELETE FROM projects WHERE id = ?1", [id]).map_err(db_err)?;
+        self.lock()?
+            .execute("DELETE FROM projects WHERE id = ?1", [id])
+            .map_err(db_err)?;
         self.notify(StateChange::new("project", Some(id)));
         Ok(())
     }
@@ -1439,9 +1747,14 @@ impl StateStore {
         let mut c = self.lock()?;
         let tx = c.transaction().map_err(db_err)?;
         let n = ids.len() as i64;
-        tx.execute("UPDATE projects SET sort_order = sort_order + ?1", [n]).map_err(db_err)?;
+        tx.execute("UPDATE projects SET sort_order = sort_order + ?1", [n])
+            .map_err(db_err)?;
         for (i, id) in ids.iter().enumerate() {
-            tx.execute("UPDATE projects SET sort_order = ?2 WHERE id = ?1", params![id, i as i64]).map_err(db_err)?;
+            tx.execute(
+                "UPDATE projects SET sort_order = ?2 WHERE id = ?1",
+                params![id, i as i64],
+            )
+            .map_err(db_err)?;
         }
         tx.commit().map_err(db_err)?;
         drop(c);
@@ -1461,13 +1774,18 @@ impl StateStore {
     /// engine compares it with the one it last uploaded.
     pub fn revision(&self) -> Result<u64> {
         let v = self.get_setting("local.revision")?.unwrap_or_default();
-        Ok(v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_u64()).unwrap_or(0))
+        Ok(v.as_str()
+            .and_then(|s| s.parse().ok())
+            .or_else(|| v.as_u64())
+            .unwrap_or(0))
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<serde_json::Value>> {
         let raw: Option<String> = self
             .lock()?
-            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+                r.get(0)
+            })
             .optional()
             .map_err(db_err)?;
         Ok(raw.map(|r| serde_json::from_str(&r).unwrap_or(serde_json::Value::String(r))))
@@ -1497,7 +1815,9 @@ impl StateStore {
     /// The user preferences (settings outside [`LOCAL_PREFIX`]).
     pub fn list_settings(&self) -> Result<BTreeMap<String, serde_json::Value>> {
         let c = self.lock()?;
-        let mut stmt = c.prepare("SELECT key, value FROM settings WHERE key NOT LIKE 'local.%'").map_err(db_err)?;
+        let mut stmt = c
+            .prepare("SELECT key, value FROM settings WHERE key NOT LIKE 'local.%'")
+            .map_err(db_err)?;
         let rows = stmt
             .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
             .map_err(db_err)?;
@@ -1545,7 +1865,11 @@ impl StateStore {
         for (i, conn) in snap.connections.iter().enumerate() {
             let mut config = conn.config.clone();
             config.password = None;
-            let ts = if conn.updated_at.is_empty() { now() } else { conn.updated_at.clone() };
+            let ts = if conn.updated_at.is_empty() {
+                now()
+            } else {
+                conn.updated_at.clone()
+            };
             tx.execute(
                 "INSERT INTO connections (id, name, color, config_json, save_password, sort_order, created_at, updated_at, folder_id, tags_json, mcp_level)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10)",
@@ -1572,9 +1896,18 @@ impl StateStore {
             )
             .map_err(db_err)?;
         }
-        let known: std::collections::HashSet<&str> = snap.connections.iter().map(|c| c.id.as_str()).collect();
-        for q in snap.queries.iter().filter(|q| known.contains(q.connection_id.as_str())) {
-            let ts = if q.updated_at.is_empty() { now() } else { q.updated_at.clone() };
+        let known: std::collections::HashSet<&str> =
+            snap.connections.iter().map(|c| c.id.as_str()).collect();
+        for q in snap
+            .queries
+            .iter()
+            .filter(|q| known.contains(q.connection_id.as_str()))
+        {
+            let ts = if q.updated_at.is_empty() {
+                now()
+            } else {
+                q.updated_at.clone()
+            };
             tx.execute(
                 "INSERT INTO queries (id, connection_id, database, name, sql, created_at, updated_at, last_run_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)",
@@ -1582,9 +1915,21 @@ impl StateStore {
             )
             .map_err(db_err)?;
         }
-        for m in snap.migrations.iter().filter(|m| known.contains(m.connection_id.as_str())) {
-            let ts = if m.updated_at.is_empty() { now() } else { m.updated_at.clone() };
-            let created = if m.created_at.is_empty() { ts.clone() } else { m.created_at.clone() };
+        for m in snap
+            .migrations
+            .iter()
+            .filter(|m| known.contains(m.connection_id.as_str()))
+        {
+            let ts = if m.updated_at.is_empty() {
+                now()
+            } else {
+                m.updated_at.clone()
+            };
+            let created = if m.created_at.is_empty() {
+                ts.clone()
+            } else {
+                m.created_at.clone()
+            };
             tx.execute(
                 "INSERT INTO migrations (id, connection_id, database, name, config_json, run_ids_json, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -1601,12 +1946,23 @@ impl StateStore {
             )
             .map_err(db_err)?;
         }
-        for (k, v) in snap.settings.iter().filter(|(k, _)| !k.starts_with(LOCAL_PREFIX)) {
-            tx.execute("INSERT INTO settings (key, value) VALUES (?1, ?2)", params![k, serde_json::to_string(v)?])
-                .map_err(db_err)?;
+        for (k, v) in snap
+            .settings
+            .iter()
+            .filter(|(k, _)| !k.starts_with(LOCAL_PREFIX))
+        {
+            tx.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+                params![k, serde_json::to_string(v)?],
+            )
+            .map_err(db_err)?;
         }
         for l in &snap.library {
-            let ts = if l.updated_at.is_empty() { now() } else { l.updated_at.clone() };
+            let ts = if l.updated_at.is_empty() {
+                now()
+            } else {
+                l.updated_at.clone()
+            };
             tx.execute(
                 "INSERT INTO library (id, name, folder, description, engines, text, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![l.id, l.name, l.folder, l.description, serde_json::to_string(&l.engines)?, l.text, ts],
@@ -1655,7 +2011,9 @@ fn text_hash(s: &str) -> String {
 }
 
 fn parse_ts(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-    chrono::DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&chrono::Utc))
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc))
 }
 
 /// Lines added and removed going from `a` to `b` (a changed line counts as
@@ -1665,7 +2023,12 @@ pub fn line_changes(a: &str, b: &str) -> (u32, u32) {
     let y: Vec<&str> = b.lines().collect();
     let pre = x.iter().zip(&y).take_while(|(p, q)| p == q).count();
     let (x, y) = (&x[pre..], &y[pre..]);
-    let suf = x.iter().rev().zip(y.iter().rev()).take_while(|(p, q)| p == q).count();
+    let suf = x
+        .iter()
+        .rev()
+        .zip(y.iter().rev())
+        .take_while(|(p, q)| p == q)
+        .count();
     let (x, y) = (&x[..x.len() - suf], &y[..y.len() - suf]);
     let (n, m) = (x.len(), y.len());
     if n == 0 || m == 0 || n.saturating_mul(m) > 4_000_000 {
@@ -1676,7 +2039,11 @@ pub fn line_changes(a: &str, b: &str) -> (u32, u32) {
     let mut cur = vec![0u32; m + 1];
     for xi in x {
         for (j, yj) in y.iter().enumerate() {
-            cur[j + 1] = if xi == yj { prev[j] + 1 } else { cur[j].max(prev[j + 1]) };
+            cur[j + 1] = if xi == yj {
+                prev[j] + 1
+            } else {
+                cur[j].max(prev[j + 1])
+            };
         }
         std::mem::swap(&mut prev, &mut cur);
     }
@@ -1687,7 +2054,10 @@ pub fn line_changes(a: &str, b: &str) -> (u32, u32) {
 /// Which versions go (`rows`: id and when, newest first): every one of the
 /// last `VERSIONS_ALL_DAYS`, then the newest of each day up to
 /// `VERSIONS_DAILY_DAYS`, and never more than `VERSIONS_MAX`.
-fn versions_to_drop(rows: &[(i64, chrono::DateTime<chrono::Utc>)], now: chrono::DateTime<chrono::Utc>) -> Vec<i64> {
+fn versions_to_drop(
+    rows: &[(i64, chrono::DateTime<chrono::Utc>)],
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<i64> {
     let mut keep = 0usize;
     let mut last_day = None;
     let mut drop = Vec::new();
@@ -1711,14 +2081,27 @@ fn versions_to_drop(rows: &[(i64, chrono::DateTime<chrono::Utc>)], now: chrono::
     drop
 }
 
-fn prune_versions(c: &Connection, query_id: &str, now: chrono::DateTime<chrono::Utc>) -> Result<()> {
-    let mut stmt = c.prepare("SELECT id, saved_at FROM query_versions WHERE query_id = ?1 ORDER BY id DESC").map_err(db_err)?;
-    let rows: Vec<(i64, String)> =
-        stmt.query_map([query_id], |r| Ok((r.get(0)?, r.get(1)?))).map_err(db_err)?.collect::<rusqlite::Result<_>>().map_err(db_err)?;
+fn prune_versions(
+    c: &Connection,
+    query_id: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    let mut stmt = c
+        .prepare("SELECT id, saved_at FROM query_versions WHERE query_id = ?1 ORDER BY id DESC")
+        .map_err(db_err)?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map([query_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(db_err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(db_err)?;
     // An unreadable date counts as now (kept while recent ones are).
-    let rows: Vec<_> = rows.into_iter().map(|(id, at)| (id, parse_ts(&at).unwrap_or(now))).collect();
+    let rows: Vec<_> = rows
+        .into_iter()
+        .map(|(id, at)| (id, parse_ts(&at).unwrap_or(now)))
+        .collect();
     for id in versions_to_drop(&rows, now) {
-        c.execute("DELETE FROM query_versions WHERE id = ?1", [id]).map_err(db_err)?;
+        c.execute("DELETE FROM query_versions WHERE id = ?1", [id])
+            .map_err(db_err)?;
     }
     Ok(())
 }
@@ -1778,7 +2161,11 @@ fn tags_json(tags: &[String]) -> Result<Option<String>> {
             clean.push(t);
         }
     }
-    Ok(if clean.is_empty() { None } else { Some(serde_json::to_string(&clean)?) })
+    Ok(if clean.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&clean)?)
+    })
 }
 
 #[cfg(test)]
@@ -1806,7 +2193,12 @@ mod tests {
     }
 
     fn folder(id: &str, parent: Option<&str>) -> ConnectionFolder {
-        ConnectionFolder { id: id.into(), name: id.into(), parent_id: parent.map(Into::into), color: None }
+        ConnectionFolder {
+            id: id.into(),
+            name: id.into(),
+            parent_id: parent.map(Into::into),
+            color: None,
+        }
     }
 
     fn recording(s: &StateStore) -> Arc<Mutex<Vec<StateChange>>> {
@@ -1830,8 +2222,13 @@ mod tests {
         // Not a change to sync.
         assert_eq!(s.revision().unwrap(), rev);
         let q = |id: &str, conn: &str| SavedQuery {
-            id: id.into(), connection_id: conn.into(), database: String::new(), name: id.into(), sql: "SELECT 1".into(),
-            updated_at: String::new(), last_run_at: None,
+            id: id.into(),
+            connection_id: conn.into(),
+            database: String::new(),
+            name: id.into(),
+            sql: "SELECT 1".into(),
+            updated_at: String::new(),
+            last_run_at: None,
         };
         s.save_query(&q("q-saved", "saved")).unwrap();
         s.save_query(&q("q-tmp", "tmp")).unwrap();
@@ -1839,11 +2236,20 @@ mod tests {
         assert_eq!(ids(s.list_connections().unwrap()), ["saved"]);
         assert_eq!(ids(s.list_temporary_connections().unwrap()), ["tmp"]);
         assert!(s.get_connection("tmp").unwrap().is_some());
-        assert!(s.is_temporary_connection("tmp").unwrap() && !s.is_temporary_connection("saved").unwrap());
+        assert!(
+            s.is_temporary_connection("tmp").unwrap()
+                && !s.is_temporary_connection("saved").unwrap()
+        );
         // Backups never carry it nor its queries.
         let snap = s.snapshot().unwrap();
         assert_eq!(ids(snap.connections), ["saved"]);
-        assert_eq!(snap.queries.iter().map(|q| q.id.as_str()).collect::<Vec<_>>(), ["q-saved"]);
+        assert_eq!(
+            snap.queries
+                .iter()
+                .map(|q| q.id.as_str())
+                .collect::<Vec<_>>(),
+            ["q-saved"]
+        );
         // The next start drops it, its queries with it.
         assert_eq!(s.purge_temporary_connections().unwrap(), 1);
         assert!(s.get_connection("tmp").unwrap().is_none());
@@ -1864,32 +2270,86 @@ mod tests {
         s.save_connection(&conn("c1")).unwrap();
         s.save_folder(&folder("f", None)).unwrap();
         s.move_connection("c1", Some("f")).unwrap();
-        s.reorder_explorer(ExplorerItem::Connection, Some("f"), &["c1".into()]).unwrap();
-        assert_eq!(kinds(&seen), ["connection", "folder", "explorer", "explorer"]);
+        s.reorder_explorer(ExplorerItem::Connection, Some("f"), &["c1".into()])
+            .unwrap();
+        assert_eq!(
+            kinds(&seen),
+            ["connection", "folder", "explorer", "explorer"]
+        );
 
-        let q = SavedQuery { id: "q1".into(), connection_id: "c1".into(), database: "db".into(), name: "n".into(), sql: "select 1".into(), updated_at: String::new(), last_run_at: None };
+        let q = SavedQuery {
+            id: "q1".into(),
+            connection_id: "c1".into(),
+            database: "db".into(),
+            name: "n".into(),
+            sql: "select 1".into(),
+            updated_at: String::new(),
+            last_run_at: None,
+        };
         s.save_query(&q).unwrap();
         {
             let got = seen.lock().unwrap();
-            assert_eq!(got[0], StateChange { kind: "query".into(), id: Some("q1".into()), connection_id: Some("c1".into()), database: Some("db".into()) });
+            assert_eq!(
+                got[0],
+                StateChange {
+                    kind: "query".into(),
+                    id: Some("q1".into()),
+                    connection_id: Some("c1".into()),
+                    database: Some("db".into())
+                }
+            );
         }
         s.delete_query("q1").unwrap();
         assert_eq!(kinds(&seen), ["query", "query"]);
 
-        let m = SavedMigration { id: "m1".into(), connection_id: "c1".into(), database: "db".into(), name: "m".into(), config: serde_json::json!({}), run_ids: vec![], created_at: String::new(), updated_at: String::new() };
+        let m = SavedMigration {
+            id: "m1".into(),
+            connection_id: "c1".into(),
+            database: "db".into(),
+            name: "m".into(),
+            config: serde_json::json!({}),
+            run_ids: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
         s.save_migration(&m).unwrap();
         s.rename_migration("m1", "otra").unwrap();
         s.link_migration_run("m1", "r1").unwrap();
         s.delete_migration("m1").unwrap();
-        assert_eq!(kinds(&seen), ["migration", "migration", "migration", "migration"]);
+        assert_eq!(
+            kinds(&seen),
+            ["migration", "migration", "migration", "migration"]
+        );
 
-        s.set_setting("ui.theme", Some(&serde_json::json!("dark"))).unwrap();
-        let lib = LibraryScript { id: "l1".into(), name: "n".into(), folder: String::new(), description: String::new(), engines: vec![], text: "x".into(), updated_at: String::new() };
+        s.set_setting("ui.theme", Some(&serde_json::json!("dark")))
+            .unwrap();
+        let lib = LibraryScript {
+            id: "l1".into(),
+            name: "n".into(),
+            folder: String::new(),
+            description: String::new(),
+            engines: vec![],
+            text: "x".into(),
+            updated_at: String::new(),
+        };
         s.save_library_script(&lib).unwrap();
         s.delete_library_script("l1").unwrap();
         assert_eq!(kinds(&seen), ["setting", "library", "library"]);
 
-        let h = HistoryEntry { id: 0, connection_id: "c1".into(), connection_name: "local".into(), driver: "postgres".into(), host: "h".into(), database: "db".into(), sql: "select 1".into(), started_at: now(), duration_ms: 1, rows: None, error: None, ..Default::default() };
+        let h = HistoryEntry {
+            id: 0,
+            connection_id: "c1".into(),
+            connection_name: "local".into(),
+            driver: "postgres".into(),
+            host: "h".into(),
+            database: "db".into(),
+            sql: "select 1".into(),
+            started_at: now(),
+            duration_ms: 1,
+            rows: None,
+            error: None,
+            ..Default::default()
+        };
         s.add_history(&h).unwrap();
         s.delete_history(None).unwrap();
         assert_eq!(kinds(&seen), ["history", "history"]);
@@ -1913,7 +2373,9 @@ mod tests {
         s.save_folder(&folder("b", Some("a"))).unwrap();
         let seen = recording(&s);
         assert!(s.save_folder(&folder("a", Some("b"))).is_err());
-        assert!(s.reorder_explorer(ExplorerItem::Folder, Some("b"), &["a".into()]).is_err());
+        assert!(s
+            .reorder_explorer(ExplorerItem::Folder, Some("b"), &["a".into()])
+            .is_err());
         assert!(s.rename_migration("missing", "x").is_err());
         assert!(s.link_migration_run("missing", "r").is_err());
         assert!(kinds(&seen).is_empty());
@@ -1927,12 +2389,28 @@ mod tests {
         let (store, sink) = (Arc::downgrade(&s), seen.clone());
         s.set_change_hook(Box::new(move |_| {
             if let Some(store) = store.upgrade() {
-                *sink.lock().unwrap() += store.list_connections().unwrap().len() + store.list_settings().unwrap().len();
+                *sink.lock().unwrap() +=
+                    store.list_connections().unwrap().len() + store.list_settings().unwrap().len();
             }
         }));
         s.save_connection(&conn("c1")).unwrap();
-        s.set_setting("ui.theme", Some(&serde_json::json!("dark"))).unwrap();
-        s.add_history(&HistoryEntry { id: 0, connection_id: "c1".into(), connection_name: "l".into(), driver: "postgres".into(), host: "h".into(), database: "db".into(), sql: "x".into(), started_at: now(), duration_ms: 0, rows: None, error: None, ..Default::default() }).unwrap();
+        s.set_setting("ui.theme", Some(&serde_json::json!("dark")))
+            .unwrap();
+        s.add_history(&HistoryEntry {
+            id: 0,
+            connection_id: "c1".into(),
+            connection_name: "l".into(),
+            driver: "postgres".into(),
+            host: "h".into(),
+            database: "db".into(),
+            sql: "x".into(),
+            started_at: now(),
+            duration_ms: 0,
+            rows: None,
+            error: None,
+            ..Default::default()
+        })
+        .unwrap();
         assert_eq!(*seen.lock().unwrap(), 1 + 2 + 2);
     }
 
@@ -1942,7 +2420,10 @@ mod tests {
         let mut c = conn("c1");
         c.tags = vec![" prod".into(), "Prod".into(), "".into(), "dev".into()];
         s.save_connection(&c).unwrap();
-        assert_eq!(s.get_connection("c1").unwrap().unwrap().tags, vec!["prod".to_string(), "dev".to_string()]);
+        assert_eq!(
+            s.get_connection("c1").unwrap().unwrap().tags,
+            vec!["prod".to_string(), "dev".to_string()]
+        );
         c.tags = vec![];
         s.save_connection(&c).unwrap();
         assert!(s.get_connection("c1").unwrap().unwrap().tags.is_empty());
@@ -1957,8 +2438,20 @@ mod tests {
         s.save_connection(&conn("c1")).unwrap();
         s.move_connection("c1", Some("prod")).unwrap();
         s.delete_folder("prod").unwrap();
-        assert_eq!(s.get_connection("c1").unwrap().unwrap().folder_id.as_deref(), Some("cliente"));
-        let qa = s.list_folders().unwrap().into_iter().find(|f| f.id == "qa").unwrap();
+        assert_eq!(
+            s.get_connection("c1")
+                .unwrap()
+                .unwrap()
+                .folder_id
+                .as_deref(),
+            Some("cliente")
+        );
+        let qa = s
+            .list_folders()
+            .unwrap()
+            .into_iter()
+            .find(|f| f.id == "qa")
+            .unwrap();
         assert_eq!(qa.parent_id.as_deref(), Some("cliente"));
     }
 
@@ -1982,15 +2475,32 @@ mod tests {
         let s = StateStore::init(c).unwrap();
         s.save_connection(&conn("c1")).unwrap();
         s.move_connection("c1", Some("x")).unwrap();
-        assert_eq!(s.get_connection("c1").unwrap().unwrap().folder_id.as_deref(), Some("x"));
+        assert_eq!(
+            s.get_connection("c1")
+                .unwrap()
+                .unwrap()
+                .folder_id
+                .as_deref(),
+            Some("x")
+        );
     }
 
     fn folder_ids(s: &StateStore, parent: Option<&str>) -> Vec<String> {
-        s.list_folders().unwrap().into_iter().filter(|f| f.parent_id.as_deref() == parent).map(|f| f.id).collect()
+        s.list_folders()
+            .unwrap()
+            .into_iter()
+            .filter(|f| f.parent_id.as_deref() == parent)
+            .map(|f| f.id)
+            .collect()
     }
 
     fn conn_ids(s: &StateStore, folder: Option<&str>) -> Vec<String> {
-        s.list_connections().unwrap().into_iter().filter(|c| c.folder_id.as_deref() == folder).map(|c| c.id).collect()
+        s.list_connections()
+            .unwrap()
+            .into_iter()
+            .filter(|c| c.folder_id.as_deref() == folder)
+            .map(|c| c.id)
+            .collect()
     }
 
     fn ids(v: &[&str]) -> Vec<String> {
@@ -2008,8 +2518,13 @@ mod tests {
         let s = StateStore::init(c).unwrap();
         assert_eq!(folder_ids(&s, None), ["a", "m", "z"]);
         s.save_folder(&folder("b", None)).unwrap();
-        assert_eq!(folder_ids(&s, None), ["a", "m", "z", "b"], "a new folder goes last");
-        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["z", "b", "a", "m"])).unwrap();
+        assert_eq!(
+            folder_ids(&s, None),
+            ["a", "m", "z", "b"],
+            "a new folder goes last"
+        );
+        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["z", "b", "a", "m"]))
+            .unwrap();
         assert_eq!(folder_ids(&s, None), ["z", "b", "a", "m"]);
     }
 
@@ -2019,18 +2534,33 @@ mod tests {
         for id in ["c1", "c2", "c3"] {
             s.save_connection(&conn(id)).unwrap();
         }
-        assert_eq!(conn_ids(&s, None), ["c1", "c2", "c3"], "new connections go last, not by name");
+        assert_eq!(
+            conn_ids(&s, None),
+            ["c1", "c2", "c3"],
+            "new connections go last, not by name"
+        );
         s.save_folder(&folder("f", None)).unwrap();
-        s.save_connection(&SavedConnection { folder_id: Some("f".into()), ..conn("c4") }).unwrap();
+        s.save_connection(&SavedConnection {
+            folder_id: Some("f".into()),
+            ..conn("c4")
+        })
+        .unwrap();
 
-        s.reorder_explorer(ExplorerItem::Connection, None, &ids(&["c3", "c1", "c2"])).unwrap();
+        s.reorder_explorer(ExplorerItem::Connection, None, &ids(&["c3", "c1", "c2"]))
+            .unwrap();
         assert_eq!(conn_ids(&s, None), ["c3", "c1", "c2"]);
         // Into another level: it leaves the top level, its new siblings are renumbered.
-        s.reorder_explorer(ExplorerItem::Connection, Some("f"), &ids(&["c1", "c4"])).unwrap();
+        s.reorder_explorer(ExplorerItem::Connection, Some("f"), &ids(&["c1", "c4"]))
+            .unwrap();
         assert_eq!(conn_ids(&s, Some("f")), ["c1", "c4"]);
         assert_eq!(conn_ids(&s, None), ["c3", "c2"]);
         // Editing keeps its place; changing folder by editing puts it last there.
-        s.save_connection(&SavedConnection { folder_id: Some("f".into()), name: "otro".into(), ..conn("c1") }).unwrap();
+        s.save_connection(&SavedConnection {
+            folder_id: Some("f".into()),
+            name: "otro".into(),
+            ..conn("c1")
+        })
+        .unwrap();
         assert_eq!(conn_ids(&s, Some("f")), ["c1", "c4"]);
         s.save_connection(&conn("c4")).unwrap();
         assert_eq!(conn_ids(&s, None), ["c3", "c2", "c4"]);
@@ -2045,12 +2575,17 @@ mod tests {
         s.save_folder(&folder("b", Some("a"))).unwrap();
         s.save_folder(&folder("c", Some("b"))).unwrap();
         let rev = s.revision().unwrap();
-        assert!(s.reorder_explorer(ExplorerItem::Folder, Some("a"), &ids(&["a"])).is_err());
-        assert!(s.reorder_explorer(ExplorerItem::Folder, Some("c"), &ids(&["a"])).is_err());
+        assert!(s
+            .reorder_explorer(ExplorerItem::Folder, Some("a"), &ids(&["a"]))
+            .is_err());
+        assert!(s
+            .reorder_explorer(ExplorerItem::Folder, Some("c"), &ids(&["a"]))
+            .is_err());
         assert_eq!(s.revision().unwrap(), rev, "nothing changed");
         assert_eq!(folder_ids(&s, None), ["a"]);
         // Up a level is fine.
-        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["c", "a"])).unwrap();
+        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["c", "a"]))
+            .unwrap();
         assert_eq!(folder_ids(&s, None), ["c", "a"]);
         assert_eq!(folder_ids(&s, Some("b")), Vec::<String>::new());
     }
@@ -2066,12 +2601,17 @@ mod tests {
         for id in ["c1", "c2"] {
             s.save_connection(&conn(id)).unwrap();
         }
-        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["z", "x", "y"])).unwrap();
-        s.reorder_explorer(ExplorerItem::Folder, Some("y"), &ids(&["y2", "y1"])).unwrap();
-        s.reorder_explorer(ExplorerItem::Connection, None, &ids(&["c2", "c1"])).unwrap();
+        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["z", "x", "y"]))
+            .unwrap();
+        s.reorder_explorer(ExplorerItem::Folder, Some("y"), &ids(&["y2", "y1"]))
+            .unwrap();
+        s.reorder_explorer(ExplorerItem::Connection, None, &ids(&["c2", "c1"]))
+            .unwrap();
         let json = serde_json::to_string(&s.snapshot().unwrap()).unwrap();
         let other = StateStore::open_in_memory().unwrap();
-        other.replace_all(&serde_json::from_str(&json).unwrap()).unwrap();
+        other
+            .replace_all(&serde_json::from_str(&json).unwrap())
+            .unwrap();
         assert_eq!(folder_ids(&other, None), ["z", "x", "y"]);
         assert_eq!(folder_ids(&other, Some("y")), ["y2", "y1"]);
         assert_eq!(conn_ids(&other, None), ["c2", "c1"]);
@@ -2079,7 +2619,9 @@ mod tests {
         // An older snapshot (folders by name, no order of their own) restores as it was listed.
         let old = r#"{"connections": [], "queries": [], "folders": [
             {"id": "b", "name": "Beta"}, {"id": "a", "name": "Alfa", "parent_id": "b"}, {"id": "c", "name": "Gamma"}]}"#;
-        other.replace_all(&serde_json::from_str(old).unwrap()).unwrap();
+        other
+            .replace_all(&serde_json::from_str(old).unwrap())
+            .unwrap();
         assert_eq!(folder_ids(&other, None), ["b", "c"]);
         assert_eq!(folder_ids(&other, Some("b")), ["a"]);
     }
@@ -2097,7 +2639,10 @@ mod tests {
             ..Default::default()
         };
         s.save_library_script(&script).unwrap();
-        assert!(s.revision().unwrap() > rev, "a library change is a change to sync");
+        assert!(
+            s.revision().unwrap() > rev,
+            "a library change is a change to sync"
+        );
         let snap = s.snapshot().unwrap();
         assert_eq!(snap.library[0].engines, ["sqlserver"]);
         let other = StateStore::open_in_memory().unwrap();
@@ -2114,10 +2659,24 @@ mod tests {
         let mut turso = conn("t1");
         turso.name = url.into();
         turso.save_password = false;
-        turso.config = ConnectionConfig { driver: "libsql".into(), host: url.into(), port: 0, database: String::new(), username: None, password: None, encrypt: false, trust_server_certificate: false, read_only: false, options: Default::default() };
+        turso.config = ConnectionConfig {
+            driver: "libsql".into(),
+            host: url.into(),
+            port: 0,
+            database: String::new(),
+            username: None,
+            password: None,
+            encrypt: false,
+            trust_server_certificate: false,
+            read_only: false,
+            options: Default::default(),
+        };
         s.save_connection(&turso).unwrap();
         let mut refused = conn("t2");
-        refused.config = ConnectionConfig { host: "libsql://b.turso.io?authToken=keepme".into(), ..turso.config.clone() };
+        refused.config = ConnectionConfig {
+            host: "libsql://b.turso.io?authToken=keepme".into(),
+            ..turso.config.clone()
+        };
         s.save_connection(&refused).unwrap();
         s.save_connection(&conn("c1")).unwrap();
         let entry = |id: &str, name: &str, host: &str| HistoryEntry {
@@ -2136,8 +2695,10 @@ mod tests {
             project_id: None,
             file_path: None,
         };
-        s.add_history(&entry("t1", url, "app-org.turso.io?authToken=eyJtok.en")).unwrap();
-        s.add_history(&entry("gone", "x", "old.turso.io?auth_token=eyJtok.en")).unwrap();
+        s.add_history(&entry("t1", url, "app-org.turso.io?authToken=eyJtok.en"))
+            .unwrap();
+        s.add_history(&entry("gone", "x", "old.turso.io?auth_token=eyJtok.en"))
+            .unwrap();
         let before = s.revision().unwrap();
 
         let mut kept = Vec::new();
@@ -2151,24 +2712,41 @@ mod tests {
         .unwrap();
         assert_eq!(kept, vec![("t1".to_string(), "eyJtok.en".to_string())]);
         let t1 = s.get_connection("t1").unwrap().unwrap();
-        assert_eq!((t1.name.as_str(), t1.config.host.as_str(), t1.save_password), ("libsql://app-org.turso.io", "libsql://app-org.turso.io", true));
+        assert_eq!(
+            (t1.name.as_str(), t1.config.host.as_str(), t1.save_password),
+            (
+                "libsql://app-org.turso.io",
+                "libsql://app-org.turso.io",
+                true
+            )
+        );
         assert!(t1.config.options.get("auth_token").is_none());
         // Its token couldn't be kept: untouched, tried again next time.
-        assert_eq!(s.get_connection("t2").unwrap().unwrap().config.host, "libsql://b.turso.io?authToken=keepme");
-        assert_eq!(s.get_connection("c1").unwrap().unwrap().config.host, conn("c1").config.host);
+        assert_eq!(
+            s.get_connection("t2").unwrap().unwrap().config.host,
+            "libsql://b.turso.io?authToken=keepme"
+        );
+        assert_eq!(
+            s.get_connection("c1").unwrap().unwrap().config.host,
+            conn("c1").config.host
+        );
         let history = serde_json::to_string(&s.list_history(None, None, 10).unwrap()).unwrap();
         assert!(!history.contains("eyJtok"), "{history}");
         assert!(history.contains("libsql://app-org.turso.io") && history.contains("old.turso.io"));
         assert!(s.revision().unwrap() > before);
         // Nothing left to do.
-        s.scrub_url_tokens(|id, _| if id == "t1" { panic!("again") } else { Ok(()) }).unwrap();
+        s.scrub_url_tokens(|id, _| if id == "t1" { panic!("again") } else { Ok(()) })
+            .unwrap();
     }
 
     #[test]
     fn passwords_never_reach_the_file() {
         let s = StateStore::open_in_memory().unwrap();
         s.save_connection(&conn("c1")).unwrap();
-        assert_eq!(s.get_connection("c1").unwrap().unwrap().config.password, None);
+        assert_eq!(
+            s.get_connection("c1").unwrap().unwrap().config.password,
+            None
+        );
     }
 
     #[test]
@@ -2205,13 +2783,20 @@ mod tests {
             ..Default::default()
         };
         let saved = s.save_migration(&m).unwrap();
-        assert!(s.revision().unwrap() > rev, "a saved migration is a change to sync");
+        assert!(
+            s.revision().unwrap() > rev,
+            "a saved migration is a change to sync"
+        );
         assert!(!saved.created_at.is_empty());
         assert_eq!(s.list_migrations("c1", "app").unwrap(), vec![saved.clone()]);
         assert!(s.list_migrations("c1", "other").unwrap().is_empty());
 
         // Editing keeps the creation date; runs link in order, a resumed one isn't repeated.
-        s.save_migration(&SavedMigration { config: serde_json::json!({ "mode": "clone" }), ..saved.clone() }).unwrap();
+        s.save_migration(&SavedMigration {
+            config: serde_json::json!({ "mode": "clone" }),
+            ..saved.clone()
+        })
+        .unwrap();
         s.link_migration_run("m1", "r1").unwrap();
         s.link_migration_run("m1", "r2").unwrap();
         let got = s.link_migration_run("m1", "r1").unwrap();
@@ -2219,10 +2804,15 @@ mod tests {
         assert_eq!(got.config["mode"], "clone");
         assert_eq!(got.created_at, saved.created_at);
 
-        assert_eq!(s.rename_migration("m1", "Copia nocturna").unwrap().name, "Copia nocturna");
+        assert_eq!(
+            s.rename_migration("m1", "Copia nocturna").unwrap().name,
+            "Copia nocturna"
+        );
         assert!(s.rename_migration("nope", "x").is_err());
 
-        let dup = s.duplicate_migration("m1", "m2", "Copia nocturna (copia)").unwrap();
+        let dup = s
+            .duplicate_migration("m1", "m2", "Copia nocturna (copia)")
+            .unwrap();
         assert!(dup.run_ids.is_empty(), "a duplicate is a new draft");
         assert_eq!(dup.config, got.config);
         assert_eq!(s.list_migrations("c1", "app").unwrap().len(), 2);
@@ -2231,7 +2821,10 @@ mod tests {
         let snap = s.snapshot().unwrap();
         let other = StateStore::open_in_memory().unwrap();
         other.replace_all(&snap).unwrap();
-        assert_eq!(other.get_migration("m1").unwrap().unwrap().run_ids, ["r1", "r2"]);
+        assert_eq!(
+            other.get_migration("m1").unwrap().unwrap().run_ids,
+            ["r1", "r2"]
+        );
         let mut orphan = snap.clone();
         orphan.connections.clear();
         other.replace_all(&orphan).unwrap();
@@ -2240,7 +2833,10 @@ mod tests {
         s.delete_migration("m2").unwrap();
         assert!(s.get_migration("m2").unwrap().is_none());
         s.delete_connection("c1").unwrap();
-        assert!(s.get_migration("m1").unwrap().is_none(), "deleting the connection deletes its migrations");
+        assert!(
+            s.get_migration("m1").unwrap().is_none(),
+            "deleting the connection deletes its migrations"
+        );
     }
 
     #[test]
@@ -2248,14 +2844,28 @@ mod tests {
         let s = StateStore::open_in_memory().unwrap();
         let rev = s.revision().unwrap();
         let copy = |id: &str, db: &str, at: &str| BackupCopy {
-            id: id.into(), connection_id: "c1".into(), database: db.into(), path: format!("/tmp/{id}.sql"), created_at: at.into(),
-            size: 10, objects: 2, rows: 5, data: true, duration_ms: 7,
+            id: id.into(),
+            connection_id: "c1".into(),
+            database: db.into(),
+            path: format!("/tmp/{id}.sql"),
+            created_at: at.into(),
+            size: 10,
+            objects: 2,
+            rows: 5,
+            data: true,
+            duration_ms: 7,
         };
-        s.add_backup(&copy("a", "ventas", "2026-01-01T00:00:00Z")).unwrap();
-        s.add_backup(&copy("b", "ventas", "2026-02-01T00:00:00Z")).unwrap();
-        s.add_backup(&copy("c", "rrhh", "2026-03-01T00:00:00Z")).unwrap();
+        s.add_backup(&copy("a", "ventas", "2026-01-01T00:00:00Z"))
+            .unwrap();
+        s.add_backup(&copy("b", "ventas", "2026-02-01T00:00:00Z"))
+            .unwrap();
+        s.add_backup(&copy("c", "rrhh", "2026-03-01T00:00:00Z"))
+            .unwrap();
         let ids = |v: Vec<BackupCopy>| v.into_iter().map(|b| b.id).collect::<Vec<_>>();
-        assert_eq!(ids(s.list_backups("c1", Some("ventas")).unwrap()), ["b", "a"]);
+        assert_eq!(
+            ids(s.list_backups("c1", Some("ventas")).unwrap()),
+            ["b", "a"]
+        );
         assert_eq!(ids(s.list_backups("c1", None).unwrap()), ["c", "b", "a"]);
         assert!(s.list_backups("c2", None).unwrap().is_empty());
         assert_eq!(s.get_backup("c").unwrap().unwrap().database, "rrhh");
@@ -2269,18 +2879,44 @@ mod tests {
         let s = StateStore::open_in_memory().unwrap();
         let rev = s.revision().unwrap();
         let entry = |sql: &str, host: &str| HistoryEntry {
-            id: 0, connection_id: "c1".into(), connection_name: "Prod".into(), driver: "postgres".into(), host: host.into(),
-            database: "app".into(), sql: sql.into(), started_at: now(), duration_ms: 12, rows: Some(3), error: None,
+            id: 0,
+            connection_id: "c1".into(),
+            connection_name: "Prod".into(),
+            driver: "postgres".into(),
+            host: host.into(),
+            database: "app".into(),
+            sql: sql.into(),
+            started_at: now(),
+            duration_ms: 12,
+            rows: Some(3),
+            error: None,
             ..Default::default()
         };
-        s.add_history(&entry("SELECT * FROM clientes", "pg1")).unwrap();
-        s.add_history(&entry("UPDATE stock SET n = 0 -- 100%", "pg2")).unwrap();
+        s.add_history(&entry("SELECT * FROM clientes", "pg1"))
+            .unwrap();
+        s.add_history(&entry("UPDATE stock SET n = 0 -- 100%", "pg2"))
+            .unwrap();
         s.add_history(&entry("SELECT 1", "pg1")).unwrap();
-        assert_eq!(s.revision().unwrap(), rev, "the history isn't a change to sync");
+        assert_eq!(
+            s.revision().unwrap(),
+            rev,
+            "the history isn't a change to sync"
+        );
         let all = s.list_history(None, None, 10).unwrap();
-        assert_eq!(all.iter().map(|e| e.sql.as_str()).collect::<Vec<_>>(), ["SELECT 1", "UPDATE stock SET n = 0 -- 100%", "SELECT * FROM clientes"]);
+        assert_eq!(
+            all.iter().map(|e| e.sql.as_str()).collect::<Vec<_>>(),
+            [
+                "SELECT 1",
+                "UPDATE stock SET n = 0 -- 100%",
+                "SELECT * FROM clientes"
+            ]
+        );
         assert_eq!(s.list_history(Some("pg2"), None, 10).unwrap().len(), 1);
-        assert_eq!(s.list_history(Some("100%"), None, 10).unwrap().len(), 1, "a % in the search is literal");
+        assert_eq!(
+            s.list_history(Some("100%"), None, 10).unwrap().len(),
+            1,
+            "a % in the search is literal"
+        );
         assert_eq!(s.list_history(Some("%"), None, 10).unwrap().len(), 1);
         let page2 = s.list_history(None, Some(all[1].id), 10).unwrap();
         assert_eq!(page2.len(), 1);
@@ -2291,7 +2927,12 @@ mod tests {
     }
 
     fn project(id: &str, name: &str, path: &str) -> Project {
-        Project { id: id.into(), name: name.into(), path: path.into(), ..Default::default() }
+        Project {
+            id: id.into(),
+            name: name.into(),
+            path: path.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -2300,28 +2941,56 @@ mod tests {
         let seen = recording(&s);
         let rev = s.revision().unwrap();
 
-        let a = s.save_project(&project("p1", "Ventas", "/repos/ventas")).unwrap();
+        let a = s
+            .save_project(&project("p1", "Ventas", "/repos/ventas"))
+            .unwrap();
         assert!(!a.created_at.is_empty());
-        s.save_project(&project("p2", "Analytics", "/repos/analytics")).unwrap();
+        s.save_project(&project("p2", "Analytics", "/repos/analytics"))
+            .unwrap();
         assert_eq!(kinds(&seen), ["project", "project"]);
         // Same folder twice: refused, and nothing fires.
-        let err = s.save_project(&project("p3", "Otro", "/repos/ventas")).unwrap_err();
+        let err = s
+            .save_project(&project("p3", "Otro", "/repos/ventas"))
+            .unwrap_err();
         assert!(err.to_string().contains("ya está vinculada"));
         assert!(kinds(&seen).is_empty());
         // Updating the same project keeps its path.
-        s.save_project(&Project { name: "Ventas 2".into(), ..a.clone() }).unwrap();
+        s.save_project(&Project {
+            name: "Ventas 2".into(),
+            ..a.clone()
+        })
+        .unwrap();
         assert_eq!(s.get_project("p1").unwrap().unwrap().name, "Ventas 2");
-        assert_eq!(s.get_project("p1").unwrap().unwrap().created_at, a.created_at);
+        assert_eq!(
+            s.get_project("p1").unwrap().unwrap().created_at,
+            a.created_at
+        );
 
         // Same order: by name.
-        let names = |s: &StateStore| s.list_projects().unwrap().into_iter().map(|p| p.id).collect::<Vec<_>>();
+        let names = |s: &StateStore| {
+            s.list_projects()
+                .unwrap()
+                .into_iter()
+                .map(|p| p.id)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(names(&s), ["p2", "p1"]);
         s.reorder_projects(&["p1".into(), "p2".into()]).unwrap();
         assert_eq!(names(&s), ["p1", "p2"]);
 
         let binding = ProjectBinding {
-            direct: Some(ProjectTarget { connection_id: "c1".into(), database: "ventas".into() }),
-            environments: [("prod".to_string(), ProjectTarget { connection_id: "c2".into(), database: "v".into() })].into(),
+            direct: Some(ProjectTarget {
+                connection_id: "c1".into(),
+                database: "ventas".into(),
+            }),
+            environments: [(
+                "prod".to_string(),
+                ProjectTarget {
+                    connection_id: "c2".into(),
+                    database: "v".into(),
+                },
+            )]
+            .into(),
             active_environment: Some("prod".into()),
         };
         let p = s.set_project_binding("p1", &binding).unwrap();
@@ -2343,41 +3012,70 @@ mod tests {
         assert_eq!(kinds(&seen), ["project"]);
         assert_eq!(names(&s), ["p1"]);
         // A freed folder can be linked again.
-        s.save_project(&project("p4", "Analytics", "/repos/analytics")).unwrap();
+        s.save_project(&project("p4", "Analytics", "/repos/analytics"))
+            .unwrap();
     }
 
     #[test]
     fn scheduled_tasks_and_runs() {
         use crate::tasks::{RunStatus, ScheduledTask, Step, TaskRun};
         let s = StateStore::open_in_memory().unwrap();
-        let t = ScheduledTask { id: "t1".into(), name: "Reporte".into(), steps: vec![Step::default()], ..Default::default() };
+        let t = ScheduledTask {
+            id: "t1".into(),
+            name: "Reporte".into(),
+            steps: vec![Step::default()],
+            ..Default::default()
+        };
         let saved = s.save_task(&t).unwrap();
         assert!(!saved.created_at.is_empty());
         assert_eq!(s.get_task("t1").unwrap().unwrap().name, "Reporte");
         // Not a change to sync.
         assert_eq!(s.revision().unwrap(), 0);
         for i in 0..(RUNS_KEPT + 5) {
-            let run = TaskRun { id: format!("r{i}"), task_id: "t1".into(), started_at: format!("2026-10-08 10:{i:04}"), status: RunStatus::Ok, ..Default::default() };
+            let run = TaskRun {
+                id: format!("r{i}"),
+                task_id: "t1".into(),
+                started_at: format!("2026-10-08 10:{i:04}"),
+                status: RunStatus::Ok,
+                ..Default::default()
+            };
             s.save_task_run(&run).unwrap();
         }
         let runs = s.list_task_runs(Some("t1"), 1000).unwrap();
         assert_eq!(runs.len(), RUNS_KEPT as usize);
         assert_eq!(runs[0].id, format!("r{}", RUNS_KEPT + 4));
         // The snapshot doesn't carry them.
-        assert!(!serde_json::to_string(&s.snapshot().unwrap()).unwrap().contains("Reporte"));
+        assert!(!serde_json::to_string(&s.snapshot().unwrap())
+            .unwrap()
+            .contains("Reporte"));
         s.delete_task("t1").unwrap();
         assert!(s.list_tasks().unwrap().is_empty());
         assert!(s.list_task_runs(None, 10).unwrap().is_empty());
     }
 
     fn saved(s: &StateStore, id: &str, sql: &str, updated_at: &str) -> SavedQuery {
-        let q = SavedQuery { id: id.into(), connection_id: "c1".into(), database: "db".into(), name: "q".into(), sql: sql.into(), updated_at: String::new(), last_run_at: None };
+        let q = SavedQuery {
+            id: id.into(),
+            connection_id: "c1".into(),
+            database: "db".into(),
+            name: "q".into(),
+            sql: sql.into(),
+            updated_at: String::new(),
+            last_run_at: None,
+        };
         s.save_query(&q).unwrap();
-        SavedQuery { updated_at: updated_at.into(), ..q }
+        SavedQuery {
+            updated_at: updated_at.into(),
+            ..q
+        }
     }
 
     fn texts(s: &StateStore, q: &str) -> Vec<String> {
-        s.list_query_versions(q).unwrap().iter().map(|v| s.get_query_version(v.id).unwrap().unwrap().sql.unwrap()).collect()
+        s.list_query_versions(q)
+            .unwrap()
+            .iter()
+            .map(|v| s.get_query_version(v.id).unwrap().unwrap().sql.unwrap())
+            .collect()
     }
 
     #[test]
@@ -2389,17 +3087,53 @@ mod tests {
         let min = chrono::Duration::seconds(VERSION_THROTTLE_SECS);
         let t0 = chrono::Utc::now() - chrono::Duration::minutes(10);
         let at = |secs: i64| (t0 + chrono::Duration::seconds(secs)).to_rfc3339();
-        assert!(s.add_query_version("q1", "  \n", &at(0), Some(min)).unwrap().is_none(), "a blank text isn't a version");
-        let v1 = s.add_query_version("q1", "select 1\nfrom a", &at(0), Some(min)).unwrap().unwrap();
+        assert!(
+            s.add_query_version("q1", "  \n", &at(0), Some(min))
+                .unwrap()
+                .is_none(),
+            "a blank text isn't a version"
+        );
+        let v1 = s
+            .add_query_version("q1", "select 1\nfrom a", &at(0), Some(min))
+            .unwrap()
+            .unwrap();
         assert_eq!((v1.added, v1.removed), (0, 0));
-        assert!(s.add_query_version("q1", "select 1\nfrom a", &at(120), None).unwrap().is_none(), "same text as the newest");
-        assert!(s.add_query_version("q1", "select 2\nfrom a", &at(30), Some(min)).unwrap().is_none(), "throttled");
-        let v2 = s.add_query_version("q1", "select 2\nfrom a\nwhere x", &at(30), None).unwrap().unwrap();
+        assert!(
+            s.add_query_version("q1", "select 1\nfrom a", &at(120), None)
+                .unwrap()
+                .is_none(),
+            "same text as the newest"
+        );
+        assert!(
+            s.add_query_version("q1", "select 2\nfrom a", &at(30), Some(min))
+                .unwrap()
+                .is_none(),
+            "throttled"
+        );
+        let v2 = s
+            .add_query_version("q1", "select 2\nfrom a\nwhere x", &at(30), None)
+            .unwrap()
+            .unwrap();
         assert_eq!((v2.added, v2.removed), (2, 1));
-        assert!(s.add_query_version("q1", "select 3", &at(95), Some(min)).unwrap().unwrap().id > v2.id);
-        assert_eq!(texts(&s, "q1"), ["select 3", "select 2\nfrom a\nwhere x", "select 1\nfrom a"]);
-        assert_eq!(s.revision().unwrap(), rev, "versions aren't a change to sync");
-        assert!(!serde_json::to_string(&s.snapshot().unwrap()).unwrap().contains("where x"));
+        assert!(
+            s.add_query_version("q1", "select 3", &at(95), Some(min))
+                .unwrap()
+                .unwrap()
+                .id
+                > v2.id
+        );
+        assert_eq!(
+            texts(&s, "q1"),
+            ["select 3", "select 2\nfrom a\nwhere x", "select 1\nfrom a"]
+        );
+        assert_eq!(
+            s.revision().unwrap(),
+            rev,
+            "versions aren't a change to sync"
+        );
+        assert!(!serde_json::to_string(&s.snapshot().unwrap())
+            .unwrap()
+            .contains("where x"));
         // Deleting the query takes its versions.
         s.delete_query("q1").unwrap();
         assert!(s.list_query_versions("q1").unwrap().is_empty());
@@ -2412,21 +3146,33 @@ mod tests {
         // A query from before the timeline: its text becomes the first version.
         let old = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
         let before = saved(&s, "q1", "select viejo", &old);
-        s.version_query_save("q1", Some(&before), "select nuevo", false).unwrap();
+        s.version_query_save("q1", Some(&before), "select nuevo", false)
+            .unwrap();
         assert_eq!(texts(&s, "q1"), ["select nuevo", "select viejo"]);
         // Typing on: throttled, and the text a moment ago isn't kept either.
         let recent = chrono::Utc::now().to_rfc3339();
         let before = saved(&s, "q1", "select nuevo 2", &recent);
-        s.version_query_save("q1", Some(&before), "select nuevo 3", false).unwrap();
+        s.version_query_save("q1", Some(&before), "select nuevo 3", false)
+            .unwrap();
         assert_eq!(texts(&s, "q1").len(), 2);
         // An explicit save always records.
-        s.version_query_save("q1", Some(&before), "select nuevo 3", true).unwrap();
+        s.version_query_save("q1", Some(&before), "select nuevo 3", true)
+            .unwrap();
         assert_eq!(texts(&s, "q1")[0], "select nuevo 3");
         // A text that stood for a while (say the app closed before a version)
         // is kept before the next edit replaces it.
-        let before = saved(&s, "q1", "select quieto", &(chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339());
-        s.version_query_save("q1", Some(&before), "select editado", false).unwrap();
-        assert_eq!(texts(&s, "q1")[..2], ["select editado".to_string(), "select quieto".to_string()]);
+        let before = saved(
+            &s,
+            "q1",
+            "select quieto",
+            &(chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339(),
+        );
+        s.version_query_save("q1", Some(&before), "select editado", false)
+            .unwrap();
+        assert_eq!(
+            texts(&s, "q1")[..2],
+            ["select editado".to_string(), "select quieto".to_string()]
+        );
     }
 
     #[test]
@@ -2434,14 +3180,32 @@ mod tests {
         let now = chrono::Utc::now();
         let ago = |h: i64| now - chrono::Duration::hours(h);
         // Newest first: three today, two on day 10 (one goes), one on day 20, one past 90 days.
-        let rows = vec![(9, ago(1)), (8, ago(2)), (7, ago(3)), (6, ago(240)), (5, ago(240) - chrono::Duration::minutes(5)), (4, ago(480)), (3, ago(24 * 100))];
+        let rows = vec![
+            (9, ago(1)),
+            (8, ago(2)),
+            (7, ago(3)),
+            (6, ago(240)),
+            (5, ago(240) - chrono::Duration::minutes(5)),
+            (4, ago(480)),
+            (3, ago(24 * 100)),
+        ];
         let dropped = versions_to_drop(&rows, now);
-        assert!(dropped.contains(&3) && !dropped.contains(&6) && !dropped.contains(&4) && !dropped.contains(&9));
+        assert!(
+            dropped.contains(&3)
+                && !dropped.contains(&6)
+                && !dropped.contains(&4)
+                && !dropped.contains(&9)
+        );
         // Same calendar day as id 6 (5 minutes before), unless it crossed midnight.
-        assert_eq!(dropped.contains(&5), rows[3].1.date_naive() == rows[4].1.date_naive());
+        assert_eq!(
+            dropped.contains(&5),
+            rows[3].1.date_naive() == rows[4].1.date_naive()
+        );
         // A cap per query, newest kept.
         let n = VERSIONS_MAX as i64 + 10;
-        let many: Vec<_> = (0..n).map(|i| (n - i, now - chrono::Duration::seconds(i))).collect();
+        let many: Vec<_> = (0..n)
+            .map(|i| (n - i, now - chrono::Duration::seconds(i)))
+            .collect();
         let dropped = versions_to_drop(&many, now);
         assert_eq!(dropped, (1..=10).rev().collect::<Vec<i64>>());
     }
@@ -2459,20 +3223,37 @@ mod tests {
     fn runs_are_listed_by_query_and_by_file() {
         let s = StateStore::open_in_memory().unwrap();
         let run = |sql: &str, q: Option<&str>, f: Option<(&str, &str)>| HistoryEntry {
-            connection_id: "c1".into(), sql: sql.into(), started_at: now(),
-            query_id: q.map(Into::into), project_id: f.map(|f| f.0.into()), file_path: f.map(|f| f.1.into()),
+            connection_id: "c1".into(),
+            sql: sql.into(),
+            started_at: now(),
+            query_id: q.map(Into::into),
+            project_id: f.map(|f| f.0.into()),
+            file_path: f.map(|f| f.1.into()),
             ..Default::default()
         };
         s.add_history(&run("select 1", Some("q1"), None)).unwrap();
-        s.add_history(&run("select 2", None, Some(("p1", "a.sql")))).unwrap();
-        s.add_history(&run("select 3", None, Some(("p1", "b.sql")))).unwrap();
+        s.add_history(&run("select 2", None, Some(("p1", "a.sql"))))
+            .unwrap();
+        s.add_history(&run("select 3", None, Some(("p1", "b.sql"))))
+            .unwrap();
         s.add_history(&run("select 4", Some("q1"), None)).unwrap();
         s.add_history(&run("select 5", None, None)).unwrap();
         let sqls = |v: Vec<HistoryEntry>| v.into_iter().map(|e| e.sql).collect::<Vec<_>>();
-        assert_eq!(sqls(s.list_history_of(Some("q1"), None, 10).unwrap()), ["select 4", "select 1"]);
-        assert_eq!(sqls(s.list_history_of(None, Some(("p1", "a.sql")), 10).unwrap()), ["select 2"]);
+        assert_eq!(
+            sqls(s.list_history_of(Some("q1"), None, 10).unwrap()),
+            ["select 4", "select 1"]
+        );
+        assert_eq!(
+            sqls(s.list_history_of(None, Some(("p1", "a.sql")), 10).unwrap()),
+            ["select 2"]
+        );
         assert!(s.list_history_of(None, None, 10).unwrap().is_empty());
-        assert_eq!(s.list_history(None, None, 10).unwrap()[3].project_id.as_deref(), Some("p1"));
+        assert_eq!(
+            s.list_history(None, None, 10).unwrap()[3]
+                .project_id
+                .as_deref(),
+            Some("p1")
+        );
     }
 
     #[test]
@@ -2491,8 +3272,14 @@ mod tests {
             .unwrap();
         let s = StateStore::open(&path).unwrap();
         let all = s.list_history(None, None, 10).unwrap();
-        assert_eq!((all[0].sql.as_str(), all[0].query_id.as_deref()), ("select viejo", None));
+        assert_eq!(
+            (all[0].sql.as_str(), all[0].query_id.as_deref()),
+            ("select viejo", None)
+        );
         drop(s);
-        assert!(StateStore::open(&path).is_ok(), "opening it again changes nothing");
+        assert!(
+            StateStore::open(&path).is_ok(),
+            "opening it again changes nothing"
+        );
     }
 }

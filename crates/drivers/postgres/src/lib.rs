@@ -43,8 +43,9 @@ mod structure;
 mod transfer;
 
 use dbine_driver::{
-    async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
-    Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Result, Session, TableSchema,
+    async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, DesignerSpec, Driver,
+    DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Result,
+    Session, TableSchema,
 };
 use postgres_native_tls::MakeTlsConnector;
 use session::PgSession;
@@ -169,7 +170,10 @@ impl Variant {
 
     /// Greenplum and its forks: MPP on a coordinator and segments.
     pub(crate) fn mpp(self) -> bool {
-        matches!(self, Variant::Greenplum | Variant::Cloudberry | Variant::Greengage)
+        matches!(
+            self,
+            Variant::Greenplum | Variant::Cloudberry | Variant::Greengage
+        )
     }
 
     /// The cloud sign-ins the form offers: PostgreSQL itself (RDS, Azure
@@ -177,9 +181,19 @@ impl Variant {
     /// managed variant, its own cloud.
     pub(crate) fn cloud_offer(self) -> cloud_auth::Offer {
         match self {
-            Variant::Postgres => cloud_auth::Offer { aws: true, gcp: true, azure: true },
-            Variant::Aurora => cloud_auth::Offer { aws: true, ..Default::default() },
-            Variant::CloudSql | Variant::AlloyDb => cloud_auth::Offer { gcp: true, ..Default::default() },
+            Variant::Postgres => cloud_auth::Offer {
+                aws: true,
+                gcp: true,
+                azure: true,
+            },
+            Variant::Aurora => cloud_auth::Offer {
+                aws: true,
+                ..Default::default()
+            },
+            Variant::CloudSql | Variant::AlloyDb => cloud_auth::Offer {
+                gcp: true,
+                ..Default::default()
+            },
             _ => cloud_auth::Offer::default(),
         }
     }
@@ -250,7 +264,12 @@ impl Variant {
     pub(crate) fn can_analyze(self) -> bool {
         !matches!(
             self,
-            Variant::Redshift | Variant::RisingWave | Variant::Materialize | Variant::CrateDb | Variant::Denodo | Variant::H2
+            Variant::Redshift
+                | Variant::RisingWave
+                | Variant::Materialize
+                | Variant::CrateDb
+                | Variant::Denodo
+                | Variant::H2
         )
     }
 
@@ -270,8 +289,16 @@ impl Variant {
             Variant::Kingbase => ("kingbase", "KingbaseES", Family::Relational),
             Variant::Denodo => ("denodo", "Denodo", Family::Relational),
             Variant::AlloyDb => ("alloydb", "AlloyDB para PostgreSQL", Family::Relational),
-            Variant::CloudSql => ("cloudsql_postgres", "Cloud SQL para PostgreSQL", Family::Relational),
-            Variant::Aurora => ("aurora_postgres", "Amazon Aurora PostgreSQL", Family::Relational),
+            Variant::CloudSql => (
+                "cloudsql_postgres",
+                "Cloud SQL para PostgreSQL",
+                Family::Relational,
+            ),
+            Variant::Aurora => (
+                "aurora_postgres",
+                "Amazon Aurora PostgreSQL",
+                Family::Relational,
+            ),
             Variant::Edb => ("edb", "EDB Postgres Advanced Server", Family::Relational),
             Variant::Fujitsu => ("fujitsu", "Fujitsu Enterprise Postgres", Family::Relational),
             Variant::OpenGauss => ("opengauss", "openGauss", Family::Relational),
@@ -290,7 +317,9 @@ impl Variant {
                 ObjectKindInfo::procedures(),
                 ObjectKindInfo::functions(),
             ],
-            Variant::Denodo | Variant::CrateDb | Variant::H2 => vec![ObjectKindInfo::tables(), ObjectKindInfo::views()],
+            Variant::Denodo | Variant::CrateDb | Variant::H2 => {
+                vec![ObjectKindInfo::tables(), ObjectKindInfo::views()]
+            }
             Variant::RisingWave | Variant::Materialize => vec![
                 ObjectKindInfo::tables(),
                 ObjectKindInfo::views(),
@@ -298,7 +327,11 @@ impl Variant {
                 ObjectKindInfo::new(SOURCE, "Fuentes", true, true, true),
                 ObjectKindInfo::new(SINK, "Sinks", false, false, true),
             ],
-            Variant::Yellowbrick => vec![ObjectKindInfo::tables(), ObjectKindInfo::views(), ObjectKindInfo::functions()],
+            Variant::Yellowbrick => vec![
+                ObjectKindInfo::tables(),
+                ObjectKindInfo::views(),
+                ObjectKindInfo::functions(),
+            ],
             _ => vec![
                 ObjectKindInfo::tables(),
                 ObjectKindInfo::views(),
@@ -317,7 +350,11 @@ impl Variant {
             dialect: "postgres",
             default_port: self.default_port(),
             fields: self.fields(),
-            databases_label: if matches!(self, Variant::CrateDb | Variant::H2) { "" } else { "Bases de datos" },
+            databases_label: if matches!(self, Variant::CrateDb | Variant::H2) {
+                ""
+            } else {
+                "Bases de datos"
+            },
             has_schemas: self != Variant::Denodo,
             object_kinds,
         }
@@ -367,13 +404,23 @@ impl Variant {
             Variant::AlloyDb => "Para verificar el servidor: la CA del clúster (gcloud alloydb clusters describe).",
             _ => "Opcional: la CA que firmó el certificado del servidor, en PEM.",
         };
-        let at = fields.iter().position(|f| f.key == "trust_server_certificate").map_or(fields.len(), |i| i + 1);
-        fields.insert(at, Field::new("ssl_root_cert", "Certificado de CA (PEM)", FieldKind::File).help(help).ssl());
+        let at = fields
+            .iter()
+            .position(|f| f.key == "trust_server_certificate")
+            .map_or(fields.len(), |i| i + 1);
+        fields.insert(
+            at,
+            Field::new("ssl_root_cert", "Certificado de CA (PEM)", FieldKind::File)
+                .help(help)
+                .ssl(),
+        );
         if self.managed() {
             for f in fields.iter_mut().filter(|f| f.key == "host") {
                 *f = f.clone().help(match self {
                     Variant::Aurora => "El endpoint del clúster (escritor) o el de lectura.",
-                    Variant::CloudSql => "La IP de la instancia, o 127.0.0.1 si usás Cloud SQL Auth Proxy.",
+                    Variant::CloudSql => {
+                        "La IP de la instancia, o 127.0.0.1 si usás Cloud SQL Auth Proxy."
+                    }
                     _ => "La IP de la instancia, o 127.0.0.1 si usás AlloyDB Auth Proxy.",
                 });
             }
@@ -384,7 +431,15 @@ impl Variant {
 }
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
-    Variant::ALL.iter().map(|&v| Arc::new(PgDriver { variant: v, info: v.info() }) as Arc<dyn Driver>).collect()
+    Variant::ALL
+        .iter()
+        .map(|&v| {
+            Arc::new(PgDriver {
+                variant: v,
+                info: v.info(),
+            }) as Arc<dyn Driver>
+        })
+        .collect()
 }
 
 pub struct PgDriver {
@@ -402,7 +457,12 @@ impl Driver for PgDriver {
     fn param_literal(&self, value: &dbine_driver::ParamValue) -> dbine_driver::Result<String> {
         match value {
             dbine_driver::ParamValue::Text(s) => Ok(crate::catalog::lit(self.variant, s)),
-            other => dbine_driver::params::literal(self.info.language, self.info.dialect, self.info.id, other),
+            other => dbine_driver::params::literal(
+                self.info.language,
+                self.info.dialect,
+                self.info.id,
+                other,
+            ),
         }
     }
 
@@ -411,7 +471,11 @@ impl Driver for PgDriver {
     fn data_load_wrap(&self, table: &dbine_driver::TableSchema) -> (String, String) {
         // Engines without sequences behind their columns.
         let v = self.variant;
-        if matches!(v, Variant::Redshift | Variant::Denodo | Variant::CrateDb | Variant::H2) || v.streaming() {
+        if matches!(
+            v,
+            Variant::Redshift | Variant::Denodo | Variant::CrateDb | Variant::H2
+        ) || v.streaming()
+        {
             return (String::new(), String::new());
         }
         let q = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
@@ -456,7 +520,10 @@ impl Driver for PgDriver {
     }
 
     fn script_defaults(&self) -> dbine_driver::sql::ScriptDefaults {
-        dbine_driver::sql::ScriptDefaults { continue_on_error: self.variant.continue_on_error(), confirm_unsafe_dml: true }
+        dbine_driver::sql::ScriptDefaults {
+            continue_on_error: self.variant.continue_on_error(),
+            confirm_unsafe_dml: true,
+        }
     }
 
     fn supports_manual_transactions(&self) -> bool {
@@ -469,7 +536,9 @@ impl Driver for PgDriver {
     }
 
     fn supports_native_copy(&self, target: &str) -> bool {
-        Variant::ALL.iter().any(|t| t.info().id == target && transfer::native_capable(self.variant, *t))
+        Variant::ALL
+            .iter()
+            .any(|t| t.info().id == target && transfer::native_capable(self.variant, *t))
     }
 
     async fn copy_native(
@@ -503,12 +572,19 @@ impl Driver for PgDriver {
     /// Notebook writes stage through `COPY` into a temporary table: only
     /// where `COPY FROM STDIN` is.
     fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
-        if transfer::bulk_capable(self.variant) { dbine_driver::WriteMode::ALL.to_vec() } else { Vec::new() }
+        if transfer::bulk_capable(self.variant) {
+            dbine_driver::WriteMode::ALL.to_vec()
+        } else {
+            Vec::new()
+        }
     }
 
     fn delta_filter(&self, spec: &dbine_driver::DeltaSpec, buckets: &[i64]) -> Result<String> {
         if !delta::capable(self.variant) {
-            return Err(Error::Unsupported(format!("{} no sincroniza por filas", self.info.name)));
+            return Err(Error::Unsupported(format!(
+                "{} no sincroniza por filas",
+                self.info.name
+            )));
         }
         delta::filter(spec, buckets)
     }
@@ -532,7 +608,12 @@ impl Driver for PgDriver {
         index_usage::toggle_supported(self.variant)
     }
 
-    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+    fn index_toggle_script(
+        &self,
+        table: &ObjectRef,
+        index: &dbine_driver::IndexUsage,
+        enable: bool,
+    ) -> Result<dbine_driver::SyncScript> {
         index_usage::toggle_script(self.variant, table, index, enable)
     }
 
@@ -545,7 +626,12 @@ impl Driver for PgDriver {
         rename::script(self.variant, req)
     }
 
-    fn rename_database_script(&self, database: &str, new_name: &str, _objects: &[dbine_driver::rename::DatabaseObject]) -> Result<dbine_driver::SyncScript> {
+    fn rename_database_script(
+        &self,
+        database: &str,
+        new_name: &str,
+        _objects: &[dbine_driver::rename::DatabaseObject],
+    ) -> Result<dbine_driver::SyncScript> {
         rename::database_script(self.variant, database, new_name)
     }
 
@@ -565,9 +651,14 @@ impl Driver for PgDriver {
         self.variant != Variant::Denodo
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         if self.variant == Variant::Denodo {
-            return Err(Error::Unsupported("Denodo no modifica tablas por SQL: las vistas base se definen en Denodo".into()));
+            return Err(Error::Unsupported(
+                "Denodo no modifica tablas por SQL: las vistas base se definen en Denodo".into(),
+            ));
         }
         design::sync_script(self.variant, changes)
     }
@@ -581,14 +672,25 @@ impl Driver for PgDriver {
     }
 
     fn create_database_fields(&self) -> Vec<Field> {
-        create_db::fields(self.variant).into_iter().map(create_db::grouped).collect()
+        create_db::fields(self.variant)
+            .into_iter()
+            .map(create_db::grouped)
+            .collect()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(self.variant, name, options)
     }
 
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(self.variant, database, changes)
     }
 
@@ -596,15 +698,30 @@ impl Driver for PgDriver {
         schemas::spec(self.variant)
     }
 
-    fn create_schema_script(&self, _database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         schemas::create_script(self.variant, name, owner)
     }
 
-    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+    fn schema_owner_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: &str,
+    ) -> Result<Option<String>> {
         schemas::owner_script(self.variant, name, owner)
     }
 
-    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
         schemas::drop_script(self.variant, name, cascade)
     }
 
@@ -618,24 +735,59 @@ impl Driver for PgDriver {
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
         if self.variant == Variant::Denodo {
-            return Err(Error::Unsupported("Denodo no crea tablas por SQL: las vistas base se definen en Denodo".into()));
+            return Err(Error::Unsupported(
+                "Denodo no crea tablas por SQL: las vistas base se definen en Denodo".into(),
+            ));
         }
         Ok(design::table_ddl(self.variant, table, parts))
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
-        Ok(design::insert_script(self.variant, target.schema(), &target.name, columns, rows))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(design::insert_script(
+            self.variant,
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
-        Ok(design::update_script(self.variant, target.schema(), &target.name, changes))
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
+        Ok(design::update_script(
+            self.variant,
+            target.schema(),
+            &target.name,
+            changes,
+        ))
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
-        Ok(design::delete_script(self.variant, target.schema(), &target.name, keys))
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
+        Ok(design::delete_script(
+            self.variant,
+            target.schema(),
+            &target.name,
+            keys,
+        ))
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let v = self.variant;
         let dbname = database
             .filter(|d| !d.is_empty())
@@ -646,13 +798,22 @@ impl Driver for PgDriver {
         // A cloud sign-in through an SSH tunnel dials the local end but
         // verifies the certificate against the real endpoint's name.
         let tunnel = match (cloud_auth::method(cfg), cfg.option(cloud_auth::ORIGIN_HOST)) {
-            (Some(_), Some(origin)) => cfg.host.trim().parse::<std::net::IpAddr>().ok().map(|local| (origin.trim(), local)),
+            (Some(_), Some(origin)) => cfg
+                .host
+                .trim()
+                .parse::<std::net::IpAddr>()
+                .ok()
+                .map(|local| (origin.trim(), local)),
             _ => None,
         };
         let mut pg = tokio_postgres::Config::new();
         match tunnel {
             Some((origin, local)) => pg.host(origin).hostaddr(local),
-            None => pg.host(if cfg.host.is_empty() { "localhost" } else { &cfg.host }),
+            None => pg.host(if cfg.host.is_empty() {
+                "localhost"
+            } else {
+                &cfg.host
+            }),
         };
         pg.port(cfg.port_or(v.default_port()))
             .dbname(&dbname)
@@ -672,12 +833,20 @@ impl Driver for PgDriver {
         }
         // A cloud sign-in: a new token before every connect (the app opens
         // every session, and every reconnect, through here).
-        let spec = cloud_auth::Spec { default_port: v.default_port(), gcp_access_token: v == Variant::AlloyDb, mysql: false };
+        let spec = cloud_auth::Spec {
+            default_port: v.default_port(),
+            gcp_access_token: v == Variant::AlloyDb,
+            mysql: false,
+        };
         let cloud = cloud_auth::login(cfg, spec).await?;
         match &cloud {
             Some(login) => {
-                pg.password(login.password.as_str()).ssl_mode(tokio_postgres::config::SslMode::Require);
-                if let (Some(u), true) = (&login.user, cfg.username.as_deref().is_none_or(|u| u.is_empty())) {
+                pg.password(login.password.as_str())
+                    .ssl_mode(tokio_postgres::config::SslMode::Require);
+                if let (Some(u), true) = (
+                    &login.user,
+                    cfg.username.as_deref().is_none_or(|u| u.is_empty()),
+                ) {
                     pg.user(u);
                 }
             }
@@ -688,7 +857,8 @@ impl Driver for PgDriver {
             }
         }
 
-        let rds_roots = cloud_auth::method(cfg) == Some(cloud_auth::AWS) || (v == Variant::Aurora && cfg.encrypt);
+        let rds_roots = cloud_auth::method(cfg) == Some(cloud_auth::AWS)
+            || (v == Variant::Aurora && cfg.encrypt);
         let tls = MakeTlsConnector::new(tls_connector(v, cfg, rds_roots)?);
 
         let (mut client, mut notices) = open(v, &pg, &tls).await?;
@@ -698,13 +868,17 @@ impl Driver for PgDriver {
         let simple = match cfg.option(PROTOCOL_OPTION).map(str::trim) {
             Some("simple") => true,
             _ => {
-                let refused = match tokio::time::timeout(PROBE_LIMIT, client.prepare("SELECT 1")).await {
-                    Ok(Ok(_)) => false,
-                    Ok(Err(e)) => extended_refused(&e),
-                    Err(_) => true,
-                };
+                let refused =
+                    match tokio::time::timeout(PROBE_LIMIT, client.prepare("SELECT 1")).await {
+                        Ok(Ok(_)) => false,
+                        Ok(Err(e)) => extended_refused(&e),
+                        Err(_) => true,
+                    };
                 if refused {
-                    tracing::info!("{}: the server refuses the extended protocol; using the simple one", self.info.id);
+                    tracing::info!(
+                        "{}: the server refuses the extended protocol; using the simple one",
+                        self.info.id
+                    );
                     (client, notices) = open(v, &pg, &tls).await?;
                 }
                 refused
@@ -725,8 +899,13 @@ impl Driver for PgDriver {
         // `server_version_num` picks catalog columns (prokind, attidentity);
         // engines that don't report it get the oldest queries.
         let version = if v.has_pg_catalog() {
-            match client.simple_query("SELECT current_setting('server_version_num')").await {
-                Ok(msgs) => catalog::first_cell(&msgs).and_then(|s| s.parse().ok()).unwrap_or(0),
+            match client
+                .simple_query("SELECT current_setting('server_version_num')")
+                .await
+            {
+                Ok(msgs) => catalog::first_cell(&msgs)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
                 Err(_) => 0,
             }
         } else {
@@ -749,11 +928,24 @@ const PROBE_LIMIT: Duration = Duration::from_secs(5);
 
 /// Connect and drive the connection, forwarding notices (RAISE NOTICE,
 /// warnings…).
-async fn open(v: Variant, pg: &tokio_postgres::Config, tls: &MakeTlsConnector) -> Result<(tokio_postgres::Client, mpsc::UnboundedReceiver<tokio_postgres::error::DbError>)> {
-    let (client, mut connection) = tokio::time::timeout(Duration::from_secs(20), pg.connect(tls.clone()))
-        .await
-        .map_err(|_| Error::connect_failed(dbine_driver::ConnectFailure::new(dbine_driver::ConnectFailureKind::Timeout, "tiempo de espera agotado")))?
-        .map_err(|e| connect_error(v, e))?;
+async fn open(
+    v: Variant,
+    pg: &tokio_postgres::Config,
+    tls: &MakeTlsConnector,
+) -> Result<(
+    tokio_postgres::Client,
+    mpsc::UnboundedReceiver<tokio_postgres::error::DbError>,
+)> {
+    let (client, mut connection) =
+        tokio::time::timeout(Duration::from_secs(20), pg.connect(tls.clone()))
+            .await
+            .map_err(|_| {
+                Error::connect_failed(dbine_driver::ConnectFailure::new(
+                    dbine_driver::ConnectFailureKind::Timeout,
+                    "tiempo de espera agotado",
+                ))
+            })?
+            .map_err(|e| connect_error(v, e))?;
     let (tx, notices) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
@@ -802,14 +994,25 @@ struct TlsChecks {
 /// certificate for any name would get the password or the Google token.
 fn tls_checks(v: Variant, cfg: &ConnectionConfig, has_ca: bool) -> TlsChecks {
     if cfg.trust_server_certificate {
-        return TlsChecks { hostname: false, system_roots: true };
+        return TlsChecks {
+            hostname: false,
+            system_roots: true,
+        };
     }
     // Also a Cloud SQL instance reached as PostgreSQL with Google Cloud IAM.
-    let instance_ca = has_ca && (matches!(v, Variant::CloudSql | Variant::AlloyDb) || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
+    let instance_ca = has_ca
+        && (matches!(v, Variant::CloudSql | Variant::AlloyDb)
+            || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
     if instance_ca {
-        TlsChecks { hostname: false, system_roots: false }
+        TlsChecks {
+            hostname: false,
+            system_roots: false,
+        }
     } else {
-        TlsChecks { hostname: true, system_roots: true }
+        TlsChecks {
+            hostname: true,
+            system_roots: true,
+        }
     }
 }
 
@@ -817,22 +1020,41 @@ fn tls_checks(v: Variant, cfg: &ConnectionConfig, has_ca: bool) -> TlsChecks {
 /// system's (every certificate of a bundle, like AWS's global-bundle.pem),
 /// except where `tls_checks` drops the name check. `rds_roots` (AWS IAM,
 /// Aurora) trusts Amazon's RDS CAs when no file is given.
-fn tls_connector(v: Variant, cfg: &ConnectionConfig, rds_roots: bool) -> Result<native_tls::TlsConnector> {
+fn tls_connector(
+    v: Variant,
+    cfg: &ConnectionConfig,
+    rds_roots: bool,
+) -> Result<native_tls::TlsConnector> {
     let mut b = native_tls::TlsConnector::builder();
-    let ca = cfg.option("ssl_root_cert").map(str::trim).filter(|p| !p.is_empty());
+    let ca = cfg
+        .option("ssl_root_cert")
+        .map(str::trim)
+        .filter(|p| !p.is_empty());
     let checks = tls_checks(v, cfg, ca.is_some());
     b.danger_accept_invalid_certs(cfg.trust_server_certificate)
         .danger_accept_invalid_hostnames(!checks.hostname)
         .disable_built_in_roots(!checks.system_roots);
     if let Some(path) = ca {
-        let pem = std::fs::read(path).map_err(|e| Error::Connect(format!("no se pudo leer el certificado de CA «{path}»: {e}")))?;
-        let bad = |e: String| Error::Connect(format!("el certificado de CA «{path}» no es un PEM válido: {e}"));
+        let pem = std::fs::read(path).map_err(|e| {
+            Error::Connect(format!(
+                "no se pudo leer el certificado de CA «{path}»: {e}"
+            ))
+        })?;
+        let bad = |e: String| {
+            Error::Connect(format!(
+                "el certificado de CA «{path}» no es un PEM válido: {e}"
+            ))
+        };
         let blocks = cloud_auth::pem_certificates(&pem);
         if blocks.is_empty() {
-            b.add_root_certificate(native_tls::Certificate::from_pem(&pem).map_err(|e| bad(e.to_string()))?);
+            b.add_root_certificate(
+                native_tls::Certificate::from_pem(&pem).map_err(|e| bad(e.to_string()))?,
+            );
         }
         for block in blocks {
-            b.add_root_certificate(native_tls::Certificate::from_pem(block).map_err(|e| bad(e.to_string()))?);
+            b.add_root_certificate(
+                native_tls::Certificate::from_pem(block).map_err(|e| bad(e.to_string()))?,
+            );
         }
     } else if rds_roots {
         for c in rds_certificates()? {
@@ -852,7 +1074,11 @@ fn rds_certificates() -> Result<Vec<native_tls::Certificate>> {
         .into_iter()
         .map(native_tls::Certificate::from_pem)
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| Error::Connect(format!("TLS: el paquete de CA de Amazon RDS no se pudo leer: {e}")))?;
+        .map_err(|e| {
+            Error::Connect(format!(
+                "TLS: el paquete de CA de Amazon RDS no se pudo leer: {e}"
+            ))
+        })?;
     Ok(CERTS.get_or_init(|| parsed).clone())
 }
 
@@ -868,11 +1094,16 @@ fn connect_error(v: Variant, e: tokio_postgres::Error) -> Error {
         );
     }
     match e.code() {
-        Some(c) if *c == SqlState::INVALID_PASSWORD || *c == SqlState::INVALID_AUTHORIZATION_SPECIFICATION => {
+        Some(c)
+            if *c == SqlState::INVALID_PASSWORD
+                || *c == SqlState::INVALID_AUTHORIZATION_SPECIFICATION =>
+        {
             Error::AuthFailed(db_message(&e))
         }
         // Classified for the app's explanation (same messages as before).
-        Some(c) => Error::connect_failed(dbine_driver::ConnectFailure::from_message(db_message(&e)).with_code(c.code())),
+        Some(c) => Error::connect_failed(
+            dbine_driver::ConnectFailure::from_message(db_message(&e)).with_code(c.code()),
+        ),
         None => Error::connect_failed(dbine_driver::ConnectFailure::from_error(&e)),
     }
 }
@@ -918,13 +1149,22 @@ mod tests {
     /// Nothing listens on the port: a classified, refused connect.
     #[tokio::test]
     async fn refused_connects_are_classified() {
-        let d = drivers().into_iter().find(|d| d.info().id == "postgres").unwrap();
+        let d = drivers()
+            .into_iter()
+            .find(|d| d.info().id == "postgres")
+            .unwrap();
         let cfg = ConnectionConfig {
-            driver: "postgres".into(), host: "127.0.0.1".into(), port: 1, username: Some("u".into()), password: Some("p".into()),
+            driver: "postgres".into(),
+            host: "127.0.0.1".into(),
+            port: 1,
+            username: Some("u".into()),
+            password: Some("p".into()),
             ..Default::default()
         };
         match d.connect(&cfg, None).await.err() {
-            Some(Error::ConnectFailed(f)) => assert_eq!(f.kind, dbine_driver::ConnectFailureKind::Refused, "{f:?}"),
+            Some(Error::ConnectFailed(f)) => {
+                assert_eq!(f.kind, dbine_driver::ConnectFailureKind::Refused, "{f:?}")
+            }
             other => panic!("{other:?}"),
         }
     }
@@ -934,11 +1174,23 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
 
@@ -949,7 +1201,13 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), ds.len());
-        let port = |id: &str| ds.iter().find(|d| d.info().id == id).unwrap().info().default_port;
+        let port = |id: &str| {
+            ds.iter()
+                .find(|d| d.info().id == id)
+                .unwrap()
+                .info()
+                .default_port
+        };
         assert_eq!(port("postgres"), 5432);
         assert_eq!(port("cockroachdb"), 26257);
         assert_eq!(port("redshift"), 5439);
@@ -969,14 +1227,34 @@ mod tests {
     fn cloud_sign_ins_match_the_variant() {
         let offered = |id: &str| -> Vec<&'static str> {
             let d = drivers().into_iter().find(|d| d.info().id == id).unwrap();
-            match d.info().fields.iter().find(|f| f.key == cloud_auth::AUTH).map(|f| f.kind.clone()) {
+            match d
+                .info()
+                .fields
+                .iter()
+                .find(|f| f.key == cloud_auth::AUTH)
+                .map(|f| f.kind.clone())
+            {
                 Some(FieldKind::Select(o)) => o.into_iter().map(|o| o.0).collect(),
                 _ => vec![],
             }
         };
-        assert_eq!(offered("postgres"), [cloud_auth::PASSWORD, cloud_auth::AWS, cloud_auth::GCP, cloud_auth::AZURE]);
-        assert_eq!(offered("aurora_postgres"), [cloud_auth::PASSWORD, cloud_auth::AWS]);
-        assert_eq!(offered("cloudsql_postgres"), [cloud_auth::PASSWORD, cloud_auth::GCP]);
+        assert_eq!(
+            offered("postgres"),
+            [
+                cloud_auth::PASSWORD,
+                cloud_auth::AWS,
+                cloud_auth::GCP,
+                cloud_auth::AZURE
+            ]
+        );
+        assert_eq!(
+            offered("aurora_postgres"),
+            [cloud_auth::PASSWORD, cloud_auth::AWS]
+        );
+        assert_eq!(
+            offered("cloudsql_postgres"),
+            [cloud_auth::PASSWORD, cloud_auth::GCP]
+        );
         assert_eq!(offered("alloydb"), [cloud_auth::PASSWORD, cloud_auth::GCP]);
         for id in ["redshift", "cockroachdb", "h2", "denodo", "timescaledb"] {
             assert!(offered(id).is_empty(), "{id}");
@@ -986,13 +1264,24 @@ mod tests {
     /// A cloud sign-in with "trust the certificate" never sends the token.
     #[tokio::test]
     async fn cloud_tokens_need_a_verified_server() {
-        let d = drivers().into_iter().find(|d| d.info().id == "aurora_postgres").unwrap();
+        let d = drivers()
+            .into_iter()
+            .find(|d| d.info().id == "aurora_postgres")
+            .unwrap();
         let mut cfg = ConnectionConfig {
-            driver: "aurora_postgres".into(), host: "127.0.0.1".into(), port: 1, username: Some("u".into()),
-            trust_server_certificate: true, ..Default::default()
+            driver: "aurora_postgres".into(),
+            host: "127.0.0.1".into(),
+            port: 1,
+            username: Some("u".into()),
+            trust_server_certificate: true,
+            ..Default::default()
         };
-        cfg.options.insert(cloud_auth::AUTH.into(), cloud_auth::AWS.into());
-        assert!(matches!(d.connect(&cfg, None).await.err(), Some(Error::AuthFailed(_))));
+        cfg.options
+            .insert(cloud_auth::AUTH.into(), cloud_auth::AWS.into());
+        assert!(matches!(
+            d.connect(&cfg, None).await.err(),
+            Some(Error::AuthFailed(_))
+        ));
     }
 
     #[test]
@@ -1000,22 +1289,37 @@ mod tests {
         for v in Variant::ALL.into_iter().filter(|v| *v != Variant::H2) {
             let info = v.info();
             let encrypt = info.fields.iter().find(|f| f.key == "encrypt").unwrap();
-            assert_eq!(encrypt.default == "true", v.managed() || v == Variant::Redshift, "{v:?}");
-            assert_eq!(info.fields.iter().any(|f| f.key == "ssl_root_cert"), !v.info_schema_only(), "{v:?}");
+            assert_eq!(
+                encrypt.default == "true",
+                v.managed() || v == Variant::Redshift,
+                "{v:?}"
+            );
+            assert_eq!(
+                info.fields.iter().any(|f| f.key == "ssl_root_cert"),
+                !v.info_schema_only(),
+                "{v:?}"
+            );
         }
     }
 
     #[test]
     fn a_missing_ca_file_is_a_connect_error() {
         let mut cfg = ConnectionConfig::default();
-        cfg.options.insert("ssl_root_cert".into(), "/nonexistent/ca.pem".into());
-        assert!(matches!(tls_connector(Variant::Aurora, &cfg, false), Err(Error::Connect(_))));
+        cfg.options
+            .insert("ssl_root_cert".into(), "/nonexistent/ca.pem".into());
+        assert!(matches!(
+            tls_connector(Variant::Aurora, &cfg, false),
+            Err(Error::Connect(_))
+        ));
         assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default(), false).is_ok());
         assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default(), true).is_ok());
     }
 
     fn ca_cfg(options: &[(&str, &str)]) -> ConnectionConfig {
-        let mut cfg = ConnectionConfig { encrypt: true, ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            encrypt: true,
+            ..Default::default()
+        };
         for (k, v) in options {
             cfg.options.insert((*k).into(), (*v).into());
         }
@@ -1026,8 +1330,14 @@ mod tests {
     /// anchors the chain (no system roots).
     #[test]
     fn relaxed_hostname_checks_trust_only_the_ca_file() {
-        let relaxed = TlsChecks { hostname: false, system_roots: false };
-        let strict = TlsChecks { hostname: true, system_roots: true };
+        let relaxed = TlsChecks {
+            hostname: false,
+            system_roots: false,
+        };
+        let strict = TlsChecks {
+            hostname: true,
+            system_roots: true,
+        };
         assert_eq!(tls_checks(Variant::CloudSql, &ca_cfg(&[]), true), relaxed);
         assert_eq!(tls_checks(Variant::AlloyDb, &ca_cfg(&[]), true), relaxed);
         let gcp = ca_cfg(&[(cloud_auth::AUTH, cloud_auth::GCP)]);
@@ -1040,7 +1350,10 @@ mod tests {
         let aws = ca_cfg(&[(cloud_auth::AUTH, cloud_auth::AWS)]);
         assert_eq!(tls_checks(Variant::Aurora, &aws, true), strict);
         // "Trust the server certificate" is the user's explicit choice.
-        let trust = ConnectionConfig { trust_server_certificate: true, ..ca_cfg(&[]) };
+        let trust = ConnectionConfig {
+            trust_server_certificate: true,
+            ..ca_cfg(&[])
+        };
         assert!(!tls_checks(Variant::CloudSql, &trust, true).hostname);
         // Every variant: never the name check off with the system roots on,
         // unless the user chose to trust any certificate.
@@ -1070,8 +1383,14 @@ mod tests {
             let tcp = std::net::TcpStream::connect("www.google.com:443").unwrap();
             c.connect("not-this-host.invalid", tcp).map(|_| ())
         };
-        assert!(dial(tls_connector(Variant::CloudSql, &cfg, false).unwrap()).is_err(), "Cloud SQL accepted a public certificate");
-        assert!(dial(tls_connector(Variant::AlloyDb, &cfg, false).unwrap()).is_err(), "AlloyDB accepted a public certificate");
+        assert!(
+            dial(tls_connector(Variant::CloudSql, &cfg, false).unwrap()).is_err(),
+            "Cloud SQL accepted a public certificate"
+        );
+        assert!(
+            dial(tls_connector(Variant::AlloyDb, &cfg, false).unwrap()).is_err(),
+            "AlloyDB accepted a public certificate"
+        );
         // Control: with the system roots and no name check, it would pass.
         let mut b = native_tls::TlsConnector::builder();
         b.danger_accept_invalid_hostnames(true);

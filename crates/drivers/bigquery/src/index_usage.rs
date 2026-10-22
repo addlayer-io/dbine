@@ -56,7 +56,14 @@ pub fn indexes_sql(project: &str, dataset: &str, view: &str, table: &str) -> Str
 /// The jobs of the last 180 days that used the table's search or vector
 /// index. `view`: `JOBS` or `JOBS_BY_USER`. `precise`: a `PARTIALLY_USED`
 /// job that says it didn't use this table's index doesn't count.
-pub fn usage_sql(location: Option<&str>, view: &str, project: &str, dataset: &str, table: &str, precise: bool) -> String {
+pub fn usage_sql(
+    location: Option<&str>,
+    view: &str,
+    project: &str,
+    dataset: &str,
+    table: &str,
+    precise: bool,
+) -> String {
     let this = format!("u.base_table.project_id = {} AND u.base_table.dataset_id = {} AND u.base_table.table_id = {}", lit(project), lit(dataset), lit(table));
     let used = |stats: &str| {
         if precise {
@@ -91,13 +98,23 @@ pub fn indexes(kind: &str, rows: &[Row]) -> Vec<IndexUsage> {
         .filter_map(|r| {
             let name = r.get("index_name")?;
             let def = indexes::parse(name, kind, r.get("ddl")?)?;
-            let status = r.get("index_status").map(String::as_str).unwrap_or("ACTIVE");
+            let status = r
+                .get("index_status")
+                .map(String::as_str)
+                .unwrap_or("ACTIVE");
             Some(IndexUsage {
                 name: def.name,
-                kind: if status == "ACTIVE" { format!("{kind} INDEX") } else { format!("{kind} INDEX ({status})") },
+                kind: if status == "ACTIVE" {
+                    format!("{kind} INDEX")
+                } else {
+                    format!("{kind} INDEX ({status})")
+                },
                 key_columns: def.columns,
                 included_columns: def.include,
-                size_kb: r.get("total_storage_bytes").and_then(|b| b.parse::<u64>().ok()).map(|b| b.div_ceil(1024)),
+                size_kb: r
+                    .get("total_storage_bytes")
+                    .and_then(|b| b.parse::<u64>().ok())
+                    .map(|b| b.div_ceil(1024)),
                 last_write: r.get("last_refresh_time").cloned(),
                 ..Default::default()
             })
@@ -107,7 +124,12 @@ pub fn indexes(kind: &str, rows: &[Row]) -> Vec<IndexUsage> {
 
 /// The usage row onto the indexes; true when every index got its counter.
 pub fn apply(ixs: &mut [IndexUsage], usage: &Row) -> bool {
-    let n = |k: &str| usage.get(k).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+    let n = |k: &str| {
+        usage
+            .get(k)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
     let vectors = ixs.iter().filter(|i| i.kind.starts_with(VECTOR)).count();
     for i in ixs.iter_mut() {
         if i.kind.starts_with(SEARCH) {
@@ -123,7 +145,12 @@ pub fn apply(ixs: &mut [IndexUsage], usage: &Row) -> bool {
 
 /// `tableConstraints.foreignKeys` of a `tables.get` answer.
 pub fn foreign_keys(table: &Json, project: &str) -> Vec<ForeignKeyDef> {
-    let s = |v: &Json, k: &str| v.get(k).and_then(Json::as_str).unwrap_or_default().to_string();
+    let s = |v: &Json, k: &str| {
+        v.get(k)
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     table
         .pointer("/tableConstraints/foreignKeys")
         .and_then(Json::as_array)
@@ -131,12 +158,20 @@ pub fn foreign_keys(table: &Json, project: &str) -> Vec<ForeignKeyDef> {
         .flatten()
         .map(|fk| {
             let rt = fk.get("referencedTable").cloned().unwrap_or_default();
-            let refs = fk.get("columnReferences").and_then(Json::as_array).cloned().unwrap_or_default();
+            let refs = fk
+                .get("columnReferences")
+                .and_then(Json::as_array)
+                .cloned()
+                .unwrap_or_default();
             let (p, d) = (s(&rt, "projectId"), s(&rt, "datasetId"));
             ForeignKeyDef {
                 name: fk.get("name").and_then(Json::as_str).map(str::to_string),
                 columns: refs.iter().map(|c| s(c, "referencingColumn")).collect(),
-                ref_schema: Some(if p.is_empty() || p == project { d } else { format!("{p}.{d}") }),
+                ref_schema: Some(if p.is_empty() || p == project {
+                    d
+                } else {
+                    format!("{p}.{d}")
+                }),
                 ref_table: s(&rt, "tableId"),
                 ref_columns: refs.iter().map(|c| s(c, "referencedColumn")).collect(),
                 on_delete: None,
@@ -149,12 +184,27 @@ pub fn foreign_keys(table: &Json, project: &str) -> Vec<ForeignKeyDef> {
 pub(crate) async fn report(s: &mut BigQuerySession, table: &ObjectRef) -> Result<IndexUsageReport> {
     let ds = s.dataset(table)?;
     let project = s.api.project.clone();
-    let meta = s.api.get(&["datasets", &ds, "tables", &table.name], &[]).await?;
-    let mut r = IndexUsageReport { foreign_keys: foreign_keys(&meta, &project), seek_scan_split: false, writes_counted: false, ..Default::default() };
+    let meta = s
+        .api
+        .get(&["datasets", &ds, "tables", &table.name], &[])
+        .await?;
+    let mut r = IndexUsageReport {
+        foreign_keys: foreign_keys(&meta, &project),
+        seek_scan_split: false,
+        writes_counted: false,
+        ..Default::default()
+    };
     // Emulators don't have these views.
     for kind in [SEARCH, VECTOR] {
-        let view = if kind == SEARCH { "SEARCH_INDEXES" } else { "VECTOR_INDEXES" };
-        match s.named_rows(&indexes_sql(&project, &ds, view, &table.name)).await {
+        let view = if kind == SEARCH {
+            "SEARCH_INDEXES"
+        } else {
+            "VECTOR_INDEXES"
+        };
+        match s
+            .named_rows(&indexes_sql(&project, &ds, view, &table.name))
+            .await
+        {
             Ok(rows) => r.indexes.extend(indexes(kind, &rows)),
             Err(e) => tracing::debug!("bigquery: {view} not read: {e}"),
         }
@@ -164,14 +214,32 @@ pub(crate) async fn report(s: &mut BigQuerySession, table: &ObjectRef) -> Result
         return Ok(r);
     }
     if s.api.emulator {
-        r.note = Some("El emulador no tiene INFORMATION_SCHEMA.JOBS: se listan los índices sin contadores.".into());
+        r.note = Some(
+            "El emulador no tiene INFORMATION_SCHEMA.JOBS: se listan los índices sin contadores."
+                .into(),
+        );
         return Ok(r);
     }
     let loc = s.api.location.clone();
     let mut notes = Vec::new();
     let mut usage = None;
-    for (view, precise) in [("JOBS", true), ("JOBS", false), ("JOBS_BY_USER", true), ("JOBS_BY_USER", false)] {
-        match s.named_rows(&usage_sql(loc.as_deref(), view, &project, &ds, &table.name, precise)).await {
+    for (view, precise) in [
+        ("JOBS", true),
+        ("JOBS", false),
+        ("JOBS_BY_USER", true),
+        ("JOBS_BY_USER", false),
+    ] {
+        match s
+            .named_rows(&usage_sql(
+                loc.as_deref(),
+                view,
+                &project,
+                &ds,
+                &table.name,
+                precise,
+            ))
+            .await
+        {
             Ok(rows) => {
                 if view == "JOBS_BY_USER" {
                     notes.push("Solo cuentan tus consultas: para ver las de todos hace falta el permiso bigquery.jobs.listAll en el proyecto.".to_string());
@@ -179,7 +247,9 @@ pub(crate) async fn report(s: &mut BigQuerySession, table: &ObjectRef) -> Result
                 usage = Some(rows.into_iter().next().unwrap_or_default());
                 break;
             }
-            Err(e) => tracing::debug!("bigquery: INFORMATION_SCHEMA.{view} (precise: {precise}) not read: {e}"),
+            Err(e) => tracing::debug!(
+                "bigquery: INFORMATION_SCHEMA.{view} (precise: {precise}) not read: {e}"
+            ),
         }
     }
     let Some(usage) = usage else {
@@ -202,17 +272,29 @@ mod tests {
     use serde_json::json;
 
     fn row(kv: &[(&str, &str)]) -> Row {
-        kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        kv.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn queries() {
         let q = indexes_sql("p", "d", "SEARCH_INDEXES", "o'k");
-        assert!(q.contains("FROM `p`.`d`.INFORMATION_SCHEMA.SEARCH_INDEXES WHERE table_name = 'o\\'k'"), "{q}");
+        assert!(
+            q.contains("FROM `p`.`d`.INFORMATION_SCHEMA.SEARCH_INDEXES WHERE table_name = 'o\\'k'"),
+            "{q}"
+        );
         let q = usage_sql(Some("EU"), "JOBS", "p", "d", "t", false);
-        assert!(q.contains("FROM `region-eu`.INFORMATION_SCHEMA.JOBS AS j, UNNEST(j.referenced_tables) AS rt"), "{q}");
+        assert!(
+            q.contains(
+                "FROM `region-eu`.INFORMATION_SCHEMA.JOBS AS j, UNNEST(j.referenced_tables) AS rt"
+            ),
+            "{q}"
+        );
         assert!(q.contains("rt.project_id = 'p' AND rt.dataset_id = 'd' AND rt.table_id = 't'"));
-        assert!(q.contains("j.search_statistics.index_usage_mode IN ('FULLY_USED', 'PARTIALLY_USED')"));
+        assert!(
+            q.contains("j.search_statistics.index_usage_mode IN ('FULLY_USED', 'PARTIALLY_USED')")
+        );
         assert!(q.contains("j.vector_search_statistics.index_usage_mode"));
         assert!(!q.contains("index_unused_reasons"));
         let q = usage_sql(None, "JOBS", "p", "d", "t", true);
@@ -232,16 +314,67 @@ mod tests {
                 ("last_refresh_time", "2026-09-30 10:00:00"),
             ])],
         );
-        let vector = indexes(VECTOR, &[row(&[("index_name", "vx"), ("ddl", "CREATE VECTOR INDEX vx ON `p.d.t`(emb) OPTIONS (index_type = 'IVF')"), ("index_status", "PENDING DISABLEMENT")])]);
+        let vector = indexes(
+            VECTOR,
+            &[row(&[
+                ("index_name", "vx"),
+                (
+                    "ddl",
+                    "CREATE VECTOR INDEX vx ON `p.d.t`(emb) OPTIONS (index_type = 'IVF')",
+                ),
+                ("index_status", "PENDING DISABLEMENT"),
+            ])],
+        );
         let mut ixs = [search, vector].concat();
-        assert_eq!((ixs[0].kind.as_str(), ixs[0].key_columns.clone(), ixs[0].included_columns.clone()), ("SEARCH INDEX", vec!["title".to_string(), "body".to_string()], vec!["id".to_string()]));
-        assert_eq!((ixs[0].size_kb, ixs[0].last_write.as_deref()), (Some(2), Some("2026-09-30 10:00:00")));
+        assert_eq!(
+            (
+                ixs[0].kind.as_str(),
+                ixs[0].key_columns.clone(),
+                ixs[0].included_columns.clone()
+            ),
+            (
+                "SEARCH INDEX",
+                vec!["title".to_string(), "body".to_string()],
+                vec!["id".to_string()]
+            )
+        );
+        assert_eq!(
+            (ixs[0].size_kb, ixs[0].last_write.as_deref()),
+            (Some(2), Some("2026-09-30 10:00:00"))
+        );
         assert_eq!(ixs[1].kind, "VECTOR INDEX (PENDING DISABLEMENT)");
-        let usage = row(&[("search_used", "5"), ("search_last", "2026-10-01 09:00:00"), ("vector_used", "0"), ("since", "2026-04-04 00:00:00")]);
+        let usage = row(&[
+            ("search_used", "5"),
+            ("search_last", "2026-10-01 09:00:00"),
+            ("vector_used", "0"),
+            ("since", "2026-04-04 00:00:00"),
+        ]);
         assert!(apply(&mut ixs, &usage));
-        let r = IndexUsageReport { stats_available: true, seek_scan_split: false, writes_counted: false, indexes: ixs.clone(), ..Default::default() }.derived();
-        assert_eq!((r.indexes[0].seeks, r.indexes[0].read_share, r.indexes[0].seek_health, r.indexes[0].writes_per_read), (5, Some(1.0), None, None));
-        assert_eq!((r.indexes[1].seeks, r.indexes[1].read_share, r.indexes[1].unused), (0, Some(0.0), false));
+        let r = IndexUsageReport {
+            stats_available: true,
+            seek_scan_split: false,
+            writes_counted: false,
+            indexes: ixs.clone(),
+            ..Default::default()
+        }
+        .derived();
+        assert_eq!(
+            (
+                r.indexes[0].seeks,
+                r.indexes[0].read_share,
+                r.indexes[0].seek_health,
+                r.indexes[0].writes_per_read
+            ),
+            (5, Some(1.0), None, None)
+        );
+        assert_eq!(
+            (
+                r.indexes[1].seeks,
+                r.indexes[1].read_share,
+                r.indexes[1].unused
+            ),
+            (0, Some(0.0), false)
+        );
         // Two vector indexes: the job doesn't say which one.
         ixs.push(ixs[1].clone());
         let usage = row(&[("vector_used", "3")]);
@@ -258,9 +391,26 @@ mod tests {
         ]}});
         let fks = foreign_keys(&t, "p");
         assert_eq!(fks.len(), 2);
-        assert_eq!((fks[0].name.as_deref(), fks[0].columns.clone(), fks[0].ref_columns.clone()), (Some("fk_c"), vec!["c1".to_string(), "c2".to_string()], vec!["id1".to_string(), "id2".to_string()]));
-        assert_eq!((fks[0].ref_schema.as_deref(), fks[0].ref_table.as_str()), (Some("d"), "c"));
-        assert_eq!((fks[1].name.clone(), fks[1].ref_schema.as_deref()), (None, Some("other.x")));
+        assert_eq!(
+            (
+                fks[0].name.as_deref(),
+                fks[0].columns.clone(),
+                fks[0].ref_columns.clone()
+            ),
+            (
+                Some("fk_c"),
+                vec!["c1".to_string(), "c2".to_string()],
+                vec!["id1".to_string(), "id2".to_string()]
+            )
+        );
+        assert_eq!(
+            (fks[0].ref_schema.as_deref(), fks[0].ref_table.as_str()),
+            (Some("d"), "c")
+        );
+        assert_eq!(
+            (fks[1].name.clone(), fks[1].ref_schema.as_deref()),
+            (None, Some("other.x"))
+        );
         assert!(foreign_keys(&json!({}), "p").is_empty());
     }
 }

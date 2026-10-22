@@ -17,11 +17,22 @@ const LIMIT: Duration = Duration::from_secs(20);
 
 /// Whether SCIM `Me` lists the workspace's `admins` group.
 pub fn is_admin(me: &Json) -> bool {
-    me.get("groups").and_then(Json::as_array).into_iter().flatten().any(|g| g.get("display").and_then(Json::as_str) == Some("admins"))
+    me.get("groups")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+        .any(|g| g.get("display").and_then(Json::as_str) == Some("admins"))
 }
 
 pub fn map(admin: bool) -> Permissions {
-    Permissions { profiler: if admin { Access::Allowed } else { Access::Unknown }, ..Default::default() }
+    Permissions {
+        profiler: if admin {
+            Access::Allowed
+        } else {
+            Access::Unknown
+        },
+        ..Default::default()
+    }
 }
 
 pub(crate) async fn check(s: &DatabricksSession) -> Permissions {
@@ -42,14 +53,24 @@ mod tests {
 
     #[test]
     fn admins_from_scim() {
-        assert!(is_admin(&json!({ "userName": "ana@x.com", "groups": [{ "display": "users" }, { "display": "admins" }] })));
-        assert!(!is_admin(&json!({ "userName": "ana@x.com", "groups": [{ "display": "users" }] })));
+        assert!(is_admin(
+            &json!({ "userName": "ana@x.com", "groups": [{ "display": "users" }, { "display": "admins" }] })
+        ));
+        assert!(!is_admin(
+            &json!({ "userName": "ana@x.com", "groups": [{ "display": "users" }] })
+        ));
         assert!(!is_admin(&json!({ "userName": "ana@x.com" })));
     }
 
     #[test]
     fn only_the_profiler_is_proved_and_never_denied() {
-        assert_eq!(map(true), Permissions { profiler: Access::Allowed, ..Default::default() });
+        assert_eq!(
+            map(true),
+            Permissions {
+                profiler: Access::Allowed,
+                ..Default::default()
+            }
+        );
         assert_eq!(map(false), Permissions::default());
     }
 }

@@ -14,7 +14,9 @@
 
 use crate::monitor::Set;
 use crate::SnowflakeSession;
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -47,7 +49,11 @@ struct Seen {
 
 impl Seen {
     fn new(now: i64) -> Self {
-        Self { since: now, mark: now, ids: HashMap::new() }
+        Self {
+            since: now,
+            mark: now,
+            ids: HashMap::new(),
+        }
     }
 
     /// Where the next read starts.
@@ -86,7 +92,10 @@ fn history_sql(database: &str, from: i64) -> String {
     let (schema, filter) = if database.is_empty() {
         ("SNOWFLAKE.INFORMATION_SCHEMA".to_string(), String::new())
     } else {
-        (format!("{}.INFORMATION_SCHEMA", quote(database)), format!(" AND database_name = {}", lit(database)))
+        (
+            format!("{}.INFORMATION_SCHEMA", quote(database)),
+            format!(" AND database_name = {}", lit(database)),
+        )
     };
     format!(
         "SELECT query_id, TO_CHAR(CONVERT_TIMEZONE('UTC', start_time), 'YYYY-MM-DD HH24:MI:SS.FF3') AS time, \
@@ -102,7 +111,10 @@ fn history_sql(database: &str, from: i64) -> String {
 
 fn get<'a>(set: &'a Set, row: &'a [Option<String>], name: &str) -> Option<&'a str> {
     let i = set.cols.iter().position(|c| c == name)?;
-    row.get(i)?.as_deref().map(str::trim).filter(|s| !s.is_empty())
+    row.get(i)?
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }
 
 /// New statements of a history read.
@@ -110,19 +122,34 @@ fn statements(set: &Set, seen: &mut Seen) -> Vec<ProfiledStatement> {
     let mut out = Vec::new();
     for row in &set.rows {
         let g = |name: &str| get(set, row, name);
-        let (Some(id), Some(time), Some(end)) = (g("query_id"), g("time"), g("end_ms").and_then(|v| v.parse::<f64>().ok())) else {
+        let (Some(id), Some(time), Some(end)) = (
+            g("query_id"),
+            g("time"),
+            g("end_ms").and_then(|v| v.parse::<f64>().ok()),
+        ) else {
             continue;
         };
         if !seen.first(id, end as i64) {
             continue;
         }
-        let Some(text) = g("query_text") else { continue };
-        let mut detail: Vec<String> = [g("query_type"), g("warehouse_name")].into_iter().flatten().map(str::to_string).collect();
-        let bytes = |name: &str| g(name).and_then(|v| v.parse::<f64>().ok()).map(|b| b.max(0.0) as u64);
+        let Some(text) = g("query_text") else {
+            continue;
+        };
+        let mut detail: Vec<String> = [g("query_type"), g("warehouse_name")]
+            .into_iter()
+            .flatten()
+            .map(str::to_string)
+            .collect();
+        let bytes = |name: &str| {
+            g(name)
+                .and_then(|v| v.parse::<f64>().ok())
+                .map(|b| b.max(0.0) as u64)
+        };
         if let Some(r) = g("role_name") {
             detail.push(format!("rol {r}"));
         }
-        let failed = g("execution_status").is_some_and(|s| s.to_ascii_uppercase().starts_with("FAIL"));
+        let failed =
+            g("execution_status").is_some_and(|s| s.to_ascii_uppercase().starts_with("FAIL"));
         out.push(ProfiledStatement {
             time: time.to_string(),
             duration_ms: g("ms").and_then(|v| v.parse().ok()),
@@ -130,8 +157,12 @@ fn statements(set: &Set, seen: &mut Seen) -> Vec<ProfiledStatement> {
             database: g("database_name").map(str::to_string),
             user: g("user_name").map(str::to_string),
             client: None,
-            rows: g("rows_produced").and_then(|v| v.parse::<f64>().ok()).map(|v| v as u64),
-            error: g("error_message").map(str::to_string).or_else(|| failed.then(|| "falló".to_string())),
+            rows: g("rows_produced")
+                .and_then(|v| v.parse::<f64>().ok())
+                .map(|v| v as u64),
+            error: g("error_message")
+                .map(str::to_string)
+                .or_else(|| failed.then(|| "falló".to_string())),
             detail: (!detail.is_empty()).then(|| detail.join(" · ")),
             application: None,
             // Snowflake reports no CPU time per query.
@@ -145,15 +176,28 @@ fn statements(set: &Set, seen: &mut Seen) -> Vec<ProfiledStatement> {
     out
 }
 
-pub async fn start(s: &SnowflakeSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
-    let database = if opts.database.is_empty() { s.ctx.database.clone().unwrap_or_default() } else { opts.database.clone() };
-    let now = s.tagged_rows("SELECT DATE_PART(EPOCH_MILLISECOND, CURRENT_TIMESTAMP()) AS now", TAG).await?;
+pub async fn start(
+    s: &SnowflakeSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
+    let database = if opts.database.is_empty() {
+        s.ctx.database.clone().unwrap_or_default()
+    } else {
+        opts.database.clone()
+    };
+    let now = s
+        .tagged_rows(
+            "SELECT DATE_PART(EPOCH_MILLISECOND, CURRENT_TIMESTAMP()) AS now",
+            TAG,
+        )
+        .await?;
     let now = now
         .rows
         .first()
         .and_then(|r| get(&now, r, "now"))
         .and_then(|v| v.parse::<f64>().ok())
-        .ok_or_else(|| Error::Query("Snowflake no devolvió la hora del servidor".into()))? as i64;
+        .ok_or_else(|| Error::Query("Snowflake no devolvió la hora del servidor".into()))?
+        as i64;
     let seen = Seen::new(now);
     // A first read proves the warehouse and the privileges.
     s.tagged_rows(&history_sql(&database, seen.from()), TAG).await.map_err(|e| {
@@ -165,7 +209,14 @@ pub async fn start(s: &SnowflakeSession, opts: &ProfilerOptions) -> Result<(Stat
             "Se ven las consultas del usuario actual, y las de todos en los warehouses donde el rol tiene MONITOR u OPERATE. \
              Aparecen al terminar, con unos segundos de demora; leer el historial mantiene encendido el warehouse de la sesión.",
         );
-    Ok((State { database, seen, next: Instant::now() }, started))
+    Ok((
+        State {
+            database,
+            seen,
+            next: Instant::now(),
+        },
+        started,
+    ))
 }
 
 pub async fn poll(s: &SnowflakeSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
@@ -173,7 +224,9 @@ pub async fn poll(s: &SnowflakeSession, state: &mut State) -> Result<Vec<Profile
         return Ok(Vec::new());
     }
     state.next = Instant::now() + EVERY;
-    let set = s.tagged_rows(&history_sql(&state.database, state.seen.from()), TAG).await?;
+    let set = s
+        .tagged_rows(&history_sql(&state.database, state.seen.from()), TAG)
+        .await?;
     Ok(statements(&set, &mut state.seen))
 }
 
@@ -183,9 +236,23 @@ mod tests {
 
     fn set(rows: &[(&str, &str, &str)]) -> Set {
         Set {
-            cols: ["query_id", "time", "end_ms", "ms", "query_text", "database_name", "user_name", "query_type", "execution_status", "error_message", "rows_produced", "bytes_scanned", "bytes_written"]
-                .map(String::from)
-                .to_vec(),
+            cols: [
+                "query_id",
+                "time",
+                "end_ms",
+                "ms",
+                "query_text",
+                "database_name",
+                "user_name",
+                "query_type",
+                "execution_status",
+                "error_message",
+                "rows_produced",
+                "bytes_scanned",
+                "bytes_written",
+            ]
+            .map(String::from)
+            .to_vec(),
             rows: rows
                 .iter()
                 .map(|(id, end, status)| {
@@ -225,15 +292,37 @@ mod tests {
         let mut seen = Seen::new(1_000_000);
         // Finished before profiling began: not reported.
         assert!(statements(&set(&[("old", "999000", "SUCCESS")]), &mut seen).is_empty());
-        let out = statements(&set(&[("a", "1001000", "SUCCESS"), ("b", "1002000", "FAILED_WITH_ERROR")]), &mut seen);
+        let out = statements(
+            &set(&[
+                ("a", "1001000", "SUCCESS"),
+                ("b", "1002000", "FAILED_WITH_ERROR"),
+            ]),
+            &mut seen,
+        );
         assert_eq!(out.len(), 2);
-        assert_eq!((out[0].duration_ms, out[0].rows, out[0].user.as_deref()), (Some(42.0), Some(7), Some("JDOE")));
-        assert_eq!((out[0].reads, out[0].writes, out[0].cpu_ms), (Some(2048), Some(0), None));
-        assert!(!out[0].detail.as_deref().unwrap_or_default().contains("bytes"));
+        assert_eq!(
+            (out[0].duration_ms, out[0].rows, out[0].user.as_deref()),
+            (Some(42.0), Some(7), Some("JDOE"))
+        );
+        assert_eq!(
+            (out[0].reads, out[0].writes, out[0].cpu_ms),
+            (Some(2048), Some(0), None)
+        );
+        assert!(!out[0]
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("bytes"));
         assert_eq!(out[1].error.as_deref(), Some("boom"));
         assert_eq!(seen.from(), 1_002_000 - OVERLAP_MS);
         // The overlap brings them again, with a late one: only that is new.
-        let out = statements(&set(&[("a", "1001000", "SUCCESS"), ("c", "1001500", "SUCCESS")]), &mut seen);
-        assert_eq!(out.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["SELECT c"]);
+        let out = statements(
+            &set(&[("a", "1001000", "SUCCESS"), ("c", "1001500", "SUCCESS")]),
+            &mut seen,
+        );
+        assert_eq!(
+            out.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            ["SELECT c"]
+        );
     }
 }

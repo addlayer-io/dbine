@@ -3,9 +3,10 @@
 //! in a read-write transaction committed right after, and DDL through
 //! `UpdateDatabaseDdl` (a long-running operation we wait for).
 
+mod backup;
+mod create_db;
 #[path = "../../bigquery/src/gcp.rs"]
 mod gcp;
-mod create_db;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -16,7 +17,6 @@ mod properties;
 mod rename;
 mod script;
 mod security;
-mod backup;
 mod structure;
 mod sync;
 mod transfer;
@@ -24,9 +24,10 @@ mod transfer;
 use base64::Engine;
 use dbine_driver::sql::{qualified_name, quote_ident, select_top, split_statements, Limit, Quote};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
-    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, ForeignKeyDef, IndexDef,
-    Language, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result, SchemaInfo, Session, TableSchema,
+    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnDef, ColumnInfo,
+    ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
+    Family, Field, FieldKind, ForeignKeyDef, IndexDef, Language, ObjectKindInfo, ObjectRef,
+    QueryOutcome, Result, ResultColumn, SchemaInfo, Session, TableSchema,
 };
 use serde_json::{json, Map, Value as Json};
 use std::time::Duration;
@@ -53,7 +54,11 @@ fn info() -> DriverInfo {
         fields,
         databases_label: "Bases de datos",
         has_schemas: true,
-        object_kinds: vec![ObjectKindInfo::tables(), ObjectKindInfo::views(), ObjectKindInfo::sequences()],
+        object_kinds: vec![
+            ObjectKindInfo::tables(),
+            ObjectKindInfo::views(),
+            ObjectKindInfo::sequences(),
+        ],
     }
 }
 
@@ -77,28 +82,53 @@ impl Api {
             Some(b) => req.header("Authorization", b),
             None => req,
         };
-        let resp = req.send().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?;
         let status = resp.status().as_u16();
-        let body = resp.text().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?;
         if !(200..300).contains(&status) {
             // The emulator's gateway answers `{"code", "message"}`.
             let flat: Option<Json> = serde_json::from_str(&body).ok();
-            *self.last_status.lock().unwrap_or_else(|e| e.into_inner()) = flat.as_ref().and_then(script::grpc_status);
-            if let Some(m) = flat.as_ref().and_then(|j| j.get("message")).and_then(Json::as_str) {
-                return Err(if status == 401 { Error::AuthFailed(m.into()) } else { Error::Query(m.into()) });
+            *self.last_status.lock().unwrap_or_else(|e| e.into_inner()) =
+                flat.as_ref().and_then(script::grpc_status);
+            if let Some(m) = flat
+                .as_ref()
+                .and_then(|j| j.get("message"))
+                .and_then(Json::as_str)
+            {
+                return Err(if status == 401 {
+                    Error::AuthFailed(m.into())
+                } else {
+                    Error::Query(m.into())
+                });
             }
             return Err(gcp::api_error(status, &body));
         }
-        Ok(if body.is_empty() { Json::Null } else { serde_json::from_str(&body)? })
+        Ok(if body.is_empty() {
+            Json::Null
+        } else {
+            serde_json::from_str(&body)?
+        })
     }
 
     /// `path` is a resource name (`projects/…`) plus an optional `:verb`.
     async fn post(&self, path: &str, body: &Json) -> Result<Json> {
-        self.send(self.http.post(format!("{}/v1/{path}", self.base)).json(body)).await
+        self.send(
+            self.http
+                .post(format!("{}/v1/{path}", self.base))
+                .json(body),
+        )
+        .await
     }
 
     async fn get(&self, path: &str) -> Result<Json> {
-        self.send(self.http.get(format!("{}/v1/{path}", self.base))).await
+        self.send(self.http.get(format!("{}/v1/{path}", self.base)))
+            .await
     }
 }
 
@@ -131,12 +161,20 @@ impl Driver for SpannerDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
     /// "Propiedades" (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -221,7 +259,10 @@ impl Driver for SpannerDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -249,11 +290,21 @@ impl Driver for SpannerDriver {
         Some(security::schema_spec())
     }
 
-    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        _owner: Option<&str>,
+    ) -> Result<String> {
         security::create_schema(name)
     }
 
-    fn drop_schema_script(&self, _database: Option<&str>, name: &str, _cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        _cascade: bool,
+    ) -> Result<String> {
         security::drop_schema(name)
     }
 
@@ -271,28 +322,54 @@ impl Driver for SpannerDriver {
         Ok(table_ddl(table, parts))
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Json>],
+    ) -> Result<String> {
         Ok(insert_script(target, columns, rows))
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         update_script(target, changes)
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         Ok(delete_script(target, keys))
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         filtered_browse(browse, filters)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let req = |k: &str, what: &str| {
-            cfg.option(k).map(|v| v.trim().to_string()).ok_or_else(|| Error::Connect(format!("falta {what}")))
+            cfg.option(k)
+                .map(|v| v.trim().to_string())
+                .ok_or_else(|| Error::Connect(format!("falta {what}")))
         };
         let project = req("project_id", "el ID del proyecto")?;
-        let instance = format!("projects/{project}/instances/{}", req("instance", "la instancia")?);
+        let instance = format!(
+            "projects/{project}/instances/{}",
+            req("instance", "la instancia")?
+        );
         let db = database
             .or(Some(cfg.database.as_str()))
             .map(str::trim)
@@ -302,17 +379,22 @@ impl Driver for SpannerDriver {
         let api = Api {
             tokens: gcp::Tokens::from_config(cfg, http.clone())?,
             http,
-            base: cfg.option("endpoint_url").unwrap_or(API).trim_end_matches('/').to_string(),
+            base: cfg
+                .option("endpoint_url")
+                .unwrap_or(API)
+                .trim_end_matches('/')
+                .to_string(),
             last_status: Default::default(),
         };
         let database = format!("{instance}/databases/{db}");
-        let session = tokio::time::timeout(Duration::from_secs(20), create_session(&api, &database))
-            .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(|e| match e {
-                Error::Query(m) => Error::Connect(m),
-                other => other,
-            })?;
+        let session =
+            tokio::time::timeout(Duration::from_secs(20), create_session(&api, &database))
+                .await
+                .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+                .map_err(|e| match e {
+                    Error::Query(m) => Error::Connect(m),
+                    other => other,
+                })?;
         Ok(Box::new(SpannerSession {
             api,
             instance,
@@ -329,8 +411,13 @@ impl Driver for SpannerDriver {
 }
 
 async fn create_session(api: &Api, database: &str) -> Result<String> {
-    let s = api.post(&format!("{database}/sessions"), &json!({})).await?;
-    s.get("name").and_then(Json::as_str).map(str::to_string).ok_or_else(|| Error::Connect("sesión sin nombre".into()))
+    let s = api
+        .post(&format!("{database}/sessions"), &json!({}))
+        .await?;
+    s.get("name")
+        .and_then(Json::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| Error::Connect("sesión sin nombre".into()))
 }
 
 impl Drop for SpannerSession {
@@ -341,7 +428,9 @@ impl Drop for SpannerSession {
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
                 for name in names {
-                    let _ = api.send(api.http.delete(format!("{}/v1/{name}", api.base))).await;
+                    let _ = api
+                        .send(api.http.delete(format!("{}/v1/{name}", api.base)))
+                        .await;
                 }
             });
         }
@@ -357,10 +446,16 @@ enum Kind {
 
 fn classify(stmt: &str) -> Kind {
     let s = stmt.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
-    let word: String = s.chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_uppercase();
+    let word: String = s
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_ascii_uppercase();
     match word.as_str() {
         "INSERT" | "UPDATE" | "DELETE" => Kind::Dml,
-        "CREATE" | "ALTER" | "DROP" | "GRANT" | "REVOKE" | "ANALYZE" | "RENAME" | "RESTORE" => Kind::Ddl,
+        "CREATE" | "ALTER" | "DROP" | "GRANT" | "REVOKE" | "ANALYZE" | "RENAME" | "RESTORE" => {
+            Kind::Ddl
+        }
         _ => Kind::Read,
     }
 }
@@ -372,12 +467,18 @@ impl SpannerSession {
         for attempt in 0..2 {
             self.seqno += 1;
             body["seqno"] = json!(self.seqno.to_string());
-            match self.api.post(&format!("{}:executeSql", self.session), &body).await {
+            match self
+                .api
+                .post(&format!("{}:executeSql", self.session), &body)
+                .await
+            {
                 // An open transaction dies with its session: no retry.
                 Err(Error::Query(m)) if m.contains("Session not found") && self.tx.is_some() => {
                     self.tx = None;
                     self.tx_failed = false;
-                    return Err(Error::Query(format!("{m} (la transacción abierta se perdió: la sesión venció)")));
+                    return Err(Error::Query(format!(
+                        "{m} (la transacción abierta se perdió: la sesión venció)"
+                    )));
                 }
                 Err(Error::Query(m)) if attempt == 0 && m.contains("Session not found") => {
                     self.session = create_session(&self.api, &self.database).await?;
@@ -400,9 +501,14 @@ impl SpannerSession {
     /// Rows of a catalog query with `@p0, @p1…` string parameters, as text.
     async fn text_rows(&mut self, sql: &str, args: &[&str]) -> Result<Vec<Vec<Option<String>>>> {
         let params = (!args.is_empty()).then(|| {
-            let p: Map<String, Json> = args.iter().enumerate().map(|(i, a)| (format!("p{i}"), json!(a))).collect();
-            let t: Map<String, Json> =
-                (0..args.len()).map(|i| (format!("p{i}"), json!({ "code": "STRING" }))).collect();
+            let p: Map<String, Json> = args
+                .iter()
+                .enumerate()
+                .map(|(i, a)| (format!("p{i}"), json!(a)))
+                .collect();
+            let t: Map<String, Json> = (0..args.len())
+                .map(|i| (format!("p{i}"), json!({ "code": "STRING" })))
+                .collect();
             (Json::Object(p), Json::Object(t))
         });
         let r = self.read(sql, params).await?;
@@ -426,7 +532,9 @@ impl SpannerSession {
 
     async fn dml(&mut self, sql: &str) -> Result<u64> {
         let r = self.dml_mode(sql, None).await?;
-        Ok(r.pointer("/stats/rowCountExact").and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or(v.as_u64())).unwrap_or(0))
+        Ok(r.pointer("/stats/rowCountExact")
+            .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or(v.as_u64()))
+            .unwrap_or(0))
     }
 
     /// DML in a read-write transaction: committed when it ran (normal or
@@ -437,16 +545,35 @@ impl SpannerSession {
             body["queryMode"] = json!(m);
         }
         let r = self.execute_sql(body).await?;
-        let tx = r.pointer("/metadata/transaction/id").and_then(Json::as_str).unwrap_or_default().to_string();
-        let end = if mode == Some("PLAN") { "rollback" } else { "commit" };
-        self.api.post(&format!("{}:{end}", self.session), &json!({ "transactionId": tx })).await?;
+        let tx = r
+            .pointer("/metadata/transaction/id")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let end = if mode == Some("PLAN") {
+            "rollback"
+        } else {
+            "commit"
+        };
+        self.api
+            .post(
+                &format!("{}:{end}", self.session),
+                &json!({ "transactionId": tx }),
+            )
+            .await?;
         Ok(r)
     }
 
     /// One editor statement: `raw` is sent (the server's positions count
     /// in it), `stmt` (without comments) tells what it is. In a read-write
     /// transaction reads and DML run inside it; DDL can't.
-    async fn run_statement(&mut self, raw: &str, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_statement(
+        &mut self,
+        raw: &str,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if let Some(cmd) = script::tx_command(stmt) {
             match cmd {
                 script::TxCommand::Begin if self.tx.is_some() => {
@@ -454,9 +581,17 @@ impl SpannerSession {
                 }
                 script::TxCommand::Begin => {
                     if self.read_only {
-                        return Err(Error::Query("Conexión de solo lectura: solo se permiten consultas.".into()));
+                        return Err(Error::Query(
+                            "Conexión de solo lectura: solo se permiten consultas.".into(),
+                        ));
                     }
-                    let r = self.api.post(&format!("{}:beginTransaction", self.session), &json!({ "options": { "readWrite": {} } })).await?;
+                    let r = self
+                        .api
+                        .post(
+                            &format!("{}:beginTransaction", self.session),
+                            &json!({ "options": { "readWrite": {} } }),
+                        )
+                        .await?;
                     self.tx = r.get("id").and_then(Json::as_str).map(str::to_string);
                     self.tx_failed = false;
                     out.info("Transacción iniciada.");
@@ -464,12 +599,20 @@ impl SpannerSession {
                 script::TxCommand::Commit => {
                     let had = self.tx.is_some();
                     self.commit().await?;
-                    out.info(if had { "Transacción confirmada." } else { "No hay una transacción abierta." });
+                    out.info(if had {
+                        "Transacción confirmada."
+                    } else {
+                        "No hay una transacción abierta."
+                    });
                 }
                 script::TxCommand::Rollback => {
                     let had = self.tx.is_some();
                     self.rollback().await?;
-                    out.info(if had { "Transacción deshecha." } else { "No hay una transacción abierta." });
+                    out.info(if had {
+                        "Transacción deshecha."
+                    } else {
+                        "No hay una transacción abierta."
+                    });
                 }
             }
             out.push_affected(0);
@@ -480,9 +623,16 @@ impl SpannerSession {
         }
         let kind = classify(stmt);
         if self.read_only && kind != Kind::Read {
-            return Err(Error::Query("Conexión de solo lectura: solo se permiten consultas.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: solo se permiten consultas.".into(),
+            ));
         }
-        let tag: String = stmt.split_whitespace().take(if kind == Kind::Ddl { 2 } else { 1 }).collect::<Vec<_>>().join(" ").to_ascii_uppercase();
+        let tag: String = stmt
+            .split_whitespace()
+            .take(if kind == Kind::Ddl { 2 } else { 1 })
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_uppercase();
         match kind {
             Kind::Ddl if self.tx.is_some() => {
                 return Err(Error::Query(
@@ -540,9 +690,17 @@ impl SpannerSession {
 
     /// COMMIT or ROLLBACK of the open transaction (nothing when none).
     async fn end_transaction(&mut self, how: &str) -> Result<()> {
-        let Some(id) = self.tx.take() else { return Ok(()) };
+        let Some(id) = self.tx.take() else {
+            return Ok(());
+        };
         let failed = std::mem::take(&mut self.tx_failed);
-        let r = self.api.post(&format!("{}:{how}", self.session), &json!({ "transactionId": id })).await;
+        let r = self
+            .api
+            .post(
+                &format!("{}:{how}", self.session),
+                &json!({ "transactionId": id }),
+            )
+            .await;
         match (r, how) {
             (Ok(_), _) => Ok(()),
             // A failed commit leaves it aborted: only a rollback ends it.
@@ -559,7 +717,15 @@ impl SpannerSession {
 
     async fn ddl(&mut self, sql: &str) -> Result<()> {
         let url = format!("{}/v1/{}/ddl", self.api.base, self.database);
-        let op = self.api.send(self.api.http.patch(url).json(&json!({ "statements": [sql] }))).await?;
+        let op = self
+            .api
+            .send(
+                self.api
+                    .http
+                    .patch(url)
+                    .json(&json!({ "statements": [sql] })),
+            )
+            .await?;
         self.wait(op).await
     }
 
@@ -569,14 +735,22 @@ impl SpannerSession {
         while op.get("done").and_then(Json::as_bool) != Some(true) {
             tokio::time::sleep(delay).await;
             delay = (delay * 2).min(Duration::from_secs(2));
-            let name = op.get("name").and_then(Json::as_str).unwrap_or_default().to_string();
+            let name = op
+                .get("name")
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .to_string();
             if name.is_empty() {
                 break;
             }
             op = self.api.get(&name).await?;
         }
         if let Some(m) = op.pointer("/error/message").and_then(Json::as_str) {
-            *self.api.last_status.lock().unwrap_or_else(|e| e.into_inner()) = op.get("error").and_then(script::grpc_status);
+            *self
+                .api
+                .last_status
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = op.get("error").and_then(script::grpc_status);
             return Err(Error::Query(m.to_string()));
         }
         Ok(())
@@ -584,8 +758,19 @@ impl SpannerSession {
 }
 
 const DATA_TYPES: &[&str] = &[
-    "INT64", "FLOAT64", "FLOAT32", "NUMERIC", "BOOL", "STRING(MAX)", "STRING(255)", "BYTES(MAX)", "DATE", "TIMESTAMP",
-    "JSON", "ARRAY<STRING(MAX)>", "ARRAY<INT64>",
+    "INT64",
+    "FLOAT64",
+    "FLOAT32",
+    "NUMERIC",
+    "BOOL",
+    "STRING(MAX)",
+    "STRING(255)",
+    "BYTES(MAX)",
+    "DATE",
+    "TIMESTAMP",
+    "JSON",
+    "ARRAY<STRING(MAX)>",
+    "ARRAY<INT64>",
 ];
 /// Table options: `INTERLEAVE IN PARENT <parent> [ON DELETE CASCADE]`.
 const OPT_PARENT: &str = "interleave_in_parent";
@@ -646,18 +831,40 @@ fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     }
 
     if parts.create {
-        let mut lines: Vec<String> = t.columns.iter().map(|c| format!("  {}", column_def(c))).collect();
-        lines.extend(t.checks.iter().map(|c| format!("  {}", structure::check_clause(&t.name, c))));
-        let pk = t.primary_key.as_ref().map(|k| cols(&k.columns)).unwrap_or_default();
+        let mut lines: Vec<String> = t
+            .columns
+            .iter()
+            .map(|c| format!("  {}", column_def(c)))
+            .collect();
+        lines.extend(
+            t.checks
+                .iter()
+                .map(|c| format!("  {}", structure::check_clause(&t.name, c))),
+        );
+        let pk = t
+            .primary_key
+            .as_ref()
+            .map(|k| cols(&k.columns))
+            .unwrap_or_default();
         let mut s = format!(
             "CREATE TABLE {}{name} (\n{}\n) PRIMARY KEY ({pk})",
-            if parts.drop { "" } else { guard("IF NOT EXISTS ") },
+            if parts.drop {
+                ""
+            } else {
+                guard("IF NOT EXISTS ")
+            },
             lines.join(",\n")
         );
         if let Some(p) = t.options.get(OPT_PARENT).filter(|p| !p.is_empty()) {
             // The parent is named as written (it may carry its schema).
-            s.push_str(&format!(",\n  INTERLEAVE IN PARENT {}", p.split('.').map(bq).collect::<Vec<_>>().join(".")));
-            if t.options.get(OPT_ON_DELETE).is_some_and(|a| a.eq_ignore_ascii_case("CASCADE")) {
+            s.push_str(&format!(
+                ",\n  INTERLEAVE IN PARENT {}",
+                p.split('.').map(bq).collect::<Vec<_>>().join(".")
+            ));
+            if t.options
+                .get(OPT_ON_DELETE)
+                .is_some_and(|a| a.eq_ignore_ascii_case("CASCADE"))
+            {
                 s.push_str(" ON DELETE CASCADE");
             }
         }
@@ -678,9 +885,17 @@ fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
                 s.push_str(&format!("CONSTRAINT {} ", bq(n)));
             }
             let target = bq_qualified(fk.ref_schema.as_deref().or(schema), &fk.ref_table);
-            s.push_str(&format!("FOREIGN KEY ({}) REFERENCES {target} ({})", cols(&fk.columns), cols(&fk.ref_columns)));
+            s.push_str(&format!(
+                "FOREIGN KEY ({}) REFERENCES {target} ({})",
+                cols(&fk.columns),
+                cols(&fk.ref_columns)
+            ));
             // Spanner has ON DELETE CASCADE / NO ACTION and no ON UPDATE.
-            if fk.on_delete.as_deref().is_some_and(|a| a.eq_ignore_ascii_case("CASCADE")) {
+            if fk
+                .on_delete
+                .as_deref()
+                .is_some_and(|a| a.eq_ignore_ascii_case("CASCADE"))
+            {
                 s.push_str(" ON DELETE CASCADE");
             }
             s.push(';');
@@ -727,8 +942,10 @@ fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> 
     );
     rows.chunks(100)
         .map(|chunk| {
-            let tuples: Vec<String> =
-                chunk.iter().map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", "))).collect();
+            let tuples: Vec<String> = chunk
+                .iter()
+                .map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
+                .collect();
             format!("{head}\n  {};", tuples.join(",\n  "))
         })
         .collect::<Vec<_>>()
@@ -738,16 +955,33 @@ fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> 
 /// `UPDATE … WHERE <key>` per changed row, with GoogleSQL literals.
 /// Spanner rejects an UPDATE without WHERE, so every change needs a key.
 fn update_script(target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
-    if changes.iter().any(|c| !c.set.is_empty() && c.key.is_empty()) {
-        return Err(Error::Unsupported("Cloud Spanner exige un WHERE: la fila necesita su clave primaria".into()));
+    if changes
+        .iter()
+        .any(|c| !c.set.is_empty() && c.key.is_empty())
+    {
+        return Err(Error::Unsupported(
+            "Cloud Spanner exige un WHERE: la fila necesita su clave primaria".into(),
+        ));
     }
-    Ok(dbine_driver::ddl::update_script_with(Quote::Backtick, target.schema(), &target.name, changes, &literal))
+    Ok(dbine_driver::ddl::update_script_with(
+        Quote::Backtick,
+        target.schema(),
+        &target.name,
+        changes,
+        &literal,
+    ))
 }
 
 /// `DELETE … WHERE <key>` per row key, with GoogleSQL literals. A key
 /// without columns is skipped (Spanner rejects a DELETE without WHERE).
 fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Json)>]) -> String {
-    dbine_driver::ddl::delete_script_with(Quote::Backtick, target.schema(), &target.name, keys, &literal)
+    dbine_driver::ddl::delete_script_with(
+        Quote::Backtick,
+        target.schema(),
+        &target.name,
+        keys,
+        &literal,
+    )
 }
 
 /// The browse query restricted by the grid's column filters, with
@@ -758,18 +992,28 @@ fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Resu
     if filters.is_empty() {
         return Ok(browse.to_string());
     }
-    let style = SqlFilterStyle { quote: Quote::Backtick, literal: &literal, like: "LIKE", true_literal: "TRUE", false_literal: "FALSE" };
+    let style = SqlFilterStyle {
+        quote: Quote::Backtick,
+        literal: &literal,
+        like: "LIKE",
+        true_literal: "TRUE",
+        false_literal: "FALSE",
+    };
     let mut parts = Vec::new();
     for f in filters {
         let c = sql_condition(std::slice::from_ref(f), &style)?;
-        let like = matches!(f.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith);
+        let like = matches!(
+            f.op,
+            FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith
+        );
         parts.push(match c.strip_suffix(" ESCAPE '\\'") {
             Some(s) if like => s.to_string(),
             _ => c,
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 /// `("", "t")` → `(None, "t")`: the default schema is the empty string.
@@ -781,7 +1025,11 @@ fn schema_of(s: Option<String>) -> Option<String> {
 impl Session for SpannerSession {
     async fn server_version(&mut self) -> Result<String> {
         let emulated = !self.api.base.starts_with(API);
-        Ok(format!("Cloud Spanner{} ({})", if emulated { " (emulador)" } else { "" }, self.database))
+        Ok(format!(
+            "Cloud Spanner{} ({})",
+            if emulated { " (emulador)" } else { "" },
+            self.database
+        ))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
@@ -793,7 +1041,12 @@ impl Session for SpannerSession {
                 url.push_str(&format!("&pageToken={t}"));
             }
             let r = self.api.get(&url).await?;
-            for d in r.get("databases").and_then(Json::as_array).into_iter().flatten() {
+            for d in r
+                .get("databases")
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+            {
                 if let Some(n) = d.get("name").and_then(Json::as_str) {
                     out.push(n.rsplit('/').next().unwrap_or(n).to_string());
                 }
@@ -817,13 +1070,23 @@ impl Session for SpannerSession {
         let mut out: Vec<DbObject> = rows
             .into_iter()
             .map(|r| DbObject {
-                kind: if r.get(2).cloned().flatten().as_deref() == Some("VIEW") { kinds::VIEW } else { kinds::TABLE }.into(),
+                kind: if r.get(2).cloned().flatten().as_deref() == Some("VIEW") {
+                    kinds::VIEW
+                } else {
+                    kinds::TABLE
+                }
+                .into(),
                 schema: schema_of(r.first().cloned().flatten()),
                 name: r.get(1).cloned().flatten().unwrap_or_default(),
                 parent: None,
             })
             .collect();
-        let seqs = self.text_rows("SELECT SCHEMA, NAME FROM INFORMATION_SCHEMA.SEQUENCES ORDER BY SCHEMA, NAME", &[]).await?;
+        let seqs = self
+            .text_rows(
+                "SELECT SCHEMA, NAME FROM INFORMATION_SCHEMA.SEQUENCES ORDER BY SCHEMA, NAME",
+                &[],
+            )
+            .await?;
         out.extend(seqs.into_iter().map(|r| DbObject {
             kind: kinds::SEQUENCE.into(),
             schema: schema_of(r.first().cloned().flatten()),
@@ -837,11 +1100,19 @@ impl Session for SpannerSession {
     /// ""; its objects carry no schema); INFORMATION_SCHEMA and SPANNER_SYS
     /// are the system ones.
     async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
-        let rows = self.text_rows("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME", &[]).await?;
+        let rows = self
+            .text_rows(
+                "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME",
+                &[],
+            )
+            .await?;
         Ok(Some(
             rows.into_iter()
                 .filter_map(|r| schema_of(r.into_iter().next().flatten()))
-                .map(|name| SchemaInfo { system: name == "INFORMATION_SCHEMA" || name == "SPANNER_SYS", name })
+                .map(|name| SchemaInfo {
+                    system: name == "INFORMATION_SCHEMA" || name == "SPANNER_SYS",
+                    name,
+                })
                 .collect(),
         ))
     }
@@ -855,7 +1126,10 @@ impl Session for SpannerSession {
                 &[schema, &obj.name],
             )
             .await?;
-        let pk: Vec<String> = pk.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect();
+        let pk: Vec<String> = pk
+            .into_iter()
+            .filter_map(|r| r.into_iter().next().flatten())
+            .collect();
         let rows = self
             .text_rows(
                 "SELECT column_name, spanner_type, is_nullable, column_default, is_generated
@@ -895,14 +1169,28 @@ impl Session for SpannerSession {
                 let mut r = r.into_iter();
                 let body = r.next().flatten()?;
                 // DEFINER views stay DEFINER when created again (rename, sync).
-                let security = r.next().flatten().filter(|s| s.eq_ignore_ascii_case("DEFINER")).map_or("INVOKER", |_| "DEFINER");
-                Some(format!("CREATE VIEW {q} SQL SECURITY {security} AS\n{body}"))
+                let security = r
+                    .next()
+                    .flatten()
+                    .filter(|s| s.eq_ignore_ascii_case("DEFINER"))
+                    .map_or("INVOKER", |_| "DEFINER");
+                Some(format!(
+                    "CREATE VIEW {q} SQL SECURITY {security} AS\n{body}"
+                ))
             }));
         }
         // The database DDL has every CREATE TABLE and CREATE SEQUENCE; pick this one's.
         let ddl = self.api.get(&format!("{}/ddl", self.database)).await?;
-        let full = if schema.is_empty() { obj.name.clone() } else { format!("{schema}.{}", obj.name) };
-        let what = if obj.kind == kinds::SEQUENCE { "SEQUENCE" } else { "TABLE" };
+        let full = if schema.is_empty() {
+            obj.name.clone()
+        } else {
+            format!("{schema}.{}", obj.name)
+        };
+        let what = if obj.kind == kinds::SEQUENCE {
+            "SEQUENCE"
+        } else {
+            "TABLE"
+        };
         Ok(ddl
             .get("statements")
             .and_then(Json::as_array)
@@ -914,21 +1202,38 @@ impl Session for SpannerSession {
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        select_top(Quote::Backtick, Limit::Limit, obj.schema(), &obj.name, limit)
+        select_top(
+            Quote::Backtick,
+            Limit::Limit,
+            obj.schema(),
+            &obj.name,
+            limit,
+        )
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let d = script::dialect();
         for unit in dbine_driver::sql::split_script(text, &d) {
-            let stmt = dbine_driver::sql::strip_comments(&unit.text, &d, false).trim().to_string();
+            let stmt = dbine_driver::sql::strip_comments(&unit.text, &d, false)
+                .trim()
+                .to_string();
             if stmt.is_empty() {
                 continue;
             }
-            self.api.last_status.lock().unwrap_or_else(|e| e.into_inner()).take();
+            self.api
+                .last_status
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
             match self.run_statement(&unit.text, &stmt, max_rows, out).await {
                 Ok(()) => {}
                 Err(Error::Query(m)) => {
-                    let code = self.api.last_status.lock().unwrap_or_else(|e| e.into_inner()).take();
+                    let code = self
+                        .api
+                        .last_status
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .take();
                     return Err(script::shift(script::error(&m, &unit.text, code), &unit));
                 }
                 Err(e) => return Err(e),
@@ -965,12 +1270,20 @@ impl Session for SpannerSession {
     /// `queryMode: PLAN` (nothing runs; DML is planned in a transaction
     /// that is rolled back) or `PROFILE` (the statement runs once, as with
     /// `execute`, and each operator carries its execution stats).
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let mode = if analyze { "PROFILE" } else { "PLAN" };
         for stmt in split_statements(text) {
             let kind = classify(&stmt);
             if analyze && self.read_only && kind != Kind::Read {
-                return Err(Error::Query("Conexión de solo lectura: solo se permiten consultas.".into()));
+                return Err(Error::Query(
+                    "Conexión de solo lectura: solo se permiten consultas.".into(),
+                ));
             }
             let r = match kind {
                 Kind::Ddl if analyze => {
@@ -984,13 +1297,18 @@ impl Session for SpannerSession {
                     continue;
                 }
                 Kind::Ddl => {
-                    out.messages.push(format!("Sin plan (no se ejecutó): {}", stmt.split_whitespace().collect::<Vec<_>>().join(" ")));
+                    out.messages.push(format!(
+                        "Sin plan (no se ejecutó): {}",
+                        stmt.split_whitespace().collect::<Vec<_>>().join(" ")
+                    ));
                     continue;
                 }
                 Kind::Dml => {
                     let r = self.dml_mode(&stmt, Some(mode)).await?;
                     if analyze {
-                        let n = r.pointer("/stats/rowCountExact").and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or(v.as_u64()));
+                        let n = r
+                            .pointer("/stats/rowCountExact")
+                            .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or(v.as_u64()));
                         out.push_affected(n.unwrap_or(0));
                     }
                     r
@@ -1007,7 +1325,9 @@ impl Session for SpannerSession {
             };
             match plan::from_response(&stmt, &r, analyze) {
                 Some(p) => out.plans.push(p),
-                None => out.messages.push("Spanner no devolvió el plan de la consulta.".into()),
+                None => out
+                    .messages
+                    .push("Spanner no devolvió el plan de la consulta.".into()),
             }
         }
         Ok(())
@@ -1033,8 +1353,16 @@ impl Session for SpannerSession {
         for r in cols {
             let s = |i: usize| r.get(i).cloned().flatten();
             let (schema, name) = (schema_of(s(0)), s(1).unwrap_or_default());
-            if out.last().is_none_or(|t| t.schema != schema || t.name != name) {
-                let mut t = TableSchema { kind: kinds::TABLE.into(), schema, name, ..Default::default() };
+            if out
+                .last()
+                .is_none_or(|t| t.schema != schema || t.name != name)
+            {
+                let mut t = TableSchema {
+                    kind: kinds::TABLE.into(),
+                    schema,
+                    name,
+                    ..Default::default()
+                };
                 if let Some(p) = s(2).filter(|p| !p.is_empty()) {
                     // Reported unqualified; the parent is in the child's schema.
                     let p = match &t.schema {
@@ -1058,7 +1386,10 @@ impl Session for SpannerSession {
             };
             if let Some(g) = s(8) {
                 c.options.insert(OPT_GENERATED.into(), g);
-                c.options.insert(OPT_STORED.into(), (s(9).as_deref() == Some("YES")).to_string());
+                c.options.insert(
+                    OPT_STORED.into(),
+                    (s(9).as_deref() == Some("YES")).to_string(),
+                );
             }
             if s(11).as_deref() == Some("true") {
                 c.options.insert(OPT_HIDDEN.into(), "true".into());
@@ -1066,7 +1397,8 @@ impl Session for SpannerSession {
             out.last_mut().unwrap().columns.push(c);
         }
         let find = |out: &[TableSchema], schema: &Option<String>, name: &str| -> Option<usize> {
-            out.iter().position(|t| &t.schema == schema && t.name == name)
+            out.iter()
+                .position(|t| &t.schema == schema && t.name == name)
         };
 
         let idx = self
@@ -1085,10 +1417,21 @@ impl Session for SpannerSession {
             )
             .await?;
         // Search and vector indexes keep their OPTIONS only in the DDL.
-        let special = idx.iter().any(|r| matches!(r.get(3).cloned().flatten().as_deref(), Some(structure::SEARCH | structure::VECTOR)));
+        let special = idx.iter().any(|r| {
+            matches!(
+                r.get(3).cloned().flatten().as_deref(),
+                Some(structure::SEARCH | structure::VECTOR)
+            )
+        });
         let ddl_options = if special {
             let ddl = self.api.get(&format!("{}/ddl", self.database)).await?;
-            structure::index_options_from_ddl(ddl.get("statements").and_then(Json::as_array).into_iter().flatten().filter_map(Json::as_str))
+            structure::index_options_from_ddl(
+                ddl.get("statements")
+                    .and_then(Json::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Json::as_str),
+            )
         } else {
             Default::default()
         };
@@ -1096,47 +1439,59 @@ impl Session for SpannerSession {
             let s = |i: usize| r.get(i).cloned().flatten().unwrap_or_default();
             let o = |i: usize| r.get(i).cloned().flatten().filter(|v| !v.is_empty());
             let (schema, table) = (schema_of(Some(s(0))), s(1));
-            let Some(ti) = find(&out, &schema, &table) else { continue };
+            let Some(ti) = find(&out, &schema, &table) else {
+                continue;
+            };
             let t = &mut out[ti];
             let (index, column, ty) = (s(2), s(4), s(3));
             if ty == "PRIMARY_KEY" {
-                t.primary_key.get_or_insert_with(Default::default).columns.push(column);
+                t.primary_key
+                    .get_or_insert_with(Default::default)
+                    .columns
+                    .push(column);
                 continue;
             }
-            let pos = t.indexes.iter().position(|i| i.name == index).unwrap_or_else(|| {
-                let mut ix = IndexDef {
-                    name: index.clone(),
-                    unique: s(5) == "true" && ty == "INDEX",
-                    kind: match ty.as_str() {
-                        structure::SEARCH | structure::VECTOR => Some(ty.clone()),
-                        _ => (s(6) == "true").then(|| structure::NULL_FILTERED.into()),
-                    },
-                    filter: o(10),
-                    ..Default::default()
-                };
-                if let Some(p) = o(9) {
-                    // Reported unqualified, like a table's parent.
-                    ix.options.insert(structure::OPT_INTERLEAVE.into(), match &schema {
-                        Some(sch) => format!("{sch}.{p}"),
-                        None => p,
-                    });
-                }
-                if let Some(p) = o(11) {
-                    ix.options.insert(structure::OPT_PARTITION_BY.into(), p);
-                }
-                if let Some(p) = o(12) {
-                    ix.options.insert(structure::OPT_ORDER_BY.into(), p);
-                }
-                let full = match &schema {
-                    Some(sch) => format!("{sch}.{index}"),
-                    None => index.clone(),
-                };
-                if let Some(opts) = ddl_options.get(&full) {
-                    ix.options.extend(opts.clone());
-                }
-                t.indexes.push(ix);
-                t.indexes.len() - 1
-            });
+            let pos = t
+                .indexes
+                .iter()
+                .position(|i| i.name == index)
+                .unwrap_or_else(|| {
+                    let mut ix = IndexDef {
+                        name: index.clone(),
+                        unique: s(5) == "true" && ty == "INDEX",
+                        kind: match ty.as_str() {
+                            structure::SEARCH | structure::VECTOR => Some(ty.clone()),
+                            _ => (s(6) == "true").then(|| structure::NULL_FILTERED.into()),
+                        },
+                        filter: o(10),
+                        ..Default::default()
+                    };
+                    if let Some(p) = o(9) {
+                        // Reported unqualified, like a table's parent.
+                        ix.options.insert(
+                            structure::OPT_INTERLEAVE.into(),
+                            match &schema {
+                                Some(sch) => format!("{sch}.{p}"),
+                                None => p,
+                            },
+                        );
+                    }
+                    if let Some(p) = o(11) {
+                        ix.options.insert(structure::OPT_PARTITION_BY.into(), p);
+                    }
+                    if let Some(p) = o(12) {
+                        ix.options.insert(structure::OPT_ORDER_BY.into(), p);
+                    }
+                    let full = match &schema {
+                        Some(sch) => format!("{sch}.{index}"),
+                        None => index.clone(),
+                    };
+                    if let Some(opts) = ddl_options.get(&full) {
+                        ix.options.extend(opts.clone());
+                    }
+                    t.indexes.push(ix);
+                    t.indexes.len() - 1
+                });
             let ix = &mut t.indexes[pos];
             if o(7).is_none() {
                 ix.include.push(column);
@@ -1170,8 +1525,13 @@ impl Session for SpannerSession {
             if structure::not_null_check(&name) {
                 continue;
             }
-            let Some(ti) = find(&out, &schema_of(Some(s(0))), &s(1)) else { continue };
-            out[ti].checks.push(dbine_driver::CheckDef { name: Some(name), expression: s(3) });
+            let Some(ti) = find(&out, &schema_of(Some(s(0))), &s(1)) else {
+                continue;
+            };
+            out[ti].checks.push(dbine_driver::CheckDef {
+                name: Some(name),
+                expression: s(3),
+            });
         }
 
         let fks = self
@@ -1190,7 +1550,9 @@ impl Session for SpannerSession {
             .await?;
         for r in fks {
             let s = |i: usize| r.get(i).cloned().flatten().unwrap_or_default();
-            let Some(ti) = find(&out, &schema_of(Some(s(0))), &s(1)) else { continue };
+            let Some(ti) = find(&out, &schema_of(Some(s(0))), &s(1)) else {
+                continue;
+            };
             let t = &mut out[ti];
             let name = Some(s(2));
             if let Some(fk) = t.foreign_keys.iter_mut().find(|f| f.name == name) {
@@ -1211,7 +1573,10 @@ impl Session for SpannerSession {
         Ok(out)
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(self, table).await.map(Some)
     }
 
@@ -1240,7 +1605,10 @@ impl Session for SpannerSession {
         self.cancel_running(id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         if let Some(old) = self.profiler.take() {
             profiler::stop(self, old).await;
         }
@@ -1250,7 +1618,10 @@ impl Session for SpannerSession {
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1265,7 +1636,10 @@ impl Session for SpannerSession {
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
         let body = json!({ "createStatement": format!("CREATE DATABASE {}", bq(name)) });
-        let op = self.api.post(&format!("{}/databases", self.instance), &body).await?;
+        let op = self
+            .api
+            .post(&format!("{}/databases", self.instance), &body)
+            .await?;
         self.wait(op).await
     }
 
@@ -1273,11 +1647,19 @@ impl Session for SpannerSession {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -1291,20 +1673,32 @@ impl Session for SpannerSession {
         self.transfer_load(spec, source, progress).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         let path = format!("{}/databases/{name}", self.instance);
         if path == self.database {
-            return Err(Error::Query(format!("No se puede borrar la base «{name}»: es la de esta conexión.")));
+            return Err(Error::Query(format!(
+                "No se puede borrar la base «{name}»: es la de esta conexión."
+            )));
         }
-        self.api.send(self.api.http.delete(format!("{}/v1/{path}", self.api.base))).await.map(|_| ())
+        self.api
+            .send(self.api.http.delete(format!("{}/v1/{path}", self.api.base)))
+            .await
+            .map(|_| ())
     }
 
     /// IAM's permission tests on the instance and the database (see
@@ -1316,12 +1710,20 @@ impl Session for SpannerSession {
 
 /// A read's rows into `out`.
 fn push_rows(r: &Json, max_rows: usize, out: &mut QueryOutcome) {
-    let fields = r.pointer("/metadata/rowType/fields").and_then(Json::as_array).cloned().unwrap_or_default();
+    let fields = r
+        .pointer("/metadata/rowType/fields")
+        .and_then(Json::as_array)
+        .cloned()
+        .unwrap_or_default();
     out.begin_result(
         fields
             .iter()
             .map(|f| ResultColumn {
-                name: f.get("name").and_then(Json::as_str).unwrap_or("").to_string(),
+                name: f
+                    .get("name")
+                    .and_then(Json::as_str)
+                    .unwrap_or("")
+                    .to_string(),
                 type_name: type_name(f.get("type").unwrap_or(&Json::Null)),
             })
             .collect(),
@@ -1332,7 +1734,12 @@ fn push_rows(r: &Json, max_rows: usize, out: &mut QueryOutcome) {
             fields
                 .iter()
                 .enumerate()
-                .map(|(i, f)| cell(vals.get(i).unwrap_or(&Json::Null), f.get("type").unwrap_or(&Json::Null)))
+                .map(|(i, f)| {
+                    cell(
+                        vals.get(i).unwrap_or(&Json::Null),
+                        f.get("type").unwrap_or(&Json::Null),
+                    )
+                })
                 .collect(),
             max_rows,
         );
@@ -1341,7 +1748,11 @@ fn push_rows(r: &Json, max_rows: usize, out: &mut QueryOutcome) {
 
 fn qualified(obj: &ObjectRef) -> String {
     match obj.schema() {
-        Some(s) => format!("{}.{}", quote_ident(Quote::Backtick, s), quote_ident(Quote::Backtick, &obj.name)),
+        Some(s) => format!(
+            "{}.{}",
+            quote_ident(Quote::Backtick, s),
+            quote_ident(Quote::Backtick, &obj.name)
+        ),
         None => quote_ident(Quote::Backtick, &obj.name),
     }
 }
@@ -1350,7 +1761,10 @@ fn qualified(obj: &ObjectRef) -> String {
 fn type_name(t: &Json) -> String {
     let code = t.get("code").and_then(Json::as_str).unwrap_or("");
     match code {
-        "ARRAY" => format!("ARRAY<{}>", type_name(t.get("arrayElementType").unwrap_or(&Json::Null))),
+        "ARRAY" => format!(
+            "ARRAY<{}>",
+            type_name(t.get("arrayElementType").unwrap_or(&Json::Null))
+        ),
         "STRUCT" => "STRUCT".into(),
         _ => code.to_string(),
     }
@@ -1360,7 +1774,10 @@ fn cell(v: &Json, t: &Json) -> Json {
     match t.get("code").and_then(Json::as_str) {
         _ if v.is_null() => Json::Null,
         Some("ARRAY") | Some("STRUCT") => Json::String(typed(v, t).to_string()),
-        Some("JSON") => v.as_str().and_then(|s| serde_json::from_str::<Json>(s).ok()).map_or_else(|| v.clone(), |j| Json::String(j.to_string())),
+        Some("JSON") => v
+            .as_str()
+            .and_then(|s| serde_json::from_str::<Json>(s).ok())
+            .map_or_else(|| v.clone(), |j| Json::String(j.to_string())),
         _ => typed(v, t),
     }
 }
@@ -1376,22 +1793,36 @@ fn typed(v: &Json, t: &Json) -> Json {
             Json::Array(a.iter().map(|e| typed(e, et)).collect())
         }
         ("STRUCT", Json::Array(a)) => {
-            let fields = t.pointer("/structType/fields").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
+            let fields = t
+                .pointer("/structType/fields")
+                .and_then(Json::as_array)
+                .map_or(&[][..], Vec::as_slice);
             let m: Map<String, Json> = fields
                 .iter()
                 .zip(a)
                 .map(|(f, e)| {
-                    (f.get("name").and_then(Json::as_str).unwrap_or("").to_string(), typed(e, f.get("type").unwrap_or(&Json::Null)))
+                    (
+                        f.get("name")
+                            .and_then(Json::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        typed(e, f.get("type").unwrap_or(&Json::Null)),
+                    )
                 })
                 .collect();
             Json::Object(m)
         }
-        ("INT64" | "ENUM", Json::String(s)) => s.parse::<i64>().map_or_else(|_| v.clone(), json_i64),
-        ("FLOAT64" | "FLOAT32", Json::Number(n)) => n.as_f64().map_or_else(|| v.clone(), json_f64),
-        ("BYTES" | "PROTO", Json::String(s)) => {
-            base64::engine::general_purpose::STANDARD.decode(s).map_or_else(|_| v.clone(), |b| json_bytes(&b))
+        ("INT64" | "ENUM", Json::String(s)) => {
+            s.parse::<i64>().map_or_else(|_| v.clone(), json_i64)
         }
-        ("TIMESTAMP", Json::String(s)) => Json::String(format!("{} UTC", s.replacen('T', " ", 1).trim_end_matches('Z'))),
+        ("FLOAT64" | "FLOAT32", Json::Number(n)) => n.as_f64().map_or_else(|| v.clone(), json_f64),
+        ("BYTES" | "PROTO", Json::String(s)) => base64::engine::general_purpose::STANDARD
+            .decode(s)
+            .map_or_else(|_| v.clone(), |b| json_bytes(&b)),
+        ("TIMESTAMP", Json::String(s)) => Json::String(format!(
+            "{} UTC",
+            s.replacen('T', " ", 1).trim_end_matches('Z')
+        )),
         _ => v.clone(),
     }
 }
@@ -1405,11 +1836,23 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
     use dbine_driver::KeyDef;
@@ -1417,7 +1860,12 @@ mod tests {
     #[test]
     fn filtered_browse_uses_googlesql_literals() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let browse = "SELECT *\nFROM `Singers`\nLIMIT 200";
         assert_eq!(
             filtered_browse(
@@ -1437,24 +1885,49 @@ mod tests {
 
     #[test]
     fn update_script_by_key() {
-        let t = ObjectRef { kind: "table".into(), schema: None, name: "Clientes".into() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "Clientes".into(),
+        };
         let c = dbine_driver::RowChange {
             key: vec![("Id".into(), json!(7)), ("Region".into(), Json::Null)],
-            set: vec![("Nombre".into(), json!("O'Brien")), ("Baja".into(), Json::Null)], ..Default::default()
+            set: vec![
+                ("Nombre".into(), json!("O'Brien")),
+                ("Baja".into(), Json::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(&t, &[c]).unwrap(),
             "UPDATE `Clientes` SET `Nombre` = 'O\\x27Brien', `Baja` = NULL WHERE `Id` = 7 AND `Region` IS NULL;"
         );
-        let keyless = dbine_driver::RowChange { key: vec![], set: vec![("Nombre".into(), json!("x"))], ..Default::default() };
+        let keyless = dbine_driver::RowChange {
+            key: vec![],
+            set: vec![("Nombre".into(), json!("x"))],
+            ..Default::default()
+        };
         assert!(update_script(&t, &[keyless]).is_err());
     }
 
     #[test]
     fn delete_script_by_key() {
-        let t = ObjectRef { kind: "table".into(), schema: None, name: "Clientes".into() };
-        let keys = vec![vec![("Nombre".into(), json!("O'Brien")), ("Region".into(), Json::Null)], vec![]];
-        assert_eq!(delete_script(&t, &keys), "DELETE FROM `Clientes` WHERE `Nombre` = 'O\\x27Brien' AND `Region` IS NULL;");
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "Clientes".into(),
+        };
+        let keys = vec![
+            vec![
+                ("Nombre".into(), json!("O'Brien")),
+                ("Region".into(), Json::Null),
+            ],
+            vec![],
+        ];
+        assert_eq!(
+            delete_script(&t, &keys),
+            "DELETE FROM `Clientes` WHERE `Nombre` = 'O\\x27Brien' AND `Region` IS NULL;"
+        );
     }
 
     #[test]
@@ -1462,7 +1935,10 @@ mod tests {
         assert_eq!(classify("SELECT 1"), Kind::Read);
         assert_eq!(classify("  (SELECT 1)"), Kind::Read);
         assert_eq!(classify("insert into t (a) values (1)"), Kind::Dml);
-        assert_eq!(classify("CREATE TABLE t (a INT64) PRIMARY KEY (a)"), Kind::Ddl);
+        assert_eq!(
+            classify("CREATE TABLE t (a INT64) PRIMARY KEY (a)"),
+            Kind::Ddl
+        );
     }
 
     #[test]
@@ -1477,9 +1953,17 @@ mod tests {
             "rows":[[1.5,true,"YWI=","2024-01-31T13:45:00.5Z",["1","2"],"1.1","2024-01-31","{\"a\": 1}","NaN","9007199254740993",[["1","s"]]]]}"#,
         )
         .unwrap();
-        let fields = r.pointer("/metadata/rowType/fields").unwrap().as_array().unwrap();
+        let fields = r
+            .pointer("/metadata/rowType/fields")
+            .unwrap()
+            .as_array()
+            .unwrap();
         let row = r.pointer("/rows/0").unwrap().as_array().unwrap();
-        let cells: Vec<Json> = fields.iter().zip(row).map(|(f, v)| cell(v, &f["type"])).collect();
+        let cells: Vec<Json> = fields
+            .iter()
+            .zip(row)
+            .map(|(f, v)| cell(v, &f["type"]))
+            .collect();
         assert_eq!(
             cells,
             vec![
@@ -1505,18 +1989,42 @@ mod tests {
             kind: kinds::TABLE.into(),
             name: "lineas".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "INT64".into(), nullable: false, auto_increment: true, ..Default::default() },
-                ColumnDef { name: "n".into(), data_type: "INT64".into(), nullable: false, ..Default::default() },
-                ColumnDef { name: "estado".into(), data_type: "STRING(20)".into(), nullable: true, default_value: Some("'nuevo'".into()), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INT64".into(),
+                    nullable: false,
+                    auto_increment: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "n".into(),
+                    data_type: "INT64".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "estado".into(),
+                    data_type: "STRING(20)".into(),
+                    nullable: true,
+                    default_value: Some("'nuevo'".into()),
+                    ..Default::default()
+                },
                 ColumnDef {
                     name: "doble".into(),
                     data_type: "INT64".into(),
                     nullable: true,
-                    options: [(OPT_GENERATED.to_string(), "n * 2".to_string()), (OPT_STORED.into(), "true".into())].into(),
+                    options: [
+                        (OPT_GENERATED.to_string(), "n * 2".to_string()),
+                        (OPT_STORED.into(), "true".into()),
+                    ]
+                    .into(),
                     ..Default::default()
                 },
             ],
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into(), "n".into()] }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into(), "n".into()],
+            }),
             foreign_keys: vec![ForeignKeyDef {
                 name: Some("fk_prod".into()),
                 columns: vec!["n".into()],
@@ -1526,13 +2034,26 @@ mod tests {
                 on_update: Some("CASCADE".into()),
                 ..Default::default()
             }],
-            indexes: vec![IndexDef { name: "ix_estado".into(), columns: vec!["estado".into()], unique: true, kind: Some("NULL_FILTERED".into()), filter: None, ..Default::default() }],
+            indexes: vec![IndexDef {
+                name: "ix_estado".into(),
+                columns: vec!["estado".into()],
+                unique: true,
+                kind: Some("NULL_FILTERED".into()),
+                filter: None,
+                ..Default::default()
+            }],
             comment: Some("ignorado".into()),
             ..Default::default()
         };
         child.options.insert(OPT_PARENT.into(), "pedidos".into());
         child.options.insert(OPT_ON_DELETE.into(), "CASCADE".into());
-        let all = DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true };
+        let all = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            indexes: true,
+            foreign_keys: true,
+        };
         assert_eq!(
             table_ddl(&child, all),
             "DROP INDEX IF EXISTS `ix_estado`;\nDROP TABLE IF EXISTS `lineas`;\n\
@@ -1543,29 +2064,71 @@ mod tests {
              ALTER TABLE `lineas` ADD CONSTRAINT `fk_prod` FOREIGN KEY (`n`) REFERENCES `productos` (`id`) ON DELETE CASCADE;"
         );
         child.schema = Some("ventas".into());
-        let s = table_ddl(&child, DdlParts { create: true, if_exists: true, indexes: true, ..Default::default() });
-        assert!(s.starts_with("CREATE TABLE IF NOT EXISTS `ventas`.`lineas` ("), "{s}");
-        assert!(s.ends_with("INDEX IF NOT EXISTS `ventas`.`ix_estado` ON `ventas`.`lineas` (`estado`);"), "{s}");
+        let s = table_ddl(
+            &child,
+            DdlParts {
+                create: true,
+                if_exists: true,
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            s.starts_with("CREATE TABLE IF NOT EXISTS `ventas`.`lineas` ("),
+            "{s}"
+        );
+        assert!(
+            s.ends_with(
+                "INDEX IF NOT EXISTS `ventas`.`ix_estado` ON `ventas`.`lineas` (`estado`);"
+            ),
+            "{s}"
+        );
     }
 
     #[test]
     fn googlesql_inserts() {
-        let t = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "t".into() };
-        let s = insert_script(&t, &["a".into(), "b".into()], &[vec![json!(1), json!("O'B\\r\nx")], vec![json!(true), Json::Null]]);
-        assert_eq!(s, "INSERT INTO `t` (`a`, `b`) VALUES\n  (1, 'O\\x27B\\\\r\\nx'),\n  (TRUE, NULL);");
+        let t = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let s = insert_script(
+            &t,
+            &["a".into(), "b".into()],
+            &[
+                vec![json!(1), json!("O'B\\r\nx")],
+                vec![json!(true), Json::Null],
+            ],
+        );
+        assert_eq!(
+            s,
+            "INSERT INTO `t` (`a`, `b`) VALUES\n  (1, 'O\\x27B\\\\r\\nx'),\n  (TRUE, NULL);"
+        );
         assert_eq!(split_statements(&s).len(), 1);
         let d = SpannerDriver { info: info() };
         assert!(d.capabilities().foreign_keys && d.capabilities().create_database);
         let spec = d.designer().unwrap();
         assert!(spec.schemas && spec.auto_increment && spec.foreign_keys && !spec.comments);
-        assert_eq!(d.create_templates().iter().map(|t| t.kind).collect::<Vec<_>>(), [kinds::VIEW]);
+        assert_eq!(
+            d.create_templates()
+                .iter()
+                .map(|t| t.kind)
+                .collect::<Vec<_>>(),
+            [kinds::VIEW]
+        );
     }
 
     #[test]
     fn table_names_in_ddl() {
         let name = |d: &str| structure::created_name(d, "TABLE");
-        assert_eq!(name("CREATE TABLE Singers (\n  id INT64\n) PRIMARY KEY(id)").as_deref(), Some("Singers"));
-        assert_eq!(name("CREATE TABLE `s`.`t` (a INT64)").as_deref(), Some("s.t"));
+        assert_eq!(
+            name("CREATE TABLE Singers (\n  id INT64\n) PRIMARY KEY(id)").as_deref(),
+            Some("Singers")
+        );
+        assert_eq!(
+            name("CREATE TABLE `s`.`t` (a INT64)").as_deref(),
+            Some("s.t")
+        );
         assert_eq!(name("CREATE INDEX i ON t(a)"), None);
     }
 }

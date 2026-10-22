@@ -26,7 +26,10 @@ const MAX_FRACTION: u8 = 5;
 fn datetime(prefix: &str, precision: Option<u8>) -> String {
     match precision {
         Some(0) => format!("{prefix} TO SECOND"),
-        p => format!("{prefix} TO FRACTION({})", p.unwrap_or(MAX_FRACTION).min(MAX_FRACTION)),
+        p => format!(
+            "{prefix} TO FRACTION({})",
+            p.unwrap_or(MAX_FRACTION).min(MAX_FRACTION)
+        ),
     }
 }
 
@@ -46,42 +49,92 @@ impl Dialect for Informix {
             // DECIMAL(p) without scale is a floating decimal of p digits
             // (in non-ANSI databases); scale 255 says the same.
             "decimal" | "dec" | "numeric" => match (p(0), p(1)) {
-                (Some(pr), Some(s)) if s < 255 => L::Decimal { precision: Some(pr), scale: Some(s) },
-                _ => L::Decimal { precision: None, scale: None },
+                (Some(pr), Some(s)) if s < 255 => L::Decimal {
+                    precision: Some(pr),
+                    scale: Some(s),
+                },
+                _ => L::Decimal {
+                    precision: None,
+                    scale: None,
+                },
             },
             // MONEY(p, s) is a DECIMAL(p, s) shown with a currency symbol.
             "money" => match (p(0).unwrap_or(16), p(1).unwrap_or(2)) {
                 (pr, s) if pr - s.min(pr) <= 15 && s <= 4 => L::Money,
-                (pr, s) => L::Decimal { precision: Some(pr), scale: Some(s) },
+                (pr, s) => L::Decimal {
+                    precision: Some(pr),
+                    scale: Some(s),
+                },
             },
             "smallfloat" | "real" => L::Float { bytes: 4 },
             "float" | "double precision" => L::Float { bytes: 8 },
-            "char" | "character" => L::Char { len: p(0).or(Some(1)), unicode: false },
-            "nchar" => L::Char { len: p(0).or(Some(1)), unicode: true },
+            "char" | "character" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode: false,
+            },
+            "nchar" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode: true,
+            },
             // VARCHAR(max, reserve).
-            "varchar" | "character varying" => L::Varchar { len: p(0).or(Some(1)), unicode: false },
-            "nvarchar" => L::Varchar { len: p(0).or(Some(1)), unicode: true },
-            "lvarchar" => L::Varchar { len: p(0).or(Some(2048)), unicode: false },
+            "varchar" | "character varying" => L::Varchar {
+                len: p(0).or(Some(1)),
+                unicode: false,
+            },
+            "nvarchar" => L::Varchar {
+                len: p(0).or(Some(1)),
+                unicode: true,
+            },
+            "lvarchar" => L::Varchar {
+                len: p(0).or(Some(2048)),
+                unicode: false,
+            },
             "text" | "clob" => L::Text { unicode: false },
             "byte" | "blob" => L::Blob,
             "date" => L::Date,
             "datetime year to day" => L::Date,
-            "datetime year to second" | "datetime year to minute" | "datetime year to hour" => L::Timestamp { precision: Some(0), tz: false },
-            "datetime year to fraction" => L::Timestamp { precision: frac(), tz: false },
-            "datetime hour to second" | "datetime hour to minute" => L::Time { precision: Some(0), tz: false },
-            "datetime hour to fraction" => L::Time { precision: frac(), tz: false },
-            "datetime" => L::Timestamp { precision: None, tz: false },
+            "datetime year to second" | "datetime year to minute" | "datetime year to hour" => {
+                L::Timestamp {
+                    precision: Some(0),
+                    tz: false,
+                }
+            }
+            "datetime year to fraction" => L::Timestamp {
+                precision: frac(),
+                tz: false,
+            },
+            "datetime hour to second" | "datetime hour to minute" => L::Time {
+                precision: Some(0),
+                tz: false,
+            },
+            "datetime hour to fraction" => L::Time {
+                precision: frac(),
+                tz: false,
+            },
+            "datetime" => L::Timestamp {
+                precision: None,
+                tz: false,
+            },
             "json" => L::Json { binary: false },
             "bson" => L::Json { binary: true },
             // Collections: LIST(integer NOT NULL), SET(…), MULTISET(…).
-            "list" | "set" | "multiset" if !t.args.is_empty() => {
-                L::Array { of: Box::new(self.parse_type(&parse(&t.args[0]))) }
-            }
-            "st_geometry" | "st_point" | "st_linestring" | "st_polygon" | "st_multipoint" | "st_multilinestring" | "st_multipolygon" => {
-                L::Geometry { kind: t.name.strip_prefix("st_").filter(|k| *k != "geometry").map(str::to_string), srid: None, geography: false }
-            }
+            "list" | "set" | "multiset" if !t.args.is_empty() => L::Array {
+                of: Box::new(self.parse_type(&parse(&t.args[0]))),
+            },
+            "st_geometry" | "st_point" | "st_linestring" | "st_polygon" | "st_multipoint"
+            | "st_multilinestring" | "st_multipolygon" => L::Geometry {
+                kind: t
+                    .name
+                    .strip_prefix("st_")
+                    .filter(|k| *k != "geometry")
+                    .map(str::to_string),
+                srid: None,
+                geography: false,
+            },
             n if n.starts_with("interval") => L::Interval,
-            _ => L::Other { native: t.raw.clone() },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -182,7 +235,9 @@ impl Dialect for Informix {
         // CURRENT must carry the column's own qualifier.
         let current = |ty: &L| match ty {
             L::Date => "TODAY".to_string(),
-            L::Time { precision, .. } => format!("CURRENT {}", datetime("HOUR", precision.or(Some(0)))),
+            L::Time { precision, .. } => {
+                format!("CURRENT {}", datetime("HOUR", precision.or(Some(0))))
+            }
             L::Timestamp { precision, .. } => format!("CURRENT {}", datetime("YEAR", *precision)),
             _ => format!("CURRENT {}", datetime("YEAR", None)),
         };
@@ -191,9 +246,14 @@ impl Dialect for Informix {
             DefaultValue::CurrentDate => Some("TODAY".into()),
             DefaultValue::CurrentTime => Some(current(match ty {
                 L::Time { .. } => ty,
-                _ => &L::Time { precision: Some(0), tz: false },
+                _ => &L::Time {
+                    precision: Some(0),
+                    tz: false,
+                },
             })),
-            DefaultValue::Bool(b) if matches!(ty, L::Bool | L::Bit { len: Some(1) }) => Some(if *b { "'t'" } else { "'f'" }.into()),
+            DefaultValue::Bool(b) if matches!(ty, L::Bool | L::Bit { len: Some(1) }) => {
+                Some(if *b { "'t'" } else { "'f'" }.into())
+            }
             DefaultValue::NewUuid => None,
             other => standard_default(other, ty, "CURRENT YEAR TO FRACTION(5)", None, true),
         }
@@ -252,19 +312,79 @@ mod tests {
         assert!(Informix.implies_auto_increment(&parse("serial")));
         assert!(Informix.implies_auto_increment(&parse("bigserial")));
         assert!(!Informix.implies_auto_increment(&parse("integer")));
-        assert_eq!(p("decimal(16,2)"), L::Decimal { precision: Some(16), scale: Some(2) });
-        assert_eq!(p("decimal(16)"), L::Decimal { precision: None, scale: None });
-        assert_eq!(p("decimal(16,255)"), L::Decimal { precision: None, scale: None });
+        assert_eq!(
+            p("decimal(16,2)"),
+            L::Decimal {
+                precision: Some(16),
+                scale: Some(2)
+            }
+        );
+        assert_eq!(
+            p("decimal(16)"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
+        assert_eq!(
+            p("decimal(16,255)"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
         assert_eq!(p("money(16,2)"), L::Money);
-        assert_eq!(p("money(30,2)"), L::Decimal { precision: Some(30), scale: Some(2) });
+        assert_eq!(
+            p("money(30,2)"),
+            L::Decimal {
+                precision: Some(30),
+                scale: Some(2)
+            }
+        );
         assert_eq!(p("smallfloat"), L::Float { bytes: 4 });
         assert_eq!(p("float"), L::Float { bytes: 8 });
-        assert_eq!(p("char(10)"), L::Char { len: Some(10), unicode: false });
-        assert_eq!(p("nchar(10)"), L::Char { len: Some(10), unicode: true });
-        assert_eq!(p("varchar(100,10)"), L::Varchar { len: Some(100), unicode: false });
-        assert_eq!(p("nvarchar(100)"), L::Varchar { len: Some(100), unicode: true });
-        assert_eq!(p("lvarchar(4000)"), L::Varchar { len: Some(4000), unicode: false });
-        assert_eq!(p("lvarchar"), L::Varchar { len: Some(2048), unicode: false });
+        assert_eq!(
+            p("char(10)"),
+            L::Char {
+                len: Some(10),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("nchar(10)"),
+            L::Char {
+                len: Some(10),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p("varchar(100,10)"),
+            L::Varchar {
+                len: Some(100),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("nvarchar(100)"),
+            L::Varchar {
+                len: Some(100),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p("lvarchar(4000)"),
+            L::Varchar {
+                len: Some(4000),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("lvarchar"),
+            L::Varchar {
+                len: Some(2048),
+                unicode: false
+            }
+        );
         assert_eq!(p("text"), L::Text { unicode: false });
         assert_eq!(p("clob"), L::Text { unicode: false });
         assert_eq!(p("byte"), L::Blob);
@@ -272,18 +392,66 @@ mod tests {
         assert_eq!(p("boolean"), L::Bool);
         assert_eq!(p("date"), L::Date);
         assert_eq!(p("datetime year to day"), L::Date);
-        assert_eq!(p("datetime year to second"), L::Timestamp { precision: Some(0), tz: false });
-        assert_eq!(p("datetime year to fraction(3)"), L::Timestamp { precision: Some(3), tz: false });
-        assert_eq!(p("DATETIME YEAR TO FRACTION(5)"), L::Timestamp { precision: Some(5), tz: false });
-        assert_eq!(p("datetime year to fraction"), L::Timestamp { precision: Some(3), tz: false });
-        assert_eq!(p("datetime hour to second"), L::Time { precision: Some(0), tz: false });
-        assert_eq!(p("datetime hour to fraction(2)"), L::Time { precision: Some(2), tz: false });
+        assert_eq!(
+            p("datetime year to second"),
+            L::Timestamp {
+                precision: Some(0),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("datetime year to fraction(3)"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("DATETIME YEAR TO FRACTION(5)"),
+            L::Timestamp {
+                precision: Some(5),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("datetime year to fraction"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("datetime hour to second"),
+            L::Time {
+                precision: Some(0),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("datetime hour to fraction(2)"),
+            L::Time {
+                precision: Some(2),
+                tz: false
+            }
+        );
         assert_eq!(p("interval day(3) to second"), L::Interval);
         assert_eq!(p("interval year to month"), L::Interval);
         assert_eq!(p("json"), L::Json { binary: false });
         assert_eq!(p("bson"), L::Json { binary: true });
-        assert_eq!(p("list(integer not null)"), L::Array { of: Box::new(L::int(4)) });
-        assert_eq!(p("st_point"), L::Geometry { kind: Some("point".into()), srid: None, geography: false });
+        assert_eq!(
+            p("list(integer not null)"),
+            L::Array {
+                of: Box::new(L::int(4))
+            }
+        );
+        assert_eq!(
+            p("st_point"),
+            L::Geometry {
+                kind: Some("point".into()),
+                srid: None,
+                geography: false
+            }
+        );
         assert!(matches!(p("row(a int)"), L::Other { .. }));
     }
 
@@ -292,21 +460,87 @@ mod tests {
         assert_eq!(r(L::Bool), "BOOLEAN");
         assert_eq!(r(L::int(1)), "SMALLINT");
         assert_eq!(r(L::int(4)), "INTEGER");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }), "BIGINT");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "DECIMAL(20, 0)");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "BIGINT"
+        );
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "DECIMAL(20, 0)"
+        );
         assert_eq!(r(L::int(16)), "DECIMAL(32, 0)");
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(2) }), "DECIMAL(12, 2)");
-        assert_eq!(r(L::Decimal { precision: Some(38), scale: Some(2) }), "DECIMAL(32, 2)");
-        assert_eq!(r(L::Decimal { precision: None, scale: None }), "DECIMAL(32)");
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }),
+            "DECIMAL(12, 2)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(38),
+                scale: Some(2)
+            }),
+            "DECIMAL(32, 2)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: None,
+                scale: None
+            }),
+            "DECIMAL(32)"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "SMALLFLOAT");
         assert_eq!(r(L::Float { bytes: 8 }), "FLOAT");
         assert_eq!(r(L::Money), "MONEY(19, 4)");
-        assert_eq!(r(L::Char { len: Some(3), unicode: false }), "CHAR(3)");
-        assert_eq!(r(L::Char { len: Some(3), unicode: true }), "NCHAR(3)");
-        assert_eq!(r(L::Varchar { len: Some(100), unicode: false }), "VARCHAR(100)");
-        assert_eq!(r(L::Varchar { len: Some(100), unicode: true }), "NVARCHAR(100)");
-        assert_eq!(r(L::Varchar { len: Some(1000), unicode: true }), "LVARCHAR(1000)");
-        assert_eq!(r(L::Varchar { len: Some(40000), unicode: true }), "TEXT");
+        assert_eq!(
+            r(L::Char {
+                len: Some(3),
+                unicode: false
+            }),
+            "CHAR(3)"
+        );
+        assert_eq!(
+            r(L::Char {
+                len: Some(3),
+                unicode: true
+            }),
+            "NCHAR(3)"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(100),
+                unicode: false
+            }),
+            "VARCHAR(100)"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(100),
+                unicode: true
+            }),
+            "NVARCHAR(100)"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(1000),
+                unicode: true
+            }),
+            "LVARCHAR(1000)"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(40000),
+                unicode: true
+            }),
+            "TEXT"
+        );
         assert_eq!(r(L::Text { unicode: true }), "TEXT");
         assert_eq!(r(L::Binary { len: Some(16) }), "BYTE");
         assert_eq!(r(L::Varbinary { len: Some(16) }), "BYTE");
@@ -314,27 +548,105 @@ mod tests {
         assert_eq!(r(L::Bit { len: Some(1) }), "BOOLEAN");
         assert_eq!(r(L::Bit { len: Some(8) }), "BYTE");
         assert_eq!(r(L::Date), "DATE");
-        assert_eq!(r(L::Time { precision: None, tz: false }), "DATETIME HOUR TO SECOND");
-        assert_eq!(r(L::Time { precision: Some(3), tz: false }), "DATETIME HOUR TO FRACTION(3)");
-        assert_eq!(r(L::Timestamp { precision: Some(0), tz: false }), "DATETIME YEAR TO SECOND");
-        assert_eq!(r(L::Timestamp { precision: Some(3), tz: false }), "DATETIME YEAR TO FRACTION(3)");
-        assert_eq!(r(L::Timestamp { precision: None, tz: false }), "DATETIME YEAR TO FRACTION(5)");
-        assert_eq!(r(L::Timestamp { precision: Some(7), tz: true }), "DATETIME YEAR TO FRACTION(5)");
-        assert_eq!(Informix.render_type(&L::Timestamp { precision: Some(7), tz: true }).notes.len(), 2);
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            }),
+            "DATETIME HOUR TO SECOND"
+        );
+        assert_eq!(
+            r(L::Time {
+                precision: Some(3),
+                tz: false
+            }),
+            "DATETIME HOUR TO FRACTION(3)"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(0),
+                tz: false
+            }),
+            "DATETIME YEAR TO SECOND"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(3),
+                tz: false
+            }),
+            "DATETIME YEAR TO FRACTION(3)"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: None,
+                tz: false
+            }),
+            "DATETIME YEAR TO FRACTION(5)"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(7),
+                tz: true
+            }),
+            "DATETIME YEAR TO FRACTION(5)"
+        );
+        assert_eq!(
+            Informix
+                .render_type(&L::Timestamp {
+                    precision: Some(7),
+                    tz: true
+                })
+                .notes
+                .len(),
+            2
+        );
         assert_eq!(r(L::Interval), "INTERVAL DAY(9) TO FRACTION(5)");
         assert_eq!(r(L::Year), "SMALLINT");
         assert_eq!(r(L::Uuid), "CHAR(36)");
         assert_eq!(r(L::Json { binary: true }), "TEXT");
         assert_eq!(r(L::Xml), "TEXT");
-        assert_eq!(r(L::Enum { values: vec!["abc".into()] }), "VARCHAR(3)");
-        assert_eq!(r(L::Set { values: vec!["abc".into()] }), "VARCHAR(3)");
-        assert_eq!(r(L::Array { of: Box::new(L::int(4)) }), "TEXT");
-        assert_eq!(r(L::Map { key: Box::new(L::int(4)), value: Box::new(L::int(4)) }), "TEXT");
-        assert_eq!(r(L::Geometry { kind: Some("polygon".into()), srid: None, geography: false }), "ST_POLYGON");
+        assert_eq!(
+            r(L::Enum {
+                values: vec!["abc".into()]
+            }),
+            "VARCHAR(3)"
+        );
+        assert_eq!(
+            r(L::Set {
+                values: vec!["abc".into()]
+            }),
+            "VARCHAR(3)"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(4))
+            }),
+            "TEXT"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::int(4)),
+                value: Box::new(L::int(4))
+            }),
+            "TEXT"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: Some("polygon".into()),
+                srid: None,
+                geography: false
+            }),
+            "ST_POLYGON"
+        );
         assert_eq!(r(L::Inet), "VARCHAR(45)");
         assert_eq!(r(L::MacAddr), "VARCHAR(17)");
         assert_eq!(r(L::RowVersion), "BIGINT");
-        assert_eq!(r(L::Other { native: "row(a int)".into() }), "row(a int)");
+        assert_eq!(
+            r(L::Other {
+                native: "row(a int)".into()
+            }),
+            "row(a int)"
+        );
     }
 
     #[test]
@@ -344,18 +656,39 @@ mod tests {
             L::int(2),
             L::int(4),
             L::int(8),
-            L::Decimal { precision: Some(16), scale: Some(2) },
+            L::Decimal {
+                precision: Some(16),
+                scale: Some(2),
+            },
             L::Money,
             L::Float { bytes: 4 },
-            L::Char { len: Some(3), unicode: true },
-            L::Varchar { len: Some(40), unicode: false },
-            L::Varchar { len: Some(4000), unicode: false },
+            L::Char {
+                len: Some(3),
+                unicode: true,
+            },
+            L::Varchar {
+                len: Some(40),
+                unicode: false,
+            },
+            L::Varchar {
+                len: Some(4000),
+                unicode: false,
+            },
             L::Text { unicode: false },
             L::Blob,
             L::Date,
-            L::Time { precision: Some(0), tz: false },
-            L::Timestamp { precision: Some(3), tz: false },
-            L::Timestamp { precision: Some(0), tz: false },
+            L::Time {
+                precision: Some(0),
+                tz: false,
+            },
+            L::Timestamp {
+                precision: Some(3),
+                tz: false,
+            },
+            L::Timestamp {
+                precision: Some(0),
+                tz: false,
+            },
             L::Interval,
         ] {
             let native = r(t.clone()).to_ascii_lowercase();
@@ -366,16 +699,71 @@ mod tests {
     #[test]
     fn defaults() {
         let d = |v: DefaultValue, t: L| Informix.render_default(&v, &t);
-        assert_eq!(d(DefaultValue::CurrentTimestamp, L::Timestamp { precision: Some(0), tz: false }).as_deref(), Some("CURRENT YEAR TO SECOND"));
-        assert_eq!(d(DefaultValue::CurrentTimestamp, L::Timestamp { precision: Some(3), tz: false }).as_deref(), Some("CURRENT YEAR TO FRACTION(3)"));
-        assert_eq!(d(DefaultValue::CurrentTimestamp, L::Timestamp { precision: None, tz: true }).as_deref(), Some("CURRENT YEAR TO FRACTION(5)"));
-        assert_eq!(d(DefaultValue::CurrentTimestamp, L::Date).as_deref(), Some("TODAY"));
-        assert_eq!(d(DefaultValue::CurrentDate, L::Date).as_deref(), Some("TODAY"));
-        assert_eq!(d(DefaultValue::CurrentTime, L::Time { precision: None, tz: false }).as_deref(), Some("CURRENT HOUR TO SECOND"));
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTimestamp,
+                L::Timestamp {
+                    precision: Some(0),
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT YEAR TO SECOND")
+        );
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTimestamp,
+                L::Timestamp {
+                    precision: Some(3),
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT YEAR TO FRACTION(3)")
+        );
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTimestamp,
+                L::Timestamp {
+                    precision: None,
+                    tz: true
+                }
+            )
+            .as_deref(),
+            Some("CURRENT YEAR TO FRACTION(5)")
+        );
+        assert_eq!(
+            d(DefaultValue::CurrentTimestamp, L::Date).as_deref(),
+            Some("TODAY")
+        );
+        assert_eq!(
+            d(DefaultValue::CurrentDate, L::Date).as_deref(),
+            Some("TODAY")
+        );
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTime,
+                L::Time {
+                    precision: None,
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT HOUR TO SECOND")
+        );
         assert_eq!(d(DefaultValue::Bool(true), L::Bool).as_deref(), Some("'t'"));
-        assert_eq!(d(DefaultValue::Bool(false), L::int(2)).as_deref(), Some("0"));
-        assert_eq!(d(DefaultValue::Text("x".into()), L::Text { unicode: true }), None);
-        assert_eq!(d(DefaultValue::Null, L::Text { unicode: true }).as_deref(), Some("NULL"));
+        assert_eq!(
+            d(DefaultValue::Bool(false), L::int(2)).as_deref(),
+            Some("0")
+        );
+        assert_eq!(
+            d(DefaultValue::Text("x".into()), L::Text { unicode: true }),
+            None
+        );
+        assert_eq!(
+            d(DefaultValue::Null, L::Text { unicode: true }).as_deref(),
+            Some("NULL")
+        );
         assert_eq!(d(DefaultValue::NewUuid, L::Uuid), None);
     }
 }

@@ -25,12 +25,13 @@ use arrow_flight::sql::client::FlightSqlServiceClient;
 use arrow_flight::sql::{CommandGetDbSchemas, CommandGetTables, SqlInfo};
 use arrow_flight::{Action, CancelFlightInfoRequest, FlightInfo};
 use dbine_driver::sql::{
-    quote_ident, split_script, split_statements, Quote, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
+    quote_ident, split_script, split_statements, Quote, ScriptDefaults, ScriptDialect, ScriptMode,
+    StatementKind,
 };
 use dbine_driver::{
-    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, DbObject, Driver, DriverInfo, Error, Family, Field, FieldKind,
-    Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn,
-    ScriptError, Session, TxState,
+    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, DbObject, Driver, DriverInfo,
+    Error, Family, Field, FieldKind, Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable,
+    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session, TxState,
 };
 use futures::TryStreamExt;
 use prost::Message;
@@ -87,7 +88,10 @@ impl Driver for FlightSqlDriver {
     }
 
     /// No schema to sync: the DDL depends on the engine behind the protocol.
-    fn sync_script(&self, _changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        _changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         Err(Error::Unsupported("Flight SQL es un protocolo, no un motor: el DDL para cambiar el esquema depende de la base que está detrás (DuckDB, Dremio, InfluxDB 3, Doris…) y varias no lo aceptan por Flight SQL; conectate con el driver propio de ese motor para sincronizar esquemas".into()))
     }
 
@@ -101,7 +105,10 @@ impl Driver for FlightSqlDriver {
     }
 
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: false,
+            confirm_unsafe_dml: true,
+        }
     }
 
     /// Flight SQL transactions (`BeginTransaction` / `EndTransaction`), on
@@ -129,29 +136,63 @@ impl Driver for FlightSqlDriver {
     /// Flight SQL has no command to create catalogs; the monitor reads
     /// what the engine behind exposes.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, ..Default::default() }
+        Capabilities {
+            monitor: true,
+            ..Default::default()
+        }
     }
 
     /// Standard SQL `CREATE SCHEMA` / `DROP SCHEMA … [CASCADE]`, which the
     /// engine behind runs or refuses (DuckDB/GizmoSQL runs them; InfluxDB 3
     /// has no DDL). Flight SQL can't list users, so no owner and no grants.
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
-        Some(dbine_driver::SchemaSpec { owner: false, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: true, privileges: Vec::new(), grant_option: true })
+        Some(dbine_driver::SchemaSpec {
+            owner: false,
+            owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+            cascade: true,
+            privileges: Vec::new(),
+            grant_option: true,
+        })
     }
 
-    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         if owner.is_some() {
-            return Err(Error::Unsupported("por Flight SQL DBine no conoce los usuarios del motor: creá el esquema sin dueño".into()));
+            return Err(Error::Unsupported(
+                "por Flight SQL DBine no conoce los usuarios del motor: creá el esquema sin dueño"
+                    .into(),
+            ));
         }
         Ok(format!("CREATE SCHEMA {}", schema_path(database, name)))
     }
 
-    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
-        Ok(format!("DROP SCHEMA {}{}", schema_path(database, name), if cascade { " CASCADE" } else { "" }))
+    fn drop_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
+        Ok(format!(
+            "DROP SCHEMA {}{}",
+            schema_path(database, name),
+            if cascade { " CASCADE" } else { "" }
+        ))
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
-        let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
+        let host = if cfg.host.trim().is_empty() {
+            "localhost"
+        } else {
+            cfg.host.trim()
+        };
         let scheme = if cfg.encrypt { "https" } else { "http" };
         let url = format!("{scheme}://{host}:{}", cfg.port_or(31337));
         let mut ep = Endpoint::from_shared(url.clone())
@@ -162,7 +203,9 @@ impl Driver for FlightSqlDriver {
         if cfg.encrypt {
             // tonic verifies certificates against the web PKI roots; it has
             // no switch to skip verification, so the form has no "trust" box.
-            let tls = ClientTlsConfig::new().with_webpki_roots().domain_name(host.to_string());
+            let tls = ClientTlsConfig::new()
+                .with_webpki_roots()
+                .domain_name(host.to_string());
             ep = ep.tls_config(tls).map_err(Error::connect)?;
         }
         let channel = tokio::time::timeout(Duration::from_secs(20), ep.connect())
@@ -177,18 +220,27 @@ impl Driver for FlightSqlDriver {
             .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
             .filter(|(k, _)| !k.is_empty())
             .collect();
-        let mut conn = Conn { channel, token: cfg.option("token").map(str::to_string), headers };
+        let mut conn = Conn {
+            channel,
+            token: cfg.option("token").map(str::to_string),
+            headers,
+        };
         if conn.token.is_none() {
             if let Some(user) = cfg.username.as_deref().filter(|u| !u.is_empty()) {
                 let mut c = conn.client();
-                let r = tokio::time::timeout(Duration::from_secs(20), c.handshake(user, cfg.password_or_empty()))
-                    .await
-                    .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?;
+                let r = tokio::time::timeout(
+                    Duration::from_secs(20),
+                    c.handshake(user, cfg.password_or_empty()),
+                )
+                .await
+                .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?;
                 r.map_err(auth_error)?;
                 conn.token = c.token().cloned();
             }
         }
-        let catalog = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
+        let catalog = database
+            .filter(|d| !d.is_empty())
+            .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
         let mut s = FlightSession {
             conn: Arc::new(conn),
             catalog: catalog.map(str::to_string),
@@ -227,7 +279,8 @@ struct Conn {
 /// batch with wide rows (a 6 MB BLOB, 4096 rows of 4 KB text), and the
 /// server, not the client, decides how big its batches are.
 fn flight_client(channel: Channel) -> FlightSqlServiceClient<Channel> {
-    let inner = arrow_flight::flight_service_client::FlightServiceClient::new(channel).max_decoding_message_size(usize::MAX);
+    let inner = arrow_flight::flight_service_client::FlightServiceClient::new(channel)
+        .max_decoding_message_size(usize::MAX);
     FlightSqlServiceClient::new_from_inner(inner)
 }
 
@@ -247,7 +300,10 @@ impl Conn {
 
 fn auth_error(e: impl std::fmt::Display) -> Error {
     let m = e.to_string();
-    if m.contains("Unauthenticated") || m.contains("PermissionDenied") || m.to_ascii_lowercase().contains("auth") {
+    if m.contains("Unauthenticated")
+        || m.contains("PermissionDenied")
+        || m.to_ascii_lowercase().contains("auth")
+    {
         Error::AuthFailed(m)
     } else {
         Error::Connect(m)
@@ -263,7 +319,11 @@ fn is_aborted(m: &str) -> bool {
 /// A statement that failed (or was cancelled) after its columns arrived
 /// leaves no empty result set next to its error.
 fn drop_empty_result(out: &mut QueryOutcome, before: usize) {
-    if out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+    if out.results.len() > before
+        && out.results[before..]
+            .iter()
+            .all(|r| r.total_rows == 0 && r.rows_affected.is_none())
+    {
         out.results.truncate(before);
     }
 }
@@ -278,7 +338,12 @@ fn flight_error(e: impl std::fmt::Display) -> Error {
         Error::Connect(m)
     } else {
         // Strip tonic's wrapping down to the server's message.
-        let msg = m.split("message: \"").nth(1).and_then(|r| r.split("\", details").next()).map(|s| s.replace("\\n", "\n").replace("\\\"", "\"")).unwrap_or(m.clone());
+        let msg = m
+            .split("message: \"")
+            .nth(1)
+            .and_then(|r| r.split("\", details").next())
+            .map(|s| s.replace("\\n", "\n").replace("\\\"", "\""))
+            .unwrap_or(m.clone());
         // The engine's error class ("Catalog Error: …" on DuckDB), else the
         // gRPC status ("InvalidArgument"…).
         // GizmoSQL wraps it ("Can't prepare statement: '…' - Error:
@@ -287,12 +352,22 @@ fn flight_error(e: impl std::fmt::Display) -> Error {
             Some((at, class)) => (Some(class), msg[at..].trim_end_matches('"').to_string()),
             None => (None, msg),
         };
-        let status = m.split("status: ").nth(1).and_then(|r| r.split(|c: char| !c.is_ascii_alphanumeric()).next()).filter(|s| !s.is_empty());
+        let status = m
+            .split("status: ")
+            .nth(1)
+            .and_then(|r| r.split(|c: char| !c.is_ascii_alphanumeric()).next())
+            .filter(|s| !s.is_empty());
         let mut e = ScriptError::new(msg.clone());
         if let Some(code) = class.or(status.map(str::to_string)) {
             e = e.with_code(code);
         }
-        if let Some(line) = msg.lines().find_map(|l| l.strip_prefix("LINE ")?.split_once(':')?.0.parse::<u32>().ok()) {
+        if let Some(line) = msg.lines().find_map(|l| {
+            l.strip_prefix("LINE ")?
+                .split_once(':')?
+                .0
+                .parse::<u32>()
+                .ok()
+        }) {
             e = e.at_line(line);
         }
         e.into()
@@ -302,23 +377,36 @@ fn flight_error(e: impl std::fmt::Display) -> Error {
 /// Where `<Class> Error: ` starts in `msg`, and the class ("Catalog",
 /// "Parser"…).
 fn engine_class(msg: &str) -> Option<(usize, String)> {
-    msg.match_indices(" Error: ").chain(msg.starts_with("Error: ").then_some((0, "")).into_iter()).find_map(|(i, _)| {
-        let before = &msg[..i];
-        let start = before.rfind(|c: char| !c.is_ascii_alphanumeric()).map_or(0, |p| p + 1);
-        let class = &before[start..];
-        (!class.is_empty()).then(|| (start, class.to_string()))
-    })
+    msg.match_indices(" Error: ")
+        .chain(msg.starts_with("Error: ").then_some((0, "")).into_iter())
+        .find_map(|(i, _)| {
+            let before = &msg[..i];
+            let start = before
+                .rfind(|c: char| !c.is_ascii_alphanumeric())
+                .map_or(0, |p| p + 1);
+            let class = &before[start..];
+            (!class.is_empty()).then(|| (start, class.to_string()))
+        })
 }
 
 /// `;` outside quotes and comments; `$$` strings (DuckDB behind GizmoSQL).
 fn dialect() -> ScriptDialect {
-    ScriptDialect { dollar_quotes: true, compound_blocks: false, backtick_idents: false, ..ScriptDialect::generic() }
+    ScriptDialect {
+        dollar_quotes: true,
+        compound_blocks: false,
+        backtick_idents: false,
+        ..ScriptDialect::generic()
+    }
 }
 
 /// The statements of a script, comments left in place (so the server's
 /// line numbers hold), with the line each starts on (0-based).
 fn statements(sql: &str) -> Vec<(String, u32)> {
-    split_script(sql, &dialect()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).map(|s| (s.text, s.line - 1)).collect()
+    split_script(sql, &dialect())
+        .into_iter()
+        .filter(|s| s.kind != StatementKind::ClientCommand)
+        .map(|s| (s.text, s.line - 1))
+        .collect()
 }
 
 #[derive(Default)]
@@ -396,21 +484,39 @@ pub struct FlightSession {
 /// runs in; a bare name on servers without catalogs.
 fn schema_path(database: Option<&str>, name: &str) -> String {
     match database {
-        Some(c) => format!("{}.{}", quote_ident(Quote::Double, c), quote_ident(Quote::Double, name)),
+        Some(c) => format!(
+            "{}.{}",
+            quote_ident(Quote::Double, c),
+            quote_ident(Quote::Double, name)
+        ),
         None => quote_ident(Quote::Double, name),
     }
 }
 
 fn first_word(stmt: &str) -> String {
     let s = stmt.trim_start().trim_start_matches('(');
-    s.chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_uppercase()
+    s.chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_ascii_uppercase()
 }
 
 /// Statements that return rows (queries); the rest go as updates.
 fn is_query(stmt: &str) -> bool {
     matches!(
         first_word(stmt).as_str(),
-        "SELECT" | "WITH" | "VALUES" | "TABLE" | "SHOW" | "DESCRIBE" | "DESC" | "EXPLAIN" | "PRAGMA" | "FROM" | "SUMMARIZE" | "CALL"
+        "SELECT"
+            | "WITH"
+            | "VALUES"
+            | "TABLE"
+            | "SHOW"
+            | "DESCRIBE"
+            | "DESC"
+            | "EXPLAIN"
+            | "PRAGMA"
+            | "FROM"
+            | "SUMMARIZE"
+            | "CALL"
     )
 }
 
@@ -443,15 +549,32 @@ impl FlightSession {
     }
 
     /// Stream the endpoints of `info` batch by batch into `f`.
-    async fn stream(&self, info: FlightInfo, mut f: impl FnMut(RecordBatch) -> Result<()>) -> Result<()> {
+    async fn stream(
+        &self,
+        info: FlightInfo,
+        mut f: impl FnMut(RecordBatch) -> Result<()>,
+    ) -> Result<()> {
         for ep in info.endpoint.iter() {
-            let Some(ticket) = ep.ticket.clone() else { continue };
+            let Some(ticket) = ep.ticket.clone() else {
+                continue;
+            };
             // An endpoint elsewhere needs its own channel.
-            let remote = ep.location.iter().map(|l| l.uri.clone()).find(|u| !u.is_empty() && !u.starts_with("arrow-flight-reuse-connection"));
+            let remote = ep
+                .location
+                .iter()
+                .map(|l| l.uri.clone())
+                .find(|u| !u.is_empty() && !u.starts_with("arrow-flight-reuse-connection"));
             let mut client = match remote {
                 Some(uri) => {
-                    let uri = uri.replace("grpc+tcp://", "http://").replace("grpc+tls://", "https://").replace("grpc://", "http://");
-                    let ch = Endpoint::from_shared(uri).map_err(Error::connect)?.connect().await.map_err(Error::connect)?;
+                    let uri = uri
+                        .replace("grpc+tcp://", "http://")
+                        .replace("grpc+tls://", "https://")
+                        .replace("grpc://", "http://");
+                    let ch = Endpoint::from_shared(uri)
+                        .map_err(Error::connect)?
+                        .connect()
+                        .await
+                        .map_err(Error::connect)?;
                     let mut c = flight_client(ch);
                     if let Some(t) = &self.conn.token {
                         c.set_token(t.clone());
@@ -460,9 +583,15 @@ impl FlightSession {
                 }
                 None => self.conn.client(),
             };
-            let mut s = self.cancel.run(async { client.do_get(ticket).await.map_err(flight_error) }).await?;
+            let mut s = self
+                .cancel
+                .run(async { client.do_get(ticket).await.map_err(flight_error) })
+                .await?;
             loop {
-                let next = self.cancel.run(async { s.try_next().await.map_err(flight_error) }).await?;
+                let next = self
+                    .cancel
+                    .run(async { s.try_next().await.map_err(flight_error) })
+                    .await?;
                 match next {
                     Some(b) => f(b)?,
                     None => break,
@@ -475,16 +604,31 @@ impl FlightSession {
     /// Rows of a query as JSON cells (for catalog and monitor queries).
     async fn rows(&self, sql: &str) -> Result<(Vec<String>, Vec<Vec<Value>>)> {
         let mut c = self.conn.client();
-        let info = self.cancel.run(async { c.execute(sql.to_string(), None).await.map_err(flight_error) }).await?;
+        let info = self
+            .cancel
+            .run(async { c.execute(sql.to_string(), None).await.map_err(flight_error) })
+            .await?;
         let schema = info.clone().try_decode_schema().ok();
-        let mut cols: Vec<String> = schema.map(|s| s.fields().iter().map(|f| f.name().clone()).collect()).unwrap_or_default();
+        let mut cols: Vec<String> = schema
+            .map(|s| s.fields().iter().map(|f| f.name().clone()).collect())
+            .unwrap_or_default();
         let mut rows = Vec::new();
         self.stream(info, |b| {
             if cols.is_empty() {
-                cols = b.schema().fields().iter().map(|f| f.name().clone()).collect();
+                cols = b
+                    .schema()
+                    .fields()
+                    .iter()
+                    .map(|f| f.name().clone())
+                    .collect();
             }
             for r in 0..b.num_rows() {
-                rows.push(b.columns().iter().map(|a| cells::cell(a.as_ref(), r)).collect());
+                rows.push(
+                    b.columns()
+                        .iter()
+                        .map(|a| cells::cell(a.as_ref(), r))
+                        .collect(),
+                );
             }
             Ok(())
         })
@@ -494,13 +638,21 @@ impl FlightSession {
 
     async fn records(&self, sql: &str) -> Result<Vec<serde_json::Map<String, Value>>> {
         let (cols, rows) = self.rows(sql).await?;
-        Ok(rows.into_iter().map(|r| cols.iter().cloned().zip(r).collect()).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| cols.iter().cloned().zip(r).collect())
+            .collect())
     }
 
     async fn sql_info(&self) -> Result<ServerInfo> {
         let mut c = self.conn.client();
         let info = c
-            .get_sql_info(vec![SqlInfo::FlightSqlServerName, SqlInfo::FlightSqlServerVersion, SqlInfo::FlightSqlServerArrowVersion, SqlInfo::FlightSqlServerReadOnly])
+            .get_sql_info(vec![
+                SqlInfo::FlightSqlServerName,
+                SqlInfo::FlightSqlServerVersion,
+                SqlInfo::FlightSqlServerArrowVersion,
+                SqlInfo::FlightSqlServerReadOnly,
+            ])
             .await
             .map_err(flight_error)?;
         let mut out = ServerInfo::default();
@@ -509,8 +661,12 @@ impl FlightSession {
                 match id {
                     x if x == SqlInfo::FlightSqlServerName as u32 => out.name = text(&v),
                     x if x == SqlInfo::FlightSqlServerVersion as u32 => out.version = text(&v),
-                    x if x == SqlInfo::FlightSqlServerArrowVersion as u32 => out.arrow_version = text(&v),
-                    x if x == SqlInfo::FlightSqlServerReadOnly as u32 => out.read_only = v.as_bool(),
+                    x if x == SqlInfo::FlightSqlServerArrowVersion as u32 => {
+                        out.arrow_version = text(&v)
+                    }
+                    x if x == SqlInfo::FlightSqlServerReadOnly as u32 => {
+                        out.read_only = v.as_bool()
+                    }
                     _ => {}
                 }
             }
@@ -524,7 +680,9 @@ impl FlightSession {
     /// finds out; a cancel or a lost connection proves nothing.
     async fn aborted(&mut self, e: Option<&Error>) -> bool {
         match e {
-            Some(Error::Cancelled | Error::Connect(_) | Error::AuthFailed(_)) | None => return false,
+            Some(Error::Cancelled | Error::Connect(_) | Error::AuthFailed(_)) | None => {
+                return false
+            }
             Some(e) if is_aborted(&e.to_string()) => return true,
             Some(_) => {}
         }
@@ -540,14 +698,22 @@ impl FlightSession {
         let mut c = self.conn.client();
         c.begin_transaction().await.map_err(|e| {
             let m = flight_error(e).to_string();
-            Error::Unsupported(format!("este servidor Flight SQL no admite transacciones: {m}"))
+            Error::Unsupported(format!(
+                "este servidor Flight SQL no admite transacciones: {m}"
+            ))
         })
     }
 
     /// Commit or roll back the open transaction.
     async fn end(&mut self, commit: bool) -> Result<()> {
-        let Some(id) = self.tx.take() else { return Ok(()) };
-        let how = if commit { arrow_flight::sql::EndTransaction::Commit } else { arrow_flight::sql::EndTransaction::Rollback };
+        let Some(id) = self.tx.take() else {
+            return Ok(());
+        };
+        let how = if commit {
+            arrow_flight::sql::EndTransaction::Commit
+        } else {
+            arrow_flight::sql::EndTransaction::Rollback
+        };
         let mut c = self.conn.client();
         let r = c.end_transaction(id, how).await.map_err(flight_error);
         self.dirty = false;
@@ -559,7 +725,14 @@ impl FlightSession {
         let tx = self.tx.clone();
         if !is_query(stmt) {
             let mut c = self.conn.client();
-            let r = self.cancel.run(async { c.execute_update(stmt.to_string(), tx.clone()).await.map_err(flight_error) }).await;
+            let r = self
+                .cancel
+                .run(async {
+                    c.execute_update(stmt.to_string(), tx.clone())
+                        .await
+                        .map_err(flight_error)
+                })
+                .await;
             match r {
                 Ok(n) => {
                     out.push_affected(n.max(0) as u64);
@@ -569,27 +742,58 @@ impl FlightSession {
                     return Ok(());
                 }
                 // Servers without updates answer them as queries.
-                Err(e) if e.is_query() && (e.to_string().contains("Unimplemented") || e.to_string().to_ascii_lowercase().contains("not implemented")) => {}
+                Err(e)
+                    if e.is_query()
+                        && (e.to_string().contains("Unimplemented")
+                            || e.to_string()
+                                .to_ascii_lowercase()
+                                .contains("not implemented")) => {}
                 Err(e) => return Err(e),
             }
         }
         let mut c = self.conn.client();
-        let info = self.cancel.run(async { c.execute(stmt.to_string(), tx).await.map_err(flight_error) }).await?;
+        let info = self
+            .cancel
+            .run(async { c.execute(stmt.to_string(), tx).await.map_err(flight_error) })
+            .await?;
         *self.cancel.info.lock().unwrap_or_else(|e| e.into_inner()) = Some(info.clone());
         let schema = info.clone().try_decode_schema().ok();
         let mut started = false;
         if let Some(s) = &schema {
-            out.begin_result(s.fields().iter().map(|f| ResultColumn { name: f.name().clone(), type_name: f.data_type().to_string() }).collect());
+            out.begin_result(
+                s.fields()
+                    .iter()
+                    .map(|f| ResultColumn {
+                        name: f.name().clone(),
+                        type_name: f.data_type().to_string(),
+                    })
+                    .collect(),
+            );
             started = true;
         }
         let r = self
             .stream(info, |b| {
                 if !started {
-                    out.begin_result(b.schema().fields().iter().map(|f| ResultColumn { name: f.name().clone(), type_name: f.data_type().to_string() }).collect());
+                    out.begin_result(
+                        b.schema()
+                            .fields()
+                            .iter()
+                            .map(|f| ResultColumn {
+                                name: f.name().clone(),
+                                type_name: f.data_type().to_string(),
+                            })
+                            .collect(),
+                    );
                     started = true;
                 }
                 for row in 0..b.num_rows() {
-                    out.push_row(b.columns().iter().map(|a| cells::cell(a.as_ref(), row)).collect(), max_rows);
+                    out.push_row(
+                        b.columns()
+                            .iter()
+                            .map(|a| cells::cell(a.as_ref(), row))
+                            .collect(),
+                        max_rows,
+                    );
                 }
                 Ok(())
             })
@@ -621,12 +825,16 @@ impl FlightSession {
     /// the explorer. DuckDB's `USE` lasts for the server-side session (each
     /// DBine session has its own). Other engines are left as they are.
     async fn use_catalog(&self) -> Result<()> {
-        let Some(c) = self.catalog.as_deref().filter(|c| !c.is_empty()) else { return Ok(()) };
+        let Some(c) = self.catalog.as_deref().filter(|c| !c.is_empty()) else {
+            return Ok(());
+        };
         if self.server.engine() != Engine::DuckDb {
             return Ok(());
         }
         // SQLite behind GizmoSQL has no `current_database()` and one catalog.
-        let Ok((_, rows)) = self.rows("SELECT current_database()").await else { return Ok(()) };
+        let Ok((_, rows)) = self.rows("SELECT current_database()").await else {
+            return Ok(());
+        };
         if rows.first().and_then(|r| r.first()).map(text).as_deref() == Some(c) {
             return Ok(());
         }
@@ -643,8 +851,17 @@ impl FlightSession {
     /// servers say it with `current_database()`), so the explorer and the
     /// tab follow it. Servers without it keep the session's.
     async fn follow_use(&mut self, out: &mut QueryOutcome) {
-        let Ok((_, rows)) = self.rows("SELECT current_database()").await else { return };
-        let Some(now) = rows.first().and_then(|r| r.first()).map(text).filter(|c| !c.is_empty()) else { return };
+        let Ok((_, rows)) = self.rows("SELECT current_database()").await else {
+            return;
+        };
+        let Some(now) = rows
+            .first()
+            .and_then(|r| r.first())
+            .map(text)
+            .filter(|c| !c.is_empty())
+        else {
+            return;
+        };
         if self.catalog.as_deref() != Some(now.as_str()) {
             self.catalog = Some(now.clone());
             out.database = Some(now);
@@ -652,7 +869,12 @@ impl FlightSession {
     }
 
     /// Tables with their Arrow schemas (`GetTables` with `include_schema`).
-    async fn tables(&self, schema: Option<&str>, name: Option<&str>, with_schema: bool) -> Result<Vec<(Option<String>, String, String, Option<arrow_schema::Schema>)>> {
+    async fn tables(
+        &self,
+        schema: Option<&str>,
+        name: Option<&str>,
+        with_schema: bool,
+    ) -> Result<Vec<(Option<String>, String, String, Option<arrow_schema::Schema>)>> {
         let mut c = self.conn.client();
         let req = CommandGetTables {
             catalog: self.catalog.clone(),
@@ -661,16 +883,37 @@ impl FlightSession {
             table_types: Vec::new(),
             include_schema: with_schema,
         };
-        let info = self.cancel.run(async { c.get_tables(req).await.map_err(flight_error) }).await?;
+        let info = self
+            .cancel
+            .run(async { c.get_tables(req).await.map_err(flight_error) })
+            .await?;
         let mut out = Vec::new();
         for b in self.batches(info).await? {
             let col = |n: &str| b.column_by_name(n).cloned();
-            let (sch, tname, ttype, tschema) = (col("db_schema_name"), col("table_name"), col("table_type"), col("table_schema"));
+            let (sch, tname, ttype, tschema) = (
+                col("db_schema_name"),
+                col("table_name"),
+                col("table_type"),
+                col("table_schema"),
+            );
             for r in 0..b.num_rows() {
-                let s = sch.as_ref().map(|a| cells::cell(a.as_ref(), r)).map(|v| text(&v)).filter(|s| !s.is_empty());
-                let n = tname.as_ref().map(|a| text(&cells::cell(a.as_ref(), r))).unwrap_or_default();
-                let t = ttype.as_ref().map(|a| text(&cells::cell(a.as_ref(), r))).unwrap_or_default();
-                let arrow = tschema.as_ref().and_then(|a| cells::binary_at(a.as_ref(), r)).and_then(|bytes| arrow_ipc::convert::try_schema_from_ipc_buffer(&bytes).ok());
+                let s = sch
+                    .as_ref()
+                    .map(|a| cells::cell(a.as_ref(), r))
+                    .map(|v| text(&v))
+                    .filter(|s| !s.is_empty());
+                let n = tname
+                    .as_ref()
+                    .map(|a| text(&cells::cell(a.as_ref(), r)))
+                    .unwrap_or_default();
+                let t = ttype
+                    .as_ref()
+                    .map(|a| text(&cells::cell(a.as_ref(), r)))
+                    .unwrap_or_default();
+                let arrow = tschema
+                    .as_ref()
+                    .and_then(|a| cells::binary_at(a.as_ref(), r))
+                    .and_then(|bytes| arrow_ipc::convert::try_schema_from_ipc_buffer(&bytes).ok());
                 out.push((s, n, t, arrow));
             }
         }
@@ -680,9 +923,18 @@ impl FlightSession {
     /// DuckDB-style JSON plan (`EXPLAIN (FORMAT JSON)`), else the text plan.
     async fn plan_for(&self, stmt: &str, analyze: bool) -> Result<dbine_driver::Plan> {
         if self.server.engine() == Engine::DuckDb || self.server.engine() == Engine::Other {
-            let q = if analyze { format!("EXPLAIN (ANALYZE, FORMAT JSON) {stmt}") } else { format!("EXPLAIN (FORMAT JSON) {stmt}") };
+            let q = if analyze {
+                format!("EXPLAIN (ANALYZE, FORMAT JSON) {stmt}")
+            } else {
+                format!("EXPLAIN (FORMAT JSON) {stmt}")
+            };
             if let Ok((_, rows)) = self.rows(&q).await {
-                if let Some(json) = rows.iter().filter_map(|r| r.last()).map(text).find(|t| t.trim_start().starts_with(['[', '{'])) {
+                if let Some(json) = rows
+                    .iter()
+                    .filter_map(|r| r.last())
+                    .map(text)
+                    .find(|t| t.trim_start().starts_with(['[', '{']))
+                {
                     if let Ok(v) = serde_json::from_str::<Value>(&json) {
                         return Ok(plan::from_json(stmt, &v, analyze));
                     }
@@ -695,8 +947,17 @@ impl FlightSession {
             (false, _) => format!("EXPLAIN {stmt}"),
         };
         let (_, rows) = self.rows(&q).await?;
-        let raw = rows.iter().filter_map(|r| r.last()).map(text).collect::<Vec<_>>().join("\n");
-        let mut p = dbine_driver::plan::plan_from_text(stmt, &raw, analyze && self.server.engine() != Engine::Dremio);
+        let raw = rows
+            .iter()
+            .filter_map(|r| r.last())
+            .map(text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut p = dbine_driver::plan::plan_from_text(
+            stmt,
+            &raw,
+            analyze && self.server.engine() != Engine::Dremio,
+        );
         if p.root.op.is_empty() {
             p.root.op = "PLAN".into();
         }
@@ -706,7 +967,9 @@ impl FlightSession {
 
 /// A literal name as a `LIKE` pattern (Flight SQL filters are patterns).
 fn like_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 /// Why there's no process list (for the error and the docs).
@@ -719,21 +982,30 @@ impl Session for FlightSession {
         if self.server.name.is_empty() {
             self.server = self.sql_info().await.unwrap_or_default();
         }
-        Ok(match (self.server.name.as_str(), self.server.version.as_str()) {
-            ("", "") => "Flight SQL".into(),
-            (n, v) => format!("{n} {v}").trim().to_string(),
-        })
+        Ok(
+            match (self.server.name.as_str(), self.server.version.as_str()) {
+                ("", "") => "Flight SQL".into(),
+                (n, v) => format!("{n} {v}").trim().to_string(),
+            },
+        )
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         let mut c = self.conn.client();
-        let info = self.cancel.run(async { c.get_catalogs().await.map_err(flight_error) }).await?;
+        let info = self
+            .cancel
+            .run(async { c.get_catalogs().await.map_err(flight_error) })
+            .await?;
         let mut out = Vec::new();
         for b in self.batches(info).await? {
-            if let Some(a) = b.column_by_name("catalog_name").or_else(|| b.columns().first()) {
+            if let Some(a) = b
+                .column_by_name("catalog_name")
+                .or_else(|| b.columns().first())
+            {
                 for r in 0..b.num_rows() {
                     let v = text(&cells::cell(a.as_ref(), r));
-                    if !v.is_empty() && !v.starts_with("_gizmosql") && v != "system" && v != "temp" {
+                    if !v.is_empty() && !v.starts_with("_gizmosql") && v != "system" && v != "temp"
+                    {
                         out.push(v);
                     }
                 }
@@ -749,9 +1021,18 @@ impl Session for FlightSession {
         let rows = self.tables(None, None, false).await?;
         Ok(rows
             .into_iter()
-            .filter(|(s, ..)| !s.as_deref().is_some_and(|s| s.eq_ignore_ascii_case("information_schema") || s == "pg_catalog" || s == "sys"))
+            .filter(|(s, ..)| {
+                !s.as_deref().is_some_and(|s| {
+                    s.eq_ignore_ascii_case("information_schema") || s == "pg_catalog" || s == "sys"
+                })
+            })
             .map(|(schema, name, ty, _)| DbObject {
-                kind: if ty.to_ascii_uppercase().contains("VIEW") { kinds::VIEW } else { kinds::TABLE }.into(),
+                kind: if ty.to_ascii_uppercase().contains("VIEW") {
+                    kinds::VIEW
+                } else {
+                    kinds::TABLE
+                }
+                .into(),
                 schema,
                 name,
                 parent: None,
@@ -764,17 +1045,30 @@ impl Session for FlightSession {
     /// answer it: the explorer derives the schemas from the tables.
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
         let mut c = self.conn.client();
-        let req = CommandGetDbSchemas { catalog: self.catalog.clone(), db_schema_filter_pattern: None };
-        let Ok(info) = self.cancel.run(async { c.get_db_schemas(req).await.map_err(flight_error) }).await else { return Ok(None) };
+        let req = CommandGetDbSchemas {
+            catalog: self.catalog.clone(),
+            db_schema_filter_pattern: None,
+        };
+        let Ok(info) = self
+            .cancel
+            .run(async { c.get_db_schemas(req).await.map_err(flight_error) })
+            .await
+        else {
+            return Ok(None);
+        };
         let mut out: Vec<dbine_driver::SchemaInfo> = Vec::new();
         for b in self.batches(info).await? {
-            let Some(a) = b.column_by_name("db_schema_name") else { continue };
+            let Some(a) = b.column_by_name("db_schema_name") else {
+                continue;
+            };
             for r in 0..b.num_rows() {
                 let name = text(&cells::cell(a.as_ref(), r));
                 if name.is_empty() || out.iter().any(|s| s.name == name) {
                     continue;
                 }
-                let system = name.eq_ignore_ascii_case("information_schema") || name == "pg_catalog" || name == "sys";
+                let system = name.eq_ignore_ascii_case("information_schema")
+                    || name == "pg_catalog"
+                    || name == "sys";
                 out.push(dbine_driver::SchemaInfo { name, system });
             }
         }
@@ -818,7 +1112,11 @@ impl Session for FlightSession {
                 .iter()
                 .map(|f| ColumnInfo {
                     name: f.name().clone(),
-                    data_type: f.metadata().get("ARROW:FLIGHT:SQL:TYPE_NAME").cloned().unwrap_or_else(|| f.data_type().to_string()),
+                    data_type: f
+                        .metadata()
+                        .get("ARROW:FLIGHT:SQL:TYPE_NAME")
+                        .cloned()
+                        .unwrap_or_else(|| f.data_type().to_string()),
                     nullable: f.is_nullable(),
                     primary_key: false,
                     auto_increment: false,
@@ -828,17 +1126,33 @@ impl Session for FlightSession {
         }
         // Servers that don't return schemas: those of an empty query.
         let mut c = self.conn.client();
-        let q = format!("SELECT * FROM {} LIMIT 0", self.qualified(obj.schema(), &obj.name));
-        let info = self.cancel.run(async { c.execute(q, None).await.map_err(flight_error) }).await?;
+        let q = format!(
+            "SELECT * FROM {} LIMIT 0",
+            self.qualified(obj.schema(), &obj.name)
+        );
+        let info = self
+            .cancel
+            .run(async { c.execute(q, None).await.map_err(flight_error) })
+            .await?;
         let schema = info.try_decode_schema().map_err(flight_error)?;
         Ok(schema
             .fields()
             .iter()
-            .map(|f| ColumnInfo { name: f.name().clone(), data_type: f.data_type().to_string(), nullable: f.is_nullable(), primary_key: false, auto_increment: false, default_value: None })
+            .map(|f| ColumnInfo {
+                name: f.name().clone(),
+                data_type: f.data_type().to_string(),
+                nullable: f.is_nullable(),
+                primary_key: false,
+                auto_increment: false,
+                default_value: None,
+            })
             .collect())
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         self.index_report(table).await.map(Some)
     }
 
@@ -858,20 +1172,32 @@ impl Session for FlightSession {
             ),
         };
         match self.rows(&sql).await {
-            Ok((_, rows)) => Ok(rows.into_iter().next().and_then(|r| r.into_iter().next()).map(|v| text(&v)).filter(|s| !s.is_empty()).map(|d| {
-                if d.trim_start().to_ascii_uppercase().starts_with("CREATE") {
-                    d
-                } else {
-                    format!("CREATE VIEW {} AS\n{d};", self.qualified(obj.schema(), &obj.name))
-                }
-            })),
+            Ok((_, rows)) => Ok(rows
+                .into_iter()
+                .next()
+                .and_then(|r| r.into_iter().next())
+                .map(|v| text(&v))
+                .filter(|s| !s.is_empty())
+                .map(|d| {
+                    if d.trim_start().to_ascii_uppercase().starts_with("CREATE") {
+                        d
+                    } else {
+                        format!(
+                            "CREATE VIEW {} AS\n{d};",
+                            self.qualified(obj.schema(), &obj.name)
+                        )
+                    }
+                })),
             Err(e) if e.is_query() => Ok(None),
             Err(e) => Err(e),
         }
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        format!("SELECT *\nFROM {}\nLIMIT {limit}", self.qualified(obj.schema(), &obj.name))
+        format!(
+            "SELECT *\nFROM {}\nLIMIT {limit}",
+            self.qualified(obj.schema(), &obj.name)
+        )
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -947,10 +1273,19 @@ impl Session for FlightSession {
     /// Estimated: the engine's `EXPLAIN` (a JSON tree on DuckDB, text
     /// elsewhere). Actual: queries run, then `EXPLAIN ANALYZE` (it runs them
     /// again: only reads get there); other statements just run.
-    async fn explain(&mut self, script: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        script: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         for stmt in split_statements(script) {
-            let read = matches!(first_word(&stmt).as_str(), "SELECT" | "WITH" | "VALUES" | "FROM" | "TABLE");
+            let read = matches!(
+                first_word(&stmt).as_str(),
+                "SELECT" | "WITH" | "VALUES" | "FROM" | "TABLE"
+            );
             if analyze {
                 self.run(&stmt, max_rows, out).await?;
                 if read {
@@ -963,7 +1298,10 @@ impl Session for FlightSession {
                 let p = self.plan_for(&stmt, false).await?;
                 out.plans.push(p);
             } else {
-                out.messages.push(format!("Sin plan (no se ejecutó): {}", stmt.chars().take(80).collect::<String>()));
+                out.messages.push(format!(
+                    "Sin plan (no se ejecutó): {}",
+                    stmt.chars().take(80).collect::<String>()
+                ));
             }
         }
         Ok(())
@@ -976,15 +1314,32 @@ impl Session for FlightSession {
         Some(Arc::new(move || {
             cancel.flag.store(true, Ordering::SeqCst);
             cancel.notify.notify_waiters();
-            let Some(info) = cancel.info.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
+            let Some(info) = cancel
+                .info
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+            else {
+                return;
+            };
             let conn = conn.clone();
             rt.spawn(async move {
                 let mut c = conn.client();
-                let body = CancelFlightInfoRequest { info: Some(info.clone()) }.encode_to_vec();
-                if c.do_action(Action::new("CancelFlightInfo", body)).await.is_err() {
+                let body = CancelFlightInfoRequest {
+                    info: Some(info.clone()),
+                }
+                .encode_to_vec();
+                if c.do_action(Action::new("CancelFlightInfo", body))
+                    .await
+                    .is_err()
+                {
                     // Flight SQL before 15: ActionCancelQueryRequest.
-                    let old = arrow_flight::sql::ActionCancelQueryRequest { info: info.encode_to_vec().into() };
-                    let any = arrow_flight::sql::Any::pack(&old).map(|a| a.encode_to_vec()).unwrap_or_default();
+                    let old = arrow_flight::sql::ActionCancelQueryRequest {
+                        info: info.encode_to_vec().into(),
+                    };
+                    let any = arrow_flight::sql::Any::pack(&old)
+                        .map(|a| a.encode_to_vec())
+                        .unwrap_or_default();
                     if let Err(e) = c.do_action(Action::new("CancelQuery", any)).await {
                         tracing::debug!("flight sql cancel failed: {e}");
                     }
@@ -994,7 +1349,11 @@ impl Session for FlightSession {
     }
 
     /// Arrow record batches straight into typed cells.
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         self.transfer_read(spec, sink).await
     }
@@ -1035,18 +1394,28 @@ impl Session for FlightSession {
         if self.server.name.is_empty() {
             self.server = self.sql_info().await.unwrap_or_default();
         }
-        for (k, v) in [("Servidor", &self.server.name), ("Versión", &self.server.version), ("Versión de Arrow", &self.server.arrow_version)] {
+        for (k, v) in [
+            ("Servidor", &self.server.name),
+            ("Versión", &self.server.version),
+            ("Versión de Arrow", &self.server.arrow_version),
+        ] {
             if !v.is_empty() {
                 snap.info.push((k.into(), v.clone()));
             }
         }
         if let Some(ro) = self.server.read_only {
-            snap.info.push(("Solo lectura (servidor)".into(), if ro { "sí" } else { "no" }.into()));
+            snap.info.push((
+                "Solo lectura (servidor)".into(),
+                if ro { "sí" } else { "no" }.into(),
+            ));
         }
         use MetricUnit::*;
         match self.server.engine() {
             Engine::DuckDb => {
-                let size = self.records("SELECT * FROM pragma_database_size()").await.unwrap_or_default();
+                let size = self
+                    .records("SELECT * FROM pragma_database_size()")
+                    .await
+                    .unwrap_or_default();
                 let mem = self.records("SELECT tag, memory_usage_bytes, temporary_storage_bytes FROM duckdb_memory() ORDER BY memory_usage_bytes DESC").await;
                 let settings = self
                     .records("SELECT name, value FROM duckdb_settings() WHERE name IN ('threads', 'memory_limit', 'max_memory', 'temp_directory', 'access_mode', 'TimeZone')")
@@ -1057,32 +1426,109 @@ impl Session for FlightSession {
                     (!v.is_empty()).then(|| v.iter().sum())
                 };
                 let mem_rows = mem.as_deref().unwrap_or(&[]);
-                let limit = settings.iter().find(|r| r.get("name").map(text).as_deref() == Some("memory_limit")).and_then(|r| r.get("value")).map(text).and_then(|v| parse_size(&v));
+                let limit = settings
+                    .iter()
+                    .find(|r| r.get("name").map(text).as_deref() == Some("memory_limit"))
+                    .and_then(|r| r.get("value"))
+                    .map(text)
+                    .and_then(|v| parse_size(&v));
                 let blocks = |c: &str| sum(&size, c);
                 snap.metrics = vec![
-                    Metric::new("mem_used", "Memoria de DuckDB", "Memoria", Bytes, sum(mem_rows, "memory_usage_bytes")).max(limit),
-                    Metric::new("temp_used", "Almacenamiento temporal", "Memoria", Bytes, sum(mem_rows, "temporary_storage_bytes")),
-                    Metric::new("storage_used", "Espacio usado", "Almacenamiento", Bytes, blocks("used_blocks").zip(blocks("block_size")).map(|(u, b)| u * b / size.len().max(1) as f64)),
-                    Metric::new("wal_size", "WAL", "Almacenamiento", Bytes, size.iter().filter_map(|r| r.get("wal_size").map(text).and_then(|v| parse_size(&v))).reduce(|a, b| a + b)),
+                    Metric::new(
+                        "mem_used",
+                        "Memoria de DuckDB",
+                        "Memoria",
+                        Bytes,
+                        sum(mem_rows, "memory_usage_bytes"),
+                    )
+                    .max(limit),
+                    Metric::new(
+                        "temp_used",
+                        "Almacenamiento temporal",
+                        "Memoria",
+                        Bytes,
+                        sum(mem_rows, "temporary_storage_bytes"),
+                    ),
+                    Metric::new(
+                        "storage_used",
+                        "Espacio usado",
+                        "Almacenamiento",
+                        Bytes,
+                        blocks("used_blocks")
+                            .zip(blocks("block_size"))
+                            .map(|(u, b)| u * b / size.len().max(1) as f64),
+                    ),
+                    Metric::new(
+                        "wal_size",
+                        "WAL",
+                        "Almacenamiento",
+                        Bytes,
+                        size.iter()
+                            .filter_map(|r| {
+                                r.get("wal_size").map(text).and_then(|v| parse_size(&v))
+                            })
+                            .reduce(|a, b| a + b),
+                    ),
                 ];
-                let mut t = MonitorTable::new("databases", "Bases y tamaños", &["base", "tamaño", "bloques usados", "bloques libres", "WAL", "memoria"]);
+                let mut t = MonitorTable::new(
+                    "databases",
+                    "Bases y tamaños",
+                    &[
+                        "base",
+                        "tamaño",
+                        "bloques usados",
+                        "bloques libres",
+                        "WAL",
+                        "memoria",
+                    ],
+                );
                 for r in size.iter().take(200) {
-                    t.rows.push(["database_name", "database_size", "used_blocks", "free_blocks", "wal_size", "memory_usage"].iter().map(|c| r.get(*c).cloned().unwrap_or(Value::Null)).collect());
+                    t.rows.push(
+                        [
+                            "database_name",
+                            "database_size",
+                            "used_blocks",
+                            "free_blocks",
+                            "wal_size",
+                            "memory_usage",
+                        ]
+                        .iter()
+                        .map(|c| r.get(*c).cloned().unwrap_or(Value::Null))
+                        .collect(),
+                    );
                 }
                 snap.tables.push(t);
-                let mut t = MonitorTable::new("memory", "Memoria por componente", &["componente", "memoria", "temporal"]);
+                let mut t = MonitorTable::new(
+                    "memory",
+                    "Memoria por componente",
+                    &["componente", "memoria", "temporal"],
+                );
                 for r in mem_rows.iter().take(200) {
-                    t.rows.push(["tag", "memory_usage_bytes", "temporary_storage_bytes"].iter().map(|c| r.get(*c).cloned().unwrap_or(Value::Null)).collect());
+                    t.rows.push(
+                        ["tag", "memory_usage_bytes", "temporary_storage_bytes"]
+                            .iter()
+                            .map(|c| r.get(*c).cloned().unwrap_or(Value::Null))
+                            .collect(),
+                    );
                 }
                 snap.tables.push(t);
                 for r in &settings {
-                    snap.info.push((r.get("name").map(text).unwrap_or_default(), r.get("value").map(text).unwrap_or_default()));
+                    snap.info.push((
+                        r.get("name").map(text).unwrap_or_default(),
+                        r.get("value").map(text).unwrap_or_default(),
+                    ));
                 }
                 snap.notes.push("DuckDB corre dentro del servidor Flight SQL: no expone CPU, conexiones ni consultas en curso por SQL.".into());
             }
             Engine::Dremio => {
-                let nodes = self.records("SELECT * FROM sys.nodes").await.unwrap_or_default();
-                let memory = self.records("SELECT * FROM sys.memory").await.unwrap_or_default();
+                let nodes = self
+                    .records("SELECT * FROM sys.nodes")
+                    .await
+                    .unwrap_or_default();
+                let memory = self
+                    .records("SELECT * FROM sys.memory")
+                    .await
+                    .unwrap_or_default();
                 let jobs = self
                     .records("SELECT job_id, user_name, status, submitted_ts, query FROM sys.jobs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELED') LIMIT 200")
                     .await
@@ -1092,39 +1538,101 @@ impl Session for FlightSession {
                     (!v.is_empty()).then(|| v.iter().sum())
                 };
                 snap.metrics = vec![
-                    Metric::new("cpu", "CPU de los nodos", "CPU", Percent, sum(&nodes, "cpu").map(|s| s / nodes.len().max(1) as f64)),
-                    Metric::new("mem_used", "Heap usado", "Memoria", Bytes, sum(&memory, "heap_current")).max(sum(&memory, "heap_max")),
-                    Metric::new("direct_used", "Memoria directa usada", "Memoria", Bytes, sum(&memory, "direct_current")).max(sum(&memory, "direct_max")),
-                    Metric::new("active_sessions", "Trabajos en curso", "Conexiones", Count, jobs.as_ref().map(|j| j.len() as f64)),
+                    Metric::new(
+                        "cpu",
+                        "CPU de los nodos",
+                        "CPU",
+                        Percent,
+                        sum(&nodes, "cpu").map(|s| s / nodes.len().max(1) as f64),
+                    ),
+                    Metric::new(
+                        "mem_used",
+                        "Heap usado",
+                        "Memoria",
+                        Bytes,
+                        sum(&memory, "heap_current"),
+                    )
+                    .max(sum(&memory, "heap_max")),
+                    Metric::new(
+                        "direct_used",
+                        "Memoria directa usada",
+                        "Memoria",
+                        Bytes,
+                        sum(&memory, "direct_current"),
+                    )
+                    .max(sum(&memory, "direct_max")),
+                    Metric::new(
+                        "active_sessions",
+                        "Trabajos en curso",
+                        "Conexiones",
+                        Count,
+                        jobs.as_ref().map(|j| j.len() as f64),
+                    ),
                 ];
-                let mut t = MonitorTable::new("queries", "Trabajos en curso", &["id", "usuario", "estado", "desde", "consulta"]);
+                let mut t = MonitorTable::new(
+                    "queries",
+                    "Trabajos en curso",
+                    &["id", "usuario", "estado", "desde", "consulta"],
+                );
                 for r in jobs.iter().flatten() {
                     t.rows.push(vec![
                         r.get("job_id").cloned().unwrap_or(Value::Null),
                         r.get("user_name").cloned().unwrap_or(Value::Null),
                         r.get("status").cloned().unwrap_or(Value::Null),
                         r.get("submitted_ts").cloned().unwrap_or(Value::Null),
-                        Value::String(r.get("query").map(text).unwrap_or_default().chars().take(2000).collect()),
+                        Value::String(
+                            r.get("query")
+                                .map(text)
+                                .unwrap_or_default()
+                                .chars()
+                                .take(2000)
+                                .collect(),
+                        ),
                     ]);
                 }
                 snap.tables.push(t);
                 snap.notes.push("Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.".into());
             }
-            Engine::DataFusion => match self.records("SELECT * FROM system.queries WHERE running = true LIMIT 200").await {
+            Engine::DataFusion => match self
+                .records("SELECT * FROM system.queries WHERE running = true LIMIT 200")
+                .await
+            {
                 Ok(rows) => {
-                    snap.metrics = vec![Metric::new("active_sessions", "Consultas en curso", "Conexiones", Count, Some(rows.len() as f64))];
-                    let mut t = MonitorTable::new("queries", "Consultas en curso", &["id", "fase", "duración", "consulta"]);
+                    snap.metrics = vec![Metric::new(
+                        "active_sessions",
+                        "Consultas en curso",
+                        "Conexiones",
+                        Count,
+                        Some(rows.len() as f64),
+                    )];
+                    let mut t = MonitorTable::new(
+                        "queries",
+                        "Consultas en curso",
+                        &["id", "fase", "duración", "consulta"],
+                    );
                     for r in &rows {
                         t.rows.push(vec![
                             r.get("id").cloned().unwrap_or(Value::Null),
                             r.get("phase").cloned().unwrap_or(Value::Null),
-                            r.get("execute_duration").or_else(|| r.get("elapsed")).cloned().unwrap_or(Value::Null),
-                            Value::String(r.get("query_text").map(text).unwrap_or_default().chars().take(2000).collect()),
+                            r.get("execute_duration")
+                                .or_else(|| r.get("elapsed"))
+                                .cloned()
+                                .unwrap_or(Value::Null),
+                            Value::String(
+                                r.get("query_text")
+                                    .map(text)
+                                    .unwrap_or_default()
+                                    .chars()
+                                    .take(2000)
+                                    .collect(),
+                            ),
                         ]);
                     }
                     snap.tables.push(t);
                 }
-                Err(e) => snap.notes.push(format!("No se pudo leer system.queries ({e}).")),
+                Err(e) => snap
+                    .notes
+                    .push(format!("No se pudo leer system.queries ({e}).")),
             },
             Engine::Other => {}
         }
@@ -1138,7 +1646,9 @@ impl Session for FlightSession {
 /// `1.5 GiB`, `512.0 MiB`, `16 KB`… in bytes.
 fn parse_size(s: &str) -> Option<f64> {
     let s = s.trim();
-    let split = s.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(s.len());
+    let split = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(s.len());
     let n: f64 = s[..split].trim().parse().ok()?;
     let unit = s[split..].trim().to_ascii_lowercase();
     let mult = match unit.as_str() {
@@ -1162,30 +1672,63 @@ mod tests {
 
     #[test]
     fn statements_and_sizes() {
-        assert!(is_query("select 1") && is_query(" (SELECT 1)") && is_query("FROM t") && !is_query("CREATE TABLE t (a INT)") && !is_query("insert into t values (1)"));
+        assert!(
+            is_query("select 1")
+                && is_query(" (SELECT 1)")
+                && is_query("FROM t")
+                && !is_query("CREATE TABLE t (a INT)")
+                && !is_query("insert into t values (1)")
+        );
         assert_eq!(parse_size("1.5 GiB"), Some(1.5 * 1_073_741_824.0));
         assert_eq!(parse_size("16KB"), Some(16_000.0));
         assert_eq!(parse_size("x"), None);
         assert_eq!(like_escape("a_b%"), "a\\_b\\%");
-        let s = ServerInfo { name: "GizmoSQL".into(), ..Default::default() };
+        let s = ServerInfo {
+            name: "GizmoSQL".into(),
+            ..Default::default()
+        };
         assert_eq!(s.engine(), Engine::DuckDb);
-        assert_eq!(ServerInfo { name: "Dremio".into(), ..Default::default() }.engine(), Engine::Dremio);
+        assert_eq!(
+            ServerInfo {
+                name: "Dremio".into(),
+                ..Default::default()
+            }
+            .engine(),
+            Engine::Dremio
+        );
     }
 
     #[test]
     fn errors() {
-        assert!(matches!(flight_error("status: Unauthenticated, message: \"bad\""), Error::AuthFailed(_)));
+        assert!(matches!(
+            flight_error("status: Unauthenticated, message: \"bad\""),
+            Error::AuthFailed(_)
+        ));
         let e = flight_error("Tonic error: status: Internal, message: \"Catalog Error: Table with name nope does not exist!\\n\\nLINE 2: select\", details: [], metadata: {}");
         assert!(e.is_query(), "{e:?}");
         let se = e.to_script_error();
-        assert_eq!(se.message, "Catalog Error: Table with name nope does not exist!\n\nLINE 2: select");
+        assert_eq!(
+            se.message,
+            "Catalog Error: Table with name nope does not exist!\n\nLINE 2: select"
+        );
         assert_eq!((se.code.as_deref(), se.line), (Some("Catalog"), Some(2)));
         let se = flight_error("status: Internal, message: \"Can't prepare statement: 'x' - Error: Parser Error: syntax error\", details: []").to_script_error();
-        assert_eq!((se.code.as_deref(), se.message.as_str()), (Some("Parser"), "Parser Error: syntax error"));
-        let se = flight_error("status: InvalidArgument, message: \"bad\", details: [], metadata: {}").to_script_error();
+        assert_eq!(
+            (se.code.as_deref(), se.message.as_str()),
+            (Some("Parser"), "Parser Error: syntax error")
+        );
+        let se =
+            flight_error("status: InvalidArgument, message: \"bad\", details: [], metadata: {}")
+                .to_script_error();
         assert_eq!(se.code.as_deref(), Some("InvalidArgument"));
         let units = statements("select $$a;b$$;\n-- c\nselect 2");
-        assert_eq!(units, vec![("select $$a;b$$".to_string(), 0), ("select 2".to_string(), 2)]);
+        assert_eq!(
+            units,
+            vec![
+                ("select $$a;b$$".to_string(), 0),
+                ("select 2".to_string(), 2)
+            ]
+        );
     }
 
     #[test]
@@ -1200,11 +1743,29 @@ mod tests {
         let d = drivers().remove(0);
         let spec = d.schema_spec().unwrap();
         assert!(!spec.owner && spec.cascade && spec.privileges.is_empty());
-        assert_eq!(d.create_schema_script(None, "Ven\"tas", None).unwrap(), r#"CREATE SCHEMA "Ven""tas""#);
-        assert!(matches!(d.create_schema_script(None, "v", Some("ana")), Err(Error::Unsupported(_))));
-        assert_eq!(d.drop_schema_script(None, "v", false).unwrap(), r#"DROP SCHEMA "v""#);
-        assert_eq!(d.drop_schema_script(None, "v", true).unwrap(), r#"DROP SCHEMA "v" CASCADE"#);
-        assert_eq!(d.create_schema_script(Some("mi\"cat"), "v", None).unwrap(), r#"CREATE SCHEMA "mi""cat"."v""#);
-        assert_eq!(d.drop_schema_script(Some("memory"), "v", false).unwrap(), r#"DROP SCHEMA "memory"."v""#);
+        assert_eq!(
+            d.create_schema_script(None, "Ven\"tas", None).unwrap(),
+            r#"CREATE SCHEMA "Ven""tas""#
+        );
+        assert!(matches!(
+            d.create_schema_script(None, "v", Some("ana")),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(
+            d.drop_schema_script(None, "v", false).unwrap(),
+            r#"DROP SCHEMA "v""#
+        );
+        assert_eq!(
+            d.drop_schema_script(None, "v", true).unwrap(),
+            r#"DROP SCHEMA "v" CASCADE"#
+        );
+        assert_eq!(
+            d.create_schema_script(Some("mi\"cat"), "v", None).unwrap(),
+            r#"CREATE SCHEMA "mi""cat"."v""#
+        );
+        assert_eq!(
+            d.drop_schema_script(Some("memory"), "v", false).unwrap(),
+            r#"DROP SCHEMA "memory"."v""#
+        );
     }
 }

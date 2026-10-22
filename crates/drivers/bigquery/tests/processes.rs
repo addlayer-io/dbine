@@ -19,18 +19,36 @@ async fn emulator() {
         eprintln!("DBINE_TEST_BIGQUERY_URL not set; skipping");
         return;
     };
-    let mut c = ConnectionConfig { driver: "bigquery".into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "bigquery".into(),
+        ..Default::default()
+    };
     c.options.insert("project_id".into(), "test".into());
     c.options.insert("endpoint_url".into(), url);
     let d = dbine_driver_bigquery::drivers().pop().unwrap();
     assert!(d.capabilities().processes && d.capabilities().cancel_query);
     let mut s = d.connect(&c, Some("ds1")).await.unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("SELECT 1 AS dbine_processes_test", 10, &mut out).await.unwrap();
+    s.execute("SELECT 1 AS dbine_processes_test", 10, &mut out)
+        .await
+        .unwrap();
 
     let list = s.processes().await.unwrap();
     eprintln!("{list:#?}");
-    assert!(list.iter().all(|p| p.active && !p.id.is_empty()), "only jobs in flight");
-    assert!(!list.iter().any(|p| p.sql.as_deref().unwrap_or("").contains("dbine_processes_test")), "a finished job isn't listed");
-    assert!(s.cancel_query("../projects").await.is_err(), "the id is validated");
+    assert!(
+        list.iter().all(|p| p.active && !p.id.is_empty()),
+        "only jobs in flight"
+    );
+    assert!(
+        !list.iter().any(|p| p
+            .sql
+            .as_deref()
+            .unwrap_or("")
+            .contains("dbine_processes_test")),
+        "a finished job isn't listed"
+    );
+    assert!(
+        s.cancel_query("../projects").await.is_err(),
+        "the id is validated"
+    );
 }

@@ -44,16 +44,33 @@ async fn sqlserver_options() {
         eprintln!("DBINE_TEST_SQLSERVER_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == "sqlserver").unwrap();
-    assert!(d.create_database_fields().iter().any(|f| f.key == "collation"));
+    let d = dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "sqlserver")
+        .unwrap();
+    assert!(d
+        .create_database_fields()
+        .iter()
+        .any(|f| f.key == "collation"));
     let mut s = d.connect(&cfg, Some("master")).await.unwrap();
     let _ = s.drop_database("dbine_create_opts").await;
 
     let choices = s.create_database_choices().await.unwrap();
-    let get = |k: &str| choices.iter().find(|c| c.key == k).unwrap_or_else(|| panic!("{k}"));
-    assert!(get("collation").values.iter().any(|c| c == "Latin1_General_CI_AS"));
+    let get = |k: &str| {
+        choices
+            .iter()
+            .find(|c| c.key == k)
+            .unwrap_or_else(|| panic!("{k}"))
+    };
+    assert!(get("collation")
+        .values
+        .iter()
+        .any(|c| c == "Latin1_General_CI_AS"));
     assert!(get("collation").default.is_some() && get("owner").default.is_some());
-    let data_dir = get("data_path").default.clone().expect("the default data folder");
+    let data_dir = get("data_path")
+        .default
+        .clone()
+        .expect("the default data folder");
 
     let options: BTreeMap<String, String> = [
         ("collation", "Latin1_General_CS_AS"),
@@ -68,8 +85,14 @@ async fn sqlserver_options() {
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
 
     let row = scalar(
         &mut s,
@@ -85,11 +108,16 @@ async fn sqlserver_options() {
     )
     .await;
     eprintln!("{files}");
-    assert!(files.contains("dbine_create_opts:16MB:") && files.contains("dbine_create_opts.mdf"), "{files}");
+    assert!(
+        files.contains("dbine_create_opts:16MB:") && files.contains("dbine_create_opts.mdf"),
+        "{files}"
+    );
     assert!(files.contains("dbine_create_opts_log:8MB:"), "{files}");
 
     s.drop_database("dbine_create_opts").await.unwrap();
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }

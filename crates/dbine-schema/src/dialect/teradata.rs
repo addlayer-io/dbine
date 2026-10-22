@@ -6,7 +6,7 @@
 //! BYTEINT is the 1-byte signed integer; NUMBER without precision is a
 //! floating decimal like Oracle's. There's no BOOLEAN.
 
-use super::postgres::{longest, precision_loss, prec};
+use super::postgres::{longest, prec, precision_loss};
 use super::{standard_default, Caps, Dialect, IdentCase, Rendered};
 use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Severity};
@@ -26,11 +26,19 @@ impl Teradata {
     fn text(&self, len: Option<u32>, unicode: bool, fixed: bool) -> Rendered {
         use IssueCode::*;
         use Severity::*;
-        let (max, cs) = if unicode { (MAX_UNICODE, UNICODE) } else { (MAX_LATIN, "") };
+        let (max, cs) = if unicode {
+            (MAX_UNICODE, UNICODE)
+        } else {
+            (MAX_LATIN, "")
+        };
         let kind = if fixed { "CHAR" } else { "VARCHAR" };
         match len {
             Some(n) if n <= max => Rendered::exact(format!("{kind}({n}){cs}")),
-            Some(n) => Rendered::exact(format!("CLOB{cs}")).with(Info, TypeChanged, format!("{kind}({n}) supera el máximo de {max} de Teradata: se usa CLOB.")),
+            Some(n) => Rendered::exact(format!("CLOB{cs}")).with(
+                Info,
+                TypeChanged,
+                format!("{kind}({n}) supera el máximo de {max} de Teradata: se usa CLOB."),
+            ),
             None if fixed => Rendered::exact(format!("CHAR(1){cs}")),
             None => Rendered::exact(format!("CLOB{cs}")),
         }
@@ -50,7 +58,8 @@ impl Dialect for Teradata {
             Some((n, cs)) => (n, Some(cs)),
             None => (t.name.as_str(), None),
         };
-        let unicode = cs_in_name.is_some_and(|cs| cs.starts_with("unicode") || cs.starts_with("graphic"))
+        let unicode = cs_in_name
+            .is_some_and(|cs| cs.starts_with("unicode") || cs.starts_with("graphic"))
             || t.has("unicode")
             || t.has("graphic");
         let frac = || Some(p(0).unwrap_or(6).min(MAX_FRACTION as u32) as u8);
@@ -59,32 +68,72 @@ impl Dialect for Teradata {
             "smallint" => L::int(2),
             "integer" | "int" => L::int(4),
             "bigint" => L::int(8),
-            "decimal" | "numeric" | "dec" => L::Decimal { precision: p(0).or(Some(5)), scale: p(1).or(Some(0)) },
+            "decimal" | "numeric" | "dec" => L::Decimal {
+                precision: p(0).or(Some(5)),
+                scale: p(1).or(Some(0)),
+            },
             // NUMBER / NUMBER(*): floating decimal, up to 38 digits.
             "number" => match t.args.first().map(|a| a.trim()) {
-                Some(a) if a != "*" => L::Decimal { precision: p(0), scale: p(1).or(Some(0)) },
-                _ => L::Decimal { precision: None, scale: None },
+                Some(a) if a != "*" => L::Decimal {
+                    precision: p(0),
+                    scale: p(1).or(Some(0)),
+                },
+                _ => L::Decimal {
+                    precision: None,
+                    scale: None,
+                },
             },
             "float" | "real" | "double precision" => L::Float { bytes: 8 },
-            "char" | "character" => L::Char { len: p(0).or(Some(1)), unicode },
+            "char" | "character" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode,
+            },
             "varchar" | "character varying" | "char varying" => L::Varchar { len: p(0), unicode },
-            "long varchar" => L::Varchar { len: Some(if unicode { MAX_UNICODE } else { MAX_LATIN }), unicode },
-            "graphic" => L::Char { len: p(0).or(Some(1)), unicode: true },
-            "vargraphic" => L::Varchar { len: p(0), unicode: true },
-            "long vargraphic" => L::Varchar { len: Some(MAX_UNICODE), unicode: true },
+            "long varchar" => L::Varchar {
+                len: Some(if unicode { MAX_UNICODE } else { MAX_LATIN }),
+                unicode,
+            },
+            "graphic" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode: true,
+            },
+            "vargraphic" => L::Varchar {
+                len: p(0),
+                unicode: true,
+            },
+            "long vargraphic" => L::Varchar {
+                len: Some(MAX_UNICODE),
+                unicode: true,
+            },
             "clob" | "character large object" => L::Text { unicode },
-            "byte" => L::Binary { len: p(0).or(Some(1)) },
+            "byte" => L::Binary {
+                len: p(0).or(Some(1)),
+            },
             "varbyte" => L::Varbinary { len: p(0) },
             "blob" | "binary large object" => L::Blob,
             "date" => L::Date,
-            "time" => L::Time { precision: frac(), tz: t.with_tz },
-            "timestamp" => L::Timestamp { precision: frac(), tz: t.with_tz },
-            "json" => L::Json { binary: t.has("bson") || t.has("ubjson") },
+            "time" => L::Time {
+                precision: frac(),
+                tz: t.with_tz,
+            },
+            "timestamp" => L::Timestamp {
+                precision: frac(),
+                tz: t.with_tz,
+            },
+            "json" => L::Json {
+                binary: t.has("bson") || t.has("ubjson"),
+            },
             "xml" => L::Xml,
-            "st_geometry" | "sysudtlib.st_geometry" => L::Geometry { kind: None, srid: None, geography: false },
+            "st_geometry" | "sysudtlib.st_geometry" => L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false,
+            },
             n if n.starts_with("interval") => L::Interval,
             // PERIOD(…), DATASET, MBR, UDTs.
-            _ => L::Other { native: t.raw.clone() },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -173,7 +222,11 @@ impl Dialect for Teradata {
                 _ => "CURRENT_TIME".into(),
             }),
             DefaultValue::NewUuid => None,
-            DefaultValue::Text(_) if matches!(ty, L::Text { .. } | L::Json { .. } | L::Xml | L::Blob) => None,
+            DefaultValue::Text(_)
+                if matches!(ty, L::Text { .. } | L::Json { .. } | L::Xml | L::Blob) =>
+            {
+                None
+            }
             other => standard_default(other, ty, "CURRENT_TIMESTAMP", None, true),
         }
     }
@@ -220,34 +273,128 @@ mod tests {
         assert_eq!(p("SMALLINT"), L::int(2));
         assert_eq!(p("INTEGER"), L::int(4));
         assert_eq!(p("BIGINT"), L::int(8));
-        assert_eq!(p("DECIMAL(18,2)"), L::Decimal { precision: Some(18), scale: Some(2) });
-        assert_eq!(p("NUMBER"), L::Decimal { precision: None, scale: None });
-        assert_eq!(p("NUMBER(*)"), L::Decimal { precision: None, scale: None });
-        assert_eq!(p("NUMBER(10,2)"), L::Decimal { precision: Some(10), scale: Some(2) });
+        assert_eq!(
+            p("DECIMAL(18,2)"),
+            L::Decimal {
+                precision: Some(18),
+                scale: Some(2)
+            }
+        );
+        assert_eq!(
+            p("NUMBER"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
+        assert_eq!(
+            p("NUMBER(*)"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
+        assert_eq!(
+            p("NUMBER(10,2)"),
+            L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }
+        );
         assert_eq!(p("FLOAT"), L::Float { bytes: 8 });
         assert_eq!(p("REAL"), L::Float { bytes: 8 });
-        assert_eq!(p("CHAR(10)"), L::Char { len: Some(10), unicode: false });
-        assert_eq!(p("VARCHAR(255)"), L::Varchar { len: Some(255), unicode: false });
-        assert_eq!(p("VARCHAR(255) CHARACTER SET UNICODE"), L::Varchar { len: Some(255), unicode: true });
-        assert_eq!(p("VARCHAR(255) CHARACTER SET LATIN NOT CASESPECIFIC"), L::Varchar { len: Some(255), unicode: false });
-        assert_eq!(p("LONG VARCHAR"), L::Varchar { len: Some(64000), unicode: false });
+        assert_eq!(
+            p("CHAR(10)"),
+            L::Char {
+                len: Some(10),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("VARCHAR(255)"),
+            L::Varchar {
+                len: Some(255),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("VARCHAR(255) CHARACTER SET UNICODE"),
+            L::Varchar {
+                len: Some(255),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p("VARCHAR(255) CHARACTER SET LATIN NOT CASESPECIFIC"),
+            L::Varchar {
+                len: Some(255),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("LONG VARCHAR"),
+            L::Varchar {
+                len: Some(64000),
+                unicode: false
+            }
+        );
         assert_eq!(p("CLOB"), L::Text { unicode: false });
         assert_eq!(p("CLOB CHARACTER SET UNICODE"), L::Text { unicode: true });
-        assert_eq!(p("VARGRAPHIC(10)"), L::Varchar { len: Some(10), unicode: true });
+        assert_eq!(
+            p("VARGRAPHIC(10)"),
+            L::Varchar {
+                len: Some(10),
+                unicode: true
+            }
+        );
         assert_eq!(p("BYTE(16)"), L::Binary { len: Some(16) });
         assert_eq!(p("VARBYTE(255)"), L::Varbinary { len: Some(255) });
         assert_eq!(p("BLOB"), L::Blob);
         assert_eq!(p("DATE"), L::Date);
-        assert_eq!(p("TIME"), L::Time { precision: Some(6), tz: false });
-        assert_eq!(p("TIME(0) WITH TIME ZONE"), L::Time { precision: Some(0), tz: true });
-        assert_eq!(p("TIMESTAMP(6)"), L::Timestamp { precision: Some(6), tz: false });
-        assert_eq!(p("TIMESTAMP(3) WITH TIME ZONE"), L::Timestamp { precision: Some(3), tz: true });
+        assert_eq!(
+            p("TIME"),
+            L::Time {
+                precision: Some(6),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("TIME(0) WITH TIME ZONE"),
+            L::Time {
+                precision: Some(0),
+                tz: true
+            }
+        );
+        assert_eq!(
+            p("TIMESTAMP(6)"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("TIMESTAMP(3) WITH TIME ZONE"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
         assert_eq!(p("INTERVAL DAY(4) TO SECOND(6)"), L::Interval);
         assert_eq!(p("INTERVAL YEAR"), L::Interval);
         assert_eq!(p("JSON"), L::Json { binary: false });
-        assert_eq!(p("JSON(1000) STORAGE FORMAT BSON"), L::Json { binary: true });
+        assert_eq!(
+            p("JSON(1000) STORAGE FORMAT BSON"),
+            L::Json { binary: true }
+        );
         assert_eq!(p("XML"), L::Xml);
-        assert_eq!(p("ST_GEOMETRY"), L::Geometry { kind: None, srid: None, geography: false });
+        assert_eq!(
+            p("ST_GEOMETRY"),
+            L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }
+        );
         assert!(matches!(p("PERIOD(DATE)"), L::Other { .. }));
     }
 
@@ -255,21 +402,87 @@ mod tests {
     fn renders_every_variant() {
         assert_eq!(r(L::Bool), "BYTEINT");
         assert_eq!(r(L::int(1)), "BYTEINT");
-        assert_eq!(r(L::Int { bytes: 1, unsigned: true }), "SMALLINT");
+        assert_eq!(
+            r(L::Int {
+                bytes: 1,
+                unsigned: true
+            }),
+            "SMALLINT"
+        );
         assert_eq!(r(L::int(4)), "INTEGER");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }), "BIGINT");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "DECIMAL(20, 0)");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "BIGINT"
+        );
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "DECIMAL(20, 0)"
+        );
         assert_eq!(r(L::int(16)), "DECIMAL(38, 0)");
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(2) }), "DECIMAL(12, 2)");
-        assert_eq!(r(L::Decimal { precision: Some(40), scale: Some(2) }), "DECIMAL(38, 2)");
-        assert_eq!(r(L::Decimal { precision: None, scale: None }), "NUMBER");
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }),
+            "DECIMAL(12, 2)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(40),
+                scale: Some(2)
+            }),
+            "DECIMAL(38, 2)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: None,
+                scale: None
+            }),
+            "NUMBER"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "FLOAT");
         assert_eq!(r(L::Money), "DECIMAL(19, 4)");
-        assert_eq!(r(L::Char { len: Some(3), unicode: false }), "CHAR(3)");
-        assert_eq!(r(L::Char { len: Some(3), unicode: true }), "CHAR(3) CHARACTER SET UNICODE");
-        assert_eq!(r(L::Varchar { len: Some(40), unicode: true }), "VARCHAR(40) CHARACTER SET UNICODE");
-        assert_eq!(r(L::Varchar { len: Some(40000), unicode: true }), "CLOB CHARACTER SET UNICODE");
-        assert_eq!(r(L::Varchar { len: Some(40000), unicode: false }), "VARCHAR(40000)");
+        assert_eq!(
+            r(L::Char {
+                len: Some(3),
+                unicode: false
+            }),
+            "CHAR(3)"
+        );
+        assert_eq!(
+            r(L::Char {
+                len: Some(3),
+                unicode: true
+            }),
+            "CHAR(3) CHARACTER SET UNICODE"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(40),
+                unicode: true
+            }),
+            "VARCHAR(40) CHARACTER SET UNICODE"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(40000),
+                unicode: true
+            }),
+            "CLOB CHARACTER SET UNICODE"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(40000),
+                unicode: false
+            }),
+            "VARCHAR(40000)"
+        );
         assert_eq!(r(L::Text { unicode: false }), "CLOB");
         assert_eq!(r(L::Binary { len: Some(16) }), "BYTE(16)");
         assert_eq!(r(L::Varbinary { len: Some(100) }), "VARBYTE(100)");
@@ -277,24 +490,85 @@ mod tests {
         assert_eq!(r(L::Bit { len: Some(1) }), "BYTEINT");
         assert_eq!(r(L::Bit { len: Some(10) }), "VARBYTE(2)");
         assert_eq!(r(L::Date), "DATE");
-        assert_eq!(r(L::Time { precision: Some(3), tz: true }), "TIME(3) WITH TIME ZONE");
-        assert_eq!(r(L::Timestamp { precision: None, tz: false }), "TIMESTAMP");
-        assert_eq!(r(L::Timestamp { precision: Some(7), tz: false }), "TIMESTAMP(6)");
-        assert!(Teradata.render_type(&L::Timestamp { precision: Some(7), tz: false }).notes.iter().any(|n| n.code == IssueCode::PrecisionLoss));
+        assert_eq!(
+            r(L::Time {
+                precision: Some(3),
+                tz: true
+            }),
+            "TIME(3) WITH TIME ZONE"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: None,
+                tz: false
+            }),
+            "TIMESTAMP"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(7),
+                tz: false
+            }),
+            "TIMESTAMP(6)"
+        );
+        assert!(Teradata
+            .render_type(&L::Timestamp {
+                precision: Some(7),
+                tz: false
+            })
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::PrecisionLoss));
         assert_eq!(r(L::Interval), "INTERVAL DAY(4) TO SECOND(6)");
         assert_eq!(r(L::Year), "SMALLINT");
         assert_eq!(r(L::Uuid), "CHAR(36)");
-        assert_eq!(r(L::Json { binary: true }), "JSON(8388096) CHARACTER SET UNICODE");
+        assert_eq!(
+            r(L::Json { binary: true }),
+            "JSON(8388096) CHARACTER SET UNICODE"
+        );
         assert_eq!(r(L::Xml), "XML");
-        assert_eq!(r(L::Enum { values: vec!["abc".into()] }), "VARCHAR(3) CHARACTER SET UNICODE");
-        assert_eq!(r(L::Set { values: vec!["abc".into()] }), "VARCHAR(3) CHARACTER SET UNICODE");
-        assert_eq!(r(L::Array { of: Box::new(L::int(4)) }), "JSON(8388096) CHARACTER SET UNICODE");
-        assert_eq!(r(L::Map { key: Box::new(L::int(4)), value: Box::new(L::int(4)) }), "JSON(8388096) CHARACTER SET UNICODE");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "ST_GEOMETRY");
+        assert_eq!(
+            r(L::Enum {
+                values: vec!["abc".into()]
+            }),
+            "VARCHAR(3) CHARACTER SET UNICODE"
+        );
+        assert_eq!(
+            r(L::Set {
+                values: vec!["abc".into()]
+            }),
+            "VARCHAR(3) CHARACTER SET UNICODE"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(4))
+            }),
+            "JSON(8388096) CHARACTER SET UNICODE"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::int(4)),
+                value: Box::new(L::int(4))
+            }),
+            "JSON(8388096) CHARACTER SET UNICODE"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "ST_GEOMETRY"
+        );
         assert_eq!(r(L::Inet), "VARCHAR(45)");
         assert_eq!(r(L::MacAddr), "VARCHAR(17)");
         assert_eq!(r(L::RowVersion), "BYTE(8)");
-        assert_eq!(r(L::Other { native: "PERIOD(DATE)".into() }), "PERIOD(DATE)");
+        assert_eq!(
+            r(L::Other {
+                native: "PERIOD(DATE)".into()
+            }),
+            "PERIOD(DATE)"
+        );
     }
 
     #[test]
@@ -304,19 +578,40 @@ mod tests {
             L::int(2),
             L::int(4),
             L::int(8),
-            L::Decimal { precision: Some(12), scale: Some(2) },
-            L::Decimal { precision: None, scale: None },
+            L::Decimal {
+                precision: Some(12),
+                scale: Some(2),
+            },
+            L::Decimal {
+                precision: None,
+                scale: None,
+            },
             L::Float { bytes: 8 },
-            L::Char { len: Some(3), unicode: true },
-            L::Varchar { len: Some(40), unicode: false },
-            L::Varchar { len: Some(40), unicode: true },
+            L::Char {
+                len: Some(3),
+                unicode: true,
+            },
+            L::Varchar {
+                len: Some(40),
+                unicode: false,
+            },
+            L::Varchar {
+                len: Some(40),
+                unicode: true,
+            },
             L::Text { unicode: true },
             L::Binary { len: Some(16) },
             L::Varbinary { len: Some(16) },
             L::Blob,
             L::Date,
-            L::Time { precision: Some(3), tz: true },
-            L::Timestamp { precision: Some(0), tz: false },
+            L::Time {
+                precision: Some(3),
+                tz: true,
+            },
+            L::Timestamp {
+                precision: Some(0),
+                tz: false,
+            },
             L::Interval,
             L::Json { binary: false },
             L::Xml,
@@ -329,11 +624,54 @@ mod tests {
     #[test]
     fn defaults() {
         let d = |v: DefaultValue, t: L| Teradata.render_default(&v, &t);
-        assert_eq!(d(DefaultValue::CurrentTimestamp, L::Timestamp { precision: Some(6), tz: false }).as_deref(), Some("CURRENT_TIMESTAMP"));
-        assert_eq!(d(DefaultValue::CurrentTimestamp, L::Timestamp { precision: Some(0), tz: false }).as_deref(), Some("CURRENT_TIMESTAMP(0)"));
-        assert_eq!(d(DefaultValue::CurrentTimestamp, L::Timestamp { precision: None, tz: false }).as_deref(), Some("CURRENT_TIMESTAMP"));
-        assert_eq!(d(DefaultValue::CurrentDate, L::Date).as_deref(), Some("CURRENT_DATE"));
-        assert_eq!(d(DefaultValue::CurrentTime, L::Time { precision: Some(0), tz: false }).as_deref(), Some("CURRENT_TIME(0)"));
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTimestamp,
+                L::Timestamp {
+                    precision: Some(6),
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTimestamp,
+                L::Timestamp {
+                    precision: Some(0),
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT_TIMESTAMP(0)")
+        );
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTimestamp,
+                L::Timestamp {
+                    precision: None,
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        assert_eq!(
+            d(DefaultValue::CurrentDate, L::Date).as_deref(),
+            Some("CURRENT_DATE")
+        );
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTime,
+                L::Time {
+                    precision: Some(0),
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT_TIME(0)")
+        );
         assert_eq!(d(DefaultValue::Bool(true), L::Bool).as_deref(), Some("1"));
         assert_eq!(d(DefaultValue::NewUuid, L::Uuid), None);
     }

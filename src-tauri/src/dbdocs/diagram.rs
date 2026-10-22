@@ -35,22 +35,46 @@ fn cut(s: &str, max: usize) -> String {
     if chars(s) <= max {
         s.to_string()
     } else {
-        format!("{}…", s.chars().take(max.saturating_sub(1)).collect::<String>())
+        format!(
+            "{}…",
+            s.chars().take(max.saturating_sub(1)).collect::<String>()
+        )
     }
 }
 
 /// Index of the table `fk` points at, schema-aware.
-fn target(tables: &[&TableSchema], from: &TableSchema, ref_schema: Option<&str>, ref_table: &str) -> Option<usize> {
+fn target(
+    tables: &[&TableSchema],
+    from: &TableSchema,
+    ref_schema: Option<&str>,
+    ref_table: &str,
+) -> Option<usize> {
     let sc = ref_schema.or(from.schema.as_deref()).unwrap_or("");
     tables
         .iter()
-        .position(|t| t.name.eq_ignore_ascii_case(ref_table) && t.schema.as_deref().unwrap_or("").eq_ignore_ascii_case(sc))
-        .or_else(|| ref_schema.is_none().then(|| tables.iter().position(|t| t.name.eq_ignore_ascii_case(ref_table))).flatten())
+        .position(|t| {
+            t.name.eq_ignore_ascii_case(ref_table)
+                && t.schema.as_deref().unwrap_or("").eq_ignore_ascii_case(sc)
+        })
+        .or_else(|| {
+            ref_schema
+                .is_none()
+                .then(|| {
+                    tables
+                        .iter()
+                        .position(|t| t.name.eq_ignore_ascii_case(ref_table))
+                })
+                .flatten()
+        })
 }
 
 /// The SVG for `tables`. `id` keeps marker ids unique on the page;
 /// `link` gives a table's anchor.
-pub fn svg(tables: &[&TableSchema], id: &str, link: &dyn Fn(&TableSchema) -> Option<String>) -> String {
+pub fn svg(
+    tables: &[&TableSchema],
+    id: &str,
+    link: &dyn Fn(&TableSchema) -> Option<String>,
+) -> String {
     let n = tables.len();
     if n == 0 {
         return String::new();
@@ -60,7 +84,15 @@ pub fn svg(tables: &[&TableSchema], id: &str, link: &dyn Fn(&TableSchema) -> Opt
     for (i, t) in tables.iter().enumerate() {
         for fk in &t.foreign_keys {
             if let Some(j) = target(tables, t, fk.ref_schema.as_deref(), &fk.ref_table) {
-                let row = fk.columns.first().and_then(|c| t.columns.iter().position(|col| col.name.eq_ignore_ascii_case(c))).filter(|r| *r < SHOWN_COLUMNS);
+                let row = fk
+                    .columns
+                    .first()
+                    .and_then(|c| {
+                        t.columns
+                            .iter()
+                            .position(|col| col.name.eq_ignore_ascii_case(c))
+                    })
+                    .filter(|r| *r < SHOWN_COLUMNS);
                 edges.push((i, row, j));
             }
         }
@@ -86,10 +118,23 @@ pub fn svg(tables: &[&TableSchema], id: &str, link: &dyn Fn(&TableSchema) -> Opt
         .iter()
         .map(|t| {
             let name_w = chars(&t.name) as f64 * (CHAR_W + 0.6);
-            let col_w = t.columns.iter().take(SHOWN_COLUMNS).map(|c| (chars(&cut(&c.name, 24)) + chars(&cut(&c.data_type, 16)) + 3) as f64 * CHAR_W).fold(0.0, f64::max);
+            let col_w = t
+                .columns
+                .iter()
+                .take(SHOWN_COLUMNS)
+                .map(|c| {
+                    (chars(&cut(&c.name, 24)) + chars(&cut(&c.data_type, 16)) + 3) as f64 * CHAR_W
+                })
+                .fold(0.0, f64::max);
             let w = (name_w.max(col_w) + 2.0 * PAD).clamp(MIN_W, MAX_W);
-            let rows = t.columns.len().min(SHOWN_COLUMNS) + usize::from(t.columns.len() > SHOWN_COLUMNS);
-            Node { x: 0.0, y: 0.0, w, h: HEAD_H + rows.max(1) as f64 * ROW_H + 4.0 }
+            let rows =
+                t.columns.len().min(SHOWN_COLUMNS) + usize::from(t.columns.len() > SHOWN_COLUMNS);
+            Node {
+                x: 0.0,
+                y: 0.0,
+                w,
+                h: HEAD_H + rows.max(1) as f64 * ROW_H + 4.0,
+            }
         })
         .collect();
 
@@ -102,10 +147,25 @@ pub fn svg(tables: &[&TableSchema], id: &str, link: &dyn Fn(&TableSchema) -> Opt
     for l in 0..layers {
         let mut members: Vec<usize> = (0..n).filter(|&i| layer[i] == l).collect();
         let weight = |i: usize| {
-            let parents: Vec<f64> = edges.iter().filter(|e| e.0 == i && e.2 != i && layer[e.2] < l).map(|e| place[e.2]).collect();
-            if parents.is_empty() { f64::MAX } else { parents.iter().sum::<f64>() / parents.len() as f64 }
+            let parents: Vec<f64> = edges
+                .iter()
+                .filter(|e| e.0 == i && e.2 != i && layer[e.2] < l)
+                .map(|e| place[e.2])
+                .collect();
+            if parents.is_empty() {
+                f64::MAX
+            } else {
+                parents.iter().sum::<f64>() / parents.len() as f64
+            }
         };
-        members.sort_by(|&a, &b| weight(a).total_cmp(&weight(b)).then_with(|| tables[a].name.to_lowercase().cmp(&tables[b].name.to_lowercase())));
+        members.sort_by(|&a, &b| {
+            weight(a).total_cmp(&weight(b)).then_with(|| {
+                tables[a]
+                    .name
+                    .to_lowercase()
+                    .cmp(&tables[b].name.to_lowercase())
+            })
+        });
         for chunk in members.chunks(per_col) {
             let w = chunk.iter().map(|&i| nodes[i].w).fold(0.0, f64::max);
             let mut y = 0.0;
@@ -140,15 +200,27 @@ pub fn svg(tables: &[&TableSchema], id: &str, link: &dyn Fn(&TableSchema) -> Opt
         let py = b.y + HEAD_H / 2.0;
         let d = if c == p {
             let x0 = a.x + a.w;
-            format!("M{x0:.1},{cy:.1} C{:.1},{cy:.1} {:.1},{py:.1} {x0:.1},{py:.1}", x0 + 36.0, x0 + 36.0)
+            format!(
+                "M{x0:.1},{cy:.1} C{:.1},{cy:.1} {:.1},{py:.1} {x0:.1},{py:.1}",
+                x0 + 36.0,
+                x0 + 36.0
+            )
         } else if b.x + b.w <= a.x {
             let (x0, x1) = (a.x, b.x + b.w);
             let mid = (x0 - x1) / 2.0;
-            format!("M{x0:.1},{cy:.1} C{:.1},{cy:.1} {:.1},{py:.1} {x1:.1},{py:.1}", x0 - mid, x1 + mid)
+            format!(
+                "M{x0:.1},{cy:.1} C{:.1},{cy:.1} {:.1},{py:.1} {x1:.1},{py:.1}",
+                x0 - mid,
+                x1 + mid
+            )
         } else if a.x + a.w <= b.x {
             let (x0, x1) = (a.x + a.w, b.x);
             let mid = (x1 - x0) / 2.0;
-            format!("M{x0:.1},{cy:.1} C{:.1},{cy:.1} {:.1},{py:.1} {x1:.1},{py:.1}", x0 + mid, x1 - mid)
+            format!(
+                "M{x0:.1},{cy:.1} C{:.1},{cy:.1} {:.1},{py:.1} {x1:.1},{py:.1}",
+                x0 + mid,
+                x1 - mid
+            )
         } else {
             // Same column: around the right side.
             let x0 = a.x + a.w;
@@ -156,7 +228,11 @@ pub fn svg(tables: &[&TableSchema], id: &str, link: &dyn Fn(&TableSchema) -> Opt
             let bulge = x0.max(x1) + 30.0;
             format!("M{x0:.1},{cy:.1} C{bulge:.1},{cy:.1} {bulge:.1},{py:.1} {x1:.1},{py:.1}")
         };
-        let _ = write!(out, r#"<path class="erd-edge" d="{d}" marker-end="url(#{}-arrow)"/>"#, esc(id));
+        let _ = write!(
+            out,
+            r#"<path class="erd-edge" d="{d}" marker-end="url(#{}-arrow)"/>"#,
+            esc(id)
+        );
     }
 
     for (i, t) in tables.iter().enumerate() {
@@ -165,27 +241,72 @@ pub fn svg(tables: &[&TableSchema], id: &str, link: &dyn Fn(&TableSchema) -> Opt
             Some(a) => format!(r##"<a href="#{}">"##, esc(&a)),
             None => String::new(),
         };
-        let _ = write!(out, r#"{open}<g class="erd-box" transform="translate({:.1},{:.1})">"#, nd.x, nd.y);
+        let _ = write!(
+            out,
+            r#"{open}<g class="erd-box" transform="translate({:.1},{:.1})">"#,
+            nd.x, nd.y
+        );
         let title = match &t.comment {
-            Some(c) if !c.trim().is_empty() => format!("{}: {}", super::qualified(t.schema.as_deref(), &t.name), c),
+            Some(c) if !c.trim().is_empty() => {
+                format!("{}: {}", super::qualified(t.schema.as_deref(), &t.name), c)
+            }
             _ => super::qualified(t.schema.as_deref(), &t.name),
         };
         let _ = write!(out, "<title>{}</title>", esc(&title));
-        let _ = write!(out, r#"<rect class="erd-rect" width="{:.1}" height="{:.1}" rx="4"/>"#, nd.w, nd.h);
-        let _ = write!(out, r#"<rect class="erd-top" width="{:.1}" height="{HEAD_H}" rx="4"/>"#, nd.w);
+        let _ = write!(
+            out,
+            r#"<rect class="erd-rect" width="{:.1}" height="{:.1}" rx="4"/>"#,
+            nd.w, nd.h
+        );
+        let _ = write!(
+            out,
+            r#"<rect class="erd-top" width="{:.1}" height="{HEAD_H}" rx="4"/>"#,
+            nd.w
+        );
         let max_name = ((nd.w - 2.0 * PAD) / (CHAR_W + 0.6)) as usize;
-        let _ = write!(out, r#"<text class="erd-name" x="{PAD}" y="15">{}</text>"#, esc(&cut(&t.name, max_name)));
-        let pk = |c: &str| t.primary_key.as_ref().is_some_and(|k| k.columns.iter().any(|x| x.eq_ignore_ascii_case(c)));
-        let fk = |c: &str| t.foreign_keys.iter().any(|f| f.columns.iter().any(|x| x.eq_ignore_ascii_case(c)));
+        let _ = write!(
+            out,
+            r#"<text class="erd-name" x="{PAD}" y="15">{}</text>"#,
+            esc(&cut(&t.name, max_name))
+        );
+        let pk = |c: &str| {
+            t.primary_key
+                .as_ref()
+                .is_some_and(|k| k.columns.iter().any(|x| x.eq_ignore_ascii_case(c)))
+        };
+        let fk = |c: &str| {
+            t.foreign_keys
+                .iter()
+                .any(|f| f.columns.iter().any(|x| x.eq_ignore_ascii_case(c)))
+        };
         for (r, c) in t.columns.iter().take(SHOWN_COLUMNS).enumerate() {
             let y = HEAD_H + (r as f64 + 1.0) * ROW_H - 4.0;
-            let class = if pk(&c.name) { "erd-col erd-pk" } else if fk(&c.name) { "erd-col erd-fk" } else { "erd-col" };
-            let _ = write!(out, r#"<text class="{class}" x="{PAD}" y="{y:.1}">{}</text>"#, esc(&cut(&c.name, 24)));
-            let _ = write!(out, r#"<text class="erd-type" x="{:.1}" y="{y:.1}" text-anchor="end">{}</text>"#, nd.w - PAD, esc(&cut(&c.data_type, 16)));
+            let class = if pk(&c.name) {
+                "erd-col erd-pk"
+            } else if fk(&c.name) {
+                "erd-col erd-fk"
+            } else {
+                "erd-col"
+            };
+            let _ = write!(
+                out,
+                r#"<text class="{class}" x="{PAD}" y="{y:.1}">{}</text>"#,
+                esc(&cut(&c.name, 24))
+            );
+            let _ = write!(
+                out,
+                r#"<text class="erd-type" x="{:.1}" y="{y:.1}" text-anchor="end">{}</text>"#,
+                nd.w - PAD,
+                esc(&cut(&c.data_type, 16))
+            );
         }
         if t.columns.len() > SHOWN_COLUMNS {
             let y = HEAD_H + (SHOWN_COLUMNS as f64 + 1.0) * ROW_H - 4.0;
-            let _ = write!(out, r#"<text class="erd-type" x="{PAD}" y="{y:.1}">+{}</text>"#, t.columns.len() - SHOWN_COLUMNS);
+            let _ = write!(
+                out,
+                r#"<text class="erd-type" x="{PAD}" y="{y:.1}">+{}</text>"#,
+                t.columns.len() - SHOWN_COLUMNS
+            );
         }
         out.push_str("</g>");
         if !open.is_empty() {
@@ -205,10 +326,29 @@ mod tests {
         TableSchema {
             kind: "table".into(),
             name: name.into(),
-            columns: vec![ColumnDef { name: "id".into(), data_type: "int".into(), ..Default::default() }, ColumnDef { name: "ref_id".into(), data_type: "int".into(), ..Default::default() }],
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "ref_id".into(),
+                    data_type: "int".into(),
+                    ..Default::default()
+                },
+            ],
             foreign_keys: refs
                 .iter()
-                .map(|r| ForeignKeyDef { name: None, columns: vec!["ref_id".into()], ref_schema: None, ref_table: r.to_string(), ref_columns: vec!["id".into()], on_delete: None, on_update: None })
+                .map(|r| ForeignKeyDef {
+                    name: None,
+                    columns: vec!["ref_id".into()],
+                    ref_schema: None,
+                    ref_table: r.to_string(),
+                    ref_columns: vec!["id".into()],
+                    on_delete: None,
+                    on_update: None,
+                })
                 .collect(),
             ..Default::default()
         }
@@ -224,7 +364,11 @@ mod tests {
 
     #[test]
     fn referenced_tables_go_left() {
-        let (a, b, c) = (table("orders", &["users"]), table("users", &[]), table("lines", &["orders", "lines"]));
+        let (a, b, c) = (
+            table("orders", &["users"]),
+            table("users", &[]),
+            table("lines", &["orders", "lines"]),
+        );
         let svg = svg(&[&a, &b, &c], "d1", &|t| Some(format!("t-{}", t.name)));
         assert!(x_of(&svg, "users") < x_of(&svg, "orders"));
         assert!(x_of(&svg, "orders") < x_of(&svg, "lines"));

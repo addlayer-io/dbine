@@ -102,7 +102,11 @@ impl Error {
     /// the connection is gone, the run was cancelled, or the engine says so.
     pub fn ends_script(&self) -> bool {
         match self {
-            Self::Connect(_) | Self::ConnectFailed(_) | Self::AuthFailed(_) | Self::Io(_) | Self::Cancelled => true,
+            Self::Connect(_)
+            | Self::ConnectFailed(_)
+            | Self::AuthFailed(_)
+            | Self::Io(_)
+            | Self::Cancelled => true,
             Self::Statement(e) => e.fatal,
             _ => false,
         }
@@ -158,7 +162,12 @@ pub struct ConnectFailure {
 
 impl ConnectFailure {
     pub fn new(kind: ConnectFailureKind, message: impl Into<String>) -> Self {
-        Self { kind, code: None, client_ip: None, message: message.into() }
+        Self {
+            kind,
+            code: None,
+            client_ip: None,
+            message: message.into(),
+        }
     }
 
     pub fn with_code(mut self, code: impl ToString) -> Self {
@@ -195,7 +204,9 @@ impl ConnectFailure {
         let mut first = true;
         while let Some(x) = cur {
             if let Some(io) = x.downcast_ref::<std::io::Error>() {
-                if let k @ (ConnectFailureKind::Timeout | ConnectFailureKind::Refused) = classify_io_kind(io.kind()) {
+                if let k @ (ConnectFailureKind::Timeout | ConnectFailureKind::Refused) =
+                    classify_io_kind(io.kind())
+                {
                     return Self::new(k, message);
                 }
             }
@@ -219,7 +230,9 @@ pub fn classify_io_kind(kind: std::io::ErrorKind) -> ConnectFailureKind {
         K::TimedOut => ConnectFailureKind::Timeout,
         // No route: the host can't be reached from here (VPN, network), the
         // same checks as a refused port.
-        K::ConnectionRefused | K::HostUnreachable | K::NetworkUnreachable => ConnectFailureKind::Refused,
+        K::ConnectionRefused | K::HostUnreachable | K::NetworkUnreachable => {
+            ConnectFailureKind::Refused
+        }
         _ => ConnectFailureKind::Unknown,
     }
 }
@@ -230,18 +243,53 @@ pub fn classify_io_kind(kind: std::io::ErrorKind) -> ConnectFailureKind {
 pub fn classify_message(text: &str) -> ConnectFailureKind {
     let t = text.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| t.contains(w));
-    if has(&[r"is not allowed to access the server", r"client with ip address", r"not allowed to connect to this mysql server", r"no pg_hba.conf entry"]) {
+    if has(&[
+        r"is not allowed to access the server",
+        r"client with ip address",
+        r"not allowed to connect to this mysql server",
+        r"no pg_hba.conf entry",
+    ]) {
         ConnectFailureKind::Firewall
     } else if has(&[
-        r"failed to lookup address", r"nodename nor servname", r"name or service not known", r"no such host", r"getaddrinfo",
-        r"could not translate host name", r"temporary failure in name resolution", r"dns error", r"no se encontró el servidor",
+        r"failed to lookup address",
+        r"nodename nor servname",
+        r"name or service not known",
+        r"no such host",
+        r"getaddrinfo",
+        r"could not translate host name",
+        r"temporary failure in name resolution",
+        r"dns error",
+        r"no se encontró el servidor",
     ]) {
         ConnectFailureKind::Dns
-    } else if has(&[r"connection refused", r"actively refused", r"rechazó la conexión", r"os error 61)", r"os error 111)", r"os error 10061)", r"no route to host", r"network is unreachable", r"no hay ruta"]) {
+    } else if has(&[
+        r"connection refused",
+        r"actively refused",
+        r"rechazó la conexión",
+        r"os error 61)",
+        r"os error 111)",
+        r"os error 10061)",
+        r"no route to host",
+        r"network is unreachable",
+        r"no hay ruta",
+    ]) {
         ConnectFailureKind::Refused
-    } else if has(&[r"timed out", r"timeout", r"time out", r"tiempo de espera", r"no respondió"]) {
+    } else if has(&[
+        r"timed out",
+        r"timeout",
+        r"time out",
+        r"tiempo de espera",
+        r"no respondió",
+    ]) {
         ConnectFailureKind::Timeout
-    } else if has(&[r"password authentication failed", r"login failed", r"access denied", r"authentication failed", r"invalid password", r"invalid username"]) {
+    } else if has(&[
+        r"password authentication failed",
+        r"login failed",
+        r"access denied",
+        r"authentication failed",
+        r"invalid password",
+        r"invalid username",
+    ]) {
         ConnectFailureKind::Auth
     } else if has(&[r"certificate", r"tls", r"ssl", r"handshake", r"x509"]) {
         ConnectFailureKind::Tls
@@ -256,8 +304,15 @@ pub fn classify_message(text: &str) -> ConnectFailureKind {
 pub fn client_ip_in(text: &str) -> Option<String> {
     // ASCII lowering keeps byte offsets, so they index `text` too.
     let lower = text.to_ascii_lowercase();
-    for marker in [r"ip address '", r#"ip address ""#, r"host '", r#"entry for host ""#] {
-        let Some(at) = lower.find(marker) else { continue };
+    for marker in [
+        r"ip address '",
+        r#"ip address ""#,
+        r"host '",
+        r#"entry for host ""#,
+    ] {
+        let Some(at) = lower.find(marker) else {
+            continue;
+        };
         let rest = &text[at + marker.len()..];
         let end = rest.find(['\'', '"'])?;
         let ip = &rest[..end];
@@ -277,10 +332,19 @@ mod tests {
         let k = |m: &str| classify_message(m);
         assert_eq!(k("Cannot open server 'x' requested by the login. Client with IP address '203.0.113.7' is not allowed to access the server."), ConnectFailureKind::Firewall);
         assert_eq!(k("failed to lookup address information: nodename nor servname provided, or not known"), ConnectFailureKind::Dns);
-        assert_eq!(k("Connection refused (os error 61)"), ConnectFailureKind::Refused);
+        assert_eq!(
+            k("Connection refused (os error 61)"),
+            ConnectFailureKind::Refused
+        );
         assert_eq!(k("tiempo de espera agotado"), ConnectFailureKind::Timeout);
-        assert_eq!(k("password authentication failed for user \"x\""), ConnectFailureKind::Auth);
-        assert_eq!(k("invalid peer certificate: UnknownIssuer"), ConnectFailureKind::Tls);
+        assert_eq!(
+            k("password authentication failed for user \"x\""),
+            ConnectFailureKind::Auth
+        );
+        assert_eq!(
+            k("invalid peer certificate: UnknownIssuer"),
+            ConnectFailureKind::Tls
+        );
         assert_eq!(k("algo raro"), ConnectFailureKind::Unknown);
     }
 
@@ -288,19 +352,38 @@ mod tests {
     fn client_ip_is_read_only_when_valid() {
         let m = "Cannot open server 'srv' requested by the login. Client with IP address '203.0.113.7' is not allowed to access the server.";
         assert_eq!(client_ip_in(m).as_deref(), Some("203.0.113.7"));
-        assert_eq!(client_ip_in("Host '10.0.0.5' is not allowed to connect to this MySQL server").as_deref(), Some("10.0.0.5"));
-        assert_eq!(client_ip_in("Client with IP address 'nope; rm -rf' is not allowed").as_deref(), None);
+        assert_eq!(
+            client_ip_in("Host '10.0.0.5' is not allowed to connect to this MySQL server")
+                .as_deref(),
+            Some("10.0.0.5")
+        );
+        assert_eq!(
+            client_ip_in("Client with IP address 'nope; rm -rf' is not allowed").as_deref(),
+            None
+        );
         assert_eq!(client_ip_in("nothing here"), None);
         let f = ConnectFailure::from_message(m);
-        assert_eq!((f.kind, f.client_ip.as_deref()), (ConnectFailureKind::Firewall, Some("203.0.113.7")));
+        assert_eq!(
+            (f.kind, f.client_ip.as_deref()),
+            (ConnectFailureKind::Firewall, Some("203.0.113.7"))
+        );
     }
 
     #[test]
     fn io_errors_are_classified_by_kind() {
         use std::io::{Error as E, ErrorKind as K};
-        assert_eq!(ConnectFailure::from_io(&E::from(K::TimedOut), "x").kind, ConnectFailureKind::Timeout);
-        assert_eq!(ConnectFailure::from_io(&E::from(K::ConnectionRefused), "x").kind, ConnectFailureKind::Refused);
-        assert_eq!(ConnectFailure::from_io(&E::other("failed to lookup address information"), "x").kind, ConnectFailureKind::Dns);
+        assert_eq!(
+            ConnectFailure::from_io(&E::from(K::TimedOut), "x").kind,
+            ConnectFailureKind::Timeout
+        );
+        assert_eq!(
+            ConnectFailure::from_io(&E::from(K::ConnectionRefused), "x").kind,
+            ConnectFailureKind::Refused
+        );
+        assert_eq!(
+            ConnectFailure::from_io(&E::other("failed to lookup address information"), "x").kind,
+            ConnectFailureKind::Dns
+        );
         // Wrapped in a client's error: found through `source()`.
         #[derive(Debug)]
         struct Wrap(E);
@@ -315,7 +398,10 @@ mod tests {
             }
         }
         let f = ConnectFailure::from_error(&Wrap(E::from(K::ConnectionRefused)));
-        assert_eq!((f.kind, f.message.as_str()), (ConnectFailureKind::Refused, "error connecting to server"));
+        assert_eq!(
+            (f.kind, f.message.as_str()),
+            (ConnectFailureKind::Refused, "error connecting to server")
+        );
         let f = ConnectFailure::from_error(&Wrap(E::other("failed to lookup address information")));
         assert_eq!(f.kind, ConnectFailureKind::Dns);
     }
@@ -327,6 +413,12 @@ mod tests {
         let e = Error::connect_failed(ConnectFailure::new(ConnectFailureKind::Timeout, "slow"));
         assert!(e.is_connect() && e.ends_script());
         assert_eq!(e.to_string(), "slow");
-        assert_eq!(Error::Connect("Connection refused".into()).connect_failure().unwrap().kind, ConnectFailureKind::Refused);
+        assert_eq!(
+            Error::Connect("Connection refused".into())
+                .connect_failure()
+                .unwrap()
+                .kind,
+            ConnectFailureKind::Refused
+        );
     }
 }

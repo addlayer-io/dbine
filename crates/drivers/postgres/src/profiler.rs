@@ -22,7 +22,9 @@ use crate::catalog::cell;
 use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio_postgres::SimpleQueryRow;
@@ -40,7 +42,11 @@ pub(crate) enum State {
     Sampled(Sampler),
     /// A history read past `after` (its time column, text); `ids` are the
     /// rows already read at exactly `after`.
-    History { after: String, ids: HashSet<String>, restore: Vec<String> },
+    History {
+        after: String,
+        ids: HashSet<String>,
+        restore: Vec<String>,
+    },
 }
 
 /// `now()` on the server, in the statements' time format (UTC).
@@ -50,15 +56,25 @@ fn utc(col: &str) -> String {
     format!("to_char(({col}) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.MS')")
 }
 
-pub(crate) async fn start(s: &PgSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &PgSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let v = s.variant;
     if !supported(v) {
-        return Err(Error::Unsupported("este motor no muestra las consultas de otros clientes".into()));
+        return Err(Error::Unsupported(
+            "este motor no muestra las consultas de otros clientes".into(),
+        ));
     }
     let now = match v {
         // CrateDB and H2 have no `AT TIME ZONE` on now().
-        Variant::CrateDb => "SELECT date_format('%Y-%m-%d %H:%i:%S.%f', 'UTC', now()) AS t".to_string(),
-        Variant::H2 => "SELECT FORMATDATETIME(CURRENT_TIMESTAMP, 'yyyy-MM-dd HH:mm:ss.SSS', 'en', 'UTC') AS t".to_string(),
+        Variant::CrateDb => {
+            "SELECT date_format('%Y-%m-%d %H:%i:%S.%f', 'UTC', now()) AS t".to_string()
+        }
+        Variant::H2 => {
+            "SELECT FORMATDATETIME(CURRENT_TIMESTAMP, 'yyyy-MM-dd HH:mm:ss.SSS', 'en', 'UTC') AS t"
+                .to_string()
+        }
         _ => format!("SELECT {NOW_UTC} AS t"),
     };
     let since = s
@@ -70,7 +86,11 @@ pub(crate) async fn start(s: &PgSession, opts: &ProfilerOptions) -> Result<(Stat
         .unwrap_or_default();
     let history = |source: &str| {
         (
-            State::History { after: since.clone(), ids: HashSet::new(), restore: Vec::new() },
+            State::History {
+                after: since.clone(),
+                ids: HashSet::new(),
+                restore: Vec::new(),
+            },
             ProfilerStarted::new(ProfilerMode::Complete, source),
         )
     };
@@ -79,7 +99,12 @@ pub(crate) async fn start(s: &PgSession, opts: &ProfilerOptions) -> Result<(Stat
         Variant::Yellowbrick => history("sys.log_query"),
         Variant::CrateDb => {
             let (state, started) = history("sys.jobs_log");
-            (state, started.note("CrateDB guarda las últimas 10.000 consultas por nodo (stats.jobs_log_size)."))
+            (
+                state,
+                started.note(
+                    "CrateDB guarda las últimas 10.000 consultas por nodo (stats.jobs_log_size).",
+                ),
+            )
         }
         Variant::Materialize => {
             let (mut state, started) = history("mz_internal.mz_recent_activity_log");
@@ -91,8 +116,9 @@ pub(crate) async fn start(s: &PgSession, opts: &ProfilerOptions) -> Result<(Stat
             (state, started)
         }
         Variant::Cockroach => {
-            let mut started = ProfilerStarted::new(ProfilerMode::Sampled, "crdb_internal.cluster_queries")
-                .note("CockroachDB solo muestra las consultas en curso de todo el clúster.");
+            let mut started =
+                ProfilerStarted::new(ProfilerMode::Sampled, "crdb_internal.cluster_queries")
+                    .note("CockroachDB solo muestra las consultas en curso de todo el clúster.");
             // Without admin or VIEWACTIVITY the view silently holds only the
             // user's own statements. The role option of the same name can't
             // be read without admin; before 22.2 the check fails: no note.
@@ -114,7 +140,10 @@ pub(crate) async fn start(s: &PgSession, opts: &ProfilerOptions) -> Result<(Stat
             }
             (State::Sampled(Sampler::new(since)), started)
         }
-        Variant::H2 => (State::Sampled(Sampler::new(since)), ProfilerStarted::new(ProfilerMode::Sampled, "INFORMATION_SCHEMA.SESSIONS")),
+        Variant::H2 => (
+            State::Sampled(Sampler::new(since)),
+            ProfilerStarted::new(ProfilerMode::Sampled, "INFORMATION_SCHEMA.SESSIONS"),
+        ),
         _ => {
             let mut started = ProfilerStarted::new(ProfilerMode::Sampled, "pg_stat_activity");
             // Without superuser or pg_read_all_stats, other users' statements
@@ -145,7 +174,9 @@ pub(crate) async fn poll(s: &PgSession, state: &mut State) -> Result<Vec<Profile
             let until = Instant::now() + SAMPLE_FOR;
             loop {
                 let rows = match s.text_within(&sample_sql(s), LIMIT).await {
-                    Err(Error::Query(e)) if s.variant == Variant::Cockroach => cockroach_fallback(s, &e).await?,
+                    Err(Error::Query(e)) if s.variant == Variant::Cockroach => {
+                        cockroach_fallback(s, &e).await?
+                    }
                     r => r?,
                 };
                 out.extend(sampler.feed(rows.iter().map(|r| sample(s.variant, r)).collect()));
@@ -162,7 +193,11 @@ pub(crate) async fn poll(s: &PgSession, state: &mut State) -> Result<Vec<Profile
             let rows = s.text_within(&sql, LIMIT).await?;
             let mut out = Vec::new();
             for r in &rows {
-                let (Some(time), Some(id)) = (cell(r, "time").map(|t| trim_micros(&t)), cell(r, "id")) else { continue };
+                let (Some(time), Some(id)) =
+                    (cell(r, "time").map(|t| trim_micros(&t)), cell(r, "id"))
+                else {
+                    continue;
+                };
                 if time == *after && ids.contains(&id) {
                     continue;
                 }
@@ -214,11 +249,19 @@ async fn materialize_logging(
     mut started: ProfilerStarted,
     restore: &mut Vec<String>,
 ) -> Result<ProfilerStarted> {
-    const NAMES: [&str; 2] = ["statement_logging_max_sample_rate", "statement_logging_default_sample_rate"];
+    const NAMES: [&str; 2] = [
+        "statement_logging_max_sample_rate",
+        "statement_logging_default_sample_rate",
+    ];
     let mut rates = Vec::new();
     for name in NAMES {
         let rows = s.text_within(&format!("SHOW {name}"), LIMIT).await?;
-        rates.push(rows.first().and_then(|r| cell(r, name)).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0));
+        rates.push(
+            rows.first()
+                .and_then(|r| cell(r, name))
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+        );
     }
     let rate = rates[0].min(rates[1]);
     if rate >= 1.0 {
@@ -230,17 +273,27 @@ async fn materialize_logging(
                 "Materialize no está registrando consultas (statement logging en 0) y la conexión es de solo lectura".into(),
             ));
         }
-        return Ok(started.note(format!("Materialize registra una muestra del {} % de las consultas.", rate * 100.0)));
+        return Ok(started.note(format!(
+            "Materialize registra una muestra del {} % de las consultas.",
+            rate * 100.0
+        )));
     }
     for (name, was) in NAMES.into_iter().zip(rates) {
         if was >= 1.0 {
             continue;
         }
-        if let Err(e) = s.text_within(&format!("ALTER SYSTEM SET {name} = 1"), LIMIT).await {
+        if let Err(e) = s
+            .text_within(&format!("ALTER SYSTEM SET {name} = 1"), LIMIT)
+            .await
+        {
             for sql in restore.drain(..) {
                 let _ = s.text_within(&sql, LIMIT).await;
             }
-            let now = if rate == 0.0 { "no registra consultas".to_string() } else { format!("registra solo el {} % de las consultas", rate * 100.0) };
+            let now = if rate == 0.0 {
+                "no registra consultas".to_string()
+            } else {
+                format!("registra solo el {} % de las consultas", rate * 100.0)
+            };
             return Err(Error::Query(format!(
                 "Materialize {now} y solo el rol mz_system puede activar el registro completo ({e})"
             )));
@@ -303,10 +356,14 @@ fn sample(v: Variant, r: &SimpleQueryRow) -> Sample {
     let _ = v;
     Sample {
         session: cell(r, "session").unwrap_or_default(),
-        started: cell(r, "started").map(|t| trim_micros(&t)).unwrap_or_default(),
+        started: cell(r, "started")
+            .map(|t| trim_micros(&t))
+            .unwrap_or_default(),
         text: cell(r, "text").unwrap_or_default(),
         running: cell(r, "running").as_deref() == Some("true"),
-        duration_ms: cell(r, "ms").and_then(|v| v.parse::<f64>().ok()).map(|ms| ms.max(0.0)),
+        duration_ms: cell(r, "ms")
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|ms| ms.max(0.0)),
         database: cell(r, "db"),
         user: cell(r, "usr"),
         client: cell(r, "client").filter(|c| !c.is_empty()),
@@ -378,15 +435,24 @@ mod tests {
     #[test]
     fn history_cursor_stays_inside_its_literal() {
         let bad = "x\\'; drop table t; --";
-        assert!(history_sql(Variant::Yellowbrick, bad).contains("submit_time >= E'x\\\\''; drop table t; --'::timestamp"));
-        assert!(history_sql(Variant::Redshift, bad).contains("start_time >= 'x\\\\''; drop table t; --'::timestamp"));
-        assert!(history_sql(Variant::Materialize, "2024-01-01 00:00:00").contains("began_at >= '2024-01-01 00:00:00'::timestamp"));
+        assert!(history_sql(Variant::Yellowbrick, bad)
+            .contains("submit_time >= E'x\\\\''; drop table t; --'::timestamp"));
+        assert!(history_sql(Variant::Redshift, bad)
+            .contains("start_time >= 'x\\\\''; drop table t; --'::timestamp"));
+        assert!(history_sql(Variant::Materialize, "2024-01-01 00:00:00")
+            .contains("began_at >= '2024-01-01 00:00:00'::timestamp"));
     }
 
     #[test]
     fn times_keep_milliseconds() {
-        assert_eq!(trim_micros("2024-01-31 10:00:00.123456"), "2024-01-31 10:00:00.123");
-        assert_eq!(trim_micros("2024-01-31 10:00:00.1"), "2024-01-31 10:00:00.1");
+        assert_eq!(
+            trim_micros("2024-01-31 10:00:00.123456"),
+            "2024-01-31 10:00:00.123"
+        );
+        assert_eq!(
+            trim_micros("2024-01-31 10:00:00.1"),
+            "2024-01-31 10:00:00.1"
+        );
         assert_eq!(trim_micros("2024-01-31 10:00:00"), "2024-01-31 10:00:00");
     }
 }

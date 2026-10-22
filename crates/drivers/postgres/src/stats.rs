@@ -32,8 +32,8 @@ use crate::catalog::{cell, lit};
 use crate::compare::{has_types, DOMAIN};
 use crate::session::PgSession;
 use crate::Variant;
-use dbine_driver::stats::{ObjectComment, RowEstimate};
 use dbine_driver::sql::{qualified_name, Quote};
+use dbine_driver::stats::{ObjectComment, RowEstimate};
 use dbine_driver::{kinds, ObjectRef, Result};
 use std::collections::HashSet;
 use std::time::Duration;
@@ -75,7 +75,11 @@ pub(crate) fn kind_of(t: &str) -> Option<&'static str> {
 }
 
 fn object(kind: &str, schema: Option<String>, name: String) -> ObjectRef {
-    ObjectRef { kind: kind.to_string(), schema: schema.filter(|s| !s.is_empty()), name }
+    ObjectRef {
+        kind: kind.to_string(),
+        schema: schema.filter(|s| !s.is_empty()),
+        name,
+    }
 }
 
 /// `(kind, sch, name, rows)` rows as estimates; a kind the explorer
@@ -85,7 +89,10 @@ fn estimates(rows: &[SimpleQueryRow]) -> Vec<RowEstimate> {
         .filter_map(|r| {
             let kind = kind_of(&cell(r, "kind")?)?;
             let rows = parse_rows(&cell(r, "rows")?)?;
-            Some(RowEstimate { object: object(kind, cell(r, "sch"), cell(r, "name")?), rows })
+            Some(RowEstimate {
+                object: object(kind, cell(r, "sch"), cell(r, "name")?),
+                rows,
+            })
         })
         .collect()
 }
@@ -104,8 +111,16 @@ impl PgSession {
     /// Row estimates from the planner's `pg_class.reltuples`.
     fn reltuples_sql(&self) -> String {
         // Before 14 a table that was never analyzed has 0 tuples and 0 pages.
-        let analyzed = if self.version > 0 && self.version < 140000 { "c.reltuples > 0 OR c.relpages > 0" } else { "c.reltuples >= 0" };
-        let kinds = if self.variant == Variant::Redshift { "'r'" } else { "'r', 'p', 'm'" };
+        let analyzed = if self.version > 0 && self.version < 140000 {
+            "c.reltuples > 0 OR c.relpages > 0"
+        } else {
+            "c.reltuples >= 0"
+        };
+        let kinds = if self.variant == Variant::Redshift {
+            "'r'"
+        } else {
+            "'r', 'p', 'm'"
+        };
         format!(
             "SELECT CASE WHEN c.relkind = 'm' THEN 'materialized view' ELSE 'table' END AS kind,
                     n.nspname AS sch, c.relname AS name, c.reltuples::bigint AS rows
@@ -198,8 +213,15 @@ impl PgSession {
             checked += 1;
             let q = qualified_name(Quote::Double, e.object.schema(), &e.object.name);
             let sql = format!("SELECT row_count AS rows FROM [SHOW STATISTICS FOR TABLE {q}] ORDER BY created DESC LIMIT 1");
-            let rows = self.stats_rows("table statistics", &sql).await.unwrap_or_default();
-            if let Some(n) = rows.first().and_then(|r| cell(r, "rows")).and_then(|v| parse_rows(&v)) {
+            let rows = self
+                .stats_rows("table statistics", &sql)
+                .await
+                .unwrap_or_default();
+            if let Some(n) = rows
+                .first()
+                .and_then(|r| cell(r, "rows"))
+                .and_then(|v| parse_rows(&v))
+            {
                 keep.push(RowEstimate { rows: n, ..e });
             }
         }
@@ -298,12 +320,22 @@ impl PgSession {
         let mut seen = HashSet::new();
         let mut out = Vec::new();
         for sql in self.comment_queries() {
-            let Some(rows) = self.stats_rows("object comments", &sql).await else { continue };
+            let Some(rows) = self.stats_rows("object comments", &sql).await else {
+                continue;
+            };
             for r in &rows {
-                let (Some(kind), Some(name), Some(comment)) = (cell(r, "kind"), cell(r, "name"), cell(r, "comment")) else {
+                let (Some(kind), Some(name), Some(comment)) =
+                    (cell(r, "kind"), cell(r, "name"), cell(r, "comment"))
+                else {
                     continue;
                 };
-                let kind = if kind == DOMAIN { DOMAIN } else if let Some(k) = kind_of(&kind) { k } else { continue };
+                let kind = if kind == DOMAIN {
+                    DOMAIN
+                } else if let Some(k) = kind_of(&kind) {
+                    k
+                } else {
+                    continue;
+                };
                 if comment.trim().is_empty() {
                     continue;
                 }

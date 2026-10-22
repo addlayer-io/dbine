@@ -22,11 +22,18 @@ fn env(k: &str) -> Option<String> {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn athena_options() {
-    let (Some(db), Some(location)) = (env("DBINE_TEST_ATHENA_DATABASE"), env("DBINE_TEST_ATHENA_LOCATION")) else {
+    let (Some(db), Some(location)) = (
+        env("DBINE_TEST_ATHENA_DATABASE"),
+        env("DBINE_TEST_ATHENA_LOCATION"),
+    ) else {
         eprintln!("DBINE_TEST_ATHENA_DATABASE / DBINE_TEST_ATHENA_LOCATION not set; skipping");
         return;
     };
-    let mut cfg = ConnectionConfig { driver: "athena".into(), database: db, ..Default::default() };
+    let mut cfg = ConnectionConfig {
+        driver: "athena".into(),
+        database: db,
+        ..Default::default()
+    };
     if let Some(o) = env("DBINE_TEST_ATHENA_OUTPUT") {
         cfg.options.insert("output_location".into(), o);
     }
@@ -39,18 +46,34 @@ async fn athena_options() {
 
     let options: BTreeMap<String, String> = [
         ("comment", "ventas 'históricas'".to_string()),
-        ("location", format!("{}/dbine_create_opts/", location.trim_end_matches('/'))),
+        (
+            "location",
+            format!("{}/dbine_create_opts/", location.trim_end_matches('/')),
+        ),
         ("properties", "creador=dbine\nequipo=ventas".to_string()),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
     .collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
-    assert!(s.list_databases().await.unwrap().iter().any(|d| d == "dbine_create_opts"));
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
+    assert!(s
+        .list_databases()
+        .await
+        .unwrap()
+        .iter()
+        .any(|d| d == "dbine_create_opts"));
     s.drop_database("dbine_create_opts").await.unwrap();
 
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }

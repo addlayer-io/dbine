@@ -76,7 +76,10 @@ pub const READERS: &[&str] = &[
 /// a zipped shapefile): GeoJSON, GeoJSON sequences, TopoJSON, Shapefile
 /// (also a lone `.dbf`, and zipped, which GDAL opens by itself),
 /// GeoPackage, KML, GPX, FlatGeobuf, CSV (WKT or coordinate columns) and DXF.
-pub const GEO_FORMATS: &[&str] = &["geojson", "json", "geojsonl", "geojsons", "topojson", "shp", "shp.zip", "shz", "dbf", "gpkg", "kml", "gpx", "fgb", "csv", "dxf"];
+pub const GEO_FORMATS: &[&str] = &[
+    "geojson", "json", "geojsonl", "geojsons", "topojson", "shp", "shp.zip", "shz", "dbf", "gpkg",
+    "kml", "gpx", "fgb", "csv", "dxf",
+];
 
 /// The GDAL drivers `st_read` may use (its `allowed_drivers`): formats that
 /// read the file and its sidecars only. Left out on purpose: `OGR_VRT` (an
@@ -84,11 +87,26 @@ pub const GEO_FORMATS: &[&str] = &["geojson", "json", "geojsonl", "geojsons", "t
 /// fetch), `SQLite` (SQLite virtual tables over other data sources),
 /// `MapInfo File` (seamless tables over other files), `OSM` (temporary
 /// files), and every network driver (WFS, OAPIF, Elasticsearch, Carto…).
-pub const GEO_DRIVERS: &[&str] = &["GeoJSON", "GeoJSONSeq", "ESRIJSON", "TopoJSON", "ESRI Shapefile", "GPKG", "KML", "GPX", "FlatGeobuf", "CSV", "DXF"];
+pub const GEO_DRIVERS: &[&str] = &[
+    "GeoJSON",
+    "GeoJSONSeq",
+    "ESRIJSON",
+    "TopoJSON",
+    "ESRI Shapefile",
+    "GPKG",
+    "KML",
+    "GPX",
+    "FlatGeobuf",
+    "CSV",
+    "DXF",
+];
 
 /// Extensions `st_read` refuses with their own message: formats that point
 /// GDAL at other files or the network.
-const GEO_INDIRECT: &[&str] = &["vrt", "xml", "gml", "xsd", "gfs", "tab", "map", "osm", "pbf", "ovr", "wfs", "mbtiles", "pmtiles"];
+const GEO_INDIRECT: &[&str] = &[
+    "vrt", "xml", "gml", "xsd", "gfs", "tab", "map", "osm", "pbf", "ovr", "wfs", "mbtiles",
+    "pmtiles",
+];
 
 /// `st_read`'s named parameters a cell may set. `allowed_drivers` and
 /// `sibling_files` are DBine's.
@@ -122,7 +140,9 @@ pub const GEO_OPEN_OPTIONS: &[&str] = &[
 ];
 
 /// A shapefile's sidecars: same stem, these extensions.
-const SHAPE_SIDECARS: &[&str] = &["shx", "dbf", "prj", "cpg", "sbn", "sbx", "qix", "fix", "qpj", "shp.xml"];
+const SHAPE_SIDECARS: &[&str] = &[
+    "shx", "dbf", "prj", "cpg", "sbn", "sbx", "qix", "fix", "qpj", "shp.xml",
+];
 /// A CSV's (GDAL reads its column types and projection from them).
 const CSV_SIDECARS: &[&str] = &["csvt", "prj"];
 /// Files a pattern (or a run) may read at most.
@@ -153,13 +173,20 @@ pub fn refused(sql: &str) -> Option<String> {
         // A word as written (a quoted identifier is never a keyword).
         let word = |i: usize| -> Option<String> {
             let t = toks.get(i)?;
-            (t.kind == TokenKind::Name && !st.text[t.start..].starts_with('"')).then(|| t.text.to_ascii_lowercase())
+            (t.kind == TokenKind::Name && !st.text[t.start..].starts_with('"'))
+                .then(|| t.text.to_ascii_lowercase())
         };
         let mut i = 0;
         // EXPLAIN [ANALYZE] [(…)] runs what follows.
-        while let Some(w) = word(i).filter(|w| matches!(w.as_str(), "explain" | "analyze" | "analyse" | "verbose")) {
+        while let Some(w) =
+            word(i).filter(|w| matches!(w.as_str(), "explain" | "analyze" | "analyse" | "verbose"))
+        {
             i += 1;
-            if w == "explain" && toks.get(i).is_some_and(|t| t.kind == TokenKind::Punct && t.text == "(") {
+            if w == "explain"
+                && toks
+                    .get(i)
+                    .is_some_and(|t| t.kind == TokenKind::Punct && t.text == "(")
+            {
                 let mut depth = 0;
                 while let Some(t) = toks.get(i) {
                     i += 1;
@@ -178,7 +205,12 @@ pub fn refused(sql: &str) -> Option<String> {
         }
         // `CREATE [OR REPLACE] [PERSISTENT | TEMPORARY] SECRET`, `DROP [PERSISTENT] SECRET`.
         let secret = |mut j: usize| {
-            while word(j).is_some_and(|w| matches!(w.as_str(), "or" | "replace" | "persistent" | "temporary" | "temp")) {
+            while word(j).is_some_and(|w| {
+                matches!(
+                    w.as_str(),
+                    "or" | "replace" | "persistent" | "temporary" | "temp"
+                )
+            }) {
                 j += 1;
             }
             word(j).as_deref() == Some("secret")
@@ -186,7 +218,8 @@ pub fn refused(sql: &str) -> Option<String> {
         let Some(first) = word(i) else { continue };
         let next = word(i + 1).unwrap_or_default();
         let what = match first.as_str() {
-            "copy" | "export" | "import" | "attach" | "detach" | "install" | "load" | "force" | "pragma" | "checkpoint" => first.to_uppercase(),
+            "copy" | "export" | "import" | "attach" | "detach" | "install" | "load" | "force"
+            | "pragma" | "checkpoint" => first.to_uppercase(),
             "set" | "reset" if next != "variable" => first.to_uppercase(),
             "update" if next == "extensions" => "UPDATE EXTENSIONS".into(),
             "create" | "drop" if secret(i + 1) => format!("{} SECRET", first.to_uppercase()),
@@ -246,7 +279,10 @@ impl Lit {
     fn sql(&self) -> String {
         match self {
             Lit::Str(s) => lit(s),
-            Lit::List(v) => format!("[{}]", v.iter().map(|s| lit(s)).collect::<Vec<_>>().join(", ")),
+            Lit::List(v) => format!(
+                "[{}]",
+                v.iter().map(|s| lit(s)).collect::<Vec<_>>().join(", ")
+            ),
             Lit::Word(w) => w.clone(),
         }
     }
@@ -271,11 +307,15 @@ fn split_args(sql: &str, toks: &[NameToken<'_>]) -> Vec<Arg> {
             g.push(t);
         }
     }
-    let is = |t: Option<&&NameToken<'_>>, p: &str| t.is_some_and(|t| t.kind == TokenKind::Punct && t.text == p);
+    let is = |t: Option<&&NameToken<'_>>, p: &str| {
+        t.is_some_and(|t| t.kind == TokenKind::Punct && t.text == p)
+    };
     groups
         .into_iter()
         .map(|g| {
-            let named = g.first().is_some_and(|t| t.kind == TokenKind::Name && !sql[t.start..].starts_with('"'));
+            let named = g
+                .first()
+                .is_some_and(|t| t.kind == TokenKind::Name && !sql[t.start..].starts_with('"'));
             let (name, value) = if named && is(g.get(1), "=") {
                 (Some(g[0].text.to_ascii_lowercase()), &g[2..])
             } else if named && is(g.get(1), ":") && is(g.get(2), "=") {
@@ -287,14 +327,25 @@ fn split_args(sql: &str, toks: &[NameToken<'_>]) -> Vec<Arg> {
                 [t] if t.kind == TokenKind::String => plain_string(sql, t).map(Lit::Str),
                 [t] if t.kind == TokenKind::Name && !sql[t.start..].starts_with('"') => {
                     let w = t.text;
-                    (w.eq_ignore_ascii_case("true") || w.eq_ignore_ascii_case("false") || w.bytes().all(|b| b.is_ascii_digit())).then(|| Lit::Word(w.to_ascii_lowercase()))
+                    (w.eq_ignore_ascii_case("true")
+                        || w.eq_ignore_ascii_case("false")
+                        || w.bytes().all(|b| b.is_ascii_digit()))
+                    .then(|| Lit::Word(w.to_ascii_lowercase()))
                 }
-                [open, inner @ .., close] if open.kind == TokenKind::Punct && open.text == "[" && close.kind == TokenKind::Punct && close.text == "]" => {
+                [open, inner @ .., close]
+                    if open.kind == TokenKind::Punct
+                        && open.text == "["
+                        && close.kind == TokenKind::Punct
+                        && close.text == "]" =>
+                {
                     let mut items = Vec::new();
                     let mut ok = true;
                     for (k, t) in inner.iter().enumerate() {
                         if k % 2 == 0 {
-                            match (t.kind == TokenKind::String).then(|| plain_string(sql, t)).flatten() {
+                            match (t.kind == TokenKind::String)
+                                .then(|| plain_string(sql, t))
+                                .flatten()
+                            {
                                 Some(s) => items.push(s),
                                 None => ok = false,
                             }
@@ -325,18 +376,27 @@ fn plain_string(sql: &str, t: &NameToken<'_>) -> Option<String> {
 /// left open.
 pub fn reader_calls(sql: &str) -> Result<Vec<ReaderCall>, String> {
     let toks = name_tokens(sql, &dialect());
-    let punct = |i: usize, p: &str| toks.get(i).is_some_and(|t| t.kind == TokenKind::Punct && t.text == p);
+    let punct = |i: usize, p: &str| {
+        toks.get(i)
+            .is_some_and(|t| t.kind == TokenKind::Punct && t.text == p)
+    };
     let mut out = Vec::new();
     let mut i = 0;
     while i < toks.len() {
         let t = &toks[i];
         let function = t.text.to_ascii_lowercase();
         let qualified = i > 0 && punct(i - 1, ".");
-        if t.kind != TokenKind::Name || qualified || !READERS.contains(&function.as_str()) || !punct(i + 1, "(") {
+        if t.kind != TokenKind::Name
+            || qualified
+            || !READERS.contains(&function.as_str())
+            || !punct(i + 1, "(")
+        {
             i += 1;
             continue;
         }
-        let not_literal = || format!("«{function}» lee archivos solo con la ruta escrita entre comillas simples: '…' o una lista ['…', '…']");
+        let not_literal = || {
+            format!("«{function}» lee archivos solo con la ruta escrita entre comillas simples: '…' o una lista ['…', '…']")
+        };
         // The first argument: a string or a list of strings.
         let mut j = i + 2;
         let mut paths = Vec::new();
@@ -344,7 +404,11 @@ pub fn reader_calls(sql: &str) -> Result<Vec<ReaderCall>, String> {
         if list {
             j += 1;
             loop {
-                let s = toks.get(j).filter(|t| t.kind == TokenKind::String).and_then(|t| plain_string(sql, t)).ok_or_else(not_literal)?;
+                let s = toks
+                    .get(j)
+                    .filter(|t| t.kind == TokenKind::String)
+                    .and_then(|t| plain_string(sql, t))
+                    .ok_or_else(not_literal)?;
                 paths.push(s);
                 j += 1;
                 if punct(j, ",") {
@@ -357,7 +421,11 @@ pub fn reader_calls(sql: &str) -> Result<Vec<ReaderCall>, String> {
                 }
             }
         } else {
-            let s = toks.get(j).filter(|t| t.kind == TokenKind::String).and_then(|t| plain_string(sql, t)).ok_or_else(not_literal)?;
+            let s = toks
+                .get(j)
+                .filter(|t| t.kind == TokenKind::String)
+                .and_then(|t| plain_string(sql, t))
+                .ok_or_else(not_literal)?;
             paths.push(s);
             j += 1;
         }
@@ -374,8 +442,14 @@ pub fn reader_calls(sql: &str) -> Result<Vec<ReaderCall>, String> {
             match (t.kind, t.text) {
                 (TokenKind::Punct, "(") => depth += 1,
                 (TokenKind::Punct, ")") => depth -= 1,
-                (TokenKind::Punct, ";") => return Err(format!("falta cerrar el paréntesis de «{function}»")),
-                (TokenKind::String, _) if plain_string(sql, t).is_none() => return Err(format!("«{function}»: escribí sus textos entre comillas simples ('…')")),
+                (TokenKind::Punct, ";") => {
+                    return Err(format!("falta cerrar el paréntesis de «{function}»"))
+                }
+                (TokenKind::String, _) if plain_string(sql, t).is_none() => {
+                    return Err(format!(
+                        "«{function}»: escribí sus textos entre comillas simples ('…')"
+                    ))
+                }
                 _ => {}
             }
             j += 1;
@@ -391,7 +465,15 @@ pub fn reader_calls(sql: &str) -> Result<Vec<ReaderCall>, String> {
             rest.push_str(&sql[r.start..r.end]);
         }
         let args = split_args(sql, &toks[rest_from..close]);
-        out.push(ReaderCall { function, start: t.start, end: toks[close].end, paths, list, rest, args });
+        out.push(ReaderCall {
+            function,
+            start: t.start,
+            end: toks[close].end,
+            paths,
+            list,
+            rest,
+            args,
+        });
         i = j;
     }
     Ok(out)
@@ -453,7 +535,11 @@ fn is_url(p: &str) -> bool {
 fn is_virtual(p: &str) -> bool {
     p.split(['/', '\\']).any(|seg| {
         let s = seg.to_ascii_lowercase();
-        s.starts_with("vsi") && s.len() > 3 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'?' || b == b'=')
+        s.starts_with("vsi")
+            && s.len() > 3
+            && s.bytes().all(|b| {
+                b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'?' || b == b'='
+            })
     })
 }
 
@@ -538,7 +624,10 @@ fn canonical_pattern(pattern: &Path) -> Option<String> {
 /// by segment, `**` standing for any number of folders.
 pub fn pattern_matches(pattern: &str, path: &str) -> bool {
     fn segs(p: &str) -> Vec<String> {
-        Path::new(p).components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect()
+        Path::new(p)
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_string())
+            .collect()
     }
     fn go(pat: &[String], name: &[String]) -> bool {
         match pat.first().map(String::as_str) {
@@ -546,7 +635,14 @@ pub fn pattern_matches(pattern: &str, path: &str) -> bool {
             Some("**") => (0..=name.len()).any(|k| go(&pat[1..], &name[k..])),
             Some(p) => {
                 let Some(n) = name.first() else { return false };
-                let hit = if has_glob(p) { wild(&p.chars().collect::<Vec<_>>(), &n.chars().collect::<Vec<_>>()) } else { p == n };
+                let hit = if has_glob(p) {
+                    wild(
+                        &p.chars().collect::<Vec<_>>(),
+                        &n.chars().collect::<Vec<_>>(),
+                    )
+                } else {
+                    p == n
+                };
                 hit && go(&pat[1..], &name[1..])
             }
         }
@@ -562,7 +658,9 @@ fn expand(pattern: &Path) -> Result<Vec<PathBuf>, String> {
         scanned: usize,
     }
     fn entries(dir: &Path, w: &mut Walk) -> Vec<PathBuf> {
-        let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
         let mut v: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
         w.scanned += v.len();
         v.sort();
@@ -582,7 +680,11 @@ fn expand(pattern: &Path) -> Result<Vec<PathBuf>, String> {
             if rest.len() == 1 {
                 // `dir/**`: every file below.
                 for e in entries(dir, w) {
-                    if e.is_dir() { walk(&e, rest, depth + 1, w) } else if e.is_file() { w.out.push(e) }
+                    if e.is_dir() {
+                        walk(&e, rest, depth + 1, w)
+                    } else if e.is_file() {
+                        w.out.push(e)
+                    }
                 }
                 return;
             }
@@ -595,18 +697,27 @@ fn expand(pattern: &Path) -> Result<Vec<PathBuf>, String> {
         } else {
             let pat: Vec<char> = seg.chars().collect();
             for e in entries(dir, w) {
-                let name: Vec<char> = e.file_name().map(|n| n.to_string_lossy().chars().collect()).unwrap_or_default();
+                let name: Vec<char> = e
+                    .file_name()
+                    .map(|n| n.to_string_lossy().chars().collect())
+                    .unwrap_or_default();
                 if wild(&pat, &name) {
                     walk(&e, &rest[1..], depth + 1, w);
                 }
             }
         }
     }
-    let mut w = Walk { out: Vec::new(), scanned: 0 };
+    let mut w = Walk {
+        out: Vec::new(),
+        scanned: 0,
+    };
     walk(&root, &rest, 0, &mut w);
     w.out.sort();
     if w.out.len() > MAX_FILES || w.scanned > MAX_SCANNED {
-        return Err(format!("«{}» abarca demasiados archivos (hasta {MAX_FILES})", pattern.display()));
+        return Err(format!(
+            "«{}» abarca demasiados archivos (hasta {MAX_FILES})",
+            pattern.display()
+        ));
     }
     Ok(w.out)
 }
@@ -614,12 +725,20 @@ fn expand(pattern: &Path) -> Result<Vec<PathBuf>, String> {
 /// The files a path as written stands for: `~` expanded, relative to
 /// `base` (the notebook's folder), globs expanded, each one canonical.
 #[cfg_attr(not(test), allow(dead_code))]
-pub fn resolve(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+pub fn resolve(
+    raw: &str,
+    base: Option<&Path>,
+    home: Option<&Path>,
+) -> Result<Vec<PathBuf>, String> {
     Ok(resolve_found(raw, base, home)?.0)
 }
 
 /// [`resolve`], with the glob it was (canonical, [`canonical_pattern`]).
-fn resolve_found(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<(Vec<PathBuf>, Option<String>), String> {
+fn resolve_found(
+    raw: &str,
+    base: Option<&Path>,
+    home: Option<&Path>,
+) -> Result<(Vec<PathBuf>, Option<String>), String> {
     let p = raw.trim();
     if p.is_empty() {
         return Err("la ruta de un archivo está vacía".into());
@@ -646,7 +765,11 @@ fn resolve_found(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<
         }
     };
     let shown = path.display().to_string();
-    let pattern = if has_glob(&shown) { canonical_pattern(&path) } else { None };
+    let pattern = if has_glob(&shown) {
+        canonical_pattern(&path)
+    } else {
+        None
+    };
     let found = if has_glob(&shown) {
         let found = expand(&path)?;
         if found.is_empty() {
@@ -663,7 +786,10 @@ fn resolve_found(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<
             _ => format!("no se puede leer «{}»: {e}", f.display()),
         })?;
         if canon.is_dir() {
-            return Err(format!("«{}» es una carpeta: escribí un archivo o un patrón como «carpeta/*.csv»", f.display()));
+            return Err(format!(
+                "«{}» es una carpeta: escribí un archivo o un patrón como «carpeta/*.csv»",
+                f.display()
+            ));
         }
         let canon = plain(canon);
         if !out.contains(&canon) {
@@ -675,7 +801,11 @@ fn resolve_found(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<
 
 /// `path` shortened for the cell (see [`DataFile::display`]).
 fn display(path: &Path, base: Option<&Path>, home: Option<&Path>) -> String {
-    let canon = |p: &Path| std::fs::canonicalize(p).map(plain).unwrap_or_else(|_| p.to_path_buf());
+    let canon = |p: &Path| {
+        std::fs::canonicalize(p)
+            .map(plain)
+            .unwrap_or_else(|_| p.to_path_buf())
+    };
     if let Some(rel) = base.and_then(|b| path.strip_prefix(canon(b)).ok()) {
         return rel.display().to_string();
     }
@@ -686,9 +816,20 @@ fn display(path: &Path, base: Option<&Path>, home: Option<&Path>) -> String {
 }
 
 fn data_file(path: &Path, base: Option<&Path>, home: Option<&Path>) -> Result<DataFile, String> {
-    let meta = std::fs::metadata(path).map_err(|e| format!("no se puede leer «{}»: {e}", path.display()))?;
-    let mtime_ms = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as i64);
-    Ok(DataFile { path: path.to_string_lossy().to_string(), display: display(path, base, home), size: meta.len(), mtime_ms, ..Default::default() })
+    let meta = std::fs::metadata(path)
+        .map_err(|e| format!("no se puede leer «{}»: {e}", path.display()))?;
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_millis() as i64);
+    Ok(DataFile {
+        path: path.to_string_lossy().to_string(),
+        display: display(path, base, home),
+        size: meta.len(),
+        mtime_ms,
+        ..Default::default()
+    })
 }
 
 /// The home folder.
@@ -743,8 +884,16 @@ impl FileRead {
     /// The call over `paths` instead of its files (the local copies of its
     /// objects, a GeoPackage's copy).
     pub fn text_for(&self, paths: &[String]) -> String {
-        let single = !self.call.list && paths.len() == 1 && !self.call.paths.iter().any(|p| has_glob(p));
-        let arg = if single { lit(&paths[0]) } else { format!("[{}]", paths.iter().map(|p| lit(p)).collect::<Vec<_>>().join(", ")) };
+        let single =
+            !self.call.list && paths.len() == 1 && !self.call.paths.iter().any(|p| has_glob(p));
+        let arg = if single {
+            lit(&paths[0])
+        } else {
+            format!(
+                "[{}]",
+                paths.iter().map(|p| lit(p)).collect::<Vec<_>>().join(", ")
+            )
+        };
         format!("{}({arg}{})", self.call.function, self.rest)
     }
 
@@ -752,9 +901,26 @@ impl FileRead {
     /// their versions instead of the files' times. An object without one is
     /// read every time.
     pub fn rekey(&mut self, cap: u64) {
-        let metas: Vec<(&str, u64, i64, Option<&str>)> = self.files.iter().flat_map(|f| f.all()).map(|f| (f.path.as_str(), f.size, f.mtime_ms, f.version.as_deref())).collect();
-        let nonce = if self.files.iter().any(|f| f.host.is_some() && f.version.is_none()) { uuid::Uuid::new_v4().simple().to_string() } else { String::new() };
-        self.key = sha256_hex(serde_json::json!([self.text, metas, cap, nonce]).to_string().as_bytes());
+        let metas: Vec<(&str, u64, i64, Option<&str>)> = self
+            .files
+            .iter()
+            .flat_map(|f| f.all())
+            .map(|f| (f.path.as_str(), f.size, f.mtime_ms, f.version.as_deref()))
+            .collect();
+        let nonce = if self
+            .files
+            .iter()
+            .any(|f| f.host.is_some() && f.version.is_none())
+        {
+            uuid::Uuid::new_v4().simple().to_string()
+        } else {
+            String::new()
+        };
+        self.key = sha256_hex(
+            serde_json::json!([self.text, metas, cap, nonce])
+                .to_string()
+                .as_bytes(),
+        );
     }
 }
 
@@ -762,11 +928,20 @@ impl FileRead {
 /// `schema` is allowed, `esquema.tabla`. Each part is letters, digits,
 /// `_`, `$`, `-` or spaces (no quotes, dots or control characters), so it
 /// can't be anything but a name; it still goes to SQL as a string.
-pub fn table_name(raw: &str, schema: bool, function: &str) -> Result<(Option<String>, String), String> {
+pub fn table_name(
+    raw: &str,
+    schema: bool,
+    function: &str,
+) -> Result<(Option<String>, String), String> {
     let bad = || {
         format!("«{function}»: «{raw}» no es un nombre de tabla válido (letras, números, _, $, - o espacios{})", if schema { "; con su esquema: esquema.tabla" } else { "" })
     };
-    let part_ok = |p: &str| !p.trim().is_empty() && p.len() <= 128 && p.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '-' | ' '));
+    let part_ok = |p: &str| {
+        !p.trim().is_empty()
+            && p.len() <= 128
+            && p.chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '-' | ' '))
+    };
     let parts: Vec<&str> = raw.split('.').collect();
     match parts.as_slice() {
         [t] if part_ok(t) => Ok((None, t.to_string())),
@@ -778,7 +953,12 @@ pub fn table_name(raw: &str, schema: bool, function: &str) -> Result<(Option<Str
 /// The file's extension as [`GEO_FORMATS`] has it (`shp.zip` for a zipped
 /// shapefile), lowercase.
 fn geo_ext(path: &Path) -> String {
-    geo_ext_of(&path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
+    geo_ext_of(
+        &path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default(),
+    )
 }
 
 /// [`geo_ext`] of a file name (a URL's last segment).
@@ -787,15 +967,27 @@ fn geo_ext_of(name: &str) -> String {
     if name.ends_with(".shp.zip") {
         return "shp.zip".into();
     }
-    name.rsplit_once('.').map(|(_, e)| e.to_string()).unwrap_or_default()
+    name.rsplit_once('.')
+        .map(|(_, e)| e.to_string())
+        .unwrap_or_default()
 }
 
 /// The sidecars of `main` that exist (canonical): files next to it with
 /// its stem and one of `exts` (any case: `zonas.SHX` too).
 pub fn sidecars(main: &Path, exts: &[&str]) -> Vec<PathBuf> {
-    let (Some(dir), Some(name)) = (main.parent(), main.file_name().map(|n| n.to_string_lossy().to_lowercase())) else { return Vec::new() };
-    let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s).to_string();
-    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    let (Some(dir), Some(name)) = (
+        main.parent(),
+        main.file_name().map(|n| n.to_string_lossy().to_lowercase()),
+    ) else {
+        return Vec::new();
+    };
+    let stem = name
+        .rsplit_once('.')
+        .map_or(name.as_str(), |(s, _)| s)
+        .to_string();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut out: Vec<PathBuf> = Vec::new();
     for e in rd.flatten() {
         let n = e.file_name().to_string_lossy().to_lowercase();
@@ -820,7 +1012,10 @@ fn sqlite_journals(main: &Path) -> Vec<PathBuf> {
         .iter()
         .filter_map(|s| {
             let p = PathBuf::from(format!("{}{s}", main.display()));
-            std::fs::metadata(&p).ok().filter(|m| m.is_file() && m.len() > 0).map(|_| plain(std::fs::canonicalize(&p).unwrap_or(p)))
+            std::fs::metadata(&p)
+                .ok()
+                .filter(|m| m.is_file() && m.len() > 0)
+                .map(|_| plain(std::fs::canonicalize(&p).unwrap_or(p)))
         })
         .collect()
 }
@@ -834,13 +1029,18 @@ fn geo_args(call: &ReaderCall) -> Result<String, String> {
             return Err("«st_read» lee un archivo: después de la ruta van solo opciones con nombre (layer = '…')".into());
         };
         if !GEO_PARAMS.contains(&name) {
-            return Err(format!("«st_read» no acepta «{name}» en estas celdas (sí: {})", GEO_PARAMS.join(", ")));
+            return Err(format!(
+                "«st_read» no acepta «{name}» en estas celdas (sí: {})",
+                GEO_PARAMS.join(", ")
+            ));
         }
         let Some(value) = &a.value else {
             return Err(format!("«st_read»: el valor de «{name}» tiene que ser un texto, un número, true/false o una lista de textos escritos tal cual"));
         };
         match (name, value) {
-            ("layer", Lit::Str(_)) | ("keep_wkb", Lit::Word(_)) | ("max_batch_size", Lit::Word(_)) => {}
+            ("layer", Lit::Str(_))
+            | ("keep_wkb", Lit::Word(_))
+            | ("max_batch_size", Lit::Word(_)) => {}
             ("open_options", Lit::List(opts)) => {
                 for o in opts {
                     let (k, v) = o.split_once('=').unwrap_or((o, ""));
@@ -849,7 +1049,9 @@ fn geo_args(call: &ReaderCall) -> Result<String, String> {
                         return Err(format!("«st_read»: la opción de GDAL «{}» no se puede usar en estas celdas (sí: {})", k.trim(), GEO_OPEN_OPTIONS.join(", ")));
                     }
                     if v.contains(['/', '\\', ':']) || v.to_ascii_lowercase().contains("vsi") {
-                        return Err(format!("«st_read»: el valor de «{key}» no puede ser una ruta ni una dirección"));
+                        return Err(format!(
+                            "«st_read»: el valor de «{key}» no puede ser una ruta ni una dirección"
+                        ));
                     }
                 }
             }
@@ -857,21 +1059,33 @@ fn geo_args(call: &ReaderCall) -> Result<String, String> {
         }
         out.push_str(&format!(", {name} = {}", value.sql()));
     }
-    out.push_str(&format!(", allowed_drivers = {}", Lit::List(GEO_DRIVERS.iter().map(|d| d.to_string()).collect()).sql()));
+    out.push_str(&format!(
+        ", allowed_drivers = {}",
+        Lit::List(GEO_DRIVERS.iter().map(|d| d.to_string()).collect()).sql()
+    ));
     Ok(out)
 }
 
 /// The reader calls of `sql`, resolved against `base` (the notebook's
 /// folder; `None` for an unsaved notebook).
 #[cfg_attr(not(test), allow(dead_code))]
-pub fn plan(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64) -> Result<Vec<FileRead>, String> {
+pub fn plan(
+    sql: &str,
+    base: Option<&Path>,
+    home: Option<&Path>,
+    cap: u64,
+) -> Result<Vec<FileRead>, String> {
     plan_with(sql, base, home, cap, &super::remote::Net::default())
 }
 
 /// A reader call over URLs (`https://`, `s3://`, `gs://`, `az://`): its
 /// entries are the URLs and patterns as written, canonical, with nothing
 /// fetched yet (the approval comes first, [`super::remote::expand`] after).
-fn plan_remote(call: ReaderCall, urls: Vec<super::remote::RemoteUrl>, cap: u64) -> Result<FileRead, String> {
+fn plan_remote(
+    call: ReaderCall,
+    urls: Vec<super::remote::RemoteUrl>,
+    cap: u64,
+) -> Result<FileRead, String> {
     use super::remote::{pending_file, Cloud, REMOTE_READERS};
     let f = call.function.as_str();
     if !REMOTE_READERS.contains(&f) {
@@ -881,15 +1095,33 @@ fn plan_remote(call: ReaderCall, urls: Vec<super::remote::RemoteUrl>, cap: u64) 
     let mut extension = None;
     if f == "st_read" {
         let [u] = urls.as_slice() else {
-            return Err(format!("«st_read» lee un solo archivo y «{}» son {}", call.paths.join(", "), urls.len()));
+            return Err(format!(
+                "«st_read» lee un solo archivo y «{}» son {}",
+                call.paths.join(", "),
+                urls.len()
+            ));
         };
         if call.list {
-            return Err(format!("«st_read» lee un solo archivo y «{}» es una lista", call.paths.join(", ")));
+            return Err(format!(
+                "«st_read» lee un solo archivo y «{}» es una lista",
+                call.paths.join(", ")
+            ));
         }
         if u.cloud != Cloud::Https {
-            return Err(format!("«st_read» lee de la red solo https://: «{}»", u.canonical));
+            return Err(format!(
+                "«st_read» lee de la red solo https://: «{}»",
+                u.canonical
+            ));
         }
-        let name = u.key.split('?').next().unwrap_or("").rsplit('/').next().unwrap_or("").to_string();
+        let name = u
+            .key
+            .split('?')
+            .next()
+            .unwrap_or("")
+            .rsplit('/')
+            .next()
+            .unwrap_or("")
+            .to_string();
         let ext = geo_ext_of(&name);
         if GEO_INDIRECT.contains(&ext.as_str()) {
             return Err(format!("«st_read» no lee archivos «.{ext}» en estas celdas: apuntan a otros archivos o a la red (un VRT, un GML…)"));
@@ -898,11 +1130,21 @@ fn plan_remote(call: ReaderCall, urls: Vec<super::remote::RemoteUrl>, cap: u64) 
             return Err(format!("«st_read» lee un shapefile desde la red solo comprimido («.shp.zip» o «.shz»): «{}»", u.canonical));
         }
         if ext == "zip" {
-            return Err(format!("«st_read» lee comprimido solo un shapefile «.shp.zip» o «.shz»: «{}»", u.canonical));
+            return Err(format!(
+                "«st_read» lee comprimido solo un shapefile «.shp.zip» o «.shz»: «{}»",
+                u.canonical
+            ));
         }
         if !GEO_FORMATS.contains(&ext.as_str()) {
-            let list: Vec<String> = GEO_FORMATS.iter().filter(|e| !matches!(**e, "shp" | "dbf")).map(|e| format!(".{e}")).collect();
-            return Err(format!("«st_read» no lee «.{ext}» en estas celdas (sí: {})", list.join(", ")));
+            let list: Vec<String> = GEO_FORMATS
+                .iter()
+                .filter(|e| !matches!(**e, "shp" | "dbf"))
+                .map(|e| format!(".{e}"))
+                .collect();
+            return Err(format!(
+                "«st_read» no lee «.{ext}» en estas celdas (sí: {})",
+                list.join(", ")
+            ));
         }
         rest = geo_args(&call)?;
         extension = Some("spatial");
@@ -917,26 +1159,68 @@ fn plan_remote(call: ReaderCall, urls: Vec<super::remote::RemoteUrl>, cap: u64) 
         return Err(format!("«{f}» lee más de {MAX_FILES} archivos"));
     }
     let single = !call.list && files.len() == 1 && !urls[0].glob;
-    let arg = if single { lit(&files[0].path) } else { format!("[{}]", files.iter().map(|x| lit(&x.path)).collect::<Vec<_>>().join(", ")) };
+    let arg = if single {
+        lit(&files[0].path)
+    } else {
+        format!(
+            "[{}]",
+            files
+                .iter()
+                .map(|x| lit(&x.path))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     let text = format!("{f}({arg}{rest})");
     let table = format!("file:{}", &sha256_hex(text.as_bytes())[..16]);
-    let display = if files.len() == 1 { files[0].display.clone() } else { call.paths.join(", ") };
-    let mut r = FileRead { call, text, files, table, key: String::new(), display, kind: ReadKind::Duck { extension }, rest, remote: true, gpkg_copy: false };
+    let display = if files.len() == 1 {
+        files[0].display.clone()
+    } else {
+        call.paths.join(", ")
+    };
+    let mut r = FileRead {
+        call,
+        text,
+        files,
+        table,
+        key: String::new(),
+        display,
+        kind: ReadKind::Duck { extension },
+        rest,
+        remote: true,
+        gpkg_copy: false,
+    };
     r.rekey(cap);
     Ok(r)
 }
 
 /// [`plan`], reading URLs as `net` allows ([`super::remote::parse`]).
-pub fn plan_with(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64, net: &super::remote::Net) -> Result<Vec<FileRead>, String> {
+pub fn plan_with(
+    sql: &str,
+    base: Option<&Path>,
+    home: Option<&Path>,
+    cap: u64,
+    net: &super::remote::Net,
+) -> Result<Vec<FileRead>, String> {
     let mut out = Vec::new();
     for call in reader_calls(sql)? {
         let f = call.function.as_str();
-        let urls: Vec<Option<super::remote::RemoteUrl>> = call.paths.iter().map(|p| super::remote::parse(p.trim(), net)).collect::<Result<_, _>>()?;
+        let urls: Vec<Option<super::remote::RemoteUrl>> = call
+            .paths
+            .iter()
+            .map(|p| super::remote::parse(p.trim(), net))
+            .collect::<Result<_, _>>()?;
         if urls.iter().any(Option::is_some) {
             if urls.iter().any(Option::is_none) {
-                return Err(format!("«{f}» no puede mezclar archivos locales y URLs en la misma llamada"));
+                return Err(format!(
+                    "«{f}» no puede mezclar archivos locales y URLs en la misma llamada"
+                ));
             }
-            out.push(plan_remote(call, urls.into_iter().flatten().collect(), cap)?);
+            out.push(plan_remote(
+                call,
+                urls.into_iter().flatten().collect(),
+                cap,
+            )?);
             continue;
         }
         let mut paths = Vec::new();
@@ -955,14 +1239,23 @@ pub fn plan_with(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64, 
         }
         let one = matches!(f, "read_xlsx" | "st_read" | "sqlite_scan");
         if one && (paths.len() != 1 || call.list || call.paths.iter().any(|p| has_glob(p))) {
-            return Err(format!("«{f}» lee un solo archivo y «{}» son {}", call.paths.join(", "), paths.len()));
+            return Err(format!(
+                "«{f}» lee un solo archivo y «{}» son {}",
+                call.paths.join(", "),
+                paths.len()
+            ));
         }
-        let mut files = paths.iter().map(|p| data_file(p, base, home)).collect::<Result<Vec<_>, _>>()?;
+        let mut files = paths
+            .iter()
+            .map(|p| data_file(p, base, home))
+            .collect::<Result<Vec<_>, _>>()?;
         for (f, pattern) in files.iter_mut().zip(patterns) {
             f.pattern = pattern;
         }
         // What each reader takes after the path, and the files read with it.
-        let mut kind = ReadKind::Duck { extension: (f == "read_xlsx").then_some("excel") };
+        let mut kind = ReadKind::Duck {
+            extension: (f == "read_xlsx").then_some("excel"),
+        };
         let mut rest = call.rest.clone();
         // (the file it goes with, the sidecar)
         let mut side: Vec<(usize, PathBuf)> = Vec::new();
@@ -978,7 +1271,10 @@ pub fn plan_with(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64, 
                 }
                 if !GEO_FORMATS.contains(&ext.as_str()) {
                     let list: Vec<String> = GEO_FORMATS.iter().map(|e| format!(".{e}")).collect();
-                    return Err(format!("«st_read» no lee «.{ext}» en estas celdas (sí: {})", list.join(", ")));
+                    return Err(format!(
+                        "«st_read» no lee «.{ext}» en estas celdas (sí: {})",
+                        list.join(", ")
+                    ));
                 }
                 rest = geo_args(&call)?;
                 let exts = match ext.as_str() {
@@ -986,14 +1282,19 @@ pub fn plan_with(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64, 
                     "csv" => CSV_SIDECARS,
                     _ => &[],
                 };
-                side = sidecars(&paths[0], exts).into_iter().map(|p| (0, p)).collect();
+                side = sidecars(&paths[0], exts)
+                    .into_iter()
+                    .map(|p| (0, p))
+                    .collect();
                 // A GeoPackage is a SQLite file: a pending -wal or -journal
                 // is part of it, read from a private copy ([`gpkg_copy`]).
                 if ext == "gpkg" {
                     side.extend(sqlite_journals(&paths[0]).into_iter().map(|p| (0, p)));
                     gpkg = !side.is_empty();
                 }
-                kind = ReadKind::Duck { extension: Some("spatial") };
+                kind = ReadKind::Duck {
+                    extension: Some("spatial"),
+                };
             }
             "sqlite_scan" => {
                 let table = match call.args.as_slice() {
@@ -1001,7 +1302,10 @@ pub fn plan_with(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64, 
                     _ => return Err("«sqlite_scan» lleva el archivo y el nombre de la tabla: sqlite_scan('archivo.db', 'tabla')".into()),
                 };
                 rest = format!(", {}", lit(&table));
-                side = sqlite_journals(&paths[0]).into_iter().map(|p| (0, p)).collect();
+                side = sqlite_journals(&paths[0])
+                    .into_iter()
+                    .map(|p| (0, p))
+                    .collect();
                 kind = ReadKind::Sqlite { table };
             }
             "read_duckdb" => {
@@ -1015,7 +1319,10 @@ pub fn plan_with(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64, 
                     }
                 }
                 let Some(table) = table else {
-                    return Err("«read_duckdb» necesita la tabla: read_duckdb('archivo.duckdb', 'tabla')".into());
+                    return Err(
+                        "«read_duckdb» necesita la tabla: read_duckdb('archivo.duckdb', 'tabla')"
+                            .into(),
+                    );
                 };
                 rest = format!(", table_name = {}", lit(&table));
                 if let Some(s) = schema {
@@ -1036,13 +1343,43 @@ pub fn plan_with(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64, 
             files[*owner].sidecars.push(d);
         }
         let single = !call.list && paths.len() == 1 && !call.paths.iter().any(|p| has_glob(p));
-        let arg = if single { lit(&files[0].path) } else { format!("[{}]", files.iter().map(|f| lit(&f.path)).collect::<Vec<_>>().join(", ")) };
+        let arg = if single {
+            lit(&files[0].path)
+        } else {
+            format!(
+                "[{}]",
+                files
+                    .iter()
+                    .map(|f| lit(&f.path))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
         let text = format!("{f}({arg}{rest})");
         let table = format!("file:{}", &sha256_hex(text.as_bytes())[..16]);
-        let metas: Vec<(&str, u64, i64)> = files.iter().flat_map(|f| f.all()).map(|f| (f.path.as_str(), f.size, f.mtime_ms)).collect();
+        let metas: Vec<(&str, u64, i64)> = files
+            .iter()
+            .flat_map(|f| f.all())
+            .map(|f| (f.path.as_str(), f.size, f.mtime_ms))
+            .collect();
         let key = sha256_hex(serde_json::json!([text, metas, cap]).to_string().as_bytes());
-        let display = if files.len() == 1 { files[0].display.clone() } else { call.paths.join(", ") };
-        out.push(FileRead { call, text, files, table, key, display, kind, rest, remote: false, gpkg_copy: gpkg });
+        let display = if files.len() == 1 {
+            files[0].display.clone()
+        } else {
+            call.paths.join(", ")
+        };
+        out.push(FileRead {
+            call,
+            text,
+            files,
+            table,
+            key,
+            display,
+            kind,
+            rest,
+            remote: false,
+            gpkg_copy: gpkg,
+        });
     }
     Ok(out)
 }
@@ -1058,7 +1395,10 @@ pub fn rewrite(sql: &str, reads: &[FileRead]) -> String {
             continue;
         }
         out.push_str(&sql[at..r.call.start]);
-        out.push_str(&dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Double, &r.table));
+        out.push_str(&dbine_driver::sql::quote_ident(
+            dbine_driver::sql::Quote::Double,
+            &r.table,
+        ));
         at = r.call.end;
     }
     out.push_str(&sql[at..]);
@@ -1073,7 +1413,10 @@ pub fn rewrite(sql: &str, reads: &[FileRead]) -> String {
 /// always-blocked list refuses the run ([`super::access::Policy`]); a file
 /// neither granted to this notebook nor approved for this run stops it
 /// before anything runs, and the UI asks ([`super::access::Gate::Ask`]).
-pub fn allowed_files(files: &[DataFile], access: &super::access::Access<'_>) -> Result<Vec<DataFile>, super::access::Gate> {
+pub fn allowed_files(
+    files: &[DataFile],
+    access: &super::access::Access<'_>,
+) -> Result<Vec<DataFile>, super::access::Gate> {
     access.gate(files)
 }
 
@@ -1093,12 +1436,22 @@ pub enum ExtensionUse {
 /// the first time (`INSTALL`, as the data-file connections do for
 /// `.xlsx`); only while the session isn't locked down yet. `what`: what it
 /// is for, for the message.
-pub async fn load_extension(s: &mut dyn Session, name: &str, what: ExtensionUse) -> CommandResult<()> {
+pub async fn load_extension(
+    s: &mut dyn Session,
+    name: &str,
+    what: ExtensionUse,
+) -> CommandResult<()> {
     let mut out = QueryOutcome::default();
-    let loaded = s.execute(&format!("LOAD {name}"), 1, &mut out).await.is_ok() && out.error.is_none();
+    let loaded = s
+        .execute(&format!("LOAD {name}"), 1, &mut out)
+        .await
+        .is_ok()
+        && out.error.is_none();
     if !loaded {
         let mut out = QueryOutcome::default();
-        let r = s.execute(&format!("INSTALL {name}; LOAD {name}"), 1, &mut out).await;
+        let r = s
+            .execute(&format!("INSTALL {name}; LOAD {name}"), 1, &mut out)
+            .await;
         if let Some(e) = r.err().map(|e| e.to_string()).or(out.error) {
             return Err(CommandError::Internal(match what {
                 ExtensionUse::CellSpatial => format!("no se pudo cargar la extensión {name} de DuckDB para las funciones geográficas (ST_…) de esta celda: {e}"),
@@ -1114,7 +1467,12 @@ pub async fn load_extension(s: &mut dyn Session, name: &str, what: ExtensionUse)
 /// (and, for `read_duckdb`, the path of each file's write-ahead log, which
 /// DuckDB looks for even when there is none).
 pub fn reader_paths(r: &FileRead) -> Vec<String> {
-    let mut out: Vec<String> = r.files.iter().flat_map(|f| f.all()).map(|f| f.path.clone()).collect();
+    let mut out: Vec<String> = r
+        .files
+        .iter()
+        .flat_map(|f| f.all())
+        .map(|f| f.path.clone())
+        .collect();
     if r.call.function == "read_duckdb" {
         for f in &r.files {
             let wal = format!("{}.wal", f.path);
@@ -1131,20 +1489,36 @@ pub fn reader_paths(r: &FileRead) -> Vec<String> {
 /// `allowed_paths` first (DuckDB only takes it while external access is
 /// on), the call's extension (`excel`, `spatial`) loaded, then the
 /// notebook's lockdown ([`super::local::sandbox`]).
-pub async fn open_reader(paths: &[String], extension: Option<&str>) -> CommandResult<Box<dyn Session>> {
-    let mut cfg = ConnectionConfig { driver: "duckdb".into(), host: ":memory:".into(), ..Default::default() };
+pub async fn open_reader(
+    paths: &[String],
+    extension: Option<&str>,
+) -> CommandResult<Box<dyn Session>> {
+    let mut cfg = ConnectionConfig {
+        driver: "duckdb".into(),
+        host: ":memory:".into(),
+        ..Default::default()
+    };
     cfg.options.insert("isolated".into(), "true".into());
     let mut s = dbine_drivers::open_session(&cfg, None).await?;
-    let fail = |e: String| CommandError::Internal(format!("no se pudo preparar la lectura de archivos: {e}"));
-    let grant = format!("SET allowed_paths = [{}]", paths.iter().map(|p| lit(p)).collect::<Vec<_>>().join(", "));
+    let fail = |e: String| {
+        CommandError::Internal(format!("no se pudo preparar la lectura de archivos: {e}"))
+    };
+    let grant = format!(
+        "SET allowed_paths = [{}]",
+        paths.iter().map(|p| lit(p)).collect::<Vec<_>>().join(", ")
+    );
     let mut out = QueryOutcome::default();
-    s.execute(&grant, 1, &mut out).await.map_err(|e| fail(e.to_string()))?;
+    s.execute(&grant, 1, &mut out)
+        .await
+        .map_err(|e| fail(e.to_string()))?;
     if let Some(e) = out.error {
         return Err(fail(e));
     }
     match extension {
         Some("excel") => load_extension(s.as_mut(), "excel", ExtensionUse::ReadWorkbook).await?,
-        Some("spatial") => load_extension(s.as_mut(), "spatial", ExtensionUse::ReadGeoFiles).await?,
+        Some("spatial") => {
+            load_extension(s.as_mut(), "spatial", ExtensionUse::ReadGeoFiles).await?
+        }
         Some(other) => return Err(fail(format!("extensión desconocida «{other}»"))),
         None => {}
     }
@@ -1162,21 +1536,37 @@ pub async fn open_reader(paths: &[String], extension: Option<&str>) -> CommandRe
 /// originals are only read. Returns the copy's path.
 pub fn gpkg_copy(main: &DataFile, dir: &Path) -> Result<String, String> {
     use rusqlite::OpenFlags;
-    let name = Path::new(&main.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "copia.gpkg".into());
+    let name = Path::new(&main.path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "copia.gpkg".into());
     let db = dir.join(&name);
-    std::fs::copy(&main.path, &db).map_err(|e| format!("no se pudo copiar «{}»: {e}", main.display))?;
+    std::fs::copy(&main.path, &db)
+        .map_err(|e| format!("no se pudo copiar «{}»: {e}", main.display))?;
     for s in &main.sidecars {
         let suffix = s.path.strip_prefix(&main.path).unwrap_or("");
         if matches!(suffix, "-wal" | "-journal") {
-            std::fs::copy(&s.path, dir.join(format!("{name}{suffix}"))).map_err(|e| format!("no se pudo copiar «{}»: {e}", s.display))?;
+            std::fs::copy(&s.path, dir.join(format!("{name}{suffix}")))
+                .map_err(|e| format!("no se pudo copiar «{}»: {e}", s.display))?;
         }
     }
-    let fail = |e: rusqlite::Error| format!("no se pudo aplicar el -wal de «{}» a su copia: {e}", main.display);
+    let fail = |e: rusqlite::Error| {
+        format!(
+            "no se pudo aplicar el -wal de «{}» a su copia: {e}",
+            main.display
+        )
+    };
     {
-        let c = rusqlite::Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(fail)?;
+        let c = rusqlite::Connection::open_with_flags(
+            &db,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(fail)?;
         let _ = c.pragma_update(None, "trusted_schema", false);
-        c.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).map_err(fail)?;
-        c.query_row("PRAGMA journal_mode = DELETE", [], |_| Ok(())).map_err(fail)?;
+        c.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .map_err(fail)?;
+        c.query_row("PRAGMA journal_mode = DELETE", [], |_| Ok(()))
+            .map_err(fail)?;
     }
     for suffix in ["-wal", "-shm", "-journal"] {
         let _ = std::fs::remove_file(dir.join(format!("{name}{suffix}")));
@@ -1200,7 +1590,10 @@ fn sqlite_uri(path: &Path, immutable: bool) -> String {
             enc.push_str(&format!("%{b:02X}"));
         }
     }
-    format!("file://{enc}?mode=ro{}", if immutable { "&immutable=1" } else { "" })
+    format!(
+        "file://{enc}?mode=ro{}",
+        if immutable { "&immutable=1" } else { "" }
+    )
 }
 
 /// A folder of DBine's own in the temp folder, removed when dropped.
@@ -1218,42 +1611,84 @@ impl Drop for TempDir {
 /// another program, or left mid-write) isn't the whole database by itself:
 /// it and its journal are copied into a private temp folder, the copy is
 /// read (SQLite applies the journal to the copy) and removed.
-pub fn read_sqlite(r: &FileRead, cap: u64, interrupt: &dyn Fn(rusqlite::InterruptHandle)) -> Result<(Vec<dbine_driver::ResultColumn>, Vec<Vec<serde_json::Value>>, bool), String> {
+pub fn read_sqlite(
+    r: &FileRead,
+    cap: u64,
+    interrupt: &dyn Fn(rusqlite::InterruptHandle),
+) -> Result<
+    (
+        Vec<dbine_driver::ResultColumn>,
+        Vec<Vec<serde_json::Value>>,
+        bool,
+    ),
+    String,
+> {
     use rusqlite::types::ValueRef;
     use rusqlite::OpenFlags;
-    let ReadKind::Sqlite { table } = &r.kind else { return Err("no es una lectura de SQLite".into()) };
+    let ReadKind::Sqlite { table } = &r.kind else {
+        return Err("no es una lectura de SQLite".into());
+    };
     let main = &r.files[0];
-    let fail = |e: rusqlite::Error| format!("no se pudo leer la tabla «{table}» de «{}»: {e}", main.display);
+    let fail = |e: rusqlite::Error| {
+        format!(
+            "no se pudo leer la tabla «{table}» de «{}»: {e}",
+            main.display
+        )
+    };
     let mut _copy = None;
     let (uri, flags) = if main.sidecars.is_empty() {
-        (sqlite_uri(Path::new(&main.path), true), OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        (
+            sqlite_uri(Path::new(&main.path), true),
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_URI
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
     } else {
-        let dir = std::env::temp_dir().join(format!("dbine-sqlite-{}", uuid::Uuid::new_v4().simple()));
+        let dir =
+            std::env::temp_dir().join(format!("dbine-sqlite-{}", uuid::Uuid::new_v4().simple()));
         let mut b = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-        b.create(&dir).map_err(|e| format!("no se pudo preparar la copia de «{}»: {e}", main.display))?;
+        b.create(&dir)
+            .map_err(|e| format!("no se pudo preparar la copia de «{}»: {e}", main.display))?;
         let tmp = TempDir(dir);
         let db = tmp.0.join("db");
-        std::fs::copy(&main.path, &db).map_err(|e| format!("no se pudo copiar «{}»: {e}", main.display))?;
+        std::fs::copy(&main.path, &db)
+            .map_err(|e| format!("no se pudo copiar «{}»: {e}", main.display))?;
         for s in &main.sidecars {
             let suffix = s.path.strip_prefix(&main.path).unwrap_or("");
             if matches!(suffix, "-wal" | "-journal") {
-                std::fs::copy(&s.path, tmp.0.join(format!("db{suffix}"))).map_err(|e| format!("no se pudo copiar «{}»: {e}", s.display))?;
+                std::fs::copy(&s.path, tmp.0.join(format!("db{suffix}")))
+                    .map_err(|e| format!("no se pudo copiar «{}»: {e}", s.display))?;
             }
         }
         let uri = sqlite_uri(&db, false).replace("?mode=ro", "?mode=rw");
         _copy = Some(tmp);
-        (uri, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        (
+            uri,
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+                | OpenFlags::SQLITE_OPEN_URI
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
     };
     let conn = rusqlite::Connection::open_with_flags(&uri, flags).map_err(fail)?;
     // No function with side effects runs from the file's views.
     let _ = conn.pragma_update(None, "trusted_schema", false);
     interrupt(conn.get_interrupt_handle());
-    let sql = format!("SELECT * FROM {} LIMIT {}", dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Double, table), cap.saturating_add(1));
+    let sql = format!(
+        "SELECT * FROM {} LIMIT {}",
+        dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Double, table),
+        cap.saturating_add(1)
+    );
     let mut stmt = conn.prepare(&sql).map_err(fail)?;
-    let columns: Vec<dbine_driver::ResultColumn> =
-        stmt.columns().iter().map(|c| dbine_driver::ResultColumn { name: c.name().to_string(), type_name: c.decl_type().unwrap_or("").to_string() }).collect();
+    let columns: Vec<dbine_driver::ResultColumn> = stmt
+        .columns()
+        .iter()
+        .map(|c| dbine_driver::ResultColumn {
+            name: c.name().to_string(),
+            type_name: c.decl_type().unwrap_or("").to_string(),
+        })
+        .collect();
     let n = columns.len();
     let mut rows = Vec::new();
     let mut q = stmt.query([]).map_err(fail)?;
@@ -1265,7 +1700,9 @@ pub fn read_sqlite(r: &FileRead, cap: u64, interrupt: &dyn Fn(rusqlite::Interrup
                 ValueRef::Integer(v) => dbine_driver::json_i64(v),
                 ValueRef::Real(v) => dbine_driver::json_f64(v),
                 ValueRef::Text(t) => String::from_utf8_lossy(t).into_owned().into(),
-                ValueRef::Blob(b) if dbine_driver::is_spatial_blob(b) => dbine_driver::json_spatial_bytes(b),
+                ValueRef::Blob(b) if dbine_driver::is_spatial_blob(b) => {
+                    dbine_driver::json_spatial_bytes(b)
+                }
                 ValueRef::Blob(b) => dbine_driver::json_bytes(b),
             });
         }

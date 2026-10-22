@@ -140,14 +140,24 @@ fn classify(text: String) -> Part {
         Part { kind, text, name }
     };
     if text.starts_with('`') {
-        return Part { kind: Kind::Column, text, name: None };
+        return Part {
+            kind: Kind::Column,
+            text,
+            name: None,
+        };
     }
     if text.starts_with("PRIMARY KEY") {
-        return Part { kind: Kind::Primary, text, name: None };
+        return Part {
+            kind: Kind::Primary,
+            text,
+            name: None,
+        };
     }
     if let Some(rest) = text.strip_prefix("CONSTRAINT ") {
         let at = text.len() - rest.len();
-        let after = ident_at(&text, at).map(|(_, end)| text[end..].trim_start().to_string()).unwrap_or_default();
+        let after = ident_at(&text, at)
+            .map(|(_, end)| text[end..].trim_start().to_string())
+            .unwrap_or_default();
         let kind = if after.starts_with("FOREIGN KEY") {
             Kind::ForeignKey
         } else if after.starts_with("CHECK") {
@@ -160,7 +170,11 @@ fn classify(text: String) -> Part {
     if let Some(p) = INDEX_PREFIXES.iter().find(|p| text.starts_with(**p)) {
         return named(Kind::Index, p.len(), text);
     }
-    Part { kind: Kind::Other, text, name: None }
+    Part {
+        kind: Kind::Other,
+        text,
+        name: None,
+    }
 }
 
 /// A `SHOW CREATE TABLE` taken apart; `None` when it doesn't look like one
@@ -225,7 +239,13 @@ fn referenced(text: &str, from: usize) -> Option<(usize, usize, Option<String>, 
 
 /// `part` with its name given by `name_of` and, for a foreign key to the
 /// table `from` itself (in `database` or unqualified), pointing to `to`.
-fn rewrite(part: &Part, name_of: &dyn Fn(&str) -> Option<String>, from: &str, to: &str, database: Option<&str>) -> String {
+fn rewrite(
+    part: &Part,
+    name_of: &dyn Fn(&str) -> Option<String>,
+    from: &str,
+    to: &str,
+    database: Option<&str>,
+) -> String {
     let mut text = part.text.clone();
     let mut name_end = 0;
     if let Some((s, e, n)) = &part.name {
@@ -237,7 +257,9 @@ fn rewrite(part: &Part, name_of: &dyn Fn(&str) -> Option<String>, from: &str, to
     }
     if part.kind == Kind::ForeignKey {
         if let Some((s, e, schema, table)) = referenced(&text, name_end) {
-            let same_db = schema.as_deref().is_none_or(|x| database.is_some_and(|d| d == x));
+            let same_db = schema
+                .as_deref()
+                .is_none_or(|x| database.is_some_and(|d| d == x));
             if table == from && same_db {
                 text = format!("{}{}{}", &text[..s], quote(to), &text[e..]);
             }
@@ -251,7 +273,9 @@ fn first_key_column(part: &Part) -> Option<String> {
     let end = part.name.as_ref().map(|(_, e, _)| *e).unwrap_or(0);
     let rest = part.text[end..].trim_start();
     let open = part.text.len() - rest.len();
-    rest.starts_with('(').then(|| ident_at(&part.text, open + 1).map(|(n, _)| n)).flatten()
+    rest.starts_with('(')
+        .then(|| ident_at(&part.text, open + 1).map(|(n, _)| n))
+        .flatten()
 }
 
 /// The original, as the server prints it.
@@ -266,30 +290,56 @@ pub(super) struct Original {
 
 /// Read the original's `SHOW CREATE TABLE` and refuse what can't be cloned
 /// faithfully. Nothing is written.
-pub(super) async fn inspect(driver: &dyn Driver, s: &mut dyn Session, name: &str) -> Result<Original> {
+pub(super) async fn inspect(
+    driver: &dyn Driver,
+    s: &mut dyn Session,
+    name: &str,
+) -> Result<Original> {
     let rows = strings(s, &format!("SHOW CREATE TABLE {}", quote(name))).await?;
-    let text = rows.into_iter().next().and_then(|r| r.into_iter().nth(1).flatten()).unwrap_or_default();
+    let text = rows
+        .into_iter()
+        .next()
+        .and_then(|r| r.into_iter().nth(1).flatten())
+        .unwrap_or_default();
     let create = parse(&text).ok_or_else(|| {
         Error::Unsupported(format!("no se puede clonar: no se pudo interpretar la definición de «{name}» (SHOW CREATE TABLE)"))
     })?;
     refuse(&create)?;
     if driver.info().id == "tidb" && create.parts.iter().any(|p| p.kind == Kind::Check) {
-        let on = strings(s, "SELECT @@global.tidb_enable_check_constraint").await.ok().and_then(|r| r.into_iter().next()).and_then(|r| r.into_iter().next().flatten());
-        if !matches!(on.as_deref().map(str::trim), Some("1") | Some("ON") | Some("on")) {
+        let on = strings(s, "SELECT @@global.tidb_enable_check_constraint")
+            .await
+            .ok()
+            .and_then(|r| r.into_iter().next())
+            .and_then(|r| r.into_iter().next().flatten());
+        if !matches!(
+            on.as_deref().map(str::trim),
+            Some("1") | Some("ON") | Some("on")
+        ) {
             return Err(Error::Unsupported(
                 "no se puede clonar: la tabla tiene restricciones CHECK y el servidor las tiene desactivadas (tidb_enable_check_constraint = OFF); el clon las perdería. Activalas con SET GLOBAL tidb_enable_check_constraint = ON y volvé a intentar".into(),
             ));
         }
     }
-    let database = strings(s, "SELECT DATABASE()").await.ok().and_then(|r| r.into_iter().next()).and_then(|r| r.into_iter().next().flatten());
-    Ok(Original { create, database, tidb: driver.info().id == "tidb" })
+    let database = strings(s, "SELECT DATABASE()")
+        .await
+        .ok()
+        .and_then(|r| r.into_iter().next())
+        .and_then(|r| r.into_iter().next().flatten());
+    Ok(Original {
+        create,
+        database,
+        tidb: driver.info().id == "tidb",
+    })
 }
 
 /// What a faithful clone can't be made of.
 pub(super) fn refuse(c: &ShowCreate) -> Result<()> {
     let upper = |s: &str| s.to_ascii_uppercase();
     if upper(&c.tail).contains("WITH SYSTEM VERSIONING")
-        || c.parts.iter().any(|p| upper(&p.text).contains("WITH SYSTEM VERSIONING") || upper(&p.text).starts_with("PERIOD FOR SYSTEM_TIME"))
+        || c.parts.iter().any(|p| {
+            upper(&p.text).contains("WITH SYSTEM VERSIONING")
+                || upper(&p.text).starts_with("PERIOD FOR SYSTEM_TIME")
+        })
     {
         return Err(Error::Unsupported(
             "no se puede clonar: la tabla tiene versionado de sistema (WITH SYSTEM VERSIONING); su historial no se puede copiar y el clon no sería igual".into(),
@@ -311,9 +361,21 @@ pub(super) struct Ddl {
 /// server requires it). Names not in `renames` yet (the catalog didn't
 /// report them) are renamed here and added.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn ddl(o: &Original, renames: &mut Vec<Rename>, old: &str, new: &str, sql_name: &str, auto: &[String], with_indexes: bool, max: usize) -> Ddl {
+pub(super) fn ddl(
+    o: &Original,
+    renames: &mut Vec<Rename>,
+    old: &str,
+    new: &str,
+    sql_name: &str,
+    auto: &[String],
+    with_indexes: bool,
+    max: usize,
+) -> Ddl {
     let notes = complete(o, renames, old, new, max, &[]);
-    let map: HashMap<String, String> = renames.iter().map(|r| (r.from.clone(), r.to.clone())).collect();
+    let map: HashMap<String, String> = renames
+        .iter()
+        .map(|r| (r.from.clone(), r.to.clone()))
+        .collect();
     let name_of = |n: &str| map.get(n).cloned();
     let db = o.database.as_deref();
     let mut body = Vec::new();
@@ -339,26 +401,48 @@ pub(super) fn ddl(o: &Original, renames: &mut Vec<Rename>, old: &str, new: &str,
             _ => body.push(text),
         }
     }
-    let create = format!("CREATE TABLE {sql_name} (\n  {}\n{}", body.join(",\n  "), o.create.tail);
-    let alter = |v: Vec<String>| (!v.is_empty()).then(|| format!("ALTER TABLE {sql_name} {}", v.join(", ")));
+    let create = format!(
+        "CREATE TABLE {sql_name} (\n  {}\n{}",
+        body.join(",\n  "),
+        o.create.tail
+    );
+    let alter = |v: Vec<String>| {
+        (!v.is_empty()).then(|| format!("ALTER TABLE {sql_name} {}", v.join(", ")))
+    };
     // InnoDB (MySQL) adds one FULLTEXT index per ALTER: with more than one,
     // each goes in its own statement.
     let indexes = if fulltext.len() > 1 {
         let mut stmts: Vec<String> = alter(indexes).into_iter().collect();
-        stmts.extend(fulltext.into_iter().map(|f| format!("ALTER TABLE {sql_name} {f}")));
+        stmts.extend(
+            fulltext
+                .into_iter()
+                .map(|f| format!("ALTER TABLE {sql_name} {f}")),
+        );
         Some(stmts.join(";\n"))
     } else {
         indexes.extend(fulltext);
         alter(indexes)
     };
-    Ddl { create, indexes, foreign_keys: alter(fks), notes }
+    Ddl {
+        create,
+        indexes,
+        foreign_keys: alter(fks),
+        notes,
+    }
 }
 
 /// Renames for the names in the definition that `renames` doesn't have yet
 /// (the catalog didn't report them), never one in `reserved` (another
 /// object of the schema has it; compared ignoring case). The notes say
 /// which were shortened or moved.
-pub(super) fn complete(o: &Original, renames: &mut Vec<Rename>, old: &str, new: &str, max: usize, reserved: &[String]) -> Vec<String> {
+pub(super) fn complete(
+    o: &Original,
+    renames: &mut Vec<Rename>,
+    old: &str,
+    new: &str,
+    max: usize,
+    reserved: &[String],
+) -> Vec<String> {
     let mut notes = Vec::new();
     for p in &o.create.parts {
         let Some((_, _, n)) = &p.name else { continue };
@@ -371,19 +455,39 @@ pub(super) fn complete(o: &Original, renames: &mut Vec<Rename>, old: &str, new: 
         let (mut to, shortened) = super::rename_capped(n, old, new, max, true, bytes);
         let first = to.clone();
         let mut k = 0u32;
-        while renames.iter().map(|r| &r.to).chain(reserved).any(|u| u.eq_ignore_ascii_case(&to)) {
+        while renames
+            .iter()
+            .map(|r| &r.to)
+            .chain(reserved)
+            .any(|u| u.eq_ignore_ascii_case(&to))
+        {
             k += 1;
             let suffix = format!("_{:08x}", fnv(&format!("{n}#{k}")));
-            let base = super::fit(&to, max.saturating_sub(suffix.len()), true, bytes.saturating_sub(suffix.len())).to_string();
+            let base = super::fit(
+                &to,
+                max.saturating_sub(suffix.len()),
+                true,
+                bytes.saturating_sub(suffix.len()),
+            )
+            .to_string();
             to = format!("{base}{suffix}");
         }
         if shortened {
-            notes.push(format!("nombre acortado para entrar en el límite de {} del motor: {n} → {to}", super::limit_text(max, true, bytes)));
+            notes.push(format!(
+                "nombre acortado para entrar en el límite de {} del motor: {n} → {to}",
+                super::limit_text(max, true, bytes)
+            ));
         }
         if reserved.iter().any(|u| u.eq_ignore_ascii_case(&first)) {
-            notes.push(format!("nombre que ya usaba otro objeto del esquema, cambiado: {n} → {to}"));
+            notes.push(format!(
+                "nombre que ya usaba otro objeto del esquema, cambiado: {n} → {to}"
+            ));
         }
-        renames.push(Rename { from: n.clone(), to, shortened });
+        renames.push(Rename {
+            from: n.clone(),
+            to,
+            shortened,
+        });
     }
     notes
 }
@@ -391,7 +495,9 @@ pub(super) fn complete(o: &Original, renames: &mut Vec<Rename>, old: &str, new: 
 /// `… CHECK ((cond)) …` as `… CHECK (cond) …` when the inner parentheses
 /// hold the whole condition (not `CHECK ((a) OR (b))`).
 fn unwrap_check(text: &str) -> String {
-    let Some(at) = find_outside(text, 0, "CHECK ((") else { return text.to_string() };
+    let Some(at) = find_outside(text, 0, "CHECK ((") else {
+        return text.to_string();
+    };
     let open = at + "CHECK (".len();
     let close_of = |from: usize| {
         let mut depth = 0i32;
@@ -412,7 +518,12 @@ fn unwrap_check(text: &str) -> String {
         None
     };
     match (close_of(open), close_of(open - 1)) {
-        (Some(inner), Some(outer)) if outer == inner + 1 => format!("{}{}{}", &text[..open], &text[open + 1..inner], &text[inner + 1..]),
+        (Some(inner), Some(outer)) if outer == inner + 1 => format!(
+            "{}{}{}",
+            &text[..open],
+            &text[open + 1..inner],
+            &text[inner + 1..]
+        ),
         _ => text.to_string(),
     }
 }
@@ -432,7 +543,14 @@ fn without_counters(tail: &str) -> String {
 
 /// A definition reduced to what must be equal: columns in order, the other
 /// elements as a sorted list, the table options without counters.
-fn comparable(c: &ShowCreate, name_of: &dyn Fn(&str) -> Option<String>, from: &str, to: &str, db: Option<&str>, keep: &dyn Fn(Kind) -> bool) -> (Vec<String>, Vec<String>, String) {
+fn comparable(
+    c: &ShowCreate,
+    name_of: &dyn Fn(&str) -> Option<String>,
+    from: &str,
+    to: &str,
+    db: Option<&str>,
+    keep: &dyn Fn(Kind) -> bool,
+) -> (Vec<String>, Vec<String>, String) {
     let mut cols = Vec::new();
     let mut rest = Vec::new();
     for p in c.parts.iter().filter(|p| keep(p.kind)) {
@@ -458,15 +576,33 @@ pub(super) enum Stage {
 
 /// The differences between the original's definition and the clone's
 /// (names mapped back), in Spanish; empty when equal.
-pub(super) fn differences(original: &ShowCreate, clone: &ShowCreate, renames: &[Rename], old: &str, new: &str, db: Option<&str>, stage: Stage) -> Vec<String> {
-    let back: HashMap<&str, &str> = renames.iter().map(|r| (r.to.as_str(), r.from.as_str())).collect();
+pub(super) fn differences(
+    original: &ShowCreate,
+    clone: &ShowCreate,
+    renames: &[Rename],
+    old: &str,
+    new: &str,
+    db: Option<&str>,
+    stage: Stage,
+) -> Vec<String> {
+    let back: HashMap<&str, &str> = renames
+        .iter()
+        .map(|r| (r.to.as_str(), r.from.as_str()))
+        .collect();
     let keep = |k: Kind| match stage {
         Stage::Created => !matches!(k, Kind::Index | Kind::ForeignKey),
         Stage::Done { with_indexes } => with_indexes || k != Kind::Index,
     };
     let same = |_: &str| None;
     let a = comparable(original, &same, old, old, db, &keep);
-    let b = comparable(clone, &|n: &str| back.get(n).map(|s| s.to_string()), new, old, db, &keep);
+    let b = comparable(
+        clone,
+        &|n: &str| back.get(n).map(|s| s.to_string()),
+        new,
+        old,
+        db,
+        &keep,
+    );
     let show = |s: &str| {
         let s = s.replace('\n', " ");
         if s.chars().count() > 160 {
@@ -481,7 +617,11 @@ pub(super) fn differences(original: &ShowCreate, clone: &ShowCreate, renames: &[
             out.push(format!("original «{}», clon «{}»", show(x), show(y)));
         }
         if a.0.len() != b.0.len() {
-            out.push(format!("{} columnas en el original, {} en el clon", a.0.len(), b.0.len()));
+            out.push(format!(
+                "{} columnas en el original, {} en el clon",
+                a.0.len(),
+                b.0.len()
+            ));
         }
     }
     if a.1 != b.1 {
@@ -503,22 +643,48 @@ pub(super) fn differences(original: &ShowCreate, clone: &ShowCreate, renames: &[
         }
     }
     if a.2 != b.2 {
-        out.push(format!("opciones de la tabla: original «{}», clon «{}»", show(a.2.trim_start_matches(')').trim()), show(b.2.trim_start_matches(')').trim())));
+        out.push(format!(
+            "opciones de la tabla: original «{}», clon «{}»",
+            show(a.2.trim_start_matches(')').trim()),
+            show(b.2.trim_start_matches(')').trim())
+        ));
     }
     out
 }
 
 /// The clone's `SHOW CREATE TABLE` against the original's: anything
 /// different refuses the clone (the caller drops it).
-pub(super) async fn verify(s: &mut dyn Session, o: &Original, renames: &[Rename], old: &str, new: &str, stage: Stage) -> Result<()> {
+pub(super) async fn verify(
+    s: &mut dyn Session,
+    o: &Original,
+    renames: &[Rename],
+    old: &str,
+    new: &str,
+    stage: Stage,
+) -> Result<()> {
     let rows = strings(s, &format!("SHOW CREATE TABLE {}", quote(new))).await?;
-    let text = rows.into_iter().next().and_then(|r| r.into_iter().nth(1).flatten()).unwrap_or_default();
+    let text = rows
+        .into_iter()
+        .next()
+        .and_then(|r| r.into_iter().nth(1).flatten())
+        .unwrap_or_default();
     let clone = parse(&text).ok_or_else(|| Error::State("no se pudo leer la definición del clon para compararla con la del original; no se clona".into()))?;
-    let diffs = differences(&o.create, &clone, renames, old, new, o.database.as_deref(), stage);
+    let diffs = differences(
+        &o.create,
+        &clone,
+        renames,
+        old,
+        new,
+        o.database.as_deref(),
+        stage,
+    );
     if diffs.is_empty() {
         Ok(())
     } else {
-        Err(Error::State(format!("el clon no quedó igual al original ({}); no se clona", diffs.join("; "))))
+        Err(Error::State(format!(
+            "el clon no quedó igual al original ({}); no se clona",
+            diffs.join("; ")
+        )))
     }
 }
 
@@ -544,20 +710,44 @@ mod tests {
 PARTITIONS 3 */";
 
     fn original() -> Original {
-        Original { create: parse(MYSQL).unwrap(), database: Some("db".into()), tidb: false }
+        Original {
+            create: parse(MYSQL).unwrap(),
+            database: Some("db".into()),
+            tidb: false,
+        }
     }
 
     #[test]
     fn completed_names_avoid_the_schemas() {
         let o = original();
         let mut renames = Vec::new();
-        let notes = complete(&o, &mut renames, "cli`ente ñ", "copia", 64, &["COPIA_FK_SELF".into(), "otro".into()]);
-        let fk = renames.iter().find(|r| r.from == "fk_self").unwrap().clone();
+        let notes = complete(
+            &o,
+            &mut renames,
+            "cli`ente ñ",
+            "copia",
+            64,
+            &["COPIA_FK_SELF".into(), "otro".into()],
+        );
+        let fk = renames
+            .iter()
+            .find(|r| r.from == "fk_self")
+            .unwrap()
+            .clone();
         assert!(fk.to.starts_with("copia_fk_self_"), "{renames:?}");
         assert!(notes.iter().any(|n| n.contains("fk_self →")), "{notes:?}");
         // Already complete: nothing more, and `ddl` keeps them.
         let before = renames.clone();
-        let d = ddl(&o, &mut renames, "cli`ente ñ", "copia", "`copia`", &["id".into()], true, 64);
+        let d = ddl(
+            &o,
+            &mut renames,
+            "cli`ente ñ",
+            "copia",
+            "`copia`",
+            &["id".into()],
+            true,
+            64,
+        );
         assert_eq!(renames.len(), before.len());
         assert!(d.foreign_keys.unwrap().contains(&format!("`{}`", fk.to)));
     }
@@ -567,9 +757,19 @@ PARTITIONS 3 */";
         let c = parse(MYSQL).unwrap();
         let kinds: Vec<Kind> = c.parts.iter().map(|p| p.kind).collect();
         use Kind::*;
-        assert_eq!(kinds, vec![Column, Column, Column, Column, Column, Column, Primary, Index, Index, Index, ForeignKey, Check]);
+        assert_eq!(
+            kinds,
+            vec![
+                Column, Column, Column, Column, Column, Column, Primary, Index, Index, Index,
+                ForeignKey, Check
+            ]
+        );
         assert_eq!(c.parts[11].name.as_ref().unwrap().2, "chk_cli`ente ñ_saldo");
-        assert!(c.parts[2].text.ends_with("DEFAULT 'x, y'"), "{}", c.parts[2].text);
+        assert!(
+            c.parts[2].text.ends_with("DEFAULT 'x, y'"),
+            "{}",
+            c.parts[2].text
+        );
         assert!(c.tail.contains("PARTITIONS 3"));
         assert!(parse("CREATE VIEW x AS SELECT 1").is_none());
     }
@@ -577,25 +777,70 @@ PARTITIONS 3 */";
     #[test]
     fn rebuilds_under_the_new_name() {
         let mut renames = Vec::new();
-        let d = ddl(&original(), &mut renames, "cli`ente ñ", "copia", "`copia`", &["id".into()], true, 64);
+        let d = ddl(
+            &original(),
+            &mut renames,
+            "cli`ente ñ",
+            "copia",
+            "`copia`",
+            &["id".into()],
+            true,
+            64,
+        );
         // Collations, INVISIBLE, generated columns, options and partitions as printed.
-        assert!(d.create.starts_with("CREATE TABLE `copia` (\n  `id` int NOT NULL AUTO_INCREMENT,"), "{}", d.create);
-        assert!(d.create.contains("COLLATE utf8mb4_bin") && d.create.contains("latin1_spanish_ci") && d.create.contains("/*!80023 INVISIBLE */"));
-        assert!(d.create.contains("ROW_FORMAT=COMPRESSED") && d.create.ends_with("PARTITIONS 3 */"));
+        assert!(
+            d.create
+                .starts_with("CREATE TABLE `copia` (\n  `id` int NOT NULL AUTO_INCREMENT,"),
+            "{}",
+            d.create
+        );
+        assert!(
+            d.create.contains("COLLATE utf8mb4_bin")
+                && d.create.contains("latin1_spanish_ci")
+                && d.create.contains("/*!80023 INVISIBLE */")
+        );
+        assert!(
+            d.create.contains("ROW_FORMAT=COMPRESSED") && d.create.ends_with("PARTITIONS 3 */")
+        );
         // The CHECK with a quote and a space in its name, renamed.
-        assert!(d.create.contains("CONSTRAINT `chk_copia_saldo` CHECK ((`saldo` >= 0))"), "{}", d.create);
-        assert!(!d.create.contains("KEY `"), "indexes go after the rows: {}", d.create);
+        assert!(
+            d.create
+                .contains("CONSTRAINT `chk_copia_saldo` CHECK ((`saldo` >= 0))"),
+            "{}",
+            d.create
+        );
+        assert!(
+            !d.create.contains("KEY `"),
+            "indexes go after the rows: {}",
+            d.create
+        );
         let ix = d.indexes.unwrap();
         assert!(ix.starts_with("ALTER TABLE `copia` ADD UNIQUE KEY `copia_ux_mail` (`e-mail`), ADD KEY `copia_fk_self`"), "{ix}");
-        assert!(ix.contains("ADD KEY `copia_ix_fn` ((lower(`nombre`)))"), "{ix}");
+        assert!(
+            ix.contains("ADD KEY `copia_ix_fn` ((lower(`nombre`)))"),
+            "{ix}"
+        );
         // A self reference points to the clone.
         assert_eq!(d.foreign_keys.unwrap(), "ALTER TABLE `copia` ADD CONSTRAINT `copia_fk_self` FOREIGN KEY (`otro`) REFERENCES `copia` (`id`)");
         assert_eq!(renames.len(), 4);
         // Without indexes: none, except one an AUTO_INCREMENT column leads.
         let mut r = Vec::new();
-        let d = ddl(&original(), &mut r, "cli`ente ñ", "copia", "`copia`", &["otro".into()], false, 64);
+        let d = ddl(
+            &original(),
+            &mut r,
+            "cli`ente ñ",
+            "copia",
+            "`copia`",
+            &["otro".into()],
+            false,
+            64,
+        );
         assert!(d.indexes.is_none());
-        assert!(d.create.contains("KEY `copia_fk_self` (`otro`)"), "{}", d.create);
+        assert!(
+            d.create.contains("KEY `copia_fk_self` (`otro`)"),
+            "{}",
+            d.create
+        );
     }
 
     #[test]
@@ -604,59 +849,179 @@ PARTITIONS 3 */";
             "CREATE TABLE `t` (\n  `a` int,\n  CONSTRAINT `f1` FOREIGN KEY (`a`) REFERENCES `db`.`t` (`id`),\n  CONSTRAINT `f2` FOREIGN KEY (`a`) REFERENCES `otra`.`t` (`id`)\n) ENGINE=InnoDB",
         )
         .unwrap();
-        let o = Original { create: c, database: Some("db".into()), tidb: false };
+        let o = Original {
+            create: c,
+            database: Some("db".into()),
+            tidb: false,
+        };
         let d = ddl(&o, &mut Vec::new(), "t", "t2", "`t2`", &[], true, 64);
         let fk = d.foreign_keys.unwrap();
-        assert!(fk.contains("REFERENCES `db`.`t2` (`id`)") && fk.contains("REFERENCES `otra`.`t` (`id`)"), "{fk}");
+        assert!(
+            fk.contains("REFERENCES `db`.`t2` (`id`)")
+                && fk.contains("REFERENCES `otra`.`t` (`id`)"),
+            "{fk}"
+        );
     }
 
     #[test]
     fn a_clone_that_lost_something_is_told_apart() {
         let o = original();
         let mut renames = Vec::new();
-        let d = ddl(&o, &mut renames, "cli`ente ñ", "copia", "`copia`", &["id".into()], true, 64);
+        let d = ddl(
+            &o,
+            &mut renames,
+            "cli`ente ñ",
+            "copia",
+            "`copia`",
+            &["id".into()],
+            true,
+            64,
+        );
         // What the server would print for the clone: the same, renamed,
         // with other counters, indexes and keys in another order.
         let printed = |create: &str| {
-            let mut s = create.replacen(") ENGINE=InnoDB AUTO_INCREMENT=7", ") ENGINE=InnoDB AUTO_INCREMENT=12", 1);
-            let ix = d.indexes.as_ref().unwrap().trim_start_matches("ALTER TABLE `copia` ADD ").replace(", ADD ", ",\n  ");
-            let fk = d.foreign_keys.as_ref().unwrap().trim_start_matches("ALTER TABLE `copia` ADD ").to_string();
+            let mut s = create.replacen(
+                ") ENGINE=InnoDB AUTO_INCREMENT=7",
+                ") ENGINE=InnoDB AUTO_INCREMENT=12",
+                1,
+            );
+            let ix = d
+                .indexes
+                .as_ref()
+                .unwrap()
+                .trim_start_matches("ALTER TABLE `copia` ADD ")
+                .replace(", ADD ", ",\n  ");
+            let fk = d
+                .foreign_keys
+                .as_ref()
+                .unwrap()
+                .trim_start_matches("ALTER TABLE `copia` ADD ")
+                .to_string();
             let at = s.find("\n) ENGINE").unwrap();
             s.insert_str(at, &format!(",\n  {fk},\n  {ix}"));
             s
         };
         let same = parse(&printed(&d.create)).unwrap();
-        assert_eq!(differences(&o.create, &same, &renames, "cli`ente ñ", "copia", Some("db"), Stage::Done { with_indexes: true }), Vec::<String>::new());
+        assert_eq!(
+            differences(
+                &o.create,
+                &same,
+                &renames,
+                "cli`ente ñ",
+                "copia",
+                Some("db"),
+                Stage::Done { with_indexes: true }
+            ),
+            Vec::<String>::new()
+        );
         // A collation lost.
-        let lost = parse(&printed(&d.create.replace(" CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", ""))).unwrap();
-        let diff = differences(&o.create, &lost, &renames, "cli`ente ñ", "copia", Some("db"), Stage::Created);
-        assert!(diff.len() == 1 && diff[0].contains("utf8mb4_bin"), "{diff:?}");
+        let lost = parse(&printed(
+            &d.create
+                .replace(" CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", ""),
+        ))
+        .unwrap();
+        let diff = differences(
+            &o.create,
+            &lost,
+            &renames,
+            "cli`ente ñ",
+            "copia",
+            Some("db"),
+            Stage::Created,
+        );
+        assert!(
+            diff.len() == 1 && diff[0].contains("utf8mb4_bin"),
+            "{diff:?}"
+        );
         // A CHECK lost (TiDB with CHECKs off), INVISIBLE lost.
-        let lost = parse(&printed(&d.create.replace(",\n  CONSTRAINT `chk_copia_saldo` CHECK ((`saldo` >= 0))", ""))).unwrap();
-        let diff = differences(&o.create, &lost, &renames, "cli`ente ñ", "copia", Some("db"), Stage::Created);
-        assert!(diff.iter().any(|d| d.contains("falta en el clon") && d.contains("CHECK")), "{diff:?}");
+        let lost = parse(&printed(&d.create.replace(
+            ",\n  CONSTRAINT `chk_copia_saldo` CHECK ((`saldo` >= 0))",
+            "",
+        )))
+        .unwrap();
+        let diff = differences(
+            &o.create,
+            &lost,
+            &renames,
+            "cli`ente ñ",
+            "copia",
+            Some("db"),
+            Stage::Created,
+        );
+        assert!(
+            diff.iter()
+                .any(|d| d.contains("falta en el clon") && d.contains("CHECK")),
+            "{diff:?}"
+        );
         let lost = parse(&printed(&d.create.replace(" /*!80023 INVISIBLE */", ""))).unwrap();
-        assert!(!differences(&o.create, &lost, &renames, "cli`ente ñ", "copia", Some("db"), Stage::Created).is_empty());
+        assert!(!differences(
+            &o.create,
+            &lost,
+            &renames,
+            "cli`ente ñ",
+            "copia",
+            Some("db"),
+            Stage::Created
+        )
+        .is_empty());
         // Partitions lost.
-        let lost = parse(&printed(&d.create.replace("\n/*!50100 PARTITION BY KEY (`id`)\nPARTITIONS 3 */", ""))).unwrap();
-        let diff = differences(&o.create, &lost, &renames, "cli`ente ñ", "copia", Some("db"), Stage::Created);
-        assert!(diff.iter().any(|d| d.contains("opciones de la tabla")), "{diff:?}");
+        let lost = parse(&printed(
+            &d.create
+                .replace("\n/*!50100 PARTITION BY KEY (`id`)\nPARTITIONS 3 */", ""),
+        ))
+        .unwrap();
+        let diff = differences(
+            &o.create,
+            &lost,
+            &renames,
+            "cli`ente ñ",
+            "copia",
+            Some("db"),
+            Stage::Created,
+        );
+        assert!(
+            diff.iter().any(|d| d.contains("opciones de la tabla")),
+            "{diff:?}"
+        );
     }
 
     #[test]
     fn tidb_constraints_without_indentation() {
         let c = parse("CREATE TABLE `ck` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `saldo` int(11) DEFAULT NULL,\n  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,\nCONSTRAINT `chk_cli``ente ñ_saldo` CHECK ((`saldo` >= 0)),\nCONSTRAINT `chk_simple` CHECK ((`saldo` < 1000))\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin AUTO_INCREMENT=30001").unwrap();
         let kinds: Vec<Kind> = c.parts.iter().map(|p| p.kind).collect();
-        assert_eq!(kinds, vec![Kind::Column, Kind::Column, Kind::Primary, Kind::Check, Kind::Check]);
+        assert_eq!(
+            kinds,
+            vec![
+                Kind::Column,
+                Kind::Column,
+                Kind::Primary,
+                Kind::Check,
+                Kind::Check
+            ]
+        );
         assert_eq!(c.parts[3].name.as_ref().unwrap().2, "chk_cli`ente ñ_saldo");
     }
 
     #[test]
     fn tidb_checks_lose_one_level_of_parentheses() {
-        assert_eq!(unwrap_check("CONSTRAINT `c` CHECK ((`saldo` >= 0))"), "CONSTRAINT `c` CHECK (`saldo` >= 0)");
-        assert_eq!(unwrap_check("CONSTRAINT `c` CHECK ((`a` > 0) OR (`b` > 0))"), "CONSTRAINT `c` CHECK ((`a` > 0) OR (`b` > 0))");
-        assert_eq!(unwrap_check("CONSTRAINT `c` CHECK ((`a` = ')')) /*T![check_constraint] NOT ENFORCED */"), "CONSTRAINT `c` CHECK (`a` = ')') /*T![check_constraint] NOT ENFORCED */");
-        assert_eq!(unwrap_check("CONSTRAINT `c` CHECK (`a` > 0)"), "CONSTRAINT `c` CHECK (`a` > 0)");
+        assert_eq!(
+            unwrap_check("CONSTRAINT `c` CHECK ((`saldo` >= 0))"),
+            "CONSTRAINT `c` CHECK (`saldo` >= 0)"
+        );
+        assert_eq!(
+            unwrap_check("CONSTRAINT `c` CHECK ((`a` > 0) OR (`b` > 0))"),
+            "CONSTRAINT `c` CHECK ((`a` > 0) OR (`b` > 0))"
+        );
+        assert_eq!(
+            unwrap_check(
+                "CONSTRAINT `c` CHECK ((`a` = ')')) /*T![check_constraint] NOT ENFORCED */"
+            ),
+            "CONSTRAINT `c` CHECK (`a` = ')') /*T![check_constraint] NOT ENFORCED */"
+        );
+        assert_eq!(
+            unwrap_check("CONSTRAINT `c` CHECK (`a` > 0)"),
+            "CONSTRAINT `c` CHECK (`a` > 0)"
+        );
     }
 
     #[test]
@@ -665,8 +1030,14 @@ PARTITIONS 3 */";
             without_counters(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin /*T![auto_rand_base] AUTO_RANDOM_BASE=30001 */"),
             without_counters(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin /*T![auto_rand_base] AUTO_RANDOM_BASE=90001 */")
         );
-        assert_eq!(without_counters(") ENGINE=InnoDB AUTO_INCREMENT=5 COMMENT='a'"), without_counters(") ENGINE=InnoDB AUTO_INCREMENT=9 COMMENT='a'"));
-        assert_ne!(without_counters(") ENGINE=InnoDB ROW_FORMAT=COMPRESSED"), without_counters(") ENGINE=InnoDB"));
+        assert_eq!(
+            without_counters(") ENGINE=InnoDB AUTO_INCREMENT=5 COMMENT='a'"),
+            without_counters(") ENGINE=InnoDB AUTO_INCREMENT=9 COMMENT='a'")
+        );
+        assert_ne!(
+            without_counters(") ENGINE=InnoDB ROW_FORMAT=COMPRESSED"),
+            without_counters(") ENGINE=InnoDB")
+        );
     }
 
     struct D(dbine_driver::DriverInfo);
@@ -676,7 +1047,11 @@ PARTITIONS 3 */";
         fn info(&self) -> &dbine_driver::DriverInfo {
             &self.0
         }
-        async fn connect(&self, _: &dbine_driver::ConnectionConfig, _: Option<&str>) -> Result<Box<dyn Session>> {
+        async fn connect(
+            &self,
+            _: &dbine_driver::ConnectionConfig,
+            _: Option<&str>,
+        ) -> Result<Box<dyn Session>> {
             Err(Error::Unsupported("test".into()))
         }
     }
@@ -700,31 +1075,54 @@ PARTITIONS 3 */";
         dbine_driver::TableSchema {
             kind: "table".into(),
             name: name.into(),
-            columns: vec![dbine_driver::ColumnDef { name: "a".into(), data_type: "int".into(), ..Default::default() }],
-            indexes: vec![dbine_driver::IndexDef { name: "ix_fn".into(), columns: vec!["(lower(`a`))".into()], ..Default::default() }],
+            columns: vec![dbine_driver::ColumnDef {
+                name: "a".into(),
+                data_type: "int".into(),
+                ..Default::default()
+            }],
+            indexes: vec![dbine_driver::IndexDef {
+                name: "ix_fn".into(),
+                columns: vec!["(lower(`a`))".into()],
+                ..Default::default()
+            }],
             ..Default::default()
         }
     }
 
     #[test]
     fn names_count_characters_and_fit_the_engine() {
-        let at = chrono::NaiveDate::from_ymd_opt(2026, 9, 30).unwrap().and_hms_opt(7, 5, 9).unwrap();
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 9, 30)
+            .unwrap()
+            .and_hms_opt(7, 5, 9)
+            .unwrap();
         let my = driver("mysql", "mysql");
         // 64 characters with a ñ (65 bytes): MySQL takes it.
         let n = format!("ñ{}", "x".repeat(63));
         assert!(super::super::plan_clone(&my, &table("t"), &n).is_ok());
-        let e = super::super::plan_clone(&my, &table("t"), &format!("{n}x")).unwrap_err().to_string();
+        let e = super::super::plan_clone(&my, &table("t"), &format!("{n}x"))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("64 caracteres"), "{e}");
         // The proposed name is cut before the suffix, never refused.
         let long = "c".repeat(60);
         let p = super::super::default_clone_name_for(&my, &long, at);
         assert_eq!(p.chars().count(), 64);
-        assert!(p.ends_with("_20260930_070509") && super::super::plan_clone(&my, &table(&long), &p).is_ok(), "{p}");
-        assert_eq!(super::super::default_clone_name_for(&my, "clientes", at), "clientes_20260930_070509");
+        assert!(
+            p.ends_with("_20260930_070509")
+                && super::super::plan_clone(&my, &table(&long), &p).is_ok(),
+            "{p}"
+        );
+        assert_eq!(
+            super::super::default_clone_name_for(&my, "clientes", at),
+            "clientes_20260930_070509"
+        );
         // PostgreSQL counts bytes.
         let pg = driver("postgres", "postgres");
         let p = super::super::default_clone_name_for(&pg, &"ñ".repeat(40), at);
-        assert!(p.len() <= 63 && super::super::plan_clone(&pg, &table("t"), &p).is_ok(), "{p}");
+        assert!(
+            p.len() <= 63 && super::super::plan_clone(&pg, &table("t"), &p).is_ok(),
+            "{p}"
+        );
     }
 
     #[test]
@@ -743,24 +1141,64 @@ PARTITIONS 3 */";
         let old = "ñ".repeat(20);
         let new = "á".repeat(50);
         let mut t = table(&old);
-        t.checks.push(dbine_driver::CheckDef { name: Some("ck_x".into()), expression: "a > 0".into() });
+        t.checks.push(dbine_driver::CheckDef {
+            name: Some("ck_x".into()),
+            expression: "a > 0".into(),
+        });
         let ti = driver("tidb", "mysql");
         let p = super::super::plan_clone(&ti, &t, &new).unwrap();
         let ck = p.table.checks[0].name.clone().unwrap();
         assert!(ck.len() <= 64 && ck.chars().count() <= 56, "{ck}");
-        assert!(p.table.indexes.iter().all(|i| i.name.len() <= 64), "{:?}", p.table.indexes);
-        assert!(p.notes.iter().any(|n| n.contains("56 caracteres y 64 bytes")), "{:?}", p.notes);
+        assert!(
+            p.table.indexes.iter().all(|i| i.name.len() <= 64),
+            "{:?}",
+            p.table.indexes
+        );
+        assert!(
+            p.notes
+                .iter()
+                .any(|n| n.contains("56 caracteres y 64 bytes")),
+            "{:?}",
+            p.notes
+        );
         // The same from SHOW CREATE TABLE (names the catalog didn't report).
         let c = parse(&format!("CREATE TABLE `{old}` (\n  `id` int NOT NULL,\n  `a` int,\n  PRIMARY KEY (`id`),\n  KEY `ix_a` (`a`),\n  CONSTRAINT `ck_x` CHECK ((`a` > 0))\n) ENGINE=InnoDB")).unwrap();
-        let o = Original { create: c, database: None, tidb: true };
+        let o = Original {
+            create: c,
+            database: None,
+            tidb: true,
+        };
         let mut renames = Vec::new();
-        let d = ddl(&o, &mut renames, &old, &new, &format!("`{new}`"), &[], true, 56);
-        assert!(renames.iter().all(|r| r.to.len() <= 64 && r.to.chars().count() <= 56), "{renames:?}");
-        assert!(d.notes.iter().all(|n| n.contains("56 caracteres y 64 bytes")), "{:?}", d.notes);
+        let d = ddl(
+            &o,
+            &mut renames,
+            &old,
+            &new,
+            &format!("`{new}`"),
+            &[],
+            true,
+            56,
+        );
+        assert!(
+            renames
+                .iter()
+                .all(|r| r.to.len() <= 64 && r.to.chars().count() <= 56),
+            "{renames:?}"
+        );
+        assert!(
+            d.notes
+                .iter()
+                .all(|n| n.contains("56 caracteres y 64 bytes")),
+            "{:?}",
+            d.notes
+        );
         // MySQL and MariaDB: characters only, as before.
         let my = driver("mysql", "mysql");
         let p = super::super::plan_clone(&my, &t, &new).unwrap();
-        assert_eq!(p.table.checks[0].name.as_deref(), Some(format!("{new}_ck_x").as_str()));
+        assert_eq!(
+            p.table.checks[0].name.as_deref(),
+            Some(format!("{new}_ck_x").as_str())
+        );
     }
 
     /// TiDB prints a newline inside a string literal as it is.
@@ -770,37 +1208,126 @@ PARTITIONS 3 */";
     fn tidb_newlines_inside_literals_are_kept() {
         let c = parse(TIDB_NL).unwrap();
         let kinds: Vec<Kind> = c.parts.iter().map(|p| p.kind).collect();
-        assert_eq!(kinds, vec![Kind::Column, Kind::Column, Kind::Column, Kind::Column, Kind::Primary, Kind::Check]);
-        assert!(c.parts[2].text.ends_with("_utf8mb4',\nx')) STORED"), "{:?}", c.parts[2].text);
-        assert!(c.parts[3].text.ends_with("DEFAULT 'p\n)q,'"), "{:?}", c.parts[3].text);
-        assert_eq!(c.parts[5].text, "CONSTRAINT `ck_nl` CHECK ((`a` != _utf8mb4'q,\nr'))");
-        let o = Original { create: c, database: Some("db".into()), tidb: true };
+        assert_eq!(
+            kinds,
+            vec![
+                Kind::Column,
+                Kind::Column,
+                Kind::Column,
+                Kind::Column,
+                Kind::Primary,
+                Kind::Check
+            ]
+        );
+        assert!(
+            c.parts[2].text.ends_with("_utf8mb4',\nx')) STORED"),
+            "{:?}",
+            c.parts[2].text
+        );
+        assert!(
+            c.parts[3].text.ends_with("DEFAULT 'p\n)q,'"),
+            "{:?}",
+            c.parts[3].text
+        );
+        assert_eq!(
+            c.parts[5].text,
+            "CONSTRAINT `ck_nl` CHECK ((`a` != _utf8mb4'q,\nr'))"
+        );
+        let o = Original {
+            create: c,
+            database: Some("db".into()),
+            tidb: true,
+        };
         let mut renames = Vec::new();
-        let d = ddl(&o, &mut renames, "adv2", "adv2_c", "`adv2_c`", &[], true, 56);
+        let d = ddl(
+            &o,
+            &mut renames,
+            "adv2",
+            "adv2_c",
+            "`adv2_c`",
+            &[],
+            true,
+            56,
+        );
         // The literals go exactly as printed, nothing added inside them.
-        assert!(d.create.contains("_utf8mb4',\nx')) STORED,\n  `h`"), "{}", d.create);
-        assert!(d.create.contains("CONSTRAINT `adv2_c_ck_nl` CHECK (`a` != _utf8mb4'q,\nr')"), "{}", d.create);
+        assert!(
+            d.create.contains("_utf8mb4',\nx')) STORED,\n  `h`"),
+            "{}",
+            d.create
+        );
+        assert!(
+            d.create
+                .contains("CONSTRAINT `adv2_c_ck_nl` CHECK (`a` != _utf8mb4'q,\nr')"),
+            "{}",
+            d.create
+        );
         // What TiDB prints for a faithful clone: equal.
-        let same = parse(&TIDB_NL.replace("`adv2`", "`adv2_c`").replace("`ck_nl`", "`adv2_c_ck_nl`")).unwrap();
-        assert_eq!(differences(&o.create, &same, &renames, "adv2", "adv2_c", Some("db"), Stage::Created), Vec::<String>::new());
+        let same = parse(
+            &TIDB_NL
+                .replace("`adv2`", "`adv2_c`")
+                .replace("`ck_nl`", "`adv2_c_ck_nl`"),
+        )
+        .unwrap();
+        assert_eq!(
+            differences(
+                &o.create,
+                &same,
+                &renames,
+                "adv2",
+                "adv2_c",
+                Some("db"),
+                Stage::Created
+            ),
+            Vec::<String>::new()
+        );
         // Spaces added inside the literal: told apart.
-        let changed = parse(&TIDB_NL.replace("`adv2`", "`adv2_c`").replace("`ck_nl`", "`adv2_c_ck_nl`").replace(",\nx'", ",\n  x'")).unwrap();
-        assert!(!differences(&o.create, &changed, &renames, "adv2", "adv2_c", Some("db"), Stage::Created).is_empty());
+        let changed = parse(
+            &TIDB_NL
+                .replace("`adv2`", "`adv2_c`")
+                .replace("`ck_nl`", "`adv2_c_ck_nl`")
+                .replace(",\nx'", ",\n  x'"),
+        )
+        .unwrap();
+        assert!(!differences(
+            &o.create,
+            &changed,
+            &renames,
+            "adv2",
+            "adv2_c",
+            Some("db"),
+            Stage::Created
+        )
+        .is_empty());
         // A literal that never closes: not taken apart.
         assert!(parse("CREATE TABLE `t` (\n  `a` int DEFAULT 'x,\n) ENGINE=InnoDB").is_none());
     }
 
     #[test]
     fn escaped_quotes_inside_literals() {
-        assert_eq!(unwrap_check("CONSTRAINT `c` CHECK ((`a` <> 'x\\\\')) /*T![check_constraint] NOT ENFORCED */"), "CONSTRAINT `c` CHECK (`a` <> 'x\\\\') /*T![check_constraint] NOT ENFORCED */");
-        assert_eq!(unwrap_check("CONSTRAINT `c` CHECK ((`a` <> 'x\\')')) "), "CONSTRAINT `c` CHECK (`a` <> 'x\\')') ");
-        assert_eq!(find_outside("'a\\' REFERENCES ' REFERENCES x", 0, " REFERENCES "), Some(17));
+        assert_eq!(
+            unwrap_check(
+                "CONSTRAINT `c` CHECK ((`a` <> 'x\\\\')) /*T![check_constraint] NOT ENFORCED */"
+            ),
+            "CONSTRAINT `c` CHECK (`a` <> 'x\\\\') /*T![check_constraint] NOT ENFORCED */"
+        );
+        assert_eq!(
+            unwrap_check("CONSTRAINT `c` CHECK ((`a` <> 'x\\')')) "),
+            "CONSTRAINT `c` CHECK (`a` <> 'x\\')') "
+        );
+        assert_eq!(
+            find_outside("'a\\' REFERENCES ' REFERENCES x", 0, " REFERENCES "),
+            Some(17)
+        );
     }
 
     #[test]
     fn one_fulltext_index_per_alter() {
         let c = parse("CREATE TABLE `adv3` (\n  `id` int NOT NULL,\n  `a` text,\n  `b` text,\n  PRIMARY KEY (`id`),\n  KEY `ix_id` (`id`,`a`(10)),\n  FULLTEXT KEY `ft1` (`a`),\n  FULLTEXT KEY `ft2` (`b`)\n) ENGINE=InnoDB").unwrap();
-        let o = Original { create: c, database: None, tidb: false };
+        let o = Original {
+            create: c,
+            database: None,
+            tidb: false,
+        };
         let d = ddl(&o, &mut Vec::new(), "adv3", "c", "`c`", &[], true, 64);
         assert_eq!(
             d.indexes.unwrap(),
@@ -808,22 +1335,45 @@ PARTITIONS 3 */";
         );
         // Just one: the single ALTER, as before.
         let c = parse("CREATE TABLE `uno` (\n  `a` text,\n  KEY `k` (`a`(5)),\n  FULLTEXT KEY `ft1` (`a`)\n) ENGINE=InnoDB").unwrap();
-        let o = Original { create: c, database: None, tidb: false };
+        let o = Original {
+            create: c,
+            database: None,
+            tidb: false,
+        };
         let d = ddl(&o, &mut Vec::new(), "uno", "c", "`c`", &[], true, 64);
-        assert_eq!(d.indexes.unwrap(), "ALTER TABLE `c` ADD KEY `c_k` (`a`(5)), ADD FULLTEXT KEY `c_ft1` (`a`)");
+        assert_eq!(
+            d.indexes.unwrap(),
+            "ALTER TABLE `c` ADD KEY `c_k` (`a`(5)), ADD FULLTEXT KEY `c_ft1` (`a`)"
+        );
     }
 
     #[test]
     fn shortened_names_count_characters() {
         let long = "ñ".repeat(40);
-        let c = parse(&format!("CREATE TABLE `t` (\n  `a` int,\n  KEY `ix_{long}` (`a`)\n) ENGINE=InnoDB")).unwrap();
-        let o = Original { create: c, database: None, tidb: false };
+        let c = parse(&format!(
+            "CREATE TABLE `t` (\n  `a` int,\n  KEY `ix_{long}` (`a`)\n) ENGINE=InnoDB"
+        ))
+        .unwrap();
+        let o = Original {
+            create: c,
+            database: None,
+            tidb: false,
+        };
         let mut renames = Vec::new();
         let d = ddl(&o, &mut renames, "t", &"n".repeat(30), "`n`", &[], true, 64);
-        assert!(d.notes.iter().all(|n| n.contains("64 caracteres")) && !d.notes.is_empty(), "{:?}", d.notes);
+        assert!(
+            d.notes.iter().all(|n| n.contains("64 caracteres")) && !d.notes.is_empty(),
+            "{:?}",
+            d.notes
+        );
         assert_eq!(renames[0].to.chars().count(), 64, "{}", renames[0].to);
-        let p = super::super::plan_clone(&driver("mysql", "mysql"), &table("t"), &"n".repeat(60)).unwrap();
-        assert!(p.notes.iter().any(|n| n.contains("64 caracteres")), "{:?}", p.notes);
+        let p = super::super::plan_clone(&driver("mysql", "mysql"), &table("t"), &"n".repeat(60))
+            .unwrap();
+        assert!(
+            p.notes.iter().any(|n| n.contains("64 caracteres")),
+            "{:?}",
+            p.notes
+        );
     }
 
     #[test]

@@ -148,7 +148,11 @@ fn current_label() -> String {
 /// `-[TaoAppDelegateParent applicationDockMenu:]`. AppKit calls it on the main
 /// thread on every right-click of the Dock icon; returns an autoreleased menu
 /// (a +0 reference, as the method's naming convention requires), or nil.
-extern "C-unwind" fn dock_menu(this: &AnyObject, _cmd: Sel, _sender: *mut AnyObject) -> *mut NSMenu {
+extern "C-unwind" fn dock_menu(
+    this: &AnyObject,
+    _cmd: Sel,
+    _sender: *mut AnyObject,
+) -> *mut NSMenu {
     // Never unwind into AppKit: a panic here gives no Dock menu instead.
     catch_unwind(AssertUnwindSafe(|| {
         let Some(mtm) = MainThreadMarker::new() else {
@@ -207,9 +211,15 @@ const TERMINATE_NOW: usize = 1;
 /// and lets the UI ask, which quits through `quit_app` (tao's own exit never
 /// goes through `terminate:`). Otherwise the quit goes on, so a logout isn't
 /// held up; `applicationWillTerminate:` still runs the app's exit cleanup.
-extern "C-unwind" fn should_terminate(_this: &AnyObject, _cmd: Sel, _sender: *mut AnyObject) -> usize {
+extern "C-unwind" fn should_terminate(
+    _this: &AnyObject,
+    _cmd: Sel,
+    _sender: *mut AnyObject,
+) -> usize {
     catch_unwind(|| {
-        let Some(app) = APP.get() else { return TERMINATE_NOW };
+        let Some(app) = APP.get() else {
+            return TERMINATE_NOW;
+        };
         if crate::QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst)
             || !crate::windows::quit_needs_ui(app)
             || !crate::windows::request_quit(app)

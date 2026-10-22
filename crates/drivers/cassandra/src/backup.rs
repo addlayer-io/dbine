@@ -65,23 +65,49 @@ pub fn script(f: Flavor, action: &BackupAction) -> Result<String> {
     }
     match action {
         BackupAction::Backup { database, options } => {
-            let names: Vec<&str> =
-                options.get("tables").map(String::as_str).unwrap_or("").split(',').map(str::trim).filter(|t| !t.is_empty()).collect();
+            let names: Vec<&str> = options
+                .get("tables")
+                .map(String::as_str)
+                .unwrap_or("")
+                .split(',')
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .collect();
             if names.is_empty() {
                 return Err(Error::Query("Indicá al menos una tabla.".into()));
             }
             let ks = database.as_deref();
-            Ok(names.iter().map(|t| format!("ALTER TABLE {} WITH {};\n", table(ks, t), pitr("enabled"))).collect())
+            Ok(names
+                .iter()
+                .map(|t| format!("ALTER TABLE {} WITH {};\n", table(ks, t), pitr("enabled")))
+                .collect())
         }
-        BackupAction::Restore { source, database, options } => {
+        BackupAction::Restore {
+            source,
+            database,
+            options,
+        } => {
             let (src_ks, src) = split_id(source);
             if src.is_empty() {
                 return Err(Error::Query("Falta la tabla a restaurar.".into()));
             }
             let target_ks = database.as_deref().filter(|d| !d.is_empty()).or(src_ks);
-            let target = options.get("target").map(|t| t.trim()).filter(|t| !t.is_empty()).map(str::to_string).unwrap_or_else(|| format!("{src}_restaurada"));
-            let mut s = format!("RESTORE TABLE {}\nFROM TABLE {}", table(target_ks, &target), table(src_ks, src));
-            if let Some(ts) = options.get("timestamp").map(|t| t.trim()).filter(|t| !t.is_empty()) {
+            let target = options
+                .get("target")
+                .map(|t| t.trim())
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("{src}_restaurada"));
+            let mut s = format!(
+                "RESTORE TABLE {}\nFROM TABLE {}",
+                table(target_ks, &target),
+                table(src_ks, src)
+            );
+            if let Some(ts) = options
+                .get("timestamp")
+                .map(|t| t.trim())
+                .filter(|t| !t.is_empty())
+            {
                 s.push_str(&format!("\nWITH restore_timestamp = {}", literal(ts)));
             }
             s.push(';');
@@ -92,7 +118,11 @@ pub fn script(f: Flavor, action: &BackupAction) -> Result<String> {
             if t.is_empty() {
                 return Err(Error::Query("Falta la tabla.".into()));
             }
-            Ok(format!("ALTER TABLE {} WITH {};", table(ks, t), pitr("disabled")))
+            Ok(format!(
+                "ALTER TABLE {} WITH {};",
+                table(ks, t),
+                pitr("disabled")
+            ))
         }
     }
 }
@@ -101,23 +131,47 @@ pub fn script(f: Flavor, action: &BackupAction) -> Result<String> {
 /// with neither, of every keyspace).
 pub async fn history(s: &mut CassandraSession, database: Option<&str>) -> Result<Vec<BackupEntry>> {
     if s.flavor != Flavor::Keyspaces {
-        return Err(Error::Unsupported("Cassandra y ScyllaDB no listan sus snapshots por CQL".into()));
+        return Err(Error::Unsupported(
+            "Cassandra y ScyllaDB no listan sus snapshots por CQL".into(),
+        ));
     }
-    let ks = database.filter(|d| !d.is_empty()).map(str::to_string).or_else(|| s.keyspace.clone());
+    let ks = database
+        .filter(|d| !d.is_empty())
+        .map(str::to_string)
+        .or_else(|| s.keyspace.clone());
     let cols = "keyspace_name, table_name, custom_properties, status";
     let rows = match &ks {
-        Some(k) => s.rows(&format!("SELECT {cols} FROM system_schema_mcs.tables WHERE keyspace_name = ?"), (k,)).await?,
-        None => s.rows(&format!("SELECT {cols} FROM system_schema_mcs.tables"), ()).await?,
+        Some(k) => {
+            s.rows(
+                &format!("SELECT {cols} FROM system_schema_mcs.tables WHERE keyspace_name = ?"),
+                (k,),
+            )
+            .await?
+        }
+        None => {
+            s.rows(&format!("SELECT {cols} FROM system_schema_mcs.tables"), ())
+                .await?
+        }
     };
     let mut out = Vec::new();
     for r in rows {
-        let props = r.columns.get(2).and_then(|v| v.as_ref()).map(value::to_json).unwrap_or(J::Null);
+        let props = r
+            .columns
+            .get(2)
+            .and_then(|v| v.as_ref())
+            .map(value::to_json)
+            .unwrap_or(J::Null);
         let p = &props["point_in_time_recovery"];
-        if !p["status"].as_str().is_some_and(|v| v.eq_ignore_ascii_case("enabled")) {
+        if !p["status"]
+            .as_str()
+            .is_some_and(|v| v.eq_ignore_ascii_case("enabled"))
+        {
             continue;
         }
         let (k, t, status) = (text(&r, 0), text(&r, 1), text(&r, 3));
-        let earliest = p["earliest_restorable_timestamp"].as_str().map(str::to_string);
+        let earliest = p["earliest_restorable_timestamp"]
+            .as_str()
+            .map(str::to_string);
         let mut details = vec![("Tabla".to_string(), t.clone())];
         if let Some(e) = &earliest {
             details.push(("Restaurable desde".to_string(), e.clone()));
@@ -131,7 +185,11 @@ pub async fn history(s: &mut CassandraSession, database: Option<&str>) -> Result
             size: None,
             location: Some("AWS (Keyspaces)".into()),
             restorable: status.is_empty() || status.eq_ignore_ascii_case("ACTIVE"),
-            status: Some(if status.is_empty() { "activo".into() } else { status }),
+            status: Some(if status.is_empty() {
+                "activo".into()
+            } else {
+                status
+            }),
             details,
         });
     }
@@ -145,7 +203,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -154,31 +215,56 @@ mod tests {
         assert!(spec(Flavor::Scylla).is_none());
         let s = spec(Flavor::Keyspaces).unwrap();
         assert!(s.restore && s.delete && s.history && !s.server_wide);
-        let b = BackupAction::Backup { database: None, options: opts(&[("tables", "t")]) };
-        assert!(matches!(script(Flavor::Cassandra, &b), Err(Error::Unsupported(_))));
-        assert!(matches!(script(Flavor::Scylla, &b), Err(Error::Unsupported(_))));
+        let b = BackupAction::Backup {
+            database: None,
+            options: opts(&[("tables", "t")]),
+        };
+        assert!(matches!(
+            script(Flavor::Cassandra, &b),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(Flavor::Scylla, &b),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn enables_pitr() {
-        let b = BackupAction::Backup { database: Some("tienda".into()), options: opts(&[("tables", "clientes, Pedidos ,")]) };
+        let b = BackupAction::Backup {
+            database: Some("tienda".into()),
+            options: opts(&[("tables", "clientes, Pedidos ,")]),
+        };
         assert_eq!(
             script(Flavor::Keyspaces, &b).unwrap(),
             "ALTER TABLE tienda.clientes WITH custom_properties = {'point_in_time_recovery': {'status': 'enabled'}};\n\
              ALTER TABLE tienda.\"Pedidos\" WITH custom_properties = {'point_in_time_recovery': {'status': 'enabled'}};\n"
         );
-        let b = BackupAction::Backup { database: None, options: opts(&[("tables", " ")]) };
+        let b = BackupAction::Backup {
+            database: None,
+            options: opts(&[("tables", " ")]),
+        };
         assert!(script(Flavor::Keyspaces, &b).is_err());
     }
 
     #[test]
     fn restores_into_a_new_table() {
-        let r = BackupAction::Restore { source: "tienda.clientes".into(), database: None, options: BTreeMap::new() };
-        assert_eq!(script(Flavor::Keyspaces, &r).unwrap(), "RESTORE TABLE tienda.clientes_restaurada\nFROM TABLE tienda.clientes;");
+        let r = BackupAction::Restore {
+            source: "tienda.clientes".into(),
+            database: None,
+            options: BTreeMap::new(),
+        };
+        assert_eq!(
+            script(Flavor::Keyspaces, &r).unwrap(),
+            "RESTORE TABLE tienda.clientes_restaurada\nFROM TABLE tienda.clientes;"
+        );
         let r = BackupAction::Restore {
             source: "tienda.clientes".into(),
             database: Some("otra".into()),
-            options: opts(&[("target", "copia"), ("timestamp", "2026-09-29T12:00:00Z' x")]),
+            options: opts(&[
+                ("target", "copia"),
+                ("timestamp", "2026-09-29T12:00:00Z' x"),
+            ]),
         };
         assert_eq!(
             script(Flavor::Keyspaces, &r).unwrap(),
@@ -188,7 +274,9 @@ mod tests {
 
     #[test]
     fn delete_turns_pitr_off() {
-        let d = BackupAction::Delete { source: "tienda.clientes".into() };
+        let d = BackupAction::Delete {
+            source: "tienda.clientes".into(),
+        };
         assert_eq!(
             script(Flavor::Keyspaces, &d).unwrap(),
             "ALTER TABLE tienda.clientes WITH custom_properties = {'point_in_time_recovery': {'status': 'disabled'}};"

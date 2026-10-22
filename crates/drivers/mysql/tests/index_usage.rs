@@ -24,15 +24,21 @@
 //! checks the catalog, that the counters are readable, and that the primary
 //! key is never "unused".
 
-use dbine_driver::{ConnectionConfig, Driver, IndexUsageReport, ObjectRef, QueryOutcome, Session, TableChange};
+use dbine_driver::{
+    ConnectionConfig, Driver, IndexUsageReport, ObjectRef, QueryOutcome, Session, TableChange,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.trim_end_matches('/').parse().unwrap()));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| {
+        (h, p.trim_end_matches('/').parse().unwrap())
+    });
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -44,12 +50,17 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     if let Some(e) = out.error.take() {
         panic!("{sql}: {e}");
     }
@@ -58,18 +69,34 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
 
 async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
     let out = run(s, sql).await;
-    let v = out.results.first().and_then(|r| r.rows.first()).and_then(|r| r.first()).cloned().unwrap_or_default();
-    v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())
+    let v = out
+        .results
+        .first()
+        .and_then(|r| r.rows.first())
+        .and_then(|r| r.first())
+        .cloned()
+        .unwrap_or_default();
+    v.as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| v.to_string())
 }
 
 const DB: &str = "dbine_ixu";
 
 fn table() -> ObjectRef {
-    ObjectRef { kind: "table".into(), schema: None, name: "t".into() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: None,
+        name: "t".into(),
+    }
 }
 
 async fn report(s: &mut Box<dyn Session>) -> IndexUsageReport {
-    s.index_usage(&table()).await.expect("index_usage").expect("supported").derived()
+    s.index_usage(&table())
+        .await
+        .expect("index_usage")
+        .expect("supported")
+        .derived()
 }
 
 /// The table, its rows and statistics.
@@ -80,7 +107,10 @@ async fn setup(id: &str, cfg: &ConnectionConfig) -> (Box<dyn Session>, Box<dyn S
     eprintln!("{id}: {}", admin.server_version().await.unwrap());
     run(&mut admin, &format!("DROP DATABASE IF EXISTS {DB}")).await;
     run(&mut admin, &format!("CREATE DATABASE {DB}")).await;
-    let mut s = d.connect(cfg, Some(DB)).await.expect("connect to the test database");
+    let mut s = d
+        .connect(cfg, Some(DB))
+        .await
+        .expect("connect to the test database");
     run(&mut s, "CREATE TABLE p (id INT PRIMARY KEY)").await;
     run(&mut s, "INSERT INTO p VALUES (1), (2)").await;
     run(
@@ -100,13 +130,21 @@ async fn setup(id: &str, cfg: &ConnectionConfig) -> (Box<dyn Session>, Box<dyn S
 
 async fn lookups(s: &mut Box<dyn Session>) {
     for i in 1..=5 {
-        run(s, &format!("SELECT a, id FROM t FORCE INDEX (ix_seeked) WHERE a = {i}")).await;
+        run(
+            s,
+            &format!("SELECT a, id FROM t FORCE INDEX (ix_seeked) WHERE a = {i}"),
+        )
+        .await;
     }
 }
 
 /// A full scan of the table, without its secondary indexes.
 async fn table_scan(s: &mut Box<dyn Session>) {
-    run(s, "SELECT COUNT(*) FROM t IGNORE INDEX (ix_seeked, ix_untouched, fk_t_p) WHERE b + 0 > 0").await;
+    run(
+        s,
+        "SELECT COUNT(*) FROM t IGNORE INDEX (ix_seeked, ix_untouched, fk_t_p) WHERE b + 0 > 0",
+    )
+    .await;
 }
 
 /// InnoDB: the table scan read the clustered primary key.
@@ -122,25 +160,62 @@ fn check_catalog(r: &IndexUsageReport) {
         assert!(names.contains(&n), "{n} in {names:?}");
     }
     let pk = r.indexes.iter().find(|i| i.name == "PRIMARY").unwrap();
-    assert!(pk.primary_key && pk.unique && pk.key_columns == ["id"], "{pk:?}");
+    assert!(
+        pk.primary_key && pk.unique && pk.key_columns == ["id"],
+        "{pk:?}"
+    );
     let seeked = r.indexes.iter().find(|i| i.name == "ix_seeked").unwrap();
-    assert!(!seeked.primary_key && !seeked.unique && seeked.key_columns == ["a"], "{seeked:?}");
+    assert!(
+        !seeked.primary_key && !seeked.unique && seeked.key_columns == ["a"],
+        "{seeked:?}"
+    );
     assert_eq!(r.foreign_keys.len(), 1, "{:?}", r.foreign_keys);
     let fk = &r.foreign_keys[0];
-    assert_eq!((fk.name.as_deref(), fk.columns.clone(), fk.ref_table.as_str(), fk.ref_columns.clone(), fk.ref_schema.clone()), (Some("fk_t_p"), vec!["pid".to_string()], "p", vec!["id".to_string()], None));
+    assert_eq!(
+        (
+            fk.name.as_deref(),
+            fk.columns.clone(),
+            fk.ref_table.as_str(),
+            fk.ref_columns.clone(),
+            fk.ref_schema.clone()
+        ),
+        (
+            Some("fk_t_p"),
+            vec!["pid".to_string()],
+            "p",
+            vec!["id".to_string()],
+            None
+        )
+    );
 }
 
 /// The counters: the looked-up index read, the other unused.
 fn check_usage(r: &IndexUsageReport) {
-    let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap_or_else(|| panic!("{n} in {r:?}"));
+    let get = |n: &str| {
+        r.indexes
+            .iter()
+            .find(|i| i.name == n)
+            .unwrap_or_else(|| panic!("{n} in {r:?}"))
+    };
     assert!(r.stats_available, "{r:?}");
-    assert!(r.since.as_deref().is_some_and(|s| s.len() == 19), "{:?}", r.since);
+    assert!(
+        r.since.as_deref().is_some_and(|s| s.len() == 19),
+        "{:?}",
+        r.since
+    );
     let seeked = get("ix_seeked");
     assert!(seeked.seeks >= 5, "{seeked:?}");
     assert!(seeked.read_share.is_some_and(|v| v > 0.0), "{seeked:?}");
     let untouched = get("ix_untouched");
-    assert_eq!((untouched.seeks, untouched.scans, untouched.lookups), (0, 0, 0), "{untouched:?}");
-    assert!(untouched.updates > 0 && untouched.unused, "written, never read: {untouched:?}");
+    assert_eq!(
+        (untouched.seeks, untouched.scans, untouched.lookups),
+        (0, 0, 0),
+        "{untouched:?}"
+    );
+    assert!(
+        untouched.updates > 0 && untouched.unused,
+        "written, never read: {untouched:?}"
+    );
     assert_eq!(untouched.read_share, Some(0.0));
 }
 
@@ -148,11 +223,20 @@ fn check_usage(r: &IndexUsageReport) {
 async fn drop_index(id: &str, s: &mut Box<dyn Session>, name: &str) {
     let tables = s.database_schema().await.unwrap();
     let old = tables.into_iter().find(|t| t.name == "t").expect("t");
-    assert!(old.indexes.iter().any(|i| i.name == name), "{:?}", old.indexes);
+    assert!(
+        old.indexes.iter().any(|i| i.name == name),
+        "{:?}",
+        old.indexes
+    );
     let mut new = old.clone();
     new.indexes.retain(|i| i.name != name);
-    let script = driver(id).sync_script(&[TableChange::Alter { old, new }]).unwrap();
-    eprintln!("{id}: drop script {:?} warnings {:?}", script.statements, script.warnings);
+    let script = driver(id)
+        .sync_script(&[TableChange::Alter { old, new }])
+        .unwrap();
+    eprintln!(
+        "{id}: drop script {:?} warnings {:?}",
+        script.statements, script.warnings
+    );
     assert_eq!(script.statements.len(), 1, "{script:?}");
     assert!(script.statements[0].contains(name), "{script:?}");
     for stmt in &script.statements {
@@ -177,26 +261,66 @@ async fn mysql_live() {
     check_catalog(&r);
     check_usage(&r);
     check_pk_scans(&r);
-    assert!(!r.seek_scan_split, "performance_schema doesn't split seeks from scans");
-    assert!(r.note.as_deref().is_some_and(|n| n.contains("salvo que las estadísticas se hayan reiniciado o activado después")), "{r:?}");
+    assert!(
+        !r.seek_scan_split,
+        "performance_schema doesn't split seeks from scans"
+    );
+    assert!(
+        r.note.as_deref().is_some_and(
+            |n| n.contains("salvo que las estadísticas se hayan reiniciado o activado después")
+        ),
+        "{r:?}"
+    );
     assert!(r.indexes.iter().all(|i| i.seek_health.is_none()));
     let untouched = r.indexes.iter().find(|i| i.name == "ix_untouched").unwrap();
     assert_eq!(untouched.key_columns, ["b DESC"]);
-    assert!(r.indexes.iter().find(|i| i.name == "ix_seeked").unwrap().size_kb.is_some_and(|k| k > 0), "{r:?}");
+    assert!(
+        r.indexes
+            .iter()
+            .find(|i| i.name == "ix_seeked")
+            .unwrap()
+            .size_kb
+            .is_some_and(|k| k > 0),
+        "{r:?}"
+    );
     // A login that can't read performance_schema: the indexes, no counters, the privilege named.
     let cfg = parse_url("mysql", &url);
     run(&mut admin, "DROP USER IF EXISTS dbine_ixu_ro").await;
-    run(&mut admin, "CREATE USER dbine_ixu_ro IDENTIFIED BY 'Pw_ixu_1'").await;
-    run(&mut admin, &format!("GRANT SELECT ON {DB}.* TO dbine_ixu_ro")).await;
-    let ro = ConnectionConfig { username: Some("dbine_ixu_ro".into()), password: Some("Pw_ixu_1".into()), ..cfg };
-    let mut limited = driver("mysql").connect(&ro, Some(DB)).await.expect("connect as dbine_ixu_ro");
+    run(
+        &mut admin,
+        "CREATE USER dbine_ixu_ro IDENTIFIED BY 'Pw_ixu_1'",
+    )
+    .await;
+    run(
+        &mut admin,
+        &format!("GRANT SELECT ON {DB}.* TO dbine_ixu_ro"),
+    )
+    .await;
+    let ro = ConnectionConfig {
+        username: Some("dbine_ixu_ro".into()),
+        password: Some("Pw_ixu_1".into()),
+        ..cfg
+    };
+    let mut limited = driver("mysql")
+        .connect(&ro, Some(DB))
+        .await
+        .expect("connect as dbine_ixu_ro");
     let r = report(&mut limited).await;
     drop(limited);
     run(&mut admin, "DROP USER dbine_ixu_ro").await;
     eprintln!("{r:#?}");
     check_catalog(&r);
-    assert!(!r.stats_available && r.note.as_deref().is_some_and(|n| n.contains("SELECT sobre performance_schema")), "{r:?}");
-    assert!(r.indexes.iter().all(|i| !i.unused && i.read_share.is_none()));
+    assert!(
+        !r.stats_available
+            && r.note
+                .as_deref()
+                .is_some_and(|n| n.contains("SELECT sobre performance_schema")),
+        "{r:?}"
+    );
+    assert!(r
+        .indexes
+        .iter()
+        .all(|i| !i.unused && i.read_share.is_none()));
 
     drop_index("mysql", &mut s, "ix_untouched").await;
     drop(s);
@@ -218,8 +342,14 @@ async fn mariadb_live() {
         run(&mut admin, "SET GLOBAL userstat = 0").await;
         let r = report(&mut s).await;
         check_catalog(&r);
-        assert!(!r.stats_available && r.note.as_deref().is_some_and(|n| n.contains("userstat")), "{r:?}");
-        assert!(r.indexes.iter().all(|i| !i.unused && i.read_share.is_none()));
+        assert!(
+            !r.stats_available && r.note.as_deref().is_some_and(|n| n.contains("userstat")),
+            "{r:?}"
+        );
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| !i.unused && i.read_share.is_none()));
     }
     run(&mut admin, "SET GLOBAL userstat = 1").await;
     run(&mut s, "UPDATE t SET b = b + 1 WHERE id <= 20").await;
@@ -231,7 +361,13 @@ async fn mariadb_live() {
     check_catalog(&r);
     check_usage(&r);
     check_pk_scans(&r);
-    assert!(r.note.as_deref().is_some_and(|n| n.contains("userstat") && n.contains("desde el arranque del servidor, salvo que")), "{r:?}");
+    assert!(
+        r.note
+            .as_deref()
+            .is_some_and(|n| n.contains("userstat")
+                && n.contains("desde el arranque del servidor, salvo que")),
+        "{r:?}"
+    );
     assert!(!r.seek_scan_split);
     drop_index("mariadb", &mut s, "ix_untouched").await;
     drop(s);
@@ -247,13 +383,21 @@ async fn tidb_live() {
     };
     let (mut admin, mut s) = setup("tidb", &parse_url("tidb", &url)).await;
     let version = s.server_version().await.unwrap();
-    let major: u32 = version.split("-v").nth(1).and_then(|v| v.split('.').next()).and_then(|m| m.parse().ok()).unwrap_or(0);
+    let major: u32 = version
+        .split("-v")
+        .nth(1)
+        .and_then(|v| v.split('.').next())
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
     lookups(&mut s).await;
     if major < 8 {
         let r = report(&mut s).await;
         eprintln!("{r:#?}");
         check_catalog(&r);
-        assert!(!r.stats_available && r.note.as_deref().is_some_and(|n| n.contains("8.0")), "{r:?}");
+        assert!(
+            !r.stats_available && r.note.as_deref().is_some_and(|n| n.contains("8.0")),
+            "{r:?}"
+        );
     } else {
         // Rows changed after the ANALYZE: what `updates` reads.
         run(&mut s, "UPDATE t SET b = b + 1 WHERE id <= 20").await;
@@ -262,7 +406,9 @@ async fn tidb_live() {
         let r = loop {
             let r = report(&mut s).await;
             let get = |n: &str| r.indexes.iter().find(|i| i.name == n).cloned().unwrap();
-            if (get("ix_seeked").seeks >= 5 && get("ix_untouched").updates > 0) || start.elapsed() > Duration::from_secs(90) {
+            if (get("ix_seeked").seeks >= 5 && get("ix_untouched").updates > 0)
+                || start.elapsed() > Duration::from_secs(90)
+            {
                 break r;
             }
             tokio::time::sleep(Duration::from_secs(3)).await;
@@ -272,22 +418,46 @@ async fn tidb_live() {
         check_usage(&r);
         assert!(r.seek_scan_split);
         let seeked = r.indexes.iter().find(|i| i.name == "ix_seeked").unwrap();
-        assert!(seeked.last_read.is_some() && seeked.seek_ratio == Some(1.0), "point lookups are seeks: {seeked:?}");
+        assert!(
+            seeked.last_read.is_some() && seeked.seek_ratio == Some(1.0),
+            "point lookups are seeks: {seeked:?}"
+        );
         let pk = r.indexes.iter().find(|i| i.name == "PRIMARY").unwrap();
         assert!(!pk.unused, "the clustered key isn't counted: {pk:?}");
         assert!(r.writes_counted, "{r:?}");
         // A login without SELECT on mysql.stats_meta: writes unknown, the privilege named.
         let cfg = parse_url("tidb", &url);
         run(&mut admin, "DROP USER IF EXISTS dbine_ixu_ro").await;
-        run(&mut admin, "CREATE USER dbine_ixu_ro IDENTIFIED BY 'Pw_ixu_1'").await;
-        run(&mut admin, &format!("GRANT SELECT ON {DB}.* TO dbine_ixu_ro")).await;
-        let ro = ConnectionConfig { username: Some("dbine_ixu_ro".into()), password: Some("Pw_ixu_1".into()), ..cfg };
-        let mut limited = driver("tidb").connect(&ro, Some(DB)).await.expect("connect as dbine_ixu_ro");
+        run(
+            &mut admin,
+            "CREATE USER dbine_ixu_ro IDENTIFIED BY 'Pw_ixu_1'",
+        )
+        .await;
+        run(
+            &mut admin,
+            &format!("GRANT SELECT ON {DB}.* TO dbine_ixu_ro"),
+        )
+        .await;
+        let ro = ConnectionConfig {
+            username: Some("dbine_ixu_ro".into()),
+            password: Some("Pw_ixu_1".into()),
+            ..cfg
+        };
+        let mut limited = driver("tidb")
+            .connect(&ro, Some(DB))
+            .await
+            .expect("connect as dbine_ixu_ro");
         let r = report(&mut limited).await;
         drop(limited);
         run(&mut admin, "DROP USER dbine_ixu_ro").await;
         eprintln!("{r:#?}");
-        assert!(!r.writes_counted && r.note.as_deref().is_some_and(|n| n.contains("SELECT sobre mysql.stats_meta")), "{r:?}");
+        assert!(
+            !r.writes_counted
+                && r.note
+                    .as_deref()
+                    .is_some_and(|n| n.contains("SELECT sobre mysql.stats_meta")),
+            "{r:?}"
+        );
     }
     drop_index("tidb", &mut s, "ix_untouched").await;
     drop(s);
@@ -305,12 +475,22 @@ async fn oceanbase_live() {
     // OceanBase moves its DML counts (DBA_TAB_MODIFICATIONS) and index
     // accesses (DBA_INDEX_USAGE) to the views in the background, minutes
     // later: the counters may still be zero here.
-    run(&mut s, "INSERT INTO t (id, a, b, pid) VALUES (1001, 1, 1, 1), (1002, 2, 2, 1)").await;
+    run(
+        &mut s,
+        "INSERT INTO t (id, a, b, pid) VALUES (1001, 1, 1, 1), (1002, 2, 2, 1)",
+    )
+    .await;
     lookups(&mut s).await;
     let r = report(&mut s).await;
     eprintln!("{r:#?}");
     check_catalog(&r);
-    assert!(r.stats_available && r.note.as_deref().is_some_and(|n| n.contains("DBA_INDEX_USAGE")), "{r:?}");
+    assert!(
+        r.stats_available
+            && r.note
+                .as_deref()
+                .is_some_and(|n| n.contains("DBA_INDEX_USAGE")),
+        "{r:?}"
+    );
     assert!(!r.seek_scan_split && r.since.is_none());
     let pk = r.indexes.iter().find(|i| i.name == "PRIMARY").unwrap();
     assert!(pk.updates == 0 && !pk.unused, "{pk:?}");
@@ -337,14 +517,33 @@ async fn greptimedb_live() {
     run(&mut admin, &format!("CREATE DATABASE IF NOT EXISTS {DB}")).await;
     let mut s = d.connect(&cfg, Some(DB)).await.unwrap();
     run(&mut s, "DROP TABLE IF EXISTS t").await;
-    run(&mut s, "CREATE TABLE t (ts TIMESTAMP TIME INDEX, host STRING, v DOUBLE, PRIMARY KEY (host))").await;
+    run(
+        &mut s,
+        "CREATE TABLE t (ts TIMESTAMP TIME INDEX, host STRING, v DOUBLE, PRIMARY KEY (host))",
+    )
+    .await;
     let r = report(&mut s).await;
     eprintln!("{r:#?}");
     run(&mut s, "DROP TABLE t").await;
     drop(s);
     run(&mut admin, &format!("DROP DATABASE {DB}")).await;
-    assert!(!r.stats_available && r.note.as_deref().is_some_and(|n| n.starts_with("GreptimeDB")), "{r:?}");
-    let pk = r.indexes.iter().find(|i| i.name == "PRIMARY").expect("PRIMARY");
+    assert!(
+        !r.stats_available
+            && r.note
+                .as_deref()
+                .is_some_and(|n| n.starts_with("GreptimeDB")),
+        "{r:?}"
+    );
+    let pk = r
+        .indexes
+        .iter()
+        .find(|i| i.name == "PRIMARY")
+        .expect("PRIMARY");
     assert!(pk.primary_key && pk.key_columns == ["host"], "{pk:?}");
-    assert!(r.indexes.iter().any(|i| i.name == "TIME INDEX" && i.key_columns == ["ts"]), "{r:?}");
+    assert!(
+        r.indexes
+            .iter()
+            .any(|i| i.name == "TIME INDEX" && i.key_columns == ["ts"]),
+        "{r:?}"
+    );
 }

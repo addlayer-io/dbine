@@ -12,7 +12,9 @@
 //!   cargo test -p dbine-driver-postgres --test index_usage -- --ignored --test-threads=1
 //! ```
 
-use dbine_driver::{ConnectionConfig, Driver, IndexUsageReport, ObjectRef, QueryOutcome, Session, TableChange};
+use dbine_driver::{
+    ConnectionConfig, Driver, IndexUsageReport, ObjectRef, QueryOutcome, Session, TableChange,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,7 +22,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -35,26 +39,43 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: "table".into(), schema: Some("dbine_iu".into()), name: name.into() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbine_iu".into()),
+        name: name.into(),
+    }
 }
 
 async fn report(s: &mut Box<dyn Session>, name: &str) -> IndexUsageReport {
-    s.index_usage(&table(name)).await.unwrap().expect("a report").derived()
+    s.index_usage(&table(name))
+        .await
+        .unwrap()
+        .expect("a report")
+        .derived()
 }
 
 /// The counters arrive a moment later (stats flush, async collection):
 /// read until `ok` holds or ~20 s pass.
-async fn settled(s: &mut Box<dyn Session>, name: &str, ok: impl Fn(&IndexUsageReport) -> bool) -> IndexUsageReport {
+async fn settled(
+    s: &mut Box<dyn Session>,
+    name: &str,
+    ok: impl Fn(&IndexUsageReport) -> bool,
+) -> IndexUsageReport {
     for _ in 0..40 {
         let r = report(s, name).await;
         if ok(&r) {
@@ -84,8 +105,16 @@ async fn scenario(id: &str, env: &str) {
                                   p int CONSTRAINT fk_t_parent REFERENCES dbine_iu.parent (id))",
     )
     .await;
-    run(&mut s, "CREATE INDEX ix_seeked ON dbine_iu.t (a) INCLUDE (c)").await;
-    run(&mut s, "CREATE INDEX ix_untouched ON dbine_iu.t (b DESC) WHERE b > 0").await;
+    run(
+        &mut s,
+        "CREATE INDEX ix_seeked ON dbine_iu.t (a) INCLUDE (c)",
+    )
+    .await;
+    run(
+        &mut s,
+        "CREATE INDEX ix_untouched ON dbine_iu.t (b DESC) WHERE b > 0",
+    )
+    .await;
     run(&mut s, "CREATE INDEX ix_idle ON dbine_iu.t (p)").await;
     run(&mut s, "INSERT INTO dbine_iu.t (id, a, b, c, p) SELECT g, g % 50, g, g, 1 + g % 2 FROM generate_series(1, 500) AS g").await;
     if !crdb {
@@ -105,14 +134,28 @@ async fn scenario(id: &str, env: &str) {
         run(&mut s, "RESET enable_bitmapscan").await;
     }
 
-    let r = settled(&mut s, "t", |r| r.indexes.iter().any(|i| i.name == "ix_seeked" && i.seeks >= 6)).await;
+    let r = settled(&mut s, "t", |r| {
+        r.indexes
+            .iter()
+            .any(|i| i.name == "ix_seeked" && i.seeks >= 6)
+    })
+    .await;
     eprintln!("{id}: {}", serde_json::to_string_pretty(&r).unwrap());
-    let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap_or_else(|| panic!("{n} in {:?}", r.indexes));
+    let get = |n: &str| {
+        r.indexes
+            .iter()
+            .find(|i| i.name == n)
+            .unwrap_or_else(|| panic!("{n} in {:?}", r.indexes))
+    };
     assert!(r.stats_available, "{:?}", r.note);
     assert!(!r.seek_scan_split);
     assert_eq!(r.indexes.len(), 4);
     // Cockroach 26.x names its ordered index `prefix`: shown as a B-tree.
-    assert!(r.indexes.iter().all(|i| i.kind == "BTREE"), "{:?}", r.indexes.iter().map(|i| &i.kind).collect::<Vec<_>>());
+    assert!(
+        r.indexes.iter().all(|i| i.kind == "BTREE"),
+        "{:?}",
+        r.indexes.iter().map(|i| &i.kind).collect::<Vec<_>>()
+    );
     let idle = get("ix_idle");
     let pk = get("t_pk");
     assert!(pk.primary_key && pk.unique && pk.key_columns == ["id"]);
@@ -123,7 +166,13 @@ async fn scenario(id: &str, env: &str) {
     let untouched = get("ix_untouched");
     assert_eq!(untouched.reads, 0);
     assert_eq!(untouched.key_columns, ["b DESC"]);
-    assert!(untouched.filter.as_deref().is_some_and(|f| f.contains("b > 0")), "{untouched:?}");
+    assert!(
+        untouched
+            .filter
+            .as_deref()
+            .is_some_and(|f| f.contains("b > 0")),
+        "{untouched:?}"
+    );
     assert!(seeked.read_share.is_some_and(|x| x > 0.0) && untouched.read_share == Some(0.0));
     if crdb || id == "yugabytedb" {
         // No writes per index: never "sin uso", and no size.
@@ -132,26 +181,69 @@ async fn scenario(id: &str, env: &str) {
         assert!(seeked.last_read.is_some() || !crdb);
         assert!(!idle.unused && idle.updates == 0);
     } else {
-        assert!(r.writes_counted && idle.updates >= 500 && idle.unused, "{idle:?}");
+        assert!(
+            r.writes_counted && idle.updates >= 500 && idle.unused,
+            "{idle:?}"
+        );
         // Partial: the table's writes aren't all its own, so never "sin uso".
         assert!(untouched.updates == 0 && !untouched.unused, "{untouched:?}");
-        assert!(r.note.as_deref().is_some_and(|n| n.contains("índices parciales")), "{:?}", r.note);
+        assert!(
+            r.note
+                .as_deref()
+                .is_some_and(|n| n.contains("índices parciales")),
+            "{:?}",
+            r.note
+        );
         assert!(seeked.size_kb.is_some_and(|k| k > 0));
     }
     assert_eq!(r.foreign_keys.len(), 1);
     let fk = &r.foreign_keys[0];
-    assert_eq!((fk.name.as_deref(), fk.columns.clone(), fk.ref_table.as_str(), fk.ref_columns.clone()), (Some("fk_t_parent"), vec!["p".to_string()], "parent", vec!["id".to_string()]));
+    assert_eq!(
+        (
+            fk.name.as_deref(),
+            fk.columns.clone(),
+            fk.ref_table.as_str(),
+            fk.ref_columns.clone()
+        ),
+        (
+            Some("fk_t_parent"),
+            vec!["p".to_string()],
+            "parent",
+            vec!["id".to_string()]
+        )
+    );
     assert_eq!(fk.ref_schema.as_deref(), Some("dbine_iu"));
 
     // Drop the unread index through the schema sync script.
     let tables = s.database_schema().await.unwrap();
-    let old = tables.iter().find(|t| t.name == "t" && t.schema.as_deref() == Some("dbine_iu")).unwrap().clone();
+    let old = tables
+        .iter()
+        .find(|t| t.name == "t" && t.schema.as_deref() == Some("dbine_iu"))
+        .unwrap()
+        .clone();
     let mut new = old.clone();
     new.indexes.retain(|i| i.name != "ix_untouched");
-    assert_eq!(new.indexes.len() + 1, old.indexes.len(), "{:?}", old.indexes);
-    let script = d.sync_script(&[TableChange::Alter { old: old.clone(), new }]).unwrap();
+    assert_eq!(
+        new.indexes.len() + 1,
+        old.indexes.len(),
+        "{:?}",
+        old.indexes
+    );
+    let script = d
+        .sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new,
+        }])
+        .unwrap();
     eprintln!("{id}: {:?}", script.statements);
-    assert!(script.statements.iter().any(|st| st.contains("DROP INDEX") && st.contains("ix_untouched")), "{:?}", script.statements);
+    assert!(
+        script
+            .statements
+            .iter()
+            .any(|st| st.contains("DROP INDEX") && st.contains("ix_untouched")),
+        "{:?}",
+        script.statements
+    );
     for st in &script.statements {
         run(&mut s, st).await;
     }
@@ -200,22 +292,45 @@ async fn timescale_hypertable() {
     run(&mut s, "CREATE EXTENSION IF NOT EXISTS timescaledb").await;
     run(&mut s, "DROP SCHEMA IF EXISTS dbine_iu CASCADE").await;
     run(&mut s, "CREATE SCHEMA dbine_iu").await;
-    run(&mut s, "CREATE TABLE dbine_iu.m (ts timestamptz NOT NULL, dev int, v float8)").await;
-    run(&mut s, "SELECT create_hypertable('dbine_iu.m', 'ts', chunk_time_interval => interval '1 day')").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbine_iu.m (ts timestamptz NOT NULL, dev int, v float8)",
+    )
+    .await;
+    run(
+        &mut s,
+        "SELECT create_hypertable('dbine_iu.m', 'ts', chunk_time_interval => interval '1 day')",
+    )
+    .await;
     run(&mut s, "CREATE INDEX m_dev ON dbine_iu.m (dev)").await;
     run(&mut s, "CREATE INDEX m_v ON dbine_iu.m (v)").await;
     run(&mut s, "INSERT INTO dbine_iu.m SELECT '2026-01-01'::timestamptz + g * interval '1 hour', g % 10, g FROM generate_series(1, 200) AS g").await;
     run(&mut s, "SET enable_seqscan = off").await;
     run(&mut s, "SET enable_bitmapscan = off").await;
     for i in 0..3 {
-        run(&mut s, &format!("SELECT count(*) FROM dbine_iu.m WHERE dev = {i}")).await;
+        run(
+            &mut s,
+            &format!("SELECT count(*) FROM dbine_iu.m WHERE dev = {i}"),
+        )
+        .await;
     }
-    let r = settled(&mut s, "m", |r| r.indexes.iter().any(|i| i.name == "m_dev" && i.seeks >= 3)).await;
+    let r = settled(&mut s, "m", |r| {
+        r.indexes.iter().any(|i| i.name == "m_dev" && i.seeks >= 3)
+    })
+    .await;
     eprintln!("hypertable: {}", serde_json::to_string_pretty(&r).unwrap());
     let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap();
-    assert!(get("m_dev").seeks >= 3, "chunk scans add up: {:?}", get("m_dev"));
+    assert!(
+        get("m_dev").seeks >= 3,
+        "chunk scans add up: {:?}",
+        get("m_dev")
+    );
     assert!(get("m_dev").size_kb.is_some_and(|k| k > 0));
-    assert!(get("m_v").unused && get("m_v").updates >= 200, "{:?}", get("m_v"));
+    assert!(
+        get("m_v").unused && get("m_v").updates >= 200,
+        "{:?}",
+        get("m_v")
+    );
     run(&mut s, "DROP SCHEMA dbine_iu CASCADE").await;
 }
 
@@ -223,7 +338,17 @@ async fn timescale_hypertable() {
 /// the setup, the table, the indexes expected (primary key first) and
 /// whether the counters are there.
 #[allow(clippy::too_many_arguments)]
-async fn listing(id: &str, env: &str, setup: &[&str], schema: Option<&str>, name: &str, expected: &[&str], fks: usize, stats: bool, cleanup: &[&str]) {
+async fn listing(
+    id: &str,
+    env: &str,
+    setup: &[&str],
+    schema: Option<&str>,
+    name: &str,
+    expected: &[&str],
+    fks: usize,
+    stats: bool,
+    cleanup: &[&str],
+) {
     let Some(cfg) = cfg(id, env) else {
         eprintln!("{env} not set; skipping");
         return;
@@ -238,12 +363,27 @@ async fn listing(id: &str, env: &str, setup: &[&str], schema: Option<&str>, name
     for st in setup {
         run(&mut s, st).await;
     }
-    let obj = ObjectRef { kind: "table".into(), schema: schema.map(Into::into), name: name.into() };
-    let r = s.index_usage(&obj).await.unwrap().expect("a report").derived();
+    let obj = ObjectRef {
+        kind: "table".into(),
+        schema: schema.map(Into::into),
+        name: name.into(),
+    };
+    let r = s
+        .index_usage(&obj)
+        .await
+        .unwrap()
+        .expect("a report")
+        .derived();
     eprintln!("{id}: {}", serde_json::to_string_pretty(&r).unwrap());
     if r.indexes.is_empty() {
         let tables = s.database_schema().await.unwrap();
-        eprintln!("{id} tables: {:?}", tables.iter().map(|t| (t.schema.clone(), t.name.clone(), t.indexes.len())).collect::<Vec<_>>());
+        eprintln!(
+            "{id} tables: {:?}",
+            tables
+                .iter()
+                .map(|t| (t.schema.clone(), t.name.clone(), t.indexes.len()))
+                .collect::<Vec<_>>()
+        );
     }
     let mut names: Vec<&str> = r.indexes.iter().map(|i| i.name.as_str()).collect();
     names.sort();
@@ -310,7 +450,11 @@ async fn materialize() {
     listing(
         "materialize",
         "DBINE_TEST_MATERIALIZE_URL",
-        &["CREATE SCHEMA dbine_iu", "CREATE TABLE dbine_iu.t (id int, a int)", "CREATE INDEX ix_a ON dbine_iu.t (a)"],
+        &[
+            "CREATE SCHEMA dbine_iu",
+            "CREATE TABLE dbine_iu.t (id int, a int)",
+            "CREATE INDEX ix_a ON dbine_iu.t (a)",
+        ],
         Some("dbine_iu"),
         "t",
         &["ix_a"],
@@ -327,13 +471,21 @@ async fn risingwave() {
     listing(
         "risingwave",
         "DBINE_TEST_RISINGWAVE_URL",
-        &["CREATE SCHEMA dbine_iu", "CREATE TABLE dbine_iu.t (id int PRIMARY KEY, a int)", "CREATE INDEX ix_a ON dbine_iu.t (a)"],
+        &[
+            "CREATE SCHEMA dbine_iu",
+            "CREATE TABLE dbine_iu.t (id int PRIMARY KEY, a int)",
+            "CREATE INDEX ix_a ON dbine_iu.t (a)",
+        ],
         Some("dbine_iu"),
         "t",
         &["PRIMARY KEY", "ix_a"],
         0,
         false,
-        &["DROP INDEX IF EXISTS dbine_iu.ix_a", "DROP TABLE IF EXISTS dbine_iu.t", "DROP SCHEMA IF EXISTS dbine_iu"],
+        &[
+            "DROP INDEX IF EXISTS dbine_iu.ix_a",
+            "DROP TABLE IF EXISTS dbine_iu.t",
+            "DROP SCHEMA IF EXISTS dbine_iu",
+        ],
     )
     .await;
 }

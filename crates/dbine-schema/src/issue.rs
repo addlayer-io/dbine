@@ -69,7 +69,14 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn push(&mut self, severity: Severity, code: IssueCode, table: &str, object: Option<&str>, message: impl Into<String>) {
+    pub fn push(
+        &mut self,
+        severity: Severity,
+        code: IssueCode,
+        table: &str,
+        object: Option<&str>,
+        message: impl Into<String>,
+    ) {
         self.issues.push(Issue {
             severity,
             code,

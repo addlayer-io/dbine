@@ -39,14 +39,16 @@
 //! future is dropped (the engine's cancel) is deleted on the way out.
 
 use crate::{http_error, lit, query_error, Conn, InFlight, QueryResults, TrinoSession};
-use std::sync::Arc;
 use base64::Engine as _;
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, Result, Session};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use tokio::task::JoinSet;
 
 /// Bytes of one INSERT at most (below the default `query.max-length`)…
@@ -65,8 +67,19 @@ pub(crate) const IN_FLIGHT: usize = 2;
 /// Connectors whose INSERTs into one table don't conflict: in-memory,
 /// Hive (new files per write) and the JDBC ones (each write lands in its
 /// own staging table and is then appended).
-pub(crate) const CONCURRENT: &[&str] =
-    &["memory", "blackhole", "hive", "postgresql", "mysql", "mariadb", "sqlserver", "oracle", "singlestore", "redshift", "clickhouse"];
+pub(crate) const CONCURRENT: &[&str] = &[
+    "memory",
+    "blackhole",
+    "hive",
+    "postgresql",
+    "mysql",
+    "mariadb",
+    "sqlserver",
+    "oracle",
+    "singlestore",
+    "redshift",
+    "clickhouse",
+];
 
 /// The families of Trino types the transfer tells apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,7 +176,8 @@ fn split_top(s: &str) -> Vec<&str> {
 pub(crate) fn parse_ty(ty: &str) -> Ty {
     let t = ty.trim();
     let lower = t.to_ascii_lowercase();
-    let inner = |p: &str| (lower.starts_with(p) && t.ends_with(')')).then(|| &t[p.len()..t.len() - 1]);
+    let inner =
+        |p: &str| (lower.starts_with(p) && t.ends_with(')')).then(|| &t[p.len()..t.len() - 1]);
     if let Some(e) = inner("array(") {
         return Ty::Array(Box::new(parse_ty(e)));
     }
@@ -197,7 +211,9 @@ fn row_field(f: &str) -> (Option<String>, Ty) {
     // A bare word before the type, unless the whole thing is one type
     // (`timestamp(3) with time zone`, `array(integer)`, `ipaddress`).
     match f.split_once(char::is_whitespace) {
-        Some((name, ty)) if kind(f) == Kind::Other && !name.contains('(') => (Some(name.to_string()), parse_ty(ty)),
+        Some((name, ty)) if kind(f) == Kind::Other && !name.contains('(') => {
+            (Some(name.to_string()), parse_ty(ty))
+        }
         _ => (None, parse_ty(f)),
     }
 }
@@ -207,7 +223,12 @@ fn row_field(f: &str) -> (Option<String>, Ty) {
 /// CHAR, VARBINARY, IPADDRESS don't, and neither do map keys other than
 /// numbers, booleans and VARCHAR).
 pub(crate) fn json_readable(ty: &Ty) -> bool {
-    let scalar = |t: &str| matches!(kind(t), Kind::Bool | Kind::Int | Kind::Real | Kind::Double | Kind::Decimal) || t.trim().to_ascii_lowercase().starts_with("varchar");
+    let scalar = |t: &str| {
+        matches!(
+            kind(t),
+            Kind::Bool | Kind::Int | Kind::Real | Kind::Double | Kind::Decimal
+        ) || t.trim().to_ascii_lowercase().starts_with("varchar")
+    };
     match ty {
         Ty::Leaf(t) => scalar(t) || matches!(kind(t), Kind::Json | Kind::Date | Kind::Timestamp),
         Ty::Array(e) => json_readable(e),
@@ -241,7 +262,13 @@ pub(crate) fn iso_to_tz(s: &str) -> String {
 fn t_to_space(s: &str) -> String {
     let b = s.as_bytes();
     match s.find('T') {
-        Some(p) if p > 0 && b[p - 1].is_ascii_digit() && b.get(p + 1).is_some_and(u8::is_ascii_digit) => format!("{} {}", &s[..p], &s[p + 1..]),
+        Some(p)
+            if p > 0
+                && b[p - 1].is_ascii_digit()
+                && b.get(p + 1).is_some_and(u8::is_ascii_digit) =>
+        {
+            format!("{} {}", &s[..p], &s[p + 1..])
+        }
         _ => s.to_string(),
     }
 }
@@ -311,7 +338,10 @@ fn hex(b: &[u8]) -> String {
 /// shorter, so larger values fit in a statement).
 fn bin(b: &[u8]) -> String {
     if b.len() > 1024 {
-        format!("from_base64('{}')", base64::engine::general_purpose::STANDARD.encode(b))
+        format!(
+            "from_base64('{}')",
+            base64::engine::general_purpose::STANDARD.encode(b)
+        )
     } else {
         format!("X'{}'", hex(b))
     }
@@ -340,11 +370,20 @@ pub(crate) fn plain_decimal(s: &str) -> Option<String> {
         let digits = format!("{int}{frac}");
         let point = int.len() as i64 + exp;
         if point <= 0 {
-            (String::new(), format!("{}{digits}", "0".repeat(point.unsigned_abs() as usize)))
+            (
+                String::new(),
+                format!("{}{digits}", "0".repeat(point.unsigned_abs() as usize)),
+            )
         } else if point as usize >= digits.len() {
-            (format!("{digits}{}", "0".repeat(point as usize - digits.len())), String::new())
+            (
+                format!("{digits}{}", "0".repeat(point as usize - digits.len())),
+                String::new(),
+            )
         } else {
-            (digits[..point as usize].to_string(), digits[point as usize..].to_string())
+            (
+                digits[..point as usize].to_string(),
+                digits[point as usize..].to_string(),
+            )
         }
     };
     let int = int.trim_start_matches('0');
@@ -359,7 +398,9 @@ pub(crate) fn plain_decimal(s: &str) -> Option<String> {
 
 /// `decimal(p,s)`'s precision and scale.
 fn decimal_params(ty: &str) -> Option<(usize, usize)> {
-    let params = ty.split_once('(').and_then(|(_, r)| r.trim().strip_suffix(')'))?;
+    let params = ty
+        .split_once('(')
+        .and_then(|(_, r)| r.trim().strip_suffix(')'))?;
     let (p, s) = params.split_once(',')?;
     Some((p.trim().parse().ok()?, s.trim().parse().ok()?))
 }
@@ -389,7 +430,12 @@ fn decimal_literal(text: &str, ty: &str) -> Result<String> {
             )));
         }
     }
-    let int = plain.trim_start_matches('-').split('.').next().unwrap_or("").trim_start_matches('0');
+    let int = plain
+        .trim_start_matches('-')
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_start_matches('0');
     Ok(if int.len() <= p.saturating_sub(s) {
         format!("DECIMAL '{plain}'")
     } else {
@@ -414,7 +460,12 @@ fn as_text(c: &Cell) -> Option<String> {
         Cell::Float(f) if f.is_infinite() => if *f > 0.0 { "Infinity" } else { "-Infinity" }.into(),
         Cell::Float(f) => f.to_string(),
         Cell::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::Uuid(s) | Cell::Json(s) => s.clone(),
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => s.clone(),
         Cell::DateTime(s) | Cell::DateTimeTz(s) => t_to_space(s),
     })
 }
@@ -446,7 +497,10 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
     let fitted;
     let c = match c {
         Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s)
-            if matches!(kind(ty), Kind::Time | Kind::TimeTz | Kind::Timestamp | Kind::TimestampTz) =>
+            if matches!(
+                kind(ty),
+                Kind::Time | Kind::TimeTz | Kind::Timestamp | Kind::TimestampTz
+            ) =>
         {
             let s = fit_fraction(s, ty)?;
             fitted = match c {
@@ -477,8 +531,12 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
                 Cell::Int(i) => i.to_string(),
                 Cell::UInt(u) => u.to_string(),
                 Cell::Bool(b) => u8::from(*b).to_string(),
-                Cell::Float(f) if f.is_finite() && f.fract() == 0.0 && f.abs() < 9.2e18 => (*f as i64).to_string(),
-                Cell::Text(s) | Cell::Decimal(s) if plain_integer(s.trim()) => s.trim().trim_start_matches('+').to_string(),
+                Cell::Float(f) if f.is_finite() && f.fract() == 0.0 && f.abs() < 9.2e18 => {
+                    (*f as i64).to_string()
+                }
+                Cell::Text(s) | Cell::Decimal(s) if plain_integer(s.trim()) => {
+                    s.trim().trim_start_matches('+').to_string()
+                }
                 _ => return Ok(cast(c, ty)),
             };
             // Presto doesn't narrow an integer literal (and `-2147483648`
@@ -494,7 +552,12 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
         }
         Kind::Double => match c {
             Cell::Float(f) if f.is_nan() => "nan()".into(),
-            Cell::Float(f) if f.is_infinite() => if *f > 0.0 { "infinity()" } else { "-infinity()" }.into(),
+            Cell::Float(f) if f.is_infinite() => if *f > 0.0 {
+                "infinity()"
+            } else {
+                "-infinity()"
+            }
+            .into(),
             // Rust's `{:e}` is the shortest form that reads back bit for bit.
             Cell::Float(f) => format!("{f:e}"),
             Cell::Int(i) => i.to_string(),
@@ -505,7 +568,12 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
         // Parsed straight into a float (Presto doesn't narrow a double).
         Kind::Real => match c {
             Cell::Float(f) if f.is_nan() => "CAST(nan() AS real)".into(),
-            Cell::Float(f) if f.is_infinite() => if *f > 0.0 { "CAST(infinity() AS real)" } else { "CAST(-infinity() AS real)" }.into(),
+            Cell::Float(f) if f.is_infinite() => if *f > 0.0 {
+                "CAST(infinity() AS real)"
+            } else {
+                "CAST(-infinity() AS real)"
+            }
+            .into(),
             Cell::Float(f) => format!("REAL '{f:e}'"),
             Cell::Bool(b) => format!("REAL '{}'", u8::from(*b)),
             _ => format!("REAL {}", lit(as_text(c).unwrap_or_default().trim())),
@@ -555,7 +623,9 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
                     format!("CAST({} AS {ty})", ts_lit(s))
                 }
             }
-            Cell::Time(s) | Cell::Text(s) if has_zone(s) => format!("CAST(TIME {} AT TIME ZONE 'UTC' AS {ty})", lit(s.trim())),
+            Cell::Time(s) | Cell::Text(s) if has_zone(s) => {
+                format!("CAST(TIME {} AT TIME ZONE 'UTC' AS {ty})", lit(s.trim()))
+            }
             Cell::Time(s) | Cell::Text(s) => format!("TIME {}", lit(s.trim())),
             _ => cast(c, ty),
         },
@@ -564,11 +634,17 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
         Kind::TimeTz => match c {
             Cell::DateTimeTz(s) => format!("CAST({} AS {ty})", ts_lit(s)),
             Cell::DateTime(s) | Cell::Text(s) if looks_like_date(s) => {
-                let s = if has_zone(s) { iso_to_tz(s) } else { format!("{} UTC", iso_to_tz(s)) };
+                let s = if has_zone(s) {
+                    iso_to_tz(s)
+                } else {
+                    format!("{} UTC", iso_to_tz(s))
+                };
                 format!("CAST({} AS {ty})", ts_lit(&s))
             }
             Cell::Time(s) | Cell::Text(s) if has_zone(s) => format!("TIME {}", lit(s.trim())),
-            Cell::Time(s) | Cell::Text(s) => format!("TIME {}", lit(&format!("{}+00:00", s.trim()))),
+            Cell::Time(s) | Cell::Text(s) => {
+                format!("TIME {}", lit(&format!("{}+00:00", s.trim())))
+            }
             _ => cast(c, ty),
         },
         Kind::Timestamp => match c {
@@ -586,7 +662,14 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
         Kind::Uuid => match c {
             Cell::Bytes(b) if b.len() == 16 => {
                 let h = hex(b).to_ascii_lowercase();
-                format!("UUID '{}-{}-{}-{}-{}'", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+                format!(
+                    "UUID '{}-{}-{}-{}-{}'",
+                    &h[..8],
+                    &h[8..12],
+                    &h[12..16],
+                    &h[16..20],
+                    &h[20..]
+                )
             }
             _ => format!("UUID {}", lit(as_text(c).unwrap_or_default().trim())),
         },
@@ -610,10 +693,20 @@ fn time_precision(ty: &str) -> usize {
 fn fraction_span(s: &str) -> Option<(usize, usize)> {
     let b = s.as_bytes();
     let clock = |i: usize| {
-        i >= 8 && b[i - 3] == b':' && b[i - 6] == b':' && [1, 2, 4, 5, 7, 8].iter().all(|k| b[i - k].is_ascii_digit())
+        i >= 8
+            && b[i - 3] == b':'
+            && b[i - 6] == b':'
+            && [1, 2, 4, 5, 7, 8].iter().all(|k| b[i - k].is_ascii_digit())
     };
     let dot = (0..b.len()).find(|&i| b[i] == b'.' && clock(i))?;
-    Some((dot, dot + 1 + b[dot + 1..].iter().take_while(|c| c.is_ascii_digit()).count()))
+    Some((
+        dot,
+        dot + 1
+            + b[dot + 1..]
+                .iter()
+                .take_while(|c| c.is_ascii_digit())
+                .count(),
+    ))
 }
 
 /// A time or timestamp text fitted to the column's precision: trailing
@@ -622,7 +715,9 @@ fn fraction_span(s: &str) -> Option<(usize, usize)> {
 /// the server would round it (`23:59:59.9999` into `time(3)` would even
 /// wrap to midnight).
 fn fit_fraction(s: &str, ty: &str) -> Result<String> {
-    let Some((dot, end)) = fraction_span(s) else { return Ok(s.to_string()) };
+    let Some((dot, end)) = fraction_span(s) else {
+        return Ok(s.to_string());
+    };
     let p = time_precision(ty);
     let digits = &s[dot + 1..end];
     let keep = digits.trim_end_matches('0').len().max(p.min(digits.len()));
@@ -649,9 +744,14 @@ fn whole_day(s: &str, ty: &str) -> Result<()> {
         ))
     };
     // After the date: `HH:MM[:SS[.fff]]` and maybe a zone.
-    let Some((_, rest)) = norm.trim().split_once(' ') else { return Err(lost()) };
+    let Some((_, rest)) = norm.trim().split_once(' ') else {
+        return Err(lost());
+    };
     let rest = rest.trim_start();
-    let clock_end = rest.bytes().position(|b| !(b.is_ascii_digit() || b == b':' || b == b'.')).unwrap_or(rest.len());
+    let clock_end = rest
+        .bytes()
+        .position(|b| !(b.is_ascii_digit() || b == b':' || b == b'.'))
+        .unwrap_or(rest.len());
     let (clock, zone) = (&rest[..clock_end], rest[clock_end..].trim());
     let (hms, frac) = clock.split_once('.').unwrap_or((clock, ""));
     let parts: Vec<i64> = hms.split(':').map(|p| p.parse().unwrap_or(-1)).collect();
@@ -677,8 +777,17 @@ fn whole_day(s: &str, ty: &str) -> Result<()> {
         };
         let digits = digits.replace(':', "");
         let (h, m) = digits.split_at(digits.len().min(2));
-        match (h.parse::<i64>(), if m.is_empty() { Ok(0) } else { m.parse::<i64>() }) {
-            (Ok(h), Ok(m)) if digits.bytes().all(|b| b.is_ascii_digit()) => sign * (h * 3600 + m * 60),
+        match (
+            h.parse::<i64>(),
+            if m.is_empty() {
+                Ok(0)
+            } else {
+                m.parse::<i64>()
+            },
+        ) {
+            (Ok(h), Ok(m)) if digits.bytes().all(|b| b.is_ascii_digit()) => {
+                sign * (h * 3600 + m * 60)
+            }
             _ => return Err(lost()),
         }
     };
@@ -702,7 +811,9 @@ fn looks_like_date(s: &str) -> bool {
 fn json_doc(c: &Cell) -> String {
     match c {
         Cell::Json(s) => s.clone(),
-        Cell::Text(s) if s.trim_start().starts_with(['{', '[']) && parse_json(s).is_some() => s.clone(),
+        Cell::Text(s) if s.trim_start().starts_with(['{', '[']) && parse_json(s).is_some() => {
+            s.clone()
+        }
         other => other.to_json().to_string(),
     }
 }
@@ -802,7 +913,10 @@ fn json_value(s: &str, b: &[u8], i: &mut usize, depth: usize) -> Option<J> {
         }
         _ => {
             let start = *i;
-            while b.get(*i).is_some_and(|c| matches!(c, b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')) {
+            while b
+                .get(*i)
+                .is_some_and(|c| matches!(c, b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9'))
+            {
                 *i += 1;
             }
             let t = &s[start..*i];
@@ -835,7 +949,13 @@ fn json_out(j: &J) -> String {
         J::Num(n) => n.clone(),
         J::Str(s) => Value::String(s.clone()).to_string(),
         J::Arr(v) => format!("[{}]", v.iter().map(json_out).collect::<Vec<_>>().join(",")),
-        J::Obj(v) => format!("{{{}}}", v.iter().map(|(k, x)| format!("{}:{}", Value::String(k.clone()), json_out(x))).collect::<Vec<_>>().join(",")),
+        J::Obj(v) => format!(
+            "{{{}}}",
+            v.iter()
+                .map(|(k, x)| format!("{}:{}", Value::String(k.clone()), json_out(x)))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
     }
 }
 
@@ -845,10 +965,22 @@ fn json_out(j: &J) -> String {
 fn nested_literal(c: &Cell, ty: &str) -> Result<String> {
     let text = match c {
         Cell::Json(s) | Cell::Text(s) => s,
-        _ => return Err(Error::Query(format!("Un valor de tipo {} no se puede cargar en una columna {ty}.", cell_kind(c)))),
+        _ => {
+            return Err(Error::Query(format!(
+                "Un valor de tipo {} no se puede cargar en una columna {ty}.",
+                cell_kind(c)
+            )))
+        }
     };
-    let j = parse_json(text).ok_or_else(|| Error::Query(format!("El valor no es un documento JSON válido para la columna {ty}.")))?;
-    Ok(format!("CAST({} AS {ty})", nested_value(&j, &parse_ty(ty), ty)?))
+    let j = parse_json(text).ok_or_else(|| {
+        Error::Query(format!(
+            "El valor no es un documento JSON válido para la columna {ty}."
+        ))
+    })?;
+    Ok(format!(
+        "CAST({} AS {ty})",
+        nested_value(&j, &parse_ty(ty), ty)?
+    ))
 }
 
 fn cell_kind(c: &Cell) -> &'static str {
@@ -863,25 +995,61 @@ fn cell_kind(c: &Cell) -> &'static str {
 }
 
 fn nested_value(j: &J, ty: &Ty, column: &str) -> Result<String> {
-    let wrong = || Error::Query(format!("El valor {} no tiene la forma de la columna {column}.", json_out(j)));
+    let wrong = || {
+        Error::Query(format!(
+            "El valor {} no tiene la forma de la columna {column}.",
+            json_out(j)
+        ))
+    };
     let list = |xs: Vec<String>| xs.join(", ");
     Ok(match (ty, j) {
         (_, J::Null) => "NULL".into(),
-        (Ty::Array(e), J::Arr(v)) => format!("ARRAY[{}]", list(v.iter().map(|x| nested_value(x, e, column)).collect::<Result<_>>()?)),
+        (Ty::Array(e), J::Arr(v)) => format!(
+            "ARRAY[{}]",
+            list(
+                v.iter()
+                    .map(|x| nested_value(x, e, column))
+                    .collect::<Result<_>>()?
+            )
+        ),
         (Ty::Map(_, _), J::Obj(v)) if v.is_empty() => "MAP()".into(),
         (Ty::Map(k, t), J::Obj(v)) => {
-            let keys = v.iter().map(|(key, _)| nested_value(&J::Str(key.clone()), k, column)).collect::<Result<Vec<_>>>()?;
-            let vals = v.iter().map(|(_, x)| nested_value(x, t, column)).collect::<Result<Vec<_>>>()?;
+            let keys = v
+                .iter()
+                .map(|(key, _)| nested_value(&J::Str(key.clone()), k, column))
+                .collect::<Result<Vec<_>>>()?;
+            let vals = v
+                .iter()
+                .map(|(_, x)| nested_value(x, t, column))
+                .collect::<Result<Vec<_>>>()?;
             format!("MAP(ARRAY[{}], ARRAY[{}])", list(keys), list(vals))
         }
         (Ty::Row(fs), J::Arr(v)) if v.len() == fs.len() => {
-            format!("ROW({})", list(v.iter().zip(fs).map(|(x, (_, t))| nested_value(x, t, column)).collect::<Result<_>>()?))
+            format!(
+                "ROW({})",
+                list(
+                    v.iter()
+                        .zip(fs)
+                        .map(|(x, (_, t))| nested_value(x, t, column))
+                        .collect::<Result<_>>()?
+                )
+            )
         }
         (Ty::Row(fs), J::Obj(v)) if fs.iter().all(|(n, _)| n.is_some()) => {
-            let field = |k: &str| fs.iter().position(|(n, _)| n.as_deref() == Some(k)).or_else(|| fs.iter().position(|(n, _)| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(k))));
+            let field = |k: &str| {
+                fs.iter()
+                    .position(|(n, _)| n.as_deref() == Some(k))
+                    .or_else(|| {
+                        fs.iter().position(|(n, _)| {
+                            n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(k))
+                        })
+                    })
+            };
             let mut vals = vec!["NULL".to_string(); fs.len()];
             for (k, x) in v {
-                let p = field(k).ok_or_else(|| Error::Query(format!("El campo {k} no existe en la columna {column}.")))?;
+                let p = field(k).ok_or_else(|| {
+                    Error::Query(format!("El campo {k} no existe en la columna {column}."))
+                })?;
                 vals[p] = nested_value(x, &fs[p].1, column)?;
             }
             format!("ROW({})", list(vals))
@@ -902,10 +1070,15 @@ fn leaf_cell(j: &J, ty: &str) -> Option<Cell> {
         J::Num(n) if k == Kind::Decimal => Cell::Decimal(n.clone()),
         J::Num(n) => Cell::Text(n.clone()),
         J::Str(s) => match k {
-            Kind::Binary => Cell::Bytes(match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-                Some(h) if h.len() % 2 == 0 => (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok()).collect::<Option<_>>()?,
-                _ => base64::engine::general_purpose::STANDARD.decode(s).ok()?,
-            }),
+            Kind::Binary => Cell::Bytes(
+                match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                    Some(h) if h.len() % 2 == 0 => (0..h.len())
+                        .step_by(2)
+                        .map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok())
+                        .collect::<Option<_>>()?,
+                    _ => base64::engine::general_purpose::STANDARD.decode(s).ok()?,
+                },
+            ),
             Kind::Decimal => Cell::Decimal(s.clone()),
             Kind::Date => Cell::Date(s.clone()),
             Kind::Time => Cell::Time(s.clone()),
@@ -920,8 +1093,15 @@ fn leaf_cell(j: &J, ty: &str) -> Option<Cell> {
 
 /// `INSERT INTO t (cols) VALUES\n` (the rows follow, comma separated).
 pub(crate) fn insert_head(schema: Option<&str>, table: &str, columns: &[String]) -> String {
-    let cols: Vec<String> = columns.iter().map(|c| quote_ident(Quote::Double, c)).collect();
-    format!("INSERT INTO {} ({}) VALUES\n", qualified_name(Quote::Double, schema.filter(|s| !s.is_empty()), table), cols.join(", "))
+    let cols: Vec<String> = columns
+        .iter()
+        .map(|c| quote_ident(Quote::Double, c))
+        .collect();
+    format!(
+        "INSERT INTO {} ({}) VALUES\n",
+        qualified_name(Quote::Double, schema.filter(|s| !s.is_empty()), table),
+        cols.join(", ")
+    )
 }
 
 /// `(v1, v2, …)` with each value typed for its column. A lone value goes as
@@ -953,21 +1133,33 @@ pub(crate) struct Statements {
 
 impl Statements {
     pub(crate) fn new(head: String) -> Self {
-        Statements { sql: String::new(), head, rows: 0, max_rows: STMT_ROWS, max_bytes: STMT_BYTES }
+        Statements {
+            sql: String::new(),
+            head,
+            rows: 0,
+            max_rows: STMT_ROWS,
+            max_bytes: STMT_BYTES,
+        }
     }
 
     /// Statements of `columns` values a row, no larger than the load's
     /// commit window, since each one commits on its own.
     pub(crate) fn window(mut self, columns: usize, commit_rows: u64, commit_bytes: u64) -> Self {
         let by_values = (STMT_VALUES / columns.max(1)).clamp(1, STMT_ROWS);
-        self.max_rows = usize::try_from(commit_rows.max(1)).unwrap_or(usize::MAX).min(by_values);
-        self.max_bytes = usize::try_from(commit_bytes.max(1)).unwrap_or(usize::MAX).min(STMT_BYTES);
+        self.max_rows = usize::try_from(commit_rows.max(1))
+            .unwrap_or(usize::MAX)
+            .min(by_values);
+        self.max_bytes = usize::try_from(commit_bytes.max(1))
+            .unwrap_or(usize::MAX)
+            .min(STMT_BYTES);
         self
     }
 
     /// Add a row; a statement that's full comes back with its rows.
     pub(crate) fn push(&mut self, tuple: &str) -> Option<(String, u64)> {
-        let full = self.rows > 0 && (self.sql.len() + tuple.len() + 2 > self.max_bytes || self.rows as usize >= self.max_rows);
+        let full = self.rows > 0
+            && (self.sql.len() + tuple.len() + 2 > self.max_bytes
+                || self.rows as usize >= self.max_rows);
         let out = if full { self.take() } else { None };
         if self.rows == 0 {
             self.sql.push_str(&self.head);
@@ -1004,7 +1196,11 @@ impl Drop for Running {
         let (conn, headers) = (self.conn.clone(), std::mem::take(&mut self.headers));
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
-                if let Err(e) = conn.auth(conn.http.delete(&uri).headers(headers)).send().await {
+                if let Err(e) = conn
+                    .auth(conn.http.delete(&uri).headers(headers))
+                    .send()
+                    .await
+                {
                     tracing::debug!("trino cancel failed: {e}");
                 }
             });
@@ -1015,7 +1211,9 @@ impl Drop for Running {
 /// The query id in a `nextUri` (`…/v1/statement/{queued|executing}/{id}/…`).
 pub(crate) fn query_id(uri: &str) -> Option<&str> {
     let mut parts = uri.split('/');
-    parts.by_ref().find(|p| *p == "queued" || *p == "executing")?;
+    parts
+        .by_ref()
+        .find(|p| *p == "queued" || *p == "executing")?;
     parts.next().filter(|id| !id.is_empty())
 }
 
@@ -1029,27 +1227,42 @@ const SETTLE: std::time::Duration = std::time::Duration::from_secs(60);
 /// Wait until the query behind `uri` has ended (FINISHED or FAILED) on the
 /// server, so it can't commit after this returns.
 async fn settle(conn: &Conn, headers: &HeaderMap, uri: &str) -> Result<()> {
-    let id = query_id(uri).ok_or_else(|| Error::Query(format!("no se reconoce la consulta de {uri}")))?;
+    let id = query_id(uri)
+        .ok_or_else(|| Error::Query(format!("no se reconoce la consulta de {uri}")))?;
     let url = format!("{}/v1/query/{id}", conn.base);
     let until = std::time::Instant::now() + SETTLE;
     let mut wait = std::time::Duration::from_millis(50);
     loop {
-        match conn.auth(conn.http.get(&url).headers(headers.clone())).send().await {
+        match conn
+            .auth(conn.http.get(&url).headers(headers.clone()))
+            .send()
+            .await
+        {
             // Forgotten by the coordinator: long ended.
             Ok(r) if matches!(r.status().as_u16(), 404 | 410) => return Ok(()),
             Ok(r) if r.status().is_success() => {
-                let state = r.json::<Value>().await.ok().and_then(|v| v.get("state").and_then(Value::as_str).map(str::to_string));
+                let state = r
+                    .json::<Value>()
+                    .await
+                    .ok()
+                    .and_then(|v| v.get("state").and_then(Value::as_str).map(str::to_string));
                 if matches!(state.as_deref(), Some("FINISHED" | "FAILED")) {
                     return Ok(());
                 }
             }
             Ok(r) if matches!(r.status().as_u16(), 401 | 403) => {
-                return Err(Error::Query(format!("el servidor no deja consultar el estado de la consulta {id} (HTTP {})", r.status())));
+                return Err(Error::Query(format!(
+                    "el servidor no deja consultar el estado de la consulta {id} (HTTP {})",
+                    r.status()
+                )));
             }
             _ => {}
         }
         if std::time::Instant::now() >= until {
-            return Err(Error::Query(format!("la consulta {id} no terminó en {} s", SETTLE.as_secs())));
+            return Err(Error::Query(format!(
+                "la consulta {id} no terminó en {} s",
+                SETTLE.as_secs()
+            )));
         }
         tokio::time::sleep(wait).await;
         wait = (wait * 2).min(std::time::Duration::from_millis(500));
@@ -1069,11 +1282,20 @@ async fn walk(
     wait_end: bool,
     on_page: impl FnMut(QueryResults) -> Result<()>,
 ) -> Result<Option<u64>> {
-    let mut running = Running { conn: conn.clone(), headers: headers.clone(), uri: None };
+    let mut running = Running {
+        conn: conn.clone(),
+        headers: headers.clone(),
+        uri: None,
+    };
     let r = drive(conn, headers.clone(), sql, in_flight, &mut running, on_page).await;
-    let Some(uri) = running.uri.take() else { return r };
+    let Some(uri) = running.uri.take() else {
+        return r;
+    };
     // Stopped halfway: the query may still be running.
-    let _ = conn.auth(conn.http.delete(&uri).headers(headers.clone())).send().await;
+    let _ = conn
+        .auth(conn.http.delete(&uri).headers(headers.clone()))
+        .send()
+        .await;
     if wait_end {
         if let Err(e) = settle(conn, &headers, &uri).await {
             let why = match &r {
@@ -1098,14 +1320,22 @@ async fn drive(
     running: &mut Running,
     mut on_page: impl FnMut(QueryResults) -> Result<()>,
 ) -> Result<Option<u64>> {
-    let rb = conn.http.post(format!("{}/v1/statement", conn.base)).headers(headers).body(sql);
+    let rb = conn
+        .http
+        .post(format!("{}/v1/statement", conn.base))
+        .headers(headers)
+        .body(sql);
     let mut resp = conn.auth(rb).send().await.map_err(http_error)?;
     let mut count = None;
     loop {
         let status = resp.status();
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             let text = resp.text().await.unwrap_or_default();
-            return Err(Error::AuthFailed(if text.trim().is_empty() { format!("HTTP {status}") } else { text.trim().to_string() }));
+            return Err(Error::AuthFailed(if text.trim().is_empty() {
+                format!("HTTP {status}")
+            } else {
+                text.trim().to_string()
+            }));
         }
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
@@ -1178,13 +1408,27 @@ impl TrinoSession {
 
     /// The table's columns with their types, `wanted` in its order (all of
     /// them when `None`).
-    async fn typed_columns(&mut self, table: &dbine_driver::ObjectRef, wanted: Option<&[String]>) -> Result<Vec<TransferColumn>> {
+    async fn typed_columns(
+        &mut self,
+        table: &dbine_driver::ObjectRef,
+        wanted: Option<&[String]>,
+    ) -> Result<Vec<TransferColumn>> {
         let all = self.columns(table).await?;
         if all.is_empty() {
-            return Err(Error::Query(format!("No se encontró la tabla {} o no tiene columnas.", table.name)));
+            return Err(Error::Query(format!(
+                "No se encontró la tabla {} o no tiene columnas.",
+                table.name
+            )));
         }
         let Some(wanted) = wanted else {
-            return Ok(all.into_iter().map(|c| TransferColumn { name: c.name, type_name: c.data_type, nullable: c.nullable }).collect());
+            return Ok(all
+                .into_iter()
+                .map(|c| TransferColumn {
+                    name: c.name,
+                    type_name: c.data_type,
+                    nullable: c.nullable,
+                })
+                .collect());
         };
         wanted
             .iter()
@@ -1192,41 +1436,86 @@ impl TrinoSession {
                 all.iter()
                     .find(|c| c.name == *w)
                     .or_else(|| all.iter().find(|c| c.name.eq_ignore_ascii_case(w)))
-                    .map(|c| TransferColumn { name: c.name.clone(), type_name: c.data_type.clone(), nullable: c.nullable })
-                    .ok_or_else(|| Error::Query(format!("La columna {w} no existe en {}.", table.name)))
+                    .map(|c| TransferColumn {
+                        name: c.name.clone(),
+                        type_name: c.data_type.clone(),
+                        nullable: c.nullable,
+                    })
+                    .ok_or_else(|| {
+                        Error::Query(format!("La columna {w} no existe en {}.", table.name))
+                    })
             })
             .collect()
     }
 
     fn schema_of(&self, table: &dbine_driver::ObjectRef) -> Option<String> {
-        table.schema().map(str::to_string).or(self.state.schema.clone())
+        table
+            .schema()
+            .map(str::to_string)
+            .or(self.state.schema.clone())
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
-        let cols = self.typed_columns(&spec.table, spec.columns.as_deref()).await?;
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
+        let cols = self
+            .typed_columns(&spec.table, spec.columns.as_deref())
+            .await?;
         let schema = self.schema_of(&spec.table);
-        let exprs: Vec<String> = cols.iter().map(|c| read_expr(&c.name, &c.type_name)).collect();
-        let mut sql = format!("SELECT {} FROM {}", exprs.join(", "), qualified_name(Quote::Double, schema.as_deref(), &spec.table.name));
+        let exprs: Vec<String> = cols
+            .iter()
+            .map(|c| read_expr(&c.name, &c.type_name))
+            .collect();
+        let mut sql = format!(
+            "SELECT {} FROM {}",
+            exprs.join(", "),
+            qualified_name(Quote::Double, schema.as_deref(), &spec.table.name)
+        );
         if let Some(f) = spec.filter.as_deref().filter(|f| !f.trim().is_empty()) {
             sql.push_str(&format!(" WHERE {f}"));
         }
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
         let types: Vec<String> = cols.iter().map(|c| c.type_name.clone()).collect();
         let mut builder = BatchBuilder::new();
         self.in_flight.cancelled.store(false, Ordering::SeqCst);
-        let r = walk(&self.conn, self.transfer_headers(), sql, &self.in_flight, false, |page| {
-            let Some(data) = page.data else { return Ok(()) };
-            let mut sink = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
-            for row in data {
-                let cells = row.into_iter().enumerate().map(|(i, v)| to_cell(v, types.get(i).map_or("", String::as_str))).collect();
-                builder.push(cells, &mut *sink)?;
-            }
-            Ok(())
-        })
+        let r = walk(
+            &self.conn,
+            self.transfer_headers(),
+            sql,
+            &self.in_flight,
+            false,
+            |page| {
+                let Some(data) = page.data else { return Ok(()) };
+                let mut sink = sink
+                    .lock()
+                    .map_err(|_| Error::State("destino de lotes".into()))?;
+                for row in data {
+                    let cells = row
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, v)| to_cell(v, types.get(i).map_or("", String::as_str)))
+                        .collect();
+                    builder.push(cells, &mut *sink)?;
+                }
+                Ok(())
+            },
+        )
         .await;
-        *self.in_flight.next_uri.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .in_flight
+            .next_uri
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         r?;
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
@@ -1235,10 +1524,18 @@ impl TrinoSession {
         if self.state.transaction.is_some() {
             return false;
         }
-        let Some(cat) = self.state.catalog.clone() else { return false };
-        let sql = format!("SELECT connector_name FROM system.metadata.catalogs WHERE catalog_name = {}", lit(&cat));
+        let Some(cat) = self.state.catalog.clone() else {
+            return false;
+        };
+        let sql = format!(
+            "SELECT connector_name FROM system.metadata.catalogs WHERE catalog_name = {}",
+            lit(&cat)
+        );
         match self.strings(&sql).await {
-            Ok(rows) => rows.first().and_then(|r| r.first()).is_some_and(|c| CONCURRENT.contains(&c.as_str())),
+            Ok(rows) => rows
+                .first()
+                .and_then(|r| r.first())
+                .is_some_and(|c| CONCURRENT.contains(&c.as_str())),
             Err(_) => false,
         }
     }
@@ -1262,17 +1559,25 @@ impl TrinoSession {
         let types: Vec<String> = target.iter().map(|c| c.type_name.clone()).collect();
         let names: Vec<String> = target.iter().map(|c| c.name.clone()).collect();
         let schema = self.schema_of(&spec.table);
-        let degree = if self.concurrent_inserts().await { IN_FLIGHT } else { 1 };
+        let degree = if self.concurrent_inserts().await {
+            IN_FLIGHT
+        } else {
+            1
+        };
         let headers = self.transfer_headers();
         self.in_flight.cancelled.store(false, Ordering::SeqCst);
 
-        let mut stmts = Statements::new(insert_head(schema.as_deref(), &spec.table.name, &names)).window(names.len(), spec.commit_rows, spec.commit_bytes);
+        let mut stmts = Statements::new(insert_head(schema.as_deref(), &spec.table.name, &names))
+            .window(names.len(), spec.commit_rows, spec.commit_bytes);
         let mut tasks: JoinSet<Result<u64>> = JoinSet::new();
         let mut committed = 0u64;
         let spawn = |tasks: &mut JoinSet<Result<u64>>, (sql, rows): (String, u64)| {
-            let (conn, in_flight, headers) = (self.conn.clone(), self.in_flight.clone(), headers.clone());
+            let (conn, in_flight, headers) =
+                (self.conn.clone(), self.in_flight.clone(), headers.clone());
             tasks.spawn(async move {
-                let n = walk(&conn, headers, sql, &in_flight, true, |_| Ok(())).await.map_err(explain_load_error)?;
+                let n = walk(&conn, headers, sql, &in_flight, true, |_| Ok(()))
+                    .await
+                    .map_err(explain_load_error)?;
                 Ok(n.unwrap_or(rows))
             });
         };
@@ -1325,16 +1630,28 @@ impl TrinoSession {
                     Err(Error::Cancelled) => {}
                     // A statement that may still commit matters more than
                     // the load's own error.
-                    Err(e @ Error::Query(_)) if e.to_string().contains(UNSETTLED) => unsettled = Some(e),
-                    Err(e) => tracing::warn!("trino bulk load: a statement stopped after the load's error: {e}"),
+                    Err(e @ Error::Query(_)) if e.to_string().contains(UNSETTLED) => {
+                        unsettled = Some(e)
+                    }
+                    Err(e) => tracing::warn!(
+                        "trino bulk load: a statement stopped after the load's error: {e}"
+                    ),
                 }
             }
             if let Some(e) = unsettled {
-                *self.in_flight.next_uri.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                *self
+                    .in_flight
+                    .next_uri
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = None;
                 return Err(e);
             }
         }
-        *self.in_flight.next_uri.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .in_flight
+            .next_uri
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         r?;
         Ok(committed)
     }
@@ -1344,7 +1661,9 @@ fn joined(j: Option<std::result::Result<Result<u64>, tokio::task::JoinError>>) -
     match j {
         None => Ok(0),
         Some(Ok(r)) => r,
-        Some(Err(e)) => Err(Error::State(format!("una inserción terminó con un error inesperado: {e}"))),
+        Some(Err(e)) => Err(Error::State(format!(
+            "una inserción terminó con un error inesperado: {e}"
+        ))),
     }
 }
 
@@ -1377,8 +1696,14 @@ mod tests {
     fn read_expressions() {
         assert_eq!(read_expr("d", "double"), "CAST(\"d\" AS VARCHAR)");
         assert_eq!(read_expr("r", "real"), "CAST(\"r\" AS VARCHAR)");
-        assert_eq!(read_expr("t", "timestamp(9) with time zone"), "to_iso8601(\"t\")");
-        assert_eq!(read_expr("a", "array(integer)"), "json_format(CAST(\"a\" AS JSON))");
+        assert_eq!(
+            read_expr("t", "timestamp(9) with time zone"),
+            "to_iso8601(\"t\")"
+        );
+        assert_eq!(
+            read_expr("a", "array(integer)"),
+            "json_format(CAST(\"a\" AS JSON))"
+        );
         assert_eq!(read_expr("m", "map(varchar, varbinary)"), "\"m\"");
         assert_eq!(read_expr("x\"y", "bigint"), "\"x\"\"y\"");
     }
@@ -1386,30 +1711,72 @@ mod tests {
     #[test]
     fn cells_from_the_answer() {
         assert_eq!(to_cell(Value::Null, "bigint"), Cell::Null);
-        assert_eq!(to_cell(json!(9007199254740993i64), "bigint"), Cell::Int(9007199254740993));
+        assert_eq!(
+            to_cell(json!(9007199254740993i64), "bigint"),
+            Cell::Int(9007199254740993)
+        );
         assert_eq!(to_cell(json!(true), "boolean"), Cell::Bool(true));
         assert_eq!(to_cell(json!("1.0E-1"), "double"), Cell::Float(0.1));
-        assert_eq!(to_cell(json!("-Infinity"), "real"), Cell::Float(f64::NEG_INFINITY));
+        assert_eq!(
+            to_cell(json!("-Infinity"), "real"),
+            Cell::Float(f64::NEG_INFINITY)
+        );
         assert!(matches!(to_cell(json!("NaN"), "double"), Cell::Float(f) if f.is_nan()));
-        assert_eq!(to_cell(json!("12345678901234567890.123456789"), "decimal(38,9)"), Cell::Decimal("12345678901234567890.123456789".into()));
-        assert_eq!(to_cell(json!("yv4="), "varbinary"), Cell::Bytes(vec![0xCA, 0xFE]));
-        assert_eq!(to_cell(json!("-0005-03-01"), "date"), Cell::Date("-0005-03-01".into()));
-        assert_eq!(to_cell(json!("10:00:00.123456789012"), "time(12)"), Cell::Time("10:00:00.123456789012".into()));
-        assert_eq!(to_cell(json!("10:00:00.12+01:00"), "time(2) with time zone"), Cell::Text("10:00:00.12+01:00".into()));
+        assert_eq!(
+            to_cell(json!("12345678901234567890.123456789"), "decimal(38,9)"),
+            Cell::Decimal("12345678901234567890.123456789".into())
+        );
+        assert_eq!(
+            to_cell(json!("yv4="), "varbinary"),
+            Cell::Bytes(vec![0xCA, 0xFE])
+        );
+        assert_eq!(
+            to_cell(json!("-0005-03-01"), "date"),
+            Cell::Date("-0005-03-01".into())
+        );
+        assert_eq!(
+            to_cell(json!("10:00:00.123456789012"), "time(12)"),
+            Cell::Time("10:00:00.123456789012".into())
+        );
+        assert_eq!(
+            to_cell(json!("10:00:00.12+01:00"), "time(2) with time zone"),
+            Cell::Text("10:00:00.12+01:00".into())
+        );
         assert_eq!(
             to_cell(json!("2024-01-02 03:04:05.123456789012"), "timestamp(12)"),
             Cell::DateTime("2024-01-02 03:04:05.123456789012".into())
         );
         assert_eq!(
-            to_cell(json!("2024-01-02T03:04:05.123456-05:00"), "timestamp(6) with time zone"),
+            to_cell(
+                json!("2024-01-02T03:04:05.123456-05:00"),
+                "timestamp(6) with time zone"
+            ),
             Cell::DateTimeTz("2024-01-02 03:04:05.123456-05:00".into())
         );
-        assert_eq!(to_cell(json!("2024-01-02T03:04:05Z"), "timestamp(0) with time zone"), Cell::DateTimeTz("2024-01-02 03:04:05+00:00".into()));
-        assert_eq!(to_cell(json!("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"), "uuid"), Cell::Uuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11".into()));
-        assert_eq!(to_cell(json!("{\"z\":[1]}"), "json"), Cell::Json("{\"z\":[1]}".into()));
-        assert_eq!(to_cell(json!("{\"a\":1}"), "row(\"a\" integer)"), Cell::Json("{\"a\":1}".into()));
-        assert_eq!(to_cell(json!({"k": "yv4="}), "map(varchar, varbinary)"), Cell::Json("{\"k\":\"yv4=\"}".into()));
-        assert_eq!(to_cell(json!("10.0.0.1"), "ipaddress"), Cell::Text("10.0.0.1".into()));
+        assert_eq!(
+            to_cell(json!("2024-01-02T03:04:05Z"), "timestamp(0) with time zone"),
+            Cell::DateTimeTz("2024-01-02 03:04:05+00:00".into())
+        );
+        assert_eq!(
+            to_cell(json!("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"), "uuid"),
+            Cell::Uuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11".into())
+        );
+        assert_eq!(
+            to_cell(json!("{\"z\":[1]}"), "json"),
+            Cell::Json("{\"z\":[1]}".into())
+        );
+        assert_eq!(
+            to_cell(json!("{\"a\":1}"), "row(\"a\" integer)"),
+            Cell::Json("{\"a\":1}".into())
+        );
+        assert_eq!(
+            to_cell(json!({"k": "yv4="}), "map(varchar, varbinary)"),
+            Cell::Json("{\"k\":\"yv4=\"}".into())
+        );
+        assert_eq!(
+            to_cell(json!("10.0.0.1"), "ipaddress"),
+            Cell::Text("10.0.0.1".into())
+        );
         assert_eq!(to_cell(json!("ab "), "char(3)"), Cell::Text("ab ".into()));
     }
 
@@ -1424,73 +1791,200 @@ mod tests {
         assert_eq!(lit_ok(&Cell::Int(-5), "tinyint"), "TINYINT '-5'");
         assert_eq!(lit_ok(&Cell::Int(300), "smallint"), "SMALLINT '300'");
         assert_eq!(lit_ok(&Cell::Int(70_000), "integer"), "INTEGER '70000'");
-        assert_eq!(lit_ok(&Cell::Int(i64::MIN), "bigint"), "BIGINT '-9223372036854775808'");
+        assert_eq!(
+            lit_ok(&Cell::Int(i64::MIN), "bigint"),
+            "BIGINT '-9223372036854775808'"
+        );
         assert_eq!(lit_ok(&Cell::Int(-1), "bigint"), "-1");
-        assert_eq!(lit_ok(&Cell::UInt(u64::MAX), "decimal(20,0)"), "DECIMAL '18446744073709551615'");
+        assert_eq!(
+            lit_ok(&Cell::UInt(u64::MAX), "decimal(20,0)"),
+            "DECIMAL '18446744073709551615'"
+        );
         assert_eq!(lit_ok(&t(" +42 "), "bigint"), "42");
         assert_eq!(lit_ok(&Cell::Float(3.0), "bigint"), "3");
         assert_eq!(lit_ok(&t("4x"), "bigint"), "CAST('4x' AS bigint)");
         assert_eq!(lit_ok(&Cell::Float(0.1), "double"), "1e-1");
-        assert_eq!(lit_ok(&Cell::Float(f64::NAN), "real"), "CAST(nan() AS real)");
+        assert_eq!(
+            lit_ok(&Cell::Float(f64::NAN), "real"),
+            "CAST(nan() AS real)"
+        );
         assert_eq!(lit_ok(&Cell::Float(f64::NAN), "double"), "nan()");
         assert_eq!(lit_ok(&Cell::Float(1.5), "real"), "REAL '1.5e0'");
-        assert_eq!(lit_ok(&Cell::Float(f64::INFINITY), "real"), "CAST(infinity() AS real)");
+        assert_eq!(
+            lit_ok(&Cell::Float(f64::INFINITY), "real"),
+            "CAST(infinity() AS real)"
+        );
         assert_eq!(lit_ok(&Cell::Int(3), "real"), "REAL '3'");
-        assert_eq!(lit_ok(&Cell::Float(f64::NEG_INFINITY), "double"), "-infinity()");
-        assert_eq!(lit_ok(&Cell::Decimal("1.5".into()), "double"), "DOUBLE '1.5'");
-        assert_eq!(lit_ok(&Cell::Decimal("-12.340".into()), "decimal(10,3)"), "DECIMAL '-12.340'");
+        assert_eq!(
+            lit_ok(&Cell::Float(f64::NEG_INFINITY), "double"),
+            "-infinity()"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Decimal("1.5".into()), "double"),
+            "DOUBLE '1.5'"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Decimal("-12.340".into()), "decimal(10,3)"),
+            "DECIMAL '-12.340'"
+        );
         assert_eq!(lit_ok(&Cell::Int(7), "decimal(10,2)"), "DECIMAL '7'");
-        assert_eq!(lit_ok(&Cell::Float(0.25), "decimal(10,2)"), "DECIMAL '0.25'");
-        assert_eq!(lit_ok(&Cell::Decimal("123456789".into()), "decimal(10,2)"), "CAST(DECIMAL '123456789' AS decimal(10,2))");
-        assert_eq!(lit_ok(&Cell::Decimal("-0012345678.9".into()), "decimal(10,2)"), "DECIMAL '-12345678.9'");
-        assert_eq!(lit_ok(&t("abc"), "decimal(10,2)"), "CAST('abc' AS decimal(10,2))");
+        assert_eq!(
+            lit_ok(&Cell::Float(0.25), "decimal(10,2)"),
+            "DECIMAL '0.25'"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Decimal("123456789".into()), "decimal(10,2)"),
+            "CAST(DECIMAL '123456789' AS decimal(10,2))"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Decimal("-0012345678.9".into()), "decimal(10,2)"),
+            "DECIMAL '-12345678.9'"
+        );
+        assert_eq!(
+            lit_ok(&t("abc"), "decimal(10,2)"),
+            "CAST('abc' AS decimal(10,2))"
+        );
         assert_eq!(lit_ok(&t("O'Brien"), "varchar"), "'O''Brien'");
         assert_eq!(lit_ok(&Cell::Int(5), "varchar(3)"), "'5'");
-        assert_eq!(lit_ok(&Cell::Bytes(vec![0xFF]), "varchar"), "from_utf8(X'FF')");
+        assert_eq!(
+            lit_ok(&Cell::Bytes(vec![0xFF]), "varchar"),
+            "from_utf8(X'FF')"
+        );
         assert_eq!(lit_ok(&Cell::Bytes(b"ok".to_vec()), "varchar"), "'ok'");
-        assert_eq!(lit_ok(&Cell::Bytes(vec![0xCA, 0xFE]), "varbinary"), "X'CAFE'");
+        assert_eq!(
+            lit_ok(&Cell::Bytes(vec![0xCA, 0xFE]), "varbinary"),
+            "X'CAFE'"
+        );
         assert_eq!(lit_ok(&Cell::Bytes(vec![]), "varbinary"), "X''");
         assert!(lit_ok(&Cell::Bytes(vec![0; 2000]), "varbinary").starts_with("from_base64('AAAA"));
         assert_eq!(lit_ok(&t("ab"), "varbinary"), "X'6162'");
-        assert_eq!(lit_ok(&Cell::Date("2024-01-31".into()), "date"), "DATE '2024-01-31'");
-        assert_eq!(lit_ok(&Cell::DateTime("2024-01-31T00:00:00".into()), "date"), "CAST(TIMESTAMP '2024-01-31 00:00:00' AS date)");
-        assert_eq!(lit_ok(&Cell::Time("10:00:00.123456789012".into()), "time(12)"), "TIME '10:00:00.123456789012'");
-        assert_eq!(lit_ok(&Cell::Text("10:00:00+01:00".into()), "time(0) with time zone"), "TIME '10:00:00+01:00'");
         assert_eq!(
-            lit_ok(&Cell::DateTime("2024-01-31T10:00:00.1234567".into()), "timestamp(7)"),
+            lit_ok(&Cell::Date("2024-01-31".into()), "date"),
+            "DATE '2024-01-31'"
+        );
+        assert_eq!(
+            lit_ok(&Cell::DateTime("2024-01-31T00:00:00".into()), "date"),
+            "CAST(TIMESTAMP '2024-01-31 00:00:00' AS date)"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Time("10:00:00.123456789012".into()), "time(12)"),
+            "TIME '10:00:00.123456789012'"
+        );
+        assert_eq!(
+            lit_ok(
+                &Cell::Text("10:00:00+01:00".into()),
+                "time(0) with time zone"
+            ),
+            "TIME '10:00:00+01:00'"
+        );
+        assert_eq!(
+            lit_ok(
+                &Cell::DateTime("2024-01-31T10:00:00.1234567".into()),
+                "timestamp(7)"
+            ),
             "TIMESTAMP '2024-01-31 10:00:00.1234567'"
         );
         assert_eq!(
-            lit_ok(&Cell::DateTimeTz("2024-01-31 10:00:00+01:00".into()), "timestamp(3)"),
+            lit_ok(
+                &Cell::DateTimeTz("2024-01-31 10:00:00+01:00".into()),
+                "timestamp(3)"
+            ),
             "CAST(TIMESTAMP '2024-01-31 10:00:00+01:00' AT TIME ZONE 'UTC' AS timestamp(3))"
         );
         assert_eq!(
-            lit_ok(&Cell::DateTimeTz("2024-01-31 10:00:00.5-03:00".into()), "timestamp(3) with time zone"),
+            lit_ok(
+                &Cell::DateTimeTz("2024-01-31 10:00:00.5-03:00".into()),
+                "timestamp(3) with time zone"
+            ),
             "TIMESTAMP '2024-01-31 10:00:00.5-03:00'"
         );
-        assert_eq!(lit_ok(&Cell::DateTime("2024-01-31 10:00:00".into()), "timestamp(3) with time zone"), "TIMESTAMP '2024-01-31 10:00:00 UTC'");
-        assert_eq!(lit_ok(&Cell::Date("2024-01-31".into()), "timestamp(3) with time zone"), "TIMESTAMP '2024-01-31 00:00:00 UTC'");
-        assert_eq!(lit_ok(&Cell::Uuid("A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11".into()), "uuid"), "UUID 'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11'");
-        assert_eq!(lit_ok(&Cell::Bytes((0..16).collect()), "uuid"), "UUID '00010203-0405-0607-0809-0a0b0c0d0e0f'");
-        assert_eq!(lit_ok(&Cell::Json("{\"a\":1}".into()), "json"), "JSON '{\"a\":1}'");
+        assert_eq!(
+            lit_ok(
+                &Cell::DateTime("2024-01-31 10:00:00".into()),
+                "timestamp(3) with time zone"
+            ),
+            "TIMESTAMP '2024-01-31 10:00:00 UTC'"
+        );
+        assert_eq!(
+            lit_ok(
+                &Cell::Date("2024-01-31".into()),
+                "timestamp(3) with time zone"
+            ),
+            "TIMESTAMP '2024-01-31 00:00:00 UTC'"
+        );
+        assert_eq!(
+            lit_ok(
+                &Cell::Uuid("A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11".into()),
+                "uuid"
+            ),
+            "UUID 'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11'"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Bytes((0..16).collect()), "uuid"),
+            "UUID '00010203-0405-0607-0809-0a0b0c0d0e0f'"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Json("{\"a\":1}".into()), "json"),
+            "JSON '{\"a\":1}'"
+        );
         assert_eq!(lit_ok(&t("hola"), "json"), "JSON '\"hola\"'");
         assert_eq!(lit_ok(&Cell::Int(3), "json"), "JSON '3'");
-        assert_eq!(lit_ok(&Cell::Json("[1,\"it's\"]".into()), "row(\"a\" integer, \"b\" varchar)"), "CAST(ROW(INTEGER '1', 'it''s') AS row(\"a\" integer, \"b\" varchar))");
-        assert_eq!(lit_ok(&t("10.0.0.1"), "ipaddress"), "CAST('10.0.0.1' AS ipaddress)");
-        assert_eq!(lit_ok(&Cell::Bytes(vec![1]), "geometry"), "CAST(X'01' AS geometry)");
+        assert_eq!(
+            lit_ok(
+                &Cell::Json("[1,\"it's\"]".into()),
+                "row(\"a\" integer, \"b\" varchar)"
+            ),
+            "CAST(ROW(INTEGER '1', 'it''s') AS row(\"a\" integer, \"b\" varchar))"
+        );
+        assert_eq!(
+            lit_ok(&t("10.0.0.1"), "ipaddress"),
+            "CAST('10.0.0.1' AS ipaddress)"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Bytes(vec![1]), "geometry"),
+            "CAST(X'01' AS geometry)"
+        );
     }
 
     #[test]
     fn generated_statements() {
-        let types = vec!["bigint".to_string(), "varchar".to_string(), "decimal(10,2)".to_string()];
-        let head = insert_head(Some("s"), "t", &["id".into(), "name".into(), "amount".into()]);
-        assert_eq!(head, "INSERT INTO \"s\".\"t\" (\"id\", \"name\", \"amount\") VALUES\n");
+        let types = vec![
+            "bigint".to_string(),
+            "varchar".to_string(),
+            "decimal(10,2)".to_string(),
+        ];
+        let head = insert_head(
+            Some("s"),
+            "t",
+            &["id".into(), "name".into(), "amount".into()],
+        );
+        assert_eq!(
+            head,
+            "INSERT INTO \"s\".\"t\" (\"id\", \"name\", \"amount\") VALUES\n"
+        );
         let mut st = Statements::new(head.clone());
-        assert!(st.push(&row_tuple(&[Cell::Int(1), Cell::Text("a".into()), Cell::Decimal("1.50".into())], &types).unwrap()).is_none());
-        assert!(st.push(&row_tuple(&[Cell::Int(2), Cell::Null, Cell::Null], &types).unwrap()).is_none());
+        assert!(st
+            .push(
+                &row_tuple(
+                    &[
+                        Cell::Int(1),
+                        Cell::Text("a".into()),
+                        Cell::Decimal("1.50".into())
+                    ],
+                    &types
+                )
+                .unwrap()
+            )
+            .is_none());
+        assert!(st
+            .push(&row_tuple(&[Cell::Int(2), Cell::Null, Cell::Null], &types).unwrap())
+            .is_none());
         let (sql, rows) = st.take().unwrap();
         assert_eq!(rows, 2);
-        assert_eq!(sql, format!("{head}(1, 'a', DECIMAL '1.50'),\n(2, NULL, NULL)"));
+        assert_eq!(
+            sql,
+            format!("{head}(1, 'a', DECIMAL '1.50'),\n(2, NULL, NULL)")
+        );
         assert!(st.take().is_none());
 
         // Split by bytes: no statement over the bound (a single larger row goes alone).
@@ -1521,32 +2015,78 @@ mod tests {
 
     #[test]
     fn too_long_statements_are_explained() {
-        let e = explain_load_error(Error::Query("Query text length (1200000) exceeds the maximum length (1000000)".into()));
+        let e = explain_load_error(Error::Query(
+            "Query text length (1200000) exceeds the maximum length (1000000)".into(),
+        ));
         assert!(matches!(e, Error::Query(m) if m.contains("query.max-length")));
-        assert!(matches!(explain_load_error(Error::Cancelled), Error::Cancelled));
+        assert!(matches!(
+            explain_load_error(Error::Cancelled),
+            Error::Cancelled
+        ));
     }
 
     #[test]
     fn nested_types_parse() {
         let leaf = |s: &str| Ty::Leaf(s.into());
         assert_eq!(parse_ty("array(date)"), Ty::Array(Box::new(leaf("date"))));
-        assert_eq!(parse_ty("map(varchar, array(decimal(10, 2)))"), Ty::Map(Box::new(leaf("varchar")), Box::new(Ty::Array(Box::new(leaf("decimal(10, 2)"))))));
+        assert_eq!(
+            parse_ty("map(varchar, array(decimal(10, 2)))"),
+            Ty::Map(
+                Box::new(leaf("varchar")),
+                Box::new(Ty::Array(Box::new(leaf("decimal(10, 2)"))))
+            )
+        );
         assert_eq!(
             parse_ty("row(\"a\"\"b\" uuid, c timestamp(3) with time zone, \"time\" time(3))"),
-            Ty::Row(vec![(Some("a\"b".into()), leaf("uuid")), (Some("c".into()), leaf("timestamp(3) with time zone")), (Some("time".into()), leaf("time(3)"))])
+            Ty::Row(vec![
+                (Some("a\"b".into()), leaf("uuid")),
+                (Some("c".into()), leaf("timestamp(3) with time zone")),
+                (Some("time".into()), leaf("time(3)"))
+            ])
         );
-        assert_eq!(parse_ty("row(integer, timestamp(3) with time zone)"), Ty::Row(vec![(None, leaf("integer")), (None, leaf("timestamp(3) with time zone"))]));
-        assert_eq!(parse_ty("row(time time, x decimal(10, 2))"), Ty::Row(vec![(Some("time".into()), leaf("time")), (Some("x".into()), leaf("decimal(10, 2)"))]));
+        assert_eq!(
+            parse_ty("row(integer, timestamp(3) with time zone)"),
+            Ty::Row(vec![
+                (None, leaf("integer")),
+                (None, leaf("timestamp(3) with time zone"))
+            ])
+        );
+        assert_eq!(
+            parse_ty("row(time time, x decimal(10, 2))"),
+            Ty::Row(vec![
+                (Some("time".into()), leaf("time")),
+                (Some("x".into()), leaf("decimal(10, 2)"))
+            ])
+        );
     }
 
     /// Problem: nested columns with types JSON can't take failed the whole read.
     #[test]
     fn nested_reads_fall_back_to_raw_values() {
-        for ty in ["array(uuid)", "array(time(3))", "array(timestamp(3) with time zone)", "array(char(3))", "map(date, integer)", "row(\"a\" integer, \"b\" ipaddress)", "array(varbinary)", "map(varchar, varbinary)"] {
+        for ty in [
+            "array(uuid)",
+            "array(time(3))",
+            "array(timestamp(3) with time zone)",
+            "array(char(3))",
+            "map(date, integer)",
+            "row(\"a\" integer, \"b\" ipaddress)",
+            "array(varbinary)",
+            "map(varchar, varbinary)",
+        ] {
             assert_eq!(read_expr("c", ty), "\"c\"", "{ty}");
         }
-        for ty in ["array(date)", "array(timestamp(6))", "map(integer, varchar)", "row(\"a\" decimal(10,2), \"b\" array(json))", "array(varchar(3))"] {
-            assert_eq!(read_expr("c", ty), "json_format(CAST(\"c\" AS JSON))", "{ty}");
+        for ty in [
+            "array(date)",
+            "array(timestamp(6))",
+            "map(integer, varchar)",
+            "row(\"a\" decimal(10,2), \"b\" array(json))",
+            "array(varchar(3))",
+        ] {
+            assert_eq!(
+                read_expr("c", ty),
+                "json_format(CAST(\"c\" AS JSON))",
+                "{ty}"
+            );
         }
     }
 
@@ -1555,19 +2095,49 @@ mod tests {
     #[test]
     fn nested_values_are_built_element_by_element() {
         let j = |s: &str| Cell::Json(s.into());
-        assert_eq!(lit_ok(&j("[\"2024-01-01\",null]"), "array(date)"), "CAST(ARRAY[DATE '2024-01-01', NULL] AS array(date))");
-        assert_eq!(lit_ok(&j("[\"2024-01-01 00:00:00.123456\"]"), "array(timestamp(6))"), "CAST(ARRAY[TIMESTAMP '2024-01-01 00:00:00.123456'] AS array(timestamp(6)))");
-        assert_eq!(lit_ok(&j("[]"), "array(uuid)"), "CAST(ARRAY[] AS array(uuid))");
         assert_eq!(
-            lit_ok(&j("[\"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11\"]"), "array(uuid)"),
+            lit_ok(&j("[\"2024-01-01\",null]"), "array(date)"),
+            "CAST(ARRAY[DATE '2024-01-01', NULL] AS array(date))"
+        );
+        assert_eq!(
+            lit_ok(
+                &j("[\"2024-01-01 00:00:00.123456\"]"),
+                "array(timestamp(6))"
+            ),
+            "CAST(ARRAY[TIMESTAMP '2024-01-01 00:00:00.123456'] AS array(timestamp(6)))"
+        );
+        assert_eq!(
+            lit_ok(&j("[]"), "array(uuid)"),
+            "CAST(ARRAY[] AS array(uuid))"
+        );
+        assert_eq!(
+            lit_ok(
+                &j("[\"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11\"]"),
+                "array(uuid)"
+            ),
             "CAST(ARRAY[UUID 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'] AS array(uuid))"
         );
-        assert_eq!(lit_ok(&j("{\"k\":\"yv4=\",\"h\":\"0xCAFE\"}"), "map(varchar, varbinary)"), "CAST(MAP(ARRAY['k', 'h'], ARRAY[X'CAFE', X'CAFE']) AS map(varchar, varbinary))");
-        assert_eq!(lit_ok(&j("{}"), "map(date, integer)"), "CAST(MAP() AS map(date, integer))");
-        assert_eq!(lit_ok(&j("{\"2024-01-01\":1}"), "map(date, integer)"), "CAST(MAP(ARRAY[DATE '2024-01-01'], ARRAY[INTEGER '1']) AS map(date, integer))");
+        assert_eq!(
+            lit_ok(
+                &j("{\"k\":\"yv4=\",\"h\":\"0xCAFE\"}"),
+                "map(varchar, varbinary)"
+            ),
+            "CAST(MAP(ARRAY['k', 'h'], ARRAY[X'CAFE', X'CAFE']) AS map(varchar, varbinary))"
+        );
+        assert_eq!(
+            lit_ok(&j("{}"), "map(date, integer)"),
+            "CAST(MAP() AS map(date, integer))"
+        );
+        assert_eq!(
+            lit_ok(&j("{\"2024-01-01\":1}"), "map(date, integer)"),
+            "CAST(MAP(ARRAY[DATE '2024-01-01'], ARRAY[INTEGER '1']) AS map(date, integer))"
+        );
         // Decimals keep every digit (no f64 on the way) and aren't rounded.
         assert_eq!(
-            lit_ok(&j("[12345678901234567890.123456789]"), "array(decimal(38,9))"),
+            lit_ok(
+                &j("[12345678901234567890.123456789]"),
+                "array(decimal(38,9))"
+            ),
             "CAST(ARRAY[DECIMAL '12345678901234567890.123456789'] AS array(decimal(38,9)))"
         );
         assert!(literal(&j("[1.239]"), "array(decimal(10,2))").is_err());
@@ -1576,8 +2146,14 @@ mod tests {
             lit_ok(&j("{\"b\":\"2024-01-01\",\"a\":\"10:00:00.5\"}"), "row(\"a\" time(3), \"b\" date, \"c\" varchar)"),
             "CAST(ROW(TIME '10:00:00.5', DATE '2024-01-01', NULL) AS row(\"a\" time(3), \"b\" date, \"c\" varchar))"
         );
-        assert_eq!(lit_ok(&j("[[1.5,\"NaN\"]]"), "array(array(double))"), "CAST(ARRAY[ARRAY[DOUBLE '1.5', DOUBLE 'NaN']] AS array(array(double)))");
-        assert_eq!(lit_ok(&j("[{\"x\":\"it's\"}]"), "array(json)"), "CAST(ARRAY[JSON '{\"x\":\"it''s\"}'] AS array(json))");
+        assert_eq!(
+            lit_ok(&j("[[1.5,\"NaN\"]]"), "array(array(double))"),
+            "CAST(ARRAY[ARRAY[DOUBLE '1.5', DOUBLE 'NaN']] AS array(array(double)))"
+        );
+        assert_eq!(
+            lit_ok(&j("[{\"x\":\"it's\"}]"), "array(json)"),
+            "CAST(ARRAY[JSON '{\"x\":\"it''s\"}'] AS array(json))"
+        );
         assert!(literal(&j("{\"zz\":1}"), "row(\"a\" integer)").is_err());
         assert!(literal(&j("[1,2]"), "row(\"a\" integer)").is_err());
         assert!(literal(&j("{\"a\":1}"), "array(integer)").is_err());
@@ -1589,7 +2165,9 @@ mod tests {
     #[test]
     fn decimals_are_never_rounded() {
         let d = |s: &str| Cell::Decimal(s.into());
-        assert!(matches!(literal(&d("1.239"), "decimal(10,2)"), Err(Error::Query(m)) if m.contains("no se redondea")));
+        assert!(
+            matches!(literal(&d("1.239"), "decimal(10,2)"), Err(Error::Query(m)) if m.contains("no se redondea"))
+        );
         assert!(literal(&Cell::Float(1.005), "decimal(10,2)").is_err());
         assert_eq!(lit_ok(&d("1.230"), "decimal(10,2)"), "DECIMAL '1.23'");
         assert_eq!(lit_ok(&d("2.000"), "decimal(10,0)"), "DECIMAL '2'");
@@ -1609,32 +2187,83 @@ mod tests {
         let no = |c: Cell, ty: &str| matches!(literal(&c, ty), Err(Error::Query(m)) if m.contains("no se redondea"));
         assert!(no(Cell::Time("23:59:59.9999".into()), "time(3)"));
         assert!(no(Cell::Time("23:59:59.9999".into()), "time"));
-        assert!(no(Cell::DateTime("2024-06-01 12:00:00.123999".into()), "timestamp(3)"));
-        assert!(no(Cell::DateTime("2024-06-01T12:00:00.1234".into()), "timestamp"));
-        assert!(no(Cell::DateTimeTz("2024-06-01 12:00:00.1234+01:00".into()), "timestamp(3)"));
-        assert!(no(Cell::DateTimeTz("2024-06-01 12:00:00.1234+01:00".into()), "timestamp(3) with time zone"));
-        assert!(no(Cell::Text("2024-06-01 12:00:00.1234 America/Tijuana".into()), "timestamp(3) with time zone"));
-        assert!(no(Cell::Text("10:00:00.5+01:00".into()), "time(0) with time zone"));
+        assert!(no(
+            Cell::DateTime("2024-06-01 12:00:00.123999".into()),
+            "timestamp(3)"
+        ));
+        assert!(no(
+            Cell::DateTime("2024-06-01T12:00:00.1234".into()),
+            "timestamp"
+        ));
+        assert!(no(
+            Cell::DateTimeTz("2024-06-01 12:00:00.1234+01:00".into()),
+            "timestamp(3)"
+        ));
+        assert!(no(
+            Cell::DateTimeTz("2024-06-01 12:00:00.1234+01:00".into()),
+            "timestamp(3) with time zone"
+        ));
+        assert!(no(
+            Cell::Text("2024-06-01 12:00:00.1234 America/Tijuana".into()),
+            "timestamp(3) with time zone"
+        ));
+        assert!(no(
+            Cell::Text("10:00:00.5+01:00".into()),
+            "time(0) with time zone"
+        ));
         assert!(no(Cell::Text("10:00:00.12+01:00".into()), "time(1)"));
-        assert!(no(Cell::DateTime("2024-06-01 12:00:00.5".into()), "time(0)"));
-        assert!(no(Cell::Time("10:00:00.5".into()), "time(0) with time zone"));
-        assert!(no(Cell::DateTime("2024-06-01 12:00:00.5".into()), "time(0) with time zone"));
+        assert!(no(
+            Cell::DateTime("2024-06-01 12:00:00.5".into()),
+            "time(0)"
+        ));
+        assert!(no(
+            Cell::Time("10:00:00.5".into()),
+            "time(0) with time zone"
+        ));
+        assert!(no(
+            Cell::DateTime("2024-06-01 12:00:00.5".into()),
+            "time(0) with time zone"
+        ));
         assert!(no(Cell::Time("10:00:00.1234567890123".into()), "time(12)"));
         // Nested elements go through the same literals.
         assert!(literal(&Cell::Json("[\"10:00:00.1234\"]".into()), "array(time(3))").is_err());
         // Trailing zeros past the precision are not a loss.
-        assert_eq!(lit_ok(&Cell::Time("23:59:59.999000".into()), "time(3)"), "TIME '23:59:59.999'");
-        assert_eq!(lit_ok(&Cell::DateTime("2024-06-01 12:00:00.000".into()), "timestamp(0)"), "TIMESTAMP '2024-06-01 12:00:00'");
         assert_eq!(
-            lit_ok(&Cell::DateTimeTz("2024-06-01 12:00:00.500000+01:00".into()), "timestamp(3) with time zone"),
+            lit_ok(&Cell::Time("23:59:59.999000".into()), "time(3)"),
+            "TIME '23:59:59.999'"
+        );
+        assert_eq!(
+            lit_ok(
+                &Cell::DateTime("2024-06-01 12:00:00.000".into()),
+                "timestamp(0)"
+            ),
+            "TIMESTAMP '2024-06-01 12:00:00'"
+        );
+        assert_eq!(
+            lit_ok(
+                &Cell::DateTimeTz("2024-06-01 12:00:00.500000+01:00".into()),
+                "timestamp(3) with time zone"
+            ),
             "TIMESTAMP '2024-06-01 12:00:00.500+01:00'"
         );
-        assert_eq!(lit_ok(&Cell::Time("10:00:00.12".into()), "time(3)"), "TIME '10:00:00.12'");
-        assert_eq!(lit_ok(&Cell::Time("10:00:00".into()), "time(0)"), "TIME '10:00:00'");
+        assert_eq!(
+            lit_ok(&Cell::Time("10:00:00.12".into()), "time(3)"),
+            "TIME '10:00:00.12'"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Time("10:00:00".into()), "time(0)"),
+            "TIME '10:00:00'"
+        );
         // A date target checks for a time of day, not the fraction's precision.
         assert!(literal(&Cell::DateTime("2024-06-01 00:00:00.0000".into()), "date").is_ok());
-        assert_eq!(fit_fraction("2024-06-01 12:00:00.123000+05:30", "timestamp(3)").unwrap(), "2024-06-01 12:00:00.123+05:30");
-        assert_eq!(fit_fraction("12:00:00+05:30", "time(0)").unwrap(), "12:00:00+05:30");
+        assert_eq!(
+            fit_fraction("2024-06-01 12:00:00.123000+05:30", "timestamp(3)").unwrap(),
+            "2024-06-01 12:00:00.123+05:30"
+        );
+        assert_eq!(
+            fit_fraction("12:00:00+05:30", "time(0)").unwrap(),
+            "12:00:00+05:30"
+        );
         assert_eq!(time_precision("timestamp(6) with time zone"), 6);
         assert_eq!(time_precision("time with time zone"), 3);
     }
@@ -1647,19 +2276,49 @@ mod tests {
         let utc = "CAST(TIMESTAMP '2024-01-01 00:00:00+01:00' AT TIME ZONE 'UTC' AS timestamp(3))";
         assert_eq!(lit_ok(&t("2024-01-01 00:00:00+01:00"), "timestamp(3)"), utc);
         assert_eq!(lit_ok(&t("2024-01-01T00:00:00+01:00"), "timestamp(3)"), utc);
-        assert_eq!(lit_ok(&Cell::DateTimeTz("2024-01-01 00:00:00+01:00".into()), "timestamp(3)"), utc);
-        assert_eq!(lit_ok(&t("2024-01-01T00:00:00Z"), "timestamp(3)"), "CAST(TIMESTAMP '2024-01-01 00:00:00+00:00' AT TIME ZONE 'UTC' AS timestamp(3))");
+        assert_eq!(
+            lit_ok(
+                &Cell::DateTimeTz("2024-01-01 00:00:00+01:00".into()),
+                "timestamp(3)"
+            ),
+            utc
+        );
+        assert_eq!(
+            lit_ok(&t("2024-01-01T00:00:00Z"), "timestamp(3)"),
+            "CAST(TIMESTAMP '2024-01-01 00:00:00+00:00' AT TIME ZONE 'UTC' AS timestamp(3))"
+        );
         assert_eq!(
             lit_ok(&t("2024-01-01 00:00:00 America/Tijuana"), "timestamp(3)"),
             "CAST(TIMESTAMP '2024-01-01 00:00:00 America/Tijuana' AT TIME ZONE 'UTC' AS timestamp(3))"
         );
-        assert_eq!(lit_ok(&t("2024-01-01 00:00:00"), "timestamp(3)"), "TIMESTAMP '2024-01-01 00:00:00'");
+        assert_eq!(
+            lit_ok(&t("2024-01-01 00:00:00"), "timestamp(3)"),
+            "TIMESTAMP '2024-01-01 00:00:00'"
+        );
         // Zoneless into a zoned column: UTC, as for a DateTime cell.
-        assert_eq!(lit_ok(&t("2024-01-01 00:00:00"), "timestamp(3) with time zone"), "TIMESTAMP '2024-01-01 00:00:00 UTC'");
-        assert_eq!(lit_ok(&Cell::Time("10:00:00".into()), "time(0) with time zone"), "TIME '10:00:00+00:00'");
-        assert_eq!(lit_ok(&t("10:00:00+01:00"), "time(3)"), "CAST(TIME '10:00:00+01:00' AT TIME ZONE 'UTC' AS time(3))");
-        assert_eq!(lit_ok(&Cell::DateTimeTz("2024-01-01 01:00:00+01:00".into()), "date"), "CAST(TIMESTAMP '2024-01-01 01:00:00+01:00' AT TIME ZONE 'UTC' AS date)");
-        assert_eq!(lit_ok(&Cell::Date("-0005-03-01".into()), "date"), "DATE '-0005-03-01'");
+        assert_eq!(
+            lit_ok(&t("2024-01-01 00:00:00"), "timestamp(3) with time zone"),
+            "TIMESTAMP '2024-01-01 00:00:00 UTC'"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Time("10:00:00".into()), "time(0) with time zone"),
+            "TIME '10:00:00+00:00'"
+        );
+        assert_eq!(
+            lit_ok(&t("10:00:00+01:00"), "time(3)"),
+            "CAST(TIME '10:00:00+01:00' AT TIME ZONE 'UTC' AS time(3))"
+        );
+        assert_eq!(
+            lit_ok(
+                &Cell::DateTimeTz("2024-01-01 01:00:00+01:00".into()),
+                "date"
+            ),
+            "CAST(TIMESTAMP '2024-01-01 01:00:00+01:00' AT TIME ZONE 'UTC' AS date)"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Date("-0005-03-01".into()), "date"),
+            "DATE '-0005-03-01'"
+        );
         assert!(!has_zone("-0005-03-01 00:00:00"));
         assert!(!has_zone("10:00:00.123"));
     }
@@ -1680,11 +2339,32 @@ mod tests {
     /// Problem: `to_iso8601` writes a year past 9999 as `+12024-…`.
     #[test]
     fn years_past_9999() {
-        assert_eq!(iso_to_tz("+12024-01-02T03:04:05Z"), "12024-01-02 03:04:05+00:00");
-        assert_eq!(to_cell(json!("+12024-01-02T03:04:05.5Z"), "timestamp(1) with time zone"), Cell::DateTimeTz("12024-01-02 03:04:05.5+00:00".into()));
-        assert_eq!(to_cell(json!("+12024-01-01"), "date"), Cell::Date("12024-01-01".into()));
-        assert_eq!(to_cell(json!("+12024-01-02 03:04:05"), "timestamp(0)"), Cell::DateTime("12024-01-02 03:04:05".into()));
-        assert_eq!(lit_ok(&Cell::DateTimeTz("12024-01-02 03:04:05+00:00".into()), "timestamp(0) with time zone"), "TIMESTAMP '12024-01-02 03:04:05+00:00'");
+        assert_eq!(
+            iso_to_tz("+12024-01-02T03:04:05Z"),
+            "12024-01-02 03:04:05+00:00"
+        );
+        assert_eq!(
+            to_cell(
+                json!("+12024-01-02T03:04:05.5Z"),
+                "timestamp(1) with time zone"
+            ),
+            Cell::DateTimeTz("12024-01-02 03:04:05.5+00:00".into())
+        );
+        assert_eq!(
+            to_cell(json!("+12024-01-01"), "date"),
+            Cell::Date("12024-01-01".into())
+        );
+        assert_eq!(
+            to_cell(json!("+12024-01-02 03:04:05"), "timestamp(0)"),
+            Cell::DateTime("12024-01-02 03:04:05".into())
+        );
+        assert_eq!(
+            lit_ok(
+                &Cell::DateTimeTz("12024-01-02 03:04:05+00:00".into()),
+                "timestamp(0) with time zone"
+            ),
+            "TIMESTAMP '12024-01-02 03:04:05+00:00'"
+        );
     }
 
     /// Problems: the spec's commit window was ignored, and statements were
@@ -1703,11 +2383,25 @@ mod tests {
         assert_eq!(st.push("(12345)").map(|(_, n)| n), Some(1));
         let st = Statements::new("H".into()).window(1, 0, 0);
         assert_eq!((st.max_rows, st.max_bytes), (1, 1));
-        let st = Statements::new("H".into()).window(6, LoadSpec::DEFAULT_COMMIT_ROWS, LoadSpec::DEFAULT_COMMIT_BYTES);
+        let st = Statements::new("H".into()).window(
+            6,
+            LoadSpec::DEFAULT_COMMIT_ROWS,
+            LoadSpec::DEFAULT_COMMIT_BYTES,
+        );
         assert_eq!((st.max_rows, st.max_bytes), (STMT_ROWS, STMT_BYTES));
         // Wide tables: fewer rows, so the values a statement holds stay bounded.
-        assert_eq!(Statements::new("H".into()).window(60, u64::MAX, u64::MAX).max_rows, 100);
-        assert_eq!(Statements::new("H".into()).window(10_000, u64::MAX, u64::MAX).max_rows, 1);
+        assert_eq!(
+            Statements::new("H".into())
+                .window(60, u64::MAX, u64::MAX)
+                .max_rows,
+            100
+        );
+        assert_eq!(
+            Statements::new("H".into())
+                .window(10_000, u64::MAX, u64::MAX)
+                .max_rows,
+            1
+        );
     }
 
     /// Problem: a lone ROW column was written `(CAST(ROW(…) AS row(…)))`,
@@ -1719,8 +2413,18 @@ mod tests {
         let t = row_tuple(&row, &ty).unwrap();
         assert!(t.starts_with("ROW(CAST(ROW(") && t.ends_with("))"), "{t}");
         assert_eq!(row_tuple(&[Cell::Null], &ty).unwrap(), "ROW(NULL)");
-        assert_eq!(row_tuple(&[Cell::Int(1)], &["bigint".to_string()]).unwrap(), "ROW(1)");
-        assert_eq!(row_tuple(&[Cell::Int(1), Cell::Null], &["bigint".to_string(), "varchar".to_string()]).unwrap(), "(1, NULL)");
+        assert_eq!(
+            row_tuple(&[Cell::Int(1)], &["bigint".to_string()]).unwrap(),
+            "ROW(1)"
+        );
+        assert_eq!(
+            row_tuple(
+                &[Cell::Int(1), Cell::Null],
+                &["bigint".to_string(), "varchar".to_string()]
+            )
+            .unwrap(),
+            "(1, NULL)"
+        );
     }
 
     /// Problem: a timestamp into a DATE column lost its time of day
@@ -1729,7 +2433,10 @@ mod tests {
     fn dates_never_lose_the_time_of_day() {
         let lost = |c: Cell| {
             let r = literal(&c, "date");
-            assert!(matches!(&r, Err(Error::Query(m)) if m.contains("se perdería la hora")), "{c:?}: {r:?}");
+            assert!(
+                matches!(&r, Err(Error::Query(m)) if m.contains("se perdería la hora")),
+                "{c:?}: {r:?}"
+            );
         };
         lost(Cell::DateTime("2024-01-01 12:00:00".into()));
         lost(Cell::Text("2024-01-01 12:00:00".into()));
@@ -1737,30 +2444,69 @@ mod tests {
         lost(Cell::DateTimeTz("2024-01-01 00:00:00+01:00".into()));
         lost(Cell::DateTimeTz("2024-01-01 00:30:00+01:00".into()));
         lost(Cell::Text("2024-01-01 00:00:00-03:00".into()));
-        let r = literal(&Cell::Text("2024-01-01 00:00:00 America/Tijuana".into()), "date");
-        assert!(matches!(&r, Err(Error::Query(m)) if m.contains("por nombre")), "{r:?}");
-        assert_eq!(lit_ok(&Cell::DateTime("2024-01-01 00:00:00".into()), "date"), "CAST(TIMESTAMP '2024-01-01 00:00:00' AS date)");
-        assert_eq!(lit_ok(&Cell::Text("2024-01-01T00:00:00.000".into()), "date"), "CAST(TIMESTAMP '2024-01-01 00:00:00.000' AS date)");
-        assert_eq!(lit_ok(&Cell::Text("2024-01-01 00:00".into()), "date"), "CAST(TIMESTAMP '2024-01-01 00:00' AS date)");
+        let r = literal(
+            &Cell::Text("2024-01-01 00:00:00 America/Tijuana".into()),
+            "date",
+        );
+        assert!(
+            matches!(&r, Err(Error::Query(m)) if m.contains("por nombre")),
+            "{r:?}"
+        );
+        assert_eq!(
+            lit_ok(&Cell::DateTime("2024-01-01 00:00:00".into()), "date"),
+            "CAST(TIMESTAMP '2024-01-01 00:00:00' AS date)"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Text("2024-01-01T00:00:00.000".into()), "date"),
+            "CAST(TIMESTAMP '2024-01-01 00:00:00.000' AS date)"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Text("2024-01-01 00:00".into()), "date"),
+            "CAST(TIMESTAMP '2024-01-01 00:00' AS date)"
+        );
         assert_eq!(
             lit_ok(&Cell::DateTimeTz("2024-01-01T00:00:00Z".into()), "date"),
             "CAST(TIMESTAMP '2024-01-01 00:00:00+00:00' AT TIME ZONE 'UTC' AS date)"
         );
         assert_eq!(
-            lit_ok(&Cell::DateTimeTz("2024-01-01 21:00:00-03:00".into()), "date"),
+            lit_ok(
+                &Cell::DateTimeTz("2024-01-01 21:00:00-03:00".into()),
+                "date"
+            ),
             "CAST(TIMESTAMP '2024-01-01 21:00:00-03:00' AT TIME ZONE 'UTC' AS date)"
         );
-        assert_eq!(lit_ok(&Cell::Text("2024-01-01 05:30:00+0530".into()), "date"), "CAST(TIMESTAMP '2024-01-01 05:30:00+0530' AT TIME ZONE 'UTC' AS date)");
-        assert_eq!(lit_ok(&Cell::Text("2024-01-01 00:00:00 UTC".into()), "date"), "CAST(TIMESTAMP '2024-01-01 00:00:00 UTC' AT TIME ZONE 'UTC' AS date)");
-        assert_eq!(lit_ok(&Cell::Date("2024-01-01".into()), "date"), "DATE '2024-01-01'");
-        assert_eq!(lit_ok(&Cell::Date("-0005-03-01 00:00:00".into()), "date"), "CAST(TIMESTAMP '-0005-03-01 00:00:00' AS date)");
+        assert_eq!(
+            lit_ok(&Cell::Text("2024-01-01 05:30:00+0530".into()), "date"),
+            "CAST(TIMESTAMP '2024-01-01 05:30:00+0530' AT TIME ZONE 'UTC' AS date)"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Text("2024-01-01 00:00:00 UTC".into()), "date"),
+            "CAST(TIMESTAMP '2024-01-01 00:00:00 UTC' AT TIME ZONE 'UTC' AS date)"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Date("2024-01-01".into()), "date"),
+            "DATE '2024-01-01'"
+        );
+        assert_eq!(
+            lit_ok(&Cell::Date("-0005-03-01 00:00:00".into()), "date"),
+            "CAST(TIMESTAMP '-0005-03-01 00:00:00' AS date)"
+        );
     }
 
     #[test]
     fn query_ids_from_next_uris() {
-        assert_eq!(query_id("http://h:8080/v1/statement/queued/20240101_000000_00001_abcde/y123/1"), Some("20240101_000000_00001_abcde"));
-        assert_eq!(query_id("http://h:8080/v1/statement/executing/20240101_000000_00001_abcde/y123/2"), Some("20240101_000000_00001_abcde"));
-        assert_eq!(query_id("http://h:8080/v1/statement/executing/q1/5"), Some("q1"));
+        assert_eq!(
+            query_id("http://h:8080/v1/statement/queued/20240101_000000_00001_abcde/y123/1"),
+            Some("20240101_000000_00001_abcde")
+        );
+        assert_eq!(
+            query_id("http://h:8080/v1/statement/executing/20240101_000000_00001_abcde/y123/2"),
+            Some("20240101_000000_00001_abcde")
+        );
+        assert_eq!(
+            query_id("http://h:8080/v1/statement/executing/q1/5"),
+            Some("q1")
+        );
         assert_eq!(query_id("http://h:8080/v1/info"), None);
     }
 }

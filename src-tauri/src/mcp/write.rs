@@ -5,7 +5,10 @@
 
 use super::activity::ActivityEntry;
 use super::approvals::{ApprovalKind, ApprovalRequest, Outcome, APPROVAL_TIMEOUT};
-use super::tools::{arg, arg_num, failure, find_connection, results_text, run_on, summary, Op, TIMEOUT_DEFAULT, TIMEOUT_MAX};
+use super::tools::{
+    arg, arg_num, failure, find_connection, results_text, run_on, summary, Op, TIMEOUT_DEFAULT,
+    TIMEOUT_MAX,
+};
 use super::{effective_level, load_config, Cap, Inner, McpClient, McpLevel};
 use dbine_core::SavedConnection;
 use serde_json::{json, Value};
@@ -20,9 +23,9 @@ pub fn definition(conn: Value, db: Value) -> Value {
         "name": TOOL,
         "description": format!(
             "Run code that changes data or structure (INSERT, UPDATE, DELETE, DDL, a Mongo write command, Redis SET…) in the \
-engine's own language. Needs the 'write' level. Nothing runs until the user approves this exact code in DBine; the call \
-waits up to {} seconds for the answer and is rejected without one. Returns what was run (rows affected, or the rows it \
-returned), or says it was rejected. For reads use run_query.",
+    engine's own language. Needs the 'write' level. Nothing runs until the user approves this exact code in DBine; the call \
+    waits up to {} seconds for the answer and is rejected without one. Returns what was run (rows affected, or the rows it \
+    returned), or says it was rejected. For reads use run_query.",
             APPROVAL_TIMEOUT.as_secs()
         ),
         "inputSchema": { "type": "object", "properties": {
@@ -65,18 +68,30 @@ pub async fn call(inner: &Inner, client: &McpClient, args: &Value) -> (String, b
         }
     };
     log(REQUEST, &connection, true, None, None);
-    let outcome = inner.approvals.ask(prepared.request, APPROVAL_TIMEOUT).await;
+    let outcome = inner
+        .approvals
+        .ask(prepared.request, APPROVAL_TIMEOUT)
+        .await;
     let step = match outcome {
         Outcome::Rejected => {
             let e = "rechazado por el usuario: no se ejecutó nada".to_string();
             log(REJECTED, &connection, false, None, Some(e.clone()));
-            return ("Rechazado por el usuario en DBine: no se ejecutó nada.".to_string(), true);
+            return (
+                "Rechazado por el usuario en DBine: no se ejecutó nada.".to_string(),
+                true,
+            );
         }
         Outcome::TimedOut => {
-            let e = format!("sin respuesta en {} s: rechazado, no se ejecutó nada", APPROVAL_TIMEOUT.as_secs());
+            let e = format!(
+                "sin respuesta en {} s: rechazado, no se ejecutó nada",
+                APPROVAL_TIMEOUT.as_secs()
+            );
             log(TIMEOUT, &connection, false, None, Some(e));
             return (
-                format!("Sin respuesta del usuario en {} segundos: rechazado, no se ejecutó nada.", APPROVAL_TIMEOUT.as_secs()),
+                format!(
+                    "Sin respuesta del usuario en {} segundos: rechazado, no se ejecutó nada.",
+                    APPROVAL_TIMEOUT.as_secs()
+                ),
                 true,
             );
         }
@@ -84,7 +99,15 @@ pub async fn call(inner: &Inner, client: &McpClient, args: &Value) -> (String, b
         Outcome::AutoApproved => AUTO_APPROVED,
     };
     let (key, entry) = prepared.session;
-    match run_on(inner, &key, entry, Op::Execute(prepared.code, SHOW_MAX as usize), prepared.limit).await {
+    match run_on(
+        inner,
+        &key,
+        entry,
+        Op::Execute(prepared.code, SHOW_MAX as usize),
+        prepared.limit,
+    )
+    .await
+    {
         Ok(out) => {
             let affected: u64 = out.results.iter().filter_map(|r| r.rows_affected).sum();
             let returned: u64 = out.results.iter().map(|r| r.rows.len() as u64).sum();
@@ -94,11 +117,17 @@ pub async fn call(inner: &Inner, client: &McpClient, args: &Value) -> (String, b
             } else {
                 "Aprobado por el usuario y ejecutado."
             };
-            (format!("{head}\n\n{}", results_text(&out, SHOW_MAX).text), false)
+            (
+                format!("{head}\n\n{}", results_text(&out, SHOW_MAX).text),
+                false,
+            )
         }
         Err(e) => {
             log(step, &connection, false, None, Some(e.clone()));
-            (format!("Aprobado por el usuario, pero falló al ejecutarse: {e}"), true)
+            (
+                format!("Aprobado por el usuario, pero falló al ejecutarse: {e}"),
+                true,
+            )
         }
     }
 }
@@ -112,7 +141,12 @@ struct Prepared {
 
 /// Everything short of running: the level, the arguments and a session of
 /// its own (so a missing password fails before the user is asked).
-async fn prepare(inner: &Inner, client: &McpClient, args: &Value, connection: &mut String) -> Result<Prepared, String> {
+async fn prepare(
+    inner: &Inner,
+    client: &McpClient,
+    args: &Value,
+    connection: &mut String,
+) -> Result<Prepared, String> {
     let default = load_config(&inner.state).default_level;
     let (conn, level) = find_connection(inner, arg(args, "connection")?, default)?;
     *connection = conn.name.clone();
@@ -127,15 +161,27 @@ async fn prepare(inner: &Inner, client: &McpClient, args: &Value, connection: &m
     Ok(Prepared {
         request,
         code: code.to_string(),
-        limit: Duration::from_secs(arg_num(args, "timeout_seconds", TIMEOUT_DEFAULT, TIMEOUT_MAX)),
+        limit: Duration::from_secs(arg_num(
+            args,
+            "timeout_seconds",
+            TIMEOUT_DEFAULT,
+            TIMEOUT_MAX,
+        )),
         session,
     })
 }
 
 /// What the approval dialog shows for `code` on `conn` · `db`: a write of
 /// `execute`, or a read the engine can't enforce (`run_query`, `explain`).
-pub(super) fn approval_request(kind: ApprovalKind, client: &McpClient, conn: &SavedConnection, db: &str, code: &str) -> Result<ApprovalRequest, String> {
-    let driver = dbine_drivers::find(&conn.config.driver).ok_or_else(|| format!("esta versión no incluye el driver '{}'", conn.config.driver))?;
+pub(super) fn approval_request(
+    kind: ApprovalKind,
+    client: &McpClient,
+    conn: &SavedConnection,
+    db: &str,
+    code: &str,
+) -> Result<ApprovalRequest, String> {
+    let driver = dbine_drivers::find(&conn.config.driver)
+        .ok_or_else(|| format!("esta versión no incluye el driver '{}'", conn.config.driver))?;
     let info = driver.info();
     let now = chrono::Utc::now();
     Ok(ApprovalRequest {
@@ -146,10 +192,14 @@ pub(super) fn approval_request(kind: ApprovalKind, client: &McpClient, conn: &Sa
         connection: conn.name.clone(),
         database: db.to_string(),
         engine: info.name.to_string(),
-        language: serde_json::to_value(info.language).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| "sql".into()),
+        language: serde_json::to_value(info.language)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| "sql".into()),
         dialect: info.dialect.to_string(),
         code: code.to_string(),
-        expires_at: (now + chrono::Duration::from_std(APPROVAL_TIMEOUT).unwrap_or_default()).to_rfc3339(),
+        expires_at: (now + chrono::Duration::from_std(APPROVAL_TIMEOUT).unwrap_or_default())
+            .to_rfc3339(),
         timeout_secs: APPROVAL_TIMEOUT.as_secs(),
     })
 }
@@ -174,13 +224,21 @@ fn check_write(conn: &SavedConnection, level: McpLevel, default: McpLevel) -> Re
 
 /// A session of MCP's own for writes (not read-only), kept between calls
 /// like the read one; editing the connection drops it.
-async fn write_session(inner: &Inner, conn: &SavedConnection, db: &str) -> Result<(String, std::sync::Arc<crate::state::SessionEntry>), String> {
+async fn write_session(
+    inner: &Inner,
+    conn: &SavedConnection,
+    db: &str,
+) -> Result<(String, std::sync::Arc<crate::state::SessionEntry>), String> {
     let key = format!("mcp-write:{}:{db}", conn.id);
     if let Some(e) = inner.state.sessions.get(&key) {
         if e.connection_id == conn.id && e.database == db {
             return Ok((key, e.clone()));
         }
     }
-    let entry = inner.state.dedicated_session(&key, &conn.id, db, false).await.map_err(|e| failure(conn, e))?;
+    let entry = inner
+        .state
+        .dedicated_session(&key, &conn.id, db, false)
+        .await
+        .map_err(|e| failure(conn, e))?;
     Ok((key, entry))
 }

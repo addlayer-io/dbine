@@ -27,13 +27,15 @@ mod transfer;
 
 use dbine_driver::sql::{leading_keyword, select_top, Limit, Quote, ScriptDefaults, ScriptDialect};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, json_spatial_bytes, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
-    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot, ObjectKindInfo,
-    Message, MessageLevel, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
+    async_trait, json_bytes, json_f64, json_i64, json_spatial_bytes, Capabilities, ColumnInfo,
+    ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
+    Family, Field, FieldKind, Language, Message, MessageLevel, MonitorSnapshot, ObjectKindInfo,
+    ObjectRef, Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema,
+    TxState,
 };
 use hdbconnect_async::{
-    ConnectParams, ConnectParamsBuilder, Connection, HdbError, HdbResponse, HdbReturnValue, HdbValue, ResultSet,
-    ServerCerts,
+    ConnectParams, ConnectParamsBuilder, Connection, HdbError, HdbResponse, HdbReturnValue,
+    HdbValue, ResultSet, ServerCerts,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -117,23 +119,47 @@ fn err(e: HdbError) -> Error {
 /// and SQLSTATE, and where (`position`, the 1-based character in the
 /// statement). A fatal error ends the script.
 fn stmt_err(e: HdbError, script: &str, start: usize) -> Error {
-    let Some(s) = e.server_error() else { return err(e) };
+    let Some(s) = e.server_error() else {
+        return err(e);
+    };
     let state = String::from_utf8_lossy(s.sqlstate()).trim().to_string();
     let fatal = matches!(s.severity(), hdbconnect_async::Severity::Fatal);
-    server_error(s.code(), s.text(), &state, s.position(), fatal, script, start).into()
+    server_error(
+        s.code(),
+        s.text(),
+        &state,
+        s.position(),
+        fatal,
+        script,
+        start,
+    )
+    .into()
 }
 
-fn server_error(code: i32, text: &str, state: &str, position: i32, fatal: bool, script: &str, start: usize) -> ScriptError {
+fn server_error(
+    code: i32,
+    text: &str,
+    state: &str,
+    position: i32,
+    fatal: bool,
+    script: &str,
+    start: usize,
+) -> ScriptError {
     let mut se = ScriptError::new(format!("[{code}] {text}")).with_code(code.to_string());
     if !state.is_empty() && state != "HY000" {
         se = se.with_sqlstate(state);
     }
     let start = start.min(script.len());
     let offset = match usize::try_from(position) {
-        Ok(p) if p >= 1 => script[start..].char_indices().nth(p - 1).map_or(start, |(b, _)| start + b),
+        Ok(p) if p >= 1 => script[start..]
+            .char_indices()
+            .nth(p - 1)
+            .map_or(start, |(b, _)| start + b),
         _ => start,
     };
-    se = se.at_offset(offset).at_line(script[..offset].matches('\n').count() as u32 + 1);
+    se = se
+        .at_offset(offset)
+        .at_line(script[..offset].matches('\n').count() as u32 + 1);
     if fatal {
         se = se.fatal();
     }
@@ -143,7 +169,8 @@ fn server_error(code: i32, text: &str, state: &str, position: i32, fatal: bool, 
 fn connect_err(e: HdbError) -> Error {
     // 10: authentication failed; 414: password must be changed.
     let auth = matches!(e, HdbError::Authentication { .. })
-        || e.server_error().is_some_and(|s| matches!(s.code(), 10 | 414 | 663));
+        || e.server_error()
+            .is_some_and(|s| matches!(s.code(), 10 | 414 | 663));
     if auth {
         Error::AuthFailed(message(&e))
     } else {
@@ -163,7 +190,10 @@ fn params(cfg: &ConnectionConfig) -> Result<ConnectParams> {
         return Err(Error::AuthFailed("Falta el usuario.".into()));
     }
     let mut b = ConnectParamsBuilder::new();
-    b.hostname(host).port(cfg.port_or(DEFAULT_PORT)).dbuser(user).password(cfg.password_or_empty());
+    b.hostname(host)
+        .port(cfg.port_or(DEFAULT_PORT))
+        .dbuser(user)
+        .password(cfg.password_or_empty());
     if !cfg.database.trim().is_empty() {
         b.dbname(cfg.database.trim());
     }
@@ -194,7 +224,10 @@ impl Driver for HanaDriver {
     /// hdbsql's: `;` outside quotes and comments; procedure, function and
     /// trigger bodies whole.
     fn script_dialect(&self) -> ScriptDialect {
-        ScriptDialect { backtick_idents: false, ..ScriptDialect::generic() }
+        ScriptDialect {
+            backtick_idents: false,
+            ..ScriptDialect::generic()
+        }
     }
 
     // `script_mode` stays `Whole`: the shared lexer doesn't yet keep an
@@ -204,7 +237,10 @@ impl Driver for HanaDriver {
 
     /// hdbsql goes on after an error unless told to stop.
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     fn supports_manual_transactions(&self) -> bool {
@@ -216,12 +252,20 @@ impl Driver for HanaDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
     /// Nothing can change (see [`properties`]).
-    fn alter_database_script(&self, _database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        _database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(changes)
     }
 
@@ -265,7 +309,10 @@ impl Driver for HanaDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
     }
 
@@ -278,17 +325,43 @@ impl Driver for HanaDriver {
         rename::script(req, &self.script_dialect())
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
         // No multi-row VALUES in HANA: one INSERT per row.
-        Ok(dbine_driver::ddl::insert_script(&schema::flavor(), target.schema(), &target.name, columns, rows, 1))
+        Ok(dbine_driver::ddl::insert_script(
+            &schema::flavor(),
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+            1,
+        ))
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
-        Ok(dbine_driver::ddl::update_script(&schema::flavor(), target.schema(), &target.name, changes))
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
+        Ok(dbine_driver::ddl::update_script(
+            &schema::flavor(),
+            target.schema(),
+            &target.name,
+            changes,
+        ))
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
-        Ok(dbine_driver::ddl::delete_script(&schema::flavor(), target.schema(), &target.name, keys))
+        Ok(dbine_driver::ddl::delete_script(
+            &schema::flavor(),
+            target.schema(),
+            &target.name,
+            keys,
+        ))
     }
 
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
@@ -312,18 +385,38 @@ impl Driver for HanaDriver {
         true
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let params = params(cfg)?;
         let conn = tokio::time::timeout(CONNECT_TIMEOUT, Connection::new(params.clone()))
             .await
-            .map_err(|_| Error::Connect(format!("El servidor no respondió en {} s.", CONNECT_TIMEOUT.as_secs())))?
+            .map_err(|_| {
+                Error::Connect(format!(
+                    "El servidor no respondió en {} s.",
+                    CONNECT_TIMEOUT.as_secs()
+                ))
+            })?
             .map_err(connect_err)?;
         conn.set_application("DBine").await;
         if let Some(schema) = database.filter(|d| !d.is_empty()) {
-            conn.exec(format!("SET SCHEMA {}", quote(schema))).await.map_err(err)?;
+            conn.exec(format!("SET SCHEMA {}", quote(schema)))
+                .await
+                .map_err(err)?;
         }
-        let schema = single_text(&conn, "SELECT CURRENT_SCHEMA FROM DUMMY").await?.unwrap_or_default();
-        Ok(Box::new(HanaSession { id: conn.id().await, conn, params, schema, profiler: None, dirty: false }))
+        let schema = single_text(&conn, "SELECT CURRENT_SCHEMA FROM DUMMY")
+            .await?
+            .unwrap_or_default();
+        Ok(Box::new(HanaSession {
+            id: conn.id().await,
+            conn,
+            params,
+            schema,
+            profiler: None,
+            dirty: false,
+        }))
     }
 }
 
@@ -331,7 +424,10 @@ impl Driver for HanaDriver {
 fn sets_schema(stmt: &str) -> bool {
     let plain = dbine_driver::sql::strip_comments(stmt, &ScriptDialect::generic(), false);
     let mut words = plain.split_whitespace();
-    words.next().is_some_and(|w| w.eq_ignore_ascii_case("set")) && words.next().is_some_and(|w| w.eq_ignore_ascii_case("schema"))
+    words.next().is_some_and(|w| w.eq_ignore_ascii_case("set"))
+        && words
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case("schema"))
 }
 
 // --------------------------------------------------------------- session
@@ -356,13 +452,28 @@ fn quote(name: &str) -> String {
 
 /// A view's definition: its CREATE around the catalog's `DEFINITION`.
 fn view_ddl(owner: &str, name: &str, body: &str) -> String {
-    format!("CREATE VIEW {}.{} AS\n{}", quote(owner), quote(name), body.trim())
+    format!(
+        "CREATE VIEW {}.{} AS\n{}",
+        quote(owner),
+        quote(name),
+        body.trim()
+    )
 }
 
 /// First column of the first row, as text.
 async fn single_text(conn: &Connection, sql: &str) -> Result<Option<String>> {
-    let rows = conn.query(sql).await.map_err(err)?.into_rows().await.map_err(err)?;
-    Ok(rows.into_iter().next().and_then(|mut row| row.next_value()).and_then(|v| text(&v)))
+    let rows = conn
+        .query(sql)
+        .await
+        .map_err(err)?
+        .into_rows()
+        .await
+        .map_err(err)?;
+    Ok(rows
+        .into_iter()
+        .next()
+        .and_then(|mut row| row.next_value())
+        .and_then(|v| text(&v)))
 }
 
 fn text(v: &HdbValue) -> Option<String> {
@@ -385,8 +496,15 @@ fn num(v: &HdbValue) -> Option<f64> {
 
 /// Statements `EXPLAIN PLAN` takes.
 fn plannable(stmt: &str) -> bool {
-    let head = script::strip_leading_comments(stmt).split_whitespace().next().unwrap_or_default().to_ascii_uppercase();
-    matches!(head.as_str(), "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "UPSERT" | "REPLACE" | "MERGE")
+    let head = script::strip_leading_comments(stmt)
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    matches!(
+        head.as_str(),
+        "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "UPSERT" | "REPLACE" | "MERGE"
+    )
 }
 
 fn int(v: &HdbValue) -> Option<i64> {
@@ -414,7 +532,9 @@ impl HanaSession {
             Some("commit" | "rollback") => self.dirty = false,
             Some("set") if sets_schema(stmt) => {
                 // The schema is the connection's database level: the tab follows it.
-                if let Some(schema) = single_text(&self.conn, "SELECT CURRENT_SCHEMA FROM DUMMY").await? {
+                if let Some(schema) =
+                    single_text(&self.conn, "SELECT CURRENT_SCHEMA FROM DUMMY").await?
+                {
                     self.schema = schema.clone();
                     out.database = Some(schema);
                 }
@@ -439,7 +559,11 @@ impl HanaSession {
 
     /// Rows of a catalog query with string parameters, as values.
     async fn rows(&self, sql: &str, params: &[&str]) -> Result<Vec<Vec<HdbValue<'static>>>> {
-        let response = self.conn.prepare_and_execute(sql, &params.to_vec()).await.map_err(err)?;
+        let response = self
+            .conn
+            .prepare_and_execute(sql, &params.to_vec())
+            .await
+            .map_err(err)?;
         let rs = response.into_result_set().map_err(err)?;
         let rows = rs.into_rows().await.map_err(err)?;
         let mut out = Vec::new();
@@ -461,13 +585,20 @@ impl HanaSession {
 /// LOBs of catalog rows (definitions) read into strings.
 async fn read_lob(v: HdbValue<'static>) -> HdbValue<'static> {
     match v {
-        HdbValue::ASYNC_CLOB(c) => c.into_string().await.map_or(HdbValue::NULL, HdbValue::STRING),
-        HdbValue::ASYNC_NCLOB(c) => c.into_string().await.map_or(HdbValue::NULL, HdbValue::STRING),
+        HdbValue::ASYNC_CLOB(c) => c
+            .into_string()
+            .await
+            .map_or(HdbValue::NULL, HdbValue::STRING),
+        HdbValue::ASYNC_NCLOB(c) => c
+            .into_string()
+            .await
+            .map_or(HdbValue::NULL, HdbValue::STRING),
         other => other,
     }
 }
 
-const EXPLAIN_ROWS: &str = "SELECT OPERATOR_ID, PARENT_OPERATOR_ID, OPERATOR_NAME, OPERATOR_DETAILS, SCHEMA_NAME,
+const EXPLAIN_ROWS: &str =
+    "SELECT OPERATOR_ID, PARENT_OPERATOR_ID, OPERATOR_NAME, OPERATOR_DETAILS, SCHEMA_NAME,
        TABLE_NAME, TABLE_TYPE, OUTPUT_SIZE, SUBTREE_COST, EXECUTION_ENGINE
   FROM EXPLAIN_PLAN_TABLE WHERE STATEMENT_NAME = ? ORDER BY OPERATOR_ID";
 
@@ -507,13 +638,18 @@ SELECT COLUMN_NAME, DATA_TYPE_NAME, LENGTH, SCALE, IS_NULLABLE, DEFAULT_VALUE, N
 #[async_trait]
 impl Session for HanaSession {
     async fn server_version(&mut self) -> Result<String> {
-        let v = single_text(&self.conn, "SELECT VERSION FROM SYS.M_DATABASE").await?.unwrap_or_default();
+        let v = single_text(&self.conn, "SELECT VERSION FROM SYS.M_DATABASE")
+            .await?
+            .unwrap_or_default();
         Ok(format!("SAP HANA {v}"))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         let rows = self.rows(LIST_SCHEMAS, &[]).await?;
-        Ok(rows.iter().filter_map(|r| r.first().and_then(text)).collect())
+        Ok(rows
+            .iter()
+            .filter_map(|r| r.first().and_then(text))
+            .collect())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -536,7 +672,11 @@ impl Session for HanaSession {
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let owner = self.owner(obj);
-        let sql = if obj.kind == "view" { VIEW_COLUMNS } else { TABLE_COLUMNS };
+        let sql = if obj.kind == "view" {
+            VIEW_COLUMNS
+        } else {
+            TABLE_COLUMNS
+        };
         let rows = self.rows(sql, &[&owner, &obj.name]).await?;
         Ok(rows
             .iter()
@@ -549,7 +689,9 @@ impl Session for HanaSession {
                     data_type: format_type(&t(1).unwrap_or_default(), n(2), n(3)),
                     nullable: t(4).as_deref() != Some("FALSE"),
                     primary_key: n(7) == Some(1),
-                    auto_increment: generation.as_deref().is_some_and(|g| g.contains("IDENTITY")),
+                    auto_increment: generation
+                        .as_deref()
+                        .is_some_and(|g| g.contains("IDENTITY")),
                     default_value: t(5),
                 }
             })
@@ -559,7 +701,11 @@ impl Session for HanaSession {
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
         let owner = self.owner(obj);
         let name = obj.name.as_str();
-        let one = |rows: Vec<Vec<HdbValue<'static>>>| rows.into_iter().next().and_then(|r| r.first().and_then(text));
+        let one = |rows: Vec<Vec<HdbValue<'static>>>| {
+            rows.into_iter()
+                .next()
+                .and_then(|r| r.first().and_then(text))
+        };
         let qualified = format!("{}.{}", quote(&owner), quote(name));
         // Built from the catalog without the schema, so two schemas compare
         // equal and the DDL runs on either.
@@ -634,7 +780,13 @@ impl Session for HanaSession {
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        select_top(Quote::Double, Limit::Limit, Some(obj.schema().unwrap_or(&self.schema)), &obj.name, limit)
+        select_top(
+            Quote::Double,
+            Limit::Limit,
+            Some(obj.schema().unwrap_or(&self.schema)),
+            &obj.name,
+            limit,
+        )
     }
 
     /// The driver splits the script (`Whole`) and runs it as the app would:
@@ -674,7 +826,13 @@ impl Session for HanaSession {
         Ok(())
     }
 
-    async fn explain(&mut self, script: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        script: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let mut noted = false;
         for (i, stmt) in script::split(script).into_iter().enumerate() {
             if plannable(&stmt) {
@@ -682,11 +840,19 @@ impl Session for HanaSession {
                 // removed right after reading them.
                 let name = format!("DBINE_{}_{}", self.id, i);
                 self.conn
-                    .exec(format!("EXPLAIN PLAN SET STATEMENT_NAME = '{name}' FOR {stmt}"))
+                    .exec(format!(
+                        "EXPLAIN PLAN SET STATEMENT_NAME = '{name}' FOR {stmt}"
+                    ))
                     .await
                     .map_err(err)?;
                 let rows = self.rows(EXPLAIN_ROWS, &[&name]).await;
-                if let Err(e) = self.conn.exec(format!("DELETE FROM EXPLAIN_PLAN_TABLE WHERE STATEMENT_NAME = '{name}'")).await {
+                if let Err(e) = self
+                    .conn
+                    .exec(format!(
+                        "DELETE FROM EXPLAIN_PLAN_TABLE WHERE STATEMENT_NAME = '{name}'"
+                    ))
+                    .await
+                {
                     tracing::debug!("hana: EXPLAIN_PLAN_TABLE cleanup: {}", message(&e));
                 }
                 let ops: Vec<plan::Op> = rows?
@@ -722,7 +888,10 @@ impl Session for HanaSession {
                     noted = true;
                 }
             } else if !analyze {
-                out.messages.push(format!("Sin plan para «{}»: HANA explica consultas y DML.", stmt.trim()));
+                out.messages.push(format!(
+                    "Sin plan para «{}»: HANA explica consultas y DML.",
+                    stmt.trim()
+                ));
             }
             if analyze {
                 self.execute(&stmt, max_rows, out).await?;
@@ -753,19 +922,29 @@ impl Session for HanaSession {
         schema::database_schema(self).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(self, table).await.map(Some)
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.conn.exec(format!("CREATE SCHEMA {}", quote(name.trim()))).await.map_err(err)
+        self.conn
+            .exec(format!("CREATE SCHEMA {}", quote(name.trim())))
+            .await
+            .map_err(err)
     }
 
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
@@ -780,28 +959,46 @@ impl Session for HanaSession {
     }
 
     /// "Chequeo de salud" of the schema (see `health`).
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         let name = name.trim();
         if name == self.schema {
-            return Err(Error::Query("No se puede borrar el esquema de la conexión actual.".into()));
+            return Err(Error::Query(
+                "No se puede borrar el esquema de la conexión actual.".into(),
+            ));
         }
-        self.conn.exec(format!("DROP SCHEMA {} CASCADE", quote(name))).await.map_err(err)
+        self.conn
+            .exec(format!("DROP SCHEMA {} CASCADE", quote(name)))
+            .await
+            .map_err(err)
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
@@ -838,7 +1035,11 @@ impl Session for HanaSession {
         self.backup_history().await
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -852,14 +1053,20 @@ impl Session for HanaSession {
         transfer::bulk_load(self, spec, source, progress).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -880,7 +1087,11 @@ impl Session for HanaSession {
 
 // ------------------------------------------------------------- execution
 
-async fn push_response(response: HdbResponse, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+async fn push_response(
+    response: HdbResponse,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     for rv in response {
         match rv {
             HdbReturnValue::ResultSet(rs) => push_result_set(rs, max_rows, out).await?,
@@ -914,7 +1125,10 @@ async fn push_result_set(mut rs: ResultSet, max_rows: usize, out: &mut QueryOutc
     let md = rs.metadata();
     out.begin_result(
         md.iter()
-            .map(|f| ResultColumn { name: f.displayname().to_string(), type_name: format!("{:?}", f.type_id()) })
+            .map(|f| ResultColumn {
+                name: f.displayname().to_string(),
+                type_name: format!("{:?}", f.type_id()),
+            })
             .collect(),
     );
     while let Some(row) = rs.next_row().await.map_err(err)? {
@@ -1004,7 +1218,8 @@ fn iso(s: &str) -> String {
 /// `NVARCHAR(50)`, `DECIMAL(10,2)`… from SYS.TABLE_COLUMNS.
 fn format_type(ty: &str, len: Option<i64>, scale: Option<i64>) -> String {
     match ty {
-        "VARCHAR" | "NVARCHAR" | "CHAR" | "NCHAR" | "ALPHANUM" | "SHORTTEXT" | "VARBINARY" | "BINARY" => match len {
+        "VARCHAR" | "NVARCHAR" | "CHAR" | "NCHAR" | "ALPHANUM" | "SHORTTEXT" | "VARBINARY"
+        | "BINARY" => match len {
             Some(n) if n > 0 => format!("{ty}({n})"),
             _ => ty.to_string(),
         },
@@ -1022,10 +1237,21 @@ mod tests {
 
     #[test]
     fn update_script_by_key() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("APP".into()), name: "CLIENTES".into() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("APP".into()),
+            name: "CLIENTES".into(),
+        };
         let c = dbine_driver::RowChange {
-            key: vec![("ID".into(), serde_json::json!(7)), ("REGION".into(), Value::Null)],
-            set: vec![("NOMBRE".into(), serde_json::json!("O'Brien")), ("BAJA".into(), Value::Null)], ..Default::default()
+            key: vec![
+                ("ID".into(), serde_json::json!(7)),
+                ("REGION".into(), Value::Null),
+            ],
+            set: vec![
+                ("NOMBRE".into(), serde_json::json!("O'Brien")),
+                ("BAJA".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             drivers()[0].update_script(&t, &[c]).unwrap(),
@@ -1033,11 +1259,20 @@ mod tests {
         );
     }
 
-
     #[test]
     fn delete_script_by_composite_key() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("APP".into()), name: "CLIENTES".into() };
-        let keys = vec![vec![("NOMBRE".into(), serde_json::json!("O'Brien")), ("REGION".into(), Value::Null)], vec![]];
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("APP".into()),
+            name: "CLIENTES".into(),
+        };
+        let keys = vec![
+            vec![
+                ("NOMBRE".into(), serde_json::json!("O'Brien")),
+                ("REGION".into(), Value::Null),
+            ],
+            vec![],
+        ];
         assert_eq!(
             drivers()[0].delete_script(&t, &keys).unwrap(),
             "DELETE FROM \"APP\".\"CLIENTES\" WHERE \"NOMBRE\" = 'O''Brien' AND \"REGION\" IS NULL;"
@@ -1046,7 +1281,10 @@ mod tests {
 
     #[test]
     fn dates_are_iso() {
-        assert_eq!(iso("2024-01-31T13:45:00.1230000"), "2024-01-31 13:45:00.123");
+        assert_eq!(
+            iso("2024-01-31T13:45:00.1230000"),
+            "2024-01-31 13:45:00.123"
+        );
         assert_eq!(iso("2024-01-31T13:45:00.0000000"), "2024-01-31 13:45:00");
         assert_eq!(iso("2024-01-31T13:45:00"), "2024-01-31 13:45:00");
     }
@@ -1081,22 +1319,45 @@ mod tests {
         let script = "select 1 from dummy;\nselect ñ from\n dummy x y";
         let start = script.find("select ñ").unwrap();
         let e = server_error(257, "sql syntax error", "42000", 24, false, script, start);
-        assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("257"), Some("42000")));
+        assert_eq!(
+            (e.code.as_deref(), e.sqlstate.as_deref()),
+            (Some("257"), Some("42000"))
+        );
         assert_eq!(e.offset, Some(script.rfind('y').unwrap()));
         assert_eq!(e.line, Some(3));
-        let e = server_error(129, "transaction rolled back", "HY000", 0, true, script, start);
-        assert_eq!((e.sqlstate, e.offset, e.line, e.fatal), (None, Some(start), Some(2), true));
+        let e = server_error(
+            129,
+            "transaction rolled back",
+            "HY000",
+            0,
+            true,
+            script,
+            start,
+        );
+        assert_eq!(
+            (e.sqlstate, e.offset, e.line, e.fatal),
+            (None, Some(start), Some(2), true)
+        );
     }
 
     #[test]
     fn browse_uses_limit() {
-        assert_eq!(select_top(Quote::Double, Limit::Limit, Some("S"), "T", 5), "SELECT *\nFROM \"S\".\"T\"\nLIMIT 5");
+        assert_eq!(
+            select_top(Quote::Double, Limit::Limit, Some("S"), "T", 5),
+            "SELECT *\nFROM \"S\".\"T\"\nLIMIT 5"
+        );
     }
 
     #[tokio::test]
     async fn cells() {
-        assert_eq!(cell(HdbValue::BIGINT(i64::MAX)).await, serde_json::json!("9223372036854775807"));
-        assert_eq!(cell(HdbValue::BINARY(vec![0xDE, 0xAD])).await, serde_json::json!("0xDEAD"));
+        assert_eq!(
+            cell(HdbValue::BIGINT(i64::MAX)).await,
+            serde_json::json!("9223372036854775807")
+        );
+        assert_eq!(
+            cell(HdbValue::BINARY(vec![0xDE, 0xAD])).await,
+            serde_json::json!("0xDEAD")
+        );
         assert_eq!(cell(HdbValue::NULL).await, Value::Null);
     }
 
@@ -1112,7 +1373,9 @@ mod tests {
     fn set_schema_is_recognised() {
         assert!(super::sets_schema("SET SCHEMA \"OTHER\""));
         assert!(super::sets_schema("/* c */ set\n  schema x"));
-        assert!(!super::sets_schema("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"));
+        assert!(!super::sets_schema(
+            "SET TRANSACTION ISOLATION LEVEL READ COMMITTED"
+        ));
         assert!(!super::sets_schema("SELECT 1 FROM DUMMY"));
     }
 }

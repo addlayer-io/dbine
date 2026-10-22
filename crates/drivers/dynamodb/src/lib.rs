@@ -7,22 +7,24 @@ mod aws;
 mod backup;
 mod ddl;
 mod index_usage;
-mod sync;
 mod monitor;
 mod permissions;
 mod plan;
 mod stats;
+mod sync;
 mod transfer;
 
 use aws_sdk_dynamodb::error::{DisplayErrorContext, ProvideErrorMetadata, SdkError};
 use aws_sdk_dynamodb::types::{
-    AttributeValue, ConsumedCapacity, KeySchemaElement, KeyType, Projection, ReturnConsumedCapacity, TableDescription,
+    AttributeValue, ConsumedCapacity, KeySchemaElement, KeyType, Projection,
+    ReturnConsumedCapacity, TableDescription,
 };
 use aws_sdk_dynamodb::Client;
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{
-    async_trait, json_bytes, Capabilities, MonitorSnapshot, json_f64, json_i64, kinds, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
-    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, IndexDef, KeyDef, Language, ObjectKindInfo, ObjectRef,
+    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnDef, ColumnInfo,
+    ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
+    Family, Field, IndexDef, KeyDef, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
     QueryOutcome, Result, ResultColumn, Session, TableSchema,
 };
 use serde_json::{json, Map, Value as Json};
@@ -98,7 +100,12 @@ where
     R: std::fmt::Debug,
 {
     let unreachable = matches!(e, SdkError::DispatchFailure(_) | SdkError::TimeoutError(_));
-    aws::classify(e.code(), e.message(), unreachable, DisplayErrorContext(&e).to_string())
+    aws::classify(
+        e.code(),
+        e.message(),
+        unreachable,
+        DisplayErrorContext(&e).to_string(),
+    )
 }
 
 #[async_trait]
@@ -127,7 +134,10 @@ impl Driver for DynamoDriver {
 
     /// One "database" per account and region: nothing to create or drop.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, ..Default::default() }
+        Capabilities {
+            monitor: true,
+            ..Default::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -142,7 +152,10 @@ impl Driver for DynamoDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -150,11 +163,20 @@ impl Driver for DynamoDriver {
         ddl::table_ddl(table, parts)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Json>],
+    ) -> Result<String> {
         Ok(ddl::insert_script(&target.name, columns, rows))
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::update_script(&target.name, changes)
     }
 
@@ -162,7 +184,11 @@ impl Driver for DynamoDriver {
         ddl::delete_script(&target.name, keys)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -178,15 +204,22 @@ impl Driver for DynamoDriver {
         backup::script(action)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let conf = aws::sdk_config(cfg).await?;
         let region = conf.region().map(|r| r.to_string()).unwrap_or_default();
         let client = Client::new(&conf);
         // A cheap call that proves the endpoint and the credentials work.
-        tokio::time::timeout(Duration::from_secs(20), client.list_tables().limit(1).send())
-            .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(err)?;
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            client.list_tables().limit(1).send(),
+        )
+        .await
+        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+        .map_err(err)?;
         Ok(Box::new(DynamoSession {
             client,
             region,
@@ -199,8 +232,15 @@ impl Driver for DynamoDriver {
 
 impl DynamoSession {
     async fn describe(&self, table: &str) -> Result<TableDescription> {
-        let out = self.client.describe_table().table_name(table).send().await.map_err(err)?;
-        out.table.ok_or_else(|| Error::Query(format!("no se encontró la tabla {table}")))
+        let out = self
+            .client
+            .describe_table()
+            .table_name(table)
+            .send()
+            .await
+            .map_err(err)?;
+        out.table
+            .ok_or_else(|| Error::Query(format!("no se encontró la tabla {table}")))
     }
 
     async fn key_names(&mut self, table: &str) -> Vec<String> {
@@ -218,9 +258,13 @@ impl DynamoSession {
     /// Runs `stmt` when it's one of the administration extensions (see
     /// `admin`); `false` when it's PartiQL.
     async fn run_admin(&mut self, stmt: &str, out: &mut QueryOutcome) -> Result<bool> {
-        let Some(a) = admin::parse_admin(stmt)? else { return Ok(false) };
+        let Some(a) = admin::parse_admin(stmt)? else {
+            return Ok(false);
+        };
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: solo se permiten sentencias SELECT.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: solo se permiten sentencias SELECT.".into(),
+            ));
         }
         self.keys.clear();
         admin::run(&self.client, a, out).await?;
@@ -250,7 +294,11 @@ impl DynamoSession {
         let mut token: Option<String> = None;
         let mut more = false;
         loop {
-            let mut req = self.client.execute_statement().statement(stmt).set_next_token(token.take());
+            let mut req = self
+                .client
+                .execute_statement()
+                .statement(stmt)
+                .set_next_token(token.take());
             if usage.is_some() {
                 req = req.return_consumed_capacity(ReturnConsumedCapacity::Indexes);
             }
@@ -290,9 +338,21 @@ impl DynamoSession {
             None => Vec::new(),
         };
         let cols = union_columns(&keys, &items);
-        out.begin_result(cols.iter().map(|c| ResultColumn { name: c.clone(), type_name: String::new() }).collect());
+        out.begin_result(
+            cols.iter()
+                .map(|c| ResultColumn {
+                    name: c.clone(),
+                    type_name: String::new(),
+                })
+                .collect(),
+        );
         for item in &items {
-            out.push_row(cols.iter().map(|c| item.get(c).map_or(Json::Null, cell)).collect(), max_rows);
+            out.push_row(
+                cols.iter()
+                    .map(|c| item.get(c).map_or(Json::Null, cell))
+                    .collect(),
+                max_rows,
+            );
         }
         if more {
             if let Some(r) = out.results.last_mut() {
@@ -306,7 +366,13 @@ impl DynamoSession {
         let mut tables = Vec::new();
         let mut start: Option<String> = None;
         loop {
-            let resp = self.client.list_tables().set_exclusive_start_table_name(start.take()).send().await.map_err(err)?;
+            let resp = self
+                .client
+                .list_tables()
+                .set_exclusive_start_table_name(start.take())
+                .send()
+                .await
+                .map_err(err)?;
             tables.extend(resp.table_names().iter().cloned());
             match resp.last_evaluated_table_name() {
                 Some(t) => start = Some(t.to_string()),
@@ -321,11 +387,18 @@ impl DynamoSession {
     /// options.
     async fn table_schema(&mut self, name: &str) -> Result<TableSchema> {
         let d = self.describe(name).await?;
-        let types: HashMap<&str, &str> =
-            d.attribute_definitions().iter().map(|a| (a.attribute_name(), a.attribute_type().as_str())).collect();
+        let types: HashMap<&str, &str> = d
+            .attribute_definitions()
+            .iter()
+            .map(|a| (a.attribute_name(), a.attribute_type().as_str()))
+            .collect();
         let keys = key_order(d.key_schema());
         let key_type = |n: &str| {
-            d.key_schema().iter().find(|k| k.attribute_name() == n).map_or("none", |k| k.key_type().as_str()).to_string()
+            d.key_schema()
+                .iter()
+                .find(|k| k.attribute_name() == n)
+                .map_or("none", |k| k.key_type().as_str())
+                .to_string()
         };
         let attr = |n: &str, nullable: bool| ColumnDef {
             name: n.to_string(),
@@ -341,14 +414,25 @@ impl DynamoSession {
             }
         }
         let known: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
-        if let Ok(sample) = self.client.scan().table_name(name).limit(SAMPLE).send().await {
-            columns.extend(infer_columns(&known, sample.items()).into_iter().map(|c| ColumnDef {
-                name: c.name,
-                data_type: c.data_type,
-                nullable: c.nullable,
-                options: BTreeMap::from([(ddl::KEY_TYPE.to_string(), "none".to_string())]),
-                ..Default::default()
-            }));
+        if let Ok(sample) = self
+            .client
+            .scan()
+            .table_name(name)
+            .limit(SAMPLE)
+            .send()
+            .await
+        {
+            columns.extend(
+                infer_columns(&known, sample.items())
+                    .into_iter()
+                    .map(|c| ColumnDef {
+                        name: c.name,
+                        data_type: c.data_type,
+                        nullable: c.nullable,
+                        options: BTreeMap::from([(ddl::KEY_TYPE.to_string(), "none".to_string())]),
+                        ..Default::default()
+                    }),
+            );
         }
         let mut indexes: Vec<IndexDef> = d
             .global_secondary_indexes()
@@ -367,12 +451,21 @@ impl DynamoSession {
             ..projected(l.projection())
         }));
         let mut options = BTreeMap::new();
-        let mode = d.billing_mode_summary().and_then(|b| b.billing_mode()).map_or("PROVISIONED", |m| m.as_str());
+        let mode = d
+            .billing_mode_summary()
+            .and_then(|b| b.billing_mode())
+            .map_or("PROVISIONED", |m| m.as_str());
         options.insert(ddl::BILLING_MODE.to_string(), mode.to_string());
         if mode == "PROVISIONED" {
             if let Some(p) = d.provisioned_throughput() {
-                options.insert(ddl::READ_CAPACITY.to_string(), p.read_capacity_units().unwrap_or(0).max(1).to_string());
-                options.insert(ddl::WRITE_CAPACITY.to_string(), p.write_capacity_units().unwrap_or(0).max(1).to_string());
+                options.insert(
+                    ddl::READ_CAPACITY.to_string(),
+                    p.read_capacity_units().unwrap_or(0).max(1).to_string(),
+                );
+                options.insert(
+                    ddl::WRITE_CAPACITY.to_string(),
+                    p.write_capacity_units().unwrap_or(0).max(1).to_string(),
+                );
             }
         }
         let stream = d
@@ -381,9 +474,18 @@ impl DynamoSession {
             .and_then(|s| s.stream_view_type())
             .map_or("none", |v| v.as_str());
         options.insert(ddl::STREAM_VIEW_TYPE.to_string(), stream.to_string());
-        if let Ok(ttl) = self.client.describe_time_to_live().table_name(name).send().await {
+        if let Ok(ttl) = self
+            .client
+            .describe_time_to_live()
+            .table_name(name)
+            .send()
+            .await
+        {
             if let Some(t) = ttl.time_to_live_description() {
-                let on = matches!(t.time_to_live_status().map(|s| s.as_str()), Some("ENABLED" | "ENABLING"));
+                let on = matches!(
+                    t.time_to_live_status().map(|s| s.as_str()),
+                    Some("ENABLED" | "ENABLING")
+                );
                 if let (true, Some(a)) = (on, t.attribute_name()) {
                     options.insert(ddl::TTL_ATTRIBUTE.to_string(), a.to_string());
                 }
@@ -393,7 +495,10 @@ impl DynamoSession {
             kind: kinds::TABLE.into(),
             name: name.to_string(),
             columns,
-            primary_key: Some(KeyDef { name: None, columns: keys }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: keys,
+            }),
             indexes,
             options,
             ..Default::default()
@@ -403,14 +508,26 @@ impl DynamoSession {
     /// Key schema and size of the table (or index) a statement targets.
     async fn plan_target(&self, table: &str, index: Option<&str>) -> Result<plan::Target> {
         let d = self.describe(table).await?;
-        let mut t = plan::Target { table: table.to_string(), index: index.map(str::to_string), ..Default::default() };
+        let mut t = plan::Target {
+            table: table.to_string(),
+            index: index.map(str::to_string),
+            ..Default::default()
+        };
         let keys: &[KeySchemaElement] = match index {
             Some(i) => {
                 let (ks, _) = index_of(&d, i).ok_or_else(|| no_index(table, i))?;
-                if let Some(g) = d.global_secondary_indexes().iter().find(|g| g.index_name() == Some(i)) {
+                if let Some(g) = d
+                    .global_secondary_indexes()
+                    .iter()
+                    .find(|g| g.index_name() == Some(i))
+                {
                     t.item_count = g.item_count();
                     t.size_bytes = g.index_size_bytes();
-                } else if let Some(l) = d.local_secondary_indexes().iter().find(|l| l.index_name() == Some(i)) {
+                } else if let Some(l) = d
+                    .local_secondary_indexes()
+                    .iter()
+                    .find(|l| l.index_name() == Some(i))
+                {
                     t.item_count = l.item_count();
                     t.size_bytes = l.index_size_bytes();
                 }
@@ -429,12 +546,25 @@ impl DynamoSession {
             }
         }
         match d.billing_mode_summary().and_then(|b| b.billing_mode()) {
-            Some(m) => t.props.push(("Modo de capacidad".into(), m.as_str().to_string())),
-            None => t.props.push(("Modo de capacidad".into(), "PROVISIONED".into())),
+            Some(m) => t
+                .props
+                .push(("Modo de capacidad".into(), m.as_str().to_string())),
+            None => t
+                .props
+                .push(("Modo de capacidad".into(), "PROVISIONED".into())),
         }
-        if let Some(p) = d.provisioned_throughput().filter(|p| p.read_capacity_units().unwrap_or(0) > 0) {
-            t.props.push(("RCU aprovisionadas".into(), p.read_capacity_units().unwrap_or(0).to_string()));
-            t.props.push(("WCU aprovisionadas".into(), p.write_capacity_units().unwrap_or(0).to_string()));
+        if let Some(p) = d
+            .provisioned_throughput()
+            .filter(|p| p.read_capacity_units().unwrap_or(0) > 0)
+        {
+            t.props.push((
+                "RCU aprovisionadas".into(),
+                p.read_capacity_units().unwrap_or(0).to_string(),
+            ));
+            t.props.push((
+                "WCU aprovisionadas".into(),
+                p.write_capacity_units().unwrap_or(0).to_string(),
+            ));
         }
         Ok(t)
     }
@@ -460,9 +590,13 @@ impl Usage {
         self.read += c.read_capacity_units().unwrap_or(0.0);
         self.write += c.write_capacity_units().unwrap_or(0.0);
         self.table += c.table().and_then(|t| t.capacity_units()).unwrap_or(0.0);
-        for m in [c.global_secondary_indexes(), c.local_secondary_indexes()].into_iter().flatten() {
+        for m in [c.global_secondary_indexes(), c.local_secondary_indexes()]
+            .into_iter()
+            .flatten()
+        {
             for (name, cap) in m {
-                *self.indexes.entry(name.clone()).or_default() += cap.capacity_units().unwrap_or(0.0);
+                *self.indexes.entry(name.clone()).or_default() +=
+                    cap.capacity_units().unwrap_or(0.0);
             }
         }
     }
@@ -470,10 +604,16 @@ impl Usage {
     fn props(&self) -> Vec<(String, String)> {
         let mut v = vec![("Páginas".to_string(), self.pages.to_string())];
         if !self.reported {
-            v.push(("Capacidad consumida".into(), "el servidor no la informó".into()));
+            v.push((
+                "Capacidad consumida".into(),
+                "el servidor no la informó".into(),
+            ));
             return v;
         }
-        v.push(("Capacidad consumida (unidades)".into(), self.total.to_string()));
+        v.push((
+            "Capacidad consumida (unidades)".into(),
+            self.total.to_string(),
+        ));
         if self.read > 0.0 {
             v.push(("RCU consumidas".into(), self.read.to_string()));
         }
@@ -519,19 +659,40 @@ impl Session for DynamoSession {
         use futures::stream::{self, StreamExt};
         let tables = self.table_names().await?;
         let client = &self.client;
-        let described: Vec<Option<TableDescription>> = stream::iter(tables.iter().take(monitor::MAX_TABLES).cloned())
-            .map(|t: String| async move { client.describe_table().table_name(t).send().await.ok().and_then(|o| o.table) })
-            .buffered(8)
-            .collect()
-            .await;
+        let described: Vec<Option<TableDescription>> =
+            stream::iter(tables.iter().take(monitor::MAX_TABLES).cloned())
+                .map(|t: String| async move {
+                    client
+                        .describe_table()
+                        .table_name(t)
+                        .send()
+                        .await
+                        .ok()
+                        .and_then(|o| o.table)
+                })
+                .buffered(8)
+                .collect()
+                .await;
         let described: Vec<TableDescription> = described.into_iter().flatten().collect();
-        let limits = self.client.describe_limits().send().await.ok().map(|l| monitor::Limits {
-            account_read: l.account_max_read_capacity_units(),
-            account_write: l.account_max_write_capacity_units(),
-            table_read: l.table_max_read_capacity_units(),
-            table_write: l.table_max_write_capacity_units(),
-        });
-        Ok(monitor::snapshot(&self.region, self.local, tables.len(), &described, limits))
+        let limits = self
+            .client
+            .describe_limits()
+            .send()
+            .await
+            .ok()
+            .map(|l| monitor::Limits {
+                account_read: l.account_max_read_capacity_units(),
+                account_write: l.account_max_write_capacity_units(),
+                table_read: l.table_max_read_capacity_units(),
+                table_write: l.table_max_write_capacity_units(),
+            });
+        Ok(monitor::snapshot(
+            &self.region,
+            self.local,
+            tables.len(),
+            &described,
+            limits,
+        ))
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -541,7 +702,13 @@ impl Session for DynamoSession {
         let client = &self.client;
         let described: Vec<(String, Option<TableDescription>)> = stream::iter(tables)
             .map(|t| async move {
-                let d = client.describe_table().table_name(&t).send().await.ok().and_then(|o| o.table);
+                let d = client
+                    .describe_table()
+                    .table_name(&t)
+                    .send()
+                    .await
+                    .ok()
+                    .and_then(|o| o.table);
                 (t, d)
             })
             .buffered(8)
@@ -549,14 +716,23 @@ impl Session for DynamoSession {
             .await;
         let mut out = Vec::new();
         for (table, desc) in described {
-            out.push(DbObject { kind: kinds::TABLE.into(), schema: None, name: table.clone(), parent: None });
+            out.push(DbObject {
+                kind: kinds::TABLE.into(),
+                schema: None,
+                name: table.clone(),
+                parent: None,
+            });
             let Some(d) = desc else { continue };
             self.keys.insert(table.clone(), key_order(d.key_schema()));
             let names = d
                 .global_secondary_indexes()
                 .iter()
                 .filter_map(|i| i.index_name())
-                .chain(d.local_secondary_indexes().iter().filter_map(|i| i.index_name()));
+                .chain(
+                    d.local_secondary_indexes()
+                        .iter()
+                        .filter_map(|i| i.index_name()),
+                );
             for name in names {
                 // The table rides in `schema` so ObjectRef can find it back.
                 out.push(DbObject {
@@ -575,10 +751,15 @@ impl Session for DynamoSession {
         let d = self.describe(table).await?;
         let key_schema: Vec<KeySchemaElement> = match index {
             None => d.key_schema().to_vec(),
-            Some(i) => index_of(&d, i).map(|(ks, _)| ks.to_vec()).ok_or_else(|| no_index(table, i))?,
+            Some(i) => index_of(&d, i)
+                .map(|(ks, _)| ks.to_vec())
+                .ok_or_else(|| no_index(table, i))?,
         };
-        let types: HashMap<&str, &str> =
-            d.attribute_definitions().iter().map(|a| (a.attribute_name(), a.attribute_type().as_str())).collect();
+        let types: HashMap<&str, &str> = d
+            .attribute_definitions()
+            .iter()
+            .map(|a| (a.attribute_name(), a.attribute_type().as_str()))
+            .collect();
         let keys = key_order(&key_schema);
         let mut cols: Vec<ColumnInfo> = keys
             .iter()
@@ -638,7 +819,11 @@ impl Session for DynamoSession {
         browse(obj)
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -665,31 +850,48 @@ impl Session for DynamoSession {
     /// WHERE and the table's key schema (GetItem / Query / Scan, see
     /// `plan`). Estimated: only DescribeTable is called. Actual: the
     /// statement runs once, asking for its consumed capacity.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         for stmt in ddl::split_script(text) {
             if admin::parse_admin(&stmt)?.is_some() {
                 if analyze {
                     self.run_admin(&stmt, out).await?;
                 } else {
-                    out.messages.push(format!("Sin plan (no se ejecutó): {}", stmt.split_whitespace().collect::<Vec<_>>().join(" ")));
+                    out.messages.push(format!(
+                        "Sin plan (no se ejecutó): {}",
+                        stmt.split_whitespace().collect::<Vec<_>>().join(" ")
+                    ));
                 }
                 continue;
             }
             let (verb, target) = plan::target_of(&stmt);
             let derived = match (verb, &target) {
                 (plan::Verb::Other, _) | (_, None) => None,
-                (_, Some((table, index))) => Some(plan::derive(&stmt, verb, &self.plan_target(table, index.as_deref()).await?)),
+                (_, Some((table, index))) => Some(plan::derive(
+                    &stmt,
+                    verb,
+                    &self.plan_target(table, index.as_deref()).await?,
+                )),
             };
             if !analyze {
                 match derived {
                     Some(p) => out.plans.push(p),
-                    None => out.messages.push(format!("Sin plan (no se ejecutó): {}", stmt.split_whitespace().collect::<Vec<_>>().join(" "))),
+                    None => out.messages.push(format!(
+                        "Sin plan (no se ejecutó): {}",
+                        stmt.split_whitespace().collect::<Vec<_>>().join(" ")
+                    )),
                 }
                 continue;
             }
             let mut usage = Usage::default();
             let started = std::time::Instant::now();
-            self.run_measured(&stmt, max_rows, out, Some(&mut usage)).await?;
+            self.run_measured(&stmt, max_rows, out, Some(&mut usage))
+                .await?;
             let ms = started.elapsed().as_secs_f64() * 1000.0;
             let Some(mut p) = derived else { continue };
             p.actual = true;
@@ -710,7 +912,10 @@ impl Session for DynamoSession {
         Ok(permissions::decide())
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let (name, _) = target(table)?;
         Ok(Some(index_usage::report(&self.describe(name).await?)))
     }
@@ -721,7 +926,11 @@ impl Session for DynamoSession {
 fn browse(obj: &ObjectRef) -> String {
     match obj.schema() {
         Some(table) if obj.kind == kinds::INDEX => {
-            format!("SELECT * FROM {}.{}", quote_ident(Quote::Double, table), quote_ident(Quote::Double, &obj.name))
+            format!(
+                "SELECT * FROM {}.{}",
+                quote_ident(Quote::Double, table),
+                quote_ident(Quote::Double, &obj.name)
+            )
         }
         _ => format!("SELECT * FROM {}", quote_ident(Quote::Double, &obj.name)),
     }
@@ -731,7 +940,9 @@ fn browse(obj: &ObjectRef) -> String {
 /// in `schema`).
 fn target(obj: &ObjectRef) -> Result<(&str, Option<&str>)> {
     if obj.kind == kinds::INDEX {
-        let table = obj.schema().ok_or_else(|| Error::Query(format!("no se sabe a qué tabla pertenece {}", obj.name)))?;
+        let table = obj.schema().ok_or_else(|| {
+            Error::Query(format!("no se sabe a qué tabla pertenece {}", obj.name))
+        })?;
         Ok((table, Some(obj.name.as_str())))
     } else {
         Ok((obj.name.as_str(), None))
@@ -742,7 +953,10 @@ fn no_index(table: &str, index: &str) -> Error {
     Error::Query(format!("la tabla {table} no tiene el índice {index}"))
 }
 
-fn index_of<'a>(d: &'a TableDescription, name: &str) -> Option<(&'a [KeySchemaElement], Option<&'a Projection>)> {
+fn index_of<'a>(
+    d: &'a TableDescription,
+    name: &str,
+) -> Option<(&'a [KeySchemaElement], Option<&'a Projection>)> {
     d.global_secondary_indexes()
         .iter()
         .find(|i| i.index_name() == Some(name))
@@ -759,12 +973,16 @@ fn index_of<'a>(d: &'a TableDescription, name: &str) -> Option<(&'a [KeySchemaEl
 fn key_order(ks: &[KeySchemaElement]) -> Vec<String> {
     let mut v: Vec<&KeySchemaElement> = ks.iter().collect();
     v.sort_by_key(|k| !matches!(k.key_type(), KeyType::Hash));
-    v.into_iter().map(|k| k.attribute_name().to_string()).collect()
+    v.into_iter()
+        .map(|k| k.attribute_name().to_string())
+        .collect()
 }
 
 fn first_word(stmt: &str) -> &str {
     let s = stmt.trim_start();
-    let end = s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len());
+    let end = s
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(s.len());
     &s[..end]
 }
 
@@ -779,7 +997,8 @@ fn from_table(stmt: &str) -> Option<String> {
             'f' if !quote && lower[i..].starts_with("from") => {
                 let before = lower[..i].chars().last();
                 let after = lower[i + 4..].chars().next();
-                if before.is_none_or(char::is_whitespace) && after.is_some_and(char::is_whitespace) {
+                if before.is_none_or(char::is_whitespace) && after.is_some_and(char::is_whitespace)
+                {
                     idx = Some(i + 4);
                     break;
                 }
@@ -805,7 +1024,10 @@ fn from_table(stmt: &str) -> Option<String> {
         }
         None
     } else {
-        let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-')).collect();
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-'))
+            .collect();
         (!name.is_empty()).then_some(name)
     }
 }
@@ -814,7 +1036,11 @@ fn from_table(stmt: &str) -> Option<String> {
 /// appearance; each item's own attributes are sorted, since the SDK hands
 /// them out in a HashMap.
 fn union_columns(keys: &[String], items: &[HashMap<String, AttributeValue>]) -> Vec<String> {
-    let mut cols: Vec<String> = keys.iter().filter(|k| items.iter().any(|i| i.contains_key(*k))).cloned().collect();
+    let mut cols: Vec<String> = keys
+        .iter()
+        .filter(|k| items.iter().any(|i| i.contains_key(*k)))
+        .cloned()
+        .collect();
     for item in items {
         let mut names: Vec<&String> = item.keys().collect();
         names.sort();
@@ -898,7 +1124,12 @@ fn to_json(v: &AttributeValue) -> Json {
         // order when `preserve_order` is on (bson turns it on workspace-wide).
         AttributeValue::M(m) => {
             let sorted: std::collections::BTreeMap<_, _> = m.iter().collect();
-            Json::Object(sorted.into_iter().map(|(k, v)| (k.clone(), to_json(v))).collect::<Map<_, _>>())
+            Json::Object(
+                sorted
+                    .into_iter()
+                    .map(|(k, v)| (k.clone(), to_json(v)))
+                    .collect::<Map<_, _>>(),
+            )
         }
         AttributeValue::Ss(s) => Json::Array(s.iter().cloned().map(Json::String).collect()),
         AttributeValue::Ns(n) => Json::Array(n.iter().map(|s| number(s)).collect()),
@@ -914,8 +1145,16 @@ fn number(n: &str) -> Json {
         return json_i64(i);
     }
     let mantissa = n.split(['e', 'E']).next().unwrap_or(n);
-    let digits = mantissa.chars().filter(char::is_ascii_digit).skip_while(|c| *c == '0').collect::<String>();
-    let significant = if mantissa.contains('.') { digits.trim_end_matches('0').len() } else { digits.len() };
+    let digits = mantissa
+        .chars()
+        .filter(char::is_ascii_digit)
+        .skip_while(|c| *c == '0')
+        .collect::<String>();
+    let significant = if mantissa.contains('.') {
+        digits.trim_end_matches('0').len()
+    } else {
+        digits.len()
+    };
     match n.parse::<f64>() {
         // 15 significant digits always survive a round trip through f64.
         Ok(f) if f.is_finite() && significant <= 15 => json_f64(f),
@@ -934,9 +1173,14 @@ fn key_schema_json(ks: &[KeySchemaElement]) -> Json {
 fn projected(p: Option<&Projection>) -> IndexDef {
     let mut i = IndexDef::default();
     match p.and_then(|p| p.projection_type()).map(|t| t.as_str()) {
-        Some("INCLUDE") => i.include = p.map(|p| p.non_key_attributes().to_vec()).unwrap_or_default(),
+        Some("INCLUDE") => {
+            i.include = p
+                .map(|p| p.non_key_attributes().to_vec())
+                .unwrap_or_default()
+        }
         Some("KEYS_ONLY") => {
-            i.options.insert(ddl::PROJECTION_TYPE.to_string(), "KEYS_ONLY".into());
+            i.options
+                .insert(ddl::PROJECTION_TYPE.to_string(), "KEYS_ONLY".into());
         }
         _ => {}
     }
@@ -979,7 +1223,13 @@ fn table_json(d: &TableDescription) -> Json {
                 .collect(),
         ),
     );
-    put("BillingMode", d.billing_mode_summary().and_then(|b| b.billing_mode()).map(|m| m.as_str()).into());
+    put(
+        "BillingMode",
+        d.billing_mode_summary()
+            .and_then(|b| b.billing_mode())
+            .map(|m| m.as_str())
+            .into(),
+    );
     if let Some(p) = d.provisioned_throughput() {
         put(
             "ProvisionedThroughput",
@@ -1023,8 +1273,14 @@ fn table_json(d: &TableDescription) -> Json {
     }
     put("ItemCount", d.item_count().into());
     put("TableSizeBytes", d.table_size_bytes().into());
-    put("CreationDateTime", d.creation_date_time().map(|t| t.to_string()).into());
-    put("DeletionProtectionEnabled", d.deletion_protection_enabled().into());
+    put(
+        "CreationDateTime",
+        d.creation_date_time().map(|t| t.to_string()).into(),
+    );
+    put(
+        "DeletionProtectionEnabled",
+        d.deletion_protection_enabled().into(),
+    );
     put("TableArn", d.table_arn().into());
     Json::Object(o)
 }
@@ -1047,8 +1303,14 @@ mod tests {
         assert_eq!(number("-1.5"), json!(-1.5));
         assert_eq!(number("1.50"), json!(1.5));
         assert_eq!(number("9007199254740993"), json!("9007199254740993"));
-        assert_eq!(number("12345678901234567890123"), json!("12345678901234567890123"));
-        assert_eq!(number("0.1234567890123456789"), json!("0.1234567890123456789"));
+        assert_eq!(
+            number("12345678901234567890123"),
+            json!("12345678901234567890123")
+        );
+        assert_eq!(
+            number("0.1234567890123456789"),
+            json!("0.1234567890123456789")
+        );
         assert_eq!(number("1E+3"), json!(1000.0));
     }
 
@@ -1057,32 +1319,81 @@ mod tests {
         assert_eq!(cell(&s("a")), json!("a"));
         assert_eq!(cell(&AttributeValue::Bool(true)), json!(true));
         assert_eq!(cell(&AttributeValue::Null(true)), Json::Null);
-        assert_eq!(cell(&AttributeValue::B(Blob::new(vec![0xca, 0xfe]))), json!("0xCAFE"));
-        assert_eq!(cell(&AttributeValue::L(vec![n("1"), s("x")])), json!("[1,\"x\"]"));
-        let m = AttributeValue::M(HashMap::from([("b".into(), n("2")), ("a".into(), AttributeValue::Bool(false))]));
+        assert_eq!(
+            cell(&AttributeValue::B(Blob::new(vec![0xca, 0xfe]))),
+            json!("0xCAFE")
+        );
+        assert_eq!(
+            cell(&AttributeValue::L(vec![n("1"), s("x")])),
+            json!("[1,\"x\"]")
+        );
+        let m = AttributeValue::M(HashMap::from([
+            ("b".into(), n("2")),
+            ("a".into(), AttributeValue::Bool(false)),
+        ]));
         assert_eq!(cell(&m), json!("{\"a\":false,\"b\":2}"));
-        assert_eq!(cell(&AttributeValue::Ss(vec!["x".into(), "y".into()])), json!("[\"x\",\"y\"]"));
-        assert_eq!(cell(&AttributeValue::Ns(vec!["1".into(), "2.5".into()])), json!("[1,2.5]"));
-        assert_eq!(cell(&AttributeValue::Bs(vec![Blob::new(vec![1])])), json!("[\"0x01\"]"));
+        assert_eq!(
+            cell(&AttributeValue::Ss(vec!["x".into(), "y".into()])),
+            json!("[\"x\",\"y\"]")
+        );
+        assert_eq!(
+            cell(&AttributeValue::Ns(vec!["1".into(), "2.5".into()])),
+            json!("[1,2.5]")
+        );
+        assert_eq!(
+            cell(&AttributeValue::Bs(vec![Blob::new(vec![1])])),
+            json!("[\"0x01\"]")
+        );
     }
 
     #[test]
     fn keys_come_first_then_attributes_by_appearance() {
         let items = vec![
-            HashMap::from([("z".into(), s("1")), ("pk".into(), s("a")), ("b".into(), s("x"))]),
-            HashMap::from([("pk".into(), s("b")), ("a".into(), s("y")), ("sk".into(), n("1"))]),
+            HashMap::from([
+                ("z".into(), s("1")),
+                ("pk".into(), s("a")),
+                ("b".into(), s("x")),
+            ]),
+            HashMap::from([
+                ("pk".into(), s("b")),
+                ("a".into(), s("y")),
+                ("sk".into(), n("1")),
+            ]),
         ];
-        assert_eq!(union_columns(&["pk".into(), "sk".into()], &items), vec!["pk", "sk", "b", "z", "a"]);
+        assert_eq!(
+            union_columns(&["pk".into(), "sk".into()], &items),
+            vec!["pk", "sk", "b", "z", "a"]
+        );
         let inferred = infer_columns(&["pk".into()], &items);
-        let names: Vec<_> = inferred.iter().map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable)).collect();
-        assert_eq!(names, vec![("a", "S", true), ("b", "S", true), ("sk", "N", true), ("z", "S", true)]);
+        let names: Vec<_> = inferred
+            .iter()
+            .map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable))
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                ("a", "S", true),
+                ("b", "S", true),
+                ("sk", "N", true),
+                ("z", "S", true)
+            ]
+        );
     }
 
     #[test]
     fn table_after_from() {
-        assert_eq!(from_table(r#"SELECT * FROM "Music" WHERE a = 1"#).as_deref(), Some("Music"));
-        assert_eq!(from_table(r#"select a from "My""T"."idx""#).as_deref(), Some("My\"T"));
-        assert_eq!(from_table("SELECT x FROM orders_2024").as_deref(), Some("orders_2024"));
+        assert_eq!(
+            from_table(r#"SELECT * FROM "Music" WHERE a = 1"#).as_deref(),
+            Some("Music")
+        );
+        assert_eq!(
+            from_table(r#"select a from "My""T"."idx""#).as_deref(),
+            Some("My\"T")
+        );
+        assert_eq!(
+            from_table("SELECT x FROM orders_2024").as_deref(),
+            Some("orders_2024")
+        );
         assert_eq!(from_table("SELECT 'from x' FROM t").as_deref(), Some("t"));
         assert_eq!(from_table("INSERT INTO t VALUE {'a': 1}"), None);
     }
@@ -1091,9 +1402,17 @@ mod tests {
     fn browse_queries_quote_names() {
         // A free function: a session needs an SDK client, whose HTTPS
         // client loads the TLS roots and a crypto provider when built.
-        let t = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "Mu\"sic".into() };
+        let t = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: "Mu\"sic".into(),
+        };
         assert_eq!(browse(&t), r#"SELECT * FROM "Mu""sic""#);
-        let i = ObjectRef { kind: kinds::INDEX.into(), schema: Some("T".into()), name: "byArtist".into() };
+        let i = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: Some("T".into()),
+            name: "byArtist".into(),
+        };
         assert_eq!(browse(&i), r#"SELECT * FROM "T"."byArtist""#);
     }
 }

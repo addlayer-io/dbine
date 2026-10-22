@@ -272,9 +272,12 @@
 //! values.
 
 use dbine_driver::transfer::{BatchSink, BatchSinkRef, Cell, RowBatch, TransferColumn};
-use dbine_driver::{ConnectionConfig, DdlParts, ObjectRef, QueryOutcome, ReadSpec, Session, TableSchema};
+use dbine_driver::{
+    ConnectionConfig, DdlParts, ObjectRef, QueryOutcome, ReadSpec, Session, TableSchema,
+};
 use dbine_transfer::clone_table::{
-    clone_table, default_clone_name_for, definition_differences, engine_columns, quoted_name, CloneControl, CloneEvent, CloneOptions, CloneRequest, ConfigEndpoints,
+    clone_table, default_clone_name_for, definition_differences, engine_columns, quoted_name,
+    CloneControl, CloneEvent, CloneOptions, CloneRequest, ConfigEndpoints,
 };
 use dbine_transfer::Endpoints;
 use std::sync::{Arc, Mutex};
@@ -329,15 +332,32 @@ impl BatchSink for Collect {
 async fn read_all(s: &mut dyn Session, table: &ObjectRef, columns: &[String]) -> Vec<String> {
     let sink = Arc::new(Mutex::new(Collect::default()));
     let dyn_sink: BatchSinkRef = sink.clone();
-    s.read_batches(&ReadSpec { table: table.clone(), columns: Some(columns.to_vec()), filter: None }, dyn_sink).await.unwrap();
-    let mut rows: Vec<String> = sink.lock().unwrap().rows.iter().map(|r| format!("{r:?}")).collect();
+    s.read_batches(
+        &ReadSpec {
+            table: table.clone(),
+            columns: Some(columns.to_vec()),
+            filter: None,
+        },
+        dyn_sink,
+    )
+    .await
+    .unwrap();
+    let mut rows: Vec<String> = sink
+        .lock()
+        .unwrap()
+        .rows
+        .iter()
+        .map(|r| format!("{r:?}"))
+        .collect();
     rows.sort();
     rows
 }
 
 async fn run(s: &mut dyn Session, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 0, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 0, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     if let Some(e) = out.error {
         panic!("{sql}: {e}");
     }
@@ -347,67 +367,130 @@ async fn run(s: &mut dyn Session, sql: &str) {
 #[ignore = "needs a live server: see the top of the file"]
 async fn clone_on_a_live_server() {
     let id = env("DBINE_CLONE_DRIVER").expect("DBINE_CLONE_DRIVER");
-    let driver = dbine_drivers::find(&id).unwrap_or_else(|| panic!("no driver '{id}'")).clone();
-    let mut json: serde_json::Value = serde_json::from_str(&env("DBINE_CLONE_CONFIG").unwrap_or_else(|| "{}".into())).expect("DBINE_CLONE_CONFIG");
-    json.as_object_mut().expect("config object").entry("driver").or_insert(serde_json::json!(id));
+    let driver = dbine_drivers::find(&id)
+        .unwrap_or_else(|| panic!("no driver '{id}'"))
+        .clone();
+    let mut json: serde_json::Value =
+        serde_json::from_str(&env("DBINE_CLONE_CONFIG").unwrap_or_else(|| "{}".into()))
+            .expect("DBINE_CLONE_CONFIG");
+    json.as_object_mut()
+        .expect("config object")
+        .entry("driver")
+        .or_insert(serde_json::json!(id));
     let config: ConnectionConfig = serde_json::from_value(json).expect("ConnectionConfig");
-    let (schema, name) = match env("DBINE_CLONE_TABLE").expect("DBINE_CLONE_TABLE").split_once('.') {
+    let (schema, name) = match env("DBINE_CLONE_TABLE")
+        .expect("DBINE_CLONE_TABLE")
+        .split_once('.')
+    {
         Some((s, n)) => (Some(s.to_string()), n.to_string()),
         None => (None, env("DBINE_CLONE_TABLE").unwrap()),
     };
     let kind = env("DBINE_CLONE_KIND").unwrap_or_else(|| "table".into());
-    let source = ObjectRef { kind: kind.clone(), schema: schema.clone(), name: name.clone() };
-    let endpoints = Arc::new(ConfigEndpoints { driver: driver.clone(), config, database: env("DBINE_CLONE_DATABASE") });
+    let source = ObjectRef {
+        kind: kind.clone(),
+        schema: schema.clone(),
+        name: name.clone(),
+    };
+    let endpoints = Arc::new(ConfigEndpoints {
+        driver: driver.clone(),
+        config,
+        database: env("DBINE_CLONE_DATABASE"),
+    });
 
     let mut w = endpoints.open_target().await.unwrap();
     if let Some(setup) = env("DBINE_CLONE_SETUP") {
         run(&mut *w, &setup).await;
     }
 
-    let new_name = env("DBINE_CLONE_NAME").unwrap_or_else(|| default_clone_name_for(&*driver, &name, chrono::Local::now().naive_local()));
-    let req = CloneRequest { source: source.clone(), new_name: new_name.clone(), options: CloneOptions::default() };
-    let report = clone_table(endpoints.clone(), req, &CloneControl::default(), |e| match e {
-        CloneEvent::Phase { phase } => println!("fase: {phase:?}"),
-        CloneEvent::Progress { rows_done, rows_total, .. } => println!("filas: {rows_done} de {rows_total:?}"),
-        CloneEvent::Log { level, text } => println!("{level:?}: {text}"),
-    })
+    let new_name = env("DBINE_CLONE_NAME").unwrap_or_else(|| {
+        default_clone_name_for(&*driver, &name, chrono::Local::now().naive_local())
+    });
+    let req = CloneRequest {
+        source: source.clone(),
+        new_name: new_name.clone(),
+        options: CloneOptions::default(),
+    };
+    let report = clone_table(
+        endpoints.clone(),
+        req,
+        &CloneControl::default(),
+        |e| match e {
+            CloneEvent::Phase { phase } => println!("fase: {phase:?}"),
+            CloneEvent::Progress {
+                rows_done,
+                rows_total,
+                ..
+            } => println!("filas: {rows_done} de {rows_total:?}"),
+            CloneEvent::Log { level, text } => println!("{level:?}: {text}"),
+        },
+    )
     .await;
     // A clone that must be refused up front (in Spanish), leaving nothing.
     if let Some(expected) = env("DBINE_CLONE_REFUSED") {
         let e = match report {
-            Ok(_) => panic!("the clone «{new_name}» was made; it had to be refused with «{expected}»"),
+            Ok(_) => {
+                panic!("the clone «{new_name}» was made; it had to be refused with «{expected}»")
+            }
             Err(e) => e.to_string(),
         };
-        assert!(e.contains(&expected), "refused with «{e}», not «{expected}»");
-        let left = w.database_schema().await.unwrap().into_iter().any(|t| t.name == new_name && t.schema == schema);
+        assert!(
+            e.contains(&expected),
+            "refused with «{e}», not «{expected}»"
+        );
+        let left = w
+            .database_schema()
+            .await
+            .unwrap()
+            .into_iter()
+            .any(|t| t.name == new_name && t.schema == schema);
         assert!(!left, "the refused clone «{new_name}» was left behind");
         println!("rechazada: {e}");
         return;
     }
     let report = report.unwrap_or_else(|e| panic!("clone failed: {e}"));
-    println!("clonada «{new_name}»: {} filas en {} ms; notas: {:?}; nombres: {:?}", report.rows, report.elapsed_ms, report.notes, report.renames);
+    println!(
+        "clonada «{new_name}»: {} filas en {} ms; notas: {:?}; nombres: {:?}",
+        report.rows, report.elapsed_ms, report.notes, report.renames
+    );
     let clone = report.table.clone();
     // InfluxDB 1's driver has no DDL for a measurement: its drop is
     // `DROP MEASUREMENT`, as the clone's own cleanup writes it.
     let drop_sql = match driver.table_ddl(
-        &TableSchema { kind: kind.clone(), schema: schema.clone(), name: new_name.clone(), ..Default::default() },
-        DdlParts { drop: true, if_exists: true, ..Default::default() },
+        &TableSchema {
+            kind: kind.clone(),
+            schema: schema.clone(),
+            name: new_name.clone(),
+            ..Default::default()
+        },
+        DdlParts {
+            drop: true,
+            if_exists: true,
+            ..Default::default()
+        },
     ) {
         // The MySQL family's DROP names the table alone: qualified here
         // for a table in another database than the connection's.
         Ok(_) if driver.info().dialect == "mysql" && schema.is_some() => {
             let q = |n: &str| format!("`{}`", n.replace('`', "``"));
-            format!("DROP TABLE IF EXISTS {}.{}", q(schema.as_deref().unwrap()), q(&new_name))
+            format!(
+                "DROP TABLE IF EXISTS {}.{}",
+                q(schema.as_deref().unwrap()),
+                q(&new_name)
+            )
         }
         Ok(sql) => sql,
-        Err(_) if driver.info().dialect == "influxql" => format!("DROP MEASUREMENT \"{}\"", new_name.replace('\\', "\\\\").replace('"', "\\\"")),
+        Err(_) if driver.info().dialect == "influxql" => format!(
+            "DROP MEASUREMENT \"{}\"",
+            new_name.replace('\\', "\\\\").replace('"', "\\\"")
+        ),
         Err(e) => panic!("no drop for the clone: {e}"),
     };
     // SQL Server: a temporal clone goes with its history table (a
     // versioned table can't be dropped as it is).
     let drop_sql = if driver.info().dialect == "mssql" {
         let q = |n: &str| format!("[{}]", n.replace(']', "]]"));
-        let lit = format!("{}.{}", q(schema.as_deref().unwrap_or("dbo")), q(&new_name)).replace('\'', "''");
+        let lit = format!("{}.{}", q(schema.as_deref().unwrap_or("dbo")), q(&new_name))
+            .replace('\'', "''");
         format!(
             "IF OBJECTPROPERTY(OBJECT_ID(N'{lit}'), 'TableTemporalType') = 2\nBEGIN\n    \
              DECLARE @h nvarchar(600) = (SELECT QUOTENAME(OBJECT_SCHEMA_NAME(history_table_id)) + N'.' + QUOTENAME(OBJECT_NAME(history_table_id)) FROM sys.tables WHERE object_id = OBJECT_ID(N'{lit}'));\n    \
@@ -416,10 +499,16 @@ async fn clone_on_a_live_server() {
     } else {
         drop_sql
     };
-    let _drop_on_panic = env("DBINE_CLONE_KEEP").is_none().then(|| DropOnPanic { endpoints: endpoints.clone(), sql: drop_sql.clone() });
+    let _drop_on_panic = env("DBINE_CLONE_KEEP").is_none().then(|| DropOnPanic {
+        endpoints: endpoints.clone(),
+        sql: drop_sql.clone(),
+    });
 
     // The same table, as the engine describes it.
-    if let Some(d) = definition_differences(&*driver, &mut *w, &source, &clone).await.unwrap() {
+    if let Some(d) = definition_differences(&*driver, &mut *w, &source, &clone)
+        .await
+        .unwrap()
+    {
         panic!("the clone's definition differs: {d}");
     }
 
@@ -439,8 +528,17 @@ async fn clone_on_a_live_server() {
     };
     // Stored computed columns (ClickHouse's MATERIALIZED) must keep the
     // original's values: compared too.
-    let skip: Vec<String> = roles.generated.iter().filter(|c| !roles.stored.contains(c)).cloned().collect();
-    let names: Vec<String> = cols.iter().map(|c| c.name.clone()).filter(|c| !skip.contains(c)).collect();
+    let skip: Vec<String> = roles
+        .generated
+        .iter()
+        .filter(|c| !roles.stored.contains(c))
+        .cloned()
+        .collect();
+    let names: Vec<String> = cols
+        .iter()
+        .map(|c| c.name.clone())
+        .filter(|c| !skip.contains(c))
+        .collect();
     let a = read_all(&mut *w, &source, &names).await;
     let b = read_all(&mut *w, &clone, &names).await;
     assert_eq!(a.len() as u64, report.rows, "rows copied");
@@ -448,11 +546,25 @@ async fn clone_on_a_live_server() {
     assert!(a == b, "the clone's rows differ from the original's");
     println!("{} filas iguales", a.len());
     if let Some(check) = env("DBINE_CLONE_CHECK") {
-        let sql = check.replace("{source}", &quoted_name(&*driver, &source)).replace("{clone}", &quoted_name(&*driver, &clone));
+        let sql = check
+            .replace("{source}", &quoted_name(&*driver, &source))
+            .replace("{clone}", &quoted_name(&*driver, &clone));
         let mut out = QueryOutcome::default();
-        w.execute(&sql, 1, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
-        let n = out.results.iter().rev().find_map(|r| r.rows.first()).and_then(|r| r.first()).cloned().unwrap_or_default();
-        assert!(n == serde_json::json!(0) || n == serde_json::json!("0"), "DBINE_CLONE_CHECK: {n} (expected 0)");
+        w.execute(&sql, 1, &mut out)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e}"));
+        let n = out
+            .results
+            .iter()
+            .rev()
+            .find_map(|r| r.rows.first())
+            .and_then(|r| r.first())
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            n == serde_json::json!(0) || n == serde_json::json!("0"),
+            "DBINE_CLONE_CHECK: {n} (expected 0)"
+        );
         println!("comprobación en el servidor: bien");
     }
 
@@ -463,19 +575,35 @@ async fn clone_on_a_live_server() {
         Some(sql) => Some(sql.replace("{table}", &quoted_name(&*driver, &clone))),
         None => {
             let auto: Vec<String> = roles.auto_increment.clone();
-            let keep: Vec<usize> = (0..names.len()).filter(|i| !auto.contains(&names[*i]) && !roles.stored.contains(&names[*i])).collect();
+            let keep: Vec<usize> = (0..names.len())
+                .filter(|i| !auto.contains(&names[*i]) && !roles.stored.contains(&names[*i]))
+                .collect();
             if auto.is_empty() {
-                println!("sin columna autoincremental ni DBINE_CLONE_INSERT: no se prueba la inserción");
+                println!(
+                    "sin columna autoincremental ni DBINE_CLONE_INSERT: no se prueba la inserción"
+                );
                 None
             } else {
                 let sink = Arc::new(Mutex::new(Collect::default()));
                 let dyn_sink: BatchSinkRef = sink.clone();
-                w.read_batches(&ReadSpec { table: source.clone(), columns: Some(names.clone()), filter: None }, dyn_sink).await.unwrap();
+                w.read_batches(
+                    &ReadSpec {
+                        table: source.clone(),
+                        columns: Some(names.clone()),
+                        filter: None,
+                    },
+                    dyn_sink,
+                )
+                .await
+                .unwrap();
                 let first = sink.lock().unwrap().rows.first().cloned();
-                let pk: Vec<usize> = (0..names.len()).filter(|i| cols.iter().any(|c| c.primary_key && c.name == names[*i])).collect();
+                let pk: Vec<usize> = (0..names.len())
+                    .filter(|i| cols.iter().any(|c| c.primary_key && c.name == names[*i]))
+                    .collect();
                 first.map(|r| {
                     let columns: Vec<String> = keep.iter().map(|i| names[*i].clone()).collect();
-                    let values: Vec<serde_json::Value> = keep.iter().map(|i| r[*i].to_json()).collect();
+                    let values: Vec<serde_json::Value> =
+                        keep.iter().map(|i| r[*i].to_json()).collect();
                     let insert = driver.insert_script(&clone, &columns, &[values]).unwrap();
                     if driver.info().language != dbine_driver::Language::Sql || pk.is_empty() {
                         return insert;
@@ -483,14 +611,26 @@ async fn clone_on_a_live_server() {
                     // `DELETE FROM <clone> WHERE <key>`, then the same row from
                     // the original with `INSERT INTO <clone> (<cols>) SELECT <cols>
                     // FROM <original> WHERE <key>` (names quoted by the driver).
-                    let key: Vec<(String, serde_json::Value)> = pk.iter().map(|i| (names[*i].clone(), r[*i].to_json())).collect();
+                    let key: Vec<(String, serde_json::Value)> = pk
+                        .iter()
+                        .map(|i| (names[*i].clone(), r[*i].to_json()))
+                        .collect();
                     let delete = driver.delete_script(&clone, &[key.clone()]).unwrap();
                     let from_original = driver.delete_script(&source, &[key]).unwrap();
-                    let (src_name, filter) = from_original.trim().trim_end_matches(';').trim_start_matches("DELETE FROM ").split_once(" WHERE ").unwrap();
+                    let (src_name, filter) = from_original
+                        .trim()
+                        .trim_end_matches(';')
+                        .trim_start_matches("DELETE FROM ")
+                        .split_once(" WHERE ")
+                        .unwrap();
                     let head = &insert[..insert.find(" VALUES").unwrap()];
                     let list = &head[head.find('(').unwrap()..];
                     gained = 0;
-                    format!("{};\n{head} SELECT {} FROM {src_name} WHERE {filter};", delete.trim().trim_end_matches(';'), &list[1..list.len() - 1])
+                    format!(
+                        "{};\n{head} SELECT {} FROM {src_name} WHERE {filter};",
+                        delete.trim().trim_end_matches(';'),
+                        &list[1..list.len() - 1]
+                    )
                 })
             }
         }
@@ -502,12 +642,26 @@ async fn clone_on_a_live_server() {
         println!("inserción en el clon: bien");
     }
     if let Some(check) = env("DBINE_CLONE_AFTER") {
-        let sql = check.replace("{source}", &quoted_name(&*driver, &source)).replace("{clone}", &quoted_name(&*driver, &clone));
+        let sql = check
+            .replace("{source}", &quoted_name(&*driver, &source))
+            .replace("{clone}", &quoted_name(&*driver, &clone));
         let mut out = QueryOutcome::default();
-        w.execute(&sql, 1, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        w.execute(&sql, 1, &mut out)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e}"));
         assert!(out.error.is_none(), "DBINE_CLONE_AFTER: {:?}", out.error);
-        let n = out.results.iter().rev().find_map(|r| r.rows.first()).and_then(|r| r.first()).cloned().unwrap_or_default();
-        assert!(n == serde_json::json!(0) || n == serde_json::json!("0"), "DBINE_CLONE_AFTER: {n} (expected 0)");
+        let n = out
+            .results
+            .iter()
+            .rev()
+            .find_map(|r| r.rows.first())
+            .and_then(|r| r.first())
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            n == serde_json::json!(0) || n == serde_json::json!("0"),
+            "DBINE_CLONE_AFTER: {n} (expected 0)"
+        );
         println!("comprobación después de la inserción: bien");
     }
 

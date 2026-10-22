@@ -21,7 +21,10 @@ fn display(t: &TableSchema) -> String {
 }
 
 fn text(s: &Option<String>) -> Option<String> {
-    s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    s.as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn squash(t: &str) -> String {
@@ -29,12 +32,18 @@ fn squash(t: &str) -> String {
 }
 
 fn key_cols(t: &TableSchema) -> Vec<String> {
-    t.primary_key.as_ref().map(|k| k.columns.iter().map(|c| c.to_lowercase()).collect()).unwrap_or_default()
+    t.primary_key
+        .as_ref()
+        .map(|k| k.columns.iter().map(|c| c.to_lowercase()).collect())
+        .unwrap_or_default()
 }
 
 fn no_fks(t: &mut TableSchema, warnings: &mut Vec<String>) {
     if !t.foreign_keys.is_empty() {
-        warnings.push(format!("DBine no crea claves foráneas en DSQL: se omiten las de {}.", display(t)));
+        warnings.push(format!(
+            "DBine no crea claves foráneas en DSQL: se omiten las de {}.",
+            display(t)
+        ));
         t.foreign_keys.clear();
     }
 }
@@ -116,11 +125,24 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
         });
     }
 
-    let flavor = SqlFlavor { comment_on: false, ..SqlFlavor::ansi() };
+    let flavor = SqlFlavor {
+        comment_on: false,
+        ..SqlFlavor::ansi()
+    };
     // ADD COLUMN: name and type (normalized above).
-    let cd = |_: &TableSchema, c: &ColumnDef| format!("{} {}", quote_ident(Quote::Double, &c.name), c.data_type);
+    let cd = |_: &TableSchema, c: &ColumnDef| {
+        format!("{} {}", quote_ident(Quote::Double, &c.name), c.data_type)
+    };
     let dd = |t: &TableSchema, p: DdlParts| Ok(crate::table_ddl(t, p));
-    let st = AlterStyle::from_flavor(&flavor, ColumnAlter::Standard { set_data_type: false, using_cast: false }, &cd, &dd);
+    let st = AlterStyle::from_flavor(
+        &flavor,
+        ColumnAlter::Standard {
+            set_data_type: false,
+            using_cast: false,
+        },
+        &cd,
+        &dd,
+    );
     let mut s = alter::sync_script(&st, &planned)?;
     crate::structure::fix_script(&mut s);
     s.statements.append(&mut after);
@@ -135,7 +157,12 @@ mod tests {
     use dbine_driver::{ForeignKeyDef, IndexDef, KeyDef};
 
     fn col(name: &str, ty: &str, nullable: bool) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), nullable, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable,
+            ..Default::default()
+        }
     }
 
     fn table(name: &str, cols: Vec<ColumnDef>) -> TableSchema {
@@ -144,24 +171,58 @@ mod tests {
             schema: Some("public".into()),
             name: name.into(),
             columns: cols,
-            primary_key: Some(KeyDef { name: Some("pk".into()), columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("pk".into()),
+                columns: vec!["id".into()],
+            }),
             ..Default::default()
         }
     }
 
     fn ix(name: &str, col: &str) -> IndexDef {
-        IndexDef { name: name.into(), columns: vec![col.into()], unique: false, kind: None, filter: None, ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            columns: vec![col.into()],
+            unique: false,
+            kind: None,
+            filter: None,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn alter_trims_to_what_dsql_takes() {
-        let mut old = table("clientes", vec![col("id", "integer", false), col("nombre", "varchar(10)", false), col("baja", "date", true), col("nota", "text", true)]);
+        let mut old = table(
+            "clientes",
+            vec![
+                col("id", "integer", false),
+                col("nombre", "varchar(10)", false),
+                col("baja", "date", true),
+                col("nota", "text", true),
+            ],
+        );
         old.columns[3].default_value = Some("'x'".into());
         old.indexes.push(ix("ix_nombre", "nombre"));
-        let mut new = table("clientes", vec![col("id", "integer", false), col("nombre", "varchar(20)", true), col("email", "text", false), col("nota", "text", false)]);
+        let mut new = table(
+            "clientes",
+            vec![
+                col("id", "integer", false),
+                col("nombre", "varchar(20)", true),
+                col("email", "text", false),
+                col("nota", "text", false),
+            ],
+        );
         new.columns[2].default_value = Some("'s/n'".into());
         new.indexes.push(ix("ix_email", "email"));
-        new.foreign_keys.push(ForeignKeyDef { name: Some("fk".into()), columns: vec!["id".into()], ref_schema: None, ref_table: "o".into(), ref_columns: vec!["id".into()], on_delete: None, on_update: None });
+        new.foreign_keys.push(ForeignKeyDef {
+            name: Some("fk".into()),
+            columns: vec!["id".into()],
+            ref_schema: None,
+            ref_table: "o".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+        });
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
             s.statements,
@@ -177,16 +238,31 @@ mod tests {
         );
         let w = s.warnings.join("\n");
         assert!(w.contains("se omiten las de public.clientes"), "{w}");
-        assert!(w.contains("public.clientes.nombre queda varchar(10)"), "{w}");
-        assert!(w.contains("public.clientes.email se agrega aceptando NULL"), "{w}");
-        assert!(w.contains("public.clientes.nota sigue aceptando NULL"), "{w}");
+        assert!(
+            w.contains("public.clientes.nombre queda varchar(10)"),
+            "{w}"
+        );
+        assert!(
+            w.contains("public.clientes.email se agrega aceptando NULL"),
+            "{w}"
+        );
+        assert!(
+            w.contains("public.clientes.nota sigue aceptando NULL"),
+            "{w}"
+        );
     }
 
     #[test]
     fn primary_key_stays() {
-        let old = table("t", vec![col("id", "integer", false), col("b", "integer", false)]);
+        let old = table(
+            "t",
+            vec![col("id", "integer", false), col("b", "integer", false)],
+        );
         let mut new = table("t", vec![col("b", "integer", false)]);
-        new.primary_key = Some(KeyDef { name: Some("pk".into()), columns: vec!["b".into()] });
+        new.primary_key = Some(KeyDef {
+            name: Some("pk".into()),
+            columns: vec!["b".into()],
+        });
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert!(s.statements.is_empty(), "{:?}", s.statements);
         assert_eq!(s.warnings.len(), 2, "{:?}", s.warnings);
@@ -197,9 +273,20 @@ mod tests {
         let mut a = table("nueva", vec![col("id", "integer", false)]);
         a.indexes.push(ix("ix_id", "id"));
         let b = table("vieja", vec![col("id", "integer", false)]);
-        let s = sync_script(&[TableChange::Create { table: a }, TableChange::Drop { table: b }]).unwrap();
+        let s = sync_script(&[
+            TableChange::Create { table: a },
+            TableChange::Drop { table: b },
+        ])
+        .unwrap();
         assert_eq!(s.statements[0], "DROP TABLE \"public\".\"vieja\";");
-        assert!(s.statements[1].starts_with("CREATE TABLE \"public\".\"nueva\""), "{}", s.statements[1]);
-        assert_eq!(s.statements[2], "CREATE INDEX ASYNC \"ix_id\" ON \"public\".\"nueva\" (\"id\");");
+        assert!(
+            s.statements[1].starts_with("CREATE TABLE \"public\".\"nueva\""),
+            "{}",
+            s.statements[1]
+        );
+        assert_eq!(
+            s.statements[2],
+            "CREATE INDEX ASYNC \"ix_id\" ON \"public\".\"nueva\" (\"id\");"
+        );
     }
 }

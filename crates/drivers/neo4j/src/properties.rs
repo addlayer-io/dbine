@@ -35,9 +35,15 @@ fn bad(what: &str, v: &str) -> Error {
 }
 
 /// The statements for `changes`, each run on `system`.
-pub(crate) fn alter(f: Flavor, database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
+pub(crate) fn alter(
+    f: Flavor,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
     if f != Flavor::Neo4j {
-        return Err(Error::Unsupported("este motor no modifica las propiedades de una base".into()));
+        return Err(Error::Unsupported(
+            "este motor no modifica las propiedades de una base".into(),
+        ));
     }
     let name = database.trim();
     if name.is_empty() {
@@ -57,11 +63,17 @@ pub(crate) fn alter(f: Flavor, database: &str, changes: &BTreeMap<String, String
             "read_only" => first.push(alter("SET ACCESS READ WRITE".into())),
             "primaries" => {
                 let n = count(value, "primarios", 1)?;
-                topology.insert(0, format!("{n} {}", if n == 1 { "PRIMARY" } else { "PRIMARIES" }));
+                topology.insert(
+                    0,
+                    format!("{n} {}", if n == 1 { "PRIMARY" } else { "PRIMARIES" }),
+                );
             }
             "secondaries" => {
                 let n = count(value, "secundarios", 0)?;
-                topology.push(format!("{n} {}", if n == 1 { "SECONDARY" } else { "SECONDARIES" }));
+                topology.push(format!(
+                    "{n} {}",
+                    if n == 1 { "SECONDARY" } else { "SECONDARIES" }
+                ));
             }
             "tx_log_enrichment" => {
                 if !matches!(value, "OFF" | "DIFF" | "FULL") {
@@ -84,12 +96,24 @@ pub(crate) fn alter(f: Flavor, database: &str, changes: &BTreeMap<String, String
     Ok(first.into_iter().chain(out).chain(last).collect())
 }
 
-pub(crate) fn script(f: Flavor, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
-    Ok(alter(f, database, changes)?.into_iter().map(|s| s + ";").collect::<Vec<_>>().join("\n"))
+pub(crate) fn script(
+    f: Flavor,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<String> {
+    Ok(alter(f, database, changes)?
+        .into_iter()
+        .map(|s| s + ";")
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 fn fact(group: &str, label: &str, value: String) -> PropertyInfo {
-    PropertyInfo { group: group.into(), label: label.into(), value }
+    PropertyInfo {
+        group: group.into(),
+        label: label.into(),
+        value,
+    }
 }
 
 fn yes_no(v: &Value) -> String {
@@ -115,16 +139,22 @@ fn memgraph_label(k: &str) -> String {
         "storage_mode" => "Modo de almacenamiento (storage_mode)".into(),
         "global_isolation_level" => "Aislamiento global (global_isolation_level)".into(),
         "session_isolation_level" => "Aislamiento de la sesión (session_isolation_level)".into(),
-        "next_session_isolation_level" => "Aislamiento de la próxima sesión (next_session_isolation_level)".into(),
+        "next_session_isolation_level" => {
+            "Aislamiento de la próxima sesión (next_session_isolation_level)".into()
+        }
         "unreleased_delta_objects" => "Deltas sin liberar (unreleased_delta_objects)".into(),
         "database_uuid" => "Identificador (database_uuid)".into(),
         "state" => "Estado (state)".into(),
         "health" => "Salud (health)".into(),
         "graph_memory_tracked" => "Memoria del grafo (graph_memory_tracked)".into(),
         "query_memory_tracked" => "Memoria de las consultas (query_memory_tracked)".into(),
-        "vector_index_memory_tracked" => "Memoria de los índices vectoriales (vector_index_memory_tracked)".into(),
+        "vector_index_memory_tracked" => {
+            "Memoria de los índices vectoriales (vector_index_memory_tracked)".into()
+        }
         "tenant_memory_tracked" => "Memoria de la base (tenant_memory_tracked)".into(),
-        "tenant_peak_memory_tracked" => "Pico de memoria de la base (tenant_peak_memory_tracked)".into(),
+        "tenant_peak_memory_tracked" => {
+            "Pico de memoria de la base (tenant_peak_memory_tracked)".into()
+        }
         "tenant_memory_limit" => "Límite de memoria de la base (tenant_memory_limit)".into(),
         "storage_isolation_level" => "Aislamiento (storage_isolation_level)".into(),
         "global_storage_mode" => "Modo de almacenamiento (global_storage_mode)".into(),
@@ -145,7 +175,10 @@ impl GraphSession {
     async fn memgraph_properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         // Memgraph 3 reports a database's own storage with `ON DATABASE`;
         // before, `SHOW STORAGE INFO` was the session's database.
-        let on = format!("SHOW STORAGE INFO ON DATABASE {}", cypher::ident(database.trim()));
+        let on = format!(
+            "SHOW STORAGE INFO ON DATABASE {}",
+            cypher::ident(database.trim())
+        );
         let rows = match self.query_on(&on, None).await {
             Ok((_, rows)) => rows,
             Err(Error::Query(_)) => self.query_on("SHOW STORAGE INFO", Some(database)).await?.1,
@@ -171,13 +204,19 @@ impl GraphSession {
             "Nota",
             "Memgraph no tiene ALTER DATABASE: el modo de almacenamiento y el aislamiento se cambian con STORAGE MODE y SET … TRANSACTION ISOLATION LEVEL, fuera de este diálogo.".into(),
         ));
-        Ok(DatabaseProperties { info, ..Default::default() })
+        Ok(DatabaseProperties {
+            info,
+            ..Default::default()
+        })
     }
 
     async fn neo4j_properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         let q = format!("SHOW DATABASE {} YIELD *", cypher::ident(database.trim()));
         let (cols, rows) = self.query_on(&q, Some("system")).await?;
-        let recs: Vec<serde_json::Map<String, Value>> = rows.into_iter().map(|r| cols.iter().cloned().zip(r).collect()).collect();
+        let recs: Vec<serde_json::Map<String, Value>> = rows
+            .into_iter()
+            .map(|r| cols.iter().cloned().zip(r).collect())
+            .collect();
         // One row per server that hosts it: the writer's (or the first) for the database's own facts.
         let r = recs
             .iter()
@@ -196,37 +235,88 @@ impl GraphSession {
         };
         let status = text("currentStatus");
         let message = text("statusMessage");
-        push("", "Estado", Some(if message.is_empty() { status.clone() } else { format!("{status} ({message})") }));
-        push("", "Estado pedido (requestedStatus)", get("requestedStatus").map(as_text).filter(|s| *s != status));
+        push(
+            "",
+            "Estado",
+            Some(if message.is_empty() {
+                status.clone()
+            } else {
+                format!("{status} ({message})")
+            }),
+        );
+        push(
+            "",
+            "Estado pedido (requestedStatus)",
+            get("requestedStatus").map(as_text).filter(|s| *s != status),
+        );
         push("", "Tipo", get("type").map(as_text));
         push("", "Acceso", get("access").map(as_text));
-        push("", "Predeterminada del servidor (default)", get("default").map(yes_no));
+        push(
+            "",
+            "Predeterminada del servidor (default)",
+            get("default").map(yes_no),
+        );
         push("", "De inicio del usuario (home)", get("home").map(yes_no));
         push("", "Creada", get("creationTime").map(as_text));
         push("", "Último inicio", get("lastStartTime").map(as_text));
         push("", "Última detención", get("lastStopTime").map(as_text));
-        push("", "Formato de almacenamiento (store)", get("store").map(as_text));
-        push("", "Última transacción confirmada", get("lastCommittedTxn").map(as_text));
-        push("", "Versión de Cypher predeterminada", get("defaultLanguage").map(as_text));
+        push(
+            "",
+            "Formato de almacenamiento (store)",
+            get("store").map(as_text),
+        );
+        push(
+            "",
+            "Última transacción confirmada",
+            get("lastCommittedTxn").map(as_text),
+        );
+        push(
+            "",
+            "Versión de Cypher predeterminada",
+            get("defaultLanguage").map(as_text),
+        );
         push(
             "",
             "Alias",
-            get("aliases").and_then(Value::as_array).map(|a| a.iter().map(as_text).collect::<Vec<_>>().join(", ")),
+            get("aliases")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().map(as_text).collect::<Vec<_>>().join(", ")),
         );
         push(
             "",
             "Bases que la componen (constituents)",
-            get("constituents").and_then(Value::as_array).map(|a| a.iter().map(as_text).collect::<Vec<_>>().join(", ")),
+            get("constituents")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().map(as_text).collect::<Vec<_>>().join(", ")),
         );
-        push(TOPOLOGY, "Primarios en línea (currentPrimariesCount)", get("currentPrimariesCount").map(as_text));
-        push(TOPOLOGY, "Secundarios en línea (currentSecondariesCount)", get("currentSecondariesCount").map(as_text));
+        push(
+            TOPOLOGY,
+            "Primarios en línea (currentPrimariesCount)",
+            get("currentPrimariesCount").map(as_text),
+        );
+        push(
+            TOPOLOGY,
+            "Secundarios en línea (currentSecondariesCount)",
+            get("currentSecondariesCount").map(as_text),
+        );
         for s in &recs {
             let at = |k: &str| s.get(k).map(as_text).unwrap_or_default();
             let lag = at("replicationLag");
-            let lag = if lag.is_empty() || lag == "0" { String::new() } else { format!(", atraso {lag}") };
-            push(TOPOLOGY, &format!("Servidor {}", at("address")), Some(format!("{} ({}{lag})", at("role"), at("currentStatus"))));
+            let lag = if lag.is_empty() || lag == "0" {
+                String::new()
+            } else {
+                format!(", atraso {lag}")
+            };
+            push(
+                TOPOLOGY,
+                &format!("Servidor {}", at("address")),
+                Some(format!("{} ({}{lag})", at("role"), at("currentStatus"))),
+            );
         }
-        let opts = get("options").and_then(Value::as_object).cloned().unwrap_or_default();
+        let opts = get("options")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
         for (k, v) in &opts {
             if k != "txLogEnrichment" {
                 push(OPTIONS, k, Some(as_text(v)));
@@ -234,7 +324,10 @@ impl GraphSession {
         }
         // Counts from the count store (cheap), when the database is online.
         if status == "online" && text("type") != "system" {
-            for (q, label) in [("MATCH (n) RETURN count(n)", "Nodos"), ("MATCH ()-[r]->() RETURN count(r)", "Relaciones")] {
+            for (q, label) in [
+                ("MATCH (n) RETURN count(n)", "Nodos"),
+                ("MATCH ()-[r]->() RETURN count(r)", "Relaciones"),
+            ] {
                 if let Ok((_, rows)) = self.query_on(q, Some(database)).await {
                     push("", label, rows.first().and_then(|r| r.first()).map(as_text));
                 }
@@ -242,24 +335,38 @@ impl GraphSession {
         }
 
         let edition = self
-            .query_on("CALL dbms.components() YIELD edition RETURN edition", Some("system"))
+            .query_on(
+                "CALL dbms.components() YIELD edition RETURN edition",
+                Some("system"),
+            )
             .await
             .ok()
             .and_then(|(_, rows)| rows.into_iter().next())
             .and_then(|r| r.first().map(as_text))
             .unwrap_or_default();
         let kind = text("type");
-        let mut p = DatabaseProperties { info, ..Default::default() };
+        let mut p = DatabaseProperties {
+            info,
+            ..Default::default()
+        };
         if edition.eq_ignore_ascii_case("community") {
             p.info.push(fact("", "Edición", "Community: no tiene ALTER DATABASE; para cambiar la base hace falta Neo4j Enterprise.".into()));
             return Ok(p);
         }
         if kind == "system" || database.trim().eq_ignore_ascii_case("system") {
-            p.info.push(fact("", "Cambios", "La base «system» no se modifica.".into()));
+            p.info.push(fact(
+                "",
+                "Cambios",
+                "La base «system» no se modifica.".into(),
+            ));
             return Ok(p);
         }
         if kind != "standard" {
-            p.info.push(fact("", "Cambios", format!("Una base de tipo «{kind}» no se modifica con ALTER DATABASE.")));
+            p.info.push(fact(
+                "",
+                "Cambios",
+                format!("Una base de tipo «{kind}» no se modifica con ALTER DATABASE."),
+            ));
             return Ok(p);
         }
 
@@ -270,8 +377,18 @@ impl GraphSession {
                 .group(TOPOLOGY),
             Field::new("secondaries", "Secundarios (SECONDARIES)", FieldKind::Number).help("Copias de solo lectura.").group(TOPOLOGY),
         ];
-        p.values.insert("read_only".into(), if text("access") == "read-only" { "true".into() } else { String::new() });
-        for (k, col) in [("primaries", "requestedPrimariesCount"), ("secondaries", "requestedSecondariesCount")] {
+        p.values.insert(
+            "read_only".into(),
+            if text("access") == "read-only" {
+                "true".into()
+            } else {
+                String::new()
+            },
+        );
+        for (k, col) in [
+            ("primaries", "requestedPrimariesCount"),
+            ("secondaries", "requestedSecondariesCount"),
+        ] {
             if let Some(v) = get(col) {
                 p.values.insert(k.into(), as_text(v));
             }
@@ -281,19 +398,31 @@ impl GraphSession {
                 Field::new(
                     "tx_log_enrichment",
                     "Enriquecer el log de transacciones (txLogEnrichment)",
-                    FieldKind::Select(vec![("OFF", "No (OFF)"), ("DIFF", "Solo los cambios (DIFF)"), ("FULL", "Completo (FULL)")]),
+                    FieldKind::Select(vec![
+                        ("OFF", "No (OFF)"),
+                        ("DIFF", "Solo los cambios (DIFF)"),
+                        ("FULL", "Completo (FULL)"),
+                    ]),
                 )
                 .help("DIFF o FULL activan la captura de cambios (CDC).")
                 .group(OPTIONS),
             );
-            let tle = opts.get("txLogEnrichment").map(as_text).filter(|s| !s.is_empty()).unwrap_or_else(|| "OFF".into());
+            let tle = opts
+                .get("txLogEnrichment")
+                .map(as_text)
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "OFF".into());
             p.values.insert("tx_log_enrichment".into(), tle);
         }
         if let Some(lang) = get("defaultLanguage") {
             fields.push(
-                Field::new("default_language", "Versión de Cypher predeterminada", FieldKind::Select(vec![("5", "Cypher 5"), ("25", "Cypher 25")]))
-                    .help("La que usan las consultas que no empiezan con CYPHER 5 o CYPHER 25.")
-                    .group(OPTIONS),
+                Field::new(
+                    "default_language",
+                    "Versión de Cypher predeterminada",
+                    FieldKind::Select(vec![("5", "Cypher 5"), ("25", "Cypher 25")]),
+                )
+                .help("La que usan las consultas que no empiezan con CYPHER 5 o CYPHER 25.")
+                .group(OPTIONS),
             );
             let digits: String = as_text(lang).chars().filter(char::is_ascii_digit).collect();
             p.values.insert("default_language".into(), digits);
@@ -317,13 +446,26 @@ impl GraphSession {
         Ok(p)
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
-        self.refuse_if_read_only("Conexión de solo lectura: no se pueden modificar las propiedades de una base.")?;
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
+        self.refuse_if_read_only(
+            "Conexión de solo lectura: no se pueden modificar las propiedades de una base.",
+        )?;
         let statements = alter(self.flavor, database, changes)?;
         for (i, q) in statements.iter().enumerate() {
             if let Err(e) = self.query_on(q, Some("system")).await {
                 let e = alter_hint(e);
-                return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {q}\n{e}", statements.len())) });
+                return Err(if i == 0 {
+                    e
+                } else {
+                    Error::Query(format!(
+                        "se aplicaron {i} de {} cambios; falló: {q}\n{e}",
+                        statements.len()
+                    ))
+                });
             }
         }
         Ok(())
@@ -333,7 +475,10 @@ impl GraphSession {
 /// Community's refusal, said plainly.
 fn alter_hint(e: Error) -> Error {
     match e {
-        Error::Query(m) if m.contains("Unsupported administration command") || m.contains("not available in community") => {
+        Error::Query(m)
+            if m.contains("Unsupported administration command")
+                || m.contains("not available in community") =>
+        {
             Error::Unsupported(format!("Cambiar una base requiere Neo4j Enterprise: {m}"))
         }
         e => e,
@@ -345,13 +490,26 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn read_only_goes_last() {
         assert_eq!(
-            script(Flavor::Neo4j, "ventas", &c(&[("read_only", "true"), ("tx_log_enrichment", "DIFF"), ("secondaries", "1"), ("primaries", "3")])).unwrap(),
+            script(
+                Flavor::Neo4j,
+                "ventas",
+                &c(&[
+                    ("read_only", "true"),
+                    ("tx_log_enrichment", "DIFF"),
+                    ("secondaries", "1"),
+                    ("primaries", "3")
+                ])
+            )
+            .unwrap(),
             "ALTER DATABASE ventas SET OPTION txLogEnrichment 'DIFF' WAIT;
 ALTER DATABASE ventas SET TOPOLOGY 3 PRIMARIES 1 SECONDARY WAIT;
 ALTER DATABASE ventas SET ACCESS READ ONLY WAIT;"
@@ -361,14 +519,26 @@ ALTER DATABASE ventas SET ACCESS READ ONLY WAIT;"
     #[test]
     fn read_write_goes_first() {
         assert_eq!(
-            alter(Flavor::Neo4j, "my-db", &c(&[("read_only", ""), ("secondaries", "0"), ("default_language", "25")])).unwrap(),
+            alter(
+                Flavor::Neo4j,
+                "my-db",
+                &c(&[
+                    ("read_only", ""),
+                    ("secondaries", "0"),
+                    ("default_language", "25")
+                ])
+            )
+            .unwrap(),
             [
                 "ALTER DATABASE `my-db` SET ACCESS READ WRITE WAIT",
                 "ALTER DATABASE `my-db` SET DEFAULT LANGUAGE CYPHER 25 WAIT",
                 "ALTER DATABASE `my-db` SET TOPOLOGY 0 SECONDARIES WAIT",
             ]
         );
-        assert_eq!(alter(Flavor::Neo4j, "v", &c(&[("primaries", "1")])).unwrap(), ["ALTER DATABASE v SET TOPOLOGY 1 PRIMARY WAIT"]);
+        assert_eq!(
+            alter(Flavor::Neo4j, "v", &c(&[("primaries", "1")])).unwrap(),
+            ["ALTER DATABASE v SET TOPOLOGY 1 PRIMARY WAIT"]
+        );
     }
 
     #[test]

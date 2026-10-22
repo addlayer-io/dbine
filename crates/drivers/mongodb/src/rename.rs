@@ -26,7 +26,9 @@
 use crate::ddl::{index_parts, q, validator_check};
 use crate::shell::{parse_units, Item};
 use crate::Flavor;
-use dbine_driver::rename::{DatabaseObject, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
+use dbine_driver::rename::{
+    DatabaseObject, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
 use dbine_driver::{kinds, Error, IndexDef, ObjectRef, Result, SyncScript, TableSchema};
 use mongodb::bson::{Bson, Document};
 use serde_json::{Map, Value};
@@ -72,13 +74,23 @@ pub(crate) const DATABASE_NOTE: &str = "MongoDB no puede renombrar una base de d
 const RESERVED_DATABASES: [&str; 3] = ["admin", "local", "config"];
 
 fn check_database_name(name: &str) -> Result<()> {
-    if RESERVED_DATABASES.iter().any(|r| r.eq_ignore_ascii_case(name)) {
-        return Err(Error::Unsupported(format!("«{name}» es una base del sistema: DBine no la renombra ni la usa como destino")));
+    if RESERVED_DATABASES
+        .iter()
+        .any(|r| r.eq_ignore_ascii_case(name))
+    {
+        return Err(Error::Unsupported(format!(
+            "«{name}» es una base del sistema: DBine no la renombra ni la usa como destino"
+        )));
     }
     // Letters, digits, `_` and `-` only: the names go into `use` lines of
     // the script, which end at a line break and trim quotes, spaces and `;`.
     // MongoDB takes more (a line break included); DBine doesn't rename those.
-    if name.is_empty() || name.len() >= 64 || !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+    if name.is_empty()
+        || name.len() >= 64
+        || !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(Error::Query(format!(
             "«{}» no se renombra desde DBine: el nombre de la base tiene caracteres que no son letras, dígitos, «_» ni «-».",
             name.escape_debug()
@@ -98,7 +110,12 @@ fn check_database_name(name: &str) -> Result<()> {
 /// db.getCollection("v").drop()
 /// db.getCollection("system.views").drop()
 /// ```
-pub(crate) fn database_script(flavor: Flavor, database: &str, new_name: &str, objects: &[DatabaseObject]) -> Result<SyncScript> {
+pub(crate) fn database_script(
+    flavor: Flavor,
+    database: &str,
+    new_name: &str,
+    objects: &[DatabaseObject],
+) -> Result<SyncScript> {
     if flavor != Flavor::Mongo {
         return Err(Error::Unsupported("este motor no mueve colecciones entre bases (renameCollection entre bases), así que no renombra bases de datos".into()));
     }
@@ -120,21 +137,44 @@ pub(crate) fn database_script(flavor: Flavor, database: &str, new_name: &str, ob
                 let mut cmd = Document::new();
                 cmd.insert("renameCollection", format!("{database}.{}", o.name));
                 cmd.insert("to", format!("{new_name}.{}", o.name));
-                statements.push(format!("db.adminCommand({})", Bson::Document(cmd).into_relaxed_extjson()));
+                statements.push(format!(
+                    "db.adminCommand({})",
+                    Bson::Document(cmd).into_relaxed_extjson()
+                ));
             }
             kinds::VIEW => {
-                let obj = ObjectRef { kind: o.kind.clone(), schema: None, name: o.name.clone() };
-                views.push((o.name.as_str(), view_options(&obj, o.definition.as_deref())?));
+                let obj = ObjectRef {
+                    kind: o.kind.clone(),
+                    schema: None,
+                    name: o.name.clone(),
+                };
+                views.push((
+                    o.name.as_str(),
+                    view_options(&obj, o.definition.as_deref())?,
+                ));
             }
-            k => return Err(Error::Unsupported(format!("«{}» es de tipo «{k}»: MongoDB solo mueve colecciones y vistas", o.name))),
+            k => {
+                return Err(Error::Unsupported(format!(
+                    "«{}» es de tipo «{k}»: MongoDB solo mueve colecciones y vistas",
+                    o.name
+                )))
+            }
         }
     }
     if !views.is_empty() {
         statements.push(format!("use {new_name}"));
-        statements.extend(views.iter().map(|(name, options)| crate::ddl::view_definition(name, Some(options))));
+        statements.extend(
+            views
+                .iter()
+                .map(|(name, options)| crate::ddl::view_definition(name, Some(options))),
+        );
     }
     statements.push(format!("use {database}"));
-    statements.extend(views.iter().map(|(name, _)| format!("{}.drop()", coll(name))));
+    statements.extend(
+        views
+            .iter()
+            .map(|(name, _)| format!("{}.drop()", coll(name))),
+    );
     // What's left of the views' catalog: without it the old database is gone.
     statements.push(format!("{}.drop()", coll("system.views")));
     let mut warnings = vec![
@@ -143,9 +183,15 @@ pub(crate) fn database_script(flavor: Flavor, database: &str, new_name: &str, ob
         format!("Los usuarios y roles definidos en «{database}» no se mueven."),
     ];
     if !skipped.is_empty() {
-        warnings.push(format!("Las colecciones del sistema no se mueven y quedan en «{database}»: {}.", skipped.join(", ")));
+        warnings.push(format!(
+            "Las colecciones del sistema no se mueven y quedan en «{database}»: {}.",
+            skipped.join(", ")
+        ));
     }
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 /// The statements that rename the target.
@@ -154,17 +200,34 @@ pub(crate) fn script(flavor: Flavor, req: &RenameRequest) -> Result<SyncScript> 
     match &req.target {
         RenameTarget::Object { object, .. } if object.kind == kinds::COLLECTION => {
             check_collection_name(new)?;
-            Ok(SyncScript { statements: vec![format!("{}.renameCollection({})", coll(&object.name), q(new))], warnings: Vec::new() })
+            Ok(SyncScript {
+                statements: vec![format!(
+                    "{}.renameCollection({})",
+                    coll(&object.name),
+                    q(new)
+                )],
+                warnings: Vec::new(),
+            })
         }
-        RenameTarget::Object { object, .. } if object.kind == kinds::VIEW && flavor == Flavor::Mongo => {
+        RenameTarget::Object { object, .. }
+            if object.kind == kinds::VIEW && flavor == Flavor::Mongo =>
+        {
             check_collection_name(new)?;
             view(object, req.definition.as_deref(), new)
         }
         RenameTarget::Column { table, column } => field(table, column, new, req.table.as_ref()),
-        RenameTarget::Object { .. } => Err(Error::Unsupported("desde DBine este motor solo renombra colecciones, vistas y campos".into())),
-        RenameTarget::Index { .. } => Err(Error::Unsupported("MongoDB no renombra índices: hay que borrarlo y crearlo con el nombre nuevo".into())),
-        RenameTarget::Constraint { .. } => Err(Error::Unsupported("MongoDB no tiene restricciones con nombre".into())),
-        RenameTarget::Schema { .. } => Err(Error::Unsupported("MongoDB no renombra bases de datos".into())),
+        RenameTarget::Object { .. } => Err(Error::Unsupported(
+            "desde DBine este motor solo renombra colecciones, vistas y campos".into(),
+        )),
+        RenameTarget::Index { .. } => Err(Error::Unsupported(
+            "MongoDB no renombra índices: hay que borrarlo y crearlo con el nombre nuevo".into(),
+        )),
+        RenameTarget::Constraint { .. } => Err(Error::Unsupported(
+            "MongoDB no tiene restricciones con nombre".into(),
+        )),
+        RenameTarget::Schema { .. } => Err(Error::Unsupported(
+            "MongoDB no renombra bases de datos".into(),
+        )),
     }
 }
 
@@ -184,7 +247,10 @@ fn check_collection_name(name: &str) -> Result<()> {
 fn view(object: &ObjectRef, definition: Option<&str>, new: &str) -> Result<SyncScript> {
     let options = view_options(object, definition)?;
     Ok(SyncScript {
-        statements: vec![format!("{}.drop()", coll(&object.name)), crate::ddl::view_definition(new, Some(&options))],
+        statements: vec![
+            format!("{}.drop()", coll(&object.name)),
+            crate::ddl::view_definition(new, Some(&options)),
+        ],
         warnings: Vec::new(),
     })
 }
@@ -192,14 +258,27 @@ fn view(object: &ObjectRef, definition: Option<&str>, new: &str) -> Result<SyncS
 /// A view's `listCollections` options (source, pipeline, collation) read
 /// back from its definition.
 fn view_options(object: &ObjectRef, definition: Option<&str>) -> Result<Document> {
-    let unreadable = || Error::Query(format!("no se pudo leer la definición de la vista «{}»", object.name));
+    let unreadable = || {
+        Error::Query(format!(
+            "no se pudo leer la definición de la vista «{}»",
+            object.name
+        ))
+    };
     let def = definition.ok_or_else(unreadable)?;
     let units = parse_units(def).map_err(|_| unreadable())?;
-    let Some(Item::Run(stmt)) = units.into_iter().next().map(|u| u.item) else { return Err(unreadable()) };
+    let Some(Item::Run(stmt)) = units.into_iter().next().map(|u| u.item) else {
+        return Err(unreadable());
+    };
     let source = stmt.cmd.get_str("viewOn").map_err(|_| unreadable())?;
     let mut options = Document::new();
     options.insert("viewOn", source);
-    options.insert("pipeline", stmt.cmd.get("pipeline").cloned().unwrap_or(Bson::Array(Vec::new())));
+    options.insert(
+        "pipeline",
+        stmt.cmd
+            .get("pipeline")
+            .cloned()
+            .unwrap_or(Bson::Array(Vec::new())),
+    );
     if let Some(c) = stmt.cmd.get("collation") {
         options.insert("collation", c.clone());
     }
@@ -211,7 +290,9 @@ fn rename_path(path: &str, old: &str, new: &str) -> Option<String> {
     if path == old {
         return Some(new.to_string());
     }
-    path.strip_prefix(old).filter(|rest| rest.starts_with('.')).map(|rest| format!("{new}{rest}"))
+    path.strip_prefix(old)
+        .filter(|rest| rest.starts_with('.'))
+        .map(|rest| format!("{new}{rest}"))
 }
 
 /// A query document (a validator, a partial index filter): field keys at
@@ -270,15 +351,23 @@ fn rename_schema(v: &mut Value, old: &str, new: &str) -> bool {
 /// `"$old"` and `"$old.x"` anywhere in an aggregation expression.
 fn rename_expr(v: &mut Value, old: &str, new: &str) -> bool {
     match v {
-        Value::String(s) => match s.strip_prefix('$').filter(|p| !p.starts_with('$')).and_then(|p| rename_path(p, old, new)) {
+        Value::String(s) => match s
+            .strip_prefix('$')
+            .filter(|p| !p.starts_with('$'))
+            .and_then(|p| rename_path(p, old, new))
+        {
             Some(n) => {
                 *s = format!("${n}");
                 true
             }
             None => false,
         },
-        Value::Array(a) => a.iter_mut().fold(false, |c, x| rename_expr(x, old, new) | c),
-        Value::Object(m) => m.values_mut().fold(false, |c, x| rename_expr(x, old, new) | c),
+        Value::Array(a) => a
+            .iter_mut()
+            .fold(false, |c, x| rename_expr(x, old, new) | c),
+        Value::Object(m) => m
+            .values_mut()
+            .fold(false, |c, x| rename_expr(x, old, new) | c),
         _ => false,
     }
 }
@@ -288,7 +377,9 @@ fn rename_keys(m: &mut Map<String, Value>, old: &str, new: &str) -> bool {
     let mut changed = false;
     let mut out = Map::new();
     for (k, val) in std::mem::take(m) {
-        let key = rename_path(&k, old, new).inspect(|_| changed = true).unwrap_or(k);
+        let key = rename_path(&k, old, new)
+            .inspect(|_| changed = true)
+            .unwrap_or(k);
         out.insert(key, val);
     }
     *m = out;
@@ -312,7 +403,11 @@ fn renamed_index(ix: &IndexDef, old: &str, new: &str) -> Option<IndexDef> {
             changed = true;
         }
     }
-    let json = |s: &str| serde_json::from_str::<Value>(s).or_else(|_| crate::ddl::relaxed(s, |e| e).map_err(|_| ())).ok();
+    let json = |s: &str| {
+        serde_json::from_str::<Value>(s)
+            .or_else(|_| crate::ddl::relaxed(s, |e| e).map_err(|_| ()))
+            .ok()
+    };
     if let Some(mut f) = out.filter.as_deref().and_then(json) {
         if rename_query(&mut f, old, new) {
             out.filter = Some(f.to_string());
@@ -322,7 +417,8 @@ fn renamed_index(ix: &IndexDef, old: &str, new: &str) -> Option<IndexDef> {
     for k in ["weights", "wildcardProjection"] {
         if let Some(Value::Object(mut m)) = out.options.get(k).and_then(|s| json(s)) {
             if rename_keys(&mut m, old, new) {
-                out.options.insert(k.to_string(), Value::Object(m).to_string());
+                out.options
+                    .insert(k.to_string(), Value::Object(m).to_string());
                 changed = true;
             }
         }
@@ -332,25 +428,43 @@ fn renamed_index(ix: &IndexDef, old: &str, new: &str) -> Option<IndexDef> {
 
 fn create_index(collection: &str, ix: &IndexDef) -> Result<String> {
     let (key, o) = index_parts(ix)?;
-    Ok(format!("{}.createIndex({}, {})", coll(collection), Value::Object(key), Value::Object(o)))
+    Ok(format!(
+        "{}.createIndex({}, {})",
+        coll(collection),
+        Value::Object(key),
+        Value::Object(o)
+    ))
 }
 
 /// A field, renamed in every document that has it.
-fn field(table: &ObjectRef, old: &str, new: &str, schema: Option<&TableSchema>) -> Result<SyncScript> {
+fn field(
+    table: &ObjectRef,
+    old: &str,
+    new: &str,
+    schema: Option<&TableSchema>,
+) -> Result<SyncScript> {
     if table.kind == kinds::VIEW || schema.is_some_and(|t| t.kind == kinds::VIEW) {
         return Err(Error::Unsupported("los campos de una vista salen de su pipeline: para renombrar uno hay que editar la vista".into()));
     }
     if old == "_id" || new == "_id" || old.starts_with("_id.") || new.starts_with("_id.") {
-        return Err(Error::Unsupported("el campo _id no se puede renombrar".into()));
+        return Err(Error::Unsupported(
+            "el campo _id no se puede renombrar".into(),
+        ));
     }
     if new.starts_with('$') || new.contains('\0') || new.split('.').any(str::is_empty) {
         return Err(Error::Query(format!("«{new}» no es un nombre de campo válido: no puede empezar con $ ni tener partes vacías")));
     }
     if rename_path(new, old, "").is_some() || rename_path(old, new, "").is_some() {
-        return Err(Error::Query("un campo no se puede renombrar a una ruta dentro de sí mismo, ni al revés".into()));
+        return Err(Error::Query(
+            "un campo no se puede renombrar a una ruta dentro de sí mismo, ni al revés".into(),
+        ));
     }
     if let Some(t) = schema {
-        if ["timeField", "metaField"].iter().any(|k| t.options.get(*k).is_some_and(|f| rename_path(f, old, "").is_some())) {
+        if ["timeField", "metaField"].iter().any(|k| {
+            t.options
+                .get(*k)
+                .is_some_and(|f| rename_path(f, old, "").is_some())
+        }) {
             return Err(Error::Unsupported("en una colección de series temporales no se puede renombrar el campo de tiempo ni el de metadatos".into()));
         }
     }
@@ -372,15 +486,25 @@ fn field(table: &ObjectRef, old: &str, new: &str, schema: Option<&TableSchema>) 
             if let Some(mut w) = validator_check(t)? {
                 if let Some(v) = w.get_mut("validator") {
                     if rename_query(v, old, new) {
-                        statements.push(format!("db.runCommand({{ \"collMod\": {}, \"validator\": {v} }})", q(name)));
+                        statements.push(format!(
+                            "db.runCommand({{ \"collMod\": {}, \"validator\": {v} }})",
+                            q(name)
+                        ));
                         warnings.push(format!("El validador de «{name}» se cambia con collMod para que nombre el campo nuevo."));
                     }
                 }
             }
         }
-        None => warnings.push(format!("No se pudo leer «{name}»: no se revisaron sus índices ni su validador.")),
+        None => warnings.push(format!(
+            "No se pudo leer «{name}»: no se revisaron sus índices ni su validador."
+        )),
     }
-    statements.push(format!("{c}.updateMany({{ {}: {{ \"$exists\": true }} }}, {{ \"$rename\": {{ {}: {} }} }})", q(old), q(old), q(new)));
+    statements.push(format!(
+        "{c}.updateMany({{ {}: {{ \"$exists\": true }} }}, {{ \"$rename\": {{ {}: {} }} }})",
+        q(old),
+        q(old),
+        q(new)
+    ));
     for ix in &indexes {
         statements.push(create_index(name, ix)?);
     }
@@ -395,7 +519,10 @@ fn field(table: &ObjectRef, old: &str, new: &str, schema: Option<&TableSchema>) 
         warnings.push("$rename no entra en arrays: donde la ruta del campo pasa por un array, el documento queda como estaba.".into());
     }
     warnings.push(format!("Las aplicaciones que sigan escribiendo «{old}» lo vuelven a crear en los documentos nuevos."));
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 #[cfg(test)]
@@ -405,11 +532,20 @@ mod tests {
     use dbine_driver::CheckDef;
 
     fn obj(kind: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: None, name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: None,
+            name: name.into(),
+        }
     }
 
     fn req(target: RenameTarget, new: &str) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: None }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: None,
+        }
     }
 
     fn parsed(text: &str) -> Vec<Stmt> {
@@ -440,7 +576,12 @@ mod tests {
     }
 
     fn dbo(kind: &str, name: &str, definition: Option<&str>) -> DatabaseObject {
-        DatabaseObject { kind: kind.into(), schema: None, name: name.into(), definition: definition.map(String::from) }
+        DatabaseObject {
+            kind: kind.into(),
+            schema: None,
+            name: name.into(),
+            definition: definition.map(String::from),
+        }
     }
 
     #[test]
@@ -461,7 +602,13 @@ mod tests {
         let objects = [
             dbo("collection", "clientes", None),
             dbo("collection", "a\"b", None),
-            dbo("view", "v_activos", Some(r#"db.createView("v_activos", "clientes", [{"$match":{"activo":true}}], {"collation": {"locale":"es"}})"#)),
+            dbo(
+                "view",
+                "v_activos",
+                Some(
+                    r#"db.createView("v_activos", "clientes", [{"$match":{"activo":true}}], {"collation": {"locale":"es"}})"#,
+                ),
+            ),
             dbo("collection", "system.js", None),
         ];
         let s = database_script(Flavor::Mongo, "ventas", "ventas_2024", &objects).unwrap();
@@ -478,13 +625,22 @@ mod tests {
             ]
         );
         assert_eq!(s.warnings.len(), 4, "{:?}", s.warnings);
-        assert!(s.warnings[0].contains("atómico") && s.warnings[2].contains("usuarios y roles") && s.warnings[3].contains("system.js"));
+        assert!(
+            s.warnings[0].contains("atómico")
+                && s.warnings[2].contains("usuarios y roles")
+                && s.warnings[3].contains("system.js")
+        );
         // Admin commands with whole namespaces, nothing added by the session.
         let st = parsed(&s.statements[0]);
-        assert_eq!(st[0].cmd, mongodb::bson::doc! { "renameCollection": "ventas.clientes", "to": "ventas_2024.clientes" });
+        assert_eq!(
+            st[0].cmd,
+            mongodb::bson::doc! { "renameCollection": "ventas.clientes", "to": "ventas_2024.clientes" }
+        );
         assert!(st[0].admin);
         assert_ne!(st[0].shape, Shape::Rename);
-        assert!(matches!(&parse_units(&s.statements[2]).unwrap()[0].item, Item::Use(d) if d == "ventas_2024"));
+        assert!(
+            matches!(&parse_units(&s.statements[2]).unwrap()[0].item, Item::Use(d) if d == "ventas_2024")
+        );
         // Without views: collections, then the old database's leftovers.
         let s = database_script(Flavor::Mongo, "a", "b", &[dbo("collection", "c", None)]).unwrap();
         assert_eq!(s.statements.len(), 3);
@@ -493,8 +649,20 @@ mod tests {
 
     #[test]
     fn database_rename_refuses_system_and_bad_names() {
-        for (old, new) in [("admin", "x"), ("x", "local"), ("Config", "x"), ("a", "a"), ("a", "b.c"), ("a", "b c"), ("a", "b$"), ("a", "")] {
-            assert!(database_script(Flavor::Mongo, old, new, &[]).is_err(), "{old} -> {new}");
+        for (old, new) in [
+            ("admin", "x"),
+            ("x", "local"),
+            ("Config", "x"),
+            ("a", "a"),
+            ("a", "b.c"),
+            ("a", "b c"),
+            ("a", "b$"),
+            ("a", ""),
+        ] {
+            assert!(
+                database_script(Flavor::Mongo, old, new, &[]).is_err(),
+                "{old} -> {new}"
+            );
         }
         assert!(database_script(Flavor::Mongo, "a", "b", &[dbo("view", "v", None)]).is_err());
         assert!(database_script(Flavor::Mongo, "a", "b", &[dbo("function", "f", None)]).is_err());
@@ -502,22 +670,77 @@ mod tests {
 
     #[test]
     fn collection_with_rename_collection() {
-        let s = script(Flavor::Mongo, &req(RenameTarget::Object { object: obj("collection", "Pedidos"), parent: None }, "Órdenes 2024")).unwrap();
-        assert_eq!(s.statements, [r#"db.getCollection("Pedidos").renameCollection("Órdenes 2024")"#]);
+        let s = script(
+            Flavor::Mongo,
+            &req(
+                RenameTarget::Object {
+                    object: obj("collection", "Pedidos"),
+                    parent: None,
+                },
+                "Órdenes 2024",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            [r#"db.getCollection("Pedidos").renameCollection("Órdenes 2024")"#]
+        );
         let st = parsed(&s.statements[0]);
-        assert_eq!(st[0].cmd, mongodb::bson::doc! { "renameCollection": "Pedidos", "to": "Órdenes 2024", "dropTarget": false });
+        assert_eq!(
+            st[0].cmd,
+            mongodb::bson::doc! { "renameCollection": "Pedidos", "to": "Órdenes 2024", "dropTarget": false }
+        );
         assert_eq!(st[0].shape, Shape::Rename);
         assert!(st[0].admin);
         // Quotes in names are JSON-escaped.
-        let s = script(Flavor::Ferret, &req(RenameTarget::Object { object: obj("collection", "a\"b"), parent: None }, "c")).unwrap();
-        assert_eq!(s.statements, [r#"db.getCollection("a\"b").renameCollection("c")"#]);
-        assert!(script(Flavor::Mongo, &req(RenameTarget::Object { object: obj("collection", "a"), parent: None }, "x$y")).is_err());
-        assert!(script(Flavor::Mongo, &req(RenameTarget::Object { object: obj("collection", "a"), parent: None }, "system.x")).is_err());
+        let s = script(
+            Flavor::Ferret,
+            &req(
+                RenameTarget::Object {
+                    object: obj("collection", "a\"b"),
+                    parent: None,
+                },
+                "c",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            [r#"db.getCollection("a\"b").renameCollection("c")"#]
+        );
+        assert!(script(
+            Flavor::Mongo,
+            &req(
+                RenameTarget::Object {
+                    object: obj("collection", "a"),
+                    parent: None
+                },
+                "x$y"
+            )
+        )
+        .is_err());
+        assert!(script(
+            Flavor::Mongo,
+            &req(
+                RenameTarget::Object {
+                    object: obj("collection", "a"),
+                    parent: None
+                },
+                "system.x"
+            )
+        )
+        .is_err());
     }
 
     #[test]
     fn view_dropped_and_created() {
-        let mut r = req(RenameTarget::Object { object: obj("view", "v_activos"), parent: None }, "VActivos");
+        let mut r = req(
+            RenameTarget::Object {
+                object: obj("view", "v_activos"),
+                parent: None,
+            },
+            "VActivos",
+        );
         r.definition = Some(r#"db.createView("v_activos", "clientes", [{"$match":{"activo":true}}], {"collation": {"locale":"es"}})"#.into());
         let s = script(Flavor::Mongo, &r).unwrap();
         assert_eq!(
@@ -530,24 +753,55 @@ mod tests {
         r.definition = None;
         assert!(matches!(script(Flavor::Mongo, &r), Err(Error::Query(_))));
         // No views on FerretDB / DocumentDB.
-        assert!(matches!(script(Flavor::Ferret, &req(RenameTarget::Object { object: obj("view", "v"), parent: None }, "w")), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(
+                Flavor::Ferret,
+                &req(
+                    RenameTarget::Object {
+                        object: obj("view", "v"),
+                        parent: None
+                    },
+                    "w"
+                )
+            ),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     fn ix(name: &str, cols: &[&str], unique: bool) -> IndexDef {
-        IndexDef { name: name.into(), columns: cols.iter().map(|s| s.to_string()).collect(), unique, ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|s| s.to_string()).collect(),
+            unique,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn field_with_dollar_rename_indexes_and_validator() {
-        let mut t = TableSchema { kind: "collection".into(), name: "clientes".into(), ..Default::default() };
+        let mut t = TableSchema {
+            kind: "collection".into(),
+            name: "clientes".into(),
+            ..Default::default()
+        };
         let mut partial = ix("ix_otro", &["otro"], false);
         partial.filter = Some(r#"{"pepe":{"$gt":0}}"#.into());
-        t.indexes = vec![ix("ux_pepe", &["pepe", "fecha:-1"], true), ix("ix_fecha", &["fecha"], false), partial];
+        t.indexes = vec![
+            ix("ux_pepe", &["pepe", "fecha:-1"], true),
+            ix("ix_fecha", &["fecha"], false),
+            partial,
+        ];
         t.checks = vec![CheckDef {
             name: Some("validator".into()),
             expression: r#"{"validator":{"$jsonSchema":{"required":["pepe"],"properties":{"pepe":{"bsonType":"int"}}},"$expr":{"$gt":["$pepe",0]}}}"#.into(),
         }];
-        let mut r = req(RenameTarget::Column { table: obj("collection", "clientes"), column: "pepe".into() }, "Pepe Nuevo");
+        let mut r = req(
+            RenameTarget::Column {
+                table: obj("collection", "clientes"),
+                column: "pepe".into(),
+            },
+            "Pepe Nuevo",
+        );
         r.table = Some(t);
         let s = script(Flavor::Mongo, &r).unwrap();
         assert_eq!(
@@ -562,7 +816,10 @@ mod tests {
             ]
         );
         assert!(s.warnings[0].contains("reescribe cada documento"));
-        assert!(s.warnings.iter().any(|w| w.contains("«ux_pepe», «ix_otro»")));
+        assert!(s
+            .warnings
+            .iter()
+            .any(|w| w.contains("«ux_pepe», «ix_otro»")));
         // Every statement parses in the driver's own language.
         for st in &s.statements {
             parsed(st);
@@ -571,37 +828,98 @@ mod tests {
 
     #[test]
     fn field_without_schema_and_refusals() {
-        let col = |c: &str| RenameTarget::Column { table: obj("collection", "c"), column: c.into() };
+        let col = |c: &str| RenameTarget::Column {
+            table: obj("collection", "c"),
+            column: c.into(),
+        };
         let s = script(Flavor::DocumentDb, &req(col("a.b"), "a.c")).unwrap();
-        assert_eq!(s.statements, [r#"db.getCollection("c").updateMany({ "a.b": { "$exists": true } }, { "$rename": { "a.b": "a.c" } })"#]);
+        assert_eq!(
+            s.statements,
+            [
+                r#"db.getCollection("c").updateMany({ "a.b": { "$exists": true } }, { "$rename": { "a.b": "a.c" } })"#
+            ]
+        );
         assert!(s.warnings.iter().any(|w| w.contains("arrays")));
         assert!(s.warnings.iter().any(|w| w.contains("no se revisaron")));
-        assert!(matches!(script(Flavor::Mongo, &req(col("_id"), "id")), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(Flavor::Mongo, &req(col("_id"), "id")),
+            Err(Error::Unsupported(_))
+        ));
         assert!(script(Flavor::Mongo, &req(col("a"), "$a")).is_err());
         assert!(script(Flavor::Mongo, &req(col("a"), "a.b")).is_err());
         assert!(script(Flavor::Mongo, &req(col("a"), "x..y")).is_err());
-        let view_field = RenameTarget::Column { table: obj("view", "v"), column: "a".into() };
-        assert!(matches!(script(Flavor::Mongo, &req(view_field, "b")), Err(Error::Unsupported(_))));
-        let mut ts = TableSchema { kind: "collection".into(), name: "c".into(), ..Default::default() };
+        let view_field = RenameTarget::Column {
+            table: obj("view", "v"),
+            column: "a".into(),
+        };
+        assert!(matches!(
+            script(Flavor::Mongo, &req(view_field, "b")),
+            Err(Error::Unsupported(_))
+        ));
+        let mut ts = TableSchema {
+            kind: "collection".into(),
+            name: "c".into(),
+            ..Default::default()
+        };
         ts.options.insert("timeField".into(), "t".into());
         let mut r = req(col("t"), "ts");
         r.table = Some(ts);
-        assert!(matches!(script(Flavor::Mongo, &r), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(Flavor::Mongo, &r),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn other_targets_refused() {
         let t = obj("collection", "c");
-        assert!(matches!(script(Flavor::Mongo, &req(RenameTarget::Index { table: t.clone(), index: "i".into() }, "j")), Err(Error::Unsupported(_))));
-        assert!(matches!(script(Flavor::Mongo, &req(RenameTarget::Constraint { table: t, constraint: "k".into() }, "j")), Err(Error::Unsupported(_))));
-        assert!(matches!(script(Flavor::Mongo, &req(RenameTarget::Schema { database: None, schema: "d".into() }, "e")), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(
+                Flavor::Mongo,
+                &req(
+                    RenameTarget::Index {
+                        table: t.clone(),
+                        index: "i".into()
+                    },
+                    "j"
+                )
+            ),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(
+                Flavor::Mongo,
+                &req(
+                    RenameTarget::Constraint {
+                        table: t,
+                        constraint: "k".into()
+                    },
+                    "j"
+                )
+            ),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(
+                Flavor::Mongo,
+                &req(
+                    RenameTarget::Schema {
+                        database: None,
+                        schema: "d".into()
+                    },
+                    "e"
+                )
+            ),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn text_index_weights() {
         let mut t = ix("txt", &["pepe", "bio"], false);
         t.kind = Some("FULLTEXT".into());
-        t.options.insert("weights".into(), r#"{"bio":1,"pepe":5}"#.into());
+        t.options
+            .insert("weights".into(), r#"{"bio":1,"pepe":5}"#.into());
         let r = renamed_index(&t, "pepe", "apodo").unwrap();
         assert_eq!(r.columns, ["apodo", "bio"]);
         assert_eq!(r.options["weights"], r#"{"bio":1,"apodo":5}"#);
@@ -612,7 +930,16 @@ mod tests {
 
     #[test]
     fn names_with_anything_but_letters_digits_underscore_or_dash_are_refused() {
-        for bad in ["a\nb", "a\tb", "a;b", "'a'", "a b", "a{b}", "a`b", "ventas.2024"] {
+        for bad in [
+            "a\nb",
+            "a\tb",
+            "a;b",
+            "'a'",
+            "a b",
+            "a{b}",
+            "a`b",
+            "ventas.2024",
+        ] {
             assert!(check_database_name(bad).is_err(), "{bad:?}");
         }
         for good in ["ventas", "Ventas_2024", "ventas-qa", "año"] {

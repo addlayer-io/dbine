@@ -21,7 +21,9 @@
 
 use crate::{bq, bq_qualified, create_session, gcp, SpannerSession};
 use base64::Engine;
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, ObjectRef, Result};
 use serde_json::{json, Map, Value as Json};
 use std::collections::VecDeque;
@@ -59,7 +61,11 @@ impl SpannerSession {
             .into_iter()
             .map(|r| {
                 let s = |i: usize| r.get(i).cloned().flatten().unwrap_or_default();
-                CatalogColumn { name: s(0), type_name: s(1), nullable: s(2) != "NO" }
+                CatalogColumn {
+                    name: s(0),
+                    type_name: s(1),
+                    nullable: s(2) != "NO",
+                }
             })
             .collect())
     }
@@ -82,50 +88,88 @@ impl SpannerSession {
                 &[t.schema().unwrap_or(""), &t.name],
             )
             .await?;
-        let n = |i: usize| rows.first().and_then(|r| r.get(i).cloned().flatten()).and_then(|n| n.parse::<u64>().ok()).unwrap_or(0);
+        let n = |i: usize| {
+            rows.first()
+                .and_then(|r| r.get(i).cloned().flatten())
+                .and_then(|n| n.parse::<u64>().ok())
+                .unwrap_or(0)
+        };
         Ok(index_mutations(n(0), n(1), n(2)))
     }
 
     /// `POST {session}:{verb}`, recreating the session once if Spanner
     /// dropped it (idle sessions expire after an hour).
     async fn session_call(&mut self, verb: &str, body: &Json) -> Result<Json> {
-        match self.api.post(&format!("{}:{verb}", self.session), body).await {
+        match self
+            .api
+            .post(&format!("{}:{verb}", self.session), body)
+            .await
+        {
             Err(Error::Query(m)) if m.contains("Session not found") => {
                 self.session = create_session(&self.api, &self.database).await?;
-                self.api.post(&format!("{}:{verb}", self.session), body).await
+                self.api
+                    .post(&format!("{}:{verb}", self.session), body)
+                    .await
             }
             other => other,
         }
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let catalog = self.catalog_columns(&spec.table).await?;
         if catalog.is_empty() {
-            return Err(Error::Query(format!("No existe la tabla {}.", bq_qualified(spec.table.schema(), &spec.table.name))));
+            return Err(Error::Query(format!(
+                "No existe la tabla {}.",
+                bq_qualified(spec.table.schema(), &spec.table.name)
+            )));
         }
         let cols = read_columns(&catalog, spec.columns.as_deref())?;
         let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
         let sql = select_sql(&spec.table, &names, spec.filter.as_deref());
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
 
-        let tx = self.session_call("beginTransaction", &json!({ "options": { "readOnly": { "strong": true } } })).await?;
-        let tx = tx.get("id").and_then(Json::as_str).map(str::to_string).ok_or_else(|| Error::Query("Spanner no abrió la transacción de lectura.".into()))?;
-        let parts: Vec<Option<String>> =
-            match self.session_call("partitionQuery", &json!({ "transaction": { "id": tx }, "sql": sql })).await {
-                Ok(r) => r
-                    .get("partitions")
-                    .and_then(Json::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|p| p.get("partitionToken").and_then(Json::as_str).map(|t| Some(t.to_string())))
-                    .collect(),
-                // Not root-partitionable (views, some filters): one stream.
-                Err(Error::Query(m)) => {
-                    tracing::debug!("spanner: lectura sin particiones: {m}");
-                    vec![None]
-                }
-                Err(e) => return Err(e),
-            };
+        let tx = self
+            .session_call(
+                "beginTransaction",
+                &json!({ "options": { "readOnly": { "strong": true } } }),
+            )
+            .await?;
+        let tx = tx
+            .get("id")
+            .and_then(Json::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| Error::Query("Spanner no abrió la transacción de lectura.".into()))?;
+        let parts: Vec<Option<String>> = match self
+            .session_call(
+                "partitionQuery",
+                &json!({ "transaction": { "id": tx }, "sql": sql }),
+            )
+            .await
+        {
+            Ok(r) => r
+                .get("partitions")
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|p| {
+                    p.get("partitionToken")
+                        .and_then(Json::as_str)
+                        .map(|t| Some(t.to_string()))
+                })
+                .collect(),
+            // Not root-partitionable (views, some filters): one stream.
+            Err(Error::Query(m)) => {
+                tracing::debug!("spanner: lectura sin particiones: {m}");
+                vec![None]
+            }
+            Err(e) => return Err(e),
+        };
 
         let mut builder = BatchBuilder::new();
         for part in parts {
@@ -135,14 +179,23 @@ impl SpannerSession {
             }
             self.stream(&body, &sink, &mut builder).await?;
         }
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
     /// One `executeStreamingSql`, its rows handed to `builder` as they
     /// come. A stream cut short (network, `UNAVAILABLE`) is resumed from its
     /// last resume token, rows after it dropped so none arrives twice.
-    async fn stream(&mut self, body: &Json, sink: &BatchSinkRef, builder: &mut BatchBuilder) -> Result<()> {
+    async fn stream(
+        &mut self,
+        body: &Json,
+        sink: &BatchSinkRef,
+        builder: &mut BatchBuilder,
+    ) -> Result<()> {
         let mut resume = Resume::new();
         let mut retries = 0;
         loop {
@@ -162,7 +215,13 @@ impl SpannerSession {
         }
     }
 
-    async fn stream_once(&mut self, body: &Json, resume: &mut Resume, sink: &BatchSinkRef, builder: &mut BatchBuilder) -> Result<()> {
+    async fn stream_once(
+        &mut self,
+        body: &Json,
+        resume: &mut Resume,
+        sink: &BatchSinkRef,
+        builder: &mut BatchBuilder,
+    ) -> Result<()> {
         let url = format!("{}/v1/{}:executeStreamingSql", self.api.base, self.session);
         let mut body = body.clone();
         if let Some(t) = &resume.token {
@@ -172,14 +231,21 @@ impl SpannerSession {
         if let Some(b) = self.api.tokens.bearer().await? {
             req = req.header("Authorization", b);
         }
-        let mut resp = req.send().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let mut resp = req
+            .send()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?;
         let status = resp.status().as_u16();
         if !(200..300).contains(&status) {
             let text = resp.text().await.unwrap_or_default();
             return Err(http_error(status, &text));
         }
         let mut split = JsonSplitter::default();
-        while let Some(chunk) = resp.chunk().await.map_err(|e| Error::Connect(e.to_string()))? {
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?
+        {
             for msg in split.feed(&chunk)? {
                 hand_over(resume.push(result_set(msg)?)?, sink, builder)?;
             }
@@ -187,16 +253,26 @@ impl SpannerSession {
         split.finish()
     }
 
-    pub(crate) async fn transfer_load(&mut self, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+    pub(crate) async fn transfer_load(
+        &mut self,
+        spec: &LoadSpec,
+        source: &mut dyn BatchSource,
+        progress: Progress<'_>,
+    ) -> Result<u64> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden cargar datos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden cargar datos.".into(),
+            ));
         }
         if spec.columns.is_empty() {
             return Err(Error::Query("La carga no tiene columnas.".into()));
         }
         let catalog = self.catalog_columns(&spec.table).await?;
         if catalog.is_empty() {
-            return Err(Error::Query(format!("No existe la tabla {}.", bq_qualified(spec.table.schema(), &spec.table.name))));
+            return Err(Error::Query(format!(
+                "No existe la tabla {}.",
+                bq_qualified(spec.table.schema(), &spec.table.name)
+            )));
         }
         let types: Vec<Ty> = spec
             .columns
@@ -214,19 +290,30 @@ impl SpannerSession {
             rows: (MAX_MUTATIONS / per_row).clamp(1, spec.commit_rows.max(1)),
             bytes: spec.commit_bytes.clamp(1, MAX_COMMIT_BYTES),
         };
-        let target = Target { table: mutation_table(&spec.table), columns: &spec.columns };
+        let target = Target {
+            table: mutation_table(&spec.table),
+            columns: &spec.columns,
+        };
 
         let (mut pending, mut done) = (Pending::default(), 0u64);
         while let Some(batch) = source.next().await {
             for row in batch.rows {
                 if row.len() != types.len() {
-                    return Err(Error::Query(format!("La fila tiene {} valores y la carga {} columnas.", row.len(), types.len())));
+                    return Err(Error::Query(format!(
+                        "La fila tiene {} valores y la carga {} columnas.",
+                        row.len(),
+                        types.len()
+                    )));
                 }
                 let values = row
                     .iter()
                     .zip(&types)
                     .enumerate()
-                    .map(|(i, (c, t))| encode(c, t).map_err(|e| Error::Query(format!("Columna «{}»: {e}", spec.columns[i]))))
+                    .map(|(i, (c, t))| {
+                        encode(c, t).map_err(|e| {
+                            Error::Query(format!("Columna «{}»: {e}", spec.columns[i]))
+                        })
+                    })
                     .collect::<Result<Vec<Json>>>()?;
                 // Kept serialized: a row costs its encoded bytes and no more.
                 let row = serde_json::to_string(&values)?;
@@ -234,23 +321,33 @@ impl SpannerSession {
                 // over its bytes: a window never holds more than its
                 // bytes, or one row alone.
                 if let Some(rows) = pending.make_room(row.len(), &window) {
-                    self.commit_window(&target, rows, &mut window, &mut done, progress).await?;
+                    self.commit_window(&target, rows, &mut window, &mut done, progress)
+                        .await?;
                 }
                 pending.push(row);
                 if pending.full(&window) {
-                    self.commit_window(&target, pending.take(), &mut window, &mut done, progress).await?;
+                    self.commit_window(&target, pending.take(), &mut window, &mut done, progress)
+                        .await?;
                 }
             }
         }
         if !pending.rows.is_empty() {
-            self.commit_window(&target, pending.take(), &mut window, &mut done, progress).await?;
+            self.commit_window(&target, pending.take(), &mut window, &mut done, progress)
+                .await?;
         }
         Ok(done)
     }
 
     /// Commit `rows`; a commit refused for its size is split in halves
     /// (nothing of it was written) and the window shrinks.
-    async fn commit_window(&mut self, target: &Target<'_>, rows: Vec<String>, window: &mut Window, done: &mut u64, progress: Progress<'_>) -> Result<()> {
+    async fn commit_window(
+        &mut self,
+        target: &Target<'_>,
+        rows: Vec<String>,
+        window: &mut Window,
+        done: &mut u64,
+        progress: Progress<'_>,
+    ) -> Result<()> {
         let mut queue = VecDeque::from([rows]);
         while let Some(mut part) = queue.pop_front() {
             match self.commit(target, &part).await {
@@ -278,7 +375,11 @@ impl SpannerSession {
     /// (aborted, the session gone, throttled); a lost answer (network,
     /// `UNAVAILABLE`, `DEADLINE_EXCEEDED`) may have committed, so it is
     /// returned, never sent again.
-    async fn commit(&mut self, target: &Target<'_>, rows: &[String]) -> std::result::Result<(), CommitError> {
+    async fn commit(
+        &mut self,
+        target: &Target<'_>,
+        rows: &[String],
+    ) -> std::result::Result<(), CommitError> {
         let mut delay = Duration::from_millis(100);
         let mut attempt = 0;
         let mut renewed = false;
@@ -288,13 +389,30 @@ impl SpannerSession {
             // it and no second copy of the window stays in memory.
             let body = commit_body(target, rows).map_err(CommitError::Failed)?;
             let url = format!("{}/v1/{}:commit", self.api.base, self.session);
-            let mut req = self.api.http.post(url).header(reqwest::header::CONTENT_TYPE, "application/json").body(body);
-            if let Some(b) = self.api.tokens.bearer().await.map_err(CommitError::Failed)? {
+            let mut req = self
+                .api
+                .http
+                .post(url)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body);
+            if let Some(b) = self
+                .api
+                .tokens
+                .bearer()
+                .await
+                .map_err(CommitError::Failed)?
+            {
                 req = req.header("Authorization", b);
             }
-            let resp = req.send().await.map_err(|e| CommitError::Failed(Error::Connect(e.to_string())))?;
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| CommitError::Failed(Error::Connect(e.to_string())))?;
             let status = resp.status().as_u16();
-            let text = resp.text().await.map_err(|e| CommitError::Failed(Error::Connect(e.to_string())))?;
+            let text = resp
+                .text()
+                .await
+                .map_err(|e| CommitError::Failed(Error::Connect(e.to_string())))?;
             if (200..300).contains(&status) {
                 return Ok(());
             }
@@ -302,7 +420,9 @@ impl SpannerSession {
             match commit_failure(status, &text) {
                 Failure::SessionGone if !renewed => {
                     renewed = true;
-                    self.session = create_session(&self.api, &self.database).await.map_err(CommitError::Failed)?;
+                    self.session = create_session(&self.api, &self.database)
+                        .await
+                        .map_err(CommitError::Failed)?;
                 }
                 // Out of resources for this commit: smaller ones help, and
                 // halving a window nothing of which was written is safe.
@@ -345,7 +465,10 @@ fn grpc_status(body: &str) -> Option<String> {
     if let Some(s) = j.pointer("/error/status").and_then(Json::as_str) {
         return Some(s.to_string());
     }
-    let code = j.get("code").and_then(Json::as_u64).filter(|_| j.get("error").is_none())?;
+    let code = j
+        .get("code")
+        .and_then(Json::as_u64)
+        .filter(|_| j.get("error").is_none())?;
     let name = match code {
         1 => "CANCELLED",
         3 => "INVALID_ARGUMENT",
@@ -371,7 +494,10 @@ fn commit_failure(http: u16, body: &str) -> Failure {
     // The size wording counts only under a status a size limit uses (or
     // none): a duplicate key or a bad value whose text happens to say
     // "too large" must fail the window whole, never split it.
-    let size_status = matches!(status.as_deref(), None | Some("INVALID_ARGUMENT" | "RESOURCE_EXHAUSTED"));
+    let size_status = matches!(
+        status.as_deref(),
+        None | Some("INVALID_ARGUMENT" | "RESOURCE_EXHAUSTED")
+    );
     if http == 413 || (size_status && too_big(&message)) {
         return Failure::TooBig;
     }
@@ -382,7 +508,12 @@ fn commit_failure(http: u16, body: &str) -> Failure {
         Some(_) => Failure::Other,
         // No status (a gateway that lost it): the text is all there is.
         None if message.contains("Session not found") => Failure::SessionGone,
-        None if message.to_ascii_lowercase().contains("transaction was aborted") => Failure::Retry,
+        None if message
+            .to_ascii_lowercase()
+            .contains("transaction was aborted") =>
+        {
+            Failure::Retry
+        }
         None => Failure::Other,
     }
 }
@@ -433,7 +564,9 @@ fn commit_body(target: &Target<'_>, rows: &[String]) -> Result<Vec<u8>> {
     let columns = serde_json::to_string(target.columns)?;
     let size: usize = rows.iter().map(|r| r.len() + 1).sum();
     let mut b = Vec::with_capacity(size + table.len() + columns.len() + 96);
-    b.extend_from_slice(br#"{"singleUseTransaction":{"readWrite":{}},"mutations":[{"insert":{"table":"#);
+    b.extend_from_slice(
+        br#"{"singleUseTransaction":{"readWrite":{}},"mutations":[{"insert":{"table":"#,
+    );
     b.extend_from_slice(table.as_bytes());
     b.extend_from_slice(br#","columns":"#);
     b.extend_from_slice(columns.as_bytes());
@@ -470,7 +603,15 @@ fn mutation_table(t: &ObjectRef) -> String {
 /// around it. Unknown wordings fail the window whole.
 fn too_big(m: &str) -> bool {
     let m = m.to_ascii_lowercase();
-    let one_value = ["column", "cell", "value", "string of length", "bytes of length", "key", "row "];
+    let one_value = [
+        "column",
+        "cell",
+        "value",
+        "string of length",
+        "bytes of length",
+        "key",
+        "row ",
+    ];
     // "too many mutations" explains itself counting columns: that one
     // speaks of the whole commit whatever else it says.
     if m.contains("too many mutations") || m.contains("mutation limit") {
@@ -479,14 +620,36 @@ fn too_big(m: &str) -> bool {
     if one_value.iter().any(|k| m.contains(k)) {
         return false;
     }
-    let whole = ["transaction", "mutation", "commit", "request", "payload", "message", "entity"];
-    let size = ["too large", "larger than max", "exceeds the maximum", "exceeds the limit", "size limit", "exceeds limit"];
+    let whole = [
+        "transaction",
+        "mutation",
+        "commit",
+        "request",
+        "payload",
+        "message",
+        "entity",
+    ];
+    let size = [
+        "too large",
+        "larger than max",
+        "exceeds the maximum",
+        "exceeds the limit",
+        "size limit",
+        "exceeds limit",
+    ];
     whole.iter().any(|k| m.contains(k)) && size.iter().any(|k| m.contains(k))
 }
 
 /// The read's columns: the requested ones in their order, or all.
-fn read_columns(catalog: &[CatalogColumn], wanted: Option<&[String]>) -> Result<Vec<TransferColumn>> {
-    let col = |c: &CatalogColumn| TransferColumn { name: c.name.clone(), type_name: c.type_name.clone(), nullable: c.nullable };
+fn read_columns(
+    catalog: &[CatalogColumn],
+    wanted: Option<&[String]>,
+) -> Result<Vec<TransferColumn>> {
+    let col = |c: &CatalogColumn| TransferColumn {
+        name: c.name.clone(),
+        type_name: c.type_name.clone(),
+        nullable: c.nullable,
+    };
     let cols: Vec<TransferColumn> = match wanted {
         None => catalog.iter().map(col).collect(),
         Some(names) => names
@@ -525,7 +688,9 @@ fn hand_over(rows: Vec<Vec<Cell>>, sink: &BatchSinkRef, builder: &mut BatchBuild
     if rows.is_empty() {
         return Ok(());
     }
-    let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+    let mut s = sink
+        .lock()
+        .map_err(|_| Error::State("destino de lotes".into()))?;
     for r in rows {
         builder.push(r, &mut *s)?;
     }
@@ -550,11 +715,18 @@ struct Resume {
 impl Resume {
     /// Nothing handed over yet: a cut before the first token starts over.
     fn new() -> Resume {
-        Resume { resumable: true, ..Default::default() }
+        Resume {
+            resumable: true,
+            ..Default::default()
+        }
     }
 
     fn push(&mut self, prs: Json) -> Result<Vec<Vec<Cell>>> {
-        let token = prs.get("resumeToken").and_then(Json::as_str).filter(|t| !t.is_empty()).map(str::to_string);
+        let token = prs
+            .get("resumeToken")
+            .and_then(Json::as_str)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string);
         let rows = self.rows.push(prs)?;
         self.held_bytes += rows.iter().flatten().map(Cell::size).sum::<usize>();
         self.held.extend(rows);
@@ -588,8 +760,16 @@ impl Resume {
 /// An error answer, as `Api::send` reads it.
 fn http_error(status: u16, body: &str) -> Error {
     let flat: Option<Json> = serde_json::from_str(body).ok();
-    if let Some(m) = flat.as_ref().and_then(|j| j.get("message")).and_then(Json::as_str) {
-        return if status == 401 { Error::AuthFailed(m.into()) } else { Error::Query(m.into()) };
+    if let Some(m) = flat
+        .as_ref()
+        .and_then(|j| j.get("message"))
+        .and_then(Json::as_str)
+    {
+        return if status == 401 {
+            Error::AuthFailed(m.into())
+        } else {
+            Error::Query(m.into())
+        };
     }
     gcp::api_error(status, body)
 }
@@ -599,10 +779,19 @@ fn http_error(status: u16, body: &str) -> Error {
 /// comes as `{"error": …}` in both.
 fn result_set(mut msg: Json) -> Result<Json> {
     if let Some(e) = msg.get("error") {
-        let m = e.get("message").and_then(Json::as_str).map(str::to_string).unwrap_or_else(|| e.to_string());
+        let m = e
+            .get("message")
+            .and_then(Json::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| e.to_string());
         // The server dropped the stream: it can be resumed.
-        let unavailable = e.get("status").and_then(Json::as_str) == Some("UNAVAILABLE") || e.get("code").and_then(Json::as_u64) == Some(14);
-        return Err(if unavailable { Error::Connect(m) } else { Error::Query(m) });
+        let unavailable = e.get("status").and_then(Json::as_str) == Some("UNAVAILABLE")
+            || e.get("code").and_then(Json::as_u64) == Some(14);
+        return Err(if unavailable {
+            Error::Connect(m)
+        } else {
+            Error::Query(m)
+        });
     }
     Ok(match msg.get_mut("result") {
         Some(r) => r.take(),
@@ -638,7 +827,11 @@ impl JsonSplitter {
                         self.depth = 1;
                     }
                     b'[' | b']' | b',' | b' ' | b'\n' | b'\r' | b'\t' => {}
-                    _ => return Err(Error::Query("Spanner devolvió una respuesta inesperada al leer.".into())),
+                    _ => {
+                        return Err(Error::Query(
+                            "Spanner devolvió una respuesta inesperada al leer.".into(),
+                        ))
+                    }
                 },
                 Some(s) => {
                     if self.in_str {
@@ -683,7 +876,9 @@ impl JsonSplitter {
 
     fn finish(&self) -> Result<()> {
         if self.start.is_some() {
-            return Err(Error::Connect("la lectura se cortó antes de terminar".into()));
+            return Err(Error::Connect(
+                "la lectura se cortó antes de terminar".into(),
+            ));
         }
         Ok(())
     }
@@ -702,8 +897,14 @@ struct RowAssembler {
 impl RowAssembler {
     fn push(&mut self, mut prs: Json) -> Result<Vec<Vec<Cell>>> {
         if self.types.is_empty() {
-            if let Some(f) = prs.pointer("/metadata/rowType/fields").and_then(Json::as_array) {
-                self.types = f.iter().map(|f| f.get("type").cloned().unwrap_or(Json::Null)).collect();
+            if let Some(f) = prs
+                .pointer("/metadata/rowType/fields")
+                .and_then(Json::as_array)
+            {
+                self.types = f
+                    .iter()
+                    .map(|f| f.get("type").cloned().unwrap_or(Json::Null))
+                    .collect();
             }
         }
         let mut values = match prs.get_mut("values").map(Json::take) {
@@ -714,15 +915,22 @@ impl RowAssembler {
             return Ok(Vec::new());
         }
         if self.types.is_empty() {
-            return Err(Error::Query("Spanner devolvió filas sin sus columnas.".into()));
+            return Err(Error::Query(
+                "Spanner devolvió filas sin sus columnas.".into(),
+            ));
         }
         if self.chunked {
             let first = values.remove(0);
-            let last = self.pending.pop().ok_or_else(|| Error::Query("Spanner devolvió un valor partido sin su comienzo.".into()))?;
+            let last = self.pending.pop().ok_or_else(|| {
+                Error::Query("Spanner devolvió un valor partido sin su comienzo.".into())
+            })?;
             self.pending.push(merge(last, first)?);
         }
         self.pending.extend(values);
-        self.chunked = prs.get("chunkedValue").and_then(Json::as_bool).unwrap_or(false);
+        self.chunked = prs
+            .get("chunkedValue")
+            .and_then(Json::as_bool)
+            .unwrap_or(false);
 
         let n = self.types.len();
         let usable = self.pending.len() - usize::from(self.chunked);
@@ -732,14 +940,21 @@ impl RowAssembler {
             .drain(..take)
             .collect::<Vec<_>>()
             .chunks(n)
-            .map(|r| r.iter().zip(&self.types).map(|(v, t)| to_cell(v, t)).collect())
+            .map(|r| {
+                r.iter()
+                    .zip(&self.types)
+                    .map(|(v, t)| to_cell(v, t))
+                    .collect()
+            })
             .collect();
         Ok(rows)
     }
 
     fn finish(&self) -> Result<()> {
         if self.chunked || !self.pending.is_empty() {
-            return Err(Error::Query("La lectura terminó con una fila incompleta.".into()));
+            return Err(Error::Query(
+                "La lectura terminó con una fila incompleta.".into(),
+            ));
         }
         Ok(())
     }
@@ -757,7 +972,12 @@ fn merge(a: Json, b: Json) -> Result<Json> {
             let mut y = y.into_iter();
             if let Some(first) = y.next() {
                 match x.pop() {
-                    Some(last) if matches!((&last, &first), (Json::String(_), Json::String(_)) | (Json::Array(_), Json::Array(_))) => {
+                    Some(last)
+                        if matches!(
+                            (&last, &first),
+                            (Json::String(_), Json::String(_)) | (Json::Array(_), Json::Array(_))
+                        ) =>
+                    {
                         x.push(merge(last, first)?)
                     }
                     Some(last) => {
@@ -770,7 +990,9 @@ fn merge(a: Json, b: Json) -> Result<Json> {
             x.extend(y);
             Ok(Json::Array(x))
         }
-        _ => Err(Error::Query("Spanner devolvió un valor partido que no se puede unir.".into())),
+        _ => Err(Error::Query(
+            "Spanner devolvió un valor partido que no se puede unir.".into(),
+        )),
     }
 }
 
@@ -791,7 +1013,9 @@ fn float_of(s: &str) -> f64 {
 /// Plain decimal digits (a NUMERIC that isn't PostgreSQL's `NaN`).
 fn is_decimal(s: &str) -> bool {
     let d = s.strip_prefix('-').unwrap_or(s);
-    !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit() || b == b'.') && d.bytes().filter(|&b| b == b'.').count() <= 1
+    !d.is_empty()
+        && d.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+        && d.bytes().filter(|&b| b == b'.').count() <= 1
 }
 
 /// `2024-01-31T13:45:00.123456789Z` → `2024-01-31 13:45:00.123456789+00:00`.
@@ -807,11 +1031,15 @@ pub(crate) fn to_cell(v: &Json, t: &Json) -> Cell {
     match (code(t), v) {
         (_, Json::Null) => Cell::Null,
         ("BOOL", Json::Bool(b)) => Cell::Bool(*b),
-        ("INT64" | "ENUM", Json::String(s)) => s.parse().map_or_else(|_| Cell::Text(s.clone()), Cell::Int),
+        ("INT64" | "ENUM", Json::String(s)) => {
+            s.parse().map_or_else(|_| Cell::Text(s.clone()), Cell::Int)
+        }
         ("FLOAT64" | "FLOAT32", Json::Number(n)) => Cell::Float(n.as_f64().unwrap_or(f64::NAN)),
         ("FLOAT64" | "FLOAT32", Json::String(s)) => Cell::Float(float_of(s)),
         ("NUMERIC", Json::String(s)) if is_decimal(s) => Cell::Decimal(s.clone()),
-        ("BYTES" | "PROTO", Json::String(s)) => B64.decode(s).map_or_else(|_| Cell::Text(s.clone()), Cell::Bytes),
+        ("BYTES" | "PROTO", Json::String(s)) => B64
+            .decode(s)
+            .map_or_else(|_| Cell::Text(s.clone()), Cell::Bytes),
         ("DATE", Json::String(s)) => Cell::Date(s.clone()),
         ("TIMESTAMP", Json::String(s)) => Cell::DateTimeTz(timestamp_text(s)),
         ("UUID", Json::String(s)) => Cell::Uuid(s.to_ascii_lowercase()),
@@ -843,21 +1071,32 @@ fn whole_json(v: &Json, t: &Json) -> Json {
             Json::Array(a.iter().map(|e| whole_json(e, et)).collect())
         }
         ("STRUCT", Json::Array(a)) => {
-            let fields = t.pointer("/structType/fields").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
+            let fields = t
+                .pointer("/structType/fields")
+                .and_then(Json::as_array)
+                .map_or(&[][..], Vec::as_slice);
             let m: Map<String, Json> = fields
                 .iter()
                 .zip(a)
                 .enumerate()
                 .map(|(i, (f, e))| {
-                    let name = f.get("name").and_then(Json::as_str).filter(|n| !n.is_empty()).map_or_else(|| format!("_{i}"), str::to_string);
+                    let name = f
+                        .get("name")
+                        .and_then(Json::as_str)
+                        .filter(|n| !n.is_empty())
+                        .map_or_else(|| format!("_{i}"), str::to_string);
                     (name, whole_json(e, f.get("type").unwrap_or(&Json::Null)))
                 })
                 .collect();
             Json::Object(m)
         }
-        ("INT64" | "ENUM", Json::String(s)) => s.parse::<i64>().map_or_else(|_| v.clone(), Json::from),
+        ("INT64" | "ENUM", Json::String(s)) => {
+            s.parse::<i64>().map_or_else(|_| v.clone(), Json::from)
+        }
         ("FLOAT64" | "FLOAT32", Json::Number(_)) => v.clone(),
-        ("BYTES" | "PROTO", Json::String(s)) => B64.decode(s).map_or_else(|_| v.clone(), |b| Json::String(hex(&b))),
+        ("BYTES" | "PROTO", Json::String(s)) => B64
+            .decode(s)
+            .map_or_else(|_| v.clone(), |b| Json::String(hex(&b))),
         ("JSON", Json::String(s)) => serde_json::from_str(s).unwrap_or_else(|_| v.clone()),
         _ => v.clone(),
     }
@@ -949,14 +1188,25 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     if h.len() % 2 != 0 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok()).collect()
+    (0..h.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok())
+        .collect()
 }
 
 /// A text form of any cell (for STRING and the like).
 fn text_of(c: &Cell) -> std::result::Result<String, String> {
     Ok(match c {
-        Cell::Text(s) | Cell::Decimal(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => s.clone(),
-        Cell::Bytes(b) => String::from_utf8(b.clone()).map_err(|_| "un binario que no es UTF-8 no entra en un STRING".to_string())?,
+        Cell::Text(s)
+        | Cell::Decimal(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => s.clone(),
+        Cell::Bytes(b) => String::from_utf8(b.clone())
+            .map_err(|_| "un binario que no es UTF-8 no entra en un STRING".to_string())?,
         Cell::Null => String::new(),
         Cell::Bool(b) => b.to_string(),
         Cell::Int(i) => i.to_string(),
@@ -972,10 +1222,14 @@ fn encode(c: &Cell, t: &Ty) -> Enc {
     Ok(match t {
         Ty::Array(et) => {
             let list = match c {
-                Cell::Json(s) | Cell::Text(s) => serde_json::from_str::<Json>(s).map_err(|_| cannot(c, "lista"))?,
+                Cell::Json(s) | Cell::Text(s) => {
+                    serde_json::from_str::<Json>(s).map_err(|_| cannot(c, "lista"))?
+                }
                 _ => return Err(cannot(c, "lista")),
             };
-            let Json::Array(items) = list else { return Err(cannot(c, "lista")) };
+            let Json::Array(items) = list else {
+                return Err(cannot(c, "lista"));
+            };
             let enc = items
                 .iter()
                 .map(|e| {
@@ -984,7 +1238,9 @@ fn encode(c: &Cell, t: &Ty) -> Enc {
                         (Ty::Json, e) => Cell::Json(e.to_string()),
                         // Inside JSON a binary is `0x…` hex (`Cell::to_json`);
                         // any other string is its UTF-8 bytes.
-                        (Ty::Bytes, Json::String(s)) => Cell::Bytes(unhex(s).unwrap_or_else(|| s.as_bytes().to_vec())),
+                        (Ty::Bytes, Json::String(s)) => {
+                            Cell::Bytes(unhex(s).unwrap_or_else(|| s.as_bytes().to_vec()))
+                        }
                         (_, e) => Cell::from_json(e),
                     };
                     encode(&cell, et)
@@ -1005,7 +1261,9 @@ fn encode(c: &Cell, t: &Ty) -> Enc {
         }),
         Ty::Int => Json::String(match c {
             Cell::Int(i) => i.to_string(),
-            Cell::UInt(u) => i64::try_from(*u).map_err(|_| cannot(c, "INT64"))?.to_string(),
+            Cell::UInt(u) => i64::try_from(*u)
+                .map_err(|_| cannot(c, "INT64"))?
+                .to_string(),
             Cell::Bool(b) => i64::from(*b).to_string(),
             Cell::Float(f) if f.fract() == 0.0 && f.abs() < 9.2e18 => (*f as i64).to_string(),
             Cell::Text(s) | Cell::Decimal(s) => {
@@ -1015,7 +1273,9 @@ fn encode(c: &Cell, t: &Ty) -> Enc {
                     Some((i, f)) if f.bytes().all(|b| b == b'0') => i,
                     _ => s,
                 };
-                int.parse::<i64>().map_err(|_| cannot(c, "INT64"))?.to_string()
+                int.parse::<i64>()
+                    .map_err(|_| cannot(c, "INT64"))?
+                    .to_string()
             }
             _ => return Err(cannot(c, "INT64")),
         }),
@@ -1043,9 +1303,9 @@ fn encode(c: &Cell, t: &Ty) -> Enc {
             Cell::UInt(u) => u.to_string(),
             // Display never uses an exponent; a binary fraction that needs
             // more than 9 decimals is refused, never rounded.
-            Cell::Float(f) if f.is_finite() => {
-                plain_numeric(&f.to_string()).unwrap_or_else(|| Ok(f.to_string())).map_err(|why| format!("{}: {why}", cannot(c, "NUMERIC")))?
-            }
+            Cell::Float(f) if f.is_finite() => plain_numeric(&f.to_string())
+                .unwrap_or_else(|| Ok(f.to_string()))
+                .map_err(|why| format!("{}: {why}", cannot(c, "NUMERIC")))?,
             _ => return Err(cannot(c, "NUMERIC")),
         }),
         Ty::Str | Ty::Other => Json::String(text_of(c)?),
@@ -1058,12 +1318,17 @@ fn encode(c: &Cell, t: &Ty) -> Enc {
         })),
         Ty::Date => Json::String(match c {
             Cell::Date(s) | Cell::Text(s) => s.trim().to_string(),
-            Cell::DateTime(s) | Cell::DateTimeTz(s) if s.len() >= 10 && s.is_char_boundary(10) => s[..10].to_string(),
+            Cell::DateTime(s) | Cell::DateTimeTz(s) if s.len() >= 10 && s.is_char_boundary(10) => {
+                s[..10].to_string()
+            }
             _ => return Err(cannot(c, "DATE")),
         }),
         Ty::Timestamp => Json::String(match c {
-            Cell::DateTimeTz(s) | Cell::DateTime(s) | Cell::Text(s) => rfc3339_utc(s).ok_or_else(|| cannot(c, "TIMESTAMP"))?,
-            Cell::Date(s) => rfc3339_utc(&format!("{} 00:00:00", s.trim())).ok_or_else(|| cannot(c, "TIMESTAMP"))?,
+            Cell::DateTimeTz(s) | Cell::DateTime(s) | Cell::Text(s) => {
+                rfc3339_utc(s).ok_or_else(|| cannot(c, "TIMESTAMP"))?
+            }
+            Cell::Date(s) => rfc3339_utc(&format!("{} 00:00:00", s.trim()))
+                .ok_or_else(|| cannot(c, "TIMESTAMP"))?,
             _ => return Err(cannot(c, "TIMESTAMP")),
         }),
         Ty::Json => Json::String(match c {
@@ -1075,7 +1340,15 @@ fn encode(c: &Cell, t: &Ty) -> Enc {
             Cell::Bytes(b) if b.len() == 16 => {
                 let h = hex(b);
                 let h = &h[2..];
-                format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..]).to_ascii_lowercase()
+                format!(
+                    "{}-{}-{}-{}-{}",
+                    &h[..8],
+                    &h[8..12],
+                    &h[12..16],
+                    &h[16..20],
+                    &h[20..]
+                )
+                .to_ascii_lowercase()
             }
             _ => return Err(cannot(c, "UUID")),
         }),
@@ -1099,27 +1372,43 @@ fn plain_numeric(s: &str) -> Option<std::result::Result<String, String>> {
         _ => (false, s),
     };
     let (int, frac) = body.split_once('.').unwrap_or((body, ""));
-    if (int.is_empty() && frac.is_empty()) || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+    if (int.is_empty() && frac.is_empty())
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let int = int.trim_start_matches('0');
     let frac = frac.trim_end_matches('0');
     if int.len() > NUMERIC_INT {
-        return Some(Err(format!("NUMERIC admite hasta {NUMERIC_INT} dígitos enteros")));
+        return Some(Err(format!(
+            "NUMERIC admite hasta {NUMERIC_INT} dígitos enteros"
+        )));
     }
     if frac.len() > NUMERIC_SCALE {
-        return Some(Err(format!("NUMERIC admite hasta {NUMERIC_SCALE} decimales y el valor no se redondea")));
+        return Some(Err(format!(
+            "NUMERIC admite hasta {NUMERIC_SCALE} decimales y el valor no se redondea"
+        )));
     }
     let int = if int.is_empty() { "0" } else { int };
-    let sign = if neg && (int != "0" || !frac.is_empty()) { "-" } else { "" };
-    Some(Ok(if frac.is_empty() { format!("{sign}{int}") } else { format!("{sign}{int}.{frac}") }))
+    let sign = if neg && (int != "0" || !frac.is_empty()) {
+        "-"
+    } else {
+        ""
+    };
+    Some(Ok(if frac.is_empty() {
+        format!("{sign}{int}")
+    } else {
+        format!("{sign}{int}.{frac}")
+    }))
 }
 
 /// The widest real UTC offset, in minutes (±18:00).
 const MAX_OFFSET_MINUTES: i64 = 18 * 60;
 
 fn num(s: &str) -> Option<i64> {
-    (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok()).flatten()
+    (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| s.parse().ok())
+        .flatten()
 }
 
 /// `YYYY-MM-DD[ T]HH:MM:SS[.f…][Z| UTC|±HH[:MM]]` (no zone: UTC) → the
@@ -1147,7 +1436,12 @@ fn rfc3339_utc(s: &str) -> Option<String> {
     let d: Vec<&str> = date.split('-').collect();
     let t: Vec<&str> = hms.split(':').collect();
     // Fixed widths (`YYYY-MM-DD HH:MM:SS`): `2024-1-011` is not a date.
-    if d.len() != 3 || t.len() != 3 || d[0].len() != 4 || d[1].len() != 2 || t.iter().any(|p| p.len() != 2) {
+    if d.len() != 3
+        || t.len() != 3
+        || d[0].len() != 4
+        || d[1].len() != 2
+        || t.iter().any(|p| p.len() != 2)
+    {
         return None;
     }
     let (y, mo, da) = (num(d[0])?, num(d[1])?, num(d[2])?);
@@ -1180,7 +1474,11 @@ fn rfc3339_utc(s: &str) -> Option<String> {
             sign * (hh * 60 + mm)
         }
     };
-    let frac = if frac.is_empty() { String::new() } else { format!(".{}", &frac[..frac.len().min(9)]) };
+    let frac = if frac.is_empty() {
+        String::new()
+    } else {
+        format!(".{}", &frac[..frac.len().min(9)])
+    };
     // Always rebuilt from the numbers (offset 0 too), so both paths
     // normalize alike and the result is checked against TIMESTAMP's range.
     let secs = days_from_civil(y, mo, da) * 86_400 + h * 3600 + mi * 60 + se - offset * 60;
@@ -1190,7 +1488,12 @@ fn rfc3339_utc(s: &str) -> Option<String> {
     if !(1..=9999).contains(&y) {
         return None;
     }
-    Some(format!("{y:04}-{mo:02}-{da:02}T{:02}:{:02}:{:02}{frac}Z", rem / 3600, rem % 3600 / 60, rem % 60))
+    Some(format!(
+        "{y:04}-{mo:02}-{da:02}T{:02}:{:02}:{:02}{frac}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    ))
 }
 
 fn month_days(y: i64, m: i64) -> i64 {
@@ -1235,34 +1538,64 @@ mod tests {
 
     #[test]
     fn cells_are_typed_from_the_row_type() {
-        assert_eq!(to_cell(&json!("9007199254740993"), &t("INT64")), Cell::Int(9_007_199_254_740_993));
+        assert_eq!(
+            to_cell(&json!("9007199254740993"), &t("INT64")),
+            Cell::Int(9_007_199_254_740_993)
+        );
         assert_eq!(to_cell(&json!(1.5), &t("FLOAT64")), Cell::Float(1.5));
         assert!(matches!(to_cell(&json!("NaN"), &t("FLOAT64")), Cell::Float(f) if f.is_nan()));
-        assert_eq!(to_cell(&json!("-Infinity"), &t("FLOAT32")), Cell::Float(f64::NEG_INFINITY));
         assert_eq!(
-            to_cell(&json!("99999999999999999999999999999.999999999"), &t("NUMERIC")),
+            to_cell(&json!("-Infinity"), &t("FLOAT32")),
+            Cell::Float(f64::NEG_INFINITY)
+        );
+        assert_eq!(
+            to_cell(
+                &json!("99999999999999999999999999999.999999999"),
+                &t("NUMERIC")
+            ),
             Cell::Decimal("99999999999999999999999999999.999999999".into())
         );
-        assert_eq!(to_cell(&json!("NaN"), &t("NUMERIC")), Cell::Text("NaN".into()));
+        assert_eq!(
+            to_cell(&json!("NaN"), &t("NUMERIC")),
+            Cell::Text("NaN".into())
+        );
         assert_eq!(to_cell(&json!(true), &t("BOOL")), Cell::Bool(true));
         assert_eq!(to_cell(&json!("ñ"), &t("STRING")), Cell::Text("ñ".into()));
-        assert_eq!(to_cell(&json!("YWI="), &t("BYTES")), Cell::Bytes(b"ab".to_vec()));
-        assert_eq!(to_cell(&json!("2024-02-29"), &t("DATE")), Cell::Date("2024-02-29".into()));
+        assert_eq!(
+            to_cell(&json!("YWI="), &t("BYTES")),
+            Cell::Bytes(b"ab".to_vec())
+        );
+        assert_eq!(
+            to_cell(&json!("2024-02-29"), &t("DATE")),
+            Cell::Date("2024-02-29".into())
+        );
         assert_eq!(
             to_cell(&json!("2024-01-31T13:45:00.123456789Z"), &t("TIMESTAMP")),
             Cell::DateTimeTz("2024-01-31 13:45:00.123456789+00:00".into())
         );
-        assert_eq!(to_cell(&json!("{\"a\": 1}"), &t("JSON")), Cell::Json("{\"a\": 1}".into()));
-        assert_eq!(to_cell(&json!("ABC-DEF"), &t("UUID")), Cell::Uuid("abc-def".into()));
+        assert_eq!(
+            to_cell(&json!("{\"a\": 1}"), &t("JSON")),
+            Cell::Json("{\"a\": 1}".into())
+        );
+        assert_eq!(
+            to_cell(&json!("ABC-DEF"), &t("UUID")),
+            Cell::Uuid("abc-def".into())
+        );
         assert_eq!(to_cell(&Json::Null, &t("INT64")), Cell::Null);
         let arr = json!({ "code": "ARRAY", "arrayElementType": { "code": "BYTES" } });
-        assert_eq!(to_cell(&json!(["AAE=", null]), &arr), Cell::Json("[\"0x0001\",null]".into()));
+        assert_eq!(
+            to_cell(&json!(["AAE=", null]), &arr),
+            Cell::Json("[\"0x0001\",null]".into())
+        );
         let st = json!({ "code": "ARRAY", "arrayElementType": { "code": "STRUCT", "structType": { "fields": [
             { "name": "x", "type": { "code": "INT64" } }, { "name": "", "type": { "code": "JSON" } }, { "name": "n", "type": { "code": "NUMERIC" } }
         ] } } });
         // Compared as values: key order depends on serde_json features.
         match to_cell(&json!([["1", "{\"k\":[1]}", "1.50"]]), &st) {
-            Cell::Json(s) => assert_eq!(serde_json::from_str::<Json>(&s).unwrap(), json!([{ "_1": { "k": [1] }, "n": "1.50", "x": 1 }])),
+            Cell::Json(s) => assert_eq!(
+                serde_json::from_str::<Json>(&s).unwrap(),
+                json!([{ "_1": { "k": [1] }, "n": "1.50", "x": 1 }])
+            ),
             other => panic!("{other:?}"),
         }
     }
@@ -1291,9 +1624,16 @@ mod tests {
 
     #[test]
     fn stream_elements_and_errors() {
-        assert_eq!(result_set(json!({ "result": { "values": [] } })).unwrap(), json!({ "values": [] }));
-        assert_eq!(result_set(json!({ "values": [] })).unwrap(), json!({ "values": [] }));
-        let e = result_set(json!({ "error": { "code": 3, "message": "Table not found: x" } })).unwrap_err();
+        assert_eq!(
+            result_set(json!({ "result": { "values": [] } })).unwrap(),
+            json!({ "values": [] })
+        );
+        assert_eq!(
+            result_set(json!({ "values": [] })).unwrap(),
+            json!({ "values": [] })
+        );
+        let e = result_set(json!({ "error": { "code": 3, "message": "Table not found: x" } }))
+            .unwrap_err();
         assert!(e.to_string().contains("Table not found"), "{e}");
     }
 
@@ -1307,42 +1647,99 @@ mod tests {
         ] } });
         // Row 1 whole, row 2's string split in two, its list in three.
         let rows = a.push(json!({ "metadata": meta, "values": ["1", "uno", ["a"], "2", "do"], "chunkedValue": true })).unwrap();
-        assert_eq!(rows, vec![vec![Cell::Int(1), Cell::Text("uno".into()), Cell::Json("[\"a\"]".into())]]);
-        assert!(a.push(json!({ "values": ["s", ["x", "y"]], "chunkedValue": true })).unwrap().is_empty());
-        let rows = a.push(json!({ "values": [["z", "w"], "3"], "chunkedValue": false })).unwrap();
-        assert_eq!(rows, vec![vec![Cell::Int(2), Cell::Text("dos".into()), Cell::Json("[\"x\",\"yz\",\"w\"]".into())]]);
+        assert_eq!(
+            rows,
+            vec![vec![
+                Cell::Int(1),
+                Cell::Text("uno".into()),
+                Cell::Json("[\"a\"]".into())
+            ]]
+        );
+        assert!(a
+            .push(json!({ "values": ["s", ["x", "y"]], "chunkedValue": true }))
+            .unwrap()
+            .is_empty());
+        let rows = a
+            .push(json!({ "values": [["z", "w"], "3"], "chunkedValue": false }))
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![vec![
+                Cell::Int(2),
+                Cell::Text("dos".into()),
+                Cell::Json("[\"x\",\"yz\",\"w\"]".into())
+            ]]
+        );
         assert!(a.finish().is_err(), "row 3 is incomplete");
-        let rows = a.push(json!({ "values": [Json::Null, Json::Null] })).unwrap();
+        let rows = a
+            .push(json!({ "values": [Json::Null, Json::Null] }))
+            .unwrap();
         assert_eq!(rows, vec![vec![Cell::Int(3), Cell::Null, Cell::Null]]);
         a.finish().unwrap();
         // Lists of non-strings are concatenated.
         assert_eq!(merge(json!([1, 2]), json!([3])).unwrap(), json!([1, 2, 3]));
-        assert_eq!(merge(json!([["a"]]), json!([["b"], ["c"]])).unwrap(), json!([["ab"], ["c"]]));
+        assert_eq!(
+            merge(json!([["a"]]), json!([["b"], ["c"]])).unwrap(),
+            json!([["ab"], ["c"]])
+        );
         assert!(merge(json!(1), json!("x")).is_err());
         // Values before the columns are an error, not a silent shift.
-        assert!(RowAssembler::default().push(json!({ "values": ["1"] })).is_err());
+        assert!(RowAssembler::default()
+            .push(json!({ "values": ["1"] }))
+            .is_err());
     }
 
     #[test]
     fn read_columns_follow_the_requested_order() {
-        let cat = |n: &str, t: &str, null: bool| CatalogColumn { name: n.into(), type_name: t.into(), nullable: null };
-        let catalog = vec![cat("Id", "INT64", false), cat("Nombre", "STRING(20)", true), cat("Foto", "BYTES(MAX)", true)];
+        let cat = |n: &str, t: &str, null: bool| CatalogColumn {
+            name: n.into(),
+            type_name: t.into(),
+            nullable: null,
+        };
+        let catalog = vec![
+            cat("Id", "INT64", false),
+            cat("Nombre", "STRING(20)", true),
+            cat("Foto", "BYTES(MAX)", true),
+        ];
         let all = read_columns(&catalog, None).unwrap();
-        assert_eq!(all.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Id", "Nombre", "Foto"]);
+        assert_eq!(
+            all.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["Id", "Nombre", "Foto"]
+        );
         assert!(!all[0].nullable && all[1].type_name == "STRING(20)");
         let some = read_columns(&catalog, Some(&["foto".into(), "id".into()])).unwrap();
-        assert_eq!(some.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Foto", "Id"]);
+        assert_eq!(
+            some.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["Foto", "Id"]
+        );
         assert!(read_columns(&catalog, Some(&["nope".into()])).is_err());
         assert!(read_columns(&catalog, Some(&[])).is_err());
     }
 
     #[test]
     fn select_statements() {
-        let tb = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "t x".into() };
-        assert_eq!(select_sql(&tb, &["a".into(), "b c".into()], None), "SELECT `a`, `b c` FROM `t x`");
-        let tb = ObjectRef { kind: kinds::TABLE.into(), schema: Some("ventas".into()), name: "t".into() };
-        assert_eq!(select_sql(&tb, &["a".into()], Some(" a > 1 OR a IS NULL ")), "SELECT `a` FROM `ventas`.`t` WHERE (a > 1 OR a IS NULL)");
-        assert_eq!(select_sql(&tb, &["a".into()], Some("  ")), "SELECT `a` FROM `ventas`.`t`");
+        let tb = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: "t x".into(),
+        };
+        assert_eq!(
+            select_sql(&tb, &["a".into(), "b c".into()], None),
+            "SELECT `a`, `b c` FROM `t x`"
+        );
+        let tb = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some("ventas".into()),
+            name: "t".into(),
+        };
+        assert_eq!(
+            select_sql(&tb, &["a".into()], Some(" a > 1 OR a IS NULL ")),
+            "SELECT `a` FROM `ventas`.`t` WHERE (a > 1 OR a IS NULL)"
+        );
+        assert_eq!(
+            select_sql(&tb, &["a".into()], Some("  ")),
+            "SELECT `a` FROM `ventas`.`t`"
+        );
         assert_eq!(mutation_table(&tb), "ventas.t");
     }
 
@@ -1350,8 +1747,14 @@ mod tests {
     fn column_types_from_the_catalog() {
         assert_eq!(Ty::parse("STRING(MAX)"), Ty::Str);
         assert_eq!(Ty::parse("bytes(10)"), Ty::Bytes);
-        assert_eq!(Ty::parse("ARRAY<STRING(MAX)>"), Ty::Array(Box::new(Ty::Str)));
-        assert_eq!(Ty::parse("ARRAY<FLOAT32>(vector_length=>3)"), Ty::Array(Box::new(Ty::Float)));
+        assert_eq!(
+            Ty::parse("ARRAY<STRING(MAX)>"),
+            Ty::Array(Box::new(Ty::Str))
+        );
+        assert_eq!(
+            Ty::parse("ARRAY<FLOAT32>(vector_length=>3)"),
+            Ty::Array(Box::new(Ty::Float))
+        );
         assert_eq!(Ty::parse("PROTO<a.b.C>"), Ty::Bytes);
         assert_eq!(Ty::parse("ENUM<a.b.E>"), Ty::Int);
         assert_eq!(Ty::parse("NUMERIC"), Ty::Numeric);
@@ -1374,19 +1777,42 @@ mod tests {
         assert_eq!(e(Cell::Float(1.25), Ty::Float), json!(1.25));
         assert_eq!(e(Cell::Float(f64::NAN), Ty::Float), json!("NaN"));
         assert_eq!(e(Cell::Float(f64::INFINITY), Ty::Float), json!("Infinity"));
-        assert_eq!(e(Cell::Text("-Infinity".into()), Ty::Float), json!("-Infinity"));
+        assert_eq!(
+            e(Cell::Text("-Infinity".into()), Ty::Float),
+            json!("-Infinity")
+        );
         assert_eq!(e(Cell::Int(2), Ty::Float), json!(2.0));
-        assert_eq!(e(Cell::Decimal(" 123.450 ".into()), Ty::Numeric), json!("123.45"));
+        assert_eq!(
+            e(Cell::Decimal(" 123.450 ".into()), Ty::Numeric),
+            json!("123.45")
+        );
         // A decimal(38,18) value that fits: trailing zeros are dropped.
-        assert_eq!(e(Cell::Decimal("1.500000000000000000".into()), Ty::Numeric), json!("1.5"));
-        assert_eq!(e(Cell::Decimal("-000.000000000000".into()), Ty::Numeric), json!("0"));
+        assert_eq!(
+            e(Cell::Decimal("1.500000000000000000".into()), Ty::Numeric),
+            json!("1.5")
+        );
+        assert_eq!(
+            e(Cell::Decimal("-000.000000000000".into()), Ty::Numeric),
+            json!("0")
+        );
         assert_eq!(e(Cell::Decimal("+007".into()), Ty::Numeric), json!("7"));
         assert_eq!(e(Cell::Decimal(".25".into()), Ty::Numeric), json!("0.25"));
-        assert_eq!(e(Cell::Decimal("99999999999999999999999999999.999999999".into()), Ty::Numeric), json!("99999999999999999999999999999.999999999"));
+        assert_eq!(
+            e(
+                Cell::Decimal("99999999999999999999999999999.999999999".into()),
+                Ty::Numeric
+            ),
+            json!("99999999999999999999999999999.999999999")
+        );
         // More than NUMERIC keeps is refused, never rounded.
         let err = encode(&Cell::Decimal("1.0000000001".into()), &Ty::Numeric).unwrap_err();
         assert!(err.contains("9 decimales"), "{err}");
-        assert!(encode(&Cell::Decimal("100000000000000000000000000000".into()), &Ty::Numeric).unwrap_err().contains("29 dígitos"));
+        assert!(encode(
+            &Cell::Decimal("100000000000000000000000000000".into()),
+            &Ty::Numeric
+        )
+        .unwrap_err()
+        .contains("29 dígitos"));
         assert_eq!(e(Cell::Float(0.5), Ty::Numeric), json!("0.5"));
         assert_eq!(e(Cell::Float(-2.0), Ty::Numeric), json!("-2"));
         assert!(encode(&Cell::Float(0.1 + 0.2), &Ty::Numeric).is_err());
@@ -1403,27 +1829,85 @@ mod tests {
         assert!(encode(&Cell::Bytes(vec![0xFF]), &Ty::Str).is_err());
         assert_eq!(e(Cell::Bytes(b"ab".to_vec()), Ty::Bytes), json!("YWI="));
         // Text is its UTF-8 bytes, even when it looks like hex.
-        assert_eq!(e(Cell::Text("0xCAFE".into()), Ty::Bytes), json!(B64.encode("0xCAFE")));
+        assert_eq!(
+            e(Cell::Text("0xCAFE".into()), Ty::Bytes),
+            json!(B64.encode("0xCAFE"))
+        );
         assert_eq!(e(Cell::Text("ab".into()), Ty::Bytes), json!("YWI="));
         // Inside an array (JSON) `0x…` is a binary; other strings are text.
-        assert_eq!(e(Cell::Json("[\"0x6162\", \"ab\"]".into()), Ty::Array(Box::new(Ty::Bytes))), json!(["YWI=", "YWI="]));
-        assert_eq!(e(Cell::Date("2024-02-29".into()), Ty::Date), json!("2024-02-29"));
-        assert_eq!(e(Cell::DateTime("2024-02-29 10:00:00".into()), Ty::Date), json!("2024-02-29"));
-        assert_eq!(e(Cell::DateTimeTz("2024-01-31 13:45:00.123456789+00:00".into()), Ty::Timestamp), json!("2024-01-31T13:45:00.123456789Z"));
-        assert_eq!(e(Cell::DateTime("2024-01-31 13:45:00".into()), Ty::Timestamp), json!("2024-01-31T13:45:00Z"));
-        assert_eq!(e(Cell::Date("2024-01-31".into()), Ty::Timestamp), json!("2024-01-31T00:00:00Z"));
-        assert!(encode(&Cell::Int(1), &Ty::Timestamp).is_err());
-        assert_eq!(e(Cell::Json("{\"a\": 1}".into()), Ty::Json), json!("{\"a\": 1}"));
-        assert_eq!(e(Cell::Int(1), Ty::Json), json!("1"));
-        assert_eq!(e(Cell::Bytes((0..16).collect()), Ty::Uuid), json!("00010203-0405-0607-0809-0a0b0c0d0e0f"));
-        assert_eq!(e(Cell::Json("[1, null, 3]".into()), Ty::Array(Box::new(Ty::Int))), json!(["1", null, "3"]));
-        assert_eq!(e(Cell::Json("[\"0x00FF\"]".into()), Ty::Array(Box::new(Ty::Bytes))), json!(["AP8="]));
-        assert_eq!(e(Cell::Json("[{\"a\":1}, null]".into()), Ty::Array(Box::new(Ty::Json))), json!(["{\"a\":1}", null]));
         assert_eq!(
-            e(Cell::Json("[\"2024-01-01 00:00:00+03:00\"]".into()), Ty::Array(Box::new(Ty::Timestamp))),
+            e(
+                Cell::Json("[\"0x6162\", \"ab\"]".into()),
+                Ty::Array(Box::new(Ty::Bytes))
+            ),
+            json!(["YWI=", "YWI="])
+        );
+        assert_eq!(
+            e(Cell::Date("2024-02-29".into()), Ty::Date),
+            json!("2024-02-29")
+        );
+        assert_eq!(
+            e(Cell::DateTime("2024-02-29 10:00:00".into()), Ty::Date),
+            json!("2024-02-29")
+        );
+        assert_eq!(
+            e(
+                Cell::DateTimeTz("2024-01-31 13:45:00.123456789+00:00".into()),
+                Ty::Timestamp
+            ),
+            json!("2024-01-31T13:45:00.123456789Z")
+        );
+        assert_eq!(
+            e(Cell::DateTime("2024-01-31 13:45:00".into()), Ty::Timestamp),
+            json!("2024-01-31T13:45:00Z")
+        );
+        assert_eq!(
+            e(Cell::Date("2024-01-31".into()), Ty::Timestamp),
+            json!("2024-01-31T00:00:00Z")
+        );
+        assert!(encode(&Cell::Int(1), &Ty::Timestamp).is_err());
+        assert_eq!(
+            e(Cell::Json("{\"a\": 1}".into()), Ty::Json),
+            json!("{\"a\": 1}")
+        );
+        assert_eq!(e(Cell::Int(1), Ty::Json), json!("1"));
+        assert_eq!(
+            e(Cell::Bytes((0..16).collect()), Ty::Uuid),
+            json!("00010203-0405-0607-0809-0a0b0c0d0e0f")
+        );
+        assert_eq!(
+            e(
+                Cell::Json("[1, null, 3]".into()),
+                Ty::Array(Box::new(Ty::Int))
+            ),
+            json!(["1", null, "3"])
+        );
+        assert_eq!(
+            e(
+                Cell::Json("[\"0x00FF\"]".into()),
+                Ty::Array(Box::new(Ty::Bytes))
+            ),
+            json!(["AP8="])
+        );
+        assert_eq!(
+            e(
+                Cell::Json("[{\"a\":1}, null]".into()),
+                Ty::Array(Box::new(Ty::Json))
+            ),
+            json!(["{\"a\":1}", null])
+        );
+        assert_eq!(
+            e(
+                Cell::Json("[\"2024-01-01 00:00:00+03:00\"]".into()),
+                Ty::Array(Box::new(Ty::Timestamp))
+            ),
             json!(["2023-12-31T21:00:00Z"])
         );
-        assert!(encode(&Cell::Json("{\"a\":1}".into()), &Ty::Array(Box::new(Ty::Int))).is_err());
+        assert!(encode(
+            &Cell::Json("{\"a\":1}".into()),
+            &Ty::Array(Box::new(Ty::Int))
+        )
+        .is_err());
         assert!(encode(&Cell::Int(1), &Ty::Array(Box::new(Ty::Int))).is_err());
         // The error names the value, cut short.
         let long = encode(&Cell::Text("x".repeat(100)), &Ty::Int).unwrap_err();
@@ -1432,23 +1916,56 @@ mod tests {
 
     #[test]
     fn timestamps_go_to_utc_with_their_nanoseconds() {
-        assert_eq!(rfc3339_utc("2024-01-31T13:45:00Z").as_deref(), Some("2024-01-31T13:45:00Z"));
-        assert_eq!(rfc3339_utc("2024-01-31 13:45:00 UTC").as_deref(), Some("2024-01-31T13:45:00Z"));
-        assert_eq!(rfc3339_utc("2024-01-31 23:30:00.5-03:00").as_deref(), Some("2024-02-01T02:30:00.5Z"));
-        assert_eq!(rfc3339_utc("2024-03-01 01:00:00.123456789+0530").as_deref(), Some("2024-02-29T19:30:00.123456789Z"));
-        assert_eq!(rfc3339_utc("2000-01-01 00:00:00.1234567891+01").as_deref(), Some("1999-12-31T23:00:00.123456789Z"));
-        assert_eq!(rfc3339_utc("0001-01-01 00:00:00+00:00").as_deref(), Some("0001-01-01T00:00:00Z"));
-        assert_eq!(rfc3339_utc("9999-12-31 23:59:59.999999999").as_deref(), Some("9999-12-31T23:59:59.999999999Z"));
+        assert_eq!(
+            rfc3339_utc("2024-01-31T13:45:00Z").as_deref(),
+            Some("2024-01-31T13:45:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2024-01-31 13:45:00 UTC").as_deref(),
+            Some("2024-01-31T13:45:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2024-01-31 23:30:00.5-03:00").as_deref(),
+            Some("2024-02-01T02:30:00.5Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2024-03-01 01:00:00.123456789+0530").as_deref(),
+            Some("2024-02-29T19:30:00.123456789Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2000-01-01 00:00:00.1234567891+01").as_deref(),
+            Some("1999-12-31T23:00:00.123456789Z")
+        );
+        assert_eq!(
+            rfc3339_utc("0001-01-01 00:00:00+00:00").as_deref(),
+            Some("0001-01-01T00:00:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("9999-12-31 23:59:59.999999999").as_deref(),
+            Some("9999-12-31T23:59:59.999999999Z")
+        );
         assert_eq!(rfc3339_utc("2024-01-31"), None);
         assert_eq!(rfc3339_utc("2024-13-01 00:00:00"), None);
         assert_eq!(rfc3339_utc("2024-01-01 00:00:00+3"), None);
         assert_eq!(rfc3339_utc("2024-01-01X00:00:00"), None);
         // Non-ASCII text is refused, not a panic at a char boundary.
-        for bad in ["2024-01-3ñ 13:45:00", "2024-01-01 00:00:00€", "2024-01-01 00:00:00+a€", "2024-01-01 00:00:0€", "€€€€€€€€€€€€€€€€€€€€"] {
+        for bad in [
+            "2024-01-3ñ 13:45:00",
+            "2024-01-01 00:00:00€",
+            "2024-01-01 00:00:00+a€",
+            "2024-01-01 00:00:0€",
+            "€€€€€€€€€€€€€€€€€€€€",
+        ] {
             assert_eq!(rfc3339_utc(bad), None, "{bad}");
-            assert!(encode(&Cell::Text(bad.into()), &Ty::Timestamp).unwrap_err().contains("TIMESTAMP"));
+            assert!(encode(&Cell::Text(bad.into()), &Ty::Timestamp)
+                .unwrap_err()
+                .contains("TIMESTAMP"));
         }
-        assert!(encode(&Cell::Json("[\"2024-01-3ñ 13:45:00\"]".into()), &Ty::Array(Box::new(Ty::Timestamp))).is_err());
+        assert!(encode(
+            &Cell::Json("[\"2024-01-3ñ 13:45:00\"]".into()),
+            &Ty::Array(Box::new(Ty::Timestamp))
+        )
+        .is_err());
         for days in [-719_162, -1, 0, 1, 11_016, 19_782, 2_932_896] {
             let (y, m, d) = civil_from_days(days);
             assert_eq!(days_from_civil(y, m, d), days);
@@ -1488,13 +2005,34 @@ mod tests {
         ] {
             assert_eq!(rfc3339_utc(bad), None, "{bad}");
         }
-        assert_eq!(rfc3339_utc("2024-02-29 23:00:00-02:00").as_deref(), Some("2024-03-01T01:00:00Z"));
-        assert_eq!(rfc3339_utc("2000-02-29 00:00:00+01:00").as_deref(), Some("2000-02-28T23:00:00Z"));
-        assert_eq!(rfc3339_utc("2024-04-30 00:00:00").as_deref(), Some("2024-04-30T00:00:00Z"));
-        assert_eq!(rfc3339_utc("2024-01-01 00:00:00+18:00").as_deref(), Some("2023-12-31T06:00:00Z"));
-        assert_eq!(rfc3339_utc("2024-01-01 00:00:00-1800").as_deref(), Some("2024-01-01T18:00:00Z"));
-        assert_eq!(rfc3339_utc("2024-01-01 00:00:00-00:00").as_deref(), Some("2024-01-01T00:00:00Z"));
-        assert_eq!(rfc3339_utc("2024-01-01t00:00:00.5z").as_deref(), Some("2024-01-01T00:00:00.5Z"));
+        assert_eq!(
+            rfc3339_utc("2024-02-29 23:00:00-02:00").as_deref(),
+            Some("2024-03-01T01:00:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2000-02-29 00:00:00+01:00").as_deref(),
+            Some("2000-02-28T23:00:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2024-04-30 00:00:00").as_deref(),
+            Some("2024-04-30T00:00:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2024-01-01 00:00:00+18:00").as_deref(),
+            Some("2023-12-31T06:00:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2024-01-01 00:00:00-1800").as_deref(),
+            Some("2024-01-01T18:00:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2024-01-01 00:00:00-00:00").as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(
+            rfc3339_utc("2024-01-01t00:00:00.5z").as_deref(),
+            Some("2024-01-01T00:00:00.5Z")
+        );
     }
 
     #[test]
@@ -1503,7 +2041,10 @@ mod tests {
         const { assert!(2 * MAX_COMMIT_BYTES <= 32 * 1024 * 1024) };
         // A big row after an almost full window: the window goes first,
         // so no commit holds more than its bytes (or one row alone).
-        let window = Window { rows: 1000, bytes: 100 };
+        let window = Window {
+            rows: 1000,
+            bytes: 100,
+        };
         let mut pending = Pending::default();
         let mut commits: Vec<Vec<String>> = Vec::new();
         for len in [30, 30, 30, 90, 5, 250, 10, 60, 60] {
@@ -1515,8 +2056,20 @@ mod tests {
             }
         }
         commits.push(pending.take());
-        let sizes: Vec<Vec<usize>> = commits.iter().map(|c| c.iter().map(String::len).collect()).collect();
-        assert_eq!(sizes, [vec![30, 30, 30], vec![90, 5], vec![250], vec![10, 60], vec![60]]);
+        let sizes: Vec<Vec<usize>> = commits
+            .iter()
+            .map(|c| c.iter().map(String::len).collect())
+            .collect();
+        assert_eq!(
+            sizes,
+            [
+                vec![30, 30, 30],
+                vec![90, 5],
+                vec![250],
+                vec![10, 60],
+                vec![60]
+            ]
+        );
         for c in &commits {
             let bytes: u64 = c.iter().map(|r| r.len() as u64 + 1).sum();
             assert!(bytes <= window.bytes || c.len() == 1, "{bytes}");
@@ -1525,15 +2078,41 @@ mod tests {
 
     #[test]
     fn data_errors_never_split_a_window() {
-        let rest = |status: &str, msg: &str| json!({ "error": { "code": 400, "message": msg, "status": status } }).to_string();
+        let rest = |status: &str, msg: &str| {
+            json!({ "error": { "code": 400, "message": msg, "status": status } }).to_string()
+        };
         let flat = |code: u64, msg: &str| json!({ "code": code, "message": msg }).to_string();
         // A duplicate key whose text says "too large".
-        assert_eq!(commit_failure(409, &rest("ALREADY_EXISTS", "Row [too large] in table t already exists")), Failure::Other);
-        assert_eq!(commit_failure(409, &flat(6, "Row [exceeds the maximum] in table t already exists")), Failure::Other);
-        assert_eq!(commit_failure(400, &rest("FAILED_PRECONDITION", "Transaction is too large")), Failure::Other);
+        assert_eq!(
+            commit_failure(
+                409,
+                &rest(
+                    "ALREADY_EXISTS",
+                    "Row [too large] in table t already exists"
+                )
+            ),
+            Failure::Other
+        );
+        assert_eq!(
+            commit_failure(
+                409,
+                &flat(6, "Row [exceeds the maximum] in table t already exists")
+            ),
+            Failure::Other
+        );
+        assert_eq!(
+            commit_failure(
+                400,
+                &rest("FAILED_PRECONDITION", "Transaction is too large")
+            ),
+            Failure::Other
+        );
         // One value over its column's length.
         let col = "New value exceeds the maximum size limit for this column: t.s";
-        assert_eq!(commit_failure(400, &rest("INVALID_ARGUMENT", col)), Failure::Other);
+        assert_eq!(
+            commit_failure(400, &rest("INVALID_ARGUMENT", col)),
+            Failure::Other
+        );
         assert_eq!(commit_failure(400, &flat(3, col)), Failure::Other);
         assert_eq!(commit_failure(400, col), Failure::Other);
         // One value over its limit, in wordings that don't name the column
@@ -1546,20 +2125,51 @@ mod tests {
             "Row too large",
             "exceeds the maximum size limit",
         ] {
-            assert_eq!(commit_failure(400, &rest("INVALID_ARGUMENT", msg)), Failure::Other, "{msg}");
+            assert_eq!(
+                commit_failure(400, &rest("INVALID_ARGUMENT", msg)),
+                Failure::Other,
+                "{msg}"
+            );
             assert_eq!(commit_failure(400, &flat(3, msg)), Failure::Other, "{msg}");
         }
         // The commit's own size still splits.
-        assert_eq!(commit_failure(400, &rest("INVALID_ARGUMENT", "Request payload size exceeds the limit: 104857600 bytes.")), Failure::TooBig);
-        assert_eq!(commit_failure(400, &rest("RESOURCE_EXHAUSTED", "grpc: received message larger than max")), Failure::TooBig);
-        assert_eq!(commit_failure(500, "Transaction is too large"), Failure::TooBig);
+        assert_eq!(
+            commit_failure(
+                400,
+                &rest(
+                    "INVALID_ARGUMENT",
+                    "Request payload size exceeds the limit: 104857600 bytes."
+                )
+            ),
+            Failure::TooBig
+        );
+        assert_eq!(
+            commit_failure(
+                400,
+                &rest(
+                    "RESOURCE_EXHAUSTED",
+                    "grpc: received message larger than max"
+                )
+            ),
+            Failure::TooBig
+        );
+        assert_eq!(
+            commit_failure(500, "Transaction is too large"),
+            Failure::TooBig
+        );
     }
 
     #[test]
     fn commits_carry_one_insert_and_respect_the_limits() {
         let cols = vec!["a".to_string(), "b".to_string()];
-        let target = Target { table: "ventas.t".into(), columns: &cols };
-        let rows = vec![json!(["1", "x"]).to_string(), json!(["2", null]).to_string()];
+        let target = Target {
+            table: "ventas.t".into(),
+            columns: &cols,
+        };
+        let rows = vec![
+            json!(["1", "x"]).to_string(),
+            json!(["2", null]).to_string(),
+        ];
         let body: Json = serde_json::from_slice(&commit_body(&target, &rows).unwrap()).unwrap();
         assert_eq!(
             body,
@@ -1568,40 +2178,107 @@ mod tests {
             ] })
         );
         assert!(too_big("The transaction contains too many mutations. Insert and update operations count with the multiplicity"));
-        assert!(too_big("grpc: received message larger than max (5000000 vs. 4194304)"));
+        assert!(too_big(
+            "grpc: received message larger than max (5000000 vs. 4194304)"
+        ));
         assert!(!too_big("Row [1] in table t already exists"));
-        let quoted = Target { table: "t\"x".into(), columns: &cols };
+        let quoted = Target {
+            table: "t\"x".into(),
+            columns: &cols,
+        };
         let body: Json = serde_json::from_slice(&commit_body(&quoted, &[]).unwrap()).unwrap();
-        assert_eq!(body.pointer("/mutations/0/insert/table"), Some(&json!("t\"x")));
+        assert_eq!(
+            body.pointer("/mutations/0/insert/table"),
+            Some(&json!("t\"x"))
+        );
         assert_eq!(body.pointer("/mutations/0/insert/values"), Some(&json!([])));
-        assert_eq!(http_error(404, r#"{"code":5,"message":"Table not found"}"#).to_string(), Error::Query("Table not found".into()).to_string());
-        assert!(matches!(http_error(401, r#"{"error":{"message":"no"}}"#), Error::AuthFailed(_)));
+        assert_eq!(
+            http_error(404, r#"{"code":5,"message":"Table not found"}"#).to_string(),
+            Error::Query("Table not found".into()).to_string()
+        );
+        assert!(matches!(
+            http_error(401, r#"{"error":{"message":"no"}}"#),
+            Error::AuthFailed(_)
+        ));
     }
 
     #[test]
     fn commit_failures_are_read_from_the_grpc_status() {
-        let rest = |status: &str, msg: &str| json!({ "error": { "code": 400, "message": msg, "status": status } }).to_string();
+        let rest = |status: &str, msg: &str| {
+            json!({ "error": { "code": 400, "message": msg, "status": status } }).to_string()
+        };
         let flat = |code: u64, msg: &str| json!({ "code": code, "message": msg }).to_string();
         // Aborted, with any wording (or none the emulator could marshal).
-        assert_eq!(commit_failure(409, &rest("ABORTED", "Transaction was aborted.")), Failure::Retry);
-        assert_eq!(commit_failure(409, &flat(10, "failed to marshal error message")), Failure::Retry);
+        assert_eq!(
+            commit_failure(409, &rest("ABORTED", "Transaction was aborted.")),
+            Failure::Retry
+        );
+        assert_eq!(
+            commit_failure(409, &flat(10, "failed to marshal error message")),
+            Failure::Retry
+        );
         // A duplicate key is also HTTP 409, and is not retried.
-        assert_eq!(commit_failure(409, &rest("ALREADY_EXISTS", "Row [1] in table t already exists")), Failure::Other);
-        assert_eq!(commit_failure(409, &flat(6, "Row [1] in table t already exists")), Failure::Other);
+        assert_eq!(
+            commit_failure(
+                409,
+                &rest("ALREADY_EXISTS", "Row [1] in table t already exists")
+            ),
+            Failure::Other
+        );
+        assert_eq!(
+            commit_failure(409, &flat(6, "Row [1] in table t already exists")),
+            Failure::Other
+        );
         // Size: by status 413, or its text under a size status (or none).
-        assert_eq!(commit_failure(413, "<html>Request Entity Too Large</html>"), Failure::TooBig);
-        assert_eq!(commit_failure(400, &rest("INVALID_ARGUMENT", "The transaction contains too many mutations.")), Failure::TooBig);
-        assert_eq!(commit_failure(400, &flat(3, "Transaction is too large")), Failure::TooBig);
+        assert_eq!(
+            commit_failure(413, "<html>Request Entity Too Large</html>"),
+            Failure::TooBig
+        );
+        assert_eq!(
+            commit_failure(
+                400,
+                &rest(
+                    "INVALID_ARGUMENT",
+                    "The transaction contains too many mutations."
+                )
+            ),
+            Failure::TooBig
+        );
+        assert_eq!(
+            commit_failure(400, &flat(3, "Transaction is too large")),
+            Failure::TooBig
+        );
         // Out of resources without a size reason: halved (or retried).
-        assert_eq!(commit_failure(429, &rest("RESOURCE_EXHAUSTED", "Quota exceeded")), Failure::Exhausted);
-        assert_eq!(commit_failure(400, &flat(8, "failed to marshal error message")), Failure::Exhausted);
-        assert_eq!(commit_failure(404, &rest("NOT_FOUND", "Session not found: projects/p/…")), Failure::SessionGone);
-        assert_eq!(commit_failure(404, &rest("NOT_FOUND", "Table not found: t")), Failure::Other);
+        assert_eq!(
+            commit_failure(429, &rest("RESOURCE_EXHAUSTED", "Quota exceeded")),
+            Failure::Exhausted
+        );
+        assert_eq!(
+            commit_failure(400, &flat(8, "failed to marshal error message")),
+            Failure::Exhausted
+        );
+        assert_eq!(
+            commit_failure(404, &rest("NOT_FOUND", "Session not found: projects/p/…")),
+            Failure::SessionGone
+        );
+        assert_eq!(
+            commit_failure(404, &rest("NOT_FOUND", "Table not found: t")),
+            Failure::Other
+        );
         // A lost answer may have committed: never retried.
-        assert_eq!(commit_failure(503, &rest("UNAVAILABLE", "try again")), Failure::Other);
-        assert_eq!(commit_failure(504, &rest("DEADLINE_EXCEEDED", "Transaction was aborted?")), Failure::Other);
+        assert_eq!(
+            commit_failure(503, &rest("UNAVAILABLE", "try again")),
+            Failure::Other
+        );
+        assert_eq!(
+            commit_failure(504, &rest("DEADLINE_EXCEEDED", "Transaction was aborted?")),
+            Failure::Other
+        );
         // No status at all: only the text.
-        assert_eq!(commit_failure(500, "Transaction was aborted"), Failure::Retry);
+        assert_eq!(
+            commit_failure(500, "Transaction was aborted"),
+            Failure::Retry
+        );
         assert_eq!(commit_failure(500, "boom"), Failure::Other);
         assert_eq!(grpc_status(&flat(14, "x")).as_deref(), Some("UNAVAILABLE"));
         assert_eq!(grpc_status("nope"), None);
@@ -1624,27 +2301,55 @@ mod tests {
     fn a_cut_stream_resumes_without_repeating_rows() {
         let mut r = Resume::new();
         // Rows are held until a token covers them.
-        assert!(r.push(json!({ "metadata": meta2(), "values": ["1", "a"] })).unwrap().is_empty());
+        assert!(r
+            .push(json!({ "metadata": meta2(), "values": ["1", "a"] }))
+            .unwrap()
+            .is_empty());
         let got = r.push(json!({ "values": ["2", "b", "3", "c"], "chunkedValue": true, "resumeToken": "t1" })).unwrap();
         assert_eq!(got.len(), 2);
-        assert!(r.push(json!({ "values": ["cc", "4", "d"] })).unwrap().is_empty());
+        assert!(r
+            .push(json!({ "values": ["cc", "4", "d"] }))
+            .unwrap()
+            .is_empty());
         assert!(r.resumable);
         // Cut: back to t1, with row 3's partial value restored.
         r.rewind();
         assert_eq!(r.token.as_deref(), Some("t1"));
-        assert!(r.push(json!({ "metadata": meta2(), "values": ["cc", "4", "d"], "resumeToken": "t2" })).unwrap().len() == 2);
+        assert!(
+            r.push(json!({ "metadata": meta2(), "values": ["cc", "4", "d"], "resumeToken": "t2" }))
+                .unwrap()
+                .len()
+                == 2
+        );
         assert!(r.finish().unwrap().is_empty());
         // Without a token, rows are handed over at the end.
         let mut r = Resume::new();
-        assert!(r.push(json!({ "metadata": meta2(), "values": ["1", "a"] })).unwrap().is_empty());
-        assert_eq!(r.finish().unwrap(), vec![vec![Cell::Int(1), Cell::Text("a".into())]]);
+        assert!(r
+            .push(json!({ "metadata": meta2(), "values": ["1", "a"] }))
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            r.finish().unwrap(),
+            vec![vec![Cell::Int(1), Cell::Text("a".into())]]
+        );
         // Too much without a token: handed over, and no longer resumable.
         let mut r = Resume::new();
         let big = "x".repeat(HOLD_BYTES);
-        assert_eq!(r.push(json!({ "metadata": meta2(), "values": ["1", big] })).unwrap().len(), 1);
+        assert_eq!(
+            r.push(json!({ "metadata": meta2(), "values": ["1", big] }))
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(!r.resumable);
         // An in-stream UNAVAILABLE can be resumed; other errors can't.
-        assert!(matches!(result_set(json!({ "error": { "code": 14, "message": "gone" } })), Err(Error::Connect(_))));
-        assert!(matches!(result_set(json!({ "error": { "status": "UNAVAILABLE", "message": "gone" } })), Err(Error::Connect(_))));
+        assert!(matches!(
+            result_set(json!({ "error": { "code": 14, "message": "gone" } })),
+            Err(Error::Connect(_))
+        ));
+        assert!(matches!(
+            result_set(json!({ "error": { "status": "UNAVAILABLE", "message": "gone" } })),
+            Err(Error::Connect(_))
+        ));
     }
 }

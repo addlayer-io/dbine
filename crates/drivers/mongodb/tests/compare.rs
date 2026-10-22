@@ -10,18 +10,26 @@
 //!   cargo test -p dbine-driver-mongodb --test compare -- --ignored --nocapture
 //! ```
 
-use dbine_driver::{kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session, TableChange, TableSchema};
+use dbine_driver::{
+    kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session, TableChange, TableSchema,
+};
 
 fn cfg(db: &str) -> Option<ConnectionConfig> {
     let url = std::env::var("DBINE_TEST_MONGODB_URL").ok()?;
-    let mut c = ConnectionConfig { driver: "mongodb".into(), database: db.into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "mongodb".into(),
+        database: db.into(),
+        ..Default::default()
+    };
     c.options.insert("connection_string".into(), url);
     Some(c)
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(text, 10, &mut out).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
     assert!(out.error.is_none(), "{text}: {:?}", out.error);
 }
 
@@ -48,7 +56,11 @@ db.docs.createIndex({ viejo: 1 }, { name: "viejo" })
 "#;
 
 fn docs(schema: &[TableSchema]) -> TableSchema {
-    let mut t = schema.iter().find(|t| t.name == "docs").expect("docs").clone();
+    let mut t = schema
+        .iter()
+        .find(|t| t.name == "docs")
+        .expect("docs")
+        .clone();
     t.indexes.sort_by(|a, b| a.name.cmp(&b.name));
     t
 }
@@ -56,7 +68,9 @@ fn docs(schema: &[TableSchema]) -> TableSchema {
 #[tokio::test]
 #[ignore]
 async fn compare_and_sync() {
-    let (Some(ca), Some(cb)) = (cfg("dbine_cmp_src"), cfg("dbine_cmp_dst")) else { return };
+    let (Some(ca), Some(cb)) = (cfg("dbine_cmp_src"), cfg("dbine_cmp_dst")) else {
+        return;
+    };
     let d = &dbine_driver_mongodb::drivers()[0];
     let mut a = d.connect(&ca, None).await.expect("connect");
     let mut b = d.connect(&cb, None).await.expect("connect");
@@ -69,25 +83,48 @@ async fn compare_and_sync() {
     let dst = docs(&b.database_schema().await.unwrap());
     println!("{:#?}\n{:#?}", src.indexes, src.checks);
     assert_eq!(src.checks.len(), 1);
-    assert!(src.checks[0].expression.contains("moderate") && src.checks[0].expression.contains("warn"));
+    assert!(
+        src.checks[0].expression.contains("moderate") && src.checks[0].expression.contains("warn")
+    );
     assert!(dst.checks.is_empty());
     let ft = src.indexes.iter().find(|i| i.name == "ft").unwrap();
     assert_eq!(ft.kind.as_deref(), Some("FULLTEXT"));
-    assert_eq!(ft.options.get("default_language").map(String::as_str), Some("spanish"));
+    assert_eq!(
+        ft.options.get("default_language").map(String::as_str),
+        Some("spanish")
+    );
     assert!(ft.options.contains_key("weights"));
     let exp = src.indexes.iter().find(|i| i.name == "exp").unwrap();
     assert!(exp.filter.is_some() && exp.options.contains_key("hidden"));
-    assert!(src.indexes.iter().find(|i| i.name == "email_ci").unwrap().options.contains_key("collation"));
+    assert!(src
+        .indexes
+        .iter()
+        .find(|i| i.name == "email_ci")
+        .unwrap()
+        .options
+        .contains_key("collation"));
     assert_ne!(src.indexes, dst.indexes);
 
     // The view is a code object with a runnable definition.
     let objects = a.list_objects().await.unwrap();
-    let view = objects.iter().find(|o| o.kind == kinds::VIEW && o.name == "recientes").unwrap();
-    let r = ObjectRef { kind: view.kind.clone(), schema: None, name: view.name.clone() };
+    let view = objects
+        .iter()
+        .find(|o| o.kind == kinds::VIEW && o.name == "recientes")
+        .unwrap();
+    let r = ObjectRef {
+        kind: view.kind.clone(),
+        schema: None,
+        name: view.name.clone(),
+    };
     let def = a.definition(&r).await.unwrap().unwrap();
     assert!(def.starts_with("db.createView(\"recientes\""), "{def}");
 
-    let script = d.sync_script(&[TableChange::Alter { old: dst.clone(), new: src.clone() }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Alter {
+            old: dst.clone(),
+            new: src.clone(),
+        }])
+        .unwrap();
     println!("{script:#?}");
     for st in &script.statements {
         run(&mut b, st).await;
@@ -99,7 +136,12 @@ async fn compare_and_sync() {
     assert_eq!(after.checks, src.checks);
     assert_eq!(b.definition(&r).await.unwrap().unwrap(), def);
     // Nothing left to do.
-    let again = d.sync_script(&[TableChange::Alter { old: after, new: src }]).unwrap();
+    let again = d
+        .sync_script(&[TableChange::Alter {
+            old: after,
+            new: src,
+        }])
+        .unwrap();
     assert!(again.statements.is_empty(), "{again:#?}");
 
     run(&mut a, "db.dropDatabase()").await;
@@ -136,8 +178,18 @@ async fn model(s: &mut Box<dyn Session>) -> Model {
         })
         .collect();
     let mut views = BTreeMap::new();
-    for o in s.list_objects().await.unwrap().into_iter().filter(|o| o.kind == kinds::VIEW) {
-        let r = ObjectRef { kind: o.kind.clone(), schema: None, name: o.name.clone() };
+    for o in s
+        .list_objects()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|o| o.kind == kinds::VIEW)
+    {
+        let r = ObjectRef {
+            kind: o.kind.clone(),
+            schema: None,
+            name: o.name.clone(),
+        };
         views.insert(o.name, s.definition(&r).await.unwrap().expect("definition"));
     }
     Model { tables, views }
@@ -145,12 +197,19 @@ async fn model(s: &mut Box<dyn Session>) -> Model {
 
 /// What src-tauri's `drop_other` writes for a MongoDB view.
 fn drop_view(name: &str) -> String {
-    format!("db.getCollection({}).drop()", serde_json::to_string(name).unwrap())
+    format!(
+        "db.getCollection({}).drop()",
+        serde_json::to_string(name).unwrap()
+    )
 }
 
 /// Drops on one side what `edit` takes out of its model; returns the
 /// script's warnings and the model read back.
-async fn drop_on(d: &dyn dbine_driver::Driver, s: &mut Box<dyn Session>, edit: impl Fn(&mut Model)) -> (Vec<String>, Model) {
+async fn drop_on(
+    d: &dyn dbine_driver::Driver,
+    s: &mut Box<dyn Session>,
+    edit: impl Fn(&mut Model),
+) -> (Vec<String>, Model) {
     let orig = model(s).await;
     let mut work = orig.clone();
     edit(&mut work);
@@ -159,13 +218,20 @@ async fn drop_on(d: &dyn dbine_driver::Driver, s: &mut Box<dyn Session>, edit: i
     for (n, t) in &orig.tables {
         match work.tables.get(n) {
             None => tables.push(TableChange::Drop { table: t.clone() }),
-            Some(w) if w != t => tables.push(TableChange::Alter { old: t.clone(), new: w.clone() }),
+            Some(w) if w != t => tables.push(TableChange::Alter {
+                old: t.clone(),
+                new: w.clone(),
+            }),
             Some(_) => {}
         }
     }
     let script = d.sync_script(&tables).unwrap();
     println!("{script:#?}");
-    let views = orig.views.keys().filter(|v| !work.views.contains_key(*v)).map(|v| drop_view(v));
+    let views = orig
+        .views
+        .keys()
+        .filter(|v| !work.views.contains_key(*v))
+        .map(|v| drop_view(v));
     for st in views.chain(script.statements) {
         run(s, &st).await;
     }
@@ -174,7 +240,9 @@ async fn drop_on(d: &dyn dbine_driver::Driver, s: &mut Box<dyn Session>, edit: i
     let gone: Vec<String> = orig
         .tables
         .iter()
-        .filter(|(n, t)| t.kind == kinds::VIEW && (!work.tables.contains_key(*n) || !work.views.contains_key(*n)))
+        .filter(|(n, t)| {
+            t.kind == kinds::VIEW && (!work.tables.contains_key(*n) || !work.views.contains_key(*n))
+        })
         .map(|(n, _)| n.clone())
         .collect();
     for v in gone {
@@ -203,7 +271,9 @@ db.createView("grandes", "pedidos", [{ $match: { total: { $gt: 1 } } }])
 #[tokio::test]
 #[ignore]
 async fn drop_from_compare() {
-    let (Some(ca), Some(cb)) = (cfg("dbine_drop_a"), cfg("dbine_drop_b")) else { return };
+    let (Some(ca), Some(cb)) = (cfg("dbine_drop_a"), cfg("dbine_drop_b")) else {
+        return;
+    };
     let d = dbine_driver_mongodb::drivers().remove(0);
     let d = d.as_ref();
     let mut a = d.connect(&ca, None).await.expect("connect");
@@ -218,13 +288,22 @@ async fn drop_from_compare() {
     assert!(ma.views.contains_key("grandes"));
 
     // An index on one side: the sides differ only there.
-    let (_, ma) = drop_on(d, &mut a, |m| table(m, "pedidos").indexes.retain(|i| i.name != "ix_total")).await;
-    assert!(!ma.tables["pedidos"].indexes.iter().any(|i| i.name == "ix_total"));
+    let (_, ma) = drop_on(d, &mut a, |m| {
+        table(m, "pedidos").indexes.retain(|i| i.name != "ix_total")
+    })
+    .await;
+    assert!(!ma.tables["pedidos"]
+        .indexes
+        .iter()
+        .any(|i| i.name == "ix_total"));
     let mb = model(&mut b).await;
     assert_ne!(ma, mb);
     assert_eq!(ma.tables["pedidos"].checks, mb.tables["pedidos"].checks);
     // The same index on the other side: equal again.
-    let (_, mb) = drop_on(d, &mut b, |m| table(m, "pedidos").indexes.retain(|i| i.name != "ix_total")).await;
+    let (_, mb) = drop_on(d, &mut b, |m| {
+        table(m, "pedidos").indexes.retain(|i| i.name != "ix_total")
+    })
+    .await;
     assert_eq!(ma, mb);
 
     // The validator (the collection's CHECK), on both sides.
@@ -234,18 +313,33 @@ async fn drop_from_compare() {
     }
     // An index on both sides.
     for s in [&mut a, &mut b] {
-        drop_on(d, s, |m| table(m, "pedidos").indexes.retain(|i| i.name != "ix_cliente")).await;
+        drop_on(d, s, |m| {
+            table(m, "pedidos")
+                .indexes
+                .retain(|i| i.name != "ix_cliente")
+        })
+        .await;
     }
     assert_eq!(model(&mut a).await, model(&mut b).await);
 
     // A field: documents have no fixed schema, so it's only a warning.
     let orig = model(&mut a).await;
     let mut work = orig.clone();
-    table(&mut work, "pedidos").columns.retain(|c| c.name != "extra");
+    table(&mut work, "pedidos")
+        .columns
+        .retain(|c| c.name != "extra");
     assert_ne!(work, orig, "the field is in the model");
-    let script = d.sync_script(&[TableChange::Alter { old: orig.tables["pedidos"].clone(), new: work.tables["pedidos"].clone() }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Alter {
+            old: orig.tables["pedidos"].clone(),
+            new: work.tables["pedidos"].clone(),
+        }])
+        .unwrap();
     assert!(script.statements.is_empty(), "{script:#?}");
-    assert!(script.warnings.iter().any(|w| w.contains("pedidos.extra")), "{script:#?}");
+    assert!(
+        script.warnings.iter().any(|w| w.contains("pedidos.extra")),
+        "{script:#?}"
+    );
 
     // A view and a whole collection, on both sides: on one through the
     // view's object row, on the other through its table row.
@@ -259,8 +353,15 @@ async fn drop_from_compare() {
             m.tables.remove("clientes");
         })
         .await;
-        assert!(warnings.iter().any(|w| w.contains("clientes")), "{warnings:?}");
-        assert!(m.views.is_empty() && !m.tables.contains_key("clientes") && !m.tables.contains_key("grandes"));
+        assert!(
+            warnings.iter().any(|w| w.contains("clientes")),
+            "{warnings:?}"
+        );
+        assert!(
+            m.views.is_empty()
+                && !m.tables.contains_key("clientes")
+                && !m.tables.contains_key("grandes")
+        );
     }
     assert_eq!(model(&mut a).await, model(&mut b).await);
 

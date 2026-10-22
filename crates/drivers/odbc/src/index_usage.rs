@@ -42,7 +42,9 @@
 use crate::design::{self, Eng};
 use crate::presets::Preset;
 use dbine_driver::sql::{qualified_name, quote_ident};
-use dbine_driver::{Error, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript, TableSchema};
+use dbine_driver::{
+    Error, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript, TableSchema,
+};
 
 /// The "Índices" folder is offered: the engine has indexes or reports keys.
 pub fn supported(p: &Preset) -> bool {
@@ -55,7 +57,11 @@ pub fn toggle_supported(p: &Preset) -> bool {
 }
 
 /// The names of the table's disabled indexes, and the parameters.
-pub fn disabled_sql(e: Eng, schema: Option<&str>, table: &str) -> Option<(&'static str, Vec<String>)> {
+pub fn disabled_sql(
+    e: Eng,
+    schema: Option<&str>,
+    table: &str,
+) -> Option<(&'static str, Vec<String>)> {
     let schema = schema.filter(|s| !s.is_empty());
     let sql = match (e, schema.is_some()) {
         (Eng::Informix, true) => {
@@ -70,13 +76,24 @@ pub fn disabled_sql(e: Eng, schema: Option<&str>, table: &str) -> Option<(&'stat
         (Eng::MaxDb, false) => "SELECT INDEXNAME FROM DOMAIN.INDEXES WHERE TABLENAME = ? AND DISABLED = 'YES'",
         _ => return None,
     };
-    Some((sql, schema.map(str::to_string).into_iter().chain([table.to_string()]).collect()))
+    Some((
+        sql,
+        schema
+            .map(str::to_string)
+            .into_iter()
+            .chain([table.to_string()])
+            .collect(),
+    ))
 }
 
 /// `disabled_sql`'s rows marked on the report (re-derived: a disabled
 /// index is never judged unused).
 pub fn mark_disabled(mut r: IndexUsageReport, rows: &[Vec<Option<String>>]) -> IndexUsageReport {
-    let off: Vec<&str> = rows.iter().filter_map(|r| r.first()?.as_deref()).map(str::trim).collect();
+    let off: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r.first()?.as_deref())
+        .map(str::trim)
+        .collect();
     for i in &mut r.indexes {
         i.disabled = !i.primary_key && off.contains(&i.name.trim());
     }
@@ -84,10 +101,17 @@ pub fn mark_disabled(mut r: IndexUsageReport, rows: &[Vec<Option<String>>]) -> I
 }
 
 /// "Deshabilitar / Habilitar índice" (see the module's notes).
-pub fn toggle_script(p: &Preset, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+pub fn toggle_script(
+    p: &Preset,
+    table: &ObjectRef,
+    index: &IndexUsage,
+    enable: bool,
+) -> Result<SyncScript> {
     let e = design::eng(p);
     if !toggle_supported(p) {
-        return Err(Error::Unsupported("este motor no deshabilita índices".into()));
+        return Err(Error::Unsupported(
+            "este motor no deshabilita índices".into(),
+        ));
     }
     if index.primary_key {
         return Err(Error::Unsupported(match e {
@@ -100,7 +124,9 @@ pub fn toggle_script(p: &Preset, table: &ObjectRef, index: &IndexUsage, enable: 
     let statement = match e {
         Eng::Informix => {
             if enable {
-                warnings.push("Habilitarlo lo reconstruye entero: en una tabla grande tarda.".to_string());
+                warnings.push(
+                    "Habilitarlo lo reconstruye entero: en una tabla grande tarda.".to_string(),
+                );
                 if index.unique {
                     warnings.push("Si mientras estuvo deshabilitado entraron valores repetidos, habilitarlo falla.".to_string());
                 }
@@ -110,7 +136,11 @@ pub fn toggle_script(p: &Preset, table: &ObjectRef, index: &IndexUsage, enable: 
                     warnings.push("Mientras esté deshabilitado no impide valores repetidos. Si sostiene una restricción UNIQUE o una clave foránea, el servidor lo rechaza.".to_string());
                 }
             }
-            format!("SET INDEXES {} {}", qualified_name(q, table.schema(), &index.name), if enable { "ENABLED" } else { "DISABLED" })
+            format!(
+                "SET INDEXES {} {}",
+                qualified_name(q, table.schema(), &index.name),
+                if enable { "ENABLED" } else { "DISABLED" }
+            )
         }
         _ => {
             if !enable {
@@ -124,7 +154,10 @@ pub fn toggle_script(p: &Preset, table: &ObjectRef, index: &IndexUsage, enable: 
             )
         }
     };
-    Ok(SyncScript { statements: vec![statement], warnings })
+    Ok(SyncScript {
+        statements: vec![statement],
+        warnings,
+    })
 }
 
 /// One index's counters, by catalog name. `primary`: the primary key's
@@ -172,7 +205,11 @@ pub fn counters_params(e: Eng, schema: Option<&str>, table: &str) -> Vec<String>
     let s = schema.unwrap_or_default().to_string();
     match e {
         Eng::Db2 => vec![s.clone(), table.into(), s, table.into()],
-        Eng::Ase => vec![if s.is_empty() { table.into() } else { format!("{s}.{table}") }],
+        Eng::Ase => vec![if s.is_empty() {
+            table.into()
+        } else {
+            format!("{s}.{table}")
+        }],
         _ => vec![s, table.into()],
     }
 }
@@ -186,7 +223,8 @@ pub fn since_sql(e: Eng) -> Option<&'static str> {
 }
 
 fn num(v: Option<&String>) -> u64 {
-    v.and_then(|s| s.trim().split('.').next()?.parse().ok()).unwrap_or(0)
+    v.and_then(|s| s.trim().split('.').next()?.parse().ok())
+        .unwrap_or(0)
 }
 
 /// `counters_sql`'s rows: name, primary flag (`P`), reads, writes, last read.
@@ -196,10 +234,18 @@ pub fn parse_counters(rows: &[Vec<Option<String>>]) -> Vec<UsageRow> {
             let name = r.first()?.as_ref()?.trim().to_string();
             Some(UsageRow {
                 name,
-                primary: r.get(1).and_then(|v| v.as_deref()).is_some_and(|v| v.trim() == "P"),
+                primary: r
+                    .get(1)
+                    .and_then(|v| v.as_deref())
+                    .is_some_and(|v| v.trim() == "P"),
                 seeks: num(r.get(2).and_then(Option::as_ref)),
                 updates: num(r.get(3).and_then(Option::as_ref)),
-                last_read: r.get(4).cloned().flatten().map(|d| d.trim().replace('T', " ")).filter(|d| !d.is_empty()),
+                last_read: r
+                    .get(4)
+                    .cloned()
+                    .flatten()
+                    .map(|d| d.trim().replace('T', " "))
+                    .filter(|d| !d.is_empty()),
             })
         })
         .collect()
@@ -223,11 +269,23 @@ pub fn note(p: &Preset, stats: bool) -> String {
 
 /// The report: the primary key first, then the indexes in the schema's
 /// order, with `usage`'s counters where there are (`None`: no counters).
-pub fn assemble(p: &Preset, t: Option<&TableSchema>, usage: Option<&[UsageRow]>, since: Option<String>) -> IndexUsageReport {
+pub fn assemble(
+    p: &Preset,
+    t: Option<&TableSchema>,
+    usage: Option<&[UsageRow]>,
+    since: Option<String>,
+) -> IndexUsageReport {
     let stats = usage.is_some();
     // Db2 for i counts queries only, no writes.
     let writes_counted = stats && matches!(design::eng(p), Eng::Db2 | Eng::Ase);
-    let mut r = IndexUsageReport { since, stats_available: stats, note: Some(note(p, stats)), seek_scan_split: false, writes_counted, ..Default::default() };
+    let mut r = IndexUsageReport {
+        since,
+        stats_available: stats,
+        note: Some(note(p, stats)),
+        seek_scan_split: false,
+        writes_counted,
+        ..Default::default()
+    };
     let Some(t) = t else { return r.derived() };
     let fill = |mut i: IndexUsage, u: Option<&UsageRow>| {
         if let Some(u) = u {
@@ -238,10 +296,24 @@ pub fn assemble(p: &Preset, t: Option<&TableSchema>, usage: Option<&[UsageRow]>,
     let rows = usage.unwrap_or_default();
     if let Some(pk) = &t.primary_key {
         let name = pk.name.clone().unwrap_or_else(|| "PRIMARY KEY".into());
-        let u = rows.iter().find(|u| u.primary).or_else(|| rows.iter().find(|u| u.name == name));
-        let kind = if design::has_indexes(p) { "PRIMARY KEY" } else { "CONSTRAINT" };
+        let u = rows
+            .iter()
+            .find(|u| u.primary)
+            .or_else(|| rows.iter().find(|u| u.name == name));
+        let kind = if design::has_indexes(p) {
+            "PRIMARY KEY"
+        } else {
+            "CONSTRAINT"
+        };
         r.indexes.push(fill(
-            IndexUsage { name, kind: kind.into(), unique: true, primary_key: true, key_columns: pk.columns.clone(), ..Default::default() },
+            IndexUsage {
+                name,
+                kind: kind.into(),
+                unique: true,
+                primary_key: true,
+                key_columns: pk.columns.clone(),
+                ..Default::default()
+            },
             u,
         ));
     }
@@ -278,79 +350,171 @@ mod tests {
         TableSchema {
             schema: Some("APP".into()),
             name: "T".into(),
-            primary_key: Some(KeyDef { name: Some("PK_T".into()), columns: vec!["ID".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("PK_T".into()),
+                columns: vec!["ID".into()],
+            }),
             indexes: vec![
-                IndexDef { name: "IX_A".into(), columns: vec!["A".into()], include: vec!["C".into()], ..Default::default() },
-                IndexDef { name: "IX_B".into(), columns: vec!["B".into()], unique: true, kind: Some("CLUSTERED".into()), ..Default::default() },
+                IndexDef {
+                    name: "IX_A".into(),
+                    columns: vec!["A".into()],
+                    include: vec!["C".into()],
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "IX_B".into(),
+                    columns: vec!["B".into()],
+                    unique: true,
+                    kind: Some("CLUSTERED".into()),
+                    ..Default::default()
+                },
             ],
-            foreign_keys: vec![ForeignKeyDef { columns: vec!["P_ID".into()], ref_table: "P".into(), ref_columns: vec!["ID".into()], ..Default::default() }],
+            foreign_keys: vec![ForeignKeyDef {
+                columns: vec!["P_ID".into()],
+                ref_table: "P".into(),
+                ref_columns: vec!["ID".into()],
+                ..Default::default()
+            }],
             ..Default::default()
         }
     }
 
     #[test]
     fn which_presets_toggle() {
-        let on: Vec<&str> = PRESETS.iter().filter(|p| toggle_supported(p)).map(|p| p.id).collect();
+        let on: Vec<&str> = PRESETS
+            .iter()
+            .filter(|p| toggle_supported(p))
+            .map(|p| p.id)
+            .collect();
         assert_eq!(on, ["informix", "gbase8s", "maxdb"]);
     }
 
     #[test]
     fn toggle_scripts() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("app".into()), name: "pedidos".into() };
-        let ix = IndexUsage { name: "ix_fecha".into(), ..Default::default() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("app".into()),
+            name: "pedidos".into(),
+        };
+        let ix = IndexUsage {
+            name: "ix_fecha".into(),
+            ..Default::default()
+        };
         for id in ["informix", "gbase8s"] {
             let off = toggle_script(preset(id), &t, &ix, false).unwrap();
-            assert_eq!(off.statements, [r#"SET INDEXES "app"."ix_fecha" DISABLED"#], "{id}");
+            assert_eq!(
+                off.statements,
+                [r#"SET INDEXES "app"."ix_fecha" DISABLED"#],
+                "{id}"
+            );
             assert_eq!(off.warnings.len(), 1);
             let on = toggle_script(preset(id), &t, &ix, true).unwrap();
-            assert_eq!(on.statements, [r#"SET INDEXES "app"."ix_fecha" ENABLED"#], "{id}");
+            assert_eq!(
+                on.statements,
+                [r#"SET INDEXES "app"."ix_fecha" ENABLED"#],
+                "{id}"
+            );
         }
-        let uq = IndexUsage { unique: true, ..ix.clone() };
-        assert!(toggle_script(preset("informix"), &t, &uq, false).unwrap().warnings[1].contains("valores repetidos"));
+        let uq = IndexUsage {
+            unique: true,
+            ..ix.clone()
+        };
+        assert!(toggle_script(preset("informix"), &t, &uq, false)
+            .unwrap()
+            .warnings[1]
+            .contains("valores repetidos"));
         let off = toggle_script(preset("maxdb"), &t, &ix, false).unwrap();
-        assert_eq!(off.statements, [r#"ALTER INDEX "ix_fecha" ON "app"."pedidos" DISABLE"#]);
-        assert_eq!(off.warnings, ["El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo."]);
+        assert_eq!(
+            off.statements,
+            [r#"ALTER INDEX "ix_fecha" ON "app"."pedidos" DISABLE"#]
+        );
+        assert_eq!(
+            off.warnings,
+            ["El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo."]
+        );
         let on = toggle_script(preset("maxdb"), &t, &ix, true).unwrap();
-        assert_eq!(on.statements, [r#"ALTER INDEX "ix_fecha" ON "app"."pedidos" ENABLE"#]);
+        assert_eq!(
+            on.statements,
+            [r#"ALTER INDEX "ix_fecha" ON "app"."pedidos" ENABLE"#]
+        );
         assert!(on.warnings.is_empty());
-        let pk = IndexUsage { name: "PK".into(), primary_key: true, unique: true, ..Default::default() };
+        let pk = IndexUsage {
+            name: "PK".into(),
+            primary_key: true,
+            unique: true,
+            ..Default::default()
+        };
         for id in ["informix", "gbase8s", "maxdb"] {
-            assert!(matches!(toggle_script(preset(id), &t, &pk, false), Err(Error::Unsupported(m)) if m.contains("clave primaria")), "{id}");
+            assert!(
+                matches!(toggle_script(preset(id), &t, &pk, false), Err(Error::Unsupported(m)) if m.contains("clave primaria")),
+                "{id}"
+            );
         }
         for p in PRESETS.iter().filter(|p| !toggle_supported(p)) {
-            assert!(matches!(toggle_script(p, &t, &ix, false), Err(Error::Unsupported(_))), "{}", p.id);
+            assert!(
+                matches!(toggle_script(p, &t, &ix, false), Err(Error::Unsupported(_))),
+                "{}",
+                p.id
+            );
         }
     }
 
     #[test]
     fn disabled_state_queries() {
         let (sql, params) = disabled_sql(Eng::Informix, Some("app"), "pedidos").unwrap();
-        assert!(sql.contains("sysobjstate") && sql.contains("o.objtype = 'I'") && sql.contains("o.state = 'D'") && sql.contains("t.owner = ?"));
+        assert!(
+            sql.contains("sysobjstate")
+                && sql.contains("o.objtype = 'I'")
+                && sql.contains("o.state = 'D'")
+                && sql.contains("t.owner = ?")
+        );
         assert_eq!(params, ["app", "pedidos"]);
         let (sql, params) = disabled_sql(Eng::Informix, None, "pedidos").unwrap();
         assert!(!sql.contains("owner") && params == ["pedidos"]);
         let (sql, params) = disabled_sql(Eng::MaxDb, Some("APP"), "T").unwrap();
         assert!(sql.contains("DOMAIN.INDEXES") && sql.contains("DISABLED = 'YES'"));
         assert_eq!(params, ["APP", "T"]);
-        assert!(disabled_sql(Eng::Db2, Some("APP"), "T").is_none() && disabled_sql(Eng::Dameng, Some("APP"), "T").is_none());
+        assert!(
+            disabled_sql(Eng::Db2, Some("APP"), "T").is_none()
+                && disabled_sql(Eng::Dameng, Some("APP"), "T").is_none()
+        );
 
         let r = assemble(preset("informix"), Some(&table()), None, None);
         let r = mark_disabled(r, &[vec![Some("IX_A ".into())], vec![Some("PK_T".into())]]);
-        let got: Vec<(&str, bool)> = r.indexes.iter().map(|i| (i.name.as_str(), i.disabled)).collect();
+        let got: Vec<(&str, bool)> = r
+            .indexes
+            .iter()
+            .map(|i| (i.name.as_str(), i.disabled))
+            .collect();
         assert_eq!(got, [("PK_T", false), ("IX_A", true), ("IX_B", false)]);
     }
 
     #[test]
     fn which_presets_offer_it() {
-        for (id, on) in [("db2", true), ("informix", true), ("teradata", true), ("vertica", true), ("exasol", true), ("netezza", true), ("hive", false), ("spark", false), ("impala", false)] {
+        for (id, on) in [
+            ("db2", true),
+            ("informix", true),
+            ("teradata", true),
+            ("vertica", true),
+            ("exasol", true),
+            ("netezza", true),
+            ("hive", false),
+            ("spark", false),
+            ("impala", false),
+        ] {
             assert_eq!(supported(preset(id)), on, "{id}");
         }
     }
 
     #[test]
     fn counter_queries_and_parameters() {
-        assert!(counters_sql(Eng::Db2).unwrap().contains("MON_GET_INDEX(CAST(? AS VARCHAR(128))"));
-        assert_eq!(counters_params(Eng::Db2, Some("APP"), "T"), ["APP", "T", "APP", "T"]);
+        assert!(counters_sql(Eng::Db2)
+            .unwrap()
+            .contains("MON_GET_INDEX(CAST(? AS VARCHAR(128))"));
+        assert_eq!(
+            counters_params(Eng::Db2, Some("APP"), "T"),
+            ["APP", "T", "APP", "T"]
+        );
         assert_eq!(counters_params(Eng::Ase, Some("dbo"), "t"), ["dbo.t"]);
         assert_eq!(counters_params(Eng::Ase, None, "t"), ["t"]);
         assert_eq!(counters_params(Eng::Db2i, Some("LIB"), "T"), ["LIB", "T"]);
@@ -366,18 +530,33 @@ mod tests {
             vec![s("IX_A"), s("D"), s("5"), s("2"), None],
             vec![s("IX_B"), s("U"), s("0"), s("7"), None],
         ]);
-        let r = assemble(preset("db2"), Some(&table()), Some(&rows), Some("2026-09-01 08:00:00".into()));
+        let r = assemble(
+            preset("db2"),
+            Some(&table()),
+            Some(&rows),
+            Some("2026-09-01 08:00:00".into()),
+        );
         assert!(r.stats_available && !r.seek_scan_split && r.writes_counted);
         assert_eq!(r.since.as_deref(), Some("2026-09-01 08:00:00"));
-        let got: Vec<(&str, u64, u64)> = r.indexes.iter().map(|i| (i.name.as_str(), i.seeks, i.updates)).collect();
+        let got: Vec<(&str, u64, u64)> = r
+            .indexes
+            .iter()
+            .map(|i| (i.name.as_str(), i.seeks, i.updates))
+            .collect();
         assert_eq!(got, [("PK_T", 12, 3), ("IX_A", 5, 2), ("IX_B", 0, 7)]);
         assert_eq!(r.indexes[0].last_read.as_deref(), Some("2026-09-30"));
         assert!(r.indexes[2].unused && !r.indexes[1].unused);
         assert_eq!(r.indexes[1].included_columns, ["C"]);
         assert_eq!(r.indexes[2].kind, "CLUSTERED");
         // One counter for every access: no seek ratio nor health.
-        assert!(r.indexes.iter().all(|i| i.seek_ratio.is_none() && i.seek_health.is_none()));
-        assert_eq!(r.indexes[0].read_share.map(|v| (v * 100.0).round()), Some(71.0));
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| i.seek_ratio.is_none() && i.seek_health.is_none()));
+        assert_eq!(
+            r.indexes[0].read_share.map(|v| (v * 100.0).round()),
+            Some(71.0)
+        );
         assert_eq!(r.foreign_keys.len(), 1);
         assert!(r.note.unwrap().contains("INDEX_SCANS"));
     }
@@ -388,13 +567,22 @@ mod tests {
         let rows = parse_counters(&[vec![s("IX_B"), s(""), s("0"), s("0"), None]]);
         let r = assemble(preset("db2i"), Some(&table()), Some(&rows), None);
         assert!(r.stats_available && !r.writes_counted);
-        assert!(r.indexes.iter().all(|i| !i.unused && i.writes_per_read.is_none()));
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| !i.unused && i.writes_per_read.is_none()));
     }
 
     #[test]
     fn ase_dates_and_refusals() {
         let s = |v: &str| Some(v.to_string());
-        let rows = parse_counters(&[vec![s("PK_T"), s("P"), s("4"), s("0"), s("2026-10-01T10:20:30")]]);
+        let rows = parse_counters(&[vec![
+            s("PK_T"),
+            s("P"),
+            s("4"),
+            s("0"),
+            s("2026-10-01T10:20:30"),
+        ]]);
         assert_eq!(rows[0].last_read.as_deref(), Some("2026-10-01 10:20:30"));
         let r = assemble(preset("sybase"), Some(&table()), None, None);
         assert!(!r.stats_available && r.note.unwrap().contains("mon_role"));
@@ -406,9 +594,15 @@ mod tests {
         let r = assemble(preset("teradata"), Some(&table()), None, None);
         assert!(!r.stats_available && r.note.as_deref().unwrap().starts_with("Teradata"));
         assert_eq!(r.indexes.len(), 3);
-        let t = TableSchema { indexes: vec![], ..table() };
+        let t = TableSchema {
+            indexes: vec![],
+            ..table()
+        };
         let r = assemble(preset("vertica"), Some(&t), None, None);
-        assert_eq!((r.indexes[0].kind.as_str(), r.indexes.len()), ("CONSTRAINT", 1));
+        assert_eq!(
+            (r.indexes[0].kind.as_str(), r.indexes.len()),
+            ("CONSTRAINT", 1)
+        );
         assert!(r.note.unwrap().contains("no tiene índices"));
         assert!(assemble(preset("db2"), None, None, None).indexes.is_empty());
     }

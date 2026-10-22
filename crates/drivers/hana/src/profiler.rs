@@ -30,10 +30,18 @@ const LOOKBACK_S: u32 = 5;
 const SECTION: &str = "expensive_statement";
 
 pub(crate) enum State {
-    Sampled { sampler: Sampler, sql: String },
+    Sampled {
+        sampler: Sampler,
+        sql: String,
+    },
     /// The trace read past `after` (latest end seen, server local time);
     /// `seen` are the statements read in the lookback window.
-    Trace { after: String, seen: HashSet<String>, scope: String, restore: Vec<String> },
+    Trace {
+        after: String,
+        seen: HashSet<String>,
+        scope: String,
+        restore: Vec<String>,
+    },
 }
 
 /// A server timestamp (local time) as UTC text.
@@ -53,16 +61,45 @@ fn scope(schema: &str) -> String {
     }
 }
 
-pub(crate) async fn start(s: &HanaSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
-    let now = s.rows("SELECT TO_VARCHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS.FF7') FROM DUMMY", &[]).await?;
-    let now_local = now.first().and_then(|r| r.first()).and_then(text).unwrap_or_default();
-    let since = s.rows(&format!("SELECT {} FROM DUMMY", utc("CURRENT_TIMESTAMP")), &[]).await?;
-    let since = since.first().and_then(|r| r.first()).and_then(text).unwrap_or_default();
+pub(crate) async fn start(
+    s: &HanaSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
+    let now = s
+        .rows(
+            "SELECT TO_VARCHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS.FF7') FROM DUMMY",
+            &[],
+        )
+        .await?;
+    let now_local = now
+        .first()
+        .and_then(|r| r.first())
+        .and_then(text)
+        .unwrap_or_default();
+    let since = s
+        .rows(
+            &format!("SELECT {} FROM DUMMY", utc("CURRENT_TIMESTAMP")),
+            &[],
+        )
+        .await?;
+    let since = since
+        .first()
+        .and_then(|r| r.first())
+        .and_then(text)
+        .unwrap_or_default();
 
-    let trace = |restore: Vec<String>| State::Trace { after: now_local.clone(), seen: HashSet::new(), scope: scope(&opts.database), restore };
+    let trace = |restore: Vec<String>| State::Trace {
+        after: now_local.clone(),
+        seen: HashSet::new(),
+        scope: scope(&opts.database),
+        restore,
+    };
     let sampled = |note: String| {
         (
-            State::Sampled { sampler: Sampler::new(since.clone()), sql: sample_sql(&opts.database) },
+            State::Sampled {
+                sampler: Sampler::new(since.clone()),
+                sql: sample_sql(&opts.database),
+            },
             ProfilerStarted::new(ProfilerMode::Sampled, "M_ACTIVE_STATEMENTS").note(note),
         )
     };
@@ -81,20 +118,37 @@ pub(crate) async fn start(s: &HanaSession, opts: &ProfilerOptions) -> Result<(St
         .unwrap_or_default();
     let config: Vec<(String, String, String)> = config
         .iter()
-        .filter_map(|r| Some((r.first().and_then(text)?, r.get(1).and_then(text)?, r.get(2).and_then(text)?)))
+        .filter_map(|r| {
+            Some((
+                r.first().and_then(text)?,
+                r.get(1).and_then(text)?,
+                r.get(2).and_then(text)?,
+            ))
+        })
         .collect();
     // The most specific layer wins.
     let effective = |key: &str| {
-        ["DATABASE", "SYSTEM", "DEFAULT"]
-            .iter()
-            .find_map(|l| config.iter().find(|(layer, k, _)| layer == l && k == key).map(|(_, _, v)| v.clone()))
+        ["DATABASE", "SYSTEM", "DEFAULT"].iter().find_map(|l| {
+            config
+                .iter()
+                .find(|(layer, k, _)| layer == l && k == key)
+                .map(|(_, _, v)| v.clone())
+        })
     };
     let enabled = effective("enable").is_some_and(|v| v.eq_ignore_ascii_case("true"));
-    let threshold: f64 = effective("threshold_duration").and_then(|v| v.parse().ok()).unwrap_or(1_000_000.0);
-    let readable = s.rows("SELECT TOP 1 1 FROM SYS.M_EXPENSIVE_STATEMENTS", &[]).await.is_ok();
+    let threshold: f64 = effective("threshold_duration")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1_000_000.0);
+    let readable = s
+        .rows("SELECT TOP 1 1 FROM SYS.M_EXPENSIVE_STATEMENTS", &[])
+        .await
+        .is_ok();
 
     if enabled && threshold <= 1000.0 && readable {
-        return Ok((trace(Vec::new()), ProfilerStarted::new(ProfilerMode::Complete, source)));
+        return Ok((
+            trace(Vec::new()),
+            ProfilerStarted::new(ProfilerMode::Complete, source),
+        ));
     }
     if !opts.change_server {
         if enabled && readable {
@@ -113,10 +167,26 @@ pub(crate) async fn start(s: &HanaSession, opts: &ProfilerOptions) -> Result<(St
         ));
     }
 
-    let db = s.rows("SELECT DATABASE_NAME FROM SYS.M_DATABASE", &[]).await?;
-    let layer = if db.first().and_then(|r| r.first()).and_then(text).as_deref() == Some("SYSTEMDB") { "SYSTEM" } else { "DATABASE" };
-    let at_layer = |key: &str| config.iter().find(|(l, k, _)| l == layer && k == key).map(|(_, _, v)| v.clone());
-    let alter = |what: String| format!("ALTER SYSTEM ALTER CONFIGURATION ('global.ini', '{layer}') {what} WITH RECONFIGURE");
+    let db = s
+        .rows("SELECT DATABASE_NAME FROM SYS.M_DATABASE", &[])
+        .await?;
+    let layer = if db.first().and_then(|r| r.first()).and_then(text).as_deref() == Some("SYSTEMDB")
+    {
+        "SYSTEM"
+    } else {
+        "DATABASE"
+    };
+    let at_layer = |key: &str| {
+        config
+            .iter()
+            .find(|(l, k, _)| l == layer && k == key)
+            .map(|(_, _, v)| v.clone())
+    };
+    let alter = |what: String| {
+        format!(
+            "ALTER SYSTEM ALTER CONFIGURATION ('global.ini', '{layer}') {what} WITH RECONFIGURE"
+        )
+    };
     let mut restore = Vec::new();
     let mut started = ProfilerStarted::new(ProfilerMode::Complete, source);
     for (key, value) in [("threshold_duration", "1"), ("enable", "true")] {
@@ -124,7 +194,11 @@ pub(crate) async fn start(s: &HanaSession, opts: &ProfilerOptions) -> Result<(St
         if was.as_deref() == Some(value) {
             continue;
         }
-        if let Err(e) = s.conn.exec(alter(format!("SET ('{SECTION}', '{key}') = '{value}'"))).await {
+        if let Err(e) = s
+            .conn
+            .exec(alter(format!("SET ('{SECTION}', '{key}') = '{value}'")))
+            .await
+        {
             let e = message(&e);
             undo(s, &restore).await;
             return Ok(sampled(format!(
@@ -133,11 +207,19 @@ pub(crate) async fn start(s: &HanaSession, opts: &ProfilerOptions) -> Result<(St
             )));
         }
         let (back, before) = match &was {
-            Some(v) => (alter(format!("SET ('{SECTION}', '{key}') = '{}'", quote(v))), format!("estaba en {v}")),
-            None => (alter(format!("UNSET ('{SECTION}', '{key}')")), "no estaba definido".to_string()),
+            Some(v) => (
+                alter(format!("SET ('{SECTION}', '{key}') = '{}'", quote(v))),
+                format!("estaba en {v}"),
+            ),
+            None => (
+                alter(format!("UNSET ('{SECTION}', '{key}')")),
+                "no estaba definido".to_string(),
+            ),
         };
         restore.push(back);
-        started = started.change(format!("global.ini [{SECTION}] {key} = {value} en la capa {layer} ({before})"));
+        started = started.change(format!(
+            "global.ini [{SECTION}] {key} = {value} en la capa {layer} ({before})"
+        ));
     }
     Ok((trace(restore), started))
 }
@@ -166,13 +248,17 @@ pub(crate) async fn poll(s: &HanaSession, state: &mut State) -> Result<Vec<Profi
             out.sort_by(|a, b| a.time.cmp(&b.time));
             Ok(out)
         }
-        State::Trace { after, seen, scope, .. } => {
+        State::Trace {
+            after, seen, scope, ..
+        } => {
             let rows = s.rows(&trace_sql(after, scope), &[]).await?;
             let mut out = Vec::new();
             let mut now_seen = HashSet::new();
             for r in &rows {
                 let t = |i: usize| r.get(i).and_then(text).filter(|v| !v.is_empty());
-                let (Some(id), Some(end)) = (t(0), t(1)) else { continue };
+                let (Some(id), Some(end)) = (t(0), t(1)) else {
+                    continue;
+                };
                 now_seen.insert(id.clone());
                 if end > *after {
                     *after = end;
@@ -286,7 +372,10 @@ mod tests {
     #[test]
     fn trace_reads_back_the_lookback_in_the_schema() {
         let sql = trace_sql("2024-01-31 10:00:00.0000000", &scope("VENTAS"));
-        assert!(sql.contains("ADD_SECONDS(TO_TIMESTAMP('2024-01-31 10:00:00.0000000'), -5)"), "{sql}");
+        assert!(
+            sql.contains("ADD_SECONDS(TO_TIMESTAMP('2024-01-31 10:00:00.0000000'), -5)"),
+            "{sql}"
+        );
         assert!(sql.contains("c.CURRENT_SCHEMA_NAME = 'VENTAS'"));
         assert!(!sample_sql("").contains("CURRENT_SCHEMA_NAME ="));
         assert!(sql.contains("e.CPU_TIME"));

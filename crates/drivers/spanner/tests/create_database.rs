@@ -29,10 +29,22 @@ async fn spanner_options() {
         .json(&json!({ "instanceId": "i1", "instance": { "config": "projects/test/instanceConfigs/emulator-config", "displayName": "i1", "nodeCount": 1 } }))
         .send()
         .await;
-    let _ = http.post(format!("{url}/v1/projects/test/instances/i1/databases")).json(&json!({ "createStatement": "CREATE DATABASE `db1`" })).send().await;
+    let _ = http
+        .post(format!("{url}/v1/projects/test/instances/i1/databases"))
+        .json(&json!({ "createStatement": "CREATE DATABASE `db1`" }))
+        .send()
+        .await;
 
-    let mut cfg = ConnectionConfig { driver: "spanner".into(), database: "db1".into(), ..Default::default() };
-    for (k, v) in [("project_id", "test"), ("instance", "i1"), ("endpoint_url", url.as_str())] {
+    let mut cfg = ConnectionConfig {
+        driver: "spanner".into(),
+        database: "db1".into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("project_id", "test"),
+        ("instance", "i1"),
+        ("endpoint_url", url.as_str()),
+    ] {
         cfg.options.insert(k.into(), v.into());
     }
     let d = dbine_driver_spanner::drivers().pop().unwrap();
@@ -41,24 +53,58 @@ async fn spanner_options() {
     let _ = s.drop_database("dbine_create_plain").await;
 
     let choices = s.create_database_choices().await.unwrap();
-    assert!(choices.iter().any(|c| c.key == "version_retention" && c.default.as_deref() == Some("1h")));
+    assert!(choices
+        .iter()
+        .any(|c| c.key == "version_retention" && c.default.as_deref() == Some("1h")));
 
-    let options: BTreeMap<String, String> =
-        [("version_retention".to_string(), "3d".to_string()), ("default_leader".to_string(), "us-east1".to_string())].into();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
-    let ddl: Value = http.get(format!("{url}/v1/projects/test/instances/i1/databases/dbine_create_opts/ddl")).send().await.unwrap().json().await.unwrap();
+    let options: BTreeMap<String, String> = [
+        ("version_retention".to_string(), "3d".to_string()),
+        ("default_leader".to_string(), "us-east1".to_string()),
+    ]
+    .into();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
+    let ddl: Value = http
+        .get(format!(
+            "{url}/v1/projects/test/instances/i1/databases/dbine_create_opts/ddl"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     eprintln!("{ddl}");
     let ddl = ddl["statements"].to_string();
-    assert!(ddl.contains("version_retention_period = '3d'") && ddl.contains("default_leader = 'us-east1'"), "{ddl}");
+    assert!(
+        ddl.contains("version_retention_period = '3d'")
+            && ddl.contains("default_leader = 'us-east1'"),
+        "{ddl}"
+    );
     s.drop_database("dbine_create_opts").await.unwrap();
 
     // A bad value never reaches the API.
-    let bad: BTreeMap<String, String> = [("version_retention".to_string(), "3d'".to_string())].into();
-    assert!(s.create_database_with("dbine_create_opts", &bad).await.is_err());
+    let bad: BTreeMap<String, String> =
+        [("version_retention".to_string(), "3d'".to_string())].into();
+    assert!(s
+        .create_database_with("dbine_create_opts", &bad)
+        .await
+        .is_err());
 
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
-    assert!(s.list_databases().await.unwrap().contains(&"dbine_create_plain".to_string()));
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
+    assert!(s
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_create_plain".to_string()));
     s.drop_database("dbine_create_plain").await.unwrap();
 }

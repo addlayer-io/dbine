@@ -37,7 +37,12 @@ async fn open(url: &str, read_only: bool) -> Box<dyn Session> {
     match d.connect(&c, Some("dbine_admin")).await {
         Ok(s) => s,
         Err(_) => {
-            let _ = d.connect(&c, None).await.expect("connect").create_database("dbine_admin").await;
+            let _ = d
+                .connect(&c, None)
+                .await
+                .expect("connect")
+                .create_database("dbine_admin")
+                .await;
             d.connect(&c, Some("dbine_admin")).await.expect("connect")
         }
     }
@@ -63,20 +68,52 @@ async fn lists_interrupts_and_kills() {
 
     let list = admin.processes().await.unwrap();
     eprintln!("{list:#?}");
-    let w = list.iter().find(|p| p.active && p.database.as_deref() == Some("dbine_admin")).expect("the sleeping connection");
-    assert!(!w.own && !w.system && w.user.as_deref() == Some("root"), "{w:?}");
-    let own = list.iter().find(|p| p.own).expect("the listing's connection");
+    let w = list
+        .iter()
+        .find(|p| p.active && p.database.as_deref() == Some("dbine_admin"))
+        .expect("the sleeping connection");
+    assert!(
+        !w.own && !w.system && w.user.as_deref() == Some("root"),
+        "{w:?}"
+    );
+    let own = list
+        .iter()
+        .find(|p| p.own)
+        .expect("the listing's connection");
     assert!(admin.cancel_query(&own.id).await.is_err(), "not its own");
 
-    assert!(open(&url, true).await.cancel_query(&w.id).await.is_err(), "read-only");
+    assert!(
+        open(&url, true).await.cancel_query(&w.id).await.is_err(),
+        "read-only"
+    );
     admin.cancel_query(&w.id).await.unwrap();
     admin.kill_session(&w.id).await.unwrap();
-    let ok = tokio::time::timeout(Duration::from_secs(10), sleeping).await.expect("the sleep ended").unwrap();
-    assert!(!ok && started.elapsed() < Duration::from_secs(15), "closed before its 20 s");
-    assert!(admin.cancel_query(&w.id).await.is_err(), "the connection is gone");
-    assert!(admin.kill_session("1/../x").await.is_err(), "the id is validated");
-    let idle = admin.processes().await.unwrap().into_iter().find(|p| !p.active && !p.own);
+    let ok = tokio::time::timeout(Duration::from_secs(10), sleeping)
+        .await
+        .expect("the sleep ended")
+        .unwrap();
+    assert!(
+        !ok && started.elapsed() < Duration::from_secs(15),
+        "closed before its 20 s"
+    );
+    assert!(
+        admin.cancel_query(&w.id).await.is_err(),
+        "the connection is gone"
+    );
+    assert!(
+        admin.kill_session("1/../x").await.is_err(),
+        "the id is validated"
+    );
+    let idle = admin
+        .processes()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| !p.active && !p.own);
     if let Some(idle) = idle {
-        assert!(admin.cancel_query(&idle.id).await.is_err(), "nothing to cancel");
+        assert!(
+            admin.cancel_query(&idle.id).await.is_err(),
+            "nothing to cancel"
+        );
     }
 }

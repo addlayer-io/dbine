@@ -35,7 +35,11 @@ pub(crate) fn estimates(rows: &[Vec<Value>], flavor: crate::Flavor) -> Vec<RowEs
                 return None;
             }
             Some(RowEstimate {
-                object: ObjectRef { kind: kind.into(), schema: None, name: text(r.first()?) },
+                object: ObjectRef {
+                    kind: kind.into(),
+                    schema: None,
+                    name: text(r.first()?),
+                },
                 rows: count(r.get(2)?)?,
             })
         })
@@ -51,7 +55,14 @@ pub(crate) fn comments(rows: &[Vec<Value>], flavor: crate::Flavor) -> Vec<Object
             if matches!(kind, kinds::TABLE | kinds::STREAM) || comment.is_empty() {
                 return None;
             }
-            Some(ObjectComment { object: ObjectRef { kind: kind.into(), schema: None, name: text(r.first()?) }, comment })
+            Some(ObjectComment {
+                object: ObjectRef {
+                    kind: kind.into(),
+                    schema: None,
+                    name: text(r.first()?),
+                },
+                comment,
+            })
         })
         .collect()
 }
@@ -107,8 +118,18 @@ mod tests {
         ];
         let e = estimates(&rows, Flavor::ClickHouse);
         assert_eq!(e.len(), 1);
-        assert_eq!((e[0].object.kind.as_str(), e[0].object.name.as_str(), e[0].rows), ("table", "ventas", 1200));
-        let e = estimates(&[vec![json!("clicks"), json!("Stream"), json!(7)]], Flavor::Timeplus);
+        assert_eq!(
+            (
+                e[0].object.kind.as_str(),
+                e[0].object.name.as_str(),
+                e[0].rows
+            ),
+            ("table", "ventas", 1200)
+        );
+        let e = estimates(
+            &[vec![json!("clicks"), json!("Stream"), json!(7)]],
+            Flavor::Timeplus,
+        );
         assert_eq!(e[0].object.kind, kinds::STREAM);
     }
 
@@ -121,7 +142,22 @@ mod tests {
             vec![json!("paises"), json!("Dictionary"), json!("ISO 3166")],
         ];
         let c = comments(&rows, Flavor::ClickHouse);
-        let got: Vec<_> = c.iter().map(|c| (c.object.kind.as_str(), c.object.name.as_str(), c.comment.as_str())).collect();
-        assert_eq!(got, [("view", "v", "ventas por día"), ("dictionary", "paises", "ISO 3166")]);
+        let got: Vec<_> = c
+            .iter()
+            .map(|c| {
+                (
+                    c.object.kind.as_str(),
+                    c.object.name.as_str(),
+                    c.comment.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("view", "v", "ventas por día"),
+                ("dictionary", "paises", "ISO 3166")
+            ]
+        );
     }
 }

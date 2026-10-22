@@ -11,7 +11,9 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn config(url: &str) -> ConnectionConfig {
-    let rest = url.strip_prefix("hana://").expect("hana://user:pass@host:port");
+    let rest = url
+        .strip_prefix("hana://")
+        .expect("hana://user:pass@host:port");
     let (rest, tls) = match rest.split_once('?') {
         Some((r, q)) => (r, q.contains("tls")),
         None => (rest, false),
@@ -41,16 +43,34 @@ async fn schema_owner() {
     let mut s = d.connect(&config(&url), None).await.unwrap();
     let _ = s.drop_database("DBINE_CREATE_OPTS").await;
     let choices = s.create_database_choices().await.unwrap();
-    let me = choices.iter().find(|c| c.key == "owner").and_then(|c| c.default.clone()).expect("current user");
+    let me = choices
+        .iter()
+        .find(|c| c.key == "owner")
+        .and_then(|c| c.default.clone())
+        .expect("current user");
 
     let options: BTreeMap<String, String> = [("owner".to_string(), me.clone())].into();
-    eprintln!("{}", d.create_database_script("DBINE_CREATE_OPTS", &options).unwrap());
-    s.create_database_with("DBINE_CREATE_OPTS", &options).await.unwrap();
+    eprintln!(
+        "{}",
+        d.create_database_script("DBINE_CREATE_OPTS", &options)
+            .unwrap()
+    );
+    s.create_database_with("DBINE_CREATE_OPTS", &options)
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("SELECT SCHEMA_OWNER FROM SYS.SCHEMAS WHERE SCHEMA_NAME = 'DBINE_CREATE_OPTS'", 10, &mut out).await.unwrap();
+    s.execute(
+        "SELECT SCHEMA_OWNER FROM SYS.SCHEMAS WHERE SCHEMA_NAME = 'DBINE_CREATE_OPTS'",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results.last().unwrap().rows[0][0], Value::String(me));
     s.drop_database("DBINE_CREATE_OPTS").await.unwrap();
 
-    s.create_database_with("DBINE_CREATE_PLAIN", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("DBINE_CREATE_PLAIN", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("DBINE_CREATE_PLAIN").await.unwrap();
 }

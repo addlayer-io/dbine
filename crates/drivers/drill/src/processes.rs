@@ -19,17 +19,25 @@ const MAX_ROWS: usize = 2000;
 /// A query id as Drill prints it (`1a2b3c4d-…`: hex and dashes).
 pub(crate) fn valid_id(id: &str) -> Option<&str> {
     let id = id.trim();
-    (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')).then_some(id)
+    (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+        .then_some(id)
 }
 
 /// The statement's first word, upper-cased ("SELECT", "CREATE"…).
 fn command(sql: &str) -> Option<String> {
-    let word: String = sql.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let word: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     (!word.is_empty()).then(|| word.to_ascii_uppercase())
 }
 
 fn opt(r: &Value, key: &str) -> Option<String> {
-    r.get(key).map(text).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    r.get(key)
+        .map(text)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// One entry of `runningQueries`; `now` in epoch ms.
@@ -45,7 +53,11 @@ fn row(r: &Value, now: u64) -> ServerProcess {
         // The drillbit that runs it (its foreman).
         host: opt(r, "foreman"),
         command: sql.as_deref().and_then(command),
-        elapsed_ms: r.get("startTime").and_then(Value::as_u64).filter(|t| *t > 0).map(|t| now.saturating_sub(t)),
+        elapsed_ms: r
+            .get("startTime")
+            .and_then(Value::as_u64)
+            .filter(|t| *t > 0)
+            .map(|t| now.saturating_sub(t)),
         sql,
         ..Default::default()
     }
@@ -56,7 +68,10 @@ impl DrillSession {
         let v = tokio::time::timeout(QUERY_LIMIT, self.conn.get("/profiles/running.json"))
             .await
             .map_err(|_| Error::Query("la lista de consultas tardó demasiado".into()))??;
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
         Ok(v.get("runningQueries")
             .and_then(Value::as_array)
             .into_iter()
@@ -68,7 +83,9 @@ impl DrillSession {
     }
 
     pub(crate) async fn cancel_running(&self, id: &str) -> Result<()> {
-        let id = valid_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta de Drill", id.trim())))?;
+        let id = valid_id(id).ok_or_else(|| {
+            Error::Query(format!("«{}» no es un id de consulta de Drill", id.trim()))
+        })?;
         let conn = &self.conn;
         let resp = conn
             .req(conn.http.get(format!("{}/profiles/cancel/{id}", conn.base)))
@@ -94,7 +111,10 @@ mod tests {
 
     #[test]
     fn ids_are_checked() {
-        assert_eq!(valid_id(" 1a2b3c4d-5e6f-7a8b-9c0d-e1f2a3b4c5d6 "), Some("1a2b3c4d-5e6f-7a8b-9c0d-e1f2a3b4c5d6"));
+        assert_eq!(
+            valid_id(" 1a2b3c4d-5e6f-7a8b-9c0d-e1f2a3b4c5d6 "),
+            Some("1a2b3c4d-5e6f-7a8b-9c0d-e1f2a3b4c5d6")
+        );
         assert_eq!(valid_id("../status"), None);
         assert_eq!(valid_id(""), None);
     }

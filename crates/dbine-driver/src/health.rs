@@ -44,7 +44,13 @@ pub struct HealthCheck {
 
 impl HealthCheck {
     pub fn new(id: &str, category: &str, title: impl Into<String>, severity: Severity) -> Self {
-        Self { id: id.into(), category: category.into(), title: title.into(), severity, ..Default::default() }
+        Self {
+            id: id.into(),
+            category: category.into(),
+            title: title.into(),
+            severity,
+            ..Default::default()
+        }
     }
     pub fn detail(mut self, d: impl Into<String>) -> Self {
         self.detail = d.into();

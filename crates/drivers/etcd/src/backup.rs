@@ -47,7 +47,10 @@ pub fn script(action: &BackupAction) -> Result<String> {
 /// each with a base64 `blob`) into `path`, through a `.part` file renamed
 /// at the end. Returns the bytes written.
 pub async fn save(conn: &Conn, path: &str) -> Result<u64> {
-    let mut rb = conn.http.post(format!("{}/v3/maintenance/snapshot", conn.base)).json(&json!({}));
+    let mut rb = conn
+        .http
+        .post(format!("{}/v3/maintenance/snapshot", conn.base))
+        .json(&json!({}));
     if let Some(t) = conn.token.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         rb = rb.header("Authorization", t);
     }
@@ -59,7 +62,11 @@ pub async fn save(conn: &Conn, path: &str) -> Result<u64> {
             .ok()
             .and_then(|v| v.get("message").and_then(Value::as_str).map(str::to_string))
             .unwrap_or_else(|| format!("HTTP {status}"));
-        return Err(if status.as_u16() == 401 { Error::AuthFailed(msg) } else { Error::Query(msg) });
+        return Err(if status.as_u16() == 401 {
+            Error::AuthFailed(msg)
+        } else {
+            Error::Query(msg)
+        });
     }
     let part = format!("{path}.part");
     let io = |e: std::io::Error| Error::Query(format!("No se pudo escribir {path}: {e}"));
@@ -98,7 +105,9 @@ pub async fn save(conn: &Conn, path: &str) -> Result<u64> {
 /// One streamed message: its decoded blob, appended to the file.
 async fn write_message(file: &mut tokio::fs::File, line: &[u8]) -> Result<u64> {
     let blob = decode(line)?;
-    file.write_all(&blob).await.map_err(|e| Error::Query(format!("No se pudo escribir el snapshot: {e}")))?;
+    file.write_all(&blob)
+        .await
+        .map_err(|e| Error::Query(format!("No se pudo escribir el snapshot: {e}")))?;
     Ok(blob.len() as u64)
 }
 
@@ -106,9 +115,13 @@ fn decode(line: &[u8]) -> Result<Vec<u8>> {
     if line.iter().all(u8::is_ascii_whitespace) {
         return Ok(Vec::new());
     }
-    let v: Value = serde_json::from_slice(line).map_err(|e| Error::Query(format!("Respuesta inesperada del snapshot: {e}")))?;
+    let v: Value = serde_json::from_slice(line)
+        .map_err(|e| Error::Query(format!("Respuesta inesperada del snapshot: {e}")))?;
     if let Some(err) = v.get("error") {
-        let msg = err.get("message").and_then(Value::as_str).unwrap_or("error del servidor");
+        let msg = err
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("error del servidor");
         return Err(Error::Query(format!("El snapshot falló: {msg}")));
     }
     Ok(crate::unb64(v.get("result").unwrap_or(&v).get("blob")))
@@ -121,15 +134,33 @@ mod tests {
 
     #[test]
     fn scripts() {
-        let options = BTreeMap::from([("path".to_string(), "/tmp/mis backups/etcd.db".to_string())]);
-        assert_eq!(script(&BackupAction::Backup { database: None, options }).unwrap(), r#"snapshot save "/tmp/mis backups/etcd.db""#);
-        assert!(script(&BackupAction::Backup { database: None, options: BTreeMap::new() }).is_err());
-        assert!(matches!(script(&BackupAction::Delete { source: "x".into() }), Err(Error::Unsupported(_))));
+        let options =
+            BTreeMap::from([("path".to_string(), "/tmp/mis backups/etcd.db".to_string())]);
+        assert_eq!(
+            script(&BackupAction::Backup {
+                database: None,
+                options
+            })
+            .unwrap(),
+            r#"snapshot save "/tmp/mis backups/etcd.db""#
+        );
+        assert!(script(&BackupAction::Backup {
+            database: None,
+            options: BTreeMap::new()
+        })
+        .is_err());
+        assert!(matches!(
+            script(&BackupAction::Delete { source: "x".into() }),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn stream_messages() {
-        assert_eq!(decode(br#"{"result":{"remaining_bytes":"0","blob":"aGk="}}"#).unwrap(), b"hi");
+        assert_eq!(
+            decode(br#"{"result":{"remaining_bytes":"0","blob":"aGk="}}"#).unwrap(),
+            b"hi"
+        );
         assert!(decode(b"\n").unwrap().is_empty());
         assert!(decode(br#"{"error":{"code":2,"message":"boom"}}"#).is_err());
     }

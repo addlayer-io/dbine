@@ -52,8 +52,14 @@ impl ClientIds {
 
     pub fn config(&self, kind: ProviderKind) -> Option<OAuthConfig> {
         match kind {
-            ProviderKind::GoogleDrive => self.google_client_id.as_ref().map(|id| OAuthConfig::google(id, self.google_client_secret.clone())),
-            ProviderKind::Onedrive => self.microsoft_client_id.as_ref().map(|id| OAuthConfig::microsoft(id)),
+            ProviderKind::GoogleDrive => self
+                .google_client_id
+                .as_ref()
+                .map(|id| OAuthConfig::google(id, self.google_client_secret.clone())),
+            ProviderKind::Onedrive => self
+                .microsoft_client_id
+                .as_ref()
+                .map(|id| OAuthConfig::microsoft(id)),
             ProviderKind::Folder => None,
         }
     }
@@ -165,7 +171,14 @@ pub async fn begin(cfg: OAuthConfig) -> Result<PendingLogin> {
             q.append_pair(k, v);
         }
     }
-    Ok(PendingLogin { auth_url: url.into(), cfg, listeners, redirect_uri, verifier, state })
+    Ok(PendingLogin {
+        auth_url: url.into(),
+        cfg,
+        listeners,
+        redirect_uri,
+        verifier,
+        state,
+    })
 }
 
 const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>DBine</title>\
@@ -181,7 +194,11 @@ impl PendingLogin {
     pub async fn finish(self, http: &reqwest::Client, timeout: Duration) -> Result<Tokens> {
         let code = tokio::time::timeout(timeout, self.wait_code())
             .await
-            .map_err(|_| SyncError::Remote("se agotó el tiempo esperando el inicio de sesión en el navegador".into()))??;
+            .map_err(|_| {
+                SyncError::Remote(
+                    "se agotó el tiempo esperando el inicio de sesión en el navegador".into(),
+                )
+            })??;
         let mut form = vec![
             ("grant_type", "authorization_code".to_string()),
             ("code", code),
@@ -216,11 +233,17 @@ impl PendingLogin {
             }
             let req = String::from_utf8_lossy(&buf[..n]);
             let target = req.split_whitespace().nth(1).unwrap_or("/");
-            let Ok(url) = url::Url::parse(&format!("http://h{target}")) else { continue };
+            let Ok(url) = url::Url::parse(&format!("http://h{target}")) else {
+                continue;
+            };
             let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
             // The browser also asks for /favicon.ico and such.
             if !q.contains_key("code") && !q.contains_key("error") {
-                let _ = sock.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                let _ = sock
+                    .write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await;
                 continue;
             }
             let ok = q.get("state") == Some(&self.state) && q.contains_key("code");
@@ -237,29 +260,53 @@ impl PendingLogin {
                 return Err(if err == "access_denied" {
                     SyncError::Cancelled
                 } else {
-                    SyncError::Remote(format!("{} rechazó el inicio de sesión: {err} {desc}", self.cfg.provider.label()))
+                    SyncError::Remote(format!(
+                        "{} rechazó el inicio de sesión: {err} {desc}",
+                        self.cfg.provider.label()
+                    ))
                 });
             }
             if q.get("state") != Some(&self.state) {
-                return Err(SyncError::Remote("respuesta de inicio de sesión inválida (state)".into()));
+                return Err(SyncError::Remote(
+                    "respuesta de inicio de sesión inválida (state)".into(),
+                ));
             }
             return Ok(q["code"].clone());
         }
     }
 }
 
-async fn token_request(http: &reqwest::Client, cfg: &OAuthConfig, form: &[(&str, String)], old_refresh: Option<&str>) -> Result<Tokens> {
-    let resp = http.post(&cfg.token_url).form(form).send().await.map_err(|e| net_error(cfg.provider, e))?;
+async fn token_request(
+    http: &reqwest::Client,
+    cfg: &OAuthConfig,
+    form: &[(&str, String)],
+    old_refresh: Option<&str>,
+) -> Result<Tokens> {
+    let resp = http
+        .post(&cfg.token_url)
+        .form(form)
+        .send()
+        .await
+        .map_err(|e| net_error(cfg.provider, e))?;
     if !resp.status().is_success() {
         let status = resp.status();
         let body: serde_json::Value = resp.json().await.unwrap_or_default();
-        let code = body.get("error").and_then(|v| v.as_str()).unwrap_or_default();
+        let code = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
         // A revoked or expired refresh token: the user has to sign in again.
         if code == "invalid_grant" || status == reqwest::StatusCode::UNAUTHORIZED {
             return Err(SyncError::AuthRequired(cfg.provider.label().into()));
         }
-        let desc = body.get("error_description").and_then(|v| v.as_str()).unwrap_or(code);
-        return Err(SyncError::Remote(format!("{}: {desc}", cfg.provider.label())));
+        let desc = body
+            .get("error_description")
+            .and_then(|v| v.as_str())
+            .unwrap_or(code);
+        return Err(SyncError::Remote(format!(
+            "{}: {desc}",
+            cfg.provider.label()
+        )));
     }
     let t: TokenResponse = resp.json().await.map_err(|e| net_error(cfg.provider, e))?;
     Ok(Tokens {
@@ -270,7 +317,11 @@ async fn token_request(http: &reqwest::Client, cfg: &OAuthConfig, form: &[(&str,
     })
 }
 
-pub async fn refresh(http: &reqwest::Client, cfg: &OAuthConfig, refresh_token: &str) -> Result<Tokens> {
+pub async fn refresh(
+    http: &reqwest::Client,
+    cfg: &OAuthConfig,
+    refresh_token: &str,
+) -> Result<Tokens> {
     let mut form = vec![
         ("grant_type", "refresh_token".to_string()),
         ("refresh_token", refresh_token.to_string()),
@@ -295,8 +346,18 @@ pub struct TokenSource {
 }
 
 impl TokenSource {
-    pub fn new(cfg: OAuthConfig, http: reqwest::Client, tokens: Tokens, on_update: Arc<dyn Fn(&Tokens) + Send + Sync>) -> Self {
-        Self { cfg, http, tokens: Mutex::new(tokens), on_update }
+    pub fn new(
+        cfg: OAuthConfig,
+        http: reqwest::Client,
+        tokens: Tokens,
+        on_update: Arc<dyn Fn(&Tokens) + Send + Sync>,
+    ) -> Self {
+        Self {
+            cfg,
+            http,
+            tokens: Mutex::new(tokens),
+            on_update,
+        }
     }
 
     /// A token good for at least another minute (`force` refreshes anyway,
@@ -304,7 +365,10 @@ impl TokenSource {
     pub async fn bearer(&self, force: bool) -> Result<String> {
         let mut t = self.tokens.lock().await;
         if force || t.expires_at - 60 <= chrono::Utc::now().timestamp() {
-            let rt = t.refresh_token.clone().ok_or_else(|| SyncError::AuthRequired(self.cfg.provider.label().into()))?;
+            let rt = t
+                .refresh_token
+                .clone()
+                .ok_or_else(|| SyncError::AuthRequired(self.cfg.provider.label().into()))?;
             *t = refresh(&self.http, &self.cfg, &rt).await?;
             (self.on_update)(&t);
         }
@@ -318,12 +382,18 @@ pub(crate) async fn authed(
     build: impl Fn(&str) -> reqwest::RequestBuilder,
 ) -> Result<reqwest::Response> {
     let token = src.bearer(false).await?;
-    let resp = build(&token).send().await.map_err(|e| net_error(src.cfg.provider, e))?;
+    let resp = build(&token)
+        .send()
+        .await
+        .map_err(|e| net_error(src.cfg.provider, e))?;
     if resp.status() != reqwest::StatusCode::UNAUTHORIZED {
         return Ok(resp);
     }
     let token = src.bearer(true).await?;
-    build(&token).send().await.map_err(|e| net_error(src.cfg.provider, e))
+    build(&token)
+        .send()
+        .await
+        .map_err(|e| net_error(src.cfg.provider, e))
 }
 
 #[cfg(test)]
@@ -343,7 +413,13 @@ mod tests {
         let browser = tokio::spawn(async move {
             let c = reqwest::Client::new();
             let _ = c.get(format!("{redirect}/favicon.ico")).send().await;
-            c.get(format!("{redirect}/?state={state}&code=abc")).send().await.unwrap().text().await.unwrap()
+            c.get(format!("{redirect}/?state={state}&code=abc"))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
         });
         assert_eq!(login.wait_code().await.unwrap(), "abc");
         assert!(browser.await.unwrap().contains("Listo"));
@@ -352,7 +428,11 @@ mod tests {
     #[tokio::test]
     async fn a_forged_state_is_refused() {
         let login = begin(OAuthConfig::google("cid", None)).await.unwrap();
-        let q: std::collections::HashMap<_, _> = url::Url::parse(&login.auth_url).unwrap().query_pairs().into_owned().collect();
+        let q: std::collections::HashMap<_, _> = url::Url::parse(&login.auth_url)
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
         let redirect = q["redirect_uri"].clone();
         tokio::spawn(async move { reqwest::get(format!("{redirect}/?state=otro&code=abc")).await });
         assert!(login.wait_code().await.is_err());
@@ -361,11 +441,17 @@ mod tests {
     #[tokio::test]
     async fn access_denied_is_a_cancel() {
         let login = begin(OAuthConfig::microsoft("cid")).await.unwrap();
-        let q: std::collections::HashMap<_, _> = url::Url::parse(&login.auth_url).unwrap().query_pairs().into_owned().collect();
+        let q: std::collections::HashMap<_, _> = url::Url::parse(&login.auth_url)
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
         assert!(q["redirect_uri"].starts_with("http://localhost:"));
         let redirect = q["redirect_uri"].replace("localhost", "127.0.0.1");
         let state = q["state"].clone();
-        tokio::spawn(async move { reqwest::get(format!("{redirect}/?state={state}&error=access_denied")).await });
+        tokio::spawn(async move {
+            reqwest::get(format!("{redirect}/?state={state}&error=access_denied")).await
+        });
         assert!(matches!(login.wait_code().await, Err(SyncError::Cancelled)));
     }
 }

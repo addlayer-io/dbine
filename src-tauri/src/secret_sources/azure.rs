@@ -10,8 +10,16 @@ use std::time::Duration;
 
 const API_VERSION: &str = "7.4";
 
-pub async fn get_secret(vault_url: &str, name: &str, version: &str, tenant: &str) -> Result<String, String> {
-    let (host, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
+pub async fn get_secret(
+    vault_url: &str,
+    name: &str,
+    version: &str,
+    tenant: &str,
+) -> Result<String, String> {
+    let (host, resource) =
+        dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| {
+            "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string()
+        })?;
     let (token, _) = token_for(resource, tenant).await?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -19,7 +27,14 @@ pub async fn get_secret(vault_url: &str, name: &str, version: &str, tenant: &str
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
-    get_secret_at(&client, &format!("https://{host}"), name.trim(), version.trim(), &token).await
+    get_secret_at(
+        &client,
+        &format!("https://{host}"),
+        name.trim(),
+        version.trim(),
+        &token,
+    )
+    .await
 }
 
 /// The tenant to ask the token for (`None`: the CLI's current one); only a
@@ -81,9 +96,16 @@ const SIGN_IN_MARKERS: &[&str] = &[
 /// sign-in: only its own line, without the hint cloud_auth adds to every
 /// CLI failure («(¿falta az login?)»).
 pub fn needs_tenant_sign_in(err: &str) -> bool {
-    let line = err.lines().map(str::trim).find_map(|l| l.strip_prefix("- Azure CLI:")).unwrap_or(if err.contains("\n") { "" } else { err });
+    let line = err
+        .lines()
+        .map(str::trim)
+        .find_map(|l| l.strip_prefix("- Azure CLI:"))
+        .unwrap_or(if err.contains("\n") { "" } else { err });
     let line = line.trim();
-    let line = line.strip_suffix("(¿falta az login?)").unwrap_or(line).to_lowercase();
+    let line = line
+        .strip_suffix("(¿falta az login?)")
+        .unwrap_or(line)
+        .to_lowercase();
     SIGN_IN_MARKERS.iter().any(|m| line.contains(m))
 }
 
@@ -102,10 +124,22 @@ const MAX_TENANTS: usize = 500;
 /// `/tenants/<id>`), `displayName`, `defaultDomain`.
 pub fn parse_tenant_list(stdout: &str) -> Option<Vec<Tenant>> {
     let json: Value = serde_json::from_str(stdout).ok()?;
-    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
+    let s = |v: &Value, k: &str| {
+        v.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
     let list = json.as_array()?.iter().map(|t| {
-        let id = Some(s(t, "tenantId")).filter(|v| !v.is_empty()).unwrap_or_else(|| s(t, "id").trim_start_matches("/tenants/").to_string());
-        Tenant { id, display_name: s(t, "displayName"), default_domain: s(t, "defaultDomain") }
+        let id = Some(s(t, "tenantId"))
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| s(t, "id").trim_start_matches("/tenants/").to_string());
+        Tenant {
+            id,
+            display_name: s(t, "displayName"),
+            default_domain: s(t, "defaultDomain"),
+        }
     });
     Some(tidy(list))
 }
@@ -114,8 +148,18 @@ pub fn parse_tenant_list(stdout: &str) -> Option<Vec<Tenant>> {
 /// `tenantId` (newer CLIs say `tenantDisplayName` and `tenantDefaultDomain`).
 pub fn parse_account_list(stdout: &str) -> Option<Vec<Tenant>> {
     let json: Value = serde_json::from_str(stdout).ok()?;
-    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
-    let list = json.as_array()?.iter().map(|a| Tenant { id: s(a, "tenantId"), display_name: s(a, "tenantDisplayName"), default_domain: s(a, "tenantDefaultDomain") });
+    let s = |v: &Value, k: &str| {
+        v.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let list = json.as_array()?.iter().map(|a| Tenant {
+        id: s(a, "tenantId"),
+        display_name: s(a, "tenantDisplayName"),
+        default_domain: s(a, "tenantDefaultDomain"),
+    });
     Some(tidy(list))
 }
 
@@ -138,18 +182,44 @@ fn tidy(list: impl Iterator<Item = Tenant>) -> Vec<Tenant> {
             None => {}
         }
     }
-    out.sort_by(|a, b| (a.display_name.is_empty(), a.display_name.to_lowercase(), &a.id).cmp(&(b.display_name.is_empty(), b.display_name.to_lowercase(), &b.id)));
+    out.sort_by(|a, b| {
+        (
+            a.display_name.is_empty(),
+            a.display_name.to_lowercase(),
+            &a.id,
+        )
+            .cmp(&(
+                b.display_name.is_empty(),
+                b.display_name.to_lowercase(),
+                &b.id,
+            ))
+    });
     out
 }
 
 /// The tenants the Azure CLI knows: `az account tenant list`, else the
 /// tenants of `az account list --all`.
 pub async fn tenants() -> Result<Vec<Tenant>, String> {
-    let first = cloud_auth::run_cli("az", &["account", "tenant", "list", "--output", "json"], &[], &[], "az login").await;
+    let first = cloud_auth::run_cli(
+        "az",
+        &["account", "tenant", "list", "--output", "json"],
+        &[],
+        &[],
+        "az login",
+    )
+    .await;
     if let Some(list) = first.as_deref().ok().and_then(parse_tenant_list) {
         return Ok(list);
     }
-    let out = cloud_auth::run_cli("az", &["account", "list", "--all", "--output", "json"], &[], &[], "az login").await.map_err(|e| e.to_string())?;
+    let out = cloud_auth::run_cli(
+        "az",
+        &["account", "list", "--all", "--output", "json"],
+        &[],
+        &[],
+        "az login",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     parse_account_list(&out).ok_or_else(|| "«az account list» no devolvió JSON".to_string())
 }
 
@@ -159,23 +229,40 @@ pub async fn tenants() -> Result<Vec<Tenant>, String> {
 pub fn token_identity(token: &str) -> Option<(String, String)> {
     use base64::Engine;
     let payload = token.split('.').nth(1)?;
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload.trim_end_matches('='))
+        .ok()?;
     let claims: Value = serde_json::from_slice(&bytes).ok()?;
-    let s = |k: &str| claims.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
-    let who = s("upn").or_else(|| s("preferred_username")).or_else(|| s("unique_name")).or_else(|| s("appid").map(|a| format!("app {a}")))?;
+    let s = |k: &str| {
+        claims
+            .get(k)
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    let who = s("upn")
+        .or_else(|| s("preferred_username"))
+        .or_else(|| s("unique_name"))
+        .or_else(|| s("appid").map(|a| format!("app {a}")))?;
     Some((who, s("tid").unwrap_or_default()))
 }
 
 /// The account wizard's check: a token for the vault's cloud from the
 /// Azure CLI chain, for the tenant when one is set. `(who, tenant)`.
 pub async fn whoami(vault_url: &str, tenant: &str) -> Result<(String, String), String> {
-    let (_, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
+    let (_, resource) =
+        dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| {
+            "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string()
+        })?;
     let (mut token, _) = token_for(resource, tenant).await?;
     let who = token_identity(&token);
     dbine_core::secret_sources::wipe(&mut token);
     let (who, tid) = who.ok_or("Microsoft Entra ID no dijo para quién es el token")?;
     let wanted = tenant.trim();
-    if dbine_core::secret_sources::is_uuid(wanted) && !tid.is_empty() && !tid.eq_ignore_ascii_case(wanted) {
+    if dbine_core::secret_sources::is_uuid(wanted)
+        && !tid.is_empty()
+        && !tid.eq_ignore_ascii_case(wanted)
+    {
         return Err(format!("el token es del inquilino {tid}, no de {wanted}"));
     }
     Ok((who, tid))
@@ -185,39 +272,90 @@ pub async fn whoami(vault_url: &str, tenant: &str) -> Result<(String, String), S
 /// the user and the subscription's name, plus the tenants the CLI knows
 /// ([`tenants`]). Nothing secret.
 pub async fn current_account() -> Result<Value, String> {
-    let out = cloud_auth::run_cli("az", &["account", "show", "--output", "json"], &[], &[], "az login").await.map_err(|e| e.to_string())?;
-    let json: Value = serde_json::from_str(&out).map_err(|_| "«az account show» no devolvió JSON".to_string())?;
-    let s = |p: &str| json.pointer(p).and_then(Value::as_str).unwrap_or("").to_string();
+    let out = cloud_auth::run_cli(
+        "az",
+        &["account", "show", "--output", "json"],
+        &[],
+        &[],
+        "az login",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let json: Value =
+        serde_json::from_str(&out).map_err(|_| "«az account show» no devolvió JSON".to_string())?;
+    let s = |p: &str| {
+        json.pointer(p)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     let tenant = s("/tenantId");
     // The tenants to choose from, with the current one always among them.
     let mut list = tenants().await.unwrap_or_default();
-    if dbine_core::secret_sources::valid_azure_tenant(&tenant) && !list.iter().any(|t| t.id.eq_ignore_ascii_case(&tenant)) {
-        list.insert(0, Tenant { id: tenant.clone(), display_name: s("/tenantDisplayName"), default_domain: s("/tenantDefaultDomain") });
+    if dbine_core::secret_sources::valid_azure_tenant(&tenant)
+        && !list.iter().any(|t| t.id.eq_ignore_ascii_case(&tenant))
+    {
+        list.insert(
+            0,
+            Tenant {
+                id: tenant.clone(),
+                display_name: s("/tenantDisplayName"),
+                default_domain: s("/tenantDefaultDomain"),
+            },
+        );
     }
-    Ok(serde_json::json!({ "tenant": tenant, "user": s("/user/name"), "subscription": s("/name"), "tenants": list }))
+    Ok(
+        serde_json::json!({ "tenant": tenant, "user": s("/user/name"), "subscription": s("/name"), "tenants": list }),
+    )
 }
 
 pub fn secret_url(base: &str, name: &str, version: &str) -> String {
     let base = base.trim_end_matches('/');
     match version {
-        "" => format!("{base}/secrets/{}?api-version={API_VERSION}", uri_encode(name)),
-        v => format!("{base}/secrets/{}/{}?api-version={API_VERSION}", uri_encode(name), uri_encode(v)),
+        "" => format!(
+            "{base}/secrets/{}?api-version={API_VERSION}",
+            uri_encode(name)
+        ),
+        v => format!(
+            "{base}/secrets/{}/{}?api-version={API_VERSION}",
+            uri_encode(name),
+            uri_encode(v)
+        ),
     }
 }
 
-pub async fn get_secret_at(client: &reqwest::Client, base: &str, name: &str, version: &str, token: &str) -> Result<String, String> {
+pub async fn get_secret_at(
+    client: &reqwest::Client,
+    base: &str,
+    name: &str,
+    version: &str,
+    token: &str,
+) -> Result<String, String> {
     let resp = client
         .get(secret_url(base, name, version))
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| format!("no se pudo conectar con Azure Key Vault: {}", e.without_url()))?;
+        .map_err(|e| {
+            format!(
+                "no se pudo conectar con Azure Key Vault: {}",
+                e.without_url()
+            )
+        })?;
     let status = resp.status().as_u16();
-    let json: Value = serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
+    let json: Value =
+        serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
     if status == 200 {
-        return json.get("value").and_then(Value::as_str).map(str::to_string).ok_or_else(|| format!("Azure Key Vault no devolvió un valor para «{name}»"));
+        return json
+            .get("value")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| format!("Azure Key Vault no devolvió un valor para «{name}»"));
     }
-    let msg = json.pointer("/error/message").and_then(Value::as_str).unwrap_or("");
+    let msg = json
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let msg = super::exec::first_lines(msg, 300);
     Err(match status {
         401 => format!("Azure Key Vault rechazó el token (¿«az login» con la cuenta correcta?): {msg}"),
@@ -232,8 +370,15 @@ pub async fn get_secret_at(client: &reqwest::Client, base: &str, name: &str, ver
 
 /// The vault's secret names (`GET /secrets`, paged), or a secret's JSON
 /// keys (`item`).
-pub async fn browse(vault_url: &str, tenant: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
-    let (host, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
+pub async fn browse(
+    vault_url: &str,
+    tenant: &str,
+    at: super::browse::At<'_>,
+) -> Result<super::browse::Listing, String> {
+    let (host, resource) =
+        dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| {
+            "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string()
+        })?;
     let (token, _) = token_for(resource, tenant).await?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -244,7 +389,12 @@ pub async fn browse(vault_url: &str, tenant: &str, at: super::browse::At<'_>) ->
     browse_at(&client, &format!("https://{host}"), &token, at).await
 }
 
-pub async fn browse_at(client: &reqwest::Client, base: &str, token: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+pub async fn browse_at(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    at: super::browse::At<'_>,
+) -> Result<super::browse::Listing, String> {
     use super::browse::{Entry, Listing, MAX_ENTRIES};
     if let Some(item) = at.item {
         let raw = get_secret_at(client, base, item, "", token).await?;
@@ -254,11 +404,27 @@ pub async fn browse_at(client: &reqwest::Client, base: &str, token: &str, at: su
     let mut url = format!("{base}/secrets?api-version={API_VERSION}&maxresults=25");
     let mut out = Vec::new();
     loop {
-        let resp = client.get(&url).bearer_auth(token).send().await.map_err(|e| format!("no se pudo conectar con Azure Key Vault: {}", e.without_url()))?;
+        let resp = client
+            .get(&url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|e| {
+                format!(
+                    "no se pudo conectar con Azure Key Vault: {}",
+                    e.without_url()
+                )
+            })?;
         let status = resp.status().as_u16();
-        let json: Value = serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
+        let json: Value =
+            serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
         if status != 200 {
-            let msg = super::exec::first_lines(json.pointer("/error/message").and_then(Value::as_str).unwrap_or(""), 300);
+            let msg = super::exec::first_lines(
+                json.pointer("/error/message")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                300,
+            );
             return Err(match status {
                 401 => format!("Azure Key Vault rechazó el token (¿«az login» con la cuenta correcta?): {msg}"),
                 403 => format!("Azure Key Vault: permiso denegado para listar los secretos (hace falta un rol o una directiva de acceso que permita list): {msg}"),
@@ -266,15 +432,27 @@ pub async fn browse_at(client: &reqwest::Client, base: &str, token: &str, at: su
                 _ => format!("Azure Key Vault respondió {status}: {msg}"),
             });
         }
-        for s in json.get("value").and_then(Value::as_array).into_iter().flatten() {
+        for s in json
+            .get("value")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             let id = s.get("id").and_then(Value::as_str).unwrap_or("");
             if let Some(name) = id.rsplit('/').next().filter(|n| !n.is_empty()) {
-                out.push(Entry::item(name, name, "", s.get("contentType").and_then(Value::as_str).unwrap_or("")));
+                out.push(Entry::item(
+                    name,
+                    name,
+                    "",
+                    s.get("contentType").and_then(Value::as_str).unwrap_or(""),
+                ));
             }
         }
         // The next page, only on the same vault (the token goes nowhere else).
         match json.get("nextLink").and_then(Value::as_str) {
-            Some(n) if n.starts_with(&format!("{base}/")) && out.len() <= MAX_ENTRIES => url = n.to_string(),
+            Some(n) if n.starts_with(&format!("{base}/")) && out.len() <= MAX_ENTRIES => {
+                url = n.to_string()
+            }
             _ => break,
         }
     }
@@ -288,8 +466,14 @@ mod tests {
 
     #[test]
     fn urls() {
-        assert_eq!(secret_url("https://kv1.vault.azure.net/", "db-pw", ""), "https://kv1.vault.azure.net/secrets/db-pw?api-version=7.4");
-        assert_eq!(secret_url("https://kv1.vault.azure.net", "db-pw", "abc123"), "https://kv1.vault.azure.net/secrets/db-pw/abc123?api-version=7.4");
+        assert_eq!(
+            secret_url("https://kv1.vault.azure.net/", "db-pw", ""),
+            "https://kv1.vault.azure.net/secrets/db-pw?api-version=7.4"
+        );
+        assert_eq!(
+            secret_url("https://kv1.vault.azure.net", "db-pw", "abc123"),
+            "https://kv1.vault.azure.net/secrets/db-pw/abc123?api-version=7.4"
+        );
     }
 
     /// Against Lowkey Vault as `dbine-test-lowkey-vault` (port 28443,
@@ -298,25 +482,55 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn live_lowkey_vault() {
-        let Ok(base) = std::env::var("DBINE_TEST_LOWKEY") else { return };
+        let Ok(base) = std::env::var("DBINE_TEST_LOWKEY") else {
+            return;
+        };
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder().tls_danger_accept_invalid_certs(true).build().unwrap();
-        assert_eq!(get_secret_at(&client, &base, "db-pw", "", "dummy").await.unwrap(), "pw");
-        let e = get_secret_at(&client, &base, "nope", "", "dummy").await.unwrap_err();
+        let client = reqwest::Client::builder()
+            .tls_danger_accept_invalid_certs(true)
+            .build()
+            .unwrap();
+        assert_eq!(
+            get_secret_at(&client, &base, "db-pw", "", "dummy")
+                .await
+                .unwrap(),
+            "pw"
+        );
+        let e = get_secret_at(&client, &base, "nope", "", "dummy")
+            .await
+            .unwrap_err();
         assert!(e.contains("no existe el secreto «nope»"), "{e}");
-        let l = browse_at(&client, &base, "dummy", Default::default()).await.unwrap();
+        let l = browse_at(&client, &base, "dummy", Default::default())
+            .await
+            .unwrap();
         assert!(l.entries.iter().any(|e| e.id == "db-pw"), "{:?}", l.entries);
     }
 
     #[test]
     fn who_a_token_is_for() {
         use base64::Engine;
-        let jwt = |claims: serde_json::Value| format!("x.{}.y", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string()));
-        assert_eq!(token_identity(&jwt(serde_json::json!({ "upn": "ana@contoso.com", "tid": "t-1" }))), Some(("ana@contoso.com".into(), "t-1".into())));
-        assert_eq!(token_identity(&jwt(serde_json::json!({ "appid": "a-1", "tid": "t-1" }))), Some(("app a-1".into(), "t-1".into())));
+        let jwt = |claims: serde_json::Value| {
+            format!(
+                "x.{}.y",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string())
+            )
+        };
+        assert_eq!(
+            token_identity(&jwt(
+                serde_json::json!({ "upn": "ana@contoso.com", "tid": "t-1" })
+            )),
+            Some(("ana@contoso.com".into(), "t-1".into()))
+        );
+        assert_eq!(
+            token_identity(&jwt(serde_json::json!({ "appid": "a-1", "tid": "t-1" }))),
+            Some(("app a-1".into(), "t-1".into()))
+        );
         assert_eq!(token_identity("not-a-jwt"), None);
         assert!(tenant_arg("--debug").is_err());
-        assert_eq!(tenant_arg(" contoso.onmicrosoft.com ").unwrap(), Some("contoso.onmicrosoft.com"));
+        assert_eq!(
+            tenant_arg(" contoso.onmicrosoft.com ").unwrap(),
+            Some("contoso.onmicrosoft.com")
+        );
         assert_eq!(tenant_arg("").unwrap(), None);
     }
 
@@ -330,8 +544,17 @@ mod tests {
             {"tenantId":"--debug","displayName":"Evil"}
         ]"#;
         let t = parse_tenant_list(out).unwrap();
-        assert_eq!(t.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["11111111-2222-4333-8444-555555555555", "22222222-2222-4333-8444-555555555555"]);
-        assert_eq!((t[0].display_name.as_str(), t[0].default_domain.as_str()), ("Contoso", "contoso.onmicrosoft.com"));
+        assert_eq!(
+            t.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            [
+                "11111111-2222-4333-8444-555555555555",
+                "22222222-2222-4333-8444-555555555555"
+            ]
+        );
+        assert_eq!(
+            (t[0].display_name.as_str(), t[0].default_domain.as_str()),
+            ("Contoso", "contoso.onmicrosoft.com")
+        );
         assert_eq!(t[1].default_domain, "fabrikam.onmicrosoft.com");
         assert!(parse_tenant_list("ERROR").is_none());
         assert_eq!(parse_tenant_list("[]"), Some(vec![]));
@@ -342,15 +565,28 @@ mod tests {
             {"name":"Other","tenantId":"33333333-2222-4333-8444-555555555555"}
         ]"#;
         let t = parse_account_list(out).unwrap();
-        assert_eq!(t, vec![
-            Tenant { id: "11111111-2222-4333-8444-555555555555".into(), display_name: "Contoso".into(), default_domain: "contoso.onmicrosoft.com".into() },
-            Tenant { id: "33333333-2222-4333-8444-555555555555".into(), display_name: String::new(), default_domain: String::new() },
-        ]);
+        assert_eq!(
+            t,
+            vec![
+                Tenant {
+                    id: "11111111-2222-4333-8444-555555555555".into(),
+                    display_name: "Contoso".into(),
+                    default_domain: "contoso.onmicrosoft.com".into()
+                },
+                Tenant {
+                    id: "33333333-2222-4333-8444-555555555555".into(),
+                    display_name: String::new(),
+                    default_domain: String::new()
+                },
+            ]
+        );
     }
 
     #[test]
     fn sign_in_errors() {
-        let chain = |cli: &str| format!("no se pudo obtener un token de Microsoft Entra ID. Se probó:\n- Azure CLI: {cli} (¿falta az login?)\n- Azure Developer CLI: «azd» no está instalada\n- identidad administrada: no responde (DBine no corre en la nube)");
+        let chain = |cli: &str| {
+            format!("no se pudo obtener un token de Microsoft Entra ID. Se probó:\n- Azure CLI: {cli} (¿falta az login?)\n- Azure Developer CLI: «azd» no está instalada\n- identidad administrada: no responde (DBine no corre en la nube)")
+        };
         for cli in [
             "AADSTS50076: Due to a configuration change made by your administrator, or because you moved to a new location, you must use multi-factor authentication",
             "AADSTS50079: Due to a configuration change made by your administrator, you must enroll in multi-factor authentication",
@@ -363,7 +599,9 @@ mod tests {
         }
         // The hint cloud_auth adds to every failure doesn't count.
         assert!(!needs_tenant_sign_in(&chain("«az» no está instalada")));
-        assert!(!needs_tenant_sign_in(&chain("(Forbidden) The user does not have access to the resource")));
+        assert!(!needs_tenant_sign_in(&chain(
+            "(Forbidden) The user does not have access to the resource"
+        )));
         assert!(!needs_tenant_sign_in("no se pudo obtener un token de Microsoft Entra ID. Se probó:\n- Azure Developer CLI: run az login"));
         assert_eq!(
             no_sign_in("contoso.onmicrosoft.com"),
@@ -374,7 +612,11 @@ mod tests {
     #[test]
     fn tenant_validation() {
         use dbine_core::secret_sources::valid_azure_tenant as ok;
-        for t in ["11111111-2222-4333-8444-555555555555", "contoso.onmicrosoft.com", "a"] {
+        for t in [
+            "11111111-2222-4333-8444-555555555555",
+            "contoso.onmicrosoft.com",
+            "a",
+        ] {
             assert!(ok(t) && tenant_arg(t).is_ok(), "{t}");
         }
         for t in ["-x", ".x", "a b", "a;b", "a/b", "ñ", &"a".repeat(256)] {

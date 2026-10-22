@@ -33,7 +33,8 @@ impl ActivityLog {
     }
 
     pub fn in_memory() -> Self {
-        Self::init(Connection::open_in_memory().expect("in-memory sqlite")).expect("activity schema")
+        Self::init(Connection::open_in_memory().expect("in-memory sqlite"))
+            .expect("activity schema")
     }
 
     fn init(conn: Connection) -> rusqlite::Result<Self> {
@@ -51,7 +52,9 @@ impl ActivityLog {
                  error      TEXT
              );",
         )?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     pub fn record(&self, e: &ActivityEntry) {
@@ -68,7 +71,12 @@ impl ActivityLog {
     }
 
     /// The newest calls first, optionally only a client's or a connection's.
-    pub fn list(&self, client: Option<&str>, connection: Option<&str>, limit: u32) -> rusqlite::Result<Vec<ActivityEntry>> {
+    pub fn list(
+        &self,
+        client: Option<&str>,
+        connection: Option<&str>,
+        limit: u32,
+    ) -> rusqlite::Result<Vec<ActivityEntry>> {
         let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut stmt = c.prepare(
             "SELECT id, at, client, connection, tool, summary, ok, rows, error FROM activity
@@ -103,7 +111,11 @@ mod tests {
             log.record(&ActivityEntry {
                 id: 0,
                 at: format!("t{i}"),
-                client: if i % 2 == 0 { "Claude Code".into() } else { "Codex".into() },
+                client: if i % 2 == 0 {
+                    "Claude Code".into()
+                } else {
+                    "Codex".into()
+                },
                 connection: "local".into(),
                 tool: "list_objects".into(),
                 summary: String::new(),

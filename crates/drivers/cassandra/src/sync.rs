@@ -4,12 +4,30 @@
 //! column's type or the primary key: those become warnings.
 
 use crate::cql::{ident, qualified};
-use crate::ddl::{index_ddl, is_true, keys, table_options, table_ddl};
+use crate::ddl::{index_ddl, is_true, keys, table_ddl, table_options};
 use dbine_driver::{ColumnDef, DdlParts, IndexDef, Result, SyncScript, TableChange, TableSchema};
 
-const CREATE: DdlParts = DdlParts { drop: false, if_exists: false, create: true, indexes: false, foreign_keys: false };
-const INDEXES: DdlParts = DdlParts { drop: false, if_exists: false, create: false, indexes: true, foreign_keys: false };
-const DROP: DdlParts = DdlParts { drop: true, if_exists: false, create: false, indexes: false, foreign_keys: false };
+const CREATE: DdlParts = DdlParts {
+    drop: false,
+    if_exists: false,
+    create: true,
+    indexes: false,
+    foreign_keys: false,
+};
+const INDEXES: DdlParts = DdlParts {
+    drop: false,
+    if_exists: false,
+    create: false,
+    indexes: true,
+    foreign_keys: false,
+};
+const DROP: DdlParts = DdlParts {
+    drop: true,
+    if_exists: false,
+    create: false,
+    indexes: false,
+    foreign_keys: false,
+};
 
 #[derive(Default)]
 struct Plan {
@@ -39,14 +57,26 @@ fn display(t: &TableSchema) -> String {
 fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
     let cols = |x: &[String]| x.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>();
     let kind = |x: &Option<String>| x.as_deref().map(str::trim).unwrap_or("").to_lowercase();
-    cols(&a.columns) == cols(&b.columns) && a.unique == b.unique && kind(&a.kind) == kind(&b.kind) && a.options == b.options
+    cols(&a.columns) == cols(&b.columns)
+        && a.unique == b.unique
+        && kind(&a.kind) == kind(&b.kind)
+        && a.options == b.options
 }
 
 /// Partition key, clustering columns and their order, lower-cased.
 fn key_shape(t: &TableSchema) -> Result<(Vec<String>, Vec<(String, bool)>)> {
     let (pk, ck) = keys(t)?;
-    let desc = |c: &ColumnDef| c.options.get("clustering_order").is_some_and(|o| o.trim().eq_ignore_ascii_case("desc"));
-    Ok((pk.iter().map(|c| c.name.to_lowercase()).collect(), ck.iter().map(|c| (c.name.to_lowercase(), desc(c))).collect()))
+    let desc = |c: &ColumnDef| {
+        c.options
+            .get("clustering_order")
+            .is_some_and(|o| o.trim().eq_ignore_ascii_case("desc"))
+    };
+    Ok((
+        pk.iter().map(|c| c.name.to_lowercase()).collect(),
+        ck.iter()
+            .map(|c| (c.name.to_lowercase(), desc(c)))
+            .collect(),
+    ))
 }
 
 pub fn sync_script(keyspaces: bool, changes: &[TableChange]) -> Result<SyncScript> {
@@ -64,14 +94,25 @@ pub fn sync_script(keyspaces: bool, changes: &[TableChange]) -> Result<SyncScrip
                 }
             }
             TableChange::Drop { table } => {
-                p.warnings.push(format!("Se borra la tabla {} con todos sus datos.", display(table)));
+                p.warnings.push(format!(
+                    "Se borra la tabla {} con todos sus datos.",
+                    display(table)
+                ));
                 p.drop_tables.push(table_ddl(table, DROP)?);
             }
             TableChange::Alter { old, new } => alter_table(keyspaces, old, new, &mut p)?,
         }
     }
-    let statements = [p.drop_tables, p.pre, p.columns, p.post, p.creates].into_iter().flatten().map(|s| s.trim_end().to_string()).filter(|s| !s.is_empty()).collect();
-    Ok(SyncScript { statements, warnings: p.warnings })
+    let statements = [p.drop_tables, p.pre, p.columns, p.post, p.creates]
+        .into_iter()
+        .flatten()
+        .map(|s| s.trim_end().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    Ok(SyncScript {
+        statements,
+        warnings: p.warnings,
+    })
 }
 
 fn alter_table(keyspaces: bool, old: &TableSchema, new: &TableSchema, p: &mut Plan) -> Result<()> {
@@ -88,11 +129,29 @@ fn alter_table(keyspaces: bool, old: &TableSchema, new: &TableSchema, p: &mut Pl
     let old_key = |c: &str| is_key(&old_pk, &old_ck, c);
     let new_key = |c: &str| is_key(&new_pk, &new_ck, c);
 
-    let dropped: Vec<&ColumnDef> = old.columns.iter().filter(|c| !new.columns.iter().any(|n| eq_name(&n.name, &c.name))).collect();
-    let added: Vec<&ColumnDef> = new.columns.iter().filter(|c| !old.columns.iter().any(|o| eq_name(&o.name, &c.name))).collect();
-    let pairs: Vec<(&ColumnDef, &ColumnDef)> =
-        new.columns.iter().filter_map(|n| old.columns.iter().find(|o| eq_name(&o.name, &n.name)).map(|o| (o, n))).collect();
-    let key_retyped = pairs.iter().any(|(o, n)| (old_key(&o.name) || new_key(&n.name)) && squash(&o.data_type) != squash(&n.data_type));
+    let dropped: Vec<&ColumnDef> = old
+        .columns
+        .iter()
+        .filter(|c| !new.columns.iter().any(|n| eq_name(&n.name, &c.name)))
+        .collect();
+    let added: Vec<&ColumnDef> = new
+        .columns
+        .iter()
+        .filter(|c| !old.columns.iter().any(|o| eq_name(&o.name, &c.name)))
+        .collect();
+    let pairs: Vec<(&ColumnDef, &ColumnDef)> = new
+        .columns
+        .iter()
+        .filter_map(|n| {
+            old.columns
+                .iter()
+                .find(|o| eq_name(&o.name, &n.name))
+                .map(|o| (o, n))
+        })
+        .collect();
+    let key_retyped = pairs.iter().any(|(o, n)| {
+        (old_key(&o.name) || new_key(&n.name)) && squash(&o.data_type) != squash(&n.data_type)
+    });
 
     if old_pk != new_pk || old_ck != new_ck || key_retyped {
         p.warnings.push(format!(
@@ -105,7 +164,11 @@ fn alter_table(keyspaces: bool, old: &TableSchema, new: &TableSchema, p: &mut Pl
     let mut new_ix = Vec::new();
     for o in &old.indexes {
         let same = new.indexes.iter().find(|n| eq_name(&n.name, &o.name));
-        let on_dropped = o.columns.iter().any(|c| dropped.iter().any(|d| !old_key(&d.name) && c.to_lowercase().contains(&d.name.to_lowercase())));
+        let on_dropped = o.columns.iter().any(|c| {
+            dropped
+                .iter()
+                .any(|d| !old_key(&d.name) && c.to_lowercase().contains(&d.name.to_lowercase()))
+        });
         if same.is_none_or(|n| !ix_same(o, n)) || on_dropped {
             drop_ix.push(format!("DROP INDEX {};", qualified(schema, &o.name)));
         }
@@ -129,38 +192,72 @@ fn alter_table(keyspaces: bool, old: &TableSchema, new: &TableSchema, p: &mut Pl
 
     // Columns: only the regular ones (key columns can't be added or dropped).
     for c in dropped.iter().filter(|c| !old_key(&c.name)) {
-        p.warnings.push(format!("Se borra la columna {tname}.{} con sus datos.", c.name));
-        p.columns.push(format!("ALTER TABLE {name} DROP {};", ident(&c.name)));
+        p.warnings.push(format!(
+            "Se borra la columna {tname}.{} con sus datos.",
+            c.name
+        ));
+        p.columns
+            .push(format!("ALTER TABLE {name} DROP {};", ident(&c.name)));
     }
     for c in added.iter().filter(|c| !new_key(&c.name)) {
         if c.data_type.trim().is_empty() {
-            p.warnings.push(format!("Falta el tipo de la columna {tname}.{}: no se agrega.", c.name));
+            p.warnings.push(format!(
+                "Falta el tipo de la columna {tname}.{}: no se agrega.",
+                c.name
+            ));
             continue;
         }
         let stat = if is_true(c, "static") { " STATIC" } else { "" };
-        p.columns.push(format!("ALTER TABLE {name} ADD {} {}{stat};", ident(&c.name), c.data_type.trim()));
+        p.columns.push(format!(
+            "ALTER TABLE {name} ADD {} {}{stat};",
+            ident(&c.name),
+            c.data_type.trim()
+        ));
     }
-    for (o, n) in pairs.iter().filter(|(o, n)| !old_key(&o.name) && !new_key(&n.name)) {
+    for (o, n) in pairs
+        .iter()
+        .filter(|(o, n)| !old_key(&o.name) && !new_key(&n.name))
+    {
         if squash(&o.data_type) != squash(&n.data_type) {
-            p.warnings.push(format!("{tname}.{}: {} → {}. CQL no cambia el tipo de una columna; se deja como está.", n.name, o.data_type, n.data_type));
+            p.warnings.push(format!(
+                "{tname}.{}: {} → {}. CQL no cambia el tipo de una columna; se deja como está.",
+                n.name, o.data_type, n.data_type
+            ));
         }
         if is_true(o, "static") != is_true(n, "static") {
-            p.warnings.push(format!("{tname}.{}: CQL no cambia si una columna es STATIC; se deja como está.", n.name));
+            p.warnings.push(format!(
+                "{tname}.{}: CQL no cambia si una columna es STATIC; se deja como está.",
+                n.name
+            ));
         }
     }
 
     // Table options.
     let old_opts = table_options(old, &[])?;
     let new_opts = table_options(new, &[])?;
-    let key = |o: &str| o.split_once(" = ").map(|(k, _)| k.to_string()).unwrap_or_default();
+    let key = |o: &str| {
+        o.split_once(" = ")
+            .map(|(k, _)| k.to_string())
+            .unwrap_or_default()
+    };
     let set: Vec<&String> = new_opts.iter().filter(|o| !old_opts.contains(o)).collect();
     if !set.is_empty() {
-        p.post.push(format!("ALTER TABLE {name} WITH {};", set.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" AND ")));
+        p.post.push(format!(
+            "ALTER TABLE {name} WITH {};",
+            set.iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(" AND ")
+        ));
     }
-    for o in old_opts.iter().filter(|o| !new_opts.iter().any(|n| key(n) == key(o))) {
+    for o in old_opts
+        .iter()
+        .filter(|o| !new_opts.iter().any(|n| key(n) == key(o)))
+    {
         // A removed comment is an empty one.
         if key(o) == "comment" {
-            p.post.push(format!("ALTER TABLE {name} WITH comment = '';"));
+            p.post
+                .push(format!("ALTER TABLE {name} WITH comment = '';"));
             continue;
         }
         p.warnings.push(format!("{tname}: la opción {} se quitó en el origen; CQL no la vuelve al valor por defecto, se deja como está.", key(o)));
@@ -174,7 +271,11 @@ mod tests {
     use dbine_driver::KeyDef;
 
     fn col(name: &str, ty: &str) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            ..Default::default()
+        }
     }
 
     fn table(cols: Vec<ColumnDef>, pk: &[&str]) -> TableSchema {
@@ -183,22 +284,46 @@ mod tests {
             schema: Some("ks".into()),
             name: "users".into(),
             columns: cols,
-            primary_key: Some(KeyDef { name: None, columns: pk.iter().map(|s| s.to_string()).collect() }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: pk.iter().map(|s| s.to_string()).collect(),
+            }),
             ..Default::default()
         }
     }
 
     fn ix(name: &str, col: &str) -> IndexDef {
-        IndexDef { name: name.into(), columns: vec![col.into()], ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            columns: vec![col.into()],
+            ..Default::default()
+        }
     }
 
     #[test]
     fn alter_columns_indexes_and_options() {
-        let mut old = table(vec![col("id", "uuid"), col("name", "text"), col("age", "int"), col("old", "text")], &["id"]);
+        let mut old = table(
+            vec![
+                col("id", "uuid"),
+                col("name", "text"),
+                col("age", "int"),
+                col("old", "text"),
+            ],
+            &["id"],
+        );
         old.indexes = vec![ix("users_old", "old"), ix("users_name", "name")];
-        let mut new = table(vec![col("id", "uuid"), col("name", "text"), col("age", "bigint"), col("Email", "text")], &["id"]);
+        let mut new = table(
+            vec![
+                col("id", "uuid"),
+                col("name", "text"),
+                col("age", "bigint"),
+                col("Email", "text"),
+            ],
+            &["id"],
+        );
         new.indexes = vec![ix("users_email", "Email"), ix("users_name", "name")];
-        new.options.insert("default_time_to_live".into(), "3600".into());
+        new.options
+            .insert("default_time_to_live".into(), "3600".into());
         let s = sync_script(false, &[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
             s.statements,
@@ -224,8 +349,18 @@ mod tests {
         let old = table(vec![col("id", "uuid")], &["id"]);
         let mut new = old.clone();
         new.options.insert("comment".into(), "it's users".into());
-        let s = sync_script(false, &[TableChange::Alter { old: old.clone(), new: new.clone() }]).unwrap();
-        assert_eq!(s.statements, ["ALTER TABLE ks.users WITH comment = 'it''s users';"]);
+        let s = sync_script(
+            false,
+            &[TableChange::Alter {
+                old: old.clone(),
+                new: new.clone(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["ALTER TABLE ks.users WITH comment = 'it''s users';"]
+        );
         let s = sync_script(false, &[TableChange::Alter { old: new, new: old }]).unwrap();
         assert_eq!(s.statements, ["ALTER TABLE ks.users WITH comment = '';"]);
         assert!(s.warnings.is_empty(), "{:?}", s.warnings);
@@ -233,8 +368,14 @@ mod tests {
 
     #[test]
     fn primary_key_change_is_a_warning() {
-        let old = table(vec![col("id", "uuid"), col("ts", "timestamp"), col("v", "text")], &["id"]);
-        let new = table(vec![col("id", "uuid"), col("ts", "timestamp"), col("v", "text")], &["id", "ts"]);
+        let old = table(
+            vec![col("id", "uuid"), col("ts", "timestamp"), col("v", "text")],
+            &["id"],
+        );
+        let new = table(
+            vec![col("id", "uuid"), col("ts", "timestamp"), col("v", "text")],
+            &["id", "ts"],
+        );
         let s = sync_script(false, &[TableChange::Alter { old, new }]).unwrap();
         assert!(s.statements.is_empty());
         assert_eq!(
@@ -247,8 +388,18 @@ mod tests {
     fn create_and_drop() {
         let mut t = table(vec![col("id", "uuid"), col("name", "text")], &["id"]);
         t.indexes = vec![ix("users_name", "name")];
-        let gone = TableSchema { name: "legacy".into(), ..table(vec![col("id", "int")], &["id"]) };
-        let s = sync_script(false, &[TableChange::Create { table: t.clone() }, TableChange::Drop { table: gone }]).unwrap();
+        let gone = TableSchema {
+            name: "legacy".into(),
+            ..table(vec![col("id", "int")], &["id"])
+        };
+        let s = sync_script(
+            false,
+            &[
+                TableChange::Create { table: t.clone() },
+                TableChange::Drop { table: gone },
+            ],
+        )
+        .unwrap();
         assert_eq!(
             s.statements,
             vec![
@@ -257,7 +408,10 @@ mod tests {
                 "CREATE INDEX users_name ON ks.users (name);",
             ]
         );
-        assert_eq!(s.warnings, vec!["Se borra la tabla ks.legacy con todos sus datos."]);
+        assert_eq!(
+            s.warnings,
+            vec!["Se borra la tabla ks.legacy con todos sus datos."]
+        );
 
         let s = sync_script(true, &[TableChange::Create { table: t }]).unwrap();
         assert_eq!(s.statements.len(), 1);

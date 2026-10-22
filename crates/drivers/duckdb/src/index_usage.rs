@@ -19,7 +19,13 @@ pub const NOTE: &str = "DuckDB no registra cuántas veces se usa cada índice ni
 /// The report for `t` (`None`: the table isn't there): the primary key
 /// first, then the indexes in the schema's order.
 pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
-    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() } };
+    let Some(t) = t else {
+        return IndexUsageReport {
+            note: Some(NOTE.into()),
+            writes_counted: false,
+            ..Default::default()
+        };
+    };
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
         indexes.push(IndexUsage {
@@ -39,7 +45,14 @@ pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
         filter: ix.filter.clone(),
         ..Default::default()
     }));
-    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), writes_counted: false, ..Default::default() }.derived()
+    IndexUsageReport {
+        note: Some(NOTE.into()),
+        indexes,
+        foreign_keys: t.foreign_keys.clone(),
+        writes_counted: false,
+        ..Default::default()
+    }
+    .derived()
 }
 
 #[cfg(test)]
@@ -51,12 +64,30 @@ mod tests {
     fn key_first_then_indexes() {
         let t = TableSchema {
             name: "t".into(),
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
             indexes: vec![
-                IndexDef { name: "t_code_key".into(), columns: vec!["code".into()], unique: true, kind: Some("ART".into()), ..Default::default() },
-                IndexDef { name: "ix_a".into(), columns: vec!["a".into(), "(lower(b))".into()], ..Default::default() },
+                IndexDef {
+                    name: "t_code_key".into(),
+                    columns: vec!["code".into()],
+                    unique: true,
+                    kind: Some("ART".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "ix_a".into(),
+                    columns: vec!["a".into(), "(lower(b))".into()],
+                    ..Default::default()
+                },
             ],
-            foreign_keys: vec![ForeignKeyDef { columns: vec!["p_id".into()], ref_table: "p".into(), ref_columns: vec!["id".into()], ..Default::default() }],
+            foreign_keys: vec![ForeignKeyDef {
+                columns: vec!["p_id".into()],
+                ref_table: "p".into(),
+                ref_columns: vec!["id".into()],
+                ..Default::default()
+            }],
             ..Default::default()
         };
         let r = report(Some(&t));
@@ -66,7 +97,10 @@ mod tests {
         assert!(r.indexes[0].primary_key && r.indexes[0].unique);
         assert!(r.indexes[1].unique && !r.indexes[1].primary_key);
         assert_eq!(r.indexes[2].key_columns, ["a", "(lower(b))"]);
-        assert!(r.indexes.iter().all(|i| i.kind == "ART" && !i.unused && i.read_share.is_none()));
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| i.kind == "ART" && !i.unused && i.read_share.is_none()));
         assert_eq!(r.foreign_keys, t.foreign_keys);
         assert!(report(None).indexes.is_empty());
     }

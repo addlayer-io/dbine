@@ -11,7 +11,6 @@ mod backup;
 mod blocking;
 mod blocks;
 mod create_db;
-mod script;
 mod ddl;
 mod health;
 mod index_usage;
@@ -22,6 +21,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod script;
 mod search;
 mod security;
 mod stats;
@@ -30,9 +30,10 @@ mod transfer;
 
 use dbine_driver::sql::{qualified_name, select_top, Limit, Quote};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
-    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot,
-    ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result, RowChange, SchemaInfo, Session, TableSchema,
+    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
+    FieldKind, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result,
+    ResultColumn, RowChange, SchemaInfo, Session, TableSchema,
 };
 use ddl::column_type;
 use serde::Serialize;
@@ -98,7 +99,11 @@ pub struct SnowflakeDriver {
 #[derive(Clone)]
 enum Auth {
     Pat(String),
-    KeyPair { issuer: String, subject: String, key: Arc<jsonwebtoken::EncodingKey> },
+    KeyPair {
+        issuer: String,
+        subject: String,
+        key: Arc<jsonwebtoken::EncodingKey>,
+    },
 }
 
 #[derive(Clone)]
@@ -113,7 +118,10 @@ struct Api {
 /// `myorg-acct` / `xy12345.us-east-1` / a URL → the API base URL.
 fn base_url(account: &str) -> String {
     let a = account.trim().trim_end_matches('/');
-    let host = a.strip_prefix("https://").or_else(|| a.strip_prefix("http://")).unwrap_or(a);
+    let host = a
+        .strip_prefix("https://")
+        .or_else(|| a.strip_prefix("http://"))
+        .unwrap_or(a);
     if host.contains(".snowflakecomputing.") || a.starts_with("http") {
         if a.starts_with("http") {
             a.to_string()
@@ -128,7 +136,10 @@ fn base_url(account: &str) -> String {
 /// The account part of the JWT claims: before the first dot, uppercase.
 fn jwt_account(account: &str) -> String {
     let a = account.trim();
-    let host = a.strip_prefix("https://").or_else(|| a.strip_prefix("http://")).unwrap_or(a);
+    let host = a
+        .strip_prefix("https://")
+        .or_else(|| a.strip_prefix("http://"))
+        .unwrap_or(a);
     host.split('.').next().unwrap_or(host).to_ascii_uppercase()
 }
 
@@ -142,9 +153,15 @@ fn pem_der(pem: &str) -> Result<(String, Vec<u8>)> {
         .ok_or_else(|| Error::AuthFailed("la clave privada no está en formato PEM".into()))?
         .to_string();
     if label.contains("ENCRYPTED") {
-        return Err(Error::AuthFailed("la clave privada está cifrada; exportala sin passphrase".into()));
+        return Err(Error::AuthFailed(
+            "la clave privada está cifrada; exportala sin passphrase".into(),
+        ));
     }
-    let b64: String = pem.lines().filter(|l| !l.starts_with("-----")).map(str::trim).collect();
+    let b64: String = pem
+        .lines()
+        .filter(|l| !l.starts_with("-----"))
+        .map(str::trim)
+        .collect();
     let der = base64::engine::general_purpose::STANDARD
         .decode(b64)
         .map_err(|e| Error::AuthFailed(format!("clave privada inválida: {e}")))?;
@@ -157,11 +174,21 @@ fn public_key_fingerprint(pem: &str) -> Result<String> {
     use aws_lc_rs::encoding::AsDer;
     use aws_lc_rs::signature::{KeyPair, RsaKeyPair};
     let (label, der) = pem_der(pem)?;
-    let kp = if label == "RSA PRIVATE KEY" { RsaKeyPair::from_der(&der) } else { RsaKeyPair::from_pkcs8(&der) }
-        .map_err(|e| Error::AuthFailed(format!("clave privada RSA inválida: {e}")))?;
-    let spki = kp.public_key().as_der().map_err(|e| Error::AuthFailed(format!("clave pública: {e}")))?;
+    let kp = if label == "RSA PRIVATE KEY" {
+        RsaKeyPair::from_der(&der)
+    } else {
+        RsaKeyPair::from_pkcs8(&der)
+    }
+    .map_err(|e| Error::AuthFailed(format!("clave privada RSA inválida: {e}")))?;
+    let spki = kp
+        .public_key()
+        .as_der()
+        .map_err(|e| Error::AuthFailed(format!("clave pública: {e}")))?;
     let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, spki.as_ref());
-    Ok(format!("SHA256:{}", base64::engine::general_purpose::STANDARD.encode(digest.as_ref())))
+    Ok(format!(
+        "SHA256:{}",
+        base64::engine::general_purpose::STANDARD.encode(digest.as_ref())
+    ))
 }
 
 #[derive(Serialize)]
@@ -176,13 +203,19 @@ fn auth(cfg: &ConnectionConfig) -> Result<Auth> {
     let account = cfg.option("account").unwrap_or("");
     match cfg.option("auth_mode").unwrap_or("pat") {
         "keypair" => {
-            let pem = cfg.option("private_key").ok_or_else(|| Error::AuthFailed("falta la clave privada".into()))?;
+            let pem = cfg
+                .option("private_key")
+                .ok_or_else(|| Error::AuthFailed("falta la clave privada".into()))?;
             let user = cfg.username_or_empty().trim().to_ascii_uppercase();
             let subject = format!("{}.{user}", jwt_account(account));
             let issuer = format!("{subject}.{}", public_key_fingerprint(pem)?);
             let key = jsonwebtoken::EncodingKey::from_rsa_pem(pem.trim().as_bytes())
                 .map_err(|e| Error::AuthFailed(format!("clave privada inválida: {e}")))?;
-            Ok(Auth::KeyPair { issuer, subject, key: Arc::new(key) })
+            Ok(Auth::KeyPair {
+                issuer,
+                subject,
+                key: Arc::new(key),
+            })
         }
         _ => {
             let t = cfg
@@ -199,11 +232,27 @@ impl Auth {
     fn headers(&self) -> Result<(String, &'static str)> {
         match self {
             Auth::Pat(t) => Ok((format!("Bearer {t}"), "PROGRAMMATIC_ACCESS_TOKEN")),
-            Auth::KeyPair { issuer, subject, key } => {
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-                let claims = Claims { iss: issuer, sub: subject, iat: now, exp: now + 3540 };
-                let jwt = jsonwebtoken::encode(&jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256), &claims, key)
-                    .map_err(|e| Error::AuthFailed(e.to_string()))?;
+            Auth::KeyPair {
+                issuer,
+                subject,
+                key,
+            } => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let claims = Claims {
+                    iss: issuer,
+                    sub: subject,
+                    iat: now,
+                    exp: now + 3540,
+                };
+                let jwt = jsonwebtoken::encode(
+                    &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256),
+                    &claims,
+                    key,
+                )
+                .map_err(|e| Error::AuthFailed(e.to_string()))?;
                 Ok((format!("Bearer {jwt}"), "KEYPAIR_JWT"))
             }
         }
@@ -221,11 +270,16 @@ impl Api {
             .await
             .map_err(|e| Error::Connect(e.to_string()))?;
         let status = resp.status().as_u16();
-        let text = resp.text().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?;
         let body: Json = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "message": text }));
         match status {
             200 | 202 => Ok((status, body)),
-            401 | 403 if body.get("sqlState").is_none() => Err(Error::AuthFailed(message(&body, status))),
+            401 | 403 if body.get("sqlState").is_none() => {
+                Err(Error::AuthFailed(message(&body, status)))
+            }
             _ => {
                 let m = message(&body, status);
                 if let Ok(mut g) = self.last_error.lock() {
@@ -237,16 +291,21 @@ impl Api {
     }
 
     async fn post(&self, path: &str, body: &Json) -> Result<(u16, Json)> {
-        self.send(self.http.post(format!("{}{path}", self.base)).json(body)).await
+        self.send(self.http.post(format!("{}{path}", self.base)).json(body))
+            .await
     }
 
     async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<(u16, Json)> {
-        self.send(self.http.get(format!("{}{path}", self.base)).query(query)).await
+        self.send(self.http.get(format!("{}{path}", self.base)).query(query))
+            .await
     }
 }
 
 fn message(body: &Json, status: u16) -> String {
-    let m = body.get("message").and_then(Json::as_str).filter(|m| !m.is_empty());
+    let m = body
+        .get("message")
+        .and_then(Json::as_str)
+        .filter(|m| !m.is_empty());
     match (m, body.get("sqlState").and_then(Json::as_str)) {
         (Some(m), Some(s)) => format!("{m} (SQLSTATE {s})"),
         (Some(m), None) => m.to_string(),
@@ -289,12 +348,20 @@ impl Driver for SnowflakeDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
     /// "Propiedades" (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -361,7 +428,10 @@ impl Driver for SnowflakeDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -375,7 +445,12 @@ impl Driver for SnowflakeDriver {
         rename::script(req)
     }
 
-    fn rename_database_script(&self, database: &str, new_name: &str, _objects: &[dbine_driver::rename::DatabaseObject]) -> Result<dbine_driver::SyncScript> {
+    fn rename_database_script(
+        &self,
+        database: &str,
+        new_name: &str,
+        _objects: &[dbine_driver::rename::DatabaseObject],
+    ) -> Result<dbine_driver::SyncScript> {
         rename::database_script(database, new_name)
     }
 
@@ -383,15 +458,29 @@ impl Driver for SnowflakeDriver {
         Ok(ddl::table_ddl(table, parts))
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> Result<String> {
-        Ok(ddl::insert_script(target.schema(), &target.name, columns, rows))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Json>],
+    ) -> Result<String> {
+        Ok(ddl::insert_script(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         Ok(ddl::update_script(target.schema(), &target.name, changes))
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         Ok(ddl::delete_script(target.schema(), &target.name, keys))
     }
 
@@ -409,18 +498,33 @@ impl Driver for SnowflakeDriver {
 
     /// Never with an owner: it's handed over after the grants
     /// (`schema_owner_script`).
-    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        _owner: Option<&str>,
+    ) -> Result<String> {
         security::create_schema(name)
     }
 
     /// `GRANT OWNERSHIP … COPY CURRENT GRANTS`, after the grants: once the
     /// schema is another role's, the creating role can't grant on it.
-    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+    fn schema_owner_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: &str,
+    ) -> Result<Option<String>> {
         security::schema_owner(name, owner).map(Some)
     }
 
     /// Always with its contents (see `security::schema_spec`).
-    fn drop_schema_script(&self, _database: Option<&str>, name: &str, _cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        _cascade: bool,
+    ) -> Result<String> {
         security::drop_schema(name)
     }
 
@@ -432,22 +536,41 @@ impl Driver for SnowflakeDriver {
         backup::script(action)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
-        let account = cfg.option("account").ok_or_else(|| Error::Connect("falta la cuenta".into()))?;
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
+        let account = cfg
+            .option("account")
+            .ok_or_else(|| Error::Connect("falta la cuenta".into()))?;
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(120))
             .user_agent("DBine")
             .build()
             .map_err(|e| Error::Connect(e.to_string()))?;
-        let api = Api { http, base: base_url(account), auth: auth(cfg)?, last_error: Default::default() };
+        let api = Api {
+            http,
+            base: base_url(account),
+            auth: auth(cfg)?,
+            last_error: Default::default(),
+        };
         let opt = |k: &str| cfg.option(k).map(|v| v.trim().to_string());
         let ctx = Context {
-            database: database.or(Some(cfg.database.as_str())).map(str::trim).filter(|d| !d.is_empty()).map(Into::into),
+            database: database
+                .or(Some(cfg.database.as_str()))
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(Into::into),
             schema: opt("schema"),
             warehouse: opt("warehouse"),
             role: opt("role"),
@@ -502,7 +625,12 @@ impl SnowflakeSession {
     fn body(&self, sql: &str, bindings: Option<Json>, count: usize) -> Json {
         let mut b = json!({ "statement": sql, "timeout": 0 });
         let c = &self.ctx;
-        for (k, v) in [("database", &c.database), ("schema", &c.schema), ("warehouse", &c.warehouse), ("role", &c.role)] {
+        for (k, v) in [
+            ("database", &c.database),
+            ("schema", &c.schema),
+            ("warehouse", &c.warehouse),
+            ("role", &c.role),
+        ] {
             if let Some(v) = v {
                 b[k] = json!(v);
             }
@@ -524,8 +652,14 @@ impl SnowflakeSession {
 
     /// Submit and wait: the final (200) response of `sql`.
     async fn submit(&self, sql: &str, bindings: Option<Json>, count: usize) -> Result<Json> {
-        let (mut status, mut body) = self.api.post("/api/v2/statements", &self.body(sql, bindings, count)).await?;
-        let handle = body.get("statementHandle").and_then(Json::as_str).map(str::to_string);
+        let (mut status, mut body) = self
+            .api
+            .post("/api/v2/statements", &self.body(sql, bindings, count))
+            .await?;
+        let handle = body
+            .get("statementHandle")
+            .and_then(Json::as_str)
+            .map(str::to_string);
         self.set_handle(handle.clone());
         let mut delay = Duration::from_millis(250);
         while status == 202 {
@@ -548,24 +682,46 @@ impl SnowflakeSession {
     async fn collect(&self, mut first: Json, max_rows: usize) -> Result<ResultSet> {
         if first.get("data").is_none() {
             // A child of a multi-statement request: fetch its first page.
-            let h = first.get("statementHandle").and_then(Json::as_str).unwrap_or_default().to_string();
+            let h = first
+                .get("statementHandle")
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .to_string();
             first = self.wait_handle(&h).await?;
         }
-        let meta = first.get("resultSetMetaData").cloned().unwrap_or(Json::Null);
+        let meta = first
+            .get("resultSetMetaData")
+            .cloned()
+            .unwrap_or(Json::Null);
         let affected = first.get("stats").map(|st| {
             ["numRowsInserted", "numRowsUpdated", "numRowsDeleted"]
                 .iter()
-                .filter_map(|k| st.get(*k).and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok())))
+                .filter_map(|k| {
+                    st.get(*k)
+                        .and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()))
+                })
                 .sum()
         });
         let mut rs = ResultSet {
-            row_type: meta.get("rowType").and_then(Json::as_array).cloned().unwrap_or_default(),
+            row_type: meta
+                .get("rowType")
+                .and_then(Json::as_array)
+                .cloned()
+                .unwrap_or_default(),
             total: meta.get("numRows").and_then(Json::as_u64).unwrap_or(0),
             affected,
             ..Default::default()
         };
-        let partitions = meta.get("partitionInfo").and_then(Json::as_array).map_or(1, Vec::len).max(1);
-        let handle = first.get("statementHandle").and_then(Json::as_str).unwrap_or_default().to_string();
+        let partitions = meta
+            .get("partitionInfo")
+            .and_then(Json::as_array)
+            .map_or(1, Vec::len)
+            .max(1);
+        let handle = first
+            .get("statementHandle")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string();
         let mut page = first;
         for p in 0..partitions {
             if p > 0 {
@@ -573,9 +729,21 @@ impl SnowflakeSession {
                     rs.more = true;
                     break;
                 }
-                page = self.api.get(&format!("/api/v2/statements/{handle}"), &[("partition", p.to_string())]).await?.1;
+                page = self
+                    .api
+                    .get(
+                        &format!("/api/v2/statements/{handle}"),
+                        &[("partition", p.to_string())],
+                    )
+                    .await?
+                    .1;
             }
-            for row in page.get("data").and_then(Json::as_array).into_iter().flatten() {
+            for row in page
+                .get("data")
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+            {
                 if rs.rows.len() < max_rows {
                     rs.rows.push(row.clone());
                 } else {
@@ -590,7 +758,10 @@ impl SnowflakeSession {
     async fn wait_handle(&self, h: &str) -> Result<Json> {
         let mut delay = Duration::from_millis(250);
         loop {
-            let (status, body) = self.api.get(&format!("/api/v2/statements/{h}"), &[]).await?;
+            let (status, body) = self
+                .api
+                .get(&format!("/api/v2/statements/{h}"), &[])
+                .await?;
             if status != 202 {
                 return Ok(body);
             }
@@ -600,7 +771,12 @@ impl SnowflakeSession {
     }
 
     /// A single statement's rows (catalog queries).
-    async fn statement(&self, sql: &str, bindings: Option<Json>, max_rows: usize) -> Result<ResultSet> {
+    async fn statement(
+        &self,
+        sql: &str,
+        bindings: Option<Json>,
+        max_rows: usize,
+    ) -> Result<ResultSet> {
         let body = self.submit(sql, bindings, 1).await?;
         self.collect(body, max_rows).await
     }
@@ -619,21 +795,39 @@ impl SnowflakeSession {
         Ok(rs
             .rows
             .iter()
-            .map(|r| r.as_array().into_iter().flatten().map(|v| v.as_str().map(str::to_string)).collect())
+            .map(|r| {
+                r.as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
             .collect())
     }
 
     /// Rows of a catalog query (or SHOW) by lowercase column name.
     async fn named_rows(&self, sql: &str) -> Result<Vec<ddl::Row>> {
         let rs = self.statement(sql, None, 1_000_000).await?;
-        let names: Vec<String> =
-            rs.row_type.iter().map(|c| c.get("name").and_then(Json::as_str).unwrap_or("").to_ascii_lowercase()).collect();
+        let names: Vec<String> = rs
+            .row_type
+            .iter()
+            .map(|c| {
+                c.get("name")
+                    .and_then(Json::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+            })
+            .collect();
         Ok(rs
             .rows
             .iter()
             .map(|r| {
                 let vals = r.as_array().map_or(&[][..], Vec::as_slice);
-                names.iter().zip(vals).filter_map(|(n, v)| Some((n.clone(), v.as_str()?.to_string()))).collect()
+                names
+                    .iter()
+                    .zip(vals)
+                    .filter_map(|(n, v)| Some((n.clone(), v.as_str()?.to_string())))
+                    .collect()
             })
             .collect())
     }
@@ -641,9 +835,16 @@ impl SnowflakeSession {
     /// Runs a script in one request, its results into `out`; gives each
     /// statement's query id (statement handle). Nothing is carried in or
     /// out: the catalog and security screens' own scripts.
-    async fn run_script(&self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<Vec<String>> {
+    async fn run_script(
+        &self,
+        text: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<Vec<String>> {
         let stmts: Vec<String> = script::units(text).into_iter().map(|u| u.text).collect();
-        self.run_units(&stmts, &[], &[], max_rows, out).await.map(|(ids, _)| ids)
+        self.run_units(&stmts, &[], &[], max_rows, out)
+            .await
+            .map(|(ids, _)| ids)
     }
 
     /// `pre`, `stmts` and `trail` in one request (one statement when it's
@@ -660,7 +861,12 @@ impl SnowflakeSession {
         if stmts.is_empty() {
             return Ok(Default::default());
         }
-        let all: Vec<&str> = pre.iter().map(String::as_str).chain(stmts.iter().map(String::as_str)).chain(trail.iter().copied()).collect();
+        let all: Vec<&str> = pre
+            .iter()
+            .map(String::as_str)
+            .chain(stmts.iter().map(String::as_str))
+            .chain(trail.iter().copied())
+            .collect();
         let multi = all.len() > 1;
         // A statement may end in a `--` comment: the `;` goes on a line of
         // its own, or it would be read as part of the comment.
@@ -670,28 +876,53 @@ impl SnowflakeSession {
             .and_then(Json::as_array)
             .map(|hs| hs.iter().map(|h| json!({ "statementHandle": h })).collect())
             .unwrap_or_default();
-        let mut parts = if multi && !children.is_empty() { children } else { vec![body] };
+        let mut parts = if multi && !children.is_empty() {
+            children
+        } else {
+            vec![body]
+        };
         // The server counted the statements as we did: leave out the
         // preamble's and the trailer's.
-        let (skip, keep_tail) = if parts.len() == all.len() { (pre.len(), trail.len()) } else { (0, 0) };
+        let (skip, keep_tail) = if parts.len() == all.len() {
+            (pre.len(), trail.len())
+        } else {
+            (0, 0)
+        };
         let tail = parts.split_off(parts.len() - keep_tail);
         let mut ids = Vec::new();
         for part in parts.into_iter().skip(skip) {
-            ids.push(part.get("statementHandle").and_then(Json::as_str).unwrap_or_default().to_string());
+            ids.push(
+                part.get("statementHandle")
+                    .and_then(Json::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            );
             let rs = self.collect(part, max_rows).await?;
             out.begin_result(
                 rs.row_type
                     .iter()
                     .map(|c| ResultColumn {
-                        name: c.get("name").and_then(Json::as_str).unwrap_or("").to_string(),
-                        type_name: c.get("type").and_then(Json::as_str).unwrap_or("").to_string(),
+                        name: c
+                            .get("name")
+                            .and_then(Json::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        type_name: c
+                            .get("type")
+                            .and_then(Json::as_str)
+                            .unwrap_or("")
+                            .to_string(),
                     })
                     .collect(),
             );
             for row in &rs.rows {
                 let vals = row.as_array().map_or(&[][..], Vec::as_slice);
                 out.push_row(
-                    rs.row_type.iter().enumerate().map(|(i, t)| cell(t, vals.get(i).unwrap_or(&Json::Null))).collect(),
+                    rs.row_type
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| cell(t, vals.get(i).unwrap_or(&Json::Null)))
+                        .collect(),
                     max_rows,
                 );
             }
@@ -713,10 +944,17 @@ impl SnowflakeSession {
     /// sets any), which the next run starts from. A script that can't
     /// change the context (the Users and permissions and Backups scripts
     /// among them) goes without the context query.
-    async fn run_editor(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<Vec<String>> {
+    async fn run_editor(
+        &mut self,
+        text: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<Vec<String>> {
         let units = script::units(text);
         let stmts: Vec<String> = units.iter().map(|u| u.text.clone()).collect();
-        let sets_vars = units.iter().any(|u| matches!(script::head(&u.text).0.as_str(), "SET" | "UNSET"));
+        let sets_vars = units
+            .iter()
+            .any(|u| matches!(script::head(&u.text).0.as_str(), "SET" | "UNSET"));
         let mut trail = Vec::new();
         if script::changes_context(&units) {
             trail.push(script::CONTEXT_QUERY);
@@ -743,8 +981,16 @@ impl SnowflakeSession {
                     }
                 }
                 if let Some(v) = sets.next() {
-                    let names: Vec<String> =
-                        v.row_type.iter().map(|c| c.get("name").and_then(Json::as_str).unwrap_or("").to_ascii_lowercase()).collect();
+                    let names: Vec<String> = v
+                        .row_type
+                        .iter()
+                        .map(|c| {
+                            c.get("name")
+                                .and_then(Json::as_str)
+                                .unwrap_or("")
+                                .to_ascii_lowercase()
+                        })
+                        .collect();
                     self.carry.set_vars(&names, &v.rows);
                 }
                 Ok(ids)
@@ -763,7 +1009,9 @@ impl SnowflakeSession {
     /// The context query's row becomes the session's; a change of database
     /// or schema is told.
     fn absorb_context(&mut self, rs: &ResultSet, out: &mut QueryOutcome) {
-        let Some(row) = rs.rows.first().and_then(Json::as_array) else { return };
+        let Some(row) = rs.rows.first().and_then(Json::as_array) else {
+            return;
+        };
         let get = |i: usize| row.get(i).and_then(Json::as_str).map(str::to_string);
         let before = (self.ctx.database.clone(), self.ctx.schema.clone());
         self.ctx.database = get(0);
@@ -779,13 +1027,27 @@ impl SnowflakeSession {
             out.database = self.ctx.database.clone();
         }
         if before != (self.ctx.database.clone(), self.ctx.schema.clone()) {
-            let shown = [self.ctx.database.as_deref(), self.ctx.schema.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(".");
-            out.info(format!("Contexto: {}", if shown.is_empty() { "(ninguno)" } else { &shown }));
+            let shown = [self.ctx.database.as_deref(), self.ctx.schema.as_deref()]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(".");
+            out.info(format!(
+                "Contexto: {}",
+                if shown.is_empty() {
+                    "(ninguno)"
+                } else {
+                    &shown
+                }
+            ));
         }
     }
 
     fn database(&self) -> Result<String> {
-        self.ctx.database.clone().ok_or_else(|| Error::Query("no hay una base de datos seleccionada".into()))
+        self.ctx
+            .database
+            .clone()
+            .ok_or_else(|| Error::Query("no hay una base de datos seleccionada".into()))
     }
 
     /// One statement with a QUERY_TAG (to tell DBine's own statements
@@ -795,16 +1057,35 @@ impl SnowflakeSession {
         body["parameters"] = json!({ "QUERY_TAG": tag });
         let (status, mut first) = self.api.post("/api/v2/statements", &body).await?;
         if status == 202 {
-            let h = first.get("statementHandle").and_then(Json::as_str).unwrap_or_default().to_string();
+            let h = first
+                .get("statementHandle")
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .to_string();
             first = self.wait_handle(&h).await?;
         }
         let rs = self.collect(first, 10_000).await?;
         Ok(monitor::Set {
-            cols: rs.row_type.iter().map(|c| c.get("name").and_then(Json::as_str).unwrap_or("").to_ascii_lowercase()).collect(),
+            cols: rs
+                .row_type
+                .iter()
+                .map(|c| {
+                    c.get("name")
+                        .and_then(Json::as_str)
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                })
+                .collect(),
             rows: rs
                 .rows
                 .iter()
-                .map(|r| r.as_array().into_iter().flatten().map(|v| v.as_str().map(str::to_string)).collect())
+                .map(|r| {
+                    r.as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
                 .collect(),
         })
     }
@@ -830,19 +1111,31 @@ impl monitor::Runner for SnowflakeSession {
 impl Session for SnowflakeSession {
     async fn server_version(&mut self) -> Result<String> {
         let rows = self.text_rows("SELECT CURRENT_VERSION()", &[]).await?;
-        let v = rows.first().and_then(|r| r.first().cloned().flatten()).unwrap_or_default();
+        let v = rows
+            .first()
+            .and_then(|r| r.first().cloned().flatten())
+            .unwrap_or_default();
         Ok(format!("Snowflake {v}"))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         let rs = self.statement("SHOW DATABASES", None, 100_000).await?;
         let idx = column_index(&rs.row_type, "name").unwrap_or(1);
-        Ok(rs.rows.iter().filter_map(|r| r.get(idx).and_then(Json::as_str).map(str::to_string)).collect())
+        Ok(rs
+            .rows
+            .iter()
+            .filter_map(|r| r.get(idx).and_then(Json::as_str).map(str::to_string))
+            .collect())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let Ok(db) = self.database() else { return Ok(Vec::new()) };
-        let is = format!("{}.INFORMATION_SCHEMA", qualified_name(Quote::Double, None, &db));
+        let Ok(db) = self.database() else {
+            return Ok(Vec::new());
+        };
+        let is = format!(
+            "{}.INFORMATION_SCHEMA",
+            qualified_name(Quote::Double, None, &db)
+        );
         let mut out = Vec::new();
         let tables = self
             .text_rows(
@@ -861,7 +1154,10 @@ impl Session for SnowflakeSession {
             };
             out.push(obj(kind, &r));
         }
-        for (view, kind) in [("FUNCTIONS", kinds::FUNCTION), ("PROCEDURES", kinds::PROCEDURE)] {
+        for (view, kind) in [
+            ("FUNCTIONS", kinds::FUNCTION),
+            ("PROCEDURES", kinds::PROCEDURE),
+        ] {
             let (schema_col, name_col) = if view == "FUNCTIONS" {
                 ("function_schema", "function_name")
             } else {
@@ -894,7 +1190,10 @@ impl Session for SnowflakeSession {
         }
         let dbq = qualified_name(Quote::Double, None, &db);
         for (what, kind) in [("STREAMS", kinds::STREAM), ("TASKS", ddl::TASK)] {
-            if let Ok(rows) = self.named_rows(&format!("SHOW {what} IN DATABASE {dbq}")).await {
+            if let Ok(rows) = self
+                .named_rows(&format!("SHOW {what} IN DATABASE {dbq}"))
+                .await
+            {
                 let mut objs: Vec<DbObject> = rows
                     .iter()
                     .map(|r| DbObject {
@@ -914,14 +1213,25 @@ impl Session for SnowflakeSession {
     /// `INFORMATION_SCHEMA.SCHEMATA` of the session's database (the
     /// schemas the current role can see); INFORMATION_SCHEMA is the system one.
     async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
-        let Ok(db) = self.database() else { return Ok(None) };
+        let Ok(db) = self.database() else {
+            return Ok(None);
+        };
         let rows = self
-            .text_rows(&format!("SELECT schema_name FROM {}.INFORMATION_SCHEMA.SCHEMATA ORDER BY 1", qualified_name(Quote::Double, None, &db)), &[])
+            .text_rows(
+                &format!(
+                    "SELECT schema_name FROM {}.INFORMATION_SCHEMA.SCHEMATA ORDER BY 1",
+                    qualified_name(Quote::Double, None, &db)
+                ),
+                &[],
+            )
             .await?;
         Ok(Some(
             rows.into_iter()
                 .filter_map(|r| r.into_iter().next().flatten())
-                .map(|name| SchemaInfo { system: name == "INFORMATION_SCHEMA", name })
+                .map(|name| SchemaInfo {
+                    system: name == "INFORMATION_SCHEMA",
+                    name,
+                })
                 .collect(),
         ))
     }
@@ -929,7 +1239,10 @@ impl Session for SnowflakeSession {
     async fn columns(&mut self, o: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let db = self.database()?;
         let schema = o.schema().unwrap_or("PUBLIC");
-        let is = format!("{}.INFORMATION_SCHEMA", qualified_name(Quote::Double, None, &db));
+        let is = format!(
+            "{}.INFORMATION_SCHEMA",
+            qualified_name(Quote::Double, None, &db)
+        );
         let rows = self
             .text_rows(
                 &format!(
@@ -941,11 +1254,21 @@ impl Session for SnowflakeSession {
             )
             .await?;
         // Primary keys aren't in INFORMATION_SCHEMA.
-        let fq = format!("{}.{}", qualified_name(Quote::Double, None, &db), qualified_name(Quote::Double, Some(schema), &o.name));
-        let pk: Vec<String> = match self.statement(&format!("SHOW PRIMARY KEYS IN TABLE {fq}"), None, 10_000).await {
+        let fq = format!(
+            "{}.{}",
+            qualified_name(Quote::Double, None, &db),
+            qualified_name(Quote::Double, Some(schema), &o.name)
+        );
+        let pk: Vec<String> = match self
+            .statement(&format!("SHOW PRIMARY KEYS IN TABLE {fq}"), None, 10_000)
+            .await
+        {
             Ok(rs) => {
                 let i = column_index(&rs.row_type, "column_name").unwrap_or(4);
-                rs.rows.iter().filter_map(|r| r.get(i).and_then(Json::as_str).map(str::to_string)).collect()
+                rs.rows
+                    .iter()
+                    .filter_map(|r| r.get(i).and_then(Json::as_str).map(str::to_string))
+                    .collect()
             }
             Err(_) => Vec::new(),
         };
@@ -969,21 +1292,37 @@ impl Session for SnowflakeSession {
     async fn definition(&mut self, o: &ObjectRef) -> Result<Option<String>> {
         let db = self.database()?;
         let schema = o.schema().unwrap_or("PUBLIC");
-        let is = format!("{}.INFORMATION_SCHEMA", qualified_name(Quote::Double, None, &db));
+        let is = format!(
+            "{}.INFORMATION_SCHEMA",
+            qualified_name(Quote::Double, None, &db)
+        );
         // Sequences from the catalog: GET_DDL leaves the schema out, so the
         // sync would make them in the session's schema. GET_DDL if it fails.
         if o.kind == kinds::SEQUENCE {
-            let sql = format!("SELECT {} FROM {is}.SEQUENCES WHERE sequence_schema = ? AND sequence_name = ?", search::SEQUENCE_COLS);
+            let sql = format!(
+                "SELECT {} FROM {is}.SEQUENCES WHERE sequence_schema = ? AND sequence_name = ?",
+                search::SEQUENCE_COLS
+            );
             match self.text_rows(&sql, &[schema, &o.name]).await {
-                Ok(rows) => return Ok(rows.first().map(|r| search::sequence_ddl(schema, &o.name, r))),
-                Err(e) => tracing::debug!("snowflake: sequence {} not read from INFORMATION_SCHEMA: {e}", o.name),
+                Ok(rows) => {
+                    return Ok(rows
+                        .first()
+                        .map(|r| search::sequence_ddl(schema, &o.name, r)))
+                }
+                Err(e) => tracing::debug!(
+                    "snowflake: sequence {} not read from INFORMATION_SCHEMA: {e}",
+                    o.name
+                ),
             }
         }
         let rows = match o.kind.as_str() {
             k @ (kinds::FUNCTION | kinds::PROCEDURE) => {
                 let r = search::routine_source(k);
                 self.text_rows(
-                    &format!("SELECT {} FROM {is}.{} WHERE {} = ? AND {} = ?", r.expr, r.view, r.schema_col, r.name_col),
+                    &format!(
+                        "SELECT {} FROM {is}.{} WHERE {} = ? AND {} = ?",
+                        r.expr, r.view, r.schema_col, r.name_col
+                    ),
                     &[schema, &o.name],
                 )
                 .await?
@@ -1001,17 +1340,23 @@ impl Session for SnowflakeSession {
                     qualified_name(Quote::Double, None, &db),
                     qualified_name(Quote::Double, Some(schema), &o.name)
                 );
-                self.text_rows(&format!("SELECT GET_DDL('{what}', ?)"), &[&fq]).await?
+                self.text_rows(&format!("SELECT GET_DDL('{what}', ?)"), &[&fq])
+                    .await?
             }
         };
-        let defs: Vec<String> = rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect();
+        let defs: Vec<String> = rows
+            .into_iter()
+            .filter_map(|r| r.into_iter().next().flatten())
+            .collect();
         Ok((!defs.is_empty()).then(|| defs.join("\n\n")))
     }
 
     /// INFORMATION_SCHEMA for tables and columns; keys aren't there, so
     /// `SHOW … KEYS IN DATABASE` (one each for the whole database).
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let Ok(db) = self.database() else { return Ok(Vec::new()) };
+        let Ok(db) = self.database() else {
+            return Ok(Vec::new());
+        };
         let dbq = qualified_name(Quote::Double, None, &db);
         let tables = self
             .named_rows(&format!(
@@ -1026,26 +1371,48 @@ impl Session for SnowflakeSession {
                  FROM {dbq}.INFORMATION_SCHEMA.COLUMNS WHERE table_schema <> 'INFORMATION_SCHEMA'"
             ))
             .await?;
-        let pks = self.named_rows(&format!("SHOW PRIMARY KEYS IN DATABASE {dbq}")).await?;
-        let uniques = self.named_rows(&format!("SHOW UNIQUE KEYS IN DATABASE {dbq}")).await?;
-        let fks = self.named_rows(&format!("SHOW IMPORTED KEYS IN DATABASE {dbq}")).await?;
+        let pks = self
+            .named_rows(&format!("SHOW PRIMARY KEYS IN DATABASE {dbq}"))
+            .await?;
+        let uniques = self
+            .named_rows(&format!("SHOW UNIQUE KEYS IN DATABASE {dbq}"))
+            .await?;
+        let fks = self
+            .named_rows(&format!("SHOW IMPORTED KEYS IN DATABASE {dbq}"))
+            .await?;
         Ok(ddl::assemble(&tables, &columns, &pks, &uniques, &fks))
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.statement(&format!("CREATE DATABASE {}", qualified_name(Quote::Double, None, name)), None, 1).await.map(|_| ())
+        self.statement(
+            &format!(
+                "CREATE DATABASE {}",
+                qualified_name(Quote::Double, None, name)
+            ),
+            None,
+            1,
+        )
+        .await
+        .map(|_| ())
     }
 
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
     /// "Chequeo de salud": cost and maintenance from SHOW commands (see `health`).
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
@@ -1057,23 +1424,44 @@ impl Session for SnowflakeSession {
         stats::object_comments(self).await
     }
 
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.ctx.database.as_deref() == Some(name) {
-            return Err(Error::Query(format!("no se puede borrar la base «{name}»: es la de la sesión actual")));
+            return Err(Error::Query(format!(
+                "no se puede borrar la base «{name}»: es la de la sesión actual"
+            )));
         }
-        self.statement(&format!("DROP DATABASE {}", qualified_name(Quote::Double, None, name)), None, 1).await.map(|_| ())
+        self.statement(
+            &format!(
+                "DROP DATABASE {}",
+                qualified_name(Quote::Double, None, name)
+            ),
+            None,
+            1,
+        )
+        .await
+        .map(|_| ())
     }
 
     fn browse_query(&self, o: &ObjectRef, limit: u32) -> String {
@@ -1084,7 +1472,11 @@ impl Session for SnowflakeSession {
         self.run_editor(text, max_rows, out).await.map(|_| ())
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -1101,23 +1493,33 @@ impl Session for SnowflakeSession {
     /// Estimated: `EXPLAIN USING JSON` per statement (compiled only, no
     /// warehouse). Actual: the script runs once, as with `execute`, then
     /// `GET_QUERY_OPERATOR_STATS` of each statement's query id.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         use plan::StmtKind;
         let stmts = split_script(text);
         if !analyze {
             for stmt in stmts {
                 if plan::classify(&stmt) == StmtKind::Other {
-                    out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
+                    out.messages
+                        .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
                     continue;
                 }
-                let rs = self.statement(&format!("EXPLAIN USING JSON {stmt}"), None, 10_000).await?;
+                let rs = self
+                    .statement(&format!("EXPLAIN USING JSON {stmt}"), None, 10_000)
+                    .await?;
                 let raw: String = rs
                     .rows
                     .iter()
                     .filter_map(|r| r.get(0).and_then(Json::as_str).map(str::to_string))
                     .collect::<Vec<_>>()
                     .join("\n");
-                out.plans.push(plan::explain_json(&stmt, &raw).map_err(Error::Query)?);
+                out.plans
+                    .push(plan::explain_json(&stmt, &raw).map_err(Error::Query)?);
             }
             return Ok(());
         }
@@ -1126,26 +1528,43 @@ impl Session for SnowflakeSession {
             if plan::classify(stmt) == StmtKind::Other || id.is_empty() {
                 continue;
             }
-            let q = "SELECT * FROM TABLE(GET_QUERY_OPERATOR_STATS(?)) ORDER BY step_id, operator_id";
+            let q =
+                "SELECT * FROM TABLE(GET_QUERY_OPERATOR_STATS(?)) ORDER BY step_id, operator_id";
             let bindings = json!({ "1": { "type": "TEXT", "value": id } });
             match self.statement(q, Some(bindings), 100_000).await {
                 Ok(rs) => {
                     let names: Vec<String> = rs
                         .row_type
                         .iter()
-                        .map(|c| c.get("name").and_then(Json::as_str).unwrap_or("").to_ascii_lowercase())
+                        .map(|c| {
+                            c.get("name")
+                                .and_then(Json::as_str)
+                                .unwrap_or("")
+                                .to_ascii_lowercase()
+                        })
                         .collect();
                     let rows: Vec<serde_json::Map<String, Json>> = rs
                         .rows
                         .iter()
-                        .map(|r| names.iter().cloned().zip(r.as_array().cloned().unwrap_or_default()).collect())
+                        .map(|r| {
+                            names
+                                .iter()
+                                .cloned()
+                                .zip(r.as_array().cloned().unwrap_or_default())
+                                .collect()
+                        })
                         .collect();
                     match plan::operator_stats(stmt, &id, &rows) {
                         Some(p) => out.plans.push(p),
-                        None => out.messages.push(format!("Snowflake no dio estadísticas de operadores para: {}", plan::short(stmt))),
+                        None => out.messages.push(format!(
+                            "Snowflake no dio estadísticas de operadores para: {}",
+                            plan::short(stmt)
+                        )),
                     }
                 }
-                Err(e) => out.messages.push(format!("No se pudieron leer las estadísticas de operadores: {e}")),
+                Err(e) => out.messages.push(format!(
+                    "No se pudieron leer las estadísticas de operadores: {e}"
+                )),
             }
         }
         Ok(())
@@ -1158,7 +1577,10 @@ impl Session for SnowflakeSession {
         Ok(snap)
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(self, table).await.map(Some)
     }
 
@@ -1198,14 +1620,20 @@ impl Session for SnowflakeSession {
         processes::cancel(&*self, id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1220,10 +1648,15 @@ impl Session for SnowflakeSession {
         let (api, handle) = (self.api.clone(), self.handle.clone());
         let rt = tokio::runtime::Handle::try_current().ok()?;
         Some(Arc::new(move || {
-            let Some(h) = handle.lock().ok().and_then(|g| g.clone()) else { return };
+            let Some(h) = handle.lock().ok().and_then(|g| g.clone()) else {
+                return;
+            };
             let api = api.clone();
             rt.spawn(async move {
-                if let Err(e) = api.post(&format!("/api/v2/statements/{h}/cancel"), &json!({})).await {
+                if let Err(e) = api
+                    .post(&format!("/api/v2/statements/{h}/cancel"), &json!({}))
+                    .await
+                {
                     tracing::debug!("snowflake cancel failed: {e}");
                 }
             });
@@ -1246,13 +1679,23 @@ fn obj(kind: &str, r: &[Option<String>]) -> DbObject {
 }
 
 fn column_index(row_type: &[Json], name: &str) -> Option<usize> {
-    row_type.iter().position(|c| c.get("name").and_then(Json::as_str).is_some_and(|n| n.eq_ignore_ascii_case(name)))
+    row_type.iter().position(|c| {
+        c.get("name")
+            .and_then(Json::as_str)
+            .is_some_and(|n| n.eq_ignore_ascii_case(name))
+    })
 }
 
 /// A `jsonv2` cell (always text) as JSON, by its column's `rowType`.
 fn cell(col: &Json, v: &Json) -> Json {
-    let Some(s) = v.as_str() else { return v.clone() };
-    let ty = col.get("type").and_then(Json::as_str).unwrap_or("").to_ascii_lowercase();
+    let Some(s) = v.as_str() else {
+        return v.clone();
+    };
+    let ty = col
+        .get("type")
+        .and_then(Json::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
     let scale = col.get("scale").and_then(Json::as_i64).unwrap_or(0);
     match ty.as_str() {
         "fixed" if scale == 0 => s.parse::<i64>().map_or_else(|_| s.into(), json_i64),
@@ -1264,27 +1707,35 @@ fn cell(col: &Json, v: &Json) -> Json {
         "date" => s
             .parse::<i64>()
             .ok()
-            .and_then(|d| chrono::NaiveDate::from_ymd_opt(1970, 1, 1)?.checked_add_signed(chrono::Duration::days(d)))
+            .and_then(|d| {
+                chrono::NaiveDate::from_ymd_opt(1970, 1, 1)?
+                    .checked_add_signed(chrono::Duration::days(d))
+            })
             .map_or_else(|| s.into(), |d| d.format("%Y-%m-%d").to_string().into()),
         "time" => epoch(s)
             .map(|(secs, nanos)| {
-                let t = chrono::NaiveTime::from_num_seconds_from_midnight_opt(secs.rem_euclid(86_400) as u32, nanos)
-                    .unwrap_or_default();
+                let t = chrono::NaiveTime::from_num_seconds_from_midnight_opt(
+                    secs.rem_euclid(86_400) as u32,
+                    nanos,
+                )
+                .unwrap_or_default();
                 t.format("%H:%M:%S%.f").to_string().into()
             })
             .unwrap_or_else(|| s.into()),
         "timestamp_ntz" | "timestamp_ltz" => epoch(s)
             .and_then(|(secs, nanos)| chrono::DateTime::from_timestamp(secs, nanos))
-            .map_or_else(|| s.into(), |t| t.format("%Y-%m-%d %H:%M:%S%.f").to_string().into()),
+            .map_or_else(
+                || s.into(),
+                |t| t.format("%Y-%m-%d %H:%M:%S%.f").to_string().into(),
+            ),
         "timestamp_tz" => timestamp_tz(s).map_or_else(|| s.into(), Json::String),
         "binary" => (0..s.len())
             .step_by(2)
             .map(|i| s.get(i..i + 2).and_then(|b| u8::from_str_radix(b, 16).ok()))
             .collect::<Option<Vec<u8>>>()
             .map_or_else(|| s.into(), |b| json_bytes(&b)),
-        "variant" | "object" | "array" => {
-            serde_json::from_str::<Json>(s).map_or_else(|_| s.into(), |j| Json::String(j.to_string()))
-        }
+        "variant" | "object" | "array" => serde_json::from_str::<Json>(s)
+            .map_or_else(|_| s.into(), |j| Json::String(j.to_string())),
         _ => s.into(),
     }
 }
@@ -1293,7 +1744,11 @@ fn cell(col: &Json, v: &Json) -> Json {
 fn epoch(s: &str) -> Option<(i64, u32)> {
     let (sec, frac) = s.split_once('.').unwrap_or((s, ""));
     let secs: i64 = sec.parse().ok()?;
-    let nanos: u32 = if frac.is_empty() { 0 } else { format!("{frac:0<9}").get(..9)?.parse().ok()? };
+    let nanos: u32 = if frac.is_empty() {
+        0
+    } else {
+        format!("{frac:0<9}").get(..9)?.parse().ok()?
+    };
     // Negative epochs with a fraction count the fraction forward.
     if secs < 0 && nanos > 0 && sec.starts_with('-') {
         return Some((secs - 1, 1_000_000_000 - nanos));
@@ -1335,11 +1790,23 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(Some("DB"), "VENTAS", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(Some("DB"), "VENTAS", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
 
@@ -1348,13 +1815,33 @@ mod tests {
     #[test]
     fn schema_owner_goes_after_the_grants() {
         let d = &drivers()[0];
-        assert_eq!(d.schema_spec().unwrap().owner_kinds, dbine_driver::SchemaOwnerKinds::Roles);
-        assert_eq!(d.create_schema_script(Some("DB"), "ventas", Some("DUENO")).unwrap(), "CREATE SCHEMA \"ventas\";");
-        let o = d.schema_owner_script(Some("DB"), "ventas", "DUENO").unwrap().unwrap();
-        assert!(o.ends_with("GRANT OWNERSHIP ON SCHEMA \"ventas\" TO ROLE \"DUENO\" COPY CURRENT GRANTS;"), "{o}");
+        assert_eq!(
+            d.schema_spec().unwrap().owner_kinds,
+            dbine_driver::SchemaOwnerKinds::Roles
+        );
+        assert_eq!(
+            d.create_schema_script(Some("DB"), "ventas", Some("DUENO"))
+                .unwrap(),
+            "CREATE SCHEMA \"ventas\";"
+        );
+        let o = d
+            .schema_owner_script(Some("DB"), "ventas", "DUENO")
+            .unwrap()
+            .unwrap();
+        assert!(
+            o.ends_with(
+                "GRANT OWNERSHIP ON SCHEMA \"ventas\" TO ROLE \"DUENO\" COPY CURRENT GRANTS;"
+            ),
+            "{o}"
+        );
         assert!(d.schema_owner_script(None, "ventas", " ").is_err());
-        let g = d.schema_grant_script(Some("DB"), "ventas", &["USAGE".into()], "LECT", false).unwrap();
-        assert!(g.ends_with("GRANT USAGE ON SCHEMA \"ventas\" TO ROLE \"LECT\";"), "{g}");
+        let g = d
+            .schema_grant_script(Some("DB"), "ventas", &["USAGE".into()], "LECT", false)
+            .unwrap();
+        assert!(
+            g.ends_with("GRANT USAGE ON SCHEMA \"ventas\" TO ROLE \"LECT\";"),
+            "{g}"
+        );
     }
 
     fn col(t: &str, scale: i64) -> Json {
@@ -1363,19 +1850,37 @@ mod tests {
 
     #[test]
     fn scripts_split_outside_quotes_and_dollar_blocks() {
-        assert_eq!(split_script("SELECT 1; SELECT ';'"), vec!["SELECT 1", "SELECT ';'"]);
+        assert_eq!(
+            split_script("SELECT 1; SELECT ';'"),
+            vec!["SELECT 1", "SELECT ';'"]
+        );
         // A backslash-escaped quote doesn't end the string.
         assert_eq!(split_script("SELECT 'a\\';b'; SELECT 2").len(), 2);
-        assert_eq!(split_script("SELECT \"a;b\" FROM t; -- x;\nSELECT 2"), vec!["SELECT \"a;b\" FROM t", "SELECT 2"]);
+        assert_eq!(
+            split_script("SELECT \"a;b\" FROM t; -- x;\nSELECT 2"),
+            vec!["SELECT \"a;b\" FROM t", "SELECT 2"]
+        );
         let block = "EXECUTE IMMEDIATE $$\nBEGIN\n  SELECT 1;\n  SELECT 2;\nEND;\n$$";
-        assert_eq!(split_script(&format!("{block};\nSELECT 3;")), vec![block, "SELECT 3"]);
+        assert_eq!(
+            split_script(&format!("{block};\nSELECT 3;")),
+            vec![block, "SELECT 3"]
+        );
     }
 
     #[test]
     fn accounts_and_urls() {
-        assert_eq!(base_url("myorg-acct"), "https://myorg-acct.snowflakecomputing.com");
-        assert_eq!(base_url("xy12345.us-east-1"), "https://xy12345.us-east-1.snowflakecomputing.com");
-        assert_eq!(base_url("https://a.snowflakecomputing.com/"), "https://a.snowflakecomputing.com");
+        assert_eq!(
+            base_url("myorg-acct"),
+            "https://myorg-acct.snowflakecomputing.com"
+        );
+        assert_eq!(
+            base_url("xy12345.us-east-1"),
+            "https://xy12345.us-east-1.snowflakecomputing.com"
+        );
+        assert_eq!(
+            base_url("https://a.snowflakecomputing.com/"),
+            "https://a.snowflakecomputing.com"
+        );
         assert_eq!(jwt_account("xy12345.us-east-1"), "XY12345");
         assert_eq!(jwt_account("myorg-acct"), "MYORG-ACCT");
     }
@@ -1384,18 +1889,30 @@ mod tests {
     fn cells_by_row_type() {
         assert_eq!(cell(&col("fixed", 0), &json!("42")), json!(42));
         assert_eq!(cell(&col("fixed", 2), &json!("1.50")), json!("1.50"));
-        assert_eq!(cell(&col("fixed", 0), &json!("99999999999999999999")), json!("99999999999999999999"));
+        assert_eq!(
+            cell(&col("fixed", 0), &json!("99999999999999999999")),
+            json!("99999999999999999999")
+        );
         assert_eq!(cell(&col("real", 0), &json!("2.5")), json!(2.5));
         assert_eq!(cell(&col("boolean", 0), &json!("true")), json!(true));
         assert_eq!(cell(&col("date", 0), &json!("19753")), json!("2024-01-31"));
-        assert_eq!(cell(&col("time", 9), &json!("49500.250000000")), json!("13:45:00.250"));
-        assert_eq!(cell(&col("timestamp_ntz", 9), &json!("1706708700.000000000")), json!("2024-01-31 13:45:00"));
+        assert_eq!(
+            cell(&col("time", 9), &json!("49500.250000000")),
+            json!("13:45:00.250")
+        );
+        assert_eq!(
+            cell(&col("timestamp_ntz", 9), &json!("1706708700.000000000")),
+            json!("2024-01-31 13:45:00")
+        );
         assert_eq!(
             cell(&col("timestamp_tz", 9), &json!("1706708700.000000000 1260")),
             json!("2024-01-31 10:45:00 -03:00")
         );
         assert_eq!(cell(&col("binary", 0), &json!("CAFE")), json!("0xCAFE"));
-        assert_eq!(cell(&col("variant", 0), &json!("{\n  \"a\": 1\n}")), json!("{\"a\":1}"));
+        assert_eq!(
+            cell(&col("variant", 0), &json!("{\n  \"a\": 1\n}")),
+            json!("{\"a\":1}")
+        );
         assert_eq!(cell(&col("text", 0), &Json::Null), Json::Null);
     }
 
@@ -1414,7 +1931,12 @@ mod tests {
             .into(),
             ..Default::default()
         };
-        let Auth::KeyPair { issuer, subject, .. } = auth(&cfg).unwrap() else { panic!() };
+        let Auth::KeyPair {
+            issuer, subject, ..
+        } = auth(&cfg).unwrap()
+        else {
+            panic!()
+        };
         assert_eq!(subject, "MYORG-ACCT.JDOE");
         assert_eq!(issuer, format!("MYORG-ACCT.JDOE.{fp}"));
         let (h, kind) = auth(&cfg).unwrap().headers().unwrap();
@@ -1423,14 +1945,28 @@ mod tests {
 
     #[test]
     fn missing_credentials_fail_as_auth() {
-        let cfg = ConnectionConfig { options: [("account".to_string(), "a".to_string())].into(), ..Default::default() };
+        let cfg = ConnectionConfig {
+            options: [("account".to_string(), "a".to_string())].into(),
+            ..Default::default()
+        };
         assert!(matches!(auth(&cfg), Err(Error::AuthFailed(_))));
-        assert!(matches!(pem_der("-----BEGIN ENCRYPTED PRIVATE KEY-----\nAA==\n-----END ENCRYPTED PRIVATE KEY-----"), Err(Error::AuthFailed(_))));
+        assert!(matches!(
+            pem_der(
+                "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAA==\n-----END ENCRYPTED PRIVATE KEY-----"
+            ),
+            Err(Error::AuthFailed(_))
+        ));
     }
 
     #[test]
     fn column_types() {
-        assert_eq!(column_type("TEXT".into(), Some("16".into()), None, None), "TEXT(16)");
-        assert_eq!(column_type("NUMBER".into(), None, Some("38".into()), Some("0".into())), "NUMBER(38,0)");
+        assert_eq!(
+            column_type("TEXT".into(), Some("16".into()), None, None),
+            "TEXT(16)"
+        );
+        assert_eq!(
+            column_type("NUMBER".into(), None, Some("38".into()), Some("0".into())),
+            "NUMBER(38,0)"
+        );
     }
 }

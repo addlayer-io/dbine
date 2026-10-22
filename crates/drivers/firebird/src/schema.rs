@@ -9,8 +9,8 @@ use crate::{field_type, int, q, text, Conn};
 use dbine_driver::ddl::{self, AutoIncrement, SqlFlavor};
 use dbine_driver::sql::Quote;
 use dbine_driver::{
-    kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, ForeignKeyDef, IndexDef,
-    KeyDef, Result, TableSchema,
+    kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind,
+    ForeignKeyDef, IndexDef, KeyDef, Result, TableSchema,
 };
 use rsfbclient_core::Column;
 use serde_json::Value;
@@ -94,7 +94,10 @@ SELECT TRIM(rc.RDB$RELATION_NAME), TRIM(rc.RDB$CONSTRAINT_NAME), tr.RDB$TRIGGER_
 /// which the sync relies on to find an unnamed CHECK by its source).
 fn check_condition(src: &str) -> Option<String> {
     let src = src.trim();
-    let rest = src.get(..5).filter(|k| k.eq_ignore_ascii_case("CHECK")).map_or(src, |_| &src[5..]);
+    let rest = src
+        .get(..5)
+        .filter(|k| k.eq_ignore_ascii_case("CHECK"))
+        .map_or(src, |_| &src[5..]);
     Some(rest.trim().to_string()).filter(|r| !r.is_empty())
 }
 
@@ -105,7 +108,11 @@ pub const INACTIVE: &str = "inactive";
 fn after_keyword(s: &str, kw: &str) -> Option<String> {
     let s = s.trim();
     let rest = match s.get(..kw.len()) {
-        Some(head) if head.eq_ignore_ascii_case(kw) && s[kw.len()..].starts_with(char::is_whitespace) => &s[kw.len()..],
+        Some(head)
+            if head.eq_ignore_ascii_case(kw) && s[kw.len()..].starts_with(char::is_whitespace) =>
+        {
+            &s[kw.len()..]
+        }
         _ => s,
     };
     Some(rest.trim().to_string()).filter(|r| !r.is_empty())
@@ -135,7 +142,8 @@ pub fn database_schema(c: &mut Conn) -> Result<Vec<TableSchema>> {
         };
         match r.get(2).and_then(int) {
             Some(4) => {
-                t.options.insert(TEMPORARY.into(), ON_COMMIT_PRESERVE.into());
+                t.options
+                    .insert(TEMPORARY.into(), ON_COMMIT_PRESERVE.into());
             }
             Some(5) => {
                 t.options.insert(TEMPORARY.into(), ON_COMMIT_DELETE.into());
@@ -148,7 +156,9 @@ pub fn database_schema(c: &mut Conn) -> Result<Vec<TableSchema>> {
     let get = |r: &[Column], i: usize| r.get(i).and_then(text);
 
     for r in c.rows(COLUMNS, vec![])? {
-        let Some(&t) = get(&r, 0).and_then(|n| pos.get(&n)) else { continue };
+        let Some(&t) = get(&r, 0).and_then(|n| pos.get(&n)) else {
+            continue;
+        };
         let g = |i: usize| r.get(i).and_then(int);
         let computed = get(&r, 11).filter(|s| !s.is_empty());
         tables[t].columns.push(ColumnDef {
@@ -167,16 +177,34 @@ pub fn database_schema(c: &mut Conn) -> Result<Vec<TableSchema>> {
 
     // Rows come ordered by table, constraint and position.
     for r in c.rows(CONSTRAINTS, vec![])? {
-        let Some(&t) = get(&r, 0).and_then(|n| pos.get(&n)) else { continue };
-        let (name, ty, col) = (get(&r, 1).unwrap_or_default(), get(&r, 2).unwrap_or_default(), get(&r, 3).unwrap_or_default());
+        let Some(&t) = get(&r, 0).and_then(|n| pos.get(&n)) else {
+            continue;
+        };
+        let (name, ty, col) = (
+            get(&r, 1).unwrap_or_default(),
+            get(&r, 2).unwrap_or_default(),
+            get(&r, 3).unwrap_or_default(),
+        );
         let table = &mut tables[t];
         match ty.as_str() {
             "PRIMARY KEY" => {
-                table.primary_key.get_or_insert_with(|| KeyDef { name: user_name(name), columns: vec![] }).columns.push(col);
+                table
+                    .primary_key
+                    .get_or_insert_with(|| KeyDef {
+                        name: user_name(name),
+                        columns: vec![],
+                    })
+                    .columns
+                    .push(col);
             }
             "UNIQUE" => match table.indexes.last_mut().filter(|i| i.name == name) {
                 Some(ix) => ix.columns.push(col),
-                None => table.indexes.push(IndexDef { name, columns: vec![col], unique: true, ..Default::default() }),
+                None => table.indexes.push(IndexDef {
+                    name,
+                    columns: vec![col],
+                    unique: true,
+                    ..Default::default()
+                }),
             },
             _ => {
                 let fk_name = Some(name);
@@ -207,12 +235,20 @@ pub fn database_schema(c: &mut Conn) -> Result<Vec<TableSchema>> {
     }
 
     // RDB$CONDITION_SOURCE (partial indexes) arrived in Firebird 5.
-    let rows = match c.rows(&INDEXES.replace("{condition}", "i.RDB$CONDITION_SOURCE"), vec![]) {
+    let rows = match c.rows(
+        &INDEXES.replace("{condition}", "i.RDB$CONDITION_SOURCE"),
+        vec![],
+    ) {
         Ok(rows) => rows,
-        Err(_) => c.rows(&INDEXES.replace("{condition}", "CAST(NULL AS VARCHAR(1))"), vec![])?,
+        Err(_) => c.rows(
+            &INDEXES.replace("{condition}", "CAST(NULL AS VARCHAR(1))"),
+            vec![],
+        )?,
     };
     for r in rows {
-        let Some(&t) = get(&r, 0).and_then(|n| pos.get(&n)) else { continue };
+        let Some(&t) = get(&r, 0).and_then(|n| pos.get(&n)) else {
+            continue;
+        };
         let name = get(&r, 1).unwrap_or_default();
         let table = &mut tables[t];
         let col = get(&r, 6);
@@ -245,9 +281,16 @@ pub fn database_schema(c: &mut Conn) -> Result<Vec<TableSchema>> {
 
     // CHECKs: the condition without the keyword; generated names left out.
     for r in c.rows(CHECKS, vec![])? {
-        let Some(&t) = get(&r, 0).and_then(|n| pos.get(&n)) else { continue };
-        let Some(expression) = get(&r, 2).as_deref().and_then(check_condition) else { continue };
-        tables[t].checks.push(CheckDef { name: get(&r, 1).and_then(user_name), expression });
+        let Some(&t) = get(&r, 0).and_then(|n| pos.get(&n)) else {
+            continue;
+        };
+        let Some(expression) = get(&r, 2).as_deref().and_then(check_condition) else {
+            continue;
+        };
+        tables[t].checks.push(CheckDef {
+            name: get(&r, 1).and_then(user_name),
+            expression,
+        });
     }
     Ok(tables)
 }
@@ -285,22 +328,44 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
 
     if parts.drop {
         let drop = format!("DROP TABLE {name}");
-        out.push(if parts.if_exists { guarded(&drop, true, "RDB$RELATIONS", "RDB$RELATION_NAME", &t.name) } else { format!("{drop};") });
+        out.push(if parts.if_exists {
+            guarded(&drop, true, "RDB$RELATIONS", "RDB$RELATION_NAME", &t.name)
+        } else {
+            format!("{drop};")
+        });
     }
 
     if parts.create {
-        let generic = ddl::table_ddl(&f, t, DdlParts { create: true, ..Default::default() });
+        let generic = ddl::table_ddl(
+            &f,
+            t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
         // CREATE TABLE … (\n…\n); then the COMMENT ON statements.
         let end = generic.find("\n);").map_or(generic.len(), |i| i + 2);
         let (create, rest) = generic.split_at(end);
         let mut create = create.lines().map(drop_null).collect::<Vec<_>>().join("\n");
-        if let Some(on_commit) = t.options.get(TEMPORARY).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        if let Some(on_commit) = t
+            .options
+            .get(TEMPORARY)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
             create = create.replacen("CREATE TABLE", "CREATE GLOBAL TEMPORARY TABLE", 1);
             create.push(' ');
             create.push_str(on_commit);
         }
         out.push(if parts.if_exists && !parts.drop {
-            guarded(&create, false, "RDB$RELATIONS", "RDB$RELATION_NAME", &t.name)
+            guarded(
+                &create,
+                false,
+                "RDB$RELATIONS",
+                "RDB$RELATION_NAME",
+                &t.name,
+            )
         } else {
             format!("{create};")
         });
@@ -316,9 +381,20 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
             let body = if kind.contains("COMPUTED") {
                 let expr = ix.columns.join(", ");
                 let expr = expr.trim();
-                if expr.starts_with('(') && expr.ends_with(')') { format!("COMPUTED BY {expr}") } else { format!("COMPUTED BY ({expr})") }
+                if expr.starts_with('(') && expr.ends_with(')') {
+                    format!("COMPUTED BY {expr}")
+                } else {
+                    format!("COMPUTED BY ({expr})")
+                }
             } else {
-                format!("({})", ix.columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(", "))
+                format!(
+                    "({})",
+                    ix.columns
+                        .iter()
+                        .map(|c| q(c))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             };
             let mut s = format!(
                 "CREATE {}{}INDEX {} ON {name} {body}",
@@ -329,7 +405,11 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
             if let Some(w) = ix.filter.as_deref().filter(|w| !w.trim().is_empty()) {
                 s.push_str(&format!(" WHERE {w}"));
             }
-            out.push(if parts.if_exists { guarded(&s, false, "RDB$INDICES", "RDB$INDEX_NAME", &ix.name) } else { format!("{s};") });
+            out.push(if parts.if_exists {
+                guarded(&s, false, "RDB$INDICES", "RDB$INDEX_NAME", &ix.name)
+            } else {
+                format!("{s};")
+            });
             if ix.options.get(INACTIVE).is_some_and(|v| v == "true") {
                 out.push(format!("ALTER INDEX {} INACTIVE;", q(&ix.name)));
             }
@@ -337,7 +417,14 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     }
 
     if parts.foreign_keys {
-        let fks = ddl::table_ddl(&f, t, DdlParts { foreign_keys: true, ..Default::default() });
+        let fks = ddl::table_ddl(
+            &f,
+            t,
+            DdlParts {
+                foreign_keys: true,
+                ..Default::default()
+            },
+        );
         if !fks.is_empty() {
             out.push(fks);
         }
@@ -372,7 +459,10 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
     use dbine_driver::alter::{self, AlterStyle, ColumnAlter, TableChange};
     // No schemas: bare names, as in the rest of the DDL.
     let bare = |t: &TableSchema| {
-        let mut t = TableSchema { schema: None, ..t.clone() };
+        let mut t = TableSchema {
+            schema: None,
+            ..t.clone()
+        };
         for fk in &mut t.foreign_keys {
             fk.ref_schema = None;
         }
@@ -457,7 +547,15 @@ WHERE rc.RDB$RELATION_NAME = {} AND rc.RDB$CONSTRAINT_TYPE = 'CHECK' AND TRIM(SU
         }
     };
     let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl(t, p));
-    let mut st = AlterStyle::from_flavor(&f, ColumnAlter::Standard { set_data_type: false, using_cast: false }, &cd, &dd);
+    let mut st = AlterStyle::from_flavor(
+        &f,
+        ColumnAlter::Standard {
+            set_data_type: false,
+            using_cast: false,
+        },
+        &cd,
+        &dd,
+    );
     st.add_column = "ADD";
     let mut script = alter::sync_script(&st, &changes)?;
     for s in &mut script.statements {
@@ -465,7 +563,11 @@ WHERE rc.RDB$RELATION_NAME = {} AND rc.RDB$CONSTRAINT_TYPE = 'CHECK' AND TRIM(SU
             *s = block.clone();
         } else if s.starts_with("ALTER TABLE ") {
             // `DROP c`, not `DROP COLUMN c`; computed columns take `COMPUTED BY` without TYPE.
-            *s = s.replacen("\" DROP COLUMN \"", "\" DROP \"", 1).replacen(" TYPE COMPUTED BY ", " COMPUTED BY ", 1);
+            *s = s.replacen("\" DROP COLUMN \"", "\" DROP \"", 1).replacen(
+                " TYPE COMPUTED BY ",
+                " COMPUTED BY ",
+                1,
+            );
         }
     }
     Ok(script)
@@ -498,14 +600,22 @@ pub fn designer() -> DesignerSpec {
     d.table_options = vec![Field::new(
         TEMPORARY,
         "Tabla temporal global",
-        FieldKind::Select(vec![("", "No"), (ON_COMMIT_DELETE, "Sí, se vacía al confirmar"), (ON_COMMIT_PRESERVE, "Sí, dura la conexión")]),
+        FieldKind::Select(vec![
+            ("", "No"),
+            (ON_COMMIT_DELETE, "Sí, se vacía al confirmar"),
+            (ON_COMMIT_PRESERVE, "Sí, dura la conexión"),
+        ]),
     )
     .default_value("")];
     d
 }
 
 pub fn create_templates() -> Vec<CreateTemplate> {
-    let t = |kind, label, template: &str| CreateTemplate { kind, label, template: template.to_string() };
+    let t = |kind, label, template: &str| CreateTemplate {
+        kind,
+        label,
+        template: template.to_string(),
+    };
     vec![
         t(kinds::VIEW, "Nueva vista", "CREATE VIEW {name} (id, nombre) AS\nSELECT t.id, t.nombre\n  FROM tabla t\n WHERE t.activo = TRUE;\n"),
         t(
@@ -542,13 +652,45 @@ mod tests {
             kind: "table".into(),
             name: "PEDIDOS".into(),
             columns: vec![
-                ColumnDef { name: "ID".into(), data_type: "INTEGER".into(), nullable: false, auto_increment: true, ..Default::default() },
-                ColumnDef { name: "CLIENTE_ID".into(), data_type: "INTEGER".into(), nullable: true, comment: Some("dueño".into()), ..Default::default() },
-                ColumnDef { name: "ESTADO".into(), data_type: "VARCHAR(20)".into(), nullable: false, default_value: Some("'nuevo'".into()), ..Default::default() },
-                ColumnDef { name: "NOTA".into(), data_type: "VARCHAR(10)".into(), nullable: true, default_value: Some("NULL".into()), ..Default::default() },
-                ColumnDef { name: "DOBLE".into(), data_type: "COMPUTED BY (ID * 2)".into(), nullable: true, ..Default::default() },
+                ColumnDef {
+                    name: "ID".into(),
+                    data_type: "INTEGER".into(),
+                    nullable: false,
+                    auto_increment: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "CLIENTE_ID".into(),
+                    data_type: "INTEGER".into(),
+                    nullable: true,
+                    comment: Some("dueño".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "ESTADO".into(),
+                    data_type: "VARCHAR(20)".into(),
+                    nullable: false,
+                    default_value: Some("'nuevo'".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "NOTA".into(),
+                    data_type: "VARCHAR(10)".into(),
+                    nullable: true,
+                    default_value: Some("NULL".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "DOBLE".into(),
+                    data_type: "COMPUTED BY (ID * 2)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some("PK_PEDIDOS".into()), columns: vec!["ID".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("PK_PEDIDOS".into()),
+                columns: vec!["ID".into()],
+            }),
             foreign_keys: vec![ForeignKeyDef {
                 name: Some("FK_CLIENTE".into()),
                 columns: vec!["CLIENTE_ID".into()],
@@ -558,16 +700,38 @@ mod tests {
                 ..Default::default()
             }],
             indexes: vec![
-                IndexDef { name: "IX_ESTADO".into(), columns: vec!["ESTADO".into()], kind: Some("DESC".into()), ..Default::default() },
-                IndexDef { name: "UQ_NOTA".into(), columns: vec!["NOTA".into()], unique: true, filter: Some("NOTA IS NOT NULL".into()), ..Default::default() },
-                IndexDef { name: "IX_UP".into(), columns: vec!["(UPPER(ESTADO))".into()], kind: Some("COMPUTED".into()), ..Default::default() },
+                IndexDef {
+                    name: "IX_ESTADO".into(),
+                    columns: vec!["ESTADO".into()],
+                    kind: Some("DESC".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "UQ_NOTA".into(),
+                    columns: vec!["NOTA".into()],
+                    unique: true,
+                    filter: Some("NOTA IS NOT NULL".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "IX_UP".into(),
+                    columns: vec!["(UPPER(ESTADO))".into()],
+                    kind: Some("COMPUTED".into()),
+                    ..Default::default()
+                },
             ],
             comment: Some("Pedidos".into()),
             ..Default::default()
         }
     }
 
-    const ALL: DdlParts = DdlParts { drop: false, if_exists: false, create: true, indexes: true, foreign_keys: true };
+    const ALL: DdlParts = DdlParts {
+        drop: false,
+        if_exists: false,
+        create: true,
+        indexes: true,
+        foreign_keys: true,
+    };
 
     #[test]
     fn create_table() {
@@ -581,7 +745,9 @@ mod tests {
         assert!(s.contains("COMMENT ON TABLE \"PEDIDOS\" IS 'Pedidos';"));
         assert!(s.contains("COMMENT ON COLUMN \"PEDIDOS\".\"CLIENTE_ID\" IS 'dueño';"));
         assert!(s.contains("CREATE DESC INDEX \"IX_ESTADO\" ON \"PEDIDOS\" (\"ESTADO\");"));
-        assert!(s.contains("CREATE UNIQUE INDEX \"UQ_NOTA\" ON \"PEDIDOS\" (\"NOTA\") WHERE NOTA IS NOT NULL;"));
+        assert!(s.contains(
+            "CREATE UNIQUE INDEX \"UQ_NOTA\" ON \"PEDIDOS\" (\"NOTA\") WHERE NOTA IS NOT NULL;"
+        ));
         assert!(s.contains("CREATE INDEX \"IX_UP\" ON \"PEDIDOS\" COMPUTED BY (UPPER(ESTADO));"));
         assert!(s.ends_with(
             "ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"FK_CLIENTE\" FOREIGN KEY (\"CLIENTE_ID\") REFERENCES \"CLIENTES\" (\"ID\") ON DELETE CASCADE;"
@@ -590,13 +756,29 @@ mod tests {
 
     #[test]
     fn guards_and_temporary() {
-        let s = table_ddl(&table(), DdlParts { drop: true, if_exists: true, create: true, ..Default::default() });
+        let s = table_ddl(
+            &table(),
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        );
         assert!(s.starts_with(
             "EXECUTE BLOCK AS\nBEGIN\n  IF (EXISTS (SELECT 1 FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = 'PEDIDOS')) THEN\n    EXECUTE STATEMENT 'DROP TABLE \"PEDIDOS\"';\nEND;\nCREATE TABLE"
         ), "{s}");
         let mut t = table();
         t.options.insert(TEMPORARY.into(), ON_COMMIT_DELETE.into());
-        let s = table_ddl(&t, DdlParts { if_exists: true, create: true, indexes: true, ..Default::default() });
+        let s = table_ddl(
+            &t,
+            DdlParts {
+                if_exists: true,
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        );
         assert!(s.starts_with("EXECUTE BLOCK AS\nBEGIN\n  IF (NOT EXISTS (SELECT 1 FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = 'PEDIDOS')) THEN\n    EXECUTE STATEMENT 'CREATE GLOBAL TEMPORARY TABLE \"PEDIDOS\" ("), "{s}");
         assert!(s.contains("\n) ON COMMIT DELETE ROWS';\nEND;"), "{s}");
         assert!(s.contains("DEFAULT ''nuevo'' NOT NULL"));
@@ -608,10 +790,22 @@ mod tests {
 
     #[test]
     fn keywords_and_names() {
-        assert_eq!(after_keyword("DEFAULT 'x'", "DEFAULT").as_deref(), Some("'x'"));
-        assert_eq!(after_keyword("default CURRENT_TIMESTAMP", "DEFAULT").as_deref(), Some("CURRENT_TIMESTAMP"));
-        assert_eq!(after_keyword("where p1 > 0", "WHERE").as_deref(), Some("p1 > 0"));
-        assert_eq!(after_keyword("DEFAULTS", "DEFAULT").as_deref(), Some("DEFAULTS"));
+        assert_eq!(
+            after_keyword("DEFAULT 'x'", "DEFAULT").as_deref(),
+            Some("'x'")
+        );
+        assert_eq!(
+            after_keyword("default CURRENT_TIMESTAMP", "DEFAULT").as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        assert_eq!(
+            after_keyword("where p1 > 0", "WHERE").as_deref(),
+            Some("p1 > 0")
+        );
+        assert_eq!(
+            after_keyword("DEFAULTS", "DEFAULT").as_deref(),
+            Some("DEFAULTS")
+        );
         assert_eq!(user_name("INTEG_4".into()), None);
         assert_eq!(rule(Some("RESTRICT".into())), None);
         assert_eq!(rule(Some("SET NULL".into())).as_deref(), Some("SET NULL"));
@@ -620,13 +814,21 @@ mod tests {
     #[test]
     fn templates_cover_the_kinds() {
         let kinds: Vec<_> = create_templates().iter().map(|t| t.kind).collect();
-        for k in crate::info().object_kinds.iter().map(|k| k.id).filter(|k| *k != kinds::TABLE) {
+        for k in crate::info()
+            .object_kinds
+            .iter()
+            .map(|k| k.id)
+            .filter(|k| *k != kinds::TABLE)
+        {
             assert!(kinds.contains(&k), "{k}");
         }
         // Each template splits into whole statements.
         let proc = &create_templates()[1].template;
         assert_eq!(crate::script::split(proc).len(), 1);
-        assert_eq!(crate::script::split(&create_templates()[3].template).len(), 2);
+        assert_eq!(
+            crate::script::split(&create_templates()[3].template).len(),
+            2
+        );
     }
     #[test]
     fn sync_alters_columns_and_finds_generated_names() {
@@ -635,13 +837,22 @@ mod tests {
         old.primary_key.as_mut().unwrap().name = None;
         old.foreign_keys[0].name = None;
         let mut new = table();
-        new.primary_key.as_mut().unwrap().columns.push("ESTADO".into());
+        new.primary_key
+            .as_mut()
+            .unwrap()
+            .columns
+            .push("ESTADO".into());
         new.foreign_keys.clear();
         new.columns[2].data_type = "VARCHAR(40)".into();
         new.columns[1].nullable = false;
         new.columns[4].data_type = "COMPUTED BY (ID * 3)".into();
         new.columns.retain(|c| c.name != "NOTA");
-        new.columns.push(ColumnDef { name: "EMAIL".into(), data_type: "VARCHAR(100)".into(), nullable: true, ..Default::default() });
+        new.columns.push(ColumnDef {
+            name: "EMAIL".into(),
+            data_type: "VARCHAR(100)".into(),
+            nullable: true,
+            ..Default::default()
+        });
         new.indexes.retain(|i| i.name == "IX_UP");
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         let st: Vec<&str> = s.statements.iter().map(String::as_str).collect();
@@ -649,7 +860,13 @@ mod tests {
         assert!(st[0].contains("s.RDB$FIELD_NAME = 'CLIENTE_ID' AND u.RDB$RELATION_NAME = 'CLIENTES' INTO :n DO\n    EXECUTE STATEMENT 'ALTER TABLE \"PEDIDOS\" DROP CONSTRAINT \"' || n || '\"';"), "{}", st[0]);
         assert_eq!(st[1], "DROP INDEX \"IX_ESTADO\";");
         assert!(st[2].contains("WHERE RDB$CONSTRAINT_NAME = 'UQ_NOTA')) THEN\n    EXECUTE STATEMENT 'ALTER TABLE \"PEDIDOS\" DROP CONSTRAINT \"UQ_NOTA\"';\n  ELSE\n    EXECUTE STATEMENT 'DROP INDEX \"UQ_NOTA\"';"), "{}", st[2]);
-        assert!(st[3].contains("RDB$RELATION_NAME = 'PEDIDOS' AND RDB$CONSTRAINT_TYPE = 'PRIMARY KEY' INTO :n DO"), "{}", st[3]);
+        assert!(
+            st[3].contains(
+                "RDB$RELATION_NAME = 'PEDIDOS' AND RDB$CONSTRAINT_TYPE = 'PRIMARY KEY' INTO :n DO"
+            ),
+            "{}",
+            st[3]
+        );
         assert_eq!(
             &st[4..],
             [
@@ -662,7 +879,10 @@ mod tests {
             ]
         );
         // Every block is one statement for the splitter.
-        assert_eq!(crate::script::split(&s.statements.join("\n")).len(), s.statements.len());
+        assert_eq!(
+            crate::script::split(&s.statements.join("\n")).len(),
+            s.statements.len()
+        );
     }
 
     #[test]
@@ -672,24 +892,78 @@ mod tests {
         assert_eq!(check_condition("check(N>0)").as_deref(), Some("(N>0)"));
         let mut old = table();
         old.checks = vec![
-            CheckDef { name: None, expression: "(ID > 0)".into() },
-            CheckDef { name: None, expression: "(ESTADO <> 'x')".into() },
-            CheckDef { name: Some("CK_N".into()), expression: "(ID < 10)".into() },
+            CheckDef {
+                name: None,
+                expression: "(ID > 0)".into(),
+            },
+            CheckDef {
+                name: None,
+                expression: "(ESTADO <> 'x')".into(),
+            },
+            CheckDef {
+                name: Some("CK_N".into()),
+                expression: "(ID < 10)".into(),
+            },
         ];
-        old.indexes[0].options.insert(INACTIVE.into(), "true".into());
-        let ddl = table_ddl(&old, DdlParts { create: true, indexes: true, ..Default::default() });
-        assert!(ddl.contains("    CHECK (ID > 0),\n") && ddl.contains("    CONSTRAINT \"CK_N\" CHECK (ID < 10)\n);"), "{ddl}");
-        assert!(ddl.contains(&format!("ALTER INDEX {} INACTIVE;", q(&old.indexes[0].name))), "{ddl}");
+        old.indexes[0]
+            .options
+            .insert(INACTIVE.into(), "true".into());
+        let ddl = table_ddl(
+            &old,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            ddl.contains("    CHECK (ID > 0),\n")
+                && ddl.contains("    CONSTRAINT \"CK_N\" CHECK (ID < 10)\n);"),
+            "{ddl}"
+        );
+        assert!(
+            ddl.contains(&format!(
+                "ALTER INDEX {} INACTIVE;",
+                q(&old.indexes[0].name)
+            )),
+            "{ddl}"
+        );
         let mut new = old.clone();
-        new.checks = vec![CheckDef { name: None, expression: "ID > 0".into() }, CheckDef { name: Some("CK_N".into()), expression: "(ID < 20)".into() }];
+        new.checks = vec![
+            CheckDef {
+                name: None,
+                expression: "ID > 0".into(),
+            },
+            CheckDef {
+                name: Some("CK_N".into()),
+                expression: "(ID < 20)".into(),
+            },
+        ];
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         let st: Vec<&str> = s.statements.iter().map(String::as_str).collect();
         // The unnamed one that goes is found by its source; the other stays.
-        assert_eq!(st.iter().filter(|s| s.contains("TRIM(SUBSTRING(tr.RDB$TRIGGER_SOURCE FROM 6)) = '(ESTADO <> ''x'')'")).count(), 1, "{st:#?}");
+        assert_eq!(
+            st.iter()
+                .filter(|s| s.contains(
+                    "TRIM(SUBSTRING(tr.RDB$TRIGGER_SOURCE FROM 6)) = '(ESTADO <> ''x'')'"
+                ))
+                .count(),
+            1,
+            "{st:#?}"
+        );
         assert!(!st.iter().any(|s| s.contains("(ID > 0)")), "{st:#?}");
-        assert!(st.contains(&"ALTER TABLE \"PEDIDOS\" DROP CONSTRAINT \"CK_N\";"), "{st:#?}");
-        assert!(st.contains(&"ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"CK_N\" CHECK (ID < 20);"), "{st:#?}");
-        assert_eq!(crate::script::split(&s.statements.join("\n")).len(), s.statements.len());
+        assert!(
+            st.contains(&"ALTER TABLE \"PEDIDOS\" DROP CONSTRAINT \"CK_N\";"),
+            "{st:#?}"
+        );
+        assert!(
+            st.contains(&"ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"CK_N\" CHECK (ID < 20);"),
+            "{st:#?}"
+        );
+        assert_eq!(
+            crate::script::split(&s.statements.join("\n")).len(),
+            s.statements.len()
+        );
     }
 
     #[test]
@@ -697,9 +971,26 @@ mod tests {
         use dbine_driver::alter::TableChange;
         let mut t = table();
         t.schema = Some("X".into());
-        let s = sync_script(&[TableChange::Drop { table: TableSchema { name: "VIEJA".into(), ..Default::default() } }, TableChange::Create { table: t }]).unwrap();
+        let s = sync_script(&[
+            TableChange::Drop {
+                table: TableSchema {
+                    name: "VIEJA".into(),
+                    ..Default::default()
+                },
+            },
+            TableChange::Create { table: t },
+        ])
+        .unwrap();
         assert_eq!(s.statements[0], "DROP TABLE \"VIEJA\";");
-        assert!(s.statements[1].starts_with("CREATE TABLE \"PEDIDOS\" ("), "{}", s.statements[1]);
-        assert!(s.statements.last().unwrap().starts_with("ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"FK_CLIENTE\""));
+        assert!(
+            s.statements[1].starts_with("CREATE TABLE \"PEDIDOS\" ("),
+            "{}",
+            s.statements[1]
+        );
+        assert!(s
+            .statements
+            .last()
+            .unwrap()
+            .starts_with("ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"FK_CLIENTE\""));
     }
 }

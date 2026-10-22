@@ -47,16 +47,26 @@ impl TypeSpec {
 
     /// The `max` argument (`varchar(max)`, `varbinary(max)`).
     pub fn is_max(&self) -> bool {
-        self.args.first().is_some_and(|a| a.eq_ignore_ascii_case("max"))
+        self.args
+            .first()
+            .is_some_and(|a| a.eq_ignore_ascii_case("max"))
     }
 }
 
 /// Wrappers that only change nullability or storage, never the value.
-const WRAPPERS: &[&str] = &["nullable", "lowcardinality", "low_cardinality", "simpleaggregatefunction"];
+const WRAPPERS: &[&str] = &[
+    "nullable",
+    "lowcardinality",
+    "low_cardinality",
+    "simpleaggregatefunction",
+];
 
 pub fn parse(native: &str) -> TypeSpec {
     let raw = native.trim().to_string();
-    let mut spec = TypeSpec { raw: raw.clone(), ..Default::default() };
+    let mut spec = TypeSpec {
+        raw: raw.clone(),
+        ..Default::default()
+    };
     let mut s = raw.clone();
 
     // Peel `Wrapper(inner)`.
@@ -69,7 +79,9 @@ pub fn parse(native: &str) -> TypeSpec {
             let inner = s[open + 1..s.trim_end().len() - 1].trim().to_string();
             // SimpleAggregateFunction(fn, Type): keep the type.
             s = if head == "simpleaggregatefunction" {
-                inner.split_once(',').map_or(inner.clone(), |(_, t)| t.trim().to_string())
+                inner
+                    .split_once(',')
+                    .map_or(inner.clone(), |(_, t)| t.trim().to_string())
             } else {
                 inner
             };
@@ -96,7 +108,11 @@ pub fn parse(native: &str) -> TypeSpec {
         Some(open) => {
             let close = matching_paren(&body, open).unwrap_or(body.len());
             let inside = &body[open + 1..close.min(body.len())];
-            let tail = if close < body.len() { body[close + 1..].to_string() } else { String::new() };
+            let tail = if close < body.len() {
+                body[close + 1..].to_string()
+            } else {
+                String::new()
+            };
             (body[..open].to_string(), Some(inside.to_string()), tail)
         }
         None => (body.clone(), None, String::new()),
@@ -104,7 +120,10 @@ pub fn parse(native: &str) -> TypeSpec {
 
     // The name may be multi-word; modifiers follow it. A modifier word
     // after the args (`timestamp(3) with time zone`) goes to the tail.
-    let head_words: Vec<String> = head.split_whitespace().map(|w| w.to_ascii_lowercase()).collect();
+    let head_words: Vec<String> = head
+        .split_whitespace()
+        .map(|w| w.to_ascii_lowercase())
+        .collect();
     let mut name_words = Vec::new();
     let mut mods: Vec<String> = Vec::new();
     for w in head_words {
@@ -156,7 +175,20 @@ pub fn parse(native: &str) -> TypeSpec {
 
 /// A word that ends the type name: what follows modifies it.
 fn is_modifier(w: &str) -> bool {
-    matches!(w, "unsigned" | "signed" | "zerofill" | "with" | "without" | "collate" | "not" | "null" | "identity" | "generated" | "default")
+    matches!(
+        w,
+        "unsigned"
+            | "signed"
+            | "zerofill"
+            | "with"
+            | "without"
+            | "collate"
+            | "not"
+            | "null"
+            | "identity"
+            | "generated"
+            | "default"
+    )
 }
 
 fn matching_paren(s: &str, open: usize) -> Option<usize> {
@@ -221,7 +253,13 @@ pub fn split_args(s: &str) -> Vec<String> {
 fn unquote(p: &str) -> String {
     let p = p.trim();
     // ClickHouse enum values: `'a' = 1`.
-    let p = if p.starts_with('\'') { p.rsplit_once('=').filter(|(l, _)| l.trim_end().ends_with('\'')).map_or(p, |(l, _)| l.trim()) } else { p };
+    let p = if p.starts_with('\'') {
+        p.rsplit_once('=')
+            .filter(|(l, _)| l.trim_end().ends_with('\''))
+            .map_or(p, |(l, _)| l.trim())
+    } else {
+        p
+    };
     if p.len() >= 2 && p.starts_with('\'') && p.ends_with('\'') {
         p[1..p.len() - 1].replace("''", "'")
     } else {
@@ -283,7 +321,10 @@ mod tests {
         let t = parse("_int4");
         assert_eq!((t.name.as_str(), t.array_dims), ("int4", 1));
         let t = parse("varchar(10) ARRAY");
-        assert_eq!((t.name.as_str(), t.array_dims, t.arg_u32(0)), ("varchar", 1, Some(10)));
+        assert_eq!(
+            (t.name.as_str(), t.array_dims, t.arg_u32(0)),
+            ("varchar", 1, Some(10))
+        );
     }
 
     #[test]

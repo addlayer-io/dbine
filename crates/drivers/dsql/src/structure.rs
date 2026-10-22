@@ -24,7 +24,13 @@ fn qi(s: &str) -> String {
 }
 
 fn list(v: Option<&String>) -> Vec<String> {
-    v.map(|s| s.split(',').map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty()).collect()).unwrap_or_default()
+    v.map(|s| {
+        s.split(',')
+            .map(|c| c.trim().to_lowercase())
+            .filter(|c| !c.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// `a` → `"a"`; an expression (`(lower(a))`) stays as written.
@@ -40,7 +46,11 @@ fn key(c: &str) -> String {
 /// empty tables).
 pub fn index_ddl(t: &TableSchema, ix: &IndexDef, if_not_exists: bool) -> String {
     let table = qualified_name(Quote::Double, t.schema.as_deref(), &t.name);
-    let (desc, first, last) = (list(ix.options.get(OPT_DESC)), list(ix.options.get(OPT_NULLS_FIRST)), list(ix.options.get(OPT_NULLS_LAST)));
+    let (desc, first, last) = (
+        list(ix.options.get(OPT_DESC)),
+        list(ix.options.get(OPT_NULLS_FIRST)),
+        list(ix.options.get(OPT_NULLS_LAST)),
+    );
     let keys: Vec<String> = ix
         .columns
         .iter()
@@ -66,9 +76,20 @@ pub fn index_ddl(t: &TableSchema, ix: &IndexDef, if_not_exists: bool) -> String 
         keys.join(", ")
     );
     if !ix.include.is_empty() {
-        s.push_str(&format!(" INCLUDE ({})", ix.include.iter().map(|c| qi(c)).collect::<Vec<_>>().join(", ")));
+        s.push_str(&format!(
+            " INCLUDE ({})",
+            ix.include
+                .iter()
+                .map(|c| qi(c))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
-    if ix.options.get(OPT_NULLS_NOT_DISTINCT).is_some_and(|v| v == "true") {
+    if ix
+        .options
+        .get(OPT_NULLS_NOT_DISTINCT)
+        .is_some_and(|v| v == "true")
+    {
         s.push_str(" NULLS NOT DISTINCT");
     }
     if let Some(w) = ix.filter.as_deref().filter(|w| !w.is_empty()) {
@@ -91,7 +112,9 @@ pub fn fix_script(script: &mut SyncScript) {
         match add {
             Some((table, name)) => {
                 out.push(format!("{} NOT VALID;", s.trim_end_matches(';')));
-                out.push(format!("ALTER TABLE ASYNC {table} VALIDATE CONSTRAINT {name};"));
+                out.push(format!(
+                    "ALTER TABLE ASYNC {table} VALIDATE CONSTRAINT {name};"
+                ));
             }
             None => out.push(s),
         }
@@ -131,16 +154,28 @@ pub async fn complete(client: &Client, out: &mut [TableSchema]) -> Result<()> {
     );
     for r in client.query(idx.as_str(), &[]).await.map_err(err)? {
         let (schema, table): (String, String) = (r.get(0), r.get(1));
-        let Some(t) = out.iter_mut().find(|t| t.schema.as_deref() == Some(schema.as_str()) && t.name == table) else {
+        let Some(t) = out
+            .iter_mut()
+            .find(|t| t.schema.as_deref() == Some(schema.as_str()) && t.name == table)
+        else {
             continue;
         };
         let (name, columns): (String, Vec<String>) = (r.get(2), r.get(6));
         if r.get(3) {
-            t.primary_key = Some(KeyDef { name: Some(name), columns });
+            t.primary_key = Some(KeyDef {
+                name: Some(name),
+                columns,
+            });
             continue;
         }
         let opts: Vec<i32> = r.get(8);
-        let mut ix = IndexDef { name, unique: r.get(4), filter: r.get(5), include: r.get(7), ..Default::default() };
+        let mut ix = IndexDef {
+            name,
+            unique: r.get(4),
+            filter: r.get(5),
+            include: r.get(7),
+            ..Default::default()
+        };
         index_options(&mut ix, &columns, &opts, r.get::<_, String>(9) == "true");
         ix.columns = columns;
         t.indexes.push(ix);
@@ -156,8 +191,14 @@ pub async fn complete(client: &Client, out: &mut [TableSchema]) -> Result<()> {
     );
     for r in client.query(checks.as_str(), &[]).await.map_err(err)? {
         let (schema, table): (String, String) = (r.get(0), r.get(1));
-        if let Some(t) = out.iter_mut().find(|t| t.schema.as_deref() == Some(schema.as_str()) && t.name == table) {
-            t.checks.push(CheckDef { name: Some(r.get(2)), expression: check_expression(&r.get::<_, String>(3)) });
+        if let Some(t) = out
+            .iter_mut()
+            .find(|t| t.schema.as_deref() == Some(schema.as_str()) && t.name == table)
+        {
+            t.checks.push(CheckDef {
+                name: Some(r.get(2)),
+                expression: check_expression(&r.get::<_, String>(3)),
+            });
         }
     }
     Ok(())
@@ -165,7 +206,12 @@ pub async fn complete(client: &Client, out: &mut [TableSchema]) -> Result<()> {
 
 /// `indoption` per key column: bit 1 DESC, bit 2 NULLS FIRST. The default
 /// is NULLS LAST for ASC and NULLS FIRST for DESC.
-pub fn index_options(ix: &mut IndexDef, columns: &[String], opts: &[i32], nulls_not_distinct: bool) {
+pub fn index_options(
+    ix: &mut IndexDef,
+    columns: &[String],
+    opts: &[i32],
+    nulls_not_distinct: bool,
+) {
     let (mut desc, mut first, mut last) = (Vec::new(), Vec::new(), Vec::new());
     for (c, o) in columns.iter().zip(opts) {
         let (d, nf) = (o & 1 != 0, o & 2 != 0);
@@ -178,13 +224,18 @@ pub fn index_options(ix: &mut IndexDef, columns: &[String], opts: &[i32], nulls_
             _ => {}
         }
     }
-    for (k, v) in [(OPT_DESC, desc), (OPT_NULLS_FIRST, first), (OPT_NULLS_LAST, last)] {
+    for (k, v) in [
+        (OPT_DESC, desc),
+        (OPT_NULLS_FIRST, first),
+        (OPT_NULLS_LAST, last),
+    ] {
         if !v.is_empty() {
             ix.options.insert(k.into(), v.join(", "));
         }
     }
     if nulls_not_distinct {
-        ix.options.insert(OPT_NULLS_NOT_DISTINCT.into(), "true".into());
+        ix.options
+            .insert(OPT_NULLS_NOT_DISTINCT.into(), "true".into());
     }
 }
 
@@ -199,12 +250,25 @@ pub async fn list_domains(client: &Client) -> Vec<DbObject> {
     client
         .query(q.as_str(), &[])
         .await
-        .map(|rows| rows.iter().map(|r| DbObject { kind: kinds::TYPE.into(), schema: Some(r.get(0)), name: r.get(1), parent: None }).collect())
+        .map(|rows| {
+            rows.iter()
+                .map(|r| DbObject {
+                    kind: kinds::TYPE.into(),
+                    schema: Some(r.get(0)),
+                    name: r.get(1),
+                    parent: None,
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 /// A domain's `CREATE DOMAIN`.
-pub async fn domain_definition(client: &Client, schema: &str, name: &str) -> Result<Option<String>> {
+pub async fn domain_definition(
+    client: &Client,
+    schema: &str,
+    name: &str,
+) -> Result<Option<String>> {
     let rows = client
         .query(
             "SELECT pg_catalog.format_type(t.typbasetype, t.typtypmod), t.typnotnull, t.typdefault,
@@ -223,12 +287,31 @@ pub async fn domain_definition(client: &Client, schema: &str, name: &str) -> Res
         .map_err(err)?;
     Ok(rows.first().map(|r| {
         let checks: Vec<String> = r.get(4);
-        domain_ddl(schema, name, &r.get::<_, String>(0), r.get(1), r.get(2), r.get(3), &checks)
+        domain_ddl(
+            schema,
+            name,
+            &r.get::<_, String>(0),
+            r.get(1),
+            r.get(2),
+            r.get(3),
+            &checks,
+        )
     }))
 }
 
-pub fn domain_ddl(schema: &str, name: &str, base: &str, not_null: bool, default: Option<String>, collation: Option<String>, checks: &[String]) -> String {
-    let mut s = format!("CREATE DOMAIN {} AS {base}", qualified_name(Quote::Double, Some(schema), name));
+pub fn domain_ddl(
+    schema: &str,
+    name: &str,
+    base: &str,
+    not_null: bool,
+    default: Option<String>,
+    collation: Option<String>,
+    checks: &[String],
+) -> String {
+    let mut s = format!(
+        "CREATE DOMAIN {} AS {base}",
+        qualified_name(Quote::Double, Some(schema), name)
+    );
     if let Some(c) = collation {
         s.push_str(&format!("\n    COLLATE {c}"));
     }
@@ -254,13 +337,26 @@ mod tests {
 
     #[test]
     fn index_with_everything() {
-        let t = TableSchema { schema: Some("s".into()), name: "t".into(), ..Default::default() };
-        let mut ix = IndexDef { name: "ix".into(), unique: true, filter: Some("(b > 0)".into()), include: vec!["c".into()], ..Default::default() };
+        let t = TableSchema {
+            schema: Some("s".into()),
+            name: "t".into(),
+            ..Default::default()
+        };
+        let mut ix = IndexDef {
+            name: "ix".into(),
+            unique: true,
+            filter: Some("(b > 0)".into()),
+            include: vec!["c".into()],
+            ..Default::default()
+        };
         let cols = vec!["a".to_string(), "(lower(b))".to_string(), "d".to_string()];
         index_options(&mut ix, &cols, &[3, 0, 1], true);
         ix.columns = cols;
         assert_eq!(ix.options.get(OPT_DESC).map(String::as_str), Some("a, d"));
-        assert_eq!(ix.options.get(OPT_NULLS_LAST).map(String::as_str), Some("d"));
+        assert_eq!(
+            ix.options.get(OPT_NULLS_LAST).map(String::as_str),
+            Some("d")
+        );
         assert!(!ix.options.contains_key(OPT_NULLS_FIRST));
         assert_eq!(
             index_ddl(&t, &ix, false),
@@ -273,7 +369,10 @@ mod tests {
         assert_eq!(check_expression("CHECK ((a > 0)) NOT VALID"), "((a > 0))");
         assert_eq!(check_expression("CHECK (a > 0)"), "(a > 0)");
         let mut s = SyncScript {
-            statements: vec!["ALTER TABLE \"s\".\"t\" ADD CONSTRAINT \"ck\" CHECK (a > 0);".into(), "DROP INDEX \"x\";".into()],
+            statements: vec![
+                "ALTER TABLE \"s\".\"t\" ADD CONSTRAINT \"ck\" CHECK (a > 0);".into(),
+                "DROP INDEX \"x\";".into(),
+            ],
             warnings: vec![],
         };
         fix_script(&mut s);

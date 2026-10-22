@@ -14,9 +14,13 @@ use std::time::{Duration, Instant};
 fn parse_url(url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: "sqlserver".into(),
         host: host.into(),
@@ -34,7 +38,11 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, Error>
 }
 
 fn obj(kind: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: Some("dbo".into()), name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: Some("dbo".into()),
+        name: name.into(),
+    }
 }
 
 #[tokio::test]
@@ -61,8 +69,16 @@ async fn sqlserver() {
     let dbs = admin.list_databases().await.unwrap();
     assert!(dbs.contains(&"dbine_t".to_string()));
     // User databases first, then the system ones (ids 1-4).
-    let first_system = dbs.iter().position(|n| ["master", "tempdb", "model", "msdb"].contains(&n.as_str())).unwrap();
-    assert!(dbs[first_system..].iter().all(|n| ["master", "tempdb", "model", "msdb"].contains(&n.as_str())), "{dbs:?}");
+    let first_system = dbs
+        .iter()
+        .position(|n| ["master", "tempdb", "model", "msdb"].contains(&n.as_str()))
+        .unwrap();
+    assert!(
+        dbs[first_system..]
+            .iter()
+            .all(|n| ["master", "tempdb", "model", "msdb"].contains(&n.as_str())),
+        "{dbs:?}"
+    );
     // On SQL Server a login only sees the databases it may open.
     run(
         &mut admin,
@@ -76,7 +92,10 @@ async fn sqlserver() {
     plain_cfg.password = Some("Pw_noaccess_123!".into());
     let mut plain = d.connect(&plain_cfg, None).await.unwrap();
     let seen = plain.list_databases().await.unwrap();
-    assert!(seen.contains(&"master".to_string()) && !seen.contains(&"dbine_t".to_string()), "{seen:?}");
+    assert!(
+        seen.contains(&"master".to_string()) && !seen.contains(&"dbine_t".to_string()),
+        "{seen:?}"
+    );
     drop(plain);
     run(
         &mut admin,
@@ -113,16 +132,30 @@ async fn sqlserver() {
     assert_eq!(find("noop").unwrap().kind, kinds::PROCEDURE);
     assert_eq!(find("add_one").unwrap().kind, kinds::FUNCTION);
     let trg = find("items_trg").unwrap();
-    assert_eq!((trg.kind.as_str(), trg.parent.as_deref()), (kinds::TRIGGER, Some("items")));
+    assert_eq!(
+        (trg.kind.as_str(), trg.parent.as_deref()),
+        (kinds::TRIGGER, Some("items"))
+    );
 
     let cols = s.columns(&obj(kinds::TABLE, "items")).await.unwrap();
-    assert_eq!(cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "name", "price", "at"]);
+    assert_eq!(
+        cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["id", "name", "price", "at"]
+    );
     assert!(cols[0].primary_key && cols[0].auto_increment);
     assert_eq!(cols[1].data_type, "nvarchar(40)");
     assert!(!cols[1].nullable && cols[2].nullable);
 
-    assert_eq!(s.definition(&obj(kinds::TABLE, "items")).await.unwrap(), None);
-    for (k, n) in [(kinds::VIEW, "v_items"), (kinds::PROCEDURE, "noop"), (kinds::FUNCTION, "add_one"), (kinds::TRIGGER, "items_trg")] {
+    assert_eq!(
+        s.definition(&obj(kinds::TABLE, "items")).await.unwrap(),
+        None
+    );
+    for (k, n) in [
+        (kinds::VIEW, "v_items"),
+        (kinds::PROCEDURE, "noop"),
+        (kinds::FUNCTION, "add_one"),
+        (kinds::TRIGGER, "items_trg"),
+    ] {
         let def = s.definition(&obj(k, n)).await.unwrap().unwrap();
         assert!(def.contains("CREATE"), "{def}");
     }
@@ -131,21 +164,43 @@ async fn sqlserver() {
     let out = run(&mut s, &q).await.unwrap();
     assert_eq!(out.results[0].rows.len(), 2);
     assert_eq!(out.results[0].rows[0][2], serde_json::json!("1.50"));
-    assert_eq!(out.results[0].rows[0][3], serde_json::json!("2024-01-31 13:45:00"));
+    assert_eq!(
+        out.results[0].rows[0][3],
+        serde_json::json!("2024-01-31 13:45:00")
+    );
 
     // An error in the second batch keeps the first one's result.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT 1 AS a\nGO\nSELECT * FROM dbo.nope\nGO\nSELECT 2", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute(
+            "SELECT 1 AS a\nGO\nSELECT * FROM dbo.nope\nGO\nSELECT 2",
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
     assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
     // The driver recorded it with its code and line (the third line).
     assert_eq!(out.errors.len(), 1);
-    assert_eq!((out.errors[0].code.as_deref(), out.errors[0].line), (Some("208"), Some(3)));
+    assert_eq!(
+        (out.errors[0].code.as_deref(), out.errors[0].line),
+        (Some("208"), Some(3))
+    );
     run(&mut s, "SELECT 1").await.unwrap();
 
     let mut out = QueryOutcome::default();
-    s.execute("SELECT * FROM dbo.items", 1, &mut out).await.unwrap();
-    assert_eq!((out.results[0].rows.len(), out.results[0].total_rows, out.results[0].truncated), (1, 3, true));
+    s.execute("SELECT * FROM dbo.items", 1, &mut out)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            out.results[0].rows.len(),
+            out.results[0].total_rows,
+            out.results[0].truncated
+        ),
+        (1, 3, true)
+    );
 
     // Read-only intent doesn't stop writes on a standalone server; the
     // ReadOnlySession wrapper does that. It must still connect.
@@ -154,7 +209,10 @@ async fn sqlserver() {
     let mut ro = d.connect(&ro_cfg, Some("dbine_t")).await.unwrap();
     run(&mut ro, "SELECT 1").await.unwrap();
     let mut wrapped: Box<dyn Session> = Box::new(dbine_driver::read_only::ReadOnlySession::new(ro));
-    assert!(matches!(run(&mut wrapped, "DELETE FROM dbo.items").await, Err(Error::Query(_))));
+    assert!(matches!(
+        run(&mut wrapped, "DELETE FROM dbo.items").await,
+        Err(Error::Query(_))
+    ));
     drop(wrapped);
 
     // Cancel: a TDS attention on the session's connection, which survives.
@@ -165,10 +223,15 @@ async fn sqlserver() {
     });
     let t = Instant::now();
     let mut out = QueryOutcome::default();
-    let e = s.execute("WAITFOR DELAY '00:00:30'", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute("WAITFOR DELAY '00:00:30'", 10, &mut out)
+        .await
+        .unwrap_err();
     assert!(matches!(e, Error::Cancelled), "{e:?}");
     assert!(t.elapsed() < Duration::from_secs(10));
-    run(&mut s, "SELECT 1").await.expect("the session survives the cancel");
+    run(&mut s, "SELECT 1")
+        .await
+        .expect("the session survives the cancel");
     drop(s);
 
     run(
@@ -208,27 +271,55 @@ async fn sqlserver_plans() {
                delete from dbo.plan_probe;";
 
     let mut est = QueryOutcome::default();
-    s.explain(sql, false, 100, &mut est).await.expect("estimated");
+    s.explain(sql, false, 100, &mut est)
+        .await
+        .expect("estimated");
     assert_eq!(est.plans.len(), 2, "{:?}", est.messages);
     assert!(est.results.is_empty(), "nothing ran");
     assert!(!est.plans[0].actual);
-    let left = run(&mut s, "select count(*) from dbo.plan_probe").await.unwrap();
-    assert_eq!(left.results[0].rows[0][0], serde_json::json!(1), "the estimated DELETE didn't run");
+    let left = run(&mut s, "select count(*) from dbo.plan_probe")
+        .await
+        .unwrap();
+    assert_eq!(
+        left.results[0].rows[0][0],
+        serde_json::json!(1),
+        "the estimated DELETE didn't run"
+    );
 
     let mut act = QueryOutcome::default();
     s.explain(sql, true, 100, &mut act).await.expect("actual");
     assert_eq!(act.plans.len(), 2);
     assert!(act.plans.iter().all(|p| p.actual));
-    assert_eq!(act.results.iter().filter(|r| !r.columns.is_empty()).count(), 1, "the SELECT's rows, not the plan XML");
+    assert_eq!(
+        act.results.iter().filter(|r| !r.columns.is_empty()).count(),
+        1,
+        "the SELECT's rows, not the plan XML"
+    );
     let join = &act.plans[0].root.children[0];
     fn dump(n: &dbine_driver::PlanNode, d: usize) {
-        eprintln!("{}{} [{}] {:?} self={:?} est={:?} act={:?} {:?}", "  ".repeat(d), n.op, n.detail, n.object, n.self_cost, n.est_rows, n.actual_rows, n.warnings);
+        eprintln!(
+            "{}{} [{}] {:?} self={:?} est={:?} act={:?} {:?}",
+            "  ".repeat(d),
+            n.op,
+            n.detail,
+            n.object,
+            n.self_cost,
+            n.est_rows,
+            n.actual_rows,
+            n.warnings
+        );
         n.children.iter().for_each(|c| dump(c, d + 1));
     }
     dump(&act.plans[0].root, 0);
     assert!(join.actual_rows.is_some());
-    let left = run(&mut s, "select count(*) from dbo.plan_probe").await.unwrap();
-    assert_eq!(left.results[0].rows[0][0], serde_json::json!(0), "the actual run executed the DELETE");
+    let left = run(&mut s, "select count(*) from dbo.plan_probe")
+        .await
+        .unwrap();
+    assert_eq!(
+        left.results[0].rows[0][0],
+        serde_json::json!(0),
+        "the actual run executed the DELETE"
+    );
 
     // The session is back to normal: no showplan left switched on.
     let plain = run(&mut s, "select 1 as uno").await.unwrap();
@@ -236,23 +327,45 @@ async fn sqlserver_plans() {
 }
 
 fn driver(id: &str) -> std::sync::Arc<dyn dbine_driver::Driver> {
-    dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 /// Prints the snapshot and checks it carries real figures.
 fn check_snapshot(snap: &dbine_driver::MonitorSnapshot, must: &[&str]) {
     for m in &snap.metrics {
-        eprintln!("{:<22} {:<40} {:?} max={:?}{}", m.key, m.label, m.value, m.max, if m.counter { " (counter)" } else { "" });
+        eprintln!(
+            "{:<22} {:<40} {:?} max={:?}{}",
+            m.key,
+            m.label,
+            m.value,
+            m.max,
+            if m.counter { " (counter)" } else { "" }
+        );
     }
     for t in &snap.tables {
-        eprintln!("[{}] {} rows; first: {:?}", t.key, t.rows.len(), t.rows.first());
+        eprintln!(
+            "[{}] {} rows; first: {:?}",
+            t.key,
+            t.rows.len(),
+            t.rows.first()
+        );
     }
     eprintln!("info: {:?}\nnotes: {:?}", snap.info, snap.notes);
     for k in must {
-        let m = snap.metrics.iter().find(|m| m.key == *k).unwrap_or_else(|| panic!("no metric {k}"));
+        let m = snap
+            .metrics
+            .iter()
+            .find(|m| m.key == *k)
+            .unwrap_or_else(|| panic!("no metric {k}"));
         assert!(m.value.is_some(), "{k} has no value");
     }
-    assert!(snap.tables.iter().any(|t| t.key == "sessions" && !t.rows.is_empty()));
+    assert!(snap
+        .tables
+        .iter()
+        .any(|t| t.key == "sessions" && !t.rows.is_empty()));
 }
 
 #[tokio::test]
@@ -270,16 +383,37 @@ async fn monitor() {
     let snap = s.monitor().await.expect("monitor");
     check_snapshot(
         &snap,
-        &["cpu_time", "mem_used", "connections", "queries", "transactions", "cache_hit", "disk_read", "storage_used", "uptime"],
+        &[
+            "cpu_time",
+            "mem_used",
+            "connections",
+            "queries",
+            "transactions",
+            "cache_hit",
+            "disk_read",
+            "storage_used",
+            "uptime",
+        ],
     );
     for t in ["waits", "databases"] {
-        assert!(snap.tables.iter().any(|x| x.key == t && !x.rows.is_empty()), "{t}");
+        assert!(
+            snap.tables.iter().any(|x| x.key == t && !x.rows.is_empty()),
+            "{t}"
+        );
     }
     assert!(snap.info.iter().any(|(k, _)| k == "Edición"));
     // Counters go up between snapshots.
-    run(&mut s, "SELECT COUNT(*) FROM sys.objects").await.unwrap();
+    run(&mut s, "SELECT COUNT(*) FROM sys.objects")
+        .await
+        .unwrap();
     let again = s.monitor().await.unwrap();
-    let q = |s: &dbine_driver::MonitorSnapshot| s.metrics.iter().find(|m| m.key == "queries").and_then(|m| m.value).unwrap();
+    let q = |s: &dbine_driver::MonitorSnapshot| {
+        s.metrics
+            .iter()
+            .find(|m| m.key == "queries")
+            .and_then(|m| m.value)
+            .unwrap()
+    };
     assert!(q(&again) > q(&snap));
 }
 
@@ -304,11 +438,23 @@ async fn babelfish() {
     let version = admin.server_version().await.unwrap();
     eprintln!("{version}");
     assert!(version.contains("Babelfish"));
-    if admin.list_databases().await.unwrap().contains(&"dbine_bbf".to_string()) {
+    if admin
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_bbf".to_string())
+    {
         admin.drop_database("dbine_bbf").await.unwrap();
     }
-    admin.create_database("dbine_bbf").await.expect("create database");
-    assert!(admin.list_databases().await.unwrap().contains(&"dbine_bbf".to_string()));
+    admin
+        .create_database("dbine_bbf")
+        .await
+        .expect("create database");
+    assert!(admin
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_bbf".to_string()));
 
     let mut s = d.connect(&cfg, Some("dbine_bbf")).await.unwrap();
     run(
@@ -330,7 +476,10 @@ async fn babelfish() {
         assert!(objs.iter().any(|o| o.name == n), "{n} in {objs:?}");
     }
     let cols = s.columns(&obj(kinds::TABLE, "pedidos")).await.unwrap();
-    assert_eq!(cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "cliente_id", "total"]);
+    assert_eq!(
+        cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["id", "cliente_id", "total"]
+    );
     assert!(cols[0].primary_key);
     let def = s.definition(&obj(kinds::VIEW, "v_pedidos")).await.unwrap();
     eprintln!("view: {def:?}");
@@ -338,28 +487,58 @@ async fn babelfish() {
     let pedidos = schema.iter().find(|t| t.name == "pedidos").unwrap();
     eprintln!("pedidos: {pedidos:?}");
     assert_eq!(pedidos.foreign_keys.len(), 1);
-    let ddl = d.table_ddl(pedidos, dbine_driver::DdlParts { create: true, ..Default::default() }).unwrap();
+    let ddl = d
+        .table_ddl(
+            pedidos,
+            dbine_driver::DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
     assert!(ddl.contains("CREATE TABLE [dbo].[pedidos]"), "{ddl}");
 
     // Plans: PostgreSQL text plans through the BABELFISH_* options.
     let sql = "SELECT c.nombre, SUM(p.total) FROM dbo.pedidos p JOIN dbo.clientes c ON c.id = p.cliente_id GROUP BY c.nombre";
     let mut est = QueryOutcome::default();
-    s.explain(sql, false, 100, &mut est).await.expect("estimated");
+    s.explain(sql, false, 100, &mut est)
+        .await
+        .expect("estimated");
     assert_eq!(est.plans.len(), 1, "{est:?}");
     assert!(est.results.is_empty(), "{:?}", est.results);
     eprintln!("{}", est.plans[0].raw);
     let mut act = QueryOutcome::default();
     s.explain(sql, true, 100, &mut act).await.expect("actual");
     assert_eq!(act.plans.len(), 1);
-    assert!(act.plans[0].root.actual_rows.is_some(), "{:?}", act.plans[0].root);
-    assert_eq!(act.results.iter().filter(|r| !r.columns.is_empty()).count(), 1);
+    assert!(
+        act.plans[0].root.actual_rows.is_some(),
+        "{:?}",
+        act.plans[0].root
+    );
+    assert_eq!(
+        act.results.iter().filter(|r| !r.columns.is_empty()).count(),
+        1
+    );
     let plain = run(&mut s, "SELECT 1 AS uno").await.unwrap();
     assert_eq!(plain.results[0].columns[0].name, "uno");
 
     let snap = s.monitor().await.expect("monitor");
-    check_snapshot(&snap, &["connections", "transactions", "cache_hit", "disk_read", "storage_used", "uptime"]);
+    check_snapshot(
+        &snap,
+        &[
+            "connections",
+            "transactions",
+            "cache_hit",
+            "disk_read",
+            "storage_used",
+            "uptime",
+        ],
+    );
     drop(s);
-    admin.drop_database("dbine_bbf").await.expect("drop database");
+    admin
+        .drop_database("dbine_bbf")
+        .await
+        .expect("drop database");
 }
 
 /// Two sessions: one profiles, the other runs a slow statement and a fast
@@ -374,14 +553,20 @@ async fn profile(id: &str, env: &str, change_server: bool) {
     cfg.driver = id.into();
     let d = driver(id);
     assert!(d.supports_profiler(), "{id}");
-    let db = format!("dbine_prof_{id}_{}", if change_server { "xe" } else { "dmv" });
+    let db = format!(
+        "dbine_prof_{id}_{}",
+        if change_server { "xe" } else { "dmv" }
+    );
     let mut admin = d.connect(&cfg, None).await.expect("connect");
     if !admin.list_databases().await.unwrap().contains(&db) {
         admin.create_database(&db).await.expect("create database");
     }
     let mut p = d.connect(&cfg, Some(&db)).await.expect("connect");
     let mut w = d.connect(&cfg, Some(&db)).await.expect("connect");
-    let opts = dbine_driver::ProfilerOptions { database: db.clone(), change_server };
+    let opts = dbine_driver::ProfilerOptions {
+        database: db.clone(),
+        change_server,
+    };
     let started = p.profiler_start(&opts).await.expect("profiler_start");
     eprintln!("{id}: {started:?}");
     let complete = started.mode == dbine_driver::ProfilerMode::Complete;
@@ -424,25 +609,48 @@ async fn profile(id: &str, env: &str, change_server: bool) {
     eprintln!("{id}: {mine:#?}");
     let slow_seen: Vec<_> = mine.iter().filter(|s| s.text.contains("_slow")).collect();
     assert_eq!(slow_seen.len(), 1, "{id}: the slow statement once");
-    assert!(slow_seen[0].duration_ms.unwrap_or(0.0) >= 300.0, "{id}: duration {:?}", slow_seen[0].duration_ms);
+    assert!(
+        slow_seen[0].duration_ms.unwrap_or(0.0) >= 300.0,
+        "{id}: duration {:?}",
+        slow_seen[0].duration_ms
+    );
     assert_eq!(slow_seen[0].database.as_deref(), Some(db.as_str()));
-    assert_eq!(mine.iter().filter(|s| s.text.contains("_fast")).count(), 1, "{id}: the fast statement once");
+    assert_eq!(
+        mine.iter().filter(|s| s.text.contains("_fast")).count(),
+        1,
+        "{id}: the fast statement once"
+    );
     let failed_seen: Vec<_> = mine.iter().filter(|s| s.text.contains("_failed")).collect();
     assert_eq!(failed_seen.len(), 1, "{id}: the failed statement once");
     if complete {
         assert!(failed_seen[0].error.is_some(), "{id}: the error");
         // Extended Events carry CPU, logical reads and writes (in pages).
         assert_eq!(started.reads_unit.as_deref(), Some("páginas"));
-        assert!(slow_seen[0].cpu_ms.is_some() && slow_seen[0].reads.is_some() && slow_seen[0].writes.is_some(), "{id}: figures");
+        assert!(
+            slow_seen[0].cpu_ms.is_some()
+                && slow_seen[0].reads.is_some()
+                && slow_seen[0].writes.is_some(),
+            "{id}: figures"
+        );
     }
     assert!(
-        got.iter().all(|s| !s.text.contains("RingBufferTarget") && !s.text.contains("dm_exec_sessions")),
+        got.iter()
+            .all(|s| !s.text.contains("RingBufferTarget") && !s.text.contains("dm_exec_sessions")),
         "{id}: its own statements are left out"
     );
     if complete {
         // The event session is gone.
-        let left = run(&mut admin, "SELECT name FROM sys.server_event_sessions WHERE name LIKE 'dbine[_]profiler[_]%'").await.unwrap();
-        assert!(left.results[0].rows.is_empty(), "{:?}", left.results[0].rows);
+        let left = run(
+            &mut admin,
+            "SELECT name FROM sys.server_event_sessions WHERE name LIKE 'dbine[_]profiler[_]%'",
+        )
+        .await
+        .unwrap();
+        assert!(
+            left.results[0].rows.is_empty(),
+            "{:?}",
+            left.results[0].rows
+        );
     }
     drop((p, w));
     admin.drop_database(&db).await.expect("drop database");

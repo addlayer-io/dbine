@@ -24,7 +24,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -35,22 +37,59 @@ async fn root_and_plain_users() {
     let mut root = d.connect(&base, None).await.unwrap();
     let p = root.permissions(Some("log")).await.unwrap();
     eprintln!("root: {p:?}");
-    assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
+    assert_eq!(
+        (
+            &p.profiler,
+            &p.create_database,
+            &p.drop_database,
+            &p.manage_security
+        ),
+        (
+            &Access::Allowed,
+            &Access::Allowed,
+            &Access::Allowed,
+            &Access::Allowed
+        )
+    );
 
     for sql in ["DROP USER dbine_perm_sys", "DROP USER dbine_perm_min"] {
         let _ = root.execute(sql, 10, &mut QueryOutcome::default()).await;
     }
-    run(&mut root, "CREATE USER dbine_perm_sys PASS 'Sys_pw_123' SYSINFO 1 CREATEDB 0").await;
-    run(&mut root, "CREATE USER dbine_perm_min PASS 'Min_pw_123' SYSINFO 0").await;
-    let user = |u: &str, pw: &str| ConnectionConfig { username: Some(u.into()), password: Some(pw.into()), ..base.clone() };
+    run(
+        &mut root,
+        "CREATE USER dbine_perm_sys PASS 'Sys_pw_123' SYSINFO 1 CREATEDB 0",
+    )
+    .await;
+    run(
+        &mut root,
+        "CREATE USER dbine_perm_min PASS 'Min_pw_123' SYSINFO 0",
+    )
+    .await;
+    let user = |u: &str, pw: &str| ConnectionConfig {
+        username: Some(u.into()),
+        password: Some(pw.into()),
+        ..base.clone()
+    };
 
-    let mut s = d.connect(&user("dbine_perm_sys", "Sys_pw_123"), None).await.unwrap();
+    let mut s = d
+        .connect(&user("dbine_perm_sys", "Sys_pw_123"), None)
+        .await
+        .unwrap();
     let p = s.permissions(Some("log")).await.unwrap();
     eprintln!("sysinfo: {p:?}");
     // CREATEDB 0 doesn't stop it (TDengine 3.3.6 OSS), so nothing is denied.
-    assert_eq!(p, Permissions { profiler: Access::Allowed, ..Default::default() });
+    assert_eq!(
+        p,
+        Permissions {
+            profiler: Access::Allowed,
+            ..Default::default()
+        }
+    );
 
-    let mut s = d.connect(&user("dbine_perm_min", "Min_pw_123"), None).await.unwrap();
+    let mut s = d
+        .connect(&user("dbine_perm_min", "Min_pw_123"), None)
+        .await
+        .unwrap();
     let p = s.permissions(Some("log")).await.unwrap();
     eprintln!("no sysinfo: {p:?}");
     assert_eq!(p, Permissions::default());

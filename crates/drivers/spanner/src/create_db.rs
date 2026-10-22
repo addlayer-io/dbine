@@ -32,21 +32,35 @@ pub(crate) fn statements(name: &str, o: &BTreeMap<String, String>) -> Result<Vec
     let mut options = Vec::new();
     if let Some(r) = opt(o, "version_retention") {
         let digits = r.trim_end_matches(['s', 'm', 'h', 'd']);
-        let ok = !digits.is_empty() && digits.len() + 1 == r.len() && digits.len() <= 6 && digits.chars().all(|c| c.is_ascii_digit());
+        let ok = !digits.is_empty()
+            && digits.len() + 1 == r.len()
+            && digits.len() <= 6
+            && digits.chars().all(|c| c.is_ascii_digit());
         if !ok {
-            return Err(Error::Query(format!("retención de versiones: «{r}» no es una duración (por ejemplo 1h, 3d, 7d)")));
+            return Err(Error::Query(format!(
+                "retención de versiones: «{r}» no es una duración (por ejemplo 1h, 3d, 7d)"
+            )));
         }
         options.push(format!("version_retention_period = '{r}'"));
     }
     if let Some(l) = opt(o, "default_leader") {
-        if !l.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
-            return Err(Error::Query(format!("líder por defecto: «{l}» no es una región")));
+        if !l
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return Err(Error::Query(format!(
+                "líder por defecto: «{l}» no es una región"
+            )));
         }
         options.push(format!("default_leader = '{l}'"));
     }
     let mut out = vec![format!("CREATE DATABASE {}", bq(name))];
     if !options.is_empty() {
-        out.push(format!("ALTER DATABASE {} SET OPTIONS ({})", bq(name), options.join(", ")));
+        out.push(format!(
+            "ALTER DATABASE {} SET OPTIONS ({})",
+            bq(name),
+            options.join(", ")
+        ));
     }
     Ok(out)
 }
@@ -60,7 +74,12 @@ impl SpannerSession {
     /// The instance configuration's leader options (empty for a regional
     /// one) and Spanner's default retention.
     pub(crate) async fn create_database_choices_impl(&mut self) -> Result<Vec<FieldChoices>> {
-        let config = self.api.get(&self.instance).await.ok().and_then(|i| i.get("config").and_then(Json::as_str).map(str::to_string));
+        let config = self
+            .api
+            .get(&self.instance)
+            .await
+            .ok()
+            .and_then(|i| i.get("config").and_then(Json::as_str).map(str::to_string));
         let leaders = match config {
             Some(c) => self
                 .api
@@ -75,19 +94,34 @@ impl SpannerSession {
             None => Vec::new(),
         };
         Ok(vec![
-            FieldChoices { key: "version_retention".into(), default: Some("1h".into()), values: vec!["1h".into(), "1d".into(), "3d".into(), "7d".into()] },
-            FieldChoices { key: "default_leader".into(), default: None, values: leaders },
+            FieldChoices {
+                key: "version_retention".into(),
+                default: Some("1h".into()),
+                values: vec!["1h".into(), "1d".into(), "3d".into(), "7d".into()],
+            },
+            FieldChoices {
+                key: "default_leader".into(),
+                default: None,
+                values: leaders,
+            },
         ])
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let mut st = statements(name, o)?.into_iter();
         let mut body = json!({ "createStatement": st.next().unwrap_or_default() });
         let extra: Vec<String> = st.collect();
         if !extra.is_empty() {
             body["extraStatements"] = json!(extra);
         }
-        let op = self.api.post(&format!("{}/databases", self.instance), &body).await?;
+        let op = self
+            .api
+            .post(&format!("{}/databases", self.instance), &body)
+            .await?;
         self.wait(op).await
     }
 }
@@ -97,13 +131,22 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script("ventas", &o(&[])).unwrap(), "CREATE DATABASE `ventas`");
-        assert_eq!(script("ventas", &o(&[("default_leader", " ")])).unwrap(), "CREATE DATABASE `ventas`");
+        assert_eq!(
+            script("ventas", &o(&[])).unwrap(),
+            "CREATE DATABASE `ventas`"
+        );
+        assert_eq!(
+            script("ventas", &o(&[("default_leader", " ")])).unwrap(),
+            "CREATE DATABASE `ventas`"
+        );
     }
 
     #[test]

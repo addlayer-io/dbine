@@ -6,7 +6,12 @@
 
 use dbine_driver::{Plan, PlanNode};
 
-pub fn from_rows(statement: &str, steps: &[String], est_rows: Option<f64>, est_bytes: Option<f64>) -> Plan {
+pub fn from_rows(
+    statement: &str,
+    steps: &[String],
+    est_rows: Option<f64>,
+    est_bytes: Option<f64>,
+) -> Plan {
     let mut chain: Option<PlanNode> = None;
     for s in steps {
         let mut n = step(s);
@@ -15,7 +20,10 @@ pub fn from_rows(statement: &str, steps: &[String], est_rows: Option<f64>, est_b
         }
         chain = Some(n);
     }
-    let mut root = chain.unwrap_or_else(|| PlanNode { op: "PLAN".into(), ..Default::default() });
+    let mut root = chain.unwrap_or_else(|| PlanNode {
+        op: "PLAN".into(),
+        ..Default::default()
+    });
     if let Some(r) = est_rows {
         root.est_rows = Some(r);
         root.props.push(("Filas a leer (estimado)".into(), fmt(r)));
@@ -44,15 +52,28 @@ fn fmt(v: f64) -> String {
 /// op `CLIENT FULL SCAN`, object `T`, the rest as detail.
 fn step(line: &str) -> PlanNode {
     let text = line.trim();
-    let mut n = PlanNode { op: text.to_string(), ..Default::default() };
+    let mut n = PlanNode {
+        op: text.to_string(),
+        ..Default::default()
+    };
     let words: Vec<&str> = text.split_whitespace().collect();
-    let side = words.first().copied().filter(|w| matches!(*w, "CLIENT" | "SERVER"));
+    let side = words
+        .first()
+        .copied()
+        .filter(|w| matches!(*w, "CLIENT" | "SERVER"));
     if let Some(i) = words.iter().position(|w| *w == "OVER") {
         // `SCHEMA:TABLE` when schemas map to HBase namespaces.
         let object = words.get(i + 1).map(|s| s.replacen(':', ".", 1));
         // The scan kind: the words right before OVER that aren't sizes.
-        let kind: Vec<&str> =
-            words[..i].iter().copied().skip(1).filter(|w| !w.contains('-') && !w.chars().any(|c| c.is_ascii_digit()) && !matches!(*w, "ROWS" | "BYTES"))
+        let kind: Vec<&str> = words[..i]
+            .iter()
+            .copied()
+            .skip(1)
+            .filter(|w| {
+                !w.contains('-')
+                    && !w.chars().any(|c| c.is_ascii_digit())
+                    && !matches!(*w, "ROWS" | "BYTES")
+            })
             .collect();
         let kind = kind.join(" ");
         n.op = match side {
@@ -61,11 +82,22 @@ fn step(line: &str) -> PlanNode {
         };
         n.object = object;
         let rest = words.get(i + 2..).map(|w| w.join(" ")).unwrap_or_default();
-        let sizes: Vec<&str> = words[1..i].iter().copied().filter(|w| w.contains('-')).collect();
-        n.detail = [sizes.join(" "), rest].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+        let sizes: Vec<&str> = words[1..i]
+            .iter()
+            .copied()
+            .filter(|w| w.contains('-'))
+            .collect();
+        n.detail = [sizes.join(" "), rest]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
     } else if let Some(s) = side {
         // SERVER FILTER BY x = 1 → op SERVER FILTER BY, detail the rest.
-        let cut = words.iter().position(|w| matches!(*w, "BY" | "INTO" | "WITH" | "LIMIT")).map(|p| p + 1);
+        let cut = words
+            .iter()
+            .position(|w| matches!(*w, "BY" | "INTO" | "WITH" | "LIMIT"))
+            .map(|p| p + 1);
         if let Some(p) = cut.filter(|p| *p < words.len()) {
             n.op = words[..p].join(" ");
             n.detail = words[p..].join(" ");
@@ -77,7 +109,8 @@ fn step(line: &str) -> PlanNode {
         n.warnings.push("Recorre la tabla completa".into());
     }
     if text.contains("SKIP SCAN") {
-        n.props.push(("Acceso".into(), "Skip scan sobre la clave".into()));
+        n.props
+            .push(("Acceso".into(), "Skip scan sobre la clave".into()));
     }
     n
 }
@@ -95,7 +128,12 @@ mod tests {
             "CLIENT MERGE SORT",
         ]
         .map(String::from);
-        let p = from_rows("select y, count(*) from dbine.t where x = 1 group by y", &rows, Some(10.0), Some(1024.0));
+        let p = from_rows(
+            "select y, count(*) from dbine.t where x = 1 group by y",
+            &rows,
+            Some(10.0),
+            Some(1024.0),
+        );
         assert_eq!(p.root.op, "CLIENT MERGE SORT");
         assert_eq!(p.root.est_rows, Some(10.0));
         let agg = &p.root.children[0];

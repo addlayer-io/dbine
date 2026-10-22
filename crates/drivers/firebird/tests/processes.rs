@@ -69,25 +69,63 @@ async fn lists_cancels_and_kills() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.id == worker_id).expect("the worker is listed");
+    let w = list
+        .iter()
+        .find(|p| p.id == worker_id)
+        .expect("the worker is listed");
     eprintln!("{w:#?}");
     assert!(w.active, "{w:?}");
-    assert!(w.sql.as_deref().unwrap_or("").contains("dbine_processes_test"), "{w:?}");
+    assert!(
+        w.sql
+            .as_deref()
+            .unwrap_or("")
+            .contains("dbine_processes_test"),
+        "{w:?}"
+    );
     assert!(w.elapsed_ms.unwrap_or(0) >= 500, "{w:?}");
     assert_eq!(w.command.as_deref(), Some("SELECT"));
     assert!(!w.own && !w.system);
-    assert!(list.iter().find(|p| p.id == own).expect("its own attachment is listed").own);
+    assert!(
+        list.iter()
+            .find(|p| p.id == own)
+            .expect("its own attachment is listed")
+            .own
+    );
 
     admin.cancel_query(&worker_id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), busy).await.expect("the statement stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), busy)
+        .await
+        .expect("the statement stopped")
+        .unwrap();
     assert!(r.is_err(), "the statement was cancelled");
-    assert_eq!(scalar(&mut worker, "SELECT 1 FROM RDB$DATABASE").await, "1", "the attachment is still open");
-    assert!(admin.cancel_query("1; DROP TABLE x").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query(&own).await.is_err(), "not its own attachment");
-    assert!(admin.kill_session(&own).await.is_err(), "not its own attachment");
+    assert_eq!(
+        scalar(&mut worker, "SELECT 1 FROM RDB$DATABASE").await,
+        "1",
+        "the attachment is still open"
+    );
+    assert!(
+        admin.cancel_query("1; DROP TABLE x").await.is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin.cancel_query(&own).await.is_err(),
+        "not its own attachment"
+    );
+    assert!(
+        admin.kill_session(&own).await.is_err(),
+        "not its own attachment"
+    );
 
     admin.kill_session(&worker_id).await.unwrap();
     let list = admin.processes().await.unwrap();
-    assert!(list.iter().all(|p| p.id != worker_id), "the attachment is gone");
-    assert!(run(&mut worker, "SELECT 1 FROM RDB$DATABASE").await.is_err(), "the worker was disconnected");
+    assert!(
+        list.iter().all(|p| p.id != worker_id),
+        "the attachment is gone"
+    );
+    assert!(
+        run(&mut worker, "SELECT 1 FROM RDB$DATABASE")
+            .await
+            .is_err(),
+        "the worker was disconnected"
+    );
 }

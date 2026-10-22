@@ -22,7 +22,10 @@ fn cfg(env: &str, id: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(id: &str, env: &str, db: &str, setup: &str, what: &str) {
@@ -33,25 +36,56 @@ async fn run(id: &str, env: &str, db: &str, setup: &str, what: &str) {
     s.execute(setup, 100, &mut out).await.unwrap();
     let mut s = d.connect(&c, Some(db)).await.unwrap();
     let schema = s.database_schema().await.unwrap();
-    let old = schema.iter().find(|t| t.name == "dbine_t").cloned().unwrap();
+    let old = schema
+        .iter()
+        .find(|t| t.name == "dbine_t")
+        .cloned()
+        .unwrap();
 
     let mut new = old.clone();
     let i = new.columns.iter().position(|c| c.name == "v").unwrap();
-    new.columns[i].data_type = if id == "clickhouse" { "Int64".into() } else { "int64".into() };
+    new.columns[i].data_type = if id == "clickhouse" {
+        "Int64".into()
+    } else {
+        "int64".into()
+    };
     let n = new.columns.iter().position(|c| c.name == "name").unwrap();
     new.columns[n].nullable = false;
     new.columns.retain(|c| c.name != "gone");
-    new.columns.push(ColumnDef { name: "email".into(), data_type: if id == "clickhouse" { "String" } else { "string" }.into(), nullable: true, ..Default::default() });
-    new.indexes = vec![IndexDef { name: "ix_email".into(), columns: vec!["email".into()], kind: Some("bloom_filter(0.01)".into()), ..Default::default() }];
+    new.columns.push(ColumnDef {
+        name: "email".into(),
+        data_type: if id == "clickhouse" {
+            "String"
+        } else {
+            "string"
+        }
+        .into(),
+        nullable: true,
+        ..Default::default()
+    });
+    new.indexes = vec![IndexDef {
+        name: "ix_email".into(),
+        columns: vec!["email".into()],
+        kind: Some("bloom_filter(0.01)".into()),
+        ..Default::default()
+    }];
     new.comment = Some("sincronizada".into());
 
     let script = d.sync_script(&[TableChange::Alter { old, new }]).unwrap();
     let script_warnings = script.warnings.len();
     for st in &script.statements {
         let mut out = QueryOutcome::default();
-        s.execute(st, 100, &mut out).await.unwrap_or_else(|e| panic!("{st}: {e}"));
+        s.execute(st, 100, &mut out)
+            .await
+            .unwrap_or_else(|e| panic!("{st}: {e}"));
     }
-    let after = s.database_schema().await.unwrap().into_iter().find(|t| t.name == "dbine_t").unwrap();
+    let after = s
+        .database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.name == "dbine_t")
+        .unwrap();
     let col = |n: &str| after.columns.iter().find(|c| c.name == n).cloned();
     assert!(col("email").unwrap().nullable);
     if id == "clickhouse" {
@@ -60,9 +94,20 @@ async fn run(id: &str, env: &str, db: &str, setup: &str, what: &str) {
         assert!(!col("name").unwrap().nullable);
     } else {
         // Streams only add columns; the rest are warnings.
-        assert!(col("gone").is_some() && script_warnings >= 3, "{what}: {after:?}");
+        assert!(
+            col("gone").is_some() && script_warnings >= 3,
+            "{what}: {after:?}"
+        );
     }
-    assert_eq!(after.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["ix_email"], "{what}");
+    assert_eq!(
+        after
+            .indexes
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect::<Vec<_>>(),
+        ["ix_email"],
+        "{what}"
+    );
     if id == "clickhouse" {
         assert_eq!(after.comment.as_deref(), Some("sincronizada"));
     }
@@ -71,15 +116,30 @@ async fn run(id: &str, env: &str, db: &str, setup: &str, what: &str) {
     let mut other = after.clone();
     other.name = "dbine_t2".into();
     other.indexes.clear();
-    let script = d.sync_script(&[TableChange::Create { table: other.clone() }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Create {
+            table: other.clone(),
+        }])
+        .unwrap();
     for st in &script.statements {
-        s.execute(st, 100, &mut QueryOutcome::default()).await.unwrap_or_else(|e| panic!("{st}: {e}"));
+        s.execute(st, 100, &mut QueryOutcome::default())
+            .await
+            .unwrap_or_else(|e| panic!("{st}: {e}"));
     }
-    let script = d.sync_script(&[TableChange::Drop { table: other }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Drop { table: other }])
+        .unwrap();
     for st in &script.statements {
-        s.execute(st, 100, &mut QueryOutcome::default()).await.unwrap_or_else(|e| panic!("{st}: {e}"));
+        s.execute(st, 100, &mut QueryOutcome::default())
+            .await
+            .unwrap_or_else(|e| panic!("{st}: {e}"));
     }
-    assert!(!s.database_schema().await.unwrap().iter().any(|t| t.name == "dbine_t2"));
+    assert!(!s
+        .database_schema()
+        .await
+        .unwrap()
+        .iter()
+        .any(|t| t.name == "dbine_t2"));
 }
 
 #[tokio::test]

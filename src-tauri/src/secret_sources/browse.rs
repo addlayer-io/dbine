@@ -45,11 +45,28 @@ pub enum EntryKind {
 }
 
 impl Entry {
-    pub fn item(id: impl Into<String>, name: impl Into<String>, path: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self { id: id.into(), name: name.into(), path: path.into(), kind: EntryKind::Item, detail: detail.into() }
+    pub fn item(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        path: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            path: path.into(),
+            kind: EntryKind::Item,
+            detail: detail.into(),
+        }
     }
     pub fn group(id: impl Into<String>, name: impl Into<String>, path: impl Into<String>) -> Self {
-        Self { id: id.into(), name: name.into(), path: path.into(), kind: EntryKind::Group, detail: String::new() }
+        Self {
+            id: id.into(),
+            name: name.into(),
+            path: path.into(),
+            kind: EntryKind::Group,
+            detail: String::new(),
+        }
     }
     /// An item named by a `/`-separated name (`prod/myapp/db`): shown as
     /// `db` under `prod/myapp`, chosen as the whole name.
@@ -84,15 +101,28 @@ impl Listing {
     pub fn complete(mut entries: Vec<Entry>) -> Self {
         let truncated = entries.len() > MAX_ENTRIES;
         entries.truncate(MAX_ENTRIES);
-        Self { entries, complete: true, truncated, ..Default::default() }
+        Self {
+            entries,
+            complete: true,
+            truncated,
+            ..Default::default()
+        }
     }
     pub fn level(mut entries: Vec<Entry>) -> Self {
         let truncated = entries.len() > MAX_ENTRIES;
         entries.truncate(MAX_ENTRIES);
-        Self { entries, truncated, ..Default::default() }
+        Self {
+            entries,
+            truncated,
+            ..Default::default()
+        }
     }
     pub fn fields(fields: Vec<String>) -> Self {
-        Self { fields: Some(fields), complete: true, ..Default::default() }
+        Self {
+            fields: Some(fields),
+            complete: true,
+            ..Default::default()
+        }
     }
 }
 
@@ -110,8 +140,13 @@ pub struct At<'a> {
 pub fn json_keys(mut raw: String) -> Vec<String> {
     let parsed: Option<Value> = serde_json::from_str(raw.trim()).ok();
     wipe(&mut raw);
-    let Some(mut v) = parsed else { return Vec::new() };
-    let mut keys: Vec<String> = v.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    let Some(mut v) = parsed else {
+        return Vec::new();
+    };
+    let mut keys: Vec<String> = v
+        .as_object()
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default();
     keys.sort_unstable();
     wipe_json(&mut v);
     keys
@@ -134,7 +169,10 @@ pub fn unique_names<'a>(names: impl Iterator<Item = &'a str>) -> std::collection
     for n in names {
         *seen.entry(n.to_string()).or_default() += 1;
     }
-    seen.into_iter().filter(|(_, c)| *c == 1).map(|(n, _)| n).collect()
+    seen.into_iter()
+        .filter(|(_, c)| *c == 1)
+        .map(|(n, _)| n)
+        .collect()
 }
 
 /// The input each kind fills with what's chosen (`(input, placeholder)`):
@@ -162,17 +200,26 @@ fn item_input(kind: &str) -> Option<&'static [(&'static str, &'static str)]> {
 /// The form's definition, its item input filled if it's empty.
 pub fn definition(raw: Value) -> Result<SecretSource, String> {
     let mut raw = raw;
-    let kind = raw.get("kind").and_then(Value::as_str).unwrap_or("").to_string();
-    let inputs = item_input(&kind).ok_or_else(|| "este origen no tiene una lista para examinar".to_string())?;
+    let kind = raw
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let inputs = item_input(&kind)
+        .ok_or_else(|| "este origen no tiene una lista para examinar".to_string())?;
     if let Some(o) = raw.as_object_mut() {
         for (k, placeholder) in inputs {
-            let empty = o.get(*k).and_then(Value::as_str).is_none_or(|s| s.trim().is_empty());
+            let empty = o
+                .get(*k)
+                .and_then(Value::as_str)
+                .is_none_or(|s| s.trim().is_empty());
             if empty {
                 o.insert((*k).to_string(), Value::String((*placeholder).to_string()));
             }
         }
     }
-    let src: SecretSource = serde_json::from_value(raw).map_err(|e| format!("el origen no es válido: {e}"))?;
+    let src: SecretSource =
+        serde_json::from_value(raw).map_err(|e| format!("el origen no es válido: {e}"))?;
     src.validate().map_err(|e| e.to_string())?;
     Ok(src)
 }
@@ -184,23 +231,64 @@ pub async fn list(src: &SecretSource, slots: &Secrets, at: At<'_>) -> Result<Lis
     match src {
         SecretSource::KeePass { file, key_file, .. } => {
             let master = master_password(src, slots).await?;
-            let key_file = Some(key_file.trim()).filter(|k| !k.is_empty()).map(expand_home);
-            keepass::browse(expand_home(file.trim()), key_file, master, at.item.map(str::to_string)).await
+            let key_file = Some(key_file.trim())
+                .filter(|k| !k.is_empty())
+                .map(expand_home);
+            keepass::browse(
+                expand_home(file.trim()),
+                key_file,
+                master,
+                at.item.map(str::to_string),
+            )
+            .await
         }
         SecretSource::OnePassword { account, .. } => onepassword::browse(account, at).await,
-        SecretSource::Vault { address, namespace, kv_version, ca_file, auth, approle_mount, role_id, .. } => {
-            let req = vault::Request { address, path: "", key: "", namespace, kv_version: *kv_version, ca_file };
-            vault::browse(&req, &vault::Auth::of(*auth, approle_mount, role_id, slots), at).await
+        SecretSource::Vault {
+            address,
+            namespace,
+            kv_version,
+            ca_file,
+            auth,
+            approle_mount,
+            role_id,
+            ..
+        } => {
+            let req = vault::Request {
+                address,
+                path: "",
+                key: "",
+                namespace,
+                kv_version: *kv_version,
+                ca_file,
+            };
+            vault::browse(
+                &req,
+                &vault::Auth::of(*auth, approle_mount, role_id, slots),
+                at,
+            )
+            .await
         }
         SecretSource::VaultDb { .. } => {
             let s = vault_db_source(src, slots);
             vault_db::browse(&s).await
         }
-        SecretSource::Aws { region, profile, .. } => aws::browse(region, profile, at).await,
-        SecretSource::Ssm { region, profile, .. } => ssm::browse(region, profile, at).await,
-        SecretSource::Azure { vault_url, tenant, .. } => azure::browse(vault_url, tenant, at).await,
-        SecretSource::Gcp { project, account, .. } => gcp::browse(project, account, at).await,
-        SecretSource::Zoho { data_center, client_id, .. } => {
+        SecretSource::Aws {
+            region, profile, ..
+        } => aws::browse(region, profile, at).await,
+        SecretSource::Ssm {
+            region, profile, ..
+        } => ssm::browse(region, profile, at).await,
+        SecretSource::Azure {
+            vault_url, tenant, ..
+        } => azure::browse(vault_url, tenant, at).await,
+        SecretSource::Gcp {
+            project, account, ..
+        } => gcp::browse(project, account, at).await,
+        SecretSource::Zoho {
+            data_center,
+            client_id,
+            ..
+        } => {
             let creds = zoho::Creds {
                 client_id: client_id.trim().to_string(),
                 client_secret: slots.get("client_secret").cloned().unwrap_or_default(),
@@ -210,24 +298,62 @@ pub async fn list(src: &SecretSource, slots: &Secrets, at: At<'_>) -> Result<Lis
             };
             zoho::browse(data_center, &creds, at).await
         }
-        SecretSource::Conjur { url, account, login, ca_file, .. } => {
-            let req = cyberark::Conjur { url, account, login, variable: "", username_variable: "", ca_file };
+        SecretSource::Conjur {
+            url,
+            account,
+            login,
+            ca_file,
+            ..
+        } => {
+            let req = cyberark::Conjur {
+                url,
+                account,
+                login,
+                variable: "",
+                username_variable: "",
+                ca_file,
+            };
             cyberark::conjur_browse(&req, token, at).await
         }
-        SecretSource::Delinea { url, platform_url, username, domain, .. } => {
+        SecretSource::Delinea {
+            url,
+            platform_url,
+            username,
+            domain,
+            ..
+        } => {
             let mut password = master_password(src, slots).await?.unwrap_or_default();
-            let req = delinea::Request { url, platform_url, username, domain, secret: "", field: "", fill_username: false, user_field: "" };
+            let req = delinea::Request {
+                url,
+                platform_url,
+                username,
+                domain,
+                secret: "",
+                field: "",
+                fill_username: false,
+                user_field: "",
+            };
             let r = delinea::browse(&req, &password, at).await;
             wipe(&mut password);
             r
         }
-        SecretSource::Bitwarden { server, client_id, .. } => {
+        SecretSource::Bitwarden {
+            server, client_id, ..
+        } => {
             let password = master_password(src, slots).await?.unwrap_or_default();
-            let creds = bitwarden::Creds { client_id: client_id.trim().to_string(), client_secret: slots.get("client_secret").cloned().unwrap_or_default(), password };
+            let creds = bitwarden::Creds {
+                client_id: client_id.trim().to_string(),
+                client_secret: slots.get("client_secret").cloned().unwrap_or_default(),
+                password,
+            };
             bitwarden::browse(server, &creds, at).await
         }
-        SecretSource::BitwardenSm { server, .. } => bitwarden::browse_secrets(server, token, at).await,
-        SecretSource::Command { .. } | SecretSource::Ccp { .. } => Err("este origen no tiene una lista para examinar".into()),
+        SecretSource::BitwardenSm { server, .. } => {
+            bitwarden::browse_secrets(server, token, at).await
+        }
+        SecretSource::Command { .. } | SecretSource::Ccp { .. } => {
+            Err("este origen no tiene una lista para examinar".into())
+        }
     }
 }
 
@@ -238,14 +364,40 @@ pub async fn list(src: &SecretSource, slots: &Secrets, at: At<'_>) -> Result<Lis
 /// error asks to confirm it), and neither may anything while the edited
 /// connection's own definition for the field is such a one (its kept
 /// tokens would go along).
-pub fn may_browse(store: &StateStore, saved: Option<&dbine_core::SavedConnection>, duplicate_of: Option<&str>, info: Option<&DriverInfo>, field: &str, src: &SecretSource) -> CommandResult<()> {
+pub fn may_browse(
+    store: &StateStore,
+    saved: Option<&dbine_core::SavedConnection>,
+    duplicate_of: Option<&str>,
+    info: Option<&DriverInfo>,
+    field: &str,
+    src: &SecretSource,
+) -> CommandResult<()> {
     let name = saved.map(|c| c.name.as_str()).unwrap_or("");
     if let Some(c) = saved {
-        if let Some(stored) = defs::read(&c.config).ok().and_then(|s| s.get(field).cloned()) {
-            check_trust(store, Origin::Saved { id: &c.id, name }, info, field, &stored)?;
+        if let Some(stored) = defs::read(&c.config)
+            .ok()
+            .and_then(|s| s.get(field).cloned())
+        {
+            check_trust(
+                store,
+                Origin::Saved { id: &c.id, name },
+                info,
+                field,
+                &stored,
+            )?;
         }
     }
-    check_trust(store, Origin::Form { id: saved.map(|c| c.id.as_str()), duplicate_of, name }, info, field, src)
+    check_trust(
+        store,
+        Origin::Form {
+            id: saved.map(|c| c.id.as_str()),
+            duplicate_of,
+            name,
+        },
+        info,
+        field,
+        src,
+    )
 }
 
 #[derive(Deserialize)]
@@ -274,7 +426,10 @@ pub struct BrowseSecretSourceArgs {
 
 /// "Examinar": list a source's groups and items, or an item's field names.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn browse_secret_source(state: State<'_, AppState>, args: BrowseSecretSourceArgs) -> CommandResult<Listing> {
+pub async fn browse_secret_source(
+    state: State<'_, AppState>,
+    args: BrowseSecretSourceArgs,
+) -> CommandResult<Listing> {
     let src = definition(args.source).map_err(CommandError::BadRequest)?;
     let id = args.connection_id.as_deref().filter(|i| !i.is_empty());
     let saved = match id {
@@ -282,15 +437,46 @@ pub async fn browse_secret_source(state: State<'_, AppState>, args: BrowseSecret
         None => None,
     };
     let name = saved.as_ref().map(|c| c.name.clone()).unwrap_or_default();
-    let driver = args.driver.clone().or_else(|| saved.as_ref().map(|c| c.config.driver.clone()));
+    let driver = args
+        .driver
+        .clone()
+        .or_else(|| saved.as_ref().map(|c| c.config.driver.clone()));
     let info = driver.as_deref().and_then(|d| driver_info(d).ok());
     let duplicate_of = args.duplicate_of.as_deref().filter(|i| !i.is_empty());
-    let origin = Origin::Form { id, duplicate_of, name: &name };
-    may_browse(&state.store, saved.as_ref(), duplicate_of, info, &args.field, &src)?;
-    let slots = form_slots(&state, id, &args.field, &src, args.tokens.unwrap_or_default(), None);
-    let at = At { path: args.path.as_deref().unwrap_or("").trim(), item: args.item.as_deref().map(str::trim).filter(|i| !i.is_empty()), query: args.query.as_deref().unwrap_or("").trim() };
+    let origin = Origin::Form {
+        id,
+        duplicate_of,
+        name: &name,
+    };
+    may_browse(
+        &state.store,
+        saved.as_ref(),
+        duplicate_of,
+        info,
+        &args.field,
+        &src,
+    )?;
+    let slots = form_slots(
+        &state,
+        id,
+        &args.field,
+        &src,
+        args.tokens.unwrap_or_default(),
+        None,
+    );
+    let at = At {
+        path: args.path.as_deref().unwrap_or("").trim(),
+        item: args
+            .item
+            .as_deref()
+            .map(str::trim)
+            .filter(|i| !i.is_empty()),
+        query: args.query.as_deref().unwrap_or("").trim(),
+    };
     // A definition naming an account browses with the account's sign-in.
-    let x = super::accounts::expand(&state.store, &src, slots).map_err(|m| CommandError::SecretSource(format!("no se pudo examinar {}: {m}", provider(&src))))?;
+    let x = super::accounts::expand(&state.store, &src, slots).map_err(|m| {
+        CommandError::SecretSource(format!("no se pudo examinar {}: {m}", provider(&src)))
+    })?;
     let r = list(&x.src, &x.slots, at).await;
     r.map_err(|m| match asks_again(&x.src, &m) {
         Some(wrong) => unlock_error(origin, info, &args.field, &src, wrong),
@@ -305,21 +491,35 @@ mod tests {
 
     #[test]
     fn definitions_get_a_placeholder_item() {
-        let kp = definition(json!({ "kind": "keepass", "file": "~/db.kdbx", "master": "ask" })).unwrap();
+        let kp =
+            definition(json!({ "kind": "keepass", "file": "~/db.kdbx", "master": "ask" })).unwrap();
         assert!(matches!(&kp, SecretSource::KeePass { entry, .. } if entry == "-"));
-        let kept = definition(json!({ "kind": "keepass", "file": "~/db.kdbx", "entry": "Databases/pg" })).unwrap();
-        assert!(matches!(&kept, SecretSource::KeePass { entry, .. } if entry == "Databases/pg"), "a typed item stays");
+        let kept =
+            definition(json!({ "kind": "keepass", "file": "~/db.kdbx", "entry": "Databases/pg" }))
+                .unwrap();
+        assert!(
+            matches!(&kept, SecretSource::KeePass { entry, .. } if entry == "Databases/pg"),
+            "a typed item stays"
+        );
         assert!(definition(json!({ "kind": "bitwarden_sm", "server": "bitwarden.com" })).is_ok());
-        assert!(definition(json!({ "kind": "vault", "address": "https://vault.example.com" })).is_ok());
+        assert!(
+            definition(json!({ "kind": "vault", "address": "https://vault.example.com" })).is_ok()
+        );
         // What can't list, and what's still not valid.
         assert!(definition(json!({ "kind": "command", "command": "pass x" })).is_err());
-        assert!(definition(json!({ "kind": "ccp", "url": "https://ccp", "app_id": "a", "object": "o" })).is_err());
+        assert!(definition(
+            json!({ "kind": "ccp", "url": "https://ccp", "app_id": "a", "object": "o" })
+        )
+        .is_err());
         assert!(definition(json!({ "kind": "keepass" })).is_err(), "no file");
     }
 
     #[test]
     fn json_keys_never_values() {
-        assert_eq!(json_keys(r#"{"password":"pw","username":"u"}"#.into()), vec!["password", "username"]);
+        assert_eq!(
+            json_keys(r#"{"password":"pw","username":"u"}"#.into()),
+            vec!["password", "username"]
+        );
         assert!(json_keys("plain-secret".into()).is_empty());
         assert!(json_keys("[1,2]".into()).is_empty());
     }
@@ -327,9 +527,15 @@ mod tests {
     #[test]
     fn named_entries() {
         let e = Entry::named("prod/myapp/db", "");
-        assert_eq!((e.id.as_str(), e.name.as_str(), e.path.as_str()), ("prod/myapp/db", "db", "prod/myapp"));
+        assert_eq!(
+            (e.id.as_str(), e.name.as_str(), e.path.as_str()),
+            ("prod/myapp/db", "db", "prod/myapp")
+        );
         let e = Entry::named("/prod/db/password", "SecureString");
-        assert_eq!((e.id.as_str(), e.name.as_str(), e.path.as_str()), ("/prod/db/password", "password", "prod/db"));
+        assert_eq!(
+            (e.id.as_str(), e.name.as_str(), e.path.as_str()),
+            ("/prod/db/password", "password", "prod/db")
+        );
         assert_eq!(Entry::named("flat", "").path, "");
         let u = unique_names(["a", "b", "a"].into_iter());
         assert!(u.contains("b") && !u.contains("a"));

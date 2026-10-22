@@ -15,8 +15,13 @@ pub struct ListArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn list_saved_migrations(state: State<'_, AppState>, args: ListArgs) -> CommandResult<Vec<SavedMigration>> {
-    Ok(state.store.list_migrations(&args.connection_id, &args.database)?)
+pub async fn list_saved_migrations(
+    state: State<'_, AppState>,
+    args: ListArgs,
+) -> CommandResult<Vec<SavedMigration>> {
+    Ok(state
+        .store
+        .list_migrations(&args.connection_id, &args.database)?)
 }
 
 #[derive(Deserialize)]
@@ -29,7 +34,10 @@ fn gone() -> CommandError {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_saved_migration(state: State<'_, AppState>, args: IdArgs) -> CommandResult<SavedMigration> {
+pub async fn get_saved_migration(
+    state: State<'_, AppState>,
+    args: IdArgs,
+) -> CommandResult<SavedMigration> {
     state.store.get_migration(&args.id)?.ok_or_else(gone)
 }
 
@@ -40,13 +48,18 @@ pub struct SaveArgs {
 
 /// Create or update (the UI picks the id, so a draft's tab knows it before its first save).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn save_saved_migration(state: State<'_, AppState>, args: SaveArgs) -> CommandResult<SavedMigration> {
+pub async fn save_saved_migration(
+    state: State<'_, AppState>,
+    args: SaveArgs,
+) -> CommandResult<SavedMigration> {
     let mut m = args.migration;
     if m.id.is_empty() {
         m.id = uuid::Uuid::new_v4().to_string();
     }
     if m.name.trim().is_empty() {
-        return Err(CommandError::BadRequest("la migración necesita un nombre".into()));
+        return Err(CommandError::BadRequest(
+            "la migración necesita un nombre".into(),
+        ));
     }
     Ok(state.store.save_migration(&m)?)
 }
@@ -58,10 +71,15 @@ pub struct RenameArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn rename_saved_migration(state: State<'_, AppState>, args: RenameArgs) -> CommandResult<SavedMigration> {
+pub async fn rename_saved_migration(
+    state: State<'_, AppState>,
+    args: RenameArgs,
+) -> CommandResult<SavedMigration> {
     let name = args.name.trim();
     if name.is_empty() {
-        return Err(CommandError::BadRequest("la migración necesita un nombre".into()));
+        return Err(CommandError::BadRequest(
+            "la migración necesita un nombre".into(),
+        ));
     }
     if state.store.get_migration(&args.id)?.is_none() {
         return Err(gone());
@@ -77,7 +95,10 @@ pub struct LinkArgs {
 
 /// A run started from it (run, resume or retry): it becomes the current one.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn link_saved_migration_run(state: State<'_, AppState>, args: LinkArgs) -> CommandResult<SavedMigration> {
+pub async fn link_saved_migration_run(
+    state: State<'_, AppState>,
+    args: LinkArgs,
+) -> CommandResult<SavedMigration> {
     if state.store.get_migration(&args.id)?.is_none() {
         return Err(gone());
     }
@@ -92,12 +113,17 @@ pub struct DuplicateArgs {
 
 /// The same configuration as a new draft (without runs).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn duplicate_saved_migration(state: State<'_, AppState>, args: DuplicateArgs) -> CommandResult<SavedMigration> {
+pub async fn duplicate_saved_migration(
+    state: State<'_, AppState>,
+    args: DuplicateArgs,
+) -> CommandResult<SavedMigration> {
     if state.store.get_migration(&args.id)?.is_none() {
         return Err(gone());
     }
     let id = uuid::Uuid::new_v4().to_string();
-    Ok(state.store.duplicate_migration(&args.id, &id, args.name.trim())?)
+    Ok(state
+        .store
+        .duplicate_migration(&args.id, &id, args.name.trim())?)
 }
 
 /// Remove the entry only: the source, the target and the runs' records stay.

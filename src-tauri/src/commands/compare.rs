@@ -36,7 +36,13 @@ const FULLTEXT_CATALOG: &str = "fulltext_catalog";
 const FULLTEXT_STOPLIST: &str = "fulltext_stoplist";
 /// What tables use (column types, defaults, full-text indexes): created
 /// before the tables, dropped after them.
-const TABLE_PREREQS: &[&str] = &[kinds::TYPE, DOMAIN, kinds::SEQUENCE, FULLTEXT_CATALOG, FULLTEXT_STOPLIST];
+const TABLE_PREREQS: &[&str] = &[
+    kinds::TYPE,
+    DOMAIN,
+    kinds::SEQUENCE,
+    FULLTEXT_CATALOG,
+    FULLTEXT_STOPLIST,
+];
 /// Their definition makes them as they should be whether they exist or not
 /// (the server won't drop one an index still uses).
 const IN_PLACE: &[&str] = &[FULLTEXT_CATALOG, FULLTEXT_STOPLIST];
@@ -59,7 +65,10 @@ pub struct Loaded {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn schema_compare_load(state: State<'_, AppState>, args: LoadArgs) -> CommandResult<Loaded> {
+pub async fn schema_compare_load(
+    state: State<'_, AppState>,
+    args: LoadArgs,
+) -> CommandResult<Loaded> {
     load_model(&state, args).await
 }
 
@@ -67,29 +76,57 @@ pub async fn schema_compare_load(state: State<'_, AppState>, args: LoadArgs) -> 
 pub(crate) async fn load_model(state: &AppState, args: LoadArgs) -> CommandResult<Loaded> {
     let driver = driver_of(state, &args.connection_id)?;
     let schemas = args.schemas.clone();
-    let wanted = move |s: &Option<String>| schemas.is_empty() || s.as_deref().is_some_and(|s| schemas.iter().any(|w| w == s));
+    let wanted = move |s: &Option<String>| {
+        schemas.is_empty() || s.as_deref().is_some_and(|s| schemas.iter().any(|w| w == s))
+    };
     let (tables, objects, warnings) = state
-        .meta_read(&args.connection_id, &args.database, crate::commands::explorer::SCHEMA_LIMIT, move |s| {
-            Box::pin(async move {
-                let tables: Vec<TableSchema> = s.database_schema().await?.into_iter().filter(|t| wanted(&t.schema)).collect();
-                let mut objects = Vec::new();
-                let mut warnings = Vec::new();
-                for o in s.list_objects().await? {
-                    if !CODE_KINDS.contains(&o.kind.as_str()) || !wanted(&o.schema) {
-                        continue;
+        .meta_read(
+            &args.connection_id,
+            &args.database,
+            crate::commands::explorer::SCHEMA_LIMIT,
+            move |s| {
+                Box::pin(async move {
+                    let tables: Vec<TableSchema> = s
+                        .database_schema()
+                        .await?
+                        .into_iter()
+                        .filter(|t| wanted(&t.schema))
+                        .collect();
+                    let mut objects = Vec::new();
+                    let mut warnings = Vec::new();
+                    for o in s.list_objects().await? {
+                        if !CODE_KINDS.contains(&o.kind.as_str()) || !wanted(&o.schema) {
+                            continue;
+                        }
+                        let r = ObjectRef {
+                            kind: o.kind.clone(),
+                            schema: o.schema.clone(),
+                            name: o.name.clone(),
+                        };
+                        match s.definition(&r).await {
+                            Ok(Some(definition)) => objects.push(CodeObject {
+                                kind: o.kind,
+                                schema: o.schema,
+                                name: o.name,
+                                definition,
+                            }),
+                            Ok(None) => {}
+                            Err(e) => warnings.push(format!("{}: {e}", o.name)),
+                        }
                     }
-                    let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
-                    match s.definition(&r).await {
-                        Ok(Some(definition)) => objects.push(CodeObject { kind: o.kind, schema: o.schema, name: o.name, definition }),
-                        Ok(None) => {}
-                        Err(e) => warnings.push(format!("{}: {e}", o.name)),
-                    }
-                }
-                Ok((tables, objects, warnings))
-            })
-        })
+                    Ok((tables, objects, warnings))
+                })
+            },
+        )
         .await?;
-    Ok(Loaded { model: DbModel { driver: driver.info().id.to_string(), tables, objects }, warnings })
+    Ok(Loaded {
+        model: DbModel {
+            driver: driver.info().id.to_string(),
+            tables,
+            objects,
+        },
+        warnings,
+    })
 }
 
 #[derive(Deserialize)]
@@ -102,7 +139,11 @@ pub struct CompareArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn schema_compare(args: CompareArgs) -> CommandResult<CompareResult> {
-    Ok(dbine_schema::compare::compare(&args.left, &args.right, &args.options))
+    Ok(dbine_schema::compare::compare(
+        &args.left,
+        &args.right,
+        &args.options,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -125,13 +166,35 @@ pub struct Converted {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn schema_compare_convert(args: ConvertArgs) -> CommandResult<Converted> {
     if args.from_driver == args.to_driver {
-        let tables = args.tables.into_iter().map(|t| TableSchema { schema: args.target_schema.clone().or(t.schema.clone()), ..t }).collect();
-        return Ok(Converted { tables, warnings: Vec::new() });
+        let tables = args
+            .tables
+            .into_iter()
+            .map(|t| TableSchema {
+                schema: args.target_schema.clone().or(t.schema.clone()),
+                ..t
+            })
+            .collect();
+        return Ok(Converted {
+            tables,
+            warnings: Vec::new(),
+        });
     }
-    let opts = dbine_schema::Options { target_schema: args.target_schema, ..Default::default() };
-    let c = dbine_schema::convert(&args.tables, &args.from_driver, &args.to_driver, &opts).map_err(|e| CommandError::BadRequest(format!("{e:?}")))?;
-    let warnings = c.issues.iter().filter(|i| i.severity != dbine_schema::Severity::Info).map(|i| i.message.clone()).collect();
-    Ok(Converted { tables: c.tables, warnings })
+    let opts = dbine_schema::Options {
+        target_schema: args.target_schema,
+        ..Default::default()
+    };
+    let c = dbine_schema::convert(&args.tables, &args.from_driver, &args.to_driver, &opts)
+        .map_err(|e| CommandError::BadRequest(format!("{e:?}")))?;
+    let warnings = c
+        .issues
+        .iter()
+        .filter(|i| i.severity != dbine_schema::Severity::Info)
+        .map(|i| i.message.clone())
+        .collect();
+    Ok(Converted {
+        tables: c.tables,
+        warnings,
+    })
 }
 
 /// A view, procedure… to create, drop or replace.
@@ -160,7 +223,10 @@ pub struct ScriptArgs {
 /// The target's script for the changes: code objects that go first, the
 /// tables, then the code objects that come (views over the new columns).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn schema_sync_script(state: State<'_, AppState>, args: ScriptArgs) -> CommandResult<SyncScript> {
+pub async fn schema_sync_script(
+    state: State<'_, AppState>,
+    args: ScriptArgs,
+) -> CommandResult<SyncScript> {
     sync_script(&state, args)
 }
 
@@ -171,7 +237,15 @@ pub(crate) fn sync_script(state: &AppState, args: ScriptArgs) -> CommandResult<S
     let note = (!extra.is_empty()).then(|| {
         format!(
             "Se borran y se vuelven a crear las vistas que usan las tablas modificadas: {}.",
-            extra.iter().map(|o| match o { ObjectChange::Replace { object } | ObjectChange::Drop { object } | ObjectChange::Create { object } => object.name.clone() }).collect::<Vec<_>>().join(", ")
+            extra
+                .iter()
+                .map(|o| match o {
+                    ObjectChange::Replace { object }
+                    | ObjectChange::Drop { object }
+                    | ObjectChange::Create { object } => object.name.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     });
     let unmade = views_on_dropped_columns(&args.tables, &extra);
@@ -183,9 +257,15 @@ pub(crate) fn sync_script(state: &AppState, args: ScriptArgs) -> CommandResult<S
     if !triggers.is_empty() {
         script.warnings.push(format!(
             "Se vuelven a crear los triggers de las tablas que se reconstruyen: {}.",
-            triggers.iter().map(|o| o.name.as_str()).collect::<Vec<_>>().join(", ")
+            triggers
+                .iter()
+                .map(|o| o.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
-        script.statements.extend(triggers.iter().map(|o| o.definition.trim().to_string()));
+        script
+            .statements
+            .extend(triggers.iter().map(|o| o.definition.trim().to_string()));
     }
     Ok(script)
 }
@@ -195,13 +275,21 @@ pub(crate) fn sync_script(state: &AppState, args: ScriptArgs) -> CommandResult<S
 fn views_on_dropped_columns(tables: &[TableChange], extra: &[ObjectChange]) -> Vec<String> {
     let mut out = Vec::new();
     for ch in extra {
-        let ObjectChange::Replace { object: v } = ch else { continue };
+        let ObjectChange::Replace { object: v } = ch else {
+            continue;
+        };
         for t in tables {
-            let TableChange::Alter { old, new } = t else { continue };
+            let TableChange::Alter { old, new } = t else {
+                continue;
+            };
             if !mentions(&v.definition, &new.name) {
                 continue;
             }
-            for c in old.columns.iter().filter(|o| !new.columns.iter().any(|n| n.name.eq_ignore_ascii_case(&o.name))) {
+            for c in old.columns.iter().filter(|o| {
+                !new.columns
+                    .iter()
+                    .any(|n| n.name.eq_ignore_ascii_case(&o.name))
+            }) {
                 if mentions(&v.definition, &c.name) {
                     out.push(format!(
                         "La vista «{}» nombra la columna {}.{}, que se borra: si la usa, no se va a poder volver a crear. Borrala o cambiala antes de sincronizar.",
@@ -218,11 +306,22 @@ fn views_on_dropped_columns(tables: &[TableChange], extra: &[ObjectChange]) -> V
 /// drop, rename: SQLite and the like), which go with the dropped original
 /// and are made again after it. Not the ones the changes already drop or
 /// make.
-fn rebuilt_triggers<'a>(tables: &[TableChange], statements: &[String], objects: &[ObjectChange], side: &'a [CodeObject]) -> Vec<&'a CodeObject> {
+fn rebuilt_triggers<'a>(
+    tables: &[TableChange],
+    statements: &[String],
+    objects: &[ObjectChange],
+    side: &'a [CodeObject],
+) -> Vec<&'a CodeObject> {
     let rebuilt: Vec<&TableSchema> = tables
         .iter()
         .filter_map(|c| match c {
-            TableChange::Alter { new, .. } if statements.iter().any(|s| mentions(s, &format!("{}__dbine_new", new.name))) => Some(new),
+            TableChange::Alter { new, .. }
+                if statements
+                    .iter()
+                    .any(|s| mentions(s, &format!("{}__dbine_new", new.name))) =>
+            {
+                Some(new)
+            }
             _ => None,
         })
         .collect();
@@ -231,18 +330,31 @@ fn rebuilt_triggers<'a>(tables: &[TableChange], statements: &[String], objects: 
     }
     let handled = |t: &CodeObject| {
         objects.iter().any(|o| match o {
-            ObjectChange::Create { object } | ObjectChange::Drop { object } | ObjectChange::Replace { object } => {
-                object.kind == t.kind && object.name.eq_ignore_ascii_case(&t.name) && object.schema == t.schema
+            ObjectChange::Create { object }
+            | ObjectChange::Drop { object }
+            | ObjectChange::Replace { object } => {
+                object.kind == t.kind
+                    && object.name.eq_ignore_ascii_case(&t.name)
+                    && object.schema == t.schema
             }
         })
     };
-    let bare = |n: &str| n.rsplit('.').next().unwrap_or(n).trim_matches(|c| matches!(c, '"' | '`' | '[' | ']')).to_lowercase();
+    let bare = |n: &str| {
+        n.rsplit('.')
+            .next()
+            .unwrap_or(n)
+            .trim_matches(|c| matches!(c, '"' | '`' | '[' | ']'))
+            .to_lowercase()
+    };
     side.iter()
         .filter(|o| o.kind == kinds::TRIGGER && !handled(o))
         .filter(|o| {
-            pg::trigger_tables(&o.definition)
-                .iter()
-                .any(|(t, _)| rebuilt.iter().any(|r| bare(t) == r.name.to_lowercase() && (o.schema.is_none() || r.schema.is_none() || o.schema == r.schema)))
+            pg::trigger_tables(&o.definition).iter().any(|(t, _)| {
+                rebuilt.iter().any(|r| {
+                    bare(t) == r.name.to_lowercase()
+                        && (o.schema.is_none() || r.schema.is_none() || o.schema == r.schema)
+                })
+            })
         })
         .collect()
 }
@@ -250,7 +362,13 @@ fn rebuilt_triggers<'a>(tables: &[TableChange], statements: &[String], objects: 
 /// Definitions ordered so that one naming another comes after it (a domain
 /// over an enum, a composite using a domain…); a cycle keeps its order.
 fn by_dependency(items: Vec<(String, String)>) -> Vec<String> {
-    let order = dependency_order(&items.iter().map(|(n, t)| (n.as_str(), t.as_str())).collect::<Vec<_>>(), false);
+    let order = dependency_order(
+        &items
+            .iter()
+            .map(|(n, t)| (n.as_str(), t.as_str()))
+            .collect::<Vec<_>>(),
+        false,
+    );
     let mut items: Vec<Option<String>> = items.into_iter().map(|(_, t)| Some(t)).collect();
     order.into_iter().filter_map(|i| items[i].take()).collect()
 }
@@ -266,12 +384,22 @@ fn dependency_order(items: &[(&str, &str)], dependents_first: bool) -> Vec<usize
     // substring searches.
     let words: Vec<HashSet<String>> = items
         .iter()
-        .map(|(_, t)| t.to_lowercase().split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).filter(|w| !w.is_empty()).map(str::to_string).collect())
+        .map(|(_, t)| {
+            t.to_lowercase()
+                .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                .filter(|w| !w.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
         .collect();
     let names: Vec<String> = items.iter().map(|(name, _)| name.to_lowercase()).collect();
     let names_in = |i: usize, j: usize| {
         let name = &names[j];
-        if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        {
             words[i].contains(name)
         } else {
             mentions(items[i].1, items[j].0)
@@ -323,14 +451,30 @@ fn mentions(text: &str, name: &str) -> bool {
 /// Views over tables whose columns are dropped or change type, not already
 /// being changed: made again around the ALTERs. Views over dropped tables
 /// only go.
-fn dependent_views(tables: &[TableChange], objects: &[ObjectChange], views: &[CodeObject]) -> Vec<ObjectChange> {
+fn dependent_views(
+    tables: &[TableChange],
+    objects: &[ObjectChange],
+    views: &[CodeObject],
+) -> Vec<ObjectChange> {
     let touched: Vec<(&str, bool)> = tables
         .iter()
         .filter_map(|c| match c {
             TableChange::Drop { table } => Some((table.name.as_str(), true)),
             TableChange::Alter { old, new } => {
                 let reshaped = old.columns.iter().any(|o| {
-                    new.columns.iter().find(|n| n.name.eq_ignore_ascii_case(&o.name)).is_none_or(|n| n.data_type.to_lowercase().split_whitespace().collect::<String>() != o.data_type.to_lowercase().split_whitespace().collect::<String>())
+                    new.columns
+                        .iter()
+                        .find(|n| n.name.eq_ignore_ascii_case(&o.name))
+                        .is_none_or(|n| {
+                            n.data_type
+                                .to_lowercase()
+                                .split_whitespace()
+                                .collect::<String>()
+                                != o.data_type
+                                    .to_lowercase()
+                                    .split_whitespace()
+                                    .collect::<String>()
+                        })
                 });
                 reshaped.then_some((new.name.as_str(), false))
             }
@@ -339,8 +483,12 @@ fn dependent_views(tables: &[TableChange], objects: &[ObjectChange], views: &[Co
         .collect();
     let handled = |v: &CodeObject| {
         objects.iter().any(|o| match o {
-            ObjectChange::Create { object } | ObjectChange::Drop { object } | ObjectChange::Replace { object } => {
-                object.kind == v.kind && object.name.eq_ignore_ascii_case(&v.name) && object.schema == v.schema
+            ObjectChange::Create { object }
+            | ObjectChange::Drop { object }
+            | ObjectChange::Replace { object } => {
+                object.kind == v.kind
+                    && object.name.eq_ignore_ascii_case(&v.name)
+                    && object.schema == v.schema
             }
         })
     };
@@ -348,7 +496,11 @@ fn dependent_views(tables: &[TableChange], objects: &[ObjectChange], views: &[Co
         .iter()
         .filter(|v| (v.kind == kinds::VIEW || v.kind == kinds::MATERIALIZED_VIEW) && !handled(v))
         .filter_map(|v| {
-            let hit: Vec<bool> = touched.iter().filter(|(t, _)| mentions(&v.definition, t)).map(|(_, dropped)| *dropped).collect();
+            let hit: Vec<bool> = touched
+                .iter()
+                .filter(|(t, _)| mentions(&v.definition, t))
+                .map(|(_, dropped)| *dropped)
+                .collect();
             if hit.is_empty() {
                 None
             } else if hit.iter().any(|d| *d) {
@@ -360,13 +512,20 @@ fn dependent_views(tables: &[TableChange], objects: &[ObjectChange], views: &[Co
         .collect()
 }
 
-fn plan(driver: &dyn Driver, tables: &[TableChange], objects: &[ObjectChange]) -> CommandResult<SyncScript> {
+fn plan(
+    driver: &dyn Driver,
+    tables: &[TableChange],
+    objects: &[ObjectChange],
+) -> CommandResult<SyncScript> {
     let tables_part = if tables.is_empty() {
         SyncScript::default()
     } else if driver.supports_schema_sync() {
         driver.sync_script(tables)?
     } else {
-        return Err(CommandError::BadRequest(format!("{} no aplica cambios de esquema desde DBine", driver.info().name)));
+        return Err(CommandError::BadRequest(format!(
+            "{} no aplica cambios de esquema desde DBine",
+            driver.info().name
+        )));
     };
     Ok(plan_around(driver, tables_part, objects))
 }
@@ -375,7 +534,11 @@ fn plan(driver: &dyn Driver, tables: &[TableChange], objects: &[ObjectChange]) -
 /// a rename…): drops first (dependents before what they use), then the
 /// prerequisites, `middle`, the creates (what's used first), and the
 /// prerequisites only dropped. `middle`'s warnings are kept.
-pub(crate) fn plan_around(driver: &dyn Driver, middle: SyncScript, objects: &[ObjectChange]) -> SyncScript {
+pub(crate) fn plan_around(
+    driver: &dyn Driver,
+    middle: SyncScript,
+    objects: &[ObjectChange],
+) -> SyncScript {
     let mut script = middle;
     // Drops as (object, statements): ordered once all are known.
     let mut before: Vec<(&CodeObject, Vec<String>)> = Vec::new();
@@ -395,7 +558,10 @@ pub(crate) fn plan_around(driver: &dyn Driver, middle: SyncScript, objects: &[Ob
                 // Only dropped: after the tables that may still use it.
                 Some(s) if prereq && !create => late.push((o, s)),
                 Some(s) => before.push((o, s)),
-                None => script.warnings.push(format!("{}: este motor no permite borrarlo desde DBine.", o.name)),
+                None => script.warnings.push(format!(
+                    "{}: este motor no permite borrarlo desde DBine.",
+                    o.name
+                )),
             }
         }
         if drop && !create {
@@ -417,16 +583,39 @@ pub(crate) fn plan_around(driver: &dyn Driver, middle: SyncScript, objects: &[Ob
     let early = by_dependency(early);
     // A trigger before its function, a view before the view it reads.
     let drops = |list: Vec<(&CodeObject, Vec<String>)>| {
-        let order = dependency_order(&list.iter().map(|(o, _)| (o.name.as_str(), o.definition.as_str())).collect::<Vec<_>>(), true);
+        let order = dependency_order(
+            &list
+                .iter()
+                .map(|(o, _)| (o.name.as_str(), o.definition.as_str()))
+                .collect::<Vec<_>>(),
+            true,
+        );
         let mut list: Vec<Option<Vec<String>>> = list.into_iter().map(|(_, s)| Some(s)).collect();
         let mut seen = std::collections::HashSet::new();
         // Same-named triggers on several tables come as one object per table.
-        order.into_iter().filter_map(|i| list[i].take()).flatten().filter(|s| seen.insert(s.clone())).collect::<Vec<_>>()
+        order
+            .into_iter()
+            .filter_map(|i| list[i].take())
+            .flatten()
+            .filter(|s| seen.insert(s.clone()))
+            .collect::<Vec<_>>()
     };
-    let creates = dependency_order(&after.iter().map(|o| (o.name.as_str(), o.definition.as_str())).collect::<Vec<_>>(), false)
+    let creates = dependency_order(
+        &after
+            .iter()
+            .map(|o| (o.name.as_str(), o.definition.as_str()))
+            .collect::<Vec<_>>(),
+        false,
+    )
+    .into_iter()
+    .map(|i| after[i].definition.trim().to_string());
+    script.statements = drops(before)
         .into_iter()
-        .map(|i| after[i].definition.trim().to_string());
-    script.statements = drops(before).into_iter().chain(early).chain(tables_part).chain(creates).chain(drops(late)).collect();
+        .chain(early)
+        .chain(tables_part)
+        .chain(creates)
+        .chain(drops(late))
+        .collect();
     script
 }
 
@@ -453,23 +642,38 @@ fn kind_label(kind: &str) -> &str {
 /// Names what's dropped for good (not the ones made again).
 fn dropped_warning(dropped: &[&CodeObject]) -> String {
     const SHOWN: usize = 10;
-    let mut names: Vec<String> = dropped.iter().take(SHOWN).map(|o| format!("{} «{}»", kind_label(&o.kind), o.name)).collect();
+    let mut names: Vec<String> = dropped
+        .iter()
+        .take(SHOWN)
+        .map(|o| format!("{} «{}»", kind_label(&o.kind), o.name))
+        .collect();
     if dropped.len() > SHOWN {
         names.push(format!("y {} más", dropped.len() - SHOWN));
     }
-    format!("Se borran {}: revisá que nada más dependa de ellos.", names.join(", "))
+    format!(
+        "Se borran {}: revisá que nada más dependa de ellos.",
+        names.join(", ")
+    )
 }
 
 /// The statements that drop `o`. Most engines name it and that's it;
 /// PostgreSQL drops a trigger `ON` its table, and same-named functions (or
 /// procedures) one signature at a time, since the bare name is ambiguous.
 fn drop_statements(driver: &dyn Driver, o: &CodeObject) -> Option<Vec<String>> {
-    let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+    let r = ObjectRef {
+        kind: o.kind.clone(),
+        schema: o.schema.clone(),
+        name: o.name.clone(),
+    };
     let plain = crate::commands::scripts::drop_other(driver, &r, true)?;
     if driver.info().dialect != "postgres" {
         return Some(vec![plain]);
     }
-    let if_exists = if plain.contains(" IF EXISTS ") { "IF EXISTS " } else { "" };
+    let if_exists = if plain.contains(" IF EXISTS ") {
+        "IF EXISTS "
+    } else {
+        ""
+    };
     let quote = |s: &str| dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Double, s);
     match o.kind.as_str() {
         kinds::TRIGGER => {
@@ -498,7 +702,11 @@ fn drop_statements(driver: &dyn Driver, o: &CodeObject) -> Option<Vec<String>> {
             if sigs.len() < 2 {
                 return Some(vec![plain]);
             }
-            Some(sigs.into_iter().map(|(keyword, sig)| format!("DROP {keyword} {if_exists}{sig};")).collect())
+            Some(
+                sigs.into_iter()
+                    .map(|(keyword, sig)| format!("DROP {keyword} {if_exists}{sig};"))
+                    .collect(),
+            )
         }
         _ => Some(vec![plain]),
     }
@@ -553,7 +761,11 @@ mod pg {
                         Some(_) => i += 1,
                     }
                 }
-                if c == b'"' { Tok::Quoted } else { Tok::Literal }
+                if c == b'"' {
+                    Tok::Quoted
+                } else {
+                    Tok::Literal
+                }
             } else if c == b'$' && dollar_tag(&text[i..]).is_some() {
                 let tag = dollar_tag(&text[i..]).unwrap_or_default();
                 i += tag.len();
@@ -579,7 +791,10 @@ mod pg {
         let rest = &s[1..];
         let end = rest.find('$')?;
         let tag = &rest[..end];
-        (tag.is_empty() || (!tag.starts_with(|c: char| c.is_ascii_digit()) && tag.chars().all(|c| c.is_alphanumeric() || c == '_'))).then(|| &s[..end + 2])
+        (tag.is_empty()
+            || (!tag.starts_with(|c: char| c.is_ascii_digit())
+                && tag.chars().all(|c| c.is_alphanumeric() || c == '_')))
+        .then(|| &s[..end + 2])
     }
 
     fn is(text: &str, t: &Token, w: &str) -> bool {
@@ -588,13 +803,21 @@ mod pg {
 
     /// A dotted name from `i`: its text, whether it's qualified, and where it ends.
     fn name_at(text: &str, toks: &[Token], i: usize) -> Option<(String, bool, usize)> {
-        let part = |k: usize| toks.get(k).filter(|t| matches!(t.tok, Tok::Word | Tok::Quoted));
+        let part = |k: usize| {
+            toks.get(k)
+                .filter(|t| matches!(t.tok, Tok::Word | Tok::Quoted))
+        };
         let first = part(i)?;
         let mut end = i;
-        while toks.get(end + 1).is_some_and(|t| t.tok == Tok::Punct('.')) && part(end + 2).is_some() {
+        while toks.get(end + 1).is_some_and(|t| t.tok == Tok::Punct('.')) && part(end + 2).is_some()
+        {
             end += 2;
         }
-        Some((text[first.start..toks[end].end].to_string(), end > i, end + 1))
+        Some((
+            text[first.start..toks[end].end].to_string(),
+            end > i,
+            end + 1,
+        ))
     }
 
     /// The tables of each `CREATE … TRIGGER … ON <table>` (several when
@@ -605,12 +828,20 @@ mod pg {
         let mut out = Vec::new();
         let mut i = 0;
         while i < toks.len() {
-            if !is(text, &toks[i], "TRIGGER") || !toks[..i].iter().rev().take(3).any(|t| is(text, t, "CREATE")) {
+            if !is(text, &toks[i], "TRIGGER")
+                || !toks[..i]
+                    .iter()
+                    .rev()
+                    .take(3)
+                    .any(|t| is(text, t, "CREATE"))
+            {
                 i += 1;
                 continue;
             }
             // ON is reserved: no bare event column is called that.
-            let Some(on) = (i + 1..toks.len()).find(|&k| is(text, &toks[k], "ON")) else { break };
+            let Some(on) = (i + 1..toks.len()).find(|&k| is(text, &toks[k], "ON")) else {
+                break;
+            };
             match name_at(text, &toks, on + 1) {
                 Some((table, qualified, end)) => {
                     out.push((table, qualified));
@@ -635,11 +866,16 @@ mod pg {
             } else {
                 continue;
             };
-            let created = (i >= 1 && is(text, &toks[i - 1], "CREATE")) || (i >= 3 && is(text, &toks[i - 1], "REPLACE") && is(text, &toks[i - 3], "CREATE"));
+            let created = (i >= 1 && is(text, &toks[i - 1], "CREATE"))
+                || (i >= 3
+                    && is(text, &toks[i - 1], "REPLACE")
+                    && is(text, &toks[i - 3], "CREATE"));
             if !created {
                 continue;
             }
-            let Some((name, _, open)) = name_at(text, &toks, i + 1) else { continue };
+            let Some((name, _, open)) = name_at(text, &toks, i + 1) else {
+                continue;
+            };
             if toks.get(open).is_none_or(|t| t.tok != Tok::Punct('(')) {
                 continue;
             }
@@ -727,20 +963,35 @@ const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(150
 /// Run the script on the target, statement by statement; stops at the first
 /// error. Refused on read-only connections.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn schema_sync_run(app: AppHandle, state: State<'_, AppState>, args: RunArgs) -> CommandResult<RunResult> {
-    let conn = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
+pub async fn schema_sync_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: RunArgs,
+) -> CommandResult<RunResult> {
+    let conn = state
+        .store
+        .get_connection(&args.connection_id)?
+        .ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
     if conn.config.read_only {
-        return Err(CommandError::BadRequest(format!("«{}» es de solo lectura: no se pueden aplicar cambios", conn.name)));
+        return Err(CommandError::BadRequest(format!(
+            "«{}» es de solo lectura: no se pueden aplicar cambios",
+            conn.name
+        )));
     }
     let atomic = args.atomic && {
         let driver = crate::commands::schema::driver_of(&state, &args.connection_id)?;
-        driver.supports_manual_transactions() && driver.rename_spec().is_some_and(|s| s.transactional)
+        driver.supports_manual_transactions()
+            && driver.rename_spec().is_some_and(|s| s.transactional)
     };
     if let Some(db) = args.close_database.as_deref().filter(|d| !d.is_empty()) {
-        state.sessions.retain(|_, e| !(e.connection_id == args.connection_id && e.database == db));
+        state
+            .sessions
+            .retain(|_, e| !(e.connection_id == args.connection_id && e.database == db));
     }
     let key = format!("sync:{}", args.run_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, false)
+        .await?;
     if atomic {
         if let Err(e) = entry.session.lock().await.set_autocommit(false).await {
             state.sessions.remove(&key);
@@ -749,7 +1000,14 @@ pub async fn schema_sync_run(app: AppHandle, state: State<'_, AppState>, args: R
     }
     let total = args.statements.len();
     let emit = |done| {
-        let _ = app.emit("schema-sync-progress", SyncProgress { run_id: &args.run_id, done, total });
+        let _ = app.emit(
+            "schema-sync-progress",
+            SyncProgress {
+                run_id: &args.run_id,
+                done,
+                total,
+            },
+        );
     };
     emit(0);
     let mut last = std::time::Instant::now();
@@ -766,10 +1024,14 @@ pub async fn schema_sync_run(app: AppHandle, state: State<'_, AppState>, args: R
         }
         let mut s = entry.session.lock().await;
         let mut out = QueryOutcome::default();
-        let r = s.execute(sql, 0, &mut out).await.map_err(|e| e.to_string()).and_then(|_| match out.error.take() {
-            Some(e) => Err(e),
-            None => Ok(()),
-        });
+        let r = s
+            .execute(sql, 0, &mut out)
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|_| match out.error.take() {
+                Some(e) => Err(e),
+                None => Ok(()),
+            });
         match r {
             Ok(()) => done += 1,
             Err(e) => {
@@ -792,7 +1054,11 @@ pub async fn schema_sync_run(app: AppHandle, state: State<'_, AppState>, args: R
     }
     state.sessions.remove(&key);
     emit(done);
-    Ok(RunResult { done, failed, rolled_back })
+    Ok(RunResult {
+        done,
+        failed,
+        rolled_back,
+    })
 }
 
 #[cfg(test)]
@@ -807,7 +1073,10 @@ mod tests {
             d("d_pos", "CREATE DOMAIN d_pos AS int CHECK (VALUE > 0)"),
             d("estado", "CREATE TYPE estado AS ENUM ('a')"),
         ]);
-        assert_eq!(out.last().unwrap(), "CREATE TYPE t_comp AS (a d_pos, b estado)");
+        assert_eq!(
+            out.last().unwrap(),
+            "CREATE TYPE t_comp AS (a d_pos, b estado)"
+        );
     }
 
     #[test]
@@ -817,66 +1086,155 @@ mod tests {
         assert!(!mentions("FROM clientes_viejos", "clientes"));
         let t = |cols: &[(&str, &str)]| TableSchema {
             name: "clientes".into(),
-            columns: cols.iter().map(|(n, ty)| dbine_driver::ColumnDef { name: (*n).into(), data_type: (*ty).into(), ..Default::default() }).collect(),
+            columns: cols
+                .iter()
+                .map(|(n, ty)| dbine_driver::ColumnDef {
+                    name: (*n).into(),
+                    data_type: (*ty).into(),
+                    ..Default::default()
+                })
+                .collect(),
             ..Default::default()
         };
-        let view = |name: &str, def: &str| CodeObject { kind: "view".into(), schema: None, name: name.into(), definition: def.into() };
-        let views = vec![view("v1", "SELECT nombre FROM clientes"), view("v2", "SELECT 1 FROM pedidos")];
-        let alter = vec![TableChange::Alter { old: t(&[("nombre", "varchar(5)")]), new: t(&[("nombre", "varchar(10)")]) }];
+        let view = |name: &str, def: &str| CodeObject {
+            kind: "view".into(),
+            schema: None,
+            name: name.into(),
+            definition: def.into(),
+        };
+        let views = vec![
+            view("v1", "SELECT nombre FROM clientes"),
+            view("v2", "SELECT 1 FROM pedidos"),
+        ];
+        let alter = vec![TableChange::Alter {
+            old: t(&[("nombre", "varchar(5)")]),
+            new: t(&[("nombre", "varchar(10)")]),
+        }];
         let got = dependent_views(&alter, &[], &views);
-        assert!(matches!(got.as_slice(), [ObjectChange::Replace { object }] if object.name == "v1"));
+        assert!(
+            matches!(got.as_slice(), [ObjectChange::Replace { object }] if object.name == "v1")
+        );
         // Adding a column doesn't touch the views.
-        let add = vec![TableChange::Alter { old: t(&[("nombre", "text")]), new: t(&[("nombre", "text"), ("x", "int")]) }];
+        let add = vec![TableChange::Alter {
+            old: t(&[("nombre", "text")]),
+            new: t(&[("nombre", "text"), ("x", "int")]),
+        }];
         assert!(dependent_views(&add, &[], &views).is_empty());
         let drop = vec![TableChange::Drop { table: t(&[]) }];
-        assert!(matches!(dependent_views(&drop, &[], &views).as_slice(), [ObjectChange::Drop { .. }]));
+        assert!(matches!(
+            dependent_views(&drop, &[], &views).as_slice(),
+            [ObjectChange::Drop { .. }]
+        ));
     }
 
     #[test]
     fn warns_about_views_on_dropped_columns() {
         let t = |cols: &[&str]| TableSchema {
             name: "clientes".into(),
-            columns: cols.iter().map(|n| dbine_driver::ColumnDef { name: (*n).into(), data_type: "int".into(), ..Default::default() }).collect(),
+            columns: cols
+                .iter()
+                .map(|n| dbine_driver::ColumnDef {
+                    name: (*n).into(),
+                    data_type: "int".into(),
+                    ..Default::default()
+                })
+                .collect(),
             ..Default::default()
         };
-        let alter = vec![TableChange::Alter { old: t(&["id", "saldo"]), new: t(&["id"]) }];
+        let alter = vec![TableChange::Alter {
+            old: t(&["id", "saldo"]),
+            new: t(&["id"]),
+        }];
         let views = vec![
-            CodeObject { kind: "view".into(), schema: None, name: "v_saldo".into(), definition: "SELECT id, saldo FROM clientes".into() },
-            CodeObject { kind: "view".into(), schema: None, name: "v_id".into(), definition: "SELECT id FROM clientes".into() },
+            CodeObject {
+                kind: "view".into(),
+                schema: None,
+                name: "v_saldo".into(),
+                definition: "SELECT id, saldo FROM clientes".into(),
+            },
+            CodeObject {
+                kind: "view".into(),
+                schema: None,
+                name: "v_id".into(),
+                definition: "SELECT id FROM clientes".into(),
+            },
         ];
         let extra = dependent_views(&alter, &[], &views);
         assert_eq!(extra.len(), 2);
         let w = views_on_dropped_columns(&alter, &extra);
         assert_eq!(w.len(), 1);
-        assert!(w[0].contains("«v_saldo»") && w[0].contains("clientes.saldo"), "{w:?}");
+        assert!(
+            w[0].contains("«v_saldo»") && w[0].contains("clientes.saldo"),
+            "{w:?}"
+        );
     }
 
     #[test]
     fn rebuilt_tables_get_their_triggers_back() {
         let t = |cols: &[&str]| TableSchema {
             name: "hijo".into(),
-            columns: cols.iter().map(|n| dbine_driver::ColumnDef { name: (*n).into(), data_type: "int".into(), ..Default::default() }).collect(),
+            columns: cols
+                .iter()
+                .map(|n| dbine_driver::ColumnDef {
+                    name: (*n).into(),
+                    data_type: "int".into(),
+                    ..Default::default()
+                })
+                .collect(),
             ..Default::default()
         };
-        let alter = vec![TableChange::Alter { old: t(&["id", "x"]), new: t(&["id"]) }];
+        let alter = vec![TableChange::Alter {
+            old: t(&["id", "x"]),
+            new: t(&["id"]),
+        }];
         let rebuild = vec!["CREATE TABLE \"hijo__dbine_new\" (id int);\nDROP TABLE \"hijo\";\nALTER TABLE \"hijo__dbine_new\" RENAME TO \"hijo\";".to_string()];
-        let trig = |name: &str, table: &str| CodeObject { kind: "trigger".into(), schema: None, name: name.into(), definition: format!("CREATE TRIGGER {name} AFTER INSERT ON \"{table}\" BEGIN SELECT 1; END") };
-        let side = vec![trig("tg_hijo", "hijo"), trig("tg_otro", "otro"), trig("tg_ido", "hijo")];
+        let trig = |name: &str, table: &str| CodeObject {
+            kind: "trigger".into(),
+            schema: None,
+            name: name.into(),
+            definition: format!(
+                "CREATE TRIGGER {name} AFTER INSERT ON \"{table}\" BEGIN SELECT 1; END"
+            ),
+        };
+        let side = vec![
+            trig("tg_hijo", "hijo"),
+            trig("tg_otro", "otro"),
+            trig("tg_ido", "hijo"),
+        ];
         // The one the user drops stays dropped.
-        let objects = vec![ObjectChange::Drop { object: side[2].clone() }];
+        let objects = vec![ObjectChange::Drop {
+            object: side[2].clone(),
+        }];
         let got = rebuilt_triggers(&alter, &rebuild, &objects, &side);
-        assert_eq!(got.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["tg_hijo"]);
+        assert_eq!(
+            got.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(),
+            ["tg_hijo"]
+        );
         // An ALTER in place drops no trigger.
-        assert!(rebuilt_triggers(&alter, &["ALTER TABLE \"hijo\" DROP COLUMN \"x\";".to_string()], &[], &side).is_empty());
+        assert!(rebuilt_triggers(
+            &alter,
+            &["ALTER TABLE \"hijo\" DROP COLUMN \"x\";".to_string()],
+            &[],
+            &side
+        )
+        .is_empty());
         // Nor does a table whose name only ends like it.
         let mut other = t(&["id"]);
         other.name = "ijo".into();
-        let alter = vec![TableChange::Alter { old: t(&["id", "x"]), new: other }];
+        let alter = vec![TableChange::Alter {
+            old: t(&["id", "x"]),
+            new: other,
+        }];
         assert!(rebuilt_triggers(&alter, &rebuild, &[], &side).is_empty());
     }
 
     fn obj(kind: &str, name: &str, def: &str) -> CodeObject {
-        CodeObject { kind: kind.into(), schema: Some("public".into()), name: name.into(), definition: def.into() }
+        CodeObject {
+            kind: kind.into(),
+            schema: Some("public".into()),
+            name: name.into(),
+            definition: def.into(),
+        }
     }
 
     fn drop(o: CodeObject) -> ObjectChange {
@@ -885,10 +1243,21 @@ mod tests {
 
     #[test]
     fn reads_trigger_tables() {
-        assert_eq!(pg::trigger_tables("CREATE TRIGGER tg BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION f()"), vec![("t".to_string(), false)]);
+        assert_eq!(
+            pg::trigger_tables(
+                "CREATE TRIGGER tg BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION f()"
+            ),
+            vec![("t".to_string(), false)]
+        );
         // UPDATE OF columns, a quoted and qualified table, a constraint trigger.
         let def = "CREATE CONSTRAINT TRIGGER \"Tg\" AFTER UPDATE OF a, \"on\" ON \"Sch\".\"My T\" FROM other DEFERRABLE FOR EACH ROW EXECUTE FUNCTION f()\n\nCREATE TRIGGER \"Tg\" INSTEAD OF INSERT ON v2 FOR EACH ROW EXECUTE FUNCTION g()";
-        assert_eq!(pg::trigger_tables(def), vec![("\"Sch\".\"My T\"".to_string(), true), ("v2".to_string(), false)]);
+        assert_eq!(
+            pg::trigger_tables(def),
+            vec![
+                ("\"Sch\".\"My T\"".to_string(), true),
+                ("v2".to_string(), false)
+            ]
+        );
         assert!(pg::trigger_tables("CREATE VIEW v AS SELECT 1").is_empty());
     }
 
@@ -900,7 +1269,10 @@ mod tests {
         assert_eq!(
             pg::signatures(def),
             vec![
-                ("FUNCTION", "public.f(a integer, b numeric(10,2), c text)".to_string()),
+                (
+                    "FUNCTION",
+                    "public.f(a integer, b numeric(10,2), c text)".to_string()
+                ),
                 ("FUNCTION", "public.f()".to_string()),
                 ("PROCEDURE", "public.\"F x\"(INOUT n integer)".to_string()),
             ]
@@ -910,15 +1282,40 @@ mod tests {
     #[test]
     fn postgres_drops_triggers_on_their_table() {
         let pg = dbine_drivers::find("postgres").unwrap().as_ref();
-        let tg = obj("trigger", "tg", "CREATE TRIGGER tg BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION audit()");
+        let tg = obj(
+            "trigger",
+            "tg",
+            "CREATE TRIGGER tg BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION audit()",
+        );
         let f = obj("function", "audit", "CREATE OR REPLACE FUNCTION public.audit()\n RETURNS trigger\nAS $$ begin return new; end $$");
         // The function first in the list: the trigger that calls it still goes first.
         let s = plan(pg, &[], &[drop(f), drop(tg.clone()), drop(tg)]).unwrap();
-        assert_eq!(s.statements, vec!["DROP TRIGGER IF EXISTS \"tg\" ON \"public\".t;", "DROP FUNCTION IF EXISTS \"public\".\"audit\";"]);
-        assert!(s.warnings.iter().any(|w| w.contains("el trigger «tg»") && w.contains("la función «audit»")), "{:?}", s.warnings);
+        assert_eq!(
+            s.statements,
+            vec![
+                "DROP TRIGGER IF EXISTS \"tg\" ON \"public\".t;",
+                "DROP FUNCTION IF EXISTS \"public\".\"audit\";"
+            ]
+        );
+        assert!(
+            s.warnings
+                .iter()
+                .any(|w| w.contains("el trigger «tg»") && w.contains("la función «audit»")),
+            "{:?}",
+            s.warnings
+        );
         // Other engines: by name.
         let my = dbine_drivers::find("mysql").unwrap().as_ref();
-        let s = plan(my, &[], &[drop(obj("trigger", "tg", "CREATE TRIGGER tg BEFORE INSERT ON t FOR EACH ROW SET NEW.a = 1"))]).unwrap();
+        let s = plan(
+            my,
+            &[],
+            &[drop(obj(
+                "trigger",
+                "tg",
+                "CREATE TRIGGER tg BEFORE INSERT ON t FOR EACH ROW SET NEW.a = 1",
+            ))],
+        )
+        .unwrap();
         assert_eq!(s.statements, vec!["DROP TRIGGER IF EXISTS `public`.`tg`;"]);
     }
 
@@ -927,14 +1324,36 @@ mod tests {
         let pg = dbine_drivers::find("postgres").unwrap().as_ref();
         let def = "CREATE OR REPLACE FUNCTION public.f(a integer)\n RETURNS int\nAS $$ select 1 $$\n\nCREATE OR REPLACE FUNCTION public.f(a text)\n RETURNS int\nAS $$ select 2 $$";
         let s = plan(pg, &[], &[drop(obj("function", "f", def))]).unwrap();
-        assert_eq!(s.statements, vec!["DROP FUNCTION IF EXISTS public.f(a integer);", "DROP FUNCTION IF EXISTS public.f(a text);"]);
+        assert_eq!(
+            s.statements,
+            vec![
+                "DROP FUNCTION IF EXISTS public.f(a integer);",
+                "DROP FUNCTION IF EXISTS public.f(a text);"
+            ]
+        );
         // A single one (or a replace) keeps the plain DROP.
         let one = "CREATE OR REPLACE FUNCTION public.g(a integer)\n RETURNS int\nAS $$ select 1 $$";
         let s = plan(pg, &[], &[drop(obj("function", "g", one))]).unwrap();
-        assert_eq!(s.statements, vec!["DROP FUNCTION IF EXISTS \"public\".\"g\";"]);
+        assert_eq!(
+            s.statements,
+            vec!["DROP FUNCTION IF EXISTS \"public\".\"g\";"]
+        );
         // Replaced (a rename's rewritten dependent): one by one too.
-        let s = plan(pg, &[], &[ObjectChange::Replace { object: obj("function", "f", def) }]).unwrap();
-        assert_eq!(&s.statements[..2], ["DROP FUNCTION IF EXISTS public.f(a integer);", "DROP FUNCTION IF EXISTS public.f(a text);"]);
+        let s = plan(
+            pg,
+            &[],
+            &[ObjectChange::Replace {
+                object: obj("function", "f", def),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            &s.statements[..2],
+            [
+                "DROP FUNCTION IF EXISTS public.f(a integer);",
+                "DROP FUNCTION IF EXISTS public.f(a text);"
+            ]
+        );
         assert_eq!(s.statements.len(), 3, "{:?}", s.statements);
     }
 
@@ -944,27 +1363,70 @@ mod tests {
         let v1 = obj("view", "v1", "SELECT 1 AS a");
         let v2 = obj("view", "v2", "SELECT a FROM v1");
         let seq = obj("sequence", "s1", "CREATE SEQUENCE s1");
-        let t = TableSchema { schema: Some("public".into()), name: "t".into(), ..Default::default() };
-        let s = plan(pg, &[TableChange::Drop { table: t }], &[drop(seq), drop(v1), drop(v2)]).unwrap();
-        let at = |p: &str| s.statements.iter().position(|x| x.contains(p)).unwrap_or_else(|| panic!("{p}: {:?}", s.statements));
+        let t = TableSchema {
+            schema: Some("public".into()),
+            name: "t".into(),
+            ..Default::default()
+        };
+        let s = plan(
+            pg,
+            &[TableChange::Drop { table: t }],
+            &[drop(seq), drop(v1), drop(v2)],
+        )
+        .unwrap();
+        let at = |p: &str| {
+            s.statements
+                .iter()
+                .position(|x| x.contains(p))
+                .unwrap_or_else(|| panic!("{p}: {:?}", s.statements))
+        };
         // The view over the other goes first; a sequence only dropped goes after the tables.
         assert!(at("\"v2\"") < at("\"v1\""));
         assert!(at("\"v1\"") < at("DROP TABLE"));
         assert!(at("DROP TABLE") < at("SEQUENCE"));
         // Creates the other way round.
-        let s = plan(pg, &[], &[ObjectChange::Create { object: obj("view", "v2", "CREATE VIEW v2 AS SELECT a FROM v1") }, ObjectChange::Create { object: obj("view", "v1", "CREATE VIEW v1 AS SELECT 1 AS a") }]).unwrap();
-        assert_eq!(s.statements, vec!["CREATE VIEW v1 AS SELECT 1 AS a", "CREATE VIEW v2 AS SELECT a FROM v1"]);
+        let s = plan(
+            pg,
+            &[],
+            &[
+                ObjectChange::Create {
+                    object: obj("view", "v2", "CREATE VIEW v2 AS SELECT a FROM v1"),
+                },
+                ObjectChange::Create {
+                    object: obj("view", "v1", "CREATE VIEW v1 AS SELECT 1 AS a"),
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            vec![
+                "CREATE VIEW v1 AS SELECT 1 AS a",
+                "CREATE VIEW v2 AS SELECT a FROM v1"
+            ]
+        );
         assert!(s.warnings.is_empty());
     }
 
     #[test]
     fn dependency_order_keeps_unrelated_and_breaks_cycles() {
-        let items = [("a", "x"), ("b", "uses c"), ("c", "y"), ("d", "uses e"), ("e", "uses d")];
+        let items = [
+            ("a", "x"),
+            ("b", "uses c"),
+            ("c", "y"),
+            ("d", "uses e"),
+            ("e", "uses d"),
+        ];
         assert_eq!(dependency_order(&items, false), vec![0, 2, 1, 3, 4]);
         assert_eq!(dependency_order(&items, true), vec![0, 1, 2, 3, 4]);
         // Names that aren't one word still count.
-        assert_eq!(dependency_order(&[("x", "FROM \"my v\""), ("my v", "")], false), vec![1, 0]);
-        let many: Vec<(String, String)> = (0..3000).map(|i| (format!("o{i}"), format!("select * from o{}", i + 1))).collect();
+        assert_eq!(
+            dependency_order(&[("x", "FROM \"my v\""), ("my v", "")], false),
+            vec![1, 0]
+        );
+        let many: Vec<(String, String)> = (0..3000)
+            .map(|i| (format!("o{i}"), format!("select * from o{}", i + 1)))
+            .collect();
         let refs: Vec<(&str, &str)> = many.iter().map(|(n, d)| (n.as_str(), d.as_str())).collect();
         assert_eq!(dependency_order(&refs, false)[0], 2999);
     }

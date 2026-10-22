@@ -64,7 +64,10 @@ pub(crate) fn parse(text: &str, own_id: Option<&str>) -> Vec<ServerProcess> {
         .lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|l| {
-            let p: HashMap<&str, &str> = l.split_whitespace().filter_map(|f| f.split_once('=')).collect();
+            let p: HashMap<&str, &str> = l
+                .split_whitespace()
+                .filter_map(|f| f.split_once('='))
+                .collect();
             let field = |k: &str| p.get(k).copied().map(str::trim).filter(|v| !v.is_empty());
             let id = field("id")?.to_string();
             let flags = field("flags").unwrap_or("");
@@ -76,9 +79,11 @@ pub(crate) fn parse(text: &str, own_id: Option<&str>) -> Vec<ServerProcess> {
             let cmd = field("cmd").filter(|c| *c != "NULL");
             // Dragonfly's default name is the id itself.
             let name = field("name").filter(|n| *n != id);
-            let program = name.or_else(|| field("lib-name")).map(|n| match field("lib-ver").filter(|_| name.is_none()) {
-                Some(v) => format!("{n} {v}"),
-                None => n.to_string(),
+            let program = name.or_else(|| field("lib-name")).map(|n| {
+                match field("lib-ver").filter(|_| name.is_none()) {
+                    Some(v) => format!("{n} {v}"),
+                    None => n.to_string(),
+                }
             });
             Some(ServerProcess {
                 id,
@@ -93,13 +98,21 @@ pub(crate) fn parse(text: &str, own_id: Option<&str>) -> Vec<ServerProcess> {
                 database: field("db").map(|d| format!("db{d}")),
                 command: cmd.map(|c| c.replace('|', " ").to_uppercase()),
                 // For a blocked client, idle is how long it has been waiting.
-                elapsed_ms: field("idle").and_then(num).map(|s| (s.max(0.0) * 1000.0) as u64),
-                wait: flags.contains('b').then(|| "comando bloqueante".to_string()),
+                elapsed_ms: field("idle")
+                    .and_then(num)
+                    .map(|s| (s.max(0.0) * 1000.0) as u64),
+                wait: flags
+                    .contains('b')
+                    .then(|| "comando bloqueante".to_string()),
                 ..Default::default()
             })
         })
         .collect();
-    rows.sort_by(|a, b| b.active.cmp(&a.active).then_with(|| id_key(&a.id).cmp(&id_key(&b.id))));
+    rows.sort_by(|a, b| {
+        b.active
+            .cmp(&a.active)
+            .then_with(|| id_key(&a.id).cmp(&id_key(&b.id)))
+    });
     rows.truncate(MAX_ROWS);
     rows
 }
@@ -111,12 +124,18 @@ fn id_key(id: &str) -> (usize, &str) {
 /// A client id as the server prints it (a positive integer).
 fn client_id(id: &str) -> Result<String> {
     let id = id.trim();
-    id.parse::<u64>().ok().filter(|n| *n > 0).map(|n| n.to_string()).ok_or_else(|| Error::Query(format!("«{id}» no es un id de cliente de Redis")))
+    id.parse::<u64>()
+        .ok()
+        .filter(|n| *n > 0)
+        .map(|n| n.to_string())
+        .ok_or_else(|| Error::Query(format!("«{id}» no es un id de cliente de Redis")))
 }
 
 impl RedisSession {
     async fn own_id(&mut self) -> Result<String> {
-        Ok(shape::text_of(&self.run(&[b"CLIENT", b"ID"]).await?).trim().to_string())
+        Ok(shape::text_of(&self.run(&[b"CLIENT", b"ID"]).await?)
+            .trim()
+            .to_string())
     }
 
     pub(crate) async fn processes(&mut self) -> Result<Vec<ServerProcess>> {
@@ -142,14 +161,25 @@ impl RedisSession {
     }
 
     pub(crate) async fn cancel(&mut self, id: &str) -> Result<()> {
-        let id = self.other_client(id, "Conexión de solo lectura: no se pueden cancelar comandos de otros clientes.").await?;
-        let reply = self.send(&[b"CLIENT", b"UNBLOCK", id.as_bytes(), b"ERROR"]).await.map_err(|e| {
-            if e.to_string().to_ascii_lowercase().contains("unknown subcommand") {
-                Error::Unsupported(UNBLOCK_MISSING.into())
-            } else {
-                crate::err(e)
-            }
-        })?;
+        let id = self
+            .other_client(
+                id,
+                "Conexión de solo lectura: no se pueden cancelar comandos de otros clientes.",
+            )
+            .await?;
+        let reply = self
+            .send(&[b"CLIENT", b"UNBLOCK", id.as_bytes(), b"ERROR"])
+            .await
+            .map_err(|e| {
+                if e.to_string()
+                    .to_ascii_lowercase()
+                    .contains("unknown subcommand")
+                {
+                    Error::Unsupported(UNBLOCK_MISSING.into())
+                } else {
+                    crate::err(e)
+                }
+            })?;
         match reply {
             Value::Int(1) => Ok(()),
             _ => Err(Error::Query(format!(
@@ -159,10 +189,20 @@ impl RedisSession {
     }
 
     pub(crate) async fn kill(&mut self, id: &str) -> Result<()> {
-        let id = self.other_client(id, "Conexión de solo lectura: no se pueden cerrar conexiones de otros clientes.").await?;
-        match self.run(&[b"CLIENT", b"KILL", b"ID", id.as_bytes()]).await? {
+        let id = self
+            .other_client(
+                id,
+                "Conexión de solo lectura: no se pueden cerrar conexiones de otros clientes.",
+            )
+            .await?;
+        match self
+            .run(&[b"CLIENT", b"KILL", b"ID", id.as_bytes()])
+            .await?
+        {
             Value::Int(n) if n > 0 => Ok(()),
-            _ => Err(Error::Query(format!("no se pudo cerrar el cliente {id}: ya no existe"))),
+            _ => Err(Error::Query(format!(
+                "no se pudo cerrar el cliente {id}: ya no existe"
+            ))),
         }
     }
 }
@@ -181,7 +221,10 @@ mod tests {
              id=6 addr=127.0.0.1:43526 name=6 tid=0 age=1 idle=1 db=0 flags=b phase=process lib-name= lib-ver=\n",
             Some("4"),
         );
-        assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["4", "6", "12", "3", "5"]);
+        assert_eq!(
+            rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["4", "6", "12", "3", "5"]
+        );
         let own = &rows[0];
         assert!(own.own && own.active);
         assert_eq!(own.command.as_deref(), Some("CLIENT LIST"));

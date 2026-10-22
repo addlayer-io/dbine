@@ -3,7 +3,9 @@
 //! `DBINE_TEST_FLIGHTSQL_URL=http://localhost:25337 \
 //!  cargo test -p dbine-driver-flightsql --release -- --ignored transfer --nocapture`.
 
-use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{ConnectionConfig, Error, ObjectRef, QueryOutcome, Session};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -18,8 +20,12 @@ fn cfg() -> Option<ConnectionConfig> {
         driver: "flightsql".into(),
         host: host.into(),
         port: port.parse().ok()?,
-        username: Some(std::env::var("DBINE_TEST_FLIGHTSQL_USER").unwrap_or_else(|_| "gizmosql_user".into())),
-        password: Some(std::env::var("DBINE_TEST_FLIGHTSQL_PASSWORD").unwrap_or_else(|_| "secreto1".into())),
+        username: Some(
+            std::env::var("DBINE_TEST_FLIGHTSQL_USER").unwrap_or_else(|_| "gizmosql_user".into()),
+        ),
+        password: Some(
+            std::env::var("DBINE_TEST_FLIGHTSQL_PASSWORD").unwrap_or_else(|_| "secreto1".into()),
+        ),
         ..Default::default()
     })
 }
@@ -61,14 +67,28 @@ fn row(i: usize) -> Vec<Cell> {
     let n = i as i64;
     vec![
         Cell::Int(n),
-        if i.is_multiple_of(7) { Cell::Null } else { Cell::Int(n * 1_000_003) },
+        if i.is_multiple_of(7) {
+            Cell::Null
+        } else {
+            Cell::Int(n * 1_000_003)
+        },
         Cell::Decimal(format!("{}.{:02}", n - 50_000, i % 100)),
         Cell::Float(i as f64 / 8.0),
         Cell::Text(format!("fila {i} ñ 'x'")),
         Cell::Bytes(vec![(i % 256) as u8; i % 40]),
         Cell::Date(format!("2024-{:02}-{:02}", i % 12 + 1, i % 28 + 1)),
-        Cell::Time(format!("{:02}:{:02}:{:02}.{:06}", i % 24, i % 60, i % 60, i % 1_000_000)),
-        Cell::DateTime(format!("2024-01-{:02} 10:00:00.{:06}", i % 28 + 1, i % 1_000_000)),
+        Cell::Time(format!(
+            "{:02}:{:02}:{:02}.{:06}",
+            i % 24,
+            i % 60,
+            i % 60,
+            i % 1_000_000
+        )),
+        Cell::DateTime(format!(
+            "2024-01-{:02} 10:00:00.{:06}",
+            i % 28 + 1,
+            i % 1_000_000
+        )),
         Cell::Bool(i.is_multiple_of(2)),
     ]
 }
@@ -96,12 +116,28 @@ fn norm(c: &Cell) -> Cell {
     }
 }
 
-async fn load_and_read(s: &mut Box<dyn Session>, table: &str, columns: &[&str], label: &str, total: usize) {
-    let obj = ObjectRef { kind: "table".into(), schema: Some("dbine_xfer".into()), name: table.into() };
+async fn load_and_read(
+    s: &mut Box<dyn Session>,
+    table: &str,
+    columns: &[&str],
+    label: &str,
+    total: usize,
+) {
+    let obj = ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbine_xfer".into()),
+        name: table.into(),
+    };
     let batches: Vec<RowBatch> = (0..total)
         .collect::<Vec<_>>()
         .chunks(1000)
-        .map(|c| RowBatch { rows: c.iter().map(|i| row(*i)[..columns.len()].to_vec()).collect(), bytes: 0 })
+        .map(|c| RowBatch {
+            rows: c
+                .iter()
+                .map(|i| row(*i)[..columns.len()].to_vec())
+                .collect(),
+            bytes: 0,
+        })
         .collect();
     let spec = LoadSpec {
         table: obj.clone(),
@@ -113,21 +149,51 @@ async fn load_and_read(s: &mut Box<dyn Session>, table: &str, columns: &[&str], 
     };
     let reports = Mutex::new(Vec::new());
     let t = Instant::now();
-    let loaded = s.bulk_load(&spec, &[], &mut Batches(batches.into_iter()), &|n| reports.lock().unwrap().push(n)).await.unwrap();
+    let loaded = s
+        .bulk_load(&spec, &[], &mut Batches(batches.into_iter()), &|n| {
+            reports.lock().unwrap().push(n)
+        })
+        .await
+        .unwrap();
     let secs = t.elapsed().as_secs_f64();
-    println!("flightsql {label}: loaded {loaded} rows in {secs:.2}s = {:.0} rows/s", loaded as f64 / secs);
+    println!(
+        "flightsql {label}: loaded {loaded} rows in {secs:.2}s = {:.0} rows/s",
+        loaded as f64 / secs
+    );
     assert_eq!(loaded, total as u64);
     let reports = reports.into_inner().unwrap();
-    assert_eq!(reports, (1..=4).map(|k| (k * total / 4) as u64).collect::<Vec<_>>());
+    assert_eq!(
+        reports,
+        (1..=4).map(|k| (k * total / 4) as u64).collect::<Vec<_>>()
+    );
 
     let sink = Arc::new(Mutex::new(Collect::default()));
     let t = Instant::now();
-    let read = s.read_batches(&ReadSpec { table: obj.clone(), columns: Some(columns.iter().map(|c| c.to_string()).collect()), filter: None }, sink.clone()).await.unwrap();
+    let read = s
+        .read_batches(
+            &ReadSpec {
+                table: obj.clone(),
+                columns: Some(columns.iter().map(|c| c.to_string()).collect()),
+                filter: None,
+            },
+            sink.clone(),
+        )
+        .await
+        .unwrap();
     let secs = t.elapsed().as_secs_f64();
-    println!("flightsql {label}: read {read} rows in {secs:.2}s = {:.0} rows/s", read as f64 / secs);
+    println!(
+        "flightsql {label}: read {read} rows in {secs:.2}s = {:.0} rows/s",
+        read as f64 / secs
+    );
     assert_eq!(read, total as u64);
     let got = std::mem::take(&mut *sink.lock().unwrap());
-    assert_eq!(got.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), columns);
+    assert_eq!(
+        got.columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>(),
+        columns
+    );
     let mut rows = got.rows;
     rows.sort_by_key(|r| match r[0] {
         Cell::Int(i) => i,
@@ -140,7 +206,11 @@ async fn load_and_read(s: &mut Box<dyn Session>, table: &str, columns: &[&str], 
     }
 
     let sink = Arc::new(Mutex::new(Collect::default()));
-    let spec = ReadSpec { table: obj, columns: Some(vec!["id".into(), "s".into()]), filter: Some("id IN (1, 2, 3)".into()) };
+    let spec = ReadSpec {
+        table: obj,
+        columns: Some(vec!["id".into(), "s".into()]),
+        filter: Some("id IN (1, 2, 3)".into()),
+    };
     assert_eq!(s.read_batches(&spec, sink).await.unwrap(), 3);
 }
 
@@ -168,7 +238,11 @@ async fn flightsql_transfer() {
     load_and_read(&mut s, "p", &all[..5], "prepared", 8_000).await;
 
     // A value that doesn't fit is an error, and nothing of its window stays.
-    let obj = ObjectRef { kind: "table".into(), schema: Some("dbine_xfer".into()), name: "t".into() };
+    let obj = ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbine_xfer".into()),
+        name: "t".into(),
+    };
     let spec = LoadSpec {
         table: obj,
         columns: vec!["id".into(), "n".into()],
@@ -177,8 +251,14 @@ async fn flightsql_transfer() {
         commit_rows: 1000,
         commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
     };
-    let bad = RowBatch { rows: vec![vec![Cell::Int(1), Cell::Text("no es número".into())]], bytes: 0 };
-    assert!(s.bulk_load(&spec, &[], &mut Batches(vec![bad].into_iter()), &|_| {}).await.is_err());
+    let bad = RowBatch {
+        rows: vec![vec![Cell::Int(1), Cell::Text("no es número".into())]],
+        bytes: 0,
+    };
+    assert!(s
+        .bulk_load(&spec, &[], &mut Batches(vec![bad].into_iter()), &|_| {})
+        .await
+        .is_err());
     run(&mut s, "DROP SCHEMA dbine_xfer CASCADE").await;
 }
 
@@ -197,7 +277,11 @@ impl BatchSource for Slow {
 }
 
 fn table(schema: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: "table".into(), schema: Some(schema.into()), name: name.into() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: Some(schema.into()),
+        name: name.into(),
+    }
 }
 
 fn spec(t: ObjectRef, columns: &[&str], commit_rows: u64) -> LoadSpec {
@@ -212,9 +296,22 @@ fn spec(t: ObjectRef, columns: &[&str], commit_rows: u64) -> LoadSpec {
 }
 
 /// All the rows of a table (in `id` order when it has one).
-async fn rows(s: &mut Box<dyn Session>, t: &ObjectRef, columns: Option<Vec<String>>) -> Vec<Vec<Cell>> {
+async fn rows(
+    s: &mut Box<dyn Session>,
+    t: &ObjectRef,
+    columns: Option<Vec<String>>,
+) -> Vec<Vec<Cell>> {
     let sink = Arc::new(Mutex::new(Collect::default()));
-    s.read_batches(&ReadSpec { table: t.clone(), columns, filter: None }, sink.clone()).await.unwrap();
+    s.read_batches(
+        &ReadSpec {
+            table: t.clone(),
+            columns,
+            filter: None,
+        },
+        sink.clone(),
+    )
+    .await
+    .unwrap();
     let mut r = std::mem::take(&mut sink.lock().unwrap().rows);
     r.sort_by(|a, b| format!("{:?}", a[0]).cmp(&format!("{:?}", b[0])));
     r
@@ -225,11 +322,30 @@ async fn count(s: &mut Box<dyn Session>, t: &ObjectRef) -> usize {
 }
 
 fn ints(from: usize, n: usize, cols: usize) -> RowBatch {
-    RowBatch { rows: (from..from + n).map(|i| (0..cols).map(|c| if c == 0 { Cell::Int(i as i64) } else { Cell::Text(format!("v{i}")) }).collect()).collect(), bytes: 0 }
+    RowBatch {
+        rows: (from..from + n)
+            .map(|i| {
+                (0..cols)
+                    .map(|c| {
+                        if c == 0 {
+                            Cell::Int(i as i64)
+                        } else {
+                            Cell::Text(format!("v{i}"))
+                        }
+                    })
+                    .collect()
+            })
+            .collect(),
+        bytes: 0,
+    }
 }
 
 async fn setup(s: &mut Box<dyn Session>, sql: &str) {
-    run(s, &format!("DROP SCHEMA IF EXISTS rv CASCADE; CREATE SCHEMA rv; {sql}")).await;
+    run(
+        s,
+        &format!("DROP SCHEMA IF EXISTS rv CASCADE; CREATE SCHEMA rv; {sql}"),
+    )
+    .await;
 }
 
 /// The tests share the server's catalog (and its `rv` schema): run in
@@ -240,7 +356,14 @@ static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 async fn connect() -> Option<(Box<dyn Session>, tokio::sync::MutexGuard<'static, ()>)> {
     let c = cfg()?;
     let serial = SERIAL.lock().await;
-    Some((dbine_driver_flightsql::drivers().remove(0).connect(&c, Some("memory")).await.unwrap(), serial))
+    Some((
+        dbine_driver_flightsql::drivers()
+            .remove(0)
+            .connect(&c, Some("memory"))
+            .await
+            .unwrap(),
+        serial,
+    ))
 }
 
 /// A window that fails on the client is rolled back whole (it used to end
@@ -249,17 +372,32 @@ async fn connect() -> Option<(Box<dyn Session>, tokio::sync::MutexGuard<'static,
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_failed_window_rolls_back() {
-    let Some((mut s, _serial)) = connect().await else { return };
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
     setup(&mut s, "CREATE TABLE rv.t (id BIGINT, s VARCHAR);").await;
     let t = table("rv", "t");
     let mut bad = ints(2000, 1000, 2);
     bad.rows[500][0] = Cell::Text("no es numero".into());
     let batches = || vec![ints(0, 1000, 2), ints(1000, 1000, 2), bad.clone()];
-    for (commit, want_rows, want_progress) in [(100_000u64, 0usize, vec![]), (1000, 2000, vec![1000u64, 2000])] {
+    for (commit, want_rows, want_progress) in [
+        (100_000u64, 0usize, vec![]),
+        (1000, 2000, vec![1000u64, 2000]),
+    ] {
         run(&mut s, "DELETE FROM rv.t").await;
         let reports = Mutex::new(Vec::new());
-        let r = s.bulk_load(&spec(t.clone(), &["id", "s"], commit), &[], &mut Batches(batches().into_iter()), &|n| reports.lock().unwrap().push(n)).await;
-        assert!(matches!(&r, Err(e) if e.is_query() && e.to_string().contains("no es un entero")), "{r:?}");
+        let r = s
+            .bulk_load(
+                &spec(t.clone(), &["id", "s"], commit),
+                &[],
+                &mut Batches(batches().into_iter()),
+                &|n| reports.lock().unwrap().push(n),
+            )
+            .await;
+        assert!(
+            matches!(&r, Err(e) if e.is_query() && e.to_string().contains("no es un entero")),
+            "{r:?}"
+        );
         assert_eq!(count(&mut s, &t).await, want_rows, "commit {commit}");
         assert_eq!(reports.into_inner().unwrap(), want_progress);
     }
@@ -269,7 +407,9 @@ async fn flightsql_failed_window_rolls_back() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_cancel_ingest_window() {
-    let Some((mut s, _serial)) = connect().await else { return };
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
     setup(&mut s, "CREATE TABLE rv.t (id BIGINT, s VARCHAR);").await;
     let t = table("rv", "t");
     let stop = s.interrupter().unwrap();
@@ -277,9 +417,22 @@ async fn flightsql_cancel_ingest_window() {
         tokio::time::sleep(Duration::from_millis(1500)).await;
         stop();
     });
-    let mut src = Slow { batches: (0..10).map(|k| ints(k * 1000, 1000, 2)).collect::<Vec<_>>().into_iter(), every: Duration::from_millis(300) };
+    let mut src = Slow {
+        batches: (0..10)
+            .map(|k| ints(k * 1000, 1000, 2))
+            .collect::<Vec<_>>()
+            .into_iter(),
+        every: Duration::from_millis(300),
+    };
     let reports = Mutex::new(Vec::new());
-    let r = s.bulk_load(&spec(t.clone(), &["id", "s"], 100_000), &[], &mut src, &|n| reports.lock().unwrap().push(n)).await;
+    let r = s
+        .bulk_load(
+            &spec(t.clone(), &["id", "s"], 100_000),
+            &[],
+            &mut src,
+            &|n| reports.lock().unwrap().push(n),
+        )
+        .await;
     assert!(matches!(r, Err(Error::Cancelled)), "{r:?}");
     assert!(reports.into_inner().unwrap().is_empty());
     assert_eq!(count(&mut s, &t).await, 0);
@@ -315,15 +468,36 @@ impl BatchSource for CancelAt {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_cancel_prepared_window() {
-    let Some((mut s, _serial)) = connect().await else { return };
-    setup(&mut s, "CREATE TABLE rv.p (id BIGINT, s VARCHAR, extra VARCHAR DEFAULT 'x');").await;
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
+    setup(
+        &mut s,
+        "CREATE TABLE rv.p (id BIGINT, s VARCHAR, extra VARCHAR DEFAULT 'x');",
+    )
+    .await;
     let t = table("rv", "p");
     let reports = Mutex::new(Vec::new());
     let taken = Arc::new(Mutex::new(0));
     // Batches of 300 rows: two prepared calls (256 + 44) each.
-    let mut src = CancelAt { batches: (0..30).map(|k| ints(k * 300, 300, 2)).collect::<Vec<_>>().into_iter(), at: 3, taken: taken.clone(), stop: s.interrupter().unwrap() };
+    let mut src = CancelAt {
+        batches: (0..30)
+            .map(|k| ints(k * 300, 300, 2))
+            .collect::<Vec<_>>()
+            .into_iter(),
+        at: 3,
+        taken: taken.clone(),
+        stop: s.interrupter().unwrap(),
+    };
     let started = Instant::now();
-    let r = s.bulk_load(&spec(t.clone(), &["id", "s"], 100_000), &[], &mut src, &|n| reports.lock().unwrap().push(n)).await;
+    let r = s
+        .bulk_load(
+            &spec(t.clone(), &["id", "s"], 100_000),
+            &[],
+            &mut src,
+            &|n| reports.lock().unwrap().push(n),
+        )
+        .await;
     let took = started.elapsed();
     let taken = *taken.lock().unwrap();
     println!("flightsql prepared cancel: returned after {took:?}, {taken} batches taken: {r:?}");
@@ -332,7 +506,11 @@ async fn flightsql_cancel_prepared_window() {
     assert_eq!(taken, 4, "the load went on after the cancel");
     assert_eq!(count(&mut s, &t).await, 0);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(count(&mut s, &t).await, 0, "rows landed after bulk_load returned");
+    assert_eq!(
+        count(&mut s, &t).await,
+        0,
+        "rows landed after bulk_load returned"
+    );
     assert!(reports.into_inner().unwrap().is_empty());
 }
 
@@ -341,21 +519,43 @@ async fn flightsql_cancel_prepared_window() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_prepared_error_rolls_back() {
-    let Some((mut s, _serial)) = connect().await else { return };
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
     setup(&mut s, "CREATE TABLE rv.p (id BIGINT PRIMARY KEY, s VARCHAR, extra VARCHAR DEFAULT 'x'); INSERT INTO rv.p (id, s) VALUES (1000, 'antes');").await;
     let t = table("rv", "p");
     let mut b = ints(0, 60, 2);
     b.rows[40][0] = Cell::Int(1000);
     let reports = Mutex::new(Vec::new());
-    let r = s.bulk_load(&spec(t.clone(), &["id", "s"], 1000), &[], &mut Batches(vec![b].into_iter()), &|n| reports.lock().unwrap().push(n)).await;
+    let r = s
+        .bulk_load(
+            &spec(t.clone(), &["id", "s"], 1000),
+            &[],
+            &mut Batches(vec![b].into_iter()),
+            &|n| reports.lock().unwrap().push(n),
+        )
+        .await;
     assert!(r.is_err(), "{r:?}");
     assert_eq!(count(&mut s, &t).await, 1);
     assert!(reports.into_inner().unwrap().is_empty());
     // Columns in another order than the table's (also the prepared path),
     // windows of exact size.
     let reports = Mutex::new(Vec::new());
-    let rows_in = RowBatch { rows: (0..600).map(|i| vec![Cell::Text(format!("v{i}")), Cell::Int(i)]).collect(), bytes: 0 };
-    let n = s.bulk_load(&spec(t.clone(), &["s", "id"], 250), &[], &mut Batches(vec![rows_in].into_iter()), &|n| reports.lock().unwrap().push(n)).await.unwrap();
+    let rows_in = RowBatch {
+        rows: (0..600)
+            .map(|i| vec![Cell::Text(format!("v{i}")), Cell::Int(i)])
+            .collect(),
+        bytes: 0,
+    };
+    let n = s
+        .bulk_load(
+            &spec(t.clone(), &["s", "id"], 250),
+            &[],
+            &mut Batches(vec![rows_in].into_iter()),
+            &|n| reports.lock().unwrap().push(n),
+        )
+        .await
+        .unwrap();
     assert_eq!(n, 600);
     assert_eq!(reports.into_inner().unwrap(), vec![250, 500, 600]);
     assert_eq!(count(&mut s, &t).await, 601);
@@ -366,7 +566,9 @@ async fn flightsql_prepared_error_rolls_back() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_types_round_trip() {
-    let Some((mut s, _serial)) = connect().await else { return };
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
     let ddl = "(id INT, tz TIMESTAMPTZ, h HUGEINT, t TIME, d DATE, ts TIMESTAMP, st STRUCT(a INT, b VARCHAR), l INT[], m MAP(VARCHAR, INT), dec DECIMAL(10,2))";
     setup(
         &mut s,
@@ -382,49 +584,148 @@ async fn flightsql_types_round_trip() {
     .await;
     let a = rows(&mut s, &table("rv", "a"), None).await;
     let tz: Vec<Cell> = a.iter().map(|r| r[1].clone()).collect();
-    assert_eq!(tz[..2], [Cell::DateTimeTz("0001-01-01 00:00:00+00:00".into()), Cell::DateTimeTz("2024-06-01 15:00:00.123456+00:00".into())]);
-    assert_eq!(a[0][2], Cell::Decimal("-170141183460469231731687303715884105728".into()));
-    assert_eq!(a[1][2], Cell::Decimal("170141183460469231731687303715884105727".into()));
+    assert_eq!(
+        tz[..2],
+        [
+            Cell::DateTimeTz("0001-01-01 00:00:00+00:00".into()),
+            Cell::DateTimeTz("2024-06-01 15:00:00.123456+00:00".into())
+        ]
+    );
+    assert_eq!(
+        a[0][2],
+        Cell::Decimal("-170141183460469231731687303715884105728".into())
+    );
+    assert_eq!(
+        a[1][2],
+        Cell::Decimal("170141183460469231731687303715884105727".into())
+    );
     assert_eq!(a[0][3], Cell::Time("24:00:00".into()));
-    assert_eq!((a[0][4].clone(), a[1][5].clone()), (Cell::Text("infinity".into()), Cell::Text("-infinity".into())));
-    assert_eq!((a[2][5].clone(), a[3][5].clone()), (Cell::DateTime("-0043-03-15 12:00:00".into()), Cell::DateTime("+12000-01-01 00:00:00".into())));
+    assert_eq!(
+        (a[0][4].clone(), a[1][5].clone()),
+        (
+            Cell::Text("infinity".into()),
+            Cell::Text("-infinity".into())
+        )
+    );
+    assert_eq!(
+        (a[2][5].clone(), a[3][5].clone()),
+        (
+            Cell::DateTime("-0043-03-15 12:00:00".into()),
+            Cell::DateTime("+12000-01-01 00:00:00".into())
+        )
+    );
     assert_eq!(a[0][6], Cell::Json(r#"{"a":1,"b":"x"}"#.into()));
     let cols = ["id", "tz", "h", "t", "d", "ts", "st", "l", "m", "dec"];
-    let n = s.bulk_load(&spec(table("rv", "b"), &cols, 1000), &[], &mut Batches(vec![RowBatch { rows: a.clone(), bytes: 0 }].into_iter()), &|_| {}).await.unwrap();
+    let n = s
+        .bulk_load(
+            &spec(table("rv", "b"), &cols, 1000),
+            &[],
+            &mut Batches(
+                vec![RowBatch {
+                    rows: a.clone(),
+                    bytes: 0,
+                }]
+                .into_iter(),
+            ),
+            &|_| {},
+        )
+        .await
+        .unwrap();
     assert_eq!(n, 4);
     assert_eq!(rows(&mut s, &table("rv", "b"), None).await, a);
     // Same values in SQL, both ways (NULLs compared as equal).
-    let diff = rows(
-        &mut s,
-        &table("rv", "a"),
-        None,
-    )
-    .await;
+    let diff = rows(&mut s, &table("rv", "a"), None).await;
     assert_eq!(diff.len(), 4);
     run(&mut s, "CREATE TABLE rv.diff AS SELECT count(*) AS id FROM (SELECT * FROM rv.a EXCEPT SELECT * FROM rv.b UNION ALL SELECT * FROM (SELECT * FROM rv.b EXCEPT SELECT * FROM rv.a))").await;
-    assert_eq!(rows(&mut s, &table("rv", "diff"), None).await, vec![vec![Cell::Int(0)]]);
+    assert_eq!(
+        rows(&mut s, &table("rv", "diff"), None).await,
+        vec![vec![Cell::Int(0)]]
+    );
     // Every column in another order: still ingest, cells reordered.
     run(&mut s, "DELETE FROM rv.b").await;
     let rev: Vec<&str> = cols.iter().rev().copied().collect();
-    let reversed: Vec<Vec<Cell>> = a.iter().map(|r| r.iter().rev().cloned().collect()).collect();
-    s.bulk_load(&spec(table("rv", "b"), &rev, 1000), &[], &mut Batches(vec![RowBatch { rows: reversed, bytes: 0 }].into_iter()), &|_| {}).await.unwrap();
+    let reversed: Vec<Vec<Cell>> = a
+        .iter()
+        .map(|r| r.iter().rev().cloned().collect())
+        .collect();
+    s.bulk_load(
+        &spec(table("rv", "b"), &rev, 1000),
+        &[],
+        &mut Batches(
+            vec![RowBatch {
+                rows: reversed,
+                bytes: 0,
+            }]
+            .into_iter(),
+        ),
+        &|_| {},
+    )
+    .await
+    .unwrap();
     assert_eq!(rows(&mut s, &table("rv", "b"), None).await, a);
     // A subset goes through the prepared INSERT, same conversions.
     run(&mut s, "DELETE FROM rv.b").await;
     let pick = [5usize, 1, 0, 3, 4, 9];
     let names: Vec<&str> = pick.iter().map(|&i| cols[i]).collect();
-    let sub: Vec<Vec<Cell>> = a.iter().map(|r| pick.iter().map(|&i| r[i].clone()).collect()).collect();
-    s.bulk_load(&spec(table("rv", "b"), &names, 1000), &[], &mut Batches(vec![RowBatch { rows: sub.clone(), bytes: 0 }].into_iter()), &|_| {}).await.unwrap();
-    let mut b = rows(&mut s, &table("rv", "b"), Some(names.iter().map(|n| n.to_string()).collect())).await;
+    let sub: Vec<Vec<Cell>> = a
+        .iter()
+        .map(|r| pick.iter().map(|&i| r[i].clone()).collect())
+        .collect();
+    s.bulk_load(
+        &spec(table("rv", "b"), &names, 1000),
+        &[],
+        &mut Batches(
+            vec![RowBatch {
+                rows: sub.clone(),
+                bytes: 0,
+            }]
+            .into_iter(),
+        ),
+        &|_| {},
+    )
+    .await
+    .unwrap();
+    let mut b = rows(
+        &mut s,
+        &table("rv", "b"),
+        Some(names.iter().map(|n| n.to_string()).collect()),
+    )
+    .await;
     b.sort_by_key(|r| format!("{:?}", r[2]));
     assert_eq!(b, sub);
     // What GizmoSQL can't bind as a parameter is said clearly, and leaves nothing.
     run(&mut s, "DELETE FROM rv.b").await;
-    let only = |i: usize| vec![RowBatch { rows: a.iter().map(|r| vec![r[0].clone(), r[i].clone()]).collect(), bytes: 0 }].into_iter();
-    let r = s.bulk_load(&spec(table("rv", "b"), &["id", "st"], 1000), &[], &mut Batches(only(6)), &|_| {}).await;
-    assert!(matches!(&r, Err(Error::Unsupported(m)) if m.contains("anidados")), "{r:?}");
-    let r = s.bulk_load(&spec(table("rv", "b"), &["id", "h"], 1000), &[], &mut Batches(only(2)), &|_| {}).await;
-    assert!(matches!(&r, Err(Error::Unsupported(m)) if m.contains("HUGEINT")), "{r:?}");
+    let only = |i: usize| {
+        vec![RowBatch {
+            rows: a.iter().map(|r| vec![r[0].clone(), r[i].clone()]).collect(),
+            bytes: 0,
+        }]
+        .into_iter()
+    };
+    let r = s
+        .bulk_load(
+            &spec(table("rv", "b"), &["id", "st"], 1000),
+            &[],
+            &mut Batches(only(6)),
+            &|_| {},
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("anidados")),
+        "{r:?}"
+    );
+    let r = s
+        .bulk_load(
+            &spec(table("rv", "b"), &["id", "h"], 1000),
+            &[],
+            &mut Batches(only(2)),
+            &|_| {},
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("HUGEINT")),
+        "{r:?}"
+    );
     assert_eq!(count(&mut s, &table("rv", "b")).await, 0);
 }
 
@@ -447,7 +748,9 @@ async fn differing(s: &mut Box<dyn Session>) -> i64 {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_duckdb_types_as_text() {
-    let Some((mut s, _serial)) = connect().await else { return };
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
     let ddl = "(id INT, u UHUGEINT, b BIT, tt TIMETZ, un UNION(n INT, s VARCHAR), v BIGNUM, extra INT DEFAULT 1)";
     setup(
         &mut s,
@@ -463,40 +766,138 @@ async fn flightsql_duckdb_types_as_text() {
     )
     .await;
     let a = rows(&mut s, &table("rv", "a"), None).await;
-    assert_eq!(a[0][1..6], [
-        Cell::Decimal("340282366920938463463374607431768211455".into()),
-        Cell::Text("10110".into()),
-        Cell::Text("12:34:56.789+05:30".into()),
-        Cell::Json(r#"{"s":"hola"}"#.into()),
-        Cell::Decimal("-123456789012345678901234567890123456789012".into()),
-    ]);
-    assert_eq!(a[1][1..5], [Cell::Decimal("170141183460469231731687303715884105728".into()), Cell::Text("1".into()), Cell::Text("00:00:00-08".into()), Cell::Json(r#"{"n":7}"#.into())]);
+    assert_eq!(
+        a[0][1..6],
+        [
+            Cell::Decimal("340282366920938463463374607431768211455".into()),
+            Cell::Text("10110".into()),
+            Cell::Text("12:34:56.789+05:30".into()),
+            Cell::Json(r#"{"s":"hola"}"#.into()),
+            Cell::Decimal("-123456789012345678901234567890123456789012".into()),
+        ]
+    );
+    assert_eq!(
+        a[1][1..5],
+        [
+            Cell::Decimal("170141183460469231731687303715884105728".into()),
+            Cell::Text("1".into()),
+            Cell::Text("00:00:00-08".into()),
+            Cell::Json(r#"{"n":7}"#.into())
+        ]
+    );
     assert!(a[3][1..6].iter().all(|c| *c == Cell::Null), "{:?}", a[3]);
     // The columns say their DuckDB type.
     let sink = Arc::new(Mutex::new(Collect::default()));
-    s.read_batches(&ReadSpec { table: table("rv", "a"), columns: Some(vec!["tt".into(), "id".into(), "u".into()]), filter: Some("id = 1".into()) }, sink.clone()).await.unwrap();
+    s.read_batches(
+        &ReadSpec {
+            table: table("rv", "a"),
+            columns: Some(vec!["tt".into(), "id".into(), "u".into()]),
+            filter: Some("id = 1".into()),
+        },
+        sink.clone(),
+    )
+    .await
+    .unwrap();
     let got = std::mem::take(&mut *sink.lock().unwrap());
-    assert_eq!(got.columns.iter().map(|c| c.type_name.as_str()).collect::<Vec<_>>()[..1], ["TIME WITH TIME ZONE"]);
-    assert_eq!(got.rows, vec![vec![Cell::Text("12:34:56.789+05:30".into()), Cell::Int(1), Cell::Decimal("340282366920938463463374607431768211455".into())]]);
+    assert_eq!(
+        got.columns
+            .iter()
+            .map(|c| c.type_name.as_str())
+            .collect::<Vec<_>>()[..1],
+        ["TIME WITH TIME ZONE"]
+    );
+    assert_eq!(
+        got.rows,
+        vec![vec![
+            Cell::Text("12:34:56.789+05:30".into()),
+            Cell::Int(1),
+            Cell::Decimal("340282366920938463463374607431768211455".into())
+        ]]
+    );
     let cols = ["id", "u", "b", "tt", "un", "v", "extra"];
     // Every column: ingest.
-    let n = s.bulk_load(&spec(table("rv", "b"), &cols, 1000), &[], &mut Batches(vec![RowBatch { rows: a.clone(), bytes: 0 }].into_iter()), &|_| {}).await.unwrap();
+    let n = s
+        .bulk_load(
+            &spec(table("rv", "b"), &cols, 1000),
+            &[],
+            &mut Batches(
+                vec![RowBatch {
+                    rows: a.clone(),
+                    bytes: 0,
+                }]
+                .into_iter(),
+            ),
+            &|_| {},
+        )
+        .await
+        .unwrap();
     assert_eq!(n, 4);
     assert_eq!(differing(&mut s).await, 0);
     // Some of them (no union: GizmoSQL doesn't bind nested parameters): the prepared INSERT.
     run(&mut s, "DELETE FROM rv.b").await;
     let pick = [0usize, 1, 2, 3, 5];
     let names: Vec<&str> = pick.iter().map(|&i| cols[i]).collect();
-    let sub: Vec<Vec<Cell>> = a.iter().map(|r| pick.iter().map(|&i| r[i].clone()).collect()).collect();
-    s.bulk_load(&spec(table("rv", "b"), &names, 1000), &[], &mut Batches(vec![RowBatch { rows: sub, bytes: 0 }].into_iter()), &|_| {}).await.unwrap();
-    run(&mut s, "UPDATE rv.b SET un = (SELECT un FROM rv.a WHERE rv.a.id = rv.b.id)").await;
+    let sub: Vec<Vec<Cell>> = a
+        .iter()
+        .map(|r| pick.iter().map(|&i| r[i].clone()).collect())
+        .collect();
+    s.bulk_load(
+        &spec(table("rv", "b"), &names, 1000),
+        &[],
+        &mut Batches(
+            vec![RowBatch {
+                rows: sub,
+                bytes: 0,
+            }]
+            .into_iter(),
+        ),
+        &|_| {},
+    )
+    .await
+    .unwrap();
+    run(
+        &mut s,
+        "UPDATE rv.b SET un = (SELECT un FROM rv.a WHERE rv.a.id = rv.b.id)",
+    )
+    .await;
     assert_eq!(differing(&mut s).await, 0);
     // Nested: refused both ways, nothing loaded.
-    let r = s.read_batches(&ReadSpec { table: table("rv", "n"), columns: None, filter: None }, Arc::new(Mutex::new(Collect::default()))).await;
-    assert!(matches!(&r, Err(Error::Unsupported(m)) if m.contains("anidado")), "{r:?}");
-    let r = s.bulk_load(&spec(table("rv", "n"), &["id", "l"], 1000), &[], &mut Batches(vec![RowBatch { rows: vec![vec![Cell::Int(2), Cell::Json("[2]".into())]], bytes: 0 }].into_iter()), &|_| {}).await;
-    assert!(matches!(&r, Err(Error::Unsupported(m)) if m.contains("anidado")), "{r:?}");
-    assert_eq!(rows(&mut s, &table("rv", "n"), Some(vec!["id".into()])).await, vec![vec![Cell::Int(1)]]);
+    let r = s
+        .read_batches(
+            &ReadSpec {
+                table: table("rv", "n"),
+                columns: None,
+                filter: None,
+            },
+            Arc::new(Mutex::new(Collect::default())),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("anidado")),
+        "{r:?}"
+    );
+    let r = s
+        .bulk_load(
+            &spec(table("rv", "n"), &["id", "l"], 1000),
+            &[],
+            &mut Batches(
+                vec![RowBatch {
+                    rows: vec![vec![Cell::Int(2), Cell::Json("[2]".into())]],
+                    bytes: 0,
+                }]
+                .into_iter(),
+            ),
+            &|_| {},
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("anidado")),
+        "{r:?}"
+    );
+    assert_eq!(
+        rows(&mut s, &table("rv", "n"), Some(vec!["id".into()])).await,
+        vec![vec![Cell::Int(1)]]
+    );
 }
 
 /// DuckDB `INTERVAL` travels as its text: GizmoSQL's Arrow form (the
@@ -506,7 +907,9 @@ async fn flightsql_duckdb_types_as_text() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_duckdb_interval() {
-    let Some((mut s, _serial)) = connect().await else { return };
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
     setup(
         &mut s,
         "CREATE TABLE rv.a (id INT, iv INTERVAL); CREATE TABLE rv.b (id INT, iv INTERVAL);
@@ -522,16 +925,46 @@ async fn flightsql_duckdb_interval() {
     // DuckDB can't parse back its own text of the largest interval: the
     // load fails whole instead of storing another value.
     let load = |rows: Vec<Vec<Cell>>| Batches(vec![RowBatch { rows, bytes: 0 }].into_iter());
-    let r = s.bulk_load(&spec(table("rv", "b"), &["id", "iv"], 1000), &[], &mut load(a.clone()), &|_| {}).await;
-    assert!(matches!(&r, Err(e) if e.is_query() && e.to_string().contains("INTERVAL")), "{r:?}");
+    let r = s
+        .bulk_load(
+            &spec(table("rv", "b"), &["id", "iv"], 1000),
+            &[],
+            &mut load(a.clone()),
+            &|_| {},
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(e) if e.is_query() && e.to_string().contains("INTERVAL")),
+        "{r:?}"
+    );
     assert_eq!(count(&mut s, &table("rv", "b")).await, 0);
     run(&mut s, "DELETE FROM rv.a WHERE id = 2").await;
     let a: Vec<Vec<Cell>> = a.into_iter().filter(|r| r[0] != Cell::Int(2)).collect();
-    let n = s.bulk_load(&spec(table("rv", "b"), &["id", "iv"], 1000), &[], &mut load(a), &|_| {}).await.unwrap();
+    let n = s
+        .bulk_load(
+            &spec(table("rv", "b"), &["id", "iv"], 1000),
+            &[],
+            &mut load(a),
+            &|_| {},
+        )
+        .await
+        .unwrap();
     assert_eq!(n, 4);
     assert_eq!(differing(&mut s).await, 0);
-    let r = s.read_batches(&ReadSpec { table: table("rv", "n"), columns: None, filter: None }, Arc::new(Mutex::new(Collect::default()))).await;
-    assert!(matches!(&r, Err(Error::Unsupported(m)) if m.contains("anidado")), "{r:?}");
+    let r = s
+        .read_batches(
+            &ReadSpec {
+                table: table("rv", "n"),
+                columns: None,
+                filter: None,
+            },
+            Arc::new(Mutex::new(Collect::default())),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("anidado")),
+        "{r:?}"
+    );
 }
 
 /// Wide rows: a server batch past tonic's 4 MiB default, and one 6 MB
@@ -539,29 +972,60 @@ async fn flightsql_duckdb_interval() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_wide_rows() {
-    let Some((mut s, _serial)) = connect().await else { return };
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
     setup(&mut s, "CREATE TABLE rv.w AS SELECT range AS id, repeat('x', 4096) AS s FROM range(4096); CREATE TABLE rv.blob (id BIGINT, b BLOB);").await;
     assert_eq!(count(&mut s, &table("rv", "w")).await, 4096);
     let wide = rows(&mut s, &table("rv", "w"), None).await;
     assert!(wide.iter().all(|r| r[1] == Cell::Text("x".repeat(4096))));
     let big: Vec<u8> = (0..6_000_000u32).map(|i| (i % 251) as u8).collect();
-    let b = RowBatch { rows: vec![vec![Cell::Int(1), Cell::Bytes(big.clone())]], bytes: 0 };
-    s.bulk_load(&spec(table("rv", "blob"), &["id", "b"], 1000), &[], &mut Batches(vec![b].into_iter()), &|_| {}).await.unwrap();
-    assert_eq!(rows(&mut s, &table("rv", "blob"), None).await, vec![vec![Cell::Int(1), Cell::Bytes(big)]]);
+    let b = RowBatch {
+        rows: vec![vec![Cell::Int(1), Cell::Bytes(big.clone())]],
+        bytes: 0,
+    };
+    s.bulk_load(
+        &spec(table("rv", "blob"), &["id", "b"], 1000),
+        &[],
+        &mut Batches(vec![b].into_iter()),
+        &|_| {},
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rows(&mut s, &table("rv", "blob"), None).await,
+        vec![vec![Cell::Int(1), Cell::Bytes(big)]]
+    );
 }
 
 /// A window also closes at `commit_bytes`.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn flightsql_commit_bytes() {
-    let Some((mut s, _serial)) = connect().await else { return };
+    let Some((mut s, _serial)) = connect().await else {
+        return;
+    };
     setup(&mut s, "CREATE TABLE rv.blob (id BIGINT, b BLOB); CREATE TABLE rv.sub (id BIGINT, b BLOB, extra INT DEFAULT 1);").await;
-    let batches = || (0..6).map(|k| RowBatch { rows: (0..2).map(|i| vec![Cell::Int(k * 2 + i), Cell::Bytes(vec![7; 512 * 1024])]).collect(), bytes: 0 }).collect::<Vec<_>>();
+    let batches = || {
+        (0..6)
+            .map(|k| RowBatch {
+                rows: (0..2)
+                    .map(|i| vec![Cell::Int(k * 2 + i), Cell::Bytes(vec![7; 512 * 1024])])
+                    .collect(),
+                bytes: 0,
+            })
+            .collect::<Vec<_>>()
+    };
     for name in ["blob", "sub"] {
         let mut sp = spec(table("rv", name), &["id", "b"], 100_000);
         sp.commit_bytes = 2 * 1024 * 1024;
         let reports = Mutex::new(Vec::new());
-        let n = s.bulk_load(&sp, &[], &mut Batches(batches().into_iter()), &|n| reports.lock().unwrap().push(n)).await.unwrap();
+        let n = s
+            .bulk_load(&sp, &[], &mut Batches(batches().into_iter()), &|n| {
+                reports.lock().unwrap().push(n)
+            })
+            .await
+            .unwrap();
         assert_eq!(n, 12);
         assert_eq!(reports.into_inner().unwrap(), vec![4, 8, 12], "{name}");
     }

@@ -16,7 +16,7 @@
 //! - Firebird 4 and later take names of 63 characters
 //!   ([`firebird_generated_limit`]).
 
-use super::{exec, scalar, strings, rename_constraint, ClonePlan, Ddl, Rename};
+use super::{exec, rename_constraint, scalar, strings, ClonePlan, Ddl, Rename};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{DbObject, Driver, Error, Result, Session, TableSchema};
 
@@ -33,7 +33,10 @@ fn same_name(a: &str, b: &str) -> bool {
 /// `"schema".` before SQLite's catalog tables (`sqlite_master`,
 /// `sqlite_sequence`) of an attached database.
 fn sqlite_prefix(schema: Option<&str>) -> String {
-    schema.filter(|s| !s.is_empty()).map(|s| format!("{}.", quote_ident(Quote::Double, s))).unwrap_or_default()
+    schema
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("{}.", quote_ident(Quote::Double, s)))
+        .unwrap_or_default()
 }
 
 /// A name SQLite and libSQL refuse for a table: `sqlite_…` is theirs.
@@ -90,7 +93,9 @@ fn tokens(sql: &str, brackets: bool) -> Result<Vec<Token>> {
             it.next();
             let mut prev = ' ';
             loop {
-                let Some((_, d)) = it.next() else { return Err(unparsed()) };
+                let Some((_, d)) = it.next() else {
+                    return Err(unparsed());
+                };
                 if prev == '*' && d == '/' {
                     break;
                 }
@@ -106,7 +111,9 @@ fn tokens(sql: &str, brackets: bool) -> Result<Vec<Token>> {
         if let Some(q) = close {
             let mut v = String::new();
             let end = loop {
-                let Some((j, d)) = it.next() else { return Err(unparsed()) };
+                let Some((j, d)) = it.next() else {
+                    return Err(unparsed());
+                };
                 if d == q {
                     if q != ']' && it.next_if(|p| p.1 == q).is_some() {
                         v.push(q);
@@ -116,7 +123,11 @@ fn tokens(sql: &str, brackets: bool) -> Result<Vec<Token>> {
                 }
                 v.push(d);
             };
-            out.push(Token { tk: if c == '\'' { Tk::Str(v) } else { Tk::Quoted(v) }, start: i, end });
+            out.push(Token {
+                tk: if c == '\'' { Tk::Str(v) } else { Tk::Quoted(v) },
+                start: i,
+                end,
+            });
             continue;
         }
         if word_char(c) {
@@ -124,10 +135,18 @@ fn tokens(sql: &str, brackets: bool) -> Result<Vec<Token>> {
             while let Some((j, d)) = it.next_if(|p| word_char(p.1)) {
                 end = j + d.len_utf8();
             }
-            out.push(Token { tk: Tk::Word(sql[i..end].to_string()), start: i, end });
+            out.push(Token {
+                tk: Tk::Word(sql[i..end].to_string()),
+                start: i,
+                end,
+            });
             continue;
         }
-        out.push(Token { tk: Tk::Punct(c), start: i, end: i + c.len_utf8() });
+        out.push(Token {
+            tk: Tk::Punct(c),
+            start: i,
+            end: i + c.len_utf8(),
+        });
     }
     Ok(out)
 }
@@ -172,7 +191,10 @@ fn after_keyword(toks: &[Token], keyword: &str) -> Result<usize> {
         i += 1;
     }
     i += 1;
-    if is_word(toks.get(i), "IF") && is_word(toks.get(i + 1), "NOT") && is_word(toks.get(i + 2), "EXISTS") {
+    if is_word(toks.get(i), "IF")
+        && is_word(toks.get(i + 1), "NOT")
+        && is_word(toks.get(i + 2), "EXISTS")
+    {
         i += 3;
     }
     Ok(i)
@@ -197,8 +219,9 @@ fn splice(sql: &str, mut edits: Vec<(usize, usize, String)>) -> String {
 /// table: only one with a `SELECT` before it in the same parentheses does.
 fn table_refs(toks: &[Token], from: usize) -> Vec<(usize, usize)> {
     const CLAUSE: [&str; 21] = [
-        "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "ON", "GROUP", "ORDER", "HAVING", "UNION", "ROWS", "FETCH", "OFFSET",
-        "FIRST", "PLAN", "WINDOW", "USING", "LATERAL",
+        "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "ON", "GROUP",
+        "ORDER", "HAVING", "UNION", "ROWS", "FETCH", "OFFSET", "FIRST", "PLAN", "WINDOW", "USING",
+        "LATERAL",
     ];
     let selected = |k: usize| {
         let mut depth = 0i32;
@@ -246,7 +269,12 @@ fn table_refs(toks: &[Token], from: usize) -> Vec<(usize, usize)> {
 /// `REFERENCES` are another matter and stay. A subquery that reads the
 /// table itself (`FROM old`, `JOIN old`, `FROM a, old`: Firebird's CHECKs
 /// and computed columns) reads the clone.
-fn requalify_edits(toks: &[Token], from: usize, old: &str, new_bare: &str) -> Vec<(usize, usize, String)> {
+fn requalify_edits(
+    toks: &[Token],
+    from: usize,
+    old: &str,
+    new_bare: &str,
+) -> Vec<(usize, usize, String)> {
     let mut out = Vec::new();
     let tables = table_refs(toks, from);
     let mut k = from;
@@ -257,7 +285,10 @@ fn requalify_edits(toks: &[Token], from: usize, old: &str, new_bare: &str) -> Ve
         }
         // Past a table name of a FROM or JOIN (see `table_refs`).
         if let Some(&(_, end)) = tables.iter().find(|t| t.0 == k) {
-            if toks.get(end - 1).is_some_and(|t| matches!(&t.tk, Tk::Word(n) | Tk::Quoted(n) if same_name(n, old))) {
+            if toks
+                .get(end - 1)
+                .is_some_and(|t| matches!(&t.tk, Tk::Word(n) | Tk::Quoted(n) if same_name(n, old)))
+            {
                 out.push((toks[end - 1].start, toks[end - 1].end, new_bare.to_string()));
             }
             k = end;
@@ -291,14 +322,22 @@ pub(super) fn requalify(expr: &str, old: &str, new_bare: &str) -> String {
 /// Whether `expr` (a catalog expression) reads the table `old` in a
 /// subquery (`FROM old`, `JOIN old`).
 pub(super) fn reads_table(expr: &str, old: &str) -> bool {
-    let Ok(toks) = tokens(expr, false) else { return false };
-    table_refs(&toks, 0).iter().any(|&(_, end)| matches!(&toks[end - 1].tk, Tk::Word(n) | Tk::Quoted(n) if same_name(n, old)))
+    let Ok(toks) = tokens(expr, false) else {
+        return false;
+    };
+    table_refs(&toks, 0).iter().any(
+        |&(_, end)| matches!(&toks[end - 1].tk, Tk::Word(n) | Tk::Quoted(n) if same_name(n, old)),
+    )
 }
 
 /// Firebird: which of `names` an index or a constraint of the database
 /// already has (both unique per database, whatever the table).
 pub(super) fn firebird_taken_sql(names: &[String]) -> String {
-    let list = names.iter().map(|n| format!("'{}'", lit(n))).collect::<Vec<_>>().join(", ");
+    let list = names
+        .iter()
+        .map(|n| format!("'{}'", lit(n)))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "SELECT TRIM(RDB$INDEX_NAME) FROM RDB$INDICES WHERE RDB$INDEX_NAME IN ({list}) \
          UNION SELECT TRIM(RDB$CONSTRAINT_NAME) FROM RDB$RELATION_CONSTRAINTS WHERE RDB$CONSTRAINT_NAME IN ({list})"
@@ -334,7 +373,11 @@ fn rewrite_create_table(
     if !is_punct(toks.get(after), '(') {
         return Err(unparsed());
     }
-    let mut edits = vec![(toks[i].start, toks[after - 1].end, new_qualified.to_string())];
+    let mut edits = vec![(
+        toks[i].start,
+        toks[after - 1].end,
+        new_qualified.to_string(),
+    )];
     edits.extend(requalify_edits(&toks, after, old, new_bare));
     let mut generated: Vec<String> = Vec::new();
     let mut seqs: Vec<String> = Vec::new();
@@ -368,7 +411,9 @@ fn rewrite_create_table(
         }
         if at_start {
             at_start = false;
-            let constraint = ["CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"].iter().any(|w| is_word(Some(t), w));
+            let constraint = ["CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"]
+                .iter()
+                .any(|w| is_word(Some(t), w));
             column = if constraint { None } else { name_part(Some(t)) };
             continue;
         }
@@ -380,9 +425,14 @@ fn rewrite_create_table(
         if is_word(Some(t), "REFERENCES") {
             if let Some((parts, end)) = dotted(&toks, k + 1) {
                 let n = parts.len();
-                let same_schema = n == 1 || (n == 2 && schema.is_some_and(|s| same_name(s, &parts[0])));
+                let same_schema =
+                    n == 1 || (n == 2 && schema.is_some_and(|s| same_name(s, &parts[0])));
                 if same_schema && same_name(&parts[n - 1], old) {
-                    edits.push((toks[k + 1].start, toks[end - 1].end, if n == 1 { new_bare } else { new_qualified }.to_string()));
+                    edits.push((
+                        toks[k + 1].start,
+                        toks[end - 1].end,
+                        if n == 1 { new_bare } else { new_qualified }.to_string(),
+                    ));
                 }
             }
         }
@@ -400,13 +450,24 @@ fn rewrite_create_table(
     if !closed {
         return Err(unparsed());
     }
-    Ok(CreateRewrite { sql: splice(sql, edits), generated, sequences: seqs })
+    Ok(CreateRewrite {
+        sql: splice(sql, edits),
+        generated,
+        sequences: seqs,
+    })
 }
 
 /// A stored `CREATE [UNIQUE] INDEX name ON table …` with both names
 /// replaced, and the columns qualified with `old` (the original's name) in
 /// its expressions and `WHERE` qualified with `bare` (the clone's).
-fn rewrite_create_index(sql: &str, brackets: bool, index: &str, table: &str, old: &str, bare: &str) -> Result<String> {
+fn rewrite_create_index(
+    sql: &str,
+    brackets: bool,
+    index: &str,
+    table: &str,
+    old: &str,
+    bare: &str,
+) -> Result<String> {
     let toks = tokens(sql, brackets)?;
     let i = after_keyword(&toks, "INDEX")?;
     let (_, after) = dotted(&toks, i).ok_or_else(unparsed)?;
@@ -414,7 +475,10 @@ fn rewrite_create_index(sql: &str, brackets: bool, index: &str, table: &str, old
         return Err(unparsed());
     }
     let (_, end) = dotted(&toks, after + 1).ok_or_else(unparsed)?;
-    let mut edits = vec![(toks[i].start, toks[after - 1].end, index.to_string()), (toks[after + 1].start, toks[end - 1].end, table.to_string())];
+    let mut edits = vec![
+        (toks[i].start, toks[after - 1].end, index.to_string()),
+        (toks[after + 1].start, toks[end - 1].end, table.to_string()),
+    ];
     edits.extend(requalify_edits(&toks, end, old, bare));
     Ok(splice(sql, edits))
 }
@@ -454,8 +518,14 @@ pub(super) async fn native_ddl(
     if sqlite {
         let p = sqlite_prefix(schema);
         let taken = strings(s, &format!("SELECT name FROM {p}sqlite_master WHERE type = 'index' AND lower(name) = lower('{}')", lit(new_name))).await?;
-        if let Some(n) = taken.into_iter().next().and_then(|r| r.into_iter().next().flatten()) {
-            return Err(Error::State(format!("ya existe un objeto llamado «{n}» (un índice); elegí otro nombre")));
+        if let Some(n) = taken
+            .into_iter()
+            .next()
+            .and_then(|r| r.into_iter().next().flatten())
+        {
+            return Err(Error::State(format!(
+                "ya existe un objeto llamado «{n}» (un índice); elegí otro nombre"
+            )));
         }
     }
     let clone_q = qualified_name(Quote::Double, schema, new_name);
@@ -483,8 +553,15 @@ pub(super) async fn native_ddl(
         .into_iter()
         .next()
         .and_then(|r| r.into_iter().next().flatten())
-        .ok_or_else(|| Error::Unsupported("no se puede clonar: el motor no devolvió el CREATE de la tabla".into()))?;
-    if tokens(&create, sqlite).ok().is_some_and(|k| is_word(k.get(1), "VIRTUAL")) {
+        .ok_or_else(|| {
+            Error::Unsupported(
+                "no se puede clonar: el motor no devolvió el CREATE de la tabla".into(),
+            )
+        })?;
+    if tokens(&create, sqlite)
+        .ok()
+        .is_some_and(|k| is_word(k.get(1), "VIRTUAL"))
+    {
         return Err(Error::Unsupported(
             "no se puede clonar: es una tabla virtual (FTS, R*Tree…), cuyo contenido administra un módulo del motor; DBine clona tablas comunes".into(),
         ));
@@ -505,9 +582,16 @@ pub(super) async fn native_ddl(
         .await?;
         for literal in &found.sequences {
             let lt = tokens(literal, false)?;
-            let parts = dotted(&lt, 0).filter(|(_, end)| *end == lt.len()).map(|(p, _)| p).ok_or_else(unparsed)?;
+            let parts = dotted(&lt, 0)
+                .filter(|(_, end)| *end == lt.len())
+                .map(|(p, _)| p)
+                .ok_or_else(unparsed)?;
             let n = parts.len();
-            let seq_schema = if n >= 2 { parts[n - 2].clone() } else { schema.unwrap_or("main").to_string() };
+            let seq_schema = if n >= 2 {
+                parts[n - 2].clone()
+            } else {
+                schema.unwrap_or("main").to_string()
+            };
             let row = all
                 .iter()
                 .find(|r| {
@@ -515,8 +599,14 @@ pub(super) async fn native_ddl(
                         && r.get(1).cloned().flatten().is_some_and(|x| same_name(&x, &parts[n - 1]))
                 })
                 .ok_or_else(|| Error::Unsupported(format!("no se puede clonar: no se encontró la secuencia «{literal}» que usa la tabla")))?;
-            let num = |k: usize| row.get(k).cloned().flatten().and_then(|v| v.trim().parse::<i128>().ok());
-            let (Some(first), Some(min), Some(max), Some(inc)) = (num(2), num(3), num(4), num(5)) else {
+            let num = |k: usize| {
+                row.get(k)
+                    .cloned()
+                    .flatten()
+                    .and_then(|v| v.trim().parse::<i128>().ok())
+            };
+            let (Some(first), Some(min), Some(max), Some(inc)) = (num(2), num(3), num(4), num(5))
+            else {
                 return Err(unparsed());
             };
             let cycle = row.get(6).cloned().flatten().as_deref() == Some("true");
@@ -530,15 +620,21 @@ pub(super) async fn native_ddl(
                 }
                 start = if inc > 0 { min } else { max };
             }
-            let sch = row.first().cloned().flatten().unwrap_or_else(|| "main".into());
+            let sch = row
+                .first()
+                .cloned()
+                .flatten()
+                .unwrap_or_else(|| "main".into());
             // DuckDB's nextval('…') doesn't undo a doubled `"` inside a
             // quoted name: the clone's sequence gets none.
             let (base, _) = rename_constraint(&seq_name, &t.name, &new_name.replace('"', "_"), 0);
             let base = base.replace('"', "_");
             let mut new_seq = base.clone();
             let mut k = 1;
-            while objects.iter().any(|o| same_name(&o.name, &new_seq) && o.schema.as_deref().is_none_or(|x| same_name(x, &sch)))
-                || renames.iter().any(|r| same_name(&r.to, &new_seq))
+            while objects.iter().any(|o| {
+                same_name(&o.name, &new_seq)
+                    && o.schema.as_deref().is_none_or(|x| same_name(x, &sch))
+            }) || renames.iter().any(|r| same_name(&r.to, &new_seq))
             {
                 k += 1;
                 new_seq = format!("{base}_{k}");
@@ -552,10 +648,22 @@ pub(super) async fn native_ddl(
                 format!("DROP SEQUENCE IF EXISTS {q}"),
             ));
             map.push((literal.clone(), q));
-            renames.push(Rename { from: seq_name, to: new_seq, shortened: false });
+            renames.push(Rename {
+                from: seq_name,
+                to: new_seq,
+                shortened: false,
+            });
         }
     }
-    let table = rewrite_create_table(&create, sqlite, schema, &t.name, &clone_q, &clone_bare, &map)?;
+    let table = rewrite_create_table(
+        &create,
+        sqlite,
+        schema,
+        &t.name,
+        &clone_q,
+        &clone_bare,
+        &map,
+    )?;
 
     // Index names are the schema's, not the table's: one another object
     // already has is avoided now, not found out after the rows.
@@ -583,35 +691,64 @@ pub(super) async fn native_ddl(
     let mut moved = Vec::new();
     for r in strings(s, &index_sql).await? {
         let mut r = r.into_iter();
-        let (Some(name), Some(sql)) = (r.next().flatten(), r.next().flatten()) else { continue };
+        let (Some(name), Some(sql)) = (r.next().flatten(), r.next().flatten()) else {
+            continue;
+        };
         if !with_indexes {
-            let unique = tokens(&sql, sqlite).ok().is_some_and(|k| is_word(k.get(1), "UNIQUE"));
+            let unique = tokens(&sql, sqlite)
+                .ok()
+                .is_some_and(|k| is_word(k.get(1), "UNIQUE"));
             left_out.push((name, unique));
             continue;
         }
         let (base, _) = rename_constraint(&name, &t.name, new_name, 0);
         let mut to = base.clone();
         let mut k = 1;
-        while taken.iter().any(|x| same_name(x, &to)) || renames.iter().any(|r| same_name(&r.to, &to)) {
+        while taken.iter().any(|x| same_name(x, &to))
+            || renames.iter().any(|r| same_name(&r.to, &to))
+        {
             k += 1;
             to = format!("{base}_{k}");
         }
         if to != base {
-            moved.push(format!("el índice «{name}» del clon se llama «{to}»: «{base}» ya existe en el esquema"));
+            moved.push(format!(
+                "el índice «{name}» del clon se llama «{to}»: «{base}» ya existe en el esquema"
+            ));
         }
         // SQLite: the index's name carries the schema, the table's can't;
         // DuckDB: the other way round.
         let (index, on) = if sqlite {
-            (qualified_name(Quote::Double, schema, &to), clone_bare.clone())
+            (
+                qualified_name(Quote::Double, schema, &to),
+                clone_bare.clone(),
+            )
         } else {
             (quote_ident(Quote::Double, &to), clone_q.clone())
         };
-        indexes.push(rewrite_create_index(&sql, sqlite, &index, &on, &t.name, &clone_bare)?);
-        renames.push(Rename { from: name, to, shortened: false });
+        indexes.push(rewrite_create_index(
+            &sql,
+            sqlite,
+            &index,
+            &on,
+            &t.name,
+            &clone_bare,
+        )?);
+        renames.push(Rename {
+            from: name,
+            to,
+            shortened: false,
+        });
     }
     let mut notes = moved;
     if !left_out.is_empty() {
-        let names = |u: bool| left_out.iter().filter(|(_, x)| *x == u).map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ");
+        let names = |u: bool| {
+            left_out
+                .iter()
+                .filter(|(_, x)| *x == u)
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         let (plain, unique) = (names(false), names(true));
         let mut what = Vec::new();
         if !plain.is_empty() {
@@ -625,7 +762,14 @@ pub(super) async fn native_ddl(
             what.join(" ni ")
         ));
     }
-    Ok(Some(Native { before, create: table.sql, indexes, generated: table.generated, renames, notes }))
+    Ok(Some(Native {
+        before,
+        create: table.sql,
+        indexes,
+        generated: table.generated,
+        renames,
+        notes,
+    }))
 }
 
 /// Puts `n` into the plan and the DDL: its statements instead of the ones
@@ -643,7 +787,12 @@ pub(super) fn apply(n: Native, ddl: &mut Ddl, plan: &mut ClonePlan, notes: &mut 
     }
     let mut hidden = Vec::new();
     for g in &n.generated {
-        match plan.table.columns.iter_mut().find(|c| same_name(&c.name, g)) {
+        match plan
+            .table
+            .columns
+            .iter_mut()
+            .find(|c| same_name(&c.name, g))
+        {
             // DuckDB reports a computed column as one with a DEFAULT.
             Some(c) => {
                 let expr = c.default_value.take().unwrap_or_default();
@@ -654,7 +803,10 @@ pub(super) fn apply(n: Native, ddl: &mut Ddl, plan: &mut ClonePlan, notes: &mut 
         }
     }
     if !hidden.is_empty() {
-        notes.push(format!("columnas calculadas por el motor (no se copian, se recalculan): {}", hidden.join(", ")));
+        notes.push(format!(
+            "columnas calculadas por el motor (no se copian, se recalculan): {}",
+            hidden.join(", ")
+        ));
     }
     // Unique constraints are part of the CREATE here: only explicit indexes
     // are left out without indexes.
@@ -669,17 +821,39 @@ pub(super) fn apply(n: Native, ddl: &mut Ddl, plan: &mut ClonePlan, notes: &mut 
 /// handed out (past the largest row, after deletes). The clone's row gets
 /// the original's value. No row: no AUTOINCREMENT, and new rowids follow
 /// the largest one, same as in the original.
-pub(super) async fn copy_sqlite_sequence(src: &mut dyn Session, tgt: &mut dyn Session, original: &TableSchema, clone: &TableSchema) -> Result<()> {
+pub(super) async fn copy_sqlite_sequence(
+    src: &mut dyn Session,
+    tgt: &mut dyn Session,
+    original: &TableSchema,
+    clone: &TableSchema,
+) -> Result<()> {
     let p = sqlite_prefix(original.schema.as_deref());
-    let Ok(Some(seq)) = scalar(src, &format!("SELECT seq FROM {p}sqlite_sequence WHERE name = '{}'", lit(&original.name))).await else {
+    let Ok(Some(seq)) = scalar(
+        src,
+        &format!(
+            "SELECT seq FROM {p}sqlite_sequence WHERE name = '{}'",
+            lit(&original.name)
+        ),
+    )
+    .await
+    else {
         return Ok(());
     };
     let c = lit(&clone.name);
     let step = async {
-        exec(tgt, &format!("DELETE FROM {p}sqlite_sequence WHERE name = '{c}'")).await?;
-        exec(tgt, &format!("INSERT INTO {p}sqlite_sequence (name, seq) VALUES ('{c}', {seq})")).await
+        exec(
+            tgt,
+            &format!("DELETE FROM {p}sqlite_sequence WHERE name = '{c}'"),
+        )
+        .await?;
+        exec(
+            tgt,
+            &format!("INSERT INTO {p}sqlite_sequence (name, seq) VALUES ('{c}', {seq})"),
+        )
+        .await
     };
-    step.await.map_err(|e| Error::Query(format!("identidad: {e}")))
+    step.await
+        .map_err(|e| Error::Query(format!("identidad: {e}")))
 }
 
 /// A Firebird identity column: its generator, `ALWAYS` or `BY DEFAULT`,
@@ -697,8 +871,15 @@ impl FbIdentity {
     /// Firebird 3 doesn't take it, and has no other).
     fn clause(&self) -> String {
         let kind = if self.always { "ALWAYS" } else { "BY DEFAULT" };
-        let step = if self.increment == 1 { String::new() } else { format!(" INCREMENT BY {}", self.increment) };
-        format!("GENERATED {kind} AS IDENTITY (START WITH {}{step})", self.initial)
+        let step = if self.increment == 1 {
+            String::new()
+        } else {
+            format!(" INCREMENT BY {}", self.increment)
+        };
+        format!(
+            "GENERATED {kind} AS IDENTITY (START WITH {}{step})",
+            self.initial
+        )
     }
 
     fn describe(&self) -> String {
@@ -724,27 +905,52 @@ async fn fb_identity(s: &mut dyn Session, table: &str, col: &str) -> Result<Opti
     )
     .await
     .map_err(|e| Error::Query(format!("identidad: {e}")))?;
-    let Some(r) = rows.into_iter().next() else { return Ok(None) };
-    let num = |k: usize| r.get(k).cloned().flatten().and_then(|v| v.trim().parse::<i64>().ok());
+    let Some(r) = rows.into_iter().next() else {
+        return Ok(None);
+    };
+    let num = |k: usize| {
+        r.get(k)
+            .cloned()
+            .flatten()
+            .and_then(|v| v.trim().parse::<i64>().ok())
+    };
     let (Some(generator), Some(initial)) = (r.first().cloned().flatten(), num(2)) else {
-        return Err(Error::Unsupported(format!("no se puede clonar: el motor no informa las opciones de la identidad de «{col}»")));
+        return Err(Error::Unsupported(format!(
+            "no se puede clonar: el motor no informa las opciones de la identidad de «{col}»"
+        )));
     };
     // Firebird 3: no ALWAYS, and the type may be NULL (BY DEFAULT).
-    Ok(Some(FbIdentity { generator, always: num(1) == Some(0), initial, increment: num(3).filter(|i| *i != 0).unwrap_or(1) }))
+    Ok(Some(FbIdentity {
+        generator,
+        always: num(1) == Some(0),
+        initial,
+        increment: num(3).filter(|i| *i != 0).unwrap_or(1),
+    }))
 }
 
 /// Firebird: the CREATE the catalog gives says `GENERATED BY DEFAULT AS
 /// IDENTITY`; each identity column gets the original's kind (`ALWAYS`
 /// stays `ALWAYS`: the load says `OVERRIDING SYSTEM VALUE`), `START WITH`
 /// and `INCREMENT BY`. A column it can't find in the CREATE is refused.
-pub(super) async fn firebird_identity_ddl(src: &mut dyn Session, original: &TableSchema, clone: &TableSchema, ddl: &mut Ddl) -> Result<()> {
+pub(super) async fn firebird_identity_ddl(
+    src: &mut dyn Session,
+    original: &TableSchema,
+    clone: &TableSchema,
+    ddl: &mut Ddl,
+) -> Result<()> {
     for c in original.columns.iter().filter(|c| c.auto_increment) {
         let Some(id) = fb_identity(src, &original.name, &c.name).await? else {
-            return Err(Error::Unsupported(format!("no se puede clonar: no se encontró el generador de la identidad de «{}»", c.name)));
+            return Err(Error::Unsupported(format!(
+                "no se puede clonar: no se encontró el generador de la identidad de «{}»",
+                c.name
+            )));
         };
         // A counter the clone couldn't continue (the next value is past
         // BIGINT) is refused now, before anything is created.
-        let value = format!("SELECT GEN_ID({}, 0) FROM RDB$DATABASE", quote_ident(Quote::Double, &id.generator));
+        let value = format!(
+            "SELECT GEN_ID({}, 0) FROM RDB$DATABASE",
+            quote_ident(Quote::Double, &id.generator)
+        );
         if let Some(current) = fb_number(src, &value).await? {
             if i64::try_from(current + i128::from(id.increment)).is_err() {
                 return Err(Error::Unsupported(format!(
@@ -754,11 +960,23 @@ pub(super) async fn firebird_identity_ddl(src: &mut dyn Session, original: &Tabl
             }
         }
         let col = clone.columns.iter().find(|x| x.name == c.name).unwrap_or(c);
-        let needle = format!("{} {} GENERATED BY DEFAULT AS IDENTITY", quote_ident(Quote::Double, &col.name), col.data_type);
+        let needle = format!(
+            "{} {} GENERATED BY DEFAULT AS IDENTITY",
+            quote_ident(Quote::Double, &col.name),
+            col.data_type
+        );
         if !ddl.create.contains(&needle) {
-            return Err(Error::Unsupported(format!("no se puede clonar: no se pudo dar a «{}» la identidad del original", c.name)));
+            return Err(Error::Unsupported(format!(
+                "no se puede clonar: no se pudo dar a «{}» la identidad del original",
+                c.name
+            )));
         }
-        let with = format!("{} {} {}", quote_ident(Quote::Double, &col.name), col.data_type, id.clause());
+        let with = format!(
+            "{} {} {}",
+            quote_ident(Quote::Double, &col.name),
+            col.data_type,
+            id.clause()
+        );
         ddl.create = ddl.create.replacen(&needle, &with, 1);
     }
     Ok(())
@@ -772,7 +990,13 @@ pub(super) async fn firebird_identity_ddl(src: &mut dyn Session, original: &Tabl
 /// either. Then the clone's kind and options are checked against the
 /// original's: a difference is refused. A column without a generator:
 /// past the largest.
-pub(super) async fn firebird_identity(src: &mut dyn Session, tgt: &mut dyn Session, original: &TableSchema, clone: &TableSchema, name: &str) -> Result<Option<String>> {
+pub(super) async fn firebird_identity(
+    src: &mut dyn Session,
+    tgt: &mut dyn Session,
+    original: &TableSchema,
+    clone: &TableSchema,
+    name: &str,
+) -> Result<Option<String>> {
     let fail = |e: Error| Error::Query(format!("identidad: {e}"));
     for col in clone.columns.iter().filter(|c| c.auto_increment) {
         let col_q = quote_ident(Quote::Double, &col.name);
@@ -790,16 +1014,31 @@ pub(super) async fn firebird_identity(src: &mut dyn Session, tgt: &mut dyn Sessi
         let (og, cg) = match (og, cg) {
             (Some(o), Some(c)) => (o, c),
             (None, None) => {
-                if let Some(max) = fb_number(tgt, &format!("SELECT MAX({col_q}) FROM {name}")).await? {
+                if let Some(max) =
+                    fb_number(tgt, &format!("SELECT MAX({col_q}) FROM {name}")).await?
+                {
                     exec(tgt, &restart(max + 1)?).await.map_err(fail)?;
                 }
                 continue;
             }
-            _ => return Err(Error::State(format!("la identidad de «{}» no quedó como la del original; no se clona", col.name))),
+            _ => {
+                return Err(Error::State(format!(
+                    "la identidad de «{}» no quedó como la del original; no se clona",
+                    col.name
+                )))
+            }
         };
-        let value = |g: &str| format!("SELECT GEN_ID({}, 0) FROM RDB$DATABASE", quote_ident(Quote::Double, g));
-        let current =
-            fb_number(src, &value(&og.generator)).await?.ok_or_else(|| Error::Query("identidad: no se pudo leer el contador del original".into()))?;
+        let value = |g: &str| {
+            format!(
+                "SELECT GEN_ID({}, 0) FROM RDB$DATABASE",
+                quote_ident(Quote::Double, g)
+            )
+        };
+        let current = fb_number(src, &value(&og.generator))
+            .await?
+            .ok_or_else(|| {
+                Error::Query("identidad: no se pudo leer el contador del original".into())
+            })?;
         let mut at = current + i128::from(og.increment);
         let mut done = false;
         for _ in 0..2 {
@@ -814,10 +1053,14 @@ pub(super) async fn firebird_identity(src: &mut dyn Session, tgt: &mut dyn Sessi
             }
         }
         if !done {
-            return Err(Error::Query(format!("identidad: el contador del clon no quedó igual al del original ({current})")));
+            return Err(Error::Query(format!(
+                "identidad: el contador del clon no quedó igual al del original ({current})"
+            )));
         }
         let after = fb_identity(tgt, &clone.name, &col.name).await?;
-        let same = after.as_ref().is_some_and(|a| a.always == og.always && a.initial == og.initial && a.increment == og.increment);
+        let same = after.as_ref().is_some_and(|a| {
+            a.always == og.always && a.initial == og.initial && a.increment == og.increment
+        });
         if !same {
             return Err(Error::State(format!(
                 "la identidad de «{}» no quedó como la del original ({} en el original, {} en el clon); no se clona",
@@ -834,10 +1077,19 @@ pub(super) async fn firebird_identity(src: &mut dyn Session, tgt: &mut dyn Sessi
 /// must never go through `f64`; `i128` so stepping past BIGINT is seen,
 /// not overflowed.
 async fn fb_number(s: &mut dyn Session, sql: &str) -> Result<Option<i128>> {
-    let v = strings(s, sql).await.map_err(|e| Error::Query(format!("identidad: {e}")))?.into_iter().next().and_then(|r| r.into_iter().next().flatten());
+    let v = strings(s, sql)
+        .await
+        .map_err(|e| Error::Query(format!("identidad: {e}")))?
+        .into_iter()
+        .next()
+        .and_then(|r| r.into_iter().next().flatten());
     match v {
         None => Ok(None),
-        Some(v) => v.trim().parse::<i128>().map(Some).map_err(|_| Error::Query(format!("identidad: el motor devolvió un contador que no se entiende («{v}»)"))),
+        Some(v) => v.trim().parse::<i128>().map(Some).map_err(|_| {
+            Error::Query(format!(
+                "identidad: el motor devolvió un contador que no se entiende («{v}»)"
+            ))
+        }),
     }
 }
 
@@ -845,12 +1097,18 @@ async fn fb_number(s: &mut dyn Session, sql: &str) -> Result<Option<i128>> {
 /// (characters; counted here in bytes, which is never longer), 31 bytes
 /// before or when the version can't be read.
 pub(super) async fn firebird_generated_limit(s: &mut dyn Session) -> usize {
-    let v = strings(s, "SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE")
-        .await
-        .ok()
-        .and_then(|r| r.into_iter().next())
-        .and_then(|r| r.into_iter().next().flatten());
-    match v.as_deref().and_then(|v| v.trim().split('.').next()?.parse::<u32>().ok()) {
+    let v = strings(
+        s,
+        "SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE",
+    )
+    .await
+    .ok()
+    .and_then(|r| r.into_iter().next())
+    .and_then(|r| r.into_iter().next().flatten());
+    match v
+        .as_deref()
+        .and_then(|v| v.trim().split('.').next()?.parse::<u32>().ok())
+    {
         Some(m) if m >= 4 => 63,
         _ => 31,
     }
@@ -893,8 +1151,17 @@ mod tests {
         TableSchema {
             kind: "table".into(),
             name: name.into(),
-            columns: vec![ColumnDef { name: "ID".into(), data_type: "INTEGER".into(), ..Default::default() }],
-            indexes: vec![dbine_driver::IndexDef { name: "UQ_A".into(), columns: vec!["ID".into()], unique: true, ..Default::default() }],
+            columns: vec![ColumnDef {
+                name: "ID".into(),
+                data_type: "INTEGER".into(),
+                ..Default::default()
+            }],
+            indexes: vec![dbine_driver::IndexDef {
+                name: "UQ_A".into(),
+                columns: vec!["ID".into()],
+                unique: true,
+                ..Default::default()
+            }],
             ..Default::default()
         }
     }
@@ -906,7 +1173,9 @@ mod tests {
         let n63 = format!("{}í", "c".repeat(62));
         assert_eq!((n63.chars().count(), n63.len()), (63, 64));
         assert!(super::super::plan_clone(&fb, &table("T"), &n63).is_ok());
-        let e = super::super::plan_clone(&fb, &table("T"), &format!("{n63}x")).unwrap_err().to_string();
+        let e = super::super::plan_clone(&fb, &table("T"), &format!("{n63}x"))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("63 caracteres"), "{e}");
     }
 
@@ -918,20 +1187,49 @@ mod tests {
 
     #[test]
     fn firebird_computed_columns_are_not_loaded() {
-        let c = ColumnDef { name: "DOBLE".into(), data_type: "COMPUTED BY (A * 2)".into(), ..Default::default() };
+        let c = ColumnDef {
+            name: "DOBLE".into(),
+            data_type: "COMPUTED BY (A * 2)".into(),
+            ..Default::default()
+        };
         assert!(super::super::generated(&c, "standard"));
     }
 
     #[test]
     fn sqlite_create_keeps_everything_but_the_name() {
         let sql = "CREATE TABLE \"clonev clí-entes x\" (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  email TEXT NOT NULL COLLATE NOCASE, -- comment, with REFERENCES x\n  \"nom bre\" VARCHAR(80) DEFAULT 'sin (nombre), ok',\n  monto NUMERIC(12,2) CHECK (monto >= 0),\n  padre INTEGER REFERENCES clonev_padres(id) ON DELETE CASCADE,\n  jefe INTEGER REFERENCES \"CLONEV CLÍ-ENTES X\"(id),\n  [doble] AS (monto * 2) STORED,\n  t GENERATED ALWAYS AS (CAST(monto AS TEXT)),\n  CONSTRAINT uq_email UNIQUE (email)\n) STRICT";
-        let r = rewrite_create_table(sql, true, Some("main"), "clonev clí-entes x", "\"main\".\"c2\"", "\"c2\"", &[]).unwrap();
-        assert!(r.sql.starts_with("CREATE TABLE \"main\".\"c2\" (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,"), "{}", r.sql);
-        assert!(r.sql.contains("email TEXT NOT NULL COLLATE NOCASE, -- comment, with REFERENCES x"));
-        assert!(r.sql.contains("REFERENCES clonev_padres(id) ON DELETE CASCADE"));
+        let r = rewrite_create_table(
+            sql,
+            true,
+            Some("main"),
+            "clonev clí-entes x",
+            "\"main\".\"c2\"",
+            "\"c2\"",
+            &[],
+        )
+        .unwrap();
+        assert!(
+            r.sql.starts_with(
+                "CREATE TABLE \"main\".\"c2\" (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            ),
+            "{}",
+            r.sql
+        );
+        assert!(r
+            .sql
+            .contains("email TEXT NOT NULL COLLATE NOCASE, -- comment, with REFERENCES x"));
+        assert!(r
+            .sql
+            .contains("REFERENCES clonev_padres(id) ON DELETE CASCADE"));
         // The self reference (any case) points to the clone.
-        assert!(r.sql.contains("jefe INTEGER REFERENCES \"c2\"(id),"), "{}", r.sql);
-        assert!(r.sql.contains("CONSTRAINT uq_email UNIQUE (email)\n) STRICT"));
+        assert!(
+            r.sql.contains("jefe INTEGER REFERENCES \"c2\"(id),"),
+            "{}",
+            r.sql
+        );
+        assert!(r
+            .sql
+            .contains("CONSTRAINT uq_email UNIQUE (email)\n) STRICT"));
         assert_eq!(r.generated, ["doble", "t"]);
         assert!(r.sequences.is_empty());
 
@@ -941,15 +1239,36 @@ mod tests {
             "CREATE UNIQUE INDEX \"main\".\"c2_ux\" ON \"c2\" (padre, \"nom bre\" COLLATE NOCASE) WHERE padre IS NOT NULL"
         );
         // Not a CREATE it understands: refused, never guessed.
-        assert!(rewrite_create_table("CREATE VIEW v AS SELECT 1", true, None, "v", "x", "x", &[]).is_err());
-        assert!(rewrite_create_table("CREATE TABLE t (a 'unterminated)", true, None, "t", "x", "x", &[]).is_err());
+        assert!(
+            rewrite_create_table("CREATE VIEW v AS SELECT 1", true, None, "v", "x", "x", &[])
+                .is_err()
+        );
+        assert!(rewrite_create_table(
+            "CREATE TABLE t (a 'unterminated)",
+            true,
+            None,
+            "t",
+            "x",
+            "x",
+            &[]
+        )
+        .is_err());
     }
 
     #[test]
     fn columns_qualified_with_the_table_name_are_requalified() {
         // SQLite / libSQL: CHECK, computed column, self reference.
         let sql = "CREATE TABLE tq (k TEXT PRIMARY KEY, v INT, w INT AS (TQ.v * 2), p INT REFERENCES tq(k), CHECK (tq.v >= 0), CHECK (\"tq\".v < main.tq.w)) WITHOUT ROWID";
-        let r = rewrite_create_table(sql, true, Some("main"), "tq", "\"main\".\"tq2\"", "\"tq2\"", &[]).unwrap();
+        let r = rewrite_create_table(
+            sql,
+            true,
+            Some("main"),
+            "tq",
+            "\"main\".\"tq2\"",
+            "\"tq2\"",
+            &[],
+        )
+        .unwrap();
         assert_eq!(
             r.sql,
             "CREATE TABLE \"main\".\"tq2\" (k TEXT PRIMARY KEY, v INT, w INT AS (\"tq2\".v * 2), p INT REFERENCES \"tq2\"(k), CHECK (\"tq2\".v >= 0), CHECK (\"tq2\".v < main.\"tq2\".w)) WITHOUT ROWID"
@@ -961,15 +1280,38 @@ mod tests {
         assert_eq!(r.sql, "CREATE TABLE \"tq2\" (tq INT, v INT REFERENCES tq.other(id), CHECK (tq > 0 AND v <> 'tq.v'))");
         // DuckDB keeps the qualifier in its stored CREATE.
         let sql = "CREATE TABLE tq(k VARCHAR PRIMARY KEY, v INTEGER, CHECK((tq.v >= 0)));";
-        let r = rewrite_create_table(sql, false, Some("main"), "tq", "main.\"tq2\"", "\"tq2\"", &[]).unwrap();
-        assert_eq!(r.sql, "CREATE TABLE main.\"tq2\"(k VARCHAR PRIMARY KEY, v INTEGER, CHECK((\"tq2\".v >= 0)));");
+        let r = rewrite_create_table(
+            sql,
+            false,
+            Some("main"),
+            "tq",
+            "main.\"tq2\"",
+            "\"tq2\"",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            r.sql,
+            "CREATE TABLE main.\"tq2\"(k VARCHAR PRIMARY KEY, v INTEGER, CHECK((\"tq2\".v >= 0)));"
+        );
         // Partial and expression indexes.
         assert_eq!(
-            rewrite_create_index("CREATE INDEX ix_tq ON tq (lower(tq.k)) WHERE tq.v > 0", true, "\"ix_tq2\"", "\"tq2\"", "tq", "\"tq2\"").unwrap(),
+            rewrite_create_index(
+                "CREATE INDEX ix_tq ON tq (lower(tq.k)) WHERE tq.v > 0",
+                true,
+                "\"ix_tq2\"",
+                "\"tq2\"",
+                "tq",
+                "\"tq2\""
+            )
+            .unwrap(),
             "CREATE INDEX \"ix_tq2\" ON \"tq2\" (lower(\"tq2\".k)) WHERE \"tq2\".v > 0"
         );
         // Firebird: the catalog's expressions.
-        assert_eq!(requalify("(ADV4.V >= 0 AND adv4.\"W\" < 9)", "ADV4", "\"ADV4_C\""), "(\"ADV4_C\".V >= 0 AND \"ADV4_C\".\"W\" < 9)");
+        assert_eq!(
+            requalify("(ADV4.V >= 0 AND adv4.\"W\" < 9)", "ADV4", "\"ADV4_C\""),
+            "(\"ADV4_C\".V >= 0 AND \"ADV4_C\".\"W\" < 9)"
+        );
         assert_eq!(requalify("ADV4 > 0", "ADV4", "\"ADV4_C\""), "ADV4 > 0");
         // A subquery that reads the table itself reads the clone.
         assert_eq!(
@@ -977,7 +1319,11 @@ mod tests {
             "NOT EXISTS (SELECT 1 FROM \"ADV5_C\" X WHERE X.A = \"ADV5_C\".A AND X.ID <> \"ADV5_C\".ID)"
         );
         assert_eq!(
-            requalify("((SELECT COUNT(*) FROM ADV6 Z WHERE Z.P = ADV6.ID))", "ADV6", "\"ADV6_C\""),
+            requalify(
+                "((SELECT COUNT(*) FROM ADV6 Z WHERE Z.P = ADV6.ID))",
+                "ADV6",
+                "\"ADV6_C\""
+            ),
             "((SELECT COUNT(*) FROM \"ADV6_C\" Z WHERE Z.P = \"ADV6_C\".ID))"
         );
         assert_eq!(
@@ -987,16 +1333,37 @@ mod tests {
         assert!(reads_table("(SELECT 1 FROM adv6)", "ADV6"));
         // EXTRACT / SUBSTRING's FROM names no table; a table named like
         // another, or a column named like the table, stays.
-        assert_eq!(requalify("EXTRACT(YEAR FROM ADV6.D) > 0 AND SUBSTRING(ADV6 FROM 1) <> ''", "ADV6", "\"ADV6_C\""), "EXTRACT(YEAR FROM \"ADV6_C\".D) > 0 AND SUBSTRING(ADV6 FROM 1) <> ''");
+        assert_eq!(
+            requalify(
+                "EXTRACT(YEAR FROM ADV6.D) > 0 AND SUBSTRING(ADV6 FROM 1) <> ''",
+                "ADV6",
+                "\"ADV6_C\""
+            ),
+            "EXTRACT(YEAR FROM \"ADV6_C\".D) > 0 AND SUBSTRING(ADV6 FROM 1) <> ''"
+        );
         assert!(!reads_table("EXTRACT(YEAR FROM ADV6) > 0", "ADV6"));
-        assert_eq!(requalify("(SELECT 1 FROM ADV66 WHERE ADV66.ADV6 = 1)", "ADV6", "\"ADV6_C\""), "(SELECT 1 FROM ADV66 WHERE ADV66.ADV6 = 1)");
+        assert_eq!(
+            requalify(
+                "(SELECT 1 FROM ADV66 WHERE ADV66.ADV6 = 1)",
+                "ADV6",
+                "\"ADV6_C\""
+            ),
+            "(SELECT 1 FROM ADV66 WHERE ADV66.ADV6 = 1)"
+        );
     }
 
     #[test]
     fn firebird_plan_requalifies_the_catalog_expressions() {
         let mut t = table("ADV4");
-        t.checks = vec![dbine_driver::CheckDef { name: Some("CK_ADV4_V".into()), expression: "(ADV4.ID >= 0)".into() }];
-        t.columns.push(ColumnDef { name: "D".into(), data_type: "COMPUTED BY (ADV4.ID * 2)".into(), ..Default::default() });
+        t.checks = vec![dbine_driver::CheckDef {
+            name: Some("CK_ADV4_V".into()),
+            expression: "(ADV4.ID >= 0)".into(),
+        }];
+        t.columns.push(ColumnDef {
+            name: "D".into(),
+            data_type: "COMPUTED BY (ADV4.ID * 2)".into(),
+            ..Default::default()
+        });
         t.indexes.push(dbine_driver::IndexDef {
             name: "IX_ADV4_E".into(),
             columns: vec!["(ADV4.ID + 1)".into()],
@@ -1007,38 +1374,99 @@ mod tests {
         let p = super::super::plan_clone(&d("firebird"), &t, "ADV4_C").unwrap();
         assert_eq!(p.table.checks[0].expression, "(\"ADV4_C\".ID >= 0)");
         assert_eq!(p.table.checks[0].name.as_deref(), Some("CK_ADV4_C_V"));
-        assert_eq!(p.table.columns[1].data_type, "COMPUTED BY (\"ADV4_C\".ID * 2)");
+        assert_eq!(
+            p.table.columns[1].data_type,
+            "COMPUTED BY (\"ADV4_C\".ID * 2)"
+        );
         assert_eq!(p.table.indexes[1].columns, ["(\"ADV4_C\".ID + 1)"]);
-        assert_eq!(p.table.indexes[1].filter.as_deref(), Some("\"ADV4_C\".ID > 0"));
-        assert!(!p.notes.iter().any(|n| n.contains("misma tabla")), "{:?}", p.notes);
+        assert_eq!(
+            p.table.indexes[1].filter.as_deref(),
+            Some("\"ADV4_C\".ID > 0")
+        );
+        assert!(
+            !p.notes.iter().any(|n| n.contains("misma tabla")),
+            "{:?}",
+            p.notes
+        );
         // A CHECK or a computed column that reads the table reads the clone.
         let mut t5 = table("ADV5");
-        t5.checks = vec![dbine_driver::CheckDef { name: Some("CK_ADV5_U".into()), expression: "(NOT EXISTS (SELECT 1 FROM ADV5 X WHERE X.ID <> ADV5.ID))".into() }];
-        t5.columns.push(ColumnDef { name: "T".into(), data_type: "COMPUTED BY ((SELECT COUNT(*) FROM ADV5 Z))".into(), ..Default::default() });
+        t5.checks = vec![dbine_driver::CheckDef {
+            name: Some("CK_ADV5_U".into()),
+            expression: "(NOT EXISTS (SELECT 1 FROM ADV5 X WHERE X.ID <> ADV5.ID))".into(),
+        }];
+        t5.columns.push(ColumnDef {
+            name: "T".into(),
+            data_type: "COMPUTED BY ((SELECT COUNT(*) FROM ADV5 Z))".into(),
+            ..Default::default()
+        });
         let p = super::super::plan_clone(&d("firebird"), &t5, "ADV5_C").unwrap();
-        assert_eq!(p.table.checks[0].expression, "(NOT EXISTS (SELECT 1 FROM \"ADV5_C\" X WHERE X.ID <> \"ADV5_C\".ID))");
-        assert_eq!(p.table.columns[1].data_type, "COMPUTED BY ((SELECT COUNT(*) FROM \"ADV5_C\" Z))");
-        assert!(p.notes.iter().any(|n| n.contains("CK_ADV5_C_U") && n.contains("lee la misma tabla")), "{:?}", p.notes);
-        assert!(p.notes.iter().any(|n| n.contains("columna calculada T") && n.contains("lee la misma tabla")), "{:?}", p.notes);
+        assert_eq!(
+            p.table.checks[0].expression,
+            "(NOT EXISTS (SELECT 1 FROM \"ADV5_C\" X WHERE X.ID <> \"ADV5_C\".ID))"
+        );
+        assert_eq!(
+            p.table.columns[1].data_type,
+            "COMPUTED BY ((SELECT COUNT(*) FROM \"ADV5_C\" Z))"
+        );
+        assert!(
+            p.notes
+                .iter()
+                .any(|n| n.contains("CK_ADV5_C_U") && n.contains("lee la misma tabla")),
+            "{:?}",
+            p.notes
+        );
+        assert!(
+            p.notes
+                .iter()
+                .any(|n| n.contains("columna calculada T") && n.contains("lee la misma tabla")),
+            "{:?}",
+            p.notes
+        );
         // A name another table's object has gets a new one.
-        let p = super::super::plan_clone_with(&d("firebird"), &t, "ADV4_C", &["CK_ADV4_C_V".into()]).unwrap();
-        assert!(p.table.checks[0].name.as_deref().is_some_and(|n| n.starts_with("CK_ADV4_C_V_") && n.len() <= 31), "{:?}", p.table.checks[0].name);
+        let p =
+            super::super::plan_clone_with(&d("firebird"), &t, "ADV4_C", &["CK_ADV4_C_V".into()])
+                .unwrap();
+        assert!(
+            p.table.checks[0]
+                .name
+                .as_deref()
+                .is_some_and(|n| n.starts_with("CK_ADV4_C_V_") && n.len() <= 31),
+            "{:?}",
+            p.table.checks[0].name
+        );
     }
 
     #[test]
     fn firebird_taken_names_read_indexes_and_constraints() {
         let sql = firebird_taken_sql(&["CK_ADV3_C_V".into(), "IX_O'K".into()]);
-        assert!(sql.contains("FROM RDB$INDICES WHERE RDB$INDEX_NAME IN ('CK_ADV3_C_V', 'IX_O''K')"), "{sql}");
+        assert!(
+            sql.contains("FROM RDB$INDICES WHERE RDB$INDEX_NAME IN ('CK_ADV3_C_V', 'IX_O''K')"),
+            "{sql}"
+        );
         assert!(sql.contains("FROM RDB$RELATION_CONSTRAINTS WHERE RDB$CONSTRAINT_NAME IN ('CK_ADV3_C_V', 'IX_O''K')"), "{sql}");
     }
 
     #[test]
     fn firebird_identity_clause_keeps_kind_and_options() {
-        let id = |always, initial, increment| FbIdentity { generator: "RDB$1".into(), always, initial, increment };
-        assert_eq!(id(true, 100, 3).clause(), "GENERATED ALWAYS AS IDENTITY (START WITH 100 INCREMENT BY 3)");
+        let id = |always, initial, increment| FbIdentity {
+            generator: "RDB$1".into(),
+            always,
+            initial,
+            increment,
+        };
+        assert_eq!(
+            id(true, 100, 3).clause(),
+            "GENERATED ALWAYS AS IDENTITY (START WITH 100 INCREMENT BY 3)"
+        );
         // Firebird 3 takes no INCREMENT BY: left out when it's 1.
-        assert_eq!(id(false, 0, 1).clause(), "GENERATED BY DEFAULT AS IDENTITY (START WITH 0)");
-        assert_eq!(id(false, -5, -2).clause(), "GENERATED BY DEFAULT AS IDENTITY (START WITH -5 INCREMENT BY -2)");
+        assert_eq!(
+            id(false, 0, 1).clause(),
+            "GENERATED BY DEFAULT AS IDENTITY (START WITH 0)"
+        );
+        assert_eq!(
+            id(false, -5, -2).clause(),
+            "GENERATED BY DEFAULT AS IDENTITY (START WITH -5 INCREMENT BY -2)"
+        );
     }
 
     #[test]
@@ -1061,19 +1489,58 @@ mod tests {
     #[test]
     fn duckdb_create_gets_its_own_sequences() {
         let sql = "CREATE TABLE \"ventas ñ\".\"clí-entes x\"(id INTEGER DEFAULT(nextval('\"ventas ñ\".seq_cli')) PRIMARY KEY, k INTEGER GENERATED ALWAYS AS(42), d INTEGER GENERATED ALWAYS AS(CAST((monto * 2) AS INTEGER)), monto INTEGER, e VARCHAR COLLATE NOCASE, tags VARCHAR[] DEFAULT(['a', 'b']), jefe INTEGER REFERENCES \"ventas ñ\".\"clí-entes x\"(id));";
-        let seqs = [("\"ventas ñ\".seq_cli".to_string(), "\"ventas ñ\".\"c2_seq_cli\"".to_string())];
-        let r = rewrite_create_table(sql, false, Some("ventas ñ"), "clí-entes x", "\"ventas ñ\".\"c2\"", "\"c2\"", &seqs).unwrap();
+        let seqs = [(
+            "\"ventas ñ\".seq_cli".to_string(),
+            "\"ventas ñ\".\"c2_seq_cli\"".to_string(),
+        )];
+        let r = rewrite_create_table(
+            sql,
+            false,
+            Some("ventas ñ"),
+            "clí-entes x",
+            "\"ventas ñ\".\"c2\"",
+            "\"c2\"",
+            &seqs,
+        )
+        .unwrap();
         assert_eq!(r.sequences, ["\"ventas ñ\".seq_cli"]);
         assert_eq!(r.generated, ["k", "d"]);
         assert!(r.sql.starts_with("CREATE TABLE \"ventas ñ\".\"c2\"(id INTEGER DEFAULT(nextval('\"ventas ñ\".\"c2_seq_cli\"')) PRIMARY KEY"), "{}", r.sql);
-        assert!(r.sql.contains("e VARCHAR COLLATE NOCASE, tags VARCHAR[] DEFAULT(['a', 'b'])"));
-        assert!(r.sql.contains("REFERENCES \"ventas ñ\".\"c2\"(id));"), "{}", r.sql);
+        assert!(r
+            .sql
+            .contains("e VARCHAR COLLATE NOCASE, tags VARCHAR[] DEFAULT(['a', 'b'])"));
+        assert!(
+            r.sql.contains("REFERENCES \"ventas ñ\".\"c2\"(id));"),
+            "{}",
+            r.sql
+        );
         // A reference to a same-named table in another schema stays.
         let other = sql.replace("REFERENCES \"ventas ñ\"", "REFERENCES otro");
-        let r = rewrite_create_table(&other, false, Some("ventas ñ"), "clí-entes x", "\"ventas ñ\".\"c2\"", "\"c2\"", &seqs).unwrap();
-        assert!(r.sql.contains("REFERENCES otro.\"clí-entes x\"(id)"), "{}", r.sql);
+        let r = rewrite_create_table(
+            &other,
+            false,
+            Some("ventas ñ"),
+            "clí-entes x",
+            "\"ventas ñ\".\"c2\"",
+            "\"c2\"",
+            &seqs,
+        )
+        .unwrap();
+        assert!(
+            r.sql.contains("REFERENCES otro.\"clí-entes x\"(id)"),
+            "{}",
+            r.sql
+        );
         assert_eq!(
-            rewrite_create_index("CREATE INDEX \"ix_clí-entes x_nombre\" ON \"ventas ñ\".\"clí-entes x\"(e);", false, "\"ix_c2_nombre\"", "\"ventas ñ\".\"c2\"", "clí-entes x", "\"c2\"").unwrap(),
+            rewrite_create_index(
+                "CREATE INDEX \"ix_clí-entes x_nombre\" ON \"ventas ñ\".\"clí-entes x\"(e);",
+                false,
+                "\"ix_c2_nombre\"",
+                "\"ventas ñ\".\"c2\"",
+                "clí-entes x",
+                "\"c2\""
+            )
+            .unwrap(),
             "CREATE INDEX \"ix_c2_nombre\" ON \"ventas ñ\".\"c2\"(e);"
         );
     }

@@ -26,20 +26,39 @@ pub(crate) fn rows(ents: &[Value], own: Option<&str>) -> Vec<ServerProcess> {
         .filter_map(|e| e.get("queries").and_then(Value::as_array))
         .flatten()
         .filter_map(|q| {
-            let id = q.get("id").map(|i| i.get("id").map(text).unwrap_or_else(|| text(i))).filter(|s| !s.is_empty())?;
+            let id = q
+                .get("id")
+                .map(|i| i.get("id").map(text).unwrap_or_else(|| text(i)))
+                .filter(|s| !s.is_empty())?;
             // `statusCount` ({"RUNNING": 2}) is what each server is doing;
             // `state` (recent servers) can lag behind it: a paused query
             // still says RUNNING there. `state` only when there are no counts.
             let state = q
                 .get("statusCount")
                 .and_then(Value::as_object)
-                .map(|counts| counts.iter().filter(|(_, n)| n.as_u64().unwrap_or(0) > 0).map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(", "))
+                .map(|counts| {
+                    counts
+                        .iter()
+                        .filter(|(_, n)| n.as_u64().unwrap_or(0) > 0)
+                        .map(|(k, _)| k.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
                 .filter(|s| !s.is_empty())
                 .or_else(|| q.get("state").map(text).filter(|s| !s.is_empty()));
-            let sql = q.get("queryString").map(text).filter(|s| !s.trim().is_empty());
-            let sinks = q.get("sinks").and_then(Value::as_array).map(|a| a.iter().map(text).collect::<Vec<_>>().join(", ")).filter(|s| !s.is_empty());
+            let sql = q
+                .get("queryString")
+                .map(text)
+                .filter(|s| !s.trim().is_empty());
+            let sinks = q
+                .get("sinks")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().map(text).collect::<Vec<_>>().join(", "))
+                .filter(|s| !s.is_empty());
             Some(ServerProcess {
-                active: state.as_deref().is_some_and(|s| s.split(", ").any(|s| s == "RUNNING")),
+                active: state
+                    .as_deref()
+                    .is_some_and(|s| s.split(", ").any(|s| s == "RUNNING")),
                 own: own == Some(id.as_str()),
                 // What it writes to, for a persistent query.
                 database: sinks,
@@ -57,12 +76,20 @@ pub(crate) fn rows(ents: &[Value], own: Option<&str>) -> Vec<ServerProcess> {
 /// A query id (`CTAS_ORDERS_7`, `transient_ORDERS_123…`): letters, digits
 /// and `_` / `-`.
 fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 256 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+    !id.is_empty()
+        && id.len() <= 256
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
 }
 
 impl KsqlSession {
     fn open_query(&self) -> Option<String> {
-        self.in_flight.query_id.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.in_flight
+            .query_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub(crate) async fn processes(&mut self) -> Result<Vec<ServerProcess>> {
@@ -75,23 +102,41 @@ impl KsqlSession {
     pub(crate) async fn terminate(&mut self, id: &str) -> Result<()> {
         let id = id.trim();
         if !valid_id(id) {
-            return Err(Error::Query(format!("«{id}» no es un id de consulta de ksqlDB")));
+            return Err(Error::Query(format!(
+                "«{id}» no es un id de consulta de ksqlDB"
+            )));
         }
         if self.open_query().as_deref() == Some(id) {
             return Err(Error::Query("esa es la consulta que DBine tiene abierta en esta sesión: se detiene desde su pestaña".into()));
         }
-        let persistent = self.processes().await?.into_iter().find(|p| p.id == id).map(|p| p.command.as_deref() == Some("PERSISTENT"));
+        let persistent = self
+            .processes()
+            .await?
+            .into_iter()
+            .find(|p| p.id == id)
+            .map(|p| p.command.as_deref() == Some("PERSISTENT"));
         let pause = match persistent {
-            None => return Err(Error::Query(format!("la consulta {id} ya no está en ejecución"))),
+            None => {
+                return Err(Error::Query(format!(
+                    "la consulta {id} ya no está en ejecución"
+                )))
+            }
             Some(p) => p,
         };
         let stmt = if pause { "PAUSE" } else { "TERMINATE" };
         // Whole sentences, so the backend catalog translates each one.
-        self.ksql(&format!("{stmt} {id}")).await.map(|_| ()).map_err(|e| match e {
-            Error::Query(m) if pause => Error::Query(format!("no se pudo pausar la consulta {id}: {m}")),
-            Error::Query(m) => Error::Query(format!("no se pudo terminar la consulta {id}: {m}")),
-            e => e,
-        })
+        self.ksql(&format!("{stmt} {id}"))
+            .await
+            .map(|_| ())
+            .map_err(|e| match e {
+                Error::Query(m) if pause => {
+                    Error::Query(format!("no se pudo pausar la consulta {id}: {m}"))
+                }
+                Error::Query(m) => {
+                    Error::Query(format!("no se pudo terminar la consulta {id}: {m}"))
+                }
+                e => e,
+            })
     }
 }
 
@@ -115,9 +160,16 @@ mod tests {
         ]})];
         let p = rows(&ents, Some("transient_S_42"));
         assert_eq!(p.len(), 4);
-        assert!(!p[3].active && p[3].status.as_deref() == Some("PAUSED"), "{:?}", p[3]);
+        assert!(
+            !p[3].active && p[3].status.as_deref() == Some("PAUSED"),
+            "{:?}",
+            p[3]
+        );
         assert!(p[0].active && !p[0].own);
-        assert_eq!((p[0].command.as_deref(), p[0].database.as_deref()), (Some("PERSISTENT"), Some("T")));
+        assert_eq!(
+            (p[0].command.as_deref(), p[0].database.as_deref()),
+            (Some("PERSISTENT"), Some("T"))
+        );
         assert!(p[1].active && p[1].own && p[1].database.is_none());
         assert_eq!(p[2].status.as_deref(), Some("ERROR"));
         assert!(!p[2].active);

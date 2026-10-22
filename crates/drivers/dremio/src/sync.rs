@@ -27,17 +27,33 @@ fn squash(s: &str) -> String {
 }
 
 pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
-    let (mut drops, mut alters, mut creates, mut warnings) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut drops, mut alters, mut creates, mut warnings) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for ch in changes {
         match ch {
             TableChange::Create { table } => {
-                creates.push(table_ddl(table, DdlParts { create: true, ..Default::default() }));
+                creates.push(table_ddl(
+                    table,
+                    DdlParts {
+                        create: true,
+                        ..Default::default()
+                    },
+                ));
                 let name = path(table.schema.as_deref(), &table.name);
                 creates.extend(table.indexes.iter().map(|ix| reflection::create(&name, ix)));
             }
             TableChange::Drop { table } => {
-                warnings.push(format!("Se borra la tabla {} con todos sus datos.", display(table)));
-                drops.push(table_ddl(table, DdlParts { drop: true, ..Default::default() }));
+                warnings.push(format!(
+                    "Se borra la tabla {} con todos sus datos.",
+                    display(table)
+                ));
+                drops.push(table_ddl(
+                    table,
+                    DdlParts {
+                        drop: true,
+                        ..Default::default()
+                    },
+                ));
             }
             TableChange::Alter { old, new } => alter(old, new, &mut alters, &mut warnings),
         }
@@ -46,7 +62,10 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
     if alters.iter().any(|a: &String| !a.contains(" REFLECTION ")) {
         warnings.push("Dremio solo modifica tablas Iceberg ($scratch, Nessie, Arctic, catálogos Iceberg): en otros orígenes el ALTER falla.".into());
     }
-    Ok(SyncScript { statements: [drops, alters, creates].concat(), warnings })
+    Ok(SyncScript {
+        statements: [drops, alters, creates].concat(),
+        warnings,
+    })
 }
 
 fn alter(old: &TableSchema, new: &TableSchema, out: &mut Vec<String>, warnings: &mut Vec<String>) {
@@ -56,13 +75,39 @@ fn alter(old: &TableSchema, new: &TableSchema, out: &mut Vec<String>, warnings: 
     // Reflections (the table's `indexes`): dropped first, made again last.
     let same = |a: &IndexDef, b: &IndexDef| {
         let low = |v: &[String]| v.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>();
-        low(&a.columns) == low(&b.columns) && low(&a.include) == low(&b.include) && a.kind == b.kind && a.options == b.options
+        low(&a.columns) == low(&b.columns)
+            && low(&a.include) == low(&b.include)
+            && a.kind == b.kind
+            && a.options == b.options
     };
-    let gone: Vec<&IndexDef> = old.indexes.iter().filter(|o| !new.indexes.iter().any(|n| eq(&n.name, &o.name) && same(o, n))).collect();
-    let made: Vec<&IndexDef> = new.indexes.iter().filter(|n| !old.indexes.iter().any(|o| eq(&n.name, &o.name) && same(o, n))).collect();
+    let gone: Vec<&IndexDef> = old
+        .indexes
+        .iter()
+        .filter(|o| {
+            !new.indexes
+                .iter()
+                .any(|n| eq(&n.name, &o.name) && same(o, n))
+        })
+        .collect();
+    let made: Vec<&IndexDef> = new
+        .indexes
+        .iter()
+        .filter(|n| {
+            !old.indexes
+                .iter()
+                .any(|o| eq(&n.name, &o.name) && same(o, n))
+        })
+        .collect();
     out.extend(gone.iter().map(|ix| reflection::drop(&name, ix)));
-    for o in old.columns.iter().filter(|o| !new.columns.iter().any(|n| eq(&n.name, &o.name))) {
-        warnings.push(format!("Se borra la columna {tname}.{} con sus datos.", o.name));
+    for o in old
+        .columns
+        .iter()
+        .filter(|o| !new.columns.iter().any(|n| eq(&n.name, &o.name)))
+    {
+        warnings.push(format!(
+            "Se borra la columna {tname}.{} con sus datos.",
+            o.name
+        ));
         out.push(format!("ALTER TABLE {name} DROP COLUMN {};", q(&o.name)));
     }
     let added: Vec<String> = new
@@ -72,22 +117,45 @@ fn alter(old: &TableSchema, new: &TableSchema, out: &mut Vec<String>, warnings: 
         .map(|c| format!("{} {}", q(&c.name), c.data_type))
         .collect();
     if !added.is_empty() {
-        out.push(format!("ALTER TABLE {name} ADD COLUMNS ({});", added.join(", ")));
+        out.push(format!(
+            "ALTER TABLE {name} ADD COLUMNS ({});",
+            added.join(", ")
+        ));
     }
     for n in &new.columns {
-        let Some(o) = old.columns.iter().find(|o| eq(&o.name, &n.name)) else { continue };
+        let Some(o) = old.columns.iter().find(|o| eq(&o.name, &n.name)) else {
+            continue;
+        };
         if squash(&o.data_type) != squash(&n.data_type) {
             warnings.push(format!(
                 "{tname}.{}: {} → {}. Iceberg solo agranda tipos (INT → BIGINT, FLOAT → DOUBLE, más precisión en DECIMAL): otro cambio falla.",
                 n.name, o.data_type, n.data_type
             ));
-            out.push(format!("ALTER TABLE {name} ALTER COLUMN {} {} {};", q(&n.name), q(&n.name), n.data_type));
+            out.push(format!(
+                "ALTER TABLE {name} ALTER COLUMN {} {} {};",
+                q(&n.name),
+                q(&n.name),
+                n.data_type
+            ));
         }
     }
-    let opt = |t: &TableSchema, k: &str| t.options.get(k).map(|v| squash(v).trim_matches(|c| c == '(' || c == ')').to_string()).unwrap_or_default();
-    for (k, what) in [("partition_by", "la partición (ALTER TABLE … ADD / DROP PARTITION FIELD)"), ("localsort_by", "el orden local (LOCALSORT BY)")] {
+    let opt = |t: &TableSchema, k: &str| {
+        t.options
+            .get(k)
+            .map(|v| squash(v).trim_matches(|c| c == '(' || c == ')').to_string())
+            .unwrap_or_default()
+    };
+    for (k, what) in [
+        (
+            "partition_by",
+            "la partición (ALTER TABLE … ADD / DROP PARTITION FIELD)",
+        ),
+        ("localsort_by", "el orden local (LOCALSORT BY)"),
+    ] {
         if !opt(new, k).is_empty() && opt(old, k) != opt(new, k) {
-            warnings.push(format!("{tname}: {what} no se sincroniza; cambiala a mano."));
+            warnings.push(format!(
+                "{tname}: {what} no se sincroniza; cambiala a mano."
+            ));
         }
     }
     out.extend(made.iter().map(|ix| reflection::create(&name, ix)));
@@ -99,7 +167,12 @@ mod tests {
     use dbine_driver::ColumnDef;
 
     fn col(name: &str, ty: &str) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable: true,
+            ..Default::default()
+        }
     }
 
     fn t() -> TableSchema {
@@ -107,7 +180,11 @@ mod tests {
             kind: "table".into(),
             schema: Some("$scratch.ventas".into()),
             name: "pedidos".into(),
-            columns: vec![col("id", "INTEGER"), col("nota", "VARCHAR"), col("baja", "DATE")],
+            columns: vec![
+                col("id", "INTEGER"),
+                col("nota", "VARCHAR"),
+                col("baja", "DATE"),
+            ],
             ..Default::default()
         }
     }
@@ -135,11 +212,24 @@ mod tests {
 
     #[test]
     fn reflections() {
-        let ix = |name: &str, cols: &[&str]| IndexDef { name: name.into(), columns: cols.iter().map(|c| c.to_string()).collect(), kind: Some("RAW".into()), ..Default::default() };
+        let ix = |name: &str, cols: &[&str]| IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            kind: Some("RAW".into()),
+            ..Default::default()
+        };
         let mut old = t();
-        old.indexes = vec![ix("r_keep", &["id"]), ix("r_gone", &["nota"]), ix("r_changed", &["id"])];
+        old.indexes = vec![
+            ix("r_keep", &["id"]),
+            ix("r_gone", &["nota"]),
+            ix("r_changed", &["id"]),
+        ];
         let mut new = t();
-        new.indexes = vec![ix("r_keep", &["ID"]), ix("r_changed", &["id", "nota"]), ix("r_new", &["baja"])];
+        new.indexes = vec![
+            ix("r_keep", &["ID"]),
+            ix("r_changed", &["id", "nota"]),
+            ix("r_new", &["baja"]),
+        ];
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         let p = "ALTER TABLE \"$scratch\".\"ventas\".\"pedidos\"";
         assert_eq!(
@@ -147,7 +237,9 @@ mod tests {
             vec![
                 format!("{p} DROP REFLECTION \"r_gone\";"),
                 format!("{p} DROP REFLECTION \"r_changed\";"),
-                format!("{p} CREATE RAW REFLECTION \"r_changed\" USING DISPLAY (\"id\", \"nota\");"),
+                format!(
+                    "{p} CREATE RAW REFLECTION \"r_changed\" USING DISPLAY (\"id\", \"nota\");"
+                ),
                 format!("{p} CREATE RAW REFLECTION \"r_new\" USING DISPLAY (\"baja\");"),
             ]
         );
@@ -158,8 +250,15 @@ mod tests {
     fn create_and_drop() {
         let mut old = t();
         old.name = "viejos".into();
-        let s = sync_script(&[TableChange::Create { table: t() }, TableChange::Drop { table: old }]).unwrap();
-        assert_eq!(s.statements[0], "DROP TABLE \"$scratch\".\"ventas\".\"viejos\";");
+        let s = sync_script(&[
+            TableChange::Create { table: t() },
+            TableChange::Drop { table: old },
+        ])
+        .unwrap();
+        assert_eq!(
+            s.statements[0],
+            "DROP TABLE \"$scratch\".\"ventas\".\"viejos\";"
+        );
         assert!(s.statements[1].starts_with("CREATE TABLE \"$scratch\".\"ventas\".\"pedidos\" ("));
         assert_eq!(s.warnings.len(), 1);
     }

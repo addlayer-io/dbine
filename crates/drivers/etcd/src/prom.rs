@@ -13,7 +13,13 @@ impl Samples {
             }
             let (head, rest) = match line.find('{') {
                 Some(open) => match line[open..].find('}') {
-                    Some(close) => (&line[..open], (&line[open + 1..open + close], line[open + close + 1..].trim())),
+                    Some(close) => (
+                        &line[..open],
+                        (
+                            &line[open + 1..open + close],
+                            line[open + close + 1..].trim(),
+                        ),
+                    ),
                     None => continue,
                 },
                 None => match line.split_once(char::is_whitespace) {

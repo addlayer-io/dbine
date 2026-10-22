@@ -109,7 +109,9 @@ fn flag(options: &BTreeMap<String, String>, key: &str, default: bool) -> bool {
 }
 
 fn database(db: &Option<String>) -> Result<&str> {
-    db.as_deref().filter(|d| !d.trim().is_empty()).ok_or_else(|| Error::Query("Falta la base de datos.".into()))
+    db.as_deref()
+        .filter(|d| !d.trim().is_empty())
+        .ok_or_else(|| Error::Query("Falta la base de datos.".into()))
 }
 
 fn is_url(location: &str) -> bool {
@@ -153,29 +155,50 @@ fn backup(db: &str, options: &BTreeMap<String, String>) -> Result<String> {
         "full" => ("full", "completo", "bak"),
         "differential" => ("diff", "diferencial", "bak"),
         "log" => ("log", "log", "trn"),
-        other => return Err(Error::Query(format!("Tipo de backup desconocido: {other}."))),
+        other => {
+            return Err(Error::Query(format!(
+                "Tipo de backup desconocido: {other}."
+            )))
+        }
     };
     let url = opt(options, "destination") == Some("url");
     // The generated name: <db>_<kind>_<yyyymmdd_hhmmss>.<ext>, from the
     // server's clock.
-    let safe: String = db.chars().map(|c| if c.is_alphanumeric() || matches!(c, '_' | '-') { c } else { '_' }).collect();
+    let safe: String = db
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     let file_name = format!(
         "{} + REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(19), GETDATE(), 120), N'-', N''), N':', N''), N' ', N'_') + {}",
         lit(&format!("{safe}_{kind}_")),
         lit(&format!(".{ext}"))
     );
-    let mut s = format!("-- Backup {label} de {}\n", comment_text(&quote_ident(Quote::Bracket, db)));
+    let mut s = format!(
+        "-- Backup {label} de {}\n",
+        comment_text(&quote_ident(Quote::Bracket, db))
+    );
     s += &format!("DECLARE @db sysname = {};\n", lit(db));
     if url {
-        let target = opt(options, "url").ok_or_else(|| Error::Query("Falta la URL del backup.".into()))?;
+        let target =
+            opt(options, "url").ok_or_else(|| Error::Query("Falta la URL del backup.".into()))?;
         if !is_url(target) {
-            return Err(Error::Query("La URL tiene que empezar con https:// o s3://.".into()));
+            return Err(Error::Query(
+                "La URL tiene que empezar con https:// o s3://.".into(),
+            ));
         }
         s += &format!("DECLARE @file nvarchar(4000) = {};\n", lit(target));
         s += &format!("IF RIGHT(@file, 1) = N'/' SET @file += {file_name};\n");
     } else {
         match opt(options, "path") {
-            Some(p) if !p.ends_with(['/', '\\']) => s += &format!("DECLARE @file nvarchar(4000) = {};\n", lit(p)),
+            Some(p) if !p.ends_with(['/', '\\']) => {
+                s += &format!("DECLARE @file nvarchar(4000) = {};\n", lit(p))
+            }
             folder => {
                 match folder {
                     Some(dir) => s += &format!("DECLARE @dir nvarchar(4000) = {};\n", lit(dir)),
@@ -217,7 +240,14 @@ fn backup(db: &str, options: &BTreeMap<String, String>) -> Result<String> {
         (false, true) => with.push("INIT".into()),
         (false, false) => with.push("NOINIT".into()),
     }
-    with.push(if flag(options, "compression", true) { "COMPRESSION" } else { "NO_COMPRESSION" }.into());
+    with.push(
+        if flag(options, "compression", true) {
+            "COMPRESSION"
+        } else {
+            "NO_COMPRESSION"
+        }
+        .into(),
+    );
     let checksum = flag(options, "checksum", true);
     if checksum {
         with.push("CHECKSUM".into());
@@ -227,7 +257,11 @@ fn backup(db: &str, options: &BTreeMap<String, String>) -> Result<String> {
 
     let device = if url { "URL" } else { "DISK" };
     let what = if kind == "log" { "LOG" } else { "DATABASE" };
-    s += &format!("BACKUP {what} {} TO {device} = @file\n  WITH {};\n", quote_ident(Quote::Bracket, db), with.join(", "));
+    s += &format!(
+        "BACKUP {what} {} TO {device} = @file\n  WITH {};\n",
+        quote_ident(Quote::Bracket, db),
+        with.join(", ")
+    );
     if flag(options, "verify", false) {
         let mut verify = vec!["FILE = @position".to_string()];
         if let Some(c) = credential {
@@ -240,7 +274,10 @@ fn backup(db: &str, options: &BTreeMap<String, String>) -> Result<String> {
               \x20 SELECT TOP (1) b.position FROM msdb.dbo.backupset b\n\
               \x20 JOIN msdb.dbo.backupmediafamily m ON m.media_set_id = b.media_set_id\n\
               \x20 WHERE m.physical_device_name = @file AND b.database_name = @db ORDER BY b.backup_set_id DESC);\n";
-        s += &format!("RESTORE VERIFYONLY FROM {device} = @file WITH {};\n", verify.join(", "));
+        s += &format!(
+            "RESTORE VERIFYONLY FROM {device} = @file WITH {};\n",
+            verify.join(", ")
+        );
     }
     s += "SELECT @db AS base, @file AS archivo;";
     Ok(s)
@@ -258,16 +295,26 @@ fn restore(id: &str, db: &str, options: &BTreeMap<String, String>) -> Result<Str
     }
     let position = match (position, opt(options, "position")) {
         (Some(n), _) => n,
-        (None, Some(p)) => p.parse::<u32>().ok().filter(|n| *n > 0).ok_or_else(|| Error::Query("El número de backup tiene que ser 1 o más.".into()))?,
+        (None, Some(p)) => p
+            .parse::<u32>()
+            .ok()
+            .filter(|n| *n > 0)
+            .ok_or_else(|| Error::Query("El número de backup tiene que ser 1 o más.".into()))?,
         (None, None) => 1,
     };
     let url = is_url(path);
     let device = if url { "URL" } else { "DISK" };
     let credential = opt(options, "credential").filter(|_| url);
-    let cred = credential.map(|c| format!(", CREDENTIAL = {}", lit(c))).unwrap_or_default();
+    let cred = credential
+        .map(|c| format!(", CREDENTIAL = {}", lit(c)))
+        .unwrap_or_default();
     let recovery = match opt(options, "recovery").unwrap_or("RECOVERY") {
         r @ ("RECOVERY" | "NORECOVERY") => r,
-        other => return Err(Error::Query(format!("Opción de recuperación desconocida: {other}."))),
+        other => {
+            return Err(Error::Query(format!(
+                "Opción de recuperación desconocida: {other}."
+            )))
+        }
     };
     let q = quote_ident(Quote::Bracket, db);
     let single_user = flag(options, "single_user", true);
@@ -291,7 +338,10 @@ fn restore(id: &str, db: &str, options: &BTreeMap<String, String>) -> Result<Str
     if flag(options, "relocate", true) {
         // Each file of the backup: over the existing database's file of the
         // same logical name, or to the default folders with the new name.
-        let filelist = format!("N'RESTORE FILELISTONLY FROM {device} = @src WITH FILE = @position{}'", cred.replace('\'', "''"));
+        let filelist = format!(
+            "N'RESTORE FILELISTONLY FROM {device} = @src WITH FILE = @position{}'",
+            cred.replace('\'', "''")
+        );
         s += &format!(
             "IF @kind <> 'L' AND @mi = 0\n\
              BEGIN\n\
@@ -345,7 +395,10 @@ fn restore(id: &str, db: &str, options: &BTreeMap<String, String>) -> Result<Str
     with += &format!(", {recovery}, STATS = 10{cred}");
     s += &format!("SET @sql += N'{}';\n", with.replace('\'', "''"));
     // Managed Instance restores a URL to a new database, without options.
-    s += &format!("IF @mi = 1 SET @sql = N'RESTORE DATABASE ' + QUOTENAME(@db) + N' FROM URL = @src{}';\n", cred.replace('\'', "''"));
+    s += &format!(
+        "IF @mi = 1 SET @sql = N'RESTORE DATABASE ' + QUOTENAME(@db) + N' FROM URL = @src{}';\n",
+        cred.replace('\'', "''")
+    );
     if single_user {
         s += &format!(
             "DECLARE @single bit = 0;\n\
@@ -383,7 +436,11 @@ SELECT TOP (500) b.database_name, b.type,
   JOIN msdb.dbo.backupmediafamily m ON m.media_set_id = b.media_set_id AND m.family_sequence_number = 1 AND m.mirror = 0";
 
 fn text(r: &Row, i: usize) -> Option<String> {
-    r.try_get::<&str, _>(i).ok().flatten().map(str::to_string).filter(|s| !s.is_empty())
+    r.try_get::<&str, _>(i)
+        .ok()
+        .flatten()
+        .map(str::to_string)
+        .filter(|s| !s.is_empty())
 }
 fn int(r: &Row, i: usize) -> Option<i64> {
     r.try_get::<i64, _>(i)
@@ -428,7 +485,13 @@ fn bytes(n: i64) -> String {
 pub async fn history(s: &mut SqlServerSession, database: Option<&str>) -> Result<Vec<BackupEntry>> {
     let order = " ORDER BY b.backup_finish_date DESC, b.backup_set_id DESC";
     let rows = match database {
-        Some(db) => s.rows(&format!("{HISTORY} WHERE b.database_name = @P1{order}"), &[db]).await?,
+        Some(db) => {
+            s.rows(
+                &format!("{HISTORY} WHERE b.database_name = @P1{order}"),
+                &[db],
+            )
+            .await?
+        }
         None => s.rows(&format!("{HISTORY}{order}"), &[]).await?,
     };
     Ok(rows.iter().map(entry).collect())
@@ -448,7 +511,10 @@ fn entry(r: &Row) -> BackupEntry {
     details.push(("Dispositivo".into(), device_label(device).into()));
     if let (Some(c), Some(s)) = (compressed, size) {
         if c > 0 && c < s {
-            details.push(("Tamaño comprimido".into(), format!("{} ({:.0} %)", bytes(c), c as f64 * 100.0 / s as f64)));
+            details.push((
+                "Tamaño comprimido".into(),
+                format!("{} ({:.0} %)", bytes(c), c as f64 * 100.0 / s as f64),
+            ));
         }
     }
     if int(r, 8).unwrap_or(0) != 0 {
@@ -457,11 +523,30 @@ fn entry(r: &Row) -> BackupEntry {
     if let Some(m) = text(r, 9) {
         details.push(("Modelo de recuperación".into(), m));
     }
-    details.push(("Checksum".into(), if int(r, 14).unwrap_or(0) != 0 { "Sí" } else { "No" }.into()));
+    details.push((
+        "Checksum".into(),
+        if int(r, 14).unwrap_or(0) != 0 {
+            "Sí"
+        } else {
+            "No"
+        }
+        .into(),
+    ));
     if families > 1 {
-        details.push(("Archivos del backup".into(), format!("{families} (repartido: restauralo desde el servidor)")));
+        details.push((
+            "Archivos del backup".into(),
+            format!("{families} (repartido: restauralo desde el servidor)"),
+        ));
     }
-    for (label, i) in [("Nombre", 12), ("Descripción", 13), ("Servidor", 10), ("Usuario", 11), ("Primer LSN", 18), ("Último LSN", 19), ("Versión del servidor", 20)] {
+    for (label, i) in [
+        ("Nombre", 12),
+        ("Descripción", 13),
+        ("Servidor", 10),
+        ("Usuario", 11),
+        ("Primer LSN", 18),
+        ("Último LSN", 19),
+        ("Versión del servidor", 20),
+    ] {
         if let Some(v) = text(r, i) {
             details.push((label.into(), v));
         }
@@ -477,7 +562,10 @@ fn entry(r: &Row) -> BackupEntry {
         location: Some(path),
         status: Some(if damaged { "Dañado" } else { "Completado" }.into()),
         details,
-        restorable: !damaged && families == 1 && matches!(kind.as_str(), "D" | "I" | "L") && matches!(device, 2 | 9),
+        restorable: !damaged
+            && families == 1
+            && matches!(kind.as_str(), "D" | "I" | "L")
+            && matches!(device, 2 | 9),
     }
 }
 
@@ -486,15 +574,27 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn b(db: &str, options: &[(&str, &str)]) -> String {
-        script(&BackupAction::Backup { database: Some(db.into()), options: o(options) }).unwrap()
+        script(&BackupAction::Backup {
+            database: Some(db.into()),
+            options: o(options),
+        })
+        .unwrap()
     }
 
     fn r(source: &str, db: &str, options: &[(&str, &str)]) -> String {
-        script(&BackupAction::Restore { source: source.into(), database: Some(db.into()), options: o(options) }).unwrap()
+        script(&BackupAction::Restore {
+            source: source.into(),
+            database: Some(db.into()),
+            options: o(options),
+        })
+        .unwrap()
     }
 
     #[test]
@@ -513,11 +613,27 @@ mod tests {
 
     #[test]
     fn differential_and_log_backups() {
-        let s = b("db", &[("kind", "differential"), ("path", "/backups/"), ("copy_only", "true"), ("compression", "false")]);
+        let s = b(
+            "db",
+            &[
+                ("kind", "differential"),
+                ("path", "/backups/"),
+                ("copy_only", "true"),
+                ("compression", "false"),
+            ],
+        );
         assert!(s.contains("DECLARE @dir nvarchar(4000) = N'/backups/';"));
         assert!(!s.contains("InstanceDefaultBackupPath"));
         assert!(s.contains("WITH DIFFERENTIAL, COPY_ONLY, NOINIT, NO_COMPRESSION, CHECKSUM"));
-        let s = b("db", &[("kind", "log"), ("path", "C:\\bk\\o'k.trn"), ("overwrite", "true"), ("verify", "true")]);
+        let s = b(
+            "db",
+            &[
+                ("kind", "log"),
+                ("path", "C:\\bk\\o'k.trn"),
+                ("overwrite", "true"),
+                ("verify", "true"),
+            ],
+        );
         assert!(s.contains("DECLARE @file nvarchar(4000) = N'C:\\bk\\o''k.trn';"));
         assert!(s.contains("BACKUP LOG [db] TO DISK = @file\n  WITH INIT,"));
         assert!(s.contains("RESTORE VERIFYONLY FROM DISK = @file WITH FILE = @position, CHECKSUM;"));
@@ -525,10 +641,22 @@ mod tests {
 
     #[test]
     fn backup_to_url() {
-        let s = b("db", &[("destination", "url"), ("url", "https://a.blob.core.windows.net/c/"), ("credential", "k"), ("overwrite", "true")]);
+        let s = b(
+            "db",
+            &[
+                ("destination", "url"),
+                ("url", "https://a.blob.core.windows.net/c/"),
+                ("credential", "k"),
+                ("overwrite", "true"),
+            ],
+        );
         assert!(s.contains("IF RIGHT(@file, 1) = N'/' SET @file += N'db_full_'"));
         assert!(s.contains("TO URL = @file\n  WITH CREDENTIAL = N'k', FORMAT, COMPRESSION"));
-        assert!(script(&BackupAction::Backup { database: Some("db".into()), options: o(&[("destination", "url")]) }).is_err());
+        assert!(script(&BackupAction::Backup {
+            database: Some("db".into()),
+            options: o(&[("destination", "url")])
+        })
+        .is_err());
     }
 
     #[test]
@@ -546,16 +674,37 @@ mod tests {
 
     #[test]
     fn restore_options() {
-        let s = r("/x.bak", "db", &[("position", "2"), ("recovery", "NORECOVERY"), ("replace", "false"), ("relocate", "false"), ("single_user", "false")]);
+        let s = r(
+            "/x.bak",
+            "db",
+            &[
+                ("position", "2"),
+                ("recovery", "NORECOVERY"),
+                ("replace", "false"),
+                ("relocate", "false"),
+                ("single_user", "false"),
+            ],
+        );
         assert!(s.contains("DECLARE @position int = 2;"));
         assert!(!s.contains("FILELISTONLY"));
         assert!(!s.contains("SINGLE_USER"));
         assert!(s.contains("SET @sql += N', NORECOVERY, STATS = 10';"));
-        let s = r("https://a.blob.core.windows.net/c/x.bak", "db", &[("credential", "k'1")]);
+        let s = r(
+            "https://a.blob.core.windows.net/c/x.bak",
+            "db",
+            &[("credential", "k'1")],
+        );
         assert!(s.contains("FROM URL = @src"));
         assert!(s.contains("N'RESTORE FILELISTONLY FROM URL = @src WITH FILE = @position, CREDENTIAL = N''k''''1'''"));
-        assert!(s.contains("SET @sql += N', REPLACE, RECOVERY, STATS = 10, CREDENTIAL = N''k''''1''';"));
-        assert!(script(&BackupAction::Restore { source: "/x.bak".into(), database: Some("db".into()), options: o(&[("position", "0")]) }).is_err());
+        assert!(
+            s.contains("SET @sql += N', REPLACE, RECOVERY, STATS = 10, CREDENTIAL = N''k''''1''';")
+        );
+        assert!(script(&BackupAction::Restore {
+            source: "/x.bak".into(),
+            database: Some("db".into()),
+            options: o(&[("position", "0")])
+        })
+        .is_err());
     }
 
     #[test]
@@ -567,6 +716,9 @@ mod tests {
 
     #[test]
     fn no_file_deletion() {
-        assert!(script(&BackupAction::Delete { source: "/x.bak|1".into() }).is_err());
+        assert!(script(&BackupAction::Delete {
+            source: "/x.bak|1".into()
+        })
+        .is_err());
     }
 }

@@ -50,15 +50,20 @@ pub enum Dialect {
     Unsupported(&'static str),
 }
 
-const INFORMIX: &str = "Informix y GBase 8s escriben el plan (SET EXPLAIN) en un archivo del servidor \
+const INFORMIX: &str =
+    "Informix y GBase 8s escriben el plan (SET EXPLAIN) en un archivo del servidor \
     (sqexplain.out); no lo devuelven por ODBC.";
-const ALTIBASE: &str = "Altibase entrega el plan (ALTER SESSION SET EXPLAIN PLAN) solo a su cliente iSQL; \
+const ALTIBASE: &str =
+    "Altibase entrega el plan (ALTER SESSION SET EXPLAIN PLAN) solo a su cliente iSQL; \
     su ODBC no lo expone.";
 const INGRES: &str = "Ingres y Actian Vector muestran el plan (SET QEP) en la salida de traza del monitor de terminal; \
     no lo devuelven por ODBC.";
-const MIMER: &str = "Mimer SQL da el plan solo con SET EXPLAIN en BSQL; no hay forma de pedirlo por ODBC.";
-const CACHE: &str = "Caché no tiene EXPLAIN por SQL: el plan se ve con Show Plan en el Portal de administración.";
-const ZEN: &str = "Actian Zen escribe el plan en un archivo del servidor (SET QRYPLAN); no lo devuelve por ODBC.";
+const MIMER: &str =
+    "Mimer SQL da el plan solo con SET EXPLAIN en BSQL; no hay forma de pedirlo por ODBC.";
+const CACHE: &str =
+    "Caché no tiene EXPLAIN por SQL: el plan se ve con Show Plan en el Portal de administración.";
+const ZEN: &str =
+    "Actian Zen escribe el plan en un archivo del servidor (SET QRYPLAN); no lo devuelve por ODBC.";
 const JET: &str = "El motor de Access (ACE/Jet) escribe el plan en SHOWPLAN.OUT solo con una clave de registro de depuración; \
     no lo devuelve por ODBC.";
 const NETSUITE: &str = "SuiteAnalytics Connect no expone planes de ejecución.";
@@ -93,7 +98,9 @@ fn by_preset(preset: &str) -> Option<Dialect> {
         "altibase" => Some(Dialect::Unsupported(ALTIBASE)),
         "ocient" => Some(Dialect::Text),
         "cloudera" => Some(Dialect::Hive),
-        "spark" | "kyuubi" | "monetdb" | "iris" | "maxdb" | "nuodb" | "machbase" | "ignite" => Some(Dialect::Text),
+        "spark" | "kyuubi" | "monetdb" | "iris" | "maxdb" | "nuodb" | "machbase" | "ignite" => {
+            Some(Dialect::Text)
+        }
         "heavydb" => Some(Dialect::Prefixed("EXPLAIN CALCITE")),
         "ignite3" => Some(Dialect::Prefixed("EXPLAIN PLAN FOR")),
         "virtuoso" => Some(Dialect::Wrapped("explain('{q}')")),
@@ -166,10 +173,27 @@ fn plannable(stmt: &str) -> bool {
             break;
         }
     }
-    let head: String = s.trim_start_matches('(').chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_uppercase();
+    let head: String = s
+        .trim_start_matches('(')
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_ascii_uppercase();
     matches!(
         head.as_str(),
-        "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "UPSERT" | "VALUES" | "SEL" | "INS" | "UPD" | "DEL" | "REPLACE"
+        "SELECT"
+            | "WITH"
+            | "INSERT"
+            | "UPDATE"
+            | "DELETE"
+            | "MERGE"
+            | "UPSERT"
+            | "VALUES"
+            | "SEL"
+            | "INS"
+            | "UPD"
+            | "DEL"
+            | "REPLACE"
     )
 }
 
@@ -189,7 +213,11 @@ impl Collected {
             .flat_map(|(_, rows)| rows.iter())
             .map(|r| r.iter().flatten().cloned().collect::<Vec<_>>().join(" "))
             .collect();
-        out.extend(self.messages.iter().flat_map(|m| m.lines().map(str::to_string)));
+        out.extend(
+            self.messages
+                .iter()
+                .flat_map(|m| m.lines().map(str::to_string)),
+        );
         out
     }
 
@@ -224,7 +252,15 @@ fn set(c: &Conn, slot: &StmtSlot, sql: &str) -> Result<()> {
 }
 
 /// Plans of `stmts` into `out` (and, with `analyze`, their results).
-pub fn explain_all(d: Dialect, c: &Conn, slot: &StmtSlot, stmts: &[String], analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+pub fn explain_all(
+    d: Dialect,
+    c: &Conn,
+    slot: &StmtSlot,
+    stmts: &[String],
+    analyze: bool,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     match d {
         Dialect::Unsupported(why) => Err(Error::Unsupported(why.into())),
         Dialect::SqlServer => sqlserver(c, slot, stmts, analyze, max_rows, out),
@@ -277,17 +313,33 @@ fn short(stmt: &str) -> String {
 }
 
 fn text_plan(statement: &str, text: &str, root: PlanNode) -> Plan {
-    Plan { statement: statement.trim().to_string(), root, actual: false, raw_format: "text".into(), raw: text.to_string() }
+    Plan {
+        statement: statement.trim().to_string(),
+        root,
+        actual: false,
+        raw_format: "text".into(),
+        raw: text.to_string(),
+    }
 }
 
 fn estimated(d: Dialect, c: &Conn, slot: &StmtSlot, s: &str) -> Result<Plan> {
     let stmt = s.trim().trim_end_matches(';');
-    let explain = |prefix: &str| -> Result<String> { Ok(collect(c, slot, &format!("{prefix} {stmt}"))?.lines().join("\n")) };
+    let explain = |prefix: &str| -> Result<String> {
+        Ok(collect(c, slot, &format!("{prefix} {stmt}"))?
+            .lines()
+            .join("\n"))
+    };
     Ok(match d {
         Dialect::Db2Luw => db2(c, slot, stmt)?,
         Dialect::Db2Zos => db2zos(c, slot, stmt)?,
         Dialect::SqlAnywhere => {
-            let text = collect(c, slot, &format!("SELECT EXPLANATION('{}')", stmt.replace('\'', "''")))?.first().unwrap_or_default();
+            let text = collect(
+                c,
+                slot,
+                &format!("SELECT EXPLANATION('{}')", stmt.replace('\'', "''")),
+            )?
+            .first()
+            .unwrap_or_default();
             plan_from_text(stmt, &text, false)
         }
         Dialect::Hive => {
@@ -317,11 +369,15 @@ fn estimated(d: Dialect, c: &Conn, slot: &StmtSlot, s: &str) -> Result<Plan> {
             text_plan(stmt, &t, root)
         }
         Dialect::Wrapped(template) => {
-            let sql = template.replace("{q}", &stmt.replace('\'', "''")).replace("{raw}", stmt);
+            let sql = template
+                .replace("{q}", &stmt.replace('\'', "''"))
+                .replace("{raw}", stmt);
             match collect(c, slot, &sql) {
                 Ok(t) => plan_from_text(stmt, &t.lines().join("\n"), false),
                 Err(e) if e.is_query() => {
-                    return Err(Error::Unsupported(format!("El servidor no aceptó el pedido de plan: {e}")));
+                    return Err(Error::Unsupported(format!(
+                        "El servidor no aceptó el pedido de plan: {e}"
+                    )));
                 }
                 Err(e) => return Err(e),
             }
@@ -329,14 +385,18 @@ fn estimated(d: Dialect, c: &Conn, slot: &StmtSlot, s: &str) -> Result<Plan> {
         Dialect::Prefixed(prefix) => match explain(prefix) {
             Ok(t) => plan_from_text(stmt, &t, false),
             Err(e) if e.is_query() => {
-                return Err(Error::Unsupported(format!("El servidor no aceptó {prefix}, así que no hay plan por ODBC: {e}")));
+                return Err(Error::Unsupported(format!(
+                    "El servidor no aceptó {prefix}, así que no hay plan por ODBC: {e}"
+                )));
             }
             Err(e) => return Err(e),
         },
         _ => match explain("EXPLAIN") {
             Ok(t) => plan_from_text(stmt, &t, false),
             Err(e) if e.is_query() => {
-                return Err(Error::Unsupported(format!("El servidor no aceptó EXPLAIN, así que no hay plan por ODBC: {e}")));
+                return Err(Error::Unsupported(format!(
+                    "El servidor no aceptó EXPLAIN, así que no hay plan por ODBC: {e}"
+                )));
             }
             Err(e) => return Err(e),
         },
@@ -354,7 +414,13 @@ fn cell_text(v: &Value) -> String {
 
 // ------------------------------------------------------------ SQL Server
 
-fn plans_from_rows(rows: &[HashMap<String, String>], fallback: &str, actual: bool, format: &str, out: &mut QueryOutcome) {
+fn plans_from_rows(
+    rows: &[HashMap<String, String>],
+    fallback: &str,
+    actual: bool,
+    format: &str,
+    out: &mut QueryOutcome,
+) {
     let raw_of = |id: &str| {
         rows.iter()
             .filter(|r| r.get("StmtId").map(String::as_str) == Some(id))
@@ -370,13 +436,34 @@ fn plans_from_rows(rows: &[HashMap<String, String>], fallback: &str, actual: boo
         }
     }
     for ((text, root), id) in plan::sqlserver_trees(rows).into_iter().zip(ids) {
-        let statement = if text.is_empty() { fallback.trim().to_string() } else { text };
-        out.plans.push(Plan { statement, root, actual, raw_format: format.into(), raw: raw_of(&id) });
+        let statement = if text.is_empty() {
+            fallback.trim().to_string()
+        } else {
+            text
+        };
+        out.plans.push(Plan {
+            statement,
+            root,
+            actual,
+            raw_format: format.into(),
+            raw: raw_of(&id),
+        });
     }
 }
 
-fn sqlserver(c: &Conn, slot: &StmtSlot, stmts: &[String], analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-    let option = if analyze { "STATISTICS PROFILE" } else { "SHOWPLAN_ALL" };
+fn sqlserver(
+    c: &Conn,
+    slot: &StmtSlot,
+    stmts: &[String],
+    analyze: bool,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
+    let option = if analyze {
+        "STATISTICS PROFILE"
+    } else {
+        "SHOWPLAN_ALL"
+    };
     set(c, slot, &format!("SET {option} ON"))?;
     let result = (|| -> Result<()> {
         for s in stmts {
@@ -386,7 +473,12 @@ fn sqlserver(c: &Conn, slot: &StmtSlot, stmts: &[String], analyze: bool, max_row
                 for (cols, set_rows) in &got.sets {
                     if cols.iter().any(|c| c == "StmtText") && cols.iter().any(|c| c == "NodeId") {
                         for r in set_rows {
-                            rows.push(cols.iter().cloned().zip(r.iter().map(|v| v.clone().unwrap_or_default())).collect());
+                            rows.push(
+                                cols.iter()
+                                    .cloned()
+                                    .zip(r.iter().map(|v| v.clone().unwrap_or_default()))
+                                    .collect(),
+                            );
                         }
                     }
                 }
@@ -404,7 +496,13 @@ fn sqlserver(c: &Conn, slot: &StmtSlot, stmts: &[String], analyze: bool, max_row
                 let names: Vec<&str> = rs.columns.iter().map(|c| c.name.as_str()).collect();
                 if names.starts_with(&["Rows", "Executes", "StmtText"]) {
                     for r in &rs.rows {
-                        rows.push(names.iter().map(|n| n.to_string()).zip(r.iter().map(cell_text)).collect());
+                        rows.push(
+                            names
+                                .iter()
+                                .map(|n| n.to_string())
+                                .zip(r.iter().map(cell_text))
+                                .collect(),
+                        );
                     }
                     continue;
                 }
@@ -465,7 +563,14 @@ fn db2(c: &Conn, slot: &StmtSlot, stmt: &str) -> Result<Plan> {
             q("EXPLAIN_STREAM")
         ),
     )?;
-    let s = |r: &[Option<String>], i: usize| r.get(i).cloned().flatten().unwrap_or_default().trim().to_string();
+    let s = |r: &[Option<String>], i: usize| {
+        r.get(i)
+            .cloned()
+            .flatten()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
     let f = |r: &[Option<String>], i: usize| plan::number(&s(r, i));
     let ops: Vec<plan::Db2Op> = ops
         .sets
@@ -494,16 +599,30 @@ fn db2(c: &Conn, slot: &StmtSlot, stmt: &str) -> Result<Plan> {
         })
         .collect();
     if ops.is_empty() {
-        return Err(Error::Query("Db2 no dejó el plan en las tablas de EXPLAIN.".into()));
+        return Err(Error::Query(
+            "Db2 no dejó el plan en las tablas de EXPLAIN.".into(),
+        ));
     }
     let root = plan::db2_tree(&ops, &streams);
-    Ok(Plan { statement: stmt.to_string(), raw: plan::render(&root), root, actual: false, raw_format: "text".into() })
+    Ok(Plan {
+        statement: stmt.to_string(),
+        raw: plan::render(&root),
+        root,
+        actual: false,
+        raw_format: "text".into(),
+    })
 }
 
 fn db2zos(c: &Conn, slot: &StmtSlot, stmt: &str) -> Result<Plan> {
     let qno = 1_000_000
-        + std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_micros() as u64 % 1_000_000);
-    set(c, slot, &format!("EXPLAIN PLAN SET QUERYNO = {qno} FOR {stmt}"))?;
+        + std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_micros() as u64 % 1_000_000);
+    set(
+        c,
+        slot,
+        &format!("EXPLAIN PLAN SET QUERYNO = {qno} FOR {stmt}"),
+    )?;
     let rows = collect(
         c,
         slot,
@@ -517,7 +636,15 @@ fn db2zos(c: &Conn, slot: &StmtSlot, stmt: &str) -> Result<Plan> {
     for t in ["PLAN_TABLE", "DSN_STATEMNT_TABLE"] {
         let _ = set(c, slot, &format!("DELETE FROM {t} WHERE QUERYNO = {qno}"));
     }
-    let s = |r: &[Option<String>], i: usize| r.get(i).cloned().flatten().unwrap_or_default().trim().trim_matches('.').to_string();
+    let s = |r: &[Option<String>], i: usize| {
+        r.get(i)
+            .cloned()
+            .flatten()
+            .unwrap_or_default()
+            .trim()
+            .trim_matches('.')
+            .to_string()
+    };
     let rows: Vec<plan::ZRow> = rows?
         .sets
         .iter()
@@ -537,7 +664,11 @@ fn db2zos(c: &Conn, slot: &StmtSlot, stmt: &str) -> Result<Plan> {
     if let Ok(cost) = cost {
         if let Some(r) = cost.sets.first().and_then(|(_, rows)| rows.first()) {
             root.total_cost = plan::number(&s(r, 3));
-            for (i, k) in [(0, "Tiempo estimado (ms)"), (1, "Unidades de servicio"), (2, "Categoría de costo")] {
+            for (i, k) in [
+                (0, "Tiempo estimado (ms)"),
+                (1, "Unidades de servicio"),
+                (2, "Categoría de costo"),
+            ] {
                 let v = s(r, i);
                 if !v.is_empty() {
                     root.props.push((k.into(), v));
@@ -545,12 +676,25 @@ fn db2zos(c: &Conn, slot: &StmtSlot, stmt: &str) -> Result<Plan> {
             }
         }
     }
-    Ok(Plan { statement: stmt.to_string(), raw: plan::render(&root), root, actual: false, raw_format: "text".into() })
+    Ok(Plan {
+        statement: stmt.to_string(),
+        raw: plan::render(&root),
+        root,
+        actual: false,
+        raw_format: "text".into(),
+    })
 }
 
 // ---------------------------------------------------------- Sybase ASE
 
-fn sybase(c: &Conn, slot: &StmtSlot, stmts: &[String], analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+fn sybase(
+    c: &Conn,
+    slot: &StmtSlot,
+    stmts: &[String],
+    analyze: bool,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     set(c, slot, "SET SHOWPLAN ON")?;
     if !analyze {
         if let Err(e) = set(c, slot, "SET NOEXEC ON") {
@@ -571,16 +715,27 @@ fn sybase(c: &Conn, slot: &StmtSlot, stmts: &[String], analyze: bool, max_rows: 
             };
             let trees = plan::sybase_trees(&text);
             if trees.is_empty() {
-                out.messages.push(format!("El servidor no devolvió plan para «{}».", short(s)));
+                out.messages
+                    .push(format!("El servidor no devolvió plan para «{}».", short(s)));
             }
             for root in trees {
-                out.plans.push(Plan { statement: s.trim().to_string(), root, actual: false, raw_format: "text".into(), raw: text.clone() });
+                out.plans.push(Plan {
+                    statement: s.trim().to_string(),
+                    root,
+                    actual: false,
+                    raw_format: "text".into(),
+                    raw: text.clone(),
+                });
             }
         }
         Ok(())
     })();
     // NOEXEC OFF is the one statement NOEXEC still runs.
-    let off = if analyze { Ok(()) } else { set(c, slot, "SET NOEXEC OFF") };
+    let off = if analyze {
+        Ok(())
+    } else {
+        set(c, slot, "SET NOEXEC OFF")
+    };
     let off2 = set(c, slot, "SET SHOWPLAN OFF");
     if analyze && result.is_ok() {
         out.messages.push("Sybase ASE no da cifras reales por operador por ODBC: se muestra el plan con el resultado.".into());
@@ -590,8 +745,17 @@ fn sybase(c: &Conn, slot: &StmtSlot, stmts: &[String], analyze: bool, max_rows: 
 
 // ------------------------------------------------------------- Exasol
 
-fn exasol(c: &Conn, slot: &StmtSlot, stmts: &[String], max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-    let before = collect(c, slot, "SELECT CURRENT_STATEMENT")?.first().and_then(|v| plan::number(&v)).unwrap_or(0.0) as i64;
+fn exasol(
+    c: &Conn,
+    slot: &StmtSlot,
+    stmts: &[String],
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
+    let before = collect(c, slot, "SELECT CURRENT_STATEMENT")?
+        .first()
+        .and_then(|v| plan::number(&v))
+        .unwrap_or(0.0) as i64;
     set(c, slot, "ALTER SESSION SET PROFILE = 'ON'")?;
     let ran = (|| -> Result<()> {
         for s in stmts {
@@ -614,11 +778,22 @@ fn exasol(c: &Conn, slot: &StmtSlot, stmts: &[String], max_rows: usize, out: &mu
              AND COMMAND_NAME NOT IN ('ALTER SESSION', 'FLUSH STATISTICS') ORDER BY STMT_ID, PART_ID"
         ),
     )?;
-    let s = |r: &[Option<String>], i: usize| r.get(i).cloned().flatten().unwrap_or_default().trim().to_string();
+    let s = |r: &[Option<String>], i: usize| {
+        r.get(i)
+            .cloned()
+            .flatten()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
     let mut groups: Vec<(String, Vec<plan::ExaPart>)> = Vec::new();
     for r in got.sets.iter().flat_map(|(_, rows)| rows) {
         let id = s(r, 0);
-        let object = [s(r, 4), s(r, 5)].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(".");
+        let object = [s(r, 4), s(r, 5)]
+            .into_iter()
+            .filter(|x| !x.is_empty())
+            .collect::<Vec<_>>()
+            .join(".");
         let part = plan::ExaPart {
             name: s(r, 2),
             info: s(r, 3),
@@ -636,12 +811,23 @@ fn exasol(c: &Conn, slot: &StmtSlot, stmts: &[String], max_rows: usize, out: &mu
         }
     }
     if groups.is_empty() {
-        out.messages.push("Exasol no registró el perfil de la ejecución (EXA_USER_PROFILE_LAST_DAY).".into());
+        out.messages.push(
+            "Exasol no registró el perfil de la ejecución (EXA_USER_PROFILE_LAST_DAY).".into(),
+        );
     }
     for (i, (_, parts)) in groups.into_iter().enumerate() {
         let root = plan::exasol_tree(&parts);
-        let statement = stmts.get(i).map(|s| s.trim().to_string()).unwrap_or_default();
-        out.plans.push(Plan { statement, raw: plan::render(&root), root, actual: true, raw_format: "text".into() });
+        let statement = stmts
+            .get(i)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        out.plans.push(Plan {
+            statement,
+            raw: plan::render(&root),
+            root,
+            actual: true,
+            raw_format: "text".into(),
+        });
     }
     Ok(())
 }
@@ -650,7 +836,13 @@ fn exasol(c: &Conn, slot: &StmtSlot, stmts: &[String], max_rows: usize, out: &mu
 
 /// Runs each statement, then reads its plan from `_Sql_Qplan` (the
 /// connection keeps the last ten).
-fn openedge(c: &Conn, slot: &StmtSlot, stmts: &[String], max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+fn openedge(
+    c: &Conn,
+    slot: &StmtSlot,
+    stmts: &[String],
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     for s in stmts {
         crate::run_one(c, slot, s, max_rows, out)?;
         if !plannable(s) {
@@ -666,14 +858,17 @@ fn openedge(c: &Conn, slot: &StmtSlot, stmts: &[String], max_rows: usize, out: &
             Ok(g) => {
                 let text = g.lines().join("\n");
                 if text.trim().is_empty() {
-                    out.messages.push(format!("OpenEdge no registró el plan de «{}».", short(s)));
+                    out.messages
+                        .push(format!("OpenEdge no registró el plan de «{}».", short(s)));
                 } else {
                     let mut p = plan_from_text(s.trim(), &text, false);
                     p.actual = true;
                     out.plans.push(p);
                 }
             }
-            Err(e) => out.messages.push(format!("No se pudo leer _Sql_Qplan: {e}")),
+            Err(e) => out
+                .messages
+                .push(format!("No se pudo leer _Sql_Qplan: {e}")),
         }
     }
     Ok(())
@@ -681,7 +876,13 @@ fn openedge(c: &Conn, slot: &StmtSlot, stmts: &[String], max_rows: usize, out: &
 
 // ------------------------------------------------------------- CUBRID
 
-fn cubrid(c: &Conn, slot: &StmtSlot, stmts: &[String], max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+fn cubrid(
+    c: &Conn,
+    slot: &StmtSlot,
+    stmts: &[String],
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     set(c, slot, "SET TRACE ON OUTPUT TEXT")?;
     let result = (|| -> Result<()> {
         for s in stmts {
@@ -714,16 +915,29 @@ mod tests {
     fn dialects() {
         assert_eq!(dialect("odbc", "Microsoft SQL Server"), Dialect::SqlServer);
         assert_eq!(dialect("odbc", "DB2/LINUXX8664"), Dialect::Db2Luw);
-        assert_eq!(dialect("odbc", "Adaptive Server Enterprise"), Dialect::Sybase);
+        assert_eq!(
+            dialect("odbc", "Adaptive Server Enterprise"),
+            Dialect::Sybase
+        );
         assert_eq!(dialect("odbc", "EXASolution"), Dialect::Exasol);
         assert_eq!(dialect("odbc", "PostgreSQL"), Dialect::Text);
         assert_eq!(dialect("db2", ""), Dialect::Db2Luw);
         assert!(matches!(dialect("informix", ""), Dialect::Unsupported(_)));
         assert!(preset_supports_explain("teradata") && preset_supports_explain("odbc"));
-        assert!(!preset_supports_explain("gbase8s") && !preset_supports_explain("db2i") && !preset_supports_explain("altibase"));
+        assert!(
+            !preset_supports_explain("gbase8s")
+                && !preset_supports_explain("db2i")
+                && !preset_supports_explain("altibase")
+        );
         assert_eq!(dialect("heavydb", ""), Dialect::Prefixed("EXPLAIN CALCITE"));
-        assert!(preset_supports_explain("openedge") && preset_supports_explain("virtuoso") && preset_supports_explain("sqream"));
-        for p in ["ingres", "mimer", "cache", "zen", "access", "dbase", "netsuite"] {
+        assert!(
+            preset_supports_explain("openedge")
+                && preset_supports_explain("virtuoso")
+                && preset_supports_explain("sqream")
+        );
+        for p in [
+            "ingres", "mimer", "cache", "zen", "access", "dbase", "netsuite",
+        ] {
             assert!(!preset_supports_explain(p), "{p}");
         }
         assert_eq!(dialect("cloudera", ""), Dialect::Hive);

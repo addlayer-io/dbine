@@ -39,7 +39,10 @@ use dbine_driver::{kinds, CheckDef, ObjectKindInfo, TableSchema};
 type Rows = Vec<Vec<Option<String>>>;
 
 fn col(r: &[Option<String>], i: usize) -> Option<String> {
-    r.get(i).cloned().flatten().map(|s| s.trim_end().to_string())
+    r.get(i)
+        .cloned()
+        .flatten()
+        .map(|s| s.trim_end().to_string())
 }
 
 fn text(r: &[Option<String>], i: usize) -> String {
@@ -49,12 +52,22 @@ fn text(r: &[Option<String>], i: usize) -> String {
 /// The kinds each engine has beyond tables, views and routines.
 pub fn object_kinds(e: Eng) -> Vec<ObjectKindInfo> {
     match e {
-        Eng::Db2 | Eng::Db2zos => vec![ObjectKindInfo::sequences(), ObjectKindInfo::synonyms(), ObjectKindInfo::types()],
+        Eng::Db2 | Eng::Db2zos => vec![
+            ObjectKindInfo::sequences(),
+            ObjectKindInfo::synonyms(),
+            ObjectKindInfo::types(),
+        ],
         Eng::Db2i => vec![ObjectKindInfo::sequences(), ObjectKindInfo::synonyms()],
         Eng::Informix => vec![ObjectKindInfo::sequences(), ObjectKindInfo::synonyms()],
         Eng::Sqla | Eng::Vertica | Eng::MonetDb => vec![ObjectKindInfo::sequences()],
-        Eng::Netezza | Eng::Altibase | Eng::Cubrid | Eng::Ingres => vec![ObjectKindInfo::sequences(), ObjectKindInfo::synonyms()],
-        Eng::Dameng | Eng::Mimer => vec![ObjectKindInfo::sequences(), ObjectKindInfo::synonyms(), ObjectKindInfo::types()],
+        Eng::Netezza | Eng::Altibase | Eng::Cubrid | Eng::Ingres => {
+            vec![ObjectKindInfo::sequences(), ObjectKindInfo::synonyms()]
+        }
+        Eng::Dameng | Eng::Mimer => vec![
+            ObjectKindInfo::sequences(),
+            ObjectKindInfo::synonyms(),
+            ObjectKindInfo::types(),
+        ],
         _ => Vec::new(),
     }
 }
@@ -129,10 +142,22 @@ pub fn checks_sql(e: Eng) -> &'static [&'static str] {
 /// a CHECK (Dameng, Mimer), not a constraint of its own.
 pub fn is_not_null_check(cond: &str) -> bool {
     let c = cond.trim();
-    let c = c.strip_prefix('(').and_then(|x| x.strip_suffix(')')).unwrap_or(c).trim();
-    let Some(col) = c.strip_suffix("IS NOT NULL").or_else(|| c.strip_suffix("is not null")) else { return false };
+    let c = c
+        .strip_prefix('(')
+        .and_then(|x| x.strip_suffix(')'))
+        .unwrap_or(c)
+        .trim();
+    let Some(col) = c
+        .strip_suffix("IS NOT NULL")
+        .or_else(|| c.strip_suffix("is not null"))
+    else {
+        return false;
+    };
     let col = col.trim();
-    let bare = col.strip_prefix('"').and_then(|x| x.strip_suffix('"')).unwrap_or(col);
+    let bare = col
+        .strip_prefix('"')
+        .and_then(|x| x.strip_suffix('"'))
+        .unwrap_or(col);
     !bare.is_empty() && !bare.contains(['"', ' ', '(', ')'])
 }
 
@@ -153,7 +178,12 @@ pub fn check_condition(text: &str) -> String {
     let t = text.trim();
     let upper = t.to_ascii_uppercase();
     let t = match upper.find("CHECK") {
-        Some(i) if upper[..i].trim().is_empty() || upper[..i].trim_start().starts_with("CONSTRAINT") => t[i + 5..].trim(),
+        Some(i)
+            if upper[..i].trim().is_empty()
+                || upper[..i].trim_start().starts_with("CONSTRAINT") =>
+        {
+            t[i + 5..].trim()
+        }
         _ => t,
     };
     t.trim_end_matches(';').trim().to_string()
@@ -178,10 +208,18 @@ pub fn attach_checks(tables: &mut [TableSchema], rows: &Rows, has_schemas: bool)
             continue;
         }
         let found = tables.iter_mut().find(|t| {
-            t.name.eq_ignore_ascii_case(&table) && (!has_schemas || t.schema.as_deref().unwrap_or("").eq_ignore_ascii_case(&schema))
+            t.name.eq_ignore_ascii_case(&table)
+                && (!has_schemas
+                    || t.schema
+                        .as_deref()
+                        .unwrap_or("")
+                        .eq_ignore_ascii_case(&schema))
         });
         if let Some(t) = found {
-            t.checks.push(CheckDef { name: (!name.is_empty()).then_some(name), expression: cond });
+            t.checks.push(CheckDef {
+                name: (!name.is_empty()).then_some(name),
+                expression: cond,
+            });
         }
     }
 }
@@ -190,8 +228,15 @@ pub fn attach_checks(tables: &mut [TableSchema], rows: &Rows, has_schemas: bool)
 pub fn attach_includes(tables: &mut [TableSchema], rows: &Rows) {
     for r in rows {
         let (schema, table, index, column) = (text(r, 0), text(r, 1), text(r, 2), text(r, 3));
-        let Some(t) = tables.iter_mut().find(|t| t.name == table && t.schema.as_deref().unwrap_or("") == schema) else { continue };
-        let Some(ix) = t.indexes.iter_mut().find(|i| i.name == index) else { continue };
+        let Some(t) = tables
+            .iter_mut()
+            .find(|t| t.name == table && t.schema.as_deref().unwrap_or("") == schema)
+        else {
+            continue;
+        };
+        let Some(ix) = t.indexes.iter_mut().find(|i| i.name == index) else {
+            continue;
+        };
         ix.columns.retain(|c| *c != column);
         if !ix.include.contains(&column) {
             ix.include.push(column);
@@ -279,8 +324,12 @@ pub fn definition_takes_schema(e: Eng) -> bool {
 /// [`build_named`] picks by name.
 pub fn named_definition_sql(e: Eng, kind: &str) -> Option<&'static str> {
     match (e, kind) {
-        (Eng::Netezza, kinds::SEQUENCE) => Some("SELECT * FROM _V_SEQUENCE WHERE SCHEMA = ? AND SEQNAME = ?"),
-        (Eng::Netezza, kinds::SYNONYM) => Some("SELECT * FROM _V_SYNONYM WHERE SCHEMA = ? AND SYNONYM_NAME = ?"),
+        (Eng::Netezza, kinds::SEQUENCE) => {
+            Some("SELECT * FROM _V_SEQUENCE WHERE SCHEMA = ? AND SEQNAME = ?")
+        }
+        (Eng::Netezza, kinds::SYNONYM) => {
+            Some("SELECT * FROM _V_SYNONYM WHERE SCHEMA = ? AND SYNONYM_NAME = ?")
+        }
         _ => None,
     }
 }
@@ -288,7 +337,15 @@ pub fn named_definition_sql(e: Eng, kind: &str) -> Option<&'static str> {
 /// The CREATE from a [`named_definition_sql`] row: its columns are taken
 /// by name (any of several spellings), into [`build`]'s layout. `None`
 /// when the row doesn't have what the statement needs.
-pub fn build_named(e: Eng, kind: &str, q: Quote, schema: Option<&str>, name: &str, cols: &[String], row: &[Option<String>]) -> Option<String> {
+pub fn build_named(
+    e: Eng,
+    kind: &str,
+    q: Quote,
+    schema: Option<&str>,
+    name: &str,
+    cols: &[String],
+    row: &[Option<String>],
+) -> Option<String> {
     let pick = |names: &[&str]| -> String {
         names
             .iter()
@@ -422,7 +479,10 @@ pub fn definition_sql(e: Eng, kind: &str) -> &'static [&'static str] {
 }
 
 fn yes(v: &str) -> bool {
-    matches!(v.trim().to_ascii_uppercase().as_str(), "Y" | "YES" | "1" | "T" | "TRUE")
+    matches!(
+        v.trim().to_ascii_uppercase().as_str(),
+        "Y" | "YES" | "1" | "T" | "TRUE"
+    )
 }
 
 /// A Db2 built-in type with its length / precision and scale.
@@ -430,11 +490,18 @@ fn db2_type(name: &str, length: &str, scale: &str) -> String {
     let n = name.trim().to_ascii_uppercase();
     let (len, sc) = (length.trim(), scale.trim());
     match n.as_str() {
-        "CHARACTER" | "CHAR" | "VARCHAR" | "GRAPHIC" | "VARGRAPHIC" | "BINARY" | "VARBINARY" | "BLOB" | "CLOB" | "DBCLOB" if !len.is_empty() && len != "0" => {
+        "CHARACTER" | "CHAR" | "VARCHAR" | "GRAPHIC" | "VARGRAPHIC" | "BINARY" | "VARBINARY"
+        | "BLOB" | "CLOB" | "DBCLOB"
+            if !len.is_empty() && len != "0" =>
+        {
             format!("{n}({len})")
         }
         "DECIMAL" | "DECFLOAT" | "NUMERIC" if !len.is_empty() && len != "0" => {
-            if n == "DECFLOAT" { format!("{n}({len})") } else { format!("{n}({len},{})", if sc.is_empty() { "0" } else { sc }) }
+            if n == "DECFLOAT" {
+                format!("{n}({len})")
+            } else {
+                format!("{n}({len},{})", if sc.is_empty() { "0" } else { sc })
+            }
         }
         "TIMESTAMP" if !sc.is_empty() && sc != "6" => format!("TIMESTAMP({sc})"),
         _ => n,
@@ -443,7 +510,11 @@ fn db2_type(name: &str, length: &str, scale: &str) -> String {
 
 /// `(…)` around a condition that has none.
 fn wrap(c: &str) -> String {
-    if c.starts_with('(') { c.to_string() } else { format!("({c})") }
+    if c.starts_with('(') {
+        c.to_string()
+    } else {
+        format!("({c})")
+    }
 }
 
 /// An INFORMATION_SCHEMA type (Mimer's domains) with its length or
@@ -454,7 +525,15 @@ fn sql_type(name: &str, length: &str, precision: &str, scale: &str) -> String {
     if (n.contains("CHAR") || n.contains("BINARY")) && has(length) {
         format!("{n}({})", length.trim())
     } else if matches!(n.as_str(), "DECIMAL" | "NUMERIC") && has(precision) {
-        format!("{n}({},{})", precision.trim(), if scale.trim().is_empty() { "0" } else { scale.trim() })
+        format!(
+            "{n}({},{})",
+            precision.trim(),
+            if scale.trim().is_empty() {
+                "0"
+            } else {
+                scale.trim()
+            }
+        )
     } else {
         n
     }
@@ -466,24 +545,49 @@ fn zos_type(id: &str, precision: &str) -> String {
         "500" => "SMALLINT".into(),
         "496" => "INTEGER".into(),
         "492" => "BIGINT".into(),
-        "484" => format!("DECIMAL({},0)", if precision.trim().is_empty() { "31" } else { precision.trim() }),
+        "484" => format!(
+            "DECIMAL({},0)",
+            if precision.trim().is_empty() {
+                "31"
+            } else {
+                precision.trim()
+            }
+        ),
         other => other.to_string(),
     }
 }
 
 /// The object's CREATE from the rows of each [`definition_sql`] query.
-pub fn build(e: Eng, kind: &str, q: Quote, schema: Option<&str>, name: &str, sets: &[Rows]) -> Option<String> {
+pub fn build(
+    e: Eng,
+    kind: &str,
+    q: Quote,
+    schema: Option<&str>,
+    name: &str,
+    sets: &[Rows],
+) -> Option<String> {
     let first = sets.first()?.first()?;
     let full = qualified_name(q, schema.filter(|s| !s.is_empty()), name);
     let v = |i: usize| text(first, i);
     match (e, kind) {
         // Dameng keeps an object type's source (`TYPE n AS OBJECT …`).
         (Eng::Dameng, kinds::TYPE) => {
-            let src: String = sets[0].iter().filter_map(|r| r.first().cloned().flatten()).collect();
+            let src: String = sets[0]
+                .iter()
+                .filter_map(|r| r.first().cloned().flatten())
+                .collect();
             let src = src.trim();
             return (!src.is_empty()).then(|| {
-                let body = if src.len() >= 6 && src[..6].eq_ignore_ascii_case("CREATE") { src.to_string() } else { format!("CREATE OR REPLACE {src}") };
-                if body.ends_with(';') { body } else { format!("{body};") }
+                let body = if src.len() >= 6 && src[..6].eq_ignore_ascii_case("CREATE") {
+                    src.to_string()
+                } else {
+                    format!("CREATE OR REPLACE {src}")
+                };
+                if body.ends_with(';') {
+                    body
+                } else {
+                    format!("{body};")
+                }
             });
         }
         (Eng::Mimer, kinds::TYPE) => {
@@ -493,13 +597,20 @@ pub fn build(e: Eng, kind: &str, q: Quote, schema: Option<&str>, name: &str, set
                 s.push_str(&format!(" DEFAULT {}", v(4)));
             }
             for r in sets.get(1).into_iter().flatten() {
-                s.push_str(&format!(" CONSTRAINT {} CHECK {}", quote_ident(q, &text(r, 0)), wrap(&check_condition(&text(r, 1)))));
+                s.push_str(&format!(
+                    " CONSTRAINT {} CHECK {}",
+                    quote_ident(q, &text(r, 0)),
+                    wrap(&check_condition(&text(r, 1)))
+                ));
             }
             s.push(';');
             return Some(s);
         }
         (Eng::Mimer, kinds::SEQUENCE) => {
-            let mut s = format!("CREATE {}SEQUENCE {full}", if yes(&v(0)) { "UNIQUE " } else { "" });
+            let mut s = format!(
+                "CREATE {}SEQUENCE {full}",
+                if yes(&v(0)) { "UNIQUE " } else { "" }
+            );
             for (kw, i) in [("START WITH", 2), ("INCREMENT BY", 3), ("MAXVALUE", 5)] {
                 if !v(i).is_empty() {
                     s.push_str(&format!(" {kw} {}", v(i)));
@@ -508,24 +619,38 @@ pub fn build(e: Eng, kind: &str, q: Quote, schema: Option<&str>, name: &str, set
             s.push(';');
             return Some(s);
         }
-        (Eng::Cubrid, kinds::SEQUENCE) => return Some(sequence(e, &full, &v).replacen("CREATE SEQUENCE ", "CREATE SERIAL ", 1)),
+        (Eng::Cubrid, kinds::SEQUENCE) => {
+            return Some(sequence(e, &full, &v).replacen("CREATE SEQUENCE ", "CREATE SERIAL ", 1))
+        }
         _ => {}
     }
     match kind {
         kinds::SEQUENCE => Some(sequence(e, &full, &v)),
         kinds::SYNONYM => {
-            let target = |s: String, n: String| qualified_name(q, Some(s.as_str()).filter(|s| !s.is_empty()), &n);
+            let target = |s: String, n: String| {
+                qualified_name(q, Some(s.as_str()).filter(|s| !s.is_empty()), &n)
+            };
             Some(match e {
                 Eng::Informix => {
                     let (kind, server, db) = (v(0), v(1), v(2));
                     let mut t = target(v(3), v(4));
                     if !db.is_empty() {
-                        t = if server.is_empty() { format!("{db}:{t}") } else { format!("{db}@{server}:{t}") };
+                        t = if server.is_empty() {
+                            format!("{db}:{t}")
+                        } else {
+                            format!("{db}@{server}:{t}")
+                        };
                     }
-                    let scope = if kind.eq_ignore_ascii_case("P") { "PRIVATE " } else { "PUBLIC " };
+                    let scope = if kind.eq_ignore_ascii_case("P") {
+                        "PRIVATE "
+                    } else {
+                        "PUBLIC "
+                    };
                     format!("CREATE {scope}SYNONYM {full} FOR {t};")
                 }
-                Eng::Db2 | Eng::Db2i | Eng::Db2zos => format!("CREATE ALIAS {full} FOR {};", target(v(0), v(1))),
+                Eng::Db2 | Eng::Db2i | Eng::Db2zos => {
+                    format!("CREATE ALIAS {full} FOR {};", target(v(0), v(1)))
+                }
                 _ => format!("CREATE SYNONYM {full} FOR {};", target(v(0), v(1))),
             })
         }
@@ -547,12 +672,21 @@ pub fn build(e: Eng, kind: &str, q: Quote, schema: Option<&str>, name: &str, set
                             .collect()
                     })
                     .unwrap_or_default();
-                let under = sets.get(2).and_then(|r| r.first()).map(|r| format!(" UNDER {}", qualified_name(q, Some(text(r, 0).as_str()), &text(r, 1))));
+                let under = sets.get(2).and_then(|r| r.first()).map(|r| {
+                    format!(
+                        " UNDER {}",
+                        qualified_name(q, Some(text(r, 0).as_str()), &text(r, 1))
+                    )
+                });
                 let mut s = format!("CREATE TYPE {full}{}", under.unwrap_or_default());
                 if !attrs.is_empty() {
                     s.push_str(&format!(" AS (\n{}\n)", attrs.join(",\n")));
                 }
-                s.push_str(if yes(&v(5)) { " INSTANTIABLE" } else { " NOT INSTANTIABLE" });
+                s.push_str(if yes(&v(5)) {
+                    " INSTANTIABLE"
+                } else {
+                    " NOT INSTANTIABLE"
+                });
                 s.push_str(if yes(&v(6)) { " FINAL" } else { " NOT FINAL" });
                 s.push_str(" MODE DB2SQL;");
                 Some(s)
@@ -562,7 +696,9 @@ pub fn build(e: Eng, kind: &str, q: Quote, schema: Option<&str>, name: &str, set
                 } else {
                     qualified_name(q, Some(v(1).as_str()), &v(2))
                 };
-                Some(format!("CREATE DISTINCT TYPE {full} AS {source} WITH COMPARISONS;"))
+                Some(format!(
+                    "CREATE DISTINCT TYPE {full} AS {source} WITH COMPARISONS;"
+                ))
             }
         }
         _ => None,
@@ -575,7 +711,13 @@ fn sequence(e: Eng, full: &str, v: &dyn Fn(usize) -> String) -> String {
     let ty = match e {
         Eng::Db2 | Eng::Db2i | Eng::Ingres | Eng::Netezza => {
             let t = v(0).to_ascii_uppercase();
-            (!t.is_empty()).then(|| if t == "DECIMAL" || t == "NUMERIC" { format!("DECIMAL({},0)", v(1)) } else { t })
+            (!t.is_empty()).then(|| {
+                if t == "DECIMAL" || t == "NUMERIC" {
+                    format!("DECIMAL({},0)", v(1))
+                } else {
+                    t
+                }
+            })
         }
         Eng::Db2zos => Some(zos_type(&v(0), &v(1))),
         _ => None,
@@ -606,7 +748,11 @@ fn sequence(e: Eng, full: &str, v: &dyn Fn(usize) -> String) -> String {
     } else {
         s.push_str(&format!(" CACHE {cache}"));
     }
-    if matches!(e, Eng::Db2 | Eng::Db2zos | Eng::Db2i | Eng::Informix | Eng::Dameng | Eng::Ingres) && !v(8).is_empty() {
+    if matches!(
+        e,
+        Eng::Db2 | Eng::Db2zos | Eng::Db2i | Eng::Informix | Eng::Dameng | Eng::Ingres
+    ) && !v(8).is_empty()
+    {
         s.push_str(match (yes(&v(8)), informix) {
             (true, _) => " ORDER",
             (false, true) => " NOORDER",
@@ -629,7 +775,10 @@ pub fn informix_checks(ddl: &str) -> String {
                 Some(b) => (b, ","),
                 None => (body, ""),
             };
-            match body.strip_prefix("CONSTRAINT ").and_then(|r| r.split_once(" CHECK ")) {
+            match body
+                .strip_prefix("CONSTRAINT ")
+                .and_then(|r| r.split_once(" CHECK "))
+            {
                 Some((n, cond)) => format!("{indent}CHECK {cond} CONSTRAINT {n}{comma}"),
                 None => l.to_string(),
             }
@@ -644,12 +793,18 @@ mod tests {
     use dbine_driver::IndexDef;
 
     fn rows(v: &[&[&str]]) -> Rows {
-        v.iter().map(|r| r.iter().map(|c| Some(c.to_string())).collect()).collect()
+        v.iter()
+            .map(|r| r.iter().map(|c| Some(c.to_string())).collect())
+            .collect()
     }
 
     #[test]
     fn checks_from_catalog_rows() {
-        let mut t = vec![TableSchema { schema: Some("APP".into()), name: "DOCS".into(), ..Default::default() }];
+        let mut t = vec![TableSchema {
+            schema: Some("APP".into()),
+            name: "DOCS".into(),
+            ..Default::default()
+        }];
         attach_checks(
             &mut t,
             &rows(&[
@@ -663,36 +818,81 @@ mod tests {
         );
         let c = &t[0].checks;
         assert_eq!(c.len(), 3);
-        assert_eq!((c[0].name.as_deref(), c[0].expression.as_str()), (Some("CK_A"), "(a > 0)"));
+        assert_eq!(
+            (c[0].name.as_deref(), c[0].expression.as_str()),
+            (Some("CK_A"), "(a > 0)")
+        );
         assert_eq!(c[1].expression, "(b < 5)");
-        assert_eq!((c[2].name.as_deref(), c[2].expression.as_str()), (None, "(c IN (1, 2))"));
-        assert_eq!(check_condition("(fecha >= '2000-01-01')"), "(fecha >= '2000-01-01')");
+        assert_eq!(
+            (c[2].name.as_deref(), c[2].expression.as_str()),
+            (None, "(c IN (1, 2))")
+        );
+        assert_eq!(
+            check_condition("(fecha >= '2000-01-01')"),
+            "(fecha >= '2000-01-01')"
+        );
     }
 
     #[test]
     fn include_columns_leave_the_key() {
-        let ix = IndexDef { name: "UX".into(), unique: true, columns: vec!["A".into(), "B".into()], ..Default::default() };
-        let mut t = vec![TableSchema { schema: Some("APP".into()), name: "T".into(), indexes: vec![ix], ..Default::default() }];
+        let ix = IndexDef {
+            name: "UX".into(),
+            unique: true,
+            columns: vec!["A".into(), "B".into()],
+            ..Default::default()
+        };
+        let mut t = vec![TableSchema {
+            schema: Some("APP".into()),
+            name: "T".into(),
+            indexes: vec![ix],
+            ..Default::default()
+        }];
         attach_includes(&mut t, &rows(&[&["APP", "T", "UX", "B"]]));
-        assert_eq!((t[0].indexes[0].columns.as_slice(), t[0].indexes[0].include.as_slice()), (&["A".to_string()][..], &["B".to_string()][..]));
+        assert_eq!(
+            (
+                t[0].indexes[0].columns.as_slice(),
+                t[0].indexes[0].include.as_slice()
+            ),
+            (&["A".to_string()][..], &["B".to_string()][..])
+        );
     }
 
     #[test]
     fn db2_objects() {
         let q = Quote::Double;
-        let seq = rows(&[&["BIGINT", "19", "100", "5", "1", "9223372036854775807", "N", "20", "N"]]);
+        let seq = rows(&[&[
+            "BIGINT",
+            "19",
+            "100",
+            "5",
+            "1",
+            "9223372036854775807",
+            "N",
+            "20",
+            "N",
+        ]]);
         assert_eq!(
             build(Eng::Db2, kinds::SEQUENCE, q, Some("APP"), "SEQ", &[seq]).unwrap(),
             "CREATE SEQUENCE \"APP\".\"SEQ\" AS BIGINT START WITH 100 INCREMENT BY 5 MINVALUE 1 MAXVALUE 9223372036854775807 NO CYCLE CACHE 20 NO ORDER;"
         );
         let alias = rows(&[&["APP", "DOCS"]]);
-        assert_eq!(build(Eng::Db2, kinds::SYNONYM, q, Some("APP"), "D", &[alias]).unwrap(), "CREATE ALIAS \"APP\".\"D\" FOR \"APP\".\"DOCS\";");
+        assert_eq!(
+            build(Eng::Db2, kinds::SYNONYM, q, Some("APP"), "D", &[alias]).unwrap(),
+            "CREATE ALIAS \"APP\".\"D\" FOR \"APP\".\"DOCS\";"
+        );
         let distinct = rows(&[&["T", "SYSIBM", "DECIMAL", "12", "2", "Y", "Y"]]);
         assert_eq!(
             build(Eng::Db2, kinds::TYPE, q, Some("APP"), "PRECIO", &[distinct]).unwrap(),
             "CREATE DISTINCT TYPE \"APP\".\"PRECIO\" AS DECIMAL(12,2) WITH COMPARISONS;"
         );
-        let structured = vec![rows(&[&["R", "", "", "0", "0", "Y", "N"]]), rows(&[&["CALLE", "SYSIBM", "VARCHAR", "40", "0"], &["NRO", "SYSIBM", "INTEGER", "4", "0"]]), rows(&[&["APP", "BASE"]])];
+        let structured = vec![
+            rows(&[&["R", "", "", "0", "0", "Y", "N"]]),
+            rows(&[
+                &["CALLE", "SYSIBM", "VARCHAR", "40", "0"],
+                &["NRO", "SYSIBM", "INTEGER", "4", "0"],
+            ]),
+            rows(&[&["APP", "BASE"]]),
+        ];
         assert_eq!(
             build(Eng::Db2, kinds::TYPE, q, Some("APP"), "DIR", &structured).unwrap(),
             "CREATE TYPE \"APP\".\"DIR\" UNDER \"APP\".\"BASE\" AS (\n    \"CALLE\" VARCHAR(40),\n    \"NRO\" INTEGER\n) INSTANTIABLE NOT FINAL MODE DB2SQL;"
@@ -713,9 +913,15 @@ mod tests {
             "CREATE SEQUENCE \"informix\".\"s\" START WITH 1 INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 NOCYCLE CACHE 20 NOORDER;"
         );
         let syn = rows(&[&["P", "", "", "informix", "docs"]]);
-        assert_eq!(build(Eng::Informix, kinds::SYNONYM, q, Some("u"), "d", &[syn]).unwrap(), "CREATE PRIVATE SYNONYM \"u\".\"d\" FOR \"informix\".\"docs\";");
+        assert_eq!(
+            build(Eng::Informix, kinds::SYNONYM, q, Some("u"), "d", &[syn]).unwrap(),
+            "CREATE PRIVATE SYNONYM \"u\".\"d\" FOR \"informix\".\"docs\";"
+        );
         let remote = rows(&[&["S", "srv", "otra", "informix", "docs"]]);
-        assert_eq!(build(Eng::Informix, kinds::SYNONYM, q, None, "d", &[remote]).unwrap(), "CREATE PUBLIC SYNONYM \"d\" FOR otra@srv:\"informix\".\"docs\";");
+        assert_eq!(
+            build(Eng::Informix, kinds::SYNONYM, q, None, "d", &[remote]).unwrap(),
+            "CREATE PUBLIC SYNONYM \"d\" FOR otra@srv:\"informix\".\"docs\";"
+        );
         assert_eq!(
             informix_checks("CREATE TABLE \"t\" (\n    \"a\" INTEGER,\n    CONSTRAINT \"ck_a\" CHECK (a > 0),\n    CHECK (a < 9)\n);"),
             "CREATE TABLE \"t\" (\n    \"a\" INTEGER,\n    CHECK (a > 0) CONSTRAINT \"ck_a\",\n    CHECK (a < 9)\n);"
@@ -725,68 +931,206 @@ mod tests {
     #[test]
     fn dameng_altibase_cubrid_ingres() {
         let q = Quote::Double;
-        let seq = rows(&[&["", "", "21", "1", "1", "9223372036854775807", "N", "20", "N"]]);
+        let seq = rows(&[&[
+            "",
+            "",
+            "21",
+            "1",
+            "1",
+            "9223372036854775807",
+            "N",
+            "20",
+            "N",
+        ]]);
         assert_eq!(
             build(Eng::Dameng, kinds::SEQUENCE, q, Some("APP"), "S", &[seq]).unwrap(),
             "CREATE SEQUENCE \"APP\".\"S\" START WITH 21 INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 NOCYCLE CACHE 20 NOORDER;"
         );
-        assert_eq!(build(Eng::Dameng, kinds::SYNONYM, q, Some("APP"), "D", &[rows(&[&["APP", "DOCS"]])]).unwrap(), "CREATE SYNONYM \"APP\".\"D\" FOR \"APP\".\"DOCS\";");
-        let src = rows(&[&["TYPE DIR AS OBJECT (\n"], &["  CALLE VARCHAR(40)\n"], &[")"]]);
-        assert_eq!(build(Eng::Dameng, kinds::TYPE, q, Some("APP"), "DIR", &[src]).unwrap(), "CREATE OR REPLACE TYPE DIR AS OBJECT (\n  CALLE VARCHAR(40)\n);");
+        assert_eq!(
+            build(
+                Eng::Dameng,
+                kinds::SYNONYM,
+                q,
+                Some("APP"),
+                "D",
+                &[rows(&[&["APP", "DOCS"]])]
+            )
+            .unwrap(),
+            "CREATE SYNONYM \"APP\".\"D\" FOR \"APP\".\"DOCS\";"
+        );
+        let src = rows(&[
+            &["TYPE DIR AS OBJECT (\n"],
+            &["  CALLE VARCHAR(40)\n"],
+            &[")"],
+        ]);
+        assert_eq!(
+            build(Eng::Dameng, kinds::TYPE, q, Some("APP"), "DIR", &[src]).unwrap(),
+            "CREATE OR REPLACE TYPE DIR AS OBJECT (\n  CALLE VARCHAR(40)\n);"
+        );
         let seq = rows(&[&["", "", "1", "2", "1", "100", "YES", "0", ""]]);
         assert_eq!(
             build(Eng::Altibase, kinds::SEQUENCE, q, Some("SYS"), "S", &[seq]).unwrap(),
             "CREATE SEQUENCE \"SYS\".\"S\" START WITH 1 INCREMENT BY 2 MINVALUE 1 MAXVALUE 100 CYCLE NOCACHE;"
         );
         let serial = rows(&[&["", "", "", "1", "1", "10000", "0", "10", ""]]);
-        assert_eq!(build(Eng::Cubrid, kinds::SEQUENCE, q, None, "s", &[serial]).unwrap(), "CREATE SERIAL \"s\" INCREMENT BY 1 MINVALUE 1 MAXVALUE 10000 NOCYCLE CACHE 10;");
-        assert_eq!(build(Eng::Cubrid, kinds::SYNONYM, q, None, "d", &[rows(&[&["DBA", "docs"]])]).unwrap(), "CREATE SYNONYM \"d\" FOR \"DBA\".\"docs\";");
-        let seq = rows(&[&["decimal", "12", "1", "1", "1", "999999999999", "N", "20", "N"]]);
+        assert_eq!(
+            build(Eng::Cubrid, kinds::SEQUENCE, q, None, "s", &[serial]).unwrap(),
+            "CREATE SERIAL \"s\" INCREMENT BY 1 MINVALUE 1 MAXVALUE 10000 NOCYCLE CACHE 10;"
+        );
+        assert_eq!(
+            build(
+                Eng::Cubrid,
+                kinds::SYNONYM,
+                q,
+                None,
+                "d",
+                &[rows(&[&["DBA", "docs"]])]
+            )
+            .unwrap(),
+            "CREATE SYNONYM \"d\" FOR \"DBA\".\"docs\";"
+        );
+        let seq = rows(&[&[
+            "decimal",
+            "12",
+            "1",
+            "1",
+            "1",
+            "999999999999",
+            "N",
+            "20",
+            "N",
+        ]]);
         assert_eq!(
             build(Eng::Ingres, kinds::SEQUENCE, q, Some("u"), "s", &[seq]).unwrap(),
             "CREATE SEQUENCE \"u\".\"s\" AS DECIMAL(12,0) START WITH 1 INCREMENT BY 1 MINVALUE 1 MAXVALUE 999999999999 NO CYCLE CACHE 20 NO ORDER;"
         );
-        assert!(object_kinds(Eng::Ingres).iter().all(|k| k.id != kinds::TYPE));
+        assert!(object_kinds(Eng::Ingres)
+            .iter()
+            .all(|k| k.id != kinds::TYPE));
     }
 
     #[test]
     fn mimer_objects_and_not_null_checks() {
         let q = Quote::Double;
         let seq = rows(&[&["YES", "", "1", "5", "", "1000", "", "", ""]]);
-        assert_eq!(build(Eng::Mimer, kinds::SEQUENCE, q, Some("APP"), "S", &[seq]).unwrap(), "CREATE UNIQUE SEQUENCE \"APP\".\"S\" START WITH 1 INCREMENT BY 5 MAXVALUE 1000;");
-        let dom = vec![rows(&[&["DECIMAL", "", "12", "2", "0"]]), rows(&[&["PRECIO_POS", "VALUE >= 0"]])];
+        assert_eq!(
+            build(Eng::Mimer, kinds::SEQUENCE, q, Some("APP"), "S", &[seq]).unwrap(),
+            "CREATE UNIQUE SEQUENCE \"APP\".\"S\" START WITH 1 INCREMENT BY 5 MAXVALUE 1000;"
+        );
+        let dom = vec![
+            rows(&[&["DECIMAL", "", "12", "2", "0"]]),
+            rows(&[&["PRECIO_POS", "VALUE >= 0"]]),
+        ];
         assert_eq!(
             build(Eng::Mimer, kinds::TYPE, q, Some("APP"), "PRECIO", &dom).unwrap(),
             "CREATE DOMAIN \"APP\".\"PRECIO\" AS DECIMAL(12,2) DEFAULT 0 CONSTRAINT \"PRECIO_POS\" CHECK (VALUE >= 0);"
         );
-        let dom = vec![rows(&[&["CHARACTER VARYING", "40", "", "", ""]]), Vec::new()];
-        assert_eq!(build(Eng::Mimer, kinds::TYPE, q, Some("APP"), "NOMBRE", &dom).unwrap(), "CREATE DOMAIN \"APP\".\"NOMBRE\" AS CHARACTER VARYING(40);");
-        assert!(is_not_null_check("\"NOMBRE\" IS NOT NULL") && is_not_null_check("(ID IS NOT NULL)"));
+        let dom = vec![
+            rows(&[&["CHARACTER VARYING", "40", "", "", ""]]),
+            Vec::new(),
+        ];
+        assert_eq!(
+            build(Eng::Mimer, kinds::TYPE, q, Some("APP"), "NOMBRE", &dom).unwrap(),
+            "CREATE DOMAIN \"APP\".\"NOMBRE\" AS CHARACTER VARYING(40);"
+        );
+        assert!(
+            is_not_null_check("\"NOMBRE\" IS NOT NULL") && is_not_null_check("(ID IS NOT NULL)")
+        );
         assert!(!is_not_null_check("a + b IS NOT NULL") && !is_not_null_check("a > 0"));
-        let mut t = vec![TableSchema { schema: Some("APP".into()), name: "T".into(), ..Default::default() }];
-        attach_checks(&mut t, &rows(&[&["APP", "T", "SYS_C1", "\"ID\" IS NOT NULL"], &["APP", "T", "CK_P", "P > 0"]]), true);
+        let mut t = vec![TableSchema {
+            schema: Some("APP".into()),
+            name: "T".into(),
+            ..Default::default()
+        }];
+        attach_checks(
+            &mut t,
+            &rows(&[
+                &["APP", "T", "SYS_C1", "\"ID\" IS NOT NULL"],
+                &["APP", "T", "CK_P", "P > 0"],
+            ]),
+            true,
+        );
         assert_eq!(t[0].checks.len(), 1);
     }
 
     #[test]
     fn netezza_by_column_name() {
         let q = Quote::Double;
-        let cols: Vec<String> = ["SEQNAME", "SCHEMA", "DATATYPE", "STARTVALUE", "INCREMENT", "MINVALUE", "MAXVALUE", "CYCLE"].map(String::from).to_vec();
-        let row: Vec<Option<String>> = ["S", "ADMIN", "BIGINT", "1", "1", "1", "9223372036854775807", "f"].map(|v| Some(v.to_string())).to_vec();
+        let cols: Vec<String> = [
+            "SEQNAME",
+            "SCHEMA",
+            "DATATYPE",
+            "STARTVALUE",
+            "INCREMENT",
+            "MINVALUE",
+            "MAXVALUE",
+            "CYCLE",
+        ]
+        .map(String::from)
+        .to_vec();
+        let row: Vec<Option<String>> = [
+            "S",
+            "ADMIN",
+            "BIGINT",
+            "1",
+            "1",
+            "1",
+            "9223372036854775807",
+            "f",
+        ]
+        .map(|v| Some(v.to_string()))
+        .to_vec();
         assert_eq!(
             build_named(Eng::Netezza, kinds::SEQUENCE, q, Some("ADMIN"), "S", &cols, &row).unwrap(),
             "CREATE SEQUENCE \"ADMIN\".\"S\" AS BIGINT START WITH 1 INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 NO CYCLE NO CACHE;"
         );
-        assert!(build_named(Eng::Netezza, kinds::SEQUENCE, q, None, "S", &cols[..2], &row[..2]).is_none());
-        let cols: Vec<String> = ["SYNONYM_NAME", "REFSCHEMA", "REFOBJNAME"].map(String::from).to_vec();
-        let row = vec![Some("D".to_string()), Some("ADMIN".into()), Some("DOCS".into())];
-        assert_eq!(build_named(Eng::Netezza, kinds::SYNONYM, q, Some("ADMIN"), "D", &cols, &row).unwrap(), "CREATE SYNONYM \"ADMIN\".\"D\" FOR \"ADMIN\".\"DOCS\";");
+        assert!(build_named(
+            Eng::Netezza,
+            kinds::SEQUENCE,
+            q,
+            None,
+            "S",
+            &cols[..2],
+            &row[..2]
+        )
+        .is_none());
+        let cols: Vec<String> = ["SYNONYM_NAME", "REFSCHEMA", "REFOBJNAME"]
+            .map(String::from)
+            .to_vec();
+        let row = vec![
+            Some("D".to_string()),
+            Some("ADMIN".into()),
+            Some("DOCS".into()),
+        ];
+        assert_eq!(
+            build_named(
+                Eng::Netezza,
+                kinds::SYNONYM,
+                q,
+                Some("ADMIN"),
+                "D",
+                &cols,
+                &row
+            )
+            .unwrap(),
+            "CREATE SYNONYM \"ADMIN\".\"D\" FOR \"ADMIN\".\"DOCS\";"
+        );
     }
 
     #[test]
     fn vertica_and_monetdb_sequences() {
         let q = Quote::Double;
-        let v = rows(&[&["", "", "", "1", "1", "9223372036854775807", "f", "250000", ""]]);
+        let v = rows(&[&[
+            "",
+            "",
+            "",
+            "1",
+            "1",
+            "9223372036854775807",
+            "f",
+            "250000",
+            "",
+        ]]);
         assert_eq!(
             build(Eng::Vertica, kinds::SEQUENCE, q, Some("public"), "s", &[v]).unwrap(),
             "CREATE SEQUENCE \"public\".\"s\" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 NO CYCLE CACHE 250000;"

@@ -47,7 +47,10 @@
 
 use crate::{err, SqliteSession};
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec,
+    RowBatch, TransferColumn,
+};
 use dbine_driver::{Error, ObjectRef, Result, Session};
 use rusqlite::types::{ToSqlOutput, ValueRef};
 use rusqlite::{Connection, ErrorCode, InterruptHandle, ToSql};
@@ -78,14 +81,21 @@ const BEGIN_PATIENCE: Duration = Duration::from_secs(600);
 /// `"schema"."name"` (just `"name"` without a schema).
 pub fn table_name(t: &ObjectRef) -> String {
     match t.schema() {
-        Some(s) => format!("{}.{}", quote_ident(Quote::Double, s), quote_ident(Quote::Double, &t.name)),
+        Some(s) => format!(
+            "{}.{}",
+            quote_ident(Quote::Double, s),
+            quote_ident(Quote::Double, &t.name)
+        ),
         None => quote_ident(Quote::Double, &t.name),
     }
 }
 
 /// `"a", "b"`.
 pub fn column_list(cols: &[String]) -> String {
-    cols.iter().map(|c| quote_ident(Quote::Double, c)).collect::<Vec<_>>().join(", ")
+    cols.iter()
+        .map(|c| quote_ident(Quote::Double, c))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// `t."a" AS "a", t."b" AS "b"`: each column qualified by `table`. A bare
@@ -106,8 +116,16 @@ pub fn qualified_columns(table: &str, cols: &[String]) -> String {
 /// its filter.
 pub fn select_sql(spec: &ReadSpec) -> String {
     let table = table_name(&spec.table);
-    let cols = spec.columns.as_deref().map_or_else(|| "*".to_string(), |c| qualified_columns(&table, c));
-    match spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+    let cols = spec
+        .columns
+        .as_deref()
+        .map_or_else(|| "*".to_string(), |c| qualified_columns(&table, c));
+    match spec
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+    {
         Some(f) => format!("SELECT {cols} FROM {table} WHERE {f}"),
         None => format!("SELECT {cols} FROM {table}"),
     }
@@ -116,7 +134,12 @@ pub fn select_sql(spec: &ReadSpec) -> String {
 /// `INSERT INTO t (cols) VALUES (?, …)` with `rows` rows of placeholders.
 pub fn insert_sql(spec: &LoadSpec, rows: usize) -> String {
     let one = format!("({})", vec!["?"; spec.columns.len()].join(", "));
-    format!("INSERT INTO {} ({}) VALUES {}", table_name(&spec.table), column_list(&spec.columns), vec![one; rows].join(", "))
+    format!(
+        "INSERT INTO {} ({}) VALUES {}",
+        table_name(&spec.table),
+        column_list(&spec.columns),
+        vec![one; rows].join(", ")
+    )
 }
 
 /// A SQLite value as a cell, whole.
@@ -180,9 +203,11 @@ fn not_null(c: &Connection, t: &ObjectRef) -> HashMap<String, bool> {
     ) else {
         return HashMap::new();
     };
-    stmt.query_map([t.name.as_str(), schema], |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)))
-        .map(|rows| rows.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default()
+    stmt.query_map([t.name.as_str(), schema], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
+    })
+    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
 }
 
 /// Read `spec` into `sink` on this (blocking) thread; the rows read.
@@ -198,7 +223,10 @@ pub(crate) fn read(c: &Connection, spec: &ReadSpec, sink: &BatchSinkRef) -> Resu
             nullable: !not_null.get(col.name()).copied().unwrap_or(false),
         })
         .collect();
-    let lock = || sink.lock().map_err(|_| Error::State("destino de lotes".into()));
+    let lock = || {
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))
+    };
     lock()?.begin(&cols)?;
     let n = cols.len();
     let mut builder = BatchBuilder::new();
@@ -295,8 +323,13 @@ fn gate(file: &str) -> Option<Arc<Gate>> {
     if file.is_empty() {
         return None;
     }
-    let key = std::fs::canonicalize(file).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| file.to_string());
-    let mut gates = GATES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    let key = std::fs::canonicalize(file)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| file.to_string());
+    let mut gates = GATES
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     Some(gates.entry(key).or_default().clone())
 }
 
@@ -313,7 +346,12 @@ impl Turn {
     /// up when `abort` is set. `fresh`: the turn starts a stretch of its
     /// own (the whole [`HOLD`]) instead of continuing the current one.
     fn take(gate: &Option<Arc<Gate>>, abort: &Abort, fresh: bool) -> Result<Turn> {
-        let Some(g) = gate else { return Ok(Turn { gate: None, deadline: None }) };
+        let Some(g) = gate else {
+            return Ok(Turn {
+                gate: None,
+                deadline: None,
+            });
+        };
         let mut s = g.state.lock().unwrap_or_else(|e| e.into_inner());
         let me = s.next;
         s.next += 1;
@@ -323,18 +361,26 @@ impl Turn {
             if !s.held && s.queue.front() == Some(&me) {
                 let now = Instant::now();
                 // The last turn ended less than a gap ago: the stretch goes on.
-                let gap_left = s.released.and_then(|r| GAP.checked_sub(now.saturating_duration_since(r))).filter(|d| !d.is_zero());
+                let gap_left = s
+                    .released
+                    .and_then(|r| GAP.checked_sub(now.saturating_duration_since(r)))
+                    .filter(|d| !d.is_zero());
                 let start = match (gap_left, s.stretch) {
                     (Some(_), Some(start)) => start,
                     _ => now,
                 };
                 match gap_left {
-                    Some(left) if fresh || now.saturating_duration_since(start) >= HOLD => wait = wait.min(left),
+                    Some(left) if fresh || now.saturating_duration_since(start) >= HOLD => {
+                        wait = wait.min(left)
+                    }
                     _ => {
                         s.queue.pop_front();
                         s.held = true;
                         s.stretch = Some(start);
-                        return Ok(Turn { gate: Some(g.clone()), deadline: Some(start + HOLD) });
+                        return Ok(Turn {
+                            gate: Some(g.clone()),
+                            deadline: Some(start + HOLD),
+                        });
                     }
                 }
             }
@@ -343,7 +389,10 @@ impl Turn {
                 g.cv.notify_all();
                 return Err(Error::Cancelled);
             }
-            s = g.cv.wait_timeout(s, wait).unwrap_or_else(|e| e.into_inner()).0;
+            s =
+                g.cv.wait_timeout(s, wait)
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
         }
     }
 
@@ -390,7 +439,10 @@ impl Drop for Turn {
 fn begin(c: &Connection, schema: &str, abort: &Abort) -> Result<bool> {
     let version_sql = format!("PRAGMA {}.data_version", quote_ident(Quote::Double, schema));
     // Changes when another connection commits into the file.
-    let version = || c.query_row(&version_sql, [], |r| r.get::<_, i64>(0)).map_err(err);
+    let version = || {
+        c.query_row(&version_sql, [], |r| r.get::<_, i64>(0))
+            .map_err(err)
+    };
     let start = Instant::now();
     let mut waited = false;
     let mut seen = version()?;
@@ -439,15 +491,32 @@ enum Msg {
 /// source); each commit's running total goes to `committed`. Once `abort`
 /// is set nothing more commits: the batches still queued are dropped and
 /// the open window rolls back.
-fn load(c: &Connection, spec: &LoadSpec, mut rx: mpsc::Receiver<Msg>, committed: mpsc::UnboundedSender<u64>, abort: &Abort) -> Result<u64> {
-    let max_rows = if spec.commit_rows == 0 { u64::MAX } else { spec.commit_rows };
-    let max_bytes = if spec.commit_bytes == 0 { u64::MAX } else { spec.commit_bytes };
+fn load(
+    c: &Connection,
+    spec: &LoadSpec,
+    mut rx: mpsc::Receiver<Msg>,
+    committed: mpsc::UnboundedSender<u64>,
+    abort: &Abort,
+) -> Result<u64> {
+    let max_rows = if spec.commit_rows == 0 {
+        u64::MAX
+    } else {
+        spec.commit_rows
+    };
+    let max_bytes = if spec.commit_bytes == 0 {
+        u64::MAX
+    } else {
+        spec.commit_bytes
+    };
     let ncols = spec.columns.len();
     let schema = spec.table.schema().unwrap_or("main");
     let gate = gate(&file_of(c, schema)?);
     let rt = tokio::runtime::Handle::current();
-    let cache: i64 = c.query_row("PRAGMA cache_size", [], |r| r.get(0)).map_err(err)?;
-    c.execute_batch(&format!("PRAGMA cache_size = {LOAD_CACHE}")).map_err(err)?;
+    let cache: i64 = c
+        .query_row("PRAGMA cache_size", [], |r| r.get(0))
+        .map_err(err)?;
+    c.execute_batch(&format!("PRAGMA cache_size = {LOAD_CACHE}"))
+        .map_err(err)?;
     // The open window's write turn (`None`: no window open).
     let mut window: Option<Turn> = None;
     let mut run = || -> Result<u64> {
@@ -459,17 +528,19 @@ fn load(c: &Connection, spec: &LoadSpec, mut rx: mpsc::Receiver<Msg>, committed:
                 (Ok(m), _) => Some(m),
                 (Err(mpsc::error::TryRecvError::Disconnected), _) => None,
                 // The file is locked meanwhile: wait no longer than the turn.
-                (Err(_), Some(d)) => match rt.block_on(tokio::time::timeout_at(d.into(), rx.recv())) {
-                    Ok(m) => m,
-                    Err(_) => {
-                        abort.commit(c)?;
-                        window = None;
-                        total += rows;
-                        (rows, bytes) = (0, 0);
-                        let _ = committed.send(total);
-                        continue;
+                (Err(_), Some(d)) => {
+                    match rt.block_on(tokio::time::timeout_at(d.into(), rx.recv())) {
+                        Ok(m) => m,
+                        Err(_) => {
+                            abort.commit(c)?;
+                            window = None;
+                            total += rows;
+                            (rows, bytes) = (0, 0);
+                            let _ = committed.send(total);
+                            continue;
+                        }
                     }
-                },
+                }
                 (Err(_), None) => rx.blocking_recv(),
             };
             let batch = match msg {
@@ -483,10 +554,16 @@ fn load(c: &Connection, spec: &LoadSpec, mut rx: mpsc::Receiver<Msg>, committed:
             for row in &batch.rows {
                 let at = total + rows + 1;
                 if row.len() != ncols {
-                    return Err(Error::Query(format!("una fila trae {} valores y la carga tiene {ncols} columnas", row.len())));
+                    return Err(Error::Query(format!(
+                        "una fila trae {} valores y la carga tiene {ncols} columnas",
+                        row.len()
+                    )));
                 }
                 // SQLite stores a NaN REAL as NULL without complaint.
-                if let Some(i) = row.iter().position(|v| matches!(v, Cell::Float(f) if f.is_nan())) {
+                if let Some(i) = row
+                    .iter()
+                    .position(|v| matches!(v, Cell::Float(f) if f.is_nan()))
+                {
                     return Err(Error::Query(format!(
                         "fila {at}, columna \"{}\": SQLite no admite NaN (lo guardaría como NULL)",
                         spec.columns[i]
@@ -508,7 +585,10 @@ fn load(c: &Connection, spec: &LoadSpec, mut rx: mpsc::Receiver<Msg>, committed:
                 })?;
                 rows += 1;
                 bytes += row.iter().map(Cell::size).sum::<usize>() as u64;
-                if rows >= max_rows || bytes >= max_bytes || window.as_ref().is_some_and(Turn::expired) {
+                if rows >= max_rows
+                    || bytes >= max_bytes
+                    || window.as_ref().is_some_and(Turn::expired)
+                {
                     abort.commit(c)?;
                     window = None;
                     total += rows;
@@ -538,15 +618,25 @@ fn load(c: &Connection, spec: &LoadSpec, mut rx: mpsc::Receiver<Msg>, committed:
 /// commits to `progress` as they happen. Dropping this future (a failed
 /// read or a cancellation) stops the load without committing anything
 /// more.
-pub(crate) async fn bulk_load(s: &SqliteSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &SqliteSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     let (tx, rx) = mpsc::channel::<Msg>(QUEUE);
     let (ctx, mut crx) = mpsc::unbounded_channel::<u64>();
     let abort = Arc::new(Abort::default());
-    let _abort_on_drop = AbortOnDrop { abort: abort.clone(), interrupt: None };
+    let _abort_on_drop = AbortOnDrop {
+        abort: abort.clone(),
+        interrupt: None,
+    };
     let conn = s.conn.clone();
     let spec_owned = spec.clone();
     let worker = tokio::task::spawn_blocking(move || {
-        let c = conn.lock().map_err(|_| Error::State("conexión SQLite envenenada".into()))?;
+        let c = conn
+            .lock()
+            .map_err(|_| Error::State("conexión SQLite envenenada".into()))?;
         load(&c, &spec_owned, rx, ctx, &abort)
     });
     'feed: while let Some(batch) = source.next().await {
@@ -607,8 +697,12 @@ fn read_only_uri(path: &str) -> String {
 }
 
 fn table_columns(c: &Connection, schema: &str, name: &str) -> Result<Vec<String>> {
-    let mut stmt = c.prepare("SELECT name FROM pragma_table_info(?1, ?2) ORDER BY cid").map_err(err)?;
-    let rows = stmt.query_map([name, schema], |r| r.get::<_, String>(0)).map_err(err)?;
+    let mut stmt = c
+        .prepare("SELECT name FROM pragma_table_info(?1, ?2) ORDER BY cid")
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([name, schema], |r| r.get::<_, String>(0))
+        .map_err(err)?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
 }
 
@@ -618,9 +712,13 @@ fn session(s: &mut dyn Session) -> Option<&mut SqliteSession> {
 
 /// The file behind `schema` on `c` (empty: in memory or temporary).
 fn file_of(c: &Connection, schema: &str) -> Result<String> {
-    c.query_row("SELECT file FROM pragma_database_list WHERE name = ?1", [schema], |r| r.get::<_, Option<String>>(0))
-        .map(Option::unwrap_or_default)
-        .map_err(err)
+    c.query_row(
+        "SELECT file FROM pragma_database_list WHERE name = ?1",
+        [schema],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .map(Option::unwrap_or_default)
+    .map_err(err)
 }
 
 const SRC: &str = "dbine_copy_src";
@@ -630,8 +728,14 @@ const SRC: &str = "dbine_copy_src";
 /// shadow them.
 fn scope(c: &Connection) -> Result<(Vec<(String, String)>, bool)> {
     let mut stmt = c.prepare("SELECT name, coalesce(file, '') FROM pragma_database_list WHERE name <> 'temp' ORDER BY seq").map_err(err)?;
-    let dbs = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
-    let temp: i64 = c.query_row("SELECT count(*) FROM temp.sqlite_master", [], |r| r.get(0)).map_err(err)?;
+    let dbs = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(err)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(err)?;
+    let temp: i64 = c
+        .query_row("SELECT count(*) FROM temp.sqlite_master", [], |r| r.get(0))
+        .map_err(err)?;
     Ok((dbs, temp > 0))
 }
 
@@ -640,20 +744,44 @@ fn scope(c: &Connection) -> Result<(Vec<(String, String)>, bool)> {
 /// ranges in windows that hold the target file's write turn; each
 /// window's commit goes to `progress`. Dropping this future interrupts the
 /// statement and nothing commits after the drop.
-pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Session, spec: &CopySpec, progress: Progress<'_>) -> Result<u64> {
-    let unsupported = |why: &str| Err(Error::Unsupported(format!("copia directa no disponible: {why}")));
-    let filter = spec.source.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_string);
-    let Some(src) = session(source) else { return unsupported("el origen no es una sesión SQLite") };
+pub(crate) async fn copy_native(
+    source: &mut dyn Session,
+    target: &mut dyn Session,
+    spec: &CopySpec,
+    progress: Progress<'_>,
+) -> Result<u64> {
+    let unsupported = |why: &str| {
+        Err(Error::Unsupported(format!(
+            "copia directa no disponible: {why}"
+        )))
+    };
+    let filter = spec
+        .source
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .map(str::to_string);
+    let Some(src) = session(source) else {
+        return unsupported("el origen no es una sesión SQLite");
+    };
     let src_schema = spec.source.table.schema().unwrap_or("main").to_string();
     let schema = src_schema.clone();
-    let (src_file, src_scope) = src.with(move |c| Ok((file_of(c, &schema)?, scope(c)?))).await?;
+    let (src_file, src_scope) = src
+        .with(move |c| Ok((file_of(c, &schema)?, scope(c)?)))
+        .await?;
     if src_file.is_empty() {
         return unsupported("la base de origen está en memoria");
     }
-    let Some(dst) = session(target) else { return unsupported("el destino no es una sesión SQLite") };
+    let Some(dst) = session(target) else {
+        return unsupported("el destino no es una sesión SQLite");
+    };
     let spec = spec.clone();
     let abort = Arc::new(Abort::default());
-    let mut abort_on_drop = AbortOnDrop { abort: abort.clone(), interrupt: Some(dst.interrupt.clone()) };
+    let mut abort_on_drop = AbortOnDrop {
+        abort: abort.clone(),
+        interrupt: Some(dst.interrupt.clone()),
+    };
     let interrupt = dst.interrupt.clone();
     let (ctx, mut crx) = mpsc::unbounded_channel::<u64>();
     let work = dst.with(move |c| {
@@ -861,7 +989,9 @@ fn whole(
     let watchdog = turn.deadline.map(|d| {
         let (overran, interrupt) = (overran.clone(), interrupt.clone());
         std::thread::spawn(move || {
-            if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(d.saturating_duration_since(Instant::now())) {
+            if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                stopped.recv_timeout(d.saturating_duration_since(Instant::now()))
+            {
                 overran.store(true, Ordering::SeqCst);
                 interrupt.interrupt();
             }
@@ -894,19 +1024,52 @@ mod tests {
 
     #[test]
     fn uris_are_read_only_and_escaped() {
-        assert_eq!(read_only_uri("/tmp/a b%?#.db"), "file:/tmp/a b%25%3f%23.db?mode=ro");
-        assert_eq!(read_only_uri("C:\\data\\x.db"), "file:/C:/data/x.db?mode=ro");
-        assert_eq!(read_only_uri("\\\\server\\share\\x.db"), "file:////server/share/x.db?mode=ro");
-        assert_eq!(read_only_uri("\\\\?\\UNC\\server\\share\\x.db"), "file:////server/share/x.db?mode=ro");
+        assert_eq!(
+            read_only_uri("/tmp/a b%?#.db"),
+            "file:/tmp/a b%25%3f%23.db?mode=ro"
+        );
+        assert_eq!(
+            read_only_uri("C:\\data\\x.db"),
+            "file:/C:/data/x.db?mode=ro"
+        );
+        assert_eq!(
+            read_only_uri("\\\\server\\share\\x.db"),
+            "file:////server/share/x.db?mode=ro"
+        );
+        assert_eq!(
+            read_only_uri("\\\\?\\UNC\\server\\share\\x.db"),
+            "file:////server/share/x.db?mode=ro"
+        );
         assert_eq!(read_only_uri("\\\\?\\C:\\x.db"), "file:/C:/x.db?mode=ro");
     }
 
     #[test]
     fn statements() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("main".into()), name: "t\"x".into() };
-        let spec = ReadSpec { table: t.clone(), columns: Some(vec!["a".into()]), filter: Some(" a > 1 ".into()) };
-        assert_eq!(select_sql(&spec), "SELECT \"main\".\"t\"\"x\".\"a\" AS \"a\" FROM \"main\".\"t\"\"x\" WHERE a > 1");
-        let load = LoadSpec { table: t, columns: vec!["a".into(), "b".into()], table_lock: false, keep_identity: false, commit_rows: 1, commit_bytes: 1 };
-        assert_eq!(insert_sql(&load, 2), "INSERT INTO \"main\".\"t\"\"x\" (\"a\", \"b\") VALUES (?, ?), (?, ?)");
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("main".into()),
+            name: "t\"x".into(),
+        };
+        let spec = ReadSpec {
+            table: t.clone(),
+            columns: Some(vec!["a".into()]),
+            filter: Some(" a > 1 ".into()),
+        };
+        assert_eq!(
+            select_sql(&spec),
+            "SELECT \"main\".\"t\"\"x\".\"a\" AS \"a\" FROM \"main\".\"t\"\"x\" WHERE a > 1"
+        );
+        let load = LoadSpec {
+            table: t,
+            columns: vec!["a".into(), "b".into()],
+            table_lock: false,
+            keep_identity: false,
+            commit_rows: 1,
+            commit_bytes: 1,
+        };
+        assert_eq!(
+            insert_sql(&load, 2),
+            "INSERT INTO \"main\".\"t\"\"x\" (\"a\", \"b\") VALUES (?, ?), (?, ?)"
+        );
     }
 }

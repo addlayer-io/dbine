@@ -18,7 +18,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (host, port) = hostport.trim_end_matches('/').rsplit_once(':')?;
     Some(ConnectionConfig {
         driver: driver.into(),
@@ -44,7 +46,10 @@ async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
 }
 
 async fn connect(driver: &str, cfg: &ConnectionConfig) -> Box<dyn Session> {
-    let d = dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     assert!(d.capabilities().processes && d.capabilities().cancel_query);
     d.connect(cfg, None).await.unwrap()
 }
@@ -64,11 +69,25 @@ async fn list_and_cancel(driver: &str, env: &str) {
     // Idle with an open transaction.
     let mut holder = connect(driver, &cfg).await;
     let holder_id = scalar(&mut holder, "SELECT CONNECTION_ID()").await;
-    run(&mut holder, "CREATE DATABASE IF NOT EXISTS dbine_processes").await.unwrap();
-    run(&mut holder, "CREATE TABLE IF NOT EXISTS dbine_processes.t (id INT PRIMARY KEY, v INT)").await.unwrap();
-    run(&mut holder, "REPLACE INTO dbine_processes.t VALUES (1, 0)").await.unwrap();
+    run(&mut holder, "CREATE DATABASE IF NOT EXISTS dbine_processes")
+        .await
+        .unwrap();
+    run(
+        &mut holder,
+        "CREATE TABLE IF NOT EXISTS dbine_processes.t (id INT PRIMARY KEY, v INT)",
+    )
+    .await
+    .unwrap();
+    run(&mut holder, "REPLACE INTO dbine_processes.t VALUES (1, 0)")
+        .await
+        .unwrap();
     run(&mut holder, "BEGIN").await.unwrap();
-    run(&mut holder, "UPDATE dbine_processes.t SET v = v + 1 WHERE id = 1").await.unwrap();
+    run(
+        &mut holder,
+        "UPDATE dbine_processes.t SET v = v + 1 WHERE id = 1",
+    )
+    .await
+    .unwrap();
 
     let mut worker = connect(driver, &cfg).await;
     let worker_id = scalar(&mut worker, "SELECT CONNECTION_ID()").await;
@@ -80,42 +99,95 @@ async fn list_and_cancel(driver: &str, env: &str) {
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.id == worker_id).expect("the worker is listed");
+    let w = list
+        .iter()
+        .find(|p| p.id == worker_id)
+        .expect("the worker is listed");
     eprintln!("{driver}: {w:#?}");
     assert!(w.active, "{w:?}");
-    assert!(w.sql.as_deref().unwrap_or("").contains("dbine_processes_test"), "{w:?}");
+    assert!(
+        w.sql
+            .as_deref()
+            .unwrap_or("")
+            .contains("dbine_processes_test"),
+        "{w:?}"
+    );
     assert!(w.elapsed_ms.unwrap_or(0) >= 1000, "{w:?}");
     assert_eq!(w.command.as_deref(), Some("SELECT"));
     assert!(!w.own && !w.system);
-    assert!(list.iter().find(|p| p.id == own).expect("its own session is listed").own);
-    let h = list.iter().find(|p| p.id == holder_id).expect("the holder is listed");
+    assert!(
+        list.iter()
+            .find(|p| p.id == own)
+            .expect("its own session is listed")
+            .own
+    );
+    let h = list
+        .iter()
+        .find(|p| p.id == holder_id)
+        .expect("the holder is listed");
     eprintln!("{driver}: {h:#?}");
     assert!(!h.active, "{h:?}");
-    assert!(h.status.as_deref().unwrap_or("").contains("transacción abierta"), "{h:?}");
+    assert!(
+        h.status
+            .as_deref()
+            .unwrap_or("")
+            .contains("transacción abierta"),
+        "{h:?}"
+    );
     // MariaDB keeps the last statement only with performance_schema on.
     if driver != "mariadb" {
-        assert!(h.sql.as_deref().unwrap_or("").to_ascii_lowercase().contains("update"), "the open transaction's last statement: {h:?}");
+        assert!(
+            h.sql
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .contains("update"),
+            "the open transaction's last statement: {h:?}"
+        );
     }
 
     admin.cancel_query(&worker_id).await.unwrap();
-    let (_, took, mut worker) = tokio::time::timeout(Duration::from_secs(10), sleeping).await.expect("the statement stopped").unwrap();
-    assert!(took < Duration::from_secs(10), "the sleep was cancelled ({took:?})");
-    assert_eq!(scalar(&mut worker, "SELECT 1").await, "1", "the session is still open");
-    assert!(admin.cancel_query("1; DROP TABLE x").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query(&own).await.is_err(), "not its own session");
+    let (_, took, mut worker) = tokio::time::timeout(Duration::from_secs(10), sleeping)
+        .await
+        .expect("the statement stopped")
+        .unwrap();
+    assert!(
+        took < Duration::from_secs(10),
+        "the sleep was cancelled ({took:?})"
+    );
+    assert_eq!(
+        scalar(&mut worker, "SELECT 1").await,
+        "1",
+        "the session is still open"
+    );
+    assert!(
+        admin.cancel_query("1; DROP TABLE x").await.is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin.cancel_query(&own).await.is_err(),
+        "not its own session"
+    );
 
     // A writer waiting on the holder's row lock names it as its blocker.
     let mut waiter = connect(driver, &cfg).await;
     let waiter_id = scalar(&mut waiter, "SELECT CONNECTION_ID()").await;
     let blocked = tokio::spawn(async move {
         let _ = run(&mut waiter, "BEGIN").await;
-        let r = run(&mut waiter, "UPDATE dbine_processes.t SET v = v + 1 WHERE id = 1").await;
+        let r = run(
+            &mut waiter,
+            "UPDATE dbine_processes.t SET v = v + 1 WHERE id = 1",
+        )
+        .await;
         let _ = run(&mut waiter, "ROLLBACK").await;
         r
     });
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.id == waiter_id).expect("the waiter is listed");
+    let w = list
+        .iter()
+        .find(|p| p.id == waiter_id)
+        .expect("the waiter is listed");
     eprintln!("{driver}: {w:#?}");
     assert_eq!(w.blocked_by.as_deref(), Some(holder_id.as_str()), "{w:?}");
     assert!(w.wait.is_some(), "{w:?}");
@@ -123,7 +195,11 @@ async fn list_and_cancel(driver: &str, env: &str) {
     // Ending the holder lets the waiter through (TiDB's pessimistic locks
     // outlive the connection until their TTL, ~20 s).
     admin.kill_session(&holder_id).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(60), blocked).await.expect("the waiter went on").unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(60), blocked)
+        .await
+        .expect("the waiter went on")
+        .unwrap()
+        .unwrap();
     let _ = run(&mut admin, "DROP DATABASE IF EXISTS dbine_processes").await;
 }
 
@@ -154,7 +230,10 @@ async fn long_query(driver: &str, env: &str, long_sql: &str, marker: &str) {
     };
     let mut admin = connect(driver, &cfg).await;
     let list = admin.processes().await.unwrap();
-    assert!(list.iter().any(|p| p.own), "its own row is flagged: {list:#?}");
+    assert!(
+        list.iter().any(|p| p.own),
+        "its own row is flagged: {list:#?}"
+    );
 
     let mut worker = connect(driver, &cfg).await;
     let sql = long_sql.to_string();
@@ -165,16 +244,29 @@ async fn long_query(driver: &str, env: &str, long_sql: &str, marker: &str) {
     });
     tokio::time::sleep(Duration::from_millis(2000)).await;
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| !p.own && p.sql.as_deref().is_some_and(|q| q.contains(marker))).expect("the long query is listed");
+    let w = list
+        .iter()
+        .find(|p| !p.own && p.sql.as_deref().is_some_and(|q| q.contains(marker)))
+        .expect("the long query is listed");
     eprintln!("{driver}: {w:#?}");
     assert!(w.active && !w.system, "{w:?}");
     assert!(w.elapsed_ms.unwrap_or(0) >= 1000, "{w:?}");
     admin.cancel_query(&w.id).await.unwrap();
-    let (r, took, mut worker) = tokio::time::timeout(Duration::from_secs(20), running).await.expect("the query stopped").unwrap();
+    let (r, took, mut worker) = tokio::time::timeout(Duration::from_secs(20), running)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     eprintln!("{driver}: cancelled after {took:?}: {r:?}");
     assert!(r.is_err(), "the query was cancelled");
-    assert_eq!(scalar(&mut worker, "SELECT 1").await, "1", "the session is still open");
-    assert!(admin.cancel_query("x'; DROP TABLE t").await.is_err(), "the id is validated");
+    assert_eq!(
+        scalar(&mut worker, "SELECT 1").await,
+        "1",
+        "the session is still open"
+    );
+    assert!(
+        admin.cancel_query("x'; DROP TABLE t").await.is_err(),
+        "the id is validated"
+    );
 }
 
 /// `DBINE_TEST_DATABEND_URL=mysql://root:pw@localhost:3307`
@@ -217,12 +309,27 @@ async fn manticore() {
     let own = scalar(&mut admin, "SELECT CONNECTION_ID()").await;
     let list = admin.processes().await.unwrap();
     eprintln!("{list:#?}");
-    let me = list.iter().find(|p| p.id == own).expect("its own query is listed");
+    let me = list
+        .iter()
+        .find(|p| p.id == own)
+        .expect("its own query is listed");
     assert!(me.own && me.active);
-    assert!(admin.cancel_query(&own).await.is_err(), "not its own session");
-    assert!(admin.cancel_query("1; DROP TABLE x").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query("999999").await.is_err(), "an unknown id is an error");
-    assert!(admin.kill_session(&own).await.is_err(), "no sessions to end");
+    assert!(
+        admin.cancel_query(&own).await.is_err(),
+        "not its own session"
+    );
+    assert!(
+        admin.cancel_query("1; DROP TABLE x").await.is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin.cancel_query("999999").await.is_err(),
+        "an unknown id is an error"
+    );
+    assert!(
+        admin.kill_session(&own).await.is_err(),
+        "no sessions to end"
+    );
 }
 
 /// StarRocks / Doris: `SHOW FULL PROCESSLIST`, `KILL QUERY`, no transactions.
@@ -263,14 +370,41 @@ async fn olap(driver: &str, env: &str) {
     });
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.id == worker_id).expect("the worker is listed");
+    let w = list
+        .iter()
+        .find(|p| p.id == worker_id)
+        .expect("the worker is listed");
     eprintln!("{driver}: {w:#?}");
     assert!(w.active && !w.own, "{w:?}");
-    assert!(w.sql.as_deref().unwrap_or("").contains("dbine_processes_test"), "{w:?}");
-    assert!(list.iter().find(|p| p.id == own).expect("its own session is listed").own);
+    assert!(
+        w.sql
+            .as_deref()
+            .unwrap_or("")
+            .contains("dbine_processes_test"),
+        "{w:?}"
+    );
+    assert!(
+        list.iter()
+            .find(|p| p.id == own)
+            .expect("its own session is listed")
+            .own
+    );
     admin.cancel_query(&worker_id).await.unwrap();
-    let (_, took, mut worker) = tokio::time::timeout(Duration::from_secs(10), sleeping).await.expect("the statement stopped").unwrap();
-    assert!(took < Duration::from_secs(10), "the sleep was cancelled ({took:?})");
-    assert_eq!(scalar(&mut worker, "SELECT 1").await, "1", "the session is still open");
-    assert!(admin.cancel_query(&own).await.is_err(), "not its own session");
+    let (_, took, mut worker) = tokio::time::timeout(Duration::from_secs(10), sleeping)
+        .await
+        .expect("the statement stopped")
+        .unwrap();
+    assert!(
+        took < Duration::from_secs(10),
+        "the sleep was cancelled ({took:?})"
+    );
+    assert_eq!(
+        scalar(&mut worker, "SELECT 1").await,
+        "1",
+        "the session is still open"
+    );
+    assert!(
+        admin.cancel_query(&own).await.is_err(),
+        "not its own session"
+    );
 }

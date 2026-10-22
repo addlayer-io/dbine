@@ -20,12 +20,25 @@ type Rows = Vec<Vec<Option<String>>>;
 /// The first `n` columns of every row of `sql` as text, `owner` bound to
 /// each of its `binds` placeholders.
 fn texts(c: &Connection, sql: &str, owner: &str, binds: usize, n: usize) -> Result<Rows> {
-    let params: Vec<&dyn oracledb::ToDbValue> = (0..binds).map(|_| &owner as &dyn oracledb::ToDbValue).collect();
-    let rows = c.statement(sql).map_err(err)?.exclude_from_cache().build().map_err(err)?.query(&params).map_err(err)?;
+    let params: Vec<&dyn oracledb::ToDbValue> = (0..binds)
+        .map(|_| &owner as &dyn oracledb::ToDbValue)
+        .collect();
+    let rows = c
+        .statement(sql)
+        .map_err(err)?
+        .exclude_from_cache()
+        .build()
+        .map_err(err)?
+        .query(&params)
+        .map_err(err)?;
     let mut out = Vec::new();
     for r in rows {
         let r = r.map_err(err)?;
-        out.push((0..n).map(|i| r.get::<Option<String>>(i).map_err(err)).collect::<Result<Vec<_>>>()?);
+        out.push(
+            (0..n)
+                .map(|i| r.get::<Option<String>>(i).map_err(err))
+                .collect::<Result<Vec<_>>>()?,
+        );
     }
     Ok(out)
 }
@@ -65,7 +78,8 @@ pub(crate) fn compile_sql(kind: &str, owner: &str, name: &str) -> Option<String>
         "PACKAGE BODY" => format!("ALTER PACKAGE {n} COMPILE BODY;"),
         "TYPE BODY" => format!("ALTER TYPE {n} COMPILE BODY;"),
         "PUBLIC SYNONYM" => return None,
-        "VIEW" | "PROCEDURE" | "FUNCTION" | "PACKAGE" | "TRIGGER" | "TYPE" | "MATERIALIZED VIEW" | "SYNONYM" | "DIMENSION" => {
+        "VIEW" | "PROCEDURE" | "FUNCTION" | "PACKAGE" | "TRIGGER" | "TYPE"
+        | "MATERIALIZED VIEW" | "SYNONYM" | "DIMENSION" => {
             format!("ALTER {kind} {n} COMPILE;")
         }
         "JAVA CLASS" | "JAVA SOURCE" => format!("ALTER {kind} {n} RESOLVE;"),
@@ -79,20 +93,30 @@ pub(crate) fn compile_sql(kind: &str, owner: &str, name: &str) -> Option<String>
 pub(crate) fn unindexed_fks(fks: &Rows, indexes: &Rows) -> Vec<(String, String, Vec<String>)> {
     let mut by_fk: BTreeMap<(String, String), Vec<(i64, String)>> = BTreeMap::new();
     for r in fks {
-        by_fk.entry((col(r, 0), col(r, 1))).or_default().push((num(r, 3) as i64, col(r, 2)));
+        by_fk
+            .entry((col(r, 0), col(r, 1)))
+            .or_default()
+            .push((num(r, 3) as i64, col(r, 2)));
     }
     let mut by_index: BTreeMap<(String, String), Vec<(i64, String)>> = BTreeMap::new();
     for r in indexes {
-        by_index.entry((col(r, 0), col(r, 1))).or_default().push((num(r, 3) as i64, col(r, 2)));
+        by_index
+            .entry((col(r, 0), col(r, 1)))
+            .or_default()
+            .push((num(r, 3) as i64, col(r, 2)));
     }
     let mut out = Vec::new();
     for ((table, fk), mut cols) in by_fk {
         cols.sort();
         let n = cols.len() as i64;
-        let covered = by_index.iter().filter(|((t, _), _)| *t == table).any(|(_, ic)| {
-            let lead: Vec<&String> = ic.iter().filter(|(p, _)| *p <= n).map(|(_, c)| c).collect();
-            lead.len() == cols.len() && cols.iter().all(|(_, c)| lead.contains(&c))
-        });
+        let covered = by_index
+            .iter()
+            .filter(|((t, _), _)| *t == table)
+            .any(|(_, ic)| {
+                let lead: Vec<&String> =
+                    ic.iter().filter(|(p, _)| *p <= n).map(|(_, c)| c).collect();
+                lead.len() == cols.len() && cols.iter().all(|(_, c)| lead.contains(&c))
+            });
         if !covered {
             out.push((table, fk, cols.into_iter().map(|(_, c)| c).collect()));
         }
@@ -150,12 +174,14 @@ const STATS: &str = "SELECT s.table_name, CASE WHEN s.last_analyzed IS NULL THEN
     AND ROWNUM <= 200
   ORDER BY s.table_name";
 
-const FK_COLUMNS: &str = "SELECT c.table_name, c.constraint_name, cc.column_name, TO_CHAR(cc.position)
+const FK_COLUMNS: &str =
+    "SELECT c.table_name, c.constraint_name, cc.column_name, TO_CHAR(cc.position)
    FROM all_constraints c
    JOIN all_cons_columns cc ON cc.owner = c.owner AND cc.constraint_name = c.constraint_name
   WHERE c.owner = :1 AND c.constraint_type = 'R' AND c.table_name NOT LIKE 'BIN$%'";
 
-const INDEX_COLUMNS: &str = "SELECT table_name, index_owner || '.' || index_name, column_name, TO_CHAR(column_position)
+const INDEX_COLUMNS: &str =
+    "SELECT table_name, index_owner || '.' || index_name, column_name, TO_CHAR(column_position)
    FROM all_ind_columns WHERE table_owner = :1";
 
 const NO_PK: &str = "SELECT t.table_name FROM all_tables t
@@ -176,28 +202,46 @@ const SEQUENCES: &str = "SELECT sequence_name, TO_CHAR(ROUND(used, 1), 'FM990.0'
   WHERE used >= 80 AND ROWNUM <= 200
   ORDER BY used DESC";
 
-const RECYCLEBIN: &str = "SELECT r.original_name, r.object_name, r.type, TO_CHAR(r.space * NVL(t.block_size, 8192))
+const RECYCLEBIN: &str =
+    "SELECT r.original_name, r.object_name, r.type, TO_CHAR(r.space * NVL(t.block_size, 8192))
    FROM dba_recyclebin r LEFT JOIN dba_tablespaces t ON t.tablespace_name = r.ts_name
   WHERE r.owner = :1";
 
 /// The connected user's own recycle bin, when the DBA view can't be read.
-const OWN_RECYCLEBIN: &str = "SELECT r.original_name, r.object_name, r.type, TO_CHAR(r.space * 8192), USER
+const OWN_RECYCLEBIN: &str =
+    "SELECT r.original_name, r.object_name, r.type, TO_CHAR(r.space * 8192), USER
    FROM user_recyclebin r WHERE USER = :1";
 
 impl OracleSession {
-    async fn health_rows(&mut self, sql: &'static str, owner: &str, binds: usize, n: usize) -> Result<Rows> {
+    async fn health_rows(
+        &mut self,
+        sql: &'static str,
+        owner: &str,
+        binds: usize,
+        n: usize,
+    ) -> Result<Rows> {
         let owner = owner.to_string();
         self.run(move |c| texts(c, sql, &owner, binds, n)).await
     }
 
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
-        let owner = if database.is_empty() { self.schema.clone() } else { database.to_string() };
+        let owner = if database.is_empty() {
+            self.schema.clone()
+        } else {
+            database.to_string()
+        };
         let mut out = Vec::new();
 
         // Invalid objects: they fail when used until they compile again.
         if let Ok(rows) = self.health_rows(INVALID, &owner, 1, 2).await {
-            let objects: Vec<String> = rows.iter().map(|r| format!("{} ({})", col(r, 1), col(r, 0).to_lowercase())).collect();
-            let fixes: Vec<String> = rows.iter().filter_map(|r| compile_sql(&col(r, 0), &owner, &col(r, 1))).collect();
+            let objects: Vec<String> = rows
+                .iter()
+                .map(|r| format!("{} ({})", col(r, 1), col(r, 0).to_lowercase()))
+                .collect();
+            let fixes: Vec<String> = rows
+                .iter()
+                .filter_map(|r| compile_sql(&col(r, 0), &owner, &col(r, 1)))
+                .collect();
             out.push(fix_if(
                 HealthCheck::new(
                     "invalid_objects",
@@ -224,7 +268,11 @@ impl OracleSession {
             let fixes: Vec<String> = rows
                 .iter()
                 .map(|r| match r[2].as_deref() {
-                    Some(p) => format!("ALTER INDEX {} REBUILD PARTITION {};", qn(&owner, &col(r, 1)), quote(p)),
+                    Some(p) => format!(
+                        "ALTER INDEX {} REBUILD PARTITION {};",
+                        qn(&owner, &col(r, 1)),
+                        quote(p)
+                    ),
                     None => format!("ALTER INDEX {} REBUILD;", qn(&owner, &col(r, 1))),
                 })
                 .collect();
@@ -245,14 +293,24 @@ impl OracleSession {
         // Tablespaces near full (against their maximum size, autoextend included).
         if let Ok(rows) = self.health_rows(TABLESPACES, &owner, 2, 2).await {
             if !rows.is_empty() {
-                let full: Vec<&Vec<Option<String>>> = rows.iter().filter(|r| num(r, 1) >= 85.0).collect();
+                let full: Vec<&Vec<Option<String>>> =
+                    rows.iter().filter(|r| num(r, 1) >= 85.0).collect();
                 let max = rows.iter().map(|r| num(r, 1)).fold(0.0, f64::max);
                 let (title, sev) = if full.is_empty() {
-                    (format!("Tablespaces con espacio (el más lleno al {max:.0} %)"), Severity::Ok)
+                    (
+                        format!("Tablespaces con espacio (el más lleno al {max:.0} %)"),
+                        Severity::Ok,
+                    )
                 } else if max >= 95.0 {
-                    (format!("{} tablespaces casi llenos (hasta {max:.0} %)", full.len()), Severity::Critical)
+                    (
+                        format!("{} tablespaces casi llenos (hasta {max:.0} %)", full.len()),
+                        Severity::Critical,
+                    )
                 } else {
-                    (format!("{} tablespaces por encima del 85 %", full.len()), Severity::Warning)
+                    (
+                        format!("{} tablespaces por encima del 85 %", full.len()),
+                        Severity::Warning,
+                    )
                 };
                 out.push(
                     HealthCheck::new("tablespace_usage", "Espacio", title, sev)
@@ -267,17 +325,35 @@ impl OracleSession {
             let missing = rows.iter().filter(|r| col(r, 1) == "N").count();
             let objects: Vec<String> = rows
                 .iter()
-                .map(|r| format!("{} ({})", col(r, 0), if col(r, 1) == "N" { "sin estadísticas" } else { "desactualizadas" }))
+                .map(|r| {
+                    format!(
+                        "{} ({})",
+                        col(r, 0),
+                        if col(r, 1) == "N" {
+                            "sin estadísticas"
+                        } else {
+                            "desactualizadas"
+                        }
+                    )
+                })
                 .collect();
             let fixes: Vec<String> = rows
                 .iter()
-                .map(|r| format!("EXEC DBMS_STATS.GATHER_TABLE_STATS(ownname => {}, tabname => {});", lit(&owner), lit(&col(r, 0))))
+                .map(|r| {
+                    format!(
+                        "EXEC DBMS_STATS.GATHER_TABLE_STATS(ownname => {}, tabname => {});",
+                        lit(&owner),
+                        lit(&col(r, 0))
+                    )
+                })
                 .collect();
             let title = match (rows.len(), missing) {
                 (0, _) => "Estadísticas al día".to_string(),
                 (n, 0) => format!("{n} tablas con estadísticas desactualizadas"),
                 (n, m) if m == n => format!("{n} tablas sin estadísticas"),
-                (n, m) => format!("{n} tablas con estadísticas viejas o faltantes ({m} sin estadísticas)"),
+                (n, m) => {
+                    format!("{n} tablas con estadísticas viejas o faltantes ({m} sin estadísticas)")
+                }
             };
             out.push(fix_if(
                 HealthCheck::new("stale_stats", "Rendimiento", title, if rows.is_empty() { Severity::Ok } else { Severity::Warning })
@@ -293,13 +369,21 @@ impl OracleSession {
         let idx = self.health_rows(INDEX_COLUMNS, &owner, 1, 4).await;
         if let (Ok(fks), Ok(idx)) = (fks, idx) {
             let found = unindexed_fks(&fks, &idx);
-            let objects: Vec<String> = found.iter().map(|(t, fk, cols)| format!("{t} ({}) · {fk}", cols.join(", "))).collect();
+            let objects: Vec<String> = found
+                .iter()
+                .map(|(t, fk, cols)| format!("{t} ({}) · {fk}", cols.join(", ")))
+                .collect();
             let fixes: Vec<String> = found
                 .iter()
                 .take(MAX_OBJECTS)
                 .map(|(t, fk, cols)| {
                     let cols: Vec<String> = cols.iter().map(|c| quote(c)).collect();
-                    format!("CREATE INDEX {} ON {} ({});", qn(&owner, &index_name(fk)), qn(&owner, t), cols.join(", "))
+                    format!(
+                        "CREATE INDEX {} ON {} ({});",
+                        qn(&owner, &index_name(fk)),
+                        qn(&owner, t),
+                        cols.join(", ")
+                    )
                 })
                 .collect();
             out.push(fix_if(
@@ -333,7 +417,10 @@ impl OracleSession {
 
         // Sequences that used most of their range and don't cycle.
         if let Ok(rows) = self.health_rows(SEQUENCES, &owner, 1, 3).await {
-            let objects: Vec<String> = rows.iter().map(|r| format!("{} ({} % usado)", col(r, 0), col(r, 1))).collect();
+            let objects: Vec<String> = rows
+                .iter()
+                .map(|r| format!("{} ({} % usado)", col(r, 0), col(r, 1)))
+                .collect();
             let max = rows.iter().map(|r| num(r, 1)).fold(0.0, f64::max);
             let fixes: Vec<String> = rows
                 .iter()
@@ -363,23 +450,49 @@ impl OracleSession {
         // The recycle bin: dropped tables still hold their space.
         let bin = match self.health_rows(RECYCLEBIN, &owner, 1, 4).await {
             Ok(rows) => Some((rows, false)),
-            Err(_) => self.health_rows(OWN_RECYCLEBIN, &owner, 1, 4).await.ok().filter(|r| !r.is_empty()).map(|r| (r, true)),
+            Err(_) => self
+                .health_rows(OWN_RECYCLEBIN, &owner, 1, 4)
+                .await
+                .ok()
+                .filter(|r| !r.is_empty())
+                .map(|r| (r, true)),
         };
         if let Some((rows, own)) = bin {
             let bytes: f64 = rows.iter().map(|r| num(r, 3)).sum();
-            let tables: Vec<&Vec<Option<String>>> = rows.iter().filter(|r| col(r, 2) == "TABLE").collect();
-            let objects: Vec<String> = tables.iter().map(|r| format!("{} ({})", col(r, 0), col(r, 1))).collect();
+            let tables: Vec<&Vec<Option<String>>> =
+                rows.iter().filter(|r| col(r, 2) == "TABLE").collect();
+            let objects: Vec<String> = tables
+                .iter()
+                .map(|r| format!("{} ({})", col(r, 0), col(r, 1)))
+                .collect();
             let fix = if own {
                 "PURGE RECYCLEBIN;".to_string()
             } else {
-                tables.iter().take(MAX_OBJECTS).map(|r| format!("PURGE TABLE {};", qn(&owner, &col(r, 1)))).collect::<Vec<_>>().join("\n")
+                tables
+                    .iter()
+                    .take(MAX_OBJECTS)
+                    .map(|r| format!("PURGE TABLE {};", qn(&owner, &col(r, 1))))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             };
             let (title, sev) = if rows.is_empty() {
-                ("La papelera de reciclaje está vacía".to_string(), Severity::Ok)
+                (
+                    "La papelera de reciclaje está vacía".to_string(),
+                    Severity::Ok,
+                )
             } else {
                 (
-                    format!("{} tablas borradas en la papelera ({}{})", tables.len(), if own { "unos " } else { "" }, gib(bytes)),
-                    if bytes >= 1024.0 * 1024.0 * 1024.0 { Severity::Warning } else { Severity::Info },
+                    format!(
+                        "{} tablas borradas en la papelera ({}{})",
+                        tables.len(),
+                        if own { "unos " } else { "" },
+                        gib(bytes)
+                    ),
+                    if bytes >= 1024.0 * 1024.0 * 1024.0 {
+                        Severity::Warning
+                    } else {
+                        Severity::Info
+                    },
                 )
             };
             out.push(fix_if(
@@ -403,13 +516,34 @@ mod tests {
     use super::*;
 
     fn rows(v: &[(&str, &str, &str, i64)]) -> Rows {
-        v.iter().map(|(a, b, c, d)| vec![Some(a.to_string()), Some(b.to_string()), Some(c.to_string()), Some(d.to_string())]).collect()
+        v.iter()
+            .map(|(a, b, c, d)| {
+                vec![
+                    Some(a.to_string()),
+                    Some(b.to_string()),
+                    Some(c.to_string()),
+                    Some(d.to_string()),
+                ]
+            })
+            .collect()
     }
 
     #[test]
     fn an_fk_is_covered_by_an_index_that_starts_with_its_columns() {
-        let fks = rows(&[("T", "FK1", "A", 1), ("T", "FK1", "B", 2), ("T", "FK2", "C", 1), ("U", "FK3", "X", 1)]);
-        let idx = rows(&[("T", "I1", "B", 1), ("T", "I1", "A", 2), ("T", "I1", "Z", 3), ("T", "I2", "Z", 1), ("T", "I2", "C", 2), ("V", "I3", "X", 1)]);
+        let fks = rows(&[
+            ("T", "FK1", "A", 1),
+            ("T", "FK1", "B", 2),
+            ("T", "FK2", "C", 1),
+            ("U", "FK3", "X", 1),
+        ]);
+        let idx = rows(&[
+            ("T", "I1", "B", 1),
+            ("T", "I1", "A", 2),
+            ("T", "I1", "Z", 3),
+            ("T", "I2", "Z", 1),
+            ("T", "I2", "C", 2),
+            ("V", "I3", "X", 1),
+        ]);
         let found = unindexed_fks(&fks, &idx);
         let names: Vec<&str> = found.iter().map(|(_, fk, _)| fk.as_str()).collect();
         assert_eq!(names, ["FK2", "FK3"]);
@@ -417,10 +551,19 @@ mod tests {
 
     #[test]
     fn compile_statements_by_kind() {
-        assert_eq!(compile_sql("PACKAGE BODY", "S", "P").unwrap(), "ALTER PACKAGE \"S\".\"P\" COMPILE BODY;");
-        assert_eq!(compile_sql("VIEW", "S", "v\"x").unwrap(), "ALTER VIEW \"S\".\"v\"\"x\" COMPILE;");
+        assert_eq!(
+            compile_sql("PACKAGE BODY", "S", "P").unwrap(),
+            "ALTER PACKAGE \"S\".\"P\" COMPILE BODY;"
+        );
+        assert_eq!(
+            compile_sql("VIEW", "S", "v\"x").unwrap(),
+            "ALTER VIEW \"S\".\"v\"\"x\" COMPILE;"
+        );
         assert!(compile_sql("TABLE", "S", "T").is_none());
-        assert_eq!(index_name("A_VERY_LONG_CONSTRAINT_NAME_OVER_30"), "A_VERY_LONG_CONSTRAINT_NAME_IX");
+        assert_eq!(
+            index_name("A_VERY_LONG_CONSTRAINT_NAME_OVER_30"),
+            "A_VERY_LONG_CONSTRAINT_NAME_IX"
+        );
         assert_eq!(lit("O'Brien"), "'O''Brien'");
     }
 }

@@ -19,7 +19,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@')?;
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
         driver: driver.into(),
@@ -32,12 +34,17 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
@@ -62,24 +69,42 @@ async fn reads_stats_and_comments(id: &str, env: &str) {
         run(&mut s, sql).await;
     }
     if id == "mariadb" {
-        run(&mut s, "CREATE SEQUENCE seq_pedidos COMMENT = 'Números de pedido'").await;
+        run(
+            &mut s,
+            "CREATE SEQUENCE seq_pedidos COMMENT = 'Números de pedido'",
+        )
+        .await;
     }
 
     let est = s.row_estimates().await.unwrap();
     eprintln!("{est:?}");
-    let clientes = est.iter().find(|e| e.object.kind == "table" && e.object.name == "clientes").expect("clientes");
+    let clientes = est
+        .iter()
+        .find(|e| e.object.kind == "table" && e.object.name == "clientes")
+        .expect("clientes");
     // InnoDB samples pages: an estimate, close to the 500 rows.
     assert!((400..=600).contains(&clientes.rows), "{}", clientes.rows);
     assert!(est.iter().all(|e| e.object.kind != "view"));
 
     let c = s.object_comments().await.unwrap();
     eprintln!("{c:?}");
-    let comment = |kind: &str, name: &str| c.iter().find(|c| c.object.kind == kind && c.object.name == name).map(|c| c.comment.clone());
+    let comment = |kind: &str, name: &str| {
+        c.iter()
+            .find(|c| c.object.kind == kind && c.object.name == name)
+            .map(|c| c.comment.clone())
+    };
     assert_eq!(comment("procedure", "limpiar").as_deref(), Some("Limpia"));
     assert_eq!(comment("function", "doble").as_deref(), Some("El doble"));
-    assert_eq!(comment("view", "v_clientes"), None, "MySQL's VIEW marker isn't a comment");
+    assert_eq!(
+        comment("view", "v_clientes"),
+        None,
+        "MySQL's VIEW marker isn't a comment"
+    );
     if id == "mariadb" {
-        assert_eq!(comment("sequence", "seq_pedidos").as_deref(), Some("Números de pedido"));
+        assert_eq!(
+            comment("sequence", "seq_pedidos").as_deref(),
+            Some("Números de pedido")
+        );
     }
     drop(s);
     m.drop_database(DB).await.unwrap();

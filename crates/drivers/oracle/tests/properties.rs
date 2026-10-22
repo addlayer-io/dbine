@@ -11,7 +11,9 @@ use dbine_driver::{ConnectionConfig, Session};
 use std::collections::BTreeMap;
 
 fn config(url: &str) -> ConnectionConfig {
-    let rest = url.strip_prefix("oracle://").expect("oracle://user:pass@host:port/service");
+    let rest = url
+        .strip_prefix("oracle://")
+        .expect("oracle://user:pass@host:port/service");
     let (cred, addr) = rest.split_once('@').unwrap();
     let (user, pass) = cred.split_once(':').unwrap();
     let (hostport, service) = addr.split_once('/').unwrap();
@@ -29,7 +31,10 @@ fn config(url: &str) -> ConnectionConfig {
 }
 
 fn changes(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -49,12 +54,19 @@ async fn schema_properties() {
     eprintln!("{:?}\n{:?}", p.values, p.info);
     let ts = p.values["default_tablespace"].clone();
     let quota = format!("quota:{ts}");
-    assert_eq!(p.values.get(&quota).map(String::as_str), Some("UNLIMITED"), "the plain create's quota");
+    assert_eq!(
+        p.values.get(&quota).map(String::as_str),
+        Some("UNLIMITED"),
+        "the plain create's quota"
+    );
     assert_eq!(p.values["account_locked"], "");
     assert_eq!(p.values["profile"], "DEFAULT");
     assert!(p.info.iter().any(|i| i.label == "Tamaño (segmentos)"));
     assert!(p.warnings.contains_key("account_locked") && p.warnings.contains_key(&quota));
-    assert!(p.choices.iter().any(|c| c.key == "profile" && c.values.contains(&"DEFAULT".to_string())));
+    assert!(p
+        .choices
+        .iter()
+        .any(|c| c.key == "profile" && c.values.contains(&"DEFAULT".to_string())));
 
     let ch = changes(&[
         (quota.as_str(), "10M"),
@@ -71,13 +83,37 @@ async fn schema_properties() {
     assert_eq!(p.values[&quota], "10M");
 
     // Back: unlock (first), no quota on SYSAUX, the old default tablespace.
-    s.alter_database("DBINE_PROPS", &changes(&[("account_locked", ""), ("quota:SYSAUX", ""), ("default_tablespace", &ts)])).await.unwrap();
+    s.alter_database(
+        "DBINE_PROPS",
+        &changes(&[
+            ("account_locked", ""),
+            ("quota:SYSAUX", ""),
+            ("default_tablespace", &ts),
+        ]),
+    )
+    .await
+    .unwrap();
     let p = s.database_properties("DBINE_PROPS").await.unwrap();
-    assert_eq!((p.values["account_locked"].as_str(), p.values["default_tablespace"].as_str()), ("", ts.as_str()));
+    assert_eq!(
+        (
+            p.values["account_locked"].as_str(),
+            p.values["default_tablespace"].as_str()
+        ),
+        ("", ts.as_str())
+    );
     assert!(!p.values.contains_key("quota:SYSAUX"), "{:?}", p.values);
 
     // A failing later statement says what was applied.
-    let e = s.alter_database("DBINE_PROPS", &changes(&[("account_locked", ""), ("temporary_tablespace", "NO_SUCH_TS")])).await.unwrap_err();
+    let e = s
+        .alter_database(
+            "DBINE_PROPS",
+            &changes(&[
+                ("account_locked", ""),
+                ("temporary_tablespace", "NO_SUCH_TS"),
+            ]),
+        )
+        .await
+        .unwrap_err();
     assert!(e.to_string().contains("se aplicaron 1 de 2"), "{e}");
     assert!(s.database_properties("DBINE_NO_SUCH_SCHEMA").await.is_err());
     s.drop_database("DBINE_PROPS").await.unwrap();

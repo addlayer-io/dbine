@@ -33,20 +33,27 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
     out
 }
 
 fn opts(kv: &[(&str, &str)]) -> BTreeMap<String, String> {
-    kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    kv.iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn backup_history_restore() {
     let Some(cfg) = cfg() else { return };
-    let d = dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == "clickhouse").unwrap();
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "clickhouse")
+        .unwrap();
     assert!(d.backup().is_some());
     let mut s = d.connect(&cfg, None).await.unwrap();
     run(&mut s, "DROP DATABASE IF EXISTS dbine_bk; DROP DATABASE IF EXISTS dbine_bk_r; CREATE DATABASE dbine_bk").await;
@@ -54,19 +61,33 @@ async fn backup_history_restore() {
 
     let name = format!("dbine_bk-{}.zip", uuid_ish());
     let script = d
-        .backup_script(&BackupAction::Backup { database: Some("dbine_bk".into()), options: opts(&[("name", &name)]) })
+        .backup_script(&BackupAction::Backup {
+            database: Some("dbine_bk".into()),
+            options: opts(&[("name", &name)]),
+        })
         .unwrap();
     run(&mut s, &script).await;
     run(&mut s, "SYSTEM FLUSH LOGS").await;
 
     let h = s.backups(Some("dbine_bk")).await.unwrap();
-    let e = h.iter().find(|e| e.id.contains(&name)).unwrap_or_else(|| panic!("in the history: {h:?}"));
+    let e = h
+        .iter()
+        .find(|e| e.id.contains(&name))
+        .unwrap_or_else(|| panic!("in the history: {h:?}"));
     assert!(e.restorable, "{e:?}");
     assert_eq!(e.database.as_deref(), Some("dbine_bk"));
     assert_eq!(e.status.as_deref(), Some("BACKUP_CREATED"));
-    assert!(e.size.unwrap_or(0) > 0 && e.started.is_some() && e.finished.is_some(), "{e:?}");
+    assert!(
+        e.size.unwrap_or(0) > 0 && e.started.is_some() && e.finished.is_some(),
+        "{e:?}"
+    );
     // Another database's tab doesn't list it.
-    assert!(s.backups(Some("otra_base")).await.unwrap().iter().all(|x| !x.id.contains(&name)));
+    assert!(s
+        .backups(Some("otra_base"))
+        .await
+        .unwrap()
+        .iter()
+        .all(|x| !x.id.contains(&name)));
 
     let restore = d
         .backup_script(&BackupAction::Restore {
@@ -95,5 +116,8 @@ async fn backup_history_restore() {
 }
 
 fn uuid_ish() -> u128 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
 }

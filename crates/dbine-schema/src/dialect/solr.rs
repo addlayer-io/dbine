@@ -31,22 +31,34 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 fn field_type(name: &str) -> L {
     let one = |n: &str| -> L {
         match n {
-            "string" | "text_general" | "text_gen_sort" | "text_ws" | "lowercase" | "phonetic_en" | "descendent_path" | "ancestor_path" => {
-                L::Text { unicode: true }
-            }
+            "string" | "text_general" | "text_gen_sort" | "text_ws" | "lowercase"
+            | "phonetic_en" | "descendent_path" | "ancestor_path" => L::Text { unicode: true },
             n if n.starts_with("text_") => L::Text { unicode: true },
             "pint" | "int" | "tint" => L::int(4),
             "plong" | "long" | "tlong" => L::int(8),
             "pfloat" | "float" | "tfloat" | "rank" => L::Float { bytes: 4 },
             "pdouble" | "double" | "tdouble" => L::Float { bytes: 8 },
             "boolean" => L::Bool,
-            "pdate" | "date" | "tdate" => L::Timestamp { precision: Some(3), tz: true },
+            "pdate" | "date" | "tdate" => L::Timestamp {
+                precision: Some(3),
+                tz: true,
+            },
             "binary" => L::Blob,
             "uuid" => L::Uuid,
             "currency" => L::Money,
-            "location" | "latlon" | "point" => L::Geometry { kind: Some("point".into()), srid: Some(4326), geography: true },
-            "location_rpt" | "bbox" => L::Geometry { kind: None, srid: Some(4326), geography: true },
-            _ => L::Other { native: n.to_string() },
+            "location" | "latlon" | "point" => L::Geometry {
+                kind: Some("point".into()),
+                srid: Some(4326),
+                geography: true,
+            },
+            "location_rpt" | "bbox" => L::Geometry {
+                kind: None,
+                srid: Some(4326),
+                geography: true,
+            },
+            _ => L::Other {
+                native: n.to_string(),
+            },
         }
     };
     // Multi-valued types of the `_default` configset.
@@ -61,7 +73,9 @@ fn field_type(name: &str) -> L {
         _ => None,
     };
     match plural {
-        Some(p) => L::Array { of: Box::new(one(p)) },
+        Some(p) => L::Array {
+            of: Box::new(one(p)),
+        },
         None => one(name),
     }
 }
@@ -73,7 +87,9 @@ impl Dialect for Solr {
 
     fn parse_type(&self, t: &TypeSpec) -> L {
         match field_type(&t.name) {
-            L::Other { .. } => L::Other { native: t.raw.clone() },
+            L::Other { .. } => L::Other {
+                native: t.raw.clone(),
+            },
             l => l,
         }
     }
@@ -141,7 +157,11 @@ impl Dialect for Solr {
             DefaultValue::Number(n) => n.clone(),
             DefaultValue::Text(s) => s.clone(),
             DefaultValue::Bool(b) => b.to_string(),
-            DefaultValue::CurrentTimestamp | DefaultValue::CurrentDate if matches!(ty, L::Date | L::Timestamp { .. }) => "NOW".into(),
+            DefaultValue::CurrentTimestamp | DefaultValue::CurrentDate
+                if matches!(ty, L::Date | L::Timestamp { .. }) =>
+            {
+                "NOW".into()
+            }
             _ => return None,
         })
     }
@@ -166,10 +186,26 @@ impl Dialect for Solr {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         let source_name = t.name.clone();
         t.kind = dbine_driver::kinds::COLLECTION.into();
-        let name: String = t.name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') { c } else { '_' }).collect();
+        let name: String = t
+            .name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
         let name = name.trim_start_matches('-').to_string();
         if name != t.name {
-            report.push(Severity::Info, IssueCode::IdentifierRenamed, &source_name, Some(&source_name), format!("Nombre de colección válido para Solr: «{name}»."));
+            report.push(
+                Severity::Info,
+                IssueCode::IdentifierRenamed,
+                &source_name,
+                Some(&source_name),
+                format!("Nombre de colección válido para Solr: «{name}»."),
+            );
             t.name = name;
         }
         let key = t.primary_key.take().map(|k| k.columns).unwrap_or_default();
@@ -179,7 +215,13 @@ impl Dialect for Solr {
             } else {
                 format!("La colección se identifica por «id» (uniqueKey del configset): al copiar hay que llenarlo con la clave ({}).", key.join(", "))
             };
-            report.push(Severity::Warning, IssueCode::PrimaryKeyDropped, &source_name, None, msg);
+            report.push(
+                Severity::Warning,
+                IssueCode::PrimaryKeyDropped,
+                &source_name,
+                None,
+                msg,
+            );
         }
         if let Some(c) = t.columns.iter_mut().find(|c| c.name == "id") {
             if c.data_type != "string" {
@@ -193,7 +235,10 @@ impl Dialect for Solr {
                 c.data_type = "string".into();
             }
         }
-        t.primary_key = Some(KeyDef { name: None, columns: vec!["id".into()] });
+        t.primary_key = Some(KeyDef {
+            name: None,
+            columns: vec!["id".into()],
+        });
     }
 }
 
@@ -210,10 +255,33 @@ mod tests {
         assert_eq!(p("pint"), L::int(4));
         assert_eq!(p("plong"), L::int(8));
         assert_eq!(p("pdouble"), L::Float { bytes: 8 });
-        assert_eq!(p("pdate"), L::Timestamp { precision: Some(3), tz: true });
-        assert_eq!(p("pints"), L::Array { of: Box::new(L::int(4)) });
-        assert_eq!(p("booleans"), L::Array { of: Box::new(L::Bool) });
-        assert_eq!(p("location"), L::Geometry { kind: Some("point".into()), srid: Some(4326), geography: true });
+        assert_eq!(
+            p("pdate"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
+        assert_eq!(
+            p("pints"),
+            L::Array {
+                of: Box::new(L::int(4))
+            }
+        );
+        assert_eq!(
+            p("booleans"),
+            L::Array {
+                of: Box::new(L::Bool)
+            }
+        );
+        assert_eq!(
+            p("location"),
+            L::Geometry {
+                kind: Some("point".into()),
+                srid: Some(4326),
+                geography: true
+            }
+        );
         assert!(matches!(p("my_custom"), L::Other { .. }));
     }
 
@@ -222,19 +290,55 @@ mod tests {
         let r = |t: L| Solr.render_type(&t).native;
         assert_eq!(r(L::Bool), "boolean");
         assert_eq!(r(L::int(4)), "pint");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }), "plong");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "plong"
+        );
         assert_eq!(r(L::int(16)), "pdouble");
-        assert_eq!(r(L::Decimal { precision: Some(10), scale: Some(2) }), "pdouble");
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }),
+            "pdouble"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "pfloat");
         assert_eq!(r(L::Money), "pdouble");
-        assert_eq!(r(L::Varchar { len: Some(100), unicode: true }), "string");
-        assert_eq!(r(L::Varchar { len: Some(1000), unicode: true }), "text_general");
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(100),
+                unicode: true
+            }),
+            "string"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(1000),
+                unicode: true
+            }),
+            "text_general"
+        );
         assert_eq!(r(L::Text { unicode: true }), "text_general");
         assert_eq!(r(L::Blob), "binary");
         assert_eq!(r(L::Bit { len: None }), "string");
         assert_eq!(r(L::Date), "pdate");
-        assert_eq!(r(L::Time { precision: None, tz: false }), "string");
-        assert_eq!(r(L::Timestamp { precision: None, tz: true }), "pdate");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            }),
+            "string"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: None,
+                tz: true
+            }),
+            "pdate"
+        );
         assert_eq!(r(L::Interval), "string");
         assert_eq!(r(L::Year), "pint");
         assert_eq!(r(L::Uuid), "string");
@@ -242,15 +346,47 @@ mod tests {
         assert_eq!(r(L::Xml), "text_general");
         assert_eq!(r(L::Enum { values: vec![] }), "string");
         assert_eq!(r(L::Set { values: vec![] }), "string[]");
-        assert_eq!(r(L::Array { of: Box::new(L::int(8)) }), "plong[]");
-        assert_eq!(r(L::Map { key: Box::new(L::Bool), value: Box::new(L::Bool) }), "string");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "location_rpt");
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(8))
+            }),
+            "plong[]"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Bool),
+                value: Box::new(L::Bool)
+            }),
+            "string"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "location_rpt"
+        );
         assert_eq!(r(L::Inet), "string");
         assert_eq!(r(L::MacAddr), "string");
         assert_eq!(r(L::RowVersion), "binary");
         assert_eq!(r(L::Other { native: "x".into() }), "x");
-        assert_eq!(Solr.render_default(&DefaultValue::CurrentTimestamp, &L::Timestamp { precision: None, tz: true }).as_deref(), Some("NOW"));
-        assert_eq!(Solr.render_default(&DefaultValue::Text("a".into()), &L::Text { unicode: true }).as_deref(), Some("a"));
+        assert_eq!(
+            Solr.render_default(
+                &DefaultValue::CurrentTimestamp,
+                &L::Timestamp {
+                    precision: None,
+                    tz: true
+                }
+            )
+            .as_deref(),
+            Some("NOW")
+        );
+        assert_eq!(
+            Solr.render_default(&DefaultValue::Text("a".into()), &L::Text { unicode: true })
+                .as_deref(),
+            Some("a")
+        );
         assert_eq!(Solr.render_default(&DefaultValue::NewUuid, &L::Uuid), None);
     }
 }

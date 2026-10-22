@@ -11,17 +11,40 @@ use crate::command::quote_arg;
 use crate::shape::text_of;
 use crate::RedisSession;
 use dbine_driver::keys::glob_escape;
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use redis::Value;
 
-const NO_ROLES: &str = "Redis no tiene roles: los permisos se asignan a cada usuario con reglas ACL (ACL SETUSER).";
+const NO_ROLES: &str =
+    "Redis no tiene roles: los permisos se asignan a cada usuario con reglas ACL (ACL SETUSER).";
 
 pub fn spec() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
-            "+@all", "+@read", "+@write", "+@keyspace", "+@string", "+@hash", "+@list", "+@set", "+@sortedset", "+@stream",
-            "+@pubsub", "+@connection", "+@transaction", "+@scripting", "+@admin", "+@dangerous", "-@dangerous", "-@admin",
-            "-@write", "~", "%R~", "%W~", "&",
+            "+@all",
+            "+@read",
+            "+@write",
+            "+@keyspace",
+            "+@string",
+            "+@hash",
+            "+@list",
+            "+@set",
+            "+@sortedset",
+            "+@stream",
+            "+@pubsub",
+            "+@connection",
+            "+@transaction",
+            "+@scripting",
+            "+@admin",
+            "+@dangerous",
+            "-@dangerous",
+            "-@admin",
+            "-@write",
+            "~",
+            "%R~",
+            "%W~",
+            "&",
         ],
         object_kinds: vec!["", "key"],
         create_user: true,
@@ -53,7 +76,10 @@ fn fields(v: Value) -> Vec<(String, Value)> {
 fn items(v: &Value) -> Vec<String> {
     match v {
         Value::Array(a) | Value::Set(a) => a.iter().map(text_of).collect(),
-        other => text_of(other).split_whitespace().map(str::to_string).collect(),
+        other => text_of(other)
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
     }
 }
 
@@ -84,8 +110,14 @@ fn acl_user(v: Value) -> AclUser {
                 if let Value::Array(sels) = v {
                     for s in sels {
                         let f = fields(s);
-                        let get = |name: &str| f.iter().find(|(k, _)| k == name).map(|(_, v)| items(v).join(" ")).unwrap_or_default();
-                        u.selectors.push((get("commands"), get("keys"), get("channels")));
+                        let get = |name: &str| {
+                            f.iter()
+                                .find(|(k, _)| k == name)
+                                .map(|(_, v)| items(v).join(" "))
+                                .unwrap_or_default()
+                        };
+                        u.selectors
+                            .push((get("commands"), get("keys"), get("channels")));
                     }
                 }
             }
@@ -112,7 +144,9 @@ pub async fn principals(s: &mut RedisSession) -> Result<Vec<Principal>> {
     let names = items(&s.run(&[b"ACL", b"USERS"]).await?);
     let mut out = Vec::new();
     for name in names {
-        let Some(u) = get_user(s, &name).await? else { continue };
+        let Some(u) = get_user(s, &name).await? else {
+            continue;
+        };
         let on = u.flag("on");
         let mut details = vec![(
             "Contraseña".to_string(),
@@ -126,7 +160,13 @@ pub async fn principals(s: &mut RedisSession) -> Result<Vec<Principal>> {
                 }
             },
         )];
-        let rules = |s: &str| if s.trim().is_empty() { "(ninguno)".to_string() } else { s.to_string() };
+        let rules = |s: &str| {
+            if s.trim().is_empty() {
+                "(ninguno)".to_string()
+            } else {
+                s.to_string()
+            }
+        };
         details.push(("Comandos".into(), rules(&u.commands)));
         details.push(("Claves".into(), rules(&keys_of(&u).join(" "))));
         details.push(("Canales".into(), rules(&channels_of(&u).join(" "))));
@@ -136,7 +176,9 @@ pub async fn principals(s: &mut RedisSession) -> Result<Vec<Principal>> {
         if !u.selectors.is_empty() {
             details.push(("Selectores".into(), u.selectors.len().to_string()));
         }
-        let superuser = command_rules(&u.commands).iter().all(|r| !r.starts_with('-'))
+        let superuser = command_rules(&u.commands)
+            .iter()
+            .all(|r| !r.starts_with('-'))
             && (u.commands.split_whitespace().any(|r| r == "+@all") || u.flag("allcommands"))
             && keys_of(&u).iter().any(|k| k == "~*");
         out.push(Principal {
@@ -175,7 +217,12 @@ fn dedup(v: Vec<String>) -> Vec<String> {
 /// Key patterns (`~p`, `%R~p`), including Redis 6's `allkeys` flag.
 /// Dragonfly repeats patterns and lists `resetkeys`: dropped.
 fn keys_of(u: &AclUser) -> Vec<String> {
-    let mut k: Vec<String> = u.keys.split_whitespace().filter(|k| *k != "resetkeys").map(str::to_string).collect();
+    let mut k: Vec<String> = u
+        .keys
+        .split_whitespace()
+        .filter(|k| *k != "resetkeys")
+        .map(str::to_string)
+        .collect();
     if u.flag("allkeys") {
         k.insert(0, "~*".into());
     }
@@ -183,16 +230,32 @@ fn keys_of(u: &AclUser) -> Vec<String> {
 }
 
 fn channels_of(u: &AclUser) -> Vec<String> {
-    let mut c: Vec<String> = u.channels.split_whitespace().filter(|c| *c != "resetchannels").map(str::to_string).collect();
+    let mut c: Vec<String> = u
+        .channels
+        .split_whitespace()
+        .filter(|c| *c != "resetchannels")
+        .map(str::to_string)
+        .collect();
     if u.flag("allchannels") {
         c.insert(0, "&*".into());
     }
     dedup(c)
 }
 
-fn rule_grants(commands: &str, keys: &[String], channels: &[String], via: Option<String>, out: &mut Vec<Grant>) {
+fn rule_grants(
+    commands: &str,
+    keys: &[String],
+    channels: &[String],
+    via: Option<String>,
+    out: &mut Vec<Grant>,
+) {
     for r in command_rules(commands) {
-        out.push(Grant { privilege: r.to_string(), denied: r.starts_with('-'), via: via.clone(), ..Default::default() });
+        out.push(Grant {
+            privilege: r.to_string(),
+            denied: r.starts_with('-'),
+            via: via.clone(),
+            ..Default::default()
+        });
     }
     for k in keys {
         // `%R~p` / `%W~p` / `%RW~p` / `~p`.
@@ -220,7 +283,9 @@ fn rule_grants(commands: &str, keys: &[String], channels: &[String], via: Option
 }
 
 pub async fn grants(s: &mut RedisSession, principal: &str) -> Result<Vec<Grant>> {
-    let u = get_user(s, principal).await?.ok_or_else(|| Error::Query(format!("No existe el usuario {principal}.")))?;
+    let u = get_user(s, principal)
+        .await?
+        .ok_or_else(|| Error::Query(format!("No existe el usuario {principal}.")))?;
     let mut out = Vec::new();
     let mut commands = u.commands.clone();
     if u.flag("allcommands") && !commands.contains("+@all") {
@@ -229,8 +294,18 @@ pub async fn grants(s: &mut RedisSession, principal: &str) -> Result<Vec<Grant>>
     rule_grants(&commands, &keys_of(&u), &channels_of(&u), None, &mut out);
     for (i, (c, k, ch)) in u.selectors.iter().enumerate() {
         let keys: Vec<String> = k.split_whitespace().map(str::to_string).collect();
-        let chans: Vec<String> = ch.split_whitespace().filter(|c| *c != "resetchannels").map(str::to_string).collect();
-        rule_grants(c, &keys, &chans, Some(format!("selector {}", i + 1)), &mut out);
+        let chans: Vec<String> = ch
+            .split_whitespace()
+            .filter(|c| *c != "resetchannels")
+            .map(str::to_string)
+            .collect();
+        rule_grants(
+            c,
+            &keys,
+            &chans,
+            Some(format!("selector {}", i + 1)),
+            &mut out,
+        );
     }
     Ok(out)
 }
@@ -243,7 +318,9 @@ fn check_name(name: &str) -> Result<&str> {
         return Err(Error::Query("Escribí el nombre del usuario.".into()));
     }
     if n.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(Error::Query(format!("El nombre de usuario {n:?} no puede tener espacios ni caracteres de control.")));
+        return Err(Error::Query(format!(
+            "El nombre de usuario {n:?} no puede tener espacios ni caracteres de control."
+        )));
     }
     Ok(n)
 }
@@ -253,19 +330,25 @@ fn check_password(pw: &str) -> Result<&str> {
         return Err(Error::Query("Escribí la contraseña.".into()));
     }
     if pw.chars().any(|c| c.is_control()) {
-        return Err(Error::Query("La contraseña no puede tener caracteres de control.".into()));
+        return Err(Error::Query(
+            "La contraseña no puede tener caracteres de control.".into(),
+        ));
     }
     Ok(pw)
 }
 
 fn is_word(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
 }
 
 /// A glob pattern of keys or channels: no spaces or control characters.
 fn check_pattern(p: &str) -> Result<&str> {
     if p.is_empty() || p.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(Error::Query(format!("Patrón inválido: {p:?} (sin espacios ni caracteres de control).")));
+        return Err(Error::Query(format!(
+            "Patrón inválido: {p:?} (sin espacios ni caracteres de control)."
+        )));
     }
     Ok(p)
 }
@@ -288,10 +371,14 @@ fn object_pattern(o: &ObjectRef) -> Result<String> {
 /// one. Rejects anything that isn't a well-formed rule.
 fn rule(privilege: &str, object: Option<&ObjectRef>) -> Result<String> {
     let p = privilege.trim();
-    let bad = || Error::Query(format!("Regla ACL inválida: {p:?}. Ejemplos: +@read, -@dangerous, +get, +config|get, ~app:*, %R~, &canal*."));
+    let bad = || {
+        Error::Query(format!("Regla ACL inválida: {p:?}. Ejemplos: +@read, -@dangerous, +get, +config|get, ~app:*, %R~, &canal*."))
+    };
     // Key and channel access: `~`, `%R~`, `%W~`, `%RW~`, `&`, with the
     // pattern after it or from the object.
-    let key_prefix = ["%RW~", "%R~", "%W~", "~", "&"].into_iter().find(|k| p.get(..k.len()).is_some_and(|h| h.eq_ignore_ascii_case(k)));
+    let key_prefix = ["%RW~", "%R~", "%W~", "~", "&"]
+        .into_iter()
+        .find(|k| p.get(..k.len()).is_some_and(|h| h.eq_ignore_ascii_case(k)));
     if let Some(kp) = key_prefix {
         let kp = kp.to_ascii_uppercase();
         let inline = &p[kp.len()..];
@@ -309,7 +396,10 @@ fn rule(privilege: &str, object: Option<&ObjectRef>) -> Result<String> {
         )));
     }
     let lower = p.to_ascii_lowercase();
-    if matches!(lower.as_str(), "allkeys" | "allchannels" | "allcommands" | "nocommands" | "resetkeys" | "resetchannels") {
+    if matches!(
+        lower.as_str(),
+        "allkeys" | "allchannels" | "allcommands" | "nocommands" | "resetkeys" | "resetchannels"
+    ) {
         return Ok(lower);
     }
     let (sign, body) = match p.chars().next() {
@@ -365,9 +455,9 @@ pub fn script(action: &SecurityAction) -> Result<String> {
             }
             setuser(name, &rules)
         }
-        SecurityAction::CreateRole { .. } | SecurityAction::AddMember { .. } | SecurityAction::RemoveMember { .. } => {
-            return Err(Error::Unsupported(NO_ROLES.into()))
-        }
+        SecurityAction::CreateRole { .. }
+        | SecurityAction::AddMember { .. }
+        | SecurityAction::RemoveMember { .. } => return Err(Error::Unsupported(NO_ROLES.into())),
         SecurityAction::Drop { name, kind } => {
             if *kind == PrincipalKind::Role {
                 return Err(Error::Unsupported(NO_ROLES.into()));
@@ -375,22 +465,44 @@ pub fn script(action: &SecurityAction) -> Result<String> {
             format!("ACL DELUSER {}", quote_arg(check_name(name)?))
         }
         // `resetpass` first: the new one replaces every password (and nopass).
-        SecurityAction::SetPassword { name, password } => {
-            setuser(check_name(name)?, &["resetpass".into(), format!(">{}", check_password(password)?)])
-        }
-        SecurityAction::SetLogin { name, enabled } => setuser(check_name(name)?, &[if *enabled { "on" } else { "off" }.into()]),
-        SecurityAction::Grant { privileges, object, to, grantable } => {
+        SecurityAction::SetPassword { name, password } => setuser(
+            check_name(name)?,
+            &[
+                "resetpass".into(),
+                format!(">{}", check_password(password)?),
+            ],
+        ),
+        SecurityAction::SetLogin { name, enabled } => setuser(
+            check_name(name)?,
+            &[if *enabled { "on" } else { "off" }.into()],
+        ),
+        SecurityAction::Grant {
+            privileges,
+            object,
+            to,
+            grantable,
+        } => {
             if *grantable {
                 return Err(Error::Unsupported("Redis no tiene la opción de otorgar permisos a otros: solo un usuario con +acl administra las ACL.".into()));
             }
-            let rules = privileges.iter().map(|p| rule(p, object.as_ref())).collect::<Result<Vec<_>>>()?;
+            let rules = privileges
+                .iter()
+                .map(|p| rule(p, object.as_ref()))
+                .collect::<Result<Vec<_>>>()?;
             if rules.is_empty() {
                 return Err(Error::Query("Elegí al menos un permiso.".into()));
             }
             setuser(check_name(to)?, &rules)
         }
-        SecurityAction::Revoke { privileges, object, from } => {
-            let rules = privileges.iter().map(|p| negate(p, object.as_ref())).collect::<Result<Vec<_>>>()?;
+        SecurityAction::Revoke {
+            privileges,
+            object,
+            from,
+        } => {
+            let rules = privileges
+                .iter()
+                .map(|p| negate(p, object.as_ref()))
+                .collect::<Result<Vec<_>>>()?;
             if rules.is_empty() {
                 return Err(Error::Query("Elegí al menos un permiso.".into()));
             }
@@ -404,51 +516,166 @@ mod tests {
     use super::*;
 
     fn key(name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: "key".into(), schema: None, name: name.into() })
+        Some(ObjectRef {
+            kind: "key".into(),
+            schema: None,
+            name: name.into(),
+        })
     }
 
     #[test]
     fn users_and_passwords() {
         let s = |a| script(&a).unwrap();
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: Some("p w\"1".into()) }), r#"ACL SETUSER ana on ">p w\"1""#);
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: None }), "ACL SETUSER ana on");
-        assert_eq!(s(SecurityAction::SetPassword { name: "ana".into(), password: "x".into() }), "ACL SETUSER ana resetpass >x");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: false }), "ACL SETUSER ana off");
-        assert_eq!(s(SecurityAction::Drop { name: "ana".into(), kind: PrincipalKind::User }), "ACL DELUSER ana");
-        assert!(script(&SecurityAction::CreateUser { name: "a b".into(), password: None }).is_err());
-        assert!(script(&SecurityAction::SetPassword { name: "ana".into(), password: "".into() }).is_err());
-        assert!(matches!(script(&SecurityAction::CreateRole { name: "r".into() }), Err(Error::Unsupported(_))));
-        assert!(matches!(script(&SecurityAction::AddMember { role: "r".into(), member: "a".into() }), Err(Error::Unsupported(_))));
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: Some("p w\"1".into())
+            }),
+            r#"ACL SETUSER ana on ">p w\"1""#
+        );
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: None
+            }),
+            "ACL SETUSER ana on"
+        );
+        assert_eq!(
+            s(SecurityAction::SetPassword {
+                name: "ana".into(),
+                password: "x".into()
+            }),
+            "ACL SETUSER ana resetpass >x"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: false
+            }),
+            "ACL SETUSER ana off"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "ana".into(),
+                kind: PrincipalKind::User
+            }),
+            "ACL DELUSER ana"
+        );
+        assert!(script(&SecurityAction::CreateUser {
+            name: "a b".into(),
+            password: None
+        })
+        .is_err());
+        assert!(script(&SecurityAction::SetPassword {
+            name: "ana".into(),
+            password: "".into()
+        })
+        .is_err());
+        assert!(matches!(
+            script(&SecurityAction::CreateRole { name: "r".into() }),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(&SecurityAction::AddMember {
+                role: "r".into(),
+                member: "a".into()
+            }),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn grants_and_revokes() {
         let g = |p: &[&str], o: Option<ObjectRef>| {
-            script(&SecurityAction::Grant { privileges: p.iter().map(|s| s.to_string()).collect(), object: o, to: "ana".into(), grantable: false })
+            script(&SecurityAction::Grant {
+                privileges: p.iter().map(|s| s.to_string()).collect(),
+                object: o,
+                to: "ana".into(),
+                grantable: false,
+            })
         };
         let r = |p: &[&str], o: Option<ObjectRef>| {
-            script(&SecurityAction::Revoke { privileges: p.iter().map(|s| s.to_string()).collect(), object: o, from: "ana".into() })
+            script(&SecurityAction::Revoke {
+                privileges: p.iter().map(|s| s.to_string()).collect(),
+                object: o,
+                from: "ana".into(),
+            })
         };
-        assert_eq!(g(&["+@read", "-@dangerous", "GET", "config|get"], None).unwrap(), "ACL SETUSER ana +@read -@dangerous +get +config|get");
+        assert_eq!(
+            g(&["+@read", "-@dangerous", "GET", "config|get"], None).unwrap(),
+            "ACL SETUSER ana +@read -@dangerous +get +config|get"
+        );
         assert_eq!(g(&["~"], None).unwrap(), "ACL SETUSER ana ~*");
-        assert_eq!(g(&["%R~"], key("app:1*")).unwrap(), r#"ACL SETUSER ana "%R~app:1\\*""#);
+        assert_eq!(
+            g(&["%R~"], key("app:1*")).unwrap(),
+            r#"ACL SETUSER ana "%R~app:1\\*""#
+        );
         let parsed = crate::command::parse_line(&g(&["%R~"], key("app:1*")).unwrap()).unwrap();
         assert_eq!(parsed[3], br"%R~app:1\*".to_vec());
-        let parsed = crate::command::parse_line(&script(&SecurityAction::SetPassword { name: "ana".into(), password: "a \"b\\ #c".into() }).unwrap()).unwrap();
+        let parsed = crate::command::parse_line(
+            &script(&SecurityAction::SetPassword {
+                name: "ana".into(),
+                password: "a \"b\\ #c".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(parsed[4], br#">a "b\ #c"#.to_vec());
-        assert_eq!(g(&["~app:*", "&news*"], None).unwrap(), "ACL SETUSER ana ~app:* &news*");
+        assert_eq!(
+            g(&["~app:*", "&news*"], None).unwrap(),
+            "ACL SETUSER ana ~app:* &news*"
+        );
         assert_eq!(g(&["allkeys"], None).unwrap(), "ACL SETUSER ana allkeys");
         // A key with a dot comes split by the tab.
-        assert_eq!(g(&["~"], Some(ObjectRef { kind: "key".into(), schema: Some("a".into()), name: "b".into() })).unwrap(), "ACL SETUSER ana ~a.b");
-        for bad in ["+@read ~*", "+get\"", ">pw", "+@", "~ñ x", "ñ", "~a b", "", "(+get)", "+get|", "#x"] {
+        assert_eq!(
+            g(
+                &["~"],
+                Some(ObjectRef {
+                    kind: "key".into(),
+                    schema: Some("a".into()),
+                    name: "b".into()
+                })
+            )
+            .unwrap(),
+            "ACL SETUSER ana ~a.b"
+        );
+        for bad in [
+            "+@read ~*",
+            "+get\"",
+            ">pw",
+            "+@",
+            "~ñ x",
+            "ñ",
+            "~a b",
+            "",
+            "(+get)",
+            "+get|",
+            "#x",
+        ] {
             assert!(g(&[bad], None).is_err(), "{bad}");
         }
-        assert!(matches!(g(&["+@read"], key("k")), Err(Error::Unsupported(_))));
-        assert!(script(&SecurityAction::Grant { privileges: vec!["+@read".into()], object: None, to: "ana".into(), grantable: true }).is_err());
+        assert!(matches!(
+            g(&["+@read"], key("k")),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["+@read".into()],
+            object: None,
+            to: "ana".into(),
+            grantable: true
+        })
+        .is_err());
 
-        assert_eq!(r(&["+@read", "-@dangerous", "set"], None).unwrap(), "ACL SETUSER ana -@read +@dangerous -set");
+        assert_eq!(
+            r(&["+@read", "-@dangerous", "set"], None).unwrap(),
+            "ACL SETUSER ana -@read +@dangerous -set"
+        );
         assert_eq!(r(&["allkeys"], None).unwrap(), "ACL SETUSER ana resetkeys");
-        let pattern = Some(ObjectRef { kind: "pattern".into(), schema: None, name: "app:*".into() });
+        let pattern = Some(ObjectRef {
+            kind: "pattern".into(),
+            schema: None,
+            name: "app:*".into(),
+        });
         assert!(matches!(r(&["~"], pattern), Err(Error::Unsupported(_))));
     }
 
@@ -468,7 +695,14 @@ mod tests {
             b("channels"),
             b("resetchannels &ch* &ch*"),
             b("selectors"),
-            arr(vec![arr(vec![b("commands"), b("-@all +get"), b("keys"), b("~sel:*"), b("channels"), b("")])]),
+            arr(vec![arr(vec![
+                b("commands"),
+                b("-@all +get"),
+                b("keys"),
+                b("~sel:*"),
+                b("channels"),
+                b(""),
+            ])]),
         ]);
         let u = acl_user(v);
         assert!(u.flag("on"));
@@ -477,7 +711,10 @@ mod tests {
         assert_eq!(channels_of(&u), ["&ch*"]);
         let mut g = Vec::new();
         rule_grants(&u.commands, &keys_of(&u), &channels_of(&u), None, &mut g);
-        let names: Vec<_> = g.iter().map(|g| (g.privilege.as_str(), g.object.as_deref(), g.denied)).collect();
+        let names: Vec<_> = g
+            .iter()
+            .map(|g| (g.privilege.as_str(), g.object.as_deref(), g.denied))
+            .collect();
         assert_eq!(
             names,
             [
@@ -489,9 +726,20 @@ mod tests {
                 ("&", Some("ch*"), false)
             ]
         );
-        assert_eq!(u.selectors, [("-@all +get".to_string(), "~sel:*".to_string(), String::new())]);
+        assert_eq!(
+            u.selectors,
+            [(
+                "-@all +get".to_string(),
+                "~sel:*".to_string(),
+                String::new()
+            )]
+        );
         // Revoking a listed grant negates it.
-        let pattern = ObjectRef { kind: "pattern".into(), schema: None, name: "app:*".into() };
+        let pattern = ObjectRef {
+            kind: "pattern".into(),
+            schema: None,
+            name: "app:*".into(),
+        };
         assert!(negate("~", Some(&pattern)).is_err());
         assert_eq!(negate("-@dangerous", None).unwrap(), "+@dangerous");
     }

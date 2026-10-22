@@ -79,7 +79,16 @@ fn pairs_in(bases: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
 #[allow(dead_code)]
 fn macos_bases(home: &Path) -> Vec<PathBuf> {
     let lib = home.join("Library");
-    ["Application Support", "Caches", "Logs", "WebKit", "HTTPStorages"].iter().map(|d| lib.join(d)).collect()
+    [
+        "Application Support",
+        "Caches",
+        "Logs",
+        "WebKit",
+        "HTTPStorages",
+    ]
+    .iter()
+    .map(|d| lib.join(d))
+    .collect()
 }
 
 /// Windows: `%APPDATA%` (config and data) and `%LOCALAPPDATA%` (cache, logs
@@ -92,11 +101,17 @@ fn windows_bases(appdata: &Path, local: &Path) -> Vec<PathBuf> {
 /// Linux: the XDG config, data (webkit2gtk's storage too) and cache folders.
 #[allow(dead_code)]
 fn linux_bases(config: &Path, data: &Path, cache: &Path) -> Vec<PathBuf> {
-    vec![config.to_path_buf(), data.to_path_buf(), cache.to_path_buf()]
+    vec![
+        config.to_path_buf(),
+        data.to_path_buf(),
+        cache.to_path_buf(),
+    ]
 }
 
 fn env_path(k: &str) -> Option<PathBuf> {
-    std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from)
+    std::env::var_os(k)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 fn home() -> Option<PathBuf> {
@@ -110,8 +125,10 @@ fn bases() -> Vec<PathBuf> {
     #[cfg(windows)]
     {
         let home = home();
-        let appdata = env_path("APPDATA").or_else(|| home.as_ref().map(|h| h.join("AppData/Roaming")));
-        let local = env_path("LOCALAPPDATA").or_else(|| home.as_ref().map(|h| h.join("AppData/Local")));
+        let appdata =
+            env_path("APPDATA").or_else(|| home.as_ref().map(|h| h.join("AppData/Roaming")));
+        let local =
+            env_path("LOCALAPPDATA").or_else(|| home.as_ref().map(|h| h.join("AppData/Local")));
         return match (appdata, local) {
             (Some(a), Some(l)) => windows_bases(&a, &l),
             _ => Vec::new(),
@@ -121,7 +138,11 @@ fn bases() -> Vec<PathBuf> {
     {
         let home = home();
         let xdg = |k: &str, rel: &str| env_path(k).or_else(|| home.as_ref().map(|h| h.join(rel)));
-        return match (xdg("XDG_CONFIG_HOME", ".config"), xdg("XDG_DATA_HOME", ".local/share"), xdg("XDG_CACHE_HOME", ".cache")) {
+        return match (
+            xdg("XDG_CONFIG_HOME", ".config"),
+            xdg("XDG_DATA_HOME", ".local/share"),
+            xdg("XDG_CACHE_HOME", ".cache"),
+        ) {
             (Some(c), Some(d), Some(k)) => linux_bases(&c, &d, &k),
             _ => Vec::new(),
         };
@@ -167,7 +188,10 @@ struct Copier {
 
 impl Copier {
     fn for_this_os() -> Self {
-        Copier { clone: clone_file, clones: cfg!(target_os = "macos") }
+        Copier {
+            clone: clone_file,
+            clones: cfg!(target_os = "macos"),
+        }
     }
 
     fn copy_file(&self, src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -187,7 +211,11 @@ fn clone_file(src: &Path, dst: &Path) -> std::io::Result<()> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     extern "C" {
-        fn clonefile(src: *const std::ffi::c_char, dst: *const std::ffi::c_char, flags: u32) -> std::ffi::c_int;
+        fn clonefile(
+            src: *const std::ffi::c_char,
+            dst: *const std::ffi::c_char,
+            flags: u32,
+        ) -> std::ffi::c_int;
     }
     const CLONE_NOFOLLOW: u32 = 1;
     let s = CString::new(src.as_os_str().as_bytes())?;
@@ -223,7 +251,11 @@ fn left_out(old: &Path, copier: Copier, limit: u64) -> Vec<String> {
     if copier.clones {
         return Vec::new();
     }
-    LARGE.iter().filter(|n| old.join(n).is_dir() && dir_size(&old.join(n)) > limit).map(|n| n.to_string()).collect()
+    LARGE
+        .iter()
+        .filter(|n| old.join(n).is_dir() && dir_size(&old.join(n)) > limit)
+        .map(|n| n.to_string())
+        .collect()
 }
 
 /// Copy `old` to `new` (see the module's rules). `old` is only read.
@@ -276,7 +308,12 @@ fn copy_dir(old: &Path, new: &Path, copier: Copier, limit: u64) -> std::io::Resu
                 Err(std::io::Error::other("the copy doesn't match the original"))
             }
         })
-        .and_then(|()| std::fs::write(tmp.join(COPIED), format!("{OLD_ID}\n{}\n", chrono::Utc::now().to_rfc3339())))
+        .and_then(|()| {
+            std::fs::write(
+                tmp.join(COPIED),
+                format!("{OLD_ID}\n{}\n", chrono::Utc::now().to_rfc3339()),
+            )
+        })
         .and_then(|()| std::fs::rename(&tmp, new));
     if let Err(e) = done {
         let _ = std::fs::remove_dir_all(&tmp);
@@ -287,12 +324,21 @@ fn copy_dir(old: &Path, new: &Path, copier: Copier, limit: u64) -> std::io::Resu
 
 /// Copy `from` into `to` (rooted at `root`), leaving out `skip` (relative to
 /// the root).
-fn copy_tree(from: &Path, to: &Path, root: &Path, skip: &[PathBuf], copier: Copier) -> std::io::Result<()> {
+fn copy_tree(
+    from: &Path,
+    to: &Path,
+    root: &Path,
+    skip: &[PathBuf],
+    copier: Copier,
+) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let (src, dst) = (entry.path(), to.join(entry.file_name()));
-        if skip.iter().any(|s| dst.strip_prefix(root).is_ok_and(|rel| rel == s)) {
+        if skip
+            .iter()
+            .any(|s| dst.strip_prefix(root).is_ok_and(|rel| rel == s))
+        {
             continue;
         }
         let kind = entry.file_type()?;
@@ -316,7 +362,12 @@ fn copy_tree(from: &Path, to: &Path, root: &Path, skip: &[PathBuf], copier: Copi
 /// Every entry under `root` but `skip` and the marker: relative path, and
 /// size for files.
 fn tree_listing(root: &Path, skip: &[PathBuf]) -> std::io::Result<Vec<(PathBuf, Option<u64>)>> {
-    fn walk(root: &Path, dir: &Path, skip: &[PathBuf], out: &mut Vec<(PathBuf, Option<u64>)>) -> std::io::Result<()> {
+    fn walk(
+        root: &Path,
+        dir: &Path,
+        skip: &[PathBuf],
+        out: &mut Vec<(PathBuf, Option<u64>)>,
+    ) -> std::io::Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
@@ -343,7 +394,10 @@ fn tree_listing(root: &Path, skip: &[PathBuf]) -> std::io::Result<Vec<(PathBuf, 
 /// Other processes of this executable (the old version closing after an
 /// update, a scheduled task), not this one.
 fn others_running() -> bool {
-    let Some(name) = std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())) else {
+    let Some(name) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+    else {
         return false;
     };
     let me = std::process::id();
@@ -367,7 +421,10 @@ fn others_running() -> bool {
     }
     #[cfg(not(windows))]
     {
-        let Ok(out) = std::process::Command::new("ps").args(["-A", "-o", "pid=,comm="]).output() else {
+        let Ok(out) = std::process::Command::new("ps")
+            .args(["-A", "-o", "pid=,comm="])
+            .output()
+        else {
             return false;
         };
         String::from_utf8_lossy(&out.stdout).lines().any(|l| {
@@ -376,7 +433,11 @@ fn others_running() -> bool {
             let comm = comm.trim();
             // macOS prints the executable's path, Linux its first 15 bytes.
             let base = comm.rsplit('/').next().unwrap_or(comm);
-            pid.parse::<u32>().is_ok_and(|p| p != me) && (base == name || name.get(..15).is_some_and(|short| name.len() > 15 && base == short))
+            pid.parse::<u32>().is_ok_and(|p| p != me)
+                && (base == name
+                    || name
+                        .get(..15)
+                        .is_some_and(|short| name.len() > 15 && base == short))
         })
     }
 }
@@ -403,9 +464,18 @@ pub fn run(wait: Duration, provisional: bool) {
         .write(true)
         .open(std::env::temp_dir().join(format!("{NEW_ID}.migration.lock")));
     let _guard = lock.ok().filter(|f| f.lock().is_ok());
-    let report = migrate_pairs(&pairs, wait, provisional, Copier::for_this_os(), LARGE_LIMIT, others_running);
+    let report = migrate_pairs(
+        &pairs,
+        wait,
+        provisional,
+        Copier::for_this_os(),
+        LARGE_LIMIT,
+        others_running,
+    );
     let state = state_dirs(OLD_ID).map(|(config, _)| config);
-    if report.iter().any(|(old, o)| Some(old) == state.as_ref() && matches!(o, Outcome::Deferred | Outcome::Failed(_))) {
+    if report.iter().any(|(old, o)| {
+        Some(old) == state.as_ref() && matches!(o, Outcome::Deferred | Outcome::Failed(_))
+    }) {
         ON_OLD_DIRS.store(true, Ordering::SeqCst);
     }
     let _ = REPORT.set(report);
@@ -419,7 +489,11 @@ fn migrate_pairs(
     limit: u64,
     others: impl Fn() -> bool,
 ) -> Vec<(PathBuf, Outcome)> {
-    let pending = |old: &Path, new: &Path| (old.exists() && !new.join(COPIED).exists()) || sibling(new, ".copying").exists() || new.join(PROVISIONAL).exists();
+    let pending = |old: &Path, new: &Path| {
+        (old.exists() && !new.join(COPIED).exists())
+            || sibling(new, ".copying").exists()
+            || new.join(PROVISIONAL).exists()
+    };
     if !pairs.iter().any(|(o, n)| pending(o, n)) {
         return Vec::new();
     }
@@ -434,9 +508,17 @@ fn migrate_pairs(
         if !pending(old, new) {
             continue;
         }
-        let outcome = if busy && old.exists() { Outcome::Deferred } else { migrate_dir(old, new, copier, limit) };
+        let outcome = if busy && old.exists() {
+            Outcome::Deferred
+        } else {
+            migrate_dir(old, new, copier, limit)
+        };
         // The new folder this start creates is replaced on the next one.
-        if provisional && matches!(outcome, Outcome::Deferred | Outcome::Failed(_)) && !new.exists() && std::fs::create_dir_all(new).is_ok() {
+        if provisional
+            && matches!(outcome, Outcome::Deferred | Outcome::Failed(_))
+            && !new.exists()
+            && std::fs::create_dir_all(new).is_ok()
+        {
             let _ = std::fs::write(new.join(PROVISIONAL), b"");
         }
         report.push((old.clone(), outcome));
@@ -480,9 +562,15 @@ pub fn log_report() {
                     tracing::info!(%folder, ?skipped, "identifier migration: large folders not copied, downloaded again when needed");
                 }
             }
-            Outcome::Deferred => tracing::warn!(%folder, "identifier migration deferred: another DBine process is running; this start uses the old folders"),
-            Outcome::BothExist => tracing::warn!(%folder, "identifier migration: both the {OLD_ID} and {NEW_ID} folders exist; neither touched"),
-            Outcome::Failed(e) => tracing::warn!(%folder, "identifier migration failed, retried next start: {e}"),
+            Outcome::Deferred => {
+                tracing::warn!(%folder, "identifier migration deferred: another DBine process is running; this start uses the old folders")
+            }
+            Outcome::BothExist => {
+                tracing::warn!(%folder, "identifier migration: both the {OLD_ID} and {NEW_ID} folders exist; neither touched")
+            }
+            Outcome::Failed(e) => {
+                tracing::warn!(%folder, "identifier migration failed, retried next start: {e}")
+            }
         }
     }
 }
@@ -522,8 +610,14 @@ mod tests {
     }
 
     /// No clones: the large folders are left out above the limit.
-    const PLAIN: Copier = Copier { clone: failing_clone, clones: false };
-    const CLONING: Copier = Copier { clone: failing_clone, clones: true };
+    const PLAIN: Copier = Copier {
+        clone: failing_clone,
+        clones: false,
+    };
+    const CLONING: Copier = Copier {
+        clone: failing_clone,
+        clones: true,
+    };
     const NO_LIMIT: u64 = u64::MAX;
 
     #[test]
@@ -532,12 +626,24 @@ mod tests {
         let (old, new) = pair(&t);
         fill(&old);
         let before = tree_listing(&old, &[]).unwrap();
-        assert_eq!(migrate_dir(&old, &new, PLAIN, NO_LIMIT), Outcome::Copied { skipped: vec![] });
+        assert_eq!(
+            migrate_dir(&old, &new, PLAIN, NO_LIMIT),
+            Outcome::Copied { skipped: vec![] }
+        );
         // The old folder is untouched.
         assert_eq!(tree_listing(&old, &[]).unwrap(), before);
-        assert_eq!(std::fs::read(old.join("dbine-state.sqlite")).unwrap(), b"state");
-        assert_eq!(std::fs::read(new.join("dbine-state.sqlite")).unwrap(), b"state");
-        assert_eq!(std::fs::read(new.join("logs/app.log")).unwrap(), b"log line");
+        assert_eq!(
+            std::fs::read(old.join("dbine-state.sqlite")).unwrap(),
+            b"state"
+        );
+        assert_eq!(
+            std::fs::read(new.join("dbine-state.sqlite")).unwrap(),
+            b"state"
+        );
+        assert_eq!(
+            std::fs::read(new.join("logs/app.log")).unwrap(),
+            b"log line"
+        );
         assert!(new.join(COPIED).exists());
         assert!(!sibling(&new, ".copying").exists());
     }
@@ -552,10 +658,24 @@ mod tests {
         std::fs::write(new.join("dbine-state.sqlite"), b"newer").unwrap();
         std::fs::write(old.join("dbine-state.sqlite"), b"older app").unwrap();
         assert_eq!(migrate_dir(&old, &new, PLAIN, NO_LIMIT), Outcome::Nothing);
-        assert_eq!(std::fs::read(new.join("dbine-state.sqlite")).unwrap(), b"newer");
-        assert_eq!(std::fs::read(old.join("dbine-state.sqlite")).unwrap(), b"older app");
+        assert_eq!(
+            std::fs::read(new.join("dbine-state.sqlite")).unwrap(),
+            b"newer"
+        );
+        assert_eq!(
+            std::fs::read(old.join("dbine-state.sqlite")).unwrap(),
+            b"older app"
+        );
         // And no process listing is needed any more.
-        assert!(migrate_pairs(&[(old, new)], Duration::ZERO, true, PLAIN, NO_LIMIT, || panic!("not asked")).is_empty());
+        assert!(migrate_pairs(
+            &[(old, new)],
+            Duration::ZERO,
+            true,
+            PLAIN,
+            NO_LIMIT,
+            || panic!("not asked")
+        )
+        .is_empty());
     }
 
     #[test]
@@ -576,8 +696,14 @@ mod tests {
         std::fs::create_dir_all(&new).unwrap();
         std::fs::write(new.join("dbine-state.sqlite"), b"newer").unwrap();
         assert_eq!(migrate_dir(&old, &new, PLAIN, NO_LIMIT), Outcome::BothExist);
-        assert_eq!(std::fs::read(old.join("dbine-state.sqlite")).unwrap(), b"state");
-        assert_eq!(std::fs::read(new.join("dbine-state.sqlite")).unwrap(), b"newer");
+        assert_eq!(
+            std::fs::read(old.join("dbine-state.sqlite")).unwrap(),
+            b"state"
+        );
+        assert_eq!(
+            std::fs::read(new.join("dbine-state.sqlite")).unwrap(),
+            b"newer"
+        );
     }
 
     #[test]
@@ -596,9 +722,15 @@ mod tests {
         let tmp = sibling(&new, ".copying");
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(tmp.join("dbine-state.sqlite"), b"sta").unwrap();
-        assert_eq!(migrate_dir(&old, &new, PLAIN, NO_LIMIT), Outcome::Copied { skipped: vec![] });
+        assert_eq!(
+            migrate_dir(&old, &new, PLAIN, NO_LIMIT),
+            Outcome::Copied { skipped: vec![] }
+        );
         assert!(!tmp.exists());
-        assert_eq!(std::fs::read(new.join("dbine-state.sqlite")).unwrap(), b"state");
+        assert_eq!(
+            std::fs::read(new.join("dbine-state.sqlite")).unwrap(),
+            b"state"
+        );
     }
 
     #[test]
@@ -607,7 +739,12 @@ mod tests {
         let (old, new) = pair(&t);
         fill(&old);
         // models/ is 4 KiB: above a 1 KiB limit.
-        assert_eq!(migrate_dir(&old, &new, PLAIN, 1024), Outcome::Copied { skipped: vec!["models".into()] });
+        assert_eq!(
+            migrate_dir(&old, &new, PLAIN, 1024),
+            Outcome::Copied {
+                skipped: vec!["models".into()]
+            }
+        );
         assert!(!new.join("models").exists());
         assert!(new.join("dbine-state.sqlite").exists());
         assert!(old.join("models/m.gguf").exists());
@@ -615,14 +752,23 @@ mod tests {
         let t = Tmp::new();
         let (old, new) = pair(&t);
         fill(&old);
-        assert_eq!(migrate_dir(&old, &new, PLAIN, 1 << 20), Outcome::Copied { skipped: vec![] });
+        assert_eq!(
+            migrate_dir(&old, &new, PLAIN, 1 << 20),
+            Outcome::Copied { skipped: vec![] }
+        );
         assert!(new.join("models/m.gguf").exists());
         // With clones nothing is left out, whatever the size.
         let t = Tmp::new();
         let (old, new) = pair(&t);
         fill(&old);
-        assert_eq!(migrate_dir(&old, &new, CLONING, 1024), Outcome::Copied { skipped: vec![] });
-        assert_eq!(std::fs::read(new.join("models/m.gguf")).unwrap(), vec![7u8; 4096]);
+        assert_eq!(
+            migrate_dir(&old, &new, CLONING, 1024),
+            Outcome::Copied { skipped: vec![] }
+        );
+        assert_eq!(
+            std::fs::read(new.join("models/m.gguf")).unwrap(),
+            vec![7u8; 4096]
+        );
     }
 
     #[test]
@@ -634,7 +780,12 @@ mod tests {
             std::fs::write(dst, b"x")?;
             Err(std::io::Error::other("clone failed"))
         }
-        Copier { clone: half_clone, clones: true }.copy_file(&t.0.join("a"), &t.0.join("b")).unwrap();
+        Copier {
+            clone: half_clone,
+            clones: true,
+        }
+        .copy_file(&t.0.join("a"), &t.0.join("b"))
+        .unwrap();
         assert_eq!(std::fs::read(t.0.join("b")).unwrap(), b"data");
     }
 
@@ -643,7 +794,9 @@ mod tests {
     fn apfs_clone_copies_the_file() {
         let t = Tmp::new();
         std::fs::write(t.0.join("a"), b"data").unwrap();
-        Copier::for_this_os().copy_file(&t.0.join("a"), &t.0.join("b")).unwrap();
+        Copier::for_this_os()
+            .copy_file(&t.0.join("a"), &t.0.join("b"))
+            .unwrap();
         assert_eq!(std::fs::read(t.0.join("b")).unwrap(), b"data");
         // Independent copies.
         std::fs::write(t.0.join("b"), b"changed").unwrap();
@@ -657,9 +810,15 @@ mod tests {
         fill(&old);
         #[cfg(unix)]
         std::os::unix::fs::symlink("dbine-state.sqlite", old.join("link")).unwrap();
-        assert!(matches!(migrate_dir(&old, &new, PLAIN, NO_LIMIT), Outcome::Copied { .. }));
+        assert!(matches!(
+            migrate_dir(&old, &new, PLAIN, NO_LIMIT),
+            Outcome::Copied { .. }
+        ));
         #[cfg(unix)]
-        assert_eq!(std::fs::read_link(new.join("link")).unwrap(), PathBuf::from("dbine-state.sqlite"));
+        assert_eq!(
+            std::fs::read_link(new.join("link")).unwrap(),
+            PathBuf::from("dbine-state.sqlite")
+        );
     }
 
     #[test]
@@ -678,10 +837,17 @@ mod tests {
         let report = migrate_pairs(&pairs, Duration::ZERO, true, PLAIN, NO_LIMIT, || false);
         assert_eq!(report[0].1, Outcome::Replaced { skipped: vec![] });
         assert!(old.join("dbine-state.sqlite").exists());
-        assert_eq!(std::fs::read(new.join("dbine-state.sqlite")).unwrap(), b"state");
+        assert_eq!(
+            std::fs::read(new.join("dbine-state.sqlite")).unwrap(),
+            b"state"
+        );
         assert!(!new.join(PROVISIONAL).exists());
         // The provisional folder is kept aside, not deleted.
-        let aside: Vec<_> = std::fs::read_dir(&t.0).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".provisional-")).collect();
+        let aside: Vec<_> = std::fs::read_dir(&t.0)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".provisional-"))
+            .collect();
         assert_eq!(aside.len(), 1);
         assert!(aside[0].path().join("window-state.json").exists());
     }
@@ -691,7 +857,14 @@ mod tests {
         let t = Tmp::new();
         let (old, new) = pair(&t);
         fill(&old);
-        let report = migrate_pairs(&[(old, new.clone())], Duration::ZERO, false, PLAIN, NO_LIMIT, || true);
+        let report = migrate_pairs(
+            &[(old, new.clone())],
+            Duration::ZERO,
+            false,
+            PLAIN,
+            NO_LIMIT,
+            || true,
+        );
         assert_eq!(report[0].1, Outcome::Deferred);
         assert!(!new.exists());
     }
@@ -702,22 +875,47 @@ mod tests {
         let (old, new) = pair(&t);
         fill(&old);
         let calls = std::cell::Cell::new(0);
-        let report = migrate_pairs(&[(old, new)], Duration::from_secs(5), false, PLAIN, NO_LIMIT, || {
-            calls.set(calls.get() + 1);
-            calls.get() < 3
-        });
+        let report = migrate_pairs(
+            &[(old, new)],
+            Duration::from_secs(5),
+            false,
+            PLAIN,
+            NO_LIMIT,
+            || {
+                calls.set(calls.get() + 1);
+                calls.get() < 3
+            },
+        );
         assert_eq!(report[0].1, Outcome::Copied { skipped: vec![] });
     }
 
     #[test]
     fn folders_per_os() {
         let mac = pairs_in(&macos_bases(Path::new("/Users/u")));
-        assert!(mac.contains(&(PathBuf::from("/Users/u/Library/Application Support/com.addlayer.dbine"), PathBuf::from("/Users/u/Library/Application Support/io.addlayer.dbine"))));
-        assert!(mac.iter().any(|(o, _)| o == Path::new("/Users/u/Library/WebKit/com.addlayer.dbine")));
-        assert!(mac.iter().any(|(o, _)| o == Path::new("/Users/u/Library/Caches/com.addlayer.dbine")));
-        assert_eq!(pairs_in(&windows_bases(Path::new("C:/a"), Path::new("C:/l"))).len(), 2);
+        assert!(mac.contains(&(
+            PathBuf::from("/Users/u/Library/Application Support/com.addlayer.dbine"),
+            PathBuf::from("/Users/u/Library/Application Support/io.addlayer.dbine")
+        )));
+        assert!(mac
+            .iter()
+            .any(|(o, _)| o == Path::new("/Users/u/Library/WebKit/com.addlayer.dbine")));
+        assert!(mac
+            .iter()
+            .any(|(o, _)| o == Path::new("/Users/u/Library/Caches/com.addlayer.dbine")));
+        assert_eq!(
+            pairs_in(&windows_bases(Path::new("C:/a"), Path::new("C:/l"))).len(),
+            2
+        );
         // Config and data may be the same folder: listed once.
-        assert_eq!(pairs_in(&linux_bases(Path::new("/h/.config"), Path::new("/h/.config"), Path::new("/h/.cache"))).len(), 2);
+        assert_eq!(
+            pairs_in(&linux_bases(
+                Path::new("/h/.config"),
+                Path::new("/h/.config"),
+                Path::new("/h/.cache")
+            ))
+            .len(),
+            2
+        );
     }
 
     /// A dry run on copies of real folders: `DBINE_MIGRATION_HOME=<a HOME
@@ -726,25 +924,52 @@ mod tests {
     #[test]
     #[ignore]
     fn identifier_dry_run() {
-        let home = PathBuf::from(std::env::var_os("DBINE_MIGRATION_HOME").expect("DBINE_MIGRATION_HOME"));
+        let home =
+            PathBuf::from(std::env::var_os("DBINE_MIGRATION_HOME").expect("DBINE_MIGRATION_HOME"));
         assert_ne!(Some(home.clone()), super::home(), "never the real HOME");
         let pairs = pairs_in(&macos_bases(&home));
-        let before: Vec<_> = pairs.iter().map(|(o, _)| o.exists().then(|| tree_listing(o, &[]).unwrap())).collect();
-        for (old, outcome) in migrate_pairs(&pairs, Duration::ZERO, false, Copier::for_this_os(), LARGE_LIMIT, || false) {
+        let before: Vec<_> = pairs
+            .iter()
+            .map(|(o, _)| o.exists().then(|| tree_listing(o, &[]).unwrap()))
+            .collect();
+        for (old, outcome) in migrate_pairs(
+            &pairs,
+            Duration::ZERO,
+            false,
+            Copier::for_this_os(),
+            LARGE_LIMIT,
+            || false,
+        ) {
             println!("{}: {outcome:?}", old.display());
         }
         for ((old, new), listing) in pairs.iter().zip(before) {
             if let Some(listing) = listing {
-                assert_eq!(tree_listing(old, &[]).unwrap(), listing, "old changed: {}", old.display());
-                assert_eq!(tree_listing(new, &[]).unwrap(), listing, "{}", new.display());
-                println!("{} -> {}: {} entries, identical", old.display(), new.display(), listing.len());
+                assert_eq!(
+                    tree_listing(old, &[]).unwrap(),
+                    listing,
+                    "old changed: {}",
+                    old.display()
+                );
+                assert_eq!(
+                    tree_listing(new, &[]).unwrap(),
+                    listing,
+                    "{}",
+                    new.display()
+                );
+                println!(
+                    "{} -> {}: {} entries, identical",
+                    old.display(),
+                    new.display(),
+                    listing.len()
+                );
             }
         }
     }
 
     #[test]
     fn identifier_matches_the_config() {
-        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(conf["identifier"], NEW_ID);
     }
 }

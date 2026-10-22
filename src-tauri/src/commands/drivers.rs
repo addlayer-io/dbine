@@ -57,21 +57,32 @@ pub async fn drivers_packages() -> CommandResult<DriverPackages> {
             min_app_needed: p.min_app_needed,
         })
         .collect();
-    Ok(DriverPackages { on_demand: true, packages })
+    Ok(DriverPackages {
+        on_demand: true,
+        packages,
+    })
 }
 
 #[cfg(not(feature = "plugins"))]
 #[tauri::command]
 pub async fn drivers_packages() -> CommandResult<DriverPackages> {
-    Ok(DriverPackages { on_demand: false, packages: Vec::new() })
+    Ok(DriverPackages {
+        on_demand: false,
+        packages: Vec::new(),
+    })
 }
 
 #[cfg(feature = "plugins")]
 fn known(package: &str) -> CommandResult<()> {
-    if dbine_drivers::plugins::packages().iter().any(|p| p.package == package) {
+    if dbine_drivers::plugins::packages()
+        .iter()
+        .any(|p| p.package == package)
+    {
         Ok(())
     } else {
-        Err(CommandError::BadRequest(format!("no hay un driver descargable '{package}'")))
+        Err(CommandError::BadRequest(format!(
+            "no hay un driver descargable '{package}'"
+        )))
     }
 }
 
@@ -86,7 +97,9 @@ pub async fn drivers_install(args: PackageArgs) -> CommandResult<()> {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn drivers_install(args: PackageArgs) -> CommandResult<()> {
     let _ = args;
-    Err(CommandError::BadRequest("esta versión trae todos los drivers incluidos".into()))
+    Err(CommandError::BadRequest(
+        "esta versión trae todos los drivers incluidos".into(),
+    ))
 }
 
 /// A running host keeps its file open on Windows: removing it fails until
@@ -95,15 +108,20 @@ pub async fn drivers_install(args: PackageArgs) -> CommandResult<()> {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn drivers_remove(args: PackageArgs) -> CommandResult<()> {
     known(&args.package)?;
-    dbine_drivers::plugins::remove(&args.package)
-        .map_err(|e| CommandError::Internal(format!("no se pudo borrar el driver (¿tiene conexiones abiertas?): {e}")))
+    dbine_drivers::plugins::remove(&args.package).map_err(|e| {
+        CommandError::Internal(format!(
+            "no se pudo borrar el driver (¿tiene conexiones abiertas?): {e}"
+        ))
+    })
 }
 
 #[cfg(not(feature = "plugins"))]
 #[tauri::command(rename_all = "camelCase")]
 pub async fn drivers_remove(args: PackageArgs) -> CommandResult<()> {
     let _ = args;
-    Err(CommandError::BadRequest("esta versión trae todos los drivers incluidos".into()))
+    Err(CommandError::BadRequest(
+        "esta versión trae todos los drivers incluidos".into(),
+    ))
 }
 
 /// "Buscar actualizaciones": fetch the drivers index now. Newer versions of
@@ -112,7 +130,9 @@ pub async fn drivers_remove(args: PackageArgs) -> CommandResult<()> {
 #[cfg(feature = "plugins")]
 #[tauri::command]
 pub async fn drivers_check_updates() -> CommandResult<()> {
-    dbine_drivers::plugins::check_updates().await.map_err(CommandError::Internal)
+    dbine_drivers::plugins::check_updates()
+        .await
+        .map_err(CommandError::Internal)
 }
 
 #[cfg(not(feature = "plugins"))]
@@ -134,7 +154,9 @@ pub async fn drivers_rollback(args: PackageArgs) -> CommandResult<()> {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn drivers_rollback(args: PackageArgs) -> CommandResult<()> {
     let _ = args;
-    Err(CommandError::BadRequest("esta versión trae todos los drivers incluidos".into()))
+    Err(CommandError::BadRequest(
+        "esta versión trae todos los drivers incluidos".into(),
+    ))
 }
 
 /// Start the drivers' update check and forward their changes to the UI.

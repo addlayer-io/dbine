@@ -18,11 +18,26 @@ pub struct Origin {
 }
 
 /// Record a run (never fails the query: a history error is only logged).
-pub fn record(state: &AppState, connection_id: &str, database: &str, sql: &str, started_at: String, out: &QueryOutcome, origin: Origin) {
-    let Ok(Some(conn)) = state.store.get_connection(connection_id) else { return };
+pub fn record(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    sql: &str,
+    started_at: String,
+    out: &QueryOutcome,
+    origin: Origin,
+) {
+    let Ok(Some(conn)) = state.store.get_connection(connection_id) else {
+        return;
+    };
     // A file is its project and its path: both or neither.
     let file = origin.project_id.zip(origin.file_path);
-    let rows = (!out.results.is_empty()).then(|| out.results.iter().map(|r| r.rows_affected.unwrap_or(r.total_rows)).sum());
+    let rows = (!out.results.is_empty()).then(|| {
+        out.results
+            .iter()
+            .map(|r| r.rows_affected.unwrap_or(r.total_rows))
+            .sum()
+    });
     let entry = HistoryEntry {
         id: 0,
         connection_id: connection_id.to_string(),
@@ -55,7 +70,11 @@ fn host_label(host: &str) -> String {
     if h.contains(['/', '\\']) && !h.starts_with("//") {
         let file = h.rsplit(['/', '\\']).find(|p| !p.is_empty()).unwrap_or(h);
         // A path (a file) or a URL's path after the host.
-        return if host.contains("://") { h.split('/').next().unwrap_or(h).to_string() } else { file.to_string() };
+        return if host.contains("://") {
+            h.split('/').next().unwrap_or(h).to_string()
+        } else {
+            file.to_string()
+        };
     }
     h.to_string()
 }
@@ -69,8 +88,15 @@ pub struct HistoryListArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn history_list(state: State<'_, AppState>, args: HistoryListArgs) -> CommandResult<Vec<HistoryEntry>> {
-    Ok(state.store.list_history(args.search.as_deref(), args.before, args.limit.unwrap_or(200).min(1000))?)
+pub async fn history_list(
+    state: State<'_, AppState>,
+    args: HistoryListArgs,
+) -> CommandResult<Vec<HistoryEntry>> {
+    Ok(state.store.list_history(
+        args.search.as_deref(),
+        args.before,
+        args.limit.unwrap_or(200).min(1000),
+    )?)
 }
 
 #[derive(Deserialize)]
@@ -84,9 +110,16 @@ pub struct HistoryOfArgs {
 /// The runs of one saved query or one project file, newest first (the
 /// tab's timeline).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn history_of(state: State<'_, AppState>, args: HistoryOfArgs) -> CommandResult<Vec<HistoryEntry>> {
+pub async fn history_of(
+    state: State<'_, AppState>,
+    args: HistoryOfArgs,
+) -> CommandResult<Vec<HistoryEntry>> {
     let file = args.project_id.as_deref().zip(args.file_path.as_deref());
-    Ok(state.store.list_history_of(args.query_id.as_deref(), file, args.limit.unwrap_or(200).min(1000))?)
+    Ok(state.store.list_history_of(
+        args.query_id.as_deref(),
+        file,
+        args.limit.unwrap_or(200).min(1000),
+    )?)
 }
 
 #[derive(Deserialize)]
@@ -96,7 +129,10 @@ pub struct HistoryDeleteArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn history_delete(state: State<'_, AppState>, args: HistoryDeleteArgs) -> CommandResult<()> {
+pub async fn history_delete(
+    state: State<'_, AppState>,
+    args: HistoryDeleteArgs,
+) -> CommandResult<()> {
     Ok(state.store.delete_history(args.ids.as_deref())?)
 }
 
@@ -107,12 +143,27 @@ mod tests {
         use super::host_label;
         assert_eq!(host_label("pg.interno"), "pg.interno");
         assert_eq!(host_label("sql01,1444"), "sql01,1444");
-        assert_eq!(host_label("https://u:p@es.interno:9200/idx"), "es.interno:9200");
-        assert_eq!(host_label("/Users/ana/datos/ventas.sqlite"), "ventas.sqlite");
+        assert_eq!(
+            host_label("https://u:p@es.interno:9200/idx"),
+            "es.interno:9200"
+        );
+        assert_eq!(
+            host_label("/Users/ana/datos/ventas.sqlite"),
+            "ventas.sqlite"
+        );
         assert_eq!(host_label("C:\\datos\\ventas.duckdb"), "ventas.duckdb");
-        assert_eq!(host_label("libsql://app-org.turso.io?authToken=eyJ.a.b"), "app-org.turso.io");
-        assert_eq!(host_label("libsql://app-org.turso.io/?authToken=x@y"), "app-org.turso.io");
-        assert_eq!(host_label("https://u:p@es.interno:9200?token=s#f"), "es.interno:9200");
+        assert_eq!(
+            host_label("libsql://app-org.turso.io?authToken=eyJ.a.b"),
+            "app-org.turso.io"
+        );
+        assert_eq!(
+            host_label("libsql://app-org.turso.io/?authToken=x@y"),
+            "app-org.turso.io"
+        );
+        assert_eq!(
+            host_label("https://u:p@es.interno:9200?token=s#f"),
+            "es.interno:9200"
+        );
         assert_eq!(host_label("/datos/x.sqlite?mode=ro"), "x.sqlite");
     }
 }

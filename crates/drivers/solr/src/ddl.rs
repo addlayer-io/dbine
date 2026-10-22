@@ -15,8 +15,8 @@
 //! a `string` column named `id` is left out of `add-field`.
 
 use dbine_driver::{
-    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, KeyDef, ObjectRef, Result, RowChange,
-    TableSchema,
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, KeyDef,
+    ObjectRef, Result, RowChange, TableSchema,
 };
 use dbine_driver_elasticsearch::json::{Obj, J};
 use serde_json::Value;
@@ -33,7 +33,12 @@ const FIELD_FLAGS: &[&str] = &["multiValued", "indexed", "stored", "docValues"];
 
 /// A yes / no option that can also be left to the field type's default.
 fn tri_field(key: &'static str, label: &'static str, help: &'static str) -> Field {
-    Field::new(key, label, FieldKind::Select(vec![("", "Por defecto"), ("true", "Sí"), ("false", "No")])).help(help)
+    Field::new(
+        key,
+        label,
+        FieldKind::Select(vec![("", "Por defecto"), ("true", "Sí"), ("false", "No")]),
+    )
+    .help(help)
 }
 
 pub fn designer() -> DesignerSpec {
@@ -95,7 +100,8 @@ pub fn templates() -> Vec<CreateTemplate> {
         CreateTemplate {
             kind: kinds::COLLECTION,
             label: "Nueva colección (script)",
-            template: r#"# PUT /solr/<nombre> crea un core (standalone) o una colección (SolrCloud).
+            template:
+                r#"# PUT /solr/<nombre> crea un core (standalone) o una colección (SolrCloud).
 PUT /solr/{name}
 { "configSet": "_default", "numShards": 1, "replicationFactor": 1 }
 
@@ -106,7 +112,7 @@ POST /solr/{name}/schema
     { "name": "year", "type": "pint" }
   ]
 }"#
-            .into(),
+                .into(),
         },
         CreateTemplate {
             kind: "field",
@@ -167,7 +173,8 @@ fn scalar(v: &str) -> J {
     match v {
         "true" => J::Bool(true),
         "false" => J::Bool(false),
-        _ => serde_json::from_str::<serde_json::Number>(v).map_or_else(|_| J::Str(v.to_string()), J::Num),
+        _ => serde_json::from_str::<serde_json::Number>(v)
+            .map_or_else(|_| J::Str(v.to_string()), J::Num),
     }
 }
 
@@ -175,7 +182,10 @@ pub(crate) fn check_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(Error::Query("Falta el nombre de la colección.".into()));
     }
-    let ok = name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')) && !name.starts_with('-');
+    let ok = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        && !name.starts_with('-');
     if !ok || name == "admin" {
         return Err(Error::Query(format!(
             "El nombre de colección «{name}» no es válido: usá letras, números, _, - y . (sin empezar con -)."
@@ -196,11 +206,18 @@ pub(crate) fn field_def(c: &ColumnDef) -> Result<Obj> {
     if ty.is_empty() {
         return Err(Error::Query(format!("Falta el tipo del campo «{name}».")));
     }
-    let mut f: Obj = vec![("name".into(), J::Str(name.to_string())), ("type".into(), J::Str(ty.to_string()))];
+    let mut f: Obj = vec![
+        ("name".into(), J::Str(name.to_string())),
+        ("type".into(), J::Str(ty.to_string())),
+    ];
     for key in FIELD_FLAGS {
         let v = match opt(&c.options, key) {
             Some(v @ ("true" | "false")) => Some(J::Bool(v == "true")),
-            Some(v) => return Err(Error::Query(format!("Campo {name}, {key}: «{v}» no es true ni false."))),
+            Some(v) => {
+                return Err(Error::Query(format!(
+                    "Campo {name}, {key}: «{v}» no es true ni false."
+                )))
+            }
             None if *key == "multiValued" => multi.clone(),
             None => None,
         };
@@ -211,7 +228,12 @@ pub(crate) fn field_def(c: &ColumnDef) -> Result<Obj> {
     if !c.nullable {
         f.push(("required".into(), J::Bool(true)));
     }
-    if let Some(d) = c.default_value.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+    if let Some(d) = c
+        .default_value
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+    {
         f.push(("default".into(), J::Str(d.trim_matches('\'').to_string())));
     }
     Ok(f)
@@ -222,7 +244,13 @@ pub(crate) fn field_def(c: &ColumnDef) -> Result<Obj> {
 pub fn collection_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     let name = t.name.trim();
     check_name(name)?;
-    let guard = |p: &str| if parts.if_exists { format!("?{p}=true") } else { String::new() };
+    let guard = |p: &str| {
+        if parts.if_exists {
+            format!("?{p}=true")
+        } else {
+            String::new()
+        }
+    };
     let mut out = Vec::new();
     if parts.drop {
         out.push(format!("DELETE /solr/{name}{}", guard("if_exists")));
@@ -259,13 +287,19 @@ pub fn collection_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
         if !add.is_empty() || !replace.is_empty() {
             let mut s = String::new();
             if !skipped.is_empty() {
-                s.push_str(&format!("# Ya definidos por el configset: {}.\n", skipped.join(", ")));
+                s.push_str(&format!(
+                    "# Ya definidos por el configset: {}.\n",
+                    skipped.join(", ")
+                ));
             }
             s.push_str(&format!("POST /solr/{name}/schema\n{{\n"));
             let mut cmds = Vec::new();
             for (cmd, list) in [("replace-field", replace), ("add-field", add)] {
                 if !list.is_empty() {
-                    let items: Vec<String> = list.iter().map(|f| format!("    {}", f.compact())).collect();
+                    let items: Vec<String> = list
+                        .iter()
+                        .map(|f| format!("    {}", f.compact()))
+                        .collect();
                     cmds.push(format!("  \"{cmd}\": [\n{}\n  ]", items.join(",\n")));
                 }
             }
@@ -281,7 +315,11 @@ pub fn collection_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
 /// a commit so they're searchable right away. Nulls, `_version_` (it would
 /// turn the add into an optimistic-concurrency check) and `score` are
 /// dropped; lists shown as JSON text are lists again.
-pub fn update_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+pub fn update_script(
+    target: &ObjectRef,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> Result<String> {
     let name = target.name.trim();
     if name.is_empty() {
         return Err(Error::Query("Falta la colección de destino.".into()));
@@ -294,13 +332,18 @@ pub fn update_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]
                 let doc: Obj = columns
                     .iter()
                     .zip(row)
-                    .filter(|(c, v)| !v.is_null() && c.as_str() != "_version_" && c.as_str() != "score")
+                    .filter(|(c, v)| {
+                        !v.is_null() && c.as_str() != "_version_" && c.as_str() != "score"
+                    })
                     .map(|(c, v)| (c.clone(), J::from_cell(v)))
                     .collect();
                 J::Obj(doc).compact()
             })
             .collect();
-        reqs.push(format!("POST /solr/{name}/update?commit=true\n[\n{}\n]", docs.join(",\n")));
+        reqs.push(format!(
+            "POST /solr/{name}/update?commit=true\n[\n{}\n]",
+            docs.join(",\n")
+        ));
     }
     Ok(reqs.join("\n\n"))
 }
@@ -321,7 +364,11 @@ pub fn atomic_update_script(target: &ObjectRef, changes: &[RowChange]) -> Result
             ));
         };
         let mut doc: Obj = vec![(k.clone(), J::from_cell(v))];
-        for (c, v) in ch.set.iter().filter(|(c, _)| c != k && c != "_version_" && c != "score") {
+        for (c, v) in ch
+            .set
+            .iter()
+            .filter(|(c, _)| c != k && c != "_version_" && c != "score")
+        {
             doc.push((c.clone(), J::Obj(vec![("set".into(), J::from_cell(v))])));
         }
         if doc.len() > 1 {
@@ -331,7 +378,10 @@ pub fn atomic_update_script(target: &ObjectRef, changes: &[RowChange]) -> Result
     if docs.is_empty() {
         return Ok(String::new());
     }
-    Ok(format!("POST /solr/{name}/update?commit=true\n[\n{}\n]", docs.join(",\n")))
+    Ok(format!(
+        "POST /solr/{name}/update?commit=true\n[\n{}\n]",
+        docs.join(",\n")
+    ))
 }
 
 /// Documents as one `update` request `{"delete": [ids…]}` with a commit.
@@ -359,7 +409,10 @@ pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Resul
     if ids.is_empty() {
         return Ok(String::new());
     }
-    Ok(format!("POST /solr/{name}/update?commit=true\n{}", J::Obj(vec![("delete".into(), J::Arr(ids))]).compact()))
+    Ok(format!(
+        "POST /solr/{name}/update?commit=true\n{}",
+        J::Obj(vec![("delete".into(), J::Arr(ids))]).compact()
+    ))
 }
 
 fn internal(n: &str) -> bool {
@@ -369,12 +422,21 @@ fn internal(n: &str) -> bool {
 /// A collection as the designer's model, from `schema/fields` (explicit
 /// properties only: `showDefaults=false`), the uniqueKey and, on SolrCloud,
 /// its `CLUSTERSTATUS` entry.
-pub fn collection_schema(name: &str, fields: &J, unique_key: Option<&str>, cluster: Option<&J>) -> TableSchema {
+pub fn collection_schema(
+    name: &str,
+    fields: &J,
+    unique_key: Option<&str>,
+    cluster: Option<&J>,
+) -> TableSchema {
     let mut columns = Vec::new();
     for f in fields.get("fields").and_then(J::as_arr).unwrap_or(&[]) {
-        let Some(n) = f.get("name").and_then(J::as_str).filter(|n| !internal(n)) else { continue };
-        let options: BTreeMap<String, String> =
-            FIELD_FLAGS.iter().filter_map(|k| f.get(k).map(|v| (k.to_string(), v.text()))).collect();
+        let Some(n) = f.get("name").and_then(J::as_str).filter(|n| !internal(n)) else {
+            continue;
+        };
+        let options: BTreeMap<String, String> = FIELD_FLAGS
+            .iter()
+            .filter_map(|k| f.get(k).map(|v| (k.to_string(), v.text())))
+            .collect();
         columns.push(ColumnDef {
             name: n.to_string(),
             data_type: f.get("type").map(J::text).unwrap_or_default(),
@@ -386,7 +448,11 @@ pub fn collection_schema(name: &str, fields: &J, unique_key: Option<&str>, clust
     }
     let mut options = BTreeMap::new();
     if let Some(c) = cluster {
-        if let Some(cfg) = c.get("configName").map(J::text).filter(|c| !c.ends_with(".AUTOCREATED")) {
+        if let Some(cfg) = c
+            .get("configName")
+            .map(J::text)
+            .filter(|c| !c.ends_with(".AUTOCREATED"))
+        {
             options.insert("configSet".into(), cfg);
         }
         if let Some(n) = c.get("shards").and_then(J::as_obj).map(Vec::len) {
@@ -400,7 +466,10 @@ pub fn collection_schema(name: &str, fields: &J, unique_key: Option<&str>, clust
         kind: kinds::COLLECTION.into(),
         schema: None,
         name: name.to_string(),
-        primary_key: unique_key.map(|k| KeyDef { name: None, columns: vec![k.to_string()] }),
+        primary_key: unique_key.map(|k| KeyDef {
+            name: None,
+            columns: vec![k.to_string()],
+        }),
         columns,
         options,
         ..Default::default()
@@ -437,13 +506,31 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     let mut fqs = Vec::new();
     for f in filters {
         let c = term(&f.column);
-        let first = || f.values.first().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)));
-        let text = || first().map(|v| term(&v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())));
+        let first = || {
+            f.values.first().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })
+        };
+        let text = || {
+            first().map(|v| {
+                term(
+                    &v.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| v.to_string()),
+                )
+            })
+        };
         let list = || {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{}» necesita al menos un valor", f.column)));
+                return Err(Error::Query(format!(
+                    "el filtro de «{}» necesita al menos un valor",
+                    f.column
+                )));
             }
-            Ok(format!("{c}:({})", f.values.iter().map(value).collect::<Vec<_>>().join(" OR ")))
+            Ok(format!(
+                "{c}:({})",
+                f.values.iter().map(value).collect::<Vec<_>>().join(" OR ")
+            ))
         };
         let missing = format!("(*:* -{c}:[* TO *])");
         fqs.push(match f.op {
@@ -468,11 +555,16 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
             FilterOp::TrueOrNull => format!("({c}:true OR {missing})"),
             FilterOp::FalseOrNull => format!("({c}:false OR {missing})"),
             FilterOp::Sql | FilterOp::SqlRight => {
-                return Err(Error::Unsupported("la búsqueda de Solr no toma condiciones SQL: se filtran en la grilla".into()))
+                return Err(Error::Unsupported(
+                    "la búsqueda de Solr no toma condiciones SQL: se filtran en la grilla".into(),
+                ))
             }
         });
     }
-    let params: Vec<String> = fqs.iter().map(|q| format!("fq={}", url_encode(q))).collect();
+    let params: Vec<String> = fqs
+        .iter()
+        .map(|q| format!("fq={}", url_encode(q)))
+        .collect();
     Ok(add_params(browse, &params))
 }
 
@@ -490,7 +582,9 @@ fn url_encode(s: &str) -> String {
 
 /// `params` appended to the request line (the first one) of `browse`.
 fn add_params(browse: &str, params: &[String]) -> String {
-    let (line, rest) = browse.split_once('\n').map_or((browse, None), |(l, r)| (l, Some(r)));
+    let (line, rest) = browse
+        .split_once('\n')
+        .map_or((browse, None), |(l, r)| (l, Some(r)));
     let sep = if line.contains('?') { '&' } else { '?' };
     let line = format!("{}{sep}{}", line.trim_end(), params.join("&"));
     match rest {
@@ -509,8 +603,11 @@ pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<Str
         return Ok(browse.to_string());
     }
     let plain = |c: &str| {
-        c.chars().next().is_some_and(|f| f.is_ascii_alphabetic() || f == '_')
-            && c.chars().all(|x| x.is_ascii_alphanumeric() || matches!(x, '_' | '.' | '-'))
+        c.chars()
+            .next()
+            .is_some_and(|f| f.is_ascii_alphabetic() || f == '_')
+            && c.chars()
+                .all(|x| x.is_ascii_alphanumeric() || matches!(x, '_' | '.' | '-'))
     };
     let mut seen = std::collections::HashSet::new();
     let mut keys = Vec::new();
@@ -525,7 +622,10 @@ pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<Str
             keys.push(format!("{c} {}", if k.descending { "desc" } else { "asc" }));
         }
     }
-    Ok(add_params(browse, &[format!("sort={}", url_encode(&keys.join(",")))]))
+    Ok(add_params(
+        browse,
+        &[format!("sort={}", url_encode(&keys.join(",")))],
+    ))
 }
 
 #[cfg(test)]
@@ -537,7 +637,12 @@ mod tests {
     #[test]
     fn filtered_browse_adds_filter_queries() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let got = filtered_browse(
             "GET /solr/books/select?q=*:*&rows=200",
             &[
@@ -555,7 +660,15 @@ mod tests {
         );
         assert!(matches!(console::parse(&got).unwrap()[0], Command::Http(_)));
         assert!(matches!(
-            filtered_browse("GET /solr/c/select?q=*:*", &[ColumnFilter { column: "a".into(), op: FilterOp::SqlRight, values: vec![], sql: Some("1".into()) }]),
+            filtered_browse(
+                "GET /solr/c/select?q=*:*",
+                &[ColumnFilter {
+                    column: "a".into(),
+                    op: FilterOp::SqlRight,
+                    values: vec![],
+                    sql: Some("1".into())
+                }]
+            ),
             Err(Error::Unsupported(_))
         ));
     }
@@ -563,15 +676,49 @@ mod tests {
     #[test]
     fn sorted_browse_adds_a_sort_param() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let b = "GET /solr/books/select?q=*:*&rows=200";
-        assert_eq!(sorted_browse(b, &[k("price", true)]).unwrap(), "GET /solr/books/select?q=*:*&rows=200&sort=price%20desc");
-        let f = filtered_browse(b, &[ColumnFilter { column: "cat".into(), op: FilterOp::Eq, values: vec![json!("x")], sql: None }]).unwrap();
-        let got = sorted_browse(&f, &[k("price", false), k("a.b-c_d", true), k("price", true)]).unwrap();
+        assert_eq!(
+            sorted_browse(b, &[k("price", true)]).unwrap(),
+            "GET /solr/books/select?q=*:*&rows=200&sort=price%20desc"
+        );
+        let f = filtered_browse(
+            b,
+            &[ColumnFilter {
+                column: "cat".into(),
+                op: FilterOp::Eq,
+                values: vec![json!("x")],
+                sql: None,
+            }],
+        )
+        .unwrap();
+        let got = sorted_browse(
+            &f,
+            &[k("price", false), k("a.b-c_d", true), k("price", true)],
+        )
+        .unwrap();
         assert_eq!(got, "GET /solr/books/select?q=*:*&rows=200&fq=cat:%22x%22&sort=price%20asc%2Ca.b-c_d%20desc");
         assert!(matches!(console::parse(&got).unwrap()[0], Command::Http(_)));
-        for bad in ["a b", "a,b", "x\"", "price desc,id", "1a", "-a", "field(a)", ""] {
-            assert!(matches!(sorted_browse(b, &[k(bad, false)]), Err(Error::Unsupported(_))), "{bad}");
+        for bad in [
+            "a b",
+            "a,b",
+            "x\"",
+            "price desc,id",
+            "1a",
+            "-a",
+            "field(a)",
+            "",
+        ] {
+            assert!(
+                matches!(
+                    sorted_browse(b, &[k(bad, false)]),
+                    Err(Error::Unsupported(_))
+                ),
+                "{bad}"
+            );
         }
         assert_eq!(sorted_browse(b, &[]).unwrap(), b);
     }
@@ -581,7 +728,10 @@ mod tests {
             name: name.into(),
             data_type: ty.into(),
             nullable: true,
-            options: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            options: opts
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             ..Default::default()
         }
     }
@@ -607,7 +757,11 @@ mod tests {
             columns: vec![
                 col("id", "string", &[]),
                 col("_version_", "plong", &[]),
-                col("title", "text_general", &[("stored", "true"), ("indexed", "")]),
+                col(
+                    "title",
+                    "text_general",
+                    &[("stored", "true"), ("indexed", "")],
+                ),
                 year,
                 col("tags", "string[]", &[]),
             ],
@@ -621,11 +775,26 @@ mod tests {
 
     #[test]
     fn ddl_parses() {
-        let text = collection_ddl(&books(), DdlParts { drop: true, if_exists: true, create: true, ..Default::default() }).unwrap();
+        let text = collection_ddl(
+            &books(),
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let r = reqs(&text);
         assert_eq!(r.len(), 3, "{text}");
-        assert_eq!((r[0].method.as_str(), r[0].path.as_str()), ("DELETE", "/solr/books?if_exists=true"));
-        assert_eq!((r[1].method.as_str(), r[1].path.as_str()), ("PUT", "/solr/books?if_not_exists=true"));
+        assert_eq!(
+            (r[0].method.as_str(), r[0].path.as_str()),
+            ("DELETE", "/solr/books?if_exists=true")
+        );
+        assert_eq!(
+            (r[1].method.as_str(), r[1].path.as_str()),
+            ("PUT", "/solr/books?if_not_exists=true")
+        );
         let p: serde_json::Value = serde_json::from_str(r[1].body.as_deref().unwrap()).unwrap();
         assert_eq!(p, json!({"configSet": "_default", "numShards": 2}));
         assert_eq!(r[2].path, "/solr/books/schema");
@@ -643,18 +812,52 @@ mod tests {
 
         let mut t = books();
         t.columns[0].data_type = "plong".into();
-        let text = collection_ddl(&t, DdlParts { create: true, ..Default::default() }).unwrap();
+        let text = collection_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let r = reqs(&text);
         assert_eq!(r[0].path, "/solr/books");
         let b: serde_json::Value = serde_json::from_str(r[1].body.as_deref().unwrap()).unwrap();
         assert_eq!(b["replace-field"], json!([{"name": "id", "type": "plong"}]));
 
-        let bare = TableSchema { name: "b".into(), ..Default::default() };
-        assert_eq!(collection_ddl(&bare, DdlParts { create: true, ..Default::default() }).unwrap(), "PUT /solr/b");
-        assert!(collection_ddl(&TableSchema { name: "a b".into(), ..Default::default() }, DdlParts::default()).is_err());
+        let bare = TableSchema {
+            name: "b".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            collection_ddl(
+                &bare,
+                DdlParts {
+                    create: true,
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            "PUT /solr/b"
+        );
+        assert!(collection_ddl(
+            &TableSchema {
+                name: "a b".into(),
+                ..Default::default()
+            },
+            DdlParts::default()
+        )
+        .is_err());
         let mut t = books();
         t.columns[2].data_type = String::new();
-        assert!(collection_ddl(&t, DdlParts { create: true, ..Default::default() }).is_err());
+        assert!(collection_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            }
+        )
+        .is_err());
     }
 
     #[test]
@@ -670,40 +873,86 @@ mod tests {
         let names: Vec<_> = t.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["id", "title", "tags"]);
         assert!(!t.columns[0].nullable);
-        assert_eq!(t.columns[2].options.get("multiValued").map(String::as_str), Some("true"));
+        assert_eq!(
+            t.columns[2].options.get("multiValued").map(String::as_str),
+            Some("true")
+        );
         assert_eq!(t.columns[2].default_value.as_deref(), Some("x"));
         assert_eq!(t.options.get("numShards").map(String::as_str), Some("2"));
         assert!(!t.options.contains_key("configSet"));
-        let text = collection_ddl(&t, DdlParts { create: true, ..Default::default() }).unwrap();
-        let b: serde_json::Value = serde_json::from_str(reqs(&text)[1].body.as_deref().unwrap()).unwrap();
-        assert_eq!(b["add-field"][1], json!({"name": "tags", "type": "strings", "multiValued": true, "default": "x"}));
+        let text = collection_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let b: serde_json::Value =
+            serde_json::from_str(reqs(&text)[1].body.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            b["add-field"][1],
+            json!({"name": "tags", "type": "strings", "multiValued": true, "default": "x"})
+        );
     }
 
     #[test]
     fn update_script_parses() {
-        let target = ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: "books".into() };
-        let cols: Vec<String> = ["id", "title", "tags", "_version_", "score"].iter().map(|s| s.to_string()).collect();
-        let rows: Vec<Vec<Value>> =
-            (0..501).map(|i| vec![json!(i.to_string()), json!("a\nb"), json!(r#"["x","y"]"#), json!(1), Value::Null]).collect();
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: None,
+            name: "books".into(),
+        };
+        let cols: Vec<String> = ["id", "title", "tags", "_version_", "score"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let rows: Vec<Vec<Value>> = (0..501)
+            .map(|i| {
+                vec![
+                    json!(i.to_string()),
+                    json!("a\nb"),
+                    json!(r#"["x","y"]"#),
+                    json!(1),
+                    Value::Null,
+                ]
+            })
+            .collect();
         let text = update_script(&target, &cols, &rows).unwrap();
         let r = reqs(&text);
         assert_eq!(r.len(), 2);
         assert_eq!(r[0].path, "/solr/books/update?commit=true");
         let docs: serde_json::Value = serde_json::from_str(r[0].body.as_deref().unwrap()).unwrap();
         assert_eq!(docs.as_array().unwrap().len(), 500);
-        assert_eq!(docs[0], json!({"id": "0", "title": "a\nb", "tags": ["x", "y"]}));
+        assert_eq!(
+            docs[0],
+            json!({"id": "0", "title": "a\nb", "tags": ["x", "y"]})
+        );
         assert_eq!(update_script(&target, &cols, &[]).unwrap(), "");
     }
 
     #[test]
     fn atomic_update_script_sets_fields() {
-        let target = ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: "books".into() };
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: None,
+            name: "books".into(),
+        };
         let changes = vec![
             RowChange {
                 key: vec![("id".into(), json!("1"))],
-                set: vec![("title".into(), json!("O'Brien \"Bob\"")), ("year".into(), Value::Null), ("tags".into(), json!(r#"["x"]"#))], ..Default::default()
+                set: vec![
+                    ("title".into(), json!("O'Brien \"Bob\"")),
+                    ("year".into(), Value::Null),
+                    ("tags".into(), json!(r#"["x"]"#)),
+                ],
+                ..Default::default()
             },
-            RowChange { key: vec![("id".into(), json!("2"))], set: vec![], ..Default::default() },
+            RowChange {
+                key: vec![("id".into(), json!("2"))],
+                set: vec![],
+                ..Default::default()
+            },
         ];
         let text = atomic_update_script(&target, &changes).unwrap();
         assert_eq!(
@@ -713,22 +962,40 @@ mod tests {
         let r = reqs(&text);
         assert_eq!(r.len(), 1);
         serde_json::from_str::<serde_json::Value>(r[0].body.as_deref().unwrap()).unwrap();
-        let keyless = vec![RowChange { key: vec![("a".into(), json!(1)), ("b".into(), json!(2))], set: vec![("a".into(), json!(3))], ..Default::default() }];
+        let keyless = vec![RowChange {
+            key: vec![("a".into(), json!(1)), ("b".into(), json!(2))],
+            set: vec![("a".into(), json!(3))],
+            ..Default::default()
+        }];
         assert!(atomic_update_script(&target, &keyless).is_err());
     }
 
     #[test]
     fn delete_script_by_unique_key() {
-        let target = ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: "books".into() };
-        let keys = vec![vec![("id".into(), json!("O'Brien \"Bob\""))], vec![("id".into(), json!(7))]];
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: None,
+            name: "books".into(),
+        };
+        let keys = vec![
+            vec![("id".into(), json!("O'Brien \"Bob\""))],
+            vec![("id".into(), json!(7))],
+        ];
         let text = delete_script(&target, &keys).unwrap();
-        assert_eq!(text, "POST /solr/books/update?commit=true\n{\"delete\":[\"O'Brien \\\"Bob\\\"\",\"7\"]}");
+        assert_eq!(
+            text,
+            "POST /solr/books/update?commit=true\n{\"delete\":[\"O'Brien \\\"Bob\\\"\",\"7\"]}"
+        );
         let r = reqs(&text);
         assert_eq!(r.len(), 1);
         let b: serde_json::Value = serde_json::from_str(r[0].body.as_deref().unwrap()).unwrap();
         assert_eq!(b, json!({"delete": ["O'Brien \"Bob\"", "7"]}));
         assert_eq!(delete_script(&target, &[]).unwrap(), "");
-        assert!(delete_script(&target, &[vec![("a".into(), json!(1)), ("b".into(), json!(2))]]).is_err());
+        assert!(delete_script(
+            &target,
+            &[vec![("a".into(), json!(1)), ("b".into(), json!(2))]]
+        )
+        .is_err());
         assert!(delete_script(&target, &[vec![]]).is_err());
         assert!(delete_script(&target, &[vec![("id".into(), Value::Null)]]).is_err());
     }
@@ -739,7 +1006,8 @@ mod tests {
             let text = t.template.replace("{name}", "x");
             for r in reqs(&text) {
                 if let Some(b) = &r.body {
-                    serde_json::from_str::<serde_json::Value>(b).unwrap_or_else(|e| panic!("{}: {e}", t.label));
+                    serde_json::from_str::<serde_json::Value>(b)
+                        .unwrap_or_else(|e| panic!("{}: {e}", t.label));
                 }
             }
         }

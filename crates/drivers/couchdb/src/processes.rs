@@ -19,7 +19,10 @@ use serde_json::{json, Value};
 const MAX_ROWS: usize = 2000;
 
 fn s<'a>(t: &'a Value, k: &str) -> Option<&'a str> {
-    t.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
+    t.get(k)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
 }
 
 fn n(t: &Value, k: &str) -> Option<u64> {
@@ -28,7 +31,11 @@ fn n(t: &Value, k: &str) -> Option<u64> {
 
 /// A replication id: "<hex>" plus "+continuous" / "+create_target".
 pub(crate) fn valid_replication_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 128 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '_'))
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '_'))
 }
 
 fn is_replication(t: &Value) -> bool {
@@ -52,9 +59,15 @@ pub(crate) fn rows(tasks: &Value, now_s: u64) -> Vec<ServerProcess> {
             let repl = is_replication(t);
             let kind = s(t, "type").unwrap_or("").to_string();
             let what = if repl {
-                Some(format!("{} → {}", s(t, "source").unwrap_or("?"), s(t, "target").unwrap_or("?")))
+                Some(format!(
+                    "{} → {}",
+                    s(t, "source").unwrap_or("?"),
+                    s(t, "target").unwrap_or("?")
+                ))
             } else {
-                let mut d = s(t, "design_document").map(|d| d.to_string()).unwrap_or_default();
+                let mut d = s(t, "design_document")
+                    .map(|d| d.to_string())
+                    .unwrap_or_default();
                 if let Some(p) = n(t, "progress") {
                     d = format!("{d} ({p} %)").trim().to_string();
                 }
@@ -62,12 +75,21 @@ pub(crate) fn rows(tasks: &Value, now_s: u64) -> Vec<ServerProcess> {
             };
             Some(ServerProcess {
                 id,
-                status: Some(if repl && t.get("continuous").and_then(Value::as_bool) == Some(true) { "continua" } else { "en curso" }.into()),
+                status: Some(
+                    if repl && t.get("continuous").and_then(Value::as_bool) == Some(true) {
+                        "continua"
+                    } else {
+                        "en curso"
+                    }
+                    .into(),
+                ),
                 active: true,
                 system: !repl,
                 user: s(t, "user").map(str::to_string),
                 host: s(t, "node").map(str::to_string),
-                database: s(t, "database").or_else(|| s(t, "source")).map(str::to_string),
+                database: s(t, "database")
+                    .or_else(|| s(t, "source"))
+                    .map(str::to_string),
                 command: Some(kind).filter(|k| !k.is_empty()),
                 elapsed_ms: n(t, "started_on").map(|st| now_s.saturating_sub(st) * 1000),
                 reads: n(t, "docs_read").or_else(|| n(t, "changes_done")),
@@ -83,19 +105,25 @@ pub(crate) fn rows(tasks: &Value, now_s: u64) -> Vec<ServerProcess> {
 impl CouchSession {
     pub(crate) async fn processes(&self) -> Result<Vec<ServerProcess>> {
         let tasks = self.call(Method::GET, "/_active_tasks", None).await?;
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         Ok(rows(&tasks, now))
     }
 
     pub(crate) async fn cancel_task(&self, id: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden detener replicaciones.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden detener replicaciones.".into(),
+            ));
         }
         let id = id.trim();
         let tasks = self.call(Method::GET, "/_active_tasks", None).await?;
         let list = tasks.as_array().map(Vec::as_slice).unwrap_or(&[]);
         let Some(t) = list.iter().find(|t| task_id(t).as_deref() == Some(id)) else {
-            return Err(Error::Query(format!("la tarea «{id}» ya terminó o no existe")));
+            return Err(Error::Query(format!(
+                "la tarea «{id}» ya terminó o no existe"
+            )));
         };
         if !is_replication(t) {
             return Err(Error::Query(format!(
@@ -112,7 +140,12 @@ impl CouchSession {
         if !valid_replication_id(id) {
             return Err(Error::Query(format!("«{id}» no es un id de replicación")));
         }
-        self.call(Method::POST, "/_replicate", Some(&json!({ "replication_id": id, "cancel": true }))).await?;
+        self.call(
+            Method::POST,
+            "/_replicate",
+            Some(&json!({ "replication_id": id, "cancel": true })),
+        )
+        .await?;
         Ok(())
     }
 }
@@ -133,10 +166,22 @@ mod tests {
         let r = rows(&t, 200);
         assert_eq!(r.len(), 2);
         assert_eq!(r[0].id, "a81a78e8+continuous+create_target");
-        assert_eq!((r[0].system, r[0].elapsed_ms, r[0].writes, r[0].status.as_deref()), (false, Some(100_000), Some(7), Some("continua")));
+        assert_eq!(
+            (
+                r[0].system,
+                r[0].elapsed_ms,
+                r[0].writes,
+                r[0].status.as_deref()
+            ),
+            (false, Some(100_000), Some(7), Some("continua"))
+        );
         assert!(r[0].sql.as_deref().unwrap().contains(" → "));
         assert_eq!((r[1].id.as_str(), r[1].system), ("<0.2.0>", true));
         assert_eq!(r[1].sql.as_deref(), Some("_design/v (45 %)"));
-        assert!(valid_replication_id("a81a78e8+continuous") && !valid_replication_id("a b") && !valid_replication_id(""));
+        assert!(
+            valid_replication_id("a81a78e8+continuous")
+                && !valid_replication_id("a b")
+                && !valid_replication_id("")
+        );
     }
 }

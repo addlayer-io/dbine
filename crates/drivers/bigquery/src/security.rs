@@ -14,7 +14,9 @@
 
 use crate::ddl::{ident, lit};
 use crate::BigQuerySession;
-use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use serde_json::{json, Value as Json};
 
 pub fn spec() -> SecuritySpec {
@@ -66,7 +68,11 @@ fn iam_role(role: &str) -> String {
 fn access_member(e: &Json) -> Option<String> {
     let s = |k: &str| e.get(k).and_then(Json::as_str);
     if let Some(u) = s("userByEmail") {
-        let kind = if u.ends_with(".gserviceaccount.com") { "serviceAccount" } else { "user" };
+        let kind = if u.ends_with(".gserviceaccount.com") {
+            "serviceAccount"
+        } else {
+            "user"
+        };
         return Some(format!("{kind}:{u}"));
     }
     if let Some(g) = s("groupByEmail") {
@@ -99,32 +105,63 @@ fn dataset_bindings(dataset: &str, ds: &Json) -> Vec<Binding> {
 
 fn policy_bindings(object: &str, kind: &'static str, policy: &Json) -> Vec<Binding> {
     let mut out = Vec::new();
-    for b in policy.get("bindings").and_then(Json::as_array).into_iter().flatten() {
-        let Some(role) = b.get("role").and_then(Json::as_str) else { continue };
-        for m in b.get("members").and_then(Json::as_array).into_iter().flatten().filter_map(Json::as_str) {
-            out.push(Binding { member: m.to_string(), role: role.to_string(), object: object.to_string(), kind });
+    for b in policy
+        .get("bindings")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(role) = b.get("role").and_then(Json::as_str) else {
+            continue;
+        };
+        for m in b
+            .get("members")
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Json::as_str)
+        {
+            out.push(Binding {
+                member: m.to_string(),
+                role: role.to_string(),
+                object: object.to_string(),
+                kind,
+            });
         }
     }
     out
 }
 
 async fn bindings(s: &BigQuerySession) -> Result<Vec<Binding>> {
-    let dataset = s
-        .dataset
-        .clone()
-        .ok_or_else(|| Error::Query("elegí un dataset: en BigQuery los permisos se ven por dataset".into()))?;
+    let dataset = s.dataset.clone().ok_or_else(|| {
+        Error::Query("elegí un dataset: en BigQuery los permisos se ven por dataset".into())
+    })?;
     let ds = s.api.get(&["datasets", &dataset], &[]).await?;
     let mut out = dataset_bindings(&dataset, &ds);
-    let tables = s.api.list_all(&["datasets", &dataset, "tables"], "tables").await.unwrap_or_default();
+    let tables = s
+        .api
+        .list_all(&["datasets", &dataset, "tables"], "tables")
+        .await
+        .unwrap_or_default();
     for t in tables.iter().take(MAX_TABLES) {
-        let Some(name) = t.pointer("/tableReference/tableId").and_then(Json::as_str) else { continue };
+        let Some(name) = t.pointer("/tableReference/tableId").and_then(Json::as_str) else {
+            continue;
+        };
         let kind = match t.get("type").and_then(Json::as_str) {
             Some("VIEW") => kinds::VIEW,
             Some("MATERIALIZED_VIEW") => kinds::MATERIALIZED_VIEW,
             _ => kinds::TABLE,
         };
         let resource = format!("{name}:getIamPolicy");
-        match s.api.post(&["datasets", &dataset, "tables", &resource], &[], &json!({})).await {
+        match s
+            .api
+            .post(
+                &["datasets", &dataset, "tables", &resource],
+                &[],
+                &json!({}),
+            )
+            .await
+        {
             Ok(p) => out.extend(policy_bindings(&format!("{dataset}.{name}"), kind, &p)),
             // Emulators and restricted accounts: the dataset's list is still there.
             Err(e) => tracing::debug!("bigquery: IAM policy of {dataset}.{name} unavailable: {e}"),
@@ -179,7 +216,9 @@ fn grants_of(b: &[Binding], member: &str) -> Vec<Grant> {
             ..Default::default()
         })
         .collect();
-    out.sort_by(|a, b| (&a.object_kind, &a.object, &a.privilege).cmp(&(&b.object_kind, &b.object, &b.privilege)));
+    out.sort_by(|a, b| {
+        (&a.object_kind, &a.object, &a.privilege).cmp(&(&b.object_kind, &b.object, &b.privilege))
+    });
     out.dedup();
     out
 }
@@ -203,10 +242,18 @@ fn roles(p: &[String]) -> Result<String> {
     let mut out = Vec::new();
     for x in p {
         let x = x.trim().trim_matches('`');
-        if x.is_empty() || !x.chars().all(|c| c.is_ascii_alphanumeric() || "._/-".contains(c)) {
+        if x.is_empty()
+            || !x
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._/-".contains(c))
+        {
             return Err(Error::Query(format!("«{x}» no es un rol de IAM")));
         }
-        let id = if x.contains('/') { x.to_string() } else { format!("roles/bigquery.{x}") };
+        let id = if x.contains('/') {
+            x.to_string()
+        } else {
+            format!("roles/bigquery.{x}")
+        };
         out.push(format!("`{id}`"));
     }
     Ok(out.join(", "))
@@ -217,7 +264,11 @@ fn target(object: &Option<ObjectRef>) -> Result<String> {
     let o = object
         .as_ref()
         .filter(|o| !o.name.trim().is_empty())
-        .ok_or_else(|| Error::Query("en BigQuery los roles se otorgan sobre un dataset, una tabla o una vista".into()))?;
+        .ok_or_else(|| {
+            Error::Query(
+                "en BigQuery los roles se otorgan sobre un dataset, una tabla o una vista".into(),
+            )
+        })?;
     let name = match o.schema() {
         Some(ds) => format!("{}.{}", ident(ds), ident(&o.name)),
         None => ident(&o.name),
@@ -264,7 +315,11 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        })
     }
 
     #[test]
@@ -275,22 +330,46 @@ mod tests {
             "GRANT `roles/bigquery.dataViewer`, `roles/bigquery.dataEditor` ON SCHEMA `ven\\`tas` TO 'user:ana@x.com';"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["projects/p-1/roles/lector_x".into()], object: obj("table", Some("ventas"), "f"), to: "group:o'k@x.com".into(), grantable: false }),
+            s(SecurityAction::Grant {
+                privileges: vec!["projects/p-1/roles/lector_x".into()],
+                object: obj("table", Some("ventas"), "f"),
+                to: "group:o'k@x.com".into(),
+                grantable: false
+            }),
             "GRANT `projects/p-1/roles/lector_x` ON TABLE `ventas`.`f` TO 'group:o\\'k@x.com';"
         );
         assert_eq!(
             s(SecurityAction::Revoke { privileges: vec!["roles/bigquery.dataViewer".into()], object: obj("view", None, "v"), from: "specialGroup:allAuthenticatedUsers".into() }),
             "REVOKE `roles/bigquery.dataViewer` ON VIEW `v` FROM 'specialGroup:allAuthenticatedUsers';"
         );
-        let bad = |p: &str, o: Option<ObjectRef>, to: &str, grantable| script(&SecurityAction::Grant { privileges: vec![p.into()], object: o, to: to.into(), grantable });
-        assert!(bad("roles/x` ON x; --", obj("table", None, "t"), "user:a@b", false).is_err());
+        let bad = |p: &str, o: Option<ObjectRef>, to: &str, grantable| {
+            script(&SecurityAction::Grant {
+                privileges: vec![p.into()],
+                object: o,
+                to: to.into(),
+                grantable,
+            })
+        };
+        assert!(bad(
+            "roles/x` ON x; --",
+            obj("table", None, "t"),
+            "user:a@b",
+            false
+        )
+        .is_err());
         assert!(bad("dataViewer", None, "user:a@b", false).is_err());
         assert!(bad("dataViewer", obj("table", None, "t"), "ana@b.com", false).is_err());
         assert!(bad("dataViewer", obj("table", None, "t"), "user:a@b", true).is_err());
         for a in [
-            SecurityAction::CreateUser { name: "a".into(), password: None },
+            SecurityAction::CreateUser {
+                name: "a".into(),
+                password: None,
+            },
             SecurityAction::CreateRole { name: "a".into() },
-            SecurityAction::AddMember { role: "a".into(), member: "b".into() },
+            SecurityAction::AddMember {
+                role: "a".into(),
+                member: "b".into(),
+            },
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
@@ -311,13 +390,36 @@ mod tests {
         ]})));
         let p = principals_of(&b);
         let names: Vec<&str> = p.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["domain:x.com", "group:equipo@x.com", "serviceAccount:bot@p.iam.gserviceaccount.com", "specialGroup:projectWriters", "user:ana@x.com"]);
+        assert_eq!(
+            names,
+            [
+                "domain:x.com",
+                "group:equipo@x.com",
+                "serviceAccount:bot@p.iam.gserviceaccount.com",
+                "specialGroup:projectWriters",
+                "user:ana@x.com"
+            ]
+        );
         assert_eq!(p[0].kind, PrincipalKind::Role);
         assert_eq!(p[2].kind, PrincipalKind::User);
         assert!(p[3].system && !p[4].system);
         let g = grants_of(&b, "user:ana@x.com");
         assert_eq!(g.len(), 2);
-        assert_eq!((g[0].privilege.as_str(), g[0].object.as_deref(), g[0].object_kind.as_deref()), ("roles/bigquery.dataOwner", Some("ventas"), Some("schema")));
-        assert_eq!((g[1].privilege.as_str(), g[1].object.as_deref(), g[1].object_kind.as_deref()), ("roles/bigquery.dataViewer", Some("ventas.f"), Some("table")));
+        assert_eq!(
+            (
+                g[0].privilege.as_str(),
+                g[0].object.as_deref(),
+                g[0].object_kind.as_deref()
+            ),
+            ("roles/bigquery.dataOwner", Some("ventas"), Some("schema"))
+        );
+        assert_eq!(
+            (
+                g[1].privilege.as_str(),
+                g[1].object.as_deref(),
+                g[1].object_kind.as_deref()
+            ),
+            ("roles/bigquery.dataViewer", Some("ventas.f"), Some("table"))
+        );
     }
 }

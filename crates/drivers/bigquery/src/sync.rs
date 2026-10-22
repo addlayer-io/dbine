@@ -21,7 +21,10 @@ fn display(t: &TableSchema) -> String {
 }
 
 fn text(s: &Option<String>) -> Option<String> {
-    s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    s.as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn squash(t: &str) -> String {
@@ -31,8 +34,13 @@ fn squash(t: &str) -> String {
 /// Leaves the search and vector indexes (BigQuery's only ones) when `keep`.
 fn no_indexes(t: &mut TableSchema, known: &[String], keep: bool, warnings: &mut Vec<String>) {
     let tname = display(t);
-    for ix in t.indexes.iter().filter(|i| !crate::indexes::supported(i) && !known.iter().any(|k| k.eq_ignore_ascii_case(&i.name))) {
-        warnings.push(format!("BigQuery solo tiene índices de búsqueda y vectoriales: se omite {tname}.{}.", ix.name));
+    for ix in t.indexes.iter().filter(|i| {
+        !crate::indexes::supported(i) && !known.iter().any(|k| k.eq_ignore_ascii_case(&i.name))
+    }) {
+        warnings.push(format!(
+            "BigQuery solo tiene índices de búsqueda y vectoriales: se omite {tname}.{}.",
+            ix.name
+        ));
     }
     t.indexes.retain(|i| keep && crate::indexes::supported(i));
 }
@@ -114,11 +122,19 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
     }
 
     // Added columns go without their default (above).
-    let cd = |_: &TableSchema, c: &ColumnDef| ddl::column_def(&ColumnDef { default_value: None, ..c.clone() });
+    let cd = |_: &TableSchema, c: &ColumnDef| {
+        ddl::column_def(&ColumnDef {
+            default_value: None,
+            ..c.clone()
+        })
+    };
     let dd = |t: &TableSchema, p: DdlParts| Ok(ddl::table_ddl(t, p));
     let st = AlterStyle {
         quote: Quote::Backtick,
-        column: ColumnAlter::Standard { set_data_type: true, using_cast: false },
+        column: ColumnAlter::Standard {
+            set_data_type: true,
+            using_cast: false,
+        },
         add_column: "ADD COLUMN",
         drop_index: DropIndex::Plain,
         drop_fk: "DROP CONSTRAINT",
@@ -131,7 +147,10 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
     let mut s = alter::sync_script(&st, &planned)?;
     crate::indexes::plan(changes, &mut s);
     for stmt in s.statements.iter_mut() {
-        if stmt.starts_with("ALTER TABLE ") && stmt.contains(" ADD PRIMARY KEY (") && stmt.ends_with(");") {
+        if stmt.starts_with("ALTER TABLE ")
+            && stmt.contains(" ADD PRIMARY KEY (")
+            && stmt.ends_with(");")
+        {
             stmt.pop();
             stmt.push_str(" NOT ENFORCED;");
         }
@@ -148,7 +167,12 @@ mod tests {
     use dbine_driver::{ForeignKeyDef, IndexDef, KeyDef};
 
     fn col(name: &str, ty: &str, nullable: bool) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), nullable, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable,
+            ..Default::default()
+        }
     }
 
     fn table(name: &str, cols: Vec<ColumnDef>) -> TableSchema {
@@ -157,25 +181,62 @@ mod tests {
             schema: Some("ds".into()),
             name: name.into(),
             columns: cols,
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
             ..Default::default()
         }
     }
 
     fn fk(name: &str) -> ForeignKeyDef {
-        ForeignKeyDef { name: Some(name.into()), columns: vec!["id".into()], ref_schema: None, ref_table: "otra".into(), ref_columns: vec!["id".into()], on_delete: None, on_update: None }
+        ForeignKeyDef {
+            name: Some(name.into()),
+            columns: vec!["id".into()],
+            ref_schema: None,
+            ref_table: "otra".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+        }
     }
 
     #[test]
     fn alter_columns_keys_and_options() {
-        let mut old = table("clientes", vec![col("id", "INT64", false), col("nombre", "STRING(10)", false), col("baja", "DATE", true), col("monto", "INT64", true)]);
+        let mut old = table(
+            "clientes",
+            vec![
+                col("id", "INT64", false),
+                col("nombre", "STRING(10)", false),
+                col("baja", "DATE", true),
+                col("monto", "INT64", true),
+            ],
+        );
         old.foreign_keys.push(fk("fk_vieja"));
-        let mut new = table("clientes", vec![col("id", "INT64", false), col("nombre", "STRING(20)", true), col("email", "STRING", false), col("monto", "INT64", false)]);
+        let mut new = table(
+            "clientes",
+            vec![
+                col("id", "INT64", false),
+                col("nombre", "STRING(20)", true),
+                col("email", "STRING", false),
+                col("monto", "INT64", false),
+            ],
+        );
         new.columns[1].default_value = Some("'s/n'".into());
         new.columns[1].comment = Some("El nombre".into());
         new.columns[2].default_value = Some("'x@y'".into());
-        new.foreign_keys.push(ForeignKeyDef { ref_table: "otra2".into(), ..fk("fk_nueva") });
-        new.indexes.push(IndexDef { name: "ix".into(), columns: vec!["email".into()], unique: false, kind: None, filter: None, ..Default::default() });
+        new.foreign_keys.push(ForeignKeyDef {
+            ref_table: "otra2".into(),
+            ..fk("fk_nueva")
+        });
+        new.indexes.push(IndexDef {
+            name: "ix".into(),
+            columns: vec!["email".into()],
+            unique: false,
+            kind: None,
+            filter: None,
+            ..Default::default()
+        });
         new.comment = Some("Clientes".into());
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
@@ -194,22 +255,40 @@ mod tests {
             ]
         );
         let w = s.warnings.join("\n");
-        assert!(w.contains("solo tiene índices de búsqueda y vectoriales: se omite ds.clientes.ix"), "{w}");
-        assert!(w.contains("ds.clientes.email se agrega como NULLABLE"), "{w}");
+        assert!(
+            w.contains("solo tiene índices de búsqueda y vectoriales: se omite ds.clientes.ix"),
+            "{w}"
+        );
+        assert!(
+            w.contains("ds.clientes.email se agrega como NULLABLE"),
+            "{w}"
+        );
         assert!(w.contains("ds.clientes.monto se deja NULLABLE"), "{w}");
-        assert!(w.contains("ds.clientes.nombre: BigQuery solo cambia a tipos más amplios"), "{w}");
+        assert!(
+            w.contains("ds.clientes.nombre: BigQuery solo cambia a tipos más amplios"),
+            "{w}"
+        );
         assert!(w.contains("Se borra la columna ds.clientes.baja"), "{w}");
     }
 
     #[test]
     fn primary_key_is_not_enforced() {
-        let old = table("t", vec![col("id", "INT64", false), col("b", "INT64", false)]);
+        let old = table(
+            "t",
+            vec![col("id", "INT64", false), col("b", "INT64", false)],
+        );
         let mut new = old.clone();
-        new.primary_key = Some(KeyDef { name: Some("pk".into()), columns: vec!["id".into(), "b".into()] });
+        new.primary_key = Some(KeyDef {
+            name: Some("pk".into()),
+            columns: vec!["id".into(), "b".into()],
+        });
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
             s.statements,
-            vec!["ALTER TABLE `ds`.`t` DROP PRIMARY KEY;", "ALTER TABLE `ds`.`t` ADD PRIMARY KEY (`id`, `b`) NOT ENFORCED;"]
+            vec![
+                "ALTER TABLE `ds`.`t` DROP PRIMARY KEY;",
+                "ALTER TABLE `ds`.`t` ADD PRIMARY KEY (`id`, `b`) NOT ENFORCED;"
+            ]
         );
     }
 
@@ -218,7 +297,11 @@ mod tests {
         let mut a = table("nueva", vec![col("id", "INT64", false)]);
         a.foreign_keys.push(fk("fk"));
         let b = table("vieja", vec![col("id", "INT64", false)]);
-        let s = sync_script(&[TableChange::Create { table: a }, TableChange::Drop { table: b }]).unwrap();
+        let s = sync_script(&[
+            TableChange::Create { table: a },
+            TableChange::Drop { table: b },
+        ])
+        .unwrap();
         assert_eq!(
             s.statements,
             vec![

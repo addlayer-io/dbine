@@ -33,7 +33,13 @@ fn cfg() -> Option<(ConnectionConfig, String)> {
 /// and log in.
 async fn token(http: &reqwest::Client, base: &str) -> String {
     for _ in 0..60 {
-        if http.get(format!("{base}/apiv2/server_status")).send().await.map(|r| r.status().is_success()).unwrap_or(false) {
+        if http
+            .get(format!("{base}/apiv2/server_status"))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+        {
             break;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -44,7 +50,15 @@ async fn token(http: &reqwest::Client, base: &str) -> String {
         .json(&json!({"userName": USER, "firstName": "DB", "lastName": "Ine", "email": "dbine@example.com", "createdAt": 1700000000000u64, "password": PASS}))
         .send()
         .await;
-    let login: Value = http.post(format!("{base}/apiv2/login")).json(&json!({"userName": USER, "password": PASS})).send().await.unwrap().json().await.unwrap();
+    let login: Value = http
+        .post(format!("{base}/apiv2/login"))
+        .json(&json!({"userName": USER, "password": PASS}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     format!("_dremio{}", login["token"].as_str().unwrap())
 }
 
@@ -69,10 +83,17 @@ async fn dremio_properties() {
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_success(), "{}", r.text().await.unwrap_or_default());
+    assert!(
+        r.status().is_success(),
+        "{}",
+        r.text().await.unwrap_or_default()
+    );
 
     let p = s.database_properties("dbine_props").await.unwrap();
-    assert!(p.info.iter().any(|i| i.label == "Tipo" && i.value.contains("NAS")));
+    assert!(p
+        .info
+        .iter()
+        .any(|i| i.label == "Tipo" && i.value.contains("NAS")));
     assert!(!p.values["names_refresh_hours"].is_empty());
 
     let changes: BTreeMap<String, String> = [
@@ -85,7 +106,10 @@ async fn dremio_properties() {
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    eprintln!("{}", d.alter_database_script("dbine_props", &changes).unwrap());
+    eprintln!(
+        "{}",
+        d.alter_database_script("dbine_props", &changes).unwrap()
+    );
     s.alter_database("dbine_props", &changes).await.unwrap();
     let p = s.database_properties("dbine_props").await.unwrap();
     for (k, v) in &changes {
@@ -97,7 +121,10 @@ async fn dremio_properties() {
     let p = s.database_properties("dbine_props_space").await.unwrap();
     assert!(p.fields.is_empty());
     assert!(p.info.iter().any(|i| i.value == "Espacio"));
-    assert!(s.alter_database("dbine_props_space", &changes).await.is_err());
+    assert!(s
+        .alter_database("dbine_props_space", &changes)
+        .await
+        .is_err());
 
     s.drop_database("dbine_props_space").await.unwrap();
     s.drop_database("dbine_props").await.unwrap();

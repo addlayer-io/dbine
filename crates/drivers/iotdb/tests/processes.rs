@@ -30,11 +30,25 @@ async fn list_and_kill(env: &str) {
         eprintln!("{env} not set; skipping");
         return;
     };
-    let d = dbine_driver_iotdb::drivers().into_iter().find(|d| d.info().id == "iotdb").unwrap();
-    assert!(d.capabilities().processes && d.capabilities().cancel_query && !d.capabilities().kill_session);
+    let d = dbine_driver_iotdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "iotdb")
+        .unwrap();
+    assert!(
+        d.capabilities().processes
+            && d.capabilities().cancel_query
+            && !d.capabilities().kill_session
+    );
     let mut admin = d.connect(&rw, None).await.unwrap();
     let mut o = QueryOutcome::default();
-    admin.execute("INSERT INTO root.dbineproc.d(time, s) VALUES(1, 1.0)", 10, &mut o).await.unwrap();
+    admin
+        .execute(
+            "INSERT INTO root.dbineproc.d(time, s) VALUES(1, 1.0)",
+            10,
+            &mut o,
+        )
+        .await
+        .unwrap();
 
     let mut worker = d.connect(&rw, None).await.unwrap();
     let slow = tokio::spawn(async move {
@@ -47,21 +61,50 @@ async fn list_and_kill(env: &str) {
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.sql.as_deref().unwrap_or("").contains("HAVING count(s) > 5")).unwrap_or_else(|| panic!("the query in {list:#?}"));
+    let w = list
+        .iter()
+        .find(|p| {
+            p.sql
+                .as_deref()
+                .unwrap_or("")
+                .contains("HAVING count(s) > 5")
+        })
+        .unwrap_or_else(|| panic!("the query in {list:#?}"));
     eprintln!("{w:#?}");
     assert!(w.active && !w.own);
     assert_eq!(w.command.as_deref(), Some("SELECT"));
     assert!(w.elapsed_ms.unwrap_or(0) >= 500, "{w:?}");
-    assert!(list.iter().any(|p| p.own), "its own SHOW QUERIES is flagged");
+    assert!(
+        list.iter().any(|p| p.own),
+        "its own SHOW QUERIES is flagged"
+    );
 
     let mut ro = d.connect(&cfg(env, true).unwrap(), None).await.unwrap();
-    assert!(ro.cancel_query(&w.id).await.is_err(), "a read-only connection can't kill");
+    assert!(
+        ro.cancel_query(&w.id).await.is_err(),
+        "a read-only connection can't kill"
+    );
     admin.cancel_query(&w.id).await.unwrap();
-    let failed = tokio::time::timeout(Duration::from_secs(10), slow).await.expect("the query stopped").unwrap();
+    let failed = tokio::time::timeout(Duration::from_secs(10), slow)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     assert!(failed, "the query was killed");
-    assert!(admin.cancel_query(&w.id).await.is_err(), "nothing left to kill");
-    assert!(admin.cancel_query("x'; DELETE DATABASE root.**").await.is_err(), "the id is validated");
-    admin.execute("DELETE DATABASE root.dbineproc", 10, &mut o).await.unwrap();
+    assert!(
+        admin.cancel_query(&w.id).await.is_err(),
+        "nothing left to kill"
+    );
+    assert!(
+        admin
+            .cancel_query("x'; DELETE DATABASE root.**")
+            .await
+            .is_err(),
+        "the id is validated"
+    );
+    admin
+        .execute("DELETE DATABASE root.dbineproc", 10, &mut o)
+        .await
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

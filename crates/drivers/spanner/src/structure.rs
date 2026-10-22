@@ -11,9 +11,9 @@
 
 use crate::{bq, bq_qualified};
 use dbine_driver::alter::check_expr;
-use dbine_driver::{CheckDef, IndexDef, SyncScript, TableChange};
 #[cfg(test)]
 use dbine_driver::TableSchema;
+use dbine_driver::{CheckDef, IndexDef, SyncScript, TableChange};
 use std::collections::BTreeMap;
 
 pub const OPT_DESC: &str = "desc";
@@ -45,7 +45,11 @@ fn index_word(ix: &IndexDef) -> &'static str {
 /// Spanner names an unnamed CHECK `CK_<table>_<16 hex>_<n>`; the name
 /// doesn't carry over to another database.
 pub fn generated_check_name(table: &str, name: &str) -> bool {
-    let Some(rest) = name.strip_prefix("CK_").and_then(|r| r.strip_prefix(table)).and_then(|r| r.strip_prefix('_')) else {
+    let Some(rest) = name
+        .strip_prefix("CK_")
+        .and_then(|r| r.strip_prefix(table))
+        .and_then(|r| r.strip_prefix('_'))
+    else {
         return false;
     };
     let mut parts = rest.split('_');
@@ -66,7 +70,10 @@ pub fn created_name(ddl: &str, what: &str) -> Option<String> {
     let rest = rest.strip_prefix(what)?.strip_prefix(' ')?;
     let rest = rest.trim_start();
     let rest = rest.strip_prefix("IF NOT EXISTS ").unwrap_or(rest);
-    let name: String = rest.chars().take_while(|c| !c.is_whitespace() && *c != '(').collect();
+    let name: String = rest
+        .chars()
+        .take_while(|c| !c.is_whitespace() && *c != '(')
+        .collect();
     (!name.is_empty()).then(|| name.replace('`', ""))
 }
 
@@ -121,9 +128,15 @@ fn split_top(s: &str) -> Vec<String> {
 /// keep their GoogleSQL spelling (`'COSINE'`, `true`).
 pub fn ddl_options(stmt: &str) -> BTreeMap<String, String> {
     let upper = stmt.to_ascii_uppercase();
-    let Some(at) = upper.rfind("OPTIONS") else { return BTreeMap::new() };
-    let Some(open) = stmt[at..].find('(').map(|o| at + o) else { return BTreeMap::new() };
-    let Some(inner) = balanced(stmt, open) else { return BTreeMap::new() };
+    let Some(at) = upper.rfind("OPTIONS") else {
+        return BTreeMap::new();
+    };
+    let Some(open) = stmt[at..].find('(').map(|o| at + o) else {
+        return BTreeMap::new();
+    };
+    let Some(inner) = balanced(stmt, open) else {
+        return BTreeMap::new();
+    };
     split_top(inner)
         .into_iter()
         .filter_map(|kv| {
@@ -135,7 +148,9 @@ pub fn ddl_options(stmt: &str) -> BTreeMap<String, String> {
 
 /// Every CREATE statement of the database DDL for search and vector
 /// indexes, by (schema-qualified) index name, with its `OPTIONS`.
-pub fn index_options_from_ddl<'a>(statements: impl IntoIterator<Item = &'a str>) -> BTreeMap<String, BTreeMap<String, String>> {
+pub fn index_options_from_ddl<'a>(
+    statements: impl IntoIterator<Item = &'a str>,
+) -> BTreeMap<String, BTreeMap<String, String>> {
     let mut out = BTreeMap::new();
     for s in statements {
         for what in ["SEARCH INDEX", "VECTOR INDEX"] {
@@ -152,16 +167,33 @@ pub fn index_options_from_ddl<'a>(statements: impl IntoIterator<Item = &'a str>)
 
 /// One index's CREATE statement.
 pub fn index_ddl(schema: Option<&str>, table: &str, ix: &IndexDef, if_not_exists: bool) -> String {
-    let desc: Vec<String> = split_list(ix.options.get(OPT_DESC)).into_iter().map(|c| c.to_lowercase()).collect();
+    let desc: Vec<String> = split_list(ix.options.get(OPT_DESC))
+        .into_iter()
+        .map(|c| c.to_lowercase())
+        .collect();
     let keys: Vec<String> = ix
         .columns
         .iter()
-        .map(|c| if desc.contains(&c.to_lowercase()) { format!("{} DESC", bq(c)) } else { bq(c) })
+        .map(|c| {
+            if desc.contains(&c.to_lowercase()) {
+                format!("{} DESC", bq(c))
+            } else {
+                bq(c)
+            }
+        })
         .collect();
     let mut s = format!(
         "CREATE {}{}{} {}{} ON {} ({})",
-        if ix.unique && !is(&ix.kind, SEARCH) && !is(&ix.kind, VECTOR) { "UNIQUE " } else { "" },
-        if is(&ix.kind, NULL_FILTERED) { "NULL_FILTERED " } else { "" },
+        if ix.unique && !is(&ix.kind, SEARCH) && !is(&ix.kind, VECTOR) {
+            "UNIQUE "
+        } else {
+            ""
+        },
+        if is(&ix.kind, NULL_FILTERED) {
+            "NULL_FILTERED "
+        } else {
+            ""
+        },
         index_word(ix),
         if if_not_exists { "IF NOT EXISTS " } else { "" },
         bq_qualified(schema, &ix.name),
@@ -169,7 +201,14 @@ pub fn index_ddl(schema: Option<&str>, table: &str, ix: &IndexDef, if_not_exists
         keys.join(", ")
     );
     if !ix.include.is_empty() {
-        s.push_str(&format!(" STORING ({})", ix.include.iter().map(|c| bq(c)).collect::<Vec<_>>().join(", ")));
+        s.push_str(&format!(
+            " STORING ({})",
+            ix.include
+                .iter()
+                .map(|c| bq(c))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     if let Some(p) = ix.options.get(OPT_PARTITION_BY).filter(|p| !p.is_empty()) {
         s.push_str(&format!(" PARTITION BY {p}"));
@@ -181,9 +220,17 @@ pub fn index_ddl(schema: Option<&str>, table: &str, ix: &IndexDef, if_not_exists
         s.push_str(&format!(" WHERE {}", f.trim()));
     }
     if let Some(p) = ix.options.get(OPT_INTERLEAVE).filter(|p| !p.is_empty()) {
-        s.push_str(&format!(", INTERLEAVE IN {}", p.split('.').map(bq).collect::<Vec<_>>().join(".")));
+        s.push_str(&format!(
+            ", INTERLEAVE IN {}",
+            p.split('.').map(bq).collect::<Vec<_>>().join(".")
+        ));
     }
-    let opts: Vec<String> = ix.options.iter().filter(|(k, _)| !STRUCTURAL.contains(&k.as_str())).map(|(k, v)| format!("{k} = {v}")).collect();
+    let opts: Vec<String> = ix
+        .options
+        .iter()
+        .filter(|(k, _)| !STRUCTURAL.contains(&k.as_str()))
+        .map(|(k, v)| format!("{k} = {v}"))
+        .collect();
     if !opts.is_empty() {
         s.push_str(&format!(" OPTIONS ({})", opts.join(", ")));
     }
@@ -193,17 +240,31 @@ pub fn index_ddl(schema: Option<&str>, table: &str, ix: &IndexDef, if_not_exists
 
 /// One index's DROP statement.
 pub fn drop_index(schema: Option<&str>, ix: &IndexDef, if_exists: bool) -> String {
-    format!("DROP {} {}{};", index_word(ix), if if_exists { "IF EXISTS " } else { "" }, bq_qualified(schema, &ix.name))
+    format!(
+        "DROP {} {}{};",
+        index_word(ix),
+        if if_exists { "IF EXISTS " } else { "" },
+        bq_qualified(schema, &ix.name)
+    )
 }
 
 fn split_list(v: Option<&String>) -> Vec<String> {
-    v.map(|s| s.split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect()).unwrap_or_default()
+    v.map(|s| {
+        s.split(',')
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// A CHECK as CREATE TABLE and ADD CONSTRAINT write it. A name Spanner
 /// generated is left out: the engine generates another.
 pub fn check_clause(table: &str, c: &CheckDef) -> String {
-    let named = c.name.as_deref().filter(|n| !n.is_empty() && !generated_check_name(table, n));
+    let named = c
+        .name
+        .as_deref()
+        .filter(|n| !n.is_empty() && !generated_check_name(table, n));
     let expr = c.expression.trim();
     match named {
         Some(n) => format!("CONSTRAINT {} CHECK ({expr})", bq(n)),
@@ -221,15 +282,25 @@ pub fn prepare_checks(changes: &[TableChange]) -> Vec<TableChange> {
             TableChange::Alter { old, new } => {
                 let mut new = new.clone();
                 for c in new.checks.iter_mut() {
-                    if !c.name.as_deref().is_some_and(|n| generated_check_name(&new.name, n)) {
+                    if !c
+                        .name
+                        .as_deref()
+                        .is_some_and(|n| generated_check_name(&new.name, n))
+                    {
                         continue;
                     }
                     let twin = old.checks.iter().find(|o| {
-                        o.name.as_deref().is_some_and(|m| generated_check_name(&old.name, m)) && check_expr(&o.expression) == check_expr(&c.expression)
+                        o.name
+                            .as_deref()
+                            .is_some_and(|m| generated_check_name(&old.name, m))
+                            && check_expr(&o.expression) == check_expr(&c.expression)
                     });
                     c.name = twin.and_then(|o| o.name.clone());
                 }
-                TableChange::Alter { old: old.clone(), new }
+                TableChange::Alter {
+                    old: old.clone(),
+                    new,
+                }
             }
             other => other.clone(),
         })
@@ -240,9 +311,15 @@ pub fn prepare_checks(changes: &[TableChange]) -> Vec<TableChange> {
 /// own keyword.
 pub fn fix_script(script: &mut SyncScript, changes: &[TableChange]) {
     for ch in changes {
-        let TableChange::Alter { old, .. } = ch else { continue };
+        let TableChange::Alter { old, .. } = ch else {
+            continue;
+        };
         let schema = old.schema.as_deref().filter(|s| !s.is_empty());
-        for ix in old.indexes.iter().filter(|i| is(&i.kind, SEARCH) || is(&i.kind, VECTOR)) {
+        for ix in old
+            .indexes
+            .iter()
+            .filter(|i| is(&i.kind, SEARCH) || is(&i.kind, VECTOR))
+        {
             let plain = format!("DROP INDEX {};", bq_qualified(schema, &ix.name));
             for s in script.statements.iter_mut().filter(|s| **s == plain) {
                 *s = drop_index(schema, ix, false);
@@ -266,48 +343,119 @@ mod tests {
 
     #[test]
     fn names_and_options_from_the_ddl() {
-        assert_eq!(created_name("CREATE SEQUENCE s1 OPTIONS (\n  sequence_kind = 'bit_reversed_positive')", "SEQUENCE").as_deref(), Some("s1"));
-        assert_eq!(created_name("CREATE SEQUENCE `a`.`s` OPTIONS ()", "SEQUENCE").as_deref(), Some("a.s"));
-        assert_eq!(created_name("CREATE SEARCH INDEX sx ON p(toks)", "SEARCH INDEX").as_deref(), Some("sx"));
-        assert_eq!(created_name("CREATE INDEX sx ON p(toks)", "SEARCH INDEX"), None);
+        assert_eq!(
+            created_name(
+                "CREATE SEQUENCE s1 OPTIONS (\n  sequence_kind = 'bit_reversed_positive')",
+                "SEQUENCE"
+            )
+            .as_deref(),
+            Some("s1")
+        );
+        assert_eq!(
+            created_name("CREATE SEQUENCE `a`.`s` OPTIONS ()", "SEQUENCE").as_deref(),
+            Some("a.s")
+        );
+        assert_eq!(
+            created_name("CREATE SEARCH INDEX sx ON p(toks)", "SEARCH INDEX").as_deref(),
+            Some("sx")
+        );
+        assert_eq!(
+            created_name("CREATE INDEX sx ON p(toks)", "SEARCH INDEX"),
+            None
+        );
         let ddl = ["CREATE VECTOR INDEX vx ON v(e) WHERE e IS NOT NULL OPTIONS ( distance_type = 'COSINE', tree_depth = 2 )", "CREATE SEARCH INDEX sx ON p(toks)"];
         let m = index_options_from_ddl(ddl);
         assert_eq!(m.len(), 1);
-        assert_eq!(m["vx"].get("distance_type").map(String::as_str), Some("'COSINE'"));
+        assert_eq!(
+            m["vx"].get("distance_type").map(String::as_str),
+            Some("'COSINE'")
+        );
         assert_eq!(m["vx"].get("tree_depth").map(String::as_str), Some("2"));
     }
 
     #[test]
     fn index_statements() {
-        let mut ix = IndexDef { name: "ix".into(), columns: vec!["a".into(), "c".into()], include: vec!["b".into()], ..Default::default() };
+        let mut ix = IndexDef {
+            name: "ix".into(),
+            columns: vec!["a".into(), "c".into()],
+            include: vec!["b".into()],
+            ..Default::default()
+        };
         ix.options.insert(OPT_DESC.into(), "a".into());
-        assert_eq!(index_ddl(None, "p", &ix, false), "CREATE INDEX `ix` ON `p` (`a` DESC, `c`) STORING (`b`);");
-        let mut ix = IndexDef { name: "ic".into(), columns: vec!["id".into()], unique: true, kind: Some(NULL_FILTERED.into()), filter: Some("x IS NOT NULL".into()), ..Default::default() };
+        assert_eq!(
+            index_ddl(None, "p", &ix, false),
+            "CREATE INDEX `ix` ON `p` (`a` DESC, `c`) STORING (`b`);"
+        );
+        let mut ix = IndexDef {
+            name: "ic".into(),
+            columns: vec!["id".into()],
+            unique: true,
+            kind: Some(NULL_FILTERED.into()),
+            filter: Some("x IS NOT NULL".into()),
+            ..Default::default()
+        };
         ix.options.insert(OPT_INTERLEAVE.into(), "p".into());
         assert_eq!(index_ddl(Some("s"), "ch", &ix, true), "CREATE UNIQUE NULL_FILTERED INDEX IF NOT EXISTS `s`.`ic` ON `s`.`ch` (`id`) WHERE x IS NOT NULL, INTERLEAVE IN `p`;");
-        let mut ix = IndexDef { name: "vx".into(), columns: vec!["e".into()], kind: Some(VECTOR.into()), filter: Some("e IS NOT NULL".into()), ..Default::default() };
+        let mut ix = IndexDef {
+            name: "vx".into(),
+            columns: vec!["e".into()],
+            kind: Some(VECTOR.into()),
+            filter: Some("e IS NOT NULL".into()),
+            ..Default::default()
+        };
         ix.options.insert("distance_type".into(), "'COSINE'".into());
         assert_eq!(index_ddl(None, "v", &ix, false), "CREATE VECTOR INDEX `vx` ON `v` (`e`) WHERE e IS NOT NULL OPTIONS (distance_type = 'COSINE');");
-        assert_eq!(drop_index(None, &ix, true), "DROP VECTOR INDEX IF EXISTS `vx`;");
-        let mut ix = IndexDef { name: "sx".into(), columns: vec!["toks".into()], unique: true, kind: Some(SEARCH.into()), ..Default::default() };
+        assert_eq!(
+            drop_index(None, &ix, true),
+            "DROP VECTOR INDEX IF EXISTS `vx`;"
+        );
+        let mut ix = IndexDef {
+            name: "sx".into(),
+            columns: vec!["toks".into()],
+            unique: true,
+            kind: Some(SEARCH.into()),
+            ..Default::default()
+        };
         ix.options.insert(OPT_PARTITION_BY.into(), "a".into());
         ix.options.insert(OPT_ORDER_BY.into(), "c DESC".into());
-        assert_eq!(index_ddl(None, "p", &ix, false), "CREATE SEARCH INDEX `sx` ON `p` (`toks`) PARTITION BY a ORDER BY c DESC;");
+        assert_eq!(
+            index_ddl(None, "p", &ix, false),
+            "CREATE SEARCH INDEX `sx` ON `p` (`toks`) PARTITION BY a ORDER BY c DESC;"
+        );
     }
 
     #[test]
     fn generated_check_names_pair_by_condition() {
-        let chk = |n: &str, e: &str| CheckDef { name: Some(n.into()), expression: e.into() };
-        let old = TableSchema { name: "p".into(), checks: vec![chk("CK_p_38D5BCC6B025E47F_1", "c < 100")], ..Default::default() };
+        let chk = |n: &str, e: &str| CheckDef {
+            name: Some(n.into()),
+            expression: e.into(),
+        };
+        let old = TableSchema {
+            name: "p".into(),
+            checks: vec![chk("CK_p_38D5BCC6B025E47F_1", "c < 100")],
+            ..Default::default()
+        };
         let new = TableSchema {
             name: "p".into(),
-            checks: vec![chk("CK_p_0000000000000000_1", "c < 100"), chk("CK_p_0000000000000000_2", "c > 1"), chk("ck_a", "a > 0")],
+            checks: vec![
+                chk("CK_p_0000000000000000_1", "c < 100"),
+                chk("CK_p_0000000000000000_2", "c > 1"),
+                chk("ck_a", "a > 0"),
+            ],
             ..Default::default()
         };
         let ch = prepare_checks(&[TableChange::Alter { old, new }]);
-        let TableChange::Alter { new, .. } = &ch[0] else { unreachable!() };
-        assert_eq!(new.checks[0].name.as_deref(), Some("CK_p_38D5BCC6B025E47F_1"));
+        let TableChange::Alter { new, .. } = &ch[0] else {
+            unreachable!()
+        };
+        assert_eq!(
+            new.checks[0].name.as_deref(),
+            Some("CK_p_38D5BCC6B025E47F_1")
+        );
         assert_eq!(check_clause("p", &new.checks[1]), "CHECK (c > 1)");
-        assert_eq!(check_clause("p", &new.checks[2]), "CONSTRAINT `ck_a` CHECK (a > 0)");
+        assert_eq!(
+            check_clause("p", &new.checks[2]),
+            "CONSTRAINT `ck_a` CHECK (a > 0)"
+        );
     }
 }

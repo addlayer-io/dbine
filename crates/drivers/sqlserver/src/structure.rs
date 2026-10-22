@@ -12,7 +12,10 @@
 use crate::variant::Variant;
 use crate::{comment_text, format_type, text, SqlServerSession};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::{kinds, CheckDef, DbObject, IndexDef, KeyDef, ObjectKindInfo, ObjectRef, Result, TableChange, TableSchema};
+use dbine_driver::{
+    kinds, CheckDef, DbObject, IndexDef, KeyDef, ObjectKindInfo, ObjectRef, Result, TableChange,
+    TableSchema,
+};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tiberius::Row;
 
@@ -20,21 +23,47 @@ pub const FULLTEXT_CATALOG: &str = "fulltext_catalog";
 pub const FULLTEXT_STOPLIST: &str = "fulltext_stoplist";
 
 /// The object kinds whose source this module writes.
-pub const KINDS: &[&str] = &[kinds::SEQUENCE, kinds::SYNONYM, kinds::TYPE, FULLTEXT_CATALOG, FULLTEXT_STOPLIST];
+pub const KINDS: &[&str] = &[
+    kinds::SEQUENCE,
+    kinds::SYNONYM,
+    kinds::TYPE,
+    FULLTEXT_CATALOG,
+    FULLTEXT_STOPLIST,
+];
 
 /// The single full-text index a table may have goes by this name.
 pub const FULLTEXT_NAME: &str = "fulltext";
 
 pub const fn fulltext_catalogs() -> ObjectKindInfo {
-    ObjectKindInfo::new(FULLTEXT_CATALOG, "Catálogos de texto completo", false, false, true)
+    ObjectKindInfo::new(
+        FULLTEXT_CATALOG,
+        "Catálogos de texto completo",
+        false,
+        false,
+        true,
+    )
 }
 
 pub const fn fulltext_stoplists() -> ObjectKindInfo {
-    ObjectKindInfo::new(FULLTEXT_STOPLIST, "Listas de palabras irrelevantes", false, false, true)
+    ObjectKindInfo::new(
+        FULLTEXT_STOPLIST,
+        "Listas de palabras irrelevantes",
+        false,
+        false,
+        true,
+    )
 }
 
 /// Index options that aren't written in `WITH (…)`.
-const STRUCTURAL: &[&str] = &["desc", "order", "primary_xml_index", "unique_constraint", "using", "rebuild", PRIMARY_KEY];
+const STRUCTURAL: &[&str] = &[
+    "desc",
+    "order",
+    "primary_xml_index",
+    "unique_constraint",
+    "using",
+    "rebuild",
+    PRIMARY_KEY,
+];
 
 /// [`TableSchema::options`] key: `NONCLUSTERED` when the primary key isn't
 /// the clustered index (absent, it's clustered unless another index is).
@@ -51,7 +80,13 @@ fn rich(v: Variant) -> bool {
 pub fn object_kinds(v: Variant) -> Vec<ObjectKindInfo> {
     match v {
         Variant::SqlServer | Variant::AzureSql => {
-            vec![ObjectKindInfo::sequences(), ObjectKindInfo::synonyms(), ObjectKindInfo::types(), fulltext_catalogs(), fulltext_stoplists()]
+            vec![
+                ObjectKindInfo::sequences(),
+                ObjectKindInfo::synonyms(),
+                ObjectKindInfo::types(),
+                fulltext_catalogs(),
+                fulltext_stoplists(),
+            ]
         }
         // Babelfish has user types; its sys.sequences is empty (the
         // sequences can't be described) and it has no synonyms nor
@@ -153,7 +188,12 @@ fn compression_of(parts: &[(i32, String)]) -> Option<String> {
     Some(
         groups
             .into_iter()
-            .map(|(c, ps)| format!("{c} ON PARTITIONS ({})", ps.iter().map(i32::to_string).collect::<Vec<_>>().join(", ")))
+            .map(|(c, ps)| {
+                format!(
+                    "{c} ON PARTITIONS ({})",
+                    ps.iter().map(i32::to_string).collect::<Vec<_>>().join(", ")
+                )
+            })
             .collect::<Vec<_>>()
             .join("; "),
     )
@@ -181,14 +221,26 @@ impl RawIndex {
             6 => self.columns.clone(),
             _ => self.keys.iter().map(|(c, _)| c.clone()).collect(),
         };
-        let desc: Vec<&str> = self.keys.iter().filter(|(_, d)| *d).map(|(c, _)| c.as_str()).collect();
+        let desc: Vec<&str> = self
+            .keys
+            .iter()
+            .filter(|(_, d)| *d)
+            .map(|(c, _)| c.as_str())
+            .collect();
         if rowstore && !desc.is_empty() {
             on(&mut o, "desc", &desc.join(", "));
         }
         if !self.order.is_empty() {
             let mut ord = self.order.clone();
             ord.sort();
-            on(&mut o, "order", &ord.into_iter().map(|(_, c)| c).collect::<Vec<_>>().join(", "));
+            on(
+                &mut o,
+                "order",
+                &ord.into_iter()
+                    .map(|(_, c)| c)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if let (3, Some(p)) = (self.ty, &self.xml_primary) {
             on(&mut o, "primary_xml_index", p);
@@ -229,18 +281,42 @@ impl RawIndex {
             }
         }
         if columnstore && self.compression_delay > 0 {
-            on(&mut o, "COMPRESSION_DELAY", &self.compression_delay.to_string());
+            on(
+                &mut o,
+                "COMPRESSION_DELAY",
+                &self.compression_delay.to_string(),
+            );
         }
         if self.ty == 4 {
-            let scheme = self.tessellation.clone().unwrap_or_default().to_ascii_uppercase();
+            let scheme = self
+                .tessellation
+                .clone()
+                .unwrap_or_default()
+                .to_ascii_uppercase();
             if scheme.starts_with("GEOMETRY") {
                 if let Some([x0, y0, x1, y1]) = self.bounding_box {
-                    on(&mut o, "BOUNDING_BOX", &format!("({}, {}, {}, {})", number(x0), number(y0), number(x1), number(y1)));
+                    on(
+                        &mut o,
+                        "BOUNDING_BOX",
+                        &format!(
+                            "({}, {}, {}, {})",
+                            number(x0),
+                            number(y0),
+                            number(x1),
+                            number(y1)
+                        ),
+                    );
                 }
             }
             if !scheme.contains("AUTO") {
                 if let Some([l1, l2, l3, l4]) = &self.grids {
-                    on(&mut o, "GRIDS", &format!("(LEVEL_1 = {l1}, LEVEL_2 = {l2}, LEVEL_3 = {l3}, LEVEL_4 = {l4})"));
+                    on(
+                        &mut o,
+                        "GRIDS",
+                        &format!(
+                            "(LEVEL_1 = {l1}, LEVEL_2 = {l2}, LEVEL_3 = {l3}, LEVEL_4 = {l4})"
+                        ),
+                    );
                 }
             }
             if let Some(c) = self.cells_per_object {
@@ -258,8 +334,16 @@ impl RawIndex {
             columns,
             unique: self.unique,
             kind: Some(kind),
-            filter: self.filter.as_deref().map(|f| crate::schema::strip_parens(f).to_string()).filter(|f| !f.is_empty()),
-            include: if rowstore { self.include.clone() } else { Vec::new() },
+            filter: self
+                .filter
+                .as_deref()
+                .map(|f| crate::schema::strip_parens(f).to_string())
+                .filter(|f| !f.is_empty()),
+            include: if rowstore {
+                self.include.clone()
+            } else {
+                Vec::new()
+            },
             options: o,
         }
     }
@@ -453,7 +537,9 @@ type TableIndexes = (Option<KeyDef>, bool, Vec<IndexDef>);
 async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableIndexes>> {
     let caps = s.rows(CAPS_SQL, &[]).await?;
     let caps = caps.first();
-    let (seqkey, delay, order) = caps.map(|r| (b(r, 0), b(r, 1), b(r, 2))).unwrap_or_default();
+    let (seqkey, delay, order) = caps
+        .map(|r| (b(r, 0), b(r, 1), b(r, 2)))
+        .unwrap_or_default();
     let default_language = caps.and_then(|r| ni(r, 3)).unwrap_or(1033);
 
     let mut raw: BTreeMap<(i32, i32), (Key, RawIndex)> = BTreeMap::new();
@@ -494,8 +580,11 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
         raw.insert((n(&r, 0), n(&r, 1)), ((st(&r, 2), st(&r, 3)), ix));
     }
     for r in s.rows(&index_columns_sql(order), &[]).await? {
-        let Some((_, i)) = raw.get_mut(&(n(&r, 0), n(&r, 1))) else { continue };
-        let (col, key_ordinal, desc, included, part, ord) = (st(&r, 2), n(&r, 3), b(&r, 4), b(&r, 5), n(&r, 6), n(&r, 7));
+        let Some((_, i)) = raw.get_mut(&(n(&r, 0), n(&r, 1))) else {
+            continue;
+        };
+        let (col, key_ordinal, desc, included, part, ord) =
+            (st(&r, 2), n(&r, 3), b(&r, 4), b(&r, 5), n(&r, 6), n(&r, 7));
         if ord > 0 {
             i.order.push((ord, col.clone()));
         }
@@ -530,7 +619,10 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
     for (_, (key, ix)) in raw {
         let e = out.entry(key).or_default();
         if ix.primary {
-            e.0 = Some(KeyDef { name: Some(ix.name.clone()), columns: ix.keys.iter().map(|(c, _)| c.clone()).collect() });
+            e.0 = Some(KeyDef {
+                name: Some(ix.name.clone()),
+                columns: ix.keys.iter().map(|(c, _)| c.clone()).collect(),
+            });
             e.1 = ix.ty == 2;
         } else {
             e.2.push(ix.to_index());
@@ -560,12 +652,19 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
         }
     }
     for (key, x) in ft {
-        out.entry(key).or_default().2.push(x.to_index(default_language));
+        out.entry(key)
+            .or_default()
+            .2
+            .push(x.to_index(default_language));
     }
     // By name within each rank: the same on both sides of a compare, however
     // the indexes were made.
     for (_, _, ixs) in out.values_mut() {
-        ixs.sort_by(|a, b| drop_rank(a).cmp(&drop_rank(b)).then_with(|| a.name.cmp(&b.name)));
+        ixs.sort_by(|a, b| {
+            drop_rank(a)
+                .cmp(&drop_rank(b))
+                .then_with(|| a.name.cmp(&b.name))
+        });
     }
     Ok(out)
 }
@@ -577,8 +676,11 @@ pub(crate) async fn complete(s: &mut SqlServerSession, tables: &mut [TableSchema
     if s.variant == Variant::Fabric {
         return;
     }
-    let at: HashMap<Key, usize> =
-        tables.iter().enumerate().map(|(i, t)| ((t.schema.clone().unwrap_or_default(), t.name.clone()), i)).collect();
+    let at: HashMap<Key, usize> = tables
+        .iter()
+        .enumerate()
+        .map(|(i, t)| ((t.schema.clone().unwrap_or_default(), t.name.clone()), i))
+        .collect();
     if rich(s.variant) {
         match read_indexes(s).await {
             Ok(mut by_table) => {
@@ -587,7 +689,9 @@ pub(crate) async fn complete(s: &mut SqlServerSession, tables: &mut [TableSchema
                     tables[i].primary_key = pk;
                     tables[i].indexes = ixs;
                     if nonclustered {
-                        tables[i].options.insert(PRIMARY_KEY.into(), "NONCLUSTERED".into());
+                        tables[i]
+                            .options
+                            .insert(PRIMARY_KEY.into(), "NONCLUSTERED".into());
                     } else {
                         tables[i].options.remove(PRIMARY_KEY);
                     }
@@ -600,7 +704,10 @@ pub(crate) async fn complete(s: &mut SqlServerSession, tables: &mut [TableSchema
         Ok(rows) => {
             for r in rows {
                 if let Some(&i) = at.get(&(st(&r, 0), st(&r, 1))) {
-                    tables[i].checks.push(CheckDef { name: text(&r, 2), expression: st(&r, 3) });
+                    tables[i].checks.push(CheckDef {
+                        name: text(&r, 2),
+                        expression: st(&r, 3),
+                    });
                 }
             }
         }
@@ -615,7 +722,13 @@ fn col_list(cols: &[String]) -> String {
 }
 
 fn split_list(v: Option<&String>) -> Vec<String> {
-    v.map(|s| s.split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect()).unwrap_or_default()
+    v.map(|s| {
+        s.split(',')
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// ` WITH (…)` from the options that are `WITH` options.
@@ -639,13 +752,31 @@ fn with_clause(ix: &IndexDef) -> String {
 }
 
 fn where_clause(ix: &IndexDef) -> String {
-    ix.filter.as_deref().map(str::trim).filter(|w| !w.is_empty()).map(|w| format!(" WHERE {w}")).unwrap_or_default()
+    ix.filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .map(|w| format!(" WHERE {w}"))
+        .unwrap_or_default()
 }
 
 /// Key columns, with `DESC` on the descending ones.
 fn key_list(ix: &IndexDef) -> String {
-    let desc: HashSet<String> = split_list(ix.options.get("desc")).into_iter().map(|c| c.to_lowercase()).collect();
-    ix.columns.iter().map(|c| if desc.contains(&c.to_lowercase()) { format!("{} DESC", q(c)) } else { q(c) }).collect::<Vec<_>>().join(", ")
+    let desc: HashSet<String> = split_list(ix.options.get("desc"))
+        .into_iter()
+        .map(|c| c.to_lowercase())
+        .collect();
+    ix.columns
+        .iter()
+        .map(|c| {
+            if desc.contains(&c.to_lowercase()) {
+                format!("{} DESC", q(c))
+            } else {
+                q(c)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn fulltext_sql(owner: &str, ix: &IndexDef) -> String {
@@ -684,7 +815,11 @@ fn fulltext_sql(owner: &str, ix: &IndexDef) -> String {
         w.push(format!("CHANGE_TRACKING = {t}"));
     }
     if let Some(sl) = o.get("STOPLIST") {
-        let v = if sl.eq_ignore_ascii_case("OFF") || sl.eq_ignore_ascii_case("SYSTEM") { sl.to_ascii_uppercase() } else { q(sl) };
+        let v = if sl.eq_ignore_ascii_case("OFF") || sl.eq_ignore_ascii_case("SYSTEM") {
+            sl.to_ascii_uppercase()
+        } else {
+            q(sl)
+        };
         w.push(format!("STOPLIST = {v}"));
     }
     if let Some(p) = o.get("SEARCH PROPERTY LIST") {
@@ -703,39 +838,97 @@ fn index_sql(owner: &str, ix: &IndexDef) -> Option<String> {
     let kind = kind_of(ix);
     let first = ix.columns.first().map(|c| q(c)).unwrap_or_default();
     let order = split_list(ix.options.get("order"));
-    let order = if order.is_empty() { String::new() } else { format!(" ORDER ({})", col_list(&order)) };
+    let order = if order.is_empty() {
+        String::new()
+    } else {
+        format!(" ORDER ({})", col_list(&order))
+    };
     let s = match kind.as_str() {
         "FULLTEXT" => return Some(fulltext_sql(owner, ix)),
-        "XML" => format!("CREATE PRIMARY XML INDEX {name} ON {owner} ({first}){}", with_clause(ix)),
+        "XML" => format!(
+            "CREATE PRIMARY XML INDEX {name} ON {owner} ({first}){}",
+            with_clause(ix)
+        ),
         k if k.starts_with("XML ") => {
-            let primary = ix.options.get("primary_xml_index").map(|p| q(p)).unwrap_or_default();
-            format!("CREATE XML INDEX {name} ON {owner} ({first}) USING XML INDEX {primary} FOR {}{}", &k[4..], with_clause(ix))
+            let primary = ix
+                .options
+                .get("primary_xml_index")
+                .map(|p| q(p))
+                .unwrap_or_default();
+            format!(
+                "CREATE XML INDEX {name} ON {owner} ({first}) USING XML INDEX {primary} FOR {}{}",
+                &k[4..],
+                with_clause(ix)
+            )
         }
         "SPATIAL" => {
-            let using = ix.options.get("using").map(|u| format!(" USING {u}")).unwrap_or_default();
-            format!("CREATE SPATIAL INDEX {name} ON {owner} ({first}){using}{}", with_clause(ix))
+            let using = ix
+                .options
+                .get("using")
+                .map(|u| format!(" USING {u}"))
+                .unwrap_or_default();
+            format!(
+                "CREATE SPATIAL INDEX {name} ON {owner} ({first}){using}{}",
+                with_clause(ix)
+            )
         }
-        "CLUSTERED COLUMNSTORE" => format!("CREATE CLUSTERED COLUMNSTORE INDEX {name} ON {owner}{order}{}", with_clause(ix)),
+        "CLUSTERED COLUMNSTORE" => format!(
+            "CREATE CLUSTERED COLUMNSTORE INDEX {name} ON {owner}{order}{}",
+            with_clause(ix)
+        ),
         "NONCLUSTERED COLUMNSTORE" => {
-            format!("CREATE NONCLUSTERED COLUMNSTORE INDEX {name} ON {owner} ({}){order}{}{}", col_list(&ix.columns), where_clause(ix), with_clause(ix))
+            format!(
+                "CREATE NONCLUSTERED COLUMNSTORE INDEX {name} ON {owner} ({}){order}{}{}",
+                col_list(&ix.columns),
+                where_clause(ix),
+                with_clause(ix)
+            )
         }
         // Memory-optimized tables take indexes only through ALTER TABLE.
-        "NONCLUSTERED HASH" => format!("ALTER TABLE {owner} ADD INDEX {name} NONCLUSTERED HASH ({}){}", col_list(&ix.columns), with_clause(ix)),
+        "NONCLUSTERED HASH" => format!(
+            "ALTER TABLE {owner} ADD INDEX {name} NONCLUSTERED HASH ({}){}",
+            col_list(&ix.columns),
+            with_clause(ix)
+        ),
         // The primary key, while a sync plans it as an index.
         "CLUSTERED" | "NONCLUSTERED" if ix.options.contains_key(PRIMARY_KEY) => {
-            let constraint = if ix.name.is_empty() { String::new() } else { format!(" CONSTRAINT {name}") };
-            format!("ALTER TABLE {owner} ADD{constraint} PRIMARY KEY {kind} ({}){}", key_list(ix), with_clause(ix))
+            let constraint = if ix.name.is_empty() {
+                String::new()
+            } else {
+                format!(" CONSTRAINT {name}")
+            };
+            format!(
+                "ALTER TABLE {owner} ADD{constraint} PRIMARY KEY {kind} ({}){}",
+                key_list(ix),
+                with_clause(ix)
+            )
         }
         "" | "CLUSTERED" | "NONCLUSTERED" if ix.options.contains_key("unique_constraint") => {
-            let clustering = if kind.is_empty() { String::new() } else { format!(" {kind}") };
-            format!("ALTER TABLE {owner} ADD CONSTRAINT {name} UNIQUE{clustering} ({}){}", key_list(ix), with_clause(ix))
+            let clustering = if kind.is_empty() {
+                String::new()
+            } else {
+                format!(" {kind}")
+            };
+            format!(
+                "ALTER TABLE {owner} ADD CONSTRAINT {name} UNIQUE{clustering} ({}){}",
+                key_list(ix),
+                with_clause(ix)
+            )
         }
         "" | "CLUSTERED" | "NONCLUSTERED" => {
-            let include = if ix.include.is_empty() { String::new() } else { format!(" INCLUDE ({})", col_list(&ix.include)) };
+            let include = if ix.include.is_empty() {
+                String::new()
+            } else {
+                format!(" INCLUDE ({})", col_list(&ix.include))
+            };
             format!(
                 "CREATE {}{}INDEX {name} ON {owner} ({}){include}{}{}",
                 if ix.unique { "UNIQUE " } else { "" },
-                if kind.is_empty() { String::new() } else { format!("{kind} ") },
+                if kind.is_empty() {
+                    String::new()
+                } else {
+                    format!("{kind} ")
+                },
                 key_list(ix),
                 where_clause(ix),
                 with_clause(ix),
@@ -775,7 +968,14 @@ fn same_index(a: &IndexDef, b: &IndexDef) -> bool {
         v.sort();
         v
     };
-    let w = |x: &Option<String>| x.as_deref().unwrap_or("").split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let w = |x: &Option<String>| {
+        x.as_deref()
+            .unwrap_or("")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    };
     cols(&a.columns) == cols(&b.columns)
         && a.unique == b.unique
         && kind_of(a) == kind_of(b)
@@ -797,7 +997,10 @@ fn is_constraint(ix: &IndexDef) -> bool {
 /// not when it says so ([`PRIMARY_KEY`]) or another index is the clustered
 /// one, as `CREATE TABLE` writes it.
 fn pk_clustered(t: &TableSchema) -> bool {
-    !t.options.get(PRIMARY_KEY).is_some_and(|v| v.trim().eq_ignore_ascii_case("NONCLUSTERED")) && !t.indexes.iter().any(is_clustered)
+    !t.options
+        .get(PRIMARY_KEY)
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("NONCLUSTERED"))
+        && !t.indexes.iter().any(is_clustered)
 }
 
 fn squash(t: &str) -> String {
@@ -808,7 +1011,12 @@ fn squash(t: &str) -> String {
 fn retyped(old: &TableSchema, new: &TableSchema) -> Vec<String> {
     new.columns
         .iter()
-        .filter(|n| old.columns.iter().any(|o| o.name.eq_ignore_ascii_case(&n.name) && (squash(&o.data_type) != squash(&n.data_type) || o.nullable != n.nullable)))
+        .filter(|n| {
+            old.columns.iter().any(|o| {
+                o.name.eq_ignore_ascii_case(&n.name)
+                    && (squash(&o.data_type) != squash(&n.data_type) || o.nullable != n.nullable)
+            })
+        })
         .map(|n| n.name.to_lowercase())
         .collect()
 }
@@ -820,25 +1028,48 @@ fn retyped(old: &TableSchema, new: &TableSchema) -> Vec<String> {
 /// no name to drop it by (the generic planner warns about it); otherwise
 /// whether the key is made again.
 fn key_as_index(old: &mut TableSchema, new: &mut TableSchema) -> Option<bool> {
-    let named = |t: &TableSchema| t.primary_key.as_ref().filter(|k| !k.columns.is_empty()).map(|k| k.name.clone().filter(|n| !n.is_empty()));
+    let named = |t: &TableSchema| {
+        t.primary_key
+            .as_ref()
+            .filter(|k| !k.columns.is_empty())
+            .map(|k| k.name.clone().filter(|n| !n.is_empty()))
+    };
     let (old_name, new_name) = (named(old), named(new));
     if matches!(old_name, Some(None)) {
         return None;
     }
     let as_index = |t: &TableSchema, name: String| IndexDef {
         name,
-        columns: t.primary_key.as_ref().map(|k| k.columns.clone()).unwrap_or_default(),
+        columns: t
+            .primary_key
+            .as_ref()
+            .map(|k| k.columns.clone())
+            .unwrap_or_default(),
         unique: true,
-        kind: Some(if pk_clustered(t) { "CLUSTERED" } else { "NONCLUSTERED" }.into()),
+        kind: Some(
+            if pk_clustered(t) {
+                "CLUSTERED"
+            } else {
+                "NONCLUSTERED"
+            }
+            .into(),
+        ),
         options: [(PRIMARY_KEY.to_string(), "ON".to_string())].into(),
         ..Default::default()
     };
-    let o = old_name.clone().map(|n| as_index(old, n.unwrap_or_default()));
-    let mut n = new_name.map(|n| as_index(new, n.or_else(|| old_name.flatten()).unwrap_or_default()));
+    let o = old_name
+        .clone()
+        .map(|n| as_index(old, n.unwrap_or_default()));
+    let mut n =
+        new_name.map(|n| as_index(new, n.or_else(|| old_name.flatten()).unwrap_or_default()));
     let retyped = retyped(old, new);
     let rebuilt = match (&o, &mut n) {
         (Some(o), Some(n)) => {
-            let same = same_index(o, n) && !n.columns.iter().any(|c| retyped.contains(&c.to_lowercase()));
+            let same = same_index(o, n)
+                && !n
+                    .columns
+                    .iter()
+                    .any(|c| retyped.contains(&c.to_lowercase()));
             // A key that only changes its name stays (as before).
             if same {
                 n.name = o.name.clone();
@@ -851,7 +1082,12 @@ fn key_as_index(old: &mut TableSchema, new: &mut TableSchema) -> Option<bool> {
     // A column added for the new key is NOT NULL, as the key made it.
     if let Some(k) = &new.primary_key {
         for c in new.columns.iter_mut() {
-            if k.columns.iter().any(|p| p.eq_ignore_ascii_case(&c.name)) && !old.columns.iter().any(|o| o.name.eq_ignore_ascii_case(&c.name)) {
+            if k.columns.iter().any(|p| p.eq_ignore_ascii_case(&c.name))
+                && !old
+                    .columns
+                    .iter()
+                    .any(|o| o.name.eq_ignore_ascii_case(&c.name))
+            {
                 c.nullable = false;
             }
         }
@@ -866,8 +1102,13 @@ fn key_as_index(old: &mut TableSchema, new: &mut TableSchema) -> Option<bool> {
 /// Whether `expr` names `column` as a whole word (bracketed or not).
 fn names_column(expr: &str, column: &str) -> bool {
     let (e, c) = (expr.to_lowercase(), column.to_lowercase());
-    let word = |ch: Option<char>| ch.is_some_and(|ch| ch.is_alphanumeric() || ch == '_' || ch == '@' || ch == '#' || ch == '$');
-    e.match_indices(&c).any(|(at, _)| !word(e[..at].chars().last()) && !word(e[at + c.len()..].chars().next()))
+    let word = |ch: Option<char>| {
+        ch.is_some_and(|ch| {
+            ch.is_alphanumeric() || ch == '_' || ch == '@' || ch == '#' || ch == '$'
+        })
+    };
+    e.match_indices(&c)
+        .any(|(at, _)| !word(e[..at].chars().last()) && !word(e[at + c.len()..].chars().next()))
 }
 
 /// SQL Server refuses `DROP COLUMN` while an index (as a key, an included
@@ -875,13 +1116,29 @@ fn names_column(expr: &str, column: &str) -> bool {
 /// compare's "Eliminar" on a column leaves those in the new table; here
 /// they go with it, so the planner drops them first.
 fn without_dropped_columns(old: &TableSchema, new: &mut TableSchema) {
-    let dropped: Vec<&str> = old.columns.iter().filter(|o| !new.columns.iter().any(|n| n.name.eq_ignore_ascii_case(&o.name))).map(|o| o.name.as_str()).collect();
+    let dropped: Vec<&str> = old
+        .columns
+        .iter()
+        .filter(|o| {
+            !new.columns
+                .iter()
+                .any(|n| n.name.eq_ignore_ascii_case(&o.name))
+        })
+        .map(|o| o.name.as_str())
+        .collect();
     if dropped.is_empty() {
         return;
     }
     let gone = |c: &String| dropped.iter().any(|d| d.eq_ignore_ascii_case(c));
-    new.indexes.retain(|ix| !(ix.columns.iter().chain(&ix.include).any(gone) || ix.filter.as_deref().is_some_and(|f| dropped.iter().any(|d| names_column(f, d)))));
-    new.checks.retain(|ck| !dropped.iter().any(|d| names_column(&ck.expression, d)));
+    new.indexes.retain(|ix| {
+        !(ix.columns.iter().chain(&ix.include).any(gone)
+            || ix
+                .filter
+                .as_deref()
+                .is_some_and(|f| dropped.iter().any(|d| names_column(f, d))))
+    });
+    new.checks
+        .retain(|ck| !dropped.iter().any(|d| names_column(&ck.expression, d)));
     new.foreign_keys.retain(|fk| !fk.columns.iter().any(gone));
 }
 
@@ -904,9 +1161,23 @@ pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<
         .iter()
         .map(|ch| match ch {
             TableChange::Alter { old, new } => {
-                let pk_cols = |t: &TableSchema| t.primary_key.as_ref().map(|k| k.columns.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>()).unwrap_or_default();
+                let pk_cols = |t: &TableSchema| {
+                    t.primary_key
+                        .as_ref()
+                        .map(|k| {
+                            k.columns
+                                .iter()
+                                .map(|c| c.to_lowercase())
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                };
                 let mut pk_changed = pk_cols(old) != pk_cols(new);
-                let pk_name = old.primary_key.as_ref().and_then(|k| k.name.clone()).unwrap_or_default();
+                let pk_name = old
+                    .primary_key
+                    .as_ref()
+                    .and_then(|k| k.name.clone())
+                    .unwrap_or_default();
                 let (mut old, mut new) = (old.clone(), new.clone());
                 without_dropped_columns(&old, &mut new);
                 if rich(variant) {
@@ -914,15 +1185,31 @@ pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<
                         pk_changed = rebuilt;
                     }
                 }
-                let find = |t: &TableSchema, name: &str| t.indexes.iter().find(|i| i.name.eq_ignore_ascii_case(name)).cloned();
-                let changed = |name: &str| find(&old, name).is_some_and(|o| find(&new, name).is_none_or(|n| !same_index(&o, &n)));
+                let find = |t: &TableSchema, name: &str| {
+                    t.indexes
+                        .iter()
+                        .find(|i| i.name.eq_ignore_ascii_case(name))
+                        .cloned()
+                };
+                let changed = |name: &str| {
+                    find(&old, name)
+                        .is_some_and(|o| find(&new, name).is_none_or(|n| !same_index(&o, &n)))
+                };
                 let mut forced = Vec::new();
                 for ix in &old.indexes {
                     let kind = kind_of(ix);
                     let force = match kind.as_str() {
-                        "FULLTEXT" => ix.options.get("KEY INDEX").is_some_and(|k| changed(k) || (pk_changed && k.eq_ignore_ascii_case(&pk_name))),
+                        "FULLTEXT" => ix.options.get("KEY INDEX").is_some_and(|k| {
+                            changed(k) || (pk_changed && k.eq_ignore_ascii_case(&pk_name))
+                        }),
                         "XML" | "SPATIAL" => pk_changed,
-                        k if k.starts_with("XML ") => pk_changed || ix.options.get("primary_xml_index").is_some_and(|p| changed(p)),
+                        k if k.starts_with("XML ") => {
+                            pk_changed
+                                || ix
+                                    .options
+                                    .get("primary_xml_index")
+                                    .is_some_and(|p| changed(p))
+                        }
                         _ => false,
                     };
                     if force && find(&new, &ix.name).is_some() {
@@ -934,10 +1221,25 @@ pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<
                 }
                 // DROP_EXISTING: only while no column changes under the
                 // index, and not on a unique one (foreign keys may use it).
-                let columns_change = !retyped(&old, &new).is_empty() || old.columns.iter().any(|o| !new.columns.iter().any(|n| n.name.eq_ignore_ascii_case(&o.name)));
+                let columns_change = !retyped(&old, &new).is_empty()
+                    || old.columns.iter().any(|o| {
+                        !new.columns
+                            .iter()
+                            .any(|n| n.name.eq_ignore_ascii_case(&o.name))
+                    });
                 if rich(variant) && !columns_change {
-                    for n in new.indexes.iter_mut().filter(|n| is_clustered(n) && !is_constraint(n)) {
-                        if old.indexes.iter().any(|o| o.name.eq_ignore_ascii_case(&n.name) && is_clustered(o) && !is_constraint(o) && !o.unique && !same_index(o, n)) {
+                    for n in new
+                        .indexes
+                        .iter_mut()
+                        .filter(|n| is_clustered(n) && !is_constraint(n))
+                    {
+                        if old.indexes.iter().any(|o| {
+                            o.name.eq_ignore_ascii_case(&n.name)
+                                && is_clustered(o)
+                                && !is_constraint(o)
+                                && !o.unique
+                                && !same_index(o, n)
+                        }) {
                             n.options.insert("DROP_EXISTING".into(), "ON".into());
                         }
                     }
@@ -956,11 +1258,15 @@ pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<
 /// `DROP_EXISTING` isn't dropped first.
 pub(crate) fn fix_drops(statements: &mut Vec<String>, changes: &[TableChange]) {
     for ch in changes {
-        let TableChange::Alter { old, new } = ch else { continue };
+        let TableChange::Alter { old, new } = ch else {
+            continue;
+        };
         let owner = qn(new.schema.as_deref(), &new.name);
         for ix in &old.indexes {
             let plain = format!("DROP INDEX {} ON {owner};", q(&ix.name));
-            if new.indexes.iter().any(|n| n.name.eq_ignore_ascii_case(&ix.name) && n.options.contains_key("DROP_EXISTING")) {
+            if new.indexes.iter().any(|n| {
+                n.name.eq_ignore_ascii_case(&ix.name) && n.options.contains_key("DROP_EXISTING")
+            }) {
                 statements.retain(|s| *s != plain);
                 continue;
             }
@@ -1043,7 +1349,11 @@ END"
 /// on tables the sync doesn't touch: the script reads them from the catalog
 /// when it runs, drops them right before the key and makes them again once
 /// every key is back (before the sync's own new foreign keys).
-pub(crate) fn keep_referencing_fks(statements: &mut Vec<String>, warnings: &mut Vec<String>, changes: &[TableChange]) {
+pub(crate) fn keep_referencing_fks(
+    statements: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+    changes: &[TableChange],
+) {
     let set = |c: &[String]| {
         let mut v: Vec<String> = c.iter().map(|x| x.to_lowercase()).collect();
         v.sort();
@@ -1052,19 +1362,42 @@ pub(crate) fn keep_referencing_fks(statements: &mut Vec<String>, warnings: &mut 
     let mut inserts: Vec<(usize, String)> = Vec::new();
     let mut last_made = None;
     for ch in changes {
-        let TableChange::Alter { old, new } = ch else { continue };
+        let TableChange::Alter { old, new } = ch else {
+            continue;
+        };
         let owner = qn(new.schema.as_deref(), &new.name);
         let tname = match new.schema.as_deref().filter(|s| !s.is_empty()) {
             Some(s) => format!("{s}.{}", new.name),
             None => new.name.clone(),
         };
-        for o in old.indexes.iter().filter(|i| i.unique && matches!(kind_of(i).as_str(), "" | "CLUSTERED" | "NONCLUSTERED")) {
+        for o in old.indexes.iter().filter(|i| {
+            i.unique && matches!(kind_of(i).as_str(), "" | "CLUSTERED" | "NONCLUSTERED")
+        }) {
             let pk = o.options.contains_key(PRIMARY_KEY);
-            let drop = if is_constraint(o) { format!("ALTER TABLE {owner} DROP CONSTRAINT {};", q(&o.name)) } else { format!("DROP INDEX {} ON {owner};", q(&o.name)) };
-            let Some(at) = statements.iter().position(|s| *s == drop) else { continue };
-            let again = new.indexes.iter().find(|n| if pk { n.options.contains_key(PRIMARY_KEY) } else { n.unique && n.name.eq_ignore_ascii_case(&o.name) });
-            let Some(sql) = again.filter(|n| set(&n.columns) == set(&o.columns)).and_then(|n| index_sql(&owner, n)) else { continue };
-            let Some(made) = statements.iter().position(|s| s.contains(&sql)) else { continue };
+            let drop = if is_constraint(o) {
+                format!("ALTER TABLE {owner} DROP CONSTRAINT {};", q(&o.name))
+            } else {
+                format!("DROP INDEX {} ON {owner};", q(&o.name))
+            };
+            let Some(at) = statements.iter().position(|s| *s == drop) else {
+                continue;
+            };
+            let again = new.indexes.iter().find(|n| {
+                if pk {
+                    n.options.contains_key(PRIMARY_KEY)
+                } else {
+                    n.unique && n.name.eq_ignore_ascii_case(&o.name)
+                }
+            });
+            let Some(sql) = again
+                .filter(|n| set(&n.columns) == set(&o.columns))
+                .and_then(|n| index_sql(&owner, n))
+            else {
+                continue;
+            };
+            let Some(made) = statements.iter().position(|s| s.contains(&sql)) else {
+                continue;
+            };
             inserts.push((at, stash_fks_sql(&owner, &o.name)));
             last_made = last_made.max(Some(made));
             warnings.push(format!(
@@ -1084,7 +1417,18 @@ pub(crate) fn keep_referencing_fks(statements: &mut Vec<String>, warnings: &mut 
 /// A warning for each table whose clustered index changes: the whole table
 /// is rewritten (once or twice), which takes long on a big one.
 pub(crate) fn clustering_warnings(changes: &[TableChange]) -> Vec<String> {
-    let clustered = |t: &TableSchema| t.indexes.iter().find(|i| is_clustered(i)).map(|i| (i.name.to_lowercase(), kind_of(i), i.columns.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>()));
+    let clustered = |t: &TableSchema| {
+        t.indexes.iter().find(|i| is_clustered(i)).map(|i| {
+            (
+                i.name.to_lowercase(),
+                kind_of(i),
+                i.columns
+                    .iter()
+                    .map(|c| c.to_lowercase())
+                    .collect::<Vec<_>>(),
+            )
+        })
+    };
     changes
         .iter()
         .filter_map(|ch| match ch {
@@ -1138,7 +1482,12 @@ pub(crate) async fn list_objects(s: &mut SqlServerSession) -> Vec<DbObject> {
                 "FC" => FULLTEXT_CATALOG,
                 _ => FULLTEXT_STOPLIST,
             };
-            Some(DbObject { kind: kind.into(), schema: text(r, 1), name: text(r, 2)?, parent: None })
+            Some(DbObject {
+                kind: kind.into(),
+                schema: text(r, 1),
+                name: text(r, 2)?,
+                parent: None,
+            })
         })
         .collect()
 }
@@ -1210,16 +1559,36 @@ pub(crate) struct TypeIndex {
     pub keys: Vec<(String, bool)>,
 }
 
-pub(crate) fn alias_type_sql(schema: Option<&str>, name: &str, base: &str, nullable: bool) -> String {
-    format!("CREATE TYPE {} FROM {base} {};", qn(schema, name), if nullable { "NULL" } else { "NOT NULL" })
+pub(crate) fn alias_type_sql(
+    schema: Option<&str>,
+    name: &str,
+    base: &str,
+    nullable: bool,
+) -> String {
+    format!(
+        "CREATE TYPE {} FROM {base} {};",
+        qn(schema, name),
+        if nullable { "NULL" } else { "NOT NULL" }
+    )
 }
 
-pub(crate) fn table_type_sql(schema: Option<&str>, name: &str, cols: &[TypeColumn], ixs: &[TypeIndex], checks: &[String], memory_optimized: bool) -> String {
+pub(crate) fn table_type_sql(
+    schema: Option<&str>,
+    name: &str,
+    cols: &[TypeColumn],
+    ixs: &[TypeIndex],
+    checks: &[String],
+    memory_optimized: bool,
+) -> String {
     let mut parts: Vec<String> = cols
         .iter()
         .map(|c| {
             if let Some((expr, persisted)) = &c.computed {
-                return format!("{} AS {expr}{}", q(&c.name), if *persisted { " PERSISTED" } else { "" });
+                return format!(
+                    "{} AS {expr}{}",
+                    q(&c.name),
+                    if *persisted { " PERSISTED" } else { "" }
+                );
             }
             let mut s = format!("{} {}", q(&c.name), c.data_type);
             if let Some((seed, inc)) = &c.identity {
@@ -1241,17 +1610,30 @@ pub(crate) fn table_type_sql(schema: Option<&str>, name: &str, cols: &[TypeColum
         let keys = i
             .keys
             .iter()
-            .map(|(c, d)| if *d && i.bucket_count.is_none() { format!("{} DESC", q(c)) } else { q(c) })
+            .map(|(c, d)| {
+                if *d && i.bucket_count.is_none() {
+                    format!("{} DESC", q(c))
+                } else {
+                    q(c)
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ");
-        let bucket = i.bucket_count.map(|n| format!(" WITH (BUCKET_COUNT = {n})")).unwrap_or_default();
+        let bucket = i
+            .bucket_count
+            .map(|n| format!(" WITH (BUCKET_COUNT = {n})"))
+            .unwrap_or_default();
         // Table types take their keys unnamed.
         parts.push(if i.primary {
             format!("PRIMARY KEY {kind} ({keys}){bucket}")
         } else if i.unique_constraint {
             format!("UNIQUE {kind} ({keys}){bucket}")
         } else {
-            format!("INDEX {} {}{kind} ({keys}){bucket}", q(&i.name), if i.unique { "UNIQUE " } else { "" })
+            format!(
+                "INDEX {} {}{kind} ({keys}){bucket}",
+                q(&i.name),
+                if i.unique { "UNIQUE " } else { "" }
+            )
         });
     }
     for c in checks {
@@ -1261,7 +1643,11 @@ pub(crate) fn table_type_sql(schema: Option<&str>, name: &str, cols: &[TypeColum
         "CREATE TYPE {} AS TABLE (\n    {}\n){};",
         qn(schema, name),
         parts.join(",\n    "),
-        if memory_optimized { " WITH (MEMORY_OPTIMIZED = ON)" } else { "" }
+        if memory_optimized {
+            " WITH (MEMORY_OPTIMIZED = ON)"
+        } else {
+            ""
+        }
     )
 }
 
@@ -1286,7 +1672,12 @@ pub(crate) fn catalog_sql(name: &str, accent_sensitive: bool, default: bool) -> 
 /// system's (when it was made from them) plus and minus the listed ones.
 /// One that a full-text index uses can't be dropped, so the sync applies
 /// this as it is.
-pub(crate) fn stoplist_sql(name: &str, from_system: bool, added: &[(String, i32)], removed: &[(String, i32)]) -> String {
+pub(crate) fn stoplist_sql(
+    name: &str,
+    from_system: bool,
+    added: &[(String, i32)],
+    removed: &[(String, i32)],
+) -> String {
     let (l, sl) = (nlit(name), q(name));
     let mut s = format!(
         "IF NOT EXISTS (SELECT 1 FROM sys.fulltext_stoplists WHERE name = {l})\n    CREATE FULLTEXT STOPLIST {sl}{};\n\
@@ -1294,15 +1685,29 @@ pub(crate) fn stoplist_sql(name: &str, from_system: bool, added: &[(String, i32)
         if from_system { " FROM SYSTEM STOPLIST" } else { "" }
     );
     if from_system {
-        s.push_str("\nINSERT INTO @words SELECT stopword, language_id FROM sys.fulltext_system_stopwords;");
+        s.push_str(
+            "\nINSERT INTO @words SELECT stopword, language_id FROM sys.fulltext_system_stopwords;",
+        );
         for chunk in removed.chunks(100) {
-            let cond: Vec<String> = chunk.iter().map(|(w, lang)| format!("(lang = {lang} AND word = {})", nlit(w))).collect();
-            s.push_str(&format!("\nDELETE FROM @words WHERE {};", cond.join("\n    OR ")));
+            let cond: Vec<String> = chunk
+                .iter()
+                .map(|(w, lang)| format!("(lang = {lang} AND word = {})", nlit(w)))
+                .collect();
+            s.push_str(&format!(
+                "\nDELETE FROM @words WHERE {};",
+                cond.join("\n    OR ")
+            ));
         }
     }
     for chunk in added.chunks(1000) {
-        let vals: Vec<String> = chunk.iter().map(|(w, lang)| format!("({}, {lang})", nlit(w))).collect();
-        s.push_str(&format!("\nINSERT INTO @words VALUES {};", vals.join(",\n    ")));
+        let vals: Vec<String> = chunk
+            .iter()
+            .map(|(w, lang)| format!("({}, {lang})", nlit(w)))
+            .collect();
+        s.push_str(&format!(
+            "\nINSERT INTO @words VALUES {};",
+            vals.join(",\n    ")
+        ));
     }
     let listed = format!(
         "sys.fulltext_stopwords w JOIN sys.fulltext_stoplists l ON l.stoplist_id = w.stoplist_id AND l.name = {l}"
@@ -1382,7 +1787,10 @@ ORDER BY 1, 3, 2";
 
 /// The source of a sequence, synonym, user type, full-text catalog or
 /// stoplist, rebuilt from the catalog (`None` when it isn't there).
-pub(crate) async fn definition(s: &mut SqlServerSession, obj: &ObjectRef) -> Result<Option<String>> {
+pub(crate) async fn definition(
+    s: &mut SqlServerSession,
+    obj: &ObjectRef,
+) -> Result<Option<String>> {
     let schema = obj.schema();
     let full = qn(schema, &obj.name);
     match obj.kind.as_str() {
@@ -1405,33 +1813,63 @@ pub(crate) async fn definition(s: &mut SqlServerSession, obj: &ObjectRef) -> Res
             }))
         }
         kinds::SYNONYM => {
-            let rows = s.rows("SELECT base_object_name FROM sys.synonyms WHERE object_id = OBJECT_ID(@P1)", &[&full]).await?;
-            Ok(rows.first().and_then(|r| text(r, 0)).map(|base| synonym_sql(schema, &obj.name, &base)))
+            let rows = s
+                .rows(
+                    "SELECT base_object_name FROM sys.synonyms WHERE object_id = OBJECT_ID(@P1)",
+                    &[&full],
+                )
+                .await?;
+            Ok(rows
+                .first()
+                .and_then(|r| text(r, 0))
+                .map(|base| synonym_sql(schema, &obj.name, &base)))
         }
         kinds::TYPE => type_definition(s, schema, &obj.name).await,
         FULLTEXT_CATALOG => {
             let rows = s.rows("SELECT is_accent_sensitivity_on, is_default FROM sys.fulltext_catalogs WHERE name = @P1", &[&obj.name]).await?;
-            Ok(rows.first().map(|r| catalog_sql(&obj.name, b(r, 0), b(r, 1))))
+            Ok(rows
+                .first()
+                .map(|r| catalog_sql(&obj.name, b(r, 0), b(r, 1))))
         }
         FULLTEXT_STOPLIST => {
             let rows = s.rows(STOPLIST_SQL, &[&obj.name]).await?;
-            let Some(head) = rows.iter().find(|r| text(r, 0).as_deref() == Some("=")) else { return Ok(None) };
+            let Some(head) = rows.iter().find(|r| text(r, 0).as_deref() == Some("=")) else {
+                return Ok(None);
+            };
             let from_system = n(head, 2) == 1;
             let words = |mark: &str| -> Vec<(String, i32)> {
-                rows.iter().filter(|r| text(r, 0).as_deref() == Some(mark)).map(|r| (st(r, 1), n(r, 2))).collect()
+                rows.iter()
+                    .filter(|r| text(r, 0).as_deref() == Some(mark))
+                    .map(|r| (st(r, 1), n(r, 2)))
+                    .collect()
             };
-            Ok(Some(stoplist_sql(&obj.name, from_system, &words("+"), &words("-"))))
+            Ok(Some(stoplist_sql(
+                &obj.name,
+                from_system,
+                &words("+"),
+                &words("-"),
+            )))
         }
         _ => Ok(None),
     }
 }
 
-async fn type_definition(s: &mut SqlServerSession, schema: Option<&str>, name: &str) -> Result<Option<String>> {
+async fn type_definition(
+    s: &mut SqlServerSession,
+    schema: Option<&str>,
+    name: &str,
+) -> Result<Option<String>> {
     let full = qn(schema, name);
     let babelfish = s.variant == Variant::Babelfish;
-    let mo = if babelfish { "CAST(0 AS bit)" } else { "CAST(ISNULL(tt.is_memory_optimized, 0) AS bit)" };
+    let mo = if babelfish {
+        "CAST(0 AS bit)"
+    } else {
+        "CAST(ISNULL(tt.is_memory_optimized, 0) AS bit)"
+    };
     let rows = s.rows(&TYPE_SQL.replace("{mo}", mo), &[&full]).await?;
-    let Some(r) = rows.first() else { return Ok(None) };
+    let Some(r) = rows.first() else {
+        return Ok(None);
+    };
     if !b(r, 0) {
         let base = format_type(&st(r, 1), n(r, 2), n(r, 3), n(r, 4));
         return Ok(Some(alias_type_sql(schema, name, &base, b(r, 5))));
@@ -1444,7 +1882,11 @@ async fn type_definition(s: &mut SqlServerSession, schema: Option<&str>, name: &
         .iter()
         .map(|r| {
             let ty = st(r, 1);
-            let data_type = if b(r, 2) { qn(text(r, 3).as_deref(), &ty) } else { format_type(&ty, n(r, 4), n(r, 5), n(r, 6)) };
+            let data_type = if b(r, 2) {
+                qn(text(r, 3).as_deref(), &ty)
+            } else {
+                format_type(&ty, n(r, 4), n(r, 5), n(r, 6))
+            };
             TypeColumn {
                 name: st(r, 0),
                 data_type,
@@ -1461,7 +1903,15 @@ async fn type_definition(s: &mut SqlServerSession, schema: Option<&str>, name: &
         ("CAST(hx.bucket_count AS bigint)", "LEFT JOIN sys.hash_indexes hx ON hx.object_id = i.object_id AND hx.index_id = i.index_id")
     };
     let mut ixs: Vec<(i32, TypeIndex)> = Vec::new();
-    for r in s.rows(&TYPE_INDEXES_SQL.replace("{bucket}", bucket).replace("{hash}", hash), &[&tt]).await? {
+    for r in s
+        .rows(
+            &TYPE_INDEXES_SQL
+                .replace("{bucket}", bucket)
+                .replace("{hash}", hash),
+            &[&tt],
+        )
+        .await?
+    {
         let id = n(&r, 0);
         if ixs.last().is_none_or(|(i, _)| *i != id) {
             ixs.push((
@@ -1482,8 +1932,20 @@ async fn type_definition(s: &mut SqlServerSession, schema: Option<&str>, name: &
         }
     }
     let ixs: Vec<TypeIndex> = ixs.into_iter().map(|(_, i)| i).collect();
-    let checks: Vec<String> = s.rows(TYPE_CHECKS_SQL, &[&tt]).await?.iter().filter_map(|r| text(r, 0)).collect();
-    Ok(Some(table_type_sql(schema, name, &cols, &ixs, &checks, memory_optimized)))
+    let checks: Vec<String> = s
+        .rows(TYPE_CHECKS_SQL, &[&tt])
+        .await?
+        .iter()
+        .filter_map(|r| text(r, 0))
+        .collect();
+    Ok(Some(table_type_sql(
+        schema,
+        name,
+        &cols,
+        &ixs,
+        &checks,
+        memory_optimized,
+    )))
 }
 
 #[cfg(test)]
@@ -1492,7 +1954,14 @@ mod tests {
     use dbine_driver::{ColumnDef, DdlParts};
 
     fn raw(name: &str, ty: i32, desc: &str) -> RawIndex {
-        RawIndex { name: name.into(), ty, type_desc: desc.into(), row_locks: true, page_locks: true, ..Default::default() }
+        RawIndex {
+            name: name.into(),
+            ty,
+            type_desc: desc.into(),
+            row_locks: true,
+            page_locks: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1513,7 +1982,11 @@ mod tests {
         assert_eq!(ix.columns, vec!["a", "b"]);
         assert_eq!(ix.include, vec!["c", "d"]);
         assert_eq!(ix.filter.as_deref(), Some("[a] IS NOT NULL"));
-        let o: Vec<(&str, &str)> = ix.options.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let o: Vec<(&str, &str)> = ix
+            .options
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         assert_eq!(
             o,
             vec![
@@ -1527,7 +2000,12 @@ mod tests {
                 ("desc", "b"),
             ]
         );
-        let t = TableSchema { schema: Some("dbo".into()), name: "t".into(), indexes: vec![ix], ..Default::default() };
+        let t = TableSchema {
+            schema: Some("dbo".into()),
+            name: "t".into(),
+            indexes: vec![ix],
+            ..Default::default()
+        };
         assert_eq!(
             index_statements("[dbo].[t]", &t, false),
             vec!["CREATE NONCLUSTERED INDEX [IX_a] ON [dbo].[t] ([a], [b] DESC) INCLUDE ([c], [d]) WHERE [a] IS NOT NULL WITH (ALLOW_PAGE_LOCKS = OFF, DATA_COMPRESSION = PAGE, FILLFACTOR = 80, IGNORE_DUP_KEY = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = ON, PAD_INDEX = ON, STATISTICS_NORECOMPUTE = ON);"]
@@ -1554,11 +2032,19 @@ mod tests {
 
     #[test]
     fn mixed_partition_compression() {
-        assert_eq!(compression_of(&[(1, "PAGE".into()), (2, "PAGE".into()), (3, "NONE".into())]).as_deref(), Some("PAGE ON PARTITIONS (1, 2); NONE ON PARTITIONS (3)"));
+        assert_eq!(
+            compression_of(&[(1, "PAGE".into()), (2, "PAGE".into()), (3, "NONE".into())])
+                .as_deref(),
+            Some("PAGE ON PARTITIONS (1, 2); NONE ON PARTITIONS (3)")
+        );
         let mut r = raw("IX", 2, "NONCLUSTERED");
         r.keys = vec![("a".into(), false)];
         r.compression = vec![(1, "ROW".into()), (2, "PAGE".into())];
-        let t = TableSchema { name: "t".into(), indexes: vec![r.to_index()], ..Default::default() };
+        let t = TableSchema {
+            name: "t".into(),
+            indexes: vec![r.to_index()],
+            ..Default::default()
+        };
         assert_eq!(
             index_statements("[t]", &t, false)[0],
             "CREATE NONCLUSTERED INDEX [IX] ON [t] ([a]) WITH (DATA_COMPRESSION = ROW ON PARTITIONS (1), DATA_COMPRESSION = PAGE ON PARTITIONS (2));"
@@ -1575,10 +2061,17 @@ mod tests {
         nc.columns = vec!["x".into(), "y".into()];
         nc.filter = Some("([x]>(0))".into());
         nc.compression = vec![(1, "COLUMNSTORE".into())];
-        let t = TableSchema { name: "t".into(), indexes: vec![nc.to_index(), cci.to_index()], ..Default::default() };
+        let t = TableSchema {
+            name: "t".into(),
+            indexes: vec![nc.to_index(), cci.to_index()],
+            ..Default::default()
+        };
         let s = index_statements("[dbo].[t]", &t, false);
         assert_eq!(s[0], "CREATE CLUSTERED COLUMNSTORE INDEX [CCI] ON [dbo].[t] ORDER ([a], [b]) WITH (COMPRESSION_DELAY = 10, DATA_COMPRESSION = COLUMNSTORE_ARCHIVE);");
-        assert_eq!(s[1], "CREATE NONCLUSTERED COLUMNSTORE INDEX [NCCI] ON [dbo].[t] ([x], [y]) WHERE [x]>(0);");
+        assert_eq!(
+            s[1],
+            "CREATE NONCLUSTERED COLUMNSTORE INDEX [NCCI] ON [dbo].[t] ([x], [y]) WHERE [x]>(0);"
+        );
     }
 
     #[test]
@@ -1592,22 +2085,45 @@ mod tests {
         sx.fill_factor = 90;
         let sx = sx.to_index();
         assert_eq!(sx.kind.as_deref(), Some("XML PATH"));
-        assert_eq!(sx.options.get("primary_xml_index").map(String::as_str), Some("PX"));
+        assert_eq!(
+            sx.options.get("primary_xml_index").map(String::as_str),
+            Some("PX")
+        );
         let mut sp = raw("SP", 4, "SPATIAL");
         sp.keys = vec![("geo".into(), false)];
         sp.tessellation = Some("GEOMETRY_GRID".into());
         sp.bounding_box = Some([0.0, 0.0, 100.5, 100.0]);
-        sp.grids = Some(["MEDIUM".into(), "MEDIUM".into(), "LOW".into(), "HIGH".into()]);
+        sp.grids = Some([
+            "MEDIUM".into(),
+            "MEDIUM".into(),
+            "LOW".into(),
+            "HIGH".into(),
+        ]);
         sp.cells_per_object = Some(16);
         let mut auto = raw("SPA", 4, "SPATIAL");
         auto.keys = vec![("geo".into(), false)];
         auto.tessellation = Some("GEOGRAPHY_AUTO_GRID".into());
-        auto.grids = Some(["MEDIUM".into(), "MEDIUM".into(), "MEDIUM".into(), "MEDIUM".into()]);
+        auto.grids = Some([
+            "MEDIUM".into(),
+            "MEDIUM".into(),
+            "MEDIUM".into(),
+            "MEDIUM".into(),
+        ]);
         auto.cells_per_object = Some(12);
         let mut hash = raw("HX", 7, "NONCLUSTERED HASH");
         hash.keys = vec![("id".into(), false)];
         hash.bucket_count = Some(1024);
-        let t = TableSchema { name: "t".into(), indexes: vec![sx, hash.to_index(), px.to_index(), sp.to_index(), auto.to_index()], ..Default::default() };
+        let t = TableSchema {
+            name: "t".into(),
+            indexes: vec![
+                sx,
+                hash.to_index(),
+                px.to_index(),
+                sp.to_index(),
+                auto.to_index(),
+            ],
+            ..Default::default()
+        };
         let s = index_statements("[dbo].[t]", &t, false);
         assert_eq!(
             s,
@@ -1627,8 +2143,15 @@ mod tests {
         r.unique = true;
         r.unique_constraint = true;
         r.keys = vec![("email".into(), false)];
-        let t = TableSchema { name: "t".into(), indexes: vec![r.to_index()], ..Default::default() };
-        assert_eq!(index_statements("[dbo].[t]", &t, false), vec!["ALTER TABLE [dbo].[t] ADD CONSTRAINT [UQ_email] UNIQUE NONCLUSTERED ([email]);"]);
+        let t = TableSchema {
+            name: "t".into(),
+            indexes: vec![r.to_index()],
+            ..Default::default()
+        };
+        assert_eq!(
+            index_statements("[dbo].[t]", &t, false),
+            vec!["ALTER TABLE [dbo].[t] ADD CONSTRAINT [UQ_email] UNIQUE NONCLUSTERED ([email]);"]
+        );
         let g = index_statements("[dbo].[t]", &t, true);
         assert!(g[0].starts_with("IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[t]') AND name = N'UQ_email')\n    ALTER TABLE"), "{g:?}");
     }
@@ -1641,7 +2164,10 @@ mod tests {
             stoplist_id: Some(5),
             stoplist: Some("palabras".into()),
             property_list: None,
-            columns: vec![("titulo".into(), 1033, None, false), ("cuerpo".into(), 3082, Some("ext".into()), false)],
+            columns: vec![
+                ("titulo".into(), 1033, None, false),
+                ("cuerpo".into(), 3082, Some("ext".into()), false),
+            ],
         }
     }
 
@@ -1651,7 +2177,11 @@ mod tests {
         assert_eq!(ix.name, "fulltext");
         assert_eq!(ix.kind.as_deref(), Some("FULLTEXT"));
         assert_eq!(ix.columns, vec!["titulo", "cuerpo"]);
-        let o: Vec<(&str, &str)> = ix.options.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let o: Vec<(&str, &str)> = ix
+            .options
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         assert_eq!(
             o,
             vec![
@@ -1664,10 +2194,29 @@ mod tests {
             ]
         );
         // Defaults: AUTO tracking, the system stoplist, the server's language.
-        let d = RawFullText { change_tracking: "AUTO".into(), stoplist_id: Some(0), stoplist: None, ..fulltext() }.to_index(3082);
+        let d = RawFullText {
+            change_tracking: "AUTO".into(),
+            stoplist_id: Some(0),
+            stoplist: None,
+            ..fulltext()
+        }
+        .to_index(3082);
         let keys: Vec<&str> = d.options.keys().map(String::as_str).collect();
-        assert_eq!(keys, vec!["CATALOG", "KEY INDEX", "LANGUAGE titulo", "TYPE COLUMN cuerpo"]);
-        let off = RawFullText { stoplist_id: None, stoplist: None, ..fulltext() }.to_index(1033);
+        assert_eq!(
+            keys,
+            vec![
+                "CATALOG",
+                "KEY INDEX",
+                "LANGUAGE titulo",
+                "TYPE COLUMN cuerpo"
+            ]
+        );
+        let off = RawFullText {
+            stoplist_id: None,
+            stoplist: None,
+            ..fulltext()
+        }
+        .to_index(1033);
         assert_eq!(off.options.get("STOPLIST").map(String::as_str), Some("OFF"));
     }
 
@@ -1677,27 +2226,62 @@ mod tests {
         let mut key = raw("UX_docs", 2, "NONCLUSTERED");
         key.unique = true;
         key.keys = vec![("id".into(), false)];
-        let t = TableSchema { schema: Some("dbo".into()), name: "docs".into(), indexes: vec![ft, key.to_index()], ..Default::default() };
+        let t = TableSchema {
+            schema: Some("dbo".into()),
+            name: "docs".into(),
+            indexes: vec![ft, key.to_index()],
+            ..Default::default()
+        };
         let s = index_statements("[dbo].[docs]", &t, false);
-        assert_eq!(s[0], "CREATE UNIQUE NONCLUSTERED INDEX [UX_docs] ON [dbo].[docs] ([id]);");
+        assert_eq!(
+            s[0],
+            "CREATE UNIQUE NONCLUSTERED INDEX [UX_docs] ON [dbo].[docs] ([id]);"
+        );
         assert_eq!(
             s[1],
             "CREATE FULLTEXT INDEX ON [dbo].[docs] ([titulo], [cuerpo] TYPE COLUMN [ext] LANGUAGE 3082) KEY INDEX [PK_docs] ON [cat] WITH (CHANGE_TRACKING = MANUAL, STOPLIST = [palabras]);"
         );
         let g = index_statements("[dbo].[docs]", &t, true);
         assert!(g[1].starts_with("IF NOT EXISTS (SELECT 1 FROM sys.fulltext_indexes WHERE object_id = OBJECT_ID(N'[dbo].[docs]'))\n    CREATE FULLTEXT"), "{g:?}");
-        let sys = IndexDef { options: [("KEY INDEX".to_string(), "PK".to_string()), ("STOPLIST".into(), "OFF".into())].into(), ..t.indexes[0].clone() };
+        let sys = IndexDef {
+            options: [
+                ("KEY INDEX".to_string(), "PK".to_string()),
+                ("STOPLIST".into(), "OFF".into()),
+            ]
+            .into(),
+            ..t.indexes[0].clone()
+        };
         assert_eq!(fulltext_sql("[t]", &sys), "CREATE FULLTEXT INDEX ON [t] ([titulo], [cuerpo]) KEY INDEX [PK] WITH (STOPLIST = OFF);");
     }
 
     #[test]
     fn drops_follow_dependencies() {
         let mut v = [
-            IndexDef { name: "c".into(), kind: Some("CLUSTERED".into()), ..Default::default() },
-            IndexDef { name: "px".into(), kind: Some("XML".into()), ..Default::default() },
-            IndexDef { name: "n".into(), kind: Some("NONCLUSTERED".into()), ..Default::default() },
-            IndexDef { name: "sx".into(), kind: Some("XML PATH".into()), ..Default::default() },
-            IndexDef { name: "fulltext".into(), kind: Some("FULLTEXT".into()), ..Default::default() },
+            IndexDef {
+                name: "c".into(),
+                kind: Some("CLUSTERED".into()),
+                ..Default::default()
+            },
+            IndexDef {
+                name: "px".into(),
+                kind: Some("XML".into()),
+                ..Default::default()
+            },
+            IndexDef {
+                name: "n".into(),
+                kind: Some("NONCLUSTERED".into()),
+                ..Default::default()
+            },
+            IndexDef {
+                name: "sx".into(),
+                kind: Some("XML PATH".into()),
+                ..Default::default()
+            },
+            IndexDef {
+                name: "fulltext".into(),
+                kind: Some("FULLTEXT".into()),
+                ..Default::default()
+            },
         ];
         v.sort_by_key(drop_rank);
         let names: Vec<&str> = v.iter().map(|i| i.name.as_str()).collect();
@@ -1708,8 +2292,16 @@ mod tests {
         TableSchema {
             schema: Some("dbo".into()),
             name: "docs".into(),
-            columns: vec![ColumnDef { name: "id".into(), data_type: "int".into(), nullable: false, ..Default::default() }],
-            primary_key: Some(KeyDef { name: Some("PK_docs".into()), columns: vec!["id".into()] }),
+            columns: vec![ColumnDef {
+                name: "id".into(),
+                data_type: "int".into(),
+                nullable: false,
+                ..Default::default()
+            }],
+            primary_key: Some(KeyDef {
+                name: Some("PK_docs".into()),
+                columns: vec!["id".into()],
+            }),
             indexes,
             ..Default::default()
         }
@@ -1717,14 +2309,20 @@ mod tests {
 
     fn sync(changes: &[TableChange]) -> Vec<String> {
         use dbine_driver::alter::{AlterStyle, ColumnAlter, DropIndex};
-        let cd = |t: &TableSchema, c: &ColumnDef| dbine_driver::ddl::column_def(&crate::schema::FLAVOR, t, c);
+        let cd = |t: &TableSchema, c: &ColumnDef| {
+            dbine_driver::ddl::column_def(&crate::schema::FLAVOR, t, c)
+        };
         let dd = |t: &TableSchema, p: DdlParts| Ok(crate::schema::table_ddl(t, p));
-        let mut st = AlterStyle::from_flavor(&crate::schema::FLAVOR, ColumnAlter::SqlServer, &cd, &dd);
+        let mut st =
+            AlterStyle::from_flavor(&crate::schema::FLAVOR, ColumnAlter::SqlServer, &cd, &dd);
         st.add_column = "ADD";
         st.drop_index = DropIndex::OnTable;
         let prepared = prepare_changes(changes, Variant::SqlServer);
-        let comments = |t: &TableSchema, c: Option<&ColumnDef>, v: Option<&str>| Some(crate::schema::comment_change(t, c, v));
-        let mut s = dbine_driver::alter::sync_script_with_comments(&st, Some(&comments), &prepared).unwrap();
+        let comments = |t: &TableSchema, c: Option<&ColumnDef>, v: Option<&str>| {
+            Some(crate::schema::comment_change(t, c, v))
+        };
+        let mut s = dbine_driver::alter::sync_script_with_comments(&st, Some(&comments), &prepared)
+            .unwrap();
         fix_drops(&mut s.statements, &prepared);
         keep_referencing_fks(&mut s.statements, &mut s.warnings, &prepared);
         s.statements
@@ -1733,28 +2331,71 @@ mod tests {
     #[test]
     fn comments_sync_as_extended_properties() {
         let mut old = table(vec![]);
-        old.columns.push(ColumnDef { name: "nombre".into(), data_type: "nvarchar(50)".into(), nullable: true, comment: Some("viejo".into()), ..Default::default() });
-        old.columns.push(ColumnDef { name: "baja".into(), data_type: "date".into(), nullable: true, comment: Some("se va".into()), ..Default::default() });
+        old.columns.push(ColumnDef {
+            name: "nombre".into(),
+            data_type: "nvarchar(50)".into(),
+            nullable: true,
+            comment: Some("viejo".into()),
+            ..Default::default()
+        });
+        old.columns.push(ColumnDef {
+            name: "baja".into(),
+            data_type: "date".into(),
+            nullable: true,
+            comment: Some("se va".into()),
+            ..Default::default()
+        });
         let mut new = old.clone();
         new.comment = Some("Documentos".into());
         new.columns[1].comment = Some("it's new".into());
         new.columns[2].comment = None;
-        new.columns.push(ColumnDef { name: "email".into(), data_type: "nvarchar(100)".into(), nullable: true, comment: Some("correo".into()), ..Default::default() });
-        let s = sync(&[TableChange::Alter { old: old.clone(), new: new.clone() }]);
+        new.columns.push(ColumnDef {
+            name: "email".into(),
+            data_type: "nvarchar(100)".into(),
+            nullable: true,
+            comment: Some("correo".into()),
+            ..Default::default()
+        });
+        let s = sync(&[TableChange::Alter {
+            old: old.clone(),
+            new: new.clone(),
+        }]);
         assert_eq!(s.len(), 5, "{s:#?}");
-        assert_eq!(s[0], "ALTER TABLE [dbo].[docs] ADD [email] nvarchar(100) NULL;");
+        assert_eq!(
+            s[0],
+            "ALTER TABLE [dbo].[docs] ADD [email] nvarchar(100) NULL;"
+        );
         let upsert = |s: &str, levels: &str| {
             s.contains(&format!("IF NOT EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', {levels}))"))
                 && s.contains("EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = @v")
                 && s.contains("ELSE\n    EXEC sys.sp_updateextendedproperty @name = N'MS_Description', @value = @v")
         };
-        assert!(upsert(&s[1], "N'SCHEMA', N'dbo', N'TABLE', N'docs', N'COLUMN', N'email'") && s[1].starts_with("DECLARE @v sql_variant = N'correo';"), "{}", s[1]);
-        assert!(upsert(&s[2], "N'SCHEMA', N'dbo', N'TABLE', N'docs', N'COLUMN', N'nombre'") && s[2].starts_with("DECLARE @v sql_variant = N'it''s new';"), "{}", s[2]);
+        assert!(
+            upsert(
+                &s[1],
+                "N'SCHEMA', N'dbo', N'TABLE', N'docs', N'COLUMN', N'email'"
+            ) && s[1].starts_with("DECLARE @v sql_variant = N'correo';"),
+            "{}",
+            s[1]
+        );
+        assert!(
+            upsert(
+                &s[2],
+                "N'SCHEMA', N'dbo', N'TABLE', N'docs', N'COLUMN', N'nombre'"
+            ) && s[2].starts_with("DECLARE @v sql_variant = N'it''s new';"),
+            "{}",
+            s[2]
+        );
         assert_eq!(
             s[3],
             "IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'docs', N'COLUMN', N'baja'))\n    EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'docs', @level2type = N'COLUMN', @level2name = N'baja';"
         );
-        assert!(upsert(&s[4], "N'SCHEMA', N'dbo', N'TABLE', N'docs', NULL, NULL") && s[4].starts_with("DECLARE @v sql_variant = N'Documentos';"), "{}", s[4]);
+        assert!(
+            upsert(&s[4], "N'SCHEMA', N'dbo', N'TABLE', N'docs', NULL, NULL")
+                && s[4].starts_with("DECLARE @v sql_variant = N'Documentos';"),
+            "{}",
+            s[4]
+        );
         // And back: the table's comment goes.
         let s = sync(&[TableChange::Alter { old: new, new: old }]);
         assert!(s.last().unwrap().starts_with("IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'docs', NULL, NULL))\n    EXEC sys.sp_dropextendedproperty"), "{s:#?}");
@@ -1764,22 +2405,53 @@ mod tests {
     #[test]
     fn key_index_change_takes_the_fulltext_index_along() {
         let ft = fulltext().to_index(1033);
-        let ft = IndexDef { options: [("KEY INDEX".to_string(), "UX".to_string()), ("CATALOG".into(), "cat".into())].into(), ..ft };
-        let ux = IndexDef { name: "UX".into(), columns: vec!["id".into()], unique: true, kind: Some("NONCLUSTERED".into()), ..Default::default() };
+        let ft = IndexDef {
+            options: [
+                ("KEY INDEX".to_string(), "UX".to_string()),
+                ("CATALOG".into(), "cat".into()),
+            ]
+            .into(),
+            ..ft
+        };
+        let ux = IndexDef {
+            name: "UX".into(),
+            columns: vec!["id".into()],
+            unique: true,
+            kind: Some("NONCLUSTERED".into()),
+            ..Default::default()
+        };
         let mut ux2 = ux.clone();
         ux2.options.insert("FILLFACTOR".into(), "80".into());
         let old = table(vec![ft.clone(), ux]);
         let new = table(vec![ft, ux2]);
         let s = sync(&[TableChange::Alter { old, new }]);
-        let pos = |p: &str| s.iter().position(|x| x.contains(p)).unwrap_or_else(|| panic!("{p} in {s:#?}"));
-        assert!(pos("DROP FULLTEXT INDEX ON [dbo].[docs]") < pos("DROP INDEX [UX] ON [dbo].[docs]"), "{s:#?}");
+        let pos = |p: &str| {
+            s.iter()
+                .position(|x| x.contains(p))
+                .unwrap_or_else(|| panic!("{p} in {s:#?}"))
+        };
+        assert!(
+            pos("DROP FULLTEXT INDEX ON [dbo].[docs]") < pos("DROP INDEX [UX] ON [dbo].[docs]"),
+            "{s:#?}"
+        );
         let create = &s[pos("CREATE FULLTEXT INDEX")];
-        assert!(create.find("CREATE UNIQUE NONCLUSTERED INDEX [UX]").unwrap() < create.find("CREATE FULLTEXT INDEX").unwrap(), "{create}");
+        assert!(
+            create
+                .find("CREATE UNIQUE NONCLUSTERED INDEX [UX]")
+                .unwrap()
+                < create.find("CREATE FULLTEXT INDEX").unwrap(),
+            "{create}"
+        );
     }
 
     #[test]
     fn primary_xml_change_takes_the_secondary_along() {
-        let px = IndexDef { name: "PX".into(), columns: vec!["doc".into()], kind: Some("XML".into()), ..Default::default() };
+        let px = IndexDef {
+            name: "PX".into(),
+            columns: vec!["doc".into()],
+            kind: Some("XML".into()),
+            ..Default::default()
+        };
         let sx = IndexDef {
             name: "SX".into(),
             columns: vec!["doc".into()],
@@ -1789,10 +2461,20 @@ mod tests {
         };
         let mut px2 = px.clone();
         px2.options.insert("FILLFACTOR".into(), "70".into());
-        let s = sync(&[TableChange::Alter { old: table(vec![sx.clone(), px]), new: table(vec![sx, px2]) }]);
+        let s = sync(&[TableChange::Alter {
+            old: table(vec![sx.clone(), px]),
+            new: table(vec![sx, px2]),
+        }]);
         let joined = s.join("\n");
-        assert!(joined.find("DROP INDEX [SX]").unwrap() < joined.find("DROP INDEX [PX]").unwrap(), "{joined}");
-        assert!(joined.find("CREATE PRIMARY XML INDEX [PX]").unwrap() < joined.find("CREATE XML INDEX [SX]").unwrap(), "{joined}");
+        assert!(
+            joined.find("DROP INDEX [SX]").unwrap() < joined.find("DROP INDEX [PX]").unwrap(),
+            "{joined}"
+        );
+        assert!(
+            joined.find("CREATE PRIMARY XML INDEX [PX]").unwrap()
+                < joined.find("CREATE XML INDEX [SX]").unwrap(),
+            "{joined}"
+        );
     }
 
     #[test]
@@ -1805,21 +2487,56 @@ mod tests {
             options: [("unique_constraint".to_string(), "ON".to_string())].into(),
             ..Default::default()
         };
-        let hx = IndexDef { name: "HX".into(), columns: vec!["id".into()], kind: Some("NONCLUSTERED HASH".into()), ..Default::default() };
-        let s = sync(&[TableChange::Alter { old: table(vec![uq, hx]), new: table(vec![]) }]);
-        assert!(s.contains(&"ALTER TABLE [dbo].[docs] DROP CONSTRAINT [UQ];".to_string()), "{s:#?}");
-        assert!(s.contains(&"ALTER TABLE [dbo].[docs] DROP INDEX [HX];".to_string()), "{s:#?}");
+        let hx = IndexDef {
+            name: "HX".into(),
+            columns: vec!["id".into()],
+            kind: Some("NONCLUSTERED HASH".into()),
+            ..Default::default()
+        };
+        let s = sync(&[TableChange::Alter {
+            old: table(vec![uq, hx]),
+            new: table(vec![]),
+        }]);
+        assert!(
+            s.contains(&"ALTER TABLE [dbo].[docs] DROP CONSTRAINT [UQ];".to_string()),
+            "{s:#?}"
+        );
+        assert!(
+            s.contains(&"ALTER TABLE [dbo].[docs] DROP INDEX [HX];".to_string()),
+            "{s:#?}"
+        );
     }
 
     #[test]
     fn checks_go_in_create_table_and_through_alter() {
         let mut t = table(vec![]);
-        t.checks = vec![CheckDef { name: Some("CK_id".into()), expression: "([id]>(0))".into() }];
-        let s = crate::schema::table_ddl(&t, DdlParts { create: true, ..Default::default() });
+        t.checks = vec![CheckDef {
+            name: Some("CK_id".into()),
+            expression: "([id]>(0))".into(),
+        }];
+        let s = crate::schema::table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
         assert!(s.contains("CONSTRAINT [CK_id] CHECK ([id]>(0))"), "{s}");
-        let new = TableSchema { checks: vec![CheckDef { name: Some("CK_id".into()), expression: "([id]>(1))".into() }], ..t.clone() };
+        let new = TableSchema {
+            checks: vec![CheckDef {
+                name: Some("CK_id".into()),
+                expression: "([id]>(1))".into(),
+            }],
+            ..t.clone()
+        };
         let st = sync(&[TableChange::Alter { old: t, new }]);
-        assert_eq!(st, vec!["ALTER TABLE [dbo].[docs] DROP CONSTRAINT [CK_id];", "ALTER TABLE [dbo].[docs] ADD CONSTRAINT [CK_id] CHECK ([id]>(1));"]);
+        assert_eq!(
+            st,
+            vec![
+                "ALTER TABLE [dbo].[docs] DROP CONSTRAINT [CK_id];",
+                "ALTER TABLE [dbo].[docs] ADD CONSTRAINT [CK_id] CHECK ([id]>(1));"
+            ]
+        );
     }
 
     #[test]
@@ -1840,28 +2557,93 @@ mod tests {
             sequence_sql(Some("ventas"), "folio", &s),
             "CREATE SEQUENCE [ventas].[folio]\n    AS decimal(12, 0)\n    START WITH 10\n    INCREMENT BY 5\n    MINVALUE 1\n    MAXVALUE 999999\n    CYCLE\n    CACHE 20;"
         );
-        let plain = SequenceInfo { type_name: "bigint".into(), cached: false, ..s.clone() };
-        assert!(sequence_sql(None, "n", &plain).contains("AS bigint\n") && sequence_sql(None, "n", &plain).ends_with("NO CACHE;"));
-        let alias = SequenceInfo { type_name: "Folio".into(), type_schema: Some("dbo".into()), cached: true, cache_size: None, cycle: false, ..s };
+        let plain = SequenceInfo {
+            type_name: "bigint".into(),
+            cached: false,
+            ..s.clone()
+        };
+        assert!(
+            sequence_sql(None, "n", &plain).contains("AS bigint\n")
+                && sequence_sql(None, "n", &plain).ends_with("NO CACHE;")
+        );
+        let alias = SequenceInfo {
+            type_name: "Folio".into(),
+            type_schema: Some("dbo".into()),
+            cached: true,
+            cache_size: None,
+            cycle: false,
+            ..s
+        };
         let a = sequence_sql(Some("dbo"), "n", &alias);
-        assert!(a.contains("AS [dbo].[Folio]\n") && a.contains("NO CYCLE\n    CACHE;"), "{a}");
-        assert_eq!(synonym_sql(Some("dbo"), "cli", "[otra].[dbo].[clientes]"), "CREATE SYNONYM [dbo].[cli] FOR [otra].[dbo].[clientes];");
-        assert_eq!(alias_type_sql(Some("dbo"), "Email", "nvarchar(120)", false), "CREATE TYPE [dbo].[Email] FROM nvarchar(120) NOT NULL;");
+        assert!(
+            a.contains("AS [dbo].[Folio]\n") && a.contains("NO CYCLE\n    CACHE;"),
+            "{a}"
+        );
+        assert_eq!(
+            synonym_sql(Some("dbo"), "cli", "[otra].[dbo].[clientes]"),
+            "CREATE SYNONYM [dbo].[cli] FOR [otra].[dbo].[clientes];"
+        );
+        assert_eq!(
+            alias_type_sql(Some("dbo"), "Email", "nvarchar(120)", false),
+            "CREATE TYPE [dbo].[Email] FROM nvarchar(120) NOT NULL;"
+        );
         let cols = vec![
-            TypeColumn { name: "id".into(), data_type: "int".into(), identity: Some(("1".into(), "1".into())), ..Default::default() },
-            TypeColumn { name: "mail".into(), data_type: "[dbo].[Email]".into(), nullable: true, default: Some("(N'x')".into()), ..Default::default() },
-            TypeColumn { name: "doble".into(), computed: Some(("([id]*(2))".into(), false)), ..Default::default() },
+            TypeColumn {
+                name: "id".into(),
+                data_type: "int".into(),
+                identity: Some(("1".into(), "1".into())),
+                ..Default::default()
+            },
+            TypeColumn {
+                name: "mail".into(),
+                data_type: "[dbo].[Email]".into(),
+                nullable: true,
+                default: Some("(N'x')".into()),
+                ..Default::default()
+            },
+            TypeColumn {
+                name: "doble".into(),
+                computed: Some(("([id]*(2))".into(), false)),
+                ..Default::default()
+            },
         ];
         let ixs = vec![
-            TypeIndex { name: "PK__x".into(), primary: true, unique: true, clustered: true, keys: vec![("id".into(), false)], ..Default::default() },
-            TypeIndex { name: "IX_mail".into(), keys: vec![("mail".into(), true)], ..Default::default() },
+            TypeIndex {
+                name: "PK__x".into(),
+                primary: true,
+                unique: true,
+                clustered: true,
+                keys: vec![("id".into(), false)],
+                ..Default::default()
+            },
+            TypeIndex {
+                name: "IX_mail".into(),
+                keys: vec![("mail".into(), true)],
+                ..Default::default()
+            },
         ];
         assert_eq!(
             table_type_sql(Some("dbo"), "Lineas", &cols, &ixs, &["([id]>(0))".into()], false),
             "CREATE TYPE [dbo].[Lineas] AS TABLE (\n    [id] int IDENTITY(1, 1) NOT NULL,\n    [mail] [dbo].[Email] DEFAULT (N'x') NULL,\n    [doble] AS ([id]*(2)),\n    PRIMARY KEY CLUSTERED ([id]),\n    INDEX [IX_mail] NONCLUSTERED ([mail] DESC),\n    CHECK ([id]>(0))\n);"
         );
-        let mo = table_type_sql(None, "M", &cols[..1], &[TypeIndex { primary: true, bucket_count: Some(64), keys: vec![("id".into(), false)], ..Default::default() }], &[], true);
-        assert!(mo.contains("PRIMARY KEY NONCLUSTERED HASH ([id]) WITH (BUCKET_COUNT = 64)") && mo.ends_with(") WITH (MEMORY_OPTIMIZED = ON);"), "{mo}");
+        let mo = table_type_sql(
+            None,
+            "M",
+            &cols[..1],
+            &[TypeIndex {
+                primary: true,
+                bucket_count: Some(64),
+                keys: vec![("id".into(), false)],
+                ..Default::default()
+            }],
+            &[],
+            true,
+        );
+        assert!(
+            mo.contains("PRIMARY KEY NONCLUSTERED HASH ([id]) WITH (BUCKET_COUNT = 64)")
+                && mo.ends_with(") WITH (MEMORY_OPTIMIZED = ON);"),
+            "{mo}"
+        );
     }
 
     #[test]
@@ -1873,22 +2655,52 @@ mod tests {
              ELSE IF (SELECT is_accent_sensitivity_on FROM sys.fulltext_catalogs WHERE name = N'cat') <> 0\n    ALTER FULLTEXT CATALOG [cat] REBUILD WITH ACCENT_SENSITIVITY = OFF;\n\
              ALTER FULLTEXT CATALOG [cat] AS DEFAULT;"
         );
-        assert!(!catalog_sql("cat", true, false).contains("AS DEFAULT") && catalog_sql("cat", true, false).contains("<> 1"));
-        let s = stoplist_sql("sl", true, &[("dbine".into(), 1033), ("o'clock".into(), 3082)], &[("a".into(), 1033)]);
+        assert!(
+            !catalog_sql("cat", true, false).contains("AS DEFAULT")
+                && catalog_sql("cat", true, false).contains("<> 1")
+        );
+        let s = stoplist_sql(
+            "sl",
+            true,
+            &[("dbine".into(), 1033), ("o'clock".into(), 3082)],
+            &[("a".into(), 1033)],
+        );
         assert!(s.starts_with("IF NOT EXISTS (SELECT 1 FROM sys.fulltext_stoplists WHERE name = N'sl')\n    CREATE FULLTEXT STOPLIST [sl] FROM SYSTEM STOPLIST;"), "{s}");
         assert!(s.contains("INSERT INTO @words SELECT stopword, language_id FROM sys.fulltext_system_stopwords;"), "{s}");
-        assert!(s.contains("DELETE FROM @words WHERE (lang = 1033 AND word = N'a');"), "{s}");
-        assert!(s.contains("INSERT INTO @words VALUES (N'dbine', 1033),\n    (N'o''clock', 3082);"), "{s}");
-        assert!(s.contains("N'ALTER FULLTEXT STOPLIST [sl] ADD N' + QUOTENAME(x.word, '''')"), "{s}");
+        assert!(
+            s.contains("DELETE FROM @words WHERE (lang = 1033 AND word = N'a');"),
+            "{s}"
+        );
+        assert!(
+            s.contains("INSERT INTO @words VALUES (N'dbine', 1033),\n    (N'o''clock', 3082);"),
+            "{s}"
+        );
+        assert!(
+            s.contains("N'ALTER FULLTEXT STOPLIST [sl] ADD N' + QUOTENAME(x.word, '''')"),
+            "{s}"
+        );
         assert!(s.ends_with("EXEC (@sql);"), "{s}");
         let empty = stoplist_sql("sl", false, &[], &[]);
-        assert!(!empty.contains("FROM SYSTEM STOPLIST") && !empty.contains("fulltext_system_stopwords;"), "{empty}");
+        assert!(
+            !empty.contains("FROM SYSTEM STOPLIST")
+                && !empty.contains("fulltext_system_stopwords;"),
+            "{empty}"
+        );
     }
 
     #[test]
     fn kinds_per_engine() {
         let ids = |v| object_kinds(v).iter().map(|k| k.id).collect::<Vec<_>>();
-        assert_eq!(ids(Variant::SqlServer), vec!["sequence", "synonym", "type", "fulltext_catalog", "fulltext_stoplist"]);
+        assert_eq!(
+            ids(Variant::SqlServer),
+            vec![
+                "sequence",
+                "synonym",
+                "type",
+                "fulltext_catalog",
+                "fulltext_stoplist"
+            ]
+        );
         assert_eq!(ids(Variant::AzureSql), ids(Variant::SqlServer));
         assert_eq!(ids(Variant::Babelfish), vec!["type"]);
         assert!(ids(Variant::Fabric).is_empty());
@@ -1902,10 +2714,23 @@ mod tests {
             schema: Some("Alerts".into()),
             name: name.into(),
             columns: vec![
-                ColumnDef { name: "Id".into(), data_type: "bigint".into(), nullable: false, ..Default::default() },
-                ColumnDef { name: "Code".into(), data_type: "nvarchar(50)".into(), nullable: true, ..Default::default() },
+                ColumnDef {
+                    name: "Id".into(),
+                    data_type: "bigint".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "Code".into(),
+                    data_type: "nvarchar(50)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some(format!("PK_{name}")), columns: vec!["Id".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some(format!("PK_{name}")),
+                columns: vec!["Id".into()],
+            }),
             indexes,
             ..Default::default()
         };
@@ -1916,18 +2741,30 @@ mod tests {
     }
 
     fn cci(name: &str) -> IndexDef {
-        IndexDef { name: name.into(), kind: Some("CLUSTERED COLUMNSTORE".into()), ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            kind: Some("CLUSTERED COLUMNSTORE".into()),
+            ..Default::default()
+        }
     }
 
     fn rowstore(name: &str, kind: &str, cols: &[&str]) -> IndexDef {
-        IndexDef { name: name.into(), kind: Some(kind.into()), columns: cols.iter().map(|c| c.to_string()).collect(), ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            kind: Some(kind.into()),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     fn full_sync(changes: &[TableChange]) -> dbine_driver::SyncScript {
         use dbine_driver::alter::{AlterStyle, ColumnAlter, DropIndex};
-        let cd = |t: &TableSchema, c: &ColumnDef| dbine_driver::ddl::column_def(&crate::schema::FLAVOR, t, c);
+        let cd = |t: &TableSchema, c: &ColumnDef| {
+            dbine_driver::ddl::column_def(&crate::schema::FLAVOR, t, c)
+        };
         let dd = |t: &TableSchema, p: DdlParts| Ok(crate::schema::table_ddl(t, p));
-        let mut st = AlterStyle::from_flavor(&crate::schema::FLAVOR, ColumnAlter::SqlServer, &cd, &dd);
+        let mut st =
+            AlterStyle::from_flavor(&crate::schema::FLAVOR, ColumnAlter::SqlServer, &cd, &dd);
         st.add_column = "ADD";
         st.drop_index = DropIndex::OnTable;
         let prepared = prepare_changes(changes, Variant::SqlServer);
@@ -1958,16 +2795,31 @@ mod tests {
         // source's is NONCLUSTERED and a columnstore index is the clustered one.
         let changes: Vec<TableChange> = ["RuleConfigurationAudit", "RuleScenario"]
             .iter()
-            .map(|n| TableChange::Alter { old: keyed(n, false, vec![]), new: keyed(n, true, vec![cci(&format!("CCI_{n}"))]) })
+            .map(|n| TableChange::Alter {
+                old: keyed(n, false, vec![]),
+                new: keyed(n, true, vec![cci(&format!("CCI_{n}"))]),
+            })
             .collect();
         let s = full_sync(&changes);
         let owner = |n: &str| format!("[Alerts].[{n}]");
         let st = &s.statements;
         assert_eq!(st.len(), 7, "{st:#?}");
-        assert!(st[0].starts_with(&stash(&owner("RuleConfigurationAudit"), "PK_RuleConfigurationAudit")), "{st:#?}");
+        assert!(
+            st[0].starts_with(&stash(
+                &owner("RuleConfigurationAudit"),
+                "PK_RuleConfigurationAudit"
+            )),
+            "{st:#?}"
+        );
         assert_eq!(st[1], "ALTER TABLE [Alerts].[RuleConfigurationAudit] DROP CONSTRAINT [PK_RuleConfigurationAudit];");
-        assert!(st[2].starts_with(&stash(&owner("RuleScenario"), "PK_RuleScenario")), "{st:#?}");
-        assert_eq!(st[3], "ALTER TABLE [Alerts].[RuleScenario] DROP CONSTRAINT [PK_RuleScenario];");
+        assert!(
+            st[2].starts_with(&stash(&owner("RuleScenario"), "PK_RuleScenario")),
+            "{st:#?}"
+        );
+        assert_eq!(
+            st[3],
+            "ALTER TABLE [Alerts].[RuleScenario] DROP CONSTRAINT [PK_RuleScenario];"
+        );
         // The new clustered index first (the key's index is built once, on
         // it), then the key, nonclustered.
         assert_eq!(
@@ -1980,19 +2832,65 @@ mod tests {
         );
         assert!(is_restore(&st[6]), "{st:#?}");
         // The stash reads the referencing keys by the key's index and keeps how they are.
-        assert!(st[0].contains("DECLARE @t int = OBJECT_ID(N'[Alerts].[RuleConfigurationAudit]');"), "{}", st[0]);
-        assert!(st[0].contains("WHERE object_id = @t AND name = N'PK_RuleConfigurationAudit'"), "{}", st[0]);
-        assert!(st[0].contains("fk.key_index_id = @k") && st[0].contains("WITH NOCHECK") && st[0].contains("ON DELETE CASCADE"), "{}", st[0]);
-        assert!(st[0].ends_with("IF @drop IS NOT NULL EXEC sp_executesql @drop;"), "{}", st[0]);
-        assert!(st[6].contains("EXEC sp_executesql @add;") && st[6].contains("DROP TABLE #dbine_fks;"), "{}", st[6]);
-        assert_eq!(s.warnings.iter().filter(|w| w.contains("cambia el índice clúster")).count(), 2, "{:#?}", s.warnings);
-        assert_eq!(s.warnings.iter().filter(|w| w.contains("claves foráneas")).count(), 2, "{:#?}", s.warnings);
+        assert!(
+            st[0].contains("DECLARE @t int = OBJECT_ID(N'[Alerts].[RuleConfigurationAudit]');"),
+            "{}",
+            st[0]
+        );
+        assert!(
+            st[0].contains("WHERE object_id = @t AND name = N'PK_RuleConfigurationAudit'"),
+            "{}",
+            st[0]
+        );
+        assert!(
+            st[0].contains("fk.key_index_id = @k")
+                && st[0].contains("WITH NOCHECK")
+                && st[0].contains("ON DELETE CASCADE"),
+            "{}",
+            st[0]
+        );
+        assert!(
+            st[0].ends_with("IF @drop IS NOT NULL EXEC sp_executesql @drop;"),
+            "{}",
+            st[0]
+        );
+        assert!(
+            st[6].contains("EXEC sp_executesql @add;") && st[6].contains("DROP TABLE #dbine_fks;"),
+            "{}",
+            st[6]
+        );
+        assert_eq!(
+            s.warnings
+                .iter()
+                .filter(|w| w.contains("cambia el índice clúster"))
+                .count(),
+            2,
+            "{:#?}",
+            s.warnings
+        );
+        assert_eq!(
+            s.warnings
+                .iter()
+                .filter(|w| w.contains("claves foráneas"))
+                .count(),
+            2,
+            "{:#?}",
+            s.warnings
+        );
     }
 
     #[test]
     fn columnstore_index_gives_the_place_back_to_the_key() {
-        let old = keyed("T", true, vec![rowstore("IX_code", "NONCLUSTERED", &["Code"]), cci("CCI_T")]);
-        let new = keyed("T", false, vec![rowstore("IX_code", "NONCLUSTERED", &["Code"])]);
+        let old = keyed(
+            "T",
+            true,
+            vec![rowstore("IX_code", "NONCLUSTERED", &["Code"]), cci("CCI_T")],
+        );
+        let new = keyed(
+            "T",
+            false,
+            vec![rowstore("IX_code", "NONCLUSTERED", &["Code"])],
+        );
         let st = full_sync(&[TableChange::Alter { old, new }]).statements;
         assert_eq!(st.len(), 5, "{st:#?}");
         assert!(st[0].starts_with(&stash("[Alerts].[T]", "PK_T")), "{st:#?}");
@@ -2000,7 +2898,10 @@ mod tests {
         // the clustered one first would rebuild it for nothing).
         assert_eq!(st[1], "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];");
         assert_eq!(st[2], "DROP INDEX [CCI_T] ON [Alerts].[T];");
-        assert_eq!(st[3], "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY CLUSTERED ([Id]);");
+        assert_eq!(
+            st[3],
+            "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY CLUSTERED ([Id]);"
+        );
         assert!(is_restore(&st[4]), "{st:#?}");
     }
 
@@ -2008,7 +2909,11 @@ mod tests {
     fn clustered_key_gives_way_to_a_rowstore_index_and_back() {
         let old = keyed("T", false, vec![]);
         let new = keyed("T", true, vec![rowstore("CX_code", "CLUSTERED", &["Code"])]);
-        let st = full_sync(&[TableChange::Alter { old: old.clone(), new: new.clone() }]).statements;
+        let st = full_sync(&[TableChange::Alter {
+            old: old.clone(),
+            new: new.clone(),
+        }])
+        .statements;
         assert_eq!(st.len(), 4, "{st:#?}");
         assert_eq!(st[1], "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];");
         assert_eq!(st[2], "CREATE CLUSTERED INDEX [CX_code] ON [Alerts].[T] ([Code]);\nALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id]);");
@@ -2016,56 +2921,123 @@ mod tests {
         assert_eq!(st.len(), 5, "{st:#?}");
         assert_eq!(st[1], "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];");
         assert_eq!(st[2], "DROP INDEX [CX_code] ON [Alerts].[T];");
-        assert_eq!(st[3], "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY CLUSTERED ([Id]);");
+        assert_eq!(
+            st[3],
+            "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY CLUSTERED ([Id]);"
+        );
     }
 
     #[test]
     fn one_clustered_rowstore_index_for_another() {
         // The key stays nonclustered: it isn't touched.
         let old = keyed("T", true, vec![rowstore("CX_a", "CLUSTERED", &["Code"])]);
-        let new = keyed("T", true, vec![rowstore("CX_b", "CLUSTERED", &["Code", "Id"])]);
+        let new = keyed(
+            "T",
+            true,
+            vec![rowstore("CX_b", "CLUSTERED", &["Code", "Id"])],
+        );
         let st = full_sync(&[TableChange::Alter { old, new }]).statements;
-        assert_eq!(st, vec!["DROP INDEX [CX_a] ON [Alerts].[T];".to_string(), "CREATE CLUSTERED INDEX [CX_b] ON [Alerts].[T] ([Code], [Id]);".to_string()]);
+        assert_eq!(
+            st,
+            vec![
+                "DROP INDEX [CX_a] ON [Alerts].[T];".to_string(),
+                "CREATE CLUSTERED INDEX [CX_b] ON [Alerts].[T] ([Code], [Id]);".to_string()
+            ]
+        );
     }
 
     #[test]
     fn same_name_clustered_index_is_made_with_drop_existing() {
         let row = keyed("T", true, vec![rowstore("CX", "CLUSTERED", &["Code"])]);
         let col = keyed("T", true, vec![cci("CX")]);
-        let st = full_sync(&[TableChange::Alter { old: row.clone(), new: col.clone() }]).statements;
+        let st = full_sync(&[TableChange::Alter {
+            old: row.clone(),
+            new: col.clone(),
+        }])
+        .statements;
         assert_eq!(st, vec!["CREATE CLUSTERED COLUMNSTORE INDEX [CX] ON [Alerts].[T] WITH (DROP_EXISTING = ON);".to_string()]);
-        let st = full_sync(&[TableChange::Alter { old: col, new: row.clone() }]).statements;
-        assert_eq!(st, vec!["CREATE CLUSTERED INDEX [CX] ON [Alerts].[T] ([Code]) WITH (DROP_EXISTING = ON);".to_string()]);
+        let st = full_sync(&[TableChange::Alter {
+            old: col,
+            new: row.clone(),
+        }])
+        .statements;
+        assert_eq!(
+            st,
+            vec![
+                "CREATE CLUSTERED INDEX [CX] ON [Alerts].[T] ([Code]) WITH (DROP_EXISTING = ON);"
+                    .to_string()
+            ]
+        );
         let mut wider = row.clone();
         wider.indexes[0].columns.push("Id".into());
-        wider.indexes[0].options.insert("FILLFACTOR".into(), "90".into());
-        let st = full_sync(&[TableChange::Alter { old: row.clone(), new: wider.clone() }]).statements;
+        wider.indexes[0]
+            .options
+            .insert("FILLFACTOR".into(), "90".into());
+        let st = full_sync(&[TableChange::Alter {
+            old: row.clone(),
+            new: wider.clone(),
+        }])
+        .statements;
         assert_eq!(st, vec!["CREATE CLUSTERED INDEX [CX] ON [Alerts].[T] ([Code], [Id]) WITH (DROP_EXISTING = ON, FILLFACTOR = 90);".to_string()]);
         // Not while a column under it changes, nor on a unique one.
         let mut retyped = wider.clone();
         retyped.columns[1].data_type = "nvarchar(80)".into();
-        let st = full_sync(&[TableChange::Alter { old: row.clone(), new: retyped }]).statements;
-        assert!(st.contains(&"DROP INDEX [CX] ON [Alerts].[T];".to_string()) && !st.iter().any(|s| s.contains("DROP_EXISTING")), "{st:#?}");
+        let st = full_sync(&[TableChange::Alter {
+            old: row.clone(),
+            new: retyped,
+        }])
+        .statements;
+        assert!(
+            st.contains(&"DROP INDEX [CX] ON [Alerts].[T];".to_string())
+                && !st.iter().any(|s| s.contains("DROP_EXISTING")),
+            "{st:#?}"
+        );
         let mut unique = row.clone();
         unique.indexes[0].unique = true;
-        let st = full_sync(&[TableChange::Alter { old: unique, new: wider }]).statements;
-        assert!(st[0] == "DROP INDEX [CX] ON [Alerts].[T];" && !st.iter().any(|s| s.contains("DROP_EXISTING")), "{st:#?}");
+        let st = full_sync(&[TableChange::Alter {
+            old: unique,
+            new: wider,
+        }])
+        .statements;
+        assert!(
+            st[0] == "DROP INDEX [CX] ON [Alerts].[T];"
+                && !st.iter().any(|s| s.contains("DROP_EXISTING")),
+            "{st:#?}"
+        );
     }
 
     #[test]
     fn key_clustering_alone_is_a_change() {
         // A heap with a nonclustered key against a clustered key.
-        let st = full_sync(&[TableChange::Alter { old: keyed("T", false, vec![]), new: keyed("T", true, vec![]) }]).statements;
+        let st = full_sync(&[TableChange::Alter {
+            old: keyed("T", false, vec![]),
+            new: keyed("T", true, vec![]),
+        }])
+        .statements;
         assert_eq!(st.len(), 4, "{st:#?}");
         assert_eq!(st[1], "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];");
-        assert_eq!(st[2], "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id]);");
+        assert_eq!(
+            st[2],
+            "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id]);"
+        );
         // The option and an index that takes the clustered place say the same.
-        let same = full_sync(&[TableChange::Alter { old: keyed("T", true, vec![cci("C")]), new: keyed("T", false, vec![cci("C")]) }]);
-        assert!(same.statements.is_empty() && same.warnings.is_empty(), "{same:#?}");
+        let same = full_sync(&[TableChange::Alter {
+            old: keyed("T", true, vec![cci("C")]),
+            new: keyed("T", false, vec![cci("C")]),
+        }]);
+        assert!(
+            same.statements.is_empty() && same.warnings.is_empty(),
+            "{same:#?}"
+        );
         // A key that only changes its name is left alone (as before).
         let mut renamed = keyed("T", false, vec![]);
         renamed.primary_key.as_mut().unwrap().name = Some("PK__T__3214EC07".into());
-        assert!(full_sync(&[TableChange::Alter { old: keyed("T", false, vec![]), new: renamed }]).statements.is_empty());
+        assert!(full_sync(&[TableChange::Alter {
+            old: keyed("T", false, vec![]),
+            new: renamed
+        }])
+        .statements
+        .is_empty());
     }
 
     #[test]
@@ -2073,9 +3045,16 @@ mod tests {
         // New key columns: no foreign keys are put back (they couldn't).
         let old = keyed("T", false, vec![]);
         let mut new = old.clone();
-        new.primary_key = Some(KeyDef { name: Some("PK_T".into()), columns: vec!["Id".into(), "Code".into()] });
+        new.primary_key = Some(KeyDef {
+            name: Some("PK_T".into()),
+            columns: vec!["Id".into(), "Code".into()],
+        });
         new.columns[1].nullable = false;
-        let st = full_sync(&[TableChange::Alter { old: old.clone(), new }]).statements;
+        let st = full_sync(&[TableChange::Alter {
+            old: old.clone(),
+            new,
+        }])
+        .statements;
         assert_eq!(
             st,
             vec![
@@ -2086,34 +3065,75 @@ mod tests {
         );
         // A new key on a new column: the column comes NOT NULL.
         let mut added = old.clone();
-        added.columns.push(ColumnDef { name: "Seq".into(), data_type: "int".into(), nullable: true, ..Default::default() });
-        added.primary_key = Some(KeyDef { name: Some("PK_T".into()), columns: vec!["Id".into(), "Seq".into()] });
+        added.columns.push(ColumnDef {
+            name: "Seq".into(),
+            data_type: "int".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        added.primary_key = Some(KeyDef {
+            name: Some("PK_T".into()),
+            columns: vec!["Id".into(), "Seq".into()],
+        });
         let st = full_sync(&[TableChange::Alter { old, new: added }]).statements;
-        assert!(st.contains(&"ALTER TABLE [Alerts].[T] ADD [Seq] int NOT NULL;".to_string()), "{st:#?}");
+        assert!(
+            st.contains(&"ALTER TABLE [Alerts].[T] ADD [Seq] int NOT NULL;".to_string()),
+            "{st:#?}"
+        );
     }
 
     #[test]
     fn babelfish_keeps_the_generic_key() {
         let old = keyed("T", false, vec![]);
         let mut new = old.clone();
-        new.primary_key = Some(KeyDef { name: Some("PK_T".into()), columns: vec!["Code".into()] });
+        new.primary_key = Some(KeyDef {
+            name: Some("PK_T".into()),
+            columns: vec!["Code".into()],
+        });
         let prepared = prepare_changes(&[TableChange::Alter { old, new }], Variant::Babelfish);
-        let TableChange::Alter { old, new } = &prepared[0] else { unreachable!() };
-        assert!(old.primary_key.is_some() && new.primary_key.is_some() && old.indexes.is_empty() && new.indexes.is_empty());
+        let TableChange::Alter { old, new } = &prepared[0] else {
+            unreachable!()
+        };
+        assert!(
+            old.primary_key.is_some()
+                && new.primary_key.is_some()
+                && old.indexes.is_empty()
+                && new.indexes.is_empty()
+        );
     }
 
     #[test]
     fn nonclustered_key_in_create_table() {
         let t = keyed("T", true, vec![]);
-        let s = crate::schema::table_ddl(&t, DdlParts { create: true, ..Default::default() });
-        assert!(s.contains("CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id])"), "{s}");
-        let s = crate::schema::table_ddl(&keyed("T", false, vec![]), DdlParts { create: true, ..Default::default() });
+        let s = crate::schema::table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            s.contains("CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id])"),
+            "{s}"
+        );
+        let s = crate::schema::table_ddl(
+            &keyed("T", false, vec![]),
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
         assert!(s.contains("CONSTRAINT [PK_T] PRIMARY KEY ([Id])"), "{s}");
     }
 
     #[test]
     fn a_dropped_column_takes_what_uses_it() {
-        let col = |n: &str| ColumnDef { name: n.into(), data_type: "int".into(), nullable: true, ..Default::default() };
+        let col = |n: &str| ColumnDef {
+            name: n.into(),
+            data_type: "int".into(),
+            nullable: true,
+            ..Default::default()
+        };
         let ix = |n: &str, cols: &[&str], include: &[&str], filter: Option<&str>| IndexDef {
             name: n.into(),
             columns: cols.iter().map(|c| c.to_string()).collect(),
@@ -2128,16 +3148,37 @@ mod tests {
             ix("IX_where", &["id"], &[], Some("([saldo]>(0))")),
             ix("IX_keep", &["edad"], &[], Some("([saldo_ant] IS NULL)")),
         ]);
-        old.columns.extend([col("saldo"), col("edad"), col("saldo_ant"), col("cliente_id")]);
+        old.columns.extend([
+            col("saldo"),
+            col("edad"),
+            col("saldo_ant"),
+            col("cliente_id"),
+        ]);
         old.checks = vec![
-            CheckDef { name: Some("CK_saldo".into()), expression: "([saldo]>=(0))".into() },
-            CheckDef { name: Some("CK_edad".into()), expression: "([edad]>=(0) AND [saldo_ant] IS NULL)".into() },
+            CheckDef {
+                name: Some("CK_saldo".into()),
+                expression: "([saldo]>=(0))".into(),
+            },
+            CheckDef {
+                name: Some("CK_edad".into()),
+                expression: "([edad]>=(0) AND [saldo_ant] IS NULL)".into(),
+            },
         ];
-        old.foreign_keys = vec![dbine_driver::ForeignKeyDef { name: Some("FK_saldo".into()), columns: vec!["saldo".into()], ref_table: "t".into(), ref_columns: vec!["id".into()], ..Default::default() }];
+        old.foreign_keys = vec![dbine_driver::ForeignKeyDef {
+            name: Some("FK_saldo".into()),
+            columns: vec!["saldo".into()],
+            ref_table: "t".into(),
+            ref_columns: vec!["id".into()],
+            ..Default::default()
+        }];
         let mut new = old.clone();
         new.columns.retain(|c| c.name != "saldo");
         let s = sync(&[TableChange::Alter { old, new }]);
-        let pos = |x: &str| s.iter().position(|y| y == x).unwrap_or_else(|| panic!("{x} in {s:#?}"));
+        let pos = |x: &str| {
+            s.iter()
+                .position(|y| y == x)
+                .unwrap_or_else(|| panic!("{x} in {s:#?}"))
+        };
         let col = pos("ALTER TABLE [dbo].[docs] DROP COLUMN [saldo];");
         for x in [
             "ALTER TABLE [dbo].[docs] DROP CONSTRAINT [FK_saldo];",

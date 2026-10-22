@@ -39,10 +39,14 @@ pub const DEFAULT: &str = "entra_default";
 const SQL_RESOURCE: &str = "https://database.windows.net/";
 const LOGIN_HOST: &str = "https://login.microsoftonline.com";
 /// Scopes for the interactive sign-in: SQL plus a refresh token.
-const SQL_SCOPE_OFFLINE: &str = "https://database.windows.net/.default offline_access openid profile";
+const SQL_SCOPE_OFFLINE: &str =
+    "https://database.windows.net/.default offline_access openid profile";
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn auth(msg: impl Into<String>) -> Error {
@@ -51,7 +55,11 @@ fn auth(msg: impl Into<String>) -> Error {
 
 /// The first line of a message, at most `max` characters.
 fn short(msg: &str, max: usize) -> String {
-    let line = msg.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    let line = msg
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
     match line.char_indices().nth(max) {
         Some((i, _)) => format!("{}…", &line[..i]),
         None => line.to_string(),
@@ -61,7 +69,8 @@ fn short(msg: &str, max: usize) -> String {
 /// A number that may come as JSON number or string (`"3599"`).
 fn number(v: Option<&Value>) -> Option<u64> {
     let v = v?;
-    v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+    v.as_u64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
 // ------------------------------------------------------------ token cache
@@ -78,7 +87,9 @@ struct Token {
 // Tokens never reach a log, not even through `{:?}`.
 impl std::fmt::Debug for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Token").field("expires_on", &self.expires_on).finish_non_exhaustive()
+        f.debug_struct("Token")
+            .field("expires_on", &self.expires_on)
+            .finish_non_exhaustive()
     }
 }
 
@@ -87,8 +98,15 @@ impl Token {
     fn from_oauth(body: &Value, now: u64) -> Result<Token> {
         let access = token_from(body)?;
         let expires_in = number(body.get("expires_in")).unwrap_or(3600);
-        let refresh = body.get("refresh_token").and_then(Value::as_str).map(str::to_string);
-        Ok(Token { access, expires_on: now + expires_in, refresh })
+        let refresh = body
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        Ok(Token {
+            access,
+            expires_on: now + expires_in,
+            refresh,
+        })
     }
 }
 
@@ -103,7 +121,12 @@ struct Key {
 
 impl Key {
     fn new(method: &'static str, tenant: &str, client: &str, user: &str) -> Key {
-        Key { method, tenant: tenant.to_string(), client: client.to_string(), user: user.to_lowercase() }
+        Key {
+            method,
+            tenant: tenant.to_string(),
+            client: client.to_string(),
+            user: user.to_lowercase(),
+        }
     }
 }
 
@@ -122,7 +145,9 @@ enum Cached {
 fn lookup(cache: &HashMap<Key, Token>, key: &Key, now: u64) -> Cached {
     match cache.get(key) {
         Some(t) if now + MARGIN < t.expires_on => Cached::Fresh(t.access.clone()),
-        Some(Token { refresh: Some(r), .. }) => Cached::Refresh(r.clone()),
+        Some(Token {
+            refresh: Some(r), ..
+        }) => Cached::Refresh(r.clone()),
         _ => Cached::Miss,
     }
 }
@@ -141,7 +166,11 @@ where
     Fut: Future<Output = Result<Token>>,
 {
     let _one = ACQUIRE.lock().await;
-    let cached = lookup(&CACHE.lock().unwrap_or_else(|e| e.into_inner()), &key, now());
+    let cached = lookup(
+        &CACHE.lock().unwrap_or_else(|e| e.into_inner()),
+        &key,
+        now(),
+    );
     let refresh = match cached {
         Cached::Fresh(t) => return Ok(t),
         Cached::Refresh(r) => Some(r),
@@ -149,7 +178,10 @@ where
     };
     let token = acquire(refresh).await?;
     let access = token.access.clone();
-    CACHE.lock().unwrap_or_else(|e| e.into_inner()).insert(key, token);
+    CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, token);
     Ok(access)
 }
 
@@ -180,7 +212,11 @@ async fn refreshed(tenant: &str, client: &str, refresh: Option<String>) -> Optio
 
 /// Signs in through the system browser (authorization code with PKCE and
 /// a loopback redirect), so accounts with MFA work.
-pub async fn interactive(tenant: Option<&str>, client: Option<&str>, user: Option<&str>) -> Result<String> {
+pub async fn interactive(
+    tenant: Option<&str>,
+    client: Option<&str>,
+    user: Option<&str>,
+) -> Result<String> {
     let tenant = tenant.unwrap_or("organizations");
     valid_tenant(tenant)?;
     let client = client.unwrap_or(SQL_CLIENT_APP);
@@ -202,14 +238,27 @@ async fn browser_sign_in(tenant: &str, client: &str, user: Option<&str>) -> Resu
     let state = random_b64(16)?;
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
-        .map_err(|e| auth(format!("no se pudo esperar la respuesta del navegador: {e}")))?;
+        .map_err(|e| {
+            auth(format!(
+                "no se pudo esperar la respuesta del navegador: {e}"
+            ))
+        })?;
     let port = listener.local_addr()?.port();
     let redirect = format!("http://localhost:{port}");
-    let url = authorize_url(tenant, client, &redirect, &state, &pkce_challenge(&verifier), user);
+    let url = authorize_url(
+        tenant,
+        client,
+        &redirect,
+        &state,
+        &pkce_challenge(&verifier),
+        user,
+    );
     open_browser(&url)?;
     let code = match tokio::time::timeout(BROWSER_WAIT, wait_for_code(&listener, &state)).await {
         Ok(code) => code?,
-        Err(_) => return Err(auth("pasaron 5 minutos sin completar el inicio de sesión en el navegador; volvé a conectar")),
+        Err(_) => return Err(auth(
+            "pasaron 5 minutos sin completar el inicio de sesión en el navegador; volvé a conectar",
+        )),
     };
     let form = [
         ("grant_type", "authorization_code"),
@@ -225,7 +274,8 @@ async fn browser_sign_in(tenant: &str, client: &str, user: Option<&str>) -> Resu
 /// `n` random bytes, base64url without padding.
 fn random_b64(n: usize) -> Result<String> {
     let mut bytes = vec![0u8; n];
-    getrandom::getrandom(&mut bytes).map_err(|e| auth(format!("no hay números aleatorios del sistema: {e}")))?;
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| auth(format!("no hay números aleatorios del sistema: {e}")))?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
@@ -234,9 +284,18 @@ fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
-fn authorize_url(tenant: &str, client: &str, redirect: &str, state: &str, challenge: &str, user: Option<&str>) -> String {
+fn authorize_url(
+    tenant: &str,
+    client: &str,
+    redirect: &str,
+    state: &str,
+    challenge: &str,
+    user: Option<&str>,
+) -> String {
     let mut url = reqwest::Url::parse(LOGIN_HOST).expect("constant URL");
-    url.path_segments_mut().expect("https URL").extend([tenant, "oauth2", "v2.0", "authorize"]);
+    url.path_segments_mut()
+        .expect("https URL")
+        .extend([tenant, "oauth2", "v2.0", "authorize"]);
     {
         let mut q = url.query_pairs_mut();
         q.append_pair("client_id", client)
@@ -258,8 +317,13 @@ fn authorize_url(tenant: &str, client: &str, redirect: &str, state: &str, challe
 /// Never a shell: the URL has `&` in it.
 fn browser_argv(url: &str) -> (PathBuf, Vec<String>) {
     if cfg!(windows) {
-        let root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-        (root.join("System32").join("rundll32.exe"), vec!["url.dll,FileProtocolHandler".into(), url.into()])
+        let root = std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        (
+            root.join("System32").join("rundll32.exe"),
+            vec!["url.dll,FileProtocolHandler".into(), url.into()],
+        )
     } else if cfg!(target_os = "macos") {
         (PathBuf::from("/usr/bin/open"), vec![url.into()])
     } else {
@@ -279,7 +343,11 @@ fn open_browser(url: &str) -> Result<()> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| auth(format!("no se pudo abrir el navegador para iniciar sesión: {e}")))?;
+        .map_err(|e| {
+            auth(format!(
+                "no se pudo abrir el navegador para iniciar sesión: {e}"
+            ))
+        })?;
     tokio::spawn(async move {
         let _ = child.wait().await;
     });
@@ -326,7 +394,11 @@ fn parse_callback(head: &str, state: &str) -> Callback {
 }
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn page(status: &str, title: &str, text: &str) -> String {
@@ -367,16 +439,32 @@ async fn wait_for_code(listener: &tokio::net::TcpListener, state: &str) -> Resul
         }
         let callback = parse_callback(&String::from_utf8_lossy(&buf), state);
         let answer = match &callback {
-            Callback::Code(_) => page("200 OK", "Listo", "Ya iniciaste sesión: podés cerrar esta ventana y volver a DBine."),
-            Callback::Failed(m) => page("200 OK", "No se pudo iniciar sesión", &format!("{m}. Podés cerrar esta ventana.")),
-            Callback::BadState => page("400 Bad Request", "Respuesta inesperada", "Esta respuesta no corresponde al inicio de sesión de DBine."),
+            Callback::Code(_) => page(
+                "200 OK",
+                "Listo",
+                "Ya iniciaste sesión: podés cerrar esta ventana y volver a DBine.",
+            ),
+            Callback::Failed(m) => page(
+                "200 OK",
+                "No se pudo iniciar sesión",
+                &format!("{m}. Podés cerrar esta ventana."),
+            ),
+            Callback::BadState => page(
+                "400 Bad Request",
+                "Respuesta inesperada",
+                "Esta respuesta no corresponde al inicio de sesión de DBine.",
+            ),
             Callback::Ignore => page("404 Not Found", "DBine", ""),
         };
         let _ = stream.write_all(answer.as_bytes()).await;
         let _ = stream.shutdown().await;
         match callback {
             Callback::Code(code) => return Ok(code),
-            Callback::Failed(m) => return Err(auth(format!("Microsoft Entra ID rechazó el inicio de sesión: {m}"))),
+            Callback::Failed(m) => {
+                return Err(auth(format!(
+                    "Microsoft Entra ID rechazó el inicio de sesión: {m}"
+                )))
+            }
             Callback::BadState | Callback::Ignore => {}
         }
     }
@@ -408,25 +496,40 @@ struct MsiRequest {
 fn msi_request(app_service: Option<(String, String)>, client: Option<&str>) -> Result<MsiRequest> {
     let (base, version, header, imds) = match app_service {
         Some((endpoint, secret)) => (endpoint, "2019-08-01", ("X-IDENTITY-HEADER", secret), false),
-        None => (IMDS.to_string(), "2018-02-01", ("Metadata", "true".to_string()), true),
+        None => (
+            IMDS.to_string(),
+            "2018-02-01",
+            ("Metadata", "true".to_string()),
+            true,
+        ),
     };
-    let mut url = reqwest::Url::parse(&base).map_err(|_| auth("IDENTITY_ENDPOINT no es una dirección válida"))?;
+    let mut url = reqwest::Url::parse(&base)
+        .map_err(|_| auth("IDENTITY_ENDPOINT no es una dirección válida"))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(auth("IDENTITY_ENDPOINT no es una dirección válida"));
     }
     {
         let mut q = url.query_pairs_mut();
-        q.append_pair("api-version", version).append_pair("resource", SQL_RESOURCE);
+        q.append_pair("api-version", version)
+            .append_pair("resource", SQL_RESOURCE);
         if let Some(c) = client {
             q.append_pair("client_id", c);
         }
     }
-    Ok(MsiRequest { url: url.into(), header, imds })
+    Ok(MsiRequest {
+        url: url.into(),
+        header,
+        imds,
+    })
 }
 
 fn app_service_env() -> Option<(String, String)> {
-    let endpoint = std::env::var("IDENTITY_ENDPOINT").ok().filter(|v| !v.is_empty())?;
-    let secret = std::env::var("IDENTITY_HEADER").ok().filter(|v| !v.is_empty())?;
+    let endpoint = std::env::var("IDENTITY_ENDPOINT")
+        .ok()
+        .filter(|v| !v.is_empty())?;
+    let secret = std::env::var("IDENTITY_HEADER")
+        .ok()
+        .filter(|v| !v.is_empty())?;
     Some((endpoint, secret))
 }
 
@@ -438,14 +541,20 @@ fn parse_msi(status: u16, body: &str, now: u64) -> Result<Token> {
         let expires_on = number(json.get("expires_on"))
             .or_else(|| number(json.get("expires_in")).map(|s| now + s))
             .unwrap_or(now + 3600);
-        return Ok(Token { access: access.to_string(), expires_on, refresh: None });
+        return Ok(Token {
+            access: access.to_string(),
+            expires_on,
+            refresh: None,
+        });
     }
     let desc = ["error_description", "message", "error"]
         .iter()
         .find_map(|k| json.get(k).and_then(Value::as_str))
         .map(|d| short(d, 200))
         .unwrap_or_else(|| format!("HTTP {status}"));
-    Err(auth(format!("la identidad administrada no dio un token: {desc}")))
+    Err(auth(format!(
+        "la identidad administrada no dio un token: {desc}"
+    )))
 }
 
 async fn msi_token(client: Option<&str>, connect: Duration) -> Result<Token> {
@@ -457,15 +566,25 @@ async fn msi_token(client: Option<&str>, connect: Duration) -> Result<Token> {
         .no_proxy()
         .build()
         .map_err(|e| Error::Connect(e.to_string()))?;
-    let resp = http.get(&req.url).header(req.header.0, &req.header.1).send().await.map_err(|e| {
-        if req.imds && (e.is_connect() || e.is_timeout()) {
-            auth(NO_MSI)
-        } else {
-            auth(format!("no se pudo llegar a la identidad administrada: {e}"))
-        }
-    })?;
+    let resp = http
+        .get(&req.url)
+        .header(req.header.0, &req.header.1)
+        .send()
+        .await
+        .map_err(|e| {
+            if req.imds && (e.is_connect() || e.is_timeout()) {
+                auth(NO_MSI)
+            } else {
+                auth(format!(
+                    "no se pudo llegar a la identidad administrada: {e}"
+                ))
+            }
+        })?;
     let status = resp.status().as_u16();
-    let body = resp.text().await.map_err(|e| Error::Connect(e.to_string()))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| Error::Connect(e.to_string()))?;
     parse_msi(status, &body, now())
 }
 
@@ -505,7 +624,10 @@ async fn default_token(tenant: Option<&str>, client: Option<&str>) -> Result<Tok
 
 /// One error that says what was tried and why each step failed.
 fn chain_error(tried: &[(&str, Error)]) -> Error {
-    let lines: Vec<String> = tried.iter().map(|(what, e)| format!("- {what}: {}", short(&e.to_string(), 200))).collect();
+    let lines: Vec<String> = tried
+        .iter()
+        .map(|(what, e)| format!("- {what}: {}", short(&e.to_string(), 200)))
+        .collect();
     auth(format!(
         "no se pudo obtener un token de Microsoft Entra ID con la autenticación predeterminada. Se probó:\n{}",
         lines.join("\n")
@@ -514,10 +636,20 @@ fn chain_error(tried: &[(&str, Error)]) -> Error {
 
 /// `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`, all set.
 fn env_triplet(get: impl Fn(&str) -> Option<String>) -> Result<(String, String, String)> {
-    let get = |k: &str| get(k).map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-    match (get("AZURE_TENANT_ID"), get("AZURE_CLIENT_ID"), get("AZURE_CLIENT_SECRET")) {
+    let get = |k: &str| {
+        get(k)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    match (
+        get("AZURE_TENANT_ID"),
+        get("AZURE_CLIENT_ID"),
+        get("AZURE_CLIENT_SECRET"),
+    ) {
         (Some(t), Some(c), Some(s)) => Ok((t, c, s)),
-        _ => Err(auth("no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET")),
+        _ => Err(auth(
+            "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET",
+        )),
     }
 }
 
@@ -536,7 +668,14 @@ async fn env_credential(get: impl Fn(&str) -> Option<String>) -> Result<Token> {
 const CLI_WAIT: Duration = Duration::from_secs(30);
 
 async fn az_cli(tenant: Option<&str>) -> Result<Token> {
-    let mut args = vec!["account", "get-access-token", "--resource", SQL_RESOURCE, "--output", "json"];
+    let mut args = vec![
+        "account",
+        "get-access-token",
+        "--resource",
+        SQL_RESOURCE,
+        "--output",
+        "json",
+    ];
     if let Some(t) = tenant {
         args.extend(["--tenant", t]);
     }
@@ -556,8 +695,12 @@ async fn azd_cli(tenant: Option<&str>) -> Result<Token> {
 /// Azure CLI: `accessToken` plus `expires_on` (Unix seconds, newer
 /// versions) or `expiresOn` (local time, `2026-10-09 15:04:05.000000`).
 fn parse_az<Tz: chrono::TimeZone>(stdout: &str, local: &Tz) -> Result<Token> {
-    let json: Value = serde_json::from_str(stdout).map_err(|_| auth("Azure CLI devolvió algo que no es JSON"))?;
-    let access = json.get("accessToken").and_then(Value::as_str).ok_or_else(|| auth("Azure CLI no devolvió un token"))?;
+    let json: Value =
+        serde_json::from_str(stdout).map_err(|_| auth("Azure CLI devolvió algo que no es JSON"))?;
+    let access = json
+        .get("accessToken")
+        .and_then(Value::as_str)
+        .ok_or_else(|| auth("Azure CLI no devolvió un token"))?;
     let expires_on = number(json.get("expires_on"))
         .or_else(|| {
             let s = json.get("expiresOn")?.as_str()?;
@@ -566,20 +709,32 @@ fn parse_az<Tz: chrono::TimeZone>(stdout: &str, local: &Tz) -> Result<Token> {
             u64::try_from(at.timestamp()).ok()
         })
         .ok_or_else(|| auth("Azure CLI no dijo cuándo vence el token"))?;
-    Ok(Token { access: access.to_string(), expires_on, refresh: None })
+    Ok(Token {
+        access: access.to_string(),
+        expires_on,
+        refresh: None,
+    })
 }
 
 /// Azure Developer CLI: `token` plus `expiresOn` (RFC 3339).
 fn parse_azd(stdout: &str) -> Result<Token> {
-    let json: Value = serde_json::from_str(stdout).map_err(|_| auth("Azure Developer CLI devolvió algo que no es JSON"))?;
-    let access = json.get("token").and_then(Value::as_str).ok_or_else(|| auth("Azure Developer CLI no devolvió un token"))?;
+    let json: Value = serde_json::from_str(stdout)
+        .map_err(|_| auth("Azure Developer CLI devolvió algo que no es JSON"))?;
+    let access = json
+        .get("token")
+        .and_then(Value::as_str)
+        .ok_or_else(|| auth("Azure Developer CLI no devolvió un token"))?;
     let expires_on = json
         .get("expiresOn")
         .and_then(Value::as_str)
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .and_then(|d| u64::try_from(d.timestamp()).ok())
         .ok_or_else(|| auth("Azure Developer CLI no dijo cuándo vence el token"))?;
-    Ok(Token { access: access.to_string(), expires_on, refresh: None })
+    Ok(Token {
+        access: access.to_string(),
+        expires_on,
+        refresh: None,
+    })
 }
 
 /// Where a CLI may be: `PATH`, then the usual install folders (apps opened
@@ -595,20 +750,33 @@ fn cli_candidates(name: &str, path: Option<&std::ffi::OsStr>) -> Vec<PathBuf> {
             ],
         )
     } else {
-        (vec![name.to_string()], &["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"])
+        (
+            vec![name.to_string()],
+            &["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"],
+        )
     };
-    let dirs = path.map(|p| std::env::split_paths(p).collect::<Vec<_>>()).unwrap_or_default();
-    let dirs = dirs.into_iter().filter(|d| d.is_absolute()).chain(fixed.iter().map(PathBuf::from));
-    dirs.flat_map(|d| files.iter().map(move |f| d.join(f)).collect::<Vec<_>>()).collect()
+    let dirs = path
+        .map(|p| std::env::split_paths(p).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let dirs = dirs
+        .into_iter()
+        .filter(|d| d.is_absolute())
+        .chain(fixed.iter().map(PathBuf::from));
+    dirs.flat_map(|d| files.iter().map(move |f| d.join(f)).collect::<Vec<_>>())
+        .collect()
 }
 
 fn find_cli(name: &str) -> Option<PathBuf> {
-    cli_candidates(name, std::env::var_os("PATH").as_deref()).into_iter().find(|p| p.is_file())
+    cli_candidates(name, std::env::var_os("PATH").as_deref())
+        .into_iter()
+        .find(|p| p.is_file())
 }
 
 /// An argument that's safe anywhere, also on a `cmd.exe` command line.
 fn safe_arg(a: &str) -> bool {
-    !a.is_empty() && a.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | ':' | '/'))
+    !a.is_empty()
+        && a.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | ':' | '/'))
 }
 
 /// The `cmd.exe` command line that runs a `.cmd` script: `/d` skips
@@ -616,20 +784,33 @@ fn safe_arg(a: &str) -> bool {
 /// quotes. Refuses anything `cmd` would expand.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn cmd_line(script: &Path, args: &[&str]) -> Result<String> {
-    let script = script.to_str().ok_or_else(|| auth("ruta del programa no válida"))?;
-    if script.chars().any(|c| matches!(c, '"' | '%' | '!' | '^' | '\r' | '\n')) || !args.iter().all(|a| safe_arg(a)) {
+    let script = script
+        .to_str()
+        .ok_or_else(|| auth("ruta del programa no válida"))?;
+    if script
+        .chars()
+        .any(|c| matches!(c, '"' | '%' | '!' | '^' | '\r' | '\n'))
+        || !args.iter().all(|a| safe_arg(a))
+    {
         return Err(auth("ruta o argumentos del programa no válidos"));
     }
-    Ok(format!("/d /v:off /s /c \"\"{script}\" {}\"", args.join(" ")))
+    Ok(format!(
+        "/d /v:off /s /c \"\"{script}\" {}\"",
+        args.join(" ")
+    ))
 }
 
 #[cfg(windows)]
 fn cli_command(program: &Path, args: &[&str]) -> Result<tokio::process::Command> {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let batch = program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
+    let batch = program
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
     let mut cmd = if batch {
         let line = cmd_line(program, args)?;
-        let root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        let root = std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
         let mut c = tokio::process::Command::new(root.join("System32").join("cmd.exe"));
         c.raw_arg(line);
         c
@@ -664,7 +845,11 @@ async fn run_cli(name: &str, args: &[&str], login: &str) -> Result<String> {
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let line = short(err.trim_start_matches("ERROR:").trim(), 200);
-        let line = if line.is_empty() { format!("terminó con {}", out.status) } else { line };
+        let line = if line.is_empty() {
+            format!("terminó con {}", out.status)
+        } else {
+            line
+        };
         return Err(auth(format!("{line} (¿falta {login}?)")));
     }
     String::from_utf8(out.stdout).map_err(|_| auth("salida no válida"))
@@ -744,12 +929,18 @@ fn realm_url(user: &str) -> Result<reqwest::Url> {
     let ok = user.split('@').count() == 2
         && !user.starts_with('@')
         && !user.ends_with('@')
-        && !user.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '/' | '\\' | '?' | '#'));
+        && !user
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '/' | '\\' | '?' | '#'));
     if !ok {
-        return Err(auth("la autenticación integrada necesita la cuenta como usuario@dominio"));
+        return Err(auth(
+            "la autenticación integrada necesita la cuenta como usuario@dominio",
+        ));
     }
     let mut url = reqwest::Url::parse(LOGIN_HOST).expect("constant URL");
-    url.path_segments_mut().expect("https URL").extend(["common", "userrealm", user]);
+    url.path_segments_mut()
+        .expect("https URL")
+        .extend(["common", "userrealm", user]);
     url.query_pairs_mut().append_pair("api-version", "1.0");
     Ok(url)
 }
@@ -757,7 +948,9 @@ fn realm_url(user: &str) -> Result<reqwest::Url> {
 #[derive(Debug, PartialEq)]
 enum Realm {
     /// Signs in at the organization's ADFS; `mex` is its metadata URL.
-    Federated { mex: String },
+    Federated {
+        mex: String,
+    },
     /// Signs in at Entra ID itself (no ADFS).
     Managed,
     Unknown,
@@ -770,8 +963,12 @@ fn parse_realm(body: &Value) -> Result<Realm> {
                 .get("federation_metadata_url")
                 .and_then(Value::as_str)
                 .filter(|u| u.starts_with("https://"))
-                .ok_or_else(|| auth("la cuenta es federada pero ADFS no publica sus metadatos (MEX)"))?;
-            Ok(Realm::Federated { mex: mex.to_string() })
+                .ok_or_else(|| {
+                    auth("la cuenta es federada pero ADFS no publica sus metadatos (MEX)")
+                })?;
+            Ok(Realm::Federated {
+                mex: mex.to_string(),
+            })
         }
         Some(t) if t.eq_ignore_ascii_case("managed") => Ok(Realm::Managed),
         _ => Ok(Realm::Unknown),
@@ -817,7 +1014,8 @@ const SOAP12_NS: &str = "http://schemas.xmlsoap.org/wsdl/soap12/";
 /// (MEX): a port whose binding's policy asks for HTTP Negotiate over
 /// TLS. WS-Trust 1.3 wins over 2005.
 fn mex_endpoint(xml: &str) -> Result<WsTrustEndpoint> {
-    let doc = roxmltree::Document::parse(xml).map_err(|_| auth("los metadatos de ADFS (MEX) no son XML válido"))?;
+    let doc = roxmltree::Document::parse(xml)
+        .map_err(|_| auth("los metadatos de ADFS (MEX) no son XML válido"))?;
     let elems = || doc.descendants().filter(|n| n.is_element());
     // Policies with Negotiate (Windows) authentication over TLS.
     let policies: Vec<&str> = elems()
@@ -834,13 +1032,17 @@ fn mex_endpoint(xml: &str) -> Result<WsTrustEndpoint> {
         .filter(|b| {
             b.descendants().any(|d| {
                 d.tag_name().name() == "PolicyReference"
-                    && d.attribute("URI").is_some_and(|u| policies.contains(&u.trim_start_matches('#')))
+                    && d.attribute("URI")
+                        .is_some_and(|u| policies.contains(&u.trim_start_matches('#')))
             })
         })
         .filter_map(|b| {
             let action = b
                 .descendants()
-                .filter(|d| d.tag_name().name() == "operation" && d.tag_name().namespace() == Some(SOAP12_NS))
+                .filter(|d| {
+                    d.tag_name().name() == "operation"
+                        && d.tag_name().namespace() == Some(SOAP12_NS)
+                })
                 .find_map(|d| d.attribute("soapAction"))?;
             let version = if action == Trust::V13.action() {
                 Trust::V13
@@ -861,32 +1063,52 @@ fn mex_endpoint(xml: &str) -> Result<WsTrustEndpoint> {
             let (_, version) = bindings.iter().find(|(name, _)| *name == binding)?;
             let url = p
                 .descendants()
-                .find(|d| d.tag_name().name() == "address" && d.tag_name().namespace() == Some(SOAP12_NS))
+                .find(|d| {
+                    d.tag_name().name() == "address" && d.tag_name().namespace() == Some(SOAP12_NS)
+                })
                 .and_then(|a| a.attribute("location"))
-                .or_else(|| p.descendants().find(|d| d.tag_name().name() == "Address").and_then(|a| a.text()))?
+                .or_else(|| {
+                    p.descendants()
+                        .find(|d| d.tag_name().name() == "Address")
+                        .and_then(|a| a.text())
+                })?
                 .trim();
-            url.starts_with("https://").then(|| WsTrustEndpoint { url: url.to_string(), version: *version })
+            url.starts_with("https://").then(|| WsTrustEndpoint {
+                url: url.to_string(),
+                version: *version,
+            })
         })
         .collect();
     found.sort_by_key(|e| e.version != Trust::V13);
-    found
-        .into_iter()
-        .next()
-        .ok_or_else(|| auth("ADFS no publica un punto de autenticación de Windows (windowstransport)"))
+    found.into_iter().next().ok_or_else(|| {
+        auth("ADFS no publica un punto de autenticación de Windows (windowstransport)")
+    })
 }
 
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// A random `urn:uuid:` for the WS-Addressing MessageID.
 fn message_id() -> Result<String> {
     let mut b = [0u8; 16];
-    getrandom::getrandom(&mut b).map_err(|e| auth(format!("no hay números aleatorios del sistema: {e}")))?;
+    getrandom::getrandom(&mut b)
+        .map_err(|e| auth(format!("no hay números aleatorios del sistema: {e}")))?;
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    Ok(format!("urn:uuid:{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..]))
+    Ok(format!(
+        "urn:uuid:{}-{}-{}-{}-{}",
+        &h[..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..]
+    ))
 }
 
 /// The WS-Trust RequestSecurityToken (SOAP 1.2) for a bearer token
@@ -936,17 +1158,30 @@ struct Saml {
 /// OAuth grant type that goes with its version. A SOAP fault becomes the
 /// error.
 fn saml_from_rstr(xml: &str) -> Result<Saml> {
-    let doc = roxmltree::Document::parse(xml).map_err(|_| auth("ADFS respondió algo que no es XML válido"))?;
-    let find = |local: &str| doc.descendants().find(|n| n.is_element() && n.tag_name().name() == local);
+    let doc = roxmltree::Document::parse(xml)
+        .map_err(|_| auth("ADFS respondió algo que no es XML válido"))?;
+    let find = |local: &str| {
+        doc.descendants()
+            .find(|n| n.is_element() && n.tag_name().name() == local)
+    };
     if find("Fault").is_some() {
-        let reason = find("Text").or_else(|| find("Reason")).and_then(|n| n.text()).unwrap_or("error sin detalle");
-        return Err(auth(format!("ADFS rechazó la autenticación de Windows: {}", short(reason, 200))));
+        let reason = find("Text")
+            .or_else(|| find("Reason"))
+            .and_then(|n| n.text())
+            .unwrap_or("error sin detalle");
+        return Err(auth(format!(
+            "ADFS rechazó la autenticación de Windows: {}",
+            short(reason, 200)
+        )));
     }
     let assertion = find("RequestedSecurityToken")
         .and_then(|t| t.children().find(|c| c.is_element()))
         .filter(|a| a.tag_name().name() == "Assertion")
         .ok_or_else(|| auth("ADFS no devolvió una aserción SAML"))?;
-    let token_type = find("TokenType").and_then(|n| n.text()).map(str::trim).unwrap_or("");
+    let token_type = find("TokenType")
+        .and_then(|n| n.text())
+        .map(str::trim)
+        .unwrap_or("");
     let grant = match (token_type, assertion.tag_name().namespace()) {
         ("urn:oasis:names:tc:SAML:2.0:assertion", _) | ("", Some(SAML2_NS)) => SAML2_GRANT,
         ("urn:oasis:names:tc:SAML:1.0:assertion", _) | ("", Some(SAML1_NS)) => SAML1_GRANT,
@@ -955,7 +1190,10 @@ fn saml_from_rstr(xml: &str) -> Result<Saml> {
         (t, _) if t.ends_with("#SAMLV2.0") => SAML2_GRANT,
         _ => return Err(auth("ADFS devolvió un token que no es SAML 1.1 ni 2.0")),
     };
-    Ok(Saml { grant, assertion: xml[assertion.range()].to_string() })
+    Ok(Saml {
+        grant,
+        assertion: xml[assertion.range()].to_string(),
+    })
 }
 
 /// The TLS channel binding (`tls-server-end-point`, RFC 5929) for the
@@ -971,19 +1209,30 @@ fn channel_binding(cert_der: &[u8]) -> Vec<u8> {
 fn negotiate_token<'a>(headers: impl IntoIterator<Item = &'a str>) -> Option<Vec<u8>> {
     headers.into_iter().find_map(|h| {
         let (scheme, rest) = h.trim().split_once(' ')?;
-        scheme.eq_ignore_ascii_case("Negotiate").then(|| STANDARD.decode(rest.trim()).ok()).flatten()
+        scheme
+            .eq_ignore_ascii_case("Negotiate")
+            .then(|| STANDARD.decode(rest.trim()).ok())
+            .flatten()
     })
 }
 
 fn offers_negotiate<'a>(headers: impl IntoIterator<Item = &'a str>) -> bool {
-    headers.into_iter().any(|h| h.trim().split(' ').next().is_some_and(|s| s.eq_ignore_ascii_case("Negotiate")))
+    headers.into_iter().any(|h| {
+        h.trim()
+            .split(' ')
+            .next()
+            .is_some_and(|s| s.eq_ignore_ascii_case("Negotiate"))
+    })
 }
 
 /// POSTs the RST to ADFS with HTTP Negotiate as the current OS user, and
 /// returns the response body.
 async fn negotiate_post(ep: &WsTrustEndpoint, body: String) -> Result<String> {
     let url = reqwest::Url::parse(&ep.url).map_err(|_| auth("dirección de ADFS no válida"))?;
-    let host = url.host_str().ok_or_else(|| auth("dirección de ADFS no válida"))?.to_string();
+    let host = url
+        .host_str()
+        .ok_or_else(|| auth("dirección de ADFS no válida"))?
+        .to_string();
     // HTTP/1.1 and one connection: NTLM authenticates the connection.
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -1005,7 +1254,12 @@ async fn negotiate_post(ep: &WsTrustEndpoint, body: String) -> Result<String> {
     };
     let send_err = |e: reqwest::Error| Error::Connect(format!("no se pudo llegar a ADFS: {e}"));
     let header_values = |r: &reqwest::Response| -> Vec<String> {
-        r.headers().get_all("WWW-Authenticate").iter().filter_map(|v| v.to_str().ok()).map(str::to_string).collect()
+        r.headers()
+            .get_all("WWW-Authenticate")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .map(str::to_string)
+            .collect()
     };
 
     // Unauthenticated first: the 401 says Negotiate is welcome, and the
@@ -1016,16 +1270,27 @@ async fn negotiate_post(ep: &WsTrustEndpoint, body: String) -> Result<String> {
     }
     let offered = header_values(&first);
     if first.status().as_u16() != 401 || !offers_negotiate(offered.iter().map(String::as_str)) {
-        return Err(auth(format!("ADFS no ofrece autenticación de Windows (HTTP {})", first.status().as_u16())));
+        return Err(auth(format!(
+            "ADFS no ofrece autenticación de Windows (HTTP {})",
+            first.status().as_u16()
+        )));
     }
-    let cbt = first.extensions().get::<reqwest::tls::TlsInfo>().and_then(|i| i.peer_certificate()).map(channel_binding);
+    let cbt = first
+        .extensions()
+        .get::<reqwest::tls::TlsInfo>()
+        .and_then(|i| i.peer_certificate())
+        .map(channel_binding);
     let _ = first.bytes().await; // drain it so the connection is reused
 
     let mut negotiator = negotiate::Negotiator::new(&host, cbt)?;
     let mut input: Option<Vec<u8>> = None;
     for _ in 0..4 {
-        let Some(out) = negotiator.step(input.as_deref())? else { break };
-        let resp = post(Some(format!("Negotiate {}", STANDARD.encode(out)))).await.map_err(send_err)?;
+        let Some(out) = negotiator.step(input.as_deref())? else {
+            break;
+        };
+        let resp = post(Some(format!("Negotiate {}", STANDARD.encode(out))))
+            .await
+            .map_err(send_err)?;
         let status = resp.status().as_u16();
         if status == 401 {
             let headers = header_values(&resp);
@@ -1072,13 +1337,25 @@ mod negotiate {
 
     impl Negotiator {
         pub fn new(host: &str, cbt: Option<Vec<u8>>) -> Result<Negotiator> {
-            let target = Name::new(format!("HTTP@{host}").as_bytes(), Some(GSS_NT_HOSTBASED_SERVICE)).map_err(gss_error)?;
-            let ctx = ClientCtx::new(None, target, CtxFlags::GSS_C_MUTUAL_FLAG, Some(GSS_MECH_SPNEGO));
+            let target = Name::new(
+                format!("HTTP@{host}").as_bytes(),
+                Some(GSS_NT_HOSTBASED_SERVICE),
+            )
+            .map_err(gss_error)?;
+            let ctx = ClientCtx::new(
+                None,
+                target,
+                CtxFlags::GSS_C_MUTUAL_FLAG,
+                Some(GSS_MECH_SPNEGO),
+            );
             Ok(Negotiator { ctx, cbt })
         }
 
         pub fn step(&mut self, input: Option<&[u8]>) -> Result<Option<Vec<u8>>> {
-            let out = self.ctx.step(input, self.cbt.as_deref()).map_err(gss_error)?;
+            let out = self
+                .ctx
+                .step(input, self.cbt.as_deref())
+                .map_err(gss_error)?;
             Ok(out.map(|b| b.to_vec()))
         }
     }
@@ -1097,16 +1374,22 @@ mod negotiate {
 
     impl Negotiator {
         pub fn new(host: &str, cbt: Option<Vec<u8>>) -> Result<Negotiator> {
-            let mut b = NtlmSspiBuilder::new().outbound().target_spn(&format!("HTTP/{host}"));
+            let mut b = NtlmSspiBuilder::new()
+                .outbound()
+                .target_spn(&format!("HTTP/{host}"));
             if let Some(cbt) = &cbt {
                 b = b.channel_bindings(cbt);
             }
-            let sspi = b.build().map_err(|e| auth(format!("no se pudo usar la sesión de Windows: {e}")))?;
+            let sspi = b
+                .build()
+                .map_err(|e| auth(format!("no se pudo usar la sesión de Windows: {e}")))?;
             Ok(Negotiator(sspi))
         }
 
         pub fn step(&mut self, input: Option<&[u8]>) -> Result<Option<Vec<u8>>> {
-            self.0.next_bytes(input).map_err(|e| auth(format!("no se pudo usar la sesión de Windows: {e}")))
+            self.0
+                .next_bytes(input)
+                .map_err(|e| auth(format!("no se pudo usar la sesión de Windows: {e}")))
         }
     }
 }
@@ -1119,7 +1402,9 @@ mod negotiate {
 
     impl Negotiator {
         pub fn new(_host: &str, _cbt: Option<Vec<u8>>) -> Result<Negotiator> {
-            Err(Error::Unsupported("la autenticación integrada no está disponible en este sistema".into()))
+            Err(Error::Unsupported(
+                "la autenticación integrada no está disponible en este sistema".into(),
+            ))
         }
 
         pub fn step(&mut self, _input: Option<&[u8]>) -> Result<Option<Vec<u8>>> {
@@ -1136,17 +1421,29 @@ mod tests {
     #[test]
     fn pkce_matches_rfc_7636() {
         // RFC 7636, appendix B.
-        assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
         let v = random_b64(32).unwrap();
         // 43 characters of the unreserved set, and never the same twice.
         assert_eq!(v.len(), 43);
-        assert!(v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(v
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
         assert_ne!(v, random_b64(32).unwrap());
     }
 
     #[test]
     fn authorize_url_carries_pkce_state_and_hint() {
-        let u = authorize_url("organizations", SQL_CLIENT_APP, "http://localhost:5123", "st", "ch", Some("ana@contoso.com"));
+        let u = authorize_url(
+            "organizations",
+            SQL_CLIENT_APP,
+            "http://localhost:5123",
+            "st",
+            "ch",
+            Some("ana@contoso.com"),
+        );
         let url = reqwest::Url::parse(&u).unwrap();
         assert_eq!(url.host_str(), Some("login.microsoftonline.com"));
         assert_eq!(url.path(), "/organizations/oauth2/v2.0/authorize");
@@ -1156,7 +1453,10 @@ mod tests {
         assert_eq!(q["code_challenge"], "ch");
         assert_eq!(q["state"], "st");
         assert_eq!(q["login_hint"], "ana@contoso.com");
-        assert!(q["scope"].contains("https://database.windows.net/.default") && q["scope"].contains("offline_access"));
+        assert!(
+            q["scope"].contains("https://database.windows.net/.default")
+                && q["scope"].contains("offline_access")
+        );
         let u = authorize_url("t", "c", "http://localhost:1", "s", "c", None);
         assert!(!u.contains("login_hint"));
     }
@@ -1167,8 +1467,15 @@ mod tests {
         let (program, args) = browser_argv(url);
         // The URL travels as one argument, `&` and all.
         assert_eq!(args.last().map(String::as_str), Some(url));
-        let name = program.file_name().unwrap().to_string_lossy().to_lowercase();
-        assert!(["open", "xdg-open", "rundll32.exe"].contains(&name.as_str()), "{name}");
+        let name = program
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_lowercase();
+        assert!(
+            ["open", "xdg-open", "rundll32.exe"].contains(&name.as_str()),
+            "{name}"
+        );
         assert!(!["sh", "bash", "zsh", "cmd.exe", "powershell.exe"].contains(&name.as_str()));
         assert!(open_browser("https://evil.example/").is_err());
     }
@@ -1179,14 +1486,35 @@ mod tests {
         assert_eq!(parse_callback(ok, "abc"), Callback::Code("0.AXo+z".into()));
         // Someone else's state, also on an error.
         assert_eq!(parse_callback(ok, "abd"), Callback::BadState);
-        assert_eq!(parse_callback("GET /?code=x HTTP/1.1\r\n\r\n", "abc"), Callback::BadState);
-        assert_eq!(parse_callback("GET /?error=access_denied&state=zzz HTTP/1.1\r\n\r\n", "abc"), Callback::BadState);
+        assert_eq!(
+            parse_callback("GET /?code=x HTTP/1.1\r\n\r\n", "abc"),
+            Callback::BadState
+        );
+        assert_eq!(
+            parse_callback(
+                "GET /?error=access_denied&state=zzz HTTP/1.1\r\n\r\n",
+                "abc"
+            ),
+            Callback::BadState
+        );
         let denied = "GET /?error=access_denied&error_description=AADSTS65004%3A+User+declined+to+consent.%0D%0ATrace&state=abc HTTP/1.1\r\n\r\n";
-        assert_eq!(parse_callback(denied, "abc"), Callback::Failed("AADSTS65004: User declined to consent.".into()));
+        assert_eq!(
+            parse_callback(denied, "abc"),
+            Callback::Failed("AADSTS65004: User declined to consent.".into())
+        );
         // Not the redirect.
-        assert_eq!(parse_callback("GET /favicon.ico HTTP/1.1\r\n\r\n", "abc"), Callback::Ignore);
-        assert_eq!(parse_callback("GET / HTTP/1.1\r\n\r\n", "abc"), Callback::Ignore);
-        assert_eq!(parse_callback("POST /?code=x&state=abc HTTP/1.1\r\n\r\n", "abc"), Callback::Ignore);
+        assert_eq!(
+            parse_callback("GET /favicon.ico HTTP/1.1\r\n\r\n", "abc"),
+            Callback::Ignore
+        );
+        assert_eq!(
+            parse_callback("GET / HTTP/1.1\r\n\r\n", "abc"),
+            Callback::Ignore
+        );
+        assert_eq!(
+            parse_callback("POST /?code=x&state=abc HTTP/1.1\r\n\r\n", "abc"),
+            Callback::Ignore
+        );
         assert_eq!(parse_callback("", "abc"), Callback::Ignore);
     }
 
@@ -1201,12 +1529,20 @@ mod tests {
     #[tokio::test]
     async fn loopback_listener_waits_for_the_right_state() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let port = listener.local_addr().unwrap().port();
         let browser = tokio::spawn(async move {
             let mut answers = vec![];
-            for req in ["GET /favicon.ico HTTP/1.1\r\n\r\n", "GET /?code=bad&state=nope HTTP/1.1\r\n\r\n", "GET /?code=good&state=s1 HTTP/1.1\r\n\r\n"] {
-                let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            for req in [
+                "GET /favicon.ico HTTP/1.1\r\n\r\n",
+                "GET /?code=bad&state=nope HTTP/1.1\r\n\r\n",
+                "GET /?code=good&state=s1 HTTP/1.1\r\n\r\n",
+            ] {
+                let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                    .await
+                    .unwrap();
                 s.write_all(req.as_bytes()).await.unwrap();
                 let mut out = String::new();
                 s.read_to_string(&mut out).await.unwrap();
@@ -1218,11 +1554,18 @@ mod tests {
         let answers = browser.await.unwrap();
         assert!(answers[0].starts_with("HTTP/1.1 404"));
         assert!(answers[1].starts_with("HTTP/1.1 400"));
-        assert!(answers[2].starts_with("HTTP/1.1 200") && answers[2].contains("podés cerrar esta ventana"));
+        assert!(
+            answers[2].starts_with("HTTP/1.1 200")
+                && answers[2].contains("podés cerrar esta ventana")
+        );
     }
 
     fn tok(expires_on: u64, refresh: Option<&str>) -> Token {
-        Token { access: "at".into(), expires_on, refresh: refresh.map(str::to_string) }
+        Token {
+            access: "at".into(),
+            expires_on,
+            refresh: refresh.map(str::to_string),
+        }
     }
 
     #[test]
@@ -1233,13 +1576,35 @@ mod tests {
         cache.insert(key.clone(), tok(1000 + 3600, Some("rt")));
         assert_eq!(lookup(&cache, &key, 1000), Cached::Fresh("at".into()));
         // The user is case-insensitive; the method, tenant and client aren't.
-        assert_eq!(lookup(&cache, &Key::new(MFA, "t", "c", "ana@contoso.com"), 1000), Cached::Fresh("at".into()));
-        assert_eq!(lookup(&cache, &Key::new(DEFAULT, "t", "c", "ana@contoso.com"), 1000), Cached::Miss);
-        assert_eq!(lookup(&cache, &Key::new(MFA, "t2", "c", "ana@contoso.com"), 1000), Cached::Miss);
+        assert_eq!(
+            lookup(&cache, &Key::new(MFA, "t", "c", "ana@contoso.com"), 1000),
+            Cached::Fresh("at".into())
+        );
+        assert_eq!(
+            lookup(
+                &cache,
+                &Key::new(DEFAULT, "t", "c", "ana@contoso.com"),
+                1000
+            ),
+            Cached::Miss
+        );
+        assert_eq!(
+            lookup(&cache, &Key::new(MFA, "t2", "c", "ana@contoso.com"), 1000),
+            Cached::Miss
+        );
         // Inside the last five minutes: refresh.
-        assert_eq!(lookup(&cache, &key, 1000 + 3600 - MARGIN - 1), Cached::Fresh("at".into()));
-        assert_eq!(lookup(&cache, &key, 1000 + 3600 - MARGIN), Cached::Refresh("rt".into()));
-        assert_eq!(lookup(&cache, &key, 1000 + 7200), Cached::Refresh("rt".into()));
+        assert_eq!(
+            lookup(&cache, &key, 1000 + 3600 - MARGIN - 1),
+            Cached::Fresh("at".into())
+        );
+        assert_eq!(
+            lookup(&cache, &key, 1000 + 3600 - MARGIN),
+            Cached::Refresh("rt".into())
+        );
+        assert_eq!(
+            lookup(&cache, &key, 1000 + 7200),
+            Cached::Refresh("rt".into())
+        );
         // Without a refresh token, an old token is a miss.
         cache.insert(key.clone(), tok(1000, None));
         assert_eq!(lookup(&cache, &key, 1000), Cached::Miss);
@@ -1250,25 +1615,43 @@ mod tests {
         let key = Key::new("test", "cache", &now().to_string(), "");
         let first = with_cache(key.clone(), |r| async move {
             assert!(r.is_none());
-            Ok(Token { access: "one".into(), expires_on: now() + 3600, refresh: None })
+            Ok(Token {
+                access: "one".into(),
+                expires_on: now() + 3600,
+                refresh: None,
+            })
         })
         .await
         .unwrap();
-        let second = with_cache(key, |_| async { Err::<Token, _>(auth("no debería pedir otro")) }).await.unwrap();
+        let second = with_cache(key, |_| async {
+            Err::<Token, _>(auth("no debería pedir otro"))
+        })
+        .await
+        .unwrap();
         assert_eq!((first.as_str(), second.as_str()), ("one", "one"));
     }
 
     #[test]
     fn oauth_tokens_carry_expiry_and_refresh() {
-        let t = Token::from_oauth(&json!({"access_token": "a", "expires_in": 3599, "refresh_token": "r"}), 100).unwrap();
-        assert_eq!((t.access.as_str(), t.expires_on, t.refresh.as_deref()), ("a", 3699, Some("r")));
+        let t = Token::from_oauth(
+            &json!({"access_token": "a", "expires_in": 3599, "refresh_token": "r"}),
+            100,
+        )
+        .unwrap();
+        assert_eq!(
+            (t.access.as_str(), t.expires_on, t.refresh.as_deref()),
+            ("a", 3699, Some("r"))
+        );
         let t = Token::from_oauth(&json!({"access_token": "a", "expires_in": "60"}), 100).unwrap();
         assert_eq!((t.expires_on, t.refresh), (160, None));
         assert!(Token::from_oauth(&json!({"error": "invalid_grant"}), 0).is_err());
         // Debug never shows the tokens.
         let t = tok(1, Some("refresh-secret"));
         let shown = format!("{t:?}");
-        assert!(!shown.contains("\"at\"") && !shown.contains("refresh-secret"), "{shown}");
+        assert!(
+            !shown.contains("\"at\"") && !shown.contains("refresh-secret"),
+            "{shown}"
+        );
     }
 
     #[test]
@@ -1282,7 +1665,11 @@ mod tests {
         assert_eq!(imds.header, ("Metadata", "true".to_string()));
         let user = msi_request(None, Some("1111-22")).unwrap();
         assert!(user.url.ends_with("&client_id=1111-22"));
-        let app = msi_request(Some(("http://127.0.0.1:41056/msi/token".into(), "s3cr3t".into())), Some("c")).unwrap();
+        let app = msi_request(
+            Some(("http://127.0.0.1:41056/msi/token".into(), "s3cr3t".into())),
+            Some("c"),
+        )
+        .unwrap();
         assert!(!app.imds);
         assert_eq!(
             app.url,
@@ -1301,7 +1688,12 @@ mod tests {
         assert_eq!((t.access.as_str(), t.expires_on), ("eyJ0", 1_760_000_000));
         let t = parse_msi(200, r#"{"access_token":"x","expires_in":"600"}"#, 1000).unwrap();
         assert_eq!(t.expires_on, 1600);
-        let e = parse_msi(400, r#"{"error":"invalid_request","error_description":"Identity not found"}"#, 0).unwrap_err();
+        let e = parse_msi(
+            400,
+            r#"{"error":"invalid_request","error_description":"Identity not found"}"#,
+            0,
+        )
+        .unwrap_err();
         assert!(matches!(e, Error::AuthFailed(m) if m.ends_with("Identity not found")));
         let e = parse_msi(500, "<html>", 0).unwrap_err();
         assert!(e.to_string().contains("HTTP 500"));
@@ -1315,9 +1707,15 @@ mod tests {
         assert_eq!((t.access.as_str(), t.expires_on), ("eyJa", 1_791_558_245));
         // Older: only expiresOn, in local time.
         let old = r#"{"accessToken":"eyJb","expiresOn":"2026-10-09 15:04:05.123456","tokenType":"Bearer"}"#;
-        assert_eq!(parse_az(old, &chrono::Utc).unwrap().expires_on, 1_791_558_245);
+        assert_eq!(
+            parse_az(old, &chrono::Utc).unwrap().expires_on,
+            1_791_558_245
+        );
         let minus3 = chrono::FixedOffset::west_opt(3 * 3600).unwrap();
-        assert_eq!(parse_az(old, &minus3).unwrap().expires_on, 1_791_558_245 + 3 * 3600);
+        assert_eq!(
+            parse_az(old, &minus3).unwrap().expires_on,
+            1_791_558_245 + 3 * 3600
+        );
         assert!(parse_az(r#"{"accessToken":"x"}"#, &chrono::Utc).is_err());
         assert!(parse_az("Please run 'az login'", &chrono::Utc).is_err());
         let azd = r#"{"token":"eyJc","expiresOn":"2026-10-09T15:04:05Z"}"#;
@@ -1332,17 +1730,31 @@ mod tests {
         let path = std::env::join_paths(["/custom/bin", "relative/bin"]).unwrap();
         let c = cli_candidates("az", Some(&path));
         if cfg!(windows) {
-            assert!(c.iter().any(|p| p.ends_with(r"Microsoft SDKs\Azure\CLI2\wbin\az.cmd")));
+            assert!(c
+                .iter()
+                .any(|p| p.ends_with(r"Microsoft SDKs\Azure\CLI2\wbin\az.cmd")));
         } else {
             assert_eq!(c[0], PathBuf::from("/custom/bin/az"));
-            assert!(c.contains(&PathBuf::from("/opt/homebrew/bin/az")) && c.contains(&PathBuf::from("/usr/local/bin/az")));
+            assert!(
+                c.contains(&PathBuf::from("/opt/homebrew/bin/az"))
+                    && c.contains(&PathBuf::from("/usr/local/bin/az"))
+            );
         }
         // A relative PATH entry is never searched.
         assert!(!c.iter().any(|p| p.starts_with("relative")));
         assert!(!cli_candidates("az", None).is_empty());
 
         let script = Path::new(r"C:\Program Files (x86)\Microsoft SDKs\Azure\CLI2\wbin\az.cmd");
-        let args = ["account", "get-access-token", "--resource", SQL_RESOURCE, "--output", "json", "--tenant", "contoso.onmicrosoft.com"];
+        let args = [
+            "account",
+            "get-access-token",
+            "--resource",
+            SQL_RESOURCE,
+            "--output",
+            "json",
+            "--tenant",
+            "contoso.onmicrosoft.com",
+        ];
         assert_eq!(
             cmd_line(script, &args).unwrap(),
             "/d /v:off /s /c \"\"C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd\" account get-access-token \
@@ -1358,13 +1770,22 @@ mod tests {
     async fn default_chain_reports_every_step() {
         assert!(env_triplet(|_| None).is_err());
         assert!(env_triplet(|k| (k != "AZURE_CLIENT_SECRET").then(|| "x".to_string())).is_err());
-        assert_eq!(env_triplet(|k| Some(format!(" {k} "))).unwrap().2, "AZURE_CLIENT_SECRET");
+        assert_eq!(
+            env_triplet(|k| Some(format!(" {k} "))).unwrap().2,
+            "AZURE_CLIENT_SECRET"
+        );
         assert!(env_credential(|_| None).await.is_err());
 
         let e = chain_error(&[
-            ("variables de entorno", auth("no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET")),
+            (
+                "variables de entorno",
+                auth("no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET"),
+            ),
             ("identidad administrada", auth(NO_MSI)),
-            ("Azure CLI", auth("Please run 'az login' to setup account.\nmore detail (¿falta az login?)")),
+            (
+                "Azure CLI",
+                auth("Please run 'az login' to setup account.\nmore detail (¿falta az login?)"),
+            ),
             ("Azure Developer CLI", auth("no está instalada")),
         ]);
         let Error::AuthFailed(m) = e else { panic!() };
@@ -1373,7 +1794,10 @@ mod tests {
         assert!(lines[0].contains("autenticación predeterminada"));
         assert!(lines[1].starts_with("- variables de entorno: no están definidas"));
         assert!(lines[2].starts_with("- identidad administrada: no se encontró"));
-        assert_eq!(lines[3], "- Azure CLI: Please run 'az login' to setup account.");
+        assert_eq!(
+            lines[3],
+            "- Azure CLI: Please run 'az login' to setup account."
+        );
         assert_eq!(lines[4], "- Azure Developer CLI: no está instalada");
     }
 
@@ -1383,7 +1807,15 @@ mod tests {
             realm_url("ana@contoso.com").unwrap().as_str(),
             "https://login.microsoftonline.com/common/userrealm/ana@contoso.com?api-version=1.0"
         );
-        for bad in ["ana", "@contoso.com", "ana@", "a@b@c", "ana @contoso.com", "../x@y", "a@b/c"] {
+        for bad in [
+            "ana",
+            "@contoso.com",
+            "ana@",
+            "a@b@c",
+            "ana @contoso.com",
+            "../x@y",
+            "a@b/c",
+        ] {
             assert!(realm_url(bad).is_err(), "{bad}");
         }
         let federated = json!({
@@ -1393,12 +1825,23 @@ mod tests {
             "federation_active_auth_url": "https://sts.contoso.com/adfs/services/trust/2005/usernamemixed",
             "cloud_instance_name": "microsoftonline.com", "cloud_audience_urn": "urn:federation:MicrosoftOnline"
         });
-        assert_eq!(parse_realm(&federated).unwrap(), Realm::Federated { mex: "https://sts.contoso.com/adfs/services/trust/mex".into() });
+        assert_eq!(
+            parse_realm(&federated).unwrap(),
+            Realm::Federated {
+                mex: "https://sts.contoso.com/adfs/services/trust/mex".into()
+            }
+        );
         let managed = json!({"ver": "1.0", "account_type": "Managed", "domain_name": "contoso.onmicrosoft.com", "cloud_instance_name": "microsoftonline.com"});
         assert_eq!(parse_realm(&managed).unwrap(), Realm::Managed);
-        assert_eq!(parse_realm(&json!({"ver": "1.0", "account_type": "Unknown"})).unwrap(), Realm::Unknown);
+        assert_eq!(
+            parse_realm(&json!({"ver": "1.0", "account_type": "Unknown"})).unwrap(),
+            Realm::Unknown
+        );
         assert!(parse_realm(&json!({"account_type": "Federated"})).is_err());
-        assert!(parse_realm(&json!({"account_type": "Federated", "federation_metadata_url": "http://sts/mex"})).is_err());
+        assert!(parse_realm(
+            &json!({"account_type": "Federated", "federation_metadata_url": "http://sts/mex"})
+        )
+        .is_err());
     }
 
     /// ADFS's MEX, cut down to the parts that matter: Windows transport
@@ -1467,11 +1910,23 @@ mod tests {
     #[test]
     fn mex_picks_the_windows_transport() {
         let ep = mex_endpoint(MEX).unwrap();
-        assert_eq!(ep, WsTrustEndpoint { url: "https://sts.contoso.com/adfs/services/trust/13/windowstransport".into(), version: Trust::V13 });
+        assert_eq!(
+            ep,
+            WsTrustEndpoint {
+                url: "https://sts.contoso.com/adfs/services/trust/13/windowstransport".into(),
+                version: Trust::V13
+            }
+        );
         // Without 1.3, the 2005 one.
         let only2005 = MEX.replace(r#"<soap12:address location="https://sts.contoso.com/adfs/services/trust/13/windowstransport"/>"#, "");
         let ep = mex_endpoint(&only2005).unwrap();
-        assert_eq!((ep.url.as_str(), ep.version), ("https://sts.contoso.com/adfs/services/trust/2005/windowstransport", Trust::V2005));
+        assert_eq!(
+            (ep.url.as_str(), ep.version),
+            (
+                "https://sts.contoso.com/adfs/services/trust/2005/windowstransport",
+                Trust::V2005
+            )
+        );
         // Username/password only: no endpoint.
         let none = MEX.replace("http:NegotiateAuthentication", "http:BasicAuthentication");
         assert!(mex_endpoint(&none).is_err());
@@ -1482,30 +1937,70 @@ mod tests {
 
     #[test]
     fn rst_envelopes() {
-        let ep = WsTrustEndpoint { url: "https://sts.contoso.com/adfs/services/trust/13/windowstransport?a=1&b=2".into(), version: Trust::V13 };
+        let ep = WsTrustEndpoint {
+            url: "https://sts.contoso.com/adfs/services/trust/13/windowstransport?a=1&b=2".into(),
+            version: Trust::V13,
+        };
         let id = message_id().unwrap();
-        assert!(id.starts_with("urn:uuid:") && id.len() == 45 && &id[23..24] == "4", "{id}");
+        assert!(
+            id.starts_with("urn:uuid:") && id.len() == 45 && &id[23..24] == "4",
+            "{id}"
+        );
         let rst = rst_envelope(&ep, &id);
         let doc = roxmltree::Document::parse(&rst).unwrap();
-        let text = |local: &str| doc.descendants().find(|n| n.tag_name().name() == local).and_then(|n| n.text()).map(str::to_string);
-        assert_eq!(text("Action").unwrap(), "http://docs.oasis-open.org/ws-sx/ws-trust/200512/RST/Issue");
+        let text = |local: &str| {
+            doc.descendants()
+                .find(|n| n.tag_name().name() == local)
+                .and_then(|n| n.text())
+                .map(str::to_string)
+        };
+        assert_eq!(
+            text("Action").unwrap(),
+            "http://docs.oasis-open.org/ws-sx/ws-trust/200512/RST/Issue"
+        );
         assert_eq!(text("To").unwrap(), ep.url);
         assert_eq!(text("MessageID").unwrap(), id);
-        assert_eq!(text("KeyType").unwrap(), "http://docs.oasis-open.org/ws-sx/ws-trust/200512/Bearer");
-        assert_eq!(text("RequestType").unwrap(), "http://docs.oasis-open.org/ws-sx/ws-trust/200512/Issue");
-        let applies = doc.descendants().find(|n| n.tag_name().name() == "AppliesTo").unwrap();
-        assert!(applies.descendants().any(|n| n.text() == Some("urn:federation:MicrosoftOnline")));
-        let rst = doc.descendants().find(|n| n.tag_name().name() == "RequestSecurityToken").unwrap();
+        assert_eq!(
+            text("KeyType").unwrap(),
+            "http://docs.oasis-open.org/ws-sx/ws-trust/200512/Bearer"
+        );
+        assert_eq!(
+            text("RequestType").unwrap(),
+            "http://docs.oasis-open.org/ws-sx/ws-trust/200512/Issue"
+        );
+        let applies = doc
+            .descendants()
+            .find(|n| n.tag_name().name() == "AppliesTo")
+            .unwrap();
+        assert!(applies
+            .descendants()
+            .any(|n| n.text() == Some("urn:federation:MicrosoftOnline")));
+        let rst = doc
+            .descendants()
+            .find(|n| n.tag_name().name() == "RequestSecurityToken")
+            .unwrap();
         assert_eq!(rst.tag_name().namespace(), Some(Trust::V13.ns()));
         // No credentials in the body: Negotiate carries them.
         assert!(!rst_envelope(&ep, &id).contains("UsernameToken"));
 
-        let ep = WsTrustEndpoint { url: "https://sts/adfs/services/trust/2005/windowstransport".into(), version: Trust::V2005 };
+        let ep = WsTrustEndpoint {
+            url: "https://sts/adfs/services/trust/2005/windowstransport".into(),
+            version: Trust::V2005,
+        };
         let rst = rst_envelope(&ep, &id);
         let doc = roxmltree::Document::parse(&rst).unwrap();
-        let key = doc.descendants().find(|n| n.tag_name().name() == "KeyType").unwrap();
-        assert_eq!(key.text(), Some("http://schemas.xmlsoap.org/ws/2005/05/identity/NoProofKey"));
-        assert_eq!(key.tag_name().namespace(), Some("http://schemas.xmlsoap.org/ws/2005/02/trust"));
+        let key = doc
+            .descendants()
+            .find(|n| n.tag_name().name() == "KeyType")
+            .unwrap();
+        assert_eq!(
+            key.text(),
+            Some("http://schemas.xmlsoap.org/ws/2005/05/identity/NoProofKey")
+        );
+        assert_eq!(
+            key.tag_name().namespace(),
+            Some("http://schemas.xmlsoap.org/ws/2005/02/trust")
+        );
     }
 
     const RSTR_SAML1: &str = r#"<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing"><s:Header><a:Action s:mustUnderstand="1">http://docs.oasis-open.org/ws-sx/ws-trust/200512/RSTRC/IssueFinal</a:Action></s:Header><s:Body><trust:RequestSecurityTokenResponseCollection xmlns:trust="http://docs.oasis-open.org/ws-sx/ws-trust/200512"><trust:RequestSecurityTokenResponse><trust:Lifetime><wsu:Created xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">2026-10-09T12:00:00.000Z</wsu:Created></trust:Lifetime><wsp:AppliesTo xmlns:wsp="http://schemas.xmlsoap.org/ws/2004/09/policy"><wsa:EndpointReference xmlns:wsa="http://www.w3.org/2005/08/addressing"><wsa:Address>urn:federation:MicrosoftOnline</wsa:Address></wsa:EndpointReference></wsp:AppliesTo><trust:RequestedSecurityToken><saml:Assertion MajorVersion="1" MinorVersion="1" AssertionID="_a1" Issuer="http://sts.contoso.com/adfs/services/trust" IssueInstant="2026-10-09T12:00:00.000Z" xmlns:saml="urn:oasis:names:tc:SAML:1.0:assertion"><saml:AttributeStatement><saml:Subject><saml:NameIdentifier Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified">ana@contoso.com</saml:NameIdentifier></saml:Subject></saml:AttributeStatement><ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:SignatureValue>c2ln</ds:SignatureValue></ds:Signature></saml:Assertion></trust:RequestedSecurityToken><trust:TokenType>urn:oasis:names:tc:SAML:1.0:assertion</trust:TokenType><trust:RequestType>http://docs.oasis-open.org/ws-sx/ws-trust/200512/Issue</trust:RequestType><trust:KeyType>http://docs.oasis-open.org/ws-sx/ws-trust/200512/Bearer</trust:KeyType></trust:RequestSecurityTokenResponse></trust:RequestSecurityTokenResponseCollection></s:Body></s:Envelope>"#;
@@ -1514,16 +2009,29 @@ mod tests {
     fn saml_assertions_come_out_verbatim() {
         let saml = saml_from_rstr(RSTR_SAML1).unwrap();
         assert_eq!(saml.grant, SAML1_GRANT);
-        assert!(saml.assertion.starts_with(r#"<saml:Assertion MajorVersion="1""#));
+        assert!(saml
+            .assertion
+            .starts_with(r#"<saml:Assertion MajorVersion="1""#));
         assert!(saml.assertion.ends_with("</saml:Assertion>"));
-        assert!(saml.assertion.contains("<ds:SignatureValue>c2ln</ds:SignatureValue>"));
+        assert!(saml
+            .assertion
+            .contains("<ds:SignatureValue>c2ln</ds:SignatureValue>"));
         // SAML 2.0, told by the token type…
         let saml2 = RSTR_SAML1
-            .replace("<trust:TokenType>urn:oasis:names:tc:SAML:1.0:assertion", "<trust:TokenType>urn:oasis:names:tc:SAML:2.0:assertion")
-            .replace("urn:oasis:names:tc:SAML:1.0:assertion\"", "urn:oasis:names:tc:SAML:2.0:assertion\"");
+            .replace(
+                "<trust:TokenType>urn:oasis:names:tc:SAML:1.0:assertion",
+                "<trust:TokenType>urn:oasis:names:tc:SAML:2.0:assertion",
+            )
+            .replace(
+                "urn:oasis:names:tc:SAML:1.0:assertion\"",
+                "urn:oasis:names:tc:SAML:2.0:assertion\"",
+            );
         assert_eq!(saml_from_rstr(&saml2).unwrap().grant, SAML2_GRANT);
         // …or, without one, by the assertion's namespace.
-        let no_type = saml2.replace("<trust:TokenType>urn:oasis:names:tc:SAML:2.0:assertion</trust:TokenType>", "");
+        let no_type = saml2.replace(
+            "<trust:TokenType>urn:oasis:names:tc:SAML:2.0:assertion</trust:TokenType>",
+            "",
+        );
         assert_eq!(saml_from_rstr(&no_type).unwrap().grant, SAML2_GRANT);
         // WS-Trust 2005 names SAML 1.1 by its profile.
         let v2005 = RSTR_SAML1.replace(
@@ -1538,7 +2046,9 @@ mod tests {
     fn soap_faults_explain_themselves() {
         let fault = r#"<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><s:Fault><s:Code><s:Value>s:Sender</s:Value><s:Subcode><s:Value xmlns:a="http://docs.oasis-open.org/ws-sx/ws-trust/200512">a:FailedAuthentication</s:Value></s:Subcode></s:Code><s:Reason><s:Text xml:lang="en-US">MSIS3127: The specified request failed.</s:Text></s:Reason></s:Fault></s:Body></s:Envelope>"#;
         let e = saml_from_rstr(fault).unwrap_err();
-        assert!(matches!(e, Error::AuthFailed(m) if m.ends_with("MSIS3127: The specified request failed.")));
+        assert!(
+            matches!(e, Error::AuthFailed(m) if m.ends_with("MSIS3127: The specified request failed."))
+        );
     }
 
     #[test]
@@ -1546,7 +2056,10 @@ mod tests {
         assert!(offers_negotiate(["NTLM", "Negotiate"]));
         assert!(offers_negotiate(["negotiate abc="]));
         assert!(!offers_negotiate(["Basic realm=\"x\"", "NTLM"]));
-        assert_eq!(negotiate_token(["NTLM", "Negotiate oYG3MIG0"]), Some(STANDARD.decode("oYG3MIG0").unwrap()));
+        assert_eq!(
+            negotiate_token(["NTLM", "Negotiate oYG3MIG0"]),
+            Some(STANDARD.decode("oYG3MIG0").unwrap())
+        );
         assert_eq!(negotiate_token(["Negotiate"]), None);
         assert_eq!(negotiate_token(["Negotiate !!!"]), None);
         let cb = channel_binding(b"cert");
@@ -1557,7 +2070,12 @@ mod tests {
     /// The claims of a JWT (unverified).
     fn jwt_claims(token: &str) -> Value {
         let payload = token.split('.').nth(1).expect("a JWT");
-        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).unwrap()).unwrap()
+        serde_json::from_slice(
+            &URL_SAFE_NO_PAD
+                .decode(payload.trim_end_matches('='))
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     /// Needs Azure CLI (or another link of the chain) signed in on this
@@ -1569,8 +2087,14 @@ mod tests {
         let claims = jwt_claims(&token);
         let aud = claims["aud"].as_str().unwrap();
         let exp = claims["exp"].as_u64().unwrap();
-        println!("aud = {aud}, exp = {exp} (en {} min)", exp.saturating_sub(now()) / 60);
-        assert!(aud == "https://database.windows.net" || aud == "https://database.windows.net/", "{aud}");
+        println!(
+            "aud = {aud}, exp = {exp} (en {} min)",
+            exp.saturating_sub(now()) / 60
+        );
+        assert!(
+            aud == "https://database.windows.net" || aud == "https://database.windows.net/",
+            "{aud}"
+        );
         assert!(exp > now());
         // The second call comes from the cache.
         assert_eq!(default_chain(None, None).await.unwrap(), token);

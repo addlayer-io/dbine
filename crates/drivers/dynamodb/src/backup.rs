@@ -52,7 +52,9 @@ where
     R: std::fmt::Debug,
 {
     if e.code() == Some("UnknownOperationException") {
-        Error::Unsupported("Este endpoint no tiene backups de DynamoDB (DynamoDB Local no los implementa).".into())
+        Error::Unsupported(
+            "Este endpoint no tiene backups de DynamoDB (DynamoDB Local no los implementa).".into(),
+        )
     } else {
         err(e)
     }
@@ -68,9 +70,17 @@ fn opt<'a>(options: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> 
 
 /// `<table>-<UTC date>`, within the name rules (3–255 of `[A-Za-z0-9_.-]`).
 fn default_name(table: &str, now: DateTime) -> String {
-    let stamp: String =
-        now.fmt(DateTimeFormat::DateTime).unwrap_or_default().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
-    let base: String = table.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')).take(200).collect();
+    let stamp: String = now
+        .fmt(DateTimeFormat::DateTime)
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    let base: String = table
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        .take(200)
+        .collect();
     format!("{base}-{stamp}")
 }
 
@@ -83,14 +93,17 @@ fn table_of_arn(arn: &str) -> Option<&str> {
 pub fn script(action: &BackupAction) -> Result<String> {
     match action {
         BackupAction::Backup { options, .. } => {
-            let table = opt(options, "table").ok_or_else(|| Error::Query("Elegí la tabla del backup.".into()))?;
+            let table = opt(options, "table")
+                .ok_or_else(|| Error::Query("Elegí la tabla del backup.".into()))?;
             let name = match opt(options, "name") {
                 Some(n) => n.to_string(),
                 None => default_name(table, DateTime::from(std::time::SystemTime::now())),
             };
             Ok(format!("CREATE BACKUP {} FOR TABLE {}", q(&name), q(table)))
         }
-        BackupAction::Restore { source, options, .. } => {
+        BackupAction::Restore {
+            source, options, ..
+        } => {
             let source = source.trim();
             if source.is_empty() {
                 return Err(Error::Query("Falta el ARN del backup.".into()));
@@ -99,10 +112,16 @@ pub fn script(action: &BackupAction) -> Result<String> {
                 Some(t) => t.to_string(),
                 None => format!(
                     "{}_restaurada",
-                    table_of_arn(source).ok_or_else(|| Error::Query("Indicá el nombre de la tabla nueva.".into()))?
+                    table_of_arn(source).ok_or_else(|| Error::Query(
+                        "Indicá el nombre de la tabla nueva.".into()
+                    ))?
                 ),
             };
-            Ok(format!("RESTORE TABLE {} FROM BACKUP {}", q(&target), q(source)))
+            Ok(format!(
+                "RESTORE TABLE {} FROM BACKUP {}",
+                q(&target),
+                q(source)
+            ))
         }
         BackupAction::Delete { source } => {
             let source = source.trim();
@@ -164,7 +183,11 @@ pub async fn history(s: &DynamoSession, table: Option<&str>) -> Result<Vec<Backu
             .client
             .list_backups()
             .backup_type(BackupTypeFilter::All)
-            .set_table_name(table.filter(|t| !t.is_empty() && *t != "default").map(str::to_string))
+            .set_table_name(
+                table
+                    .filter(|t| !t.is_empty() && *t != "default")
+                    .map(str::to_string),
+            )
             .set_exclusive_start_backup_arn(start.take())
             .send()
             .await
@@ -186,35 +209,72 @@ mod tests {
     use crate::admin::{parse_admin, Admin};
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
-    const ARN: &str = "arn:aws:dynamodb:us-east-1:123456789012:table/Pe\"didos/backup/01700000000000-abcdef12";
+    const ARN: &str =
+        "arn:aws:dynamodb:us-east-1:123456789012:table/Pe\"didos/backup/01700000000000-abcdef12";
 
     #[test]
     fn scripts_parse_back() {
-        let b = script(&BackupAction::Backup { database: None, options: o(&[("table", "Pe\"didos"), ("name", "semanal")]) })
-            .unwrap();
+        let b = script(&BackupAction::Backup {
+            database: None,
+            options: o(&[("table", "Pe\"didos"), ("name", "semanal")]),
+        })
+        .unwrap();
         assert_eq!(b, r#"CREATE BACKUP "semanal" FOR TABLE "Pe""didos""#);
         assert_eq!(
             parse_admin(&b).unwrap(),
-            Some(Admin::CreateBackup { name: "semanal".into(), table: "Pe\"didos".into() })
+            Some(Admin::CreateBackup {
+                name: "semanal".into(),
+                table: "Pe\"didos".into()
+            })
         );
 
-        let r = script(&BackupAction::Restore { source: ARN.into(), database: None, options: o(&[]) }).unwrap();
+        let r = script(&BackupAction::Restore {
+            source: ARN.into(),
+            database: None,
+            options: o(&[]),
+        })
+        .unwrap();
         assert_eq!(
             parse_admin(&r).unwrap(),
-            Some(Admin::RestoreBackup { table: "Pe\"didos_restaurada".into(), arn: ARN.into() })
+            Some(Admin::RestoreBackup {
+                table: "Pe\"didos_restaurada".into(),
+                arn: ARN.into()
+            })
         );
-        let r = script(&BackupAction::Restore { source: ARN.into(), database: None, options: o(&[("table", "Nueva")]) })
-            .unwrap();
-        assert!(r.starts_with(r#"RESTORE TABLE "Nueva" FROM BACKUP "arn:aws"#), "{r}");
+        let r = script(&BackupAction::Restore {
+            source: ARN.into(),
+            database: None,
+            options: o(&[("table", "Nueva")]),
+        })
+        .unwrap();
+        assert!(
+            r.starts_with(r#"RESTORE TABLE "Nueva" FROM BACKUP "arn:aws"#),
+            "{r}"
+        );
 
         let d = script(&BackupAction::Delete { source: ARN.into() }).unwrap();
-        assert_eq!(parse_admin(&d).unwrap(), Some(Admin::DropBackup { arn: ARN.into() }));
+        assert_eq!(
+            parse_admin(&d).unwrap(),
+            Some(Admin::DropBackup { arn: ARN.into() })
+        );
 
-        assert!(script(&BackupAction::Backup { database: None, options: o(&[("table", " ")]) }).is_err());
-        assert!(script(&BackupAction::Restore { source: "x".into(), database: None, options: o(&[]) }).is_err());
+        assert!(script(&BackupAction::Backup {
+            database: None,
+            options: o(&[("table", " ")])
+        })
+        .is_err());
+        assert!(script(&BackupAction::Restore {
+            source: "x".into(),
+            database: None,
+            options: o(&[])
+        })
+        .is_err());
         assert!(script(&BackupAction::Delete { source: "".into() }).is_err());
     }
 
@@ -222,8 +282,15 @@ mod tests {
     fn default_names_follow_the_rules() {
         let n = default_name("Mis pedidos!", DateTime::from_secs(1_704_110_400));
         assert_eq!(n, "Mispedidos-20240101T120000Z");
-        let b = script(&BackupAction::Backup { database: None, options: o(&[("table", "t")]) }).unwrap();
-        assert!(b.starts_with("CREATE BACKUP \"t-20") && b.ends_with("\" FOR TABLE \"t\""), "{b}");
+        let b = script(&BackupAction::Backup {
+            database: None,
+            options: o(&[("table", "t")]),
+        })
+        .unwrap();
+        assert!(
+            b.starts_with("CREATE BACKUP \"t-20") && b.ends_with("\" FOR TABLE \"t\""),
+            "{b}"
+        );
     }
 
     #[test]

@@ -54,7 +54,10 @@ impl Request {
 
     /// Path segments, without the query string.
     pub fn segments(&self) -> Vec<&str> {
-        self.path_only().split('/').filter(|s| !s.is_empty()).collect()
+        self.path_only()
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect()
     }
 
     /// The body holds more than one JSON value (one per line).
@@ -76,7 +79,11 @@ const METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "HEAD", "PATCH"];
 const SQL_WORDS: &[&str] = &["SELECT", "SHOW", "DESCRIBE", "DESC"];
 
 fn first_word(line: &str) -> String {
-    line.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_uppercase()
+    line.trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_ascii_uppercase()
 }
 
 fn is_comment(line: &str) -> bool {
@@ -87,7 +94,8 @@ fn is_comment(line: &str) -> bool {
 fn method_of(line: &str) -> Option<String> {
     let w = first_word(line);
     let rest = &line.trim_start()[w.len()..];
-    (METHODS.contains(&w.as_str()) && (rest.is_empty() || rest.starts_with(char::is_whitespace))).then_some(w)
+    (METHODS.contains(&w.as_str()) && (rest.is_empty() || rest.starts_with(char::is_whitespace)))
+        .then_some(w)
 }
 
 fn is_sql_start(line: &str) -> bool {
@@ -168,13 +176,19 @@ fn finish(cur: Cur, at: (usize, u32), out: &mut Vec<Located>) {
             Command::Sql(s.to_string())
         }
     };
-    out.push(Located { command, offset: at.0, line: at.1 });
+    out.push(Located {
+        command,
+        offset: at.0,
+        line: at.1,
+    });
 }
 
 /// Split a console script into requests and SQL statements.
 /// `Err` names the first line that's neither.
 pub fn parse(text: &str) -> Result<Vec<Command>, String> {
-    parse_located(text).map(|v| v.into_iter().map(|l| l.command).collect()).map_err(|e| e.message)
+    parse_located(text)
+        .map(|v| v.into_iter().map(|l| l.command).collect())
+        .map_err(|e| e.message)
 }
 
 /// [`parse`], keeping where each command starts in `text`.
@@ -208,7 +222,11 @@ pub fn parse_located(text: &str) -> Result<Vec<Located>, ParseError> {
             finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
             let path = line.trim_start()[m.len()..].trim().to_string();
             if path.is_empty() {
-                return Err(ParseError { message: format!("Línea {}: falta la ruta después de {m}.", n + 1), offset: here.0, line: here.1 });
+                return Err(ParseError {
+                    message: format!("Línea {}: falta la ruta después de {m}.", n + 1),
+                    offset: here.0,
+                    line: here.1,
+                });
             }
             cur = Cur::Req(m, path, Vec::new());
             at = here;
@@ -270,10 +288,12 @@ mod tests {
 
     #[test]
     fn blank_line_inside_json_body_does_not_split() {
-        let s = "GET /x/_search\n{\n  \"size\": 1,\n\n  \"query\": {\"match_all\": {}}\n}\n\nGET /y";
+        let s =
+            "GET /x/_search\n{\n  \"size\": 1,\n\n  \"query\": {\"match_all\": {}}\n}\n\nGET /y";
         let cmds = parse(s).unwrap();
         assert_eq!(cmds.len(), 2);
-        let body: serde_json::Value = serde_json::from_str(req(&cmds[0]).body.as_deref().unwrap()).unwrap();
+        let body: serde_json::Value =
+            serde_json::from_str(req(&cmds[0]).body.as_deref().unwrap()).unwrap();
         assert_eq!(body["size"], 1);
     }
 
@@ -294,7 +314,8 @@ mod tests {
         let s = "// top\nGET /x/_search\n# inside\n{\"query\": {\"match\": {\"t\": \"a { b\"}}}\n";
         let cmds = parse(s).unwrap();
         assert_eq!(cmds.len(), 1);
-        let body: serde_json::Value = serde_json::from_str(req(&cmds[0]).body.as_deref().unwrap()).unwrap();
+        let body: serde_json::Value =
+            serde_json::from_str(req(&cmds[0]).body.as_deref().unwrap()).unwrap();
         assert_eq!(body["query"]["match"]["t"], "a { b");
     }
 
@@ -307,7 +328,11 @@ mod tests {
             vec![
                 Command::Sql("SELECT a\nFROM t\nWHERE b = 1".into()),
                 Command::Sql("show tables".into()),
-                Command::Http(Request { method: "GET".into(), path: "/".into(), body: None }),
+                Command::Http(Request {
+                    method: "GET".into(),
+                    path: "/".into(),
+                    body: None
+                }),
                 Command::Sql("describe t".into()),
             ]
         );
@@ -315,7 +340,11 @@ mod tests {
 
     #[test]
     fn query_helpers() {
-        let r = Request { method: "GET".into(), path: "/a/_cat/indices?v&format=json".into(), body: None };
+        let r = Request {
+            method: "GET".into(),
+            path: "/a/_cat/indices?v&format=json".into(),
+            body: None,
+        };
         assert_eq!(r.path_only(), "/a/_cat/indices");
         assert_eq!(r.query_param("format"), Some("json"));
         assert_eq!(r.query_param("v"), Some(""));

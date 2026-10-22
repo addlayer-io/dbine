@@ -57,7 +57,11 @@ pub fn find(tables: &[TableSchema], schema: &Option<String>, name: &str) -> Opti
     tables
         .iter()
         .position(|t| t.name == name && same(&t.schema, schema))
-        .or_else(|| tables.iter().position(|t| t.name.eq_ignore_ascii_case(name) && same(&t.schema, schema)))
+        .or_else(|| {
+            tables
+                .iter()
+                .position(|t| t.name.eq_ignore_ascii_case(name) && same(&t.schema, schema))
+        })
 }
 
 /// Every foreign key whose both ends are in `tables`.
@@ -69,9 +73,22 @@ pub fn edges(tables: &[TableSchema]) -> Vec<Edge> {
                 continue;
             }
             let schema = fk.ref_schema.clone().or_else(|| t.schema.clone());
-            let Some(p) = find(tables, &schema, &fk.ref_table) else { continue };
-            let nullable = fk.columns.iter().all(|c| t.columns.iter().find(|x| x.name.eq_ignore_ascii_case(c)).is_none_or(|x| x.nullable));
-            out.push(Edge { child: i, parent: p, child_cols: fk.columns.clone(), parent_cols: fk.ref_columns.clone(), nullable });
+            let Some(p) = find(tables, &schema, &fk.ref_table) else {
+                continue;
+            };
+            let nullable = fk.columns.iter().all(|c| {
+                t.columns
+                    .iter()
+                    .find(|x| x.name.eq_ignore_ascii_case(c))
+                    .is_none_or(|x| x.nullable)
+            });
+            out.push(Edge {
+                child: i,
+                parent: p,
+                child_cols: fk.columns.clone(),
+                parent_cols: fk.ref_columns.clone(),
+                nullable,
+            });
         }
     }
     out
@@ -119,14 +136,20 @@ pub fn order(scope: &Scope, edges: &[Edge]) -> (Vec<usize>, Vec<usize>) {
     let inside: Vec<usize> = (0..edges.len())
         .filter(|&i| {
             let e = &edges[i];
-            e.child != e.parent && scope.members.contains_key(&e.child) && scope.members.contains_key(&e.parent)
+            e.child != e.parent
+                && scope.members.contains_key(&e.child)
+                && scope.members.contains_key(&e.parent)
         })
         .collect();
     let mut left: BTreeSet<usize> = scope.members.keys().copied().collect();
     let mut broken: Vec<usize> = Vec::new();
     let mut out = Vec::new();
     while !left.is_empty() {
-        let blocked = |t: usize, broken: &[usize]| inside.iter().any(|&i| edges[i].child == t && left.contains(&edges[i].parent) && !broken.contains(&i));
+        let blocked = |t: usize, broken: &[usize]| {
+            inside.iter().any(|&i| {
+                edges[i].child == t && left.contains(&edges[i].parent) && !broken.contains(&i)
+            })
+        };
         if let Some(&t) = left.iter().find(|&&t| !blocked(t, &broken)) {
             left.remove(&t);
             out.push(t);
@@ -134,8 +157,23 @@ pub fn order(scope: &Scope, edges: &[Edge]) -> (Vec<usize>, Vec<usize>) {
         }
         // A cycle: cut one of the edges among what's left, a nullable one
         // if possible.
-        let candidates: Vec<usize> = inside.iter().copied().filter(|&i| !broken.contains(&i) && left.contains(&edges[i].child) && left.contains(&edges[i].parent)).collect();
-        let Some(cut) = candidates.iter().copied().find(|&i| edges[i].nullable).or_else(|| candidates.first().copied()) else { break };
+        let candidates: Vec<usize> = inside
+            .iter()
+            .copied()
+            .filter(|&i| {
+                !broken.contains(&i)
+                    && left.contains(&edges[i].child)
+                    && left.contains(&edges[i].parent)
+            })
+            .collect();
+        let Some(cut) = candidates
+            .iter()
+            .copied()
+            .find(|&i| edges[i].nullable)
+            .or_else(|| candidates.first().copied())
+        else {
+            break;
+        };
         broken.push(cut);
     }
     (out, broken)
@@ -176,11 +214,32 @@ mod tests {
     use dbine_driver::{ColumnDef, ForeignKeyDef};
 
     fn table(name: &str, fks: &[(&str, &str, bool)]) -> TableSchema {
-        let mut t = TableSchema { name: name.into(), ..Default::default() };
-        t.columns.push(ColumnDef { name: "id".into(), data_type: "int".into(), nullable: false, ..Default::default() });
+        let mut t = TableSchema {
+            name: name.into(),
+            ..Default::default()
+        };
+        t.columns.push(ColumnDef {
+            name: "id".into(),
+            data_type: "int".into(),
+            nullable: false,
+            ..Default::default()
+        });
         for (col, parent, nullable) in fks {
-            t.columns.push(ColumnDef { name: (*col).into(), data_type: "int".into(), nullable: *nullable, ..Default::default() });
-            t.foreign_keys.push(ForeignKeyDef { name: None, columns: vec![(*col).into()], ref_schema: None, ref_table: (*parent).into(), ref_columns: vec!["id".into()], on_delete: None, on_update: None });
+            t.columns.push(ColumnDef {
+                name: (*col).into(),
+                data_type: "int".into(),
+                nullable: *nullable,
+                ..Default::default()
+            });
+            t.foreign_keys.push(ForeignKeyDef {
+                name: None,
+                columns: vec![(*col).into()],
+                ref_schema: None,
+                ref_table: (*parent).into(),
+                ref_columns: vec!["id".into()],
+                on_delete: None,
+                on_update: None,
+            });
         }
         t
     }
@@ -192,7 +251,13 @@ mod tests {
     #[test]
     fn parents_first_and_children_by_depth() {
         let tables = vec![
-            table("order_items", &[("order_id", "orders", false), ("product_id", "products", false)]),
+            table(
+                "order_items",
+                &[
+                    ("order_id", "orders", false),
+                    ("product_id", "products", false),
+                ],
+            ),
             table("orders", &[("customer_id", "customers", false)]),
             table("customers", &[("country_id", "countries", true)]),
             table("products", &[("category_id", "categories", false)]),
@@ -216,7 +281,13 @@ mod tests {
         assert!(!s.members.contains_key(&6), "shipments are two levels down");
         let (o, _) = order(&s, &e);
         let pos = |n: &str| o.iter().position(|&i| tables[i].name == n).unwrap();
-        for (p, c) in [("customers", "orders"), ("orders", "order_items"), ("products", "order_items"), ("categories", "products"), ("countries", "customers")] {
+        for (p, c) in [
+            ("customers", "orders"),
+            ("orders", "order_items"),
+            ("products", "order_items"),
+            ("categories", "products"),
+            ("countries", "customers"),
+        ] {
             assert!(pos(p) < pos(c), "{p} before {c}");
         }
         assert_eq!(s.members.get(&3).map(|m| m.0), Some(Role::Parent));
@@ -231,7 +302,13 @@ mod tests {
         // departments.manager_id → employees (nullable), employees.dept_id → departments (required),
         // employees.boss_id → employees (self).
         let tables = vec![
-            table("employees", &[("dept_id", "departments", false), ("boss_id", "employees", true)]),
+            table(
+                "employees",
+                &[
+                    ("dept_id", "departments", false),
+                    ("boss_id", "employees", true),
+                ],
+            ),
             table("departments", &[("manager_id", "employees", true)]),
         ];
         let e = edges(&tables);
@@ -239,11 +316,17 @@ mod tests {
         let (o, broken) = order(&s, &e);
         assert_eq!(broken.len(), 1);
         let cut = &e[broken[0]];
-        assert_eq!((tables[cut.child].name.as_str(), cut.child_cols[0].as_str()), ("departments", "manager_id"));
+        assert_eq!(
+            (tables[cut.child].name.as_str(), cut.child_cols[0].as_str()),
+            ("departments", "manager_id")
+        );
         assert_eq!(names(&tables, &o), ["departments", "employees"]);
 
         // No nullable edge: one is cut anyway, and reported.
-        let tables = vec![table("a", &[("b_id", "b", false)]), table("b", &[("a_id", "a", false)])];
+        let tables = vec![
+            table("a", &[("b_id", "b", false)]),
+            table("b", &[("a_id", "a", false)]),
+        ];
         let e = edges(&tables);
         let (o, broken) = order(&scope(&e, 0, None), &e);
         assert_eq!((o.len(), broken.len()), (2, 1));

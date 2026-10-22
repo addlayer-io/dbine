@@ -12,7 +12,9 @@
 //! first. Those changes are left to the console.
 
 use crate::SolrSession;
-use dbine_driver::{kinds, Error, Grant, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Error, Grant, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use dbine_driver_elasticsearch::json::J;
 use serde_json::json;
 
@@ -52,7 +54,11 @@ fn credentials(auth: &J) -> Vec<String> {
         }
     };
     take(a.and_then(|a| a.get("credentials")));
-    for s in a.and_then(|a| a.get("schemes")).and_then(J::as_arr).unwrap_or_default() {
+    for s in a
+        .and_then(|a| a.get("schemes"))
+        .and_then(J::as_arr)
+        .unwrap_or_default()
+    {
         take(s.get("credentials"));
     }
     out
@@ -72,7 +78,11 @@ fn authz(j: &J) -> Authz {
             .and_then(J::as_obj)
             .map(|o| o.iter().map(|(u, r)| (u.clone(), strs(Some(r)))).collect())
             .unwrap_or_default(),
-        permissions: a.and_then(|a| a.get("permissions")).and_then(J::as_arr).map(<[J]>::to_vec).unwrap_or_default(),
+        permissions: a
+            .and_then(|a| a.get("permissions"))
+            .and_then(J::as_arr)
+            .map(<[J]>::to_vec)
+            .unwrap_or_default(),
     }
 }
 
@@ -83,7 +93,10 @@ const SIGNED_IN: &str = "* (cualquier usuario autenticado)";
 fn permission_roles(p: &J) -> Vec<String> {
     match p.get("role") {
         None | Some(J::Null) => vec![ANYONE.into()],
-        r => strs(r).into_iter().map(|r| if r == "*" { SIGNED_IN.into() } else { r }).collect(),
+        r => strs(r)
+            .into_iter()
+            .map(|r| if r == "*" { SIGNED_IN.into() } else { r })
+            .collect(),
     }
 }
 
@@ -92,13 +105,24 @@ fn permission_grants(p: &J, via: Option<&str>) -> Vec<Grant> {
     let privilege = name.unwrap_or_else(|| {
         let path = strs(p.get("path")).join(", ");
         let method = strs(p.get("method")).join(", ");
-        if method.is_empty() { path } else { format!("{path} ({method})") }
+        if method.is_empty() {
+            path
+        } else {
+            format!("{path} ({method})")
+        }
     });
     let collections: Vec<Option<String>> = match p.get("collection") {
         Some(J::Null) | None => vec![None],
         c => {
-            let c: Vec<Option<String>> = strs(c).into_iter().map(|c| (c != "*" && !c.is_empty()).then_some(c)).collect();
-            if c.is_empty() { vec![None] } else { c }
+            let c: Vec<Option<String>> = strs(c)
+                .into_iter()
+                .map(|c| (c != "*" && !c.is_empty()).then_some(c))
+                .collect();
+            if c.is_empty() {
+                vec![None]
+            } else {
+                c
+            }
         }
     };
     collections
@@ -129,14 +153,26 @@ fn principals_of(auth: &J, z: &Authz) -> Vec<Principal> {
     let mut out: Vec<Principal> = users
         .into_iter()
         .map(|u| {
-            let roles = z.user_roles.iter().find(|(n, _)| *n == u).map(|(_, r)| r.clone()).unwrap_or_default();
-            let how = if basic.contains(&u) { "Básica (usuario y contraseña)" } else { "Externa (no tiene contraseña en Solr)" };
+            let roles = z
+                .user_roles
+                .iter()
+                .find(|(n, _)| *n == u)
+                .map(|(_, r)| r.clone())
+                .unwrap_or_default();
+            let how = if basic.contains(&u) {
+                "Básica (usuario y contraseña)"
+            } else {
+                "Externa (no tiene contraseña en Solr)"
+            };
             Principal {
                 superuser: Some(roles.iter().any(|r| admins.contains(r))),
                 can_login: Some(basic.contains(&u)),
                 disabled: None,
                 member_of: roles,
-                details: vec![("Tipo".into(), "Usuario".into()), ("Autenticación".into(), how.into())],
+                details: vec![
+                    ("Tipo".into(), "Usuario".into()),
+                    ("Autenticación".into(), how.into()),
+                ],
                 system: false,
                 kind: PrincipalKind::User,
                 name: u,
@@ -144,12 +180,20 @@ fn principals_of(auth: &J, z: &Authz) -> Vec<Principal> {
         })
         .collect();
     let mut roles: Vec<String> = z.user_roles.iter().flat_map(|(_, r)| r.clone()).collect();
-    roles.extend(z.permissions.iter().flat_map(permission_roles).filter(|r| r != ANYONE && r != SIGNED_IN));
+    roles.extend(
+        z.permissions
+            .iter()
+            .flat_map(permission_roles)
+            .filter(|r| r != ANYONE && r != SIGNED_IN),
+    );
     roles.sort();
     roles.dedup();
     out.extend(roles.into_iter().map(|r| Principal {
         superuser: Some(admins.contains(&r)),
-        details: vec![("Tipo".into(), "Rol (existe mientras un usuario o un permiso lo nombre)".into())],
+        details: vec![(
+            "Tipo".into(),
+            "Rol (existe mientras un usuario o un permiso lo nombre)".into(),
+        )],
         kind: PrincipalKind::Role,
         name: r,
         ..Default::default()
@@ -158,18 +202,27 @@ fn principals_of(auth: &J, z: &Authz) -> Vec<Principal> {
 }
 
 fn grants_of(z: &Authz, principal: &str) -> Vec<Grant> {
-    let roles = z.user_roles.iter().find(|(u, _)| u == principal).map(|(_, r)| r.clone());
+    let roles = z
+        .user_roles
+        .iter()
+        .find(|(u, _)| u == principal)
+        .map(|(_, r)| r.clone());
     let mut out = Vec::new();
     for p in &z.permissions {
         let holders = permission_roles(p);
         match &roles {
             // A user: through its roles, `*` and `null`.
             Some(roles) => {
-                for h in holders.iter().filter(|h| roles.contains(h) || *h == ANYONE || *h == SIGNED_IN) {
+                for h in holders
+                    .iter()
+                    .filter(|h| roles.contains(h) || *h == ANYONE || *h == SIGNED_IN)
+                {
                     out.extend(permission_grants(p, Some(h)));
                 }
             }
-            None if holders.iter().any(|h| h == principal) => out.extend(permission_grants(p, None)),
+            None if holders.iter().any(|h| h == principal) => {
+                out.extend(permission_grants(p, None))
+            }
             None => {}
         }
     }
@@ -205,14 +258,21 @@ fn body(v: serde_json::Value) -> String {
 }
 
 fn user_name(name: &str) -> Result<&str> {
-    if name.trim().is_empty() || name.trim() != name || name.contains(':') || name.chars().any(char::is_control) {
-        return Err(Error::Query(format!("«{name}» no es un nombre de usuario válido para la autenticación básica")));
+    if name.trim().is_empty()
+        || name.trim() != name
+        || name.contains(':')
+        || name.chars().any(char::is_control)
+    {
+        return Err(Error::Query(format!(
+            "«{name}» no es un nombre de usuario válido para la autenticación básica"
+        )));
     }
     Ok(name)
 }
 
 fn password(p: Option<&str>) -> Result<&str> {
-    p.filter(|p| !p.is_empty()).ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))
+    p.filter(|p| !p.is_empty())
+        .ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))
 }
 
 fn console_only(what: &str) -> Error {
@@ -264,7 +324,11 @@ mod tests {
             .unwrap()
             .into_iter()
             .map(|c| match c {
-                Command::Http(r) => (r.method, r.path, serde_json::from_str(r.body.as_deref().unwrap()).unwrap()),
+                Command::Http(r) => (
+                    r.method,
+                    r.path,
+                    serde_json::from_str(r.body.as_deref().unwrap()).unwrap(),
+                ),
                 Command::Sql(s) => panic!("SQL {s}"),
             })
             .collect()
@@ -273,20 +337,69 @@ mod tests {
     #[test]
     fn scripts_are_console_requests() {
         let s = |a| script(&a).unwrap();
-        let r = requests(&s(SecurityAction::CreateUser { name: "ana \"b\"".into(), password: Some("p\"w\n1".into()) }));
-        assert_eq!(r, [("POST".into(), AUTHENTICATION.into(), json!({ "set-user": { "ana \"b\"": "p\"w\n1" } }))]);
-        let r = requests(&s(SecurityAction::SetPassword { name: "ana".into(), password: "x".into() }));
+        let r = requests(&s(SecurityAction::CreateUser {
+            name: "ana \"b\"".into(),
+            password: Some("p\"w\n1".into()),
+        }));
+        assert_eq!(
+            r,
+            [(
+                "POST".into(),
+                AUTHENTICATION.into(),
+                json!({ "set-user": { "ana \"b\"": "p\"w\n1" } })
+            )]
+        );
+        let r = requests(&s(SecurityAction::SetPassword {
+            name: "ana".into(),
+            password: "x".into(),
+        }));
         assert_eq!(r[0].2, json!({ "set-user": { "ana": "x" } }));
-        let r = requests(&s(SecurityAction::Drop { name: "ana".into(), kind: PrincipalKind::User }));
-        assert_eq!(r[0], ("POST".into(), AUTHENTICATION.into(), json!({ "delete-user": ["ana"] })));
-        assert_eq!(r[1], ("POST".into(), AUTHORIZATION.into(), json!({ "set-user-role": { "ana": null } })));
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: None }).is_err());
-        assert!(script(&SecurityAction::CreateUser { name: "a:b".into(), password: Some("x".into()) }).is_err());
+        let r = requests(&s(SecurityAction::Drop {
+            name: "ana".into(),
+            kind: PrincipalKind::User,
+        }));
+        assert_eq!(
+            r[0],
+            (
+                "POST".into(),
+                AUTHENTICATION.into(),
+                json!({ "delete-user": ["ana"] })
+            )
+        );
+        assert_eq!(
+            r[1],
+            (
+                "POST".into(),
+                AUTHORIZATION.into(),
+                json!({ "set-user-role": { "ana": null } })
+            )
+        );
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: None
+        })
+        .is_err());
+        assert!(script(&SecurityAction::CreateUser {
+            name: "a:b".into(),
+            password: Some("x".into())
+        })
+        .is_err());
         for a in [
             SecurityAction::CreateRole { name: "r".into() },
-            SecurityAction::SetLogin { name: "a".into(), enabled: false },
-            SecurityAction::Grant { privileges: vec!["read".into()], object: None, to: "r".into(), grantable: false },
-            SecurityAction::AddMember { role: "r".into(), member: "a".into() },
+            SecurityAction::SetLogin {
+                name: "a".into(),
+                enabled: false,
+            },
+            SecurityAction::Grant {
+                privileges: vec!["read".into()],
+                object: None,
+                to: "r".into(),
+                grantable: false,
+            },
+            SecurityAction::AddMember {
+                role: "r".into(),
+                member: "a".into(),
+            },
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
@@ -299,20 +412,41 @@ mod tests {
             "permissions":[{"name":"all","role":"admin"},{"name":"read","collection":["libros","*"],"role":["lector","admin"]},
                            {"name":"health","role":null},{"path":"/select","collection":"x","method":"GET","role":"*"}]}}"#).unwrap());
         let p = principals_of(&auth, &z);
-        let names: Vec<(&str, PrincipalKind)> = p.iter().map(|p| (p.name.as_str(), p.kind)).collect();
-        assert_eq!(names, [("ana", PrincipalKind::User), ("jwt-bob", PrincipalKind::User), ("solr", PrincipalKind::User), ("admin", PrincipalKind::Role), ("lector", PrincipalKind::Role)]);
+        let names: Vec<(&str, PrincipalKind)> =
+            p.iter().map(|p| (p.name.as_str(), p.kind)).collect();
+        assert_eq!(
+            names,
+            [
+                ("ana", PrincipalKind::User),
+                ("jwt-bob", PrincipalKind::User),
+                ("solr", PrincipalKind::User),
+                ("admin", PrincipalKind::Role),
+                ("lector", PrincipalKind::Role)
+            ]
+        );
         assert_eq!(p[2].superuser, Some(true));
         assert_eq!(p[1].can_login, Some(false));
         assert_eq!(p[0].member_of, ["lector"]);
 
         let g = grants_of(&z, "ana");
-        let got: Vec<(&str, Option<&str>, Option<&str>)> = g.iter().map(|g| (g.privilege.as_str(), g.object.as_deref(), g.via.as_deref())).collect();
+        let got: Vec<(&str, Option<&str>, Option<&str>)> = g
+            .iter()
+            .map(|g| (g.privilege.as_str(), g.object.as_deref(), g.via.as_deref()))
+            .collect();
         assert_eq!(
             got,
-            [("read", Some("libros"), Some("lector")), ("read", None, Some("lector")), ("health", None, Some(ANYONE)), ("/select (GET)", Some("x"), Some(SIGNED_IN))]
+            [
+                ("read", Some("libros"), Some("lector")),
+                ("read", None, Some("lector")),
+                ("health", None, Some(ANYONE)),
+                ("/select (GET)", Some("x"), Some(SIGNED_IN))
+            ]
         );
         let g = grants_of(&z, "admin");
-        assert_eq!(g.iter().map(|g| g.privilege.as_str()).collect::<Vec<_>>(), ["all", "read", "read"]);
+        assert_eq!(
+            g.iter().map(|g| g.privilege.as_str()).collect::<Vec<_>>(),
+            ["all", "read", "read"]
+        );
         assert!(g.iter().all(|g| g.via.is_none()));
     }
 }

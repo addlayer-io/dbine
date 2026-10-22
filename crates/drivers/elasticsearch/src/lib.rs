@@ -30,20 +30,25 @@ mod transfer;
 use base64::Engine;
 use console::{Command, Request};
 use dbine_driver::{
-    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
-    Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
-    QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema,
+    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
+    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language,
+    MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError,
+    Session, TableSchema,
 };
 use json::J;
-use steps::Step;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use steps::Step;
 
 pub const KIND_ALIAS: &str = "alias";
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
-    vec![Arc::new(Es::new(Flavor::Elastic)), Arc::new(Es::new(Flavor::OpenSearch)), Arc::new(Es::new(Flavor::OpenDistro))]
+    vec![
+        Arc::new(Es::new(Flavor::Elastic)),
+        Arc::new(Es::new(Flavor::OpenSearch)),
+        Arc::new(Es::new(Flavor::OpenDistro)),
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,9 +101,13 @@ impl Es {
         fields.extend([
             Field::encrypt(),
             Field::trust_cert(),
-            Field::new("show_system", "Mostrar índices del sistema", FieldKind::Bool)
-                .help("Incluye los índices, alias y data streams que empiezan con punto.")
-                .advanced(),
+            Field::new(
+                "show_system",
+                "Mostrar índices del sistema",
+                FieldKind::Bool,
+            )
+            .help("Incluye los índices, alias y data streams que empiezan con punto.")
+            .advanced(),
             Field::read_only(),
         ]);
         let (id, name) = match flavor {
@@ -111,7 +120,13 @@ impl Es {
             ObjectKindInfo::new(KIND_ALIAS, "Alias", true, true, true),
         ];
         if flavor != Flavor::OpenDistro {
-            object_kinds.push(ObjectKindInfo::new(kinds::STREAM, "Data streams", true, true, true));
+            object_kinds.push(ObjectKindInfo::new(
+                kinds::STREAM,
+                "Data streams",
+                true,
+                true,
+                true,
+            ));
         }
         Self {
             info: DriverInfo {
@@ -136,7 +151,12 @@ impl Es {
 /// form's default 9200 would just time out. A cloud host with no port of its
 /// own and the default one goes to `https://host:443`.
 fn elastic_cloud_url(cfg: &ConnectionConfig) -> Option<String> {
-    const CLOUD: [&str; 4] = [".elastic-cloud.com", ".cloud.es.io", ".found.io", ".elastic.cloud"];
+    const CLOUD: [&str; 4] = [
+        ".elastic-cloud.com",
+        ".cloud.es.io",
+        ".found.io",
+        ".elastic.cloud",
+    ];
     let host = cfg.host.trim().trim_end_matches('/');
     let rest = host.split_once("://").map_or(host, |(_, r)| r);
     let (authority, path) = rest.split_once('/').map_or((rest, ""), |(a, p)| (a, p));
@@ -145,23 +165,34 @@ fn elastic_cloud_url(cfg: &ConnectionConfig) -> Option<String> {
     if !cloud || authority.contains(':') || !(cfg.port == 0 || cfg.port == 9200) {
         return None;
     }
-    let path = if path.is_empty() { String::new() } else { format!("/{path}") };
+    let path = if path.is_empty() {
+        String::new()
+    } else {
+        format!("/{path}")
+    };
     Some(format!("https://{authority}:443{path}"))
 }
 
 /// `https://<es-uuid>.<domain>[:port]` from an Elastic Cloud ID
 /// (`name:base64(domain$es_uuid$kibana_uuid)`).
 pub fn cloud_id_url(cloud_id: &str) -> Option<String> {
-    let encoded = cloud_id.rsplit_once(':').map_or(cloud_id, |(_, b)| b).trim();
+    let encoded = cloud_id
+        .rsplit_once(':')
+        .map_or(cloud_id, |(_, b)| b)
+        .trim();
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
-        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(encoded.trim_end_matches('=')))
+        .or_else(|_| {
+            base64::engine::general_purpose::STANDARD_NO_PAD.decode(encoded.trim_end_matches('='))
+        })
         .ok()?;
     let decoded = String::from_utf8(bytes).ok()?;
     let mut parts = decoded.split('$');
     let domain = parts.next()?.trim_end_matches('/');
     let es = parts.next().filter(|s| !s.is_empty())?;
-    let (host, port) = domain.split_once(':').map_or((domain, None), |(h, p)| (h, Some(p)));
+    let (host, port) = domain
+        .split_once(':')
+        .map_or((domain, None), |(h, p)| (h, Some(p)));
     Some(match port {
         Some(p) => format!("https://{es}.{host}:{p}"),
         None => format!("https://{es}.{host}"),
@@ -175,7 +206,11 @@ pub fn cloud_id_url(cloud_id: &str) -> Option<String> {
 fn es_error_code(status: u16, body: &str) -> String {
     J::parse(body)
         .ok()
-        .and_then(|j| j.at(&["error", "type"]).and_then(J::as_str).map(str::to_string))
+        .and_then(|j| {
+            j.at(&["error", "type"])
+                .and_then(J::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| format!("HTTP {status}"))
 }
 
@@ -192,8 +227,12 @@ fn sql_position(msg: &str) -> Option<(u32, u32)> {
 
 pub fn es_error_message(status: u16, body: &str) -> String {
     let fallback = || format!("HTTP {status}: {}", http::clip(body.trim(), 500));
-    let Ok(j) = J::parse(body) else { return fallback() };
-    let Some(e) = j.get("error") else { return fallback() };
+    let Ok(j) = J::parse(body) else {
+        return fallback();
+    };
+    let Some(e) = j.get("error") else {
+        return fallback();
+    };
     if let Some(s) = e.as_str() {
         return s.to_string();
     }
@@ -204,7 +243,11 @@ pub fn es_error_message(status: u16, body: &str) -> String {
     if let Some(c) = caused.filter(|c| !c.is_empty() && *c != reason) {
         msg.push_str(&format!(" (causa: {c})"));
     }
-    if let Some(d) = e.get("details").map(J::text).filter(|d| !d.is_empty() && *d != reason) {
+    if let Some(d) = e
+        .get("details")
+        .map(J::text)
+        .filter(|d| !d.is_empty() && *d != reason)
+    {
         msg.push_str(&format!(" — {d}"));
     }
     msg
@@ -212,8 +255,17 @@ pub fn es_error_message(status: u16, body: &str) -> String {
 
 /// Endpoints that only read and accept POST. `/_plugins/…` and
 /// `/_opendistro/…` prefixes are skipped before checking.
-const READ_POST_ENDPOINTS: &[&str] =
-    &["_search", "_count", "_msearch", "_sql", "_mget", "_field_caps", "_validate", "_explain", "_async_search"];
+const READ_POST_ENDPOINTS: &[&str] = &[
+    "_search",
+    "_count",
+    "_msearch",
+    "_sql",
+    "_mget",
+    "_field_caps",
+    "_validate",
+    "_explain",
+    "_async_search",
+];
 
 /// Whether a request is allowed on a read-only connection: GET and HEAD
 /// always, POST only to the read endpoints.
@@ -236,8 +288,13 @@ pub fn bulk_failure(resp: &J) -> Option<String> {
         return None;
     }
     let items = resp.get("items").and_then(J::as_arr).unwrap_or(&[]);
-    let errors: Vec<&J> = items.iter().filter_map(|i| i.as_obj()?.first()?.1.get("error")).collect();
-    let first = errors.first().map(|e| es_error_message(400, &J::Obj(vec![("error".into(), (*e).clone())]).compact()));
+    let errors: Vec<&J> = items
+        .iter()
+        .filter_map(|i| i.as_obj()?.first()?.1.get("error"))
+        .collect();
+    let first = errors
+        .first()
+        .map(|e| es_error_message(400, &J::Obj(vec![("error".into(), (*e).clone())]).compact()));
     Some(format!(
         "_bulk: fallaron {} de {} operaciones. Primera: {}",
         errors.len(),
@@ -249,8 +306,14 @@ pub fn bulk_failure(resp: &J) -> Option<String> {
 static OPAQUE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn new_opaque_id() -> String {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    format!("dbine-{}-{nanos:x}-{}", std::process::id(), OPAQUE_SEQ.fetch_add(1, Ordering::Relaxed))
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!(
+        "dbine-{}-{nanos:x}-{}",
+        std::process::id(),
+        OPAQUE_SEQ.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 #[async_trait]
@@ -262,7 +325,10 @@ impl Driver for Es {
     /// As Kibana's console: a failed request doesn't stop the script (the tab's
     /// toggle overrides it).
     fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
-        dbine_driver::ScriptDefaults { continue_on_error: true, ..dbine_driver::ScriptDefaults::for_language(self.info().language) }
+        dbine_driver::ScriptDefaults {
+            continue_on_error: true,
+            ..dbine_driver::ScriptDefaults::for_language(self.info().language)
+        }
     }
 
     fn supports_explain(&self) -> bool {
@@ -281,7 +347,12 @@ impl Driver for Es {
     /// A cluster has no level between it and its indices: no databases to
     /// create or drop, and no foreign keys.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, processes: true, cancel_query: true, ..Capabilities::default() }
+        Capabilities {
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Capabilities::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -328,7 +399,10 @@ impl Driver for Es {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes, self.opensearch)
     }
 
@@ -337,23 +411,43 @@ impl Driver for Es {
         Some(rename::spec())
     }
 
-    fn rename_script(&self, req: &dbine_driver::rename::RenameRequest) -> Result<dbine_driver::SyncScript> {
+    fn rename_script(
+        &self,
+        req: &dbine_driver::rename::RenameRequest,
+    ) -> Result<dbine_driver::SyncScript> {
         rename::script(req)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
         ddl::bulk_script(target, columns, rows)
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::update_script(target, changes)
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         ddl::delete_script(target, keys)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -361,9 +455,14 @@ impl Driver for Es {
         ddl::sorted_browse(query, sort, self.opensearch)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let base = match cfg.option("cloud_id").filter(|_| !self.opensearch) {
-            Some(id) => cloud_id_url(id).ok_or_else(|| Error::Connect("El Cloud ID no es válido.".into()))?,
+            Some(id) => cloud_id_url(id)
+                .ok_or_else(|| Error::Connect("El Cloud ID no es válido.".into()))?,
             None => elastic_cloud_url(cfg).unwrap_or_else(|| http::base_url(cfg, 9200)),
         };
         let auth = match cfg.option("api_key") {
@@ -371,28 +470,43 @@ impl Driver for Es {
             None => http::auth_from(cfg),
         };
         let client = http::client(cfg, auth)?;
-        let (status, body) =
-            http::send(client.get(format!("{base}/")).timeout(Duration::from_secs(20))).await?;
+        let (status, body) = http::send(
+            client
+                .get(format!("{base}/"))
+                .timeout(Duration::from_secs(20)),
+        )
+        .await?;
         if status == 401 || status == 403 {
             return Err(Error::AuthFailed(es_error_message(status, &body)));
         }
         if status >= 400 {
             return Err(Error::Connect(es_error_message(status, &body)));
         }
-        let root = J::parse(&body)
-            .map_err(|_| Error::Connect(format!("El servidor no respondió como Elasticsearch: {}", http::clip(&body, 200))))?;
-        let number = root.at(&["version", "number"]).map(J::text).unwrap_or_default();
+        let root = J::parse(&body).map_err(|_| {
+            Error::Connect(format!(
+                "El servidor no respondió como Elasticsearch: {}",
+                http::clip(&body, 200)
+            ))
+        })?;
+        let number = root
+            .at(&["version", "number"])
+            .map(J::text)
+            .unwrap_or_default();
         let is_os = root.at(&["version", "distribution"]).and_then(J::as_str) == Some("opensearch");
         let version = match (is_os, self.flavor) {
             (true, _) => format!("OpenSearch {number}"),
-            (false, Flavor::OpenDistro) => format!("Open Distro for Elasticsearch (Elasticsearch {number})"),
+            (false, Flavor::OpenDistro) => {
+                format!("Open Distro for Elasticsearch (Elasticsearch {number})")
+            }
             (false, _) => format!("Elasticsearch {number}"),
         };
         Ok(Box::new(EsSession {
             client,
             base,
             read_only: cfg.read_only,
-            show_system: cfg.option("show_system").is_some_and(|v| v == "true" || v == "1"),
+            show_system: cfg
+                .option("show_system")
+                .is_some_and(|v| v == "true" || v == "1"),
             opensearch: is_os || self.opensearch,
             opendistro: !is_os && self.flavor == Flavor::OpenDistro,
             version,
@@ -423,13 +537,18 @@ struct EsSession {
 }
 
 fn rcol(name: &str, ty: &str) -> ResultColumn {
-    ResultColumn { name: name.to_string(), type_name: ty.to_string() }
+    ResultColumn {
+        name: name.to_string(),
+        type_name: ty.to_string(),
+    }
 }
 
 impl EsSession {
     fn request(&self, method: &str, path: &str) -> reqwest::RequestBuilder {
         let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
-        self.client.request(m, format!("{}{path}", self.base)).header("X-Opaque-Id", &self.opaque_id)
+        self.client
+            .request(m, format!("{}{path}", self.base))
+            .header("X-Opaque-Id", &self.opaque_id)
     }
 
     /// Send, failing with the server's error on a 4xx/5xx.
@@ -450,7 +569,12 @@ impl EsSession {
         self.show_system || !name.starts_with('.')
     }
 
-    async fn run_request(&self, req: &Request, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_request(
+        &self,
+        req: &Request,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if self.read_only && !read_only_allows(req) {
             return Err(Error::Query(format!(
                 "Conexión de solo lectura: se bloqueó {} {}. Solo se permiten GET, HEAD y POST a _search, _count, _msearch, _sql, _mget, _field_caps, _validate y _explain.",
@@ -473,7 +597,8 @@ impl EsSession {
                 b.push('\n');
                 rb.header("Content-Type", "application/x-ndjson").body(b)
             } else {
-                rb.header("Content-Type", "application/json").body(body.clone())
+                rb.header("Content-Type", "application/json")
+                    .body(body.clone())
             };
         }
         let (status, text) = http::send(rb).await?;
@@ -484,7 +609,9 @@ impl EsSession {
         }
         if status >= 400 {
             let msg = security::explain_error(req, es_error_message(status, &text));
-            return Err(Error::Statement(Box::new(ScriptError::new(msg).with_code(es_error_code(status, &text)))));
+            return Err(Error::Statement(Box::new(
+                ScriptError::new(msg).with_code(es_error_code(status, &text)),
+            )));
         }
         let Ok(resp) = J::parse(&text) else {
             flatten::push_text(out, &text, max_rows);
@@ -498,13 +625,20 @@ impl EsSession {
         if let Some(responses) = resp.get("responses").and_then(J::as_arr) {
             for (i, r) in responses.iter().enumerate() {
                 match r.get("error") {
-                    Some(_) => out.warning(format!("Búsqueda {}: {}", i + 1, es_error_message(400, &r.compact()))),
+                    Some(_) => out.warning(format!(
+                        "Búsqueda {}: {}",
+                        i + 1,
+                        es_error_message(400, &r.compact())
+                    )),
                     None => flatten::push_search(out, r, max_rows),
                 }
             }
         } else if resp.at(&["hits", "hits"]).is_some() {
             flatten::push_search(out, &resp, max_rows);
-        } else if let (Some(docs), true) = (resp.get("docs").and_then(J::as_arr), segs.contains(&"_mget")) {
+        } else if let (Some(docs), true) = (
+            resp.get("docs").and_then(J::as_arr),
+            segs.contains(&"_mget"),
+        ) {
             flatten::push_docs(out, docs.iter().map(flatten::hit_doc), max_rows);
         } else if resp.get("columns").is_some() || resp.get("schema").is_some() {
             self.push_sql(&resp, max_rows, out).await?;
@@ -517,7 +651,11 @@ impl EsSession {
     /// `_validate/query?explain&rewrite` of a search's query: the rewritten
     /// Lucene query, without running the search.
     async fn validate(&self, target: &str, body: Option<&J>, q: Option<&str>) -> Result<J> {
-        let mut path = if target.is_empty() { "/_validate/query".to_string() } else { format!("/{target}/_validate/query") };
+        let mut path = if target.is_empty() {
+            "/_validate/query".to_string()
+        } else {
+            format!("/{target}/_validate/query")
+        };
         path.push_str("?explain=true&rewrite=true");
         if let Some(q) = q {
             path.push_str("&q=");
@@ -526,7 +664,9 @@ impl EsSession {
         let mut rb = self.request("POST", &path);
         if let Some(query) = body.and_then(|b| b.get("query")) {
             let b = J::Obj(vec![("query".into(), query.clone())]);
-            rb = rb.header("Content-Type", "application/json").body(b.compact());
+            rb = rb
+                .header("Content-Type", "application/json")
+                .body(b.compact());
         }
         let text = self.call(rb).await?;
         J::parse(&text).map_err(|e| Error::Query(format!("Respuesta inesperada de _validate: {e}")))
@@ -540,7 +680,10 @@ impl EsSession {
         };
         b.retain(|(k, _)| k != "profile");
         b.push(("profile".into(), J::Bool(true)));
-        let rb = self.request(method, path).header("Content-Type", "application/json").body(J::Obj(b).compact());
+        let rb = self
+            .request(method, path)
+            .header("Content-Type", "application/json")
+            .body(J::Obj(b).compact());
         let text = self.call(rb).await?;
         J::parse(&text).map_err(|e| Error::Query(format!("Respuesta inesperada de _search: {e}")))
     }
@@ -549,20 +692,39 @@ impl EsSession {
     /// DSL, planned as a search on the `FROM` index. OpenSearch: its
     /// `_explain` operator tree, with the pushed-down searches planned
     /// under the index scans.
-    async fn explain_sql(&self, stmt: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let select = stmt.trim_start().get(..6).is_some_and(|w| w.eq_ignore_ascii_case("select"));
+    async fn explain_sql(
+        &self,
+        stmt: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        let select = stmt
+            .trim_start()
+            .get(..6)
+            .is_some_and(|w| w.eq_ignore_ascii_case("select"));
         if analyze {
             self.run_sql(stmt, max_rows, out).await?;
         }
         if !select {
-            out.info(format!("`{}`: solo las consultas SELECT tienen plan de ejecución.", plan::clip(stmt, 80)));
+            out.info(format!(
+                "`{}`: solo las consultas SELECT tienen plan de ejecución.",
+                plan::clip(stmt, 80)
+            ));
             return Ok(());
         }
         let sql_body = serde_json::json!({ "query": stmt });
         if self.opensearch {
-            let path = if self.opendistro { "/_opendistro/_sql/_explain" } else { "/_plugins/_sql/_explain" };
-            let text = self.call(self.request("POST", path).json(&sql_body)).await?;
-            let e = J::parse(&text).map_err(|e| Error::Query(format!("Respuesta inesperada de _explain: {e}")))?;
+            let path = if self.opendistro {
+                "/_opendistro/_sql/_explain"
+            } else {
+                "/_plugins/_sql/_explain"
+            };
+            let text = self
+                .call(self.request("POST", path).json(&sql_body))
+                .await?;
+            let e = J::parse(&text)
+                .map_err(|e| Error::Query(format!("Respuesta inesperada de _explain: {e}")))?;
             let mut scans = Vec::new();
             plan::os_sql_plan(stmt, &e, &mut |i, d| {
                 scans.push((i.to_string(), d.clone()));
@@ -570,19 +732,44 @@ impl EsSession {
             });
             let mut subs = Vec::new();
             for (index, dsl) in &scans {
-                subs.push(self.search_plan(stmt, index, "POST", &format!("/{index}/_search"), Some(dsl), analyze).await?.0.root);
+                subs.push(
+                    self.search_plan(
+                        stmt,
+                        index,
+                        "POST",
+                        &format!("/{index}/_search"),
+                        Some(dsl),
+                        analyze,
+                    )
+                    .await?
+                    .0
+                    .root,
+                );
             }
             let mut it = subs.into_iter();
             let mut p = plan::os_sql_plan(stmt, &e, &mut |_, _| it.next());
             p.actual = analyze && !scans.is_empty();
             out.plans.push(p);
         } else {
-            let text = self.call(self.request("POST", "/_sql/translate").json(&sql_body)).await?;
-            let dsl = J::parse(&text).map_err(|e| Error::Query(format!("Respuesta inesperada de _sql/translate: {e}")))?;
+            let text = self
+                .call(self.request("POST", "/_sql/translate").json(&sql_body))
+                .await?;
+            let dsl = J::parse(&text).map_err(|e| {
+                Error::Query(format!("Respuesta inesperada de _sql/translate: {e}"))
+            })?;
             let search = match plan::sql_from(stmt) {
-                Some(index) => {
-                    Some(self.search_plan(stmt, &index, "POST", &format!("/{index}/_search"), Some(&dsl), analyze).await?.0)
-                }
+                Some(index) => Some(
+                    self.search_plan(
+                        stmt,
+                        &index,
+                        "POST",
+                        &format!("/{index}/_search"),
+                        Some(&dsl),
+                        analyze,
+                    )
+                    .await?
+                    .0,
+                ),
                 None => None,
             };
             out.plans.push(plan::sql_plan(stmt, &dsl, search));
@@ -603,11 +790,14 @@ impl EsSession {
     ) -> Result<(dbine_driver::Plan, Option<J>)> {
         if analyze {
             let resp = self.profile(method, path, body).await?;
-            Ok((plan::profiled_search(statement, target, body, &resp), Some(resp)))
+            Ok((
+                plan::profiled_search(statement, target, body, &resp),
+                Some(resp),
+            ))
         } else {
-            let q = path.split_once('?').and_then(|(_, qs)| {
-                qs.split('&').find_map(|kv| kv.strip_prefix("q="))
-            });
+            let q = path
+                .split_once('?')
+                .and_then(|(_, qs)| qs.split('&').find_map(|kv| kv.strip_prefix("q=")));
             let v = self.validate(target, body, q).await?;
             Ok((plan::estimated_search(statement, target, body, &v), None))
         }
@@ -627,11 +817,24 @@ impl EsSession {
         let (path, _) = self.sql_path();
         let fetch = (max_rows + 1).clamp(1, 1000);
         // OpenSearch wants a pattern after SHOW TABLES; Elasticsearch doesn't.
-        let bare_show = stmt.split_whitespace().map(str::to_ascii_lowercase).collect::<Vec<_>>() == ["show", "tables"];
-        let stmt = if self.opensearch && bare_show { "SHOW TABLES LIKE %" } else { stmt };
+        let bare_show = stmt
+            .split_whitespace()
+            .map(str::to_ascii_lowercase)
+            .collect::<Vec<_>>()
+            == ["show", "tables"];
+        let stmt = if self.opensearch && bare_show {
+            "SHOW TABLES LIKE %"
+        } else {
+            stmt
+        };
         let mut body = serde_json::json!({ "query": stmt });
         // OpenSearch only pages SELECTs; its SHOW / DESCRIBE reject fetch_size.
-        if !self.opensearch || stmt.trim_start().get(..6).is_some_and(|w| w.eq_ignore_ascii_case("select")) {
+        if !self.opensearch
+            || stmt
+                .trim_start()
+                .get(..6)
+                .is_some_and(|w| w.eq_ignore_ascii_case("select"))
+        {
             body["fetch_size"] = fetch.into();
         }
         let (status, text) = http::send(self.request("POST", path).json(&body)).await?;
@@ -639,22 +842,33 @@ impl EsSession {
             let msg = es_error_message(status, &text);
             let mut se = ScriptError::new(msg.clone()).with_code(es_error_code(status, &text));
             if let Some((line, col)) = sql_position(&msg) {
-                se = se.at_line(line).at_offset(steps::offset_of(stmt, line, col));
+                se = se
+                    .at_line(line)
+                    .at_offset(steps::offset_of(stmt, line, col));
             }
             return Err(Error::Statement(Box::new(se)));
         }
-        let resp = J::parse(&text).map_err(|e| Error::Query(format!("Respuesta SQL inesperada: {e}")))?;
+        let resp =
+            J::parse(&text).map_err(|e| Error::Query(format!("Respuesta SQL inesperada: {e}")))?;
         self.push_sql(&resp, max_rows, out).await
     }
 
     /// A SQL response (Elasticsearch `columns`/`rows` or OpenSearch
     /// `schema`/`datarows`), following the cursor until past `max_rows`.
     async fn push_sql(&self, first: &J, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let cols = first.get("columns").or_else(|| first.get("schema")).and_then(J::as_arr).unwrap_or(&[]);
+        let cols = first
+            .get("columns")
+            .or_else(|| first.get("schema"))
+            .and_then(J::as_arr)
+            .unwrap_or(&[]);
         out.begin_result(
             cols.iter()
                 .map(|c| {
-                    let name = c.get("alias").or_else(|| c.get("name")).map(J::text).unwrap_or_default();
+                    let name = c
+                        .get("alias")
+                        .or_else(|| c.get("name"))
+                        .map(J::text)
+                        .unwrap_or_default();
                     rcol(&name, &c.get("type").map(J::text).unwrap_or_default())
                 })
                 .collect(),
@@ -662,21 +876,43 @@ impl EsSession {
         let (path, close) = self.sql_path();
         let mut page = first.clone();
         loop {
-            let rows = page.get("rows").or_else(|| page.get("datarows")).and_then(J::as_arr).unwrap_or(&[]);
+            let rows = page
+                .get("rows")
+                .or_else(|| page.get("datarows"))
+                .and_then(J::as_arr)
+                .unwrap_or(&[]);
             for r in rows {
-                out.push_row(r.as_arr().unwrap_or(&[]).iter().map(J::cell).collect(), max_rows);
+                out.push_row(
+                    r.as_arr().unwrap_or(&[]).iter().map(J::cell).collect(),
+                    max_rows,
+                );
             }
-            let Some(cursor) = page.get("cursor").and_then(J::as_str).filter(|c| !c.is_empty()).map(str::to_string) else {
+            let Some(cursor) = page
+                .get("cursor")
+                .and_then(J::as_str)
+                .filter(|c| !c.is_empty())
+                .map(str::to_string)
+            else {
                 break;
             };
             let done = out.results.last().is_some_and(|r| r.truncated) || rows.is_empty();
             if done {
                 // Free the server-side cursor; failing to is harmless.
-                let _ = http::send(self.request("POST", close).json(&serde_json::json!({ "cursor": cursor }))).await;
+                let _ = http::send(
+                    self.request("POST", close)
+                        .json(&serde_json::json!({ "cursor": cursor })),
+                )
+                .await;
                 break;
             }
-            let text = self.call(self.request("POST", path).json(&serde_json::json!({ "cursor": cursor }))).await?;
-            page = J::parse(&text).map_err(|e| Error::Query(format!("Respuesta SQL inesperada: {e}")))?;
+            let text = self
+                .call(
+                    self.request("POST", path)
+                        .json(&serde_json::json!({ "cursor": cursor })),
+                )
+                .await?;
+            page = J::parse(&text)
+                .map_err(|e| Error::Query(format!("Respuesta SQL inesperada: {e}")))?;
         }
         Ok(())
     }
@@ -702,18 +938,36 @@ impl Session for EsSession {
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let obj = |kind: &str, name: String| DbObject { kind: kind.into(), schema: None, name, parent: None };
+        let obj = |kind: &str, name: String| DbObject {
+            kind: kind.into(),
+            schema: None,
+            name,
+            parent: None,
+        };
         let mut out = Vec::new();
-        let indices = self.get_json("/_cat/indices?format=json&h=index&s=index").await?;
+        let indices = self
+            .get_json("/_cat/indices?format=json&h=index&s=index")
+            .await?;
         for i in indices.as_arr().unwrap_or(&[]) {
-            if let Some(n) = i.get("index").and_then(J::as_str).filter(|n| self.visible(n)) {
+            if let Some(n) = i
+                .get("index")
+                .and_then(J::as_str)
+                .filter(|n| self.visible(n))
+            {
                 out.push(obj(kinds::INDEX, n.to_string()));
             }
         }
-        if let Ok(aliases) = self.get_json("/_cat/aliases?format=json&h=alias&s=alias").await {
+        if let Ok(aliases) = self
+            .get_json("/_cat/aliases?format=json&h=alias&s=alias")
+            .await
+        {
             let mut seen: Vec<&str> = Vec::new();
             for a in aliases.as_arr().unwrap_or(&[]) {
-                if let Some(n) = a.get("alias").and_then(J::as_str).filter(|n| self.visible(n) && !seen.contains(n)) {
+                if let Some(n) = a
+                    .get("alias")
+                    .and_then(J::as_str)
+                    .filter(|n| self.visible(n) && !seen.contains(n))
+                {
                     seen.push(n);
                     out.push(obj(KIND_ALIAS, n.to_string()));
                 }
@@ -760,7 +1014,11 @@ impl Session for EsSession {
     }
 
     async fn definition(&mut self, o: &ObjectRef) -> Result<Option<String>> {
-        let path = if o.kind == kinds::STREAM { format!("/_data_stream/{}", o.name) } else { format!("/{}", o.name) };
+        let path = if o.kind == kinds::STREAM {
+            format!("/_data_stream/{}", o.name)
+        } else {
+            format!("/{}", o.name)
+        };
         Ok(Some(self.get_json(&path).await?.pretty()))
     }
 
@@ -769,7 +1027,11 @@ impl Session for EsSession {
     /// options, and its `_meta.description` as comment. Data streams'
     /// backing indices are hidden (they start with a dot).
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let path = if self.show_system { "/_all?flat_settings=true&expand_wildcards=all" } else { "/_all?flat_settings=true" };
+        let path = if self.show_system {
+            "/_all?flat_settings=true&expand_wildcards=all"
+        } else {
+            "/_all?flat_settings=true"
+        };
         let all = self.get_json(path).await?;
         let mut out: Vec<TableSchema> = all
             .as_obj()
@@ -783,7 +1045,10 @@ impl Session for EsSession {
     }
 
     fn browse_query(&self, o: &ObjectRef, limit: u32) -> String {
-        format!("GET /{}/_search\n{{\n  \"size\": {limit},\n  \"query\": {{ \"match_all\": {{}} }}\n}}", o.name)
+        format!(
+            "GET /{}/_search\n{{\n  \"size\": {limit},\n  \"query\": {{ \"match_all\": {{}} }}\n}}",
+            o.name
+        )
     }
 
     /// Requests and SQL statements one after another, as the Dev Tools
@@ -791,10 +1056,17 @@ impl Session for EsSession {
     /// editor run continues on errors, as the console does (see
     /// `Step::end`). A line that's neither runs nothing.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let cmds =
-            console::parse_located(text).map_err(|e| Error::from(ScriptError::new(e.message).at_offset(e.offset).at_line(e.line)))?;
+        let cmds = console::parse_located(text).map_err(|e| {
+            Error::from(
+                ScriptError::new(e.message)
+                    .at_offset(e.offset)
+                    .at_line(e.line),
+            )
+        })?;
         if cmds.is_empty() {
-            return Err(Error::Query("No hay ninguna petición para ejecutar.".into()));
+            return Err(Error::Query(
+                "No hay ninguna petición para ejecutar.".into(),
+            ));
         }
         let own = out.current_statement.is_none();
         self.interrupted.store(false, Ordering::SeqCst);
@@ -807,7 +1079,13 @@ impl Session for EsSession {
                 Command::Http(r) => self.run_request(r, max_rows, out).await,
                 Command::Sql(s) => self.run_sql(s, max_rows, out).await,
             };
-            let r = r.map_err(|e| if self.interrupted.load(Ordering::SeqCst) { Error::Cancelled } else { e });
+            let r = r.map_err(|e| {
+                if self.interrupted.load(Ordering::SeqCst) {
+                    Error::Cancelled
+                } else {
+                    e
+                }
+            });
             step.end(out, r)?;
         }
         Ok(())
@@ -816,10 +1094,18 @@ impl Session for EsSession {
     /// `_search` requests and SQL `SELECT`s get plans (see [`plan`]); other
     /// requests have none: with `analyze` they run as in `execute`,
     /// without it they're skipped.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let cmds = console::parse(text).map_err(Error::Query)?;
         if cmds.is_empty() {
-            return Err(Error::Query("No hay ninguna petición para ejecutar.".into()));
+            return Err(Error::Query(
+                "No hay ninguna petición para ejecutar.".into(),
+            ));
         }
         for c in &cmds {
             let r = match c {
@@ -831,7 +1117,8 @@ impl Session for EsSession {
             };
             let label = format!("{} {}", r.method, r.path);
             let segs = r.segments();
-            let is_search = matches!(r.method.as_str(), "GET" | "POST") && segs.last() == Some(&"_search");
+            let is_search =
+                matches!(r.method.as_str(), "GET" | "POST") && segs.last() == Some(&"_search");
             if !is_search {
                 out.info(format!("`{label}`: solo las búsquedas (_search) y las consultas SQL tienen plan de ejecución."));
                 if analyze {
@@ -841,14 +1128,25 @@ impl Session for EsSession {
             }
             let target = segs[..segs.len() - 1].join("/");
             let body = match r.body.as_deref() {
-                Some(b) => Some(J::parse(b).map_err(|e| Error::Query(format!("El cuerpo de {label} no es JSON válido: {e}")))?),
+                Some(b) => Some(J::parse(b).map_err(|e| {
+                    Error::Query(format!("El cuerpo de {label} no es JSON válido: {e}"))
+                })?),
                 None => None,
             };
             let statement = match &r.body {
                 Some(b) => format!("{label}\n{b}"),
                 None => label.clone(),
             };
-            let (p, resp) = self.search_plan(&statement, &target, &r.method, &r.path, body.as_ref(), analyze).await?;
+            let (p, resp) = self
+                .search_plan(
+                    &statement,
+                    &target,
+                    &r.method,
+                    &r.path,
+                    body.as_ref(),
+                    analyze,
+                )
+                .await?;
             if let Some(resp) = resp {
                 flatten::push_search(out, &resp, max_rows);
             }
@@ -860,9 +1158,11 @@ impl Session for EsSession {
     /// Every snapshot of every registered repository, newest first.
     async fn backups(&mut self, _database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         let parse = |body: String| {
-            serde_json::from_str::<serde_json::Value>(&body).map_err(|e| Error::Query(format!("Respuesta inesperada del servidor: {e}")))
+            serde_json::from_str::<serde_json::Value>(&body)
+                .map_err(|e| Error::Query(format!("Respuesta inesperada del servidor: {e}")))
         };
-        let repos = backup::repositories(&parse(self.call(self.request("GET", "/_snapshot")).await?)?);
+        let repos =
+            backup::repositories(&parse(self.call(self.request("GET", "/_snapshot")).await?)?);
         let mut all = Vec::new();
         for (repo, ty) in repos {
             let path = format!("/_snapshot/{}/_all", ddl::path_segment(&repo));
@@ -889,7 +1189,10 @@ impl Session for EsSession {
             Ok(h) => monitor::from_health(&mut s, &h),
             Err(e) => refused.push(format!("_cluster/health ({e})")),
         }
-        match self.get_json("/_nodes/stats/os,process,jvm,indices,fs,transport,http,thread_pool").await {
+        match self
+            .get_json("/_nodes/stats/os,process,jvm,indices,fs,transport,http,thread_pool")
+            .await
+        {
             Ok(st) => monitor::from_node_stats(&mut s, &st),
             Err(e) => refused.push(format!("_nodes/stats ({e})")),
         }
@@ -913,48 +1216,69 @@ impl Session for EsSession {
             ));
         }
         s.notes.push("La red que se informa es la de transporte entre nodos; las conexiones HTTP no informan bytes.".into());
-        if !s.metrics.iter().any(|m| m.key == "disk_read" || m.key == "disk_write") {
+        if !s
+            .metrics
+            .iter()
+            .any(|m| m.key == "disk_read" || m.key == "disk_write")
+        {
             s.notes.push("El servidor no informa la E/S de disco (fs.io_stats solo existe en Linux con acceso a /proc/diskstats).".into());
         }
         Ok(s)
     }
 
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
-        let rb = self.request("GET", processes::LIST_PATH).timeout(processes::QUERY_LIMIT);
+        let rb = self
+            .request("GET", processes::LIST_PATH)
+            .timeout(processes::QUERY_LIMIT);
         let body = self.call(rb).await?;
-        let tasks = J::parse(&body).map_err(|e| Error::Query(format!("Respuesta inesperada del servidor: {e}")))?;
+        let tasks = J::parse(&body)
+            .map_err(|e| Error::Query(format!("Respuesta inesperada del servidor: {e}")))?;
         Ok(processes::rows(&tasks, &self.opaque_id))
     }
 
     /// Requests are tasks: cancelling one is `POST _tasks/<id>/_cancel`.
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden cancelar tareas.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden cancelar tareas.".into(),
+            ));
         }
         let id = id.trim();
         if !processes::valid_task_id(id) {
-            return Err(Error::Query(format!("«{id}» no es un id de tarea (nodo:número)")));
+            return Err(Error::Query(format!(
+                "«{id}» no es un id de tarea (nodo:número)"
+            )));
         }
         let (status, body) = http::send(self.request("GET", &format!("/_tasks/{id}"))).await?;
         if status >= 400 && status != 404 {
             return Err(Error::Query(es_error_message(status, &body)));
         }
         processes::check_cancel(id, status, &body, &self.opaque_id)?;
-        let body = self.call(self.request("POST", &format!("/_tasks/{id}/_cancel"))).await?;
+        let body = self
+            .call(self.request("POST", &format!("/_tasks/{id}/_cancel")))
+            .await?;
         match processes::cancel_failure(&body) {
-            Some(why) => Err(Error::Query(format!("no se pudo cancelar la tarea {id}: {why}"))),
+            Some(why) => Err(Error::Query(format!(
+                "no se pudo cancelar la tarea {id}: {why}"
+            ))),
             None => Ok(()),
         }
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (sampler, started) = profiler::start(self, opts).await?;
         self.profiler = Some(sampler);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut sampler = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut sampler = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut sampler).await;
         self.profiler = Some(sampler);
         r
@@ -965,7 +1289,11 @@ impl Session for EsSession {
         Ok(())
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -980,14 +1308,23 @@ impl Session for EsSession {
     }
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
-        let (client, base, id) = (self.client.clone(), self.base.clone(), self.opaque_id.clone());
+        let (client, base, id) = (
+            self.client.clone(),
+            self.base.clone(),
+            self.opaque_id.clone(),
+        );
         let interrupted = self.interrupted.clone();
         Some(Arc::new(move || {
             interrupted.store(true, Ordering::SeqCst);
             let (client, base, id) = (client.clone(), base.clone(), id.clone());
             // Called from any thread, maybe outside a runtime: use our own.
             std::thread::spawn(move || {
-                let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
+                let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                else {
+                    return;
+                };
                 rt.block_on(cancel_tasks(&client, &base, &id));
             });
         }))
@@ -1001,7 +1338,10 @@ impl Session for EsSession {
 
 /// Cancel the running tasks that carry our `X-Opaque-Id`.
 async fn cancel_tasks(client: &reqwest::Client, base: &str, opaque_id: &str) {
-    let Ok((200, body)) = http::send(client.get(format!("{base}/_tasks?detailed=false"))).await else { return };
+    let Ok((200, body)) = http::send(client.get(format!("{base}/_tasks?detailed=false"))).await
+    else {
+        return;
+    };
     let Ok(tasks) = J::parse(&body) else { return };
     for (_, node) in tasks.get("nodes").and_then(J::as_obj).into_iter().flatten() {
         for (task_id, t) in node.get("tasks").and_then(J::as_obj).into_iter().flatten() {
@@ -1022,19 +1362,32 @@ mod tests {
     fn sql_error_positions() {
         let m = "verification_exception: Found 1 problem\nline 2:8: Unknown column [nope]";
         assert_eq!(sql_position(m), Some((2, 8)));
-        assert_eq!(sql_position("parsing_exception: line 1:15: mismatched input"), Some((1, 15)));
+        assert_eq!(
+            sql_position("parsing_exception: line 1:15: mismatched input"),
+            Some((1, 15))
+        );
         assert_eq!(sql_position("no position here"), None);
         assert_eq!(steps::offset_of("SELECT a\nFROM t WHERE", 2, 6), 14);
     }
 
     #[test]
     fn error_codes() {
-        assert_eq!(es_error_code(404, r#"{"error":{"type":"index_not_found_exception","reason":"x"},"status":404}"#), "index_not_found_exception");
+        assert_eq!(
+            es_error_code(
+                404,
+                r#"{"error":{"type":"index_not_found_exception","reason":"x"},"status":404}"#
+            ),
+            "index_not_found_exception"
+        );
         assert_eq!(es_error_code(502, "Bad gateway"), "HTTP 502");
     }
 
     fn req(method: &str, path: &str) -> Request {
-        Request { method: method.into(), path: path.into(), body: None }
+        Request {
+            method: method.into(),
+            path: path.into(),
+            body: None,
+        }
     }
 
     #[test]
@@ -1056,10 +1409,19 @@ mod tests {
     #[test]
     fn errors_are_one_line() {
         let body = r#"{"error":{"root_cause":[],"type":"index_not_found_exception","reason":"no such index [x]"},"status":404}"#;
-        assert_eq!(es_error_message(404, body), "index_not_found_exception: no such index [x]");
+        assert_eq!(
+            es_error_message(404, body),
+            "index_not_found_exception: no such index [x]"
+        );
         let body = r#"{"error":{"type":"parsing_exception","reason":"bad","caused_by":{"reason":"deeper"}}}"#;
-        assert_eq!(es_error_message(400, body), "parsing_exception: bad (causa: deeper)");
-        assert_eq!(es_error_message(502, "Bad gateway"), "HTTP 502: Bad gateway");
+        assert_eq!(
+            es_error_message(400, body),
+            "parsing_exception: bad (causa: deeper)"
+        );
+        assert_eq!(
+            es_error_message(502, "Bad gateway"),
+            "HTTP 502: Bad gateway"
+        );
     }
 
     #[test]
@@ -1070,15 +1432,25 @@ mod tests {
             r#"{"errors":true,"items":[{"index":{"status":201}},{"index":{"status":400,"error":{"type":"mapper_parsing_exception","reason":"bad year"}}}]}"#,
         )
         .unwrap();
-        assert_eq!(bulk_failure(&bad).unwrap(), "_bulk: fallaron 1 de 2 operaciones. Primera: mapper_parsing_exception: bad year");
+        assert_eq!(
+            bulk_failure(&bad).unwrap(),
+            "_bulk: fallaron 1 de 2 operaciones. Primera: mapper_parsing_exception: bad year"
+        );
     }
 
     #[test]
     fn cloud_id_decodes() {
-        let enc = base64::engine::general_purpose::STANDARD.encode("us-east-1.aws.found.io:443$abc123$kib456");
-        assert_eq!(cloud_id_url(&format!("my-dep:{enc}")).as_deref(), Some("https://abc123.us-east-1.aws.found.io:443"));
+        let enc = base64::engine::general_purpose::STANDARD
+            .encode("us-east-1.aws.found.io:443$abc123$kib456");
+        assert_eq!(
+            cloud_id_url(&format!("my-dep:{enc}")).as_deref(),
+            Some("https://abc123.us-east-1.aws.found.io:443")
+        );
         let enc = base64::engine::general_purpose::STANDARD.encode("eu.example.io$es1$kb1");
-        assert_eq!(cloud_id_url(&format!("x:{enc}")).as_deref(), Some("https://es1.eu.example.io"));
+        assert_eq!(
+            cloud_id_url(&format!("x:{enc}")).as_deref(),
+            Some("https://es1.eu.example.io")
+        );
         assert_eq!(cloud_id_url("garbage"), None);
     }
 
@@ -1086,22 +1458,37 @@ mod tests {
     fn open_distro_variant() {
         let ids: Vec<&str> = drivers().iter().map(|d| d.info().id).collect();
         assert_eq!(ids, ["elasticsearch", "opensearch", "opendistro"]);
-        let d = drivers().into_iter().find(|d| d.info().id == "opendistro").unwrap();
+        let d = drivers()
+            .into_iter()
+            .find(|d| d.info().id == "opendistro")
+            .unwrap();
         assert!(d.capabilities().monitor);
         assert!(!d.info().object_kinds.iter().any(|k| k.id == kinds::STREAM));
         let t = d.create_templates();
-        assert!(t.iter().all(|t| !t.template.contains("/_plugins/") && t.kind != kinds::STREAM));
+        assert!(t
+            .iter()
+            .all(|t| !t.template.contains("/_plugins/") && t.kind != kinds::STREAM));
         assert!(t.iter().any(|t| t.template.contains("/_opendistro/_ism/")));
         assert!(!d.designer().unwrap().data_types.contains(&"flat_object"));
     }
 
     #[test]
     fn elastic_cloud_uses_https_443() {
-        let mut cfg = ConnectionConfig { host: "mi-deploy.es.eastus.azure.elastic-cloud.com".into(), port: 9200, ..Default::default() };
-        assert_eq!(elastic_cloud_url(&cfg).as_deref(), Some("https://mi-deploy.es.eastus.azure.elastic-cloud.com:443"));
+        let mut cfg = ConnectionConfig {
+            host: "mi-deploy.es.eastus.azure.elastic-cloud.com".into(),
+            port: 9200,
+            ..Default::default()
+        };
+        assert_eq!(
+            elastic_cloud_url(&cfg).as_deref(),
+            Some("https://mi-deploy.es.eastus.azure.elastic-cloud.com:443")
+        );
         cfg.host = "https://x.us-east-1.aws.found.io/".into();
         cfg.port = 0;
-        assert_eq!(elastic_cloud_url(&cfg).as_deref(), Some("https://x.us-east-1.aws.found.io:443"));
+        assert_eq!(
+            elastic_cloud_url(&cfg).as_deref(),
+            Some("https://x.us-east-1.aws.found.io:443")
+        );
         // A port of its own, another port, or not the cloud: left alone.
         cfg.host = "https://x.cloud.es.io:9243".into();
         assert_eq!(elastic_cloud_url(&cfg), None);

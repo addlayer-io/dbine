@@ -65,7 +65,11 @@ pub struct SearchResult {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn search_database(app: AppHandle, state: State<'_, AppState>, args: SearchArgs) -> CommandResult<SearchResult> {
+pub async fn search_database(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: SearchArgs,
+) -> CommandResult<SearchResult> {
     let key = format!("search:{}", args.search_id);
     let with_source: Vec<String> = driver_of(&state, &args.connection_id)?
         .info()
@@ -74,7 +78,9 @@ pub async fn search_database(app: AppHandle, state: State<'_, AppState>, args: S
         .filter(|k| k.has_definition)
         .map(|k| k.id.to_string())
         .collect();
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, true)
+        .await?;
     let result = run(&app, &entry, &args, &with_source).await;
     state.sessions.remove(&key);
     result
@@ -86,20 +92,41 @@ const GENERATED_DDL: &[&str] = &[dbine_driver::kinds::TABLE];
 /// A hit in a column's name (not an object kind: the UI offers it apart).
 const COLUMN: &str = "column";
 
-async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchArgs, with_source: &[String]) -> CommandResult<SearchResult> {
+async fn run(
+    app: &AppHandle,
+    entry: &crate::state::SessionEntry,
+    args: &SearchArgs,
+    with_source: &[String],
+) -> CommandResult<SearchResult> {
     // "Código" without a kind filter: every kind with source but tables.
     let mut resolved = args.query.clone();
     if resolved.kinds.is_empty() {
-        resolved.kinds = with_source.iter().filter(|k| !GENERATED_DDL.contains(&k.as_str())).cloned().collect();
+        resolved.kinds = with_source
+            .iter()
+            .filter(|k| !GENERATED_DDL.contains(&k.as_str()))
+            .cloned()
+            .collect();
     }
     let names_any_kind = args.query.kinds.is_empty();
     let q = &resolved;
-    let cap = if q.max_hits == 0 { DEFAULT_CAP } else { q.max_hits };
+    let cap = if q.max_hits == 0 {
+        DEFAULT_CAP
+    } else {
+        q.max_hits
+    };
     let mut out = SearchResult::default();
     let cancelled = || entry.cancelled.load(Ordering::Relaxed);
     let wanted = |kind: &str| q.kinds.iter().any(|k| k == kind);
     let emit = |done: usize, total: usize, hits: Vec<SearchHit>| {
-        let _ = app.emit("code-search-progress", Progress { search_id: &args.search_id, done, total, hits });
+        let _ = app.emit(
+            "code-search-progress",
+            Progress {
+                search_id: &args.search_id,
+                done,
+                total,
+                hits,
+            },
+        );
     };
     let mut s = entry.session.lock().await;
     let objects = s.list_objects().await?;
@@ -109,7 +136,14 @@ async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchA
             .iter()
             .filter(|o| (names_any_kind || wanted(&o.kind)) && line_matches(&o.name, q))
             .take(cap)
-            .map(|o| CodeHit { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone(), parent: o.parent.clone(), line: 0, text: String::new() })
+            .map(|o| CodeHit {
+                kind: o.kind.clone(),
+                schema: o.schema.clone(),
+                name: o.name.clone(),
+                parent: o.parent.clone(),
+                line: 0,
+                text: String::new(),
+            })
             .collect();
         emit(0, 0, hits.clone());
         out.hits = hits;
@@ -148,7 +182,11 @@ async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchA
     let mut catalog_query = q.clone();
     catalog_query.max_hits = cap - out.hits.len();
     if let Some(report) = s.search_code(&catalog_query).await? {
-        let hits: Vec<SearchHit> = report.hits.into_iter().filter(|h| wanted(&h.kind)).collect();
+        let hits: Vec<SearchHit> = report
+            .hits
+            .into_iter()
+            .filter(|h| wanted(&h.kind))
+            .collect();
         emit(report.scanned, report.scanned, hits.clone());
         out.hits.extend(hits);
         out.scanned = report.scanned;
@@ -159,7 +197,10 @@ async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchA
     }
 
     // Each object's source.
-    let candidates: Vec<_> = objects.iter().filter(|o| with_source.contains(&o.kind) && wanted(&o.kind)).collect();
+    let candidates: Vec<_> = objects
+        .iter()
+        .filter(|o| with_source.contains(&o.kind) && wanted(&o.kind))
+        .collect();
     let total = candidates.len();
     let mut pending = Vec::new();
     let mut last = Instant::now();
@@ -168,11 +209,22 @@ async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchA
             out.cancelled = true;
             break;
         }
-        let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+        let obj = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
         match s.definition(&obj).await {
             Ok(Some(source)) => {
                 out.scanned += 1;
-                let hits = hits_in(&o.kind, o.schema.as_deref(), &o.name, o.parent.as_deref(), &source, q);
+                let hits = hits_in(
+                    &o.kind,
+                    o.schema.as_deref(),
+                    &o.name,
+                    o.parent.as_deref(),
+                    &source,
+                    q,
+                );
                 pending.extend(hits.iter().cloned());
                 out.hits.extend(hits);
             }

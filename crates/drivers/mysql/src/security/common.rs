@@ -49,7 +49,12 @@ pub fn privileges(p: &[String], engine: &str) -> Result<Vec<String>> {
     p.iter()
         .map(|x| {
             let name = x.split_whitespace().collect::<Vec<_>>().join(" ");
-            if name.is_empty() || !name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_') {
+            if name.is_empty()
+                || !name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_')
+            {
                 return Err(Error::Query(format!("«{x}» no es un permiso de {engine}")));
             }
             Ok(name.to_uppercase())
@@ -72,7 +77,10 @@ mod tests {
         assert_eq!(who("ana@%"), Who::User("ana@%"));
         assert_eq!(bare_role("role:x"), "x");
         assert_eq!(q("a`b"), "`a``b`");
-        assert_eq!(privileges(&["select".into(), " create  table ".into()], "X").unwrap(), vec!["SELECT", "CREATE TABLE"]);
+        assert_eq!(
+            privileges(&["select".into(), " create  table ".into()], "X").unwrap(),
+            vec!["SELECT", "CREATE TABLE"]
+        );
         for bad in ["SELECT; DROP TABLE x", "SELECT (a)", "'x'", "", "1X"] {
             assert!(privileges(&[bad.into()], "X").is_err(), "{bad}");
         }

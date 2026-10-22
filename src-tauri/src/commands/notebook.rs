@@ -32,17 +32,25 @@ pub struct SerializeArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notebook_serialize(args: SerializeArgs) -> CommandResult<String> {
-    Ok(notebook::serialize(&args.notebook, PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell)))
+    Ok(notebook::serialize(
+        &args.notebook,
+        PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell),
+    ))
 }
 
 /// Only `.ipynb` files are read or written here.
 fn notebook_path(path: &str) -> CommandResult<&Path> {
     let p = Path::new(path);
-    let ok = p.is_absolute() && p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ipynb"));
+    let ok = p.is_absolute()
+        && p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("ipynb"));
     if ok {
         Ok(p)
     } else {
-        Err(CommandError::BadRequest(format!("«{path}» no es un notebook (.ipynb)")))
+        Err(CommandError::BadRequest(format!(
+            "«{path}» no es un notebook (.ipynb)"
+        )))
     }
 }
 
@@ -70,16 +78,24 @@ pub fn read(path: &str) -> CommandResult<ReadOut> {
 fn read_capped(path: &str, max: u64) -> CommandResult<ReadOut> {
     let p = notebook_path(path)?;
     let io = |e: std::io::Error| match e.kind() {
-        std::io::ErrorKind::NotFound => CommandError::NotFound(format!("no existe el archivo «{path}»")),
+        std::io::ErrorKind::NotFound => {
+            CommandError::NotFound(format!("no existe el archivo «{path}»"))
+        }
         _ => CommandError::Internal(format!("no se pudo leer «{path}»: {e}")),
     };
     if std::fs::metadata(p).map_err(io)?.len() > max {
-        return Err(CommandError::BadRequest(format!("el notebook «{path}» es demasiado grande para abrirlo (más de 64 MB)")));
+        return Err(CommandError::BadRequest(format!(
+            "el notebook «{path}» es demasiado grande para abrirlo (más de 64 MB)"
+        )));
     }
     let bytes = std::fs::read(p).map_err(io)?;
-    let text = std::str::from_utf8(&bytes).map_err(|_| CommandError::BadRequest("el notebook no está en UTF-8".into()))?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| CommandError::BadRequest("el notebook no está en UTF-8".into()))?;
     let notebook = notebook::parse(text).map_err(CommandError::BadRequest)?;
-    Ok(ReadOut { notebook, text_hash: sha256_hex(&bytes) })
+    Ok(ReadOut {
+        notebook,
+        text_hash: sha256_hex(&bytes),
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -102,13 +118,18 @@ pub struct WriteArgs {
 
 pub fn write(args: &WriteArgs) -> CommandResult<()> {
     let p = notebook_path(&args.path)?;
-    let text = notebook::serialize(&args.notebook, PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell));
+    let text = notebook::serialize(
+        &args.notebook,
+        PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell),
+    );
     atomic_write(p, text.as_bytes())
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notebook_write(args: WriteArgs) -> CommandResult<()> {
-    tauri::async_runtime::spawn_blocking(move || write(&args)).await.map_err(|e| CommandError::Internal(e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || write(&args))
+        .await
+        .map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
 /// A chart the UI rendered for the export: the cell it belongs to, its title
@@ -161,13 +182,24 @@ pub struct ExportTarget {
 /// The export's view of each cell's connection: its non-secret fields only
 /// (notebook::python::PyConn). A connection that no longer exists is left
 /// out (its cells are exported commented).
-fn python_connections(store: &dbine_core::StateStore, targets: &HashMap<String, ExportTarget>) -> CommandResult<HashMap<String, python::PyConn>> {
+fn python_connections(
+    store: &dbine_core::StateStore,
+    targets: &HashMap<String, ExportTarget>,
+) -> CommandResult<HashMap<String, python::PyConn>> {
     let mut out = HashMap::new();
     for (cell, t) in targets {
-        let Some(saved) = store.get_connection(&t.connection_id).map_err(|e| CommandError::Internal(e.to_string()))? else { continue };
+        let Some(saved) = store
+            .get_connection(&t.connection_id)
+            .map_err(|e| CommandError::Internal(e.to_string()))?
+        else {
+            continue;
+        };
         let info = dbine_drivers::find(&saved.config.driver).map(|d| d.info());
         let key = format!("{}\u{0}{}", saved.id, t.database);
-        out.insert(cell.clone(), python::PyConn::new(&key, &saved.name, &saved.config, info, &t.database));
+        out.insert(
+            cell.clone(),
+            python::PyConn::new(&key, &saved.name, &saved.config, info, &t.database),
+        );
     }
     Ok(out)
 }
@@ -177,13 +209,22 @@ const MAX_EXPORT_IMAGES: usize = 500;
 
 fn decode_images(list: &[ExportImage]) -> CommandResult<export::CellImages> {
     if list.len() > MAX_EXPORT_IMAGES {
-        return Err(CommandError::BadRequest("demasiados gráficos para exportar".into()));
+        return Err(CommandError::BadRequest(
+            "demasiados gráficos para exportar".into(),
+        ));
     }
     let mut out = export::CellImages::new();
     for i in list {
         let png = export::decode_png(&i.png).map_err(CommandError::BadRequest)?;
-        let title: String = i.title.chars().filter(|c| !c.is_control()).take(200).collect();
-        out.entry(i.cell_id.clone()).or_default().push(export::ChartImage { title, png });
+        let title: String = i
+            .title
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(200)
+            .collect();
+        out.entry(i.cell_id.clone())
+            .or_default()
+            .push(export::ChartImage { title, png });
     }
     Ok(out)
 }
@@ -191,9 +232,14 @@ fn decode_images(list: &[ExportImage]) -> CommandResult<export::CellImages> {
 /// Only an absolute `.md` / `.markdown` path in an existing folder.
 fn markdown_path(path: &str) -> CommandResult<&Path> {
     let p = Path::new(path);
-    let ext_ok = p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"));
+    let ext_ok = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"));
     if !(p.is_absolute() && ext_ok && p.parent().is_some_and(Path::is_dir)) {
-        return Err(CommandError::BadRequest(format!("«{path}» no es un archivo Markdown (.md) válido")));
+        return Err(CommandError::BadRequest(format!(
+            "«{path}» no es un archivo Markdown (.md) válido"
+        )));
     }
     Ok(p)
 }
@@ -202,21 +248,36 @@ fn markdown_path(path: &str) -> CommandResult<&Path> {
 /// followed when it's a link or a file) gets each image, then the .md.
 fn write_markdown(path: &Path, text: &str, files: &export::ExportFiles) -> CommandResult<()> {
     if !files.is_empty() {
-        let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| CommandError::BadRequest("la ruta no es válida".into()))?;
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| CommandError::BadRequest("la ruta no es válida".into()))?;
         let dir = path.with_file_name(export::files_dir_name(name));
         match std::fs::symlink_metadata(&dir) {
             Ok(m) if m.is_dir() => {}
-            Ok(_) => return Err(CommandError::BadRequest(format!("«{}» existe y no es una carpeta", dir.display()))),
-            Err(_) => std::fs::create_dir(&dir).map_err(|e| CommandError::Internal(format!("no se pudo crear «{}»: {e}", dir.display())))?,
+            Ok(_) => {
+                return Err(CommandError::BadRequest(format!(
+                    "«{}» existe y no es una carpeta",
+                    dir.display()
+                )))
+            }
+            Err(_) => std::fs::create_dir(&dir).map_err(|e| {
+                CommandError::Internal(format!("no se pudo crear «{}»: {e}", dir.display()))
+            })?,
         }
         for (file, bytes) in files {
             // Names come from export::markdown_with ("chart-<cell>-<n>.png"); checked anyway.
             if file.contains(['/', '\\']) || file.contains("..") {
-                return Err(CommandError::Internal(format!("nombre de imagen inválido: {file}")));
+                return Err(CommandError::Internal(format!(
+                    "nombre de imagen inválido: {file}"
+                )));
             }
             let target = dir.join(file);
             if std::fs::symlink_metadata(&target).is_ok_and(|m| m.file_type().is_symlink()) {
-                return Err(CommandError::BadRequest(format!("«{}» es un enlace: no se sobrescribe", target.display())));
+                return Err(CommandError::BadRequest(format!(
+                    "«{}» es un enlace: no se sobrescribe",
+                    target.display()
+                )));
             }
             atomic_write(&target, bytes)?;
         }
@@ -228,7 +289,11 @@ pub fn export_notebook(args: &ExportArgs, store: &dbine_core::StateStore) -> Com
     let limits = PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell);
     if args.format == "python" {
         let conns = python_connections(store, &args.targets)?;
-        let opts = python::PyExport { previews: args.previews, limits, parameters: python::parameters(&args.notebook) };
+        let opts = python::PyExport {
+            previews: args.previews,
+            limits,
+            parameters: python::parameters(&args.notebook),
+        };
         return Ok(python::python(&args.notebook, &conns, &opts));
     }
     let images = decode_images(&args.images)?;
@@ -237,22 +302,39 @@ pub fn export_notebook(args: &ExportArgs, store: &dbine_core::StateStore) -> Com
         "markdown" | "md" => match args.path.as_deref() {
             Some(path) => {
                 let p = markdown_path(path)?;
-                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("notebook.md");
-                let (text, files) = export::markdown_with(&args.notebook, limits, &images, &export::files_dir_name(name));
+                let name = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("notebook.md");
+                let (text, files) = export::markdown_with(
+                    &args.notebook,
+                    limits,
+                    &images,
+                    &export::files_dir_name(name),
+                );
                 write_markdown(p, &text, &files)?;
                 Ok(text)
             }
             None if images.is_empty() => Ok(export::markdown(&args.notebook, limits)),
-            None => Err(CommandError::BadRequest("una exportación Markdown con gráficos necesita la ruta del archivo".into())),
+            None => Err(CommandError::BadRequest(
+                "una exportación Markdown con gráficos necesita la ruta del archivo".into(),
+            )),
         },
-        f => Err(CommandError::BadRequest(format!("formato de exportación desconocido: «{f}»"))),
+        f => Err(CommandError::BadRequest(format!(
+            "formato de exportación desconocido: «{f}»"
+        ))),
     }
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_export(state: tauri::State<'_, crate::state::AppState>, args: ExportArgs) -> CommandResult<String> {
+pub async fn notebook_export(
+    state: tauri::State<'_, crate::state::AppState>,
+    args: ExportArgs,
+) -> CommandResult<String> {
     let store = state.store.clone();
-    tauri::async_runtime::spawn_blocking(move || export_notebook(&args, &store)).await.map_err(|e| CommandError::Internal(e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || export_notebook(&args, &store))
+        .await
+        .map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
 // -- "DataFrame SQL" (notebook::local) -----------------------------------------------
@@ -271,7 +353,10 @@ pub struct LocalRefsArgs {
 /// their targets before running it.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notebook_local_refs(args: LocalRefsArgs) -> CommandResult<Vec<String>> {
-    Ok(notebook::local::needed(&args.sql, &args.sources).into_iter().map(|i| args.sources[i].name.clone()).collect())
+    Ok(notebook::local::needed(&args.sql, &args.sources)
+        .into_iter()
+        .map(|i| args.sources[i].name.clone())
+        .collect())
 }
 
 #[derive(Deserialize)]
@@ -318,12 +403,21 @@ pub struct RenderParamsArgs {
 /// a whole-result chart or a full export runs again (the run itself binds
 /// where the driver can, see `execute_query`).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_render_params(state: tauri::State<'_, crate::state::AppState>, args: RenderParamsArgs) -> CommandResult<String> {
+pub async fn notebook_render_params(
+    state: tauri::State<'_, crate::state::AppState>,
+    args: RenderParamsArgs,
+) -> CommandResult<String> {
     use notebook::params::{self, Engine};
     let values = params::resolve(&args.params.definitions, &args.params.values)?;
     let driver = match args.connection_id.as_deref() {
         Some(id) => Some(
-            state.store.get_connection(id).ok().flatten().and_then(|c| dbine_drivers::find(&c.config.driver)).ok_or_else(|| CommandError::NotFound("la conexión no existe".into()))?,
+            state
+                .store
+                .get_connection(id)
+                .ok()
+                .flatten()
+                .and_then(|c| dbine_drivers::find(&c.config.driver))
+                .ok_or_else(|| CommandError::NotFound("la conexión no existe".into()))?,
         ),
         None => None,
     };
@@ -338,13 +432,27 @@ pub async fn notebook_render_params(state: tauri::State<'_, crate::state::AppSta
 /// [`RunLocalArgs::params`]).
 fn with_params(state: &crate::state::AppState, args: &mut RunLocalArgs) -> CommandResult<()> {
     use notebook::params::{self, Engine};
-    let Some(p) = args.params.take() else { return Ok(()) };
+    let Some(p) = args.params.take() else {
+        return Ok(());
+    };
     let values = params::resolve(&p.definitions, &p.values)?;
-    args.sql = params::prepare_text(&args.sql, &Engine::DataFrames, &p.definitions, &values, None)?.text;
+    args.sql = params::prepare_text(
+        &args.sql,
+        &Engine::DataFrames,
+        &p.definitions,
+        &values,
+        None,
+    )?
+    .text;
     for s in &mut args.sources {
         let driver = match (&s.local, &s.connection_id) {
             (true, _) => None,
-            (false, Some(id)) => state.store.get_connection(id).ok().flatten().and_then(|c| dbine_drivers::find(&c.config.driver)),
+            (false, Some(id)) => state
+                .store
+                .get_connection(id)
+                .ok()
+                .flatten()
+                .and_then(|c| dbine_drivers::find(&c.config.driver)),
             // Not read by this run: its text stays as it is.
             (false, None) => continue,
         };
@@ -363,7 +471,16 @@ fn with_params(state: &crate::state::AppState, args: &mut RunLocalArgs) -> Comma
 pub(crate) fn app_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
     use tauri::Manager;
     let p = app.path();
-    let mut dirs: Vec<std::path::PathBuf> = [p.app_config_dir(), p.app_data_dir(), p.app_local_data_dir(), p.app_cache_dir(), p.app_log_dir()].into_iter().flatten().collect();
+    let mut dirs: Vec<std::path::PathBuf> = [
+        p.app_config_dir(),
+        p.app_data_dir(),
+        p.app_local_data_dir(),
+        p.app_cache_dir(),
+        p.app_log_dir(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     if let Some(d) = dbine_driver::runtime::components_dir().parent() {
         dirs.push(d.to_path_buf());
     }
@@ -376,11 +493,27 @@ pub(crate) fn app_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
 /// UI asks, answers with [`notebook_file_decision`] and runs again with the
 /// token.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_run_local(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>, mut args: RunLocalArgs) -> CommandResult<notebook::local::RunLocalResponse> {
+pub async fn notebook_run_local(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    mut args: RunLocalArgs,
+) -> CommandResult<notebook::local::RunLocalResponse> {
     with_params(&state, &mut args)?;
     let cap = args.row_cap.unwrap_or(notebook::local::DEFAULT_ROW_CAP);
     let policy = notebook::access::Policy::current(&app_dirs(&app));
-    notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources, args.notebook_path.as_deref(), args.approval.as_deref(), policy, notebook::remote::Net::current(args.aws_profile.as_deref())).await
+    notebook::local::run_local(
+        &state,
+        &args.tab_id,
+        &args.sql,
+        args.max_rows,
+        cap,
+        &args.sources,
+        args.notebook_path.as_deref(),
+        args.approval.as_deref(),
+        policy,
+        notebook::remote::Net::current(args.aws_profile.as_deref()),
+    )
+    .await
 }
 
 // -- Write cells (notebook::write) ------------------------------------------------------------
@@ -396,7 +529,10 @@ pub struct WriteTargetArgs {
 /// writes and, for an existing table, its columns. A read-only connection
 /// is refused.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_write_target(state: tauri::State<'_, crate::state::AppState>, args: WriteTargetArgs) -> CommandResult<notebook::write::TargetInfo> {
+pub async fn notebook_write_target(
+    state: tauri::State<'_, crate::state::AppState>,
+    args: WriteTargetArgs,
+) -> CommandResult<notebook::write::TargetInfo> {
     notebook::write::target_info(&state, &args.tab_id, &args.target).await
 }
 
@@ -430,7 +566,10 @@ pub struct WriteRunArgs {
 /// cell, target, mode, keys, mapping and row count. No MCP or assistant
 /// tool calls it.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_write_run(state: tauri::State<'_, crate::state::AppState>, args: WriteRunArgs) -> CommandResult<notebook::write::WriteOutcome> {
+pub async fn notebook_write_run(
+    state: tauri::State<'_, crate::state::AppState>,
+    args: WriteRunArgs,
+) -> CommandResult<notebook::write::WriteOutcome> {
     notebook::write::run(&state, &args.write, &args.token, args.rows).await
 }
 
@@ -444,7 +583,10 @@ pub struct FileDecisionArgs {
 /// The user's answer to "Este notebook quiere leer estos archivos":
 /// `once`, `always` (remembered for this notebook on this machine) or `deny`.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_file_decision(state: tauri::State<'_, crate::state::AppState>, args: FileDecisionArgs) -> CommandResult<()> {
+pub async fn notebook_file_decision(
+    state: tauri::State<'_, crate::state::AppState>,
+    args: FileDecisionArgs,
+) -> CommandResult<()> {
     notebook::access::decide(&state.store, &args.token, args.decision)
 }
 
@@ -459,7 +601,10 @@ pub struct FileGrantsArgs {
 /// The files notebooks may read (Configuración › Notebooks; a notebook's
 /// "Permisos de archivos…").
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_file_grants(state: tauri::State<'_, crate::state::AppState>, args: FileGrantsArgs) -> CommandResult<Vec<dbine_core::file_grants::FileGrant>> {
+pub async fn notebook_file_grants(
+    state: tauri::State<'_, crate::state::AppState>,
+    args: FileGrantsArgs,
+) -> CommandResult<Vec<dbine_core::file_grants::FileGrant>> {
     match args.notebook.as_deref() {
         None => Ok(state.store.list_file_grants(None)?),
         Some(p) => match notebook::access::notebook_key(Some(p)) {
@@ -478,13 +623,21 @@ pub struct FileGrantRemoveArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_file_grant_remove(state: tauri::State<'_, crate::state::AppState>, args: FileGrantRemoveArgs) -> CommandResult<bool> {
-    Ok(state.store.remove_file_grant(&args.notebook, &args.target)?)
+pub async fn notebook_file_grant_remove(
+    state: tauri::State<'_, crate::state::AppState>,
+    args: FileGrantRemoveArgs,
+) -> CommandResult<bool> {
+    Ok(state
+        .store
+        .remove_file_grant(&args.notebook, &args.target)?)
 }
 
 /// "Quitar todos": a notebook's grants, or every one. How many went.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_file_grants_clear(state: tauri::State<'_, crate::state::AppState>, args: FileGrantsArgs) -> CommandResult<usize> {
+pub async fn notebook_file_grants_clear(
+    state: tauri::State<'_, crate::state::AppState>,
+    args: FileGrantsArgs,
+) -> CommandResult<usize> {
     let nb = match args.notebook.as_deref() {
         None => None,
         Some(p) => match notebook::access::notebook_key(Some(p)) {
@@ -505,15 +658,32 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.ipynb").to_string_lossy().into_owned();
         let nb = notebook::parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","id":"m","metadata":{},"source":"hola"}]}"#).unwrap();
-        write(&WriteArgs { path: path.clone(), notebook: nb, rows_per_cell: None, bytes_per_cell: None }).unwrap();
+        write(&WriteArgs {
+            path: path.clone(),
+            notebook: nb,
+            rows_per_cell: None,
+            bytes_per_cell: None,
+        })
+        .unwrap();
         let out = read(&path).unwrap();
         assert_eq!(out.notebook.cells[0].source, "hola");
         assert_eq!(out.text_hash, sha256_hex(&std::fs::read(&path).unwrap()));
-        assert!(matches!(read(&dir.join("b.ipynb").to_string_lossy()), Err(CommandError::NotFound(_))));
-        assert!(matches!(read(&dir.join("x.txt").to_string_lossy()), Err(CommandError::BadRequest(_))));
-        assert!(matches!(read("relative.ipynb"), Err(CommandError::BadRequest(_))));
+        assert!(matches!(
+            read(&dir.join("b.ipynb").to_string_lossy()),
+            Err(CommandError::NotFound(_))
+        ));
+        assert!(matches!(
+            read(&dir.join("x.txt").to_string_lossy()),
+            Err(CommandError::BadRequest(_))
+        ));
+        assert!(matches!(
+            read("relative.ipynb"),
+            Err(CommandError::BadRequest(_))
+        ));
         // Too big: refused before reading it.
-        assert!(matches!(read_capped(&path, 10), Err(CommandError::BadRequest(m)) if m.contains("64 MB")));
+        assert!(
+            matches!(read_capped(&path, 10), Err(CommandError::BadRequest(m)) if m.contains("64 MB"))
+        );
         assert!(read_capped(&path, 1 << 20).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -522,7 +692,16 @@ mod tests {
 
     fn export_args(format: &str, path: Option<String>, images: Vec<ExportImage>) -> ExportArgs {
         let nb = notebook::parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"c1","metadata":{"dbine":{"keep_result":true}},"outputs":[],"source":"SELECT 1"}]}"#).unwrap();
-        ExportArgs { notebook: nb, format: format.into(), rows_per_cell: None, bytes_per_cell: None, images, path, targets: HashMap::new(), previews: false }
+        ExportArgs {
+            notebook: nb,
+            format: format.into(),
+            rows_per_cell: None,
+            bytes_per_cell: None,
+            images,
+            path,
+            targets: HashMap::new(),
+            previews: false,
+        }
     }
 
     fn export_notebook(args: &ExportArgs) -> CommandResult<String> {
@@ -532,23 +711,65 @@ mod tests {
     #[test]
     fn python_export_reads_connections_without_their_secrets() {
         let store = dbine_core::StateStore::open_in_memory().unwrap();
-        let mut config = dbine_driver::ConnectionConfig { driver: "postgres".into(), host: "pg.example.com".into(), port: 5432, database: "ventas".into(), username: Some("app".into()), ..Default::default() };
+        let mut config = dbine_driver::ConnectionConfig {
+            driver: "postgres".into(),
+            host: "pg.example.com".into(),
+            port: 5432,
+            database: "ventas".into(),
+            username: Some("app".into()),
+            ..Default::default()
+        };
         // Whatever the saved config holds: the export keeps only names.
-        for (k, v) in [("ssh.enabled", "true"), ("ssh.host", "bastion"), ("ssh.password", "ZQXSECRET1"), ("source_token:password:token", "ZQXSECRET2"), ("secret_sources", r#"{"password":{"kind":"vault","path":"kv/ZQXSECRET3"}}"#)] {
+        for (k, v) in [
+            ("ssh.enabled", "true"),
+            ("ssh.host", "bastion"),
+            ("ssh.password", "ZQXSECRET1"),
+            ("source_token:password:token", "ZQXSECRET2"),
+            (
+                "secret_sources",
+                r#"{"password":{"kind":"vault","path":"kv/ZQXSECRET3"}}"#,
+            ),
+        ] {
             config.options.insert(k.into(), v.into());
         }
         let saved = store
-            .save_connection(&dbine_core::SavedConnection { id: "c-1".into(), name: "Ventas PG".into(), color: None, config, save_password: true, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() })
+            .save_connection(&dbine_core::SavedConnection {
+                id: "c-1".into(),
+                name: "Ventas PG".into(),
+                color: None,
+                config,
+                save_password: true,
+                folder_id: None,
+                tags: vec![],
+                mcp_level: None,
+                updated_at: String::new(),
+            })
             .unwrap();
         let mut args = export_args("python", None, vec![]);
         args.notebook.cells[0].name = Some("ventas".into());
-        args.targets.insert("c1".into(), ExportTarget { connection_id: saved.id.clone(), database: "ventas".into() });
-        args.targets.insert("gone".into(), ExportTarget { connection_id: "no-such".into(), database: String::new() });
+        args.targets.insert(
+            "c1".into(),
+            ExportTarget {
+                connection_id: saved.id.clone(),
+                database: "ventas".into(),
+            },
+        );
+        args.targets.insert(
+            "gone".into(),
+            ExportTarget {
+                connection_id: "no-such".into(),
+                database: String::new(),
+            },
+        );
         let text = super::export_notebook(&args, &store).unwrap();
         assert!(!text.contains("ZQXSECRET"), "{text}");
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["metadata"]["kernelspec"]["name"], "python3");
-        assert!(text.contains("DBINE_VENTAS_PG_PASSWORD") && text.contains("ventas = pd.read_sql(text("), "{text}");
+        assert!(
+            text.contains("DBINE_VENTAS_PG_PASSWORD")
+                && text.contains("ventas = pd.read_sql(text("),
+            "{text}"
+        );
         assert!(text.contains("SSH tunnel") && text.contains("secret manager"));
     }
 
@@ -557,33 +778,85 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dbine-nb-export-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let md = dir.join("Mi informe.md");
-        let img = |title: &str| ExportImage { cell_id: "c1".into(), title: title.into(), png: PNG_1PX.into() };
-        let text = export_notebook(&export_args("markdown", Some(md.to_string_lossy().into_owned()), vec![img("Ventas"), img("Mapa\u{7}")])).unwrap();
-        assert!(text.contains("![Ventas](Mi%20informe_files/chart-1-1.png)"), "{text}");
-        assert!(text.contains("![Mapa](Mi%20informe_files/chart-1-2.png)"), "control characters dropped: {text}");
+        let img = |title: &str| ExportImage {
+            cell_id: "c1".into(),
+            title: title.into(),
+            png: PNG_1PX.into(),
+        };
+        let text = export_notebook(&export_args(
+            "markdown",
+            Some(md.to_string_lossy().into_owned()),
+            vec![img("Ventas"), img("Mapa\u{7}")],
+        ))
+        .unwrap();
+        assert!(
+            text.contains("![Ventas](Mi%20informe_files/chart-1-1.png)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("![Mapa](Mi%20informe_files/chart-1-2.png)"),
+            "control characters dropped: {text}"
+        );
         assert_eq!(std::fs::read_to_string(&md).unwrap(), text);
         let png = std::fs::read(dir.join("Mi informe_files").join("chart-1-1.png")).unwrap();
         assert!(png.starts_with(b"\x89PNG"));
         // Again: the folder is reused, the files replaced.
-        export_notebook(&export_args("markdown", Some(md.to_string_lossy().into_owned()), vec![img("Ventas")])).unwrap();
+        export_notebook(&export_args(
+            "markdown",
+            Some(md.to_string_lossy().into_owned()),
+            vec![img("Ventas")],
+        ))
+        .unwrap();
         // HTML embeds them and writes nothing.
         let html = export_notebook(&export_args("html", None, vec![img("Ventas")])).unwrap();
         assert!(html.contains("data:image/png;base64,"));
         // Refused: not a PNG, a relative or non-.md path, images without a path,
         // and a `_files` that's a file.
-        let bad = ExportImage { cell_id: "c1".into(), title: String::new(), png: "PHN2Zz4=".into() };
-        assert!(matches!(export_notebook(&export_args("html", None, vec![bad])), Err(CommandError::BadRequest(_))));
-        assert!(matches!(export_notebook(&export_args("markdown", Some("rel.md".into()), vec![img("x")])), Err(CommandError::BadRequest(_))));
+        let bad = ExportImage {
+            cell_id: "c1".into(),
+            title: String::new(),
+            png: "PHN2Zz4=".into(),
+        };
+        assert!(matches!(
+            export_notebook(&export_args("html", None, vec![bad])),
+            Err(CommandError::BadRequest(_))
+        ));
+        assert!(matches!(
+            export_notebook(&export_args(
+                "markdown",
+                Some("rel.md".into()),
+                vec![img("x")]
+            )),
+            Err(CommandError::BadRequest(_))
+        ));
         let txt = dir.join("x.txt").to_string_lossy().into_owned();
-        assert!(matches!(export_notebook(&export_args("markdown", Some(txt), vec![img("x")])), Err(CommandError::BadRequest(_))));
-        let missing = dir.join("no-such-dir").join("a.md").to_string_lossy().into_owned();
-        assert!(matches!(export_notebook(&export_args("markdown", Some(missing), vec![img("x")])), Err(CommandError::BadRequest(_))));
-        assert!(matches!(export_notebook(&export_args("markdown", None, vec![img("x")])), Err(CommandError::BadRequest(_))));
+        assert!(matches!(
+            export_notebook(&export_args("markdown", Some(txt), vec![img("x")])),
+            Err(CommandError::BadRequest(_))
+        ));
+        let missing = dir
+            .join("no-such-dir")
+            .join("a.md")
+            .to_string_lossy()
+            .into_owned();
+        assert!(matches!(
+            export_notebook(&export_args("markdown", Some(missing), vec![img("x")])),
+            Err(CommandError::BadRequest(_))
+        ));
+        assert!(matches!(
+            export_notebook(&export_args("markdown", None, vec![img("x")])),
+            Err(CommandError::BadRequest(_))
+        ));
         std::fs::write(dir.join("b_files"), "x").unwrap();
         let b = dir.join("b.md").to_string_lossy().into_owned();
-        assert!(matches!(export_notebook(&export_args("markdown", Some(b), vec![img("x")])), Err(CommandError::BadRequest(_))));
+        assert!(matches!(
+            export_notebook(&export_args("markdown", Some(b), vec![img("x")])),
+            Err(CommandError::BadRequest(_))
+        ));
         // Without images and path: the text only, as before.
-        assert!(export_notebook(&export_args("markdown", None, vec![])).unwrap().contains("```sql"));
+        assert!(export_notebook(&export_args("markdown", None, vec![]))
+            .unwrap()
+            .contains("```sql"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -598,7 +871,9 @@ pub struct OpenLinkArgs {
 /// mailto, with no spaces or control characters.
 fn openable_link(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    let scheme_ok = ["http://", "https://", "mailto:"].iter().any(|s| lower.starts_with(s) && lower.len() > s.len());
+    let scheme_ok = ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|s| lower.starts_with(s) && lower.len() > s.len());
     scheme_ok && url.len() <= 2048 && !url.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
@@ -608,7 +883,9 @@ fn openable_link(url: &str) -> bool {
 pub async fn notebook_open_link(app: tauri::AppHandle, args: OpenLinkArgs) -> CommandResult<()> {
     use tauri_plugin_opener::OpenerExt;
     if !openable_link(&args.url) {
-        return Err(CommandError::BadRequest("solo se abren enlaces http, https o mailto".into()));
+        return Err(CommandError::BadRequest(
+            "solo se abren enlaces http, https o mailto".into(),
+        ));
     }
     app.opener()
         .open_url(&args.url, None::<&str>)

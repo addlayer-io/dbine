@@ -20,7 +20,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@')?;
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
         driver: driver.into(),
@@ -33,11 +35,17 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 async fn text(s: &mut Box<dyn Session>, sql: &str, col: usize) -> String {
@@ -51,7 +59,14 @@ async fn text(s: &mut Box<dyn Session>, sql: &str, col: usize) -> String {
 
 /// Create `db` with `options`, check it with `verify`, drop it; then the
 /// plain create.
-async fn round_trip(id: &str, env: &str, options: &[(&str, &str)], verify: &str, col: usize, expect: &[&str]) {
+async fn round_trip(
+    id: &str,
+    env: &str,
+    options: &[(&str, &str)],
+    verify: &str,
+    col: usize,
+    expect: &[&str],
+) {
     let Some(cfg) = cfg(id, env) else {
         eprintln!("{env} not set; skipping");
         return;
@@ -61,7 +76,13 @@ async fn round_trip(id: &str, env: &str, options: &[(&str, &str)], verify: &str,
     let db = "dbine_create_opts";
     let _ = s.drop_database(db).await;
     let choices = s.create_database_choices().await.unwrap();
-    eprintln!("{id}: {:?}", choices.iter().map(|c| (&c.key, &c.default, c.values.len())).collect::<Vec<_>>());
+    eprintln!(
+        "{id}: {:?}",
+        choices
+            .iter()
+            .map(|c| (&c.key, &c.default, c.values.len()))
+            .collect::<Vec<_>>()
+    );
     let options = opts(options);
     eprintln!("{}", d.create_database_script(db, &options).unwrap());
     s.create_database_with(db, &options).await.unwrap();
@@ -71,7 +92,9 @@ async fn round_trip(id: &str, env: &str, options: &[(&str, &str)], verify: &str,
         assert!(got.contains(e), "{id}: {e} not in {got}");
     }
     s.drop_database(db).await.unwrap();
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }
 
@@ -84,10 +107,23 @@ async fn mysql_options() {
         let mut s = driver("mysql").connect(&cfg, None).await.unwrap();
         let choices = s.create_database_choices().await.unwrap();
         let get = |k: &str| choices.iter().find(|c| c.key == k).unwrap();
-        assert!(get("charset").values.iter().any(|v| v == "latin1") && get("charset").default.is_some());
-        assert!(get("collation").values.iter().any(|v| v == "utf8mb4_bin") && get("collation").default.is_some());
+        assert!(
+            get("charset").values.iter().any(|v| v == "latin1") && get("charset").default.is_some()
+        );
+        assert!(
+            get("collation").values.iter().any(|v| v == "utf8mb4_bin")
+                && get("collation").default.is_some()
+        );
     }
-    round_trip("mysql", "DBINE_TEST_MYSQL_URL", &[("charset", "latin1"), ("collation", "latin1_swedish_ci")], SCHEMATA, 0, &["latin1|latin1_swedish_ci"]).await;
+    round_trip(
+        "mysql",
+        "DBINE_TEST_MYSQL_URL",
+        &[("charset", "latin1"), ("collation", "latin1_swedish_ci")],
+        SCHEMATA,
+        0,
+        &["latin1|latin1_swedish_ci"],
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -113,9 +149,20 @@ async fn tidb_options() {
     };
     let mut s = driver("tidb").connect(&cfg, None).await.unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("CREATE PLACEMENT POLICY IF NOT EXISTS dbine_pp FOLLOWERS=1", 10, &mut out).await.unwrap();
+    s.execute(
+        "CREATE PLACEMENT POLICY IF NOT EXISTS dbine_pp FOLLOWERS=1",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     let choices = s.create_database_choices().await.unwrap();
-    assert!(choices.iter().any(|c| c.key == "placement_policy" && c.values.iter().any(|v| v == "dbine_pp")), "{choices:?}");
+    assert!(
+        choices
+            .iter()
+            .any(|c| c.key == "placement_policy" && c.values.iter().any(|v| v == "dbine_pp")),
+        "{choices:?}"
+    );
     round_trip(
         "tidb",
         "DBINE_TEST_TIDB_URL",
@@ -125,7 +172,9 @@ async fn tidb_options() {
         &["utf8mb4|utf8mb4_general_ci|dbine_pp"],
     )
     .await;
-    s.execute("DROP PLACEMENT POLICY dbine_pp", 10, &mut out).await.unwrap();
+    s.execute("DROP PLACEMENT POLICY dbine_pp", 10, &mut out)
+        .await
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -133,11 +182,27 @@ async fn tidb_options() {
 async fn starrocks_options() {
     // A shared-nothing cluster has no storage volumes: only the plain
     // create applies.
-    round_trip("starrocks", "DBINE_TEST_STARROCKS_URL", &[], "SHOW CREATE DATABASE dbine_create_opts", 1, &["dbine_create_opts"]).await;
+    round_trip(
+        "starrocks",
+        "DBINE_TEST_STARROCKS_URL",
+        &[],
+        "SHOW CREATE DATABASE dbine_create_opts",
+        1,
+        &["dbine_create_opts"],
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn greptimedb_options() {
-    round_trip("greptimedb", "DBINE_TEST_GREPTIMEDB_URL", &[("ttl", "7d")], "SHOW CREATE DATABASE dbine_create_opts", 1, &["ttl", "7d"]).await;
+    round_trip(
+        "greptimedb",
+        "DBINE_TEST_GREPTIMEDB_URL",
+        &[("ttl", "7d")],
+        "SHOW CREATE DATABASE dbine_create_opts",
+        1,
+        &["ttl", "7d"],
+    )
+    .await;
 }

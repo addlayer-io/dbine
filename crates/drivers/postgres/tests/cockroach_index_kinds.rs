@@ -10,15 +10,21 @@
 //!   cargo test -p dbine-driver-postgres --test cockroach_index_kinds -- --ignored --nocapture
 //! ```
 
-use dbine_driver::{ConnectionConfig, DdlParts, Driver, QueryOutcome, Session, TableChange, TableSchema};
+use dbine_driver::{
+    ConnectionConfig, DdlParts, Driver, QueryOutcome, Session, TableChange, TableSchema,
+};
 use std::sync::Arc;
 
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -31,12 +37,17 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
     if let Some(e) = out.error.take() {
         panic!("{e}\n---\n{sql}");
     }
@@ -94,7 +105,10 @@ async fn table(s: &mut Box<dyn Session>, schema: &str) -> TableSchema {
 }
 
 fn kinds(t: &TableSchema) -> Vec<(&str, Option<&str>)> {
-    t.indexes.iter().map(|i| (i.name.as_str(), i.kind.as_deref())).collect()
+    t.indexes
+        .iter()
+        .map(|i| (i.name.as_str(), i.kind.as_deref()))
+        .collect()
 }
 
 const WANT: [(&str, Option<&str>); 2] = [("t_a_ix", Some("btree")), ("t_j_gin", Some("gin"))];
@@ -104,8 +118,24 @@ async fn make(d: &dyn Driver, s: &mut Box<dyn Session>, t: &TableSchema, schema:
     let mut t = t.clone();
     t.schema = Some(schema.into());
     run(s, &format!("CREATE SCHEMA {schema}")).await;
-    let create = d.table_ddl(&t, DdlParts { create: true, ..Default::default() }).expect("create ddl");
-    let ix = d.table_ddl(&t, DdlParts { indexes: true, ..Default::default() }).expect("index ddl");
+    let create = d
+        .table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .expect("create ddl");
+    let ix = d
+        .table_ddl(
+            &t,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .expect("index ddl");
     eprintln!("---- {} {schema}\n{create}\n{ix}", d.info().id);
     run_all(s, &create.replace(";\n\n", ";\n")).await;
     run_all(s, &ix).await;
@@ -114,7 +144,10 @@ async fn make(d: &dyn Driver, s: &mut Box<dyn Session>, t: &TableSchema, schema:
 #[tokio::test]
 #[ignore]
 async fn cockroach_and_postgres() {
-    let (Ok(crdb_url), Ok(pg_url)) = (std::env::var("DBINE_TEST_COCKROACH_URL"), std::env::var("DBINE_TEST_POSTGRES_URL")) else {
+    let (Ok(crdb_url), Ok(pg_url)) = (
+        std::env::var("DBINE_TEST_COCKROACH_URL"),
+        std::env::var("DBINE_TEST_POSTGRES_URL"),
+    ) else {
         eprintln!("DBINE_TEST_COCKROACH_URL / DBINE_TEST_POSTGRES_URL not set; skipping");
         return;
     };
@@ -136,11 +169,22 @@ async fn cockroach_and_postgres() {
     run(&mut c.s, "DROP INDEX app.t@t_a_ix").await;
     run(&mut c.s, "DROP INDEX app.t@t_j_gin").await;
     assert!(table(&mut c.s, "app").await.indexes.is_empty());
-    let script = c.d.sync_script(&[TableChange::Alter { old: bare, new: ct.clone() }]).expect("sync_script");
+    let script =
+        c.d.sync_script(&[TableChange::Alter {
+            old: bare,
+            new: ct.clone(),
+        }])
+        .expect("sync_script");
     eprintln!("---- sync\n{}", script.statements.join("\n"));
     let lines: Vec<&str> = script.statements.iter().flat_map(|s| s.lines()).collect();
-    assert!(lines.contains(&"CREATE INDEX \"t_a_ix\" ON \"app\".\"t\" (\"a\");"), "{lines:?}");
-    assert!(lines.contains(&"CREATE INDEX \"t_j_gin\" ON \"app\".\"t\" USING GIN (\"j\");"), "{lines:?}");
+    assert!(
+        lines.contains(&"CREATE INDEX \"t_a_ix\" ON \"app\".\"t\" (\"a\");"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.contains(&"CREATE INDEX \"t_j_gin\" ON \"app\".\"t\" USING GIN (\"j\");"),
+        "{lines:?}"
+    );
     for s in &script.statements {
         run_all(&mut c.s, s).await;
     }

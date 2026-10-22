@@ -19,7 +19,10 @@ pub struct Table {
 
 impl Table {
     fn new(columns: &[&'static str]) -> Self {
-        Self { columns: columns.iter().map(|c| c.to_string()).collect(), ..Default::default() }
+        Self {
+            columns: columns.iter().map(|c| c.to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     #[cfg(test)]
@@ -29,29 +32,55 @@ impl Table {
 }
 
 const WITH_SCORES: &[&str] = &[
-    "ZRANGE", "ZRANGEBYSCORE", "ZRANGEBYLEX", "ZREVRANGE", "ZREVRANGEBYSCORE", "ZREVRANGEBYLEX", "ZRANDMEMBER",
-    "ZUNION", "ZINTER", "ZDIFF", "ZPOPMIN", "ZPOPMAX",
+    "ZRANGE",
+    "ZRANGEBYSCORE",
+    "ZRANGEBYLEX",
+    "ZREVRANGE",
+    "ZREVRANGEBYSCORE",
+    "ZREVRANGEBYLEX",
+    "ZRANDMEMBER",
+    "ZUNION",
+    "ZINTER",
+    "ZDIFF",
+    "ZPOPMIN",
+    "ZPOPMAX",
 ];
 
-const VALUE_SCALARS: &[&str] = &["GET", "GETEX", "GETDEL", "GETSET", "GETRANGE", "JSON.GET", "HGET", "LINDEX"];
+const VALUE_SCALARS: &[&str] = &[
+    "GET", "GETEX", "GETDEL", "GETSET", "GETRANGE", "JSON.GET", "HGET", "LINDEX",
+];
 
 pub fn shape(args: &[Vec<u8>], v: Value) -> Table {
-    let name = args.first().map(|a| String::from_utf8_lossy(a).to_ascii_uppercase()).unwrap_or_default();
-    let has_arg = |w: &str| args.iter().skip(1).any(|a| a.eq_ignore_ascii_case(w.as_bytes()));
+    let name = args
+        .first()
+        .map(|a| String::from_utf8_lossy(a).to_ascii_uppercase())
+        .unwrap_or_default();
+    let has_arg = |w: &str| {
+        args.iter()
+            .skip(1)
+            .any(|a| a.eq_ignore_ascii_case(w.as_bytes()))
+    };
     let v = unwrap_attribute(v);
 
     match (name.as_str(), &v) {
-        ("INFO", Value::BulkString(_) | Value::VerbatimString { .. }) => return info_table(&text_of(&v)),
+        ("INFO", Value::BulkString(_) | Value::VerbatimString { .. }) => {
+            return info_table(&text_of(&v))
+        }
         ("XRANGE" | "XREVRANGE", Value::Array(_)) => return stream_table(v),
         ("SCAN" | "SSCAN" | "HSCAN" | "ZSCAN", Value::Array(items)) if items.len() == 2 => {
             let cursor = text_of(&items[0]);
-            let Value::Array(items) = v else { unreachable!() };
+            let Value::Array(items) = v else {
+                unreachable!()
+            };
             let mut t = match name.as_str() {
                 "HSCAN" => pairs(&["field", "value"], flat(items.into_iter().nth(1)), false),
                 "ZSCAN" => pairs(&["member", "score"], flat(items.into_iter().nth(1)), true),
                 _ => values(flat(items.into_iter().nth(1))),
             };
-            t.message = Some(format!("{name}: siguiente cursor {cursor}{}", if cursor == "0" { " (fin)" } else { "" }));
+            t.message = Some(format!(
+                "{name}: siguiente cursor {cursor}{}",
+                if cursor == "0" { " (fin)" } else { "" }
+            ));
             return t;
         }
         _ => {}
@@ -60,7 +89,11 @@ pub fn shape(args: &[Vec<u8>], v: Value) -> Table {
     let score_pairs = WITH_SCORES.contains(&name.as_str()) && has_arg("WITHSCORES");
     match v {
         Value::Map(entries) => {
-            let mut t = Table::new(if score_pairs { &["member", "score"] } else { &["field", "value"] });
+            let mut t = Table::new(if score_pairs {
+                &["member", "score"]
+            } else {
+                &["field", "value"]
+            });
             for (k, val) in entries {
                 let val = if score_pairs { score(&val) } else { cell(&val) };
                 t.rows.push(vec![cell(&k), val]);
@@ -68,9 +101,17 @@ pub fn shape(args: &[Vec<u8>], v: Value) -> Table {
             t
         }
         Value::Array(items) | Value::Set(items) => {
-            if score_pairs && items.iter().all(|i| matches!(i, Value::Array(p) if p.len() == 2)) && !items.is_empty() {
+            if score_pairs
+                && items
+                    .iter()
+                    .all(|i| matches!(i, Value::Array(p) if p.len() == 2))
+                && !items.is_empty()
+            {
                 // RESP3 replies nest each pair.
-                let flat = items.into_iter().flat_map(|i| if let Value::Array(p) = i { p } else { vec![] }).collect();
+                let flat = items
+                    .into_iter()
+                    .flat_map(|i| if let Value::Array(p) = i { p } else { vec![] })
+                    .collect();
                 return pairs(&["member", "score"], flat, true);
             }
             if score_pairs {
@@ -85,7 +126,14 @@ pub fn shape(args: &[Vec<u8>], v: Value) -> Table {
             values(items)
         }
         Value::Nil if VALUE_SCALARS.contains(&name.as_str()) => scalar("value", J::Null),
-        other => scalar(if VALUE_SCALARS.contains(&name.as_str()) { "value" } else { "result" }, cell(&other)),
+        other => scalar(
+            if VALUE_SCALARS.contains(&name.as_str()) {
+                "value"
+            } else {
+                "result"
+            },
+            cell(&other),
+        ),
     }
 }
 
@@ -122,7 +170,8 @@ fn pairs(columns: &[&'static str], items: Vec<Value>, scored: bool) -> Table {
     let mut it = items.into_iter();
     while let Some(k) = it.next() {
         let v = it.next().unwrap_or(Value::Nil);
-        t.rows.push(vec![cell(&k), if scored { score(&v) } else { cell(&v) }]);
+        t.rows
+            .push(vec![cell(&k), if scored { score(&v) } else { cell(&v) }]);
     }
     t
 }
@@ -140,7 +189,9 @@ fn score(v: &Value) -> J {
 
 /// `XRANGE`: `id` plus every field seen, in order of appearance.
 fn stream_table(v: Value) -> Table {
-    let Value::Array(entries) = v else { return Table::default() };
+    let Value::Array(entries) = v else {
+        return Table::default();
+    };
     let mut names: Vec<String> = Vec::new();
     let mut parsed = Vec::with_capacity(entries.len());
     for e in entries {
@@ -157,7 +208,12 @@ fn stream_table(v: Value) -> Table {
         }
         parsed.push((id, fields));
     }
-    let mut t = Table { columns: std::iter::once("id".to_string()).chain(names.clone()).collect(), ..Default::default() };
+    let mut t = Table {
+        columns: std::iter::once("id".to_string())
+            .chain(names.clone())
+            .collect(),
+        ..Default::default()
+    };
     for (id, mut fields) in parsed {
         let mut row = vec![J::from(id)];
         for n in &names {
@@ -177,7 +233,8 @@ fn info_table(text: &str) -> Table {
         if let Some(s) = line.strip_prefix('#') {
             section = s.trim().to_string();
         } else if let Some((k, v)) = line.split_once(':') {
-            t.rows.push(vec![section.clone().into(), k.into(), v.into()]);
+            t.rows
+                .push(vec![section.clone().into(), k.into(), v.into()]);
         }
     }
     t
@@ -215,7 +272,11 @@ pub fn cell(v: &Value) -> J {
         Value::Okay => "OK".into(),
         Value::Attribute { data, .. } => cell(data),
         // A command that failed inside an EXEC, as redis-cli shows it.
-        Value::ServerError(e) => format!("(error) {} {}", e.code(), e.details().unwrap_or_default()).trim_end().into(),
+        Value::ServerError(e) => {
+            format!("(error) {} {}", e.code(), e.details().unwrap_or_default())
+                .trim_end()
+                .into()
+        }
         other => match to_json(other) {
             J::String(s) => J::String(s),
             j => j.to_string().into(),
@@ -281,14 +342,26 @@ mod tests {
         let t = shape(&args("DBSIZE"), Value::Int(3));
         assert_eq!(t.column_names(), ["result"]);
         assert_eq!(t.rows[0][0], J::from(3));
-        assert_eq!(shape(&args("SET a 1"), Value::Okay).rows[0][0], J::from("OK"));
+        assert_eq!(
+            shape(&args("SET a 1"), Value::Okay).rows[0][0],
+            J::from("OK")
+        );
     }
 
     #[test]
     fn hgetall_is_field_value() {
-        let t = shape(&args("HGETALL h"), Value::Array(vec![b("a"), b("1"), b("b"), b("2")]));
+        let t = shape(
+            &args("HGETALL h"),
+            Value::Array(vec![b("a"), b("1"), b("b"), b("2")]),
+        );
         assert_eq!(t.column_names(), ["field", "value"]);
-        assert_eq!(t.rows, vec![vec![J::from("a"), J::from("1")], vec![J::from("b"), J::from("2")]]);
+        assert_eq!(
+            t.rows,
+            vec![
+                vec![J::from("a"), J::from("1")],
+                vec![J::from("b"), J::from("2")]
+            ]
+        );
         // RESP3 map.
         let t = shape(&args("HGETALL h"), Value::Map(vec![(b("a"), b("1"))]));
         assert_eq!(t.rows, vec![vec![J::from("a"), J::from("1")]]);
@@ -296,7 +369,10 @@ mod tests {
 
     #[test]
     fn zrange_withscores_is_member_score() {
-        let t = shape(&args("ZRANGE z 0 -1 withscores"), Value::Array(vec![b("m"), b("1.5")]));
+        let t = shape(
+            &args("ZRANGE z 0 -1 withscores"),
+            Value::Array(vec![b("m"), b("1.5")]),
+        );
         assert_eq!(t.column_names(), ["member", "score"]);
         assert_eq!(t.rows, vec![vec![J::from("m"), J::from(1.5)]]);
         let t = shape(&args("ZRANGE z 0 -1"), Value::Array(vec![b("m")]));
@@ -307,16 +383,32 @@ mod tests {
     fn arrays_are_one_row_per_element_nested_as_json() {
         let t = shape(
             &args("LRANGE l 0 -1"),
-            Value::Array(vec![b("x"), Value::Nil, Value::Array(vec![b("a"), Value::Int(1)])]),
+            Value::Array(vec![
+                b("x"),
+                Value::Nil,
+                Value::Array(vec![b("a"), Value::Int(1)]),
+            ]),
         );
         assert_eq!(t.column_names(), ["value"]);
-        assert_eq!(t.rows, vec![vec![J::from("x")], vec![J::Null], vec![J::from(r#"["a",1]"#)]]);
+        assert_eq!(
+            t.rows,
+            vec![
+                vec![J::from("x")],
+                vec![J::Null],
+                vec![J::from(r#"["a",1]"#)]
+            ]
+        );
     }
 
     #[test]
     fn xrange_has_a_column_per_field() {
-        let e = |id: &str, kv: &[&str]| Value::Array(vec![b(id), Value::Array(kv.iter().map(|s| b(s)).collect())]);
-        let t = shape(&args("XRANGE s - +"), Value::Array(vec![e("1-0", &["a", "1"]), e("2-0", &["b", "2", "a", "3"])]));
+        let e = |id: &str, kv: &[&str]| {
+            Value::Array(vec![b(id), Value::Array(kv.iter().map(|s| b(s)).collect())])
+        };
+        let t = shape(
+            &args("XRANGE s - +"),
+            Value::Array(vec![e("1-0", &["a", "1"]), e("2-0", &["b", "2", "a", "3"])]),
+        );
         assert_eq!(t.column_names(), ["id", "a", "b"]);
         assert_eq!(t.rows[0], vec![J::from("1-0"), J::from("1"), J::Null]);
         assert_eq!(t.rows[1], vec![J::from("2-0"), J::from("3"), J::from("2")]);
@@ -324,17 +416,33 @@ mod tests {
 
     #[test]
     fn scan_reports_the_cursor() {
-        let t = shape(&args("SCAN 0"), Value::Array(vec![b("17"), Value::Array(vec![b("k1"), b("k2")])]));
+        let t = shape(
+            &args("SCAN 0"),
+            Value::Array(vec![b("17"), Value::Array(vec![b("k1"), b("k2")])]),
+        );
         assert_eq!(t.rows.len(), 2);
         assert!(t.message.unwrap().contains("17"));
-        let t = shape(&args("HSCAN h 0"), Value::Array(vec![b("0"), Value::Array(vec![b("f"), b("v")])]));
+        let t = shape(
+            &args("HSCAN h 0"),
+            Value::Array(vec![b("0"), Value::Array(vec![b("f"), b("v")])]),
+        );
         assert_eq!(t.column_names(), ["field", "value"]);
     }
 
     #[test]
     fn info_is_section_field_value() {
-        let t = shape(&args("INFO"), b("# Server\r\nredis_version:7.2.0\r\n\r\n# Clients\r\nconnected_clients:1\r\n"));
-        assert_eq!(t.rows[0], vec![J::from("Server"), J::from("redis_version"), J::from("7.2.0")]);
+        let t = shape(
+            &args("INFO"),
+            b("# Server\r\nredis_version:7.2.0\r\n\r\n# Clients\r\nconnected_clients:1\r\n"),
+        );
+        assert_eq!(
+            t.rows[0],
+            vec![
+                J::from("Server"),
+                J::from("redis_version"),
+                J::from("7.2.0")
+            ]
+        );
         assert_eq!(t.rows[1][0], J::from("Clients"));
     }
 

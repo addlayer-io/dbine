@@ -3,6 +3,7 @@
 //! `max_rows` rows are in); BigQuery runs multi-statement scripts itself and
 //! returns the last statement's result. Datasets are the databases.
 
+mod backup;
 mod blocks;
 mod create_db;
 mod ddl;
@@ -22,16 +23,16 @@ mod search;
 mod security;
 mod stats;
 mod sync;
-mod backup;
 mod transfer;
 
 use dbine_driver::sql::{quote_ident, select_top, split_statements, Limit, Quote};
-use ddl::ident;
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
-    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo,
-    ObjectRef, QueryOutcome, ResultColumn, Result, RowChange, Session, TableSchema,
+    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
+    FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange,
+    Session, TableSchema,
 };
+use ddl::ident;
 use serde_json::{json, Map, Value as Json};
 use std::sync::{Arc, Mutex};
 
@@ -103,7 +104,8 @@ struct Api {
 impl Api {
     /// `…/bigquery/v2/projects/<project>/<segments…>`, each segment escaped.
     fn url(&self, segments: &[&str]) -> Result<reqwest::Url> {
-        let mut url = reqwest::Url::parse(&self.base).map_err(|e| Error::Connect(format!("endpoint inválido: {e}")))?;
+        let mut url = reqwest::Url::parse(&self.base)
+            .map_err(|e| Error::Connect(format!("endpoint inválido: {e}")))?;
         url.path_segments_mut()
             .map_err(|_| Error::Connect("endpoint inválido".into()))?
             .pop_if_empty()
@@ -117,9 +119,15 @@ impl Api {
             Some(b) => req.header("Authorization", b),
             None => req,
         };
-        let resp = req.send().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?;
         let status = resp.status();
-        let body = resp.text().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?;
         if !status.is_success() {
             return Err(gcp::api_error(status.as_u16(), &body));
         }
@@ -165,7 +173,10 @@ impl Api {
         if let Some(l) = &job.location {
             q.push(("location", l.clone()));
         }
-        if let Err(e) = self.post(&["jobs", &job.id, "cancel"], &q, &Json::Null).await {
+        if let Err(e) = self
+            .post(&["jobs", &job.id, "cancel"], &q, &Json::Null)
+            .await
+        {
             tracing::debug!("bigquery cancel failed: {e}");
         }
     }
@@ -214,12 +225,20 @@ impl Driver for BigQueryDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
     /// "Propiedades" (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -286,7 +305,10 @@ impl Driver for BigQueryDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -321,19 +343,37 @@ impl Driver for BigQueryDriver {
         Ok(ddl::table_ddl(table, parts))
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> Result<String> {
-        Ok(ddl::insert_script(target.schema(), &target.name, columns, rows))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Json>],
+    ) -> Result<String> {
+        Ok(ddl::insert_script(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         Ok(ddl::update_script(target.schema(), &target.name, changes))
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         Ok(ddl::delete_script(target.schema(), &target.name, keys))
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -341,14 +381,22 @@ impl Driver for BigQueryDriver {
         ddl::sorted_browse(query, sort)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let project = cfg
             .option("project_id")
             .map(|p| p.trim().to_string())
             .ok_or_else(|| Error::Connect("falta el ID del proyecto".into()))?;
         let http = gcp::http_client()?;
         let tokens = gcp::Tokens::from_config(cfg, http.clone())?;
-        let base = cfg.option("endpoint_url").unwrap_or(API).trim_end_matches('/').to_string();
+        let base = cfg
+            .option("endpoint_url")
+            .unwrap_or(API)
+            .trim_end_matches('/')
+            .to_string();
         let api = Api {
             http,
             tokens,
@@ -358,13 +406,16 @@ impl Driver for BigQueryDriver {
             location: cfg.option("location").map(|l| l.trim().to_string()),
         };
         // Proves the endpoint, the credentials and the project.
-        tokio::time::timeout(std::time::Duration::from_secs(20), api.get(&["datasets"], &[("maxResults", "1".into())]))
-            .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(|e| match e {
-                Error::Query(m) => Error::Connect(m),
-                other => other,
-            })?;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            api.get(&["datasets"], &[("maxResults", "1".into())]),
+        )
+        .await
+        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+        .map_err(|e| match e {
+            Error::Query(m) => Error::Connect(m),
+            other => other,
+        })?;
         let dataset = database
             .or(Some(cfg.database.as_str()))
             .map(str::trim)
@@ -394,8 +445,15 @@ impl BigQuerySession {
     }
 
     /// Runs `sql` as one job; also gives the job.
-    async fn query_job(&self, sql: &str, max_rows: usize, params: Option<Json>) -> Result<(JobRef, QueryResult)> {
-        self.query_job_in(sql, max_rows, params, InSession::No).await.map(|(j, r, _)| (j, r))
+    async fn query_job(
+        &self,
+        sql: &str,
+        max_rows: usize,
+        params: Option<Json>,
+    ) -> Result<(JobRef, QueryResult)> {
+        self.query_job_in(sql, max_rows, params, InSession::No)
+            .await
+            .map(|(j, r, _)| (j, r))
     }
 
     /// Runs `sql` as one job, in a BigQuery session or not; also gives the
@@ -428,12 +486,21 @@ impl BigQuerySession {
         match session {
             InSession::No => {}
             InSession::Create => body["createSession"] = json!(true),
-            InSession::Use(id) => body["connectionProperties"] = json!([{ "key": "session_id", "value": id }]),
+            InSession::Use(id) => {
+                body["connectionProperties"] = json!([{ "key": "session_id", "value": id }])
+            }
         }
         let mut resp = self.api.post(&["queries"], &[], &body).await?;
-        let session_id = resp.pointer("/sessionInfo/sessionId").and_then(Json::as_str).map(str::to_string);
+        let session_id = resp
+            .pointer("/sessionInfo/sessionId")
+            .and_then(Json::as_str)
+            .map(str::to_string);
         let job = JobRef {
-            id: resp.pointer("/jobReference/jobId").and_then(Json::as_str).unwrap_or_default().to_string(),
+            id: resp
+                .pointer("/jobReference/jobId")
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .to_string(),
             location: resp
                 .pointer("/jobReference/location")
                 .and_then(Json::as_str)
@@ -448,7 +515,12 @@ impl BigQuerySession {
 
     /// An editor run: in the tab's BigQuery session when it has one or the
     /// script needs one (`want`).
-    async fn run_editor(&mut self, text: &str, max_rows: usize, want: bool) -> Result<(JobRef, QueryResult)> {
+    async fn run_editor(
+        &mut self,
+        text: &str,
+        max_rows: usize,
+        want: bool,
+    ) -> Result<(JobRef, QueryResult)> {
         let id = self.session_id.clone();
         let mode = match (&id, want) {
             (Some(id), _) => InSession::Use(id),
@@ -466,7 +538,12 @@ impl BigQuerySession {
     /// its child jobs in order, each with its statement type as the tag.
     /// `false` (nothing pushed) when there are none or too many to fetch
     /// (a long loop): the script's last result is shown then.
-    async fn push_children(&self, job: &JobRef, max_rows: usize, out: &mut QueryOutcome) -> Result<bool> {
+    async fn push_children(
+        &self,
+        job: &JobRef,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<bool> {
         let mut q = vec![("parentJobId", job.id.clone())];
         if let Some(l) = &job.location {
             q.push(("location", l.clone()));
@@ -478,13 +555,28 @@ impl BigQuerySession {
             .into_iter()
             .flatten()
             .filter_map(|c| {
-                let id = c.pointer("/jobReference/jobId").and_then(Json::as_str)?.to_string();
-                let at = c.pointer("/statistics/creationTime").and_then(|v| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0.0);
-                let loc = c.pointer("/jobReference/location").and_then(Json::as_str).map(str::to_string);
+                let id = c
+                    .pointer("/jobReference/jobId")
+                    .and_then(Json::as_str)?
+                    .to_string();
+                let at = c
+                    .pointer("/statistics/creationTime")
+                    .and_then(|v| v.as_str().and_then(|s| s.parse().ok()))
+                    .unwrap_or(0.0);
+                let loc = c
+                    .pointer("/jobReference/location")
+                    .and_then(Json::as_str)
+                    .map(str::to_string);
                 Some((at, id, loc))
             })
             .collect();
-        if kids.is_empty() || kids.len() > MAX_CHILDREN || list.get("nextPageToken").and_then(Json::as_str).is_some_and(|t| !t.is_empty()) {
+        if kids.is_empty()
+            || kids.len() > MAX_CHILDREN
+            || list
+                .get("nextPageToken")
+                .and_then(Json::as_str)
+                .is_some_and(|t| !t.is_empty())
+        {
             if kids.len() > MAX_CHILDREN {
                 out.info(format!("El script ejecutó más de {MAX_CHILDREN} sentencias: se muestra el resultado de la última."));
             }
@@ -494,13 +586,23 @@ impl BigQuerySession {
         let page = max_rows.clamp(1, PAGE);
         for (_, id, loc) in kids {
             let c = self.get_job(&id, loc.as_deref()).await?;
-            let st = c.pointer("/statistics/query/statementType").and_then(Json::as_str).unwrap_or("").to_string();
-            if let Some(m) = c.pointer("/status/errorResult/message").and_then(Json::as_str) {
+            let st = c
+                .pointer("/statistics/query/statementType")
+                .and_then(Json::as_str)
+                .unwrap_or("")
+                .to_string();
+            if let Some(m) = c
+                .pointer("/status/errorResult/message")
+                .and_then(Json::as_str)
+            {
                 // Failed and handled by the script (EXCEPTION).
                 out.warning(format!("{st}: {m}"));
                 continue;
             }
-            let child = JobRef { id: id.clone(), location: loc.clone().or_else(|| job.location.clone()) };
+            let child = JobRef {
+                id: id.clone(),
+                location: loc.clone().or_else(|| job.location.clone()),
+            };
             if st == "SELECT" {
                 let mut rq = vec![
                     ("maxResults", page.to_string()),
@@ -513,7 +615,9 @@ impl BigQuerySession {
                 let r = self.collect(&child, &mut resp, max_rows, page).await?;
                 push_result(&r, max_rows, out);
             } else {
-                let n = c.pointer("/statistics/query/numDmlAffectedRows").and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or(v.as_u64()));
+                let n = c
+                    .pointer("/statistics/query/numDmlAffectedRows")
+                    .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or(v.as_u64()));
                 out.push_affected(n.unwrap_or(0));
             }
             if let Some(last) = out.results.last_mut() {
@@ -527,9 +631,13 @@ impl BigQuerySession {
     /// and priced, not run, not billed.
     async fn dry_run(&self, sql: &str) -> Result<Json> {
         static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let mut job_ref = json!({ "projectId": self.api.project, "jobId": format!("dbine_dry_{nanos}_{seq}") });
+        let mut job_ref =
+            json!({ "projectId": self.api.project, "jobId": format!("dbine_dry_{nanos}_{seq}") });
         if let Some(l) = &self.api.location {
             job_ref["location"] = json!(l);
         }
@@ -537,12 +645,16 @@ impl BigQuerySession {
         if let Some(d) = &self.dataset {
             query["defaultDataset"] = json!({ "projectId": self.api.project, "datasetId": d });
         }
-        let body = json!({ "jobReference": job_ref, "configuration": { "dryRun": true, "query": query } });
+        let body =
+            json!({ "jobReference": job_ref, "configuration": { "dryRun": true, "query": query } });
         self.api.post(&["jobs"], &[], &body).await
     }
 
     async fn get_job(&self, id: &str, location: Option<&str>) -> Result<Json> {
-        let q: Vec<(&str, String)> = location.map(|l| ("location", l.to_string())).into_iter().collect();
+        let q: Vec<(&str, String)> = location
+            .map(|l| ("location", l.to_string()))
+            .into_iter()
+            .collect();
         self.api.get(&["jobs", id], &q).await
     }
 
@@ -552,15 +664,29 @@ impl BigQuerySession {
             return Ok(None);
         }
         let job = self.dry_run(stmt).await?;
-        let st = job.pointer("/statistics/query/statementType").and_then(Json::as_str).unwrap_or("");
+        let st = job
+            .pointer("/statistics/query/statementType")
+            .and_then(Json::as_str)
+            .unwrap_or("");
         if plan::is_ddl(st) {
             return Ok(None);
         }
         let mut tables = Vec::new();
-        for t in job.pointer("/statistics/query/referencedTables").and_then(Json::as_array).into_iter().flatten() {
+        for t in job
+            .pointer("/statistics/query/referencedTables")
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+        {
             let name = plan::table_name(t);
-            let meta = match (t.get("projectId").and_then(Json::as_str), t.get("datasetId").and_then(Json::as_str), t.get("tableId").and_then(Json::as_str)) {
-                (Some(p), Some(d), Some(id)) if p == self.api.project => self.api.get(&["datasets", d, "tables", id], &[]).await.ok(),
+            let meta = match (
+                t.get("projectId").and_then(Json::as_str),
+                t.get("datasetId").and_then(Json::as_str),
+                t.get("tableId").and_then(Json::as_str),
+            ) {
+                (Some(p), Some(d), Some(id)) if p == self.api.project => {
+                    self.api.get(&["datasets", d, "tables", id], &[]).await.ok()
+                }
                 _ => None,
             };
             tables.push((name, meta));
@@ -572,8 +698,15 @@ impl BigQuerySession {
     /// when it ran a multi-statement script.
     async fn actual_plans(&self, job: &JobRef, text: &str, out: &mut QueryOutcome) -> Result<()> {
         let j = self.get_job(&job.id, job.location.as_deref()).await?;
-        let children = j.pointer("/statistics/numChildJobs").and_then(|v| v.as_str().and_then(|s| s.parse::<u64>().ok()).or(v.as_u64()));
-        let is_script = j.pointer("/statistics/query/statementType").and_then(Json::as_str) == Some("SCRIPT");
+        let children = j.pointer("/statistics/numChildJobs").and_then(|v| {
+            v.as_str()
+                .and_then(|s| s.parse::<u64>().ok())
+                .or(v.as_u64())
+        });
+        let is_script = j
+            .pointer("/statistics/query/statementType")
+            .and_then(Json::as_str)
+            == Some("SCRIPT");
         if children.unwrap_or(0) == 0 && !is_script {
             out.plans.push(plan::job_plan(text.trim(), &j));
             return Ok(());
@@ -589,26 +722,48 @@ impl BigQuerySession {
             .into_iter()
             .flatten()
             .filter_map(|c| {
-                let id = c.pointer("/jobReference/jobId").and_then(Json::as_str)?.to_string();
-                let at = c.pointer("/statistics/creationTime").and_then(|v| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0.0);
-                let loc = c.pointer("/jobReference/location").and_then(Json::as_str).map(str::to_string);
+                let id = c
+                    .pointer("/jobReference/jobId")
+                    .and_then(Json::as_str)?
+                    .to_string();
+                let at = c
+                    .pointer("/statistics/creationTime")
+                    .and_then(|v| v.as_str().and_then(|s| s.parse().ok()))
+                    .unwrap_or(0.0);
+                let loc = c
+                    .pointer("/jobReference/location")
+                    .and_then(Json::as_str)
+                    .map(str::to_string);
                 Some((at, id, loc))
             })
             .collect();
         kids.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, id, loc) in kids {
             let c = self.get_job(&id, loc.as_deref()).await?;
-            let st = c.pointer("/statistics/query/statementType").and_then(Json::as_str).unwrap_or("");
+            let st = c
+                .pointer("/statistics/query/statementType")
+                .and_then(Json::as_str)
+                .unwrap_or("");
             if plan::is_ddl(st) {
                 continue;
             }
-            let stmt = c.pointer("/configuration/query/query").and_then(Json::as_str).unwrap_or("").to_string();
+            let stmt = c
+                .pointer("/configuration/query/query")
+                .and_then(Json::as_str)
+                .unwrap_or("")
+                .to_string();
             out.plans.push(plan::job_plan(&stmt, &c));
         }
         Ok(())
     }
 
-    async fn collect(&self, job: &JobRef, resp: &mut Json, max_rows: usize, page: usize) -> Result<QueryResult> {
+    async fn collect(
+        &self,
+        job: &JobRef,
+        resp: &mut Json,
+        max_rows: usize,
+        page: usize,
+    ) -> Result<QueryResult> {
         let results = |token: Option<String>| {
             let mut q = vec![
                 ("timeoutMs", WAIT_MS.to_string()),
@@ -627,14 +782,23 @@ impl BigQuerySession {
             *resp = self.api.get(&["queries", &job.id], &results(None)).await?;
         }
         let mut out = QueryResult {
-            fields: resp.pointer("/schema/fields").and_then(Json::as_array).cloned().unwrap_or_default(),
+            fields: resp
+                .pointer("/schema/fields")
+                .and_then(Json::as_array)
+                .cloned()
+                .unwrap_or_default(),
             has_schema: resp.get("schema").is_some(),
             total_rows: u64_field(resp, "totalRows"),
             dml_rows: u64_field(resp, "numDmlAffectedRows"),
             ..Default::default()
         };
         loop {
-            for row in resp.get("rows").and_then(Json::as_array).into_iter().flatten() {
+            for row in resp
+                .get("rows")
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+            {
                 if out.rows.len() < max_rows {
                     out.rows.push(row.clone());
                 } else {
@@ -643,7 +807,10 @@ impl BigQuerySession {
             }
             match resp.get("pageToken").and_then(Json::as_str) {
                 Some(t) if !t.is_empty() && out.rows.len() < max_rows => {
-                    *resp = self.api.get(&["queries", &job.id], &results(Some(t.to_string()))).await?;
+                    *resp = self
+                        .api
+                        .get(&["queries", &job.id], &results(Some(t.to_string())))
+                        .await?;
                 }
                 Some(t) if !t.is_empty() => {
                     out.more = true;
@@ -665,15 +832,24 @@ impl BigQuerySession {
     /// Rows of a catalog query by lowercase column name (NULLs left out).
     async fn named_rows(&self, sql: &str) -> Result<Vec<ddl::Row>> {
         let r = self.query(sql, 1_000_000, None).await?;
-        let names: Vec<String> = r.fields.iter().map(|f| str_of(f, "name").to_ascii_lowercase()).collect();
+        let names: Vec<String> = r
+            .fields
+            .iter()
+            .map(|f| str_of(f, "name").to_ascii_lowercase())
+            .collect();
         Ok(r.rows
             .iter()
             .map(|row| {
-                let cells = row.get("f").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
+                let cells = row
+                    .get("f")
+                    .and_then(Json::as_array)
+                    .map_or(&[][..], Vec::as_slice);
                 names
                     .iter()
                     .zip(cells)
-                    .filter_map(|(n, c)| Some((n.clone(), c.get("v").and_then(Json::as_str)?.to_string())))
+                    .filter_map(|(n, c)| {
+                        Some((n.clone(), c.get("v").and_then(Json::as_str)?.to_string()))
+                    })
                     .collect()
             })
             .collect())
@@ -688,7 +864,11 @@ impl BigQuerySession {
         );
         let params = json!([{ "name": "name", "parameterType": { "type": "STRING" }, "parameterValue": { "value": name } }]);
         let r = self.query(&sql, 1, Some(params)).await.ok()?;
-        r.rows.first().and_then(|row| row.pointer("/f/0/v")).and_then(Json::as_str).map(str::to_string)
+        r.rows
+            .first()
+            .and_then(|row| row.pointer("/f/0/v"))
+            .and_then(Json::as_str)
+            .map(str::to_string)
     }
 }
 
@@ -699,15 +879,29 @@ fn push_result(r: &QueryResult, max_rows: usize, out: &mut QueryOutcome) {
         return;
     }
     out.begin_result(
-        r.fields.iter().map(|f| ResultColumn { name: str_of(f, "name").to_string(), type_name: type_label(f) }).collect(),
+        r.fields
+            .iter()
+            .map(|f| ResultColumn {
+                name: str_of(f, "name").to_string(),
+                type_name: type_label(f),
+            })
+            .collect(),
     );
     for row in &r.rows {
-        let cells = row.get("f").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
+        let cells = row
+            .get("f")
+            .and_then(Json::as_array)
+            .map_or(&[][..], Vec::as_slice);
         out.push_row(
             r.fields
                 .iter()
                 .enumerate()
-                .map(|(i, f)| cell(cells.get(i).and_then(|c| c.get("v")).unwrap_or(&Json::Null), f))
+                .map(|(i, f)| {
+                    cell(
+                        cells.get(i).and_then(|c| c.get("v")).unwrap_or(&Json::Null),
+                        f,
+                    )
+                })
                 .collect(),
             max_rows,
         );
@@ -741,31 +935,65 @@ impl Session for BigQuerySession {
         let items = self.api.list_all(&["datasets"], "datasets").await?;
         let mut out: Vec<String> = items
             .iter()
-            .filter_map(|d| d.pointer("/datasetReference/datasetId").and_then(Json::as_str).map(str::to_string))
+            .filter_map(|d| {
+                d.pointer("/datasetReference/datasetId")
+                    .and_then(Json::as_str)
+                    .map(str::to_string)
+            })
             .collect();
         out.sort();
         Ok(out)
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let Some(ds) = self.dataset.clone() else { return Ok(Vec::new()) };
+        let Some(ds) = self.dataset.clone() else {
+            return Ok(Vec::new());
+        };
         let mut out = Vec::new();
-        for t in self.api.list_all(&["datasets", &ds, "tables"], "tables").await? {
-            let Some(name) = t.pointer("/tableReference/tableId").and_then(Json::as_str) else { continue };
+        for t in self
+            .api
+            .list_all(&["datasets", &ds, "tables"], "tables")
+            .await?
+        {
+            let Some(name) = t.pointer("/tableReference/tableId").and_then(Json::as_str) else {
+                continue;
+            };
             let kind = match t.get("type").and_then(Json::as_str) {
                 Some("VIEW") => kinds::VIEW,
                 Some("MATERIALIZED_VIEW") => kinds::MATERIALIZED_VIEW,
                 _ => kinds::TABLE,
             };
-            out.push(DbObject { kind: kind.into(), schema: None, name: name.into(), parent: None });
+            out.push(DbObject {
+                kind: kind.into(),
+                schema: None,
+                name: name.into(),
+                parent: None,
+            });
         }
         // Emulators may not implement routines; they're optional.
-        if let Ok(routines) = self.api.list_all(&["datasets", &ds, "routines"], "routines").await {
+        if let Ok(routines) = self
+            .api
+            .list_all(&["datasets", &ds, "routines"], "routines")
+            .await
+        {
             for r in routines {
-                let Some(name) = r.pointer("/routineReference/routineId").and_then(Json::as_str) else { continue };
-                let kind =
-                    if r.get("routineType").and_then(Json::as_str) == Some("PROCEDURE") { kinds::PROCEDURE } else { kinds::FUNCTION };
-                out.push(DbObject { kind: kind.into(), schema: None, name: name.into(), parent: None });
+                let Some(name) = r
+                    .pointer("/routineReference/routineId")
+                    .and_then(Json::as_str)
+                else {
+                    continue;
+                };
+                let kind = if r.get("routineType").and_then(Json::as_str) == Some("PROCEDURE") {
+                    kinds::PROCEDURE
+                } else {
+                    kinds::FUNCTION
+                };
+                out.push(DbObject {
+                    kind: kind.into(),
+                    schema: None,
+                    name: name.into(),
+                    parent: None,
+                });
             }
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -774,14 +1002,27 @@ impl Session for BigQuerySession {
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let ds = self.dataset(obj)?;
-        let t = self.api.get(&["datasets", &ds, "tables", &obj.name], &[]).await?;
+        let t = self
+            .api
+            .get(&["datasets", &ds, "tables", &obj.name], &[])
+            .await?;
         let pk: Vec<String> = t
             .pointer("/tableConstraints/primaryKey/columns")
             .and_then(Json::as_array)
-            .map(|a| a.iter().filter_map(|c| c.as_str().map(str::to_string)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|c| c.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default();
         let mut out = Vec::new();
-        flatten_fields(t.pointer("/schema/fields").and_then(Json::as_array).map_or(&[][..], Vec::as_slice), "", &mut out);
+        flatten_fields(
+            t.pointer("/schema/fields")
+                .and_then(Json::as_array)
+                .map_or(&[][..], Vec::as_slice),
+            "",
+            &mut out,
+        );
         for c in &mut out {
             c.primary_key = pk.contains(&c.name);
         }
@@ -795,22 +1036,36 @@ impl Session for BigQuerySession {
                 if let Some(d) = self.ddl(&ds, "ROUTINES", "routine_name", &obj.name).await {
                     return Ok(Some(d));
                 }
-                let r = self.api.get(&["datasets", &ds, "routines", &obj.name], &[]).await?;
-                Ok(r.get("definitionBody").and_then(Json::as_str).map(str::to_string))
+                let r = self
+                    .api
+                    .get(&["datasets", &ds, "routines", &obj.name], &[])
+                    .await?;
+                Ok(r.get("definitionBody")
+                    .and_then(Json::as_str)
+                    .map(str::to_string))
             }
             _ => {
                 if let Some(d) = self.ddl(&ds, "TABLES", "table_name", &obj.name).await {
                     return Ok(Some(d));
                 }
-                let t = self.api.get(&["datasets", &ds, "tables", &obj.name], &[]).await?;
-                let name = format!("{}.{}", quote_ident(Quote::Backtick, &ds), quote_ident(Quote::Backtick, &obj.name));
-                Ok(if let Some(q) = t.pointer("/view/query").and_then(Json::as_str) {
-                    Some(format!("CREATE VIEW {name} AS\n{q}"))
-                } else {
-                    t.pointer("/materializedView/query")
-                        .and_then(Json::as_str)
-                        .map(|q| format!("CREATE MATERIALIZED VIEW {name} AS\n{q}"))
-                })
+                let t = self
+                    .api
+                    .get(&["datasets", &ds, "tables", &obj.name], &[])
+                    .await?;
+                let name = format!(
+                    "{}.{}",
+                    quote_ident(Quote::Backtick, &ds),
+                    quote_ident(Quote::Backtick, &obj.name)
+                );
+                Ok(
+                    if let Some(q) = t.pointer("/view/query").and_then(Json::as_str) {
+                        Some(format!("CREATE VIEW {name} AS\n{q}"))
+                    } else {
+                        t.pointer("/materializedView/query")
+                            .and_then(Json::as_str)
+                            .map(|q| format!("CREATE MATERIALIZED VIEW {name} AS\n{q}"))
+                    },
+                )
             }
         }
     }
@@ -818,8 +1073,14 @@ impl Session for BigQuerySession {
     /// The dataset's INFORMATION_SCHEMA, all tables at once. Keys and
     /// descriptions are optional: emulators don't have those views.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let Some(ds) = self.dataset.clone() else { return Ok(Vec::new()) };
-        let is = format!("{}.{}.INFORMATION_SCHEMA", ident(&self.api.project), ident(&ds));
+        let Some(ds) = self.dataset.clone() else {
+            return Ok(Vec::new());
+        };
+        let is = format!(
+            "{}.{}.INFORMATION_SCHEMA",
+            ident(&self.api.project),
+            ident(&ds)
+        );
         let this = &*self;
         let q = |sql: String| async move { this.named_rows(&sql).await };
         let (tables, columns, options, descriptions, keys, refs) = tokio::join!(
@@ -842,12 +1103,24 @@ impl Session for BigQuerySession {
             (Ok(k), Ok(r)) => (k, r),
             _ => (Vec::new(), Vec::new()),
         };
-        let mut out = ddl::assemble(&ds, &tables?, &columns?, &options.unwrap_or_default(), &descriptions.unwrap_or_default(), &keys, &refs);
+        let mut out = ddl::assemble(
+            &ds,
+            &tables?,
+            &columns?,
+            &options.unwrap_or_default(),
+            &descriptions.unwrap_or_default(),
+            &keys,
+            &refs,
+        );
         // Search and vector indexes, BigQuery's only ones; emulators don't
         // have these views.
         let (search, vector) = tokio::join!(
-            q(format!("SELECT table_name, index_name, ddl FROM {is}.SEARCH_INDEXES")),
-            q(format!("SELECT table_name, index_name, ddl FROM {is}.VECTOR_INDEXES")),
+            q(format!(
+                "SELECT table_name, index_name, ddl FROM {is}.SEARCH_INDEXES"
+            )),
+            q(format!(
+                "SELECT table_name, index_name, ddl FROM {is}.VECTOR_INDEXES"
+            )),
         );
         indexes::attach(&mut out, indexes::SEARCH, &search.unwrap_or_default());
         indexes::attach(&mut out, indexes::VECTOR, &vector.unwrap_or_default());
@@ -857,7 +1130,8 @@ impl Session for BigQuerySession {
     /// `datasets.insert` in the connection's location (DDL `CREATE SCHEMA`
     /// needs a region qualifier to land in one).
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        let mut body = json!({ "datasetReference": { "projectId": self.api.project, "datasetId": name } });
+        let mut body =
+            json!({ "datasetReference": { "projectId": self.api.project, "datasetId": name } });
         if let Some(l) = &self.api.location {
             body["location"] = json!(l);
         }
@@ -868,12 +1142,19 @@ impl Session for BigQuerySession {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
     /// "Chequeo de salud": cost and maintenance from free metadata reads (see `health`).
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
@@ -885,29 +1166,58 @@ impl Session for BigQuerySession {
         stats::object_comments(self).await
     }
 
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.dataset.as_deref() == Some(name) {
-            return Err(Error::Query(format!("no se puede borrar el dataset «{name}»: es el de la sesión actual")));
+            return Err(Error::Query(format!(
+                "no se puede borrar el dataset «{name}»: es el de la sesión actual"
+            )));
         }
         let url = self.api.url(&["datasets", name])?;
-        self.api.send(self.api.http.delete(url).query(&[("deleteContents", "true")])).await.map(|_| ())
+        self.api
+            .send(
+                self.api
+                    .http
+                    .delete(url)
+                    .query(&[("deleteContents", "true")]),
+            )
+            .await
+            .map(|_| ())
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        let ds = obj.schema().map(str::to_string).or_else(|| self.dataset.clone());
-        select_top(Quote::Backtick, Limit::Limit, ds.as_deref(), &obj.name, limit)
+        let ds = obj
+            .schema()
+            .map(str::to_string)
+            .or_else(|| self.dataset.clone());
+        select_top(
+            Quote::Backtick,
+            Limit::Limit,
+            ds.as_deref(),
+            &obj.name,
+            limit,
+        )
     }
 
     /// The whole script as one job (BigQuery scripting), as the console
@@ -919,7 +1229,8 @@ impl Session for BigQuerySession {
             return Ok(());
         }
         let units = script::units(text);
-        let want = !self.api.emulator && (self.session_id.is_some() || script::needs_session(&units));
+        let want =
+            !self.api.emulator && (self.session_id.is_some() || script::needs_session(&units));
         let ran = match self.run_editor(text, max_rows, want).await {
             Err(Error::Query(m)) if self.session_id.is_some() && script::session_gone(&m) => {
                 self.session_id = None;
@@ -950,7 +1261,13 @@ impl Session for BigQuerySession {
     /// BigQuery only builds stages when it runs. Actual: the script runs
     /// once, as with `execute`, and each job's `queryPlan` (stages with
     /// rows, slot time, shuffle, spill) is the plan.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if text.trim().is_empty() {
             return Ok(());
         }
@@ -958,7 +1275,10 @@ impl Session for BigQuerySession {
             let (job, r) = self.query_job(text, max_rows, None).await?;
             push_result(&r, max_rows, out);
             if let Err(e) = self.actual_plans(&job, text, out).await {
-                out.messages.push(format!("No se pudo leer el plan del trabajo {}: {e}", job.id));
+                out.messages.push(format!(
+                    "No se pudo leer el plan del trabajo {}: {e}",
+                    job.id
+                ));
             }
             return Ok(());
         }
@@ -968,17 +1288,24 @@ impl Session for BigQuerySession {
             let one: String = stmt.split_whitespace().collect::<Vec<_>>().join(" ");
             match self.estimated_plan(&stmt).await {
                 Ok(Some(p)) => out.plans.push(p),
-                Ok(None) => out.messages.push(format!("Sin plan (no se ejecutó): {one}")),
+                Ok(None) => out
+                    .messages
+                    .push(format!("Sin plan (no se ejecutó): {one}")),
                 Err(e) if single => return Err(e),
                 // A statement may need what an earlier one creates (a
                 // table, a variable): its dry run alone can't see it.
-                Err(e) => out.messages.push(format!("No se pudo estimar «{one}»: {e}")),
+                Err(e) => out
+                    .messages
+                    .push(format!("No se pudo estimar «{one}»: {e}")),
             }
         }
         Ok(())
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(self, table).await.map(Some)
     }
 
@@ -1008,14 +1335,20 @@ impl Session for BigQuerySession {
         self.cancel_running(id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1026,7 +1359,11 @@ impl Session for BigQuerySession {
         Ok(())
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -1044,7 +1381,9 @@ impl Session for BigQuerySession {
         let (api, job) = (self.api.clone(), self.job.clone());
         let rt = tokio::runtime::Handle::try_current().ok()?;
         Some(Arc::new(move || {
-            let Some(j) = job.lock().ok().and_then(|j| j.clone()) else { return };
+            let Some(j) = job.lock().ok().and_then(|j| j.clone()) else {
+                return;
+            };
             let api = api.clone();
             rt.spawn(async move { api.cancel(&j).await });
         }))
@@ -1070,7 +1409,11 @@ fn is_record(f: &Json) -> bool {
 
 /// `INT64`, `ARRAY<STRING>`, `STRUCT`…
 fn type_label(f: &Json) -> String {
-    let t = if is_record(f) { "STRUCT" } else { str_of(f, "type") };
+    let t = if is_record(f) {
+        "STRUCT"
+    } else {
+        str_of(f, "type")
+    };
     if is_repeated(f) {
         format!("ARRAY<{t}>")
     } else {
@@ -1088,7 +1431,10 @@ fn flatten_fields(fields: &[Json], prefix: &str, out: &mut Vec<ColumnInfo>) {
             nullable: str_of(f, "mode") != "REQUIRED",
             primary_key: false,
             auto_increment: false,
-            default_value: f.get("defaultValueExpression").and_then(Json::as_str).map(str::to_string),
+            default_value: f
+                .get("defaultValueExpression")
+                .and_then(Json::as_str)
+                .map(str::to_string),
         });
         if let Some(sub) = f.get("fields").and_then(Json::as_array) {
             flatten_fields(sub, &format!("{name}."), out);
@@ -1115,16 +1461,29 @@ fn typed(v: &Json, f: &Json, repeated: bool) -> Json {
     }
     if repeated {
         return Json::Array(
-            v.as_array().into_iter().flatten().map(|e| typed(e.get("v").unwrap_or(&Json::Null), f, false)).collect(),
+            v.as_array()
+                .into_iter()
+                .flatten()
+                .map(|e| typed(e.get("v").unwrap_or(&Json::Null), f, false))
+                .collect(),
         );
     }
     if is_record(f) {
-        let sub = f.get("fields").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
-        let vals = v.get("f").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
+        let sub = f
+            .get("fields")
+            .and_then(Json::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        let vals = v
+            .get("f")
+            .and_then(Json::as_array)
+            .map_or(&[][..], Vec::as_slice);
         let mut m = Map::new();
         for (i, sf) in sub.iter().enumerate() {
             let sv = vals.get(i).and_then(|c| c.get("v")).unwrap_or(&Json::Null);
-            m.insert(str_of(sf, "name").to_string(), typed(sv, sf, is_repeated(sf)));
+            m.insert(
+                str_of(sf, "name").to_string(),
+                typed(sv, sf, is_repeated(sf)),
+            );
         }
         return Json::Object(m);
     }
@@ -1132,7 +1491,9 @@ fn typed(v: &Json, f: &Json, repeated: bool) -> Json {
 }
 
 fn scalar(v: &Json, ty: &str) -> Json {
-    let Some(s) = v.as_str() else { return v.clone() };
+    let Some(s) = v.as_str() else {
+        return v.clone();
+    };
     match ty {
         "INTEGER" | "INT64" => s.parse::<i64>().map_or_else(|_| s.into(), json_i64),
         "FLOAT" | "FLOAT64" => match s.parse::<f64>() {
@@ -1144,7 +1505,9 @@ fn scalar(v: &Json, ty: &str) -> Json {
         "DATETIME" => s.replacen('T', " ", 1).into(),
         "BYTES" => {
             use base64::Engine;
-            base64::engine::general_purpose::STANDARD.decode(s).map_or_else(|_| s.into(), |b| json_bytes(&b))
+            base64::engine::general_purpose::STANDARD
+                .decode(s)
+                .map_or_else(|_| s.into(), |b| json_bytes(&b))
         }
         _ => s.into(),
     }
@@ -1174,10 +1537,22 @@ mod tests {
 
     #[test]
     fn timestamps_in_both_encodings() {
-        assert_eq!(timestamp("1706708700000000").as_deref(), Some("2024-01-31 13:45:00 UTC"));
-        assert_eq!(timestamp("1.7067087E9").as_deref(), Some("2024-01-31 13:45:00 UTC"));
-        assert_eq!(timestamp("1706708700.5").as_deref(), Some("2024-01-31 13:45:00.500 UTC"));
-        assert_eq!(timestamp("1706708700").as_deref(), Some("2024-01-31 13:45:00 UTC"));
+        assert_eq!(
+            timestamp("1706708700000000").as_deref(),
+            Some("2024-01-31 13:45:00 UTC")
+        );
+        assert_eq!(
+            timestamp("1.7067087E9").as_deref(),
+            Some("2024-01-31 13:45:00 UTC")
+        );
+        assert_eq!(
+            timestamp("1706708700.5").as_deref(),
+            Some("2024-01-31 13:45:00.500 UTC")
+        );
+        assert_eq!(
+            timestamp("1706708700").as_deref(),
+            Some("2024-01-31 13:45:00 UTC")
+        );
     }
 
     #[test]
@@ -1197,7 +1572,11 @@ mod tests {
         .unwrap();
         let fields = resp.pointer("/schema/fields").unwrap().as_array().unwrap();
         let row = resp.pointer("/rows/0/f").unwrap().as_array().unwrap();
-        let cells: Vec<Json> = fields.iter().zip(row).map(|(f, c)| cell(&c["v"], f)).collect();
+        let cells: Vec<Json> = fields
+            .iter()
+            .zip(row)
+            .map(|(f, c)| cell(&c["v"], f))
+            .collect();
         assert_eq!(
             cells,
             vec![
@@ -1228,7 +1607,10 @@ mod tests {
         .unwrap();
         let mut out = Vec::new();
         flatten_fields(&fields, "", &mut out);
-        let got: Vec<_> = out.iter().map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable)).collect();
+        let got: Vec<_> = out
+            .iter()
+            .map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable))
+            .collect();
         assert_eq!(
             got,
             vec![
@@ -1245,7 +1627,11 @@ mod tests {
     fn urls_escape_segments() {
         let http = reqwest::Client::new();
         let cfg = ConnectionConfig {
-            options: [("endpoint_url".to_string(), "http://localhost:9050/".to_string())].into(),
+            options: [(
+                "endpoint_url".to_string(),
+                "http://localhost:9050/".to_string(),
+            )]
+            .into(),
             ..Default::default()
         };
         let api = Api {
@@ -1257,7 +1643,9 @@ mod tests {
             emulator: true,
         };
         assert_eq!(
-            api.url(&["datasets", "d", "tables", "a/b c"]).unwrap().as_str(),
+            api.url(&["datasets", "d", "tables", "a/b c"])
+                .unwrap()
+                .as_str(),
             "http://localhost:9050/bigquery/v2/projects/p/datasets/d/tables/a%2Fb%20c"
         );
     }

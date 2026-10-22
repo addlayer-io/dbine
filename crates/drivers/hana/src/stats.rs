@@ -24,7 +24,8 @@ const ROWS_CS: &str = "SELECT m.TABLE_NAME, SUM(m.RECORD_COUNT) FROM SYS.M_CS_TA
  WHERE m.SCHEMA_NAME = ? AND t.IS_SYSTEM_TABLE = 'FALSE' AND t.IS_USER_DEFINED_TYPE = 'FALSE'
  GROUP BY m.TABLE_NAME";
 
-const VIEW_COMMENTS: &str = "SELECT VIEW_NAME, COMMENTS FROM SYS.VIEWS WHERE SCHEMA_NAME = ? AND COMMENTS IS NOT NULL";
+const VIEW_COMMENTS: &str =
+    "SELECT VIEW_NAME, COMMENTS FROM SYS.VIEWS WHERE SCHEMA_NAME = ? AND COMMENTS IS NOT NULL";
 
 /// `(name, rows)` rows as estimates; a NULL or negative count is left out.
 fn estimates(rows: &[Vec<HdbValue<'static>>]) -> Vec<RowEstimate> {
@@ -32,7 +33,14 @@ fn estimates(rows: &[Vec<HdbValue<'static>>]) -> Vec<RowEstimate> {
         .filter_map(|r| {
             let name = text(r.first()?)?;
             let n = int(r.get(1)?).filter(|n| *n >= 0)?;
-            Some(RowEstimate { object: ObjectRef { kind: kinds::TABLE.into(), schema: None, name }, rows: n as u64 })
+            Some(RowEstimate {
+                object: ObjectRef {
+                    kind: kinds::TABLE.into(),
+                    schema: None,
+                    name,
+                },
+                rows: n as u64,
+            })
         })
         .collect()
 }
@@ -63,7 +71,14 @@ impl HanaSession {
             .filter_map(|r| {
                 let name = text(r.first()?)?;
                 let comment = text(r.get(1)?)?.trim().to_string();
-                (!comment.is_empty()).then(|| ObjectComment { object: ObjectRef { kind: kinds::VIEW.into(), schema: None, name }, comment })
+                (!comment.is_empty()).then(|| ObjectComment {
+                    object: ObjectRef {
+                        kind: kinds::VIEW.into(),
+                        schema: None,
+                        name,
+                    },
+                    comment,
+                })
             })
             .collect())
     }
@@ -78,10 +93,19 @@ mod tests {
         let rows = vec![
             vec![HdbValue::STRING("CLIENTES".into()), HdbValue::BIGINT(250)],
             vec![HdbValue::STRING("VACIA".into()), HdbValue::NULL],
-            vec![HdbValue::STRING("PEDIDOS".into()), HdbValue::STRING("12".into())],
+            vec![
+                HdbValue::STRING("PEDIDOS".into()),
+                HdbValue::STRING("12".into()),
+            ],
         ];
         let e = estimates(&rows);
-        let got: Vec<_> = e.iter().map(|e| (e.object.kind.as_str(), e.object.name.as_str(), e.rows)).collect();
-        assert_eq!(got, vec![("table", "CLIENTES", 250), ("table", "PEDIDOS", 12)]);
+        let got: Vec<_> = e
+            .iter()
+            .map(|e| (e.object.kind.as_str(), e.object.name.as_str(), e.rows))
+            .collect();
+        assert_eq!(
+            got,
+            vec![("table", "CLIENTES", 250), ("table", "PEDIDOS", 12)]
+        );
     }
 }

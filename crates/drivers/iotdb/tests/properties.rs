@@ -11,7 +11,10 @@ use dbine_driver::{ConnectionConfig, QueryOutcome};
 use std::collections::BTreeMap;
 
 fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 async fn check(env: &str, v1: bool) {
@@ -26,7 +29,10 @@ async fn check(env: &str, v1: bool) {
         password: Some("root".into()),
         ..Default::default()
     };
-    let d = dbine_driver_iotdb::drivers().into_iter().find(|d| d.info().id == "iotdb").unwrap();
+    let d = dbine_driver_iotdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "iotdb")
+        .unwrap();
     assert!(d.capabilities().database_properties);
     let mut s = d.connect(&cfg, None).await.unwrap();
     let db = "dbine_props";
@@ -34,22 +40,37 @@ async fn check(env: &str, v1: bool) {
     if !v1 {
         // IoTDB 2 keeps the TTL rules of a dropped database.
         let mut out = QueryOutcome::default();
-        let _ = s.execute("UNSET TTL TO root.dbine_props", 10, &mut out).await;
+        let _ = s
+            .execute("UNSET TTL TO root.dbine_props", 10, &mut out)
+            .await;
     }
-    s.create_database_with(db, &c(&[("ttl", "1h")])).await.unwrap();
+    s.create_database_with(db, &c(&[("ttl", "1h")]))
+        .await
+        .unwrap();
 
     let p = s.database_properties(db).await.unwrap();
     eprintln!("{:?}\n{:?}", p.values, p.info);
     assert_eq!(p.values.get("ttl").map(String::as_str), Some("1h"));
     assert!(p.values.contains_key("data_region_group_num"));
-    assert!(p.info.iter().any(|i| i.label.starts_with("Réplicas de los datos")));
+    assert!(p
+        .info
+        .iter()
+        .any(|i| i.label.starts_with("Réplicas de los datos")));
     assert!(p.warnings.contains_key("ttl"));
 
-    let changes = c(&[("ttl", "2d"), ("schema_region_group_num", "2"), ("data_region_group_num", "3")]);
+    let changes = c(&[
+        ("ttl", "2d"),
+        ("schema_region_group_num", "2"),
+        ("data_region_group_num", "3"),
+    ]);
     eprintln!("{}", d.alter_database_script(db, &changes).unwrap());
     s.alter_database(db, &changes).await.unwrap();
     let p = s.database_properties(db).await.unwrap();
-    for (k, v) in [("ttl", "2d"), ("schema_region_group_num", "2"), ("data_region_group_num", "3")] {
+    for (k, v) in [
+        ("ttl", "2d"),
+        ("schema_region_group_num", "2"),
+        ("data_region_group_num", "3"),
+    ] {
         assert_eq!(p.values.get(k).map(String::as_str), Some(v), "{k}");
     }
 

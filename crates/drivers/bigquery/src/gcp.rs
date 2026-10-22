@@ -61,8 +61,17 @@ pub fn http_client() -> Result<reqwest::Client> {
 enum Source {
     /// Emulator: no Authorization header.
     Anonymous,
-    ServiceAccount { email: String, key: String, token_uri: String },
-    AuthorizedUser { client_id: String, client_secret: String, refresh_token: String, token_uri: String },
+    ServiceAccount {
+        email: String,
+        key: String,
+        token_uri: String,
+    },
+    AuthorizedUser {
+        client_id: String,
+        client_secret: String,
+        refresh_token: String,
+        token_uri: String,
+    },
     Metadata,
 }
 
@@ -81,12 +90,16 @@ impl Tokens {
         } else if cfg.option("auth_mode") == Some("adc") {
             adc_source()?
         } else {
-            let json = cfg
-                .option("service_account_json")
-                .ok_or_else(|| Error::AuthFailed("falta la clave JSON de la cuenta de servicio".into()))?;
+            let json = cfg.option("service_account_json").ok_or_else(|| {
+                Error::AuthFailed("falta la clave JSON de la cuenta de servicio".into())
+            })?;
             parse_key(json)?
         };
-        Ok(Self { source: Arc::new(source), http, cache: Arc::new(Mutex::new(None)) })
+        Ok(Self {
+            source: Arc::new(source),
+            http,
+            cache: Arc::new(Mutex::new(None)),
+        })
     }
 
     /// `Authorization` header value, or `None` against an emulator.
@@ -109,44 +122,72 @@ impl Tokens {
     async fn fetch(&self) -> Result<(String, u64)> {
         let req = match &*self.source {
             Source::Anonymous => unreachable!("no token needed"),
-            Source::ServiceAccount { email, key, token_uri } => {
+            Source::ServiceAccount {
+                email,
+                key,
+                token_uri,
+            } => {
                 let assertion = sa_assertion(email, key, token_uri, now_secs())?;
                 self.http.post(token_uri).form(&[
                     ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
                     ("assertion", assertion.as_str()),
                 ])
             }
-            Source::AuthorizedUser { client_id, client_secret, refresh_token, token_uri } => {
-                self.http.post(token_uri).form(&[
-                    ("grant_type", "refresh_token"),
-                    ("client_id", client_id.as_str()),
-                    ("client_secret", client_secret.as_str()),
-                    ("refresh_token", refresh_token.as_str()),
-                ])
-            }
-            Source::Metadata => self.http.get(METADATA_TOKEN).header("Metadata-Flavor", "Google"),
+            Source::AuthorizedUser {
+                client_id,
+                client_secret,
+                refresh_token,
+                token_uri,
+            } => self.http.post(token_uri).form(&[
+                ("grant_type", "refresh_token"),
+                ("client_id", client_id.as_str()),
+                ("client_secret", client_secret.as_str()),
+                ("refresh_token", refresh_token.as_str()),
+            ]),
+            Source::Metadata => self
+                .http
+                .get(METADATA_TOKEN)
+                .header("Metadata-Flavor", "Google"),
         };
-        let resp = req.send().await.map_err(|e| Error::Connect(format!("no se pudo pedir el token de Google: {e}")))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| Error::Connect(format!("no se pudo pedir el token de Google: {e}")))?;
         let status = resp.status();
-        let body: Json = resp.json().await.map_err(|e| Error::AuthFailed(e.to_string()))?;
+        let body: Json = resp
+            .json()
+            .await
+            .map_err(|e| Error::AuthFailed(e.to_string()))?;
         if !status.is_success() {
             let msg = body
                 .get("error_description")
                 .or_else(|| body.get("error"))
                 .and_then(Json::as_str)
                 .map_or_else(|| body.to_string(), str::to_string);
-            return Err(Error::AuthFailed(format!("Google rechazó las credenciales: {msg}")));
+            return Err(Error::AuthFailed(format!(
+                "Google rechazó las credenciales: {msg}"
+            )));
         }
         let token = body
             .get("access_token")
             .and_then(Json::as_str)
-            .ok_or_else(|| Error::AuthFailed("la respuesta de Google no trae access_token".into()))?;
-        Ok((token.to_string(), body.get("expires_in").and_then(Json::as_u64).unwrap_or(3600)))
+            .ok_or_else(|| {
+                Error::AuthFailed("la respuesta de Google no trae access_token".into())
+            })?;
+        Ok((
+            token.to_string(),
+            body.get("expires_in")
+                .and_then(Json::as_u64)
+                .unwrap_or(3600),
+        ))
     }
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 #[derive(Deserialize)]
@@ -163,38 +204,61 @@ struct KeyFile {
 
 /// A service-account key or gcloud user credentials file.
 fn parse_key(json: &str) -> Result<Source> {
-    let k: KeyFile = serde_json::from_str(json.trim())
-        .map_err(|e| Error::AuthFailed(format!("la clave de la cuenta de servicio no es un JSON válido: {e}")))?;
+    let k: KeyFile = serde_json::from_str(json.trim()).map_err(|e| {
+        Error::AuthFailed(format!(
+            "la clave de la cuenta de servicio no es un JSON válido: {e}"
+        ))
+    })?;
     let token_uri = k.token_uri.unwrap_or_else(|| TOKEN_URI.to_string());
     match k.kind.as_deref() {
         Some("authorized_user") => match (k.client_id, k.client_secret, k.refresh_token) {
             (Some(client_id), Some(client_secret), Some(refresh_token)) => {
-                Ok(Source::AuthorizedUser { client_id, client_secret, refresh_token, token_uri })
+                Ok(Source::AuthorizedUser {
+                    client_id,
+                    client_secret,
+                    refresh_token,
+                    token_uri,
+                })
             }
-            _ => Err(Error::AuthFailed("credenciales de usuario incompletas".into())),
+            _ => Err(Error::AuthFailed(
+                "credenciales de usuario incompletas".into(),
+            )),
         },
         _ => match (k.client_email, k.private_key) {
             (Some(email), Some(key)) => {
                 // Fail now on a broken key rather than at the first query.
                 jsonwebtoken::EncodingKey::from_rsa_pem(key.as_bytes())
                     .map_err(|e| Error::AuthFailed(format!("clave privada inválida: {e}")))?;
-                Ok(Source::ServiceAccount { email, key, token_uri })
+                Ok(Source::ServiceAccount {
+                    email,
+                    key,
+                    token_uri,
+                })
             }
-            _ => Err(Error::AuthFailed("a la clave le faltan client_email o private_key".into())),
+            _ => Err(Error::AuthFailed(
+                "a la clave le faltan client_email o private_key".into(),
+            )),
         },
     }
 }
 
 fn adc_source() -> Result<Source> {
     if let Ok(path) = std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
-        let json = std::fs::read_to_string(&path)
-            .map_err(|e| Error::AuthFailed(format!("no se pudo leer GOOGLE_APPLICATION_CREDENTIALS ({path}): {e}")))?;
+        let json = std::fs::read_to_string(&path).map_err(|e| {
+            Error::AuthFailed(format!(
+                "no se pudo leer GOOGLE_APPLICATION_CREDENTIALS ({path}): {e}"
+            ))
+        })?;
         return parse_key(&json);
     }
     let well_known = if cfg!(windows) {
-        std::env::var("APPDATA").ok().map(|d| std::path::PathBuf::from(d).join("gcloud"))
+        std::env::var("APPDATA")
+            .ok()
+            .map(|d| std::path::PathBuf::from(d).join("gcloud"))
     } else {
-        std::env::var("HOME").ok().map(|h| std::path::PathBuf::from(h).join(".config").join("gcloud"))
+        std::env::var("HOME")
+            .ok()
+            .map(|h| std::path::PathBuf::from(h).join(".config").join("gcloud"))
     }
     .map(|d| d.join("application_default_credentials.json"));
     if let Some(json) = well_known.and_then(|p| std::fs::read_to_string(p).ok()) {
@@ -216,9 +280,19 @@ struct Claims<'a> {
 fn sa_assertion(email: &str, pem: &str, token_uri: &str, now: u64) -> Result<String> {
     let key = jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes())
         .map_err(|e| Error::AuthFailed(format!("clave privada inválida: {e}")))?;
-    let claims = Claims { iss: email, scope: SCOPE, aud: token_uri, iat: now, exp: now + 3600 };
-    jsonwebtoken::encode(&jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256), &claims, &key)
-        .map_err(|e| Error::AuthFailed(e.to_string()))
+    let claims = Claims {
+        iss: email,
+        scope: SCOPE,
+        aud: token_uri,
+        iat: now,
+        exp: now + 3600,
+    };
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256),
+        &claims,
+        &key,
+    )
+    .map_err(|e| Error::AuthFailed(e.to_string()))
 }
 
 /// A Google API error body (`{"error": {"code", "message", "status"}}`) as
@@ -228,8 +302,18 @@ pub fn api_error(status: u16, body: &str) -> Error {
     let parsed: Option<Json> = serde_json::from_str(body).ok();
     let msg = parsed
         .as_ref()
-        .and_then(|j| j.pointer("/error/message").and_then(Json::as_str).map(str::to_string))
-        .unwrap_or_else(|| if body.is_empty() { format!("HTTP {status}") } else { body.to_string() });
+        .and_then(|j| {
+            j.pointer("/error/message")
+                .and_then(Json::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| {
+            if body.is_empty() {
+                format!("HTTP {status}")
+            } else {
+                body.to_string()
+            }
+        });
     match status {
         401 => Error::AuthFailed(msg),
         _ => Error::Query(msg),
@@ -249,14 +333,28 @@ pub(crate) mod gcp_tests {
             "type": "service_account", "client_email": "a@p.iam.gserviceaccount.com", "private_key": TEST_KEY
         })
         .to_string();
-        let Source::ServiceAccount { email, key, token_uri } = parse_key(&json).unwrap() else { panic!() };
-        assert_eq!((email.as_str(), token_uri.as_str()), ("a@p.iam.gserviceaccount.com", TOKEN_URI));
+        let Source::ServiceAccount {
+            email,
+            key,
+            token_uri,
+        } = parse_key(&json).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (email.as_str(), token_uri.as_str()),
+            ("a@p.iam.gserviceaccount.com", TOKEN_URI)
+        );
         let jwt = sa_assertion(&email, &key, &token_uri, 1_700_000_000).unwrap();
         let parts: Vec<&str> = jwt.split('.').collect();
         assert_eq!(parts.len(), 3);
         use base64::Engine;
-        let claims: Json =
-            serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap()).unwrap();
+        let claims: Json = serde_json::from_slice(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(parts[1])
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(claims["exp"], 1_700_003_600);
         assert_eq!(claims["scope"], SCOPE);
     }
@@ -269,14 +367,20 @@ pub(crate) mod gcp_tests {
             Err(Error::AuthFailed(_))
         ));
         assert!(matches!(
-            parse_key(r#"{"type":"authorized_user","client_id":"a","client_secret":"b","refresh_token":"c"}"#),
+            parse_key(
+                r#"{"type":"authorized_user","client_id":"a","client_secret":"b","refresh_token":"c"}"#
+            ),
             Ok(Source::AuthorizedUser { .. })
         ));
     }
 
     #[test]
     fn api_errors() {
-        assert!(matches!(api_error(401, r#"{"error":{"message":"bad token"}}"#), Error::AuthFailed(m) if m == "bad token"));
-        assert!(matches!(api_error(400, r#"{"error":{"message":"Syntax error"}}"#), Error::Query(m) if m == "Syntax error"));
+        assert!(
+            matches!(api_error(401, r#"{"error":{"message":"bad token"}}"#), Error::AuthFailed(m) if m == "bad token")
+        );
+        assert!(
+            matches!(api_error(400, r#"{"error":{"message":"Syntax error"}}"#), Error::Query(m) if m == "Syntax error")
+        );
     }
 }

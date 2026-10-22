@@ -85,11 +85,15 @@ pub(crate) struct Proc {
 }
 
 fn text(r: &mysql_async::Row, i: usize) -> Option<String> {
-    at(r, i).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    at(r, i)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn ms(r: &mysql_async::Row, i: usize) -> Option<u64> {
-    text(r, i).and_then(|s| s.parse::<f64>().ok()).map(|v| v.max(0.0) as u64)
+    text(r, i)
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.max(0.0) as u64)
 }
 
 fn id(r: &mysql_async::Row, i: usize) -> Option<u64> {
@@ -121,7 +125,10 @@ pub(crate) fn tidb_key(info: &str) -> String {
 /// array of the transaction's statements).
 pub(crate) fn last_digest(json: &str) -> Option<String> {
     let v: Vec<Option<String>> = serde_json::from_str(json).ok()?;
-    v.into_iter().flatten().map(|s| s.trim().to_string()).rfind(|s| !s.is_empty())
+    v.into_iter()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .rfind(|s| !s.is_empty())
 }
 
 /// Waiters (one row each, on their first blocker) and then the heads.
@@ -153,7 +160,10 @@ pub(crate) fn assemble(edges: &[Edge], procs: &HashMap<u64, Proc>) -> Vec<Blocke
         }
         heads.push(e.blocker);
         let p = procs.get(&e.blocker).cloned().unwrap_or_default();
-        let idle = p.command.as_deref().is_some_and(|c| c.eq_ignore_ascii_case("Sleep"));
+        let idle = p
+            .command
+            .as_deref()
+            .is_some_and(|c| c.eq_ignore_ascii_case("Sleep"));
         out.push(BlockedSession {
             id: e.blocker.to_string(),
             blocked_by: None,
@@ -175,7 +185,9 @@ pub(crate) fn assemble(edges: &[Edge], procs: &HashMap<u64, Proc>) -> Vec<Blocke
 
 /// A session id: an unsigned integer, nothing else.
 pub(crate) fn session_id(id: &str) -> Result<u64> {
-    id.trim().parse().map_err(|_| Error::Query(format!("«{id}» no es un id de conexión válido")))
+    id.trim()
+        .parse()
+        .map_err(|_| Error::Query(format!("«{id}» no es un id de conexión válido")))
 }
 
 impl MySqlSession {
@@ -237,7 +249,11 @@ impl MySqlSession {
         ids.dedup();
         // Numbers parsed above: safe to interpolate.
         let list = ids.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
-        let view = if tidb { "information_schema.CLUSTER_PROCESSLIST" } else { "information_schema.PROCESSLIST" };
+        let view = if tidb {
+            "information_schema.CLUSTER_PROCESSLIST"
+        } else {
+            "information_schema.PROCESSLIST"
+        };
         let procs_sql = format!(
             "SELECT ID, USER, HOST, DB, COMMAND, TIME, STATE, LEFT(INFO, 4000) FROM {view} WHERE ID IN ({list})"
         );
@@ -275,7 +291,9 @@ impl MySqlSession {
         };
         {
             for r in self.optional_rows(&last).await {
-                let (Some(pid), Some(sql)) = (id(&r, 0), text(&r, 1)) else { continue };
+                let (Some(pid), Some(sql)) = (id(&r, 0), text(&r, 1)) else {
+                    continue;
+                };
                 let sql = if tidb { last_digest(&sql) } else { Some(sql) };
                 if let Some(p) = procs.get_mut(&pid) {
                     p.last_sql = sql;
@@ -288,7 +306,9 @@ impl MySqlSession {
     pub(crate) async fn kill_connection(&mut self, id: &str) -> Result<()> {
         let sql = match self.variant {
             // Session ids are UUIDs, checked before they're quoted.
-            Variant::Databend => format!("KILL CONNECTION '{}'", crate::processes::databend_id(id)?),
+            Variant::Databend => {
+                format!("KILL CONNECTION '{}'", crate::processes::databend_id(id)?)
+            }
             Variant::TiDb => format!("KILL TIDB {}", session_id(id)?),
             _ => format!("KILL {}", session_id(id)?),
         };
@@ -311,29 +331,68 @@ mod tests {
     #[test]
     fn tidb_keys_read_as_tables() {
         assert_eq!(
-            tidb_key(r#"{"db_id":2,"db_name":"app","table_id":9,"table_name":"t","handle_type":"int","handle_value":"1"}"#),
+            tidb_key(
+                r#"{"db_id":2,"db_name":"app","table_id":9,"table_name":"t","handle_type":"int","handle_value":"1"}"#
+            ),
             "app.t · 1"
         );
         assert_eq!(tidb_key("7480000000"), "7480000000");
-        assert_eq!(last_digest(r#"["begin","update `t` set `v` = ? where `id` = ?",null]"#).unwrap(), "update `t` set `v` = ? where `id` = ?");
+        assert_eq!(
+            last_digest(r#"["begin","update `t` set `v` = ? where `id` = ?",null]"#).unwrap(),
+            "update `t` set `v` = ? where `id` = ?"
+        );
     }
 
     #[test]
     fn chains_list_waiters_then_heads() {
         let edges = vec![
-            Edge { waiter: 3, blocker: 2, wait: Some("LOCK WAIT".into()), waited_ms: Some(900), ..Default::default() },
-            Edge { waiter: 2, blocker: 1, ..Default::default() },
-            Edge { waiter: 3, blocker: 1, ..Default::default() },
+            Edge {
+                waiter: 3,
+                blocker: 2,
+                wait: Some("LOCK WAIT".into()),
+                waited_ms: Some(900),
+                ..Default::default()
+            },
+            Edge {
+                waiter: 2,
+                blocker: 1,
+                ..Default::default()
+            },
+            Edge {
+                waiter: 3,
+                blocker: 1,
+                ..Default::default()
+            },
         ];
         let mut procs = HashMap::new();
-        procs.insert(1, Proc { command: Some("Sleep".into()), time_ms: Some(5000), last_sql: Some("UPDATE t".into()), ..Default::default() });
-        procs.insert(3, Proc { info: Some("UPDATE t SET v = 2".into()), ..Default::default() });
+        procs.insert(
+            1,
+            Proc {
+                command: Some("Sleep".into()),
+                time_ms: Some(5000),
+                last_sql: Some("UPDATE t".into()),
+                ..Default::default()
+            },
+        );
+        procs.insert(
+            3,
+            Proc {
+                info: Some("UPDATE t SET v = 2".into()),
+                ..Default::default()
+            },
+        );
         let chain = assemble(&edges, &procs);
-        assert_eq!(chain.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["3", "2", "1"]);
+        assert_eq!(
+            chain.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["3", "2", "1"]
+        );
         assert_eq!(chain[0].blocked_by.as_deref(), Some("2"));
         assert_eq!(chain[0].sql.as_deref(), Some("UPDATE t SET v = 2"));
         assert_eq!(chain[2].blocked_by, None);
-        assert_eq!(chain[2].wait.as_deref(), Some("inactiva con transacción abierta"));
+        assert_eq!(
+            chain[2].wait.as_deref(),
+            Some("inactiva con transacción abierta")
+        );
         assert_eq!(chain[2].sql.as_deref(), Some("UPDATE t"));
     }
 }

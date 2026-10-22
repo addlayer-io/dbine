@@ -58,10 +58,16 @@
 
 use super::{err, kill_tagged, shell, MongoSession};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec,
+    TransferColumn,
+};
 use dbine_driver::{Error, Result, Session};
 use futures::TryStreamExt;
-use mongodb::bson::{doc, oid::ObjectId, spec::BinarySubtype, Binary, Bson, Decimal128, Document, RawBsonRef, RawDocument, RawDocumentBuf};
+use mongodb::bson::{
+    doc, oid::ObjectId, spec::BinarySubtype, Binary, Bson, Decimal128, Document, RawBsonRef,
+    RawDocument, RawDocumentBuf,
+};
 use mongodb::error::ErrorKind;
 use std::collections::HashMap;
 use std::future::Future;
@@ -107,21 +113,34 @@ fn parse_filter(filter: Option<&str>) -> Result<Document> {
     match filter.map(str::trim).filter(|f| !f.is_empty()) {
         Some(f) => match Bson::try_from(shell::parse_value(f).map_err(Error::Query)?) {
             Ok(Bson::Document(d)) => Ok(d),
-            _ => Err(Error::Query("El filtro tiene que ser un documento { … }.".into())),
+            _ => Err(Error::Query(
+                "El filtro tiene que ser un documento { … }.".into(),
+            )),
         },
         None => Ok(Document::new()),
     }
 }
 
-pub(crate) async fn read_batches(s: &mut MongoSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut MongoSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let coll = s.db.collection::<Document>(&spec.table.name);
     let filter = parse_filter(spec.filter.as_deref())?;
 
-    let Sample { docs: sample, largest } = sample(s, &spec.table.name, &filter).await?;
+    let Sample {
+        docs: sample,
+        largest,
+    } = sample(s, &spec.table.name, &filter).await?;
     // Types found beyond the sample, which win over it; and the largest
     // document the read can meet.
     let (names, found, biggest) = match &spec.columns {
-        Some(c) if !c.is_empty() => (c.clone(), check_fields(&coll, c, &sample, &s.tag).await?, largest_doc(&coll, &filter, &s.tag).await),
+        Some(c) if !c.is_empty() => (
+            c.clone(),
+            check_fields(&coll, c, &sample, &s.tag).await?,
+            largest_doc(&coll, &filter, &s.tag).await,
+        ),
         _ => all_fields(&coll, &filter, &sample, &s.tag).await?,
     };
     let batch = batch_for(largest.max(biggest.unwrap_or(0)));
@@ -135,7 +154,13 @@ pub(crate) async fn read_batches(s: &mut MongoSession, spec: &ReadSpec, sink: Ba
                 // Every field of the rows has a type, marked as this
                 // crate's: a load takes only marked ones for MongoDB's
                 // (see `hint`).
-                type_name: marked(&found.get(n).cloned().or_else(|| seen.map(|c| c.data_type.clone())).unwrap_or_default()),
+                type_name: marked(
+                    &found
+                        .get(n)
+                        .cloned()
+                        .or_else(|| seen.map(|c| c.data_type.clone()))
+                        .unwrap_or_default(),
+                ),
                 nullable: n != "_id" || seen.is_none_or(|c| c.nullable),
             }
         })
@@ -150,7 +175,12 @@ pub(crate) async fn read_batches(s: &mut MongoSession, spec: &ReadSpec, sink: Ba
     // Raw documents, converted field by field: decoding a `Document` through
     // serde would take a stored `{ $date: … }` subdocument for a date.
     let raw_coll = s.db.collection::<RawDocumentBuf>(&spec.table.name);
-    let mut cursor = raw_coll.find(filter).batch_size(batch).comment(s.tag.as_str()).await.map_err(err)?;
+    let mut cursor = raw_coll
+        .find(filter)
+        .batch_size(batch)
+        .comment(s.tag.as_str())
+        .await
+        .map_err(err)?;
     let lock_err = |_| Error::State("destino de lotes".into());
     // Locked per call: the guard can't be held across the cursor's awaits.
     sink.lock().map_err(lock_err)?.begin(&columns)?;
@@ -166,7 +196,8 @@ pub(crate) async fn read_batches(s: &mut MongoSession, spec: &ReadSpec, sink: Ba
                 if std::mem::replace(&mut seen[at[0]], true) {
                     return Err(refused(&d, &format!("repite el campo «{k}»")));
                 }
-                let c = raw_cell(v)?.map_err(|why| refused(&d, &format!("tiene en el campo «{k}» {why}")))?;
+                let c = raw_cell(v)?
+                    .map_err(|why| refused(&d, &format!("tiene en el campo «{k}» {why}")))?;
                 let (last, rest) = at.split_last().expect("one position at least");
                 for &i in rest {
                     row[i] = c.clone();
@@ -186,7 +217,12 @@ fn raw_err(e: mongodb::bson::raw::Error) -> Error {
 
 /// A document the rows can't hold as it is, named by its `_id`.
 fn refused(d: &RawDocument, why: &str) -> Error {
-    let id = d.get("_id").ok().flatten().and_then(|v| Bson::try_from(v).ok()).map(|v| clip(&v.into_relaxed_extjson().to_string(), 80));
+    let id = d
+        .get("_id")
+        .ok()
+        .flatten()
+        .and_then(|v| Bson::try_from(v).ok())
+        .map(|v| clip(&v.into_relaxed_extjson().to_string(), 80));
     Error::Unsupported(format!(
         "El documento con _id {} {why}: por filas se perdería o cambiaría el dato. La copia directa entre bases MongoDB lo conserva tal cual.",
         id.as_deref().unwrap_or("(sin _id)")
@@ -209,7 +245,9 @@ fn raw_cell(v: RawBsonRef<'_>) -> Result<std::result::Result<Cell, String>> {
     let c = cell(b.clone());
     if let Cell::Json(s) = &c {
         // What a load of this cell gives back (see `bson`).
-        let back = serde_json::from_str::<serde_json::Value>(s).ok().and_then(|j| Bson::try_from(j).ok());
+        let back = serde_json::from_str::<serde_json::Value>(s)
+            .ok()
+            .and_then(|j| Bson::try_from(j).ok());
         let bytes = |x: Bson| mongodb::bson::to_vec(&doc! { "v": x }).ok();
         if back.and_then(bytes).is_none_or(|x| Some(x) != bytes(b)) {
             return Ok(Err(format!("subdocumentos con claves como «{key}», que en Extended JSON se leerían como otro tipo de dato")));
@@ -226,7 +264,10 @@ fn scan(v: RawBsonRef<'_>, dollar: &mut Option<String>) -> std::result::Result<(
         RawBsonRef::JavaScriptCodeWithScope(c) => c.scope,
         RawBsonRef::Array(a) => {
             for x in a {
-                scan(x.map_err(|e| format!("un valor BSON inválido ({e})"))?, dollar)?;
+                scan(
+                    x.map_err(|e| format!("un valor BSON inválido ({e})"))?,
+                    dollar,
+                )?;
             }
             return Ok(());
         }
@@ -251,7 +292,12 @@ fn scan(v: RawBsonRef<'_>, dollar: &mut Option<String>) -> std::result::Result<(
 /// A column type with this crate's mark on each part (`long|int` →
 /// `bson:long|bson:int`); an empty one stays empty.
 fn marked(t: &str) -> String {
-    t.split('|').map(str::trim).filter(|p| !p.is_empty()).map(|p| format!("{TYPE_MARK}{p}")).collect::<Vec<_>>().join("|")
+    t.split('|')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| format!("{TYPE_MARK}{p}"))
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 /// Documents per cursor batch so that one batch of the largest document
@@ -263,14 +309,30 @@ fn batch_for(largest: u64) -> u32 {
 /// The largest document `filter` matches (of the whole collection when
 /// `$match` doesn't take the filter), in BSON bytes, by the server; `None`
 /// when it can't tell.
-async fn largest_doc(coll: &mongodb::Collection<Document>, filter: &Document, tag: &str) -> Option<u64> {
+async fn largest_doc(
+    coll: &mongodb::Collection<Document>,
+    filter: &Document,
+    tag: &str,
+) -> Option<u64> {
     let mut pipeline = Vec::with_capacity(2);
     if !filter.is_empty() && match_takes(filter) {
         pipeline.push(doc! { "$match": filter.clone() });
     }
-    pipeline.push(doc! { "$group": { "_id": Bson::Null, "m": { "$max": { "$bsonSize": "$$ROOT" } } } });
-    let found: Vec<Document> = coll.aggregate(pipeline).comment(tag).await.ok()?.try_collect().await.ok()?;
-    Some(found.first().map_or(0, |d| group_number(d, "m").max(0) as u64))
+    pipeline
+        .push(doc! { "$group": { "_id": Bson::Null, "m": { "$max": { "$bsonSize": "$$ROOT" } } } });
+    let found: Vec<Document> = coll
+        .aggregate(pipeline)
+        .comment(tag)
+        .await
+        .ok()?
+        .try_collect()
+        .await
+        .ok()?;
+    Some(
+        found
+            .first()
+            .map_or(0, |d| group_number(d, "m").max(0) as u64),
+    )
 }
 
 struct Sample {
@@ -295,7 +357,12 @@ async fn sample(s: &MongoSession, collection: &str, filter: &Document) -> Result
     let mut docs = Vec::new();
     let mut largest = 0u64;
     let described = async {
-        let mut cursor = coll.find(filter.clone()).limit(TYPE_SAMPLE).projection(described).comment(s.tag.as_str()).await?;
+        let mut cursor = coll
+            .find(filter.clone())
+            .limit(TYPE_SAMPLE)
+            .projection(described)
+            .comment(s.tag.as_str())
+            .await?;
         while let Some(d) = cursor.try_next().await? {
             match described_skeleton(&d) {
                 Some((size, sk)) => {
@@ -310,7 +377,13 @@ async fn sample(s: &MongoSession, collection: &str, filter: &Document) -> Result
     .await;
     if !matches!(described, Ok(true)) {
         (docs, largest) = (Vec::new(), 0);
-        let mut cursor = coll.find(filter.clone()).limit(TYPE_SAMPLE).batch_size(SAMPLE_BATCH).comment(s.tag.as_str()).await.map_err(err)?;
+        let mut cursor = coll
+            .find(filter.clone())
+            .limit(TYPE_SAMPLE)
+            .batch_size(SAMPLE_BATCH)
+            .comment(s.tag.as_str())
+            .await
+            .map_err(err)?;
         while let Some(d) = cursor.try_next().await.map_err(err)? {
             largest = largest.max(d.as_bytes().len() as u64);
             docs.push(skeleton(&d)?);
@@ -378,10 +451,18 @@ fn skeleton(d: &mongodb::bson::RawDocument) -> Result<Document> {
             R::String(_) => Bson::String(String::new()),
             R::Document(_) => Bson::Document(Document::new()),
             R::Array(_) => Bson::Array(Vec::new()),
-            R::Binary(b) => Bson::Binary(Binary { subtype: b.subtype, bytes: Vec::new() }),
-            R::JavaScriptCode(_) | R::JavaScriptCodeWithScope(_) => Bson::JavaScriptCode(String::new()),
+            R::Binary(b) => Bson::Binary(Binary {
+                subtype: b.subtype,
+                bytes: Vec::new(),
+            }),
+            R::JavaScriptCode(_) | R::JavaScriptCodeWithScope(_) => {
+                Bson::JavaScriptCode(String::new())
+            }
             R::Symbol(_) => Bson::Symbol(String::new()),
-            R::RegularExpression(_) => Bson::RegularExpression(mongodb::bson::Regex { pattern: String::new(), options: String::new() }),
+            R::RegularExpression(_) => Bson::RegularExpression(mongodb::bson::Regex {
+                pattern: String::new(),
+                options: String::new(),
+            }),
             // Fixed-size scalars (and the deprecated DBPointer) as they are.
             other => Bson::try_from(other).map_err(raw_err)?,
         };
@@ -394,7 +475,12 @@ fn skeleton(d: &mongodb::bson::RawDocument) -> Result<Document> {
 /// (as a missing column is elsewhere). Checked only when the read has rows.
 /// The types of the fields outside the sample, from up to [`TYPE_SAMPLE`]
 /// documents that have them.
-async fn check_fields(coll: &mongodb::Collection<Document>, names: &[String], sample: &[Document], tag: &str) -> Result<Types> {
+async fn check_fields(
+    coll: &mongodb::Collection<Document>,
+    names: &[String],
+    sample: &[Document],
+    tag: &str,
+) -> Result<Types> {
     let mut types = Types::new();
     if sample.is_empty() {
         return Ok(types);
@@ -409,11 +495,31 @@ async fn check_fields(coll: &mongodb::Collection<Document>, names: &[String], sa
             doc! { "$limit": TYPE_SAMPLE },
             doc! { "$group": { "_id": { "$type": format!("${n}") }, "n": { "$sum": 1 } } },
         ];
-        let found: Vec<Document> = coll.aggregate(pipeline).comment(tag).await.map_err(err)?.try_collect().await.map_err(err)?;
+        let found: Vec<Document> = coll
+            .aggregate(pipeline)
+            .comment(tag)
+            .await
+            .map_err(err)?
+            .try_collect()
+            .await
+            .map_err(err)?;
         if found.is_empty() {
-            return Err(Error::Query(format!("La colección {} no tiene el campo «{n}».", coll.name())));
+            return Err(Error::Query(format!(
+                "La colección {} no tiene el campo «{n}».",
+                coll.name()
+            )));
         }
-        types.insert(n.clone(), joined(found.iter().filter_map(|d| Some((d.get_str("_id").ok()?.to_string(), group_number(d, "n")))).collect()));
+        types.insert(
+            n.clone(),
+            joined(
+                found
+                    .iter()
+                    .filter_map(|d| {
+                        Some((d.get_str("_id").ok()?.to_string(), group_number(d, "n")))
+                    })
+                    .collect(),
+            ),
+        );
     }
     Ok(types)
 }
@@ -425,7 +531,11 @@ type Types = HashMap<String, String>;
 /// does: the most frequent first, `null` only when there's nothing else.
 fn joined(mut seen: Vec<(String, i64)>) -> String {
     seen.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    let types: Vec<String> = seen.into_iter().map(|(t, _)| t).filter(|t| t != "null" && t != "undefined").collect();
+    let types: Vec<String> = seen
+        .into_iter()
+        .map(|(t, _)| t)
+        .filter(|t| t != "null" && t != "undefined")
+        .collect();
     if types.is_empty() {
         "null".into()
     } else {
@@ -453,7 +563,9 @@ fn match_takes(filter: &Document) -> bool {
             _ => true,
         }
     }
-    filter.iter().all(|(k, v)| !matches!(k.as_str(), "$where" | "$near" | "$nearSphere") && ok(v))
+    filter
+        .iter()
+        .all(|(k, v)| !matches!(k.as_str(), "$where" | "$near" | "$nearSphere") && ok(v))
 }
 
 /// Every top-level field of the documents `filter` matches: `_id` first,
@@ -463,14 +575,20 @@ fn match_takes(filter: &Document) -> bool {
 /// fields the filtered documents lack come out NULL. In the same pass, the
 /// largest of those documents in BSON bytes (`None` when the server can't
 /// tell).
-async fn all_fields(coll: &mongodb::Collection<Document>, filter: &Document, sample: &[Document], tag: &str) -> Result<(Vec<String>, Types, Option<u64>)> {
+async fn all_fields(
+    coll: &mongodb::Collection<Document>,
+    filter: &Document,
+    sample: &[Document],
+    tag: &str,
+) -> Result<(Vec<String>, Types, Option<u64>)> {
     let pipeline = |sized: bool| {
         let mut pipeline = Vec::with_capacity(4);
         if !filter.is_empty() && match_takes(filter) {
             pipeline.push(doc! { "$match": filter.clone() });
         }
         let mut project = doc! { "_id": 0, "kv": { "$objectToArray": "$$ROOT" } };
-        let mut group = doc! { "_id": { "k": "$kv.k", "t": { "$type": "$kv.v" } }, "n": { "$sum": 1 } };
+        let mut group =
+            doc! { "_id": { "k": "$kv.k", "t": { "$type": "$kv.v" } }, "n": { "$sum": 1 } };
         if sized {
             project.insert("sz", doc! { "$bsonSize": "$$ROOT" });
             group.insert("m", doc! { "$max": "$sz" });
@@ -480,19 +598,38 @@ async fn all_fields(coll: &mongodb::Collection<Document>, filter: &Document, sam
         pipeline.push(doc! { "$group": group });
         pipeline
     };
-    let run = |sized: bool| async move { coll.aggregate(pipeline(sized)).allow_disk_use(true).comment(tag).await?.try_collect::<Vec<Document>>().await };
+    let run = |sized: bool| async move {
+        coll.aggregate(pipeline(sized))
+            .allow_disk_use(true)
+            .comment(tag)
+            .await?
+            .try_collect::<Vec<Document>>()
+            .await
+    };
     let (found, sized) = match run(true).await {
         Ok(found) => (found, true),
         // A server without `$bsonSize` (an interrupted one doesn't retry).
-        Err(e) if !matches!(e.kind.as_ref(), ErrorKind::Command(c) if c.code == 11601) => (run(false).await.map_err(err)?, false),
+        Err(e) if !matches!(e.kind.as_ref(), ErrorKind::Command(c) if c.code == 11601) => {
+            (run(false).await.map_err(err)?, false)
+        }
         Err(e) => return Err(err(e)),
     };
-    let largest = sized.then(|| found.iter().map(|d| group_number(d, "m").max(0) as u64).max().unwrap_or(0));
+    let largest = sized.then(|| {
+        found
+            .iter()
+            .map(|d| group_number(d, "m").max(0) as u64)
+            .max()
+            .unwrap_or(0)
+    });
     let mut seen: HashMap<String, Vec<(String, i64)>> = HashMap::new();
     for d in &found {
-        let Ok(id) = d.get_document("_id") else { continue };
+        let Ok(id) = d.get_document("_id") else {
+            continue;
+        };
         if let (Ok(k), Ok(t)) = (id.get_str("k"), id.get_str("t")) {
-            seen.entry(k.to_string()).or_default().push((t.to_string(), group_number(d, "n")));
+            seen.entry(k.to_string())
+                .or_default()
+                .push((t.to_string(), group_number(d, "n")));
         }
     }
     let types: Types = seen.into_iter().map(|(k, t)| (k, joined(t))).collect();
@@ -530,7 +667,14 @@ fn cell(v: Bson) -> Cell {
         },
         Bson::Binary(b) if b.subtype == BinarySubtype::Uuid && b.bytes.len() == 16 => {
             let h: String = b.bytes.iter().map(|x| format!("{x:02x}")).collect();
-            Cell::Uuid(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
+            Cell::Uuid(format!(
+                "{}-{}-{}-{}-{}",
+                &h[0..8],
+                &h[8..12],
+                &h[12..16],
+                &h[16..20],
+                &h[20..32]
+            ))
         }
         Bson::Binary(b) if matches!(b.subtype, BinarySubtype::Generic) => Cell::Bytes(b.bytes),
         other => Cell::Json(other.into_canonical_extjson().to_string()),
@@ -540,7 +684,11 @@ fn cell(v: Bson) -> Cell {
 /// `YYYY-MM-DD HH:MM:SS[.mmm]+00:00`; `None` outside chrono's range.
 fn date_text(ms: i64) -> Option<String> {
     let d = DateTime::<Utc>::from_timestamp_millis(ms)?;
-    let f = if ms.rem_euclid(1000) == 0 { "%Y-%m-%d %H:%M:%S+00:00" } else { "%Y-%m-%d %H:%M:%S%.3f+00:00" };
+    let f = if ms.rem_euclid(1000) == 0 {
+        "%Y-%m-%d %H:%M:%S+00:00"
+    } else {
+        "%Y-%m-%d %H:%M:%S%.3f+00:00"
+    };
     Some(d.format(f).to_string())
 }
 
@@ -566,7 +714,11 @@ fn plain_decimal(s: &str) -> Option<String> {
     } else if point as usize >= digits.len() {
         format!("{digits}{}", "0".repeat(point as usize - digits.len()))
     } else {
-        format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+        format!(
+            "{}.{}",
+            &digits[..point as usize],
+            &digits[point as usize..]
+        )
     };
     // Keep the decimal's own scale (`1.50` stays `1.50`), only drop leading zeros.
     let lead = out.len() - out.trim_start_matches('0').len();
@@ -594,22 +746,48 @@ struct Hint {
 /// one must have an [`empty_of`]).
 #[cfg(test)]
 const MONGO_TYPES: [&str; 21] = [
-    "double", "string", "object", "array", "bindata", "undefined", "objectid", "bool", "date", "null", "regex", "javascript", "symbol", "int",
-    "timestamp", "long", "decimal", "minkey", "maxkey", "dbpointer", "javascriptwithscope",
+    "double",
+    "string",
+    "object",
+    "array",
+    "bindata",
+    "undefined",
+    "objectid",
+    "bool",
+    "date",
+    "null",
+    "regex",
+    "javascript",
+    "symbol",
+    "int",
+    "timestamp",
+    "long",
+    "decimal",
+    "minkey",
+    "maxkey",
+    "dbpointer",
+    "javascriptwithscope",
 ];
 
 /// The column's hint, from its source type. A MongoDB column whose values
 /// can't be told apart from the cells is refused.
 fn hint(c: &TransferColumn) -> Result<Hint> {
     let t = c.type_name.trim().to_ascii_lowercase();
-    let parts: Vec<&str> = t.split('|').map(str::trim).filter(|p| !p.is_empty()).collect();
+    let parts: Vec<&str> = t
+        .split('|')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
     // Only a column with this crate's mark is MongoDB's: its reads mark
     // every field's type, while other engines also call types `object` or
     // `array` (Elasticsearch, Snowflake…), and a column without a type
     // (DynamoDB's, a copy's fallback…) comes from elsewhere too. Their JSON
     // is plain: `$`-keys are keys and numbers stay exact.
     let mongo = !parts.is_empty() && parts.iter().all(|p| p.starts_with(TYPE_MARK));
-    let bare: Vec<&str> = parts.iter().map(|p| p.strip_prefix(TYPE_MARK).unwrap_or(p)).collect();
+    let bare: Vec<&str> = parts
+        .iter()
+        .map(|p| p.strip_prefix(TYPE_MARK).unwrap_or(p))
+        .collect();
     let has = |x: &str| mongo && bare.contains(&x);
     let ambiguous = |what: &str| {
         Err(Error::Unsupported(format!(
@@ -623,7 +801,11 @@ fn hint(c: &TransferColumn) -> Result<Hint> {
     if has("int") && has("long") {
         return ambiguous("int y long");
     }
-    let wide = |p: &&str| matches!(*p, "long" | "int64" | "int8" | "bigint") || p.starts_with("bigint") || p.starts_with("int64");
+    let wide = |p: &&str| {
+        matches!(*p, "long" | "int64" | "int8" | "bigint")
+            || p.starts_with("bigint")
+            || p.starts_with("int64")
+    };
     Ok(Hint {
         object_id: has("objectid"),
         long: bare.iter().any(wide),
@@ -646,19 +828,33 @@ fn bson(cell: Cell, h: Hint) -> std::result::Result<Option<Bson>, String> {
         },
         Cell::Float(f) => Bson::Double(f),
         Cell::Decimal(s) => Bson::Decimal128(decimal(&s)?),
-        Cell::Text(s) if h.object_id && s.len() == 24 => ObjectId::parse_str(&s).map(Bson::ObjectId).unwrap_or(Bson::String(s)),
+        Cell::Text(s) if h.object_id && s.len() == 24 => ObjectId::parse_str(&s)
+            .map(Bson::ObjectId)
+            .unwrap_or(Bson::String(s)),
         Cell::Text(s) | Cell::Time(s) => Bson::String(s),
-        Cell::Bytes(b) => Bson::Binary(Binary { subtype: BinarySubtype::Generic, bytes: b }),
+        Cell::Bytes(b) => Bson::Binary(Binary {
+            subtype: BinarySubtype::Generic,
+            bytes: b,
+        }),
         Cell::Uuid(s) => match uuid_bytes(&s) {
-            Some(bytes) => Bson::Binary(Binary { subtype: BinarySubtype::Uuid, bytes }),
+            Some(bytes) => Bson::Binary(Binary {
+                subtype: BinarySubtype::Uuid,
+                bytes,
+            }),
             None => Bson::String(s),
         },
         Cell::Date(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) => match parse_date(&s) {
             Some(ms) => Bson::DateTime(mongodb::bson::DateTime::from_millis(ms)),
-            None => return Err(format!("la fecha «{}» no se puede guardar como fecha de MongoDB", clip(&s, 60))),
+            None => {
+                return Err(format!(
+                    "la fecha «{}» no se puede guardar como fecha de MongoDB",
+                    clip(&s, 60)
+                ))
+            }
         },
         Cell::Json(s) if h.extjson => {
-            let v: serde_json::Value = serde_json::from_str(&s).map_err(|e| format!("no es JSON válido ({e})"))?;
+            let v: serde_json::Value =
+                serde_json::from_str(&s).map_err(|e| format!("no es JSON válido ({e})"))?;
             Bson::try_from(v).map_err(|e| format!("no es Extended JSON válido ({e})"))?
         }
         Cell::Json(s) => plain_json(&s)?,
@@ -693,7 +889,10 @@ fn uuid_bytes(s: &str) -> Option<Vec<u8>> {
     if h.len() != 32 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    (0..32).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok()).collect()
+    (0..32)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok())
+        .collect()
 }
 
 /// Milliseconds since the epoch: with an offset it's applied, without one
@@ -706,7 +905,11 @@ fn parse_date(s: &str) -> Option<i64> {
     if let Ok(d) = DateTime::parse_from_rfc3339(&tz) {
         return Some(d.timestamp_millis());
     }
-    for f in ["%Y-%m-%dT%H:%M:%S%.f%:z", "%Y-%m-%dT%H:%M:%S%.f%z", "%Y-%m-%dT%H:%M:%S%#z"] {
+    for f in [
+        "%Y-%m-%dT%H:%M:%S%.f%:z",
+        "%Y-%m-%dT%H:%M:%S%.f%z",
+        "%Y-%m-%dT%H:%M:%S%#z",
+    ] {
         if let Ok(d) = DateTime::parse_from_str(&tz, f) {
             return Some(d.timestamp_millis());
         }
@@ -716,7 +919,10 @@ fn parse_date(s: &str) -> Option<i64> {
             return Some(d.and_utc().timestamp_millis());
         }
     }
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().and_then(|d| d.and_hms_opt(0, 0, 0)).map(|d| d.and_utc().timestamp_millis())
+    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .ok()
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .map(|d| d.and_utc().timestamp_millis())
 }
 
 /// A JSON document from another engine as BSON: keys are plain keys (`$date`
@@ -724,7 +930,11 @@ fn parse_date(s: &str) -> Option<i64> {
 /// fraction is a double only when the double gives back the same number
 /// (otherwise Decimal128, or an error past 34 digits).
 fn plain_json(s: &str) -> std::result::Result<Bson, String> {
-    let mut p = Json { s: s.as_bytes(), text: s, i: 0 };
+    let mut p = Json {
+        s: s.as_bytes(),
+        text: s,
+        i: 0,
+    };
     let v = p.value(0)?;
     p.ws();
     if p.i != p.s.len() {
@@ -818,7 +1028,11 @@ impl Json<'_> {
             Some(b'n') => self.word("null", Bson::Null),
             Some(b'-' | b'0'..=b'9') => {
                 let start = self.i;
-                while self.s.get(self.i).is_some_and(|b| matches!(b, b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')) {
+                while self
+                    .s
+                    .get(self.i)
+                    .is_some_and(|b| matches!(b, b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9'))
+                {
                     self.i += 1;
                 }
                 json_number(&self.text[start..self.i])
@@ -929,7 +1143,11 @@ fn scaled(t: &str) -> (bool, String, i64) {
         "" => "0",
         d => d,
     };
-    (neg, digits.to_string(), exp.saturating_sub(frac.len() as i64))
+    (
+        neg,
+        digits.to_string(),
+        exp.saturating_sub(frac.len() as i64),
+    )
 }
 
 fn clip(s: &str, max: usize) -> String {
@@ -1019,7 +1237,10 @@ impl<'a> Loader<'a> {
 
     /// Send the chunk once there's room in flight.
     async fn send(&mut self) -> Result<()> {
-        while !self.inflight.is_empty() && (self.inflight.len() >= LOAD_CONCURRENCY || self.inflight_bytes + self.chunk_bytes > INFLIGHT_BYTES) {
+        while !self.inflight.is_empty()
+            && (self.inflight.len() >= LOAD_CONCURRENCY
+                || self.inflight_bytes + self.chunk_bytes > INFLIGHT_BYTES)
+        {
             let r = self.inflight.join_next().await;
             self.settled(r);
         }
@@ -1033,7 +1254,13 @@ impl<'a> Loader<'a> {
         let bytes = std::mem::take(&mut self.chunk_bytes);
         let first_row = self.rows - docs.len() as u64 + 1;
         self.inflight_bytes += bytes;
-        self.inflight.spawn(insert(self.coll.clone(), docs, bytes, first_row, self.tag.clone()));
+        self.inflight.spawn(insert(
+            self.coll.clone(),
+            docs,
+            bytes,
+            first_row,
+            self.tag.clone(),
+        ));
         Ok(())
     }
 
@@ -1058,14 +1285,20 @@ impl<'a> Loader<'a> {
 
     fn settled(&mut self, r: Option<std::result::Result<Sent, tokio::task::JoinError>>) {
         let Some(r) = r else { return };
-        let sent = r.unwrap_or_else(|e| Sent { bytes: 0, inserted: 0, error: Some((0, Error::State(format!("la carga se interrumpió: {e}")))) });
+        let sent = r.unwrap_or_else(|e| Sent {
+            bytes: 0,
+            inserted: 0,
+            error: Some((0, Error::State(format!("la carga se interrumpió: {e}")))),
+        });
         self.inflight_bytes = self.inflight_bytes.saturating_sub(sent.bytes);
         self.done += sent.inserted;
         self.bytes_since_report += sent.bytes as u64;
         if let Some(e) = sent.error {
             keep_earliest(&mut self.failed, e);
         }
-        if self.done / self.every_rows > self.reported / self.every_rows || self.bytes_since_report >= self.every_bytes {
+        if self.done / self.every_rows > self.reported / self.every_rows
+            || self.bytes_since_report >= self.every_bytes
+        {
             self.report();
         }
     }
@@ -1117,7 +1350,9 @@ impl Drop for Loader<'_> {
             })
             .await;
         };
-        let Ok(h) = tokio::runtime::Handle::try_current() else { return };
+        let Ok(h) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
         if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
             tokio::task::block_in_place(|| h.block_on(settle));
         } else {
@@ -1136,13 +1371,27 @@ fn keep_earliest(failed: &mut Option<(u64, Error)>, e: (u64, Error)) {
 }
 
 /// One unordered `insertMany`, tagged for the session's interrupter.
-async fn insert(coll: mongodb::Collection<RawDocumentBuf>, docs: Vec<RawDocumentBuf>, bytes: usize, first_row: u64, tag: String) -> Sent {
+async fn insert(
+    coll: mongodb::Collection<RawDocumentBuf>,
+    docs: Vec<RawDocumentBuf>,
+    bytes: usize,
+    first_row: u64,
+    tag: String,
+) -> Sent {
     let n = docs.len() as u64;
     match coll.insert_many(docs).ordered(false).comment(tag).await {
-        Ok(_) => Sent { bytes, inserted: n, error: None },
+        Ok(_) => Sent {
+            bytes,
+            inserted: n,
+            error: None,
+        },
         Err(e) => {
             let (inserted, row, error) = load_error(e, n, first_row);
-            Sent { bytes, inserted, error: Some((row, error)) }
+            Sent {
+                bytes,
+                inserted,
+                error: Some((row, error)),
+            }
         }
     }
 }
@@ -1154,17 +1403,37 @@ fn load_error(e: mongodb::error::Error, n: u64, first_row: u64) -> (u64, u64, Er
     if let ErrorKind::InsertMany(im) = e.kind.as_ref() {
         let rejected = im.write_errors.as_ref().map_or(0, Vec::len) as u64;
         let inserted = n.saturating_sub(rejected);
-        if let Some(w) = im.write_errors.as_ref().and_then(|v| v.iter().min_by_key(|w| w.index)) {
+        if let Some(w) = im
+            .write_errors
+            .as_ref()
+            .and_then(|v| v.iter().min_by_key(|w| w.index))
+        {
             let row = first_row + w.index as u64;
             let code = w.code_name.clone().unwrap_or_else(|| w.code.to_string());
-            let others = if rejected > 1 { format!(" (y {} documentos más de ese envío)", rejected - 1) } else { String::new() };
-            return (inserted, row, Error::Query(format!("MongoDB rechazó la fila {row}{others}: {} ({code})", clip(&w.message, ERROR_TEXT))));
+            let others = if rejected > 1 {
+                format!(" (y {} documentos más de ese envío)", rejected - 1)
+            } else {
+                String::new()
+            };
+            return (
+                inserted,
+                row,
+                Error::Query(format!(
+                    "MongoDB rechazó la fila {row}{others}: {} ({code})",
+                    clip(&w.message, ERROR_TEXT)
+                )),
+            );
         }
         if let Some(w) = &im.write_concern_error {
             return (
                 inserted,
                 first_row,
-                Error::Query(format!("MongoDB no confirmó la escritura de las filas {first_row} a {}: {} ({})", first_row + n - 1, clip(&w.message, ERROR_TEXT), w.code_name)),
+                Error::Query(format!(
+                    "MongoDB no confirmó la escritura de las filas {first_row} a {}: {} ({})",
+                    first_row + n - 1,
+                    clip(&w.message, ERROR_TEXT),
+                    w.code_name
+                )),
             );
         }
     }
@@ -1190,7 +1459,11 @@ pub(crate) async fn bulk_load(
         .iter()
         .enumerate()
         .map(|(i, name)| {
-            let c = if columns.len() == spec.columns.len() { columns.get(i) } else { columns.iter().find(|c| c.name == *name) };
+            let c = if columns.len() == spec.columns.len() {
+                columns.get(i)
+            } else {
+                columns.iter().find(|c| c.name == *name)
+            };
             c.map(hint).unwrap_or(Ok(Hint::default()))
         })
         .collect::<Result<_>>()?;
@@ -1199,17 +1472,28 @@ pub(crate) async fn bulk_load(
     loader.finish(fed).await
 }
 
-async fn feed_rows(loader: &mut Loader<'_>, spec: &LoadSpec, hints: &[Hint], source: &mut dyn BatchSource) -> Result<()> {
+async fn feed_rows(
+    loader: &mut Loader<'_>,
+    spec: &LoadSpec,
+    hints: &[Hint],
+    source: &mut dyn BatchSource,
+) -> Result<()> {
     while let Some(batch) = loader.wait(source.next()).await? {
         for row in batch.rows {
             let mut d = Document::new();
             for ((cell, name), h) in row.into_iter().zip(&spec.columns).zip(hints) {
-                let v = bson(cell, *h).map_err(|why| Error::Unsupported(format!("Fila {}, columna «{name}»: {why}.", loader.rows + 1)))?;
+                let v = bson(cell, *h).map_err(|why| {
+                    Error::Unsupported(format!(
+                        "Fila {}, columna «{name}»: {why}.",
+                        loader.rows + 1
+                    ))
+                })?;
                 if let Some(v) = v {
                     d.insert(name.clone(), v);
                 }
             }
-            let raw = RawDocumentBuf::from_document(&d).map_err(|e| Error::Query(format!("Fila {}: {e}", loader.rows + 1)))?;
+            let raw = RawDocumentBuf::from_document(&d)
+                .map_err(|e| Error::Query(format!("Fila {}: {e}", loader.rows + 1)))?;
             loader.push(raw).await?;
         }
     }
@@ -1235,7 +1519,10 @@ pub(crate) async fn write_rows(
     use dbine_driver::WriteMode;
     s.refuse_if_read_only("Conexión de solo lectura: no se pueden escribir datos.")?;
     spec.check()?;
-    let mut out = dbine_driver::WriteResult { atomic: false, ..Default::default() };
+    let mut out = dbine_driver::WriteResult {
+        atomic: false,
+        ..Default::default()
+    };
     let load = LoadSpec {
         table: spec.table.clone(),
         columns: spec.columns.clone(),
@@ -1251,9 +1538,14 @@ pub(crate) async fn write_rows(
         WriteMode::Replace => {
             let coll = s.db.collection::<Document>(&spec.table.name);
             out.deleted = coll.delete_many(doc! {}).await.map_err(err)?.deleted_count;
-            out.inserted = bulk_load(s, &load, columns, source, progress).await.map_err(|e| {
-                Error::Query(format!("se borraron {} documentos y la carga falló: {e}", out.deleted))
-            })?;
+            out.inserted = bulk_load(s, &load, columns, source, progress)
+                .await
+                .map_err(|e| {
+                    Error::Query(format!(
+                        "se borraron {} documentos y la carga falló: {e}",
+                        out.deleted
+                    ))
+                })?;
         }
         WriteMode::Update | WriteMode::Upsert => {
             let upsert = spec.mode == WriteMode::Upsert;
@@ -1262,11 +1554,19 @@ pub(crate) async fn write_rows(
                 .iter()
                 .enumerate()
                 .map(|(i, name)| {
-                    let c = if columns.len() == spec.columns.len() { columns.get(i) } else { columns.iter().find(|c| c.name == *name) };
+                    let c = if columns.len() == spec.columns.len() {
+                        columns.get(i)
+                    } else {
+                        columns.iter().find(|c| c.name == *name)
+                    };
                     c.map(hint).unwrap_or(Ok(Hint::default()))
                 })
                 .collect::<Result<_>>()?;
-            let is_key: Vec<bool> = spec.columns.iter().map(|c| spec.key.iter().any(|k| k == c)).collect();
+            let is_key: Vec<bool> = spec
+                .columns
+                .iter()
+                .map(|c| spec.key.iter().any(|k| k == c))
+                .collect();
             check_update_fields(&spec.columns)?;
             let mut row_no = 0u64;
             while let Some(batch) = source.next().await {
@@ -1276,21 +1576,43 @@ pub(crate) async fn write_rows(
                     let mut values = Vec::with_capacity(spec.columns.len());
                     for ((cell, name), h) in row.into_iter().zip(&spec.columns).zip(&hints) {
                         let v = bson(cell, *h)
-                            .map_err(|why| Error::Unsupported(format!("Fila {row_no}, columna «{name}»: {why}.")))?
+                            .map_err(|why| {
+                                Error::Unsupported(format!(
+                                    "Fila {row_no}, columna «{name}»: {why}."
+                                ))
+                            })?
                             .unwrap_or(Bson::Null);
                         values.push(v);
                     }
-                    updates.push(update_entry(&spec.columns, &is_key, values, upsert, row_no)?);
+                    updates.push(update_entry(
+                        &spec.columns,
+                        &is_key,
+                        values,
+                        upsert,
+                        row_no,
+                    )?);
                 }
-                let cmd = doc! { "update": spec.table.name.clone(), "updates": updates, "ordered": true };
-                let r = s.db.run_command(cmd).await.map_err(|e| written_so_far(&out, err(e)))?;
+                let cmd =
+                    doc! { "update": spec.table.name.clone(), "updates": updates, "ordered": true };
+                let r =
+                    s.db.run_command(cmd)
+                        .await
+                        .map_err(|e| written_so_far(&out, err(e)))?;
                 if let Ok(errs) = r.get_array("writeErrors") {
                     if let Some(e) = errs.first().and_then(Bson::as_document) {
-                        let msg = e.get_str("errmsg").unwrap_or("error de escritura").to_string();
+                        let msg = e
+                            .get_str("errmsg")
+                            .unwrap_or("error de escritura")
+                            .to_string();
                         return Err(written_so_far(&out, Error::Query(msg)));
                     }
                 }
-                let n = r.get_i32("n").map(i64::from).or_else(|_| r.get_i64("n")).unwrap_or(0).max(0) as u64;
+                let n = r
+                    .get_i32("n")
+                    .map(i64::from)
+                    .or_else(|_| r.get_i64("n"))
+                    .unwrap_or(0)
+                    .max(0) as u64;
                 let up = r.get_array("upserted").map(|a| a.len() as u64).unwrap_or(0);
                 out.inserted += up;
                 out.updated += n.saturating_sub(up);
@@ -1325,7 +1647,13 @@ fn has_operator(v: &Bson) -> bool {
 /// One row's entry in the `update` command: the key fields matched by
 /// literal equality (`$eq`, so a document-valued key is a value, never an
 /// operator expression), the other fields in `$set`.
-fn update_entry(columns: &[String], is_key: &[bool], values: Vec<Bson>, upsert: bool, row_no: u64) -> Result<Document> {
+fn update_entry(
+    columns: &[String],
+    is_key: &[bool],
+    values: Vec<Bson>,
+    upsert: bool,
+    row_no: u64,
+) -> Result<Document> {
     let (mut q, mut keys, mut set) = (Document::new(), Document::new(), Document::new());
     for ((name, key), v) in columns.iter().zip(is_key).zip(values) {
         if *key {
@@ -1340,7 +1668,11 @@ fn update_entry(columns: &[String], is_key: &[bool], values: Vec<Bson>, upsert: 
             set.insert(name.clone(), v);
         }
     }
-    let u = if set.is_empty() { doc! { "$setOnInsert": keys } } else { doc! { "$set": set } };
+    let u = if set.is_empty() {
+        doc! { "$setOnInsert": keys }
+    } else {
+        doc! { "$set": set }
+    };
     Ok(doc! { "q": q, "u": u, "upsert": upsert, "multi": false })
 }
 
@@ -1349,7 +1681,10 @@ fn written_so_far(out: &dbine_driver::WriteResult, e: Error) -> Error {
     if out.inserted + out.updated == 0 {
         return e;
     }
-    Error::Query(format!("{e} (ya se habían escrito {} insertados y {} actualizados, que quedan)", out.inserted, out.updated))
+    Error::Query(format!(
+        "{e} (ya se habían escrito {} insertados y {} actualizados, que quedan)",
+        out.inserted, out.updated
+    ))
 }
 
 // ---------------------------------------------------------------- native copy
@@ -1361,24 +1696,50 @@ fn mongo(s: &mut dyn Session) -> Option<&mut MongoSession> {
 /// Between two sessions of this crate (MongoDB, FerretDB, DocumentDB): the
 /// source's documents as raw BSON, never decoded, so every type, explicit
 /// nulls and field order survive. `source` is only read (`find`).
-pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Session, spec: &CopySpec, progress: Progress<'_>) -> Result<u64> {
-    let unsupported = |why: &str| Err(Error::Unsupported(format!("copia directa no disponible: {why}")));
-    let Some(src) = mongo(source) else { return unsupported("el origen no es una sesión de MongoDB") };
-    let Some(dst) = mongo(target) else { return unsupported("el destino no es una sesión de MongoDB") };
+pub(crate) async fn copy_native(
+    source: &mut dyn Session,
+    target: &mut dyn Session,
+    spec: &CopySpec,
+    progress: Progress<'_>,
+) -> Result<u64> {
+    let unsupported = |why: &str| {
+        Err(Error::Unsupported(format!(
+            "copia directa no disponible: {why}"
+        )))
+    };
+    let Some(src) = mongo(source) else {
+        return unsupported("el origen no es una sesión de MongoDB");
+    };
+    let Some(dst) = mongo(target) else {
+        return unsupported("el destino no es una sesión de MongoDB");
+    };
     dst.refuse_if_read_only("Conexión de solo lectura: no se pueden cargar datos.")?;
 
     let filter = parse_filter(spec.source.filter.as_deref())?;
     // (source field, target field), in order; `None`: the whole document.
     let target_cols = &spec.target.columns;
-    let pairs: Option<Vec<(String, String)>> = match spec.source.columns.as_ref().filter(|c| !c.is_empty()) {
-        Some(from) if target_cols.is_empty() || target_cols.len() == from.len() => {
-            let to = if target_cols.is_empty() { from } else { target_cols };
-            Some(from.iter().cloned().zip(to.iter().cloned()).collect())
-        }
-        Some(from) => return Err(Error::State(format!("la copia lee {} columnas y carga {}", from.len(), target_cols.len()))),
-        None if !target_cols.is_empty() => Some(target_cols.iter().map(|c| (c.clone(), c.clone())).collect()),
-        None => None,
-    };
+    let pairs: Option<Vec<(String, String)>> =
+        match spec.source.columns.as_ref().filter(|c| !c.is_empty()) {
+            Some(from) if target_cols.is_empty() || target_cols.len() == from.len() => {
+                let to = if target_cols.is_empty() {
+                    from
+                } else {
+                    target_cols
+                };
+                Some(from.iter().cloned().zip(to.iter().cloned()).collect())
+            }
+            Some(from) => {
+                return Err(Error::State(format!(
+                    "la copia lee {} columnas y carga {}",
+                    from.len(),
+                    target_cols.len()
+                )))
+            }
+            None if !target_cols.is_empty() => {
+                Some(target_cols.iter().map(|c| (c.clone(), c.clone())).collect())
+            }
+            None => None,
+        };
     let docs = src.db.collection::<Document>(&spec.source.table.name);
     // For the batch size (and the requested fields' check).
     let sampled = sample(src, &spec.source.table.name, &filter).await?;
@@ -1387,7 +1748,9 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
         let mut seen: Vec<&str> = Vec::new();
         for (_, t) in p {
             if seen.contains(&t.as_str()) {
-                return Err(Error::State(format!("la columna de destino «{t}» está repetida")));
+                return Err(Error::State(format!(
+                    "la columna de destino «{t}» está repetida"
+                )));
             }
             seen.push(t);
         }
@@ -1407,9 +1770,16 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
     }
 
     // Whole documents' size, even with a projection: a bound from above.
-    let batch = batch_for(sampled.largest.max(largest_doc(&docs, &filter, &src.tag).await.unwrap_or(0)));
+    let batch = batch_for(
+        sampled
+            .largest
+            .max(largest_doc(&docs, &filter, &src.tag).await.unwrap_or(0)),
+    );
     let coll = src.db.collection::<RawDocumentBuf>(&spec.source.table.name);
-    let mut find = coll.find(filter).batch_size(batch).comment(src.tag.as_str());
+    let mut find = coll
+        .find(filter)
+        .batch_size(batch)
+        .comment(src.tag.as_str());
     if let Some(p) = projection {
         find = find.projection(p);
     }
@@ -1442,10 +1812,18 @@ mod tests {
     use super::*;
     use mongodb::bson::{Regex, Timestamp};
 
-    const PLAIN: Hint = Hint { object_id: false, long: false, extjson: true };
+    const PLAIN: Hint = Hint {
+        object_id: false,
+        long: false,
+        extjson: true,
+    };
 
     fn col(t: &str) -> TransferColumn {
-        TransferColumn { name: "x".into(), type_name: t.into(), nullable: true }
+        TransferColumn {
+            name: "x".into(),
+            type_name: t.into(),
+            nullable: true,
+        }
     }
 
     fn round_trip(v: Bson, h: Hint) -> Option<Bson> {
@@ -1457,25 +1835,57 @@ mod tests {
         let cols = vec!["id".to_string(), "role".to_string()];
         let key = [true, false];
         // A plain key: `$eq`, the rest in `$set`.
-        let e = update_entry(&cols, &key, vec![Bson::Int32(5), Bson::String("admin".into())], true, 1).unwrap();
+        let e = update_entry(
+            &cols,
+            &key,
+            vec![Bson::Int32(5), Bson::String("admin".into())],
+            true,
+            1,
+        )
+        .unwrap();
         assert_eq!(e.get_document("q").unwrap(), &doc! { "id": { "$eq": 5 } });
-        assert_eq!(e.get_document("u").unwrap(), &doc! { "$set": { "role": "admin" } });
+        assert_eq!(
+            e.get_document("u").unwrap(),
+            &doc! { "$set": { "role": "admin" } }
+        );
         // A JSON key cell `{"$gt": ""}` is refused, not an operator in the filter.
-        let h = Hint { object_id: false, long: false, extjson: false };
-        let inj = bson(Cell::Json(r#"{"$gt": ""}"#.into()), h).unwrap().unwrap();
-        assert!(update_entry(&cols, &key, vec![inj, Bson::String("admin".into())], true, 1).is_err());
+        let h = Hint {
+            object_id: false,
+            long: false,
+            extjson: false,
+        };
+        let inj = bson(Cell::Json(r#"{"$gt": ""}"#.into()), h)
+            .unwrap()
+            .unwrap();
+        assert!(update_entry(
+            &cols,
+            &key,
+            vec![inj, Bson::String("admin".into())],
+            true,
+            1
+        )
+        .is_err());
         let nested = Bson::Array(vec![Bson::Document(doc! { "a": { "$ne": 1 } })]);
         assert!(update_entry(&cols, &key, vec![nested, Bson::Null], false, 1).is_err());
         // A subdocument key without operators is a literal value.
         let sub = Bson::Document(doc! { "a": 1 });
         let e = update_entry(&cols, &key, vec![sub, Bson::Null], false, 1).unwrap();
-        assert_eq!(e.get_document("q").unwrap(), &doc! { "id": { "$eq": { "a": 1 } } });
+        assert_eq!(
+            e.get_document("q").unwrap(),
+            &doc! { "id": { "$eq": { "a": 1 } } }
+        );
         // Only keys: the upsert inserts the raw values, not the `$eq`.
         let e = update_entry(&cols[..1], &key[..1], vec![Bson::Int32(5)], true, 1).unwrap();
-        assert_eq!(e.get_document("u").unwrap(), &doc! { "$setOnInsert": { "id": 5 } });
+        assert_eq!(
+            e.get_document("u").unwrap(),
+            &doc! { "$setOnInsert": { "id": 5 } }
+        );
         // Names that would be operators or paths are refused.
         for bad in ["$where", "a.b", ""] {
-            assert!(check_update_fields(&["id".into(), bad.into()]).is_err(), "{bad}");
+            assert!(
+                check_update_fields(&["id".into(), bad.into()]).is_err(),
+                "{bad}"
+            );
         }
         assert!(check_update_fields(&cols).is_ok());
     }
@@ -1483,25 +1893,70 @@ mod tests {
     #[test]
     fn scalars_keep_their_type() {
         let oid = ObjectId::parse_str("65a1b2c3d4e5f60718293a4b").unwrap();
-        assert_eq!(cell(Bson::ObjectId(oid)), Cell::Text("65a1b2c3d4e5f60718293a4b".into()));
-        assert_eq!(round_trip(Bson::ObjectId(oid), hint(&col("bson:objectId")).unwrap()), Some(Bson::ObjectId(oid)));
+        assert_eq!(
+            cell(Bson::ObjectId(oid)),
+            Cell::Text("65a1b2c3d4e5f60718293a4b".into())
+        );
+        assert_eq!(
+            round_trip(Bson::ObjectId(oid), hint(&col("bson:objectId")).unwrap()),
+            Some(Bson::ObjectId(oid))
+        );
         assert_eq!(round_trip(Bson::Int32(7), PLAIN), Some(Bson::Int32(7)));
-        assert_eq!(round_trip(Bson::Int64(7), hint(&col("bson:long")).unwrap()), Some(Bson::Int64(7)));
-        assert_eq!(round_trip(Bson::Int64(1 << 40), PLAIN), Some(Bson::Int64(1 << 40)));
-        assert_eq!(round_trip(Bson::Double(0.1), PLAIN), Some(Bson::Double(0.1)));
-        assert_eq!(round_trip(Bson::Boolean(true), PLAIN), Some(Bson::Boolean(true)));
+        assert_eq!(
+            round_trip(Bson::Int64(7), hint(&col("bson:long")).unwrap()),
+            Some(Bson::Int64(7))
+        );
+        assert_eq!(
+            round_trip(Bson::Int64(1 << 40), PLAIN),
+            Some(Bson::Int64(1 << 40))
+        );
+        assert_eq!(
+            round_trip(Bson::Double(0.1), PLAIN),
+            Some(Bson::Double(0.1))
+        );
+        assert_eq!(
+            round_trip(Bson::Boolean(true), PLAIN),
+            Some(Bson::Boolean(true))
+        );
         assert_eq!(round_trip(Bson::Null, PLAIN), None);
         let dec = Decimal128::from_str("12345678901234567890.1234567890").unwrap();
-        assert_eq!(cell(Bson::Decimal128(dec)), Cell::Decimal("12345678901234567890.1234567890".into()));
-        assert_eq!(round_trip(Bson::Decimal128(dec), PLAIN), Some(Bson::Decimal128(dec)));
+        assert_eq!(
+            cell(Bson::Decimal128(dec)),
+            Cell::Decimal("12345678901234567890.1234567890".into())
+        );
+        assert_eq!(
+            round_trip(Bson::Decimal128(dec), PLAIN),
+            Some(Bson::Decimal128(dec))
+        );
         let d = mongodb::bson::DateTime::from_millis(1_706_708_700_123);
-        assert_eq!(cell(Bson::DateTime(d)), Cell::DateTimeTz("2024-01-31 13:45:00.123+00:00".into()));
-        assert_eq!(round_trip(Bson::DateTime(d), PLAIN), Some(Bson::DateTime(d)));
-        let bin = Binary { subtype: BinarySubtype::Generic, bytes: vec![0, 1, 255] };
-        assert_eq!(round_trip(Bson::Binary(bin.clone()), PLAIN), Some(Bson::Binary(bin)));
-        let uuid = Binary { subtype: BinarySubtype::Uuid, bytes: (0..16).collect() };
-        assert_eq!(cell(Bson::Binary(uuid.clone())), Cell::Uuid("00010203-0405-0607-0809-0a0b0c0d0e0f".into()));
-        assert_eq!(round_trip(Bson::Binary(uuid.clone()), PLAIN), Some(Bson::Binary(uuid)));
+        assert_eq!(
+            cell(Bson::DateTime(d)),
+            Cell::DateTimeTz("2024-01-31 13:45:00.123+00:00".into())
+        );
+        assert_eq!(
+            round_trip(Bson::DateTime(d), PLAIN),
+            Some(Bson::DateTime(d))
+        );
+        let bin = Binary {
+            subtype: BinarySubtype::Generic,
+            bytes: vec![0, 1, 255],
+        };
+        assert_eq!(
+            round_trip(Bson::Binary(bin.clone()), PLAIN),
+            Some(Bson::Binary(bin))
+        );
+        let uuid = Binary {
+            subtype: BinarySubtype::Uuid,
+            bytes: (0..16).collect(),
+        };
+        assert_eq!(
+            cell(Bson::Binary(uuid.clone())),
+            Cell::Uuid("00010203-0405-0607-0809-0a0b0c0d0e0f".into())
+        );
+        assert_eq!(
+            round_trip(Bson::Binary(uuid.clone()), PLAIN),
+            Some(Bson::Binary(uuid))
+        );
     }
 
     #[test]
@@ -1513,13 +1968,24 @@ mod tests {
             "n": Decimal128::from_str("1.50").unwrap(),
             "bin": Binary { subtype: BinarySubtype::UserDefined(0x80), bytes: vec![1, 2] },
         });
-        assert!(matches!(cell(nested.clone()), Cell::Json(ref j) if j.contains("$oid") && j.contains("$numberLong")));
+        assert!(
+            matches!(cell(nested.clone()), Cell::Json(ref j) if j.contains("$oid") && j.contains("$numberLong"))
+        );
         assert_eq!(round_trip(nested.clone(), PLAIN), Some(nested));
         for v in [
-            Bson::Timestamp(Timestamp { time: 5, increment: 2 }),
-            Bson::RegularExpression(Regex { pattern: "^a".into(), options: "i".into() }),
+            Bson::Timestamp(Timestamp {
+                time: 5,
+                increment: 2,
+            }),
+            Bson::RegularExpression(Regex {
+                pattern: "^a".into(),
+                options: "i".into(),
+            }),
             Bson::MinKey,
-            Bson::Binary(Binary { subtype: BinarySubtype::Md5, bytes: vec![9; 16] }),
+            Bson::Binary(Binary {
+                subtype: BinarySubtype::Md5,
+                bytes: vec![9; 16],
+            }),
             Bson::Decimal128(Decimal128::from_str("NaN").unwrap()),
         ] {
             assert!(matches!(cell(v.clone()), Cell::Json(_)), "{v:?}");
@@ -1529,23 +1995,53 @@ mod tests {
 
     #[test]
     fn decimals_of_any_exponent_are_decimals() {
-        for t in ["1E+100", "1E-6000", "-9.999999999999999999999999999999999E+6144", "1.5E-3", "0E-6176"] {
+        for t in [
+            "1E+100",
+            "1E-6000",
+            "-9.999999999999999999999999999999999E+6144",
+            "1.5E-3",
+            "0E-6176",
+        ] {
             let d = Decimal128::from_str(t).unwrap();
             assert!(matches!(cell(Bson::Decimal128(d)), Cell::Decimal(_)), "{t}");
-            assert_eq!(round_trip(Bson::Decimal128(d), PLAIN), Some(Bson::Decimal128(d)), "{t}");
+            assert_eq!(
+                round_trip(Bson::Decimal128(d), PLAIN),
+                Some(Bson::Decimal128(d)),
+                "{t}"
+            );
         }
-        assert_eq!(cell(Bson::Decimal128(Decimal128::from_str("1E+3").unwrap())), Cell::Decimal("1000".into()));
+        assert_eq!(
+            cell(Bson::Decimal128(Decimal128::from_str("1E+3").unwrap())),
+            Cell::Decimal("1000".into())
+        );
     }
 
     #[test]
     fn decimals_past_34_digits_fail_instead_of_turning_into_text() {
-        let e = bson(Cell::Decimal("99999999999999999999999999999999999999".into()), PLAIN).unwrap_err();
+        let e = bson(
+            Cell::Decimal("99999999999999999999999999999999999999".into()),
+            PLAIN,
+        )
+        .unwrap_err();
         assert!(e.contains("38 dígitos") && e.contains("34"), "{e}");
-        assert!(bson(Cell::Decimal("0.3333333333333333333333333333333333333333".into()), PLAIN).is_err());
+        assert!(bson(
+            Cell::Decimal("0.3333333333333333333333333333333333333333".into()),
+            PLAIN
+        )
+        .is_err());
         assert!(bson(Cell::Decimal("1e400000".into()), PLAIN).is_err());
         // Trailing zeros past 34 digits are exact: they fit.
-        assert!(bson(Cell::Decimal("1.000000000000000000000000000000000000000".into()), PLAIN).is_ok());
-        assert_eq!(bson(Cell::UInt(u64::MAX), PLAIN), Ok(Some(Bson::Decimal128(Decimal128::from_str("18446744073709551615").unwrap()))));
+        assert!(bson(
+            Cell::Decimal("1.000000000000000000000000000000000000000".into()),
+            PLAIN
+        )
+        .is_ok());
+        assert_eq!(
+            bson(Cell::UInt(u64::MAX), PLAIN),
+            Ok(Some(Bson::Decimal128(
+                Decimal128::from_str("18446744073709551615").unwrap()
+            )))
+        );
     }
 
     #[test]
@@ -1553,7 +2049,12 @@ mod tests {
         let hex = "65a1b2c3d4e5f60718293a4b";
         let oid = Bson::ObjectId(ObjectId::parse_str(hex).unwrap());
         let text = |t: &str, name: &str| {
-            let h = hint(&TransferColumn { name: name.into(), type_name: t.into(), nullable: true }).unwrap();
+            let h = hint(&TransferColumn {
+                name: name.into(),
+                type_name: t.into(),
+                nullable: true,
+            })
+            .unwrap();
             bson(Cell::Text(hex.into()), h).unwrap().unwrap()
         };
         assert_eq!(text("bson:objectId", "_id"), oid);
@@ -1565,16 +2066,31 @@ mod tests {
         assert_eq!(text("text", "_id"), Bson::String(hex.into()));
         assert_eq!(text("varchar(24)", "ref"), Bson::String(hex.into()));
         let e = hint(&col("bson:objectId|bson:string")).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("objectId y string")), "{e:?}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("objectId y string")),
+            "{e:?}"
+        );
     }
 
     #[test]
     fn integer_width_follows_the_column() {
         assert!(hint(&col("bson:long")).unwrap().long && !hint(&col("bson:int")).unwrap().long);
-        assert!(hint(&col("long")).unwrap().long && hint(&col("bigint")).unwrap().long && hint(&col("Int64")).unwrap().long);
-        assert!(hint(&col("bson:int|bson:long")).is_err() && hint(&col("bson:long|bson:int")).is_err());
-        assert_eq!(bson(Cell::Int(5), hint(&col("bson:long|bson:double")).unwrap()), Ok(Some(Bson::Int64(5))));
-        assert_eq!(bson(Cell::Int(5), hint(&col("integer")).unwrap()), Ok(Some(Bson::Int32(5))));
+        assert!(
+            hint(&col("long")).unwrap().long
+                && hint(&col("bigint")).unwrap().long
+                && hint(&col("Int64")).unwrap().long
+        );
+        assert!(
+            hint(&col("bson:int|bson:long")).is_err() && hint(&col("bson:long|bson:int")).is_err()
+        );
+        assert_eq!(
+            bson(Cell::Int(5), hint(&col("bson:long|bson:double")).unwrap()),
+            Ok(Some(Bson::Int64(5)))
+        );
+        assert_eq!(
+            bson(Cell::Int(5), hint(&col("integer")).unwrap()),
+            Ok(Some(Bson::Int32(5)))
+        );
     }
 
     #[test]
@@ -1582,17 +2098,42 @@ mod tests {
         let h = hint(&col("jsonb")).unwrap();
         assert!(!h.extjson);
         let j = |s: &str| bson(Cell::Json(s.into()), h).unwrap().unwrap();
-        assert_eq!(j("{\"a\":1,\"b\":[true,null,\"x\"]}"), Bson::Document(doc! { "a": 1, "b": [true, Bson::Null, "x"] }));
-        assert_eq!(j("{\"a\":18446744073709551615}"), Bson::Document(doc! { "a": Decimal128::from_str("18446744073709551615").unwrap() }));
-        assert_eq!(j("{\"y\":12345678901234567890123}"), Bson::Document(doc! { "y": Decimal128::from_str("12345678901234567890123").unwrap() }));
-        assert_eq!(j("{\"z\":9007199254740993}"), Bson::Document(doc! { "z": 9_007_199_254_740_993_i64 }));
+        assert_eq!(
+            j("{\"a\":1,\"b\":[true,null,\"x\"]}"),
+            Bson::Document(doc! { "a": 1, "b": [true, Bson::Null, "x"] })
+        );
+        assert_eq!(
+            j("{\"a\":18446744073709551615}"),
+            Bson::Document(doc! { "a": Decimal128::from_str("18446744073709551615").unwrap() })
+        );
+        assert_eq!(
+            j("{\"y\":12345678901234567890123}"),
+            Bson::Document(doc! { "y": Decimal128::from_str("12345678901234567890123").unwrap() })
+        );
+        assert_eq!(
+            j("{\"z\":9007199254740993}"),
+            Bson::Document(doc! { "z": 9_007_199_254_740_993_i64 })
+        );
         assert_eq!(j("[0.1, 2.5e3, -0e0, 1.2345678901234567890123]"), {
-            Bson::Array(vec![Bson::Double(0.1), Bson::Double(2500.0), Bson::Double(-0.0), Bson::Decimal128(Decimal128::from_str("1.2345678901234567890123").unwrap())])
+            Bson::Array(vec![
+                Bson::Double(0.1),
+                Bson::Double(2500.0),
+                Bson::Double(-0.0),
+                Bson::Decimal128(Decimal128::from_str("1.2345678901234567890123").unwrap()),
+            ])
         });
         // The scale is part of the number: `1.50` isn't the double 1.5.
         let dec = |t: &str| Bson::Decimal128(Decimal128::from_str(t).unwrap());
         assert_eq!(j("[1.50, 2500.0, -0.0, 1e400, 1.5, 100.25, 1E-3]"), {
-            Bson::Array(vec![dec("1.50"), dec("2500.0"), dec("-0.0"), dec("1E+400"), Bson::Double(1.5), Bson::Double(100.25), Bson::Double(0.001)])
+            Bson::Array(vec![
+                dec("1.50"),
+                dec("2500.0"),
+                dec("-0.0"),
+                dec("1E+400"),
+                Bson::Double(1.5),
+                Bson::Double(100.25),
+                Bson::Double(0.001),
+            ])
         });
         for bad in ["01", "1.", ".5", "-", "1e", "+1", "1e+", "--1", "0x1"] {
             let e = bson(Cell::Json(format!("[{bad}]")), h).unwrap_err();
@@ -1601,41 +2142,89 @@ mod tests {
         let e = bson(Cell::Json("[1e400000]".into()), h).unwrap_err();
         assert!(e.contains("exponente fuera de rango"), "{e}");
         // `$`-keys are plain keys.
-        assert_eq!(j("{\"when\":{\"$date\":\"2024-01-01T00:00:00Z\"}}"), Bson::Document(doc! { "when": { "$date": "2024-01-01T00:00:00Z" } }));
+        assert_eq!(
+            j("{\"when\":{\"$date\":\"2024-01-01T00:00:00Z\"}}"),
+            Bson::Document(doc! { "when": { "$date": "2024-01-01T00:00:00Z" } })
+        );
         assert_eq!(
             j("{\"price\":{\"$numberDecimal\":\"x\"},\"k\":1}"),
             Bson::Document(doc! { "price": { "$numberDecimal": "x" }, "k": 1 })
         );
-        assert_eq!(j("\"a\\u00f1\\ud83d\\ude00\\\"\""), Bson::String("añ😀\"".into()));
+        assert_eq!(
+            j("\"a\\u00f1\\ud83d\\ude00\\\"\""),
+            Bson::String("añ😀\"".into())
+        );
         assert!(bson(Cell::Json("not json".into()), h).is_err());
         assert!(bson(Cell::Json("{\"a\":1} x".into()), h).is_err());
-        assert!(bson(Cell::Json("[0.33333333333333333333333333333333333333]".into()), h).is_err());
+        assert!(bson(
+            Cell::Json("[0.33333333333333333333333333333333333333]".into()),
+            h
+        )
+        .is_err());
         // PostgreSQL's `json` keeps repeated keys; a document can't.
         let dup = bson(Cell::Json("{\"a\":1,\"a\":2}".into()), h).unwrap_err();
         assert!(dup.contains("repite la clave «a»"), "{dup}");
         let nested = bson(Cell::Json("[{\"x\":{\"b\":1,\"c\":2,\"b\":3}}]".into()), h).unwrap_err();
         assert!(nested.contains("repite la clave «b»"), "{nested}");
         // The same key in sibling documents is fine.
-        assert_eq!(j("[{\"a\":1},{\"a\":2}]"), Bson::Array(vec![Bson::Document(doc! { "a": 1 }), Bson::Document(doc! { "a": 2 })]));
+        assert_eq!(
+            j("[{\"a\":1},{\"a\":2}]"),
+            Bson::Array(vec![
+                Bson::Document(doc! { "a": 1 }),
+                Bson::Document(doc! { "a": 2 })
+            ])
+        );
         // From MongoDB (marked types), Extended JSON keeps its meaning.
         let m = hint(&col("bson:object|bson:null")).unwrap();
         assert_eq!(
-            bson(Cell::Json("{\"d\":{\"$date\":{\"$numberLong\":\"5\"}}}".into()), m),
-            Ok(Some(Bson::Document(doc! { "d": mongodb::bson::DateTime::from_millis(5) })))
+            bson(
+                Cell::Json("{\"d\":{\"$date\":{\"$numberLong\":\"5\"}}}".into()),
+                m
+            ),
+            Ok(Some(Bson::Document(
+                doc! { "d": mongodb::bson::DateTime::from_millis(5) }
+            )))
         );
     }
 
     #[test]
     fn bson_named_types_of_other_engines_are_plain_json() {
         // Elasticsearch's `object`/`array`, Snowflake's `OBJECT`/`ARRAY`…
-        for t in ["object", "array", "OBJECT", "ARRAY", "object|array", "date", "decimal", "objectId"] {
+        for t in [
+            "object",
+            "array",
+            "OBJECT",
+            "ARRAY",
+            "object|array",
+            "date",
+            "decimal",
+            "objectId",
+        ] {
             let h = hint(&col(t)).unwrap();
             assert!(!h.extjson && !h.object_id, "{t}");
             let j = |s: &str| bson(Cell::Json(s.into()), h).unwrap().unwrap();
-            assert_eq!(j(r#"{"when":{"$date":"2024-01-01T00:00:00Z"}}"#), Bson::Document(doc! { "when": { "$date": "2024-01-01T00:00:00Z" } }), "{t}");
-            assert_eq!(j(r#"{"p":{"$numberDecimal":"x"}}"#), Bson::Document(doc! { "p": { "$numberDecimal": "x" } }), "{t}");
-            assert_eq!(j(r#"{"y":12345678901234567890123}"#), Bson::Document(doc! { "y": Decimal128::from_str("12345678901234567890123").unwrap() }), "{t}");
-            assert_eq!(j(r#"[9007199254740993]"#), Bson::Array(vec![Bson::Int64(9_007_199_254_740_993)]), "{t}");
+            assert_eq!(
+                j(r#"{"when":{"$date":"2024-01-01T00:00:00Z"}}"#),
+                Bson::Document(doc! { "when": { "$date": "2024-01-01T00:00:00Z" } }),
+                "{t}"
+            );
+            assert_eq!(
+                j(r#"{"p":{"$numberDecimal":"x"}}"#),
+                Bson::Document(doc! { "p": { "$numberDecimal": "x" } }),
+                "{t}"
+            );
+            assert_eq!(
+                j(r#"{"y":12345678901234567890123}"#),
+                Bson::Document(
+                    doc! { "y": Decimal128::from_str("12345678901234567890123").unwrap() }
+                ),
+                "{t}"
+            );
+            assert_eq!(
+                j(r#"[9007199254740993]"#),
+                Bson::Array(vec![Bson::Int64(9_007_199_254_740_993)]),
+                "{t}"
+            );
         }
         // A mix of this crate's types and others' isn't MongoDB's.
         assert!(!hint(&col("bson:object|object")).unwrap().extjson);
@@ -1659,13 +2248,22 @@ mod tests {
         arr.push(3);
         arr.push(twice.clone());
         d.append("a", arr);
-        d.append("js", mongodb::bson::RawJavaScriptCodeWithScope { code: "x".into(), scope: twice });
+        d.append(
+            "js",
+            mongodb::bson::RawJavaScriptCodeWithScope {
+                code: "x".into(),
+                scope: twice,
+            },
+        );
         for k in ["n", "a", "js"] {
             let why = cell_of(&d, k).unwrap_err();
             assert!(why.contains("repite la clave «x»"), "{k}: {why}");
         }
         let e = refused(&d, "repite el campo «t»");
-        assert!(matches!(&e, Error::Unsupported(m) if m.starts_with("El documento con _id 1 repite el campo «t»") && m.contains("copia directa")), "{e:?}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.starts_with("El documento con _id 1 repite el campo «t»") && m.contains("copia directa")),
+            "{e:?}"
+        );
 
         // Stored subdocuments whose `$`-keys Extended JSON would read as a type.
         let oid = ObjectId::parse_str("65a1b2c3d4e5f60718293a4b").unwrap();
@@ -1680,7 +2278,10 @@ mod tests {
         let raw = RawDocumentBuf::from_document(&stored).unwrap();
         for k in ["o", "p", "q", "deep"] {
             let why = cell_of(&raw, k).unwrap_err();
-            assert!(why.contains("claves como «$") && why.contains("otro tipo"), "{k}: {why}");
+            assert!(
+                why.contains("claves como «$") && why.contains("otro tipo"),
+                "{k}: {why}"
+            );
         }
         // `$`-keys that read back the same, and real typed values, travel.
         for k in ["ref", "real"] {
@@ -1711,7 +2312,10 @@ mod tests {
         assert_eq!(ms("2024-01-31 13:45:00.999999999"), 1_706_708_700_999);
         assert_eq!(ms("2024-01-31"), 1_706_659_200_000);
         assert!(bson(Cell::DateTime("infinity".into()), PLAIN).is_err());
-        assert_eq!(bson(Cell::Text("65a1b2c3d4e5f60718293a4b".into()), PLAIN), Ok(Some(Bson::String("65a1b2c3d4e5f60718293a4b".into()))));
+        assert_eq!(
+            bson(Cell::Text("65a1b2c3d4e5f60718293a4b".into()), PLAIN),
+            Ok(Some(Bson::String("65a1b2c3d4e5f60718293a4b".into())))
+        );
     }
 
     #[test]
@@ -1728,7 +2332,9 @@ mod tests {
     fn filters_that_match_does_not_take() {
         assert!(match_takes(&doc! { "n": { "$gt": 1 } }));
         assert!(!match_takes(&doc! { "$where": "this.n > 1" }));
-        assert!(!match_takes(&doc! { "$or": [{ "a": 1 }, { "$where": "true" }] }));
+        assert!(!match_takes(
+            &doc! { "$or": [{ "a": 1 }, { "$where": "true" }] }
+        ));
         assert!(!match_takes(&doc! { "loc": { "$near": [0, 0] } }));
     }
 
@@ -1740,14 +2346,28 @@ mod tests {
             let h = hint(&col(t)).unwrap();
             assert!(!h.extjson && !h.object_id && !h.long, "{t:?}");
             let j = |s: &str| bson(Cell::Json(s.into()), h).unwrap().unwrap();
-            assert_eq!(j(r#"{"when":{"$date":"2024-01-01T00:00:00Z"}}"#), Bson::Document(doc! { "when": { "$date": "2024-01-01T00:00:00Z" } }));
-            assert_eq!(j(r#"{"a":18446744073709551615}"#), Bson::Document(doc! { "a": Decimal128::from_str("18446744073709551615").unwrap() }));
-            assert_eq!(j(r#"{"y":12345678901234567890123}"#), Bson::Document(doc! { "y": Decimal128::from_str("12345678901234567890123").unwrap() }));
+            assert_eq!(
+                j(r#"{"when":{"$date":"2024-01-01T00:00:00Z"}}"#),
+                Bson::Document(doc! { "when": { "$date": "2024-01-01T00:00:00Z" } })
+            );
+            assert_eq!(
+                j(r#"{"a":18446744073709551615}"#),
+                Bson::Document(doc! { "a": Decimal128::from_str("18446744073709551615").unwrap() })
+            );
+            assert_eq!(
+                j(r#"{"y":12345678901234567890123}"#),
+                Bson::Document(
+                    doc! { "y": Decimal128::from_str("12345678901234567890123").unwrap() }
+                )
+            );
             assert_eq!(
                 j(r#"{"o":{"$oid":"65a1b2c3d4e5f60718293a4b"}}"#),
                 Bson::Document(doc! { "o": { "$oid": "65a1b2c3d4e5f60718293a4b" } })
             );
-            assert_eq!(j(r#"{"p":{"$numberDecimal":"x"},"k":1}"#), Bson::Document(doc! { "p": { "$numberDecimal": "x" }, "k": 1 }));
+            assert_eq!(
+                j(r#"{"p":{"$numberDecimal":"x"},"k":1}"#),
+                Bson::Document(doc! { "p": { "$numberDecimal": "x" }, "k": 1 })
+            );
         }
         // `$type`'s spelling of code with scope is MongoDB's too.
         assert!(hint(&col("bson:javascriptWithScope")).unwrap().extjson);
@@ -1781,10 +2401,24 @@ mod tests {
         let raw = RawDocumentBuf::from_document(&full).unwrap();
         let sk = skeleton(&raw).unwrap();
         assert!(RawDocumentBuf::from_document(&sk).unwrap().as_bytes().len() < 1024);
-        assert_eq!(sk.keys().collect::<Vec<_>>(), full.keys().collect::<Vec<_>>());
-        let types = |d: &Document| super::super::convert::infer_columns(std::slice::from_ref(d)).into_iter().map(|c| c.data_type).collect::<Vec<_>>();
+        assert_eq!(
+            sk.keys().collect::<Vec<_>>(),
+            full.keys().collect::<Vec<_>>()
+        );
+        let types = |d: &Document| {
+            super::super::convert::infer_columns(std::slice::from_ref(d))
+                .into_iter()
+                .map(|c| c.data_type)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(types(&sk), types(&full));
-        assert_eq!(sk.get("u"), Some(&Bson::Binary(Binary { subtype: BinarySubtype::Uuid, bytes: vec![] })));
+        assert_eq!(
+            sk.get("u"),
+            Some(&Bson::Binary(Binary {
+                subtype: BinarySubtype::Uuid,
+                bytes: vec![]
+            }))
+        );
     }
 
     #[test]
@@ -1792,9 +2426,23 @@ mod tests {
         // Every `$type` name gives back a value `convert::type_name` spells
         // the same way (code with scope counts as code).
         for t in MONGO_TYPES {
-            let spelled = ["binData", "objectId", "minKey", "maxKey", "dbPointer", "javascriptWithScope"].into_iter().find(|s| s.eq_ignore_ascii_case(t)).unwrap_or(t);
+            let spelled = [
+                "binData",
+                "objectId",
+                "minKey",
+                "maxKey",
+                "dbPointer",
+                "javascriptWithScope",
+            ]
+            .into_iter()
+            .find(|s| s.eq_ignore_ascii_case(t))
+            .unwrap_or(t);
             let v = empty_of(spelled).unwrap_or_else(|| panic!("{spelled}"));
-            let want = if spelled == "javascriptWithScope" { "javascript" } else { spelled };
+            let want = if spelled == "javascriptWithScope" {
+                "javascript"
+            } else {
+                spelled
+            };
             assert_eq!(super::super::convert::type_name(&v), want);
         }
         assert_eq!(empty_of("somethingNew"), None);
@@ -1802,7 +2450,10 @@ mod tests {
         let (size, sk) = described_skeleton(&d).unwrap();
         assert_eq!(size, 1_048_600);
         assert_eq!(sk, doc! { "_id": 0_i64, "s": "", "o": {} });
-        let unknown = RawDocumentBuf::from_document(&doc! { "size": 5_i32, "fields": [["x", "somethingNew"]] }).unwrap();
+        let unknown = RawDocumentBuf::from_document(
+            &doc! { "size": 5_i32, "fields": [["x", "somethingNew"]] },
+        )
+        .unwrap();
         assert!(described_skeleton(&unknown).is_none());
     }
 
@@ -1815,7 +2466,8 @@ mod tests {
         assert!(matches!(failed, Some((15_001, Error::Query(ref m))) if m == "fila 15001"));
         // Within one request, the lowest index, whatever order the server lists.
         let e = |i: i32| doc! { "index": i, "code": 11000, "errmsg": "dup" };
-        let im: mongodb::error::InsertManyError = mongodb::bson::from_document(doc! { "writeErrors": [e(7), e(3), e(5)] }).unwrap();
+        let im: mongodb::error::InsertManyError =
+            mongodb::bson::from_document(doc! { "writeErrors": [e(7), e(3), e(5)] }).unwrap();
         let (inserted, row, err) = load_error(ErrorKind::InsertMany(im).into(), 10, 101);
         assert_eq!((inserted, row), (7, 104));
         assert!(err.to_string().contains("fila 104"), "{err}");
@@ -1825,11 +2477,17 @@ mod tests {
     fn insert_errors_are_short_and_count_what_went_in() {
         let dup = |i: i32| doc! { "index": i, "code": 11000, "errmsg": format!("E11000 duplicate key error collection: db.c index: _id_ dup key: {{ _id: {i}{} }}", "x".repeat(500)) };
         let write_errors: Vec<Document> = (0..10_000).map(|i| dup(i * 2)).collect();
-        let im: mongodb::error::InsertManyError = mongodb::bson::from_document(doc! { "writeErrors": write_errors }).unwrap();
+        let im: mongodb::error::InsertManyError =
+            mongodb::bson::from_document(doc! { "writeErrors": write_errors }).unwrap();
         let (inserted, row, e) = load_error(ErrorKind::InsertMany(im).into(), 20_000, 40_001);
         assert_eq!((inserted, row), (10_000, 40_001));
         let text = e.to_string();
         assert!(text.len() < ERROR_TEXT + 200, "{} bytes", text.len());
-        assert!(text.contains("fila 40001") && text.contains("9999 documentos más") && text.contains("11000"), "{text}");
+        assert!(
+            text.contains("fila 40001")
+                && text.contains("9999 documentos más")
+                && text.contains("11000"),
+            "{text}"
+        );
     }
 }

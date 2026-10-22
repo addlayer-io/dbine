@@ -30,7 +30,10 @@ impl Variant {
     /// only), CrateDB (BEGIN and COMMIT are accepted and ignored) and
     /// Denodo (its transactions span the data sources behind it).
     pub(crate) fn manual_transactions(self) -> bool {
-        !matches!(self, Variant::Materialize | Variant::RisingWave | Variant::CrateDb | Variant::Denodo)
+        !matches!(
+            self,
+            Variant::Materialize | Variant::RisingWave | Variant::CrateDb | Variant::Denodo
+        )
     }
 
     /// Engines that say whether a transaction block is open: `now() <>
@@ -98,16 +101,60 @@ pub(crate) fn client_commands(text: &str) -> (String, Vec<ClientCommand>) {
     let data_end = lines.iter().position(|(_, _, l)| l.trim() == r"\.");
     // A unit that opens with an SQL statement isn't COPY data, even with a
     // `\.` line inside it (a string literal can hold one).
-    let starts_as_sql = lines.iter().map(|(_, _, l)| l.trim()).find(|l| !l.is_empty() && !l.starts_with("--")).is_some_and(|l| {
-        let word: String = l.chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_lowercase();
-        matches!(
-            word.as_str(),
-            "select" | "with" | "insert" | "update" | "delete" | "merge" | "create" | "alter" | "drop" | "copy" | "do" | "begin"
-                | "start" | "commit" | "rollback" | "set" | "reset" | "values" | "table" | "explain" | "analyze" | "vacuum" | "grant"
-                | "revoke" | "truncate" | "call" | "comment" | "show" | "prepare" | "execute" | "declare" | "fetch" | "listen"
-                | "notify" | "lock" | "refresh" | "reindex" | "cluster" | "security" | "import"
-        )
-    });
+    let starts_as_sql = lines
+        .iter()
+        .map(|(_, _, l)| l.trim())
+        .find(|l| !l.is_empty() && !l.starts_with("--"))
+        .is_some_and(|l| {
+            let word: String = l
+                .chars()
+                .take_while(|c| c.is_ascii_alphabetic())
+                .collect::<String>()
+                .to_ascii_lowercase();
+            matches!(
+                word.as_str(),
+                "select"
+                    | "with"
+                    | "insert"
+                    | "update"
+                    | "delete"
+                    | "merge"
+                    | "create"
+                    | "alter"
+                    | "drop"
+                    | "copy"
+                    | "do"
+                    | "begin"
+                    | "start"
+                    | "commit"
+                    | "rollback"
+                    | "set"
+                    | "reset"
+                    | "values"
+                    | "table"
+                    | "explain"
+                    | "analyze"
+                    | "vacuum"
+                    | "grant"
+                    | "revoke"
+                    | "truncate"
+                    | "call"
+                    | "comment"
+                    | "show"
+                    | "prepare"
+                    | "execute"
+                    | "declare"
+                    | "fetch"
+                    | "listen"
+                    | "notify"
+                    | "lock"
+                    | "refresh"
+                    | "reindex"
+                    | "cluster"
+                    | "security"
+                    | "import"
+            )
+        });
     if let Some(end) = data_end.filter(|&e| !starts_as_sql && !text[..lines[e].0].contains(';')) {
         blank(0, lines[end].1, &mut bytes);
         found.push(ClientCommand::CopyData);
@@ -118,12 +165,19 @@ pub(crate) fn client_commands(text: &str) -> (String, Vec<ClientCommand>) {
         if t.is_empty() || t.starts_with("--") {
             continue;
         }
-        let Some(cmd) = t.strip_prefix('\\') else { break };
-        let (name, arg) = cmd.split_once(char::is_whitespace).map_or((cmd, ""), |(n, a)| (n, a.trim()));
+        let Some(cmd) = t.strip_prefix('\\') else {
+            break;
+        };
+        let (name, arg) = cmd
+            .split_once(char::is_whitespace)
+            .map_or((cmd, ""), |(n, a)| (n, a.trim()));
         found.push(match name {
             "echo" | "qecho" | "warn" => {
                 let arg = arg.strip_prefix("-n ").unwrap_or(arg);
-                let unquoted = arg.strip_prefix('\'').and_then(|a| a.strip_suffix('\'')).map(|a| a.replace("''", "'"));
+                let unquoted = arg
+                    .strip_prefix('\'')
+                    .and_then(|a| a.strip_suffix('\''))
+                    .map(|a| a.replace("''", "'"));
                 ClientCommand::Echo(unquoted.unwrap_or_else(|| arg.to_string()))
             }
             "c" | "connect" => ClientCommand::Connect(arg.to_string()),
@@ -133,7 +187,10 @@ pub(crate) fn client_commands(text: &str) -> (String, Vec<ClientCommand>) {
         blank(from, to, &mut bytes);
     }
     // Only ASCII bytes were replaced by ASCII spaces, whole lines at a time.
-    (String::from_utf8(bytes).unwrap_or_else(|_| text.to_string()), found)
+    (
+        String::from_utf8(bytes).unwrap_or_else(|_| text.to_string()),
+        found,
+    )
 }
 
 /// The script cut into the units psql would run. The lexer reads SQL; on
@@ -154,12 +211,13 @@ pub(crate) fn split(text: &str) -> Vec<ScriptStatement> {
     let mut out = Vec::new();
     let mut pos = 0;
     let mut line = 1;
-    let push = |out: &mut Vec<ScriptStatement>, mut u: ScriptStatement, base: usize, base_line: u32| {
-        u.start += base;
-        u.end += base;
-        u.line += base_line - 1;
-        out.push(u);
-    };
+    let push =
+        |out: &mut Vec<ScriptStatement>, mut u: ScriptStatement, base: usize, base_line: u32| {
+            u.start += base;
+            u.end += base;
+            u.line += base_line - 1;
+            out.push(u);
+        };
     while pos < text.len() {
         // The next line that starts with `\`: a meta-command, the `\.` of
         // COPY data, or text inside a quote (then it's taken in).
@@ -171,8 +229,12 @@ pub(crate) fn split(text: &str) -> Vec<ScriptStatement> {
             }
             seg.push_str(PROBE);
             let mut units = sql::split_script(&seg, &DIALECT);
-            let clean = units.last().is_some_and(|u| u.text == PROBE[2..] && u.start == cut - pos + 2);
-            let copy = units.iter().any(|u| copy_from_stdin(&u.text, &head(&u.text)));
+            let clean = units
+                .last()
+                .is_some_and(|u| u.text == PROBE[2..] && u.start == cut - pos + 2);
+            let copy = units
+                .iter()
+                .any(|u| copy_from_stdin(&u.text, &head(&u.text)));
             if clean || copy {
                 if clean {
                     units.pop();
@@ -189,7 +251,9 @@ pub(crate) fn split(text: &str) -> Vec<ScriptStatement> {
             if is_copy {
                 // Data: from the line after the terminator to its `\.` line.
                 let after = &text[end..];
-                let term = end + (after.len() - after.trim_start().len()) + usize::from(after.trim_start().starts_with(';'));
+                let term = end
+                    + (after.len() - after.trim_start().len())
+                    + usize::from(after.trim_start().starts_with(';'));
                 let start = text[term..].find('\n').map_or(text.len(), |n| term + n + 1);
                 let mut stop = text.len();
                 let mut at = start;
@@ -206,7 +270,8 @@ pub(crate) fn split(text: &str) -> Vec<ScriptStatement> {
                         text: data.to_string(),
                         start,
                         end: start + data.len(),
-                        line: line + text[pos..start].bytes().filter(|&b| b == b'\n').count() as u32,
+                        line: line
+                            + text[pos..start].bytes().filter(|&b| b == b'\n').count() as u32,
                         kind: StatementKind::ClientCommand,
                         repeat: 1,
                         error: None,
@@ -229,7 +294,11 @@ pub(crate) fn split(text: &str) -> Vec<ScriptStatement> {
                 start,
                 end: start + cmd.len(),
                 line: line + text[pos..start].bytes().filter(|&b| b == b'\n').count() as u32,
-                kind: if silent { StatementKind::ClientCommand } else { StatementKind::Sql },
+                kind: if silent {
+                    StatementKind::ClientCommand
+                } else {
+                    StatementKind::Sql
+                },
                 repeat: 1,
                 error: None,
             });
@@ -259,14 +328,20 @@ fn backslash_line(text: &str, pos: usize, from: usize) -> usize {
 /// the session now works on another database.
 pub(crate) fn switches_database(head: &[String]) -> bool {
     let w: Vec<&str> = head.iter().map(String::as_str).collect();
-    matches!(w.as_slice(), ["use", _, ..] | ["set", "database", ..] | ["set", "session", "database", ..])
+    matches!(
+        w.as_slice(),
+        ["use", _, ..] | ["set", "database", ..] | ["set", "session", "database", ..]
+    )
 }
 
 /// Statements whose column types are asked inside an open transaction,
 /// after they ran: queries the server just parsed and planned, so the
 /// describe can't fail where they didn't (and abort the transaction).
 pub(crate) fn describable_in_transaction(verb: &str) -> bool {
-    matches!(verb, "select" | "values" | "table" | "insert" | "update" | "delete" | "merge")
+    matches!(
+        verb,
+        "select" | "values" | "table" | "insert" | "update" | "delete" | "merge"
+    )
 }
 
 /// `COPY … FROM STDIN`: the server would wait for rows the editor doesn't
@@ -277,14 +352,18 @@ pub(crate) fn copy_from_stdin(text: &str, head: &[String]) -> bool {
     }
     let t = sql::strip_comments(text, &DIALECT, false).to_ascii_lowercase();
     let words: Vec<&str> = t.split_whitespace().collect();
-    words.windows(2).any(|w| w[0] == "from" && w[1].trim_end_matches(';') == "stdin")
+    words
+        .windows(2)
+        .any(|w| w[0] == "from" && w[1].trim_end_matches(';') == "stdin")
 }
 
 /// The first words of a statement, lowercase, comments left out: enough
 /// to name it.
 pub(crate) fn head(text: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for w in sql::strip_comments(text, &DIALECT, false).split(|c: char| !(c.is_alphanumeric() || c == '_')) {
+    for w in sql::strip_comments(text, &DIALECT, false)
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+    {
         if !w.is_empty() {
             out.push(w.to_ascii_lowercase());
             if out.len() == 6 {
@@ -323,7 +402,11 @@ fn main_verb(text: &str) -> Option<String> {
             b'$' => {
                 // A dollar-quoted string: skip to its closing tag.
                 let tag_end = t[i + 1..].find('$').map(|e| i + 1 + e);
-                if let Some(e) = tag_end.filter(|&e| t[i + 1..e].bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')) {
+                if let Some(e) = tag_end.filter(|&e| {
+                    t[i + 1..e]
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'_')
+                }) {
                     let tag = &t[i..=e];
                     let close = t[e + 1..].find(tag)?;
                     i = e + 1 + close + tag.len() - 1;
@@ -335,7 +418,10 @@ fn main_verb(text: &str) -> Option<String> {
                     i += 1;
                 }
                 let w = t[s..i].to_ascii_lowercase();
-                if matches!(w.as_str(), "select" | "insert" | "update" | "delete" | "merge" | "values" | "table") {
+                if matches!(
+                    w.as_str(),
+                    "select" | "insert" | "update" | "delete" | "merge" | "values" | "table"
+                ) {
                     return Some(w);
                 }
                 continue;
@@ -355,13 +441,17 @@ pub(crate) fn tag(head: &[String], verb: &str, n: u64) -> Option<String> {
     let w = |i: usize| head.get(i).map(String::as_str).unwrap_or("");
     Some(match verb {
         "insert" => format!("INSERT 0 {n}"),
-        "update" | "delete" | "merge" | "fetch" | "move" | "copy" => format!("{} {n}", verb.to_ascii_uppercase()),
+        "update" | "delete" | "merge" | "fetch" | "move" | "copy" => {
+            format!("{} {n}", verb.to_ascii_uppercase())
+        }
         "select" | "values" | "table" => format!("SELECT {n}"),
         "begin" => "BEGIN".into(),
         "start" => "START TRANSACTION".into(),
         "end" => "COMMIT".into(),
         "abort" => "ROLLBACK".into(),
-        "commit" | "rollback" if w(1) == "prepared" => format!("{} PREPARED", verb.to_ascii_uppercase()),
+        "commit" | "rollback" if w(1) == "prepared" => {
+            format!("{} PREPARED", verb.to_ascii_uppercase())
+        }
         "prepare" if w(1) == "transaction" => "PREPARE TRANSACTION".into(),
         "truncate" => "TRUNCATE TABLE".into(),
         "lock" => "LOCK TABLE".into(),
@@ -377,12 +467,29 @@ pub(crate) fn tag(head: &[String], verb: &str, n: u64) -> Option<String> {
 /// The object a CREATE / ALTER / DROP names, as its tag spells it
 /// ("TABLE", "MATERIALIZED VIEW", "INDEX" for CREATE UNIQUE INDEX…).
 fn object_kind(words: &[String]) -> Option<String> {
-    const MODIFIERS: [&str; 12] =
-        ["or", "replace", "unique", "temp", "temporary", "unlogged", "global", "local", "recursive", "trusted", "procedural", "constraint"];
-    let rest: Vec<&str> = words.iter().map(String::as_str).skip_while(|w| MODIFIERS.contains(w)).collect();
+    const MODIFIERS: [&str; 12] = [
+        "or",
+        "replace",
+        "unique",
+        "temp",
+        "temporary",
+        "unlogged",
+        "global",
+        "local",
+        "recursive",
+        "trusted",
+        "procedural",
+        "constraint",
+    ];
+    let rest: Vec<&str> = words
+        .iter()
+        .map(String::as_str)
+        .skip_while(|w| MODIFIERS.contains(w))
+        .collect();
     let n = match rest.as_slice() {
         ["foreign", "data", "wrapper", ..] | ["text", "search", _, ..] => 3,
-        ["materialized" | "foreign" | "event" | "access" | "default", _, ..] | ["user", "mapping", ..] => 2,
+        ["materialized" | "foreign" | "event" | "access" | "default", _, ..]
+        | ["user", "mapping", ..] => 2,
         ["operator", "class" | "family", ..] => 2,
         [_, ..] => 1,
         [] => return None,
@@ -393,7 +500,19 @@ fn object_kind(words: &[String]) -> Option<String> {
 /// Rows the statement touched or read, when its tag carries a count (DDL
 /// shows its tag alone; CREATE TABLE … AS reports the rows it wrote).
 pub(crate) fn affected(verb: &str, n: u64) -> Option<u64> {
-    let counted = matches!(verb, "insert" | "update" | "delete" | "merge" | "fetch" | "move" | "copy" | "select" | "values" | "table");
+    let counted = matches!(
+        verb,
+        "insert"
+            | "update"
+            | "delete"
+            | "merge"
+            | "fetch"
+            | "move"
+            | "copy"
+            | "select"
+            | "values"
+            | "table"
+    );
     (counted || n > 0).then_some(n)
 }
 
@@ -403,14 +522,27 @@ pub(crate) fn no_begin(v: Variant, head: &[String]) -> bool {
     let w: Vec<&str> = head.iter().map(String::as_str).collect();
     match w.as_slice() {
         [] => true,
-        ["begin" | "start" | "commit" | "end" | "rollback" | "abort" | "savepoint" | "release", ..] => true,
-        ["prepare", "transaction", ..] | ["vacuum", ..] | ["cluster"] | ["alter", "system", ..] | ["discard", "all"] => true,
+        ["begin" | "start" | "commit" | "end" | "rollback" | "abort" | "savepoint" | "release", ..] => {
+            true
+        }
+        ["prepare", "transaction", ..]
+        | ["vacuum", ..]
+        | ["cluster"]
+        | ["alter", "system", ..]
+        | ["discard", "all"] => true,
         ["create" | "drop", "database" | "tablespace", ..] => true,
-        ["create", "index", "concurrently", ..] | ["create", "unique", "index", "concurrently", ..] => true,
+        ["create", "index", "concurrently", ..]
+        | ["create", "unique", "index", "concurrently", ..] => true,
         ["drop", "index", "concurrently", ..] => true,
-        ["reindex", rest @ ..] => rest.contains(&"concurrently") || matches!(rest.first(), Some(&"database" | &"system")),
+        ["reindex", rest @ ..] => {
+            rest.contains(&"concurrently") || matches!(rest.first(), Some(&"database" | &"system"))
+        }
         ["create" | "alter" | "drop", "subscription", ..] => true,
-        ["set", "cluster", "setting", ..] | ["backup" | "restore" | "import", ..] if v == Variant::Cockroach => true,
+        ["set", "cluster", "setting", ..] | ["backup" | "restore" | "import", ..]
+            if v == Variant::Cockroach =>
+        {
+            true
+        }
         ["create" | "drop", "external", ..] if v == Variant::Redshift => true,
         _ => false,
     }
@@ -418,12 +550,14 @@ pub(crate) fn no_begin(v: Variant, head: &[String]) -> bool {
 
 /// `COMMIT` / `END`: in an aborted transaction the server rolls it back.
 pub(crate) fn is_commit(head: &[String]) -> bool {
-    matches!(head.first().map(String::as_str), Some("commit" | "end")) && head.get(1).map(String::as_str) != Some("prepared")
+    matches!(head.first().map(String::as_str), Some("commit" | "end"))
+        && head.get(1).map(String::as_str) != Some("prepared")
 }
 
 /// ROLLBACK [WORK | TRANSACTION] TO [SAVEPOINT] name.
 fn rollback_to(head: &[String]) -> bool {
-    head.first().map(String::as_str) == Some("rollback") && head.iter().skip(1).take(2).any(|w| w == "to")
+    head.first().map(String::as_str) == Some("rollback")
+        && head.iter().skip(1).take(2).any(|w| w == "to")
 }
 
 /// Transaction control: these change the state in ways a multi-statement
@@ -431,7 +565,17 @@ fn rollback_to(head: &[String]) -> bool {
 pub(crate) fn controls_transaction(head: &[String]) -> bool {
     matches!(
         head.first().map(String::as_str),
-        Some("begin" | "start" | "commit" | "end" | "rollback" | "abort" | "prepare" | "savepoint" | "release")
+        Some(
+            "begin"
+                | "start"
+                | "commit"
+                | "end"
+                | "rollback"
+                | "abort"
+                | "prepare"
+                | "savepoint"
+                | "release"
+        )
     )
 }
 
@@ -439,13 +583,23 @@ pub(crate) fn controls_transaction(head: &[String]) -> bool {
 pub(crate) fn next_state(v: Variant, prev: TxState, head: &[String], ok: bool) -> TxState {
     let first = head.first().map(String::as_str).unwrap_or("");
     if rollback_to(head) {
-        return if ok && prev == TxState::Failed { TxState::Open } else if ok { prev } else { failed(v, prev) };
+        return if ok && prev == TxState::Failed {
+            TxState::Open
+        } else if ok {
+            prev
+        } else {
+            failed(v, prev)
+        };
     }
     match first {
         "begin" | "start" if ok => TxState::Open,
         // A failed COMMIT (a deferred constraint, a serialization failure)
         // still ends the transaction.
-        "commit" | "end" | "rollback" | "abort" if head.get(1).map(String::as_str) != Some("prepared") => TxState::Idle,
+        "commit" | "end" | "rollback" | "abort"
+            if head.get(1).map(String::as_str) != Some("prepared") =>
+        {
+            TxState::Idle
+        }
         "prepare" if ok && head.get(1).map(String::as_str) == Some("transaction") => TxState::Idle,
         _ if ok => prev,
         _ => failed(v, prev),
@@ -464,7 +618,9 @@ fn failed(v: Variant, prev: TxState) -> TxState {
 /// position (as an offset and line of `text`), PL/pgSQL context. FATAL
 /// errors end the script (the server closes the session).
 pub(crate) fn statement_error(e: tokio_postgres::Error, text: &str) -> Error {
-    let Some(db) = e.as_db_error() else { return err(e) };
+    let Some(db) = e.as_db_error() else {
+        return err(e);
+    };
     if db.code() == &SqlState::QUERY_CANCELED {
         return Error::Cancelled;
     }
@@ -476,12 +632,18 @@ pub(crate) fn statement_error(e: tokio_postgres::Error, text: &str) -> Error {
         message.push_str("\nLa transacción tiene un error: deshacela (ROLLBACK) para seguir.");
     }
     let code = db.code().code();
-    let mut se = ScriptError::new(message).with_code(code).with_sqlstate(code);
+    let mut se = ScriptError::new(message)
+        .with_code(code)
+        .with_sqlstate(code);
     if let Some(ErrorPosition::Original(p)) = db.position() {
         let at = char_offset(text, *p as usize);
         se = se.at_offset(at).at_line(line_of(text, at));
     }
-    if matches!(db.parsed_severity(), Some(Severity::Fatal | Severity::Panic)) || e.is_closed() {
+    if matches!(
+        db.parsed_severity(),
+        Some(Severity::Fatal | Severity::Panic)
+    ) || e.is_closed()
+    {
         se = se.fatal();
     }
     Error::Statement(Box::new(se))
@@ -496,7 +658,11 @@ pub(crate) fn notice(out: &mut QueryOutcome, n: &DbError) {
     };
     let code = n.code().code();
     out.message(Message {
-        level: if warning { MessageLevel::Warning } else { MessageLevel::Info },
+        level: if warning {
+            MessageLevel::Warning
+        } else {
+            MessageLevel::Info
+        },
         text: db_text(n),
         code: (code != "00000").then(|| code.to_string()),
         ..Default::default()
@@ -505,11 +671,17 @@ pub(crate) fn notice(out: &mut QueryOutcome, n: &DbError) {
 
 /// Byte offset of the server's 1-based character position.
 fn char_offset(text: &str, position: usize) -> usize {
-    text.char_indices().nth(position.saturating_sub(1)).map_or(text.len(), |(i, _)| i)
+    text.char_indices()
+        .nth(position.saturating_sub(1))
+        .map_or(text.len(), |(i, _)| i)
 }
 
 fn line_of(text: &str, offset: usize) -> u32 {
-    text.as_bytes()[..offset.min(text.len())].iter().filter(|&&c| c == b'\n').count() as u32 + 1
+    text.as_bytes()[..offset.min(text.len())]
+        .iter()
+        .filter(|&&c| c == b'\n')
+        .count() as u32
+        + 1
 }
 
 #[cfg(test)]
@@ -527,20 +699,57 @@ mod tests {
 
     #[test]
     fn tags_follow_psql() {
-        assert_eq!(tag_of("insert into t values (1)", 1).as_deref(), Some("INSERT 0 1"));
-        assert_eq!(tag_of("/* x */ UPDATE t SET a = 1", 4).as_deref(), Some("UPDATE 4"));
+        assert_eq!(
+            tag_of("insert into t values (1)", 1).as_deref(),
+            Some("INSERT 0 1")
+        );
+        assert_eq!(
+            tag_of("/* x */ UPDATE t SET a = 1", 4).as_deref(),
+            Some("UPDATE 4")
+        );
         assert_eq!(tag_of("delete from t", 0).as_deref(), Some("DELETE 0"));
         assert_eq!(tag_of("select * from t", 7).as_deref(), Some("SELECT 7"));
         assert_eq!(tag_of("values (1), (2)", 2).as_deref(), Some("SELECT 2"));
-        assert_eq!(tag_of("copy t from '/tmp/x.csv'", 9).as_deref(), Some("COPY 9"));
-        assert_eq!(tag_of("create table t (a int)", 0).as_deref(), Some("CREATE TABLE"));
-        assert_eq!(tag_of("CREATE OR REPLACE FUNCTION f() RETURNS int AS $$ select 1 $$ LANGUAGE sql", 0).as_deref(), Some("CREATE FUNCTION"));
-        assert_eq!(tag_of("create unique index concurrently i on t (a)", 0).as_deref(), Some("CREATE INDEX"));
-        assert_eq!(tag_of("create materialized view m as select 1", 1).as_deref(), Some("CREATE MATERIALIZED VIEW"));
-        assert_eq!(tag_of("create temp table x (a int)", 0).as_deref(), Some("CREATE TABLE"));
-        assert_eq!(tag_of("drop table if exists t", 0).as_deref(), Some("DROP TABLE"));
-        assert_eq!(tag_of("create foreign data wrapper w", 0).as_deref(), Some("CREATE FOREIGN DATA WRAPPER"));
-        assert_eq!(tag_of("alter default privileges grant select on tables to r", 0).as_deref(), Some("ALTER DEFAULT PRIVILEGES"));
+        assert_eq!(
+            tag_of("copy t from '/tmp/x.csv'", 9).as_deref(),
+            Some("COPY 9")
+        );
+        assert_eq!(
+            tag_of("create table t (a int)", 0).as_deref(),
+            Some("CREATE TABLE")
+        );
+        assert_eq!(
+            tag_of(
+                "CREATE OR REPLACE FUNCTION f() RETURNS int AS $$ select 1 $$ LANGUAGE sql",
+                0
+            )
+            .as_deref(),
+            Some("CREATE FUNCTION")
+        );
+        assert_eq!(
+            tag_of("create unique index concurrently i on t (a)", 0).as_deref(),
+            Some("CREATE INDEX")
+        );
+        assert_eq!(
+            tag_of("create materialized view m as select 1", 1).as_deref(),
+            Some("CREATE MATERIALIZED VIEW")
+        );
+        assert_eq!(
+            tag_of("create temp table x (a int)", 0).as_deref(),
+            Some("CREATE TABLE")
+        );
+        assert_eq!(
+            tag_of("drop table if exists t", 0).as_deref(),
+            Some("DROP TABLE")
+        );
+        assert_eq!(
+            tag_of("create foreign data wrapper w", 0).as_deref(),
+            Some("CREATE FOREIGN DATA WRAPPER")
+        );
+        assert_eq!(
+            tag_of("alter default privileges grant select on tables to r", 0).as_deref(),
+            Some("ALTER DEFAULT PRIVILEGES")
+        );
         assert_eq!(tag_of("truncate t", 0).as_deref(), Some("TRUNCATE TABLE"));
         assert_eq!(tag_of("begin", 0).as_deref(), Some("BEGIN"));
         assert_eq!(tag_of("end", 0).as_deref(), Some("COMMIT"));
@@ -549,9 +758,26 @@ mod tests {
         assert_eq!(tag_of("vacuum", 0).as_deref(), Some("VACUUM"));
         assert_eq!(tag_of("execute p", 3), None);
         // WITH: the verb after the CTEs, past parentheses and quotes.
-        assert_eq!(tag_of("with x as (select ')' as a) insert into t select * from x", 1).as_deref(), Some("INSERT 0 1"));
-        assert_eq!(tag_of("with d as (delete from t returning *) select count(*) from d", 1).as_deref(), Some("SELECT 1"));
-        assert_eq!(tag_of("with f as (select $q$ ) update $q$) delete from t", 2).as_deref(), Some("DELETE 2"));
+        assert_eq!(
+            tag_of(
+                "with x as (select ')' as a) insert into t select * from x",
+                1
+            )
+            .as_deref(),
+            Some("INSERT 0 1")
+        );
+        assert_eq!(
+            tag_of(
+                "with d as (delete from t returning *) select count(*) from d",
+                1
+            )
+            .as_deref(),
+            Some("SELECT 1")
+        );
+        assert_eq!(
+            tag_of("with f as (select $q$ ) update $q$) delete from t", 2).as_deref(),
+            Some("DELETE 2")
+        );
     }
 
     #[test]
@@ -584,9 +810,18 @@ mod tests {
         assert!(!nb("reindex table t"));
         assert!(nb("alter system set work_mem = '8MB'"));
         assert!(nb("-- just a comment"));
-        assert!(no_begin(Variant::Cockroach, &h("set cluster setting x = 1")));
-        assert!(!no_begin(Variant::Postgres, &h("set cluster setting x = 1")));
-        assert!(no_begin(Variant::Redshift, &h("create external table s.t (a int)")));
+        assert!(no_begin(
+            Variant::Cockroach,
+            &h("set cluster setting x = 1")
+        ));
+        assert!(!no_begin(
+            Variant::Postgres,
+            &h("set cluster setting x = 1")
+        ));
+        assert!(no_begin(
+            Variant::Redshift,
+            &h("create external table s.t (a int)")
+        ));
     }
 
     #[test]
@@ -594,22 +829,55 @@ mod tests {
         let pg = Variant::Postgres;
         let next = |prev, s: &str, ok| next_state(pg, prev, &h(s), ok);
         assert_eq!(next(TxState::Idle, "begin", true), TxState::Open);
-        assert_eq!(next(TxState::Idle, "insert into t values (1)", false), TxState::Idle);
-        assert_eq!(next(TxState::Open, "insert into t values (1)", true), TxState::Open);
-        assert_eq!(next(TxState::Open, "insert into t values (1)", false), TxState::Failed);
+        assert_eq!(
+            next(TxState::Idle, "insert into t values (1)", false),
+            TxState::Idle
+        );
+        assert_eq!(
+            next(TxState::Open, "insert into t values (1)", true),
+            TxState::Open
+        );
+        assert_eq!(
+            next(TxState::Open, "insert into t values (1)", false),
+            TxState::Failed
+        );
         assert_eq!(next(TxState::Failed, "select 1", false), TxState::Failed);
-        assert_eq!(next(TxState::Failed, "rollback to savepoint a", true), TxState::Open);
-        assert_eq!(next(TxState::Failed, "rollback work to a", true), TxState::Open);
+        assert_eq!(
+            next(TxState::Failed, "rollback to savepoint a", true),
+            TxState::Open
+        );
+        assert_eq!(
+            next(TxState::Failed, "rollback work to a", true),
+            TxState::Open
+        );
         assert_eq!(next(TxState::Open, "rollback to a", false), TxState::Failed);
         assert_eq!(next(TxState::Failed, "commit", true), TxState::Idle);
         assert_eq!(next(TxState::Open, "commit", false), TxState::Idle);
         assert_eq!(next(TxState::Open, "end", true), TxState::Idle);
         assert_eq!(next(TxState::Open, "abort", true), TxState::Idle);
-        assert_eq!(next(TxState::Open, "prepare transaction 'x'", true), TxState::Idle);
-        assert_eq!(next(TxState::Idle, "commit prepared 'x'", true), TxState::Idle);
+        assert_eq!(
+            next(TxState::Open, "prepare transaction 'x'", true),
+            TxState::Idle
+        );
+        assert_eq!(
+            next(TxState::Idle, "commit prepared 'x'", true),
+            TxState::Idle
+        );
         // H2 doesn't abort the transaction on an error.
-        assert_eq!(next_state(Variant::H2, TxState::Open, &h("insert into t values (1)"), false), TxState::Open);
-        assert!(is_commit(&h("COMMIT")) && is_commit(&h("end transaction")) && !is_commit(&h("commit prepared 'x'")));
+        assert_eq!(
+            next_state(
+                Variant::H2,
+                TxState::Open,
+                &h("insert into t values (1)"),
+                false
+            ),
+            TxState::Open
+        );
+        assert!(
+            is_commit(&h("COMMIT"))
+                && is_commit(&h("end transaction"))
+                && !is_commit(&h("commit prepared 'x'"))
+        );
     }
 
     #[test]
@@ -626,14 +894,25 @@ mod tests {
 
     #[test]
     fn the_lexer_keeps_bodies_whole() {
-        let texts = |s: &str| sql::split_script(s, &DIALECT).into_iter().map(|u| u.text).collect::<Vec<_>>();
+        let texts = |s: &str| {
+            sql::split_script(s, &DIALECT)
+                .into_iter()
+                .map(|u| u.text)
+                .collect::<Vec<_>>()
+        };
         let f = "create function f() returns int as $body$ begin; return 1; end $body$ language plpgsql;\nselect f()";
         assert_eq!(texts(f).len(), 2);
         assert_eq!(texts(r"select E'a\'; b'; select 2").len(), 2);
-        assert_eq!(texts("select /* a /* nested; */ still */ 1; select 2").len(), 2);
+        assert_eq!(
+            texts("select /* a /* nested; */ still */ 1; select 2").len(),
+            2
+        );
         let atomic = "create function g() returns int language sql begin atomic select 1; select 2; end;\nselect g()";
         assert_eq!(texts(atomic).len(), 2, "{:?}", texts(atomic));
-        assert_eq!(texts("do $$ begin raise notice 'a;b'; end $$; vacuum").len(), 2);
+        assert_eq!(
+            texts("do $$ begin raise notice 'a;b'; end $$; vacuum").len(),
+            2
+        );
     }
 
     #[test]
@@ -642,13 +921,26 @@ mod tests {
         let (clean, found) = client_commands(text);
         assert_eq!(clean.len(), text.len());
         assert_eq!(clean.lines().count(), text.lines().count());
-        assert!(clean.ends_with("select ñ frm t") && !clean.contains('\\'), "{clean:?}");
+        assert!(
+            clean.ends_with("select ñ frm t") && !clean.contains('\\'),
+            "{clean:?}"
+        );
         assert_eq!(
             found,
-            [ClientCommand::Silent, ClientCommand::Echo("hola 'mundo'".into()), ClientCommand::Ignored("\\set ON_ERROR_STOP on".into())]
+            [
+                ClientCommand::Silent,
+                ClientCommand::Echo("hola 'mundo'".into()),
+                ClientCommand::Ignored("\\set ON_ERROR_STOP on".into())
+            ]
         );
         let (clean, found) = client_commands("1\ta\n2\tb\n\\.\n\n\\connect other\nselect 1");
-        assert_eq!(found, [ClientCommand::CopyData, ClientCommand::Connect("other".into())]);
+        assert_eq!(
+            found,
+            [
+                ClientCommand::CopyData,
+                ClientCommand::Connect("other".into())
+            ]
+        );
         assert_eq!(clean.trim(), "select 1");
         // Statements before the data (a whole file's chunk): kept.
         let chunk = "copy t from stdin;\n1\ta\n\\.\nselect 1";
@@ -659,8 +951,14 @@ mod tests {
         // Not at the start: SQL, left alone.
         let (clean, found) = client_commands("select '\\echo'");
         assert!(found.is_empty() && clean == "select '\\echo'");
-        assert!(copy_from_stdin("COPY public.t (a, b) FROM stdin", &h("COPY public.t (a, b) FROM stdin")));
-        assert!(copy_from_stdin("copy t from STDIN with (format csv);", &h("copy t")));
+        assert!(copy_from_stdin(
+            "COPY public.t (a, b) FROM stdin",
+            &h("COPY public.t (a, b) FROM stdin")
+        ));
+        assert!(copy_from_stdin(
+            "copy t from STDIN with (format csv);",
+            &h("copy t")
+        ));
         assert!(!copy_from_stdin("copy t to stdout", &h("copy t to stdout")));
         assert!(!copy_from_stdin("select 'from stdin'", &h("select")));
     }
@@ -701,7 +999,10 @@ mod tests {
         );
         // A `\` line inside a string, a body or a comment is theirs.
         let s = "select 'a\n\\b';\ndo $$\n\\echo x\n$$;\n/*\n\\c y\n*/ select 2;";
-        assert_eq!(units(s).iter().map(|u| u.0.as_str()).collect::<Vec<_>>(), ["select 'a\n\\b'", "do $$\n\\echo x\n$$", "select 2"]);
+        assert_eq!(
+            units(s).iter().map(|u| u.0.as_str()).collect::<Vec<_>>(),
+            ["select 'a\n\\b'", "do $$\n\\echo x\n$$", "select 2"]
+        );
         // Data with no `\.` runs to the end; two COPYs in a row.
         let s = "copy a from stdin;\n1\tx'\n\\.\ncopy b from stdin;\n2\t'y;\n";
         assert_eq!(
@@ -721,7 +1022,9 @@ mod tests {
     #[test]
     fn variants() {
         assert!(Variant::Postgres.manual_transactions() && Variant::Redshift.manual_transactions());
-        assert!(!Variant::Materialize.manual_transactions() && !Variant::CrateDb.manual_transactions());
+        assert!(
+            !Variant::Materialize.manual_transactions() && !Variant::CrateDb.manual_transactions()
+        );
         assert!(Variant::Cockroach.probes_transaction() && !Variant::Redshift.probes_transaction());
         assert!(Variant::Postgres.continue_on_error() && !Variant::Cockroach.continue_on_error());
     }

@@ -102,9 +102,20 @@ fn diffs() -> &'static Mutex<HashMap<String, Diff>> {
 
 /// Read a side: its columns and its rows (up to `limit`, on its own
 /// read-only session).
-async fn read(state: &AppState, side: &Side, limit: u64) -> CommandResult<(Vec<dbine_driver::ColumnInfo>, Vec<String>, Vec<Vec<Value>>, bool)> {
+async fn read(
+    state: &AppState,
+    side: &Side,
+    limit: u64,
+) -> CommandResult<(
+    Vec<dbine_driver::ColumnInfo>,
+    Vec<String>,
+    Vec<Vec<Value>>,
+    bool,
+)> {
     let key = format!("dcmp:{}", uuid::Uuid::new_v4());
-    let entry = state.dedicated_session(&key, &side.connection_id, &side.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &side.connection_id, &side.database, true)
+        .await?;
     let result = async {
         let mut s = entry.session.lock().await;
         let cols = s.columns(&side.object).await?;
@@ -114,7 +125,11 @@ async fn read(state: &AppState, side: &Side, limit: u64) -> CommandResult<(Vec<d
         if let Some(e) = out.error {
             return Err(dbine_driver::Error::Query(e));
         }
-        let r = out.results.into_iter().find(|r| !r.columns.is_empty()).unwrap_or_default();
+        let r = out
+            .results
+            .into_iter()
+            .find(|r| !r.columns.is_empty())
+            .unwrap_or_default();
         let names: Vec<String> = r.columns.iter().map(|c| c.name.clone()).collect();
         let truncated = r.rows.len() as u64 > limit || r.truncated;
         let mut rows = r.rows;
@@ -138,19 +153,31 @@ fn canon(v: &Value) -> String {
             if let Ok(f) = t.parse::<f64>() {
                 // A code with leading zeros ("007") is text, not a number.
                 let leading_zero = t.len() > 1 && t.starts_with('0') && !t.starts_with("0.");
-                if !t.is_empty() && !leading_zero && t.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')) {
+                if !t.is_empty()
+                    && !leading_zero
+                    && t.chars()
+                        .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
+                {
                     return num(f);
                 }
             }
             // 2026-09-28T10:00:00.000Z ≈ 2026-09-28 10:00:00
-            if t.len() >= 19 && t.as_bytes()[4] == b'-' && t.as_bytes()[7] == b'-' && matches!(t.as_bytes()[10], b'T' | b' ') {
+            if t.len() >= 19
+                && t.as_bytes()[4] == b'-'
+                && t.as_bytes()[7] == b'-'
+                && matches!(t.as_bytes()[10], b'T' | b' ')
+            {
                 let mut d = t.replacen('T', " ", 1);
                 if d.ends_with('Z') {
                     d.pop();
                 }
                 if let Some(dot) = d.find('.') {
                     let frac = d[dot + 1..].trim_end_matches('0');
-                    d = if frac.is_empty() { d[..dot].to_string() } else { format!("{}.{frac}", &d[..dot]) };
+                    d = if frac.is_empty() {
+                        d[..dot].to_string()
+                    } else {
+                        format!("{}.{frac}", &d[..dot])
+                    };
                 }
                 return d;
             }
@@ -169,25 +196,52 @@ fn num(f: f64) -> String {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn data_compare(state: State<'_, AppState>, args: DataCompareArgs) -> CommandResult<DataCompareResult> {
+pub async fn data_compare(
+    state: State<'_, AppState>,
+    args: DataCompareArgs,
+) -> CommandResult<DataCompareResult> {
     let limit = args.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, 5_000_000);
-    let (l, r) = tokio::try_join!(read(&state, &args.left, limit), read(&state, &args.right, limit))?;
+    let (l, r) = tokio::try_join!(
+        read(&state, &args.left, limit),
+        read(&state, &args.right, limit)
+    )?;
     let (lcols, lnames, lrows, ltrunc) = l;
     let (rcols, rnames, rrows, rtrunc) = r;
-    let identity = |cols: &[dbine_driver::ColumnInfo]| -> Vec<String> { cols.iter().filter(|c| c.auto_increment).map(|c| c.name.clone()).collect() };
+    let identity = |cols: &[dbine_driver::ColumnInfo]| -> Vec<String> {
+        cols.iter()
+            .filter(|c| c.auto_increment)
+            .map(|c| c.name.clone())
+            .collect()
+    };
     let (left_identity, right_identity) = (identity(&lcols), identity(&rcols));
 
     // Columns both have (by name, ignoring case), in the left's order.
     let find = |names: &[String], n: &str| names.iter().position(|x| x.eq_ignore_ascii_case(n));
-    let key: Vec<String> = if args.key.is_empty() { lcols.iter().filter(|c| c.primary_key).map(|c| c.name.clone()).collect() } else { args.key.clone() };
+    let key: Vec<String> = if args.key.is_empty() {
+        lcols
+            .iter()
+            .filter(|c| c.primary_key)
+            .map(|c| c.name.clone())
+            .collect()
+    } else {
+        args.key.clone()
+    };
     if key.is_empty() {
-        return Err(CommandError::BadRequest("la tabla no tiene clave primaria: elegí las columnas que identifican cada fila".into()));
+        return Err(CommandError::BadRequest(
+            "la tabla no tiene clave primaria: elegí las columnas que identifican cada fila".into(),
+        ));
     }
-    let wanted: Vec<&String> = if args.columns.is_empty() { lnames.iter().collect() } else { args.columns.iter().collect() };
+    let wanted: Vec<&String> = if args.columns.is_empty() {
+        lnames.iter().collect()
+    } else {
+        args.columns.iter().collect()
+    };
     let mut columns: Vec<(String, usize, String, usize)> = Vec::new();
     for k in &key {
         let (Some(li), Some(ri)) = (find(&lnames, k), find(&rnames, k)) else {
-            return Err(CommandError::BadRequest(format!("la columna clave «{k}» no está en las dos tablas")));
+            return Err(CommandError::BadRequest(format!(
+                "la columna clave «{k}» no está en las dos tablas"
+            )));
         };
         columns.push((lnames[li].clone(), li, rnames[ri].clone(), ri));
     }
@@ -199,12 +253,30 @@ pub async fn data_compare(state: State<'_, AppState>, args: DataCompareArgs) -> 
             columns.push((lnames[li].clone(), li, rnames[ri].clone(), ri));
         }
     }
-    let only_left_columns = lnames.iter().filter(|n| find(&rnames, n).is_none()).cloned().collect();
-    let only_right_columns = rnames.iter().filter(|n| find(&lnames, n).is_none()).cloned().collect();
+    let only_left_columns = lnames
+        .iter()
+        .filter(|n| find(&rnames, n).is_none())
+        .cloned()
+        .collect();
+    let only_right_columns = rnames
+        .iter()
+        .filter(|n| find(&lnames, n).is_none())
+        .cloned()
+        .collect();
     let nk = key.len();
 
-    let project = |row: &[Value], left: bool| -> Vec<Value> { columns.iter().map(|c| row.get(if left { c.1 } else { c.3 }).cloned().unwrap_or(Value::Null)).collect() };
-    let key_of = |p: &[Value]| -> String { p[..nk].iter().map(canon).collect::<Vec<_>>().join("\u{1}") };
+    let project = |row: &[Value], left: bool| -> Vec<Value> {
+        columns
+            .iter()
+            .map(|c| {
+                row.get(if left { c.1 } else { c.3 })
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            })
+            .collect()
+    };
+    let key_of =
+        |p: &[Value]| -> String { p[..nk].iter().map(canon).collect::<Vec<_>>().join("\u{1}") };
 
     let mut duplicate_keys = 0;
     let mut right: HashMap<String, Vec<Value>> = HashMap::with_capacity(rrows.len());
@@ -214,7 +286,11 @@ pub async fn data_compare(state: State<'_, AppState>, args: DataCompareArgs) -> 
             duplicate_keys += 1;
         }
     }
-    let mut counts = Counts { left: lrows.len() as u64, right: rrows.len() as u64, ..Default::default() };
+    let mut counts = Counts {
+        left: lrows.len() as u64,
+        right: rrows.len() as u64,
+        ..Default::default()
+    };
     let (mut only_left, mut changed) = (Vec::new(), Vec::new());
     let mut seen = std::collections::HashSet::new();
     for row in &lrows {
@@ -227,11 +303,17 @@ pub async fn data_compare(state: State<'_, AppState>, args: DataCompareArgs) -> 
         match right.remove(&k) {
             None => only_left.push(p),
             Some(rp) => {
-                let diff: Vec<usize> = (nk..p.len()).filter(|&i| canon(&p[i]) != canon(&rp[i])).collect();
+                let diff: Vec<usize> = (nk..p.len())
+                    .filter(|&i| canon(&p[i]) != canon(&rp[i]))
+                    .collect();
                 if diff.is_empty() {
                     counts.same += 1;
                 } else {
-                    changed.push(ChangedRow { left: p, right: rp, diff });
+                    changed.push(ChangedRow {
+                        left: p,
+                        right: rp,
+                        diff,
+                    });
                 }
             }
         }
@@ -367,9 +449,14 @@ struct Plan<'a> {
 /// The scripts that apply the chosen rows, one per side that changes, each
 /// in that side's language. Nothing runs here.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn data_compare_script(state: State<'_, AppState>, args: DataScriptArgs) -> CommandResult<Vec<DataScript>> {
+pub async fn data_compare_script(
+    state: State<'_, AppState>,
+    args: DataScriptArgs,
+) -> CommandResult<Vec<DataScript>> {
     let all = diffs().lock().unwrap();
-    let d = all.get(&args.id).ok_or_else(|| CommandError::NotFound("la comparación ya no está: volvé a comparar".into()))?;
+    let d = all.get(&args.id).ok_or_else(|| {
+        CommandError::NotFound("la comparación ya no está: volvé a comparar".into())
+    })?;
     let c = &args.choices;
     let (mut right, mut left) = (Plan::default(), Plan::default());
     for (row, dir) in d.changed.iter().zip(c.changed.resolve(d.changed.len())) {
@@ -379,14 +466,22 @@ pub async fn data_compare_script(state: State<'_, AppState>, args: DataScriptArg
             Dir::None => {}
         }
     }
-    for (row, dir) in d.only_left.iter().zip(c.only_left.resolve(d.only_left.len())) {
+    for (row, dir) in d
+        .only_left
+        .iter()
+        .zip(c.only_left.resolve(d.only_left.len()))
+    {
         match dir {
             Dir::Right => right.insert.push(row.clone()),
             Dir::Left => left.delete.push(row),
             Dir::None => {}
         }
     }
-    for (row, dir) in d.only_right.iter().zip(c.only_right.resolve(d.only_right.len())) {
+    for (row, dir) in d
+        .only_right
+        .iter()
+        .zip(c.only_right.resolve(d.only_right.len()))
+    {
         match dir {
             Dir::Left => left.insert.push(row.clone()),
             Dir::Right => right.delete.push(row),
@@ -404,14 +499,34 @@ pub async fn data_compare_script(state: State<'_, AppState>, args: DataScriptArg
 }
 
 /// One side's script: deletes, then updates, then inserts.
-fn side_script(state: &AppState, d: &Diff, to_right: bool, plan: Plan<'_>) -> CommandResult<DataScript> {
+fn side_script(
+    state: &AppState,
+    d: &Diff,
+    to_right: bool,
+    plan: Plan<'_>,
+) -> CommandResult<DataScript> {
     let target = if to_right { &d.right } else { &d.left };
-    let cfg = state.store.get_connection(&target.connection_id)?.ok_or_else(|| CommandError::NotFound("la conexión destino ya no existe".into()))?.config;
-    let driver = dbine_drivers::find(&cfg.driver).ok_or_else(|| CommandError::BadRequest(format!("no hay driver '{}'", cfg.driver)))?;
+    let cfg = state
+        .store
+        .get_connection(&target.connection_id)?
+        .ok_or_else(|| CommandError::NotFound("la conexión destino ya no existe".into()))?
+        .config;
+    let driver = dbine_drivers::find(&cfg.driver)
+        .ok_or_else(|| CommandError::BadRequest(format!("no hay driver '{}'", cfg.driver)))?;
     // The target's column names.
-    let names: Vec<String> = d.columns.iter().map(|(l, r)| if to_right { r.clone() } else { l.clone() }).collect();
+    let names: Vec<String> = d
+        .columns
+        .iter()
+        .map(|(l, r)| if to_right { r.clone() } else { l.clone() })
+        .collect();
     let nk = d.key.len();
-    let key_of = |r: &Vec<Value>| -> Vec<(String, Value)> { names[..nk].iter().cloned().zip(r[..nk].iter().cloned()).collect() };
+    let key_of = |r: &Vec<Value>| -> Vec<(String, Value)> {
+        names[..nk]
+            .iter()
+            .cloned()
+            .zip(r[..nk].iter().cloned())
+            .collect()
+    };
     let mut parts = Vec::new();
     if !plan.delete.is_empty() {
         let keys: Vec<Vec<(String, Value)>> = plan.delete.iter().map(|r| key_of(r)).collect();
@@ -423,15 +538,28 @@ fn side_script(state: &AppState, d: &Diff, to_right: bool, plan: Plan<'_>) -> Co
             .iter()
             .map(|(src, dst, diff)| RowChange {
                 key: key_of(dst),
-                set: diff.iter().map(|&i| (names[i].clone(), src[i].clone())).collect(),
+                set: diff
+                    .iter()
+                    .map(|&i| (names[i].clone(), src[i].clone()))
+                    .collect(),
                 row: names.iter().cloned().zip(dst.iter().cloned()).collect(),
             })
             .collect();
         parts.push(driver.update_script(&target.object, &changes)?);
     }
     if !plan.insert.is_empty() {
-        let identity = if to_right { &d.right_identity } else { &d.left_identity };
-        parts.extend(insert_parts(driver.as_ref(), &target.object, &names, identity, &plan.insert)?);
+        let identity = if to_right {
+            &d.right_identity
+        } else {
+            &d.left_identity
+        };
+        parts.extend(insert_parts(
+            driver.as_ref(),
+            &target.object,
+            &names,
+            identity,
+            &plan.insert,
+        )?);
     }
     let (script, statements) = assemble(driver.as_ref(), parts);
     Ok(DataScript {
@@ -452,14 +580,26 @@ fn side_script(state: &AppState, d: &Diff, to_right: bool, plan: Plan<'_>) -> Co
 /// The inserts of a sync. Rows copied with their identity values need the
 /// engine's wrap: SQL Server refuses them unless IDENTITY_INSERT is on
 /// (error 544); other engines wrap nothing.
-fn insert_parts(driver: &dyn dbine_driver::Driver, target: &ObjectRef, names: &[String], identity: &[String], rows: &[Vec<Value>]) -> CommandResult<Vec<String>> {
+fn insert_parts(
+    driver: &dyn dbine_driver::Driver,
+    target: &ObjectRef,
+    names: &[String],
+    identity: &[String],
+    rows: &[Vec<Value>],
+) -> CommandResult<Vec<String>> {
     let inserts = driver.insert_script(target, names, rows)?;
-    let (before, after) = if names.iter().any(|n| identity.iter().any(|i| i.eq_ignore_ascii_case(n))) {
+    let (before, after) = if names
+        .iter()
+        .any(|n| identity.iter().any(|i| i.eq_ignore_ascii_case(n)))
+    {
         driver.data_load_wrap(&identity_table(target, identity))
     } else {
         (String::new(), String::new())
     };
-    Ok([before, inserts, after].into_iter().filter(|p| !p.trim().is_empty()).collect())
+    Ok([before, inserts, after]
+        .into_iter()
+        .filter(|p| !p.trim().is_empty())
+        .collect())
 }
 
 /// New rows from the results grid ("Agregar fila", "Agregar documento") as
@@ -469,9 +609,19 @@ fn insert_parts(driver: &dyn dbine_driver::Driver, target: &ObjectRef, names: &[
 /// asks whether the engine writes inserts (with the result's `columns`, as
 /// a row of NULLs: IoTDB needs its Time column), and only its
 /// `Unsupported` is the reason the UI shows.
-pub(crate) fn new_rows_parts(driver: &dyn dbine_driver::Driver, target: &ObjectRef, rows: &[Vec<(String, Value)>], identity: &[String], columns: &[String]) -> CommandResult<Vec<String>> {
+pub(crate) fn new_rows_parts(
+    driver: &dyn dbine_driver::Driver,
+    target: &ObjectRef,
+    rows: &[Vec<(String, Value)>],
+    identity: &[String],
+    columns: &[String],
+) -> CommandResult<Vec<String>> {
     if rows.is_empty() {
-        let probe: Vec<Vec<Value>> = if columns.is_empty() { Vec::new() } else { vec![vec![Value::Null; columns.len()]] };
+        let probe: Vec<Vec<Value>> = if columns.is_empty() {
+            Vec::new()
+        } else {
+            vec![vec![Value::Null; columns.len()]]
+        };
         return match driver.insert_script(target, columns, &probe) {
             Err(e @ dbine_driver::Error::Unsupported(_)) => Err(e.into()),
             _ => Ok(Vec::new()),
@@ -497,14 +647,25 @@ fn identity_table(object: &ObjectRef, identity: &[String]) -> dbine_driver::Tabl
     dbine_driver::TableSchema {
         schema: object.schema.clone(),
         name: object.name.clone(),
-        columns: identity.iter().map(|n| dbine_driver::ColumnDef { name: n.clone(), auto_increment: true, ..Default::default() }).collect(),
+        columns: identity
+            .iter()
+            .map(|n| dbine_driver::ColumnDef {
+                name: n.clone(),
+                auto_increment: true,
+                ..Default::default()
+            })
+            .collect(),
         ..Default::default()
     }
 }
 
 fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u64) {
     let sep = driver.script_separator();
-    let script = parts.into_iter().filter(|p| !p.trim().is_empty()).collect::<Vec<_>>().join(&format!("\n{sep}\n"));
+    let script = parts
+        .into_iter()
+        .filter(|p| !p.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(&format!("\n{sep}\n"));
     let statements = driver.split_script(&script).len() as u64;
     (script, statements)
 }
@@ -518,7 +679,11 @@ mod tests {
     /// neither merges nor adds statements, on every SQL engine.
     #[test]
     fn inserts_into_an_identity_column_are_wrapped() {
-        let target = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "destino".into() };
+        let target = ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "destino".into(),
+        };
         let names = vec!["id".to_string(), "codigo".to_string()];
         let rows = vec![vec![json!(5), json!("a")]];
         let mssql = dbine_drivers::find("sqlserver").unwrap();
@@ -528,43 +693,79 @@ mod tests {
         assert!(parts[1].starts_with("INSERT INTO [dbo].[destino]"));
         assert_eq!(parts[2], "SET IDENTITY_INSERT [dbo].[destino] OFF;");
         // No identity column among the inserted ones: nothing to wrap.
-        assert_eq!(insert_parts(mssql.as_ref(), &target, &names, &[], &rows).unwrap().len(), 1);
+        assert_eq!(
+            insert_parts(mssql.as_ref(), &target, &names, &[], &rows)
+                .unwrap()
+                .len(),
+            1
+        );
         // PostgreSQL takes the values as they come, then moves the sequence
         // past them, so the next insert doesn't collide with a copied id.
         let pg = dbine_drivers::find("postgres").unwrap();
         let parts = insert_parts(pg.as_ref(), &target, &names, &["id".into()], &rows).unwrap();
         assert_eq!(parts.len(), 2, "{parts:?}");
-        assert!(parts[0].starts_with("INSERT INTO") && parts[1].contains("setval(pg_get_serial_sequence"), "{parts:?}");
+        assert!(
+            parts[0].starts_with("INSERT INTO")
+                && parts[1].contains("setval(pg_get_serial_sequence"),
+            "{parts:?}"
+        );
     }
 
     #[test]
     fn grid_new_rows_batch_by_columns_and_wrap_identity() {
-        let target = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "clientes".into() };
+        let target = ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "clientes".into(),
+        };
         let mssql = dbine_drivers::find("sqlserver").unwrap();
         let rows = vec![
             vec![("nombre".to_string(), json!("Ana"))],
             vec![("nombre".to_string(), json!("Luis"))],
-            vec![("id".to_string(), json!(9)), ("nombre".to_string(), json!("Eva"))],
+            vec![
+                ("id".to_string(), json!(9)),
+                ("nombre".to_string(), json!("Eva")),
+            ],
             vec![],
         ];
         let parts = new_rows_parts(mssql.as_ref(), &target, &rows, &["id".into()], &[]).unwrap();
         // The first two share their columns (one INSERT batch, no identity);
         // the third sets the identity column: wrapped.
         assert_eq!(parts.len(), 4, "{parts:?}");
-        assert!(parts[0].contains("N'Ana'") && parts[0].contains("N'Luis'"), "{parts:?}");
+        assert!(
+            parts[0].contains("N'Ana'") && parts[0].contains("N'Luis'"),
+            "{parts:?}"
+        );
         assert_eq!(parts[1], "SET IDENTITY_INSERT [dbo].[clientes] ON;");
-        assert!(parts[2].contains("[id]") && parts[2].contains("N'Eva'"), "{parts:?}");
+        assert!(
+            parts[2].contains("[id]") && parts[2].contains("N'Eva'"),
+            "{parts:?}"
+        );
         assert_eq!(parts[3], "SET IDENTITY_INSERT [dbo].[clientes] OFF;");
         // A document with nested fields goes to MongoDB as it is.
         let mongo = dbine_drivers::find("mongodb").unwrap();
-        let coll = ObjectRef { kind: "collection".into(), schema: None, name: "pedidos".into() };
-        let doc = vec![vec![("cliente".to_string(), json!({"nombre": "Ana"})), ("items".to_string(), json!([1, 2]))]];
+        let coll = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: "pedidos".into(),
+        };
+        let doc = vec![vec![
+            ("cliente".to_string(), json!({"nombre": "Ana"})),
+            ("items".to_string(), json!([1, 2])),
+        ]];
         let parts = new_rows_parts(mongo.as_ref(), &coll, &doc, &[], &[]).unwrap();
         assert_eq!(parts.len(), 1, "{parts:?}");
-        assert!(parts[0].contains("pedidos") && parts[0].contains("\"nombre\"") , "{parts:?}");
+        assert!(
+            parts[0].contains("pedidos") && parts[0].contains("\"nombre\""),
+            "{parts:?}"
+        );
         // No rows: only whether the engine writes inserts.
-        assert!(new_rows_parts(mssql.as_ref(), &target, &[], &[], &[]).unwrap().is_empty());
-        assert!(new_rows_parts(mongo.as_ref(), &coll, &[], &[], &[]).unwrap().is_empty());
+        assert!(new_rows_parts(mssql.as_ref(), &target, &[], &[], &[])
+            .unwrap()
+            .is_empty());
+        assert!(new_rows_parts(mongo.as_ref(), &coll, &[], &[], &[])
+            .unwrap()
+            .is_empty());
     }
 
     /// Every engine either writes a new row's insert code or says why not
@@ -580,15 +781,30 @@ mod tests {
             // with a Time column.
             let tsdb = matches!(id, "iotdb" | "timechodb");
             let schema = tsdb.then(|| "root.ventas".to_string());
-            let columns: Vec<String> = if tsdb { vec!["Time".into(), "nombre".into()] } else { vec!["id".into(), "nombre".into()] };
-            let row = vec![columns.iter().cloned().zip([json!(1), json!("Ana")]).collect::<Vec<_>>()];
-            let target = ObjectRef { kind: "table".into(), schema, name: "clientes".into() };
+            let columns: Vec<String> = if tsdb {
+                vec!["Time".into(), "nombre".into()]
+            } else {
+                vec!["id".into(), "nombre".into()]
+            };
+            let row = vec![columns
+                .iter()
+                .cloned()
+                .zip([json!(1), json!("Ana")])
+                .collect::<Vec<_>>()];
+            let target = ObjectRef {
+                kind: "table".into(),
+                schema,
+                name: "clientes".into(),
+            };
             match new_rows_parts(d.as_ref(), &target, &[], &[], &columns) {
                 Ok(p) => assert!(p.is_empty(), "{id}: {p:?}"),
                 Err(e) => {
                     unsupported.push(id);
                     // An engine that can't insert says so for real rows too.
-                    assert!(new_rows_parts(d.as_ref(), &target, &row, &[], &[]).is_err(), "{id}: probe failed ({e:?}) but rows worked");
+                    assert!(
+                        new_rows_parts(d.as_ref(), &target, &row, &[], &[]).is_err(),
+                        "{id}: probe failed ({e:?}) but rows worked"
+                    );
                     continue;
                 }
             }
@@ -606,25 +822,43 @@ mod tests {
     /// writes it as a document, not as a quoted string.
     #[test]
     fn document_engines_write_an_edited_nested_field_as_an_object() {
-        let coll = ObjectRef { kind: "collection".into(), schema: None, name: "pedidos".into() };
+        let coll = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: "pedidos".into(),
+        };
         let change = RowChange {
             key: vec![("_id".into(), json!("65a1b2c3d4e5f60718293a4b"))],
-            set: vec![("cliente".into(), json!({"nombre": "Ana", "contacto": {"email": "ana@ejemplo.com"}}))],
+            set: vec![(
+                "cliente".into(),
+                json!({"nombre": "Ana", "contacto": {"email": "ana@ejemplo.com"}}),
+            )],
             row: vec![],
         };
         for id in ["mongodb", "couchdb", "elasticsearch"] {
             let d = dbine_drivers::find(id).unwrap();
-            let script = d.update_script(&coll, std::slice::from_ref(&change)).unwrap();
+            let script = d
+                .update_script(&coll, std::slice::from_ref(&change))
+                .unwrap();
             assert!(script.contains("ana@ejemplo.com"), "{id}: {script}");
-            assert!(!script.contains("\\\"email\\\"") && !script.contains("\"{\\\""), "{id}: nested field went as a string: {script}");
+            assert!(
+                !script.contains("\\\"email\\\"") && !script.contains("\"{\\\""),
+                "{id}: nested field went as a string: {script}"
+            );
         }
     }
 
     #[test]
     fn statement_count_is_the_sum_of_the_parts() {
-        let target = ObjectRef { kind: "table".into(), schema: Some("s".into()), name: "t".into() };
+        let target = ObjectRef {
+            kind: "table".into(),
+            schema: Some("s".into()),
+            name: "t".into(),
+        };
         let cols = vec!["id".to_string(), "name".to_string()];
-        let rows: Vec<Vec<serde_json::Value>> = (1..=3).map(|i| vec![json!(i), json!(format!("n{i}"))]).collect();
+        let rows: Vec<Vec<serde_json::Value>> = (1..=3)
+            .map(|i| vec![json!(i), json!(format!("n{i}"))])
+            .collect();
         let changes: Vec<RowChange> = (1..=2)
             .map(|i| RowChange {
                 key: vec![("id".into(), json!(i))],
@@ -635,10 +869,14 @@ mod tests {
         let keys = vec![vec![("id".to_string(), json!(9))]];
         let mut checked = 0;
         for d in dbine_drivers::all() {
-            let parts: Vec<String> = [d.delete_script(&target, &keys), d.update_script(&target, &changes), d.insert_script(&target, &cols, &rows)]
-                .into_iter()
-                .filter_map(Result::ok)
-                .collect();
+            let parts: Vec<String> = [
+                d.delete_script(&target, &keys),
+                d.update_script(&target, &changes),
+                d.insert_script(&target, &cols, &rows),
+            ]
+            .into_iter()
+            .filter_map(Result::ok)
+            .collect();
             if parts.is_empty() {
                 continue;
             }
@@ -658,11 +896,19 @@ mod tests {
 
     #[test]
     fn row_choices_override_the_default() {
-        let p = Pick { all: Dir::Right, rows: vec![(1, Dir::None), (2, Dir::Left), (9, Dir::Left)] };
-        assert_eq!(p.resolve(4), vec![Dir::Right, Dir::None, Dir::Left, Dir::Right]);
+        let p = Pick {
+            all: Dir::Right,
+            rows: vec![(1, Dir::None), (2, Dir::Left), (9, Dir::Left)],
+        };
+        assert_eq!(
+            p.resolve(4),
+            vec![Dir::Right, Dir::None, Dir::Left, Dir::Right]
+        );
         let none: Pick = serde_json::from_value(serde_json::json!({})).unwrap();
         assert_eq!(none.resolve(2), vec![Dir::None, Dir::None]);
-        let p: Pick = serde_json::from_value(serde_json::json!({ "all": "left", "rows": [[0, "none"]] })).unwrap();
+        let p: Pick =
+            serde_json::from_value(serde_json::json!({ "all": "left", "rows": [[0, "none"]] }))
+                .unwrap();
         assert_eq!(p.resolve(2), vec![Dir::None, Dir::Left]);
     }
     use serde_json::json;
@@ -673,8 +919,15 @@ mod tests {
         assert_eq!(canon(&json!(2.5)), canon(&json!("2.50")));
         assert_ne!(canon(&json!(1)), canon(&json!(2)));
         assert_eq!(canon(&json!(true)), canon(&json!(1)));
-        assert_eq!(canon(&json!("2026-09-28T10:00:00.000Z")), canon(&json!("2026-09-28 10:00:00")));
+        assert_eq!(
+            canon(&json!("2026-09-28T10:00:00.000Z")),
+            canon(&json!("2026-09-28 10:00:00"))
+        );
         assert_ne!(canon(&json!(null)), canon(&json!("")));
-        assert_ne!(canon(&json!("007")), canon(&json!("7")), "a code with leading zeros is text");
+        assert_ne!(
+            canon(&json!("007")),
+            canon(&json!("7")),
+            "a code with leading zeros is text"
+        );
     }
 }

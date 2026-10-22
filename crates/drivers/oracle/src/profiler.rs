@@ -18,7 +18,9 @@
 
 use crate::{db_code, err, OracleSession};
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use oracledb::Connection;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -38,21 +40,34 @@ fn utc(col: &str) -> String {
 }
 
 /// Every column as text.
-fn texts(c: &Connection, sql: &str) -> std::result::Result<Vec<Vec<Option<String>>>, oracledb::Error> {
+fn texts(
+    c: &Connection,
+    sql: &str,
+) -> std::result::Result<Vec<Vec<Option<String>>>, oracledb::Error> {
     // Out of the statement cache: a statement whose parse failed stays
     // cached and the next run reports ORA-01003 instead of the real error.
-    let stmt = c.statement(sql).map(|b| b.exclude_from_cache()).and_then(|b| b.build())?;
+    let stmt = c
+        .statement(sql)
+        .map(|b| b.exclude_from_cache())
+        .and_then(|b| b.build())?;
     let cursor = stmt.query(&[])?;
     let n = cursor.columns().len();
     let mut out = Vec::new();
     for row in cursor {
         let row = row?;
-        out.push((0..n).map(|i| row.get::<Option<String>>(i).ok().flatten()).collect());
+        out.push(
+            (0..n)
+                .map(|i| row.get::<Option<String>>(i).ok().flatten())
+                .collect(),
+        );
     }
     Ok(out)
 }
 
-pub(crate) async fn start(s: &mut OracleSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &mut OracleSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let sql = sample_sql(&opts.database);
     // Whole seconds, as the statements' start times.
     let since = s
@@ -79,10 +94,20 @@ pub(crate) async fn start(s: &mut OracleSession, opts: &ProfilerOptions) -> Resu
          (escrituras directas) son la media del cursor en V$SQLSTATS.",
     )
     .units(Some("bloques"), Some("bloques"));
-    Ok((State { sampler: Sampler::new(since), sql, running: HashMap::new() }, started))
+    Ok((
+        State {
+            sampler: Sampler::new(since),
+            sql,
+            running: HashMap::new(),
+        },
+        started,
+    ))
 }
 
-pub(crate) async fn poll(s: &mut OracleSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
+pub(crate) async fn poll(
+    s: &mut OracleSession,
+    state: &mut State,
+) -> Result<Vec<ProfiledStatement>> {
     let mut out = Vec::new();
     let until = Instant::now() + SAMPLE_FOR;
     loop {
@@ -111,7 +136,10 @@ pub(crate) async fn poll(s: &mut OracleSession, state: &mut State) -> Result<Vec
     for st in &mut out {
         // Seen running: the time it was seen, else unknown.
         let key = st.detail.take().unwrap_or_default();
-        st.duration_ms = state.running.remove(&key).map(|_| st.duration_ms.unwrap_or(0.0));
+        st.duration_ms = state
+            .running
+            .remove(&key)
+            .map(|_| st.duration_ms.unwrap_or(0.0));
         st.detail = key_sql_id(&key).map(|id| format!("sql_id {id}"));
     }
     if !out.is_empty() {
@@ -124,11 +152,19 @@ pub(crate) async fn poll(s: &mut OracleSession, state: &mut State) -> Result<Vec
 /// The duration and rows of each statement's cursor (per execution), from
 /// `V$SQLSTATS`; the sample only knows the time seen running, in seconds.
 async fn cursor_figures(s: &mut OracleSession, out: &mut [ProfiledStatement]) -> Result<()> {
-    let ids: Vec<String> = out.iter().filter_map(|st| st.detail.as_deref().and_then(sql_id)).map(str::to_string).collect();
+    let ids: Vec<String> = out
+        .iter()
+        .filter_map(|st| st.detail.as_deref().and_then(sql_id))
+        .map(str::to_string)
+        .collect();
     if ids.is_empty() {
         return Ok(());
     }
-    let list = ids.iter().map(|i| format!("'{}'", i.replace('\'', ""))).collect::<Vec<_>>().join(", ");
+    let list = ids
+        .iter()
+        .map(|i| format!("'{}'", i.replace('\'', "")))
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!(
         "SELECT sql_id, TO_CHAR(elapsed_time / 1000 / executions, 'TM9', 'NLS_NUMERIC_CHARACTERS=''.,'''), \
                 TO_CHAR(ROUND(rows_processed / executions)), TO_CHAR(executions), \
@@ -139,7 +175,9 @@ async fn cursor_figures(s: &mut OracleSession, out: &mut [ProfiledStatement]) ->
     let rows = s.run(move |c| texts(c, &sql).map_err(err)).await?;
     let figures: HashMap<String, Figures> = rows.into_iter().filter_map(figures).collect();
     for st in out.iter_mut() {
-        let Some(id) = st.detail.as_deref().and_then(sql_id).map(str::to_string) else { continue };
+        let Some(id) = st.detail.as_deref().and_then(sql_id).map(str::to_string) else {
+            continue;
+        };
         let Some(f) = figures.get(&id) else { continue };
         apply(st, &id, f);
     }
@@ -194,7 +232,9 @@ fn key_sql_id(key: &str) -> Option<&str> {
 }
 
 fn sql_id(detail: &str) -> Option<&str> {
-    detail.strip_prefix("sql_id ").map(|d| d.split(',').next().unwrap_or(d))
+    detail
+        .strip_prefix("sql_id ")
+        .map(|d| d.split(',').next().unwrap_or(d))
 }
 
 /// Per session other than this one, the running statement and the previous
@@ -240,7 +280,9 @@ fn sample(r: Vec<Option<String>>) -> Sample {
         started: next().unwrap_or_default(),
         text: next().unwrap_or_default(),
         running: next().as_deref() == Some("1"),
-        duration_ms: next().and_then(|v| v.parse::<f64>().ok()).map(|ms| ms.max(0.0)),
+        duration_ms: next()
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|ms| ms.max(0.0)),
         database: next(),
         user: next(),
         client: next(),
@@ -256,9 +298,15 @@ mod tests {
     #[test]
     fn sql_id_comes_back_from_the_detail() {
         assert_eq!(sql_id("sql_id 90mktz2skq1hq"), Some("90mktz2skq1hq"));
-        assert_eq!(sql_id("sql_id 90mktz2skq1hq, media de 3 ejecuciones"), Some("90mktz2skq1hq"));
+        assert_eq!(
+            sql_id("sql_id 90mktz2skq1hq, media de 3 ejecuciones"),
+            Some("90mktz2skq1hq")
+        );
         assert_eq!(sql_id("otra cosa"), None);
-        assert_eq!(key_sql_id("53,1234:90mktz2skq1hq:16777216"), Some("90mktz2skq1hq"));
+        assert_eq!(
+            key_sql_id("53,1234:90mktz2skq1hq:16777216"),
+            Some("90mktz2skq1hq")
+        );
         assert_eq!(key_sql_id("53,1234::"), None);
     }
 
@@ -266,15 +314,27 @@ mod tests {
     fn cursor_figures_per_execution() {
         let row = |v: &[&str]| v.iter().map(|s| Some(s.to_string())).collect::<Vec<_>>();
         let (id, f) = figures(row(&["abc", "12.5", "3", "1", "4.25", "120", "0"])).unwrap();
-        let mut st = ProfiledStatement { detail: Some("sql_id abc".into()), ..Default::default() };
+        let mut st = ProfiledStatement {
+            detail: Some("sql_id abc".into()),
+            ..Default::default()
+        };
         apply(&mut st, &id, &f);
-        assert_eq!((st.duration_ms, st.rows, st.cpu_ms, st.reads, st.writes), (Some(12.5), Some(3), Some(4.25), Some(120), Some(0)));
+        assert_eq!(
+            (st.duration_ms, st.rows, st.cpu_ms, st.reads, st.writes),
+            (Some(12.5), Some(3), Some(4.25), Some(120), Some(0))
+        );
         assert_eq!(st.detail.as_deref(), Some("sql_id abc"));
 
         let (id, f) = figures(row(&["abc", "2", "3", "4", ".5", "7", "1"])).unwrap();
         let mut st = ProfiledStatement::default();
         apply(&mut st, &id, &f);
-        assert_eq!((st.rows, st.cpu_ms, st.reads, st.writes), (None, Some(0.5), Some(7), Some(1)));
-        assert_eq!(st.detail.as_deref(), Some("sql_id abc, media de 4 ejecuciones"));
+        assert_eq!(
+            (st.rows, st.cpu_ms, st.reads, st.writes),
+            (None, Some(0.5), Some(7), Some(1))
+        );
+        assert_eq!(
+            st.detail.as_deref(),
+            Some("sql_id abc, media de 4 ejecuciones")
+        );
     }
 }

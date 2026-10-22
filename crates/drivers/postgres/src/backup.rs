@@ -49,7 +49,9 @@ pub async fn history(s: &PgSession, database: Option<&str>) -> Result<Vec<Backup
     match s.variant {
         Variant::Cockroach => cockroach_history(s, database).await,
         Variant::CrateDb => crate_history(s).await,
-        Variant::H2 => Err(Error::Unsupported("H2 no guarda un historial de sus backups".into())),
+        Variant::H2 => Err(Error::Unsupported(
+            "H2 no guarda un historial de sus backups".into(),
+        )),
         v => Err(Error::Unsupported(unsupported_reason(v).into())),
     }
 }
@@ -96,7 +98,10 @@ fn flag(options: &BTreeMap<String, String>, key: &str, default: bool) -> bool {
 fn iso(t: &str) -> String {
     let mut t = t.trim().replacen(' ', "T", 1);
     let b = t.as_bytes();
-    if b.len() > 3 && matches!(b[b.len() - 3], b'+' | b'-') && b[b.len() - 2..].iter().all(u8::is_ascii_digit) {
+    if b.len() > 3
+        && matches!(b[b.len() - 3], b'+' | b'-')
+        && b[b.len() - 2..].iter().all(u8::is_ascii_digit)
+    {
         t.push_str(":00");
     }
     t
@@ -227,7 +232,9 @@ fn is_subdir(segments: &[&str]) -> bool {
         [y, m, d] => {
             digits(y, 4)
                 && digits(m, 2)
-                && d.split_once('-').is_some_and(|(day, time)| digits(day, 2) && time.split_once('.').is_some_and(|(hms, _)| digits(hms, 6)))
+                && d.split_once('-').is_some_and(|(day, time)| {
+                    digits(day, 2) && time.split_once('.').is_some_and(|(hms, _)| digits(hms, 6))
+                })
         }
         _ => false,
     }
@@ -236,8 +243,14 @@ fn is_subdir(segments: &[&str]) -> bool {
 /// A backup's id: the collection with its subfolder appended to the path
 /// (`nodelocal://1/backups/2026/09/29-124346.56`), query string kept last.
 fn backup_id(collection: &str, subdir: &str) -> String {
-    let (base, query) = collection.split_once('?').map_or((collection, None), |(b, q)| (b, Some(q)));
-    let mut id = format!("{}/{}", base.trim_end_matches('/'), subdir.trim_start_matches('/'));
+    let (base, query) = collection
+        .split_once('?')
+        .map_or((collection, None), |(b, q)| (b, Some(q)));
+    let mut id = format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        subdir.trim_start_matches('/')
+    );
     if let Some(q) = query {
         id.push('?');
         id.push_str(q);
@@ -248,7 +261,9 @@ fn backup_id(collection: &str, subdir: &str) -> String {
 /// An id (or a location the user typed) as collection + subfolder; a bare
 /// collection restores its latest backup.
 fn split_source(source: &str) -> (String, Option<String>) {
-    let (base, query) = source.split_once('?').map_or((source, None), |(b, q)| (b, Some(q)));
+    let (base, query) = source
+        .split_once('?')
+        .map_or((source, None), |(b, q)| (b, Some(q)));
     let base = base.trim_end_matches('/');
     let segments: Vec<&str> = base.rsplitn(4, '/').collect();
     if segments.len() == 4 {
@@ -336,7 +351,10 @@ impl Reader<'_> {
             let part = if self.0.starts_with('"') {
                 self.quoted('"')?
             } else {
-                let end = self.0.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(self.0.len());
+                let end = self
+                    .0
+                    .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                    .unwrap_or(self.0.len());
                 if end == 0 {
                     return None;
                 }
@@ -377,12 +395,20 @@ fn parse_job(description: &str) -> Option<BackupJob> {
     if !r.keyword("INTO") {
         return None;
     }
-    let subdir = if r.keyword("LATEST") { "LATEST".to_string() } else { r.quoted('\'')? };
+    let subdir = if r.keyword("LATEST") {
+        "LATEST".to_string()
+    } else {
+        r.quoted('\'')?
+    };
     if !r.keyword("IN") {
         return None;
     }
     let collection = r.quoted('\'')?;
-    Some(BackupJob { databases, subdir, collection })
+    Some(BackupJob {
+        databases,
+        subdir,
+        collection,
+    })
 }
 
 fn job_status(status: &str) -> String {
@@ -419,7 +445,9 @@ async fn cockroach_history(s: &PgSession, database: Option<&str>) -> Result<Vec<
     let mut fulls = HashSet::new();
     let mut incrementals = HashSet::new();
     for r in rows.iter().rev() {
-        let Some(job) = cell(r, "description").as_deref().and_then(parse_job) else { continue };
+        let Some(job) = cell(r, "description").as_deref().and_then(parse_job) else {
+            continue;
+        };
         if job.subdir == "LATEST" || !fulls.insert((job.collection, job.subdir)) {
             incrementals.insert(cell(r, "id").unwrap_or_default());
         }
@@ -459,7 +487,10 @@ async fn cockroach_history(s: &PgSession, database: Option<&str>) -> Result<Vec<
             details.push(("Error".into(), e));
         }
         if incremental {
-            details.push(("Restauración".into(), "Se restaura desde su backup completo, que incluye los incrementales".into()));
+            details.push((
+                "Restauración".into(),
+                "Se restaura desde su backup completo, que incluye los incrementales".into(),
+            ));
         }
         details.push(("Sentencia".into(), description.clone()));
         let restorable = status == "succeeded" && !incremental && job.is_some();
@@ -468,10 +499,22 @@ async fn cockroach_history(s: &PgSession, database: Option<&str>) -> Result<Vec<
                 Some(j) if !incremental => backup_id(&j.collection, &j.subdir),
                 _ => id,
             },
-            database: databases.as_ref().filter(|d| d.len() == 1).map(|d| d[0].clone()),
-            kind: Some(if incremental { "Incremental" } else { "Completo" }.into()),
+            database: databases
+                .as_ref()
+                .filter(|d| d.len() == 1)
+                .map(|d| d[0].clone()),
+            kind: Some(
+                if incremental {
+                    "Incremental"
+                } else {
+                    "Completo"
+                }
+                .into(),
+            ),
             started: cell(r, "created_at").map(|t| iso(&t)),
-            finished: cell(r, "finished_at").filter(|t| !t.is_empty()).map(|t| iso(&t)),
+            finished: cell(r, "finished_at")
+                .filter(|t| !t.is_empty())
+                .map(|t| iso(&t)),
             size: None,
             location: job.as_ref().map(|j| j.collection.clone()),
             status: Some(job_status(&status)),
@@ -482,14 +525,19 @@ async fn cockroach_history(s: &PgSession, database: Option<&str>) -> Result<Vec<
     // Sizes of the newest completed full backups (the storage may be slow
     // or gone: a failure leaves the size empty).
     for e in out.iter_mut().filter(|e| e.restorable).take(SIZED) {
-        let (collection, Some(subdir)) = split_source(&e.id) else { continue };
+        let (collection, Some(subdir)) = split_source(&e.id) else {
+            continue;
+        };
         let sql = format!(
             "SELECT sum(size_bytes)::STRING AS size FROM [SHOW BACKUP FROM {} IN {}]",
             lit(Variant::Cockroach, &subdir),
             lit(Variant::Cockroach, &collection)
         );
         if let Ok(rows) = s.text_within(&sql, Duration::from_secs(10)).await {
-            e.size = rows.first().and_then(|r| cell(r, "size")).and_then(|v| v.parse().ok());
+            e.size = rows
+                .first()
+                .and_then(|r| cell(r, "size"))
+                .and_then(|v| v.parse().ok());
         }
     }
     Ok(out)
@@ -537,7 +585,13 @@ fn crate_spec() -> BackupSpec {
 
 /// `repo.snap`, or with quoted parts when a name has a dot.
 fn snapshot_id(repo: &str, snap: &str) -> String {
-    let part = |p: &str| if p.contains('.') || p.contains('"') { q(p) } else { p.to_string() };
+    let part = |p: &str| {
+        if p.contains('.') || p.contains('"') {
+            q(p)
+        } else {
+            p.to_string()
+        }
+    };
     format!("{}.{}", part(repo), part(snap))
 }
 
@@ -563,7 +617,9 @@ fn snapshot_ref(id: &str) -> Result<String> {
     }
     r.skip_ws();
     match parts.as_slice() {
-        [repo, snap] if r.0.is_empty() && !repo.is_empty() && !snap.is_empty() => Ok(format!("{}.{}", q(repo), q(snap))),
+        [repo, snap] if r.0.is_empty() && !repo.is_empty() && !snap.is_empty() => {
+            Ok(format!("{}.{}", q(repo), q(snap)))
+        }
         _ => Err(bad()),
     }
 }
@@ -574,7 +630,10 @@ fn table_list(text: &str) -> Result<Vec<String>> {
         .map(str::trim)
         .filter(|t| !t.is_empty())
         .map(|t| {
-            let parts: Vec<&str> = t.splitn(2, '.').map(|p| p.trim().trim_matches('"')).collect();
+            let parts: Vec<&str> = t
+                .splitn(2, '.')
+                .map(|p| p.trim().trim_matches('"'))
+                .collect();
             if parts.iter().any(|p| p.is_empty()) {
                 return Err(Error::Query(format!("'{t}' no es un nombre de tabla")));
             }
@@ -600,11 +659,21 @@ fn civil(days: i64) -> (i64, u32, u32) {
 fn default_snapshot_name(unix: i64) -> String {
     let (y, m, d) = civil(unix.div_euclid(86_400));
     let secs = unix.rem_euclid(86_400);
-    format!("dbine_{y:04}{m:02}{d:02}_{:02}{:02}{:02}", secs / 3600, secs / 60 % 60, secs % 60)
+    format!(
+        "dbine_{y:04}{m:02}{d:02}_{:02}{:02}{:02}",
+        secs / 3600,
+        secs / 60 % 60,
+        secs % 60
+    )
 }
 
 fn crate_script(action: &BackupAction) -> Result<String> {
-    let wait = |options: &BTreeMap<String, String>| format!(" WITH (wait_for_completion = {})", flag(options, "wait", true));
+    let wait = |options: &BTreeMap<String, String>| {
+        format!(
+            " WITH (wait_for_completion = {})",
+            flag(options, "wait", true)
+        )
+    };
     match action {
         BackupAction::Backup { options, .. } => {
             let repo = opt(options, "repository");
@@ -613,7 +682,9 @@ fn crate_script(action: &BackupAction) -> Result<String> {
             }
             let snap = match opt(options, "snapshot") {
                 "" => {
-                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_secs() as i64);
                     default_snapshot_name(now)
                 }
                 name => name.to_string(),
@@ -622,19 +693,40 @@ fn crate_script(action: &BackupAction) -> Result<String> {
             if flag(options, "create_repository", false) {
                 let location = opt(options, "location");
                 if location.is_empty() {
-                    return Err(Error::Query("falta la carpeta del repositorio a crear".into()));
+                    return Err(Error::Query(
+                        "falta la carpeta del repositorio a crear".into(),
+                    ));
                 }
-                sql.push_str(&format!("CREATE REPOSITORY {} TYPE fs WITH (location = {});\n", q(repo), s(Variant::CrateDb, location)));
+                sql.push_str(&format!(
+                    "CREATE REPOSITORY {} TYPE fs WITH (location = {});\n",
+                    q(repo),
+                    s(Variant::CrateDb, location)
+                ));
             }
             let tables = table_list(opt(options, "tables"))?;
-            let what = if tables.is_empty() { "ALL".to_string() } else { format!("TABLE {}", tables.join(", ")) };
-            sql.push_str(&format!("CREATE SNAPSHOT {}.{} {what}{}", q(repo), q(&snap), wait(options)));
+            let what = if tables.is_empty() {
+                "ALL".to_string()
+            } else {
+                format!("TABLE {}", tables.join(", "))
+            };
+            sql.push_str(&format!(
+                "CREATE SNAPSHOT {}.{} {what}{}",
+                q(repo),
+                q(&snap),
+                wait(options)
+            ));
             Ok(sql)
         }
-        BackupAction::Restore { source, options, .. } => {
+        BackupAction::Restore {
+            source, options, ..
+        } => {
             let snap = snapshot_ref(source)?;
             let tables = table_list(opt(options, "tables"))?;
-            let what = if tables.is_empty() { "ALL".to_string() } else { format!("TABLE {}", tables.join(", ")) };
+            let what = if tables.is_empty() {
+                "ALL".to_string()
+            } else {
+                format!("TABLE {}", tables.join(", "))
+            };
             Ok(format!("RESTORE SNAPSHOT {snap} {what}{}", wait(options)))
         }
         BackupAction::Delete { source } => Ok(format!("DROP SNAPSHOT {}", snapshot_ref(source)?)),
@@ -689,7 +781,10 @@ async fn crate_history(s: &PgSession) -> Result<Vec<BackupEntry>> {
                     details.push((label.into(), v));
                 }
             }
-            let location = match (cell(r, "location"), cell(r, "base_path").filter(|p| !p.is_empty())) {
+            let location = match (
+                cell(r, "location"),
+                cell(r, "base_path").filter(|p| !p.is_empty()),
+            ) {
                 (Some(l), Some(p)) => Some(format!("{l}/{p}")),
                 (l, _) => l,
             };
@@ -698,7 +793,9 @@ async fn crate_history(s: &PgSession) -> Result<Vec<BackupEntry>> {
                 database: None,
                 kind: Some("Snapshot".into()),
                 started: cell(r, "started").map(|t| iso(&t)),
-                finished: cell(r, "finished").filter(|t| !t.is_empty()).map(|t| iso(&t)),
+                finished: cell(r, "finished")
+                    .filter(|t| !t.is_empty())
+                    .map(|t| iso(&t)),
                 size: None,
                 location: location.or(Some(repo)),
                 status: Some(crate_state(&state)),
@@ -749,27 +846,37 @@ fn h2_script(action: &BackupAction) -> Result<String> {
         BackupAction::Backup { options, .. } => {
             let file = opt(options, "file");
             if file.is_empty() {
-                return Err(Error::Query("falta el archivo donde guardar el backup".into()));
+                return Err(Error::Query(
+                    "falta el archivo donde guardar el backup".into(),
+                ));
             }
             match opt(options, "format") {
                 "zip" => Ok(format!("BACKUP TO {}", s(Variant::H2, file))),
                 "script" | "" => {
-                    let drop = if flag(options, "drop", true) { " DROP" } else { "" };
+                    let drop = if flag(options, "drop", true) {
+                        " DROP"
+                    } else {
+                        ""
+                    };
                     Ok(format!("SCRIPT{drop} TO {}", s(Variant::H2, file)))
                 }
-                other => Err(Error::Query(format!("'{other}' no es un formato de backup de H2"))),
+                other => Err(Error::Query(format!(
+                    "'{other}' no es un formato de backup de H2"
+                ))),
             }
         }
         BackupAction::Restore { source, .. } => {
             let file = source.trim();
             if file.is_empty() {
-                return Err(Error::Query("falta el archivo del backup (un script hecho con SCRIPT)".into()));
+                return Err(Error::Query(
+                    "falta el archivo del backup (un script hecho con SCRIPT)".into(),
+                ));
             }
             Ok(format!("RUNSCRIPT FROM {}", s(Variant::H2, file)))
         }
-        BackupAction::Delete { .. } => {
-            Err(Error::Unsupported("H2 no borra archivos con SQL: el backup está en el disco del servidor".into()))
-        }
+        BackupAction::Delete { .. } => Err(Error::Unsupported(
+            "H2 no borra archivos con SQL: el backup está en el disco del servidor".into(),
+        )),
     }
 }
 
@@ -778,22 +885,47 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn backup(v: Variant, db: Option<&str>, pairs: &[(&str, &str)]) -> Result<String> {
-        script(v, &BackupAction::Backup { database: db.map(Into::into), options: o(pairs) })
+        script(
+            v,
+            &BackupAction::Backup {
+                database: db.map(Into::into),
+                options: o(pairs),
+            },
+        )
     }
 
-    fn restore(v: Variant, source: &str, db: Option<&str>, pairs: &[(&str, &str)]) -> Result<String> {
-        script(v, &BackupAction::Restore { source: source.into(), database: db.map(Into::into), options: o(pairs) })
+    fn restore(
+        v: Variant,
+        source: &str,
+        db: Option<&str>,
+        pairs: &[(&str, &str)],
+    ) -> Result<String> {
+        script(
+            v,
+            &BackupAction::Restore {
+                source: source.into(),
+                database: db.map(Into::into),
+                options: o(pairs),
+            },
+        )
     }
 
     #[test]
     fn only_variants_with_sql_backups_offer_them() {
         for v in Variant::ALL {
             let has = spec(v).is_some();
-            assert_eq!(has, matches!(v, Variant::Cockroach | Variant::CrateDb | Variant::H2), "{v:?}");
+            assert_eq!(
+                has,
+                matches!(v, Variant::Cockroach | Variant::CrateDb | Variant::H2),
+                "{v:?}"
+            );
             if !has {
                 let r = backup(v, Some("x"), &[]);
                 assert!(matches!(r, Err(Error::Unsupported(_))), "{v:?}");
@@ -824,7 +956,12 @@ mod tests {
             "BACKUP DATABASE \"app\" INTO LATEST IN E's3://bk/x?AUTH=implicit' AS OF SYSTEM TIME E'-10s' WITH revision_history, detached"
         );
         assert_eq!(
-            backup(c, Some("app"), &[("collection", "nodelocal://1/b"), ("scope", "cluster")]).unwrap(),
+            backup(
+                c,
+                Some("app"),
+                &[("collection", "nodelocal://1/b"), ("scope", "cluster")]
+            )
+            .unwrap(),
             "BACKUP INTO E'nodelocal://1/b'"
         );
         assert!(backup(c, Some("app"), &[]).is_err());
@@ -849,7 +986,10 @@ mod tests {
             "RESTORE DATABASE \"app\" FROM LATEST IN E'nodelocal://1/b'"
         );
         assert!(restore(c, "nodelocal://1/b", None, &[]).is_err());
-        assert!(matches!(script(c, &BackupAction::Delete { source: "x".into() }), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(c, &BackupAction::Delete { source: "x".into() }),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -864,8 +1004,14 @@ mod tests {
             assert_eq!(c, collection.replace("b/", "b"));
             assert_eq!(s.as_deref(), Some(subdir));
         }
-        assert_eq!(split_source("nodelocal://1/backups"), ("nodelocal://1/backups".into(), None));
-        assert_eq!(split_source("nodelocal://1/a/b/c"), ("nodelocal://1/a/b/c".into(), None));
+        assert_eq!(
+            split_source("nodelocal://1/backups"),
+            ("nodelocal://1/backups".into(), None)
+        );
+        assert_eq!(
+            split_source("nodelocal://1/a/b/c"),
+            ("nodelocal://1/a/b/c".into(), None)
+        );
     }
 
     #[test]
@@ -879,13 +1025,23 @@ mod tests {
             })
         );
         assert_eq!(
-            parse_job("BACKUP DATABASE a, \"B c\" INTO 'LATEST' IN 's3://x?AUTH=implicit'").unwrap().databases,
+            parse_job("BACKUP DATABASE a, \"B c\" INTO 'LATEST' IN 's3://x?AUTH=implicit'")
+                .unwrap()
+                .databases,
             Some(vec!["a".into(), "B c".into()])
         );
-        let cluster = parse_job("BACKUP INTO '/2026/09/29-124432.88' IN 'nodelocal://1/o''k' AS OF SYSTEM TIME '-1s'").unwrap();
+        let cluster = parse_job(
+            "BACKUP INTO '/2026/09/29-124432.88' IN 'nodelocal://1/o''k' AS OF SYSTEM TIME '-1s'",
+        )
+        .unwrap();
         assert_eq!(cluster.databases, None);
         assert_eq!(cluster.collection, "nodelocal://1/o'k");
-        assert_eq!(parse_job("BACKUP TABLE db.public.t INTO '/x' IN 'y'").unwrap().databases, Some(Vec::new()));
+        assert_eq!(
+            parse_job("BACKUP TABLE db.public.t INTO '/x' IN 'y'")
+                .unwrap()
+                .databases,
+            Some(Vec::new())
+        );
         assert_eq!(parse_job("BACKUP DATABASE x TO 'nodelocal://1/old'"), None);
         assert_eq!(parse_job("RESTORE DATABASE x FROM LATEST IN 'y'"), None);
     }
@@ -893,8 +1049,14 @@ mod tests {
     #[test]
     fn timestamps_become_iso() {
         assert_eq!(iso("2026-09-29 12:43:46+00"), "2026-09-29T12:43:46+00:00");
-        assert_eq!(iso("2026-09-29 12:46:00.179-03"), "2026-09-29T12:46:00.179-03:00");
-        assert_eq!(iso("2026-09-29T12:43:46+00:00"), "2026-09-29T12:43:46+00:00");
+        assert_eq!(
+            iso("2026-09-29 12:46:00.179-03"),
+            "2026-09-29T12:46:00.179-03:00"
+        );
+        assert_eq!(
+            iso("2026-09-29T12:43:46+00:00"),
+            "2026-09-29T12:43:46+00:00"
+        );
     }
 
     #[test]
@@ -922,42 +1084,101 @@ mod tests {
              CREATE SNAPSHOT \"my repo\".\"s1\" TABLE \"doc\".\"t1\", \"t\"\"2\" WITH (wait_for_completion = false)"
         );
         let auto = backup(c, None, &[("repository", "bk")]).unwrap();
-        assert!(auto.starts_with("CREATE SNAPSHOT \"bk\".\"dbine_"), "{auto}");
+        assert!(
+            auto.starts_with("CREATE SNAPSHOT \"bk\".\"dbine_"),
+            "{auto}"
+        );
         assert!(backup(c, None, &[]).is_err());
-        assert!(backup(c, None, &[("repository", "bk"), ("create_repository", "true")]).is_err());
+        assert!(backup(
+            c,
+            None,
+            &[("repository", "bk"), ("create_repository", "true")]
+        )
+        .is_err());
 
-        assert_eq!(restore(c, "bk.s1", None, &[]).unwrap(), "RESTORE SNAPSHOT \"bk\".\"s1\" ALL WITH (wait_for_completion = true)");
+        assert_eq!(
+            restore(c, "bk.s1", None, &[]).unwrap(),
+            "RESTORE SNAPSHOT \"bk\".\"s1\" ALL WITH (wait_for_completion = true)"
+        );
         assert_eq!(
             restore(c, "bk.s1", None, &[("tables", "doc.t1")]).unwrap(),
             "RESTORE SNAPSHOT \"bk\".\"s1\" TABLE \"doc\".\"t1\" WITH (wait_for_completion = true)"
         );
-        assert_eq!(script(c, &BackupAction::Delete { source: "bk.s1".into() }).unwrap(), "DROP SNAPSHOT \"bk\".\"s1\"");
+        assert_eq!(
+            script(
+                c,
+                &BackupAction::Delete {
+                    source: "bk.s1".into()
+                }
+            )
+            .unwrap(),
+            "DROP SNAPSHOT \"bk\".\"s1\""
+        );
         let dotted = snapshot_id("my.repo", "s1");
         assert_eq!(dotted, "\"my.repo\".s1");
-        assert_eq!(script(c, &BackupAction::Delete { source: dotted }).unwrap(), "DROP SNAPSHOT \"my.repo\".\"s1\"");
-        assert!(script(c, &BackupAction::Delete { source: "solo".into() }).is_err());
         assert_eq!(
-            script(c, &BackupAction::Delete { source: "a.b; DROP TABLE x".into() }).unwrap(),
+            script(c, &BackupAction::Delete { source: dotted }).unwrap(),
+            "DROP SNAPSHOT \"my.repo\".\"s1\""
+        );
+        assert!(script(
+            c,
+            &BackupAction::Delete {
+                source: "solo".into()
+            }
+        )
+        .is_err());
+        assert_eq!(
+            script(
+                c,
+                &BackupAction::Delete {
+                    source: "a.b; DROP TABLE x".into()
+                }
+            )
+            .unwrap(),
             "DROP SNAPSHOT \"a\".\"b; DROP TABLE x\""
         );
-        assert!(script(c, &BackupAction::Delete { source: "a.b.c".into() }).is_err());
+        assert!(script(
+            c,
+            &BackupAction::Delete {
+                source: "a.b.c".into()
+            }
+        )
+        .is_err());
     }
 
     #[test]
     fn snapshot_names_carry_the_utc_date() {
         assert_eq!(default_snapshot_name(0), "dbine_19700101_000000");
-        assert_eq!(default_snapshot_name(1_790_685_938), "dbine_20260929_124538");
+        assert_eq!(
+            default_snapshot_name(1_790_685_938),
+            "dbine_20260929_124538"
+        );
         assert_eq!(civil(-1), (1969, 12, 31));
     }
 
     #[test]
     fn h2_scripts() {
         let h = Variant::H2;
-        assert_eq!(backup(h, None, &[("file", "/tmp/o'k.sql")]).unwrap(), "SCRIPT DROP TO '/tmp/o''k.sql'");
-        assert_eq!(backup(h, None, &[("file", "/tmp/a.sql"), ("drop", "false")]).unwrap(), "SCRIPT TO '/tmp/a.sql'");
-        assert_eq!(backup(h, None, &[("file", "/tmp/a.zip"), ("format", "zip")]).unwrap(), "BACKUP TO '/tmp/a.zip'");
+        assert_eq!(
+            backup(h, None, &[("file", "/tmp/o'k.sql")]).unwrap(),
+            "SCRIPT DROP TO '/tmp/o''k.sql'"
+        );
+        assert_eq!(
+            backup(h, None, &[("file", "/tmp/a.sql"), ("drop", "false")]).unwrap(),
+            "SCRIPT TO '/tmp/a.sql'"
+        );
+        assert_eq!(
+            backup(h, None, &[("file", "/tmp/a.zip"), ("format", "zip")]).unwrap(),
+            "BACKUP TO '/tmp/a.zip'"
+        );
         assert!(backup(h, None, &[]).is_err());
-        assert_eq!(restore(h, "/tmp/a.sql", None, &[]).unwrap(), "RUNSCRIPT FROM '/tmp/a.sql'");
-        assert!(matches!(script(h, &BackupAction::Delete { source: "x".into() }), Err(Error::Unsupported(_))));
+        assert_eq!(
+            restore(h, "/tmp/a.sql", None, &[]).unwrap(),
+            "RUNSCRIPT FROM '/tmp/a.sql'"
+        );
+        assert!(matches!(
+            script(h, &BackupAction::Delete { source: "x".into() }),
+            Err(Error::Unsupported(_))
+        ));
     }
 }

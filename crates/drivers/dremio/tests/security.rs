@@ -14,7 +14,9 @@ fn cfg() -> Option<ConnectionConfig> {
         host: url.host_str()?.into(),
         port: url.port().unwrap_or(0),
         username: Some(std::env::var("DBINE_TEST_DREMIO_USER").unwrap_or_else(|_| "dbine".into())),
-        password: Some(std::env::var("DBINE_TEST_DREMIO_PASSWORD").unwrap_or_else(|_| "secreto123".into())),
+        password: Some(
+            std::env::var("DBINE_TEST_DREMIO_PASSWORD").unwrap_or_else(|_| "secreto123".into()),
+        ),
         ..Default::default()
     })
 }
@@ -27,13 +29,27 @@ async fn community_edition() {
     assert!(d.security().is_some());
     let mut s = d.connect(&c, None).await.unwrap();
     let all = s.principals().await.unwrap();
-    let me = all.iter().find(|p| Some(&p.name) == c.username.as_ref()).unwrap_or_else(|| panic!("{all:?}"));
+    let me = all
+        .iter()
+        .find(|p| Some(&p.name) == c.username.as_ref())
+        .unwrap_or_else(|| panic!("{all:?}"));
     assert_eq!((me.kind, me.superuser), (PrincipalKind::User, Some(true)));
-    assert!(matches!(s.grants(&me.name).await, Err(Error::Unsupported(_))));
+    assert!(matches!(
+        s.grants(&me.name).await,
+        Err(Error::Unsupported(_))
+    ));
 
-    let sql = d.security_script(&SecurityAction::CreateUser { name: "dbine_ana".into(), password: Some("Pw_12345x".into()) }).unwrap();
+    let sql = d
+        .security_script(&SecurityAction::CreateUser {
+            name: "dbine_ana".into(),
+            password: Some("Pw_12345x".into()),
+        })
+        .unwrap();
     let mut out = QueryOutcome::default();
-    let e = s.execute(&sql, 10, &mut out).await.expect_err("OSS refuses CREATE USER");
+    let e = s
+        .execute(&sql, 10, &mut out)
+        .await
+        .expect_err("OSS refuses CREATE USER");
     assert!(e.to_string().contains("Enterprise"), "{e}");
 }
 
@@ -48,7 +64,10 @@ async fn folder_scripts_parse() {
     let d = dbine_driver_dremio::drivers().remove(0);
     let spec = d.schema_spec().unwrap();
     assert!(!spec.owner && !spec.cascade);
-    assert!(d.create_schema_script(None, "ventas", None).is_err(), "a folder needs its whole path");
+    assert!(
+        d.create_schema_script(None, "ventas", None).is_err(),
+        "a folder needs its whole path"
+    );
     let mut s = d.connect(&c, None).await.unwrap();
     let mut err = async |sql: String| {
         let mut out = QueryOutcome::default();
@@ -57,9 +76,18 @@ async fn folder_scripts_parse() {
             Ok(()) => out.error.clone().unwrap_or_else(|| panic!("{sql} ran")),
         }
     };
-    let e = err(d.create_schema_script(None, "$scratch.dbine_f", None).unwrap()).await;
-    assert!(e.contains("Create folder is not supported for this source"), "{e}");
-    let e = err(d.drop_schema_script(None, "$scratch.dbine_f", false).unwrap()).await;
+    let e = err(d
+        .create_schema_script(None, "$scratch.dbine_f", None)
+        .unwrap())
+    .await;
+    assert!(
+        e.contains("Create folder is not supported for this source"),
+        "{e}"
+    );
+    let e = err(d
+        .drop_schema_script(None, "$scratch.dbine_f", false)
+        .unwrap())
+    .await;
     assert!(e.contains("not found"), "{e}");
 }
 
@@ -85,27 +113,48 @@ async fn space_folders_listed_and_dropped() {
         .unwrap();
     let auth = format!("_dremio{}", login["token"].as_str().unwrap());
     let post = async |body: serde_json::Value| {
-        let _ = http.post(format!("{base}/api/v3/catalog")).header("Authorization", &auth).json(&body).send().await;
+        let _ = http
+            .post(format!("{base}/api/v3/catalog"))
+            .header("Authorization", &auth)
+            .json(&body)
+            .send()
+            .await;
     };
     post(serde_json::json!({"entityType": "space", "name": "dbine_sch"})).await;
     post(serde_json::json!({"entityType": "folder", "path": ["dbine_sch", "vacia"]})).await;
 
     let d = dbine_driver_dremio::drivers().remove(0);
     let mut s = d.connect(&c, Some("dbine_sch")).await.unwrap();
-    let listed = s.list_schemas().await.unwrap().expect("Dremio lists folders");
+    let listed = s
+        .list_schemas()
+        .await
+        .unwrap()
+        .expect("Dremio lists folders");
     assert!(listed.iter().any(|x| x.name == "dbine_sch"), "{listed:?}");
-    assert!(listed.iter().any(|x| x.name == "dbine_sch.vacia" && !x.system), "{listed:?}");
+    assert!(
+        listed
+            .iter()
+            .any(|x| x.name == "dbine_sch.vacia" && !x.system),
+        "{listed:?}"
+    );
 
-    let drop = d.drop_schema_script(Some("dbine_sch"), "dbine_sch.vacia", false).unwrap();
+    let drop = d
+        .drop_schema_script(Some("dbine_sch"), "dbine_sch.vacia", false)
+        .unwrap();
     assert_eq!(drop, "DROP FOLDER \"dbine_sch\".\"vacia\";");
     let mut out = QueryOutcome::default();
     s.execute(&drop, 10, &mut out).await.unwrap();
     assert!(out.error.is_none(), "{:?}", out.error);
     let listed = s.list_schemas().await.unwrap().unwrap();
-    assert!(!listed.iter().any(|x| x.name == "dbine_sch.vacia"), "{listed:?}");
+    assert!(
+        !listed.iter().any(|x| x.name == "dbine_sch.vacia"),
+        "{listed:?}"
+    );
     // CREATE FOLDER in a space: the space's refusal, with the path built
     // from the menu's space.
-    let create = d.create_schema_script(Some("dbine_sch"), "otra", None).unwrap();
+    let create = d
+        .create_schema_script(Some("dbine_sch"), "otra", None)
+        .unwrap();
     assert_eq!(create, "CREATE FOLDER \"dbine_sch\".\"otra\";");
     let mut out = QueryOutcome::default();
     let e = match s.execute(&create, 10, &mut out).await {

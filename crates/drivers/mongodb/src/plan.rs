@@ -14,7 +14,17 @@ use mongodb::bson::{Bson, Document};
 
 /// Commands `explain` accepts (lowercase).
 pub fn explainable(name: &str) -> bool {
-    matches!(name, "find" | "aggregate" | "count" | "distinct" | "update" | "delete" | "findandmodify" | "mapreduce")
+    matches!(
+        name,
+        "find"
+            | "aggregate"
+            | "count"
+            | "distinct"
+            | "update"
+            | "delete"
+            | "findandmodify"
+            | "mapreduce"
+    )
 }
 
 /// Figures worth a warning: more than this many documents read per one returned.
@@ -77,9 +87,18 @@ pub fn raw_json(reply: &Document) -> String {
 
 /// The plan of one statement from its `explain` reply.
 pub fn from_explain(statement: &str, command: &str, reply: &Document, actual: bool) -> Plan {
-    let mut root = PlanNode { op: command.to_string(), ..Default::default() };
+    let mut root = PlanNode {
+        op: command.to_string(),
+        ..Default::default()
+    };
     fill_root(&mut root, reply);
-    Plan { statement: statement.to_string(), root, actual, raw_format: "json".into(), raw: raw_json(reply) }
+    Plan {
+        statement: statement.to_string(),
+        root,
+        actual,
+        raw_format: "json".into(),
+        raw: raw_json(reply),
+    }
 }
 
 /// Statement node: the command, with the query plan (or the pipeline, or
@@ -102,11 +121,17 @@ fn fill_root(root: &mut PlanNode, reply: &Document) {
             ..Default::default()
         };
         if let Some(sp) = reply.get("splitPipeline") {
-            merge.props.push(("splitPipeline".into(), clip(text(sp), 2000)));
+            merge
+                .props
+                .push(("splitPipeline".into(), clip(text(sp), 2000)));
         }
         for (name, s) in shards {
             let Some(s) = s.as_document() else { continue };
-            let mut shard = PlanNode { op: "SHARD".into(), object: Some(name.clone()), ..Default::default() };
+            let mut shard = PlanNode {
+                op: "SHARD".into(),
+                object: Some(name.clone()),
+                ..Default::default()
+            };
             fill_root(&mut shard, s);
             merge.children.push(shard);
         }
@@ -122,7 +147,10 @@ fn query(node: &mut PlanNode, qp: &Document, es: Option<&Document>) {
     if node.object.is_none() {
         node.object = ns.clone();
     }
-    let winning = qp.get_document("winningPlan").ok().map(|w| w.get_document("queryPlan").unwrap_or(w));
+    let winning = qp
+        .get_document("winningPlan")
+        .ok()
+        .map(|w| w.get_document("queryPlan").unwrap_or(w));
     let exec = es.and_then(|e| e.get_document("executionStages").ok());
     for (k, label) in [
         ("plannerVersion", "plannerVersion"),
@@ -136,7 +164,8 @@ fn query(node: &mut PlanNode, qp: &Document, es: Option<&Document>) {
         }
     }
     if let Ok(r) = qp.get_array("rejectedPlans") {
-        node.props.push(("rejectedPlans".into(), r.len().to_string()));
+        node.props
+            .push(("rejectedPlans".into(), r.len().to_string()));
     }
     if let Some(es) = es {
         node.actual_rows = num(es.get("nReturned")).or(node.actual_rows);
@@ -168,7 +197,10 @@ fn query(node: &mut PlanNode, qp: &Document, es: Option<&Document>) {
 fn stage(w: &Document, e: Option<&Document>, ns: Option<&str>) -> PlanNode {
     let op = w.get_str("stage").unwrap_or("?").to_string();
     let e = e.filter(|e| e.get_str("stage").ok() == Some(op.as_str()));
-    let mut n = PlanNode { op: op.clone(), ..Default::default() };
+    let mut n = PlanNode {
+        op: op.clone(),
+        ..Default::default()
+    };
     n.object = w.get_str("indexName").ok().map(str::to_string);
     if n.object.is_none() && matches!(op.as_str(), "COLLSCAN" | "CLUSTERED_IXSCAN" | "EOF") {
         n.object = ns.map(str::to_string);
@@ -185,7 +217,8 @@ fn stage(w: &Document, e: Option<&Document>, ns: Option<&str>) -> PlanNode {
     }
     if let Some(e) = e {
         n.actual_rows = num(e.get("nReturned"));
-        n.actual_ms = num(e.get("executionTimeMillisEstimate")).or_else(|| num(e.get("executionTimeMillis")));
+        n.actual_ms =
+            num(e.get("executionTimeMillisEstimate")).or_else(|| num(e.get("executionTimeMillis")));
         for (k, v) in e {
             if !SKIP_KEYS.contains(&k.as_str()) && !w.contains_key(k) && v.as_document().is_none() {
                 n.props.push((k.clone(), clip(text(v), 2000)));
@@ -196,13 +229,21 @@ fn stage(w: &Document, e: Option<&Document>, ns: Option<&str>) -> PlanNode {
         }
     }
     match op.as_str() {
-        "COLLSCAN" => n.warnings.push("COLLSCAN: recorre toda la colección".into()),
-        "SORT" => n.warnings.push("SORT: ordena en memoria (ningún índice da el orden)".into()),
+        "COLLSCAN" => n
+            .warnings
+            .push("COLLSCAN: recorre toda la colección".into()),
+        "SORT" => n
+            .warnings
+            .push("SORT: ordena en memoria (ningún índice da el orden)".into()),
         _ => {}
     }
     // Children: inputStage, inputStages, or the shards of a mongos plan.
     if let Ok(c) = w.get_document("inputStage") {
-        n.children.push(stage(c, e.and_then(|e| e.get_document("inputStage").ok()), ns));
+        n.children.push(stage(
+            c,
+            e.and_then(|e| e.get_document("inputStage").ok()),
+            ns,
+        ));
     }
     if let Ok(cs) = w.get_array("inputStages") {
         let es = e.and_then(|e| e.get_array("inputStages").ok());
@@ -217,12 +258,21 @@ fn stage(w: &Document, e: Option<&Document>, ns: Option<&str>) -> PlanNode {
         for (i, s) in shards.iter().enumerate() {
             let Some(s) = s.as_document() else { continue };
             let name = s.get_str("shardName").unwrap_or("?").to_string();
-            let es = es
-                .and_then(|a| a.iter().filter_map(Bson::as_document).find(|d| d.get_str("shardName") == Ok(name.as_str())).or_else(|| a.get(i)?.as_document()));
-            let mut sn = PlanNode { op: "SHARD".into(), object: Some(name), ..Default::default() };
+            let es = es.and_then(|a| {
+                a.iter()
+                    .filter_map(Bson::as_document)
+                    .find(|d| d.get_str("shardName") == Ok(name.as_str()))
+                    .or_else(|| a.get(i)?.as_document())
+            });
+            let mut sn = PlanNode {
+                op: "SHARD".into(),
+                object: Some(name),
+                ..Default::default()
+            };
             if let Some(es) = es {
                 sn.actual_rows = num(es.get("nReturned"));
-                sn.actual_ms = num(es.get("executionTimeMillis")).or_else(|| num(es.get("executionTimeMillisEstimate")));
+                sn.actual_ms = num(es.get("executionTimeMillis"))
+                    .or_else(|| num(es.get("executionTimeMillisEstimate")));
                 for k in ["totalKeysExamined", "totalDocsExamined"] {
                     if let Some(v) = es.get(k) {
                         sn.props.push((k.into(), text(v)));
@@ -232,7 +282,8 @@ fn stage(w: &Document, e: Option<&Document>, ns: Option<&str>) -> PlanNode {
             if let Ok(wp) = s.get_document("winningPlan") {
                 let wp = wp.get_document("queryPlan").unwrap_or(wp);
                 let ex = es.and_then(|d| d.get_document("executionStages").ok());
-                sn.children.push(stage(wp, ex, s.get_str("namespace").ok().or(ns)));
+                sn.children
+                    .push(stage(wp, ex, s.get_str("namespace").ok().or(ns)));
             }
             n.children.push(sn);
         }
@@ -245,8 +296,13 @@ fn stage(w: &Document, e: Option<&Document>, ns: Option<&str>) -> PlanNode {
 fn pipeline(stages: &[Bson]) -> Option<PlanNode> {
     let mut below: Option<PlanNode> = None;
     for s in stages.iter().filter_map(Bson::as_document) {
-        let Some((name, spec)) = s.iter().find(|(k, _)| k.starts_with('$')) else { continue };
-        let mut n = PlanNode { op: name.clone(), ..Default::default() };
+        let Some((name, spec)) = s.iter().find(|(k, _)| k.starts_with('$')) else {
+            continue;
+        };
+        let mut n = PlanNode {
+            op: name.clone(),
+            ..Default::default()
+        };
         n.actual_rows = num(s.get("nReturned"));
         n.actual_ms = num(s.get("executionTimeMillisEstimate"));
         if name == "$cursor" {
@@ -264,7 +320,8 @@ fn pipeline(stages: &[Bson]) -> Option<PlanNode> {
                     n.object = Some(from.to_string());
                 }
                 if num(s.get("collectionScans")).unwrap_or(0.0) > 0.0 {
-                    n.warnings.push("El $lookup recorre la colección externa sin índice".into());
+                    n.warnings
+                        .push("El $lookup recorre la colección externa sin índice".into());
                 }
             }
             if s.get_bool("usedDisk") == Ok(true) {
@@ -286,7 +343,9 @@ fn pipeline(stages: &[Bson]) -> Option<PlanNode> {
 
 /// The first object (namespace / index) found going down the tree.
 fn find_object(n: &PlanNode) -> Option<String> {
-    n.object.clone().or_else(|| n.children.iter().find_map(find_object))
+    n.object
+        .clone()
+        .or_else(|| n.children.iter().find_map(find_object))
 }
 
 #[cfg(test)]
@@ -329,7 +388,11 @@ mod tests {
         assert_eq!(r.object.as_deref(), Some("t.people"));
         assert_eq!(r.actual_rows, Some(2.0));
         assert_eq!(r.actual_ms, Some(3.0));
-        assert!(r.warnings.iter().any(|w| w.contains("5000")), "{:?}", r.warnings);
+        assert!(
+            r.warnings.iter().any(|w| w.contains("5000")),
+            "{:?}",
+            r.warnings
+        );
         let sort = &r.children[0];
         assert_eq!(sort.op, "SORT");
         assert!(sort.warnings[0].starts_with("SORT"));
@@ -338,7 +401,10 @@ mod tests {
         assert_eq!(scan.object.as_deref(), Some("t.people"));
         assert_eq!(scan.actual_rows, Some(2.0));
         assert!(scan.warnings.iter().any(|w| w.starts_with("COLLSCAN")));
-        assert!(scan.props.iter().any(|(k, v)| k == "docsExamined" && v == "5000"));
+        assert!(scan
+            .props
+            .iter()
+            .any(|(k, v)| k == "docsExamined" && v == "5000"));
         assert!(p.raw.contains("\"winningPlan\"") && !p.raw.contains("\"ok\""));
     }
 
@@ -402,13 +468,15 @@ mod tests {
 
     #[test]
     fn sharded_find() {
-        let d = doc(r#"{ "queryPlanner": { "winningPlan": { "stage": "SHARD_MERGE", "shards": [
+        let d = doc(
+            r#"{ "queryPlanner": { "winningPlan": { "stage": "SHARD_MERGE", "shards": [
             { "shardName": "s0", "namespace": "t.c", "winningPlan": { "stage": "IXSCAN", "indexName": "a_1" } },
             { "shardName": "s1", "namespace": "t.c", "winningPlan": { "stage": "COLLSCAN" } } ] } },
           "executionStats": { "nReturned": 4, "executionTimeMillis": 2, "executionStages": { "stage": "SHARD_MERGE",
             "nReturned": 4, "shards": [
               { "shardName": "s1", "nReturned": 3, "executionTimeMillis": 1, "executionStages": { "stage": "COLLSCAN", "nReturned": 3 } },
-              { "shardName": "s0", "nReturned": 1, "executionTimeMillis": 1, "executionStages": { "stage": "IXSCAN", "nReturned": 1 } } ] } } }"#);
+              { "shardName": "s0", "nReturned": 1, "executionTimeMillis": 1, "executionStages": { "stage": "IXSCAN", "nReturned": 1 } } ] } } }"#,
+        );
         let p = from_explain("q", "find", &d, true);
         let merge = &p.root.children[0];
         assert_eq!(merge.op, "SHARD_MERGE");

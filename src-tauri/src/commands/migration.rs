@@ -14,12 +14,13 @@ use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::{
-    async_trait, kinds, CloneScript, ColumnDef, DdlParts, DeltaDepth, Driver, Language, LoadSpec, ObjectRef, QueryOutcome, ReadSpec, Session,
-    TableSchema, TransferColumn,
+    async_trait, kinds, CloneScript, ColumnDef, DdlParts, DeltaDepth, Driver, Language, LoadSpec,
+    ObjectRef, QueryOutcome, ReadSpec, Session, TableSchema, TransferColumn,
 };
 use dbine_schema::{ColumnMapping, Conversion, Issue, IssueCode, Options, Severity};
 use dbine_transfer::{
-    Control, CopyOrder, CopyStats, Endpoints, Engine, Event, LogLevel, RunOptions, RunStatus, Store, TableState, TableStatus, TransferJob, TransferMode,
+    Control, CopyOrder, CopyStats, Endpoints, Engine, Event, LogLevel, RunOptions, RunStatus,
+    Store, TableState, TableStatus, TransferJob, TransferMode,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -55,8 +56,14 @@ pub struct ModeSupport {
 impl ModeSupport {
     fn of(r: Result<(), String>) -> Self {
         match r {
-            Ok(()) => ModeSupport { available: true, reason: None },
-            Err(why) => ModeSupport { available: false, reason: Some(why) },
+            Ok(()) => ModeSupport {
+                available: true,
+                reason: None,
+            },
+            Err(why) => ModeSupport {
+                available: false,
+                reason: Some(why),
+            },
         }
     }
 }
@@ -82,7 +89,11 @@ fn same_crate(a: &str, b: &str) -> bool {
     // Built-in crates don't change while the app runs.
     static CRATES: std::sync::OnceLock<HashMap<&'static str, usize>> = std::sync::OnceLock::new();
     let crates = CRATES.get_or_init(|| {
-        dbine_drivers::packages().iter().enumerate().flat_map(|(k, (_, ds))| ds.iter().map(move |d| (d.info().id, k))).collect()
+        dbine_drivers::packages()
+            .iter()
+            .enumerate()
+            .flat_map(|(k, (_, ds))| ds.iter().map(move |d| (d.info().id, k)))
+            .collect()
     });
     matches!((crates.get(a), crates.get(b)), (Some(x), Some(y)) if x == y)
 }
@@ -91,7 +102,10 @@ fn same_crate(a: &str, b: &str) -> bool {
 fn clone_support(source: &dyn Driver, target: &dyn Driver) -> Result<(), String> {
     let (s, t) = (source.info(), target.info());
     if !same_crate(s.id, t.id) {
-        return Err(format!("clonar necesita el mismo motor en origen y destino ({} → {})", s.name, t.name));
+        return Err(format!(
+            "clonar necesita el mismo motor en origen y destino ({} → {})",
+            s.name, t.name
+        ));
     }
     if !target.supports_clone() {
         return Err(format!("{} no clona bases", t.name));
@@ -103,7 +117,10 @@ fn clone_support(source: &dyn Driver, target: &dyn Driver) -> Result<(), String>
 fn sync_support(source: &dyn Driver, target: &dyn Driver) -> Result<(), String> {
     let (s, t) = (source.info(), target.info());
     if s.id != t.id {
-        return Err(format!("sincronizar por filas necesita el mismo motor en origen y destino ({} → {})", s.name, t.name));
+        return Err(format!(
+            "sincronizar por filas necesita el mismo motor en origen y destino ({} → {})",
+            s.name, t.name
+        ));
     }
     if !source.supports_delta() {
         return Err(format!("{} no sincroniza por filas", s.name));
@@ -131,7 +148,10 @@ pub struct TargetsArgs {
 /// Every engine, and whether it can be a migration target (and, given the source, a clone or
 /// sync one).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_targets(state: State<'_, AppState>, args: Option<TargetsArgs>) -> CommandResult<Vec<MigrationTarget>> {
+pub async fn migration_targets(
+    state: State<'_, AppState>,
+    args: Option<TargetsArgs>,
+) -> CommandResult<Vec<MigrationTarget>> {
     let source = args
         .and_then(|a| a.source_connection_id)
         .and_then(|id| crate::commands::schema::driver_of(&state, &id).ok());
@@ -148,13 +168,19 @@ fn targets_for(source: Option<&dyn Driver>) -> Vec<MigrationTarget> {
                 Some(dialect) => dialect.target_refusal(info.id).map(str::to_string),
             };
             let (clone, sync) = match source {
-                Some(s) => (ModeSupport::of(clone_support(s, d.as_ref())), ModeSupport::of(sync_support(s, d.as_ref()))),
+                Some(s) => (
+                    ModeSupport::of(clone_support(s, d.as_ref())),
+                    ModeSupport::of(sync_support(s, d.as_ref())),
+                ),
                 None => Default::default(),
             };
             MigrationTarget {
                 id: info.id.into(),
                 name: info.name.into(),
-                family: serde_json::to_value(info.family).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(),
+                family: serde_json::to_value(info.family)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default(),
                 supported: reason.is_none(),
                 reason,
                 clone,
@@ -244,7 +270,11 @@ fn full_depth() -> DeltaDepth {
 
 impl Default for SyncOptions {
     fn default() -> Self {
-        SyncOptions { depth: DeltaDepth::Full, max_cores: 0, keys: Vec::new() }
+        SyncOptions {
+            depth: DeltaDepth::Full,
+            max_cores: 0,
+            keys: Vec::new(),
+        }
     }
 }
 
@@ -334,33 +364,69 @@ struct Picked {
 
 async fn pick(state: &AppState, args: &PlanArgs) -> CommandResult<Picked> {
     let source = crate::commands::schema::driver_of(state, &args.connection_id)?;
-    let target = dbine_drivers::find(&args.target_driver)
-        .ok_or_else(|| CommandError::BadRequest(format!("esta versión no incluye el driver '{}'", args.target_driver)))?;
+    let target = dbine_drivers::find(&args.target_driver).ok_or_else(|| {
+        CommandError::BadRequest(format!(
+            "esta versión no incluye el driver '{}'",
+            args.target_driver
+        ))
+    })?;
     let all: Vec<TableSchema> = state
-        .meta_read(&args.connection_id, &args.database, crate::commands::explorer::SCHEMA_LIMIT, |s| Box::pin(s.database_schema()))
+        .meta_read(
+            &args.connection_id,
+            &args.database,
+            crate::commands::explorer::SCHEMA_LIMIT,
+            |s| Box::pin(s.database_schema()),
+        )
         .await?;
-    let tables_only: Vec<TableSchema> = all.into_iter().filter(|t| t.kind.is_empty() || t.kind == kinds::TABLE).collect();
+    let tables_only: Vec<TableSchema> = all
+        .into_iter()
+        .filter(|t| t.kind.is_empty() || t.kind == kinds::TABLE)
+        .collect();
     let available = tables_only
         .iter()
-        .map(|t| SourceTable { schema: t.schema.clone(), name: t.name.clone(), columns: t.columns.len() })
+        .map(|t| SourceTable {
+            schema: t.schema.clone(),
+            name: t.name.clone(),
+            columns: t.columns.len(),
+        })
         .collect();
     let chosen: Vec<TableSchema> = if args.tables.is_empty() {
         tables_only
     } else {
         tables_only
             .into_iter()
-            .filter(|t| args.tables.iter().any(|r| r.name == t.name && (r.schema.is_none() || r.schema == t.schema)))
+            .filter(|t| {
+                args.tables
+                    .iter()
+                    .any(|r| r.name == t.name && (r.schema.is_none() || r.schema == t.schema))
+            })
             .collect()
     };
-    Ok(Picked { source, target, chosen, available })
+    Ok(Picked {
+        source,
+        target,
+        chosen,
+        available,
+    })
 }
 
 async fn prepare(state: &AppState, args: &PlanArgs) -> CommandResult<Prepared> {
-    let Picked { source, target, chosen, available } = pick(state, args).await?;
-    let single_schema = args.options.target_schema.clone().filter(|s| !s.trim().is_empty());
+    let Picked {
+        source,
+        target,
+        chosen,
+        available,
+    } = pick(state, args).await?;
+    let single_schema = args
+        .options
+        .target_schema
+        .clone()
+        .filter(|s| !s.trim().is_empty());
     let opts = Options {
         fold_case: args.options.fold_case,
-        keep_schemas: args.options.keep_schemas && single_schema.is_none() && target.info().has_schemas,
+        keep_schemas: args.options.keep_schemas
+            && single_schema.is_none()
+            && target.info().has_schemas,
         rename_schemas: default_schema_rename(source.info().dialect, target.info().dialect),
         target_schema: single_schema,
         ..Options::default()
@@ -368,7 +434,13 @@ async fn prepare(state: &AppState, args: &PlanArgs) -> CommandResult<Prepared> {
     let conv = dbine_schema::convert(&chosen, source.info().id, &args.target_driver, &opts)
         .map_err(|e| CommandError::BadRequest(e.to_string()))?;
     let o = &args.options;
-    let mut ddl = Ddl { schemas: vec![], drops: vec![], creates: vec![], indexes: vec![], fks: vec![] };
+    let mut ddl = Ddl {
+        schemas: vec![],
+        drops: vec![],
+        creates: vec![],
+        indexes: vec![],
+        fks: vec![],
+    };
     if target.info().has_schemas {
         let mut seen: Vec<String> = Vec::new();
         for t in &conv.tables {
@@ -384,31 +456,70 @@ async fn prepare(state: &AppState, args: &PlanArgs) -> CommandResult<Prepared> {
     }
     if o.drop {
         for (i, t) in conv.tables.iter().enumerate().rev() {
-            ddl.drops.push((i, target.table_ddl(t, DdlParts { drop: true, if_exists: o.if_exists, ..Default::default() })?));
+            ddl.drops.push((
+                i,
+                target.table_ddl(
+                    t,
+                    DdlParts {
+                        drop: true,
+                        if_exists: o.if_exists,
+                        ..Default::default()
+                    },
+                )?,
+            ));
         }
     }
     for (i, t) in conv.tables.iter().enumerate() {
-        let parts = DdlParts { create: true, if_exists: o.if_exists && !o.drop, ..Default::default() };
+        let parts = DdlParts {
+            create: true,
+            if_exists: o.if_exists && !o.drop,
+            ..Default::default()
+        };
         ddl.creates.push((i, target.table_ddl(t, parts)?));
         if o.indexes && !t.indexes.is_empty() {
-            let ix = target.table_ddl(t, DdlParts { indexes: true, if_exists: o.if_exists && !o.drop, ..Default::default() })?;
+            let ix = target.table_ddl(
+                t,
+                DdlParts {
+                    indexes: true,
+                    if_exists: o.if_exists && !o.drop,
+                    ..Default::default()
+                },
+            )?;
             if !ix.trim().is_empty() {
                 ddl.indexes.push((i, ix));
             }
         }
     }
     if o.foreign_keys {
-        for (i, t) in conv.tables.iter().enumerate().filter(|(_, t)| !t.foreign_keys.is_empty()) {
+        for (i, t) in conv
+            .tables
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| !t.foreign_keys.is_empty())
+        {
             // Engines without separate FK statements return an error or
             // nothing: the FKs are then inside CREATE TABLE already.
-            if let Ok(fk) = target.table_ddl(t, DdlParts { foreign_keys: true, ..Default::default() }) {
+            if let Ok(fk) = target.table_ddl(
+                t,
+                DdlParts {
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            ) {
                 if !fk.trim().is_empty() {
                     ddl.fks.push((i, fk));
                 }
             }
         }
     }
-    Ok(Prepared { source, target, chosen, conv, available, ddl })
+    Ok(Prepared {
+        source,
+        target,
+        chosen,
+        conv,
+        available,
+        ddl,
+    })
 }
 
 /// `CREATE SCHEMA` if missing, in the target's dialect (`None` for engines
@@ -441,14 +552,20 @@ pub(crate) fn create_schema(dialect: &str, name: &str) -> Option<String> {
             name.replace('\'', "''"),
             name.replace(']', "]]").replace('\'', "''")
         )),
-        "db2" | "hana" | "informix" | "teradata" | "sybase_iq" => Some(format!("CREATE SCHEMA {dq}")),
+        "db2" | "hana" | "informix" | "teradata" | "sybase_iq" => {
+            Some(format!("CREATE SCHEMA {dq}"))
+        }
         _ => Some(format!("CREATE SCHEMA IF NOT EXISTS {dq}")),
     }
 }
 
 /// Statements as a script for `target`: a header (two comment lines), then each statement ended
 /// the engine's way.
-fn script_text<'a>(target: &dyn Driver, header: [String; 2], statements: impl IntoIterator<Item = &'a String>) -> String {
+fn script_text<'a>(
+    target: &dyn Driver,
+    header: [String; 2],
+    statements: impl IntoIterator<Item = &'a String>,
+) -> String {
     let sep = target.script_separator();
     let sql = target.info().language == Language::Sql;
     let end_block = |text: &str| -> String {
@@ -464,7 +581,11 @@ fn script_text<'a>(target: &dyn Driver, header: [String; 2], statements: impl In
     };
     let comment = if sql { "--" } else { "//" };
     let line = crate::commands::scripts::comment_text;
-    let mut script = format!("{comment} {}\n{comment} {}\n\n", line(&header[0]), line(&header[1]));
+    let mut script = format!(
+        "{comment} {}\n{comment} {}\n\n",
+        line(&header[0]),
+        line(&header[1])
+    );
     for s in statements {
         script.push_str(&end_block(s));
     }
@@ -481,10 +602,23 @@ fn database_label(args: &PlanArgs) -> &str {
 
 fn script_of(p: &Prepared, args: &PlanArgs) -> String {
     let header = [
-        format!("Estructura de {} ({}) convertida a {}", database_label(args), p.source.info().name, p.target.info().name),
+        format!(
+            "Estructura de {} ({}) convertida a {}",
+            database_label(args),
+            p.source.info().name,
+            p.target.info().name
+        ),
         format!("{} tabla(s). Generado por DBine.", p.conv.tables.len()),
     ];
-    let statements = p.ddl.schemas.iter().chain(p.ddl.drops.iter().chain(&p.ddl.creates).chain(&p.ddl.indexes).chain(&p.ddl.fks).map(|(_, s)| s));
+    let statements = p.ddl.schemas.iter().chain(
+        p.ddl
+            .drops
+            .iter()
+            .chain(&p.ddl.creates)
+            .chain(&p.ddl.indexes)
+            .chain(&p.ddl.fks)
+            .map(|(_, s)| s),
+    );
     script_text(p.target.as_ref(), header, statements)
 }
 
@@ -492,26 +626,57 @@ fn script_of(p: &Prepared, args: &PlanArgs) -> String {
 /// data), after.
 fn clone_script_text(p: &Picked, args: &PlanArgs, c: &CloneScript) -> String {
     let header = [
-        format!("Clonado de {} ({})", database_label(args), p.source.info().name),
+        format!(
+            "Clonado de {} ({})",
+            database_label(args),
+            p.source.info().name
+        ),
         format!("{} tabla(s). Generado por DBine.", c.tables.len()),
     ];
-    let tables = c.tables.iter().flat_map(|t| std::iter::once(&t.create).chain(&t.before_data).chain(&t.after_data));
-    script_text(p.target.as_ref(), header, c.before.iter().chain(tables).chain(&c.after))
+    let tables = c.tables.iter().flat_map(|t| {
+        std::iter::once(&t.create)
+            .chain(&t.before_data)
+            .chain(&t.after_data)
+    });
+    script_text(
+        p.target.as_ref(),
+        header,
+        c.before.iter().chain(tables).chain(&c.after),
+    )
 }
 
 /// The tables the driver's clone script is asked for.
 fn table_refs(tables: &[TableSchema]) -> Vec<ObjectRef> {
-    tables.iter().map(|t| ObjectRef { kind: kinds::TABLE.into(), schema: t.schema.clone(), name: t.name.clone() }).collect()
+    tables
+        .iter()
+        .map(|t| ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: t.schema.clone(),
+            name: t.name.clone(),
+        })
+        .collect()
 }
 
 /// The driver's clone script: the source is only read (a read-only connection); `target` is only
 /// asked what it supports.
-async fn read_clone_script(state: &AppState, p: &Picked, args: &PlanArgs, key: &str, target: &mut Box<dyn Session>) -> CommandResult<CloneScript> {
+async fn read_clone_script(
+    state: &AppState,
+    p: &Picked,
+    args: &PlanArgs,
+    key: &str,
+    target: &mut Box<dyn Session>,
+) -> CommandResult<CloneScript> {
     let skey = format!("{key}:src");
-    let r = match state.dedicated_session(&skey, &args.connection_id, &args.database, true).await {
+    let r = match state
+        .dedicated_session(&skey, &args.connection_id, &args.database, true)
+        .await
+    {
         Ok(src) => {
             let mut s = src.session.lock().await;
-            p.target.clone_script(&mut **s, &mut **target, &table_refs(&p.chosen)).await.map_err(CommandError::from)
+            p.target
+                .clone_script(&mut **s, &mut **target, &table_refs(&p.chosen))
+                .await
+                .map_err(CommandError::from)
         }
         Err(e) => Err(e),
     };
@@ -523,7 +688,11 @@ async fn read_clone_script(state: &AppState, p: &Picked, args: &PlanArgs, key: &
 fn unique_keys(t: &TableSchema) -> Vec<Vec<String>> {
     let pk = t.primary_key.as_ref().map(|k| &k.columns);
     let mut out: Vec<Vec<String>> = Vec::new();
-    for ix in t.indexes.iter().filter(|i| i.unique && i.filter.is_none() && !i.columns.is_empty()) {
+    for ix in t
+        .indexes
+        .iter()
+        .filter(|i| i.unique && i.filter.is_none() && !i.columns.is_empty())
+    {
         if Some(&ix.columns) != pk && !out.contains(&ix.columns) {
             out.push(ix.columns.clone());
         }
@@ -534,21 +703,28 @@ fn unique_keys(t: &TableSchema) -> Vec<Vec<String>> {
 /// The key a table syncs by: the one the user chose (the primary key or a unique key), else
 /// the primary key; or why it can't be synced.
 fn sync_key(t: &TableSchema, o: &SyncOptions) -> Result<Vec<String>, String> {
-    let pk = t.primary_key.as_ref().map(|k| k.columns.clone()).filter(|c| !c.is_empty());
+    let pk = t
+        .primary_key
+        .as_ref()
+        .map(|k| k.columns.clone())
+        .filter(|c| !c.is_empty());
     let uniques = unique_keys(t);
-    let chosen = o
-        .keys
-        .iter()
-        .find(|k| k.name == t.name && (k.schema.is_none() || k.schema == t.schema) && !k.columns.is_empty());
+    let chosen = o.keys.iter().find(|k| {
+        k.name == t.name && (k.schema.is_none() || k.schema == t.schema) && !k.columns.is_empty()
+    });
     if let Some(k) = chosen {
         if pk.as_ref() == Some(&k.columns) || uniques.contains(&k.columns) {
             return Ok(k.columns.clone());
         }
-        return Err("la clave elegida no es la clave primaria ni una clave única de la tabla".into());
+        return Err(
+            "la clave elegida no es la clave primaria ni una clave única de la tabla".into(),
+        );
     }
     match pk {
         Some(pk) => Ok(pk),
-        None if uniques.is_empty() => Err("no tiene clave primaria ni claves únicas: no se puede sincronizar".into()),
+        None if uniques.is_empty() => {
+            Err("no tiene clave primaria ni claves únicas: no se puede sincronizar".into())
+        }
         None => Err("no tiene clave primaria: elegí una clave única para sincronizarla".into()),
     }
 }
@@ -561,7 +737,11 @@ async fn plan(state: &AppState, args: &PlanArgs) -> CommandResult<MigrationPlan>
             .iter()
             .map(|t| {
                 let name = qualified(t.schema.as_deref(), &t.name);
-                PlannedTable { source: name.clone(), target: name, columns: t.columns.len() }
+                PlannedTable {
+                    source: name.clone(),
+                    target: name,
+                    columns: t.columns.len(),
+                }
             })
             .collect()
     };
@@ -591,13 +771,16 @@ async fn plan(state: &AppState, args: &PlanArgs) -> CommandResult<MigrationPlan>
         MigrationMode::Clone => {
             let p = pick(state, args).await?;
             check_mode(args.mode, p.source.as_ref(), p.target.as_ref())?;
-            let target = args
-                .target
-                .as_ref()
-                .ok_or_else(|| CommandError::BadRequest("para ver el script del clonado, elegí la conexión de destino".into()))?;
+            let target = args.target.as_ref().ok_or_else(|| {
+                CommandError::BadRequest(
+                    "para ver el script del clonado, elegí la conexión de destino".into(),
+                )
+            })?;
             let key = format!("migrate-plan:{}", uuid_like());
             let tkey = format!("{key}:tgt");
-            let tgt = state.dedicated_session(&tkey, &target.connection_id, &target.database, true).await?;
+            let tgt = state
+                .dedicated_session(&tkey, &target.connection_id, &target.database, true)
+                .await?;
             let script = {
                 let mut t = tgt.session.lock().await;
                 read_clone_script(state, &p, args, &key, &mut t).await
@@ -607,7 +790,13 @@ async fn plan(state: &AppState, args: &PlanArgs) -> CommandResult<MigrationPlan>
             let issues = script
                 .notes
                 .iter()
-                .map(|n| Issue { severity: Severity::Warning, code: IssueCode::OptionDropped, table: String::new(), object: None, message: n.clone() })
+                .map(|n| Issue {
+                    severity: Severity::Warning,
+                    code: IssueCode::OptionDropped,
+                    table: String::new(),
+                    object: None,
+                    message: n.clone(),
+                })
                 .collect();
             Ok(MigrationPlan {
                 tables: same(&p),
@@ -629,14 +818,25 @@ async fn plan(state: &AppState, args: &PlanArgs) -> CommandResult<MigrationPlan>
                     SyncTable {
                         schema: t.schema.clone(),
                         name: t.name.clone(),
-                        primary_key: t.primary_key.as_ref().map(|k| k.columns.clone()).filter(|c| !c.is_empty()),
+                        primary_key: t
+                            .primary_key
+                            .as_ref()
+                            .map(|k| k.columns.clone())
+                            .filter(|c| !c.is_empty()),
                         unique_keys: unique_keys(t),
                         key: key.clone().ok(),
                         reason: key.err(),
                     }
                 })
                 .collect();
-            Ok(MigrationPlan { tables: same(&p), columns: Vec::new(), issues: Vec::new(), script: String::new(), available: p.available, sync_tables })
+            Ok(MigrationPlan {
+                tables: same(&p),
+                columns: Vec::new(),
+                issues: Vec::new(),
+                script: String::new(),
+                available: p.available,
+                sync_tables,
+            })
         }
     }
 }
@@ -644,13 +844,20 @@ async fn plan(state: &AppState, args: &PlanArgs) -> CommandResult<MigrationPlan>
 /// A key for a preview's own connections.
 fn uuid_like() -> String {
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    format!("{}-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0), SEQ.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "{}-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// Read the source structure and preview the migration in the chosen mode: convert (report +
 /// target script), clone (the driver's script) or sync (each table's key).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_plan(state: State<'_, AppState>, args: PlanArgs) -> CommandResult<MigrationPlan> {
+pub async fn migration_plan(
+    state: State<'_, AppState>,
+    args: PlanArgs,
+) -> CommandResult<MigrationPlan> {
     plan(&state, &args).await
 }
 
@@ -853,7 +1060,9 @@ fn tagged(id: &str, e: &impl Serialize) -> Value {
 }
 
 fn step(emit: &Emit, id: &str, phase: &str, table: &str, done: usize, total: usize) {
-    emit(json!({ "id": id, "event": "step", "phase": phase, "table": table, "done": done, "total": total }));
+    emit(
+        json!({ "id": id, "event": "step", "phase": phase, "table": table, "done": done, "total": total }),
+    );
 }
 
 // -- the runs' registry ---------------------------------------------------------------------------
@@ -874,7 +1083,10 @@ struct LiveRun {
 
 impl LiveRun {
     fn control(&self) -> Option<Control> {
-        self.control.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        self.control
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
     fn set_control(&self, c: Option<Control>) {
         *self.control.lock().unwrap_or_else(|p| p.into_inner()) = c;
@@ -897,7 +1109,12 @@ impl Drop for LiveGuard<'_> {
 }
 
 fn valid_id(id: &str) -> CommandResult<()> {
-    if id.is_empty() || id.len() > 64 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(CommandError::BadRequest("id de migración inválido".into()));
     }
     Ok(())
@@ -928,7 +1145,11 @@ impl MigrationRuns {
 
     fn at(store: Arc<Store>, dir: PathBuf) -> Self {
         let _ = std::fs::create_dir_all(&dir);
-        MigrationRuns { store, dir, live: Mutex::new(HashMap::new()) }
+        MigrationRuns {
+            store,
+            dir,
+            live: Mutex::new(HashMap::new()),
+        }
     }
 
     fn live(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<LiveRun>>> {
@@ -941,8 +1162,10 @@ impl MigrationRuns {
 
     fn load(&self, id: &str) -> CommandResult<RunMeta> {
         valid_id(id)?;
-        let text = std::fs::read_to_string(self.path(id)).map_err(|_| CommandError::NotFound("la migración no existe".into()))?;
-        serde_json::from_str(&text).map_err(|e| CommandError::State(format!("registro de la migración: {e}")))
+        let text = std::fs::read_to_string(self.path(id))
+            .map_err(|_| CommandError::NotFound("la migración no existe".into()))?;
+        serde_json::from_str(&text)
+            .map_err(|e| CommandError::State(format!("registro de la migración: {e}")))
     }
 
     fn save(&self, m: &RunMeta) {
@@ -957,7 +1180,9 @@ impl MigrationRuns {
     }
 
     fn records(&self) -> Vec<RunMeta> {
-        let Ok(rd) = std::fs::read_dir(&self.dir) else { return Vec::new() };
+        let Ok(rd) = std::fs::read_dir(&self.dir) else {
+            return Vec::new();
+        };
         let mut out: Vec<RunMeta> = rd
             .flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
@@ -972,25 +1197,43 @@ impl MigrationRuns {
     fn begin(&self, id: &str) -> CommandResult<(Arc<LiveRun>, LiveGuard<'_>)> {
         let mut live = self.live();
         if live.contains_key(id) {
-            return Err(CommandError::BadRequest("la migración ya está corriendo".into()));
+            return Err(CommandError::BadRequest(
+                "la migración ya está corriendo".into(),
+            ));
         }
         let run = Arc::new(LiveRun::default());
         live.insert(id.to_string(), run.clone());
-        Ok((run, LiveGuard { runs: self, id: id.to_string() }))
+        Ok((
+            run,
+            LiveGuard {
+                runs: self,
+                id: id.to_string(),
+            },
+        ))
     }
 
     fn running(&self, id: &str) -> CommandResult<Arc<LiveRun>> {
-        self.live().get(id).cloned().ok_or_else(|| CommandError::NotFound("la migración no está corriendo".into()))
+        self.live()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| CommandError::NotFound("la migración no está corriendo".into()))
     }
 
     fn control(&self, id: &str) -> CommandResult<Control> {
-        self.running(id)?.control().ok_or_else(|| CommandError::BadRequest("la migración todavía no está copiando datos".into()))
+        self.running(id)?.control().ok_or_else(|| {
+            CommandError::BadRequest("la migración todavía no está copiando datos".into())
+        })
     }
 
     /// The run's tables: its record merged with the engine's state.
     fn tables(&self, m: &RunMeta) -> Vec<RunTable> {
-        let states: HashMap<String, TableState> =
-            self.store.tables(&m.id).unwrap_or_default().into_iter().map(|t| (t.name.clone(), t)).collect();
+        let states: HashMap<String, TableState> = self
+            .store
+            .tables(&m.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| (t.name.clone(), t))
+            .collect();
         m.tables
             .iter()
             .map(|t| {
@@ -1007,7 +1250,12 @@ impl MigrationRuns {
                     error: t.error.clone(),
                 };
                 if !t.created {
-                    r.status = if t.error.is_some() { "failed" } else { "pending" }.into();
+                    r.status = if t.error.is_some() {
+                        "failed"
+                    } else {
+                        "pending"
+                    }
+                    .into();
                 } else if let Some(s) = states.get(&t.name) {
                     r.status = status_str(s.status);
                     r.rows_done = s.rows_done;
@@ -1015,7 +1263,10 @@ impl MigrationRuns {
                     r.attempts = s.attempts;
                     r.error = s.error.clone().or(r.error);
                     if let Some(p) = s.stats.as_ref().and_then(|st| st.path) {
-                        r.path = serde_json::to_value(p).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or(r.path);
+                        r.path = serde_json::to_value(p)
+                            .ok()
+                            .and_then(|v| v.as_str().map(str::to_string))
+                            .unwrap_or(r.path);
                     }
                     r.stats = s.stats.clone();
                 } else if !m.plan.options.data && m.stage == "finished" {
@@ -1042,7 +1293,10 @@ impl MigrationRuns {
 }
 
 fn status_str(s: TableStatus) -> String {
-    serde_json::to_value(s).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+    serde_json::to_value(s)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
 }
 
 // -- connections for the engine -------------------------------------------------------------------
@@ -1060,9 +1314,15 @@ struct MigrationEndpoints {
 
 impl MigrationEndpoints {
     fn new(state: &AppState, m: &RunMeta) -> CommandResult<Self> {
-        let source_driver = crate::commands::schema::driver_of(state, &m.plan.connection_id)?.clone();
+        let source_driver =
+            crate::commands::schema::driver_of(state, &m.plan.connection_id)?.clone();
         let target_driver = dbine_drivers::find(&m.plan.target_driver)
-            .ok_or_else(|| CommandError::BadRequest(format!("esta versión no incluye el driver '{}'", m.plan.target_driver)))?
+            .ok_or_else(|| {
+                CommandError::BadRequest(format!(
+                    "esta versión no incluye el driver '{}'",
+                    m.plan.target_driver
+                ))
+            })?
             .clone();
         Ok(MigrationEndpoints {
             state: state.clone(),
@@ -1075,12 +1335,26 @@ impl MigrationEndpoints {
         })
     }
 
-    async fn open(&self, side: &str, (conn, db): &(String, String), read_only: bool) -> dbine_driver::Result<Box<dyn Session>> {
-        let key = format!("migrate:{}:{side}:{}", self.run_id, self.seq.fetch_add(1, Ordering::Relaxed));
-        let entry = self.state.dedicated_session(&key, conn, db, read_only).await.map_err(driver_error);
+    async fn open(
+        &self,
+        side: &str,
+        (conn, db): &(String, String),
+        read_only: bool,
+    ) -> dbine_driver::Result<Box<dyn Session>> {
+        let key = format!(
+            "migrate:{}:{side}:{}",
+            self.run_id,
+            self.seq.fetch_add(1, Ordering::Relaxed)
+        );
+        let entry = self
+            .state
+            .dedicated_session(&key, conn, db, read_only)
+            .await
+            .map_err(driver_error);
         // The engine owns the connection (and interrupts it itself): it leaves the app's map.
         self.state.sessions.remove(&key);
-        let entry = Arc::try_unwrap(entry?).map_err(|_| dbine_driver::Error::State("la conexión quedó compartida".into()))?;
+        let entry = Arc::try_unwrap(entry?)
+            .map_err(|_| dbine_driver::Error::State("la conexión quedó compartida".into()))?;
         Ok(entry.session.into_inner())
     }
 }
@@ -1100,7 +1374,11 @@ fn driver_error(e: CommandError) -> dbine_driver::Error {
 /// Both drivers come from the same driver crate (the one that can copy between them).
 fn same_package(a: &str, b: &str) -> bool {
     let packages = dbine_drivers::packages();
-    let of = |id: &str| packages.iter().position(|(_, ds)| ds.iter().any(|d| d.info().id == id));
+    let of = |id: &str| {
+        packages
+            .iter()
+            .position(|(_, ds)| ds.iter().any(|d| d.info().id == id))
+    };
     match (of(a), of(b)) {
         (Some(x), Some(y)) => x == y,
         // Downloaded drivers: each plugin host serves one crate; the driver's own answer decides.
@@ -1125,7 +1403,9 @@ impl Endpoints for MigrationEndpoints {
         // child may load before its parent, so this connection doesn't enforce them (the source
         // already did).
         if matches!(self.target_driver.info().id, "sqlite" | "libsql") {
-            exec(&mut s, "PRAGMA foreign_keys = OFF").await.map_err(dbine_driver::Error::Query)?;
+            exec(&mut s, "PRAGMA foreign_keys = OFF")
+                .await
+                .map_err(dbine_driver::Error::Query)?;
         }
         Ok(s)
     }
@@ -1159,7 +1439,8 @@ fn truncate_sql(target: &dyn Driver, t: &TableSchema) -> Option<String> {
         Language::Sql | Language::Cql => {
             let name = qualified_name(quote_of(info.dialect), t.schema.as_deref(), &t.name);
             Some(match info.id {
-                "sqlite" | "libsql" | "firebird" | "access" | "dbase" | "dsql" | "iris" | "cache" | "openedge" | "zen" => {
+                "sqlite" | "libsql" | "firebird" | "access" | "dbase" | "dsql" | "iris"
+                | "cache" | "openedge" | "zen" => {
                     format!("DELETE FROM {name}")
                 }
                 "spanner" => format!("DELETE FROM {name} WHERE TRUE"),
@@ -1167,7 +1448,15 @@ fn truncate_sql(target: &dyn Driver, t: &TableSchema) -> Option<String> {
             })
         }
         _ => target
-            .table_ddl(t, DdlParts { drop: true, if_exists: true, create: true, ..Default::default() })
+            .table_ddl(
+                t,
+                DdlParts {
+                    drop: true,
+                    if_exists: true,
+                    create: true,
+                    ..Default::default()
+                },
+            )
             .ok()
             .filter(|s| !s.trim().is_empty()),
     }
@@ -1176,18 +1465,29 @@ fn truncate_sql(target: &dyn Driver, t: &TableSchema) -> Option<String> {
 /// A target column the engine fills itself (computed, row version): never loaded.
 fn generated(c: &ColumnDef, dialect: &str) -> bool {
     let t = c.data_type.trim().to_ascii_lowercase();
-    t.starts_with("as ") || t.starts_with("as(") || t.contains("generated always as") || (matches!(dialect, "mssql" | "sybase") && matches!(t.as_str(), "rowversion" | "timestamp"))
+    t.starts_with("as ")
+        || t.starts_with("as(")
+        || t.contains("generated always as")
+        || (matches!(dialect, "mssql" | "sybase")
+            && matches!(t.as_str(), "rowversion" | "timestamp"))
 }
 
 /// Source and target columns of a table's copy, paired by the conversion's mapping (`mappings`
 /// are the table's, one per target column, in order) and in the source's column order.
-fn column_pairs(mappings: &[ColumnMapping], source_t: &TableSchema, target_t: &TableSchema, target_dialect: &str) -> (Vec<String>, Vec<String>) {
+fn column_pairs(
+    mappings: &[ColumnMapping],
+    source_t: &TableSchema,
+    target_t: &TableSchema,
+    target_dialect: &str,
+) -> (Vec<String>, Vec<String>) {
     let mut pairs: Vec<(usize, String, String)> = Vec::new();
     for (m, tc) in mappings.iter().zip(&target_t.columns) {
         if m.column.is_empty() || generated(tc, target_dialect) {
             continue;
         }
-        let Some(pos) = source_t.columns.iter().position(|c| c.name == m.column) else { continue };
+        let Some(pos) = source_t.columns.iter().position(|c| c.name == m.column) else {
+            continue;
+        };
         pairs.push((pos, m.column.clone(), tc.name.clone()));
     }
     pairs.sort_by_key(|p| p.0);
@@ -1213,14 +1513,24 @@ async fn row_estimates(s: &mut Box<dyn Session>, dialect: &str) -> HashMap<(Stri
         return HashMap::new();
     }
     let text = |v: &Value| v.as_str().map(str::to_string).unwrap_or_default();
-    let num = |v: &Value| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<f64>().ok()).map(|f| f as i64));
+    let num = |v: &Value| {
+        v.as_i64().or_else(|| {
+            v.as_str()
+                .and_then(|s| s.trim().parse::<f64>().ok())
+                .map(|f| f as i64)
+        })
+    };
     out.results
         .first()
         .map(|r| {
             r.rows
                 .iter()
                 .filter(|row| row.len() >= 3)
-                .filter_map(|row| num(&row[2]).filter(|n| *n >= 0).map(|n| ((text(&row[0]), text(&row[1])), n as u64)))
+                .filter_map(|row| {
+                    num(&row[2])
+                        .filter(|n| *n >= 0)
+                        .map(|n| ((text(&row[0]), text(&row[1])), n as u64))
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -1255,13 +1565,21 @@ fn copy_path(source: &dyn Driver, target: &dyn Driver) -> &'static str {
 }
 
 /// Row estimates, from the source's catalog (a read), for engines that keep them.
-async fn source_estimates(state: &AppState, id: &str, plan: &PlanArgs, dialect: &str) -> HashMap<(String, String), u64> {
+async fn source_estimates(
+    state: &AppState,
+    id: &str,
+    plan: &PlanArgs,
+    dialect: &str,
+) -> HashMap<(String, String), u64> {
     if !matches!(dialect, "mssql" | "postgres" | "mysql") {
         return HashMap::new();
     }
     let skey = format!("migrate:{id}:est");
     let mut out = HashMap::new();
-    if let Ok(src) = state.dedicated_session(&skey, &plan.connection_id, &plan.database, true).await {
+    if let Ok(src) = state
+        .dedicated_session(&skey, &plan.connection_id, &plan.database, true)
+        .await
+    {
         out = row_estimates(&mut *src.session.lock().await, dialect).await;
     }
     state.sessions.remove(&skey);
@@ -1270,11 +1588,21 @@ async fn source_estimates(state: &AppState, id: &str, plan: &PlanArgs, dialect: 
 
 /// The source columns a copy reads and writes: all but those the engine fills itself.
 fn loaded_columns(t: &TableSchema, dialect: &str) -> Vec<String> {
-    t.columns.iter().filter(|c| !generated(c, dialect)).map(|c| c.name.clone()).collect()
+    t.columns
+        .iter()
+        .filter(|c| !generated(c, dialect))
+        .map(|c| c.name.clone())
+        .collect()
 }
 
 fn transfer_columns(cols: Vec<dbine_driver::ColumnInfo>) -> Vec<TransferColumn> {
-    cols.into_iter().map(|c| TransferColumn { name: c.name, type_name: c.data_type, nullable: c.nullable }).collect()
+    cols.into_iter()
+        .map(|c| TransferColumn {
+            name: c.name,
+            type_name: c.data_type,
+            nullable: c.nullable,
+        })
+        .collect()
 }
 
 /// A statement's first line, short (for the list of those that failed).
@@ -1341,16 +1669,29 @@ fn mentions(sql: &str, name: &str) -> bool {
 /// quotes a name (other than the table's) that a failed statement creates or uses, the cause
 /// is that statement's error.
 fn before_cause(error: &str, table: &str, failed: &[(String, String)]) -> Option<String> {
-    quoted_names(error).into_iter().filter(|n| !n.eq_ignore_ascii_case(table)).find_map(|n| {
-        failed.iter().find(|(sql, _)| mentions(sql, &n)).map(|(_, e)| format!("no se pudo crear {n}: {e}"))
-    })
+    quoted_names(error)
+        .into_iter()
+        .filter(|n| !n.eq_ignore_ascii_case(table))
+        .find_map(|n| {
+            failed
+                .iter()
+                .find(|(sql, _)| mentions(sql, &n))
+                .map(|(_, e)| format!("no se pudo crear {n}: {e}"))
+        })
 }
 
 // -- stage 1: structure ---------------------------------------------------------------------------
 
 /// Schemas, DROP and CREATE (columns and primary key; indexes go with each table's copy). Fills
 /// the record's tables, foreign keys and reseeds, and returns the jobs.
-async fn structure(state: &AppState, p: &Prepared, args: &RunArgs, meta: &mut RunMeta, live: &LiveRun, emit: &Emit) -> CommandResult<Vec<TransferJob>> {
+async fn structure(
+    state: &AppState,
+    p: &Prepared,
+    args: &RunArgs,
+    meta: &mut RunMeta,
+    live: &LiveRun,
+    emit: &Emit,
+) -> CommandResult<Vec<TransferJob>> {
     let id = meta.id.clone();
     let o = &args.plan.options;
     let (sinfo, tinfo) = (p.source.info(), p.target.info());
@@ -1358,18 +1699,41 @@ async fn structure(state: &AppState, p: &Prepared, args: &RunArgs, meta: &mut Ru
         .chosen
         .iter()
         .zip(p.conv.tables.iter())
-        .map(|(s, t)| (qualified(s.schema.as_deref(), &s.name), qualified(t.schema.as_deref(), &t.name)))
+        .map(|(s, t)| {
+            (
+                qualified(s.schema.as_deref(), &s.name),
+                qualified(t.schema.as_deref(), &t.name),
+            )
+        })
         .collect();
     let path = copy_path(p.source.as_ref(), p.target.as_ref());
     meta.tables = names
         .iter()
-        .map(|(s, t)| MetaTable { name: s.clone(), source: s.clone(), target: t.clone(), path: path.into(), created: false, error: None })
+        .map(|(s, t)| MetaTable {
+            name: s.clone(),
+            source: s.clone(),
+            target: t.clone(),
+            path: path.into(),
+            created: false,
+            error: None,
+        })
         .collect();
 
-    let estimates = if o.data { source_estimates(state, &id, &args.plan, sinfo.dialect).await } else { HashMap::new() };
+    let estimates = if o.data {
+        source_estimates(state, &id, &args.plan, sinfo.dialect).await
+    } else {
+        HashMap::new()
+    };
 
     let tkey = format!("migrate:{id}:ddl");
-    let tgt = state.dedicated_session(&tkey, &args.target_connection_id, &args.target_database, false).await?;
+    let tgt = state
+        .dedicated_session(
+            &tkey,
+            &args.target_connection_id,
+            &args.target_database,
+            false,
+        )
+        .await?;
     let r = async {
         let mut s = tgt.session.lock().await;
         let cancelled = || live.is_cancelled();
@@ -1522,31 +1886,63 @@ async fn structure(state: &AppState, p: &Prepared, args: &RunArgs, meta: &mut Ru
 /// its data (a native copy doesn't run a job's `before`, so it runs here, on the table just
 /// created); one job per table, its `after_data` (indexes, identity) as the job's `post`. The
 /// script's `after` goes to the record, for the last stage. Its notes go to the run's log.
-async fn clone_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mut RunMeta, live: &LiveRun, emit: &Emit) -> CommandResult<Vec<TransferJob>> {
+async fn clone_structure(
+    state: &AppState,
+    p: &Picked,
+    args: &RunArgs,
+    meta: &mut RunMeta,
+    live: &LiveRun,
+    emit: &Emit,
+) -> CommandResult<Vec<TransferJob>> {
     let id = meta.id.clone();
     let o = &args.plan.options;
     let sdialect = p.source.info().dialect;
     let path = copy_path(p.source.as_ref(), p.target.as_ref());
-    let estimates = if o.data { source_estimates(state, &id, &args.plan, sdialect).await } else { HashMap::new() };
+    let estimates = if o.data {
+        source_estimates(state, &id, &args.plan, sdialect).await
+    } else {
+        HashMap::new()
+    };
 
     let tkey = format!("migrate:{id}:ddl");
-    let tgt = state.dedicated_session(&tkey, &args.target_connection_id, &args.target_database, false).await?;
+    let tgt = state
+        .dedicated_session(
+            &tkey,
+            &args.target_connection_id,
+            &args.target_database,
+            false,
+        )
+        .await?;
     let r = async {
         let mut s = tgt.session.lock().await;
         let cancelled = || live.is_cancelled();
         step(emit, &id, "script", "", 0, 0);
-        let script = read_clone_script(state, p, &args.plan, &format!("migrate:{id}:clone"), &mut s).await?;
+        let script =
+            read_clone_script(state, p, &args.plan, &format!("migrate:{id}:clone"), &mut s).await?;
         meta.tables = script
             .tables
             .iter()
             .map(|t| {
                 let name = qualified(t.table.schema.as_deref(), &t.table.name);
-                MetaTable { name: name.clone(), source: name.clone(), target: name, path: path.into(), created: false, error: None }
+                MetaTable {
+                    name: name.clone(),
+                    source: name.clone(),
+                    target: name,
+                    path: path.into(),
+                    created: false,
+                    error: None,
+                }
             })
             .collect();
         for n in &script.notes {
             meta.notes.push(n.clone());
-            emit(tagged(&id, &Event::Log { level: LogLevel::Warn, text: n.clone() }));
+            emit(tagged(
+                &id,
+                &Event::Log {
+                    level: LogLevel::Warn,
+                    text: n.clone(),
+                },
+            ));
         }
         // Before any table (schemas, types…). One that fails is noted: the tables that need it
         // fail to create and say so (with this failure as the cause, when their error names it).
@@ -1557,7 +1953,10 @@ async fn clone_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mu
             }
             step(emit, &id, "before", "", k, script.before.len());
             if let Err(e) = exec(&mut s, sql).await {
-                meta.notes.push(format!("falló antes de las tablas: {}: {e}", before_label(sql)));
+                meta.notes.push(format!(
+                    "falló antes de las tablas: {}: {e}",
+                    before_label(sql)
+                ));
                 failed_before.push((sql.clone(), e));
             }
         }
@@ -1568,13 +1967,22 @@ async fn clone_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mu
             }
             let name = meta.tables[k].name.clone();
             step(emit, &id, "create", &name, k, script.tables.len());
-            let table = ObjectRef { kind: kinds::TABLE.into(), schema: ct.table.schema.clone(), name: ct.table.name.clone() };
-            let existed = s.columns(&table).await.map(|c| !c.is_empty()).unwrap_or(false);
+            let table = ObjectRef {
+                kind: kinds::TABLE.into(),
+                schema: ct.table.schema.clone(),
+                name: ct.table.name.clone(),
+            };
+            let existed = s
+                .columns(&table)
+                .await
+                .map(|c| !c.is_empty())
+                .unwrap_or(false);
             if let Err(e) = exec(&mut s, &ct.create).await {
-                meta.tables[k].error = Some(match before_cause(&e, &ct.table.name, &failed_before) {
-                    Some(cause) => format!("al crear la tabla: {e} — causa: {cause}"),
-                    None => format!("al crear la tabla: {e}"),
-                });
+                meta.tables[k].error =
+                    Some(match before_cause(&e, &ct.table.name, &failed_before) {
+                        Some(cause) => format!("al crear la tabla: {e} — causa: {cause}"),
+                        None => format!("al crear la tabla: {e}"),
+                    });
                 continue;
             }
             let mut failed = None;
@@ -1599,16 +2007,27 @@ async fn clone_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mu
                 continue;
             }
             let expected = transfer_columns(s.columns(&table).await.unwrap_or_default());
-            let source_t = p.chosen.iter().find(|t| t.name == ct.table.name && t.schema == ct.table.schema);
+            let source_t = p
+                .chosen
+                .iter()
+                .find(|t| t.name == ct.table.name && t.schema == ct.table.schema);
             let columns = match source_t {
                 Some(t) => loaded_columns(t, sdialect),
                 None => expected.iter().map(|c| c.name.clone()).collect(),
             };
-            let as_schema = TableSchema { schema: ct.table.schema.clone(), name: ct.table.name.clone(), ..Default::default() };
+            let as_schema = TableSchema {
+                schema: ct.table.schema.clone(),
+                name: ct.table.name.clone(),
+                ..Default::default()
+            };
             let truncate = truncate_sql(p.target.as_ref(), &as_schema);
             jobs.push(TransferJob {
                 name,
-                source: ReadSpec { table: table.clone(), columns: Some(columns.clone()), filter: None },
+                source: ReadSpec {
+                    table: table.clone(),
+                    columns: Some(columns.clone()),
+                    filter: None,
+                },
                 target: LoadSpec {
                     table,
                     columns,
@@ -1628,7 +2047,14 @@ async fn clone_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mu
                 mode: TransferMode::Copy,
             });
         }
-        meta.after = script.after.iter().map(|sql| AfterStep { sql: sql.clone(), done: false }).collect();
+        meta.after = script
+            .after
+            .iter()
+            .map(|sql| AfterStep {
+                sql: sql.clone(),
+                done: false,
+            })
+            .collect();
         Ok(jobs)
     }
     .await;
@@ -1638,7 +2064,14 @@ async fn clone_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mu
 
 /// Sync: no DDL. Each table must exist on the target with the source's columns (checked again
 /// before each sync) and have a key; the others are listed with the reason.
-async fn sync_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mut RunMeta, live: &LiveRun, emit: &Emit) -> CommandResult<Vec<TransferJob>> {
+async fn sync_structure(
+    state: &AppState,
+    p: &Picked,
+    args: &RunArgs,
+    meta: &mut RunMeta,
+    live: &LiveRun,
+    emit: &Emit,
+) -> CommandResult<Vec<TransferJob>> {
     let id = meta.id.clone();
     let sdialect = p.source.info().dialect;
     let sync = &args.plan.sync;
@@ -1647,16 +2080,35 @@ async fn sync_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mut
         .iter()
         .map(|t| {
             let name = qualified(t.schema.as_deref(), &t.name);
-            MetaTable { name: name.clone(), source: name.clone(), target: name, path: "delta".into(), created: false, error: None }
+            MetaTable {
+                name: name.clone(),
+                source: name.clone(),
+                target: name,
+                path: "delta".into(),
+                created: false,
+                error: None,
+            }
         })
         .collect();
     let estimates = source_estimates(state, &id, &args.plan, sdialect).await;
 
     // Both sides are only read here.
-    let (skey, tkey) = (format!("migrate:{id}:cols-src"), format!("migrate:{id}:cols-tgt"));
+    let (skey, tkey) = (
+        format!("migrate:{id}:cols-src"),
+        format!("migrate:{id}:cols-tgt"),
+    );
     let r = async {
-        let src = state.dedicated_session(&skey, &args.plan.connection_id, &args.plan.database, true).await?;
-        let tgt = state.dedicated_session(&tkey, &args.target_connection_id, &args.target_database, true).await?;
+        let src = state
+            .dedicated_session(&skey, &args.plan.connection_id, &args.plan.database, true)
+            .await?;
+        let tgt = state
+            .dedicated_session(
+                &tkey,
+                &args.target_connection_id,
+                &args.target_database,
+                true,
+            )
+            .await?;
         let (mut src, mut tgt) = (src.session.lock().await, tgt.session.lock().await);
         let mut jobs = Vec::new();
         for (i, t) in p.chosen.iter().enumerate() {
@@ -1672,10 +2124,15 @@ async fn sync_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mut
                     continue;
                 }
             };
-            let table = ObjectRef { kind: kinds::TABLE.into(), schema: t.schema.clone(), name: t.name.clone() };
+            let table = ObjectRef {
+                kind: kinds::TABLE.into(),
+                schema: t.schema.clone(),
+                name: t.name.clone(),
+            };
             let target_cols = tgt.columns(&table).await.unwrap_or_default();
             if target_cols.is_empty() {
-                meta.tables[i].error = Some("no existe en el destino: sincronizar no crea tablas".into());
+                meta.tables[i].error =
+                    Some("no existe en el destino: sincronizar no crea tablas".into());
                 continue;
             }
             meta.tables[i].created = true;
@@ -1688,7 +2145,11 @@ async fn sync_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mut
             let columns = loaded_columns(t, sdialect);
             jobs.push(TransferJob {
                 name,
-                source: ReadSpec { table: table.clone(), columns: Some(columns.clone()), filter: None },
+                source: ReadSpec {
+                    table: table.clone(),
+                    columns: Some(columns.clone()),
+                    filter: None,
+                },
                 target: LoadSpec {
                     table,
                     columns,
@@ -1705,7 +2166,11 @@ async fn sync_structure(state: &AppState, p: &Picked, args: &RunArgs, meta: &mut
                 post: Vec::new(),
                 preexisting: true,
                 expected_columns: expected,
-                mode: TransferMode::Delta { key, depth: sync.depth, max_cores: sync.max_cores },
+                mode: TransferMode::Delta {
+                    key,
+                    depth: sync.depth,
+                    max_cores: sync.max_cores,
+                },
             });
         }
         Ok(jobs)
@@ -1738,7 +2203,9 @@ async fn transfer_and_finish(
     meta.stage = "data".into();
     meta.status = "running".into();
     runs.save(meta);
-    emit(json!({ "id": id, "event": "plan", "tables": runs.tables(meta), "parallel": meta.options.parallel }));
+    emit(
+        json!({ "id": id, "event": "plan", "tables": runs.tables(meta), "parallel": meta.options.parallel }),
+    );
 
     let endpoints: Arc<dyn Endpoints> = Arc::new(MigrationEndpoints::new(state, meta)?);
     let engine = Engine::new(runs.store.clone(), id.clone());
@@ -1754,7 +2221,11 @@ async fn transfer_and_finish(
         em(tagged(&rid, &e));
     };
     let report = match mode {
-        Mode::Run(jobs) => engine.run(jobs, meta.options.clone(), endpoints, events).await,
+        Mode::Run(jobs) => {
+            engine
+                .run(jobs, meta.options.clone(), endpoints, events)
+                .await
+        }
         Mode::Resume => engine.resume(None, endpoints, events).await,
         Mode::Retry => engine.retry_failed(None, endpoints, events).await,
     };
@@ -1780,8 +2251,12 @@ async fn transfer_and_finish(
         }
     }
     let tables = runs.tables(meta);
-    let failed = tables.iter().any(|t| matches!(t.status.as_str(), "failed" | "cancelled" | "pending" | "running" | "copied"))
-        || !meta.foreign_key_errors.is_empty()
+    let failed = tables.iter().any(|t| {
+        matches!(
+            t.status.as_str(),
+            "failed" | "cancelled" | "pending" | "running" | "copied"
+        )
+    }) || !meta.foreign_key_errors.is_empty()
         || !meta.after_errors.is_empty();
     meta.status = if cancelled {
         "cancelled"
@@ -1799,23 +2274,52 @@ async fn transfer_and_finish(
 }
 
 /// Foreign keys of the copied tables, then the identities. `false`: cancelled.
-async fn constraints(state: &AppState, runs: &MigrationRuns, meta: &mut RunMeta, live: &LiveRun, emit: &Emit) -> bool {
+async fn constraints(
+    state: &AppState,
+    runs: &MigrationRuns,
+    meta: &mut RunMeta,
+    live: &LiveRun,
+    emit: &Emit,
+) -> bool {
     let id = meta.id.clone();
-    let done: HashSet<String> = runs.tables(meta).into_iter().filter(|t| t.status == "done").map(|t| t.name).collect();
-    let ready = |table: &str| done.contains(table) || (!meta.plan.options.data && meta.tables.iter().any(|t| t.name == table && t.created));
-    let fks: Vec<usize> = (0..meta.fks.len()).filter(|k| !meta.fks[*k].done && ready(&meta.fks[*k].table)).collect();
-    let reseeds: Vec<usize> = (0..meta.reseeds.len()).filter(|k| !meta.reseeds[*k].done && done.contains(&meta.reseeds[*k].table)).collect();
-    let afters: Vec<usize> = (0..meta.after.len()).filter(|k| !meta.after[*k].done).collect();
+    let done: HashSet<String> = runs
+        .tables(meta)
+        .into_iter()
+        .filter(|t| t.status == "done")
+        .map(|t| t.name)
+        .collect();
+    let ready = |table: &str| {
+        done.contains(table)
+            || (!meta.plan.options.data && meta.tables.iter().any(|t| t.name == table && t.created))
+    };
+    let fks: Vec<usize> = (0..meta.fks.len())
+        .filter(|k| !meta.fks[*k].done && ready(&meta.fks[*k].table))
+        .collect();
+    let reseeds: Vec<usize> = (0..meta.reseeds.len())
+        .filter(|k| !meta.reseeds[*k].done && done.contains(&meta.reseeds[*k].table))
+        .collect();
+    let afters: Vec<usize> = (0..meta.after.len())
+        .filter(|k| !meta.after[*k].done)
+        .collect();
     meta.foreign_key_errors.clear();
     meta.after_errors.clear();
     if fks.is_empty() && reseeds.is_empty() && afters.is_empty() {
         return true;
     }
     let tkey = format!("migrate:{id}:fk");
-    let tgt = match state.dedicated_session(&tkey, &meta.target_connection_id, &meta.target_database, false).await {
+    let tgt = match state
+        .dedicated_session(
+            &tkey,
+            &meta.target_connection_id,
+            &meta.target_database,
+            false,
+        )
+        .await
+    {
         Ok(t) => t,
         Err(e) => {
-            meta.foreign_key_errors.push(format!("no se pudo conectar al destino: {e}"));
+            meta.foreign_key_errors
+                .push(format!("no se pudo conectar al destino: {e}"));
             return true;
         }
     };
@@ -1830,13 +2334,18 @@ async fn constraints(state: &AppState, runs: &MigrationRuns, meta: &mut RunMeta,
             step(emit, &id, "foreign_keys", &meta.fks[*k].label, n, fks.len());
             match exec(&mut s, &meta.fks[*k].sql).await {
                 Ok(()) => meta.fks[*k].done = true,
-                Err(e) => meta.foreign_key_errors.push(format!("{}: {e}", meta.fks[*k].label)),
+                Err(e) => meta
+                    .foreign_key_errors
+                    .push(format!("{}: {e}", meta.fks[*k].label)),
             }
             runs.save(meta);
         }
         if ok && !reseeds.is_empty() {
             let skey = format!("migrate:{id}:ident");
-            match state.dedicated_session(&skey, &meta.plan.connection_id, &meta.plan.database, true).await {
+            match state
+                .dedicated_session(&skey, &meta.plan.connection_id, &meta.plan.database, true)
+                .await
+            {
                 Ok(src) => {
                     let mut src = src.session.lock().await;
                     for (n, k) in reseeds.iter().enumerate() {
@@ -1853,21 +2362,43 @@ async fn constraints(state: &AppState, runs: &MigrationRuns, meta: &mut RunMeta,
                                 .first()
                                 .and_then(|x| x.rows.first())
                                 .and_then(|row| row.first())
-                                .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))),
+                                .and_then(|v| {
+                                    v.as_i64()
+                                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                                }),
                             _ => None,
                         };
                         match current {
-                            Some(n) => match exec(&mut s, &format!("DBCC CHECKIDENT (N'{}', RESEED, {n}) WITH NO_INFOMSGS", r.target)).await {
-                                Ok(()) => meta.notes.push(format!("{}: identidad del destino en {n}, como en el origen", r.table)),
-                                Err(e) => meta.notes.push(format!("{}: no se pudo ajustar la identidad: {e}", r.table)),
+                            Some(n) => match exec(
+                                &mut s,
+                                &format!(
+                                    "DBCC CHECKIDENT (N'{}', RESEED, {n}) WITH NO_INFOMSGS",
+                                    r.target
+                                ),
+                            )
+                            .await
+                            {
+                                Ok(()) => meta.notes.push(format!(
+                                    "{}: identidad del destino en {n}, como en el origen",
+                                    r.table
+                                )),
+                                Err(e) => meta.notes.push(format!(
+                                    "{}: no se pudo ajustar la identidad: {e}",
+                                    r.table
+                                )),
                             },
-                            None => meta.notes.push(format!("{}: no se pudo leer la identidad del origen", r.table)),
+                            None => meta.notes.push(format!(
+                                "{}: no se pudo leer la identidad del origen",
+                                r.table
+                            )),
                         }
                         meta.reseeds[*k].done = true;
                         runs.save(meta);
                     }
                 }
-                Err(e) => meta.notes.push(format!("no se pudo leer la identidad del origen: {e}")),
+                Err(e) => meta
+                    .notes
+                    .push(format!("no se pudo leer la identidad del origen: {e}")),
             }
             state.sessions.remove(&skey);
         }
@@ -1885,7 +2416,14 @@ const AFTER_PASSES: usize = 4;
 
 /// Run the clone's `after` statements in passes; those still failing go to `after_errors`.
 /// `false`: cancelled.
-async fn after_passes(runs: &MigrationRuns, meta: &mut RunMeta, mut pending: Vec<usize>, s: &mut Box<dyn Session>, live: &LiveRun, emit: &Emit) -> bool {
+async fn after_passes(
+    runs: &MigrationRuns,
+    meta: &mut RunMeta,
+    mut pending: Vec<usize>,
+    s: &mut Box<dyn Session>,
+    live: &LiveRun,
+    emit: &Emit,
+) -> bool {
     let id = meta.id.clone();
     let mut errors: Vec<String> = Vec::new();
     for _ in 0..AFTER_PASSES {
@@ -1923,7 +2461,12 @@ enum Prep {
 }
 
 /// A whole run: validate, structure, data, constraints.
-async fn run_migration(state: &AppState, runs: &MigrationRuns, args: RunArgs, emit: Emit) -> CommandResult<RunResult> {
+async fn run_migration(
+    state: &AppState,
+    runs: &MigrationRuns,
+    args: RunArgs,
+    emit: Emit,
+) -> CommandResult<RunResult> {
     let started = Instant::now();
     valid_id(&args.migration_id)?;
     let target_cfg = state
@@ -1931,10 +2474,15 @@ async fn run_migration(state: &AppState, runs: &MigrationRuns, args: RunArgs, em
         .get_connection(&args.target_connection_id)?
         .ok_or_else(|| CommandError::NotFound("la conexión de destino no existe".into()))?;
     if target_cfg.config.driver != args.plan.target_driver {
-        return Err(CommandError::BadRequest("la conexión de destino no es del motor elegido".into()));
+        return Err(CommandError::BadRequest(
+            "la conexión de destino no es del motor elegido".into(),
+        ));
     }
     if target_cfg.config.read_only {
-        return Err(CommandError::BadRequest(format!("«{}» es de solo lectura: no se puede migrar hacia ella", target_cfg.name)));
+        return Err(CommandError::BadRequest(format!(
+            "«{}» es de solo lectura: no se puede migrar hacia ella",
+            target_cfg.name
+        )));
     }
     let id = args.migration_id.clone();
     let (live, _guard) = runs.begin(&id)?;
@@ -1972,13 +2520,20 @@ async fn run_migration(state: &AppState, runs: &MigrationRuns, args: RunArgs, em
     runs.save(&meta);
     let r = match &p {
         Prep::Convert(p) => structure(state, p, &args, &mut meta, &live, &emit).await,
-        Prep::Same(p) if args.plan.mode == MigrationMode::Clone => clone_structure(state, p, &args, &mut meta, &live, &emit).await,
+        Prep::Same(p) if args.plan.mode == MigrationMode::Clone => {
+            clone_structure(state, p, &args, &mut meta, &live, &emit).await
+        }
         Prep::Same(p) => sync_structure(state, p, &args, &mut meta, &live, &emit).await,
     };
     let jobs = match r {
         Ok(j) => j,
         Err(e) => {
-            meta.status = if matches!(e, CommandError::Cancelled) { "cancelled" } else { "failed" }.into();
+            meta.status = if matches!(e, CommandError::Cancelled) {
+                "cancelled"
+            } else {
+                "failed"
+            }
+            .into();
             meta.finished_at = Some(now());
             meta.elapsed_ms = started.elapsed().as_millis() as u64;
             if !matches!(e, CommandError::Cancelled) {
@@ -1992,12 +2547,27 @@ async fn run_migration(state: &AppState, runs: &MigrationRuns, args: RunArgs, em
             };
         }
     };
-    transfer_and_finish(state, runs, &mut meta, Mode::Run(jobs), live, &emit, started).await
+    transfer_and_finish(
+        state,
+        runs,
+        &mut meta,
+        Mode::Run(jobs),
+        live,
+        &emit,
+        started,
+    )
+    .await
 }
 
 /// Resume (or retry the failed tables of) a run: the engine goes on with what isn't done; a run
 /// cut before its tables were created starts again.
-async fn go_on(state: &AppState, runs: &MigrationRuns, run_id: &str, retry: bool, emit: Emit) -> CommandResult<RunResult> {
+async fn go_on(
+    state: &AppState,
+    runs: &MigrationRuns,
+    run_id: &str,
+    retry: bool,
+    emit: Emit,
+) -> CommandResult<RunResult> {
     let started = Instant::now();
     let mut meta = runs.load(run_id)?;
     // Ask for the passwords now, not once per table.
@@ -2019,7 +2589,16 @@ async fn go_on(state: &AppState, runs: &MigrationRuns, run_id: &str, retry: bool
         return run_migration(state, runs, args, emit).await;
     }
     let (live, _guard) = runs.begin(run_id)?;
-    transfer_and_finish(state, runs, &mut meta, if retry { Mode::Retry } else { Mode::Resume }, live, &emit, started).await
+    transfer_and_finish(
+        state,
+        runs,
+        &mut meta,
+        if retry { Mode::Retry } else { Mode::Resume },
+        live,
+        &emit,
+        started,
+    )
+    .await
 }
 
 fn emitter(app: &AppHandle) -> Emit {
@@ -2033,7 +2612,12 @@ fn emitter(app: &AppHandle) -> Emit {
 /// data with the bulk transfer engine (each table's indexes as soon as its copy ends), then the
 /// foreign keys. Progress: `migration-progress` events.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_run(app: AppHandle, state: State<'_, AppState>, runs: State<'_, MigrationRuns>, args: RunArgs) -> CommandResult<RunResult> {
+pub async fn migration_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    runs: State<'_, MigrationRuns>,
+    args: RunArgs,
+) -> CommandResult<RunResult> {
     run_migration(&state, &runs, args, emitter(&app)).await
 }
 
@@ -2065,7 +2649,10 @@ pub struct RunsArgs {
 
 /// Tables copying at once, live (1 to 32).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_set_parallel(runs: State<'_, MigrationRuns>, args: ParallelArgs) -> CommandResult<usize> {
+pub async fn migration_set_parallel(
+    runs: State<'_, MigrationRuns>,
+    args: ParallelArgs,
+) -> CommandResult<usize> {
     let c = runs.control(&args.run_id)?;
     c.set_parallel(args.n.clamp(1, dbine_transfer::MAX_PARALLEL));
     Ok(c.parallel())
@@ -2073,19 +2660,28 @@ pub async fn migration_set_parallel(runs: State<'_, MigrationRuns>, args: Parall
 
 /// Cancel one table (running: stops and its rows are removed; queued: leaves the queue).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_cancel_table(runs: State<'_, MigrationRuns>, args: RunTableArgs) -> CommandResult<bool> {
+pub async fn migration_cancel_table(
+    runs: State<'_, MigrationRuns>,
+    args: RunTableArgs,
+) -> CommandResult<bool> {
     Ok(runs.control(&args.run_id)?.cancel_table(&args.table))
 }
 
 /// Start a queued table now, without waiting for a slot.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_run_now(runs: State<'_, MigrationRuns>, args: RunTableArgs) -> CommandResult<bool> {
+pub async fn migration_run_now(
+    runs: State<'_, MigrationRuns>,
+    args: RunTableArgs,
+) -> CommandResult<bool> {
     Ok(runs.control(&args.run_id)?.run_now(&args.table))
 }
 
 /// Cancel the whole run: running tables stop, queued ones stay pending (resume picks them up).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_cancel(runs: State<'_, MigrationRuns>, args: RunIdArgs) -> CommandResult<()> {
+pub async fn migration_cancel(
+    runs: State<'_, MigrationRuns>,
+    args: RunIdArgs,
+) -> CommandResult<()> {
     let run = runs.running(&args.run_id)?;
     run.cancelled.store(true, Ordering::SeqCst);
     if let Some(c) = run.control() {
@@ -2096,7 +2692,10 @@ pub async fn migration_cancel(runs: State<'_, MigrationRuns>, args: RunIdArgs) -
 
 /// Recent runs, newest first, with their tables.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_runs(runs: State<'_, MigrationRuns>, args: Option<RunsArgs>) -> CommandResult<Vec<RunInfo>> {
+pub async fn migration_runs(
+    runs: State<'_, MigrationRuns>,
+    args: Option<RunsArgs>,
+) -> CommandResult<Vec<RunInfo>> {
     let args = args.unwrap_or_default();
     let limit = args.limit.unwrap_or(30);
     Ok(list_runs(&runs, limit, args.ids.as_deref()))
@@ -2109,7 +2708,11 @@ fn list_runs(runs: &MigrationRuns, limit: usize, ids: Option<&[String]>) -> Vec<
         .filter(|m| ids.is_none_or(|ids| ids.contains(&m.id)))
         .take(if ids.is_some() { usize::MAX } else { limit })
         .map(|m| {
-            let status = if live.contains(&m.id) { "running".to_string() } else { m.status.clone() };
+            let status = if live.contains(&m.id) {
+                "running".to_string()
+            } else {
+                m.status.clone()
+            };
             RunInfo {
                 resumable: status != "running" && status != "done",
                 tables: runs.tables(&m),
@@ -2136,22 +2739,37 @@ fn list_runs(runs: &MigrationRuns, limit: usize, ids: Option<&[String]>) -> Vec<
 /// Go on with a run cut by closing the app (or cancelled): what isn't done runs again; a table
 /// copied halfway is emptied and copied again, a copied one never.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_resume(app: AppHandle, state: State<'_, AppState>, runs: State<'_, MigrationRuns>, args: RunIdArgs) -> CommandResult<RunResult> {
+pub async fn migration_resume(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    runs: State<'_, MigrationRuns>,
+    args: RunIdArgs,
+) -> CommandResult<RunResult> {
     go_on(&state, &runs, &args.run_id, false, emitter(&app)).await
 }
 
 /// "Reintentar las que fallaron": failed and cancelled tables go back to the queue.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_retry_failed(app: AppHandle, state: State<'_, AppState>, runs: State<'_, MigrationRuns>, args: RunIdArgs) -> CommandResult<RunResult> {
+pub async fn migration_retry_failed(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    runs: State<'_, MigrationRuns>,
+    args: RunIdArgs,
+) -> CommandResult<RunResult> {
     go_on(&state, &runs, &args.run_id, true, emitter(&app)).await
 }
 
 /// Forget a run that isn't going on (its record; the target keeps what was copied).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn migration_forget(runs: State<'_, MigrationRuns>, args: RunIdArgs) -> CommandResult<()> {
+pub async fn migration_forget(
+    runs: State<'_, MigrationRuns>,
+    args: RunIdArgs,
+) -> CommandResult<()> {
     valid_id(&args.run_id)?;
     if runs.live().contains_key(&args.run_id) {
-        return Err(CommandError::BadRequest("la migración está corriendo".into()));
+        return Err(CommandError::BadRequest(
+            "la migración está corriendo".into(),
+        ));
     }
     let _ = std::fs::remove_file(runs.path(&args.run_id));
     Ok(())
@@ -2160,7 +2778,9 @@ pub async fn migration_forget(runs: State<'_, MigrationRuns>, args: RunIdArgs) -
 /// Run one statement on a session; the error as text.
 async fn exec(s: &mut Box<dyn Session>, sql: &str) -> Result<(), String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 0, &mut out).await.map_err(|e| e.to_string())?;
+    s.execute(sql, 0, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     match out.error {
         Some(e) => Err(e),
         None => Ok(()),
@@ -2174,13 +2794,21 @@ mod tests {
     use dbine_driver::ConnectionConfig;
 
     fn dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("dbine-migration-{tag}-{}-{}", std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+        let d = std::env::temp_dir().join(format!(
+            "dbine-migration-{tag}-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
 
     fn sqlite(state: &AppState, id: &str, path: &Path) {
-        let cfg = ConnectionConfig { driver: "sqlite".into(), host: path.to_string_lossy().into_owned(), ..Default::default() };
+        let cfg = ConnectionConfig {
+            driver: "sqlite".into(),
+            host: path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
         let conn = SavedConnection {
             id: id.into(),
             name: id.into(),
@@ -2233,7 +2861,11 @@ mod tests {
             },
             target_connection_id: "tgt".into(),
             target_database: String::new(),
-            transfer: TransferOptions { parallel: Some(4), order: None, commit_rows: None },
+            transfer: TransferOptions {
+                parallel: Some(4),
+                order: None,
+                commit_rows: None,
+            },
         }
     }
 
@@ -2252,9 +2884,15 @@ mod tests {
         sqlite(&state, "tgt", &d.join("tgt.db"));
         let mut rows = String::new();
         for i in 1..=3000 {
-            rows.push_str(&format!("INSERT INTO child (id, parent_id, data, note) VALUES ({i}, {}, x'{}', 'n{i}');\n", i % 20 + 1, "AB".repeat(i % 700)));
+            rows.push_str(&format!(
+                "INSERT INTO child (id, parent_id, data, note) VALUES ({i}, {}, x'{}', 'n{i}');\n",
+                i % 20 + 1,
+                "AB".repeat(i % 700)
+            ));
         }
-        let parents: String = (1..=20).map(|i| format!("INSERT INTO parent (id, name) VALUES ({i}, 'p{i}');\n")).collect();
+        let parents: String = (1..=20)
+            .map(|i| format!("INSERT INTO parent (id, name) VALUES ({i}, 'p{i}');\n"))
+            .collect();
         run_sql(
             &state,
             "src",
@@ -2275,18 +2913,41 @@ mod tests {
     async fn migrates_sqlite_to_sqlite_through_the_engine() {
         let (state, runs, _d) = setup("run").await;
         let (emit, seen) = collect();
-        let r = run_migration(&state, &runs, args("m1", false), emit).await.unwrap();
-        assert_eq!(r.status, "done", "{:?}", r.tables.iter().map(|t| (&t.name, &t.status, &t.error)).collect::<Vec<_>>());
+        let r = run_migration(&state, &runs, args("m1", false), emit)
+            .await
+            .unwrap();
+        assert_eq!(
+            r.status,
+            "done",
+            "{:?}",
+            r.tables
+                .iter()
+                .map(|t| (&t.name, &t.status, &t.error))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(count(&state, "tgt", "parent").await, 20);
         assert_eq!(count(&state, "tgt", "child").await, 3000);
         assert_eq!(count(&state, "tgt", "empty_one").await, 0);
         // Blobs whole, the index created after the copy.
-        let out = run_sql(&state, "tgt", "SELECT length(data) FROM child WHERE id = 699").await;
+        let out = run_sql(
+            &state,
+            "tgt",
+            "SELECT length(data) FROM child WHERE id = 699",
+        )
+        .await;
         assert_eq!(out.results[0].rows[0][0].as_i64(), Some(699));
-        let out = run_sql(&state, "tgt", "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'ix_child_parent'").await;
+        let out = run_sql(
+            &state,
+            "tgt",
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'ix_child_parent'",
+        )
+        .await;
         assert_eq!(out.results[0].rows.len(), 1);
         let child = r.tables.iter().find(|t| t.name == "child").unwrap();
-        assert_eq!((child.status.as_str(), child.rows_done, child.path.as_str()), ("done", 3000, "native"));
+        assert_eq!(
+            (child.status.as_str(), child.rows_done, child.path.as_str()),
+            ("done", 3000, "native")
+        );
 
         // Events: the plan, the engine's own (tagged with the run), the steps.
         let seen = seen.lock().unwrap();
@@ -2298,7 +2959,14 @@ mod tests {
 
         // The record lists it, done.
         let list = list_runs(&runs, 10, None);
-        assert_eq!((list[0].id.as_str(), list[0].status.as_str(), list[0].resumable), ("m1", "done", false));
+        assert_eq!(
+            (
+                list[0].id.as_str(),
+                list[0].status.as_str(),
+                list[0].resumable
+            ),
+            ("m1", "done", false)
+        );
         // A saved migration asks for its own runs by id.
         assert_eq!(list_runs(&runs, 10, Some(&["m1".to_string()])).len(), 1);
         assert!(list_runs(&runs, 10, Some(&["other".to_string()])).is_empty());
@@ -2310,17 +2978,37 @@ mod tests {
         // A target table with rows of its own: not copied into.
         run_sql(&state, "tgt", "CREATE TABLE parent (id INTEGER PRIMARY KEY, name TEXT NOT NULL); INSERT INTO parent VALUES (99, 'x');").await;
         let (emit, _) = collect();
-        let r = run_migration(&state, &runs, args("m2", false), emit.clone()).await.unwrap();
+        let r = run_migration(&state, &runs, args("m2", false), emit.clone())
+            .await
+            .unwrap();
         assert_eq!(r.status, "failed");
         let parent = r.tables.iter().find(|t| t.name == "parent").unwrap();
         assert_eq!(parent.status, "failed");
-        assert!(parent.error.as_deref().unwrap_or("").contains("ya tiene filas"), "{:?}", parent.error);
+        assert!(
+            parent
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("ya tiene filas"),
+            "{:?}",
+            parent.error
+        );
         assert_eq!(count(&state, "tgt", "child").await, 3000);
 
         // The user empties it and retries: only that table runs again.
         run_sql(&state, "tgt", "DELETE FROM parent").await;
-        let r = go_on(&state, &runs, "m2", true, emit.clone()).await.unwrap();
-        assert_eq!(r.status, "done", "{:?}", r.tables.iter().map(|t| (&t.name, &t.status, &t.error)).collect::<Vec<_>>());
+        let r = go_on(&state, &runs, "m2", true, emit.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            r.status,
+            "done",
+            "{:?}",
+            r.tables
+                .iter()
+                .map(|t| (&t.name, &t.status, &t.error))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(count(&state, "tgt", "parent").await, 20);
         assert_eq!(count(&state, "tgt", "child").await, 3000);
 
@@ -2332,7 +3020,10 @@ mod tests {
         drop(runs);
         let runs = MigrationRuns::open(&d);
         let list = list_runs(&runs, 10, None);
-        assert_eq!((list[0].status.as_str(), list[0].resumable), ("interrupted", true));
+        assert_eq!(
+            (list[0].status.as_str(), list[0].resumable),
+            ("interrupted", true)
+        );
         let r = go_on(&state, &runs, "m2", false, emit).await.unwrap();
         assert_eq!(r.status, "done");
         assert_eq!(count(&state, "tgt", "child").await, 3000);
@@ -2350,26 +3041,60 @@ mod tests {
         let (state, runs, _d) = setup("modes").await;
         let sqlite = dbine_drivers::find("sqlite").unwrap().as_ref();
         // The targets say why, per source.
-        let t = targets_for(Some(sqlite)).into_iter().find(|t| t.id == "sqlite").unwrap();
+        let t = targets_for(Some(sqlite))
+            .into_iter()
+            .find(|t| t.id == "sqlite")
+            .unwrap();
         assert!(t.supported && !t.clone.available && !t.sync.available);
         assert_eq!(t.clone.reason.as_deref(), Some("SQLite no clona bases"));
-        assert_eq!(t.sync.reason.as_deref(), Some("SQLite no sincroniza por filas"));
-        let pg = targets_for(Some(sqlite)).into_iter().find(|t| t.id == "postgres").unwrap();
+        assert_eq!(
+            t.sync.reason.as_deref(),
+            Some("SQLite no sincroniza por filas")
+        );
+        let pg = targets_for(Some(sqlite))
+            .into_iter()
+            .find(|t| t.id == "postgres")
+            .unwrap();
         assert!(pg.clone.reason.unwrap().contains("mismo motor"));
         assert!(pg.sync.reason.unwrap().contains("mismo motor"));
 
         // Preview and run refuse them, with the reason; nothing is created on the target.
         let mut a = args("c1", false);
         a.plan.mode = MigrationMode::Clone;
-        a.plan.target = Some(PlanTarget { connection_id: "tgt".into(), database: String::new() });
-        assert_eq!(message(plan(&state, &a.plan).await.err().unwrap()), "SQLite no clona bases");
+        a.plan.target = Some(PlanTarget {
+            connection_id: "tgt".into(),
+            database: String::new(),
+        });
+        assert_eq!(
+            message(plan(&state, &a.plan).await.err().unwrap()),
+            "SQLite no clona bases"
+        );
         let (emit, _) = collect();
-        assert_eq!(message(run_migration(&state, &runs, a, emit.clone()).await.err().unwrap()), "SQLite no clona bases");
+        assert_eq!(
+            message(
+                run_migration(&state, &runs, a, emit.clone())
+                    .await
+                    .err()
+                    .unwrap()
+            ),
+            "SQLite no clona bases"
+        );
         let mut a = args("s1", false);
         a.plan.mode = MigrationMode::Sync;
-        assert_eq!(message(plan(&state, &a.plan).await.err().unwrap()), "SQLite no sincroniza por filas");
-        assert_eq!(message(run_migration(&state, &runs, a, emit).await.err().unwrap()), "SQLite no sincroniza por filas");
-        let out = run_sql(&state, "tgt", "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'").await;
+        assert_eq!(
+            message(plan(&state, &a.plan).await.err().unwrap()),
+            "SQLite no sincroniza por filas"
+        );
+        assert_eq!(
+            message(run_migration(&state, &runs, a, emit).await.err().unwrap()),
+            "SQLite no sincroniza por filas"
+        );
+        let out = run_sql(
+            &state,
+            "tgt",
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'",
+        )
+        .await;
         assert_eq!(out.results[0].rows[0][0].as_i64(), Some(0));
         // No record left behind for a refused run.
         assert!(list_runs(&runs, 10, None).is_empty());
@@ -2378,20 +3103,47 @@ mod tests {
     #[test]
     fn sync_key_is_the_primary_key_or_a_chosen_unique_one() {
         use dbine_driver::{IndexDef, KeyDef};
-        let col = |n: &str| ColumnDef { name: n.into(), data_type: "int".into(), ..Default::default() };
-        let mut t = TableSchema { name: "t".into(), columns: vec![col("id"), col("code"), col("x")], ..Default::default() };
+        let col = |n: &str| ColumnDef {
+            name: n.into(),
+            data_type: "int".into(),
+            ..Default::default()
+        };
+        let mut t = TableSchema {
+            name: "t".into(),
+            columns: vec![col("id"), col("code"), col("x")],
+            ..Default::default()
+        };
         let o = SyncOptions::default();
         assert!(sync_key(&t, &o).unwrap_err().contains("ni claves únicas"));
-        t.indexes.push(IndexDef { name: "ux".into(), columns: vec!["code".into()], unique: true, ..Default::default() });
-        t.indexes.push(IndexDef { name: "ix".into(), columns: vec!["x".into()], unique: false, ..Default::default() });
-        assert!(sync_key(&t, &o).unwrap_err().contains("elegí una clave única"));
+        t.indexes.push(IndexDef {
+            name: "ux".into(),
+            columns: vec!["code".into()],
+            unique: true,
+            ..Default::default()
+        });
+        t.indexes.push(IndexDef {
+            name: "ix".into(),
+            columns: vec!["x".into()],
+            unique: false,
+            ..Default::default()
+        });
+        assert!(sync_key(&t, &o)
+            .unwrap_err()
+            .contains("elegí una clave única"));
         let chosen = |cols: &[&str]| SyncOptions {
-            keys: vec![SyncKey { schema: None, name: "t".into(), columns: cols.iter().map(|c| c.to_string()).collect() }],
+            keys: vec![SyncKey {
+                schema: None,
+                name: "t".into(),
+                columns: cols.iter().map(|c| c.to_string()).collect(),
+            }],
             ..Default::default()
         };
         assert_eq!(sync_key(&t, &chosen(&["code"])).unwrap(), vec!["code"]);
         assert!(sync_key(&t, &chosen(&["x"])).is_err());
-        t.primary_key = Some(KeyDef { name: None, columns: vec!["id".into()] });
+        t.primary_key = Some(KeyDef {
+            name: None,
+            columns: vec!["id".into()],
+        });
         assert_eq!(sync_key(&t, &o).unwrap(), vec!["id"]);
         assert_eq!(unique_keys(&t), vec![vec!["code".to_string()]]);
     }
@@ -2405,7 +3157,10 @@ mod tests {
         let v = json!({ "connection_id": "a", "database": "", "target_driver": "sqlite", "options": {}, "mode": "sync",
                         "sync": { "depth": "Sizes", "max_cores": 2, "keys": [] } });
         let p: PlanArgs = serde_json::from_value(v).unwrap();
-        assert_eq!((p.mode, p.sync.depth, p.sync.max_cores), (MigrationMode::Sync, DeltaDepth::Sizes, 2));
+        assert_eq!(
+            (p.mode, p.sync.depth, p.sync.max_cores),
+            (MigrationMode::Sync, DeltaDepth::Sizes, 2)
+        );
     }
 
     // -- against dbine-test-postgres (docker, port 25010) ------------------------------------------
@@ -2433,7 +3188,12 @@ mod tests {
             updated_at: String::new(),
         };
         state.store.save_connection(&conn).unwrap();
-        state.typed_secrets.insert(id.into(), [("password".to_string(), "pw".to_string())].into_iter().collect());
+        state.typed_secrets.insert(
+            id.into(),
+            [("password".to_string(), "pw".to_string())]
+                .into_iter()
+                .collect(),
+        );
     }
 
     /// Two fresh databases on dbine-test-postgres, the source with a parent / child pair (a foreign
@@ -2443,7 +3203,12 @@ mod tests {
         let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
         postgres(&state, "admin", "postgres");
         for db in PG_DBS {
-            run_sql(&state, "admin", &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)")).await;
+            run_sql(
+                &state,
+                "admin",
+                &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
+            )
+            .await;
             run_sql(&state, "admin", &format!("CREATE DATABASE {db}")).await;
         }
         postgres(&state, "src", PG_DBS[0]);
@@ -2464,7 +3229,9 @@ mod tests {
 
     async fn pg_scalar(state: &AppState, conn: &str, sql: &str) -> i64 {
         let v = &run_sql(state, conn, sql).await.results[0].rows[0][0];
-        v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap_or_else(|| panic!("{sql}: {v}"))
+        v.as_i64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            .unwrap_or_else(|| panic!("{sql}: {v}"))
     }
 
     fn pg_args(id: &str, mode: MigrationMode) -> RunArgs {
@@ -2483,22 +3250,64 @@ mod tests {
 
         // The preview: the driver's script, from the target's capabilities.
         let mut a = pg_args("pgc", MigrationMode::Clone);
-        a.plan.target = Some(PlanTarget { connection_id: "tgt".into(), database: PG_DBS[1].into() });
+        a.plan.target = Some(PlanTarget {
+            connection_id: "tgt".into(),
+            database: PG_DBS[1].into(),
+        });
         let p = plan(&state, &a.plan).await.unwrap();
-        assert!(p.script.contains("CREATE TABLE") && p.script.contains("ix_child_parent"), "{}", p.script);
+        assert!(
+            p.script.contains("CREATE TABLE") && p.script.contains("ix_child_parent"),
+            "{}",
+            p.script
+        );
         assert_eq!(p.tables.len(), 2);
 
         // Clone: identical tables, rows, index, foreign key, check and view.
         let (emit, _) = collect();
         let r = run_migration(&state, &runs, a, emit.clone()).await.unwrap();
-        assert_eq!(r.status, "done", "{:?} {:?} {:?}", r.tables.iter().map(|t| (&t.name, &t.status, &t.error)).collect::<Vec<_>>(), r.after_errors, r.notes);
+        assert_eq!(
+            r.status,
+            "done",
+            "{:?} {:?} {:?}",
+            r.tables
+                .iter()
+                .map(|t| (&t.name, &t.status, &t.error))
+                .collect::<Vec<_>>(),
+            r.after_errors,
+            r.notes
+        );
         assert_eq!(r.mode, MigrationMode::Clone);
-        assert_eq!(pg_scalar(&state, "tgt", "SELECT COUNT(*) FROM child").await, 5000);
-        assert_eq!(pg_scalar(&state, "tgt", "SELECT COUNT(*) FROM pg_indexes WHERE indexname = 'ix_child_parent'").await, 1);
-        assert_eq!(pg_scalar(&state, "tgt", "SELECT COUNT(*) FROM pg_constraint WHERE contype IN ('f', 'c') AND conrelid <> 0").await, 2);
-        assert_eq!(pg_scalar(&state, "tgt", "SELECT COUNT(*) FROM v_child").await, 5000);
+        assert_eq!(
+            pg_scalar(&state, "tgt", "SELECT COUNT(*) FROM child").await,
+            5000
+        );
+        assert_eq!(
+            pg_scalar(
+                &state,
+                "tgt",
+                "SELECT COUNT(*) FROM pg_indexes WHERE indexname = 'ix_child_parent'"
+            )
+            .await,
+            1
+        );
+        assert_eq!(
+            pg_scalar(
+                &state,
+                "tgt",
+                "SELECT COUNT(*) FROM pg_constraint WHERE contype IN ('f', 'c') AND conrelid <> 0"
+            )
+            .await,
+            2
+        );
+        assert_eq!(
+            pg_scalar(&state, "tgt", "SELECT COUNT(*) FROM v_child").await,
+            5000
+        );
         let same = "SELECT COALESCE(SUM(hashtext(id || ':' || parent_id || ':' || COALESCE(note, '') || ':' || COALESCE(encode(data, 'hex'), ''))::bigint), 0) FROM child";
-        assert_eq!(pg_scalar(&state, "tgt", same).await, pg_scalar(&state, "src", same).await);
+        assert_eq!(
+            pg_scalar(&state, "tgt", same).await,
+            pg_scalar(&state, "src", same).await
+        );
 
         // The source changes; sync only what changed.
         run_sql(
@@ -2512,18 +3321,45 @@ mod tests {
         let mut a = pg_args("pgs", MigrationMode::Sync);
         a.plan.sync.depth = DeltaDepth::Full;
         let p = plan(&state, &a.plan).await.unwrap();
-        assert!(p.sync_tables.iter().all(|t| t.key.is_some()), "{:?}", p.sync_tables.iter().map(|t| &t.reason).collect::<Vec<_>>());
+        assert!(
+            p.sync_tables.iter().all(|t| t.key.is_some()),
+            "{:?}",
+            p.sync_tables.iter().map(|t| &t.reason).collect::<Vec<_>>()
+        );
         let r = run_migration(&state, &runs, a, emit).await.unwrap();
-        assert_eq!(r.status, "done", "{:?}", r.tables.iter().map(|t| (&t.name, &t.status, &t.error)).collect::<Vec<_>>());
+        assert_eq!(
+            r.status,
+            "done",
+            "{:?}",
+            r.tables
+                .iter()
+                .map(|t| (&t.name, &t.status, &t.error))
+                .collect::<Vec<_>>()
+        );
         let child = r.tables.iter().find(|t| t.name.ends_with("child")).unwrap();
         let d = child.stats.as_ref().and_then(|s| s.delta.clone()).unwrap();
         assert_eq!((d.inserted, d.updated, d.deleted), (100, 30, 10));
-        assert_eq!(pg_scalar(&state, "tgt", same).await, pg_scalar(&state, "src", same).await);
-        let parent = r.tables.iter().find(|t| t.name.ends_with("parent")).unwrap();
-        assert_eq!(parent.stats.as_ref().and_then(|s| s.delta.clone()).unwrap(), Default::default());
+        assert_eq!(
+            pg_scalar(&state, "tgt", same).await,
+            pg_scalar(&state, "src", same).await
+        );
+        let parent = r
+            .tables
+            .iter()
+            .find(|t| t.name.ends_with("parent"))
+            .unwrap();
+        assert_eq!(
+            parent.stats.as_ref().and_then(|s| s.delta.clone()).unwrap(),
+            Default::default()
+        );
 
         for db in PG_DBS {
-            run_sql(&state, "admin", &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)")).await;
+            run_sql(
+                &state,
+                "admin",
+                &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
+            )
+            .await;
         }
     }
 
@@ -2556,19 +3392,41 @@ mod tests {
                 updated_at: String::new(),
             };
             state.store.save_connection(&conn).unwrap();
-            state.typed_secrets.insert(id.into(), [("password".to_string(), "Pw_12345!".to_string())].into_iter().collect());
+            state.typed_secrets.insert(
+                id.into(),
+                [("password".to_string(), "Pw_12345!".to_string())]
+                    .into_iter()
+                    .collect(),
+            );
         };
         mssql("admin", "master");
-        let drop = |db: &str| format!("IF DB_ID('{db}') IS NOT NULL BEGIN ALTER DATABASE [{db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{db}]; END");
+        let drop = |db: &str| {
+            format!("IF DB_ID('{db}') IS NOT NULL BEGIN ALTER DATABASE [{db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{db}]; END")
+        };
         for db in DBS {
             run_sql(&state, "admin", &drop(db)).await;
             run_sql(&state, "admin", &format!("CREATE DATABASE [{db}]")).await;
         }
-        run_sql(&state, "admin", &format!("ALTER DATABASE [{}] ADD FILEGROUP [ps_Monthly]", DBS[1])).await;
+        run_sql(
+            &state,
+            "admin",
+            &format!("ALTER DATABASE [{}] ADD FILEGROUP [ps_Monthly]", DBS[1]),
+        )
+        .await;
         mssql("src", DBS[0]);
         mssql("tgt", DBS[1]);
-        run_sql(&state, "src", "CREATE PARTITION FUNCTION pf_Monthly (int) AS RANGE RIGHT FOR VALUES (10, 20)").await;
-        run_sql(&state, "src", "CREATE PARTITION SCHEME ps_Monthly AS PARTITION pf_Monthly ALL TO ([PRIMARY])").await;
+        run_sql(
+            &state,
+            "src",
+            "CREATE PARTITION FUNCTION pf_Monthly (int) AS RANGE RIGHT FOR VALUES (10, 20)",
+        )
+        .await;
+        run_sql(
+            &state,
+            "src",
+            "CREATE PARTITION SCHEME ps_Monthly AS PARTITION pf_Monthly ALL TO ([PRIMARY])",
+        )
+        .await;
         run_sql(&state, "src", "CREATE TABLE dbo.sales (id int NOT NULL, amount int) ON ps_Monthly (id); INSERT INTO dbo.sales VALUES (1, 1), (15, 2)").await;
 
         let mut a = args("mps", false);
@@ -2576,7 +3434,10 @@ mod tests {
         a.plan.database = DBS[0].into();
         a.plan.target_driver = "sqlserver".into();
         a.plan.mode = MigrationMode::Clone;
-        a.plan.target = Some(PlanTarget { connection_id: "tgt".into(), database: DBS[1].into() });
+        a.plan.target = Some(PlanTarget {
+            connection_id: "tgt".into(),
+            database: DBS[1].into(),
+        });
         a.target_connection_id = "tgt".into();
         a.target_database = DBS[1].into();
         let (emit, _) = collect();
@@ -2588,29 +3449,76 @@ mod tests {
         let sales = r.tables.iter().find(|t| t.name.ends_with("sales")).unwrap();
         let err = sales.error.clone().unwrap_or_default();
         eprintln!("table error: {err}\nnotes: {:?}", r.notes);
-        assert!(err.contains("causa: no se pudo crear ps_Monthly: ") && err.contains("filegroup"), "{err}");
-        assert!(r.notes.iter().any(|n| n.contains("CREATE PARTITION SCHEME [ps_Monthly]")), "{:?}", r.notes);
+        assert!(
+            err.contains("causa: no se pudo crear ps_Monthly: ") && err.contains("filegroup"),
+            "{err}"
+        );
+        assert!(
+            r.notes
+                .iter()
+                .any(|n| n.contains("CREATE PARTITION SCHEME [ps_Monthly]")),
+            "{:?}",
+            r.notes
+        );
     }
 
     #[test]
     fn clone_before_failure_is_the_table_cause() {
         let scheme = "IF NOT EXISTS (SELECT 1 FROM sys.partition_schemes WHERE name = N'ps_Monthly')\nBEGIN\n    IF EXISTS (SELECT 1 FROM sys.data_spaces WHERE name = N'ps_Monthly')\n        THROW 50000, N'x', 1;\n    CREATE PARTITION SCHEME [ps_Monthly] AS PARTITION [pf_Monthly] TO ([PRIMARY], [PRIMARY]);\nEND";
-        let failed = vec![(scheme.to_string(), "Ya hay un filegroup llamado ps_Monthly en el destino".to_string())];
+        let failed = vec![(
+            scheme.to_string(),
+            "Ya hay un filegroup llamado ps_Monthly en el destino".to_string(),
+        )];
         assert_eq!(before_label(scheme), "CREATE PARTITION SCHEME [ps_Monthly] AS PARTITION [pf_Monthly] TO ([PRIMARY], [PRIMARY])");
 
-        let cause = before_cause("Invalid partition scheme 'ps_Monthly' specified.", "Sales", &failed);
-        assert_eq!(cause.as_deref(), Some("no se pudo crear ps_Monthly: Ya hay un filegroup llamado ps_Monthly en el destino"));
+        let cause = before_cause(
+            "Invalid partition scheme 'ps_Monthly' specified.",
+            "Sales",
+            &failed,
+        );
+        assert_eq!(
+            cause.as_deref(),
+            Some(
+                "no se pudo crear ps_Monthly: Ya hay un filegroup llamado ps_Monthly en el destino"
+            )
+        );
         // Case-insensitive, and a qualified name matches by its last part.
-        assert!(before_cause("Invalid partition scheme 'PS_MONTHLY' specified.", "Sales", &failed).is_some());
+        assert!(before_cause(
+            "Invalid partition scheme 'PS_MONTHLY' specified.",
+            "Sales",
+            &failed
+        )
+        .is_some());
         assert!(before_cause("Cannot find the type 'dbo.ps_Monthly'.", "Sales", &failed).is_some());
         // Unrelated errors, partial names and the table's own name stay as they were.
         assert!(before_cause("Invalid column name 'amount'.", "Sales", &failed).is_none());
-        assert!(before_cause("Invalid partition scheme 'ps_Month' specified.", "Sales", &failed).is_none());
-        assert!(before_cause("There is already an object named 'ps_Monthly' in the database.", "ps_Monthly", &failed).is_none());
-        assert!(before_cause("Invalid partition scheme 'ps_Monthly' specified.", "Sales", &[]).is_none());
+        assert!(before_cause(
+            "Invalid partition scheme 'ps_Month' specified.",
+            "Sales",
+            &failed
+        )
+        .is_none());
+        assert!(before_cause(
+            "There is already an object named 'ps_Monthly' in the database.",
+            "ps_Monthly",
+            &failed
+        )
+        .is_none());
+        assert!(before_cause(
+            "Invalid partition scheme 'ps_Monthly' specified.",
+            "Sales",
+            &[]
+        )
+        .is_none());
 
-        assert_eq!(quoted_names("x '[a].[b]' y [c] 'has space' ''"), vec!["[a].[b]", "b", "a", "b", "c"]);
-        assert_eq!(before_label("ALTER TABLE t ADD c int"), "ALTER TABLE t ADD c int");
+        assert_eq!(
+            quoted_names("x '[a].[b]' y [c] 'has space' ''"),
+            vec!["[a].[b]", "b", "a", "b", "c"]
+        );
+        assert_eq!(
+            before_label("ALTER TABLE t ADD c int"),
+            "ALTER TABLE t ADD c int"
+        );
         assert_eq!(before_label("SELECT 1"), "SELECT 1");
     }
 }

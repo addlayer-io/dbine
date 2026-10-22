@@ -59,7 +59,10 @@ fn get(r: &SimpleQueryRow, i: usize) -> String {
 }
 
 fn num(r: &SimpleQueryRow, i: usize) -> i64 {
-    r.get(i).and_then(|v| v.trim().parse::<f64>().ok()).map(|v| v as i64).unwrap_or(0)
+    r.get(i)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map(|v| v as i64)
+        .unwrap_or(0)
 }
 
 fn truthy(r: &SimpleQueryRow, i: usize) -> bool {
@@ -80,7 +83,11 @@ struct Applies {
 }
 
 fn applies(v: Variant, version: i32) -> Applies {
-    let pg = v.has_pg_catalog() && !matches!(v, Variant::CrateDb | Variant::RisingWave | Variant::Materialize | Variant::Yellowbrick);
+    let pg = v.has_pg_catalog()
+        && !matches!(
+            v,
+            Variant::CrateDb | Variant::RisingWave | Variant::Materialize | Variant::Yellowbrick
+        );
     let crdb = v == Variant::Cockroach;
     let mvcc = pg && !crdb && v != Variant::Yugabyte && !v.mpp();
     Applies {
@@ -150,7 +157,13 @@ impl PgSession {
 
     /// Autovacuum (globally and per table), dead tuples, never analyzed.
     async fn maintenance_checks(&self, out: &mut Vec<HealthCheck>) {
-        if let Some(rows) = self.check_rows("autovacuum", "SELECT current_setting('autovacuum'), current_setting('track_counts')").await {
+        if let Some(rows) = self
+            .check_rows(
+                "autovacuum",
+                "SELECT current_setting('autovacuum'), current_setting('track_counts')",
+            )
+            .await
+        {
             if let Some(r) = rows.first() {
                 let on = get(r, 0) == "on" && get(r, 1) == "on";
                 let mut c = HealthCheck::new(
@@ -208,9 +221,22 @@ impl PgSession {
             )
             .await
         {
-            let objects: Vec<String> =
-                rows.iter().map(|r| format!("{}.{} ({} filas muertas, {} vivas)", get(r, 0), get(r, 1), get(r, 2), get(r, 3))).collect();
-            let fixes: Vec<String> = rows.iter().map(|r| format!("VACUUM ANALYZE {};", q(&get(r, 0), &get(r, 1)))).collect();
+            let objects: Vec<String> = rows
+                .iter()
+                .map(|r| {
+                    format!(
+                        "{}.{} ({} filas muertas, {} vivas)",
+                        get(r, 0),
+                        get(r, 1),
+                        get(r, 2),
+                        get(r, 3)
+                    )
+                })
+                .collect();
+            let fixes: Vec<String> = rows
+                .iter()
+                .map(|r| format!("VACUUM ANALYZE {};", q(&get(r, 0), &get(r, 1))))
+                .collect();
             let mut c = HealthCheck::new(
                 "dead_tuples",
                 "Espacio",
@@ -339,11 +365,29 @@ impl PgSession {
         else {
             return;
         };
-        let objects = rows.iter().map(|r| format!("{}.{} · {} ({})", get(r, 0), get(r, 1), get(r, 2), get(r, 3))).collect();
-        let drops = rows.iter().map(|r| drop_comment(&q(&get(r, 0), &get(r, 2)))).collect();
+        let objects = rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}.{} · {} ({})",
+                    get(r, 0),
+                    get(r, 1),
+                    get(r, 2),
+                    get(r, 3)
+                )
+            })
+            .collect();
+        let drops = rows
+            .iter()
+            .map(|r| drop_comment(&q(&get(r, 0), &get(r, 2))))
+            .collect();
         let since = match window {
-            Some((d, true)) => Some(format!("los contadores cubren {d} días, desde que se reiniciaron las estadísticas")),
-            Some((d, false)) => Some(format!("los contadores cubren al menos {d} días, desde el arranque del servidor")),
+            Some((d, true)) => Some(format!(
+                "los contadores cubren {d} días, desde que se reiniciaron las estadísticas"
+            )),
+            Some((d, false)) => Some(format!(
+                "los contadores cubren al menos {d} días, desde el arranque del servidor"
+            )),
             None => None,
         };
         out.push(unused_check(objects, drops, window.map(|w| w.0), since));
@@ -351,7 +395,13 @@ impl PgSession {
 
     /// CockroachDB: automatic statistics and unused indexes.
     async fn cockroach_checks(&self, out: &mut Vec<HealthCheck>) {
-        if let Some(rows) = self.check_rows("auto stats", "SHOW CLUSTER SETTING sql.stats.automatic_collection.enabled").await {
+        if let Some(rows) = self
+            .check_rows(
+                "auto stats",
+                "SHOW CLUSTER SETTING sql.stats.automatic_collection.enabled",
+            )
+            .await
+        {
             if let Some(r) = rows.first() {
                 let on = truthy(r, 0);
                 let mut c = HealthCheck::new(
@@ -369,7 +419,10 @@ impl PgSession {
         }
 
         // Since v25 crdb_internal is closed unless the session opts in.
-        let _ = self.client.batch_execute("SET allow_unsafe_internals = true").await;
+        let _ = self
+            .client
+            .batch_execute("SET allow_unsafe_internals = true")
+            .await;
         let window = self
             .check_rows("node start", "SELECT (EXTRACT(EPOCH FROM now() - max(started_at)) / 86400)::INT8::STRING FROM crdb_internal.gossip_nodes")
             .await
@@ -387,11 +440,28 @@ impl PgSession {
                 ),
             )
             .await;
-        let _ = self.client.batch_execute("RESET allow_unsafe_internals").await;
+        let _ = self
+            .client
+            .batch_execute("RESET allow_unsafe_internals")
+            .await;
         let Some(rows) = rows else { return };
-        let objects = rows.iter().map(|r| format!("{}.{} · {}", get(r, 0), get(r, 1), get(r, 2))).collect();
-        let drops = rows.iter().map(|r| drop_comment(&format!("{}@{}", q(&get(r, 0), &get(r, 1)), quote_ident(Quote::Double, &get(r, 2))))).collect();
-        let since = window.map(|d| format!("los contadores cubren {d} días, desde el último arranque de un nodo"));
+        let objects = rows
+            .iter()
+            .map(|r| format!("{}.{} · {}", get(r, 0), get(r, 1), get(r, 2)))
+            .collect();
+        let drops = rows
+            .iter()
+            .map(|r| {
+                drop_comment(&format!(
+                    "{}@{}",
+                    q(&get(r, 0), &get(r, 1)),
+                    quote_ident(Quote::Double, &get(r, 2))
+                ))
+            })
+            .collect();
+        let since = window.map(|d| {
+            format!("los contadores cubren {d} días, desde el último arranque de un nodo")
+        });
         out.push(unused_check(objects, drops, window, since));
     }
 
@@ -412,8 +482,14 @@ impl PgSession {
         else {
             return;
         };
-        let objects: Vec<String> = rows.iter().map(|r| format!("{}.{} · {}", get(r, 0), get(r, 1), get(r, 2))).collect();
-        let fixes: Vec<String> = rows.iter().map(|r| format!("REINDEX INDEX {};", q(&get(r, 0), &get(r, 2)))).collect();
+        let objects: Vec<String> = rows
+            .iter()
+            .map(|r| format!("{}.{} · {}", get(r, 0), get(r, 1), get(r, 2)))
+            .collect();
+        let fixes: Vec<String> = rows
+            .iter()
+            .map(|r| format!("REINDEX INDEX {};", q(&get(r, 0), &get(r, 2))))
+            .collect();
         let mut c = HealthCheck::new(
             "invalid_indexes",
             "Rendimiento",
@@ -435,7 +511,11 @@ impl PgSession {
     async fn fk_without_index(&self, out: &mut Vec<HealthCheck>) {
         let filter = self.filter("n.nspname");
         // Partitions repeat their parent's foreign key (conparentid, 11+).
-        let own = if self.version >= 110000 && self.variant != Variant::Cockroach { "AND c.conparentid = 0" } else { "" };
+        let own = if self.version >= 110000 && self.variant != Variant::Cockroach {
+            "AND c.conparentid = 0"
+        } else {
+            ""
+        };
         let Some(rows) = self
             .check_rows(
                 "fk without index",
@@ -453,12 +533,33 @@ impl PgSession {
         else {
             return;
         };
-        let cols = |r: &SimpleQueryRow| -> Vec<String> { get(r, 3).split(SEP).filter(|c| !c.is_empty()).map(str::to_string).collect() };
-        let objects: Vec<String> = rows.iter().map(|r| format!("{}.{} ({}) · {}", get(r, 0), get(r, 1), cols(r).join(", "), get(r, 2))).collect();
+        let cols = |r: &SimpleQueryRow| -> Vec<String> {
+            get(r, 3)
+                .split(SEP)
+                .filter(|c| !c.is_empty())
+                .map(str::to_string)
+                .collect()
+        };
+        let objects: Vec<String> = rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}.{} ({}) · {}",
+                    get(r, 0),
+                    get(r, 1),
+                    cols(r).join(", "),
+                    get(r, 2)
+                )
+            })
+            .collect();
         let fixes: Vec<String> = rows
             .iter()
             .map(|r| {
-                let list = cols(r).iter().map(|c| quote_ident(Quote::Double, c)).collect::<Vec<_>>().join(", ");
+                let list = cols(r)
+                    .iter()
+                    .map(|c| quote_ident(Quote::Double, c))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 format!("CREATE INDEX ON {} ({list});", q(&get(r, 0), &get(r, 1)))
             })
             .collect();
@@ -487,7 +588,11 @@ impl PgSession {
                 self.filter("table_schema")
             )
         } else {
-            let (kinds, partitions) = if self.version >= 100000 { ("'r', 'p'", "AND NOT c.relispartition") } else { ("'r'", "") };
+            let (kinds, partitions) = if self.version >= 100000 {
+                ("'r', 'p'", "AND NOT c.relispartition")
+            } else {
+                ("'r'", "")
+            };
             format!(
                 "SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                  WHERE c.relkind IN ({kinds}) {partitions} AND {}
@@ -496,8 +601,13 @@ impl PgSession {
                 self.filter("n.nspname")
             )
         };
-        let Some(rows) = self.check_rows("tables without pk", &sql).await else { return };
-        let objects: Vec<String> = rows.iter().map(|r| format!("{}.{}", get(r, 0), get(r, 1))).collect();
+        let Some(rows) = self.check_rows("tables without pk", &sql).await else {
+            return;
+        };
+        let objects: Vec<String> = rows
+            .iter()
+            .map(|r| format!("{}.{}", get(r, 0), get(r, 1)))
+            .collect();
         out.push(
             HealthCheck::new(
                 "no_primary_key",
@@ -540,8 +650,16 @@ impl PgSession {
         let mut found: Vec<(f64, String, Vec<String>)> = Vec::new();
         for r in &rows {
             let parse = |i: usize| r.get(i).and_then(|v| v.parse::<f64>().ok());
-            let (Some(last), Some(min), Some(max), Some(inc)) = (parse(2), parse(3), parse(4), parse(5)) else { continue };
-            let used = if inc >= 0.0 { (last - min) / (max - min) } else { (max - last) / (max - min) };
+            let (Some(last), Some(min), Some(max), Some(inc)) =
+                (parse(2), parse(3), parse(4), parse(5))
+            else {
+                continue;
+            };
+            let used = if inc >= 0.0 {
+                (last - min) / (max - min)
+            } else {
+                (max - last) / (max - min)
+            };
             if !used.is_finite() || used < 0.75 {
                 continue;
             }
@@ -549,13 +667,24 @@ impl PgSession {
             let mut fix = Vec::new();
             let col_type = get(r, 10);
             if r.get(9).is_some() && matches!(col_type.as_str(), "integer" | "smallint") {
-                fix.push(format!("ALTER TABLE {} ALTER COLUMN {} TYPE bigint;", q(&get(r, 7), &get(r, 8)), quote_ident(Quote::Double, &get(r, 9))));
+                fix.push(format!(
+                    "ALTER TABLE {} ALTER COLUMN {} TYPE bigint;",
+                    q(&get(r, 7), &get(r, 8)),
+                    quote_ident(Quote::Double, &get(r, 9))
+                ));
             }
             if matches!(get(r, 6).as_str(), "integer" | "smallint") {
                 fix.push(format!("ALTER SEQUENCE {} AS bigint;", q(&schema, &name)));
             }
-            let owner = r.get(9).map(|c| format!(", de {}.{}.{c}", get(r, 7), get(r, 8))).unwrap_or_default();
-            found.push((used, format!("{schema}.{name} ({:.0} % usado{owner})", used * 100.0), fix));
+            let owner = r
+                .get(9)
+                .map(|c| format!(", de {}.{}.{c}", get(r, 7), get(r, 8)))
+                .unwrap_or_default();
+            found.push((
+                used,
+                format!("{schema}.{name} ({:.0} % usado{owner})", used * 100.0),
+                fix,
+            ));
         }
         found.sort_by(|a, b| b.0.total_cmp(&a.0));
         let worst = found.first().map_or(0.0, |f| f.0);
@@ -587,8 +716,14 @@ impl PgSession {
     /// Indexes with the same definition as another one of the same table.
     async fn duplicate_indexes(&self, out: &mut Vec<HealthCheck>) {
         let filter = self.filter("n.nspname");
-        let key_atts = if self.version >= 110000 && self.variant != Variant::OpenGauss { "AND a.indnkeyatts = b.indnkeyatts" } else { "" };
-        let keeps = |x: &str| format!("({x}.indisprimary OR {x}.indisunique OR EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conindid = {x}.indexrelid))::text");
+        let key_atts = if self.version >= 110000 && self.variant != Variant::OpenGauss {
+            "AND a.indnkeyatts = b.indnkeyatts"
+        } else {
+            ""
+        };
+        let keeps = |x: &str| {
+            format!("({x}.indisprimary OR {x}.indisunique OR EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conindid = {x}.indexrelid))::text")
+        };
         let Some(rows) = self
             .check_rows(
                 "duplicate indexes",
@@ -630,7 +765,11 @@ impl PgSession {
             };
             if let Some(ix) = drop {
                 fixes.push(if crdb {
-                    format!("DROP INDEX {}@{};", q(&schema, &table), quote_ident(Quote::Double, ix))
+                    format!(
+                        "DROP INDEX {}@{};",
+                        q(&schema, &table),
+                        quote_ident(Quote::Double, ix)
+                    )
                 } else {
                     format!("DROP INDEX {};", q(&schema, ix))
                 });
@@ -645,7 +784,10 @@ impl PgSession {
         .detail("Dos índices con la misma definición: el segundo no acelera nada y cuesta espacio y tiempo en cada escritura.")
         .objects(objects);
         if !fixes.is_empty() {
-            c = c.fix(format!("-- Se conserva el índice de la clave primaria o restricción, si lo hay.\n{}", fixes.join("\n")));
+            c = c.fix(format!(
+                "-- Se conserva el índice de la clave primaria o restricción, si lo hay.\n{}",
+                fixes.join("\n")
+            ));
         }
         out.push(c);
     }
@@ -663,8 +805,14 @@ impl PgSession {
         else {
             return;
         };
-        let pct = |r: &SimpleQueryRow, i: usize| r.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
-        let stale: Vec<&SimpleQueryRow> = rows.iter().filter(|r| pct(r, 2) > 10.0).take(MAX_OBJECTS).collect();
+        let pct = |r: &SimpleQueryRow, i: usize| {
+            r.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+        };
+        let stale: Vec<&SimpleQueryRow> = rows
+            .iter()
+            .filter(|r| pct(r, 2) > 10.0)
+            .take(MAX_OBJECTS)
+            .collect();
         let mut c = HealthCheck::new(
             "stale_stats",
             "Rendimiento",
@@ -674,11 +822,21 @@ impl PgSession {
         .detail("stats_off mayor a 10 %: el planificador estima mal las filas y puede elegir distribuciones o joins lentos.")
         .objects(stale.iter().map(|r| format!("{}.{} ({:.0} % desactualizadas)", get(r, 0), get(r, 1), pct(r, 2))).collect());
         if !stale.is_empty() {
-            c = c.fix(stale.iter().map(|r| format!("ANALYZE {};", q(&get(r, 0), &get(r, 1)))).collect::<Vec<_>>().join("\n"));
+            c = c.fix(
+                stale
+                    .iter()
+                    .map(|r| format!("ANALYZE {};", q(&get(r, 0), &get(r, 1))))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
         }
         out.push(c);
 
-        let unsorted: Vec<&SimpleQueryRow> = rows.iter().filter(|r| pct(r, 3) > 20.0 && num(r, 4) >= 100_000).take(MAX_OBJECTS).collect();
+        let unsorted: Vec<&SimpleQueryRow> = rows
+            .iter()
+            .filter(|r| pct(r, 3) > 20.0 && num(r, 4) >= 100_000)
+            .take(MAX_OBJECTS)
+            .collect();
         let mut c = HealthCheck::new(
             "unsorted_rows",
             "Espacio",
@@ -688,7 +846,13 @@ impl PgSession {
         .detail("Las filas fuera del orden de la sort key obligan a leer más bloques. VACUUM las reordena y recupera el espacio de las borradas.")
         .objects(unsorted.iter().map(|r| format!("{}.{} ({:.0} % sin ordenar)", get(r, 0), get(r, 1), pct(r, 3))).collect());
         if !unsorted.is_empty() {
-            c = c.fix(unsorted.iter().map(|r| format!("VACUUM {};", q(&get(r, 0), &get(r, 1)))).collect::<Vec<_>>().join("\n"));
+            c = c.fix(
+                unsorted
+                    .iter()
+                    .map(|r| format!("VACUUM {};", q(&get(r, 0), &get(r, 1))))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
         }
         out.push(c);
     }
@@ -696,15 +860,29 @@ impl PgSession {
 
 /// The unused-indexes finding: conclusive (and with a commented DROP per
 /// index) only when the counters cover [`MIN_WINDOW_DAYS`].
-fn unused_check(objects: Vec<String>, drops: Vec<String>, window: Option<i64>, since: Option<String>) -> HealthCheck {
+fn unused_check(
+    objects: Vec<String>,
+    drops: Vec<String>,
+    window: Option<i64>,
+    since: Option<String>,
+) -> HealthCheck {
     let conclusive = window.is_some_and(|d| d >= MIN_WINDOW_DAYS);
     let since = since.unwrap_or_else(|| "el servidor no dice desde cuándo cuenta".to_string());
     let (title, sev) = if objects.is_empty() {
         ("Todos los índices se usaron".to_string(), Severity::Ok)
     } else if conclusive {
-        (format!("{} índices sin lecturas ({since})", objects.len()), Severity::Warning)
+        (
+            format!("{} índices sin lecturas ({since})", objects.len()),
+            Severity::Warning,
+        )
     } else {
-        (format!("No concluyente: {} índices sin lecturas, pero {since}", objects.len()), Severity::Info)
+        (
+            format!(
+                "No concluyente: {} índices sin lecturas, pero {since}",
+                objects.len()
+            ),
+            Severity::Info,
+        )
     };
     let mut c = HealthCheck::new("unused_indexes", "Rendimiento", title, sev)
         .detail(
@@ -713,7 +891,10 @@ fn unused_check(objects: Vec<String>, drops: Vec<String>, window: Option<i64>, s
         )
         .objects(objects);
     if conclusive && !drops.is_empty() {
-        c = c.fix(format!("-- Revisá cada uno antes de borrarlo:\n{}", drops.join("\n")));
+        c = c.fix(format!(
+            "-- Revisá cada uno antes de borrarlo:\n{}",
+            drops.join("\n")
+        ));
     }
     c
 }
@@ -725,17 +906,51 @@ mod tests {
     #[test]
     fn checks_by_variant() {
         let pg = applies(Variant::Postgres, 160000);
-        assert!(pg.maintenance && pg.wraparound && pg.unused && pg.invalid && pg.fk && pg.no_pk && pg.sequences && pg.duplicates);
+        assert!(
+            pg.maintenance
+                && pg.wraparound
+                && pg.unused
+                && pg.invalid
+                && pg.fk
+                && pg.no_pk
+                && pg.sequences
+                && pg.duplicates
+        );
         let crdb = applies(Variant::Cockroach, 130000);
-        assert!(!crdb.maintenance && !crdb.wraparound && !crdb.unused && !crdb.invalid && !crdb.sequences);
+        assert!(
+            !crdb.maintenance
+                && !crdb.wraparound
+                && !crdb.unused
+                && !crdb.invalid
+                && !crdb.sequences
+        );
         assert!(crdb.fk && crdb.no_pk && crdb.duplicates);
         let gp = applies(Variant::Greenplum, 90426);
-        assert!(!gp.maintenance && gp.wraparound && !gp.fk && !gp.no_pk && !gp.sequences && gp.invalid);
-        assert!(!applies(Variant::OpenGauss, 90204).wraparound && !applies(Variant::OpenGauss, 90204).sequences);
-        assert!(!applies(Variant::Yugabyte, 110002).maintenance && applies(Variant::Yugabyte, 110002).invalid);
-        for v in [Variant::Denodo, Variant::H2, Variant::CrateDb, Variant::RisingWave, Variant::Materialize, Variant::Yellowbrick, Variant::Redshift] {
+        assert!(
+            !gp.maintenance && gp.wraparound && !gp.fk && !gp.no_pk && !gp.sequences && gp.invalid
+        );
+        assert!(
+            !applies(Variant::OpenGauss, 90204).wraparound
+                && !applies(Variant::OpenGauss, 90204).sequences
+        );
+        assert!(
+            !applies(Variant::Yugabyte, 110002).maintenance
+                && applies(Variant::Yugabyte, 110002).invalid
+        );
+        for v in [
+            Variant::Denodo,
+            Variant::H2,
+            Variant::CrateDb,
+            Variant::RisingWave,
+            Variant::Materialize,
+            Variant::Yellowbrick,
+            Variant::Redshift,
+        ] {
             let a = applies(v, 0);
-            assert!(!a.maintenance && !a.duplicates && !a.no_pk && !a.invalid, "{v:?}");
+            assert!(
+                !a.maintenance && !a.duplicates && !a.no_pk && !a.invalid,
+                "{v:?}"
+            );
         }
     }
 
@@ -749,8 +964,14 @@ mod tests {
         let long = unused_check(objs(), drops(), Some(30), Some("30 días".into()));
         assert_eq!(long.severity, Severity::Warning);
         assert!(long.fix.unwrap().contains("-- DROP INDEX"));
-        assert_eq!(unused_check(objs(), drops(), None, None).severity, Severity::Info);
-        assert_eq!(unused_check(vec![], vec![], Some(30), None).severity, Severity::Ok);
+        assert_eq!(
+            unused_check(objs(), drops(), None, None).severity,
+            Severity::Info
+        );
+        assert_eq!(
+            unused_check(vec![], vec![], Some(30), None).severity,
+            Severity::Ok
+        );
     }
 
     #[test]

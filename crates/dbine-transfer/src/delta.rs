@@ -28,7 +28,9 @@ use crate::event::{CopyPath, CopyStats, LogLevel, Phase};
 use crate::job::TransferJob;
 use crate::retry::is_transient;
 use dbine_driver::transfer::{changed_buckets, Progress};
-use dbine_driver::{BucketSum, Buckets, DeltaDepth, DeltaResult, DeltaSpec, Driver, Error, Result, Session};
+use dbine_driver::{
+    BucketSum, Buckets, DeltaDepth, DeltaResult, DeltaSpec, Driver, Error, Result, Session,
+};
 use std::time::Instant;
 
 /// Rows per bucket, roughly.
@@ -49,18 +51,29 @@ pub fn range_buckets(column: &str, lo: i64, hi: i64, rows: u64) -> Buckets {
     let want = (rows / ROWS_PER_BUCKET).clamp(1, MAX_RANGE_BUCKETS) as i128;
     let width = ((span + want - 1) / want).clamp(1, i64::MAX as i128);
     let n = (span + width - 1) / width;
-    Buckets::Range { column: column.to_string(), lo, hi, width: width as i64, n: n as u64 }
+    Buckets::Range {
+        column: column.to_string(),
+        lo,
+        hi,
+        width: width as i64,
+        n: n as u64,
+    }
 }
 
 /// Hash buckets for about `rows` rows: a prime in 17..=65 537.
 pub fn hash_buckets(rows: u64) -> Buckets {
     let want = (rows / ROWS_PER_BUCKET).clamp(MIN_HASH_BUCKETS, MAX_HASH_BUCKETS);
-    let n = (want..=MAX_HASH_BUCKETS).find(|&k| is_prime(k)).unwrap_or(MAX_HASH_BUCKETS);
+    let n = (want..=MAX_HASH_BUCKETS)
+        .find(|&k| is_prime(k))
+        .unwrap_or(MAX_HASH_BUCKETS);
     Buckets::Hash { n }
 }
 
 fn is_prime(n: u64) -> bool {
-    n >= 2 && (2..).take_while(|d| d * d <= n).all(|d| !n.is_multiple_of(d))
+    n >= 2
+        && (2..)
+            .take_while(|d| d * d <= n)
+            .all(|d| !n.is_multiple_of(d))
 }
 
 /// Buckets a table has, edges included.
@@ -102,20 +115,31 @@ pub(crate) fn check_support(source: &dyn Driver, target: &dyn Driver) -> Result<
         )));
     }
     if !source.supports_delta() || !target.supports_delta() {
-        return Err(Error::Unsupported(format!("{} no sincroniza por filas", source.info().name)));
+        return Err(Error::Unsupported(format!(
+            "{} no sincroniza por filas",
+            source.info().name
+        )));
     }
     Ok(())
 }
 
 /// Sync the table's rows from `src` into `tgt`.
-pub(crate) async fn sync_table(input: DeltaInput<'_>, mut src: Box<dyn Session>, tgt: &mut dyn Session) -> Result<CopyStats> {
+pub(crate) async fn sync_table(
+    input: DeltaInput<'_>,
+    mut src: Box<dyn Session>,
+    tgt: &mut dyn Session,
+) -> Result<CopyStats> {
     let job = input.job;
     let name = &job.name;
     if input.key.is_empty() {
-        return Err(Error::State("para sincronizar por filas hace falta una clave".into()));
+        return Err(Error::State(
+            "para sincronizar por filas hace falta una clave".into(),
+        ));
     }
     if job.source.filter.is_some() {
-        return Err(Error::Unsupported("una tabla con filtro no se sincroniza por filas".into()));
+        return Err(Error::Unsupported(
+            "una tabla con filtro no se sincroniza por filas".into(),
+        ));
     }
     let start = Instant::now();
     (input.phase)(Phase::Summary);
@@ -127,11 +151,18 @@ pub(crate) async fn sync_table(input: DeltaInput<'_>, mut src: Box<dyn Session>,
         Ok(None) => range_buckets(first, 0, 0, 0),
         Err(e) if is_transient(&e) || matches!(e, Error::Cancelled) => return Err(e),
         Err(e) => {
-            (input.log)(LogLevel::Info, format!("{name}: la clave no es entera ({e}); se agrupa por hash"));
+            (input.log)(
+                LogLevel::Info,
+                format!("{name}: la clave no es entera ({e}); se agrupa por hash"),
+            );
             hash_buckets(job.row_estimate.unwrap_or(0))
         }
     };
-    let source_columns = job.source.columns.clone().unwrap_or_else(|| job.target.columns.clone());
+    let source_columns = job
+        .source
+        .columns
+        .clone()
+        .unwrap_or_else(|| job.target.columns.clone());
     let spec_for = |table: &dbine_driver::ObjectRef, columns: Vec<String>| DeltaSpec {
         table: table.clone(),
         key: input.key.to_vec(),
@@ -143,16 +174,28 @@ pub(crate) async fn sync_table(input: DeltaInput<'_>, mut src: Box<dyn Session>,
     let source_spec = spec_for(&job.source.table, source_columns);
     let target_spec = spec_for(&job.target.table, job.target.columns.clone());
 
-    let (a, b) = tokio::join!(src.delta_summary(&source_spec), tgt.delta_summary(&target_spec));
+    let (a, b) = tokio::join!(
+        src.delta_summary(&source_spec),
+        tgt.delta_summary(&target_spec)
+    );
     let (a, b) = (a?, b?);
 
     (input.phase)(Phase::Compare);
     let changed = changed_buckets(&a, &b);
     let total = bucket_count(&buckets);
-    (input.log)(LogLevel::Info, format!("{name}: {} de {total} grupos distintos", changed.len()));
+    (input.log)(
+        LogLevel::Info,
+        format!("{name}: {} de {total} grupos distintos", changed.len()),
+    );
     if changed.is_empty() {
         (input.total)(0);
-        let mut stats = CopyStats::measure(CopyPath::Delta, 0, start.elapsed(), Default::default(), Default::default());
+        let mut stats = CopyStats::measure(
+            CopyPath::Delta,
+            0,
+            start.elapsed(),
+            Default::default(),
+            Default::default(),
+        );
         stats.delta = Some(DeltaResult::default());
         return Ok(stats);
     }
@@ -174,7 +217,11 @@ pub(crate) async fn sync_table(input: DeltaInput<'_>, mut src: Box<dyn Session>,
         native: false,
         progress: input.progress,
         log: input.log,
-        delta: Some(DeltaWrite { spec: &target_spec, buckets: &apply, filter }),
+        delta: Some(DeltaWrite {
+            spec: &target_spec,
+            buckets: &apply,
+            filter,
+        }),
     };
     let mut stats = copy::copy_table(copy, src, tgt).await?;
     stats.elapsed_ms = start.elapsed().as_millis() as u64;
@@ -182,7 +229,10 @@ pub(crate) async fn sync_table(input: DeltaInput<'_>, mut src: Box<dyn Session>,
     if let Some(r) = &stats.delta {
         (input.log)(
             LogLevel::Info,
-            format!("{name}: {} insertadas, {} actualizadas, {} borradas", r.inserted, r.updated, r.deleted),
+            format!(
+                "{name}: {} insertadas, {} actualizadas, {} borradas",
+                r.inserted, r.updated, r.deleted
+            ),
         );
     }
     Ok(stats)
@@ -190,7 +240,10 @@ pub(crate) async fn sync_table(input: DeltaInput<'_>, mut src: Box<dyn Session>,
 
 /// Source rows in these buckets.
 fn rows_in(sums: &[BucketSum], buckets: &[i64]) -> u64 {
-    sums.iter().filter(|s| buckets.binary_search(&s.bucket).is_ok()).map(|s| s.rows).sum()
+    sums.iter()
+        .filter(|s| buckets.binary_search(&s.bucket).is_ok())
+        .map(|s| s.rows)
+        .sum()
 }
 
 #[cfg(test)]
@@ -200,7 +253,9 @@ mod tests {
     #[test]
     fn range_sizes() {
         match range_buckets("id", 1, 10_000, 10_000) {
-            Buckets::Range { lo, hi, width, n, .. } => assert_eq!((lo, hi, width, n), (1, 10_000, 1_000, 10)),
+            Buckets::Range {
+                lo, hi, width, n, ..
+            } => assert_eq!((lo, hi, width, n), (1, 10_000, 1_000, 10)),
             b => panic!("{b:?}"),
         }
         // Fewer values than buckets wanted.
@@ -218,8 +273,13 @@ mod tests {
     #[test]
     fn hash_is_prime_in_range() {
         for rows in [0, 10_000, 17_000, 100_000, 1_000_000, 10_000_000_000] {
-            let Buckets::Hash { n } = hash_buckets(rows) else { unreachable!() };
-            assert!(is_prime(n) && (MIN_HASH_BUCKETS..=MAX_HASH_BUCKETS).contains(&n), "{rows}: {n}");
+            let Buckets::Hash { n } = hash_buckets(rows) else {
+                unreachable!()
+            };
+            assert!(
+                is_prime(n) && (MIN_HASH_BUCKETS..=MAX_HASH_BUCKETS).contains(&n),
+                "{rows}: {n}"
+            );
         }
         assert!(matches!(hash_buckets(100_000), Buckets::Hash { n: 101 }));
     }

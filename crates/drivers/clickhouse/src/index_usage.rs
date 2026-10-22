@@ -36,9 +36,11 @@ pub(crate) fn note(flavor: Flavor) -> String {
 
 pub(crate) const PK_SIZE_SQL: &str = "SELECT sum(primary_key_bytes_in_memory) FROM system.parts
  WHERE database = {db:String} AND table = {t:String} AND active";
-pub(crate) const SKIP_SIZE_SQL: &str = "SELECT name, data_compressed_bytes FROM system.data_skipping_indices
+pub(crate) const SKIP_SIZE_SQL: &str =
+    "SELECT name, data_compressed_bytes FROM system.data_skipping_indices
  WHERE database = {db:String} AND table = {t:String}";
-pub(crate) const PROJECTION_SIZE_SQL: &str = "SELECT name, sum(bytes_on_disk) FROM system.projection_parts
+pub(crate) const PROJECTION_SIZE_SQL: &str =
+    "SELECT name, sum(bytes_on_disk) FROM system.projection_parts
  WHERE database = {db:String} AND table = {t:String} AND active GROUP BY name";
 
 fn bytes(v: &Value) -> Option<u64> {
@@ -50,22 +52,48 @@ fn bytes(v: &Value) -> Option<u64> {
 }
 
 fn named_sizes(rows: &[Vec<Value>]) -> HashMap<String, u64> {
-    rows.iter().filter_map(|r| Some((text(r.first()?), bytes(r.get(1)?)?))).collect()
+    rows.iter()
+        .filter_map(|r| Some((text(r.first()?), bytes(r.get(1)?)?)))
+        .collect()
 }
 
 pub(crate) async fn report(s: &ClickHouseSession, table: &ObjectRef) -> Result<IndexUsageReport> {
     let t = s.catalog(Some(&table.name)).await?.into_iter().next();
-    let Some(t) = t else { return Ok(IndexUsageReport { note: Some(note(s.flavor)), writes_counted: false, ..Default::default() }) };
+    let Some(t) = t else {
+        return Ok(IndexUsageReport {
+            note: Some(note(s.flavor)),
+            writes_counted: false,
+            ..Default::default()
+        });
+    };
     let db = s.database.clone();
     let params = [("db", db.as_str()), ("t", table.name.as_str())];
-    let pk = s.rows(PK_SIZE_SQL, &params).await.ok().and_then(|r| r.first().and_then(|r| r.first()).and_then(bytes));
-    let skip = s.rows(SKIP_SIZE_SQL, &params).await.map(|r| named_sizes(&r)).unwrap_or_default();
-    let projections = s.rows(PROJECTION_SIZE_SQL, &params).await.map(|r| named_sizes(&r)).unwrap_or_default();
+    let pk = s
+        .rows(PK_SIZE_SQL, &params)
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.first()).and_then(bytes));
+    let skip = s
+        .rows(SKIP_SIZE_SQL, &params)
+        .await
+        .map(|r| named_sizes(&r))
+        .unwrap_or_default();
+    let projections = s
+        .rows(PROJECTION_SIZE_SQL, &params)
+        .await
+        .map(|r| named_sizes(&r))
+        .unwrap_or_default();
     Ok(assemble(s.flavor, &t, pk, &skip, &projections))
 }
 
 /// The sorting key first, then the skip indexes and the projections.
-pub(crate) fn assemble(flavor: Flavor, t: &TableSchema, pk_bytes: Option<u64>, skip: &HashMap<String, u64>, projections: &HashMap<String, u64>) -> IndexUsageReport {
+pub(crate) fn assemble(
+    flavor: Flavor,
+    t: &TableSchema,
+    pk_bytes: Option<u64>,
+    skip: &HashMap<String, u64>,
+    projections: &HashMap<String, u64>,
+) -> IndexUsageReport {
     let kb = |b: u64| b.div_ceil(1024);
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
@@ -80,7 +108,11 @@ pub(crate) fn assemble(flavor: Flavor, t: &TableSchema, pk_bytes: Option<u64>, s
     }
     for ix in &t.indexes {
         let projection = is_projection(ix);
-        let size = if projection { projections.get(&ix.name) } else { skip.get(&ix.name) };
+        let size = if projection {
+            projections.get(&ix.name)
+        } else {
+            skip.get(&ix.name)
+        };
         indexes.push(IndexUsage {
             name: ix.name.clone(),
             kind: ix.kind.clone().unwrap_or_default().to_uppercase(),
@@ -89,7 +121,13 @@ pub(crate) fn assemble(flavor: Flavor, t: &TableSchema, pk_bytes: Option<u64>, s
             ..Default::default()
         });
     }
-    IndexUsageReport { note: Some(note(flavor)), indexes, writes_counted: false, ..Default::default() }.derived()
+    IndexUsageReport {
+        note: Some(note(flavor)),
+        indexes,
+        writes_counted: false,
+        ..Default::default()
+    }
+    .derived()
 }
 
 #[cfg(test)]
@@ -102,28 +140,65 @@ mod tests {
     fn key_skip_indexes_and_projections() {
         let t = TableSchema {
             name: "t".into(),
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into(), "ts".into()] }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into(), "ts".into()],
+            }),
             indexes: vec![
-                IndexDef { name: "ix_a".into(), columns: vec!["a".into()], kind: Some("minmax".into()), ..Default::default() },
-                IndexDef { name: "ix_b".into(), columns: vec!["b".into()], kind: Some("bloom_filter GRANULARITY 4".into()), ..Default::default() },
-                IndexDef { name: "p_by_a".into(), columns: vec!["(SELECT * ORDER BY a)".into()], kind: Some("PROJECTION".into()), ..Default::default() },
+                IndexDef {
+                    name: "ix_a".into(),
+                    columns: vec!["a".into()],
+                    kind: Some("minmax".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "ix_b".into(),
+                    columns: vec!["b".into()],
+                    kind: Some("bloom_filter GRANULARITY 4".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "p_by_a".into(),
+                    columns: vec!["(SELECT * ORDER BY a)".into()],
+                    kind: Some("PROJECTION".into()),
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         };
-        let skip = named_sizes(&[vec![json!("ix_a"), json!("2048")], vec![json!("ix_b"), json!(10)]]);
+        let skip = named_sizes(&[
+            vec![json!("ix_a"), json!("2048")],
+            vec![json!("ix_b"), json!(10)],
+        ]);
         let proj = named_sizes(&[vec![json!("p_by_a"), json!("5000")]]);
         let r = assemble(Flavor::ClickHouse, &t, Some(4096), &skip, &proj);
         assert!(!r.stats_available && r.note.is_some() && r.foreign_keys.is_empty());
-        let got: Vec<(&str, &str, Option<u64>)> = r.indexes.iter().map(|i| (i.name.as_str(), i.kind.as_str(), i.size_kb)).collect();
+        let got: Vec<(&str, &str, Option<u64>)> = r
+            .indexes
+            .iter()
+            .map(|i| (i.name.as_str(), i.kind.as_str(), i.size_kb))
+            .collect();
         assert_eq!(
             got,
-            [("PRIMARY KEY", "SPARSE", Some(4)), ("ix_a", "MINMAX", Some(2)), ("ix_b", "BLOOM_FILTER GRANULARITY 4", Some(1)), ("p_by_a", "PROJECTION", Some(5))]
+            [
+                ("PRIMARY KEY", "SPARSE", Some(4)),
+                ("ix_a", "MINMAX", Some(2)),
+                ("ix_b", "BLOOM_FILTER GRANULARITY 4", Some(1)),
+                ("p_by_a", "PROJECTION", Some(5))
+            ]
         );
-        assert!(r.indexes[0].primary_key && !r.indexes[0].unique, "a MergeTree key doesn't enforce uniqueness");
+        assert!(
+            r.indexes[0].primary_key && !r.indexes[0].unique,
+            "a MergeTree key doesn't enforce uniqueness"
+        );
         assert_eq!(r.indexes[0].key_columns, ["id", "ts"]);
         // Nothing from the server: no sizes.
         let r = assemble(Flavor::Timeplus, &t, None, &HashMap::new(), &HashMap::new());
         assert!(r.indexes.iter().all(|i| i.size_kb.is_none()));
-        assert!(r.note.as_deref().unwrap().starts_with("Timeplus Proton no registra"));
+        assert!(r
+            .note
+            .as_deref()
+            .unwrap()
+            .starts_with("Timeplus Proton no registra"));
     }
 }

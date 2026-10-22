@@ -33,9 +33,14 @@
 //! load could still commit after it returned: no bulk load there.
 
 use crate::packstream::{tag, Value as Bolt};
-use crate::{cypher, infer_columns, value, Conn, Flavor, GraphSession, Transport, LABEL, RELATIONSHIP, USER_AGENT};
+use crate::{
+    cypher, infer_columns, value, Conn, Flavor, GraphSession, Transport, LABEL, RELATIONSHIP,
+    USER_AGENT,
+};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, ObjectRef, Result};
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -55,13 +60,20 @@ fn pattern(obj: &ObjectRef) -> Result<String> {
     match obj.kind.as_str() {
         LABEL => Ok(format!("(n:{n})")),
         RELATIONSHIP => Ok(format!("()-[n:{n}]->()")),
-        other => Err(Error::Unsupported(format!("no se leen filas de un objeto de tipo {other}"))),
+        other => Err(Error::Unsupported(format!(
+            "no se leen filas de un objeto de tipo {other}"
+        ))),
     }
 }
 
 impl GraphSession {
     /// One Bolt statement with parameters, the raw values to `on_row`.
-    async fn bolt_run(&mut self, q: &str, params: Bolt, on_row: &mut (dyn FnMut(&[String], Vec<Bolt>) + Send)) -> Result<()> {
+    async fn bolt_run(
+        &mut self,
+        q: &str,
+        params: Bolt,
+        on_row: &mut (dyn FnMut(&[String], Vec<Bolt>) + Send),
+    ) -> Result<()> {
         let extra = self.run_extra(None);
         if self.dirty {
             if let (Transport::Bolt(_), Some(t)) = (&self.transport, &self.target) {
@@ -83,14 +95,27 @@ impl GraphSession {
     /// Property name → its most frequent type in a sample.
     async fn property_types(&mut self, obj: &ObjectRef) -> Result<HashMap<String, String>> {
         let s = self.sample(obj).await?;
-        Ok(infer_columns(&s).into_iter().map(|c| (c.name, c.data_type)).collect())
+        Ok(infer_columns(&s)
+            .into_iter()
+            .map(|c| (c.name, c.data_type))
+            .collect())
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let pat = pattern(&spec.table)?;
-        let filter = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty());
+        let filter = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty());
         if let Some(w) = filter.and_then(cypher::write_reason) {
-            return Err(Error::Query(format!("El filtro de la lectura no puede escribir (`{w}`).")));
+            return Err(Error::Query(format!(
+                "El filtro de la lectura no puede escribir (`{w}`)."
+            )));
         }
         let where_ = filter.map(|f| format!(" WHERE {f}")).unwrap_or_default();
         let names: Vec<String> = match &spec.columns {
@@ -98,13 +123,20 @@ impl GraphSession {
                 // A name the label doesn't have would read as nulls.
                 let known = self.property_keys(&pat, "").await?;
                 if let Some(bad) = c.iter().find(|n| !known.contains(n)) {
-                    return Err(Error::Query(format!("«{}» no tiene la propiedad «{bad}»", spec.table.name)));
+                    return Err(Error::Query(format!(
+                        "«{}» no tiene la propiedad «{bad}»",
+                        spec.table.name
+                    )));
                 }
                 c.clone()
             }
             None => self.property_keys(&pat, &where_).await?,
         };
-        let list = names.iter().map(|n| format!("n.{}", cypher::ident(n))).collect::<Vec<_>>().join(", ");
+        let list = names
+            .iter()
+            .map(|n| format!("n.{}", cypher::ident(n)))
+            .collect::<Vec<_>>()
+            .join(", ");
         let types = if self.flavor == Flavor::Neptune {
             self.property_types(&spec.table).await.unwrap_or_default()
         } else if names.is_empty() {
@@ -112,25 +144,42 @@ impl GraphSession {
         } else {
             // Bolt types of a sample: the first value that isn't null.
             let mut seen: Vec<Option<&'static str>> = vec![None; names.len()];
-            self.bolt_run(&format!("MATCH {pat} WITH n LIMIT 100 RETURN {list}"), Bolt::Map(Vec::new()), &mut |_, row| {
-                for (s, v) in seen.iter_mut().zip(&row) {
-                    if s.is_none() {
-                        *s = bolt_type(v);
+            self.bolt_run(
+                &format!("MATCH {pat} WITH n LIMIT 100 RETURN {list}"),
+                Bolt::Map(Vec::new()),
+                &mut |_, row| {
+                    for (s, v) in seen.iter_mut().zip(&row) {
+                        if s.is_none() {
+                            *s = bolt_type(v);
+                        }
                     }
-                }
-            })
+                },
+            )
             .await?;
-            names.iter().cloned().zip(seen).filter_map(|(n, t)| Some((n, t?.to_string()))).collect()
+            names
+                .iter()
+                .cloned()
+                .zip(seen)
+                .filter_map(|(n, t)| Some((n, t?.to_string())))
+                .collect()
         };
         let cols: Vec<TransferColumn> = names
             .iter()
-            .map(|n| TransferColumn { name: n.clone(), type_name: types.get(n).cloned().unwrap_or_default(), nullable: true })
+            .map(|n| TransferColumn {
+                name: n.clone(),
+                type_name: types.get(n).cloned().unwrap_or_default(),
+                nullable: true,
+            })
             .collect();
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
         let mut builder = BatchBuilder::new();
 
         if self.flavor == Flavor::Neptune {
-            let Transport::Http(c) = &self.transport else { return Err(Error::State("Neptune sin cliente HTTP".into())) };
+            let Transport::Http(c) = &self.transport else {
+                return Err(Error::State("Neptune sin cliente HTTP".into()));
+            };
             // Keyset pages by id: SKIP would rescan from the start each page.
             let mut after: Option<J> = None;
             loop {
@@ -141,12 +190,18 @@ impl GraphSession {
                 if let Some(f) = filter {
                     conds.push(format!("({f})"));
                 }
-                let w = if conds.is_empty() { String::new() } else { format!(" WHERE {}", conds.join(" AND ")) };
+                let w = if conds.is_empty() {
+                    String::new()
+                } else {
+                    format!(" WHERE {}", conds.join(" AND "))
+                };
                 let sep = if list.is_empty() { "" } else { ", " };
                 let q = format!("MATCH {pat}{w} RETURN id(n) AS dbine_id{sep}{list} ORDER BY id(n) LIMIT {NEPTUNE_PAGE}");
                 let reply = c.query(&q, Some(&json!({ "after": after }))).await?;
                 let n = reply.rows.len();
-                let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+                let mut s = sink
+                    .lock()
+                    .map_err(|_| Error::State("destino de lotes".into()))?;
                 for mut r in reply.rows {
                     if r.is_empty() {
                         continue;
@@ -160,7 +215,11 @@ impl GraphSession {
             }
         } else {
             // Without properties, a row per node all the same (no cells).
-            let ret = if list.is_empty() { "0 AS dbine_row" } else { list.as_str() };
+            let ret = if list.is_empty() {
+                "0 AS dbine_row"
+            } else {
+                list.as_str()
+            };
             let q = format!("MATCH {pat}{where_} RETURN {ret}");
             let width = names.len();
             let mut failed: Option<std::io::Error> = None;
@@ -171,7 +230,10 @@ impl GraphSession {
                     return;
                 }
                 let r = match sink2.lock() {
-                    Ok(mut s) => b.push(row.into_iter().take(width).map(bolt_cell).collect(), &mut *s),
+                    Ok(mut s) => b.push(
+                        row.into_iter().take(width).map(bolt_cell).collect(),
+                        &mut *s,
+                    ),
                     Err(_) => Err(std::io::Error::other("destino de lotes")),
                 };
                 if let Err(e) = r {
@@ -183,11 +245,20 @@ impl GraphSession {
                 return Err(e.into());
             }
         }
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
-    pub(crate) async fn transfer_load(&mut self, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+    pub(crate) async fn transfer_load(
+        &mut self,
+        spec: &LoadSpec,
+        source: &mut dyn BatchSource,
+        progress: Progress<'_>,
+    ) -> Result<u64> {
         self.refuse_if_read_only("Conexión de solo lectura: no se pueden cargar datos.")?;
         if spec.table.kind != LABEL {
             return Err(Error::Unsupported("la carga masiva crea nodos: las relaciones necesitan sus nodos de origen y destino".into()));
@@ -199,14 +270,21 @@ impl GraphSession {
         }
         // A repeated or empty key in a Bolt map drops Memgraph's connection.
         let mut seen = std::collections::HashSet::new();
-        if let Some(c) = spec.columns.iter().find(|c| c.is_empty() || !seen.insert(c.as_str())) {
+        if let Some(c) = spec
+            .columns
+            .iter()
+            .find(|c| c.is_empty() || !seen.insert(c.as_str()))
+        {
             return Err(Error::Query(if c.is_empty() {
                 "la carga tiene una columna sin nombre".into()
             } else {
                 format!("la columna «{c}» está repetida en la carga")
             }));
         }
-        let q = format!("UNWIND $rows AS r CREATE (n:{}) SET n += r", cypher::ident(&spec.table.name));
+        let q = format!(
+            "UNWIND $rows AS r CREATE (n:{}) SET n += r",
+            cypher::ident(&spec.table.name)
+        );
         let max_rows = spec.commit_rows.clamp(1, WINDOW) as usize;
         let max_bytes = spec.commit_bytes.clamp(1, WINDOW_BYTES) as usize;
         // Bolt 5 sends date-times as UTC seconds; Bolt 4, as local seconds.
@@ -222,7 +300,11 @@ impl GraphSession {
         while let Some(batch) = source.next().await {
             for row in batch.rows {
                 if row.len() != spec.columns.len() {
-                    return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), spec.columns.len())));
+                    return Err(Error::Query(format!(
+                        "la fila tiene {} valores y la carga {} columnas",
+                        row.len(),
+                        spec.columns.len()
+                    )));
                 }
                 let mut m = Vec::with_capacity(row.len());
                 // Moved, not copied: the batch's text goes into the window.
@@ -278,7 +360,8 @@ impl GraphSession {
         let r = async {
             let c = g.conn();
             c.begin(extra).await?;
-            c.run(q, params, Bolt::Map(Vec::new()), &mut |_, _| {}).await?;
+            c.run(q, params, Bolt::Map(Vec::new()), &mut |_, _| {})
+                .await?;
             c.commit().await
         }
         .await;
@@ -290,8 +373,16 @@ impl GraphSession {
     /// The properties the label's nodes (or the type's relationships) have,
     /// sorted.
     async fn property_keys(&mut self, pat: &str, where_: &str) -> Result<Vec<String>> {
-        let (_, rows) = self.query(&format!("MATCH {pat}{where_} UNWIND keys(n) AS k RETURN DISTINCT k")).await?;
-        let mut k: Vec<String> = rows.into_iter().filter_map(|r| r.into_iter().next()).filter_map(|v| v.as_str().map(str::to_string)).collect();
+        let (_, rows) = self
+            .query(&format!(
+                "MATCH {pat}{where_} UNWIND keys(n) AS k RETURN DISTINCT k"
+            ))
+            .await?;
+        let mut k: Vec<String> = rows
+            .into_iter()
+            .filter_map(|r| r.into_iter().next())
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
         k.sort();
         Ok(k)
     }
@@ -339,7 +430,17 @@ pub(crate) fn bolt_cell(v: Bolt) -> Cell {
         Bolt::Float(f) => Cell::Float(f),
         Bolt::Bytes(b) => Cell::Bytes(b),
         Bolt::String(s) => Cell::Text(s),
-        Bolt::Struct(t, _) if matches!(t, tag::DATE | tag::LOCAL_TIME | tag::LOCAL_DATE_TIME | tag::DATE_TIME | tag::LEGACY_DATE_TIME | tag::DATE_TIME_ZONE_ID) => {
+        Bolt::Struct(t, _)
+            if matches!(
+                t,
+                tag::DATE
+                    | tag::LOCAL_TIME
+                    | tag::LOCAL_DATE_TIME
+                    | tag::DATE_TIME
+                    | tag::LEGACY_DATE_TIME
+                    | tag::DATE_TIME_ZONE_ID
+            ) =>
+        {
             let s = match value::to_json(&v) {
                 J::String(s) => s,
                 _ => return Cell::Null,
@@ -349,17 +450,23 @@ pub(crate) fn bolt_cell(v: Bolt) -> Cell {
                 tag::LOCAL_TIME => Cell::Time(s),
                 tag::LOCAL_DATE_TIME => Cell::DateTime(s.replacen('T', " ", 1)),
                 // `…Z[Europe/Madrid]`: the instant, in UTC.
-                tag::DATE_TIME_ZONE_ID => {
-                    Cell::DateTimeTz(s.split('[').next().unwrap_or(&s).replacen('T', " ", 1).replace('Z', "+00:00"))
-                }
+                tag::DATE_TIME_ZONE_ID => Cell::DateTimeTz(
+                    s.split('[')
+                        .next()
+                        .unwrap_or(&s)
+                        .replacen('T', " ", 1)
+                        .replace('Z', "+00:00"),
+                ),
                 _ => Cell::DateTimeTz(s.replacen('T', " ", 1).replace('Z', "+00:00")),
             }
         }
         // Time with offset, local date-time with a zone id, durations: text.
-        Bolt::Struct(tag::TIME | tag::LEGACY_DATE_TIME_ZONE_ID | tag::DURATION, _) => match value::to_json(&v) {
-            J::String(s) => Cell::Text(s),
-            other => Cell::Json(other.to_string()),
-        },
+        Bolt::Struct(tag::TIME | tag::LEGACY_DATE_TIME_ZONE_ID | tag::DURATION, _) => {
+            match value::to_json(&v) {
+                J::String(s) => Cell::Text(s),
+                other => Cell::Json(other.to_string()),
+            }
+        }
         other => Cell::Json(value::to_json(&other).to_string()),
     }
 }
@@ -380,7 +487,10 @@ fn bolt_type(v: &Bolt) -> Option<&'static str> {
             tag::LOCAL_TIME => "LOCAL TIME",
             tag::TIME => "ZONED TIME",
             tag::LOCAL_DATE_TIME => "LOCAL DATETIME",
-            tag::DATE_TIME | tag::LEGACY_DATE_TIME | tag::DATE_TIME_ZONE_ID | tag::LEGACY_DATE_TIME_ZONE_ID => "ZONED DATETIME",
+            tag::DATE_TIME
+            | tag::LEGACY_DATE_TIME
+            | tag::DATE_TIME_ZONE_ID
+            | tag::LEGACY_DATE_TIME_ZONE_ID => "ZONED DATETIME",
             tag::DURATION => "DURATION",
             tag::POINT_2D | tag::POINT_3D => "POINT",
             tag::NODE => "NODE",
@@ -418,14 +528,18 @@ pub(crate) fn cell_bolt(c: &Cell, utc: bool, memgraph: bool) -> Result<Bolt> {
     // temporal values have none, and Memgraph drops the connection on it.
     let leap = |nanos: u32| {
         if nanos >= 1_000_000_000 {
-            Err(Error::Unsupported(format!("Cypher no guarda segundos intercalares (:60) ({c:?})")))
+            Err(Error::Unsupported(format!(
+                "Cypher no guarda segundos intercalares (:60) ({c:?})"
+            )))
         } else {
             Ok(())
         }
     };
     let year = |y: i32| {
         if memgraph && !(0..=9999).contains(&y) {
-            Err(Error::Unsupported(format!("Memgraph solo guarda fechas entre los años 0 y 9999 ({c:?})")))
+            Err(Error::Unsupported(format!(
+                "Memgraph solo guarda fechas entre los años 0 y 9999 ({c:?})"
+            )))
         } else {
             Ok(())
         }
@@ -434,7 +548,9 @@ pub(crate) fn cell_bolt(c: &Cell, utc: bool, memgraph: bool) -> Result<Bolt> {
         Cell::Null => Bolt::Null,
         Cell::Bool(b) => Bolt::Bool(*b),
         Cell::Int(i) => Bolt::Int(*i),
-        Cell::UInt(u) => i64::try_from(*u).map(Bolt::Int).unwrap_or_else(|_| Bolt::String(u.to_string())),
+        Cell::UInt(u) => i64::try_from(*u)
+            .map(Bolt::Int)
+            .unwrap_or_else(|_| Bolt::String(u.to_string())),
         Cell::Float(f) => Bolt::Float(*f),
         Cell::Bytes(b) if memgraph => Bolt::String(hex(b)),
         Cell::Bytes(b) => Bolt::Bytes(b.clone()),
@@ -448,14 +564,30 @@ pub(crate) fn cell_bolt(c: &Cell, utc: bool, memgraph: bool) -> Result<Bolt> {
         Cell::Time(s) => {
             let t = NaiveTime::parse_from_str(s.trim(), "%H:%M:%S%.f").map_err(|_| bad())?;
             leap(t.nanosecond())?;
-            Bolt::Struct(tag::LOCAL_TIME, vec![Bolt::Int(i64::from(t.num_seconds_from_midnight()) * 1_000_000_000 + i64::from(t.nanosecond()))])
+            Bolt::Struct(
+                tag::LOCAL_TIME,
+                vec![Bolt::Int(
+                    i64::from(t.num_seconds_from_midnight()) * 1_000_000_000
+                        + i64::from(t.nanosecond()),
+                )],
+            )
         }
         Cell::DateTime(s) => {
-            let t = NaiveDateTime::parse_from_str(&s.trim().replacen('T', " ", 1), "%Y-%m-%d %H:%M:%S%.f").map_err(|_| bad())?;
+            let t = NaiveDateTime::parse_from_str(
+                &s.trim().replacen('T', " ", 1),
+                "%Y-%m-%d %H:%M:%S%.f",
+            )
+            .map_err(|_| bad())?;
             year(t.year())?;
             leap(t.nanosecond())?;
             let t = t.and_utc();
-            Bolt::Struct(tag::LOCAL_DATE_TIME, vec![Bolt::Int(t.timestamp()), Bolt::Int(i64::from(t.timestamp_subsec_nanos()))])
+            Bolt::Struct(
+                tag::LOCAL_DATE_TIME,
+                vec![
+                    Bolt::Int(t.timestamp()),
+                    Bolt::Int(i64::from(t.timestamp_subsec_nanos())),
+                ],
+            )
         }
         Cell::DateTimeTz(s) => {
             let t = parse_tz(s).ok_or_else(bad)?;
@@ -465,12 +597,20 @@ pub(crate) fn cell_bolt(c: &Cell, utc: bool, memgraph: bool) -> Result<Bolt> {
             let off = i64::from(t.offset().local_minus_utc());
             let nanos = Bolt::Int(i64::from(t.timestamp_subsec_nanos()));
             if utc {
-                Bolt::Struct(tag::DATE_TIME, vec![Bolt::Int(t.timestamp()), nanos, Bolt::Int(off)])
+                Bolt::Struct(
+                    tag::DATE_TIME,
+                    vec![Bolt::Int(t.timestamp()), nanos, Bolt::Int(off)],
+                )
             } else {
-                Bolt::Struct(tag::LEGACY_DATE_TIME, vec![Bolt::Int(t.timestamp() + off), nanos, Bolt::Int(off)])
+                Bolt::Struct(
+                    tag::LEGACY_DATE_TIME,
+                    vec![Bolt::Int(t.timestamp() + off), nanos, Bolt::Int(off)],
+                )
             }
         }
-        Cell::Json(s) => json_list(s).map(Bolt::List).unwrap_or_else(|| Bolt::String(s.clone())),
+        Cell::Json(s) => json_list(s)
+            .map(Bolt::List)
+            .unwrap_or_else(|| Bolt::String(s.clone())),
     })
 }
 
@@ -480,16 +620,22 @@ fn parse_tz(s: &str) -> Option<DateTime<chrono::FixedOffset>> {
         Some(r) => format!("{r}+00:00"),
         None => s,
     };
-    ["%Y-%m-%d %H:%M:%S%.f%:z", "%Y-%m-%d %H:%M:%S%.f%z", "%Y-%m-%d %H:%M:%S%.f%#z"]
-        .iter()
-        .find_map(|f| DateTime::parse_from_str(&s, f).ok())
+    [
+        "%Y-%m-%d %H:%M:%S%.f%:z",
+        "%Y-%m-%d %H:%M:%S%.f%z",
+        "%Y-%m-%d %H:%M:%S%.f%#z",
+    ]
+    .iter()
+    .find_map(|f| DateTime::parse_from_str(&s, f).ok())
 }
 
 /// A JSON array a property can hold as a list without loss: one scalar
 /// type (booleans, strings, integers that fit in 64 bits, or floats that
 /// print back as written). Anything else stays text.
 fn json_list(s: &str) -> Option<Vec<Bolt>> {
-    let J::Array(a) = serde_json::from_str::<J>(s).ok()? else { return None };
+    let J::Array(a) = serde_json::from_str::<J>(s).ok()? else {
+        return None;
+    };
     let kind = |v: &J| match v {
         J::Bool(_) => 1,
         J::Number(n) if n.is_i64() => 2,
@@ -507,7 +653,11 @@ fn json_list(s: &str) -> Option<Vec<Bolt>> {
         // float to its nearest f64: the text written must be what reads back.
         let body = s.trim().strip_prefix('[')?.strip_suffix(']')?;
         let written: Vec<&str> = body.split(',').map(str::trim).collect();
-        if written.len() != a.len() || a.iter().zip(&written).any(|(v, w)| v.to_string().as_str() != *w) {
+        if written.len() != a.len()
+            || a.iter()
+                .zip(&written)
+                .any(|(v, w)| v.to_string().as_str() != *w)
+        {
             return None;
         }
     }
@@ -515,7 +665,10 @@ fn json_list(s: &str) -> Option<Vec<Bolt>> {
         a.into_iter()
             .map(|v| match v {
                 J::Bool(b) => Bolt::Bool(b),
-                J::Number(n) => n.as_i64().map(Bolt::Int).unwrap_or_else(|| Bolt::Float(n.as_f64().unwrap_or_default())),
+                J::Number(n) => n
+                    .as_i64()
+                    .map(Bolt::Int)
+                    .unwrap_or_else(|| Bolt::Float(n.as_f64().unwrap_or_default())),
                 J::String(s) => Bolt::String(s),
                 other => Bolt::String(other.to_string()),
             })
@@ -525,10 +678,11 @@ fn json_list(s: &str) -> Option<Vec<Bolt>> {
 
 /// `0x…`, whole.
 fn hex(b: &[u8]) -> String {
-    b.iter().fold(String::with_capacity(2 + b.len() * 2) + "0x", |mut s, x| {
-        s.push_str(&format!("{x:02X}"));
-        s
-    })
+    b.iter()
+        .fold(String::with_capacity(2 + b.len() * 2) + "0x", |mut s, x| {
+            s.push_str(&format!("{x:02X}"));
+            s
+        })
 }
 
 #[cfg(test)]
@@ -542,17 +696,36 @@ mod tests {
 
     #[test]
     fn scalars_round_trip() {
-        for c in [Cell::Bool(true), Cell::Int(-5), Cell::Int(i64::MAX), Cell::Float(0.1), Cell::Text("ñ".into()), Cell::Bytes(vec![0, 255, 7])] {
+        for c in [
+            Cell::Bool(true),
+            Cell::Int(-5),
+            Cell::Int(i64::MAX),
+            Cell::Float(0.1),
+            Cell::Text("ñ".into()),
+            Cell::Bytes(vec![0, 255, 7]),
+        ] {
             assert_eq!(round(c.clone()), c);
         }
         assert_eq!(round(Cell::UInt(7)), Cell::Int(7));
-        assert_eq!(round(Cell::UInt(u64::MAX)), Cell::Text(u64::MAX.to_string()));
+        assert_eq!(
+            round(Cell::UInt(u64::MAX)),
+            Cell::Text(u64::MAX.to_string())
+        );
         // No decimal type: exact text.
-        assert_eq!(round(Cell::Decimal("12.34".into())), Cell::Text("12.34".into()));
-        assert_eq!(round(Cell::Uuid("5a1c395e-b5d1-4ec5-9e1a-6f4a2f5f3e10".into())), Cell::Text("5a1c395e-b5d1-4ec5-9e1a-6f4a2f5f3e10".into()));
+        assert_eq!(
+            round(Cell::Decimal("12.34".into())),
+            Cell::Text("12.34".into())
+        );
+        assert_eq!(
+            round(Cell::Uuid("5a1c395e-b5d1-4ec5-9e1a-6f4a2f5f3e10".into())),
+            Cell::Text("5a1c395e-b5d1-4ec5-9e1a-6f4a2f5f3e10".into())
+        );
         assert_eq!(cell_bolt(&Cell::Null, true, false).unwrap(), Bolt::Null);
         // Memgraph: byte arrays as `0x…` text.
-        assert_eq!(cell_bolt(&Cell::Bytes(vec![0xca, 0xfe]), true, true).unwrap(), Bolt::String("0xCAFE".into()));
+        assert_eq!(
+            cell_bolt(&Cell::Bytes(vec![0xca, 0xfe]), true, true).unwrap(),
+            Bolt::String("0xCAFE".into())
+        );
     }
 
     #[test]
@@ -577,16 +750,49 @@ mod tests {
         ] {
             assert_eq!(round(c.clone()), c);
         }
-        assert_eq!(round(Cell::DateTime("2024-01-31T13:45:00".into())), Cell::DateTime("2024-01-31 13:45:00".into()));
-        assert_eq!(round(Cell::DateTimeTz("2024-01-31T13:45:00Z".into())), Cell::DateTimeTz("2024-01-31 13:45:00+00:00".into()));
+        assert_eq!(
+            round(Cell::DateTime("2024-01-31T13:45:00".into())),
+            Cell::DateTime("2024-01-31 13:45:00".into())
+        );
+        assert_eq!(
+            round(Cell::DateTimeTz("2024-01-31T13:45:00Z".into())),
+            Cell::DateTimeTz("2024-01-31 13:45:00+00:00".into())
+        );
         // Bolt 4: local seconds.
-        let legacy = cell_bolt(&Cell::DateTimeTz("2024-01-01 01:00:00+01:00".into()), false, false).unwrap();
-        assert_eq!(legacy, Bolt::Struct(tag::LEGACY_DATE_TIME, vec![Bolt::Int(1_704_070_800), Bolt::Int(0), Bolt::Int(3_600)]));
-        assert_eq!(bolt_cell(legacy), Cell::DateTimeTz("2024-01-01 01:00:00+01:00".into()));
+        let legacy = cell_bolt(
+            &Cell::DateTimeTz("2024-01-01 01:00:00+01:00".into()),
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            legacy,
+            Bolt::Struct(
+                tag::LEGACY_DATE_TIME,
+                vec![Bolt::Int(1_704_070_800), Bolt::Int(0), Bolt::Int(3_600)]
+            )
+        );
+        assert_eq!(
+            bolt_cell(legacy),
+            Cell::DateTimeTz("2024-01-01 01:00:00+01:00".into())
+        );
         // A zone id: the UTC instant.
-        let z = Bolt::Struct(tag::DATE_TIME_ZONE_ID, vec![Bolt::Int(1_704_067_200), Bolt::Int(0), Bolt::String("Europe/Madrid".into())]);
-        assert_eq!(bolt_cell(z), Cell::DateTimeTz("2024-01-01 00:00:00+00:00".into()));
-        let d = Bolt::Struct(tag::DURATION, vec![Bolt::Int(14), Bolt::Int(3), Bolt::Int(3_725), Bolt::Int(0)]);
+        let z = Bolt::Struct(
+            tag::DATE_TIME_ZONE_ID,
+            vec![
+                Bolt::Int(1_704_067_200),
+                Bolt::Int(0),
+                Bolt::String("Europe/Madrid".into()),
+            ],
+        );
+        assert_eq!(
+            bolt_cell(z),
+            Cell::DateTimeTz("2024-01-01 00:00:00+00:00".into())
+        );
+        let d = Bolt::Struct(
+            tag::DURATION,
+            vec![Bolt::Int(14), Bolt::Int(3), Bolt::Int(3_725), Bolt::Int(0)],
+        );
         assert_eq!(bolt_cell(d), Cell::Text("P1Y2M3DT1H2M5S".into()));
         assert!(cell_bolt(&Cell::Date("mañana".into()), true, false).is_err());
     }
@@ -598,15 +804,37 @@ mod tests {
             other => panic!("{other:?}"),
         };
         let bc = NaiveDate::from_ymd_opt(-44, 3, 15).unwrap();
-        assert_eq!(days(&Cell::Date("-0044-03-15".into())), Bolt::Int((bc - EPOCH).num_days()));
-        assert_eq!(days(&Cell::Date("+12024-01-31".into())), Bolt::Int((NaiveDate::from_ymd_opt(12024, 1, 31).unwrap() - EPOCH).num_days()));
+        assert_eq!(
+            days(&Cell::Date("-0044-03-15".into())),
+            Bolt::Int((bc - EPOCH).num_days())
+        );
+        assert_eq!(
+            days(&Cell::Date("+12024-01-31".into())),
+            Bolt::Int((NaiveDate::from_ymd_opt(12024, 1, 31).unwrap() - EPOCH).num_days())
+        );
         assert!(cell_bolt(&Cell::Date("2024-01-31garbage".into()), true, false).is_err());
         assert!(cell_bolt(&Cell::Date("2024-01-31 10:00:00".into()), true, false).is_err());
-        assert_eq!(round(Cell::DateTime("-0044-03-15 10:00:00".into())), Cell::DateTime("-0044-03-15 10:00:00".into()));
+        assert_eq!(
+            round(Cell::DateTime("-0044-03-15 10:00:00".into())),
+            Cell::DateTime("-0044-03-15 10:00:00".into())
+        );
         // Memgraph: only years 0 to 9999, refused instead of dropping the connection.
-        assert!(matches!(cell_bolt(&Cell::Date("-0044-03-15".into()), true, true), Err(Error::Unsupported(_))));
-        assert!(matches!(cell_bolt(&Cell::DateTime("+10000-01-01 00:00:00".into()), true, true), Err(Error::Unsupported(_))));
-        assert!(matches!(cell_bolt(&Cell::DateTimeTz("0000-01-01 00:30:00+01:00".into()), true, true), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            cell_bolt(&Cell::Date("-0044-03-15".into()), true, true),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            cell_bolt(&Cell::DateTime("+10000-01-01 00:00:00".into()), true, true),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            cell_bolt(
+                &Cell::DateTimeTz("0000-01-01 00:30:00+01:00".into()),
+                true,
+                true
+            ),
+            Err(Error::Unsupported(_))
+        ));
         assert!(cell_bolt(&Cell::Date("0000-01-01".into()), true, true).is_ok());
         assert!(cell_bolt(&Cell::Date("9999-12-31".into()), true, true).is_ok());
     }
@@ -622,8 +850,17 @@ mod tests {
             Cell::DateTimeTz("2016-12-31T20:59:60.25-03:00".into()),
         ] {
             for memgraph in [false, true] {
-                assert!(matches!(cell_bolt(&c, true, memgraph), Err(Error::Unsupported(_))), "{c:?}");
-                assert!(matches!(cell_bolt_owned(c.clone(), true, memgraph), Err(Error::Unsupported(_))), "{c:?}");
+                assert!(
+                    matches!(cell_bolt(&c, true, memgraph), Err(Error::Unsupported(_))),
+                    "{c:?}"
+                );
+                assert!(
+                    matches!(
+                        cell_bolt_owned(c.clone(), true, memgraph),
+                        Err(Error::Unsupported(_))
+                    ),
+                    "{c:?}"
+                );
             }
         }
         assert!(cell_bolt(&Cell::Time("23:59:59.999999999".into()), true, true).is_ok());
@@ -631,22 +868,49 @@ mod tests {
 
     #[test]
     fn owned_conversion_matches() {
-        for c in [Cell::Text("ñ".into()), Cell::Decimal("1.50".into()), Cell::Bytes(vec![1, 2]), Cell::Date("2024-01-31".into()), Cell::Json("[1]".into())] {
+        for c in [
+            Cell::Text("ñ".into()),
+            Cell::Decimal("1.50".into()),
+            Cell::Bytes(vec![1, 2]),
+            Cell::Date("2024-01-31".into()),
+            Cell::Json("[1]".into()),
+        ] {
             for memgraph in [false, true] {
-                assert_eq!(cell_bolt_owned(c.clone(), true, memgraph).unwrap(), cell_bolt(&c, true, memgraph).unwrap());
+                assert_eq!(
+                    cell_bolt_owned(c.clone(), true, memgraph).unwrap(),
+                    cell_bolt(&c, true, memgraph).unwrap()
+                );
             }
         }
     }
 
     #[test]
     fn json_values() {
-        assert_eq!(cell_bolt(&Cell::Json("[1,2]".into()), true, false).unwrap(), Bolt::List(vec![Bolt::Int(1), Bolt::Int(2)]));
-        assert_eq!(cell_bolt(&Cell::Json("[ 1.5 , -2.25 ]".into()), true, false).unwrap(), Bolt::List(vec![Bolt::Float(1.5), Bolt::Float(-2.25)]));
-        assert_eq!(round(Cell::Json("[\"a\",\"b\"]".into())), Cell::Json("[\"a\",\"b\"]".into()));
-        assert_eq!(round(Cell::Json("[true,false]".into())), Cell::Json("[true,false]".into()));
+        assert_eq!(
+            cell_bolt(&Cell::Json("[1,2]".into()), true, false).unwrap(),
+            Bolt::List(vec![Bolt::Int(1), Bolt::Int(2)])
+        );
+        assert_eq!(
+            cell_bolt(&Cell::Json("[ 1.5 , -2.25 ]".into()), true, false).unwrap(),
+            Bolt::List(vec![Bolt::Float(1.5), Bolt::Float(-2.25)])
+        );
+        assert_eq!(
+            round(Cell::Json("[\"a\",\"b\"]".into())),
+            Cell::Json("[\"a\",\"b\"]".into())
+        );
+        assert_eq!(
+            round(Cell::Json("[true,false]".into())),
+            Cell::Json("[true,false]".into())
+        );
         // Maps and mixed lists aren't property values: text.
-        assert_eq!(round(Cell::Json("{\"a\":1}".into())), Cell::Text("{\"a\":1}".into()));
-        assert_eq!(round(Cell::Json("[1,\"a\"]".into())), Cell::Text("[1,\"a\"]".into()));
+        assert_eq!(
+            round(Cell::Json("{\"a\":1}".into())),
+            Cell::Text("{\"a\":1}".into())
+        );
+        assert_eq!(
+            round(Cell::Json("[1,\"a\"]".into())),
+            Cell::Text("[1,\"a\"]".into())
+        );
         let m = Bolt::Map(vec![("a".into(), Bolt::Int(1))]);
         assert_eq!(bolt_cell(m), Cell::Json("{\"a\":1}".into()));
     }
@@ -655,10 +919,24 @@ mod tests {
     fn json_numbers_that_would_change_stay_text() {
         // Past i64 (serde_json would make them floats), or floats that don't
         // print back as written: the exact text, not a rounded list.
-        for s in ["[18446744073709551615]", "[123456789012345678901234567890]", "[1, 18446744073709551615]", "[0.30000000000000000001]", "[1e3]", "[-0]"] {
-            assert_eq!(cell_bolt(&Cell::Json(s.into()), true, false).unwrap(), Bolt::String(s.into()), "{s}");
+        for s in [
+            "[18446744073709551615]",
+            "[123456789012345678901234567890]",
+            "[1, 18446744073709551615]",
+            "[0.30000000000000000001]",
+            "[1e3]",
+            "[-0]",
+        ] {
+            assert_eq!(
+                cell_bolt(&Cell::Json(s.into()), true, false).unwrap(),
+                Bolt::String(s.into()),
+                "{s}"
+            );
         }
-        assert_eq!(cell_bolt(&Cell::Json("[9223372036854775807]".into()), true, false).unwrap(), Bolt::List(vec![Bolt::Int(i64::MAX)]));
+        assert_eq!(
+            cell_bolt(&Cell::Json("[9223372036854775807]".into()), true, false).unwrap(),
+            Bolt::List(vec![Bolt::Int(i64::MAX)])
+        );
     }
 
     #[test]

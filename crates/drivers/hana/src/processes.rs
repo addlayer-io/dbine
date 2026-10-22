@@ -49,7 +49,9 @@ fn s(set: &Set, row: usize, col: &str) -> Option<String> {
 }
 
 fn n(set: &Set, row: usize, col: &str) -> Option<u64> {
-    set.get(row, col).and_then(|v| v.parse::<f64>().ok()).map(|v| v.max(0.0) as u64)
+    set.get(row, col)
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| v.max(0.0) as u64)
 }
 
 fn clip(s: String) -> String {
@@ -61,14 +63,20 @@ fn clip(s: String) -> String {
 
 /// The statement's first keyword, upper case ("SELECT", "CALL"…).
 fn command(sql: &str) -> Option<String> {
-    let w: String = sql.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let w: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     (!w.is_empty()).then(|| w.to_ascii_uppercase())
 }
 
 pub(crate) fn assemble(set: &Set) -> Vec<ServerProcess> {
     let mut out: Vec<ServerProcess> = Vec::new();
     for r in 0..set.rows.len() {
-        let Some(id) = n(set, r, "CONNECTION_ID") else { continue };
+        let Some(id) = n(set, r, "CONNECTION_ID") else {
+            continue;
+        };
         let id = id.to_string();
         // Already listed: a further running statement of the same connection.
         if out.last().is_some_and(|p| p.id == id) {
@@ -76,8 +84,12 @@ pub(crate) fn assemble(set: &Set) -> Vec<ServerProcess> {
         }
         let status = s(set, r, "CONNECTION_STATUS");
         let sql = s(set, r, "SQL_TEXT").map(clip);
-        let active = sql.is_some() || status.as_deref().is_some_and(|v| !v.eq_ignore_ascii_case("IDLE"));
-        let system = s(set, r, "CONNECTION_TYPE").is_some_and(|t| !t.eq_ignore_ascii_case("Remote"))
+        let active = sql.is_some()
+            || status
+                .as_deref()
+                .is_some_and(|v| !v.eq_ignore_ascii_case("IDLE"));
+        let system = s(set, r, "CONNECTION_TYPE")
+            .is_some_and(|t| !t.eq_ignore_ascii_case("Remote"))
             || s(set, r, "USER_NAME").is_some_and(|u| u.starts_with("_SYS"));
         out.push(ServerProcess {
             id,
@@ -90,7 +102,11 @@ pub(crate) fn assemble(set: &Set) -> Vec<ServerProcess> {
             program: s(set, r, "APPLICATION"),
             database: s(set, r, "CURRENT_SCHEMA_NAME"),
             command: sql.as_deref().and_then(command),
-            elapsed_ms: if active { n(set, r, "RUNNING_MS") } else { n(set, r, "IDLE_TIME") },
+            elapsed_ms: if active {
+                n(set, r, "RUNNING_MS")
+            } else {
+                n(set, r, "IDLE_TIME")
+            },
             wait: s(set, r, "WAIT"),
             blocked_by: s(set, r, "BLOCKER"),
             sql,
@@ -101,9 +117,11 @@ pub(crate) fn assemble(set: &Set) -> Vec<ServerProcess> {
 }
 
 pub(crate) async fn processes(conn: &Connection) -> Result<Vec<ServerProcess>> {
-    let set = query(conn, PROCESSES)
-        .await
-        .map_err(|e| Error::Query(format!("No se pudieron leer los procesos (hace falta el rol MONITORING): {e}")))?;
+    let set = query(conn, PROCESSES).await.map_err(|e| {
+        Error::Query(format!(
+            "No se pudieron leer los procesos (hace falta el rol MONITORING): {e}"
+        ))
+    })?;
     let mut list = assemble(&set);
     // Idle in an open write transaction: its last statement.
     let open: Vec<u64> = (0..set.rows.len())
@@ -113,7 +131,11 @@ pub(crate) async fn processes(conn: &Connection) -> Result<Vec<ServerProcess>> {
         .collect();
     if !open.is_empty() {
         // Numbers parsed above: safe to interpolate.
-        let ids = open.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
+        let ids = open
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!(
             "SELECT CONNECTION_ID, TO_NVARCHAR(SUBSTR(STATEMENT_STRING, 1, {MAX_TEXT})) AS SQL_TEXT
                FROM SYS.M_PREPARED_STATEMENTS
@@ -123,9 +145,16 @@ pub(crate) async fn processes(conn: &Connection) -> Result<Vec<ServerProcess>> {
         match query(conn, &sql).await {
             Ok(last) => {
                 for r in 0..last.rows.len() {
-                    let (Some(id), Some(text)) = (n(&last, r, "CONNECTION_ID"), s(&last, r, "SQL_TEXT")) else { continue };
+                    let (Some(id), Some(text)) =
+                        (n(&last, r, "CONNECTION_ID"), s(&last, r, "SQL_TEXT"))
+                    else {
+                        continue;
+                    };
                     let id = id.to_string();
-                    if let Some(p) = list.iter_mut().find(|p| p.id == id && !p.active && p.sql.is_none()) {
+                    if let Some(p) = list
+                        .iter_mut()
+                        .find(|p| p.id == id && !p.active && p.sql.is_none())
+                    {
                         p.sql = Some(text);
                     }
                 }
@@ -140,7 +169,10 @@ pub(crate) async fn cancel(conn: &Connection, id: &str) -> Result<()> {
     let id = session_id(id)?;
     let own = query(conn, "SELECT CURRENT_CONNECTION AS ID FROM DUMMY").await?;
     if own.get(0, "ID").and_then(|v| v.parse::<u64>().ok()) == Some(id) {
-        return Err(Error::Query("esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá".into()));
+        return Err(Error::Query(
+            "esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá"
+                .into(),
+        ));
     }
     conn.exec(format!("ALTER SYSTEM CANCEL SESSION '{id}'"))
         .await
@@ -154,7 +186,10 @@ mod tests {
     fn set(cols: &[&str], rows: &[&[Option<&str>]]) -> Set {
         Set {
             cols: cols.iter().map(|c| c.to_string()).collect(),
-            rows: rows.iter().map(|r| r.iter().map(|v| v.map(str::to_string)).collect()).collect(),
+            rows: rows
+                .iter()
+                .map(|r| r.iter().map(|v| v.map(str::to_string)).collect())
+                .collect(),
         }
     }
 
@@ -175,19 +210,83 @@ mod tests {
         let list = assemble(&set(
             &cols,
             &[
-                &[Some("200"), Some("RUNNING"), Some("Remote"), Some("APP"), Some("0"), Some("1500.7"), Some(" select * from t"), None, None, Some("0")],
+                &[
+                    Some("200"),
+                    Some("RUNNING"),
+                    Some("Remote"),
+                    Some("APP"),
+                    Some("0"),
+                    Some("1500.7"),
+                    Some(" select * from t"),
+                    None,
+                    None,
+                    Some("0"),
+                ],
                 // A second running statement of the same connection.
-                &[Some("200"), Some("RUNNING"), Some("Remote"), Some("APP"), Some("0"), Some("10"), Some("SELECT 1 FROM DUMMY"), None, None, Some("0")],
-                &[Some("201"), Some("RUNNING"), Some("Remote"), Some("APP"), Some("0"), Some("900"), Some("UPDATE T SET V = 1"), Some("202"), Some("RECORD LOCK EXCLUSIVE"), Some("0")],
-                &[Some("202"), Some("IDLE"), Some("Remote"), Some("SYSTEM"), Some("4000"), None, None, None, None, Some("1")],
-                &[Some("300"), Some("IDLE"), Some("Local"), Some("_SYS_STATISTICS"), Some("10"), None, None, None, None, Some("0")],
+                &[
+                    Some("200"),
+                    Some("RUNNING"),
+                    Some("Remote"),
+                    Some("APP"),
+                    Some("0"),
+                    Some("10"),
+                    Some("SELECT 1 FROM DUMMY"),
+                    None,
+                    None,
+                    Some("0"),
+                ],
+                &[
+                    Some("201"),
+                    Some("RUNNING"),
+                    Some("Remote"),
+                    Some("APP"),
+                    Some("0"),
+                    Some("900"),
+                    Some("UPDATE T SET V = 1"),
+                    Some("202"),
+                    Some("RECORD LOCK EXCLUSIVE"),
+                    Some("0"),
+                ],
+                &[
+                    Some("202"),
+                    Some("IDLE"),
+                    Some("Remote"),
+                    Some("SYSTEM"),
+                    Some("4000"),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some("1"),
+                ],
+                &[
+                    Some("300"),
+                    Some("IDLE"),
+                    Some("Local"),
+                    Some("_SYS_STATISTICS"),
+                    Some("10"),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some("0"),
+                ],
             ],
         ));
         assert_eq!(list.len(), 4);
-        assert!(list[0].active && list[0].elapsed_ms == Some(1500) && list[0].command.as_deref() == Some("SELECT"));
+        assert!(
+            list[0].active
+                && list[0].elapsed_ms == Some(1500)
+                && list[0].command.as_deref() == Some("SELECT")
+        );
         assert_eq!(list[1].blocked_by.as_deref(), Some("202"));
         assert_eq!(list[1].wait.as_deref(), Some("RECORD LOCK EXCLUSIVE"));
-        assert!(!list[2].active && list[2].own && list[2].elapsed_ms == Some(4000) && list[2].sql.is_none());
+        assert!(
+            !list[2].active
+                && list[2].own
+                && list[2].elapsed_ms == Some(4000)
+                && list[2].sql.is_none()
+        );
         assert!(list[3].system);
     }
 }

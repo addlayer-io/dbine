@@ -31,19 +31,47 @@ use std::time::Duration;
 /// PRAGMAs that only report, with or without an argument (a table or index
 /// name, a row limit for the checks).
 const REPORTING: &[&str] = &[
-    "table_info", "table_xinfo", "table_list", "index_info", "index_xinfo", "index_list", "foreign_key_list", "foreign_key_check",
-    "integrity_check", "quick_check", "database_list", "collation_list", "function_list", "module_list", "pragma_list", "compile_options",
+    "table_info",
+    "table_xinfo",
+    "table_list",
+    "index_info",
+    "index_xinfo",
+    "index_list",
+    "foreign_key_list",
+    "foreign_key_check",
+    "integrity_check",
+    "quick_check",
+    "database_list",
+    "collation_list",
+    "function_list",
+    "module_list",
+    "pragma_list",
+    "compile_options",
 ];
 
 /// PRAGMAs that report a setting when they have no argument (with one,
 /// they change it).
 const SETTINGS: &[&str] = &[
-    "application_id", "auto_vacuum", "cache_size", "data_version", "encoding", "foreign_keys", "freelist_count", "journal_mode",
-    "page_count", "page_size", "query_only", "schema_version", "synchronous", "temp_store", "user_version",
+    "application_id",
+    "auto_vacuum",
+    "cache_size",
+    "data_version",
+    "encoding",
+    "foreign_keys",
+    "freelist_count",
+    "journal_mode",
+    "page_count",
+    "page_size",
+    "query_only",
+    "schema_version",
+    "synchronous",
+    "temp_store",
+    "user_version",
 ];
 
 fn lock<T>(m: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
-    m.lock().map_err(|_| Error::State("conexión SQLite envenenada".into()))
+    m.lock()
+        .map_err(|_| Error::State("conexión SQLite envenenada".into()))
 }
 
 /// Run `sql` as a read: on a read-only connection to the session's file
@@ -58,7 +86,10 @@ pub(crate) fn run(
     max_rows: usize,
     out: &mut QueryOutcome,
 ) -> Result<()> {
-    let file = lock(main)?.path().filter(|p| !p.is_empty()).map(str::to_string);
+    let file = lock(main)?
+        .path()
+        .filter(|p| !p.is_empty())
+        .map(str::to_string);
     if let Some(file) = file {
         let mut slot = lock(ro)?;
         if slot.is_none() {
@@ -72,23 +103,37 @@ pub(crate) fn run(
         }
     }
     let c = lock(main)?;
-    let was_on: bool = c.query_row("PRAGMA query_only", [], |r| r.get(0)).map_err(err)?;
+    let was_on: bool = c
+        .query_row("PRAGMA query_only", [], |r| r.get(0))
+        .map_err(err)?;
     if !was_on {
         c.execute_batch("PRAGMA query_only = ON").map_err(err)?;
     }
     let r = guarded(&c, sql, max_rows, out);
-    let restored = if was_on { Ok(()) } else { c.execute_batch("PRAGMA query_only = OFF").map_err(err) };
+    let restored = if was_on {
+        Ok(())
+    } else {
+        c.execute_batch("PRAGMA query_only = OFF").map_err(err)
+    };
     r.and(restored)
 }
 
 /// A connection to `file` that can't write it.
 fn open_read_only(file: &str) -> rusqlite::Result<Connection> {
-    let c = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+    let c = Connection::open_with_flags(
+        file,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
     c.busy_timeout(Duration::from_secs(5))?;
     c.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)?;
     // SAFETY: a live handle; ENABLE_LOAD_EXTENSION takes (int, int*).
     unsafe {
-        ffi::sqlite3_db_config(c.handle(), ffi::SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, 0 as c_int, std::ptr::null_mut::<c_int>());
+        ffi::sqlite3_db_config(
+            c.handle(),
+            ffi::SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION,
+            0 as c_int,
+            std::ptr::null_mut::<c_int>(),
+        );
     }
     c.execute_batch("PRAGMA query_only = ON")?;
     Ok(c)
@@ -105,7 +150,11 @@ fn guarded(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome) -
     // SAFETY: `denied` outlives the authorizer, which is removed below
     // before it goes out of scope.
     unsafe {
-        ffi::sqlite3_set_authorizer(c.handle(), Some(authorize), &denied as *const Denied as *mut c_void);
+        ffi::sqlite3_set_authorizer(
+            c.handle(),
+            Some(authorize),
+            &denied as *const Denied as *mut c_void,
+        );
     }
     let r = prepare_and_run(c, sql, max_rows, out, &denied);
     unsafe {
@@ -114,21 +163,33 @@ fn guarded(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome) -
     r
 }
 
-fn prepare_and_run(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome, denied: &Denied) -> Result<()> {
+fn prepare_and_run(
+    c: &Connection,
+    sql: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+    denied: &Denied,
+) -> Result<()> {
     let refused = |e: rusqlite::Error| match denied.0.take() {
         Some(what) => Error::Query(format!("Una lectura no admite {what}.")),
         None => stmt_err(e, sql),
     };
     let mut batch = Batch::new(c, sql);
     let Some(mut stmt) = batch.next().map_err(refused)? else {
-        return Err(Error::Query("No hay ninguna sentencia que ejecutar.".into()));
+        return Err(Error::Query(
+            "No hay ninguna sentencia que ejecutar.".into(),
+        ));
     };
     // Whatever follows, valid or not, is a second statement.
     if !matches!(batch.next(), Ok(None)) {
-        return Err(Error::Query("Una lectura admite una sola sentencia.".into()));
+        return Err(Error::Query(
+            "Una lectura admite una sola sentencia.".into(),
+        ));
     }
     if !stmt.readonly() {
-        return Err(Error::Query("La sentencia escribe en la base: una lectura no la admite.".into()));
+        return Err(Error::Query(
+            "La sentencia escribe en la base: una lectura no la admite.".into(),
+        ));
     }
     let r = run_stmt(c, &mut stmt, sql, max_rows, out);
     match (r, denied.0.take()) {
@@ -147,7 +208,13 @@ unsafe extern "C" fn authorize(
     _db: *const c_char,
     _trigger: *const c_char,
 ) -> c_int {
-    let text = |p: *const c_char| if p.is_null() { String::new() } else { CStr::from_ptr(p).to_string_lossy().to_ascii_lowercase() };
+    let text = |p: *const c_char| {
+        if p.is_null() {
+            String::new()
+        } else {
+            CStr::from_ptr(p).to_string_lossy().to_ascii_lowercase()
+        }
+    };
     let verdict = match action {
         ffi::SQLITE_SELECT | ffi::SQLITE_READ | ffi::SQLITE_RECURSIVE => None,
         // arg2: the function's name.
@@ -158,7 +225,8 @@ unsafe extern "C" fn authorize(
         // arg1: the PRAGMA, arg2: its argument (NULL when it has none).
         ffi::SQLITE_PRAGMA => {
             let name = text(arg1);
-            let reports = REPORTING.contains(&name.as_str()) || (arg2.is_null() && SETTINGS.contains(&name.as_str()));
+            let reports = REPORTING.contains(&name.as_str())
+                || (arg2.is_null() && SETTINGS.contains(&name.as_str()));
             (!reports).then(|| format!("PRAGMA {name}"))
         }
         other => Some(action_name(other).to_string()),
@@ -258,7 +326,9 @@ mod tests {
         ] {
             assert!(read(&c, bad).is_err(), "{bad} should be refused");
         }
-        let n: i64 = c.query_row("SELECT count(*) FROM t", [], |r| r.get(0)).unwrap();
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM t", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 2);
         assert!(read(&c, "SELECT 1; -- trailing comment\n").is_ok());
         // The authorizer is gone afterwards.
@@ -270,7 +340,11 @@ mod tests {
         let c = Connection::open_in_memory().unwrap();
         c.execute_batch("CREATE TABLE t (a)").unwrap();
         let msg = |sql| read(&c, sql).unwrap_err().to_string();
-        assert!(msg("ATTACH DATABASE ':memory:' AS x").contains("ATTACH"), "{}", msg("ATTACH DATABASE ':memory:' AS x"));
+        assert!(
+            msg("ATTACH DATABASE ':memory:' AS x").contains("ATTACH"),
+            "{}",
+            msg("ATTACH DATABASE ':memory:' AS x")
+        );
         assert!(msg("PRAGMA writable_schema = 1").contains("writable_schema"));
         assert!(msg("SELECT 1; DELETE FROM t").contains("una sola sentencia"));
     }

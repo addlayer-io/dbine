@@ -14,22 +14,38 @@ use std::io::Write;
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut ep = Endpoints::default();
-    ep.models_dir = std::env::var("DBINE_MODELS_DIR").map(Into::into).unwrap_or_else(|_| {
-        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/io.addlayer.dbine/models")
-    });
+    ep.models_dir = std::env::var("DBINE_MODELS_DIR")
+        .map(Into::into)
+        .unwrap_or_else(|_| {
+            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                .join("Library/Application Support/io.addlayer.dbine/models")
+        });
     if args.first().map(String::as_str) == Some("detect") {
-        println!("{}", serde_json::to_string_pretty(&dbine_ai::detect(&ep).await).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&dbine_ai::detect(&ep).await).unwrap()
+        );
         return;
     }
-    let kind: ProviderKind = serde_json::from_value(serde_json::Value::String(args[0].clone())).expect("proveedor");
+    let kind: ProviderKind =
+        serde_json::from_value(serde_json::Value::String(args[0].clone())).expect("proveedor");
     let model = args.get(1).cloned();
-    let question = args.get(2).cloned().unwrap_or_else(|| "Listá los clientes con más de 5 pedidos en 2025.".into());
+    let question = args
+        .get(2)
+        .cloned()
+        .unwrap_or_else(|| "Listá los clientes con más de 5 pedidos en 2025.".into());
     if kind == ProviderKind::Embedded {
-        let m = embedded::catalog_model(model.as_deref().unwrap_or_default()).expect("modelo del catálogo");
+        let m = embedded::catalog_model(model.as_deref().unwrap_or_default())
+            .expect("modelo del catálogo");
         let t = std::time::Instant::now();
-        embedded::download(&ep.models_dir, m, &|d, total| eprint!("\rdescargando {:.1}%", d as f64 * 100.0 / total as f64), &Cancel::new())
-            .await
-            .expect("descarga");
+        embedded::download(
+            &ep.models_dir,
+            m,
+            &|d, total| eprint!("\rdescargando {:.1}%", d as f64 * 100.0 / total as f64),
+            &Cancel::new(),
+        )
+        .await
+        .expect("descarga");
         eprintln!("\nmodelo listo en {:.1}s", t.elapsed().as_secs_f64());
     }
     let req = ChatRequest {
@@ -49,7 +65,10 @@ async fn main() {
         &ep,
         &|d| {
             if let Delta::Text(t2) = d {
-                first.lock().unwrap().get_or_insert(t.elapsed().as_secs_f64());
+                first
+                    .lock()
+                    .unwrap()
+                    .get_or_insert(t.elapsed().as_secs_f64());
                 print!("{t2}");
                 let _ = std::io::stdout().flush();
             }
@@ -59,7 +78,12 @@ async fn main() {
     .await;
     println!();
     match out {
-        Ok(text) => eprintln!("--- {} caracteres · primer texto a los {:.2}s · total {:.2}s", text.len(), first.lock().unwrap().unwrap_or(0.0), t.elapsed().as_secs_f64()),
+        Ok(text) => eprintln!(
+            "--- {} caracteres · primer texto a los {:.2}s · total {:.2}s",
+            text.len(),
+            first.lock().unwrap().unwrap_or(0.0),
+            t.elapsed().as_secs_f64()
+        ),
         Err(e) => eprintln!("ERROR: {e}"),
     }
     embedded::shutdown();

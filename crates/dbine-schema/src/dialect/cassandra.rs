@@ -33,8 +33,12 @@ pub struct Cql {
 }
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
-    static CQL: Cql = Cql { secondary_indexes: true };
-    static KEYSPACES: Cql = Cql { secondary_indexes: false };
+    static CQL: Cql = Cql {
+        secondary_indexes: true,
+    };
+    static KEYSPACES: Cql = Cql {
+        secondary_indexes: false,
+    };
     match driver_id {
         "cassandra" | "scylladb" => Some(&CQL),
         "keyspaces" => Some(&KEYSPACES),
@@ -74,12 +78,23 @@ fn cql_type(s: &str) -> L {
     if let Some((head, inner)) = generic(&s) {
         return match head {
             "frozen" => cql_type(inner),
-            "list" | "set" => L::Array { of: Box::new(cql_type(inner)) },
+            "list" | "set" => L::Array {
+                of: Box::new(cql_type(inner)),
+            },
             "map" => match split_top(inner).as_slice() {
-                [k, v] => L::Map { key: Box::new(cql_type(k)), value: Box::new(cql_type(v)) },
+                [k, v] => L::Map {
+                    key: Box::new(cql_type(k)),
+                    value: Box::new(cql_type(v)),
+                },
                 _ => L::Json { binary: true },
             },
-            "vector" => L::Array { of: Box::new(split_top(inner).first().map_or(L::Float { bytes: 4 }, |t| cql_type(t))) },
+            "vector" => L::Array {
+                of: Box::new(
+                    split_top(inner)
+                        .first()
+                        .map_or(L::Float { bytes: 4 }, |t| cql_type(t)),
+                ),
+            },
             // Tuples and anything generic we don't know.
             _ => L::Json { binary: true },
         };
@@ -91,8 +106,14 @@ fn cql_type(s: &str) -> L {
         "int" => L::int(4),
         "bigint" | "counter" => L::int(8),
         // Arbitrary precision integer.
-        "varint" => L::Decimal { precision: None, scale: Some(0) },
-        "decimal" => L::Decimal { precision: None, scale: None },
+        "varint" => L::Decimal {
+            precision: None,
+            scale: Some(0),
+        },
+        "decimal" => L::Decimal {
+            precision: None,
+            scale: None,
+        },
         "float" => L::Float { bytes: 4 },
         "double" => L::Float { bytes: 8 },
         "text" | "varchar" => L::Text { unicode: true },
@@ -100,20 +121,30 @@ fn cql_type(s: &str) -> L {
         "blob" => L::Blob,
         "date" => L::Date,
         // Nanoseconds; SQL engines keep at most 6-7 digits.
-        "time" => L::Time { precision: Some(9), tz: false },
+        "time" => L::Time {
+            precision: Some(9),
+            tz: false,
+        },
         // Milliseconds since the epoch, UTC.
-        "timestamp" => L::Timestamp { precision: Some(3), tz: true },
+        "timestamp" => L::Timestamp {
+            precision: Some(3),
+            tz: true,
+        },
         "duration" => L::Interval,
         "uuid" | "timeuuid" => L::Uuid,
         "inet" => L::Inet,
-        "" => L::Other { native: String::new() },
+        "" => L::Other {
+            native: String::new(),
+        },
         // A user-defined type: a structure, as JSON elsewhere.
         _ => L::Json { binary: true },
     }
 }
 
 fn is_collection(native: &str) -> bool {
-    ["list<", "set<", "map<"].iter().any(|p| native.starts_with(p))
+    ["list<", "set<", "map<"]
+        .iter()
+        .any(|p| native.starts_with(p))
 }
 
 /// Collections nested in collections (or in keys) have to be frozen.
@@ -140,7 +171,11 @@ impl Cql {
                     _ => Rendered::exact("varint"),
                 };
                 if *unsigned {
-                    r.with(Info, TypeChanged, "CQL no tiene enteros sin signo: se usa un tipo más grande con signo.")
+                    r.with(
+                        Info,
+                        TypeChanged,
+                        "CQL no tiene enteros sin signo: se usa un tipo más grande con signo.",
+                    )
                 } else {
                     r
                 }
@@ -156,12 +191,20 @@ impl Cql {
             }
             L::Char { .. } | L::Varchar { .. } | L::Text { .. } => Rendered::exact("text"),
             L::Binary { .. } | L::Varbinary { .. } | L::Blob => Rendered::exact("blob"),
-            L::Bit { .. } => Rendered::exact("text").with(Warning, TypeApproximated, "Cadena de bits como texto de 0 y 1."),
+            L::Bit { .. } => Rendered::exact("text").with(
+                Warning,
+                TypeApproximated,
+                "Cadena de bits como texto de 0 y 1.",
+            ),
             L::Date => Rendered::exact("date"),
             L::Time { tz, .. } => {
                 let r = Rendered::exact("time");
                 if *tz {
-                    r.with(Loss, TimeZoneLoss, "CQL no guarda la zona horaria de una hora.")
+                    r.with(
+                        Loss,
+                        TimeZoneLoss,
+                        "CQL no guarda la zona horaria de una hora.",
+                    )
                 } else {
                     r
                 }
@@ -189,31 +232,61 @@ impl Cql {
             L::Interval => Rendered::exact("duration"),
             L::Year => Rendered::exact("smallint").with(Info, TypeChanged, "Año como smallint."),
             L::Uuid => Rendered::exact("uuid"),
-            L::Json { .. } => Rendered::exact("text").with(Warning, TypeApproximated, "CQL no tiene JSON: queda como texto."),
+            L::Json { .. } => Rendered::exact("text").with(
+                Warning,
+                TypeApproximated,
+                "CQL no tiene JSON: queda como texto.",
+            ),
             L::Xml => Rendered::exact("text").with(Info, TypeApproximated, "XML como texto."),
-            L::Enum { values } => Rendered::exact("text").with(Info, TypeApproximated, format!("Enumerado como texto. Valores: {}.", values.join(", "))),
-            L::Set { values } => Rendered::exact("set<text>").with(Info, TypeApproximated, format!("Conjunto como set<text>. Valores: {}.", values.join(", "))),
+            L::Enum { values } => Rendered::exact("text").with(
+                Info,
+                TypeApproximated,
+                format!("Enumerado como texto. Valores: {}.", values.join(", ")),
+            ),
+            L::Set { values } => Rendered::exact("set<text>").with(
+                Info,
+                TypeApproximated,
+                format!("Conjunto como set<text>. Valores: {}.", values.join(", ")),
+            ),
             L::Array { of } => {
                 let inner = self.render(of);
-                Rendered { native: format!("list<{}>", frozen(inner.native)), notes: inner.notes }
+                Rendered {
+                    native: format!("list<{}>", frozen(inner.native)),
+                    notes: inner.notes,
+                }
             }
             L::Map { key, value } => {
                 let (k, v) = (self.render(key), self.render(value));
                 let mut notes = k.notes;
                 notes.extend(v.notes);
-                Rendered { native: format!("map<{}, {}>", frozen(k.native), frozen(v.native)), notes }
+                Rendered {
+                    native: format!("map<{}, {}>", frozen(k.native), frozen(v.native)),
+                    notes,
+                }
             }
-            L::Geometry { .. } => Rendered::exact("text").with(Warning, TypeApproximated, "CQL no tiene tipos espaciales: queda como texto (WKT)."),
+            L::Geometry { .. } => Rendered::exact("text").with(
+                Warning,
+                TypeApproximated,
+                "CQL no tiene tipos espaciales: queda como texto (WKT).",
+            ),
             L::Inet => Rendered::exact("inet"),
-            L::MacAddr => Rendered::exact("text").with(Info, TypeApproximated, "Dirección MAC como texto."),
-            L::RowVersion => Rendered::exact("blob").with(Warning, TypeApproximated, "CQL no tiene versión de fila automática: no se actualiza sola."),
+            L::MacAddr => {
+                Rendered::exact("text").with(Info, TypeApproximated, "Dirección MAC como texto.")
+            }
+            L::RowVersion => Rendered::exact("blob").with(
+                Warning,
+                TypeApproximated,
+                "CQL no tiene versión de fila automática: no se actualiza sola.",
+            ),
             L::Other { native } => Rendered::exact(native.clone()),
         }
     }
 }
 
 fn is_true(c: &dbine_driver::ColumnDef, k: &str) -> bool {
-    c.options.get(k).is_some_and(|v| v.eq_ignore_ascii_case("true"))
+    c.options
+        .get(k)
+        .is_some_and(|v| v.eq_ignore_ascii_case("true"))
 }
 
 impl Dialect for Cql {
@@ -223,7 +296,9 @@ impl Dialect for Cql {
 
     fn parse_type(&self, t: &TypeSpec) -> L {
         match cql_type(&t.raw) {
-            L::Other { .. } => L::Other { native: t.raw.clone() },
+            L::Other { .. } => L::Other {
+                native: t.raw.clone(),
+            },
             l => l,
         }
     }
@@ -261,13 +336,35 @@ impl Dialect for Cql {
         let name = t.name.clone();
         t.kind = dbine_driver::kinds::TABLE.into();
         let exists = |c: &String| t.columns.iter().any(|x| &x.name == c);
-        let mut key: Vec<String> = t.primary_key.as_ref().map(|k| k.columns.clone()).unwrap_or_default();
+        let mut key: Vec<String> = t
+            .primary_key
+            .as_ref()
+            .map(|k| k.columns.clone())
+            .unwrap_or_default();
         if key.is_empty() {
-            if let Some(ix) = t.indexes.iter().find(|i| i.unique && !i.columns.is_empty() && i.columns.iter().all(exists)) {
+            if let Some(ix) = t
+                .indexes
+                .iter()
+                .find(|i| i.unique && !i.columns.is_empty() && i.columns.iter().all(exists))
+            {
                 key = ix.columns.clone();
-                report.push(Severity::Warning, IssueCode::PrimaryKeyAdded, &name, Some(&ix.name), format!("La tabla no tiene clave primaria: se usa la del índice único «{}».", ix.name));
+                report.push(
+                    Severity::Warning,
+                    IssueCode::PrimaryKeyAdded,
+                    &name,
+                    Some(&ix.name),
+                    format!(
+                        "La tabla no tiene clave primaria: se usa la del índice único «{}».",
+                        ix.name
+                    ),
+                );
             } else {
-                key = t.columns.iter().filter(|c| !is_collection(&c.data_type)).map(|c| c.name.clone()).collect();
+                key = t
+                    .columns
+                    .iter()
+                    .filter(|c| !is_collection(&c.data_type))
+                    .map(|c| c.name.clone())
+                    .collect();
                 report.push(
                     Severity::Warning,
                     IssueCode::PrimaryKeyAdded,
@@ -278,7 +375,9 @@ impl Dialect for Cql {
             }
         }
         for (i, k) in key.iter().enumerate() {
-            let Some(c) = t.columns.iter_mut().find(|c| &c.name == k) else { continue };
+            let Some(c) = t.columns.iter_mut().find(|c| &c.name == k) else {
+                continue;
+            };
             if i == 0 {
                 c.options.insert("partition_key".into(), "true".into());
             } else {
@@ -298,9 +397,18 @@ impl Dialect for Cql {
                     rest.join(", ")
                 )
             };
-            report.push(Severity::Info, IssueCode::OptionAdded, &name, Some("partition_key"), msg);
+            report.push(
+                Severity::Info,
+                IssueCode::OptionAdded,
+                &name,
+                Some("partition_key"),
+                msg,
+            );
         }
-        t.primary_key = (!key.is_empty()).then(|| KeyDef { name: t.primary_key.as_ref().and_then(|k| k.name.clone()), columns: key.clone() });
+        t.primary_key = (!key.is_empty()).then(|| KeyDef {
+            name: t.primary_key.as_ref().and_then(|k| k.name.clone()),
+            columns: key.clone(),
+        });
 
         // Secondary indexes: one column, not unique, not the sole partition key.
         let mut indexed: HashSet<String> = HashSet::new();
@@ -318,7 +426,13 @@ impl Dialect for Cql {
                 None
             };
             match why {
-                Some(m) => report.push(Severity::Dropped, IssueCode::IndexDropped, &name, Some(&ix.name), m),
+                Some(m) => report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &name,
+                    Some(&ix.name),
+                    m,
+                ),
                 None => kept.push(ix),
             }
         }
@@ -341,21 +455,65 @@ mod tests {
         assert_eq!(p("ascii"), L::Text { unicode: false });
         assert_eq!(p("bigint"), L::int(8));
         assert_eq!(p("counter"), L::int(8));
-        assert_eq!(p("varint"), L::Decimal { precision: None, scale: Some(0) });
-        assert_eq!(p("decimal"), L::Decimal { precision: None, scale: None });
-        assert_eq!(p("timestamp"), L::Timestamp { precision: Some(3), tz: true });
-        assert_eq!(p("time"), L::Time { precision: Some(9), tz: false });
+        assert_eq!(
+            p("varint"),
+            L::Decimal {
+                precision: None,
+                scale: Some(0)
+            }
+        );
+        assert_eq!(
+            p("decimal"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
+        assert_eq!(
+            p("timestamp"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
+        assert_eq!(
+            p("time"),
+            L::Time {
+                precision: Some(9),
+                tz: false
+            }
+        );
         assert_eq!(p("timeuuid"), L::Uuid);
         assert_eq!(p("duration"), L::Interval);
         assert_eq!(p("inet"), L::Inet);
-        assert_eq!(p("list<text>"), L::Array { of: Box::new(L::Text { unicode: true }) });
-        assert_eq!(p("set<int>"), L::Array { of: Box::new(L::int(4)) });
+        assert_eq!(
+            p("list<text>"),
+            L::Array {
+                of: Box::new(L::Text { unicode: true })
+            }
+        );
+        assert_eq!(
+            p("set<int>"),
+            L::Array {
+                of: Box::new(L::int(4))
+            }
+        );
         assert_eq!(
             p("map<text, frozen<list<int>>>"),
-            L::Map { key: Box::new(L::Text { unicode: true }), value: Box::new(L::Array { of: Box::new(L::int(4)) }) }
+            L::Map {
+                key: Box::new(L::Text { unicode: true }),
+                value: Box::new(L::Array {
+                    of: Box::new(L::int(4))
+                })
+            }
         );
         assert_eq!(p("frozen<tuple<int, text>>"), L::Json { binary: true });
-        assert_eq!(p("vector<float, 3>"), L::Array { of: Box::new(L::Float { bytes: 4 }) });
+        assert_eq!(
+            p("vector<float, 3>"),
+            L::Array {
+                of: Box::new(L::Float { bytes: 4 })
+            }
+        );
         assert_eq!(p("direccion"), L::Json { binary: true });
         assert_eq!(p("frozen<direccion>"), L::Json { binary: true });
     }
@@ -366,19 +524,61 @@ mod tests {
         let r = |t: L| d.render_type(&t).native;
         assert_eq!(r(L::Bool), "boolean");
         assert_eq!(r(L::int(1)), "tinyint");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }), "bigint");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "varint");
-        assert_eq!(r(L::Decimal { precision: Some(10), scale: Some(2) }), "decimal");
-        assert_eq!(r(L::Decimal { precision: Some(20), scale: Some(0) }), "varint");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "bigint"
+        );
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "varint"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }),
+            "decimal"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(20),
+                scale: Some(0)
+            }),
+            "varint"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "float");
         assert_eq!(r(L::Float { bytes: 8 }), "double");
         assert_eq!(r(L::Money), "decimal");
-        assert_eq!(r(L::Varchar { len: Some(3), unicode: false }), "text");
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(3),
+                unicode: false
+            }),
+            "text"
+        );
         assert_eq!(r(L::Blob), "blob");
         assert_eq!(r(L::Bit { len: Some(1) }), "text");
         assert_eq!(r(L::Date), "date");
-        assert_eq!(r(L::Time { precision: Some(6), tz: false }), "time");
-        assert_eq!(r(L::Timestamp { precision: Some(6), tz: true }), "timestamp");
+        assert_eq!(
+            r(L::Time {
+                precision: Some(6),
+                tz: false
+            }),
+            "time"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(6),
+                tz: true
+            }),
+            "timestamp"
+        );
         assert_eq!(r(L::Interval), "duration");
         assert_eq!(r(L::Year), "smallint");
         assert_eq!(r(L::Uuid), "uuid");
@@ -386,9 +586,29 @@ mod tests {
         assert_eq!(r(L::Xml), "text");
         assert_eq!(r(L::Enum { values: vec![] }), "text");
         assert_eq!(r(L::Set { values: vec![] }), "set<text>");
-        assert_eq!(r(L::Array { of: Box::new(L::Array { of: Box::new(L::int(4)) }) }), "list<frozen<list<int>>>");
-        assert_eq!(r(L::Map { key: Box::new(L::Text { unicode: true }), value: Box::new(L::int(8)) }), "map<text, bigint>");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "text");
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Array {
+                    of: Box::new(L::int(4))
+                })
+            }),
+            "list<frozen<list<int>>>"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Text { unicode: true }),
+                value: Box::new(L::int(8))
+            }),
+            "map<text, bigint>"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "text"
+        );
         assert_eq!(r(L::Inet), "inet");
         assert_eq!(r(L::MacAddr), "text");
         assert_eq!(r(L::RowVersion), "blob");
@@ -401,12 +621,36 @@ mod tests {
     #[test]
     fn finer_timestamps_warn_that_the_copy_fails() {
         let d = lookup("cassandra").unwrap();
-        let r = d.render_type(&L::Timestamp { precision: Some(6), tz: true });
+        let r = d.render_type(&L::Timestamp {
+            precision: Some(6),
+            tz: true,
+        });
         assert_eq!(r.native, "timestamp");
-        let [n] = r.notes.as_slice() else { panic!("{:?}", r.notes) };
-        assert_eq!((n.severity, n.code), (Severity::Loss, IssueCode::PrecisionLoss));
-        assert!(n.message.contains("6 decimales") && n.message.contains("va a fallar"), "{}", n.message);
-        assert!(d.render_type(&L::Timestamp { precision: Some(3), tz: true }).notes.is_empty());
-        assert!(d.render_type(&L::Timestamp { precision: None, tz: true }).notes.is_empty());
+        let [n] = r.notes.as_slice() else {
+            panic!("{:?}", r.notes)
+        };
+        assert_eq!(
+            (n.severity, n.code),
+            (Severity::Loss, IssueCode::PrecisionLoss)
+        );
+        assert!(
+            n.message.contains("6 decimales") && n.message.contains("va a fallar"),
+            "{}",
+            n.message
+        );
+        assert!(d
+            .render_type(&L::Timestamp {
+                precision: Some(3),
+                tz: true
+            })
+            .notes
+            .is_empty());
+        assert!(d
+            .render_type(&L::Timestamp {
+                precision: None,
+                tz: true
+            })
+            .notes
+            .is_empty());
     }
 }

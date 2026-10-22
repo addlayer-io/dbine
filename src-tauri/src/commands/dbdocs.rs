@@ -35,24 +35,41 @@ pub struct DocsOutline {
 
 /// What the dialog offers for a database.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn dbdocs_outline(state: State<'_, AppState>, args: OutlineArgs) -> CommandResult<DocsOutline> {
+pub async fn dbdocs_outline(
+    state: State<'_, AppState>,
+    args: OutlineArgs,
+) -> CommandResult<DocsOutline> {
     let driver = driver_of(&state, &args.connection_id)?;
     let (objects, schemas) = state
-        .meta_read(&args.connection_id, &args.database, crate::commands::explorer::META_LIMIT, |s| {
-            Box::pin(async move {
-                let objects = s.list_objects().await?;
-                let schemas = s.list_schemas().await.ok().flatten().unwrap_or_default();
-                Ok((objects, schemas))
-            })
-        })
+        .meta_read(
+            &args.connection_id,
+            &args.database,
+            crate::commands::explorer::META_LIMIT,
+            |s| {
+                Box::pin(async move {
+                    let objects = s.list_objects().await?;
+                    let schemas = s.list_schemas().await.ok().flatten().unwrap_or_default();
+                    Ok((objects, schemas))
+                })
+            },
+        )
         .await?;
-    let mut names: BTreeSet<String> = objects.iter().filter_map(|o| o.schema.clone()).filter(|s| !s.is_empty()).collect();
+    let mut names: BTreeSet<String> = objects
+        .iter()
+        .filter_map(|o| o.schema.clone())
+        .filter(|s| !s.is_empty())
+        .collect();
     names.extend(schemas.into_iter().filter(|s| !s.system).map(|s| s.name));
     let mut kinds = BTreeMap::new();
     for o in &objects {
         *kinds.entry(o.kind.clone()).or_insert(0) += 1;
     }
-    Ok(DocsOutline { schemas: names.into_iter().collect(), kinds, foreign_keys: driver.capabilities().foreign_keys, dependencies: driver.supports_dependencies() })
+    Ok(DocsOutline {
+        schemas: names.into_iter().collect(),
+        kinds,
+        foreign_keys: driver.capabilities().foreign_keys,
+        dependencies: driver.supports_dependencies(),
+    })
 }
 
 #[derive(Deserialize)]
@@ -105,13 +122,24 @@ pub(crate) async fn document(
     progress: &(dyn Fn(usize, usize, &'static str) + Send + Sync),
 ) -> CommandResult<Built> {
     let driver = driver_of(state, connection_id)?;
-    let connection = state.store.get_connection(connection_id)?.map(|c| c.name).unwrap_or_default();
+    let connection = state
+        .store
+        .get_connection(connection_id)?
+        .map(|c| c.name)
+        .unwrap_or_default();
     let labels = Labels::new(&opts.labels);
-    let entry = state.dedicated_session(key, connection_id, database, true).await?;
+    let entry = state
+        .dedicated_session(key, connection_id, database, true)
+        .await?;
     let result = {
         let mut s = entry.session.lock().await;
         let cancelled = || entry.cancelled.load(Ordering::Relaxed);
-        let cx = Context { database, connection: &connection, progress, cancelled: &cancelled };
+        let cx = Context {
+            database,
+            connection: &connection,
+            progress,
+            cancelled: &cancelled,
+        };
         tokio::select! {
             r = dbdocs::collect(&mut **s, driver.as_ref(), opts, &labels, &cx) => r,
             _ = entry.cancel.notified() => Err(CommandError::Cancelled),
@@ -119,13 +147,22 @@ pub(crate) async fn document(
     };
     state.sessions.remove(key);
     let doc = result?;
-    Ok(Built { text: dbdocs::render(&doc, opts.format, &labels), tables: doc.table_count(), objects: doc.object_count(), notes: doc.notes })
+    Ok(Built {
+        text: dbdocs::render(&doc, opts.format, &labels),
+        tables: doc.table_count(),
+        objects: doc.object_count(),
+        notes: doc.notes,
+    })
 }
 
 /// `path` with the format's extension when it has none of its own.
 pub(crate) fn with_extension(path: &Path, format: dbdocs::DocFormat) -> PathBuf {
     let ext = format.extension();
-    let has = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(ext) || (ext == "md" && e.eq_ignore_ascii_case("markdown")) || (ext == "html" && e.eq_ignore_ascii_case("htm")));
+    let has = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        e.eq_ignore_ascii_case(ext)
+            || (ext == "md" && e.eq_ignore_ascii_case("markdown"))
+            || (ext == "html" && e.eq_ignore_ascii_case("htm"))
+    });
     if has {
         path.to_path_buf()
     } else {
@@ -142,21 +179,51 @@ fn written() -> &'static Mutex<HashSet<PathBuf>> {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn dbdocs_generate(app: AppHandle, state: State<'_, AppState>, args: GenerateArgs) -> CommandResult<Generated> {
+pub async fn dbdocs_generate(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: GenerateArgs,
+) -> CommandResult<Generated> {
     if args.path.trim().is_empty() {
-        return Err(CommandError::BadRequest("falta el archivo de destino".into()));
+        return Err(CommandError::BadRequest(
+            "falta el archivo de destino".into(),
+        ));
     }
     let path = with_extension(Path::new(args.path.trim()), args.options.format);
     let run_id = args.run_id.clone();
     let emit = move |done: usize, total: usize, phase: &'static str| {
-        let _ = app.emit("dbdocs-progress", Progress { run_id: &run_id, done, total, phase });
+        let _ = app.emit(
+            "dbdocs-progress",
+            Progress {
+                run_id: &run_id,
+                done,
+                total,
+                phase,
+            },
+        );
     };
-    let built = document(&state, &format!("docs:{}", args.run_id), &args.connection_id, &args.database, &args.options, &emit).await?;
-    std::fs::write(&path, &built.text).map_err(|e| CommandError::Internal(format!("no se pudo escribir {}: {e}", path.display())))?;
+    let built = document(
+        &state,
+        &format!("docs:{}", args.run_id),
+        &args.connection_id,
+        &args.database,
+        &args.options,
+        &emit,
+    )
+    .await?;
+    std::fs::write(&path, &built.text).map_err(|e| {
+        CommandError::Internal(format!("no se pudo escribir {}: {e}", path.display()))
+    })?;
     if let Ok(mut w) = written().lock() {
         w.insert(path.clone());
     }
-    Ok(Generated { path: path.to_string_lossy().into_owned(), tables: built.tables, objects: built.objects, bytes: built.text.len() as u64, notes: built.notes })
+    Ok(Generated {
+        path: path.to_string_lossy().into_owned(),
+        tables: built.tables,
+        objects: built.objects,
+        bytes: built.text.len() as u64,
+        notes: built.notes,
+    })
 }
 
 #[derive(Deserialize)]
@@ -173,9 +240,15 @@ pub async fn dbdocs_open(app: AppHandle, args: FileArgs) -> CommandResult<()> {
     use tauri_plugin_opener::OpenerExt;
     let path = PathBuf::from(&args.path);
     if !written().lock().map(|w| w.contains(&path)).unwrap_or(false) {
-        return Err(CommandError::BadRequest("ese archivo no lo generó DBine".into()));
+        return Err(CommandError::BadRequest(
+            "ese archivo no lo generó DBine".into(),
+        ));
     }
-    let r = if args.reveal { app.opener().reveal_item_in_dir(&path) } else { app.opener().open_path(path.to_string_lossy(), None::<&str>) };
+    let r = if args.reveal {
+        app.opener().reveal_item_in_dir(&path)
+    } else {
+        app.opener().open_path(path.to_string_lossy(), None::<&str>)
+    };
     r.map_err(|e| CommandError::Internal(e.to_string()))
 }
 
@@ -188,9 +261,18 @@ mod tests {
 
     #[test]
     fn extensions() {
-        assert_eq!(with_extension(Path::new("/tmp/x"), DocFormat::Html), PathBuf::from("/tmp/x.html"));
-        assert_eq!(with_extension(Path::new("/tmp/x.HTM"), DocFormat::Html), PathBuf::from("/tmp/x.HTM"));
-        assert_eq!(with_extension(Path::new("/tmp/x.v1"), DocFormat::Markdown), PathBuf::from("/tmp/x.v1.md"));
+        assert_eq!(
+            with_extension(Path::new("/tmp/x"), DocFormat::Html),
+            PathBuf::from("/tmp/x.html")
+        );
+        assert_eq!(
+            with_extension(Path::new("/tmp/x.HTM"), DocFormat::Html),
+            PathBuf::from("/tmp/x.HTM")
+        );
+        assert_eq!(
+            with_extension(Path::new("/tmp/x.v1"), DocFormat::Markdown),
+            PathBuf::from("/tmp/x.v1.md")
+        );
     }
 
     /// A SQLite file with keys, an index, a check, a view and a trigger,
@@ -218,7 +300,11 @@ mod tests {
                 id: "s".into(),
                 name: "tienda".into(),
                 color: None,
-                config: ConnectionConfig { driver: "sqlite".into(), host: file.to_string_lossy().into_owned(), ..Default::default() },
+                config: ConnectionConfig {
+                    driver: "sqlite".into(),
+                    host: file.to_string_lossy().into_owned(),
+                    ..Default::default()
+                },
                 save_password: false,
                 folder_id: None,
                 tags: vec![],
@@ -229,7 +315,16 @@ mod tests {
 
         let steps = Mutex::new(Vec::new());
         let progress = |d: usize, t: usize, p: &'static str| steps.lock().unwrap().push((d, t, p));
-        let built = document(&state, "docs:test", "s", "main", &DocOptions::default(), &progress).await.unwrap();
+        let built = document(
+            &state,
+            "docs:test",
+            "s",
+            "main",
+            &DocOptions::default(),
+            &progress,
+        )
+        .await
+        .unwrap();
         assert!(state.sessions.get("docs:test").is_none());
         assert_eq!(built.tables, 2, "{}", built.text);
         assert!(built.objects >= 2, "view and trigger: {}", built.objects);
@@ -249,8 +344,15 @@ mod tests {
         assert!(used.contains("big_customers"), "{used}");
         assert!(steps.lock().unwrap().iter().any(|s| s.2 == "source"));
 
-        let md_opts = DocOptions { format: DocFormat::Markdown, source: false, triggers: false, ..Default::default() };
-        let built = document(&state, "docs:test2", "s", "main", &md_opts, &progress).await.unwrap();
+        let md_opts = DocOptions {
+            format: DocFormat::Markdown,
+            source: false,
+            triggers: false,
+            ..Default::default()
+        };
+        let built = document(&state, "docs:test2", "s", "main", &md_opts, &progress)
+            .await
+            .unwrap();
         let md = &built.text;
         assert!(md.starts_with("# Diccionario de datos"));
         assert!(md.contains("orders&lt;x&gt;") && !md.contains("<svg"));
@@ -273,7 +375,9 @@ mod tests {
         let run = crate::tasks::run_task(&state, None, &task, "manual").await;
         assert_eq!(run.status, dbine_core::tasks::RunStatus::Ok, "{run:#?}");
         assert_eq!(run.steps[0].outputs["tables"], "2");
-        assert!(std::fs::read_to_string(dir.join("out").join("docs-dic.md")).unwrap().contains("customers"));
+        assert!(std::fs::read_to_string(dir.join("out").join("docs-dic.md"))
+            .unwrap()
+            .contains("customers"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -283,7 +387,8 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn dbdocs_postgres() {
-        let url = std::env::var("DBINE_TEST_POSTGRES_URL").unwrap_or_else(|_| "postgres://postgres:pw@localhost:25010".into());
+        let url = std::env::var("DBINE_TEST_POSTGRES_URL")
+            .unwrap_or_else(|_| "postgres://postgres:pw@localhost:25010".into());
         let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
         let (auth, hostport) = rest.split('/').next().unwrap().rsplit_once('@').unwrap();
         let (user, pass) = auth.split_once(':').unwrap();
@@ -311,20 +416,43 @@ mod tests {
             CREATE SEQUENCE dbine_e2e_docs.seq_x;";
         let mut out = dbine_driver::QueryOutcome::default();
         s.execute(setup, 10, &mut out).await.unwrap();
-        assert!(out.error.is_none() && out.errors.is_empty(), "{:?} {:?}", out.error, out.errors.first().map(|e| e.message.clone()));
+        assert!(
+            out.error.is_none() && out.errors.is_empty(),
+            "{:?} {:?}",
+            out.error,
+            out.errors.first().map(|e| e.message.clone())
+        );
 
-        let opts = DocOptions { schemas: vec!["dbine_e2e_docs".into()], ..Default::default() };
+        let opts = DocOptions {
+            schemas: vec!["dbine_e2e_docs".into()],
+            ..Default::default()
+        };
         let labels = Labels::new(&opts.labels);
-        let cx = Context { database: "postgres", connection: "pg", progress: &|_, _, _| {}, cancelled: &|| false };
+        let cx = Context {
+            database: "postgres",
+            connection: "pg",
+            progress: &|_, _, _| {},
+            cancelled: &|| false,
+        };
         let doc = dbdocs::collect(&mut *s, driver.as_ref(), &opts, &labels, &cx).await;
         let mut out = dbine_driver::QueryOutcome::default();
-        let _ = s.execute("DROP SCHEMA IF EXISTS dbine_e2e_docs CASCADE", 10, &mut out).await;
+        let _ = s
+            .execute("DROP SCHEMA IF EXISTS dbine_e2e_docs CASCADE", 10, &mut out)
+            .await;
         let doc = doc.unwrap();
         assert_eq!(doc.schemas.len(), 1, "only the schema asked for");
         assert_eq!(doc.table_count(), 2);
         let html = dbdocs::render(&doc, dbdocs::DocFormat::Html, &labels);
-        assert!(html.contains("Clientes &lt;b&gt;activos&lt;/b&gt;") && html.contains("Nombre &amp; apellido"), "comments");
-        assert!(html.contains("ix_orders_customer") && html.contains("CASCADE") && html.contains("<svg class=\"erd-svg\""));
+        assert!(
+            html.contains("Clientes &lt;b&gt;activos&lt;/b&gt;")
+                && html.contains("Nombre &amp; apellido"),
+            "comments"
+        );
+        assert!(
+            html.contains("ix_orders_customer")
+                && html.contains("CASCADE")
+                && html.contains("<svg class=\"erd-svg\"")
+        );
         assert!(html.contains("v_big") && html.contains("order_count") && html.contains("seq_x"));
         let used = &html[html.find("Usada por").expect("used by")..];
         assert!(used.contains("orders") && used.contains("v_big"), "{used}");

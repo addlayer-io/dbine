@@ -7,14 +7,18 @@
 mod hrana;
 mod transfer;
 
-use dbine_driver::sql::{leading_keyword, quote_ident, select_top, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode};
-use dbine_driver::{
-    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
-    Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
-    QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
+use dbine_driver::sql::{
+    leading_keyword, quote_ident, select_top, Limit, Quote, ScriptDefaults, ScriptDialect,
+    ScriptMode,
 };
-use dbine_driver_sqlite::schema::Rows;
+use dbine_driver::{
+    async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
+    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language,
+    MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError,
+    Session, TableSchema, TxState,
+};
 use dbine_driver_sqlite::properties::{self, Flavor};
+use dbine_driver_sqlite::schema::Rows;
 use dbine_driver_sqlite::{index_usage, monitor as sqlite_monitor, plan, schema, stats};
 use hrana::{Client, StmtResult};
 use serde_json::Value;
@@ -59,7 +63,11 @@ fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::Sy
     let mut script = schema::sync_script(changes)?;
     for st in &mut script.statements {
         if st.contains("legacy_alter_table") {
-            *st = st.lines().filter(|l| !l.contains("legacy_alter_table")).collect::<Vec<_>>().join("\n");
+            *st = st
+                .lines()
+                .filter(|l| !l.contains("legacy_alter_table"))
+                .collect::<Vec<_>>()
+                .join("\n");
         }
     }
     Ok(script)
@@ -77,7 +85,10 @@ impl Driver for LibsqlDriver {
 
     /// SQLite's (see the SQLite driver): `[name]` too, trigger bodies whole.
     fn script_dialect(&self) -> ScriptDialect {
-        ScriptDialect { bracket_idents: true, ..ScriptDialect::generic() }
+        ScriptDialect {
+            bracket_idents: true,
+            ..ScriptDialect::generic()
+        }
     }
 
     /// One statement per request on the session's Hrana stream, which keeps
@@ -88,7 +99,10 @@ impl Driver for LibsqlDriver {
 
     /// As sqlite3 (and `turso db shell`): go on after an error.
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     /// On Hrana 3 servers (Turso, current sqld); older ones say so when
@@ -100,12 +114,23 @@ impl Driver for LibsqlDriver {
     /// Databases are created and dropped through Turso's platform API (or
     /// sqld's admin API), not with SQL.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: false, drop_database: false, foreign_keys: true, monitor: true, database_properties: true, ..Default::default() }
+        Capabilities {
+            create_database: false,
+            drop_database: false,
+            foreign_keys: true,
+            monitor: true,
+            database_properties: true,
+            ..Default::default()
+        }
     }
 
     /// Only `user_version`: sqld refuses the other PRAGMAs that write and
     /// `VACUUM` (see `dbine_driver_sqlite::properties`).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(Flavor::Libsql, database, changes)
     }
 
@@ -144,7 +169,10 @@ impl Driver for LibsqlDriver {
     }
 
     /// SQLite's: columns are added in place; any other change rebuilds the table.
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync_script(changes)
     }
 
@@ -158,8 +186,15 @@ impl Driver for LibsqlDriver {
         dbine_driver_sqlite::rename::script(Flavor::Libsql, req)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
-        let token = cfg.option("auth_token").or(cfg.password.as_deref().filter(|p| !p.is_empty())).map(str::to_string);
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
+        let token = cfg
+            .option("auth_token")
+            .or(cfg.password.as_deref().filter(|p| !p.is_empty()))
+            .map(str::to_string);
         let mut client = Client::new(&cfg.host, token)?;
         // Re-applied whenever the server starts a new stream.
         client.init.push("PRAGMA foreign_keys = ON".into());
@@ -173,7 +208,11 @@ impl Driver for LibsqlDriver {
             other => other,
         })?;
         client.detect_v3().await;
-        Ok(Box::new(LibsqlSession { client, read_only: cfg.read_only, manual: false }))
+        Ok(Box::new(LibsqlSession {
+            client,
+            read_only: cfg.read_only,
+            manual: false,
+        }))
     }
 }
 
@@ -188,7 +227,19 @@ struct LibsqlSession {
 /// transaction control and what SQLite refuses inside one (VACUUM).
 fn opens_transaction(stmt: &str) -> bool {
     const NO: &[&str] = &[
-        "select", "with", "values", "explain", "pragma", "begin", "commit", "end", "rollback", "savepoint", "release", "vacuum", "attach",
+        "select",
+        "with",
+        "values",
+        "explain",
+        "pragma",
+        "begin",
+        "commit",
+        "end",
+        "rollback",
+        "savepoint",
+        "release",
+        "vacuum",
+        "attach",
         "detach",
     ];
     leading_keyword(stmt, &ScriptDialect::generic()).is_some_and(|k| !NO.contains(&k.as_str()))
@@ -202,7 +253,13 @@ fn step_error(e: hrana::StepError, single: bool) -> Error {
         se = se.with_code(c);
     }
     if single {
-        if let Some(line) = e.message.split("around L").nth(1).and_then(|r| r.split(':').next()).and_then(|l| l.parse::<u32>().ok()) {
+        if let Some(line) = e
+            .message
+            .split("around L")
+            .nth(1)
+            .and_then(|r| r.split(':').next())
+            .and_then(|l| l.parse::<u32>().ok())
+        {
             se = se.at_line(line.max(1));
         }
     }
@@ -229,7 +286,9 @@ fn split_script(sql: &str) -> Vec<String> {
             } else if let Some(r) = rest.strip_prefix("/*") {
                 rest = r.split_once("*/").map_or("", |x| x.1);
             } else {
-                return !rest.trim_matches(|c: char| c == ';' || c.is_whitespace()).is_empty();
+                return !rest
+                    .trim_matches(|c: char| c == ';' || c.is_whitespace())
+                    .is_empty();
             }
         }
     }
@@ -260,7 +319,9 @@ fn text(v: &Value) -> Option<String> {
 }
 
 fn int(v: &Value) -> i64 {
-    v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0)
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        .unwrap_or(0)
 }
 
 fn push_result(r: StmtResult, max_rows: usize, out: &mut QueryOutcome) {
@@ -268,7 +329,12 @@ fn push_result(r: StmtResult, max_rows: usize, out: &mut QueryOutcome) {
         out.push_affected(r.affected);
         return;
     }
-    out.begin_result(r.cols.into_iter().map(|(name, type_name)| ResultColumn { name, type_name }).collect());
+    out.begin_result(
+        r.cols
+            .into_iter()
+            .map(|(name, type_name)| ResultColumn { name, type_name })
+            .collect(),
+    );
     for row in r.rows {
         out.push_row(row, max_rows);
     }
@@ -285,7 +351,10 @@ impl LibsqlSession {
     /// server: each round runs the queries it asked for and weren't known
     /// yet in one pipeline, until it asks for nothing new. This is how the
     /// SQLite driver's catalog reader and monitor run over HTTP.
-    async fn replay<T>(&mut self, f: impl Fn(&mut dyn FnMut(&str) -> std::result::Result<Rows, String>) -> T) -> Result<T> {
+    async fn replay<T>(
+        &mut self,
+        f: impl Fn(&mut dyn FnMut(&str) -> std::result::Result<Rows, String>) -> T,
+    ) -> Result<T> {
         let mut known: HashMap<String, std::result::Result<Rows, String>> = HashMap::new();
         for _ in 0..6 {
             let mut missing: Vec<String> = Vec::new();
@@ -323,7 +392,12 @@ const NO_PROCESSES: &str = "libSQL / Turso no expone las conexiones ni las consu
 impl Session for LibsqlSession {
     async fn server_version(&mut self) -> Result<String> {
         let sqlite = self.client.execute("SELECT sqlite_version()").await?;
-        let sqlite = sqlite.rows.first().and_then(|r| r.first()).and_then(text).unwrap_or_default();
+        let sqlite = sqlite
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(text)
+            .unwrap_or_default();
         Ok(match self.client.version().await {
             Some(v) => format!("libSQL ({v}) · SQLite {sqlite}"),
             None => format!("libSQL · SQLite {sqlite}"),
@@ -347,7 +421,12 @@ impl Session for LibsqlSession {
                     "view" => (kinds::VIEW, None),
                     _ => (kinds::TRIGGER, tbl),
                 };
-                Some(DbObject { kind: kind.into(), schema: None, name, parent })
+                Some(DbObject {
+                    kind: kind.into(),
+                    schema: None,
+                    name,
+                    parent,
+                })
             })
             .collect())
     }
@@ -369,7 +448,9 @@ impl Session for LibsqlSession {
                 ColumnInfo {
                     name: text(&row[0]).unwrap_or_default(),
                     // A lone INTEGER PRIMARY KEY is the rowid alias.
-                    auto_increment: pk > 0 && pk_count == 1 && data_type.eq_ignore_ascii_case("INTEGER"),
+                    auto_increment: pk > 0
+                        && pk_count == 1
+                        && data_type.eq_ignore_ascii_case("INTEGER"),
                     data_type,
                     nullable: int(&row[2]) == 0 && pk == 0,
                     default_value: text(&row[3]),
@@ -390,7 +471,10 @@ impl Session for LibsqlSession {
             Some(s) => format!("{}.sqlite_master", quote_ident(Quote::Double, s)),
             None => "sqlite_master".to_string(),
         };
-        let sql = format!("SELECT sql FROM {master} WHERE type = '{ty}' AND name = '{}'", obj.name.replace('\'', "''"));
+        let sql = format!(
+            "SELECT sql FROM {master} WHERE type = '{ty}' AND name = '{}'",
+            obj.name.replace('\'', "''")
+        );
         let r = self.client.execute(&sql).await?;
         Ok(r.rows.first().and_then(|row| row.first()).and_then(text))
     }
@@ -405,14 +489,19 @@ impl Session for LibsqlSession {
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         if self.read_only {
             if let Some(kw) = dbine_driver::read_only::first_write(sql) {
-                return Err(Error::Query(format!("La conexión es de solo lectura: no se permite {kw}.")));
+                return Err(Error::Query(format!(
+                    "La conexión es de solo lectura: no se permite {kw}."
+                )));
             }
         }
         let stmts = split_script(sql);
         if stmts.is_empty() {
             return Ok(());
         }
-        let begin: Vec<bool> = stmts.iter().map(|s| self.manual && opens_transaction(s)).collect();
+        let begin: Vec<bool> = stmts
+            .iter()
+            .map(|s| self.manual && opens_transaction(s))
+            .collect();
         let res = self.client.script(&stmts, &begin).await;
         self.notices(out);
         let (results, error) = res?;
@@ -430,16 +519,44 @@ impl Session for LibsqlSession {
     /// `hrana::Client::run_read_only`). Transaction control, ATTACH,
     /// DETACH and VACUUM are refused here first: they would leave or
     /// outlive that transaction.
-    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let stmts = split_script(statement);
         match stmts.len() {
-            0 => return Err(Error::Query("No hay ninguna sentencia que ejecutar.".into())),
+            0 => {
+                return Err(Error::Query(
+                    "No hay ninguna sentencia que ejecutar.".into(),
+                ))
+            }
             1 => {}
-            _ => return Err(Error::Query("Una lectura admite una sola sentencia.".into())),
+            _ => {
+                return Err(Error::Query(
+                    "Una lectura admite una sola sentencia.".into(),
+                ))
+            }
         }
-        const OUTSIDE: &[&str] = &["begin", "commit", "end", "rollback", "savepoint", "release", "attach", "detach", "vacuum"];
-        if let Some(kw) = leading_keyword(&stmts[0], &ScriptDialect::generic()).filter(|k| OUTSIDE.contains(&k.as_str())) {
-            return Err(Error::Query(format!("Una lectura no admite {}.", kw.to_uppercase())));
+        const OUTSIDE: &[&str] = &[
+            "begin",
+            "commit",
+            "end",
+            "rollback",
+            "savepoint",
+            "release",
+            "attach",
+            "detach",
+            "vacuum",
+        ];
+        if let Some(kw) = leading_keyword(&stmts[0], &ScriptDialect::generic())
+            .filter(|k| OUTSIDE.contains(&k.as_str()))
+        {
+            return Err(Error::Query(format!(
+                "Una lectura no admite {}.",
+                kw.to_uppercase()
+            )));
         }
         match self.client.run_read_only(statement).await? {
             Ok(r) => {
@@ -451,7 +568,10 @@ impl Session for LibsqlSession {
     }
 
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
-        Ok(self.client.autocommit.map(|on| if on { TxState::Idle } else { TxState::Open }))
+        Ok(self
+            .client
+            .autocommit
+            .map(|on| if on { TxState::Idle } else { TxState::Open }))
     }
 
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
@@ -478,26 +598,45 @@ impl Session for LibsqlSession {
     /// `EXPLAIN QUERY PLAN` per statement, as in SQLite: no costs nor row
     /// counts; with `analyze` the script runs and the plans are still the
     /// estimated ones.
-    async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if analyze {
-            out.messages.push("libSQL no mide cifras reales: se muestran los planes estimados.".into());
+            out.messages
+                .push("libSQL no mide cifras reales: se muestran los planes estimados.".into());
         }
         if analyze && self.read_only {
             if let Some(kw) = dbine_driver::read_only::first_write(sql) {
-                return Err(Error::Query(format!("La conexión es de solo lectura: no se permite {kw}.")));
+                return Err(Error::Query(format!(
+                    "La conexión es de solo lectura: no se permite {kw}."
+                )));
             }
         }
         for stmt in split_script(sql) {
             if plan::explainable(&stmt) {
-                let r = self.client.execute(&format!("EXPLAIN QUERY PLAN {stmt}")).await?;
+                let r = self
+                    .client
+                    .execute(&format!("EXPLAIN QUERY PLAN {stmt}"))
+                    .await?;
                 let rows: Vec<(i64, i64, String)> = r
                     .rows
                     .iter()
-                    .map(|row| (int(&row[0]), int(&row[1]), row.get(3).and_then(text).unwrap_or_default()))
+                    .map(|row| {
+                        (
+                            int(&row[0]),
+                            int(&row[1]),
+                            row.get(3).and_then(text).unwrap_or_default(),
+                        )
+                    })
                     .collect();
                 out.plans.push(plan::query_plan(&stmt, &rows));
             } else if !analyze {
-                out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
+                out.messages
+                    .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
             }
             if analyze {
                 let r = self.client.execute(&stmt).await;
@@ -509,18 +648,28 @@ impl Session for LibsqlSession {
     }
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        self.replay(|q| schema::read_schema_with(q)).await?.map_err(Error::Query)
+        self.replay(|q| schema::read_schema_with(q))
+            .await?
+            .map_err(Error::Query)
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let name = table.name.clone();
-        self.replay(|q| index_usage::report_with(q, &name)).await?.map_err(Error::Query).map(Some)
+        self.replay(|q| index_usage::report_with(q, &name))
+            .await?
+            .map_err(Error::Query)
+            .map(Some)
     }
 
     /// From `sqlite_stat1` when `ANALYZE` has run; otherwise none (see
     /// `dbine_driver_sqlite::stats`). No comments on objects, as in SQLite.
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
-        self.replay(|q| stats::row_estimates_with(q)).await?.map_err(Error::Query)
+        self.replay(|q| stats::row_estimates_with(q))
+            .await?
+            .map_err(Error::Query)
     }
 
     /// libSQL's server (sqld, Turso) has no view or API of the connections or running statements.
@@ -532,20 +681,46 @@ impl Session for LibsqlSession {
         Err(Error::Unsupported(NO_PROCESSES.into()))
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
-        let mut p = self.replay(|q| properties::read(q, database, Flavor::Libsql)).await?;
-        p.info.insert(0, dbine_driver::PropertyInfo { group: String::new(), label: "URL".into(), value: self.client.base().to_string() });
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
+        let mut p = self
+            .replay(|q| properties::read(q, database, Flavor::Libsql))
+            .await?;
+        p.info.insert(
+            0,
+            dbine_driver::PropertyInfo {
+                group: String::new(),
+                label: "URL".into(),
+                value: self.client.base().to_string(),
+            },
+        );
         Ok(p)
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("La conexión es de solo lectura: no se permite cambiar las propiedades de la base.".into()));
+            return Err(Error::Query(
+                "La conexión es de solo lectura: no se permite cambiar las propiedades de la base."
+                    .into(),
+            ));
         }
         let statements = properties::alter(Flavor::Libsql, database, changes)?;
         for (i, sql) in statements.iter().enumerate() {
             if let Err(e) = self.client.execute(sql).await {
-                return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+                return Err(if i == 0 {
+                    e
+                } else {
+                    Error::Query(format!(
+                        "se aplicaron {i} de {} cambios; falló: {sql}\n{e}",
+                        statements.len()
+                    ))
+                });
             }
         }
         Ok(())
@@ -554,12 +729,14 @@ impl Session for LibsqlSession {
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         let mut snap = self.replay(|q| sqlite_monitor::pragma_snapshot(q)).await?;
         let version = self.client.version().await;
-        snap.info.insert(0, ("URL".into(), self.client.base().to_string()));
+        snap.info
+            .insert(0, ("URL".into(), self.client.base().to_string()));
         if let Some(v) = version {
             snap.info.insert(1, ("Servidor".into(), v));
         }
         // "no es un servidor" is the local file's note; this one is remote.
-        snap.notes.retain(|n| !n.starts_with("SQLite no es un servidor"));
+        snap.notes
+            .retain(|n| !n.starts_with("SQLite no es un servidor"));
         snap.notes.insert(
             0,
             "libSQL no expone CPU, memoria ni sesiones por SQL: en Turso, el uso (filas leídas y escritas, \
@@ -570,7 +747,11 @@ impl Session for LibsqlSession {
     }
 
     /// Typed cells through a streaming Hrana 3 cursor (see [`transfer`]).
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -593,7 +774,16 @@ impl Session for LibsqlSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::WriteResult> {
         let tx = self.client.v3;
-        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::Sqlite, spec, columns, source, progress, tx).await
+        dbine_driver::write::staged_write(
+            self,
+            dbine_driver::write::StageFlavor::Sqlite,
+            spec,
+            columns,
+            source,
+            progress,
+            tx,
+        )
+        .await
     }
 }
 
@@ -611,22 +801,43 @@ mod tests {
              SELECT * FROM t",
         );
         assert_eq!(s.len(), 3, "{s:?}");
-        assert!(s[1].starts_with("-- a comment") && s[1].ends_with("END"), "{:?}", s[1]);
+        assert!(
+            s[1].starts_with("-- a comment") && s[1].ends_with("END"),
+            "{:?}",
+            s[1]
+        );
         assert_eq!(s[2], "SELECT * FROM t");
         assert!(split_script("  ;; -- nada\n").is_empty());
     }
 
     #[test]
     fn writes_open_transactions_and_reads_dont() {
-        assert!(opens_transaction("insert into t values (1)") && opens_transaction("/* x */ create table t (a)"));
-        assert!(!opens_transaction("select 1") && !opens_transaction("BEGIN") && !opens_transaction("commit") && !opens_transaction("vacuum"));
+        assert!(
+            opens_transaction("insert into t values (1)")
+                && opens_transaction("/* x */ create table t (a)")
+        );
+        assert!(
+            !opens_transaction("select 1")
+                && !opens_transaction("BEGIN")
+                && !opens_transaction("commit")
+                && !opens_transaction("vacuum")
+        );
     }
 
     #[test]
     fn errors_carry_code_and_line() {
-        let e = step_error(hrana::StepError { message: "syntax error around L2:7: `selec`".into(), code: Some("SQL_PARSE_ERROR".into()) }, true);
+        let e = step_error(
+            hrana::StepError {
+                message: "syntax error around L2:7: `selec`".into(),
+                code: Some("SQL_PARSE_ERROR".into()),
+            },
+            true,
+        );
         let e = e.to_script_error();
-        assert_eq!((e.code.as_deref(), e.line), (Some("SQL_PARSE_ERROR"), Some(2)));
+        assert_eq!(
+            (e.code.as_deref(), e.line),
+            (Some("SQL_PARSE_ERROR"), Some(2))
+        );
     }
 
     #[test]
@@ -639,12 +850,32 @@ mod tests {
     #[test]
     fn sync_adds_in_place_and_rebuilds_the_rest() {
         use dbine_driver::{ColumnDef, KeyDef, TableChange};
-        let col = |n: &str, t: &str, null: bool| ColumnDef { name: n.into(), data_type: t.into(), nullable: null, ..Default::default() };
-        let old = TableSchema { name: "t".into(), columns: vec![col("id", "INTEGER", false), col("n", "TEXT", true)], primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }), ..Default::default() };
+        let col = |n: &str, t: &str, null: bool| ColumnDef {
+            name: n.into(),
+            data_type: t.into(),
+            nullable: null,
+            ..Default::default()
+        };
+        let old = TableSchema {
+            name: "t".into(),
+            columns: vec![col("id", "INTEGER", false), col("n", "TEXT", true)],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            ..Default::default()
+        };
         let mut new = old.clone();
         new.columns.push(col("e", "TEXT", true));
-        let s = sync_script(&[TableChange::Alter { old: old.clone(), new }]).unwrap();
-        assert_eq!(s.statements, ["ALTER TABLE \"t\" ADD COLUMN \"e\" TEXT NULL;"]);
+        let s = sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new,
+        }])
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["ALTER TABLE \"t\" ADD COLUMN \"e\" TEXT NULL;"]
+        );
         let mut new = old.clone();
         new.columns[1].nullable = false;
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();

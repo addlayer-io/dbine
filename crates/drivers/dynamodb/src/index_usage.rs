@@ -25,7 +25,11 @@ fn kb(bytes: Option<i64>) -> Option<u64> {
 /// and the included attributes.
 fn projection(kind: &str, p: Option<&Projection>) -> (String, Vec<String>) {
     match p.and_then(|p| p.projection_type()).map(|t| t.as_str()) {
-        Some("INCLUDE") => (format!("{kind} INCLUDE"), p.map(|p| p.non_key_attributes().to_vec()).unwrap_or_default()),
+        Some("INCLUDE") => (
+            format!("{kind} INCLUDE"),
+            p.map(|p| p.non_key_attributes().to_vec())
+                .unwrap_or_default(),
+        ),
         Some("KEYS_ONLY") => (format!("{kind} KEYS_ONLY"), Vec::new()),
         _ => (kind.to_string(), Vec::new()),
     }
@@ -63,16 +67,29 @@ pub(crate) fn report(d: &TableDescription) -> IndexUsageReport {
             ..Default::default()
         });
     }
-    IndexUsageReport { stats_available: false, note: Some(NOTE.into()), indexes: out, seek_scan_split: false, ..Default::default() }
+    IndexUsageReport {
+        stats_available: false,
+        note: Some(NOTE.into()),
+        indexes: out,
+        seek_scan_split: false,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aws_sdk_dynamodb::types::{GlobalSecondaryIndexDescription, KeySchemaElement, KeyType, LocalSecondaryIndexDescription, ProjectionType};
+    use aws_sdk_dynamodb::types::{
+        GlobalSecondaryIndexDescription, KeySchemaElement, KeyType, LocalSecondaryIndexDescription,
+        ProjectionType,
+    };
 
     fn key(name: &str, t: KeyType) -> KeySchemaElement {
-        KeySchemaElement::builder().attribute_name(name).key_type(t).build().unwrap()
+        KeySchemaElement::builder()
+            .attribute_name(name)
+            .key_type(t)
+            .build()
+            .unwrap()
     }
 
     #[test]
@@ -86,7 +103,12 @@ mod tests {
                     .index_name("by_cliente")
                     .key_schema(key("fecha", KeyType::Range))
                     .key_schema(key("cliente", KeyType::Hash))
-                    .projection(Projection::builder().projection_type(ProjectionType::Include).non_key_attributes("total").build())
+                    .projection(
+                        Projection::builder()
+                            .projection_type(ProjectionType::Include)
+                            .non_key_attributes("total")
+                            .build(),
+                    )
                     .index_size_bytes(1500)
                     .build(),
             )
@@ -95,7 +117,11 @@ mod tests {
                     .index_name("by_fecha")
                     .key_schema(key("pk", KeyType::Hash))
                     .key_schema(key("fecha", KeyType::Range))
-                    .projection(Projection::builder().projection_type(ProjectionType::KeysOnly).build())
+                    .projection(
+                        Projection::builder()
+                            .projection_type(ProjectionType::KeysOnly)
+                            .build(),
+                    )
                     .build(),
             )
             .build();

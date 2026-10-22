@@ -39,7 +39,11 @@ pub(crate) async fn row_estimates(s: &DsqlSession) -> Result<Vec<RowEstimate>> {
         .iter()
         .filter_map(|r| {
             Some(RowEstimate {
-                object: ObjectRef { kind: kinds::TABLE.into(), schema: Some(r.get(0)), name: r.get(1) },
+                object: ObjectRef {
+                    kind: kinds::TABLE.into(),
+                    schema: Some(r.get(0)),
+                    name: r.get(1),
+                },
                 rows: tuples(r.get(2))?,
             })
         })
@@ -60,10 +64,24 @@ pub(crate) async fn object_comments(s: &DsqlSession) -> Result<Vec<ObjectComment
     let rows = s.client.query(sql.as_str(), &[]).await.unwrap_or_default();
     let mut out: Vec<ObjectComment> = Vec::new();
     for r in &rows {
-        let Some(comment) = r.get::<_, Option<String>>(3).map(|c| c.trim().to_string()).filter(|c| !c.is_empty()) else { continue };
-        let object = ObjectRef { kind: kind_of(&r.get::<_, String>(2)).into(), schema: Some(r.get(0)), name: r.get(1) };
+        let Some(comment) = r
+            .get::<_, Option<String>>(3)
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+        else {
+            continue;
+        };
+        let object = ObjectRef {
+            kind: kind_of(&r.get::<_, String>(2)).into(),
+            schema: Some(r.get(0)),
+            name: r.get(1),
+        };
         // Overloaded functions: one comment per name, the first.
-        if !out.iter().any(|c| c.object.kind == object.kind && c.object.schema == object.schema && c.object.name == object.name) {
+        if !out.iter().any(|c| {
+            c.object.kind == object.kind
+                && c.object.schema == object.schema
+                && c.object.name == object.name
+        }) {
             out.push(ObjectComment { object, comment });
         }
     }

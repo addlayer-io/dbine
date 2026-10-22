@@ -20,25 +20,59 @@ const SETTING_KEY: &str = "ui.language";
 /// The UI languages other than Spanish (the source), as in
 /// scripts/i18n/languages.json.
 const CATALOGS: [(&str, &str); 9] = [
-    ("en", include_str!("../../../web/src/locales/en/backend.json")),
-    ("pt", include_str!("../../../web/src/locales/pt/backend.json")),
-    ("fr", include_str!("../../../web/src/locales/fr/backend.json")),
-    ("it", include_str!("../../../web/src/locales/it/backend.json")),
-    ("de", include_str!("../../../web/src/locales/de/backend.json")),
-    ("ru", include_str!("../../../web/src/locales/ru/backend.json")),
-    ("zh", include_str!("../../../web/src/locales/zh/backend.json")),
-    ("ja", include_str!("../../../web/src/locales/ja/backend.json")),
-    ("ko", include_str!("../../../web/src/locales/ko/backend.json")),
+    (
+        "en",
+        include_str!("../../../web/src/locales/en/backend.json"),
+    ),
+    (
+        "pt",
+        include_str!("../../../web/src/locales/pt/backend.json"),
+    ),
+    (
+        "fr",
+        include_str!("../../../web/src/locales/fr/backend.json"),
+    ),
+    (
+        "it",
+        include_str!("../../../web/src/locales/it/backend.json"),
+    ),
+    (
+        "de",
+        include_str!("../../../web/src/locales/de/backend.json"),
+    ),
+    (
+        "ru",
+        include_str!("../../../web/src/locales/ru/backend.json"),
+    ),
+    (
+        "zh",
+        include_str!("../../../web/src/locales/zh/backend.json"),
+    ),
+    (
+        "ja",
+        include_str!("../../../web/src/locales/ja/backend.json"),
+    ),
+    (
+        "ko",
+        include_str!("../../../web/src/locales/ko/backend.json"),
+    ),
 ];
 
 /// The UI language: the one picked in Settings, else the system's when it's
 /// one of DBine's, else English (as the UI does).
 pub fn ui_language(state: &AppState) -> String {
     let picked = state.store.get_setting(SETTING_KEY).ok().flatten();
-    if let Some(code) = picked.as_ref().and_then(|v| v.as_str()).and_then(lang_of_tag) {
+    if let Some(code) = picked
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .and_then(lang_of_tag)
+    {
         return code.to_string();
     }
-    sys_locale::get_locales().find_map(|t| lang_of_tag(&t)).unwrap_or("en").to_string()
+    sys_locale::get_locales()
+        .find_map(|t| lang_of_tag(&t))
+        .unwrap_or("en")
+        .to_string()
 }
 
 /// Ours for a BCP 47 tag (`pt-BR`, `zh-Hant-TW`, `de_AT`): its primary subtag.
@@ -95,7 +129,16 @@ fn compile(json: &str) -> Option<Catalog> {
             exact.insert(from, to);
             continue;
         }
-        let literal = parts.iter().map(|p| if let Part::Text(t) = p { t.chars().count() } else { 0 }).sum();
+        let literal = parts
+            .iter()
+            .map(|p| {
+                if let Part::Text(t) = p {
+                    t.chars().count()
+                } else {
+                    0
+                }
+            })
+            .sum();
         patterns.push(Pattern { parts, to, literal });
     }
     // The most specific first (more fixed text wins over a looser pattern).
@@ -134,21 +177,34 @@ fn split_placeholders(s: &str) -> Vec<Part> {
 /// the UI's lazy `[\s\S]*?` groups, anchored at both ends). A value ends
 /// only where the text after it starts. `budget` counts the steps; when it
 /// runs out the match fails (the message stays untranslated).
-fn capture<'a>(parts: &[Part], msg: &'a str, out: &mut Vec<(String, &'a str)>, budget: &mut usize) -> bool {
+fn capture<'a>(
+    parts: &[Part],
+    msg: &'a str,
+    out: &mut Vec<(String, &'a str)>,
+    budget: &mut usize,
+) -> bool {
     if *budget == 0 {
         return false;
     }
     *budget -= 1;
     match parts.split_first() {
         None => msg.is_empty(),
-        Some((Part::Text(t), rest)) => msg.strip_prefix(t.as_str()).is_some_and(|m| capture(rest, m, out, budget)),
+        Some((Part::Text(t), rest)) => msg
+            .strip_prefix(t.as_str())
+            .is_some_and(|m| capture(rest, m, out, budget)),
         Some((Part::Value(n), rest)) => {
             let ends: Vec<usize> = match rest.first() {
                 // The last value takes the rest.
                 None => vec![msg.len()],
-                Some(Part::Text(next)) => msg.match_indices(next.as_str()).map(|(i, _)| i).collect(),
+                Some(Part::Text(next)) => {
+                    msg.match_indices(next.as_str()).map(|(i, _)| i).collect()
+                }
                 // Two values in a row: any boundary.
-                Some(Part::Value(_)) => msg.char_indices().map(|(i, _)| i).chain(std::iter::once(msg.len())).collect(),
+                Some(Part::Value(_)) => msg
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .chain(std::iter::once(msg.len()))
+                    .collect(),
             };
             for end in ends {
                 out.push((n.clone(), &msg[..end]));
@@ -173,7 +229,11 @@ fn translate_with(msg: &str, c: &Catalog, depth: u8, budget: &mut usize) -> Stri
         return msg.to_string();
     }
     if msg.contains('\n') {
-        return msg.split('\n').map(|l| translate_with(l, c, depth + 1, budget)).collect::<Vec<_>>().join("\n");
+        return msg
+            .split('\n')
+            .map(|l| translate_with(l, c, depth + 1, budget))
+            .collect::<Vec<_>>()
+            .join("\n");
     }
     if msg.len() > MAX_PATTERN_LINE {
         return msg.to_string();
@@ -188,7 +248,11 @@ fn translate_with(msg: &str, c: &Catalog, depth: u8, budget: &mut usize) -> Stri
         }
         let mut out = p.to.clone();
         for (n, v) in values {
-            let v = if v.is_empty() { String::new() } else { translate_with(v, c, depth + 1, budget) };
+            let v = if v.is_empty() {
+                String::new()
+            } else {
+                translate_with(v, c, depth + 1, budget)
+            };
             out = out.replace(&format!("{{{n}}}"), &v);
         }
         return out;
@@ -210,15 +274,27 @@ mod tests {
 
     #[test]
     fn exact_patterns_and_lines() {
-        assert_eq!(translate("en", "No se ejecutó: ningún paso anterior falló."), "Not run: no previous step failed.");
-        assert_eq!(translate("en", "Mensaje enviado a Slack"), "Message sent to Slack");
+        assert_eq!(
+            translate("en", "No se ejecutó: ningún paso anterior falló."),
+            "Not run: no previous step failed."
+        );
+        assert_eq!(
+            translate("en", "Mensaje enviado a Slack"),
+            "Message sent to Slack"
+        );
         // Line by line, and what isn't in the catalog stays as it came.
         assert_eq!(
             translate("en", "No se ejecutó: ningún paso anterior falló.\nERROR 42P01: relation \"x\" does not exist"),
             "Not run: no previous step failed.\nERROR 42P01: relation \"x\" does not exist"
         );
-        assert_eq!(translate("es", "Mensaje enviado a Slack"), "Mensaje enviado a Slack");
-        assert_eq!(translate("xx", "Mensaje enviado a Slack"), "Mensaje enviado a Slack");
+        assert_eq!(
+            translate("es", "Mensaje enviado a Slack"),
+            "Mensaje enviado a Slack"
+        );
+        assert_eq!(
+            translate("xx", "Mensaje enviado a Slack"),
+            "Mensaje enviado a Slack"
+        );
     }
 
     #[test]
@@ -240,20 +316,37 @@ mod tests {
     fn crafted_text_cannot_stall_the_matcher() {
         // Separators repeated to make a three-value pattern backtrack: it
         // returns quickly, the text as it came.
-        let evil = format!("ERROR: invalid input syntax for type integer: \"{}\"", " de (".repeat(2000));
+        let evil = format!(
+            "ERROR: invalid input syntax for type integer: \"{}\"",
+            " de (".repeat(2000)
+        );
         let start = std::time::Instant::now();
         assert_eq!(translate("en", &evil), evil);
         let short = " de (".repeat(110);
         let _ = translate("en", &short);
-        assert!(start.elapsed() < std::time::Duration::from_secs(2), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "{:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
     fn placeholders_split_and_match_lazily() {
         let parts = split_placeholders("de {0} a {1}.");
         let mut v = Vec::new();
-        assert!(capture(&parts, "de a a b a c.", &mut v, &mut MAX_STEPS.clone()));
-        assert_eq!(v.iter().map(|(_, s)| *s).collect::<Vec<_>>(), ["a", "b a c"]);
-        assert!(matches!(split_placeholders("{x} {12}")[..], [Part::Text(_), Part::Value(ref n)] if n == "12"));
+        assert!(capture(
+            &parts,
+            "de a a b a c.",
+            &mut v,
+            &mut MAX_STEPS.clone()
+        ));
+        assert_eq!(
+            v.iter().map(|(_, s)| *s).collect::<Vec<_>>(),
+            ["a", "b a c"]
+        );
+        assert!(
+            matches!(split_placeholders("{x} {12}")[..], [Part::Text(_), Part::Value(ref n)] if n == "12")
+        );
     }
 }

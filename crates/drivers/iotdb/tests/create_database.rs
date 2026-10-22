@@ -12,15 +12,24 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 /// `SHOW DATABASES root.x`'s row, by column name.
 async fn details(s: &mut Box<dyn Session>, db: &str) -> BTreeMap<String, Value> {
     let mut out = QueryOutcome::default();
-    s.execute(&format!("SHOW DATABASES {db}"), 10, &mut out).await.unwrap();
+    s.execute(&format!("SHOW DATABASES {db}"), 10, &mut out)
+        .await
+        .unwrap();
     let r = out.results.last().unwrap();
-    r.columns.iter().map(|c| c.name.clone()).zip(r.rows[0].iter().cloned()).collect()
+    r.columns
+        .iter()
+        .map(|c| c.name.clone())
+        .zip(r.rows[0].iter().cloned())
+        .collect()
 }
 
 async fn check(env: &str, v1: bool) {
@@ -35,19 +44,34 @@ async fn check(env: &str, v1: bool) {
         password: Some("root".into()),
         ..Default::default()
     };
-    let d = dbine_driver_iotdb::drivers().into_iter().find(|d| d.info().id == "iotdb").unwrap();
+    let d = dbine_driver_iotdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "iotdb")
+        .unwrap();
     let mut s = d.connect(&cfg, None).await.unwrap();
     let _ = s.drop_database("dbine_create_opts").await;
     let choices = s.create_database_choices().await.unwrap();
     eprintln!("{choices:?}");
-    assert!(choices.iter().any(|c| c.key == "time_partition_interval" && c.default.is_some()));
+    assert!(choices
+        .iter()
+        .any(|c| c.key == "time_partition_interval" && c.default.is_some()));
 
-    let mut o = opts(&[("ttl", "1h"), ("time_partition_interval", "1d"), ("schema_region_group_num", "1"), ("data_region_group_num", "2")]);
+    let mut o = opts(&[
+        ("ttl", "1h"),
+        ("time_partition_interval", "1d"),
+        ("schema_region_group_num", "1"),
+        ("data_region_group_num", "2"),
+    ]);
     if v1 {
         o.insert("data_replication_factor".into(), "1".into());
     }
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &o).unwrap());
-    s.create_database_with("dbine_create_opts", &o).await.unwrap();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &o).unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &o)
+        .await
+        .unwrap();
     let row = details(&mut s, "root.dbine_create_opts").await;
     eprintln!("{row:?}");
     assert_eq!(row["TimePartitionInterval"].to_string(), "86400000");
@@ -55,23 +79,42 @@ async fn check(env: &str, v1: bool) {
         assert_eq!(row["TTL"].to_string(), "3600000");
     } else {
         let mut out = QueryOutcome::default();
-        s.execute("SHOW TTL ON root.dbine_create_opts", 10, &mut out).await.unwrap();
-        assert_eq!(out.results.last().unwrap().rows[0][1], Value::String("3600000".into()));
+        s.execute("SHOW TTL ON root.dbine_create_opts", 10, &mut out)
+            .await
+            .unwrap();
+        assert_eq!(
+            out.results.last().unwrap().rows[0][1],
+            Value::String("3600000".into())
+        );
     }
     s.drop_database("dbine_create_opts").await.unwrap();
     if !v1 {
         // IoTDB 2 keeps the TTL rules of a dropped database.
         let mut out = QueryOutcome::default();
-        let _ = s.execute("UNSET TTL TO root.dbine_create_opts; UNSET TTL TO root.dbine_create_opts.**", 10, &mut out).await;
+        let _ = s
+            .execute(
+                "UNSET TTL TO root.dbine_create_opts; UNSET TTL TO root.dbine_create_opts.**",
+                10,
+                &mut out,
+            )
+            .await;
     }
     if !v1 {
         // IoTDB 2 refuses the replication factors: the server says so.
-        let e = s.create_database_with("dbine_create_opts", &opts(&[("data_replication_factor", "1")])).await.unwrap_err();
+        let e = s
+            .create_database_with(
+                "dbine_create_opts",
+                &opts(&[("data_replication_factor", "1")]),
+            )
+            .await
+            .unwrap_err();
         eprintln!("{e}");
     }
 
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }
 

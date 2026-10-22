@@ -28,7 +28,9 @@
 //!   indexes are read back and compared.
 
 use super::exec;
-use dbine_driver::{DdlParts, Driver, Error, ForeignKeyDef, QueryOutcome, Result, Session, TableSchema};
+use dbine_driver::{
+    DdlParts, Driver, Error, ForeignKeyDef, QueryOutcome, Result, Session, TableSchema,
+};
 
 /// Drivers whose catalog is PostgreSQL's (checked live: PostgreSQL,
 /// CockroachDB, TimescaleDB; the others keep the same catalog tables).
@@ -99,7 +101,11 @@ async fn rows(s: &mut dyn Session, sql: &str) -> Result<Vec<Vec<Option<String>>>
 }
 
 async fn one(s: &mut dyn Session, sql: &str) -> Result<Option<String>> {
-    Ok(rows(s, sql).await?.into_iter().next().and_then(|r| r.into_iter().next().flatten()))
+    Ok(rows(s, sql)
+        .await?
+        .into_iter()
+        .next()
+        .and_then(|r| r.into_iter().next().flatten()))
 }
 
 /// A column as the catalog has it.
@@ -205,7 +211,14 @@ pub(super) struct Extras {
 }
 
 /// The original's (or the clone's) extras.
-async fn extras(s: &mut dyn Session, version: i64, cockroach: bool, schema: Option<&str>, name: &str, taken: bool) -> Result<Extras> {
+async fn extras(
+    s: &mut dyn Session,
+    version: i64,
+    cockroach: bool,
+    schema: Option<&str>,
+    name: &str,
+    taken: bool,
+) -> Result<Extras> {
     let mut out = Extras::default();
     if cockroach {
         return Ok(out);
@@ -214,11 +227,21 @@ async fn extras(s: &mut dyn Session, version: i64, cockroach: bool, schema: Opti
     let index = |r: Vec<Vec<Option<String>>>| {
         r.into_iter().next().and_then(|r| {
             let name = r.first().cloned().flatten()?;
-            Some(PgIndexRef { name, primary: truth(r.get(1).cloned().flatten()) })
+            Some(PgIndexRef {
+                name,
+                primary: truth(r.get(1).cloned().flatten()),
+            })
         })
     };
     if version >= 90400 {
-        out.replica = one(s, &format!("SELECT relreplident::text FROM pg_class WHERE oid = {rel}::regclass")).await?.unwrap_or_default().trim().to_string();
+        out.replica = one(
+            s,
+            &format!("SELECT relreplident::text FROM pg_class WHERE oid = {rel}::regclass"),
+        )
+        .await?
+        .unwrap_or_default()
+        .trim()
+        .to_string();
         let sql = format!(
             "SELECT ic.relname::text, x.indisprimary::text FROM pg_index x JOIN pg_class ic ON ic.oid = x.indexrelid
              WHERE x.indrelid = {rel}::regclass AND x.indisreplident"
@@ -231,7 +254,11 @@ async fn extras(s: &mut dyn Session, version: i64, cockroach: bool, schema: Opti
     );
     out.clustered = index(rows(s, &sql).await?);
     if version >= 100000 {
-        let target = if version >= 130000 { "CASE WHEN st.stxstattarget >= 0 THEN st.stxstattarget::text END" } else { "NULL::text" };
+        let target = if version >= 130000 {
+            "CASE WHEN st.stxstattarget >= 0 THEN st.stxstattarget::text END"
+        } else {
+            "NULL::text"
+        };
         let sql = format!(
             "SELECT n.nspname::text, st.stxname::text,
                     substr(pg_get_statisticsobjdef(st.oid), length('CREATE STATISTICS ' || quote_ident(n.nspname) || '.' || quote_ident(st.stxname)) + 1),
@@ -243,10 +270,22 @@ async fn extras(s: &mut dyn Session, version: i64, cockroach: bool, schema: Opti
             let at = |i: usize| r.get(i).cloned().flatten();
             let def = at(2).unwrap_or_default();
             // ` (ndistinct) ON a, b FROM t`: the table is the clone's.
-            let body = def.rfind(" FROM ").map(|i| def[..i].trim().to_string()).ok_or_else(|| {
-                refuse(format!("no se pudo leer la definición de las estadísticas extendidas «{}» ({def})", at(1).unwrap_or_default()))
-            })?;
-            out.statistics.push(PgStatistics { schema: at(0).unwrap_or_default(), name: at(1).unwrap_or_default(), body, target: at(3), comment: at(4) });
+            let body = def
+                .rfind(" FROM ")
+                .map(|i| def[..i].trim().to_string())
+                .ok_or_else(|| {
+                    refuse(format!(
+                        "no se pudo leer la definición de las estadísticas extendidas «{}» ({def})",
+                        at(1).unwrap_or_default()
+                    ))
+                })?;
+            out.statistics.push(PgStatistics {
+                schema: at(0).unwrap_or_default(),
+                name: at(1).unwrap_or_default(),
+                body,
+                target: at(3),
+                comment: at(4),
+            });
         }
         if taken {
             out.statistics_taken = rows(s, "SELECT n.nspname::text, st.stxname::text FROM pg_statistic_ext st JOIN pg_namespace n ON n.oid = st.stxnamespace")
@@ -282,7 +321,12 @@ pub(super) fn statistics_names(pg: &PgTable, new_name: &str) -> Vec<(String, Str
 /// The clone's index for one of the original's: the primary key's as the
 /// server named it, the others renamed. `None`: the clone doesn't have it
 /// (cloned without indexes).
-async fn clone_index(tgt: &mut dyn Session, clone_rel: &str, ix: &PgIndexRef, renames: &[super::Rename]) -> Result<Option<String>> {
+async fn clone_index(
+    tgt: &mut dyn Session,
+    clone_rel: &str,
+    ix: &PgIndexRef,
+    renames: &[super::Rename],
+) -> Result<Option<String>> {
     let names = rows(
         tgt,
         &format!(
@@ -291,7 +335,11 @@ async fn clone_index(tgt: &mut dyn Session, clone_rel: &str, ix: &PgIndexRef, re
         ),
     )
     .await?;
-    let want = renames.iter().find(|r| r.from == ix.name).map(|r| r.to.clone()).unwrap_or_else(|| ix.name.clone());
+    let want = renames
+        .iter()
+        .find(|r| r.from == ix.name)
+        .map(|r| r.to.clone())
+        .unwrap_or_else(|| ix.name.clone());
     Ok(names.into_iter().find_map(|r| {
         let n = r.first().cloned().flatten()?;
         let primary = truth(r.get(1).cloned().flatten());
@@ -343,7 +391,13 @@ pub(super) struct Policy {
 
 impl Policy {
     fn sql(&self, clone_q: &str) -> String {
-        let mut s = format!("CREATE POLICY {} ON {clone_q} AS {} FOR {} TO {}", qi(&self.name), self.permissive, self.cmd, self.roles);
+        let mut s = format!(
+            "CREATE POLICY {} ON {clone_q} AS {} FOR {} TO {}",
+            qi(&self.name),
+            self.permissive,
+            self.cmd,
+            self.roles
+        );
         if let Some(u) = &self.using {
             s.push_str(&format!(" USING ({u})"));
         }
@@ -364,18 +418,31 @@ impl ColumnSettings {
                 "e" => "EXTERNAL",
                 "m" => "MAIN",
                 "x" => "EXTENDED",
-                other => return Err(refuse(format!("la columna «{}» tiene un almacenamiento desconocido ({other})", self.name))),
+                other => {
+                    return Err(refuse(format!(
+                        "la columna «{}» tiene un almacenamiento desconocido ({other})",
+                        self.name
+                    )))
+                }
             };
             out.push(format!("{col} SET STORAGE {how}"));
         }
         if let Some(n) = &self.statistics {
-            out.push(format!("{col} SET STATISTICS {}", number(Some(n.clone()), "estadísticas")?));
+            out.push(format!(
+                "{col} SET STATISTICS {}",
+                number(Some(n.clone()), "estadísticas")?
+            ));
         }
         if let Some(c) = &self.compression {
             let how = match c.as_str() {
                 "p" => "pglz",
                 "l" => "lz4",
-                other => return Err(refuse(format!("la columna «{}» tiene una compresión desconocida ({other})", self.name))),
+                other => {
+                    return Err(refuse(format!(
+                        "la columna «{}» tiene una compresión desconocida ({other})",
+                        self.name
+                    )))
+                }
             };
             out.push(format!("{col} SET COMPRESSION {how}"));
         }
@@ -383,7 +450,13 @@ impl ColumnSettings {
     }
 }
 
-async fn settings(s: &mut dyn Session, version: i64, cockroach: bool, schema: Option<&str>, name: &str) -> Result<Settings> {
+async fn settings(
+    s: &mut dyn Session,
+    version: i64,
+    cockroach: bool,
+    schema: Option<&str>,
+    name: &str,
+) -> Result<Settings> {
     let rel = lit(&qualified(schema, name));
     let mut options: Vec<String> = rows(
         s,
@@ -400,7 +473,11 @@ async fn settings(s: &mut dyn Session, version: i64, cockroach: bool, schema: Op
     options.sort();
     let mut columns = Vec::new();
     if !cockroach {
-        let compression = if version >= 140000 { "NULLIF(a.attcompression::text, '')" } else { "NULL::text" };
+        let compression = if version >= 140000 {
+            "NULLIF(a.attcompression::text, '')"
+        } else {
+            "NULL::text"
+        };
         let sql = format!(
             "SELECT a.attname::text,
                     CASE WHEN a.attstorage <> t.typstorage THEN a.attstorage::text END,
@@ -411,8 +488,19 @@ async fn settings(s: &mut dyn Session, version: i64, cockroach: bool, schema: Op
              ORDER BY a.attnum"
         );
         for r in rows(s, &sql).await? {
-            let at = |i: usize| r.get(i).cloned().flatten().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-            let c = ColumnSettings { name: at(0).unwrap_or_default(), storage: at(1), statistics: at(2), compression: at(3) };
+            let at = |i: usize| {
+                r.get(i)
+                    .cloned()
+                    .flatten()
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+            };
+            let c = ColumnSettings {
+                name: at(0).unwrap_or_default(),
+                storage: at(1),
+                statistics: at(2),
+                compression: at(3),
+            };
             if c.storage.is_some() || c.statistics.is_some() || c.compression.is_some() {
                 columns.push(c);
             }
@@ -423,7 +511,10 @@ async fn settings(s: &mut dyn Session, version: i64, cockroach: bool, schema: Op
         .into_iter()
         .next()
         .unwrap_or_default();
-    let (rls, force_rls) = (truth(flags.first().cloned().flatten()), truth(flags.get(1).cloned().flatten()));
+    let (rls, force_rls) = (
+        truth(flags.first().cloned().flatten()),
+        truth(flags.get(1).cloned().flatten()),
+    );
     let sch = match schema.filter(|s| !s.is_empty()) {
         Some(s) => lit(s),
         None => "current_schema()".into(),
@@ -463,21 +554,41 @@ async fn settings(s: &mut dyn Session, version: i64, cockroach: bool, schema: Op
         }
         Err(_) => Vec::new(),
     };
-    Ok(Settings { options, columns, rls, force_rls, policies })
+    Ok(Settings {
+        options,
+        columns,
+        rls,
+        force_rls,
+        policies,
+    })
 }
 
 /// An identifier as the server writes one (quoted only when it must be).
 fn ident_text(s: &str) -> String {
-    let plain = s.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')
-        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$');
-    if plain { s.to_string() } else { qi(s) }
+    let plain = s
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$');
+    if plain {
+        s.to_string()
+    } else {
+        qi(s)
+    }
 }
 
 /// A policy's expression (as `pg_policies` writes it) with its references
 /// to the table itself (`FROM s.t x`, `FROM t`, `t.col`) pointed at the
 /// clone. `None`: it names the table in a way that can't be told apart (a
 /// bare `t` that isn't a column, outside `FROM` / `JOIN`).
-fn retarget(expr: &str, schema: Option<&str>, table: &str, clone: &str, columns: &[PgColumn]) -> Option<String> {
+fn retarget(
+    expr: &str,
+    schema: Option<&str>,
+    table: &str,
+    clone: &str,
+    columns: &[PgColumn],
+) -> Option<String> {
     // Identifiers (with their byte span and whether they were quoted),
     // skipping string literals.
     struct Id {
@@ -526,13 +637,25 @@ fn retarget(expr: &str, schema: Option<&str>, table: &str, clone: &str, columns:
                 i += 1;
             }
             i += 1;
-            ids.push(Id { start, end: i, text, quoted: true });
+            ids.push(Id {
+                start,
+                end: i,
+                text,
+                quoted: true,
+            });
         } else if c.is_ascii_alphabetic() || c == b'_' || c >= 0x80 {
             let start = i;
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$' || b[i] >= 0x80) {
+            while i < b.len()
+                && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$' || b[i] >= 0x80)
+            {
                 i += 1;
             }
-            ids.push(Id { start, end: i, text: expr[start..i].to_string(), quoted: false });
+            ids.push(Id {
+                start,
+                end: i,
+                text: expr[start..i].to_string(),
+                quoted: false,
+            });
         } else if c.is_ascii_digit() {
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'.' || b[i] == b'_') {
                 i += 1;
@@ -542,20 +665,37 @@ fn retarget(expr: &str, schema: Option<&str>, table: &str, clone: &str, columns:
         }
     }
     // Chains `a.b.c` (dots right between them).
-    let dotted = |x: &Id, y: &Id| expr[x.end..y.start].trim() == "." && !expr[x.end..y.start].contains(char::is_whitespace);
+    let dotted = |x: &Id, y: &Id| {
+        expr[x.end..y.start].trim() == "." && !expr[x.end..y.start].contains(char::is_whitespace)
+    };
     let mut replace: Vec<(usize, usize)> = Vec::new();
     let mut k = 0;
     while k < ids.len() {
         let mut chain = vec![k];
-        while chain.len() < 4 && *chain.last().unwrap() + 1 < ids.len() && dotted(&ids[*chain.last().unwrap()], &ids[chain.last().unwrap() + 1]) {
+        while chain.len() < 4
+            && *chain.last().unwrap() + 1 < ids.len()
+            && dotted(
+                &ids[*chain.last().unwrap()],
+                &ids[chain.last().unwrap() + 1],
+            )
+        {
             chain.push(chain.last().unwrap() + 1);
         }
         let next = chain.last().unwrap() + 1;
-        let is = |j: usize| ids[chain[j]].text == table && (ids[chain[j]].quoted || !table.chars().any(|c| c.is_uppercase()));
+        let is = |j: usize| {
+            ids[chain[j]].text == table
+                && (ids[chain[j]].quoted || !table.chars().any(|c| c.is_uppercase()))
+        };
         if chain.len() == 1 {
             if is(0) {
-                let prev = k.checked_sub(1).map(|p| &ids[p]).filter(|p| expr[p.end..ids[k].start].trim().is_empty());
-                let relation = prev.is_some_and(|p| !p.quoted && ["from", "join", "only"].contains(&p.text.to_ascii_lowercase().as_str()));
+                let prev = k
+                    .checked_sub(1)
+                    .map(|p| &ids[p])
+                    .filter(|p| expr[p.end..ids[k].start].trim().is_empty());
+                let relation = prev.is_some_and(|p| {
+                    !p.quoted
+                        && ["from", "join", "only"].contains(&p.text.to_ascii_lowercase().as_str())
+                });
                 if relation {
                     replace.push((ids[k].start, ids[k].end));
                 } else if !columns.iter().any(|c| c.name == table) {
@@ -635,20 +775,39 @@ fn parse_crdb(create: &str) -> std::result::Result<(Crdb, Option<String>), Strin
             return Err("la tabla está particionada (PARTITION BY): el clon sería una tabla común, sin sus particiones".into());
         }
     }
-    for st in rest.split(";\n").map(|s| s.trim().trim_end_matches(';')).filter(|s| !s.is_empty()) {
-        let Some(i) = st.find(" CONFIGURE ZONE ") else { continue };
+    for st in rest
+        .split(";\n")
+        .map(|s| s.trim().trim_end_matches(';'))
+        .filter(|s| !s.is_empty())
+    {
+        let Some(i) = st.find(" CONFIGURE ZONE ") else {
+            continue;
+        };
         let body = st[i + " CONFIGURE ZONE ".len()..].trim().to_string();
         let head = &st[..i];
         if head.starts_with("ALTER TABLE ") {
             zones.push((None, body));
         } else if head.starts_with("ALTER INDEX ") {
-            let ix = head.rsplit_once('@').map(|(_, n)| n.trim().trim_matches('"').replace("\"\"", "\"")).unwrap_or_default();
+            let ix = head
+                .rsplit_once('@')
+                .map(|(_, n)| n.trim().trim_matches('"').replace("\"\"", "\""))
+                .unwrap_or_default();
             zones.push((Some(ix), body));
         } else {
-            return Err(format!("tiene una configuración de zona que el clon no puede tener ({})", head.trim()));
+            return Err(format!(
+                "tiene una configuración de zona que el clon no puede tener ({})",
+                head.trim()
+            ));
         }
     }
-    Ok((Crdb { families, zones, ..Default::default() }, primary))
+    Ok((
+        Crdb {
+            families,
+            zones,
+            ..Default::default()
+        },
+        primary,
+    ))
 }
 
 async fn crdb(s: &mut dyn Session, schema: Option<&str>, name: &str) -> Result<Crdb> {
@@ -658,7 +817,11 @@ async fn crdb(s: &mut dyn Session, schema: Option<&str>, name: &str) -> Result<C
         .into_iter()
         .next()
         .and_then(|r| r.get(1).cloned().flatten())
-        .ok_or_else(|| Error::State(format!("no se pudo leer la definición de «{name}» (SHOW CREATE TABLE)")))?;
+        .ok_or_else(|| {
+            Error::State(format!(
+                "no se pudo leer la definición de «{name}» (SHOW CREATE TABLE)"
+            ))
+        })?;
     let (mut out, primary) = parse_crdb(&create).map_err(refuse)?;
     let sql = format!(
         "SELECT ic.relname::text, pg_get_indexdef(x.indexrelid), x.indisprimary::text
@@ -672,15 +835,28 @@ async fn crdb(s: &mut dyn Session, schema: Option<&str>, name: &str) -> Result<C
             continue;
         }
         if truth(Some(at(2))) {
-            let clause = primary.clone().ok_or_else(|| refuse(format!("no se pudo leer la clave primaria con hash de «{name}»")))?;
+            let clause = primary.clone().ok_or_else(|| {
+                refuse(format!(
+                    "no se pudo leer la clave primaria con hash de «{name}»"
+                ))
+            })?;
             out.hash_primary = Some((ix, clause));
             continue;
         }
         // `CREATE [UNIQUE] INDEX x ON t USING btree (n ASC) USING HASH …`:
         // what follows the table.
-        let on = def.find(" ON ").ok_or_else(|| refuse(format!("no se pudo leer el índice con hash «{ix}»")))?;
-        let using = def[on..].find(" USING ").map(|i| on + i + 1).ok_or_else(|| refuse(format!("no se pudo leer el índice con hash «{ix}»")))?;
-        out.hash_indexes.push((ix, def.starts_with("CREATE UNIQUE "), def[using..].trim().to_string()));
+        let on = def
+            .find(" ON ")
+            .ok_or_else(|| refuse(format!("no se pudo leer el índice con hash «{ix}»")))?;
+        let using = def[on..]
+            .find(" USING ")
+            .map(|i| on + i + 1)
+            .ok_or_else(|| refuse(format!("no se pudo leer el índice con hash «{ix}»")))?;
+        out.hash_indexes.push((
+            ix,
+            def.starts_with("CREATE UNIQUE "),
+            def[using..].trim().to_string(),
+        ));
     }
     out.hash_indexes.sort();
     out.zones.sort();
@@ -715,7 +891,11 @@ fn into_create(create: &str, items: &[String]) -> Option<String> {
     let close = start + closing_paren(&create[start..])?;
     let body_end = create[..close].trim_end().len();
     let added: String = items.iter().map(|i| format!(",\n    {i}")).collect();
-    Some(format!("{}{added}\n{}", &create[..body_end], &create[close..]))
+    Some(format!(
+        "{}{added}\n{}",
+        &create[..body_end],
+        &create[close..]
+    ))
 }
 
 /// `WITH (options)` after the `CREATE TABLE`'s list.
@@ -726,7 +906,12 @@ fn with_create(create: &str, options: &[String]) -> Option<String> {
         return None;
     }
     let list: Vec<String> = options.iter().map(|o| crdb_option(o)).collect();
-    Some(format!("{} WITH ({}){}", &create[..=close], list.join(", "), &create[close + 1..]))
+    Some(format!(
+        "{} WITH ({}){}",
+        &create[..=close],
+        list.join(", "),
+        &create[close + 1..]
+    ))
 }
 
 /// CockroachDB's storage parameters that go in the `CREATE` (all but
@@ -755,7 +940,11 @@ pub(super) struct PgComment {
 }
 
 /// Comments on the indexes and constraints of a table, sorted.
-async fn object_comments(s: &mut dyn Session, schema: Option<&str>, name: &str) -> Result<Vec<PgComment>> {
+async fn object_comments(
+    s: &mut dyn Session,
+    schema: Option<&str>,
+    name: &str,
+) -> Result<Vec<PgComment>> {
     let rel = lit(&qualified(schema, name));
     let sql = format!(
         "SELECT 'i', ic.relname::text, d.description
@@ -773,7 +962,11 @@ async fn object_comments(s: &mut dyn Session, schema: Option<&str>, name: &str) 
         .into_iter()
         .filter_map(|r| {
             let at = |i: usize| r.get(i).cloned().flatten();
-            Some(PgComment { index: at(0)?.trim() == "i", name: at(1)?, text: at(2)? })
+            Some(PgComment {
+                index: at(0)?.trim() == "i",
+                name: at(1)?,
+                text: at(2)?,
+            })
         })
         .collect();
     out.sort_by(|a, b| (a.index, &a.name).cmp(&(b.index, &b.name)));
@@ -785,7 +978,10 @@ fn comment_sql(cockroach: bool, schema: Option<&str>, table: &str, c: &PgComment
     let clone_q = qualified(schema, table);
     let text = lit(&c.text);
     if !c.index {
-        return format!("COMMENT ON CONSTRAINT {} ON {clone_q} IS {text}", qi(&c.name));
+        return format!(
+            "COMMENT ON CONSTRAINT {} ON {clone_q} IS {text}",
+            qi(&c.name)
+        );
     }
     if cockroach {
         // CockroachDB's index names are per table: `table@index`.
@@ -808,20 +1004,37 @@ pub(super) async fn copy_comments(
     let Some(comments) = pg.comments.as_ref().filter(|c| !c.is_empty()) else {
         return Ok(Vec::new());
     };
-    let to = |from: &str| renames.iter().find(|r| r.from == from).map(|r| r.to.clone()).unwrap_or_else(|| from.to_string());
+    let to = |from: &str| {
+        renames
+            .iter()
+            .find(|r| r.from == from)
+            .map(|r| r.to.clone())
+            .unwrap_or_else(|| from.to_string())
+    };
     let (schema, table) = (clone.schema.as_deref(), clone.name.as_str());
     let rel = lit(&qualified(schema, table));
     let first = |v: Vec<Vec<Option<String>>>, not_valid: bool| -> Vec<String> {
-        v.into_iter().filter(|r| !not_valid || !truth(r.get(1).cloned().flatten())).filter_map(|r| r.into_iter().next().flatten()).collect()
+        v.into_iter()
+            .filter(|r| !not_valid || !truth(r.get(1).cloned().flatten()))
+            .filter_map(|r| r.into_iter().next().flatten())
+            .collect()
     };
     let indexes = format!("SELECT ic.relname::text FROM pg_index x JOIN pg_class ic ON ic.oid = x.indexrelid WHERE x.indrelid = {rel}::regclass");
     let indexes = first(rows(tgt, &indexes).await?, false);
     let constraints = rows(tgt, &format!("SELECT conname::text, convalidated::text FROM pg_constraint WHERE conrelid = {rel}::regclass")).await?;
-    let not_valid = if pg.cockroach { first(constraints.clone(), true) } else { Vec::new() };
+    let not_valid = if pg.cockroach {
+        first(constraints.clone(), true)
+    } else {
+        Vec::new()
+    };
     let constraints = first(constraints, false);
     let (mut expected, mut no_index, mut broken) = (Vec::new(), Vec::new(), Vec::new());
     for c in comments {
-        let renamed = PgComment { index: c.index, name: to(&c.name), text: c.text.clone() };
+        let renamed = PgComment {
+            index: c.index,
+            name: to(&c.name),
+            text: c.text.clone(),
+        };
         let have = if c.index { &indexes } else { &constraints };
         if !have.contains(&renamed.name) {
             no_index.push(c.name.clone());
@@ -831,18 +1044,34 @@ pub(super) async fn copy_comments(
             broken.push(c.name.clone());
             continue;
         }
-        exec(tgt, &comment_sql(pg.cockroach, schema, table, &renamed)).await.map_err(|e| {
-            let what = if c.index { "del índice" } else { "de la restricción" };
-            Error::Query(format!("no se pudo copiar el comentario {what} «{}» al clon: {e}", renamed.name))
-        })?;
+        exec(tgt, &comment_sql(pg.cockroach, schema, table, &renamed))
+            .await
+            .map_err(|e| {
+                let what = if c.index {
+                    "del índice"
+                } else {
+                    "de la restricción"
+                };
+                Error::Query(format!(
+                    "no se pudo copiar el comentario {what} «{}» al clon: {e}",
+                    renamed.name
+                ))
+            })?;
         expected.push(renamed);
     }
     expected.sort_by(|a, b| (a.index, &a.name).cmp(&(b.index, &b.name)));
-    let got = object_comments(tgt, schema, table)
-        .await
-        .map_err(|e| Error::Query(format!("no se pudieron leer los comentarios de los índices y las restricciones del clon: {e}")))?;
+    let got = object_comments(tgt, schema, table).await.map_err(|e| {
+        Error::Query(format!(
+            "no se pudieron leer los comentarios de los índices y las restricciones del clon: {e}"
+        ))
+    })?;
     if got != expected {
-        let w = |v: &[PgComment]| v.iter().map(|c| format!("{}: {}", c.name, c.text)).collect::<Vec<_>>().join(", ");
+        let w = |v: &[PgComment]| {
+            v.iter()
+                .map(|c| format!("{}: {}", c.name, c.text))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         return Err(Error::State(format!(
             "el clon no quedó igual al original (comentarios de índices y restricciones: {} / {}); no se clona",
             w(&expected),
@@ -851,7 +1080,10 @@ pub(super) async fn copy_comments(
     }
     let mut notes = Vec::new();
     if !no_index.is_empty() {
-        notes.push(format!("sin índices: tampoco se copian sus comentarios ({})", no_index.join(", ")));
+        notes.push(format!(
+            "sin índices: tampoco se copian sus comentarios ({})",
+            no_index.join(", ")
+        ));
     }
     if !broken.is_empty() {
         notes.push(format!(
@@ -882,17 +1114,31 @@ impl PgForeignKey {
         let i = def.find(R)? + R.len();
         let cols = format!("({refcols})");
         let j = i + def[i..].find(&cols)?;
-        Some(PgForeignKey { name, head: def[..i].to_string(), target, rest: def[j..].trim_end().to_string() })
+        Some(PgForeignKey {
+            name,
+            head: def[..i].to_string(),
+            target,
+            rest: def[j..].trim_end().to_string(),
+        })
     }
 
     /// Without the table's name: the original's and the clone's compare
     /// equal (a reference to the table itself is one to the clone).
     fn shape(&self) -> String {
-        format!("{}{}{}", self.head, self.target.as_deref().unwrap_or("(la misma tabla)"), self.rest)
+        format!(
+            "{}{}{}",
+            self.head,
+            self.target.as_deref().unwrap_or("(la misma tabla)"),
+            self.rest
+        )
     }
 }
 
-async fn foreign_keys(s: &mut dyn Session, schema: Option<&str>, name: &str) -> Result<(Vec<PgForeignKey>, Vec<String>)> {
+async fn foreign_keys(
+    s: &mut dyn Session,
+    schema: Option<&str>,
+    name: &str,
+) -> Result<(Vec<PgForeignKey>, Vec<String>)> {
     let rel = lit(&qualified(schema, name));
     let mut fks = Vec::new();
     let mut unread = Vec::new();
@@ -947,19 +1193,62 @@ async fn parts(s: &mut dyn Session, schema: Option<&str>, name: &str) -> Result<
     let foreign_keys = count(one(s, &format!("SELECT count(*) FROM pg_constraint WHERE conrelid = {rel}::regclass AND contype = 'f'")).await?);
     let not_valid_fks =
         count(one(s, &format!("SELECT count(*) FROM pg_constraint WHERE conrelid = {rel}::regclass AND contype = 'f' AND NOT convalidated")).await?);
-    let indexes = count(one(s, &format!("SELECT count(*) FROM pg_index WHERE indrelid = {rel}::regclass")).await?);
-    let primary = count(one(s, &format!("SELECT count(*) FROM pg_index WHERE indrelid = {rel}::regclass AND indisprimary")).await?);
-    let persistence = one(s, &format!("SELECT relpersistence::text FROM pg_class WHERE oid = {rel}::regclass")).await?.unwrap_or_default().trim().to_string();
+    let indexes = count(
+        one(
+            s,
+            &format!("SELECT count(*) FROM pg_index WHERE indrelid = {rel}::regclass"),
+        )
+        .await?,
+    );
+    let primary = count(
+        one(
+            s,
+            &format!(
+                "SELECT count(*) FROM pg_index WHERE indrelid = {rel}::regclass AND indisprimary"
+            ),
+        )
+        .await?,
+    );
+    let persistence = one(
+        s,
+        &format!("SELECT relpersistence::text FROM pg_class WHERE oid = {rel}::regclass"),
+    )
+    .await?
+    .unwrap_or_default()
+    .trim()
+    .to_string();
     let (fks, unread) = self::foreign_keys(s, schema, name).await?;
     let mut fk_defs: Vec<String> = fks.iter().map(PgForeignKey::shape).chain(unread).collect();
     fk_defs.sort();
-    Ok(Parts { checks, foreign_keys, not_valid_fks, fk_defs, indexes, primary, persistence })
+    Ok(Parts {
+        checks,
+        foreign_keys,
+        not_valid_fks,
+        fk_defs,
+        indexes,
+        primary,
+        persistence,
+    })
 }
 
-async fn columns(s: &mut dyn Session, version: i64, cockroach: bool, schema: Option<&str>, name: &str) -> Result<Vec<PgColumn>> {
+async fn columns(
+    s: &mut dyn Session,
+    version: i64,
+    cockroach: bool,
+    schema: Option<&str>,
+    name: &str,
+) -> Result<Vec<PgColumn>> {
     let rel = lit(&qualified(schema, name));
-    let identity = if version >= 100000 { "a.attidentity::text" } else { "''" };
-    let generated = if version >= 120000 { "a.attgenerated::text" } else { "''" };
+    let identity = if version >= 100000 {
+        "a.attidentity::text"
+    } else {
+        "''"
+    };
+    let generated = if version >= 120000 {
+        "a.attgenerated::text"
+    } else {
+        "''"
+    };
     let collation = if version >= 90100 {
         "CASE WHEN a.attcollation <> 0 AND a.attcollation <> t.typcollation THEN
             CASE WHEN cn.nspname = 'pg_catalog' THEN quote_ident(co.collname)
@@ -977,7 +1266,10 @@ async fn columns(s: &mut dyn Session, version: i64, cockroach: bool, schema: Opt
     let (hidden, on_update) = if cockroach {
         let ic = "FROM information_schema.columns ic JOIN pg_class ct ON ct.oid = a.attrelid JOIN pg_namespace nt ON nt.oid = ct.relnamespace
                   WHERE ic.table_schema = nt.nspname AND ic.table_name = ct.relname AND ic.column_name = a.attname";
-        (format!("COALESCE((SELECT ic.is_hidden = 'YES' {ic} LIMIT 1), false)::text"), format!("(SELECT ic.column_on_update {ic} LIMIT 1)"))
+        (
+            format!("COALESCE((SELECT ic.is_hidden = 'YES' {ic} LIMIT 1), false)::text"),
+            format!("(SELECT ic.column_on_update {ic} LIMIT 1)"),
+        )
     } else {
         ("'false'".to_string(), "NULL::text".to_string())
     };
@@ -1023,8 +1315,16 @@ fn refuse(why: String) -> Error {
 }
 
 /// Read the original (and refuse what a plain table can't be).
-pub(super) async fn inspect(s: &mut dyn Session, driver: &dyn Driver, schema: Option<&str>, name: &str) -> Result<PgTable> {
-    let version = one(s, "SELECT current_setting('server_version_num')").await?.and_then(|v| v.trim().parse::<i64>().ok()).unwrap_or(0);
+pub(super) async fn inspect(
+    s: &mut dyn Session,
+    driver: &dyn Driver,
+    schema: Option<&str>,
+    name: &str,
+) -> Result<PgTable> {
+    let version = one(s, "SELECT current_setting('server_version_num')")
+        .await?
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .unwrap_or(0);
     let rel = lit(&qualified(schema, name));
     let sch = match schema.filter(|s| !s.is_empty()) {
         Some(s) => lit(s),
@@ -1041,13 +1341,26 @@ pub(super) async fn inspect(s: &mut dyn Session, driver: &dyn Driver, schema: Op
     if found.as_deref().unwrap_or("0") == "0" {
         return Err(Error::State(format!("no se encontró la tabla «{name}»")));
     }
-    let kind = one(s, &format!("SELECT relkind::text FROM pg_class WHERE oid = {rel}::regclass")).await?.unwrap_or_default();
+    let kind = one(
+        s,
+        &format!("SELECT relkind::text FROM pg_class WHERE oid = {rel}::regclass"),
+    )
+    .await?
+    .unwrap_or_default();
     if kind == "p" {
         return Err(refuse(
             "la tabla está particionada (PARTITION BY): el clon sería una tabla común, sin su clave de partición ni sus particiones".into(),
         ));
     }
-    if one(s, "SELECT count(*) FROM pg_extension WHERE extname = 'timescaledb'").await?.as_deref().unwrap_or("0") != "0" {
+    if one(
+        s,
+        "SELECT count(*) FROM pg_extension WHERE extname = 'timescaledb'",
+    )
+    .await?
+    .as_deref()
+    .unwrap_or("0")
+        != "0"
+    {
         let n = one(
             s,
             &format!("SELECT count(*) FROM _timescaledb_catalog.hypertable WHERE schema_name = {sch} AND table_name = {}", lit(name)),
@@ -1065,7 +1378,11 @@ pub(super) async fn inspect(s: &mut dyn Session, driver: &dyn Driver, schema: Op
             "es una partición o hereda de {p} (INHERITS): el clon sería una tabla suelta, fuera de esa jerarquía"
         )));
     }
-    let children = one(s, &format!("SELECT count(*) FROM pg_inherits WHERE inhparent = {rel}::regclass")).await?;
+    let children = one(
+        s,
+        &format!("SELECT count(*) FROM pg_inherits WHERE inhparent = {rel}::regclass"),
+    )
+    .await?;
     if let Some(n) = children.filter(|n| n != "0") {
         return Err(refuse(format!(
             "{n} tabla(s) heredan de ella (INHERITS): sus filas se leen junto con las de la tabla y el clon las mezclaría sin la jerarquía"
@@ -1074,7 +1391,11 @@ pub(super) async fn inspect(s: &mut dyn Session, driver: &dyn Driver, schema: Op
     let cockroach = driver.info().id == "cockroachdb";
     let columns = columns(s, version, cockroach, schema, name).await?;
     // CockroachDB's index names only have to be unique within their table.
-    let not_indexes = if cockroach { " AND c.relkind NOT IN ('i', 'I')" } else { "" };
+    let not_indexes = if cockroach {
+        " AND c.relkind NOT IN ('i', 'I')"
+    } else {
+        ""
+    };
     let taken = rows(
         s,
         &format!(
@@ -1104,7 +1425,11 @@ pub(super) async fn inspect(s: &mut dyn Session, driver: &dyn Driver, schema: Op
     let (foreign_keys, _) = self::foreign_keys(s, schema, name).await?;
     let comments = object_comments(s, schema, name).await.ok();
     let settings = settings(s, version, cockroach, schema, name).await?;
-    let crdb = if cockroach { Some(crdb(s, schema, name).await?) } else { None };
+    let crdb = if cockroach {
+        Some(crdb(s, schema, name).await?)
+    } else {
+        None
+    };
     let rls_hides_rows = settings.rls && rls_active(s, &rel).await;
     let extras = extras(s, version, cockroach, schema, name, true).await?;
     let pg = PgTable {
@@ -1143,7 +1468,12 @@ pub(super) async fn inspect(s: &mut dyn Session, driver: &dyn Driver, schema: Op
 /// literal). CockroachDB has no `row_security_active`: the owner and those
 /// with `BYPASSRLS` (or admins) see every row unless it's `FORCE`d.
 async fn rls_active(s: &mut dyn Session, rel: &str) -> bool {
-    if let Ok(v) = one(s, &format!("SELECT row_security_active({rel}::regclass)::text")).await {
+    if let Ok(v) = one(
+        s,
+        &format!("SELECT row_security_active({rel}::regclass)::text"),
+    )
+    .await
+    {
         return truth(v);
     }
     let sql = format!(
@@ -1171,21 +1501,40 @@ fn deferred_check(def: &str) -> bool {
 /// Takes out of the plan what must be added after the rows as the original
 /// has it (see [`PgTable::deferred_checks`]); returns those statements,
 /// and marks `UNLOGGED` in the `CREATE`.
-pub(super) fn defer(driver: &dyn Driver, plan: &mut super::ClonePlan, pg: &PgTable) -> Result<Deferred> {
-    let to = |from: &str| plan.renames.iter().find(|r| r.from == from).map(|r| r.to.clone()).unwrap_or_else(|| from.to_string());
+pub(super) fn defer(
+    driver: &dyn Driver,
+    plan: &mut super::ClonePlan,
+    pg: &PgTable,
+) -> Result<Deferred> {
+    let to = |from: &str| {
+        plan.renames
+            .iter()
+            .find(|r| r.from == from)
+            .map(|r| r.to.clone())
+            .unwrap_or_else(|| from.to_string())
+    };
     let clone_q = qualified(plan.table.schema.as_deref(), &plan.table.name);
     let mut out = Deferred::default();
     for (name, def) in &pg.deferred_checks {
         let n = to(name);
-        plan.table.checks.retain(|c| c.name.as_deref() != Some(n.as_str()));
-        out.checks.push(format!("ALTER TABLE {clone_q} ADD CONSTRAINT {} {def};", qi(&n)));
+        plan.table
+            .checks
+            .retain(|c| c.name.as_deref() != Some(n.as_str()));
+        out.checks.push(format!(
+            "ALTER TABLE {clone_q} ADD CONSTRAINT {} {def};",
+            qi(&n)
+        ));
     }
     // Foreign keys as the catalog writes them (MATCH FULL, DEFERRABLE,
     // INITIALLY DEFERRED, NOT VALID), the name and a reference to the
     // table itself changed to the clone's.
     let mut kept = Vec::new();
     for fk in std::mem::take(&mut plan.table.foreign_keys) {
-        match pg.foreign_keys.iter().find(|p| fk.name.as_deref() == Some(to(&p.name).as_str())) {
+        match pg
+            .foreign_keys
+            .iter()
+            .find(|p| fk.name.as_deref() == Some(to(&p.name).as_str()))
+        {
             Some(p) => out.foreign_keys.push(format!(
                 "ALTER TABLE {clone_q} ADD CONSTRAINT {} {}{}{};",
                 qi(&to(&p.name)),
@@ -1197,14 +1546,27 @@ pub(super) fn defer(driver: &dyn Driver, plan: &mut super::ClonePlan, pg: &PgTab
         }
     }
     let not_valid: Vec<String> = pg.not_valid_fks.iter().map(|n| to(n)).collect();
-    let (later, now): (Vec<ForeignKeyDef>, Vec<ForeignKeyDef>) =
-        kept.into_iter().partition(|f| f.name.as_ref().is_some_and(|n| not_valid.contains(n)));
+    let (later, now): (Vec<ForeignKeyDef>, Vec<ForeignKeyDef>) = kept
+        .into_iter()
+        .partition(|f| f.name.as_ref().is_some_and(|n| not_valid.contains(n)));
     plan.table.foreign_keys = now;
     for fk in later {
-        let one = TableSchema { schema: plan.table.schema.clone(), name: plan.table.name.clone(), foreign_keys: vec![fk], ..Default::default() };
-        let s = driver.table_ddl(&one, DdlParts { foreign_keys: true, ..Default::default() })?;
+        let one = TableSchema {
+            schema: plan.table.schema.clone(),
+            name: plan.table.name.clone(),
+            foreign_keys: vec![fk],
+            ..Default::default()
+        };
+        let s = driver.table_ddl(
+            &one,
+            DdlParts {
+                foreign_keys: true,
+                ..Default::default()
+            },
+        )?;
         let s = s.trim_end();
-        out.foreign_keys.push(format!("{} NOT VALID;", s.strip_suffix(';').unwrap_or(s)));
+        out.foreign_keys
+            .push(format!("{} NOT VALID;", s.strip_suffix(';').unwrap_or(s)));
     }
     out.unlogged = pg.parts.persistence == "u";
     // CockroachDB: column families and a hash-sharded primary key go in
@@ -1213,28 +1575,49 @@ pub(super) fn defer(driver: &dyn Driver, plan: &mut super::ClonePlan, pg: &PgTab
     // until the index makes it).
     if let Some(c) = &pg.crdb {
         if let Some((name, clause)) = &c.hash_primary {
-            let n = plan.renames.iter().find(|r| &r.from == name).map(|r| r.to.clone()).unwrap_or_else(|| {
-                if name.ends_with("_pkey") { format!("{}_pkey", plan.table.name) } else { name.clone() }
-            });
-            out.create_items.push(format!("CONSTRAINT {} {clause}", qi(&n)));
+            let n = plan
+                .renames
+                .iter()
+                .find(|r| &r.from == name)
+                .map(|r| r.to.clone())
+                .unwrap_or_else(|| {
+                    if name.ends_with("_pkey") {
+                        format!("{}_pkey", plan.table.name)
+                    } else {
+                        name.clone()
+                    }
+                });
+            out.create_items
+                .push(format!("CONSTRAINT {} {clause}", qi(&n)));
         }
         out.create_items.extend(c.families.iter().cloned());
         // Its storage parameters in the CREATE, as `SHOW CREATE TABLE`
         // writes them: the row-level TTL (`ttl_expire_after`…) can only be
         // set there on a table that already has its
         // `crdb_internal_expiration` column (added as the original's).
-        out.create_with = pg.settings.options.iter().filter(|o| crdb_create_option(o)).cloned().collect();
+        out.create_with = pg
+            .settings
+            .options
+            .iter()
+            .filter(|o| crdb_create_option(o))
+            .cloned()
+            .collect();
         for (name, unique, def) in &c.hash_indexes {
             let n = to(name);
             plan.table.indexes.retain(|i| i.name != n);
             let u = if *unique { "UNIQUE " } else { "" };
-            out.indexes.push(format!("CREATE {u}INDEX {} ON {clone_q} {def};", qi(&n)));
+            out.indexes
+                .push(format!("CREATE {u}INDEX {} ON {clone_q} {def};", qi(&n)));
         }
     }
     // Extended statistics: renamed like the constraints (reported with them).
     for (from, to) in statistics_names(pg, &plan.table.name) {
         if from != to && !plan.renames.iter().any(|r| r.from == from) {
-            plan.renames.push(super::Rename { from, to, shortened: false });
+            plan.renames.push(super::Rename {
+                from,
+                to,
+                shortened: false,
+            });
         }
     }
     Ok(out)
@@ -1261,14 +1644,21 @@ pub(super) struct Deferred {
 impl Deferred {
     /// The `CREATE` as `UNLOGGED` when the original is, and the foreign
     /// keys `NOT VALID` with the others.
-    pub(super) fn apply(&self, create: &mut String, foreign_keys: &mut Option<String>, indexes: &mut Option<String>, with_indexes: bool) -> Result<()> {
+    pub(super) fn apply(
+        &self,
+        create: &mut String,
+        foreign_keys: &mut Option<String>,
+        indexes: &mut Option<String>,
+        with_indexes: bool,
+    ) -> Result<()> {
         if !self.create_items.is_empty() {
             *create = into_create(create, &self.create_items)
                 .ok_or_else(|| refuse("no se pudieron agregar al CREATE las familias de columnas o la clave primaria con hash".into()))?;
         }
         if !self.create_with.is_empty() {
-            *create = with_create(create, &self.create_with)
-                .ok_or_else(|| refuse("no se pudieron agregar al CREATE las opciones de la tabla (WITH …)".into()))?;
+            *create = with_create(create, &self.create_with).ok_or_else(|| {
+                refuse("no se pudieron agregar al CREATE las opciones de la tabla (WITH …)".into())
+            })?;
         }
         if with_indexes && !self.indexes.is_empty() {
             let mut all: Vec<String> = indexes.take().into_iter().collect();
@@ -1277,7 +1667,9 @@ impl Deferred {
         }
         if self.unlogged {
             if !create.contains("CREATE TABLE ") {
-                return Err(refuse("la tabla es UNLOGGED y no se pudo crear el clon igual".into()));
+                return Err(refuse(
+                    "la tabla es UNLOGGED y no se pudo crear el clon igual".into(),
+                ));
             }
             *create = create.replacen("CREATE TABLE ", "CREATE UNLOGGED TABLE ", 1);
         }
@@ -1303,7 +1695,11 @@ fn serial_type(type_name: &str) -> Option<&'static str> {
 /// The clone's columns as the catalog says (`database_schema` flattens
 /// identity kinds, collations, serials and CockroachDB's computed
 /// columns). Returns what must run before the `CREATE`.
-pub(super) fn adjust(clone: &mut TableSchema, pg: &PgTable, notes: &mut Vec<String>) -> Result<String> {
+pub(super) fn adjust(
+    clone: &mut TableSchema,
+    pg: &PgTable,
+    notes: &mut Vec<String>,
+) -> Result<String> {
     let mut prelude = String::new();
     // CockroachDB's hidden (`NOT VISIBLE`) columns, which `database_schema`
     // leaves out, in their place (the row-level TTL's
@@ -1331,16 +1727,36 @@ pub(super) fn adjust(clone: &mut TableSchema, pg: &PgTable, notes: &mut Vec<Stri
         at += 1;
     }
     for c in &mut clone.columns {
-        let Some(p) = pg.columns.iter().find(|p| p.name == c.name) else { continue };
-        let collate = p.collation.as_deref().map(|x| format!(" COLLATE {x}")).unwrap_or_default();
+        let Some(p) = pg.columns.iter().find(|p| p.name == c.name) else {
+            continue;
+        };
+        let collate = p
+            .collation
+            .as_deref()
+            .map(|x| format!(" COLLATE {x}"))
+            .unwrap_or_default();
         if !p.generated.is_empty() {
             let how = match p.generated.as_str() {
                 "s" => "STORED",
                 "v" => "VIRTUAL",
-                other => return Err(refuse(format!("la columna «{}» es calculada de un tipo desconocido ({other})", c.name))),
+                other => {
+                    return Err(refuse(format!(
+                        "la columna «{}» es calculada de un tipo desconocido ({other})",
+                        c.name
+                    )))
+                }
             };
-            let expr = p.default.clone().ok_or_else(|| refuse(format!("no se pudo leer la expresión de la columna calculada «{}»", c.name)))?;
-            c.data_type = format!("{}{collate} GENERATED ALWAYS AS ({expr}) {how}{}", p.type_name, if p.hidden { " NOT VISIBLE" } else { "" });
+            let expr = p.default.clone().ok_or_else(|| {
+                refuse(format!(
+                    "no se pudo leer la expresión de la columna calculada «{}»",
+                    c.name
+                ))
+            })?;
+            c.data_type = format!(
+                "{}{collate} GENERATED ALWAYS AS ({expr}) {how}{}",
+                p.type_name,
+                if p.hidden { " NOT VISIBLE" } else { "" }
+            );
             c.default_value = None;
             c.auto_increment = false;
             continue;
@@ -1389,7 +1805,11 @@ pub(super) fn adjust(clone: &mut TableSchema, pg: &PgTable, notes: &mut Vec<Stri
 /// CockroachDB's implicit `rowid` key (a table without a primary key):
 /// the clone makes its own.
 fn implicit_rowid(c: &PgColumn) -> bool {
-    c.hidden && c.name == "rowid" && c.default.as_deref().is_some_and(|d| d.trim() == "unique_rowid()")
+    c.hidden
+        && c.name == "rowid"
+        && c.default
+            .as_deref()
+            .is_some_and(|d| d.trim() == "unique_rowid()")
 }
 
 /// Names the clone's own sequences would get and CockroachDB doesn't
@@ -1408,11 +1828,17 @@ pub(super) fn sequence_collisions(pg: &PgTable, new_name: &str) -> Vec<String> {
 
 fn number(v: Option<String>, what: &str) -> Result<String> {
     let v = v.unwrap_or_default();
-    v.trim().parse::<i128>().map(|n| n.to_string()).map_err(|_| Error::State(format!("secuencia: {what} ilegible ({v})")))
+    v.trim()
+        .parse::<i128>()
+        .map(|n| n.to_string())
+        .map_err(|_| Error::State(format!("secuencia: {what} ilegible ({v})")))
 }
 
 fn truth(v: Option<String>) -> bool {
-    matches!(v.as_deref().map(str::trim), Some("t" | "true" | "TRUE" | "1"))
+    matches!(
+        v.as_deref().map(str::trim),
+        Some("t" | "true" | "TRUE" | "1")
+    )
 }
 
 /// After the rows: every owned sequence with the original's options and
@@ -1429,16 +1855,34 @@ pub(super) async fn after_load(
         if !c.generated.is_empty() {
             continue;
         }
-        let Some(seq) = c.sequence.as_deref() else { continue };
+        let Some(seq) = c.sequence.as_deref() else {
+            continue;
+        };
         let opts = if pg.version >= 100000 {
             format!("SELECT seqstart, seqincrement, seqmin, seqmax, seqcache, seqcycle FROM pg_sequence WHERE seqrelid = {}::regclass", lit(seq))
         } else {
             format!("SELECT start_value, increment_by, min_value, max_value, cache_value, is_cycled FROM {seq}")
         };
-        let o = rows(src, &opts).await?.into_iter().next().ok_or_else(|| Error::State(format!("no se pudo leer la secuencia {seq}")))?;
+        let o = rows(src, &opts)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::State(format!("no se pudo leer la secuencia {seq}")))?;
         let at = |i: usize| o.get(i).cloned().flatten();
-        let Some(cseq) = one(tgt, &format!("SELECT pg_get_serial_sequence({}, {})", lit(&clone_q), lit(&c.name))).await? else {
-            return Err(Error::State(format!("la columna «{}» del clon quedó sin su secuencia", c.name)));
+        let Some(cseq) = one(
+            tgt,
+            &format!(
+                "SELECT pg_get_serial_sequence({}, {})",
+                lit(&clone_q),
+                lit(&c.name)
+            ),
+        )
+        .await?
+        else {
+            return Err(Error::State(format!(
+                "la columna «{}» del clon quedó sin su secuencia",
+                c.name
+            )));
         };
         let cycle = if truth(at(5)) { "CYCLE" } else { "NO CYCLE" };
         // RESTART WITH in the same statement: the clone's sequence stands
@@ -1457,16 +1901,31 @@ pub(super) async fn after_load(
         )
         .await?;
         if with_data {
-            let st = rows(src, &format!("SELECT last_value, is_called FROM {seq}")).await?.into_iter().next().unwrap_or_default();
+            let st = rows(src, &format!("SELECT last_value, is_called FROM {seq}"))
+                .await?
+                .into_iter()
+                .next()
+                .unwrap_or_default();
             let last = number(st.first().cloned().flatten(), "valor actual")?;
             let called = truth(st.get(1).cloned().flatten());
-            exec(tgt, &format!("SELECT setval({}, {last}, {called})", lit(&cseq))).await?;
+            exec(
+                tgt,
+                &format!("SELECT setval({}, {last}, {called})", lit(&cseq)),
+            )
+            .await?;
         } else {
             exec(tgt, &format!("ALTER SEQUENCE {cseq} RESTART")).await?;
         }
     }
     for c in pg.columns.iter().filter(|c| c.identity == "a") {
-        exec(tgt, &format!("ALTER TABLE {clone_q} ALTER COLUMN {} SET GENERATED ALWAYS", qi(&c.name))).await?;
+        exec(
+            tgt,
+            &format!(
+                "ALTER TABLE {clone_q} ALTER COLUMN {} SET GENERATED ALWAYS",
+                qi(&c.name)
+            ),
+        )
+        .await?;
     }
     Ok(())
 }
@@ -1479,7 +1938,12 @@ fn shard_column(c: &PgColumn) -> bool {
 
 /// Right after the `CREATE`, before the rows: the original's storage
 /// options (the clone's own defaults reset) and column settings.
-pub(super) async fn after_create(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSchema, with_data: bool) -> Result<()> {
+pub(super) async fn after_create(
+    tgt: &mut dyn Session,
+    pg: &PgTable,
+    clone: &TableSchema,
+    with_data: bool,
+) -> Result<()> {
     if with_data && pg.rls_hides_rows {
         return Err(refuse(
             "la seguridad por filas (ROW LEVEL SECURITY) de la tabla le oculta filas a este usuario, así que el clon no tendría todas; clonala sin datos o con un usuario que no esté sujeto a sus políticas (dueño sin FORCE, BYPASSRLS o superusuario)".into(),
@@ -1487,12 +1951,32 @@ pub(super) async fn after_create(tgt: &mut dyn Session, pg: &PgTable, clone: &Ta
     }
     let (schema, table) = (clone.schema.as_deref(), clone.name.as_str());
     let clone_q = qualified(schema, table);
-    let fail = |e: Error| Error::Query(format!("opciones de almacenamiento de la tabla y sus columnas: {e}"));
-    let now = settings(tgt, pg.version, pg.cockroach, schema, table).await.map_err(fail)?;
-    let key = |o: &str| o.split_once('=').map(|(k, _)| k.to_string()).unwrap_or_else(|| o.to_string());
-    let reset: Vec<String> = now.options.iter().map(|o| key(o)).filter(|k| !pg.settings.options.iter().any(|o| key(o) == *k)).collect();
+    let fail = |e: Error| {
+        Error::Query(format!(
+            "opciones de almacenamiento de la tabla y sus columnas: {e}"
+        ))
+    };
+    let now = settings(tgt, pg.version, pg.cockroach, schema, table)
+        .await
+        .map_err(fail)?;
+    let key = |o: &str| {
+        o.split_once('=')
+            .map(|(k, _)| k.to_string())
+            .unwrap_or_else(|| o.to_string())
+    };
+    let reset: Vec<String> = now
+        .options
+        .iter()
+        .map(|o| key(o))
+        .filter(|k| !pg.settings.options.iter().any(|o| key(o) == *k))
+        .collect();
     if !reset.is_empty() {
-        exec(tgt, &format!("ALTER TABLE {clone_q} RESET ({})", reset.join(", "))).await.map_err(fail)?;
+        exec(
+            tgt,
+            &format!("ALTER TABLE {clone_q} RESET ({})", reset.join(", ")),
+        )
+        .await
+        .map_err(fail)?;
     }
     let set: Vec<String> = pg
         .settings
@@ -1506,7 +1990,12 @@ pub(super) async fn after_create(tgt: &mut dyn Session, pg: &PgTable, clone: &Ta
         })
         .collect();
     if !set.is_empty() {
-        exec(tgt, &format!("ALTER TABLE {clone_q} SET ({})", set.join(", "))).await.map_err(fail)?;
+        exec(
+            tgt,
+            &format!("ALTER TABLE {clone_q} SET ({})", set.join(", ")),
+        )
+        .await
+        .map_err(fail)?;
     }
     for c in &pg.settings.columns {
         for sql in c.sql(&clone_q)? {
@@ -1519,7 +2008,13 @@ pub(super) async fn after_create(tgt: &mut dyn Session, pg: &PgTable, clone: &Ta
 /// After the rows, indexes and foreign keys: row-level security (policies,
 /// then `ENABLE` / `FORCE`) and CockroachDB's zone configurations. Returns
 /// the notes for what the clone can't have without indexes.
-pub(super) async fn finish(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSchema, renames: &[super::Rename], with_indexes: bool) -> Result<Vec<String>> {
+pub(super) async fn finish(
+    tgt: &mut dyn Session,
+    pg: &PgTable,
+    clone: &TableSchema,
+    renames: &[super::Rename],
+    with_indexes: bool,
+) -> Result<Vec<String>> {
     let clone_q = qualified(clone.schema.as_deref(), &clone.name);
     let mut notes = Vec::new();
     let rls = |e: Error| Error::Query(format!("seguridad por filas (ROW LEVEL SECURITY): {e}"));
@@ -1528,10 +2023,20 @@ pub(super) async fn finish(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSch
     }
     notes.extend(finish_extras(tgt, pg, clone, renames).await?);
     if pg.settings.rls {
-        exec(tgt, &format!("ALTER TABLE {clone_q} ENABLE ROW LEVEL SECURITY")).await.map_err(rls)?;
+        exec(
+            tgt,
+            &format!("ALTER TABLE {clone_q} ENABLE ROW LEVEL SECURITY"),
+        )
+        .await
+        .map_err(rls)?;
     }
     if pg.settings.force_rls {
-        exec(tgt, &format!("ALTER TABLE {clone_q} FORCE ROW LEVEL SECURITY")).await.map_err(rls)?;
+        exec(
+            tgt,
+            &format!("ALTER TABLE {clone_q} FORCE ROW LEVEL SECURITY"),
+        )
+        .await
+        .map_err(rls)?;
     }
     if let Some(c) = &pg.crdb {
         let (zones, skipped) = clone_zones(c, clone, renames, with_indexes);
@@ -1545,7 +2050,10 @@ pub(super) async fn finish(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSch
                 .map_err(|e| Error::Query(format!("configuración de zona: {e}")))?;
         }
         if !skipped.is_empty() {
-            notes.push(format!("sin índices: tampoco se copian sus configuraciones de zona ({})", skipped.join(", ")));
+            notes.push(format!(
+                "sin índices: tampoco se copian sus configuraciones de zona ({})",
+                skipped.join(", ")
+            ));
         }
     }
     Ok(notes)
@@ -1554,29 +2062,63 @@ pub(super) async fn finish(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSch
 /// The original's policies, their references to the table itself pointed
 /// at the clone (checked in [`inspect`]).
 fn clone_policies(pg: &PgTable, clone: &str) -> Vec<Policy> {
-    let re = |e: &Option<String>| e.as_ref().map(|e| retarget(e, pg.schema.as_deref(), &pg.name, clone, &pg.columns).unwrap_or_else(|| e.clone()));
-    pg.settings.policies.iter().map(|p| Policy { using: re(&p.using), check: re(&p.check), ..p.clone() }).collect()
+    let re = |e: &Option<String>| {
+        e.as_ref().map(|e| {
+            retarget(e, pg.schema.as_deref(), &pg.name, clone, &pg.columns)
+                .unwrap_or_else(|| e.clone())
+        })
+    };
+    pg.settings
+        .policies
+        .iter()
+        .map(|p| Policy {
+            using: re(&p.using),
+            check: re(&p.check),
+            ..p.clone()
+        })
+        .collect()
 }
 
 /// What the clone's extras must be: the original's, on its renamed
 /// indexes (or without them when it doesn't have them) and statistics.
-async fn expected_extras(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSchema, renames: &[super::Rename]) -> Result<Extras> {
+async fn expected_extras(
+    tgt: &mut dyn Session,
+    pg: &PgTable,
+    clone: &TableSchema,
+    renames: &[super::Rename],
+) -> Result<Extras> {
     let clone_rel = qualified(clone.schema.as_deref(), &clone.name);
     let e = &pg.extras;
-    let mut out = Extras { replica: e.replica.clone(), ..Default::default() };
+    let mut out = Extras {
+        replica: e.replica.clone(),
+        ..Default::default()
+    };
     if let Some(ix) = &e.replica_index {
         match clone_index(tgt, &clone_rel, ix, renames).await? {
-            Some(n) => out.replica_index = Some(PgIndexRef { name: n, primary: ix.primary }),
+            Some(n) => {
+                out.replica_index = Some(PgIndexRef {
+                    name: n,
+                    primary: ix.primary,
+                })
+            }
             None if e.replica == "i" => out.replica = "d".into(),
             None => {}
         }
     }
     if let Some(ix) = &e.clustered {
-        out.clustered = clone_index(tgt, &clone_rel, ix, renames).await?.map(|n| PgIndexRef { name: n, primary: ix.primary });
+        out.clustered = clone_index(tgt, &clone_rel, ix, renames)
+            .await?
+            .map(|n| PgIndexRef {
+                name: n,
+                primary: ix.primary,
+            });
     }
     let names = statistics_names(pg, &clone.name);
     for (st, (_, n)) in e.statistics.iter().zip(names) {
-        out.statistics.push(PgStatistics { name: n, ..st.clone() });
+        out.statistics.push(PgStatistics {
+            name: n,
+            ..st.clone()
+        });
     }
     out.statistics.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
@@ -1584,12 +2126,19 @@ async fn expected_extras(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSchem
 
 /// `REPLICA IDENTITY`, `CLUSTER ON` and extended statistics on the clone;
 /// notes for what it can't have (its index wasn't created).
-async fn finish_extras(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSchema, renames: &[super::Rename]) -> Result<Vec<String>> {
+async fn finish_extras(
+    tgt: &mut dyn Session,
+    pg: &PgTable,
+    clone: &TableSchema,
+    renames: &[super::Rename],
+) -> Result<Vec<String>> {
     let clone_q = qualified(clone.schema.as_deref(), &clone.name);
     let want = expected_extras(tgt, pg, clone, renames).await?;
     let e = &pg.extras;
     let mut notes = Vec::new();
-    let fail = |what: &'static str| move |err: Error| Error::Query(format!("{what}: {}", super::in_spanish(err)));
+    let fail = |what: &'static str| {
+        move |err: Error| Error::Query(format!("{what}: {}", super::in_spanish(err)))
+    };
     let identity = match (want.replica.as_str(), &want.replica_index) {
         ("f", _) => Some("FULL".to_string()),
         ("n", _) => Some("NOTHING".to_string()),
@@ -1597,29 +2146,56 @@ async fn finish_extras(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSchema,
         _ => None,
     };
     if let Some(i) = identity {
-        exec(tgt, &format!("ALTER TABLE {clone_q} REPLICA IDENTITY {i}")).await.map_err(fail("identidad de réplica (REPLICA IDENTITY)"))?;
+        exec(tgt, &format!("ALTER TABLE {clone_q} REPLICA IDENTITY {i}"))
+            .await
+            .map_err(fail("identidad de réplica (REPLICA IDENTITY)"))?;
     }
     if e.replica == "i" && want.replica != "i" {
-        let ix = e.replica_index.as_ref().map(|i| i.name.clone()).unwrap_or_default();
+        let ix = e
+            .replica_index
+            .as_ref()
+            .map(|i| i.name.clone())
+            .unwrap_or_default();
         notes.push(format!(
             "sin índices: el clon queda con la identidad de réplica por omisión (la del original es REPLICA IDENTITY USING INDEX {ix})"
         ));
     }
     if let Some(ix) = &want.clustered {
-        exec(tgt, &format!("ALTER TABLE {clone_q} CLUSTER ON {}", qi(&ix.name))).await.map_err(fail("CLUSTER ON"))?;
+        exec(
+            tgt,
+            &format!("ALTER TABLE {clone_q} CLUSTER ON {}", qi(&ix.name)),
+        )
+        .await
+        .map_err(fail("CLUSTER ON"))?;
     } else if let Some(ix) = &e.clustered {
-        notes.push(format!("sin índices: el clon no queda marcado para CLUSTER (el original lo está sobre {})", ix.name));
+        notes.push(format!(
+            "sin índices: el clon no queda marcado para CLUSTER (el original lo está sobre {})",
+            ix.name
+        ));
     }
     for st in &want.statistics {
         let q = qualified(Some(&st.schema), &st.name);
-        exec(tgt, &format!("CREATE STATISTICS {q} {} FROM {clone_q}", st.body)).await.map_err(fail("estadísticas extendidas (CREATE STATISTICS)"))?;
+        exec(
+            tgt,
+            &format!("CREATE STATISTICS {q} {} FROM {clone_q}", st.body),
+        )
+        .await
+        .map_err(fail("estadísticas extendidas (CREATE STATISTICS)"))?;
         if let Some(t) = &st.target {
-            exec(tgt, &format!("ALTER STATISTICS {q} SET STATISTICS {}", number(Some(t.clone()), "objetivo de estadísticas")?))
-                .await
-                .map_err(fail("estadísticas extendidas (CREATE STATISTICS)"))?;
+            exec(
+                tgt,
+                &format!(
+                    "ALTER STATISTICS {q} SET STATISTICS {}",
+                    number(Some(t.clone()), "objetivo de estadísticas")?
+                ),
+            )
+            .await
+            .map_err(fail("estadísticas extendidas (CREATE STATISTICS)"))?;
         }
         if let Some(c) = &st.comment {
-            exec(tgt, &format!("COMMENT ON STATISTICS {q} IS {}", lit(c))).await.map_err(fail("estadísticas extendidas (CREATE STATISTICS)"))?;
+            exec(tgt, &format!("COMMENT ON STATISTICS {q} IS {}", lit(c)))
+                .await
+                .map_err(fail("estadísticas extendidas (CREATE STATISTICS)"))?;
         }
     }
     Ok(notes)
@@ -1627,8 +2203,19 @@ async fn finish_extras(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSchema,
 
 /// The original's zone configurations on the clone's (renamed) indexes;
 /// and those left out (indexes not created).
-fn clone_zones(c: &Crdb, clone: &TableSchema, renames: &[super::Rename], with_indexes: bool) -> (Vec<(Option<String>, String)>, Vec<String>) {
-    let to = |from: &str| renames.iter().find(|r| r.from == from).map(|r| r.to.clone()).unwrap_or_else(|| from.to_string());
+fn clone_zones(
+    c: &Crdb,
+    clone: &TableSchema,
+    renames: &[super::Rename],
+    with_indexes: bool,
+) -> (Vec<(Option<String>, String)>, Vec<String>) {
+    let to = |from: &str| {
+        renames
+            .iter()
+            .find(|r| r.from == from)
+            .map(|r| r.to.clone())
+            .unwrap_or_else(|| from.to_string())
+    };
     let primary = c.hash_primary.as_ref().map(|(n, _)| n.clone());
     let (mut out, mut skipped) = (Vec::new(), Vec::new());
     for (ix, body) in &c.zones {
@@ -1640,7 +2227,11 @@ fn clone_zones(c: &Crdb, clone: &TableSchema, renames: &[super::Rename], with_in
                     skipped.push(i.clone());
                     continue;
                 }
-                let n = if pk && i.ends_with("_pkey") && !renames.iter().any(|r| &r.from == i) { format!("{}_pkey", clone.name) } else { to(i) };
+                let n = if pk && i.ends_with("_pkey") && !renames.iter().any(|r| &r.from == i) {
+                    format!("{}_pkey", clone.name)
+                } else {
+                    to(i)
+                };
                 out.push((Some(n), body.clone()));
             }
         }
@@ -1677,7 +2268,10 @@ pub(super) fn differences(original: &[PgColumn], clone: &[PgColumn]) -> Vec<Stri
             out.push(format!("{n}: {} / {}", w(&a.identity), w(&b.identity)));
         }
         if a.generated != b.generated {
-            out.push(format!("{n}: columna calculada «{}» / «{}»", a.generated, b.generated));
+            out.push(format!(
+                "{n}: columna calculada «{}» / «{}»",
+                a.generated, b.generated
+            ));
         }
         if a.hidden != b.hidden {
             let w = |h: bool| if h { "oculta (NOT VISIBLE)" } else { "visible" };
@@ -1685,16 +2279,32 @@ pub(super) fn differences(original: &[PgColumn], clone: &[PgColumn]) -> Vec<Stri
         }
         if a.on_update != b.on_update {
             let w = |u: &Option<String>| u.clone().unwrap_or_else(|| "sin ON UPDATE".into());
-            out.push(format!("{n}: ON UPDATE {} / {}", w(&a.on_update), w(&b.on_update)));
+            out.push(format!(
+                "{n}: ON UPDATE {} / {}",
+                w(&a.on_update),
+                w(&b.on_update)
+            ));
         }
         if a.collation != b.collation {
             let w = |c: &Option<String>| c.clone().unwrap_or_else(|| "la del tipo".into());
-            out.push(format!("{n}: collation {} / {}", w(&a.collation), w(&b.collation)));
+            out.push(format!(
+                "{n}: collation {} / {}",
+                w(&a.collation),
+                w(&b.collation)
+            ));
         }
         if a.sequence.is_some() != b.sequence.is_some() {
-            out.push(format!("{n}: {} secuencia propia", if a.sequence.is_some() { "el clon no tiene" } else { "el clon tiene" }));
+            out.push(format!(
+                "{n}: {} secuencia propia",
+                if a.sequence.is_some() {
+                    "el clon no tiene"
+                } else {
+                    "el clon tiene"
+                }
+            ));
         } else if a.sequence.is_none() && a.default != b.default {
-            let w = |d: &Option<String>| d.clone().unwrap_or_else(|| "sin valor por defecto".into());
+            let w =
+                |d: &Option<String>| d.clone().unwrap_or_else(|| "sin valor por defecto".into());
             out.push(format!("{n}: {} / {}", w(&a.default), w(&b.default)));
         }
     }
@@ -1705,8 +2315,18 @@ pub(super) fn differences(original: &[PgColumn], clone: &[PgColumn]) -> Vec<Stri
 fn settings_differences(a: &Settings, b: &Settings) -> Vec<String> {
     let mut out = Vec::new();
     if a.options != b.options {
-        let w = |v: &[String]| if v.is_empty() { "ninguna".to_string() } else { v.join(", ") };
-        out.push(format!("opciones de la tabla: {} / {}", w(&a.options), w(&b.options)));
+        let w = |v: &[String]| {
+            if v.is_empty() {
+                "ninguna".to_string()
+            } else {
+                v.join(", ")
+            }
+        };
+        out.push(format!(
+            "opciones de la tabla: {} / {}",
+            w(&a.options),
+            w(&b.options)
+        ));
     }
     if a.columns != b.columns {
         let w = |v: &[ColumnSettings]| {
@@ -1722,9 +2342,17 @@ fn settings_differences(a: &Settings, b: &Settings) -> Vec<String> {
                     )
                 })
                 .collect();
-            if v.is_empty() { "ninguno".to_string() } else { v.join(", ") }
+            if v.is_empty() {
+                "ninguno".to_string()
+            } else {
+                v.join(", ")
+            }
         };
-        out.push(format!("ajustes de columnas: {} / {}", w(&a.columns), w(&b.columns)));
+        out.push(format!(
+            "ajustes de columnas: {} / {}",
+            w(&a.columns),
+            w(&b.columns)
+        ));
     }
     if (a.rls, a.force_rls) != (b.rls, b.force_rls) {
         let w = |s: &Settings| match (s.rls, s.force_rls) {
@@ -1737,7 +2365,11 @@ fn settings_differences(a: &Settings, b: &Settings) -> Vec<String> {
     }
     if a.policies != b.policies {
         let w = |v: &[Policy]| v.iter().map(|p| p.sql("…")).collect::<Vec<_>>().join("; ");
-        out.push(format!("políticas: {} / {}", w(&a.policies), w(&b.policies)));
+        out.push(format!(
+            "políticas: {} / {}",
+            w(&a.policies),
+            w(&b.policies)
+        ));
     }
     out
 }
@@ -1753,11 +2385,19 @@ fn extras_differences(a: &Extras, b: &Extras) -> Vec<String> {
         _ => "DEFAULT".to_string(),
     };
     if replica(a) != replica(b) {
-        out.push(format!("identidad de réplica {} / {}", replica(a), replica(b)));
+        out.push(format!(
+            "identidad de réplica {} / {}",
+            replica(a),
+            replica(b)
+        ));
     }
     if ix(&a.clustered) != ix(&b.clustered) {
         let w = |i: Option<String>| i.unwrap_or_else(|| "sin CLUSTER ON".into());
-        out.push(format!("CLUSTER ON {} / {}", w(ix(&a.clustered)), w(ix(&b.clustered))));
+        out.push(format!(
+            "CLUSTER ON {} / {}",
+            w(ix(&a.clustered)),
+            w(ix(&b.clustered))
+        ));
     }
     if a.statistics != b.statistics {
         let w = |v: &[PgStatistics]| {
@@ -1765,46 +2405,106 @@ fn extras_differences(a: &Extras, b: &Extras) -> Vec<String> {
                 return "ninguna".to_string();
             }
             v.iter()
-                .map(|s| format!("{} {}{}", s.name, s.body, s.target.as_deref().map(|t| format!(" (STATISTICS {t})")).unwrap_or_default()))
+                .map(|s| {
+                    format!(
+                        "{} {}{}",
+                        s.name,
+                        s.body,
+                        s.target
+                            .as_deref()
+                            .map(|t| format!(" (STATISTICS {t})"))
+                            .unwrap_or_default()
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        out.push(format!("estadísticas extendidas: {} / {}", w(&a.statistics), w(&b.statistics)));
+        out.push(format!(
+            "estadísticas extendidas: {} / {}",
+            w(&a.statistics),
+            w(&b.statistics)
+        ));
     }
     out
 }
 
 /// The clone, read back and compared with the original.
-pub(super) async fn verify(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSchema, renames: &[super::Rename], with_indexes: bool) -> Result<()> {
-    let got = columns(tgt, pg.version, pg.cockroach, clone.schema.as_deref(), &clone.name).await?;
+pub(super) async fn verify(
+    tgt: &mut dyn Session,
+    pg: &PgTable,
+    clone: &TableSchema,
+    renames: &[super::Rename],
+    with_indexes: bool,
+) -> Result<()> {
+    let got = columns(
+        tgt,
+        pg.version,
+        pg.cockroach,
+        clone.schema.as_deref(),
+        &clone.name,
+    )
+    .await?;
     let mut diffs = differences(&pg.columns, &got);
     let p = parts(tgt, clone.schema.as_deref(), &clone.name).await?;
     if p.checks != pg.parts.checks {
-        diffs.push(format!("restricciones CHECK: {} / {}", pg.parts.checks.join(", "), p.checks.join(", ")));
+        diffs.push(format!(
+            "restricciones CHECK: {} / {}",
+            pg.parts.checks.join(", "),
+            p.checks.join(", ")
+        ));
     }
     if p.foreign_keys != pg.parts.foreign_keys {
-        diffs.push(format!("{} claves foráneas en el original, {} en el clon", pg.parts.foreign_keys, p.foreign_keys));
+        diffs.push(format!(
+            "{} claves foráneas en el original, {} en el clon",
+            pg.parts.foreign_keys, p.foreign_keys
+        ));
     }
     if p.not_valid_fks != pg.parts.not_valid_fks {
-        diffs.push(format!("{} claves foráneas NOT VALID en el original, {} en el clon", pg.parts.not_valid_fks, p.not_valid_fks));
+        diffs.push(format!(
+            "{} claves foráneas NOT VALID en el original, {} en el clon",
+            pg.parts.not_valid_fks, p.not_valid_fks
+        ));
     }
     if p.foreign_keys == pg.parts.foreign_keys && p.fk_defs != pg.parts.fk_defs {
-        diffs.push(format!("claves foráneas: {} / {}", pg.parts.fk_defs.join(", "), p.fk_defs.join(", ")));
+        diffs.push(format!(
+            "claves foráneas: {} / {}",
+            pg.parts.fk_defs.join(", "),
+            p.fk_defs.join(", ")
+        ));
     }
     if with_indexes && p.indexes != pg.parts.indexes {
-        diffs.push(format!("{} índices en el original, {} en el clon", pg.parts.indexes, p.indexes));
+        diffs.push(format!(
+            "{} índices en el original, {} en el clon",
+            pg.parts.indexes, p.indexes
+        ));
     }
     // Without indexes: the primary key's, and nothing else.
     if !with_indexes && p.indexes != pg.parts.primary {
-        diffs.push(format!("sin índices el clon debía tener {} (el de la clave primaria) y tiene {}", pg.parts.primary, p.indexes));
+        diffs.push(format!(
+            "sin índices el clon debía tener {} (el de la clave primaria) y tiene {}",
+            pg.parts.primary, p.indexes
+        ));
     }
     if p.persistence != pg.parts.persistence {
-        let w = |x: &str| if x == "u" { "UNLOGGED" } else { "con registro (logged)" };
-        diffs.push(format!("tabla {} / {}", w(&pg.parts.persistence), w(&p.persistence)));
+        let w = |x: &str| {
+            if x == "u" {
+                "UNLOGGED"
+            } else {
+                "con registro (logged)"
+            }
+        };
+        diffs.push(format!(
+            "tabla {} / {}",
+            w(&pg.parts.persistence),
+            w(&p.persistence)
+        ));
     }
     let (schema, table) = (clone.schema.as_deref(), clone.name.as_str());
     let st = settings(tgt, pg.version, pg.cockroach, schema, table).await?;
-    let original = Settings { policies: clone_policies(pg, table), ..pg.settings.clone() };
+    let original = Settings {
+        policies: clone_policies(pg, table),
+        ..pg.settings.clone()
+    };
     diffs.extend(settings_differences(&original, &st));
     let want = expected_extras(tgt, pg, clone, renames).await?;
     let got = extras(tgt, pg.version, pg.cockroach, schema, table, false).await?;
@@ -1812,30 +2512,75 @@ pub(super) async fn verify(tgt: &mut dyn Session, pg: &PgTable, clone: &TableSch
     if let Some(c) = &pg.crdb {
         let got = crdb(tgt, schema, table).await?;
         if got.families != c.families {
-            diffs.push(format!("familias de columnas: {} / {}", c.families.join(", "), got.families.join(", ")));
+            diffs.push(format!(
+                "familias de columnas: {} / {}",
+                c.families.join(", "),
+                got.families.join(", ")
+            ));
         }
         let (zones, _) = clone_zones(c, clone, renames, with_indexes);
         if got.zones != zones {
-            let w = |v: &[(Option<String>, String)]| v.iter().map(|(i, b)| format!("{}: {b}", i.as_deref().unwrap_or("tabla"))).collect::<Vec<_>>().join("; ");
-            diffs.push(format!("configuración de zona: {} / {}", w(&c.zones), w(&got.zones)));
+            let w = |v: &[(Option<String>, String)]| {
+                v.iter()
+                    .map(|(i, b)| format!("{}: {b}", i.as_deref().unwrap_or("tabla")))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            };
+            diffs.push(format!(
+                "configuración de zona: {} / {}",
+                w(&c.zones),
+                w(&got.zones)
+            ));
         }
-        let pk = |x: &Option<(String, String)>| x.as_ref().map(|(_, c)| c.clone()).unwrap_or_else(|| "sin hash".into());
+        let pk = |x: &Option<(String, String)>| {
+            x.as_ref()
+                .map(|(_, c)| c.clone())
+                .unwrap_or_else(|| "sin hash".into())
+        };
         if pk(&got.hash_primary) != pk(&c.hash_primary) {
-            diffs.push(format!("clave primaria {} / {}", pk(&c.hash_primary), pk(&got.hash_primary)));
+            diffs.push(format!(
+                "clave primaria {} / {}",
+                pk(&c.hash_primary),
+                pk(&got.hash_primary)
+            ));
         }
-        let to = |from: &str| renames.iter().find(|r| r.from == from).map(|r| r.to.clone()).unwrap_or_else(|| from.to_string());
-        let mut want: Vec<(String, bool, String)> =
-            if with_indexes { c.hash_indexes.iter().map(|(n, u, d)| (to(n), *u, d.clone())).collect() } else { Vec::new() };
+        let to = |from: &str| {
+            renames
+                .iter()
+                .find(|r| r.from == from)
+                .map(|r| r.to.clone())
+                .unwrap_or_else(|| from.to_string())
+        };
+        let mut want: Vec<(String, bool, String)> = if with_indexes {
+            c.hash_indexes
+                .iter()
+                .map(|(n, u, d)| (to(n), *u, d.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
         want.sort();
         if got.hash_indexes != want {
-            let w = |v: &[(String, bool, String)]| v.iter().map(|(n, _, d)| format!("{n} {d}")).collect::<Vec<_>>().join(", ");
-            diffs.push(format!("índices con hash: {} / {}", w(&want), w(&got.hash_indexes)));
+            let w = |v: &[(String, bool, String)]| {
+                v.iter()
+                    .map(|(n, _, d)| format!("{n} {d}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            diffs.push(format!(
+                "índices con hash: {} / {}",
+                w(&want),
+                w(&got.hash_indexes)
+            ));
         }
     }
     if diffs.is_empty() {
         Ok(())
     } else {
-        Err(Error::State(format!("el clon no quedó igual al original ({}); no se clona", diffs.join("; "))))
+        Err(Error::State(format!(
+            "el clon no quedó igual al original ({}); no se clona",
+            diffs.join("; ")
+        )))
     }
 }
 
@@ -1845,7 +2590,11 @@ mod tests {
     use dbine_driver::ColumnDef;
 
     fn col(name: &str, t: &str) -> PgColumn {
-        PgColumn { name: name.into(), type_name: t.into(), ..Default::default() }
+        PgColumn {
+            name: name.into(),
+            type_name: t.into(),
+            ..Default::default()
+        }
     }
 
     fn table(cols: &[&str]) -> TableSchema {
@@ -1854,7 +2603,14 @@ mod tests {
             schema: Some("public".into()),
             name: "t2".into(),
             // As `database_schema` reports them.
-            columns: cols.iter().map(|c| ColumnDef { name: (*c).into(), data_type: "integer".into(), ..Default::default() }).collect(),
+            columns: cols
+                .iter()
+                .map(|c| ColumnDef {
+                    name: (*c).into(),
+                    data_type: "integer".into(),
+                    ..Default::default()
+                })
+                .collect(),
             ..Default::default()
         }
     }
@@ -1871,13 +2627,39 @@ mod tests {
             version: 160000,
             cockroach: false,
             columns: vec![
-                PgColumn { identity: "a".into(), sequence: Some("public.t_id_seq".into()), ..col("id", "integer") },
-                PgColumn { sequence: Some("public.t_ser_seq".into()), default: Some("nextval('t_ser_seq'::regclass)".into()), ..col("ser", "bigint") },
-                PgColumn { default: Some("nextval('shared'::regclass)".into()), ..col("shared", "integer") },
-                PgColumn { collation: Some("\"C\"".into()), ..col("s", "text") },
-                PgColumn { generated: "s".into(), default: Some("id * 2".into()), ..col("g", "integer") },
-                PgColumn { generated: "v".into(), default: Some("id + 1".into()), ..col("v", "integer") },
-                PgColumn { generated: "s".into(), default: Some("1".into()), ..col("k", "bigint") },
+                PgColumn {
+                    identity: "a".into(),
+                    sequence: Some("public.t_id_seq".into()),
+                    ..col("id", "integer")
+                },
+                PgColumn {
+                    sequence: Some("public.t_ser_seq".into()),
+                    default: Some("nextval('t_ser_seq'::regclass)".into()),
+                    ..col("ser", "bigint")
+                },
+                PgColumn {
+                    default: Some("nextval('shared'::regclass)".into()),
+                    ..col("shared", "integer")
+                },
+                PgColumn {
+                    collation: Some("\"C\"".into()),
+                    ..col("s", "text")
+                },
+                PgColumn {
+                    generated: "s".into(),
+                    default: Some("id * 2".into()),
+                    ..col("g", "integer")
+                },
+                PgColumn {
+                    generated: "v".into(),
+                    default: Some("id + 1".into()),
+                    ..col("v", "integer")
+                },
+                PgColumn {
+                    generated: "s".into(),
+                    default: Some("1".into()),
+                    ..col("k", "bigint")
+                },
             ],
             ..Default::default()
         };
@@ -1888,31 +2670,62 @@ mod tests {
         assert!(c[0].auto_increment && c[0].default_value.is_none());
         assert_eq!(c[1].data_type, "bigserial");
         assert!(!c[1].auto_increment && c[1].default_value.is_none());
-        assert_eq!(c[2].default_value.as_deref(), Some("nextval('shared'::regclass)"));
+        assert_eq!(
+            c[2].default_value.as_deref(),
+            Some("nextval('shared'::regclass)")
+        );
         assert!(!c[2].auto_increment);
         assert!(notes.iter().any(|n| n.contains("shared")), "{notes:?}");
         assert_eq!(c[3].data_type, "text COLLATE \"C\"");
-        assert_eq!(c[4].data_type, "integer GENERATED ALWAYS AS (id * 2) STORED");
-        assert_eq!(c[5].data_type, "integer GENERATED ALWAYS AS (id + 1) VIRTUAL");
+        assert_eq!(
+            c[4].data_type,
+            "integer GENERATED ALWAYS AS (id * 2) STORED"
+        );
+        assert_eq!(
+            c[5].data_type,
+            "integer GENERATED ALWAYS AS (id + 1) VIRTUAL"
+        );
         assert_eq!(c[6].data_type, "bigint GENERATED ALWAYS AS (1) STORED");
         assert!(c[6].default_value.is_none());
         assert!(super::super::generated(&c[6], "postgres"));
         // CockroachDB needs its serials as real sequences.
         let mut t = table(&["ser"]);
-        let crdb = PgTable { cockroach: true, ..pg.clone() };
-        assert!(adjust(&mut t, &crdb, &mut Vec::new()).unwrap().contains("sql_sequence"));
+        let crdb = PgTable {
+            cockroach: true,
+            ..pg.clone()
+        };
+        assert!(adjust(&mut t, &crdb, &mut Vec::new())
+            .unwrap()
+            .contains("sql_sequence"));
         // A sequence of its own on a type serial can't write: refused.
         let mut t = table(&["n"]);
-        let odd = PgTable { columns: vec![PgColumn { sequence: Some("s".into()), ..col("n", "numeric(10,0)") }], ..Default::default() };
+        let odd = PgTable {
+            columns: vec![PgColumn {
+                sequence: Some("s".into()),
+                ..col("n", "numeric(10,0)")
+            }],
+            ..Default::default()
+        };
         assert!(adjust(&mut t, &odd, &mut Vec::new()).is_err());
     }
 
     #[test]
     fn compares_what_the_clone_must_keep() {
         let a = vec![
-            PgColumn { identity: "a".into(), sequence: Some("public.t_id_seq".into()), ..col("id", "integer") },
-            PgColumn { collation: Some("\"C\"".into()), ..col("s", "text") },
-            PgColumn { sequence: Some("public.t_n_seq".into()), default: Some("nextval('t_n_seq'::regclass)".into()), ..col("n", "integer") },
+            PgColumn {
+                identity: "a".into(),
+                sequence: Some("public.t_id_seq".into()),
+                ..col("id", "integer")
+            },
+            PgColumn {
+                collation: Some("\"C\"".into()),
+                ..col("s", "text")
+            },
+            PgColumn {
+                sequence: Some("public.t_n_seq".into()),
+                default: Some("nextval('t_n_seq'::regclass)".into()),
+                ..col("n", "integer")
+            },
         ];
         let mut b = a.clone();
         b[2].sequence = Some("public.t2_n_seq".into());
@@ -1922,7 +2735,10 @@ mod tests {
         b[1].collation = None;
         let d = differences(&a, &b);
         assert_eq!(d.len(), 2, "{d:?}");
-        assert!(d[0].contains("ALWAYS") && d[1].contains("collation"), "{d:?}");
+        assert!(
+            d[0].contains("ALWAYS") && d[1].contains("collation"),
+            "{d:?}"
+        );
     }
 
     #[test]
@@ -1934,7 +2750,11 @@ mod tests {
             fn info(&self) -> &DriverInfo {
                 &self.0
             }
-            async fn connect(&self, _: &ConnectionConfig, _: Option<&str>) -> Result<Box<dyn Session>> {
+            async fn connect(
+                &self,
+                _: &ConnectionConfig,
+                _: Option<&str>,
+            ) -> Result<Box<dyn Session>> {
                 Err(Error::Unsupported("test".into()))
             }
             fn table_ddl(&self, t: &TableSchema, _: DdlParts) -> Result<String> {
@@ -1960,19 +2780,48 @@ mod tests {
         let mut t = table(&["x", "p"]);
         t.name = "r2".into();
         t.checks = vec![
-            CheckDef { name: Some("r2_ck_x".into()), expression: "(x > 0)".into() },
-            CheckDef { name: Some("r2_ck_ok".into()), expression: "(x < 9)".into() },
+            CheckDef {
+                name: Some("r2_ck_x".into()),
+                expression: "(x > 0)".into(),
+            },
+            CheckDef {
+                name: Some("r2_ck_ok".into()),
+                expression: "(x < 9)".into(),
+            },
         ];
         t.foreign_keys = vec![
-            ForeignKeyDef { name: Some("r2_fk_p".into()), columns: vec!["p".into()], ref_table: "r2".into(), ref_columns: vec!["x".into()], ..Default::default() },
-            ForeignKeyDef { name: Some("r2_fk_ok".into()), columns: vec!["p".into()], ref_table: "o".into(), ref_columns: vec!["x".into()], ..Default::default() },
+            ForeignKeyDef {
+                name: Some("r2_fk_p".into()),
+                columns: vec!["p".into()],
+                ref_table: "r2".into(),
+                ref_columns: vec!["x".into()],
+                ..Default::default()
+            },
+            ForeignKeyDef {
+                name: Some("r2_fk_ok".into()),
+                columns: vec!["p".into()],
+                ref_table: "o".into(),
+                ref_columns: vec!["x".into()],
+                ..Default::default()
+            },
         ];
-        let rn = |a: &str, b: &str| super::super::Rename { from: a.into(), to: b.into(), shortened: false };
-        let mut plan = super::super::ClonePlan { table: t, renames: vec![rn("ck_x", "r2_ck_x"), rn("fk_p", "r2_fk_p")], notes: Vec::new() };
+        let rn = |a: &str, b: &str| super::super::Rename {
+            from: a.into(),
+            to: b.into(),
+            shortened: false,
+        };
+        let mut plan = super::super::ClonePlan {
+            table: t,
+            renames: vec![rn("ck_x", "r2_ck_x"), rn("fk_p", "r2_fk_p")],
+            notes: Vec::new(),
+        };
         let pg = PgTable {
             deferred_checks: vec![("ck_x".into(), "CHECK ((x > 0)) NOT VALID".into())],
             not_valid_fks: vec!["fk_p".into()],
-            parts: Parts { persistence: "u".into(), ..Default::default() },
+            parts: Parts {
+                persistence: "u".into(),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let d = defer(&d, &mut plan, &pg).unwrap();
@@ -1980,9 +2829,17 @@ mod tests {
         assert_eq!(d.checks, vec!["ALTER TABLE \"public\".\"r2\" ADD CONSTRAINT \"r2_ck_x\" CHECK ((x > 0)) NOT VALID;".to_string()]);
         assert_eq!(plan.table.foreign_keys.len(), 1);
         assert_eq!(d.foreign_keys.len(), 1);
-        assert!(d.foreign_keys[0].contains("\"r2_fk_p\"") && d.foreign_keys[0].ends_with(") NOT VALID;"), "{:?}", d.foreign_keys);
+        assert!(
+            d.foreign_keys[0].contains("\"r2_fk_p\"")
+                && d.foreign_keys[0].ends_with(") NOT VALID;"),
+            "{:?}",
+            d.foreign_keys
+        );
         let mut create = "CREATE TABLE \"public\".\"r2\" (\n    x integer\n);".to_string();
-        let mut fks = Some("ALTER TABLE x ADD CONSTRAINT \"r2_fk_ok\" FOREIGN KEY (p) REFERENCES o (x);".to_string());
+        let mut fks = Some(
+            "ALTER TABLE x ADD CONSTRAINT \"r2_fk_ok\" FOREIGN KEY (p) REFERENCES o (x);"
+                .to_string(),
+        );
         d.apply(&mut create, &mut fks, &mut None, true).unwrap();
         assert!(create.starts_with("CREATE UNLOGGED TABLE "), "{create}");
         assert_eq!(fks.unwrap().lines().count(), 2);
@@ -1990,22 +2847,59 @@ mod tests {
 
     #[test]
     fn comments_on_renamed_indexes_and_constraints() {
-        let ix = PgComment { index: true, name: "adv3_k_ix_inc".into(), text: "it's".into() };
-        let ck = PgComment { index: false, name: "adv3_k_ck_multi".into(), text: "ck com".into() };
-        assert_eq!(comment_sql(false, Some("public"), "adv3_k", &ix), "COMMENT ON INDEX \"public\".\"adv3_k_ix_inc\" IS 'it''s'");
-        assert_eq!(comment_sql(true, Some("public"), "adv3_k", &ix), "COMMENT ON INDEX \"public\".\"adv3_k\"@\"adv3_k_ix_inc\" IS 'it''s'");
-        assert_eq!(comment_sql(false, None, "adv3_k", &ck), "COMMENT ON CONSTRAINT \"adv3_k_ck_multi\" ON \"adv3_k\" IS 'ck com'");
+        let ix = PgComment {
+            index: true,
+            name: "adv3_k_ix_inc".into(),
+            text: "it's".into(),
+        };
+        let ck = PgComment {
+            index: false,
+            name: "adv3_k_ck_multi".into(),
+            text: "ck com".into(),
+        };
+        assert_eq!(
+            comment_sql(false, Some("public"), "adv3_k", &ix),
+            "COMMENT ON INDEX \"public\".\"adv3_k_ix_inc\" IS 'it''s'"
+        );
+        assert_eq!(
+            comment_sql(true, Some("public"), "adv3_k", &ix),
+            "COMMENT ON INDEX \"public\".\"adv3_k\"@\"adv3_k_ix_inc\" IS 'it''s'"
+        );
+        assert_eq!(
+            comment_sql(false, None, "adv3_k", &ck),
+            "COMMENT ON CONSTRAINT \"adv3_k_ck_multi\" ON \"adv3_k\" IS 'ck com'"
+        );
     }
 
     #[test]
     fn cockroach_families_zones_and_hash_sharding() {
         let create = "CREATE TABLE public.cadv (\n\tid INT8 NOT NULL,\n\tn INT8 NULL,\n\tcrdb_internal_id_shard_4 INT8 NOT VISIBLE NOT NULL AS (mod(fnv32(md5(crdb_internal.datums_to_bytes(id))), 4:::INT8)) VIRTUAL,\n\tCONSTRAINT cadv_pkey PRIMARY KEY (id ASC) USING HASH WITH (bucket_count=4),\n\tINDEX cadv_hs (n ASC) USING HASH WITH (bucket_count=16),\n\tFAMILY f1 (id),\n\tFAMILY \"f 2\" (n)\n) WITH (schema_locked = true);\nALTER TABLE clonev.public.cadv CONFIGURE ZONE USING\n\tgc.ttlseconds = 600;\nALTER INDEX clonev.public.cadv@\"ix x\" CONFIGURE ZONE USING\n\tgc.ttlseconds = 700;\nALTER TABLE public.cadv ENABLE ROW LEVEL SECURITY;";
-        let (Crdb { families, zones, .. }, primary) = parse_crdb(create).unwrap();
-        assert_eq!(families, vec!["FAMILY f1 (id)".to_string(), "FAMILY \"f 2\" (n)".to_string()]);
-        assert_eq!(primary.as_deref(), Some("PRIMARY KEY (id ASC) USING HASH WITH (bucket_count=4)"));
+        let (
+            Crdb {
+                families, zones, ..
+            },
+            primary,
+        ) = parse_crdb(create).unwrap();
+        assert_eq!(
+            families,
+            vec![
+                "FAMILY f1 (id)".to_string(),
+                "FAMILY \"f 2\" (n)".to_string()
+            ]
+        );
+        assert_eq!(
+            primary.as_deref(),
+            Some("PRIMARY KEY (id ASC) USING HASH WITH (bucket_count=4)")
+        );
         assert_eq!(
             zones,
-            vec![(None, "USING\n\tgc.ttlseconds = 600".to_string()), (Some("ix x".to_string()), "USING\n\tgc.ttlseconds = 700".to_string())]
+            vec![
+                (None, "USING\n\tgc.ttlseconds = 600".to_string()),
+                (
+                    Some("ix x".to_string()),
+                    "USING\n\tgc.ttlseconds = 700".to_string()
+                )
+            ]
         );
         assert!(parse_crdb("CREATE TABLE t (\n\tid INT8\n) PARTITION BY LIST (id) (\n\tPARTITION a VALUES IN (1)\n);").is_err());
 
@@ -2013,16 +2907,32 @@ mod tests {
         // indexes as the original's, and not the plan's (on the shard column).
         let mut t = table(&["id", "n"]);
         t.name = "cadv_c".into();
-        t.indexes = vec![dbine_driver::IndexDef { name: "cadv_c_hs".into(), columns: vec!["crdb_internal_n_shard_16".into(), "n".into()], ..Default::default() }];
-        let rn = |a: &str, b: &str| super::super::Rename { from: a.into(), to: b.into(), shortened: false };
-        let mut plan = super::super::ClonePlan { table: t, renames: vec![rn("cadv_hs", "cadv_c_hs")], notes: Vec::new() };
+        t.indexes = vec![dbine_driver::IndexDef {
+            name: "cadv_c_hs".into(),
+            columns: vec!["crdb_internal_n_shard_16".into(), "n".into()],
+            ..Default::default()
+        }];
+        let rn = |a: &str, b: &str| super::super::Rename {
+            from: a.into(),
+            to: b.into(),
+            shortened: false,
+        };
+        let mut plan = super::super::ClonePlan {
+            table: t,
+            renames: vec![rn("cadv_hs", "cadv_c_hs")],
+            notes: Vec::new(),
+        };
         let pg = PgTable {
             cockroach: true,
             crdb: Some(Crdb {
                 families: families.clone(),
                 zones: zones.clone(),
                 hash_primary: Some(("cadv_pkey".into(), primary.unwrap())),
-                hash_indexes: vec![("cadv_hs".into(), false, "USING btree (n ASC) USING HASH WITH (bucket_count=16)".into())],
+                hash_indexes: vec![(
+                    "cadv_hs".into(),
+                    false,
+                    "USING btree (n ASC) USING HASH WITH (bucket_count=16)".into(),
+                )],
             }),
             ..Default::default()
         };
@@ -2032,14 +2942,19 @@ mod tests {
             fn info(&self) -> &dbine_driver::DriverInfo {
                 unreachable!()
             }
-            async fn connect(&self, _: &dbine_driver::ConnectionConfig, _: Option<&str>) -> Result<Box<dyn Session>> {
+            async fn connect(
+                &self,
+                _: &dbine_driver::ConnectionConfig,
+                _: Option<&str>,
+            ) -> Result<Box<dyn Session>> {
                 unreachable!()
             }
         }
         let d = defer(&D, &mut plan, &pg).unwrap();
         assert!(plan.table.indexes.is_empty());
         let mut create = "CREATE TABLE \"public\".\"cadv_c\" (\n    \"id\" bigint NOT NULL,\n    \"n\" bigint NULL\n);\nCOMMENT ON TABLE x IS 'a (b';".to_string();
-        let mut ix = Some("CREATE INDEX \"cadv_c_plain\" ON \"public\".\"cadv_c\" (\"n\");".to_string());
+        let mut ix =
+            Some("CREATE INDEX \"cadv_c_plain\" ON \"public\".\"cadv_c\" (\"n\");".to_string());
         d.apply(&mut create, &mut None, &mut ix, true).unwrap();
         assert_eq!(
             create,
@@ -2048,7 +2963,13 @@ mod tests {
         assert!(ix.as_deref().unwrap().ends_with("\nCREATE INDEX \"cadv_c_hs\" ON \"public\".\"cadv_c\" USING btree (n ASC) USING HASH WITH (bucket_count=16);"), "{ix:?}");
         // Without indexes: none of them, nor their zone configurations.
         let mut ix = None;
-        d.apply(&mut "CREATE TABLE t (a int)".to_string(), &mut None, &mut ix, false).unwrap();
+        d.apply(
+            &mut "CREATE TABLE t (a int)".to_string(),
+            &mut None,
+            &mut ix,
+            false,
+        )
+        .unwrap();
         assert!(ix.is_none());
         let c = pg.crdb.as_ref().unwrap();
         let (z, skipped) = clone_zones(c, &plan.table, &[rn("ix x", "cadv_c_ix x")], false);
@@ -2057,14 +2978,26 @@ mod tests {
         let (z, _) = clone_zones(c, &plan.table, &[rn("ix x", "cadv_c_ix x")], true);
         assert_eq!(z[1].0.as_deref(), Some("cadv_c_ix x"));
         // The hidden shard column the clone has only with its index.
-        let shard = PgColumn { generated: "v".into(), ..col("crdb_internal_n_shard_16", "bigint") };
+        let shard = PgColumn {
+            generated: "v".into(),
+            ..col("crdb_internal_n_shard_16", "bigint")
+        };
         assert!(differences(&[col("id", "bigint"), shard], &[col("id", "bigint")]).is_empty());
-        assert!(!differences(&[col("id", "bigint"), col("n", "bigint")], &[col("id", "bigint")]).is_empty());
+        assert!(!differences(
+            &[col("id", "bigint"), col("n", "bigint")],
+            &[col("id", "bigint")]
+        )
+        .is_empty());
     }
 
     #[test]
     fn storage_settings_and_row_level_security() {
-        let c = ColumnSettings { name: "b x".into(), storage: Some("e".into()), statistics: Some("500".into()), compression: Some("p".into()) };
+        let c = ColumnSettings {
+            name: "b x".into(),
+            storage: Some("e".into()),
+            statistics: Some("500".into()),
+            compression: Some("p".into()),
+        };
         assert_eq!(
             c.sql("\"s\".\"t\"").unwrap(),
             vec![
@@ -2073,7 +3006,12 @@ mod tests {
                 "ALTER TABLE \"s\".\"t\" ALTER COLUMN \"b x\" SET COMPRESSION pglz".to_string(),
             ]
         );
-        assert!(ColumnSettings { storage: Some("?".into()), ..c.clone() }.sql("t").is_err());
+        assert!(ColumnSettings {
+            storage: Some("?".into()),
+            ..c.clone()
+        }
+        .sql("t")
+        .is_err());
         let p = Policy {
             name: "p 2".into(),
             permissive: "RESTRICTIVE".into(),
@@ -2087,7 +3025,11 @@ mod tests {
             "CREATE POLICY \"p 2\" ON \"s\".\"t_c\" AS RESTRICTIVE FOR UPDATE TO PUBLIC, \"Bob\" USING ((owner = CURRENT_USER)) WITH CHECK ((id < 100))"
         );
         let a = Settings {
-            options: vec!["autovacuum_enabled=false".into(), "fillfactor=60".into(), "toast.autovacuum_enabled=false".into()],
+            options: vec![
+                "autovacuum_enabled=false".into(),
+                "fillfactor=60".into(),
+                "toast.autovacuum_enabled=false".into(),
+            ],
             columns: vec![c],
             rls: true,
             force_rls: true,
@@ -2097,49 +3039,122 @@ mod tests {
         // What the clone lost before: all of it, silently.
         let d = settings_differences(&a, &Settings::default());
         assert_eq!(d.len(), 4, "{d:?}");
-        assert!(d[0].contains("fillfactor=60") && d[1].contains("STORAGE e") && d[2].contains("seguridad por filas") && d[3].contains("políticas"), "{d:?}");
+        assert!(
+            d[0].contains("fillfactor=60")
+                && d[1].contains("STORAGE e")
+                && d[2].contains("seguridad por filas")
+                && d[3].contains("políticas"),
+            "{d:?}"
+        );
     }
 
     #[test]
     fn cockroach_sequence_names() {
         let pg = PgTable {
             cockroach: true,
-            columns: vec![PgColumn { sequence: Some("x".into()), ..col("id", "bigint") }],
+            columns: vec![PgColumn {
+                sequence: Some("x".into()),
+                ..col("id", "bigint")
+            }],
             taken: vec!["t2_id_seq".into()],
             ..Default::default()
         };
-        assert_eq!(sequence_collisions(&pg, "t2"), vec!["t2_id_seq".to_string()]);
-        assert!(sequence_collisions(&PgTable { cockroach: false, ..pg }, "t2").is_empty());
+        assert_eq!(
+            sequence_collisions(&pg, "t2"),
+            vec!["t2_id_seq".to_string()]
+        );
+        assert!(sequence_collisions(
+            &PgTable {
+                cockroach: false,
+                ..pg
+            },
+            "t2"
+        )
+        .is_empty());
     }
 
     #[test]
     fn foreign_keys_keep_match_and_deferrable() {
         let def = "FOREIGN KEY (a, b) REFERENCES padre2(a, \"B x\") MATCH FULL ON UPDATE CASCADE ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED";
-        let f = PgForeignKey::split("fk_h".into(), def, "a, \"B x\"", Some("\"public\".\"padre2\"".into())).unwrap();
+        let f = PgForeignKey::split(
+            "fk_h".into(),
+            def,
+            "a, \"B x\"",
+            Some("\"public\".\"padre2\"".into()),
+        )
+        .unwrap();
         assert_eq!(f.head, "FOREIGN KEY (a, b) REFERENCES ");
         assert_eq!(f.rest, "(a, \"B x\") MATCH FULL ON UPDATE CASCADE ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED");
         assert!(PgForeignKey::split("x".into(), def, "zz", None).is_none());
         // A reference to the table itself: the clone's, and the same shape.
-        let own = PgForeignKey::split("fk_p".into(), "FOREIGN KEY (parent_code) REFERENCES cat(code) NOT VALID", "code", None).unwrap();
-        let clone_own = PgForeignKey::split("cat_c_fk_p".into(), "FOREIGN KEY (parent_code) REFERENCES cat_c(code) NOT VALID", "code", None).unwrap();
+        let own = PgForeignKey::split(
+            "fk_p".into(),
+            "FOREIGN KEY (parent_code) REFERENCES cat(code) NOT VALID",
+            "code",
+            None,
+        )
+        .unwrap();
+        let clone_own = PgForeignKey::split(
+            "cat_c_fk_p".into(),
+            "FOREIGN KEY (parent_code) REFERENCES cat_c(code) NOT VALID",
+            "code",
+            None,
+        )
+        .unwrap();
         assert_eq!(own.shape(), clone_own.shape());
-        let lost = PgForeignKey::split("x".into(), "FOREIGN KEY (a, b) REFERENCES padre2(a, \"B x\") ON UPDATE CASCADE ON DELETE SET NULL", "a, \"B x\"", f.target.clone()).unwrap();
+        let lost = PgForeignKey::split(
+            "x".into(),
+            "FOREIGN KEY (a, b) REFERENCES padre2(a, \"B x\") ON UPDATE CASCADE ON DELETE SET NULL",
+            "a, \"B x\"",
+            f.target.clone(),
+        )
+        .unwrap();
         assert_ne!(f.shape(), lost.shape());
 
         let mut t = table(&["a", "b", "parent_code"]);
         t.name = "hijo2_c".into();
-        let fk = |n: &str, to: &str| ForeignKeyDef { name: Some(n.into()), columns: vec!["a".into()], ref_table: to.into(), ref_columns: vec!["a".into()], ..Default::default() };
+        let fk = |n: &str, to: &str| ForeignKeyDef {
+            name: Some(n.into()),
+            columns: vec!["a".into()],
+            ref_table: to.into(),
+            ref_columns: vec!["a".into()],
+            ..Default::default()
+        };
         t.foreign_keys = vec![fk("hijo2_c_fk_h", "padre2"), fk("hijo2_c_fk_p", "hijo2_c")];
-        let rn = |a: &str, b: &str| super::super::Rename { from: a.into(), to: b.into(), shortened: false };
-        let mut plan = super::super::ClonePlan { table: t, renames: vec![rn("fk_h", "hijo2_c_fk_h"), rn("fk_p", "hijo2_c_fk_p")], notes: Vec::new() };
-        let pg = PgTable { foreign_keys: vec![PgForeignKey { name: "fk_h".into(), ..f }, PgForeignKey { name: "fk_p".into(), ..own }], ..Default::default() };
+        let rn = |a: &str, b: &str| super::super::Rename {
+            from: a.into(),
+            to: b.into(),
+            shortened: false,
+        };
+        let mut plan = super::super::ClonePlan {
+            table: t,
+            renames: vec![rn("fk_h", "hijo2_c_fk_h"), rn("fk_p", "hijo2_c_fk_p")],
+            notes: Vec::new(),
+        };
+        let pg = PgTable {
+            foreign_keys: vec![
+                PgForeignKey {
+                    name: "fk_h".into(),
+                    ..f
+                },
+                PgForeignKey {
+                    name: "fk_p".into(),
+                    ..own
+                },
+            ],
+            ..Default::default()
+        };
         struct D;
         #[dbine_driver::async_trait]
         impl Driver for D {
             fn info(&self) -> &dbine_driver::DriverInfo {
                 unreachable!()
             }
-            async fn connect(&self, _: &dbine_driver::ConnectionConfig, _: Option<&str>) -> Result<Box<dyn Session>> {
+            async fn connect(
+                &self,
+                _: &dbine_driver::ConnectionConfig,
+                _: Option<&str>,
+            ) -> Result<Box<dyn Session>> {
                 unreachable!()
             }
         }
@@ -2160,61 +3175,131 @@ mod tests {
         // As pg_policies writes them (PostgreSQL 16), in and out of the
         // search_path.
         let q = "(id IN ( SELECT b1_1.id\n   FROM cv3.b1 b1_1\n  WHERE (b1_1.p > 0)))";
-        assert_eq!(retarget(q, Some("cv3"), "b1", "b1_c", &cols).unwrap(), "(id IN ( SELECT b1_1.id\n   FROM cv3.b1_c b1_1\n  WHERE (b1_1.p > 0)))");
+        assert_eq!(
+            retarget(q, Some("cv3"), "b1", "b1_c", &cols).unwrap(),
+            "(id IN ( SELECT b1_1.id\n   FROM cv3.b1_c b1_1\n  WHERE (b1_1.p > 0)))"
+        );
         let q = "(EXISTS ( SELECT 1\n   FROM b1 x\n  WHERE (x.id = b1.a)))";
-        assert_eq!(retarget(q, Some("cv3"), "b1", "b1_c", &cols).unwrap(), "(EXISTS ( SELECT 1\n   FROM b1_c x\n  WHERE (x.id = b1_c.a)))");
+        assert_eq!(
+            retarget(q, Some("cv3"), "b1", "b1_c", &cols).unwrap(),
+            "(EXISTS ( SELECT 1\n   FROM b1_c x\n  WHERE (x.id = b1_c.a)))"
+        );
         // Another schema's b1, a column b1 of another table, a string: kept.
         let q = "(EXISTS ( SELECT 1 FROM otro.b1 x WHERE ((x.b1 = 'b1') AND (x.id = cv3.b1.id))))";
-        assert_eq!(retarget(q, Some("cv3"), "b1", "B c", &cols).unwrap(), "(EXISTS ( SELECT 1 FROM otro.b1 x WHERE ((x.b1 = 'b1') AND (x.id = cv3.\"B c\".id))))");
+        assert_eq!(
+            retarget(q, Some("cv3"), "b1", "B c", &cols).unwrap(),
+            "(EXISTS ( SELECT 1 FROM otro.b1 x WHERE ((x.b1 = 'b1') AND (x.id = cv3.\"B c\".id))))"
+        );
         // Quoted names.
         let q = "(id IN ( SELECT \"Mi T_1\".id FROM \"Mi T\" \"Mi T_1\"))";
-        assert_eq!(retarget(q, None, "Mi T", "Mi T_c", &cols).unwrap(), "(id IN ( SELECT \"Mi T_1\".id FROM \"Mi T_c\" \"Mi T_1\"))");
+        assert_eq!(
+            retarget(q, None, "Mi T", "Mi T_c", &cols).unwrap(),
+            "(id IN ( SELECT \"Mi T_1\".id FROM \"Mi T_c\" \"Mi T_1\"))"
+        );
         // No reference: as it is.
-        assert_eq!(retarget("(p > 0)", Some("cv3"), "b1", "b1_c", &cols).unwrap(), "(p > 0)");
+        assert_eq!(
+            retarget("(p > 0)", Some("cv3"), "b1", "b1_c", &cols).unwrap(),
+            "(p > 0)"
+        );
         // A bare b1 that isn't a column nor a relation: can't be told apart.
         assert!(retarget("(b1(id) > 0)", Some("cv3"), "b1", "b1_c", &cols).is_none());
         // ... unless the table has a column b1.
         let with_b1 = vec![col("b1", "integer")];
-        assert_eq!(retarget("(b1 > 0)", Some("cv3"), "b1", "b1_c", &with_b1).unwrap(), "(b1 > 0)");
+        assert_eq!(
+            retarget("(b1 > 0)", Some("cv3"), "b1", "b1_c", &with_b1).unwrap(),
+            "(b1 > 0)"
+        );
         // Verified against the clone's policies: the original's, retargeted.
         let pg = PgTable {
             schema: Some("cv3".into()),
             name: "b1".into(),
             columns: cols,
             settings: Settings {
-                policies: vec![Policy { name: "p_self".into(), using: Some("(id IN ( SELECT b1_1.id FROM b1 b1_1))".into()), ..Default::default() }],
+                policies: vec![Policy {
+                    name: "p_self".into(),
+                    using: Some("(id IN ( SELECT b1_1.id FROM b1 b1_1))".into()),
+                    ..Default::default()
+                }],
                 ..Default::default()
             },
             ..Default::default()
         };
-        assert_eq!(clone_policies(&pg, "b1_c")[0].using.as_deref(), Some("(id IN ( SELECT b1_1.id FROM b1_c b1_1))"));
+        assert_eq!(
+            clone_policies(&pg, "b1_c")[0].using.as_deref(),
+            Some("(id IN ( SELECT b1_1.id FROM b1_c b1_1))")
+        );
     }
 
     #[test]
     fn replica_identity_cluster_and_statistics() {
-        let st = |n: &str| PgStatistics { schema: "cv3".into(), name: n.into(), body: "(ndistinct, dependencies) ON a, bb".into(), ..Default::default() };
+        let st = |n: &str| PgStatistics {
+            schema: "cv3".into(),
+            name: n.into(),
+            body: "(ndistinct, dependencies) ON a, bb".into(),
+            ..Default::default()
+        };
         let pg = PgTable {
             name: "b1".into(),
             extras: Extras {
                 statistics: vec![st("b1_st"), st("otra")],
-                statistics_taken: vec![("cv3".into(), "b1_st".into()), ("cv3".into(), "otra".into()), ("cv3".into(), "b1_c_otra".into())],
+                statistics_taken: vec![
+                    ("cv3".into(), "b1_st".into()),
+                    ("cv3".into(), "otra".into()),
+                    ("cv3".into(), "b1_c_otra".into()),
+                ],
                 ..Default::default()
             },
             ..Default::default()
         };
         assert_eq!(
             statistics_names(&pg, "b1_c"),
-            vec![("b1_st".to_string(), "b1_c_st".to_string()), ("otra".to_string(), "b1_c_otra_2".to_string())]
+            vec![
+                ("b1_st".to_string(), "b1_c_st".to_string()),
+                ("otra".to_string(), "b1_c_otra_2".to_string())
+            ]
         );
-        let ix = |n: &str| Some(PgIndexRef { name: n.into(), primary: false });
-        let a = Extras { replica: "f".into(), clustered: ix("b1_c_ix"), statistics: vec![st("b1_c_st")], ..Default::default() };
+        let ix = |n: &str| {
+            Some(PgIndexRef {
+                name: n.into(),
+                primary: false,
+            })
+        };
+        let a = Extras {
+            replica: "f".into(),
+            clustered: ix("b1_c_ix"),
+            statistics: vec![st("b1_c_st")],
+            ..Default::default()
+        };
         assert!(extras_differences(&a, &a.clone()).is_empty());
         // What the clone lost before, silently.
-        let d = extras_differences(&a, &Extras { replica: "d".into(), ..Default::default() });
+        let d = extras_differences(
+            &a,
+            &Extras {
+                replica: "d".into(),
+                ..Default::default()
+            },
+        );
         assert_eq!(d.len(), 3, "{d:?}");
-        assert!(d[0].contains("FULL") && d[1].contains("CLUSTER ON b1_c_ix") && d[2].contains("b1_c_st"), "{d:?}");
-        let u = Extras { replica: "i".into(), replica_index: ix("b1_c_uq"), ..Default::default() };
-        assert!(extras_differences(&u, &Extras { replica: "i".into(), replica_index: ix("otro"), ..Default::default() })[0].contains("USING INDEX b1_c_uq"));
+        assert!(
+            d[0].contains("FULL")
+                && d[1].contains("CLUSTER ON b1_c_ix")
+                && d[2].contains("b1_c_st"),
+            "{d:?}"
+        );
+        let u = Extras {
+            replica: "i".into(),
+            replica_index: ix("b1_c_uq"),
+            ..Default::default()
+        };
+        assert!(extras_differences(
+            &u,
+            &Extras {
+                replica: "i".into(),
+                replica_index: ix("otro"),
+                ..Default::default()
+            }
+        )[0]
+        .contains("USING INDEX b1_c_uq"));
     }
 
     #[test]
@@ -2224,20 +3309,46 @@ mod tests {
             cockroach: true,
             columns: vec![
                 col("id", "bigint"),
-                PgColumn { hidden: true, comment: Some("oculta".into()), ..col("secret", "text") },
-                PgColumn { on_update: Some("now()".into()), default: Some("now()".into()), ..col("v", "timestamp with time zone") },
-                PgColumn { hidden: true, default: Some("unique_rowid()".into()), not_null: true, ..col("rowid", "bigint") },
-                PgColumn { hidden: true, generated: "v".into(), ..col("crdb_internal_n_shard_16", "bigint") },
+                PgColumn {
+                    hidden: true,
+                    comment: Some("oculta".into()),
+                    ..col("secret", "text")
+                },
+                PgColumn {
+                    on_update: Some("now()".into()),
+                    default: Some("now()".into()),
+                    ..col("v", "timestamp with time zone")
+                },
+                PgColumn {
+                    hidden: true,
+                    default: Some("unique_rowid()".into()),
+                    not_null: true,
+                    ..col("rowid", "bigint")
+                },
+                PgColumn {
+                    hidden: true,
+                    generated: "v".into(),
+                    ..col("crdb_internal_n_shard_16", "bigint")
+                },
                 PgColumn {
                     hidden: true,
                     not_null: true,
-                    default: Some("current_timestamp():::TIMESTAMPTZ + '30 days':::INTERVAL".into()),
-                    on_update: Some("current_timestamp():::TIMESTAMPTZ + '30 days':::INTERVAL".into()),
+                    default: Some(
+                        "current_timestamp():::TIMESTAMPTZ + '30 days':::INTERVAL".into(),
+                    ),
+                    on_update: Some(
+                        "current_timestamp():::TIMESTAMPTZ + '30 days':::INTERVAL".into(),
+                    ),
                     ..col("crdb_internal_expiration", "timestamp with time zone")
                 },
             ],
             settings: Settings {
-                options: vec!["schema_locked=true".into(), "ttl='on'".into(), "ttl_expire_after='30 days':::INTERVAL".into(), "ttl_job_cron='@daily'".into()],
+                options: vec![
+                    "schema_locked=true".into(),
+                    "ttl='on'".into(),
+                    "ttl_expire_after='30 days':::INTERVAL".into(),
+                    "ttl_job_cron='@daily'".into(),
+                ],
                 ..Default::default()
             },
             crdb: Some(Crdb::default()),
@@ -2248,7 +3359,10 @@ mod tests {
         assert_eq!(names, vec!["id", "secret", "v", "crdb_internal_expiration"]);
         assert_eq!(t.columns[1].data_type, "text NOT VISIBLE");
         assert!(t.columns[1].nullable && t.columns[1].comment.as_deref() == Some("oculta"));
-        assert_eq!(t.columns[2].data_type, "timestamp with time zone ON UPDATE now()");
+        assert_eq!(
+            t.columns[2].data_type,
+            "timestamp with time zone ON UPDATE now()"
+        );
         let e = &t.columns[3];
         assert_eq!(e.data_type, "timestamp with time zone NOT VISIBLE ON UPDATE current_timestamp():::TIMESTAMPTZ + '30 days':::INTERVAL");
         assert!(!e.nullable && e.default_value.is_some());
@@ -2260,11 +3374,19 @@ mod tests {
             fn info(&self) -> &dbine_driver::DriverInfo {
                 unreachable!()
             }
-            async fn connect(&self, _: &dbine_driver::ConnectionConfig, _: Option<&str>) -> Result<Box<dyn Session>> {
+            async fn connect(
+                &self,
+                _: &dbine_driver::ConnectionConfig,
+                _: Option<&str>,
+            ) -> Result<Box<dyn Session>> {
                 unreachable!()
             }
         }
-        let mut plan = super::super::ClonePlan { table: t, renames: Vec::new(), notes: Vec::new() };
+        let mut plan = super::super::ClonePlan {
+            table: t,
+            renames: Vec::new(),
+            notes: Vec::new(),
+        };
         let d = defer(&D, &mut plan, &pg).unwrap();
         let mut create = "CREATE TABLE \"public\".\"tt_c\" (\n    \"id\" bigint NOT NULL\n);\nCOMMENT ON COLUMN x IS 'a)';".to_string();
         d.apply(&mut create, &mut None, &mut None, true).unwrap();
@@ -2273,7 +3395,11 @@ mod tests {
             "CREATE TABLE \"public\".\"tt_c\" (\n    \"id\" bigint NOT NULL\n) WITH (ttl = 'on', ttl_expire_after = '30 days':::INTERVAL, ttl_job_cron = '@daily');\nCOMMENT ON COLUMN x IS 'a)';"
         );
         // Compared: hidden and ON UPDATE.
-        let a = vec![PgColumn { hidden: true, on_update: Some("now()".into()), ..col("s", "text") }];
+        let a = vec![PgColumn {
+            hidden: true,
+            on_update: Some("now()".into()),
+            ..col("s", "text")
+        }];
         let d = differences(&a, &[col("s", "text")]);
         assert_eq!(d.len(), 2, "{d:?}");
     }

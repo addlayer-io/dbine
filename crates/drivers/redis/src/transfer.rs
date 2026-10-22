@@ -28,7 +28,10 @@
 
 use crate::{err, shape, RedisSession};
 use dbine_driver::keys::glob_escape;
-use dbine_driver::transfer::{self, BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    self, BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec,
+    TransferColumn,
+};
 use dbine_driver::{Error, Result};
 use redis::aio::MultiplexedConnection;
 use redis::{AsyncConnectionConfig, Value};
@@ -104,31 +107,53 @@ struct Out {
 }
 
 impl Out {
-    fn begin(sink: BatchSinkRef, natural: &[(&str, &str)], wanted: Option<&[String]>) -> Result<Out> {
+    fn begin(
+        sink: BatchSinkRef,
+        natural: &[(&str, &str)],
+        wanted: Option<&[String]>,
+    ) -> Result<Out> {
         let pick = match wanted {
             None => None,
             Some(w) => Some(
                 w.iter()
                     .map(|c| {
-                        natural.iter().position(|(n, _)| n == c).ok_or_else(|| Error::Query(format!("la key no tiene la columna {c}")))
+                        natural
+                            .iter()
+                            .position(|(n, _)| n == c)
+                            .ok_or_else(|| Error::Query(format!("la key no tiene la columna {c}")))
                     })
                     .collect::<Result<Vec<_>>>()?,
             ),
         };
         let cols: Vec<TransferColumn> = match &pick {
             None => natural.iter().map(|(n, t)| column(n, t)).collect(),
-            Some(p) => p.iter().map(|&i| column(natural[i].0, natural[i].1)).collect(),
+            Some(p) => p
+                .iter()
+                .map(|&i| column(natural[i].0, natural[i].1))
+                .collect(),
         };
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
-        Ok(Out { sink, builder: BatchBuilder::new(), pick })
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
+        Ok(Out {
+            sink,
+            builder: BatchBuilder::new(),
+            pick,
+        })
     }
 
     fn rows(&mut self, rows: impl IntoIterator<Item = Vec<Cell>>) -> Result<()> {
-        let mut sink = self.sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+        let mut sink = self
+            .sink
+            .lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?;
         for row in rows {
             let row = match &self.pick {
                 None => row,
-                Some(p) => p.iter().map(|&i| row.get(i).cloned().unwrap_or(Cell::Null)).collect(),
+                Some(p) => p
+                    .iter()
+                    .map(|&i| row.get(i).cloned().unwrap_or(Cell::Null))
+                    .collect(),
             };
             self.builder.push(row, &mut *sink)?;
         }
@@ -136,14 +161,21 @@ impl Out {
     }
 
     fn finish(mut self) -> Result<u64> {
-        let mut sink = self.sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+        let mut sink = self
+            .sink
+            .lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?;
         self.builder.flush(&mut *sink)?;
         Ok(self.builder.rows)
     }
 }
 
 fn column(name: &str, type_name: &str) -> TransferColumn {
-    TransferColumn { name: name.into(), type_name: type_name.into(), nullable: true }
+    TransferColumn {
+        name: name.into(),
+        type_name: type_name.into(),
+        nullable: true,
+    }
 }
 
 /// `HSCAN`/`SSCAN`/`ZSCAN`/`SCAN` page: the next cursor and the elements.
@@ -158,7 +190,9 @@ async fn scan_page(s: &mut RedisSession, args: &[&[u8]]) -> Result<(String, Vec<
 
 pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
     if spec.filter.is_some() {
-        return Err(Error::Unsupported("Redis lee claves enteras: no filtra la lectura por lotes".into()));
+        return Err(Error::Unsupported(
+            "Redis lee claves enteras: no filtra la lectura por lotes".into(),
+        ));
     }
     let name = spec.table.name.clone();
     let key = name.as_bytes();
@@ -181,7 +215,11 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
             let mut out = Out::begin(sink, natural, wanted)?;
             let mut cursor = String::from("0");
             loop {
-                let (next, page) = scan_page(s, &[cmd, key, cursor.as_bytes(), b"COUNT", count.as_bytes()]).await?;
+                let (next, page) = scan_page(
+                    s,
+                    &[cmd, key, cursor.as_bytes(), b"COUNT", count.as_bytes()],
+                )
+                .await?;
                 if t == "set" {
                     out.rows(page.into_iter().map(|v| vec![cell(v)]))?;
                 } else {
@@ -204,7 +242,10 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
             let mut start = 0usize;
             loop {
                 let (from, to) = (start.to_string(), (start + PAGE - 1).to_string());
-                let page = items(s.run(&[b"LRANGE", key, from.as_bytes(), to.as_bytes()]).await?);
+                let page = items(
+                    s.run(&[b"LRANGE", key, from.as_bytes(), to.as_bytes()])
+                        .await?,
+                );
                 let n = page.len();
                 out.rows(page.into_iter().map(|v| vec![cell(v)]))?;
                 if n < PAGE {
@@ -247,7 +288,14 @@ impl Names {
 /// stream entry's id (streams only). Marks the columns found in `seen`;
 /// with `strict` (columns found in a first pass), a field that isn't one
 /// of them is an error: it appeared after that pass.
-fn project(cols: &[String], dup: bool, id: Option<&str>, fields: Vec<(String, Value)>, seen: &mut [bool], strict: bool) -> Result<Vec<Cell>> {
+fn project(
+    cols: &[String],
+    dup: bool,
+    id: Option<&str>,
+    fields: Vec<(String, Value)>,
+    seen: &mut [bool],
+    strict: bool,
+) -> Result<Vec<Cell>> {
     let mut h: HashMap<String, Value> = fields.into_iter().collect();
     let mut row = Vec::with_capacity(cols.len());
     for (i, c) in cols.iter().enumerate() {
@@ -271,18 +319,35 @@ fn project(cols: &[String], dup: bool, id: Option<&str>, fields: Vec<(String, Va
 /// An asked-for column that no row had.
 fn unknown(cols: &[String], seen: &[bool], rows: u64) -> Result<()> {
     match seen.iter().position(|s| !s) {
-        Some(i) if rows > 0 => Err(Error::Query(format!("la key no tiene la columna {}", cols[i]))),
+        Some(i) if rows > 0 => Err(Error::Query(format!(
+            "la key no tiene la columna {}",
+            cols[i]
+        ))),
         _ => Ok(()),
     }
 }
 
 /// A stream's entries (`id`, fields), a page at a time.
-async fn stream_pages(s: &mut RedisSession, key: &[u8], mut f: impl FnMut(Vec<(String, Vec<(String, Value)>)>) -> Result<()>) -> Result<()> {
+async fn stream_pages(
+    s: &mut RedisSession,
+    key: &[u8],
+    mut f: impl FnMut(Vec<(String, Vec<(String, Value)>)>) -> Result<()>,
+) -> Result<()> {
     let count = PAGE.to_string();
     let mut from = String::from("-");
     let mut last: Option<String> = None;
     loop {
-        let page = items(s.run(&[b"XRANGE", key, from.as_bytes(), b"+", b"COUNT", count.as_bytes()]).await?);
+        let page = items(
+            s.run(&[
+                b"XRANGE",
+                key,
+                from.as_bytes(),
+                b"+",
+                b"COUNT",
+                count.as_bytes(),
+            ])
+            .await?,
+        );
         let full = page.len() >= PAGE;
         let mut entries = Vec::with_capacity(page.len());
         for e in page {
@@ -310,7 +375,12 @@ async fn stream_pages(s: &mut RedisSession, key: &[u8], mut f: impl FnMut(Vec<(S
 
 /// `XRANGE` pages: `id` plus the fields of every entry, in order of
 /// appearance (found in a first pass), or the columns asked for.
-async fn read_stream(s: &mut RedisSession, key: &[u8], wanted: Option<&[String]>, sink: BatchSinkRef) -> Result<u64> {
+async fn read_stream(
+    s: &mut RedisSession,
+    key: &[u8],
+    wanted: Option<&[String]>,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let (cols, strict) = match wanted {
         Some(w) => (w.to_vec(), false),
         None => {
@@ -329,10 +399,18 @@ async fn read_stream(s: &mut RedisSession, key: &[u8], wanted: Option<&[String]>
                     "El stream tiene un campo llamado id, que se confunde con el id de cada entrada: pedí las columnas a leer.".into(),
                 ));
             }
-            (std::iter::once("id".to_string()).chain(names.list).collect(), true)
+            (
+                std::iter::once("id".to_string())
+                    .chain(names.list)
+                    .collect(),
+                true,
+            )
         }
     };
-    let natural: Vec<(&str, &str)> = cols.iter().map(|c| (c.as_str(), if c == "id" { "stream id" } else { "string" })).collect();
+    let natural: Vec<(&str, &str)> = cols
+        .iter()
+        .map(|c| (c.as_str(), if c == "id" { "stream id" } else { "string" }))
+        .collect();
     let mut out = Out::begin(sink, &natural, None)?;
     let mut seen = vec![false; cols.len()];
     let dup = cols.iter().collect::<HashSet<_>>().len() != cols.len();
@@ -383,12 +461,17 @@ fn ends_key(key: &[u8], v: &[u8]) -> bool {
 /// (`T:arch:5` holding `arch:5` is a row of `T`, not of `T:arch`).
 fn shadowed(args: &[Vec<u8>]) -> Option<&[u8]> {
     let (key, id) = (args.first()?, args.get(2)?);
-    args.iter().skip(2).step_by(2).map(Vec::as_slice).find(|v| v.len() > id.len() && ends_key(key, v))
+    args.iter()
+        .skip(2)
+        .step_by(2)
+        .map(Vec::as_slice)
+        .find(|v| v.len() > id.len() && ends_key(key, v))
 }
 
 /// Whether the hash `key` (`<name>:<suffix>`) is a row of `<name>`.
 fn row_of_table(key: &[u8], prefix: usize, fields: &[(String, Value)]) -> bool {
-    key.get(prefix..).is_some_and(|suffix| row_id(key, fields) == suffix)
+    key.get(prefix..)
+        .is_some_and(|suffix| row_id(key, fields) == suffix)
 }
 
 /// Estimated bytes of hashes fetched in one pipeline, at most (plus the
@@ -407,7 +490,11 @@ async fn hash_sizes(s: &mut RedisSession, keys: &[Vec<u8>]) -> Result<Vec<u64>> 
     let mut pipe = redis::pipe();
     pipe.ignore_errors();
     for k in keys {
-        pipe.cmd("MEMORY").arg("USAGE").arg(k.as_slice()).arg("SAMPLES").arg(0);
+        pipe.cmd("MEMORY")
+            .arg("USAGE")
+            .arg(k.as_slice())
+            .arg("SAMPLES")
+            .arg(0);
         pipe.cmd("HLEN").arg(k.as_slice());
     }
     let replies: Vec<Value> = pipe.query_async(&mut s.conn).await.map_err(err)?;
@@ -416,7 +503,9 @@ async fn hash_sizes(s: &mut RedisSession, keys: &[Vec<u8>]) -> Result<Vec<u64>> 
         .map(|r| match r {
             // Gone meanwhile, or not a hash (left out): nothing to hold.
             [Value::Nil, _] | [_, Value::ServerError(_)] => 0,
-            [Value::Int(bytes), Value::Int(n)] => (*bytes).max(0) as u64 + (*n).max(0) as u64 * 2 * ITEM_BYTES,
+            [Value::Int(bytes), Value::Int(n)] => {
+                (*bytes).max(0) as u64 + (*n).max(0) as u64 * 2 * ITEM_BYTES
+            }
             _ => HASH_BYTES,
         })
         .collect())
@@ -444,13 +533,29 @@ fn cut(sizes: &[u64], budget: u64) -> Vec<std::ops::Range<usize>> {
 /// [`HASH_BYTES`] held): their fields, with values if `values` (otherwise
 /// `Nil`, except for keys with more than one `:`, which need them to tell
 /// whose rows they are).
-async fn hash_pages(s: &mut RedisSession, name: &str, values: bool, mut f: impl FnMut(Vec<Vec<(String, Value)>>) -> Result<()>) -> Result<()> {
+async fn hash_pages(
+    s: &mut RedisSession,
+    name: &str,
+    values: bool,
+    mut f: impl FnMut(Vec<Vec<(String, Value)>>) -> Result<()>,
+) -> Result<()> {
     let prefix = name.len() + 1;
     let pattern = format!("{}:*", glob_escape(name));
     let count = PAGE.to_string();
     let mut cursor = String::from("0");
     loop {
-        let (next, keys) = scan_page(s, &[b"SCAN", cursor.as_bytes(), b"MATCH", pattern.as_bytes(), b"COUNT", count.as_bytes()]).await?;
+        let (next, keys) = scan_page(
+            s,
+            &[
+                b"SCAN",
+                cursor.as_bytes(),
+                b"MATCH",
+                pattern.as_bytes(),
+                b"COUNT",
+                count.as_bytes(),
+            ],
+        )
+        .await?;
         cursor = next;
         if !keys.is_empty() {
             let keys: Vec<Vec<u8>> = keys
@@ -468,7 +573,8 @@ async fn hash_pages(s: &mut RedisSession, name: &str, values: bool, mut f: impl 
                 let mut whole = Vec::with_capacity(keys.len());
                 for k in keys {
                     let w = values || k.iter().filter(|&&c| c == b':').count() > 1;
-                    pipe.cmd(if w { "HGETALL" } else { "HKEYS" }).arg(k.as_slice());
+                    pipe.cmd(if w { "HGETALL" } else { "HKEYS" })
+                        .arg(k.as_slice());
                     whole.push(w);
                 }
                 let replies: Vec<Value> = pipe.query_async(&mut s.conn).await.map_err(err)?;
@@ -503,7 +609,12 @@ async fn hash_pages(s: &mut RedisSession, name: &str, values: bool, mut f: impl 
 /// The hashes `<name>:<id>` (what a load into `<name>` writes), one row
 /// per hash. Without columns asked for, they are the fields of every hash,
 /// in order of appearance (found in a first pass).
-async fn read_hashes(s: &mut RedisSession, name: &str, wanted: Option<&[String]>, sink: BatchSinkRef) -> Result<u64> {
+async fn read_hashes(
+    s: &mut RedisSession,
+    name: &str,
+    wanted: Option<&[String]>,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let (cols, strict) = match wanted {
         Some(w) => (w.to_vec(), false),
         None => {
@@ -553,10 +664,17 @@ fn arg(c: &Cell) -> Vec<u8> {
 
 /// A row's `HSET` arguments (after the command name): the key
 /// `<target>:<first cell>` and each non-null cell as `column value`.
-pub fn hset_args(target: &str, columns: &[String], row: &[Cell]) -> std::result::Result<Vec<Vec<u8>>, String> {
+pub fn hset_args(
+    target: &str,
+    columns: &[String],
+    row: &[Cell],
+) -> std::result::Result<Vec<Vec<u8>>, String> {
     let id = match row.first() {
         Some(Cell::Null) | None => {
-            return Err(format!("no tiene valor en la primera columna ({}), que forma el nombre de la key", columns.first().map_or("", String::as_str)))
+            return Err(format!(
+                "no tiene valor en la primera columna ({}), que forma el nombre de la key",
+                columns.first().map_or("", String::as_str)
+            ))
         }
         Some(c) => arg(c),
     };
@@ -605,13 +723,25 @@ impl Rows<'_> {
 
 /// The next window: up to `max_rows` rows or `max_bytes` bytes (the row
 /// that crosses it included). Empty at the end of the rows.
-async fn fill(rows: &mut Rows<'_>, target: &str, columns: &[String], max_rows: u64, max_bytes: u64) -> Result<Window> {
-    let mut w = Window { pipe: redis::pipe(), first: rows.read + 1, rows: 0, bytes: 0 };
+async fn fill(
+    rows: &mut Rows<'_>,
+    target: &str,
+    columns: &[String],
+    max_rows: u64,
+    max_bytes: u64,
+) -> Result<Window> {
+    let mut w = Window {
+        pipe: redis::pipe(),
+        first: rows.read + 1,
+        rows: 0,
+        bytes: 0,
+    };
     w.pipe.cmd("MULTI");
     while w.rows < max_rows && w.bytes < max_bytes {
         let Some(row) = rows.next().await else { break };
         let n = rows.read;
-        let args = hset_args(target, columns, &row).map_err(|e| Error::Query(format!("La fila {n} {e}.")))?;
+        let args = hset_args(target, columns, &row)
+            .map_err(|e| Error::Query(format!("La fila {n} {e}.")))?;
         drop(row);
         if let Some(v) = shadowed(&args) {
             let key = &args[0];
@@ -657,7 +787,10 @@ async fn queue(conn: &mut MultiplexedConnection, mut w: Window) -> Result<()> {
         _ => None,
     }) {
         Some((0, e)) => Err(Error::Query(format!("Redis rechazó MULTI: {e}"))),
-        Some((i, e)) => Err(Error::Query(format!("Redis rechazó la fila {}: {e}. No se escribió ninguna fila de esa tanda.", w.first + i as u64 - 1))),
+        Some((i, e)) => Err(Error::Query(format!(
+            "Redis rechazó la fila {}: {e}. No se escribió ninguna fila de esa tanda.",
+            w.first + i as u64 - 1
+        ))),
         None => Ok(()),
     }
 }
@@ -697,34 +830,66 @@ async fn exec(mut conn: MultiplexedConnection, first: u64, rows: u64) -> Result<
 /// session's commands, and dropping it (the load failed or was dropped)
 /// closes it, discarding a transaction left queued.
 async fn load_connection(s: &RedisSession) -> Result<MultiplexedConnection> {
-    let config = AsyncConnectionConfig::new().set_connection_timeout(Some(Duration::from_secs(15))).set_response_timeout(Some(Duration::from_secs(300)));
-    let mut conn = tokio::time::timeout(Duration::from_secs(20), s.client.get_multiplexed_async_connection_with_config(&config))
-        .await
-        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-        .map_err(err)?;
+    let config = AsyncConnectionConfig::new()
+        .set_connection_timeout(Some(Duration::from_secs(15)))
+        .set_response_timeout(Some(Duration::from_secs(300)));
+    let mut conn = tokio::time::timeout(
+        Duration::from_secs(20),
+        s.client
+            .get_multiplexed_async_connection_with_config(&config),
+    )
+    .await
+    .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+    .map_err(err)?;
     if s.db != s.client.get_connection_info().redis_settings().db() {
-        redis::cmd("SELECT").arg(s.db).query_async::<Value>(&mut conn).await.map_err(err)?;
+        redis::cmd("SELECT")
+            .arg(s.db)
+            .query_async::<Value>(&mut conn)
+            .await
+            .map_err(err)?;
     }
     Ok(conn)
 }
 
-pub async fn load(s: &mut RedisSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub async fn load(
+    s: &mut RedisSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if s.read_only {
-        return Err(Error::Query("Conexión de solo lectura: no se puede cargar datos.".into()));
+        return Err(Error::Query(
+            "Conexión de solo lectura: no se puede cargar datos.".into(),
+        ));
     }
     if spec.columns.is_empty() {
         return Err(Error::Query("No hay columnas para armar las keys.".into()));
     }
     let target = spec.table.name.as_str();
-    let (max_rows, max_bytes) = (spec.commit_rows.clamp(1, WINDOW_ROWS), spec.commit_bytes.clamp(1, WINDOW_BYTES));
+    let (max_rows, max_bytes) = (
+        spec.commit_rows.clamp(1, WINDOW_ROWS),
+        spec.commit_bytes.clamp(1, WINDOW_BYTES),
+    );
     let mut conn = load_connection(s).await?;
-    let mut rows = Rows { source, pending: Vec::new().into_iter(), read: 0 };
-    let mut flight = InFlight { exec: None, done: 0, progress, rt: tokio::runtime::Handle::current() };
+    let mut rows = Rows {
+        source,
+        pending: Vec::new().into_iter(),
+        read: 0,
+    };
+    let mut flight = InFlight {
+        exec: None,
+        done: 0,
+        progress,
+        rt: tokio::runtime::Handle::current(),
+    };
     loop {
         // The next window fills while the previous one's EXEC runs; both
         // end before anything else happens, so nothing sent is left
         // unaccounted when the load returns.
-        let (window, settled) = tokio::join!(fill(&mut rows, target, &spec.columns, max_rows, max_bytes), flight.settle());
+        let (window, settled) = tokio::join!(
+            fill(&mut rows, target, &spec.columns, max_rows, max_bytes),
+            flight.settle()
+        );
         settled?;
         let window = window?;
         if window.rows == 0 {
@@ -755,13 +920,18 @@ struct InFlight<'a> {
 impl InFlight<'_> {
     /// Waits for the running `EXEC`, if any, and counts what it wrote.
     async fn settle(&mut self) -> Result<()> {
-        let Some(h) = self.exec.as_mut() else { return Ok(()) };
+        let Some(h) = self.exec.as_mut() else {
+            return Ok(());
+        };
         let r = h.await;
         self.exec = None;
         self.count(r)
     }
 
-    fn count(&mut self, r: std::result::Result<Result<Committed>, tokio::task::JoinError>) -> Result<()> {
+    fn count(
+        &mut self,
+        r: std::result::Result<Result<Committed>, tokio::task::JoinError>,
+    ) -> Result<()> {
         let c = r.map_err(|e| Error::State(format!("la tanda en curso terminó mal: {e}")))??;
         if c.rows > 0 {
             self.done += c.rows;
@@ -773,10 +943,14 @@ impl InFlight<'_> {
 
 impl Drop for InFlight<'_> {
     fn drop(&mut self) {
-        let Some(mut h) = self.exec.take() else { return };
+        let Some(mut h) = self.exec.take() else {
+            return;
+        };
         let r = if h.is_finished() {
             use std::future::Future;
-            match std::pin::Pin::new(&mut h).poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
+            match std::pin::Pin::new(&mut h)
+                .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+            {
                 std::task::Poll::Ready(r) => Some(r),
                 std::task::Poll::Pending => None,
             }
@@ -813,8 +987,19 @@ mod tests {
 
     #[test]
     fn rows_map_to_the_insert_scripts_commands() {
-        let target = ObjectRef { kind: kinds::KEY.into(), schema: None, name: "user".into() };
-        let cols = vec!["id".to_string(), "name".into(), "age".into(), "tags".into(), "price".into(), "at".into()];
+        let target = ObjectRef {
+            kind: kinds::KEY.into(),
+            schema: None,
+            name: "user".into(),
+        };
+        let cols = vec![
+            "id".to_string(),
+            "name".into(),
+            "age".into(),
+            "tags".into(),
+            "price".into(),
+            "at".into(),
+        ];
         let rows = [
             vec![
                 Cell::Int(1),
@@ -824,12 +1009,25 @@ mod tests {
                 Cell::Decimal("12.3400".into()),
                 Cell::DateTime("2024-01-02 03:04:05".into()),
             ],
-            vec![Cell::Text("b 2".into()), Cell::Null, Cell::Bool(true), Cell::Null, Cell::UInt(u64::MAX), Cell::Null],
+            vec![
+                Cell::Text("b 2".into()),
+                Cell::Null,
+                Cell::Bool(true),
+                Cell::Null,
+                Cell::UInt(u64::MAX),
+                Cell::Null,
+            ],
         ];
-        let json: Vec<Vec<J>> = rows.iter().map(|r| r.iter().map(Cell::to_json).collect()).collect();
+        let json: Vec<Vec<J>> = rows
+            .iter()
+            .map(|r| r.iter().map(Cell::to_json).collect())
+            .collect();
         let script = crate::ddl::insert_script(&target, &cols, &json).unwrap();
         let expected = crate::command::parse_script(&script).unwrap();
-        let got: Vec<_> = rows.iter().map(|r| line(hset_args("user", &cols, r).unwrap())).collect();
+        let got: Vec<_> = rows
+            .iter()
+            .map(|r| line(hset_args("user", &cols, r).unwrap()))
+            .collect();
         assert_eq!(got, expected);
         assert!(hset_args("user", &cols, &[Cell::Null, Cell::Int(1)]).is_err());
     }
@@ -837,53 +1035,131 @@ mod tests {
     #[test]
     fn binaries_go_whole() {
         let cols = vec!["id".to_string(), "blob".into()];
-        let args = hset_args("t", &cols, &[Cell::Bytes(vec![0xff, 0]), Cell::Bytes(vec![1, 2, 0x80])]).unwrap();
-        assert_eq!(args, vec![b"t:\xff\x00".to_vec(), b"id".to_vec(), vec![0xff, 0], b"blob".to_vec(), vec![1, 2, 0x80]]);
+        let args = hset_args(
+            "t",
+            &cols,
+            &[Cell::Bytes(vec![0xff, 0]), Cell::Bytes(vec![1, 2, 0x80])],
+        )
+        .unwrap();
+        assert_eq!(
+            args,
+            vec![
+                b"t:\xff\x00".to_vec(),
+                b"id".to_vec(),
+                vec![0xff, 0],
+                b"blob".to_vec(),
+                vec![1, 2, 0x80]
+            ]
+        );
     }
 
     #[test]
     fn replies_become_typed_cells() {
-        assert_eq!(cell(Value::BulkString(b"hola".to_vec())), Cell::Text("hola".into()));
-        assert_eq!(cell(Value::BulkString(vec![0xff, 0xfe])), Cell::Bytes(vec![0xff, 0xfe]));
+        assert_eq!(
+            cell(Value::BulkString(b"hola".to_vec())),
+            Cell::Text("hola".into())
+        );
+        assert_eq!(
+            cell(Value::BulkString(vec![0xff, 0xfe])),
+            Cell::Bytes(vec![0xff, 0xfe])
+        );
         assert_eq!(cell(Value::Int(7)), Cell::Int(7));
         assert_eq!(cell(Value::Nil), Cell::Null);
         assert_eq!(score(Value::BulkString(b"1.5".to_vec())), Cell::Float(1.5));
-        assert_eq!(score(Value::BulkString(b"inf".to_vec())), Cell::Float(f64::INFINITY));
-        assert_eq!(cell(Value::Array(vec![Value::Int(1)])), Cell::Json("[1]".into()));
+        assert_eq!(
+            score(Value::BulkString(b"inf".to_vec())),
+            Cell::Float(f64::INFINITY)
+        );
+        assert_eq!(
+            cell(Value::Array(vec![Value::Int(1)])),
+            Cell::Json("[1]".into())
+        );
     }
 
     #[test]
     fn json_goes_byte_for_byte() {
         let doc = r#"{"b":1,"a":123456789012345678901234567890,"c":1.10}"#;
-        let args = hset_args("t", &["id".into(), "doc".into()], &[Cell::Json("[1.0]".into()), Cell::Json(doc.into())]).unwrap();
-        assert_eq!(args, vec![b"t:[1.0]".to_vec(), b"id".to_vec(), b"[1.0]".to_vec(), b"doc".to_vec(), doc.as_bytes().to_vec()]);
+        let args = hset_args(
+            "t",
+            &["id".into(), "doc".into()],
+            &[Cell::Json("[1.0]".into()), Cell::Json(doc.into())],
+        )
+        .unwrap();
+        assert_eq!(
+            args,
+            vec![
+                b"t:[1.0]".to_vec(),
+                b"id".to_vec(),
+                b"[1.0]".to_vec(),
+                b"doc".to_vec(),
+                doc.as_bytes().to_vec()
+            ]
+        );
     }
 
     #[test]
     fn nested_tables_are_not_rows() {
-        let f = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), Value::BulkString(v.as_bytes().to_vec()))).collect::<Vec<_>>();
+        let f = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), Value::BulkString(v.as_bytes().to_vec())))
+                .collect::<Vec<_>>()
+        };
         // `T:1` is a row of `T`; `T:arch:1` (id 1) is a row of `T:arch`; `T:a:b` with id `a:b` is a row of `T`.
         assert!(row_of_table(b"T:1", 2, &f(&[("id", "1")])));
-        assert!(!row_of_table(b"T:arch:1", 2, &f(&[("id", "1"), ("x", "arch")])));
-        assert!(row_of_table(b"T:arch:1", 7, &f(&[("id", "1"), ("x", "arch")])));
+        assert!(!row_of_table(
+            b"T:arch:1",
+            2,
+            &f(&[("id", "1"), ("x", "arch")])
+        ));
+        assert!(row_of_table(
+            b"T:arch:1",
+            7,
+            &f(&[("id", "1"), ("x", "arch")])
+        ));
         assert!(row_of_table(b"T:a:b", 2, &f(&[("id", "a:b")])));
         // The other way: `T:arch:5` holding `arch:5` is a row of `T`, not of `T:arch`.
-        assert!(row_of_table(b"T:arch:5", 2, &f(&[("id", "arch:5"), ("v", "x")])));
-        assert!(!row_of_table(b"T:arch:5", 7, &f(&[("id", "arch:5"), ("v", "x")])));
+        assert!(row_of_table(
+            b"T:arch:5",
+            2,
+            &f(&[("id", "arch:5"), ("v", "x")])
+        ));
+        assert!(!row_of_table(
+            b"T:arch:5",
+            7,
+            &f(&[("id", "arch:5"), ("v", "x")])
+        ));
         // Nothing held (written by hand): the last part is the id.
         assert!(row_of_table(b"T:arch:5", 7, &f(&[("v", "x")])));
         assert!(!row_of_table(b"T:arch:5", 2, &f(&[("v", "x")])));
         // Several held: the longest decides, in any field order (Dragonfly
         // returns a large hash's fields in another order than written).
-        for fields in [&[("id", "arch:5"), ("n", "5"), ("big", "x")], &[("big", "x"), ("n", "5"), ("id", "arch:5")]] {
+        for fields in [
+            &[("id", "arch:5"), ("n", "5"), ("big", "x")],
+            &[("big", "x"), ("n", "5"), ("id", "arch:5")],
+        ] {
             assert!(row_of_table(b"T:arch:5", 2, &f(fields)));
             assert!(!row_of_table(b"T:arch:5", 7, &f(fields)));
         }
         // So a load into `T:arch` of a row that also holds `arch:5` is refused.
         let cols = ["id".to_string(), "note".into()];
-        assert!(shadowed(&hset_args("T:arch", &cols, &[Cell::Int(5), Cell::Text("arch:5".into())]).unwrap()).is_some());
-        assert!(shadowed(&hset_args("T", &cols, &[Cell::Text("arch:5".into()), Cell::Int(5)]).unwrap()).is_none());
-        assert!(shadowed(&hset_args("T:arch", &cols, &[Cell::Int(5), Cell::Text("5".into())]).unwrap()).is_none());
+        assert!(shadowed(
+            &hset_args(
+                "T:arch",
+                &cols,
+                &[Cell::Int(5), Cell::Text("arch:5".into())]
+            )
+            .unwrap()
+        )
+        .is_some());
+        assert!(shadowed(
+            &hset_args("T", &cols, &[Cell::Text("arch:5".into()), Cell::Int(5)]).unwrap()
+        )
+        .is_none());
+        assert!(shadowed(
+            &hset_args("T:arch", &cols, &[Cell::Int(5), Cell::Text("5".into())]).unwrap()
+        )
+        .is_none());
         // A value that only ends the key without a `:` before it isn't an id.
         assert!(!row_of_table(b"T:arch:15", 2, &f(&[("x", "rch:15")])));
     }
@@ -894,12 +1170,17 @@ mod tests {
         assert_eq!(cut(&[6, 6, 6], 10), vec![0..1, 1..2, 2..3]);
         // One larger than the budget goes alone.
         assert_eq!(cut(&[2, 50, 2, 2], 10), vec![0..1, 1..2, 2..4]);
-        assert_eq!(cut(&[4, 4, 4, u64::MAX, 1], 10), vec![0..2, 2..3, 3..4, 4..5]);
+        assert_eq!(
+            cut(&[4, 4, 4, u64::MAX, 1], 10),
+            vec![0..2, 2..3, 3..4, 4..5]
+        );
         assert!(cut(&[], 10).is_empty());
         // 1000 hashes of 1 MiB: no pipeline holds more than the budget plus one hash.
         let sizes = vec![1 << 20; 1000];
         let ranges = cut(&sizes, HASH_BYTES);
-        assert!(ranges.iter().all(|r| sizes[r.clone()].iter().sum::<u64>() <= HASH_BYTES + (1 << 20)));
+        assert!(ranges
+            .iter()
+            .all(|r| sizes[r.clone()].iter().sum::<u64>() <= HASH_BYTES + (1 << 20)));
         assert_eq!(ranges.iter().map(|r| r.len()).sum::<usize>(), 1000);
     }
 
@@ -908,17 +1189,49 @@ mod tests {
         let v = |s: &str| Value::BulkString(s.as_bytes().to_vec());
         let cols = vec!["id".to_string(), "a".into(), "a".into(), "nope".into()];
         let mut seen = vec![false; 4];
-        let row = project(&cols, true, None, vec![("id".into(), v("1")), ("a".into(), v("x"))], &mut seen, false).unwrap();
-        assert_eq!(row, vec![Cell::Text("1".into()), Cell::Text("x".into()), Cell::Text("x".into()), Cell::Null]);
+        let row = project(
+            &cols,
+            true,
+            None,
+            vec![("id".into(), v("1")), ("a".into(), v("x"))],
+            &mut seen,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            row,
+            vec![
+                Cell::Text("1".into()),
+                Cell::Text("x".into()),
+                Cell::Text("x".into()),
+                Cell::Null
+            ]
+        );
         assert_eq!(seen, [true, true, true, false]);
         assert!(unknown(&cols, &seen, 1).is_err());
         assert!(unknown(&cols, &seen, 0).is_ok());
         // Stream entries: `id` is the entry's; a field unknown to the first pass is an error.
         let cols = vec!["id".to_string(), "a".into()];
         let mut seen = vec![false; 2];
-        let row = project(&cols, false, Some("1-0"), vec![("a".into(), v("x"))], &mut seen, true).unwrap();
+        let row = project(
+            &cols,
+            false,
+            Some("1-0"),
+            vec![("a".into(), v("x"))],
+            &mut seen,
+            true,
+        )
+        .unwrap();
         assert_eq!(row, vec![Cell::Text("1-0".into()), Cell::Text("x".into())]);
-        assert!(project(&cols, false, Some("2-0"), vec![("late".into(), v("y"))], &mut seen, true).is_err());
+        assert!(project(
+            &cols,
+            false,
+            Some("2-0"),
+            vec![("late".into(), v("y"))],
+            &mut seen,
+            true
+        )
+        .is_err());
     }
 
     struct Wide(u64);
@@ -930,7 +1243,14 @@ mod tests {
                 return None;
             }
             // Batches of 16 rows of 64 KiB: valid (below CHUNK_BYTES).
-            let rows: Vec<Vec<Cell>> = (0..16).map(|i| vec![Cell::Int((self.0 * 100 + i) as i64), Cell::Text("x".repeat(64 * 1024))]).collect();
+            let rows: Vec<Vec<Cell>> = (0..16)
+                .map(|i| {
+                    vec![
+                        Cell::Int((self.0 * 100 + i) as i64),
+                        Cell::Text("x".repeat(64 * 1024)),
+                    ]
+                })
+                .collect();
             self.0 -= 1;
             Some(transfer::RowBatch { rows, bytes: 0 })
         }
@@ -940,10 +1260,16 @@ mod tests {
     async fn windows_are_cut_by_bytes() {
         let cols = vec!["id".to_string(), "blob".into()];
         let mut source = Wide(64);
-        let mut rows = Rows { source: &mut source, pending: Vec::new().into_iter(), read: 0 };
+        let mut rows = Rows {
+            source: &mut source,
+            pending: Vec::new().into_iter(),
+            read: 0,
+        };
         let mut total = 0;
         loop {
-            let w = fill(&mut rows, "t", &cols, WINDOW_ROWS, WINDOW_BYTES).await.unwrap();
+            let w = fill(&mut rows, "t", &cols, WINDOW_ROWS, WINDOW_BYTES)
+                .await
+                .unwrap();
             if w.rows == 0 {
                 break;
             }
@@ -954,8 +1280,18 @@ mod tests {
         assert_eq!(total, 64 * 16);
         // Few rows per commit: windows of that many rows.
         let mut source = Wide(2);
-        let mut rows = Rows { source: &mut source, pending: Vec::new().into_iter(), read: 0 };
-        assert_eq!(fill(&mut rows, "t", &cols, 5, WINDOW_BYTES).await.unwrap().rows, 5);
+        let mut rows = Rows {
+            source: &mut source,
+            pending: Vec::new().into_iter(),
+            read: 0,
+        };
+        assert_eq!(
+            fill(&mut rows, "t", &cols, 5, WINDOW_BYTES)
+                .await
+                .unwrap()
+                .rows,
+            5
+        );
     }
 
     /// A dropped load whose EXEC outlasts the wait stops it: nothing it
@@ -964,11 +1300,22 @@ mod tests {
     async fn a_late_exec_is_aborted() {
         let h = tokio::spawn(async {
             tokio::time::sleep(Duration::from_secs(3600)).await;
-            Ok(Committed { rows: 1, error: None })
+            Ok(Committed {
+                rows: 1,
+                error: None,
+            })
         });
         let task = h.abort_handle();
-        drop(InFlight { exec: Some(h), done: 0, progress: &|_| {}, rt: tokio::runtime::Handle::current() });
+        drop(InFlight {
+            exec: Some(h),
+            done: 0,
+            progress: &|_| {},
+            rt: tokio::runtime::Handle::current(),
+        });
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(task.is_finished(), "the EXEC task still runs after the drop gave up on it");
+        assert!(
+            task.is_finished(),
+            "the EXEC task still runs after the drop gave up on it"
+        );
     }
 }

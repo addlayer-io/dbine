@@ -16,8 +16,8 @@
 use crate::Flavor;
 use dbine_driver::sql::Quote;
 use dbine_driver::{
-    kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, IndexDef, KeyDef, RowChange,
-    TableSchema,
+    kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, IndexDef,
+    KeyDef, RowChange, TableSchema,
 };
 use dbine_driver::{Error, Result};
 use serde_json::Value;
@@ -28,8 +28,14 @@ const ENGINES: &[(&str, &str)] = &[
     ("ReplacingMergeTree", "ReplacingMergeTree"),
     ("SummingMergeTree", "SummingMergeTree"),
     ("AggregatingMergeTree", "AggregatingMergeTree"),
-    ("CollapsingMergeTree", "CollapsingMergeTree (requiere columna sign)"),
-    ("VersionedCollapsingMergeTree", "VersionedCollapsingMergeTree (sign, versión)"),
+    (
+        "CollapsingMergeTree",
+        "CollapsingMergeTree (requiere columna sign)",
+    ),
+    (
+        "VersionedCollapsingMergeTree",
+        "VersionedCollapsingMergeTree (sign, versión)",
+    ),
     ("ReplicatedMergeTree", "ReplicatedMergeTree"),
     ("Log", "Log"),
     ("TinyLog", "TinyLog"),
@@ -37,8 +43,15 @@ const ENGINES: &[(&str, &str)] = &[
     ("Memory", "Memory"),
 ];
 
-fn text_field(key: &'static str, label: &'static str, placeholder: &'static str, help: &'static str) -> Field {
-    Field::new(key, label, FieldKind::Text).placeholder(placeholder).help(help)
+fn text_field(
+    key: &'static str,
+    label: &'static str,
+    placeholder: &'static str,
+    help: &'static str,
+) -> Field {
+    Field::new(key, label, FieldKind::Text)
+        .placeholder(placeholder)
+        .help(help)
 }
 
 fn default_kind() -> Field {
@@ -57,7 +70,12 @@ fn default_kind() -> Field {
 }
 
 fn codec() -> Field {
-    text_field("codec", "Códec", "ZSTD(1)", "Compresión de la columna: CODEC(…).")
+    text_field(
+        "codec",
+        "Códec",
+        "ZSTD(1)",
+        "Compresión de la columna: CODEC(…).",
+    )
 }
 
 pub fn designer(flavor: Flavor) -> DesignerSpec {
@@ -115,7 +133,11 @@ pub fn designer(flavor: Flavor) -> DesignerSpec {
 }
 
 pub fn templates(flavor: Flavor) -> Vec<CreateTemplate> {
-    let t = |kind, label, template: &str| CreateTemplate { kind, label, template: template.to_string() };
+    let t = |kind, label, template: &str| CreateTemplate {
+        kind,
+        label,
+        template: template.to_string(),
+    };
     match flavor {
         Flavor::ClickHouse => vec![
             t(kinds::VIEW, "Nueva vista", "CREATE VIEW {name} AS\nSELECT *\nFROM tabla;\n"),
@@ -173,7 +195,15 @@ pub(crate) fn q(name: &str) -> String {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 pub(crate) fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// `db.name`, or `name` alone when there is no database.
@@ -207,18 +237,28 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     if filters.is_empty() {
         return Ok(browse.to_string());
     }
-    let style = SqlFilterStyle { quote: Quote::Backtick, literal: &literal, like: "LIKE", true_literal: "true", false_literal: "false" };
+    let style = SqlFilterStyle {
+        quote: Quote::Backtick,
+        literal: &literal,
+        like: "LIKE",
+        true_literal: "true",
+        false_literal: "false",
+    };
     let mut parts = Vec::new();
     for f in filters {
         let c = condition(f, &style)?;
-        let like = matches!(f.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith);
+        let like = matches!(
+            f.op,
+            FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith
+        );
         parts.push(match c.strip_suffix(" ESCAPE '\\'") {
             Some(s) if like => s.to_string(),
             _ => c,
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 /// One filter as a condition, with the column quoted by [`q`]. The shared
@@ -229,10 +269,16 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
 /// The literal's output can't contain `` `\` ``: every backslash in it comes
 /// doubled or before a quote. A raw "SQL condition" is the user's text and is
 /// left alone; after the column, only the leading placeholder is replaced.
-fn condition(f: &dbine_driver::ColumnFilter, style: &dbine_driver::filter::SqlFilterStyle) -> Result<String> {
+fn condition(
+    f: &dbine_driver::ColumnFilter,
+    style: &dbine_driver::filter::SqlFilterStyle,
+) -> Result<String> {
     use dbine_driver::filter::{sql_condition, FilterOp};
     const PLACEHOLDER: &str = "\\";
-    let held = dbine_driver::ColumnFilter { column: PLACEHOLDER.into(), ..f.clone() };
+    let held = dbine_driver::ColumnFilter {
+        column: PLACEHOLDER.into(),
+        ..f.clone()
+    };
     let c = match sql_condition(std::slice::from_ref(&held), style) {
         Ok(c) => c,
         // The error names the real column.
@@ -258,16 +304,36 @@ pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<Stri
     if sort.is_empty() {
         return Ok(query.to_string());
     }
-    if query.as_bytes().windows(2).any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"')) {
+    if query
+        .as_bytes()
+        .windows(2)
+        .any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"'))
+    {
         return Err(Error::Unsupported("con comillas escapadas en el filtro o en el nombre, ClickHouse no ordena en el servidor".into()));
     }
-    let order = sort.iter().map(|k| format!("{} {}", q(&k.column), if k.descending { "DESC" } else { "ASC" })).collect::<Vec<_>>().join(", ");
-    dbine_driver::sort::set_order_by(query, &order)
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+    let order = sort
+        .iter()
+        .map(|k| {
+            format!(
+                "{} {}",
+                q(&k.column),
+                if k.descending { "DESC" } else { "ASC" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    dbine_driver::sort::set_order_by(query, &order).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+    })
 }
 
 /// `INSERT INTO t (…) VALUES (…), (…)`, 1000 rows per statement.
-pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
+pub fn insert_script(
+    schema: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> String {
     let name = qualified(schema, table);
     let cols: Vec<String> = columns.iter().map(|c| q(c)).collect();
     rows.chunks(1000)
@@ -276,7 +342,11 @@ pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows
                 .iter()
                 .map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
                 .collect();
-            format!("INSERT INTO {name} ({}) VALUES\n  {};", cols.join(", "), tuples.join(",\n  "))
+            format!(
+                "INSERT INTO {name} ({}) VALUES\n  {};",
+                cols.join(", "),
+                tuples.join(",\n  ")
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -285,7 +355,12 @@ pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows
 /// Edited rows as mutations, one per row: `ALTER TABLE t UPDATE a = …
 /// WHERE …;` (`ALTER STREAM` in Timeplus). A mutation needs a WHERE, so a
 /// row without key columns gets `WHERE 1`.
-pub fn update_script(flavor: Flavor, schema: Option<&str>, table: &str, changes: &[RowChange]) -> String {
+pub fn update_script(
+    flavor: Flavor,
+    schema: Option<&str>,
+    table: &str,
+    changes: &[RowChange],
+) -> String {
     let name = qualified(schema, table);
     let what = match flavor {
         Flavor::ClickHouse => "TABLE",
@@ -295,10 +370,27 @@ pub fn update_script(flavor: Flavor, schema: Option<&str>, table: &str, changes:
         .iter()
         .filter(|c| !c.set.is_empty())
         .map(|c| {
-            let set: Vec<String> = c.set.iter().map(|(k, v)| format!("{} = {}", q(k), literal(v))).collect();
-            let wh: Vec<String> =
-                c.key.iter().map(|(k, v)| if v.is_null() { format!("{} IS NULL", q(k)) } else { format!("{} = {}", q(k), literal(v)) }).collect();
-            let wh = if wh.is_empty() { "1".to_string() } else { wh.join(" AND ") };
+            let set: Vec<String> = c
+                .set
+                .iter()
+                .map(|(k, v)| format!("{} = {}", q(k), literal(v)))
+                .collect();
+            let wh: Vec<String> = c
+                .key
+                .iter()
+                .map(|(k, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", q(k))
+                    } else {
+                        format!("{} = {}", q(k), literal(v))
+                    }
+                })
+                .collect();
+            let wh = if wh.is_empty() {
+                "1".to_string()
+            } else {
+                wh.join(" AND ")
+            };
             format!("ALTER {what} {name} UPDATE {} WHERE {wh};", set.join(", "))
         })
         .collect::<Vec<_>>()
@@ -308,7 +400,12 @@ pub fn update_script(flavor: Flavor, schema: Option<&str>, table: &str, changes:
 /// Rows to delete as mutations, one per key: `ALTER TABLE t DELETE WHERE
 /// …;` (`ALTER STREAM` in Timeplus), as in [`update_script`]. A key without
 /// columns is skipped: it would delete the whole table.
-pub fn delete_script(flavor: Flavor, schema: Option<&str>, table: &str, keys: &[Vec<(String, Value)>]) -> String {
+pub fn delete_script(
+    flavor: Flavor,
+    schema: Option<&str>,
+    table: &str,
+    keys: &[Vec<(String, Value)>],
+) -> String {
     let name = qualified(schema, table);
     let what = match flavor {
         Flavor::ClickHouse => "TABLE",
@@ -317,8 +414,16 @@ pub fn delete_script(flavor: Flavor, schema: Option<&str>, table: &str, keys: &[
     keys.iter()
         .filter(|k| !k.is_empty())
         .map(|k| {
-            let wh: Vec<String> =
-                k.iter().map(|(c, v)| if v.is_null() { format!("{} IS NULL", q(c)) } else { format!("{} = {}", q(c), literal(v)) }).collect();
+            let wh: Vec<String> = k
+                .iter()
+                .map(|(c, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", q(c))
+                    } else {
+                        format!("{} = {}", q(c), literal(v))
+                    }
+                })
+                .collect();
             format!("ALTER {what} {name} DELETE WHERE {};", wh.join(" AND "))
         })
         .collect::<Vec<_>>()
@@ -339,7 +444,17 @@ fn nullable_type(t: &str, flavor: Flavor) -> String {
         let open = t.find('(').unwrap_or(0);
         return format!("{}({nullable}({}))", &t[..open], &t[open + 1..t.len() - 1]);
     }
-    let never = ["array(", "map(", "tuple(", "nested(", "json", "object(", "variant(", "dynamic", "aggregatefunction("];
+    let never = [
+        "array(",
+        "map(",
+        "tuple(",
+        "nested(",
+        "json",
+        "object(",
+        "variant(",
+        "dynamic",
+        "aggregatefunction(",
+    ];
     if never.iter().any(|p| lower.starts_with(p)) {
         return t.to_string();
     }
@@ -357,11 +472,17 @@ fn unwrap_nullable(t: &str) -> (String, bool) {
 }
 
 fn opt<'a>(t: &'a TableSchema, key: &str) -> Option<&'a str> {
-    t.options.get(key).map(|s| s.trim()).filter(|s| !s.is_empty())
+    t.options
+        .get(key)
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
 }
 
 fn copt<'a>(c: &'a ColumnDef, key: &str) -> Option<&'a str> {
-    c.options.get(key).map(|s| s.trim()).filter(|s| !s.is_empty())
+    c.options
+        .get(key)
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
 }
 
 fn is_merge_tree(engine: &str) -> bool {
@@ -384,17 +505,33 @@ pub const PROJECTION: &str = "PROJECTION";
 pub const ASSUME: &str = "assume:";
 
 pub(crate) fn is_projection(ix: &IndexDef) -> bool {
-    ix.kind.as_deref().is_some_and(|k| k.trim().eq_ignore_ascii_case(PROJECTION))
+    ix.kind
+        .as_deref()
+        .is_some_and(|k| k.trim().eq_ignore_ascii_case(PROJECTION))
 }
 
 /// A CHECK's name: ClickHouse needs one.
 pub(crate) fn check_name(t: &TableSchema, i: usize, c: &CheckDef) -> String {
-    c.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| format!("{}_check_{}", t.name, i + 1))
+    c.name
+        .clone()
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("{}_check_{}", t.name, i + 1))
 }
 
 /// `CONSTRAINT n CHECK …` for the table's CHECKs, then its ASSUMEs.
 pub(crate) fn constraint_clauses(t: &TableSchema) -> Vec<String> {
-    let mut out: Vec<String> = t.checks.iter().enumerate().map(|(i, c)| format!("CONSTRAINT {} CHECK {}", q(&check_name(t, i, c)), c.expression.trim())).collect();
+    let mut out: Vec<String> = t
+        .checks
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            format!(
+                "CONSTRAINT {} CHECK {}",
+                q(&check_name(t, i, c)),
+                c.expression.trim()
+            )
+        })
+        .collect();
     for (k, v) in &t.options {
         if let Some(n) = k.strip_prefix(ASSUME) {
             out.push(format!("CONSTRAINT {} ASSUME {}", q(n), v.trim()));
@@ -407,27 +544,51 @@ pub(crate) fn index_clause(ix: &IndexDef) -> String {
     if is_projection(ix) {
         return format!("PROJECTION {} {}", q(&ix.name), ix.columns.join(", "));
     }
-    let kind = ix.kind.as_deref().map(str::trim).filter(|k| !k.is_empty()).unwrap_or("minmax");
-    let kind = if kind.to_ascii_uppercase().contains("GRANULARITY") { kind.to_string() } else { format!("{kind} GRANULARITY 1") };
-    format!("INDEX {} {} TYPE {kind}", q(&ix.name), key_expr(&ix.columns))
+    let kind = ix
+        .kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .unwrap_or("minmax");
+    let kind = if kind.to_ascii_uppercase().contains("GRANULARITY") {
+        kind.to_string()
+    } else {
+        format!("{kind} GRANULARITY 1")
+    };
+    format!(
+        "INDEX {} {} TYPE {kind}",
+        q(&ix.name),
+        key_expr(&ix.columns)
+    )
 }
 
 /// Column names are quoted in key expressions only when they are plain
 /// column names; anything else is taken as an expression.
 fn key_part(t: &TableSchema, part: &str) -> String {
-    if t.columns.iter().any(|c| c.name == part) { q(part) } else { part.to_string() }
+    if t.columns.iter().any(|c| c.name == part) {
+        q(part)
+    } else {
+        part.to_string()
+    }
 }
 
 /// The type as the server stores it: `Nullable(…)` when the column takes NULL.
 pub(crate) fn full_type(flavor: Flavor, c: &ColumnDef) -> String {
-    if c.nullable { nullable_type(&c.data_type, flavor) } else { c.data_type.clone() }
+    if c.nullable {
+        nullable_type(&c.data_type, flavor)
+    } else {
+        c.data_type.clone()
+    }
 }
 
 /// A column as CREATE TABLE and ALTER … ADD / MODIFY COLUMN write it.
 pub(crate) fn column_sql(flavor: Flavor, c: &ColumnDef) -> String {
     let mut l = format!("{} {}", q(&c.name), full_type(flavor, c));
     if let Some(d) = c.default_value.as_deref().filter(|d| !d.trim().is_empty()) {
-        l.push_str(&format!(" {} {d}", copt(c, "default_kind").unwrap_or("DEFAULT")));
+        l.push_str(&format!(
+            " {} {d}",
+            copt(c, "default_kind").unwrap_or("DEFAULT")
+        ));
     }
     if let Some(codec) = copt(c, "codec") {
         if codec.to_ascii_uppercase().starts_with("CODEC(") {
@@ -450,23 +611,51 @@ pub fn table_ddl(flavor: Flavor, t: &TableSchema, parts: DdlParts) -> String {
     };
     let mut out = Vec::new();
     if parts.drop {
-        out.push(format!("DROP {what} {}{name};", if parts.if_exists { "IF EXISTS " } else { "" }));
+        out.push(format!(
+            "DROP {what} {}{name};",
+            if parts.if_exists { "IF EXISTS " } else { "" }
+        ));
     }
     let inline_indexes = parts.create && parts.indexes;
     if parts.create {
-        let mut lines: Vec<String> = t.columns.iter().map(|c| format!("    {}", column_sql(flavor, c))).collect();
+        let mut lines: Vec<String> = t
+            .columns
+            .iter()
+            .map(|c| format!("    {}", column_sql(flavor, c)))
+            .collect();
         if inline_indexes {
-            lines.extend(t.indexes.iter().filter(|ix| !is_projection(ix)).map(|ix| format!("    {}", index_clause(ix))));
+            lines.extend(
+                t.indexes
+                    .iter()
+                    .filter(|ix| !is_projection(ix))
+                    .map(|ix| format!("    {}", index_clause(ix))),
+            );
         }
-        lines.extend(constraint_clauses(t).into_iter().map(|c| format!("    {c}")));
+        lines.extend(
+            constraint_clauses(t)
+                .into_iter()
+                .map(|c| format!("    {c}")),
+        );
         if inline_indexes {
-            lines.extend(t.indexes.iter().filter(|ix| is_projection(ix)).map(|ix| format!("    {}", index_clause(ix))));
+            lines.extend(
+                t.indexes
+                    .iter()
+                    .filter(|ix| is_projection(ix))
+                    .map(|ix| format!("    {}", index_clause(ix))),
+            );
         }
-        let pk: Vec<String> =
-            t.primary_key.as_ref().map(|k| k.columns.iter().map(|c| key_part(t, c)).collect()).unwrap_or_default();
+        let pk: Vec<String> = t
+            .primary_key
+            .as_ref()
+            .map(|k| k.columns.iter().map(|c| key_part(t, c)).collect())
+            .unwrap_or_default();
         let mut s = format!(
             "CREATE {what} {}{name}\n(\n{}\n)",
-            if parts.if_exists && !parts.drop { "IF NOT EXISTS " } else { "" },
+            if parts.if_exists && !parts.drop {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             lines.join(",\n")
         );
         match flavor {
@@ -482,10 +671,19 @@ pub fn table_ddl(flavor: Flavor, t: &TableSchema, parts: DdlParts) -> String {
                     if let Some(p) = opt(t, "partition_by") {
                         s.push_str(&format!("\nPARTITION BY {p}"));
                     }
-                    if order.is_some() && !pk.is_empty() && order.as_deref() != Some(key_expr(&pk).as_str()) {
+                    if order.is_some()
+                        && !pk.is_empty()
+                        && order.as_deref() != Some(key_expr(&pk).as_str())
+                    {
                         s.push_str(&format!("\nPRIMARY KEY {}", key_expr(&pk)));
                     }
-                    let order = order.unwrap_or_else(|| if pk.is_empty() { "tuple()".into() } else { key_expr(&pk) });
+                    let order = order.unwrap_or_else(|| {
+                        if pk.is_empty() {
+                            "tuple()".into()
+                        } else {
+                            key_expr(&pk)
+                        }
+                    });
                     s.push_str(&format!("\nORDER BY {order}"));
                     if let Some(x) = opt(t, "sample_by") {
                         s.push_str(&format!("\nSAMPLE BY {x}"));
@@ -525,10 +723,18 @@ pub fn table_ddl(flavor: Flavor, t: &TableSchema, parts: DdlParts) -> String {
     }
     if parts.indexes && !inline_indexes {
         for ix in &t.indexes {
-            let (word, clause) = if is_projection(ix) { ("PROJECTION", index_clause(ix)) } else { ("INDEX", index_clause(ix)) };
+            let (word, clause) = if is_projection(ix) {
+                ("PROJECTION", index_clause(ix))
+            } else {
+                ("INDEX", index_clause(ix))
+            };
             out.push(format!(
                 "ALTER {what} {name} ADD {word} {}{};",
-                if parts.if_exists { "IF NOT EXISTS " } else { "" },
+                if parts.if_exists {
+                    "IF NOT EXISTS "
+                } else {
+                    ""
+                },
                 clause.trim_start_matches(word).trim_start()
             ));
         }
@@ -575,13 +781,19 @@ pub(crate) fn key_parts(expr: &str) -> Vec<String> {
     if e.is_empty() || e == "tuple()" {
         return Vec::new();
     }
-    let inner = if e.starts_with('(') && e.ends_with(')') && split_top(e).len() == 1 { &e[1..e.len() - 1] } else { e };
+    let inner = if e.starts_with('(') && e.ends_with(')') && split_top(e).len() == 1 {
+        &e[1..e.len() - 1]
+    } else {
+        e
+    };
     split_top(inner)
         .into_iter()
-        .map(|p| match p.strip_prefix('`').and_then(|x| x.strip_suffix('`')) {
-            Some(n) => n.replace("``", "`"),
-            None => p,
-        })
+        .map(
+            |p| match p.strip_prefix('`').and_then(|x| x.strip_suffix('`')) {
+                Some(n) => n.replace("``", "`"),
+                None => p,
+            },
+        )
         .collect()
 }
 
@@ -596,8 +808,10 @@ fn engine_clauses(full: &str) -> BTreeMap<&'static str, String> {
         (" TTL ", "ttl"),
         (" SETTINGS ", "settings"),
     ];
-    let mut found: Vec<(usize, &str, usize)> =
-        KEYS.iter().filter_map(|(kw, k)| full.find(kw).map(|p| (p, *k, kw.len()))).collect();
+    let mut found: Vec<(usize, &str, usize)> = KEYS
+        .iter()
+        .filter_map(|(kw, k)| full.find(kw).map(|p| (p, *k, kw.len())))
+        .collect();
     found.sort();
     let mut out = BTreeMap::new();
     let head_end = found.first().map_or(full.len(), |f| f.0);
@@ -611,7 +825,11 @@ fn engine_clauses(full: &str) -> BTreeMap<&'static str, String> {
 
 /// `a, b` (as system.tables spells multi-part keys) → `(a, b)`.
 fn tuple(expr: &str) -> String {
-    if split_top(expr).len() > 1 { format!("({expr})") } else { expr.to_string() }
+    if split_top(expr).len() > 1 {
+        format!("({expr})")
+    } else {
+        expr.to_string()
+    }
 }
 
 /// A name at the start of `s` (backticked or bare) and what follows it.
@@ -645,7 +863,8 @@ fn leading_name(s: &str) -> Option<(String, &str)> {
 fn after_word<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
     let s = s.trim_start();
     let head = s.get(..kw.len())?;
-    (head.eq_ignore_ascii_case(kw) && s[kw.len()..].starts_with(char::is_whitespace)).then(|| s[kw.len()..].trim_start())
+    (head.eq_ignore_ascii_case(kw) && s[kw.len()..].starts_with(char::is_whitespace))
+        .then(|| s[kw.len()..].trim_start())
 }
 
 /// What `create_table_query` has besides columns and data-skipping
@@ -681,18 +900,32 @@ pub fn table_elements(create: &str) -> (Vec<CheckDef>, Vec<(String, String)>, Ve
         }
         prev = if prev == '\\' { ' ' } else { c };
     }
-    let (Some(open), Some(close)) = (open, close) else { return (checks, assumes, projections) };
+    let (Some(open), Some(close)) = (open, close) else {
+        return (checks, assumes, projections);
+    };
     for item in split_top(&create[open + 1..close]) {
         if let Some(rest) = after_word(&item, "CONSTRAINT") {
-            let Some((name, rest)) = leading_name(rest) else { continue };
+            let Some((name, rest)) = leading_name(rest) else {
+                continue;
+            };
             if let Some(e) = after_word(rest, "CHECK") {
-                checks.push(CheckDef { name: Some(name), expression: e.trim().to_string() });
+                checks.push(CheckDef {
+                    name: Some(name),
+                    expression: e.trim().to_string(),
+                });
             } else if let Some(e) = after_word(rest, "ASSUME") {
                 assumes.push((name, e.trim().to_string()));
             }
         } else if let Some(rest) = after_word(&item, "PROJECTION") {
-            let Some((name, body)) = leading_name(rest) else { continue };
-            projections.push(IndexDef { name, columns: vec![body.trim().to_string()], kind: Some(PROJECTION.into()), ..Default::default() });
+            let Some((name, body)) = leading_name(rest) else {
+                continue;
+            };
+            projections.push(IndexDef {
+                name,
+                columns: vec![body.trim().to_string()],
+                kind: Some(PROJECTION.into()),
+                ..Default::default()
+            });
         }
     }
     (checks, assumes, projections)
@@ -733,7 +966,14 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
                         }
                     }
                     _ => {
-                        options.insert("engine".to_string(), if head.is_empty() { engine.clone() } else { head });
+                        options.insert(
+                            "engine".to_string(),
+                            if head.is_empty() {
+                                engine.clone()
+                            } else {
+                                head
+                            },
+                        );
                     }
                 }
                 let sorting = s(r, 4);
@@ -753,7 +993,10 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
                     }
                 }
                 if !pk.is_empty() {
-                    primary_key = Some(KeyDef { name: None, columns: pk });
+                    primary_key = Some(KeyDef {
+                        name: None,
+                        columns: pk,
+                    });
                 }
             }
             Flavor::Timeplus => {
@@ -767,7 +1010,10 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
                 let pk = key_parts(&s(r, 5));
                 // Append streams report the internal _tp_time sort key.
                 if options.contains_key("mode") && !pk.is_empty() {
-                    primary_key = Some(KeyDef { name: None, columns: pk });
+                    primary_key = Some(KeyDef {
+                        name: None,
+                        columns: pk,
+                    });
                 }
             }
         }
@@ -795,7 +1041,9 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
         );
     }
     for r in &cat.columns {
-        let Some(t) = tables.get_mut(&s(r, 0)) else { continue };
+        let Some(t) = tables.get_mut(&s(r, 0)) else {
+            continue;
+        };
         let name = s(r, 1);
         if flavor == Flavor::Timeplus && name.starts_with("_tp_") {
             continue;
@@ -821,7 +1069,9 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
         });
     }
     for r in &cat.indexes {
-        let Some(t) = tables.get_mut(&s(r, 0)) else { continue };
+        let Some(t) = tables.get_mut(&s(r, 0)) else {
+            continue;
+        };
         // Timeplus's own indexes on _tp_time / _tp_sn.
         if flavor == Flavor::Timeplus && s(r, 1).starts_with("_tp_") {
             continue;
@@ -832,7 +1082,15 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
             kind.push_str(&format!(" GRANULARITY {gran}"));
         }
         let at = t.indexes.iter().take_while(|i| !is_projection(i)).count();
-        t.indexes.insert(at, IndexDef { name: s(r, 1), columns: key_parts(&s(r, 3)), kind: Some(kind), ..Default::default() });
+        t.indexes.insert(
+            at,
+            IndexDef {
+                name: s(r, 1),
+                columns: key_parts(&s(r, 3)),
+                kind: Some(kind),
+                ..Default::default()
+            },
+        );
     }
     tables.into_values().collect()
 }
@@ -845,37 +1103,77 @@ mod tests {
     #[test]
     fn sorted_browse_quotes_and_places_the_order() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let browse = "SELECT *\nFROM `db`.`t`\nLIMIT 200";
         assert_eq!(sorted_browse(browse, &[]).unwrap(), browse);
-        assert_eq!(sorted_browse(browse, &[k("a", false)]).unwrap(), "SELECT *\nFROM `db`.`t`\nORDER BY `a` ASC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(browse, &[k("a", false)]).unwrap(),
+            "SELECT *\nFROM `db`.`t`\nORDER BY `a` ASC\nLIMIT 200"
+        );
         // Several keys, one descending, on a name with a space.
         assert_eq!(
             sorted_browse(browse, &[k("Grupo Mixto", false), k("v", true)]).unwrap(),
             "SELECT *\nFROM `db`.`t`\nORDER BY `Grupo Mixto` ASC, `v` DESC\nLIMIT 200"
         );
         // With a filter: WHERE, ORDER BY, LIMIT.
-        let f = ColumnFilter { column: "n".into(), op: FilterOp::Ge, values: vec![json!(5)], sql: None };
+        let f = ColumnFilter {
+            column: "n".into(),
+            op: FilterOp::Ge,
+            values: vec![json!(5)],
+            sql: None,
+        };
         let w = filtered_browse(browse, &[f]).unwrap();
-        assert_eq!(sorted_browse(&w, &[k("x", true)]).unwrap(), "SELECT *\nFROM `db`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(&w, &[k("x", true)]).unwrap(),
+            "SELECT *\nFROM `db`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200"
+        );
         // Backslashes and backticks in a name are escaped ClickHouse's way.
-        assert_eq!(sorted_browse(browse, &[k("a\\", false), k("b`c", true)]).unwrap(), "SELECT *\nFROM `db`.`t`\nORDER BY `a\\\\` ASC, `b\\`c` DESC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(browse, &[k("a\\", false), k("b`c", true)]).unwrap(),
+            "SELECT *\nFROM `db`.`t`\nORDER BY `a\\\\` ASC, `b\\`c` DESC\nLIMIT 200"
+        );
         // Timeplus streams: FROM table(…).
-        assert_eq!(sorted_browse("SELECT *\nFROM table(`s`)\nLIMIT 5", &[k("a", false)]).unwrap(), "SELECT *\nFROM table(`s`)\nORDER BY `a` ASC\nLIMIT 5");
+        assert_eq!(
+            sorted_browse("SELECT *\nFROM table(`s`)\nLIMIT 5", &[k("a", false)]).unwrap(),
+            "SELECT *\nFROM table(`s`)\nORDER BY `a` ASC\nLIMIT 5"
+        );
         // A backslash-escaped quote in the filter: refused, not misplaced.
-        let f = ColumnFilter { column: "n".into(), op: FilterOp::Eq, values: vec![json!("O'Brien")], sql: None };
+        let f = ColumnFilter {
+            column: "n".into(),
+            op: FilterOp::Eq,
+            values: vec![json!("O'Brien")],
+            sql: None,
+        };
         let w = filtered_browse(browse, &[f]).unwrap();
-        assert!(matches!(sorted_browse(&w, &[k("a", false)]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            sorted_browse(&w, &[k("a", false)]),
+            Err(Error::Unsupported(_))
+        ));
         // A plain backslash is fine.
-        let f = ColumnFilter { column: "n".into(), op: FilterOp::Eq, values: vec![json!("a\\b")], sql: None };
+        let f = ColumnFilter {
+            column: "n".into(),
+            op: FilterOp::Eq,
+            values: vec![json!("a\\b")],
+            sql: None,
+        };
         let w = filtered_browse(browse, &[f]).unwrap();
-        assert!(sorted_browse(&w, &[k("a", false)]).unwrap().ends_with("ORDER BY `a` ASC\nLIMIT 200"));
+        assert!(sorted_browse(&w, &[k("a", false)])
+            .unwrap()
+            .ends_with("ORDER BY `a` ASC\nLIMIT 200"));
     }
 
     #[test]
     fn filtered_browse_with_backslash_literals() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let filters = [
             f("name", FilterOp::Eq, vec![json!("O'Brien")]),
             f("note", FilterOp::Contains, vec![json!("50%")]),
@@ -894,14 +1192,23 @@ mod tests {
             f("a\\", FilterOp::Eq, vec![json!("`\\`")]),
             f("b`\\", FilterOp::NotEmpty, vec![]),
             f("c\\", FilterOp::StartsWith, vec![json!("x\\")]),
-            ColumnFilter { column: "d\\".into(), op: FilterOp::SqlRight, values: vec![], sql: Some("= '`\\`'".into()) },
+            ColumnFilter {
+                column: "d\\".into(),
+                op: FilterOp::SqlRight,
+                values: vec![],
+                sql: Some("= '`\\`'".into()),
+            },
         ];
         assert_eq!(
             filtered_browse("SELECT *\nFROM `t`", &odd).unwrap(),
             "SELECT *\nFROM `t`\nWHERE `a\\\\` = '`\\\\`'\n  AND (`b\\`\\\\` IS NOT NULL AND `b\\`\\\\` <> '')\n  AND `c\\\\` LIKE 'x\\\\\\\\%'\n  AND `d\\\\` = '`\\`'"
         );
-        let e = filtered_browse("SELECT *\nFROM `t`", &[f("e\\", FilterOp::Eq, vec![])]).unwrap_err();
-        assert!(matches!(&e, Error::Query(m) if m.contains("«e\\»")), "{e:?}");
+        let e =
+            filtered_browse("SELECT *\nFROM `t`", &[f("e\\", FilterOp::Eq, vec![])]).unwrap_err();
+        assert!(
+            matches!(&e, Error::Query(m) if m.contains("«e\\»")),
+            "{e:?}"
+        );
         // Timeplus streams read through table().
         assert_eq!(
             filtered_browse("SELECT *\nFROM table(`s`)\nLIMIT 50", &filters[2..3]).unwrap(),
@@ -914,8 +1221,19 @@ mod tests {
             schema: Some("db".into()),
             name: "eventos".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "UInt64".into(), nullable: false, ..Default::default() },
-                ColumnDef { name: "fecha".into(), data_type: "DateTime".into(), nullable: false, default_value: Some("now()".into()), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "UInt64".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "fecha".into(),
+                    data_type: "DateTime".into(),
+                    nullable: false,
+                    default_value: Some("now()".into()),
+                    ..Default::default()
+                },
                 ColumnDef {
                     name: "texto".into(),
                     data_type: "LowCardinality(String)".into(),
@@ -933,8 +1251,16 @@ mod tests {
                     ..Default::default()
                 },
             ],
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
-            indexes: vec![IndexDef { name: "ix_texto".into(), columns: vec!["texto".into()], kind: Some("bloom_filter(0.01)".into()), ..Default::default() }],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "ix_texto".into(),
+                columns: vec!["texto".into()],
+                kind: Some("bloom_filter(0.01)".into()),
+                ..Default::default()
+            }],
             comment: Some("Eventos".into()),
             options: [
                 ("engine".to_string(), "ReplacingMergeTree".to_string()),
@@ -950,13 +1276,21 @@ mod tests {
     fn update_script_as_mutations() {
         let c = RowChange {
             key: vec![("id".into(), json!(7)), ("region".into(), Value::Null)],
-            set: vec![("nombre".into(), json!("O'Brien")), ("baja".into(), Value::Null)], ..Default::default()
+            set: vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("baja".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(Flavor::ClickHouse, Some("db"), "clientes", &[c.clone(), RowChange::default()]),
             "ALTER TABLE `db`.`clientes` UPDATE `nombre` = 'O\\'Brien', `baja` = NULL WHERE `id` = 7 AND `region` IS NULL;"
         );
-        let all = RowChange { key: vec![], set: vec![("activo".into(), json!(false))], ..Default::default() };
+        let all = RowChange {
+            key: vec![],
+            set: vec![("activo".into(), json!(false))],
+            ..Default::default()
+        };
         assert_eq!(
             update_script(Flavor::Timeplus, None, "eventos", &[all]),
             "ALTER STREAM `eventos` UPDATE `activo` = false WHERE 1;"
@@ -965,7 +1299,13 @@ mod tests {
 
     #[test]
     fn delete_script_as_mutations() {
-        let keys = vec![vec![("nombre".into(), json!("O'Brien")), ("region".into(), Value::Null)], vec![]];
+        let keys = vec![
+            vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("region".into(), Value::Null),
+            ],
+            vec![],
+        ];
         assert_eq!(
             delete_script(Flavor::ClickHouse, Some("db"), "clientes", &keys),
             "ALTER TABLE `db`.`clientes` DELETE WHERE `nombre` = 'O\\'Brien' AND `region` IS NULL;"
@@ -978,13 +1318,28 @@ mod tests {
 
     #[test]
     fn merge_tree_table() {
-        let all = DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true };
+        let all = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            indexes: true,
+            foreign_keys: true,
+        };
         let s = table_ddl(Flavor::ClickHouse, &t(), all);
-        assert!(s.starts_with("DROP TABLE IF EXISTS `db`.`eventos`;\nCREATE TABLE `db`.`eventos`\n("), "{s}");
-        assert!(s.contains("`texto` LowCardinality(Nullable(String)) CODEC(ZSTD(1)) COMMENT 'it\\'s',"), "{s}");
+        assert!(
+            s.starts_with("DROP TABLE IF EXISTS `db`.`eventos`;\nCREATE TABLE `db`.`eventos`\n("),
+            "{s}"
+        );
+        assert!(
+            s.contains("`texto` LowCardinality(Nullable(String)) CODEC(ZSTD(1)) COMMENT 'it\\'s',"),
+            "{s}"
+        );
         assert!(s.contains("`dia` Date MATERIALIZED toDate(fecha)"));
         assert!(s.contains("`fecha` DateTime DEFAULT now()"));
-        assert!(s.contains("    INDEX `ix_texto` texto TYPE bloom_filter(0.01) GRANULARITY 1\n)"), "{s}");
+        assert!(
+            s.contains("    INDEX `ix_texto` texto TYPE bloom_filter(0.01) GRANULARITY 1\n)"),
+            "{s}"
+        );
         assert!(s.contains("ENGINE = ReplacingMergeTree\nPARTITION BY toYYYYMM(fecha)\nPRIMARY KEY `id`\nORDER BY (id, fecha)\nCOMMENT 'Eventos';"), "{s}");
     }
 
@@ -993,13 +1348,35 @@ mod tests {
         let mut tt = t();
         tt.options.clear();
         tt.columns[0].nullable = true;
-        let s = table_ddl(Flavor::ClickHouse, &tt, DdlParts { create: true, ..Default::default() });
+        let s = table_ddl(
+            Flavor::ClickHouse,
+            &tt,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
         assert!(s.contains("ENGINE = MergeTree\nORDER BY `id`"), "{s}");
         assert!(s.contains("`id` Nullable(UInt64)"));
-        let ix = table_ddl(Flavor::ClickHouse, &tt, DdlParts { indexes: true, if_exists: true, ..Default::default() });
+        let ix = table_ddl(
+            Flavor::ClickHouse,
+            &tt,
+            DdlParts {
+                indexes: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(ix, "ALTER TABLE `db`.`eventos` ADD INDEX IF NOT EXISTS `ix_texto` texto TYPE bloom_filter(0.01) GRANULARITY 1;");
         tt.options.insert("engine".into(), "Memory".into());
-        let s = table_ddl(Flavor::ClickHouse, &tt, DdlParts { create: true, ..Default::default() });
+        let s = table_ddl(
+            Flavor::ClickHouse,
+            &tt,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
         assert!(s.contains("ENGINE = Memory\nCOMMENT"), "{s}");
     }
 
@@ -1008,10 +1385,24 @@ mod tests {
         let mut tt = t();
         tt.options = [("mode".to_string(), "versioned_kv".to_string())].into();
         tt.columns[2].data_type = "string".into();
-        let s = table_ddl(Flavor::Timeplus, &tt, DdlParts { create: true, if_exists: true, ..Default::default() });
-        assert!(s.starts_with("CREATE STREAM IF NOT EXISTS `db`.`eventos`"), "{s}");
+        let s = table_ddl(
+            Flavor::Timeplus,
+            &tt,
+            DdlParts {
+                create: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            s.starts_with("CREATE STREAM IF NOT EXISTS `db`.`eventos`"),
+            "{s}"
+        );
         assert!(s.contains("`texto` nullable(string)"));
-        assert!(s.contains("PRIMARY KEY `id`\nSETTINGS mode = 'versioned_kv'"), "{s}");
+        assert!(
+            s.contains("PRIMARY KEY `id`\nSETTINGS mode = 'versioned_kv'"),
+            "{s}"
+        );
     }
 
     #[test]
@@ -1021,22 +1412,57 @@ mod tests {
              CONSTRAINT c1 CHECK (id > 0) AND (x != 'a,b'), CONSTRAINT `c 2` ASSUME d > '2000-01-01', \
              PROJECTION p (SELECT x, count() GROUP BY x), PROJECTION `p2` (SELECT * ORDER BY d)) ENGINE = MergeTree ORDER BY id",
         );
-        assert_eq!(checks, [CheckDef { name: Some("c1".into()), expression: "(id > 0) AND (x != 'a,b')".into() }]);
-        assert_eq!(assumes, [("c 2".to_string(), "d > '2000-01-01'".to_string())]);
-        let p: Vec<(&str, &str)> = projections.iter().map(|i| (i.name.as_str(), i.columns[0].as_str())).collect();
-        assert_eq!(p, [("p", "(SELECT x, count() GROUP BY x)"), ("p2", "(SELECT * ORDER BY d)")]);
+        assert_eq!(
+            checks,
+            [CheckDef {
+                name: Some("c1".into()),
+                expression: "(id > 0) AND (x != 'a,b')".into()
+            }]
+        );
+        assert_eq!(
+            assumes,
+            [("c 2".to_string(), "d > '2000-01-01'".to_string())]
+        );
+        let p: Vec<(&str, &str)> = projections
+            .iter()
+            .map(|i| (i.name.as_str(), i.columns[0].as_str()))
+            .collect();
+        assert_eq!(
+            p,
+            [
+                ("p", "(SELECT x, count() GROUP BY x)"),
+                ("p2", "(SELECT * ORDER BY d)")
+            ]
+        );
         assert!(projections.iter().all(is_projection));
 
         let mut tt = t();
         tt.checks = checks;
-        tt.options.insert(format!("{ASSUME}c 2"), "d > '2000-01-01'".into());
+        tt.options
+            .insert(format!("{ASSUME}c 2"), "d > '2000-01-01'".into());
         tt.indexes.extend(projections);
-        let s = table_ddl(Flavor::ClickHouse, &tt, DdlParts { create: true, indexes: true, ..Default::default() });
+        let s = table_ddl(
+            Flavor::ClickHouse,
+            &tt,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        );
         assert!(
             s.contains("GRANULARITY 1,\n    CONSTRAINT `c1` CHECK (id > 0) AND (x != 'a,b'),\n    CONSTRAINT `c 2` ASSUME d > '2000-01-01',\n    PROJECTION `p` (SELECT x, count() GROUP BY x),\n    PROJECTION `p2` (SELECT * ORDER BY d)\n)"),
             "{s}"
         );
-        let apart = table_ddl(Flavor::ClickHouse, &tt, DdlParts { indexes: true, if_exists: true, ..Default::default() });
+        let apart = table_ddl(
+            Flavor::ClickHouse,
+            &tt,
+            DdlParts {
+                indexes: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        );
         assert!(apart.ends_with("ALTER TABLE `db`.`eventos` ADD PROJECTION IF NOT EXISTS `p2` (SELECT * ORDER BY d);"), "{apart}");
     }
 
@@ -1047,13 +1473,27 @@ mod tests {
         assert_eq!(c["order_by"], "(id, d)");
         assert_eq!(c["ttl"], "d + toIntervalDay(1)");
         assert_eq!(c["settings"], "index_granularity = 8192");
-        assert_eq!(key_parts("(id, cityHash64(a, b))"), vec!["id", "cityHash64(a, b)"]);
+        assert_eq!(
+            key_parts("(id, cityHash64(a, b))"),
+            vec!["id", "cityHash64(a, b)"]
+        );
         assert_eq!(key_parts("`a b`"), vec!["a b"]);
     }
 
     #[test]
     fn inserts_escape_backslashes() {
-        let s = insert_script(None, "t", &["a".into(), "b".into()], &[vec![json!("C:\\x'y"), json!(true)], vec![Value::Null, json!(2)]]);
-        assert_eq!(s, "INSERT INTO `t` (`a`, `b`) VALUES\n  ('C:\\\\x\\'y', true),\n  (NULL, 2);");
+        let s = insert_script(
+            None,
+            "t",
+            &["a".into(), "b".into()],
+            &[
+                vec![json!("C:\\x'y"), json!(true)],
+                vec![Value::Null, json!(2)],
+            ],
+        );
+        assert_eq!(
+            s,
+            "INSERT INTO `t` (`a`, `b`) VALUES\n  ('C:\\\\x\\'y', true),\n  (NULL, 2);"
+        );
     }
 }

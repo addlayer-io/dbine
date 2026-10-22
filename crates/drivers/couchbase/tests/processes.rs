@@ -21,12 +21,18 @@ fn cfg(read_only: bool) -> Option<ConnectionConfig> {
         read_only,
         ..Default::default()
     };
-    c.options.insert("mgmt_port".into(), std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()));
+    c.options.insert(
+        "mgmt_port".into(),
+        std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()),
+    );
     Some(c)
 }
 
 async fn open(c: &ConnectionConfig) -> Box<dyn Session> {
-    dbine_driver_couchbase::drivers()[0].connect(c, None).await.expect("connect")
+    dbine_driver_couchbase::drivers()[0]
+        .connect(c, None)
+        .await
+        .expect("connect")
 }
 
 async fn run(s: &mut Box<dyn Session>, q: &str) -> dbine_driver::Result<QueryOutcome> {
@@ -56,7 +62,11 @@ async fn lists_and_cancels() {
     let list = admin.processes().await.unwrap();
     let w = list
         .iter()
-        .find(|p| p.sql.as_deref().is_some_and(|s| s.contains("dbine_processes_test")))
+        .find(|p| {
+            p.sql
+                .as_deref()
+                .is_some_and(|s| s.contains("dbine_processes_test"))
+        })
         .unwrap_or_else(|| panic!("the worker in {list:#?}"));
     eprintln!("{w:#?}");
     assert!(w.active && !w.own, "{w:?}");
@@ -68,9 +78,18 @@ async fn lists_and_cancels() {
     assert!(ro.cancel_query(&w.id).await.is_err(), "read-only");
 
     admin.cancel_query(&w.id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), slow).await.expect("the statement stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), slow)
+        .await
+        .expect("the statement stopped")
+        .unwrap();
     assert!(r.is_err(), "the statement was cancelled: {r:?}");
-    assert!(run(&mut worker, "SELECT RAW 1").await.is_ok(), "the session still works");
+    assert!(
+        run(&mut worker, "SELECT RAW 1").await.is_ok(),
+        "the session still works"
+    );
     assert!(admin.cancel_query(&w.id).await.is_err(), "it already ended");
-    assert!(admin.cancel_query("1\" OR true OR \"").await.is_err(), "the id is validated");
+    assert!(
+        admin.cancel_query("1\" OR true OR \"").await.is_err(),
+        "the id is validated"
+    );
 }

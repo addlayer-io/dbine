@@ -32,7 +32,10 @@ fn cfg(read_only: bool) -> Option<(ConnectionConfig, String)> {
 }
 
 async fn open(c: &ConnectionConfig) -> Box<dyn Session> {
-    dbine_driver_couchdb::drivers()[0].connect(c, None).await.expect("connect")
+    dbine_driver_couchdb::drivers()[0]
+        .connect(c, None)
+        .await
+        .expect("connect")
 }
 
 /// A continuous replication shows up as a user task (indexers and
@@ -46,10 +49,20 @@ async fn lists_and_stops_a_replication() {
     };
     let d = &dbine_driver_couchdb::drivers()[0];
     assert!(d.capabilities().processes && d.capabilities().cancel_query);
-    let auth = url.strip_prefix("http://").and_then(|r| r.split_once('@')).map(|(a, _)| a.to_string()).unwrap();
+    let auth = url
+        .strip_prefix("http://")
+        .and_then(|r| r.split_once('@'))
+        .map(|(a, _)| a.to_string())
+        .unwrap();
     let http = reqwest::Client::new();
-    http.delete(format!("{url}/dbine_proc_b")).send().await.unwrap();
-    http.put(format!("{url}/dbine_proc_a")).send().await.unwrap();
+    http.delete(format!("{url}/dbine_proc_b"))
+        .send()
+        .await
+        .unwrap();
+    http.put(format!("{url}/dbine_proc_a"))
+        .send()
+        .await
+        .unwrap();
     let inside = |db: &str| format!("http://{auth}@127.0.0.1:5984/{db}");
     let r: serde_json::Value = http
         .post(format!("{url}/_replicate"))
@@ -60,7 +73,10 @@ async fn lists_and_stops_a_replication() {
         .json()
         .await
         .unwrap();
-    let rid = r["_local_id"].as_str().unwrap_or_else(|| panic!("{r}")).to_string();
+    let rid = r["_local_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{r}"))
+        .to_string();
 
     let mut s = open(&c).await;
     let mut found = None;
@@ -76,15 +92,37 @@ async fn lists_and_stops_a_replication() {
     eprintln!("{p:#?}");
     assert!(p.active && !p.system && !p.own);
     assert_eq!(p.command.as_deref(), Some("replication"));
-    assert!(p.sql.as_deref().unwrap_or("").contains("dbine_proc_b"), "{p:?}");
+    assert!(
+        p.sql.as_deref().unwrap_or("").contains("dbine_proc_b"),
+        "{p:?}"
+    );
 
-    assert!(open(&cfg(true).unwrap().0).await.cancel_query(&rid).await.is_err(), "read-only");
+    assert!(
+        open(&cfg(true).unwrap().0)
+            .await
+            .cancel_query(&rid)
+            .await
+            .is_err(),
+        "read-only"
+    );
     s.cancel_query(&rid).await.unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(!s.processes().await.unwrap().iter().any(|p| p.id == rid), "the replication stopped");
+    assert!(
+        !s.processes().await.unwrap().iter().any(|p| p.id == rid),
+        "the replication stopped"
+    );
     assert!(s.cancel_query(&rid).await.is_err(), "it already ended");
-    assert!(s.cancel_query("<0.1.0>").await.is_err(), "not a running task");
+    assert!(
+        s.cancel_query("<0.1.0>").await.is_err(),
+        "not a running task"
+    );
 
-    http.delete(format!("{url}/dbine_proc_a")).send().await.unwrap();
-    http.delete(format!("{url}/dbine_proc_b")).send().await.unwrap();
+    http.delete(format!("{url}/dbine_proc_a"))
+        .send()
+        .await
+        .unwrap();
+    http.delete(format!("{url}/dbine_proc_b"))
+        .send()
+        .await
+        .unwrap();
 }

@@ -11,7 +11,10 @@ use dbine_driver::{ConnectionConfig, Session};
 use std::collections::BTreeMap;
 
 fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[tokio::test]
@@ -42,7 +45,10 @@ async fn tdengine_properties() {
     assert_eq!(p.values.get("keep").map(String::as_str), Some("3650d"));
     assert_eq!(p.values.get("cachemodel").map(String::as_str), Some("none"));
     assert_eq!(p.values.get("replica").map(String::as_str), Some("1"));
-    assert!(p.info.iter().any(|i| i.label == "Estado" && i.value == "ready"));
+    assert!(p
+        .info
+        .iter()
+        .any(|i| i.label == "Estado" && i.value == "ready"));
     assert!(p.warnings.contains_key("keep") && p.warnings.contains_key("replica"));
 
     let changes = c(&[
@@ -63,13 +69,20 @@ async fn tdengine_properties() {
     }
 
     // A refused change after an applied one says how far it got.
-    let e = s.alter_database(db, &c(&[("buffer", "64"), ("keep", "1d")])).await.unwrap_err().to_string();
+    let e = s
+        .alter_database(db, &c(&[("buffer", "64"), ("keep", "1d")]))
+        .await
+        .unwrap_err()
+        .to_string();
     eprintln!("{e}");
     assert!(e.contains("se aplicaron 1 de 2 cambios"), "{e}");
 
     // Read-only connections refuse it.
     let mut ro = ReadOnlySession::new(d.connect(&cfg, None).await.unwrap());
-    assert!(ro.alter_database(db, &c(&[("buffer", "96")])).await.is_err());
+    assert!(ro
+        .alter_database(db, &c(&[("buffer", "96")]))
+        .await
+        .is_err());
 
     s.drop_database(db).await.unwrap();
 }

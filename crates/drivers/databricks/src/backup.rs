@@ -54,7 +54,9 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, k: &str) -> Option<&'a str> {
 
 /// `20260929_154500` (UTC).
 fn stamp() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
     // Days to a civil date (Howard Hinnant's algorithm).
     let z = days + 719_468;
@@ -66,13 +68,22 @@ fn stamp() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}{m:02}{d:02}_{:02}{:02}{:02}", rest / 3600, rest % 3600 / 60, rest % 60)
+    format!(
+        "{y:04}{m:02}{d:02}_{:02}{:02}{:02}",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
 }
 
 /// The block that deep-clones every Delta table of `cat.from` into
 /// `cat.to`; `create` opens it (the schema's creation).
 fn clone_block(cat: &str, from: &str, to: &str, create: &str, replace: bool) -> String {
-    let verb = if replace { "CREATE OR REPLACE TABLE" } else { "CREATE TABLE" };
+    let verb = if replace {
+        "CREATE OR REPLACE TABLE"
+    } else {
+        "CREATE TABLE"
+    };
     let target = lit(&format!("{verb} {}.{}.", q(cat), q(to)));
     let source = lit(&format!(" DEEP CLONE {}.{}.", q(cat), q(from)));
     // EXECUTE IMMEDIATE takes a variable, not any expression.
@@ -90,34 +101,60 @@ fn clone_block(cat: &str, from: &str, to: &str, create: &str, replace: bool) -> 
 /// The schema a backup named `<schema>_bkp_<yyyymmdd>_<hhmmss>` is of.
 fn source_of(backup: &str) -> Option<&str> {
     let (base, ts) = backup.rsplit_once("_bkp_")?;
-    let ok = ts.len() == 15 && ts.char_indices().all(|(i, c)| if i == 8 { c == '_' } else { c.is_ascii_digit() });
+    let ok = ts.len() == 15
+        && ts
+            .char_indices()
+            .all(|(i, c)| if i == 8 { c == '_' } else { c.is_ascii_digit() });
     (ok && !base.is_empty()).then_some(base)
 }
 
 pub fn script(action: &BackupAction) -> Result<String> {
     match action {
         BackupAction::Backup { database, options } => {
-            let cat = database.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| Error::Query("falta el catálogo".into()))?;
-            let schema = opt(options, "schema").ok_or_else(|| Error::Query("falta el esquema a respaldar".into()))?;
-            let target = opt(options, "target").map_or_else(|| format!("{schema}_bkp_{}", stamp()), str::to_string);
+            let cat = database
+                .as_deref()
+                .filter(|d| !d.is_empty())
+                .ok_or_else(|| Error::Query("falta el catálogo".into()))?;
+            let schema = opt(options, "schema")
+                .ok_or_else(|| Error::Query("falta el esquema a respaldar".into()))?;
+            let target = opt(options, "target")
+                .map_or_else(|| format!("{schema}_bkp_{}", stamp()), str::to_string);
             if target == schema {
                 return Err(Error::Query("el backup tiene que ir a otro esquema".into()));
             }
-            let create =
-                format!("CREATE SCHEMA {}.{} COMMENT {}", q(cat), q(&target), lit(&format!("{MARK}{schema}")));
+            let create = format!(
+                "CREATE SCHEMA {}.{} COMMENT {}",
+                q(cat),
+                q(&target),
+                lit(&format!("{MARK}{schema}"))
+            );
             Ok(clone_block(cat, schema, &target, &create, false))
         }
-        BackupAction::Restore { source, database, options } => {
-            let cat = database.as_deref().filter(|d| !d.is_empty()).ok_or_else(|| Error::Query("falta el catálogo".into()))?;
+        BackupAction::Restore {
+            source,
+            database,
+            options,
+        } => {
+            let cat = database
+                .as_deref()
+                .filter(|d| !d.is_empty())
+                .ok_or_else(|| Error::Query("falta el catálogo".into()))?;
             let backup = source.trim();
             if backup.is_empty() {
                 return Err(Error::Query("falta el esquema del backup".into()));
             }
-            let schema = opt(options, "schema").or_else(|| source_of(backup)).ok_or_else(|| {
-                Error::Query("falta el esquema de destino (el nombre del backup no dice de cuál es)".into())
-            })?;
+            let schema = opt(options, "schema")
+                .or_else(|| source_of(backup))
+                .ok_or_else(|| {
+                    Error::Query(
+                        "falta el esquema de destino (el nombre del backup no dice de cuál es)"
+                            .into(),
+                    )
+                })?;
             if schema == backup {
-                return Err(Error::Query("el destino no puede ser el mismo backup".into()));
+                return Err(Error::Query(
+                    "el destino no puede ser el mismo backup".into(),
+                ));
             }
             let create = format!("CREATE SCHEMA IF NOT EXISTS {}.{}", q(cat), q(schema));
             Ok(clone_block(cat, backup, schema, &create, true))
@@ -137,13 +174,18 @@ pub fn script(action: &BackupAction) -> Result<String> {
 /// `BEGIN TRANSACTION`) whole.
 #[cfg(test)]
 pub(crate) fn statements(text: &str) -> Vec<String> {
-    crate::script::units(text).into_iter().map(|u| u.text).collect()
+    crate::script::units(text)
+        .into_iter()
+        .map(|u| u.text)
+        .collect()
 }
 
 // -- history -----------------------------------------------------------------
 
 fn get(r: &Row, k: &str) -> Option<String> {
-    r.get(k).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    r.get(k)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn entry(r: &Row, cat: &str) -> BackupEntry {
@@ -191,7 +233,12 @@ impl DatabricksSession {
               ORDER BY s.created DESC",
             lit(&format!("{MARK}%"))
         );
-        Ok(self.named_rows(&sql).await?.iter().map(|r| entry(r, &cat)).collect())
+        Ok(self
+            .named_rows(&sql)
+            .await?
+            .iter()
+            .map(|r| entry(r, &cat))
+            .collect())
     }
 }
 
@@ -200,7 +247,9 @@ mod tests {
     use super::*;
 
     fn opts(kv: &[(&str, &str)]) -> BTreeMap<String, String> {
-        kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        kv.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -220,12 +269,19 @@ mod tests {
              EXECUTE IMMEDIATE stmt;\n  END FOR;\nEND;"
         );
         assert_eq!(statements(&s).len(), 1);
-        let auto = script(&BackupAction::Backup { database: Some("main".into()), options: opts(&[("schema", "sales")]) })
-            .unwrap();
+        let auto = script(&BackupAction::Backup {
+            database: Some("main".into()),
+            options: opts(&[("schema", "sales")]),
+        })
+        .unwrap();
         assert!(auto.contains("CREATE SCHEMA `main`.`sales_bkp_2"), "{auto}");
         let name = auto.split('`').nth(3).unwrap();
         assert_eq!(source_of(name), Some("sales"));
-        assert!(script(&BackupAction::Backup { database: Some("main".into()), options: opts(&[]) }).is_err());
+        assert!(script(&BackupAction::Backup {
+            database: Some("main".into()),
+            options: opts(&[])
+        })
+        .is_err());
         assert!(script(&BackupAction::Backup {
             database: Some("main".into()),
             options: opts(&[("schema", "a"), ("target", "a")])
@@ -236,18 +292,39 @@ mod tests {
     #[test]
     fn restore_and_delete_scripts() {
         let r = |src: &str, kv: &[(&str, &str)]| {
-            script(&BackupAction::Restore { source: src.into(), database: Some("main".into()), options: opts(kv) })
+            script(&BackupAction::Restore {
+                source: src.into(),
+                database: Some("main".into()),
+                options: opts(kv),
+            })
         };
         let s = r("sales_bkp_20260929_154500", &[]).unwrap();
-        assert!(s.contains("CREATE SCHEMA IF NOT EXISTS `main`.`sales`;"), "{s}");
-        assert!(s.contains("WHERE table_schema = 'sales_bkp_20260929_154500'"), "{s}");
-        assert!(s.contains("'CREATE OR REPLACE TABLE `main`.`sales`.'"), "{s}");
-        assert!(s.contains("' DEEP CLONE `main`.`sales_bkp_20260929_154500`.'"), "{s}");
+        assert!(
+            s.contains("CREATE SCHEMA IF NOT EXISTS `main`.`sales`;"),
+            "{s}"
+        );
+        assert!(
+            s.contains("WHERE table_schema = 'sales_bkp_20260929_154500'"),
+            "{s}"
+        );
+        assert!(
+            s.contains("'CREATE OR REPLACE TABLE `main`.`sales`.'"),
+            "{s}"
+        );
+        assert!(
+            s.contains("' DEEP CLONE `main`.`sales_bkp_20260929_154500`.'"),
+            "{s}"
+        );
         assert!(r("custom", &[]).is_err());
-        assert!(r("custom", &[("schema", "sales")]).unwrap().contains("`main`.`sales`"));
+        assert!(r("custom", &[("schema", "sales")])
+            .unwrap()
+            .contains("`main`.`sales`"));
         assert!(r("x", &[("schema", "x")]).is_err());
         assert_eq!(
-            script(&BackupAction::Delete { source: "s`_bkp".into() }).unwrap(),
+            script(&BackupAction::Delete {
+                source: "s`_bkp".into()
+            })
+            .unwrap(),
             "DROP SCHEMA `s``_bkp` CASCADE;"
         );
         assert_eq!(source_of("a_bkp_2026092_1545001"), None);
@@ -258,8 +335,14 @@ mod tests {
     fn scripting_blocks_go_whole() {
         assert_eq!(statements("SELECT 1; SELECT 2;").len(), 2);
         assert_eq!(statements("BEGIN\n SELECT 1;\n SELECT 2;\nEND;").len(), 1);
-        assert_eq!(statements("begin\n select 1;\nend"), vec!["begin\n select 1;\nend"]);
-        assert_eq!(statements("BEGIN TRANSACTION; INSERT INTO t VALUES (1); COMMIT;").len(), 3);
+        assert_eq!(
+            statements("begin\n select 1;\nend"),
+            vec!["begin\n select 1;\nend"]
+        );
+        assert_eq!(
+            statements("BEGIN TRANSACTION; INSERT INTO t VALUES (1); COMMIT;").len(),
+            3
+        );
         assert_eq!(statements("BEGIN; SELECT 1; COMMIT;").len(), 3);
         assert_eq!(statements("BEGIN SELECT 1; END; SELECT 2;").len(), 2);
     }
@@ -278,7 +361,12 @@ mod tests {
         let e = entry(&row, "main");
         assert_eq!(e.id, "sales_bkp_20260929_154500");
         assert_eq!(e.started.as_deref(), Some("2026-09-29T15:45:00"));
-        assert_eq!(e.location.as_deref(), Some("`main`.`sales_bkp_20260929_154500`"));
-        assert!(e.details.contains(&("Esquema de origen".into(), "sales".into())));
+        assert_eq!(
+            e.location.as_deref(),
+            Some("`main`.`sales_bkp_20260929_154500`")
+        );
+        assert!(e
+            .details
+            .contains(&("Esquema de origen".into(), "sales".into())));
     }
 }

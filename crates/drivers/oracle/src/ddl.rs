@@ -8,8 +8,8 @@ use crate::{err, format_type, quote, PACKAGE};
 use dbine_driver::ddl::{self, AutoIncrement, SqlFlavor};
 use dbine_driver::sql::Quote;
 use dbine_driver::{
-    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, ForeignKeyDef, IndexDef, KeyDef,
-    Result, TableSchema,
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, ForeignKeyDef,
+    IndexDef, KeyDef, Result, TableSchema,
 };
 use oracledb::Connection;
 use std::collections::HashMap;
@@ -92,7 +92,11 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
             ..Default::default()
         });
     }
-    let at: HashMap<String, usize> = tables.iter().enumerate().map(|(i, t)| (t.name.clone(), i)).collect();
+    let at: HashMap<String, usize> = tables
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.name.clone(), i))
+        .collect();
 
     for row in c.query(COLUMNS, &[&owner]).map_err(err)? {
         let row = row.map_err(err)?;
@@ -100,7 +104,13 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
         let Some(&i) = at.get(&table) else { continue };
         let ty: String = row.get(2).map_err(err)?;
         let mut data_type = crate::char_semantics(
-            format_type(&ty, row.get(3).map_err(err)?, row.get(4).map_err(err)?, row.get(5).map_err(err)?, row.get(6).map_err(err)?),
+            format_type(
+                &ty,
+                row.get(3).map_err(err)?,
+                row.get(4).map_err(err)?,
+                row.get(5).map_err(err)?,
+                row.get(6).map_err(err)?,
+            ),
             &ty,
             row.get::<Option<String>>(11).map_err(err)?.as_deref(),
         );
@@ -108,13 +118,19 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
         let identity = row.get::<Option<String>>(8).map_err(err)?.as_deref() == Some("YES");
         let is_virtual = row.get::<Option<String>>(9).map_err(err)?.as_deref() == Some("YES");
         // DATA_DEFAULT is a LONG: last in the select list.
-        let mut default: Option<String> =
-            row.get::<Option<String>>(12).map_err(err)?.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
+        let mut default: Option<String> = row
+            .get::<Option<String>>(12)
+            .map_err(err)?
+            .map(|d| d.trim().to_string())
+            .filter(|d| !d.is_empty());
         if identity {
             // The identity's own sequence (`"X"."ISEQ$$_…".nextval`).
             default = None;
         } else if is_virtual {
-            data_type = format!("{data_type} GENERATED ALWAYS AS ({}) VIRTUAL", default.take().unwrap_or_default());
+            data_type = format!(
+                "{data_type} GENERATED ALWAYS AS ({}) VIRTUAL",
+                default.take().unwrap_or_default()
+            );
         }
         tables[i].columns.push(ColumnDef {
             name: row.get(1).map_err(err)?,
@@ -135,7 +151,8 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
         let Some(&i) = at.get(&table) else { continue };
         let name: String = row.get(1).map_err(err)?;
         let ty: String = row.get(2).map_err(err)?;
-        let generated = row.get::<Option<String>>(3).map_err(err)?.as_deref() == Some("GENERATED NAME");
+        let generated =
+            row.get::<Option<String>>(3).map_err(err)?.as_deref() == Some("GENERATED NAME");
         let column: String = row.get(5).map_err(err)?;
         let first = last.as_ref() != Some(&(i, name.clone()));
         last = Some((i, name.clone()));
@@ -143,7 +160,14 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
         let shown = (!generated).then(|| name.clone());
         let t = &mut tables[i];
         match ty.as_str() {
-            "P" => t.primary_key.get_or_insert_with(|| KeyDef { name: shown, columns: vec![] }).columns.push(column),
+            "P" => t
+                .primary_key
+                .get_or_insert_with(|| KeyDef {
+                    name: shown,
+                    columns: vec![],
+                })
+                .columns
+                .push(column),
             "U" => {
                 if first {
                     t.indexes.push(IndexDef {
@@ -165,7 +189,10 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
                         name: shown,
                         columns: vec![],
                         ref_schema: ref_owner.filter(|o| o != owner),
-                        ref_table: row.get::<Option<String>>(7).map_err(err)?.unwrap_or_default(),
+                        ref_table: row
+                            .get::<Option<String>>(7)
+                            .map_err(err)?
+                            .unwrap_or_default(),
                         ref_columns: vec![],
                         on_delete: rule.filter(|r| r != "NO ACTION"),
                         on_update: None,
@@ -173,7 +200,11 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
                 }
                 let fk = t.foreign_keys.last_mut().expect("pushed");
                 fk.columns.push(column);
-                fk.ref_columns.push(row.get::<Option<String>>(8).map_err(err)?.unwrap_or_default());
+                fk.ref_columns.push(
+                    row.get::<Option<String>>(8)
+                        .map_err(err)?
+                        .unwrap_or_default(),
+                );
             }
         }
     }
@@ -182,7 +213,10 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
     for row in c.query(INDEX_EXPRESSIONS, &[&owner]).map_err(err)? {
         let row = row.map_err(err)?;
         if let Some(e) = row.get::<Option<String>>(2).map_err(err)? {
-            expressions.insert((row.get(0).map_err(err)?, row.get(1).map_err(err)?), e.trim().to_string());
+            expressions.insert(
+                (row.get(0).map_err(err)?, row.get(1).map_err(err)?),
+                e.trim().to_string(),
+            );
         }
     }
     let mut last: Option<(usize, String)> = None;
@@ -213,7 +247,12 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
             Some(e) => e.clone(),
             None => column,
         };
-        tables[i].indexes.last_mut().expect("pushed").columns.push(column);
+        tables[i]
+            .indexes
+            .last_mut()
+            .expect("pushed")
+            .columns
+            .push(column);
     }
     for t in &mut tables {
         t.indexes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -237,7 +276,11 @@ fn index_column(c: &str) -> String {
 /// `stmt` (without its `;`) in a PL/SQL block that ignores the given
 /// ORA- codes, ending in a `/` line.
 fn guarded(stmt: &str, codes: &[i32]) -> String {
-    let cond = codes.iter().map(|c| format!("SQLCODE != {c}")).collect::<Vec<_>>().join(" AND ");
+    let cond = codes
+        .iter()
+        .map(|c| format!("SQLCODE != {c}"))
+        .collect::<Vec<_>>()
+        .join(" AND ");
     format!(
         "BEGIN\n  EXECUTE IMMEDIATE '{}';\nEXCEPTION\n  WHEN OTHERS THEN\n    IF {cond} THEN RAISE; END IF;\nEND;\n/",
         stmt.replace('\'', "''")
@@ -265,15 +308,31 @@ pub fn table_ddl(table: &TableSchema, parts: DdlParts) -> String {
 
     if parts.drop {
         // ORA-00942: table or view does not exist.
-        out.push(statement(format!("DROP TABLE {name} CASCADE CONSTRAINTS"), parts.if_exists, &[-942]));
+        out.push(statement(
+            format!("DROP TABLE {name} CASCADE CONSTRAINTS"),
+            parts.if_exists,
+            &[-942],
+        ));
     }
 
     if parts.create {
-        let body = ddl::table_ddl(&FLAVOR, &t, DdlParts { create: true, ..Default::default() });
+        let body = ddl::table_ddl(
+            &FLAVOR,
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
         // The CREATE TABLE, then the COMMENT ON statements.
         let (create, comments) = body.split_once("\n);").unwrap_or((&body, ""));
         let mut create = format!("{create}\n)");
-        if let Some(ts) = t.options.get("tablespace").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        if let Some(ts) = t
+            .options
+            .get("tablespace")
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
             create.push_str(&format!(" TABLESPACE {}", quote(ts)));
         }
         // ORA-00955: name is already used by an existing object.
@@ -288,7 +347,11 @@ pub fn table_ddl(table: &TableSchema, parts: DdlParts) -> String {
         for ix in &t.indexes {
             let cols: Vec<String> = ix.columns.iter().map(|c| index_column(c)).collect();
             let s = if ix.kind.as_deref() == Some(UNIQUE_CONSTRAINT) {
-                format!("ALTER TABLE {name} ADD CONSTRAINT {} UNIQUE ({})", quote(&ix.name), cols.join(", "))
+                format!(
+                    "ALTER TABLE {name} ADD CONSTRAINT {} UNIQUE ({})",
+                    quote(&ix.name),
+                    cols.join(", ")
+                )
             } else {
                 crate::structure::index_sql(&name, ix, &cols)
             };
@@ -302,13 +365,32 @@ pub fn table_ddl(table: &TableSchema, parts: DdlParts) -> String {
             // Oracle has no ON UPDATE, nor ON DELETE other than CASCADE / SET NULL.
             let fk = ForeignKeyDef {
                 on_update: None,
-                on_delete: fk.on_delete.clone().filter(|r| matches!(r.to_ascii_uppercase().as_str(), "CASCADE" | "SET NULL")),
+                on_delete: fk
+                    .on_delete
+                    .clone()
+                    .filter(|r| matches!(r.to_ascii_uppercase().as_str(), "CASCADE" | "SET NULL")),
                 ..fk.clone()
             };
-            let one = TableSchema { name: t.name.clone(), schema: t.schema.clone(), foreign_keys: vec![fk], ..Default::default() };
-            let s = ddl::table_ddl(&FLAVOR, &one, DdlParts { foreign_keys: true, ..Default::default() });
+            let one = TableSchema {
+                name: t.name.clone(),
+                schema: t.schema.clone(),
+                foreign_keys: vec![fk],
+                ..Default::default()
+            };
+            let s = ddl::table_ddl(
+                &FLAVOR,
+                &one,
+                DdlParts {
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            );
             // Same foreign key already there, constraint name in use.
-            out.push(statement(s.trim_end_matches(';').to_string(), parts.if_exists, &[-2275, -2264]));
+            out.push(statement(
+                s.trim_end_matches(';').to_string(),
+                parts.if_exists,
+                &[-2275, -2264],
+            ));
         }
     }
 
@@ -334,7 +416,11 @@ fn drop_system_named(t: &TableSchema, ty: &str, select: &str, test: &str) -> Str
         Some(s) => format!("'{}'", s.replace('\'', "''")),
         None => "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".into(),
     };
-    let table = dbine_driver::sql::qualified_name(Quote::Double, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
+    let table = dbine_driver::sql::qualified_name(
+        Quote::Double,
+        t.schema.as_deref().filter(|s| !s.is_empty()),
+        &t.name,
+    );
     format!(
         "BEGIN\n  FOR k IN (SELECT c.constraint_name{select} FROM all_constraints c\n             WHERE c.owner = {owner} AND c.table_name = '{}'\n               AND c.constraint_type = '{ty}' AND c.generated = 'GENERATED NAME') LOOP\n    IF {test} THEN\n      EXECUTE IMMEDIATE 'ALTER TABLE {} DROP CONSTRAINT \"' || k.constraint_name || '\"';\n      EXIT;\n    END IF;\n  END LOOP;\nEND;\n/",
         t.name.replace('\'', "''"),
@@ -348,24 +434,47 @@ fn drop_system_named(t: &TableSchema, ty: &str, select: &str, test: &str) -> Str
 fn drop_unnamed(old: &mut TableSchema, new: &TableSchema) -> Vec<String> {
     let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
     let mut out = Vec::new();
-    let mut kept: Vec<&dbine_driver::CheckDef> = new.checks.iter().filter(|c| c.name.is_none()).collect();
+    let mut kept: Vec<&dbine_driver::CheckDef> =
+        new.checks.iter().filter(|c| c.name.is_none()).collect();
     old.checks.retain(|o| {
         if o.name.is_some() {
             return true;
         }
-        if let Some(i) = kept.iter().position(|n| n.expression.trim() == o.expression.trim()) {
+        if let Some(i) = kept
+            .iter()
+            .position(|n| n.expression.trim() == o.expression.trim())
+        {
             kept.remove(i);
             return true;
         }
         // SEARCH_CONDITION is a LONG: compared in PL/SQL, not in the query.
-        let test = format!("REGEXP_REPLACE(k.search_condition, '^\\s+|\\s+$', '') = {}", lit(o.expression.trim()));
+        let test = format!(
+            "REGEXP_REPLACE(k.search_condition, '^\\s+|\\s+$', '') = {}",
+            lit(o.expression.trim())
+        );
         out.push(drop_system_named(new, "C", ", c.search_condition", &test));
         false
     });
     let same = |a: &ForeignKeyDef, b: &ForeignKeyDef| {
-        (&a.columns, &a.ref_schema, &a.ref_table, &a.ref_columns, &a.on_delete) == (&b.columns, &b.ref_schema, &b.ref_table, &b.ref_columns, &b.on_delete)
+        (
+            &a.columns,
+            &a.ref_schema,
+            &a.ref_table,
+            &a.ref_columns,
+            &a.on_delete,
+        ) == (
+            &b.columns,
+            &b.ref_schema,
+            &b.ref_table,
+            &b.ref_columns,
+            &b.on_delete,
+        )
     };
-    let mut kept: Vec<&ForeignKeyDef> = new.foreign_keys.iter().filter(|f| f.name.is_none()).collect();
+    let mut kept: Vec<&ForeignKeyDef> = new
+        .foreign_keys
+        .iter()
+        .filter(|f| f.name.is_none())
+        .collect();
     let owner = new.schema.as_deref().filter(|s| !s.is_empty());
     old.foreign_keys.retain(|o| {
         if o.name.is_some() {
@@ -396,8 +505,12 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
     let changes: Vec<TableChange> = changes
         .iter()
         .map(|c| match c {
-            TableChange::Create { table } => TableChange::Create { table: normalize(table) },
-            TableChange::Drop { table } => TableChange::Drop { table: normalize(table) },
+            TableChange::Create { table } => TableChange::Create {
+                table: normalize(table),
+            },
+            TableChange::Drop { table } => TableChange::Drop {
+                table: normalize(table),
+            },
             TableChange::Alter { old, new } => {
                 let (mut old, new) = (normalize(old), normalize(new));
                 unnamed.extend(drop_unnamed(&mut old, &new));
@@ -414,9 +527,24 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
     // The planner drops every index with DROP INDEX; unique constraints go with DROP CONSTRAINT.
     for ch in &changes {
         if let TableChange::Alter { old, new } = ch {
-            let name = dbine_driver::sql::qualified_name(Quote::Double, new.schema.as_deref().filter(|s| !s.is_empty()), &new.name);
-            for ix in old.indexes.iter().filter(|ix| ix.kind.as_deref() == Some(UNIQUE_CONSTRAINT)) {
-                let plain = format!("DROP INDEX {};", dbine_driver::sql::qualified_name(Quote::Double, new.schema.as_deref().filter(|s| !s.is_empty()), &ix.name));
+            let name = dbine_driver::sql::qualified_name(
+                Quote::Double,
+                new.schema.as_deref().filter(|s| !s.is_empty()),
+                &new.name,
+            );
+            for ix in old
+                .indexes
+                .iter()
+                .filter(|ix| ix.kind.as_deref() == Some(UNIQUE_CONSTRAINT))
+            {
+                let plain = format!(
+                    "DROP INDEX {};",
+                    dbine_driver::sql::qualified_name(
+                        Quote::Double,
+                        new.schema.as_deref().filter(|s| !s.is_empty()),
+                        &ix.name
+                    )
+                );
                 for s in script.statements.iter_mut().filter(|s| **s == plain) {
                     *s = format!("ALTER TABLE {name} DROP CONSTRAINT {};", quote(&ix.name));
                 }
@@ -428,16 +556,36 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
     // ORA-01442, is fine).
     for ch in &changes {
         if let TableChange::Alter { old, new } = ch {
-            let Some(old_pk) = old.primary_key.as_ref() else { continue };
-            let name = dbine_driver::sql::qualified_name(Quote::Double, new.schema.as_deref().filter(|s| !s.is_empty()), &new.name);
+            let Some(old_pk) = old.primary_key.as_ref() else {
+                continue;
+            };
+            let name = dbine_driver::sql::qualified_name(
+                Quote::Double,
+                new.schema.as_deref().filter(|s| !s.is_empty()),
+                &new.name,
+            );
             let drop = format!("ALTER TABLE {name} DROP PRIMARY KEY;");
-            let Some(at) = script.statements.iter().position(|s| *s == drop) else { continue };
-            let in_new_pk = |c: &str| new.primary_key.as_ref().is_some_and(|k| k.columns.iter().any(|k| k == c));
+            let Some(at) = script.statements.iter().position(|s| *s == drop) else {
+                continue;
+            };
+            let in_new_pk = |c: &str| {
+                new.primary_key
+                    .as_ref()
+                    .is_some_and(|k| k.columns.iter().any(|k| k == c))
+            };
             let keep: Vec<String> = old_pk
                 .columns
                 .iter()
-                .filter(|c| !in_new_pk(c) && new.columns.iter().any(|n| &n.name == *c && !n.nullable))
-                .map(|c| statement(format!("ALTER TABLE {name} MODIFY ({} NOT NULL)", quote(c)), true, &[-1442]))
+                .filter(|c| {
+                    !in_new_pk(c) && new.columns.iter().any(|n| &n.name == *c && !n.nullable)
+                })
+                .map(|c| {
+                    statement(
+                        format!("ALTER TABLE {name} MODIFY ({} NOT NULL)", quote(c)),
+                        true,
+                        &[-1442],
+                    )
+                })
                 .collect();
             script.statements.splice(at + 1..at + 1, keep);
         }
@@ -478,7 +626,11 @@ pub fn designer() -> DesignerSpec {
 }
 
 pub fn create_templates() -> Vec<CreateTemplate> {
-    let t = |kind, label, template: &str| CreateTemplate { kind, label, template: template.to_string() };
+    let t = |kind, label, template: &str| CreateTemplate {
+        kind,
+        label,
+        template: template.to_string(),
+    };
     vec![
         t(kinds::VIEW, "Nueva vista", "CREATE OR REPLACE VIEW {name} AS\nSELECT\n    t.id,\n    t.nombre\nFROM mi_tabla t;\n"),
         t(
@@ -526,11 +678,32 @@ mod tests {
         TableSchema {
             name: "PEDIDOS".into(),
             columns: vec![
-                ColumnDef { name: "ID".into(), data_type: "NUMBER".into(), nullable: true, auto_increment: true, default_value: Some("\"X\".\"ISEQ$$_1\".nextval".into()), ..Default::default() },
-                ColumnDef { name: "CLIENTE_ID".into(), data_type: "NUMBER(10)".into(), comment: Some("dueño".into()), ..Default::default() },
-                ColumnDef { name: "ESTADO".into(), data_type: "VARCHAR2(20)".into(), nullable: false, default_value: Some("'nuevo'".into()), ..Default::default() },
+                ColumnDef {
+                    name: "ID".into(),
+                    data_type: "NUMBER".into(),
+                    nullable: true,
+                    auto_increment: true,
+                    default_value: Some("\"X\".\"ISEQ$$_1\".nextval".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "CLIENTE_ID".into(),
+                    data_type: "NUMBER(10)".into(),
+                    comment: Some("dueño".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "ESTADO".into(),
+                    data_type: "VARCHAR2(20)".into(),
+                    nullable: false,
+                    default_value: Some("'nuevo'".into()),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some("PK_PEDIDOS".into()), columns: vec!["ID".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("PK_PEDIDOS".into()),
+                columns: vec!["ID".into()],
+            }),
             foreign_keys: vec![ForeignKeyDef {
                 name: Some("FK_CLIENTE".into()),
                 columns: vec!["CLIENTE_ID".into()],
@@ -541,15 +714,36 @@ mod tests {
                 ..Default::default()
             }],
             indexes: vec![
-                IndexDef { name: "IX_ESTADO".into(), columns: vec!["ESTADO".into()], ..Default::default() },
-                IndexDef { name: "IX_UP".into(), columns: vec!["UPPER(\"ESTADO\")".into(), "\"ID\" DESC".into()], ..Default::default() },
-                IndexDef { name: "UQ_X".into(), columns: vec!["CLIENTE_ID".into(), "ESTADO".into()], unique: true, kind: Some(UNIQUE_CONSTRAINT.into()), filter: None, ..Default::default() },
+                IndexDef {
+                    name: "IX_ESTADO".into(),
+                    columns: vec!["ESTADO".into()],
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "IX_UP".into(),
+                    columns: vec!["UPPER(\"ESTADO\")".into(), "\"ID\" DESC".into()],
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "UQ_X".into(),
+                    columns: vec!["CLIENTE_ID".into(), "ESTADO".into()],
+                    unique: true,
+                    kind: Some(UNIQUE_CONSTRAINT.into()),
+                    filter: None,
+                    ..Default::default()
+                },
             ],
             comment: Some("Pedidos de 'clientes'".into()),
             ..Default::default()
         }
     }
-    const ALL: DdlParts = DdlParts { drop: false, if_exists: false, create: true, indexes: true, foreign_keys: true };
+    const ALL: DdlParts = DdlParts {
+        drop: false,
+        if_exists: false,
+        create: true,
+        indexes: true,
+        foreign_keys: true,
+    };
 
     #[test]
     fn create_indexes_and_foreign_keys() {
@@ -562,8 +756,12 @@ mod tests {
         assert!(s.contains("COMMENT ON TABLE \"PEDIDOS\" IS 'Pedidos de ''clientes''';"));
         assert!(s.contains("COMMENT ON COLUMN \"PEDIDOS\".\"CLIENTE_ID\" IS 'dueño';"));
         assert!(s.contains("CREATE INDEX \"IX_ESTADO\" ON \"PEDIDOS\" (\"ESTADO\");"));
-        assert!(s.contains("CREATE INDEX \"IX_UP\" ON \"PEDIDOS\" (UPPER(\"ESTADO\"), \"ID\" DESC);"));
-        assert!(s.contains("ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"UQ_X\" UNIQUE (\"CLIENTE_ID\", \"ESTADO\");"));
+        assert!(
+            s.contains("CREATE INDEX \"IX_UP\" ON \"PEDIDOS\" (UPPER(\"ESTADO\"), \"ID\" DESC);")
+        );
+        assert!(s.contains(
+            "ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"UQ_X\" UNIQUE (\"CLIENTE_ID\", \"ESTADO\");"
+        ));
         assert!(s.ends_with(
             "ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"FK_CLIENTE\" FOREIGN KEY (\"CLIENTE_ID\") REFERENCES \"CLIENTES\" (\"ID\") ON DELETE CASCADE;"
         ), "{s}");
@@ -573,28 +771,66 @@ mod tests {
 
     #[test]
     fn guards_run_through_the_splitter() {
-        let s = table_ddl(&t(), DdlParts { drop: true, if_exists: true, ..ALL });
+        let s = table_ddl(
+            &t(),
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                ..ALL
+            },
+        );
         assert!(s.starts_with(
             "BEGIN\n  EXECUTE IMMEDIATE 'DROP TABLE \"PEDIDOS\" CASCADE CONSTRAINTS';\nEXCEPTION\n  WHEN OTHERS THEN\n    IF SQLCODE != -942 THEN RAISE; END IF;\nEND;\n/\nCREATE TABLE"
         ), "{s}");
-        assert!(s.contains("EXECUTE IMMEDIATE 'CREATE INDEX \"IX_ESTADO\" ON \"PEDIDOS\" (\"ESTADO\")';"));
+        assert!(s.contains(
+            "EXECUTE IMMEDIATE 'CREATE INDEX \"IX_ESTADO\" ON \"PEDIDOS\" (\"ESTADO\")';"
+        ));
         assert!(s.contains("IF SQLCODE != -2275 AND SQLCODE != -2264 THEN RAISE;"));
         let st = script::split(&s);
         assert_eq!(st.len(), 8, "{st:?}");
         assert!(st[0].plsql && !st[1].plsql);
 
-        let s = table_ddl(&t(), DdlParts { if_exists: true, create: true, ..Default::default() });
-        assert!(s.contains("EXECUTE IMMEDIATE 'CREATE TABLE \"PEDIDOS\" (\n"), "{s}");
+        let s = table_ddl(
+            &t(),
+            DdlParts {
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            s.contains("EXECUTE IMMEDIATE 'CREATE TABLE \"PEDIDOS\" (\n"),
+            "{s}"
+        );
         assert!(s.contains("DEFAULT ''nuevo'' NOT NULL"));
         assert!(s.contains("IF SQLCODE != -955 THEN RAISE;"));
         assert_eq!(script::split(&s).len(), 3);
 
-        assert_eq!(table_ddl(&t(), DdlParts { drop: true, ..Default::default() }), "DROP TABLE \"PEDIDOS\" CASCADE CONSTRAINTS;");
+        assert_eq!(
+            table_ddl(
+                &t(),
+                DdlParts {
+                    drop: true,
+                    ..Default::default()
+                }
+            ),
+            "DROP TABLE \"PEDIDOS\" CASCADE CONSTRAINTS;"
+        );
     }
 
     #[test]
     fn inserts_one_row_each_with_numeric_booleans() {
-        let s = ddl::insert_script(&FLAVOR, Some("APP"), "T", &["A".into(), "B".into()], &[vec![json!(1), json!(true)], vec![json!("it's"), json!(false)]], 1);
+        let s = ddl::insert_script(
+            &FLAVOR,
+            Some("APP"),
+            "T",
+            &["A".into(), "B".into()],
+            &[
+                vec![json!(1), json!(true)],
+                vec![json!("it's"), json!(false)],
+            ],
+            1,
+        );
         assert_eq!(s, "INSERT INTO \"APP\".\"T\" (\"A\", \"B\") VALUES (1, 1);\nINSERT INTO \"APP\".\"T\" (\"A\", \"B\") VALUES ('it''s', 0);");
         assert_eq!(script::split(&s).len(), 2);
     }
@@ -603,10 +839,19 @@ mod tests {
     fn templates_cover_every_object_kind() {
         let info = crate::drivers().remove(0);
         let kinds: Vec<_> = create_templates().iter().map(|t| t.kind).collect();
-        for k in info.info().object_kinds.iter().map(|k| k.id).filter(|k| *k != kinds::TABLE) {
+        for k in info
+            .info()
+            .object_kinds
+            .iter()
+            .map(|k| k.id)
+            .filter(|k| *k != kinds::TABLE)
+        {
             assert!(kinds.contains(&k), "{k}");
         }
-        let pkg = create_templates().into_iter().find(|t| t.kind == PACKAGE).unwrap();
+        let pkg = create_templates()
+            .into_iter()
+            .find(|t| t.kind == PACKAGE)
+            .unwrap();
         let st = script::split(&pkg.template.replace("{name}", "P"));
         assert_eq!(st.len(), 2);
         assert!(st.iter().all(|s| s.plsql));
@@ -619,8 +864,14 @@ mod tests {
         new.columns[2].data_type = "VARCHAR2(40)".into();
         new.columns[2].nullable = true;
         new.columns[1].default_value = Some("0".into());
-        new.columns.push(ColumnDef { name: "NOTA".into(), data_type: "VARCHAR2(100)".into(), nullable: true, ..Default::default() });
-        new.indexes.retain(|i| i.name != "UQ_X" && i.name != "IX_UP");
+        new.columns.push(ColumnDef {
+            name: "NOTA".into(),
+            data_type: "VARCHAR2(100)".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        new.indexes
+            .retain(|i| i.name != "UQ_X" && i.name != "IX_UP");
         new.indexes[0].columns.push("CLIENTE_ID".into());
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
@@ -644,11 +895,23 @@ mod tests {
         let old = t();
         let mut new = t();
         new.columns[0].default_value = Some("\"Y\".\"ISEQ$$_9\".nextval".into());
-        new.primary_key = Some(KeyDef { name: Some("PK_PEDIDOS".into()), columns: vec!["ID".into(), "ESTADO".into()] });
+        new.primary_key = Some(KeyDef {
+            name: Some("PK_PEDIDOS".into()),
+            columns: vec!["ID".into(), "ESTADO".into()],
+        });
         new.columns.retain(|c| c.name != "CLIENTE_ID");
         new.foreign_keys.clear();
         new.indexes.clear();
-        let s = sync_script(&[TableChange::Alter { old, new }, TableChange::Drop { table: TableSchema { name: "VIEJA".into(), ..Default::default() } }]).unwrap();
+        let s = sync_script(&[
+            TableChange::Alter { old, new },
+            TableChange::Drop {
+                table: TableSchema {
+                    name: "VIEJA".into(),
+                    ..Default::default()
+                },
+            },
+        ])
+        .unwrap();
         assert_eq!(
             s.statements,
             vec![
@@ -671,23 +934,53 @@ mod tests {
         let mut old = t();
         old.schema = Some("APP".into());
         old.foreign_keys[0].name = None;
-        old.checks = vec![CheckDef { name: None, expression: "estado <> 'x'".into() }, CheckDef { name: None, expression: "id > 0".into() }];
+        old.checks = vec![
+            CheckDef {
+                name: None,
+                expression: "estado <> 'x'".into(),
+            },
+            CheckDef {
+                name: None,
+                expression: "id > 0".into(),
+            },
+        ];
         let mut new = old.clone();
         new.foreign_keys.clear();
         new.checks.remove(0);
-        let s = sync_script(&[TableChange::Alter { old: old.clone(), new }]).unwrap();
+        let s = sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new,
+        }])
+        .unwrap();
         assert!(s.warnings.is_empty(), "{:?}", s.warnings);
         assert_eq!(s.statements.len(), 2, "{:#?}", s.statements);
         let check = &s.statements[0];
-        assert!(check.contains("c.owner = 'APP' AND c.table_name = 'PEDIDOS'") && check.contains("c.constraint_type = 'C'"), "{check}");
-        assert!(check.contains(r#"REGEXP_REPLACE(k.search_condition, '^\s+|\s+$', '') = 'estado <> ''x'''"#), "{check}");
+        assert!(
+            check.contains("c.owner = 'APP' AND c.table_name = 'PEDIDOS'")
+                && check.contains("c.constraint_type = 'C'"),
+            "{check}"
+        );
+        assert!(
+            check.contains(
+                r#"REGEXP_REPLACE(k.search_condition, '^\s+|\s+$', '') = 'estado <> ''x'''"#
+            ),
+            "{check}"
+        );
         assert!(check.contains(r#"EXECUTE IMMEDIATE 'ALTER TABLE "APP"."PEDIDOS" DROP CONSTRAINT "' || k.constraint_name || '"';"#), "{check}");
         let fk = &s.statements[1];
-        assert!(fk.contains("c.constraint_type = 'R'") && fk.contains("k.target = 'APP' || '.' || 'CLIENTES' AND k.cols = 'CLIENTE_ID'"), "{fk}");
+        assert!(
+            fk.contains("c.constraint_type = 'R'")
+                && fk.contains("k.target = 'APP' || '.' || 'CLIENTES' AND k.cols = 'CLIENTE_ID'"),
+            "{fk}"
+        );
         assert_eq!(script::split(&s.statements.join("\n")).len(), 2);
 
         // Kept as they are: nothing to drop.
-        let s = sync_script(&[TableChange::Alter { old: old.clone(), new: old }]).unwrap();
+        let s = sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new: old,
+        }])
+        .unwrap();
         assert!(s.statements.is_empty(), "{:?}", s.statements);
     }
 
@@ -702,8 +995,17 @@ mod tests {
         let mut new = old.clone();
         new.primary_key = None;
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
-        assert_eq!(s.statements[0], r#"ALTER TABLE "PEDIDOS" DROP PRIMARY KEY;"#);
-        assert!(s.statements[1].contains(r#"EXECUTE IMMEDIATE 'ALTER TABLE "PEDIDOS" MODIFY ("ID" NOT NULL)';"#) && s.statements[1].contains("SQLCODE != -1442"), "{:?}", s.statements);
+        assert_eq!(
+            s.statements[0],
+            r#"ALTER TABLE "PEDIDOS" DROP PRIMARY KEY;"#
+        );
+        assert!(
+            s.statements[1]
+                .contains(r#"EXECUTE IMMEDIATE 'ALTER TABLE "PEDIDOS" MODIFY ("ID" NOT NULL)';"#)
+                && s.statements[1].contains("SQLCODE != -1442"),
+            "{:?}",
+            s.statements
+        );
         assert_eq!(s.statements.len(), 2);
     }
 }

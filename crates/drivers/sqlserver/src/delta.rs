@@ -85,9 +85,12 @@
 //! column (hash buckets, not the first key column, negative increment) can't
 //! follow the source: refused.
 
-use crate::{connect_once, connect_error, err, format_type, text, SqlServerSession};
+use crate::{connect_error, connect_once, err, format_type, text, SqlServerSession};
 use dbine_driver::sql::{qualified_name, Quote};
-use dbine_driver::transfer::{BatchSource, BucketSum, Buckets, DeltaDepth, DeltaResult, DeltaSpec, LoadSpec, Progress, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSource, BucketSum, Buckets, DeltaDepth, DeltaResult, DeltaSpec, LoadSpec, Progress,
+    TransferColumn,
+};
 use dbine_driver::{Error, ObjectRef, Result};
 
 /// Forces hash buckets (`key_range` declines).
@@ -177,7 +180,10 @@ fn aliased(alias: Option<&str>, name: &str) -> String {
 async fn catalog(s: &mut SqlServerSession, table: &ObjectRef) -> Result<Vec<Col>> {
     let rows = s.rows(COLUMNS_SQL, &[&table_name(table)]).await?;
     if rows.is_empty() {
-        return Err(Error::Query(format!("No existe la tabla {}", table_name(table))));
+        return Err(Error::Query(format!(
+            "No existe la tabla {}",
+            table_name(table)
+        )));
     }
     Ok(rows
         .iter()
@@ -185,7 +191,11 @@ async fn catalog(s: &mut SqlServerSession, table: &ObjectRef) -> Result<Vec<Col>
             let ty = text(r, 1).unwrap_or_default().to_ascii_lowercase();
             Col {
                 name: text(r, 0).unwrap_or_default(),
-                ty: if ty == "sysname" { "nvarchar".into() } else { ty },
+                ty: if ty == "sysname" {
+                    "nvarchar".into()
+                } else {
+                    ty
+                },
                 max_len: r.get(2).unwrap_or(0),
                 precision: r.get(3).unwrap_or(0),
                 scale: r.get(4).unwrap_or(0),
@@ -221,7 +231,9 @@ async fn check_table(s: &mut SqlServerSession, spec: &DeltaSpec, cat: &[Col]) ->
             return Err(Error::Unsupported(format!("{name} es una tabla temporal (con versiones del sistema): no se sincroniza por filas")));
         }
         if r.get::<bool, _>(1).unwrap_or(false) {
-            return Err(Error::Unsupported(format!("{name} está optimizada para memoria: no se sincroniza por filas")));
+            return Err(Error::Unsupported(format!(
+                "{name} está optimizada para memoria: no se sincroniza por filas"
+            )));
         }
     }
     check_key(spec, cat)?;
@@ -233,13 +245,21 @@ async fn check_table(s: &mut SqlServerSession, spec: &DeltaSpec, cat: &[Col]) ->
 /// the target free to hand out values the source already used.
 pub(crate) fn check_identity(spec: &DeltaSpec, cat: &[Col]) -> Result<()> {
     let synced = |c: &Col| spec.columns.iter().any(|n| n.eq_ignore_ascii_case(&c.name));
-    let Some(c) = cat.iter().find(|c| c.identity && synced(c)) else { return Ok(()) };
+    let Some(c) = cat.iter().find(|c| c.identity && synced(c)) else {
+        return Ok(());
+    };
     let why = if c.ident_down {
         "tiene incremento negativo".to_string()
     } else {
         match &spec.buckets {
             Buckets::Range { column, .. } if column.eq_ignore_ascii_case(&c.name) => return Ok(()),
-            _ if spec.key.first().is_some_and(|k| k.eq_ignore_ascii_case(&c.name)) => "se está agrupando por hash".to_string(),
+            _ if spec
+                .key
+                .first()
+                .is_some_and(|k| k.eq_ignore_ascii_case(&c.name)) =>
+            {
+                "se está agrupando por hash".to_string()
+            }
             _ => "no es la primera columna de la clave".to_string(),
         }
     };
@@ -253,7 +273,9 @@ pub(crate) fn check_identity(spec: &DeltaSpec, cat: &[Col]) -> Result<()> {
 
 fn check_key(spec: &DeltaSpec, cat: &[Col]) -> Result<()> {
     if spec.key.is_empty() {
-        return Err(Error::State("para sincronizar por filas hace falta una clave".into()));
+        return Err(Error::State(
+            "para sincronizar por filas hace falta una clave".into(),
+        ));
     }
     for k in &spec.key {
         let c = find(cat, k)?;
@@ -289,13 +311,25 @@ fn lit(v: i128) -> String {
 /// The bucket of a row, as a `bigint` expression (`alias` qualifies the columns).
 pub(crate) fn bucket_expr(spec: &DeltaSpec, alias: Option<&str>) -> String {
     match &spec.buckets {
-        Buckets::Range { column, lo, hi, width, n } => {
+        Buckets::Range {
+            column,
+            lo,
+            hi,
+            width,
+            n,
+        } => {
             let c = aliased(alias, column);
             // (c - lo) fits a bigint unless the span itself doesn't.
             let inner = if (*hi as i128 - *lo as i128) <= i64::MAX as i128 {
-                format!("(CAST({c} AS bigint) - CAST({} AS bigint)) / CAST({width} AS bigint)", lit(*lo as i128))
+                format!(
+                    "(CAST({c} AS bigint) - CAST({} AS bigint)) / CAST({width} AS bigint)",
+                    lit(*lo as i128)
+                )
             } else {
-                format!("CAST(FLOOR((CAST({c} AS decimal(20,0)) - {}) / {width}) AS bigint)", lit(*lo as i128))
+                format!(
+                    "CAST(FLOOR((CAST({c} AS decimal(20,0)) - {}) / {width}) AS bigint)",
+                    lit(*lo as i128)
+                )
             };
             format!(
                 "CASE WHEN {c} < {} THEN CAST(-1 AS bigint) WHEN {c} > {} THEN CAST({n} AS bigint) ELSE {inner} END",
@@ -329,8 +363,11 @@ fn col_hash(c: &Col, alias: Option<&str>, sizes_only: bool) -> String {
 
 /// The bytes a row hashes (computed and rowversion columns left out).
 pub(crate) fn row_bytes(cols: &[&Col], alias: Option<&str>, depth: DeltaDepth) -> String {
-    let parts: Vec<String> =
-        cols.iter().filter(|c| !c.computed && !c.rowversion()).map(|c| col_hash(c, alias, depth == DeltaDepth::Sizes)).collect();
+    let parts: Vec<String> = cols
+        .iter()
+        .filter(|c| !c.computed && !c.rowversion())
+        .map(|c| col_hash(c, alias, depth == DeltaDepth::Sizes))
+        .collect();
     if parts.is_empty() {
         "0x".into()
     } else {
@@ -340,7 +377,11 @@ pub(crate) fn row_bytes(cols: &[&Col], alias: Option<&str>, depth: DeltaDepth) -
 
 /// The columns a summary hashes at `depth`.
 fn hashed<'a>(spec: &DeltaSpec, cat: &'a [Col]) -> Result<Vec<&'a Col>> {
-    let names = if spec.depth == DeltaDepth::Keys { &spec.key } else { &spec.columns };
+    let names = if spec.depth == DeltaDepth::Keys {
+        &spec.key
+    } else {
+        &spec.columns
+    };
     names.iter().map(|n| find(cat, n)).collect()
 }
 
@@ -381,13 +422,23 @@ fn runs(buckets: &[i64]) -> Vec<(i64, i64)> {
 /// seeks the key index; hash buckets an `IN` list.
 pub(crate) fn filter(spec: &DeltaSpec, buckets: &[i64]) -> Result<String> {
     match &spec.buckets {
-        Buckets::Range { column, lo, hi, width, n } => {
+        Buckets::Range {
+            column,
+            lo,
+            hi,
+            width,
+            n,
+        } => {
             let (lo, hi, width, n) = (*lo as i128, *hi as i128, *width as i128, *n as i64);
             if width <= 0 {
                 return Err(Error::Query("ancho de grupo inválido".into()));
             }
             let c = q(column);
-            let valid: Vec<i64> = buckets.iter().copied().filter(|b| (-1..=n).contains(b)).collect();
+            let valid: Vec<i64> = buckets
+                .iter()
+                .copied()
+                .filter(|b| (-1..=n).contains(b))
+                .collect();
             let mut parts = Vec::new();
             for (a, z) in runs(&valid) {
                 let lower = match a {
@@ -408,17 +459,29 @@ pub(crate) fn filter(spec: &DeltaSpec, buckets: &[i64]) -> Result<String> {
                     (Some(l), Some(u)) => format!("({l} AND {u})"),
                 });
             }
-            Ok(if parts.is_empty() { "1 = 0".into() } else { parts.join(" OR ") })
+            Ok(if parts.is_empty() {
+                "1 = 0".into()
+            } else {
+                parts.join(" OR ")
+            })
         }
         Buckets::Hash { n } => {
-            let mut v: Vec<i64> = buckets.iter().copied().filter(|b| *b >= 0 && (*b as u64) < *n).collect();
+            let mut v: Vec<i64> = buckets
+                .iter()
+                .copied()
+                .filter(|b| *b >= 0 && (*b as u64) < *n)
+                .collect();
             v.sort_unstable();
             v.dedup();
             if v.is_empty() {
                 return Ok("1 = 0".into());
             }
             let list: Vec<String> = v.iter().map(i64::to_string).collect();
-            Ok(format!("{} IN ({})", hash_bucket(&spec.key, None, *n), list.join(", ")))
+            Ok(format!(
+                "{} IN ({})",
+                hash_bucket(&spec.key, None, *n),
+                list.join(", ")
+            ))
         }
     }
 }
@@ -451,14 +514,21 @@ fn fnv(text: &str) -> u64 {
 
 // ---------------------------------------------------------- session side
 
-pub(crate) async fn key_range(s: &mut SqlServerSession, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
+pub(crate) async fn key_range(
+    s: &mut SqlServerSession,
+    table: &ObjectRef,
+    column: &str,
+) -> Result<Option<(i64, i64, u64)>> {
     if std::env::var(HASH_ENV).is_ok_and(|v| !v.is_empty() && v != "0") {
         return Err(Error::Unsupported("se pidió agrupar por hash".into()));
     }
     let cat = catalog(s, table).await?;
     let c = find(&cat, column)?;
     if !c.integer() {
-        return Err(Error::Unsupported(format!("la columna «{}» es {}, no un entero", c.name, c.ty)));
+        return Err(Error::Unsupported(format!(
+            "la columna «{}» es {}, no un entero",
+            c.name, c.ty
+        )));
     }
     let name = table_name(table);
     // The last identity value (ascending identities only): values the
@@ -472,10 +542,16 @@ pub(crate) async fn key_range(s: &mut SqlServerSession, table: &ObjectRef, colum
         c = q(&c.name)
     );
     let rows = s.rows(&sql, &[&name, &c.name]).await?;
-    let Some(r) = rows.first() else { return Ok(None) };
+    let Some(r) = rows.first() else {
+        return Ok(None);
+    };
     let last = r.get::<i64, _>(3);
     match (r.get::<i64, _>(0), r.get::<i64, _>(1)) {
-        (Some(lo), Some(hi)) => Ok(Some((lo, stretch_hi(hi, last),r.get::<i64, _>(2).unwrap_or(0).max(1) as u64))),
+        (Some(lo), Some(hi)) => Ok(Some((
+            lo,
+            stretch_hi(hi, last),
+            r.get::<i64, _>(2).unwrap_or(0).max(1) as u64,
+        ))),
         // Empty, but the identity already handed out values.
         _ => Ok(last.map(|v| (v, v, 0))),
     }
@@ -499,9 +575,15 @@ pub(crate) async fn summary(s: &mut SqlServerSession, spec: &DeltaSpec) -> Resul
             // Only a NULL key has no bucket, and check_key refuses those
             // columns; never fold it into another bucket.
             let bucket = r.get::<i64, _>(0).ok_or_else(|| {
-                Error::Unsupported("hay filas con la clave en NULL: no se puede sincronizar por filas".into())
+                Error::Unsupported(
+                    "hay filas con la clave en NULL: no se puede sincronizar por filas".into(),
+                )
             })?;
-            Ok(BucketSum { bucket, rows: r.get::<i64, _>(1).unwrap_or(0) as u64, sum: text(r, 2).unwrap_or_else(|| "0".into()) })
+            Ok(BucketSum {
+                bucket,
+                rows: r.get::<i64, _>(1).unwrap_or(0) as u64,
+                sum: text(r, 2).unwrap_or_else(|| "0".into()),
+            })
         })
         .collect::<Result<_>>()?;
     let behind = identity_behind(s, spec, &cat).await?;
@@ -511,7 +593,12 @@ pub(crate) async fn summary(s: &mut SqlServerSession, spec: &DeltaSpec) -> Resul
 /// What a side's summary adds to its bucket sums, never a bucket of its own:
 /// with hash buckets, the key collations' fingerprint on every bucket; a
 /// target whose identity is behind, [`force_apply`].
-pub(crate) fn seal(spec: &DeltaSpec, cat: &[Col], mut out: Vec<BucketSum>, identity_behind: bool) -> Result<Vec<BucketSum>> {
+pub(crate) fn seal(
+    spec: &DeltaSpec,
+    cat: &[Col],
+    mut out: Vec<BucketSum>,
+    identity_behind: bool,
+) -> Result<Vec<BucketSum>> {
     if matches!(spec.buckets, Buckets::Hash { .. }) {
         if let Some(fp) = collation_fingerprint(spec, cat)? {
             for b in &mut out {
@@ -528,7 +615,10 @@ pub(crate) fn seal(spec: &DeltaSpec, cat: &[Col], mut out: Vec<BucketSum>, ident
 
 /// `v` added to a bucket's decimal sum (a `decimal(38,0)`: fits an i128).
 pub(crate) fn add_to_sum(sum: &str, v: u64) -> Result<String> {
-    let n: i128 = sum.trim().parse().map_err(|_| Error::Query(format!("suma de grupo inválida: {sum}")))?;
+    let n: i128 = sum
+        .trim()
+        .parse()
+        .map_err(|_| Error::Query(format!("suma de grupo inválida: {sum}")))?;
     Ok(n.wrapping_add(v as i128).to_string())
 }
 
@@ -539,7 +629,11 @@ pub(crate) fn add_to_sum(sum: &str, v: u64) -> Result<String> {
 pub(crate) fn force_apply(out: &mut Vec<BucketSum>, fp: u64) -> Result<()> {
     match out.iter_mut().max_by_key(|b| b.bucket) {
         Some(b) => b.sum = add_to_sum(&b.sum, fp)?,
-        None => out.push(BucketSum { bucket: 0, rows: 0, sum: fp.to_string() }),
+        None => out.push(BucketSum {
+            bucket: 0,
+            rows: 0,
+            sum: fp.to_string(),
+        }),
     }
     Ok(())
 }
@@ -563,8 +657,15 @@ pub(crate) fn identity_behind_hi(next: i128, hi: i64, max: Option<i64>) -> bool 
 /// [`identity_behind_hi`] for this side's table (range buckets on an
 /// identity column only).
 async fn identity_behind(s: &mut SqlServerSession, spec: &DeltaSpec, cat: &[Col]) -> Result<bool> {
-    let Buckets::Range { column, hi, .. } = &spec.buckets else { return Ok(false) };
-    let Some(id) = cat.iter().find(|c| c.identity && c.name.eq_ignore_ascii_case(column)) else { return Ok(false) };
+    let Buckets::Range { column, hi, .. } = &spec.buckets else {
+        return Ok(false);
+    };
+    let Some(id) = cat
+        .iter()
+        .find(|c| c.identity && c.name.eq_ignore_ascii_case(column))
+    else {
+        return Ok(false);
+    };
     let rows = s
         .rows(
             "SELECT CAST(IDENT_CURRENT(@P1) AS bigint), CAST(IDENT_INCR(@P1) AS bigint),
@@ -573,15 +674,36 @@ async fn identity_behind(s: &mut SqlServerSession, spec: &DeltaSpec, cat: &[Col]
             &[&table_name(&spec.table)],
         )
         .await?;
-    let Some(r) = rows.first() else { return Ok(false) };
-    let (Some(current), Some(incr)) = (r.get::<i64, _>(0), r.get::<i64, _>(1)) else { return Ok(false) };
+    let Some(r) = rows.first() else {
+        return Ok(false);
+    };
+    let (Some(current), Some(incr)) = (r.get::<i64, _>(0), r.get::<i64, _>(1)) else {
+        return Ok(false);
+    };
     // Never used (or truncated): the next row takes the current value itself.
-    let next = if r.get::<bool, _>(2).unwrap_or(false) { current as i128 } else { current as i128 + incr as i128 };
+    let next = if r.get::<bool, _>(2).unwrap_or(false) {
+        current as i128
+    } else {
+        current as i128 + incr as i128
+    };
     if next > *hi as i128 {
         return Ok(false);
     }
-    let max = s.rows(&format!("SELECT CAST(MAX({}) AS bigint) FROM {}", q(&id.name), table_name(&spec.table)), &[]).await?;
-    Ok(identity_behind_hi(next, *hi, max.first().and_then(|r| r.get::<i64, _>(0))))
+    let max = s
+        .rows(
+            &format!(
+                "SELECT CAST(MAX({}) AS bigint) FROM {}",
+                q(&id.name),
+                table_name(&spec.table)
+            ),
+            &[],
+        )
+        .await?;
+    Ok(identity_behind_hi(
+        next,
+        *hi,
+        max.first().and_then(|r| r.get::<i64, _>(0)),
+    ))
 }
 
 /// `[schema].[__dbine_delta_<name≤80>_<hash of the full name>]`: tables
@@ -589,12 +711,19 @@ async fn identity_behind(s: &mut SqlServerSession, spec: &DeltaSpec, cat: &[Col]
 fn staging_ref(table: &ObjectRef) -> ObjectRef {
     let name: String = table.name.chars().take(80).collect();
     let h = fnv(&table.name);
-    ObjectRef { kind: "table".into(), schema: table.schema.clone(), name: format!("__dbine_delta_{name}_{h:016x}") }
+    ObjectRef {
+        kind: "table".into(),
+        schema: table.schema.clone(),
+        name: format!("__dbine_delta_{name}_{h:016x}"),
+    }
 }
 
 fn drop_sql(t: &ObjectRef) -> String {
     let name = table_name(t);
-    format!("IF OBJECT_ID(N'{}', N'U') IS NOT NULL DROP TABLE {name}", name.replace('\'', "''"))
+    format!(
+        "IF OBJECT_ID(N'{}', N'U') IS NOT NULL DROP TABLE {name}",
+        name.replace('\'', "''")
+    )
 }
 
 /// A trigger or foreign key switched off during the merge.
@@ -763,13 +892,22 @@ pub(crate) fn staging_sql(table: &ObjectRef, staging: &ObjectRef, cols: &[&Col])
         .iter()
         .map(|c| {
             if c.identity {
-                format!("CONVERT({}, {n}) AS {n}", format_type(&c.ty, c.max_len, c.precision, c.scale), n = q(&c.name))
+                format!(
+                    "CONVERT({}, {n}) AS {n}",
+                    format_type(&c.ty, c.max_len, c.precision, c.scale),
+                    n = q(&c.name)
+                )
             } else {
                 q(&c.name)
             }
         })
         .collect();
-    format!("SELECT TOP 0 {} INTO {} FROM {}", list.join(", "), table_name(staging), table_name(table))
+    format!(
+        "SELECT TOP 0 {} INTO {} FROM {}",
+        list.join(", "),
+        table_name(staging),
+        table_name(table)
+    )
 }
 
 pub(crate) struct MergePlan<'a> {
@@ -789,23 +927,44 @@ pub(crate) fn merge_sql(p: &MergePlan) -> String {
     let identity = p.cols.iter().any(|c| c.identity);
     let mut sql = String::from("SET XACT_ABORT ON;\nSET NOCOUNT ON;\nDECLARE @a TABLE (a nvarchar(10) NOT NULL);\nBEGIN TRANSACTION;\n");
     for tr in p.triggers {
-        sql.push_str(&format!("DISABLE TRIGGER {} ON {};\n", q(&tr.name), tr.table));
+        sql.push_str(&format!(
+            "DISABLE TRIGGER {} ON {};\n",
+            q(&tr.name),
+            tr.table
+        ));
     }
     for fk in p.fks.iter().filter(|f| f.switched()) {
-        sql.push_str(&format!("ALTER TABLE {} NOCHECK CONSTRAINT {};\n", fk.table, q(&fk.name)));
+        sql.push_str(&format!(
+            "ALTER TABLE {} NOCHECK CONSTRAINT {};\n",
+            fk.table,
+            q(&fk.name)
+        ));
     }
     if identity {
         sql.push_str(&format!("SET IDENTITY_INSERT {t} ON;\n"));
     }
-    let on: Vec<String> = p.key.iter().map(|k| format!("d.{k} = s.{k}", k = q(k))).collect();
+    let on: Vec<String> = p
+        .key
+        .iter()
+        .map(|k| format!("d.{k} = s.{k}", k = q(k)))
+        .collect();
     let names: Vec<String> = p.cols.iter().map(|c| q(&c.name)).collect();
     let values: Vec<String> = names.iter().map(|n| format!("s.{n}")).collect();
-    let set: Vec<String> = p.cols.iter().filter(|c| !c.identity).map(|c| format!("d.{n} = s.{n}", n = q(&c.name))).collect();
+    let set: Vec<String> = p
+        .cols
+        .iter()
+        .filter(|c| !c.identity)
+        .map(|c| format!("d.{n} = s.{n}", n = q(&c.name)))
+        .collect();
     sql.push_str(&format!("WITH d AS (SELECT * FROM {t}"));
     if let Some(f) = &p.filter {
         sql.push_str(&format!(" WHERE {f}"));
     }
-    sql.push_str(&format!(")\nMERGE d USING {} AS s ON {}\n", table_name(p.staging), on.join(" AND ")));
+    sql.push_str(&format!(
+        ")\nMERGE d USING {} AS s ON {}\n",
+        table_name(p.staging),
+        on.join(" AND ")
+    ));
     if !set.is_empty() {
         sql.push_str(&format!(
             "WHEN MATCHED AND HASHBYTES('MD5', {}) <> HASHBYTES('MD5', {}) THEN UPDATE SET {}\n",
@@ -823,10 +982,18 @@ pub(crate) fn merge_sql(p: &MergePlan) -> String {
         sql.push_str(&format!("SET IDENTITY_INSERT {t} OFF;\n"));
     }
     for fk in p.fks.iter().filter(|f| f.switched()) {
-        sql.push_str(&format!("ALTER TABLE {} CHECK CONSTRAINT {};\n", fk.table, q(&fk.name)));
+        sql.push_str(&format!(
+            "ALTER TABLE {} CHECK CONSTRAINT {};\n",
+            fk.table,
+            q(&fk.name)
+        ));
     }
     for tr in p.triggers {
-        sql.push_str(&format!("ENABLE TRIGGER {} ON {};\n", q(&tr.name), tr.table));
+        sql.push_str(&format!(
+            "ENABLE TRIGGER {} ON {};\n",
+            q(&tr.name),
+            tr.table
+        ));
     }
     sql.push_str(
         "COMMIT TRANSACTION;\n\
@@ -868,22 +1035,34 @@ ELSE {plain}",
 type Conn = tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>;
 
 async fn on_conn(conn: &mut Conn, sql: String) -> tiberius::Result<()> {
-    conn.simple_query(sql).await?.into_results().await.map(|_| ())
+    conn.simple_query(sql)
+        .await?
+        .into_results()
+        .await
+        .map(|_| ())
 }
 
 pub(crate) fn check_sql(fk: &Switch) -> String {
-    format!("ALTER TABLE {} WITH CHECK CHECK CONSTRAINT {}", fk.table, q(&fk.name))
+    format!(
+        "ALTER TABLE {} WITH CHECK CHECK CONSTRAINT {}",
+        fk.table,
+        q(&fk.name)
+    )
 }
 
 /// The foreign key is untrusted now (when it can't be read: assumed so, and
 /// reported).
 async fn still_untrusted(conn: &mut Conn, fk: &Switch) -> bool {
-    let sql = format!("SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE object_id = OBJECT_ID({})", nstr(&fk_name(fk)));
+    let sql = format!(
+        "SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE object_id = OBJECT_ID({})",
+        nstr(&fk_name(fk))
+    );
     let rows = match conn.simple_query(sql).await {
         Ok(st) => st.into_first_result().await.ok(),
         Err(_) => None,
     };
-    rows.and_then(|r| r.first().and_then(|r| r.get::<i32, _>(0))).is_none_or(|v| v != 0)
+    rows.and_then(|r| r.first().and_then(|r| r.get::<i32, _>(0)))
+        .is_none_or(|v| v != 0)
 }
 
 /// The server's error number, for a server error.
@@ -912,8 +1091,17 @@ async fn validate(conn: &mut Conn, fk: &Switch) -> tiberius::Result<()> {
 /// Removes the mark: `true` when this call removed it, `false` when it
 /// wasn't there (never set, or the other table's sync removed it first).
 async fn unmark(conn: &mut Conn, fk: &Switch) -> tiberius::Result<bool> {
-    let results = conn.simple_query(mark_sql(fk, false)).await?.into_results().await?;
-    Ok(results.iter().flatten().last().and_then(|r| r.get::<i32, _>(0)).is_some_and(|v| v != 0))
+    let results = conn
+        .simple_query(mark_sql(fk, false))
+        .await?
+        .into_results()
+        .await?;
+    Ok(results
+        .iter()
+        .flatten()
+        .last()
+        .and_then(|r| r.get::<i32, _>(0))
+        .is_some_and(|v| v != 0))
 }
 
 /// Checks a foreign key again: marked first (unless it already was), the
@@ -923,7 +1111,11 @@ async fn unmark(conn: &mut Conn, fk: &Switch) -> tiberius::Result<bool> {
 /// `Err(note)`: still untrusted, marked, with the note. A failure that finds
 /// the key trusted (another sync checked it meanwhile) counts as passed.
 async fn recheck(conn: &mut Conn, fk: &Switch) -> std::result::Result<bool, String> {
-    let pre = if fk.marked { Ok(()) } else { on_conn(conn, mark_sql(fk, true)).await };
+    let pre = if fk.marked {
+        Ok(())
+    } else {
+        on_conn(conn, mark_sql(fk, true)).await
+    };
     match validate(conn, fk).await {
         Ok(()) => match unmark(conn, fk).await {
             Ok(removed) => Ok(fk.marked && removed),
@@ -954,7 +1146,13 @@ async fn recheck(conn: &mut Conn, fk: &Switch) -> std::result::Result<bool, Stri
 }
 
 async fn exec(s: &mut SqlServerSession, sql: &str) -> Result<()> {
-    s.client.simple_query(sql).await.map_err(err)?.into_results().await.map_err(err)?;
+    s.client
+        .simple_query(sql)
+        .await
+        .map_err(err)?
+        .into_results()
+        .await
+        .map_err(err)?;
     Ok(())
 }
 
@@ -978,7 +1176,10 @@ async fn drop_staging(s: &mut SqlServerSession, staging: &ObjectRef) {
         }
     }
     if let Some(e) = last {
-        tracing::warn!("sqlserver delta: staging table {} left behind: {e}", table_name(staging));
+        tracing::warn!(
+            "sqlserver delta: staging table {} left behind: {e}",
+            table_name(staging)
+        );
     }
 }
 
@@ -987,7 +1188,12 @@ async fn drop_staging(s: &mut SqlServerSession, staging: &ObjectRef) {
 /// merge's `NOCHECK` / `CHECK`) between creating the staging table and
 /// reading the table's schema; the staging table is left behind, so it's
 /// dropped and created again. The caller drops it on every other failure.
-async fn create_staging(s: &mut SqlServerSession, table: &ObjectRef, staging: &ObjectRef, cols: &[&Col]) -> Result<()> {
+async fn create_staging(
+    s: &mut SqlServerSession,
+    table: &ObjectRef,
+    staging: &ObjectRef,
+    cols: &[&Col],
+) -> Result<()> {
     let sql = staging_sql(table, staging, cols);
     for attempt in 1..=STAGING_TRIES {
         let e = match s.client.simple_query(sql.as_str()).await {
@@ -1000,7 +1206,10 @@ async fn create_staging(s: &mut SqlServerSession, table: &ObjectRef, staging: &O
         if server_code(&e) != Some(SCHEMA_CHANGED) {
             return Err(err(e));
         }
-        tracing::debug!("sqlserver delta: staging table for {} hit a schema change, try {attempt}", table_name(table));
+        tracing::debug!(
+            "sqlserver delta: staging table for {} hit a schema change, try {attempt}",
+            table_name(table)
+        );
         exec(s, &drop_sql(staging)).await?;
         tokio::time::sleep(std::time::Duration::from_millis(100 * attempt)).await;
     }
@@ -1013,7 +1222,11 @@ async fn create_staging(s: &mut SqlServerSession, table: &ObjectRef, staging: &O
 }
 
 /// The destination has a unique, unfiltered index (or PK) on exactly `key`.
-async fn has_unique_key(s: &mut SqlServerSession, table: &ObjectRef, key: &[String]) -> Result<bool> {
+async fn has_unique_key(
+    s: &mut SqlServerSession,
+    table: &ObjectRef,
+    key: &[String],
+) -> Result<bool> {
     let rows = s
         .rows(
             "SELECT i.index_id, c.name
@@ -1026,7 +1239,10 @@ async fn has_unique_key(s: &mut SqlServerSession, table: &ObjectRef, key: &[Stri
         .await?;
     let mut by_index: std::collections::BTreeMap<i32, Vec<String>> = Default::default();
     for r in &rows {
-        by_index.entry(r.get::<i32, _>(0).unwrap_or(0)).or_default().push(text(r, 1).unwrap_or_default().to_lowercase());
+        by_index
+            .entry(r.get::<i32, _>(0).unwrap_or(0))
+            .or_default()
+            .push(text(r, 1).unwrap_or_default().to_lowercase());
     }
     let mut want: Vec<String> = key.iter().map(|k| k.to_lowercase()).collect();
     want.sort();
@@ -1064,7 +1280,11 @@ pub(crate) fn fk_sql(key: &[String]) -> String {
     )
 }
 
-async fn switches(s: &mut SqlServerSession, table: &ObjectRef, key: &[String]) -> Result<(Vec<Switch>, Vec<Switch>)> {
+async fn switches(
+    s: &mut SqlServerSession,
+    table: &ObjectRef,
+    key: &[String],
+) -> Result<(Vec<Switch>, Vec<Switch>)> {
     let name = table_name(table);
     let tr = s
         .rows(
@@ -1075,7 +1295,10 @@ async fn switches(s: &mut SqlServerSession, table: &ObjectRef, key: &[String]) -
         .await?;
     let fk = s.rows(&fk_sql(key), &[&name, UNTRUSTED_MARK]).await?;
     let switch = |r: &tiberius::Row| {
-        let (schema, owner) = (text(r, 0).unwrap_or_default(), text(r, 1).unwrap_or_default());
+        let (schema, owner) = (
+            text(r, 0).unwrap_or_default(),
+            text(r, 1).unwrap_or_default(),
+        );
         Switch {
             table: format!("{}.{}", q(&schema), q(&owner)),
             schema,
@@ -1095,7 +1318,11 @@ async fn switches(s: &mut SqlServerSession, table: &ObjectRef, key: &[String]) -
                 trusted: !r.get::<bool, _>(3).unwrap_or(true),
                 marked: r.get::<bool, _>(4).unwrap_or(false),
                 keep: r.get::<bool, _>(5).unwrap_or(false),
-                other: format!("{}.{}", q(&text(r, 6).unwrap_or_default()), q(&text(r, 7).unwrap_or_default())),
+                other: format!(
+                    "{}.{}",
+                    q(&text(r, 6).unwrap_or_default()),
+                    q(&text(r, 7).unwrap_or_default())
+                ),
                 this: text(r, 8).unwrap_or_default(),
                 ..switch(r)
             })
@@ -1109,9 +1336,15 @@ async fn switches(s: &mut SqlServerSession, table: &ObjectRef, key: &[String]) -
 /// update an identity column, so the row would never converge). `None`:
 /// nothing to check (keys without collations are unique as loaded).
 pub(crate) fn precheck_sql(p: &MergePlan) -> Option<String> {
-    let collated = p.cols.iter().any(|c| c.collation.is_some() && p.key.iter().any(|k| k.eq_ignore_ascii_case(&c.name)));
-    let identities: Vec<&&Col> =
-        p.cols.iter().filter(|c| c.identity && !p.key.iter().any(|k| k.eq_ignore_ascii_case(&c.name))).collect();
+    let collated = p
+        .cols
+        .iter()
+        .any(|c| c.collation.is_some() && p.key.iter().any(|k| k.eq_ignore_ascii_case(&c.name)));
+    let identities: Vec<&&Col> = p
+        .cols
+        .iter()
+        .filter(|c| c.identity && !p.key.iter().any(|k| k.eq_ignore_ascii_case(&c.name)))
+        .collect();
     if !collated && identities.is_empty() {
         return None;
     }
@@ -1125,7 +1358,11 @@ pub(crate) fn precheck_sql(p: &MergePlan) -> Option<String> {
     } else {
         "SELECT 0".to_string()
     };
-    let on: Vec<String> = p.key.iter().map(|k| format!("d.{k} = s.{k}", k = q(k))).collect();
+    let on: Vec<String> = p
+        .key
+        .iter()
+        .map(|k| format!("d.{k} = s.{k}", k = q(k)))
+        .collect();
     // A key matches rows of the same bucket on both sides, so the join
     // needs no bucket filter.
     for c in identities {
@@ -1150,15 +1387,24 @@ pub(crate) async fn apply(
 ) -> Result<DeltaResult> {
     let cat = catalog(s, &spec.table).await?;
     check_table(s, spec, &cat).await?;
-    let cols: Vec<&Col> = spec.columns.iter().map(|n| find(&cat, n)).collect::<Result<_>>()?;
+    let cols: Vec<&Col> = spec
+        .columns
+        .iter()
+        .map(|n| find(&cat, n))
+        .collect::<Result<_>>()?;
     for c in &cols {
         if c.computed || c.rowversion() {
-            return Err(Error::Query(format!("La columna «{}» del destino es calculada o rowversion: no se puede cargar", c.name)));
+            return Err(Error::Query(format!(
+                "La columna «{}» del destino es calculada o rowversion: no se puede cargar",
+                c.name
+            )));
         }
     }
     for k in &spec.key {
         if !cols.iter().any(|c| c.name.eq_ignore_ascii_case(k)) {
-            return Err(Error::Query(format!("La columna «{k}» de la clave no está entre las que se copian")));
+            return Err(Error::Query(format!(
+                "La columna «{k}» de la clave no está entre las que se copian"
+            )));
         }
     }
     if !has_unique_key(s, &spec.table, &spec.key).await? {
@@ -1168,7 +1414,11 @@ pub(crate) async fn apply(
             spec.key.join(", ")
         )));
     }
-    let filter = if buckets.is_empty() { None } else { Some(filter(spec, buckets)?) };
+    let filter = if buckets.is_empty() {
+        None
+    } else {
+        Some(filter(spec, buckets)?)
+    };
     let (triggers, fks) = switches(s, &spec.table, &spec.key).await?;
 
     let staging = staging_ref(&spec.table);
@@ -1309,7 +1559,11 @@ mod tests {
 
     fn spec(buckets: Buckets) -> DeltaSpec {
         DeltaSpec {
-            table: ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() },
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: Some("dbo".into()),
+                name: "t".into(),
+            },
             key: vec!["id".into()],
             columns: vec!["id".into(), "v".into()],
             buckets,
@@ -1319,7 +1573,13 @@ mod tests {
     }
 
     fn range() -> Buckets {
-        Buckets::Range { column: "id".into(), lo: 1, hi: 10_000, width: 1_000, n: 10 }
+        Buckets::Range {
+            column: "id".into(),
+            lo: 1,
+            hi: 10_000,
+            width: 1_000,
+            n: 10,
+        }
     }
 
     #[test]
@@ -1331,9 +1591,18 @@ mod tests {
              ELSE (CAST(t.[id] AS bigint) - CAST(1 AS bigint)) / CAST(1000 AS bigint) END"
         );
         // A span wider than a bigint goes through decimal.
-        let wide = Buckets::Range { column: "id".into(), lo: i64::MIN, hi: i64::MAX, width: i64::MAX, n: 3 };
+        let wide = Buckets::Range {
+            column: "id".into(),
+            lo: i64::MIN,
+            hi: i64::MAX,
+            width: i64::MAX,
+            n: 3,
+        };
         let e = bucket_expr(&spec(wide), None);
-        assert!(e.contains("decimal(20,0)") && e.contains("(-9223372036854775807-1)"), "{e}");
+        assert!(
+            e.contains("decimal(20,0)") && e.contains("(-9223372036854775807-1)"),
+            "{e}"
+        );
     }
 
     #[test]
@@ -1345,7 +1614,9 @@ mod tests {
         assert!(!e.to_uppercase().contains("ABS"));
         let f = filter(&s, &[7, 3, 3, 200]).unwrap();
         assert_eq!(f, "((CHECKSUM([a], [b]) % 101) + 101) % 101 IN (3, 7)");
-        assert!(!summary_sql(&s, &[&col("a", "int")]).to_uppercase().contains("ABS("));
+        assert!(!summary_sql(&s, &[&col("a", "int")])
+            .to_uppercase()
+            .contains("ABS("));
     }
 
     #[test]
@@ -1359,7 +1630,10 @@ mod tests {
     #[test]
     fn range_filters_merge_adjacent_buckets() {
         let s = spec(range());
-        assert_eq!(filter(&s, &[2, 3, 4]).unwrap(), "([id] >= 2001 AND [id] < 5001)");
+        assert_eq!(
+            filter(&s, &[2, 3, 4]).unwrap(),
+            "([id] >= 2001 AND [id] < 5001)"
+        );
         assert_eq!(filter(&s, &[0, 5, 6, 9]).unwrap(), "([id] >= 1 AND [id] < 1001) OR ([id] >= 5001 AND [id] < 7001) OR ([id] >= 9001 AND [id] <= 10000)");
         // Edges: below lo and above hi, open-ended.
         assert_eq!(filter(&s, &[-1]).unwrap(), "[id] < 1");
@@ -1369,14 +1643,22 @@ mod tests {
         assert_eq!(filter(&s, &(-1..=10).collect::<Vec<_>>()).unwrap(), "1 = 1");
         // Strays ignored.
         assert_eq!(filter(&s, &[i64::MIN, i64::MIN + 1, 11]).unwrap(), "1 = 0");
-        assert_eq!(filter(&s, &[i64::MIN + 1, 2]).unwrap(), "([id] >= 2001 AND [id] < 3001)");
+        assert_eq!(
+            filter(&s, &[i64::MIN + 1, 2]).unwrap(),
+            "([id] >= 2001 AND [id] < 3001)"
+        );
         let h = spec(Buckets::Hash { n: 17 });
         assert_eq!(filter(&h, &[i64::MIN, -1, 17]).unwrap(), "1 = 0");
     }
 
     #[test]
     fn row_hash_shape() {
-        let cols = [col("a", "int"), col("t", "text"), col("x", "xml"), col("m", "nvarchar(max)")];
+        let cols = [
+            col("a", "int"),
+            col("t", "text"),
+            col("x", "xml"),
+            col("m", "nvarchar(max)"),
+        ];
         let refs: Vec<&Col> = cols.iter().collect();
         let full = row_bytes(&refs, None, DeltaDepth::Full);
         assert!(full.starts_with("CASE WHEN [a] IS NULL THEN 0x00 ELSE 0x01 + CAST(CAST(DATALENGTH([a]) AS int) AS binary(4)) + CAST([a] AS varbinary(max)) END"));
@@ -1397,7 +1679,12 @@ mod tests {
         let mut s = spec(range());
         let (a, b) = (col("id", "int"), col("v", "int"));
         let sql = summary_sql(&s, &[&a, &b]);
-        assert!(sql.contains("CROSS APPLY") && sql.contains("GROUP BY x.b") && !sql.contains("ORDER BY") && !sql.contains("MAXDOP"));
+        assert!(
+            sql.contains("CROSS APPLY")
+                && sql.contains("GROUP BY x.b")
+                && !sql.contains("ORDER BY")
+                && !sql.contains("MAXDOP")
+        );
         assert!(sql.contains("SUBSTRING(HASHBYTES('MD5', "));
         s.max_cores = 2;
         assert!(summary_sql(&s, &[&a, &b]).ends_with(" OPTION (MAXDOP 2)"));
@@ -1417,14 +1704,21 @@ mod tests {
     fn refused_keys() {
         let s = spec(range());
         for ty in ["float", "real", "sql_variant"] {
-            assert!(check_key(&s, &[col("id", ty), col("v", "int")]).is_err(), "{ty}");
+            assert!(
+                check_key(&s, &[col("id", ty), col("v", "int")]).is_err(),
+                "{ty}"
+            );
         }
         assert!(check_key(&s, &[col("id", "bigint")]).is_ok());
     }
 
     #[test]
     fn staging_and_merge() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "x".repeat(120) };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "x".repeat(120),
+        };
         let st = staging_ref(&t);
         assert_eq!(st.name.len(), "__dbine_delta_".len() + 80 + 17);
         assert!(st.name.len() <= 128);
@@ -1432,7 +1726,9 @@ mod tests {
         id.identity = true;
         let v = col("v", "nvarchar(max)");
         let cols = [&id, &v];
-        assert!(staging_sql(&t, &st, &cols).starts_with("SELECT TOP 0 CONVERT(int, [id]) AS [id], [v] INTO [dbo].[__dbine_delta_"));
+        assert!(staging_sql(&t, &st, &cols).starts_with(
+            "SELECT TOP 0 CONVERT(int, [id]) AS [id], [v] INTO [dbo].[__dbine_delta_"
+        ));
         let tr = [switch("t", "trg", false, false)];
         let fk = [switch("child", "fk_c", true, false)];
         let key = ["id".to_string()];
@@ -1453,7 +1749,9 @@ mod tests {
         assert!(sql.contains("UPDATE SET d.[v] = s.[v]\n") && !sql.contains("d.[id] = s.[id],"));
         assert!(pos("OUTPUT $action INTO @a") < pos(" OFF;\n"));
         assert!(pos("ENABLE TRIGGER") < pos("COMMIT TRANSACTION"));
-        assert!(pos("ALTER TABLE [dbo].[child] CHECK CONSTRAINT [fk_c]") < pos("COMMIT TRANSACTION"));
+        assert!(
+            pos("ALTER TABLE [dbo].[child] CHECK CONSTRAINT [fk_c]") < pos("COMMIT TRANSACTION")
+        );
     }
 
     #[test]
@@ -1462,12 +1760,18 @@ mod tests {
         let mut id = col("id", "int");
         id.nullable = true;
         let e = check_key(&s, &[id.clone(), col("v", "int")]).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("admite NULL")), "{e}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("admite NULL")),
+            "{e}"
+        );
         // A composite key with one nullable column too.
         s.key = vec!["a".into(), "b".into()];
         let mut b = col("b", "varchar");
         b.nullable = true;
-        assert!(matches!(check_key(&s, &[col("a", "int"), b]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            check_key(&s, &[col("a", "int"), b]),
+            Err(Error::Unsupported(_))
+        ));
         // Nullable non-key columns are fine.
         let mut v = col("v", "int");
         v.nullable = true;
@@ -1476,11 +1780,19 @@ mod tests {
 
     #[test]
     fn staging_names_differ_past_the_prefix() {
-        let t = |n: String| ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: n };
+        let t = |n: String| ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: n,
+        };
         let a = staging_ref(&t(format!("{}_a", "x".repeat(100))));
         let b = staging_ref(&t(format!("{}_b", "x".repeat(100))));
         assert_ne!(a.name, b.name);
-        assert_eq!(staging_ref(&t("t".into())).name, staging_ref(&t("t".into())).name, "stable per table");
+        assert_eq!(
+            staging_ref(&t("t".into())).name,
+            staging_ref(&t("t".into())).name,
+            "stable per table"
+        );
     }
 
     #[test]
@@ -1505,13 +1817,25 @@ mod tests {
         assert!(check_identity(&spec(range()), &cat).is_ok());
         // Hash buckets: refused, with the reason.
         let e = check_identity(&spec(Buckets::Hash { n: 17 }), &cat).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("columna identidad «id»") && m.contains("hash")), "{e}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("columna identidad «id»") && m.contains("hash")),
+            "{e}"
+        );
         // Not the first key column (range on another one).
-        let mut s = spec(Buckets::Range { column: "k".into(), lo: 1, hi: 10, width: 1, n: 10 });
+        let mut s = spec(Buckets::Range {
+            column: "k".into(),
+            lo: 1,
+            hi: 10,
+            width: 1,
+            n: 10,
+        });
         s.key = vec!["k".into(), "id".into()];
         s.columns = vec!["k".into(), "id".into(), "v".into()];
         let e = check_identity(&s, &[col("k", "int"), id.clone(), col("v", "int")]).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("no es la primera columna")), "{e}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("no es la primera columna")),
+            "{e}"
+        );
         // Not synced: nothing to follow.
         s.columns = vec!["k".into(), "v".into()];
         assert!(check_identity(&s, &[col("k", "int"), id.clone(), col("v", "int")]).is_ok());
@@ -1519,53 +1843,109 @@ mod tests {
         let mut down = id;
         down.ident_down = true;
         let e = check_identity(&spec(range()), &[down, col("v", "int")]).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("incremento negativo")), "{e}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("incremento negativo")),
+            "{e}"
+        );
     }
 
     #[test]
     fn delete_action_keys_on_the_key_stay_on_the_rest_are_switched() {
         let sql = fk_sql(&["id".to_string(), "o'k".to_string()]);
         assert!(sql.contains("fk.delete_referential_action <> 0"), "{sql}");
-        assert!(sql.contains("WHERE fc.constraint_object_id = fk.object_id) = 2"), "{sql}");
+        assert!(
+            sql.contains("WHERE fc.constraint_object_id = fk.object_id) = 2"),
+            "{sql}"
+        );
         assert!(sql.contains("NOT IN (N'id', N'o''k')"), "{sql}");
-        assert!(!sql.contains("AND NOT (fk.parent_object_id"), "no key is left out of the list: {sql}");
+        assert!(
+            !sql.contains("AND NOT (fk.parent_object_id"),
+            "no key is left out of the list: {sql}"
+        );
         // A kept key: never NOCHECK, checked again only when marked.
         let mut kept = switch("ch", "fk_ch_p", true, false);
         kept.keep = true;
-        assert!(!kept.switched() && !kept.retrust(), "trusted and kept: nothing to do");
+        assert!(
+            !kept.switched() && !kept.retrust(),
+            "trusted and kept: nothing to do"
+        );
         kept.marked = true;
         assert!(kept.retrust(), "N1: a marked kept key is checked again");
-        let t = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "p".into() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "p".into(),
+        };
         let st = staging_ref(&t);
         let (id, v) = (col("id", "int"), col("v", "int"));
         let cols = [&id, &v];
         let key = ["id".to_string()];
         let fks = [kept, switch("ch", "fk_ch_code", true, false)];
-        let sql = merge_sql(&MergePlan { table: &t, staging: &st, key: &key, cols: &cols, filter: None, triggers: &[], fks: &fks });
-        assert!(!sql.contains("[fk_ch_p]"), "kept on during the merge:\n{sql}");
-        assert!(sql.contains("NOCHECK CONSTRAINT [fk_ch_code]") && sql.contains(" CHECK CONSTRAINT [fk_ch_code]"), "{sql}");
+        let sql = merge_sql(&MergePlan {
+            table: &t,
+            staging: &st,
+            key: &key,
+            cols: &cols,
+            filter: None,
+            triggers: &[],
+            fks: &fks,
+        });
+        assert!(
+            !sql.contains("[fk_ch_p]"),
+            "kept on during the merge:\n{sql}"
+        );
+        assert!(
+            sql.contains("NOCHECK CONSTRAINT [fk_ch_code]")
+                && sql.contains(" CHECK CONSTRAINT [fk_ch_code]"),
+            "{sql}"
+        );
     }
 
     #[test]
     fn reseed_follows_the_source_never_back() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "idg".into() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "idg".into(),
+        };
         let mut id = col("id", "int");
         id.identity = true;
         let sql = reseed_sql(&t, &id, Some(102));
         assert!(sql.starts_with("DECLARE @v bigint = 102,"), "{sql}");
-        assert!(sql.contains("IF @m > @v SET @v = @m;") && sql.contains("IF @c > @v SET @v = @c;"), "{sql}");
+        assert!(
+            sql.contains("IF @m > @v SET @v = @m;") && sql.contains("IF @c > @v SET @v = @c;"),
+            "{sql}"
+        );
         assert!(sql.contains("IF @c IS NULL SET @v = @v + @i;"), "{sql}");
-        assert!(sql.contains("DBCC CHECKIDENT (N'[dbo].[idg]', RESEED, @v)"), "{sql}");
-        assert_eq!(reseed_sql(&t, &id, None), "DBCC CHECKIDENT (N'[dbo].[idg]', RESEED) WITH NO_INFOMSGS;");
+        assert!(
+            sql.contains("DBCC CHECKIDENT (N'[dbo].[idg]', RESEED, @v)"),
+            "{sql}"
+        );
+        assert_eq!(
+            reseed_sql(&t, &id, None),
+            "DBCC CHECKIDENT (N'[dbo].[idg]', RESEED) WITH NO_INFOMSGS;"
+        );
     }
 
     #[test]
     fn prechecks_duplicates_and_identity() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "t".into(),
+        };
         let st = staging_ref(&t);
         let key = ["k".to_string()];
         let check = |cols: &[&Col]| {
-            precheck_sql(&MergePlan { table: &t, staging: &st, key: &key, cols, filter: None, triggers: &[], fks: &[] })
+            precheck_sql(&MergePlan {
+                table: &t,
+                staging: &st,
+                key: &key,
+                cols,
+                filter: None,
+                triggers: &[],
+                fks: &[],
+            })
         };
         let (k, v) = (col("k", "int"), col("v", "int"));
         // Integer key, no identity: nothing to check.
@@ -1574,13 +1954,20 @@ mod tests {
         let mut sk = col("k", "varchar");
         sk.collation = Some("Latin1_General_CI_AS".into());
         let sql = check(&[&sk, &v]).unwrap();
-        assert!(sql.contains("GROUP BY [k] HAVING COUNT_BIG(*) > 1"), "{sql}");
+        assert!(
+            sql.contains("GROUP BY [k] HAVING COUNT_BIG(*) > 1"),
+            "{sql}"
+        );
         // Non-key identity: differing values on matched rows.
         let mut n = col("n", "int");
         n.identity = true;
         let sql = check(&[&k, &n]).unwrap();
         assert!(sql.starts_with("SELECT 0, "), "{sql}");
-        assert!(sql.contains("JOIN [dbo].[__dbine_delta_t_") && sql.contains("ON d.[k] = s.[k] WHERE d.[n] <> s.[n]"), "{sql}");
+        assert!(
+            sql.contains("JOIN [dbo].[__dbine_delta_t_")
+                && sql.contains("ON d.[k] = s.[k] WHERE d.[n] <> s.[n]"),
+            "{sql}"
+        );
         // An identity key is matched, not compared.
         let mut ik = col("k", "int");
         ik.identity = true;
@@ -1592,13 +1979,25 @@ mod tests {
         let fk = switch("ch", "fk_ch_p", false, true);
         assert!(fk.retrust(), "a marked key is checked again");
         assert!(switch("ch", "x", true, false).retrust());
-        assert!(!switch("ch", "x", false, false).retrust(), "untrusted before, untouched");
+        assert!(
+            !switch("ch", "x", false, false).retrust(),
+            "untrusted before, untouched"
+        );
         let add = mark_sql(&fk, true);
         assert!(add.contains("IF NOT EXISTS (SELECT 1 FROM sys.extended_properties WHERE class = 1 AND major_id = OBJECT_ID(N'[dbo].[fk_ch_p]')"), "{add}");
         assert!(add.contains("EXEC sys.sp_addextendedproperty @name = N'dbine_delta_untrusted', @value = N'[dbo].[ch]'"), "{add}");
-        assert!(add.contains("@level1name = N'ch'") && add.contains("@level2type = N'CONSTRAINT', @level2name = N'fk_ch_p'"), "{add}");
+        assert!(
+            add.contains("@level1name = N'ch'")
+                && add.contains("@level2type = N'CONSTRAINT', @level2name = N'fk_ch_p'"),
+            "{add}"
+        );
         let drop = mark_sql(&fk, false);
-        assert!(drop.contains("IF EXISTS (") && drop.contains("EXEC sys.sp_dropextendedproperty @name = N'dbine_delta_untrusted'"), "{drop}");
+        assert!(
+            drop.contains("IF EXISTS (")
+                && drop
+                    .contains("EXEC sys.sp_dropextendedproperty @name = N'dbine_delta_untrusted'"),
+            "{drop}"
+        );
         assert!(mark_sql(&switch("o'k", "f", false, false), true).contains("N'o''k'"));
     }
 
@@ -1611,12 +2010,25 @@ mod tests {
         let fk = switch("ch", "fk_ch_p", false, true);
         let add = mark_sql(&fk, true);
         let pos = |sql: &str, p: &str| sql.find(p).unwrap_or_else(|| panic!("{p} missing:\n{sql}"));
-        assert!(pos(&add, "BEGIN TRY") < pos(&add, "sp_addextendedproperty"), "{add}");
+        assert!(
+            pos(&add, "BEGIN TRY") < pos(&add, "sp_addextendedproperty"),
+            "{add}"
+        );
         assert!(add.contains("IF ERROR_NUMBER() <> 15233 THROW;"), "{add}");
         let drop = mark_sql(&fk, false);
-        assert!(pos(&drop, "BEGIN TRY") < pos(&drop, "sp_dropextendedproperty"), "{drop}");
-        assert!(pos(&drop, "sp_dropextendedproperty") < pos(&drop, "SET @dropped = 1;"), "set only when removed: {drop}");
-        assert!(drop.contains("IF ERROR_NUMBER() <> 15217 THROW;") && drop.trim_end().ends_with("SELECT @dropped;"), "{drop}");
+        assert!(
+            pos(&drop, "BEGIN TRY") < pos(&drop, "sp_dropextendedproperty"),
+            "{drop}"
+        );
+        assert!(
+            pos(&drop, "sp_dropextendedproperty") < pos(&drop, "SET @dropped = 1;"),
+            "set only when removed: {drop}"
+        );
+        assert!(
+            drop.contains("IF ERROR_NUMBER() <> 15217 THROW;")
+                && drop.trim_end().ends_with("SELECT @dropped;"),
+            "{drop}"
+        );
     }
 
     /// A check that kept losing deadlocks says so, never that the data
@@ -1625,11 +2037,25 @@ mod tests {
     fn a_deadlocked_check_is_not_blamed_on_the_data() {
         let fk = switch("ch", "fk_ch_p", true, false);
         let n = blocked_note(&fk, None);
-        assert!(n.contains("clave foránea [dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p] quedó sin verificar"), "{n}");
-        assert!(n.contains("bloqueo mutuo") && n.contains("no se sabe si los datos la cumplen"), "{n}");
-        assert!(!n.contains("todavía no la cumplen") && !n.contains("WITH CHECK"), "{n}");
+        assert!(
+            n.contains(
+                "clave foránea [dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p] quedó sin verificar"
+            ),
+            "{n}"
+        );
+        assert!(
+            n.contains("bloqueo mutuo") && n.contains("no se sabe si los datos la cumplen"),
+            "{n}"
+        );
+        assert!(
+            !n.contains("todavía no la cumplen") && !n.contains("WITH CHECK"),
+            "{n}"
+        );
         let n = blocked_note(&fk, Some("sin permiso"));
-        assert!(n.contains("ALTER TABLE [dbo].[ch] WITH CHECK CHECK CONSTRAINT [fk_ch_p]"), "{n}");
+        assert!(
+            n.contains("ALTER TABLE [dbo].[ch] WITH CHECK CHECK CONSTRAINT [fk_ch_p]"),
+            "{n}"
+        );
     }
 
     /// [`mark_sql`] against a real server, with the `EXISTS` forced true as
@@ -1639,7 +2065,8 @@ mod tests {
     #[test]
     #[ignore]
     fn delta_mark_races_live() {
-        let url = std::env::var("DBINE_TEST_SQLSERVER_URL").unwrap_or_else(|_| "mssql://sa:Pw_12345!@localhost:25013".into());
+        let url = std::env::var("DBINE_TEST_SQLSERVER_URL")
+            .unwrap_or_else(|_| "mssql://sa:Pw_12345!@localhost:25013".into());
         let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
         let (auth, hostport) = rest.rsplit_once('@').unwrap();
         let (user, pass) = auth.split_once(':').unwrap();
@@ -1651,7 +2078,10 @@ mod tests {
         cfg.trust_cert();
         let db = "dbine_delta_mark_race";
         let reset = format!("IF DB_ID('{db}') IS NOT NULL BEGIN ALTER DATABASE [{db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{db}]; END");
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
             let mut admin = connect_once(cfg.clone()).await.unwrap();
             on_conn(&mut admin, format!("{reset}; CREATE DATABASE [{db}]")).await.unwrap();
@@ -1693,7 +2123,13 @@ mod tests {
     }
 
     fn sums(v: &[(i64, u64, &str)]) -> Vec<BucketSum> {
-        v.iter().map(|(b, r, s)| BucketSum { bucket: *b, rows: *r, sum: s.to_string() }).collect()
+        v.iter()
+            .map(|(b, r, s)| BucketSum {
+                bucket: *b,
+                rows: *r,
+                sum: s.to_string(),
+            })
+            .collect()
     }
 
     /// Hash buckets: different key collations make every non-empty bucket of
@@ -1715,15 +2151,26 @@ mod tests {
         let a = seal(&s, &cs, src.clone(), false).unwrap();
         let b = seal(&s, &ci, dst.clone(), false).unwrap();
         assert_eq!((a.len(), b.len()), (2, 2), "no sentinel");
-        assert_eq!(dbine_driver::transfer::changed_buckets(&a, &b), vec![3, 9, 12], "every bucket either side has");
+        assert_eq!(
+            dbine_driver::transfer::changed_buckets(&a, &b),
+            vec![3, 9, 12],
+            "every bucket either side has"
+        );
         let b = seal(&s, &cs, dst.clone(), false).unwrap();
-        assert_eq!(dbine_driver::transfer::changed_buckets(&a, &b), vec![9, 12], "same collation: only real changes");
+        assert_eq!(
+            dbine_driver::transfer::changed_buckets(&a, &b),
+            vec![9, 12],
+            "same collation: only real changes"
+        );
         // Range buckets don't depend on collations: sums untouched.
         let mut r = s.clone();
         r.buckets = range();
         assert_eq!(seal(&r, &ci, src.clone(), false).unwrap(), src);
         // An integer key has nothing to fingerprint.
-        assert_eq!(seal(&h, &[col("id", "int"), col("v", "int")], src.clone(), false).unwrap(), src);
+        assert_eq!(
+            seal(&h, &[col("id", "int"), col("v", "int")], src.clone(), false).unwrap(),
+            src
+        );
     }
 
     #[test]
@@ -1733,17 +2180,27 @@ mod tests {
         let src = sums(&[(0, 1000, "99"), (4, 3, "12")]);
         let dst = seal(&s, &cat, src.clone(), true).unwrap();
         assert_eq!(dst.len(), 2);
-        assert_eq!(dbine_driver::transfer::changed_buckets(&src, &dst), vec![4], "the highest bucket");
+        assert_eq!(
+            dbine_driver::transfer::changed_buckets(&src, &dst),
+            vec![4],
+            "the highest bucket"
+        );
         // The top bucket changed anyway (new rows): still one changed bucket.
         let mut moved = src.clone();
         moved[1].rows = 4;
-        assert_eq!(dbine_driver::transfer::changed_buckets(&moved, &dst), vec![4]);
+        assert_eq!(
+            dbine_driver::transfer::changed_buckets(&moved, &dst),
+            vec![4]
+        );
         // An empty target: bucket 0, no rows.
         let empty = seal(&s, &cat, vec![], true).unwrap();
         assert_eq!((empty.len(), empty[0].bucket, empty[0].rows), (1, 0, 0));
         // Sums past 64 bits and negative ones stay decimal text.
         assert_eq!(add_to_sum("-5", 7).unwrap(), "2");
-        assert_eq!(add_to_sum("99999999999999999999999999999", 1).unwrap(), "100000000000000000000000000000");
+        assert_eq!(
+            add_to_sum("99999999999999999999999999999", 1).unwrap(),
+            "100000000000000000000000000000"
+        );
         assert!(add_to_sum("x", 1).is_err());
     }
 
@@ -1753,14 +2210,23 @@ mod tests {
     #[test]
     fn only_a_target_is_behind_the_source() {
         // The source: its largest key is hi whenever its next value is <= hi.
-        assert!(!identity_behind_hi(3, 5, Some(5)), "V1: source reseeded below its rows");
-        assert!(!identity_behind_hi(1, 5, Some(5)), "source truncated/reseeded to the seed");
+        assert!(
+            !identity_behind_hi(3, 5, Some(5)),
+            "V1: source reseeded below its rows"
+        );
+        assert!(
+            !identity_behind_hi(1, 5, Some(5)),
+            "source truncated/reseeded to the seed"
+        );
         assert!(!identity_behind_hi(6, 5, Some(5)), "source as usual");
         // Its target, reseeded past hi by the previous sync.
         assert!(!identity_behind_hi(6, 5, Some(5)));
         // A target behind values the source burned (hi 104, rows to 101).
         assert!(identity_behind_hi(104, 104, Some(101)));
-        assert!(identity_behind_hi(3, 104, Some(101)), "also below its own rows");
+        assert!(
+            identity_behind_hi(3, 104, Some(101)),
+            "also below its own rows"
+        );
         // An empty target that never had rows.
         assert!(identity_behind_hi(1, 2, None));
         // Rows past hi: the edge bucket differs anyway.
@@ -1779,7 +2245,10 @@ mod tests {
         assert!(kept.retrust(), "a marked kept key");
         assert!(switch("ch", "f", true, false).retrust());
         assert!(switch("ch", "f", false, true).retrust());
-        assert!(!switch("ch", "f", false, false).retrust(), "untrusted before: the source's trust isn't mirrored");
+        assert!(
+            !switch("ch", "f", false, false).retrust(),
+            "untrusted before: the source's trust isn't mirrored"
+        );
     }
 
     /// Schema-qualified everywhere: dbo.ch and x.ch with a key of the same
@@ -1792,22 +2261,42 @@ mod tests {
         x.this = "[x].[ch]".into();
         x.other = "[dbo].[p]".into();
         let n = untrusted_note(&x, "conflicto", None);
-        assert!(n.contains("clave foránea [x].[fk_ch_p] de [x].[ch] a [dbo].[p] quedó sin verificar"), "{n}");
-        assert!(n.contains("Sincronizá [dbo].[p] y la próxima sincronización la vuelve a validar"), "{n}");
+        assert!(
+            n.contains("clave foránea [x].[fk_ch_p] de [x].[ch] a [dbo].[p] quedó sin verificar"),
+            "{n}"
+        );
+        assert!(
+            n.contains("Sincronizá [dbo].[p] y la próxima sincronización la vuelve a validar"),
+            "{n}"
+        );
         assert!(!n.contains("WITH CHECK"), "{n}");
         let add = mark_sql(&x, true);
-        assert!(add.contains("OBJECT_ID(N'[x].[fk_ch_p]')") && add.contains("@level0name = N'x'") && add.contains("@value = N'[x].[ch]'"), "{add}");
+        assert!(
+            add.contains("OBJECT_ID(N'[x].[fk_ch_p]')")
+                && add.contains("@level0name = N'x'")
+                && add.contains("@value = N'[x].[ch]'"),
+            "{add}"
+        );
         // Syncing the parent: the child's key into it names the child.
         let mut into = x.clone();
         into.this = "[dbo].[p]".into();
         into.other = "[x].[ch]".into();
         let n = untrusted_note(&into, "conflicto", Some("sin permiso"));
-        assert!(n.contains("de [x].[ch] a [dbo].[p]") && n.contains("Sincronizá [x].[ch]"), "{n}");
-        assert!(n.contains("ALTER TABLE [x].[ch] WITH CHECK CHECK CONSTRAINT [fk_ch_p]"), "{n}");
+        assert!(
+            n.contains("de [x].[ch] a [dbo].[p]") && n.contains("Sincronizá [x].[ch]"),
+            "{n}"
+        );
+        assert!(
+            n.contains("ALTER TABLE [x].[ch] WITH CHECK CHECK CONSTRAINT [fk_ch_p]"),
+            "{n}"
+        );
         // A self-reference.
         let mut me = switch("t", "fk_t_t", true, false);
         me.other = me.this.clone();
         let n = untrusted_note(&me, "conflicto", None);
-        assert!(n.contains("de [dbo].[t] a [dbo].[t]") && n.contains("Revisá los datos de [dbo].[t]"), "{n}");
+        assert!(
+            n.contains("de [dbo].[t] a [dbo].[t]") && n.contains("Revisá los datos de [dbo].[t]"),
+            "{n}"
+        );
     }
 }

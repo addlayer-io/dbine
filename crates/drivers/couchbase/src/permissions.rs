@@ -36,7 +36,12 @@ fn scope_permission(bucket: &str) -> String {
 
 /// The permissions asked for, comma-separated.
 pub(crate) fn request(database: Option<&str>) -> String {
-    let mut v = vec![META.to_string(), CREATE.into(), SECURITY.into(), SECURITY_LOCAL.into()];
+    let mut v = vec![
+        META.to_string(),
+        CREATE.into(),
+        SECURITY.into(),
+        SECURITY_LOCAL.into(),
+    ];
     v.extend(database.map(drop_permission));
     v.extend(database.map(scope_permission));
     v.join(",")
@@ -45,7 +50,8 @@ pub(crate) fn request(database: Option<&str>) -> String {
 /// `answer`: `checkPermissions`' `{permission: bool}` (`None`: refused).
 pub(crate) fn decide(answer: Option<&Value>, database: Option<&str>) -> Permissions {
     let one = |k: &str| answer.and_then(|a| a.get(k)).and_then(Value::as_bool);
-    let access = |v: Option<bool>, missing: &str| v.map_or(Access::Unknown, |ok| Access::check(ok, missing));
+    let access =
+        |v: Option<bool>, missing: &str| v.map_or(Access::Unknown, |ok| Access::check(ok, missing));
     let security = match (one(SECURITY), one(SECURITY_LOCAL)) {
         (Some(true), _) | (_, Some(true)) => Some(true),
         (Some(false), Some(false)) => Some(false),
@@ -68,14 +74,21 @@ pub(crate) fn decide(answer: Option<&Value>, database: Option<&str>) -> Permissi
             }
             None => Access::Unknown,
         },
-        manage_security: access(security, "cluster.admin.security.local!write (security_admin_local)"),
+        manage_security: access(
+            security,
+            "cluster.admin.security.local!write (security_admin_local)",
+        ),
         ..Default::default()
     }
 }
 
 pub(crate) async fn check(s: &CbSession, database: Option<&str>) -> Result<Permissions> {
     let database = database.map(str::trim).filter(|d| !d.is_empty());
-    let rb = s.conn.http.post(format!("{}/pools/default/checkPermissions", s.conn.mgmt)).body(request(database));
+    let rb = s
+        .conn
+        .http
+        .post(format!("{}/pools/default/checkPermissions", s.conn.mgmt))
+        .body(request(database));
     let answer = match s.conn.mgmt_send(rb).await {
         Ok(text) => serde_json::from_str::<Value>(&text).ok(),
         Err(e @ Error::Connect(_)) => return Err(e),
@@ -103,17 +116,40 @@ mod tests {
     #[test]
     fn asks_for_the_bucket_it_would_drop() {
         assert_eq!(request(None), "cluster.n1ql.meta!read,cluster.buckets!create,cluster.admin.security!write,cluster.admin.security.local!write");
-        assert!(request(Some("ventas")).ends_with(",cluster.bucket[ventas]!delete,cluster.bucket[ventas].collections!write"));
+        assert!(request(Some("ventas"))
+            .ends_with(",cluster.bucket[ventas]!delete,cluster.bucket[ventas].collections!write"));
     }
 
     #[test]
     fn an_admin_may_do_everything_offered() {
         let p = decide(Some(&answer(true)), Some("ventas"));
-        assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.backup, &p.kill_session), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (
+                &p.profiler,
+                &p.create_database,
+                &p.drop_database,
+                &p.manage_security
+            ),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
+        assert_eq!(
+            (&p.backup, &p.kill_session),
+            (&Access::Unknown, &Access::Unknown)
+        );
         assert_eq!(p.create_schema, Access::Allowed);
-        assert_eq!(decide(Some(&answer(true)), None).drop_database, Access::Unknown);
-        assert_eq!(decide(Some(&answer(true)), None).create_schema, Access::Unknown);
+        assert_eq!(
+            decide(Some(&answer(true)), None).drop_database,
+            Access::Unknown
+        );
+        assert_eq!(
+            decide(Some(&answer(true)), None).create_schema,
+            Access::Unknown
+        );
     }
 
     #[test]
@@ -122,7 +158,10 @@ mod tests {
         assert!(denied(&p.profiler, "cluster.n1ql.meta!read"));
         assert!(denied(&p.create_database, "cluster.buckets!create"));
         assert!(denied(&p.drop_database, "cluster.bucket[ventas]!delete"));
-        assert!(denied(&p.create_schema, "cluster.bucket[ventas].collections!write"));
+        assert!(denied(
+            &p.create_schema,
+            "cluster.bucket[ventas].collections!write"
+        ));
         assert!(denied(&p.manage_security, "security.local!write"));
         // Only local users: still allowed.
         let a = json!({ SECURITY: false, SECURITY_LOCAL: true });

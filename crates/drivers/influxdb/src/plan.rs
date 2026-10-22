@@ -31,7 +31,11 @@ fn nest(items: Vec<(usize, PlanNode)>) -> Option<PlanNode> {
     match roots.len() {
         0 => None,
         1 => roots.pop(),
-        _ => Some(PlanNode { op: "PLAN".into(), children: roots, ..Default::default() }),
+        _ => Some(PlanNode {
+            op: "PLAN".into(),
+            children: roots,
+            ..Default::default()
+        }),
     }
 }
 
@@ -74,7 +78,14 @@ pub fn duration_ms(v: &str) -> Option<f64> {
         u if u.starts_with('h') => (3_600_000.0, &u[1..]),
         _ => return None,
     };
-    Some(n * factor + if rest.is_empty() { 0.0 } else { duration_ms(rest)? })
+    Some(
+        n * factor
+            + if rest.is_empty() {
+                0.0
+            } else {
+                duration_ms(rest)?
+            },
+    )
 }
 
 // ------------------------------------------------------------------- SQL
@@ -100,16 +111,26 @@ fn datafusion_node(line: &str) -> PlanNode {
             None => (line, ""),
         },
     };
-    let mut n = PlanNode { op: op.to_string(), ..Default::default() };
+    let mut n = PlanNode {
+        op: op.to_string(),
+        ..Default::default()
+    };
     let mut detail = Vec::new();
     for part in split_top(rest) {
-        if let Some(m) = part.strip_prefix("metrics=[").and_then(|m| m.strip_suffix(']')) {
+        if let Some(m) = part
+            .strip_prefix("metrics=[")
+            .and_then(|m| m.strip_suffix(']'))
+        {
             for metric in split_top(m) {
-                let Some((k, v)) = metric.split_once('=') else { continue };
+                let Some((k, v)) = metric.split_once('=') else {
+                    continue;
+                };
                 match k {
                     "output_rows" => n.actual_rows = v.parse().ok(),
                     "elapsed_compute" => n.actual_ms = duration_ms(v),
-                    "spill_count" if v != "0" => n.warnings.push("Volcó datos a disco (spill)".into()),
+                    "spill_count" if v != "0" => {
+                        n.warnings.push("Volcó datos a disco (spill)".into())
+                    }
                     _ => {}
                 }
                 n.props.push((k.to_string(), v.to_string()));
@@ -117,7 +138,9 @@ fn datafusion_node(line: &str) -> PlanNode {
             continue;
         }
         match part.split_once('=') {
-            Some((k, v)) if !k.contains(' ') && !k.is_empty() => n.props.push((k.to_string(), v.to_string())),
+            Some((k, v)) if !k.contains(' ') && !k.is_empty() => {
+                n.props.push((k.to_string(), v.to_string()))
+            }
             Some((k, v)) if op == "TableScan" => {
                 // `cpu projection=[…]`: the table, then a key.
                 let (table, key) = k.split_once(' ').unwrap_or((k, ""));
@@ -137,12 +160,21 @@ fn datafusion_node(line: &str) -> PlanNode {
 /// InfluxQL `EXPLAIN` rows: `EXPRESSION: …` starts a group, the lines after
 /// it (`NUMBER OF SHARDS: 1`…) are its figures.
 pub fn influxql_explain_tree(lines: &[String]) -> PlanNode {
-    let mut root = PlanNode { op: "SELECT".into(), ..Default::default() };
+    let mut root = PlanNode {
+        op: "SELECT".into(),
+        ..Default::default()
+    };
     for l in lines {
-        let Some((k, v)) = l.split_once(": ") else { continue };
+        let Some((k, v)) = l.split_once(": ") else {
+            continue;
+        };
         let (k, v) = (k.trim(), v.trim());
         if k == "EXPRESSION" {
-            root.children.push(PlanNode { op: "Expresión".into(), detail: v.to_string(), ..Default::default() });
+            root.children.push(PlanNode {
+                op: "Expresión".into(),
+                detail: v.to_string(),
+                ..Default::default()
+            });
             continue;
         }
         let target = match root.children.last_mut() {
@@ -176,7 +208,9 @@ pub fn influxql_analyze_tree(lines: &[String]) -> Option<PlanNode> {
     // Index into `items` of the latest node at each depth.
     let mut last_at: Vec<Option<usize>> = Vec::new();
     for l in lines {
-        let start = l.find(|c: char| !matches!(c, ' ' | '│' | '├' | '└' | '─')).unwrap_or(l.len());
+        let start = l
+            .find(|c: char| !matches!(c, ' ' | '│' | '├' | '└' | '─'))
+            .unwrap_or(l.len());
         let body = l[start..].trim();
         if body.is_empty() || body == "." {
             continue;
@@ -207,9 +241,18 @@ pub fn influxql_analyze_tree(lines: &[String]) -> Option<PlanNode> {
         last_at.truncate(depth);
         last_at.resize(depth, None);
         last_at.push(Some(items.len()));
-        items.push((depth, PlanNode { op: body.to_string(), ..Default::default() }));
+        items.push((
+            depth,
+            PlanNode {
+                op: body.to_string(),
+                ..Default::default()
+            },
+        ));
     }
-    let items = items.into_iter().filter(|(_, n)| n.op != "labels").collect();
+    let items = items
+        .into_iter()
+        .filter(|(_, n)| n.op != "labels")
+        .collect();
     nest(items)
 }
 
@@ -242,11 +285,25 @@ pub fn flux_plan_tree(dot: &str) -> Option<PlanNode> {
     if nodes.is_empty() {
         return None;
     }
-    fn build(label: &str, nodes: &[(String, String)], edges: &[(String, String)], seen: &mut Vec<String>) -> PlanNode {
+    fn build(
+        label: &str,
+        nodes: &[(String, String)],
+        edges: &[(String, String)],
+        seen: &mut Vec<String>,
+    ) -> PlanNode {
         seen.push(label.to_string());
-        let details = nodes.iter().find(|(n, _)| n == label).map(|(_, d)| d.clone()).unwrap_or_default();
-        let op = label.trim_end_matches(|c: char| c.is_ascii_digit()).to_string();
-        let mut n = PlanNode { op: if op.is_empty() { label.to_string() } else { op }, ..Default::default() };
+        let details = nodes
+            .iter()
+            .find(|(n, _)| n == label)
+            .map(|(_, d)| d.clone())
+            .unwrap_or_default();
+        let op = label
+            .trim_end_matches(|c: char| c.is_ascii_digit())
+            .to_string();
+        let mut n = PlanNode {
+            op: if op.is_empty() { label.to_string() } else { op },
+            ..Default::default()
+        };
         n.props.push(("Nodo".into(), label.to_string()));
         for d in split_top(&details) {
             match d.split_once(" = ") {
@@ -263,10 +320,25 @@ pub fn flux_plan_tree(dot: &str) -> Option<PlanNode> {
         n
     }
     // Roots: nodes whose output goes nowhere.
-    let roots: Vec<&String> = nodes.iter().map(|(n, _)| n).filter(|n| !edges.iter().any(|(from, _)| from == *n)).collect();
+    let roots: Vec<&String> = nodes
+        .iter()
+        .map(|(n, _)| n)
+        .filter(|n| !edges.iter().any(|(from, _)| from == *n))
+        .collect();
     let mut seen = Vec::new();
-    let mut trees: Vec<PlanNode> = roots.iter().map(|r| build(r, &nodes, &edges, &mut seen)).collect();
-    Some(if trees.len() == 1 { trees.pop().expect("one") } else { PlanNode { op: "PLAN".into(), children: trees, ..Default::default() } })
+    let mut trees: Vec<PlanNode> = roots
+        .iter()
+        .map(|r| build(r, &nodes, &edges, &mut seen))
+        .collect();
+    Some(if trees.len() == 1 {
+        trees.pop().expect("one")
+    } else {
+        PlanNode {
+            op: "PLAN".into(),
+            children: trees,
+            ..Default::default()
+        }
+    })
 }
 
 /// A profiler row as `(column, value)` pairs.
@@ -277,34 +349,59 @@ fn get<'a>(r: &'a Row, k: &str) -> Option<&'a J> {
 }
 
 fn ns_ms(v: Option<&J>) -> Option<f64> {
-    v.and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok())).map(|ns| ns / 1_000_000.0)
+    v.and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok()))
+        .map(|ns| ns / 1_000_000.0)
 }
 
 /// The run's plan from the profiler's tables: `profiler/query` (totals and
 /// the plan digraph) and `profiler/operator` (one row per operator label).
 pub fn flux_profile_tree(query: Option<&Row>, operators: &[Row]) -> PlanNode {
-    let dot = query.and_then(|q| get(q, "flux/query-plan")).and_then(J::as_str).unwrap_or_default();
+    let dot = query
+        .and_then(|q| get(q, "flux/query-plan"))
+        .and_then(J::as_str)
+        .unwrap_or_default();
     let mut tree = flux_plan_tree(dot).unwrap_or_else(|| PlanNode {
         op: "Consulta Flux".into(),
         children: operators
             .iter()
             .map(|o| PlanNode {
-                op: get(o, "Label").and_then(J::as_str).unwrap_or_default().to_string(),
-                props: vec![("Nodo".into(), get(o, "Label").and_then(J::as_str).unwrap_or_default().to_string())],
+                op: get(o, "Label")
+                    .and_then(J::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                props: vec![(
+                    "Nodo".into(),
+                    get(o, "Label")
+                        .and_then(J::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                )],
                 ..Default::default()
             })
             .collect(),
         ..Default::default()
     });
     fn apply(n: &mut PlanNode, operators: &[Row]) {
-        let label = n.props.iter().find(|(k, _)| k == "Nodo").map(|(_, v)| v.clone()).unwrap_or_default();
-        if let Some(o) = operators.iter().find(|o| get(o, "Label").and_then(J::as_str) == Some(label.as_str())) {
+        let label = n
+            .props
+            .iter()
+            .find(|(k, _)| k == "Nodo")
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
+        if let Some(o) = operators
+            .iter()
+            .find(|o| get(o, "Label").and_then(J::as_str) == Some(label.as_str()))
+        {
             n.actual_ms = ns_ms(get(o, "DurationSum"));
             n.executions = get(o, "Count").and_then(J::as_f64);
             if let Some(t) = get(o, "Type").and_then(J::as_str) {
                 n.detail = t.trim_start_matches('*').to_string();
             }
-            for (k, label) in [("MinDuration", "Duración mínima (ms)"), ("MaxDuration", "Duración máxima (ms)"), ("MeanDuration", "Duración media (ms)")] {
+            for (k, label) in [
+                ("MinDuration", "Duración mínima (ms)"),
+                ("MaxDuration", "Duración máxima (ms)"),
+                ("MeanDuration", "Duración media (ms)"),
+            ] {
                 if let Some(ms) = ns_ms(get(o, k)) {
                     n.props.push((label.into(), format!("{ms:.3}")));
                 }
@@ -316,7 +413,11 @@ pub fn flux_profile_tree(query: Option<&Row>, operators: &[Row]) -> PlanNode {
     }
     apply(&mut tree, operators);
     let Some(q) = query else { return tree };
-    let mut root = PlanNode { op: "Consulta Flux".into(), actual_ms: ns_ms(get(q, "TotalDuration")), ..Default::default() };
+    let mut root = PlanNode {
+        op: "Consulta Flux".into(),
+        actual_ms: ns_ms(get(q, "TotalDuration")),
+        ..Default::default()
+    };
     for (k, label) in [
         ("CompileDuration", "Compilación (ms)"),
         ("QueueDuration", "En cola (ms)"),
@@ -335,7 +436,10 @@ pub fn flux_profile_tree(query: Option<&Row>, operators: &[Row]) -> PlanNode {
         ("RuntimeErrors", "Errores"),
     ] {
         if let Some(v) = get(q, k).filter(|v| !v.is_null() && v.as_str() != Some("")) {
-            root.props.push((label.into(), v.as_str().map_or_else(|| v.to_string(), str::to_string)));
+            root.props.push((
+                label.into(),
+                v.as_str().map_or_else(|| v.to_string(), str::to_string),
+            ));
         }
     }
     root.children.push(tree);
@@ -369,24 +473,48 @@ AggregateExec: mode=FinalPartitioned, gby=[host@0 as host], aggr=[avg(cpu.v)], m
         assert_eq!(root.op, "AggregateExec");
         assert_eq!(root.actual_rows, Some(2.0));
         assert!((root.actual_ms.unwrap() - 1.243841).abs() < 1e-9);
-        assert!(root.props.contains(&("gby".to_string(), "[host@0 as host]".to_string())));
+        assert!(root
+            .props
+            .contains(&("gby".to_string(), "[host@0 as host]".to_string())));
         let coalesce = &root.children[0];
-        assert_eq!(coalesce.children.iter().map(|c| c.op.as_str()).collect::<Vec<_>>(), ["DeduplicateExec", "FilterExec"]);
+        assert_eq!(
+            coalesce
+                .children
+                .iter()
+                .map(|c| c.op.as_str())
+                .collect::<Vec<_>>(),
+            ["DeduplicateExec", "FilterExec"]
+        );
         assert_eq!(coalesce.children[0].detail, "[host@0 ASC,time@2 ASC]");
         assert_eq!(coalesce.children[1].detail, "host@0 = a");
         let logical = datafusion_tree("Sort: cpu.host ASC NULLS LAST\n  TableScan: cpu projection=[host, v], partial_filters=[x]").unwrap();
         assert_eq!(logical.children[0].object.as_deref(), Some("cpu"));
-        assert!(logical.children[0].props.contains(&("projection".to_string(), "[host, v]".to_string())));
+        assert!(logical.children[0]
+            .props
+            .contains(&("projection".to_string(), "[host, v]".to_string())));
     }
 
     #[test]
     fn influxql_explain() {
-        let lines: Vec<String> = ["EXPRESSION: mean(v::float)", "NUMBER OF SHARDS: 1", "NUMBER OF SERIES: 2"].map(String::from).to_vec();
+        let lines: Vec<String> = [
+            "EXPRESSION: mean(v::float)",
+            "NUMBER OF SHARDS: 1",
+            "NUMBER OF SERIES: 2",
+        ]
+        .map(String::from)
+        .to_vec();
         let root = influxql_explain_tree(&lines);
         assert_eq!(root.op, "SELECT");
         assert_eq!(root.detail, "mean(v::float)");
         assert_eq!(root.props[1], ("Series".to_string(), "2".to_string()));
-        let two: Vec<String> = ["EXPRESSION: a", "NUMBER OF SHARDS: 1", "EXPRESSION: b", "NUMBER OF SHARDS: 2"].map(String::from).to_vec();
+        let two: Vec<String> = [
+            "EXPRESSION: a",
+            "NUMBER OF SHARDS: 1",
+            "EXPRESSION: b",
+            "NUMBER OF SHARDS: 2",
+        ]
+        .map(String::from)
+        .to_vec();
         assert_eq!(influxql_explain_tree(&two).children.len(), 2);
     }
 
@@ -422,7 +550,9 @@ AggregateExec: mode=FinalPartitioned, gby=[host@0 as host], aggr=[avg(cpu.v)], m
         let create = &cursor.children[0].children[0];
         assert_eq!(create.op, "create_iterator");
         assert_eq!(create.object.as_deref(), Some("cpu"));
-        assert!(create.props.contains(&("cursors_ref".to_string(), "2".to_string())));
+        assert!(create
+            .props
+            .contains(&("cursors_ref".to_string(), "2".to_string())));
     }
 
     #[test]

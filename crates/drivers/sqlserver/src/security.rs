@@ -4,14 +4,30 @@
 
 use crate::variant::Variant;
 use crate::SqlServerSession;
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
+    SecuritySpec,
+};
 use tiberius::Row;
 
 pub fn spec(v: Variant) -> SecuritySpec {
     let full = SecuritySpec {
         privileges: vec![
-            "SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "REFERENCES", "VIEW DEFINITION", "ALTER", "CONTROL", "CONNECT",
-            "CREATE TABLE", "CREATE VIEW", "CREATE PROCEDURE", "CREATE FUNCTION", "CREATE SCHEMA",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "EXECUTE",
+            "REFERENCES",
+            "VIEW DEFINITION",
+            "ALTER",
+            "CONTROL",
+            "CONNECT",
+            "CREATE TABLE",
+            "CREATE VIEW",
+            "CREATE PROCEDURE",
+            "CREATE FUNCTION",
+            "CREATE SCHEMA",
         ],
         object_kinds: vec!["", "schema", "table", "view", "procedure", "function"],
         create_user: true,
@@ -28,8 +44,22 @@ pub fn spec(v: Variant) -> SecuritySpec {
         // Data Warehouse"). UNMASK goes with its dynamic data masking.
         Variant::Fabric => SecuritySpec {
             privileges: vec![
-                "SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "REFERENCES", "VIEW DEFINITION", "ALTER", "CONTROL", "UNMASK",
-                "CONNECT", "CREATE TABLE", "CREATE VIEW", "CREATE PROCEDURE", "CREATE FUNCTION", "CREATE SCHEMA",
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "EXECUTE",
+                "REFERENCES",
+                "VIEW DEFINITION",
+                "ALTER",
+                "CONTROL",
+                "UNMASK",
+                "CONNECT",
+                "CREATE TABLE",
+                "CREATE VIEW",
+                "CREATE PROCEDURE",
+                "CREATE FUNCTION",
+                "CREATE SCHEMA",
             ],
             passwords: false,
             ..full
@@ -47,7 +77,14 @@ pub fn spec(v: Variant) -> SecuritySpec {
 }
 
 /// What Babelfish grants through T-SQL, in PostgreSQL's ACL names too.
-const BABELFISH_PRIVILEGES: &[&str] = &["SELECT", "INSERT", "UPDATE", "DELETE", "REFERENCES", "EXECUTE"];
+const BABELFISH_PRIVILEGES: &[&str] = &[
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "REFERENCES",
+    "EXECUTE",
+];
 
 /// "Nuevo esquema…" / "Borrar esquema…". T-SQL's DROP SCHEMA has no
 /// CASCADE (it fails while the schema holds objects), so `cascade` is off
@@ -67,8 +104,18 @@ pub fn schema_spec(v: Variant) -> SchemaSpec {
             owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
             cascade: false,
             privileges: vec![
-                "SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "REFERENCES", "VIEW DEFINITION", "ALTER", "CONTROL", "TAKE OWNERSHIP",
-                "CREATE SEQUENCE", "VIEW CHANGE TRACKING",
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "EXECUTE",
+                "REFERENCES",
+                "VIEW DEFINITION",
+                "ALTER",
+                "CONTROL",
+                "TAKE OWNERSHIP",
+                "CREATE SEQUENCE",
+                "VIEW CHANGE TRACKING",
             ],
             grant_option: true,
         },
@@ -76,7 +123,17 @@ pub fn schema_spec(v: Variant) -> SchemaSpec {
             owner: false,
             owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
             cascade: false,
-            privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "REFERENCES", "VIEW DEFINITION", "ALTER", "CONTROL"],
+            privileges: vec![
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "EXECUTE",
+                "REFERENCES",
+                "VIEW DEFINITION",
+                "ALTER",
+                "CONTROL",
+            ],
             grant_option: true,
         },
         // "GRANT on SCHEMA .. WITH GRANT OPTION is not yet supported in Babelfish".
@@ -93,7 +150,9 @@ pub fn schema_spec(v: Variant) -> SchemaSpec {
 /// Babelfish 5.4 can't read `]]` inside brackets (see `script`).
 fn babelfish_name(v: Variant, names: &[&str]) -> Result<()> {
     if v == Variant::Babelfish && names.iter().any(|n| n.contains(']')) {
-        return Err(Error::Query("Babelfish no acepta «]» en los nombres de esquemas ni de usuarios".into()));
+        return Err(Error::Query(
+            "Babelfish no acepta «]» en los nombres de esquemas ni de usuarios".into(),
+        ));
     }
     Ok(())
 }
@@ -103,7 +162,9 @@ fn babelfish_name(v: Variant, names: &[&str]) -> Result<()> {
 pub fn create_schema(v: Variant, name: &str, owner: Option<&str>) -> Result<String> {
     let owner = owner.map(str::trim).filter(|o| !o.is_empty());
     if owner.is_some() && !schema_spec(v).owner {
-        return Err(Error::Unsupported("en este motor el esquema se crea sin dueño explícito".into()));
+        return Err(Error::Unsupported(
+            "en este motor el esquema se crea sin dueño explícito".into(),
+        ));
     }
     babelfish_name(v, &[name, owner.unwrap_or_default()])?;
     Ok(match owner {
@@ -125,7 +186,11 @@ pub fn drop_schema(v: Variant, name: &str, cascade: bool) -> Result<String> {
 /// roles own (`db_owner`, `db_datareader`…); Fabric adds `queryinsights`,
 /// its read-only views of the warehouse's query history.
 pub fn list_schemas_sql(v: Variant) -> String {
-    let extra = if v == Variant::Fabric { ", 'queryinsights'" } else { "" };
+    let extra = if v == Variant::Fabric {
+        ", 'queryinsights'"
+    } else {
+        ""
+    };
     format!(
         "SELECT s.name,
                 CAST(CASE WHEN s.name IN ('sys', 'INFORMATION_SCHEMA', 'guest'{extra}) OR p.is_fixed_role = 1 THEN 1 ELSE 0 END AS int)
@@ -246,7 +311,11 @@ SELECT p.permission_name, p.state,
 OPTION (MAXRECURSION 32)";
 
 fn text(r: &Row, i: usize) -> Option<String> {
-    r.try_get::<&str, _>(i).ok().flatten().map(str::to_string).filter(|s| !s.is_empty())
+    r.try_get::<&str, _>(i)
+        .ok()
+        .flatten()
+        .map(str::to_string)
+        .filter(|s| !s.is_empty())
 }
 fn flag(r: &Row, i: usize) -> bool {
     r.try_get::<i32, _>(i).ok().flatten().unwrap_or(0) != 0
@@ -295,7 +364,11 @@ fn principal(r: PrincipalRow, logins: bool) -> Principal {
     }
     Principal {
         name: r.name,
-        kind: if role { PrincipalKind::Role } else { PrincipalKind::User },
+        kind: if role {
+            PrincipalKind::Role
+        } else {
+            PrincipalKind::User
+        },
         can_login: (!role).then_some(true),
         superuser: Some(r.superuser),
         disabled: (!role && logins).then_some(r.disabled),
@@ -307,7 +380,16 @@ fn principal(r: PrincipalRow, logins: bool) -> Principal {
 
 pub async fn principals(s: &mut SqlServerSession) -> Result<Vec<Principal>> {
     let fabric = s.variant == Variant::Fabric;
-    let rows = s.rows(if fabric { FABRIC_PRINCIPALS } else { PRINCIPALS }, &[]).await?;
+    let rows = s
+        .rows(
+            if fabric {
+                FABRIC_PRINCIPALS
+            } else {
+                PRINCIPALS
+            },
+            &[],
+        )
+        .await?;
     let members = s.rows(MEMBERSHIPS, &[]).await?;
     let mut out: Vec<Principal> = rows
         .iter()
@@ -338,8 +420,21 @@ pub async fn principals(s: &mut SqlServerSession) -> Result<Vec<Principal>> {
 
 /// A permission row. `state`: G grant, W grant with grant option, D deny,
 /// R revoke.
-fn grant(privilege: String, state: &str, object: Option<String>, object_kind: Option<String>, via: Option<String>) -> Grant {
-    Grant { privilege, object, object_kind, grantable: state == "W", denied: state == "D", via }
+fn grant(
+    privilege: String,
+    state: &str,
+    object: Option<String>,
+    object_kind: Option<String>,
+    via: Option<String>,
+) -> Grant {
+    Grant {
+        privilege,
+        object,
+        object_kind,
+        grantable: state == "W",
+        denied: state == "D",
+        via,
+    }
 }
 
 /// The principal itself (no `via`) and every role it holds, directly or
@@ -352,7 +447,10 @@ fn held_roles(principal: &str, memberships: &[(String, String)]) -> Vec<(String,
         let (name, via) = out[i].clone();
         for (member, role) in memberships {
             if *member == name && !out.iter().any(|(n, _)| n == role) {
-                out.push((role.clone(), Some(via.clone().unwrap_or_else(|| role.clone()))));
+                out.push((
+                    role.clone(),
+                    Some(via.clone().unwrap_or_else(|| role.clone())),
+                ));
             }
         }
         i += 1;
@@ -362,14 +460,24 @@ fn held_roles(principal: &str, memberships: &[(String, String)]) -> Vec<(String,
 
 /// Fabric's rows (grantee, privilege, state, object, kind) as the grants of
 /// `principal`: its own first, then the ones it holds through its roles.
-fn fabric_grants(principal: &str, memberships: &[(String, String)], rows: Vec<[Option<String>; 5]>) -> Vec<Grant> {
+fn fabric_grants(
+    principal: &str,
+    memberships: &[(String, String)],
+    rows: Vec<[Option<String>; 5]>,
+) -> Vec<Grant> {
     let held = held_roles(principal, memberships);
     let mut out = Vec::new();
     for (name, via) in &held {
         for [grantee, privilege, state, object, kind] in &rows {
             if grantee.as_deref() == Some(name.as_str()) {
                 let state = state.as_deref().unwrap_or_default();
-                out.push(grant(privilege.clone().unwrap_or_default(), state, object.clone(), kind.clone(), via.clone()));
+                out.push(grant(
+                    privilege.clone().unwrap_or_default(),
+                    state,
+                    object.clone(),
+                    kind.clone(),
+                    via.clone(),
+                ));
             }
         }
     }
@@ -380,16 +488,39 @@ pub async fn grants(s: &mut SqlServerSession, principal: &str) -> Result<Vec<Gra
     match s.variant {
         Variant::Fabric => {
             let members = s.rows(MEMBERSHIPS, &[]).await?;
-            let members: Vec<(String, String)> = members.iter().filter_map(|m| Some((text(m, 0)?, text(m, 1)?))).collect();
+            let members: Vec<(String, String)> = members
+                .iter()
+                .filter_map(|m| Some((text(m, 0)?, text(m, 1)?)))
+                .collect();
             let rows = s.rows(FABRIC_GRANTS, &[]).await?;
-            let rows = rows.iter().map(|r| [text(r, 0), text(r, 1), text(r, 2), text(r, 3), text(r, 4)]).collect();
+            let rows = rows
+                .iter()
+                .map(|r| [text(r, 0), text(r, 1), text(r, 2), text(r, 3), text(r, 4)])
+                .collect();
             Ok(fabric_grants(principal, &members, rows))
         }
         v => {
-            let rows = s.rows(if v == Variant::Babelfish { BABELFISH_GRANTS } else { GRANTS }, &[principal]).await?;
+            let rows = s
+                .rows(
+                    if v == Variant::Babelfish {
+                        BABELFISH_GRANTS
+                    } else {
+                        GRANTS
+                    },
+                    &[principal],
+                )
+                .await?;
             Ok(unique(
                 rows.iter()
-                    .map(|r| grant(text(r, 0).unwrap_or_default(), text(r, 1).unwrap_or_default().trim(), text(r, 2), text(r, 3), text(r, 4)))
+                    .map(|r| {
+                        grant(
+                            text(r, 0).unwrap_or_default(),
+                            text(r, 1).unwrap_or_default().trim(),
+                            text(r, 2),
+                            text(r, 3),
+                            text(r, 4),
+                        )
+                    })
                     .collect(),
             ))
         }
@@ -432,7 +563,9 @@ fn on(object: &Option<ObjectRef>) -> String {
 /// Words that end a permission list. T-SQL needs no `;` between
 /// statements, so "SELECT TO x GRANT CONTROL" would close the GRANT and
 /// start another one: no permission name has them.
-const CLAUSE_WORDS: &[&str] = &["TO", "ON", "FROM", "WITH", "AS", "CASCADE", "GRANT", "DENY", "REVOKE", "GO"];
+const CLAUSE_WORDS: &[&str] = &[
+    "TO", "ON", "FROM", "WITH", "AS", "CASCADE", "GRANT", "DENY", "REVOKE", "GO",
+];
 
 /// Privilege names come from `spec()` or the user: letters and spaces only,
 /// and none of T-SQL's clause words.
@@ -442,9 +575,18 @@ fn privileges(p: &[String]) -> Result<String> {
     }
     let mut out = Vec::new();
     for x in p {
-        let up = x.split_whitespace().collect::<Vec<_>>().join(" ").to_uppercase();
-        if up.is_empty() || !up.chars().all(|c| c.is_ascii_alphabetic() || c == ' ') || up.split(' ').any(|w| CLAUSE_WORDS.contains(&w)) {
-            return Err(Error::Query(format!("«{x}» no es un permiso de SQL Server")));
+        let up = x
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_uppercase();
+        if up.is_empty()
+            || !up.chars().all(|c| c.is_ascii_alphabetic() || c == ' ')
+            || up.split(' ').any(|w| CLAUSE_WORDS.contains(&w))
+        {
+            return Err(Error::Query(format!(
+                "«{x}» no es un permiso de SQL Server"
+            )));
         }
         out.push(up);
     }
@@ -484,7 +626,9 @@ fn fabric_script(a: &SecurityAction) -> Option<Result<String>> {
 /// Every identifier an action writes.
 fn names(a: &SecurityAction) -> Vec<&str> {
     fn object(o: &Option<ObjectRef>) -> Vec<&str> {
-        o.as_ref().map(|o| vec![o.name.as_str(), o.schema().unwrap_or_default()]).unwrap_or_default()
+        o.as_ref()
+            .map(|o| vec![o.name.as_str(), o.schema().unwrap_or_default()])
+            .unwrap_or_default()
     }
     match a {
         SecurityAction::CreateUser { name, .. }
@@ -492,12 +636,18 @@ fn names(a: &SecurityAction) -> Vec<&str> {
         | SecurityAction::Drop { name, .. }
         | SecurityAction::SetPassword { name, .. }
         | SecurityAction::SetLogin { name, .. } => vec![name],
-        SecurityAction::Grant { object: o, to: p, .. } | SecurityAction::Revoke { object: o, from: p, .. } => {
+        SecurityAction::Grant {
+            object: o, to: p, ..
+        }
+        | SecurityAction::Revoke {
+            object: o, from: p, ..
+        } => {
             let mut v = object(o);
             v.push(p);
             v
         }
-        SecurityAction::AddMember { role, member } | SecurityAction::RemoveMember { role, member } => vec![role, member],
+        SecurityAction::AddMember { role, member }
+        | SecurityAction::RemoveMember { role, member } => vec![role, member],
     }
 }
 
@@ -512,21 +662,37 @@ pub fn script(v: Variant, a: &SecurityAction) -> Result<String> {
         // or near ]") nor double-quoted principal names: such a name can't
         // be written at all.
         if names(a).iter().any(|n| n.contains(']')) {
-            return Err(Error::Query("Babelfish no acepta «]» en los nombres de usuarios, roles ni objetos".into()));
+            return Err(Error::Query(
+                "Babelfish no acepta «]» en los nombres de usuarios, roles ni objetos".into(),
+            ));
         }
         match a {
             // "GRANT on SCHEMA .. WITH GRANT OPTION is not yet supported in Babelfish".
-            SecurityAction::Grant { object: Some(o), grantable: true, .. } if o.kind == "schema" => {
+            SecurityAction::Grant {
+                object: Some(o),
+                grantable: true,
+                ..
+            } if o.kind == "schema" => {
                 return Err(Error::Unsupported(
                     "Babelfish no permite otorgar sobre un esquema con opción de otorgar: hacelo sin ella o sobre cada objeto".into(),
                 ));
             }
-            SecurityAction::Grant { object: None, .. } | SecurityAction::Revoke { object: None, .. } => {
+            SecurityAction::Grant { object: None, .. }
+            | SecurityAction::Revoke { object: None, .. } => {
                 return Err(Error::Unsupported("Babelfish no admite permisos sobre la base entera: elegí un esquema o un objeto".into()));
             }
             // "REVOKE on SCHEMA .. CASCADE is not yet supported in Babelfish".
-            SecurityAction::Revoke { privileges: p, object: Some(o), from } if o.kind == "schema" => {
-                return Ok(format!("REVOKE {}{} FROM {};", privileges(p)?, on(&Some(o.clone())), q(from)));
+            SecurityAction::Revoke {
+                privileges: p,
+                object: Some(o),
+                from,
+            } if o.kind == "schema" => {
+                return Ok(format!(
+                    "REVOKE {}{} FROM {};",
+                    privileges(p)?,
+                    on(&Some(o.clone())),
+                    q(from)
+                ));
             }
             _ => {}
         }
@@ -534,7 +700,10 @@ pub fn script(v: Variant, a: &SecurityAction) -> Result<String> {
     let contained = v == Variant::AzureSql;
     Ok(match a {
         SecurityAction::CreateUser { name, password } => {
-            let pw = password.as_deref().filter(|p| !p.is_empty()).ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))?;
+            let pw = password
+                .as_deref()
+                .filter(|p| !p.is_empty())
+                .ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))?;
             if contained {
                 format!("CREATE USER {} WITH PASSWORD = {};", q(name), lit(pw))
             } else {
@@ -546,12 +715,22 @@ pub fn script(v: Variant, a: &SecurityAction) -> Result<String> {
             }
         }
         SecurityAction::CreateRole { name } => format!("CREATE ROLE {};", q(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::Role } => format!("DROP ROLE {};", q(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::User } => {
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::Role,
+        } => format!("DROP ROLE {};", q(name)),
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::User,
+        } => {
             if contained {
                 format!("DROP USER {};", q(name))
             } else {
-                format!("DROP USER {n};\n-- Si el login no se usa en otras bases:\n-- DROP LOGIN {c};", n = q(name), c = crate::comment_text(&q(name)))
+                format!(
+                    "DROP USER {n};\n-- Si el login no se usa en otras bases:\n-- DROP LOGIN {c};",
+                    n = q(name),
+                    c = crate::comment_text(&q(name))
+                )
             }
         }
         SecurityAction::SetPassword { name, password } => {
@@ -564,17 +743,49 @@ pub fn script(v: Variant, a: &SecurityAction) -> Result<String> {
         SecurityAction::SetLogin { name, enabled } => {
             if contained {
                 // A contained user can't be disabled: take away CONNECT.
-                format!("{} CONNECT TO {};", if *enabled { "GRANT" } else { "REVOKE" }, q(name))
+                format!(
+                    "{} CONNECT TO {};",
+                    if *enabled { "GRANT" } else { "REVOKE" },
+                    q(name)
+                )
             } else {
-                format!("ALTER LOGIN {} {};", q(name), if *enabled { "ENABLE" } else { "DISABLE" })
+                format!(
+                    "ALTER LOGIN {} {};",
+                    q(name),
+                    if *enabled { "ENABLE" } else { "DISABLE" }
+                )
             }
         }
-        SecurityAction::Grant { privileges: p, object, to, grantable } => {
-            format!("GRANT {}{} TO {}{};", privileges(p)?, on(object), q(to), if *grantable { " WITH GRANT OPTION" } else { "" })
+        SecurityAction::Grant {
+            privileges: p,
+            object,
+            to,
+            grantable,
+        } => {
+            format!(
+                "GRANT {}{} TO {}{};",
+                privileges(p)?,
+                on(object),
+                q(to),
+                if *grantable { " WITH GRANT OPTION" } else { "" }
+            )
         }
-        SecurityAction::Revoke { privileges: p, object, from } => format!("REVOKE {}{} FROM {} CASCADE;", privileges(p)?, on(object), q(from)),
-        SecurityAction::AddMember { role, member } => format!("ALTER ROLE {} ADD MEMBER {};", q(role), q(member)),
-        SecurityAction::RemoveMember { role, member } => format!("ALTER ROLE {} DROP MEMBER {};", q(role), q(member)),
+        SecurityAction::Revoke {
+            privileges: p,
+            object,
+            from,
+        } => format!(
+            "REVOKE {}{} FROM {} CASCADE;",
+            privileges(p)?,
+            on(object),
+            q(from)
+        ),
+        SecurityAction::AddMember { role, member } => {
+            format!("ALTER ROLE {} ADD MEMBER {};", q(role), q(member))
+        }
+        SecurityAction::RemoveMember { role, member } => {
+            format!("ALTER ROLE {} DROP MEMBER {};", q(role), q(member))
+        }
     })
 }
 
@@ -588,7 +799,12 @@ pub fn supports_map_login(v: Variant) -> bool {
 }
 
 /// A user of the current database for an existing server login.
-pub fn map_login(v: Variant, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+pub fn map_login(
+    v: Variant,
+    login: &str,
+    user: &str,
+    default_schema: Option<&str>,
+) -> Result<String> {
     if !supports_map_login(v) {
         return Err(Error::Unsupported(NO_LOGINS.into()));
     }
@@ -601,11 +817,23 @@ pub fn map_login(v: Variant, login: &str, user: &str, default_schema: Option<&st
     }
     let schema = default_schema.map(str::trim).filter(|s| !s.is_empty());
     // Babelfish 5.4 doesn't read `]]` inside brackets (see `script`).
-    if v == Variant::Babelfish && [login, user, schema.unwrap_or_default()].iter().any(|n| n.contains(']')) {
-        return Err(Error::Query("Babelfish no acepta «]» en los nombres de usuarios, roles ni objetos".into()));
+    if v == Variant::Babelfish
+        && [login, user, schema.unwrap_or_default()]
+            .iter()
+            .any(|n| n.contains(']'))
+    {
+        return Err(Error::Query(
+            "Babelfish no acepta «]» en los nombres de usuarios, roles ni objetos".into(),
+        ));
     }
-    let schema = schema.map(|sc| format!(" WITH DEFAULT_SCHEMA = {}", q(sc))).unwrap_or_default();
-    Ok(format!("CREATE USER {} FOR LOGIN {}{schema};", q(user), q(login)))
+    let schema = schema
+        .map(|sc| format!(" WITH DEFAULT_SCHEMA = {}", q(sc)))
+        .unwrap_or_default();
+    Ok(format!(
+        "CREATE USER {} FOR LOGIN {}{schema};",
+        q(user),
+        q(login)
+    ))
 }
 
 /// The server's logins (SQL, Windows and Entra ID ones) with no user in
@@ -629,7 +857,11 @@ pub async fn unmapped_logins(s: &mut SqlServerSession) -> Result<Vec<String>> {
         // login in sys.server_principals; the rest are in master.
         Variant::AzureSql => {
             let rows = s.rows("SELECT DB_NAME()", &[]).await?;
-            if rows.first().and_then(|r| text(r, 0)).is_none_or(|db| !db.eq_ignore_ascii_case("master")) {
+            if rows
+                .first()
+                .and_then(|r| text(r, 0))
+                .is_none_or(|db| !db.eq_ignore_ascii_case("master"))
+            {
                 return Err(Error::Unsupported(
                     "en Azure SQL Database los logins están en master y no se pueden listar desde esta base: escribí el nombre del login".into(),
                 ));
@@ -655,90 +887,276 @@ mod tests {
         assert_eq!(
             s(SecurityAction::Grant {
                 privileges: vec!["select".into(), "UPDATE".into()],
-                object: Some(ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "facturas".into() }),
+                object: Some(ObjectRef {
+                    kind: "table".into(),
+                    schema: Some("dbo".into()),
+                    name: "facturas".into()
+                }),
                 to: "ana".into(),
                 grantable: true,
             }),
             "GRANT SELECT, UPDATE ON [dbo].[facturas] TO [ana] WITH GRANT OPTION;"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["EXECUTE".into()], object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "ventas".into() }), from: "r1".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["EXECUTE".into()],
+                object: Some(ObjectRef {
+                    kind: "schema".into(),
+                    schema: None,
+                    name: "ventas".into()
+                }),
+                from: "r1".into()
+            }),
             "REVOKE EXECUTE ON SCHEMA::[ventas] FROM [r1] CASCADE;"
         );
-        assert!(script(Variant::SqlServer, &SecurityAction::Grant { privileges: vec!["SELECT; DROP TABLE x".into()], object: None, to: "a".into(), grantable: false }).is_err());
-        assert_eq!(script(Variant::AzureSql, &SecurityAction::CreateUser { name: "ana".into(), password: Some("x".into()) }).unwrap(), "CREATE USER [ana] WITH PASSWORD = N'x';");
+        assert!(script(
+            Variant::SqlServer,
+            &SecurityAction::Grant {
+                privileges: vec!["SELECT; DROP TABLE x".into()],
+                object: None,
+                to: "a".into(),
+                grantable: false
+            }
+        )
+        .is_err());
+        assert_eq!(
+            script(
+                Variant::AzureSql,
+                &SecurityAction::CreateUser {
+                    name: "ana".into(),
+                    password: Some("x".into())
+                }
+            )
+            .unwrap(),
+            "CREATE USER [ana] WITH PASSWORD = N'x';"
+        );
     }
 
     fn table() -> Option<ObjectRef> {
-        Some(ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "facturas".into() })
+        Some(ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "facturas".into(),
+        })
     }
 
     #[test]
     fn fabric_scripts_have_no_logins() {
         let s = |a| script(Variant::Fabric, &a);
-        let create = s(SecurityAction::CreateUser { name: "ana@contoso.com]".into(), password: None }).unwrap();
-        assert!(create.ends_with("\nGRANT CONNECT TO [ana@contoso.com]]];"), "{create}");
+        let create = s(SecurityAction::CreateUser {
+            name: "ana@contoso.com]".into(),
+            password: None,
+        })
+        .unwrap();
+        assert!(
+            create.ends_with("\nGRANT CONNECT TO [ana@contoso.com]]];"),
+            "{create}"
+        );
         assert!(create.lines().filter(|l| !l.starts_with("--")).count() == 1);
-        assert!(matches!(s(SecurityAction::CreateUser { name: "a".into(), password: Some("x".into()) }), Err(Error::Unsupported(_))));
-        assert!(matches!(s(SecurityAction::SetPassword { name: "a".into(), password: "x".into() }), Err(Error::Unsupported(_))));
-        assert!(matches!(s(SecurityAction::SetLogin { name: "a".into(), enabled: false }), Err(Error::Unsupported(_))));
-        assert!(matches!(s(SecurityAction::Drop { name: "a".into(), kind: PrincipalKind::User }), Err(Error::Unsupported(_))));
-        assert_eq!(s(SecurityAction::Drop { name: "r'1".into(), kind: PrincipalKind::Role }).unwrap(), "DROP ROLE [r'1];");
-        assert_eq!(s(SecurityAction::CreateRole { name: "lectores".into() }).unwrap(), "CREATE ROLE [lectores];");
+        assert!(matches!(
+            s(SecurityAction::CreateUser {
+                name: "a".into(),
+                password: Some("x".into())
+            }),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            s(SecurityAction::SetPassword {
+                name: "a".into(),
+                password: "x".into()
+            }),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            s(SecurityAction::SetLogin {
+                name: "a".into(),
+                enabled: false
+            }),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            s(SecurityAction::Drop {
+                name: "a".into(),
+                kind: PrincipalKind::User
+            }),
+            Err(Error::Unsupported(_))
+        ));
         assert_eq!(
-            s(SecurityAction::AddMember { role: "lectores".into(), member: "ana@contoso.com".into() }).unwrap(),
+            s(SecurityAction::Drop {
+                name: "r'1".into(),
+                kind: PrincipalKind::Role
+            })
+            .unwrap(),
+            "DROP ROLE [r'1];"
+        );
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "lectores".into()
+            })
+            .unwrap(),
+            "CREATE ROLE [lectores];"
+        );
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "lectores".into(),
+                member: "ana@contoso.com".into()
+            })
+            .unwrap(),
             "ALTER ROLE [lectores] ADD MEMBER [ana@contoso.com];"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["select".into()], object: table(), to: "Ventas (grupo)".into(), grantable: false }).unwrap(),
+            s(SecurityAction::Grant {
+                privileges: vec!["select".into()],
+                object: table(),
+                to: "Ventas (grupo)".into(),
+                grantable: false
+            })
+            .unwrap(),
             "GRANT SELECT ON [dbo].[facturas] TO [Ventas (grupo)];"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["UNMASK".into()], object: None, to: "a".into(), grantable: false }).unwrap(),
+            s(SecurityAction::Grant {
+                privileges: vec!["UNMASK".into()],
+                object: None,
+                to: "a".into(),
+                grantable: false
+            })
+            .unwrap(),
             "GRANT UNMASK TO [a];"
         );
-        assert!(s(SecurityAction::Revoke { privileges: vec!["SELECT ON x TO y --".into()], object: None, from: "a".into() }).is_err());
+        assert!(s(SecurityAction::Revoke {
+            privileges: vec!["SELECT ON x TO y --".into()],
+            object: None,
+            from: "a".into()
+        })
+        .is_err());
         let spec = spec(Variant::Fabric);
-        assert!(!spec.passwords && spec.create_user && spec.create_role && spec.membership && spec.object_kinds.contains(&""));
+        assert!(
+            !spec.passwords
+                && spec.create_user
+                && spec.create_role
+                && spec.membership
+                && spec.object_kinds.contains(&"")
+        );
     }
 
     #[test]
     fn babelfish_scripts_follow_what_it_implements() {
         let s = |a| script(Variant::Babelfish, &a);
         // Logins as in SQL Server: CREATE LOGIN, ALTER LOGIN … DISABLE.
-        assert!(s(SecurityAction::CreateUser { name: "ana".into(), password: Some("p".into()) }).unwrap().contains("CREATE LOGIN [ana] WITH PASSWORD = N'p';\nCREATE USER [ana] FOR LOGIN [ana];"));
-        assert_eq!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: false }).unwrap(), "ALTER LOGIN [ana] DISABLE;");
+        assert!(s(SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: Some("p".into())
+        })
+        .unwrap()
+        .contains("CREATE LOGIN [ana] WITH PASSWORD = N'p';\nCREATE USER [ana] FOR LOGIN [ana];"));
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["SELECT".into(), "INSERT".into()], object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "v'e.ntas".into() }), to: "r".into(), grantable: false })
-                .unwrap(),
+            s(SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: false
+            })
+            .unwrap(),
+            "ALTER LOGIN [ana] DISABLE;"
+        );
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["SELECT".into(), "INSERT".into()],
+                object: Some(ObjectRef {
+                    kind: "schema".into(),
+                    schema: None,
+                    name: "v'e.ntas".into()
+                }),
+                to: "r".into(),
+                grantable: false
+            })
+            .unwrap(),
             "GRANT SELECT, INSERT ON SCHEMA::[v'e.ntas] TO [r];"
         );
         // No CASCADE on a schema's REVOKE; objects keep it.
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["EXECUTE".into()], object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "dbo".into() }), from: "r".into() }).unwrap(),
+            s(SecurityAction::Revoke {
+                privileges: vec!["EXECUTE".into()],
+                object: Some(ObjectRef {
+                    kind: "schema".into(),
+                    schema: None,
+                    name: "dbo".into()
+                }),
+                from: "r".into()
+            })
+            .unwrap(),
             "REVOKE EXECUTE ON SCHEMA::[dbo] FROM [r];"
         );
-        assert_eq!(s(SecurityAction::Revoke { privileges: vec!["UPDATE".into()], object: table(), from: "ana".into() }).unwrap(), "REVOKE UPDATE ON [dbo].[facturas] FROM [ana] CASCADE;");
-        assert!(matches!(s(SecurityAction::Grant { privileges: vec!["CREATE TABLE".into()], object: None, to: "a".into(), grantable: false }), Err(Error::Unsupported(_))));
-        assert!(s(SecurityAction::Grant { privileges: vec!["SELECT'".into()], object: table(), to: "a".into(), grantable: false }).is_err());
+        assert_eq!(
+            s(SecurityAction::Revoke {
+                privileges: vec!["UPDATE".into()],
+                object: table(),
+                from: "ana".into()
+            })
+            .unwrap(),
+            "REVOKE UPDATE ON [dbo].[facturas] FROM [ana] CASCADE;"
+        );
+        assert!(matches!(
+            s(SecurityAction::Grant {
+                privileges: vec!["CREATE TABLE".into()],
+                object: None,
+                to: "a".into(),
+                grantable: false
+            }),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(s(SecurityAction::Grant {
+            privileges: vec!["SELECT'".into()],
+            object: table(),
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
         let spec = spec(Variant::Babelfish);
-        assert!(!spec.object_kinds.contains(&"") && !spec.privileges.contains(&"CONTROL") && spec.passwords);
+        assert!(
+            !spec.object_kinds.contains(&"")
+                && !spec.privileges.contains(&"CONTROL")
+                && spec.passwords
+        );
     }
 
     #[test]
     fn privileges_cannot_close_the_statement() {
         // T-SQL runs "GRANT SELECT TO a GRANT CONTROL TO [b];" as two GRANTs.
-        for bad in ["SELECT TO a GRANT CONTROL", "select on x", "CONTROL WITH", "EXECUTE AS", "  ", "SELECT\nGO"] {
+        for bad in [
+            "SELECT TO a GRANT CONTROL",
+            "select on x",
+            "CONTROL WITH",
+            "EXECUTE AS",
+            "  ",
+            "SELECT\nGO",
+        ] {
             for v in Variant::ALL {
-                let g = SecurityAction::Grant { privileges: vec![bad.into()], object: table(), to: "b".into(), grantable: false };
+                let g = SecurityAction::Grant {
+                    privileges: vec![bad.into()],
+                    object: table(),
+                    to: "b".into(),
+                    grantable: false,
+                };
                 assert!(script(v, &g).is_err(), "{v:?} {bad:?}");
-                let r = SecurityAction::Revoke { privileges: vec![bad.into()], object: table(), from: "b".into() };
+                let r = SecurityAction::Revoke {
+                    privileges: vec![bad.into()],
+                    object: table(),
+                    from: "b".into(),
+                };
                 assert!(script(v, &r).is_err(), "{v:?} {bad:?}");
             }
         }
         assert_eq!(
-            script(Variant::SqlServer, &SecurityAction::Grant { privileges: vec![" view   definition ".into(), "CREATE TABLE".into()], object: None, to: "a".into(), grantable: false })
-                .unwrap(),
+            script(
+                Variant::SqlServer,
+                &SecurityAction::Grant {
+                    privileges: vec![" view   definition ".into(), "CREATE TABLE".into()],
+                    object: None,
+                    to: "a".into(),
+                    grantable: false
+                }
+            )
+            .unwrap(),
             "GRANT VIEW DEFINITION, CREATE TABLE TO [a];"
         );
     }
@@ -746,15 +1164,48 @@ mod tests {
     #[test]
     fn babelfish_rejects_what_it_cannot_parse() {
         let s = |a| script(Variant::Babelfish, &a);
-        let ventas = || Some(ObjectRef { kind: "schema".into(), schema: None, name: "ventas".into() });
+        let ventas = || {
+            Some(ObjectRef {
+                kind: "schema".into(),
+                schema: None,
+                name: "ventas".into(),
+            })
+        };
         // "GRANT on SCHEMA .. WITH GRANT OPTION is not yet supported in Babelfish".
-        assert!(matches!(s(SecurityAction::Grant { privileges: vec!["SELECT".into()], object: ventas(), to: "a".into(), grantable: true }), Err(Error::Unsupported(_))));
-        assert!(s(SecurityAction::Grant { privileges: vec!["SELECT".into()], object: table(), to: "a".into(), grantable: true }).unwrap().ends_with(" WITH GRANT OPTION;"));
+        assert!(matches!(
+            s(SecurityAction::Grant {
+                privileges: vec!["SELECT".into()],
+                object: ventas(),
+                to: "a".into(),
+                grantable: true
+            }),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(s(SecurityAction::Grant {
+            privileges: vec!["SELECT".into()],
+            object: table(),
+            to: "a".into(),
+            grantable: true
+        })
+        .unwrap()
+        .ends_with(" WITH GRANT OPTION;"));
         // `]]` is a syntax error in Babelfish 5.4; SQL Server takes it.
         for a in [
             SecurityAction::CreateRole { name: "a]b".into() },
-            SecurityAction::AddMember { role: "r".into(), member: "a]b".into() },
-            SecurityAction::Grant { privileges: vec!["SELECT".into()], object: Some(ObjectRef { kind: "table".into(), schema: Some("v]x".into()), name: "t".into() }), to: "a".into(), grantable: false },
+            SecurityAction::AddMember {
+                role: "r".into(),
+                member: "a]b".into(),
+            },
+            SecurityAction::Grant {
+                privileges: vec!["SELECT".into()],
+                object: Some(ObjectRef {
+                    kind: "table".into(),
+                    schema: Some("v]x".into()),
+                    name: "t".into(),
+                }),
+                to: "a".into(),
+                grantable: false,
+            },
         ] {
             assert!(matches!(s(a.clone()), Err(Error::Query(_))), "{a:?}");
             assert!(script(Variant::SqlServer, &a).unwrap().contains("]]"));
@@ -764,14 +1215,41 @@ mod tests {
             s(SecurityAction::CreateUser { name: "o'k.a".into(), password: Some("p'w\\x".into()) }).unwrap(),
             "-- El login es del servidor; el usuario, de esta base.\nCREATE LOGIN [o'k.a] WITH PASSWORD = N'p''w\\x';\nCREATE USER [o'k.a] FOR LOGIN [o'k.a];"
         );
-        assert_eq!(s(SecurityAction::AddMember { role: "e\"f".into(), member: "o'k.a".into() }).unwrap(), "ALTER ROLE [e\"f] ADD MEMBER [o'k.a];");
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "e\"f".into(),
+                member: "o'k.a".into()
+            })
+            .unwrap(),
+            "ALTER ROLE [e\"f] ADD MEMBER [o'k.a];"
+        );
     }
 
     #[test]
     fn repeated_grants_show_once() {
-        let g = |p: &str, via: Option<&str>| grant(p.into(), "G", Some("dbo.t".into()), Some("table".into()), via.map(str::to_string));
-        let rows = vec![g("SELECT", Some("r")), g("INSERT", Some("r")), g("SELECT", Some("r")), g("SELECT", None)];
-        assert_eq!(unique(rows), vec![g("SELECT", Some("r")), g("INSERT", Some("r")), g("SELECT", None)]);
+        let g = |p: &str, via: Option<&str>| {
+            grant(
+                p.into(),
+                "G",
+                Some("dbo.t".into()),
+                Some("table".into()),
+                via.map(str::to_string),
+            )
+        };
+        let rows = vec![
+            g("SELECT", Some("r")),
+            g("INSERT", Some("r")),
+            g("SELECT", Some("r")),
+            g("SELECT", None),
+        ];
+        assert_eq!(
+            unique(rows),
+            vec![
+                g("SELECT", Some("r")),
+                g("INSERT", Some("r")),
+                g("SELECT", None)
+            ]
+        );
     }
 
     #[test]
@@ -785,19 +1263,52 @@ mod tests {
             ..Default::default()
         };
         let p = principal(row(), true);
-        assert_eq!((p.kind, p.disabled, p.can_login), (PrincipalKind::User, Some(true), Some(true)));
-        assert_eq!(p.details, vec![("Tipo".to_string(), "Usuario SQL".to_string()), ("Login".to_string(), "ana".to_string())]);
+        assert_eq!(
+            (p.kind, p.disabled, p.can_login),
+            (PrincipalKind::User, Some(true), Some(true))
+        );
+        assert_eq!(
+            p.details,
+            vec![
+                ("Tipo".to_string(), "Usuario SQL".to_string()),
+                ("Login".to_string(), "ana".to_string())
+            ]
+        );
         // Fabric: no logins to disable.
-        assert_eq!(principal(PrincipalRow { kind: "E".into(), ..row() }, false).disabled, None);
-        let r = principal(PrincipalRow { kind: "R".into(), ..row() }, true);
-        assert_eq!((r.kind, r.disabled, r.can_login), (PrincipalKind::Role, None, None));
+        assert_eq!(
+            principal(
+                PrincipalRow {
+                    kind: "E".into(),
+                    ..row()
+                },
+                false
+            )
+            .disabled,
+            None
+        );
+        let r = principal(
+            PrincipalRow {
+                kind: "R".into(),
+                ..row()
+            },
+            true,
+        );
+        assert_eq!(
+            (r.kind, r.disabled, r.can_login),
+            (PrincipalKind::Role, None, None)
+        );
     }
 
     #[test]
     fn follows_roles_for_fabric_grants() {
         let m = |a: &str, b: &str| (a.to_string(), b.to_string());
         // ana ∈ lectores ∈ base; ana ∈ db_datareader; a cycle doesn't loop.
-        let members = vec![m("ana", "lectores"), m("lectores", "base"), m("ana", "db_datareader"), m("base", "lectores")];
+        let members = vec![
+            m("ana", "lectores"),
+            m("lectores", "base"),
+            m("ana", "db_datareader"),
+            m("base", "lectores"),
+        ];
         let held = held_roles("ana", &members);
         let via = |n: &str| held.iter().find(|(x, _)| x == n).map(|(_, v)| v.clone());
         assert_eq!(held.len(), 4);
@@ -807,55 +1318,113 @@ mod tests {
 
         let o = |s: &str| Some(s.to_string());
         let rows = vec![
-            [o("base"), o("SELECT"), o("G"), o("dbo.facturas"), o("table")],
+            [
+                o("base"),
+                o("SELECT"),
+                o("G"),
+                o("dbo.facturas"),
+                o("table"),
+            ],
             [o("ana"), o("UPDATE"), o("W"), o("dbo.facturas"), o("table")],
             [o("ana"), o("DELETE"), o("D"), o("dbo.facturas"), o("table")],
             [o("otro"), o("CONNECT"), o("G"), None, o("database")],
         ];
         let g = fabric_grants("ana", &members, rows);
         assert_eq!(g.len(), 3);
-        assert_eq!((g[0].privilege.as_str(), g[0].grantable, g[0].via.as_deref()), ("UPDATE", true, None));
+        assert_eq!(
+            (g[0].privilege.as_str(), g[0].grantable, g[0].via.as_deref()),
+            ("UPDATE", true, None)
+        );
         assert!(g[1].denied && g[1].privilege == "DELETE");
-        assert_eq!((g[2].privilege.as_str(), g[2].via.as_deref()), ("SELECT", Some("lectores")));
+        assert_eq!(
+            (g[2].privilege.as_str(), g[2].via.as_deref()),
+            ("SELECT", Some("lectores"))
+        );
     }
 
     #[test]
     fn lists_schemas_with_the_system_ones() {
         for v in Variant::ALL {
             let sql = list_schemas_sql(v);
-            assert!(sql.contains("'sys', 'INFORMATION_SCHEMA', 'guest'") && sql.contains("p.is_fixed_role = 1"), "{v:?}");
-            assert_eq!(sql.contains("'queryinsights'"), v == Variant::Fabric, "{v:?}");
+            assert!(
+                sql.contains("'sys', 'INFORMATION_SCHEMA', 'guest'")
+                    && sql.contains("p.is_fixed_role = 1"),
+                "{v:?}"
+            );
+            assert_eq!(
+                sql.contains("'queryinsights'"),
+                v == Variant::Fabric,
+                "{v:?}"
+            );
         }
     }
 
     #[test]
     fn writes_schema_scripts() {
-        assert_eq!(create_schema(Variant::SqlServer, "ven]tas", Some("ana")).unwrap(), "CREATE SCHEMA [ven]]tas] AUTHORIZATION [ana];");
-        assert_eq!(create_schema(Variant::AzureSql, "ventas", Some("  ")).unwrap(), "CREATE SCHEMA [ventas];");
-        assert_eq!(create_schema(Variant::Fabric, "ventas", None).unwrap(), "CREATE SCHEMA [ventas];");
-        assert!(matches!(create_schema(Variant::Fabric, "ventas", Some("ana")), Err(Error::Unsupported(_))));
-        assert_eq!(create_schema(Variant::Babelfish, "v'e.ntas", Some("dbo")).unwrap(), "CREATE SCHEMA [v'e.ntas] AUTHORIZATION [dbo];");
-        assert!(matches!(create_schema(Variant::Babelfish, "a]b", None), Err(Error::Query(_))));
+        assert_eq!(
+            create_schema(Variant::SqlServer, "ven]tas", Some("ana")).unwrap(),
+            "CREATE SCHEMA [ven]]tas] AUTHORIZATION [ana];"
+        );
+        assert_eq!(
+            create_schema(Variant::AzureSql, "ventas", Some("  ")).unwrap(),
+            "CREATE SCHEMA [ventas];"
+        );
+        assert_eq!(
+            create_schema(Variant::Fabric, "ventas", None).unwrap(),
+            "CREATE SCHEMA [ventas];"
+        );
+        assert!(matches!(
+            create_schema(Variant::Fabric, "ventas", Some("ana")),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(
+            create_schema(Variant::Babelfish, "v'e.ntas", Some("dbo")).unwrap(),
+            "CREATE SCHEMA [v'e.ntas] AUTHORIZATION [dbo];"
+        );
+        assert!(matches!(
+            create_schema(Variant::Babelfish, "a]b", None),
+            Err(Error::Query(_))
+        ));
         for v in Variant::ALL {
-            assert_eq!(drop_schema(v, "ventas", false).unwrap(), "DROP SCHEMA [ventas];");
-            assert!(matches!(drop_schema(v, "ventas", true), Err(Error::Unsupported(_))));
+            assert_eq!(
+                drop_schema(v, "ventas", false).unwrap(),
+                "DROP SCHEMA [ventas];"
+            );
+            assert!(matches!(
+                drop_schema(v, "ventas", true),
+                Err(Error::Unsupported(_))
+            ));
             let spec = schema_spec(v);
             assert!(!spec.cascade && !spec.privileges.is_empty());
             // Every privilege offered goes through the GRANT on the schema.
             let g = SecurityAction::Grant {
                 privileges: spec.privileges.iter().map(|p| p.to_string()).collect(),
-                object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "ventas".into() }),
+                object: Some(ObjectRef {
+                    kind: "schema".into(),
+                    schema: None,
+                    name: "ventas".into(),
+                }),
                 to: "ana".into(),
                 grantable: false,
             };
-            assert!(script(v, &g).unwrap().starts_with(&format!("GRANT {} ON SCHEMA::[ventas] TO [ana]", spec.privileges.join(", "))), "{v:?}");
+            assert!(
+                script(v, &g).unwrap().starts_with(&format!(
+                    "GRANT {} ON SCHEMA::[ventas] TO [ana]",
+                    spec.privileges.join(", ")
+                )),
+                "{v:?}"
+            );
         }
         assert_eq!(
             script(
                 Variant::SqlServer,
                 &SecurityAction::Grant {
                     privileges: vec!["SELECT".into(), "TAKE OWNERSHIP".into()],
-                    object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "ventas".into() }),
+                    object: Some(ObjectRef {
+                        kind: "schema".into(),
+                        schema: None,
+                        name: "ventas".into()
+                    }),
                     to: "lectores".into(),
                     grantable: true
                 }
@@ -869,22 +1438,46 @@ mod tests {
     fn maps_a_login_to_a_user() {
         for v in [Variant::SqlServer, Variant::AzureSql] {
             assert!(supports_map_login(v));
-            assert_eq!(map_login(v, "ana", "ana", None).unwrap(), "CREATE USER [ana] FOR LOGIN [ana];");
+            assert_eq!(
+                map_login(v, "ana", "ana", None).unwrap(),
+                "CREATE USER [ana] FOR LOGIN [ana];"
+            );
             assert_eq!(
                 map_login(v, " dom\\an]a ", "o'k]u", Some("ven]tas")).unwrap(),
                 "CREATE USER [o'k]]u] FOR LOGIN [dom\\an]]a] WITH DEFAULT_SCHEMA = [ven]]tas];"
             );
             // A blank schema is no schema.
-            assert_eq!(map_login(v, "ana", "ana", Some("  ")).unwrap(), "CREATE USER [ana] FOR LOGIN [ana];");
-            assert!(matches!(map_login(v, "", "ana", None), Err(Error::Query(_))));
-            assert!(matches!(map_login(v, "ana", " ", None), Err(Error::Query(_))));
+            assert_eq!(
+                map_login(v, "ana", "ana", Some("  ")).unwrap(),
+                "CREATE USER [ana] FOR LOGIN [ana];"
+            );
+            assert!(matches!(
+                map_login(v, "", "ana", None),
+                Err(Error::Query(_))
+            ));
+            assert!(matches!(
+                map_login(v, "ana", " ", None),
+                Err(Error::Query(_))
+            ));
         }
         assert!(supports_map_login(Variant::Babelfish));
-        assert_eq!(map_login(Variant::Babelfish, "o'k", "o'k", Some("ventas")).unwrap(), "CREATE USER [o'k] FOR LOGIN [o'k] WITH DEFAULT_SCHEMA = [ventas];");
-        assert!(matches!(map_login(Variant::Babelfish, "a]b", "ab", None), Err(Error::Query(_))));
-        assert!(matches!(map_login(Variant::Babelfish, "ab", "ab", Some("x]")), Err(Error::Query(_))));
+        assert_eq!(
+            map_login(Variant::Babelfish, "o'k", "o'k", Some("ventas")).unwrap(),
+            "CREATE USER [o'k] FOR LOGIN [o'k] WITH DEFAULT_SCHEMA = [ventas];"
+        );
+        assert!(matches!(
+            map_login(Variant::Babelfish, "a]b", "ab", None),
+            Err(Error::Query(_))
+        ));
+        assert!(matches!(
+            map_login(Variant::Babelfish, "ab", "ab", Some("x]")),
+            Err(Error::Query(_))
+        ));
         // Fabric has no logins.
         assert!(!supports_map_login(Variant::Fabric));
-        assert!(matches!(map_login(Variant::Fabric, "ana", "ana", None), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            map_login(Variant::Fabric, "ana", "ana", None),
+            Err(Error::Unsupported(_))
+        ));
     }
 }

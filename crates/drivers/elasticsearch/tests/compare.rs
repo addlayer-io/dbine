@@ -12,7 +12,9 @@ use dbine_driver::{ConnectionConfig, QueryOutcome, Session, TableChange, TableSc
 
 async fn run(s: &mut Box<dyn Session>, text: &str) -> Result<(), String> {
     let mut out = QueryOutcome::default();
-    s.execute(text, 10, &mut out).await.map_err(|e| format!("{text}: {e}"))?;
+    s.execute(text, 10, &mut out)
+        .await
+        .map_err(|e| format!("{text}: {e}"))?;
     out.error.map_or(Ok(()), |e| Err(format!("{text}: {e}")))
 }
 
@@ -36,26 +38,47 @@ PUT /dbine_cmp_dst
 "#;
 
 fn by_name(schema: &[TableSchema], name: &str) -> TableSchema {
-    schema.iter().find(|t| t.name == name).unwrap_or_else(|| panic!("{name}")).clone()
+    schema
+        .iter()
+        .find(|t| t.name == name)
+        .unwrap_or_else(|| panic!("{name}"))
+        .clone()
 }
 
 async fn compare_and_sync(id: &str, url: &str) {
-    let d = dbine_driver_elasticsearch::drivers().into_iter().find(|d| d.info().id == id).unwrap();
-    let cfg = ConnectionConfig { driver: id.into(), host: url.into(), ..Default::default() };
+    let d = dbine_driver_elasticsearch::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap();
+    let cfg = ConnectionConfig {
+        driver: id.into(),
+        host: url.into(),
+        ..Default::default()
+    };
     let mut s = d.connect(&cfg, None).await.expect("connect");
-    let _ = run(&mut s, "DELETE /dbine_cmp_src,dbine_cmp_dst?ignore_unavailable=true").await;
+    let _ = run(
+        &mut s,
+        "DELETE /dbine_cmp_src,dbine_cmp_dst?ignore_unavailable=true",
+    )
+    .await;
     run(&mut s, SOURCE).await.unwrap();
     run(&mut s, TARGET).await.unwrap();
     let schema = s.database_schema().await.unwrap();
     let src = by_name(&schema, "dbine_cmp_src");
     let dst = by_name(&schema, "dbine_cmp_dst");
     println!("{:?}", src.options);
-    assert!(src.options.get("analysis").is_some_and(|a| a.contains("es_stop")));
+    assert!(src
+        .options
+        .get("analysis")
+        .is_some_and(|a| a.contains("es_stop")));
     // The target takes the source's analysis and fields (as the compare carries them).
     let mut new = dst.clone();
-    new.options.insert("analysis".into(), src.options["analysis"].clone());
+    new.options
+        .insert("analysis".into(), src.options["analysis"].clone());
     new.columns.extend(src.columns.iter().cloned());
-    let script = d.sync_script(&[TableChange::Alter { old: dst, new }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Alter { old: dst, new }])
+        .unwrap();
     println!("{script:#?}");
     for st in &script.statements {
         run(&mut s, st).await.unwrap();
@@ -65,20 +88,26 @@ async fn compare_and_sync(id: &str, url: &str) {
     for c in &src.columns {
         assert_eq!(after.columns.iter().find(|x| x.name == c.name), Some(c));
     }
-    run(&mut s, "DELETE /dbine_cmp_src,dbine_cmp_dst").await.unwrap();
+    run(&mut s, "DELETE /dbine_cmp_src,dbine_cmp_dst")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 #[ignore]
 async fn elasticsearch_compare() {
-    let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH_URL") else {
+        return;
+    };
     compare_and_sync("elasticsearch", &url).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn opensearch_compare() {
-    let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else {
+        return;
+    };
     compare_and_sync("opensearch", &url).await;
 }
 
@@ -108,12 +137,20 @@ async fn model(s: &mut Box<dyn Session>, prefix: &str) -> Model {
 
 /// Back to the side's real names, to send.
 fn real(t: &TableSchema, prefix: &str) -> TableSchema {
-    TableSchema { name: format!("{prefix}{}", t.name), ..t.clone() }
+    TableSchema {
+        name: format!("{prefix}{}", t.name),
+        ..t.clone()
+    }
 }
 
 /// Drops on one side what `edit` takes out of its model; returns the
 /// script's warnings and the model read back.
-async fn drop_on(d: &dyn dbine_driver::Driver, s: &mut Box<dyn Session>, prefix: &str, edit: impl Fn(&mut Model)) -> (Vec<String>, Model) {
+async fn drop_on(
+    d: &dyn dbine_driver::Driver,
+    s: &mut Box<dyn Session>,
+    prefix: &str,
+    edit: impl Fn(&mut Model),
+) -> (Vec<String>, Model) {
     let orig = model(s, prefix).await;
     let mut work = orig.clone();
     edit(&mut work);
@@ -121,8 +158,13 @@ async fn drop_on(d: &dyn dbine_driver::Driver, s: &mut Box<dyn Session>, prefix:
     let mut tables = Vec::new();
     for (n, t) in &orig {
         match work.get(n) {
-            None => tables.push(TableChange::Drop { table: real(t, prefix) }),
-            Some(w) if w != t => tables.push(TableChange::Alter { old: real(t, prefix), new: real(w, prefix) }),
+            None => tables.push(TableChange::Drop {
+                table: real(t, prefix),
+            }),
+            Some(w) if w != t => tables.push(TableChange::Alter {
+                old: real(t, prefix),
+                new: real(w, prefix),
+            }),
             Some(_) => {}
         }
     }
@@ -153,13 +195,23 @@ PUT /{p}viejo
 "#;
 
 async fn drop_from_compare(id: &str, url: &str) {
-    let d = dbine_driver_elasticsearch::drivers().into_iter().find(|d| d.info().id == id).unwrap();
+    let d = dbine_driver_elasticsearch::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap();
     let d = d.as_ref();
-    let cfg = ConnectionConfig { driver: id.into(), host: url.into(), ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: id.into(),
+        host: url.into(),
+        ..Default::default()
+    };
     let mut s = d.connect(&cfg, None).await.expect("connect");
     let (a, b) = ("dbine_drop_a_", "dbine_drop_b_");
     // By name: wildcard deletes are off by default.
-    let names: Vec<String> = [a, b].iter().flat_map(|p| ["pedidos", "clientes", "viejo"].map(|t| format!("{p}{t}"))).collect();
+    let names: Vec<String> = [a, b]
+        .iter()
+        .flat_map(|p| ["pedidos", "clientes", "viejo"].map(|t| format!("{p}{t}")))
+        .collect();
     let clean = format!("DELETE /{}?ignore_unavailable=true", names.join(","));
     let clean = clean.as_str();
     let _ = run(&mut s, clean).await;
@@ -175,7 +227,10 @@ async fn drop_from_compare(id: &str, url: &str) {
         m.remove("viejo");
     })
     .await;
-    assert!(warnings.iter().any(|w| w.contains("dbine_drop_a_viejo")), "{warnings:?}");
+    assert!(
+        warnings.iter().any(|w| w.contains("dbine_drop_a_viejo")),
+        "{warnings:?}"
+    );
     let mb = model(&mut s, b).await;
     assert!(!ma.contains_key("viejo") && mb.contains_key("viejo"));
     // The same index on the other side: equal again.
@@ -196,21 +251,42 @@ async fn drop_from_compare(id: &str, url: &str) {
 
     // The description (the props row's "Quitar comentario"), on both sides.
     for p in [a, b] {
-        let (_, m) = drop_on(d, &mut s, p, |m| m.get_mut("pedidos").unwrap().comment = None).await;
+        let (_, m) = drop_on(d, &mut s, p, |m| {
+            m.get_mut("pedidos").unwrap().comment = None
+        })
+        .await;
         assert_eq!(m["pedidos"].comment, None, "{:?}", m["pedidos"]);
         // The rest of `_meta` stays.
-        assert!(m["pedidos"].options.get("mappings_extra").is_some_and(|x| x.contains(r#""owner":"ventas""#)), "{:?}", m["pedidos"].options);
+        assert!(
+            m["pedidos"]
+                .options
+                .get("mappings_extra")
+                .is_some_and(|x| x.contains(r#""owner":"ventas""#)),
+            "{:?}",
+            m["pedidos"].options
+        );
     }
     let (ma, mb) = (model(&mut s, a).await, model(&mut s, b).await);
     assert_eq!(ma, mb);
 
     // A field: a mapping only grows, so it's only a warning.
     let mut work = ma.clone();
-    work.get_mut("pedidos").unwrap().columns.retain(|c| c.name != "extra");
+    work.get_mut("pedidos")
+        .unwrap()
+        .columns
+        .retain(|c| c.name != "extra");
     assert_ne!(work, ma, "the field is in the model");
-    let script = d.sync_script(&[TableChange::Alter { old: real(&ma["pedidos"], a), new: real(&work["pedidos"], a) }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Alter {
+            old: real(&ma["pedidos"], a),
+            new: real(&work["pedidos"], a),
+        }])
+        .unwrap();
     assert!(script.statements.is_empty(), "{script:#?}");
-    assert!(script.warnings.iter().any(|w| w.contains("extra")), "{script:#?}");
+    assert!(
+        script.warnings.iter().any(|w| w.contains("extra")),
+        "{script:#?}"
+    );
 
     run(&mut s, clean).await.unwrap();
 }
@@ -218,13 +294,17 @@ async fn drop_from_compare(id: &str, url: &str) {
 #[tokio::test]
 #[ignore]
 async fn elasticsearch_drop() {
-    let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH_URL") else {
+        return;
+    };
     drop_from_compare("elasticsearch", &url).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn opensearch_drop() {
-    let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else {
+        return;
+    };
     drop_from_compare("opensearch", &url).await;
 }

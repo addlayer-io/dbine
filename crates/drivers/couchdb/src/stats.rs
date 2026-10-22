@@ -21,7 +21,14 @@ pub(crate) fn doc_count(info: &Value) -> Option<u64> {
 pub(crate) async fn row_estimates(s: &CouchSession) -> Result<Vec<RowEstimate>> {
     let info = s.call(Method::GET, &s.db_path()?, None).await?;
     Ok(doc_count(&info)
-        .map(|rows| RowEstimate { object: ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: ALL_DOCS.into() }, rows })
+        .map(|rows| RowEstimate {
+            object: ObjectRef {
+                kind: kinds::COLLECTION.into(),
+                schema: None,
+                name: ALL_DOCS.into(),
+            },
+            rows,
+        })
         .into_iter()
         .collect())
 }
@@ -33,7 +40,10 @@ mod tests {
 
     #[test]
     fn doc_count_from_info() {
-        assert_eq!(doc_count(&json!({ "db_name": "a", "doc_count": 3, "doc_del_count": 1 })), Some(3));
+        assert_eq!(
+            doc_count(&json!({ "db_name": "a", "doc_count": 3, "doc_del_count": 1 })),
+            Some(3)
+        );
         assert_eq!(doc_count(&json!({ "error": "not_found" })), None);
     }
 }

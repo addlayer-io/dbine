@@ -25,13 +25,15 @@ mod transfer;
 
 use dbine_driver::sql::{quote_ident, Quote, ScriptDefaults, ScriptDialect};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
-    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef,
-    Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
+    async_trait, json_bytes, json_f64, json_i64, Capabilities, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
+    FieldKind, Language, ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn,
+    ScriptError, Session, TableSchema, TxState,
 };
 use rsfbclient_core::{
-    Charset, Column, Dialect, FbError, FirebirdClientDbOps, FirebirdClientSqlOps, FreeStmtOp, SqlType, StmtType,
-    TrDataAccessMode, TrIsolationLevel, TrLockResolution, TrOp, TrRecordVersion, TransactionConfiguration,
+    Charset, Column, Dialect, FbError, FirebirdClientDbOps, FirebirdClientSqlOps, FreeStmtOp,
+    SqlType, StmtType, TrDataAccessMode, TrIsolationLevel, TrLockResolution, TrOp, TrRecordVersion,
+    TransactionConfiguration,
 };
 use rsfbclient_rust::{RustFbClient, RustFbClientAttachmentConfig};
 use serde_json::Value;
@@ -72,7 +74,9 @@ fn info() -> DriverInfo {
                 .help("Ruta del archivo en el servidor o alias de databases.conf."),
             Field::username().default_value("SYSDBA"),
             Field::password(),
-            Field::new("role", "Rol", FieldKind::Text).placeholder("(ninguno)").advanced(),
+            Field::new("role", "Rol", FieldKind::Text)
+                .placeholder("(ninguno)")
+                .advanced(),
             Field::new(
                 "charset",
                 "Juego de caracteres",
@@ -88,10 +92,14 @@ fn info() -> DriverInfo {
             )
             .default_value("UTF8")
             .advanced(),
-            Field::new("autocommit", "Confirmar automáticamente (autocommit)", FieldKind::Bool)
-                .default_value("true")
-                .help("Si está apagado, los cambios esperan un COMMIT explícito.")
-                .advanced(),
+            Field::new(
+                "autocommit",
+                "Confirmar automáticamente (autocommit)",
+                FieldKind::Bool,
+            )
+            .default_value("true")
+            .help("Si está apagado, los cambios esperan un COMMIT explícito.")
+            .advanced(),
             Field::read_only(),
         ],
         databases_label: "",
@@ -139,7 +147,11 @@ fn is_cancel(m: &str) -> bool {
 /// drops the SQLSTATE), from their message as isql reports them.
 fn known_error(m: &str) -> Option<(i32, &'static str)> {
     const KNOWN: &[(&str, i32, &str)] = &[
-        ("violation of PRIMARY or UNIQUE KEY constraint", -803, "23000"),
+        (
+            "violation of PRIMARY or UNIQUE KEY constraint",
+            -803,
+            "23000",
+        ),
         ("attempt to store duplicate value", -803, "23000"),
         ("violation of FOREIGN KEY constraint", -530, "23000"),
         ("violates CHECK constraint", -297, "23000"),
@@ -147,18 +159,27 @@ fn known_error(m: &str) -> Option<(i32, &'static str)> {
         ("lock conflict on no wait transaction", -913, "40001"),
         ("deadlock", -913, "40001"),
         ("update conflicts with concurrent update", -913, "40001"),
-        ("arithmetic exception, numeric overflow, or string truncation", -802, "22000"),
+        (
+            "arithmetic exception, numeric overflow, or string truncation",
+            -802,
+            "22000",
+        ),
         ("conversion error from string", -413, "22018"),
         ("unsuccessful metadata update", -607, "42000"),
     ];
-    KNOWN.iter().find(|(text, ..)| m.contains(text)).map(|(_, code, state)| (*code, *state))
+    KNOWN
+        .iter()
+        .find(|(text, ..)| m.contains(text))
+        .map(|(_, code, state)| (*code, *state))
 }
 
 /// A statement of `script` (starting at byte `start`) failed: the SQLCODE
 /// as the code, and where when Firebird says so ("line 2, column 8", in
 /// the statement).
 fn stmt_err(e: FbError, script: &str, start: usize) -> Error {
-    let FbError::Sql { msg, code } = e else { return err(e) };
+    let FbError::Sql { msg, code } = e else {
+        return err(e);
+    };
     if is_cancel(&msg) {
         return Error::Cancelled;
     }
@@ -180,12 +201,21 @@ fn stmt_err(e: FbError, script: &str, start: usize) -> Error {
     let stmt = &script[start.min(script.len())..];
     if let Some((line, col)) = pos.filter(|(l, c)| *l >= 1 && *c >= 1) {
         // The column counts characters.
-        let line_start: usize = stmt.split_inclusive('\n').take(line - 1).map(str::len).sum();
+        let line_start: usize = stmt
+            .split_inclusive('\n')
+            .take(line - 1)
+            .map(str::len)
+            .sum();
         if line_start <= stmt.len() {
             let rest = &stmt[line_start..];
-            let col_bytes = rest.char_indices().nth(col - 1).map_or(rest.len(), |(b, _)| b);
+            let col_bytes = rest
+                .char_indices()
+                .nth(col - 1)
+                .map_or(rest.len(), |(b, _)| b);
             let offset = start + line_start + col_bytes;
-            se = se.at_offset(offset).at_line(script[..offset].matches('\n').count() as u32 + 1);
+            se = se
+                .at_offset(offset)
+                .at_line(script[..offset].matches('\n').count() as u32 + 1);
         }
     } else {
         se = se.at_line(script[..start.min(script.len())].matches('\n').count() as u32 + 1);
@@ -245,14 +275,22 @@ fn lenient_charset(name: &str) -> Result<Charset> {
     use std::collections::HashMap;
     use std::sync::OnceLock;
     static CACHE: OnceLock<Mutex<HashMap<&'static str, encoding::EncodingRef>>> = OnceLock::new();
-    let base: Charset = name.parse().map_err(|e: FbError| Error::Connect(message(&e)))?;
+    let base: Charset = name
+        .parse()
+        .map_err(|e: FbError| Error::Connect(message(&e)))?;
     // UTF8 has no `encoding` codec in rsfbclient (it uses `String::from_utf8`).
     let on_rust: encoding::EncodingRef = base.on_rust.unwrap_or(encoding::all::UTF_8);
-    let mut cache = CACHE.get_or_init(Default::default).lock().map_err(|_| poisoned())?;
-    let enc = *cache
-        .entry(base.on_firebird)
-        .or_insert_with(|| Box::leak(Box::new(Lenient(on_rust))) as &'static Lenient as encoding::EncodingRef);
-    Ok(Charset { on_firebird: base.on_firebird, on_rust: Some(enc) })
+    let mut cache = CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| poisoned())?;
+    let enc = *cache.entry(base.on_firebird).or_insert_with(|| {
+        Box::leak(Box::new(Lenient(on_rust))) as &'static Lenient as encoding::EncodingRef
+    });
+    Ok(Charset {
+        on_firebird: base.on_firebird,
+        on_rust: Some(enc),
+    })
 }
 
 // ------------------------------------------------------------ connecting
@@ -283,18 +321,29 @@ struct Target {
 fn target(cfg: &ConnectionConfig) -> Result<Target> {
     let db = cfg.database.trim();
     if db.is_empty() {
-        return Err(Error::Connect("Falta la ruta o el alias de la base de datos.".into()));
+        return Err(Error::Connect(
+            "Falta la ruta o el alias de la base de datos.".into(),
+        ));
     }
     // The server upper-cases unquoted user names and the SRP proof must use
     // the same spelling; "Name" keeps its case.
-    let user = cfg.username.as_deref().map(str::trim).filter(|u| !u.is_empty()).unwrap_or("SYSDBA");
+    let user = cfg
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .unwrap_or("SYSDBA");
     let user = match user.strip_prefix('"').and_then(|u| u.strip_suffix('"')) {
         Some(quoted) => quoted.to_string(),
         None => user.to_uppercase(),
     };
     Ok(Target {
         attach: RustFbClientAttachmentConfig {
-            host: if cfg.host.trim().is_empty() { "localhost".into() } else { cfg.host.trim().into() },
+            host: if cfg.host.trim().is_empty() {
+                "localhost".into()
+            } else {
+                cfg.host.trim().into()
+            },
             port: cfg.port_or(DEFAULT_PORT),
             db_name: db.into(),
             user,
@@ -303,7 +352,11 @@ fn target(cfg: &ConnectionConfig) -> Result<Target> {
         },
         charset: lenient_charset(cfg.option("charset").unwrap_or("UTF8"))?,
         tr_conf: TransactionConfiguration {
-            data_access: if cfg.read_only { TrDataAccessMode::ReadOnly } else { TrDataAccessMode::ReadWrite },
+            data_access: if cfg.read_only {
+                TrDataAccessMode::ReadOnly
+            } else {
+                TrDataAccessMode::ReadWrite
+            },
             isolation: TrIsolationLevel::ReadCommited(TrRecordVersion::RecordVersion),
             lock_resolution: TrLockResolution::Wait(None),
         },
@@ -321,11 +374,23 @@ struct Conn {
 impl Conn {
     fn open(t: &Target) -> Result<Self> {
         let mut client = RustFbClient::new(t.charset.clone());
-        let mut db = client.attach_database(&t.attach, Dialect::D3, false).map_err(connect_err)?;
-        let tr = client.begin_transaction(&mut db, t.tr_conf).map_err(connect_err)?;
-        let mut conn = Conn { client, db, tr, tr_conf: t.tr_conf };
+        let mut db = client
+            .attach_database(&t.attach, Dialect::D3, false)
+            .map_err(connect_err)?;
+        let tr = client
+            .begin_transaction(&mut db, t.tr_conf)
+            .map_err(connect_err)?;
+        let mut conn = Conn {
+            client,
+            db,
+            tr,
+            tr_conf: t.tr_conf,
+        };
         for sql in SET_BINDS {
-            if let Err(e) = conn.client.exec_immediate(&mut conn.db, &mut conn.tr, Dialect::D3, sql) {
+            if let Err(e) = conn
+                .client
+                .exec_immediate(&mut conn.db, &mut conn.tr, Dialect::D3, sql)
+            {
                 tracing::debug!("firebird: {sql}: {}", message(&e));
             }
         }
@@ -339,7 +404,8 @@ impl Conn {
     }
 
     fn prepare(&mut self, sql: &str) -> std::result::Result<(StmtType, StmtHandle), FbError> {
-        self.client.prepare_statement(&mut self.db, &mut self.tr, Dialect::D3, sql)
+        self.client
+            .prepare_statement(&mut self.db, &mut self.tr, Dialect::D3, sql)
     }
 
     fn free(&mut self, stmt: &mut StmtHandle) {
@@ -352,7 +418,8 @@ impl Conn {
     fn rows(&mut self, sql: &str, params: Vec<SqlType>) -> Result<Vec<Vec<Column>>> {
         let (_, mut stmt) = self.prepare(sql).map_err(err)?;
         let result = (|| {
-            self.client.execute(&mut self.db, &mut self.tr, &mut stmt, params)?;
+            self.client
+                .execute(&mut self.db, &mut self.tr, &mut stmt, params)?;
             let mut rows = Vec::new();
             while let Some(row) = self.client.fetch(&mut self.db, &mut self.tr, &mut stmt)? {
                 rows.push(row);
@@ -366,7 +433,9 @@ impl Conn {
 
 impl Drop for Conn {
     fn drop(&mut self) {
-        let _ = self.client.transaction_operation(&mut self.tr, TrOp::Rollback);
+        let _ = self
+            .client
+            .transaction_operation(&mut self.tr, TrOp::Rollback);
         let _ = self.client.detach_database(&mut self.db);
     }
 }
@@ -409,8 +478,16 @@ impl Driver for FirebirdDriver {
     /// `FETCH FIRST`) and `AVG` in floating point (it truncates integers).
     fn aggregate_query(&self, query: &str, spec: &dbine_driver::AggregateSpec) -> Result<String> {
         use dbine_driver::aggregate::{grouped_sql, single_read, RowLimit, SqlShape};
-        let shape = SqlShape { limit: RowLimit::First, float_avg: true, ..SqlShape::ansi() };
-        let one = single_read(&self.split_script(query), &self.script_dialect(), shape.derived_with)?;
+        let shape = SqlShape {
+            limit: RowLimit::First,
+            float_avg: true,
+            ..SqlShape::ansi()
+        };
+        let one = single_read(
+            &self.split_script(query),
+            &self.script_dialect(),
+            shape.derived_with,
+        )?;
         grouped_sql(&shape, &one, spec)
     }
 
@@ -424,7 +501,10 @@ impl Driver for FirebirdDriver {
 
     /// isql goes on after an error unless `SET BAIL ON`.
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     fn supports_manual_transactions(&self) -> bool {
@@ -448,12 +528,20 @@ impl Driver for FirebirdDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
     /// The database is the file the statements run on (see [`properties`]).
-    fn alter_database_script(&self, _database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        _database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(changes)
     }
 
@@ -497,7 +585,10 @@ impl Driver for FirebirdDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
     }
 
@@ -515,7 +606,12 @@ impl Driver for FirebirdDriver {
         true
     }
 
-    fn index_toggle_script(&self, _table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+    fn index_toggle_script(
+        &self,
+        _table: &ObjectRef,
+        index: &dbine_driver::IndexUsage,
+        enable: bool,
+    ) -> Result<dbine_driver::SyncScript> {
         index_usage::toggle_script(index, enable)
     }
 
@@ -524,25 +620,59 @@ impl Driver for FirebirdDriver {
         true
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
         // No multi-row VALUES in Firebird: one INSERT per row.
-        Ok(dbine_driver::ddl::insert_script(&schema::flavor(), None, &target.name, columns, rows, 1))
+        Ok(dbine_driver::ddl::insert_script(
+            &schema::flavor(),
+            None,
+            &target.name,
+            columns,
+            rows,
+            1,
+        ))
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         // No schemas in Firebird: the bare table name, as in the INSERTs.
-        Ok(dbine_driver::ddl::update_script(&schema::flavor(), None, &target.name, changes))
+        Ok(dbine_driver::ddl::update_script(
+            &schema::flavor(),
+            None,
+            &target.name,
+            changes,
+        ))
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
         // No schemas in Firebird: the bare table name, as in the INSERTs.
-        Ok(dbine_driver::ddl::delete_script(&schema::flavor(), None, &target.name, keys))
+        Ok(dbine_driver::ddl::delete_script(
+            &schema::flavor(),
+            None,
+            &target.name,
+            keys,
+        ))
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let mut target = target(cfg)?;
         // Another database file of the same server (one created from DBine).
-        let database = database.map(str::trim).filter(|d| !d.is_empty()).unwrap_or(cfg.database.trim()).to_string();
+        let database = database
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .unwrap_or(cfg.database.trim())
+            .to_string();
         target.attach.db_name = database.clone();
         let t = target.clone();
         // The client has no connect timeout of its own.
@@ -558,7 +688,12 @@ impl Driver for FirebirdDriver {
         });
         let (conn, attachment_id) = tokio::time::timeout(CONNECT_TIMEOUT, task)
             .await
-            .map_err(|_| Error::Connect(format!("El servidor no respondió en {} s.", CONNECT_TIMEOUT.as_secs())))?
+            .map_err(|_| {
+                Error::Connect(format!(
+                    "El servidor no respondió en {} s.",
+                    CONNECT_TIMEOUT.as_secs()
+                ))
+            })?
             .map_err(join_err)??;
         Ok(Box::new(FirebirdSession {
             conn: Arc::new(Mutex::new(conn)),
@@ -594,9 +729,14 @@ impl FirebirdSession {
     /// Commit or roll back the session's transaction (a new one starts).
     async fn end(&mut self, op: TrOp) -> Result<()> {
         let conn = self.conn.clone();
-        tokio::task::spawn_blocking(move || conn.lock().map_err(|_| poisoned())?.end_transaction(op).map_err(err))
-            .await
-            .map_err(join_err)??;
+        tokio::task::spawn_blocking(move || {
+            conn.lock()
+                .map_err(|_| poisoned())?
+                .end_transaction(op)
+                .map_err(err)
+        })
+        .await
+        .map_err(join_err)??;
         self.dirty.store(false, Ordering::SeqCst);
         Ok(())
     }
@@ -626,7 +766,8 @@ impl FirebirdSession {
 
     /// Rows of a catalog query with text parameters.
     async fn rows(&self, sql: &'static str, params: Vec<String>) -> Result<Vec<Vec<Column>>> {
-        self.run(move |c| c.rows(sql, params.into_iter().map(SqlType::Text).collect())).await
+        self.run(move |c| c.rows(sql, params.into_iter().map(SqlType::Text).collect()))
+            .await
     }
 }
 
@@ -674,8 +815,17 @@ SELECT f.RDB$FIELD_TYPE, f.RDB$FIELD_SUB_TYPE, f.RDB$FIELD_LENGTH, f.RDB$CHARACT
 /// `CREATE DOMAIN` from a [`DOMAIN`] row.
 fn domain_sql(name: &str, r: &[Column]) -> String {
     let g = |i: usize| r.get(i).and_then(int);
-    let t = |i: usize| r.get(i).and_then(text).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    let mut s = format!("CREATE DOMAIN {} AS {}", q(name), field_type(g(0), g(1), g(2), g(3), g(4), g(5)));
+    let t = |i: usize| {
+        r.get(i)
+            .and_then(text)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let mut s = format!(
+        "CREATE DOMAIN {} AS {}",
+        q(name),
+        field_type(g(0), g(1), g(2), g(3), g(4), g(5))
+    );
     let textual = matches!(g(0), Some(14 | 37 | 40)) || (g(0) == Some(261) && g(1) == Some(1));
     if let Some(cs) = t(9).filter(|_| textual) {
         s.push_str(&format!(" CHARACTER SET {cs}"));
@@ -735,8 +885,17 @@ SELECT TRIM(a.RDB$ARGUMENT_NAME), a.RDB$ARGUMENT_POSITION, f.RDB$FIELD_TYPE, f.R
 #[async_trait]
 impl Session for FirebirdSession {
     async fn server_version(&mut self) -> Result<String> {
-        let rows = self.rows("SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE", vec![]).await?;
-        let v = rows.first().and_then(|r| r.first()).and_then(text).unwrap_or_default();
+        let rows = self
+            .rows(
+                "SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE",
+                vec![],
+            )
+            .await?;
+        let v = rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(text)
+            .unwrap_or_default();
         Ok(format!("Firebird {v}"))
     }
 
@@ -779,7 +938,13 @@ impl Session for FirebirdSession {
                     default_value: r
                         .get(8)
                         .and_then(text)
-                        .map(|d| d.trim().trim_start_matches("DEFAULT").trim_start_matches("default").trim().to_string())
+                        .map(|d| {
+                            d.trim()
+                                .trim_start_matches("DEFAULT")
+                                .trim_start_matches("default")
+                                .trim()
+                                .to_string()
+                        })
                         .filter(|d| !d.is_empty()),
                 }
             })
@@ -808,27 +973,42 @@ impl Session for FirebirdSession {
         let (local, result) = tokio::task::spawn_blocking(move || {
             let mut local = fork;
             let result = match conn.lock() {
-                Ok(mut c) => script::pieces(&script).iter().enumerate().try_for_each(|(i, p)| {
-                    let step = steps::Step::start(&mut local, own, i, p.start, steps::line_at(&script, p.start));
-                    let r = if p.skipped {
-                        local.info(format!("Comando de isql omitido (no es SQL del servidor): {}", first_line(&p.text)));
-                        Ok(())
-                    } else {
-                        let r = run_statement(&mut c, &p.text, max_rows, autocommit, &mut local);
-                        match &r {
-                            Ok(Some(StmtType::Commit | StmtType::Rollback)) => dirty.store(false, Ordering::SeqCst),
-                            Ok(Some(StmtType::Select)) | Ok(None) => {}
-                            Ok(Some(_)) if !autocommit => dirty.store(true, Ordering::SeqCst),
-                            _ => {}
-                        }
-                        // Placed in the statement; the step moves it into the script.
-                        r.map(|_| ()).map_err(|e| match e {
-                            StmtFailure::Fb(e) => stmt_err(e, &p.text, 0),
-                            StmtFailure::Other(e) => e,
-                        })
-                    };
-                    step.end(&mut local, r)
-                }),
+                Ok(mut c) => script::pieces(&script)
+                    .iter()
+                    .enumerate()
+                    .try_for_each(|(i, p)| {
+                        let step = steps::Step::start(
+                            &mut local,
+                            own,
+                            i,
+                            p.start,
+                            steps::line_at(&script, p.start),
+                        );
+                        let r = if p.skipped {
+                            local.info(format!(
+                                "Comando de isql omitido (no es SQL del servidor): {}",
+                                first_line(&p.text)
+                            ));
+                            Ok(())
+                        } else {
+                            let r =
+                                run_statement(&mut c, &p.text, max_rows, autocommit, &mut local);
+                            match &r {
+                                Ok(Some(StmtType::Commit | StmtType::Rollback)) => {
+                                    dirty.store(false, Ordering::SeqCst)
+                                }
+                                Ok(Some(StmtType::Select)) | Ok(None) => {}
+                                Ok(Some(_)) if !autocommit => dirty.store(true, Ordering::SeqCst),
+                                _ => {}
+                            }
+                            // Placed in the statement; the step moves it into the script.
+                            r.map(|_| ()).map_err(|e| match e {
+                                StmtFailure::Fb(e) => stmt_err(e, &p.text, 0),
+                                StmtFailure::Other(e) => e,
+                            })
+                        };
+                        step.end(&mut local, r)
+                    }),
                 Err(_) => Err(poisoned()),
             };
             (local, result)
@@ -861,7 +1041,13 @@ impl Session for FirebirdSession {
         self.end(TrOp::Rollback).await
     }
 
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let statements = script::split(text);
         let autocommit = self.autocommit;
         let conn = self.conn.clone();
@@ -869,7 +1055,9 @@ impl Session for FirebirdSession {
         let (local, result) = tokio::task::spawn_blocking(move || {
             let mut local = fork;
             let result = match conn.lock() {
-                Ok(mut c) => statements.iter().try_for_each(|s| explain_statement(&mut c, s, analyze, max_rows, autocommit, &mut local)),
+                Ok(mut c) => statements.iter().try_for_each(|s| {
+                    explain_statement(&mut c, s, analyze, max_rows, autocommit, &mut local)
+                }),
                 Err(_) => Err(poisoned()),
             };
             (local, result)
@@ -906,14 +1094,20 @@ impl Session for FirebirdSession {
         self.run(move |c| processes::kill(c, own, &id)).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let state = self.profiler.as_mut().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let state = self
+            .profiler
+            .as_mut()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         profiler::poll(state).await
     }
 
@@ -959,21 +1153,36 @@ impl Session for FirebirdSession {
     }
 
     /// "Chequeo de salud" of the database (see `health`).
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
     /// "Buscar en la base" from the catalog (see `search`).
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let tables = self.run(schema::database_schema).await?;
-        Ok(Some(index_usage::report(tables.iter().find(|t| t.name == table.name))))
+        Ok(Some(index_usage::report(
+            tables.iter().find(|t| t.name == table.name),
+        )))
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -994,7 +1203,9 @@ impl Session for FirebirdSession {
         t.attach.db_name = name.trim().to_string();
         tokio::task::spawn_blocking(move || {
             let mut client = RustFbClient::new(t.charset.clone());
-            let mut db = client.create_database(&t.attach, None, Dialect::D3).map_err(err)?;
+            let mut db = client
+                .create_database(&t.attach, None, Dialect::D3)
+                .map_err(err)?;
             client.detach_database(&mut db).map_err(err)
         })
         .await
@@ -1005,28 +1216,43 @@ impl Session for FirebirdSession {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         let name = name.trim().to_string();
         if name == self.database {
-            return Err(Error::Query("No se puede borrar la base de datos de la conexión actual.".into()));
+            return Err(Error::Query(
+                "No se puede borrar la base de datos de la conexión actual.".into(),
+            ));
         }
         let mut t = self.target.clone();
         t.attach.db_name = name;
         tokio::task::spawn_blocking(move || {
             let mut client = RustFbClient::new(t.charset.clone());
-            let mut db = client.attach_database(&t.attach, Dialect::D3, true).map_err(err)?;
+            let mut db = client
+                .attach_database(&t.attach, Dialect::D3, true)
+                .map_err(err)?;
             client.drop_database(&mut db).map_err(err)
         })
         .await
@@ -1045,7 +1271,14 @@ impl Session for FirebirdSession {
 /// One statement's plan (read while it's only prepared) and, with
 /// `analyze`, its run. Firebird has no per-operator runtime figures: the
 /// run adds the elapsed time and the rows returned to the plan's root.
-fn explain_statement(c: &mut Conn, sql: &str, analyze: bool, max_rows: usize, autocommit: bool, out: &mut QueryOutcome) -> Result<()> {
+fn explain_statement(
+    c: &mut Conn,
+    sql: &str,
+    analyze: bool,
+    max_rows: usize,
+    autocommit: bool,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     let text = explained_plan(c, sql)?;
     let before = out.results.len();
     let started = std::time::Instant::now();
@@ -1054,22 +1287,37 @@ fn explain_statement(c: &mut Conn, sql: &str, analyze: bool, max_rows: usize, au
     }
     let Some(text) = text else {
         if !analyze {
-            out.messages.push(format!("Sin plan para «{}»: la sentencia no lee tablas.", sql.trim()));
+            out.messages.push(format!(
+                "Sin plan para «{}»: la sentencia no lee tablas.",
+                sql.trim()
+            ));
         }
         return Ok(());
     };
     let mut root = plan::tree(&text);
     if analyze {
         let ms = started.elapsed().as_secs_f64() * 1000.0;
-        root.props.push(("Tiempo de ejecución (ms)".into(), format!("{ms:.1}")));
-        if let Some(r) = out.results.get(before..).and_then(|r| r.iter().find(|r| !r.columns.is_empty())) {
-            root.props.push(("Filas devueltas".into(), r.total_rows.to_string()));
+        root.props
+            .push(("Tiempo de ejecución (ms)".into(), format!("{ms:.1}")));
+        if let Some(r) = out
+            .results
+            .get(before..)
+            .and_then(|r| r.iter().find(|r| !r.columns.is_empty()))
+        {
+            root.props
+                .push(("Filas devueltas".into(), r.total_rows.to_string()));
         }
         if !out.messages.iter().any(|m| m.starts_with("Firebird no da")) {
             out.messages.push("Firebird no da cifras reales por operador: se muestra el plan estimado con el tiempo y las filas de la ejecución.".into());
         }
     }
-    out.plans.push(Plan { statement: sql.trim().to_string(), root, actual: false, raw_format: "text".into(), raw: text.trim().to_string() });
+    out.plans.push(Plan {
+        statement: sql.trim().to_string(),
+        root,
+        actual: false,
+        raw_format: "text".into(),
+        raw: text.trim().to_string(),
+    });
     Ok(())
 }
 
@@ -1086,7 +1334,9 @@ fn explained_plan(c: &mut Conn, sql: &str) -> Result<Option<String>> {
     let result = (|| -> std::result::Result<Vec<Vec<Column>>, FbError> {
         let mut tr = c.client.begin_transaction(&mut c.db, conf)?;
         let rows = (|| {
-            let (_, mut mon) = c.client.prepare_statement(&mut c.db, &mut tr, Dialect::D3, MON_PLANS)?;
+            let (_, mut mon) =
+                c.client
+                    .prepare_statement(&mut c.db, &mut tr, Dialect::D3, MON_PLANS)?;
             let rows = (|| {
                 c.client.execute(&mut c.db, &mut tr, &mut mon, vec![])?;
                 let mut rows = Vec::new();
@@ -1105,7 +1355,10 @@ fn explained_plan(c: &mut Conn, sql: &str) -> Result<Option<String>> {
     let rows = result.map_err(|e| {
         let m = message(&e);
         if m.contains("MON$EXPLAINED_PLAN") {
-            Error::Unsupported("Este servidor no da planes explicados (MON$EXPLAINED_PLAN llegó en Firebird 3).".into())
+            Error::Unsupported(
+                "Este servidor no da planes explicados (MON$EXPLAINED_PLAN llegó en Firebird 3)."
+                    .into(),
+            )
         } else {
             Error::Query(m)
         }
@@ -1114,8 +1367,17 @@ fn explained_plan(c: &mut Conn, sql: &str) -> Result<Option<String>> {
     let pick = rows
         .iter()
         .find(|r| r.first().and_then(text).is_some_and(|t| t.trim() == want))
-        .or_else(|| rows.iter().find(|r| r.first().and_then(text).is_some_and(|t| !t.contains("MON$EXPLAINED_PLAN"))));
-    Ok(pick.and_then(|r| r.get(1)).and_then(text).filter(|t| !t.trim().is_empty()))
+        .or_else(|| {
+            rows.iter().find(|r| {
+                r.first()
+                    .and_then(text)
+                    .is_some_and(|t| !t.contains("MON$EXPLAINED_PLAN"))
+            })
+        });
+    Ok(pick
+        .and_then(|r| r.get(1))
+        .and_then(text)
+        .filter(|t| !t.trim().is_empty()))
 }
 
 const MON_PLANS: &str = "SELECT MON$SQL_TEXT, MON$EXPLAINED_PLAN FROM MON$STATEMENTS \
@@ -1155,7 +1417,13 @@ fn first_line(s: &str) -> &str {
 
 /// Run one statement; its type when it ran (a selectable `EXECUTE
 /// PROCEDURE` reads as `Select`).
-fn run_statement(c: &mut Conn, sql: &str, max_rows: usize, autocommit: bool, out: &mut QueryOutcome) -> std::result::Result<Option<StmtType>, StmtFailure> {
+fn run_statement(
+    c: &mut Conn,
+    sql: &str,
+    max_rows: usize,
+    autocommit: bool,
+    out: &mut QueryOutcome,
+) -> std::result::Result<Option<StmtType>, StmtFailure> {
     let (mut ty, mut stmt) = c.prepare(sql)?;
     // The pure-Rust client can't read the single output row of EXECUTE
     // PROCEDURE (op_execute2): run it inside an EXECUTE BLOCK that returns
@@ -1175,7 +1443,13 @@ fn run_statement(c: &mut Conn, sql: &str, max_rows: usize, autocommit: bool, out
     result.map(|()| Some(ty))
 }
 
-fn run_prepared(c: &mut Conn, ty: StmtType, stmt: &mut StmtHandle, max_rows: usize, out: &mut QueryOutcome) -> std::result::Result<(), StmtFailure> {
+fn run_prepared(
+    c: &mut Conn,
+    ty: StmtType,
+    stmt: &mut StmtHandle,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> std::result::Result<(), StmtFailure> {
     match ty {
         StmtType::Select | StmtType::SelectForUpd => {
             c.client.execute(&mut c.db, &mut c.tr, stmt, vec![])?;
@@ -1185,7 +1459,10 @@ fn run_prepared(c: &mut Conn, ty: StmtType, stmt: &mut StmtHandle, max_rows: usi
                     out.begin_result(columns_of(&row));
                     started = true;
                 }
-                out.push_row(row.into_iter().map(|col| cell(col.value)).collect(), max_rows);
+                out.push_row(
+                    row.into_iter().map(|col| cell(col.value)).collect(),
+                    max_rows,
+                );
             }
             if !started {
                 // The client only reports column names with the rows.
@@ -1238,7 +1515,9 @@ fn run_prepared(c: &mut Conn, ty: StmtType, stmt: &mut StmtHandle, max_rows: usi
 /// `EXECUTE BLOCK RETURNS (<outputs>) AS BEGIN EXECUTE PROCEDURE p … RETURNING_VALUES …; SUSPEND; END`
 /// for `EXECUTE PROCEDURE p …`, when the procedure has output parameters.
 fn procedure_block(c: &mut Conn, sql: &str) -> Result<Option<String>> {
-    let Some((name, args)) = script::execute_procedure(sql) else { return Ok(None) };
+    let Some((name, args)) = script::execute_procedure(sql) else {
+        return Ok(None);
+    };
     let (package, proc) = match script::split_name(&name).as_slice() {
         [p] => (None, p.clone()),
         [pkg, p] => (Some(pkg.clone()), p.clone()),
@@ -1264,7 +1543,10 @@ fn procedure_block(c: &mut Conn, sql: &str) -> Result<Option<String>> {
     if outputs.is_empty() {
         return Ok(None);
     }
-    let decl: Vec<String> = outputs.iter().map(|(n, t)| format!("{} {t}", q(n))).collect();
+    let decl: Vec<String> = outputs
+        .iter()
+        .map(|(n, t)| format!("{} {t}", q(n)))
+        .collect();
     let vars: Vec<String> = outputs.iter().map(|(n, _)| format!(":{}", q(n))).collect();
     Ok(Some(format!(
         "EXECUTE BLOCK RETURNS ({}) AS BEGIN EXECUTE PROCEDURE {name} {args} RETURNING_VALUES {}; SUSPEND; END",
@@ -1274,7 +1556,12 @@ fn procedure_block(c: &mut Conn, sql: &str) -> Result<Option<String>> {
 }
 
 fn columns_of(row: &[Column]) -> Vec<ResultColumn> {
-    row.iter().map(|c| ResultColumn { name: c.name.clone(), type_name: String::new() }).collect()
+    row.iter()
+        .map(|c| ResultColumn {
+            name: c.name.clone(),
+            type_name: String::new(),
+        })
+        .collect()
 }
 
 /// A cell as JSON. On Firebird 4+ decimals, dates and times already come
@@ -1378,7 +1665,10 @@ fn trigger_event(t: i64) -> String {
         .into();
     }
     if t & DDL != 0 {
-        return format!("{} ANY DDL STATEMENT", if t & 1 == 0 { "BEFORE" } else { "AFTER" });
+        return format!(
+            "{} ANY DDL STATEMENT",
+            if t & 1 == 0 { "BEFORE" } else { "AFTER" }
+        );
     }
     let prefix = if (t + 1) & 1 == 0 { "BEFORE" } else { "AFTER" };
     let events: Vec<&str> = (1..=3)
@@ -1397,30 +1687,46 @@ fn with_as(src: &str) -> String {
     let src = src.trim();
     let starts_with_as = src.get(..2).is_some_and(|w| w.eq_ignore_ascii_case("AS"))
         && src[2..].starts_with(|c: char| c.is_whitespace());
-    if starts_with_as { src.to_string() } else { format!("AS\n{src}") }
+    if starts_with_as {
+        src.to_string()
+    } else {
+        format!("AS\n{src}")
+    }
 }
 
 fn params_list(c: &mut Conn, sql: &str, name: &str) -> Result<Vec<(String, i64, String)>> {
-    Ok(c.rows(sql, vec![SqlType::Text(name.into())])?.iter().map(|r| param(r)).collect())
+    Ok(c.rows(sql, vec![SqlType::Text(name.into())])?
+        .iter()
+        .map(|r| param(r))
+        .collect())
 }
 
 /// A [`PROCEDURE_PARAMS`] / [`FUNCTION_ARGS`] row: name, direction or
 /// position, type.
 fn param(r: &[Column]) -> (String, i64, String) {
     let g = |i: usize| r.get(i).and_then(int);
-    (r.first().and_then(text).unwrap_or_default(), g(1).unwrap_or(0), field_type(g(2), g(3), g(4), g(5), g(6), g(7)))
+    (
+        r.first().and_then(text).unwrap_or_default(),
+        g(1).unwrap_or(0),
+        field_type(g(2), g(3), g(4), g(5), g(6), g(7)),
+    )
 }
 
 fn one_row(c: &mut Conn, sql: &str, name: &str) -> Result<Option<Vec<Column>>> {
-    Ok(c.rows(sql, vec![SqlType::Text(name.into())])?.into_iter().next())
+    Ok(c.rows(sql, vec![SqlType::Text(name.into())])?
+        .into_iter()
+        .next())
 }
 
 const VIEW_SOURCE: &str = "SELECT RDB$VIEW_SOURCE FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?";
-const PROCEDURE_SOURCE: &str = "SELECT RDB$PROCEDURE_SOURCE FROM RDB$PROCEDURES WHERE RDB$PROCEDURE_NAME = ?";
-const FUNCTION_SOURCE: &str = "SELECT RDB$FUNCTION_SOURCE FROM RDB$FUNCTIONS WHERE RDB$FUNCTION_NAME = ?";
+const PROCEDURE_SOURCE: &str =
+    "SELECT RDB$PROCEDURE_SOURCE FROM RDB$PROCEDURES WHERE RDB$PROCEDURE_NAME = ?";
+const FUNCTION_SOURCE: &str =
+    "SELECT RDB$FUNCTION_SOURCE FROM RDB$FUNCTIONS WHERE RDB$FUNCTION_NAME = ?";
 const PACKAGE_SOURCE: &str =
     "SELECT RDB$PACKAGE_HEADER_SOURCE, RDB$PACKAGE_BODY_SOURCE FROM RDB$PACKAGES WHERE RDB$PACKAGE_NAME = ?";
-const TRIGGER_SOURCE: &str = "SELECT RDB$TRIGGER_SOURCE, TRIM(RDB$RELATION_NAME), RDB$TRIGGER_TYPE, RDB$TRIGGER_SEQUENCE,
+const TRIGGER_SOURCE: &str =
+    "SELECT RDB$TRIGGER_SOURCE, TRIM(RDB$RELATION_NAME), RDB$TRIGGER_TYPE, RDB$TRIGGER_SEQUENCE,
         RDB$TRIGGER_INACTIVE
    FROM RDB$TRIGGERS WHERE RDB$TRIGGER_NAME = ?";
 const SEQUENCE_SOURCE: &str =
@@ -1430,13 +1736,29 @@ fn definition(c: &mut Conn, kind: &str, name: &str) -> Result<Option<String>> {
     match kind {
         "view" => Ok(one_row(c, VIEW_SOURCE, name)?.and_then(|r| view_sql(name, &r))),
         "procedure" => {
-            let Some(src) = one_row(c, PROCEDURE_SOURCE, name)?.and_then(|r| r.first().and_then(text)) else { return Ok(None) };
-            Ok(Some(procedure_sql(name, &src, &params_list(c, PROCEDURE_PARAMS, name)?)))
+            let Some(src) =
+                one_row(c, PROCEDURE_SOURCE, name)?.and_then(|r| r.first().and_then(text))
+            else {
+                return Ok(None);
+            };
+            Ok(Some(procedure_sql(
+                name,
+                &src,
+                &params_list(c, PROCEDURE_PARAMS, name)?,
+            )))
         }
         "function" => {
             // Legacy UDFs and external functions have no PSQL source.
-            let Some(src) = one_row(c, FUNCTION_SOURCE, name)?.and_then(|r| r.first().and_then(text)) else { return Ok(None) };
-            Ok(Some(function_sql(name, &src, &params_list(c, FUNCTION_ARGS, name)?)))
+            let Some(src) =
+                one_row(c, FUNCTION_SOURCE, name)?.and_then(|r| r.first().and_then(text))
+            else {
+                return Ok(None);
+            };
+            Ok(Some(function_sql(
+                name,
+                &src,
+                &params_list(c, FUNCTION_ARGS, name)?,
+            )))
         }
         PACKAGE => Ok(one_row(c, PACKAGE_SOURCE, name)?.map(|r| package_sql(name, &r))),
         "trigger" => Ok(one_row(c, TRIGGER_SOURCE, name)?.and_then(|r| trigger_sql(name, &r))),
@@ -1450,13 +1772,19 @@ fn definition(c: &mut Conn, kind: &str, name: &str) -> Result<Option<String>> {
 
 /// `CREATE OR ALTER VIEW` from a [`VIEW_SOURCE`] row.
 fn view_sql(name: &str, r: &[Column]) -> Option<String> {
-    r.first().and_then(text).map(|src| format!("CREATE OR ALTER VIEW {} AS\n{};", q(name), src.trim()))
+    r.first()
+        .and_then(text)
+        .map(|src| format!("CREATE OR ALTER VIEW {} AS\n{};", q(name), src.trim()))
 }
 
 /// `CREATE OR ALTER PROCEDURE` from its source and [`param`]s.
 fn procedure_sql(name: &str, src: &str, params: &[(String, i64, String)]) -> String {
     let list = |dir: i64| -> Vec<String> {
-        params.iter().filter(|p| p.1 == dir).map(|p| format!("    {} {}", q(&p.0), p.2)).collect()
+        params
+            .iter()
+            .filter(|p| p.1 == dir)
+            .map(|p| format!("    {} {}", q(&p.0), p.2))
+            .collect()
     };
     let (ins, outs) = (list(0), list(1));
     let mut s = format!("CREATE OR ALTER PROCEDURE {}", q(name));
@@ -1471,8 +1799,16 @@ fn procedure_sql(name: &str, src: &str, params: &[(String, i64, String)]) -> Str
 
 /// `CREATE OR ALTER FUNCTION` from its source and [`param`]s.
 fn function_sql(name: &str, src: &str, args: &[(String, i64, String)]) -> String {
-    let ins: Vec<String> = args.iter().filter(|a| a.1 > 0).map(|a| format!("    {} {}", q(&a.0), a.2)).collect();
-    let ret = args.iter().find(|a| a.1 == 0).map(|a| a.2.clone()).unwrap_or_default();
+    let ins: Vec<String> = args
+        .iter()
+        .filter(|a| a.1 > 0)
+        .map(|a| format!("    {} {}", q(&a.0), a.2))
+        .collect();
+    let ret = args
+        .iter()
+        .find(|a| a.1 == 0)
+        .map(|a| a.2.clone())
+        .unwrap_or_default();
     let mut s = format!("CREATE OR ALTER FUNCTION {}", q(name));
     if !ins.is_empty() {
         s.push_str(&format!(" (\n{}\n)", ins.join(",\n")));
@@ -1486,7 +1822,10 @@ fn package_sql(name: &str, r: &[Column]) -> String {
     let header = r.first().and_then(text).unwrap_or_default();
     let mut s = format!("CREATE OR ALTER PACKAGE {qn}\nAS\n{};", header.trim());
     if let Some(body) = r.get(1).and_then(text) {
-        s.push_str(&format!("\n\nRECREATE PACKAGE BODY {qn}\nAS\n{};", body.trim()));
+        s.push_str(&format!(
+            "\n\nRECREATE PACKAGE BODY {qn}\nAS\n{};",
+            body.trim()
+        ));
     }
     s
 }
@@ -1497,9 +1836,17 @@ fn trigger_sql(name: &str, r: &[Column]) -> Option<String> {
     let table = r.get(1).and_then(text).filter(|t| !t.is_empty());
     let event = trigger_event(r.get(2).and_then(int).unwrap_or(1));
     let position = r.get(3).and_then(int).unwrap_or(0);
-    let active = if r.get(4).and_then(int).unwrap_or(0) == 1 { "INACTIVE" } else { "ACTIVE" };
+    let active = if r.get(4).and_then(int).unwrap_or(0) == 1 {
+        "INACTIVE"
+    } else {
+        "ACTIVE"
+    };
     let target = table.map(|t| format!(" FOR {}", q(&t))).unwrap_or_default();
-    Some(format!("CREATE OR ALTER TRIGGER {}{target}\n{active} {event} POSITION {position}\n{};", q(name), with_as(&src)))
+    Some(format!(
+        "CREATE OR ALTER TRIGGER {}{target}\n{active} {event} POSITION {position}\n{};",
+        q(name),
+        with_as(&src)
+    ))
 }
 
 /// `CREATE SEQUENCE` from a [`SEQUENCE_SOURCE`] row. Not the current
@@ -1508,31 +1855,64 @@ fn trigger_sql(name: &str, r: &[Column]) -> Option<String> {
 fn sequence_sql(name: &str, r: &[Column]) -> String {
     let start = r.first().and_then(int).unwrap_or(0);
     let step = r.get(1).and_then(int).unwrap_or(1);
-    format!("CREATE SEQUENCE {} START WITH {start} INCREMENT BY {step};", q(name))
+    format!(
+        "CREATE SEQUENCE {} START WITH {start} INCREMENT BY {step};",
+        q(name)
+    )
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn errors_without_sqlerr_get_isqls_codes() {
-        let pk = FbError::Sql { code: -1, msg: "violation of PRIMARY or UNIQUE KEY constraint \"PK_T\" on table \"T\"".into() };
-        let Error::Statement(se) = super::stmt_err(pk, "insert into t values (1)", 0) else { panic!("statement error") };
-        assert_eq!((se.code.as_deref(), se.sqlstate.as_deref()), (Some("-803"), Some("23000")));
-        let dyn_sql = FbError::Sql { code: -206, msg: "Dynamic SQL Error\nSQL error code = -206\nColumn unknown\nX".into() };
-        let Error::Statement(se) = super::stmt_err(dyn_sql, "select x from t", 0) else { panic!("statement error") };
+        let pk = FbError::Sql {
+            code: -1,
+            msg: "violation of PRIMARY or UNIQUE KEY constraint \"PK_T\" on table \"T\"".into(),
+        };
+        let Error::Statement(se) = super::stmt_err(pk, "insert into t values (1)", 0) else {
+            panic!("statement error")
+        };
+        assert_eq!(
+            (se.code.as_deref(), se.sqlstate.as_deref()),
+            (Some("-803"), Some("23000"))
+        );
+        let dyn_sql = FbError::Sql {
+            code: -206,
+            msg: "Dynamic SQL Error\nSQL error code = -206\nColumn unknown\nX".into(),
+        };
+        let Error::Statement(se) = super::stmt_err(dyn_sql, "select x from t", 0) else {
+            panic!("statement error")
+        };
         assert_eq!((se.code.as_deref(), se.sqlstate), (Some("-206"), None));
-        let cancel = FbError::Sql { code: -1, msg: "operation was cancelled".into() };
-        assert!(matches!(super::stmt_err(cancel, "select 1", 0), Error::Cancelled));
+        let cancel = FbError::Sql {
+            code: -1,
+            msg: "operation was cancelled".into(),
+        };
+        assert!(matches!(
+            super::stmt_err(cancel, "select 1", 0),
+            Error::Cancelled
+        ));
     }
 
     use super::*;
 
     #[test]
     fn update_script_by_key() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("APP".into()), name: "CLIENTES".into() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("APP".into()),
+            name: "CLIENTES".into(),
+        };
         let c = dbine_driver::RowChange {
-            key: vec![("ID".into(), serde_json::json!(7)), ("REGION".into(), Value::Null)],
-            set: vec![("NOMBRE".into(), serde_json::json!("O'Brien")), ("BAJA".into(), Value::Null)], ..Default::default()
+            key: vec![
+                ("ID".into(), serde_json::json!(7)),
+                ("REGION".into(), Value::Null),
+            ],
+            set: vec![
+                ("NOMBRE".into(), serde_json::json!("O'Brien")),
+                ("BAJA".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             drivers()[0].update_script(&t, &[c]).unwrap(),
@@ -1540,11 +1920,20 @@ mod tests {
         );
     }
 
-
     #[test]
     fn delete_script_by_composite_key() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("APP".into()), name: "CLIENTES".into() };
-        let keys = vec![vec![("NOMBRE".into(), serde_json::json!("O'Brien")), ("REGION".into(), Value::Null)], vec![]];
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("APP".into()),
+            name: "CLIENTES".into(),
+        };
+        let keys = vec![
+            vec![
+                ("NOMBRE".into(), serde_json::json!("O'Brien")),
+                ("REGION".into(), Value::Null),
+            ],
+            vec![],
+        ];
         assert_eq!(
             drivers()[0].delete_script(&t, &keys).unwrap(),
             "DELETE FROM \"CLIENTES\" WHERE \"NOMBRE\" = 'O''Brien' AND \"REGION\" IS NULL;"
@@ -1553,25 +1942,80 @@ mod tests {
 
     #[test]
     fn domains() {
-        let col = |v: SqlType| Column { value: v, raw_type: 0, name: String::new() };
-        let (i, t, n) = (|x: i64| col(SqlType::Integer(x)), |x: &str| col(SqlType::Text(x.into())), || col(SqlType::Null));
-        let email = [i(37), i(0), i(480), i(120), n(), i(0), t("DEFAULT 'x@y'"), i(1), t("CHECK (VALUE LIKE '%@%')"), t("UTF8"), t("UNICODE_CI"), t("UTF8")];
+        let col = |v: SqlType| Column {
+            value: v,
+            raw_type: 0,
+            name: String::new(),
+        };
+        let (i, t, n) = (
+            |x: i64| col(SqlType::Integer(x)),
+            |x: &str| col(SqlType::Text(x.into())),
+            || col(SqlType::Null),
+        );
+        let email = [
+            i(37),
+            i(0),
+            i(480),
+            i(120),
+            n(),
+            i(0),
+            t("DEFAULT 'x@y'"),
+            i(1),
+            t("CHECK (VALUE LIKE '%@%')"),
+            t("UTF8"),
+            t("UNICODE_CI"),
+            t("UTF8"),
+        ];
         assert_eq!(
             domain_sql("D_EMAIL", &email),
             "CREATE DOMAIN \"D_EMAIL\" AS VARCHAR(120) CHARACTER SET UTF8 DEFAULT 'x@y' NOT NULL CHECK (VALUE LIKE '%@%') COLLATE UNICODE_CI;"
         );
-        let monto = [i(16), i(1), i(8), n(), i(18), i(-2), n(), n(), t("CHECK (VALUE >= 0)"), n(), n(), n()];
-        assert_eq!(domain_sql("D_MONTO", &monto), "CREATE DOMAIN \"D_MONTO\" AS NUMERIC(18,2) CHECK (VALUE >= 0);");
+        let monto = [
+            i(16),
+            i(1),
+            i(8),
+            n(),
+            i(18),
+            i(-2),
+            n(),
+            n(),
+            t("CHECK (VALUE >= 0)"),
+            n(),
+            n(),
+            n(),
+        ];
+        assert_eq!(
+            domain_sql("D_MONTO", &monto),
+            "CREATE DOMAIN \"D_MONTO\" AS NUMERIC(18,2) CHECK (VALUE >= 0);"
+        );
     }
 
     #[test]
     fn field_types() {
-        assert_eq!(field_type(Some(8), Some(0), Some(4), None, Some(0), Some(0)), "INTEGER");
-        assert_eq!(field_type(Some(16), Some(1), Some(8), None, Some(18), Some(-2)), "NUMERIC(18,2)");
-        assert_eq!(field_type(Some(8), Some(2), Some(4), None, Some(9), Some(-3)), "DECIMAL(9,3)");
-        assert_eq!(field_type(Some(37), Some(0), Some(200), Some(50), None, None), "VARCHAR(50)");
-        assert_eq!(field_type(Some(261), Some(1), Some(8), None, None, None), "BLOB SUB_TYPE TEXT");
-        assert_eq!(field_type(Some(29), None, None, None, None, None), "TIMESTAMP WITH TIME ZONE");
+        assert_eq!(
+            field_type(Some(8), Some(0), Some(4), None, Some(0), Some(0)),
+            "INTEGER"
+        );
+        assert_eq!(
+            field_type(Some(16), Some(1), Some(8), None, Some(18), Some(-2)),
+            "NUMERIC(18,2)"
+        );
+        assert_eq!(
+            field_type(Some(8), Some(2), Some(4), None, Some(9), Some(-3)),
+            "DECIMAL(9,3)"
+        );
+        assert_eq!(
+            field_type(Some(37), Some(0), Some(200), Some(50), None, None),
+            "VARCHAR(50)"
+        );
+        assert_eq!(
+            field_type(Some(261), Some(1), Some(8), None, None, None),
+            "BLOB SUB_TYPE TEXT"
+        );
+        assert_eq!(
+            field_type(Some(29), None, None, None, None, None),
+            "TIMESTAMP WITH TIME ZONE"
+        );
     }
 
     #[test]
@@ -1594,14 +2038,21 @@ mod tests {
 
     #[test]
     fn values() {
-        assert_eq!(cell(SqlType::Integer(i64::MAX)), serde_json::json!("9223372036854775807"));
+        assert_eq!(
+            cell(SqlType::Integer(i64::MAX)),
+            serde_json::json!("9223372036854775807")
+        );
         let t = chrono_base_date().and_hms_opt(13, 45, 0).unwrap();
         assert_eq!(cell(SqlType::Timestamp(t)), serde_json::json!("13:45:00"));
     }
 
     #[test]
     fn browse_uses_first() {
-        let o = ObjectRef { kind: "table".into(), schema: None, name: "my t".into() };
+        let o = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "my t".into(),
+        };
         let s = format!("SELECT FIRST {} *\nFROM {}", 5, q(&o.name));
         assert_eq!(s, "SELECT FIRST 5 *\nFROM \"my t\"");
     }

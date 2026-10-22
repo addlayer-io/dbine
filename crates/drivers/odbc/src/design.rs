@@ -8,12 +8,13 @@
 use crate::presets::{LimitStyle, Preset};
 use dbine_driver::aggregate::{RowLimit, SqlShape};
 use dbine_driver::ddl::{self, AutoIncrement, SqlFlavor};
-use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::{
-    kinds, Capabilities, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, Result, RowChange, TableSchema,
-};
 use dbine_driver::filter::{insert_where, sql_condition, ColumnFilter, FilterOp, SqlFilterStyle};
 use dbine_driver::sort::{order_list, set_order_by, SortKey};
+use dbine_driver::sql::{qualified_name, quote_ident, Quote};
+use dbine_driver::{
+    kinds, Capabilities, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, Result,
+    RowChange, TableSchema,
+};
 use serde_json::Value;
 
 /// The engine behind a preset, for the parts that differ.
@@ -109,16 +110,33 @@ pub fn quote(p: &Preset) -> Quote {
 }
 
 pub fn flavor(p: &Preset) -> SqlFlavor {
-    let base = SqlFlavor { quote: quote(p), ..SqlFlavor::ansi() };
-    let ones = SqlFlavor { true_literal: "1", false_literal: "0", ..base };
+    let base = SqlFlavor {
+        quote: quote(p),
+        ..SqlFlavor::ansi()
+    };
+    let ones = SqlFlavor {
+        true_literal: "1",
+        false_literal: "0",
+        ..base
+    };
     match eng(p) {
         // Unknown engine: nothing beyond SQL-92. Identity columns keep the
         // type name the driver reports (`int identity` on SQL Server).
-        Eng::Generic | Eng::SqlServer | Eng::NetSuite => {
-            SqlFlavor { auto_increment: AutoIncrement::None, comment_on: false, if_exists: false, ..ones }
-        }
-        Eng::Db2 | Eng::Db2i => SqlFlavor { if_exists: false, ..base },
-        Eng::Db2zos => SqlFlavor { if_exists: false, multi_row_insert: false, ..ones },
+        Eng::Generic | Eng::SqlServer | Eng::NetSuite => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            comment_on: false,
+            if_exists: false,
+            ..ones
+        },
+        Eng::Db2 | Eng::Db2i => SqlFlavor {
+            if_exists: false,
+            ..base
+        },
+        Eng::Db2zos => SqlFlavor {
+            if_exists: false,
+            multi_row_insert: false,
+            ..ones
+        },
         Eng::Ase => SqlFlavor {
             auto_increment: AutoIncrement::None,
             comment_on: false,
@@ -126,8 +144,16 @@ pub fn flavor(p: &Preset) -> SqlFlavor {
             multi_row_insert: false,
             ..ones
         },
-        Eng::Sqla => SqlFlavor { auto_increment: AutoIncrement::None, multi_row_insert: false, ..ones },
-        Eng::Hive | Eng::Impala | Eng::Spark => SqlFlavor { auto_increment: AutoIncrement::None, comment_on: false, ..base },
+        Eng::Sqla => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            multi_row_insert: false,
+            ..ones
+        },
+        Eng::Hive | Eng::Impala | Eng::Spark => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            comment_on: false,
+            ..base
+        },
         Eng::Informix => SqlFlavor {
             auto_increment: AutoIncrement::None,
             comment_on: false,
@@ -136,20 +162,52 @@ pub fn flavor(p: &Preset) -> SqlFlavor {
             false_literal: "'f'",
             ..base
         },
-        Eng::Teradata => SqlFlavor { if_exists: false, multi_row_insert: false, ..ones },
-        Eng::Vertica => SqlFlavor { auto_increment: AutoIncrement::None, comment_on: false, multi_row_insert: false, ..base },
-        Eng::Exasol => SqlFlavor { auto_increment: AutoIncrement::None, ..base },
-        Eng::Netezza => SqlFlavor { auto_increment: AutoIncrement::None, multi_row_insert: false, ..base },
-        Eng::Altibase => SqlFlavor { auto_increment: AutoIncrement::None, if_exists: false, multi_row_insert: false, ..ones },
+        Eng::Teradata => SqlFlavor {
+            if_exists: false,
+            multi_row_insert: false,
+            ..ones
+        },
+        Eng::Vertica => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            comment_on: false,
+            multi_row_insert: false,
+            ..base
+        },
+        Eng::Exasol => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            ..base
+        },
+        Eng::Netezza => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            multi_row_insert: false,
+            ..base
+        },
+        Eng::Altibase => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            if_exists: false,
+            multi_row_insert: false,
+            ..ones
+        },
         Eng::Cubrid => SqlFlavor {
             auto_increment: AutoIncrement::AutoIncrementKeyword,
             comment_on: false,
             inline_comments: true,
             ..ones
         },
-        Eng::Dameng => SqlFlavor { auto_increment: AutoIncrement::Identity, if_exists: false, ..ones },
-        Eng::Ocient => SqlFlavor { auto_increment: AutoIncrement::None, comment_on: false, ..base },
-        Eng::MonetDb => SqlFlavor { auto_increment: AutoIncrement::AutoIncrementKeyword, ..base },
+        Eng::Dameng => SqlFlavor {
+            auto_increment: AutoIncrement::Identity,
+            if_exists: false,
+            ..ones
+        },
+        Eng::Ocient => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            comment_on: false,
+            ..base
+        },
+        Eng::MonetDb => SqlFlavor {
+            auto_increment: AutoIncrement::AutoIncrementKeyword,
+            ..base
+        },
         // Identity goes into the type (see `table_ddl`).
         Eng::Virtuoso | Eng::Iris | Eng::Zen | Eng::OpenEdge | Eng::Machbase => SqlFlavor {
             auto_increment: AutoIncrement::None,
@@ -158,10 +216,28 @@ pub fn flavor(p: &Preset) -> SqlFlavor {
             multi_row_insert: false,
             ..ones
         },
-        Eng::Ingres => SqlFlavor { if_exists: false, multi_row_insert: false, ..base },
-        Eng::Mimer => SqlFlavor { auto_increment: AutoIncrement::None, if_exists: false, multi_row_insert: false, ..base },
-        Eng::Sqream => SqlFlavor { auto_increment: AutoIncrement::None, comment_on: false, ..base },
-        Eng::MaxDb => SqlFlavor { auto_increment: AutoIncrement::None, if_exists: false, multi_row_insert: false, ..base },
+        Eng::Ingres => SqlFlavor {
+            if_exists: false,
+            multi_row_insert: false,
+            ..base
+        },
+        Eng::Mimer => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            if_exists: false,
+            multi_row_insert: false,
+            ..base
+        },
+        Eng::Sqream => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            comment_on: false,
+            ..base
+        },
+        Eng::MaxDb => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            if_exists: false,
+            multi_row_insert: false,
+            ..base
+        },
         Eng::Access | Eng::DBase => SqlFlavor {
             auto_increment: AutoIncrement::None,
             comment_on: false,
@@ -169,9 +245,21 @@ pub fn flavor(p: &Preset) -> SqlFlavor {
             multi_row_insert: false,
             ..base
         },
-        Eng::NuoDb => SqlFlavor { comment_on: false, ..base },
-        Eng::HeavyDb => SqlFlavor { auto_increment: AutoIncrement::None, comment_on: false, multi_row_insert: false, ..base },
-        Eng::Ignite | Eng::Ignite3 => SqlFlavor { auto_increment: AutoIncrement::None, comment_on: false, ..base },
+        Eng::NuoDb => SqlFlavor {
+            comment_on: false,
+            ..base
+        },
+        Eng::HeavyDb => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            comment_on: false,
+            multi_row_insert: false,
+            ..base
+        },
+        Eng::Ignite | Eng::Ignite3 => SqlFlavor {
+            auto_increment: AutoIncrement::None,
+            comment_on: false,
+            ..base
+        },
     }
 }
 
@@ -239,154 +327,616 @@ pub fn script_separator(p: &Preset) -> &'static str {
     }
 }
 
-fn select(key: &'static str, label: &'static str, options: Vec<(&'static str, &'static str)>, help: &'static str) -> Field {
+fn select(
+    key: &'static str,
+    label: &'static str,
+    options: Vec<(&'static str, &'static str)>,
+    help: &'static str,
+) -> Field {
     Field::new(key, label, FieldKind::Select(options)).help(help)
 }
 
-fn text(key: &'static str, label: &'static str, placeholder: &'static str, help: &'static str) -> Field {
-    Field::new(key, label, FieldKind::Text).placeholder(placeholder).help(help)
+fn text(
+    key: &'static str,
+    label: &'static str,
+    placeholder: &'static str,
+    help: &'static str,
+) -> Field {
+    Field::new(key, label, FieldKind::Text)
+        .placeholder(placeholder)
+        .help(help)
 }
 
 fn location() -> Field {
-    text("location", "Ubicación (LOCATION)", "hdfs:///ruta/tabla", "Directorio de los datos. Vacío: el del warehouse.")
+    text(
+        "location",
+        "Ubicación (LOCATION)",
+        "hdfs:///ruta/tabla",
+        "Directorio de los datos. Vacío: el del warehouse.",
+    )
 }
 
 pub fn designer(p: &Preset) -> DesignerSpec {
     let e = eng(p);
     let types: Vec<&'static str> = match e {
         Eng::Generic | Eng::SqlServer | Eng::NetSuite => vec![
-            "INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "NUMERIC(18,2)", "REAL", "DOUBLE PRECISION", "FLOAT",
-            "CHAR(10)", "VARCHAR(255)", "DATE", "TIME", "TIMESTAMP",
+            "INTEGER",
+            "SMALLINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "NUMERIC(18,2)",
+            "REAL",
+            "DOUBLE PRECISION",
+            "FLOAT",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
         ],
         Eng::Db2 | Eng::Db2i | Eng::Db2zos => vec![
-            "INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "DECFLOAT", "REAL", "DOUBLE", "CHAR(10)", "VARCHAR(255)",
-            "CLOB", "GRAPHIC(10)", "VARGRAPHIC(255)", "BLOB", "VARBINARY(255)", "DATE", "TIME", "TIMESTAMP", "BOOLEAN",
+            "INTEGER",
+            "SMALLINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "DECFLOAT",
+            "REAL",
+            "DOUBLE",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "CLOB",
+            "GRAPHIC(10)",
+            "VARGRAPHIC(255)",
+            "BLOB",
+            "VARBINARY(255)",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "BOOLEAN",
             "XML",
         ],
         Eng::Ase => vec![
-            "int", "smallint", "tinyint", "bigint", "numeric(18,0)", "decimal(18,2)", "money", "float", "real", "char(10)",
-            "varchar(255)", "univarchar(255)", "text", "unitext", "binary(16)", "varbinary(255)", "image", "bit", "date",
-            "time", "datetime", "bigdatetime",
+            "int",
+            "smallint",
+            "tinyint",
+            "bigint",
+            "numeric(18,0)",
+            "decimal(18,2)",
+            "money",
+            "float",
+            "real",
+            "char(10)",
+            "varchar(255)",
+            "univarchar(255)",
+            "text",
+            "unitext",
+            "binary(16)",
+            "varbinary(255)",
+            "image",
+            "bit",
+            "date",
+            "time",
+            "datetime",
+            "bigdatetime",
         ],
         Eng::Sqla => vec![
-            "INTEGER", "SMALLINT", "TINYINT", "BIGINT", "NUMERIC(18,2)", "DECIMAL(18,2)", "MONEY", "DOUBLE", "REAL",
-            "CHAR(10)", "VARCHAR(255)", "NVARCHAR(255)", "LONG VARCHAR", "BINARY(16)", "VARBINARY(255)",
-            "LONG BINARY", "BIT", "DATE", "TIME", "TIMESTAMP", "UNIQUEIDENTIFIER", "XML",
+            "INTEGER",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "NUMERIC(18,2)",
+            "DECIMAL(18,2)",
+            "MONEY",
+            "DOUBLE",
+            "REAL",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "NVARCHAR(255)",
+            "LONG VARCHAR",
+            "BINARY(16)",
+            "VARBINARY(255)",
+            "LONG BINARY",
+            "BIT",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "UNIQUEIDENTIFIER",
+            "XML",
         ],
         Eng::Hive | Eng::Spark => vec![
-            "INT", "TINYINT", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "FLOAT", "DOUBLE", "STRING", "VARCHAR(255)",
-            "CHAR(10)", "BOOLEAN", "BINARY", "DATE", "TIMESTAMP", "ARRAY<STRING>", "MAP<STRING,STRING>",
+            "INT",
+            "TINYINT",
+            "SMALLINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "FLOAT",
+            "DOUBLE",
+            "STRING",
+            "VARCHAR(255)",
+            "CHAR(10)",
+            "BOOLEAN",
+            "BINARY",
+            "DATE",
+            "TIMESTAMP",
+            "ARRAY<STRING>",
+            "MAP<STRING,STRING>",
             "STRUCT<a:INT,b:STRING>",
         ],
         Eng::Impala => vec![
-            "INT", "TINYINT", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "FLOAT", "DOUBLE", "STRING", "VARCHAR(255)",
-            "CHAR(10)", "BOOLEAN", "BINARY", "DATE", "TIMESTAMP",
+            "INT",
+            "TINYINT",
+            "SMALLINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "FLOAT",
+            "DOUBLE",
+            "STRING",
+            "VARCHAR(255)",
+            "CHAR(10)",
+            "BOOLEAN",
+            "BINARY",
+            "DATE",
+            "TIMESTAMP",
         ],
         Eng::Informix => vec![
-            "INTEGER", "SMALLINT", "BIGINT", "INT8", "SERIAL", "BIGSERIAL", "DECIMAL(18,2)", "MONEY(16,2)", "FLOAT",
-            "SMALLFLOAT", "CHAR(10)", "VARCHAR(255)", "LVARCHAR(2048)", "NCHAR(10)", "NVARCHAR(255)", "TEXT", "BYTE",
-            "CLOB", "BLOB", "BOOLEAN", "DATE", "DATETIME YEAR TO SECOND", "DATETIME YEAR TO FRACTION(3)",
+            "INTEGER",
+            "SMALLINT",
+            "BIGINT",
+            "INT8",
+            "SERIAL",
+            "BIGSERIAL",
+            "DECIMAL(18,2)",
+            "MONEY(16,2)",
+            "FLOAT",
+            "SMALLFLOAT",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "LVARCHAR(2048)",
+            "NCHAR(10)",
+            "NVARCHAR(255)",
+            "TEXT",
+            "BYTE",
+            "CLOB",
+            "BLOB",
+            "BOOLEAN",
+            "DATE",
+            "DATETIME YEAR TO SECOND",
+            "DATETIME YEAR TO FRACTION(3)",
             "INTERVAL DAY TO SECOND",
         ],
         Eng::Teradata => vec![
-            "INTEGER", "SMALLINT", "BYTEINT", "BIGINT", "DECIMAL(18,2)", "NUMBER", "FLOAT", "CHAR(10)",
-            "VARCHAR(255)", "VARCHAR(255) CHARACTER SET UNICODE", "CLOB", "BYTE(16)", "VARBYTE(255)", "BLOB", "DATE",
-            "TIME", "TIMESTAMP(6)", "INTERVAL DAY TO SECOND", "JSON", "XML",
+            "INTEGER",
+            "SMALLINT",
+            "BYTEINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "NUMBER",
+            "FLOAT",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "VARCHAR(255) CHARACTER SET UNICODE",
+            "CLOB",
+            "BYTE(16)",
+            "VARBYTE(255)",
+            "BLOB",
+            "DATE",
+            "TIME",
+            "TIMESTAMP(6)",
+            "INTERVAL DAY TO SECOND",
+            "JSON",
+            "XML",
         ],
         Eng::Vertica => vec![
-            "INTEGER", "BIGINT", "NUMERIC(18,2)", "FLOAT", "CHAR(10)", "VARCHAR(255)", "LONG VARCHAR", "BOOLEAN",
-            "BINARY(16)", "VARBINARY(255)", "LONG VARBINARY", "DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ", "INTERVAL",
+            "INTEGER",
+            "BIGINT",
+            "NUMERIC(18,2)",
+            "FLOAT",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "LONG VARCHAR",
+            "BOOLEAN",
+            "BINARY(16)",
+            "VARBINARY(255)",
+            "LONG VARBINARY",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "TIMESTAMPTZ",
+            "INTERVAL",
             "UUID",
         ],
         Eng::Exasol => vec![
-            "DECIMAL(18,0)", "DECIMAL(18,2)", "INTEGER", "BIGINT", "DOUBLE PRECISION", "CHAR(10)", "VARCHAR(2000000)",
-            "VARCHAR(255)", "BOOLEAN", "DATE", "TIMESTAMP", "TIMESTAMP WITH LOCAL TIME ZONE",
-            "INTERVAL DAY TO SECOND", "GEOMETRY", "HASHTYPE",
+            "DECIMAL(18,0)",
+            "DECIMAL(18,2)",
+            "INTEGER",
+            "BIGINT",
+            "DOUBLE PRECISION",
+            "CHAR(10)",
+            "VARCHAR(2000000)",
+            "VARCHAR(255)",
+            "BOOLEAN",
+            "DATE",
+            "TIMESTAMP",
+            "TIMESTAMP WITH LOCAL TIME ZONE",
+            "INTERVAL DAY TO SECOND",
+            "GEOMETRY",
+            "HASHTYPE",
         ],
         Eng::Netezza => vec![
-            "INTEGER", "SMALLINT", "BYTEINT", "BIGINT", "NUMERIC(18,2)", "REAL", "DOUBLE PRECISION", "CHAR(10)",
-            "VARCHAR(255)", "NCHAR(10)", "NVARCHAR(255)", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "INTERVAL",
+            "INTEGER",
+            "SMALLINT",
+            "BYTEINT",
+            "BIGINT",
+            "NUMERIC(18,2)",
+            "REAL",
+            "DOUBLE PRECISION",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "NCHAR(10)",
+            "NVARCHAR(255)",
+            "BOOLEAN",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "INTERVAL",
             "VARBINARY(255)",
         ],
         Eng::Altibase => vec![
-            "INTEGER", "SMALLINT", "BIGINT", "NUMERIC(18,2)", "NUMBER", "FLOAT", "DOUBLE", "REAL", "CHAR(10)",
-            "VARCHAR(255)", "NCHAR(10)", "NVARCHAR(255)", "CLOB", "BLOB", "BYTE(16)", "VARBYTE(255)", "DATE",
+            "INTEGER",
+            "SMALLINT",
+            "BIGINT",
+            "NUMERIC(18,2)",
+            "NUMBER",
+            "FLOAT",
+            "DOUBLE",
+            "REAL",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "NCHAR(10)",
+            "NVARCHAR(255)",
+            "CLOB",
+            "BLOB",
+            "BYTE(16)",
+            "VARBYTE(255)",
+            "DATE",
         ],
         Eng::Cubrid => vec![
-            "INTEGER", "SMALLINT", "BIGINT", "NUMERIC(18,2)", "FLOAT", "DOUBLE", "MONETARY", "CHAR(10)", "VARCHAR(255)",
-            "STRING", "BIT VARYING(256)", "CLOB", "BLOB", "DATE", "TIME", "DATETIME", "TIMESTAMP", "ENUM('a','b')",
+            "INTEGER",
+            "SMALLINT",
+            "BIGINT",
+            "NUMERIC(18,2)",
+            "FLOAT",
+            "DOUBLE",
+            "MONETARY",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "STRING",
+            "BIT VARYING(256)",
+            "CLOB",
+            "BLOB",
+            "DATE",
+            "TIME",
+            "DATETIME",
+            "TIMESTAMP",
+            "ENUM('a','b')",
             "JSON",
         ],
         Eng::Dameng => vec![
-            "INT", "SMALLINT", "TINYINT", "BIGINT", "NUMBER(18,2)", "DECIMAL(18,2)", "FLOAT", "DOUBLE", "CHAR(10)",
-            "VARCHAR(255)", "VARCHAR2(255)", "TEXT", "CLOB", "BLOB", "BIT", "DATE", "TIME", "TIMESTAMP", "DATETIME",
+            "INT",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "NUMBER(18,2)",
+            "DECIMAL(18,2)",
+            "FLOAT",
+            "DOUBLE",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "VARCHAR2(255)",
+            "TEXT",
+            "CLOB",
+            "BLOB",
+            "BIT",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "DATETIME",
         ],
         Eng::Ocient => vec![
-            "INT", "SMALLINT", "TINYINT", "BIGINT", "DECIMAL(18,2)", "FLOAT", "DOUBLE", "CHAR(10)", "VARCHAR(255)",
-            "BOOLEAN", "BINARY(16)", "VARBINARY(255)", "DATE", "TIME", "TIMESTAMP", "UUID", "IP", "POINT",
+            "INT",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "FLOAT",
+            "DOUBLE",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "BOOLEAN",
+            "BINARY(16)",
+            "VARBINARY(255)",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "UUID",
+            "IP",
+            "POINT",
         ],
         Eng::MonetDb => vec![
-            "INT", "SMALLINT", "TINYINT", "BIGINT", "HUGEINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "BOOLEAN", "CHAR(10)",
-            "VARCHAR(255)", "CLOB", "BLOB", "DATE", "TIME", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE",
-            "INTERVAL SECOND", "UUID", "JSON", "INET", "URL",
+            "INT",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "HUGEINT",
+            "DECIMAL(18,2)",
+            "REAL",
+            "DOUBLE",
+            "BOOLEAN",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "CLOB",
+            "BLOB",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "TIMESTAMP WITH TIME ZONE",
+            "INTERVAL SECOND",
+            "UUID",
+            "JSON",
+            "INET",
+            "URL",
         ],
         Eng::Virtuoso => vec![
-            "INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE PRECISION", "CHAR(10)", "VARCHAR(255)",
-            "NVARCHAR(255)", "LONG VARCHAR", "LONG NVARCHAR", "VARBINARY(255)", "LONG VARBINARY", "DATE", "TIME",
-            "DATETIME", "TIMESTAMP", "ANY",
+            "INTEGER",
+            "SMALLINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "REAL",
+            "DOUBLE PRECISION",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "NVARCHAR(255)",
+            "LONG VARCHAR",
+            "LONG NVARCHAR",
+            "VARBINARY(255)",
+            "LONG VARBINARY",
+            "DATE",
+            "TIME",
+            "DATETIME",
+            "TIMESTAMP",
+            "ANY",
         ],
         Eng::Ingres => vec![
-            "INTEGER", "SMALLINT", "TINYINT", "BIGINT", "DECIMAL(18,2)", "FLOAT", "MONEY", "CHAR(10)", "VARCHAR(255)",
-            "NCHAR(10)", "NVARCHAR(255)", "LONG VARCHAR", "BYTE(16)", "VARBYTE(255)", "LONG BYTE", "BOOLEAN",
-            "ANSIDATE", "TIME", "TIMESTAMP", "INTERVAL DAY TO SECOND",
+            "INTEGER",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "FLOAT",
+            "MONEY",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "NCHAR(10)",
+            "NVARCHAR(255)",
+            "LONG VARCHAR",
+            "BYTE(16)",
+            "VARBYTE(255)",
+            "LONG BYTE",
+            "BOOLEAN",
+            "ANSIDATE",
+            "TIME",
+            "TIMESTAMP",
+            "INTERVAL DAY TO SECOND",
         ],
         Eng::Mimer => vec![
-            "INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE PRECISION", "FLOAT", "CHAR(10)",
-            "VARCHAR(255)", "NCHAR(10)", "NVARCHAR(255)", "CLOB", "NCLOB", "BINARY(16)", "VARBINARY(255)", "BLOB",
-            "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "INTERVAL DAY TO SECOND",
+            "INTEGER",
+            "SMALLINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "REAL",
+            "DOUBLE PRECISION",
+            "FLOAT",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "NCHAR(10)",
+            "NVARCHAR(255)",
+            "CLOB",
+            "NCLOB",
+            "BINARY(16)",
+            "VARBINARY(255)",
+            "BLOB",
+            "BOOLEAN",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "INTERVAL DAY TO SECOND",
         ],
         Eng::Iris => vec![
-            "INTEGER", "SMALLINT", "TINYINT", "BIGINT", "NUMERIC(18,2)", "DOUBLE", "VARCHAR(255)", "LONGVARCHAR",
-            "VARBINARY(255)", "LONGVARBINARY", "BIT", "DATE", "TIME", "TIMESTAMP", "POSIXTIME",
+            "INTEGER",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "NUMERIC(18,2)",
+            "DOUBLE",
+            "VARCHAR(255)",
+            "LONGVARCHAR",
+            "VARBINARY(255)",
+            "LONGVARBINARY",
+            "BIT",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "POSIXTIME",
         ],
         Eng::OpenEdge => vec![
-            "INTEGER", "SMALLINT", "TINYINT", "BIGINT", "NUMERIC(18,2)", "REAL", "FLOAT", "DOUBLE PRECISION",
-            "CHARACTER(10)", "VARCHAR(255)", "LVARCHAR", "CLOB", "BLOB", "BIT", "DATE", "TIME", "TIMESTAMP",
-            "TIMESTAMP WITH TIME ZONE", "VARBINARY(255)",
+            "INTEGER",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "NUMERIC(18,2)",
+            "REAL",
+            "FLOAT",
+            "DOUBLE PRECISION",
+            "CHARACTER(10)",
+            "VARCHAR(255)",
+            "LVARCHAR",
+            "CLOB",
+            "BLOB",
+            "BIT",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "TIMESTAMP WITH TIME ZONE",
+            "VARBINARY(255)",
         ],
         Eng::Zen => vec![
-            "INTEGER", "SMALLINT", "TINYINT", "BIGINT", "UBIGINT", "DECIMAL(18,2)", "NUMERIC(18,2)", "REAL", "DOUBLE",
-            "MONEY", "CHAR(10)", "VARCHAR(255)", "NVARCHAR(255)", "LONGVARCHAR", "BINARY(16)", "LONGVARBINARY", "BIT",
-            "DATE", "TIME", "TIMESTAMP", "DATETIME", "UNIQUEIDENTIFIER", "AUTOTIMESTAMP",
+            "INTEGER",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "UBIGINT",
+            "DECIMAL(18,2)",
+            "NUMERIC(18,2)",
+            "REAL",
+            "DOUBLE",
+            "MONEY",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "NVARCHAR(255)",
+            "LONGVARCHAR",
+            "BINARY(16)",
+            "LONGVARBINARY",
+            "BIT",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "DATETIME",
+            "UNIQUEIDENTIFIER",
+            "AUTOTIMESTAMP",
         ],
         Eng::Sqream => vec![
-            "BOOL", "TINYINT", "SMALLINT", "INT", "BIGINT", "NUMERIC(18,2)", "REAL", "DOUBLE", "TEXT", "TEXT(255)",
-            "DATE", "DATETIME", "DATETIME2",
+            "BOOL",
+            "TINYINT",
+            "SMALLINT",
+            "INT",
+            "BIGINT",
+            "NUMERIC(18,2)",
+            "REAL",
+            "DOUBLE",
+            "TEXT",
+            "TEXT(255)",
+            "DATE",
+            "DATETIME",
+            "DATETIME2",
         ],
         Eng::MaxDb => vec![
-            "INTEGER", "SMALLINT", "FIXED(18,2)", "FLOAT(38)", "CHAR(10)", "VARCHAR(255)", "CHAR(10) BYTE",
-            "VARCHAR(255) UNICODE", "LONG", "LONG UNICODE", "LONG BYTE", "BOOLEAN", "DATE", "TIME", "TIMESTAMP",
+            "INTEGER",
+            "SMALLINT",
+            "FIXED(18,2)",
+            "FLOAT(38)",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "CHAR(10) BYTE",
+            "VARCHAR(255) UNICODE",
+            "LONG",
+            "LONG UNICODE",
+            "LONG BYTE",
+            "BOOLEAN",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
         ],
         Eng::Access => vec![
-            "LONG", "INTEGER", "SHORT", "BYTE", "DECIMAL(18,2)", "CURRENCY", "DOUBLE", "SINGLE", "TEXT(255)",
-            "LONGTEXT", "YESNO", "DATETIME", "GUID", "LONGBINARY",
+            "LONG",
+            "INTEGER",
+            "SHORT",
+            "BYTE",
+            "DECIMAL(18,2)",
+            "CURRENCY",
+            "DOUBLE",
+            "SINGLE",
+            "TEXT(255)",
+            "LONGTEXT",
+            "YESNO",
+            "DATETIME",
+            "GUID",
+            "LONGBINARY",
         ],
-        Eng::DBase => vec!["CHAR(10)", "VARCHAR(254)", "NUMERIC(10,2)", "FLOAT", "DATE", "BIT", "MEMO"],
+        Eng::DBase => vec![
+            "CHAR(10)",
+            "VARCHAR(254)",
+            "NUMERIC(10,2)",
+            "FLOAT",
+            "DATE",
+            "BIT",
+            "MEMO",
+        ],
         Eng::NuoDb => vec![
-            "INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "DOUBLE", "BOOLEAN", "CHAR(10)", "VARCHAR(255)", "STRING",
-            "CLOB", "BLOB", "BINARY(16)", "VARBINARY(255)", "DATE", "TIME", "TIMESTAMP",
+            "INTEGER",
+            "SMALLINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "DOUBLE",
+            "BOOLEAN",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "STRING",
+            "CLOB",
+            "BLOB",
+            "BINARY(16)",
+            "VARBINARY(255)",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
         ],
         Eng::HeavyDb => vec![
-            "SMALLINT", "INTEGER", "BIGINT", "DECIMAL(18,2)", "FLOAT", "DOUBLE", "BOOLEAN", "TEXT ENCODING DICT(32)",
-            "TEXT ENCODING NONE", "DATE", "TIME", "TIMESTAMP", "POINT", "LINESTRING", "POLYGON", "MULTIPOLYGON",
+            "SMALLINT",
+            "INTEGER",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "FLOAT",
+            "DOUBLE",
+            "BOOLEAN",
+            "TEXT ENCODING DICT(32)",
+            "TEXT ENCODING NONE",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "POINT",
+            "LINESTRING",
+            "POLYGON",
+            "MULTIPOLYGON",
         ],
         Eng::Machbase => vec![
-            "SHORT", "INTEGER", "LONG", "FLOAT", "DOUBLE", "VARCHAR(255)", "TEXT", "BINARY", "DATETIME", "IPV4", "IPV6",
+            "SHORT",
+            "INTEGER",
+            "LONG",
+            "FLOAT",
+            "DOUBLE",
+            "VARCHAR(255)",
+            "TEXT",
+            "BINARY",
+            "DATETIME",
+            "IPV4",
+            "IPV6",
             "JSON",
         ],
         Eng::Ignite | Eng::Ignite3 => vec![
-            "INT", "SMALLINT", "TINYINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "BOOLEAN", "CHAR(10)",
-            "VARCHAR(255)", "VARBINARY(255)", "DATE", "TIME", "TIMESTAMP", "UUID",
+            "INT",
+            "SMALLINT",
+            "TINYINT",
+            "BIGINT",
+            "DECIMAL(18,2)",
+            "REAL",
+            "DOUBLE",
+            "BOOLEAN",
+            "CHAR(10)",
+            "VARCHAR(255)",
+            "VARBINARY(255)",
+            "DATE",
+            "TIME",
+            "TIMESTAMP",
+            "UUID",
         ],
     };
     let mut d = DesignerSpec::sql_table(types);
@@ -396,9 +946,12 @@ pub fn designer(p: &Preset) -> DesignerSpec {
     d.foreign_keys = reports_foreign_keys(p);
     match e {
         // The generic builder can't know the engine's identity syntax.
-        Eng::Generic | Eng::SqlServer | Eng::NetSuite | Eng::Altibase | Eng::OpenEdge | Eng::Mimer => {
-            d.auto_increment = false
-        }
+        Eng::Generic
+        | Eng::SqlServer
+        | Eng::NetSuite
+        | Eng::Altibase
+        | Eng::OpenEdge
+        | Eng::Mimer => d.auto_increment = false,
         Eng::Sqream | Eng::HeavyDb | Eng::Machbase => {
             d.primary_key = false;
             d.auto_increment = false;
@@ -536,11 +1089,17 @@ fn strip_explicit_null(ddl: &str) -> String {
 }
 
 fn cols(q: Quote, c: &[String]) -> String {
-    c.iter().map(|c| quote_ident(q, c)).collect::<Vec<_>>().join(", ")
+    c.iter()
+        .map(|c| quote_ident(q, c))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn opt<'a>(t: &'a TableSchema, key: &str) -> Option<&'a str> {
-    t.options.get(key).map(|s| s.trim()).filter(|s| !s.is_empty())
+    t.options
+        .get(key)
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
 }
 
 /// Identity written into the type (or as a default) where the flavor has
@@ -557,11 +1116,21 @@ pub fn identity_in_type(e: Eng, c: &mut dbine_driver::ColumnDef) {
         Eng::Access => c.data_type = "COUNTER".into(),
         Eng::Zen => {
             let big = c.data_type.to_ascii_lowercase().contains("big");
-            c.data_type = if big { "BIGIDENTITY".into() } else { "IDENTITY".into() };
+            c.data_type = if big {
+                "BIGIDENTITY".into()
+            } else {
+                "IDENTITY".into()
+            };
         }
         Eng::Informix => {
-            let big = ["bigint", "int8", "bigserial", "serial8"].iter().any(|b| c.data_type.to_ascii_lowercase().contains(b));
-            c.data_type = if big { "BIGSERIAL".into() } else { "SERIAL".into() };
+            let big = ["bigint", "int8", "bigserial", "serial8"]
+                .iter()
+                .any(|b| c.data_type.to_ascii_lowercase().contains(b));
+            c.data_type = if big {
+                "BIGSERIAL".into()
+            } else {
+                "SERIAL".into()
+            };
         }
         Eng::Vertica => c.data_type = "IDENTITY".into(),
         _ => {}
@@ -584,7 +1153,11 @@ pub fn table_ddl(p: &Preset, t: &TableSchema, parts: DdlParts) -> String {
     if !reports_foreign_keys(p) {
         t.foreign_keys.clear();
     }
-    let pk_name = t.primary_key.as_ref().and_then(|k| k.name.clone()).filter(|n| !n.is_empty());
+    let pk_name = t
+        .primary_key
+        .as_ref()
+        .and_then(|k| k.name.clone())
+        .filter(|n| !n.is_empty());
     if e == Eng::Informix {
         // Informix names constraints after them: `PRIMARY KEY (…) CONSTRAINT n`.
         if let Some(k) = t.primary_key.as_mut() {
@@ -607,7 +1180,10 @@ pub fn table_ddl(p: &Preset, t: &TableSchema, parts: DdlParts) -> String {
         Eng::Informix if parts.create => {
             if let (Some(n), Some(k)) = (&pk_name, &t.primary_key) {
                 let clause = format!("    PRIMARY KEY ({})", cols(q, &k.columns));
-                s = s.replace(&clause, &format!("{clause} CONSTRAINT {}", quote_ident(q, n)));
+                s = s.replace(
+                    &clause,
+                    &format!("{clause} CONSTRAINT {}", quote_ident(q, n)),
+                );
             }
             // CHECK (…) CONSTRAINT n: the name goes after.
             if !t.checks.is_empty() {
@@ -624,7 +1200,12 @@ pub fn table_ddl(p: &Preset, t: &TableSchema, parts: DdlParts) -> String {
                 let clause = if pi.eq_ignore_ascii_case("NO") {
                     " NO PRIMARY INDEX".to_string()
                 } else {
-                    let c: Vec<String> = pi.split(',').map(|c| c.trim()).filter(|c| !c.is_empty()).map(String::from).collect();
+                    let c: Vec<String> = pi
+                        .split(',')
+                        .map(|c| c.trim())
+                        .filter(|c| !c.is_empty())
+                        .map(String::from)
+                        .collect();
                     format!(" PRIMARY INDEX ({})", cols(q, &c))
                 };
                 s = s.replacen("\n);", &format!("\n){clause};"), 1);
@@ -641,7 +1222,12 @@ pub fn table_ddl(p: &Preset, t: &TableSchema, parts: DdlParts) -> String {
                 let clause = if d.eq_ignore_ascii_case("RANDOM") {
                     " DISTRIBUTE ON RANDOM".to_string()
                 } else {
-                    let c: Vec<String> = d.split(',').map(|c| c.trim()).filter(|c| !c.is_empty()).map(String::from).collect();
+                    let c: Vec<String> = d
+                        .split(',')
+                        .map(|c| c.trim())
+                        .filter(|c| !c.is_empty())
+                        .map(String::from)
+                        .collect();
                     format!(" DISTRIBUTE ON ({})", cols(q, &c))
                 };
                 s = s.replacen("\n);", &format!("\n){clause};"), 1);
@@ -669,13 +1255,24 @@ pub fn table_ddl(p: &Preset, t: &TableSchema, parts: DdlParts) -> String {
         // Informix: ADD CONSTRAINT FOREIGN KEY … [CONSTRAINT name]; only
         // ON DELETE CASCADE exists.
         for fk in &t.foreign_keys {
-            let target = qualified_name(q, fk.ref_schema.as_deref().or(t.schema.as_deref()).filter(|s| !s.is_empty()), &fk.ref_table);
+            let target = qualified_name(
+                q,
+                fk.ref_schema
+                    .as_deref()
+                    .or(t.schema.as_deref())
+                    .filter(|s| !s.is_empty()),
+                &fk.ref_table,
+            );
             let mut st = format!(
                 "ALTER TABLE {name} ADD CONSTRAINT FOREIGN KEY ({}) REFERENCES {target} ({})",
                 cols(q, &fk.columns),
                 cols(q, &fk.ref_columns)
             );
-            if fk.on_delete.as_deref().is_some_and(|a| a.eq_ignore_ascii_case("CASCADE")) {
+            if fk
+                .on_delete
+                .as_deref()
+                .is_some_and(|a| a.eq_ignore_ascii_case("CASCADE"))
+            {
                 st.push_str(" ON DELETE CASCADE");
             }
             if let Some(n) = fk.name.as_deref().filter(|n| !n.is_empty()) {
@@ -703,10 +1300,17 @@ fn hive_ddl(e: Eng, t: &TableSchema, parts: DdlParts) -> String {
     let kudu = e == Eng::Impala && stored.as_deref() == Some("KUDU");
     let mut out = Vec::new();
     if parts.drop {
-        out.push(format!("DROP TABLE {}{name};", if parts.if_exists { "IF EXISTS " } else { "" }));
+        out.push(format!(
+            "DROP TABLE {}{name};",
+            if parts.if_exists { "IF EXISTS " } else { "" }
+        ));
     }
     if parts.create {
-        let pk: Vec<String> = t.primary_key.as_ref().map(|k| k.columns.clone()).unwrap_or_default();
+        let pk: Vec<String> = t
+            .primary_key
+            .as_ref()
+            .map(|k| k.columns.clone())
+            .unwrap_or_default();
         let mut lines: Vec<String> = t
             .columns
             .iter()
@@ -731,10 +1335,18 @@ fn hive_ddl(e: Eng, t: &TableSchema, parts: DdlParts) -> String {
         }
         let mut s = format!(
             "CREATE TABLE {}{name} (\n{}\n)",
-            if parts.if_exists && !parts.drop { "IF NOT EXISTS " } else { "" },
+            if parts.if_exists && !parts.drop {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             lines.join(",\n")
         );
-        let comment = t.comment.as_deref().filter(|s| !s.is_empty()).map(|c| format!("\nCOMMENT {}", lit(c)));
+        let comment = t
+            .comment
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|c| format!("\nCOMMENT {}", lit(c)));
         let part = opt(t, "partitioned_by");
         if e == Eng::Hive {
             // Hive: COMMENT, PARTITIONED BY, STORED AS, LOCATION.
@@ -745,7 +1357,11 @@ fn hive_ddl(e: Eng, t: &TableSchema, parts: DdlParts) -> String {
         } else {
             // Impala: PARTITIONED BY / PARTITION BY, COMMENT, STORED AS, LOCATION.
             if let Some(pb) = part {
-                s.push_str(&if kudu { format!("\nPARTITION BY {pb}") } else { format!("\nPARTITIONED BY ({pb})") });
+                s.push_str(&if kudu {
+                    format!("\nPARTITION BY {pb}")
+                } else {
+                    format!("\nPARTITIONED BY ({pb})")
+                });
             }
             s.push_str(&comment.unwrap_or_default());
         }
@@ -776,26 +1392,60 @@ fn backslash_strings(p: &Preset) -> bool {
     matches!(eng(p), Eng::Hive | Eng::Impala | Eng::Spark)
 }
 
-pub fn insert_script(p: &Preset, schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
-    ddl::insert_script_with(&flavor(p), schema, table, columns, rows, 100, &|v| literal(p, v))
+pub fn insert_script(
+    p: &Preset,
+    schema: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> String {
+    ddl::insert_script_with(&flavor(p), schema, table, columns, rows, 100, &|v| {
+        literal(p, v)
+    })
 }
 
 /// `UPDATE … WHERE <key>` per changed row, with the preset's quoting and
 /// literals (as in [`insert_script`]). SuiteAnalytics Connect is read-only.
-pub fn update_script(p: &Preset, schema: Option<&str>, table: &str, changes: &[RowChange]) -> Result<String> {
+pub fn update_script(
+    p: &Preset,
+    schema: Option<&str>,
+    table: &str,
+    changes: &[RowChange],
+) -> Result<String> {
     if eng(p) == Eng::NetSuite {
-        return Err(Error::Unsupported("SuiteAnalytics Connect de NetSuite es de solo lectura".into()));
+        return Err(Error::Unsupported(
+            "SuiteAnalytics Connect de NetSuite es de solo lectura".into(),
+        ));
     }
-    Ok(ddl::update_script_with(flavor(p).quote, schema, table, changes, &|v| literal(p, v)))
+    Ok(ddl::update_script_with(
+        flavor(p).quote,
+        schema,
+        table,
+        changes,
+        &|v| literal(p, v),
+    ))
 }
 
 /// `DELETE … WHERE <key>` per row key, with the preset's quoting and
 /// literals (as in [`update_script`]). SuiteAnalytics Connect is read-only.
-pub fn delete_script(p: &Preset, schema: Option<&str>, table: &str, keys: &[Vec<(String, Value)>]) -> Result<String> {
+pub fn delete_script(
+    p: &Preset,
+    schema: Option<&str>,
+    table: &str,
+    keys: &[Vec<(String, Value)>],
+) -> Result<String> {
     if eng(p) == Eng::NetSuite {
-        return Err(Error::Unsupported("SuiteAnalytics Connect de NetSuite es de solo lectura".into()));
+        return Err(Error::Unsupported(
+            "SuiteAnalytics Connect de NetSuite es de solo lectura".into(),
+        ));
     }
-    Ok(ddl::delete_script_with(flavor(p).quote, schema, table, keys, &|v| literal(p, v)))
+    Ok(ddl::delete_script_with(
+        flavor(p).quote,
+        schema,
+        table,
+        keys,
+        &|v| literal(p, v),
+    ))
 }
 
 /// The browse query restricted by the grid's column filters, with the
@@ -809,21 +1459,35 @@ pub fn filtered_browse(p: &Preset, browse: &str, filters: &[ColumnFilter]) -> Re
         return Ok(browse.to_string());
     }
     let f = flavor(p);
-    let quote = if p.quote.is_some() { f.quote } else { quote_after_from(browse) };
+    let quote = if p.quote.is_some() {
+        f.quote
+    } else {
+        quote_after_from(browse)
+    };
     let backslash = backslash_strings(p);
     let literal = |v: &Value| literal(p, v);
-    let style = SqlFilterStyle { quote, literal: &literal, like: "LIKE", true_literal: f.true_literal, false_literal: f.false_literal };
+    let style = SqlFilterStyle {
+        quote,
+        literal: &literal,
+        like: "LIKE",
+        true_literal: f.true_literal,
+        false_literal: f.false_literal,
+    };
     let mut parts = Vec::new();
     for c in filters {
         let cond = sql_condition(std::slice::from_ref(c), &style)?;
-        let like = matches!(c.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith);
+        let like = matches!(
+            c.op,
+            FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith
+        );
         parts.push(match cond.strip_suffix(" ESCAPE '\\'") {
             Some(s) if like && backslash => s.to_string(),
             _ => cond,
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 /// The (filtered) browse query with `ORDER BY` the grid's sort keys, quoted
@@ -839,11 +1503,24 @@ pub fn sorted_browse(p: &Preset, query: &str, sort: &[SortKey]) -> Result<String
     if sort.is_empty() {
         return Ok(query.to_string());
     }
-    if backslash_strings(p) && query.as_bytes().windows(2).any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"')) {
-        return Err(Error::Unsupported("con comillas escapadas en el filtro, este motor no ordena en el servidor".into()));
+    if backslash_strings(p)
+        && query
+            .as_bytes()
+            .windows(2)
+            .any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"'))
+    {
+        return Err(Error::Unsupported(
+            "con comillas escapadas en el filtro, este motor no ordena en el servidor".into(),
+        ));
     }
-    let quote = if p.quote.is_some() { flavor(p).quote } else { quote_after_from(query) };
-    set_order_by(query, &order_list(sort, quote)).ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+    let quote = if p.quote.is_some() {
+        flavor(p).quote
+    } else {
+        quote_after_from(query)
+    };
+    set_order_by(query, &order_list(sort, quote)).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+    })
 }
 
 /// How the chart's `GROUP BY` around a query is written for the preset
@@ -852,21 +1529,43 @@ pub fn sorted_browse(p: &Preset, query: &str, sort: &[SortKey]) -> Result<String
 /// itself) when the preset doesn't fix the quote or the limit (generic
 /// ODBC: they depend on the driver) or the engine's SQL is too limited.
 pub fn aggregate_shape(p: &Preset) -> Option<SqlShape> {
-    let (Some(quote), Some(limit)) = (p.quote, p.limit) else { return None };
+    let (Some(quote), Some(limit)) = (p.quote, p.limit) else {
+        return None;
+    };
     let limit = match limit {
         LimitStyle::Limit => RowLimit::Limit,
         LimitStyle::Top => RowLimit::Top,
         LimitStyle::FetchFirst => RowLimit::FetchFirst,
         LimitStyle::First => RowLimit::First,
     };
-    let base = SqlShape { quote, limit, alias_as: p.dialect != "oracle", ..SqlShape::ansi() };
+    let base = SqlShape {
+        quote,
+        limit,
+        alias_as: p.dialect != "oracle",
+        ..SqlShape::ansi()
+    };
     Some(match eng(p) {
         Eng::Generic | Eng::NetSuite => return None,
         // T-SQL family: no ORDER BY or CTE in a derived table, integer AVG.
-        Eng::SqlServer | Eng::Ase | Eng::Sqla => SqlShape { float_avg: true, derived_order_by: false, derived_with: false, ..base },
-        Eng::Teradata | Eng::Access | Eng::DBase => SqlShape { derived_order_by: false, derived_with: false, ..base },
-        Eng::Db2 | Eng::Db2i | Eng::Db2zos => SqlShape { float_avg: true, ..base },
-        Eng::Informix => SqlShape { derived_with: false, ..base },
+        Eng::SqlServer | Eng::Ase | Eng::Sqla => SqlShape {
+            float_avg: true,
+            derived_order_by: false,
+            derived_with: false,
+            ..base
+        },
+        Eng::Teradata | Eng::Access | Eng::DBase => SqlShape {
+            derived_order_by: false,
+            derived_with: false,
+            ..base
+        },
+        Eng::Db2 | Eng::Db2i | Eng::Db2zos => SqlShape {
+            float_avg: true,
+            ..base
+        },
+        Eng::Informix => SqlShape {
+            derived_with: false,
+            ..base
+        },
         _ => base,
     })
 }
@@ -874,7 +1573,10 @@ pub fn aggregate_shape(p: &Preset) -> Option<SqlShape> {
 /// The identifier quote the table after `FROM` uses.
 fn quote_after_from(browse: &str) -> Quote {
     let lower = browse.to_ascii_lowercase();
-    match lower.find("from ").and_then(|i| browse[i + 5..].trim_start().chars().next()) {
+    match lower
+        .find("from ")
+        .and_then(|i| browse[i + 5..].trim_start().chars().next())
+    {
         Some('`') => Quote::Backtick,
         Some('[') => Quote::Bracket,
         _ => Quote::Double,
@@ -882,10 +1584,15 @@ fn quote_after_from(browse: &str) -> Quote {
 }
 
 fn t(kind: &'static str, label: &'static str, template: &str) -> CreateTemplate {
-    CreateTemplate { kind, label, template: template.trim_start().to_string() }
+    CreateTemplate {
+        kind,
+        label,
+        template: template.trim_start().to_string(),
+    }
 }
 
-const WHOLE_SCRIPT: &str = "-- Ejecutalo con el modo de envío «Todo el texto de una vez»: el cuerpo lleva «;».\n";
+const WHOLE_SCRIPT: &str =
+    "-- Ejecutalo con el modo de envío «Todo el texto de una vez»: el cuerpo lleva «;».\n";
 
 pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
     // `{schema}.` only where there are schemas.
@@ -899,18 +1606,33 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
     } else {
         format!("{qo}{{name}}{qc}")
     };
-    let view = t(kinds::VIEW, "Nueva vista", &format!("CREATE VIEW {obj} AS\nSELECT 1 AS col\n"));
+    let view = t(
+        kinds::VIEW,
+        "Nueva vista",
+        &format!("CREATE VIEW {obj} AS\nSELECT 1 AS col\n"),
+    );
     let mut v = vec![view];
     let o = obj.as_str();
     match eng(p) {
         // Read-only, or no views.
         Eng::NetSuite | Eng::DBase => v.clear(),
-        Eng::Generic | Eng::SqlServer | Eng::Ocient | Eng::Access | Eng::HeavyDb | Eng::Machbase | Eng::Ignite
-        | Eng::Ignite3 | Eng::Sqream => {}
+        Eng::Generic
+        | Eng::SqlServer
+        | Eng::Ocient
+        | Eng::Access
+        | Eng::HeavyDb
+        | Eng::Machbase
+        | Eng::Ignite
+        | Eng::Ignite3
+        | Eng::Sqream => {}
         Eng::Spark => {
-            v.push(t(kinds::FUNCTION, "Nueva función", &format!(
+            v.push(t(
+                kinds::FUNCTION,
+                "Nueva función",
+                &format!(
                 "CREATE FUNCTION {o} AS 'com.ejemplo.MiUDF'\nUSING JAR 'hdfs:///ruta/udf.jar'\n"
-            )));
+            ),
+            ));
         }
         Eng::MonetDb => {
             v.push(t(kinds::FUNCTION, "Nueva función", &format!(
@@ -919,7 +1641,11 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
                 "{WHOLE_SCRIPT}CREATE OR REPLACE PROCEDURE {o} (p_id INT)\nBEGIN\n    DECLARE x INT;\n    SET x = p_id;\nEND\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n"),
+            ));
         }
         Eng::Virtuoso => {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
@@ -930,7 +1656,11 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
                 "{WHOLE_SCRIPT}CREATE PROCEDURE {qo}{{name}}{qc} (p_id INTEGER NOT NULL) AS\nBEGIN\n    RETURN p_id * 2;\nEND\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n"),
+            ));
         }
         Eng::Mimer => {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
@@ -939,7 +1669,11 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::FUNCTION, "Nueva función", &format!(
                 "{WHOLE_SCRIPT}CREATE FUNCTION {o} (p_x INTEGER)\nRETURNS INTEGER\nBEGIN\n    RETURN p_x * 2;\nEND\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n"),
+            ));
         }
         Eng::Iris => {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
@@ -950,10 +1684,18 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             )));
         }
         Eng::OpenEdge => {
-            v.push(t(kinds::PROCEDURE, "Nuevo procedimiento (Java)", &format!(
-                "CREATE PROCEDURE {o} (IN p_id INTEGER)\nBEGIN\n    // Código Java\nEND\n"
-            )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} START WITH 1, INCREMENT BY 1, NOCYCLE\n")));
+            v.push(t(
+                kinds::PROCEDURE,
+                "Nuevo procedimiento (Java)",
+                &format!(
+                    "CREATE PROCEDURE {o} (IN p_id INTEGER)\nBEGIN\n    // Código Java\nEND\n"
+                ),
+            ));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} START WITH 1, INCREMENT BY 1, NOCYCLE\n"),
+            ));
         }
         Eng::Zen => {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
@@ -964,13 +1706,21 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
                 "{WHOLE_SCRIPT}CREATE DBPROC {o} (IN p_id INTEGER) AS\nVAR x INTEGER;\nBEGIN\n    x = p_id;\nEND;\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} INCREMENT BY 1 START WITH 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} INCREMENT BY 1 START WITH 1\n"),
+            ));
         }
         Eng::NuoDb => {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
                 "{WHOLE_SCRIPT}CREATE PROCEDURE {o} (IN p_id INTEGER)\nAS\n    VAR x INTEGER = p_id;\nEND_PROCEDURE\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} START WITH 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} START WITH 1\n"),
+            ));
         }
         Eng::Db2 | Eng::Db2i | Eng::Db2zos => {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
@@ -982,38 +1732,62 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::TRIGGER, "Nuevo trigger", &format!(
                 "{WHOLE_SCRIPT}CREATE OR REPLACE TRIGGER {o}\nAFTER INSERT ON {qo}{{schema}}{qc}.{qo}tabla{qc}\nREFERENCING NEW AS n\nFOR EACH ROW\nBEGIN ATOMIC\n    -- …\nEND\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} AS BIGINT START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} AS BIGINT START WITH 1 INCREMENT BY 1\n"),
+            ));
         }
         Eng::Ase => {
-            v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
-                "CREATE PROCEDURE {o}\n    @id int\nAS\nBEGIN\n    SELECT @id\nEND\n"
-            )));
-            v.push(t(kinds::FUNCTION, "Nueva función", &format!(
+            v.push(t(
+                kinds::PROCEDURE,
+                "Nuevo procedimiento",
+                &format!("CREATE PROCEDURE {o}\n    @id int\nAS\nBEGIN\n    SELECT @id\nEND\n"),
+            ));
+            v.push(t(
+                kinds::FUNCTION,
+                "Nueva función",
+                &format!(
                 "CREATE FUNCTION {o} (@x int)\nRETURNS int\nAS\nBEGIN\n    RETURN @x * 2\nEND\n"
-            )));
+            ),
+            ));
             v.push(t(kinds::TRIGGER, "Nuevo trigger", &format!(
                 "CREATE TRIGGER {o}\nON [{{schema}}].[tabla]\nFOR INSERT\nAS\nBEGIN\n    -- inserted / deleted\n    PRINT 'ok'\nEND\n"
             )));
         }
         Eng::Sqla => {
-            v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
+            v.push(t(
+                kinds::PROCEDURE,
+                "Nuevo procedimiento",
+                &format!(
                 "CREATE OR REPLACE PROCEDURE {o} (IN p_id INTEGER)\nBEGIN\n    SELECT p_id;\nEND\n"
-            )));
+            ),
+            ));
             v.push(t(kinds::FUNCTION, "Nueva función", &format!(
                 "CREATE OR REPLACE FUNCTION {o} (IN p_x INTEGER)\nRETURNS INTEGER\nBEGIN\n    RETURN p_x * 2;\nEND\n"
             )));
             v.push(t(kinds::TRIGGER, "Nuevo trigger", &format!(
                 "CREATE OR REPLACE TRIGGER {qo}{{name}}{qc}\nAFTER INSERT ON {qo}{{schema}}{qc}.{qo}tabla{qc}\nREFERENCING NEW AS n\nFOR EACH ROW\nBEGIN\n    -- …\nEND\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n"),
+            ));
         }
         Eng::Hive => {
-            v.push(t(kinds::MATERIALIZED_VIEW, "Nueva vista materializada", &format!(
-                "CREATE MATERIALIZED VIEW {o} AS\nSELECT 1 AS col\n"
-            )));
-            v.push(t(kinds::FUNCTION, "Nueva función", &format!(
+            v.push(t(
+                kinds::MATERIALIZED_VIEW,
+                "Nueva vista materializada",
+                &format!("CREATE MATERIALIZED VIEW {o} AS\nSELECT 1 AS col\n"),
+            ));
+            v.push(t(
+                kinds::FUNCTION,
+                "Nueva función",
+                &format!(
                 "CREATE FUNCTION {o} AS 'com.ejemplo.MiUDF'\nUSING JAR 'hdfs:///ruta/udf.jar'\n"
-            )));
+            ),
+            ));
         }
         Eng::Impala => {
             v.push(t(kinds::FUNCTION, "Nueva función", &format!(
@@ -1030,12 +1804,20 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::TRIGGER, "Nuevo trigger", &format!(
                 "CREATE TRIGGER {qo}{{name}}{qc}\nINSERT ON {qo}tabla{qc}\nREFERENCING NEW AS n\nFOR EACH ROW (EXECUTE PROCEDURE {qo}proc{qc}(n.id))\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {qo}{{name}}{qc} START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {qo}{{name}}{qc} START WITH 1 INCREMENT BY 1\n"),
+            ));
         }
         Eng::Teradata => {
-            v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
-                "{WHOLE_SCRIPT}REPLACE PROCEDURE {o} (IN p_id INTEGER)\nBEGIN\n    -- …\nEND\n"
-            )));
+            v.push(t(
+                kinds::PROCEDURE,
+                "Nuevo procedimiento",
+                &format!(
+                    "{WHOLE_SCRIPT}REPLACE PROCEDURE {o} (IN p_id INTEGER)\nBEGIN\n    -- …\nEND\n"
+                ),
+            ));
             v.push(t(kinds::FUNCTION, "Nueva función", &format!(
                 "REPLACE FUNCTION {o} (p_x INTEGER)\nRETURNS INTEGER\nLANGUAGE SQL\nCONTAINS SQL\nDETERMINISTIC\nSQL SECURITY DEFINER\nCOLLATION INVOKER\nINLINE TYPE 1\nRETURN p_x * 2\n"
             )));
@@ -1050,7 +1832,11 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
                 "CREATE OR REPLACE PROCEDURE {o} (p_id INT)\nLANGUAGE PLvSQL AS $$\nBEGIN\n    PERFORM 1;\nEND;\n$$\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} START 1 INCREMENT 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} START 1 INCREMENT 1\n"),
+            ));
         }
         Eng::Exasol => {
             v.push(t(kinds::FUNCTION, "Nueva función", &format!(
@@ -1064,7 +1850,11 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
                 "{WHOLE_SCRIPT}CREATE OR REPLACE PROCEDURE {o} (INTEGER)\nRETURNS INTEGER\nLANGUAGE NZPLSQL AS\nBEGIN_PROC\nBEGIN\n    RETURN $1 * 2;\nEND;\nEND_PROC\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} AS BIGINT START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} AS BIGINT START WITH 1 INCREMENT BY 1\n"),
+            ));
         }
         Eng::Altibase | Eng::Dameng => {
             v.push(t(kinds::PROCEDURE, "Nuevo procedimiento", &format!(
@@ -1076,10 +1866,18 @@ pub fn create_templates(p: &Preset) -> Vec<CreateTemplate> {
             v.push(t(kinds::TRIGGER, "Nuevo trigger", &format!(
                 "{WHOLE_SCRIPT}CREATE OR REPLACE TRIGGER {o}\nAFTER INSERT ON {qo}{{schema}}{qc}.{qo}tabla{qc}\nFOR EACH ROW\nBEGIN\n    NULL;\nEND;\n"
             )));
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SEQUENCE {o} START WITH 1 INCREMENT BY 1\n"),
+            ));
         }
         Eng::Cubrid => {
-            v.push(t(kinds::SEQUENCE, "Nueva secuencia", &format!("CREATE SERIAL {o} START WITH 1 INCREMENT BY 1\n")));
+            v.push(t(
+                kinds::SEQUENCE,
+                "Nueva secuencia",
+                &format!("CREATE SERIAL {o} START WITH 1 INCREMENT BY 1\n"),
+            ));
             v.push(t(kinds::TRIGGER, "Nuevo trigger", &format!(
                 "CREATE TRIGGER {o}\nAFTER INSERT ON {qo}tabla{qc}\nEXECUTE INSERT INTO {qo}auditoria{qc} (id) VALUES (obj.id)\n"
             )));
@@ -1103,48 +1901,130 @@ mod tests {
     fn aggregate_shape_per_preset() {
         assert_eq!(aggregate_shape(preset("odbc")), None);
         let db2 = aggregate_shape(preset("db2")).unwrap();
-        assert_eq!((db2.limit, db2.float_avg, db2.alias_as), (RowLimit::FetchFirst, true, true));
+        assert_eq!(
+            (db2.limit, db2.float_avg, db2.alias_as),
+            (RowLimit::FetchFirst, true, true)
+        );
         let ase = aggregate_shape(preset("sybase")).unwrap();
-        assert_eq!((ase.quote, ase.limit, ase.derived_order_by, ase.derived_with), (Quote::Bracket, RowLimit::Top, false, false));
-        assert_eq!(aggregate_shape(preset("informix")).unwrap().limit, RowLimit::First);
+        assert_eq!(
+            (ase.quote, ase.limit, ase.derived_order_by, ase.derived_with),
+            (Quote::Bracket, RowLimit::Top, false, false)
+        );
+        assert_eq!(
+            aggregate_shape(preset("informix")).unwrap().limit,
+            RowLimit::First
+        );
         assert!(!aggregate_shape(preset("dameng")).unwrap().alias_as);
-        assert_eq!(aggregate_shape(preset("hive")).unwrap().quote, Quote::Backtick);
+        assert_eq!(
+            aggregate_shape(preset("hive")).unwrap().quote,
+            Quote::Backtick
+        );
     }
 
     #[test]
     fn sorted_browse_per_preset() {
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let ge = [f("n", FilterOp::Ge, vec![json!(5)])];
         let keys = [k("Grupo Mixto", false), k("v\"w", true)];
-        assert_eq!(sorted_browse(preset("db2"), "SELECT *\nFROM \"T\"", &[]).unwrap(), "SELECT *\nFROM \"T\"");
+        assert_eq!(
+            sorted_browse(preset("db2"), "SELECT *\nFROM \"T\"", &[]).unwrap(),
+            "SELECT *\nFROM \"T\""
+        );
         // FETCH FIRST: the order goes before it.
-        let w = filtered_browse(preset("db2"), "SELECT *\nFROM \"S\".\"T\"\nFETCH FIRST 200 ROWS ONLY", &ge).unwrap();
+        let w = filtered_browse(
+            preset("db2"),
+            "SELECT *\nFROM \"S\".\"T\"\nFETCH FIRST 200 ROWS ONLY",
+            &ge,
+        )
+        .unwrap();
         assert_eq!(
             sorted_browse(preset("db2"), &w, &keys).unwrap(),
             "SELECT *\nFROM \"S\".\"T\"\nWHERE \"n\" >= 5\nORDER BY \"Grupo Mixto\" ASC, \"v\"\"w\" DESC\nFETCH FIRST 200 ROWS ONLY"
         );
         // TOP and FIRST: the order goes last.
         let w = filtered_browse(preset("teradata"), "SELECT TOP 200 *\nFROM \"t\"", &ge).unwrap();
-        assert_eq!(sorted_browse(preset("teradata"), &w, &keys[..1]).unwrap(), "SELECT TOP 200 *\nFROM \"t\"\nWHERE \"n\" >= 5\nORDER BY \"Grupo Mixto\" ASC");
-        assert_eq!(sorted_browse(preset("informix"), "SELECT FIRST 200 *\nFROM \"t\"", &keys[1..]).unwrap(), "SELECT FIRST 200 *\nFROM \"t\"\nORDER BY \"v\"\"w\" DESC");
-        assert_eq!(sorted_browse(preset("access"), "SELECT TOP 200 *\nFROM [t]", &[k("a]b", false)]).unwrap(), "SELECT TOP 200 *\nFROM [t]\nORDER BY [a]]b] ASC");
+        assert_eq!(
+            sorted_browse(preset("teradata"), &w, &keys[..1]).unwrap(),
+            "SELECT TOP 200 *\nFROM \"t\"\nWHERE \"n\" >= 5\nORDER BY \"Grupo Mixto\" ASC"
+        );
+        assert_eq!(
+            sorted_browse(
+                preset("informix"),
+                "SELECT FIRST 200 *\nFROM \"t\"",
+                &keys[1..]
+            )
+            .unwrap(),
+            "SELECT FIRST 200 *\nFROM \"t\"\nORDER BY \"v\"\"w\" DESC"
+        );
+        assert_eq!(
+            sorted_browse(
+                preset("access"),
+                "SELECT TOP 200 *\nFROM [t]",
+                &[k("a]b", false)]
+            )
+            .unwrap(),
+            "SELECT TOP 200 *\nFROM [t]\nORDER BY [a]]b] ASC"
+        );
         // SQL Anywhere's dialect is "sybase", but the preset quotes with `"`.
-        assert_eq!(sorted_browse(preset("sqlanywhere"), "SELECT TOP 200 *\nFROM \"t\"", &keys[..1]).unwrap(), "SELECT TOP 200 *\nFROM \"t\"\nORDER BY \"Grupo Mixto\" ASC");
+        assert_eq!(
+            sorted_browse(
+                preset("sqlanywhere"),
+                "SELECT TOP 200 *\nFROM \"t\"",
+                &keys[..1]
+            )
+            .unwrap(),
+            "SELECT TOP 200 *\nFROM \"t\"\nORDER BY \"Grupo Mixto\" ASC"
+        );
         // Generic: the quote the driver gave the browse query.
         let w = filtered_browse(preset("odbc"), "SELECT *\nFROM `t`\nLIMIT 200", &ge).unwrap();
-        assert_eq!(sorted_browse(preset("odbc"), &w, &keys[..1]).unwrap(), "SELECT *\nFROM `t`\nWHERE `n` >= 5\nORDER BY `Grupo Mixto` ASC\nLIMIT 200");
-        assert_eq!(sorted_browse(preset("odbc"), "SELECT TOP 200 *\nFROM [dbo].[t]", &keys[..1]).unwrap(), "SELECT TOP 200 *\nFROM [dbo].[t]\nORDER BY [Grupo Mixto] ASC");
+        assert_eq!(
+            sorted_browse(preset("odbc"), &w, &keys[..1]).unwrap(),
+            "SELECT *\nFROM `t`\nWHERE `n` >= 5\nORDER BY `Grupo Mixto` ASC\nLIMIT 200"
+        );
+        assert_eq!(
+            sorted_browse(
+                preset("odbc"),
+                "SELECT TOP 200 *\nFROM [dbo].[t]",
+                &keys[..1]
+            )
+            .unwrap(),
+            "SELECT TOP 200 *\nFROM [dbo].[t]\nORDER BY [Grupo Mixto] ASC"
+        );
         // Hive: backslash literals. A plain filter sorts; an escaped quote is refused.
         let w = filtered_browse(preset("hive"), "SELECT *\nFROM `db`.`t`\nLIMIT 200", &ge).unwrap();
-        assert_eq!(sorted_browse(preset("hive"), &w, &[k("x", true)]).unwrap(), "SELECT *\nFROM `db`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200");
-        let w = filtered_browse(preset("hive"), "SELECT *\nFROM `db`.`t`\nLIMIT 200", &[f("n", FilterOp::Eq, vec![json!("O'Brien")])]).unwrap();
-        assert!(matches!(sorted_browse(preset("hive"), &w, &[k("x", true)]), Err(Error::Unsupported(_))));
+        assert_eq!(
+            sorted_browse(preset("hive"), &w, &[k("x", true)]).unwrap(),
+            "SELECT *\nFROM `db`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200"
+        );
+        let w = filtered_browse(
+            preset("hive"),
+            "SELECT *\nFROM `db`.`t`\nLIMIT 200",
+            &[f("n", FilterOp::Eq, vec![json!("O'Brien")])],
+        )
+        .unwrap();
+        assert!(matches!(
+            sorted_browse(preset("hive"), &w, &[k("x", true)]),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn filtered_browse_per_preset() {
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let filters = [
             f("nombre", FilterOp::Eq, vec![json!("O'Brien")]),
             f("nota", FilterOp::Contains, vec![json!("50%")]),
@@ -1163,11 +2043,21 @@ mod tests {
         );
         // Generic: the quote the driver gave the browse query.
         assert_eq!(
-            filtered_browse(preset("odbc"), "SELECT *\nFROM `t`\nLIMIT 200", &filters[5..]).unwrap(),
+            filtered_browse(
+                preset("odbc"),
+                "SELECT *\nFROM `t`\nLIMIT 200",
+                &filters[5..]
+            )
+            .unwrap(),
             "SELECT *\nFROM `t`\nWHERE `activo` = 1\nLIMIT 200"
         );
         assert_eq!(
-            filtered_browse(preset("informix"), "SELECT FIRST 200 *\nFROM \"t\"", &filters[5..]).unwrap(),
+            filtered_browse(
+                preset("informix"),
+                "SELECT FIRST 200 *\nFROM \"t\"",
+                &filters[5..]
+            )
+            .unwrap(),
             "SELECT FIRST 200 *\nFROM \"t\"\nWHERE \"activo\" = 't'"
         );
     }
@@ -1176,7 +2066,12 @@ mod tests {
     fn update_script_per_preset() {
         let c = RowChange {
             key: vec![("id".into(), json!(7)), ("region".into(), Value::Null)],
-            set: vec![("nombre".into(), json!("O'Brien")), ("activo".into(), json!(true)), ("baja".into(), Value::Null)], ..Default::default()
+            set: vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("activo".into(), json!(true)),
+                ("baja".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(preset("sybase"), Some("dbo"), "clientes", std::slice::from_ref(&c)).unwrap(),
@@ -1191,7 +2086,13 @@ mod tests {
 
     #[test]
     fn delete_script_per_preset() {
-        let keys = vec![vec![("nombre".into(), json!("O'Brien")), ("region".into(), Value::Null)], vec![]];
+        let keys = vec![
+            vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("region".into(), Value::Null),
+            ],
+            vec![],
+        ];
         assert_eq!(
             delete_script(preset("sybase"), Some("dbo"), "clientes", &keys).unwrap(),
             "DELETE FROM [dbo].[clientes] WHERE [nombre] = 'O''Brien' AND [region] IS NULL;"
@@ -1209,11 +2110,32 @@ mod tests {
             schema: Some("app".into()),
             name: "pedidos".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "INTEGER".into(), nullable: false, auto_increment: true, ..Default::default() },
-                ColumnDef { name: "cliente_id".into(), data_type: "INTEGER".into(), nullable: true, comment: Some("dueño".into()), ..Default::default() },
-                ColumnDef { name: "estado".into(), data_type: "VARCHAR(20)".into(), nullable: false, default_value: Some("'nuevo'".into()), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INTEGER".into(),
+                    nullable: false,
+                    auto_increment: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "cliente_id".into(),
+                    data_type: "INTEGER".into(),
+                    nullable: true,
+                    comment: Some("dueño".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "estado".into(),
+                    data_type: "VARCHAR(20)".into(),
+                    nullable: false,
+                    default_value: Some("'nuevo'".into()),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some("pk_pedidos".into()), columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("pk_pedidos".into()),
+                columns: vec!["id".into()],
+            }),
             foreign_keys: vec![ForeignKeyDef {
                 name: Some("fk_cliente".into()),
                 columns: vec!["cliente_id".into()],
@@ -1222,13 +2144,23 @@ mod tests {
                 on_delete: Some("CASCADE".into()),
                 ..Default::default()
             }],
-            indexes: vec![IndexDef { name: "ix_estado".into(), columns: vec!["estado".into()], ..Default::default() }],
+            indexes: vec![IndexDef {
+                name: "ix_estado".into(),
+                columns: vec!["estado".into()],
+                ..Default::default()
+            }],
             comment: Some("Pedidos".into()),
             ..Default::default()
         }
     }
 
-    const ALL: DdlParts = DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true };
+    const ALL: DdlParts = DdlParts {
+        drop: true,
+        if_exists: true,
+        create: true,
+        indexes: true,
+        foreign_keys: true,
+    };
 
     fn ddl_of(id: &str, t: &TableSchema) -> String {
         table_ddl(preset(id), t, ALL)
@@ -1243,8 +2175,19 @@ mod tests {
             assert!(s.contains("CREATE "), "{}: {s}", p.id);
             assert!(s.contains("pedidos"), "{}", p.id);
             // dBase has no views and NetSuite is read-only.
-            assert_eq!(create_templates(p).is_empty(), matches!(p.id, "dbase" | "netsuite"), "{}", p.id);
-            let ins = insert_script(p, Some("app"), "pedidos", &["id".into()], &[vec![json!(1)], vec![json!(2)]]);
+            assert_eq!(
+                create_templates(p).is_empty(),
+                matches!(p.id, "dbase" | "netsuite"),
+                "{}",
+                p.id
+            );
+            let ins = insert_script(
+                p,
+                Some("app"),
+                "pedidos",
+                &["id".into()],
+                &[vec![json!(1)], vec![json!(2)]],
+            );
             assert!(ins.starts_with("INSERT INTO "), "{}", p.id);
         }
     }
@@ -1259,22 +2202,46 @@ mod tests {
         assert!(s.contains("\"cliente_id\" INTEGER NULL,"), "{s}");
         assert!(s.contains("CONSTRAINT \"pk_pedidos\" PRIMARY KEY (\"id\")"));
         assert!(s.contains("CREATE INDEX \"ix_estado\" ON \"app\".\"pedidos\" (\"estado\");"));
-        assert!(s.contains("ALTER TABLE \"app\".\"pedidos\" ADD CONSTRAINT \"fk_cliente\" FOREIGN KEY"));
+        assert!(
+            s.contains("ALTER TABLE \"app\".\"pedidos\" ADD CONSTRAINT \"fk_cliente\" FOREIGN KEY")
+        );
         assert!(!s.contains("COMMENT"));
-        let ins = insert_script(preset("odbc"), None, "t", &["a".into(), "b".into()], &[vec![json!(1), json!(true)], vec![json!(2), json!(false)]]);
-        assert_eq!(ins, "INSERT INTO \"t\" (\"a\", \"b\") VALUES\n  (1, 1),\n  (2, 0);");
+        let ins = insert_script(
+            preset("odbc"),
+            None,
+            "t",
+            &["a".into(), "b".into()],
+            &[vec![json!(1), json!(true)], vec![json!(2), json!(false)]],
+        );
+        assert_eq!(
+            ins,
+            "INSERT INTO \"t\" (\"a\", \"b\") VALUES\n  (1, 1),\n  (2, 0);"
+        );
     }
 
     #[test]
     fn db2_identity_and_comments() {
         let s = ddl_of("db2", &sample());
         assert!(s.starts_with("DROP TABLE \"app\".\"pedidos\";"), "{s}");
-        assert!(s.contains("\"id\" INTEGER GENERATED BY DEFAULT AS IDENTITY NOT NULL,"), "{s}");
+        assert!(
+            s.contains("\"id\" INTEGER GENERATED BY DEFAULT AS IDENTITY NOT NULL,"),
+            "{s}"
+        );
         assert!(s.contains("\"cliente_id\" INTEGER,"), "{s}");
         assert!(s.contains("COMMENT ON COLUMN \"app\".\"pedidos\".\"cliente_id\" IS 'dueño';"));
         let rows = vec![vec![json!(1)], vec![json!(2)]];
-        assert_eq!(insert_script(preset("db2"), None, "t", &["a".into()], &rows).lines().count(), 3);
-        assert_eq!(insert_script(preset("db2zos"), None, "t", &["a".into()], &rows).lines().count(), 2);
+        assert_eq!(
+            insert_script(preset("db2"), None, "t", &["a".into()], &rows)
+                .lines()
+                .count(),
+            3
+        );
+        assert_eq!(
+            insert_script(preset("db2zos"), None, "t", &["a".into()], &rows)
+                .lines()
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -1284,15 +2251,27 @@ mod tests {
         assert!(s.contains("[cliente_id] INTEGER NULL,"), "{s}");
         assert!(!s.contains("IF EXISTS"));
         assert!(!s.contains("COMMENT"));
-        let ins = insert_script(preset("sybase"), Some("dbo"), "t", &["a".into()], &[vec![json!(true)], vec![json!("x")]]);
-        assert_eq!(ins, "INSERT INTO [dbo].[t] ([a]) VALUES (1);\nINSERT INTO [dbo].[t] ([a]) VALUES ('x');");
+        let ins = insert_script(
+            preset("sybase"),
+            Some("dbo"),
+            "t",
+            &["a".into()],
+            &[vec![json!(true)], vec![json!("x")]],
+        );
+        assert_eq!(
+            ins,
+            "INSERT INTO [dbo].[t] ([a]) VALUES (1);\nINSERT INTO [dbo].[t] ([a]) VALUES ('x');"
+        );
         assert_eq!(script_separator(preset("sybase")), "GO");
     }
 
     #[test]
     fn sql_anywhere_autoincrement_default() {
         let s = ddl_of("sqlanywhere", &sample());
-        assert!(s.contains("\"id\" INTEGER DEFAULT AUTOINCREMENT NOT NULL,"), "{s}");
+        assert!(
+            s.contains("\"id\" INTEGER DEFAULT AUTOINCREMENT NOT NULL,"),
+            "{s}"
+        );
         assert!(s.contains("DROP TABLE IF EXISTS"));
     }
 
@@ -1301,27 +2280,49 @@ mod tests {
         let s = ddl_of("informix", &sample());
         assert!(s.contains("\"id\" SERIAL NOT NULL,"), "{s}");
         assert!(s.contains("\"cliente_id\" INTEGER,"), "{s}");
-        assert!(s.contains("    PRIMARY KEY (\"id\") CONSTRAINT \"pk_pedidos\"\n);"), "{s}");
+        assert!(
+            s.contains("    PRIMARY KEY (\"id\") CONSTRAINT \"pk_pedidos\"\n);"),
+            "{s}"
+        );
         assert!(s.contains(
             "ALTER TABLE \"app\".\"pedidos\" ADD CONSTRAINT FOREIGN KEY (\"cliente_id\") REFERENCES \"app\".\"clientes\" (\"id\") ON DELETE CASCADE CONSTRAINT \"fk_cliente\";"
         ), "{s}");
-        let ins = insert_script(preset("gbase8s"), None, "t", &["a".into()], &[vec![json!(true)], vec![json!(false)]]);
-        assert_eq!(ins, "INSERT INTO \"t\" (\"a\") VALUES ('t');\nINSERT INTO \"t\" (\"a\") VALUES ('f');");
+        let ins = insert_script(
+            preset("gbase8s"),
+            None,
+            "t",
+            &["a".into()],
+            &[vec![json!(true)], vec![json!(false)]],
+        );
+        assert_eq!(
+            ins,
+            "INSERT INTO \"t\" (\"a\") VALUES ('t');\nINSERT INTO \"t\" (\"a\") VALUES ('f');"
+        );
     }
 
     #[test]
     fn teradata_multiset_primary_index_and_indexes() {
         let mut t = sample();
-        t.options.insert("primary_index".into(), "id, estado".into());
+        t.options
+            .insert("primary_index".into(), "id, estado".into());
         let s = ddl_of("teradata", &t);
-        assert!(s.contains("CREATE MULTISET TABLE \"app\".\"pedidos\" ("), "{s}");
+        assert!(
+            s.contains("CREATE MULTISET TABLE \"app\".\"pedidos\" ("),
+            "{s}"
+        );
         assert!(s.contains("\n) PRIMARY INDEX (\"id\", \"estado\");"), "{s}");
-        assert!(s.contains("CREATE INDEX \"ix_estado\" (\"estado\") ON \"app\".\"pedidos\";"), "{s}");
+        assert!(
+            s.contains("CREATE INDEX \"ix_estado\" (\"estado\") ON \"app\".\"pedidos\";"),
+            "{s}"
+        );
         assert!(!s.contains("IF EXISTS"));
         t.options.insert("table_kind".into(), "SET".into());
         t.options.insert("primary_index".into(), "NO".into());
         let s = ddl_of("teradata", &t);
-        assert!(s.contains("CREATE SET TABLE") && s.contains(") NO PRIMARY INDEX;"), "{s}");
+        assert!(
+            s.contains("CREATE SET TABLE") && s.contains(") NO PRIMARY INDEX;"),
+            "{s}"
+        );
     }
 
     #[test]
@@ -1358,14 +2359,29 @@ mod tests {
     fn hive_family_strings_escape_quotes_with_a_backslash() {
         let row = vec![json!("O'Brien"), json!(1)];
         for id in ["hive", "impala", "spark"] {
-            let ins = insert_script(preset(id), Some("db"), "t", &["a".into(), "b".into()], &[row.clone()]);
-            assert!(ins.contains("'O\\'Brien'") && !ins.contains("''"), "{id}: {ins}");
+            let ins = insert_script(
+                preset(id),
+                Some("db"),
+                "t",
+                &["a".into(), "b".into()],
+                &[row.clone()],
+            );
+            assert!(
+                ins.contains("'O\\'Brien'") && !ins.contains("''"),
+                "{id}: {ins}"
+            );
             let key = vec![vec![("a".to_string(), json!("O'Brien"))]];
             let del = delete_script(preset(id), Some("db"), "t", &key).unwrap();
             assert!(del.contains("= 'O\\'Brien'"), "{id}: {del}");
         }
         // Everyone else keeps the standard doubled quote.
-        let ins = insert_script(preset("db2"), None, "t", &["a".into()], &[vec![json!("O'Brien")]]);
+        let ins = insert_script(
+            preset("db2"),
+            None,
+            "t",
+            &["a".into()],
+            &[vec![json!("O'Brien")]],
+        );
         assert!(ins.contains("'O''Brien'"), "{ins}");
     }
 
@@ -1381,14 +2397,27 @@ mod tests {
             "DROP TABLE IF EXISTS `app`.`pedidos`;\nCREATE TABLE `app`.`pedidos` (\n    `id` INTEGER,\n    `cliente_id` INTEGER COMMENT 'dueño',\n    `estado` VARCHAR(20)\n)\nCOMMENT 'Pedidos'\nPARTITIONED BY (anio INT)\nSTORED AS ORC\nLOCATION '/data/p';"
         );
         t.options.insert("stored_as".into(), "KUDU".into());
-        t.options.insert("partitioned_by".into(), "HASH (id) PARTITIONS 4".into());
+        t.options
+            .insert("partitioned_by".into(), "HASH (id) PARTITIONS 4".into());
         t.options.remove("location");
         let i = ddl_of("impala", &t);
         assert!(i.contains("`id` INTEGER NOT NULL,"), "{i}");
-        assert!(i.contains("`estado` VARCHAR(20) NOT NULL DEFAULT 'nuevo',"), "{i}");
+        assert!(
+            i.contains("`estado` VARCHAR(20) NOT NULL DEFAULT 'nuevo',"),
+            "{i}"
+        );
         assert!(i.contains("    PRIMARY KEY (`id`)\n)\nPARTITION BY HASH (id) PARTITIONS 4\nCOMMENT 'Pedidos'\nSTORED AS KUDU;"), "{i}");
-        let ins = insert_script(preset("hive"), Some("db"), "t", &["a".into()], &[vec![json!(true)], vec![json!(false)]]);
-        assert_eq!(ins, "INSERT INTO `db`.`t` (`a`) VALUES\n  (TRUE),\n  (FALSE);");
+        let ins = insert_script(
+            preset("hive"),
+            Some("db"),
+            "t",
+            &["a".into()],
+            &[vec![json!(true)], vec![json!(false)]],
+        );
+        assert_eq!(
+            ins,
+            "INSERT INTO `db`.`t` (`a`) VALUES\n  (TRUE),\n  (FALSE);"
+        );
     }
 
     #[test]
@@ -1408,9 +2437,14 @@ mod tests {
         has("ingres", "GENERATED BY DEFAULT AS IDENTITY");
         has("nuodb", "GENERATED BY DEFAULT AS IDENTITY");
         // No identity syntax the builder knows: the flag is dropped.
-        for id in ["openedge", "mimer", "sqream", "heavydb", "machbase", "ignite", "ignite3", "dbase"] {
+        for id in [
+            "openedge", "mimer", "sqream", "heavydb", "machbase", "ignite", "ignite3", "dbase",
+        ] {
             let s = ddl_of(id, &t);
-            assert!(!s.contains("IDENTITY") && !s.contains("AUTO_INCREMENT"), "{id}: {s}");
+            assert!(
+                !s.contains("IDENTITY") && !s.contains("AUTO_INCREMENT"),
+                "{id}: {s}"
+            );
         }
     }
 
@@ -1419,10 +2453,16 @@ mod tests {
         let t = sample();
         for id in ["sqream", "heavydb", "spark", "kyuubi"] {
             let s = ddl_of(id, &t);
-            assert!(!s.contains("FOREIGN KEY") && !s.contains("CREATE INDEX"), "{id}: {s}");
+            assert!(
+                !s.contains("FOREIGN KEY") && !s.contains("CREATE INDEX"),
+                "{id}: {s}"
+            );
         }
         let s = ddl_of("machbase", &t);
-        assert!(!s.contains("FOREIGN KEY") && s.contains("CREATE INDEX"), "{s}");
+        assert!(
+            !s.contains("FOREIGN KEY") && s.contains("CREATE INDEX"),
+            "{s}"
+        );
         // Spark and Kyuubi write Hive DDL.
         let s = ddl_of("spark", &t);
         assert!(s.contains("CREATE TABLE `app`.`pedidos` ("), "{s}");
@@ -1432,17 +2472,30 @@ mod tests {
     #[test]
     fn ignite_cache_options_go_in_with() {
         let mut t = sample();
-        t.options.insert("with".into(), "template=partitioned,backups=1".into());
+        t.options
+            .insert("with".into(), "template=partitioned,backups=1".into());
         let s = ddl_of("ignite", &t);
-        assert!(s.contains("\n) WITH \"template=partitioned,backups=1\";"), "{s}");
+        assert!(
+            s.contains("\n) WITH \"template=partitioned,backups=1\";"),
+            "{s}"
+        );
         assert!(!s.contains("FOREIGN KEY"), "{s}");
         assert!(s.contains("CREATE INDEX"), "{s}");
     }
 
     #[test]
     fn access_and_dbase_use_brackets_and_single_row_inserts() {
-        let ins = insert_script(preset("access"), None, "t", &["a".into()], &[vec![json!(1)], vec![json!(2)]]);
-        assert_eq!(ins, "INSERT INTO [t] ([a]) VALUES (1);\nINSERT INTO [t] ([a]) VALUES (2);");
+        let ins = insert_script(
+            preset("access"),
+            None,
+            "t",
+            &["a".into()],
+            &[vec![json!(1)], vec![json!(2)]],
+        );
+        assert_eq!(
+            ins,
+            "INSERT INTO [t] ([a]) VALUES (1);\nINSERT INTO [t] ([a]) VALUES (2);"
+        );
         let d = designer(preset("dbase"));
         assert!(!d.primary_key && !d.foreign_keys && !d.auto_increment);
     }
@@ -1458,6 +2511,9 @@ mod tests {
 
     #[test]
     fn explicit_null_is_stripped_only_from_column_lines() {
-        assert_eq!(strip_explicit_null("    a INT NULL,\n    b INT NOT NULL\n);"), "    a INT,\n    b INT NOT NULL\n);");
+        assert_eq!(
+            strip_explicit_null("    a INT NULL,\n    b INT NOT NULL\n);"),
+            "    a INT,\n    b INT NOT NULL\n);"
+        );
     }
 }

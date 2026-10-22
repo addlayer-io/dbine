@@ -139,8 +139,16 @@ SELECT FIRST 200 t.MON$TRANSACTION_ID, t.MON$ATTACHMENT_ID, TRIM(a.MON$USER),
  WHERE a.MON$SYSTEM_FLAG = 0 AND t.MON$ATTACHMENT_ID <> CURRENT_CONNECTION
  ORDER BY t.MON$TIMESTAMP";
 
-const TRANSACTION_COLS: &[&str] =
-    &["Transacción", "Conexión", "Usuario", "Aislamiento", "Bloqueos", "Solo lectura", "Abierta hace (s)", "Filas modificadas"];
+const TRANSACTION_COLS: &[&str] = &[
+    "Transacción",
+    "Conexión",
+    "Usuario",
+    "Aislamiento",
+    "Bloqueos",
+    "Solo lectura",
+    "Abierta hace (s)",
+    "Filas modificadas",
+];
 
 const TOP_TABLES: &str = "
 SELECT FIRST 20 TRIM(ts.MON$TABLE_NAME), r.MON$RECORD_SEQ_READS, r.MON$RECORD_IDX_READS, r.MON$RECORD_INSERTS,
@@ -164,7 +172,10 @@ const TOP_TABLE_COLS: &[&str] = &[
 
 /// Rows of each query, all from one monitoring snapshot (one read-only
 /// transaction).
-pub(crate) fn in_snapshot(c: &mut Conn, queries: &[&str]) -> Result<Vec<Result<Vec<Vec<Column>>, String>>, FbError> {
+pub(crate) fn in_snapshot(
+    c: &mut Conn,
+    queries: &[&str],
+) -> Result<Vec<Result<Vec<Vec<Column>>, String>>, FbError> {
     let conf = TransactionConfiguration {
         data_access: TrDataAccessMode::ReadOnly,
         isolation: TrIsolationLevel::Concurrency,
@@ -174,7 +185,9 @@ pub(crate) fn in_snapshot(c: &mut Conn, queries: &[&str]) -> Result<Vec<Result<V
     let mut out = Vec::new();
     for sql in queries {
         let res = (|| {
-            let (_, mut stmt) = c.client.prepare_statement(&mut c.db, &mut tr, Dialect::D3, sql)?;
+            let (_, mut stmt) = c
+                .client
+                .prepare_statement(&mut c.db, &mut tr, Dialect::D3, sql)?;
             let rows = (|| {
                 c.client.execute(&mut c.db, &mut tr, &mut stmt, vec![])?;
                 let mut rows = Vec::new();
@@ -192,9 +205,17 @@ pub(crate) fn in_snapshot(c: &mut Conn, queries: &[&str]) -> Result<Vec<Result<V
     Ok(out)
 }
 
-fn table(key: &str, title: &str, cols: &[&str], rows: Option<Vec<Vec<Column>>>) -> Option<MonitorTable> {
+fn table(
+    key: &str,
+    title: &str,
+    cols: &[&str],
+    rows: Option<Vec<Vec<Column>>>,
+) -> Option<MonitorTable> {
     let mut t = MonitorTable::new(key, title, cols);
-    t.rows = rows?.into_iter().map(|r| r.into_iter().map(|c| cell(c.value)).collect()).collect();
+    t.rows = rows?
+        .into_iter()
+        .map(|r| r.into_iter().map(|c| cell(c.value)).collect())
+        .collect();
     Some(t)
 }
 
@@ -210,9 +231,22 @@ pub fn snapshot(c: &mut Conn) -> dbine_driver::Result<MonitorSnapshot> {
         "las transacciones (MON$TRANSACTIONS)",
         "las tablas (MON$TABLE_STATS)",
     ];
-    let mut res = in_snapshot(c, &[DATABASE, ATTACHMENT_COUNTS, STATEMENT_COUNTS, FB4, CONFIG, SESSIONS, QUERIES, TRANSACTIONS, TOP_TABLES])
-        .map_err(|e| dbine_driver::Error::Query(message(&e)))?
-        .into_iter();
+    let mut res = in_snapshot(
+        c,
+        &[
+            DATABASE,
+            ATTACHMENT_COUNTS,
+            STATEMENT_COUNTS,
+            FB4,
+            CONFIG,
+            SESSIONS,
+            QUERIES,
+            TRANSACTIONS,
+            TOP_TABLES,
+        ],
+    )
+    .map_err(|e| dbine_driver::Error::Query(message(&e)))?
+    .into_iter();
     let mut snap = MonitorSnapshot::default();
     let mut notes = Vec::new();
     let mut take = |i: usize, r: Option<Result<Vec<Vec<Column>>, String>>| match r {
@@ -239,7 +273,8 @@ pub fn snapshot(c: &mut Conn) -> dbine_driver::Result<MonitorSnapshot> {
         if let Some(n) = sv(11) {
             snap.info.push(("Archivo".into(), n));
         }
-        snap.info.push(("Tamaño de página".into(), format!("{page} bytes")));
+        snap.info
+            .push(("Tamaño de página".into(), format!("{page} bytes")));
         if let Some(v) = sv(9) {
             snap.info.push(("ODS".into(), v));
         }
@@ -247,16 +282,29 @@ pub fn snapshot(c: &mut Conn) -> dbine_driver::Result<MonitorSnapshot> {
             snap.info.push(("Dialecto".into(), v));
         }
         let yes = |i: usize| if at(&db, i) == Some(1.0) { "sí" } else { "no" };
-        snap.info.push(("Escrituras forzadas".into(), yes(7).into()));
+        snap.info
+            .push(("Escrituras forzadas".into(), yes(7).into()));
         snap.info.push(("Solo lectura".into(), yes(8).into()));
         if let Some(v) = at(&db, 6) {
-            snap.info.push(("Intervalo de sweep".into(), format!("{v}")));
+            snap.info
+                .push(("Intervalo de sweep".into(), format!("{v}")));
         }
         if let Some(v) = at(&db, 23).filter(|v| *v > 0.0) {
-            snap.info.push(("Apagado".into(), match v as i64 { 1 => "multi", 2 => "single", _ => "full" }.into()));
+            snap.info.push((
+                "Apagado".into(),
+                match v as i64 {
+                    1 => "multi",
+                    2 => "single",
+                    _ => "full",
+                }
+                .into(),
+            ));
         }
         if let Some(v) = at(&db, 24).filter(|v| *v > 0.0) {
-            snap.info.push(("Copia (nbackup)".into(), if v == 1.0 { "bloqueada" } else { "fusionando" }.into()));
+            snap.info.push((
+                "Copia (nbackup)".into(),
+                if v == 1.0 { "bloqueada" } else { "fusionando" }.into(),
+            ));
         }
     }
     if let Some(mode) = at(&fb4, 0) {
@@ -274,49 +322,213 @@ pub fn snapshot(c: &mut Conn) -> dbine_driver::Result<MonitorSnapshot> {
     }
 
     let m = &mut snap.metrics;
-    m.push(Metric::new("mem_used", "Memoria de la base", "Memoria", U::Bytes, at(&db, 21)).max(at(&db, 22)));
-    m.push(Metric::new("mem_cache", "Caché de páginas", "Memoria", U::Bytes, pages(2)));
-    m.push(Metric::new("connections", "Conexiones", "Conexiones", U::Count, at(&counts, 0)));
-    m.push(Metric::new("active_sessions", "Conexiones activas", "Conexiones", U::Count, at(&counts, 1)));
-    m.push(Metric::new("running_statements", "Sentencias en curso", "Actividad", U::Count, at(&stmts, 0)));
-    m.push(Metric::new("transactions", "Transacciones", "Actividad", U::Count, at(&db, 3)).counter());
-    m.push(Metric::new("open_transactions", "Transacciones abiertas", "Actividad", U::Count, at(&stmts, 1)));
-    m.push(Metric::new("rows_read", "Filas leídas", "Actividad", U::Count, at(&db, 16)).counter());
-    m.push(Metric::new("rows_written", "Filas escritas", "Actividad", U::Count, at(&db, 17)).counter());
-    m.push(Metric::new("garbage", "Versiones limpiadas", "Actividad", U::Count, at(&db, 20)).counter());
-    m.push(Metric::new("disk_read", "Lectura en disco", "Disco", U::Bytes, pages(12)).counter());
-    m.push(Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, pages(13)).counter());
+    m.push(
+        Metric::new(
+            "mem_used",
+            "Memoria de la base",
+            "Memoria",
+            U::Bytes,
+            at(&db, 21),
+        )
+        .max(at(&db, 22)),
+    );
+    m.push(Metric::new(
+        "mem_cache",
+        "Caché de páginas",
+        "Memoria",
+        U::Bytes,
+        pages(2),
+    ));
+    m.push(Metric::new(
+        "connections",
+        "Conexiones",
+        "Conexiones",
+        U::Count,
+        at(&counts, 0),
+    ));
+    m.push(Metric::new(
+        "active_sessions",
+        "Conexiones activas",
+        "Conexiones",
+        U::Count,
+        at(&counts, 1),
+    ));
+    m.push(Metric::new(
+        "running_statements",
+        "Sentencias en curso",
+        "Actividad",
+        U::Count,
+        at(&stmts, 0),
+    ));
+    m.push(
+        Metric::new(
+            "transactions",
+            "Transacciones",
+            "Actividad",
+            U::Count,
+            at(&db, 3),
+        )
+        .counter(),
+    );
+    m.push(Metric::new(
+        "open_transactions",
+        "Transacciones abiertas",
+        "Actividad",
+        U::Count,
+        at(&stmts, 1),
+    ));
+    m.push(
+        Metric::new(
+            "rows_read",
+            "Filas leídas",
+            "Actividad",
+            U::Count,
+            at(&db, 16),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "rows_written",
+            "Filas escritas",
+            "Actividad",
+            U::Count,
+            at(&db, 17),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "garbage",
+            "Versiones limpiadas",
+            "Actividad",
+            U::Count,
+            at(&db, 20),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "disk_read",
+            "Lectura en disco",
+            "Disco",
+            U::Bytes,
+            pages(12),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "disk_write",
+            "Escritura en disco",
+            "Disco",
+            U::Bytes,
+            pages(13),
+        )
+        .counter(),
+    );
     let hit = match (at(&db, 12), at(&db, 14)) {
         (Some(r), Some(f)) if f > 0.0 => Some(((1.0 - r / f) * 100.0).clamp(0.0, 100.0)),
         _ => None,
     };
-    m.push(Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit).max(Some(100.0)));
-    m.push(Metric::new("page_fetches", "Páginas consultadas", "Caché", U::Count, at(&db, 14)).counter());
-    m.push(Metric::new("storage_used", "Tamaño de la base", "Almacenamiento", U::Bytes, pages(1)));
-    m.push(Metric::new("lock_waits", "Esperas por registros bloqueados", "Bloqueos", U::Count, at(&db, 18)).counter());
-    m.push(Metric::new("conflicts", "Conflictos de actualización", "Bloqueos", U::Count, at(&db, 19)).counter());
+    m.push(
+        Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit).max(Some(100.0)),
+    );
+    m.push(
+        Metric::new(
+            "page_fetches",
+            "Páginas consultadas",
+            "Caché",
+            U::Count,
+            at(&db, 14),
+        )
+        .counter(),
+    );
+    m.push(Metric::new(
+        "storage_used",
+        "Tamaño de la base",
+        "Almacenamiento",
+        U::Bytes,
+        pages(1),
+    ));
+    m.push(
+        Metric::new(
+            "lock_waits",
+            "Esperas por registros bloqueados",
+            "Bloqueos",
+            U::Count,
+            at(&db, 18),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "conflicts",
+            "Conflictos de actualización",
+            "Bloqueos",
+            U::Count,
+            at(&db, 19),
+        )
+        .counter(),
+    );
     // Transactions a sweep can't clean up yet: the classic Firebird health figure.
     let gap = at(&db, 3).zip(at(&db, 4)).map(|(next, oat)| next - oat);
-    m.push(Metric::new("tx_gap", "Distancia a la transacción activa más vieja", "Transacciones", U::Count, gap));
-    m.push(Metric::new("oldest_tx_age", "Transacción abierta más vieja", "Transacciones", U::Seconds, at(&stmts, 2)));
-    m.push(Metric::new("uptime", "Base abierta hace", "Servidor", U::Seconds, at(&counts, 2)));
+    m.push(Metric::new(
+        "tx_gap",
+        "Distancia a la transacción activa más vieja",
+        "Transacciones",
+        U::Count,
+        gap,
+    ));
+    m.push(Metric::new(
+        "oldest_tx_age",
+        "Transacción abierta más vieja",
+        "Transacciones",
+        U::Seconds,
+        at(&stmts, 2),
+    ));
+    m.push(Metric::new(
+        "uptime",
+        "Base abierta hace",
+        "Servidor",
+        U::Seconds,
+        at(&counts, 2),
+    ));
 
     let tables = [
         table("sessions", "Sesiones", SESSION_COLS, take(5, res.next())),
-        table("queries", "Consultas en curso", QUERY_COLS, take(6, res.next())),
-        table("transactions", "Transacciones abiertas", TRANSACTION_COLS, take(7, res.next())),
-        table("top_objects", "Tablas más usadas (desde que se abrió la base)", TOP_TABLE_COLS, take(8, res.next())),
+        table(
+            "queries",
+            "Consultas en curso",
+            QUERY_COLS,
+            take(6, res.next()),
+        ),
+        table(
+            "transactions",
+            "Transacciones abiertas",
+            TRANSACTION_COLS,
+            take(7, res.next()),
+        ),
+        table(
+            "top_objects",
+            "Tablas más usadas (desde que se abrió la base)",
+            TOP_TABLE_COLS,
+            take(8, res.next()),
+        ),
     ];
     snap.tables.extend(tables.into_iter().flatten());
 
-    snap.notes.push("Firebird no expone el uso de CPU del servidor por SQL.".into());
+    snap.notes
+        .push("Firebird no expone el uso de CPU del servidor por SQL.".into());
     if fb4.as_ref().and_then(|r| r.get(1)).and_then(f) == Some(0.0) {
         snap.notes.push(
             "Sin SYSDBA, RDB$ADMIN o el privilegio MONITOR_ANY_ATTACHMENT solo se ven las conexiones de este usuario.".into(),
         );
     }
     if config.is_none() && fb4.is_some() {
-        snap.notes.push("La configuración del servidor (RDB$CONFIG) solo la ven SYSDBA y RDB$ADMIN.".into());
+        snap.notes.push(
+            "La configuración del servidor (RDB$CONFIG) solo la ven SYSDBA y RDB$ADMIN.".into(),
+        );
     }
     if at(&counts, 2).is_none() {
         snap.notes.push("En el modo Classic no hay conexiones del sistema: no se sabe desde cuándo está abierta la base.".into());

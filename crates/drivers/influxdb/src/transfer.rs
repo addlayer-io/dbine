@@ -47,7 +47,9 @@
 
 use crate::Api;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, TransferColumn,
+};
 use dbine_driver::{ColumnInfo, Error, Result};
 use serde_json::{Map, Value};
 use std::fmt::Write as _;
@@ -76,7 +78,8 @@ pub(crate) const IN_FLIGHT: usize = 4;
 /// All of time as a Flux range: InfluxDB's timestamps go from
 /// 1677-09-21 to 2262-04-11, and `stop` is exclusive (the default stop is
 /// `now()`, which leaves out future points).
-pub(crate) const FLUX_ALL_TIME: &str = "start: time(v: -9223372036854775806), stop: time(v: 9223372036854775807)";
+pub(crate) const FLUX_ALL_TIME: &str =
+    "start: time(v: -9223372036854775806), stop: time(v: 9223372036854775807)";
 
 /// Prefix of the 2.x read's columns that carry a string value Flux's CSV
 /// can't (see [`flux_read_script`]).
@@ -96,8 +99,15 @@ fn is_tag_type(t: &str) -> bool {
 
 /// The columns of a read: the asked-for ones, in their order, or all of the
 /// catalog's. A column the measurement doesn't have is an error.
-pub(crate) fn read_columns(catalog: &[ColumnInfo], asked: &Option<Vec<String>>) -> Result<Vec<TransferColumn>> {
-    let col = |c: &ColumnInfo| TransferColumn { name: c.name.clone(), type_name: c.data_type.clone(), nullable: c.nullable };
+pub(crate) fn read_columns(
+    catalog: &[ColumnInfo],
+    asked: &Option<Vec<String>>,
+) -> Result<Vec<TransferColumn>> {
+    let col = |c: &ColumnInfo| TransferColumn {
+        name: c.name.clone(),
+        type_name: c.data_type.clone(),
+        nullable: c.nullable,
+    };
     match asked {
         None => Ok(catalog.iter().map(col).collect()),
         Some(names) => names
@@ -135,7 +145,10 @@ struct Json<'a> {
 
 impl Json<'_> {
     fn err(&self) -> Error {
-        Error::Query(format!("InfluxDB respondió un JSON inválido (en el byte {}).", self.i))
+        Error::Query(format!(
+            "InfluxDB respondió un JSON inválido (en el byte {}).",
+            self.i
+        ))
     }
 
     fn ws(&mut self) {
@@ -246,7 +259,10 @@ impl Json<'_> {
 
     fn number(&mut self) -> Result<Value> {
         let start = self.i;
-        while matches!(self.s.get(self.i), Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')) {
+        while matches!(
+            self.s.get(self.i),
+            Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+        ) {
             self.i += 1;
         }
         let t = std::str::from_utf8(&self.s[start..self.i]).map_err(|_| self.err())?;
@@ -306,7 +322,9 @@ pub(crate) fn json_cell(v: &Value, name: &str, ty: &str) -> Cell {
         Value::Number(n) if is_time(name) && n.is_i64() => ns_cell(n.as_i64().unwrap_or_default()),
         Value::String(s) if is_time(name) || ty.starts_with("timestamp") => text_time_cell(s),
         // 1.x writes whole floats without a point.
-        Value::Number(n) if ty == "float" || ty == "float64" => Cell::Float(n.as_f64().unwrap_or(f64::NAN)),
+        Value::Number(n) if ty == "float" || ty == "float64" => {
+            Cell::Float(n.as_f64().unwrap_or(f64::NAN))
+        }
         Value::Number(n) => number_cell(n),
         Value::Bool(b) => Cell::Bool(*b),
         Value::String(s) => Cell::Text(s.clone()),
@@ -346,7 +364,10 @@ impl Rows<'_> {
         if rows.is_empty() {
             return Ok(());
         }
-        let mut s = self.sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+        let mut s = self
+            .sink
+            .lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?;
         for r in rows {
             self.builder.push(r, &mut *s)?;
         }
@@ -354,7 +375,10 @@ impl Rows<'_> {
     }
 
     fn finish(mut self) -> Result<u64> {
-        let mut s = self.sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+        let mut s = self
+            .sink
+            .lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?;
         self.builder.flush(&mut *s)?;
         Ok(self.builder.rows)
     }
@@ -367,11 +391,16 @@ async fn open(req: reqwest::RequestBuilder) -> Result<reqwest::Response> {
         return Ok(resp);
     }
     // Consumes the body into the error.
-    crate::http::text(resp).await.and_then(|b| Err(Error::Query(b)))
+    crate::http::text(resp)
+        .await
+        .and_then(|b| Err(Error::Query(b)))
 }
 
 /// Each complete line of a streamed answer.
-async fn each_line(mut resp: reqwest::Response, mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<()> {
+async fn each_line(
+    mut resp: reqwest::Response,
+    mut f: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<()> {
     let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = resp.chunk().await.map_err(crate::http::send_err)? {
         buf.extend_from_slice(&chunk);
@@ -394,16 +423,30 @@ async fn each_line(mut resp: reqwest::Response, mut f: impl FnMut(&[u8]) -> Resu
 /// A 1.x answer's error, if it has one.
 fn influxql_error(v: &Value) -> Option<Error> {
     let top = v.get("error").and_then(Value::as_str);
-    let result = || v.get("results")?.as_array()?.iter().find_map(|r| r.get("error")?.as_str());
+    let result = || {
+        v.get("results")?
+            .as_array()?
+            .iter()
+            .find_map(|r| r.get("error")?.as_str())
+    };
     top.or_else(result).map(|e| Error::Query(e.to_string()))
 }
 
 /// 1.x: a chunked `/query` (JSON objects, one per line), its points handed
 /// out as they arrive (see [`InfluxQlStream`]).
-pub(crate) async fn read_influxql(req: reqwest::RequestBuilder, cols: &[TransferColumn], sink: &BatchSinkRef) -> Result<u64> {
-    sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(cols)?;
+pub(crate) async fn read_influxql(
+    req: reqwest::RequestBuilder,
+    cols: &[TransferColumn],
+    sink: &BatchSinkRef,
+) -> Result<u64> {
+    sink.lock()
+        .map_err(|_| Error::State("destino de lotes".into()))?
+        .begin(cols)?;
     let mut resp = open(req).await?;
-    let mut rows = Rows { sink, builder: BatchBuilder::new() };
+    let mut rows = Rows {
+        sink,
+        builder: BatchBuilder::new(),
+    };
     let mut stream = InfluxQlStream::new(cols);
     while let Some(chunk) = resp.chunk().await.map_err(crate::http::send_err)? {
         let mut out = Vec::new();
@@ -430,7 +473,10 @@ pub(crate) struct InfluxQlStream<'c> {
 
 impl<'c> InfluxQlStream<'c> {
     pub(crate) fn new(cols: &'c [TransferColumn]) -> Self {
-        Self { cols, buf: Vec::new() }
+        Self {
+            cols,
+            buf: Vec::new(),
+        }
     }
 
     /// The next bytes of the answer; the rows they complete go to `out`.
@@ -442,7 +488,13 @@ impl<'c> InfluxQlStream<'c> {
             start += p + 1;
         }
         self.buf.drain(..start);
-        let mut walk = Walk { s: &self.buf, i: 0, cols: self.cols, out, cut: Vec::new() };
+        let mut walk = Walk {
+            s: &self.buf,
+            i: 0,
+            cols: self.cols,
+            out,
+            cut: Vec::new(),
+        };
         // `None`: the line stops (or isn't the expected shape) here; the
         // rest waits for more bytes, or for the whole line.
         let _ = walk.answer();
@@ -479,8 +531,18 @@ fn influxql_line(line: &[u8], cols: &[TransferColumn], out: &mut Vec<Vec<Cell>>)
     if let Some(e) = influxql_error(&v) {
         return Err(e);
     }
-    for r in v.get("results").and_then(Value::as_array).into_iter().flatten() {
-        for s in r.get("series").and_then(Value::as_array).into_iter().flatten() {
+    for r in v
+        .get("results")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for s in r
+            .get("series")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             out.extend(series_rows(s, cols));
         }
     }
@@ -514,7 +576,10 @@ fn value_end(s: &[u8], i: usize) -> Option<usize> {
             }
         }
         // A scalar ends at a delimiter; at the end of `s` it may go on.
-        _ => match s[i..].iter().position(|b| matches!(b, b',' | b']' | b'}' | b' ' | b'\t' | b'\r' | b'\n'))? {
+        _ => match s[i..]
+            .iter()
+            .position(|b| matches!(b, b',' | b']' | b'}' | b' ' | b'\t' | b'\r' | b'\n'))?
+        {
             0 => None,
             n => Some(i + n),
         },
@@ -615,7 +680,15 @@ impl Walk<'_> {
     /// `{"results": [{"series": [{…}, …]}, …]}`.
     fn answer(&mut self) -> Option<()> {
         self.object(|w, k| match k {
-            "results" => w.array(|w| w.object(|w, k| if k == "series" { w.array(Self::series) } else { w.skip() })),
+            "results" => w.array(|w| {
+                w.object(|w, k| {
+                    if k == "series" {
+                        w.array(Self::series)
+                    } else {
+                        w.skip()
+                    }
+                })
+            }),
             _ => w.skip(),
         })
     }
@@ -692,9 +765,21 @@ struct Shape<'a> {
 
 impl<'a> Shape<'a> {
     fn new(columns: Option<&Value>, tags: Option<&'a Value>, cols: &'a [TransferColumn]) -> Self {
-        let names: Vec<&str> = columns.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
-        let at = cols.iter().map(|c| names.iter().position(|n| *n == c.name)).collect();
-        Self { cols, at, tags: tags.and_then(Value::as_object) }
+        let names: Vec<&str> = columns
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        let at = cols
+            .iter()
+            .map(|c| names.iter().position(|n| *n == c.name))
+            .collect();
+        Self {
+            cols,
+            at,
+            tags: tags.and_then(Value::as_object),
+        }
     }
 
     fn row(&self, point: &Value) -> Vec<Cell> {
@@ -703,8 +788,13 @@ impl<'a> Shape<'a> {
             .iter()
             .zip(&self.at)
             .map(|(c, i)| match i {
-                Some(i) => v.get(*i).map_or(Cell::Null, |x| json_cell(x, &c.name, &c.type_name)),
-                None => self.tags.and_then(|t| t.get(&c.name)).map_or(Cell::Null, |x| json_cell(x, &c.name, "tag")),
+                Some(i) => v
+                    .get(*i)
+                    .map_or(Cell::Null, |x| json_cell(x, &c.name, &c.type_name)),
+                None => self
+                    .tags
+                    .and_then(|t| t.get(&c.name))
+                    .map_or(Cell::Null, |x| json_cell(x, &c.name, "tag")),
             })
             .collect()
     }
@@ -713,20 +803,44 @@ impl<'a> Shape<'a> {
 /// The rows of a 1.x series, in `cols`' order (tags of a `GROUP BY` too).
 pub(crate) fn series_rows(series: &Value, cols: &[TransferColumn]) -> Vec<Vec<Cell>> {
     let shape = Shape::new(series.get("columns"), series.get("tags"), cols);
-    series.get("values").and_then(Value::as_array).into_iter().flatten().map(|p| shape.row(p)).collect()
+    series
+        .get("values")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|p| shape.row(p))
+        .collect()
 }
 
 /// 3.x: `query_sql` answered in JSON lines (nulls left out).
-pub(crate) async fn read_jsonl(req: reqwest::RequestBuilder, cols: &[TransferColumn], sink: &BatchSinkRef) -> Result<u64> {
-    sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(cols)?;
+pub(crate) async fn read_jsonl(
+    req: reqwest::RequestBuilder,
+    cols: &[TransferColumn],
+    sink: &BatchSinkRef,
+) -> Result<u64> {
+    sink.lock()
+        .map_err(|_| Error::State("destino de lotes".into()))?
+        .begin(cols)?;
     let resp = open(req).await?;
-    let mut rows = Rows { sink, builder: BatchBuilder::new() };
+    let mut rows = Rows {
+        sink,
+        builder: BatchBuilder::new(),
+    };
     let (mut pending, mut bytes): (Vec<Vec<Cell>>, usize) = (Vec::new(), 0);
     each_line(resp, |line| {
         let Value::Object(v) = parse_json(line)? else {
-            return Err(Error::Query("InfluxDB 3 respondió una línea JSON que no es un objeto.".into()));
+            return Err(Error::Query(
+                "InfluxDB 3 respondió una línea JSON que no es un objeto.".into(),
+            ));
         };
-        pending.push(cols.iter().map(|c| v.get(&c.name).map_or(Cell::Null, |x| json_cell(x, &c.name, &c.type_name))).collect());
+        pending.push(
+            cols.iter()
+                .map(|c| {
+                    v.get(&c.name)
+                        .map_or(Cell::Null, |x| json_cell(x, &c.name, &c.type_name))
+                })
+                .collect(),
+        );
         bytes += line.len();
         if pending.len() >= 1_000 || bytes >= CHUNK_BYTES {
             rows.push_all(std::mem::take(&mut pending))?;
@@ -764,7 +878,10 @@ pub(crate) fn flux_check_script(bucket: &str, measurement: &str, tags: &[&str]) 
         return s;
     }
     let q = crate::v2::flux_str;
-    let cond: Vec<String> = tags.iter().map(|t| format!("r[{}] =~ /\\r/", q(t))).collect();
+    let cond: Vec<String> = tags
+        .iter()
+        .map(|t| format!("r[{}] =~ /\\r/", q(t)))
+        .collect();
     let _ = write!(
         s,
         "crtags = {src}\n  |> filter(fn: (r) => {})\n  |> limit(n: 1)\n  |> map(fn: (r) => ({{r with _value: die(msg: {})}}))\n  \
@@ -781,7 +898,12 @@ pub(crate) fn flux_check_script(bucket: &str, measurement: &str, tags: &[&str]) 
 /// `;` after it: the pivot names columns by `_dbine_m` (`\u{1}` for them,
 /// empty for the rest) and `_field`. Only `_dbine_m` changes, never `_field`
 /// (a group key column): the pivot panics on that.
-pub(crate) fn flux_read_script(bucket: &str, measurement: &str, lossy: bool, filter: Option<&str>) -> String {
+pub(crate) fn flux_read_script(
+    bucket: &str,
+    measurement: &str,
+    lossy: bool,
+    filter: Option<&str>,
+) -> String {
     let src = flux_source(bucket, measurement);
     let mut s = if lossy {
         format!(
@@ -870,7 +992,8 @@ impl CsvStream {
     }
 
     fn end_field(&mut self) {
-        let f = String::from_utf8(std::mem::take(&mut self.cur)).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+        let f = String::from_utf8(std::mem::take(&mut self.cur))
+            .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
         self.fields.push(f);
     }
 
@@ -905,7 +1028,12 @@ pub(crate) struct FluxTables {
 }
 
 impl FluxTables {
-    pub(crate) fn record(&mut self, rec: Option<Vec<String>>, cols: &[TransferColumn], out: &mut Vec<Vec<Cell>>) -> Result<()> {
+    pub(crate) fn record(
+        &mut self,
+        rec: Option<Vec<String>>,
+        cols: &[TransferColumn],
+        out: &mut Vec<Vec<Cell>>,
+    ) -> Result<()> {
         let Some(r) = rec else {
             self.map = None;
             return Ok(());
@@ -923,7 +1051,11 @@ impl FluxTables {
             self.error = r.len() == 3 && r[1] == "error" && r[2] == "reference";
             // The annotation column, then Flux's own `result` and `table`
             // (fields or tags with those names come later).
-            let own = if r.len() >= 3 && r[1] == "result" && r[2] == "table" { 3 } else { 1 };
+            let own = if r.len() >= 3 && r[1] == "result" && r[2] == "table" {
+                3
+            } else {
+                1
+            };
             let at = |n: &str| cols.iter().position(|c| c.name == n);
             self.map = Some(
                 r.iter()
@@ -938,13 +1070,17 @@ impl FluxTables {
             return Ok(());
         };
         if self.error {
-            return Err(flux_err(Error::Query(r.get(1).cloned().unwrap_or_default())));
+            return Err(flux_err(Error::Query(
+                r.get(1).cloned().unwrap_or_default(),
+            )));
         }
         let mut row = vec![Cell::Null; cols.len()];
         let mut marks = Vec::new();
         for (i, (v, slot)) in r.iter().zip(map).enumerate() {
             match slot {
-                Slot::Col(j) => row[*j] = flux_cell(v, self.types.get(i).map_or("string", String::as_str)),
+                Slot::Col(j) => {
+                    row[*j] = flux_cell(v, self.types.get(i).map_or("string", String::as_str))
+                }
                 Slot::Mark(j) if !v.is_empty() => marks.push((*j, v)),
                 _ => {}
             }
@@ -959,7 +1095,11 @@ impl FluxTables {
 
 /// A marked string's value (see [`flux_read_script`]).
 fn unmark(v: &str) -> Result<String> {
-    let bad = || Error::Query(format!("valor marcado inválido en la respuesta de Flux: {v:?}"));
+    let bad = || {
+        Error::Query(format!(
+            "valor marcado inválido en la respuesta de Flux: {v:?}"
+        ))
+    };
     let v = v.strip_suffix(';').ok_or_else(bad)?;
     let mut out = String::with_capacity(v.len());
     let mut it = v.chars();
@@ -978,10 +1118,19 @@ fn unmark(v: &str) -> Result<String> {
 }
 
 /// 2.x: a Flux query ([`flux_read_script`]) answered in annotated CSV.
-pub(crate) async fn read_flux(req: reqwest::RequestBuilder, cols: &[TransferColumn], sink: &BatchSinkRef) -> Result<u64> {
-    sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(cols)?;
+pub(crate) async fn read_flux(
+    req: reqwest::RequestBuilder,
+    cols: &[TransferColumn],
+    sink: &BatchSinkRef,
+) -> Result<u64> {
+    sink.lock()
+        .map_err(|_| Error::State("destino de lotes".into()))?
+        .begin(cols)?;
     let mut resp = open(req).await.map_err(flux_err)?;
-    let mut rows = Rows { sink, builder: BatchBuilder::new() };
+    let mut rows = Rows {
+        sink,
+        builder: BatchBuilder::new(),
+    };
     let (mut csv, mut tables) = (CsvStream::default(), FluxTables::default());
     let mut recs = Vec::new();
     let mut out = Vec::new();
@@ -1058,12 +1207,21 @@ fn kind_of(data_type: &str) -> Kind {
 
 /// 2.x: names a tag can't have (the server refuses `_field` and
 /// `_measurement`; the others would clash with Flux's columns on reading).
-const V2_TAGS: [&str; 6] = ["_measurement", "_field", "_value", "_start", "_stop", "_time"];
+const V2_TAGS: [&str; 6] = [
+    "_measurement",
+    "_field",
+    "_value",
+    "_start",
+    "_stop",
+    "_time",
+];
 /// 2.x: names a field can't have: the pivot of a read fails on them.
 const V2_FIELDS: [&str; 4] = ["_measurement", "_start", "_stop", "_time"];
 
 fn unsupported(what: String, reason: &str) -> Error {
-    Error::Unsupported(format!("No se puede escribir en InfluxDB {what}: {reason}."))
+    Error::Unsupported(format!(
+        "No se puede escribir en InfluxDB {what}: {reason}."
+    ))
 }
 
 /// Which column is what, from the load's columns and the target's catalog.
@@ -1077,16 +1235,30 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
-    pub(crate) fn new(measurement: &str, names: &[String], read: &[TransferColumn], target: &[ColumnInfo], api: Api) -> Result<Plan> {
+    pub(crate) fn new(
+        measurement: &str,
+        names: &[String],
+        read: &[TransferColumn],
+        target: &[ColumnInfo],
+        api: Api,
+    ) -> Result<Plan> {
         let time = names
             .iter()
             .position(|n| is_time(n))
             .ok_or_else(|| Error::Query("Para escribir puntos en InfluxDB hace falta una columna time (la marca de tiempo).".into()))?;
         if measurement.starts_with('#') {
-            return Err(unsupported(format!("la medida «{measurement}»"), "una línea que empieza con # es un comentario"));
+            return Err(unsupported(
+                format!("la medida «{measurement}»"),
+                "una línea que empieza con # es un comentario",
+            ));
         }
-        let m = escape(measurement, &[',', ' '], api).map_err(|r| unsupported(format!("la medida «{measurement}»"), r))?;
-        let read_type = |n: &str| read.iter().find(|c| c.name == n).map_or("", |c| c.type_name.as_str());
+        let m = escape(measurement, &[',', ' '], api)
+            .map_err(|r| unsupported(format!("la medida «{measurement}»"), r))?;
+        let read_type = |n: &str| {
+            read.iter()
+                .find(|c| c.name == n)
+                .map_or("", |c| c.type_name.as_str())
+        };
         let (mut tags, mut fields) = (Vec::new(), Vec::new());
         for (i, n) in names.iter().enumerate() {
             if i == time {
@@ -1099,19 +1271,35 @@ impl Plan {
             };
             let what = || format!("la columna «{n}»");
             let key = escape(n, &[',', '=', ' '], api).map_err(|r| unsupported(what(), r))?;
-            if matches!(api, Api::Flux) && (if tag { &V2_TAGS[..] } else { &V2_FIELDS[..] }).contains(&n.as_str()) {
+            if matches!(api, Api::Flux)
+                && (if tag { &V2_TAGS[..] } else { &V2_FIELDS[..] }).contains(&n.as_str())
+            {
                 let kind = if tag { "tag" } else { "campo" };
-                return Err(unsupported(what(), &format!("InfluxDB 2 reserva ese nombre y no lo admite como {kind}")));
+                return Err(unsupported(
+                    what(),
+                    &format!("InfluxDB 2 reserva ese nombre y no lo admite como {kind}"),
+                ));
             }
             if tag {
                 tags.push((i, key, n.clone()));
             } else {
-                fields.push((i, key, n.clone(), existing.map_or(Kind::Any, |c| kind_of(&c.data_type))));
+                fields.push((
+                    i,
+                    key,
+                    n.clone(),
+                    existing.map_or(Kind::Any, |c| kind_of(&c.data_type)),
+                ));
             }
         }
         // Line protocol wants tags sorted by key for the fastest writes.
         tags.sort_by(|a, b| a.1.cmp(&b.1));
-        Ok(Plan { measurement: m, time, tags, fields, api })
+        Ok(Plan {
+            measurement: m,
+            time,
+            tags,
+            fields,
+            api,
+        })
     }
 
     /// One row as a line (with its `\n`). A row InfluxDB can't store as it
@@ -1127,7 +1315,10 @@ impl Plan {
 
     fn write_line(&self, row: &[Cell], out: &mut String) -> Result<()> {
         let ns = time_ns(&row[self.time]).ok_or_else(|| {
-            Error::Query(format!("La marca de tiempo {:?} no es una fecha y hora ni un entero en nanosegundos.", row[self.time]))
+            Error::Query(format!(
+                "La marca de tiempo {:?} no es una fecha y hora ni un entero en nanosegundos.",
+                row[self.time]
+            ))
         })?;
         out.push_str(&self.measurement);
         for (i, k, name) in &self.tags {
@@ -1152,7 +1343,10 @@ impl Plan {
             match c {
                 Cell::Null => continue,
                 Cell::Float(f) if !f.is_finite() => {
-                    return Err(unsupported(format!("el valor {f} de «{name}»"), "no admite NaN ni infinitos"));
+                    return Err(unsupported(
+                        format!("el valor {f} de «{name}»"),
+                        "no admite NaN ni infinitos",
+                    ));
                 }
                 _ => {}
             }
@@ -1160,7 +1354,8 @@ impl Plan {
             first = false;
             out.push_str(k);
             out.push('=');
-            field_value(c, *kind, self.api, out).map_err(|r| unsupported(format!("el valor de «{name}»"), r))?;
+            field_value(c, *kind, self.api, out)
+                .map_err(|r| unsupported(format!("el valor de «{name}»"), r))?;
         }
         if first {
             return Err(unsupported(
@@ -1182,7 +1377,12 @@ fn plain_text(c: &Cell) -> String {
     }
 }
 
-fn field_value(c: &Cell, kind: Kind, api: Api, out: &mut String) -> std::result::Result<(), &'static str> {
+fn field_value(
+    c: &Cell,
+    kind: Kind,
+    api: Api,
+    out: &mut String,
+) -> std::result::Result<(), &'static str> {
     // Plain digits, never an exponent; without a point it's still a float.
     let float = |f: f64, out: &mut String| {
         let _ = write!(out, "{f}");
@@ -1218,21 +1418,27 @@ fn field_value(c: &Cell, kind: Kind, api: Api, out: &mut String) -> std::result:
         (Kind::Str, c) => string(&plain_text(c), out),
         (Kind::Float, Cell::Int(i)) => float(*i as f64, out),
         (Kind::Float, Cell::UInt(u)) => float(*u as f64, out),
-        (Kind::Float, Cell::Decimal(_) | Cell::Text(_)) => match text_of(c).and_then(|s| s.parse::<f64>().ok()) {
-            Some(f) => float(f, out),
-            None => string(&plain_text(c), out),
-        },
+        (Kind::Float, Cell::Decimal(_) | Cell::Text(_)) => {
+            match text_of(c).and_then(|s| s.parse::<f64>().ok()) {
+                Some(f) => float(f, out),
+                None => string(&plain_text(c), out),
+            }
+        }
         (Kind::Int, Cell::Float(f)) if f.fract() == 0.0 && f.abs() < 9.2e18 => int(*f as i64, out),
         (Kind::Int, Cell::UInt(u)) if i64::try_from(*u).is_ok() => int(*u as i64, out),
-        (Kind::Int, Cell::Decimal(_) | Cell::Text(_)) => match text_of(c).and_then(|s| s.parse::<i64>().ok()) {
-            Some(i) => int(i, out),
-            None => string(&plain_text(c), out),
-        },
+        (Kind::Int, Cell::Decimal(_) | Cell::Text(_)) => {
+            match text_of(c).and_then(|s| s.parse::<i64>().ok()) {
+                Some(i) => int(i, out),
+                None => string(&plain_text(c), out),
+            }
+        }
         (Kind::UInt, Cell::Int(i)) if *i >= 0 => uint(*i as u64, out)?,
-        (Kind::UInt, Cell::Decimal(_) | Cell::Text(_)) => match text_of(c).and_then(|s| s.parse::<u64>().ok()) {
-            Some(u) => uint(u, out)?,
-            None => string(&plain_text(c), out),
-        },
+        (Kind::UInt, Cell::Decimal(_) | Cell::Text(_)) => {
+            match text_of(c).and_then(|s| s.parse::<u64>().ok()) {
+                Some(u) => uint(u, out)?,
+                None => string(&plain_text(c), out),
+            }
+        }
         (Kind::Bool, Cell::Text(s)) if s == "true" || s == "false" => out.push_str(s),
         (_, Cell::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
         (_, Cell::Int(i)) => int(*i, out),
@@ -1255,14 +1461,23 @@ fn escape(s: &str, specials: &[char], api: Api) -> std::result::Result<String, &
         return Err("el line protocol no admite saltos de línea en nombres ni en valores de tags");
     }
     if s.ends_with('\\') {
-        return Err("el line protocol no admite una barra invertida al final de un nombre o valor de tag");
+        return Err(
+            "el line protocol no admite una barra invertida al final de un nombre o valor de tag",
+        );
     }
     let v3 = matches!(api, Api::Sql);
     let mut out = String::with_capacity(s.len());
     let mut it = s.chars().peekable();
     while let Some(ch) = it.next() {
-        if ch == '\\' && !v3 && it.peek().is_some_and(|n| matches!(n, '"' | ',' | '=' | ' ')) {
-            return Err("InfluxDB 1 y 2 no conservan una barra invertida antes de «,», «=», « » o «\"»");
+        if ch == '\\'
+            && !v3
+            && it
+                .peek()
+                .is_some_and(|n| matches!(n, '"' | ',' | '=' | ' '))
+        {
+            return Err(
+                "InfluxDB 1 y 2 no conservan una barra invertida antes de «,», «=», « » o «\"»",
+            );
         }
         if specials.contains(&ch) || (v3 && ch == '\\') {
             out.push('\\');
@@ -1279,7 +1494,11 @@ pub(crate) fn parse_time(s: &str) -> Option<i64> {
     if let Ok(d) = DateTime::parse_from_rfc3339(&t) {
         return d.timestamp_nanos_opt();
     }
-    for f in ["%Y-%m-%dT%H:%M:%S%.f%:z", "%Y-%m-%dT%H:%M:%S%.f%z", "%Y-%m-%dT%H:%M:%S%.f%#z"] {
+    for f in [
+        "%Y-%m-%dT%H:%M:%S%.f%:z",
+        "%Y-%m-%dT%H:%M:%S%.f%z",
+        "%Y-%m-%dT%H:%M:%S%.f%#z",
+    ] {
         if let Ok(d) = DateTime::parse_from_str(&t, f) {
             return d.timestamp_nanos_opt();
         }
@@ -1287,7 +1506,11 @@ pub(crate) fn parse_time(s: &str) -> Option<i64> {
     if let Ok(d) = NaiveDateTime::parse_from_str(t.trim_end_matches('Z'), "%Y-%m-%dT%H:%M:%S%.f") {
         return d.and_utc().timestamp_nanos_opt();
     }
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()?.and_hms_opt(0, 0, 0)?.and_utc().timestamp_nanos_opt()
+    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .ok()?
+        .and_hms_opt(0, 0, 0)?
+        .and_utc()
+        .timestamp_nanos_opt()
 }
 
 fn time_ns(c: &Cell) -> Option<i64> {
@@ -1300,7 +1523,11 @@ fn time_ns(c: &Cell) -> Option<i64> {
 }
 
 async fn write(ep: &Endpoint, body: String, points: u64) -> Result<u64> {
-    let req = ep.auth.apply(ep.http.post(&ep.url)).header("Content-Type", "text/plain; charset=utf-8").body(body);
+    let req = ep
+        .auth
+        .apply(ep.http.post(&ep.url))
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .body(body);
     let resp = req.send().await.map_err(crate::http::send_err)?;
     crate::http::text(resp).await?;
     Ok(points)
@@ -1337,12 +1564,19 @@ struct InFlight(JoinSet<Result<u64>>);
 
 impl InFlight {
     /// Send a request, first waiting for one if [`IN_FLIGHT`] are out.
-    async fn send(&mut self, ep: &Arc<Endpoint>, body: String, points: usize, done: &mut Done<'_>) -> Result<()> {
+    async fn send(
+        &mut self,
+        ep: &Arc<Endpoint>,
+        body: String,
+        points: usize,
+        done: &mut Done<'_>,
+    ) -> Result<()> {
         if self.0.len() >= IN_FLIGHT {
             done.add(joined(self.0.join_next().await)?);
         }
         let ep = ep.clone();
-        self.0.spawn(async move { write(&ep, body, points as u64).await });
+        self.0
+            .spawn(async move { write(&ep, body, points as u64).await });
         Ok(())
     }
 
@@ -1378,8 +1612,15 @@ impl Drop for InFlight {
         }
         let set = &mut self.0;
         match tokio::runtime::Handle::try_current() {
-            Ok(h) if matches!(h.runtime_flavor(), tokio::runtime::RuntimeFlavor::MultiThread) => {
-                tokio::task::block_in_place(|| h.block_on(async { while set.join_next().await.is_some() {} }));
+            Ok(h)
+                if matches!(
+                    h.runtime_flavor(),
+                    tokio::runtime::RuntimeFlavor::MultiThread
+                ) =>
+            {
+                tokio::task::block_in_place(|| {
+                    h.block_on(async { while set.join_next().await.is_some() {} })
+                });
             }
             _ => {
                 tracing::warn!("influxdb: bulk load dropped outside a multi-thread runtime; {} write requests may still commit", set.len());
@@ -1399,21 +1640,40 @@ pub(crate) async fn load(
     source: &mut dyn BatchSource,
     progress: Progress<'_>,
 ) -> Result<u64> {
-    let names: Vec<String> =
-        if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+    let names: Vec<String> = if spec.columns.is_empty() {
+        columns.iter().map(|c| c.name.clone()).collect()
+    } else {
+        spec.columns.clone()
+    };
     let plan = Plan::new(measurement, &names, columns, target, ep.api)?;
     let every = spec.commit_rows.max(1);
-    let max_points = if matches!(ep.api, Api::Sql) { POINTS_V3 } else { POINTS }.min(usize::try_from(every).unwrap_or(usize::MAX));
-    let max_bytes = usize::try_from(spec.commit_bytes.max(1)).unwrap_or(usize::MAX).min(REQUEST_BYTES);
+    let max_points = if matches!(ep.api, Api::Sql) {
+        POINTS_V3
+    } else {
+        POINTS
+    }
+    .min(usize::try_from(every).unwrap_or(usize::MAX));
+    let max_bytes = usize::try_from(spec.commit_bytes.max(1))
+        .unwrap_or(usize::MAX)
+        .min(REQUEST_BYTES);
     let ep = Arc::new(ep);
-    let mut done = Done { points: 0, reported: 0, every, progress };
+    let mut done = Done {
+        points: 0,
+        reported: 0,
+        every,
+        progress,
+    };
     let mut inflight = InFlight::default();
     let fed: Result<()> = async {
         let (mut body, mut points) = (String::new(), 0usize);
         while let Some(batch) = source.next().await {
             for row in batch.rows {
                 if row.len() != names.len() {
-                    return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), names.len())));
+                    return Err(Error::Query(format!(
+                        "la fila tiene {} valores y la carga {} columnas",
+                        row.len(),
+                        names.len()
+                    )));
                 }
                 let start = body.len();
                 plan.line(&row, &mut body)?;
@@ -1421,11 +1681,20 @@ pub(crate) async fn load(
                 if body.len() > max_bytes && points > 1 {
                     // Past the request's size with this line: it starts the next one.
                     let next = body.split_off(start);
-                    inflight.send(&ep, std::mem::replace(&mut body, next), points - 1, &mut done).await?;
+                    inflight
+                        .send(
+                            &ep,
+                            std::mem::replace(&mut body, next),
+                            points - 1,
+                            &mut done,
+                        )
+                        .await?;
                     points = 1;
                 }
                 if points >= max_points || body.len() >= max_bytes {
-                    inflight.send(&ep, std::mem::take(&mut body), points, &mut done).await?;
+                    inflight
+                        .send(&ep, std::mem::take(&mut body), points, &mut done)
+                        .await?;
                     points = 0;
                 }
             }
@@ -1462,11 +1731,22 @@ mod tests {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
     fn tc(name: &str, ty: &str) -> TransferColumn {
-        TransferColumn { name: name.into(), type_name: ty.into(), nullable: true }
+        TransferColumn {
+            name: name.into(),
+            type_name: ty.into(),
+            nullable: true,
+        }
     }
 
     fn ci(name: &str, ty: &str, key: bool) -> ColumnInfo {
-        ColumnInfo { name: name.into(), data_type: ty.into(), nullable: !key, primary_key: key, auto_increment: false, default_value: None }
+        ColumnInfo {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable: !key,
+            primary_key: key,
+            auto_increment: false,
+            default_value: None,
+        }
     }
 
     fn names(n: &[&str]) -> Vec<String> {
@@ -1475,7 +1755,15 @@ mod tests {
 
     #[test]
     fn rows_become_lines() {
-        let read = [tc("time", "time"), tc("host", "tag"), tc("region", ""), tc("v", "float"), tc("n", ""), tc("s", ""), tc("ok", "")];
+        let read = [
+            tc("time", "time"),
+            tc("host", "tag"),
+            tc("region", ""),
+            tc("v", "float"),
+            tc("n", ""),
+            tc("s", ""),
+            tc("ok", ""),
+        ];
         let target = [ci("region", "tag", true), ci("v", "float", false)];
         let cols = names(&["time", "host", "region", "v", "n", "s", "ok"]);
         let plan = Plan::new("cpu load,x", &cols, &read, &target, Api::Flux).unwrap();
@@ -1496,10 +1784,20 @@ mod tests {
         );
         // 1.x has no unsigned: past i64 fails instead of turning into a float.
         let plan = Plan::new("cpu", &cols, &read, &target, Api::InfluxQl).unwrap();
-        assert!(matches!(plan.line(&row, &mut String::new()), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            plan.line(&row, &mut String::new()),
+            Err(Error::Unsupported(_))
+        ));
         // Nulls left out; a naive time is UTC; a decimal into a new field
         // stays exact (a string).
-        let plan = Plan::new("m", &names(&["_time", "n", "gone", "d", "_measurement"]), &[], &[], Api::Sql).unwrap();
+        let plan = Plan::new(
+            "m",
+            &names(&["_time", "n", "gone", "d", "_measurement"]),
+            &[],
+            &[],
+            Api::Sql,
+        )
+        .unwrap();
         let mut out = String::new();
         let row = vec![
             Cell::DateTime("2024-01-31 13:45:00".into()),
@@ -1509,14 +1807,32 @@ mod tests {
             Cell::Text("x".into()),
         ];
         plan.line(&row, &mut out).unwrap();
-        assert_eq!(out, "m n=7u,d=\"12345678901234567890.123456789\",_measurement=\"x\" 1706708700000000000\n");
+        assert_eq!(
+            out,
+            "m n=7u,d=\"12345678901234567890.123456789\",_measurement=\"x\" 1706708700000000000\n"
+        );
         // No fields: an error, and nothing written.
         let mut out = String::new();
-        let r = plan.line(&[Cell::Int(5), Cell::Null, Cell::Null, Cell::Null, Cell::Null], &mut out);
+        let r = plan.line(
+            &[Cell::Int(5), Cell::Null, Cell::Null, Cell::Null, Cell::Null],
+            &mut out,
+        );
         assert!(matches!(r, Err(Error::Unsupported(_))), "{r:?}");
         assert_eq!(out, "");
         // NaN isn't dropped either.
-        assert!(matches!(plan.line(&[Cell::Int(5), Cell::Null, Cell::Float(f64::NAN), Cell::Null, Cell::Null], &mut out), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            plan.line(
+                &[
+                    Cell::Int(5),
+                    Cell::Null,
+                    Cell::Float(f64::NAN),
+                    Cell::Null,
+                    Cell::Null
+                ],
+                &mut out
+            ),
+            Err(Error::Unsupported(_))
+        ));
         // No time column.
         assert!(Plan::new("m", &names(&["v"]), &[], &[], Api::Sql).is_err());
     }
@@ -1528,13 +1844,29 @@ mod tests {
         for api in [Api::InfluxQl, Api::Flux, Api::Sql] {
             let plan = Plan::new("m", &cols, &[], &[], api).unwrap();
             let mut out = String::new();
-            plan.line(&[Cell::Int(1), Cell::Int(2), Cell::Int(3), Cell::Int(4), Cell::Int(5)], &mut out).unwrap();
+            plan.line(
+                &[
+                    Cell::Int(1),
+                    Cell::Int(2),
+                    Cell::Int(3),
+                    Cell::Int(4),
+                    Cell::Int(5),
+                ],
+                &mut out,
+            )
+            .unwrap();
             assert_eq!(out, "m result=2i,table=3i,_value=4i,v=5i 1\n");
         }
         // What 2.x can't hold is said, not dropped.
-        assert!(matches!(Plan::new("m", &names(&["time", "_start"]), &[], &[], Api::Flux), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            Plan::new("m", &names(&["time", "_start"]), &[], &[], Api::Flux),
+            Err(Error::Unsupported(_))
+        ));
         let tag = [tc("_field", "tag")];
-        assert!(matches!(Plan::new("m", &names(&["time", "_field"]), &tag, &[], Api::Flux), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            Plan::new("m", &names(&["time", "_field"]), &tag, &[], Api::Flux),
+            Err(Error::Unsupported(_))
+        ));
         assert!(Plan::new("m", &names(&["time", "_start"]), &[], &[], Api::Sql).is_ok());
     }
 
@@ -1545,7 +1877,10 @@ mod tests {
         assert_eq!(escape(r"a\b", &sp, Api::InfluxQl).unwrap(), r"a\b");
         assert_eq!(escape(r"a\b", &sp, Api::Flux).unwrap(), r"a\b");
         assert_eq!(escape(r"a\b", &sp, Api::Sql).unwrap(), r"a\\b");
-        assert_eq!(escape("a,b=c d", &sp, Api::InfluxQl).unwrap(), r"a\,b\=c\ d");
+        assert_eq!(
+            escape("a,b=c d", &sp, Api::InfluxQl).unwrap(),
+            r"a\,b\=c\ d"
+        );
         assert_eq!(escape(r"a\,b", &sp, Api::Sql).unwrap(), r"a\\\,b");
         // What none of them reads back as written.
         for api in [Api::InfluxQl, Api::Flux, Api::Sql] {
@@ -1557,33 +1892,64 @@ mod tests {
         // A tag value that can't go fails the row.
         let read = [tc("time", "time"), tc("t", "tag"), tc("v", "")];
         let plan = Plan::new("m", &names(&["time", "t", "v"]), &read, &[], Api::Flux).unwrap();
-        let r = plan.line(&[Cell::Int(1), Cell::Text(r"end\".into()), Cell::Int(1)], &mut String::new());
+        let r = plan.line(
+            &[Cell::Int(1), Cell::Text(r"end\".into()), Cell::Int(1)],
+            &mut String::new(),
+        );
         assert!(matches!(r, Err(Error::Unsupported(_))), "{r:?}");
         let mut out = String::new();
-        plan.line(&[Cell::Int(1), Cell::Text(r"a\b".into()), Cell::Int(1)], &mut out).unwrap();
+        plan.line(
+            &[Cell::Int(1), Cell::Text(r"a\b".into()), Cell::Int(1)],
+            &mut out,
+        )
+        .unwrap();
         assert_eq!(out, "m,t=a\\b v=1i 1\n");
         // A measurement starting with `#` would be a comment.
-        assert!(matches!(Plan::new("#m", &names(&["time"]), &[], &[], Api::Sql), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            Plan::new("#m", &names(&["time"]), &[], &[], Api::Sql),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn times_parse() {
-        assert_eq!(parse_time("2024-01-31T13:45:00Z"), Some(1_706_708_700_000_000_000));
-        assert_eq!(parse_time("2024-01-31 13:45:00.5+00:00"), Some(1_706_708_700_500_000_000));
-        assert_eq!(parse_time("2024-01-31T10:45:00-03:00"), Some(1_706_708_700_000_000_000));
-        assert_eq!(parse_time("2024-01-31T13:45:00.123456789"), Some(1_706_708_700_123_456_789));
+        assert_eq!(
+            parse_time("2024-01-31T13:45:00Z"),
+            Some(1_706_708_700_000_000_000)
+        );
+        assert_eq!(
+            parse_time("2024-01-31 13:45:00.5+00:00"),
+            Some(1_706_708_700_500_000_000)
+        );
+        assert_eq!(
+            parse_time("2024-01-31T10:45:00-03:00"),
+            Some(1_706_708_700_000_000_000)
+        );
+        assert_eq!(
+            parse_time("2024-01-31T13:45:00.123456789"),
+            Some(1_706_708_700_123_456_789)
+        );
         assert_eq!(parse_time("2024-01-31"), Some(1_706_659_200_000_000_000));
         assert_eq!(parse_time("1969-12-31T23:59:59Z"), Some(-1_000_000_000));
         assert_eq!(parse_time("nope"), None);
-        assert_eq!(ns_cell(1_706_708_700_000_000_001), Cell::DateTimeTz("2024-01-31 13:45:00.000000001+00:00".into()));
-        assert_eq!(ns_cell(1_706_708_700_000_000_000), Cell::DateTimeTz("2024-01-31 13:45:00+00:00".into()));
+        assert_eq!(
+            ns_cell(1_706_708_700_000_000_001),
+            Cell::DateTimeTz("2024-01-31 13:45:00.000000001+00:00".into())
+        );
+        assert_eq!(
+            ns_cell(1_706_708_700_000_000_000),
+            Cell::DateTimeTz("2024-01-31 13:45:00+00:00".into())
+        );
     }
 
     #[test]
     fn json_doubles_are_exact() {
         let v = parse_json(br#"{"a":[1.0715660391465826e-75, -0.1, 3, 18446744073709551615, "x\"\u00e9", true, null, {}, []], "b": "\u00f1", "c": "ok"}"#).unwrap();
         let a = v["a"].as_array().unwrap();
-        assert_eq!(a[0].as_f64().unwrap().to_bits(), 1.0715660391465826e-75f64.to_bits());
+        assert_eq!(
+            a[0].as_f64().unwrap().to_bits(),
+            1.0715660391465826e-75f64.to_bits()
+        );
         assert_eq!(a[1].as_f64(), Some(-0.1));
         assert_eq!(a[2].as_i64(), Some(3));
         assert_eq!(a[3].as_u64(), Some(u64::MAX));
@@ -1600,7 +1966,14 @@ mod tests {
                 continue;
             }
             let text = serde_json::to_string(&json!([f])).unwrap();
-            assert_eq!(parse_json(text.as_bytes()).unwrap()[0].as_f64().unwrap().to_bits(), f.to_bits(), "{text}");
+            assert_eq!(
+                parse_json(text.as_bytes()).unwrap()[0]
+                    .as_f64()
+                    .unwrap()
+                    .to_bits(),
+                f.to_bits(),
+                "{text}"
+            );
         }
         assert!(parse_json(b"{\"a\":1").is_err());
         assert!(parse_json(b"[1] x").is_err());
@@ -1608,13 +1981,28 @@ mod tests {
 
     #[test]
     fn influxql_series_become_rows() {
-        let cols = [tc("time", "time"), tc("host", "tag"), tc("v", "float"), tc("n", "integer")];
+        let cols = [
+            tc("time", "time"),
+            tc("host", "tag"),
+            tc("v", "float"),
+            tc("n", "integer"),
+        ];
         let s = json!({"name": "cpu", "columns": ["time", "host", "n", "v"], "values": [[1706708700000000000i64, "a", 3, 2], [1706708700000000001i64, null, null, 2.5]]});
         assert_eq!(
             series_rows(&s, &cols),
             vec![
-                vec![ns_cell(1706708700000000000), Cell::Text("a".into()), Cell::Float(2.0), Cell::Int(3)],
-                vec![ns_cell(1706708700000000001), Cell::Null, Cell::Float(2.5), Cell::Null],
+                vec![
+                    ns_cell(1706708700000000000),
+                    Cell::Text("a".into()),
+                    Cell::Float(2.0),
+                    Cell::Int(3)
+                ],
+                vec![
+                    ns_cell(1706708700000000001),
+                    Cell::Null,
+                    Cell::Float(2.5),
+                    Cell::Null
+                ],
             ]
         );
         // GROUP BY tags come apart from the values.
@@ -1624,16 +2012,30 @@ mod tests {
 
     #[test]
     fn asked_columns_must_exist() {
-        let catalog = [ci("time", "time", true), ci("host", "tag", true), ci("v", "float", false)];
+        let catalog = [
+            ci("time", "time", true),
+            ci("host", "tag", true),
+            ci("v", "float", false),
+        ];
         let got = read_columns(&catalog, &Some(names(&["v", "time"]))).unwrap();
-        assert_eq!(got.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["v", "time"]);
-        assert!(matches!(read_columns(&catalog, &Some(names(&["time", "nope"]))), Err(Error::Query(_))));
+        assert_eq!(
+            got.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["v", "time"]
+        );
+        assert!(matches!(
+            read_columns(&catalog, &Some(names(&["time", "nope"]))),
+            Err(Error::Query(_))
+        ));
         assert_eq!(read_columns(&catalog, &None).unwrap().len(), 3);
     }
 
     /// Feeds `text` to an [`InfluxQlStream`] in pieces of `step` bytes: the
     /// rows, and the most bytes it held at once.
-    fn influxql(text: &[u8], cols: &[TransferColumn], step: usize) -> Result<(Vec<Vec<Cell>>, usize)> {
+    fn influxql(
+        text: &[u8],
+        cols: &[TransferColumn],
+        step: usize,
+    ) -> Result<(Vec<Vec<Cell>>, usize)> {
         let (mut st, mut out, mut held) = (InfluxQlStream::new(cols), Vec::new(), 0);
         for piece in text.chunks(step) {
             st.feed(piece, &mut out)?;
@@ -1645,23 +2047,36 @@ mod tests {
 
     #[test]
     fn influxql_chunks_are_streamed() {
-        let cols = [tc("time", "time"), tc("host", "tag"), tc("s", "string"), tc("v", "float")];
+        let cols = [
+            tc("time", "time"),
+            tc("host", "tag"),
+            tc("s", "string"),
+            tc("v", "float"),
+        ];
         // 20 small points, then 2,000 of ~6 KB, in one chunk (one line), as
         // 1.x sends it when a sample of the first points looked small.
         let wide = "w".repeat(6_000);
         let mut values: Vec<Value> = (0..20).map(|i| json!([i, format!("s{i}"), -0.0])).collect();
-        values.extend((20..2_020).map(|i| json!([i, format!("{wide}],\"[{{,{i}"), i as f64 + 0.5])));
+        values
+            .extend((20..2_020).map(|i| json!([i, format!("{wide}],\"[{{,{i}"), i as f64 + 0.5])));
         let line = |values: &[Value], tags: Option<Value>| {
             let mut series = json!({"name": "m", "columns": ["time", "s", "v"], "values": values, "partial": true});
             if let Some(t) = tags {
                 series["tags"] = t;
             }
-            format!("{}\n", json!({"results": [{"statement_id": 0, "series": [series], "partial": true}]}))
+            format!(
+                "{}\n",
+                json!({"results": [{"statement_id": 0, "series": [series], "partial": true}]})
+            )
         };
         let mut text = line(&values, None).replace("-0.0", "-0");
         assert!(text.len() > 12_000_000 && text.contains(",-0]"));
         // A second chunk, GROUP BY-like, with the tag before the columns.
-        text.push_str(&line(&values[..3], Some(json!({"host": "h"}))).replacen("\"name\":\"m\",", "\"name\":\"m\",\"tags\":{\"host\":\"h\"},", 1));
+        text.push_str(&line(&values[..3], Some(json!({"host": "h"}))).replacen(
+            "\"name\":\"m\",",
+            "\"name\":\"m\",\"tags\":{\"host\":\"h\"},",
+            1,
+        ));
         let whole = {
             let mut out = Vec::new();
             for l in text.lines() {
@@ -1674,7 +2089,11 @@ mod tests {
         assert_eq!(rows, whole);
         // Never the ~12 MB chunk: a piece and a point.
         assert!(held < 64 * 1024 + 8 * 1024, "{held}");
-        assert!(matches!(rows[0][3], Cell::Float(f) if f == 0.0 && f.is_sign_negative()), "{:?}", rows[0][3]);
+        assert!(
+            matches!(rows[0][3], Cell::Float(f) if f == 0.0 && f.is_sign_negative()),
+            "{:?}",
+            rows[0][3]
+        );
         assert_eq!(rows[2_021][1], Cell::Text("h".into()));
         // Byte by byte, every place a piece can end.
         let small = line(&values[..3], None) + &line(&values[18..22], None);
@@ -1683,17 +2102,37 @@ mod tests {
         assert_eq!(rows[..3], whole[..3]);
         assert_eq!(rows[3..], whole[18..22]);
         // Errors, and a point too big to hold.
-        assert!(influxql(b"{\"results\":[{\"statement_id\":0,\"error\":\"boom\"}]}\n", &cols, 7).is_err());
-        assert!(influxql(b"{\"results\":[{\"series\":[{\"columns\":[\"time\"],\"values\":[[1,]]}]}]}\n", &cols, 5).is_err());
-        let huge = format!("{{\"results\":[{{\"series\":[{{\"columns\":[\"time\",\"s\"],\"values\":[[1,\"{}", "x".repeat(LINE_BYTES));
-        assert!(matches!(influxql(huge.as_bytes(), &cols, 1024 * 1024), Err(Error::Unsupported(_))));
+        assert!(influxql(
+            b"{\"results\":[{\"statement_id\":0,\"error\":\"boom\"}]}\n",
+            &cols,
+            7
+        )
+        .is_err());
+        assert!(influxql(
+            b"{\"results\":[{\"series\":[{\"columns\":[\"time\"],\"values\":[[1,]]}]}]}\n",
+            &cols,
+            5
+        )
+        .is_err());
+        let huge = format!(
+            "{{\"results\":[{{\"series\":[{{\"columns\":[\"time\",\"s\"],\"values\":[[1,\"{}",
+            "x".repeat(LINE_BYTES)
+        );
+        assert!(matches!(
+            influxql(huge.as_bytes(), &cols, 1024 * 1024),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn negative_zero_keeps_its_sign() {
         let v = parse_json(b"[-0, 0, -00, -0.0, -1]").unwrap();
         let f = |i: usize| json_cell(&v[i], "v", "float");
-        assert!(matches!(f(0), Cell::Float(x) if x == 0.0 && x.is_sign_negative()), "{:?}", f(0));
+        assert!(
+            matches!(f(0), Cell::Float(x) if x == 0.0 && x.is_sign_negative()),
+            "{:?}",
+            f(0)
+        );
         assert!(matches!(f(1), Cell::Float(x) if x == 0.0 && x.is_sign_positive()));
         assert!(matches!(f(3), Cell::Float(x) if x.is_sign_negative()));
         assert_eq!(v[4].as_i64(), Some(-1));
@@ -1701,7 +2140,12 @@ mod tests {
     }
 
     fn flux(text: &str, cols: &[TransferColumn], cuts: &[usize]) -> Result<Vec<Vec<Cell>>> {
-        let (mut csv, mut t, mut recs, mut rows) = (CsvStream::default(), FluxTables::default(), Vec::new(), Vec::new());
+        let (mut csv, mut t, mut recs, mut rows) = (
+            CsvStream::default(),
+            FluxTables::default(),
+            Vec::new(),
+            Vec::new(),
+        );
         let mut at = 0;
         for &c in cuts.iter().chain([text.len()].iter()) {
             csv.feed(&text.as_bytes()[at..c], &mut recs);
@@ -1722,20 +2166,36 @@ mod tests {
 ,result,table,_time,host,v,n\r\n\
 ,,0,2024-01-31T13:45:00.000000001Z,\"a,\"\"b\"\"\",1.5,\r\n\
 ,,0,2024-01-31T13:46:00Z,a,,7\r\n\r\n";
-        let cols = [tc("_time", "time"), tc("host", "tag"), tc("v", "field"), tc("n", "field")];
+        let cols = [
+            tc("_time", "time"),
+            tc("host", "tag"),
+            tc("v", "field"),
+            tc("n", "field"),
+        ];
         // Every split point gives the same rows.
         for cut in [1, 7, 60, 150, 200, text.len() - 3] {
             assert_eq!(
                 flux(text, &cols, &[cut]).unwrap(),
                 vec![
-                    vec![ns_cell(1706708700000000001), Cell::Text("a,\"b\"".into()), Cell::Float(1.5), Cell::Null],
-                    vec![ns_cell(1706708760000000000), Cell::Text("a".into()), Cell::Null, Cell::Int(7)],
+                    vec![
+                        ns_cell(1706708700000000001),
+                        Cell::Text("a,\"b\"".into()),
+                        Cell::Float(1.5),
+                        Cell::Null
+                    ],
+                    vec![
+                        ns_cell(1706708760000000000),
+                        Cell::Text("a".into()),
+                        Cell::Null,
+                        Cell::Int(7)
+                    ],
                 ],
                 "cut at {cut}"
             );
         }
         // An error table.
-        let err = "#datatype,string,string\n#group,true,true\n#default,,\n,error,reference\n,boom,\n";
+        let err =
+            "#datatype,string,string\n#group,true,true\n#default,,\n,error,reference\n,boom,\n";
         assert!(matches!(flux(err, &cols, &[]), Err(Error::Query(m)) if m == "boom"));
         // A measurement with tags named error and reference is data.
         let text = "#datatype,string,long,dateTime:RFC3339,string,string,double\r\n\
@@ -1743,8 +2203,21 @@ mod tests {
 #default,_result,,,,,\r\n\
 ,result,table,_time,error,reference,v\r\n\
 ,,0,2024-01-31T13:45:00Z,none,abc,1\r\n";
-        let cols = [tc("_time", "time"), tc("error", "tag"), tc("reference", "tag"), tc("v", "field")];
-        assert_eq!(flux(text, &cols, &[]).unwrap(), vec![vec![ns_cell(1706708700000000000), Cell::Text("none".into()), Cell::Text("abc".into()), Cell::Float(1.0)]]);
+        let cols = [
+            tc("_time", "time"),
+            tc("error", "tag"),
+            tc("reference", "tag"),
+            tc("v", "field"),
+        ];
+        assert_eq!(
+            flux(text, &cols, &[]).unwrap(),
+            vec![vec![
+                ns_cell(1706708700000000000),
+                Cell::Text("none".into()),
+                Cell::Text("abc".into()),
+                Cell::Float(1.0)
+            ]]
+        );
     }
 
     #[test]
@@ -1752,12 +2225,20 @@ mod tests {
         // `\n` in a value comes as `\r\n` (Flux's CSV is CRLF); fields named
         // result / table come after Flux's own; marked strings: "" and a
         // `\r` (see flux_read_script).
-        let text = "#datatype,string,long,dateTime:RFC3339,string,string,string,string,string,string\r\n\
+        let text =
+            "#datatype,string,long,dateTime:RFC3339,string,string,string,string,string,string\r\n\
 #group,false,false,false,false,false,false,false,false,false\r\n\
 #default,_result,,,,,,,,\r\n\
 ,result,table,_time,\u{1}_e,\u{1}_c,s,result,table,e\r\n\
 ,,0,2024-01-31T13:45:00Z,;,p\\rq\\\\;,\"x\r\ny\",r1,t1,\r\n";
-        let cols = [tc("_time", "time"), tc("s", "field"), tc("e", "field"), tc("c", "field"), tc("result", "field"), tc("table", "field")];
+        let cols = [
+            tc("_time", "time"),
+            tc("s", "field"),
+            tc("e", "field"),
+            tc("c", "field"),
+            tc("result", "field"),
+            tc("table", "field"),
+        ];
         for cut in [0, 100, 150, 170, 180, 190, text.len() - 1] {
             assert_eq!(
                 flux(text, &cols, &[cut]).unwrap(),
@@ -1778,23 +2259,48 @@ mod tests {
     fn flux_script_reads_all_of_time() {
         let all = "range(start: time(v: -9223372036854775806), stop: time(v: 9223372036854775807))";
         let s = flux_read_script("b", "m\"x", false, Some("r.v > 1"));
-        assert!(s.contains(all) && s.contains("r._measurement == \"m\\\"x\""), "{s}");
+        assert!(
+            s.contains(all) && s.contains("r._measurement == \"m\\\"x\""),
+            "{s}"
+        );
         assert!(s.ends_with("|> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.v > 1)"), "{s}");
         let s = flux_read_script("b", "m", true, None);
-        assert!(s.contains("union(tables: [plain, marked])") && s.contains("columnKey: [\"_dbine_m\", \"_field\"]"), "{s}");
+        assert!(
+            s.contains("union(tables: [plain, marked])")
+                && s.contains("columnKey: [\"_dbine_m\", \"_field\"]"),
+            "{s}"
+        );
         assert_eq!(s.matches(all).count(), 2, "{s}");
         let s = flux_check_script("b", "m", &["host"]);
-        assert!(s.contains("r._value =~ /^$|\\r/") && s.contains("r[\"host\"] =~ /\\r/") && s.contains("die(msg:"), "{s}");
+        assert!(
+            s.contains("r._value =~ /^$|\\r/")
+                && s.contains("r[\"host\"] =~ /\\r/")
+                && s.contains("die(msg:"),
+            "{s}"
+        );
         assert!(flux_check_script("b", "m", &[]).ends_with("\nlossy"));
-        assert!(matches!(flux_err(Error::Query(format!("runtime error: {CR_TAG}"))), Error::Unsupported(_)));
+        assert!(matches!(
+            flux_err(Error::Query(format!("runtime error: {CR_TAG}"))),
+            Error::Unsupported(_)
+        ));
     }
 
     #[test]
     fn jsonl_values() {
-        assert_eq!(json_cell(&json!("2024-01-31T13:45:00"), "time", "Timestamp(Nanosecond, None)"), ns_cell(1706708700000000000));
+        assert_eq!(
+            json_cell(
+                &json!("2024-01-31T13:45:00"),
+                "time",
+                "Timestamp(Nanosecond, None)"
+            ),
+            ns_cell(1706708700000000000)
+        );
         assert_eq!(json_cell(&json!(3), "v", "Float64"), Cell::Float(3.0));
         assert_eq!(json_cell(&json!(3), "n", "Int64"), Cell::Int(3));
-        assert_eq!(json_cell(&json!("a"), "host", "Dictionary(Int32, Utf8)"), Cell::Text("a".into()));
+        assert_eq!(
+            json_cell(&json!("a"), "host", "Dictionary(Int32, Utf8)"),
+            Cell::Text("a".into())
+        );
     }
 
     // ------------------------------------------------ loads against a fake server
@@ -1806,14 +2312,19 @@ mod tests {
         bodies: Mutex<Vec<String>>,
     }
 
-    async fn serve(delay: std::time::Duration, fail_on: Option<&'static str>) -> (Arc<Server>, String) {
+    async fn serve(
+        delay: std::time::Duration,
+        fail_on: Option<&'static str>,
+    ) -> (Arc<Server>, String) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/write", listener.local_addr().unwrap());
         let server = Arc::new(Server::default());
         let s = server.clone();
         tokio::spawn(async move {
             loop {
-                let Ok((conn, _)) = listener.accept().await else { return };
+                let Ok((conn, _)) = listener.accept().await else {
+                    return;
+                };
                 let s = s.clone();
                 tokio::spawn(async move {
                     let mut conn = BufReader::new(conn);
@@ -1827,7 +2338,9 @@ mod tests {
                             if line == "\r\n" {
                                 break;
                             }
-                            if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                            if let Some(v) =
+                                line.to_ascii_lowercase().strip_prefix("content-length:")
+                            {
                                 len = v.trim().parse().unwrap();
                             }
                         }
@@ -1851,12 +2364,28 @@ mod tests {
     }
 
     fn endpoint(url: String) -> Endpoint {
-        Endpoint { http: reqwest::Client::new(), url, auth: Auth::None, api: Api::InfluxQl }
+        Endpoint {
+            http: reqwest::Client::new(),
+            url,
+            auth: Auth::None,
+            api: Api::InfluxQl,
+        }
     }
 
     fn spec(commit_rows: u64) -> LoadSpec {
-        let table = dbine_driver::ObjectRef { kind: "measurement".into(), schema: None, name: "m".into() };
-        LoadSpec { table, columns: names(&["time", "s"]), table_lock: false, keep_identity: false, commit_rows, commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES }
+        let table = dbine_driver::ObjectRef {
+            kind: "measurement".into(),
+            schema: None,
+            name: "m".into(),
+        };
+        LoadSpec {
+            table,
+            columns: names(&["time", "s"]),
+            table_lock: false,
+            keep_identity: false,
+            commit_rows,
+            commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+        }
     }
 
     /// Batches, then (optionally) nothing ever again.
@@ -1876,7 +2405,12 @@ mod tests {
     }
 
     fn rows(n: usize, from: usize, text: &str) -> RowBatch {
-        RowBatch { rows: (from..from + n).map(|i| vec![Cell::Int(i as i64 + 1), Cell::Text(text.into())]).collect(), bytes: 0 }
+        RowBatch {
+            rows: (from..from + n)
+                .map(|i| vec![Cell::Int(i as i64 + 1), Cell::Text(text.into())])
+                .collect(),
+            bytes: 0,
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1886,11 +2420,28 @@ mod tests {
         let batches = (0..5).map(|b| rows(1_000, b * 1_000, &wide)).collect();
         let columns = [tc("time", "time"), tc("s", "")];
         let reports = Mutex::new(Vec::new());
-        let n = load(endpoint(url), "m", &[], &spec(100_000), &columns, &mut Source(batches, false), &|n| reports.lock().unwrap().push(n)).await.unwrap();
+        let n = load(
+            endpoint(url),
+            "m",
+            &[],
+            &spec(100_000),
+            &columns,
+            &mut Source(batches, false),
+            &|n| reports.lock().unwrap().push(n),
+        )
+        .await
+        .unwrap();
         assert_eq!(n, 5_000);
         let bodies = server.bodies.lock().unwrap();
-        assert!(bodies.len() > 1 && bodies.iter().all(|b| b.len() <= REQUEST_BYTES), "{:?}", bodies.iter().map(String::len).collect::<Vec<_>>());
-        assert_eq!(bodies.iter().map(|b| b.lines().count()).sum::<usize>(), 5_000);
+        assert!(
+            bodies.len() > 1 && bodies.iter().all(|b| b.len() <= REQUEST_BYTES),
+            "{:?}",
+            bodies.iter().map(String::len).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            bodies.iter().map(|b| b.lines().count()).sum::<usize>(),
+            5_000
+        );
         assert_eq!(*reports.lock().unwrap().last().unwrap(), 5_000);
     }
 
@@ -1900,8 +2451,22 @@ mod tests {
         let columns = [tc("time", "time"), tc("s", "")];
         // Rejected by the server: the other requests are answered first.
         let (server, url) = serve(delay, Some("bad")).await;
-        let batches = vec![rows(10, 0, "ok"), rows(10, 10, "ok"), rows(10, 20, "bad"), rows(10, 30, "ok")];
-        let r = load(endpoint(url), "m", &[], &spec(10), &columns, &mut Source(batches, false), &|_| {}).await;
+        let batches = vec![
+            rows(10, 0, "ok"),
+            rows(10, 10, "ok"),
+            rows(10, 20, "bad"),
+            rows(10, 30, "ok"),
+        ];
+        let r = load(
+            endpoint(url),
+            "m",
+            &[],
+            &spec(10),
+            &columns,
+            &mut Source(batches, false),
+            &|_| {},
+        )
+        .await;
         assert!(r.is_err());
         let at_return = server.bodies.lock().unwrap().len();
         tokio::time::sleep(delay * 2).await;
@@ -1911,7 +2476,17 @@ mod tests {
         let mut bad = rows(1, 20, "x");
         bad.rows[0][0] = Cell::Text("nope".into());
         let batches = vec![rows(10, 0, "ok"), bad];
-        assert!(load(endpoint(url), "m", &[], &spec(10), &columns, &mut Source(batches, false), &|_| {}).await.is_err());
+        assert!(load(
+            endpoint(url),
+            "m",
+            &[],
+            &spec(10),
+            &columns,
+            &mut Source(batches, false),
+            &|_| {}
+        )
+        .await
+        .is_err());
         assert_eq!(server.bodies.lock().unwrap().len(), 1);
         // Cancelled (the future dropped) while a request is out.
         let (server, url) = serve(delay, None).await;
@@ -1921,7 +2496,11 @@ mod tests {
             let mut source = Source(vec![rows(10, 0, "ok")], true);
             load(ep, "m", &[], &spec, &columns, &mut source, &|_| {}).await
         };
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(50), fut).await.is_err());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), fut)
+                .await
+                .is_err()
+        );
         assert_eq!(server.bodies.lock().unwrap().len(), 1);
     }
 
@@ -1933,7 +2512,16 @@ mod tests {
         for r in &mut empty.rows {
             r[1] = Cell::Null;
         }
-        let r = load(endpoint(url), "m", &[], &spec(10), &columns, &mut Source(vec![empty, rows(10, 10, "ok")], false), &|_| {}).await;
+        let r = load(
+            endpoint(url),
+            "m",
+            &[],
+            &spec(10),
+            &columns,
+            &mut Source(vec![empty, rows(10, 10, "ok")], false),
+            &|_| {},
+        )
+        .await;
         assert!(matches!(r, Err(Error::Unsupported(_))), "{r:?}");
         assert!(server.bodies.lock().unwrap().iter().all(|b| !b.is_empty()));
     }

@@ -18,12 +18,19 @@ pub fn escape(v: &str) -> String {
 /// typed around it are dropped first.
 pub fn driver_value(name: &str) -> String {
     let n = name.trim();
-    let n = n.strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(n);
+    let n = n
+        .strip_prefix('{')
+        .and_then(|s| s.strip_suffix('}'))
+        .unwrap_or(n);
     format!("{{{}}}", n.replace('}', "}}"))
 }
 
 fn has_key(conn_str: &str, key: &str) -> bool {
-    conn_str.split(';').any(|kv| kv.split('=').next().is_some_and(|k| k.trim().eq_ignore_ascii_case(key)))
+    conn_str.split(';').any(|kv| {
+        kv.split('=')
+            .next()
+            .is_some_and(|k| k.trim().eq_ignore_ascii_case(key))
+    })
 }
 
 /// The connection string for `preset`, on `database` (may be empty).
@@ -36,7 +43,9 @@ pub fn build(preset: &Preset, cfg: &ConnectionConfig, database: &str) -> Result<
         } else if let Some(dsn) = cfg.option("dsn") {
             format!("DSN={}", escape(dsn.trim()))
         } else {
-            return Err(Error::Connect("Indicá un DSN o una cadena de conexión ODBC.".into()));
+            return Err(Error::Connect(
+                "Indicá un DSN o una cadena de conexión ODBC.".into(),
+            ));
         };
         if !user.is_empty() && !has_key(&s, "UID") {
             s.push_str(&format!(";UID={}", escape(user)));
@@ -52,7 +61,10 @@ pub fn build(preset: &Preset, cfg: &ConnectionConfig, database: &str) -> Result<
     // Windows integrated security is asked for (`Authentication=KERBEROS`,
     // `AuthMech=1`, `Trusted_Connection=yes`…), replacing the user and
     // password ones.
-    let extra = cfg.option("extra").map(|e| e.trim().trim_matches(';')).unwrap_or("");
+    let extra = cfg
+        .option("extra")
+        .map(|e| e.trim().trim_matches(';'))
+        .unwrap_or("");
     let port = cfg.port_or(preset.default_port).to_string();
     let host = cfg.host.trim();
     let mut parts: Vec<String> = Vec::new();
@@ -91,10 +103,17 @@ pub fn build(preset: &Preset, cfg: &ConnectionConfig, database: &str) -> Result<
                 (false, true) => "2".into(),
                 _ => "0".into(),
             },
-            V::OptOr(k, default) => cfg.option(k).map(str::trim).filter(|v| !v.is_empty()).unwrap_or(default).to_string(),
+            V::OptOr(k, default) => cfg
+                .option(k)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .unwrap_or(default)
+                .to_string(),
             V::Fmt(f) => {
                 // Written as is: the format decides the separators.
-                let value = fill(f, host, &port, database, user, |k| cfg.option(k).unwrap_or("").trim().to_string());
+                let value = fill(f, host, &port, database, user, |k| {
+                    cfg.option(k).unwrap_or("").trim().to_string()
+                });
                 if !value.is_empty() {
                     parts.push(format!("{key}={value}"));
                 }
@@ -113,13 +132,22 @@ pub fn build(preset: &Preset, cfg: &ConnectionConfig, database: &str) -> Result<
 
 /// A [`V::Fmt`] value: `{host}`, `{port}`, `{database}`, `{user}`,
 /// `{opt:key}`. Empty when every placeholder it uses is empty.
-fn fill(f: &str, host: &str, port: &str, database: &str, user: &str, opt: impl Fn(&str) -> String) -> String {
+fn fill(
+    f: &str,
+    host: &str,
+    port: &str,
+    database: &str,
+    user: &str,
+    opt: impl Fn(&str) -> String,
+) -> String {
     let mut out = String::new();
     let mut any = false;
     let mut rest = f;
     while let Some(start) = rest.find('{') {
         out.push_str(&rest[..start]);
-        let Some(end) = rest[start..].find('}') else { break };
+        let Some(end) = rest[start..].find('}') else {
+            break;
+        };
         let name = &rest[start + 1..start + end];
         let v = match name {
             "host" => host.to_string(),
@@ -179,7 +207,10 @@ mod tests {
             host: "db.local".into(),
             username: Some("app".into()),
             password: Some("s3cr;t}x".into()),
-            options: pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            options: pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             ..Default::default()
         }
     }
@@ -191,7 +222,10 @@ mod tests {
         assert_eq!(escape("a}b"), "{a}}b}");
         assert_eq!(escape("{x}"), "{{x}}}");
         assert_eq!(escape(" pad"), "{ pad}");
-        assert_eq!(driver_value("{IBM DB2 ODBC DRIVER}"), "{IBM DB2 ODBC DRIVER}");
+        assert_eq!(
+            driver_value("{IBM DB2 ODBC DRIVER}"),
+            "{IBM DB2 ODBC DRIVER}"
+        );
         assert_eq!(driver_value("FreeTDS"), "{FreeTDS}");
     }
 
@@ -210,14 +244,22 @@ mod tests {
         c.password = None;
         c.port = 6000;
         let s = build(preset("vertica"), &c, "").unwrap();
-        assert_eq!(s, "DRIVER={Vertica};ServerName=db.local;Port=6000;UID=app;SSLMode=require");
+        assert_eq!(
+            s,
+            "DRIVER={Vertica};ServerName=db.local;Port=6000;UID=app;SSLMode=require"
+        );
     }
 
     #[test]
     fn freetds_gets_tds_5() {
         let s = build(preset("sybase"), &cfg(&[]), "pubs2").unwrap();
         assert!(s.ends_with(";TDS_Version=5.0"), "{s}");
-        let s = build(preset("sybase"), &cfg(&[("odbc_driver", "Adaptive Server Enterprise")]), "").unwrap();
+        let s = build(
+            preset("sybase"),
+            &cfg(&[("odbc_driver", "Adaptive Server Enterprise")]),
+            "",
+        )
+        .unwrap();
         assert!(!s.contains("TDS_Version"), "{s}");
     }
 
@@ -237,14 +279,22 @@ mod tests {
         assert!(build(g, &ConnectionConfig::default(), "").is_err());
         let s = build(g, &cfg(&[("dsn", "Sales")]), "").unwrap();
         assert_eq!(s, "DSN=Sales;UID=app;PWD={s3cr;t}}x}");
-        let s = build(g, &cfg(&[("connection_string", "DRIVER={X};uid=me;PWD=p;")]), "").unwrap();
+        let s = build(
+            g,
+            &cfg(&[("connection_string", "DRIVER={X};uid=me;PWD=p;")]),
+            "",
+        )
+        .unwrap();
         assert_eq!(s, "DRIVER={X};uid=me;PWD=p");
     }
 
     #[test]
     fn formatted_values_and_defaults() {
         let s = build(preset("ingres"), &cfg(&[]), "demodb").unwrap();
-        assert!(s.contains(";SERVER=@db.local,tcp_ip,21064;SERVERTYPE=INGRES;DATABASE=demodb;"), "{s}");
+        assert!(
+            s.contains(";SERVER=@db.local,tcp_ip,21064;SERVERTYPE=INGRES;DATABASE=demodb;"),
+            "{s}"
+        );
         let s = build(preset("nuodb"), &cfg(&[("schema", "HR")]), "test").unwrap();
         assert!(s.contains(";DATABASE=test@db.local:48004;UID=app;"), "{s}");
         assert!(s.ends_with(";SCHEMA=HR"), "{s}");
@@ -252,11 +302,22 @@ mod tests {
         assert!(s.contains("ServerName=db.local.1583;DBQ=DEMODATA"), "{s}");
         let s = build(preset("sqream"), &cfg(&[("cluster", "true")]), "master").unwrap();
         assert!(s.ends_with(";Service=sqream;Cluster=true"), "{s}");
-        let s = build(preset("netsuite"), &cfg(&[("account_id", "123"), ("role_id", "3")]), "").unwrap();
+        let s = build(
+            preset("netsuite"),
+            &cfg(&[("account_id", "123"), ("role_id", "3")]),
+            "",
+        )
+        .unwrap();
         assert!(s.contains(";Port=1708;Encrypted=1;AllowSinglePacketLogout=1;Truststore=system;ServerDataSource=NetSuite2.com;"), "{s}");
-        assert!(s.ends_with(";CustomProperties=AccountID=123;RoleID=3"), "{s}");
+        assert!(
+            s.ends_with(";CustomProperties=AccountID=123;RoleID=3"),
+            "{s}"
+        );
         let s = build(preset("cloudera"), &cfg(&[]), "").unwrap();
-        assert!(s.contains("ThriftTransport=2;HTTPPath=cliservice;SSL=1"), "{s}");
+        assert!(
+            s.contains("ThriftTransport=2;HTTPPath=cliservice;SSL=1"),
+            "{s}"
+        );
         // A format whose placeholders are all empty is left out.
         let mut c = cfg(&[]);
         c.host = String::new();
@@ -268,7 +329,10 @@ mod tests {
     /// template's attribute of the same name instead of repeating it.
     #[test]
     fn extra_attributes_replace_the_template() {
-        let c = cfg(&[("extra", "AuthMech=1;KrbRealm=CONTOSO.LOCAL;KrbHostFQDN=hive.contoso.local;KrbServiceName=hive")]);
+        let c = cfg(&[(
+            "extra",
+            "AuthMech=1;KrbRealm=CONTOSO.LOCAL;KrbHostFQDN=hive.contoso.local;KrbServiceName=hive",
+        )]);
         let s = build(preset("hive"), &c, "").unwrap();
         assert_eq!(s.matches("AuthMech=").count(), 1, "{s}");
         assert!(s.ends_with(";AuthMech=1;KrbRealm=CONTOSO.LOCAL;KrbHostFQDN=hive.contoso.local;KrbServiceName=hive"), "{s}");
@@ -287,7 +351,10 @@ mod tests {
         let mut c = cfg(&[]);
         c.password = None;
         let s = build(preset("access"), &c, r"C:\datos\ventas.accdb").unwrap();
-        assert_eq!(s, r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=C:\datos\ventas.accdb");
+        assert_eq!(
+            s,
+            r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=C:\datos\ventas.accdb"
+        );
         let s = build(preset("dbase"), &c, r"C:\dbf").unwrap();
         assert!(s.ends_with(r"DBQ=C:\dbf;DriverID=277"), "{s}");
     }

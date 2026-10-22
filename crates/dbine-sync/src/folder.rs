@@ -23,8 +23,15 @@ impl CloudStore for FolderStore {
     }
 
     async fn account(&self) -> Result<String> {
-        if !tokio::fs::metadata(&self.dir).await.map(|m| m.is_dir()).unwrap_or(false) {
-            return Err(crate::SyncError::Local(format!("la carpeta {} no existe", self.dir.display())));
+        if !tokio::fs::metadata(&self.dir)
+            .await
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+        {
+            return Err(crate::SyncError::Local(format!(
+                "la carpeta {} no existe",
+                self.dir.display()
+            )));
         }
         Ok(self.dir.display().to_string())
     }
@@ -32,8 +39,13 @@ impl CloudStore for FolderStore {
     async fn stat(&self, name: &str) -> Result<Option<RemoteMeta>> {
         match tokio::fs::metadata(self.dir.join(name)).await {
             Ok(m) => {
-                let modified = m.modified().ok().map(|t| chrono::DateTime::<chrono::Utc>::from(t));
-                let nanos = modified.map(|t| t.timestamp_nanos_opt().unwrap_or_default()).unwrap_or_default();
+                let modified = m
+                    .modified()
+                    .ok()
+                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t));
+                let nanos = modified
+                    .map(|t| t.timestamp_nanos_opt().unwrap_or_default())
+                    .unwrap_or_default();
                 Ok(Some(RemoteMeta {
                     revision: format!("{nanos}-{}", m.len()),
                     modified: modified.map(|t| t.to_rfc3339()),
@@ -58,7 +70,9 @@ impl CloudStore for FolderStore {
         let tmp = self.dir.join(format!(".{name}.tmp"));
         tokio::fs::write(&tmp, &bytes).await?;
         tokio::fs::rename(&tmp, self.dir.join(name)).await?;
-        self.stat(name).await?.ok_or_else(|| crate::SyncError::Local("el archivo no quedó escrito".into()))
+        self.stat(name)
+            .await?
+            .ok_or_else(|| crate::SyncError::Local("el archivo no quedó escrito".into()))
     }
 
     async fn delete(&self, name: &str) -> Result<()> {

@@ -21,7 +21,12 @@ pub(crate) fn core_docs(st: &J) -> BTreeMap<String, u64> {
         .and_then(J::as_obj)
         .into_iter()
         .flatten()
-        .filter_map(|(name, c)| Some((name.clone(), c.at(&["index", "numDocs"]).and_then(J::as_u64)?)))
+        .filter_map(|(name, c)| {
+            Some((
+                name.clone(),
+                c.at(&["index", "numDocs"]).and_then(J::as_u64)?,
+            ))
+        })
         .collect()
 }
 
@@ -38,13 +43,27 @@ pub(crate) fn collection_docs(st: &J, cs: &J) -> BTreeMap<String, u64> {
         ) else {
             continue;
         };
-        let e = local.entry((col.to_string(), shard.to_string())).or_default();
+        let e = local
+            .entry((col.to_string(), shard.to_string()))
+            .or_default();
         *e = (*e).max(n);
     }
     let mut out = BTreeMap::new();
-    for (name, c) in cs.at(&["cluster", "collections"]).and_then(J::as_obj).into_iter().flatten() {
-        let shards = c.get("shards").and_then(J::as_obj).map(Vec::as_slice).unwrap_or(&[]);
-        let counts: Vec<u64> = shards.iter().filter_map(|(s, _)| local.get(&(name.clone(), s.clone())).copied()).collect();
+    for (name, c) in cs
+        .at(&["cluster", "collections"])
+        .and_then(J::as_obj)
+        .into_iter()
+        .flatten()
+    {
+        let shards = c
+            .get("shards")
+            .and_then(J::as_obj)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let counts: Vec<u64> = shards
+            .iter()
+            .filter_map(|(s, _)| local.get(&(name.clone(), s.clone())).copied())
+            .collect();
         if !shards.is_empty() && counts.len() == shards.len() {
             out.insert(name.clone(), counts.iter().sum());
         }
@@ -53,9 +72,14 @@ pub(crate) fn collection_docs(st: &J, cs: &J) -> BTreeMap<String, u64> {
 }
 
 pub(crate) async fn row_estimates(s: &SolrSession) -> Result<Vec<RowEstimate>> {
-    let st = s.get_json("/solr/admin/cores?action=STATUS&wt=json").await?;
+    let st = s
+        .get_json("/solr/admin/cores?action=STATUS&wt=json")
+        .await?;
     let docs = if s.cloud {
-        match s.get_json("/solr/admin/collections?action=CLUSTERSTATUS&wt=json").await {
+        match s
+            .get_json("/solr/admin/collections?action=CLUSTERSTATUS&wt=json")
+            .await
+        {
             Ok(cs) => collection_docs(&st, &cs),
             Err(_) => BTreeMap::new(),
         }
@@ -65,7 +89,14 @@ pub(crate) async fn row_estimates(s: &SolrSession) -> Result<Vec<RowEstimate>> {
     Ok(docs
         .into_iter()
         .filter(|(n, _)| !n.starts_with('.'))
-        .map(|(name, rows)| RowEstimate { object: ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name }, rows })
+        .map(|(name, rows)| RowEstimate {
+            object: ObjectRef {
+                kind: kinds::COLLECTION.into(),
+                schema: None,
+                name,
+            },
+            rows,
+        })
         .collect())
 }
 

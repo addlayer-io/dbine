@@ -26,7 +26,8 @@ fn config(autocommit: bool) -> Option<ConnectionConfig> {
         ..Default::default()
     };
     cfg.options.insert("service".into(), service.into());
-    cfg.options.insert("autocommit".into(), autocommit.to_string());
+    cfg.options
+        .insert("autocommit".into(), autocommit.to_string());
     Some(cfg)
 }
 
@@ -51,14 +52,23 @@ async fn reports_the_chain_and_kills_the_head() {
     assert!(d.capabilities().blocking && d.capabilities().kill_session);
     let mut admin = d.connect(&cfg, None).await.unwrap();
     let _ = run(&mut admin, "DROP TABLE dbine_lock PURGE").await;
-    run(&mut admin, "CREATE TABLE dbine_lock (id NUMBER PRIMARY KEY, v NUMBER)").await.unwrap();
-    run(&mut admin, "INSERT INTO dbine_lock VALUES (1, 0)").await.unwrap();
+    run(
+        &mut admin,
+        "CREATE TABLE dbine_lock (id NUMBER PRIMARY KEY, v NUMBER)",
+    )
+    .await
+    .unwrap();
+    run(&mut admin, "INSERT INTO dbine_lock VALUES (1, 0)")
+        .await
+        .unwrap();
 
     // The head: a transaction left open holding the row.
     let manual = config(false).unwrap();
     let mut head = d.connect(&manual, None).await.unwrap();
     let head_id = session_id(&mut head).await;
-    run(&mut head, "UPDATE dbine_lock SET v = 1 WHERE id = 1").await.unwrap();
+    run(&mut head, "UPDATE dbine_lock SET v = 1 WHERE id = 1")
+        .await
+        .unwrap();
 
     // The waiter: blocks on the same row.
     let mut waiter = d.connect(&manual, None).await.unwrap();
@@ -71,24 +81,55 @@ async fn reports_the_chain_and_kills_the_head() {
 
     let chain = admin.blocking().await.unwrap();
     eprintln!("{chain:#?}");
-    let w = chain.iter().find(|s| s.id == waiter_id).expect("the waiter is in the chain");
+    let w = chain
+        .iter()
+        .find(|s| s.id == waiter_id)
+        .expect("the waiter is in the chain");
     assert_eq!(w.blocked_by.as_deref(), Some(head_id.as_str()));
-    assert!(w.sql.as_deref().unwrap_or("").contains("SET v = 2"), "{w:?}");
+    assert!(
+        w.sql.as_deref().unwrap_or("").contains("SET v = 2"),
+        "{w:?}"
+    );
     assert!(w.waited_ms.unwrap_or(0) >= 500, "{w:?}");
-    assert!(w.object.as_deref().unwrap_or("").contains("DBINE_LOCK"), "{w:?}");
-    let h = chain.iter().find(|s| s.id == head_id).expect("the head is in the chain");
+    assert!(
+        w.object.as_deref().unwrap_or("").contains("DBINE_LOCK"),
+        "{w:?}"
+    );
+    let h = chain
+        .iter()
+        .find(|s| s.id == head_id)
+        .expect("the head is in the chain");
     assert_eq!(h.blocked_by, None);
-    assert!(h.wait.as_deref().unwrap_or("").contains("transacción abierta"), "{h:?}");
-    assert!(h.sql.as_deref().unwrap_or("").contains("SET v = 1"), "{h:?}");
+    assert!(
+        h.wait
+            .as_deref()
+            .unwrap_or("")
+            .contains("transacción abierta"),
+        "{h:?}"
+    );
+    assert!(
+        h.sql.as_deref().unwrap_or("").contains("SET v = 1"),
+        "{h:?}"
+    );
 
     // Killing the head frees the waiter.
     admin.kill_session(&head_id).await.unwrap();
-    let (res, mut waiter) =
-        tokio::time::timeout(Duration::from_secs(20), waiting).await.expect("the waiter got through").unwrap();
+    let (res, mut waiter) = tokio::time::timeout(Duration::from_secs(20), waiting)
+        .await
+        .expect("the waiter got through")
+        .unwrap();
     assert!(res.is_ok(), "{res:?}");
     let _ = run(&mut waiter, "ROLLBACK").await;
-    assert!(admin.blocking().await.unwrap().iter().all(|s| s.id != waiter_id));
-    assert!(admin.kill_session("1; DROP TABLE x").await.is_err(), "the id is sid,serial#");
+    assert!(admin
+        .blocking()
+        .await
+        .unwrap()
+        .iter()
+        .all(|s| s.id != waiter_id));
+    assert!(
+        admin.kill_session("1; DROP TABLE x").await.is_err(),
+        "the id is sid,serial#"
+    );
     assert!(admin.kill_session("1,2' IMMEDIATE --").await.is_err());
     let _ = run(&mut admin, "DROP TABLE dbine_lock PURGE").await;
 }

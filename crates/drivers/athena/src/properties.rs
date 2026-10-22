@@ -18,7 +18,9 @@ use std::collections::BTreeMap;
 const PROPS: &str = "Propiedades (DBPROPERTIES)";
 
 fn property_name(k: &str) -> bool {
-    !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'))
+    !k.is_empty()
+        && k.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'))
 }
 
 pub(crate) fn alter(database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
@@ -28,7 +30,9 @@ pub(crate) fn alter(database: &str, changes: &BTreeMap<String, String>) -> Resul
             set.extend(properties(value)?);
         } else if let Some(name) = key.strip_prefix("prop:").filter(|n| property_name(n)) {
             if value.chars().any(char::is_control) {
-                return Err(Error::Query(format!("propiedades: el valor de «{name}» tiene caracteres de control")));
+                return Err(Error::Query(format!(
+                    "propiedades: el valor de «{name}» tiene caracteres de control"
+                )));
             }
             set.push((name.to_string(), value.trim().to_string()));
         } else {
@@ -38,8 +42,15 @@ pub(crate) fn alter(database: &str, changes: &BTreeMap<String, String>) -> Resul
     if set.is_empty() {
         return Ok(Vec::new());
     }
-    let list: Vec<String> = set.iter().map(|(k, v)| format!("{} = {}", lit(k), lit(v))).collect();
-    Ok(vec![format!("ALTER DATABASE {} SET DBPROPERTIES ({})", q(database), list.join(", "))])
+    let list: Vec<String> = set
+        .iter()
+        .map(|(k, v)| format!("{} = {}", lit(k), lit(v)))
+        .collect();
+    Ok(vec![format!(
+        "ALTER DATABASE {} SET DBPROPERTIES ({})",
+        q(database),
+        list.join(", ")
+    )])
 }
 
 pub(crate) fn script(database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
@@ -48,20 +59,40 @@ pub(crate) fn script(database: &str, changes: &BTreeMap<String, String>) -> Resu
 
 impl AthenaSession {
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
-        let resp = self.client.get_database().catalog_name(&self.catalog).database_name(database).send().await.map_err(err)?;
-        let db = resp.database().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
-        let general = |label: &str, value: String| PropertyInfo { group: String::new(), label: label.into(), value };
+        let resp = self
+            .client
+            .get_database()
+            .catalog_name(&self.catalog)
+            .database_name(database)
+            .send()
+            .await
+            .map_err(err)?;
+        let db = resp
+            .database()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let general = |label: &str, value: String| PropertyInfo {
+            group: String::new(),
+            label: label.into(),
+            value,
+        };
         let mut info = vec![general("Catálogo de datos", self.catalog.clone())];
         if let Some(d) = db.description().filter(|d| !d.is_empty()) {
             info.push(general("Descripción (comentario)", d.to_string()));
         }
         let mut fields = Vec::new();
         let mut values = BTreeMap::new();
-        let mut params: Vec<(&String, &String)> = db.parameters().map(|p| p.iter().collect()).unwrap_or_default();
+        let mut params: Vec<(&String, &String)> = db
+            .parameters()
+            .map(|p| p.iter().collect())
+            .unwrap_or_default();
         params.sort();
         for (k, v) in params {
             if !property_name(k) {
-                info.push(PropertyInfo { group: PROPS.into(), label: k.clone(), value: v.clone() });
+                info.push(PropertyInfo {
+                    group: PROPS.into(),
+                    label: k.clone(),
+                    value: v.clone(),
+                });
                 continue;
             }
             let key = format!("prop:{k}");
@@ -75,10 +106,20 @@ impl AthenaSession {
                 .group(PROPS),
         );
         values.insert("properties_add".into(), String::new());
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings: BTreeMap::new() })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings: BTreeMap::new(),
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         for sql in alter(database, changes)? {
             self.run(&sql, 1).await?;
         }
@@ -91,7 +132,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -100,12 +144,21 @@ mod tests {
             script("ventas", &c(&[("prop:creador", "ana o'neil"), ("prop:equipo", ""), ("properties_add", "costo=bajo\n\nnivel = 2")])).unwrap(),
             "ALTER DATABASE `ventas` SET DBPROPERTIES ('creador' = 'ana o\\'neil', 'equipo' = '', 'costo' = 'bajo', 'nivel' = '2')"
         );
-        assert_eq!(script("ventas", &c(&[("properties_add", " ")])).unwrap(), "");
+        assert_eq!(
+            script("ventas", &c(&[("properties_add", " ")])).unwrap(),
+            ""
+        );
     }
 
     #[test]
     fn values_are_checked() {
-        for bad in [("prop:a b", "1"), ("prop:x", "a\nb"), ("properties_add", "sin igual"), ("properties_add", "a'b=1"), ("comment", "x")] {
+        for bad in [
+            ("prop:a b", "1"),
+            ("prop:x", "a\nb"),
+            ("properties_add", "sin igual"),
+            ("properties_add", "a'b=1"),
+            ("comment", "x"),
+        ] {
             assert!(script("v", &c(&[bad])).is_err(), "{bad:?}");
         }
     }

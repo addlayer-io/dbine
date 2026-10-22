@@ -11,10 +11,22 @@ pub const FULLTEXT: &str = "FULLTEXT";
 
 /// Rows of a catalog query as column name → value (NULLs left out), for
 /// views whose columns vary between HANA versions.
-async fn named_rows(s: &HanaSession, sql: &str, params: &[&str]) -> Result<Vec<BTreeMap<String, String>>> {
-    let response = s.conn.prepare_and_execute(sql, &params.to_vec()).await.map_err(err)?;
+async fn named_rows(
+    s: &HanaSession,
+    sql: &str,
+    params: &[&str],
+) -> Result<Vec<BTreeMap<String, String>>> {
+    let response = s
+        .conn
+        .prepare_and_execute(sql, &params.to_vec())
+        .await
+        .map_err(err)?;
     let rs = response.into_result_set().map_err(err)?;
-    let names: Vec<String> = rs.metadata().iter().map(|f| f.columnname().to_string()).collect();
+    let names: Vec<String> = rs
+        .metadata()
+        .iter()
+        .map(|f| f.columnname().to_string())
+        .collect();
     let mut out = Vec::new();
     for row in rs.into_rows().await.map_err(err)? {
         let mut m = BTreeMap::new();
@@ -67,19 +79,36 @@ const FULLTEXT_SETTINGS: &[(&str, &str, Clause)] = &[
     ("MIME_TYPE", "MIME TYPE", Clause::Text),
     ("TOKEN_SEPARATORS", "TOKEN SEPARATORS", Clause::Text),
     ("TEXT_MINING", "TEXT MINING", Clause::OnOff),
-    ("TEXT_MINING_CONFIGURATION", "TEXT MINING CONFIGURATION", Clause::Text),
-    ("TEXT_MINING_CONFIGURATION_OVERLAY", "TEXT MINING CONFIGURATION OVERLAY", Clause::Text),
+    (
+        "TEXT_MINING_CONFIGURATION",
+        "TEXT MINING CONFIGURATION",
+        Clause::Text,
+    ),
+    (
+        "TEXT_MINING_CONFIGURATION_OVERLAY",
+        "TEXT MINING CONFIGURATION OVERLAY",
+        Clause::Text,
+    ),
 ];
 /// Asynchronous indexes: flushed every N minutes and/or after N documents.
 const FLUSH_MINUTES: &str = "FLUSH_EVERY_MINUTES";
 const FLUSH_DOCUMENTS: &str = "FLUSH_AFTER_DOCUMENTS";
 /// SYNC / ASYNC, under whichever name the version reports it.
-const SYNC_COLUMNS: &[&str] = &["SYNCHRONIZATION_TYPE", "SYNC_TYPE", "IS_SYNCHRONOUS", "SYNCHRONOUS"];
+const SYNC_COLUMNS: &[&str] = &[
+    "SYNCHRONIZATION_TYPE",
+    "SYNC_TYPE",
+    "IS_SYNCHRONOUS",
+    "SYNCHRONOUS",
+];
 
 /// A full-text index's options from its SYS.FULLTEXT_INDEXES row.
 pub(crate) fn fulltext_options(row: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     let mut o = BTreeMap::new();
-    let keys = FULLTEXT_SETTINGS.iter().map(|(k, _, _)| *k).chain([FLUSH_MINUTES, FLUSH_DOCUMENTS]).chain(SYNC_COLUMNS.iter().copied());
+    let keys = FULLTEXT_SETTINGS
+        .iter()
+        .map(|(k, _, _)| *k)
+        .chain([FLUSH_MINUTES, FLUSH_DOCUMENTS])
+        .chain(SYNC_COLUMNS.iter().copied());
     for k in keys {
         if let Some(v) = row.get(k).map(|v| v.trim()).filter(|v| !v.is_empty()) {
             o.insert(k.to_string(), v.to_string());
@@ -91,20 +120,35 @@ pub(crate) fn fulltext_options(row: &BTreeMap<String, String>) -> BTreeMap<Strin
 /// Fills in the CHECK constraints and full-text indexes of `tables`.
 pub(crate) async fn complete(s: &HanaSession, tables: &mut [TableSchema], only: Option<&str>) {
     let schema = s.schema.as_str();
-    let at: HashMap<String, usize> = tables.iter().enumerate().map(|(i, t)| (t.name.clone(), i)).collect();
+    let at: HashMap<String, usize> = tables
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.name.clone(), i))
+        .collect();
 
     let (q, p) = crate::schema::scoped(CHECKS, schema, only);
     match s.rows(&q, &p).await {
         Ok(rows) => {
             for r in rows {
                 let t = |i: usize| r.get(i).and_then(text);
-                let Some(&ti) = t(0).and_then(|n| at.get(&n)) else { continue };
-                let Some(expr) = t(2).map(|e| e.trim().to_string()).filter(|e| !e.is_empty()) else { continue };
+                let Some(&ti) = t(0).and_then(|n| at.get(&n)) else {
+                    continue;
+                };
+                let Some(expr) = t(2).map(|e| e.trim().to_string()).filter(|e| !e.is_empty())
+                else {
+                    continue;
+                };
                 // One row per column of the constraint: keep the first.
                 let name = t(1).filter(|n| !n.starts_with("_SYS_"));
                 let checks = &mut tables[ti].checks;
-                if !checks.iter().any(|c| c.name == name && c.expression == expr) {
-                    checks.push(CheckDef { name, expression: expr });
+                if !checks
+                    .iter()
+                    .any(|c| c.name == name && c.expression == expr)
+                {
+                    checks.push(CheckDef {
+                        name,
+                        expression: expr,
+                    });
                 }
             }
         }
@@ -115,8 +159,12 @@ pub(crate) async fn complete(s: &HanaSession, tables: &mut [TableSchema], only: 
     match named_rows(s, &q, &p).await {
         Ok(rows) => {
             for r in rows {
-                let Some(&ti) = r.get("TABLE_NAME").and_then(|n| at.get(n)) else { continue };
-                let Some(name) = r.get("INDEX_NAME") else { continue };
+                let Some(&ti) = r.get("TABLE_NAME").and_then(|n| at.get(n)) else {
+                    continue;
+                };
+                let Some(name) = r.get("INDEX_NAME") else {
+                    continue;
+                };
                 let options = fulltext_options(&r);
                 let t = &mut tables[ti];
                 match t.indexes.iter_mut().find(|i| &i.name == name) {
@@ -137,7 +185,11 @@ pub(crate) async fn complete(s: &HanaSession, tables: &mut [TableSchema], only: 
         Err(e) => tracing::warn!("hana: full-text indexes not read: {e}"),
     }
     for t in tables.iter_mut() {
-        for ix in t.indexes.iter_mut().filter(|i| i.kind.as_deref().is_some_and(|k| k.eq_ignore_ascii_case(FULLTEXT))) {
+        for ix in t.indexes.iter_mut().filter(|i| {
+            i.kind
+                .as_deref()
+                .is_some_and(|k| k.eq_ignore_ascii_case(FULLTEXT))
+        }) {
             ix.unique = false;
         }
         t.indexes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -147,7 +199,9 @@ pub(crate) async fn complete(s: &HanaSession, tables: &mut [TableSchema], only: 
 // ---------------------------------------------------------------- DDL
 
 pub(crate) fn is_fulltext(ix: &IndexDef) -> bool {
-    ix.kind.as_deref().is_some_and(|k| k.trim().eq_ignore_ascii_case(FULLTEXT))
+    ix.kind
+        .as_deref()
+        .is_some_and(|k| k.trim().eq_ignore_ascii_case(FULLTEXT))
 }
 
 fn lit(s: &str) -> String {
@@ -157,27 +211,55 @@ fn lit(s: &str) -> String {
 /// `CREATE FULLTEXT INDEX … ON t (c)` with its settings.
 pub(crate) fn fulltext_sql(table: &str, ix: &IndexDef) -> String {
     let cols: Vec<String> = ix.columns.iter().map(|c| quote(c)).collect();
-    let mut s = format!("CREATE FULLTEXT INDEX {} ON {table} ({})", quote(&ix.name), cols.join(", "));
-    let o = |k: &str| ix.options.get(k).map(|v| v.trim()).filter(|v| !v.is_empty());
+    let mut s = format!(
+        "CREATE FULLTEXT INDEX {} ON {table} ({})",
+        quote(&ix.name),
+        cols.join(", ")
+    );
+    let o = |k: &str| {
+        ix.options
+            .get(k)
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+    };
     for (key, keyword, clause) in FULLTEXT_SETTINGS {
         let Some(v) = o(key) else { continue };
         let value = match clause {
             Clause::Column => quote(v),
-            Clause::List => format!("({})", v.split(',').map(|x| lit(x.trim())).collect::<Vec<_>>().join(", ")),
+            Clause::List => format!(
+                "({})",
+                v.split(',')
+                    .map(|x| lit(x.trim()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Clause::Text => lit(v),
-            Clause::OnOff => (if v.eq_ignore_ascii_case("TRUE") || v.eq_ignore_ascii_case("ON") { "ON" } else { "OFF" }).to_string(),
+            Clause::OnOff => (if v.eq_ignore_ascii_case("TRUE") || v.eq_ignore_ascii_case("ON") {
+                "ON"
+            } else {
+                "OFF"
+            })
+            .to_string(),
             Clause::Number => v.to_string(),
         };
         s.push_str(&format!(" {keyword} {value}"));
     }
-    let sync = SYNC_COLUMNS.iter().find_map(|k| o(k)).map(|v| v.to_ascii_uppercase());
-    let (minutes, docs) = (o(FLUSH_MINUTES).filter(|v| *v != "0"), o(FLUSH_DOCUMENTS).filter(|v| *v != "0"));
+    let sync = SYNC_COLUMNS
+        .iter()
+        .find_map(|k| o(k))
+        .map(|v| v.to_ascii_uppercase());
+    let (minutes, docs) = (
+        o(FLUSH_MINUTES).filter(|v| *v != "0"),
+        o(FLUSH_DOCUMENTS).filter(|v| *v != "0"),
+    );
     match sync.as_deref() {
         Some("TRUE" | "SYNC" | "SYNCHRONOUS") => s.push_str(" SYNC"),
         _ if minutes.is_some() || docs.is_some() => {
             s.push_str(" ASYNC FLUSH");
             match (minutes, docs) {
-                (Some(m), Some(d)) => s.push_str(&format!(" EVERY {m} MINUTES OR AFTER {d} DOCUMENTS")),
+                (Some(m), Some(d)) => {
+                    s.push_str(&format!(" EVERY {m} MINUTES OR AFTER {d} DOCUMENTS"))
+                }
                 (Some(m), None) => s.push_str(&format!(" EVERY {m} MINUTES")),
                 (None, Some(d)) => s.push_str(&format!(" AFTER {d} DOCUMENTS")),
                 (None, None) => {}
@@ -205,7 +287,14 @@ pub(crate) async fn list_objects(s: &HanaSession) -> Vec<DbObject> {
     match s.rows(OBJECTS, &[schema, schema, schema]).await {
         Ok(rows) => rows
             .iter()
-            .filter_map(|r| Some(DbObject { kind: text(r.first()?)?, schema: r.get(1).and_then(text), name: text(r.get(2)?)?, parent: None }))
+            .filter_map(|r| {
+                Some(DbObject {
+                    kind: text(r.first()?)?,
+                    schema: r.get(1).and_then(text),
+                    name: text(r.get(2)?)?,
+                    parent: None,
+                })
+            })
             .collect(),
         Err(e) => {
             tracing::warn!("hana: synonyms and table types not listed: {e}");
@@ -235,8 +324,17 @@ pub(crate) fn sequence_sql(name: &str, s: &SequenceInfo) -> String {
         s.max,
         if s.cycle { "CYCLE" } else { "NO CYCLE" }
     );
-    out.push_str(&if s.cache > 0 { format!(" CACHE {}", s.cache) } else { " NO CACHE".into() });
-    if let Some(q) = s.reset_by.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+    out.push_str(&if s.cache > 0 {
+        format!(" CACHE {}", s.cache)
+    } else {
+        " NO CACHE".into()
+    });
+    if let Some(q) = s
+        .reset_by
+        .as_deref()
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+    {
         out.push_str(&format!(" RESET BY {q}"));
     }
     out.push(';');
@@ -245,9 +343,23 @@ pub(crate) fn sequence_sql(name: &str, s: &SequenceInfo) -> String {
 
 /// `CREATE [PUBLIC] SYNONYM`; the target's schema is left out when it's the
 /// session's, so the synonym points at the same object on either side.
-pub(crate) fn synonym_sql(public: bool, name: &str, schema: &str, target_schema: Option<&str>, target: &str) -> String {
-    let owner = target_schema.filter(|o| *o != schema).map(|o| format!("{}.", quote(o))).unwrap_or_default();
-    format!("CREATE {}SYNONYM {} FOR {owner}{};", if public { "PUBLIC " } else { "" }, quote(name), quote(target))
+pub(crate) fn synonym_sql(
+    public: bool,
+    name: &str,
+    schema: &str,
+    target_schema: Option<&str>,
+    target: &str,
+) -> String {
+    let owner = target_schema
+        .filter(|o| *o != schema)
+        .map(|o| format!("{}.", quote(o)))
+        .unwrap_or_default();
+    format!(
+        "CREATE {}SYNONYM {} FOR {owner}{};",
+        if public { "PUBLIC " } else { "" },
+        quote(name),
+        quote(target)
+    )
 }
 
 pub(crate) struct TypeColumn {
@@ -257,20 +369,40 @@ pub(crate) struct TypeColumn {
 }
 
 pub(crate) fn table_type_sql(name: &str, cols: &[TypeColumn]) -> String {
-    let body: Vec<String> =
-        cols.iter().map(|c| format!("    {} {}{}", quote(&c.name), c.data_type, if c.nullable { "" } else { " NOT NULL" })).collect();
-    format!("CREATE TYPE {} AS TABLE (\n{}\n);", quote(name), body.join(",\n"))
+    let body: Vec<String> = cols
+        .iter()
+        .map(|c| {
+            format!(
+                "    {} {}{}",
+                quote(&c.name),
+                c.data_type,
+                if c.nullable { "" } else { " NOT NULL" }
+            )
+        })
+        .collect();
+    format!(
+        "CREATE TYPE {} AS TABLE (\n{}\n);",
+        quote(name),
+        body.join(",\n")
+    )
 }
 
-const SEQUENCE: &str = "SELECT START_NUMBER, INCREMENT_BY, MIN_VALUE, MAX_VALUE, IS_CYCLED, CACHE_SIZE, RESET_BY_QUERY
+const SEQUENCE: &str =
+    "SELECT START_NUMBER, INCREMENT_BY, MIN_VALUE, MAX_VALUE, IS_CYCLED, CACHE_SIZE, RESET_BY_QUERY
   FROM SYS.SEQUENCES WHERE SCHEMA_NAME = ? AND SEQUENCE_NAME = ?";
 
-const TYPE_COLUMNS: &str = "SELECT COLUMN_NAME, DATA_TYPE_NAME, LENGTH, SCALE, IS_NULLABLE FROM SYS.TABLE_COLUMNS
+const TYPE_COLUMNS: &str =
+    "SELECT COLUMN_NAME, DATA_TYPE_NAME, LENGTH, SCALE, IS_NULLABLE FROM SYS.TABLE_COLUMNS
  WHERE SCHEMA_NAME = ? AND TABLE_NAME = ? ORDER BY POSITION";
 
 /// The CREATE statement of a sequence, synonym or table type; `None` for
 /// other kinds (or when the catalog can't be read, for sequences).
-pub(crate) async fn definition(s: &HanaSession, kind: &str, owner: &str, name: &str) -> Result<Option<String>> {
+pub(crate) async fn definition(
+    s: &HanaSession,
+    kind: &str,
+    owner: &str,
+    name: &str,
+) -> Result<Option<String>> {
     match kind {
         kinds::SEQUENCE => {
             let rows = match s.rows(SEQUENCE, &[owner, name]).await {
@@ -299,7 +431,13 @@ pub(crate) async fn definition(s: &HanaSession, kind: &str, owner: &str, name: &
             let rows = s.rows("SELECT OBJECT_SCHEMA, OBJECT_NAME FROM SYS.SYNONYMS WHERE SCHEMA_NAME = ? AND SYNONYM_NAME = ?", &[owner, name]).await?;
             Ok(rows.first().and_then(|r| {
                 let target = r.get(1).and_then(text)?;
-                Some(synonym_sql(owner == "PUBLIC", name, &s.schema, r.first().and_then(text).as_deref(), &target))
+                Some(synonym_sql(
+                    owner == "PUBLIC",
+                    name,
+                    &s.schema,
+                    r.first().and_then(text).as_deref(),
+                    &target,
+                ))
             }))
         }
         kinds::TYPE => {
@@ -310,7 +448,11 @@ pub(crate) async fn definition(s: &HanaSession, kind: &str, owner: &str, name: &
                     let t = |i: usize| r.get(i).and_then(text);
                     TypeColumn {
                         name: t(0).unwrap_or_default(),
-                        data_type: format_type(&t(1).unwrap_or_default(), r.get(2).and_then(int), r.get(3).and_then(int)),
+                        data_type: format_type(
+                            &t(1).unwrap_or_default(),
+                            r.get(2).and_then(int),
+                            r.get(3).and_then(int),
+                        ),
                         nullable: t(4).as_deref() != Some("FALSE"),
                     }
                 })
@@ -348,7 +490,13 @@ mod tests {
         let options = fulltext_options(&row);
         assert!(!options.contains_key("INDEX_OID") && !options.contains_key("TABLE_NAME"));
         assert_eq!(options.len(), 9);
-        let ix = IndexDef { name: "FTI_DOCS".into(), columns: vec!["CUERPO".into()], kind: Some(FULLTEXT.into()), options, ..Default::default() };
+        let ix = IndexDef {
+            name: "FTI_DOCS".into(),
+            columns: vec!["CUERPO".into()],
+            kind: Some(FULLTEXT.into()),
+            options,
+            ..Default::default()
+        };
         assert_eq!(
             fulltext_sql("\"DOCS\"", &ix),
             "CREATE FULLTEXT INDEX \"FTI_DOCS\" ON \"DOCS\" (\"CUERPO\") LANGUAGE COLUMN \"IDIOMA\" LANGUAGE DETECTION ('EN', 'DE') \
@@ -356,24 +504,60 @@ mod tests {
              TOKEN SEPARATORS '/;,.''' ASYNC FLUSH EVERY 5 MINUTES OR AFTER 100 DOCUMENTS"
         );
         let mut sync = ix.clone();
-        sync.options = [("SYNCHRONIZATION_TYPE".to_string(), "SYNCHRONOUS".to_string())].into();
-        assert_eq!(fulltext_sql("\"DOCS\"", &sync), "CREATE FULLTEXT INDEX \"FTI_DOCS\" ON \"DOCS\" (\"CUERPO\") SYNC");
+        sync.options = [(
+            "SYNCHRONIZATION_TYPE".to_string(),
+            "SYNCHRONOUS".to_string(),
+        )]
+        .into();
+        assert_eq!(
+            fulltext_sql("\"DOCS\"", &sync),
+            "CREATE FULLTEXT INDEX \"FTI_DOCS\" ON \"DOCS\" (\"CUERPO\") SYNC"
+        );
     }
 
     #[test]
     fn objects_ddl() {
-        let s = SequenceInfo { start: 100, increment: 5, min: 1, max: 4_611_686_018_427_387_903, cycle: false, cache: 10, reset_by: None };
+        let s = SequenceInfo {
+            start: 100,
+            increment: 5,
+            min: 1,
+            max: 4_611_686_018_427_387_903,
+            cycle: false,
+            cache: 10,
+            reset_by: None,
+        };
         assert_eq!(
             sequence_sql("SEQ_FOLIO", &s),
             "CREATE SEQUENCE \"SEQ_FOLIO\" INCREMENT BY 5 START WITH 100 MINVALUE 1 MAXVALUE 4611686018427387903 NO CYCLE CACHE 10;"
         );
-        let s = SequenceInfo { cache: 0, cycle: true, reset_by: Some("SELECT MAX(ID) + 1 FROM T".into()), ..s };
-        assert!(sequence_sql("S", &s).ends_with(" CYCLE NO CACHE RESET BY SELECT MAX(ID) + 1 FROM T;"));
-        assert_eq!(synonym_sql(false, "SYN", "APP", Some("APP"), "DOCS"), "CREATE SYNONYM \"SYN\" FOR \"DOCS\";");
-        assert_eq!(synonym_sql(true, "SYN", "APP", Some("HR"), "EMP"), "CREATE PUBLIC SYNONYM \"SYN\" FOR \"HR\".\"EMP\";");
+        let s = SequenceInfo {
+            cache: 0,
+            cycle: true,
+            reset_by: Some("SELECT MAX(ID) + 1 FROM T".into()),
+            ..s
+        };
+        assert!(
+            sequence_sql("S", &s).ends_with(" CYCLE NO CACHE RESET BY SELECT MAX(ID) + 1 FROM T;")
+        );
+        assert_eq!(
+            synonym_sql(false, "SYN", "APP", Some("APP"), "DOCS"),
+            "CREATE SYNONYM \"SYN\" FOR \"DOCS\";"
+        );
+        assert_eq!(
+            synonym_sql(true, "SYN", "APP", Some("HR"), "EMP"),
+            "CREATE PUBLIC SYNONYM \"SYN\" FOR \"HR\".\"EMP\";"
+        );
         let cols = [
-            TypeColumn { name: "ID".into(), data_type: "INTEGER".into(), nullable: false },
-            TypeColumn { name: "NOMBRE".into(), data_type: "NVARCHAR(50)".into(), nullable: true },
+            TypeColumn {
+                name: "ID".into(),
+                data_type: "INTEGER".into(),
+                nullable: false,
+            },
+            TypeColumn {
+                name: "NOMBRE".into(),
+                data_type: "NVARCHAR(50)".into(),
+                nullable: true,
+            },
         ];
         assert_eq!(table_type_sql("TT_LINEAS", &cols), "CREATE TYPE \"TT_LINEAS\" AS TABLE (\n    \"ID\" INTEGER NOT NULL,\n    \"NOMBRE\" NVARCHAR(50)\n);");
     }

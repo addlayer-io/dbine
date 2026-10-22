@@ -10,7 +10,9 @@
 //!   cargo test -p dbine-driver-sqlserver --test fk_jump -- --ignored
 //! ```
 
-use dbine_driver::{ColumnFilter, ConnectionConfig, Driver, FilterOp, ObjectRef, QueryOutcome, Session};
+use dbine_driver::{
+    ColumnFilter, ConnectionConfig, Driver, FilterOp, ObjectRef, QueryOutcome, Session,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -18,7 +20,9 @@ fn cfg(env: &str, driver: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
         driver: driver.into(),
@@ -32,12 +36,17 @@ fn cfg(env: &str, driver: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
     out
 }
@@ -53,28 +62,77 @@ fn text(v: &Value) -> String {
 /// The rows of `obj` where each column equals its value, as the grid's jump
 /// filters them (with the values as the engine returned them); the values
 /// of `columns` in each row, as text.
-async fn filtered(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, obj: &ObjectRef, key: &[(String, Value)], columns: &[&str]) -> Vec<Vec<String>> {
-    let filters: Vec<ColumnFilter> = key.iter().map(|(c, v)| ColumnFilter { column: c.clone(), op: FilterOp::Eq, values: vec![v.clone()], sql: None }).collect();
-    let q = d.filtered_browse(&s.browse_query(obj, 100), &filters).unwrap();
+async fn filtered(
+    d: &Arc<dyn Driver>,
+    s: &mut Box<dyn Session>,
+    obj: &ObjectRef,
+    key: &[(String, Value)],
+    columns: &[&str],
+) -> Vec<Vec<String>> {
+    let filters: Vec<ColumnFilter> = key
+        .iter()
+        .map(|(c, v)| ColumnFilter {
+            column: c.clone(),
+            op: FilterOp::Eq,
+            values: vec![v.clone()],
+            sql: None,
+        })
+        .collect();
+    let q = d
+        .filtered_browse(&s.browse_query(obj, 100), &filters)
+        .unwrap();
     let out = run(s, &q).await;
-    let r = out.results.iter().find(|r| !r.columns.is_empty()).expect("a result set");
-    let at: Vec<usize> = columns.iter().map(|n| r.columns.iter().position(|c| c.name == *n).unwrap_or_else(|| panic!("{n} in {q}"))).collect();
-    let mut rows: Vec<Vec<String>> = r.rows.iter().map(|row| at.iter().map(|&i| text(&row[i])).collect()).collect();
+    let r = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .expect("a result set");
+    let at: Vec<usize> = columns
+        .iter()
+        .map(|n| {
+            r.columns
+                .iter()
+                .position(|c| c.name == *n)
+                .unwrap_or_else(|| panic!("{n} in {q}"))
+        })
+        .collect();
+    let mut rows: Vec<Vec<String>> = r
+        .rows
+        .iter()
+        .map(|row| at.iter().map(|&i| text(&row[i])).collect())
+        .collect();
     rows.sort();
     rows
 }
 
 /// Row `id` of `obj`: the values of `columns` as the engine returns them
 /// (what the grid has in its cells).
-async fn raw_row(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, obj: &ObjectRef, id: i64, columns: &[String]) -> Vec<Value> {
-    let f = [ColumnFilter { column: "id".into(), op: FilterOp::Eq, values: vec![serde_json::json!(id)], sql: None }];
+async fn raw_row(
+    d: &Arc<dyn Driver>,
+    s: &mut Box<dyn Session>,
+    obj: &ObjectRef,
+    id: i64,
+    columns: &[String],
+) -> Vec<Value> {
+    let f = [ColumnFilter {
+        column: "id".into(),
+        op: FilterOp::Eq,
+        values: vec![serde_json::json!(id)],
+        sql: None,
+    }];
     let q = d.filtered_browse(&s.browse_query(obj, 100), &f).unwrap();
     let out = run(s, &q).await;
-    let r = out.results.iter().find(|r| !r.columns.is_empty()).expect("a result set");
+    let r = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .expect("a result set");
     let row = r.rows.first().unwrap_or_else(|| panic!("row {id} in {q}"));
-    columns.iter().map(|n| row[r.columns.iter().position(|c| &c.name == n).unwrap()].clone()).collect()
+    columns
+        .iter()
+        .map(|n| row[r.columns.iter().position(|c| &c.name == n).unwrap()].clone())
+        .collect()
 }
-
 
 async fn exercise(id: &str, mut c: ConnectionConfig) {
     let d = driver(id);
@@ -90,27 +148,58 @@ async fn exercise(id: &str, mut c: ConnectionConfig) {
 
     let tables = s.database_schema().await.unwrap();
     let lineas = tables.iter().find(|t| t.name == "lineas").expect("lineas");
-    let fk = lineas.foreign_keys.iter().find(|f| f.ref_table == "Pedidos").expect("the composite foreign key");
+    let fk = lineas
+        .foreign_keys
+        .iter()
+        .find(|f| f.ref_table == "Pedidos")
+        .expect("the composite foreign key");
     assert_eq!(fk.columns, ["p_region", "p_num"], "{id}");
     assert_eq!(fk.ref_columns, ["region", "num"], "{id}");
 
-    let pedidos = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "Pedidos".into() };
-    let lineas_ref = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "lineas".into() };
+    let pedidos = ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbo".into()),
+        name: "Pedidos".into(),
+    };
+    let lineas_ref = ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbo".into()),
+        name: "lineas".into(),
+    };
     // Child row 12 → its parent ('norte', 1).
     let row = raw_row(&d, &mut s, &lineas_ref, 12, &fk.columns).await;
     let key: Vec<(String, Value)> = fk.ref_columns.iter().cloned().zip(row).collect();
-    assert_eq!(filtered(&d, &mut s, &pedidos, &key, &["cliente"]).await, [["Carla"]], "{id}");
+    assert_eq!(
+        filtered(&d, &mut s, &pedidos, &key, &["cliente"]).await,
+        [["Carla"]],
+        "{id}"
+    );
     // Parent ('sur', 1) → the child rows that reference it.
-    let key: Vec<(String, Value)> = fk.columns.iter().cloned().zip([serde_json::json!("sur"), serde_json::json!(1)]).collect();
-    assert_eq!(filtered(&d, &mut s, &lineas_ref, &key, &["id"]).await, [["10"], ["11"]], "{id}");
+    let key: Vec<(String, Value)> = fk
+        .columns
+        .iter()
+        .cloned()
+        .zip([serde_json::json!("sur"), serde_json::json!(1)])
+        .collect();
+    assert_eq!(
+        filtered(&d, &mut s, &lineas_ref, &key, &["id"]).await,
+        [["10"], ["11"]],
+        "{id}"
+    );
     drop(s);
     c.database = String::new();
-    run(&mut d.connect(&c, None).await.unwrap(), "ALTER DATABASE dbine_fk SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE dbine_fk").await;
+    run(
+        &mut d.connect(&c, None).await.unwrap(),
+        "ALTER DATABASE dbine_fk SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE dbine_fk",
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn sqlserver_jumps_by_a_composite_foreign_key() {
-    let Some(c) = cfg("DBINE_TEST_SQLSERVER_URL", "sqlserver") else { return };
+    let Some(c) = cfg("DBINE_TEST_SQLSERVER_URL", "sqlserver") else {
+        return;
+    };
     exercise("sqlserver", c).await;
 }

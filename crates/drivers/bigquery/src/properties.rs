@@ -32,7 +32,9 @@ fn days_ms(what: &str, v: &str, min_ms: f64) -> Result<Json> {
     let days: f64 = v.parse().map_err(|_| bad(what, v))?;
     let ms = (days * DAY_MS).round();
     if !days.is_finite() || ms < min_ms || ms > 1e15 || v.contains(['e', 'E']) {
-        return Err(Error::Query(format!("{what}: «{v}» no es una cantidad de días válida")));
+        return Err(Error::Query(format!(
+            "{what}: «{v}» no es una cantidad de días válida"
+        )));
     }
     Ok(json!(format!("{}", ms as u64)))
 }
@@ -51,13 +53,30 @@ pub(crate) fn body(changes: &BTreeMap<String, String>) -> Result<Json> {
     for (key, value) in changes {
         let v = value.trim();
         let (field, val) = match key.as_str() {
-            "description" => ("description", if v.is_empty() { Json::Null } else { json!(value) }),
-            "default_table_expiration_days" => {
-                ("defaultTableExpirationMs", if v.is_empty() { Json::Null } else { days_ms("vencimiento de las tablas", v, 3_600_000.0)? })
-            }
-            "default_partition_expiration_days" => {
-                ("defaultPartitionExpirationMs", if v.is_empty() { Json::Null } else { days_ms("vencimiento de las particiones", v, 1.0)? })
-            }
+            "description" => (
+                "description",
+                if v.is_empty() {
+                    Json::Null
+                } else {
+                    json!(value)
+                },
+            ),
+            "default_table_expiration_days" => (
+                "defaultTableExpirationMs",
+                if v.is_empty() {
+                    Json::Null
+                } else {
+                    days_ms("vencimiento de las tablas", v, 3_600_000.0)?
+                },
+            ),
+            "default_partition_expiration_days" => (
+                "defaultPartitionExpirationMs",
+                if v.is_empty() {
+                    Json::Null
+                } else {
+                    days_ms("vencimiento de las particiones", v, 1.0)?
+                },
+            ),
             "default_collation" => match v {
                 "" => ("defaultCollation", Json::Null),
                 "und:ci" => ("defaultCollation", json!(v)),
@@ -70,13 +89,20 @@ pub(crate) fn body(changes: &BTreeMap<String, String>) -> Result<Json> {
             },
             "default_rounding_mode" => match v {
                 "" => ("defaultRoundingMode", Json::Null),
-                "ROUND_HALF_AWAY_FROM_ZERO" | "ROUND_HALF_EVEN" => ("defaultRoundingMode", json!(v)),
+                "ROUND_HALF_AWAY_FROM_ZERO" | "ROUND_HALF_EVEN" => {
+                    ("defaultRoundingMode", json!(v))
+                }
                 _ => return Err(bad("redondeo", v)),
             },
             "max_time_travel_hours" => {
-                let ok = v.parse::<u32>().is_ok_and(|h| (48..=168).contains(&h) && h % 24 == 0) && v.chars().all(|c| c.is_ascii_digit());
+                let ok = v
+                    .parse::<u32>()
+                    .is_ok_and(|h| (48..=168).contains(&h) && h % 24 == 0)
+                    && v.chars().all(|c| c.is_ascii_digit());
                 if !ok {
-                    return Err(Error::Query(format!("time travel: «{v}» no es un múltiplo de 24 horas entre 48 y 168")));
+                    return Err(Error::Query(format!(
+                        "time travel: «{v}» no es un múltiplo de 24 horas entre 48 y 168"
+                    )));
                 }
                 ("maxTimeTravelHours", json!(v))
             }
@@ -113,7 +139,10 @@ pub(crate) fn body(changes: &BTreeMap<String, String>) -> Result<Json> {
 /// What "Ver script" shows: the request and its body.
 pub(crate) fn script(database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
     let body = body(changes)?;
-    Ok(format!("PATCH datasets/{database} (datasets.patch)\n{}", serde_json::to_string_pretty(&body)?))
+    Ok(format!(
+        "PATCH datasets/{database} (datasets.patch)\n{}",
+        serde_json::to_string_pretty(&body)?
+    ))
 }
 
 fn when(ms: Option<&str>) -> String {
@@ -127,7 +156,11 @@ impl BigQuerySession {
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         let ds = self.api.get(&["datasets", database], &[]).await?;
         let s = |k: &str| ds.get(k).and_then(Json::as_str).map(str::to_string);
-        let general = |label: &str, value: String| PropertyInfo { group: String::new(), label: label.into(), value };
+        let general = |label: &str, value: String| PropertyInfo {
+            group: String::new(),
+            label: label.into(),
+            value,
+        };
         let mut info = vec![
             general("Ubicación", s("location").unwrap_or_default()),
             general("Creado", when(s("creationTime").as_deref())),
@@ -145,26 +178,79 @@ impl BigQuerySession {
         );
         if let Ok(r) = self.query(&sql, 1, None).await {
             if let Some(row) = r.rows.first() {
-                let c = |i: usize| row.get(i).and_then(Json::as_str).unwrap_or_default().to_string();
-                let mb = c(1).parse::<f64>().map(|b| format!("{:.1} MB", b / 1_048_576.0)).unwrap_or_default();
-                info.push(PropertyInfo { group: TABLES.into(), label: "Tablas".into(), value: c(0) });
-                info.push(PropertyInfo { group: TABLES.into(), label: "Tamaño".into(), value: mb });
-                info.push(PropertyInfo { group: TABLES.into(), label: "Filas".into(), value: c(2) });
+                let c = |i: usize| {
+                    row.get(i)
+                        .and_then(Json::as_str)
+                        .unwrap_or_default()
+                        .to_string()
+                };
+                let mb = c(1)
+                    .parse::<f64>()
+                    .map(|b| format!("{:.1} MB", b / 1_048_576.0))
+                    .unwrap_or_default();
+                info.push(PropertyInfo {
+                    group: TABLES.into(),
+                    label: "Tablas".into(),
+                    value: c(0),
+                });
+                info.push(PropertyInfo {
+                    group: TABLES.into(),
+                    label: "Tamaño".into(),
+                    value: mb,
+                });
+                info.push(PropertyInfo {
+                    group: TABLES.into(),
+                    label: "Filas".into(),
+                    value: c(2),
+                });
             }
         }
 
         let mut values = BTreeMap::new();
-        values.insert("description".to_string(), s("description").unwrap_or_default());
-        values.insert("default_table_expiration_days".into(), s("defaultTableExpirationMs").and_then(|m| ms_days(&m)).unwrap_or_default());
-        values.insert("default_partition_expiration_days".into(), s("defaultPartitionExpirationMs").and_then(|m| ms_days(&m)).unwrap_or_default());
-        values.insert("default_collation".into(), s("defaultCollation").unwrap_or_default());
+        values.insert(
+            "description".to_string(),
+            s("description").unwrap_or_default(),
+        );
+        values.insert(
+            "default_table_expiration_days".into(),
+            s("defaultTableExpirationMs")
+                .and_then(|m| ms_days(&m))
+                .unwrap_or_default(),
+        );
+        values.insert(
+            "default_partition_expiration_days".into(),
+            s("defaultPartitionExpirationMs")
+                .and_then(|m| ms_days(&m))
+                .unwrap_or_default(),
+        );
+        values.insert(
+            "default_collation".into(),
+            s("defaultCollation").unwrap_or_default(),
+        );
         values.insert(
             "is_case_insensitive".into(),
-            if ds.get("isCaseInsensitive").and_then(Json::as_bool) == Some(true) { "true".into() } else { String::new() },
+            if ds.get("isCaseInsensitive").and_then(Json::as_bool) == Some(true) {
+                "true".into()
+            } else {
+                String::new()
+            },
         );
-        values.insert("default_rounding_mode".into(), s("defaultRoundingMode").filter(|m| m != "ROUNDING_MODE_UNSPECIFIED").unwrap_or_default());
-        values.insert("max_time_travel_hours".into(), s("maxTimeTravelHours").unwrap_or_else(|| "168".into()));
-        values.insert("storage_billing_model".into(), s("storageBillingModel").filter(|m| m != "STORAGE_BILLING_MODEL_UNSPECIFIED").unwrap_or_else(|| "LOGICAL".into()));
+        values.insert(
+            "default_rounding_mode".into(),
+            s("defaultRoundingMode")
+                .filter(|m| m != "ROUNDING_MODE_UNSPECIFIED")
+                .unwrap_or_default(),
+        );
+        values.insert(
+            "max_time_travel_hours".into(),
+            s("maxTimeTravelHours").unwrap_or_else(|| "168".into()),
+        );
+        values.insert(
+            "storage_billing_model".into(),
+            s("storageBillingModel")
+                .filter(|m| m != "STORAGE_BILLING_MODEL_UNSPECIFIED")
+                .unwrap_or_else(|| "LOGICAL".into()),
+        );
         values.insert("labels_add".into(), String::new());
 
         let mut fields = vec![
@@ -200,7 +286,11 @@ impl BigQuerySession {
         if let Some(l) = ds.get("labels").and_then(Json::as_object) {
             for (k, v) in l {
                 let key = format!("label:{k}");
-                fields.push(Field::new(intern(&key), intern(k), FieldKind::Text).help("Vacía: se quita la etiqueta.").group(LABELS));
+                fields.push(
+                    Field::new(intern(&key), intern(k), FieldKind::Text)
+                        .help("Vacía: se quita la etiqueta.")
+                        .group(LABELS),
+                );
                 values.insert(key, v.as_str().unwrap_or_default().to_string());
             }
         }
@@ -225,17 +315,30 @@ impl BigQuerySession {
                 "Cambia cómo se resuelven los nombres de las tablas del dataset: consultas que dependían de mayúsculas pueden cambiar de tabla o fallar.".to_string(),
             ),
         ]);
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings,
+        })
     }
 
     /// One `datasets.patch`: all or nothing.
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let body = body(changes)?;
         if body.as_object().is_some_and(Map::is_empty) {
             return Ok(());
         }
         let url = self.api.url(&["datasets", database])?;
-        self.api.send(self.api.http.patch(url).json(&body)).await.map(|_| ())
+        self.api
+            .send(self.api.http.patch(url).json(&body))
+            .await
+            .map(|_| ())
     }
 }
 
@@ -244,7 +347,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -272,8 +378,17 @@ mod tests {
                 "labels": { "equipo": null, "entorno": "prod", "costo": "bajo" },
             })
         );
-        assert_eq!(body(&c(&[("default_table_expiration_days", " "), ("default_collation", "")])).unwrap(), json!({ "defaultTableExpirationMs": null, "defaultCollation": null }));
-        assert!(script("v", &c(&[("description", "x")])).unwrap().starts_with("PATCH datasets/v (datasets.patch)\n{"));
+        assert_eq!(
+            body(&c(&[
+                ("default_table_expiration_days", " "),
+                ("default_collation", "")
+            ]))
+            .unwrap(),
+            json!({ "defaultTableExpirationMs": null, "defaultCollation": null })
+        );
+        assert!(script("v", &c(&[("description", "x")]))
+            .unwrap()
+            .starts_with("PATCH datasets/v (datasets.patch)\n{"));
         assert_eq!(ms_days("2592000000").as_deref(), Some("30"));
         assert_eq!(ms_days("3600000").as_deref(), Some("0.042"));
     }

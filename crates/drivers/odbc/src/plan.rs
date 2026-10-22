@@ -26,7 +26,11 @@ pub fn nest(items: Vec<(usize, PlanNode)>) -> Option<PlanNode> {
     match roots.len() {
         0 => None,
         1 => roots.pop(),
-        _ => Some(PlanNode { op: "PLAN".into(), children: roots, ..Default::default() }),
+        _ => Some(PlanNode {
+            op: "PLAN".into(),
+            children: roots,
+            ..Default::default()
+        }),
     }
 }
 
@@ -80,7 +84,9 @@ pub fn number(s: &str) -> Option<f64> {
 fn after<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     let i = text.find(key)? + key.len();
     let rest = &text[i..];
-    let end = rest.find(|c: char| c.is_whitespace() || matches!(c, ',' | ')' | ']')).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| c.is_whitespace() || matches!(c, ',' | ')' | ']'))
+        .unwrap_or(rest.len());
     Some(&rest[..end])
 }
 
@@ -90,7 +96,8 @@ fn after<'a>(text: &'a str, key: &str) -> Option<&'a str> {
 /// text), grouped into one tree per statement.
 pub fn sqlserver_trees(rows: &[HashMap<String, String>]) -> Vec<(String, PlanNode)> {
     let get = |r: &HashMap<String, String>, k: &str| r.get(k).cloned().unwrap_or_default();
-    let f = |r: &HashMap<String, String>, k: &str| r.get(k).and_then(|v| v.trim().parse::<f64>().ok());
+    let f =
+        |r: &HashMap<String, String>, k: &str| r.get(k).and_then(|v| v.trim().parse::<f64>().ok());
     let mut order: Vec<String> = Vec::new();
     for r in rows {
         let id = get(r, "StmtId");
@@ -100,15 +107,27 @@ pub fn sqlserver_trees(rows: &[HashMap<String, String>]) -> Vec<(String, PlanNod
     }
     let mut out = Vec::new();
     for id in order {
-        let group: Vec<&HashMap<String, String>> = rows.iter().filter(|r| get(r, "StmtId") == id).collect();
-        let stmt_row = group.iter().find(|r| get(r, "PhysicalOp").is_empty()).copied();
-        let ops: Vec<&HashMap<String, String>> = group.iter().filter(|r| !get(r, "PhysicalOp").is_empty()).copied().collect();
+        let group: Vec<&HashMap<String, String>> =
+            rows.iter().filter(|r| get(r, "StmtId") == id).collect();
+        let stmt_row = group
+            .iter()
+            .find(|r| get(r, "PhysicalOp").is_empty())
+            .copied();
+        let ops: Vec<&HashMap<String, String>> = group
+            .iter()
+            .filter(|r| !get(r, "PhysicalOp").is_empty())
+            .copied()
+            .collect();
         let node_of = |r: &HashMap<String, String>| {
             let physical = get(r, "PhysicalOp");
             let logical = get(r, "LogicalOp");
             let argument = get(r, "Argument");
             let mut n = PlanNode {
-                detail: if logical != physical { logical } else { String::new() },
+                detail: if logical != physical {
+                    logical
+                } else {
+                    String::new()
+                },
                 op: physical,
                 total_cost: f(r, "TotalSubtreeCost"),
                 est_rows: f(r, "EstimateRows"),
@@ -145,7 +164,9 @@ pub fn sqlserver_trees(rows: &[HashMap<String, String>]) -> Vec<(String, PlanNod
                     w
                 });
             }
-            if n.op.contains("Table Scan") || (n.op == "Clustered Index Scan" && !argument.contains("WHERE:")) {
+            if n.op.contains("Table Scan")
+                || (n.op == "Clustered Index Scan" && !argument.contains("WHERE:"))
+            {
                 n.warnings.push("Recorre la tabla completa".into());
             }
             n
@@ -173,9 +194,16 @@ pub fn sqlserver_trees(rows: &[HashMap<String, String>]) -> Vec<(String, PlanNod
             .filter(|r| !ids.contains(&get(r, "Parent")) || get(r, "Parent") == get(r, "NodeId"))
             .map(|r| build(r, &ops, &node_of, 0))
             .collect();
-        let text = stmt_row.map(|r| get(r, "StmtText")).unwrap_or_default().trim().to_string();
+        let text = stmt_row
+            .map(|r| get(r, "StmtText"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
         let mut root = PlanNode {
-            op: stmt_row.map(|r| get(r, "Type")).filter(|t| !t.is_empty()).unwrap_or_else(|| "STATEMENT".into()),
+            op: stmt_row
+                .map(|r| get(r, "Type"))
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| "STATEMENT".into()),
             total_cost: stmt_row.and_then(|r| f(r, "TotalSubtreeCost")),
             est_rows: stmt_row.and_then(|r| f(r, "EstimateRows")),
             actual_rows: stmt_row.and_then(|r| f(r, "Rows")),
@@ -184,7 +212,11 @@ pub fn sqlserver_trees(rows: &[HashMap<String, String>]) -> Vec<(String, PlanNod
             ..Default::default()
         };
         if root.total_cost.is_none() {
-            root.total_cost = root.children.iter().filter_map(|c| c.total_cost).reduce(|a, b| a + b);
+            root.total_cost = root
+                .children
+                .iter()
+                .filter_map(|c| c.total_cost)
+                .reduce(|a, b| a + b);
         }
         out.push((text, root));
     }
@@ -222,8 +254,13 @@ pub fn db2_tree(ops: &[Db2Op], streams: &[Db2Stream]) -> PlanNode {
     let is_op = |t: &str| t.trim() == "O";
     fn build(op: &Db2Op, ops: &[Db2Op], streams: &[Db2Stream], depth: usize) -> PlanNode {
         let is_op = |t: &str| t.trim() == "O";
-        let output = streams.iter().find(|s| is_op(&s.source_type) && s.source_id == op.id);
-        let inputs: Vec<&Db2Stream> = streams.iter().filter(|s| is_op(&s.target_type) && s.target_id == op.id).collect();
+        let output = streams
+            .iter()
+            .find(|s| is_op(&s.source_type) && s.source_id == op.id);
+        let inputs: Vec<&Db2Stream> = streams
+            .iter()
+            .filter(|s| is_op(&s.target_type) && s.target_id == op.id)
+            .collect();
         let mut n = PlanNode {
             op: op.kind.trim().to_string(),
             total_cost: op.total_cost,
@@ -231,7 +268,11 @@ pub fn db2_tree(ops: &[Db2Op], streams: &[Db2Stream]) -> PlanNode {
             ..Default::default()
         };
         n.props.push(("Operador".into(), op.id.clone()));
-        for (k, v) in [("Costo de E/S", op.io_cost), ("Costo de CPU", op.cpu_cost), ("Costo hasta la primera fila", op.first_row_cost)] {
+        for (k, v) in [
+            ("Costo de E/S", op.io_cost),
+            ("Costo de CPU", op.cpu_cost),
+            ("Costo hasta la primera fila", op.first_row_cost),
+        ] {
             if let Some(v) = v {
                 n.props.push((k.into(), format!("{v}")));
             }
@@ -243,7 +284,8 @@ pub fn db2_tree(ops: &[Db2Op], streams: &[Db2Stream]) -> PlanNode {
                 n.props.push(("Objeto".into(), s.object.clone()));
             }
             if let Some(c) = s.count {
-                n.props.push((format!("Filas de {}", s.object), format!("{c}")));
+                n.props
+                    .push((format!("Filas de {}", s.object), format!("{c}")));
             }
         }
         if n.op == "TBSCAN" && inputs.iter().any(|s| s.source_type.trim() == "D") {
@@ -264,12 +306,20 @@ pub fn db2_tree(ops: &[Db2Op], streams: &[Db2Stream]) -> PlanNode {
     }
     let roots: Vec<PlanNode> = ops
         .iter()
-        .filter(|o| !streams.iter().any(|s| is_op(&s.source_type) && s.source_id == o.id && is_op(&s.target_type)))
+        .filter(|o| {
+            !streams
+                .iter()
+                .any(|s| is_op(&s.source_type) && s.source_id == o.id && is_op(&s.target_type))
+        })
         .map(|o| build(o, ops, streams, 0))
         .collect();
     match roots.len() {
         1 => roots.into_iter().next().expect("one"),
-        _ => PlanNode { op: "PLAN".into(), children: roots, ..Default::default() },
+        _ => PlanNode {
+            op: "PLAN".into(),
+            children: roots,
+            ..Default::default()
+        },
     }
 }
 
@@ -303,11 +353,20 @@ pub fn db2zos_tree(rows: &[ZRow]) -> PlanNode {
                 "" => ("Access", None),
                 other => (other, None),
             };
-            let mut n = PlanNode { op: op.to_string(), object: Some(r.table.clone()).filter(|t| !t.is_empty()), ..Default::default() };
+            let mut n = PlanNode {
+                op: op.to_string(),
+                object: Some(r.table.clone()).filter(|t| !t.is_empty()),
+                ..Default::default()
+            };
             if let Some(w) = warn {
                 n.warnings.push(w.into());
             }
-            for (k, v) in [("Índice", &r.index), ("Columnas coincidentes", &r.match_cols), ("Solo índice", &r.index_only), ("Prefetch", &r.prefetch)] {
+            for (k, v) in [
+                ("Índice", &r.index),
+                ("Columnas coincidentes", &r.match_cols),
+                ("Solo índice", &r.index_only),
+                ("Prefetch", &r.prefetch),
+            ] {
                 if !v.trim().is_empty() {
                     n.props.push((k.into(), v.trim().to_string()));
                 }
@@ -321,7 +380,11 @@ pub fn db2zos_tree(rows: &[ZRow]) -> PlanNode {
         };
         let node = match (prev, r.method.trim()) {
             (None, _) => step,
-            (Some(p), "3") => PlanNode { op: "Sort".into(), children: vec![p], ..Default::default() },
+            (Some(p), "3") => PlanNode {
+                op: "Sort".into(),
+                children: vec![p],
+                ..Default::default()
+            },
             (Some(p), m) => PlanNode {
                 op: match m {
                     "1" => "Nested loop join",
@@ -342,7 +405,11 @@ pub fn db2zos_tree(rows: &[ZRow]) -> PlanNode {
             op: "QUERY".into(),
             children: blocks
                 .into_iter()
-                .map(|(b, n)| PlanNode { op: format!("Bloque {b}"), children: vec![n], ..Default::default() })
+                .map(|(b, n)| PlanNode {
+                    op: format!("Bloque {b}"),
+                    children: vec![n],
+                    ..Default::default()
+                })
                 .collect(),
             ..Default::default()
         },
@@ -363,7 +430,11 @@ pub fn sybase_trees(text: &str) -> Vec<PlanNode> {
             continue;
         }
         if t.starts_with("QUERY PLAN FOR STATEMENT") || plans.is_empty() {
-            let root = PlanNode { op: "STATEMENT".into(), detail: t.trim_end_matches('.').to_string(), ..Default::default() };
+            let root = PlanNode {
+                op: "STATEMENT".into(),
+                detail: t.trim_end_matches('.').to_string(),
+                ..Default::default()
+            };
             plans.push((root, Vec::new()));
             if t.starts_with("QUERY PLAN FOR STATEMENT") {
                 continue;
@@ -379,7 +450,9 @@ pub fn sybase_trees(text: &str) -> Vec<PlanNode> {
             root.props.push(("Detalle".into(), t.to_string()));
             continue;
         }
-        let body_at = line.find(|c: char| c != '|' && !c.is_whitespace()).unwrap_or(line.len());
+        let body_at = line
+            .find(|c: char| c != '|' && !c.is_whitespace())
+            .unwrap_or(line.len());
         let depth = line[..body_at].matches('|').count();
         let body = line[body_at..].trim();
         if body.is_empty() {
@@ -388,8 +461,15 @@ pub fn sybase_trees(text: &str) -> Vec<PlanNode> {
         if let Some(i) = body.find(" Operator") {
             let name = body[..i].trim_start_matches("ROOT:").to_string();
             let rest = body[i + " Operator".len()..].trim();
-            let mut n = PlanNode { op: name, ..Default::default() };
-            for part in rest.split(')').map(|p| p.trim().trim_start_matches('(').trim()).filter(|p| !p.is_empty()) {
+            let mut n = PlanNode {
+                op: name,
+                ..Default::default()
+            };
+            for part in rest
+                .split(')')
+                .map(|p| p.trim().trim_start_matches('(').trim())
+                .filter(|p| !p.is_empty())
+            {
                 match part.split_once(" = ").or_else(|| part.split_once(": ")) {
                     Some(("VA", v)) => n.props.push(("VA".into(), v.to_string())),
                     Some((k, v)) => {
@@ -406,7 +486,9 @@ pub fn sybase_trees(text: &str) -> Vec<PlanNode> {
             continue;
         }
         // A detail of the latest operator at this depth.
-        let Some((_, n)) = items.iter_mut().rev().find(|(d, _)| *d == depth) else { continue };
+        let Some((_, n)) = items.iter_mut().rev().find(|(d, _)| *d == depth) else {
+            continue;
+        };
         if from_table {
             n.object = Some(body.to_string());
             from_table = false;
@@ -442,19 +524,26 @@ pub fn impala_tree(text: &str) -> PlanNode {
         parent: Option<usize>,
     }
     let mut nodes: Vec<N> = Vec::new();
-    let mut root = PlanNode { op: "QUERY".into(), ..Default::default() };
+    let mut root = PlanNode {
+        op: "QUERY".into(),
+        ..Default::default()
+    };
     // Latest node at each column.
     let mut at_col: HashMap<usize, usize> = HashMap::new();
     let mut last: Option<usize> = None;
     for line in text.lines() {
-        let start = line.find(|c: char| c != '|' && c != ' ' && c != '-').unwrap_or(line.len());
+        let start = line
+            .find(|c: char| c != '|' && c != ' ' && c != '-')
+            .unwrap_or(line.len());
         let body = line[start..].trim();
         if body.is_empty() {
             continue;
         }
         let branch = line[..start].contains("|--");
         let is_op = body == "PLAN-ROOT SINK"
-            || body.split_once(':').is_some_and(|(n, _)| !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit()));
+            || body.split_once(':').is_some_and(|(n, _)| {
+                !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit())
+            });
         if !is_op {
             match last {
                 Some(i) => {
@@ -474,7 +563,8 @@ pub fn impala_tree(text: &str) -> PlanNode {
                 }
                 None => {
                     if body.starts_with("WARNING") {
-                        root.warnings.push("Faltan estadísticas en algunas tablas".into());
+                        root.warnings
+                            .push("Faltan estadísticas en algunas tablas".into());
                     }
                     root.props.push(("Detalle".into(), body.to_string()));
                 }
@@ -482,19 +572,36 @@ pub fn impala_tree(text: &str) -> PlanNode {
             continue;
         }
         let col = start;
-        let parent = if branch { at_col.get(&col.saturating_sub(3)).copied() } else { at_col.get(&col).copied() }
-            .or(if branch { last } else { None });
+        let parent = if branch {
+            at_col.get(&col.saturating_sub(3)).copied()
+        } else {
+            at_col.get(&col).copied()
+        }
+        .or(if branch { last } else { None });
         let (id, op) = match body.split_once(':') {
-            Some((id, rest)) if body != "PLAN-ROOT SINK" => (Some(id.to_string()), rest.trim().to_string()),
+            Some((id, rest)) if body != "PLAN-ROOT SINK" => {
+                (Some(id.to_string()), rest.trim().to_string())
+            }
             _ => (None, body.to_string()),
         };
         let (op, detail) = match op.split_once(" [") {
             Some((o, d)) => (o.to_string(), d.trim_end_matches(']').to_string()),
             None => (op, String::new()),
         };
-        let mut n = PlanNode { op, ..Default::default() };
+        let mut n = PlanNode {
+            op,
+            ..Default::default()
+        };
         if n.op.starts_with("SCAN") {
-            n.object = Some(detail.split(',').next().unwrap_or_default().trim().to_string()).filter(|s| !s.is_empty());
+            n.object = Some(
+                detail
+                    .split(',')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
+            )
+            .filter(|s| !s.is_empty());
         } else {
             n.detail = detail;
         }
@@ -510,10 +617,16 @@ pub fn impala_tree(text: &str) -> PlanNode {
     // Children in document order.
     fn build(i: usize, nodes: &[N]) -> PlanNode {
         let mut n = nodes[i].node.clone();
-        n.children = (0..nodes.len()).filter(|&k| nodes[k].parent == Some(i)).map(|k| build(k, nodes)).collect();
+        n.children = (0..nodes.len())
+            .filter(|&k| nodes[k].parent == Some(i))
+            .map(|k| build(k, nodes))
+            .collect();
         n
     }
-    let tops: Vec<PlanNode> = (0..nodes.len()).filter(|&i| nodes[i].parent.is_none()).map(|i| build(i, &nodes)).collect();
+    let tops: Vec<PlanNode> = (0..nodes.len())
+        .filter(|&i| nodes[i].parent.is_none())
+        .map(|i| build(i, &nodes))
+        .collect();
     if tops.len() == 1 && root.props.is_empty() && root.warnings.is_empty() {
         return tops.into_iter().next().expect("one");
     }
@@ -548,15 +661,23 @@ pub fn hive_tree(text: &str) -> PlanNode {
 /// parallel step nested), with the step's estimates picked from the text.
 pub fn teradata_tree(text: &str) -> PlanNode {
     let mut items: Vec<(usize, PlanNode)> = Vec::new();
-    let mut root = PlanNode { op: "EXPLAIN".into(), ..Default::default() };
+    let mut root = PlanNode {
+        op: "EXPLAIN".into(),
+        ..Default::default()
+    };
     let mut cur: Option<(usize, String, String)> = None;
     let mut last_step = false;
     // Indent of the top-level steps; sub-steps of a parallel step sit
     // further right.
     let mut base: Option<usize> = None;
-    let flush = |cur: &mut Option<(usize, String, String)>, items: &mut Vec<(usize, PlanNode)>, base: usize| {
+    let flush = |cur: &mut Option<(usize, String, String)>,
+                 items: &mut Vec<(usize, PlanNode)>,
+                 base: usize| {
         if let Some((indent, num, text)) = cur.take() {
-            items.push((if indent >= base + 4 { 2 } else { 1 }, teradata_step(&num, &text)));
+            items.push((
+                if indent >= base + 4 { 2 } else { 1 },
+                teradata_step(&num, &text),
+            ));
         }
     };
     for line in text.lines() {
@@ -566,7 +687,9 @@ pub fn teradata_tree(text: &str) -> PlanNode {
         }
         let indent = line.len() - line.trim_start().len();
         // "  3) We do an all-AMPs …"
-        let numbered = t.split_once(") ").filter(|(n, _)| !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit()));
+        let numbered = t.split_once(") ").filter(|(n, _)| {
+            !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit())
+        });
         if let Some((num, rest)) = numbered {
             let b = *base.get_or_insert(indent);
             flush(&mut cur, &mut items, b);
@@ -587,7 +710,8 @@ pub fn teradata_tree(text: &str) -> PlanNode {
     }
     flush(&mut cur, &mut items, base.unwrap_or(0));
     if let Some(s) = after(&root.detail, "total estimated time is ") {
-        root.props.push(("Tiempo total estimado (s)".into(), s.to_string()));
+        root.props
+            .push(("Tiempo total estimado (s)".into(), s.to_string()));
     }
     if let Some(tree) = nest(items) {
         if tree.op == "PLAN" {
@@ -622,10 +746,18 @@ fn teradata_step(num: &str, text: &str) -> PlanNode {
     .iter()
     .find(|(k, _)| lower.contains(k))
     .map_or("Step", |(_, v)| v);
-    let mut n = PlanNode { op: op.to_string(), detail: text.to_string(), ..Default::default() };
+    let mut n = PlanNode {
+        op: op.to_string(),
+        detail: text.to_string(),
+        ..Default::default()
+    };
     n.props.push(("Paso".into(), num.to_string()));
     if let Some(i) = lower.find(" from ") {
-        let obj = text[i + 6..].split_whitespace().next().unwrap_or_default().trim_end_matches([',', '.']);
+        let obj = text[i + 6..]
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches([',', '.']);
         if !obj.is_empty() && !obj.eq_ignore_ascii_case("spool") {
             n.object = Some(obj.to_string());
         }
@@ -643,7 +775,8 @@ fn teradata_step(num: &str, text: &str) -> PlanNode {
         }
     }
     if lower.contains("all-rows scan") {
-        n.warnings.push("Recorre todas las filas (all-rows scan)".into());
+        n.warnings
+            .push("Recorre todas las filas (all-rows scan)".into());
     }
     if lower.contains("product join") {
         n.warnings.push("Product join".into());
@@ -691,7 +824,11 @@ pub fn vertica_tree(text: &str) -> Option<PlanNode> {
                     Some(i) => (&body[..i], &body[i + 2..]),
                     None => (body, ""),
                 };
-                let mut n = PlanNode { op: head.trim().to_string(), detail: side, ..Default::default() };
+                let mut n = PlanNode {
+                    op: head.trim().to_string(),
+                    detail: side,
+                    ..Default::default()
+                };
                 if let Some(obj) = n.op.split_once(" for ").map(|(_, o)| o.trim().to_string()) {
                     n.object = Some(obj);
                     n.op = n.op.split(" for ").next().unwrap_or_default().to_string();
@@ -722,7 +859,10 @@ pub fn vertica_tree(text: &str) -> Option<PlanNode> {
 /// Netezza `EXPLAIN VERBOSE`: the `QUERY PLANTEXT:` section (PostgreSQL
 /// style, `l:` / `r:` marking join inputs) when present, else everything.
 pub fn netezza_tree(text: &str) -> PlanNode {
-    let plantext = text.split_once("QUERY PLANTEXT:").map(|(_, p)| p).unwrap_or(text);
+    let plantext = text
+        .split_once("QUERY PLANTEXT:")
+        .map(|(_, p)| p)
+        .unwrap_or(text);
     let cleaned: String = plantext
         .lines()
         .map(|l| {
@@ -746,7 +886,13 @@ pub fn netezza_tree(text: &str) -> PlanNode {
                 n.props.push(("Confianza".into(), c.to_string()));
             }
         }
-        if let Some(t) = n.op.split_once(" table ").map(|(_, t)| t.split_whitespace().next().unwrap_or_default().trim_matches('"').to_string()) {
+        if let Some(t) = n.op.split_once(" table ").map(|(_, t)| {
+            t.split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .trim_matches('"')
+                .to_string()
+        }) {
             n.object = Some(t);
         }
         if n.op.starts_with("Sequential Scan") {
@@ -774,7 +920,10 @@ pub fn dameng_tree(text: &str) -> Option<PlanNode> {
         let depth = rest[..hash].len();
         let body = &rest[hash + 1..];
         let (op, figures) = body.split_once(": ").unwrap_or((body, ""));
-        let mut n = PlanNode { op: op.trim().to_string(), ..Default::default() };
+        let mut n = PlanNode {
+            op: op.trim().to_string(),
+            ..Default::default()
+        };
         if let Some(b) = figures.strip_prefix('[') {
             let (nums, tail) = b.split_once(']').unwrap_or((b, ""));
             let v: Vec<Option<f64>> = nums.split(',').map(number).collect();
@@ -788,7 +937,12 @@ pub fn dameng_tree(text: &str) -> Option<PlanNode> {
         if n.op.starts_with("CSCN") {
             n.warnings.push("Recorre la tabla completa".into());
         }
-        if let Some(obj) = n.detail.split_once('(').and_then(|(_, r)| r.split(')').next()).filter(|o| !o.is_empty()) {
+        if let Some(obj) = n
+            .detail
+            .split_once('(')
+            .and_then(|(_, r)| r.split(')').next())
+            .filter(|o| !o.is_empty())
+        {
             if n.op.contains("SCN") || n.op.contains("SEEK") {
                 n.object = Some(obj.to_string());
             }
@@ -829,7 +983,11 @@ pub fn exasol_tree(parts: &[ExaPart]) -> PlanNode {
             ..Default::default()
         };
         total += p.duration_s.unwrap_or_default();
-        for (k, v) in [("Filas del objeto", p.object_rows), ("CPU (%)", p.cpu), ("Memoria temporal (MiB)", p.mem_mib)] {
+        for (k, v) in [
+            ("Filas del objeto", p.object_rows),
+            ("CPU (%)", p.cpu),
+            ("Memoria temporal (MiB)", p.mem_mib),
+        ] {
             if let Some(v) = v {
                 n.props.push((k.into(), format!("{v}")));
             }
@@ -840,7 +998,10 @@ pub fn exasol_tree(parts: &[ExaPart]) -> PlanNode {
         if p.name.contains("INDEX CREATE") {
             n.warnings.push("Creó un índice durante la consulta".into());
         }
-        if p.name.contains("SCAN") && p.object_rows.is_some_and(|r| r > 1_000_000.0) && p.info.contains("FULL") {
+        if p.name.contains("SCAN")
+            && p.object_rows.is_some_and(|r| r > 1_000_000.0)
+            && p.info.contains("FULL")
+        {
             n.warnings.push("Recorre la tabla completa".into());
         }
         if let Some(prev) = chain.take() {
@@ -848,8 +1009,12 @@ pub fn exasol_tree(parts: &[ExaPart]) -> PlanNode {
         }
         chain = Some(n);
     }
-    let mut root = chain.unwrap_or_else(|| PlanNode { op: "PROFILE".into(), ..Default::default() });
-    root.props.push(("Duración total (s)".into(), format!("{total:.3}")));
+    let mut root = chain.unwrap_or_else(|| PlanNode {
+        op: "PROFILE".into(),
+        ..Default::default()
+    });
+    root.props
+        .push(("Duración total (s)".into(), format!("{total:.3}")));
     root
 }
 
@@ -886,7 +1051,10 @@ mod tests {
     use super::*;
 
     fn row(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -900,10 +1068,48 @@ mod tests {
     #[test]
     fn sql_server_rows() {
         let rows = vec![
-            row(&[("StmtText", "select * from t where id > 1"), ("StmtId", "1"), ("NodeId", "1"), ("Parent", "0"), ("PhysicalOp", ""), ("Type", "SELECT"), ("TotalSubtreeCost", "0.5"), ("EstimateRows", "10")]),
-            row(&[("StmtId", "1"), ("NodeId", "2"), ("Parent", "1"), ("PhysicalOp", "Nested Loops"), ("LogicalOp", "Inner Join"), ("TotalSubtreeCost", "0.5"), ("EstimateRows", "10"), ("Rows", "8"), ("Executes", "1")]),
-            row(&[("StmtId", "1"), ("NodeId", "3"), ("Parent", "2"), ("PhysicalOp", "Clustered Index Seek"), ("LogicalOp", "Clustered Index Seek"), ("Argument", "OBJECT:([db].[dbo].[t].[PK_t]), SEEK:([id] > 1)"), ("TotalSubtreeCost", "0.2")]),
-            row(&[("StmtId", "1"), ("NodeId", "4"), ("Parent", "2"), ("PhysicalOp", "Table Scan"), ("LogicalOp", "Table Scan"), ("Argument", "OBJECT:([db].[dbo].[u])"), ("Warnings", "NO STATS:([u].[x])")]),
+            row(&[
+                ("StmtText", "select * from t where id > 1"),
+                ("StmtId", "1"),
+                ("NodeId", "1"),
+                ("Parent", "0"),
+                ("PhysicalOp", ""),
+                ("Type", "SELECT"),
+                ("TotalSubtreeCost", "0.5"),
+                ("EstimateRows", "10"),
+            ]),
+            row(&[
+                ("StmtId", "1"),
+                ("NodeId", "2"),
+                ("Parent", "1"),
+                ("PhysicalOp", "Nested Loops"),
+                ("LogicalOp", "Inner Join"),
+                ("TotalSubtreeCost", "0.5"),
+                ("EstimateRows", "10"),
+                ("Rows", "8"),
+                ("Executes", "1"),
+            ]),
+            row(&[
+                ("StmtId", "1"),
+                ("NodeId", "3"),
+                ("Parent", "2"),
+                ("PhysicalOp", "Clustered Index Seek"),
+                ("LogicalOp", "Clustered Index Seek"),
+                (
+                    "Argument",
+                    "OBJECT:([db].[dbo].[t].[PK_t]), SEEK:([id] > 1)",
+                ),
+                ("TotalSubtreeCost", "0.2"),
+            ]),
+            row(&[
+                ("StmtId", "1"),
+                ("NodeId", "4"),
+                ("Parent", "2"),
+                ("PhysicalOp", "Table Scan"),
+                ("LogicalOp", "Table Scan"),
+                ("Argument", "OBJECT:([db].[dbo].[u])"),
+                ("Warnings", "NO STATS:([u].[x])"),
+            ]),
         ];
         let trees = sqlserver_trees(&rows);
         assert_eq!(trees.len(), 1);
@@ -912,15 +1118,26 @@ mod tests {
         assert_eq!(root.op, "SELECT");
         assert_eq!(root.total_cost, Some(0.5));
         let nl = &root.children[0];
-        assert_eq!((nl.op.as_str(), nl.detail.as_str()), ("Nested Loops", "Inner Join"));
+        assert_eq!(
+            (nl.op.as_str(), nl.detail.as_str()),
+            ("Nested Loops", "Inner Join")
+        );
         assert_eq!((nl.actual_rows, nl.executions), (Some(8.0), Some(1.0)));
-        assert_eq!(nl.children[0].object.as_deref(), Some("[db].[dbo].[t].[PK_t]"));
+        assert_eq!(
+            nl.children[0].object.as_deref(),
+            Some("[db].[dbo].[t].[PK_t]")
+        );
         assert_eq!(nl.children[1].warnings.len(), 2);
     }
 
     #[test]
     fn db2_streams() {
-        let op = |id: &str, kind: &str, cost: f64| Db2Op { id: id.into(), kind: kind.into(), total_cost: Some(cost), ..Default::default() };
+        let op = |id: &str, kind: &str, cost: f64| Db2Op {
+            id: id.into(),
+            kind: kind.into(),
+            total_cost: Some(cost),
+            ..Default::default()
+        };
         let st = |st: &str, sid: &str, tt: &str, tid: &str, obj: &str, n: f64| Db2Stream {
             source_type: st.into(),
             source_id: sid.into(),
@@ -929,7 +1146,12 @@ mod tests {
             object: obj.into(),
             count: Some(n),
         };
-        let ops = [op("1", "RETURN", 20.0), op("2", "HSJOIN", 19.0), op("3", "TBSCAN", 10.0), op("4", "IXSCAN", 5.0)];
+        let ops = [
+            op("1", "RETURN", 20.0),
+            op("2", "HSJOIN", 19.0),
+            op("3", "TBSCAN", 10.0),
+            op("4", "IXSCAN", 5.0),
+        ];
         let streams = [
             st("O", "2", "O", "1", "", 7.0),
             st("O", "3", "O", "2", "", 100.0),
@@ -956,7 +1178,11 @@ mod tests {
             access_type: a.into(),
             ..Default::default()
         };
-        let root = db2zos_tree(&[r("1", "1", "0", "A", "R"), r("1", "2", "1", "B", "I"), r("1", "3", "3", "", "")]);
+        let root = db2zos_tree(&[
+            r("1", "1", "0", "A", "R"),
+            r("1", "2", "1", "B", "I"),
+            r("1", "3", "3", "", ""),
+        ]);
         assert_eq!(root.op, "Sort");
         let join = &root.children[0];
         assert_eq!(join.op, "Nested loop join");
@@ -1004,7 +1230,9 @@ Total estimated I/O cost for statement 1 (at line 1): 81.
         assert_eq!(join.children.len(), 2);
         assert_eq!(join.children[0].object.as_deref(), Some("titles"));
         assert_eq!(join.children[0].warnings, ["Recorre la tabla completa"]);
-        assert!(join.children[1].props.contains(&("Index".to_string(), "au_idx".to_string())));
+        assert!(join.children[1]
+            .props
+            .contains(&("Index".to_string(), "au_idx".to_string())));
     }
 
     #[test]
@@ -1041,13 +1269,19 @@ PLAN-ROOT SINK
         let sink = &root.children[0];
         assert_eq!(sink.op, "PLAN-ROOT SINK");
         let agg = &sink.children[0];
-        assert_eq!((agg.op.as_str(), agg.detail.as_str(), agg.est_rows), ("AGGREGATE", "FINALIZE", Some(1.0)));
+        assert_eq!(
+            (agg.op.as_str(), agg.detail.as_str(), agg.est_rows),
+            ("AGGREGATE", "FINALIZE", Some(1.0))
+        );
         let join = &agg.children[0].children[0];
         assert_eq!(join.op, "HASH JOIN");
         assert_eq!(join.est_rows, Some(1200.0));
         assert_eq!(join.children.len(), 2);
         assert_eq!(join.children[0].op, "EXCHANGE");
-        assert_eq!(join.children[0].children[0].object.as_deref(), Some("default.b"));
+        assert_eq!(
+            join.children[0].children[0].object.as_deref(),
+            Some("default.b")
+        );
         assert_eq!(join.children[1].object.as_deref(), Some("default.a"));
         assert_eq!(join.children[1].est_rows, Some(3.0));
     }
@@ -1102,7 +1336,9 @@ STAGE PLANS:
         assert_eq!(step2.warnings.len(), 1);
         assert_eq!(root.children[2].children.len(), 2);
         assert_eq!(root.children[2].children[0].op, "Single-AMP retrieve");
-        assert!(root.props.contains(&("Tiempo total estimado (s)".to_string(), "0.03".to_string())));
+        assert!(root
+            .props
+            .contains(&("Tiempo total estimado (s)".to_string(), "0.03".to_string())));
     }
 
     #[test]
@@ -1127,7 +1363,9 @@ STAGE PLANS:
         let root = vertica_tree(t).unwrap();
         assert_eq!(root.op, "GROUPBY HASH (LOCAL RESEGMENT GROUPS)");
         assert_eq!((root.total_cost, root.est_rows), (Some(21.0), Some(10.0)));
-        assert!(root.props.contains(&("Group By".to_string(), "t.y".to_string())));
+        assert!(root
+            .props
+            .contains(&("Group By".to_string(), "t.y".to_string())));
         let join = &root.children[0];
         assert_eq!(join.op, "JOIN HASH");
         assert_eq!(join.children.len(), 2);
@@ -1176,8 +1414,17 @@ Aggregate  (cost=0.0..2.5 rows=1 width=8 conf=0)
 
     #[test]
     fn exasol_chain() {
-        let p = |name: &str, rows: f64, d: f64| ExaPart { name: name.into(), out_rows: Some(rows), duration_s: Some(d), ..Default::default() };
-        let root = exasol_tree(&[p("SCAN", 100.0, 0.01), p("JOIN", 10.0, 0.02), p("GROUP BY", 2.0, 0.005)]);
+        let p = |name: &str, rows: f64, d: f64| ExaPart {
+            name: name.into(),
+            out_rows: Some(rows),
+            duration_s: Some(d),
+            ..Default::default()
+        };
+        let root = exasol_tree(&[
+            p("SCAN", 100.0, 0.01),
+            p("JOIN", 10.0, 0.02),
+            p("GROUP BY", 2.0, 0.005),
+        ]);
         assert_eq!(root.op, "GROUP BY");
         assert_eq!(root.actual_ms, Some(5.0));
         assert_eq!(root.children[0].children[0].op, "SCAN");

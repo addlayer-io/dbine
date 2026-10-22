@@ -24,13 +24,14 @@ mod transfer;
 use aws_sdk_dsql::auth_token::{AuthTokenGenerator, Config as TokenConfig};
 use aws_sdk_dsql::config::Region;
 use dbine_driver::sql::{
-    leading_keyword, qualified_name, select_top, split_script, split_statements, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode,
-    StatementKind,
+    leading_keyword, qualified_name, select_top, split_script, split_statements, Limit, Quote,
+    ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
 };
 use dbine_driver::{
-    async_trait, ddl, json_bytes, json_f64, json_i64, kinds, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
-    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo,
-    Message, MessageLevel, ObjectRef, QueryOutcome, ResultColumn, Result, SchemaInfo, ScriptError, Session, TableSchema, TxState,
+    async_trait, ddl, json_bytes, json_f64, json_i64, kinds, ColumnDef, ColumnInfo,
+    ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
+    Family, Field, FieldKind, Language, Message, MessageLevel, ObjectKindInfo, ObjectRef,
+    QueryOutcome, Result, ResultColumn, SchemaInfo, ScriptError, Session, TableSchema, TxState,
 };
 use futures::StreamExt;
 use postgres_native_tls::MakeTlsConnector;
@@ -109,7 +110,10 @@ struct Target {
 fn region_from_host(host: &str) -> Option<String> {
     let parts: Vec<&str> = host.split('.').collect();
     let i = parts.iter().position(|p| p.starts_with("dsql"))?;
-    parts.get(i + 1).filter(|r| !r.is_empty() && r.contains('-')).map(|r| r.to_string())
+    parts
+        .get(i + 1)
+        .filter(|r| !r.is_empty() && r.contains('-'))
+        .map(|r| r.to_string())
 }
 
 fn target(cfg: &ConnectionConfig) -> Result<Target> {
@@ -121,9 +125,23 @@ fn target(cfg: &ConnectionConfig) -> Result<Target> {
         .option("region")
         .map(|r| r.trim().to_string())
         .or_else(|| region_from_host(&host))
-        .ok_or_else(|| Error::Connect("falta la región (no se pudo deducir del endpoint)".into()))?;
-    let user = cfg.username.as_deref().map(str::trim).filter(|u| !u.is_empty()).unwrap_or("admin").to_string();
-    Ok(Target { admin: user == "admin", host, port: cfg.port_or(PORT), user, region })
+        .ok_or_else(|| {
+            Error::Connect("falta la región (no se pudo deducir del endpoint)".into())
+        })?;
+    let user = cfg
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .unwrap_or("admin")
+        .to_string();
+    Ok(Target {
+        admin: user == "admin",
+        host,
+        port: cfg.port_or(PORT),
+        user,
+        region,
+    })
 }
 
 /// The IAM token that goes as the password.
@@ -165,7 +183,10 @@ impl Driver for DsqlDriver {
 
     /// psql goes on after an error (ON_ERROR_STOP off).
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     fn supports_manual_transactions(&self) -> bool {
@@ -184,7 +205,12 @@ impl Driver for DsqlDriver {
 
     /// One database (`postgres`), no foreign keys; the monitor.
     fn capabilities(&self) -> dbine_driver::Capabilities {
-        dbine_driver::Capabilities { monitor: true, processes: true, cancel_query: true, ..Default::default() }
+        dbine_driver::Capabilities {
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     /// No foreign keys, sequences-backed identity nor comments: DSQL
@@ -235,7 +261,10 @@ impl Driver for DsqlDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -269,22 +298,41 @@ impl Driver for DsqlDriver {
 
     /// Never with an owner: it's handed over after the grants
     /// (`schema_owner_script`).
-    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        _owner: Option<&str>,
+    ) -> Result<String> {
         security::create_schema(name)
     }
 
     /// `ALTER SCHEMA … OWNER TO`, after the grants: DSQL's admin isn't a
     /// superuser, so once the schema is another role's the creator can't
     /// grant on it.
-    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+    fn schema_owner_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: &str,
+    ) -> Result<Option<String>> {
         security::schema_owner(name, owner).map(Some)
     }
 
-    fn drop_schema_script(&self, _database: Option<&str>, name: &str, _cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        _cascade: bool,
+    ) -> Result<String> {
         security::drop_schema(name)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let t = target(cfg)?;
         let token = auth_token(cfg, &t).await?;
         open(cfg, &t, &token, SslMode::Require).await
@@ -293,8 +341,23 @@ impl Driver for DsqlDriver {
 
 /// Column types DSQL takes in tables (json/jsonb only exist at runtime).
 const DATA_TYPES: &[&str] = &[
-    "uuid", "integer", "bigint", "smallint", "numeric(18,2)", "real", "double precision", "boolean",
-    "varchar(255)", "char(10)", "text", "bytea", "date", "time", "timestamp", "timestamptz", "interval",
+    "uuid",
+    "integer",
+    "bigint",
+    "smallint",
+    "numeric(18,2)",
+    "real",
+    "double precision",
+    "boolean",
+    "varchar(255)",
+    "char(10)",
+    "text",
+    "bytea",
+    "date",
+    "time",
+    "timestamp",
+    "timestamptz",
+    "interval",
 ];
 
 /// PostgreSQL DDL without what DSQL refuses: no foreign keys, no
@@ -302,8 +365,19 @@ const DATA_TYPES: &[&str] = &[
 /// CREATE INDEX only works on empty tables). The session runs each
 /// statement in its own transaction, as DSQL wants one DDL per transaction.
 fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
-    let flavor = ddl::SqlFlavor { comment_on: false, ..ddl::SqlFlavor::ansi() };
-    let mut out = ddl::table_ddl(&flavor, t, DdlParts { indexes: false, foreign_keys: false, ..parts });
+    let flavor = ddl::SqlFlavor {
+        comment_on: false,
+        ..ddl::SqlFlavor::ansi()
+    };
+    let mut out = ddl::table_ddl(
+        &flavor,
+        t,
+        DdlParts {
+            indexes: false,
+            foreign_keys: false,
+            ..parts
+        },
+    );
     if parts.indexes {
         for ix in &t.indexes {
             let s = structure::index_ddl(t, ix, parts.if_exists);
@@ -319,7 +393,10 @@ fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
 /// Test hook: the same session over plain password auth, so the wire and
 /// catalog code can run against a local PostgreSQL (DSQL has no emulator).
 #[doc(hidden)]
-pub async fn connect_with_password(cfg: &ConnectionConfig, password: &str) -> Result<Box<dyn Session>> {
+pub async fn connect_with_password(
+    cfg: &ConnectionConfig,
+    password: &str,
+) -> Result<Box<dyn Session>> {
     let t = Target {
         host: cfg.host.clone(),
         port: cfg.port_or(PORT),
@@ -327,10 +404,25 @@ pub async fn connect_with_password(cfg: &ConnectionConfig, password: &str) -> Re
         region: String::new(),
         admin: false,
     };
-    open(cfg, &t, password, if cfg.encrypt { SslMode::Require } else { SslMode::Disable }).await
+    open(
+        cfg,
+        &t,
+        password,
+        if cfg.encrypt {
+            SslMode::Require
+        } else {
+            SslMode::Disable
+        },
+    )
+    .await
 }
 
-async fn open(cfg: &ConnectionConfig, t: &Target, password: &str, ssl: SslMode) -> Result<Box<dyn Session>> {
+async fn open(
+    cfg: &ConnectionConfig,
+    t: &Target,
+    password: &str,
+    ssl: SslMode,
+) -> Result<Box<dyn Session>> {
     Ok(Box::new(open_session(cfg, t, password, ssl).await?))
 }
 
@@ -343,7 +435,12 @@ struct Reopen {
     ssl: SslMode,
 }
 
-async fn open_session(cfg: &ConnectionConfig, t: &Target, password: &str, ssl: SslMode) -> Result<DsqlSession> {
+async fn open_session(
+    cfg: &ConnectionConfig,
+    t: &Target,
+    password: &str,
+    ssl: SslMode,
+) -> Result<DsqlSession> {
     let mut pg = tokio_postgres::Config::new();
     pg.host(&t.host)
         .port(t.port)
@@ -360,10 +457,11 @@ async fn open_session(cfg: &ConnectionConfig, t: &Target, password: &str, ssl: S
         .map_err(|e| Error::Connect(format!("TLS: {e}")))?;
     let tls = MakeTlsConnector::new(connector);
 
-    let (client, mut connection) = tokio::time::timeout(Duration::from_secs(20), pg.connect(tls.clone()))
-        .await
-        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-        .map_err(connect_error)?;
+    let (client, mut connection) =
+        tokio::time::timeout(Duration::from_secs(20), pg.connect(tls.clone()))
+            .await
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(connect_error)?;
 
     let (tx, notices) = mpsc::unbounded_channel();
     tokio::spawn(async move {
@@ -375,7 +473,12 @@ async fn open_session(cfg: &ConnectionConfig, t: &Target, password: &str, ssl: S
                         _ => MessageLevel::Info,
                     };
                     let text = format!("{}: {}", n.severity(), n.message());
-                    let _ = tx.send(Message { level, text, code: Some(n.code().code().to_string()), ..Default::default() });
+                    let _ = tx.send(Message {
+                        level,
+                        text,
+                        code: Some(n.code().code().to_string()),
+                        ..Default::default()
+                    });
                 }
                 Some(Ok(_)) => {}
                 Some(Err(e)) => {
@@ -389,17 +492,35 @@ async fn open_session(cfg: &ConnectionConfig, t: &Target, password: &str, ssl: S
 
     if cfg.read_only {
         // On top of the registry's ReadOnlySession; DSQL may refuse it.
-        if let Err(e) = client.batch_execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY").await {
+        if let Err(e) = client
+            .batch_execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+            .await
+        {
             tracing::debug!("dsql: read-only session setting refused: {e}");
         }
     }
-    let reopen = Reopen { cfg: cfg.clone(), target: t.clone(), password: password.to_string(), ssl };
-    Ok(DsqlSession { client, tls, notices, reopen, manual: false, tx: TxState::Idle })
+    let reopen = Reopen {
+        cfg: cfg.clone(),
+        target: t.clone(),
+        password: password.to_string(),
+        ssl,
+    };
+    Ok(DsqlSession {
+        client,
+        tls,
+        notices,
+        reopen,
+        manual: false,
+        tx: TxState::Idle,
+    })
 }
 
 fn connect_error(e: tokio_postgres::Error) -> Error {
     match e.code() {
-        Some(c) if *c == SqlState::INVALID_PASSWORD || *c == SqlState::INVALID_AUTHORIZATION_SPECIFICATION => {
+        Some(c)
+            if *c == SqlState::INVALID_PASSWORD
+                || *c == SqlState::INVALID_AUTHORIZATION_SPECIFICATION =>
+        {
             Error::AuthFailed(db_message(&e))
         }
         Some(_) => Error::Connect(db_message(&e)),
@@ -423,16 +544,24 @@ fn err(e: tokio_postgres::Error) -> Error {
 /// A statement failed: its SQLSTATE (as the code too) and where
 /// (`position`, the 1-based character in the statement).
 fn stmt_err(e: tokio_postgres::Error, stmt: &str) -> Error {
-    let Some(db) = e.as_db_error() else { return err(e) };
+    let Some(db) = e.as_db_error() else {
+        return err(e);
+    };
     if db.code() == &SqlState::QUERY_CANCELED {
         return Error::Cancelled;
     }
     let state = db.code().code().to_string();
-    let mut se = ScriptError::new(db_message(&e)).with_code(state.clone()).with_sqlstate(state);
+    let mut se = ScriptError::new(db_message(&e))
+        .with_code(state.clone())
+        .with_sqlstate(state);
     if let Some(tokio_postgres::error::ErrorPosition::Original(p)) = db.position() {
         let p = *p as usize;
         if p >= 1 {
-            se = se.at_offset(stmt.char_indices().nth(p - 1).map_or(stmt.len(), |(b, _)| b));
+            se = se.at_offset(
+                stmt.char_indices()
+                    .nth(p - 1)
+                    .map_or(stmt.len(), |(b, _)| b),
+            );
         }
     }
     if matches!(db.severity(), "FATAL" | "PANIC") {
@@ -445,8 +574,24 @@ fn stmt_err(e: tokio_postgres::Error, stmt: &str) -> Error {
 /// transaction control and session settings.
 fn opens_transaction(stmt: &str) -> bool {
     const NO: &[&str] = &[
-        "select", "with", "values", "table", "show", "explain", "begin", "start", "commit", "end", "rollback", "abort", "set", "reset", "discard",
-        "savepoint", "release", "prepare",
+        "select",
+        "with",
+        "values",
+        "table",
+        "show",
+        "explain",
+        "begin",
+        "start",
+        "commit",
+        "end",
+        "rollback",
+        "abort",
+        "set",
+        "reset",
+        "discard",
+        "savepoint",
+        "release",
+        "prepare",
     ];
     leading_keyword(stmt, &ScriptDialect::postgres()).is_some_and(|k| !NO.contains(&k.as_str()))
 }
@@ -478,14 +623,27 @@ pub struct DsqlSession {
 }
 
 impl DsqlSession {
-    async fn rows3(&self, sql: &str, schema: &str, name: &str) -> Result<Vec<(String, String, String)>> {
-        let rows = self.client.query(sql, &[&schema, &name]).await.map_err(err)?;
-        Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect())
+    async fn rows3(
+        &self,
+        sql: &str,
+        schema: &str,
+        name: &str,
+    ) -> Result<Vec<(String, String, String)>> {
+        let rows = self
+            .client
+            .query(sql, &[&schema, &name])
+            .await
+            .map_err(err)?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get(0), r.get(1), r.get(2)))
+            .collect())
     }
 
     async fn first_text(&self, sql: &str, schema: &str, name: &str) -> Option<String> {
         let rows = self.client.query(sql, &[&schema, &name]).await.ok()?;
-        rows.first().and_then(|r| r.try_get::<_, Option<String>>(0).ok().flatten())
+        rows.first()
+            .and_then(|r| r.try_get::<_, Option<String>>(0).ok().flatten())
     }
 
     async fn run(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -494,7 +652,11 @@ impl DsqlSession {
             Ok(s) => s.columns().iter().map(|c| c.type_().clone()).collect(),
             Err(_) => Vec::new(),
         };
-        let stream = self.client.simple_query_raw(stmt).await.map_err(|e| stmt_err(e, stmt))?;
+        let stream = self
+            .client
+            .simple_query_raw(stmt)
+            .await
+            .map_err(|e| stmt_err(e, stmt))?;
         futures::pin_mut!(stream);
         let mut in_result = false;
         while let Some(msg) = stream.next().await {
@@ -509,14 +671,19 @@ impl DsqlSession {
                             .enumerate()
                             .map(|(i, c)| ResultColumn {
                                 name: c.name().to_string(),
-                                type_name: types.get(i).map(|t| t.name().to_string()).unwrap_or_default(),
+                                type_name: types
+                                    .get(i)
+                                    .map(|t| t.name().to_string())
+                                    .unwrap_or_default(),
                             })
                             .collect(),
                     );
                     in_result = true;
                 }
                 SimpleQueryMessage::Row(row) => {
-                    let cells = (0..row.len()).map(|i| cell(types.get(i), row.get(i))).collect();
+                    let cells = (0..row.len())
+                        .map(|i| cell(types.get(i), row.get(i)))
+                        .collect();
                     out.push_row(cells, max_rows);
                 }
                 SimpleQueryMessage::CommandComplete(n) => {
@@ -534,12 +701,20 @@ impl DsqlSession {
     /// One statement's plan; `actual` runs it under EXPLAIN ANALYZE.
     /// `FORMAT JSON` first; the text format if DSQL refuses an option.
     async fn plan_of(&self, stmt: &str, actual: bool) -> Result<dbine_driver::Plan> {
-        let q = if actual { format!("EXPLAIN (ANALYZE, FORMAT JSON) {stmt}") } else { format!("EXPLAIN (FORMAT JSON) {stmt}") };
+        let q = if actual {
+            format!("EXPLAIN (ANALYZE, FORMAT JSON) {stmt}")
+        } else {
+            format!("EXPLAIN (FORMAT JSON) {stmt}")
+        };
         match self.lines(&q).await {
             Ok(raw) => plan::pg_json(stmt, &raw, actual).map_err(Error::Query),
             Err(e) => {
                 tracing::debug!("dsql: EXPLAIN FORMAT JSON refused, trying text: {e}");
-                let q = if actual { format!("EXPLAIN ANALYZE {stmt}") } else { format!("EXPLAIN {stmt}") };
+                let q = if actual {
+                    format!("EXPLAIN ANALYZE {stmt}")
+                } else {
+                    format!("EXPLAIN {stmt}")
+                };
                 Ok(plan::pg_text(stmt, &self.lines(&q).await?, actual))
             }
         }
@@ -558,11 +733,19 @@ impl DsqlSession {
             .join("\n"))
     }
 
-    async fn explain_script(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain_script(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         use plan::StmtKind;
         for stmt in split_statements(sql) {
             match (analyze, plan::classify(&stmt)) {
-                (false, StmtKind::Other) => out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt))),
+                (false, StmtKind::Other) => out
+                    .messages
+                    .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt))),
                 (false, _) => out.plans.push(self.plan_of(&stmt, false).await?),
                 // Reads run twice: once for the results, once under EXPLAIN
                 // ANALYZE for the figures.
@@ -588,13 +771,21 @@ impl DsqlSession {
     }
 
     /// Run one statement, following the transaction (see [`Self::tx`]).
-    async fn run_tracked(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_tracked(
+        &mut self,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if self.manual && self.tx == TxState::Idle && opens_transaction(stmt) {
             self.client.batch_execute("BEGIN").await.map_err(err)?;
             self.tx = TxState::Open;
         }
         let r = self.run(stmt, max_rows, out).await;
-        match (&r, leading_keyword(stmt, &ScriptDialect::postgres()).as_deref()) {
+        match (
+            &r,
+            leading_keyword(stmt, &ScriptDialect::postgres()).as_deref(),
+        ) {
             (_, Some("commit" | "end" | "rollback" | "abort")) => self.tx = TxState::Idle,
             (Ok(()), Some("begin" | "start")) => self.tx = TxState::Open,
             (Err(_), _) if self.tx != TxState::Idle => self.tx = TxState::Failed,
@@ -607,9 +798,17 @@ impl DsqlSession {
 #[async_trait]
 impl Session for DsqlSession {
     async fn server_version(&mut self) -> Result<String> {
-        let row = self.client.query_one("SELECT version()", &[]).await.map_err(err)?;
+        let row = self
+            .client
+            .query_one("SELECT version()", &[])
+            .await
+            .map_err(err)?;
         let v: String = row.get(0);
-        Ok(if v.to_ascii_lowercase().contains("dsql") { v } else { format!("Aurora DSQL ({v})") })
+        Ok(if v.to_ascii_lowercase().contains("dsql") {
+            v
+        } else {
+            format!("Aurora DSQL ({v})")
+        })
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
@@ -633,7 +832,12 @@ impl Session for DsqlSession {
                         "S" => kinds::SEQUENCE,
                         _ => kinds::TABLE,
                     };
-                    out.push(DbObject { kind: kind.into(), schema: Some(r.get(0)), name: r.get(1), parent: None });
+                    out.push(DbObject {
+                        kind: kind.into(),
+                        schema: Some(r.get(0)),
+                        name: r.get(1),
+                        parent: None,
+                    });
                 }
             }
             // A catalog subset without pg_class: the standard views.
@@ -643,8 +847,17 @@ impl Session for DsqlSession {
                      WHERE table_schema NOT IN {SYSTEM_SCHEMAS} ORDER BY 1, 2"
                 );
                 for r in self.client.query(q.as_str(), &[]).await.map_err(err)? {
-                    let kind = if r.get::<_, String>(2) == "VIEW" { kinds::VIEW } else { kinds::TABLE };
-                    out.push(DbObject { kind: kind.into(), schema: Some(r.get(0)), name: r.get(1), parent: None });
+                    let kind = if r.get::<_, String>(2) == "VIEW" {
+                        kinds::VIEW
+                    } else {
+                        kinds::TABLE
+                    };
+                    out.push(DbObject {
+                        kind: kind.into(),
+                        schema: Some(r.get(0)),
+                        name: r.get(1),
+                        parent: None,
+                    });
                 }
             }
         }
@@ -689,7 +902,11 @@ impl Session for DsqlSession {
         Ok(Some(
             rows.into_iter()
                 .map(|r| r.get::<_, String>(0))
-                .map(|name| SchemaInfo { system: matches!(name.as_str(), "pg_catalog" | "information_schema" | "sys") || name.starts_with("pg_"), name })
+                .map(|name| SchemaInfo {
+                    system: matches!(name.as_str(), "pg_catalog" | "information_schema" | "sys")
+                        || name.starts_with("pg_"),
+                    name,
+                })
                 .collect(),
         ))
     }
@@ -718,7 +935,9 @@ impl Session for DsqlSession {
                         nullable: r.get(2),
                         primary_key: r.get(5),
                         auto_increment: !identity.is_empty()
-                            || default_value.as_deref().is_some_and(|d| d.starts_with("nextval(")),
+                            || default_value
+                                .as_deref()
+                                .is_some_and(|d| d.starts_with("nextval(")),
                         default_value,
                     }
                 })
@@ -735,7 +954,11 @@ impl Session for DsqlSession {
                    FROM information_schema.columns c
                    WHERE c.table_schema = $1 AND c.table_name = $2
                    ORDER BY c.ordinal_position";
-        let rows = self.client.query(std, &[&schema, &obj.name]).await.map_err(err)?;
+        let rows = self
+            .client
+            .query(std, &[&schema, &obj.name])
+            .await
+            .map_err(err)?;
         Ok(rows
             .iter()
             .map(|r| {
@@ -794,7 +1017,10 @@ impl Session for DsqlSession {
                         &obj.name,
                     )
                     .await?;
-                let all: Vec<String> = defs.into_iter().map(|(d, _, _)| d.trim_end().to_string()).collect();
+                let all: Vec<String> = defs
+                    .into_iter()
+                    .map(|(d, _, _)| d.trim_end().to_string())
+                    .collect();
                 Ok((!all.is_empty()).then(|| all.join(";\n\n") + ";"))
             }
             kinds::TYPE => structure::domain_definition(&self.client, schema, &obj.name).await,
@@ -831,18 +1057,28 @@ impl Session for DsqlSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let mut result = Ok(());
-        for unit in split_script(text, &ScriptDialect::postgres()).into_iter().filter(|u| u.kind != StatementKind::ClientCommand) {
+        for unit in split_script(text, &ScriptDialect::postgres())
+            .into_iter()
+            .filter(|u| u.kind != StatementKind::ClientCommand)
+        {
             let before = out.results.len();
-            result = self.run_tracked(&unit.text, max_rows, out).await.map_err(|e| match e {
-                Error::Statement(mut se) => {
-                    se.offset = se.offset.map(|o| unit.start + o);
-                    Error::Statement(se)
-                }
-                e => e,
-            });
+            result = self
+                .run_tracked(&unit.text, max_rows, out)
+                .await
+                .map_err(|e| match e {
+                    Error::Statement(mut se) => {
+                        se.offset = se.offset.map(|o| unit.start + o);
+                        Error::Statement(se)
+                    }
+                    e => e,
+                });
             if result.is_err() {
                 // A query cancelled or failed mid-way leaves no empty grid.
-                if out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+                if out.results.len() > before
+                    && out.results[before..]
+                        .iter()
+                        .all(|r| r.total_rows == 0 && r.rows_affected.is_none())
+                {
                     out.results.truncate(before);
                 }
                 break;
@@ -893,13 +1129,23 @@ impl Session for DsqlSession {
     /// PostgreSQL's EXPLAIN: `(FORMAT JSON)` estimated; reads measured with
     /// `EXPLAIN (ANALYZE, FORMAT JSON)` after running them (so they run
     /// twice); writes run once and show the estimated plan.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let res = self.explain_script(text, analyze, max_rows, out).await;
         self.drain_notices(out);
         res
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -971,12 +1217,22 @@ impl Session for DsqlSession {
         let mut out: Vec<TableSchema> = Vec::new();
         for r in self.client.query(cols.as_str(), &[]).await.map_err(err)? {
             let (schema, name): (String, String) = (r.get(0), r.get(1));
-            if out.last().is_none_or(|t| t.schema.as_deref() != Some(schema.as_str()) || t.name != name) {
-                out.push(TableSchema { kind: kinds::TABLE.into(), schema: Some(schema), name, ..Default::default() });
+            if out
+                .last()
+                .is_none_or(|t| t.schema.as_deref() != Some(schema.as_str()) || t.name != name)
+            {
+                out.push(TableSchema {
+                    kind: kinds::TABLE.into(),
+                    schema: Some(schema),
+                    name,
+                    ..Default::default()
+                });
             }
             let default_value: Option<String> = r.get(5);
             // A serial's nextval() default becomes an identity column.
-            let serial = default_value.as_deref().is_some_and(|d| d.starts_with("nextval("));
+            let serial = default_value
+                .as_deref()
+                .is_some_and(|d| d.starts_with("nextval("));
             out.last_mut().unwrap().columns.push(ColumnDef {
                 name: r.get(2),
                 data_type: r.get(3),
@@ -996,7 +1252,10 @@ impl Session for DsqlSession {
         permissions::check(&self.client).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(&self.client, table).await.map(Some)
     }
 }
@@ -1025,7 +1284,10 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return None;
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
+        .collect()
 }
 
 #[cfg(test)]
@@ -1034,8 +1296,15 @@ mod tests {
 
     #[test]
     fn writes_open_transactions() {
-        assert!(opens_transaction("insert into t values (1)") && opens_transaction("-- x\ncreate table t (a int)"));
-        assert!(!opens_transaction("select 1") && !opens_transaction("BEGIN") && !opens_transaction("set x = 1"));
+        assert!(
+            opens_transaction("insert into t values (1)")
+                && opens_transaction("-- x\ncreate table t (a int)")
+        );
+        assert!(
+            !opens_transaction("select 1")
+                && !opens_transaction("BEGIN")
+                && !opens_transaction("set x = 1")
+        );
     }
 
     /// "Con opción de otorgar" is offered on the new schema's grants
@@ -1043,17 +1312,33 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
     use dbine_driver::{IndexDef, KeyDef};
 
     fn cfg(host: &str, user: Option<&str>, region: Option<&str>) -> ConnectionConfig {
-        let mut c = ConnectionConfig { host: host.into(), username: user.map(Into::into), ..Default::default() };
+        let mut c = ConnectionConfig {
+            host: host.into(),
+            username: user.map(Into::into),
+            ..Default::default()
+        };
         if let Some(r) = region {
             c.options.insert("region".into(), r.into());
         }
@@ -1062,8 +1347,14 @@ mod tests {
 
     #[test]
     fn region_comes_from_the_endpoint() {
-        assert_eq!(region_from_host("abc123.dsql.us-east-1.on.aws").as_deref(), Some("us-east-1"));
-        assert_eq!(region_from_host("abc.dsql-fnh4.eu-west-2.on.aws").as_deref(), Some("eu-west-2"));
+        assert_eq!(
+            region_from_host("abc123.dsql.us-east-1.on.aws").as_deref(),
+            Some("us-east-1")
+        );
+        assert_eq!(
+            region_from_host("abc.dsql-fnh4.eu-west-2.on.aws").as_deref(),
+            Some("eu-west-2")
+        );
         assert_eq!(region_from_host("localhost"), None);
     }
 
@@ -1080,7 +1371,12 @@ mod tests {
                 admin: true
             }
         );
-        let t = target(&cfg("x.dsql.us-east-2.on.aws", Some("app_reader"), Some("eu-central-1"))).unwrap();
+        let t = target(&cfg(
+            "x.dsql.us-east-2.on.aws",
+            Some("app_reader"),
+            Some("eu-central-1"),
+        ))
+        .unwrap();
         assert!(!t.admin);
         assert_eq!(t.region, "eu-central-1");
         assert!(target(&cfg("myhost", None, None)).is_err());
@@ -1090,13 +1386,23 @@ mod tests {
     #[tokio::test]
     async fn signs_an_admin_token_offline() {
         let mut c = cfg("abc.dsql.us-east-1.on.aws", None, None);
-        for (k, v) in [("auth_mode", "keys"), ("access_key_id", "AKIDEXAMPLE"), ("secret_access_key", "secret")] {
+        for (k, v) in [
+            ("auth_mode", "keys"),
+            ("access_key_id", "AKIDEXAMPLE"),
+            ("secret_access_key", "secret"),
+        ] {
             c.options.insert(k.into(), v.into());
         }
         let t = target(&c).unwrap();
         let tok = auth_token(&c, &t).await.unwrap();
-        assert!(tok.starts_with("abc.dsql.us-east-1.on.aws/?Action=DbConnectAdmin&"), "{tok}");
-        assert!(tok.contains("X-Amz-Signature=") && tok.contains("X-Amz-Expires=900"), "{tok}");
+        assert!(
+            tok.starts_with("abc.dsql.us-east-1.on.aws/?Action=DbConnectAdmin&"),
+            "{tok}"
+        );
+        assert!(
+            tok.contains("X-Amz-Signature=") && tok.contains("X-Amz-Expires=900"),
+            "{tok}"
+        );
         let c2 = {
             let mut c2 = c.clone();
             c2.username = Some("reader".into());
@@ -1113,46 +1419,109 @@ mod tests {
             schema: Some("app".into()),
             name: "pedidos".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "uuid".into(), nullable: false, default_value: Some("gen_random_uuid()".into()), ..Default::default() },
-                ColumnDef { name: "cliente_id".into(), data_type: "uuid".into(), comment: Some("x".into()), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "uuid".into(),
+                    nullable: false,
+                    default_value: Some("gen_random_uuid()".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "cliente_id".into(),
+                    data_type: "uuid".into(),
+                    comment: Some("x".into()),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some("pedidos_pkey".into()), columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("pedidos_pkey".into()),
+                columns: vec!["id".into()],
+            }),
             foreign_keys: vec![dbine_driver::ForeignKeyDef {
                 columns: vec!["cliente_id".into()],
                 ref_table: "clientes".into(),
                 ref_columns: vec!["id".into()],
                 ..Default::default()
             }],
-            indexes: vec![IndexDef { name: "ux_cliente".into(), columns: vec!["cliente_id".into()], unique: true, ..Default::default() }],
+            indexes: vec![IndexDef {
+                name: "ux_cliente".into(),
+                columns: vec!["cliente_id".into()],
+                unique: true,
+                ..Default::default()
+            }],
             comment: Some("Pedidos".into()),
             ..Default::default()
         };
-        let all = DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true };
+        let all = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            indexes: true,
+            foreign_keys: true,
+        };
         let s = table_ddl(&t, all);
-        assert!(s.starts_with("DROP TABLE IF EXISTS \"app\".\"pedidos\";\nCREATE TABLE \"app\".\"pedidos\" (\n"), "{s}");
+        assert!(
+            s.starts_with(
+                "DROP TABLE IF EXISTS \"app\".\"pedidos\";\nCREATE TABLE \"app\".\"pedidos\" (\n"
+            ),
+            "{s}"
+        );
         assert!(s.contains("\"id\" uuid DEFAULT gen_random_uuid() NOT NULL,"));
         assert!(s.contains("CONSTRAINT \"pedidos_pkey\" PRIMARY KEY (\"id\")"));
         assert!(s.ends_with("CREATE UNIQUE INDEX ASYNC IF NOT EXISTS \"ux_cliente\" ON \"app\".\"pedidos\" (\"cliente_id\");"), "{s}");
         assert!(!s.contains("COMMENT") && !s.contains("FOREIGN KEY"), "{s}");
-        let only_ix = table_ddl(&t, DdlParts { indexes: true, ..Default::default() });
-        assert_eq!(only_ix, "CREATE UNIQUE INDEX ASYNC \"ux_cliente\" ON \"app\".\"pedidos\" (\"cliente_id\");");
-        assert_eq!(table_ddl(&t, DdlParts { foreign_keys: true, ..Default::default() }), "");
+        let only_ix = table_ddl(
+            &t,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            only_ix,
+            "CREATE UNIQUE INDEX ASYNC \"ux_cliente\" ON \"app\".\"pedidos\" (\"cliente_id\");"
+        );
+        assert_eq!(
+            table_ddl(
+                &t,
+                DdlParts {
+                    foreign_keys: true,
+                    ..Default::default()
+                }
+            ),
+            ""
+        );
         let d = DsqlDriver { info: info() }.designer().unwrap();
         assert!(d.schemas && !d.foreign_keys && !d.auto_increment && !d.comments);
-        let kinds_declared: Vec<&str> = info().object_kinds.iter().filter(|k| k.id != kinds::TABLE).map(|k| k.id).collect();
-        let templates: Vec<&str> = DsqlDriver { info: info() }.create_templates().iter().map(|t| t.kind).collect();
+        let kinds_declared: Vec<&str> = info()
+            .object_kinds
+            .iter()
+            .filter(|k| k.id != kinds::TABLE)
+            .map(|k| k.id)
+            .collect();
+        let templates: Vec<&str> = DsqlDriver { info: info() }
+            .create_templates()
+            .iter()
+            .map(|t| t.kind)
+            .collect();
         assert_eq!(templates, kinds_declared);
     }
 
     #[test]
     fn text_cells_follow_types() {
         assert_eq!(cell(Some(&Type::BOOL), Some("t")), Json::Bool(true));
-        assert_eq!(cell(Some(&Type::INT8), Some("9007199254740993")), Json::from("9007199254740993"));
+        assert_eq!(
+            cell(Some(&Type::INT8), Some("9007199254740993")),
+            Json::from("9007199254740993")
+        );
         assert_eq!(cell(Some(&Type::INT4), Some("-7")), Json::from(-7));
         assert_eq!(cell(Some(&Type::FLOAT8), Some("1.5")), Json::from(1.5));
         assert_eq!(cell(Some(&Type::FLOAT8), Some("NaN")), Json::from("NaN"));
         assert_eq!(cell(Some(&Type::NUMERIC), Some("1.10")), Json::from("1.10"));
-        assert_eq!(cell(Some(&Type::BYTEA), Some("\\xcafe")), Json::from("0xCAFE"));
+        assert_eq!(
+            cell(Some(&Type::BYTEA), Some("\\xcafe")),
+            Json::from("0xCAFE")
+        );
         assert_eq!(cell(None, None), Json::Null);
     }
 }

@@ -5,7 +5,7 @@
 //! routines), so there are no dependents to rewrite.
 
 use crate::command::quote_arg;
-use dbine_driver::rename::{RenameRequest, RenameSpec, RenameTarget, ReferenceStyle};
+use dbine_driver::rename::{ReferenceStyle, RenameRequest, RenameSpec, RenameTarget};
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
 /// `RENAMENX` that fails when the new key exists (KEYS: old, new).
@@ -28,7 +28,11 @@ pub fn spec() -> RenameSpec {
 pub fn script(req: &RenameRequest) -> Result<SyncScript> {
     let old = match &req.target {
         RenameTarget::Object { object, .. } if object.kind == kinds::KEY => object.name.as_str(),
-        _ => return Err(Error::Unsupported("en Redis solo se renombran claves".into())),
+        _ => {
+            return Err(Error::Unsupported(
+                "en Redis solo se renombran claves".into(),
+            ))
+        }
     };
     let new = req.new_name.as_str();
     let mut warnings = Vec::new();
@@ -39,8 +43,15 @@ pub fn script(req: &RenameRequest) -> Result<SyncScript> {
              Para que caigan en el mismo slot, repetí la etiqueta entre llaves en los dos nombres, como {{usuario:1}}:perfil."
         ));
     }
-    let line = ["EVAL", RENAME_NX, "2", old, new].iter().map(|a| quote_arg(a)).collect::<Vec<_>>().join(" ");
-    Ok(SyncScript { statements: vec![line], warnings })
+    let line = ["EVAL", RENAME_NX, "2", old, new]
+        .iter()
+        .map(|a| quote_arg(a))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(SyncScript {
+        statements: vec![line],
+        warnings,
+    })
 }
 
 /// The cluster hash slot of a key: CRC16 (XMODEM) of the key, or of its
@@ -49,7 +60,10 @@ pub fn script(req: &RenameRequest) -> Result<SyncScript> {
 pub fn key_slot(key: &[u8]) -> u16 {
     let tagged = key.iter().position(|&b| b == b'{').and_then(|open| {
         let rest = &key[open + 1..];
-        rest.iter().position(|&b| b == b'}').filter(|&close| close > 0).map(|close| &rest[..close])
+        rest.iter()
+            .position(|&b| b == b'}')
+            .filter(|&close| close > 0)
+            .map(|close| &rest[..close])
     });
     crc16(tagged.unwrap_or(key)) % 16384
 }
@@ -59,7 +73,11 @@ fn crc16(data: &[u8]) -> u16 {
     for &b in data {
         crc ^= (b as u16) << 8;
         for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 { (crc << 1) ^ 0x1021 } else { crc << 1 };
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
         }
     }
     crc
@@ -73,7 +91,14 @@ mod tests {
 
     fn req(kind: &str, old: &str, new: &str) -> RenameRequest {
         RenameRequest {
-            target: RenameTarget::Object { object: ObjectRef { kind: kind.into(), schema: None, name: old.into() }, parent: None },
+            target: RenameTarget::Object {
+                object: ObjectRef {
+                    kind: kind.into(),
+                    schema: None,
+                    name: old.into(),
+                },
+                parent: None,
+            },
             new_name: new.into(),
             table: None,
             definition: None,
@@ -87,8 +112,20 @@ mod tests {
         // The line parses back to the exact arguments: the case kept, the
         // space quoted.
         let args = parse_script(&s.statements[0]).unwrap().remove(0);
-        let args: Vec<String> = args.into_iter().map(|a| String::from_utf8(a).unwrap()).collect();
-        assert_eq!(args, vec!["EVAL".to_string(), RENAME_NX.into(), "2".into(), "user:1".into(), "User:1 nuevo".into()]);
+        let args: Vec<String> = args
+            .into_iter()
+            .map(|a| String::from_utf8(a).unwrap())
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                "EVAL".to_string(),
+                RENAME_NX.into(),
+                "2".into(),
+                "user:1".into(),
+                "User:1 nuevo".into()
+            ]
+        );
         assert!(s.statements[0].starts_with("EVAL \"if redis.call('RENAMENX'"));
     }
 
@@ -102,7 +139,10 @@ mod tests {
 
     #[test]
     fn other_slot_warns() {
-        assert!(script(&req(kinds::KEY, "{u:1}:a", "{u:1}:b")).unwrap().warnings.is_empty());
+        assert!(script(&req(kinds::KEY, "{u:1}:a", "{u:1}:b"))
+            .unwrap()
+            .warnings
+            .is_empty());
         let w = script(&req(kinds::KEY, "foo", "bar")).unwrap().warnings;
         assert_eq!(w.len(), 1);
         assert!(w[0].contains("(12182 → 5061)"), "{w:?}");
@@ -121,9 +161,19 @@ mod tests {
 
     #[test]
     fn only_keys() {
-        assert!(matches!(script(&req(kinds::TABLE, "a", "b")), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(&req(kinds::TABLE, "a", "b")),
+            Err(Error::Unsupported(_))
+        ));
         let col = RenameRequest {
-            target: RenameTarget::Column { table: ObjectRef { kind: kinds::KEY.into(), schema: None, name: "h".into() }, column: "f".into() },
+            target: RenameTarget::Column {
+                table: ObjectRef {
+                    kind: kinds::KEY.into(),
+                    schema: None,
+                    name: "h".into(),
+                },
+                column: "f".into(),
+            },
             new_name: "g".into(),
             table: None,
             definition: None,

@@ -8,11 +8,18 @@ use dbine_driver::ScriptError;
 
 /// The console's reading: backslash escapes, `#` comments, `` `ident` ``.
 pub fn dialect() -> ScriptDialect {
-    ScriptDialect { backslash_escapes: true, hash_comments: true, ..ScriptDialect::generic() }
+    ScriptDialect {
+        backslash_escapes: true,
+        hash_comments: true,
+        ..ScriptDialect::generic()
+    }
 }
 
 fn rules() -> blocks::Rules {
-    blocks::Rules { hash_comments: true, ..Default::default() }
+    blocks::Rules {
+        hash_comments: true,
+        ..Default::default()
+    }
 }
 
 /// The statements as BigQuery scripting runs them: `BEGIN … [EXCEPTION
@@ -23,7 +30,9 @@ pub fn units(text: &str) -> Vec<ScriptStatement> {
 
 /// The first two words, upper-cased.
 fn head(stmt: &str) -> (String, String) {
-    let mut w = stmt.split(|c: char| c.is_whitespace() || c == ';' || c == '(').filter(|w| !w.is_empty());
+    let mut w = stmt
+        .split(|c: char| c.is_whitespace() || c == ';' || c == '(')
+        .filter(|w| !w.is_empty());
     let up = |s: Option<&str>| s.unwrap_or_default().to_ascii_uppercase();
     (up(w.next()), up(w.next()))
 }
@@ -38,7 +47,12 @@ pub fn needs_session(units: &[ScriptStatement]) -> bool {
             "DECLARE" | "SET" | "COMMIT" | "ROLLBACK" => true,
             "BEGIN" => b.is_empty() || b == "TRANSACTION",
             "CREATE" => {
-                let words: Vec<String> = u.text.split_whitespace().take(5).map(str::to_ascii_uppercase).collect();
+                let words: Vec<String> = u
+                    .text
+                    .split_whitespace()
+                    .take(5)
+                    .map(str::to_ascii_uppercase)
+                    .collect();
                 words.iter().any(|w| w == "TEMP" || w == "TEMPORARY")
             }
             _ => false,
@@ -49,14 +63,21 @@ pub fn needs_session(units: &[ScriptStatement]) -> bool {
 /// More than one statement (or a block): BigQuery runs it as a script,
 /// with a child job per statement.
 pub fn is_script(units: &[ScriptStatement]) -> bool {
-    units.len() > 1 || units.iter().any(|u| u.kind == dbine_driver::StatementKind::Block)
+    units.len() > 1
+        || units
+            .iter()
+            .any(|u| u.kind == dbine_driver::StatementKind::Block)
 }
 
 /// The session ended on the server (it expired after its idle time, or
 /// was terminated): a new one is needed.
 pub fn session_gone(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
-    m.contains("session") && (m.contains("expired") || m.contains("not found") || m.contains("terminated") || m.contains("is not active"))
+    m.contains("session")
+        && (m.contains("expired")
+            || m.contains("not found")
+            || m.contains("terminated")
+            || m.contains("is not active"))
 }
 
 /// A refused query, placed by its `[line:column]` (BigQuery counts both in
@@ -98,7 +119,13 @@ fn offset_of(text: &str, line: u32, col: u32) -> Option<usize> {
     }
     let end = text[start..].find('\n').map_or(text.len(), |e| start + e);
     let skip = col.saturating_sub(1) as usize;
-    Some(start + text[start..end].char_indices().nth(skip).map_or(end - start, |(i, _)| i))
+    Some(
+        start
+            + text[start..end]
+                .char_indices()
+                .nth(skip)
+                .map_or(end - start, |(i, _)| i),
+    )
 }
 
 #[cfg(test)]
@@ -129,14 +156,19 @@ mod tests {
         assert!(n("COMMIT"));
         assert!(!n("SELECT 1; CREATE TABLE d.t (a INT64)"));
         assert!(!n("BEGIN SELECT 1; END"));
-        assert!(!n("GRANT `roles/bigquery.dataViewer` ON SCHEMA d TO 'user:a@b.c'"));
+        assert!(!n(
+            "GRANT `roles/bigquery.dataViewer` ON SCHEMA d TO 'user:a@b.c'"
+        ));
     }
 
     #[test]
     fn errors_are_placed_in_the_script() {
         let s = "SELECT 1;\nSELECT x FROM\n  nope";
         let e = error("Unrecognized name: x at [2:8]", s);
-        assert_eq!((e.line, e.offset), (Some(2), Some(s.find("x FROM").unwrap())));
+        assert_eq!(
+            (e.line, e.offset),
+            (Some(2), Some(s.find("x FROM").unwrap()))
+        );
         let e = error("Table not found: nope [at 3:3]; Did you mean …", s);
         assert_eq!((e.line, e.offset), (Some(3), Some(s.find("nope").unwrap())));
         let e = error("Access Denied: [project] no", s);

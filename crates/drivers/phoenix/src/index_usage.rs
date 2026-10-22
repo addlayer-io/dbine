@@ -31,17 +31,27 @@ fn text(v: Option<&Value>) -> String {
 /// `ddl::CATALOG_QUERY`: index columns without `KEY_SEQ`, in ordinal order,
 /// without their `FAMILY:` prefix.
 pub fn covered(rows: &[Vec<Value>]) -> BTreeMap<(String, String), Vec<String>> {
-    let kinds: BTreeMap<(String, String), String> =
-        rows.iter().filter(|r| text(r.get(4)).is_empty()).map(|r| ((text(r.first()), text(r.get(1))), text(r.get(2)))).collect();
+    let kinds: BTreeMap<(String, String), String> = rows
+        .iter()
+        .filter(|r| text(r.get(4)).is_empty())
+        .map(|r| ((text(r.first()), text(r.get(1))), text(r.get(2))))
+        .collect();
     let mut out: BTreeMap<(String, String), Vec<(i64, String)>> = BTreeMap::new();
     for r in rows {
         let key = (text(r.first()), text(r.get(1)));
         let name = text(r.get(4));
-        if name.is_empty() || kinds.get(&key).map(String::as_str) != Some("i") || r.get(9).and_then(Value::as_i64).is_some() {
+        if name.is_empty()
+            || kinds.get(&key).map(String::as_str) != Some("i")
+            || r.get(9).and_then(Value::as_i64).is_some()
+        {
             continue;
         }
         let ord = r.get(11).and_then(Value::as_i64).unwrap_or(0);
-        out.entry(key).or_default().push((ord, name.rsplit_once(':').map_or(name.clone(), |(_, c)| c.to_string())));
+        out.entry(key).or_default().push((
+            ord,
+            name.rsplit_once(':')
+                .map_or(name.clone(), |(_, c)| c.to_string()),
+        ));
     }
     out.into_iter()
         .map(|(k, mut v)| {
@@ -53,8 +63,17 @@ pub fn covered(rows: &[Vec<Value>]) -> BTreeMap<(String, String), Vec<String>> {
 
 /// The report for `t` (`None`: the table isn't there): the row key first,
 /// then the indexes in the schema's order.
-pub fn report(t: Option<&TableSchema>, covered: &BTreeMap<(String, String), Vec<String>>) -> IndexUsageReport {
-    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() } };
+pub fn report(
+    t: Option<&TableSchema>,
+    covered: &BTreeMap<(String, String), Vec<String>>,
+) -> IndexUsageReport {
+    let Some(t) = t else {
+        return IndexUsageReport {
+            note: Some(NOTE.into()),
+            writes_counted: false,
+            ..Default::default()
+        };
+    };
     let schema = t.schema.clone().unwrap_or_default();
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
@@ -67,14 +86,25 @@ pub fn report(t: Option<&TableSchema>, covered: &BTreeMap<(String, String), Vec<
             ..Default::default()
         });
     }
-    indexes.extend(t.indexes.iter().map(|ix| IndexUsage {
-        name: ix.name.clone(),
-        kind: ix.kind.clone().unwrap_or_default().to_uppercase(),
-        key_columns: ix.columns.clone(),
-        included_columns: covered.get(&(schema.clone(), ix.name.clone())).cloned().unwrap_or_default(),
-        ..Default::default()
+    indexes.extend(t.indexes.iter().map(|ix| {
+        IndexUsage {
+            name: ix.name.clone(),
+            kind: ix.kind.clone().unwrap_or_default().to_uppercase(),
+            key_columns: ix.columns.clone(),
+            included_columns: covered
+                .get(&(schema.clone(), ix.name.clone()))
+                .cloned()
+                .unwrap_or_default(),
+            ..Default::default()
+        }
     }));
-    IndexUsageReport { note: Some(NOTE.into()), indexes, writes_counted: false, ..Default::default() }.derived()
+    IndexUsageReport {
+        note: Some(NOTE.into()),
+        indexes,
+        writes_counted: false,
+        ..Default::default()
+    }
+    .derived()
 }
 
 #[cfg(test)]
@@ -86,7 +116,16 @@ mod tests {
     /// A `CATALOG_QUERY` row: schema, name, type, family, column, type name,
     /// size, digits, nullable, key seq, default, ordinal, pk name, data table, index type.
     #[allow(clippy::too_many_arguments)]
-    fn row(t: &str, ty: &str, col: Option<&str>, key: Option<i64>, ord: i64, pk: &str, data: &str, ix_type: Option<i64>) -> Vec<Value> {
+    fn row(
+        t: &str,
+        ty: &str,
+        col: Option<&str>,
+        key: Option<i64>,
+        ord: i64,
+        pk: &str,
+        data: &str,
+        ix_type: Option<i64>,
+    ) -> Vec<Value> {
         vec![
             json!("S"),
             json!(t),
@@ -122,14 +161,25 @@ mod tests {
             row("IX_A", "i", Some("0:B"), None, 3, "", "T", Some(1)),
             row("IX_B", "i", None, None, 0, "", "T", Some(2)),
             row("IX_B", "i", Some("_INDEX_ID"), Some(1), 1, "", "T", Some(2)),
-            [row("IX_B", "i", Some("0:B"), Some(2), 2, "", "T", Some(2)), vec![json!(1)]].concat(),
+            [
+                row("IX_B", "i", Some("0:B"), Some(2), 2, "", "T", Some(2)),
+                vec![json!(1)],
+            ]
+            .concat(),
             row("IX_B", "i", Some(":ID"), Some(3), 3, "", "T", Some(2)),
         ];
         let tables = from_catalog(rows.clone());
         let r = report(tables.iter().find(|t| t.name == "T"), &covered(&rows));
         assert!(!r.stats_available && r.note.is_some() && r.foreign_keys.is_empty());
-        let got: Vec<(&str, &str)> = r.indexes.iter().map(|i| (i.name.as_str(), i.kind.as_str())).collect();
-        assert_eq!(got, [("PK_T", "ROW KEY"), ("IX_A", "GLOBAL"), ("IX_B", "LOCAL")]);
+        let got: Vec<(&str, &str)> = r
+            .indexes
+            .iter()
+            .map(|i| (i.name.as_str(), i.kind.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [("PK_T", "ROW KEY"), ("IX_A", "GLOBAL"), ("IX_B", "LOCAL")]
+        );
         assert!(r.indexes[0].primary_key);
         assert_eq!(r.indexes[1].key_columns, ["A"]);
         assert_eq!(r.indexes[1].included_columns, ["B"]);

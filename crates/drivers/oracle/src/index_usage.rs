@@ -47,7 +47,9 @@
 //!   USAGE, the earliest `START_MONITORING`.
 
 use crate::{db_code, err, quote};
-use dbine_driver::{Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript};
+use dbine_driver::{
+    Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript,
+};
 use oracledb::{Connection, Row};
 use std::collections::HashMap;
 
@@ -79,7 +81,8 @@ pub(crate) const COLUMNS_SQL: &str = "SELECT ic.index_owner, ic.index_name, ic.c
   ORDER BY ic.index_owner, ic.index_name, ic.column_position";
 
 /// The table's indexes, as a subquery of `(owner, index_name)`.
-const TABLE_INDEXES: &str = "SELECT owner, index_name FROM all_indexes WHERE table_owner = :1 AND table_name = :2";
+const TABLE_INDEXES: &str =
+    "SELECT owner, index_name FROM all_indexes WHERE table_owner = :1 AND table_name = :2";
 
 /// The counters (12.2+); indexes never used have no row.
 pub(crate) fn usage_sql() -> String {
@@ -91,7 +94,8 @@ pub(crate) fn usage_sql() -> String {
 }
 
 /// When the counters were last flushed from memory.
-pub(crate) const FLUSH_SQL: &str = "SELECT TO_CHAR(MAX(last_flush_time), 'YYYY-MM-DD HH24:MI:SS') FROM v$index_usage_info";
+pub(crate) const FLUSH_SQL: &str =
+    "SELECT TO_CHAR(MAX(last_flush_time), 'YYYY-MM-DD HH24:MI:SS') FROM v$index_usage_info";
 
 /// MONITORING USAGE of the user's own indexes (`:1` must be the user).
 /// Binds are positional, in order of appearance: `:1` before `:2`.
@@ -147,14 +151,16 @@ pub(crate) const FOREIGN_KEYS_SQL: &str = "SELECT c.constraint_name, cc.column_n
   ORDER BY c.constraint_name, cc.position";
 
 pub(crate) const REFUSED_NOTE: &str = "Para ver cuánto se usa cada índice el usuario necesita SELECT sobre DBA_INDEX_USAGE y V$SEGSTAT (los da el rol SELECT_CATALOG_ROLE).";
-pub(crate) const OLD_NOTE: &str = "Oracle anterior a 12.2 no cuenta cuántas veces se usa cada índice.";
+pub(crate) const OLD_NOTE: &str =
+    "Oracle anterior a 12.2 no cuenta cuántas veces se usa cada índice.";
 pub(crate) const NO_STATS: &str = "Se listan los índices sin estadísticas de uso.";
 pub(crate) const MONITORING_HINT: &str = "Con ALTER INDEX … MONITORING USAGE en todos los índices de la tabla, Oracle registra al menos si cada uno se usó.";
 pub(crate) const MONITORING_NOTE: &str =
     "Oracle solo registra si cada índice se usó desde que se activó MONITORING USAGE, no cuántas veces: cada índice usado cuenta como una lectura.";
 pub(crate) const WRITES_NOTE: &str =
     "Sin SELECT sobre V$SEGSTAT no se ven las escrituras de cada índice, así que ninguno se marca como sin uso.";
-pub(crate) const COUNTER_NOTE: &str = "Oracle cuenta los accesos a cada índice sin distinguir búsquedas de recorridos completos";
+pub(crate) const COUNTER_NOTE: &str =
+    "Oracle cuenta los accesos a cada índice sin distinguir búsquedas de recorridos completos";
 
 pub(crate) const FLUSH_LAG: &str = "el uso más reciente puede no figurar todavía, así que un índice recién creado o recién usado puede verse sin uso hasta el próximo volcado, y la última lectura es la hora del volcado que la registró, no la del acceso.";
 pub(crate) const SAMPLED_NOTE: &str =
@@ -235,7 +241,14 @@ type Key = (String, String);
 
 /// A `FOREIGN_KEYS_SQL` row: constraint, column, referenced owner, table and
 /// column, delete rule.
-pub(crate) type FkRow = (String, String, Option<String>, String, String, Option<String>);
+pub(crate) type FkRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+);
 
 /// A key column as shown: a name, an expression as the dictionary writes
 /// it, `"B"` (a DESC column's stored expression) unquoted, ` DESC` appended.
@@ -275,7 +288,11 @@ pub(crate) fn assemble(
                 disabled: ix.invisible || ix.unusable != Unusable::No,
                 unique: ix.unique || ix.primary_key,
                 primary_key: ix.primary_key,
-                key_columns: columns.iter().filter(|c| c.owner == ix.owner && c.index == ix.name).map(column).collect(),
+                key_columns: columns
+                    .iter()
+                    .filter(|c| c.owner == ix.owner && c.index == ix.name)
+                    .map(column)
+                    .collect(),
                 size_kb: sizes.map(|m| m.get(&key).copied().unwrap_or(0).div_ceil(1024)),
                 seeks: u.reads,
                 updates: writes.and_then(|m| m.get(&key).copied()).unwrap_or(0),
@@ -315,22 +332,45 @@ pub(crate) fn monitoring_time(s: &str) -> Option<String> {
     let (date, time) = s.trim().split_once(' ')?;
     let mut p = date.split('/');
     let (m, d, y) = (p.next()?, p.next()?, p.next()?);
-    (m.len() == 2 && d.len() == 2 && y.len() == 4 && time.len() == 8).then(|| format!("{y}-{m}-{d} {time}"))
+    (m.len() == 2 && d.len() == 2 && y.len() == 4 && time.len() == 8)
+        .then(|| format!("{y}-{m}-{d} {time}"))
 }
 
 /// MONITORING USAGE rows (`MONITORING_SQL`) as counters, when every index
 /// of the table is monitored: (used → 1 read, the earliest start).
-pub(crate) fn monitoring(owner: &str, indexes: &[IndexRow], rows: &[(String, String, String, Option<String>)]) -> Option<(HashMap<Key, UsageRow>, Option<String>)> {
-    let on: HashMap<&str, &(String, String, String, Option<String>)> =
-        rows.iter().filter(|r| r.1 == "YES").map(|r| (r.0.as_str(), r)).collect();
-    if indexes.is_empty() || !indexes.iter().all(|ix| ix.owner == owner && on.contains_key(ix.name.as_str())) {
+pub(crate) fn monitoring(
+    owner: &str,
+    indexes: &[IndexRow],
+    rows: &[(String, String, String, Option<String>)],
+) -> Option<(HashMap<Key, UsageRow>, Option<String>)> {
+    let on: HashMap<&str, &(String, String, String, Option<String>)> = rows
+        .iter()
+        .filter(|r| r.1 == "YES")
+        .map(|r| (r.0.as_str(), r))
+        .collect();
+    if indexes.is_empty()
+        || !indexes
+            .iter()
+            .all(|ix| ix.owner == owner && on.contains_key(ix.name.as_str()))
+    {
         return None;
     }
     let usage = indexes
         .iter()
-        .map(|ix| ((ix.owner.clone(), ix.name.clone()), UsageRow { reads: u64::from(on[ix.name.as_str()].2 == "YES"), last_read: None }))
+        .map(|ix| {
+            (
+                (ix.owner.clone(), ix.name.clone()),
+                UsageRow {
+                    reads: u64::from(on[ix.name.as_str()].2 == "YES"),
+                    last_read: None,
+                },
+            )
+        })
         .collect();
-    let since = on.values().filter_map(|r| r.3.as_deref().and_then(monitoring_time)).min();
+    let since = on
+        .values()
+        .filter_map(|r| r.3.as_deref().and_then(monitoring_time))
+        .min();
     Some((usage, since))
 }
 
@@ -363,7 +403,17 @@ fn num(r: &Row, i: usize) -> u64 {
 }
 
 fn keyed(rows: &[Row]) -> HashMap<Key, u64> {
-    rows.iter().map(|r| ((text(r, 0).unwrap_or_default(), text(r, 1).unwrap_or_default()), num(r, 2))).collect()
+    rows.iter()
+        .map(|r| {
+            (
+                (
+                    text(r, 0).unwrap_or_default(),
+                    text(r, 1).unwrap_or_default(),
+                ),
+                num(r, 2),
+            )
+        })
+        .collect()
 }
 
 pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUsageReport> {
@@ -400,22 +450,47 @@ pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUs
     let fk_rows: Vec<FkRow> = try_rows(c, FOREIGN_KEYS_SQL, owner, table)?
         .unwrap_or_default()
         .iter()
-        .map(|r| (text(r, 0).unwrap_or_default(), text(r, 1).unwrap_or_default(), text(r, 2), text(r, 3).unwrap_or_default(), text(r, 4).unwrap_or_default(), text(r, 5)))
+        .map(|r| {
+            (
+                text(r, 0).unwrap_or_default(),
+                text(r, 1).unwrap_or_default(),
+                text(r, 2),
+                text(r, 3).unwrap_or_default(),
+                text(r, 4).unwrap_or_default(),
+                text(r, 5),
+            )
+        })
         .collect();
 
     // The usage views: each one may be refused on its own.
     let mut notes: Vec<String> = Vec::new();
     let mut since = None;
     let modern = c.version().map(|v| (v.0, v.1) >= (12, 2)).unwrap_or(true);
-    let index_usage = if modern { try_rows(c, &usage_sql(), owner, table)? } else { None };
+    let index_usage = if modern {
+        try_rows(c, &usage_sql(), owner, table)?
+    } else {
+        None
+    };
     let counted = index_usage.is_some();
     let usage: Option<HashMap<Key, UsageRow>> = match index_usage {
         Some(rows) => {
-            let flushed = try_rows(c, FLUSH_SQL, owner, table)?.and_then(|r| r.first().and_then(|r| text(r, 0)));
+            let flushed = try_rows(c, FLUSH_SQL, owner, table)?
+                .and_then(|r| r.first().and_then(|r| text(r, 0)));
             notes.push(flush_note(flushed.as_deref()));
             Some(
                 rows.iter()
-                    .map(|r| ((text(r, 0).unwrap_or_default(), text(r, 1).unwrap_or_default()), UsageRow { reads: num(r, 2), last_read: text(r, 3) }))
+                    .map(|r| {
+                        (
+                            (
+                                text(r, 0).unwrap_or_default(),
+                                text(r, 1).unwrap_or_default(),
+                            ),
+                            UsageRow {
+                                reads: num(r, 2),
+                                last_read: text(r, 3),
+                            },
+                        )
+                    })
                     .collect(),
             )
         }
@@ -423,7 +498,14 @@ pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUs
             let rows: Vec<_> = try_rows(c, MONITORING_SQL, owner, table)?
                 .unwrap_or_default()
                 .iter()
-                .map(|r| (text(r, 0).unwrap_or_default(), text(r, 1).unwrap_or_default(), text(r, 2).unwrap_or_default(), text(r, 3)))
+                .map(|r| {
+                    (
+                        text(r, 0).unwrap_or_default(),
+                        text(r, 1).unwrap_or_default(),
+                        text(r, 2).unwrap_or_default(),
+                        text(r, 3),
+                    )
+                })
                 .collect();
             match monitoring(owner, &indexes, &rows) {
                 Some((u, s)) => {
@@ -432,7 +514,10 @@ pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUs
                     Some(u)
                 }
                 None => {
-                    notes.push(format!("{} {NO_STATS} {MONITORING_HINT}", if modern { REFUSED_NOTE } else { OLD_NOTE }));
+                    notes.push(format!(
+                        "{} {NO_STATS} {MONITORING_HINT}",
+                        if modern { REFUSED_NOTE } else { OLD_NOTE }
+                    ));
                     None
                 }
             }
@@ -459,15 +544,26 @@ pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUs
         None => {
             // USER_SEGMENTS only covers the session user's own segments: for
             // anyone else's index an empty answer means "unknown", not 0 KB.
-            let user = try_rows(c, SESSION_USER_SQL, owner, table)?.and_then(|r| r.first().and_then(|r| text(r, 0)));
-            if all_owned_by(&indexes, user.as_deref()) { try_rows(c, USER_SIZE_SQL, owner, table)?.map(|r| keyed(&r)) } else { None }
+            let user = try_rows(c, SESSION_USER_SQL, owner, table)?
+                .and_then(|r| r.first().and_then(|r| text(r, 0)));
+            if all_owned_by(&indexes, user.as_deref()) {
+                try_rows(c, USER_SIZE_SQL, owner, table)?.map(|r| keyed(&r))
+            } else {
+                None
+            }
         }
     };
     Ok(IndexUsageReport {
         since,
         stats_available: usage.is_some(),
         note: (!notes.is_empty()).then(|| notes.join(" ")),
-        indexes: assemble(&indexes, &columns, usage.as_ref(), writes.as_ref(), sizes.as_ref()),
+        indexes: assemble(
+            &indexes,
+            &columns,
+            usage.as_ref(),
+            writes.as_ref(),
+            sizes.as_ref(),
+        ),
         foreign_keys: foreign_keys(owner, &fk_rows),
         seek_scan_split: false,
         writes_counted: writes.is_some(),
@@ -487,7 +583,11 @@ pub(crate) const REBUILD_PARTITIONS_WARNING: &str = "Hay particiones del índice
 /// ORA-14086). The index is taken to be in the table's schema (the usual
 /// case: `IndexUsage` doesn't carry its owner). Refused where Oracle refuses
 /// VISIBLE / INVISIBLE: an IOT's index (ORA-25176) and a cluster's (ORA-14142).
-pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+pub(crate) fn toggle_script(
+    table: &ObjectRef,
+    index: &IndexUsage,
+    enable: bool,
+) -> Result<SyncScript> {
     let kind = index.kind.to_uppercase();
     if kind.starts_with("IOT") {
         return Err(Error::Unsupported(
@@ -495,14 +595,19 @@ pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool)
         ));
     }
     if kind.starts_with("CLUSTER") {
-        return Err(Error::Unsupported("Es el índice de un cluster: Oracle no permite hacerlo invisible.".into()));
+        return Err(Error::Unsupported(
+            "Es el índice de un cluster: Oracle no permite hacerlo invisible.".into(),
+        ));
     }
     let name = match table.schema() {
         Some(s) => format!("{}.{}", quote(s), quote(&index.name)),
         None => quote(&index.name),
     };
     if !enable {
-        return Ok(SyncScript { statements: vec![format!("ALTER INDEX {name} INVISIBLE")], warnings: vec![DISABLE_WARNING.into()] });
+        return Ok(SyncScript {
+            statements: vec![format!("ALTER INDEX {name} INVISIBLE")],
+            warnings: vec![DISABLE_WARNING.into()],
+        });
     }
     let unusable = if kind.ends_with(PARTITIONS_UNUSABLE) {
         Unusable::Partitions
@@ -528,7 +633,10 @@ pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool)
     if unusable == Unusable::No || kind.contains(INVISIBLE) {
         statements.push(format!("ALTER INDEX {name} VISIBLE"));
     }
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 /// A PL/SQL block that rebuilds every unusable partition and subpartition
@@ -536,7 +644,10 @@ pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool)
 /// when it runs.
 fn rebuild_partitions(table: &ObjectRef, index: &str, quoted: &str) -> String {
     let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
-    let owner = table.schema().map_or_else(|| "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".to_string(), lit);
+    let owner = table.schema().map_or_else(
+        || "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".to_string(),
+        lit,
+    );
     let ix = lit(index);
     let alter = lit(&format!("ALTER INDEX {quoted} REBUILD "));
     format!(
@@ -558,11 +669,25 @@ mod tests {
     use super::*;
 
     fn ix(name: &str, kind: &str) -> IndexRow {
-        IndexRow { owner: "APP".into(), name: name.into(), kind: kind.into(), unique: false, invisible: false, primary_key: false, unusable: Unusable::No }
+        IndexRow {
+            owner: "APP".into(),
+            name: name.into(),
+            kind: kind.into(),
+            unique: false,
+            invisible: false,
+            primary_key: false,
+            unusable: Unusable::No,
+        }
     }
 
     fn col(index: &str, name: &str, descending: bool, expression: Option<&str>) -> ColumnRow {
-        ColumnRow { owner: "APP".into(), index: index.into(), name: name.into(), descending, expression: expression.map(Into::into) }
+        ColumnRow {
+            owner: "APP".into(),
+            index: index.into(),
+            name: name.into(),
+            descending,
+            expression: expression.map(Into::into),
+        }
     }
 
     fn key(n: &str) -> Key {
@@ -574,8 +699,17 @@ mod tests {
         assert!(INDEXES_SQL.contains("i.index_type <> 'LOB'"));
         assert!(INDEXES_SQL.contains("k.constraint_type = 'P'"));
         // LONG last in the select list.
-        assert!(COLUMNS_SQL.split("FROM").next().unwrap().trim_end().ends_with("e.column_expression"));
-        assert!(usage_sql().contains("total_access_count") && usage_sql().contains("(u.owner, u.name) IN (SELECT owner, index_name FROM all_indexes"));
+        assert!(COLUMNS_SQL
+            .split("FROM")
+            .next()
+            .unwrap()
+            .trim_end()
+            .ends_with("e.column_expression"));
+        assert!(
+            usage_sql().contains("total_access_count")
+                && usage_sql()
+                    .contains("(u.owner, u.name) IN (SELECT owner, index_name FROM all_indexes")
+        );
         assert!(writes_sql().contains("'db block changes'"));
         assert!(size_sql().contains("dba_segments"));
         assert!(MONITORING_SQL.contains(":1 = USER"));
@@ -597,15 +731,39 @@ mod tests {
             col("IX_NEVER", "D", false, None),
         ];
         let usage = HashMap::from([
-            (key("PK_T"), UsageRow { reads: 9, last_read: Some("2026-10-01 10:00:00".into()) }),
-            (key("IX_A"), UsageRow { reads: 4, last_read: None }),
+            (
+                key("PK_T"),
+                UsageRow {
+                    reads: 9,
+                    last_read: Some("2026-10-01 10:00:00".into()),
+                },
+            ),
+            (
+                key("IX_A"),
+                UsageRow {
+                    reads: 4,
+                    last_read: None,
+                },
+            ),
         ]);
         let writes = HashMap::from([(key("PK_T"), 30u64), (key("IX_NEVER"), 12)]);
         let sizes = HashMap::from([(key("PK_T"), 65536u64), (key("IX_A"), 1000)]);
-        let out = assemble(&indexes, &columns, Some(&usage), Some(&writes), Some(&sizes));
-        assert_eq!(out.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["PK_T", "IX_A", "IX_FB", "IX_NEVER"]);
+        let out = assemble(
+            &indexes,
+            &columns,
+            Some(&usage),
+            Some(&writes),
+            Some(&sizes),
+        );
+        assert_eq!(
+            out.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+            ["PK_T", "IX_A", "IX_FB", "IX_NEVER"]
+        );
         assert!(out[0].primary_key && out[0].unique, "a PK is unique");
-        assert_eq!((out[0].seeks, out[0].scans, out[0].updates, out[0].size_kb), (9, 0, 30, Some(64)));
+        assert_eq!(
+            (out[0].seeks, out[0].scans, out[0].updates, out[0].size_kb),
+            (9, 0, 30, Some(64))
+        );
         assert_eq!(out[0].last_read.as_deref(), Some("2026-10-01 10:00:00"));
         assert_eq!(out[1].key_columns, ["A", "B DESC"]);
         assert_eq!(out[1].size_kb, Some(1));
@@ -614,24 +772,47 @@ mod tests {
         // No segment yet: 0 KB; no usage row: never used.
         assert_eq!(out[2].size_kb, Some(0));
         assert_eq!((out[3].seeks, out[3].updates), (0, 12));
-        assert!(out.iter().all(|i| i.included_columns.is_empty() && i.filter.is_none()));
+        assert!(out
+            .iter()
+            .all(|i| i.included_columns.is_empty() && i.filter.is_none()));
 
-        let r = IndexUsageReport { stats_available: true, seek_scan_split: false, indexes: out, ..Default::default() }.derived();
+        let r = IndexUsageReport {
+            stats_available: true,
+            seek_scan_split: false,
+            indexes: out,
+            ..Default::default()
+        }
+        .derived();
         assert!(r.indexes[3].unused);
-        assert!(r.indexes.iter().all(|i| i.seek_ratio.is_none() && i.seek_health.is_none()), "one counter: no seek health");
+        assert!(
+            r.indexes
+                .iter()
+                .all(|i| i.seek_ratio.is_none() && i.seek_health.is_none()),
+            "one counter: no seek health"
+        );
 
         // Counters refused: every index still listed, all zeros.
         let bare = assemble(&indexes, &columns, None, None, None);
         assert_eq!(bare.len(), 4);
-        assert!(bare.iter().all(|i| i.seeks == 0 && i.updates == 0 && i.size_kb.is_none()));
+        assert!(bare
+            .iter()
+            .all(|i| i.seeks == 0 && i.updates == 0 && i.size_kb.is_none()));
     }
 
     fn usage(name: &str, kind: &str) -> IndexUsage {
-        IndexUsage { name: name.into(), kind: kind.into(), ..Default::default() }
+        IndexUsage {
+            name: name.into(),
+            kind: kind.into(),
+            ..Default::default()
+        }
     }
 
     fn t(schema: Option<&str>) -> ObjectRef {
-        ObjectRef { kind: "table".into(), schema: schema.map(Into::into), name: "PEDIDOS".into() }
+        ObjectRef {
+            kind: "table".into(),
+            schema: schema.map(Into::into),
+            name: "PEDIDOS".into(),
+        }
     }
 
     #[test]
@@ -643,18 +824,46 @@ mod tests {
         let mut part = ix("IX_PART", "NORMAL");
         part.unusable = Unusable::Partitions;
         part.invisible = true;
-        let out = assemble(&[ix("IX_ON", "BITMAP"), inv, dead, part], &[], None, None, None);
-        assert_eq!(out.iter().map(|i| i.disabled).collect::<Vec<_>>(), [false, true, true, true]);
-        assert_eq!(out.iter().map(|i| i.kind.as_str()).collect::<Vec<_>>(), ["BITMAP", "NORMAL INVISIBLE", "NORMAL UNUSABLE", "NORMAL INVISIBLE PARTITIONS UNUSABLE"]);
-        assert!(INDEXES_SQL.contains("i.status = 'UNUSABLE'") && INDEXES_SQL.contains("all_ind_subpartitions"));
+        let out = assemble(
+            &[ix("IX_ON", "BITMAP"), inv, dead, part],
+            &[],
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            out.iter().map(|i| i.disabled).collect::<Vec<_>>(),
+            [false, true, true, true]
+        );
+        assert_eq!(
+            out.iter().map(|i| i.kind.as_str()).collect::<Vec<_>>(),
+            [
+                "BITMAP",
+                "NORMAL INVISIBLE",
+                "NORMAL UNUSABLE",
+                "NORMAL INVISIBLE PARTITIONS UNUSABLE"
+            ]
+        );
+        assert!(
+            INDEXES_SQL.contains("i.status = 'UNUSABLE'")
+                && INDEXES_SQL.contains("all_ind_subpartitions")
+        );
     }
 
     #[test]
     fn toggle_makes_it_invisible_and_visible() {
         let off = toggle_script(&t(Some("APP")), &usage("IX_FECHA", "NORMAL"), false).unwrap();
-        assert_eq!(off.statements, [r#"ALTER INDEX "APP"."IX_FECHA" INVISIBLE"#]);
+        assert_eq!(
+            off.statements,
+            [r#"ALTER INDEX "APP"."IX_FECHA" INVISIBLE"#]
+        );
         assert_eq!(off.warnings, [DISABLE_WARNING]);
-        let on = toggle_script(&t(Some("APP")), &usage("IX_FECHA", "NORMAL INVISIBLE"), true).unwrap();
+        let on = toggle_script(
+            &t(Some("APP")),
+            &usage("IX_FECHA", "NORMAL INVISIBLE"),
+            true,
+        )
+        .unwrap();
         assert_eq!(on.statements, [r#"ALTER INDEX "APP"."IX_FECHA" VISIBLE"#]);
         assert!(on.warnings.is_empty());
         // No schema: the session's; quotes doubled.
@@ -668,24 +877,62 @@ mod tests {
 
     #[test]
     fn enabling_an_unusable_index_rebuilds_it() {
-        let both = toggle_script(&t(Some("APP")), &usage("IX_A", "NORMAL INVISIBLE UNUSABLE"), true).unwrap();
-        assert_eq!(both.statements, [r#"ALTER INDEX "APP"."IX_A" REBUILD"#, r#"ALTER INDEX "APP"."IX_A" VISIBLE"#]);
+        let both = toggle_script(
+            &t(Some("APP")),
+            &usage("IX_A", "NORMAL INVISIBLE UNUSABLE"),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            both.statements,
+            [
+                r#"ALTER INDEX "APP"."IX_A" REBUILD"#,
+                r#"ALTER INDEX "APP"."IX_A" VISIBLE"#
+            ]
+        );
         assert_eq!(both.warnings, [REBUILD_WARNING]);
         let dead = toggle_script(&t(Some("APP")), &usage("IX_A", "NORMAL UNUSABLE"), true).unwrap();
         assert_eq!(dead.statements, [r#"ALTER INDEX "APP"."IX_A" REBUILD"#]);
         // Disabling an unusable index only hides it.
-        assert_eq!(toggle_script(&t(Some("APP")), &usage("IX_A", "NORMAL UNUSABLE"), false).unwrap().statements, [r#"ALTER INDEX "APP"."IX_A" INVISIBLE"#]);
+        assert_eq!(
+            toggle_script(&t(Some("APP")), &usage("IX_A", "NORMAL UNUSABLE"), false)
+                .unwrap()
+                .statements,
+            [r#"ALTER INDEX "APP"."IX_A" INVISIBLE"#]
+        );
 
-        let parts = toggle_script(&t(Some("O'K")), &usage("IX_P", "NORMAL PARTITIONS UNUSABLE"), true).unwrap();
+        let parts = toggle_script(
+            &t(Some("O'K")),
+            &usage("IX_P", "NORMAL PARTITIONS UNUSABLE"),
+            true,
+        )
+        .unwrap();
         assert_eq!(parts.statements.len(), 1, "visible: the rebuild is all");
         let block = &parts.statements[0];
-        assert!(block.starts_with("BEGIN") && block.ends_with("END;"), "{block}");
-        assert!(block.contains("index_owner = 'O''K' AND index_name = 'IX_P'"), "{block}");
-        assert!(block.contains(r#"'ALTER INDEX "O''K"."IX_P" REBUILD ' || 'PARTITION "' || p.n || '"'"#), "{block}");
+        assert!(
+            block.starts_with("BEGIN") && block.ends_with("END;"),
+            "{block}"
+        );
+        assert!(
+            block.contains("index_owner = 'O''K' AND index_name = 'IX_P'"),
+            "{block}"
+        );
+        assert!(
+            block
+                .contains(r#"'ALTER INDEX "O''K"."IX_P" REBUILD ' || 'PARTITION "' || p.n || '"'"#),
+            "{block}"
+        );
         assert!(block.contains("REBUILD ' || 'SUBPARTITION"), "{block}");
         assert_eq!(parts.warnings, [REBUILD_PARTITIONS_WARNING]);
-        let mine = toggle_script(&t(None), &usage("IX_P", "NORMAL INVISIBLE PARTITIONS UNUSABLE"), true).unwrap();
-        assert!(mine.statements[0].contains("index_owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')"));
+        let mine = toggle_script(
+            &t(None),
+            &usage("IX_P", "NORMAL INVISIBLE PARTITIONS UNUSABLE"),
+            true,
+        )
+        .unwrap();
+        assert!(
+            mine.statements[0].contains("index_owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')")
+        );
         assert_eq!(mine.statements[1], r#"ALTER INDEX "IX_P" VISIBLE"#);
     }
 
@@ -693,32 +940,87 @@ mod tests {
     fn iot_and_cluster_indexes_are_refused() {
         for kind in ["IOT - TOP", "CLUSTER"] {
             for enable in [false, true] {
-                assert!(matches!(toggle_script(&t(Some("APP")), &usage("X", kind), enable), Err(Error::Unsupported(_))), "{kind}");
+                assert!(
+                    matches!(
+                        toggle_script(&t(Some("APP")), &usage("X", kind), enable),
+                        Err(Error::Unsupported(_))
+                    ),
+                    "{kind}"
+                );
             }
         }
     }
 
     #[test]
     fn foreign_keys_group_by_constraint() {
-        let row = |n: &str, c: &str, o: &str, t: &str, r: &str| (n.to_string(), c.to_string(), Some(o.to_string()), t.to_string(), r.to_string(), Some("CASCADE".to_string()));
-        let fks = foreign_keys("APP", &[row("FK_A", "X", "APP", "P", "ID"), row("FK_A", "Y", "APP", "P", "ID2"), row("FK_B", "Z", "OTHER", "Q", "ID")]);
+        let row = |n: &str, c: &str, o: &str, t: &str, r: &str| {
+            (
+                n.to_string(),
+                c.to_string(),
+                Some(o.to_string()),
+                t.to_string(),
+                r.to_string(),
+                Some("CASCADE".to_string()),
+            )
+        };
+        let fks = foreign_keys(
+            "APP",
+            &[
+                row("FK_A", "X", "APP", "P", "ID"),
+                row("FK_A", "Y", "APP", "P", "ID2"),
+                row("FK_B", "Z", "OTHER", "Q", "ID"),
+            ],
+        );
         assert_eq!(fks.len(), 2);
-        assert_eq!((fks[0].columns.clone(), fks[0].ref_columns.clone()), (vec!["X".to_string(), "Y".into()], vec!["ID".to_string(), "ID2".into()]));
-        assert_eq!((fks[0].ref_schema.as_deref(), fks[0].on_delete.as_deref()), (None, Some("CASCADE")));
-        assert_eq!((fks[1].ref_table.as_str(), fks[1].ref_schema.as_deref()), ("Q", Some("OTHER")));
+        assert_eq!(
+            (fks[0].columns.clone(), fks[0].ref_columns.clone()),
+            (
+                vec!["X".to_string(), "Y".into()],
+                vec!["ID".to_string(), "ID2".into()]
+            )
+        );
+        assert_eq!(
+            (fks[0].ref_schema.as_deref(), fks[0].on_delete.as_deref()),
+            (None, Some("CASCADE"))
+        );
+        assert_eq!(
+            (fks[1].ref_table.as_str(), fks[1].ref_schema.as_deref()),
+            ("Q", Some("OTHER"))
+        );
     }
 
     #[test]
     fn monitoring_usage_only_when_every_index_is_monitored() {
         let indexes = [ix("PK_T", "NORMAL"), ix("IX_A", "NORMAL")];
-        let row = |n: &str, m: &str, u: &str, s: &str| (n.to_string(), m.to_string(), u.to_string(), Some(s.to_string()));
-        let rows = [row("PK_T", "YES", "YES", "10/02/2026 09:00:00"), row("IX_A", "YES", "NO", "10/01/2026 08:30:00")];
+        let row = |n: &str, m: &str, u: &str, s: &str| {
+            (
+                n.to_string(),
+                m.to_string(),
+                u.to_string(),
+                Some(s.to_string()),
+            )
+        };
+        let rows = [
+            row("PK_T", "YES", "YES", "10/02/2026 09:00:00"),
+            row("IX_A", "YES", "NO", "10/01/2026 08:30:00"),
+        ];
         let (usage, since) = monitoring("APP", &indexes, &rows).unwrap();
-        assert_eq!((usage[&key("PK_T")].reads, usage[&key("IX_A")].reads), (1, 0));
+        assert_eq!(
+            (usage[&key("PK_T")].reads, usage[&key("IX_A")].reads),
+            (1, 0)
+        );
         assert_eq!(since.as_deref(), Some("2026-10-01 08:30:00"));
         // One index not monitored (or turned off): no counters at all.
         assert!(monitoring("APP", &indexes, &rows[..1]).is_none());
-        assert!(monitoring("APP", &indexes, &[rows[0].clone(), row("IX_A", "NO", "NO", "10/01/2026 08:30:00")]).is_none());
+        assert!(monitoring(
+            "APP",
+            &indexes,
+            &[
+                rows[0].clone(),
+                row("IX_A", "NO", "NO", "10/01/2026 08:30:00")
+            ]
+        )
+        .is_none());
         // Someone else's table: USER_OBJECT_USAGE doesn't cover it.
         assert!(monitoring("OTHER", &indexes, &rows).is_none());
         assert_eq!(monitoring_time("bad"), None);
@@ -726,11 +1028,18 @@ mod tests {
 
     #[test]
     fn the_notes_name_the_privilege_and_the_flush() {
-        assert!(REFUSED_NOTE.contains("DBA_INDEX_USAGE") && REFUSED_NOTE.contains("SELECT_CATALOG_ROLE"));
-        assert!(flush_note(Some("2026-10-02 10:15:00")).contains("último volcado: 2026-10-02 10:15:00"));
+        assert!(
+            REFUSED_NOTE.contains("DBA_INDEX_USAGE")
+                && REFUSED_NOTE.contains("SELECT_CATALOG_ROLE")
+        );
+        assert!(
+            flush_note(Some("2026-10-02 10:15:00")).contains("último volcado: 2026-10-02 10:15:00")
+        );
         assert!(flush_note(None).contains("15 minutos"));
         assert!(flush_note(None).contains("hora del volcado"));
-        assert!(flush_note(None).contains("muestreo") && flush_note(Some("x")).contains("se usa poco"));
+        assert!(
+            flush_note(None).contains("muestreo") && flush_note(Some("x")).contains("se usa poco")
+        );
     }
 
     #[test]

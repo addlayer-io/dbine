@@ -48,7 +48,10 @@ SELECT s.sid || ',' || s.serial#, s.status, s.username, s.machine, s.program, s.
  WHERE ROWNUM <= 2000";
 
 fn text(r: &[Value], i: usize) -> Option<String> {
-    r.get(i).and_then(txt).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    r.get(i)
+        .and_then(txt)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn count(r: &[Value], i: usize) -> Option<u64> {
@@ -122,7 +125,9 @@ pub fn processes(c: &Connection) -> Result<Vec<ServerProcess>> {
         .take(MAX_IDLE_LOOKUPS)
         .collect();
     for i in idle_in_tx {
-        let Ok((sid, _)) = session_id(&list[i].id) else { continue };
+        let Ok((sid, _)) = session_id(&list[i].id) else {
+            continue;
+        };
         match within(c, || rows(c, &last_statement_sql(sid)).map_err(err)) {
             Ok(r) => list[i].sql = r.first().and_then(|r| text(r, 0)),
             Err(e) => tracing::debug!("oracle processes: open cursors of {sid}: {e}"),
@@ -139,13 +144,24 @@ pub fn cancel(c: &Connection, id: &str) -> Result<()> {
     let (sid, serial) = session_id(id)?;
     let own = rows(c, "SELECT SYS_CONTEXT('USERENV', 'SID') FROM dual").map_err(err)?;
     if own.first().and_then(|r| text(r, 0)) == Some(sid.to_string()) {
-        return Err(Error::Query("esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá".into()));
+        return Err(Error::Query(
+            "esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá"
+                .into(),
+        ));
     }
     // Another DBine session (its program is set to "DBine"): the server
     // stops the statement, but this client library never returns control to
     // it, and that tab would hang. Ending the session doesn't.
-    let program = rows(c, &format!("SELECT program FROM v$session WHERE sid = {sid} AND serial# = {serial}")).map_err(err)?;
-    if program.first().and_then(|r| text(r, 0)).is_some_and(|p| p.eq_ignore_ascii_case("DBine")) {
+    let program = rows(
+        c,
+        &format!("SELECT program FROM v$session WHERE sid = {sid} AND serial# = {serial}"),
+    )
+    .map_err(err)?;
+    if program
+        .first()
+        .and_then(|r| text(r, 0))
+        .is_some_and(|p| p.eq_ignore_ascii_case("DBine"))
+    {
         return Err(Error::Query(format!(
             "la sesión {sid},{serial} es de DBine: cancelá la consulta desde su pestaña, o usá «Terminar sesión»"
         )));

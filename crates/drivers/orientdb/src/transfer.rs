@@ -50,7 +50,9 @@
 //! commits after the error is reported.
 
 use crate::{ident, request, OrientSession, EDGE, VERTEX};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{kinds, Error, Result};
 use reqwest::Method;
 use serde_json::{json, Value};
@@ -130,7 +132,8 @@ impl Kind {
             "DATE" => Kind::Date,
             "DATETIME" => Kind::DateTime,
             "LINK" => Kind::Link,
-            "EMBEDDED" | "EMBEDDEDLIST" | "EMBEDDEDSET" | "EMBEDDEDMAP" | "LINKLIST" | "LINKSET" | "LINKMAP" | "LINKBAG" => Kind::Json,
+            "EMBEDDED" | "EMBEDDEDLIST" | "EMBEDDEDSET" | "EMBEDDEDMAP" | "LINKLIST"
+            | "LINKSET" | "LINKMAP" | "LINKBAG" => Kind::Json,
             _ => Kind::Any,
         }
     }
@@ -145,21 +148,40 @@ pub(crate) fn properties(all: &[Value], class: &str) -> HashMap<String, (String,
         if seen.contains(&n) {
             continue;
         }
-        let Some(c) = all.iter().find(|c| c.get("name").and_then(Value::as_str) == Some(n.as_str())) else {
+        let Some(c) = all
+            .iter()
+            .find(|c| c.get("name").and_then(Value::as_str) == Some(n.as_str()))
+        else {
             seen.push(n);
             continue;
         };
-        for p in c.get("properties").and_then(Value::as_array).into_iter().flatten() {
-            let Some(name) = p.get("name").and_then(Value::as_str) else { continue };
-            let ty = p.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
-            let nullable = !p.get("notNull").and_then(Value::as_bool).unwrap_or(false) && !p.get("mandatory").and_then(Value::as_bool).unwrap_or(false);
+        for p in c
+            .get("properties")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(name) = p.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let ty = p
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let nullable = !p.get("notNull").and_then(Value::as_bool).unwrap_or(false)
+                && !p.get("mandatory").and_then(Value::as_bool).unwrap_or(false);
             // A subclass's own declaration wins over its parents'.
             out.entry(name.to_string()).or_insert((ty, nullable));
         }
         if let Some(s) = c.get("superClasses").and_then(Value::as_array) {
             stack.extend(s.iter().filter_map(Value::as_str).map(str::to_string));
         }
-        if let Some(s) = c.get("superClass").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        if let Some(s) = c
+            .get("superClass")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
             stack.push(s.to_string());
         }
         seen.push(n);
@@ -169,7 +191,11 @@ pub(crate) fn properties(all: &[Value], class: &str) -> HashMap<String, (String,
 
 /// The projection that reads a column without loss.
 pub(crate) fn projection(name: &str, kind: Kind, alias: &str) -> String {
-    let f = if name.starts_with('@') && name[1..].chars().all(|c| c.is_ascii_alphanumeric()) { name.to_string() } else { ident(name) };
+    let f = if name.starts_with('@') && name[1..].chars().all(|c| c.is_ascii_alphanumeric()) {
+        name.to_string()
+    } else {
+        ident(name)
+    };
     let e = match kind {
         // With the offset: a wall-clock time alone repeats in a DST
         // fall-back hour of the database's time zone.
@@ -187,7 +213,9 @@ pub(crate) fn projection(name: &str, kind: Kind, alias: &str) -> String {
 /// (a=1) …`, or the same hidden in comments the check can't see through,
 /// would slip out of the class and record-id bounds around it.
 pub(crate) fn check_filter(f: &str) -> Result<()> {
-    let bad = || Err(Error::Query(format!("el filtro no es una condición cerrada (paréntesis o comillas sin cerrar, o un `;`): {f}")));
+    let bad = || {
+        Err(Error::Query(format!("el filtro no es una condición cerrada (paréntesis o comillas sin cerrar, o un `;`): {f}")))
+    };
     let (mut depth, mut quote): (i64, Option<char>) = (0, None);
     let mut chars = f.chars().peekable();
     while let Some(c) = chars.next() {
@@ -207,7 +235,9 @@ pub(crate) fn check_filter(f: &str) -> Result<()> {
             }
             (None, ';') => return bad(),
             (None, '/') if matches!(chars.peek(), Some('*' | '/')) => {
-                return Err(Error::Query(format!("el filtro no puede llevar comentarios (`/*`, `//`): {f}")));
+                return Err(Error::Query(format!(
+                    "el filtro no puede llevar comentarios (`/*`, `//`): {f}"
+                )));
             }
             (None, '-') if chars.peek() == Some(&'-') => {
                 return Err(Error::Query(format!("el filtro no puede llevar comentarios (`--`; para restar un negativo, separá los signos: `a - -1`): {f}")));
@@ -230,14 +260,20 @@ pub(crate) fn rid_key(s: &str) -> Option<(i64, i64)> {
 /// Reply bytes a record stored in `size` bytes is expected to take, with
 /// `columns` columns, at `factor` reply bytes per stored byte.
 pub(crate) fn estimate(size: usize, factor: usize, columns: usize) -> usize {
-    size.saturating_mul(factor).saturating_add(PER_COLUMN * columns + PER_RECORD)
+    size.saturating_mul(factor)
+        .saturating_add(PER_COLUMN * columns + PER_RECORD)
 }
 
 /// How many of the next records (their stored sizes, in order) one page
 /// takes: as many as fit in [`PAGE_BYTES`], at least one (a record larger
 /// than that comes alone), at most `max`. Each record is counted by its
 /// own size, so a size change inside a class can't overflow a page.
-pub(crate) fn fit(sizes: impl IntoIterator<Item = usize>, factor: usize, columns: usize, max: usize) -> usize {
+pub(crate) fn fit(
+    sizes: impl IntoIterator<Item = usize>,
+    factor: usize,
+    columns: usize,
+    max: usize,
+) -> usize {
     let (mut n, mut bytes) = (0usize, 0usize);
     for s in sizes.into_iter().take(max.max(1)) {
         let e = estimate(s, factor, columns);
@@ -257,12 +293,18 @@ pub(crate) fn calibrate(factor: usize, reply_bytes: usize, stored: usize) -> usi
     if stored == 0 {
         return factor;
     }
-    factor.max(reply_bytes.div_ceil(stored)).clamp(FACTOR_MIN, FACTOR_MAX)
+    factor
+        .max(reply_bytes.div_ceil(stored))
+        .clamp(FACTOR_MIN, FACTOR_MAX)
 }
 
 /// The class and record-id bounds (and the filter) of a read.
 fn bounds(class: &str, filter: Option<&str>, after: &str) -> String {
-    let mut q = format!(" FROM {} WHERE @class = {}", ident(class), crate::ddl::string(class));
+    let mut q = format!(
+        " FROM {} WHERE @class = {}",
+        ident(class),
+        crate::ddl::string(class)
+    );
     if let Some(f) = filter {
         q.push_str(&format!(" AND ({f})"));
     }
@@ -273,11 +315,21 @@ fn bounds(class: &str, filter: Option<&str>, after: &str) -> String {
 /// The size probe: the record ids, classes and stored sizes of the next
 /// [`PAGE`] records (a few dozen reply bytes each).
 pub(crate) fn probe_query(class: &str, filter: Option<&str>, after: &str) -> String {
-    format!("SELECT @rid AS {RID}, @size AS {SIZE}, @class AS {CLASS}{} ORDER BY @rid LIMIT {PAGE}", bounds(class, filter, after))
+    format!(
+        "SELECT @rid AS {RID}, @size AS {SIZE}, @class AS {CLASS}{} ORDER BY @rid LIMIT {PAGE}",
+        bounds(class, filter, after)
+    )
 }
 
 /// One page's query: the records after `after` up to `end`, at most `limit`.
-pub(crate) fn page_query(class: &str, projections: &[String], filter: Option<&str>, after: &str, end: &str, limit: usize) -> String {
+pub(crate) fn page_query(
+    class: &str,
+    projections: &[String],
+    filter: Option<&str>,
+    after: &str,
+    end: &str,
+    limit: usize,
+) -> String {
     format!(
         "SELECT {}, @rid AS {RID}, @class AS {CLASS}{} AND @rid <= {end} ORDER BY @rid LIMIT {limit}",
         projections.join(", "),
@@ -296,18 +348,32 @@ fn rid_and_class(r: &[(String, Value)]) -> (Option<&str>, Option<&str>) {
 /// Returns the last one's. A filter that slips out of the query's bounds
 /// shows here, as a repeated or out-of-order id or a foreign class,
 /// instead of as silent duplicates.
-pub(crate) fn check_rows<'a>(rows: impl IntoIterator<Item = (Option<&'a str>, Option<&'a str>)>, class: &str, after: (i64, i64), end: Option<(i64, i64)>) -> Result<(i64, i64)> {
+pub(crate) fn check_rows<'a>(
+    rows: impl IntoIterator<Item = (Option<&'a str>, Option<&'a str>)>,
+    class: &str,
+    after: (i64, i64),
+    end: Option<(i64, i64)>,
+) -> Result<(i64, i64)> {
     let mut last = after;
     for (id, c) in rows {
         let Some(id) = id else {
-            return Err(Error::Query("la página leída no trae el @rid de sus registros".into()));
+            return Err(Error::Query(
+                "la página leída no trae el @rid de sus registros".into(),
+            ));
         };
         match rid_key(id) {
             Some(k) if k > last && end.is_none_or(|e| k <= e) => last = k,
-            _ => return Err(Error::Query(format!("la lectura por @rid no avanzó o se salió de su rango ({id}); revisá el filtro"))),
+            _ => {
+                return Err(Error::Query(format!(
+                    "la lectura por @rid no avanzó o se salió de su rango ({id}); revisá el filtro"
+                )))
+            }
         }
         if c != Some(class) {
-            return Err(Error::Query(format!("la lectura trajo un registro de otra clase ({}, {id}); revisá el filtro", c.unwrap_or("?"))));
+            return Err(Error::Query(format!(
+                "la lectura trajo un registro de otra clase ({}, {id}); revisá el filtro",
+                c.unwrap_or("?")
+            )));
         }
     }
     Ok(last)
@@ -342,7 +408,9 @@ impl Window {
     }
 
     fn stored(&self) -> usize {
-        self.records.iter().fold(0usize, |a, r| a.saturating_add(r.2))
+        self.records
+            .iter()
+            .fold(0usize, |a, r| a.saturating_add(r.2))
     }
 
     /// What's left of the window after a page of `got` rows whose last
@@ -399,12 +467,21 @@ impl<'a> Pager<'a> {
     /// Records its probe reply's rows (checked like a page's).
     fn take_probe(&mut self, rows: &[Vec<(String, Value)>]) -> Result<()> {
         self.exhausted = rows.len() < PAGE;
-        check_rows(rows.iter().map(|r| rid_and_class(r)), self.class, self.probed_to.1, None)?;
+        check_rows(
+            rows.iter().map(|r| rid_and_class(r)),
+            self.class,
+            self.probed_to.1,
+            None,
+        )?;
         for r in rows {
             let id = rid_and_class(r).0.unwrap_or_default().to_string();
             let key = rid_key(&id).unwrap_or_default();
             // A size the server doesn't give: as if it filled a page alone.
-            let size = r.iter().find(|(k, _)| k == SIZE).and_then(|(_, v)| v.as_u64()).map_or(PAGE_BYTES, |s| s as usize);
+            let size = r
+                .iter()
+                .find(|(k, _)| k == SIZE)
+                .and_then(|(_, v)| v.as_u64())
+                .map_or(PAGE_BYTES, |s| s as usize);
             self.probed_to = (id.clone(), key);
             self.probed.push_back((id, key, size));
         }
@@ -414,8 +491,17 @@ impl<'a> Pager<'a> {
     /// The next page, cut from the probed records (the first page takes
     /// one record, to calibrate the reply bytes per stored byte).
     pub(crate) fn cut(&mut self) -> Option<Window> {
-        let max = if self.first { 1 } else { self.next_max.take().unwrap_or(PAGE) };
-        let n = fit(self.probed.iter().map(|p| p.2), self.factor, self.columns, max);
+        let max = if self.first {
+            1
+        } else {
+            self.next_max.take().unwrap_or(PAGE)
+        };
+        let n = fit(
+            self.probed.iter().map(|p| p.2),
+            self.factor,
+            self.columns,
+            max,
+        );
         if n == 0 {
             return None;
         }
@@ -453,7 +539,12 @@ pub(crate) fn rid(s: &str) -> Option<&str> {
 /// `@type`, `@version` and `@fieldTypes` left out, at every depth.
 fn clean(v: &Value) -> Value {
     match v {
-        Value::Object(o) => Value::Object(o.iter().filter(|(k, _)| !crate::HIDDEN.contains(&k.as_str())).map(|(k, v)| (k.clone(), clean(v))).collect()),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .filter(|(k, _)| !crate::HIDDEN.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), clean(v)))
+                .collect(),
+        ),
         Value::Array(a) => Value::Array(a.iter().map(clean).collect()),
         other => other.clone(),
     }
@@ -486,22 +577,36 @@ pub(crate) fn to_cell(kind: Kind, v: &Value) -> Cell {
         (_, Value::Null) => Cell::Null,
         (Kind::Bool, Value::Bool(b)) => Cell::Bool(*b),
         (Kind::Int, Value::Number(n)) => number(n),
-        (Kind::Float, Value::String(s)) => s.parse::<f64>().map(Cell::Float).unwrap_or_else(|_| Cell::Text(s.clone())),
+        (Kind::Float, Value::String(s)) => s
+            .parse::<f64>()
+            .map(Cell::Float)
+            .unwrap_or_else(|_| Cell::Text(s.clone())),
         (Kind::Float, Value::Number(n)) => Cell::Float(n.as_f64().unwrap_or(f64::NAN)),
-        (Kind::Decimal, Value::String(s)) => plain_decimal(s).map(Cell::Decimal).unwrap_or_else(|| Cell::Text(s.clone())),
-        (Kind::Decimal, Value::Number(n)) => plain_decimal(&n.to_string()).map_or_else(|| number(n), Cell::Decimal),
+        (Kind::Decimal, Value::String(s)) => plain_decimal(s)
+            .map(Cell::Decimal)
+            .unwrap_or_else(|| Cell::Text(s.clone())),
+        (Kind::Decimal, Value::Number(n)) => {
+            plain_decimal(&n.to_string()).map_or_else(|| number(n), Cell::Decimal)
+        }
         (Kind::Text, Value::String(s)) => Cell::Text(s.clone()),
-        (Kind::Binary, Value::String(s)) => base64_decode(s).map(Cell::Bytes).unwrap_or_else(|| Cell::Text(s.clone())),
+        (Kind::Binary, Value::String(s)) => base64_decode(s)
+            .map(Cell::Bytes)
+            .unwrap_or_else(|| Cell::Text(s.clone())),
         (Kind::Date, Value::String(s)) => Cell::Date(s.clone()),
         // Read with its offset (`…SSSXXX`): the exact instant.
         (Kind::DateTime, Value::String(s)) => match timestamp(s) {
-            Some((t, Some(z))) => Cell::DateTimeTz(format!("{t}{}", if z == "Z" { "+00:00" } else { z.as_str() })),
+            Some((t, Some(z))) => Cell::DateTimeTz(format!(
+                "{t}{}",
+                if z == "Z" { "+00:00" } else { z.as_str() }
+            )),
             Some((t, None)) => Cell::DateTime(t),
             None => Cell::Text(s.clone()),
         },
         (Kind::Link, Value::String(s)) => Cell::Text(s.clone()),
         // A link the server expanded into its record: its id.
-        (Kind::Link, Value::Object(o)) if o.get("@rid").is_some_and(Value::is_string) => Cell::Text(o["@rid"].as_str().unwrap_or_default().to_string()),
+        (Kind::Link, Value::Object(o)) if o.get("@rid").is_some_and(Value::is_string) => {
+            Cell::Text(o["@rid"].as_str().unwrap_or_default().to_string())
+        }
         (Kind::Json, Value::Object(_) | Value::Array(_)) => Cell::Json(clean(v).to_string()),
         _ => any(v),
     }
@@ -519,24 +624,45 @@ pub(crate) fn plain_decimal(s: &str) -> Option<String> {
         None => (body, 0),
     };
     let (int, frac) = mant.split_once('.').unwrap_or((mant, ""));
-    if int.is_empty() && frac.is_empty() || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+    if int.is_empty() && frac.is_empty()
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     if exp == 0 {
-        return Some(format!("{}{}{}{}", if neg { "-" } else { "" }, if int.is_empty() { "0" } else { int }, if frac.is_empty() { "" } else { "." }, frac));
+        return Some(format!(
+            "{}{}{}{}",
+            if neg { "-" } else { "" },
+            if int.is_empty() { "0" } else { int },
+            if frac.is_empty() { "" } else { "." },
+            frac
+        ));
     }
     let digits = format!("{int}{frac}");
     let point = int.len() as i64 + exp;
     let (i, f) = if point <= 0 {
-        ("0".to_string(), format!("{}{digits}", "0".repeat((-point) as usize)))
+        (
+            "0".to_string(),
+            format!("{}{digits}", "0".repeat((-point) as usize)),
+        )
     } else if point as usize >= digits.len() {
-        (format!("{digits}{}", "0".repeat(point as usize - digits.len())), String::new())
+        (
+            format!("{digits}{}", "0".repeat(point as usize - digits.len())),
+            String::new(),
+        )
     } else {
-        (digits[..point as usize].to_string(), digits[point as usize..].to_string())
+        (
+            digits[..point as usize].to_string(),
+            digits[point as usize..].to_string(),
+        )
     };
     let i = i.trim_start_matches('0');
     let i = if i.is_empty() { "0" } else { i };
-    Some(format!("{}{i}{}{f}", if neg { "-" } else { "" }, if f.is_empty() { "" } else { "." }))
+    Some(format!(
+        "{}{i}{}{f}",
+        if neg { "-" } else { "" },
+        if f.is_empty() { "" } else { "." }
+    ))
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -544,7 +670,9 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 pub(crate) fn base64_encode(b: &[u8]) -> String {
     let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
     for c in b.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         for i in 0..4 {
             if i <= c.len() {
                 out.push(B64[(n >> (18 - 6 * i) & 63) as usize] as char);
@@ -614,8 +742,15 @@ pub(crate) fn timestamp(s: &str) -> Option<(String, Option<String>)> {
     let zone = match zone {
         "" => None,
         "Z" | "z" => Some("Z".to_string()),
-        z if z.len() == 6 && (z.starts_with('+') || z.starts_with('-')) && z.as_bytes()[3] == b':' => Some(z.to_string()),
-        z if z.len() == 5 && (z.starts_with('+') || z.starts_with('-')) => Some(format!("{}:{}", &z[..3], &z[3..])),
+        z if z.len() == 6
+            && (z.starts_with('+') || z.starts_with('-'))
+            && z.as_bytes()[3] == b':' =>
+        {
+            Some(z.to_string())
+        }
+        z if z.len() == 5 && (z.starts_with('+') || z.starts_with('-')) => {
+            Some(format!("{}:{}", &z[..3], &z[3..]))
+        }
         z if z.len() == 3 && (z.starts_with('+') || z.starts_with('-')) => Some(format!("{z}:00")),
         _ => return None,
     };
@@ -629,7 +764,14 @@ pub(crate) fn literal(cell: &Cell, ty: &str) -> String {
     if ty == "STRING" {
         return match cell {
             Cell::Null => "null".into(),
-            Cell::Text(s) | Cell::Decimal(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => text(s),
+            Cell::Text(s)
+            | Cell::Decimal(s)
+            | Cell::Date(s)
+            | Cell::Time(s)
+            | Cell::DateTime(s)
+            | Cell::DateTimeTz(s)
+            | Cell::Uuid(s)
+            | Cell::Json(s) => text(s),
             other => match other.to_json() {
                 Value::String(s) => text(&s),
                 v => text(&v.to_string()),
@@ -643,7 +785,9 @@ pub(crate) fn literal(cell: &Cell, ty: &str) -> String {
         Cell::UInt(u) if *u <= i64::MAX as u64 => u.to_string(),
         Cell::UInt(u) => format!("'{u}'.asDecimal()"),
         Cell::Float(f) if f.is_nan() => "'NaN'.asFloat()".into(),
-        Cell::Float(f) if f.is_infinite() => format!("'{}Infinity'.asFloat()", if *f < 0.0 { "-" } else { "" }),
+        Cell::Float(f) if f.is_infinite() => {
+            format!("'{}Infinity'.asFloat()", if *f < 0.0 { "-" } else { "" })
+        }
         Cell::Float(f) => format!("{f:?}"),
         Cell::Decimal(d) => format!("{}.asDecimal()", text(d)),
         Cell::Text(s) | Cell::Time(s) | Cell::Uuid(s) => text(s),
@@ -651,7 +795,10 @@ pub(crate) fn literal(cell: &Cell, ty: &str) -> String {
         Cell::Date(d) => format!("date({}, 'yyyy-MM-dd')", text(d)),
         // A zone in a zone-less cell is still a zone: kept.
         Cell::DateTime(s) | Cell::DateTimeTz(s) => match timestamp(s) {
-            Some((t, Some(z))) => format!("date({}, 'yyyy-MM-dd HH:mm:ss.SSSXXX')", text(&format!("{t}{z}"))),
+            Some((t, Some(z))) => format!(
+                "date({}, 'yyyy-MM-dd HH:mm:ss.SSSXXX')",
+                text(&format!("{t}{z}"))
+            ),
             Some((t, None)) => format!("date({}, 'yyyy-MM-dd HH:mm:ss.SSS')", text(&t)),
             None => text(s),
         },
@@ -674,11 +821,19 @@ pub(crate) fn bookkeeping(kind: &str, name: &str, props: &HashMap<String, (Strin
     (kind == VERTEX || kind == EDGE)
         && crate::is_graph_field(name)
         && !(kind == EDGE && (name == "out" || name == "in"))
-        && props.get(name).is_none_or(|(t, _)| t.eq_ignore_ascii_case("LINKBAG"))
+        && props
+            .get(name)
+            .is_none_or(|(t, _)| t.eq_ignore_ascii_case("LINKBAG"))
 }
 
 /// One row's statement.
-pub(crate) fn statement(class: &str, kind: &str, names: &[String], types: &HashMap<String, (String, bool)>, row: &[Cell]) -> Result<String> {
+pub(crate) fn statement(
+    class: &str,
+    kind: &str,
+    names: &[String],
+    types: &HashMap<String, (String, bool)>,
+    row: &[Cell],
+) -> Result<String> {
     let class = ident(class);
     let (mut from, mut to) = (None, None);
     let mut sets: Vec<String> = Vec::new();
@@ -687,10 +842,18 @@ pub(crate) fn statement(class: &str, kind: &str, names: &[String], types: &HashM
             "out" if kind == EDGE => from = Some(c),
             "in" if kind == EDGE => to = Some(c),
             n if n.starts_with('@') || bookkeeping(kind, n, types) => {}
-            n => sets.push(format!("{} = {}", ident(n), literal(c, types.get(n).map_or("", |t| t.0.as_str())))),
+            n => sets.push(format!(
+                "{} = {}",
+                ident(n),
+                literal(c, types.get(n).map_or("", |t| t.0.as_str()))
+            )),
         }
     }
-    let set = if sets.is_empty() { String::new() } else { format!(" SET {}", sets.join(", ")) };
+    let set = if sets.is_empty() {
+        String::new()
+    } else {
+        format!(" SET {}", sets.join(", "))
+    };
     Ok(match kind {
         EDGE => {
             let end = |c: Option<&Cell>| match c {
@@ -726,13 +889,27 @@ pub(crate) fn json_len(s: &str) -> usize {
 
 type Auth = Option<(String, Option<String>)>;
 
-async fn send_script(http: reqwest::Client, base: String, auth: Auth, path: String, stmts: String, rows: u64) -> Result<u64> {
-    request(&http, &base, &auth, Method::POST, &path, Some(&batch_body(&stmts)))
-        .await
-        .map_err(|e| match e {
-            Error::Query(m) => Error::Query(format!("carga en lote: {m}")),
-            e => e,
-        })?;
+async fn send_script(
+    http: reqwest::Client,
+    base: String,
+    auth: Auth,
+    path: String,
+    stmts: String,
+    rows: u64,
+) -> Result<u64> {
+    request(
+        &http,
+        &base,
+        &auth,
+        Method::POST,
+        &path,
+        Some(&batch_body(&stmts)),
+    )
+    .await
+    .map_err(|e| match e {
+        Error::Query(m) => Error::Query(format!("carga en lote: {m}")),
+        e => e,
+    })?;
     Ok(rows)
 }
 
@@ -748,7 +925,11 @@ impl OrientSession {
     /// The class's metadata (every class, for inheritance) and its kind.
     async fn class_meta(&self, name: &str) -> Result<(Vec<Value>, &'static str, Value)> {
         let meta = self.metadata().await?;
-        let all: Vec<Value> = meta.get("classes").and_then(Value::as_array).cloned().unwrap_or_default();
+        let all: Vec<Value> = meta
+            .get("classes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let found = crate::classify(&all).into_iter().find(|c| c.0 == name);
         let Some((_, kind, c)) = found else {
             return Err(Error::Query(format!("no existe la clase {name}")));
@@ -759,7 +940,11 @@ impl OrientSession {
     /// One page, always over `/query`: the server refuses anything that
     /// writes there, on read-only connections or not. With a `cap`, a
     /// reply that grows past it is dropped as it arrives (`None`).
-    fn page(&self, q: String, cap: Option<usize>) -> tokio::task::JoinHandle<Result<Option<String>>> {
+    fn page(
+        &self,
+        q: String,
+        cap: Option<usize>,
+    ) -> tokio::task::JoinHandle<Result<Option<String>>> {
         let (http, base, auth) = (self.http.clone(), self.base.clone(), self.auth.clone());
         let db = crate::seg(&self.db);
         tokio::spawn(async move {
@@ -768,16 +953,24 @@ impl OrientSession {
             if let Some((u, p)) = &auth {
                 rq = rq.basic_auth(u, p.as_deref());
             }
-            let mut resp = rq.send().await.map_err(|e| Error::Connect(format!("no se pudo llegar a OrientDB: {e}")))?;
+            let mut resp = rq
+                .send()
+                .await
+                .map_err(|e| Error::Connect(format!("no se pudo llegar a OrientDB: {e}")))?;
             let status = resp.status();
             let mut body: Vec<u8> = Vec::new();
-            while let Some(c) = resp.chunk().await.map_err(|e| Error::Connect(e.to_string()))? {
+            while let Some(c) = resp
+                .chunk()
+                .await
+                .map_err(|e| Error::Connect(e.to_string()))?
+            {
                 if status.is_success() && cap.is_some_and(|cap| body.len() + c.len() > cap) {
                     return Ok(None);
                 }
                 body.extend_from_slice(&c);
             }
-            let text = String::from_utf8(body).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+            let text = String::from_utf8(body)
+                .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
             if status.is_success() {
                 return Ok(Some(text));
             }
@@ -793,13 +986,27 @@ impl OrientSession {
     }
 
     /// A window's page, after `after`.
-    fn window_page(&self, class: &str, projections: &[String], filter: Option<&str>, after: &str, w: &Window) -> tokio::task::JoinHandle<Result<Option<String>>> {
-        self.page(page_query(class, projections, filter, after, w.end().0, w.limit()), w.cap())
+    fn window_page(
+        &self,
+        class: &str,
+        projections: &[String],
+        filter: Option<&str>,
+        after: &str,
+        w: &Window,
+    ) -> tokio::task::JoinHandle<Result<Option<String>>> {
+        self.page(
+            page_query(class, projections, filter, after, w.end().0, w.limit()),
+            w.cap(),
+        )
     }
 
     /// A query's rows, over `/query`.
     async fn rows(&self, q: String) -> Result<Vec<Vec<(String, Value)>>> {
-        let reply = self.page(q, None).await.map_err(|e| Error::State(format!("lectura interrumpida: {e}")))??.unwrap_or_default();
+        let reply = self
+            .page(q, None)
+            .await
+            .map_err(|e| Error::State(format!("lectura interrumpida: {e}")))??
+            .unwrap_or_default();
         Ok(crate::parse_reply(&reply).map_err(Error::Query)?.records)
     }
 
@@ -807,7 +1014,9 @@ impl OrientSession {
     /// probed ones ran out. `None` when there's nothing left.
     async fn next_window(&self, pager: &mut Pager<'_>) -> Result<Option<Window>> {
         if pager.probed.is_empty() && !pager.exhausted {
-            let rows = self.rows(probe_query(pager.class, pager.filter, &pager.probed_to.0)).await?;
+            let rows = self
+                .rows(probe_query(pager.class, pager.filter, &pager.probed_to.0))
+                .await?;
             pager.take_probe(&rows)?;
         }
         Ok(pager.cut())
@@ -818,25 +1027,52 @@ impl OrientSession {
     /// (`.type()`), with how often each shows. Only names and type names
     /// travel, never the values, so a class of large records costs the
     /// same as one of small ones.
-    async fn sampled_fields(&self, class: &str, known: &[TransferColumn]) -> Result<Vec<TransferColumn>> {
-        let from = format!(" FROM {} WHERE @class = {} LIMIT {SAMPLE}", ident(class), crate::ddl::string(class));
+    async fn sampled_fields(
+        &self,
+        class: &str,
+        known: &[TransferColumn],
+    ) -> Result<Vec<TransferColumn>> {
+        let from = format!(
+            " FROM {} WHERE @class = {} LIMIT {SAMPLE}",
+            ident(class),
+            crate::ddl::string(class)
+        );
         let mut names: Vec<String> = Vec::new();
         for r in self.rows(format!("SELECT @this.keys() AS k{from}")).await? {
-            for k in r.iter().filter(|(k, _)| k == "k").filter_map(|(_, v)| v.as_array()).flatten().filter_map(Value::as_str) {
-                if !k.starts_with('@') && !names.iter().any(|n| n == k) && !known.iter().any(|c| c.name == k) {
+            for k in r
+                .iter()
+                .filter(|(k, _)| k == "k")
+                .filter_map(|(_, v)| v.as_array())
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                if !k.starts_with('@')
+                    && !names.iter().any(|n| n == k)
+                    && !known.iter().any(|c| c.name == k)
+                {
                     names.push(k.to_string());
                 }
             }
         }
         let mut out = Vec::new();
         for group in names.chunks(TYPES_PER_QUERY) {
-            let projections: Vec<String> = group.iter().enumerate().map(|(i, n)| format!("{}.type() AS t{i}", ident(n))).collect();
-            let rows = self.rows(format!("SELECT {}{from}", projections.join(", "))).await?;
+            let projections: Vec<String> = group
+                .iter()
+                .enumerate()
+                .map(|(i, n)| format!("{}.type() AS t{i}", ident(n)))
+                .collect();
+            let rows = self
+                .rows(format!("SELECT {}{from}", projections.join(", ")))
+                .await?;
             for (i, name) in group.iter().enumerate() {
                 let alias = format!("t{i}");
                 let mut types: Vec<(String, usize)> = Vec::new();
                 let mut present = 0;
-                for t in rows.iter().filter_map(|r| r.iter().find(|(k, _)| *k == alias).and_then(|(_, v)| v.as_str())) {
+                for t in rows.iter().filter_map(|r| {
+                    r.iter()
+                        .find(|(k, _)| *k == alias)
+                        .and_then(|(_, v)| v.as_str())
+                }) {
                     present += 1;
                     match types.iter_mut().find(|(n, _)| n == t) {
                         Some(e) => e.1 += 1,
@@ -844,8 +1080,20 @@ impl OrientSession {
                     }
                 }
                 types.sort_by_key(|t| std::cmp::Reverse(t.1));
-                let type_name = if types.is_empty() { "ANY".into() } else { types.iter().map(|t| t.0.as_str()).collect::<Vec<_>>().join("|") };
-                out.push(TransferColumn { name: name.clone(), type_name, nullable: present < rows.len() });
+                let type_name = if types.is_empty() {
+                    "ANY".into()
+                } else {
+                    types
+                        .iter()
+                        .map(|t| t.0.as_str())
+                        .collect::<Vec<_>>()
+                        .join("|")
+                };
+                out.push(TransferColumn {
+                    name: name.clone(),
+                    type_name,
+                    nullable: present < rows.len(),
+                });
             }
         }
         Ok(out)
@@ -854,17 +1102,38 @@ impl OrientSession {
     /// The columns read when none are asked for: the class's properties
     /// (inherited ones after its own) and the fields of a sample, without
     /// graph bookkeeping.
-    async fn default_columns(&self, class: &str, kind: &str, meta: &Value, props: &HashMap<String, (String, bool)>) -> Result<Vec<TransferColumn>> {
+    async fn default_columns(
+        &self,
+        class: &str,
+        kind: &str,
+        meta: &Value,
+        props: &HashMap<String, (String, bool)>,
+    ) -> Result<Vec<TransferColumn>> {
         let mut cols: Vec<TransferColumn> = Vec::new();
-        let own = meta.get("properties").and_then(Value::as_array).into_iter().flatten().filter_map(|p| p.get("name").and_then(Value::as_str));
+        let own = meta
+            .get("properties")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p.get("name").and_then(Value::as_str));
         let mut inherited: Vec<&String> = props.keys().collect();
         inherited.sort();
-        for name in own.map(str::to_string).chain(inherited.into_iter().cloned()) {
+        for name in own
+            .map(str::to_string)
+            .chain(inherited.into_iter().cloned())
+        {
             if cols.iter().any(|c| c.name == name) || bookkeeping(kind, &name, props) {
                 continue;
             }
-            let (ty, nullable) = props.get(&name).cloned().unwrap_or_else(|| (String::new(), true));
-            cols.push(TransferColumn { name, type_name: ty, nullable });
+            let (ty, nullable) = props
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| (String::new(), true));
+            cols.push(TransferColumn {
+                name,
+                type_name: ty,
+                nullable,
+            });
         }
         for c in self.sampled_fields(class, &cols).await? {
             if !bookkeeping(kind, &c.name, props) {
@@ -877,14 +1146,25 @@ impl OrientSession {
                     let c = cols.remove(i);
                     cols.insert(0, c);
                 } else {
-                    cols.insert(0, TransferColumn { name: end.into(), type_name: "LINK".into(), nullable: false });
+                    cols.insert(
+                        0,
+                        TransferColumn {
+                            name: end.into(),
+                            type_name: "LINK".into(),
+                            nullable: false,
+                        },
+                    );
                 }
             }
         }
         Ok(cols)
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         if ![VERTEX, EDGE, kinds::TABLE].contains(&spec.table.kind.as_str()) {
             return dbine_driver::transfer::read_via_execute(self, spec, sink).await;
         }
@@ -897,42 +1177,82 @@ impl OrientSession {
                 .iter()
                 .map(|n| {
                     let (ty, nullable) = props.get(n).cloned().unwrap_or_default();
-                    TransferColumn { name: n.clone(), type_name: ty, nullable: nullable || !props.contains_key(n) }
+                    TransferColumn {
+                        name: n.clone(),
+                        type_name: ty,
+                        nullable: nullable || !props.contains_key(n),
+                    }
                 })
                 .collect(),
             None => self.default_columns(&class, kind, &meta, &props).await?,
         };
-        let kinds: Vec<Kind> = cols.iter().map(|c| props.get(&c.name).map_or(Kind::Any, |p| Kind::of(&p.0))).collect();
+        let kinds: Vec<Kind> = cols
+            .iter()
+            .map(|c| props.get(&c.name).map_or(Kind::Any, |p| Kind::of(&p.0)))
+            .collect();
         let aliases: Vec<String> = (0..cols.len()).map(|i| format!("dbineC{i}")).collect();
-        let projections: Vec<String> = cols.iter().zip(&kinds).zip(&aliases).map(|((c, k), a)| projection(&c.name, *k, a)).collect();
-        let filter = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty());
+        let projections: Vec<String> = cols
+            .iter()
+            .zip(&kinds)
+            .zip(&aliases)
+            .map(|((c, k), a)| projection(&c.name, *k, a))
+            .collect();
+        let filter = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty());
         if let Some(f) = filter {
             check_filter(f)?;
         }
 
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
         let mut builder = BatchBuilder::new();
         let mut pager = Pager::new(&class, filter, cols.len());
         // The previous page's end: the next one starts after it.
         let (mut after, mut after_key) = ("#-1:-1".to_string(), (-1i64, -1i64));
-        let mut next = self.next_window(&mut pager).await?.map(|w| (self.window_page(&class, &projections, filter, &after, &w), w));
+        let mut next = self.next_window(&mut pager).await?.map(|w| {
+            (
+                self.window_page(&class, &projections, filter, &after, &w),
+                w,
+            )
+        });
         while let Some((h, w)) = next.take() {
-            let Some(reply) = h.await.map_err(|e| Error::State(format!("lectura interrumpida: {e}")))?? else {
+            let Some(reply) = h
+                .await
+                .map_err(|e| Error::State(format!("lectura interrumpida: {e}")))??
+            else {
                 // Past the cap: nothing of it was kept; cut it again
                 // smaller, from the same place.
                 pager.overflowed(w);
-                next = self.next_window(&mut pager).await?.map(|n| (self.window_page(&class, &projections, filter, &after, &n), n));
+                next = self.next_window(&mut pager).await?.map(|n| {
+                    (
+                        self.window_page(&class, &projections, filter, &after, &n),
+                        n,
+                    )
+                });
                 continue;
             };
             let reply_bytes = reply.len();
             let rows = crate::parse_reply(&reply).map_err(Error::Query)?.records;
             drop(reply);
             if rows.len() > w.limit() {
-                return Err(Error::Query(format!("la página trajo {} registros y se pidieron {}; revisá el filtro", rows.len(), w.limit())));
+                return Err(Error::Query(format!(
+                    "la página trajo {} registros y se pidieron {}; revisá el filtro",
+                    rows.len(),
+                    w.limit()
+                )));
             }
             // Every row inside the window, in order, of this class: a
             // filter that slipped out of the bounds fails here.
-            let last = check_rows(rows.iter().map(|r| rid_and_class(r)), &class, after_key, Some(w.end().1))?;
+            let last = check_rows(
+                rows.iter().map(|r| rid_and_class(r)),
+                &class,
+                after_key,
+                Some(w.end().1),
+            )?;
             pager.factor = calibrate(pager.factor, reply_bytes, w.stored());
             let end = (w.end().0.to_string(), w.end().1);
             next = match w.rest(rows.len(), last) {
@@ -941,24 +1261,42 @@ impl OrientSession {
                 // the last row read.
                 Some(rest) => {
                     (after, after_key) = (format!("#{}:{}", last.0, last.1), last);
-                    Some((self.window_page(&class, &projections, filter, &after, &rest), rest))
+                    Some((
+                        self.window_page(&class, &projections, filter, &after, &rest),
+                        rest,
+                    ))
                 }
                 None => {
                     (after, after_key) = end;
-                    self.next_window(&mut pager).await?.map(|n| (self.window_page(&class, &projections, filter, &after, &n), n))
+                    self.next_window(&mut pager).await?.map(|n| {
+                        (
+                            self.window_page(&class, &projections, filter, &after, &n),
+                            n,
+                        )
+                    })
                 }
             };
-            let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+            let mut s = sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?;
             for r in &rows {
                 let row = aliases
                     .iter()
                     .zip(&kinds)
-                    .map(|(a, k)| r.iter().find(|(x, _)| x == a).map_or(Cell::Null, |(_, v)| to_cell(*k, v)))
+                    .map(|(a, k)| {
+                        r.iter()
+                            .find(|(x, _)| x == a)
+                            .map_or(Cell::Null, |(_, v)| to_cell(*k, v))
+                    })
                     .collect();
                 builder.push(row, &mut *s)?;
             }
         }
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
@@ -970,14 +1308,23 @@ impl OrientSession {
         progress: Progress<'_>,
     ) -> Result<u64> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden cargar datos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden cargar datos.".into(),
+            ));
         }
-        let names: Vec<String> = if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
         let class = spec.table.name.clone();
         let (all, kind, _) = self.class_meta(&class).await?;
         let types = properties(&all, &class);
         if kind == EDGE && !(names.iter().any(|n| n == "out") && names.iter().any(|n| n == "in")) {
-            return Err(Error::Unsupported("para copiar aristas hacen falta sus columnas out e in (los #rid de sus vértices)".into()));
+            return Err(Error::Unsupported(
+                "para copiar aristas hacen falta sus columnas out e in (los #rid de sus vértices)"
+                    .into(),
+            ));
         }
         let path = format!("/batch/{}", self.db_seg()?);
         let chunk_rows = spec.commit_rows.clamp(1, CHUNK);
@@ -993,7 +1340,11 @@ impl OrientSession {
                 let finished = batch.is_none();
                 for row in batch.map(|b| b.rows).unwrap_or_default() {
                     if row.len() != names.len() {
-                        return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), names.len())));
+                        return Err(Error::Query(format!(
+                            "la fila tiene {} valores y la carga {} columnas",
+                            row.len(),
+                            names.len()
+                        )));
                     }
                     let stmt = statement(&class, kind, &names, &types, &row)?;
                     let len = json_len(&stmt) + 2;
@@ -1004,7 +1355,14 @@ impl OrientSession {
                         }
                         let s = std::mem::take(&mut script);
                         bytes = 0;
-                        inflight.spawn(send_script(self.http.clone(), self.base.clone(), self.auth.clone(), path.clone(), s, std::mem::take(&mut rows)));
+                        inflight.spawn(send_script(
+                            self.http.clone(),
+                            self.base.clone(),
+                            self.auth.clone(),
+                            path.clone(),
+                            s,
+                            std::mem::take(&mut rows),
+                        ));
                     }
                     script.push_str(&stmt);
                     script.push('\n');
@@ -1017,7 +1375,14 @@ impl OrientSession {
                         }
                         let s = std::mem::take(&mut script);
                         bytes = 0;
-                        inflight.spawn(send_script(self.http.clone(), self.base.clone(), self.auth.clone(), path.clone(), s, std::mem::take(&mut rows)));
+                        inflight.spawn(send_script(
+                            self.http.clone(),
+                            self.base.clone(),
+                            self.auth.clone(),
+                            path.clone(),
+                            s,
+                            std::mem::take(&mut rows),
+                        ));
                     }
                 }
                 while let Some(r) = inflight.try_join_next() {
@@ -1029,7 +1394,14 @@ impl OrientSession {
                 }
             }
             if rows > 0 {
-                inflight.spawn(send_script(self.http.clone(), self.base.clone(), self.auth.clone(), path.clone(), script, rows));
+                inflight.spawn(send_script(
+                    self.http.clone(),
+                    self.base.clone(),
+                    self.auth.clone(),
+                    path.clone(),
+                    script,
+                    rows,
+                ));
             }
             while let Some(r) = inflight.join_next().await {
                 done += joined(Some(r))?;
@@ -1074,9 +1446,18 @@ mod tests {
 
     #[test]
     fn projections_and_pages() {
-        assert_eq!(projection("ts", Kind::DateTime, "c0"), "ts.format('yyyy-MM-dd HH:mm:ss.SSSXXX') AS c0");
-        assert_eq!(projection("d", Kind::Date, "c1"), "d.format('yyyy-MM-dd') AS c1");
-        assert_eq!(projection("a b", Kind::Decimal, "c2"), "`a b`.asString() AS c2");
+        assert_eq!(
+            projection("ts", Kind::DateTime, "c0"),
+            "ts.format('yyyy-MM-dd HH:mm:ss.SSSXXX') AS c0"
+        );
+        assert_eq!(
+            projection("d", Kind::Date, "c1"),
+            "d.format('yyyy-MM-dd') AS c1"
+        );
+        assert_eq!(
+            projection("a b", Kind::Decimal, "c2"),
+            "`a b`.asString() AS c2"
+        );
         assert_eq!(projection("@rid", Kind::Any, "c3"), "@rid AS c3");
         assert_eq!(projection("x", Kind::Json, "c4"), "x AS c4");
         assert_eq!(
@@ -1100,34 +1481,82 @@ mod tests {
     #[test]
     fn read_values_become_typed_cells() {
         // Date-times come with their offset: the exact instant.
-        assert_eq!(to_cell(Kind::DateTime, &json!("2024-10-27 02:30:00.000+02:00")), Cell::DateTimeTz("2024-10-27 02:30:00.000+02:00".into()));
-        assert_eq!(to_cell(Kind::DateTime, &json!("2024-10-27 02:30:00.000+01:00")), Cell::DateTimeTz("2024-10-27 02:30:00.000+01:00".into()));
-        assert_eq!(to_cell(Kind::DateTime, &json!("2024-02-03 04:05:06.789Z")), Cell::DateTimeTz("2024-02-03 04:05:06.789+00:00".into()));
-        assert_eq!(to_cell(Kind::DateTime, &json!("2024-02-03 04:05:06.789")), Cell::DateTime("2024-02-03 04:05:06.789".into()));
-        assert_eq!(to_cell(Kind::Date, &json!("2024-02-03")), Cell::Date("2024-02-03".into()));
-        assert_eq!(to_cell(Kind::Decimal, &json!("12345678901234567890.123456789")), Cell::Decimal("12345678901234567890.123456789".into()));
-        assert_eq!(to_cell(Kind::Decimal, &json!("1.5E+3")), Cell::Decimal("1500".into()));
+        assert_eq!(
+            to_cell(Kind::DateTime, &json!("2024-10-27 02:30:00.000+02:00")),
+            Cell::DateTimeTz("2024-10-27 02:30:00.000+02:00".into())
+        );
+        assert_eq!(
+            to_cell(Kind::DateTime, &json!("2024-10-27 02:30:00.000+01:00")),
+            Cell::DateTimeTz("2024-10-27 02:30:00.000+01:00".into())
+        );
+        assert_eq!(
+            to_cell(Kind::DateTime, &json!("2024-02-03 04:05:06.789Z")),
+            Cell::DateTimeTz("2024-02-03 04:05:06.789+00:00".into())
+        );
+        assert_eq!(
+            to_cell(Kind::DateTime, &json!("2024-02-03 04:05:06.789")),
+            Cell::DateTime("2024-02-03 04:05:06.789".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Date, &json!("2024-02-03")),
+            Cell::Date("2024-02-03".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Decimal, &json!("12345678901234567890.123456789")),
+            Cell::Decimal("12345678901234567890.123456789".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Decimal, &json!("1.5E+3")),
+            Cell::Decimal("1500".into())
+        );
         assert!(matches!(to_cell(Kind::Float, &json!("NaN")), Cell::Float(f) if f.is_nan()));
-        assert_eq!(to_cell(Kind::Float, &json!("-Infinity")), Cell::Float(f64::NEG_INFINITY));
+        assert_eq!(
+            to_cell(Kind::Float, &json!("-Infinity")),
+            Cell::Float(f64::NEG_INFINITY)
+        );
         assert_eq!(to_cell(Kind::Float, &json!("1.1")), Cell::Float(1.1));
-        assert_eq!(to_cell(Kind::Binary, &json!("AAEC/w==")), Cell::Bytes(vec![0, 1, 2, 255]));
-        assert_eq!(to_cell(Kind::Link, &json!("#9:0")), Cell::Text("#9:0".into()));
-        assert_eq!(to_cell(Kind::Link, &json!({ "@rid": "#9:1", "a": 1 })), Cell::Text("#9:1".into()));
-        assert_eq!(to_cell(Kind::Json, &json!({ "@type": "d", "@version": 0, "x": [{ "@type": "d", "y": 1 }] })), Cell::Json(r#"{"x":[{"y":1}]}"#.into()));
-        assert_eq!(to_cell(Kind::Int, &json!(9007199254740993i64)), Cell::Int(9007199254740993));
+        assert_eq!(
+            to_cell(Kind::Binary, &json!("AAEC/w==")),
+            Cell::Bytes(vec![0, 1, 2, 255])
+        );
+        assert_eq!(
+            to_cell(Kind::Link, &json!("#9:0")),
+            Cell::Text("#9:0".into())
+        );
+        assert_eq!(
+            to_cell(Kind::Link, &json!({ "@rid": "#9:1", "a": 1 })),
+            Cell::Text("#9:1".into())
+        );
+        assert_eq!(
+            to_cell(
+                Kind::Json,
+                &json!({ "@type": "d", "@version": 0, "x": [{ "@type": "d", "y": 1 }] })
+            ),
+            Cell::Json(r#"{"x":[{"y":1}]}"#.into())
+        );
+        assert_eq!(
+            to_cell(Kind::Int, &json!(9007199254740993i64)),
+            Cell::Int(9007199254740993)
+        );
         assert_eq!(to_cell(Kind::Bool, &json!(true)), Cell::Bool(true));
         assert_eq!(to_cell(Kind::Text, &Value::Null), Cell::Null);
         // Undeclared fields keep their JSON type.
         assert_eq!(to_cell(Kind::Any, &json!(u64::MAX)), Cell::UInt(u64::MAX));
         assert_eq!(to_cell(Kind::Any, &json!("x")), Cell::Text("x".into()));
-        assert_eq!(to_cell(Kind::Any, &json!([1, 2])), Cell::Json("[1,2]".into()));
+        assert_eq!(
+            to_cell(Kind::Any, &json!([1, 2])),
+            Cell::Json("[1,2]".into())
+        );
         // A value that doesn't match its declared type isn't lost.
         assert_eq!(to_cell(Kind::Int, &json!("n/a")), Cell::Text("n/a".into()));
     }
 
     #[test]
     fn decimals_in_plain_digits() {
-        assert_eq!(plain_decimal("1.2345678901234567E+19").unwrap(), "12345678901234567000");
+        assert_eq!(
+            plain_decimal("1.2345678901234567E+19").unwrap(),
+            "12345678901234567000"
+        );
         assert_eq!(plain_decimal("-2E-3").unwrap(), "-0.002");
         assert_eq!(plain_decimal("1.25E1").unwrap(), "12.5");
         assert_eq!(plain_decimal("0.00").unwrap(), "0.00");
@@ -1148,11 +1577,26 @@ mod tests {
 
     #[test]
     fn timestamps_normalized() {
-        assert_eq!(timestamp("2024-02-03 04:05:06.789123"), Some(("2024-02-03 04:05:06.789".into(), None)));
-        assert_eq!(timestamp("2024-02-03T04:05:06"), Some(("2024-02-03 04:05:06.000".into(), None)));
-        assert_eq!(timestamp("2024-02-03 04:05:06.5+02:00"), Some(("2024-02-03 04:05:06.500".into(), Some("+02:00".into()))));
-        assert_eq!(timestamp("2024-02-03 04:05:06-0300"), Some(("2024-02-03 04:05:06.000".into(), Some("-03:00".into()))));
-        assert_eq!(timestamp("2024-02-03 04:05:06Z"), Some(("2024-02-03 04:05:06.000".into(), Some("Z".into()))));
+        assert_eq!(
+            timestamp("2024-02-03 04:05:06.789123"),
+            Some(("2024-02-03 04:05:06.789".into(), None))
+        );
+        assert_eq!(
+            timestamp("2024-02-03T04:05:06"),
+            Some(("2024-02-03 04:05:06.000".into(), None))
+        );
+        assert_eq!(
+            timestamp("2024-02-03 04:05:06.5+02:00"),
+            Some(("2024-02-03 04:05:06.500".into(), Some("+02:00".into())))
+        );
+        assert_eq!(
+            timestamp("2024-02-03 04:05:06-0300"),
+            Some(("2024-02-03 04:05:06.000".into(), Some("-03:00".into())))
+        );
+        assert_eq!(
+            timestamp("2024-02-03 04:05:06Z"),
+            Some(("2024-02-03 04:05:06.000".into(), Some("Z".into())))
+        );
         assert_eq!(timestamp("ayer"), None);
     }
 
@@ -1160,53 +1604,110 @@ mod tests {
     fn literals_by_cell_and_property() {
         assert_eq!(literal(&Cell::Bool(true), ""), "true");
         assert_eq!(literal(&Cell::Int(-5), "LONG"), "-5");
-        assert_eq!(literal(&Cell::UInt(u64::MAX), ""), "'18446744073709551615'.asDecimal()");
+        assert_eq!(
+            literal(&Cell::UInt(u64::MAX), ""),
+            "'18446744073709551615'.asDecimal()"
+        );
         assert_eq!(literal(&Cell::Float(1.5), ""), "1.5");
         assert_eq!(literal(&Cell::Float(1e300), ""), "1e300");
         assert_eq!(literal(&Cell::Float(f64::NAN), ""), "'NaN'.asFloat()");
-        assert_eq!(literal(&Cell::Float(f64::NEG_INFINITY), ""), "'-Infinity'.asFloat()");
-        assert_eq!(literal(&Cell::Decimal("12.50".into()), "DECIMAL"), "\"12.50\".asDecimal()");
-        assert_eq!(literal(&Cell::Text("a\n\"b\" \\ é".into()), ""), r#""a\n\"b\" \\ é""#);
-        assert_eq!(literal(&Cell::Bytes(vec![0, 1, 2, 255]), "BINARY"), "\"AAEC/w==\"");
-        assert_eq!(literal(&Cell::Date("2024-02-03".into()), "DATE"), "date(\"2024-02-03\", 'yyyy-MM-dd')");
-        assert_eq!(literal(&Cell::DateTime("2024-02-03 04:05:06.789".into()), ""), "date(\"2024-02-03 04:05:06.789\", 'yyyy-MM-dd HH:mm:ss.SSS')");
+        assert_eq!(
+            literal(&Cell::Float(f64::NEG_INFINITY), ""),
+            "'-Infinity'.asFloat()"
+        );
+        assert_eq!(
+            literal(&Cell::Decimal("12.50".into()), "DECIMAL"),
+            "\"12.50\".asDecimal()"
+        );
+        assert_eq!(
+            literal(&Cell::Text("a\n\"b\" \\ é".into()), ""),
+            r#""a\n\"b\" \\ é""#
+        );
+        assert_eq!(
+            literal(&Cell::Bytes(vec![0, 1, 2, 255]), "BINARY"),
+            "\"AAEC/w==\""
+        );
+        assert_eq!(
+            literal(&Cell::Date("2024-02-03".into()), "DATE"),
+            "date(\"2024-02-03\", 'yyyy-MM-dd')"
+        );
+        assert_eq!(
+            literal(&Cell::DateTime("2024-02-03 04:05:06.789".into()), ""),
+            "date(\"2024-02-03 04:05:06.789\", 'yyyy-MM-dd HH:mm:ss.SSS')"
+        );
         assert_eq!(
             literal(&Cell::DateTimeTz("2024-02-03 04:05:06+02:00".into()), ""),
             "date(\"2024-02-03 04:05:06.000+02:00\", 'yyyy-MM-dd HH:mm:ss.SSSXXX')"
         );
         assert_eq!(literal(&Cell::Time("04:05:06".into()), ""), "\"04:05:06\"");
         assert_eq!(literal(&Cell::Uuid("6f1c…".into()), ""), "\"6f1c…\"");
-        assert_eq!(literal(&Cell::Json(r#"{"x": [1, "a"]}"#.into()), "EMBEDDED"), r#"{"x":[1,"a"]}"#);
+        assert_eq!(
+            literal(&Cell::Json(r#"{"x": [1, "a"]}"#.into()), "EMBEDDED"),
+            r#"{"x":[1,"a"]}"#
+        );
         assert_eq!(literal(&Cell::Json("3".into()), ""), "3");
         assert_eq!(literal(&Cell::Json("not json".into()), ""), "\"not json\"");
         // Into a STRING property everything goes as text.
         assert_eq!(literal(&Cell::Int(5), "STRING"), "\"5\"");
-        assert_eq!(literal(&Cell::DateTime("2024-02-03 04:05:06".into()), "string"), "\"2024-02-03 04:05:06\"");
-        assert_eq!(literal(&Cell::Json(r#"{"a":1}"#.into()), "STRING"), r#""{\"a\":1}""#);
+        assert_eq!(
+            literal(&Cell::DateTime("2024-02-03 04:05:06".into()), "string"),
+            "\"2024-02-03 04:05:06\""
+        );
+        assert_eq!(
+            literal(&Cell::Json(r#"{"a":1}"#.into()), "STRING"),
+            r#""{\"a\":1}""#
+        );
     }
 
     #[test]
     fn statements_per_class_kind() {
-        let names: Vec<String> = ["@rid", "name", "n", "out_Knows", "extra"].iter().map(|s| s.to_string()).collect();
+        let names: Vec<String> = ["@rid", "name", "n", "out_Knows", "extra"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let mut types = HashMap::new();
         types.insert("n".to_string(), ("STRING".to_string(), true));
-        let row = vec![Cell::Text("#1:1".into()), Cell::Text("Ann".into()), Cell::Int(3), Cell::Json("[]".into()), Cell::Null];
+        let row = vec![
+            Cell::Text("#1:1".into()),
+            Cell::Text("Ann".into()),
+            Cell::Int(3),
+            Cell::Json("[]".into()),
+            Cell::Null,
+        ];
         // A document class has no graph bookkeeping: `out_Knows` is data.
         // NULLs are written, not left out (that would store a default).
         assert_eq!(
             statement("Doc", kinds::TABLE, &names, &types, &row).unwrap(),
             "INSERT INTO Doc SET name = \"Ann\", n = \"3\", out_Knows = [], extra = null;"
         );
-        assert_eq!(statement("Per son", VERTEX, &names, &types, &row).unwrap(), "CREATE VERTEX `Per son` SET name = \"Ann\", n = \"3\", extra = null;");
+        assert_eq!(
+            statement("Per son", VERTEX, &names, &types, &row).unwrap(),
+            "CREATE VERTEX `Per son` SET name = \"Ann\", n = \"3\", extra = null;"
+        );
         let empty = vec![Cell::Null, Cell::Null, Cell::Null, Cell::Null, Cell::Null];
-        assert_eq!(statement("Doc", kinds::TABLE, &names, &types, &empty).unwrap(), "INSERT INTO Doc SET name = null, n = null, out_Knows = null, extra = null;");
-        assert_eq!(statement("P", VERTEX, &names, &types, &empty).unwrap(), "CREATE VERTEX P SET name = null, n = null, extra = null;");
+        assert_eq!(
+            statement("Doc", kinds::TABLE, &names, &types, &empty).unwrap(),
+            "INSERT INTO Doc SET name = null, n = null, out_Knows = null, extra = null;"
+        );
+        assert_eq!(
+            statement("P", VERTEX, &names, &types, &empty).unwrap(),
+            "CREATE VERTEX P SET name = null, n = null, extra = null;"
+        );
         let only_rid: Vec<String> = vec!["@rid".into()];
-        assert_eq!(statement("Doc", kinds::TABLE, &only_rid, &types, &[Cell::Null]).unwrap(), "INSERT INTO Doc CONTENT {};");
-        assert_eq!(statement("P", VERTEX, &only_rid, &types, &[Cell::Null]).unwrap(), "CREATE VERTEX P;");
+        assert_eq!(
+            statement("Doc", kinds::TABLE, &only_rid, &types, &[Cell::Null]).unwrap(),
+            "INSERT INTO Doc CONTENT {};"
+        );
+        assert_eq!(
+            statement("P", VERTEX, &only_rid, &types, &[Cell::Null]).unwrap(),
+            "CREATE VERTEX P;"
+        );
 
         // `in_stock` on a document class, and declared on a vertex, is kept.
-        let names: Vec<String> = ["in_stock", "out_date"].iter().map(|s| s.to_string()).collect();
+        let names: Vec<String> = ["in_stock", "out_date"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let row = vec![Cell::Bool(true), Cell::Date("2024-02-03".into())];
         assert_eq!(
             statement("Doc", kinds::TABLE, &names, &HashMap::new(), &row).unwrap(),
@@ -1215,12 +1716,29 @@ mod tests {
         let mut vt = HashMap::new();
         vt.insert("in_stock".to_string(), ("BOOLEAN".to_string(), true));
         vt.insert("out_date".to_string(), ("LINKBAG".to_string(), true));
-        assert_eq!(statement("P", VERTEX, &names, &vt, &row).unwrap(), "CREATE VERTEX P SET in_stock = true;");
+        assert_eq!(
+            statement("P", VERTEX, &names, &vt, &row).unwrap(),
+            "CREATE VERTEX P SET in_stock = true;"
+        );
 
-        let names: Vec<String> = ["out", "in", "since"].iter().map(|s| s.to_string()).collect();
-        let row = vec![Cell::Text("#10:0".into()), Cell::Text("#10:1".into()), Cell::Int(2020)];
-        assert_eq!(statement("Knows", EDGE, &names, &HashMap::new(), &row).unwrap(), "CREATE EDGE Knows FROM #10:0 TO #10:1 SET since = 2020;");
-        let bad = vec![Cell::Text("#10:0; DELETE VERTEX V".into()), Cell::Text("#10:1".into()), Cell::Null];
+        let names: Vec<String> = ["out", "in", "since"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let row = vec![
+            Cell::Text("#10:0".into()),
+            Cell::Text("#10:1".into()),
+            Cell::Int(2020),
+        ];
+        assert_eq!(
+            statement("Knows", EDGE, &names, &HashMap::new(), &row).unwrap(),
+            "CREATE EDGE Knows FROM #10:0 TO #10:1 SET since = 2020;"
+        );
+        let bad = vec![
+            Cell::Text("#10:0; DELETE VERTEX V".into()),
+            Cell::Text("#10:1".into()),
+            Cell::Null,
+        ];
         assert!(statement("Knows", EDGE, &names, &HashMap::new(), &bad).is_err());
     }
 
@@ -1273,11 +1791,25 @@ mod tests {
     #[test]
     fn page_rows_checked() {
         let class = "D";
-        let ok = [(Some("#10:1"), Some("D")), (Some("#10:2"), Some("D")), (Some("#11:0"), Some("D"))];
-        assert_eq!(check_rows(ok, class, (-1, -1), Some((11, 0))).unwrap(), (11, 0));
-        assert_eq!(check_rows([], class, (10, 5), Some((11, 0))).unwrap(), (10, 5));
+        let ok = [
+            (Some("#10:1"), Some("D")),
+            (Some("#10:2"), Some("D")),
+            (Some("#11:0"), Some("D")),
+        ];
+        assert_eq!(
+            check_rows(ok, class, (-1, -1), Some((11, 0))).unwrap(),
+            (11, 0)
+        );
+        assert_eq!(
+            check_rows([], class, (10, 5), Some((11, 0))).unwrap(),
+            (10, 5)
+        );
         // The live case: D's record twice, then a subclass's.
-        let dup = [(Some("#10:0"), Some("D")), (Some("#10:0"), Some("D")), (Some("#12:0"), Some("D2"))];
+        let dup = [
+            (Some("#10:0"), Some("D")),
+            (Some("#10:0"), Some("D")),
+            (Some("#12:0"), Some("D2")),
+        ];
         assert!(check_rows(dup, class, (-1, -1), Some((12, 0))).is_err());
         assert!(check_rows([(Some("#12:0"), Some("D2"))], class, (-1, -1), None).is_err());
         // Before the previous page's end, or past this one's.
@@ -1305,14 +1837,22 @@ mod tests {
         assert_eq!(fit([20_000_000, 1, 1], 2, 1, PAGE), 1);
         // The verifier's case: 90 records of 1 byte, then 300 of 120 KB.
         // Whatever the page starts on, it stays under the page bytes.
-        let sizes: Vec<usize> = std::iter::repeat_n(1, 90).chain(std::iter::repeat_n(120_000, 300)).collect();
+        let sizes: Vec<usize> = std::iter::repeat_n(1, 90)
+            .chain(std::iter::repeat_n(120_000, 300))
+            .collect();
         let mut at = 0;
         let mut pages = 0;
         while at < sizes.len() {
             let n = fit(sizes[at..].iter().copied(), FACTOR_MIN, 2, PAGE);
             assert!(n >= 1);
-            let bytes: usize = sizes[at..at + n].iter().map(|s| estimate(*s, FACTOR_MIN, 2)).sum();
-            assert!(bytes <= PAGE_BYTES, "page of {n} records at {at}: {bytes} bytes");
+            let bytes: usize = sizes[at..at + n]
+                .iter()
+                .map(|s| estimate(*s, FACTOR_MIN, 2))
+                .sum();
+            assert!(
+                bytes <= PAGE_BYTES,
+                "page of {n} records at {at}: {bytes} bytes"
+            );
             at += n;
             pages += 1;
         }
@@ -1329,7 +1869,13 @@ mod tests {
     fn pager_cuts_from_the_probe() {
         let mut p = Pager::new("D", None, 2);
         let rows: Vec<Vec<(String, Value)>> = (0..60)
-            .map(|i| vec![(RID.into(), json!(format!("#9:{i}"))), (SIZE.into(), json!(if i < 20 { 1 } else { 1_000_000 })), (CLASS.into(), json!("D"))])
+            .map(|i| {
+                vec![
+                    (RID.into(), json!(format!("#9:{i}"))),
+                    (SIZE.into(), json!(if i < 20 { 1 } else { 1_000_000 })),
+                    (CLASS.into(), json!("D")),
+                ]
+            })
             .collect();
         p.take_probe(&rows).unwrap();
         assert!(p.exhausted);
@@ -1343,13 +1889,25 @@ mod tests {
         assert_eq!((w.end().0, w.limit()), ("#9:23", 2));
         // A probe that goes backwards, or brings another class, fails.
         let mut p = Pager::new("D", None, 2);
-        assert!(p.take_probe(&[vec![(RID.into(), json!("#9:1")), (CLASS.into(), json!("D2"))]]).is_err());
+        assert!(p
+            .take_probe(&[vec![
+                (RID.into(), json!("#9:1")),
+                (CLASS.into(), json!("D2"))
+            ]])
+            .is_err());
         let mut p = Pager::new("D", None, 2);
-        assert!(p.take_probe(&[vec![(RID.into(), json!("#9:1")), (CLASS.into(), json!("D"))], vec![(RID.into(), json!("#9:1")), (CLASS.into(), json!("D"))]]).is_err());
+        assert!(p
+            .take_probe(&[
+                vec![(RID.into(), json!("#9:1")), (CLASS.into(), json!("D"))],
+                vec![(RID.into(), json!("#9:1")), (CLASS.into(), json!("D"))]
+            ])
+            .is_err());
     }
 
     fn probed(keys: &[(i64, i64)]) -> Vec<Probed> {
-        keys.iter().map(|k| (format!("#{}:{}", k.0, k.1), *k, 10)).collect()
+        keys.iter()
+            .map(|k| (format!("#{}:{}", k.0, k.1), *k, 10))
+            .collect()
     }
 
     #[test]
@@ -1362,11 +1920,20 @@ mod tests {
         let rest = w.rest(4, (10, 0)).unwrap();
         assert_eq!((rest.end(), rest.limit()), (("#10:1", (10, 1)), 1));
         // A full page that reached the end, or a short one: done.
-        assert!(Window::new(probed(&[(9, 5), (9, 6)])).unwrap().rest(2, (9, 6)).is_none());
-        assert!(Window::new(probed(&[(9, 5), (9, 6)])).unwrap().rest(1, (9, 5)).is_none());
+        assert!(Window::new(probed(&[(9, 5), (9, 6)]))
+            .unwrap()
+            .rest(2, (9, 6))
+            .is_none());
+        assert!(Window::new(probed(&[(9, 5), (9, 6)]))
+            .unwrap()
+            .rest(1, (9, 5))
+            .is_none());
         // Only a window of several records has a reply cap.
         assert_eq!(Window::new(probed(&[(9, 5)])).unwrap().cap(), None);
-        assert_eq!(Window::new(probed(&[(9, 5), (9, 6)])).unwrap().cap(), Some(REPLY_CAP));
+        assert_eq!(
+            Window::new(probed(&[(9, 5), (9, 6)])).unwrap().cap(),
+            Some(REPLY_CAP)
+        );
     }
 
     #[test]
@@ -1378,19 +1945,40 @@ mod tests {
         let w = Window::new(probed(&[(9, 5), (10, 0), (10, 1), (10, 2)])).unwrap();
         // #9:6 and #9:7 are new: the page is #9:5, #9:6, #9:7, #10:0.
         let ids = ["#9:5", "#9:6", "#9:7", "#10:0"];
-        let last = check_rows(ids.iter().map(|i| (Some(*i), Some("D"))), "D", (9, 4), Some(w.end().1)).unwrap();
+        let last = check_rows(
+            ids.iter().map(|i| (Some(*i), Some("D"))),
+            "D",
+            (9, 4),
+            Some(w.end().1),
+        )
+        .unwrap();
         assert_eq!(last, (10, 0));
         let rest = w.rest(ids.len(), last).unwrap();
         let ids: Vec<&str> = rest.records.iter().map(|r| r.0.as_str()).collect();
         assert_eq!(ids, ["#10:1", "#10:2"]);
-        assert!(page_query("D", &["a AS c0".into()], None, "#10:0", rest.end().0, rest.limit()).ends_with("AND @rid > #10:0 AND @rid <= #10:2 ORDER BY @rid LIMIT 2"));
+        assert!(page_query(
+            "D",
+            &["a AS c0".into()],
+            None,
+            "#10:0",
+            rest.end().0,
+            rest.limit()
+        )
+        .ends_with("AND @rid > #10:0 AND @rid <= #10:2 ORDER BY @rid LIMIT 2"));
     }
 
     #[test]
     fn overflowed_page_is_cut_again_smaller() {
         let mut p = Pager::new("D", None, 1);
-        let rows: Vec<Vec<(String, Value)>> =
-            (0..400).map(|i| vec![(RID.into(), json!(format!("#9:{i}"))), (SIZE.into(), json!(100_000)), (CLASS.into(), json!("D"))]).collect();
+        let rows: Vec<Vec<(String, Value)>> = (0..400)
+            .map(|i| {
+                vec![
+                    (RID.into(), json!(format!("#9:{i}"))),
+                    (SIZE.into(), json!(100_000)),
+                    (CLASS.into(), json!("D")),
+                ]
+            })
+            .collect();
         p.take_probe(&rows).unwrap();
         let first = p.cut().unwrap();
         assert_eq!(first.limit(), 1);
@@ -1438,6 +2026,9 @@ mod tests {
         let b = batch_body("INSERT INTO T SET a = 1;\n");
         assert_eq!(b["transaction"], json!(false));
         assert_eq!(b["operations"][0]["type"], "script");
-        assert_eq!(b["operations"][0]["script"], "BEGIN;\nINSERT INTO T SET a = 1;\nCOMMIT;");
+        assert_eq!(
+            b["operations"][0]["script"],
+            "BEGIN;\nINSERT INTO T SET a = 1;\nCOMMIT;"
+        );
     }
 }

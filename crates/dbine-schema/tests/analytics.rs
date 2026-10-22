@@ -20,14 +20,21 @@
 mod common;
 
 use common::{col, exec, exec_quiet, read, target_ddl};
-use dbine_driver::{ColumnDef, ConnectionConfig, DdlParts, ForeignKeyDef, IndexDef, KeyDef, Session, TableSchema};
+use dbine_driver::{
+    ColumnDef, ConnectionConfig, DdlParts, ForeignKeyDef, IndexDef, KeyDef, Session, TableSchema,
+};
 use dbine_schema::{convert, Conversion, IssueCode, Options, Severity};
 
 // ---------------------------------------------------------------------------
 // Helpers
 
 fn c(name: &str, ty: &str) -> ColumnDef {
-    ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() }
+    ColumnDef {
+        name: name.into(),
+        data_type: ty.into(),
+        nullable: true,
+        ..Default::default()
+    }
 }
 
 fn nn(mut c: ColumnDef) -> ColumnDef {
@@ -50,21 +57,33 @@ fn table(name: &str, cols: Vec<ColumnDef>, pk: &[&str]) -> TableSchema {
         kind: "table".into(),
         name: name.into(),
         columns: cols,
-        primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk.iter().map(|s| s.to_string()).collect() }),
+        primary_key: (!pk.is_empty()).then(|| KeyDef {
+            name: None,
+            columns: pk.iter().map(|s| s.to_string()).collect(),
+        }),
         ..Default::default()
     }
 }
 
 fn ty<'a>(t: &'a TableSchema, c: &str) -> &'a str {
-    &t.columns.iter().find(|x| x.name == c).unwrap_or_else(|| panic!("no column {c} in {t:?}")).data_type
+    &t.columns
+        .iter()
+        .find(|x| x.name == c)
+        .unwrap_or_else(|| panic!("no column {c} in {t:?}"))
+        .data_type
 }
 
 fn column<'a>(t: &'a TableSchema, c: &str) -> &'a ColumnDef {
-    t.columns.iter().find(|x| x.name == c).unwrap_or_else(|| panic!("no column {c}"))
+    t.columns
+        .iter()
+        .find(|x| x.name == c)
+        .unwrap_or_else(|| panic!("no column {c}"))
 }
 
 fn has(r: &Conversion, code: IssueCode, object: &str) -> bool {
-    r.issues.iter().any(|i| i.code == code && i.object.as_deref() == Some(object))
+    r.issues
+        .iter()
+        .any(|i| i.code == code && i.object.as_deref() == Some(object))
 }
 
 fn conv(tables: &[TableSchema], from: &str, to: &str) -> Conversion {
@@ -73,11 +92,21 @@ fn conv(tables: &[TableSchema], from: &str, to: &str) -> Conversion {
 
 /// The PostgreSQL tables of the end-to-end tests, as `database_schema` reports them.
 fn pg_tables() -> Vec<TableSchema> {
-    let clientes = table("clientes", vec![nn(c("id", "integer")), c("nombre", "character varying(120)")], &["id"]);
+    let clientes = table(
+        "clientes",
+        vec![
+            nn(c("id", "integer")),
+            c("nombre", "character varying(120)"),
+        ],
+        &["id"],
+    );
     let mut pedidos = table(
         "pedidos",
         vec![
-            nn(def(c("id", "bigint"), "nextval('pedidos_id_seq'::regclass)")),
+            nn(def(
+                c("id", "bigint"),
+                "nextval('pedidos_id_seq'::regclass)",
+            )),
             nn(c("cliente_id", "integer")),
             def(c("total", "numeric(12,2)"), "0"),
             c("grande", "numeric"),
@@ -89,7 +118,10 @@ fn pg_tables() -> Vec<TableSchema> {
             def(c("codigo", "uuid"), "gen_random_uuid()"),
             c("datos", "jsonb"),
             c("etiquetas", "text[]"),
-            def(c("estado", "character varying(20)"), "'nuevo'::character varying"),
+            def(
+                c("estado", "character varying(20)"),
+                "'nuevo'::character varying",
+            ),
             c("bytes", "bytea"),
             c("ip", "inet"),
         ],
@@ -103,8 +135,18 @@ fn pg_tables() -> Vec<TableSchema> {
         on_delete: Some("CASCADE".into()),
         ..Default::default()
     });
-    pedidos.indexes.push(IndexDef { name: "ix_pedidos_creado".into(), columns: vec!["creado".into()], kind: Some("btree".into()), ..Default::default() });
-    pedidos.indexes.push(IndexDef { name: "ux_pedidos_codigo".into(), columns: vec!["codigo".into()], unique: true, ..Default::default() });
+    pedidos.indexes.push(IndexDef {
+        name: "ix_pedidos_creado".into(),
+        columns: vec!["creado".into()],
+        kind: Some("btree".into()),
+        ..Default::default()
+    });
+    pedidos.indexes.push(IndexDef {
+        name: "ux_pedidos_codigo".into(),
+        columns: vec!["codigo".into()],
+        unique: true,
+        ..Default::default()
+    });
     vec![clientes, pedidos]
 }
 
@@ -121,31 +163,59 @@ fn postgres_to_clickhouse() {
     assert_eq!(ty(p, "total"), "Decimal(12, 2)");
     assert_eq!(ty(p, "grande"), "Decimal(76, 20)");
     assert_eq!(ty(p, "creado"), "DateTime64(6)");
-    assert_eq!(column(p, "creado").default_value.as_deref(), Some("now64(6)"));
+    assert_eq!(
+        column(p, "creado").default_value.as_deref(),
+        Some("now64(6)")
+    );
     assert_eq!(ty(p, "local"), "DateTime64(3)");
     assert_eq!(ty(p, "dia"), "Date32");
     assert_eq!(ty(p, "hora"), "String");
     assert_eq!(ty(p, "activo"), "Bool");
     assert_eq!(column(p, "activo").default_value.as_deref(), Some("true"));
     assert_eq!(ty(p, "codigo"), "UUID");
-    assert_eq!(column(p, "codigo").default_value.as_deref(), Some("generateUUIDv4()"));
+    assert_eq!(
+        column(p, "codigo").default_value.as_deref(),
+        Some("generateUUIDv4()")
+    );
     assert_eq!(ty(p, "datos"), "JSON");
     assert_eq!(ty(p, "etiquetas"), "Array(String)");
     assert_eq!(ty(p, "estado"), "String");
-    assert_eq!(column(p, "estado").default_value.as_deref(), Some("'nuevo'"));
+    assert_eq!(
+        column(p, "estado").default_value.as_deref(),
+        Some("'nuevo'")
+    );
     assert_eq!(ty(p, "bytes"), "String");
     // No foreign keys; ENGINE and ORDER BY from the primary key.
     assert!(p.foreign_keys.is_empty());
-    assert!(r.issues.iter().any(|i| i.code == IssueCode::ForeignKeyDropped && i.severity == Severity::Dropped));
-    assert_eq!(p.options.get("engine").map(String::as_str), Some("MergeTree"));
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::ForeignKeyDropped && i.severity == Severity::Dropped));
+    assert_eq!(
+        p.options.get("engine").map(String::as_str),
+        Some("MergeTree")
+    );
     assert_eq!(p.options.get("order_by").map(String::as_str), Some("`id`"));
     // The unique index can't be unique.
     assert!(p.indexes.iter().all(|i| !i.unique));
     assert!(has(&r, IssueCode::IndexChanged, "ux_pedidos_codigo"));
     // The DDL the driver writes from it.
-    let ddl = dbine_drivers::find("clickhouse").unwrap().table_ddl(p, DdlParts { create: true, indexes: true, ..Default::default() }).unwrap();
+    let ddl = dbine_drivers::find("clickhouse")
+        .unwrap()
+        .table_ddl(
+            p,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
     assert!(ddl.contains("ENGINE = MergeTree\nORDER BY `id`"), "{ddl}");
-    assert!(ddl.contains("`total` Nullable(Decimal(12, 2)) DEFAULT 0"), "{ddl}");
+    assert!(
+        ddl.contains("`total` Nullable(Decimal(12, 2)) DEFAULT 0"),
+        "{ddl}"
+    );
 }
 
 #[test]
@@ -170,8 +240,14 @@ fn mysql_to_clickhouse_keeps_unsigned() {
     assert_eq!(ty(m, "tipo"), "Enum8('a' = 1, 'b' = 2)");
     assert_eq!(ty(m, "ts"), "DateTime64(6)");
     assert_eq!(ty(m, "fijo"), "String");
-    assert_eq!(m.options.get("order_by").map(String::as_str), Some("tuple()"));
-    assert!(r.issues.iter().any(|i| i.code == IssueCode::OptionAdded && i.severity == Severity::Warning));
+    assert_eq!(
+        m.options.get("order_by").map(String::as_str),
+        Some("tuple()")
+    );
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::OptionAdded && i.severity == Severity::Warning));
 }
 
 #[test]
@@ -205,7 +281,10 @@ fn clickhouse_to_postgres_and_sqlserver() {
     assert_eq!(ty(e, "pais"), "char(2)");
     assert_eq!(ty(e, "tipo"), "varchar(4)");
     assert_eq!(ty(e, "alta"), "timestamp(0) with time zone");
-    assert_eq!(column(e, "alta").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(e, "alta").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
     assert_eq!(ty(e, "ip"), "inet");
     assert_eq!(ty(e, "flag"), "boolean");
     assert!(has(&r, IssueCode::OptionDropped, "engine"));
@@ -224,7 +303,10 @@ fn postgres_to_timeplus() {
     assert_eq!(ty(p, "id"), "int64");
     assert_eq!(ty(p, "creado"), "datetime64(6)");
     assert_eq!(ty(p, "etiquetas"), "array(string)");
-    assert_eq!(p.options.get("mode").map(String::as_str), Some("versioned_kv"));
+    assert_eq!(
+        p.options.get("mode").map(String::as_str),
+        Some("versioned_kv")
+    );
 }
 
 #[test]
@@ -240,13 +322,19 @@ fn postgres_to_duckdb_and_back() {
     assert_eq!(ty(p, "local"), "TIMESTAMP");
     assert_eq!(ty(p, "hora"), "TIME");
     assert_eq!(ty(p, "codigo"), "UUID");
-    assert_eq!(column(p, "codigo").default_value.as_deref(), Some("gen_random_uuid()"));
+    assert_eq!(
+        column(p, "codigo").default_value.as_deref(),
+        Some("gen_random_uuid()")
+    );
     assert_eq!(ty(p, "datos"), "JSON");
     assert_eq!(ty(p, "etiquetas"), "VARCHAR[]");
     assert_eq!(ty(p, "bytes"), "BLOB");
     // DuckDB has no ON DELETE CASCADE.
     assert_eq!(p.foreign_keys[0].on_delete, None);
-    assert!(r.issues.iter().any(|i| i.code == IssueCode::ForeignKeyActionChanged && i.severity == Severity::Warning));
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::ForeignKeyActionChanged && i.severity == Severity::Warning));
 
     let d = table(
         "d",
@@ -292,11 +380,17 @@ fn postgres_to_snowflake_and_back() {
     assert!(column(p, "ID").auto_increment);
     assert_eq!(ty(p, "TOTAL"), "NUMBER(12, 2)");
     assert_eq!(ty(p, "CREADO"), "TIMESTAMP_TZ");
-    assert_eq!(column(p, "CREADO").default_value.as_deref(), Some("CURRENT_TIMESTAMP()"));
+    assert_eq!(
+        column(p, "CREADO").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP()")
+    );
     assert_eq!(ty(p, "LOCAL"), "TIMESTAMP_NTZ(3)");
     assert_eq!(ty(p, "ACTIVO"), "BOOLEAN");
     assert_eq!(ty(p, "CODIGO"), "VARCHAR(36)");
-    assert_eq!(column(p, "CODIGO").default_value.as_deref(), Some("UUID_STRING()"));
+    assert_eq!(
+        column(p, "CODIGO").default_value.as_deref(),
+        Some("UUID_STRING()")
+    );
     assert_eq!(ty(p, "DATOS"), "VARIANT");
     assert_eq!(ty(p, "ETIQUETAS"), "ARRAY");
 }
@@ -335,7 +429,10 @@ fn snowflake_to_postgres() {
     assert_eq!(ty(v, "ltz"), "timestamp(6) with time zone");
     assert_eq!(ty(v, "doc"), "jsonb");
     assert_eq!(ty(v, "raw"), "bytea");
-    assert_eq!(column(v, "alta").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(v, "alta").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
 }
 
 #[test]
@@ -348,11 +445,17 @@ fn postgres_and_sqlserver_to_bigquery() {
     assert_eq!(ty(p, "total"), "NUMERIC(12, 2)");
     assert_eq!(ty(p, "grande"), "BIGNUMERIC");
     assert_eq!(ty(p, "creado"), "TIMESTAMP");
-    assert_eq!(column(p, "creado").default_value.as_deref(), Some("CURRENT_TIMESTAMP()"));
+    assert_eq!(
+        column(p, "creado").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP()")
+    );
     assert_eq!(ty(p, "local"), "DATETIME");
     assert_eq!(ty(p, "hora"), "TIME");
     assert_eq!(ty(p, "codigo"), "STRING");
-    assert_eq!(column(p, "codigo").default_value.as_deref(), Some("GENERATE_UUID()"));
+    assert_eq!(
+        column(p, "codigo").default_value.as_deref(),
+        Some("GENERATE_UUID()")
+    );
     assert_eq!(ty(p, "datos"), "JSON");
     assert_eq!(ty(p, "etiquetas"), "ARRAY<STRING>");
     assert_eq!(ty(p, "estado"), "STRING(20)");
@@ -364,7 +467,17 @@ fn postgres_and_sqlserver_to_bigquery() {
     assert!(r.issues.iter().any(|i| i.code == IssueCode::IndexDropped));
     assert!(has(&r, IssueCode::OptionAdded, "PRIMARY KEY"));
 
-    let t = table("t", vec![nn(auto(c("Id", "int"))), c("Monto", "money"), c("Zona", "datetimeoffset(7)"), c("N", "nvarchar(max)"), c("B", "bit")], &["Id"]);
+    let t = table(
+        "t",
+        vec![
+            nn(auto(c("Id", "int"))),
+            c("Monto", "money"),
+            c("Zona", "datetimeoffset(7)"),
+            c("N", "nvarchar(max)"),
+            c("B", "bit"),
+        ],
+        &["Id"],
+    );
     let r = conv(&[t], "sqlserver", "bigquery");
     let t = &r.tables[0];
     assert_eq!(ty(t, "Monto"), "NUMERIC(19, 4)");
@@ -402,7 +515,10 @@ fn bigquery_to_postgres_and_mysql() {
     assert_eq!(ty(p, "dt"), "timestamp(6)");
     assert_eq!(ty(p, "amount"), "numeric(38, 9)");
     assert_eq!(ty(p, "big"), "numeric(50, 10)");
-    assert_eq!(column(p, "alta").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(p, "alta").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
 
     let r = conv(&[t], "bigquery", "mysql");
     let m = &r.tables[0];
@@ -422,24 +538,42 @@ fn postgres_to_spanner_and_back() {
     assert_eq!(ty(p, "total"), "NUMERIC");
     assert!(has(&r, IssueCode::PrecisionLoss, "grande"));
     assert_eq!(ty(p, "creado"), "TIMESTAMP");
-    assert_eq!(column(p, "creado").default_value.as_deref(), Some("CURRENT_TIMESTAMP()"));
+    assert_eq!(
+        column(p, "creado").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP()")
+    );
     assert_eq!(ty(p, "hora"), "STRING(32)");
     assert_eq!(ty(p, "codigo"), "STRING(36)");
     assert_eq!(ty(p, "etiquetas"), "ARRAY<STRING(MAX)>");
     assert_eq!(ty(p, "estado"), "STRING(20)");
-    assert_eq!(column(p, "estado").default_value.as_deref(), Some("'nuevo'"));
+    assert_eq!(
+        column(p, "estado").default_value.as_deref(),
+        Some("'nuevo'")
+    );
     assert_eq!(ty(p, "bytes"), "BYTES(MAX)");
     assert_eq!(p.foreign_keys[0].on_delete.as_deref(), Some("CASCADE"));
     assert_eq!(p.indexes.len(), 2);
-    assert!(r.issues.iter().any(|i| i.code == IssueCode::CommentDropped) || tables[0].comment.is_none());
+    assert!(
+        r.issues.iter().any(|i| i.code == IssueCode::CommentDropped) || tables[0].comment.is_none()
+    );
     // A table without a key gets one.
     let s = &r.tables[2];
-    assert_eq!(s.primary_key.as_ref().unwrap().columns, vec!["row_id".to_string()]);
+    assert_eq!(
+        s.primary_key.as_ref().unwrap().columns,
+        vec!["row_id".to_string()]
+    );
     assert!(has(&r, IssueCode::PrimaryKeyAdded, "row_id"));
 
     let t = table(
         "people",
-        vec![nn(auto(c("id", "INT64"))), c("name", "STRING(20)"), c("raw", "BYTES(10)"), c("tags", "ARRAY<STRING(5)>"), c("f", "FLOAT32"), c("ts", "TIMESTAMP")],
+        vec![
+            nn(auto(c("id", "INT64"))),
+            c("name", "STRING(20)"),
+            c("raw", "BYTES(10)"),
+            c("tags", "ARRAY<STRING(5)>"),
+            c("f", "FLOAT32"),
+            c("ts", "TIMESTAMP"),
+        ],
         &["id"],
     );
     let r = conv(&[t], "spanner", "mysql");
@@ -460,14 +594,20 @@ fn postgres_to_trino_and_back() {
     let p = &r.tables[1];
     assert_eq!(ty(p, "id"), "bigint");
     assert!(p.primary_key.is_none());
-    assert!(r.issues.iter().any(|i| i.code == IssueCode::PrimaryKeyDropped));
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::PrimaryKeyDropped));
     assert!(p.foreign_keys.is_empty() && p.indexes.is_empty());
     assert_eq!(ty(p, "total"), "decimal(12, 2)");
     assert_eq!(ty(p, "creado"), "timestamp(6) with time zone");
     // Trino takes only literals as defaults.
     assert_eq!(column(p, "creado").default_value, None);
     assert!(has(&r, IssueCode::DefaultDropped, "creado"));
-    assert_eq!(column(p, "estado").default_value.as_deref(), Some("'nuevo'"));
+    assert_eq!(
+        column(p, "estado").default_value.as_deref(),
+        Some("'nuevo'")
+    );
     assert_eq!(ty(p, "local"), "timestamp(3)");
     assert_eq!(ty(p, "hora"), "time(6)");
     assert_eq!(ty(p, "codigo"), "uuid");
@@ -482,7 +622,13 @@ fn postgres_to_trino_and_back() {
 
     let t = table(
         "t",
-        vec![c("a", "array(varchar)"), c("m", "map(varchar, integer)"), c("ts", "timestamp(3) with time zone"), c("r", "real"), c("v", "varchar")],
+        vec![
+            c("a", "array(varchar)"),
+            c("m", "map(varchar, integer)"),
+            c("ts", "timestamp(3) with time zone"),
+            c("r", "real"),
+            c("v", "varchar"),
+        ],
         &[],
     );
     let r = conv(&[t], "trino", "sqlserver");
@@ -500,14 +646,21 @@ fn hive_family() {
     assert_eq!(ty(p, "id"), "BIGINT");
     assert!(column(p, "id").auto_increment);
     assert_eq!(ty(p, "creado"), "TIMESTAMP");
-    assert_eq!(column(p, "creado").default_value.as_deref(), Some("current_timestamp()"));
+    assert_eq!(
+        column(p, "creado").default_value.as_deref(),
+        Some("current_timestamp()")
+    );
     assert_eq!(ty(p, "local"), "TIMESTAMP_NTZ");
     assert_eq!(ty(p, "etiquetas"), "ARRAY<STRING>");
     assert_eq!(ty(p, "estado"), "VARCHAR(20)");
     assert_eq!(p.foreign_keys.len(), 1);
     assert_eq!(p.foreign_keys[0].on_delete, None);
     // Identity columns are BIGINT in Delta.
-    let r = conv(&[table("t", vec![nn(auto(c("id", "integer")))], &["id"])], "postgres", "databricks");
+    let r = conv(
+        &[table("t", vec![nn(auto(c("id", "integer")))], &["id"])],
+        "postgres",
+        "databricks",
+    );
     assert_eq!(ty(&r.tables[0], "id"), "BIGINT");
 
     for id in ["hive", "spark", "kyuubi", "cloudera", "impala"] {
@@ -515,7 +668,12 @@ fn hive_family() {
         let p = &r.tables[1];
         assert!(p.primary_key.is_none(), "{id}");
         assert!(p.foreign_keys.is_empty() && p.indexes.is_empty(), "{id}");
-        assert!(p.columns.iter().all(|c| c.default_value.is_none() && c.nullable && !c.auto_increment), "{id}");
+        assert!(
+            p.columns
+                .iter()
+                .all(|c| c.default_value.is_none() && c.nullable && !c.auto_increment),
+            "{id}"
+        );
     }
     let r = conv(&pg_tables(), "postgres", "hive");
     assert_eq!(ty(&r.tables[1], "creado"), "TIMESTAMP");
@@ -523,11 +681,24 @@ fn hive_family() {
     assert_eq!(ty(&r.tables[1], "etiquetas"), "ARRAY<STRING>");
     let r = conv(&pg_tables(), "postgres", "impala");
     assert_eq!(ty(&r.tables[1], "etiquetas"), "STRING");
-    assert!(r.issues.iter().any(|i| i.code == IssueCode::PrimaryKeyDropped && i.message.contains("Kudu")));
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::PrimaryKeyDropped && i.message.contains("Kudu")));
     let r = conv(&pg_tables(), "postgres", "spark");
     assert_eq!(ty(&r.tables[1], "local"), "TIMESTAMP_NTZ");
 
-    let t = table("h", vec![c("a", "array<int>"), c("m", "map<string,bigint>"), c("s", "struct<x:int>"), c("ts", "timestamp"), c("d", "decimal(10,2)")], &[]);
+    let t = table(
+        "h",
+        vec![
+            c("a", "array<int>"),
+            c("m", "map<string,bigint>"),
+            c("s", "struct<x:int>"),
+            c("ts", "timestamp"),
+            c("d", "decimal(10,2)"),
+        ],
+        &[],
+    );
     let r = conv(&[t], "hive", "postgres");
     let h = &r.tables[0];
     assert_eq!(ty(h, "a"), "integer[]");
@@ -545,8 +716,14 @@ fn postgres_to_athena() {
     assert_eq!(ty(p, "id"), "BIGINT");
     assert_eq!(ty(p, "estado"), "STRING");
     assert_eq!(ty(p, "local"), "TIMESTAMP");
-    assert_eq!(p.options.get("table_type").map(String::as_str), Some("iceberg"));
-    assert!(r.issues.iter().any(|i| i.object.as_deref() == Some("location") && i.severity == Severity::Warning));
+    assert_eq!(
+        p.options.get("table_type").map(String::as_str),
+        Some("iceberg")
+    );
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.object.as_deref() == Some("location") && i.severity == Severity::Warning));
     let t = table("c", vec![c("n", "smallint")], &[]);
     let r = conv(&[t], "postgres", "athena");
     assert_eq!(ty(&r.tables[0], "n"), "INT");
@@ -580,7 +757,12 @@ async fn rt_with(
     fix: fn(&mut Conversion),
 ) -> (Conversion, Vec<String>, Vec<TableSchema>) {
     let tables = read(src, names).await;
-    assert_eq!(tables.len(), names.len(), "no se leyeron las tablas de origen: {:?}", tables.iter().map(|t| &t.name).collect::<Vec<_>>());
+    assert_eq!(
+        tables.len(),
+        names.len(),
+        "no se leyeron las tablas de origen: {:?}",
+        tables.iter().map(|t| &t.name).collect::<Vec<_>>()
+    );
     let mut conversion = convert(&tables, src_id, dst_id, &Options::default()).expect("convert");
     for t in &mut conversion.tables {
         t.schema = schema.map(str::to_string);
@@ -591,7 +773,16 @@ async fn rt_with(
     fix(&mut conversion);
     let d = dbine_drivers::find(dst_id).unwrap();
     for t in conversion.tables.iter().rev() {
-        let drop = d.table_ddl(t, DdlParts { drop: true, if_exists: true, ..Default::default() }).unwrap_or_default();
+        let drop = d
+            .table_ddl(
+                t,
+                DdlParts {
+                    drop: true,
+                    if_exists: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap_or_default();
         exec_quiet(dst, &[drop.as_str()]).await;
     }
     let ddl = target_ddl(dst_id, &conversion.tables);
@@ -601,25 +792,50 @@ async fn rt_with(
     let target_names: Vec<&str> = conversion.tables.iter().map(|t| t.name.as_str()).collect();
     let mut back = read(dst, &target_names).await;
     if let Some(s) = schema {
-        back.retain(|t| t.schema.as_deref().is_none_or(|x| x.eq_ignore_ascii_case(s)));
+        back.retain(|t| {
+            t.schema
+                .as_deref()
+                .is_none_or(|x| x.eq_ignore_ascii_case(s))
+        });
     }
-    assert_eq!(back.len(), target_names.len(), "no se releyeron las tablas creadas:\n{}", ddl.join("\n"));
+    assert_eq!(
+        back.len(),
+        target_names.len(),
+        "no se releyeron las tablas creadas:\n{}",
+        ddl.join("\n")
+    );
     (conversion, ddl, back)
 }
 
 fn show(c: &Conversion, ddl: &[String], back: &[TableSchema]) {
     for i in &c.issues {
-        eprintln!("  {:?} {:?} {}.{}: {}", i.severity, i.code, i.table, i.object.as_deref().unwrap_or(""), i.message);
+        eprintln!(
+            "  {:?} {:?} {}.{}: {}",
+            i.severity,
+            i.code,
+            i.table,
+            i.object.as_deref().unwrap_or(""),
+            i.message
+        );
     }
     eprintln!("{}", ddl.join("\n"));
     for t in back {
-        eprintln!("{}: {:?}", t.name, t.columns.iter().map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable)).collect::<Vec<_>>());
+        eprintln!(
+            "{}: {:?}",
+            t.name,
+            t.columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable))
+                .collect::<Vec<_>>()
+        );
     }
 }
 
 async fn session_cfg(cfg: ConnectionConfig) -> Box<dyn Session> {
     let d = dbine_drivers::find(&cfg.driver).unwrap();
-    d.connect(&cfg, None).await.unwrap_or_else(|e| panic!("{}: {e}", cfg.driver))
+    d.connect(&cfg, None)
+        .await
+        .unwrap_or_else(|e| panic!("{}: {e}", cfg.driver))
 }
 
 async fn pg() -> Option<Box<dyn Session>> {
@@ -628,7 +844,15 @@ async fn pg() -> Option<Box<dyn Session>> {
 
 /// The PostgreSQL source, rich in types, with one row of edge values.
 async fn pg_seed(s: &mut Box<dyn Session>) {
-    exec_quiet(s, &["DROP SCHEMA IF EXISTS an_back CASCADE", "DROP TABLE IF EXISTS an_pedidos", "DROP TABLE IF EXISTS an_clientes"]).await;
+    exec_quiet(
+        s,
+        &[
+            "DROP SCHEMA IF EXISTS an_back CASCADE",
+            "DROP TABLE IF EXISTS an_pedidos",
+            "DROP TABLE IF EXISTS an_clientes",
+        ],
+    )
+    .await;
     exec(
         s,
         "CREATE TABLE an_clientes (id integer PRIMARY KEY, nombre varchar(120) NOT NULL);
@@ -664,11 +888,21 @@ async fn pg_seed(s: &mut Box<dyn Session>) {
 #[ignore]
 async fn live_postgres_clickhouse_both_ways() {
     let Some(mut p) = pg().await else { return };
-    let Some(mut ch) = common::session("clickhouse", "DBINE_TEST_CLICKHOUSE_URL").await else { return };
+    let Some(mut ch) = common::session("clickhouse", "DBINE_TEST_CLICKHOUSE_URL").await else {
+        return;
+    };
     pg_seed(&mut p).await;
 
     // PostgreSQL → ClickHouse.
-    let (conv1, ddl, back) = rt(&mut p, "postgres", &mut ch, "clickhouse", &["an_clientes", "an_pedidos"], None).await;
+    let (conv1, ddl, back) = rt(
+        &mut p,
+        "postgres",
+        &mut ch,
+        "clickhouse",
+        &["an_clientes", "an_pedidos"],
+        None,
+    )
+    .await;
     show(&conv1, &ddl, &back);
     let t = &back[1];
     assert_eq!(col(t, "id").data_type, "Int64");
@@ -682,7 +916,10 @@ async fn live_postgres_clickhouse_both_ways() {
     assert_eq!(col(t, "activo").data_type, "Bool");
     assert_eq!(col(t, "codigo").data_type, "UUID");
     assert_eq!(col(t, "etiquetas").data_type, "Array(String)");
-    assert_eq!(t.options.get("engine").map(String::as_str), Some("MergeTree"));
+    assert_eq!(
+        t.options.get("engine").map(String::as_str),
+        Some("MergeTree")
+    );
     exec(
         &mut ch,
         "INSERT INTO an_clientes VALUES (1, 'Ñandú 漢字 🎉');
@@ -694,10 +931,25 @@ async fn live_postgres_clickhouse_both_ways() {
     .await;
 
     // …and back to PostgreSQL, in another schema.
-    exec(&mut p, "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back").await;
-    let (conv2, ddl, back2) = rt(&mut ch, "clickhouse", &mut p, "postgres", &["an_clientes", "an_pedidos"], Some("an_back")).await;
+    exec(
+        &mut p,
+        "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back",
+    )
+    .await;
+    let (conv2, ddl, back2) = rt(
+        &mut ch,
+        "clickhouse",
+        &mut p,
+        "postgres",
+        &["an_clientes", "an_pedidos"],
+        Some("an_back"),
+    )
+    .await;
     show(&conv2, &ddl, &back2);
-    let t = back2.iter().find(|t| t.name == "an_pedidos" && t.schema.as_deref() == Some("an_back")).unwrap();
+    let t = back2
+        .iter()
+        .find(|t| t.name == "an_pedidos" && t.schema.as_deref() == Some("an_back"))
+        .unwrap();
     assert_eq!(col(t, "id").data_type, "bigint");
     assert_eq!(col(t, "total").data_type, "numeric(12,2)");
     assert_eq!(col(t, "creado").data_type, "timestamp(6) with time zone");
@@ -741,7 +993,9 @@ async fn my_seed(s: &mut Box<dyn Session>) {
 #[ignore]
 async fn live_mysql_to_clickhouse_and_back() {
     let Some(mut m) = my().await else { return };
-    let Some(mut ch) = common::session("clickhouse", "DBINE_TEST_CLICKHOUSE_URL").await else { return };
+    let Some(mut ch) = common::session("clickhouse", "DBINE_TEST_CLICKHOUSE_URL").await else {
+        return;
+    };
     my_seed(&mut m).await;
     let (conv, ddl, back) = rt(&mut m, "mysql", &mut ch, "clickhouse", &["an_items"], None).await;
     show(&conv, &ddl, &back);
@@ -778,17 +1032,33 @@ async fn live_mysql_to_clickhouse_and_back() {
 #[ignore]
 async fn live_postgres_timeplus_both_ways() {
     let Some(mut p) = pg().await else { return };
-    let Some(mut tp) = common::session("timeplus", "DBINE_TEST_TIMEPLUS_URL").await else { return };
+    let Some(mut tp) = common::session("timeplus", "DBINE_TEST_TIMEPLUS_URL").await else {
+        return;
+    };
     pg_seed(&mut p).await;
-    let (conv, ddl, back) = rt(&mut p, "postgres", &mut tp, "timeplus", &["an_clientes", "an_pedidos"], None).await;
+    let (conv, ddl, back) = rt(
+        &mut p,
+        "postgres",
+        &mut tp,
+        "timeplus",
+        &["an_clientes", "an_pedidos"],
+        None,
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = &back[1];
     assert_eq!(col(t, "id").data_type, "int64");
     assert_eq!(col(t, "total").data_type, "decimal(12, 2)");
     assert_eq!(col(t, "creado").data_type, "datetime64(6)");
     assert_eq!(col(t, "etiquetas").data_type, "array(string)");
-    assert_eq!(t.options.get("mode").map(String::as_str), Some("versioned_kv"));
-    assert_eq!(t.primary_key.as_ref().map(|k| k.columns.clone()), Some(vec!["id".to_string()]));
+    assert_eq!(
+        t.options.get("mode").map(String::as_str),
+        Some("versioned_kv")
+    );
+    assert_eq!(
+        t.primary_key.as_ref().map(|k| k.columns.clone()),
+        Some(vec!["id".to_string()])
+    );
     exec(
         &mut tp,
         "INSERT INTO an_pedidos (id, cliente_id, chico, total, grande, ratio, creado, local_ts, dia, activo, etiquetas, estado, notas)
@@ -796,21 +1066,49 @@ async fn live_postgres_timeplus_both_ways() {
                  '2024-02-29 18:29:59.999999', '1999-12-31 23:59:59.999', '2024-02-29', false, ['x', 'y\\'z'], 'ñandú', 'línea\\nnueva')",
     )
     .await;
-    exec(&mut p, "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back").await;
-    let (conv, ddl, back) = rt(&mut tp, "timeplus", &mut p, "postgres", &["an_clientes", "an_pedidos"], Some("an_back")).await;
+    exec(
+        &mut p,
+        "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back",
+    )
+    .await;
+    let (conv, ddl, back) = rt(
+        &mut tp,
+        "timeplus",
+        &mut p,
+        "postgres",
+        &["an_clientes", "an_pedidos"],
+        Some("an_back"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = back.iter().find(|t| t.name == "an_pedidos").unwrap();
     assert_eq!(col(t, "id").data_type, "bigint");
     assert_eq!(col(t, "etiquetas").data_type, "text[]");
-    assert_eq!(t.primary_key.as_ref().map(|k| k.columns.clone()), Some(vec!["id".to_string()]));
+    assert_eq!(
+        t.primary_key.as_ref().map(|k| k.columns.clone()),
+        Some(vec!["id".to_string()])
+    );
     exec(&mut p, "DROP SCHEMA an_back CASCADE").await;
-    exec_quiet(&mut tp, &["DROP STREAM IF EXISTS an_pedidos", "DROP STREAM IF EXISTS an_clientes"]).await;
+    exec_quiet(
+        &mut tp,
+        &[
+            "DROP STREAM IF EXISTS an_pedidos",
+            "DROP STREAM IF EXISTS an_clientes",
+        ],
+    )
+    .await;
 }
 
 async fn duck(name: &str) -> Box<dyn Session> {
-    let path = std::env::temp_dir().join(format!("dbine-schema-{name}-{}.duckdb", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("dbine-schema-{name}-{}.duckdb", std::process::id()));
     let _ = std::fs::remove_file(&path);
-    session_cfg(ConnectionConfig { driver: "duckdb".into(), host: path.to_string_lossy().into(), ..Default::default() }).await
+    session_cfg(ConnectionConfig {
+        driver: "duckdb".into(),
+        host: path.to_string_lossy().into(),
+        ..Default::default()
+    })
+    .await
 }
 
 #[tokio::test]
@@ -819,7 +1117,15 @@ async fn live_postgres_duckdb_both_ways() {
     let Some(mut p) = pg().await else { return };
     let mut d = duck("pg").await;
     pg_seed(&mut p).await;
-    let (conv, ddl, back) = rt(&mut p, "postgres", &mut d, "duckdb", &["an_clientes", "an_pedidos"], Some("main")).await;
+    let (conv, ddl, back) = rt(
+        &mut p,
+        "postgres",
+        &mut d,
+        "duckdb",
+        &["an_clientes", "an_pedidos"],
+        Some("main"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = &back[1];
     assert_eq!(col(t, "id").data_type, "BIGINT");
@@ -845,8 +1151,20 @@ nueva', '\\x00\\xFF'::BLOB);",
     .await;
 
     // DuckDB → PostgreSQL.
-    exec(&mut p, "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back").await;
-    let (conv, ddl, back) = rt(&mut d, "duckdb", &mut p, "postgres", &["an_clientes", "an_pedidos"], Some("an_back")).await;
+    exec(
+        &mut p,
+        "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back",
+    )
+    .await;
+    let (conv, ddl, back) = rt(
+        &mut d,
+        "duckdb",
+        &mut p,
+        "postgres",
+        &["an_clientes", "an_pedidos"],
+        Some("an_back"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = back.iter().find(|t| t.name == "an_pedidos").unwrap();
     assert_eq!(col(t, "id").data_type, "bigint");
@@ -856,7 +1174,14 @@ nueva', '\\x00\\xFF'::BLOB);",
     assert_eq!(col(t, "codigo").data_type, "uuid");
     assert_eq!(col(t, "etiquetas").data_type, "text[]");
     assert_eq!(col(t, "bytes").data_type, "bytea");
-    assert!(col(t, "codigo").default_value.as_deref().is_some_and(|d| d.contains("gen_random_uuid")), "{:?}", col(t, "codigo").default_value);
+    assert!(
+        col(t, "codigo")
+            .default_value
+            .as_deref()
+            .is_some_and(|d| d.contains("gen_random_uuid")),
+        "{:?}",
+        col(t, "codigo").default_value
+    );
     assert_eq!(t.foreign_keys.len(), 1);
     exec(&mut p, "DROP SCHEMA an_back CASCADE").await;
 }
@@ -867,7 +1192,15 @@ async fn live_mysql_to_duckdb() {
     let Some(mut m) = my().await else { return };
     let mut d = duck("my").await;
     my_seed(&mut m).await;
-    let (conv, ddl, back) = rt(&mut m, "mysql", &mut d, "duckdb", &["an_items"], Some("main")).await;
+    let (conv, ddl, back) = rt(
+        &mut m,
+        "mysql",
+        &mut d,
+        "duckdb",
+        &["an_items"],
+        Some("main"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = &back[0];
     assert_eq!(col(t, "id").data_type, "UINTEGER");
@@ -887,10 +1220,20 @@ async fn live_mysql_to_duckdb() {
 #[ignore]
 async fn live_postgres_trino_both_ways() {
     let Some(mut p) = pg().await else { return };
-    let Some(mut tr) = common::session("trino", "DBINE_TEST_TRINO_URL").await else { return };
+    let Some(mut tr) = common::session("trino", "DBINE_TEST_TRINO_URL").await else {
+        return;
+    };
     pg_seed(&mut p).await;
     exec(&mut tr, "CREATE SCHEMA IF NOT EXISTS memory.an").await;
-    let (conv, ddl, back) = rt(&mut p, "postgres", &mut tr, "trino", &["an_clientes", "an_pedidos"], Some("an")).await;
+    let (conv, ddl, back) = rt(
+        &mut p,
+        "postgres",
+        &mut tr,
+        "trino",
+        &["an_clientes", "an_pedidos"],
+        Some("an"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = &back[1];
     assert_eq!(col(t, "id").data_type, "bigint");
@@ -914,27 +1257,51 @@ nueva', X'00ff')",
     )
     .await;
 
-    exec(&mut p, "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back").await;
-    let (conv, ddl, back) = rt(&mut tr, "trino", &mut p, "postgres", &["an_clientes", "an_pedidos"], Some("an_back")).await;
+    exec(
+        &mut p,
+        "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back",
+    )
+    .await;
+    let (conv, ddl, back) = rt(
+        &mut tr,
+        "trino",
+        &mut p,
+        "postgres",
+        &["an_clientes", "an_pedidos"],
+        Some("an_back"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = back.iter().find(|t| t.name == "an_pedidos").unwrap();
     assert_eq!(col(t, "id").data_type, "bigint");
     assert_eq!(col(t, "creado").data_type, "timestamp(6) with time zone");
-    assert_eq!(col(t, "local_ts").data_type, "timestamp(3) without time zone");
+    assert_eq!(
+        col(t, "local_ts").data_type,
+        "timestamp(3) without time zone"
+    );
     assert_eq!(col(t, "codigo").data_type, "uuid");
     assert_eq!(col(t, "datos").data_type, "json");
     assert_eq!(col(t, "etiquetas").data_type, "text[]");
     assert_eq!(col(t, "estado").data_type, "character varying(20)");
     assert!(t.primary_key.is_none(), "Trino had no key to give back");
     exec(&mut p, "DROP SCHEMA an_back CASCADE").await;
-    exec_quiet(&mut tr, &["DROP TABLE memory.an.an_pedidos", "DROP TABLE memory.an.an_clientes"]).await;
+    exec_quiet(
+        &mut tr,
+        &[
+            "DROP TABLE memory.an.an_pedidos",
+            "DROP TABLE memory.an.an_clientes",
+        ],
+    )
+    .await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn live_mysql_to_trino() {
     let Some(mut m) = my().await else { return };
-    let Some(mut tr) = common::session("trino", "DBINE_TEST_TRINO_URL").await else { return };
+    let Some(mut tr) = common::session("trino", "DBINE_TEST_TRINO_URL").await else {
+        return;
+    };
     my_seed(&mut m).await;
     exec(&mut tr, "CREATE SCHEMA IF NOT EXISTS memory.an").await;
     let (conv, ddl, back) = rt(&mut m, "mysql", &mut tr, "trino", &["an_items"], Some("an")).await;
@@ -956,7 +1323,10 @@ async fn live_mysql_to_trino() {
 
 async fn bq() -> Option<Box<dyn Session>> {
     let url = std::env::var("DBINE_TEST_BIGQUERY_URL").ok()?;
-    let mut c = ConnectionConfig { driver: "bigquery".into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "bigquery".into(),
+        ..Default::default()
+    };
     c.options.insert("project_id".into(), "test".into());
     c.options.insert("endpoint_url".into(), url);
     let d = dbine_drivers::find("bigquery").unwrap();
@@ -970,10 +1340,18 @@ async fn live_postgres_bigquery_both_ways() {
     let Some(mut b) = bq().await else { return };
     pg_seed(&mut p).await;
     // The emulator has no foreign keys (BigQuery has them, NOT ENFORCED).
-    let (conv, ddl, back) = rt_with(&mut p, "postgres", &mut b, "bigquery", &["an_clientes", "an_pedidos"], Some("ds1"), |c| {
-        assert_eq!(c.tables[1].foreign_keys.len(), 1);
-        c.tables[1].foreign_keys.clear();
-    })
+    let (conv, ddl, back) = rt_with(
+        &mut p,
+        "postgres",
+        &mut b,
+        "bigquery",
+        &["an_clientes", "an_pedidos"],
+        Some("ds1"),
+        |c| {
+            assert_eq!(c.tables[1].foreign_keys.len(), 1);
+            c.tables[1].foreign_keys.clear();
+        },
+    )
     .await;
     show(&conv, &ddl, &back);
     let t = &back[1];
@@ -998,13 +1376,28 @@ async fn live_postgres_bigquery_both_ways() {
     )
     .await;
 
-    exec(&mut p, "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back").await;
-    let (conv, ddl, back) = rt(&mut b, "bigquery", &mut p, "postgres", &["an_clientes", "an_pedidos"], Some("an_back")).await;
+    exec(
+        &mut p,
+        "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back",
+    )
+    .await;
+    let (conv, ddl, back) = rt(
+        &mut b,
+        "bigquery",
+        &mut p,
+        "postgres",
+        &["an_clientes", "an_pedidos"],
+        Some("an_back"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = back.iter().find(|t| t.name == "an_pedidos").unwrap();
     assert_eq!(col(t, "id").data_type, "bigint");
     assert_eq!(col(t, "creado").data_type, "timestamp(6) with time zone");
-    assert_eq!(col(t, "local_ts").data_type, "timestamp(6) without time zone");
+    assert_eq!(
+        col(t, "local_ts").data_type,
+        "timestamp(6) without time zone"
+    );
     assert_eq!(col(t, "datos").data_type, "jsonb");
     assert_eq!(col(t, "etiquetas").data_type, "text[]");
     exec(&mut p, "DROP SCHEMA an_back CASCADE").await;
@@ -1016,16 +1409,36 @@ async fn spanner() -> Option<Box<dyn Session>> {
     let url = std::env::var("DBINE_TEST_SPANNER_URL").ok()?;
     let post = |path: &str, body: &str| {
         let _ = std::process::Command::new("curl")
-            .args(["-s", "-X", "POST", &format!("{url}{path}"), "-H", "Content-Type: application/json", "-d", body])
+            .args([
+                "-s",
+                "-X",
+                "POST",
+                &format!("{url}{path}"),
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                body,
+            ])
             .output();
     };
     post(
         "/v1/projects/test/instances",
         r#"{"instanceId": "i1", "instance": {"config": "projects/test/instanceConfigs/emulator-config", "displayName": "i1", "nodeCount": 1}}"#,
     );
-    post("/v1/projects/test/instances/i1/databases", r#"{"createStatement": "CREATE DATABASE `an`"}"#);
-    let mut cfg = ConnectionConfig { driver: "spanner".into(), database: "an".into(), ..Default::default() };
-    for (k, v) in [("project_id", "test"), ("instance", "i1"), ("endpoint_url", url.as_str())] {
+    post(
+        "/v1/projects/test/instances/i1/databases",
+        r#"{"createStatement": "CREATE DATABASE `an`"}"#,
+    );
+    let mut cfg = ConnectionConfig {
+        driver: "spanner".into(),
+        database: "an".into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("project_id", "test"),
+        ("instance", "i1"),
+        ("endpoint_url", url.as_str()),
+    ] {
         cfg.options.insert(k.into(), v.into());
     }
     Some(session_cfg(cfg).await)
@@ -1035,10 +1448,24 @@ async fn spanner() -> Option<Box<dyn Session>> {
 #[ignore]
 async fn live_postgres_spanner_both_ways() {
     let Some(mut p) = pg().await else { return };
-    let Some(mut sp) = spanner().await else { return };
+    let Some(mut sp) = spanner().await else {
+        return;
+    };
     pg_seed(&mut p).await;
-    exec(&mut p, "DROP TABLE IF EXISTS an_sin_clave; CREATE TABLE an_sin_clave (x integer, y text)").await;
-    let (conv, ddl, back) = rt(&mut p, "postgres", &mut sp, "spanner", &["an_clientes", "an_pedidos", "an_sin_clave"], None).await;
+    exec(
+        &mut p,
+        "DROP TABLE IF EXISTS an_sin_clave; CREATE TABLE an_sin_clave (x integer, y text)",
+    )
+    .await;
+    let (conv, ddl, back) = rt(
+        &mut p,
+        "postgres",
+        &mut sp,
+        "spanner",
+        &["an_clientes", "an_pedidos", "an_sin_clave"],
+        None,
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = &back[1];
     assert_eq!(col(t, "id").data_type, "INT64");
@@ -1052,7 +1479,10 @@ async fn live_postgres_spanner_both_ways() {
     assert_eq!(col(t, "bytes").data_type, "BYTES(MAX)");
     assert_eq!(t.foreign_keys.len(), 1);
     assert_eq!(t.foreign_keys[0].on_delete.as_deref(), Some("CASCADE"));
-    assert_eq!(back[2].primary_key.as_ref().map(|k| k.columns.clone()), Some(vec!["row_id".to_string()]));
+    assert_eq!(
+        back[2].primary_key.as_ref().map(|k| k.columns.clone()),
+        Some(vec!["row_id".to_string()])
+    );
     exec(
         &mut sp,
         "INSERT INTO an_clientes (id, nombre) VALUES (1, 'Ñandú 漢字 🎉');
@@ -1065,8 +1495,20 @@ async fn live_postgres_spanner_both_ways() {
     .await;
 
     // Spanner → PostgreSQL.
-    exec(&mut p, "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back").await;
-    let (conv, ddl, back) = rt(&mut sp, "spanner", &mut p, "postgres", &["an_clientes", "an_pedidos", "an_sin_clave"], Some("an_back")).await;
+    exec(
+        &mut p,
+        "DROP SCHEMA IF EXISTS an_back CASCADE; CREATE SCHEMA an_back",
+    )
+    .await;
+    let (conv, ddl, back) = rt(
+        &mut sp,
+        "spanner",
+        &mut p,
+        "postgres",
+        &["an_clientes", "an_pedidos", "an_sin_clave"],
+        Some("an_back"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = back.iter().find(|t| t.name == "an_pedidos").unwrap();
     assert_eq!(col(t, "id").data_type, "bigint");
@@ -1076,11 +1518,31 @@ async fn live_postgres_spanner_both_ways() {
     assert_eq!(col(t, "etiquetas").data_type, "text[]");
     assert_eq!(col(t, "estado").data_type, "character varying(20)");
     assert_eq!(t.foreign_keys.len(), 1);
-    exec(&mut p, "DROP SCHEMA an_back CASCADE; DROP TABLE an_sin_clave").await;
+    exec(
+        &mut p,
+        "DROP SCHEMA an_back CASCADE; DROP TABLE an_sin_clave",
+    )
+    .await;
     for t in ["an_sin_clave", "an_pedidos", "an_clientes"] {
         let d = dbine_drivers::find("spanner").unwrap();
-        let ts = back.iter().find(|x| x.name == t).cloned().unwrap_or_else(|| TableSchema { name: t.into(), ..Default::default() });
-        let drop = d.table_ddl(&ts, DdlParts { drop: true, if_exists: true, ..Default::default() }).unwrap();
+        let ts = back
+            .iter()
+            .find(|x| x.name == t)
+            .cloned()
+            .unwrap_or_else(|| TableSchema {
+                name: t.into(),
+                ..Default::default()
+            });
+        let drop = d
+            .table_ddl(
+                &ts,
+                DdlParts {
+                    drop: true,
+                    if_exists: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         exec_quiet(&mut sp, &[drop.as_str()]).await;
     }
 }
@@ -1089,7 +1551,9 @@ async fn live_postgres_spanner_both_ways() {
 #[ignore]
 async fn live_mysql_spanner_both_ways() {
     let Some(mut m) = my().await else { return };
-    let Some(mut sp) = spanner().await else { return };
+    let Some(mut sp) = spanner().await else {
+        return;
+    };
     my_seed(&mut m).await;
     let (conv, ddl, back) = rt(&mut m, "mysql", &mut sp, "spanner", &["an_items"], None).await;
     show(&conv, &ddl, &back);
@@ -1118,7 +1582,16 @@ async fn live_mysql_spanner_both_ways() {
     assert_eq!(col(t, "doc").data_type, "json");
     exec(&mut m, "INSERT INTO an_items (big, precio, alta, nombre, raw) VALUES (18446744073709551615, 99999999.99, '9999-12-31 23:59:59.999999', 'ñandú 漢字 🎉', 0x00ff)").await;
     let d = dbine_drivers::find("spanner").unwrap();
-    let drop = d.table_ddl(&back[0], DdlParts { drop: true, if_exists: true, ..Default::default() }).unwrap();
+    let drop = d
+        .table_ddl(
+            &back[0],
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
     exec_quiet(&mut sp, &[drop.as_str()]).await;
 }
 
@@ -1128,7 +1601,15 @@ async fn live_mysql_to_bigquery() {
     let Some(mut m) = my().await else { return };
     let Some(mut b) = bq().await else { return };
     my_seed(&mut m).await;
-    let (conv, ddl, back) = rt(&mut m, "mysql", &mut b, "bigquery", &["an_items"], Some("ds1")).await;
+    let (conv, ddl, back) = rt(
+        &mut m,
+        "mysql",
+        &mut b,
+        "bigquery",
+        &["an_items"],
+        Some("ds1"),
+    )
+    .await;
     show(&conv, &ddl, &back);
     let t = &back[0];
     assert_eq!(col(t, "id").data_type, "INT64");

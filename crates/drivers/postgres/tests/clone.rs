@@ -8,7 +8,9 @@
 //! (`postgres://postgres:pw@localhost:25010/postgres`). It creates and drops
 //! the databases `dbine_clone_src` and `dbine_clone_dst`.
 
-use dbine_driver::transfer::{BatchSink, BatchSource, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -16,9 +18,13 @@ use std::time::Instant;
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -32,7 +38,9 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100_000, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100_000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
     out
 }
@@ -43,7 +51,16 @@ async fn lines(s: &mut Box<dyn Session>, sql: &str) -> Vec<String> {
     let mut v: Vec<String> = out.results[0]
         .rows
         .iter()
-        .map(|r| r.iter().map(|c| c.as_str().map(str::to_string).unwrap_or_else(|| c.to_string())).collect::<Vec<_>>().join(" | "))
+        .map(|r| {
+            r.iter()
+                .map(|c| {
+                    c.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| c.to_string())
+                })
+                .collect::<Vec<_>>()
+                .join(" | ")
+        })
         .collect();
     v.sort();
     v
@@ -189,7 +206,11 @@ async fn catalog(s: &mut Box<dyn Session>) -> Vec<(String, Vec<String>)> {
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: "table".into(), schema: Some("app".into()), name: name.into() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: Some("app".into()),
+        name: name.into(),
+    }
 }
 
 /// Every leaf partition (the rows live there) with its columns.
@@ -204,7 +225,12 @@ async fn leaves(s: &mut Box<dyn Session>, root: &str) -> Vec<(String, Vec<String
         .into_iter()
         .map(|l| {
             let (n, cols) = l.split_once(" | ").unwrap();
-            (n.to_string(), cols.split(',').map(|c| c.trim_matches('"').to_string()).collect())
+            (
+                n.to_string(),
+                cols.split(',')
+                    .map(|c| c.trim_matches('"').to_string())
+                    .collect(),
+            )
         })
         .collect()
 }
@@ -231,31 +257,63 @@ impl BatchSource for Batches {
 /// Typed read + `COPY` load (user types travel as text); small tables only.
 async fn read_and_load(src: &mut Box<dyn Session>, dst: &mut Box<dyn Session>, spec: &CopySpec) {
     let sink = Arc::new(Mutex::new(Collect(Vec::new())));
-    src.read_batches(&spec.source, sink.clone()).await.expect("read_batches");
+    src.read_batches(&spec.source, sink.clone())
+        .await
+        .expect("read_batches");
     let batches = std::mem::take(&mut sink.lock().unwrap().0);
-    dst.bulk_load(&spec.target, &[], &mut Batches(batches.into_iter()), &|_| {}).await.expect("bulk_load");
+    dst.bulk_load(
+        &spec.target,
+        &[],
+        &mut Batches(batches.into_iter()),
+        &|_| {},
+    )
+    .await
+    .expect("bulk_load");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore]
 async fn clone_postgres_every_feature() {
-    let url = std::env::var("DBINE_TEST_POSTGRES_URL").unwrap_or_else(|_| "postgres://postgres:pw@localhost:25010/postgres".into());
+    let url = std::env::var("DBINE_TEST_POSTGRES_URL")
+        .unwrap_or_else(|_| "postgres://postgres:pw@localhost:25010/postgres".into());
     let cfg = parse_url("postgres", &url);
-    let d: Arc<dyn Driver> = dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == "postgres").unwrap();
+    let d: Arc<dyn Driver> = dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "postgres")
+        .unwrap();
     assert!(d.supports_clone());
     let mut admin = d.connect(&cfg, None).await.expect("connect");
     for db in ["dbine_clone_src", "dbine_clone_dst"] {
-        run(&mut admin, &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)")).await;
+        run(
+            &mut admin,
+            &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
+        )
+        .await;
         run(&mut admin, &format!("CREATE DATABASE {db}")).await;
     }
     let mut src = d.connect(&cfg, Some("dbine_clone_src")).await.unwrap();
     let mut dst = d.connect(&cfg, Some("dbine_clone_dst")).await.unwrap();
     run(&mut src, SOURCE).await;
 
-    let listed = [table("customer"), table("orders"), table("scratch"), table("base_log"), table("audit")];
+    let listed = [
+        table("customer"),
+        table("orders"),
+        table("scratch"),
+        table("base_log"),
+        table("audit"),
+    ];
     let t0 = Instant::now();
-    let script = d.clone_script(src.as_mut(), dst.as_mut(), &listed).await.expect("clone_script");
-    println!("script en {:?}: {} antes, {} tablas, {} después", t0.elapsed(), script.before.len(), script.tables.len(), script.after.len());
+    let script = d
+        .clone_script(src.as_mut(), dst.as_mut(), &listed)
+        .await
+        .expect("clone_script");
+    println!(
+        "script en {:?}: {} antes, {} tablas, {} después",
+        t0.elapsed(),
+        script.before.len(),
+        script.tables.len(),
+        script.after.len()
+    );
     for n in &script.notes {
         println!("nota: {n}");
     }
@@ -289,7 +347,11 @@ async fn clone_postgres_every_feature() {
                 };
                 for (leaf, cols) in targets {
                     let spec = CopySpec {
-                        source: ReadSpec { table: table(&leaf), columns: Some(cols.clone()), filter: None },
+                        source: ReadSpec {
+                            table: table(&leaf),
+                            columns: Some(cols.clone()),
+                            filter: None,
+                        },
                         target: LoadSpec {
                             table: table(&leaf),
                             columns: cols,
@@ -304,9 +366,14 @@ async fn clone_postgres_every_feature() {
                     if t.table.name == "base_log" {
                         spec.source.filter = Some("tableoid = 'app.base_log'::regclass".into());
                     }
-                    match d.copy_native(src.as_mut(), dst.as_mut(), &spec, &|_| {}).await {
+                    match d
+                        .copy_native(src.as_mut(), dst.as_mut(), &spec, &|_| {})
+                        .await
+                    {
                         Ok(_) => {}
-                        Err(dbine_driver::Error::Unsupported(_)) => read_and_load(&mut src, &mut dst, &spec).await,
+                        Err(dbine_driver::Error::Unsupported(_)) => {
+                            read_and_load(&mut src, &mut dst, &spec).await
+                        }
                         Err(e) => panic!("copy_native: {e}"),
                     }
                 }
@@ -333,15 +400,37 @@ async fn clone_postgres_every_feature() {
             diffs += 1;
         }
     }
-    println!("{} hechos comparados, {diffs} diferencias", a.iter().map(|x| x.1.len()).sum::<usize>());
+    println!(
+        "{} hechos comparados, {diffs} diferencias",
+        a.iter().map(|x| x.1.len()).sum::<usize>()
+    );
 
     // One partition alone: its parents come first, what points elsewhere is noted.
-    let part = d.clone_script(src.as_mut(), dst.as_mut(), &[table("orders_2025_a")]).await.expect("clone_script");
-    assert!(part.before.iter().any(|s| s.contains("TABLE IF NOT EXISTS \"app\".\"orders\" (")), "{:?}", part.before);
-    let parent_at = part.before.iter().position(|s| s.contains("\"app\".\"orders\" (")).unwrap();
-    let mid_at = part.before.iter().position(|s| s.contains("\"app\".\"orders_2025\" PARTITION OF")).unwrap();
+    let part = d
+        .clone_script(src.as_mut(), dst.as_mut(), &[table("orders_2025_a")])
+        .await
+        .expect("clone_script");
+    assert!(
+        part.before
+            .iter()
+            .any(|s| s.contains("TABLE IF NOT EXISTS \"app\".\"orders\" (")),
+        "{:?}",
+        part.before
+    );
+    let parent_at = part
+        .before
+        .iter()
+        .position(|s| s.contains("\"app\".\"orders\" ("))
+        .unwrap();
+    let mid_at = part
+        .before
+        .iter()
+        .position(|s| s.contains("\"app\".\"orders_2025\" PARTITION OF"))
+        .unwrap();
     assert!(parent_at < mid_at);
-    assert!(part.tables[0].create.contains("PARTITION OF \"app\".\"orders_2025\" FOR VALUES IN (10, 12)"));
+    assert!(part.tables[0]
+        .create
+        .contains("PARTITION OF \"app\".\"orders_2025\" FOR VALUES IN (10, 12)"));
     for n in &part.notes {
         println!("nota (partición): {n}");
     }
@@ -350,7 +439,11 @@ async fn clone_postgres_every_feature() {
     drop(src);
     drop(dst);
     for db in ["dbine_clone_src", "dbine_clone_dst"] {
-        run(&mut admin, &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)")).await;
+        run(
+            &mut admin,
+            &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
+        )
+        .await;
     }
     assert_eq!(diffs, 0);
 }

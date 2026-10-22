@@ -56,7 +56,12 @@ pub(crate) fn utc(secs: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 /// A scan time: a Unix time in s, ms, µs or ns (0 = never), or a date text.
@@ -67,7 +72,15 @@ pub(crate) fn scan_time(v: Option<&Value>) -> Option<String> {
             if n <= 0.0 {
                 return None;
             }
-            let secs = if n > 1e17 { n / 1e9 } else if n > 1e14 { n / 1e6 } else if n > 1e11 { n / 1e3 } else { n };
+            let secs = if n > 1e17 {
+                n / 1e9
+            } else if n > 1e14 {
+                n / 1e6
+            } else if n > 1e11 {
+                n / 1e3
+            } else {
+                n
+            };
             Some(utc(secs as i64))
         }
         Value::String(s) if s.len() >= 19 => Some(s[..19].replace('T', " ")),
@@ -78,9 +91,20 @@ pub(crate) fn scan_time(v: Option<&Value>) -> Option<String> {
 /// A stats range reply: the last value of each series, by its `index` label.
 pub(crate) fn series(reply: &Value) -> HashMap<String, u64> {
     let mut out = HashMap::new();
-    for d in reply.get("data").and_then(Value::as_array).into_iter().flatten() {
-        let Some(name) = d.pointer("/metric/index").and_then(Value::as_str) else { continue };
-        let last = d.get("values").and_then(Value::as_array).and_then(|v| v.last()).and_then(|p| p.get(1));
+    for d in reply
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(name) = d.pointer("/metric/index").and_then(Value::as_str) else {
+            continue;
+        };
+        let last = d
+            .get("values")
+            .and_then(Value::as_array)
+            .and_then(|v| v.last())
+            .and_then(|p| p.get(1));
         let n = match last {
             Some(Value::String(s)) => s.parse::<f64>().ok(),
             Some(Value::Number(n)) => n.as_f64(),
@@ -99,14 +123,29 @@ pub(crate) fn assemble(rows: &[Value], stats: Option<&Stats>) -> Vec<IndexUsage>
     rows.iter()
         .map(|r| {
             let name = r.get("name").map(text).unwrap_or_default();
-            let primary = r.get("is_primary").and_then(Value::as_bool).unwrap_or(false);
-            let mut keys: Vec<String> =
-                r.get("index_key").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+            let primary = r
+                .get("is_primary")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let mut keys: Vec<String> = r
+                .get("index_key")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
             if primary && keys.is_empty() {
                 keys.push("meta().id".into());
             }
-            let (seeks, disk) = stats.and_then(|m| m.get(&name)).copied().unwrap_or_default();
-            let partitioned = r.get("partition").and_then(Value::as_str).is_some_and(|p| !p.is_empty());
+            let (seeks, disk) = stats
+                .and_then(|m| m.get(&name))
+                .copied()
+                .unwrap_or_default();
+            let partitioned = r
+                .get("partition")
+                .and_then(Value::as_str)
+                .is_some_and(|p| !p.is_empty());
             let kind = match (primary, partitioned) {
                 (true, _) => "PRIMARY",
                 (false, true) => "GSI PARTITIONED",
@@ -117,10 +156,15 @@ pub(crate) fn assemble(rows: &[Value], stats: Option<&Stats>) -> Vec<IndexUsage>
                 unique: false,
                 primary_key: primary,
                 key_columns: keys,
-                filter: r.get("condition").and_then(Value::as_str).filter(|c| !c.is_empty()).map(str::to_string),
+                filter: r
+                    .get("condition")
+                    .and_then(Value::as_str)
+                    .filter(|c| !c.is_empty())
+                    .map(str::to_string),
                 size_kb: disk.map(|b| b.div_ceil(1024)),
                 seeks,
-                last_read: scan_time(r.get("last_scan")).or_else(|| scan_time(r.get("last_scan_time"))),
+                last_read: scan_time(r.get("last_scan"))
+                    .or_else(|| scan_time(r.get("last_scan_time"))),
                 name,
                 ..Default::default()
             }
@@ -129,13 +173,28 @@ pub(crate) fn assemble(rows: &[Value], stats: Option<&Stats>) -> Vec<IndexUsage>
 }
 
 impl CbSession {
-    pub(crate) async fn index_usage_report(&self, obj: &ObjectRef) -> Result<Option<IndexUsageReport>> {
+    pub(crate) async fn index_usage_report(
+        &self,
+        obj: &ObjectRef,
+    ) -> Result<Option<IndexUsageReport>> {
         let b = self.bucket()?;
-        let (bucket, scope) = obj.schema.as_deref().and_then(crate::ddl::split_schema).map(|(b, s)| (b.to_string(), s.to_string())).unwrap_or((b, "_default".into()));
+        let (bucket, scope) = obj
+            .schema
+            .as_deref()
+            .and_then(crate::ddl::split_schema)
+            .map(|(b, s)| (b.to_string(), s.to_string()))
+            .unwrap_or((b, "_default".into()));
         let lit = |s: &str| serde_json::to_string(s).unwrap_or_default();
         // Indexes on a bucket's `_default` collection made before scopes
         // existed carry no bucket_id: their keyspace is the bucket.
-        let legacy = if scope == "_default" && obj.name == "_default" { format!(" OR (i.bucket_id IS MISSING AND i.keyspace_id = {})", lit(&bucket)) } else { String::new() };
+        let legacy = if scope == "_default" && obj.name == "_default" {
+            format!(
+                " OR (i.bucket_id IS MISSING AND i.keyspace_id = {})",
+                lit(&bucket)
+            )
+        } else {
+            String::new()
+        };
         let rows = self
             .results(&format!(
                 "SELECT i.name, i.is_primary, i.index_key, i.`condition`, i.`partition`,
@@ -178,7 +237,11 @@ impl CbSession {
             }
         }
         let available = note.is_none();
-        let since = if available { self.index_node_start().await } else { None };
+        let since = if available {
+            self.index_node_start().await
+        } else {
+            None
+        };
         Ok(Some(IndexUsageReport {
             since,
             stats_available: available,
@@ -197,10 +260,23 @@ impl CbSession {
             .get("nodes")?
             .as_array()?
             .iter()
-            .filter(|n| n.get("services").and_then(Value::as_array).is_some_and(|s| s.iter().any(|x| x == "index")))
-            .filter_map(|n| n.get("uptime").and_then(|u| u.as_str().and_then(|s| s.parse::<i64>().ok()).or_else(|| u.as_i64())))
+            .filter(|n| {
+                n.get("services")
+                    .and_then(Value::as_array)
+                    .is_some_and(|s| s.iter().any(|x| x == "index"))
+            })
+            .filter_map(|n| {
+                n.get("uptime").and_then(|u| {
+                    u.as_str()
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .or_else(|| u.as_i64())
+                })
+            })
             .min()?;
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs() as i64;
         Some(utc(now - uptime))
     }
 }
@@ -216,9 +292,18 @@ mod tests {
         assert_eq!(utc(1_704_067_200), "2024-01-01 00:00:00");
         assert_eq!(utc(951_825_600 + 3_723), "2000-02-29 13:02:03");
         assert_eq!(scan_time(Some(&json!(0))), None);
-        assert_eq!(scan_time(Some(&json!(1_704_067_200_000_000_000_i64))), Some("2024-01-01 00:00:00".into()));
-        assert_eq!(scan_time(Some(&json!(1_704_067_200_000_i64))), Some("2024-01-01 00:00:00".into()));
-        assert_eq!(scan_time(Some(&json!("2024-01-01T00:00:00.123Z"))), Some("2024-01-01 00:00:00".into()));
+        assert_eq!(
+            scan_time(Some(&json!(1_704_067_200_000_000_000_i64))),
+            Some("2024-01-01 00:00:00".into())
+        );
+        assert_eq!(
+            scan_time(Some(&json!(1_704_067_200_000_i64))),
+            Some("2024-01-01 00:00:00".into())
+        );
+        assert_eq!(
+            scan_time(Some(&json!("2024-01-01T00:00:00.123Z"))),
+            Some("2024-01-01 00:00:00".into())
+        );
         assert_eq!(scan_time(None), None);
     }
 
@@ -245,21 +330,39 @@ mod tests {
         let mut stats = Stats::new();
         stats.insert("ix_cliente".into(), (5, Some(2048)));
         stats.insert("ix_fecha".into(), (0, Some(100)));
-        let r = IndexUsageReport { stats_available: true, indexes: assemble(&rows, Some(&stats)), seek_scan_split: false, writes_counted: false, ..Default::default() }.derived();
+        let r = IndexUsageReport {
+            stats_available: true,
+            indexes: assemble(&rows, Some(&stats)),
+            seek_scan_split: false,
+            writes_counted: false,
+            ..Default::default()
+        }
+        .derived();
         let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap();
         assert!(get("#primary").primary_key);
         assert_eq!(get("#primary").kind, "PRIMARY");
         assert_eq!(get("#primary").key_columns, ["meta().id"]);
-        assert_eq!((get("ix_cliente").seeks, get("ix_cliente").size_kb), (5, Some(2)));
-        assert_eq!(get("ix_cliente").last_read.as_deref(), Some("2024-01-01 00:00:00"));
+        assert_eq!(
+            (get("ix_cliente").seeks, get("ix_cliente").size_kb),
+            (5, Some(2))
+        );
+        assert_eq!(
+            get("ix_cliente").last_read.as_deref(),
+            Some("2024-01-01 00:00:00")
+        );
         assert_eq!(get("ix_fecha").filter.as_deref(), Some("(`fecha` > 0)"));
         assert_eq!(get("ix_fecha").kind, "GSI PARTITIONED");
         // Writes aren't counted (the initial build is mixed in): an unread
         // index is not "sin uso".
-        assert!(r.indexes.iter().all(|i| i.updates == 0 && !i.unused && i.writes_per_read.is_none()));
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| i.updates == 0 && !i.unused && i.writes_per_read.is_none()));
         assert_eq!(get("ix_cliente").read_share, Some(1.0));
         assert!(r.indexes.iter().all(|i| i.seek_health.is_none()));
         // Without statistics: listed, no counters.
-        assert!(assemble(&rows, None).iter().all(|i| i.seeks == 0 && i.updates == 0 && i.size_kb.is_none()));
+        assert!(assemble(&rows, None)
+            .iter()
+            .all(|i| i.seeks == 0 && i.updates == 0 && i.size_kb.is_none()));
     }
 }

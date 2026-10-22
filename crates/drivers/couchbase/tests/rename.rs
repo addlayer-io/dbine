@@ -27,13 +27,18 @@ fn cfg() -> Option<ConnectionConfig> {
         password: Some("secreto1".into()),
         ..Default::default()
     };
-    c.options.insert("mgmt_port".into(), std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()));
+    c.options.insert(
+        "mgmt_port".into(),
+        std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()),
+    );
     Some(c)
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(text, 100, &mut out).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
     assert!(out.error.is_none(), "{text}: {:?}", out.error);
     out
 }
@@ -44,7 +49,14 @@ async fn scalar(s: &mut Box<dyn Session>, text: &str) -> serde_json::Value {
 
 async fn wait(s: &mut Box<dyn Session>, keyspace: &str) {
     for _ in 0..40 {
-        if s.execute(&format!("SELECT RAW 1 FROM {keyspace} LIMIT 1"), 1, &mut QueryOutcome::default()).await.is_ok() {
+        if s.execute(
+            &format!("SELECT RAW 1 FROM {keyspace} LIMIT 1"),
+            1,
+            &mut QueryOutcome::default(),
+        )
+        .await
+        .is_ok()
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -58,14 +70,22 @@ async fn rename_field_live() {
     let Some(c) = cfg() else { return };
     let d = dbine_driver_couchbase::drivers().remove(0);
     let mut s = d.connect(&c, None).await.unwrap();
-    if s.list_databases().await.unwrap().contains(&"dbine_rename".to_string()) {
+    if s.list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_rename".to_string())
+    {
         s.drop_database("dbine_rename").await.unwrap();
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
     s.create_database("dbine_rename").await.unwrap();
     let mut s = d.connect(&c, Some("dbine_rename")).await.unwrap();
     for coll in ["clientes", "otros"] {
-        run(&mut s, &format!("CREATE COLLECTION dbine_rename._default.{coll}")).await;
+        run(
+            &mut s,
+            &format!("CREATE COLLECTION dbine_rename._default.{coll}"),
+        )
+        .await;
         wait(&mut s, &format!("dbine_rename._default.{coll}")).await;
     }
     run(
@@ -82,13 +102,33 @@ async fn rename_field_live() {
     .await;
 
     let spec = d.rename_spec().unwrap();
-    let table = ObjectRef { kind: kinds::COLLECTION.into(), schema: Some("dbine_rename._default".into()), name: "clientes".into() };
-    let target = RenameTarget::Column { table: table.clone(), column: "pepe".into() };
+    let table = ObjectRef {
+        kind: kinds::COLLECTION.into(),
+        schema: Some("dbine_rename._default".into()),
+        name: "clientes".into(),
+    };
+    let target = RenameTarget::Column {
+        table: table.clone(),
+        column: "pepe".into(),
+    };
     assert!(spec.allows(&target));
-    assert!(!spec.allows(&RenameTarget::Object { object: table.clone(), parent: None }));
-    let schema = s.database_schema().await.unwrap().into_iter().find(|t| t.name == "clientes" && t.schema == table.schema);
+    assert!(!spec.allows(&RenameTarget::Object {
+        object: table.clone(),
+        parent: None
+    }));
+    let schema = s
+        .database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.name == "clientes" && t.schema == table.schema);
     assert!(schema.is_some());
-    let req = RenameRequest { target, new_name: "apodo".into(), table: schema, definition: None };
+    let req = RenameRequest {
+        target,
+        new_name: "apodo".into(),
+        table: schema,
+        definition: None,
+    };
     let script = d.rename_script(&req).unwrap();
     println!("{:#?}", script);
     for st in &script.statements {
@@ -96,18 +136,65 @@ async fn rename_field_live() {
     }
 
     let ks = "dbine_rename._default.clientes";
-    assert_eq!(scalar(&mut s, &format!("SELECT COUNT(*) FROM {ks} WHERE apodo IS NOT MISSING")).await, 3);
-    assert_eq!(scalar(&mut s, &format!("SELECT COUNT(*) FROM {ks} WHERE pepe IS NOT MISSING")).await, 0);
-    assert_eq!(scalar(&mut s, &format!("SELECT RAW dir.pepe FROM {ks} USE KEYS 'c1'")).await, "n1");
-    assert_eq!(scalar(&mut s, "SELECT RAW pepe FROM dbine_rename._default.otros USE KEYS 'o1'").await, "x");
+    assert_eq!(
+        scalar(
+            &mut s,
+            &format!("SELECT COUNT(*) FROM {ks} WHERE apodo IS NOT MISSING")
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        scalar(
+            &mut s,
+            &format!("SELECT COUNT(*) FROM {ks} WHERE pepe IS NOT MISSING")
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        scalar(
+            &mut s,
+            &format!("SELECT RAW dir.pepe FROM {ks} USE KEYS 'c1'")
+        )
+        .await,
+        "n1"
+    );
+    assert_eq!(
+        scalar(
+            &mut s,
+            "SELECT RAW pepe FROM dbine_rename._default.otros USE KEYS 'o1'"
+        )
+        .await,
+        "x"
+    );
     // The indexes are on the new field, and the planner uses them.
     let keys = run(&mut s, "SELECT name, index_key, `condition` FROM system:indexes WHERE bucket_id = 'dbine_rename' AND keyspace_id = 'clientes' ORDER BY name").await;
     let text = serde_json::to_string(&keys.results[0].rows).unwrap();
     println!("{text}");
-    assert!(text.contains("ix_pepe") && text.contains("ix_activo") && !text.contains("(`pepe`") && !text.contains("[\"`pepe`"), "{text}");
-    let plan = run(&mut s, &format!("EXPLAIN SELECT activo FROM {ks} WHERE apodo = 'b'")).await;
-    assert!(serde_json::to_string(&plan.results).unwrap().contains("ix_pepe"));
-    assert_eq!(scalar(&mut s, &format!("SELECT COUNT(*) FROM {ks} WHERE apodo = 'b'")).await, 1);
+    assert!(
+        text.contains("ix_pepe")
+            && text.contains("ix_activo")
+            && !text.contains("(`pepe`")
+            && !text.contains("[\"`pepe`"),
+        "{text}"
+    );
+    let plan = run(
+        &mut s,
+        &format!("EXPLAIN SELECT activo FROM {ks} WHERE apodo = 'b'"),
+    )
+    .await;
+    assert!(serde_json::to_string(&plan.results)
+        .unwrap()
+        .contains("ix_pepe"));
+    assert_eq!(
+        scalar(
+            &mut s,
+            &format!("SELECT COUNT(*) FROM {ks} WHERE apodo = 'b'")
+        )
+        .await,
+        1
+    );
 
     let mut s = d.connect(&c, None).await.unwrap();
     s.drop_database("dbine_rename").await.unwrap();

@@ -14,7 +14,9 @@ use dbine_driver::{ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
 const SCHEMA: &str = "DBINE_SEARCH";
 
 fn config(url: &str) -> ConnectionConfig {
-    let rest = url.strip_prefix("oracle://").expect("oracle://user:pass@host:port/service");
+    let rest = url
+        .strip_prefix("oracle://")
+        .expect("oracle://user:pass@host:port/service");
     let (cred, addr) = rest.split_once('@').unwrap();
     let (user, pass) = cred.split_once(':').unwrap();
     let (hostport, service) = addr.split_once('/').unwrap();
@@ -33,28 +35,56 @@ fn config(url: &str) -> ConnectionConfig {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
-    assert!(out.error.is_none() && out.errors.is_empty(), "{sql}: {:?} {:?}", out.error, out.errors);
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
+    assert!(
+        out.error.is_none() && out.errors.is_empty(),
+        "{sql}: {:?} {:?}",
+        out.error,
+        out.errors
+    );
 }
 
 /// The app's scan, as commands/search.rs does it.
 async fn scan(s: &mut Box<dyn Session>, d: &dyn Driver, q: &CodeSearch) -> Vec<CodeHit> {
-    let with_source: Vec<&str> = d.info().object_kinds.iter().filter(|k| k.has_definition).map(|k| k.id).collect();
+    let with_source: Vec<&str> = d
+        .info()
+        .object_kinds
+        .iter()
+        .filter(|k| k.has_definition)
+        .map(|k| k.id)
+        .collect();
     let mut hits = Vec::new();
     for o in s.list_objects().await.unwrap() {
-        if !with_source.contains(&o.kind.as_str()) || !(q.kinds.is_empty() || q.kinds.contains(&o.kind)) {
+        if !with_source.contains(&o.kind.as_str())
+            || !(q.kinds.is_empty() || q.kinds.contains(&o.kind))
+        {
             continue;
         }
-        let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+        let r = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
         if let Ok(Some(src)) = s.definition(&r).await {
-            hits.extend(hits_in(&o.kind, o.schema.as_deref(), &o.name, o.parent.as_deref(), &src, q));
+            hits.extend(hits_in(
+                &o.kind,
+                o.schema.as_deref(),
+                &o.name,
+                o.parent.as_deref(),
+                &src,
+                q,
+            ));
         }
     }
     hits
 }
 
 fn sorted(mut h: Vec<CodeHit>) -> Vec<CodeHit> {
-    h.sort_by(|a, b| (&a.kind, &a.schema, &a.name, a.line).cmp(&(&b.kind, &b.schema, &b.name, b.line)));
+    h.sort_by(|a, b| {
+        (&a.kind, &a.schema, &a.name, a.line).cmp(&(&b.kind, &b.schema, &b.name, b.line))
+    });
     h
 }
 
@@ -68,11 +98,17 @@ async fn catalog_equals_scan() {
     let d = dbine_driver_oracle::drivers().remove(0);
     let mut admin: Box<dyn Session> = d.connect(&config(&url), None).await.unwrap();
     let mut quiet = QueryOutcome::default();
-    let _ = admin.execute("DROP PUBLIC SYNONYM s_ventas_pub", 10, &mut quiet).await;
+    let _ = admin
+        .execute("DROP PUBLIC SYNONYM s_ventas_pub", 10, &mut quiet)
+        .await;
     let _ = admin.drop_database(SCHEMA).await;
     admin.create_database(SCHEMA).await.unwrap();
     // A materialized view's container table belongs to the schema.
-    run(&mut admin, "GRANT CREATE TABLE, CREATE MATERIALIZED VIEW TO dbine_search").await;
+    run(
+        &mut admin,
+        "GRANT CREATE TABLE, CREATE MATERIALIZED VIEW TO dbine_search",
+    )
+    .await;
     let mut s = d.connect(&config(&url), Some(SCHEMA)).await.unwrap();
     for sql in [
         "CREATE TABLE ventas (id NUMBER PRIMARY KEY, total NUMBER)",
@@ -106,31 +142,87 @@ async fn catalog_equals_scan() {
         ("dbine_search", true, false),
     ];
     let mut all = Vec::new();
-    for kinds in [vec![], vec!["trigger".to_string(), "type".to_string(), "synonym".to_string()]] {
+    for kinds in [
+        vec![],
+        vec![
+            "trigger".to_string(),
+            "type".to_string(),
+            "synonym".to_string(),
+        ],
+    ] {
         for &(text, word, case) in cases {
-            let q = CodeSearch { text: text.into(), whole_word: word, case_sensitive: case, kinds: kinds.clone(), ..Default::default() };
-            let fast = sorted(s.search_code(&q).await.unwrap().expect("Oracle answers from its dictionary").hits);
+            let q = CodeSearch {
+                text: text.into(),
+                whole_word: word,
+                case_sensitive: case,
+                kinds: kinds.clone(),
+                ..Default::default()
+            };
+            let fast = sorted(
+                s.search_code(&q)
+                    .await
+                    .unwrap()
+                    .expect("Oracle answers from its dictionary")
+                    .hits,
+            );
             let slow = sorted(scan(&mut s, d.as_ref(), &q).await);
             eprintln!("{text:?} {kinds:?}: {} hits", fast.len());
             assert_eq!(fast, slow, "{text:?} {kinds:?}");
             all.push(fast);
         }
     }
-    let kinds_of = |h: &[CodeHit]| h.iter().map(|h| h.kind.clone()).collect::<std::collections::BTreeSet<_>>();
+    let kinds_of = |h: &[CodeHit]| {
+        h.iter()
+            .map(|h| h.kind.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
     let found = kinds_of(&[all[0].clone(), all[1].clone()].concat());
-    for k in ["table", "view", "materialized_view", "procedure", "package", "trigger", "type", "sequence", "synonym"] {
+    for k in [
+        "table",
+        "view",
+        "materialized_view",
+        "procedure",
+        "package",
+        "trigger",
+        "type",
+        "sequence",
+        "synonym",
+    ] {
         assert!(found.contains(k), "{k}: {found:?}");
     }
-    assert!(all[0].iter().any(|h| h.kind == "trigger" && h.parent.as_deref() == Some("VENTAS")), "{:?}", all[0]);
-    assert!(all[0].iter().any(|h| h.schema.as_deref() == Some("PUBLIC")), "public synonym: {:?}", all[0]);
-    assert!(all[4].iter().any(|h| h.kind == "table" && h.name == "VENTAS"), "the index's DDL: {:?}", all[4]);
+    assert!(
+        all[0]
+            .iter()
+            .any(|h| h.kind == "trigger" && h.parent.as_deref() == Some("VENTAS")),
+        "{:?}",
+        all[0]
+    );
+    assert!(
+        all[0].iter().any(|h| h.schema.as_deref() == Some("PUBLIC")),
+        "public synonym: {:?}",
+        all[0]
+    );
+    assert!(
+        all[4]
+            .iter()
+            .any(|h| h.kind == "table" && h.name == "VENTAS"),
+        "the index's DDL: {:?}",
+        all[4]
+    );
     assert!(!all[6].is_empty(), "non-ASCII without narrowing");
 
-    let q = CodeSearch { text: "ventas".into(), max_hits: 2, ..Default::default() };
+    let q = CodeSearch {
+        text: "ventas".into(),
+        max_hits: 2,
+        ..Default::default()
+    };
     let capped = s.search_code(&q).await.unwrap().unwrap();
     assert!(capped.truncated && capped.hits.len() == 2, "{capped:?}");
 
     drop(s);
-    admin.execute("DROP PUBLIC SYNONYM s_ventas_pub", 10, &mut quiet).await.unwrap();
+    admin
+        .execute("DROP PUBLIC SYNONYM s_ventas_pub", 10, &mut quiet)
+        .await
+        .unwrap();
     admin.drop_database(SCHEMA).await.unwrap();
 }

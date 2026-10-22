@@ -12,7 +12,9 @@
 //! The files preset rebuilds its views from the folder on every
 //! connection: a rename there wouldn't last, so it isn't offered.
 
-use dbine_driver::rename::{quote_new, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
+use dbine_driver::rename::{
+    quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{kinds, Error, ObjectRef, Result, SyncScript};
 
@@ -67,7 +69,10 @@ pub fn script(files: bool, req: &RenameRequest) -> Result<SyncScript> {
         RenameTarget::Constraint { .. } => return Err(Error::Unsupported("DuckDB no renombra restricciones".into())),
         RenameTarget::Schema { .. } => return Err(Error::Unsupported("DuckDB no renombra esquemas".into())),
     };
-    Ok(SyncScript { statements: vec![statement], warnings: vec![] })
+    Ok(SyncScript {
+        statements: vec![statement],
+        warnings: vec![],
+    })
 }
 
 #[cfg(test)]
@@ -76,15 +81,27 @@ mod tests {
     use dbine_driver::{ForeignKeyDef, TableSchema};
 
     fn req(target: RenameTarget, new: &str) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: None }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: None,
+        }
     }
 
     fn obj(kind: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: Some("main".into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: Some("main".into()),
+            name: name.into(),
+        }
     }
 
     fn object(kind: &str, name: &str) -> RenameTarget {
-        RenameTarget::Object { object: obj(kind, name), parent: None }
+        RenameTarget::Object {
+            object: obj(kind, name),
+            parent: None,
+        }
     }
 
     #[test]
@@ -95,27 +112,65 @@ mod tests {
         assert!(s.tracked.is_empty());
         assert_eq!(s.replace, ReplaceStyle::CreateOrReplace);
         assert!(spec(true).is_none());
-        assert!(matches!(script(true, &req(object("view", "v"), "w")), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(true, &req(object("view", "v"), "w")),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn tables_and_views() {
-        assert_eq!(script(false, &req(object("table", "clientes"), "Clientes Viejos")).unwrap().statements, ["ALTER TABLE \"main\".\"clientes\" RENAME TO \"Clientes Viejos\";"]);
-        assert_eq!(script(false, &req(object("view", "v\"x"), "w")).unwrap().statements, ["ALTER VIEW \"main\".\"v\"\"x\" RENAME TO w;"]);
-        assert_eq!(script(false, &req(object("view", "v"), "select")).unwrap().statements, ["ALTER VIEW \"main\".\"v\" RENAME TO \"select\";"]);
-        assert!(matches!(script(false, &req(object("function", "m"), "n")), Err(Error::Unsupported(_))));
-        assert!(matches!(script(false, &req(object("sequence", "s"), "n")), Err(Error::Unsupported(_))));
+        assert_eq!(
+            script(false, &req(object("table", "clientes"), "Clientes Viejos"))
+                .unwrap()
+                .statements,
+            ["ALTER TABLE \"main\".\"clientes\" RENAME TO \"Clientes Viejos\";"]
+        );
+        assert_eq!(
+            script(false, &req(object("view", "v\"x"), "w"))
+                .unwrap()
+                .statements,
+            ["ALTER VIEW \"main\".\"v\"\"x\" RENAME TO w;"]
+        );
+        assert_eq!(
+            script(false, &req(object("view", "v"), "select"))
+                .unwrap()
+                .statements,
+            ["ALTER VIEW \"main\".\"v\" RENAME TO \"select\";"]
+        );
+        assert!(matches!(
+            script(false, &req(object("function", "m"), "n")),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(false, &req(object("sequence", "s"), "n")),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn columns() {
-        let target = || RenameTarget::Column { table: obj("table", "t"), column: "pepe".into() };
-        assert_eq!(script(false, &req(target(), "Pepe")).unwrap().statements, ["ALTER TABLE \"main\".\"t\" RENAME COLUMN \"pepe\" TO Pepe;"]);
-        assert_eq!(script(false, &req(target(), "pepa")).unwrap().statements, ["ALTER TABLE \"main\".\"t\" RENAME COLUMN \"pepe\" TO pepa;"]);
+        let target = || RenameTarget::Column {
+            table: obj("table", "t"),
+            column: "pepe".into(),
+        };
+        assert_eq!(
+            script(false, &req(target(), "Pepe")).unwrap().statements,
+            ["ALTER TABLE \"main\".\"t\" RENAME COLUMN \"pepe\" TO Pepe;"]
+        );
+        assert_eq!(
+            script(false, &req(target(), "pepa")).unwrap().statements,
+            ["ALTER TABLE \"main\".\"t\" RENAME COLUMN \"pepe\" TO pepa;"]
+        );
         let mut r = req(target(), "pepa");
         r.table = Some(TableSchema {
             name: "t".into(),
-            foreign_keys: vec![ForeignKeyDef { columns: vec!["PEPE".into()], ref_table: "u".into(), ref_columns: vec!["id".into()], ..Default::default() }],
+            foreign_keys: vec![ForeignKeyDef {
+                columns: vec!["PEPE".into()],
+                ref_table: "u".into(),
+                ref_columns: vec!["id".into()],
+                ..Default::default()
+            }],
             ..Default::default()
         });
         assert!(matches!(script(false, &r), Err(Error::Unsupported(_))));
@@ -123,11 +178,29 @@ mod tests {
 
     #[test]
     fn refused() {
-        let ix = RenameTarget::Index { table: obj("table", "t"), index: "ix".into() };
-        assert!(matches!(script(false, &req(ix, "iy")), Err(Error::Unsupported(_))));
-        let c = RenameTarget::Constraint { table: obj("table", "t"), constraint: "c".into() };
-        assert!(matches!(script(false, &req(c, "d")), Err(Error::Unsupported(_))));
-        let s = RenameTarget::Schema { database: None, schema: "s".into() };
-        assert!(matches!(script(false, &req(s, "s2")), Err(Error::Unsupported(_))));
+        let ix = RenameTarget::Index {
+            table: obj("table", "t"),
+            index: "ix".into(),
+        };
+        assert!(matches!(
+            script(false, &req(ix, "iy")),
+            Err(Error::Unsupported(_))
+        ));
+        let c = RenameTarget::Constraint {
+            table: obj("table", "t"),
+            constraint: "c".into(),
+        };
+        assert!(matches!(
+            script(false, &req(c, "d")),
+            Err(Error::Unsupported(_))
+        ));
+        let s = RenameTarget::Schema {
+            database: None,
+            schema: "s".into(),
+        };
+        assert!(matches!(
+            script(false, &req(s, "s2")),
+            Err(Error::Unsupported(_))
+        ));
     }
 }

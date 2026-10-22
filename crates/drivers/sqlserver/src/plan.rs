@@ -15,13 +15,23 @@ pub const SHOWPLAN_COLUMN: &str = "Microsoft SQL Server 2005 XML Showplan";
 pub fn parse_showplan(xml: &str, actual: bool) -> Result<Vec<Plan>, String> {
     let doc = Document::parse(xml).map_err(|e| e.to_string())?;
     let mut plans = Vec::new();
-    for stmt in doc.descendants().filter(|n| n.is_element() && n.tag_name().name().starts_with("Stmt")) {
-        let Some(qp) = child(stmt, "QueryPlan") else { continue };
-        let Some(rel) = child(qp, "RelOp") else { continue };
+    for stmt in doc
+        .descendants()
+        .filter(|n| n.is_element() && n.tag_name().name().starts_with("Stmt"))
+    {
+        let Some(qp) = child(stmt, "QueryPlan") else {
+            continue;
+        };
+        let Some(rel) = child(qp, "RelOp") else {
+            continue;
+        };
         let mut root = rel_op(rel);
         // Statement-level node, as SSMS shows it (SELECT / INSERT… with the
         // statement's cost), so the first operator isn't mistaken for it.
-        let kind = stmt.attribute("StatementType").unwrap_or("STATEMENT").to_string();
+        let kind = stmt
+            .attribute("StatementType")
+            .unwrap_or("STATEMENT")
+            .to_string();
         let mut top = PlanNode {
             op: kind.clone(),
             total_cost: attr_f(stmt, "StatementSubTreeCost").or(root.total_cost),
@@ -33,21 +43,36 @@ pub fn parse_showplan(xml: &str, actual: bool) -> Result<Vec<Plan>, String> {
         top.warnings = plan_warnings(qp);
         top.warnings.extend(missing_indexes(qp));
         for (k, v) in [
-            ("Nivel de optimización", stmt.attribute("StatementOptmLevel")),
-            ("Motivo de fin de optimización", stmt.attribute("StatementOptmEarlyAbortReason")),
+            (
+                "Nivel de optimización",
+                stmt.attribute("StatementOptmLevel"),
+            ),
+            (
+                "Motivo de fin de optimización",
+                stmt.attribute("StatementOptmEarlyAbortReason"),
+            ),
             ("Hash del plan", stmt.attribute("QueryPlanHash")),
             ("Grado de paralelismo", qp.attribute("DegreeOfParallelism")),
-            ("Memoria concedida (KB)", child(qp, "MemoryGrantInfo").and_then(|m| m.attribute("GrantedMemory"))),
+            (
+                "Memoria concedida (KB)",
+                child(qp, "MemoryGrantInfo").and_then(|m| m.attribute("GrantedMemory")),
+            ),
             ("Tiempo de compilación (ms)", qp.attribute("CompileTime")),
             ("CPU de compilación (ms)", qp.attribute("CompileCPU")),
-            ("Nivel de compatibilidad", stmt.attribute("CardinalityEstimationModelVersion")),
+            (
+                "Nivel de compatibilidad",
+                stmt.attribute("CardinalityEstimationModelVersion"),
+            ),
         ] {
             if let Some(v) = v {
                 top.props.push((k.to_string(), v.to_string()));
             }
         }
         if let Some(t) = child(qp, "QueryTimeStats") {
-            for (k, a) in [("CPU total (ms)", "CpuTime"), ("Tiempo total (ms)", "ElapsedTime")] {
+            for (k, a) in [
+                ("CPU total (ms)", "CpuTime"),
+                ("Tiempo total (ms)", "ElapsedTime"),
+            ] {
                 if let Some(v) = t.attribute(a) {
                     top.props.push((k.to_string(), v.to_string()));
                 }
@@ -57,7 +82,11 @@ pub fn parse_showplan(xml: &str, actual: bool) -> Result<Vec<Plan>, String> {
         fill_self_costs(&mut root);
         top.children.push(root);
         plans.push(Plan {
-            statement: stmt.attribute("StatementText").unwrap_or_default().trim().to_string(),
+            statement: stmt
+                .attribute("StatementText")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
             root: top,
             actual,
             raw_format: "showplan_xml".into(),
@@ -68,7 +97,8 @@ pub fn parse_showplan(xml: &str, actual: bool) -> Result<Vec<Plan>, String> {
 }
 
 fn child<'a, 'i>(n: Node<'a, 'i>, name: &str) -> Option<Node<'a, 'i>> {
-    n.children().find(|c| c.is_element() && c.tag_name().name() == name)
+    n.children()
+        .find(|c| c.is_element() && c.tag_name().name() == name)
 }
 
 fn attr_f(n: Node, name: &str) -> Option<f64> {
@@ -115,7 +145,11 @@ fn rel_op(rel: Node) -> PlanNode {
     let physical = rel.attribute("PhysicalOp").unwrap_or("?").to_string();
     let logical = rel.attribute("LogicalOp").unwrap_or_default().to_string();
     let mut n = PlanNode {
-        detail: if logical != physical { logical } else { String::new() },
+        detail: if logical != physical {
+            logical
+        } else {
+            String::new()
+        },
         op: physical,
         total_cost: attr_f(rel, "EstimatedTotalSubtreeCost"),
         est_rows: attr_f(rel, "EstimateRows").or_else(|| attr_f(rel, "EstimatedRowsRead")),
@@ -125,13 +159,28 @@ fn rel_op(rel: Node) -> PlanNode {
     // The operator's own element (IndexScan, Hash, NestedLoops…): the first
     // element child that isn't bookkeeping.
     let body = rel.children().find(|c| {
-        c.is_element() && !matches!(c.tag_name().name(), "OutputList" | "RunTimeInformation" | "Warnings" | "MemoryFractions" | "RunTimePartitionSummary" | "InternalInfo")
+        c.is_element()
+            && !matches!(
+                c.tag_name().name(),
+                "OutputList"
+                    | "RunTimeInformation"
+                    | "Warnings"
+                    | "MemoryFractions"
+                    | "RunTimePartitionSummary"
+                    | "InternalInfo"
+            )
     });
 
     if let Some(body) = body {
         if let Some(obj) = own_descendant(body, "Object") {
-            let clean = |a: &str| obj.attribute(a).map(|v| v.trim_matches(['[', ']']).to_string());
-            let parts: Vec<String> = ["Schema", "Table", "Index"].iter().filter_map(|a| clean(a)).collect();
+            let clean = |a: &str| {
+                obj.attribute(a)
+                    .map(|v| v.trim_matches(['[', ']']).to_string())
+            };
+            let parts: Vec<String> = ["Schema", "Table", "Index"]
+                .iter()
+                .filter_map(|a| clean(a))
+                .collect();
             if !parts.is_empty() {
                 n.object = Some(parts.join("."));
             }
@@ -142,7 +191,10 @@ fn rel_op(rel: Node) -> PlanNode {
             ("Residual", "ProbeResidual"),
             ("Claves hash", "HashKeysProbe"),
         ] {
-            if let Some(p) = body.children().find(|c| c.is_element() && c.tag_name().name() == tag) {
+            if let Some(p) = body
+                .children()
+                .find(|c| c.is_element() && c.tag_name().name() == tag)
+            {
                 let text: Vec<&str> = p
                     .descendants()
                     .filter_map(|d| d.attribute("ScalarString"))
@@ -161,7 +213,14 @@ fn rel_op(rel: Node) -> PlanNode {
                 }
             }
         }
-        for a in ["Ordered", "ScanDirection", "ForcedIndex", "Optimized", "WithUnorderedPrefetch", "Lookup"] {
+        for a in [
+            "Ordered",
+            "ScanDirection",
+            "ForcedIndex",
+            "Optimized",
+            "WithUnorderedPrefetch",
+            "Lookup",
+        ] {
             if let Some(v) = body.attribute(a) {
                 n.props.push((a.to_string(), v.to_string()));
             }
@@ -172,7 +231,10 @@ fn rel_op(rel: Node) -> PlanNode {
     }
 
     if let Some(outputs) = child(rel, "OutputList") {
-        let cols: Vec<&str> = outputs.children().filter_map(|c| c.attribute("Column")).collect();
+        let cols: Vec<&str> = outputs
+            .children()
+            .filter_map(|c| c.attribute("Column"))
+            .collect();
         if !cols.is_empty() {
             n.props.push(("Columnas de salida".into(), cols.join(", ")));
         }
@@ -181,7 +243,10 @@ fn rel_op(rel: Node) -> PlanNode {
     // Actual figures, summed over threads (elapsed: the slowest thread).
     if let Some(rt) = child(rel, "RunTimeInformation") {
         let (mut rows, mut execs, mut ms, mut reads) = (0.0, 0.0, None::<f64>, 0.0);
-        for t in rt.children().filter(|c| c.tag_name().name() == "RunTimeCountersPerThread") {
+        for t in rt
+            .children()
+            .filter(|c| c.tag_name().name() == "RunTimeCountersPerThread")
+        {
             rows += attr_f(t, "ActualRows").unwrap_or(0.0);
             execs += attr_f(t, "ActualExecutions").unwrap_or(0.0);
             reads += attr_f(t, "ActualLogicalReads").unwrap_or(0.0);
@@ -197,8 +262,11 @@ fn rel_op(rel: Node) -> PlanNode {
         }
         if let Some(est) = n.est_rows {
             let est_total = est * execs.max(1.0);
-            if rows > 0.0 && est_total > 0.0 && (rows / est_total > 10.0 || est_total / rows > 10.0) {
-                n.warnings.push(format!("Estimación desviada: {est_total:.0} estimadas vs {rows:.0} reales"));
+            if rows > 0.0 && est_total > 0.0 && (rows / est_total > 10.0 || est_total / rows > 10.0)
+            {
+                n.warnings.push(format!(
+                    "Estimación desviada: {est_total:.0} estimadas vs {rows:.0} reales"
+                ));
             }
         }
     }
@@ -263,7 +331,10 @@ fn warning_texts(w: Node) -> Vec<String> {
         };
         out.push(text);
     }
-    for (a, text) in [("NoJoinPredicate", "Join sin predicado (producto cartesiano)")] {
+    for (a, text) in [(
+        "NoJoinPredicate",
+        "Join sin predicado (producto cartesiano)",
+    )] {
         if w.attribute(a) == Some("true") || w.attribute(a) == Some("1") {
             out.push(text.to_string());
         }
@@ -273,11 +344,19 @@ fn warning_texts(w: Node) -> Vec<String> {
 
 /// "Índice faltante (impacto 87%): CREATE NONCLUSTERED INDEX …" per group.
 fn missing_indexes(qp: Node) -> Vec<String> {
-    let Some(mi) = child(qp, "MissingIndexes") else { return Vec::new() };
+    let Some(mi) = child(qp, "MissingIndexes") else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
-    for group in mi.children().filter(|c| c.tag_name().name() == "MissingIndexGroup") {
+    for group in mi
+        .children()
+        .filter(|c| c.tag_name().name() == "MissingIndexGroup")
+    {
         let impact = group.attribute("Impact").unwrap_or("?");
-        for idx in group.children().filter(|c| c.tag_name().name() == "MissingIndex") {
+        for idx in group
+            .children()
+            .filter(|c| c.tag_name().name() == "MissingIndex")
+        {
             let table = format!(
                 "{}.{}",
                 idx.attribute("Schema").unwrap_or("[dbo]"),
@@ -285,14 +364,22 @@ fn missing_indexes(qp: Node) -> Vec<String> {
             );
             let cols = |usage: &str| -> Vec<String> {
                 idx.children()
-                    .filter(|g| g.tag_name().name() == "ColumnGroup" && g.attribute("Usage") == Some(usage))
-                    .flat_map(|g| g.children().filter_map(|c| c.attribute("Name").map(str::to_string)))
+                    .filter(|g| {
+                        g.tag_name().name() == "ColumnGroup" && g.attribute("Usage") == Some(usage)
+                    })
+                    .flat_map(|g| {
+                        g.children()
+                            .filter_map(|c| c.attribute("Name").map(str::to_string))
+                    })
                     .collect()
             };
             let mut keys = cols("EQUALITY");
             keys.extend(cols("INEQUALITY"));
             let include = cols("INCLUDE");
-            let mut sql = format!("CREATE NONCLUSTERED INDEX [IX_sugerido] ON {table} ({})", keys.join(", "));
+            let mut sql = format!(
+                "CREATE NONCLUSTERED INDEX [IX_sugerido] ON {table} ({})",
+                keys.join(", ")
+            );
             if !include.is_empty() {
                 sql.push_str(&format!(" INCLUDE ({})", include.join(", ")));
             }
@@ -347,22 +434,36 @@ mod tests {
         assert_eq!(nl.op, "Nested Loops");
         assert_eq!(nl.detail, "Inner Join");
         assert_eq!(nl.actual_rows, Some(200.0));
-        assert!(nl.warnings.iter().any(|w| w.contains("desviada")), "10 estimated vs 200 actual");
+        assert!(
+            nl.warnings.iter().any(|w| w.contains("desviada")),
+            "10 estimated vs 200 actual"
+        );
         assert_eq!(nl.children.len(), 2);
         assert_eq!(nl.object, None, "a join reads no table of its own");
-        assert!((nl.self_cost.unwrap() - 0.1).abs() < 1e-9, "0.5 - 0.1 - 0.3");
+        assert!(
+            (nl.self_cost.unwrap() - 0.1).abs() < 1e-9,
+            "0.5 - 0.1 - 0.3"
+        );
         let seek = &nl.children[0];
         assert_eq!(seek.object.as_deref(), Some("dbo.t.ix"));
         let lookup = &nl.children[1];
         assert_eq!(lookup.detail, "Key Lookup");
         assert!(lookup.warnings[0].contains("CONVERT_IMPLICIT"));
-        assert!(lookup.props.iter().any(|(k, v)| k == "Predicado" && v.contains("[t].[c]")));
+        assert!(lookup
+            .props
+            .iter()
+            .any(|(k, v)| k == "Predicado" && v.contains("[t].[c]")));
     }
 
     #[test]
     fn missing_index_is_suggested() {
         let p = &parse_showplan(XML, false).unwrap()[0];
-        let w = p.root.warnings.iter().find(|w| w.starts_with("Índice faltante")).unwrap();
+        let w = p
+            .root
+            .warnings
+            .iter()
+            .find(|w| w.starts_with("Índice faltante"))
+            .unwrap();
         assert!(w.contains("87.5%"));
         assert!(w.contains("ON [dbo].[t] ([a]) INCLUDE ([b])"), "{w}");
     }

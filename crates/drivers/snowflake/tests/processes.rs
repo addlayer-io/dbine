@@ -13,9 +13,17 @@ use std::time::Duration;
 
 fn config() -> Option<ConnectionConfig> {
     let var = |k: &str| std::env::var(format!("DBINE_TEST_SNOWFLAKE_{k}")).ok();
-    let mut options = std::collections::HashMap::from([("account".to_string(), var("ACCOUNT")?), ("token".to_string(), var("TOKEN")?)]);
+    let mut options = std::collections::HashMap::from([
+        ("account".to_string(), var("ACCOUNT")?),
+        ("token".to_string(), var("TOKEN")?),
+    ]);
     options.insert("warehouse".into(), var("WAREHOUSE")?);
-    Some(ConnectionConfig { driver: "snowflake".into(), username: var("USER"), options: options.into_iter().collect(), ..Default::default() })
+    Some(ConnectionConfig {
+        driver: "snowflake".into(),
+        username: var("USER"),
+        options: options.into_iter().collect(),
+        ..Default::default()
+    })
 }
 
 async fn run(s: &mut Box<dyn Session>, q: &str) -> dbine_driver::Result<QueryOutcome> {
@@ -27,7 +35,13 @@ async fn run(s: &mut Box<dyn Session>, q: &str) -> dbine_driver::Result<QueryOut
 async fn listed(admin: &mut Box<dyn Session>, marker: &str) -> ServerProcess {
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        if let Some(p) = admin.processes().await.unwrap().into_iter().find(|p| p.sql.as_deref().unwrap_or("").contains(marker)) {
+        if let Some(p) = admin
+            .processes()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|p| p.sql.as_deref().unwrap_or("").contains(marker))
+        {
             return p;
         }
     }
@@ -49,26 +63,45 @@ async fn lists_cancels_and_ends_the_session() {
     // Cancel: the statement stops and the session goes on.
     let mut worker = d.connect(&cfg, None).await.unwrap();
     let running = tokio::spawn(async move {
-        let r = run(&mut worker, "SELECT SYSTEM$WAIT(60) AS dbine_processes_test").await;
+        let r = run(
+            &mut worker,
+            "SELECT SYSTEM$WAIT(60) AS dbine_processes_test",
+        )
+        .await;
         (r, worker)
     });
     let w = listed(&mut admin, "dbine_processes_test").await;
     eprintln!("{w:#?}");
     assert!(w.active && !w.own, "{w:?}");
     admin.cancel_query(&w.id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(20), running).await.expect("the query stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(20), running)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     assert!(r.is_err(), "the query was cancelled");
-    run(&mut worker, "SELECT 1").await.expect("the session still works");
-    assert!(admin.cancel_query("x'); DROP").await.is_err(), "the id is validated");
+    run(&mut worker, "SELECT 1")
+        .await
+        .expect("the session still works");
+    assert!(
+        admin.cancel_query("x'); DROP").await.is_err(),
+        "the id is validated"
+    );
 
     // Kill: the query's session ends.
     let running = tokio::spawn(async move {
-        let r = run(&mut worker, "SELECT SYSTEM$WAIT(60) AS dbine_processes_kill").await;
+        let r = run(
+            &mut worker,
+            "SELECT SYSTEM$WAIT(60) AS dbine_processes_kill",
+        )
+        .await;
         (r, worker)
     });
     let w = listed(&mut admin, "dbine_processes_kill").await;
     admin.kill_session(&w.id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(20), running).await.expect("the query stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(20), running)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     assert!(r.is_err(), "the session was ended");
     let _ = run(&mut worker, "SELECT 1").await;
 }

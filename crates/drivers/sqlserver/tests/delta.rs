@@ -8,8 +8,13 @@
 //! ```
 
 use dbine_driver::read_only::ReadOnlySession;
-use dbine_driver::transfer::{changed_buckets, BatchSink, BatchSource, ReadSpec, RowBatch, TransferColumn};
-use dbine_driver::{async_trait, Buckets, ConnectionConfig, DeltaDepth, DeltaSpec, Driver, ObjectRef, QueryOutcome, Session};
+use dbine_driver::transfer::{
+    changed_buckets, BatchSink, BatchSource, ReadSpec, RowBatch, TransferColumn,
+};
+use dbine_driver::{
+    async_trait, Buckets, ConnectionConfig, DeltaDepth, DeltaSpec, Driver, ObjectRef, QueryOutcome,
+    Session,
+};
 use std::io;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
@@ -41,7 +46,9 @@ fn driver() -> Arc<dyn Driver> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{e}\n{sql}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{sql}"));
     if let Some(e) = &out.error {
         panic!("{e}\n{sql}");
     }
@@ -50,13 +57,19 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
 
 async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> i64 {
     let v = run(s, sql).await.results[0].rows[0][0].clone();
-    v.as_i64().or_else(|| v.as_str().and_then(|x| x.parse().ok())).unwrap_or_else(|| panic!("{v:?}"))
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|x| x.parse().ok()))
+        .unwrap_or_else(|| panic!("{v:?}"))
 }
 
 /// `name` or `schema.name` (dbo by default).
 fn table(name: &str) -> ObjectRef {
     let (schema, name) = name.split_once('.').unwrap_or(("dbo", name));
-    ObjectRef { kind: "table".into(), schema: Some(schema.into()), name: name.into() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: Some(schema.into()),
+        name: name.into(),
+    }
 }
 
 struct Channel(mpsc::SyncSender<RowBatch>);
@@ -73,14 +86,17 @@ struct Receive(Arc<Mutex<mpsc::Receiver<RowBatch>>>);
 impl BatchSource for Receive {
     async fn next(&mut self) -> Option<RowBatch> {
         let rx = self.0.clone();
-        tokio::task::spawn_blocking(move || rx.lock().unwrap().recv().ok()).await.unwrap()
+        tokio::task::spawn_blocking(move || rx.lock().unwrap().recv().ok())
+            .await
+            .unwrap()
     }
 }
 
 const COLS: [&str; 6] = ["id", "a", "c", "d", "e", "big"];
 // No identity: hash buckets refuse a synced identity column (see
 // `delta_adversarial_identity_and_keys`), and this table runs both kinds.
-const DDL: &str = "(id int NOT NULL PRIMARY KEY, a int NOT NULL, c nvarchar(50) NOT NULL, d varchar(100) NULL,
+const DDL: &str =
+    "(id int NOT NULL PRIMARY KEY, a int NOT NULL, c nvarchar(50) NOT NULL, d varchar(100) NULL,
     e decimal(18,4) NULL, big nvarchar(max) NULL)";
 
 /// Same bucket sizing as the orchestrator (dbine-transfer's delta).
@@ -89,13 +105,26 @@ fn range_buckets(column: &str, lo: i64, hi: i64, rows: u64) -> Buckets {
     let want = (rows / 1_000).clamp(1, 65_536) as i128;
     let width = ((span + want - 1) / want).clamp(1, i64::MAX as i128);
     let n = (span + width - 1) / width;
-    Buckets::Range { column: column.into(), lo, hi, width: width as i64, n: n as u64 }
+    Buckets::Range {
+        column: column.into(),
+        lo,
+        hi,
+        width: width as i64,
+        n: n as u64,
+    }
 }
 
 fn hash_buckets(rows: u64) -> Buckets {
-    let is_prime = |n: u64| n >= 2 && (2..).take_while(|d| d * d <= n).all(|d| !n.is_multiple_of(d));
+    let is_prime = |n: u64| {
+        n >= 2
+            && (2..)
+                .take_while(|d| d * d <= n)
+                .all(|d| !n.is_multiple_of(d))
+    };
     let want = (rows / 1_000).clamp(17, 65_537);
-    Buckets::Hash { n: (want..).find(|&k| is_prime(k)).unwrap() }
+    Buckets::Hash {
+        n: (want..).find(|&k| is_prime(k)).unwrap(),
+    }
 }
 
 fn bucket_total(b: &Buckets) -> u64 {
@@ -132,7 +161,9 @@ struct Timing {
 
 async fn sync_once(buckets: Buckets, depth: DeltaDepth, label: &str) -> Timing {
     let d = driver();
-    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(d.connect(&config(), Some(SRC_DB)).await.unwrap()));
+    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(
+        d.connect(&config(), Some(SRC_DB)).await.unwrap(),
+    ));
     let mut dst = d.connect(&config(), Some(DST_DB)).await.unwrap();
     let spec = DeltaSpec {
         table: table("t"),
@@ -149,24 +180,56 @@ async fn sync_once(buckets: Buckets, depth: DeltaDepth, label: &str) -> Timing {
     let changed = changed_buckets(&a, &b);
     let total = bucket_total(&spec.buckets);
     let filtered = changed.len() <= 5_000 && changed.len() as u64 <= total / 2;
-    let (apply, filter) = if filtered { (changed.clone(), Some(d.delta_filter(&spec, &changed).unwrap())) } else { (Vec::new(), None) };
+    let (apply, filter) = if filtered {
+        (
+            changed.clone(),
+            Some(d.delta_filter(&spec, &changed).unwrap()),
+        )
+    } else {
+        (Vec::new(), None)
+    };
 
     let start = Instant::now();
     let (tx, rx) = mpsc::sync_channel(16);
-    let read = ReadSpec { table: table("t"), columns: Some(spec.columns.clone()), filter };
+    let read = ReadSpec {
+        table: table("t"),
+        columns: Some(spec.columns.clone()),
+        filter,
+    };
     let reader = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
             let s = driver().connect(&config(), Some(SRC_DB)).await.unwrap();
             let mut s = ReadOnlySession::new(s);
-            s.read_batches(&read, Arc::new(Mutex::new(Channel(tx)))).await.unwrap()
+            s.read_batches(&read, Arc::new(Mutex::new(Channel(tx))))
+                .await
+                .unwrap()
         })
     });
-    let r = dst.delta_apply(&spec, &apply, &[], &mut Receive(Arc::new(Mutex::new(rx))), &|_| {}).await.unwrap();
+    let r = dst
+        .delta_apply(
+            &spec,
+            &apply,
+            &[],
+            &mut Receive(Arc::new(Mutex::new(rx))),
+            &|_| {},
+        )
+        .await
+        .unwrap();
     let staged = reader.join().unwrap();
     let apply_s = start.elapsed().as_secs_f64();
     // Staging dropped.
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM sys.tables WHERE name LIKE '[_][_]dbine[_]delta[_]%'").await, 0);
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT COUNT(*) FROM sys.tables WHERE name LIKE '[_][_]dbine[_]delta[_]%'"
+        )
+        .await,
+        0
+    );
     Timing {
         label: label.into(),
         changed: changed.len(),
@@ -180,7 +243,9 @@ async fn sync_once(buckets: Buckets, depth: DeltaDepth, label: &str) -> Timing {
 
 async fn except_both_ways(dst: &mut Box<dyn Session>) -> (i64, i64) {
     let list = COLS.join(", ");
-    let q = |a: &str, b: &str| format!("SELECT COUNT_BIG(*) FROM (SELECT {list} FROM {a} EXCEPT SELECT {list} FROM {b}) x");
+    let q = |a: &str, b: &str| {
+        format!("SELECT COUNT_BIG(*) FROM (SELECT {list} FROM {a} EXCEPT SELECT {list} FROM {b}) x")
+    };
     let s = format!("[{SRC_DB}].dbo.t");
     let t = format!("[{DST_DB}].dbo.t");
     (scalar(dst, &q(&s, &t)).await, scalar(dst, &q(&t, &s)).await)
@@ -189,8 +254,14 @@ async fn except_both_ways(dst: &mut Box<dyn Session>) -> (i64, i64) {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn delta_end_to_end() {
-    let rows: u64 = std::env::var("DBINE_BENCH_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(1_000_000);
-    let mut admin = driver().connect(&config(), Some("master")).await.expect("connect");
+    let rows: u64 = std::env::var("DBINE_BENCH_ROWS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1_000_000);
+    let mut admin = driver()
+        .connect(&config(), Some("master"))
+        .await
+        .expect("connect");
     for db in [SRC_DB, DST_DB] {
         run(
             &mut admin,
@@ -220,7 +291,11 @@ async fn delta_end_to_end() {
     )
     .await;
     // The target: an identical copy, kept as `base` to reset between runs.
-    run(&mut dst, &format!("CREATE TABLE dbo.t {DDL}\nGO\nCREATE TABLE dbo.base {DDL}")).await;
+    run(
+        &mut dst,
+        &format!("CREATE TABLE dbo.t {DDL}\nGO\nCREATE TABLE dbo.base {DDL}"),
+    )
+    .await;
     run(
         &mut dst,
         &format!(
@@ -228,7 +303,10 @@ async fn delta_end_to_end() {
         ),
     )
     .await;
-    eprintln!("generated {rows} rows (and the target copy) in {:.1?}", t.elapsed());
+    eprintln!(
+        "generated {rows} rows (and the target copy) in {:.1?}",
+        t.elapsed()
+    );
     // Source changes: 1k updated (contiguous), 1k deleted, 1k inserted.
     run(
         &mut src,
@@ -241,12 +319,17 @@ async fn delta_end_to_end() {
 
     let d = driver();
     let (lo, hi, n) = {
-        let mut ro: Box<dyn Session> = Box::new(ReadOnlySession::new(d.connect(&config(), Some(SRC_DB)).await.unwrap()));
+        let mut ro: Box<dyn Session> = Box::new(ReadOnlySession::new(
+            d.connect(&config(), Some(SRC_DB)).await.unwrap(),
+        ));
         ro.key_range(&table("t"), "id").await.unwrap().unwrap()
     };
     assert_eq!(hi - lo + 1, rows as i64 + 1_000);
     let mut report = Vec::new();
-    for (kind, buckets) in [("range", range_buckets("id", lo, hi, n)), ("hash", hash_buckets(n))] {
+    for (kind, buckets) in [
+        ("range", range_buckets("id", lo, hi, n)),
+        ("hash", hash_buckets(n)),
+    ] {
         for depth in [DeltaDepth::Full, DeltaDepth::Sizes, DeltaDepth::Keys] {
             reset_target(&mut dst).await;
             let t = sync_once(buckets.clone(), depth, &format!("{kind} {depth:?}")).await;
@@ -266,7 +349,12 @@ async fn delta_end_to_end() {
         }
     }
     // Already in sync: nothing changes.
-    let t = sync_once(range_buckets("id", lo, hi, n), DeltaDepth::Full, "range again").await;
+    let t = sync_once(
+        range_buckets("id", lo, hi, n),
+        DeltaDepth::Full,
+        "range again",
+    )
+    .await;
     assert_eq!(t.changed, 0, "{}", t.result);
 
     eprintln!("\n{}", report.join("\n"));
@@ -281,7 +369,10 @@ async fn delta_end_to_end() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn delta_refusals_and_switches() {
-    let mut admin = driver().connect(&config(), Some("master")).await.expect("connect");
+    let mut admin = driver()
+        .connect(&config(), Some("master"))
+        .await
+        .expect("connect");
     for db in [SRC_DB, DST_DB] {
         run(
             &mut admin,
@@ -307,26 +398,47 @@ async fn delta_refusals_and_switches() {
         depth: DeltaDepth::Full,
         max_cores: 1,
     };
-    let (a, b) = (src.delta_summary(&spec).await.unwrap(), dst.delta_summary(&spec).await.unwrap());
+    let (a, b) = (
+        src.delta_summary(&spec).await.unwrap(),
+        dst.delta_summary(&spec).await.unwrap(),
+    );
     let changed = changed_buckets(&a, &b);
     // No sentinel: every bucket either side has differs, so even a filtered
     // apply covers every row on both sides.
     let mut all: Vec<i64> = a.iter().chain(b.iter()).map(|x| x.bucket).collect();
     all.sort_unstable();
     all.dedup();
-    assert!(!all.is_empty() && a.iter().chain(b.iter()).all(|x| x.bucket >= 0), "no sentinel: {a:?} {b:?}");
+    assert!(
+        !all.is_empty() && a.iter().chain(b.iter()).all(|x| x.bucket >= 0),
+        "no sentinel: {a:?} {b:?}"
+    );
     assert_eq!(changed, all, "different collations: every non-empty bucket");
-    assert!(src.key_range(&table("s"), "k").await.is_err(), "a varchar key is not a range");
+    assert!(
+        src.key_range(&table("s"), "k").await.is_err(),
+        "a varchar key is not a range"
+    );
 
     // Float key, no unique key on the target.
     run(&mut src, "CREATE TABLE dbo.f (k float PRIMARY KEY, v int)").await;
     let mut fspec = spec.clone();
     fspec.table = table("f");
-    assert!(matches!(src.delta_summary(&fspec).await, Err(dbine_driver::Error::Unsupported(_))));
+    assert!(matches!(
+        src.delta_summary(&fspec).await,
+        Err(dbine_driver::Error::Unsupported(_))
+    ));
     run(&mut dst, "CREATE TABLE dbo.nk (k int NOT NULL, v int)").await;
     let mut nk = spec.clone();
     nk.table = table("nk");
-    let e = dst.delta_apply(&nk, &[], &[], &mut Receive(Arc::new(Mutex::new(mpsc::sync_channel(1).1))), &|_| {}).await.unwrap_err();
+    let e = dst
+        .delta_apply(
+            &nk,
+            &[],
+            &[],
+            &mut Receive(Arc::new(Mutex::new(mpsc::sync_channel(1).1))),
+            &|_| {},
+        )
+        .await
+        .unwrap_err();
     assert!(matches!(e, dbine_driver::Error::Unsupported(_)), "{e}");
 
     // Triggers and FKs: disabled during the merge, back after; identity reseeded.
@@ -343,7 +455,11 @@ async fn delta_refusals_and_switches() {
         )
         .await;
     }
-    run(&mut src, "INSERT INTO dbo.p (v) VALUES (N'uno'), (N'dos'), (N'tres')").await;
+    run(
+        &mut src,
+        "INSERT INTO dbo.p (v) VALUES (N'uno'), (N'dos'), (N'tres')",
+    )
+    .await;
     run(&mut dst, "INSERT INTO dbo.p (v) VALUES (N'uno'), (N'DOS')\nGO\nINSERT INTO dbo.child VALUES (1, 2)\nGO\nTRUNCATE TABLE dbo.audit").await;
     let pspec = DeltaSpec {
         table: table("p"),
@@ -353,25 +469,68 @@ async fn delta_refusals_and_switches() {
         depth: DeltaDepth::Full,
         max_cores: 0,
     };
-    let (a, b) = (src.delta_summary(&pspec).await.unwrap(), dst.delta_summary(&pspec).await.unwrap());
+    let (a, b) = (
+        src.delta_summary(&pspec).await.unwrap(),
+        dst.delta_summary(&pspec).await.unwrap(),
+    );
     let changed = changed_buckets(&a, &b);
     let filter = d.delta_filter(&pspec, &changed).unwrap();
     let (tx, rx) = mpsc::sync_channel(16);
-    let read = ReadSpec { table: table("p"), columns: Some(pspec.columns.clone()), filter: Some(filter) };
+    let read = ReadSpec {
+        table: table("p"),
+        columns: Some(pspec.columns.clone()),
+        filter: Some(filter),
+    };
     let reader = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
-            let mut s = ReadOnlySession::new(driver().connect(&config(), Some(SRC_DB)).await.unwrap());
-            s.read_batches(&read, Arc::new(Mutex::new(Channel(tx)))).await.unwrap()
+            let mut s =
+                ReadOnlySession::new(driver().connect(&config(), Some(SRC_DB)).await.unwrap());
+            s.read_batches(&read, Arc::new(Mutex::new(Channel(tx))))
+                .await
+                .unwrap()
         })
     });
-    let r = dst.delta_apply(&pspec, &changed, &[], &mut Receive(Arc::new(Mutex::new(rx))), &|_| {}).await.unwrap();
+    let r = dst
+        .delta_apply(
+            &pspec,
+            &changed,
+            &[],
+            &mut Receive(Arc::new(Mutex::new(rx))),
+            &|_| {},
+        )
+        .await
+        .unwrap();
     reader.join().unwrap();
     assert_eq!((r.inserted, r.updated, r.deleted), (1, 1, 0));
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM dbo.audit").await, 0, "trigger fired during the merge");
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM sys.triggers WHERE is_disabled = 1").await, 0);
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM sys.foreign_keys WHERE is_disabled = 1 OR is_not_trusted = 1").await, 0);
-    assert_eq!(scalar(&mut dst, "SELECT CAST(IDENT_CURRENT('dbo.p') AS int)").await, 3);
+    assert_eq!(
+        scalar(&mut dst, "SELECT COUNT(*) FROM dbo.audit").await,
+        0,
+        "trigger fired during the merge"
+    );
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT COUNT(*) FROM sys.triggers WHERE is_disabled = 1"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT COUNT(*) FROM sys.foreign_keys WHERE is_disabled = 1 OR is_not_trusted = 1"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        scalar(&mut dst, "SELECT CAST(IDENT_CURRENT('dbo.p') AS int)").await,
+        3
+    );
     run(&mut dst, "INSERT INTO dbo.p (v) VALUES (N'cuatro')").await;
     assert_eq!(scalar(&mut dst, "SELECT MAX(id) FROM dbo.p").await, 4);
 
@@ -393,7 +552,10 @@ const ADV_SRC: &str = "dbine_delta_adv_src";
 const ADV_DST: &str = "dbine_delta_adv_dst";
 
 async fn adv_setup() -> (Box<dyn Session>, Box<dyn Session>, Box<dyn Session>) {
-    let mut admin = driver().connect(&config(), Some("master")).await.expect("connect");
+    let mut admin = driver()
+        .connect(&config(), Some("master"))
+        .await
+        .expect("connect");
     for db in [ADV_SRC, ADV_DST] {
         run(
             &mut admin,
@@ -428,7 +590,12 @@ enum Plan {
 
 /// One orchestrator-like sync of `tbl`: `Ok("+i ~u -d")`, `Ok("nothing")`
 /// or the error; the staging table is always gone afterwards.
-async fn adv_sync(tbl: &str, key: &[&str], cols: &[&str], plan: Plan) -> (Vec<i64>, Result<String, dbine_driver::Error>) {
+async fn adv_sync(
+    tbl: &str,
+    key: &[&str],
+    cols: &[&str],
+    plan: Plan,
+) -> (Vec<i64>, Result<String, dbine_driver::Error>) {
     let (changed, r) = adv_sync_notes(tbl, key, cols, plan).await;
     (changed, r.map(|(r, _)| r))
 }
@@ -467,14 +634,22 @@ async fn adv_sync_during(
     during: Option<&str>,
 ) -> (Vec<i64>, Result<(String, Vec<String>), dbine_driver::Error>) {
     let d = driver();
-    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(d.connect(&config(), Some(ADV_SRC)).await.unwrap()));
+    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(
+        d.connect(&config(), Some(ADV_SRC)).await.unwrap(),
+    ));
     let mut dst = d.connect(&config(), Some(ADV_DST)).await.unwrap();
-    let depth = if matches!(plan, Plan::AutoKeys) { DeltaDepth::Keys } else { DeltaDepth::Full };
+    let depth = if matches!(plan, Plan::AutoKeys) {
+        DeltaDepth::Keys
+    } else {
+        DeltaDepth::Full
+    };
     let (buckets, whole) = match plan {
         Plan::Hash(n) => (Buckets::Hash { n }, false),
         Plan::WholeHash(n) => (Buckets::Hash { n }, true),
         Plan::Auto | Plan::AutoKeys => match src.key_range(&table(tbl), key[0]).await {
-            Ok(Some((lo, hi, rows))) => (range_buckets(key[0], lo.min(hi), lo.max(hi), rows), false),
+            Ok(Some((lo, hi, rows))) => {
+                (range_buckets(key[0], lo.min(hi), lo.max(hi), rows), false)
+            }
             Ok(None) => (range_buckets(key[0], 0, 0, 0), false),
             Err(_) => (Buckets::Hash { n: 17 }, false),
         },
@@ -487,45 +662,89 @@ async fn adv_sync_during(
         depth,
         max_cores: 0,
     };
-    let (a, b) = (src.delta_summary(&spec).await, dst.delta_summary(&spec).await);
+    let (a, b) = (
+        src.delta_summary(&spec).await,
+        dst.delta_summary(&spec).await,
+    );
     let (a, b) = match (a, b) {
         (Ok(a), Ok(b)) => (a, b),
         (Err(e), _) | (_, Err(e)) => return (vec![], Err(e)),
     };
     let changed = changed_buckets(&a, &b);
-    assert!(changed.iter().all(|b| *b >= -1), "no sentinel bucket: {changed:?}");
+    assert!(
+        changed.iter().all(|b| *b >= -1),
+        "no sentinel bucket: {changed:?}"
+    );
     if changed.is_empty() && !whole {
         return (changed, Ok(("nothing".into(), Vec::new())));
     }
-    let filtered = !whole && changed.len() <= 5_000 && changed.len() as u64 <= bucket_total(&buckets) / 2;
-    let (apply, filter) = if filtered { (changed.clone(), Some(d.delta_filter(&spec, &changed).unwrap())) } else { (Vec::new(), None) };
+    let filtered =
+        !whole && changed.len() <= 5_000 && changed.len() as u64 <= bucket_total(&buckets) / 2;
+    let (apply, filter) = if filtered {
+        (
+            changed.clone(),
+            Some(d.delta_filter(&spec, &changed).unwrap()),
+        )
+    } else {
+        (Vec::new(), None)
+    };
     let (tx, rx) = mpsc::sync_channel(16);
-    let read = ReadSpec { table: table(tbl), columns: Some(spec.columns.clone()), filter };
+    let read = ReadSpec {
+        table: table(tbl),
+        columns: Some(spec.columns.clone()),
+        filter,
+    };
     let reader = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
-            let mut s = ReadOnlySession::new(driver().connect(&config(), Some(ADV_SRC)).await.unwrap());
-            s.read_batches(&read, Arc::new(Mutex::new(Channel(tx)))).await
+            let mut s =
+                ReadOnlySession::new(driver().connect(&config(), Some(ADV_SRC)).await.unwrap());
+            s.read_batches(&read, Arc::new(Mutex::new(Channel(tx))))
+                .await
         })
     });
-    let mut source = During(Receive(Arc::new(Mutex::new(rx))), during.map(str::to_string));
-    let r = dst.delta_apply(&spec, &apply, &[], &mut source, &|_| {}).await;
+    let mut source = During(
+        Receive(Arc::new(Mutex::new(rx))),
+        during.map(str::to_string),
+    );
+    let r = dst
+        .delta_apply(&spec, &apply, &[], &mut source, &|_| {})
+        .await;
     let _ = reader.join();
     // This table's staging only (other tables may be syncing at once).
     let (sch, name) = tbl.split_once('.').unwrap_or(("dbo", tbl));
     let like = format!("__dbine_delta_{name}_%").replace('_', "[_]");
     let staging = format!("SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = '{sch}' AND name LIKE '{like}' AND LEN(name) = {}", 14 + name.len() + 17);
     assert_eq!(scalar(&mut dst, &staging).await, 0, "staging left");
-    (changed, r.map(|r| (format!("+{} ~{} -{}", r.inserted, r.updated, r.deleted), r.notes)))
+    (
+        changed,
+        r.map(|r| {
+            (
+                format!("+{} ~{} -{}", r.inserted, r.updated, r.deleted),
+                r.notes,
+            )
+        }),
+    )
 }
 
 /// Rows that differ byte for byte (each column cast to varbinary), both ways.
 async fn bin_diff(s: &mut Box<dyn Session>, tbl: &str, cols: &[&str]) -> (i64, i64) {
-    let list: Vec<String> = cols.iter().map(|c| format!("CAST([{c}] AS varbinary(max)) AS [{c}]")).collect();
+    let list: Vec<String> = cols
+        .iter()
+        .map(|c| format!("CAST([{c}] AS varbinary(max)) AS [{c}]"))
+        .collect();
     let list = list.join(", ");
     let (sch, tbl) = tbl.split_once('.').unwrap_or(("dbo", tbl));
-    let q = |a: &str, b: &str| format!("SELECT COUNT_BIG(*) FROM (SELECT {list} FROM [{a}].[{sch}].[{tbl}] EXCEPT SELECT {list} FROM [{b}].[{sch}].[{tbl}]) x");
-    (scalar(s, &q(ADV_SRC, ADV_DST)).await, scalar(s, &q(ADV_DST, ADV_SRC)).await)
+    let q = |a: &str, b: &str| {
+        format!("SELECT COUNT_BIG(*) FROM (SELECT {list} FROM [{a}].[{sch}].[{tbl}] EXCEPT SELECT {list} FROM [{b}].[{sch}].[{tbl}]) x")
+    };
+    (
+        scalar(s, &q(ADV_SRC, ADV_DST)).await,
+        scalar(s, &q(ADV_DST, ADV_SRC)).await,
+    )
 }
 
 fn unsupported(r: &Result<String, dbine_driver::Error>, needle: &str) -> bool {
@@ -554,7 +773,11 @@ async fn delta_adversarial_content() {
                        INSERT INTO dbo.nh (id) VALUES (5000), (-3)").await;
         let (_, r) = adv_sync("nh", &["id"], &cols, plan).await;
         assert!(r.is_ok(), "{r:?}");
-        assert_eq!(bin_diff(&mut admin, "nh", &cols).await, (0, 0), "NULL-heavy {r:?}");
+        assert_eq!(
+            bin_diff(&mut admin, "nh", &cols).await,
+            (0, 0),
+            "NULL-heavy {r:?}"
+        );
     }
 
     // Case and trailing spaces under a CI collation, in the key and in values.
@@ -567,9 +790,17 @@ async fn delta_adversarial_content() {
     run(&mut dst, "INSERT INTO dbo.ci VALUES ('abc','x '),('def','y'),('ghi','z'),('jkl ','w')\nGO\nINSERT INTO dbo.ci2 VALUES (1,'a '),(2,'b'),(3,'c')").await;
     let (_, r) = adv_sync("ci", &["k"], &["k", "v"], Plan::Auto).await;
     assert!(r.is_ok(), "{r:?}");
-    assert_eq!(bin_diff(&mut admin, "ci", &["k", "v"]).await, (0, 0), "CI key {r:?}");
+    assert_eq!(
+        bin_diff(&mut admin, "ci", &["k", "v"]).await,
+        (0, 0),
+        "CI key {r:?}"
+    );
     let (_, r) = adv_sync("ci2", &["id"], &["id", "v"], Plan::Auto).await;
-    assert_eq!(bin_diff(&mut admin, "ci2", &["id", "v"]).await, (0, 0), "CI value {r:?}");
+    assert_eq!(
+        bin_diff(&mut admin, "ci2", &["id", "v"]).await,
+        (0, 0),
+        "CI value {r:?}"
+    );
 
     // Keys below lo, above hi and at the bigint extremes.
     for s in [&mut src, &mut dst] {
@@ -601,14 +832,26 @@ async fn delta_adversarial_refusals() {
     for s in [&mut src, &mut dst] {
         run(s, "CREATE TABLE dbo.nk (k int NULL, v int NULL)\nGO\nCREATE UNIQUE INDEX ux_nk ON dbo.nk (k)").await;
     }
-    run(&mut src, "INSERT INTO dbo.nk VALUES (NULL, 1), (1, 1), (2, 2), (3, 3)").await;
-    run(&mut dst, "INSERT INTO dbo.nk VALUES (NULL, 999), (1, 1), (2, 2), (3, 3)").await;
+    run(
+        &mut src,
+        "INSERT INTO dbo.nk VALUES (NULL, 1), (1, 1), (2, 2), (3, 3)",
+    )
+    .await;
+    run(
+        &mut dst,
+        "INSERT INTO dbo.nk VALUES (NULL, 999), (1, 1), (2, 2), (3, 3)",
+    )
+    .await;
     let (_, r) = adv_sync("nk", &["k"], &["k", "v"], Plan::Auto).await;
     assert!(unsupported(&r, "admite NULL"), "{r:?}");
     // Hash buckets too (CHECKSUM(NULL) is a number: it would fall in a bucket).
     let (_, r) = adv_sync("nk", &["k"], &["k", "v"], Plan::Hash(17)).await;
     assert!(unsupported(&r, "admite NULL"), "{r:?}");
-    assert_eq!(scalar(&mut dst, "SELECT v FROM dbo.nk WHERE k IS NULL").await, 999, "the NULL-key row is never merged");
+    assert_eq!(
+        scalar(&mut dst, "SELECT v FROM dbo.nk WHERE k IS NULL").await,
+        999,
+        "the NULL-key row is never merged"
+    );
     assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM dbo.nk").await, 4);
     // Nullable on the source only: its summary refuses, whatever the target.
     run(&mut src, "CREATE TABLE dbo.nk2 (k int NULL, v int NULL)\nGO\nCREATE UNIQUE INDEX ux_nk2 ON dbo.nk2 (k)\nGO\nINSERT INTO dbo.nk2 VALUES (NULL, 1), (0, 2)").await;
@@ -617,28 +860,62 @@ async fn delta_adversarial_refusals() {
         let (_, r) = adv_sync("nk2", &["k"], &["k", "v"], plan).await;
         assert!(unsupported(&r, "admite NULL"), "{r:?}");
     }
-    assert_eq!(scalar(&mut dst, "SELECT v FROM dbo.nk2 WHERE k = 0").await, 5, "bucket 0 untouched");
+    assert_eq!(
+        scalar(&mut dst, "SELECT v FROM dbo.nk2 WHERE k = 0").await,
+        5,
+        "bucket 0 untouched"
+    );
 
     // A composite key through a unique index with a nullable column.
     for s in [&mut src, &mut dst] {
         run(s, "CREATE TABLE dbo.ck (a int NOT NULL, b varchar(10) NULL, v int NULL)\nGO\nCREATE UNIQUE INDEX ux_ck ON dbo.ck (b, a)").await;
     }
-    run(&mut src, "INSERT INTO dbo.ck VALUES (1, NULL, 10), (1, 'x', 11), (2, NULL, 20), (3, 'y', 30)").await;
-    run(&mut dst, "INSERT INTO dbo.ck VALUES (1, NULL, 10), (1, 'x', 99), (2, NULL, 21), (3, 'y', 30)").await;
+    run(
+        &mut src,
+        "INSERT INTO dbo.ck VALUES (1, NULL, 10), (1, 'x', 11), (2, NULL, 20), (3, 'y', 30)",
+    )
+    .await;
+    run(
+        &mut dst,
+        "INSERT INTO dbo.ck VALUES (1, NULL, 10), (1, 'x', 99), (2, NULL, 21), (3, 'y', 30)",
+    )
+    .await;
     let (_, r) = adv_sync("ck", &["a", "b"], &["a", "b", "v"], Plan::Auto).await;
     assert!(unsupported(&r, "«b»"), "{r:?}");
-    assert_eq!(scalar(&mut dst, "SELECT v FROM dbo.ck WHERE a = 1 AND b = 'x'").await, 99, "target untouched");
+    assert_eq!(
+        scalar(&mut dst, "SELECT v FROM dbo.ck WHERE a = 1 AND b = 'x'").await,
+        99,
+        "target untouched"
+    );
 
     // A non-key identity: only the range column carries the source's last
     // identity value, so it's refused, whatever its values.
     for s in [&mut src, &mut dst] {
-        run(s, "CREATE TABLE dbo.ni (k int PRIMARY KEY, n int IDENTITY, v int)").await;
+        run(
+            s,
+            "CREATE TABLE dbo.ni (k int PRIMARY KEY, n int IDENTITY, v int)",
+        )
+        .await;
     }
-    run(&mut src, "INSERT INTO dbo.ni (k, v) VALUES (1, 1), (2, 2), (3, 3)").await;
+    run(
+        &mut src,
+        "INSERT INTO dbo.ni (k, v) VALUES (1, 1), (2, 2), (3, 3)",
+    )
+    .await;
     run(&mut dst, "SET IDENTITY_INSERT dbo.ni ON; INSERT INTO dbo.ni (k, n, v) VALUES (1, 1, 1), (2, 7, 2), (3, 3, 30); SET IDENTITY_INSERT dbo.ni OFF").await;
     let (_, r) = adv_sync("ni", &["k"], &["k", "n", "v"], Plan::Auto).await;
-    assert!(unsupported(&r, "columna identidad «n» no es la primera columna de la clave"), "{r:?}");
-    assert_eq!(scalar(&mut dst, "SELECT v FROM dbo.ni WHERE k = 3").await, 30, "target untouched");
+    assert!(
+        unsupported(
+            &r,
+            "columna identidad «n» no es la primera columna de la clave"
+        ),
+        "{r:?}"
+    );
+    assert_eq!(
+        scalar(&mut dst, "SELECT v FROM dbo.ni WHERE k = 3").await,
+        30,
+        "target untouched"
+    );
     run(&mut dst, "DELETE FROM dbo.ni WHERE k = 2; SET IDENTITY_INSERT dbo.ni ON; INSERT INTO dbo.ni (k, n, v) VALUES (2, 2, 2); SET IDENTITY_INSERT dbo.ni OFF").await;
     let (_, r) = adv_sync("ni", &["k"], &["k", "n", "v"], Plan::Auto).await;
     assert!(unsupported(&r, "columna identidad «n»"), "{r:?}");
@@ -655,17 +932,33 @@ async fn delta_adversarial_refusals() {
     let (changed, r) = adv_sync("cc", &["k"], &["k", "v"], Plan::Hash(17)).await;
     assert!(changed.len() as u64 <= 17 / 2, "filtered: {changed:?}");
     assert!(r.is_ok(), "{r:?}");
-    assert_eq!(bin_diff(&mut admin, "cc", &["k", "v"]).await, (0, 0), "{r:?}");
+    assert_eq!(
+        bin_diff(&mut admin, "cc", &["k", "v"]).await,
+        (0, 0),
+        "{r:?}"
+    );
     let (_, r) = adv_sync("cc", &["k"], &["k", "v"], Plan::Hash(17)).await;
-    assert_eq!(r.as_deref().ok(), Some("+0 ~0 -0"), "still every row, nothing to change");
+    assert_eq!(
+        r.as_deref().ok(),
+        Some("+0 ~0 -0"),
+        "still every row, nothing to change"
+    );
     let (_, r) = adv_sync("cc", &["k"], &["k", "v"], Plan::WholeHash(17)).await;
     assert!(r.is_ok(), "{r:?}");
-    assert_eq!(bin_diff(&mut admin, "cc", &["k", "v"]).await, (0, 0), "{r:?}");
+    assert_eq!(
+        bin_diff(&mut admin, "cc", &["k", "v"]).await,
+        (0, 0),
+        "{r:?}"
+    );
     // Two source keys the target's collation calls equal: refused.
     run(&mut src, "INSERT INTO dbo.cc VALUES ('A', 4)").await;
     let (_, r) = adv_sync("cc", &["k"], &["k", "v"], Plan::WholeHash(17)).await;
     assert!(unsupported(&r, "misma según la intercalación"), "{r:?}");
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM dbo.cc").await, 3, "target untouched");
+    assert_eq!(
+        scalar(&mut dst, "SELECT COUNT(*) FROM dbo.cc").await,
+        3,
+        "target untouched"
+    );
 
     drop((src, dst));
     adv_teardown(admin).await;
@@ -688,11 +981,22 @@ async fn delta_adversarial_identity_and_keys() {
     assert!(r.is_ok(), "{r:?}");
     assert_eq!(bin_diff(&mut admin, "idg", &["id", "v"]).await, (0, 0));
     let ident = "SELECT CAST(IDENT_CURRENT('dbo.idg') AS int)";
-    assert_eq!((scalar(&mut src, ident).await, scalar(&mut dst, ident).await), (102, 102));
+    assert_eq!(
+        (scalar(&mut src, ident).await, scalar(&mut dst, ident).await),
+        (102, 102)
+    );
     run(&mut dst, "INSERT INTO dbo.idg (v) VALUES (9)").await;
-    assert_eq!(scalar(&mut dst, "SELECT MAX(id) FROM dbo.idg").await, 103, "the next id skips the one the source burned");
+    assert_eq!(
+        scalar(&mut dst, "SELECT MAX(id) FROM dbo.idg").await,
+        103,
+        "the next id skips the one the source burned"
+    );
     // An empty target that never had rows: the next id still follows the source.
-    run(&mut dst, "CREATE TABLE dbo.idg2 (id int IDENTITY PRIMARY KEY, v int)").await;
+    run(
+        &mut dst,
+        "CREATE TABLE dbo.idg2 (id int IDENTITY PRIMARY KEY, v int)",
+    )
+    .await;
     run(&mut src, "CREATE TABLE dbo.idg2 (id int IDENTITY PRIMARY KEY, v int)\nGO\nINSERT INTO dbo.idg2 (v) VALUES (1), (2), (3)\nGO\nDELETE FROM dbo.idg2 WHERE id = 3").await;
     let (_, r) = adv_sync("idg2", &["id"], &["id", "v"], Plan::Auto).await;
     assert_eq!(r.as_deref().ok(), Some("+2 ~0 -0"));
@@ -703,35 +1007,63 @@ async fn delta_adversarial_identity_and_keys() {
     let (_, r) = adv_sync("idg", &["id"], &["id", "v"], Plan::Auto).await;
     assert_eq!(r.as_deref().ok(), Some("+0 ~0 -1"), "the target's own 103");
     // (The target already stands at 103, its own row's value.)
-    run(&mut src, "INSERT INTO dbo.idg (v) VALUES (4), (5); DELETE FROM dbo.idg WHERE id > 101").await;
+    run(
+        &mut src,
+        "INSERT INTO dbo.idg (v) VALUES (4), (5); DELETE FROM dbo.idg WHERE id > 101",
+    )
+    .await;
     let (changed, r) = adv_sync("idg", &["id"], &["id", "v"], Plan::Auto).await;
-    assert_eq!((changed.len(), r.as_deref().ok()), (1, Some("+0 ~0 -0")), "one real bucket, no sentinel: {changed:?}");
-    assert_eq!((scalar(&mut src, ident).await, scalar(&mut dst, ident).await), (104, 104));
+    assert_eq!(
+        (changed.len(), r.as_deref().ok()),
+        (1, Some("+0 ~0 -0")),
+        "one real bucket, no sentinel: {changed:?}"
+    );
+    assert_eq!(
+        (scalar(&mut src, ident).await, scalar(&mut dst, ident).await),
+        (104, 104)
+    );
     // Burned far past the largest key: followed too.
     run(&mut src, "SET IDENTITY_INSERT dbo.idg ON; INSERT INTO dbo.idg (id, v) VALUES (5000000, 1); SET IDENTITY_INSERT dbo.idg OFF; DELETE FROM dbo.idg WHERE id = 5000000").await;
     let (_, r) = adv_sync("idg", &["id"], &["id", "v"], Plan::Auto).await;
     assert_eq!(r.as_deref().ok(), Some("+0 ~0 -0"));
-    assert_eq!((scalar(&mut src, ident).await, scalar(&mut dst, ident).await), (5_000_000, 5_000_000));
+    assert_eq!(
+        (scalar(&mut src, ident).await, scalar(&mut dst, ident).await),
+        (5_000_000, 5_000_000)
+    );
     let (changed, r) = adv_sync("idg", &["id"], &["id", "v"], Plan::Auto).await;
     assert_eq!((changed, r.as_deref().ok()), (vec![], Some("nothing")));
     assert_eq!(bin_diff(&mut admin, "idg", &["id", "v"]).await, (0, 0));
     // Hash buckets can't carry the source's value (verifier: IDENT_CURRENT
     // src=52, dst=51): refused, not silently behind.
     let (_, r) = adv_sync("idg", &["id"], &["id", "v"], Plan::Hash(17)).await;
-    assert!(unsupported(&r, "columna identidad «id» se está agrupando por hash"), "{r:?}");
+    assert!(
+        unsupported(&r, "columna identidad «id» se está agrupando por hash"),
+        "{r:?}"
+    );
 
     // V1: the source's identity reseeded below its own rows. Equal tables
     // converge: nothing changed, every time; the target isn't reseeded back.
     for s in [&mut src, &mut dst] {
         run(s, "CREATE TABLE dbo.ip (id int IDENTITY PRIMARY KEY, v int)\nGO\nINSERT INTO dbo.ip (v) VALUES (1), (2), (3), (4), (5)").await;
     }
-    run(&mut src, "DBCC CHECKIDENT ('dbo.ip', RESEED, 2) WITH NO_INFOMSGS").await;
+    run(
+        &mut src,
+        "DBCC CHECKIDENT ('dbo.ip', RESEED, 2) WITH NO_INFOMSGS",
+    )
+    .await;
     let ident = "SELECT CAST(IDENT_CURRENT('dbo.ip') AS int)";
     for _ in 0..3 {
         let (changed, r) = adv_sync("ip", &["id"], &["id", "v"], Plan::Auto).await;
-        assert_eq!((changed, r.as_deref().ok()), (vec![], Some("nothing")), "V1");
+        assert_eq!(
+            (changed, r.as_deref().ok()),
+            (vec![], Some("nothing")),
+            "V1"
+        );
     }
-    assert_eq!((scalar(&mut src, ident).await, scalar(&mut dst, ident).await), (2, 5));
+    assert_eq!(
+        (scalar(&mut src, ident).await, scalar(&mut dst, ident).await),
+        (2, 5)
+    );
     // A real change still applies, and the target stays past its rows.
     run(&mut src, "UPDATE dbo.ip SET v = 9 WHERE id = 4").await;
     let (_, r) = adv_sync("ip", &["id"], &["id", "v"], Plan::Auto).await;
@@ -762,13 +1094,31 @@ async fn delta_adversarial_identity_and_keys() {
     assert_eq!(r.as_deref().ok(), Some("+0 ~0 -2"));
     // The cascade ran on the target as on the source; fk_ch_p never left.
     assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM dbo.ch").await, 1);
-    assert_eq!(scalar(&mut dst, "SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = 'fk_ch_p'").await, 0);
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = 'fk_ch_p'"
+        )
+        .await,
+        0
+    );
     // fk_na_p (NO ACTION) now has an orphan: untrusted and marked until na syncs.
-    assert_eq!(scalar(&mut dst, "SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = 'fk_na_p'").await, 1);
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = 'fk_na_p'"
+        )
+        .await,
+        1
+    );
     assert_eq!(scalar(&mut dst, marks).await, 1);
     let (_, r) = adv_sync("na", &["id"], &["id", "p"], Plan::Auto).await;
     assert_eq!(r.as_deref().ok(), Some("+0 ~0 -1"));
-    assert_eq!(scalar(&mut dst, fks).await, 0, "every foreign key trusted again");
+    assert_eq!(
+        scalar(&mut dst, fks).await,
+        0,
+        "every foreign key trusted again"
+    );
     assert_eq!(scalar(&mut dst, marks).await, 0, "mark removed");
     let (_, r) = adv_sync("ch", &["id"], &["id", "p"], Plan::Auto).await;
     assert_eq!(r.as_deref().ok(), Some("nothing"));
@@ -799,10 +1149,28 @@ async fn delta_adversarial_identity_and_keys() {
                    TRUNCATE TABLE dbo.aud").await;
     let (_, r) = adv_sync("q", &["id"], &["id", "v"], Plan::Auto).await;
     assert_eq!(r.as_deref().ok(), Some("+0 ~1 -0"));
-    assert_eq!(scalar(&mut dst, "SELECT CAST(is_disabled AS int) FROM sys.triggers WHERE name = 'q_trg'").await, 1);
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT CAST(is_disabled AS int) FROM sys.triggers WHERE name = 'q_trg'"
+        )
+        .await,
+        1
+    );
     assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM dbo.aud").await, 0);
-    assert_eq!(scalar(&mut dst, "SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = 'fk_q2_q'").await, 1);
-    assert_eq!(scalar(&mut dst, marks).await, 0, "not marked: it was untrusted before");
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = 'fk_q2_q'"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        scalar(&mut dst, marks).await,
+        0,
+        "not marked: it was untrusted before"
+    );
 
     drop((src, dst));
     adv_teardown(admin).await;
@@ -817,7 +1185,9 @@ async fn delta_adversarial_identity_and_keys() {
 #[ignore]
 async fn delta_adversarial_fk_order() {
     let (mut admin, mut src, mut dst) = adv_setup().await;
-    let trusted = |fk: &str| format!("SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = '{fk}'");
+    let trusted = |fk: &str| {
+        format!("SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = '{fk}'")
+    };
     let marks = "SELECT COUNT(*) FROM sys.extended_properties WHERE name = 'dbine_delta_untrusted'";
 
     // N1: child first.
@@ -834,22 +1204,46 @@ async fn delta_adversarial_fk_order() {
                 GO
                 INSERT INTO dbo.na VALUES (20, 2), (21, 4)").await;
     }
-    run(&mut src, "INSERT INTO dbo.p VALUES (3, N'c'); INSERT INTO dbo.ch VALUES (30, 3)").await;
+    run(
+        &mut src,
+        "INSERT INTO dbo.p VALUES (3, N'c'); INSERT INTO dbo.ch VALUES (30, 3)",
+    )
+    .await;
     let (_, r) = adv_sync_notes("ch", &["id"], &["id", "p"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+1 ~0 -0");
     assert!(
         notes.len() == 1
             && notes[0].contains("[dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p] quedó sin verificar")
-            && notes[0].contains("Sincronizá [dbo].[p] y la próxima sincronización la vuelve a validar"),
+            && notes[0]
+                .contains("Sincronizá [dbo].[p] y la próxima sincronización la vuelve a validar"),
         "{notes:?}"
     );
-    assert_eq!((scalar(&mut dst, &trusted("fk_ch_p")).await, scalar(&mut dst, marks).await), (1, 1), "waits for p");
+    assert_eq!(
+        (
+            scalar(&mut dst, &trusted("fk_ch_p")).await,
+            scalar(&mut dst, marks).await
+        ),
+        (1, 1),
+        "waits for p"
+    );
     let (_, r) = adv_sync_notes("p", &["id"], &["id", "v"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+1 ~0 -0");
-    assert!(notes.len() == 1 && notes[0].contains("[dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p] volvió a quedar verificada"), "{notes:?}");
-    assert_eq!((scalar(&mut dst, &trusted("fk_ch_p")).await, scalar(&mut dst, marks).await), (0, 0), "N1: trusted again");
+    assert!(
+        notes.len() == 1
+            && notes[0]
+                .contains("[dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p] volvió a quedar verificada"),
+        "{notes:?}"
+    );
+    assert_eq!(
+        (
+            scalar(&mut dst, &trusted("fk_ch_p")).await,
+            scalar(&mut dst, marks).await
+        ),
+        (0, 0),
+        "N1: trusted again"
+    );
     for (t, c) in [("p", ["id", "v"]), ("ch", ["id", "p"])] {
         let (_, r) = adv_sync(t, &["id"], &c, Plan::Auto).await;
         assert_eq!(r.as_deref().ok(), Some("nothing"), "{t}");
@@ -869,11 +1263,29 @@ async fn delta_adversarial_fk_order() {
     }
     run(&mut src, "UPDATE dbo.ch2 SET code = NULL WHERE id = 10; UPDATE dbo.p2 SET code = 'Y' WHERE id = 1; UPDATE dbo.ch2 SET code = 'Y' WHERE id = 10").await;
     let (_, r) = adv_sync("p2", &["id"], &["id", "code"], Plan::Auto).await;
-    assert_eq!(r.as_deref().ok(), Some("+0 ~1 -0"), "N2: no REFERENCE conflict");
-    assert_eq!((scalar(&mut dst, &trusted("fk_ch2_code")).await, scalar(&mut dst, marks).await), (1, 1), "waits for ch2");
+    assert_eq!(
+        r.as_deref().ok(),
+        Some("+0 ~1 -0"),
+        "N2: no REFERENCE conflict"
+    );
+    assert_eq!(
+        (
+            scalar(&mut dst, &trusted("fk_ch2_code")).await,
+            scalar(&mut dst, marks).await
+        ),
+        (1, 1),
+        "waits for ch2"
+    );
     let (_, r) = adv_sync("ch2", &["id"], &["id", "code"], Plan::Auto).await;
     assert_eq!(r.as_deref().ok(), Some("+0 ~1 -0"));
-    assert_eq!((scalar(&mut dst, &trusted("fk_ch2_code")).await, scalar(&mut dst, marks).await), (0, 0), "N2: trusted again");
+    assert_eq!(
+        (
+            scalar(&mut dst, &trusted("fk_ch2_code")).await,
+            scalar(&mut dst, marks).await
+        ),
+        (0, 0),
+        "N2: trusted again"
+    );
     for (t, c) in [("p2", ["id", "code"]), ("ch2", ["id", "code"])] {
         let (_, r) = adv_sync(t, &["id"], &c, Plan::Auto).await;
         assert_eq!(r.as_deref().ok(), Some("nothing"), "{t}");
@@ -881,14 +1293,28 @@ async fn delta_adversarial_fk_order() {
     }
 
     // Only p syncs: fk_na_p waits for na, marked by p, with a note.
-    run(&mut src, "DELETE FROM dbo.na WHERE id = 20; DELETE FROM dbo.p WHERE id = 2").await;
+    run(
+        &mut src,
+        "DELETE FROM dbo.na WHERE id = 20; DELETE FROM dbo.p WHERE id = 2",
+    )
+    .await;
     let (_, r) = adv_sync_notes("p", &["id"], &["id", "v"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+0 ~0 -1");
-    assert!(notes.iter().any(|n| n.contains("[dbo].[fk_na_p] de [dbo].[na] a [dbo].[p]") && n.contains("Sincronizá [dbo].[na]")), "{notes:?}");
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.contains("[dbo].[fk_na_p] de [dbo].[na] a [dbo].[p]")
+                && n.contains("Sincronizá [dbo].[na]")),
+        "{notes:?}"
+    );
     assert_eq!(scalar(&mut dst, marks).await, 1);
     let by = run(&mut dst, "SELECT CAST(value AS nvarchar(100)) FROM sys.extended_properties WHERE name = 'dbine_delta_untrusted'").await;
-    assert_eq!(by.results[0].rows[0][0].as_str(), Some("[dbo].[p]"), "marked by the table whose sync left it");
+    assert_eq!(
+        by.results[0].rows[0][0].as_str(),
+        Some("[dbo].[p]"),
+        "marked by the table whose sync left it"
+    );
     // Equal rows: a mark forces no apply, so no repeated note.
     let (changed, r) = adv_sync("p", &["id"], &["id", "v"], Plan::Auto).await;
     assert_eq!((changed, r.as_deref().ok()), (vec![], Some("nothing")));
@@ -899,15 +1325,44 @@ async fn delta_adversarial_fk_order() {
     let (_, r) = adv_sync_notes("na", &["id"], &["id", "p"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+0 ~0 -1");
-    assert!(notes.len() == 1 && notes[0].contains("[dbo].[fk_na_p] de [dbo].[na] a [dbo].[p]") && notes[0].contains("Sincronizá [dbo].[p]"), "{notes:?}");
-    assert_eq!((scalar(&mut dst, &trusted("fk_na_p")).await, scalar(&mut dst, marks).await), (1, 1));
+    assert!(
+        notes.len() == 1
+            && notes[0].contains("[dbo].[fk_na_p] de [dbo].[na] a [dbo].[p]")
+            && notes[0].contains("Sincronizá [dbo].[p]"),
+        "{notes:?}"
+    );
+    assert_eq!(
+        (
+            scalar(&mut dst, &trusted("fk_na_p")).await,
+            scalar(&mut dst, marks).await
+        ),
+        (1, 1)
+    );
     // p syncs its row 4 back: the marked key is checked again, trusted, mark gone.
     let (_, r) = adv_sync_notes("p", &["id"], &["id", "v"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+1 ~0 -0");
-    assert!(notes.len() == 1 && notes[0].contains("[dbo].[fk_na_p] de [dbo].[na] a [dbo].[p] volvió a quedar verificada"), "{notes:?}");
-    assert_eq!((scalar(&mut dst, &trusted("fk_na_p")).await, scalar(&mut dst, marks).await), (0, 0));
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM sys.foreign_keys WHERE is_disabled = 1 OR is_not_trusted = 1").await, 0);
+    assert!(
+        notes.len() == 1
+            && notes[0]
+                .contains("[dbo].[fk_na_p] de [dbo].[na] a [dbo].[p] volvió a quedar verificada"),
+        "{notes:?}"
+    );
+    assert_eq!(
+        (
+            scalar(&mut dst, &trusted("fk_na_p")).await,
+            scalar(&mut dst, marks).await
+        ),
+        (0, 0)
+    );
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT COUNT(*) FROM sys.foreign_keys WHERE is_disabled = 1 OR is_not_trusted = 1"
+        )
+        .await,
+        0
+    );
     for (t, c) in [("p", ["id", "v"]), ("ch", ["id", "p"]), ("na", ["id", "p"])] {
         assert_eq!(bin_diff(&mut admin, t, &c).await, (0, 0), "{t}");
     }
@@ -925,7 +1380,9 @@ async fn delta_adversarial_fk_order() {
 #[ignore]
 async fn delta_adversarial_source_untrusted_fk() {
     let (mut admin, mut src, mut dst) = adv_setup().await;
-    let untrusted = |fk: &str| format!("SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = '{fk}'");
+    let untrusted = |fk: &str| {
+        format!("SELECT CAST(is_not_trusted AS int) FROM sys.foreign_keys WHERE name = '{fk}'")
+    };
     let marks = |fk: &str| {
         format!(
             "SELECT COUNT(*) FROM sys.extended_properties ep JOIN sys.foreign_keys fk ON fk.object_id = ep.major_id
@@ -942,21 +1399,45 @@ async fn delta_adversarial_source_untrusted_fk() {
                 GO
                 INSERT INTO dbo.ch VALUES (10, 1)").await;
     }
-    run(&mut src, "ALTER TABLE dbo.ch NOCHECK CONSTRAINT fk_ch_p
+    run(
+        &mut src,
+        "ALTER TABLE dbo.ch NOCHECK CONSTRAINT fk_ch_p
                    GO
                    INSERT INTO dbo.ch VALUES (20, 77)
                    GO
-                   ALTER TABLE dbo.ch CHECK CONSTRAINT fk_ch_p").await;
+                   ALTER TABLE dbo.ch CHECK CONSTRAINT fk_ch_p",
+    )
+    .await;
     assert_eq!(scalar(&mut src, &untrusted("fk_ch_p")).await, 1);
     let (_, r) = adv_sync_notes("ch", &["id"], &["id", "p"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+1 ~0 -0");
-    assert!(notes.len() == 1 && notes[0].contains("[dbo].[fk_ch_p]") && notes[0].contains("Sincronizá [dbo].[p]"), "{notes:?}");
-    assert_eq!((scalar(&mut dst, &untrusted("fk_ch_p")).await, scalar(&mut dst, &marks("fk_ch_p")).await), (1, 1));
+    assert!(
+        notes.len() == 1
+            && notes[0].contains("[dbo].[fk_ch_p]")
+            && notes[0].contains("Sincronizá [dbo].[p]"),
+        "{notes:?}"
+    );
+    assert_eq!(
+        (
+            scalar(&mut dst, &untrusted("fk_ch_p")).await,
+            scalar(&mut dst, &marks("fk_ch_p")).await
+        ),
+        (1, 1)
+    );
     // p is equal: nothing to apply, no false error, no repeated note.
-    for (t, c, plan) in [("p", ["id", "v"], Plan::Auto), ("ch", ["id", "p"], Plan::Auto), ("p", ["id", "v"], Plan::AutoKeys), ("ch", ["id", "p"], Plan::AutoKeys)] {
+    for (t, c, plan) in [
+        ("p", ["id", "v"], Plan::Auto),
+        ("ch", ["id", "p"], Plan::Auto),
+        ("p", ["id", "v"], Plan::AutoKeys),
+        ("ch", ["id", "p"], Plan::AutoKeys),
+    ] {
         let (changed, r) = adv_sync(t, &["id"], &c, plan).await;
-        assert_eq!((changed, r.as_deref().ok()), (vec![], Some("nothing")), "{t}: later syncs stay quiet");
+        assert_eq!(
+            (changed, r.as_deref().ok()),
+            (vec![], Some("nothing")),
+            "{t}: later syncs stay quiet"
+        );
         assert_eq!(bin_diff(&mut admin, t, &c).await, (0, 0), "{t}");
     }
     // p changes later: its apply checks the marked key again; the source's
@@ -965,8 +1446,17 @@ async fn delta_adversarial_source_untrusted_fk() {
     let (_, r) = adv_sync_notes("p", &["id"], &["id", "v"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+0 ~1 -0");
-    assert!(notes.len() == 1 && notes[0].contains("[dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p]"), "{notes:?}");
-    assert_eq!((scalar(&mut dst, &untrusted("fk_ch_p")).await, scalar(&mut dst, &marks("fk_ch_p")).await), (1, 1));
+    assert!(
+        notes.len() == 1 && notes[0].contains("[dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p]"),
+        "{notes:?}"
+    );
+    assert_eq!(
+        (
+            scalar(&mut dst, &untrusted("fk_ch_p")).await,
+            scalar(&mut dst, &marks("fk_ch_p")).await
+        ),
+        (1, 1)
+    );
 
     // Untrusted on the target before the sync: left as it is, no note.
     for s in [&mut src, &mut dst] {
@@ -978,17 +1468,32 @@ async fn delta_adversarial_source_untrusted_fk() {
                 GO
                 INSERT INTO dbo.ch4 SELECT id, id FROM dbo.p4").await;
     }
-    run(&mut dst, "ALTER TABLE dbo.ch4 NOCHECK CONSTRAINT fk_ch4_p
+    run(
+        &mut dst,
+        "ALTER TABLE dbo.ch4 NOCHECK CONSTRAINT fk_ch4_p
                    GO
                    UPDATE dbo.ch4 SET p = 99999 WHERE id = 7
                    GO
-                   ALTER TABLE dbo.ch4 CHECK CONSTRAINT fk_ch4_p").await;
+                   ALTER TABLE dbo.ch4 CHECK CONSTRAINT fk_ch4_p",
+    )
+    .await;
     let (changed, r) = adv_sync("ch4", &["id"], &["id", "p"], Plan::AutoKeys).await;
-    assert_eq!((changed, r.as_deref().ok()), (vec![], Some("nothing")), "no trust sentinel");
+    assert_eq!(
+        (changed, r.as_deref().ok()),
+        (vec![], Some("nothing")),
+        "no trust sentinel"
+    );
     let (_, r) = adv_sync_notes("ch4", &["id"], &["id", "p"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!((res.as_str(), notes.len()), ("+0 ~1 -0", 0), "{notes:?}");
-    assert_eq!((scalar(&mut dst, &untrusted("fk_ch4_p")).await, scalar(&mut dst, &marks("fk_ch4_p")).await), (1, 0), "not mirrored");
+    assert_eq!(
+        (
+            scalar(&mut dst, &untrusted("fk_ch4_p")).await,
+            scalar(&mut dst, &marks("fk_ch4_p")).await
+        ),
+        (1, 0),
+        "not mirrored"
+    );
     for (t, c) in [("p4", ["id", "v"]), ("ch4", ["id", "p"])] {
         assert_eq!(bin_diff(&mut admin, t, &c).await, (0, 0), "{t}");
     }
@@ -1018,7 +1523,11 @@ async fn delta_adversarial_schema_collision() {
                 GO
                 INSERT INTO x.ch VALUES (10, 1)").await;
     }
-    run(&mut src, "INSERT INTO dbo.p VALUES (2, 2); INSERT INTO x.ch VALUES (20, 2)").await;
+    run(
+        &mut src,
+        "INSERT INTO dbo.p VALUES (2, 2); INSERT INTO x.ch VALUES (20, 2)",
+    )
+    .await;
     let state = |s: &str| {
         format!(
             "SELECT CAST(fk.is_not_trusted AS int) * 10 + (SELECT COUNT(*) FROM sys.extended_properties ep
@@ -1031,10 +1540,18 @@ async fn delta_adversarial_schema_collision() {
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+1 ~0 -0");
     assert!(
-        notes.len() == 1 && notes[0].contains("[x].[fk_ch_p] de [x].[ch] a [dbo].[p]") && notes[0].contains("Sincronizá [dbo].[p]"),
+        notes.len() == 1
+            && notes[0].contains("[x].[fk_ch_p] de [x].[ch] a [dbo].[p]")
+            && notes[0].contains("Sincronizá [dbo].[p]"),
         "{notes:?}"
     );
-    assert_eq!((scalar(&mut dst, &state("x")).await, scalar(&mut dst, &state("dbo")).await), (11, 0));
+    assert_eq!(
+        (
+            scalar(&mut dst, &state("x")).await,
+            scalar(&mut dst, &state("dbo")).await
+        ),
+        (11, 0)
+    );
     let by = run(&mut dst, "SELECT CAST(value AS nvarchar(100)) FROM sys.extended_properties WHERE name = 'dbine_delta_untrusted'").await;
     assert_eq!(by.results[0].rows[0][0].as_str(), Some("[x].[ch]"));
     // dbo.ch is equal: nothing; its key untouched.
@@ -1044,9 +1561,24 @@ async fn delta_adversarial_schema_collision() {
     let (_, r) = adv_sync_notes("p", &["id"], &["id", "v"], Plan::Auto).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+1 ~0 -0");
-    assert!(notes.len() == 1 && notes[0].contains("[x].[fk_ch_p] de [x].[ch] a [dbo].[p] volvió a quedar verificada"), "{notes:?}");
-    assert_eq!((scalar(&mut dst, &state("x")).await, scalar(&mut dst, &state("dbo")).await), (0, 0));
-    for (t, c) in [("p", ["id", "v"]), ("ch", ["id", "p"]), ("x.ch", ["id", "p"])] {
+    assert!(
+        notes.len() == 1
+            && notes[0]
+                .contains("[x].[fk_ch_p] de [x].[ch] a [dbo].[p] volvió a quedar verificada"),
+        "{notes:?}"
+    );
+    assert_eq!(
+        (
+            scalar(&mut dst, &state("x")).await,
+            scalar(&mut dst, &state("dbo")).await
+        ),
+        (0, 0)
+    );
+    for (t, c) in [
+        ("p", ["id", "v"]),
+        ("ch", ["id", "p"]),
+        ("x.ch", ["id", "p"]),
+    ] {
         assert_eq!(bin_diff(&mut admin, t, &c).await, (0, 0), "{t}");
     }
 
@@ -1097,16 +1629,38 @@ async fn delta_adversarial_small_table_every_sync() {
             assert_eq!(changed.len(), 1, "round {round} {t}: {changed:?} ({res})");
             match (round % 2, i) {
                 (0, _) => assert!(notes.is_empty(), "round {round} {t}: {notes:?}"),
-                (_, 0) => assert!(notes.len() == 1 && notes[0].contains("Sincronizá [dbo].[p]"), "round {round}: {notes:?}"),
-                _ => assert!(notes.len() == 1 && notes[0].contains("volvió a quedar verificada"), "round {round}: {notes:?}"),
+                (_, 0) => assert!(
+                    notes.len() == 1 && notes[0].contains("Sincronizá [dbo].[p]"),
+                    "round {round}: {notes:?}"
+                ),
+                _ => assert!(
+                    notes.len() == 1 && notes[0].contains("volvió a quedar verificada"),
+                    "round {round}: {notes:?}"
+                ),
             }
         }
-        assert_eq!(scalar(&mut dst, fk).await, 0, "round {round}: trusted, unmarked");
-        assert_eq!(scalar(&mut src, ident).await, scalar(&mut dst, ident).await, "round {round}");
+        assert_eq!(
+            scalar(&mut dst, fk).await,
+            0,
+            "round {round}: trusted, unmarked"
+        );
+        assert_eq!(
+            scalar(&mut src, ident).await,
+            scalar(&mut dst, ident).await,
+            "round {round}"
+        );
         for (t, c) in [("p", ["id", "v"]), ("ch", ["id", "p"])] {
             let (changed, r) = adv_sync(t, &["id"], &c, Plan::Auto).await;
-            assert_eq!((changed, r.as_deref().ok()), (vec![], Some("nothing")), "round {round} {t}");
-            assert_eq!(bin_diff(&mut admin, t, &c).await, (0, 0), "round {round} {t}");
+            assert_eq!(
+                (changed, r.as_deref().ok()),
+                (vec![], Some("nothing")),
+                "round {round} {t}"
+            );
+            assert_eq!(
+                bin_diff(&mut admin, t, &c).await,
+                (0, 0),
+                "round {round} {t}"
+            );
         }
     }
 
@@ -1133,21 +1687,42 @@ async fn delta_adversarial_fk_concurrent_mark() {
                 GO
                 INSERT INTO dbo.ch VALUES (10, 1)").await;
     }
-    run(&mut src, "INSERT INTO dbo.p VALUES (3, 3); INSERT INTO dbo.ch VALUES (30, 3)").await;
+    run(
+        &mut src,
+        "INSERT INTO dbo.p VALUES (3, 3); INSERT INTO dbo.ch VALUES (30, 3)",
+    )
+    .await;
     // What the child's merge leaves on the target before its check.
     run(&mut dst, "ALTER TABLE dbo.ch NOCHECK CONSTRAINT fk_ch_p; INSERT INTO dbo.ch VALUES (30, 3); ALTER TABLE dbo.ch CHECK CONSTRAINT fk_ch_p").await;
-    assert_eq!(scalar(&mut dst, state).await, 10, "untrusted, not marked yet");
+    assert_eq!(
+        scalar(&mut dst, state).await,
+        10,
+        "untrusted, not marked yet"
+    );
     let mark = "EXEC sys.sp_addextendedproperty @name = N'dbine_delta_untrusted', @value = N'[dbo].[ch]',
                 @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'ch',
                 @level2type = N'CONSTRAINT', @level2name = N'fk_ch_p'";
     let (_, r) = adv_sync_during("p", &["id"], &["id", "v"], Plan::Auto, Some(mark)).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+1 ~0 -0");
-    assert!(notes.len() == 1 && notes[0].contains("[dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p] volvió a quedar verificada"), "{notes:?}");
-    assert_eq!(scalar(&mut dst, state).await, 0, "V2: trusted, unmarked without another change");
+    assert!(
+        notes.len() == 1
+            && notes[0]
+                .contains("[dbo].[fk_ch_p] de [dbo].[ch] a [dbo].[p] volvió a quedar verificada"),
+        "{notes:?}"
+    );
+    assert_eq!(
+        scalar(&mut dst, state).await,
+        0,
+        "V2: trusted, unmarked without another change"
+    );
     for (t, c) in [("p", ["id", "v"]), ("ch", ["id", "p"])] {
         let (changed, r) = adv_sync(t, &["id"], &c, Plan::Auto).await;
-        assert_eq!((changed, r.as_deref().ok()), (vec![], Some("nothing")), "{t}");
+        assert_eq!(
+            (changed, r.as_deref().ok()),
+            (vec![], Some("nothing")),
+            "{t}"
+        );
         assert_eq!(bin_diff(&mut admin, t, &c).await, (0, 0), "{t}");
     }
 
@@ -1200,13 +1775,31 @@ async fn delta_adversarial_staging_schema_changed() {
             && m.contains("No se cambió nada en el destino")),
         "{r:?}"
     );
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM dbo.ch").await, 1, "nothing applied");
+    assert_eq!(
+        scalar(&mut dst, "SELECT COUNT(*) FROM dbo.ch").await,
+        1,
+        "nothing applied"
+    );
     // A couple of tries: retried and applied (adv_sync checks the staging is gone).
     run(&mut dst, "UPDATE dbo.fire SET n = 2").await;
     let (_, r) = adv_sync_notes("ch", &["id"], &cols, Plan::Auto).await;
-    assert_eq!(r.map(|(r, n)| (r, n.len())).ok(), Some(("+1 ~0 -0".to_string(), 0)));
-    assert_eq!(scalar(&mut dst, "SELECT n FROM dbo.fire").await, 0, "the trigger fired");
-    assert_eq!(scalar(&mut dst, "SELECT COUNT(*) FROM sys.foreign_keys WHERE is_not_trusted = 1").await, 0);
+    assert_eq!(
+        r.map(|(r, n)| (r, n.len())).ok(),
+        Some(("+1 ~0 -0".to_string(), 0))
+    );
+    assert_eq!(
+        scalar(&mut dst, "SELECT n FROM dbo.fire").await,
+        0,
+        "the trigger fired"
+    );
+    assert_eq!(
+        scalar(
+            &mut dst,
+            "SELECT COUNT(*) FROM sys.foreign_keys WHERE is_not_trusted = 1"
+        )
+        .await,
+        0
+    );
     assert_eq!(bin_diff(&mut admin, "ch", &cols).await, (0, 0));
     run(&mut dst, "DROP TRIGGER t539 ON DATABASE").await;
 
@@ -1242,10 +1835,14 @@ async fn delta_adversarial_fk_verified_once() {
     let child_verifies = "ALTER TABLE dbo.ch WITH CHECK CHECK CONSTRAINT fk_ch_p;
         EXEC sys.sp_dropextendedproperty @name = N'dbine_delta_untrusted', @level0type = N'SCHEMA', @level0name = N'dbo',
              @level1type = N'TABLE', @level1name = N'ch', @level2type = N'CONSTRAINT', @level2name = N'fk_ch_p'";
-    let (_, r) = adv_sync_during("p", &["id"], &["id", "v"], Plan::Auto, Some(child_verifies)).await;
+    let (_, r) =
+        adv_sync_during("p", &["id"], &["id", "v"], Plan::Auto, Some(child_verifies)).await;
     let (res, notes) = r.unwrap();
     assert_eq!(res, "+1 ~0 -0");
-    assert!(notes.is_empty(), "the child's sync already said it: {notes:?}");
+    assert!(
+        notes.is_empty(),
+        "the child's sync already said it: {notes:?}"
+    );
     assert_eq!(scalar(&mut dst, state).await, 0, "trusted, unmarked");
     for (t, c) in [("p", ["id", "v"]), ("ch", ["id", "p"])] {
         assert_eq!(bin_diff(&mut admin, t, &c).await, (0, 0), "{t}");

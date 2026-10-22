@@ -28,7 +28,6 @@
 mod create_db;
 mod ddl;
 mod index_usage;
-mod sync;
 mod monitor;
 mod permissions;
 mod plan;
@@ -38,12 +37,14 @@ mod rename;
 mod security;
 mod stats;
 mod steps;
+mod sync;
 mod transfer;
 
 use dbine_driver::{
-    async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
-    DesignerSpec, Driver, DriverInfo, Error, Family, Field, IndexDef, Language, MonitorSnapshot, ObjectKindInfo,
-    ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema,
+    async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
+    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, IndexDef, Language,
+    MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError,
+    Session, TableSchema,
 };
 use dbine_driver::{json_f64, json_i64, json_u64};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
@@ -70,7 +71,11 @@ Una sentencia que empieza con g. es Gremlin (solo en servidores con TinkerPop)."
 /// How the console reads a script: `;` ends a statement, strings take
 /// backslash escapes, and there are no `BEGIN … END` bodies.
 fn dialect() -> dbine_driver::ScriptDialect {
-    dbine_driver::ScriptDialect { backslash_escapes: true, compound_blocks: false, ..dbine_driver::ScriptDialect::generic() }
+    dbine_driver::ScriptDialect {
+        backslash_escapes: true,
+        compound_blocks: false,
+        ..dbine_driver::ScriptDialect::generic()
+    }
 }
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
@@ -161,7 +166,11 @@ impl Driver for OrientDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
@@ -180,7 +189,11 @@ impl Driver for OrientDriver {
     }
 
     /// `ALTER DATABASE …` statements (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -210,7 +223,10 @@ impl Driver for OrientDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -227,11 +243,20 @@ impl Driver for OrientDriver {
         ddl::table_ddl(table, parts)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
         ddl::insert_script(target, columns, rows)
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::update_script(target, changes)
     }
 
@@ -239,19 +264,34 @@ impl Driver for OrientDriver {
         ddl::delete_script(target, keys)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let http = reqwest::Client::builder()
             .connect_timeout(TIMEOUT)
             .danger_accept_invalid_certs(cfg.trust_server_certificate)
             .user_agent("DBine")
             .build()
             .map_err(Error::connect)?;
-        let db = database.filter(|d| !d.is_empty()).unwrap_or(cfg.database.trim()).to_string();
-        let auth = cfg.username.clone().filter(|u| !u.is_empty()).map(|u| (u, cfg.password.clone()));
+        let db = database
+            .filter(|d| !d.is_empty())
+            .unwrap_or(cfg.database.trim())
+            .to_string();
+        let auth = cfg
+            .username
+            .clone()
+            .filter(|u| !u.is_empty())
+            .map(|u| (u, cfg.password.clone()));
         let mut s = OrientSession {
             http,
             base: base_url(cfg),
@@ -261,9 +301,17 @@ impl Driver for OrientDriver {
             current: Arc::new(Mutex::new(String::new())),
         };
         if s.db.is_empty() {
-            s.db = s.list_databases().await.map_err(to_connect)?.into_iter().next().unwrap_or_default();
+            s.db = s
+                .list_databases()
+                .await
+                .map_err(to_connect)?
+                .into_iter()
+                .next()
+                .unwrap_or_default();
         } else {
-            s.call(Method::GET, &format!("/database/{}", seg(&s.db)), None).await.map_err(to_connect)?;
+            s.call(Method::GET, &format!("/database/{}", seg(&s.db)), None)
+                .await
+                .map_err(to_connect)?;
         }
         Ok(Box::new(s))
     }
@@ -289,12 +337,29 @@ pub struct OrientSession {
 /// The message of an error reply (`{"errors": [{"content": …}]}`).
 fn error_text(status: StatusCode, body: &str) -> String {
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    let content = v.get("errors").and_then(|e| e.get(0)).and_then(|e| e.get("content")).and_then(Value::as_str);
-    let text = content.map(str::to_string).unwrap_or_else(|| if body.trim().is_empty() { format!("HTTP {status}") } else { body.trim().to_string() });
+    let content = v
+        .get("errors")
+        .and_then(|e| e.get(0))
+        .and_then(|e| e.get("content"))
+        .and_then(Value::as_str);
+    let text = content.map(str::to_string).unwrap_or_else(|| {
+        if body.trim().is_empty() {
+            format!("HTTP {status}")
+        } else {
+            body.trim().to_string()
+        }
+    });
     // Strip the Java class prefix and the trailing `DB name="…"`.
-    let text = text.split("\tDB name=").next().unwrap_or(&text).trim().to_string();
+    let text = text
+        .split("\tDB name=")
+        .next()
+        .unwrap_or(&text)
+        .trim()
+        .to_string();
     match text.split_once(": ") {
-        Some((class, rest)) if class.contains("Exception") && !class.contains(' ') => rest.to_string(),
+        Some((class, rest)) if class.contains("Exception") && !class.contains(' ') => {
+            rest.to_string()
+        }
         _ => text,
     }
 }
@@ -305,10 +370,16 @@ fn error_code(body: &str) -> Option<String> {
     let v: Value = serde_json::from_str(body).ok()?;
     let e = v.get("errors")?.get(0)?;
     let content = e.get("content").and_then(Value::as_str).unwrap_or_default();
-    let class = content.split_once(':').map(|(c, _)| c.trim()).filter(|c| c.ends_with("Exception") && !c.contains(char::is_whitespace));
+    let class = content
+        .split_once(':')
+        .map(|(c, _)| c.trim())
+        .filter(|c| c.ends_with("Exception") && !c.contains(char::is_whitespace));
     match class {
         Some(c) => Some(c.rsplit('.').next().unwrap_or(c).to_string()),
-        None => e.get("code").filter(|c| !c.is_null()).map(|c| c.as_str().map_or_else(|| c.to_string(), str::to_string)),
+        None => e
+            .get("code")
+            .filter(|c| !c.is_null())
+            .map(|c| c.as_str().map_or_else(|| c.to_string(), str::to_string)),
     }
 }
 
@@ -322,10 +393,12 @@ async fn request(
     path: &str,
     body: Option<&Value>,
 ) -> Result<String> {
-    request_coded(http, base, auth, method, path, body).await.map_err(|e| match e {
-        Error::Statement(se) => Error::Query(se.message),
-        e => e,
-    })
+    request_coded(http, base, auth, method, path, body)
+        .await
+        .map_err(|e| match e {
+            Error::Statement(se) => Error::Query(se.message),
+            e => e,
+        })
 }
 
 /// A request whose failure carries the engine's code (editor statements).
@@ -337,16 +410,24 @@ async fn request_coded(
     path: &str,
     body: Option<&Value>,
 ) -> Result<String> {
-    let mut rq = http.request(method, format!("{base}{path}")).header("Accept", "application/json");
+    let mut rq = http
+        .request(method, format!("{base}{path}"))
+        .header("Accept", "application/json");
     if let Some((u, p)) = auth {
         rq = rq.basic_auth(u, p.as_deref());
     }
     if let Some(b) = body {
         rq = rq.json(b);
     }
-    let resp = rq.send().await.map_err(|e| Error::Connect(format!("no se pudo llegar a OrientDB: {e}")))?;
+    let resp = rq
+        .send()
+        .await
+        .map_err(|e| Error::Connect(format!("no se pudo llegar a OrientDB: {e}")))?;
     let status = resp.status();
-    let text = resp.text().await.map_err(|e| Error::Connect(e.to_string()))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| Error::Connect(e.to_string()))?;
     if status.is_success() {
         return Ok(text);
     }
@@ -382,14 +463,31 @@ impl OrientSession {
     /// One editor statement into `out`.
     async fn statement(&self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         if self.read_only && is_gremlin(stmt) && gremlin_writes(stmt) {
-            return Err(Error::Query("Conexión de solo lectura: el script Gremlin tiene pasos que escriben.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: el script Gremlin tiene pasos que escriben.".into(),
+            ));
         }
-        let limit = if is_read(strip_plan_prefix(stmt)) { max_rows as i64 + 1 } else { -1 };
+        let limit = if is_read(strip_plan_prefix(stmt)) {
+            max_rows as i64 + 1
+        } else {
+            -1
+        };
         let rows = self.command(stmt, limit).await?;
         // EXPLAIN / PROFILE typed in the editor: the plan too.
-        if let Some(p) = rows.records.first().and_then(|r| r.iter().find(|(k, _)| k == "executionPlan")) {
-            let actual = stmt.trim_start().to_ascii_uppercase().starts_with("PROFILE");
-            out.plans.push(plan::from_execution_plan(strip_plan_prefix(stmt), &p.1, actual));
+        if let Some(p) = rows
+            .records
+            .first()
+            .and_then(|r| r.iter().find(|(k, _)| k == "executionPlan"))
+        {
+            let actual = stmt
+                .trim_start()
+                .to_ascii_uppercase()
+                .starts_with("PROFILE");
+            out.plans.push(plan::from_execution_plan(
+                strip_plan_prefix(stmt),
+                &p.1,
+                actual,
+            ));
         }
         push_rows(out, &rows, max_rows);
         Ok(())
@@ -406,7 +504,15 @@ impl OrientSession {
             request_coded(&self.http, &self.base, &self.auth, Method::GET, &path, None).await
         } else {
             let path = format!("/command/{db}/{lang}/-/{limit}");
-            request_coded(&self.http, &self.base, &self.auth, Method::POST, &path, Some(&json!({ "command": stmt }))).await
+            request_coded(
+                &self.http,
+                &self.base,
+                &self.auth,
+                Method::POST,
+                &path,
+                Some(&json!({ "command": stmt })),
+            )
+            .await
         };
         self.current.lock().expect("current").clear();
         let text = r.map_err(|e| {
@@ -425,18 +531,26 @@ impl OrientSession {
     }
 
     async fn metadata(&self) -> Result<Value> {
-        self.call(Method::GET, &format!("/database/{}", self.db_seg()?), None).await
+        self.call(Method::GET, &format!("/database/{}", self.db_seg()?), None)
+            .await
     }
 
     /// User classes: (name, kind, class JSON).
     async fn classes(&self) -> Result<Vec<(String, &'static str, Value)>> {
         let meta = self.metadata().await?;
-        let all: Vec<Value> = meta.get("classes").and_then(Value::as_array).cloned().unwrap_or_default();
+        let all: Vec<Value> = meta
+            .get("classes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         Ok(classify(&all))
     }
 
     async fn sample(&self, class: &str) -> Result<Vec<Vec<(String, Value)>>> {
-        Ok(self.command(&format!("SELECT FROM {} LIMIT 100", ident(class)), 100).await?.records)
+        Ok(self
+            .command(&format!("SELECT FROM {} LIMIT 100", ident(class)), 100)
+            .await?
+            .records)
     }
 
     async fn columns_of(&self, class: &str, meta: &Value) -> Result<Vec<ColumnInfo>> {
@@ -481,7 +595,17 @@ pub fn is_gremlin(stmt: &str) -> bool {
 
 /// Mutating Gremlin steps, for read-only connections.
 pub fn gremlin_writes(stmt: &str) -> bool {
-    ["addV(", "addE(", ".drop(", ".property(", "addVertex(", "addEdge(", ".remove("].iter().any(|s| stmt.contains(s))
+    [
+        "addV(",
+        "addE(",
+        ".drop(",
+        ".property(",
+        "addVertex(",
+        "addEdge(",
+        ".remove(",
+    ]
+    .iter()
+    .any(|s| stmt.contains(s))
 }
 
 /// Parsed `{"result": [...]}` with each record's keys in server order.
@@ -553,7 +677,10 @@ pub fn parse_reply(text: &str) -> std::result::Result<Rows, String> {
     }
     impl<'de> DeserializeSeed<'de> for Rec {
         type Value = Vec<(String, Value)>;
-        fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<Self::Value, D::Error> {
+        fn deserialize<D: Deserializer<'de>>(
+            self,
+            d: D,
+        ) -> std::result::Result<Self::Value, D::Error> {
             d.deserialize_any(self)
         }
     }
@@ -562,14 +689,20 @@ pub fn parse_reply(text: &str) -> std::result::Result<Rows, String> {
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("un registro")
         }
-        fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> std::result::Result<Self::Value, A::Error> {
+        fn visit_map<A: MapAccess<'de>>(
+            self,
+            mut m: A,
+        ) -> std::result::Result<Self::Value, A::Error> {
             let mut out = Vec::new();
             while let Some((k, v)) = m.next_entry::<String, Value>()? {
                 out.push((k, v));
             }
             Ok(out)
         }
-        fn visit_seq<A: SeqAccess<'de>>(self, mut s: A) -> std::result::Result<Self::Value, A::Error> {
+        fn visit_seq<A: SeqAccess<'de>>(
+            self,
+            mut s: A,
+        ) -> std::result::Result<Self::Value, A::Error> {
             let mut a = Vec::new();
             while let Some(v) = s.next_element::<Value>()? {
                 a.push(v);
@@ -596,7 +729,9 @@ pub fn parse_reply(text: &str) -> std::result::Result<Rows, String> {
         }
     }
     let mut de = serde_json::Deserializer::from_str(text);
-    let records = de.deserialize_map(Top).map_err(|e| format!("respuesta inesperada de OrientDB: {e}"))?;
+    let records = de
+        .deserialize_map(Top)
+        .map_err(|e| format!("respuesta inesperada de OrientDB: {e}"))?;
     Ok(Rows { records })
 }
 
@@ -625,8 +760,11 @@ pub fn union_keys(records: &[Vec<(String, Value)>]) -> Vec<String> {
 pub fn cell(v: &Value) -> Value {
     match v {
         Value::Object(o) => {
-            let clean: serde_json::Map<String, Value> =
-                o.iter().filter(|(k, _)| !HIDDEN.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+            let clean: serde_json::Map<String, Value> = o
+                .iter()
+                .filter(|(k, _)| !HIDDEN.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             Value::String(Value::Object(clean).to_string())
         }
         Value::Array(_) => Value::String(v.to_string()),
@@ -672,13 +810,20 @@ pub(crate) fn script_ident(name: &str) -> Result<String> {
 /// as the end of the name).
 pub(crate) fn one_unit_each<S: AsRef<str>>(stmts: &[S]) -> Result<()> {
     let units = |s: &str| {
-        dbine_driver::sql::split_script(s, &dialect()).into_iter().filter(|u| u.kind != dbine_driver::StatementKind::ClientCommand).count()
+        dbine_driver::sql::split_script(s, &dialect())
+            .into_iter()
+            .filter(|u| u.kind != dbine_driver::StatementKind::ClientCommand)
+            .count()
     };
     let joined: String = stmts
         .iter()
         .map(|s| {
             let s = s.as_ref().trim_end();
-            if s.ends_with(';') { format!("{s}\n") } else { format!("{s};\n") }
+            if s.ends_with(';') {
+                format!("{s}\n")
+            } else {
+                format!("{s};\n")
+            }
         })
         .collect();
     if stmts.iter().all(|s| units(s.as_ref()) == 1) && units(&joined) == stmts.len() {
@@ -698,7 +843,10 @@ pub(crate) fn one_unit_per_line(script: &str) -> Result<()> {
 /// A class or property name, between backticks when it isn't plain.
 pub fn ident(name: &str) -> String {
     let plain = !name.is_empty()
-        && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if plain {
         name.to_string()
@@ -708,21 +856,46 @@ pub fn ident(name: &str) -> String {
 }
 
 /// System classes of every database.
-const SYSTEM_CLASSES: &[&str] = &["OUser", "ORole", "OIdentity", "OFunction", "OSequence", "OSchedule", "OTriggered", "ORestricted", "OShape", "OSecurityPolicy", "OGeometryCollection"];
+const SYSTEM_CLASSES: &[&str] = &[
+    "OUser",
+    "ORole",
+    "OIdentity",
+    "OFunction",
+    "OSequence",
+    "OSchedule",
+    "OTriggered",
+    "ORestricted",
+    "OShape",
+    "OSecurityPolicy",
+    "OGeometryCollection",
+];
 
 fn is_system(name: &str) -> bool {
     SYSTEM_CLASSES.contains(&name) || is_spatial(name)
 }
 
 fn is_spatial(name: &str) -> bool {
-    ["OPoint", "OMultiPoint", "OLineString", "OMultiLineString", "OPolygon", "OMultiPolygon", "ORectangle"].contains(&name)
+    [
+        "OPoint",
+        "OMultiPoint",
+        "OLineString",
+        "OMultiLineString",
+        "OPolygon",
+        "OMultiPolygon",
+        "ORectangle",
+    ]
+    .contains(&name)
 }
 
 /// Vertex / edge / document classes (system ones left out). `V` and `E`
 /// themselves are listed: records can live right in them.
 pub fn classify(all: &[Value]) -> Vec<(String, &'static str, Value)> {
     let supers = |c: &Value| -> Vec<String> {
-        let mut s: Vec<String> = c.get("superClasses").and_then(Value::as_array).map(|a| a.iter().map(as_text).collect()).unwrap_or_default();
+        let mut s: Vec<String> = c
+            .get("superClasses")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().map(as_text).collect())
+            .unwrap_or_default();
         if let Some(x) = c.get("superClass").map(as_text).filter(|x| !x.is_empty()) {
             if !s.contains(&x) {
                 s.push(x);
@@ -730,7 +903,10 @@ pub fn classify(all: &[Value]) -> Vec<(String, &'static str, Value)> {
         }
         s
     };
-    let by_name = |n: &str| all.iter().find(|c| c.get("name").and_then(Value::as_str) == Some(n));
+    let by_name = |n: &str| {
+        all.iter()
+            .find(|c| c.get("name").and_then(Value::as_str) == Some(n))
+    };
     let kind_of = |name: &str| -> &'static str {
         let mut stack = vec![name.to_string()];
         let mut seen = Vec::new();
@@ -763,12 +939,19 @@ pub fn classify(all: &[Value]) -> Vec<(String, &'static str, Value)> {
 }
 
 pub fn infer_columns(records: &[Vec<(String, Value)>]) -> Vec<ColumnInfo> {
-    let keys: Vec<String> = union_keys(records).into_iter().filter(|k| !k.starts_with('@')).collect();
+    let keys: Vec<String> = union_keys(records)
+        .into_iter()
+        .filter(|k| !k.starts_with('@'))
+        .collect();
     keys.into_iter()
         .map(|name| {
             let mut types: Vec<(&'static str, usize)> = Vec::new();
             let mut present = 0;
-            for v in records.iter().filter_map(|r| r.iter().find(|(k, _)| *k == name).map(|x| &x.1)).filter(|v| !v.is_null()) {
+            for v in records
+                .iter()
+                .filter_map(|r| r.iter().find(|(k, _)| *k == name).map(|x| &x.1))
+                .filter(|v| !v.is_null())
+            {
                 present += 1;
                 let t = match v {
                     Value::Bool(_) => "BOOLEAN",
@@ -787,7 +970,11 @@ pub fn infer_columns(records: &[Vec<(String, Value)>]) -> Vec<ColumnInfo> {
             }
             types.sort_by(|a, b| b.1.cmp(&a.1));
             ColumnInfo {
-                data_type: if types.is_empty() { "ANY".into() } else { types.iter().map(|t| t.0).collect::<Vec<_>>().join("|") },
+                data_type: if types.is_empty() {
+                    "ANY".into()
+                } else {
+                    types.iter().map(|t| t.0).collect::<Vec<_>>().join("|")
+                },
                 nullable: present < records.len(),
                 primary_key: false,
                 auto_increment: false,
@@ -809,9 +996,25 @@ fn push_rows(out: &mut QueryOutcome, rows: &Rows, max_rows: usize) {
         }
     }
     let keys = union_keys(&rows.records);
-    out.begin_result(keys.iter().map(|k| ResultColumn { name: k.clone(), type_name: String::new() }).collect());
+    out.begin_result(
+        keys.iter()
+            .map(|k| ResultColumn {
+                name: k.clone(),
+                type_name: String::new(),
+            })
+            .collect(),
+    );
     for r in &rows.records {
-        out.push_row(keys.iter().map(|k| r.iter().find(|(x, _)| x == k).map_or(Value::Null, |x| cell(&x.1))).collect(), max_rows);
+        out.push_row(
+            keys.iter()
+                .map(|k| {
+                    r.iter()
+                        .find(|(x, _)| x == k)
+                        .map_or(Value::Null, |x| cell(&x.1))
+                })
+                .collect(),
+            max_rows,
+        );
     }
 }
 
@@ -819,7 +1022,10 @@ fn push_rows(out: &mut QueryOutcome, rows: &Rows, max_rows: usize) {
 fn strip_plan_prefix(stmt: &str) -> &str {
     let t = stmt.trim_start();
     for p in ["EXPLAIN", "PROFILE"] {
-        if t.len() > p.len() && t[..p.len()].eq_ignore_ascii_case(p) && t[p.len()..].starts_with(char::is_whitespace) {
+        if t.len() > p.len()
+            && t[..p.len()].eq_ignore_ascii_case(p)
+            && t[p.len()..].starts_with(char::is_whitespace)
+        {
             return t[p.len()..].trim_start();
         }
     }
@@ -827,7 +1033,12 @@ fn strip_plan_prefix(stmt: &str) -> &str {
 }
 
 fn is_read(stmt: &str) -> bool {
-    let w: String = stmt.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_uppercase();
+    let w: String = stmt
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_ascii_uppercase();
     matches!(w.as_str(), "SELECT" | "MATCH" | "TRAVERSE")
 }
 
@@ -835,13 +1046,21 @@ fn is_read(stmt: &str) -> bool {
 impl Session for OrientSession {
     async fn server_version(&mut self) -> Result<String> {
         let meta = self.metadata().await?;
-        let v = meta.get("server").and_then(|s| s.get("version")).map(as_text).unwrap_or_default();
+        let v = meta
+            .get("server")
+            .and_then(|s| s.get("version"))
+            .map(as_text)
+            .unwrap_or_default();
         Ok(format!("OrientDB {v}").trim().to_string())
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         let v = self.call(Method::GET, "/listDatabases", None).await?;
-        let mut dbs: Vec<String> = v.get("databases").and_then(Value::as_array).map(|a| a.iter().map(as_text).collect()).unwrap_or_default();
+        let mut dbs: Vec<String> = v
+            .get("databases")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().map(as_text).collect())
+            .unwrap_or_default();
         dbs.sort();
         if dbs.is_empty() && !self.db.is_empty() {
             dbs.push(self.db.clone());
@@ -860,33 +1079,73 @@ impl Session for OrientSession {
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let meta = self.metadata().await?;
-        let classes = classify(meta.get("classes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]));
-        let mut out: Vec<DbObject> =
-            classes.iter().map(|(n, k, _)| DbObject { kind: k.to_string(), schema: None, name: n.clone(), parent: None }).collect();
+        let classes = classify(
+            meta.get("classes")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        );
+        let mut out: Vec<DbObject> = classes
+            .iter()
+            .map(|(n, k, _)| DbObject {
+                kind: k.to_string(),
+                schema: None,
+                name: n.clone(),
+                parent: None,
+            })
+            .collect();
         let class_names: Vec<&str> = classes.iter().map(|c| c.0.as_str()).collect();
-        for ix in meta.get("indexes").and_then(Value::as_array).cloned().unwrap_or_default() {
+        for ix in meta
+            .get("indexes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+        {
             let name = ix.get("name").map(as_text).unwrap_or_default();
-            let class = ix.pointer("/configuration/indexDefinition/className").map(as_text);
+            let class = ix
+                .pointer("/configuration/indexDefinition/className")
+                .map(as_text);
             // Indexes of the user's classes, and manual ones (no class).
             if class.as_deref().is_none_or(|c| class_names.contains(&c)) {
-                out.push(DbObject { kind: kinds::INDEX.into(), schema: None, name, parent: class });
+                out.push(DbObject {
+                    kind: kinds::INDEX.into(),
+                    schema: None,
+                    name,
+                    parent: class,
+                });
             }
         }
-        if let Ok(r) = self.command("SELECT name FROM OFunction ORDER BY name", -1).await {
-            out.extend(r.records.iter().filter_map(|r| r.iter().find(|(k, _)| k == "name")).map(|(_, v)| DbObject {
-                kind: kinds::FUNCTION.into(),
-                schema: None,
-                name: as_text(v),
-                parent: None,
-            }));
+        if let Ok(r) = self
+            .command("SELECT name FROM OFunction ORDER BY name", -1)
+            .await
+        {
+            out.extend(
+                r.records
+                    .iter()
+                    .filter_map(|r| r.iter().find(|(k, _)| k == "name"))
+                    .map(|(_, v)| DbObject {
+                        kind: kinds::FUNCTION.into(),
+                        schema: None,
+                        name: as_text(v),
+                        parent: None,
+                    }),
+            );
         }
-        if let Ok(r) = self.command("SELECT name FROM OSequence ORDER BY name", -1).await {
-            out.extend(r.records.iter().filter_map(|r| r.iter().find(|(k, _)| k == "name")).map(|(_, v)| DbObject {
-                kind: kinds::SEQUENCE.into(),
-                schema: None,
-                name: as_text(v),
-                parent: None,
-            }));
+        if let Ok(r) = self
+            .command("SELECT name FROM OSequence ORDER BY name", -1)
+            .await
+        {
+            out.extend(
+                r.records
+                    .iter()
+                    .filter_map(|r| r.iter().find(|(k, _)| k == "name"))
+                    .map(|(_, v)| DbObject {
+                        kind: kinds::SEQUENCE.into(),
+                        schema: None,
+                        name: as_text(v),
+                        parent: None,
+                    }),
+            );
         }
         Ok(out)
     }
@@ -905,16 +1164,29 @@ impl Session for OrientSession {
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
         match obj.kind.as_str() {
             k if k == VERTEX || k == EDGE || k == kinds::TABLE => {
-                let t = self.database_schema().await?.into_iter().find(|t| t.name == obj.name);
+                let t = self
+                    .database_schema()
+                    .await?
+                    .into_iter()
+                    .find(|t| t.name == obj.name);
                 Ok(match t {
-                    Some(t) => Some(ddl::table_ddl(&t, DdlParts { create: true, indexes: true, ..Default::default() })?),
+                    Some(t) => Some(ddl::table_ddl(
+                        &t,
+                        DdlParts {
+                            create: true,
+                            indexes: true,
+                            ..Default::default()
+                        },
+                    )?),
                     None => None,
                 })
             }
             k if k == kinds::INDEX => {
                 let meta = self.metadata().await?;
                 let ix = meta.get("indexes").and_then(Value::as_array).and_then(|a| {
-                    a.iter().find(|i| i.get("name").and_then(Value::as_str) == Some(obj.name.as_str())).cloned()
+                    a.iter()
+                        .find(|i| i.get("name").and_then(Value::as_str) == Some(obj.name.as_str()))
+                        .cloned()
                 });
                 Ok(ix.map(|i| ddl::index_statement(&i)))
             }
@@ -939,8 +1211,17 @@ impl Session for OrientSession {
     /// classes with typed `out` / `in` too).
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let meta = self.metadata().await?;
-        let classes = classify(meta.get("classes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]));
-        let indexes: Vec<Value> = meta.get("indexes").and_then(Value::as_array).cloned().unwrap_or_default();
+        let classes = classify(
+            meta.get("classes")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        );
+        let indexes: Vec<Value> = meta
+            .get("indexes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let mut out = Vec::new();
         for (name, kind, c) in &classes {
             let cols = self.columns_of(name, c).await?;
@@ -949,11 +1230,21 @@ impl Session for OrientSession {
                 name: name.clone(),
                 columns: cols
                     .into_iter()
-                    .map(|c| ColumnDef { name: c.name, data_type: c.data_type, nullable: c.nullable, default_value: c.default_value, ..Default::default() })
+                    .map(|c| ColumnDef {
+                        name: c.name,
+                        data_type: c.data_type,
+                        nullable: c.nullable,
+                        default_value: c.default_value,
+                        ..Default::default()
+                    })
                     .collect(),
                 ..Default::default()
             };
-            let sup: Vec<String> = c.get("superClasses").and_then(Value::as_array).map(|a| a.iter().map(as_text).collect()).unwrap_or_default();
+            let sup: Vec<String> = c
+                .get("superClasses")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().map(as_text).collect())
+                .unwrap_or_default();
             if !sup.is_empty() {
                 t.options.insert("extends".into(), sup.join(", "));
             }
@@ -961,17 +1252,36 @@ impl Session for OrientSession {
                 t.options.insert("abstract".into(), "true".into());
             }
             // Fields only seen in the data: shown, but no CREATE PROPERTY for them.
-            let declared: Vec<String> =
-                c.get("properties").and_then(Value::as_array).map(|a| a.iter().filter_map(|p| p.get("name").map(as_text)).collect()).unwrap_or_default();
-            for col in t.columns.iter_mut().filter(|col| !declared.contains(&col.name)) {
+            let declared: Vec<String> = c
+                .get("properties")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.get("name").map(as_text))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for col in t
+                .columns
+                .iter_mut()
+                .filter(|col| !declared.contains(&col.name))
+            {
                 col.options.insert("inferred".into(), "true".into());
             }
-            for p in c.get("properties").and_then(Value::as_array).cloned().unwrap_or_default() {
+            for p in c
+                .get("properties")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
                 let pname = p.get("name").map(as_text).unwrap_or_default();
                 if let Some(col) = t.columns.iter_mut().find(|x| x.name == pname) {
                     if let Some(lc) = p.get("linkedClass").and_then(Value::as_str) {
                         col.options.insert("linked".into(), lc.to_string());
-                        if p.get("type").and_then(Value::as_str).is_some_and(|ty| ty.starts_with("LINK")) {
+                        if p.get("type")
+                            .and_then(Value::as_str)
+                            .is_some_and(|ty| ty.starts_with("LINK"))
+                        {
                             t.foreign_keys.push(dbine_driver::ForeignKeyDef {
                                 name: None,
                                 columns: vec![pname.clone()],
@@ -983,19 +1293,35 @@ impl Session for OrientSession {
                             });
                         }
                     }
-                    for (k, o) in [("mandatory", "mandatory"), ("readonly", "readonly"), ("min", "min"), ("max", "max"), ("regexp", "regexp")] {
-                        if let Some(v) = p.get(k).filter(|v| !v.is_null() && **v != Value::Bool(false)) {
+                    for (k, o) in [
+                        ("mandatory", "mandatory"),
+                        ("readonly", "readonly"),
+                        ("min", "min"),
+                        ("max", "max"),
+                        ("regexp", "regexp"),
+                    ] {
+                        if let Some(v) = p
+                            .get(k)
+                            .filter(|v| !v.is_null() && **v != Value::Bool(false))
+                        {
                             col.options.insert(o.into(), as_text(v));
                         }
                     }
                 }
             }
             for ix in &indexes {
-                if ix.pointer("/configuration/indexDefinition/className").and_then(Value::as_str) != Some(name.as_str()) {
+                if ix
+                    .pointer("/configuration/indexDefinition/className")
+                    .and_then(Value::as_str)
+                    != Some(name.as_str())
+                {
                     continue;
                 }
                 let (fields, options) = ddl::index_parts(ix);
-                let ty = ix.pointer("/configuration/type").map(as_text).unwrap_or_default();
+                let ty = ix
+                    .pointer("/configuration/type")
+                    .map(as_text)
+                    .unwrap_or_default();
                 t.indexes.push(IndexDef {
                     name: ix.get("name").map(as_text).unwrap_or_default(),
                     columns: fields,
@@ -1013,26 +1339,46 @@ impl Session for OrientSession {
 
     /// `POST /database/{name}/plocal/graph` (see [`create_db`]).
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.create_database_with_impl(name, &std::collections::BTreeMap::new()).await
+        self.create_database_with_impl(name, &std::collections::BTreeMap::new())
+            .await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se puede borrar una base.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se puede borrar una base.".into(),
+            ));
         }
-        self.call(Method::DELETE, &format!("/database/{}", seg(name.trim())), None).await.map(|_| ())
+        self.call(
+            Method::DELETE,
+            &format!("/database/{}", seg(name.trim())),
+            None,
+        )
+        .await
+        .map(|_| ())
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
@@ -1059,7 +1405,13 @@ impl Session for OrientSession {
     /// `EXPLAIN` gives the estimated plan; with `analyze`, reads run under
     /// `PROFILE` (actual cost per step) and then once more for their rows;
     /// writes get the estimated plan and run once.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let stmts = dbine_driver::sql::split_statements(text);
         if stmts.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
@@ -1076,11 +1428,19 @@ impl Session for OrientSession {
             let profile = analyze && is_read(&body);
             let q = format!("{} {body}", if profile { "PROFILE" } else { "EXPLAIN" });
             match self.command(&q, -1).await {
-                Ok(rows) => match rows.records.first().and_then(|r| r.iter().find(|(k, _)| k == "executionPlan")) {
-                    Some(p) => out.plans.push(plan::from_execution_plan(&body, &p.1, profile)),
+                Ok(rows) => match rows
+                    .records
+                    .first()
+                    .and_then(|r| r.iter().find(|(k, _)| k == "executionPlan"))
+                {
+                    Some(p) => out
+                        .plans
+                        .push(plan::from_execution_plan(&body, &p.1, profile)),
                     None => out.info(format!("`{body}`: el servidor no devolvió un plan.")),
                 },
-                Err(e) if e.is_query() => out.info(format!("`{body}`: sin plan de ejecución ({e}).")),
+                Err(e) if e.is_query() => {
+                    out.info(format!("`{body}`: sin plan de ejecución ({e})."))
+                }
                 Err(e) => return Err(e),
             }
             if analyze {
@@ -1095,7 +1455,13 @@ impl Session for OrientSession {
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         let handle = tokio::runtime::Handle::try_current().ok()?;
-        let (http, base, auth, db, current) = (self.http.clone(), self.base.clone(), self.auth.clone(), self.db.clone(), self.current.clone());
+        let (http, base, auth, db, current) = (
+            self.http.clone(),
+            self.base.clone(),
+            self.auth.clone(),
+            self.db.clone(),
+            self.current.clone(),
+        );
         Some(Arc::new(move || {
             let q = current.lock().expect("current").clone();
             if q.is_empty() {
@@ -1134,7 +1500,11 @@ impl Session for OrientSession {
         self.end_connection(id, "kill").await
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -1153,23 +1523,49 @@ impl Session for OrientSession {
         permissions::check(self, database).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let meta = self.metadata().await?;
         Ok(index_usage::report(&meta, &table.name))
     }
 }
 
 /// Interrupt the server connections running `query` on `db`.
-async fn interrupt(http: &reqwest::Client, base: &str, auth: &Option<(String, Option<String>)>, db: &str, query: &str) -> Result<()> {
-    let server: Value = serde_json::from_str(&request(http, base, auth, Method::GET, "/server", None).await?)?;
+async fn interrupt(
+    http: &reqwest::Client,
+    base: &str,
+    auth: &Option<(String, Option<String>)>,
+    db: &str,
+    query: &str,
+) -> Result<()> {
+    let server: Value =
+        serde_json::from_str(&request(http, base, auth, Method::GET, "/server", None).await?)?;
     let norm = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     let q = norm(query);
-    for c in server.get("connections").and_then(Value::as_array).cloned().unwrap_or_default() {
+    for c in server
+        .get("connections")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
         let detail = norm(&c.get("commandDetail").map(as_text).unwrap_or_default());
         let same_db = c.get("db").map(as_text).is_none_or(|d| d == db || d == "-");
-        if same_db && !q.is_empty() && (detail.contains(&q) || (detail.len() > 20 && q.contains(&detail))) {
+        if same_db
+            && !q.is_empty()
+            && (detail.contains(&q) || (detail.len() > 20 && q.contains(&detail)))
+        {
             if let Some(id) = c.get("connectionId").map(as_text) {
-                let _ = request(http, base, auth, Method::POST, &format!("/connection/interrupt/{}", seg(&id)), None).await;
+                let _ = request(
+                    http,
+                    base,
+                    auth,
+                    Method::POST,
+                    &format!("/connection/interrupt/{}", seg(&id)),
+                    None,
+                )
+                .await;
             }
         }
     }
@@ -1186,7 +1582,15 @@ impl OrientSession {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 pub(crate) fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1196,15 +1600,30 @@ mod tests {
     #[test]
     fn replies_keep_field_order() {
         let r = parse_reply(r##"{"result":[{"name":"Ann","age":3,"@rid":"#1:0","@class":"P","@version":1},{"x":1}],"dbStats":{}}"##).unwrap();
-        assert_eq!(union_keys(&r.records), ["@rid", "@class", "name", "age", "x"]);
+        assert_eq!(
+            union_keys(&r.records),
+            ["@rid", "@class", "name", "age", "x"]
+        );
         let mut out = QueryOutcome::default();
         push_rows(&mut out, &r, 10);
-        assert_eq!(out.results[0].rows[0], vec![json!("#1:0"), json!("P"), json!("Ann"), json!(3), Value::Null]);
+        assert_eq!(
+            out.results[0].rows[0],
+            vec![
+                json!("#1:0"),
+                json!("P"),
+                json!("Ann"),
+                json!(3),
+                Value::Null
+            ]
+        );
         let r = parse_reply(r#"{"result":[{"count":4}]}"#).unwrap();
         let mut out = QueryOutcome::default();
         push_rows(&mut out, &r, 10);
         assert_eq!(out.results[0].rows_affected, Some(4));
-        assert_eq!(parse_reply(r#"{"result":7}"#).unwrap().records, vec![vec![("result".to_string(), json!(7))]]);
+        assert_eq!(
+            parse_reply(r#"{"result":7}"#).unwrap().records,
+            vec![vec![("result".to_string(), json!(7))]]
+        );
         assert_eq!(cell(&json!({ "@type": "d", "a": 1 })), json!("{\"a\":1}"));
     }
 
@@ -1222,26 +1641,53 @@ mod tests {
         let c: Vec<(String, &str)> = classify(&all).into_iter().map(|(n, k, _)| (n, k)).collect();
         assert_eq!(
             c,
-            [("Dev".into(), VERTEX), ("Doc".into(), kinds::TABLE), ("E".into(), EDGE), ("Knows".into(), EDGE), ("Person".into(), VERTEX), ("V".into(), VERTEX)]
+            [
+                ("Dev".into(), VERTEX),
+                ("Doc".into(), kinds::TABLE),
+                ("E".into(), EDGE),
+                ("Knows".into(), EDGE),
+                ("Person".into(), VERTEX),
+                ("V".into(), VERTEX)
+            ]
         );
     }
 
     #[test]
     fn errors_and_urls() {
-        let e = error_text(StatusCode::INTERNAL_SERVER_ERROR, r#"{"errors":[{"code":500,"content":"com.x.OCommandExecutionException: Class not found: X\tDB name=\"db\""}]}"#);
+        let e = error_text(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            r#"{"errors":[{"code":500,"content":"com.x.OCommandExecutionException: Class not found: X\tDB name=\"db\""}]}"#,
+        );
         assert_eq!(e, "Class not found: X");
-        let e = error_text(StatusCode::BAD_REQUEST, r#"{"errors":[{"content":"Error parsing query:\nSELEC x\n    ^"}]}"#);
+        let e = error_text(
+            StatusCode::BAD_REQUEST,
+            r#"{"errors":[{"content":"Error parsing query:\nSELEC x\n    ^"}]}"#,
+        );
         assert!(e.starts_with("Error parsing query"));
         let body = r#"{"errors":[{"code":500,"content":"com.x.OCommandExecutionException: Class not found: X"}]}"#;
-        assert_eq!(error_code(body).as_deref(), Some("OCommandExecutionException"));
-        assert_eq!(error_code(r#"{"errors":[{"code":400,"content":"Error parsing query"}]}"#).as_deref(), Some("400"));
+        assert_eq!(
+            error_code(body).as_deref(),
+            Some("OCommandExecutionException")
+        );
+        assert_eq!(
+            error_code(r#"{"errors":[{"code":400,"content":"Error parsing query"}]}"#).as_deref(),
+            Some("400")
+        );
         assert_eq!(error_code("not json"), None);
-        let c = ConnectionConfig { host: "db".into(), encrypt: true, ..Default::default() };
+        let c = ConnectionConfig {
+            host: "db".into(),
+            encrypt: true,
+            ..Default::default()
+        };
         assert_eq!(base_url(&c), "https://db:2480");
         assert!(is_gremlin(" g.V().count()") && !is_gremlin("SELECT g.x FROM T"));
         assert!(gremlin_writes("g.addV('P')") && !gremlin_writes("g.V().has('name','x')"));
         assert_eq!(strip_plan_prefix("profile SELECT 1"), "SELECT 1");
-        assert!(is_read("  select from X") && is_read("MATCH {as: a} RETURN a") && !is_read("UPDATE X SET a = 1"));
+        assert!(
+            is_read("  select from X")
+                && is_read("MATCH {as: a} RETURN a")
+                && !is_read("UPDATE X SET a = 1")
+        );
         assert_eq!(ident("a b"), "`a b`");
         // Scripts: names that would split differently are refused.
         assert!(script_ident("a b").is_ok());
@@ -1249,8 +1695,14 @@ mod tests {
             assert!(script_ident(bad).is_err(), "{bad:?}");
         }
         assert!(one_unit_each(&["SELECT 1", "SELECT `a;b`"]).is_ok());
-        assert!(one_unit_each(&[format!("DROP CLASS {}", ident("x\\`; DELETE VERTEX V; --"))]).is_err());
-        assert!(one_unit_per_line(&format!("UPDATE {} SET a = 1;\n", ident("x\\`;\nDELETE VERTEX V;"))).is_err());
+        assert!(
+            one_unit_each(&[format!("DROP CLASS {}", ident("x\\`; DELETE VERTEX V; --"))]).is_err()
+        );
+        assert!(one_unit_per_line(&format!(
+            "UPDATE {} SET a = 1;\n",
+            ident("x\\`;\nDELETE VERTEX V;")
+        ))
+        .is_err());
     }
 
     #[test]

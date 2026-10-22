@@ -26,10 +26,19 @@ fn requests<'s, 't>(script: &'s str, t: &'t [Tok<'s>]) -> Vec<Request<'s, 't>> {
         .iter()
         .enumerate()
         .map(|(n, &i)| {
-            let line_end = script[t[i].end..].find('\n').map_or(script.len(), |p| t[i].end + p);
+            let line_end = script[t[i].end..]
+                .find('\n')
+                .map_or(script.len(), |p| t[i].end + p);
             let next = starts.get(n + 1).copied().unwrap_or(t.len());
-            let body_from = (i + 1..next).find(|&k| t[k].start >= line_end).unwrap_or(next);
-            Request { method: &t[i], path: script[t[i].end..line_end].trim(), path_end: line_end, body: &t[body_from..next] }
+            let body_from = (i + 1..next)
+                .find(|&k| t[k].start >= line_end)
+                .unwrap_or(next);
+            Request {
+                method: &t[i],
+                path: script[t[i].end..line_end].trim(),
+                path_end: line_end,
+                body: &t[body_from..next],
+            }
         })
         .collect()
 }
@@ -50,16 +59,33 @@ fn keyed<'a>(t: &'a [Tok<'a>], key: &str) -> impl Iterator<Item = usize> + 'a {
 }
 
 pub(super) fn lint_search(script: &str, out: &mut Vec<Finding>) {
-    let t = tokens(script, Options { line_start_comments: true, ..Options::default() });
+    let t = tokens(
+        script,
+        Options {
+            line_start_comments: true,
+            ..Options::default()
+        },
+    );
     for r in requests(script, &t) {
         let b = r.body;
-        let whole = |rule| Finding::new(rule, r.method.start, r.path_end).param("call", format!("{} {}", r.method.text.to_uppercase(), r.path));
+        let whole = |rule| {
+            Finding::new(rule, r.method.start, r.path_end).param(
+                "call",
+                format!("{} {}", r.method.text.to_uppercase(), r.path),
+            )
+        };
         // ES / OpenSearch: _delete_by_query of everything.
-        if r.path.contains("_delete_by_query") && (keyed(b, "query").next().is_none() || keyed(b, "match_all").next().is_some()) {
+        if r.path.contains("_delete_by_query")
+            && (keyed(b, "query").next().is_none() || keyed(b, "match_all").next().is_some())
+        {
             out.push(whole("write-all"));
         }
         // Solr: {"delete": {"query": "*:*"}} or <delete><query>*:*</query></delete>.
-        let solr_json = keyed(b, "delete").next().is_some() && keyed(b, "query").any(|k| b.get(k + 2).is_some_and(|v| v.k == C::Str && v.body().trim() == "*:*"));
+        let solr_json = keyed(b, "delete").next().is_some()
+            && keyed(b, "query").any(|k| {
+                b.get(k + 2)
+                    .is_some_and(|v| v.k == C::Str && v.body().trim() == "*:*")
+            });
         let solr_xml = b.first().zip(b.last()).is_some_and(|(f, l)| {
             let raw = &script[f.start..l.end];
             raw.contains("<delete>") && raw.contains("*:*")
@@ -69,33 +95,63 @@ pub(super) fn lint_search(script: &str, out: &mut Vec<Finding>) {
         }
         // Leading wildcards: ES wildcard / query_string, Solr q=.
         for w in keyed(b, "wildcard") {
-            let Some(open) = (w + 2 < b.len() && b[w + 2].p('{')).then_some(w + 2) else { continue };
+            let Some(open) = (w + 2 < b.len() && b[w + 2].p('{')).then_some(w + 2) else {
+                continue;
+            };
             let close = closing(b, open);
             for k in open..close.min(b.len()) {
                 let v = &b[k];
-                if v.k == C::Str && !b.get(k + 1).is_some_and(|n| n.p(':')) && v.body().starts_with(['*', '?']) {
-                    out.push(Finding::new("leading-wildcard", v.start, v.end).param("pattern", v.text));
+                if v.k == C::Str
+                    && !b.get(k + 1).is_some_and(|n| n.p(':'))
+                    && v.body().starts_with(['*', '?'])
+                {
+                    out.push(
+                        Finding::new("leading-wildcard", v.start, v.end).param("pattern", v.text),
+                    );
                 }
             }
         }
         for k in keyed(b, "query").chain(keyed(b, "q")) {
-            if let Some(v) = b.get(k + 2).filter(|v| v.k == C::Str && leading_term_wildcard(v.body())) {
+            if let Some(v) = b
+                .get(k + 2)
+                .filter(|v| v.k == C::Str && leading_term_wildcard(v.body()))
+            {
                 out.push(Finding::new("leading-wildcard", v.start, v.end).param("pattern", v.text));
             }
         }
         if let Some(q) = r.path.split(['?', '&']).find(|p| p.starts_with("q=")) {
-            if leading_term_wildcard(&q[2..].replace("%20", " ").replace("%3A", ":").replace("%3a", ":")) {
-                out.push(Finding::new("leading-wildcard", r.method.start, r.path_end).param("pattern", q));
+            if leading_term_wildcard(
+                &q[2..]
+                    .replace("%20", " ")
+                    .replace("%3A", ":")
+                    .replace("%3a", ":"),
+            ) {
+                out.push(
+                    Finding::new("leading-wildcard", r.method.start, r.path_end)
+                        .param("pattern", q),
+                );
             }
         }
     }
 }
 
 pub(super) fn lint_couchdb(script: &str, out: &mut Vec<Finding>) {
-    let t = tokens(script, Options { line_start_comments: true, ..Options::default() });
+    let t = tokens(
+        script,
+        Options {
+            line_start_comments: true,
+            ..Options::default()
+        },
+    );
     for i in 0..t.len() {
-        if is_key(&t, i, "selector") && t.get(i + 2).is_some_and(|x| x.p('{')) && t.get(i + 3).is_some_and(|x| x.p('}')) {
-            out.push(Finding::new("read-all", t[i].start, t[i + 3].end).param("call", "\"selector\": {}"));
+        if is_key(&t, i, "selector")
+            && t.get(i + 2).is_some_and(|x| x.p('{'))
+            && t.get(i + 3).is_some_and(|x| x.p('}'))
+        {
+            out.push(
+                Finding::new("read-all", t[i].start, t[i + 3].end)
+                    .param("call", "\"selector\": {}"),
+            );
         }
         unanchored(&t, i, out);
     }

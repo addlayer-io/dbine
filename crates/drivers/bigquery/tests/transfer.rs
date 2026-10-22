@@ -7,7 +7,9 @@
 //! `"NaN"` float as NULL. The byte comparisons accept the first; NaN isn't
 //! loaded here.
 
-use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session};
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -15,14 +17,28 @@ use std::time::Instant;
 
 async fn open() -> Option<Box<dyn Session>> {
     let url = std::env::var("DBINE_TEST_BIGQUERY_URL").ok()?;
-    let mut c = ConnectionConfig { driver: "bigquery".into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "bigquery".into(),
+        ..Default::default()
+    };
     c.options.insert("project_id".into(), "test".into());
     c.options.insert("endpoint_url".into(), url);
-    Some(dbine_driver_bigquery::drivers().pop().unwrap().connect(&c, Some("ds1")).await.unwrap())
+    Some(
+        dbine_driver_bigquery::drivers()
+            .pop()
+            .unwrap()
+            .connect(&c, Some("ds1"))
+            .await
+            .unwrap(),
+    )
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: kinds::TABLE.into(), schema: Some("ds1".into()), name: name.into() }
+    ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: Some("ds1".into()),
+        name: name.into(),
+    }
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
@@ -65,7 +81,13 @@ async fn read(s: &mut Box<dyn Session>, spec: ReadSpec) -> Collect {
     c
 }
 
-async fn load(s: &mut Box<dyn Session>, name: &str, columns: &[&str], rows: Vec<Vec<Cell>>, commit_rows: u64) -> (u64, Vec<u64>) {
+async fn load(
+    s: &mut Box<dyn Session>,
+    name: &str,
+    columns: &[&str],
+    rows: Vec<Vec<Cell>>,
+    commit_rows: u64,
+) -> (u64, Vec<u64>) {
     let spec = LoadSpec {
         table: table(name),
         columns: columns.iter().map(|c| c.to_string()).collect(),
@@ -76,13 +98,18 @@ async fn load(s: &mut Box<dyn Session>, name: &str, columns: &[&str], rows: Vec<
     };
     let seen = Mutex::new(Vec::new());
     let progress = |n: u64| seen.lock().unwrap().push(n);
-    let n = s.bulk_load(&spec, &[], &mut Rows(rows.into_iter()), &progress).await.unwrap();
+    let n = s
+        .bulk_load(&spec, &[], &mut Rows(rows.into_iter()), &progress)
+        .await
+        .unwrap();
     (n, seen.into_inner().unwrap())
 }
 
 fn b64(b: &[u8]) -> Vec<u8> {
     use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(b).into_bytes()
+    base64::engine::general_purpose::STANDARD
+        .encode(b)
+        .into_bytes()
 }
 
 /// Equal, allowing the emulator's base64-stored bytes.
@@ -105,7 +132,10 @@ async fn transfer_all_types() {
          st STRUCT<x INT64, y STRING>)",
     )
     .await;
-    let cols = ["id", "big", "f", "inf", "n", "bn", "ok", "s", "b", "d", "tm", "dt", "ts", "j", "g", "arr", "st"];
+    let cols = [
+        "id", "big", "f", "inf", "n", "bn", "ok", "s", "b", "d", "tm", "dt", "ts", "j", "g", "arr",
+        "st",
+    ];
     let big: Vec<u8> = (0..1024 * 1024).map(|i| (i * 7 % 251) as u8).collect();
     let full = vec![
         Cell::Int(1),
@@ -131,13 +161,31 @@ async fn transfer_all_types() {
     let mut large = nulls.clone();
     large[0] = Cell::Int(3);
     large[8] = Cell::Bytes(big.clone());
-    let (n, seen) = load(&mut s, "xfer_types", &cols, vec![full.clone(), nulls.clone(), large.clone()], 100_000).await;
+    let (n, seen) = load(
+        &mut s,
+        "xfer_types",
+        &cols,
+        vec![full.clone(), nulls.clone(), large.clone()],
+        100_000,
+    )
+    .await;
     assert_eq!((n, seen), (3, vec![3]));
 
-    let got = read(&mut s, ReadSpec { table: table("xfer_types"), columns: None, filter: None }).await;
+    let got = read(
+        &mut s,
+        ReadSpec {
+            table: table("xfer_types"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     let types: Vec<_> = got.columns.iter().map(|c| c.type_name.as_str()).collect();
     assert_eq!(types[..3], ["INT64", "INT64", "FLOAT64"]);
-    assert_eq!(types[15..], ["ARRAY<INT64>", "STRUCT<`x` INT64, `y` STRING>"]);
+    assert_eq!(
+        types[15..],
+        ["ARRAY<INT64>", "STRUCT<`x` INT64, `y` STRING>"]
+    );
     let mut rows = got.rows;
     rows.sort_by_key(|r| match r[0] {
         Cell::Int(i) => i,
@@ -146,7 +194,11 @@ async fn transfer_all_types() {
     for (want, got) in [&full, &nulls, &large].into_iter().zip(&rows) {
         for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
             // An empty array reads as [] (BigQuery has no NULL arrays).
-            let w = if i == 15 && *w == Cell::Null { &Cell::Json("[]".into()) } else { w };
+            let w = if i == 15 && *w == Cell::Null {
+                &Cell::Json("[]".into())
+            } else {
+                w
+            };
             // Decimals come back without trailing zeros; JSON compact.
             assert!(same(g, w), "column {}: {g:?} != {w:?}", cols[i]);
         }
@@ -155,14 +207,32 @@ async fn transfer_all_types() {
     // Only some columns, in the asked order, through the query path.
     let got = read(
         &mut s,
-        ReadSpec { table: table("xfer_types"), columns: Some(vec!["s".into(), "ID".into()]), filter: Some("id = 1".into()) },
+        ReadSpec {
+            table: table("xfer_types"),
+            columns: Some(vec!["s".into(), "ID".into()]),
+            filter: Some("id = 1".into()),
+        },
     )
     .await;
     // (named as the read asked for them: BigQuery names are case-insensitive)
-    assert_eq!(got.columns.iter().map(|c| c.name.to_lowercase()).collect::<Vec<_>>(), ["s", "id"]);
+    assert_eq!(
+        got.columns
+            .iter()
+            .map(|c| c.name.to_lowercase())
+            .collect::<Vec<_>>(),
+        ["s", "id"]
+    );
     assert_eq!(got.rows, vec![vec![full[7].clone(), Cell::Int(1)]]);
     // And through tabledata.list (no filter).
-    let got = read(&mut s, ReadSpec { table: table("xfer_types"), columns: Some(vec!["ok".into(), "id".into()]), filter: None }).await;
+    let got = read(
+        &mut s,
+        ReadSpec {
+            table: table("xfer_types"),
+            columns: Some(vec!["ok".into(), "id".into()]),
+            filter: None,
+        },
+    )
+    .await;
     assert_eq!(got.rows.len(), 3);
     assert!(got.rows.contains(&vec![Cell::Bool(true), Cell::Int(1)]));
 
@@ -175,7 +245,10 @@ async fn transfer_all_types() {
         commit_rows: 10,
         commit_bytes: 1 << 20,
     };
-    assert!(s.bulk_load(&spec, &[], &mut Rows(Vec::new().into_iter()), &|_| {}).await.is_err());
+    assert!(s
+        .bulk_load(&spec, &[], &mut Rows(Vec::new().into_iter()), &|_| {})
+        .await
+        .is_err());
     run(&mut s, "DROP TABLE IF EXISTS ds1.xfer_types").await;
 }
 
@@ -190,8 +263,17 @@ async fn transfer_50k_rows() {
         .map(|i| {
             vec![
                 Cell::Int(i),
-                if i % 7 == 0 { Cell::Null } else { Cell::Text(format!("fila número {i}")) },
-                Cell::Decimal(format!("{}.{:02}", i * 3, i % 100).trim_end_matches('0').trim_end_matches('.').to_string()),
+                if i % 7 == 0 {
+                    Cell::Null
+                } else {
+                    Cell::Text(format!("fila número {i}"))
+                },
+                Cell::Decimal(
+                    format!("{}.{:02}", i * 3, i % 100)
+                        .trim_end_matches('0')
+                        .trim_end_matches('.')
+                        .to_string(),
+                ),
                 Cell::DateTimeTz({
                     // Read back without trailing zeros in the fraction.
                     let frac = format!("{:06}", i % 1_000_000);
@@ -213,7 +295,15 @@ async fn transfer_50k_rows() {
     assert_eq!(seen, vec![10_000, 20_000, 30_000, 40_000, 50_000]);
 
     let t = Instant::now();
-    let got = read(&mut s, ReadSpec { table: table("xfer_big"), columns: None, filter: None }).await;
+    let got = read(
+        &mut s,
+        ReadSpec {
+            table: table("xfer_big"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     let read_s = t.elapsed().as_secs_f64();
     let mut back = got.rows;
     back.sort_by_key(|r| match r[0] {
@@ -225,10 +315,17 @@ async fn transfer_50k_rows() {
         for (i, (a, b)) in g.iter().zip(w).enumerate() {
             let b = match b {
                 // Decimals come back normalized ("1.50" → "1.5").
-                Cell::Decimal(d) if d.contains('.') => Cell::Decimal(d.trim_end_matches('0').trim_end_matches('.').to_string()),
+                Cell::Decimal(d) if d.contains('.') => {
+                    Cell::Decimal(d.trim_end_matches('0').trim_end_matches('.').to_string())
+                }
                 other => other.clone(),
             };
-            assert!(same(a, &b), "row {:?} column {}: {a:?} != {b:?}", g[0], cols[i]);
+            assert!(
+                same(a, &b),
+                "row {:?} column {}: {a:?} != {b:?}",
+                g[0],
+                cols[i]
+            );
         }
     }
     println!(
@@ -244,29 +341,76 @@ async fn transfer_50k_rows() {
 async fn transfer_filter_and_exact_values() {
     let Some(mut s) = open().await else { return };
     run(&mut s, "DROP TABLE IF EXISTS ds1.xfer_rules").await;
-    run(&mut s, "CREATE TABLE ds1.xfer_rules (id INT64, s STRING, b BYTES, d DATE, dt DATETIME)").await;
+    run(
+        &mut s,
+        "CREATE TABLE ds1.xfer_rules (id INT64, s STRING, b BYTES, d DATE, dt DATETIME)",
+    )
+    .await;
     let cols = ["id", "s", "b", "d", "dt"];
     let zoned = Cell::DateTimeTz("2024-01-31 23:30:00-03:00".into());
-    let row = vec![Cell::Int(1), Cell::Text("a;b".into()), Cell::Decimal("1234".into()), zoned.clone(), zoned];
+    let row = vec![
+        Cell::Int(1),
+        Cell::Text("a;b".into()),
+        Cell::Decimal("1234".into()),
+        zoned.clone(),
+        zoned,
+    ];
     let (n, _) = load(&mut s, "xfer_rules", &cols, vec![row], 10).await;
     assert_eq!(n, 1);
-    let got = read(&mut s, ReadSpec { table: table("xfer_rules"), columns: None, filter: None }).await;
+    let got = read(
+        &mut s,
+        ReadSpec {
+            table: table("xfer_rules"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     let r = &got.rows[0];
     // The same instant in DATE and DATETIME: its UTC date.
-    assert_eq!((&r[3], &r[4]), (&Cell::Date("2024-02-01".into()), &Cell::DateTime("2024-02-01 02:30:00".into())));
+    assert_eq!(
+        (&r[3], &r[4]),
+        (
+            &Cell::Date("2024-02-01".into()),
+            &Cell::DateTime("2024-02-01 02:30:00".into())
+        )
+    );
     // Text into BYTES is its UTF-8 bytes, never decoded as base64.
     assert!(same(&r[2], &Cell::Bytes(b"1234".to_vec())), "{:?}", r[2]);
 
     // A filter is one condition: a script would run DML on the source.
-    let spec = |f: &str| ReadSpec { table: table("xfer_rules"), columns: None, filter: Some(f.into()) };
+    let spec = |f: &str| ReadSpec {
+        table: table("xfer_rules"),
+        columns: None,
+        filter: Some(f.into()),
+    };
     let sink = Arc::new(Mutex::new(Collect::default()));
-    let err = s.read_batches(&spec("1=1; DELETE FROM ds1.xfer_rules WHERE true; SELECT 1"), sink).await;
+    let err = s
+        .read_batches(
+            &spec("1=1; DELETE FROM ds1.xfer_rules WHERE true; SELECT 1"),
+            sink,
+        )
+        .await;
     assert!(err.is_err());
     // A `;` inside a literal is fine.
     let got = read(&mut s, spec("s = 'a;b'")).await;
     assert_eq!(got.rows.len(), 1);
-    let got = read(&mut s, ReadSpec { table: table("xfer_rules"), columns: Some(vec!["dt".into(), "id".into()]), filter: None }).await;
-    assert_eq!(got.rows, vec![vec![Cell::DateTime("2024-02-01 02:30:00".into()), Cell::Int(1)]]);
+    let got = read(
+        &mut s,
+        ReadSpec {
+            table: table("xfer_rules"),
+            columns: Some(vec!["dt".into(), "id".into()]),
+            filter: None,
+        },
+    )
+    .await;
+    assert_eq!(
+        got.rows,
+        vec![vec![
+            Cell::DateTime("2024-02-01 02:30:00".into()),
+            Cell::Int(1)
+        ]]
+    );
 
     // Bytes that aren't UTF-8 into STRING: an error, nothing loaded.
     let spec = LoadSpec {
@@ -278,8 +422,19 @@ async fn transfer_filter_and_exact_values() {
         commit_bytes: 1 << 20,
     };
     let rows = vec![vec![Cell::Int(2), Cell::Bytes(vec![0xff, 0x00])]];
-    assert!(s.bulk_load(&spec, &[], &mut Rows(rows.into_iter()), &|_| {}).await.is_err());
-    let got = read(&mut s, ReadSpec { table: table("xfer_rules"), columns: None, filter: None }).await;
+    assert!(s
+        .bulk_load(&spec, &[], &mut Rows(rows.into_iter()), &|_| {})
+        .await
+        .is_err());
+    let got = read(
+        &mut s,
+        ReadSpec {
+            table: table("xfer_rules"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     assert_eq!(got.rows.len(), 1);
     run(&mut s, "DROP TABLE IF EXISTS ds1.xfer_rules").await;
 }

@@ -19,7 +19,12 @@ type Vars = BTreeMap<String, String>;
 
 /// `notebook`: a "Run notebook" step's notebook, as [`super::run_task`]
 /// read it to check the approval (the step runs that copy).
-pub(super) async fn run(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Option<CommandResult<crate::notebook::Notebook>>) -> CommandResult<StepDone> {
+pub(super) async fn run(
+    ctx: &Ctx<'_>,
+    step: &Step,
+    vars: &Vars,
+    notebook: Option<CommandResult<crate::notebook::Notebook>>,
+) -> CommandResult<StepDone> {
     match step.kind.as_str() {
         kinds::RUN_SCRIPT => run_script(ctx, step, vars).await,
         kinds::EXPORT => export(ctx, step, vars).await,
@@ -29,12 +34,16 @@ pub(super) async fn run(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Optio
         kinds::SEND_MAIL => super::mail::step(ctx.state, step, vars).await,
         kinds::SEND_MESSAGE => super::message::step(ctx.task, step, vars).await,
         kinds::RUN_NOTEBOOK => run_notebook(ctx, step, vars, notebook).await,
-        other => Err(CommandError::BadRequest(format!("esta versión de DBine no sabe ejecutar pasos «{other}»"))),
+        other => Err(CommandError::BadRequest(format!(
+            "esta versión de DBine no sabe ejecutar pasos «{other}»"
+        ))),
     }
 }
 
 fn config<T: for<'de> Deserialize<'de>>(step: &Step) -> CommandResult<T> {
-    serde_json::from_value(step.config.clone()).map_err(|e| CommandError::BadRequest(format!("la configuración del paso no es válida: {e}")))
+    serde_json::from_value(step.config.clone()).map_err(|e| {
+        CommandError::BadRequest(format!("la configuración del paso no es válida: {e}"))
+    })
 }
 
 fn need_connection(t: &Target) -> CommandResult<()> {
@@ -50,14 +59,34 @@ fn out_path(folder: &str, name: &str, ext: &str, vars: &Vars) -> CommandResult<P
     let vars = &super::without_db_text(vars);
     let folder = expand(folder.trim(), vars);
     if folder.is_empty() {
-        return Err(CommandError::BadRequest("el paso no tiene carpeta de destino".into()));
+        return Err(CommandError::BadRequest(
+            "el paso no tiene carpeta de destino".into(),
+        ));
     }
     let dir = PathBuf::from(folder);
-    std::fs::create_dir_all(&dir).map_err(|e| CommandError::BadRequest(format!("no se pudo crear la carpeta {}: {e}", dir.display())))?;
-    let name = expand(if name.trim().is_empty() { "{task}-{datetime}" } else { name.trim() }, vars);
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        CommandError::BadRequest(format!(
+            "no se pudo crear la carpeta {}: {e}",
+            dir.display()
+        ))
+    })?;
+    let name = expand(
+        if name.trim().is_empty() {
+            "{task}-{datetime}"
+        } else {
+            name.trim()
+        },
+        vars,
+    );
     let mut safe: String = name
         .chars()
-        .map(|c| if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let dotted = format!(".{ext}");
     if !safe.to_lowercase().ends_with(&dotted) {
@@ -93,19 +122,44 @@ async fn run_script(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<St
         return Err(CommandError::BadRequest("el script está vacío".into()));
     }
     let key = format!("{}:{}", ctx.run_key, step.id);
-    let out = crate::commands::query::run_unattended(ctx.state, &key, &c.target.connection_id, &c.target.database, &sql, c.continue_on_error, SCRIPT_MAX_ROWS).await?;
+    let out = crate::commands::query::run_unattended(
+        ctx.state,
+        &key,
+        &c.target.connection_id,
+        &c.target.database,
+        &sql,
+        c.continue_on_error,
+        SCRIPT_MAX_ROWS,
+    )
+    .await?;
     let affected: u64 = out.results.iter().filter_map(|r| r.rows_affected).sum();
     let statements = out.results.len() as u64;
     let mut done = StepDone::default();
-    done.outputs.insert("statements".into(), statements.to_string());
+    done.outputs
+        .insert("statements".into(), statements.to_string());
     done.outputs.insert("affected".into(), affected.to_string());
-    done.outputs.insert("errors".into(), out.errors.len().to_string());
+    done.outputs
+        .insert("errors".into(), out.errors.len().to_string());
     // Server messages (PRINT, notices) and errors: no result rows.
-    done.messages = out.log.iter().map(|m| m.text.clone()).chain(out.errors.iter().map(error_line)).take(200).collect();
+    done.messages = out
+        .log
+        .iter()
+        .map(|m| m.text.clone())
+        .chain(out.errors.iter().map(error_line))
+        .take(200)
+        .collect();
     if let Some(first) = out.errors.first() {
-        return Err(CommandError::Sql(format!("{} ({} en total)", error_line(first), plural(out.errors.len() as u64, "error", "errores"))));
+        return Err(CommandError::Sql(format!(
+            "{} ({} en total)",
+            error_line(first),
+            plural(out.errors.len() as u64, "error", "errores")
+        )));
     }
-    done.summary = format!("{}; {} afectadas.", plural(statements, "resultado", "resultados"), plural(affected, "fila", "filas"));
+    done.summary = format!(
+        "{}; {} afectadas.",
+        plural(statements, "resultado", "resultados"),
+        plural(affected, "fila", "filas")
+    );
     Ok(done)
 }
 
@@ -155,7 +209,9 @@ async fn export(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
     let mut options: ExportOptions = if c.options.is_null() {
         ExportOptions::default()
     } else {
-        serde_json::from_value(c.options.clone()).map_err(|e| CommandError::BadRequest(format!("opciones de exportación no válidas: {e}")))?
+        serde_json::from_value(c.options.clone()).map_err(|e| {
+            CommandError::BadRequest(format!("opciones de exportación no válidas: {e}"))
+        })?
     };
     // String literals of an SQL export follow the source engine.
     options.source = crate::commands::schema::driver_of(ctx.state, &c.target.connection_id)
@@ -163,9 +219,15 @@ async fn export(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
     let path = out_path(&c.folder, &c.file_name, extension(options.format), vars)?;
     let key = format!("{}:{}", ctx.run_key, step.id);
     // Reading only, whatever the connection says.
-    let entry = ctx.state.dedicated_session(&key, &c.target.connection_id, &c.target.database, true).await?;
+    let entry = ctx
+        .state
+        .dedicated_session(&key, &c.target.connection_id, &c.target.database, true)
+        .await?;
     let exporter = Arc::new(Mutex::new(Exporter::new(&path, c.result_index, options)));
-    let mut out = QueryOutcome { sink: Some(RowSinkRef(exporter.clone())), ..Default::default() };
+    let mut out = QueryOutcome {
+        sink: Some(RowSinkRef(exporter.clone())),
+        ..Default::default()
+    };
     let finished = {
         let mut s = entry.session.lock().await;
         tokio::select! {
@@ -182,16 +244,35 @@ async fn export(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
             .sink_error
             .clone()
             .map(|e| format!("no se pudo escribir el archivo: {e}"))
-            .or_else(|| (out.results.len() <= c.result_index).then(|| "la consulta no devolvió ese resultado".to_string()))
-            .or_else(|| out.results[c.result_index].columns.is_empty().then(|| "ese resultado no tiene filas para exportar".to_string())),
+            .or_else(|| {
+                (out.results.len() <= c.result_index)
+                    .then(|| "la consulta no devolvió ese resultado".to_string())
+            })
+            .or_else(|| {
+                out.results[c.result_index]
+                    .columns
+                    .is_empty()
+                    .then(|| "ese resultado no tiene filas para exportar".to_string())
+            }),
     };
-    let rows = exporter.lock().map_err(|_| CommandError::Internal("exportador".into()))?.finish();
+    let rows = exporter
+        .lock()
+        .map_err(|_| CommandError::Internal("exportador".into()))?
+        .finish();
     if let Some(msg) = failure {
         let _ = std::fs::remove_file(&path);
         return Err(CommandError::Sql(msg));
     }
-    let rows = rows.map_err(|e| CommandError::Internal(format!("no se pudo cerrar el archivo: {e}")))?;
-    let mut done = StepDone { summary: format!("{} exportadas a {}", plural(rows, "fila", "filas"), shown(&path)), ..Default::default() };
+    let rows =
+        rows.map_err(|e| CommandError::Internal(format!("no se pudo cerrar el archivo: {e}")))?;
+    let mut done = StepDone {
+        summary: format!(
+            "{} exportadas a {}",
+            plural(rows, "fila", "filas"),
+            shown(&path)
+        ),
+        ..Default::default()
+    };
     done.outputs.insert("file".into(), shown(&path));
     done.outputs.insert("rows".into(), rows.to_string());
     Ok(done)
@@ -226,15 +307,26 @@ struct CompareConfig {
 async fn compare_schemas(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDone> {
     let c: CompareConfig = config(step)?;
     if c.source.connection_id.is_empty() || c.target.connection_id.is_empty() {
-        return Err(CommandError::BadRequest("el paso necesita las dos bases".into()));
+        return Err(CommandError::BadRequest(
+            "el paso necesita las dos bases".into(),
+        ));
     }
-    let load = |s: &Side| LoadArgs { connection_id: s.connection_id.clone(), database: s.database.clone(), schemas: s.schemas.clone() };
+    let load = |s: &Side| LoadArgs {
+        connection_id: s.connection_id.clone(),
+        database: s.database.clone(),
+        schemas: s.schemas.clone(),
+    };
     let left = compare::load_model(ctx.state, load(&c.source)).await?;
     let right = compare::load_model(ctx.state, load(&c.target)).await?;
     let result = dbine_schema::compare::compare(&left.model, &right.model, &c.options);
 
     // The target's schema for what's carried over when pairing ignores it.
-    let target_schema = right.model.tables.iter().find_map(|t| t.schema.clone()).or_else(|| c.target.schemas.first().cloned());
+    let target_schema = right
+        .model
+        .tables
+        .iter()
+        .find_map(|t| t.schema.clone())
+        .or_else(|| c.target.schemas.first().cloned());
     let retarget = |mut t: dbine_driver::TableSchema, like: Option<&dbine_driver::TableSchema>| {
         if c.options.ignore_schema {
             t.schema = like.map_or(target_schema.clone(), |l| l.schema.clone());
@@ -247,8 +339,13 @@ async fn compare_schemas(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResu
         let l = d.left.and_then(|i| left.model.tables.get(i));
         let r = d.right.and_then(|i| right.model.tables.get(i));
         match (d.status, l, r) {
-            (Status::Changed, Some(l), Some(r)) => tables.push(TableChange::Alter { old: r.clone(), new: retarget(l.clone(), Some(r)) }),
-            (Status::OnlyLeft, Some(l), _) => tables.push(TableChange::Create { table: retarget(l.clone(), None) }),
+            (Status::Changed, Some(l), Some(r)) => tables.push(TableChange::Alter {
+                old: r.clone(),
+                new: retarget(l.clone(), Some(r)),
+            }),
+            (Status::OnlyLeft, Some(l), _) => tables.push(TableChange::Create {
+                table: retarget(l.clone(), None),
+            }),
             (Status::OnlyRight, _, Some(r)) => {
                 only_target += 1;
                 if c.include_drops {
@@ -262,7 +359,8 @@ async fn compare_schemas(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResu
     for d in &result.objects {
         let l = d.left.and_then(|i| left.model.objects.get(i));
         let r = d.right.and_then(|i| right.model.objects.get(i));
-        let carried = |o: &dbine_schema::compare::CodeObject, like: Option<&dbine_schema::compare::CodeObject>| {
+        let carried = |o: &dbine_schema::compare::CodeObject,
+                       like: Option<&dbine_schema::compare::CodeObject>| {
             let mut o = o.clone();
             if c.options.ignore_schema {
                 o.schema = like.map_or(target_schema.clone(), |l| l.schema.clone());
@@ -270,8 +368,12 @@ async fn compare_schemas(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResu
             o
         };
         match (d.status, l, r) {
-            (Status::Changed, Some(l), Some(r)) => objects.push(ObjectChange::Replace { object: carried(l, Some(r)) }),
-            (Status::OnlyLeft, Some(l), _) => objects.push(ObjectChange::Create { object: carried(l, None) }),
+            (Status::Changed, Some(l), Some(r)) => objects.push(ObjectChange::Replace {
+                object: carried(l, Some(r)),
+            }),
+            (Status::OnlyLeft, Some(l), _) => objects.push(ObjectChange::Create {
+                object: carried(l, None),
+            }),
             (Status::OnlyRight, _, Some(r)) => {
                 only_target += 1;
                 if c.include_drops {
@@ -281,28 +383,66 @@ async fn compare_schemas(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResu
             _ => {}
         }
     }
-    let differences = result.tables.iter().filter(|t| t.status != Status::Equal).count() + result.objects.iter().filter(|o| o.status != Status::Equal).count();
+    let differences = result
+        .tables
+        .iter()
+        .filter(|t| t.status != Status::Equal)
+        .count()
+        + result
+            .objects
+            .iter()
+            .filter(|o| o.status != Status::Equal)
+            .count();
     let mut done = StepDone::default();
-    done.outputs.insert("differences".into(), differences.to_string());
-    done.messages = left.warnings.iter().chain(&right.warnings).cloned().collect();
-    let names = |s: &Side| if s.database.is_empty() { s.connection_id.clone() } else { s.database.clone() };
+    done.outputs
+        .insert("differences".into(), differences.to_string());
+    done.messages = left
+        .warnings
+        .iter()
+        .chain(&right.warnings)
+        .cloned()
+        .collect();
+    let names = |s: &Side| {
+        if s.database.is_empty() {
+            s.connection_id.clone()
+        } else {
+            s.database.clone()
+        }
+    };
     if differences == 0 {
         done.summary = "Las bases tienen el mismo esquema.".into();
         return Ok(done);
     }
-    let views = right.model.objects.iter().filter(|o| o.kind == dbine_driver::kinds::VIEW).cloned().collect();
+    let views = right
+        .model
+        .objects
+        .iter()
+        .filter(|o| o.kind == dbine_driver::kinds::VIEW)
+        .cloned()
+        .collect();
     let script = compare::sync_script(
         ctx.state,
-        compare::ScriptArgs { connection_id: c.target.connection_id.clone(), tables, objects, views },
+        compare::ScriptArgs {
+            connection_id: c.target.connection_id.clone(),
+            tables,
+            objects,
+            views,
+        },
     )?;
     let driver = crate::commands::schema::driver_of(ctx.state, &c.target.connection_id)?;
     let sep = driver.script_separator();
     let mut body = String::new();
     for w in &script.warnings {
-        body.push_str(&format!("-- {}\n", crate::commands::scripts::comment_text(w)));
+        body.push_str(&format!(
+            "-- {}\n",
+            crate::commands::scripts::comment_text(w)
+        ));
     }
     if !c.include_drops && only_target > 0 {
-        body.push_str(&format!("-- {} solo en el destino: no se borran (opción «Incluir borrados»).\n", plural(only_target, "objeto está", "objetos están")));
+        body.push_str(&format!(
+            "-- {} solo en el destino: no se borran (opción «Incluir borrados»).\n",
+            plural(only_target, "objeto está", "objetos están")
+        ));
     }
     body.push('\n');
     for st in &script.statements {
@@ -315,8 +455,15 @@ async fn compare_schemas(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResu
         }
     }
     let path = out_path(&c.folder, &c.file_name, "sql", vars)?;
-    std::fs::write(&path, body).map_err(|e| CommandError::Internal(format!("no se pudo escribir {}: {e}", path.display())))?;
-    let alert = format!("«{}» y «{}» difieren en {}.", names(&c.source), names(&c.target), plural(differences as u64, "objeto", "objetos"));
+    std::fs::write(&path, body).map_err(|e| {
+        CommandError::Internal(format!("no se pudo escribir {}: {e}", path.display()))
+    })?;
+    let alert = format!(
+        "«{}» y «{}» difieren en {}.",
+        names(&c.source),
+        names(&c.target),
+        plural(differences as u64, "objeto", "objetos")
+    );
     done.summary = format!("{alert} Script de sincronización: {}", shown(&path));
     done.alert = Some(alert);
     done.outputs.insert("file".into(), shown(&path));
@@ -358,10 +505,14 @@ async fn backup(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
     let spec = driver.backup();
     if c.mode == "native" {
         let Some(spec) = spec else {
-            return Err(CommandError::BadRequest("este motor no tiene backups propios: elegí «Copia de DBine» en el paso".into()));
+            return Err(CommandError::BadRequest(
+                "este motor no tiene backups propios: elegí «Copia de DBine» en el paso".into(),
+            ));
         };
         // Secret options (an encryption password) come from the vault.
-        if let Ok(Some(json)) = dbine_core::secrets::get_raw(&super::step_secret_name(&ctx.task.id, &step.id)) {
+        if let Ok(Some(json)) =
+            dbine_core::secrets::get_raw(&super::step_secret_name(&ctx.task.id, &step.id))
+        {
             if let Ok(secret) = serde_json::from_str::<BTreeMap<String, String>>(&json) {
                 c.options.extend(secret);
             }
@@ -370,15 +521,36 @@ async fn backup(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
         for v in c.options.values_mut() {
             *v = expand(v, &vars);
         }
-        let database = (!spec.server_wide).then(|| c.target.database.clone()).filter(|d| !d.is_empty());
-        let script = driver.backup_script(&BackupAction::Backup { database, options: c.options })?;
-        let run_on = if spec.script_database.is_empty() { c.target.database.clone() } else { spec.script_database.to_string() };
+        let database = (!spec.server_wide)
+            .then(|| c.target.database.clone())
+            .filter(|d| !d.is_empty());
+        let script = driver.backup_script(&BackupAction::Backup {
+            database,
+            options: c.options,
+        })?;
+        let run_on = if spec.script_database.is_empty() {
+            c.target.database.clone()
+        } else {
+            spec.script_database.to_string()
+        };
         let key = format!("{}:{}", ctx.run_key, step.id);
-        let out = crate::commands::query::run_unattended(ctx.state, &key, &c.target.connection_id, &run_on, &script, Some(false), 10).await?;
+        let out = crate::commands::query::run_unattended(
+            ctx.state,
+            &key,
+            &c.target.connection_id,
+            &run_on,
+            &script,
+            Some(false),
+            10,
+        )
+        .await?;
         if let Some(e) = out.errors.first() {
             return Err(CommandError::Sql(error_line(e)));
         }
-        let mut done = StepDone { summary: "Backup del motor terminado.".into(), ..Default::default() };
+        let mut done = StepDone {
+            summary: "Backup del motor terminado.".into(),
+            ..Default::default()
+        };
         done.messages = out.log.iter().map(|m| m.text.clone()).take(50).collect();
         return Ok(done);
     }
@@ -392,15 +564,24 @@ async fn backup(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
     let path = out_path(&c.folder, &c.file_name, ext, vars)?;
     let objects: Vec<ObjectRef> = ctx
         .state
-        .meta_read(&c.target.connection_id, &c.target.database, crate::commands::explorer::META_LIMIT, |s| {
-            Box::pin(async move { s.list_objects().await })
-        })
+        .meta_read(
+            &c.target.connection_id,
+            &c.target.database,
+            crate::commands::explorer::META_LIMIT,
+            |s| Box::pin(async move { s.list_objects().await }),
+        )
         .await?
         .into_iter()
-        .map(|o| ObjectRef { kind: o.kind, schema: o.schema, name: o.name })
+        .map(|o| ObjectRef {
+            kind: o.kind,
+            schema: o.schema,
+            name: o.name,
+        })
         .collect();
     if objects.is_empty() {
-        return Err(CommandError::BadRequest("la base no tiene objetos para copiar".into()));
+        return Err(CommandError::BadRequest(
+            "la base no tiene objetos para copiar".into(),
+        ));
     }
     let copy = crate::commands::backup::make_copy(
         ctx.state,
@@ -416,7 +597,12 @@ async fn backup(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
     )
     .await?;
     let mut done = StepDone {
-        summary: format!("Copia de {} y {} en {}", plural(copy.objects, "objeto", "objetos"), plural(copy.rows, "fila", "filas"), copy.path),
+        summary: format!(
+            "Copia de {} y {} en {}",
+            plural(copy.objects, "objeto", "objetos"),
+            plural(copy.rows, "fila", "filas"),
+            copy.path
+        ),
         ..Default::default()
     };
     done.outputs.insert("file".into(), copy.path);
@@ -443,15 +629,31 @@ async fn document(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<Step
     need_connection(&c.target)?;
     let path = out_path(&c.folder, &c.file_name, c.options.format.extension(), vars)?;
     let key = format!("{}:{}", ctx.run_key, step.id);
-    let built = crate::commands::dbdocs::document(ctx.state, &key, &c.target.connection_id, &c.target.database, &c.options, &|_, _, _| {}).await?;
-    std::fs::write(&path, &built.text).map_err(|e| CommandError::Internal(format!("no se pudo escribir {}: {e}", path.display())))?;
+    let built = crate::commands::dbdocs::document(
+        ctx.state,
+        &key,
+        &c.target.connection_id,
+        &c.target.database,
+        &c.options,
+        &|_, _, _| {},
+    )
+    .await?;
+    std::fs::write(&path, &built.text).map_err(|e| {
+        CommandError::Internal(format!("no se pudo escribir {}: {e}", path.display()))
+    })?;
     let mut done = StepDone {
-        summary: format!("{} y {} documentados en {}", plural(built.tables as u64, "tabla", "tablas"), plural(built.objects as u64, "objeto", "objetos"), shown(&path)),
+        summary: format!(
+            "{} y {} documentados en {}",
+            plural(built.tables as u64, "tabla", "tablas"),
+            plural(built.objects as u64, "objeto", "objetos"),
+            shown(&path)
+        ),
         messages: built.notes,
         ..Default::default()
     };
     done.outputs.insert("file".into(), shown(&path));
-    done.outputs.insert("tables".into(), built.tables.to_string());
+    done.outputs
+        .insert("tables".into(), built.tables.to_string());
     Ok(done)
 }
 
@@ -503,7 +705,12 @@ fn notebook_policy(ctx: &Ctx<'_>) -> crate::notebook::access::Policy {
     crate::notebook::access::Policy::current(&dirs)
 }
 
-async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Option<CommandResult<crate::notebook::Notebook>>) -> CommandResult<StepDone> {
+async fn run_notebook(
+    ctx: &Ctx<'_>,
+    step: &Step,
+    vars: &Vars,
+    notebook: Option<CommandResult<crate::notebook::Notebook>>,
+) -> CommandResult<StepDone> {
     use crate::notebook::{export, headless};
     let c: NotebookConfig = config(step)?;
     let original = PathBuf::from(c.run.path.trim());
@@ -512,16 +719,26 @@ async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Option<
     }
     let key = format!("{}:{}", ctx.run_key, step.id);
     // Never read again here: what runs is what the approval was checked on.
-    let nb = notebook.ok_or_else(|| CommandError::BadRequest("el paso no tiene notebook".into()))??;
+    let nb =
+        notebook.ok_or_else(|| CommandError::BadRequest("el paso no tiene notebook".into()))??;
     let ran = headless::run_loaded(ctx.state, &key, &c.run, notebook_policy(ctx), nb).await?;
     let limits = headless::preview_limits(ctx.state);
     let mut vars = vars.clone();
-    let stem = original.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "notebook".into());
+    let stem = original
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "notebook".into());
     vars.insert("notebook".into(), stem);
     let default_name = "{notebook}-{datetime}";
-    let beside = original.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let beside = original
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let mut done = StepDone::default();
-    let mut parts = vec![format!("{} ejecutadas", plural(ran.ran as u64, "celda", "celdas"))];
+    let mut parts = vec![format!(
+        "{} ejecutadas",
+        plural(ran.ran as u64, "celda", "celdas")
+    )];
 
     let mut copy_folder: Option<String> = None;
     let save_folder = match c.save.mode.as_str() {
@@ -530,9 +747,17 @@ async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Option<
         _ => None,
     };
     if let Some(folder) = save_folder {
-        let name = if c.save.file_name.trim().is_empty() { default_name } else { c.save.file_name.as_str() };
+        let name = if c.save.file_name.trim().is_empty() {
+            default_name
+        } else {
+            c.save.file_name.as_str()
+        };
         let path = out_path(&folder, name, "ipynb", &vars)?;
-        let same = std::fs::canonicalize(&original).ok().zip(std::fs::canonicalize(&path).ok()).is_some_and(|(a, b)| a == b) || path == original;
+        let same = std::fs::canonicalize(&original)
+            .ok()
+            .zip(std::fs::canonicalize(&path).ok())
+            .is_some_and(|(a, b)| a == b)
+            || path == original;
         if same {
             return Err(CommandError::BadRequest("la copia ejecutada tendría el mismo nombre que el notebook: cambiá el nombre del archivo (el original no se sobrescribe)".into()));
         }
@@ -545,8 +770,16 @@ async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Option<
     }
     let format = c.export.format.as_str();
     if format == "html" || format == "markdown" {
-        let folder = if !c.export.folder.trim().is_empty() { c.export.folder.clone() } else { copy_folder.unwrap_or(beside) };
-        let name = if c.export.file_name.trim().is_empty() { default_name } else { c.export.file_name.as_str() };
+        let folder = if !c.export.folder.trim().is_empty() {
+            c.export.folder.clone()
+        } else {
+            copy_folder.unwrap_or(beside)
+        };
+        let name = if c.export.file_name.trim().is_empty() {
+            default_name
+        } else {
+            c.export.file_name.as_str()
+        };
         let ext = if format == "html" { "html" } else { "md" };
         let path = out_path(&folder, name, ext, &vars)?;
         let images = export::CellImages::new();
@@ -568,7 +801,14 @@ async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Option<
         }
         return Err(CommandError::Sql(msg));
     }
-    done.summary = format!("Notebook {}: {}.", original.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), parts.join("; "));
+    done.summary = format!(
+        "Notebook {}: {}.",
+        original
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        parts.join("; ")
+    );
     Ok(done)
 }
 
@@ -583,7 +823,10 @@ mod tests {
         v.insert("task".into(), "ventas/día".into());
         v.insert("date".into(), "2026-10-08".into());
         let p = out_path(&dir.to_string_lossy(), "{task}_{date}", "csv", &v).unwrap();
-        assert_eq!(p.file_name().unwrap().to_string_lossy(), "ventas_día_2026-10-08.csv");
+        assert_eq!(
+            p.file_name().unwrap().to_string_lossy(),
+            "ventas_día_2026-10-08.csv"
+        );
         let p = out_path(&dir.to_string_lossy(), "reporte.CSV", "csv", &v).unwrap();
         assert_eq!(p.file_name().unwrap().to_string_lossy(), "reporte.CSV");
         assert!(out_path("", "x", "csv", &v).is_err());

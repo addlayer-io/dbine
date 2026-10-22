@@ -38,22 +38,39 @@ use std::collections::BTreeMap;
 pub(crate) fn has_locale_provider(v: Variant) -> bool {
     matches!(
         v,
-        Variant::Postgres | Variant::Timescale | Variant::AlloyDb | Variant::CloudSql | Variant::Aurora | Variant::Edb | Variant::Fujitsu
+        Variant::Postgres
+            | Variant::Timescale
+            | Variant::AlloyDb
+            | Variant::CloudSql
+            | Variant::Aurora
+            | Variant::Edb
+            | Variant::Fujitsu
     )
 }
 
 /// The variants with PostgreSQL's `CREATE DATABASE` (some clauses more or
 /// less).
 pub(crate) fn pg_like(v: Variant) -> bool {
-    has_locale_provider(v) || v.mpp() || matches!(v, Variant::Kingbase | Variant::Yugabyte | Variant::OpenGauss)
+    has_locale_provider(v)
+        || v.mpp()
+        || matches!(
+            v,
+            Variant::Kingbase | Variant::Yugabyte | Variant::OpenGauss
+        )
 }
 
 fn owner() -> Field {
-    Field::new("owner", "Dueño (owner)", FieldKind::Text).help("Vacío: el usuario con el que estás conectado.")
+    Field::new("owner", "Dueño (owner)", FieldKind::Text)
+        .help("Vacío: el usuario con el que estás conectado.")
 }
 
 fn connection_limit() -> Field {
-    Field::new("connection_limit", "Límite de conexiones", FieldKind::Number).help("Vacío o -1: sin límite.")
+    Field::new(
+        "connection_limit",
+        "Límite de conexiones",
+        FieldKind::Number,
+    )
+    .help("Vacío o -1: sin límite.")
 }
 
 pub(crate) fn fields(v: Variant) -> Vec<Field> {
@@ -73,7 +90,11 @@ pub(crate) fn fields(v: Variant) -> Vec<Field> {
                 Field::new(
                     "locale_provider",
                     "Proveedor de locale (locale provider)",
-                    FieldKind::Select(vec![("libc", "libc"), ("icu", "ICU"), ("builtin", "builtin (PostgreSQL 17+)")]),
+                    FieldKind::Select(vec![
+                        ("libc", "libc"),
+                        ("icu", "ICU"),
+                        ("builtin", "builtin (PostgreSQL 17+)"),
+                    ]),
                 )
                 .help("PostgreSQL 15 o posterior. Vacío: el de la plantilla."),
             );
@@ -82,7 +103,14 @@ pub(crate) fn fields(v: Variant) -> Vec<Field> {
             Field::new("lc_collate", "Intercalación (LC_COLLATE)", FieldKind::Text)
                 .help("Vacía: la de la plantilla. Define cómo se ordenan y comparan los textos."),
         );
-        out.push(Field::new("lc_ctype", "Clasificación de caracteres (LC_CTYPE)", FieldKind::Text).help("Vacía: la de la plantilla."));
+        out.push(
+            Field::new(
+                "lc_ctype",
+                "Clasificación de caracteres (LC_CTYPE)",
+                FieldKind::Text,
+            )
+            .help("Vacía: la de la plantilla."),
+        );
         if has_locale_provider(v) {
             out.push(
                 Field::new("icu_locale", "Locale ICU (ICU_LOCALE)", FieldKind::Text)
@@ -90,13 +118,19 @@ pub(crate) fn fields(v: Variant) -> Vec<Field> {
                     .when("locale_provider", &["icu"]),
             );
             out.push(
-                Field::new("builtin_locale", "Locale builtin (BUILTIN_LOCALE)", FieldKind::Text)
-                    .placeholder("C.UTF-8")
-                    .when("locale_provider", &["builtin"]),
+                Field::new(
+                    "builtin_locale",
+                    "Locale builtin (BUILTIN_LOCALE)",
+                    FieldKind::Text,
+                )
+                .placeholder("C.UTF-8")
+                .when("locale_provider", &["builtin"]),
             );
         }
         if v != Variant::Yugabyte {
-            out.push(Field::new("tablespace", "Tablespace", FieldKind::Text).help("Vacío: pg_default."));
+            out.push(
+                Field::new("tablespace", "Tablespace", FieldKind::Text).help("Vacío: pg_default."),
+            );
         }
         out.push(connection_limit());
         if v == Variant::OpenGauss {
@@ -104,17 +138,29 @@ pub(crate) fn fields(v: Variant) -> Vec<Field> {
                 Field::new(
                     "dbcompatibility",
                     "Compatibilidad (DBCOMPATIBILITY)",
-                    FieldKind::Select(vec![("A", "A (Oracle)"), ("B", "B (MySQL)"), ("C", "C (Teradata)"), ("PG", "PG (PostgreSQL)")]),
+                    FieldKind::Select(vec![
+                        ("A", "A (Oracle)"),
+                        ("B", "B (MySQL)"),
+                        ("C", "C (Teradata)"),
+                        ("PG", "PG (PostgreSQL)"),
+                    ]),
                 )
                 .help("El dialecto SQL de la base. No se puede cambiar después."),
             );
         } else {
-            out.push(Field::new("is_template", "Es plantilla (IS_TEMPLATE)", FieldKind::Bool).help("Cualquier usuario con CREATEDB puede copiarla."));
+            out.push(
+                Field::new("is_template", "Es plantilla (IS_TEMPLATE)", FieldKind::Bool)
+                    .help("Cualquier usuario con CREATEDB puede copiarla."),
+            );
         }
         if v == Variant::Yugabyte {
             out.push(
-                Field::new("colocation", "Colocación (COLOCATION)", FieldKind::Select(vec![("true", "Sí"), ("false", "No")]))
-                    .help("Sí: las tablas chicas comparten un tablet. Vacío: lo que diga el clúster."),
+                Field::new(
+                    "colocation",
+                    "Colocación (COLOCATION)",
+                    FieldKind::Select(vec![("true", "Sí"), ("false", "No")]),
+                )
+                .help("Sí: las tablas chicas comparten un tablet. Vacío: lo que diga el clúster."),
             );
         }
         return out;
@@ -122,46 +168,86 @@ pub(crate) fn fields(v: Variant) -> Vec<Field> {
     match v {
         Variant::Cockroach => vec![
             owner(),
-            Field::new("primary_region", "Región principal (PRIMARY REGION)", FieldKind::Text)
-                .help("La vuelve una base multirregión. Las regiones salen de SHOW REGIONS FROM CLUSTER."),
+            Field::new(
+                "primary_region",
+                "Región principal (PRIMARY REGION)",
+                FieldKind::Text,
+            )
+            .help(
+                "La vuelve una base multirregión. Las regiones salen de SHOW REGIONS FROM CLUSTER.",
+            ),
             Field::new("regions", "Regiones (REGIONS)", FieldKind::Text)
                 .placeholder("us-east1, us-west1")
                 .help("Separadas por comas. Necesitan la región principal."),
             Field::new(
                 "survive",
                 "Supervivencia (SURVIVE)",
-                FieldKind::Select(vec![("ZONE", "Falla de una zona (ZONE)"), ("REGION", "Falla de una región (REGION)")]),
+                FieldKind::Select(vec![
+                    ("ZONE", "Falla de una zona (ZONE)"),
+                    ("REGION", "Falla de una región (REGION)"),
+                ]),
             )
             .help("REGION necesita al menos 3 regiones."),
         ],
         Variant::Redshift => vec![
             owner(),
-            Field::new("connection_limit", "Límite de conexiones", FieldKind::Text).placeholder("UNLIMITED o un número"),
+            Field::new("connection_limit", "Límite de conexiones", FieldKind::Text)
+                .placeholder("UNLIMITED o un número"),
             Field::new(
                 "collate",
                 "Intercalación (COLLATE)",
-                FieldKind::Select(vec![("CASE_SENSITIVE", "Distingue mayúsculas (CASE_SENSITIVE)"), ("CASE_INSENSITIVE", "No distingue mayúsculas (CASE_INSENSITIVE)")]),
+                FieldKind::Select(vec![
+                    ("CASE_SENSITIVE", "Distingue mayúsculas (CASE_SENSITIVE)"),
+                    (
+                        "CASE_INSENSITIVE",
+                        "No distingue mayúsculas (CASE_INSENSITIVE)",
+                    ),
+                ]),
             ),
             Field::new(
                 "isolation",
                 "Nivel de aislamiento (ISOLATION LEVEL)",
-                FieldKind::Select(vec![("SERIALIZABLE", "SERIALIZABLE"), ("SNAPSHOT", "SNAPSHOT")]),
+                FieldKind::Select(vec![
+                    ("SERIALIZABLE", "SERIALIZABLE"),
+                    ("SNAPSHOT", "SNAPSHOT"),
+                ]),
             ),
         ],
         Variant::RisingWave => vec![
             owner(),
-            Field::new("resource_group", "Grupo de recursos (resource_group)", FieldKind::Text).help("Vacío: el grupo por defecto."),
-            Field::new("barrier_interval_ms", "Intervalo de barreras (ms)", FieldKind::Number)
-                .help("RisingWave 2.5 o posterior, con licencia. Vacío: el del sistema."),
-            Field::new("checkpoint_frequency", "Frecuencia de checkpoint (barreras)", FieldKind::Number)
-                .help("RisingWave 2.5 o posterior, con licencia. Vacía: la del sistema."),
+            Field::new(
+                "resource_group",
+                "Grupo de recursos (resource_group)",
+                FieldKind::Text,
+            )
+            .help("Vacío: el grupo por defecto."),
+            Field::new(
+                "barrier_interval_ms",
+                "Intervalo de barreras (ms)",
+                FieldKind::Number,
+            )
+            .help("RisingWave 2.5 o posterior, con licencia. Vacío: el del sistema."),
+            Field::new(
+                "checkpoint_frequency",
+                "Frecuencia de checkpoint (barreras)",
+                FieldKind::Number,
+            )
+            .help("RisingWave 2.5 o posterior, con licencia. Vacía: la del sistema."),
         ],
         Variant::Yellowbrick => vec![
             owner(),
-            Field::new("encoding", "Codificación (encoding)", FieldKind::Select(vec![("LATIN9", "LATIN9"), ("UTF8", "UTF8")]))
-                .help("Vacía: LATIN9."),
+            Field::new(
+                "encoding",
+                "Codificación (encoding)",
+                FieldKind::Select(vec![("LATIN9", "LATIN9"), ("UTF8", "UTF8")]),
+            )
+            .help("Vacía: LATIN9."),
             connection_limit(),
-            Field::new("hot_standby", "Destino de restauración o réplica (HOT_STANDBY)", FieldKind::Bool),
+            Field::new(
+                "hot_standby",
+                "Destino de restauración o réplica (HOT_STANDBY)",
+                FieldKind::Bool,
+            ),
         ],
         _ => Vec::new(),
     }
@@ -186,12 +272,16 @@ pub(crate) fn name_ok(v: &str) -> bool {
 
 /// `UTF8`, `LATIN1`, `EUC_JP`, `WIN1252`.
 fn encoding_ok(v: &str) -> bool {
-    v.len() <= 32 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    v.len() <= 32
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// `en_US.UTF-8`, `C`, `es-AR-x-icu`, `de@collation=phonebook`, `English_United States.1252`.
 fn locale_ok(v: &str) -> bool {
-    v.len() <= 128 && v.chars().all(|c| c.is_ascii_alphanumeric() || " _.-@=;".contains(c))
+    v.len() <= 128
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || " _.-@=;".contains(c))
 }
 
 pub(crate) fn int(v: &str, min: i64) -> Option<i64> {
@@ -222,11 +312,18 @@ fn pg_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>> {
     }
     if has_locale_provider(v) {
         if let Some(x) = opt(o, "locale_provider") {
-            check(matches!(x, "libc" | "icu" | "builtin"), "proveedor de locale", x)?;
+            check(
+                matches!(x, "libc" | "icu" | "builtin"),
+                "proveedor de locale",
+                x,
+            )?;
             out.push(format!("LOCALE_PROVIDER = {x}"));
         }
     }
-    for (key, clause, what) in [("lc_collate", "LC_COLLATE", "intercalación"), ("lc_ctype", "LC_CTYPE", "clasificación de caracteres")] {
+    for (key, clause, what) in [
+        ("lc_collate", "LC_COLLATE", "intercalación"),
+        ("lc_ctype", "LC_CTYPE", "clasificación de caracteres"),
+    ] {
         if let Some(x) = opt(o, key) {
             check(locale_ok(x), what, x)?;
             out.push(format!("{clause} = {}", lit(v, x)));
@@ -235,7 +332,15 @@ fn pg_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>> {
     if has_locale_provider(v) {
         // Each only with its provider (the form hides it otherwise).
         let provider = opt(o, "locale_provider");
-        for (key, clause, p, what) in [("icu_locale", "ICU_LOCALE", "icu", "locale ICU"), ("builtin_locale", "BUILTIN_LOCALE", "builtin", "locale builtin")] {
+        for (key, clause, p, what) in [
+            ("icu_locale", "ICU_LOCALE", "icu", "locale ICU"),
+            (
+                "builtin_locale",
+                "BUILTIN_LOCALE",
+                "builtin",
+                "locale builtin",
+            ),
+        ] {
             if let Some(x) = opt(o, key).filter(|_| provider == Some(p)) {
                 check(locale_ok(x), what, x)?;
                 out.push(format!("{clause} = {}", lit(v, x)));
@@ -248,7 +353,11 @@ fn pg_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>> {
         }
     }
     if let Some(x) = opt(o, "connection_limit") {
-        let n = int(x, -1).ok_or_else(|| Error::Query(format!("límite de conexiones: «{x}» no es un número (-1 o más)")))?;
+        let n = int(x, -1).ok_or_else(|| {
+            Error::Query(format!(
+                "límite de conexiones: «{x}» no es un número (-1 o más)"
+            ))
+        })?;
         out.push(format!("CONNECTION LIMIT {n}"));
     }
     if v == Variant::OpenGauss {
@@ -276,7 +385,14 @@ fn other_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>
             // CockroachDB's grammar wants them in this order: regions,
             // survival goal, owner.
             let primary = opt(o, "primary_region");
-            let regions: Vec<&str> = opt(o, "regions").map(|r| r.split(',').map(str::trim).filter(|r| !r.is_empty()).collect()).unwrap_or_default();
+            let regions: Vec<&str> = opt(o, "regions")
+                .map(|r| {
+                    r.split(',')
+                        .map(str::trim)
+                        .filter(|r| !r.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
             let survive = opt(o, "survive");
             if primary.is_none() && (!regions.is_empty() || survive.is_some()) {
                 return Err(Error::Query("las regiones y la supervivencia necesitan una región principal (PRIMARY REGION)".into()));
@@ -285,7 +401,10 @@ fn other_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>
                 out.push(format!("PRIMARY REGION {}", ident("región principal", p)?));
             }
             if !regions.is_empty() {
-                let list = regions.iter().map(|r| ident("región", r)).collect::<Result<Vec<_>>>()?;
+                let list = regions
+                    .iter()
+                    .map(|r| ident("región", r))
+                    .collect::<Result<Vec<_>>>()?;
                 out.push(format!("REGIONS {}", list.join(", ")));
             }
             if let Some(s) = survive {
@@ -304,16 +423,30 @@ fn other_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>
                 let n = if x.eq_ignore_ascii_case("UNLIMITED") {
                     "UNLIMITED".to_string()
                 } else {
-                    int(x, 0).ok_or_else(|| Error::Query(format!("límite de conexiones: «{x}» no es un número ni UNLIMITED")))?.to_string()
+                    int(x, 0)
+                        .ok_or_else(|| {
+                            Error::Query(format!(
+                                "límite de conexiones: «{x}» no es un número ni UNLIMITED"
+                            ))
+                        })?
+                        .to_string()
                 };
                 out.push(format!("CONNECTION LIMIT {n}"));
             }
             if let Some(x) = opt(o, "collate") {
-                check(matches!(x, "CASE_SENSITIVE" | "CASE_INSENSITIVE"), "intercalación", x)?;
+                check(
+                    matches!(x, "CASE_SENSITIVE" | "CASE_INSENSITIVE"),
+                    "intercalación",
+                    x,
+                )?;
                 out.push(format!("COLLATE {x}"));
             }
             if let Some(x) = opt(o, "isolation") {
-                check(matches!(x, "SERIALIZABLE" | "SNAPSHOT"), "nivel de aislamiento", x)?;
+                check(
+                    matches!(x, "SERIALIZABLE" | "SNAPSHOT"),
+                    "nivel de aislamiento",
+                    x,
+                )?;
                 out.push(format!("ISOLATION LEVEL {x}"));
             }
         }
@@ -326,9 +459,14 @@ fn other_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>
                 // A string, not an identifier.
                 out.push(format!("resource_group = {}", lit(v, x)));
             }
-            for (key, what) in [("barrier_interval_ms", "intervalo de barreras"), ("checkpoint_frequency", "frecuencia de checkpoint")] {
+            for (key, what) in [
+                ("barrier_interval_ms", "intervalo de barreras"),
+                ("checkpoint_frequency", "frecuencia de checkpoint"),
+            ] {
                 if let Some(x) = opt(o, key) {
-                    let n = int(x, 1).ok_or_else(|| Error::Query(format!("{what}: «{x}» no es un número positivo")))?;
+                    let n = int(x, 1).ok_or_else(|| {
+                        Error::Query(format!("{what}: «{x}» no es un número positivo"))
+                    })?;
                     out.push(format!("{key} = {n}"));
                 }
             }
@@ -342,7 +480,11 @@ fn other_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>
                 out.push(format!("ENCODING = {x}"));
             }
             if let Some(x) = opt(o, "connection_limit") {
-                let n = int(x, -1).ok_or_else(|| Error::Query(format!("límite de conexiones: «{x}» no es un número (-1 o más)")))?;
+                let n = int(x, -1).ok_or_else(|| {
+                    Error::Query(format!(
+                        "límite de conexiones: «{x}» no es un número (-1 o más)"
+                    ))
+                })?;
                 out.push(format!("CONNECTION LIMIT {n}"));
             }
             if yes(o, "hot_standby") {
@@ -359,7 +501,9 @@ fn other_clauses(v: Variant, o: &BTreeMap<String, String>) -> Result<Vec<String>
 pub(crate) fn unsupported(v: Variant) -> Option<&'static str> {
     match v {
         Variant::Denodo => Some("las bases de Denodo se crean desde Denodo"),
-        Variant::CrateDb => Some("CrateDB tiene una sola base por clúster: se organizan en esquemas"),
+        Variant::CrateDb => {
+            Some("CrateDB tiene una sola base por clúster: se organizan en esquemas")
+        }
         Variant::H2 => Some("H2 crea la base al conectarse a un nombre nuevo (con -ifNotExists)"),
         _ => None,
     }
@@ -368,16 +512,27 @@ pub(crate) fn unsupported(v: Variant) -> Option<&'static str> {
 /// The statements that create `name`. Today a single `CREATE DATABASE`
 /// on every variant; kept a list so a follow-up step reports which one
 /// failed after the create.
-pub(crate) fn statements(v: Variant, name: &str, o: &BTreeMap<String, String>) -> Result<Vec<String>> {
+pub(crate) fn statements(
+    v: Variant,
+    name: &str,
+    o: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
     if let Some(why) = unsupported(v) {
         return Err(Error::Unsupported(why.into()));
     }
     let db = quote_ident(Quote::Double, name);
-    let clauses = if pg_like(v) { pg_clauses(v, o)? } else { other_clauses(v, o)? };
+    let clauses = if pg_like(v) {
+        pg_clauses(v, o)?
+    } else {
+        other_clauses(v, o)?
+    };
     if clauses.is_empty() {
         return Ok(vec![format!("CREATE DATABASE {db}")]);
     }
-    Ok(vec![format!("CREATE DATABASE {db}\n    WITH {}", clauses.join("\n    "))])
+    Ok(vec![format!(
+        "CREATE DATABASE {db}\n    WITH {}",
+        clauses.join("\n    ")
+    )])
 }
 
 /// What "Ver script" shows.
@@ -392,7 +547,11 @@ pub(crate) fn check_version(v: Variant, version: i32, o: &BTreeMap<String, Strin
     if !pg_like(v) || version <= 0 {
         return Ok(());
     }
-    let need = |clause: &str, pg: &str| Err(Error::Query(format!("{clause} necesita PostgreSQL {pg} o posterior en el servidor")));
+    let need = |clause: &str, pg: &str| {
+        Err(Error::Query(format!(
+            "{clause} necesita PostgreSQL {pg} o posterior en el servidor"
+        )))
+    };
     if has_locale_provider(v) && version < 150000 && opt(o, "locale_provider").is_some() {
         return need("LOCALE_PROVIDER", "15");
     }
@@ -408,7 +567,14 @@ pub(crate) fn check_version(v: Variant, version: i32, o: &BTreeMap<String, Strin
 impl PgSession {
     /// All the cells of the first column.
     async fn column(&self, sql: &str) -> Vec<String> {
-        self.text(sql).await.map(|rows| rows.iter().filter_map(|r| r.get(0).map(str::to_string)).collect()).unwrap_or_default()
+        self.text(sql)
+            .await
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| r.get(0).map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     async fn one(&self, sql: &str) -> Option<String> {
@@ -433,35 +599,75 @@ impl PgSession {
         };
         let roles = self.column(roles_sql).await;
         let me = self.one("SELECT current_user").await;
-        out.push(FieldChoices { key: "owner".into(), default: me, values: roles });
+        out.push(FieldChoices {
+            key: "owner".into(),
+            default: me,
+            values: roles,
+        });
 
         if v == Variant::Cockroach {
-            let regions = self.column("SELECT region FROM [SHOW REGIONS FROM CLUSTER] ORDER BY 1").await;
-            out.push(FieldChoices { key: "primary_region".into(), default: None, values: regions.clone() });
-            out.push(FieldChoices { key: "regions".into(), default: None, values: regions });
+            let regions = self
+                .column("SELECT region FROM [SHOW REGIONS FROM CLUSTER] ORDER BY 1")
+                .await;
+            out.push(FieldChoices {
+                key: "primary_region".into(),
+                default: None,
+                values: regions.clone(),
+            });
+            out.push(FieldChoices {
+                key: "regions".into(),
+                default: None,
+                values: regions,
+            });
             return Ok(out);
         }
         if v == Variant::Redshift {
-            out.push(FieldChoices { key: "connection_limit".into(), default: Some("UNLIMITED".into()), values: vec!["UNLIMITED".into()] });
-            out.push(FieldChoices { key: "collate".into(), default: Some("CASE_SENSITIVE".into()), values: Vec::new() });
+            out.push(FieldChoices {
+                key: "connection_limit".into(),
+                default: Some("UNLIMITED".into()),
+                values: vec!["UNLIMITED".into()],
+            });
+            out.push(FieldChoices {
+                key: "collate".into(),
+                default: Some("CASE_SENSITIVE".into()),
+                values: Vec::new(),
+            });
             return Ok(out);
         }
         if v == Variant::RisingWave {
-            let groups = self.column("SELECT name FROM rw_catalog.rw_resource_groups ORDER BY 1").await;
-            out.push(FieldChoices { key: "resource_group".into(), default: None, values: groups });
+            let groups = self
+                .column("SELECT name FROM rw_catalog.rw_resource_groups ORDER BY 1")
+                .await;
+            out.push(FieldChoices {
+                key: "resource_group".into(),
+                default: None,
+                values: groups,
+            });
             return Ok(out);
         }
         if !pg_like(v) {
             return Ok(out);
         }
 
-        let template = if v == Variant::OpenGauss { "template0" } else { "template1" };
+        let template = if v == Variant::OpenGauss {
+            "template0"
+        } else {
+            "template1"
+        };
         let templates = self.column("SELECT datname FROM pg_database WHERE datistemplate OR datallowconn ORDER BY NOT datistemplate, datname").await;
-        out.push(FieldChoices { key: "template".into(), default: Some(template.into()), values: templates });
+        out.push(FieldChoices {
+            key: "template".into(),
+            default: Some(template.into()),
+            values: templates,
+        });
 
         // The template's settings are what an empty field gets.
         let ver = self.version;
-        let provider = if has_locale_provider(v) && ver >= 150000 { "d.datlocprovider::text" } else { "NULL" };
+        let provider = if has_locale_provider(v) && ver >= 150000 {
+            "d.datlocprovider::text"
+        } else {
+            "NULL"
+        };
         let icu = if !has_locale_provider(v) || ver < 150000 {
             "NULL"
         } else if ver >= 170000 {
@@ -469,7 +675,11 @@ impl PgSession {
         } else {
             "d.daticulocale"
         };
-        let compat = if v == Variant::OpenGauss { "d.datcompatibility::text" } else { "NULL" };
+        let compat = if v == Variant::OpenGauss {
+            "d.datcompatibility::text"
+        } else {
+            "NULL"
+        };
         let row = self
             .text(&format!(
                 "SELECT pg_encoding_to_char(d.encoding) AS enc, d.datcollate::text AS coll, d.datctype::text AS ctype, \
@@ -496,14 +706,34 @@ impl PgSession {
                  WHERE COALESCE(length(e), 0) > 0 AND e NOT IN ({client_only}) ORDER BY e"
             ))
             .await;
-        out.push(FieldChoices { key: "encoding".into(), default: get("enc"), values: encodings });
+        out.push(FieldChoices {
+            key: "encoding".into(),
+            default: get("enc"),
+            values: encodings,
+        });
 
         // libc locales; before PostgreSQL 10 every collation is one.
-        let libc = if ver >= 100000 && v != Variant::OpenGauss { "WHERE collprovider = 'c'" } else { "" };
-        let locales = self.column(&format!("SELECT DISTINCT collcollate::text FROM pg_collation {libc} ORDER BY 1")).await;
+        let libc = if ver >= 100000 && v != Variant::OpenGauss {
+            "WHERE collprovider = 'c'"
+        } else {
+            ""
+        };
+        let locales = self
+            .column(&format!(
+                "SELECT DISTINCT collcollate::text FROM pg_collation {libc} ORDER BY 1"
+            ))
+            .await;
         let locales: Vec<String> = locales.into_iter().filter(|l| !l.is_empty()).collect();
-        out.push(FieldChoices { key: "lc_collate".into(), default: get("coll"), values: locales.clone() });
-        out.push(FieldChoices { key: "lc_ctype".into(), default: get("ctype"), values: locales });
+        out.push(FieldChoices {
+            key: "lc_collate".into(),
+            default: get("coll"),
+            values: locales.clone(),
+        });
+        out.push(FieldChoices {
+            key: "lc_ctype".into(),
+            default: get("ctype"),
+            values: locales,
+        });
 
         if has_locale_provider(v) && ver >= 150000 {
             let provider = get("prov").map(|p| match p.as_str() {
@@ -511,22 +741,52 @@ impl PgSession {
                 "b" => "builtin".to_string(),
                 _ => "libc".to_string(),
             });
-            out.push(FieldChoices { key: "locale_provider".into(), default: provider, values: Vec::new() });
-            let col = if ver >= 170000 { "colllocale" } else { "colliculocale" };
+            out.push(FieldChoices {
+                key: "locale_provider".into(),
+                default: provider,
+                values: Vec::new(),
+            });
+            let col = if ver >= 170000 {
+                "colllocale"
+            } else {
+                "colliculocale"
+            };
             let icu = self.column(&format!("SELECT DISTINCT {col}::text FROM pg_collation WHERE collprovider = 'i' AND {col} IS NOT NULL ORDER BY 1")).await;
-            out.push(FieldChoices { key: "icu_locale".into(), default: get("icu"), values: icu });
+            out.push(FieldChoices {
+                key: "icu_locale".into(),
+                default: get("icu"),
+                values: icu,
+            });
             if ver >= 170000 {
                 let builtin = self.column("SELECT DISTINCT colllocale::text FROM pg_collation WHERE collprovider = 'b' ORDER BY 1").await;
-                out.push(FieldChoices { key: "builtin_locale".into(), default: None, values: builtin });
+                out.push(FieldChoices {
+                    key: "builtin_locale".into(),
+                    default: None,
+                    values: builtin,
+                });
             }
         }
         if v != Variant::Yugabyte {
-            let spaces = self.column("SELECT spcname FROM pg_tablespace WHERE spcname <> 'pg_global' ORDER BY 1").await;
-            out.push(FieldChoices { key: "tablespace".into(), default: get("spc"), values: spaces });
+            let spaces = self
+                .column("SELECT spcname FROM pg_tablespace WHERE spcname <> 'pg_global' ORDER BY 1")
+                .await;
+            out.push(FieldChoices {
+                key: "tablespace".into(),
+                default: get("spc"),
+                values: spaces,
+            });
         }
-        out.push(FieldChoices { key: "connection_limit".into(), default: get("lim").or(Some("-1".into())), values: Vec::new() });
+        out.push(FieldChoices {
+            key: "connection_limit".into(),
+            default: get("lim").or(Some("-1".into())),
+            values: Vec::new(),
+        });
         if v == Variant::OpenGauss {
-            out.push(FieldChoices { key: "dbcompatibility".into(), default: get("compat"), values: Vec::new() });
+            out.push(FieldChoices {
+                key: "dbcompatibility".into(),
+                default: get("compat"),
+                values: Vec::new(),
+            });
         }
         Ok(out)
     }
@@ -534,7 +794,11 @@ impl PgSession {
     /// Run the statements one by one over the simple protocol: a failure
     /// after the create says the database exists but that step didn't
     /// apply.
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if o.values().all(|v| v.trim().is_empty()) {
             return dbine_driver::Session::create_database(self, name).await;
         }
@@ -545,7 +809,9 @@ impl PgSession {
                 return Err(if i == 0 {
                     e
                 } else {
-                    Error::Query(format!("la base «{name}» se creó, pero falló este paso: {sql}\n{e}"))
+                    Error::Query(format!(
+                        "la base «{name}» se creó, pero falló este paso: {sql}\n{e}"
+                    ))
                 });
             }
         }
@@ -557,7 +823,8 @@ impl PgSession {
 /// regions apart from the rest.
 pub(crate) fn grouped(f: Field) -> Field {
     let g = match f.key {
-        "encoding" | "locale_provider" | "lc_collate" | "lc_ctype" | "icu_locale" | "builtin_locale" | "collation" => "Idioma y codificación",
+        "encoding" | "locale_provider" | "lc_collate" | "lc_ctype" | "icu_locale"
+        | "builtin_locale" | "collation" => "Idioma y codificación",
         "primary_region" | "regions" | "survive" => "Regiones",
         _ => "General",
     };
@@ -569,7 +836,10 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -579,12 +849,27 @@ mod tests {
                 assert!(script(v, "ventas", &o(&[])).is_err(), "{v:?}");
                 continue;
             }
-            assert_eq!(script(v, "ventas", &o(&[])).unwrap(), "CREATE DATABASE \"ventas\"", "{v:?}");
+            assert_eq!(
+                script(v, "ventas", &o(&[])).unwrap(),
+                "CREATE DATABASE \"ventas\"",
+                "{v:?}"
+            );
             // Blank values and an unchecked box are no option at all.
-            assert_eq!(script(v, "ven\"tas", &o(&[("owner", " "), ("is_template", ""), ("hot_standby", "")])).unwrap(), "CREATE DATABASE \"ven\"\"tas\"");
+            assert_eq!(
+                script(
+                    v,
+                    "ven\"tas",
+                    &o(&[("owner", " "), ("is_template", ""), ("hot_standby", "")])
+                )
+                .unwrap(),
+                "CREATE DATABASE \"ven\"\"tas\""
+            );
         }
         // Materialize has no clauses: whatever comes is ignored.
-        assert_eq!(script(Variant::Materialize, "v", &o(&[("owner", "x")])).unwrap(), "CREATE DATABASE \"v\"");
+        assert_eq!(
+            script(Variant::Materialize, "v", &o(&[("owner", "x")])).unwrap(),
+            "CREATE DATABASE \"v\""
+        );
     }
 
     #[test]
@@ -621,21 +906,59 @@ mod tests {
     CONNECTION LIMIT 20
     IS_TEMPLATE = true"
         );
-        let b = script(Variant::Postgres, "v", &o(&[("locale_provider", "builtin"), ("builtin_locale", "C.UTF-8")])).unwrap();
+        let b = script(
+            Variant::Postgres,
+            "v",
+            &o(&[
+                ("locale_provider", "builtin"),
+                ("builtin_locale", "C.UTF-8"),
+            ]),
+        )
+        .unwrap();
         assert_eq!(b, "CREATE DATABASE \"v\"\n    WITH LOCALE_PROVIDER = builtin\n    BUILTIN_LOCALE = E'C.UTF-8'");
     }
 
     #[test]
     fn variant_quirks() {
-        let yb = script(Variant::Yugabyte, "v", &o(&[("colocation", "true"), ("tablespace", "t"), ("locale_provider", "icu")])).unwrap();
+        let yb = script(
+            Variant::Yugabyte,
+            "v",
+            &o(&[
+                ("colocation", "true"),
+                ("tablespace", "t"),
+                ("locale_provider", "icu"),
+            ]),
+        )
+        .unwrap();
         assert_eq!(yb, "CREATE DATABASE \"v\"\n    WITH COLOCATION = true");
-        let og = script(Variant::OpenGauss, "v", &o(&[("dbcompatibility", "B"), ("is_template", "true"), ("encoding", "GBK")])).unwrap();
-        assert_eq!(og, "CREATE DATABASE \"v\"\n    WITH ENCODING = E'GBK'\n    DBCOMPATIBILITY = 'B'");
+        let og = script(
+            Variant::OpenGauss,
+            "v",
+            &o(&[
+                ("dbcompatibility", "B"),
+                ("is_template", "true"),
+                ("encoding", "GBK"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            og,
+            "CREATE DATABASE \"v\"\n    WITH ENCODING = E'GBK'\n    DBCOMPATIBILITY = 'B'"
+        );
         // Greenplum: no locale provider.
-        let gp = script(Variant::Greenplum, "v", &o(&[("locale_provider", "icu"), ("lc_collate", "C")])).unwrap();
+        let gp = script(
+            Variant::Greenplum,
+            "v",
+            &o(&[("locale_provider", "icu"), ("lc_collate", "C")]),
+        )
+        .unwrap();
         assert_eq!(gp, "CREATE DATABASE \"v\"\n    WITH LC_COLLATE = E'C'");
-        assert!(!fields(Variant::Greenplum).iter().any(|f| f.key == "locale_provider"));
-        assert!(fields(Variant::Aurora).iter().any(|f| f.key == "locale_provider"));
+        assert!(!fields(Variant::Greenplum)
+            .iter()
+            .any(|f| f.key == "locale_provider"));
+        assert!(fields(Variant::Aurora)
+            .iter()
+            .any(|f| f.key == "locale_provider"));
         assert!(fields(Variant::Materialize).is_empty() && fields(Variant::H2).is_empty());
     }
 
@@ -644,14 +967,22 @@ mod tests {
         let s = script(
             Variant::Cockroach,
             "v",
-            &o(&[("owner", "root"), ("primary_region", "us-east1"), ("regions", "us-east1, us-west1,,eu-west1"), ("survive", "REGION")]),
+            &o(&[
+                ("owner", "root"),
+                ("primary_region", "us-east1"),
+                ("regions", "us-east1, us-west1,,eu-west1"),
+                ("survive", "REGION"),
+            ]),
         )
         .unwrap();
         assert_eq!(
             s,
             "CREATE DATABASE \"v\"\n    WITH PRIMARY REGION \"us-east1\"\n    REGIONS \"us-east1\", \"us-west1\", \"eu-west1\"\n    SURVIVE REGION FAILURE\n    OWNER = \"root\""
         );
-        assert!(script(Variant::Cockroach, "v", &o(&[("survive", "ZONE")])).is_err(), "survival needs a primary region");
+        assert!(
+            script(Variant::Cockroach, "v", &o(&[("survive", "ZONE")])).is_err(),
+            "survival needs a primary region"
+        );
     }
 
     #[test]
@@ -680,17 +1011,32 @@ mod tests {
             ("connection_limit", "10 OR 1"),
             ("owner", "a\nb"),
         ] {
-            assert!(script(Variant::Postgres, "v", &o(&[bad])).is_err(), "{bad:?}");
+            assert!(
+                script(Variant::Postgres, "v", &o(&[bad])).is_err(),
+                "{bad:?}"
+            );
         }
         assert!(script(Variant::OpenGauss, "v", &o(&[("dbcompatibility", "MYSQL")])).is_err());
         assert!(script(Variant::Yugabyte, "v", &o(&[("colocation", "yes")])).is_err());
-        assert!(script(Variant::Cockroach, "v", &o(&[("primary_region", "r"), ("survive", "NODE")])).is_err());
+        assert!(script(
+            Variant::Cockroach,
+            "v",
+            &o(&[("primary_region", "r"), ("survive", "NODE")])
+        )
+        .is_err());
         assert!(script(Variant::Redshift, "v", &o(&[("collate", "CI; x")])).is_err());
         assert!(script(Variant::Redshift, "v", &o(&[("connection_limit", "-1")])).is_err());
-        assert!(script(Variant::RisingWave, "v", &o(&[("barrier_interval_ms", "0")])).is_err());
+        assert!(script(
+            Variant::RisingWave,
+            "v",
+            &o(&[("barrier_interval_ms", "0")])
+        )
+        .is_err());
         assert!(script(Variant::Yellowbrick, "v", &o(&[("encoding", "LATIN1")])).is_err());
         // Quotes inside names are doubled, not rejected.
-        assert!(script(Variant::Postgres, "v", &o(&[("owner", "o\"k")])).unwrap().contains("OWNER = \"o\"\"k\""));
+        assert!(script(Variant::Postgres, "v", &o(&[("owner", "o\"k")]))
+            .unwrap()
+            .contains("OWNER = \"o\"\"k\""));
     }
 
     #[test]
@@ -698,9 +1044,17 @@ mod tests {
         let icu = o(&[("locale_provider", "icu"), ("icu_locale", "es")]);
         assert!(check_version(Variant::Postgres, 140000, &icu).is_err());
         assert!(check_version(Variant::Postgres, 150000, &icu).is_ok());
-        assert!(check_version(Variant::Postgres, 160000, &o(&[("locale_provider", "builtin")])).is_err());
+        assert!(check_version(
+            Variant::Postgres,
+            160000,
+            &o(&[("locale_provider", "builtin")])
+        )
+        .is_err());
         assert!(check_version(Variant::Greenplum, 90400, &o(&[("is_template", "true")])).is_err());
         assert!(check_version(Variant::Greenplum, 120000, &o(&[("is_template", "true")])).is_ok());
-        assert!(check_version(Variant::Postgres, 0, &icu).is_ok(), "unknown version: let the server say");
+        assert!(
+            check_version(Variant::Postgres, 0, &icu).is_ok(),
+            "unknown version: let the server say"
+        );
     }
 }

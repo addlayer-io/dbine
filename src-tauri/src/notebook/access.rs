@@ -81,11 +81,32 @@ pub const SYSTEM_DIRS: &[&str] = &[];
 
 /// Windows' own folders under `%APPDATA%` / `%LOCALAPPDATA%` (they may be
 /// redirected away from the home folder).
-const ROAMING_DIRS: &[&str] = &["Microsoft/Credentials", "Microsoft/Protect", "Microsoft/Crypto", "Mozilla", "postgresql"];
-const LOCAL_DIRS: &[&str] = &["Microsoft/Credentials", "Microsoft/Vault", "Google/Chrome/User Data", "Microsoft/Edge/User Data", "BraveSoftware"];
+const ROAMING_DIRS: &[&str] = &[
+    "Microsoft/Credentials",
+    "Microsoft/Protect",
+    "Microsoft/Crypto",
+    "Mozilla",
+    "postgresql",
+];
+const LOCAL_DIRS: &[&str] = &[
+    "Microsoft/Credentials",
+    "Microsoft/Vault",
+    "Google/Chrome/User Data",
+    "Microsoft/Edge/User Data",
+    "BraveSoftware",
+];
 
 /// Credential files blocked wherever they are (lowercase).
-pub const CREDENTIAL_NAMES: &[&str] = &[".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".pgpass", "pgpass.conf", ".my.cnf"];
+pub const CREDENTIAL_NAMES: &[&str] = &[
+    ".netrc",
+    "_netrc",
+    ".npmrc",
+    ".pypirc",
+    ".git-credentials",
+    ".pgpass",
+    "pgpass.conf",
+    ".my.cnf",
+];
 
 /// A file directly in the home folder that is shell history or an rc file:
 /// `.*_history`, `.zsh*`, `.bash*`, `.profile`…
@@ -94,7 +115,16 @@ fn home_file_blocked(name: &str) -> bool {
     (n.starts_with('.') && n.ends_with("_history"))
         || n.starts_with(".zsh")
         || n.starts_with(".bash")
-        || matches!(n.as_str(), ".profile" | ".zprofile" | ".zlogin" | ".zlogout" | ".history" | ".lesshst" | ".viminfo")
+        || matches!(
+            n.as_str(),
+            ".profile"
+                | ".zprofile"
+                | ".zlogin"
+                | ".zlogout"
+                | ".history"
+                | ".lesshst"
+                | ".viminfo"
+        )
 }
 
 /// `.env` or `.env.*` (lowercase).
@@ -119,7 +149,9 @@ pub struct Policy {
 /// Lowercase components, to compare paths ignoring case (macOS and
 /// Windows file systems are case-insensitive: `~/.SSH` is `~/.ssh`).
 fn parts(p: &Path) -> Vec<String> {
-    p.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).collect()
+    p.components()
+        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        .collect()
 }
 
 fn under(path: &[String], dir: &[String]) -> bool {
@@ -133,7 +165,10 @@ impl Policy {
         let home = super::files::home_dir();
         let mut extra: Vec<(PathBuf, String)> = Vec::new();
         for (var, list) in [("APPDATA", ROAMING_DIRS), ("LOCALAPPDATA", LOCAL_DIRS)] {
-            if let Some(base) = std::env::var_os(var).map(PathBuf::from).filter(|p| p.is_absolute()) {
+            if let Some(base) = std::env::var_os(var)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+            {
                 for d in list {
                     let p = base.join(d);
                     extra.push((p.clone(), format!("%{var}%\\{}", d.replace('/', "\\"))));
@@ -145,7 +180,12 @@ impl Policy {
 
     /// The rules for `home` (none: only the system's and DBine's folders),
     /// `app_dirs`, `system` folders and `extra` ones.
-    pub fn new(home: Option<&Path>, app_dirs: &[PathBuf], system: &[&str], extra: Vec<(PathBuf, String)>) -> Self {
+    pub fn new(
+        home: Option<&Path>,
+        app_dirs: &[PathBuf],
+        system: &[&str],
+        extra: Vec<(PathBuf, String)>,
+    ) -> Self {
         let mut dirs: Vec<(PathBuf, String)> = Vec::new();
         let mut add = |p: PathBuf, label: String| {
             if let Ok(c) = std::fs::canonicalize(&p) {
@@ -156,7 +196,11 @@ impl Policy {
             }
             dirs.push((p, label));
         };
-        let home_canon = home.map(|h| std::fs::canonicalize(h).map(super::files::plain_path).unwrap_or_else(|_| h.to_path_buf()));
+        let home_canon = home.map(|h| {
+            std::fs::canonicalize(h)
+                .map(super::files::plain_path)
+                .unwrap_or_else(|_| h.to_path_buf())
+        });
         if let Some(h) = home {
             for d in HOME_DIRS {
                 add(h.join(d), format!("~/{d}"));
@@ -177,7 +221,9 @@ impl Policy {
             if let Ok(rd) = std::fs::read_dir(h) {
                 for e in rd.flatten() {
                     let name = e.file_name().to_string_lossy().to_string();
-                    let blocked = home_file_blocked(&name) || env_file(&name) || CREDENTIAL_NAMES.contains(&name.to_lowercase().as_str());
+                    let blocked = home_file_blocked(&name)
+                        || env_file(&name)
+                        || CREDENTIAL_NAMES.contains(&name.to_lowercase().as_str());
                     if blocked && e.file_type().is_ok_and(|t| t.is_symlink()) {
                         if let Ok(c) = std::fs::canonicalize(e.path()) {
                             linked.push((super::files::plain_path(c), format!("~/{name}")));
@@ -186,13 +232,20 @@ impl Policy {
                 }
             }
         }
-        Self { dirs, home: home_canon, linked }
+        Self {
+            dirs,
+            home: home_canon,
+            linked,
+        }
     }
 
     /// Why no notebook may read `path` (canonical): the rule, as the
     /// message names it (`~/.ssh`, `.env`). `None`: not blocked.
     pub fn blocked(&self, path: &Path) -> Option<String> {
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         if env_file(&name) {
             return Some(".env".into());
         }
@@ -209,7 +262,10 @@ impl Policy {
                 return Some(format!("~/{name}"));
             }
         }
-        self.linked.iter().find(|(l, _)| parts(l) == p).map(|(_, label)| label.clone())
+        self.linked
+            .iter()
+            .find(|(l, _)| parts(l) == p)
+            .map(|(_, label)| label.clone())
     }
 }
 
@@ -251,9 +307,11 @@ impl Access<'_> {
                 g.target == path
                     || g.pattern
                         && if remote {
-                            super::remote::scheme_of(&g.target).is_some() && super::remote::url_pattern_matches(&g.target, path)
+                            super::remote::scheme_of(&g.target).is_some()
+                                && super::remote::url_pattern_matches(&g.target, path)
                         } else {
-                            super::remote::scheme_of(&g.target).is_none() && pattern_matches(&g.target, path)
+                            super::remote::scheme_of(&g.target).is_none()
+                                && pattern_matches(&g.target, path)
                         }
             })
     }
@@ -269,7 +327,11 @@ impl Access<'_> {
             .iter()
             .flat_map(|f| f.all())
             .filter(|f| f.host.is_none())
-            .filter_map(|f| self.policy.blocked(Path::new(&f.path)).map(|why| format!("«{}» ({why})", f.path)))
+            .filter_map(|f| {
+                self.policy
+                    .blocked(Path::new(&f.path))
+                    .map(|why| format!("«{}» ({why})", f.path))
+            })
             .collect();
         if !blocked.is_empty() {
             return Err(Gate::Blocked(format!(
@@ -277,7 +339,11 @@ impl Access<'_> {
                 blocked.join(", ")
             )));
         }
-        let pending: Vec<DataFile> = files.iter().filter(|f| !f.all().all(|x| self.granted(&x.path))).cloned().collect();
+        let pending: Vec<DataFile> = files
+            .iter()
+            .filter(|f| !f.all().all(|x| self.granted(&x.path)))
+            .cloned()
+            .collect();
         if pending.is_empty() {
             Ok(files.to_vec())
         } else {
@@ -321,17 +387,36 @@ pub struct ApprovalRequest {
 }
 
 fn pending() -> CommandResult<std::sync::MutexGuard<'static, HashMap<String, Pending>>> {
-    PENDING.lock().map_err(|_| CommandError::Internal("aprobaciones de archivos".into()))
+    PENDING
+        .lock()
+        .map_err(|_| CommandError::Internal("aprobaciones de archivos".into()))
 }
 
 /// A new request for `files`; the tab's earlier ones are dropped (one
 /// dialog per run).
-pub fn ask(tab: &str, notebook: Option<&str>, files: Vec<DataFile>) -> CommandResult<ApprovalRequest> {
+pub fn ask(
+    tab: &str,
+    notebook: Option<&str>,
+    files: Vec<DataFile>,
+) -> CommandResult<ApprovalRequest> {
     let token = uuid::Uuid::new_v4().simple().to_string();
     let mut all = pending()?;
     all.retain(|_, p| p.at.elapsed() < TTL && p.tab != tab);
-    all.insert(token.clone(), Pending { tab: tab.into(), notebook: notebook.map(Into::into), files: files.clone(), approved: false, at: Instant::now() });
-    Ok(ApprovalRequest { token, files, saved: notebook.is_some() })
+    all.insert(
+        token.clone(),
+        Pending {
+            tab: tab.into(),
+            notebook: notebook.map(Into::into),
+            files: files.clone(),
+            approved: false,
+            at: Instant::now(),
+        },
+    );
+    Ok(ApprovalRequest {
+        token,
+        files,
+        saved: notebook.is_some(),
+    })
 }
 
 /// The user's answer in the dialog.
@@ -374,7 +459,11 @@ pub fn grant_targets(files: &[DataFile]) -> Vec<(String, bool)> {
 pub fn decide(store: &StateStore, token: &str, decision: Decision) -> CommandResult<()> {
     let mut all = pending()?;
     all.retain(|_, p| p.at.elapsed() < TTL);
-    let expired = || CommandError::BadRequest("la pregunta por los archivos ya no vale: ejecutá la celda de nuevo".into());
+    let expired = || {
+        CommandError::BadRequest(
+            "la pregunta por los archivos ya no vale: ejecutá la celda de nuevo".into(),
+        )
+    };
     if decision == Decision::Deny {
         all.remove(token);
         return Ok(());
@@ -382,7 +471,9 @@ pub fn decide(store: &StateStore, token: &str, decision: Decision) -> CommandRes
     let p = all.get_mut(token).ok_or_else(expired)?;
     if decision == Decision::Always {
         let Some(nb) = p.notebook.clone() else {
-            return Err(CommandError::BadRequest("guardá el notebook para recordar qué archivos puede leer".into()));
+            return Err(CommandError::BadRequest(
+                "guardá el notebook para recordar qué archivos puede leer".into(),
+            ));
         };
         store.add_file_grants(&nb, &grant_targets(&p.files))?;
     }
@@ -395,11 +486,24 @@ pub fn decide(store: &StateStore, token: &str, decision: Decision) -> CommandRes
 pub fn take(token: &str, tab: &str, notebook: Option<&str>) -> CommandResult<Vec<String>> {
     let mut all = pending()?;
     all.retain(|_, p| p.at.elapsed() < TTL);
-    let ok = all.get(token).is_some_and(|p| p.approved && p.tab == tab && p.notebook.as_deref() == notebook);
+    let ok = all
+        .get(token)
+        .is_some_and(|p| p.approved && p.tab == tab && p.notebook.as_deref() == notebook);
     if !ok {
-        return Err(CommandError::BadRequest("la aprobación de los archivos ya no vale: ejecutá la celda de nuevo".into()));
+        return Err(CommandError::BadRequest(
+            "la aprobación de los archivos ya no vale: ejecutá la celda de nuevo".into(),
+        ));
     }
-    Ok(all.remove(token).map(|p| p.files.iter().flat_map(|f| f.all()).map(|f| f.path.clone()).collect()).unwrap_or_default())
+    Ok(all
+        .remove(token)
+        .map(|p| {
+            p.files
+                .iter()
+                .flat_map(|f| f.all())
+                .map(|f| f.path.clone())
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 // ---------------------------------------------------------------------------
@@ -437,7 +541,9 @@ pub struct Seen {
 /// Compare `files` with the notebook's records; a file is hashed only when
 /// its size or modification time differs from its record (or it has none).
 pub async fn changes(access: &Access<'_>, files: &[DataFile]) -> Vec<Seen> {
-    let (Some(store), Some(nb)) = (access.store, access.notebook.as_deref()) else { return Vec::new() };
+    let (Some(store), Some(nb)) = (access.store, access.notebook.as_deref()) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for f in files {
         let old = store.file_record(nb, &f.path).ok().flatten();
@@ -447,25 +553,60 @@ pub async fn changes(access: &Access<'_>, files: &[DataFile]) -> Vec<Seen> {
         if f.host.is_some() {
             let Some(v) = &f.version else { continue };
             let previous_mtime_ms = old.as_ref().filter(|o| o.sha256 != *v).map(|o| o.mtime_ms);
-            let dirty = old.as_ref().is_none_or(|o| o.sha256 != *v || o.size != f.size || o.mtime_ms != f.mtime_ms);
-            out.push(Seen { path: f.path.clone(), record: FileRecord { size: f.size, mtime_ms: f.mtime_ms, sha256: v.clone() }, previous_mtime_ms, dirty });
+            let dirty = old
+                .as_ref()
+                .is_none_or(|o| o.sha256 != *v || o.size != f.size || o.mtime_ms != f.mtime_ms);
+            out.push(Seen {
+                path: f.path.clone(),
+                record: FileRecord {
+                    size: f.size,
+                    mtime_ms: f.mtime_ms,
+                    sha256: v.clone(),
+                },
+                previous_mtime_ms,
+                dirty,
+            });
             continue;
         }
-        if let Some(o) = old.as_ref().filter(|o| o.size == f.size && o.mtime_ms == f.mtime_ms) {
-            out.push(Seen { path: f.path.clone(), record: o.clone(), previous_mtime_ms: None, dirty: false });
+        if let Some(o) = old
+            .as_ref()
+            .filter(|o| o.size == f.size && o.mtime_ms == f.mtime_ms)
+        {
+            out.push(Seen {
+                path: f.path.clone(),
+                record: o.clone(),
+                previous_mtime_ms: None,
+                dirty: false,
+            });
             continue;
         }
         let path = PathBuf::from(&f.path);
-        let Ok(Ok(sha256)) = tokio::task::spawn_blocking(move || hash_file(&path)).await else { continue };
-        let previous_mtime_ms = old.as_ref().filter(|o| o.sha256 != sha256).map(|o| o.mtime_ms);
-        out.push(Seen { path: f.path.clone(), record: FileRecord { size: f.size, mtime_ms: f.mtime_ms, sha256 }, previous_mtime_ms, dirty: true });
+        let Ok(Ok(sha256)) = tokio::task::spawn_blocking(move || hash_file(&path)).await else {
+            continue;
+        };
+        let previous_mtime_ms = old
+            .as_ref()
+            .filter(|o| o.sha256 != sha256)
+            .map(|o| o.mtime_ms);
+        out.push(Seen {
+            path: f.path.clone(),
+            record: FileRecord {
+                size: f.size,
+                mtime_ms: f.mtime_ms,
+                sha256,
+            },
+            previous_mtime_ms,
+            dirty: true,
+        });
     }
     out
 }
 
 /// Keep the records of a run that read its files.
 pub fn remember(access: &Access<'_>, seen: &[Seen]) {
-    let (Some(store), Some(nb)) = (access.store, access.notebook.as_deref()) else { return };
+    let (Some(store), Some(nb)) = (access.store, access.notebook.as_deref()) else {
+        return;
+    };
     for s in seen.iter().filter(|s| s.dirty) {
         if let Err(e) = store.put_file_record(nb, &s.path, &s.record) {
             tracing::warn!("notebook file record: {e}");

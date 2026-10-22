@@ -47,7 +47,8 @@ pub trait Endpoints: Send + Sync {
     async fn open_target(&self) -> Result<Box<dyn Session>>;
     /// Whether to try [`Driver::copy_native`] (both ends in one driver).
     fn native_copy_allowed(&self) -> bool {
-        self.source_driver().supports_native_copy(self.target_driver().info().id)
+        self.source_driver()
+            .supports_native_copy(self.target_driver().info().id)
     }
 }
 
@@ -159,7 +160,10 @@ impl Env {
     }
 
     fn phase(&self, table: &str, phase: Phase) {
-        self.emit(Event::TablePhase { table: table.to_string(), phase });
+        self.emit(Event::TablePhase {
+            table: table.to_string(),
+            phase,
+        });
     }
 }
 
@@ -181,7 +185,11 @@ impl Engine {
                 run_id: run_id.into(),
                 store,
                 slots: Slots::new(RunOptions::default().parallel),
-                queue: Mutex::new(Queue { items: VecDeque::new(), boost: VecDeque::new(), open: true }),
+                queue: Mutex::new(Queue {
+                    items: VecDeque::new(),
+                    boost: VecDeque::new(),
+                    open: true,
+                }),
                 wake: Notify::new(),
                 running: Mutex::new(HashMap::new()),
                 stop: AtomicBool::new(false),
@@ -192,7 +200,9 @@ impl Engine {
     }
 
     pub fn control(&self) -> Control {
-        Control { shared: self.shared.clone() }
+        Control {
+            shared: self.shared.clone(),
+        }
     }
 
     pub fn run_id(&self) -> &str {
@@ -210,11 +220,18 @@ impl Engine {
     ) -> Result<RunReport> {
         let sh = &self.shared;
         let options = options.normalized();
-        sh.store.begin_run(&sh.run_id, &RunSpec { jobs: jobs.clone(), options: options.clone() })?;
+        sh.store.begin_run(
+            &sh.run_id,
+            &RunSpec {
+                jobs: jobs.clone(),
+                options: options.clone(),
+            },
+        )?;
         for j in &jobs {
             sh.store.add_table(&sh.run_id, &j.name, j.row_estimate)?;
         }
-        self.dispatch(jobs, options, endpoints, Arc::new(events)).await
+        self.dispatch(jobs, options, endpoints, Arc::new(events))
+            .await
     }
 
     /// Go on with a run after a cut or a cancel: every table not done is
@@ -228,9 +245,17 @@ impl Engine {
         events: impl Fn(Event) + Send + Sync + 'static,
     ) -> Result<RunReport> {
         let sh = &self.shared;
-        let spec = sh.store.run_spec(&sh.run_id)?.ok_or_else(|| Error::State("la transferencia no existe".into()))?;
+        let spec = sh
+            .store
+            .run_spec(&sh.run_id)?
+            .ok_or_else(|| Error::State("la transferencia no existe".into()))?;
         let options = options.unwrap_or(spec.options).normalized();
-        let states: HashMap<String, TableState> = sh.store.tables(&sh.run_id)?.into_iter().map(|t| (t.name.clone(), t)).collect();
+        let states: HashMap<String, TableState> = sh
+            .store
+            .tables(&sh.run_id)?
+            .into_iter()
+            .map(|t| (t.name.clone(), t))
+            .collect();
         let mut jobs = Vec::new();
         for j in spec.jobs {
             match states.get(&j.name) {
@@ -241,7 +266,8 @@ impl Engine {
             jobs.push(j);
         }
         sh.store.resume_run(&sh.run_id)?;
-        self.dispatch(jobs, options, endpoints, Arc::new(events)).await
+        self.dispatch(jobs, options, endpoints, Arc::new(events))
+            .await
     }
 
     /// "Reintentar las que fallaron": failed and cancelled tables go back to
@@ -256,7 +282,13 @@ impl Engine {
         self.resume(options, endpoints, events).await
     }
 
-    async fn dispatch(&self, mut jobs: Vec<TransferJob>, options: RunOptions, endpoints: Arc<dyn Endpoints>, events: EventFn) -> Result<RunReport> {
+    async fn dispatch(
+        &self,
+        mut jobs: Vec<TransferJob>,
+        options: RunOptions,
+        endpoints: Arc<dyn Endpoints>,
+        events: EventFn,
+    ) -> Result<RunReport> {
         let sh = &self.shared;
         let started = Instant::now();
         sh.stop.store(false, Ordering::SeqCst);
@@ -284,7 +316,11 @@ impl Engine {
             q.items.extend(jobs);
             q.items.extend(early);
         }
-        env.emit(Event::RunStarted { run_id: sh.run_id.clone(), tables: total, parallel: sh.slots.target() });
+        env.emit(Event::RunStarted {
+            run_id: sh.run_id.clone(),
+            tables: total,
+            parallel: sh.slots.target(),
+        });
 
         let mut set: JoinSet<Outcome> = JoinSet::new();
         let mut names: HashMap<tokio::task::Id, String> = HashMap::new();
@@ -371,16 +407,25 @@ impl Engine {
             done: count(TableStatus::Done),
             failed: count(TableStatus::Failed),
             cancelled: count(TableStatus::Cancelled),
-            pending: count(TableStatus::Pending) + count(TableStatus::Copied) + count(TableStatus::Running),
+            pending: count(TableStatus::Pending)
+                + count(TableStatus::Copied)
+                + count(TableStatus::Running),
             rows: tables.iter().map(|t| t.rows_done).sum(),
             elapsed_ms: started.elapsed().as_millis() as u64,
         };
-        env.emit(Event::RunFinished { summary: summary.clone() });
+        env.emit(Event::RunFinished {
+            summary: summary.clone(),
+        });
         Ok(RunReport { summary, tables })
     }
 
     /// A worker ended.
-    fn joined(&self, r: std::result::Result<(tokio::task::Id, Outcome), tokio::task::JoinError>, names: &mut HashMap<tokio::task::Id, String>, env: &Env) {
+    fn joined(
+        &self,
+        r: std::result::Result<(tokio::task::Id, Outcome), tokio::task::JoinError>,
+        names: &mut HashMap<tokio::task::Id, String>,
+        env: &Env,
+    ) {
         let sh = &self.shared;
         let outcome = match r {
             Ok((id, o)) => {
@@ -391,14 +436,30 @@ impl Engine {
                 // The worker catches its own panics; this is one in its
                 // bookkeeping.
                 let name = names.remove(&e.id()).unwrap_or_default();
-                let text = if e.is_panic() { format!("error inesperado: {}", panic_text(&*e.into_panic())) } else { "se interrumpió".into() };
-                let _ = sh.store.finish_table(&sh.run_id, &name, TableStatus::Failed, Some(&text), None);
-                env.emit(Event::TableFailed { table: name, error: text });
+                let text = if e.is_panic() {
+                    format!("error inesperado: {}", panic_text(&*e.into_panic()))
+                } else {
+                    "se interrumpió".into()
+                };
+                let _ = sh.store.finish_table(
+                    &sh.run_id,
+                    &name,
+                    TableStatus::Failed,
+                    Some(&text),
+                    None,
+                );
+                env.emit(Event::TableFailed {
+                    table: name,
+                    error: text,
+                });
                 Outcome::Failed
             }
         };
         if outcome == Outcome::Failed && env.options.fail_fast && !sh.stop.load(Ordering::SeqCst) {
-            env.log(LogLevel::Warn, "Se detiene la transferencia: falló una tabla".into());
+            env.log(
+                LogLevel::Warn,
+                "Se detiene la transferencia: falló una tabla".into(),
+            );
             sh.stopped_by_failure.store(true, Ordering::SeqCst);
             sh.stop_all();
         }
@@ -456,8 +517,12 @@ impl Control {
             before != q.items.len() + q.boost.len()
         };
         if removed {
-            let _ = sh.store.finish_table(&sh.run_id, name, TableStatus::Cancelled, None, None);
-            sh.emit(Event::TableCancelled { table: name.to_string() });
+            let _ = sh
+                .store
+                .finish_table(&sh.run_id, name, TableStatus::Cancelled, None, None);
+            sh.emit(Event::TableCancelled {
+                table: name.to_string(),
+            });
             // The dispatcher may be waiting for a slot for it.
             sh.wake.notify_one();
         }
@@ -478,7 +543,8 @@ impl Control {
         if !q.open || sh.stop.load(Ordering::SeqCst) {
             return Ok(false);
         }
-        sh.store.add_table(&sh.run_id, &job.name, job.row_estimate)?;
+        sh.store
+            .add_table(&sh.run_id, &job.name, job.row_estimate)?;
         sh.store.add_job(&sh.run_id, &job)?;
         q.items.push_back(job);
         drop(q);
@@ -528,7 +594,12 @@ impl Drop for InFlight {
 }
 
 /// One table, start to end.
-async fn worker(sh: Arc<Shared>, env: Arc<Env>, mut job: TransferJob, slot: Option<Slot>) -> Outcome {
+async fn worker(
+    sh: Arc<Shared>,
+    env: Arc<Env>,
+    mut job: TransferJob,
+    slot: Option<Slot>,
+) -> Outcome {
     let name = job.name.clone();
     // At most one worker per table, checked before emptying or touching
     // its state.
@@ -543,7 +614,10 @@ async fn worker(sh: Arc<Shared>, env: Arc<Env>, mut job: TransferJob, slot: Opti
         running.insert(name.clone(), ctl.clone());
         ctl
     };
-    let _in_flight = InFlight { shared: sh.clone(), name: name.clone() };
+    let _in_flight = InFlight {
+        shared: sh.clone(),
+        name: name.clone(),
+    };
     if sh.stop.load(Ordering::SeqCst) {
         return Outcome::Skipped;
     }
@@ -561,17 +635,32 @@ async fn worker(sh: Arc<Shared>, env: Arc<Env>, mut job: TransferJob, slot: Opti
     };
     match result {
         Some(Ok(Ok(stats))) => {
-            if let Err(e) = sh.store.finish_table(&sh.run_id, &name, TableStatus::Done, None, Some(&stats)) {
+            if let Err(e) =
+                sh.store
+                    .finish_table(&sh.run_id, &name, TableStatus::Done, None, Some(&stats))
+            {
                 return fail(&sh, &env, &name, &e);
             }
             for note in stats.delta.iter().flat_map(|d| d.notes.iter()) {
-                env.emit(Event::Log { level: crate::event::LogLevel::Warn, text: format!("{name}: {note}") });
+                env.emit(Event::Log {
+                    level: crate::event::LogLevel::Warn,
+                    text: format!("{name}: {note}"),
+                });
             }
-            env.emit(Event::TableDone { table: name, rows: stats.rows, stats });
+            env.emit(Event::TableDone {
+                table: name,
+                rows: stats.rows,
+                stats,
+            });
             Outcome::Done
         }
         Some(Ok(Err(e))) => fail(&sh, &env, &name, &e),
-        Some(Err(panic)) => fail(&sh, &env, &name, &Error::State(format!("error inesperado: {}", panic_text(&*panic)))),
+        Some(Err(panic)) => fail(
+            &sh,
+            &env,
+            &name,
+            &Error::State(format!("error inesperado: {}", panic_text(&*panic))),
+        ),
         None => {
             // Stop the statements in flight, close the connections, free
             // the slot, then clean up.
@@ -586,10 +675,16 @@ async fn worker(sh: Arc<Shared>, env: Arc<Env>, mut job: TransferJob, slot: Opti
 
 fn fail(sh: &Shared, env: &Env, name: &str, e: &Error) -> Outcome {
     let text = e.to_string();
-    if let Err(se) = sh.store.finish_table(&sh.run_id, name, TableStatus::Failed, Some(&text), None) {
+    if let Err(se) = sh
+        .store
+        .finish_table(&sh.run_id, name, TableStatus::Failed, Some(&text), None)
+    {
         env.log(LogLevel::Error, format!("{name}: {se}"));
     }
-    env.emit(Event::TableFailed { table: name.to_string(), error: text });
+    env.emit(Event::TableFailed {
+        table: name.to_string(),
+        error: text,
+    });
     Outcome::Failed
 }
 
@@ -597,11 +692,22 @@ fn fail(sh: &Shared, env: &Env, name: &str, e: &Error) -> Outcome {
 /// hold rows of this run is emptied (best effort).
 async fn cancelled(sh: &Shared, env: &Env, job: &TransferJob) {
     let name = &job.name;
-    let st = sh.store.table(&sh.run_id, name).ok().flatten().unwrap_or_default();
+    let st = sh
+        .store
+        .table(&sh.run_id, name)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     if st.copied {
-        env.log(LogLevel::Info, format!("{name}: cancelada; sus filas ya estaban copiadas y se conservan"));
+        env.log(
+            LogLevel::Info,
+            format!("{name}: cancelada; sus filas ya estaban copiadas y se conservan"),
+        );
     } else if st.delta || job.mode != TransferMode::Copy {
-        env.log(LogLevel::Info, format!("{name}: cancelada; la sincronización se deshizo y la tabla queda como estaba"));
+        env.log(
+            LogLevel::Info,
+            format!("{name}: cancelada; la sincronización se deshizo y la tabla queda como estaba"),
+        );
     } else if st.attempts > 0 {
         match job.truncate.as_deref().filter(|s| !s.trim().is_empty()) {
             Some(sql) => match env.endpoints.open_target().await {
@@ -609,15 +715,28 @@ async fn cancelled(sh: &Shared, env: &Env, job: &TransferJob) {
                     Ok(()) => {
                         let _ = sh.store.set_rows_done(&sh.run_id, name, 0);
                     }
-                    Err(e) => env.log(LogLevel::Warn, format!("{name}: no se pudo vaciar al cancelar: {e}")),
+                    Err(e) => env.log(
+                        LogLevel::Warn,
+                        format!("{name}: no se pudo vaciar al cancelar: {e}"),
+                    ),
                 },
-                Err(e) => env.log(LogLevel::Warn, format!("{name}: no se pudo vaciar al cancelar: {e}")),
+                Err(e) => env.log(
+                    LogLevel::Warn,
+                    format!("{name}: no se pudo vaciar al cancelar: {e}"),
+                ),
             },
-            None => env.log(LogLevel::Warn, format!("{name}: cancelada a medias y sin forma de vaciarla")),
+            None => env.log(
+                LogLevel::Warn,
+                format!("{name}: cancelada a medias y sin forma de vaciarla"),
+            ),
         }
     }
-    let _ = sh.store.finish_table(&sh.run_id, name, TableStatus::Cancelled, None, None);
-    env.emit(Event::TableCancelled { table: name.clone() });
+    let _ = sh
+        .store
+        .finish_table(&sh.run_id, name, TableStatus::Cancelled, None, None);
+    env.emit(Event::TableCancelled {
+        table: name.clone(),
+    });
 }
 
 /// Attempts at a table, retrying transient errors.
@@ -631,7 +750,12 @@ async fn attempts(sh: &Shared, env: &Env, job: &TransferJob, ctl: &TableCtl) -> 
                 let wait = backoff(env.options.backoff_ms, retry);
                 env.log(
                     LogLevel::Warn,
-                    format!("{}: {e}. Reintento {retry} de {} en {:.1} s", job.name, env.options.max_retries, wait.as_secs_f64()),
+                    format!(
+                        "{}: {e}. Reintento {retry} de {} en {:.1} s",
+                        job.name,
+                        env.options.max_retries,
+                        wait.as_secs_f64()
+                    ),
                 );
                 tokio::time::sleep(wait).await;
             }
@@ -645,15 +769,26 @@ async fn attempt(sh: &Shared, env: &Env, job: &TransferJob, ctl: &TableCtl) -> R
     let (run, name) = (&sh.run_id, &job.name);
     let st = sh.store.table(run, name)?.unwrap_or_default();
     sh.store.set_status(run, name, TableStatus::Running)?;
-    env.emit(Event::TableStarted { table: name.clone(), attempt: st.attempts + 1 });
+    env.emit(Event::TableStarted {
+        table: name.clone(),
+        attempt: st.attempts + 1,
+    });
     lock(&ctl.interrupters).clear();
     let mut tgt = env.endpoints.open_target().await?;
     ctl.add_interrupter(tgt.interrupter());
 
     let stats = if st.copied {
-        env.log(LogLevel::Info, format!("{name}: ya estaba copiada; solo faltan sus índices"));
+        env.log(
+            LogLevel::Info,
+            format!("{name}: ya estaba copiada; solo faltan sus índices"),
+        );
         CopyStats::already(st.rows_done)
-    } else if let TransferMode::Delta { key, depth, max_cores } = &job.mode {
+    } else if let TransferMode::Delta {
+        key,
+        depth,
+        max_cores,
+    } = &job.mode
+    {
         delta::check_support(&*env.source_driver, &*env.target_driver)?;
         check_columns(env, job, &mut *tgt).await?;
         // Flagged before anything is written: never emptied from here on.
@@ -684,7 +819,9 @@ async fn attempt(sh: &Shared, env: &Env, job: &TransferJob, ctl: &TableCtl) -> R
     } else {
         check_columns(env, job, &mut *tgt).await?;
         if st.delta {
-            return Err(Error::State("la tabla se sincronizó por filas; no se vacía para copiarla entera".into()));
+            return Err(Error::State(
+                "la tabla se sincronizó por filas; no se vacía para copiarla entera".into(),
+            ));
         }
         // A copy started before (this run or an earlier one) may have left
         // rows: the table is all or nothing, so it starts over.
@@ -693,20 +830,36 @@ async fn attempt(sh: &Shared, env: &Env, job: &TransferJob, ctl: &TableCtl) -> R
         // ours: the state that said so was lost (a power cut can drop its
         // last writes). Never copy on top of them.
         if !may_hold_rows && !job.empty_first && !job.preexisting {
-            may_hold_rows = has_rows(&mut *tgt, &job.target.table).await.unwrap_or_else(|e| {
-                tracing::warn!("{name}: no se pudo ver si ya tiene filas: {e}");
-                false
-            });
+            may_hold_rows = has_rows(&mut *tgt, &job.target.table)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!("{name}: no se pudo ver si ya tiene filas: {e}");
+                    false
+                });
         }
         if may_hold_rows || job.empty_first {
-            let sql = job.truncate.as_deref().filter(|s| !s.trim().is_empty()).ok_or_else(|| {
-                Error::State(if may_hold_rows { "quedó a medias y no hay cómo vaciarla" } else { "no hay cómo vaciarla" }.into())
-            })?;
+            let sql = job
+                .truncate
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .ok_or_else(|| {
+                    Error::State(
+                        if may_hold_rows {
+                            "quedó a medias y no hay cómo vaciarla"
+                        } else {
+                            "no hay cómo vaciarla"
+                        }
+                        .into(),
+                    )
+                })?;
             env.phase(name, Phase::Truncate);
             exec(&mut *tgt, sql).await?;
             sh.store.set_rows_done(run, name, 0)?;
         } else if job.preexisting && has_rows(&mut *tgt, &job.target.table).await? {
-            return Err(Error::State("la tabla de destino ya tiene filas; para copiar encima, elegí «vaciar y copiar»".into()));
+            return Err(Error::State(
+                "la tabla de destino ya tiene filas; para copiar encima, elegí «vaciar y copiar»"
+                    .into(),
+            ));
         }
         // From here on the table may hold rows of this run.
         sh.store.begin_copy(run, name)?;
@@ -751,9 +904,17 @@ async fn check_columns(env: &Env, job: &TransferJob, tgt: &mut dyn Session) -> R
     }
     env.phase(&job.name, Phase::Check);
     let actual = tgt.columns(&job.target.table).await?;
-    let diffs = column_differences(&job.expected_columns, &job.target.columns, &actual, env.same_engine);
+    let diffs = column_differences(
+        &job.expected_columns,
+        &job.target.columns,
+        &actual,
+        env.same_engine,
+    );
     if !diffs.is_empty() {
-        return Err(Error::State(format!("la tabla de destino no coincide: {}", diffs.join("; "))));
+        return Err(Error::State(format!(
+            "la tabla de destino no coincide: {}",
+            diffs.join("; ")
+        )));
     }
     Ok(())
 }
@@ -766,7 +927,10 @@ async fn has_rows(s: &mut dyn Session, table: &ObjectRef) -> Result<bool> {
     if let Some(e) = out.error {
         return Err(Error::Query(e));
     }
-    Ok(out.results.iter().any(|r| r.total_rows > 0 || !r.rows.is_empty()))
+    Ok(out
+        .results
+        .iter()
+        .any(|r| r.total_rows > 0 || !r.rows.is_empty()))
 }
 
 /// A table's progress, throttled for the UI and the state.
@@ -783,7 +947,15 @@ struct Tracker<'a> {
 impl<'a> Tracker<'a> {
     fn new(sh: &'a Shared, env: &'a Env, name: &'a str, total: Option<u64>) -> Self {
         let now = Instant::now();
-        Tracker { sh, env, name, total: Mutex::new(total), start: now, last: Mutex::new(now), rows: AtomicU64::new(0) }
+        Tracker {
+            sh,
+            env,
+            name,
+            total: Mutex::new(total),
+            start: now,
+            last: Mutex::new(now),
+            rows: AtomicU64::new(0),
+        }
     }
 
     /// The rows to review, once known (sync by rows).
@@ -801,7 +973,11 @@ impl<'a> Tracker<'a> {
             }
             *last = Instant::now();
         }
-        if let Err(e) = self.sh.store.set_rows_done(&self.sh.run_id, self.name, rows) {
+        if let Err(e) = self
+            .sh
+            .store
+            .set_rows_done(&self.sh.run_id, self.name, rows)
+        {
             tracing::warn!("{}: {e}", self.name);
         }
         self.emit(rows);

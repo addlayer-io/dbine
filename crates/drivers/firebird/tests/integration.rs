@@ -12,7 +12,9 @@ use serde_json::json;
 
 fn config() -> ConnectionConfig {
     let url = std::env::var("DBINE_TEST_FIREBIRD_URL").expect("DBINE_TEST_FIREBIRD_URL");
-    let rest = url.strip_prefix("firebird://").expect("firebird://user:pass@host:port/path");
+    let rest = url
+        .strip_prefix("firebird://")
+        .expect("firebird://user:pass@host:port/path");
     let (cred, addr) = rest.split_once('@').unwrap();
     let (user, pass) = cred.split_once(':').unwrap();
     let (hostport, path) = addr.split_once('/').unwrap();
@@ -42,7 +44,11 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
 }
 
 fn obj(kind: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: None, name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: name.into(),
+    }
 }
 
 const DROPS: &[&str] = &[
@@ -129,13 +135,22 @@ UPDATE dbine_t SET amount = 1 WHERE id = 2;
     assert!(has("procedure", "DBINE_PROC"));
     assert!(has("function", "DBINE_FN"));
     assert!(has("package", "DBINE_PKG"));
-    let trg = objs.iter().find(|o| o.kind == "trigger" && o.name == "DBINE_TRG").unwrap();
+    let trg = objs
+        .iter()
+        .find(|o| o.kind == "trigger" && o.name == "DBINE_TRG")
+        .unwrap();
     assert_eq!(trg.parent.as_deref(), Some("DBINE_T"));
-    assert!(!objs.iter().any(|o| o.name.starts_with("RDB$")), "system objects are hidden");
+    assert!(
+        !objs.iter().any(|o| o.name.starts_with("RDB$")),
+        "system objects are hidden"
+    );
 
     let cols = s.columns(&obj("table", "DBINE_T")).await.unwrap();
     let names: Vec<_> = cols.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names, ["ID", "NAME", "AMOUNT", "BIG", "TS", "D", "T", "DOC", "BIN", "FLAG", "IDENT"]);
+    assert_eq!(
+        names,
+        ["ID", "NAME", "AMOUNT", "BIG", "TS", "D", "T", "DOC", "BIN", "FLAG", "IDENT"]
+    );
     assert!(cols[0].primary_key && !cols[0].nullable);
     assert_eq!(cols[1].data_type, "VARCHAR(50)");
     assert_eq!(cols[1].default_value.as_deref(), Some("'x'"));
@@ -143,18 +158,57 @@ UPDATE dbine_t SET amount = 1 WHERE id = 2;
     assert_eq!(cols[3].data_type, "INT128");
     assert!(cols[10].auto_increment);
 
-    let ddl = s.definition(&obj("procedure", "DBINE_PROC")).await.unwrap().unwrap();
-    assert!(ddl.starts_with("CREATE OR ALTER PROCEDURE \"DBINE_PROC\" (\n    \"A\" INTEGER\n)\nRETURNS"), "{ddl}");
-    let ddl = s.definition(&obj("trigger", "DBINE_TRG")).await.unwrap().unwrap();
-    assert!(ddl.contains("FOR \"DBINE_T\"\nACTIVE BEFORE INSERT OR UPDATE POSITION 0"), "{ddl}");
-    let ddl = s.definition(&obj("function", "DBINE_FN")).await.unwrap().unwrap();
+    let ddl = s
+        .definition(&obj("procedure", "DBINE_PROC"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        ddl.starts_with(
+            "CREATE OR ALTER PROCEDURE \"DBINE_PROC\" (\n    \"A\" INTEGER\n)\nRETURNS"
+        ),
+        "{ddl}"
+    );
+    let ddl = s
+        .definition(&obj("trigger", "DBINE_TRG"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        ddl.contains("FOR \"DBINE_T\"\nACTIVE BEFORE INSERT OR UPDATE POSITION 0"),
+        "{ddl}"
+    );
+    let ddl = s
+        .definition(&obj("function", "DBINE_FN"))
+        .await
+        .unwrap()
+        .unwrap();
     assert!(ddl.contains("RETURNS INTEGER"), "{ddl}");
-    assert!(s.definition(&obj("view", "DBINE_V")).await.unwrap().unwrap().contains("SELECT"));
-    assert!(s.definition(&obj("package", "DBINE_PKG")).await.unwrap().unwrap().contains("PACKAGE BODY"));
-    assert!(s.definition(&obj("sequence", "DBINE_SEQ")).await.unwrap().unwrap().starts_with("CREATE SEQUENCE"));
+    assert!(s
+        .definition(&obj("view", "DBINE_V"))
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("SELECT"));
+    assert!(s
+        .definition(&obj("package", "DBINE_PKG"))
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("PACKAGE BODY"));
+    assert!(s
+        .definition(&obj("sequence", "DBINE_SEQ"))
+        .await
+        .unwrap()
+        .unwrap()
+        .starts_with("CREATE SEQUENCE"));
 
     // Definitions run again as they are (no SET TERM needed).
-    let ddl = s.definition(&obj("procedure", "DBINE_PROC")).await.unwrap().unwrap();
+    let ddl = s
+        .definition(&obj("procedure", "DBINE_PROC"))
+        .await
+        .unwrap()
+        .unwrap();
     run(&mut s, &ddl).await;
 
     let q = s.browse_query(&obj("table", "DBINE_T"), 10);
@@ -167,9 +221,20 @@ UPDATE dbine_t SET amount = 1 WHERE id = 2;
     assert_eq!(row[1], json!("UNO;DOS"), "trigger upper-cased it");
     assert_eq!(row[2], json!("1234.50"));
     assert_eq!(row[3], json!("170141183460469231731687303715884105727"));
-    assert!(row[4].as_str().unwrap().starts_with("2024-01-31 13:45:00.123"), "{}", row[4]);
+    assert!(
+        row[4]
+            .as_str()
+            .unwrap()
+            .starts_with("2024-01-31 13:45:00.123"),
+        "{}",
+        row[4]
+    );
     assert_eq!(row[5], json!("2024-02-01"));
-    assert!(row[6].as_str().unwrap().starts_with("08:30:00"), "{}", row[6]);
+    assert!(
+        row[6].as_str().unwrap().starts_with("08:30:00"),
+        "{}",
+        row[6]
+    );
     assert_eq!(row[7], json!("texto largo"));
     assert_eq!(row[8], json!("0xDEADBEEF"));
     assert_eq!(row[9], json!(true));
@@ -202,7 +267,11 @@ UPDATE dbine_t SET amount = 1 WHERE id = 2;
     // Errors stop the script and keep what ran.
     let mut out = QueryOutcome::default();
     let e = s
-        .execute("SELECT 1 FROM rdb$database; SELECT * FROM no_such_table; SELECT 2 FROM rdb$database", 10, &mut out)
+        .execute(
+            "SELECT 1 FROM rdb$database; SELECT * FROM no_such_table; SELECT 2 FROM rdb$database",
+            10,
+            &mut out,
+        )
         .await;
     assert!(e.unwrap_err().to_string().contains("NO_SUCH_TABLE"));
     assert_eq!(out.results.len(), 1);
@@ -257,8 +326,16 @@ async fn plans() {
     let mut s = session().await;
     let mut out = QueryOutcome::default();
     let _ = s.execute("DROP TABLE DBINE_PLAN", 10, &mut out).await;
-    run(&mut s, "CREATE TABLE DBINE_PLAN (ID INT PRIMARY KEY, X INT)").await;
-    run(&mut s, "INSERT INTO DBINE_PLAN VALUES (1, 1); INSERT INTO DBINE_PLAN VALUES (2, 2)").await;
+    run(
+        &mut s,
+        "CREATE TABLE DBINE_PLAN (ID INT PRIMARY KEY, X INT)",
+    )
+    .await;
+    run(
+        &mut s,
+        "INSERT INTO DBINE_PLAN VALUES (1, 1); INSERT INTO DBINE_PLAN VALUES (2, 2)",
+    )
+    .await;
 
     let mut out = QueryOutcome::default();
     s.explain(
@@ -278,9 +355,19 @@ async fn plans() {
     assert_eq!(o.results[0].rows[0][0], json!(2), "the DELETE didn't run");
 
     let mut out = QueryOutcome::default();
-    s.explain("SELECT * FROM DBINE_PLAN WHERE ID = 1", true, 10, &mut out).await.unwrap();
+    s.explain("SELECT * FROM DBINE_PLAN WHERE ID = 1", true, 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows.len(), 1);
-    assert!(out.plans[0].root.props.iter().any(|(k, v)| k == "Filas devueltas" && v == "1"), "{:#?}", out.plans[0].root);
+    assert!(
+        out.plans[0]
+            .root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Filas devueltas" && v == "1"),
+        "{:#?}",
+        out.plans[0].root
+    );
 
     run(&mut s, "DROP TABLE DBINE_PLAN").await;
 }
@@ -304,7 +391,9 @@ async fn schema_ddl_round_trip() {
     assert!(driver.capabilities().create_database && driver.capabilities().foreign_keys);
     let mut s = session().await;
     for t in DDL_TABLES.iter().rev() {
-        let _ = s.execute(&format!("DROP TABLE {t}"), 10, &mut QueryOutcome::default()).await;
+        let _ = s
+            .execute(&format!("DROP TABLE {t}"), 10, &mut QueryOutcome::default())
+            .await;
     }
     run(
         &mut s,
@@ -346,74 +435,188 @@ COMMENT ON COLUMN dbine_customers.email IS 'Correo';
     .await;
 
     let schema = ours(s.database_schema().await.unwrap());
-    assert_eq!(schema.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["DBINE_CUSTOMERS", "DBINE_LINES", "DBINE_ORDERS"]);
+    assert_eq!(
+        schema.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+        ["DBINE_CUSTOMERS", "DBINE_LINES", "DBINE_ORDERS"]
+    );
     let (cust, lines, orders) = (&schema[0], &schema[1], &schema[2]);
     assert_eq!(cust.comment.as_deref(), Some("Clientes"));
     assert_eq!(cust.columns[1].comment.as_deref(), Some("Correo"));
     assert!(cust.columns[0].auto_increment && !cust.columns[0].nullable);
     assert_eq!(cust.columns[2].default_value.as_deref(), Some("'anon'"));
-    assert_eq!(cust.primary_key.as_ref().unwrap().name.as_deref(), Some("PK_CUSTOMERS"));
-    let ix = |t: &dbine_driver::TableSchema, n: &str| t.indexes.iter().find(|i| i.name == n).cloned().unwrap_or_else(|| panic!("{n}: {:?}", t.indexes));
+    assert_eq!(
+        cust.primary_key.as_ref().unwrap().name.as_deref(),
+        Some("PK_CUSTOMERS")
+    );
+    let ix = |t: &dbine_driver::TableSchema, n: &str| {
+        t.indexes
+            .iter()
+            .find(|i| i.name == n)
+            .cloned()
+            .unwrap_or_else(|| panic!("{n}: {:?}", t.indexes))
+    };
     assert!(ix(cust, "UQ_CUSTOMERS_EMAIL").unique);
-    assert_eq!(ix(cust, "IX_CUSTOMERS_UP").kind.as_deref(), Some("COMPUTED"));
+    assert_eq!(
+        ix(cust, "IX_CUSTOMERS_UP").kind.as_deref(),
+        Some("COMPUTED")
+    );
     assert_eq!(ix(lines, "IX_LINES_QTY").kind.as_deref(), Some("DESC"));
     assert_eq!(ix(lines, "UX_LINES_CODE").columns, ["CODE", "BIG"]);
-    assert_eq!(ix(orders, "IX_ORDERS_BIG").filter.as_deref(), Some("total > 100"));
+    assert_eq!(
+        ix(orders, "IX_ORDERS_BIG").filter.as_deref(),
+        Some("total > 100")
+    );
     assert!(!ix(orders, "IX_ORDERS_CREATED").unique);
     assert_eq!(orders.columns[5].data_type, "COMPUTED BY (total * 2)");
-    assert_eq!(lines.primary_key.as_ref().unwrap().columns, ["ORDER_ID", "LINE_NO"]);
+    assert_eq!(
+        lines.primary_key.as_ref().unwrap().columns,
+        ["ORDER_ID", "LINE_NO"]
+    );
     assert_eq!(lines.primary_key.as_ref().unwrap().name, None);
     let fk = &lines.foreign_keys[0];
-    assert_eq!((fk.name.as_deref(), fk.ref_table.as_str(), fk.on_delete.as_deref(), fk.on_update.as_deref()), (None, "DBINE_ORDERS", Some("CASCADE"), Some("CASCADE")));
+    assert_eq!(
+        (
+            fk.name.as_deref(),
+            fk.ref_table.as_str(),
+            fk.on_delete.as_deref(),
+            fk.on_update.as_deref()
+        ),
+        (None, "DBINE_ORDERS", Some("CASCADE"), Some("CASCADE"))
+    );
     let fk = &orders.foreign_keys[0];
-    assert_eq!((fk.name.as_deref(), fk.columns[0].as_str(), fk.ref_columns[0].as_str(), fk.on_delete.as_deref(), fk.on_update.as_deref()),
-        (Some("FK_ORDERS_CUSTOMER"), "CUSTOMER_ID", "ID", Some("SET NULL"), None));
+    assert_eq!(
+        (
+            fk.name.as_deref(),
+            fk.columns[0].as_str(),
+            fk.ref_columns[0].as_str(),
+            fk.on_delete.as_deref(),
+            fk.on_update.as_deref()
+        ),
+        (
+            Some("FK_ORDERS_CUSTOMER"),
+            "CUSTOMER_ID",
+            "ID",
+            Some("SET NULL"),
+            None
+        )
+    );
 
     // Round trip into a new database file.
-    let rt = format!("{}/dbine_rt.fdb", config().database.rsplit_once('/').unwrap().0);
+    let rt = format!(
+        "{}/dbine_rt.fdb",
+        config().database.rsplit_once('/').unwrap().0
+    );
     let _ = s.drop_database(&rt).await;
     s.create_database(&rt).await.expect("create database");
-    let mut r = driver.connect(&config(), Some(&rt)).await.expect("connect to the new database");
+    let mut r = driver
+        .connect(&config(), Some(&rt))
+        .await
+        .expect("connect to the new database");
     let mut script = String::new();
     for t in &schema {
-        script += &driver.table_ddl(t, dbine_driver::DdlParts { create: true, ..Default::default() }).unwrap();
+        script += &driver
+            .table_ddl(
+                t,
+                dbine_driver::DdlParts {
+                    create: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         script.push('\n');
     }
     for t in &schema {
-        script += &driver.table_ddl(t, dbine_driver::DdlParts { indexes: true, foreign_keys: true, ..Default::default() }).unwrap();
+        script += &driver
+            .table_ddl(
+                t,
+                dbine_driver::DdlParts {
+                    indexes: true,
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         script.push('\n');
     }
     run(&mut r, &script).await;
     assert_eq!(ours(r.database_schema().await.unwrap()), schema, "{script}");
 
     // Guarded drop / create run again over what exists.
-    let guarded = driver.table_ddl(&schema[1], dbine_driver::DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true }).unwrap();
+    let guarded = driver
+        .table_ddl(
+            &schema[1],
+            dbine_driver::DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                indexes: true,
+                foreign_keys: true,
+            },
+        )
+        .unwrap();
     run(&mut r, &guarded).await;
-    let again = driver.table_ddl(&schema[1], dbine_driver::DdlParts { if_exists: true, create: true, indexes: true, ..Default::default() }).unwrap();
+    let again = driver
+        .table_ddl(
+            &schema[1],
+            dbine_driver::DdlParts {
+                if_exists: true,
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
     run(&mut r, &again).await;
     assert_eq!(ours(r.database_schema().await.unwrap()), schema);
 
     // INSERT script: one statement per row.
     let cols: Vec<String> = ["ID", "EMAIL", "NAME", "ACTIVE"].map(String::from).to_vec();
-    let rows = vec![vec![json!(1), json!("ana@x"), json!("Ana"), json!(true)], vec![json!(2), json!("o'brien@x"), json!("O'Brien"), json!(null)]];
-    let ins = driver.insert_script(&obj("table", "DBINE_CUSTOMERS"), &cols, &rows).unwrap();
+    let rows = vec![
+        vec![json!(1), json!("ana@x"), json!("Ana"), json!(true)],
+        vec![json!(2), json!("o'brien@x"), json!("O'Brien"), json!(null)],
+    ];
+    let ins = driver
+        .insert_script(&obj("table", "DBINE_CUSTOMERS"), &cols, &rows)
+        .unwrap();
     let out = run(&mut r, &ins).await;
-    assert_eq!(out.results.iter().filter_map(|x| x.rows_affected).sum::<u64>(), 2);
+    assert_eq!(
+        out.results
+            .iter()
+            .filter_map(|x| x.rows_affected)
+            .sum::<u64>(),
+        2
+    );
     let out = run(&mut r, "SELECT name FROM dbine_customers WHERE id = 2").await;
     assert_eq!(out.results[0].rows[0][0], json!("O'Brien"));
 
     // Templates that don't depend on a table named `tabla` run as they are.
-    for t in driver.create_templates().iter().filter(|t| ["function", "package", "sequence"].contains(&t.kind)) {
-        run(&mut r, &t.template.replace("{name}", &format!("dbine_tpl_{}", t.kind))).await;
+    for t in driver
+        .create_templates()
+        .iter()
+        .filter(|t| ["function", "package", "sequence"].contains(&t.kind))
+    {
+        run(
+            &mut r,
+            &t.template
+                .replace("{name}", &format!("dbine_tpl_{}", t.kind)),
+        )
+        .await;
     }
-    let out = run(&mut r, "SELECT dbine_tpl_function(21), dbine_tpl_package.doble(2) FROM rdb$database").await;
+    let out = run(
+        &mut r,
+        "SELECT dbine_tpl_function(21), dbine_tpl_package.doble(2) FROM rdb$database",
+    )
+    .await;
     assert_eq!(out.results[0].rows[0], vec![json!(42), json!(4)]);
 
     drop(r);
     let e = s.drop_database(&config().database).await.unwrap_err();
     assert!(e.to_string().contains("conexión actual"), "{e}");
     s.drop_database(&rt).await.expect("drop database");
-    assert!(driver.connect(&config(), Some(&rt)).await.is_err(), "the file is gone");
+    assert!(
+        driver.connect(&config(), Some(&rt)).await.is_err(),
+        "the file is gone"
+    );
 
     for t in DDL_TABLES.iter().rev() {
         run(&mut s, &format!("DROP TABLE {t}")).await;
@@ -434,23 +637,56 @@ async fn monitor() {
     run(&mut other, "SELECT COUNT(*) FROM RDB$RELATIONS").await;
     let snap = s.monitor().await.expect("monitor");
     for m in &snap.metrics {
-        eprintln!("{:<20} {:<44} {:?} max={:?}{}", m.key, m.label, m.value, m.max, if m.counter { " (counter)" } else { "" });
+        eprintln!(
+            "{:<20} {:<44} {:?} max={:?}{}",
+            m.key,
+            m.label,
+            m.value,
+            m.max,
+            if m.counter { " (counter)" } else { "" }
+        );
     }
     for t in &snap.tables {
-        eprintln!("[{}] {} rows; first: {:?}", t.key, t.rows.len(), t.rows.first());
+        eprintln!(
+            "[{}] {} rows; first: {:?}",
+            t.key,
+            t.rows.len(),
+            t.rows.first()
+        );
     }
     eprintln!("info: {:?}\nnotes: {:?}", snap.info, snap.notes);
     let has = |k: &str| snap.metrics.iter().any(|m| m.key == k && m.value.is_some());
-    for k in ["mem_used", "mem_cache", "connections", "transactions", "rows_read", "disk_read", "cache_hit", "storage_used", "tx_gap"] {
+    for k in [
+        "mem_used",
+        "mem_cache",
+        "connections",
+        "transactions",
+        "rows_read",
+        "disk_read",
+        "cache_hit",
+        "storage_used",
+        "tx_gap",
+    ] {
         assert!(has(k), "{k}");
     }
     let sessions = snap.tables.iter().find(|t| t.key == "sessions").unwrap();
     assert!(!sessions.rows.is_empty(), "the other connection");
-    assert!(snap.tables.iter().any(|t| t.key == "transactions" && !t.rows.is_empty()), "its open transaction");
+    assert!(
+        snap.tables
+            .iter()
+            .any(|t| t.key == "transactions" && !t.rows.is_empty()),
+        "its open transaction"
+    );
     // A fresh snapshot each time (not the one of the session's transaction).
     run(&mut s, "SELECT COUNT(*) FROM RDB$FIELDS").await;
     let again = s.monitor().await.unwrap();
-    let rows = |x: &dbine_driver::MonitorSnapshot| x.metrics.iter().find(|m| m.key == "rows_read").and_then(|m| m.value).unwrap();
+    let rows = |x: &dbine_driver::MonitorSnapshot| {
+        x.metrics
+            .iter()
+            .find(|m| m.key == "rows_read")
+            .and_then(|m| m.value)
+            .unwrap()
+    };
     assert!(rows(&again) > rows(&snap));
 }
 
@@ -464,7 +700,10 @@ async fn profiler() {
     let cfg = config();
     let mut p = driver.connect(&cfg, None).await.expect("connect");
     let mut w = driver.connect(&cfg, None).await.expect("connect");
-    let opts = dbine_driver::ProfilerOptions { database: cfg.database.clone(), change_server: true };
+    let opts = dbine_driver::ProfilerOptions {
+        database: cfg.database.clone(),
+        change_server: true,
+    };
     let started = p.profiler_start(&opts).await.expect("profiler_start");
     eprintln!("{started:?}");
     let marker = format!("dbine_prof_{}", std::process::id());
@@ -498,8 +737,14 @@ async fn profiler() {
     assert!((300.0..3000.0).contains(&ms), "duration {ms}");
     // Page fetches and marks from MON$IO_STATS.
     assert_eq!(started.reads_unit.as_deref(), Some("páginas"));
-    assert!(mine[0].reads.is_some() && mine[0].writes.is_some(), "figures");
-    assert!(got.iter().all(|s| !s.text.contains("MON$STATEMENTS")), "its own statements are left out");
+    assert!(
+        mine[0].reads.is_some() && mine[0].writes.is_some(),
+        "figures"
+    );
+    assert!(
+        got.iter().all(|s| !s.text.contains("MON$STATEMENTS")),
+        "its own statements are left out"
+    );
 }
 
 /// Schema sync against the server: the generated script turns a table into
@@ -534,47 +779,103 @@ INSERT INTO dbine_sync_hijo VALUES (1, 1, 'uno', 5, NULL);
 "#,
     )
     .await;
-    let find = |schema: &[dbine_driver::TableSchema], n: &str| schema.iter().find(|t| t.name == n).unwrap().clone();
+    let find = |schema: &[dbine_driver::TableSchema], n: &str| {
+        schema.iter().find(|t| t.name == n).unwrap().clone()
+    };
     let old = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_HIJO");
-    assert!(old.primary_key.as_ref().unwrap().name.is_none() && old.foreign_keys[0].name.is_none(), "{old:?}");
+    assert!(
+        old.primary_key.as_ref().unwrap().name.is_none() && old.foreign_keys[0].name.is_none(),
+        "{old:?}"
+    );
     let mut new = old.clone();
     let nombre = new.columns.iter_mut().find(|c| c.name == "NOMBRE").unwrap();
     nombre.data_type = "VARCHAR(40)".into();
     nombre.nullable = true;
     nombre.default_value = Some("'x'".into());
     new.columns.retain(|c| c.name != "BAJA");
-    new.columns.push(dbine_driver::ColumnDef { name: "EMAIL".into(), data_type: "VARCHAR(100)".into(), nullable: true, ..Default::default() });
-    new.indexes = vec![IndexDef { name: "IX_SYNC_HIJO_EMAIL".into(), columns: vec!["EMAIL".into()], unique: false, kind: None, filter: None, ..Default::default() }];
-    new.primary_key = Some(dbine_driver::KeyDef { name: Some("PK_SYNC_HIJO".into()), columns: vec!["ID".into()] });
+    new.columns.push(dbine_driver::ColumnDef {
+        name: "EMAIL".into(),
+        data_type: "VARCHAR(100)".into(),
+        nullable: true,
+        ..Default::default()
+    });
+    new.indexes = vec![IndexDef {
+        name: "IX_SYNC_HIJO_EMAIL".into(),
+        columns: vec!["EMAIL".into()],
+        unique: false,
+        kind: None,
+        filter: None,
+        ..Default::default()
+    }];
+    new.primary_key = Some(dbine_driver::KeyDef {
+        name: Some("PK_SYNC_HIJO".into()),
+        columns: vec!["ID".into()],
+    });
     new.foreign_keys[0].name = Some("FK_SYNC_HIJO_PADRE".into());
     new.foreign_keys[0].on_delete = Some("CASCADE".into());
-    let script = driver.sync_script(&[TableChange::Alter { old, new: new.clone() }]).unwrap();
+    let script = driver
+        .sync_script(&[TableChange::Alter {
+            old,
+            new: new.clone(),
+        }])
+        .unwrap();
     eprintln!("{}\n{:?}", script.statements.join("\n"), script.warnings);
     for st in &script.statements {
         run(&mut s, st).await;
     }
     let after = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_HIJO");
-    let left = driver.sync_script(&[TableChange::Alter { old: after, new: new.clone() }]).unwrap();
+    let left = driver
+        .sync_script(&[TableChange::Alter {
+            old: after,
+            new: new.clone(),
+        }])
+        .unwrap();
     assert!(left.statements.is_empty(), "{:?}", left.statements);
 
     let mut last = new.clone();
-    last.columns.iter_mut().find(|c| c.name == "NOMBRE").unwrap().nullable = false;
-    last.columns.iter_mut().find(|c| c.name == "NOMBRE").unwrap().default_value = None;
+    last.columns
+        .iter_mut()
+        .find(|c| c.name == "NOMBRE")
+        .unwrap()
+        .nullable = false;
+    last.columns
+        .iter_mut()
+        .find(|c| c.name == "NOMBRE")
+        .unwrap()
+        .default_value = None;
     last.indexes.clear();
     last.foreign_keys.clear();
     // The key gets a column: the one with a generated name is looked up and dropped.
-    last.primary_key = Some(dbine_driver::KeyDef { name: None, columns: vec!["ID".into(), "NOMBRE".into()] });
+    last.primary_key = Some(dbine_driver::KeyDef {
+        name: None,
+        columns: vec!["ID".into(), "NOMBRE".into()],
+    });
     let current = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_HIJO");
-    let script = driver.sync_script(&[TableChange::Alter { old: current, new: last.clone() }]).unwrap();
+    let script = driver
+        .sync_script(&[TableChange::Alter {
+            old: current,
+            new: last.clone(),
+        }])
+        .unwrap();
     eprintln!("{}", script.statements.join("\n"));
     for st in &script.statements {
         run(&mut s, st).await;
     }
     let after = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_HIJO");
-    let left = driver.sync_script(&[TableChange::Alter { old: after, new: last.clone() }]).unwrap();
+    let left = driver
+        .sync_script(&[TableChange::Alter {
+            old: after,
+            new: last.clone(),
+        }])
+        .unwrap();
     assert!(left.statements.is_empty(), "{:?}", left.statements);
     let padre = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_PADRE");
-    let script = driver.sync_script(&[TableChange::Drop { table: last }, TableChange::Drop { table: padre }]).unwrap();
+    let script = driver
+        .sync_script(&[
+            TableChange::Drop { table: last },
+            TableChange::Drop { table: padre },
+        ])
+        .unwrap();
     for st in &script.statements {
         run(&mut s, st).await;
     }
@@ -586,32 +887,70 @@ INSERT INTO dbine_sync_hijo VALUES (1, 1, 'uno', 5, NULL);
 #[ignore]
 async fn script_errors_messages_and_transactions() {
     let driver = dbine_driver_firebird::drivers().remove(0);
-    assert_eq!(driver.script_dialect(), dbine_driver::sql::ScriptDialect::firebird());
+    assert_eq!(
+        driver.script_dialect(),
+        dbine_driver::sql::ScriptDialect::firebird()
+    );
     assert!(driver.supports_manual_transactions());
     let mut s = session().await;
-    let _ = s.execute("DROP TABLE dbine_tx", 10, &mut QueryOutcome::default()).await;
-    run(&mut s, "CREATE TABLE dbine_tx (id INTEGER NOT NULL PRIMARY KEY)").await;
+    let _ = s
+        .execute("DROP TABLE dbine_tx", 10, &mut QueryOutcome::default())
+        .await;
+    run(
+        &mut s,
+        "CREATE TABLE dbine_tx (id INTEGER NOT NULL PRIMARY KEY)",
+    )
+    .await;
 
-    let script = "SELECT 1 FROM rdb$database;\nSHOW TABLES;\nSELECT 2 FROM\n  rdb$database WHERE nope = 1;";
+    let script =
+        "SELECT 1 FROM rdb$database;\nSHOW TABLES;\nSELECT 2 FROM\n  rdb$database WHERE nope = 1;";
     let mut out = QueryOutcome::default();
-    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
+    let e = s
+        .execute(script, 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
     eprintln!("{e:?}");
     assert_eq!(e.code.as_deref(), Some("-206"), "{e:?}");
     assert_eq!(e.offset, Some(script.find("nope").unwrap()), "{e:?}");
     assert_eq!(e.line, Some(4));
     assert_eq!(out.results.len(), 1);
-    assert!(out.log.iter().any(|m| m.text.contains("SHOW TABLES")), "{:?}", out.log);
+    assert!(
+        out.log.iter().any(|m| m.text.contains("SHOW TABLES")),
+        "{:?}",
+        out.log
+    );
 
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELEC 1", 10, &mut out).await.unwrap_err().to_script_error();
-    assert_eq!((e.code.as_deref(), e.line, e.offset), (Some("-104"), Some(1), Some(0)), "{e:?}");
+    let e = s
+        .execute("SELEC 1", 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
+    assert_eq!(
+        (e.code.as_deref(), e.line, e.offset),
+        (Some("-104"), Some(1), Some(0)),
+        "{e:?}"
+    );
 
     // Errors whose status vector has no SQLCODE get isql's code and SQLSTATE.
     run(&mut s, "INSERT INTO dbine_tx VALUES (7)").await;
-    let e = s.execute("INSERT INTO dbine_tx VALUES (7)", 10, &mut out).await.unwrap_err().to_script_error();
+    let e = s
+        .execute("INSERT INTO dbine_tx VALUES (7)", 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
     eprintln!("{e:?}");
-    assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("-803"), Some("23000")), "{e:?}");
-    let e = s.execute("DROP TRIGGER dbine_no_such_trigger", 10, &mut out).await.unwrap_err().to_script_error();
+    assert_eq!(
+        (e.code.as_deref(), e.sqlstate.as_deref()),
+        (Some("-803"), Some("23000")),
+        "{e:?}"
+    );
+    let e = s
+        .execute("DROP TRIGGER dbine_no_such_trigger", 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
     eprintln!("{e:?}");
     assert!(e.code.is_some(), "{e:?}");
 
@@ -621,18 +960,51 @@ async fn script_errors_messages_and_transactions() {
     let seen2 = seen.clone();
     let mut out = QueryOutcome {
         continue_on_error: Some(true),
-        progress_sink: Some(dbine_driver::ProgressSinkRef(std::sync::Arc::new(move |e: &dbine_driver::StatementEnd| {
-            seen2.lock().unwrap().push((e.statement, e.line, e.errors.len(), e.results.len()))
-        }))),
+        progress_sink: Some(dbine_driver::ProgressSinkRef(std::sync::Arc::new(
+            move |e: &dbine_driver::StatementEnd| {
+                seen2
+                    .lock()
+                    .unwrap()
+                    .push((e.statement, e.line, e.errors.len(), e.results.len()))
+            },
+        ))),
         ..Default::default()
     };
-    let script = "INSERT INTO dbine_tx VALUES (7);\nSELECT 2 FROM nosuch;\nSELECT 3 FROM rdb$database";
+    let script =
+        "INSERT INTO dbine_tx VALUES (7);\nSELECT 2 FROM nosuch;\nSELECT 3 FROM rdb$database";
     s.execute(script, 10, &mut out).await.unwrap();
-    assert_eq!(*seen.lock().unwrap(), vec![(0, 1, 1, 0), (1, 2, 1, 0), (2, 3, 0, 1)]);
-    let codes: Vec<_> = out.errors.iter().map(|e| (e.code.clone(), e.line, e.statement)).collect();
-    assert_eq!(codes, vec![(Some("-803".to_string()), Some(1), Some(0)), (Some("-204".to_string()), Some(2), Some(1))], "{:?}", out.errors);
-    assert_eq!(out.errors[1].offset.map(|o| &script[o..o + 6]), Some("nosuch"), "{:?}", out.errors);
-    assert_eq!((out.results.len(), out.results[0].statement, out.results[0].line), (1, Some(2), Some(3)));
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![(0, 1, 1, 0), (1, 2, 1, 0), (2, 3, 0, 1)]
+    );
+    let codes: Vec<_> = out
+        .errors
+        .iter()
+        .map(|e| (e.code.clone(), e.line, e.statement))
+        .collect();
+    assert_eq!(
+        codes,
+        vec![
+            (Some("-803".to_string()), Some(1), Some(0)),
+            (Some("-204".to_string()), Some(2), Some(1))
+        ],
+        "{:?}",
+        out.errors
+    );
+    assert_eq!(
+        out.errors[1].offset.map(|o| &script[o..o + 6]),
+        Some("nosuch"),
+        "{:?}",
+        out.errors
+    );
+    assert_eq!(
+        (
+            out.results.len(),
+            out.results[0].statement,
+            out.results[0].line
+        ),
+        (1, Some(2), Some(3))
+    );
     assert_eq!(out.results[0].rows[0][0], json!(3));
     // Any other caller stops at the first error.
     let mut out = QueryOutcome::default();
@@ -640,14 +1012,26 @@ async fn script_errors_messages_and_transactions() {
     assert!(out.results.is_empty() && out.errors.is_empty());
     run(&mut s, "DELETE FROM dbine_tx").await;
 
-    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(dbine_driver::TxState::Idle)
+    );
     s.set_autocommit(false).await.unwrap();
     run(&mut s, "SELECT 1 FROM rdb$database").await;
-    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(dbine_driver::TxState::Idle)
+    );
     run(&mut s, "INSERT INTO dbine_tx VALUES (1)").await;
-    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(dbine_driver::TxState::Open)
+    );
     s.rollback().await.unwrap();
-    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(dbine_driver::TxState::Idle)
+    );
     run(&mut s, "INSERT INTO dbine_tx VALUES (2)").await;
     // Another session doesn't see it until the commit.
     let mut other = session().await;

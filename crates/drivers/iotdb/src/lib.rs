@@ -5,10 +5,10 @@
 //! into rows here.
 
 use dbine_driver::{
-    async_trait, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
-    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, KeyDef,
-    Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, Session,
-    TableSchema,
+    async_trait, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo,
+    ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
+    Family, Field, FieldKind, KeyDef, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
+    QueryOutcome, Result, ResultColumn, RowChange, Session, TableSchema,
 };
 use serde_json::{json, Value as J};
 use std::collections::BTreeMap;
@@ -19,9 +19,29 @@ use std::time::Duration;
 const DEVICE: &str = "device";
 
 /// Data types of IoTDB 1.x (STRING, BLOB, DATE and TIMESTAMP need 1.3.3+).
-const DATA_TYPES: &[&str] = &["BOOLEAN", "INT32", "INT64", "FLOAT", "DOUBLE", "TEXT", "STRING", "BLOB", "DATE", "TIMESTAMP"];
-const ENCODINGS: &[&str] =
-    &["PLAIN", "RLE", "TS_2DIFF", "GORILLA", "DICTIONARY", "ZIGZAG", "CHIMP", "SPRINTZ", "RLBE"];
+const DATA_TYPES: &[&str] = &[
+    "BOOLEAN",
+    "INT32",
+    "INT64",
+    "FLOAT",
+    "DOUBLE",
+    "TEXT",
+    "STRING",
+    "BLOB",
+    "DATE",
+    "TIMESTAMP",
+];
+const ENCODINGS: &[&str] = &[
+    "PLAIN",
+    "RLE",
+    "TS_2DIFF",
+    "GORILLA",
+    "DICTIONARY",
+    "ZIGZAG",
+    "CHIMP",
+    "SPRINTZ",
+    "RLBE",
+];
 const COMPRESSIONS: &[&str] = &["UNCOMPRESSED", "SNAPPY", "LZ4", "GZIP", "ZSTD", "LZMA2"];
 
 /// IoTDB's answer when a result has more rows than `row_limit`.
@@ -42,8 +62,14 @@ mod transfer;
 /// SQL and system views).
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![
-        Arc::new(IotDbDriver { info: info("iotdb", "Apache IoTDB"), product: "Apache IoTDB" }),
-        Arc::new(IotDbDriver { info: info("timechodb", "TimechoDB"), product: "TimechoDB" }),
+        Arc::new(IotDbDriver {
+            info: info("iotdb", "Apache IoTDB"),
+            product: "Apache IoTDB",
+        }),
+        Arc::new(IotDbDriver {
+            info: info("timechodb", "TimechoDB"),
+            product: "TimechoDB",
+        }),
     ]
 }
 
@@ -106,7 +132,11 @@ impl Driver for IotDbDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
@@ -126,7 +156,11 @@ impl Driver for IotDbDriver {
     }
 
     /// "Propiedades": the TTL and the region groups (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -196,11 +230,19 @@ impl Driver for IotDbDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<J>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<J>],
+    ) -> Result<String> {
         insert_script(target, columns, rows)
     }
 
@@ -220,7 +262,11 @@ impl Driver for IotDbDriver {
         security::script(action)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         filtered_browse(browse, filters)
     }
 
@@ -228,15 +274,26 @@ impl Driver for IotDbDriver {
         sorted_browse(query, sort)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
-        let db = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
+        let db = database
+            .filter(|d| !d.is_empty())
+            .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(600))
             .danger_accept_invalid_certs(cfg.trust_server_certificate)
             .build()
             .map_err(Error::connect)?;
-        let username = cfg.username.as_deref().filter(|u| !u.is_empty()).unwrap_or("root").to_string();
+        let username = cfg
+            .username
+            .as_deref()
+            .filter(|u| !u.is_empty())
+            .unwrap_or("root")
+            .to_string();
         let mut s = IotDbSession {
             http,
             base: base_url(cfg),
@@ -253,7 +310,11 @@ impl Driver for IotDbDriver {
             Error::Query(m) => Error::Connect(m),
             e => e,
         })?;
-        if let Some(p) = vars.rows.iter().find(|r| r.first().and_then(|v| v.as_str()) == Some("TimestampPrecision")) {
+        if let Some(p) = vars
+            .rows
+            .iter()
+            .find(|r| r.first().and_then(|v| v.as_str()) == Some("TimestampPrecision"))
+        {
             s.precision = match p.get(1).and_then(|v| v.as_str()) {
                 Some("us") => Precision::Us,
                 Some("ns") => Precision::Ns,
@@ -270,7 +331,11 @@ fn base_url(cfg: &ConnectionConfig) -> String {
     if host.starts_with("http://") || host.starts_with("https://") {
         return host.to_string();
     }
-    format!("{}://{host}:{}", if cfg.encrypt { "https" } else { "http" }, cfg.port_or(18080))
+    format!(
+        "{}://{host}:{}",
+        if cfg.encrypt { "https" } else { "http" },
+        cfg.port_or(18080)
+    )
 }
 
 /// The DataNode's Prometheus endpoint: the one in the form, or port 9092
@@ -278,9 +343,21 @@ fn base_url(cfg: &ConnectionConfig) -> String {
 fn metrics_url(cfg: &ConnectionConfig) -> MetricsEndpoint {
     if let Some(u) = cfg.option("metrics_url") {
         let u = u.trim().trim_end_matches('/');
-        let u = if u.starts_with("http://") || u.starts_with("https://") { u.to_string() } else { format!("http://{u}") };
-        let u = if u.split("://").nth(1).is_some_and(|rest| rest.contains('/')) { u } else { format!("{u}/metrics") };
-        return MetricsEndpoint { url: u, explicit: true, dead: false };
+        let u = if u.starts_with("http://") || u.starts_with("https://") {
+            u.to_string()
+        } else {
+            format!("http://{u}")
+        };
+        let u = if u.split("://").nth(1).is_some_and(|rest| rest.contains('/')) {
+            u
+        } else {
+            format!("{u}/metrics")
+        };
+        return MetricsEndpoint {
+            url: u,
+            explicit: true,
+            dead: false,
+        };
     }
     let base = base_url(cfg);
     let (scheme, rest) = base.split_once("://").unwrap_or(("http", base.as_str()));
@@ -289,7 +366,11 @@ fn metrics_url(cfg: &ConnectionConfig) -> MetricsEndpoint {
         Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => h,
         _ => host,
     };
-    MetricsEndpoint { url: format!("{scheme}://{host}:9092/metrics"), explicit: false, dead: false }
+    MetricsEndpoint {
+        url: format!("{scheme}://{host}:9092/metrics"),
+        explicit: false,
+        dead: false,
+    }
 }
 
 struct MetricsEndpoint {
@@ -329,11 +410,17 @@ struct Table {
 
 /// Statements that go to `/query` (the rest go to `/nonQuery`).
 fn is_query(stmt: &str) -> bool {
-    matches!(first_word(stmt).as_str(), "select" | "show" | "list" | "count" | "explain")
+    matches!(
+        first_word(stmt).as_str(),
+        "select" | "show" | "list" | "count" | "explain"
+    )
 }
 
 fn first_word(stmt: &str) -> String {
-    stmt.split(|c: char| !c.is_ascii_alphabetic()).find(|w| !w.is_empty()).unwrap_or("").to_ascii_lowercase()
+    stmt.split(|c: char| !c.is_ascii_alphabetic())
+        .find(|w| !w.is_empty())
+        .unwrap_or("")
+        .to_ascii_lowercase()
 }
 
 fn words(stmt: &str) -> Vec<String> {
@@ -349,7 +436,8 @@ fn first_write(statements: &[String]) -> Option<String> {
         if !is_query(s) {
             return Some(first_word(s).to_uppercase());
         }
-        (first_word(s) == "select" && words(s).iter().any(|w| w == "into")).then(|| "SELECT … INTO".to_string())
+        (first_word(s) == "select" && words(s).iter().any(|w| w == "into"))
+            .then(|| "SELECT … INTO".to_string())
     })
 }
 
@@ -390,33 +478,56 @@ fn time_text(t: i64, p: Precision) -> J {
         Precision::Us => (t.div_euclid(1_000_000), t.rem_euclid(1_000_000) * 1000),
         Precision::Ns => (t.div_euclid(1_000_000_000), t.rem_euclid(1_000_000_000)),
     };
-    chrono::DateTime::from_timestamp(secs, nanos as u32)
-        .map_or_else(|| json_i64(t), |d| J::String(d.format("%Y-%m-%d %H:%M:%S%.f").to_string()))
+    chrono::DateTime::from_timestamp(secs, nanos as u32).map_or_else(
+        || json_i64(t),
+        |d| J::String(d.format("%Y-%m-%d %H:%M:%S%.f").to_string()),
+    )
 }
 
 /// The REST answer (column-major) as rows.
 fn to_table(v: &J, precision: Precision) -> Table {
     let strings = |k: &str| -> Option<Vec<String>> {
-        v.get(k)?.as_array().map(|a| a.iter().map(|s| s.as_str().unwrap_or_default().to_string()).collect())
+        v.get(k)?.as_array().map(|a| {
+            a.iter()
+                .map(|s| s.as_str().unwrap_or_default().to_string())
+                .collect()
+        })
     };
     let values: Vec<Vec<J>> = v
         .get("values")
         .and_then(|v| v.as_array())
-        .map(|cols| cols.iter().map(|c| c.as_array().cloned().unwrap_or_default()).collect())
+        .map(|cols| {
+            cols.iter()
+                .map(|c| c.as_array().cloned().unwrap_or_default())
+                .collect()
+        })
         .unwrap_or_default();
     let types = strings("data_types").unwrap_or_default();
-    let timestamps: Option<Vec<i64>> =
-        v.get("timestamps").and_then(|t| t.as_array()).map(|t| t.iter().filter_map(|x| x.as_i64()).collect());
-    let names = strings("column_names").or_else(|| strings("expressions")).unwrap_or_default();
+    let timestamps: Option<Vec<i64>> = v
+        .get("timestamps")
+        .and_then(|t| t.as_array())
+        .map(|t| t.iter().filter_map(|x| x.as_i64()).collect());
+    let names = strings("column_names")
+        .or_else(|| strings("expressions"))
+        .unwrap_or_default();
 
     let mut t = Table::default();
     if timestamps.is_some() {
-        t.columns.push(ResultColumn { name: "Time".into(), type_name: "TIMESTAMP".into() });
+        t.columns.push(ResultColumn {
+            name: "Time".into(),
+            type_name: "TIMESTAMP".into(),
+        });
     }
     for (i, n) in names.iter().enumerate() {
-        t.columns.push(ResultColumn { name: n.clone(), type_name: types.get(i).cloned().unwrap_or_default() });
+        t.columns.push(ResultColumn {
+            name: n.clone(),
+            type_name: types.get(i).cloned().unwrap_or_default(),
+        });
     }
-    let n_rows = timestamps.as_ref().map(Vec::len).unwrap_or_else(|| values.first().map_or(0, Vec::len));
+    let n_rows = timestamps
+        .as_ref()
+        .map(Vec::len)
+        .unwrap_or_else(|| values.first().map_or(0, Vec::len));
     for r in 0..n_rows {
         let mut row = Vec::with_capacity(t.columns.len());
         if let Some(ts) = &timestamps {
@@ -434,7 +545,15 @@ fn to_table(v: &J, precision: Precision) -> Table {
 /// `{code, message}` when the server refused the statement.
 fn status(v: &J) -> Option<(i64, String)> {
     let code = v.get("code")?.as_i64()?;
-    (code != 200).then(|| (code, v.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string()))
+    (code != 200).then(|| {
+        (
+            code,
+            v.get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("")
+                .to_string(),
+        )
+    })
 }
 
 impl IotDbSession {
@@ -451,7 +570,9 @@ impl IotDbSession {
         let text = resp.text().await.map_err(Error::connect)?;
         let v: J = serde_json::from_str(&text).unwrap_or(J::Null);
         if http_status.as_u16() == 401 || http_status.as_u16() == 403 {
-            let msg = status(&v).map(|(_, m)| m).unwrap_or_else(|| text.trim().to_string());
+            let msg = status(&v)
+                .map(|(_, m)| m)
+                .unwrap_or_else(|| text.trim().to_string());
             return Err(Error::AuthFailed(msg));
         }
         if v.is_null() {
@@ -466,13 +587,19 @@ impl IotDbSession {
         // result that reaches `row_limit`, hence one more.
         let limit = max_rows.saturating_add(1);
         let row_limit = limit.saturating_add(1);
-        let v = self.post("query", json!({ "sql": sql, "row_limit": row_limit })).await?;
+        let v = self
+            .post("query", json!({ "sql": sql, "row_limit": row_limit }))
+            .await?;
         match status(&v) {
             None => Ok(to_table(&v, self.precision)),
             Some((ROW_LIMIT_EXCEEDED, m)) => {
                 // The server won't hand out part of a result: ask for fewer rows.
-                let Some(capped) = with_limit(sql, limit) else { return Err(Error::Query(m)) };
-                let v = self.post("query", json!({ "sql": capped, "row_limit": row_limit })).await?;
+                let Some(capped) = with_limit(sql, limit) else {
+                    return Err(Error::Query(m));
+                };
+                let v = self
+                    .post("query", json!({ "sql": capped, "row_limit": row_limit }))
+                    .await?;
                 match status(&v) {
                     None => Ok(to_table(&v, self.precision)),
                     Some((_, m)) => Err(Error::Query(m)),
@@ -504,7 +631,10 @@ fn monitor_rows() -> usize {
 }
 
 fn texts(t: &Table, col: usize) -> Vec<String> {
-    t.rows.iter().filter_map(|r| r.get(col)?.as_str().map(str::to_string)).collect()
+    t.rows
+        .iter()
+        .filter_map(|r| r.get(col)?.as_str().map(str::to_string))
+        .collect()
 }
 
 /// A path node as IoTDB takes it: backquoted unless it's a plain name.
@@ -512,7 +642,10 @@ fn node(name: &str) -> String {
     let plain = !name.is_empty()
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         && !name.chars().all(|c| c.is_ascii_digit())
-        && !matches!(name.to_ascii_lowercase().as_str(), "time" | "timestamp" | "root");
+        && !matches!(
+            name.to_ascii_lowercase().as_str(),
+            "time" | "timestamp" | "root"
+        );
     let quoted = name.len() > 1 && name.starts_with('`') && name.ends_with('`');
     if plain || quoted {
         name.to_string()
@@ -585,15 +718,29 @@ fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     if parts.create {
         let cols: Vec<&ColumnDef> = t.columns.iter().filter(|c| !is_time(&c.name)).collect();
         if cols.is_empty() {
-            return Err(Error::Query("Un dispositivo necesita al menos una serie (medición).".into()));
+            return Err(Error::Query(
+                "Un dispositivo necesita al menos una serie (medición).".into(),
+            ));
         }
-        let opt = |c: &ColumnDef, k: &str| c.options.get(k).map(|v| v.trim().to_ascii_uppercase()).filter(|v| !v.is_empty());
-        let aligned = t.options.get("aligned").is_some_and(|v| v == "true" || v == "1");
+        let opt = |c: &ColumnDef, k: &str| {
+            c.options
+                .get(k)
+                .map(|v| v.trim().to_ascii_uppercase())
+                .filter(|v| !v.is_empty())
+        };
+        let aligned = t
+            .options
+            .get("aligned")
+            .is_some_and(|v| v == "true" || v == "1");
         if aligned {
             let defs: Vec<String> = cols
                 .iter()
                 .map(|c| {
-                    let mut d = format!("    {} {}", node(&c.name), c.data_type.trim().to_ascii_uppercase());
+                    let mut d = format!(
+                        "    {} {}",
+                        node(&c.name),
+                        c.data_type.trim().to_ascii_uppercase()
+                    );
                     if let Some(e) = opt(c, "encoding") {
                         d.push_str(&format!(" encoding={e}"));
                     }
@@ -603,10 +750,17 @@ fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                     d
                 })
                 .collect();
-            out.push(format!("CREATE ALIGNED TIMESERIES {device}(\n{}\n);", defs.join(",\n")));
+            out.push(format!(
+                "CREATE ALIGNED TIMESERIES {device}(\n{}\n);",
+                defs.join(",\n")
+            ));
         } else {
             for c in cols {
-                let mut d = format!("CREATE TIMESERIES {device}.{} WITH DATATYPE={}", node(&c.name), c.data_type.trim().to_ascii_uppercase());
+                let mut d = format!(
+                    "CREATE TIMESERIES {device}.{} WITH DATATYPE={}",
+                    node(&c.name),
+                    c.data_type.trim().to_ascii_uppercase()
+                );
                 if let Some(e) = opt(c, "encoding") {
                     d.push_str(&format!(", ENCODING={e}"));
                 }
@@ -628,9 +782,11 @@ fn literal(v: &J, time: bool) -> String {
         J::Null => "null".into(),
         J::Bool(b) => b.to_string(),
         J::Number(n) => n.to_string(),
-        J::String(s) if time => chrono::NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%d %H:%M:%S%.f")
-            .map(|d| d.format("%Y-%m-%dT%H:%M:%S%.f+00:00").to_string())
-            .unwrap_or_else(|_| format!("'{}'", s.replace('\'', "''"))),
+        J::String(s) if time => {
+            chrono::NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%d %H:%M:%S%.f")
+                .map(|d| d.format("%Y-%m-%dT%H:%M:%S%.f+00:00").to_string())
+                .unwrap_or_else(|_| format!("'{}'", s.replace('\'', "''")))
+        }
         J::String(s) => format!("'{}'", s.replace('\'', "''")),
         other => format!("'{}'", other.to_string().replace('\'', "''")),
     }
@@ -639,12 +795,18 @@ fn literal(v: &J, time: bool) -> String {
 fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<J>]) -> Result<String> {
     let device = full_device(target.schema(), &target.name)?;
     let Some(ti) = columns.iter().position(|c| is_time(c)) else {
-        return Err(Error::Unsupported("IoTDB necesita la columna Time (marca de tiempo) para insertar filas.".into()));
+        return Err(Error::Unsupported(
+            "IoTDB necesita la columna Time (marca de tiempo) para insertar filas.".into(),
+        ));
     };
     let prefix = format!("{device}.");
     let mut header = vec!["timestamp".to_string()];
     let others: Vec<usize> = (0..columns.len()).filter(|&i| i != ti).collect();
-    header.extend(others.iter().map(|&i| node(columns[i].strip_prefix(&prefix).unwrap_or(&columns[i]))));
+    header.extend(
+        others
+            .iter()
+            .map(|&i| node(columns[i].strip_prefix(&prefix).unwrap_or(&columns[i]))),
+    );
     let head = format!("INSERT INTO {device}({}) VALUES", header.join(", "));
     let mut out = Vec::new();
     for chunk in rows.chunks(100) {
@@ -671,13 +833,21 @@ fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
     let prefix = format!("{device}.");
     let mut out = Vec::new();
     for c in changes.iter().filter(|c| !c.set.is_empty()) {
-        let Some(time) = c.key.iter().find(|(k, _)| is_time(k)).map(|(_, v)| v).filter(|v| !v.is_null()) else {
+        let Some(time) = c
+            .key
+            .iter()
+            .find(|(k, _)| is_time(k))
+            .map(|(_, v)| v)
+            .filter(|v| !v.is_null())
+        else {
             return Err(Error::Unsupported(
                 "IoTDB modifica un punto reescribiendo su marca de tiempo: la clave de la fila tiene que incluir la columna Time".into(),
             ));
         };
         if c.set.iter().any(|(k, _)| is_time(k)) {
-            return Err(Error::Unsupported("en IoTDB no se puede cambiar la marca de tiempo de un punto: crearía otro".into()));
+            return Err(Error::Unsupported(
+                "en IoTDB no se puede cambiar la marca de tiempo de un punto: crearía otro".into(),
+            ));
         }
         let ts = literal(time, true);
         let path = |k: &str| node(k.strip_prefix(&prefix).unwrap_or(k));
@@ -687,10 +857,17 @@ fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
             header.extend(values.iter().map(|(k, _)| path(k)));
             let mut v = vec![ts.clone()];
             v.extend(values.iter().map(|(_, v)| literal(v, false)));
-            out.push(format!("INSERT INTO {device}({}) VALUES ({});", header.join(", "), v.join(", ")));
+            out.push(format!(
+                "INSERT INTO {device}({}) VALUES ({});",
+                header.join(", "),
+                v.join(", ")
+            ));
         }
         for (k, _) in nulls {
-            out.push(format!("DELETE FROM {device}.{} WHERE time = {ts};", path(k)));
+            out.push(format!(
+                "DELETE FROM {device}.{} WHERE time = {ts};",
+                path(k)
+            ));
         }
     }
     Ok(out.join("\n"))
@@ -704,12 +881,20 @@ fn delete_script(target: &ObjectRef, keys: &[Vec<(String, J)>]) -> Result<String
     let device = full_device(target.schema(), &target.name)?;
     let mut out = Vec::new();
     for key in keys {
-        let Some(time) = key.iter().find(|(k, _)| is_time(k)).map(|(_, v)| v).filter(|v| !v.is_null()) else {
+        let Some(time) = key
+            .iter()
+            .find(|(k, _)| is_time(k))
+            .map(|(_, v)| v)
+            .filter(|v| !v.is_null())
+        else {
             return Err(Error::Unsupported(
                 "IoTDB borra un punto por su marca de tiempo: la clave de la fila tiene que incluir la columna Time".into(),
             ));
         };
-        out.push(format!("DELETE FROM {device}.* WHERE time = {};", literal(time, true)));
+        out.push(format!(
+            "DELETE FROM {device}.* WHERE time = {};",
+            literal(time, true)
+        ));
     }
     Ok(out.join("\n"))
 }
@@ -726,11 +911,24 @@ fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Resu
     }
     let device = browse
         .find("FROM ")
-        .map(|i| browse[i + 5..].lines().next().unwrap_or("").trim().to_string())
+        .map(|i| {
+            browse[i + 5..]
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
         .unwrap_or_default();
     let prefix = format!("{device}.");
     let data = |v: &J| literal(v, false);
-    let style = SqlFilterStyle { quote: Quote::Backtick, literal: &data, like: "LIKE", true_literal: "true", false_literal: "false" };
+    let style = SqlFilterStyle {
+        quote: Quote::Backtick,
+        literal: &data,
+        like: "LIKE",
+        true_literal: "true",
+        false_literal: "false",
+    };
     let mut parts = Vec::new();
     for f in filters {
         if is_time(&f.column) {
@@ -741,23 +939,33 @@ fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Resu
                 FilterOp::Ge => ">=",
                 FilterOp::Lt => "<",
                 FilterOp::Le => "<=",
-                _ => return Err(Error::Unsupported("en IoTDB la columna Time solo se filtra por comparación".into())),
+                _ => {
+                    return Err(Error::Unsupported(
+                        "en IoTDB la columna Time solo se filtra por comparación".into(),
+                    ))
+                }
             };
-            let v = f.values.first().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)))?;
+            let v = f.values.first().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })?;
             parts.push(format!("time {op} {}", literal(v, true)));
             continue;
         }
         let mut one = f.clone();
         one.column = unquote(f.column.strip_prefix(&prefix).unwrap_or(&f.column));
         let c = sql_condition(std::slice::from_ref(&one), &style)?;
-        let like = matches!(f.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith);
+        let like = matches!(
+            f.op,
+            FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith
+        );
         parts.push(match c.strip_suffix(" ESCAPE '\\'") {
             Some(s) if like => s.to_string(),
             _ => c,
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 /// The browse query (filtered or not) sorted by the grid's columns: an
@@ -769,7 +977,17 @@ fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> 
     if sort.is_empty() {
         return Ok(query.to_string());
     }
-    let device = query.find("FROM ").map(|i| query[i + 5..].lines().next().unwrap_or("").trim().to_string()).unwrap_or_default();
+    let device = query
+        .find("FROM ")
+        .map(|i| {
+            query[i + 5..]
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
+        .unwrap_or_default();
     let prefix = format!("{device}.");
     let order: Vec<String> = sort
         .iter()
@@ -777,20 +995,30 @@ fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> 
             let c = if is_time(&k.column) {
                 "time".to_string()
             } else {
-                quote_ident(Quote::Backtick, &unquote(k.column.strip_prefix(&prefix).unwrap_or(&k.column)))
+                quote_ident(
+                    Quote::Backtick,
+                    &unquote(k.column.strip_prefix(&prefix).unwrap_or(&k.column)),
+                )
             };
             format!("{c} {}", if k.descending { "DESC" } else { "ASC" })
         })
         .collect();
-    dbine_driver::sort::set_order_by(query, &order.join(", "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+    dbine_driver::sort::set_order_by(query, &order.join(", ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+    })
 }
 
 #[async_trait]
 impl Session for IotDbSession {
     async fn server_version(&mut self) -> Result<String> {
         let t = self.query("SHOW VERSION", 10).await?;
-        Ok(format!("{} {}", self.product, texts(&t, 0).first().cloned().unwrap_or_default()).trim().to_string())
+        Ok(format!(
+            "{} {}",
+            self.product,
+            texts(&t, 0).first().cloned().unwrap_or_default()
+        )
+        .trim()
+        .to_string())
     }
 
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
@@ -802,34 +1030,75 @@ impl Session for IotDbSession {
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
-        let answer = |t: Table| monitor::Answer { columns: t.columns.into_iter().map(|c| c.name).collect(), rows: t.rows };
+        let answer = |t: Table| monitor::Answer {
+            columns: t.columns.into_iter().map(|c| c.name).collect(),
+            rows: t.rows,
+        };
         let mut i = monitor::Inputs::default();
         // The first one proves the connection; the rest may be refused.
         i.version = Some(answer(self.query("SHOW VERSION", 10).await?));
         i.variables = self.query("SHOW VARIABLES", 1000).await.ok().map(answer);
-        i.cluster = self.query("SHOW CLUSTER", monitor_rows()).await.ok().map(answer);
-        i.regions = self.query("SHOW REGIONS", monitor_rows()).await.ok().map(answer);
-        i.queries = self.query("SHOW QUERIES", monitor_rows()).await.ok().map(answer);
-        i.databases = self.query("SHOW DATABASES DETAILS", monitor_rows()).await.ok().map(answer);
-        i.series = self.query("COUNT TIMESERIES root.** GROUP BY LEVEL = 1", monitor_rows()).await.ok().map(answer);
+        i.cluster = self
+            .query("SHOW CLUSTER", monitor_rows())
+            .await
+            .ok()
+            .map(answer);
+        i.regions = self
+            .query("SHOW REGIONS", monitor_rows())
+            .await
+            .ok()
+            .map(answer);
+        i.queries = self
+            .query("SHOW QUERIES", monitor_rows())
+            .await
+            .ok()
+            .map(answer);
+        i.databases = self
+            .query("SHOW DATABASES DETAILS", monitor_rows())
+            .await
+            .ok()
+            .map(answer);
+        i.series = self
+            .query(
+                "COUNT TIMESERIES root.** GROUP BY LEVEL = 1",
+                monitor_rows(),
+            )
+            .await
+            .ok()
+            .map(answer);
         i.devices = self
             .query("COUNT DEVICES root.**", 1)
             .await
             .ok()
-            .and_then(|t| t.rows.first().and_then(|r| r.first()).and_then(|v| v.as_f64()));
+            .and_then(|t| {
+                t.rows
+                    .first()
+                    .and_then(|r| r.first())
+                    .and_then(|v| v.as_f64())
+            });
         if !self.metrics.dead {
-            let resp = self.http.get(&self.metrics.url).timeout(Duration::from_secs(3)).send().await;
+            let resp = self
+                .http
+                .get(&self.metrics.url)
+                .timeout(Duration::from_secs(3))
+                .send()
+                .await;
             match resp {
                 Ok(r) if r.status().is_success() => match r.text().await {
                     Ok(body) => i.prom = Some(monitor::Prom::parse(&body)),
-                    Err(e) => i.prom_note = Some(format!("No se pudo leer {}: {e}", self.metrics.url)),
+                    Err(e) => {
+                        i.prom_note = Some(format!("No se pudo leer {}: {e}", self.metrics.url))
+                    }
                 },
                 other => {
                     let why = match other {
                         Ok(r) => format!("HTTP {}", r.status()),
                         Err(e) => e.to_string(),
                     };
-                    i.prom_note = Some(format!("No se pudo leer el endpoint de métricas {} ({why}).", self.metrics.url));
+                    i.prom_note = Some(format!(
+                        "No se pudo leer el endpoint de métricas {} ({why}).",
+                        self.metrics.url
+                    ));
                     self.metrics.dead = !self.metrics.explicit;
                 }
             }
@@ -852,14 +1121,20 @@ impl Session for IotDbSession {
         security::grants(self, principal).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -872,14 +1147,21 @@ impl Session for IotDbSession {
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         let t = self.query("SHOW DATABASES", 100_000).await?;
-        let mut v: Vec<String> = texts(&t, 0).into_iter().filter(|d| !d.starts_with("root.__")).collect();
+        let mut v: Vec<String> = texts(&t, 0)
+            .into_iter()
+            .filter(|d| !d.starts_with("root.__"))
+            .collect();
         v.sort();
         Ok(v)
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let Some(db) = self.db.clone() else { return Ok(Vec::new()) };
-        let t = self.query(&format!("SHOW DEVICES {db}.**"), 100_000).await?;
+        let Some(db) = self.db.clone() else {
+            return Ok(Vec::new());
+        };
+        let t = self
+            .query(&format!("SHOW DEVICES {db}.**"), 100_000)
+            .await?;
         let prefix = format!("{db}.");
         let mut v: Vec<DbObject> = texts(&t, 0)
             .into_iter()
@@ -896,9 +1178,19 @@ impl Session for IotDbSession {
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let device = self.device_path(obj);
-        let t = self.query(&format!("SHOW TIMESERIES {device}.*"), 100_000).await?;
-        let name_col = t.columns.iter().position(|c| c.name == "Timeseries").unwrap_or(0);
-        let type_col = t.columns.iter().position(|c| c.name == "DataType").unwrap_or(3);
+        let t = self
+            .query(&format!("SHOW TIMESERIES {device}.*"), 100_000)
+            .await?;
+        let name_col = t
+            .columns
+            .iter()
+            .position(|c| c.name == "Timeseries")
+            .unwrap_or(0);
+        let type_col = t
+            .columns
+            .iter()
+            .position(|c| c.name == "DataType")
+            .unwrap_or(3);
         let prefix = format!("{device}.");
         let mut out = vec![ColumnInfo {
             name: "Time".into(),
@@ -912,7 +1204,11 @@ impl Session for IotDbSession {
             let full = r.get(name_col).and_then(|v| v.as_str()).unwrap_or_default();
             out.push(ColumnInfo {
                 name: full.strip_prefix(&prefix).unwrap_or(full).to_string(),
-                data_type: r.get(type_col).and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                data_type: r
+                    .get(type_col)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
                 nullable: true,
                 primary_key: false,
                 auto_increment: false,
@@ -925,14 +1221,27 @@ impl Session for IotDbSession {
     /// Devices with their series, from two statements (devices for the
     /// aligned flag, series for types, encodings and compressions).
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let Some(db) = self.db.clone() else { return Ok(Vec::new()) };
-        let devices = self.query(&format!("SHOW DEVICES {db}.**"), 10_000_000).await?;
-        let series = self.query(&format!("SHOW TIMESERIES {db}.**"), 10_000_000).await?;
+        let Some(db) = self.db.clone() else {
+            return Ok(Vec::new());
+        };
+        let devices = self
+            .query(&format!("SHOW DEVICES {db}.**"), 10_000_000)
+            .await?;
+        let series = self
+            .query(&format!("SHOW TIMESERIES {db}.**"), 10_000_000)
+            .await?;
         let pos = |t: &Table, n: &str| t.columns.iter().position(|c| c.name == n);
-        let s = |r: &[J], i: Option<usize>| i.and_then(|i| r.get(i)?.as_str()).unwrap_or_default().to_string();
+        let s = |r: &[J], i: Option<usize>| {
+            i.and_then(|i| r.get(i)?.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         let prefix = format!("{db}.");
         let mut tables: BTreeMap<String, TableSchema> = BTreeMap::new();
-        let (dev, aligned) = (pos(&devices, "Device").or(Some(0)), pos(&devices, "IsAligned"));
+        let (dev, aligned) = (
+            pos(&devices, "Device").or(Some(0)),
+            pos(&devices, "IsAligned"),
+        );
         for r in &devices.rows {
             let path = s(r, dev);
             let name = path.strip_prefix(&prefix).unwrap_or(&path).to_string();
@@ -940,7 +1249,12 @@ impl Session for IotDbSession {
             if s(r, aligned) == "true" {
                 options.insert("aligned".to_string(), "true".to_string());
             }
-            let time = ColumnDef { name: "Time".into(), data_type: "TIMESTAMP".into(), nullable: false, ..Default::default() };
+            let time = ColumnDef {
+                name: "Time".into(),
+                data_type: "TIMESTAMP".into(),
+                nullable: false,
+                ..Default::default()
+            };
             tables.insert(
                 name.clone(),
                 TableSchema {
@@ -948,13 +1262,23 @@ impl Session for IotDbSession {
                     schema: Some(db.clone()),
                     name,
                     columns: vec![time],
-                    primary_key: Some(KeyDef { name: None, columns: vec!["Time".into()] }),
+                    primary_key: Some(KeyDef {
+                        name: None,
+                        columns: vec!["Time".into()],
+                    }),
                     options,
                     ..Default::default()
                 },
             );
         }
-        let [ts, ty, enc, comp, view] = ["Timeseries", "DataType", "Encoding", "Compression", "ViewType"].map(|n| pos(&series, n));
+        let [ts, ty, enc, comp, view] = [
+            "Timeseries",
+            "DataType",
+            "Encoding",
+            "Compression",
+            "ViewType",
+        ]
+        .map(|n| pos(&series, n));
         for r in &series.rows {
             if s(r, view) == "VIEW" {
                 continue;
@@ -962,7 +1286,9 @@ impl Session for IotDbSession {
             let mut nodes = split_path(&s(r, ts.or(Some(0))));
             let measurement = unquote(&nodes.pop().unwrap_or_default());
             let path = nodes.join(".");
-            let Some(t) = tables.get_mut(path.strip_prefix(&prefix).unwrap_or(&path)) else { continue };
+            let Some(t) = tables.get_mut(path.strip_prefix(&prefix).unwrap_or(&path)) else {
+                continue;
+            };
             let mut options = BTreeMap::new();
             for (k, i) in [("encoding", enc), ("compression", comp)] {
                 let v = s(r, i);
@@ -970,10 +1296,18 @@ impl Session for IotDbSession {
                     options.insert(k.to_string(), v);
                 }
             }
-            t.columns.push(ColumnDef { name: measurement, data_type: s(r, ty), options, ..Default::default() });
+            t.columns.push(ColumnDef {
+                name: measurement,
+                data_type: s(r, ty),
+                options,
+                ..Default::default()
+            });
         }
         // Devices whose series are all views (or only a template) aren't tables.
-        Ok(tables.into_values().filter(|t| t.columns.len() > 1).collect())
+        Ok(tables
+            .into_values()
+            .filter(|t| t.columns.len() > 1)
+            .collect())
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
@@ -985,17 +1319,25 @@ impl Session for IotDbSession {
     }
 
     /// `CREATE DATABASE … WITH …` (see [`create_db`]).
-    async fn create_database_with(&mut self, name: &str, options: &BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden borrar bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden borrar bases.".into(),
+            ));
         }
         let path = database_path(name);
         if self.db.as_deref().map(database_path).as_deref() == Some(path.as_str()) {
-            return Err(Error::Query(format!("No se puede borrar {path}: es la base de datos de esta conexión.")));
+            return Err(Error::Query(format!(
+                "No se puede borrar {path}: es la base de datos de esta conexión."
+            )));
         }
         self.non_query(&format!("DELETE DATABASE {path}")).await
     }
@@ -1004,7 +1346,11 @@ impl Session for IotDbSession {
         Ok(None)
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -1019,7 +1365,10 @@ impl Session for IotDbSession {
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        format!("SELECT *\nFROM {}\nORDER BY time DESC\nLIMIT {limit}", self.device_path(obj))
+        format!(
+            "SELECT *\nFROM {}\nORDER BY time DESC\nLIMIT {limit}",
+            self.device_path(obj)
+        )
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -1032,7 +1381,11 @@ impl Session for IotDbSession {
             }
         }
         for unit in dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic()) {
-            let stmt = dbine_driver::sql::strip_comments(&unit.text, &dbine_driver::ScriptDialect::generic(), false);
+            let stmt = dbine_driver::sql::strip_comments(
+                &unit.text,
+                &dbine_driver::ScriptDialect::generic(),
+                false,
+            );
             let stmt = stmt.trim();
             if stmt.is_empty() {
                 continue;
@@ -1051,8 +1404,15 @@ impl Session for IotDbSession {
                 Ok(()) => {}
                 // Positions count in the text sent, which has no comments:
                 // placed only when the statement had none.
-                Err(Error::Query(m)) if stmt == unit.text => return Err(script::shift(script::error(&m, stmt), &unit)),
-                Err(Error::Query(m)) => return Err(script::shift(dbine_driver::ScriptError::new(m).into(), &unit)),
+                Err(Error::Query(m)) if stmt == unit.text => {
+                    return Err(script::shift(script::error(&m, stmt), &unit))
+                }
+                Err(Error::Query(m)) => {
+                    return Err(script::shift(
+                        dbine_driver::ScriptError::new(m).into(),
+                        &unit,
+                    ))
+                }
                 Err(e) => return Err(e),
             }
         }
@@ -1060,11 +1420,18 @@ impl Session for IotDbSession {
     }
 
     /// "Propiedades" (see [`properties`]).
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -1081,16 +1448,30 @@ mod tests {
     #[test]
     fn sorted_browse_names_measurements() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let q = "SELECT *\nFROM root.sg.d1\nORDER BY time DESC\nLIMIT 200";
         assert_eq!(sorted_browse(q, &[]).unwrap(), q);
-        assert_eq!(sorted_browse(q, &[k("Time", false)]).unwrap(), "SELECT *\nFROM root.sg.d1\nORDER BY time ASC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(q, &[k("Time", false)]).unwrap(),
+            "SELECT *\nFROM root.sg.d1\nORDER BY time ASC\nLIMIT 200"
+        );
         assert_eq!(
             sorted_browse(q, &[k("root.sg.d1.temp", true), k("Time", false)]).unwrap(),
             "SELECT *\nFROM root.sg.d1\nORDER BY `temp` DESC, time ASC\nLIMIT 200"
         );
-        let f = filtered_browse(q, &[ColumnFilter { column: "root.sg.d1.status".into(), op: FilterOp::Eq, values: vec![json!("O'Brien LIMIT 3")], sql: None }])
-            .unwrap();
+        let f = filtered_browse(
+            q,
+            &[ColumnFilter {
+                column: "root.sg.d1.status".into(),
+                op: FilterOp::Eq,
+                values: vec![json!("O'Brien LIMIT 3")],
+                sql: None,
+            }],
+        )
+        .unwrap();
         assert_eq!(
             sorted_browse(&f, &[k("root.sg.d1.`odd``name`", false)]).unwrap(),
             "SELECT *\nFROM root.sg.d1\nWHERE `status` = 'O''Brien LIMIT 3'\nORDER BY `odd``name` ASC\nLIMIT 200"
@@ -1100,7 +1481,12 @@ mod tests {
     #[test]
     fn filtered_browse_names_measurements() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<J>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<J>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         assert_eq!(
             filtered_browse(
                 "SELECT *\nFROM root.sg.d1\nORDER BY time DESC\nLIMIT 200",
@@ -1116,7 +1502,11 @@ mod tests {
             .unwrap(),
             "SELECT *\nFROM root.sg.d1\nWHERE time >= 2024-01-31T13:45:00.500+00:00\n  AND `status` = 'O''Brien'\n  AND `temp` > 20.5\n  AND `note` LIKE '%a\\_b%'\n  AND `on` IS NULL\n  AND `code` IN (1, 2)\nORDER BY time DESC\nLIMIT 200"
         );
-        assert!(filtered_browse("SELECT *\nFROM root.sg.d1\nLIMIT 5", &[f("Time", FilterOp::IsNull, vec![])]).is_err());
+        assert!(filtered_browse(
+            "SELECT *\nFROM root.sg.d1\nLIMIT 5",
+            &[f("Time", FilterOp::IsNull, vec![])]
+        )
+        .is_err());
     }
 
     #[test]
@@ -1127,8 +1517,14 @@ mod tests {
         let t = to_table(&v, Precision::Ms);
         let names: Vec<_> = t.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["Time", "root.sg.d1.temp", "root.sg.d1.on"]);
-        assert_eq!(t.rows[0], vec![json!("2024-01-31 13:45:00"), json!(21.5), json!(true)]);
-        assert_eq!(t.rows[1], vec![json!("2024-01-31 13:45:00.500"), J::Null, json!(false)]);
+        assert_eq!(
+            t.rows[0],
+            vec![json!("2024-01-31 13:45:00"), json!(21.5), json!(true)]
+        );
+        assert_eq!(
+            t.rows[1],
+            vec![json!("2024-01-31 13:45:00.500"), J::Null, json!(false)]
+        );
     }
 
     #[test]
@@ -1136,7 +1532,13 @@ mod tests {
         let v = json!({"expressions":null,"column_names":["Device","IsAligned"],"data_types":null,"timestamps":null,
             "values":[["root.sg.d1","root.sg.d2"],["false","true"]]});
         let t = to_table(&v, Precision::Ms);
-        assert_eq!(t.rows, vec![vec![json!("root.sg.d1"), json!("false")], vec![json!("root.sg.d2"), json!("true")]]);
+        assert_eq!(
+            t.rows,
+            vec![
+                vec![json!("root.sg.d1"), json!("false")],
+                vec![json!("root.sg.d2"), json!("true")]
+            ]
+        );
         // Aggregates: expressions without timestamps.
         let v = json!({"expressions":["count(root.sg.d1.t)"],"data_types":["INT64"],"timestamps":null,"values":[[3]]});
         assert_eq!(to_table(&v, Precision::Ms).rows, vec![vec![json!(3)]]);
@@ -1144,48 +1546,92 @@ mod tests {
 
     #[test]
     fn precisions() {
-        assert_eq!(time_text(1_706_708_700_000_001, Precision::Us), json!("2024-01-31 13:45:00.000001"));
-        assert_eq!(time_text(1_706_708_700_000_000_000, Precision::Ns), json!("2024-01-31 13:45:00"));
+        assert_eq!(
+            time_text(1_706_708_700_000_001, Precision::Us),
+            json!("2024-01-31 13:45:00.000001")
+        );
+        assert_eq!(
+            time_text(1_706_708_700_000_000_000, Precision::Ns),
+            json!("2024-01-31 13:45:00")
+        );
     }
 
     #[test]
     fn routing_and_read_only() {
         assert!(is_query("  select * from root.sg.d1"));
-        assert!(is_query("SHOW DATABASES") && is_query("count timeseries root.**") && is_query("LIST USER"));
-        assert!(!is_query("INSERT INTO root.sg.d1(timestamp, t) VALUES (1, 2)"));
+        assert!(
+            is_query("SHOW DATABASES")
+                && is_query("count timeseries root.**")
+                && is_query("LIST USER")
+        );
+        assert!(!is_query(
+            "INSERT INTO root.sg.d1(timestamp, t) VALUES (1, 2)"
+        ));
         let s = |x: &str| dbine_driver::sql::split_statements(x);
         assert_eq!(first_write(&s("select * from root.a; show devices")), None);
-        assert_eq!(first_write(&s("show databases; delete database root.a")).as_deref(), Some("DELETE"));
-        assert_eq!(first_write(&s("select s1 into root.b(s1) from root.a")).as_deref(), Some("SELECT … INTO"));
+        assert_eq!(
+            first_write(&s("show databases; delete database root.a")).as_deref(),
+            Some("DELETE")
+        );
+        assert_eq!(
+            first_write(&s("select s1 into root.b(s1) from root.a")).as_deref(),
+            Some("SELECT … INTO")
+        );
     }
 
     #[test]
     fn limits_go_before_align_by() {
-        assert_eq!(with_limit("SELECT * FROM root.a", 5).unwrap(), "SELECT * FROM root.a LIMIT 5");
-        assert_eq!(with_limit("select * from root.a.** align by device", 5).unwrap(), "select * from root.a.** LIMIT 5 align by device");
+        assert_eq!(
+            with_limit("SELECT * FROM root.a", 5).unwrap(),
+            "SELECT * FROM root.a LIMIT 5"
+        );
+        assert_eq!(
+            with_limit("select * from root.a.** align by device", 5).unwrap(),
+            "select * from root.a.** LIMIT 5 align by device"
+        );
         assert!(with_limit("SELECT * FROM root.a LIMIT 3", 5).is_none());
         assert!(with_limit("SHOW TIMESERIES", 5).is_none());
     }
 
     #[test]
     fn urls() {
-        let cfg = ConnectionConfig { host: "iot".into(), ..Default::default() };
+        let cfg = ConnectionConfig {
+            host: "iot".into(),
+            ..Default::default()
+        };
         assert_eq!(base_url(&cfg), "http://iot:18080");
-        let cfg = ConnectionConfig { host: "https://iot.example.com/".into(), ..Default::default() };
+        let cfg = ConnectionConfig {
+            host: "https://iot.example.com/".into(),
+            ..Default::default()
+        };
         assert_eq!(base_url(&cfg), "https://iot.example.com");
     }
 
     #[test]
     fn metrics_endpoints() {
-        let mut cfg = ConnectionConfig { host: "iot".into(), port: 18080, ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            host: "iot".into(),
+            port: 18080,
+            ..Default::default()
+        };
         let m = metrics_url(&cfg);
-        assert_eq!((m.url.as_str(), m.explicit), ("http://iot:9092/metrics", false));
+        assert_eq!(
+            (m.url.as_str(), m.explicit),
+            ("http://iot:9092/metrics", false)
+        );
         cfg.host = "https://iot.example.com:18443/".into();
-        assert_eq!(metrics_url(&cfg).url, "https://iot.example.com:9092/metrics");
+        assert_eq!(
+            metrics_url(&cfg).url,
+            "https://iot.example.com:9092/metrics"
+        );
         cfg.options.insert("metrics_url".into(), "dn1:9093".into());
         let m = metrics_url(&cfg);
-        assert_eq!((m.url.as_str(), m.explicit), ("http://dn1:9093/metrics", true));
-        cfg.options.insert("metrics_url".into(), "https://dn1/prom".into());
+        assert_eq!(
+            (m.url.as_str(), m.explicit),
+            ("http://dn1:9093/metrics", true)
+        );
+        cfg.options
+            .insert("metrics_url".into(), "https://dn1/prom".into());
         assert_eq!(metrics_url(&cfg).url, "https://dn1/prom");
     }
 
@@ -1193,48 +1639,83 @@ mod tests {
     fn variants() {
         let ids: Vec<&str> = drivers().iter().map(|d| d.info().id).collect();
         assert_eq!(ids, ["iotdb", "timechodb"]);
-        assert!(drivers().iter().all(|d| d.capabilities().monitor && d.designer().is_some()));
+        assert!(drivers()
+            .iter()
+            .all(|d| d.capabilities().monitor && d.designer().is_some()));
     }
     fn device(aligned: bool) -> TableSchema {
         let col = |n: &str, t: &str, enc: &str| ColumnDef {
             name: n.into(),
             data_type: t.into(),
-            options: [("encoding".to_string(), enc.to_string()), ("compression".to_string(), "snappy".to_string())]
-                .into_iter()
-                .filter(|(_, v)| !v.is_empty())
-                .collect(),
+            options: [
+                ("encoding".to_string(), enc.to_string()),
+                ("compression".to_string(), "snappy".to_string()),
+            ]
+            .into_iter()
+            .filter(|(_, v)| !v.is_empty())
+            .collect(),
             ..Default::default()
         };
         TableSchema {
             kind: DEVICE.into(),
             schema: Some("root.sg".into()),
             name: "plant.d1".into(),
-            columns: vec![col("Time", "TIMESTAMP", ""), col("temp", "double", "GORILLA"), col("my-x", "INT32", "")],
-            options: if aligned { [("aligned".to_string(), "true".to_string())].into() } else { BTreeMap::new() },
+            columns: vec![
+                col("Time", "TIMESTAMP", ""),
+                col("temp", "double", "GORILLA"),
+                col("my-x", "INT32", ""),
+            ],
+            options: if aligned {
+                [("aligned".to_string(), "true".to_string())].into()
+            } else {
+                BTreeMap::new()
+            },
             ..Default::default()
         }
     }
 
     #[test]
     fn ddl() {
-        let all = DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true };
+        let all = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            indexes: true,
+            foreign_keys: true,
+        };
         assert_eq!(
             table_ddl(&device(false), all).unwrap(),
             "DELETE TIMESERIES root.sg.plant.d1.**;\n\
              CREATE TIMESERIES root.sg.plant.d1.temp WITH DATATYPE=DOUBLE, ENCODING=GORILLA, COMPRESSOR=SNAPPY;\n\
              CREATE TIMESERIES root.sg.plant.d1.`my-x` WITH DATATYPE=INT32, COMPRESSOR=SNAPPY;"
         );
-        let create = DdlParts { create: true, ..Default::default() };
+        let create = DdlParts {
+            create: true,
+            ..Default::default()
+        };
         assert_eq!(
             table_ddl(&device(true), create).unwrap(),
             "CREATE ALIGNED TIMESERIES root.sg.plant.d1(\n    temp DOUBLE encoding=GORILLA compressor=SNAPPY,\n    `my-x` INT32 compressor=SNAPPY\n);"
         );
-        assert_eq!(table_ddl(&device(true), DdlParts { indexes: true, foreign_keys: true, ..Default::default() }).unwrap(), "");
+        assert_eq!(
+            table_ddl(
+                &device(true),
+                DdlParts {
+                    indexes: true,
+                    foreign_keys: true,
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            ""
+        );
         let mut t = device(false);
         t.schema = None;
         assert!(table_ddl(&t, create).is_err());
         t.name = "root.x.d".into();
-        assert!(table_ddl(&t, create).unwrap().starts_with("CREATE TIMESERIES root.x.d.temp "));
+        assert!(table_ddl(&t, create)
+            .unwrap()
+            .starts_with("CREATE TIMESERIES root.x.d.temp "));
     }
 
     #[test]
@@ -1242,7 +1723,10 @@ mod tests {
         assert_eq!(database_path("root.a.b"), "root.a.b");
         assert_eq!(database_path("fábrica"), "root.`fábrica`");
         assert_eq!(database_path("a.b-c"), "root.a.`b-c`");
-        assert_eq!(split_path("root.sg.`a.b`.s1"), ["root", "sg", "`a.b`", "s1"]);
+        assert_eq!(
+            split_path("root.sg.`a.b`.s1"),
+            ["root", "sg", "`a.b`", "s1"]
+        );
         assert_eq!(unquote("`a``b`"), "a`b");
         assert_eq!(node("time"), "`time`");
         assert_eq!(node("123"), "`123`");
@@ -1250,10 +1734,24 @@ mod tests {
 
     #[test]
     fn inserts() {
-        let target = ObjectRef { kind: DEVICE.into(), schema: Some("root.sg".into()), name: "d1".into() };
-        let cols = ["Time".to_string(), "root.sg.d1.t".to_string(), "s".to_string(), "on".to_string()];
+        let target = ObjectRef {
+            kind: DEVICE.into(),
+            schema: Some("root.sg".into()),
+            name: "d1".into(),
+        };
+        let cols = [
+            "Time".to_string(),
+            "root.sg.d1.t".to_string(),
+            "s".to_string(),
+            "on".to_string(),
+        ];
         let rows = vec![
-            vec![json!("2024-01-31 13:45:00.500"), json!(1.5), json!("it's"), json!(true)],
+            vec![
+                json!("2024-01-31 13:45:00.500"),
+                json!(1.5),
+                json!("it's"),
+                json!(true),
+            ],
             vec![json!(1706708700000i64), J::Null, J::Null, json!(false)],
         ];
         assert_eq!(
@@ -1261,39 +1759,87 @@ mod tests {
             "INSERT INTO root.sg.d1(timestamp, t, s, on) VALUES\n    \
              (2024-01-31T13:45:00.500+00:00, 1.5, 'it''s', true),\n    (1706708700000, null, null, false);"
         );
-        assert!(matches!(insert_script(&target, &cols[1..], &rows), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            insert_script(&target, &cols[1..], &rows),
+            Err(Error::Unsupported(_))
+        ));
         let many: Vec<Vec<J>> = (0..150).map(|i| vec![json!(i), json!(i)]).collect();
-        assert_eq!(insert_script(&target, &cols[..2], &many).unwrap().matches("INSERT INTO").count(), 2);
+        assert_eq!(
+            insert_script(&target, &cols[..2], &many)
+                .unwrap()
+                .matches("INSERT INTO")
+                .count(),
+            2
+        );
     }
 
     #[test]
     fn updates_overwrite_points() {
-        let target = ObjectRef { kind: DEVICE.into(), schema: Some("root.sg".into()), name: "d1".into() };
+        let target = ObjectRef {
+            kind: DEVICE.into(),
+            schema: Some("root.sg".into()),
+            name: "d1".into(),
+        };
         let c = RowChange {
             key: vec![("Time".into(), json!("2024-01-31 13:45:00.500"))],
-            set: vec![("root.sg.d1.s".into(), json!("it's")), ("t".into(), J::Null), ("on".into(), json!(true))], ..Default::default()
+            set: vec![
+                ("root.sg.d1.s".into(), json!("it's")),
+                ("t".into(), J::Null),
+                ("on".into(), json!(true)),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(&target, &[c, RowChange::default()]).unwrap(),
             "INSERT INTO root.sg.d1(timestamp, s, on) VALUES (2024-01-31T13:45:00.500+00:00, 'it''s', true);\n\
              DELETE FROM root.sg.d1.t WHERE time = 2024-01-31T13:45:00.500+00:00;"
         );
-        let no_time = RowChange { key: vec![], set: vec![("t".into(), json!(1))], ..Default::default() };
-        assert!(matches!(update_script(&target, &[no_time]), Err(Error::Unsupported(_))));
-        let null_time = RowChange { key: vec![("Time".into(), J::Null)], set: vec![("t".into(), json!(1))], ..Default::default() };
-        assert!(matches!(update_script(&target, &[null_time]), Err(Error::Unsupported(_))));
+        let no_time = RowChange {
+            key: vec![],
+            set: vec![("t".into(), json!(1))],
+            ..Default::default()
+        };
+        assert!(matches!(
+            update_script(&target, &[no_time]),
+            Err(Error::Unsupported(_))
+        ));
+        let null_time = RowChange {
+            key: vec![("Time".into(), J::Null)],
+            set: vec![("t".into(), json!(1))],
+            ..Default::default()
+        };
+        assert!(matches!(
+            update_script(&target, &[null_time]),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn deletes_points_by_time() {
-        let target = ObjectRef { kind: DEVICE.into(), schema: Some("root.sg".into()), name: "d1".into() };
-        let keys = vec![vec![("s".into(), json!("it's")), ("Time".into(), json!("2024-01-31 13:45:00.500"))], vec![("Time".into(), json!(1706708700000_i64))]];
+        let target = ObjectRef {
+            kind: DEVICE.into(),
+            schema: Some("root.sg".into()),
+            name: "d1".into(),
+        };
+        let keys = vec![
+            vec![
+                ("s".into(), json!("it's")),
+                ("Time".into(), json!("2024-01-31 13:45:00.500")),
+            ],
+            vec![("Time".into(), json!(1706708700000_i64))],
+        ];
         assert_eq!(
             delete_script(&target, &keys).unwrap(),
             "DELETE FROM root.sg.d1.* WHERE time = 2024-01-31T13:45:00.500+00:00;\n\
              DELETE FROM root.sg.d1.* WHERE time = 1706708700000;"
         );
-        assert!(matches!(delete_script(&target, &[vec![("s".into(), json!(1))]]), Err(Error::Unsupported(_))));
-        assert!(matches!(delete_script(&target, &[vec![("Time".into(), J::Null)]]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            delete_script(&target, &[vec![("s".into(), json!(1))]]),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            delete_script(&target, &[vec![("Time".into(), J::Null)]]),
+            Err(Error::Unsupported(_))
+        ));
     }
 }

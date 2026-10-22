@@ -22,12 +22,17 @@ const MARK: &str = "dbine-processes-list";
 /// A job id as Dremio prints it (`1b2c3d4e-…`: hex and dashes).
 pub(crate) fn valid_id(id: &str) -> Option<&str> {
     let id = id.trim();
-    (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')).then_some(id)
+    (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+        .then_some(id)
 }
 
 /// The statement's first word, upper-cased ("SELECT", "CREATE"…).
 fn command(sql: &str) -> Option<String> {
-    let word: String = sql.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let word: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     (!word.is_empty()).then(|| word.to_ascii_uppercase())
 }
 
@@ -61,7 +66,9 @@ fn row(r: &Map<String, Value>, now: u64) -> ServerProcess {
         // How it was sent: UI_RUN, REST, JDBC, ODBC, FLIGHT…
         program: opt(r, "query_type"),
         command: sql.as_deref().and_then(command),
-        elapsed_ms: num(r, "submitted_epoch_millis").filter(|t| *t > 0).map(|t| now.saturating_sub(t)),
+        elapsed_ms: num(r, "submitted_epoch_millis")
+            .filter(|t| *t > 0)
+            .map(|t| now.saturating_sub(t)),
         cpu_ms: num(r, "execution_cpu_time_millis"),
         reads: num(r, "rows_scanned"),
         // The queue only matters while the job waits in it.
@@ -85,18 +92,33 @@ impl DremioSession {
         let rows = tokio::time::timeout(QUERY_LIMIT, self.records(&sql))
             .await
             .map_err(|_| Error::Query("la lista de trabajos tardó demasiado".into()))??;
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        Ok(rows.iter().map(|r| row(r, now)).filter(|p| !p.id.is_empty()).collect())
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        Ok(rows
+            .iter()
+            .map(|r| row(r, now))
+            .filter(|p| !p.id.is_empty())
+            .collect())
     }
 
     pub(crate) async fn cancel_running(&self, id: &str) -> Result<()> {
-        let id = valid_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de trabajo de Dremio", id.trim())))?;
+        let id = valid_id(id).ok_or_else(|| {
+            Error::Query(format!("«{}» no es un id de trabajo de Dremio", id.trim()))
+        })?;
         self.conn
-            .send(reqwest::Method::POST, &format!("/api/v3/job/{id}/cancel"), None)
+            .send(
+                reqwest::Method::POST,
+                &format!("/api/v3/job/{id}/cancel"),
+                None,
+            )
             .await
             .map(|_| ())
             .map_err(|e| match e {
-                Error::Query(m) => Error::Query(format!("no se pudo cancelar el trabajo {id}: {m}")),
+                Error::Query(m) => {
+                    Error::Query(format!("no se pudo cancelar el trabajo {id}: {m}"))
+                }
                 e => e,
             })
     }
@@ -109,7 +131,10 @@ mod tests {
 
     #[test]
     fn ids_are_checked() {
-        assert_eq!(valid_id(" 1b2c3d4e-5f60-7a8b-9c0d-e1f2a3b4c5d6 "), Some("1b2c3d4e-5f60-7a8b-9c0d-e1f2a3b4c5d6"));
+        assert_eq!(
+            valid_id(" 1b2c3d4e-5f60-7a8b-9c0d-e1f2a3b4c5d6 "),
+            Some("1b2c3d4e-5f60-7a8b-9c0d-e1f2a3b4c5d6")
+        );
         assert_eq!(valid_id("../../catalog"), None);
         assert_eq!(valid_id(""), None);
     }
@@ -127,6 +152,9 @@ mod tests {
         assert_eq!(p.wait, None);
         assert_eq!(p.command.as_deref(), Some("SELECT"));
         let q = json!({"job_id": "1b2d", "status": "ENQUEUED", "queue_name": "SMALL"});
-        assert_eq!(row(q.as_object().unwrap(), 0).wait.as_deref(), Some("cola SMALL"));
+        assert_eq!(
+            row(q.as_object().unwrap(), 0).wait.as_deref(),
+            Some("cola SMALL")
+        );
     }
 }

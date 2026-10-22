@@ -31,7 +31,10 @@ fn num(v: Option<&Value>) -> Option<f64> {
 }
 
 impl TdSession {
-    pub(crate) async fn profiler_begin(&self, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+    pub(crate) async fn profiler_begin(
+        &self,
+        opts: &ProfilerOptions,
+    ) -> Result<(State, ProfilerStarted)> {
         let now = self.records("SELECT CAST(NOW() AS BIGINT) AS t").await?;
         let now = now.first().and_then(|r| num(r.get("t"))).unwrap_or(0.0) as i64;
         // Fail now (no privilege on performance_schema) rather than at every poll.
@@ -44,8 +47,11 @@ impl TdSession {
             note.push_str(" No informa la base de cada consulta: se ven las de todo el servidor.");
         }
         Ok((
-            State { sampler: Sampler::new(utc(now * 1000)) },
-            ProfilerStarted::new(ProfilerMode::Sampled, "performance_schema.perf_queries").note(note),
+            State {
+                sampler: Sampler::new(utc(now * 1000)),
+            },
+            ProfilerStarted::new(ProfilerMode::Sampled, "performance_schema.perf_queries")
+                .note(note),
         ))
     }
 
@@ -72,7 +78,9 @@ impl TdSession {
                         user: t("user"),
                         client: t("user_ip").or_else(|| t("end_point")),
                         application: t("user_app").or_else(|| t("app")),
-                        detail: num(r.get("sub_num")).filter(|n| *n > 0.0).map(|n| format!("subconsultas: {n}")),
+                        detail: num(r.get("sub_num"))
+                            .filter(|n| *n > 0.0)
+                            .map(|n| format!("subconsultas: {n}")),
                         ..Default::default()
                     })
                 })
@@ -101,7 +109,13 @@ fn utc(us: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}", rem / 3_600_000, rem / 60_000 % 60, rem / 1000 % 60, rem % 1000)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}",
+        rem / 3_600_000,
+        rem / 60_000 % 60,
+        rem / 1000 % 60,
+        rem % 1000
+    )
 }
 
 #[cfg(test)]

@@ -13,7 +13,11 @@ const BIG_READ_GRANULES: f64 = 12.0;
 
 /// SELECT-like statements: the only ones ClickHouse explains as JSON.
 pub(crate) fn explainable(stmt: &str) -> bool {
-    let kw: String = stmt.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let kw: String = stmt
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     matches!(kw.to_ascii_lowercase().as_str(), "select" | "with")
 }
 
@@ -75,14 +79,22 @@ fn node(p: &Value) -> PlanNode {
             }
         }
     }
-    n.children = p.get("Plans").and_then(Value::as_array).map(|a| a.iter().map(node).collect()).unwrap_or_default();
+    n.children = p
+        .get("Plans")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(node).collect())
+        .unwrap_or_default();
     n
 }
 
 /// `{"Type": "PrimaryKey", "Condition": …, "Initial Granules": 24, "Selected Granules": 1}`.
 fn index_props(idx: &Value, n: &mut PlanNode) {
     let ty = idx.get("Type").map(text).unwrap_or_else(|| "Index".into());
-    let name = idx.get("Name").map(text).map(|x| format!("{ty} {x}")).unwrap_or(ty.clone());
+    let name = idx
+        .get("Name")
+        .map(text)
+        .map(|x| format!("{ty} {x}"))
+        .unwrap_or(ty.clone());
     let g = |k: &str| idx.get(k).and_then(Value::as_f64);
     let mut parts = Vec::new();
     if let Some(c) = idx.get("Condition").map(text) {
@@ -96,7 +108,10 @@ fn index_props(idx: &Value, n: &mut PlanNode) {
         if ty == "PrimaryKey" {
             n.est_rows = Some(sel * GRANULE_ROWS);
             if sel >= init && init >= BIG_READ_GRANULES {
-                n.warnings.push(format!("El índice primario no descarta gránulos: lee los {init} (~{} filas)", (init * GRANULE_ROWS) as u64));
+                n.warnings.push(format!(
+                    "El índice primario no descarta gránulos: lee los {init} (~{} filas)",
+                    (init * GRANULE_ROWS) as u64
+                ));
             }
         }
     }
@@ -136,7 +151,10 @@ mod tests {
     fn steps_become_a_tree() {
         let p = plan_json("q", PLAN).unwrap();
         assert!(!p.actual);
-        assert_eq!((p.root.op.as_str(), p.root.detail.as_str()), ("Expression", "Project names"));
+        assert_eq!(
+            (p.root.op.as_str(), p.root.detail.as_str()),
+            ("Expression", "Project names")
+        );
         let join = &p.root.children[0];
         assert_eq!(join.detail, "JOIN FillRightFirst");
         let [b, a] = &join.children[..] else { panic!() };
@@ -144,8 +162,14 @@ mod tests {
         assert!(b.warnings.iter().any(|w| w.contains("no descarta")));
         assert_eq!(a.est_rows, Some(8192.0));
         assert!(a.warnings.is_empty());
-        assert!(a.props.iter().any(|(k, v)| k == "Índice PrimaryKey" && v.contains("gránulos 1/24")));
+        assert!(a
+            .props
+            .iter()
+            .any(|(k, v)| k == "Índice PrimaryKey" && v.contains("gránulos 1/24")));
         assert!(a.props.iter().any(|(k, _)| k == "Índice Skip idx_g"));
-        assert!(explainable("WITH x AS (SELECT 1) SELECT * FROM x") && !explainable("INSERT INTO t SELECT 1"));
+        assert!(
+            explainable("WITH x AS (SELECT 1) SELECT * FROM x")
+                && !explainable("INSERT INTO t SELECT 1")
+        );
     }
 }

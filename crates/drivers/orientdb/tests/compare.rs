@@ -8,22 +8,39 @@
 //!   cargo test -p dbine-driver-orientdb --test compare -- --ignored --nocapture
 //! ```
 
-use dbine_driver::{kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session, TableChange, TableSchema};
+use dbine_driver::{
+    kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session, TableChange, TableSchema,
+};
 
 fn cfg(url: &str) -> ConnectionConfig {
     let (auth, hp) = url.rsplit_once('@').unwrap();
     let (user, pass) = auth.split_once(':').unwrap();
     let (host, port) = hp.rsplit_once(':').unwrap();
-    ConnectionConfig { driver: "orientdb".into(), host: host.into(), port: port.parse().unwrap(), username: Some(user.into()), password: Some(pass.into()), ..Default::default() }
+    ConnectionConfig {
+        driver: "orientdb".into(),
+        host: host.into(),
+        port: port.parse().unwrap(),
+        username: Some(user.into()),
+        password: Some(pass.into()),
+        ..Default::default()
+    }
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(text, 10, &mut out).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
 }
 
 async fn class(s: &mut Box<dyn Session>) -> TableSchema {
-    let mut t = s.database_schema().await.unwrap().into_iter().find(|t| t.name == "Doc").expect("Doc");
+    let mut t = s
+        .database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.name == "Doc")
+        .expect("Doc");
     t.indexes.sort_by(|a, b| a.name.cmp(&b.name));
     t
 }
@@ -31,7 +48,9 @@ async fn class(s: &mut Box<dyn Session>) -> TableSchema {
 #[tokio::test]
 #[ignore]
 async fn compare_and_sync() {
-    let Ok(url) = std::env::var("DBINE_TEST_ORIENTDB_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_ORIENTDB_URL") else {
+        return;
+    };
     let d = dbine_driver_orientdb::drivers().remove(0);
     let c = cfg(&url);
     let mut admin = d.connect(&c, None).await.expect("connect");
@@ -57,13 +76,22 @@ async fn compare_and_sync() {
     let dst = class(&mut b).await;
     println!("{:#?}", src.indexes);
     assert_ne!(src.indexes, dst.indexes);
-    let seq = ObjectRef { kind: kinds::SEQUENCE.into(), schema: None, name: "folio".into() };
+    let seq = ObjectRef {
+        kind: kinds::SEQUENCE.into(),
+        schema: None,
+        name: "folio".into(),
+    };
     let def = a.definition(&seq).await.unwrap().unwrap();
     // Using it doesn't change its definition.
     run(&mut a, "SELECT sequence('folio').next()").await;
     assert_eq!(a.definition(&seq).await.unwrap().unwrap(), def);
 
-    let script = d.sync_script(&[TableChange::Alter { old: dst, new: src.clone() }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Alter {
+            old: dst,
+            new: src.clone(),
+        }])
+        .unwrap();
     println!("{script:#?}");
     for st in &script.statements {
         run(&mut b, st).await;

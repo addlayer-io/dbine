@@ -37,13 +37,20 @@ async fn finds_what_was_broken() {
         eprintln!("DBINE_TEST_CLICKHOUSE_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == "clickhouse").unwrap();
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "clickhouse")
+        .unwrap();
     let mut s = d.connect(&cfg, None).await.unwrap();
     let _ = s.drop_database("dbine_health").await;
     s.create_database("dbine_health").await.unwrap();
 
     // One part per row, with merges stopped: 600 parts in one partition.
-    run(&mut s, "CREATE TABLE dbine_health.eventos (id UInt64) ENGINE = MergeTree ORDER BY id").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbine_health.eventos (id UInt64) ENGINE = MergeTree ORDER BY id",
+    )
+    .await;
     run(&mut s, "SYSTEM STOP MERGES dbine_health.eventos").await;
     run(
         &mut s,
@@ -52,13 +59,29 @@ async fn finds_what_was_broken() {
     )
     .await;
     // A part set aside by hand.
-    run(&mut s, "CREATE TABLE dbine_health.ventas (id UInt64) ENGINE = MergeTree ORDER BY id").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbine_health.ventas (id UInt64) ENGINE = MergeTree ORDER BY id",
+    )
+    .await;
     run(&mut s, "INSERT INTO dbine_health.ventas VALUES (1)").await;
-    run(&mut s, "ALTER TABLE dbine_health.ventas DETACH PART 'all_1_1_0'").await;
+    run(
+        &mut s,
+        "ALTER TABLE dbine_health.ventas DETACH PART 'all_1_1_0'",
+    )
+    .await;
     // A mutation that fails on every try.
-    run(&mut s, "CREATE TABLE dbine_health.precios (id UInt64, v UInt64) ENGINE = MergeTree ORDER BY id").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbine_health.precios (id UInt64, v UInt64) ENGINE = MergeTree ORDER BY id",
+    )
+    .await;
     run(&mut s, "INSERT INTO dbine_health.precios VALUES (1, 1)").await;
-    run(&mut s, "ALTER TABLE dbine_health.precios UPDATE v = throwIf(id > 0, 'dbine falla') WHERE 1").await;
+    run(
+        &mut s,
+        "ALTER TABLE dbine_health.precios UPDATE v = throwIf(id > 0, 'dbine falla') WHERE 1",
+    )
+    .await;
     let mut failing = false;
     for _ in 0..30 {
         let mut out = QueryOutcome::default();
@@ -69,7 +92,14 @@ async fn finds_what_was_broken() {
         )
         .await
         .unwrap();
-        if out.results.first().and_then(|r| r.rows.first()).and_then(|r| r.first()).map(|v| v.to_string().trim_matches('"') != "0") == Some(true) {
+        if out
+            .results
+            .first()
+            .and_then(|r| r.rows.first())
+            .and_then(|r| r.first())
+            .map(|v| v.to_string().trim_matches('"') != "0")
+            == Some(true)
+        {
             failing = true;
             break;
         }
@@ -79,22 +109,53 @@ async fn finds_what_was_broken() {
 
     let checks = s.health_checks("dbine_health").await.unwrap();
     for c in &checks {
-        eprintln!("{:?} [{}] {} {:?}\n  fix: {:?}", c.severity, c.id, c.title, c.objects, c.fix);
+        eprintln!(
+            "{:?} [{}] {} {:?}\n  fix: {:?}",
+            c.severity, c.id, c.title, c.objects, c.fix
+        );
     }
-    let get = |id: &str| checks.iter().find(|c| c.id == id).unwrap_or_else(|| panic!("{id}"));
+    let get = |id: &str| {
+        checks
+            .iter()
+            .find(|c| c.id == id)
+            .unwrap_or_else(|| panic!("{id}"))
+    };
     assert!(get("too_many_parts").severity >= Severity::Warning);
-    assert!(get("too_many_parts").objects.iter().any(|o| o.starts_with("eventos (")));
-    assert!(get("too_many_parts").fix.as_deref().unwrap().contains("OPTIMIZE TABLE `dbine_health`.`eventos`"));
+    assert!(get("too_many_parts")
+        .objects
+        .iter()
+        .any(|o| o.starts_with("eventos (")));
+    assert!(get("too_many_parts")
+        .fix
+        .as_deref()
+        .unwrap()
+        .contains("OPTIMIZE TABLE `dbine_health`.`eventos`"));
     assert_eq!(get("detached_parts").severity, Severity::Info);
-    assert!(get("detached_parts").objects.iter().any(|o| o.starts_with("ventas · all_1_1_0")));
+    assert!(get("detached_parts")
+        .objects
+        .iter()
+        .any(|o| o.starts_with("ventas · all_1_1_0")));
     assert_eq!(get("stuck_mutations").severity, Severity::Warning);
-    assert!(get("stuck_mutations").objects.iter().any(|o| o.starts_with("precios · ") && o.contains("dbine falla")));
-    assert!(!checks.iter().any(|c| c.id == "replication"), "no replicated tables");
+    assert!(get("stuck_mutations")
+        .objects
+        .iter()
+        .any(|o| o.starts_with("precios · ") && o.contains("dbine falla")));
+    assert!(
+        !checks.iter().any(|c| c.id == "replication"),
+        "no replicated tables"
+    );
 
     // Kill the mutation with the fix: it goes away.
     run(&mut s, get("stuck_mutations").fix.clone().unwrap().as_str()).await;
     let again = s.health_checks("dbine_health").await.unwrap();
-    assert_eq!(again.iter().find(|c| c.id == "stuck_mutations").unwrap().severity, Severity::Ok);
+    assert_eq!(
+        again
+            .iter()
+            .find(|c| c.id == "stuck_mutations")
+            .unwrap()
+            .severity,
+        Severity::Ok
+    );
 
     s.drop_database("dbine_health").await.unwrap();
 }

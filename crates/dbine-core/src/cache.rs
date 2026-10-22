@@ -51,11 +51,19 @@ impl ExplorerCache {
              );",
         )
         .map_err(db_err)?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     /// The last answer stored for this entry (JSON), if any.
-    pub fn get(&self, connection_id: &str, database: &str, kind: &str, item: &str) -> Result<Option<String>> {
+    pub fn get(
+        &self,
+        connection_id: &str,
+        database: &str,
+        kind: &str,
+        item: &str,
+    ) -> Result<Option<String>> {
         self.conn
             .lock()
             .unwrap()
@@ -69,7 +77,14 @@ impl ExplorerCache {
     }
 
     /// Store the server's answer, replacing the previous one.
-    pub fn put(&self, connection_id: &str, database: &str, kind: &str, item: &str, payload: &str) -> Result<()> {
+    pub fn put(
+        &self,
+        connection_id: &str,
+        database: &str,
+        kind: &str,
+        item: &str,
+        payload: &str,
+    ) -> Result<()> {
         self.conn
             .lock()
             .unwrap()
@@ -78,14 +93,27 @@ impl ExplorerCache {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT (connection_id, database, kind, item)
                  DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
-                params![connection_id, database, kind, item, payload, chrono::Utc::now().to_rfc3339()],
+                params![
+                    connection_id,
+                    database,
+                    kind,
+                    item,
+                    payload,
+                    chrono::Utc::now().to_rfc3339()
+                ],
             )
             .map(|_| ())
             .map_err(db_err)
     }
 
     /// Forget one entry (an object that no longer exists).
-    pub fn remove(&self, connection_id: &str, database: &str, kind: &str, item: &str) -> Result<()> {
+    pub fn remove(
+        &self,
+        connection_id: &str,
+        database: &str,
+        kind: &str,
+        item: &str,
+    ) -> Result<()> {
         self.conn
             .lock()
             .unwrap()
@@ -102,7 +130,10 @@ impl ExplorerCache {
         self.conn
             .lock()
             .unwrap()
-            .execute("DELETE FROM explorer WHERE connection_id = ?1", params![connection_id])
+            .execute(
+                "DELETE FROM explorer WHERE connection_id = ?1",
+                params![connection_id],
+            )
             .map(|_| ())
             .map_err(db_err)
     }
@@ -117,14 +148,21 @@ mod tests {
         let c = ExplorerCache::open_in_memory().unwrap();
         assert_eq!(c.get("c1", "", kinds::DATABASES, "").unwrap(), None);
         c.put("c1", "", kinds::DATABASES, "", r#"["a"]"#).unwrap();
-        c.put("c1", "", kinds::DATABASES, "", r#"["a","b"]"#).unwrap();
+        c.put("c1", "", kinds::DATABASES, "", r#"["a","b"]"#)
+            .unwrap();
         c.put("c1", "a", kinds::OBJECTS, "", "[]").unwrap();
         c.put("c2", "", kinds::DATABASES, "", r#"["x"]"#).unwrap();
-        assert_eq!(c.get("c1", "", kinds::DATABASES, "").unwrap().as_deref(), Some(r#"["a","b"]"#));
+        assert_eq!(
+            c.get("c1", "", kinds::DATABASES, "").unwrap().as_deref(),
+            Some(r#"["a","b"]"#)
+        );
         c.remove("c1", "a", kinds::OBJECTS, "").unwrap();
         assert_eq!(c.get("c1", "a", kinds::OBJECTS, "").unwrap(), None);
         c.forget_connection("c1").unwrap();
         assert_eq!(c.get("c1", "", kinds::DATABASES, "").unwrap(), None);
-        assert_eq!(c.get("c2", "", kinds::DATABASES, "").unwrap().as_deref(), Some(r#"["x"]"#));
+        assert_eq!(
+            c.get("c2", "", kinds::DATABASES, "").unwrap().as_deref(),
+            Some(r#"["x"]"#)
+        );
     }
 }

@@ -2,12 +2,12 @@
 //! `CREATE TABLE` / `CREATE INDEX` extensions (see `admin`) and PartiQL
 //! `INSERT … VALUE` for rows.
 
+use dbine_driver::filter::{insert_where, sql_condition, ColumnFilter, FilterOp, SqlFilterStyle};
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{
-    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, Result, RowChange,
-    TableSchema,
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef,
+    Result, RowChange, TableSchema,
 };
-use dbine_driver::filter::{insert_where, sql_condition, ColumnFilter, FilterOp, SqlFilterStyle};
 use serde_json::{json, Map, Value as Json};
 
 pub(crate) const KEY_TYPE: &str = "key_type";
@@ -116,29 +116,46 @@ pub(crate) fn q(name: &str) -> String {
 }
 
 fn opt<'a>(t: &'a TableSchema, key: &str) -> Option<&'a str> {
-    t.options.get(key).map(|v| v.trim()).filter(|v| !v.is_empty() && *v != "none")
+    t.options
+        .get(key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty() && *v != "none")
 }
 
 /// Partition and sort key of the designed table: the "Clave" option of
 /// each attribute, else the primary key's columns (partition, sort).
 pub(crate) fn table_keys(t: &TableSchema) -> Result<(String, Option<String>)> {
     let marked = |kt: &str| -> Vec<&ColumnDef> {
-        t.columns.iter().filter(|c| c.options.get(KEY_TYPE).is_some_and(|v| v.eq_ignore_ascii_case(kt))).collect()
+        t.columns
+            .iter()
+            .filter(|c| {
+                c.options
+                    .get(KEY_TYPE)
+                    .is_some_and(|v| v.eq_ignore_ascii_case(kt))
+            })
+            .collect()
     };
     let (hash, range) = (marked("HASH"), marked("RANGE"));
     if hash.len() > 1 || range.len() > 1 {
-        return Err(Error::Query("La tabla admite una sola clave de partición (HASH) y una sola de ordenación (RANGE).".into()));
+        return Err(Error::Query(
+            "La tabla admite una sola clave de partición (HASH) y una sola de ordenación (RANGE)."
+                .into(),
+        ));
     }
     if let Some(h) = hash.first() {
         return Ok((h.name.clone(), range.first().map(|r| r.name.clone())));
     }
     if !range.is_empty() {
-        return Err(Error::Query("Falta la clave de partición: marcá un atributo como HASH.".into()));
+        return Err(Error::Query(
+            "Falta la clave de partición: marcá un atributo como HASH.".into(),
+        ));
     }
     match t.primary_key.as_ref().map(|k| k.columns.as_slice()) {
         Some([h]) => Ok((h.clone(), None)),
         Some([h, r]) => Ok((h.clone(), Some(r.clone()))),
-        _ => Err(Error::Query("Falta la clave de partición: marcá un atributo como HASH.".into())),
+        _ => Err(Error::Query(
+            "Falta la clave de partición: marcá un atributo como HASH.".into(),
+        )),
     }
 }
 
@@ -153,11 +170,11 @@ fn key_schema(hash: &str, range: Option<&str>) -> Json {
 fn capacity(t: &TableSchema, key: &str) -> Result<i64> {
     match opt(t, key) {
         None => Ok(DEFAULT_CAPACITY),
-        Some(v) => v
-            .parse::<i64>()
-            .ok()
-            .filter(|n| *n > 0)
-            .ok_or_else(|| Error::Query(format!("La capacidad «{v}» no es un número entero positivo."))),
+        Some(v) => v.parse::<i64>().ok().filter(|n| *n > 0).ok_or_else(|| {
+            Error::Query(format!(
+                "La capacidad «{v}» no es un número entero positivo."
+            ))
+        }),
     }
 }
 
@@ -166,7 +183,9 @@ fn provisioned(t: &TableSchema) -> Result<Option<Json>> {
     if !mode.eq_ignore_ascii_case("PROVISIONED") {
         return Ok(None);
     }
-    Ok(Some(json!({ "ReadCapacityUnits": capacity(t, READ_CAPACITY)?, "WriteCapacityUnits": capacity(t, WRITE_CAPACITY)? })))
+    Ok(Some(
+        json!({ "ReadCapacityUnits": capacity(t, READ_CAPACITY)?, "WriteCapacityUnits": capacity(t, WRITE_CAPACITY)? }),
+    ))
 }
 
 pub(crate) enum IndexKind {
@@ -177,9 +196,15 @@ pub(crate) enum IndexKind {
 pub(crate) fn index_kind(i: &IndexDef) -> Result<IndexKind> {
     match i.kind.as_deref().map(str::trim).unwrap_or("") {
         "" => Ok(IndexKind::Global),
-        k if k.eq_ignore_ascii_case("gsi") || k.eq_ignore_ascii_case("global") => Ok(IndexKind::Global),
-        k if k.eq_ignore_ascii_case("lsi") || k.eq_ignore_ascii_case("local") => Ok(IndexKind::Local),
-        k => Err(Error::Query(format!("Tipo de índice «{k}» desconocido: usá GSI o LSI."))),
+        k if k.eq_ignore_ascii_case("gsi") || k.eq_ignore_ascii_case("global") => {
+            Ok(IndexKind::Global)
+        }
+        k if k.eq_ignore_ascii_case("lsi") || k.eq_ignore_ascii_case("local") => {
+            Ok(IndexKind::Local)
+        }
+        k => Err(Error::Query(format!(
+            "Tipo de índice «{k}» desconocido: usá GSI o LSI."
+        ))),
     }
 }
 
@@ -249,7 +274,10 @@ pub(crate) fn create_table_spec(t: &TableSchema, indexes: bool) -> Result<Json> 
         }
     }
     let mut body = Map::new();
-    body.insert("AttributeDefinitions".into(), attribute_definitions(t, &key_attrs)?);
+    body.insert(
+        "AttributeDefinitions".into(),
+        attribute_definitions(t, &key_attrs)?,
+    );
     body.insert("KeySchema".into(), key_schema(&hash, range.as_deref()));
     match throughput {
         Some(p) => {
@@ -267,10 +295,16 @@ pub(crate) fn create_table_spec(t: &TableSchema, indexes: bool) -> Result<Json> 
         body.insert("LocalSecondaryIndexes".into(), lsis.into());
     }
     if let Some(v) = opt(t, STREAM_VIEW_TYPE) {
-        body.insert("StreamSpecification".into(), json!({ "StreamEnabled": true, "StreamViewType": v }));
+        body.insert(
+            "StreamSpecification".into(),
+            json!({ "StreamEnabled": true, "StreamViewType": v }),
+        );
     }
     if let Some(a) = opt(t, TTL_ATTRIBUTE) {
-        body.insert("TimeToLiveSpecification".into(), json!({ "AttributeName": a, "Enabled": true }));
+        body.insert(
+            "TimeToLiveSpecification".into(),
+            json!({ "AttributeName": a, "Enabled": true }),
+        );
     }
     Ok(Json::Object(body))
 }
@@ -303,11 +337,20 @@ pub(crate) const PROJECTION_TYPE: &str = "ProjectionType";
 
 /// The `Projection` of an index.
 pub(crate) fn projection(i: &IndexDef) -> Json {
-    let attrs: Vec<&str> = i.include.iter().map(|a| a.trim()).filter(|a| !a.is_empty()).collect();
+    let attrs: Vec<&str> = i
+        .include
+        .iter()
+        .map(|a| a.trim())
+        .filter(|a| !a.is_empty())
+        .collect();
     if !attrs.is_empty() {
         return json!({ "ProjectionType": "INCLUDE", "NonKeyAttributes": attrs });
     }
-    match i.options.get(PROJECTION_TYPE).map(|t| t.trim().to_ascii_uppercase()) {
+    match i
+        .options
+        .get(PROJECTION_TYPE)
+        .map(|t| t.trim().to_ascii_uppercase())
+    {
         Some(t) if t == "KEYS_ONLY" => json!({ "ProjectionType": "KEYS_ONLY" }),
         _ => json!({ "ProjectionType": "ALL" }),
     }
@@ -330,13 +373,21 @@ pub(crate) fn create_index_statements(t: &TableSchema) -> Result<Vec<String>> {
         let mut names = vec![h.clone()];
         names.extend(r.clone());
         let mut o = Map::new();
-        o.insert("AttributeDefinitions".into(), attribute_definitions(t, &names)?);
+        o.insert(
+            "AttributeDefinitions".into(),
+            attribute_definitions(t, &names)?,
+        );
         o.insert("KeySchema".into(), key_schema(&h, r.as_deref()));
         o.insert("Projection".into(), projection(i));
         if let Some(p) = &throughput {
             o.insert("ProvisionedThroughput".into(), p.clone());
         }
-        out.push(format!("CREATE INDEX {} ON {} {};", q(&i.name), q(&t.name), pretty(&Json::Object(o))));
+        out.push(format!(
+            "CREATE INDEX {} ON {} {};",
+            q(&i.name),
+            q(&t.name),
+            pretty(&Json::Object(o))
+        ));
     }
     Ok(out)
 }
@@ -351,13 +402,21 @@ pub(crate) fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     let mut stmts = Vec::new();
     if parts.drop {
-        stmts.push(format!("DROP TABLE {}{};", if parts.if_exists { "IF EXISTS " } else { "" }, q(&t.name)));
+        stmts.push(format!(
+            "DROP TABLE {}{};",
+            if parts.if_exists { "IF EXISTS " } else { "" },
+            q(&t.name)
+        ));
     }
     if parts.create {
         let spec = create_table_spec(t, parts.indexes)?;
         stmts.push(format!(
             "CREATE TABLE {}{} {};",
-            if parts.if_exists { "IF NOT EXISTS " } else { "" },
+            if parts.if_exists {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             q(&t.name),
             pretty(&spec)
         ));
@@ -382,7 +441,10 @@ pub(crate) fn literal(v: &Json) -> String {
         Json::Array(a) => format!("[{}]", a.iter().map(literal).collect::<Vec<_>>().join(", ")),
         Json::Object(o) => format!(
             "{{{}}}",
-            o.iter().map(|(k, v)| format!("'{}': {}", k.replace('\'', "''"), literal(v))).collect::<Vec<_>>().join(", ")
+            o.iter()
+                .map(|(k, v)| format!("'{}': {}", k.replace('\'', "''"), literal(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
     }
 }
@@ -401,7 +463,11 @@ pub(crate) fn insert_script(table: &str, columns: &[String], rows: &[Vec<Json>])
         if attrs.is_empty() {
             continue;
         }
-        out.push_str(&format!("INSERT INTO {} VALUE {{{}}};\n", q(table), attrs.join(", ")));
+        out.push_str(&format!(
+            "INSERT INTO {} VALUE {{{}}};\n",
+            q(table),
+            attrs.join(", ")
+        ));
     }
     out
 }
@@ -413,15 +479,32 @@ pub(crate) fn update_script(table: &str, changes: &[RowChange]) -> Result<String
     let mut out = String::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
         if ch.key.is_empty() {
-            return Err(Error::Unsupported("para actualizar un ítem de DynamoDB hace falta su clave primaria".into()));
+            return Err(Error::Unsupported(
+                "para actualizar un ítem de DynamoDB hace falta su clave primaria".into(),
+            ));
         }
         let actions: Vec<String> = ch
             .set
             .iter()
-            .map(|(c, v)| if v.is_null() { format!("REMOVE {}", q(c)) } else { format!("SET {} = {}", q(c), literal(v)) })
+            .map(|(c, v)| {
+                if v.is_null() {
+                    format!("REMOVE {}", q(c))
+                } else {
+                    format!("SET {} = {}", q(c), literal(v))
+                }
+            })
             .collect();
-        let conds: Vec<String> = ch.key.iter().map(|(c, v)| format!("{} = {}", q(c), literal(v))).collect();
-        out.push_str(&format!("UPDATE {} {} WHERE {};\n", q(table), actions.join(" "), conds.join(" AND ")));
+        let conds: Vec<String> = ch
+            .key
+            .iter()
+            .map(|(c, v)| format!("{} = {}", q(c), literal(v)))
+            .collect();
+        out.push_str(&format!(
+            "UPDATE {} {} WHERE {};\n",
+            q(table),
+            actions.join(" "),
+            conds.join(" AND ")
+        ));
     }
     Ok(out)
 }
@@ -432,10 +515,19 @@ pub(crate) fn delete_script(table: &str, keys: &[Vec<(String, Json)>]) -> Result
     let mut out = String::new();
     for key in keys {
         if key.is_empty() {
-            return Err(Error::Unsupported("para borrar un ítem de DynamoDB hace falta su clave primaria".into()));
+            return Err(Error::Unsupported(
+                "para borrar un ítem de DynamoDB hace falta su clave primaria".into(),
+            ));
         }
-        let conds: Vec<String> = key.iter().map(|(c, v)| format!("{} = {}", q(c), literal(v))).collect();
-        out.push_str(&format!("DELETE FROM {} WHERE {};\n", q(table), conds.join(" AND ")));
+        let conds: Vec<String> = key
+            .iter()
+            .map(|(c, v)| format!("{} = {}", q(c), literal(v)))
+            .collect();
+        out.push_str(&format!(
+            "DELETE FROM {} WHERE {};\n",
+            q(table),
+            conds.join(" AND ")
+        ));
     }
     Ok(out)
 }
@@ -461,15 +553,36 @@ pub(crate) fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<
     if filters.is_empty() {
         return Ok(browse.to_string());
     }
-    let style = SqlFilterStyle { quote: Quote::Double, literal: &literal, like: "LIKE", true_literal: "true", false_literal: "false" };
+    let style = SqlFilterStyle {
+        quote: Quote::Double,
+        literal: &literal,
+        like: "LIKE",
+        true_literal: "true",
+        false_literal: "false",
+    };
     let mut parts = Vec::new();
     for f in filters {
         let c = q(&f.column);
-        let first = || f.values.first().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)));
-        let text = || first().map(|v| literal(&Json::String(v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))));
+        let first = || {
+            f.values.first().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })
+        };
+        let text = || {
+            first().map(|v| {
+                literal(&Json::String(
+                    v.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| v.to_string()),
+                ))
+            })
+        };
         let list = || {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{}» necesita al menos un valor", f.column)));
+                return Err(Error::Query(format!(
+                    "el filtro de «{}» necesita al menos un valor",
+                    f.column
+                )));
             }
             Ok(literal(&Json::Array(f.values.clone())))
         };
@@ -477,7 +590,11 @@ pub(crate) fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<
             FilterOp::Contains => format!("contains({c}, {})", text()?),
             FilterOp::NotContains => format!("NOT contains({c}, {})", text()?),
             FilterOp::StartsWith => format!("begins_with({c}, {})", text()?),
-            FilterOp::EndsWith => return Err(Error::Unsupported("PartiQL de DynamoDB no filtra por «termina con»".into())),
+            FilterOp::EndsWith => {
+                return Err(Error::Unsupported(
+                    "PartiQL de DynamoDB no filtra por «termina con»".into(),
+                ))
+            }
             FilterOp::IsNull => format!("({c} IS NULL OR {c} IS MISSING)"),
             FilterOp::NotNull => format!("({c} IS NOT NULL AND {c} IS NOT MISSING)"),
             FilterOp::NotEmpty => format!("({c} IS NOT MISSING AND {c} <> '')"),
@@ -488,8 +605,9 @@ pub(crate) fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<
             _ => sql_condition(std::slice::from_ref(f), &style)?,
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 /// Splits a script on `;` outside quotes, comments and the JSON bodies of
@@ -549,14 +667,25 @@ pub(crate) fn split_script(text: &str) -> Vec<String> {
         }
     }
     out.push(cur);
-    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    out.into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// Text for a `--` comment line: a server-controlled name can't end the
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -566,20 +695,32 @@ mod tests {
     #[test]
     fn sorted_browse_is_left_to_the_grid() {
         use dbine_driver::SortKey;
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let q = "SELECT * FROM \"t\"";
         let f = "SELECT * FROM \"t\" WHERE \"pk\" = 'a'";
         assert_eq!(sorted_browse(q, &[]).unwrap(), q);
         for sort in [vec![k("sk", false)], vec![k("sk", true), k("a\"b", false)]] {
-            assert!(matches!(sorted_browse(q, &sort), Err(Error::Unsupported(_))));
-            assert!(matches!(sorted_browse(f, &sort), Err(Error::Unsupported(_))));
+            assert!(matches!(
+                sorted_browse(q, &sort),
+                Err(Error::Unsupported(_))
+            ));
+            assert!(matches!(
+                sorted_browse(f, &sort),
+                Err(Error::Unsupported(_))
+            ));
         }
     }
 
     #[test]
     fn delete_script_by_primary_key() {
         let keys = vec![
-            vec![("pk".to_string(), Json::from("O'Brien \"Bob\"")), ("sk".to_string(), Json::from(3))],
+            vec![
+                ("pk".to_string(), Json::from("O'Brien \"Bob\"")),
+                ("sk".to_string(), Json::from(3)),
+            ],
             vec![("pk".to_string(), Json::from("b"))],
         ];
         assert_eq!(
@@ -592,7 +733,12 @@ mod tests {
 
     #[test]
     fn filtered_browse_in_partiql() {
-        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         assert_eq!(
             filtered_browse(
                 "SELECT * FROM \"Music\"",
@@ -608,10 +754,20 @@ mod tests {
             "SELECT * FROM \"Music\"\nWHERE \"Artist\" = 'O''Brien'\n  AND \"Year\" > 1999\n  AND begins_with(\"Title\", 'The ')\n  AND (\"Notes\" IS NULL OR \"Notes\" IS MISSING)\n  AND \"Id\" IN [1, 'a']"
         );
         assert_eq!(
-            filtered_browse("SELECT * FROM \"Music\".\"byYear\"", &[f("Year", FilterOp::Le, vec![json!(5)])]).unwrap(),
+            filtered_browse(
+                "SELECT * FROM \"Music\".\"byYear\"",
+                &[f("Year", FilterOp::Le, vec![json!(5)])]
+            )
+            .unwrap(),
             "SELECT * FROM \"Music\".\"byYear\"\nWHERE \"Year\" <= 5"
         );
-        assert!(matches!(filtered_browse("SELECT * FROM \"t\"", &[f("a", FilterOp::EndsWith, vec![json!("x")])]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            filtered_browse(
+                "SELECT * FROM \"t\"",
+                &[f("a", FilterOp::EndsWith, vec![json!("x")])]
+            ),
+            Err(Error::Unsupported(_))
+        ));
     }
     use crate::admin::{parse_admin, Admin};
     use dbine_driver::KeyDef;
@@ -629,10 +785,25 @@ mod tests {
     fn orders() -> TableSchema {
         TableSchema {
             name: "Orders".into(),
-            columns: vec![col("customer", "S", "HASH"), col("date", "N", "RANGE"), col("status", "S", "none"), col("total", "N", "none")],
+            columns: vec![
+                col("customer", "S", "HASH"),
+                col("date", "N", "RANGE"),
+                col("status", "S", "none"),
+                col("total", "N", "none"),
+            ],
             indexes: vec![
-                IndexDef { name: "byStatus".into(), columns: vec!["status".into(), "date".into()], kind: Some("GSI".into()), ..Default::default() },
-                IndexDef { name: "byTotal".into(), columns: vec!["total".into()], kind: Some("LSI".into()), ..Default::default() },
+                IndexDef {
+                    name: "byStatus".into(),
+                    columns: vec!["status".into(), "date".into()],
+                    kind: Some("GSI".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "byTotal".into(),
+                    columns: vec!["total".into()],
+                    kind: Some("LSI".into()),
+                    ..Default::default()
+                },
             ],
             options: BTreeMap::from([
                 (BILLING_MODE.to_string(), "PROVISIONED".to_string()),
@@ -646,36 +817,102 @@ mod tests {
 
     #[test]
     fn create_table_parses_back_with_the_drivers_own_syntax() {
-        let ddl = table_ddl(&orders(), DdlParts { drop: true, if_exists: true, create: true, indexes: true, ..Default::default() }).unwrap();
+        let ddl = table_ddl(
+            &orders(),
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let stmts = split_script(&ddl);
         assert_eq!(stmts.len(), 2, "{ddl}");
-        assert_eq!(parse_admin(&stmts[0]).unwrap(), Some(Admin::DropTable { table: "Orders".into(), if_exists: true }));
-        let Some(Admin::CreateTable { table, if_not_exists, spec }) = parse_admin(&stmts[1]).unwrap() else { panic!("{ddl}") };
+        assert_eq!(
+            parse_admin(&stmts[0]).unwrap(),
+            Some(Admin::DropTable {
+                table: "Orders".into(),
+                if_exists: true
+            })
+        );
+        let Some(Admin::CreateTable {
+            table,
+            if_not_exists,
+            spec,
+        }) = parse_admin(&stmts[1]).unwrap()
+        else {
+            panic!("{ddl}")
+        };
         assert_eq!(table, "Orders");
         assert!(if_not_exists);
-        assert_eq!(spec["KeySchema"], json!([{ "AttributeName": "customer", "KeyType": "HASH" }, { "AttributeName": "date", "KeyType": "RANGE" }]));
+        assert_eq!(
+            spec["KeySchema"],
+            json!([{ "AttributeName": "customer", "KeyType": "HASH" }, { "AttributeName": "date", "KeyType": "RANGE" }])
+        );
         assert_eq!(spec["BillingMode"], "PROVISIONED");
-        assert_eq!(spec["ProvisionedThroughput"], json!({ "ReadCapacityUnits": 3, "WriteCapacityUnits": 5 }));
-        let defs: Vec<&str> = spec["AttributeDefinitions"].as_array().unwrap().iter().map(|d| d["AttributeName"].as_str().unwrap()).collect();
+        assert_eq!(
+            spec["ProvisionedThroughput"],
+            json!({ "ReadCapacityUnits": 3, "WriteCapacityUnits": 5 })
+        );
+        let defs: Vec<&str> = spec["AttributeDefinitions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| d["AttributeName"].as_str().unwrap())
+            .collect();
         assert_eq!(defs, ["customer", "date", "status", "total"]);
         assert_eq!(spec["GlobalSecondaryIndexes"][0]["IndexName"], "byStatus");
-        assert_eq!(spec["GlobalSecondaryIndexes"][0]["ProvisionedThroughput"]["ReadCapacityUnits"], 3);
-        assert_eq!(spec["LocalSecondaryIndexes"][0]["KeySchema"][0]["AttributeName"], "customer");
-        assert_eq!(spec["LocalSecondaryIndexes"][0]["KeySchema"][1]["AttributeName"], "total");
+        assert_eq!(
+            spec["GlobalSecondaryIndexes"][0]["ProvisionedThroughput"]["ReadCapacityUnits"],
+            3
+        );
+        assert_eq!(
+            spec["LocalSecondaryIndexes"][0]["KeySchema"][0]["AttributeName"],
+            "customer"
+        );
+        assert_eq!(
+            spec["LocalSecondaryIndexes"][0]["KeySchema"][1]["AttributeName"],
+            "total"
+        );
         assert_eq!(spec["StreamSpecification"]["StreamViewType"], "NEW_IMAGE");
         assert_eq!(spec["TimeToLiveSpecification"]["AttributeName"], "exp");
-        assert_eq!(spec["GlobalSecondaryIndexes"][0]["Projection"], json!({ "ProjectionType": "ALL" }));
+        assert_eq!(
+            spec["GlobalSecondaryIndexes"][0]["Projection"],
+            json!({ "ProjectionType": "ALL" })
+        );
         // The body maps onto the SDK input.
         crate::admin::table_spec(&spec).unwrap();
 
         // INCLUDE (the index's `include`) and KEYS_ONLY projections.
         let mut t = orders();
         t.indexes[0].include = vec!["total".into()];
-        t.indexes[1].options.insert(PROJECTION_TYPE.into(), "KEYS_ONLY".into());
-        let ddl = table_ddl(&t, DdlParts { create: true, indexes: true, ..Default::default() }).unwrap();
-        let Some(Admin::CreateTable { spec, .. }) = parse_admin(split_script(&ddl).last().unwrap()).unwrap() else { panic!("{ddl}") };
-        assert_eq!(spec["GlobalSecondaryIndexes"][0]["Projection"], json!({ "ProjectionType": "INCLUDE", "NonKeyAttributes": ["total"] }));
-        assert_eq!(spec["LocalSecondaryIndexes"][0]["Projection"], json!({ "ProjectionType": "KEYS_ONLY" }));
+        t.indexes[1]
+            .options
+            .insert(PROJECTION_TYPE.into(), "KEYS_ONLY".into());
+        let ddl = table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let Some(Admin::CreateTable { spec, .. }) =
+            parse_admin(split_script(&ddl).last().unwrap()).unwrap()
+        else {
+            panic!("{ddl}")
+        };
+        assert_eq!(
+            spec["GlobalSecondaryIndexes"][0]["Projection"],
+            json!({ "ProjectionType": "INCLUDE", "NonKeyAttributes": ["total"] })
+        );
+        assert_eq!(
+            spec["LocalSecondaryIndexes"][0]["Projection"],
+            json!({ "ProjectionType": "KEYS_ONLY" })
+        );
         crate::admin::table_spec(&spec).unwrap();
         let gsi = create_index_statements(&t).unwrap();
         assert!(gsi[0].contains("\"NonKeyAttributes\""), "{}", gsi[0]);
@@ -685,12 +922,22 @@ mod tests {
     fn keys_from_the_primary_key_and_errors() {
         let t = TableSchema {
             name: "t".into(),
-            columns: vec![ColumnDef { name: "id".into(), data_type: "s".into(), ..Default::default() }],
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
+            columns: vec![ColumnDef {
+                name: "id".into(),
+                data_type: "s".into(),
+                ..Default::default()
+            }],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
             ..Default::default()
         };
         let spec = create_table_spec(&t, true).unwrap();
-        assert_eq!(spec["AttributeDefinitions"], json!([{ "AttributeName": "id", "AttributeType": "S" }]));
+        assert_eq!(
+            spec["AttributeDefinitions"],
+            json!([{ "AttributeName": "id", "AttributeType": "S" }])
+        );
         assert_eq!(spec["BillingMode"], "PAY_PER_REQUEST");
         assert!(spec.get("StreamSpecification").is_none());
 
@@ -699,18 +946,36 @@ mod tests {
         assert!(create_table_spec(&bad, true).is_err());
         let mut bad = t.clone();
         bad.columns[0].data_type = "M".into();
-        assert!(create_table_spec(&bad, true).unwrap_err().to_string().contains("S (texto)"));
+        assert!(create_table_spec(&bad, true)
+            .unwrap_err()
+            .to_string()
+            .contains("S (texto)"));
         let mut bad = t;
-        bad.indexes.push(IndexDef { name: "l".into(), columns: vec!["x".into()], kind: Some("LSI".into()), ..Default::default() });
+        bad.indexes.push(IndexDef {
+            name: "l".into(),
+            columns: vec!["x".into()],
+            kind: Some("LSI".into()),
+            ..Default::default()
+        });
         assert!(create_table_spec(&bad, true).is_err());
     }
 
     #[test]
     fn indexes_alone_become_create_index() {
-        let ddl = table_ddl(&orders(), DdlParts { indexes: true, ..Default::default() }).unwrap();
+        let ddl = table_ddl(
+            &orders(),
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let stmts = split_script(&ddl);
         assert_eq!(stmts.len(), 1, "{ddl}");
-        let Some(Admin::CreateIndex { index, table, spec }) = parse_admin(&stmts[0]).unwrap() else { panic!("{ddl}") };
+        let Some(Admin::CreateIndex { index, table, spec }) = parse_admin(&stmts[0]).unwrap()
+        else {
+            panic!("{ddl}")
+        };
         assert_eq!((index.as_str(), table.as_str()), ("byStatus", "Orders"));
         assert_eq!(spec["AttributeDefinitions"].as_array().unwrap().len(), 2);
         assert!(ddl.contains("-- El índice local byTotal"));
@@ -718,8 +983,22 @@ mod tests {
 
     #[test]
     fn inserts_are_partiql_literals() {
-        let cols = vec!["id".to_string(), "name".into(), "n".into(), "ok".into(), "tags".into(), "gone".into()];
-        let rows = vec![vec![json!("a'1"), json!("O'Brien"), json!(1.5), json!(true), json!({ "k": [1, null] }), Json::Null]];
+        let cols = vec![
+            "id".to_string(),
+            "name".into(),
+            "n".into(),
+            "ok".into(),
+            "tags".into(),
+            "gone".into(),
+        ];
+        let rows = vec![vec![
+            json!("a'1"),
+            json!("O'Brien"),
+            json!(1.5),
+            json!(true),
+            json!({ "k": [1, null] }),
+            Json::Null,
+        ]];
         let s = insert_script("T\"x", &cols, &rows);
         assert_eq!(
             s,
@@ -734,9 +1013,17 @@ mod tests {
         let changes = vec![
             RowChange {
                 key: vec![("id".into(), json!("a'1")), ("n".into(), json!(2))],
-                set: vec![("name".into(), json!("O'Brien \"Bob\"")), ("gone".into(), Json::Null)], ..Default::default()
+                set: vec![
+                    ("name".into(), json!("O'Brien \"Bob\"")),
+                    ("gone".into(), Json::Null),
+                ],
+                ..Default::default()
             },
-            RowChange { key: vec![("id".into(), json!("b"))], set: vec![], ..Default::default() },
+            RowChange {
+                key: vec![("id".into(), json!("b"))],
+                set: vec![],
+                ..Default::default()
+            },
         ];
         let s = update_script("T\"x", &changes).unwrap();
         assert_eq!(s, "UPDATE \"T\"\"x\" SET \"name\" = 'O''Brien \"Bob\"' REMOVE \"gone\" WHERE \"id\" = 'a''1' AND \"n\" = 2;\n");
@@ -759,7 +1046,9 @@ mod tests {
             let text = t.template.replace("{name}", "x").replace("{schema}", "");
             let stmts = split_script(&text);
             assert_eq!(stmts.len(), 1);
-            let a = parse_admin(&stmts[0]).unwrap().expect("an extension statement");
+            let a = parse_admin(&stmts[0])
+                .unwrap()
+                .expect("an extension statement");
             if let Admin::CreateTable { spec, .. } = a {
                 crate::admin::table_spec(&spec).unwrap();
             }

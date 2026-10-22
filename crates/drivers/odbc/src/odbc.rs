@@ -48,8 +48,17 @@ impl Diag {
         } else {
             dbine_driver::MessageLevel::Info
         };
-        let code = if self.native != 0 { self.native.to_string() } else { self.state.clone() };
-        dbine_driver::Message { level, text: self.message.clone(), code: Some(code).filter(|c| !c.is_empty()), ..Default::default() }
+        let code = if self.native != 0 {
+            self.native.to_string()
+        } else {
+            self.state.clone()
+        };
+        dbine_driver::Message {
+            level,
+            text: self.message.clone(),
+            code: Some(code).filter(|c| !c.is_empty()),
+            ..Default::default()
+        }
     }
 }
 
@@ -63,13 +72,26 @@ pub fn diags(api: &Api, htype: i16, h: Handle) -> Vec<Diag> {
         let mut len = 0i16;
         // SAFETY: buffers sized as declared.
         let rc = unsafe {
-            (api.SQLGetDiagRecW)(htype, h, rec, state.as_mut_ptr(), &mut native, msg.as_mut_ptr(), msg.len() as i16, &mut len)
+            (api.SQLGetDiagRecW)(
+                htype,
+                h,
+                rec,
+                state.as_mut_ptr(),
+                &mut native,
+                msg.as_mut_ptr(),
+                msg.len() as i16,
+                &mut len,
+            )
         };
         if !ok(rc) {
             break;
         }
         let len = (len.max(0) as usize).min(msg.len() - 1);
-        out.push(Diag { state: from_wide(&state[..5]), native, message: clean_message(&from_wide(&msg[..len])) });
+        out.push(Diag {
+            state: from_wide(&state[..5]),
+            native,
+            message: clean_message(&from_wide(&msg[..len])),
+        });
     }
     out
 }
@@ -91,7 +113,11 @@ pub fn clean_message(m: &str) -> String {
 }
 
 fn join(d: &[Diag]) -> String {
-    let msgs: Vec<&str> = d.iter().map(|d| d.message.as_str()).filter(|m| !m.is_empty()).collect();
+    let msgs: Vec<&str> = d
+        .iter()
+        .map(|d| d.message.as_str())
+        .filter(|m| !m.is_empty())
+        .collect();
     if msgs.is_empty() {
         "error ODBC sin diagnóstico".into()
     } else {
@@ -104,7 +130,9 @@ pub fn connect_error(d: &[Diag]) -> Error {
     let msg = join(d);
     if d.iter().any(|d| d.state == "28000") {
         Error::AuthFailed(msg)
-    } else if d.iter().any(|d| matches!(d.state.as_str(), "IM002" | "IM003") || d.message.contains("Can't open lib")) {
+    } else if d.iter().any(|d| {
+        matches!(d.state.as_str(), "IM002" | "IM003") || d.message.contains("Can't open lib")
+    }) {
         Error::Connect(format!(
             "{msg}\nEl driver ODBC indicado no está instalado o no está registrado en odbcinst.ini. Drivers instalados: {}.",
             installed_drivers_text()
@@ -128,7 +156,9 @@ pub fn query_error(d: &[Diag]) -> Error {
     if d.iter().any(|d| d.state == "HY008") {
         return Error::Cancelled;
     }
-    let Some(first) = d.iter().find(|d| !d.state.starts_with("01")).or(d.first()) else { return Error::Query(join(d)) };
+    let Some(first) = d.iter().find(|d| !d.state.starts_with("01")).or(d.first()) else {
+        return Error::Query(join(d));
+    };
     let mut e = dbine_driver::ScriptError::new(join(d));
     if !first.state.is_empty() && first.state != "00000" {
         e = e.with_sqlstate(first.state.clone());
@@ -152,11 +182,20 @@ impl Env {
         let mut h: Handle = ptr::null_mut();
         // SAFETY: plain ODBC calls with valid out-pointers.
         unsafe {
-            if !ok((api.SQLAllocHandle)(SQL_HANDLE_ENV, ptr::null_mut(), &mut h)) {
+            if !ok((api.SQLAllocHandle)(
+                SQL_HANDLE_ENV,
+                ptr::null_mut(),
+                &mut h,
+            )) {
                 return Err(Error::Connect("no se pudo crear el entorno ODBC".into()));
             }
             let env = Env { api, h: H(h) };
-            if !ok((api.SQLSetEnvAttr)(h, SQL_ATTR_ODBC_VERSION, SQL_OV_ODBC3 as *mut c_void, 0)) {
+            if !ok((api.SQLSetEnvAttr)(
+                h,
+                SQL_ATTR_ODBC_VERSION,
+                SQL_OV_ODBC3 as *mut c_void,
+                0,
+            )) {
                 return Err(connect_error(&diags(api, SQL_HANDLE_ENV, h)));
             }
             Ok(env)
@@ -228,8 +267,18 @@ impl Conn {
             if !ok((api.SQLAllocHandle)(SQL_HANDLE_DBC, env.h.0, &mut h)) {
                 return Err(connect_error(&diags(api, SQL_HANDLE_ENV, env.h.0)));
             }
-            let mut conn = Conn { api, dbc: H(h), connected: false, _env: env };
-            (api.SQLSetConnectAttrW)(h, SQL_ATTR_LOGIN_TIMEOUT, o.login_timeout_secs as *mut c_void, 0);
+            let mut conn = Conn {
+                api,
+                dbc: H(h),
+                connected: false,
+                _env: env,
+            };
+            (api.SQLSetConnectAttrW)(
+                h,
+                SQL_ATTR_LOGIN_TIMEOUT,
+                o.login_timeout_secs as *mut c_void,
+                0,
+            );
             let cs = wide(o.conn_str);
             let rc = (api.SQLDriverConnectW)(
                 h,
@@ -248,7 +297,12 @@ impl Conn {
             if o.read_only {
                 // A hint for many drivers, enforced by some (DB2, Informix…);
                 // the app's keyword guard covers the rest.
-                let rc = (api.SQLSetConnectAttrW)(h, SQL_ATTR_ACCESS_MODE, SQL_MODE_READ_ONLY as *mut c_void, 0);
+                let rc = (api.SQLSetConnectAttrW)(
+                    h,
+                    SQL_ATTR_ACCESS_MODE,
+                    SQL_MODE_READ_ONLY as *mut c_void,
+                    0,
+                );
                 if !ok(rc) {
                     tracing::debug!("odbc: the driver ignored SQL_ATTR_ACCESS_MODE read-only");
                 }
@@ -276,7 +330,12 @@ impl Conn {
         const SQL_IS_UINTEGER: i32 = -1;
         // SAFETY: an integer attribute passed as the pointer value.
         let rc = unsafe {
-            (self.api.SQLSetConnectAttrW)(self.dbc.0, SQL_ATTR_AUTOCOMMIT, ptr::without_provenance_mut(usize::from(on)), SQL_IS_UINTEGER)
+            (self.api.SQLSetConnectAttrW)(
+                self.dbc.0,
+                SQL_ATTR_AUTOCOMMIT,
+                ptr::without_provenance_mut(usize::from(on)),
+                SQL_IS_UINTEGER,
+            )
         };
         if ok(rc) {
             Ok(())
@@ -288,7 +347,9 @@ impl Conn {
     /// `SQLEndTran`: commit (`true`) or roll back the connection's transaction.
     pub fn end_tran(&self, commit: bool) -> Result<()> {
         // SAFETY: valid connection handle.
-        let rc = unsafe { (self.api.SQLEndTran)(SQL_HANDLE_DBC, self.dbc.0, if commit { 0 } else { 1 }) };
+        let rc = unsafe {
+            (self.api.SQLEndTran)(SQL_HANDLE_DBC, self.dbc.0, if commit { 0 } else { 1 })
+        };
         if ok(rc) {
             Ok(())
         } else {
@@ -302,7 +363,13 @@ impl Conn {
         let mut len = 0i16;
         // SAFETY: buffer sized as declared (length in bytes).
         let rc = unsafe {
-            (self.api.SQLGetInfoW)(self.dbc.0, what, buf.as_mut_ptr() as *mut c_void, (buf.len() * 2) as i16, &mut len)
+            (self.api.SQLGetInfoW)(
+                self.dbc.0,
+                what,
+                buf.as_mut_ptr() as *mut c_void,
+                (buf.len() * 2) as i16,
+                &mut len,
+            )
         };
         if !ok(rc) {
             return String::new();
@@ -319,7 +386,11 @@ impl Conn {
             return Err(query_error(&diags(self.api, SQL_HANDLE_DBC, self.dbc.0)));
         }
         *shared.current.lock().unwrap_or_else(|e| e.into_inner()) = Some(H(h));
-        Ok(Stmt { api: self.api, h: H(h), slot: shared })
+        Ok(Stmt {
+            api: self.api,
+            h: H(h),
+            slot: shared,
+        })
     }
 }
 
@@ -369,7 +440,13 @@ impl WArg {
     }
     fn ptr(&self) -> *const u16 {
         static EMPTY: [u16; 1] = [0];
-        self.0.as_ref().map_or(ptr::null(), |v| if v.is_empty() { EMPTY.as_ptr() } else { v.as_ptr() })
+        self.0.as_ref().map_or(ptr::null(), |v| {
+            if v.is_empty() {
+                EMPTY.as_ptr()
+            } else {
+                v.as_ptr()
+            }
+        })
     }
     fn len(&self) -> i16 {
         self.0.as_ref().map_or(0, |v| v.len() as i16)
@@ -439,7 +516,10 @@ pub fn fmt_date(d: &SqlDate) -> String {
 }
 
 pub fn fmt_timestamp(t: &SqlTimestamp) -> String {
-    let mut s = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second);
+    let mut s = format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        t.year, t.month, t.day, t.hour, t.minute, t.second
+    );
     if t.fraction > 0 {
         let f = format!("{:09}", t.fraction);
         s.push('.');
@@ -487,12 +567,18 @@ impl Stmt<'_> {
 
     /// Informational messages (PRINT, warnings) left on the statement.
     pub fn messages(&self) -> Vec<String> {
-        self.diag_messages().into_iter().map(|d| d.message).collect()
+        self.diag_messages()
+            .into_iter()
+            .map(|d| d.message)
+            .collect()
     }
 
     /// [`Self::messages`] with their SQLSTATE and native code.
     pub fn diag_messages(&self) -> Vec<Diag> {
-        diags(self.api, SQL_HANDLE_STMT, self.h.0).into_iter().filter(|d| d.state != "01004" && !d.message.is_empty()).collect()
+        diags(self.api, SQL_HANDLE_STMT, self.h.0)
+            .into_iter()
+            .filter(|d| d.state != "01004" && !d.message.is_empty())
+            .collect()
     }
 
     /// `SQLExecDirect`. Returns false when the statement affected no rows
@@ -593,7 +679,11 @@ impl Stmt<'_> {
             } else {
                 String::new()
             };
-            out.push(ColDesc { name: from_wide(&name[..n]), sql_type: data_type, type_name });
+            out.push(ColDesc {
+                name: from_wide(&name[..n]),
+                sql_type: data_type,
+                type_name,
+            });
         }
         Ok(out)
     }
@@ -660,7 +750,14 @@ impl Stmt<'_> {
             let cap = buf.len() * 2;
             // SAFETY: buffer length in bytes.
             let rc = unsafe {
-                (self.api.SQLGetData)(self.h.0, col, SQL_C_WCHAR, buf.as_mut_ptr() as *mut c_void, cap as SqlLen, &mut ind)
+                (self.api.SQLGetData)(
+                    self.h.0,
+                    col,
+                    SQL_C_WCHAR,
+                    buf.as_mut_ptr() as *mut c_void,
+                    cap as SqlLen,
+                    &mut ind,
+                )
             };
             if rc == SQL_NO_DATA {
                 break;
@@ -687,7 +784,14 @@ impl Stmt<'_> {
         let mut ind: SqlLen = 0;
         // SAFETY: buffer length in bytes.
         let rc = unsafe {
-            (self.api.SQLGetData)(self.h.0, col, SQL_C_BINARY, buf.as_mut_ptr() as *mut c_void, buf.len() as SqlLen, &mut ind)
+            (self.api.SQLGetData)(
+                self.h.0,
+                col,
+                SQL_C_BINARY,
+                buf.as_mut_ptr() as *mut c_void,
+                buf.len() as SqlLen,
+                &mut ind,
+            )
         };
         if rc == SQL_NO_DATA {
             return Ok(Some(Vec::new()));
@@ -698,7 +802,11 @@ impl Stmt<'_> {
         if ind == SQL_NULL_DATA {
             return Ok(None);
         }
-        let n = if ind == SQL_NO_TOTAL || ind as usize > buf.len() { buf.len() } else { ind as usize };
+        let n = if ind == SQL_NO_TOTAL || ind as usize > buf.len() {
+            buf.len()
+        } else {
+            ind as usize
+        };
         buf.truncate(n);
         Ok(Some(buf))
     }
@@ -706,14 +814,24 @@ impl Stmt<'_> {
     pub fn cell(&self, col: u16, kind: Kind) -> Result<Value> {
         Ok(match kind {
             Kind::Int => self.get_text(col)?.map_or(Value::Null, |s| int_value(&s)),
-            Kind::Decimal => self.get_text(col)?.map_or(Value::Null, |s| decimal_value(&s)),
-            Kind::Float => self.get_fixed::<f64>(col, SQL_C_DOUBLE)?.map_or(Value::Null, json_f64),
-            Kind::Bit => self.get_fixed::<u8>(col, SQL_C_BIT)?.map_or(Value::Null, |b| Value::Bool(b != 0)),
-            Kind::Date => self.get_fixed::<SqlDate>(col, SQL_C_TYPE_DATE)?.map_or(Value::Null, |d| fmt_date(&d).into()),
-            Kind::Timestamp => {
-                self.get_fixed::<SqlTimestamp>(col, SQL_C_TYPE_TIMESTAMP)?.map_or(Value::Null, |t| fmt_timestamp(&t).into())
-            }
-            Kind::Binary => self.get_binary(col)?.map_or(Value::Null, |b| json_bytes(&b)),
+            Kind::Decimal => self
+                .get_text(col)?
+                .map_or(Value::Null, |s| decimal_value(&s)),
+            Kind::Float => self
+                .get_fixed::<f64>(col, SQL_C_DOUBLE)?
+                .map_or(Value::Null, json_f64),
+            Kind::Bit => self
+                .get_fixed::<u8>(col, SQL_C_BIT)?
+                .map_or(Value::Null, |b| Value::Bool(b != 0)),
+            Kind::Date => self
+                .get_fixed::<SqlDate>(col, SQL_C_TYPE_DATE)?
+                .map_or(Value::Null, |d| fmt_date(&d).into()),
+            Kind::Timestamp => self
+                .get_fixed::<SqlTimestamp>(col, SQL_C_TYPE_TIMESTAMP)?
+                .map_or(Value::Null, |t| fmt_timestamp(&t).into()),
+            Kind::Binary => self
+                .get_binary(col)?
+                .map_or(Value::Null, |b| json_bytes(&b)),
             Kind::Text => self.get_text(col)?.map_or(Value::Null, Value::String),
         })
     }
@@ -740,20 +858,56 @@ impl Stmt<'_> {
         }
     }
 
-    pub fn tables(&self, cat: Option<&str>, schema: Option<&str>, table: Option<&str>, ty: Option<&str>) -> Result<()> {
-        let (a, b, c, d) = (WArg::new(cat), WArg::new(schema), WArg::new(table), WArg::new(ty));
+    pub fn tables(
+        &self,
+        cat: Option<&str>,
+        schema: Option<&str>,
+        table: Option<&str>,
+        ty: Option<&str>,
+    ) -> Result<()> {
+        let (a, b, c, d) = (
+            WArg::new(cat),
+            WArg::new(schema),
+            WArg::new(table),
+            WArg::new(ty),
+        );
         // SAFETY: arguments outlive the call.
         let rc = unsafe {
-            (self.api.SQLTablesW)(self.h.0, a.ptr(), a.len(), b.ptr(), b.len(), c.ptr(), c.len(), d.ptr(), d.len())
+            (self.api.SQLTablesW)(
+                self.h.0,
+                a.ptr(),
+                a.len(),
+                b.ptr(),
+                b.len(),
+                c.ptr(),
+                c.len(),
+                d.ptr(),
+                d.len(),
+            )
         };
         self.check(rc)
     }
 
     pub fn columns(&self, schema: Option<&str>, table: &str) -> Result<()> {
-        let (a, b, c, d) = (WArg::new(None), WArg::new(schema), WArg::new(Some(table)), WArg::new(None));
+        let (a, b, c, d) = (
+            WArg::new(None),
+            WArg::new(schema),
+            WArg::new(Some(table)),
+            WArg::new(None),
+        );
         // SAFETY: arguments outlive the call.
         let rc = unsafe {
-            (self.api.SQLColumnsW)(self.h.0, a.ptr(), a.len(), b.ptr(), b.len(), c.ptr(), c.len(), d.ptr(), d.len())
+            (self.api.SQLColumnsW)(
+                self.h.0,
+                a.ptr(),
+                a.len(),
+                b.ptr(),
+                b.len(),
+                c.ptr(),
+                c.len(),
+                d.ptr(),
+                d.len(),
+            )
         };
         self.check(rc)
     }
@@ -761,7 +915,17 @@ impl Stmt<'_> {
     pub fn primary_keys(&self, schema: Option<&str>, table: &str) -> Result<()> {
         let (a, b, c) = (WArg::new(None), WArg::new(schema), WArg::new(Some(table)));
         // SAFETY: arguments outlive the call.
-        let rc = unsafe { (self.api.SQLPrimaryKeysW)(self.h.0, a.ptr(), a.len(), b.ptr(), b.len(), c.ptr(), c.len()) };
+        let rc = unsafe {
+            (self.api.SQLPrimaryKeysW)(
+                self.h.0,
+                a.ptr(),
+                a.len(),
+                b.ptr(),
+                b.len(),
+                c.ptr(),
+                c.len(),
+            )
+        };
         self.check(rc)
     }
 
@@ -795,7 +959,17 @@ impl Stmt<'_> {
         let (a, b, c) = (WArg::new(None), WArg::new(schema), WArg::new(Some(table)));
         // SAFETY: arguments outlive the call.
         let rc = unsafe {
-            (self.api.SQLStatisticsW)(self.h.0, a.ptr(), a.len(), b.ptr(), b.len(), c.ptr(), c.len(), SQL_INDEX_ALL, SQL_QUICK)
+            (self.api.SQLStatisticsW)(
+                self.h.0,
+                a.ptr(),
+                a.len(),
+                b.ptr(),
+                b.len(),
+                c.ptr(),
+                c.len(),
+                SQL_INDEX_ALL,
+                SQL_QUICK,
+            )
         };
         self.check(rc)
     }
@@ -803,7 +977,17 @@ impl Stmt<'_> {
     pub fn procedures(&self) -> Result<()> {
         let (a, b, c) = (WArg::new(None), WArg::new(Some("%")), WArg::new(Some("%")));
         // SAFETY: arguments outlive the call.
-        let rc = unsafe { (self.api.SQLProceduresW)(self.h.0, a.ptr(), a.len(), b.ptr(), b.len(), c.ptr(), c.len()) };
+        let rc = unsafe {
+            (self.api.SQLProceduresW)(
+                self.h.0,
+                a.ptr(),
+                a.len(),
+                b.ptr(),
+                b.len(),
+                c.ptr(),
+                c.len(),
+            )
+        };
         self.check(rc)
     }
 }
@@ -829,8 +1013,14 @@ mod tests {
     #[test]
     fn integers_keep_precision() {
         assert_eq!(int_value(" 42 "), serde_json::json!(42));
-        assert_eq!(int_value("9223372036854775807"), serde_json::json!("9223372036854775807"));
-        assert_eq!(int_value("18446744073709551615"), serde_json::json!("18446744073709551615"));
+        assert_eq!(
+            int_value("9223372036854775807"),
+            serde_json::json!("9223372036854775807")
+        );
+        assert_eq!(
+            int_value("18446744073709551615"),
+            serde_json::json!("18446744073709551615")
+        );
     }
 
     #[test]
@@ -842,17 +1032,37 @@ mod tests {
 
     #[test]
     fn dates_are_iso() {
-        let t = SqlTimestamp { year: 2024, month: 1, day: 31, hour: 13, minute: 45, second: 0, fraction: 0 };
+        let t = SqlTimestamp {
+            year: 2024,
+            month: 1,
+            day: 31,
+            hour: 13,
+            minute: 45,
+            second: 0,
+            fraction: 0,
+        };
         assert_eq!(fmt_timestamp(&t), "2024-01-31 13:45:00");
-        let t = SqlTimestamp { fraction: 120_000_000, ..t };
+        let t = SqlTimestamp {
+            fraction: 120_000_000,
+            ..t
+        };
         assert_eq!(fmt_timestamp(&t), "2024-01-31 13:45:00.12");
-        assert_eq!(fmt_date(&SqlDate { year: 7, month: 3, day: 9 }), "0007-03-09");
+        assert_eq!(
+            fmt_date(&SqlDate {
+                year: 7,
+                month: 3,
+                day: 9
+            }),
+            "0007-03-09"
+        );
     }
 
     #[test]
     fn vendor_prefixes_are_dropped() {
         assert_eq!(
-            clean_message("[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid object name 'x'."),
+            clean_message(
+                "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid object name 'x'."
+            ),
             "Invalid object name 'x'."
         );
         assert_eq!(clean_message("plain"), "plain");

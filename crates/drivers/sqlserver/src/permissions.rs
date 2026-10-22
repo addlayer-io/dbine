@@ -41,14 +41,17 @@ const SERVER_SQL: &str = "SELECT CAST(IS_SRVROLEMEMBER('sysadmin') AS int),
   FROM (SELECT COALESCE(NULLIF(@P1, N''), DB_NAME()) AS n) t";
 
 /// Azure SQL Database: the connection's own database only.
-const AZURE_SQL: &str = "SELECT CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'KILL DATABASE CONNECTION') AS int),
+const AZURE_SQL: &str =
+    "SELECT CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'KILL DATABASE CONNECTION') AS int),
        CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DATABASE STATE') AS int),
        CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'ALTER ANY USER') AS int),
        CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE SCHEMA') AS int)";
 
 /// `Some(true/false)` per column; NULL (the server can't tell) is `None`.
 fn flags(r: &Row, n: usize) -> Vec<Option<bool>> {
-    (0..n).map(|i| r.try_get::<i32, _>(i).ok().flatten().map(|v| v == 1)).collect()
+    (0..n)
+        .map(|i| r.try_get::<i32, _>(i).ok().flatten().map(|v| v == 1))
+        .collect()
 }
 
 /// Allowed / denied, or unknown when the check gave NULL.
@@ -80,11 +83,18 @@ pub(crate) fn server(f: &[Option<bool>], drop_target: bool) -> Permissions {
     }
     Permissions {
         backup: access(get(2), "BACKUP DATABASE"),
-        restore: access(any(&[sysadmin, dbcreator, get(3)]), "rol sysadmin o dbcreator (o ser el dueño de la base)"),
+        restore: access(
+            any(&[sysadmin, dbcreator, get(3)]),
+            "rol sysadmin o dbcreator (o ser el dueño de la base)",
+        ),
         profiler: access(get(7), "VIEW SERVER STATE"),
         kill_session: access(get(6), "ALTER ANY CONNECTION"),
         create_database: access(get(5), "CREATE ANY DATABASE"),
-        drop_database: if drop_target { access(get(4), "CONTROL sobre la base") } else { Access::Unknown },
+        drop_database: if drop_target {
+            access(get(4), "CONTROL sobre la base")
+        } else {
+            Access::Unknown
+        },
         manage_security: access(any(&[get(8), get(9)]), "ALTER ANY LOGIN o ALTER ANY USER"),
         create_schema: access(get(10), "CREATE SCHEMA en la base"),
     }
@@ -122,10 +132,14 @@ async fn first_row(s: &mut SqlServerSession, sql: &str, params: &[&str]) -> Resu
 pub(crate) async fn check(s: &mut SqlServerSession, database: Option<&str>) -> Result<Permissions> {
     let db = database.map(str::trim).unwrap_or("");
     Ok(match s.variant {
-        Variant::SqlServer => {
-            first_row(s, SERVER_SQL, &[db]).await?.map(|r| server(&flags(&r, 11), !db.is_empty())).unwrap_or_default()
-        }
-        Variant::AzureSql => first_row(s, AZURE_SQL, &[]).await?.map(|r| azure(&flags(&r, 4))).unwrap_or_default(),
+        Variant::SqlServer => first_row(s, SERVER_SQL, &[db])
+            .await?
+            .map(|r| server(&flags(&r, 11), !db.is_empty()))
+            .unwrap_or_default(),
+        Variant::AzureSql => first_row(s, AZURE_SQL, &[])
+            .await?
+            .map(|r| azure(&flags(&r, 4)))
+            .unwrap_or_default(),
         _ => Permissions::default(),
     })
 }
@@ -140,7 +154,19 @@ mod tests {
 
     #[test]
     fn sysadmin_may_do_everything() {
-        let f = [Some(true), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false)];
+        let f = [
+            Some(true),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+        ];
         assert_eq!(server(&f, true), Permissions::all());
         assert_eq!(server(&f, false).drop_database, Access::Unknown);
     }
@@ -162,20 +188,74 @@ mod tests {
     #[test]
     fn db_owner_backs_up_restores_and_drops_its_database() {
         // Owner of the database, BACKUP / CONTROL / ALTER ANY USER on it.
-        let f = [Some(false), Some(false), Some(true), Some(true), Some(true), Some(false), Some(false), Some(false), Some(false), Some(true), Some(true)];
+        let f = [
+            Some(false),
+            Some(false),
+            Some(true),
+            Some(true),
+            Some(true),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(true),
+            Some(true),
+        ];
         let p = server(&f, true);
-        assert_eq!((p.backup, p.restore, p.drop_database, p.manage_security, p.create_schema), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (
+                p.backup,
+                p.restore,
+                p.drop_database,
+                p.manage_security,
+                p.create_schema
+            ),
+            (
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed
+            )
+        );
         assert!(p.create_database.is_denied());
     }
 
     #[test]
     fn nulls_stay_unknown() {
-        let f = [Some(false), Some(false), None, None, None, None, None, None, None, None, None];
+        let f = [
+            Some(false),
+            Some(false),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ];
         let p = server(&f, true);
         assert_eq!(p.backup, Access::Unknown);
         assert_eq!(p.restore, Access::Unknown);
-        assert_eq!((p.manage_security, p.create_schema), (Access::Unknown, Access::Unknown));
-        let dbcreator = [Some(false), Some(true), None, None, None, None, None, None, None, None, None];
+        assert_eq!(
+            (p.manage_security, p.create_schema),
+            (Access::Unknown, Access::Unknown)
+        );
+        let dbcreator = [
+            Some(false),
+            Some(true),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ];
         assert_eq!(server(&dbcreator, true).restore, Access::Allowed);
     }
 
@@ -185,6 +265,9 @@ mod tests {
         assert!(denied(&p.create_schema, "CREATE SCHEMA"));
         assert!(denied(&p.kill_session, "KILL DATABASE CONNECTION"));
         assert_eq!(p.profiler, Access::Allowed);
-        assert_eq!((p.manage_security, p.backup, p.create_database), (Access::Unknown, Access::Unknown, Access::Unknown));
+        assert_eq!(
+            (p.manage_security, p.backup, p.create_database),
+            (Access::Unknown, Access::Unknown, Access::Unknown)
+        );
     }
 }

@@ -51,7 +51,9 @@ fn s(set: &Set, row: usize, col: &str) -> Option<String> {
 }
 
 fn n(set: &Set, row: usize, col: &str) -> Option<u64> {
-    set.get(row, col).and_then(|v| v.parse::<f64>().ok()).map(|v| v.max(0.0) as u64)
+    set.get(row, col)
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| v.max(0.0) as u64)
 }
 
 fn edges(set: &Set) -> Vec<Edge> {
@@ -62,7 +64,10 @@ fn edges(set: &Set) -> Vec<Edge> {
                 (Some(t), Some(m)) => Some(format!("{t} LOCK {m}")),
                 (t, m) => t.or(m),
             };
-            let mut object = match (s(set, r, "WAITING_SCHEMA_NAME"), s(set, r, "WAITING_OBJECT_NAME")) {
+            let mut object = match (
+                s(set, r, "WAITING_SCHEMA_NAME"),
+                s(set, r, "WAITING_OBJECT_NAME"),
+            ) {
                 (Some(sc), Some(o)) => Some(format!("{sc}.{o}")),
                 (sc, o) => o.or(sc),
             };
@@ -71,7 +76,13 @@ fn edges(set: &Set) -> Vec<Edge> {
                     o.push_str(&format!(" · {rec}"));
                 }
             }
-            (waiter != blocker).then_some(Edge { waiter, blocker, wait, waited_ms: n(set, r, "WAITED_MS"), object })
+            (waiter != blocker).then_some(Edge {
+                waiter,
+                blocker,
+                wait,
+                waited_ms: n(set, r, "WAITED_MS"),
+                object,
+            })
         })
         .collect()
 }
@@ -105,7 +116,10 @@ pub(crate) fn assemble(edges: &[Edge], conns: &HashMap<u64, Conn>) -> Vec<Blocke
         }
         heads.push(e.blocker);
         let c = conns.get(&e.blocker).cloned().unwrap_or_default();
-        let idle = c.running.is_none() && c.status.as_deref().is_none_or(|v| v.eq_ignore_ascii_case("IDLE"));
+        let idle = c.running.is_none()
+            && c.status
+                .as_deref()
+                .is_none_or(|v| v.eq_ignore_ascii_case("IDLE"));
         out.push(BlockedSession {
             id: e.blocker.to_string(),
             blocked_by: None,
@@ -123,7 +137,9 @@ pub(crate) fn assemble(edges: &[Edge], conns: &HashMap<u64, Conn>) -> Vec<Blocke
 
 pub(crate) async fn blocking(conn: &Connection) -> Result<Vec<BlockedSession>> {
     let found = query(conn, WAITS).await.map_err(|e| {
-        Error::Query(format!("No se pudieron leer los bloqueos (hace falta el rol MONITORING): {e}"))
+        Error::Query(format!(
+            "No se pudieron leer los bloqueos (hace falta el rol MONITORING): {e}"
+        ))
     })?;
     let edges = edges(&found);
     if edges.is_empty() {
@@ -145,7 +161,9 @@ pub(crate) async fn blocking(conn: &Connection) -> Result<Vec<BlockedSession>> {
     match query(conn, &sql).await {
         Ok(set) => {
             for r in 0..set.rows.len() {
-                let Some(id) = n(&set, r, "CONNECTION_ID") else { continue };
+                let Some(id) = n(&set, r, "CONNECTION_ID") else {
+                    continue;
+                };
                 conns.insert(
                     id,
                     Conn {
@@ -177,9 +195,17 @@ pub(crate) async fn blocking(conn: &Connection) -> Result<Vec<BlockedSession>> {
         match query(conn, &sql).await {
             Ok(set) => {
                 for r in 0..set.rows.len() {
-                    let (Some(id), Some(text)) = (n(&set, r, "CONNECTION_ID"), s(&set, r, "SQL_TEXT")) else { continue };
+                    let (Some(id), Some(text)) =
+                        (n(&set, r, "CONNECTION_ID"), s(&set, r, "SQL_TEXT"))
+                    else {
+                        continue;
+                    };
                     let c = conns.entry(id).or_default();
-                    let slot = if is_running { &mut c.running } else { &mut c.last };
+                    let slot = if is_running {
+                        &mut c.running
+                    } else {
+                        &mut c.last
+                    };
                     if slot.is_none() {
                         *slot = Some(text);
                     }
@@ -195,14 +221,19 @@ pub(crate) async fn blocking(conn: &Connection) -> Result<Vec<BlockedSession>> {
 pub(crate) fn session_id(id: &str) -> Result<u64> {
     let t = id.trim();
     if t.is_empty() || !t.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(Error::Query(format!("«{id}» no es un id de conexión de SAP HANA")));
+        return Err(Error::Query(format!(
+            "«{id}» no es un id de conexión de SAP HANA"
+        )));
     }
-    t.parse().map_err(|_| Error::Query(format!("«{id}» no es un id de conexión de SAP HANA")))
+    t.parse()
+        .map_err(|_| Error::Query(format!("«{id}» no es un id de conexión de SAP HANA")))
 }
 
 pub(crate) async fn kill(conn: &Connection, id: &str) -> Result<()> {
     let id = session_id(id)?;
-    conn.exec(format!("ALTER SYSTEM DISCONNECT SESSION '{id}'")).await.map_err(crate::err)
+    conn.exec(format!("ALTER SYSTEM DISCONNECT SESSION '{id}'"))
+        .await
+        .map_err(crate::err)
 }
 
 #[cfg(test)]
@@ -212,7 +243,10 @@ mod tests {
     fn set(cols: &[&str], rows: &[&[Option<&str>]]) -> Set {
         Set {
             cols: cols.iter().map(|c| c.to_string()).collect(),
-            rows: rows.iter().map(|r| r.iter().map(|v| v.map(str::to_string)).collect()).collect(),
+            rows: rows
+                .iter()
+                .map(|r| r.iter().map(|v| v.map(str::to_string)).collect())
+                .collect(),
         }
     }
 
@@ -227,15 +261,40 @@ mod tests {
     #[test]
     fn waits_become_a_chain() {
         let waits = set(
-            &["WAITER", "BLOCKER", "LOCK_TYPE", "LOCK_MODE", "WAITED_MS", "WAITING_SCHEMA_NAME", "WAITING_OBJECT_NAME", "WAITING_RECORD_ID"],
-            &[&[Some("201"), Some("200"), Some("RECORD"), Some("EXCLUSIVE"), Some("1500.4"), Some("APP"), Some("T"), Some("42")]],
+            &[
+                "WAITER",
+                "BLOCKER",
+                "LOCK_TYPE",
+                "LOCK_MODE",
+                "WAITED_MS",
+                "WAITING_SCHEMA_NAME",
+                "WAITING_OBJECT_NAME",
+                "WAITING_RECORD_ID",
+            ],
+            &[&[
+                Some("201"),
+                Some("200"),
+                Some("RECORD"),
+                Some("EXCLUSIVE"),
+                Some("1500.4"),
+                Some("APP"),
+                Some("T"),
+                Some("42"),
+            ]],
         );
         let e = edges(&waits);
         assert_eq!(e[0].object.as_deref(), Some("APP.T · 42"));
         assert_eq!(e[0].wait.as_deref(), Some("RECORD LOCK EXCLUSIVE"));
         assert_eq!(e[0].waited_ms, Some(1500));
         let mut conns = HashMap::new();
-        conns.insert(200, Conn { status: Some("IDLE".into()), last: Some("UPDATE T SET V = 1".into()), ..Default::default() });
+        conns.insert(
+            200,
+            Conn {
+                status: Some("IDLE".into()),
+                last: Some("UPDATE T SET V = 1".into()),
+                ..Default::default()
+            },
+        );
         let chain = assemble(&e, &conns);
         assert_eq!(chain.len(), 2);
         assert_eq!(chain[0].blocked_by.as_deref(), Some("200"));

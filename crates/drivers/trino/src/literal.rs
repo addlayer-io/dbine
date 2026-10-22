@@ -11,10 +11,16 @@ pub fn literal(v: &Value) -> String {
     if let Value::String(s) = v {
         if let Some(kw) = temporal(s) {
             // `2024-01-31T10:00` → `2024-01-31 10:00`.
-            let text = if s.len() > 10 { format!("{} {}", &s[..10], &s[11..]) } else { s.clone() };
+            let text = if s.len() > 10 {
+                format!("{} {}", &s[..10], &s[11..])
+            } else {
+                s.clone()
+            };
             return format!("{kw} '{text}'");
         }
-        if let Some(hex) = s.strip_prefix("0x").filter(|h| !h.is_empty() && h.len() % 2 == 0 && h.bytes().all(|b| b.is_ascii_hexdigit())) {
+        if let Some(hex) = s.strip_prefix("0x").filter(|h| {
+            !h.is_empty() && h.len() % 2 == 0 && h.bytes().all(|b| b.is_ascii_hexdigit())
+        }) {
             return format!("X'{hex}'");
         }
     }
@@ -24,14 +30,27 @@ pub fn literal(v: &Value) -> String {
 /// `DATE` for `YYYY-MM-DD`, `TIMESTAMP` for `YYYY-MM-DD[ T]HH:MM[:SS[.fff]]`.
 fn temporal(s: &str) -> Option<&'static str> {
     let b = s.as_bytes();
-    let digits = |from: usize, to: usize| b.get(from..to).is_some_and(|x| x.iter().all(u8::is_ascii_digit));
-    if !(b.len() >= 10 && digits(0, 4) && b[4] == b'-' && digits(5, 7) && b[7] == b'-' && digits(8, 10)) {
+    let digits = |from: usize, to: usize| {
+        b.get(from..to)
+            .is_some_and(|x| x.iter().all(u8::is_ascii_digit))
+    };
+    if !(b.len() >= 10
+        && digits(0, 4)
+        && b[4] == b'-'
+        && digits(5, 7)
+        && b[7] == b'-'
+        && digits(8, 10))
+    {
         return None;
     }
     if b.len() == 10 {
         return Some("DATE");
     }
-    if !(matches!(b[10], b' ' | b'T') && digits(11, 13) && b.get(13) == Some(&b':') && digits(14, 16)) {
+    if !(matches!(b[10], b' ' | b'T')
+        && digits(11, 13)
+        && b.get(13) == Some(&b':')
+        && digits(14, 16))
+    {
         return None;
     }
     let ok = match &b[16..] {
@@ -47,14 +66,28 @@ fn temporal(s: &str) -> Option<&'static str> {
 }
 
 /// Multi-row `INSERT … VALUES` with double-quoted identifiers.
-pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
+pub fn insert_script(
+    schema: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> String {
     let name = qualified_name(Quote::Double, schema.filter(|s| !s.is_empty()), table);
-    let cols: Vec<String> = columns.iter().map(|c| quote_ident(Quote::Double, c)).collect();
+    let cols: Vec<String> = columns
+        .iter()
+        .map(|c| quote_ident(Quote::Double, c))
+        .collect();
     rows.chunks(100)
         .map(|chunk| {
-            let tuples: Vec<String> =
-                chunk.iter().map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", "))).collect();
-            format!("INSERT INTO {name} ({}) VALUES\n  {};", cols.join(", "), tuples.join(",\n  "))
+            let tuples: Vec<String> = chunk
+                .iter()
+                .map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
+                .collect();
+            format!(
+                "INSERT INTO {name} ({}) VALUES\n  {};",
+                cols.join(", "),
+                tuples.join(",\n  ")
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -62,7 +95,11 @@ pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows
 
 /// `UPDATE … SET … WHERE …;` per edited row, with the same typed literals
 /// (the connector decides whether UPDATE is supported, e.g. Iceberg).
-pub fn update_script(schema: Option<&str>, table: &str, changes: &[dbine_driver::RowChange]) -> String {
+pub fn update_script(
+    schema: Option<&str>,
+    table: &str,
+    changes: &[dbine_driver::RowChange],
+) -> String {
     dbine_driver::ddl::update_script_with(Quote::Double, schema, table, changes, &literal)
 }
 
@@ -81,7 +118,12 @@ mod tests {
     fn update_script_per_row() {
         let c = dbine_driver::RowChange {
             key: vec![("id".into(), json!(7)), ("region".into(), Value::Null)],
-            set: vec![("nombre".into(), json!("O'Brien")), ("alta".into(), json!("2024-01-31")), ("baja".into(), Value::Null)], ..Default::default()
+            set: vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("alta".into(), json!("2024-01-31")),
+                ("baja".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(Some("ventas"), "clientes", &[c, dbine_driver::RowChange::default()]),
@@ -93,7 +135,11 @@ mod tests {
     #[test]
     fn delete_script_per_row() {
         let keys = vec![
-            vec![("nombre".into(), json!("O'Brien")), ("alta".into(), json!("2024-01-31")), ("region".into(), Value::Null)],
+            vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("alta".into(), json!("2024-01-31")),
+                ("region".into(), Value::Null),
+            ],
             vec![],
         ];
         assert_eq!(
@@ -105,10 +151,19 @@ mod tests {
     #[test]
     fn typed_literals() {
         assert_eq!(literal(&json!("2024-01-31")), "DATE '2024-01-31'");
-        assert_eq!(literal(&json!("2024-01-31T10:00")), "TIMESTAMP '2024-01-31 10:00'");
-        assert_eq!(literal(&json!("2024-01-31 10:00:05.123")), "TIMESTAMP '2024-01-31 10:00:05.123'");
+        assert_eq!(
+            literal(&json!("2024-01-31T10:00")),
+            "TIMESTAMP '2024-01-31 10:00'"
+        );
+        assert_eq!(
+            literal(&json!("2024-01-31 10:00:05.123")),
+            "TIMESTAMP '2024-01-31 10:00:05.123'"
+        );
         assert_eq!(literal(&json!("2024-01-31 x")), "'2024-01-31 x'");
-        assert_eq!(literal(&json!("2024-01-31 10:00:05+01:00")), "'2024-01-31 10:00:05+01:00'");
+        assert_eq!(
+            literal(&json!("2024-01-31 10:00:05+01:00")),
+            "'2024-01-31 10:00:05+01:00'"
+        );
         assert_eq!(literal(&json!("0xCAFE")), "X'CAFE'");
         assert_eq!(literal(&json!("0xCAF")), "'0xCAF'");
         assert_eq!(literal(&json!("O'Brien")), "'O''Brien'");
@@ -118,7 +173,10 @@ mod tests {
 
     #[test]
     fn insert_batches() {
-        let rows = vec![vec![json!(1), json!("2024-01-31")], vec![json!(2), Value::Null]];
+        let rows = vec![
+            vec![json!(1), json!("2024-01-31")],
+            vec![json!(2), Value::Null],
+        ];
         let s = insert_script(Some("s"), "t", &["id".into(), "d".into()], &rows);
         assert_eq!(s, "INSERT INTO \"s\".\"t\" (\"id\", \"d\") VALUES\n  (1, DATE '2024-01-31'),\n  (2, NULL);");
     }

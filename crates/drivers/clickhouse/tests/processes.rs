@@ -30,7 +30,10 @@ async fn clickhouse() {
         eprintln!("DBINE_TEST_CLICKHOUSE_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == "clickhouse").unwrap();
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "clickhouse")
+        .unwrap();
     assert!(d.capabilities().processes && d.capabilities().cancel_query);
     let mut admin = d.connect(&cfg, None).await.unwrap();
     let mut worker = d.connect(&cfg, None).await.unwrap();
@@ -51,19 +54,44 @@ async fn clickhouse() {
     let list = admin.processes().await.unwrap();
     let w = list
         .iter()
-        .find(|p| p.sql.as_deref().unwrap_or("").contains("dbine_processes_test"))
+        .find(|p| {
+            p.sql
+                .as_deref()
+                .unwrap_or("")
+                .contains("dbine_processes_test")
+        })
         .expect("the running query is listed");
     eprintln!("{w:#?}");
     assert!(w.active && !w.own && !w.system, "{w:?}");
     assert!(w.elapsed_ms.unwrap_or(0) >= 500, "{w:?}");
     assert_eq!(w.command.as_deref(), Some("SELECT"));
-    assert!(!list.iter().any(|p| p.sql.as_deref().unwrap_or("").contains("system.processes")), "the list leaves itself out");
+    assert!(
+        !list
+            .iter()
+            .any(|p| p.sql.as_deref().unwrap_or("").contains("system.processes")),
+        "the list leaves itself out"
+    );
 
     admin.cancel_query(&w.id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(15), running).await.expect("the query stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(15), running)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     assert!(r.is_err(), "the query was cancelled");
     let mut out = QueryOutcome::default();
-    worker.execute("SELECT 1", 10, &mut out).await.expect("the session still works");
-    assert!(admin.cancel_query("x' OR 1=1 --").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query("00000000-0000-0000-0000-000000000000").await.is_err(), "an unknown query");
+    worker
+        .execute("SELECT 1", 10, &mut out)
+        .await
+        .expect("the session still works");
+    assert!(
+        admin.cancel_query("x' OR 1=1 --").await.is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin
+            .cancel_query("00000000-0000-0000-0000-000000000000")
+            .await
+            .is_err(),
+        "an unknown query"
+    );
 }

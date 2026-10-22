@@ -23,13 +23,18 @@ use crate::monitor::f;
 use crate::variant::Variant;
 use crate::{err, text, SqlServerSession};
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use std::collections::HashMap;
 use std::time::Instant;
 use tiberius::Row;
 
 pub(crate) enum State {
-    Sampled { sampler: Sampler, sql: String },
+    Sampled {
+        sampler: Sampler,
+        sql: String,
+    },
     /// An Extended Events session read past event `after` (its
     /// `event_sequence`); `errors` holds each session's last error, which
     /// XE reports before the batch that failed completes.
@@ -58,22 +63,47 @@ fn quote(s: &str) -> String {
 }
 
 async fn exec(s: &mut SqlServerSession, sql: &str) -> Result<()> {
-    s.client.simple_query(sql).await.map_err(err)?.into_results().await.map_err(err)?;
+    s.client
+        .simple_query(sql)
+        .await
+        .map_err(err)?
+        .into_results()
+        .await
+        .map_err(err)?;
     Ok(())
 }
 
-pub(crate) async fn start(s: &mut SqlServerSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &mut SqlServerSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let info = s
         .rows("SELECT CAST(SERVERPROPERTY('EngineEdition') AS int), CAST(SERVERPROPERTY('Babelfish') AS int)", &[])
         .await?;
     let edition = info.first().and_then(|r| f(r, 0)).unwrap_or(0.0) as i64;
-    let babelfish = s.variant == Variant::Babelfish || info.first().and_then(|r| f(r, 1)) == Some(1.0);
-    let since = s.rows(NOW_UTC, &[]).await?.first().and_then(|r| text(r, 0)).unwrap_or_default();
-    let db = if opts.database.is_empty() { None } else { Some(quote(&opts.database)) };
+    let babelfish =
+        s.variant == Variant::Babelfish || info.first().and_then(|r| f(r, 1)) == Some(1.0);
+    let since = s
+        .rows(NOW_UTC, &[])
+        .await?
+        .first()
+        .and_then(|r| text(r, 0))
+        .unwrap_or_default();
+    let db = if opts.database.is_empty() {
+        None
+    } else {
+        Some(quote(&opts.database))
+    };
 
     if babelfish {
         let started = ProfilerStarted::new(ProfilerMode::Sampled, "pg_stat_activity (Babelfish)");
-        return Ok((State::Sampled { sampler: Sampler::new(since), sql: babelfish_sql(db.as_deref()) }, started));
+        return Ok((
+            State::Sampled {
+                sampler: Sampler::new(since),
+                sql: babelfish_sql(db.as_deref()),
+            },
+            started,
+        ));
     }
     // EngineEdition: 5 Azure SQL Database, 12 SQL database in Fabric,
     // 6 Synapse dedicated pool, 11 Synapse serverless / Fabric warehouse.
@@ -81,10 +111,16 @@ pub(crate) async fn start(s: &mut SqlServerSession, opts: &ProfilerOptions) -> R
     let database_scoped = matches!(edition, 5 | 12);
     let sampled = |note: &str| {
         (
-            State::Sampled { sampler: Sampler::new(since.clone()), sql: sample_sql(db.as_deref()) },
-            ProfilerStarted::new(ProfilerMode::Sampled, "sys.dm_exec_requests / sys.dm_exec_sessions")
-                .units(Some("páginas"), Some("páginas"))
-                .note(note.to_string()),
+            State::Sampled {
+                sampler: Sampler::new(since.clone()),
+                sql: sample_sql(db.as_deref()),
+            },
+            ProfilerStarted::new(
+                ProfilerMode::Sampled,
+                "sys.dm_exec_requests / sys.dm_exec_sessions",
+            )
+            .units(Some("páginas"), Some("páginas"))
+            .note(note.to_string()),
         )
     };
     if warehouse {
@@ -98,20 +134,37 @@ pub(crate) async fn start(s: &mut SqlServerSession, opts: &ProfilerOptions) -> R
     }
     match create_session(s, db.as_deref(), database_scoped).await {
         Ok((name, files)) => {
-            let scope = if database_scoped { "de la base" } else { "del servidor" };
+            let scope = if database_scoped {
+                "de la base"
+            } else {
+                "del servidor"
+            };
             let mut started = ProfilerStarted::new(ProfilerMode::Complete, "Extended Events")
                 .units(Some("páginas"), Some("páginas"))
-                .change(format!("Sesión de Extended Events {scope} «{name}» (se elimina al detener)"));
+                .change(format!(
+                    "Sesión de Extended Events {scope} «{name}» (se elimina al detener)"
+                ));
             if let Some(f) = &files {
                 started = started.change(format!(
                     "sus archivos {f}_*.xel, de hasta 60 MB en total (se borran al detener; si el servidor no lo permite, quedan en su carpeta de logs)"
                 ));
             }
-            let state = State::Events { name, database_scoped, after: 0, errors: HashMap::new(), files, cursor: None };
+            let state = State::Events {
+                name,
+                database_scoped,
+                after: 0,
+                errors: HashMap::new(),
+                files,
+                cursor: None,
+            };
             Ok((state, started))
         }
         Err(Error::Query(e)) if denied(&e) => {
-            let perm = if database_scoped { "ALTER ANY DATABASE EVENT SESSION" } else { "ALTER ANY EVENT SESSION" };
+            let perm = if database_scoped {
+                "ALTER ANY DATABASE EVENT SESSION"
+            } else {
+                "ALTER ANY EVENT SESSION"
+            };
             Ok(sampled(&format!(
                 "Sin el permiso {perm} no se puede crear una sesión de Extended Events: se muestrean las consultas en curso \
                  y la última de cada sesión; las muy rápidas pueden no verse."
@@ -128,14 +181,25 @@ fn denied(msg: &str) -> bool {
 
 /// Create and start the event session; returns its name and, when it
 /// writes to files, their path without the extension.
-async fn create_session(s: &mut SqlServerSession, db: Option<&str>, database_scoped: bool) -> Result<(String, Option<String>)> {
-    let on = if database_scoped { "DATABASE" } else { "SERVER" };
+async fn create_session(
+    s: &mut SqlServerSession,
+    db: Option<&str>,
+    database_scoped: bool,
+) -> Result<(String, Option<String>)> {
+    let on = if database_scoped {
+        "DATABASE"
+    } else {
+        "SERVER"
+    };
     // The name carries the owner's session and login time, so a later start
     // can tell the sessions of a profiler that died from live ones.
     let stamp = "N'dbine_profiler_' + CAST(session_id AS nvarchar(10)) + N'_' + CONVERT(nvarchar(8), login_time, 112) \
                  + REPLACE(CONVERT(nvarchar(12), login_time, 114), N':', N'')";
     let name = s
-        .rows(&format!("SELECT {stamp} FROM sys.dm_exec_sessions WHERE session_id = @@SPID"), &[])
+        .rows(
+            &format!("SELECT {stamp} FROM sys.dm_exec_sessions WHERE session_id = @@SPID"),
+            &[],
+        )
         .await?
         .first()
         .and_then(|r| text(r, 0))
@@ -144,13 +208,20 @@ async fn create_session(s: &mut SqlServerSession, db: Option<&str>, database_sco
     let log_dir = if database_scoped {
         None
     } else {
-        s.rows("SELECT CAST(SERVERPROPERTY('ErrorLogFileName') AS nvarchar(4000))", &[])
-            .await
-            .ok()
-            .and_then(|r| r.first().and_then(|r| text(r, 0)))
-            .and_then(|log| log.rfind(['/', '\\']).map(|i| log[..=i].to_string()))
+        s.rows(
+            "SELECT CAST(SERVERPROPERTY('ErrorLogFileName') AS nvarchar(4000))",
+            &[],
+        )
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| text(r, 0)))
+        .and_then(|log| log.rfind(['/', '\\']).map(|i| log[..=i].to_string()))
     };
-    let catalog = if database_scoped { "sys.database_event_sessions" } else { "sys.server_event_sessions" };
+    let catalog = if database_scoped {
+        "sys.database_event_sessions"
+    } else {
+        "sys.server_event_sessions"
+    };
     let leftovers = s
         .rows(
             &format!(
@@ -172,7 +243,10 @@ async fn create_session(s: &mut SqlServerSession, db: Option<&str>, database_sco
         }
     }
 
-    let mut filter = format!("sqlserver.session_id <> {} AND sqlserver.is_system = 0", s.spid);
+    let mut filter = format!(
+        "sqlserver.session_id <> {} AND sqlserver.is_system = 0",
+        s.spid
+    );
     if let (Some(db), false) = (db, database_scoped) {
         let id = s
             .rows(&format!("SELECT CAST(DB_ID(N'{db}') AS int)"), &[])
@@ -201,14 +275,22 @@ async fn create_session(s: &mut SqlServerSession, db: Option<&str>, database_sco
          WITH (MAX_DISPATCH_LATENCY = 1 SECONDS, EVENT_RETENTION_MODE = ALLOW_SINGLE_EVENT_LOSS, STARTUP_STATE = OFF)"
     );
     exec(s, &sql).await?;
-    if let Err(e) = exec(s, &format!("ALTER EVENT SESSION [{name}] ON {on} STATE = START")).await {
+    if let Err(e) = exec(
+        s,
+        &format!("ALTER EVENT SESSION [{name}] ON {on} STATE = START"),
+    )
+    .await
+    {
         let _ = exec(s, &format!("DROP EVENT SESSION [{name}] ON {on}")).await;
         return Err(e);
     }
     Ok((name, files))
 }
 
-pub(crate) async fn poll(s: &mut SqlServerSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
+pub(crate) async fn poll(
+    s: &mut SqlServerSession,
+    state: &mut State,
+) -> Result<Vec<ProfiledStatement>> {
     match state {
         State::Sampled { sampler, sql } => {
             let mut out = Vec::new();
@@ -224,7 +306,14 @@ pub(crate) async fn poll(s: &mut SqlServerSession, state: &mut State) -> Result<
             out.sort_by(|a, b| a.time.cmp(&b.time));
             Ok(out)
         }
-        State::Events { name, database_scoped, after, errors, files, cursor } => {
+        State::Events {
+            name,
+            database_scoped,
+            after,
+            errors,
+            files,
+            cursor,
+        } => {
             let sql = match files {
                 Some(f) => file_events_sql(f, cursor.as_ref(), *after),
                 None => events_sql(name, *database_scoped, *after),
@@ -232,7 +321,9 @@ pub(crate) async fn poll(s: &mut SqlServerSession, state: &mut State) -> Result<
             let rows = s.rows(&sql, &[]).await?;
             if files.is_some() {
                 if let Some(last) = rows.last() {
-                    if let (Some(file), Some(offset)) = (text(last, 16), last.try_get::<i64, _>(17).ok().flatten()) {
+                    if let (Some(file), Some(offset)) =
+                        (text(last, 16), last.try_get::<i64, _>(17).ok().flatten())
+                    {
                         *cursor = Some((file, offset));
                     }
                 }
@@ -253,7 +344,9 @@ pub(crate) async fn poll(s: &mut SqlServerSession, state: &mut State) -> Result<
                     }
                     continue;
                 }
-                let error = errors.remove(&session).or_else(|| text(r, 8).filter(|v| v != "OK"));
+                let error = errors
+                    .remove(&session)
+                    .or_else(|| text(r, 8).filter(|v| v != "OK"));
                 let body = text(r, 9).unwrap_or_default();
                 if body.trim().is_empty() {
                     continue;
@@ -286,9 +379,18 @@ pub(crate) async fn poll(s: &mut SqlServerSession, state: &mut State) -> Result<
 }
 
 pub(crate) async fn stop(s: &mut SqlServerSession, state: State) -> Result<()> {
-    if let State::Events { name, database_scoped, files, .. } = state {
-        let (catalog, on) =
-            if database_scoped { ("sys.database_event_sessions", "DATABASE") } else { ("sys.server_event_sessions", "SERVER") };
+    if let State::Events {
+        name,
+        database_scoped,
+        files,
+        ..
+    } = state
+    {
+        let (catalog, on) = if database_scoped {
+            ("sys.database_event_sessions", "DATABASE")
+        } else {
+            ("sys.server_event_sessions", "SERVER")
+        };
         exec(s, &format!("IF EXISTS (SELECT 1 FROM {catalog} WHERE name = N'{name}') DROP EVENT SESSION [{name}] ON {on}")).await?;
         if let Some(f) = files {
             delete_files(s, &f).await;
@@ -300,7 +402,12 @@ pub(crate) async fn stop(s: &mut SqlServerSession, state: State) -> Result<()> {
 /// Delete an event session's files (`xp_delete_files`: SQL Server 2019+,
 /// sysadmin). Where it isn't allowed they stay; that's said at start.
 async fn delete_files(s: &mut SqlServerSession, files: &str) {
-    if let Err(e) = exec(s, &format!("EXEC sys.xp_delete_files N'{}_*.xel'", quote(files))).await {
+    if let Err(e) = exec(
+        s,
+        &format!("EXEC sys.xp_delete_files N'{}_*.xel'", quote(files)),
+    )
+    .await
+    {
         tracing::debug!("sqlserver profiler: deleting {files}_*.xel: {e}");
     }
 }
@@ -309,15 +416,25 @@ async fn delete_files(s: &mut SqlServerSession, files: &str) {
 /// (`2024-01-31T10:00:00.123Z`).
 fn start_of(end: &str, duration_us: f64) -> String {
     match chrono::DateTime::parse_from_rfc3339(end) {
-        Ok(t) => (t - chrono::Duration::microseconds(duration_us as i64)).format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-        Err(_) => end.replace('T', " ").trim_end_matches('Z').chars().take(23).collect(),
+        Ok(t) => (t - chrono::Duration::microseconds(duration_us as i64))
+            .format("%Y-%m-%d %H:%M:%S%.3f")
+            .to_string(),
+        Err(_) => end
+            .replace('T', " ")
+            .trim_end_matches('Z')
+            .chars()
+            .take(23)
+            .collect(),
     }
 }
 
 /// The events after `after`, as columns, from the ring buffer's XML.
 fn events_sql(name: &str, database_scoped: bool, after: u64) -> String {
     let (sessions, targets) = if database_scoped {
-        ("sys.dm_xe_database_sessions", "sys.dm_xe_database_session_targets")
+        (
+            "sys.dm_xe_database_sessions",
+            "sys.dm_xe_database_session_targets",
+        )
     } else {
         ("sys.dm_xe_sessions", "sys.dm_xe_session_targets")
     };
@@ -374,7 +491,9 @@ fn file_events_sql(files: &str, cursor: Option<&(String, i64)>, after: u64) -> S
 /// Each user session's running request, or its last one when idle, except
 /// this session's.
 fn sample_sql(db: Option<&str>) -> String {
-    let scope = db.map(|d| format!(" AND COALESCE(r.database_id, s.database_id) = DB_ID(N'{d}')")).unwrap_or_default();
+    let scope = db
+        .map(|d| format!(" AND COALESCE(r.database_id, s.database_id) = DB_ID(N'{d}')"))
+        .unwrap_or_default();
     format!(
         "SELECT CAST(s.session_id AS nvarchar(10)), {started}, t.text,
                 CAST(CASE WHEN r.session_id IS NULL THEN 0 ELSE 1 END AS int),
@@ -399,7 +518,9 @@ fn sample_sql(db: Option<&str>) -> String {
 /// database for every T-SQL one; `sys.dm_exec_sessions` knows which T-SQL
 /// database each backend is in.
 fn babelfish_sql(db: Option<&str>) -> String {
-    let scope = db.map(|d| format!(" AND s.database_id = DB_ID(N'{d}')")).unwrap_or_default();
+    let scope = db
+        .map(|d| format!(" AND s.database_id = DB_ID(N'{d}')"))
+        .unwrap_or_default();
     format!(
         "SELECT CAST(a.pid AS varchar(12)),
                 CAST(pg_catalog.to_char(pg_catalog.timezone(CAST('UTC' AS pg_catalog.text), a.query_start), 'YYYY-MM-DD HH24:MI:SS.MS') AS varchar(23)),
@@ -434,8 +555,16 @@ fn sample(r: &Row) -> Sample {
         // Only a running request has its own figures (the session's are
         // totals over all it ran).
         cpu_ms: f(r, 11),
-        reads: r.try_get::<i64, _>(12).ok().flatten().map(|v| v.max(0) as u64),
-        writes: r.try_get::<i64, _>(13).ok().flatten().map(|v| v.max(0) as u64),
+        reads: r
+            .try_get::<i64, _>(12)
+            .ok()
+            .flatten()
+            .map(|v| v.max(0) as u64),
+        writes: r
+            .try_get::<i64, _>(13)
+            .ok()
+            .flatten()
+            .map(|v| v.max(0) as u64),
         ..Default::default()
     }
 }
@@ -451,8 +580,14 @@ mod tests {
 
     #[test]
     fn events_start_before_they_end() {
-        assert_eq!(start_of("2024-01-31T10:00:01.250Z", 500_000.0), "2024-01-31 10:00:00.750");
-        assert_eq!(start_of("2024-01-31T10:00:01.2500000Z", 0.0), "2024-01-31 10:00:01.250");
+        assert_eq!(
+            start_of("2024-01-31T10:00:01.250Z", 500_000.0),
+            "2024-01-31 10:00:00.750"
+        );
+        assert_eq!(
+            start_of("2024-01-31T10:00:01.2500000Z", 0.0),
+            "2024-01-31 10:00:01.250"
+        );
     }
 
     #[test]
@@ -460,10 +595,15 @@ mod tests {
         assert_eq!(us_to_ms(15_500.0), 15.5);
         let ring = events_sql("x", false, 0);
         for field in ["cpu_time", "logical_reads", "writes"] {
-            assert!(ring.contains(&format!("data[@name=\"{field}\"]")), "{field}");
+            assert!(
+                ring.contains(&format!("data[@name=\"{field}\"]")),
+                "{field}"
+            );
         }
         let sampled = sample_sql(None);
-        assert!(sampled.contains("CAST(r.cpu_time AS float), CAST(r.logical_reads AS bigint), CAST(r.writes AS bigint)"));
+        assert!(sampled.contains(
+            "CAST(r.cpu_time AS float), CAST(r.logical_reads AS bigint), CAST(r.writes AS bigint)"
+        ));
         assert!(!sampled.contains("lecturas"));
     }
 }

@@ -56,7 +56,11 @@ pub(crate) fn parts_severity(parts: f64, delay: f64, throw: f64) -> Severity {
 
 /// Detached parts the server set aside on its own (not by DETACH).
 pub(crate) fn is_broken(reason: &str) -> bool {
-    reason.starts_with("broken") || matches!(reason, "unexpected" | "noquorum" | "ignored" | "covered-by-broken" | "tmp-fetch")
+    reason.starts_with("broken")
+        || matches!(
+            reason,
+            "unexpected" | "noquorum" | "ignored" | "covered-by-broken" | "tmp-fetch"
+        )
 }
 
 const PARTS: &str = "SELECT table, partition, count() AS c FROM system.parts
@@ -67,11 +71,13 @@ const PARTS: &str = "SELECT table, partition, count() AS c FROM system.parts
 const DETACHED: &str = "SELECT table, name, ifNull(reason, '') FROM system.detached_parts
   WHERE database = {db:String} ORDER BY table, name LIMIT 1000";
 
-const REPLICAS: &str = "SELECT table, is_readonly, is_session_expired, absolute_delay, queue_size, inserts_in_queue,
+const REPLICAS: &str =
+    "SELECT table, is_readonly, is_session_expired, absolute_delay, queue_size, inserts_in_queue,
        active_replicas, total_replicas
   FROM system.replicas WHERE database = {db:String} ORDER BY table";
 
-const MUTATIONS: &str = "SELECT table, mutation_id, command, toString(create_time), latest_fail_reason,
+const MUTATIONS: &str =
+    "SELECT table, mutation_id, command, toString(create_time), latest_fail_reason,
        dateDiff('hour', create_time, now()), parts_to_do
   FROM system.mutations
   WHERE database = {db:String} AND NOT is_done
@@ -86,7 +92,11 @@ const NO_TTL: &str = "SELECT name, formatReadableSize(total_bytes) FROM system.t
 
 impl ClickHouseSession {
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
-        let db = if database.is_empty() { self.database.clone() } else { database.to_string() };
+        let db = if database.is_empty() {
+            self.database.clone()
+        } else {
+            database.to_string()
+        };
         let p = [("db", db.as_str())];
         let mut out = Vec::new();
 
@@ -105,8 +115,15 @@ impl ClickHouseSession {
             }
         }
         if let Ok(rows) = self.rows(PARTS, &p).await {
-            let bad: Vec<&Vec<Value>> = rows.iter().filter(|r| parts_severity(n(r, 2), delay, throw) != Severity::Ok).collect();
-            let sev = bad.iter().map(|r| parts_severity(n(r, 2), delay, throw)).max().unwrap_or(Severity::Ok);
+            let bad: Vec<&Vec<Value>> = rows
+                .iter()
+                .filter(|r| parts_severity(n(r, 2), delay, throw) != Severity::Ok)
+                .collect();
+            let sev = bad
+                .iter()
+                .map(|r| parts_severity(n(r, 2), delay, throw))
+                .max()
+                .unwrap_or(Severity::Ok);
             let objects: Vec<String> = bad
                 .iter()
                 .map(|r| {
@@ -135,7 +152,11 @@ impl ClickHouseSession {
             if !tables.is_empty() {
                 check = check.fix(format!(
                     "-- Fusiona las partes; reescribe los datos, mejor fuera de horario pico:\n{}",
-                    tables.iter().map(|t| format!("OPTIMIZE TABLE {};", qn(&db, t))).collect::<Vec<_>>().join("\n")
+                    tables
+                        .iter()
+                        .map(|t| format!("OPTIMIZE TABLE {};", qn(&db, t)))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 ));
             }
             out.push(check);
@@ -148,13 +169,31 @@ impl ClickHouseSession {
                 .iter()
                 .map(|r| {
                     let reason = s(r, 2);
-                    format!("{} · {} ({})", s(r, 0), s(r, 1), if reason.is_empty() { "separada a mano".to_string() } else { reason })
+                    format!(
+                        "{} · {} ({})",
+                        s(r, 0),
+                        s(r, 1),
+                        if reason.is_empty() {
+                            "separada a mano".to_string()
+                        } else {
+                            reason
+                        }
+                    )
                 })
                 .collect();
             let (title, sev) = match (rows.len(), broken.len()) {
-                (0, _) => ("No hay partes separadas (detached)".to_string(), Severity::Ok),
-                (t, 0) => (format!("{t} partes separadas a mano (DETACH)"), Severity::Info),
-                (t, b) => (format!("{t} partes separadas, {b} rotas o inesperadas"), Severity::Warning),
+                (0, _) => (
+                    "No hay partes separadas (detached)".to_string(),
+                    Severity::Ok,
+                ),
+                (t, 0) => (
+                    format!("{t} partes separadas a mano (DETACH)"),
+                    Severity::Info,
+                ),
+                (t, b) => (
+                    format!("{t} partes separadas, {b} rotas o inesperadas"),
+                    Severity::Warning,
+                ),
             };
             let mut check = HealthCheck::new("detached_parts", "Integridad", title, sev)
                 .detail(
@@ -168,7 +207,10 @@ impl ClickHouseSession {
                     .take(MAX_OBJECTS)
                     .map(|r| format!("-- {}", comment_text(&format!("ALTER TABLE {} DROP DETACHED PART {} SETTINGS allow_drop_detached = 1;", qn(&db, &s(r, 0)), lit(&s(r, 1))))))
                     .collect();
-                check = check.fix(format!("-- Borrar una parte separada es definitivo: revisá cada una antes.\n{}", lines.join("\n")));
+                check = check.fix(format!(
+                    "-- Borrar una parte separada es definitivo: revisá cada una antes.\n{}",
+                    lines.join("\n")
+                ));
             }
             out.push(check);
         }
@@ -179,7 +221,17 @@ impl ClickHouseSession {
                 let readonly: Vec<String> = rows
                     .iter()
                     .filter(|r| n(r, 1) > 0.0 || n(r, 2) > 0.0)
-                    .map(|r| format!("{} (solo lectura{})", s(r, 0), if n(r, 2) > 0.0 { ", sesión de Keeper vencida" } else { "" }))
+                    .map(|r| {
+                        format!(
+                            "{} (solo lectura{})",
+                            s(r, 0),
+                            if n(r, 2) > 0.0 {
+                                ", sesión de Keeper vencida"
+                            } else {
+                                ""
+                            }
+                        )
+                    })
                     .collect();
                 let lagging: Vec<String> = rows
                     .iter()
@@ -195,13 +247,25 @@ impl ClickHouseSession {
                 objects.extend(lagging.iter().cloned());
                 objects.extend(degraded.iter().cloned());
                 let (title, sev) = if !readonly.is_empty() {
-                    (format!("{} tablas replicadas en solo lectura", readonly.len()), Severity::Critical)
+                    (
+                        format!("{} tablas replicadas en solo lectura", readonly.len()),
+                        Severity::Critical,
+                    )
                 } else if !lagging.is_empty() {
-                    (format!("{} tablas replicadas atrasadas", lagging.len()), Severity::Warning)
+                    (
+                        format!("{} tablas replicadas atrasadas", lagging.len()),
+                        Severity::Warning,
+                    )
                 } else if !degraded.is_empty() {
-                    (format!("{} tablas replicadas con réplicas caídas", degraded.len()), Severity::Warning)
+                    (
+                        format!("{} tablas replicadas con réplicas caídas", degraded.len()),
+                        Severity::Warning,
+                    )
                 } else {
-                    (format!("Las {} tablas replicadas están al día", rows.len()), Severity::Ok)
+                    (
+                        format!("Las {} tablas replicadas están al día", rows.len()),
+                        Severity::Ok,
+                    )
                 };
                 out.push(
                     HealthCheck::new("replication", "Replicación", title, sev)
@@ -216,27 +280,59 @@ impl ClickHouseSession {
 
         // Mutations that fail or never finish.
         let hours = STUCK_HOURS.to_string();
-        if let Ok(rows) = self.rows(MUTATIONS, &[("db", db.as_str()), ("hours", hours.as_str())]).await {
+        if let Ok(rows) = self
+            .rows(MUTATIONS, &[("db", db.as_str()), ("hours", hours.as_str())])
+            .await
+        {
             let failing = rows.iter().filter(|r| !s(r, 4).is_empty()).count();
             let objects: Vec<String> = rows
                 .iter()
                 .map(|r| {
                     let fail = s(r, 4);
-                    let fail = if fail.is_empty() { String::new() } else { format!(": {}", fail.chars().take(160).collect::<String>()) };
+                    let fail = if fail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", fail.chars().take(160).collect::<String>())
+                    };
                     let cmd = s(r, 2);
-                    let cmd = cmd.strip_prefix('(').and_then(|c| c.strip_suffix(')')).unwrap_or(&cmd);
-                    let age = if n(r, 5) < 1.0 { "hace menos de 1 h".to_string() } else { format!("hace {} h", s(r, 5)) };
-                    format!("{} · {} ({cmd}, {age}, {} partes pendientes){fail}", s(r, 0), s(r, 1), s(r, 6))
+                    let cmd = cmd
+                        .strip_prefix('(')
+                        .and_then(|c| c.strip_suffix(')'))
+                        .unwrap_or(&cmd);
+                    let age = if n(r, 5) < 1.0 {
+                        "hace menos de 1 h".to_string()
+                    } else {
+                        format!("hace {} h", s(r, 5))
+                    };
+                    format!(
+                        "{} · {} ({cmd}, {age}, {} partes pendientes){fail}",
+                        s(r, 0),
+                        s(r, 1),
+                        s(r, 6)
+                    )
                 })
                 .collect();
             let fixes: Vec<String> = rows
                 .iter()
-                .map(|r| format!("KILL MUTATION WHERE database = {} AND table = {} AND mutation_id = {};", lit(&db), lit(&s(r, 0)), lit(&s(r, 1))))
+                .map(|r| {
+                    format!(
+                        "KILL MUTATION WHERE database = {} AND table = {} AND mutation_id = {};",
+                        lit(&db),
+                        lit(&s(r, 0)),
+                        lit(&s(r, 1))
+                    )
+                })
                 .collect();
             let (title, sev) = match (rows.len(), failing) {
                 (0, _) => ("No hay mutaciones trabadas".to_string(), Severity::Ok),
-                (t, 0) => (format!("{t} mutaciones sin terminar hace más de {STUCK_HOURS} h"), Severity::Warning),
-                (t, f) => (format!("{t} mutaciones trabadas, {f} con error"), Severity::Warning),
+                (t, 0) => (
+                    format!("{t} mutaciones sin terminar hace más de {STUCK_HOURS} h"),
+                    Severity::Warning,
+                ),
+                (t, f) => (
+                    format!("{t} mutaciones trabadas, {f} con error"),
+                    Severity::Warning,
+                ),
             };
             let mut check = HealthCheck::new("stuck_mutations", "Mantenimiento", title, sev)
                 .detail(
@@ -252,7 +348,10 @@ impl ClickHouseSession {
 
         // Large tables with dates and no TTL: only as information.
         let bytes = TTL_BYTES.to_string();
-        if let Ok(rows) = self.rows(NO_TTL, &[("db", db.as_str()), ("bytes", bytes.as_str())]).await {
+        if let Ok(rows) = self
+            .rows(NO_TTL, &[("db", db.as_str()), ("bytes", bytes.as_str())])
+            .await
+        {
             if !rows.is_empty() {
                 out.push(
                     HealthCheck::new("no_ttl", "Espacio", format!("{} tablas grandes con fechas y sin TTL", rows.len()), Severity::Info)
@@ -294,7 +393,13 @@ mod tests {
         // A trailing backslash can't escape the closing backtick.
         assert_eq!(qn("d", "t\\"), "`d`.`t\\\\`");
         // A line break in a name can't end the `--` comment.
-        let line = format!("-- {}", comment_text(&format!("ALTER TABLE {};", qn("d", "t\nDROP TABLE x;\r\u{2028}\u{85}"))));
+        let line = format!(
+            "-- {}",
+            comment_text(&format!(
+                "ALTER TABLE {};",
+                qn("d", "t\nDROP TABLE x;\r\u{2028}\u{85}")
+            ))
+        );
         assert_eq!(line, "-- ALTER TABLE `d`.`t?DROP TABLE x;???`;");
         assert_eq!(line.lines().count(), 1);
     }

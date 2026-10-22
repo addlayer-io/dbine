@@ -29,7 +29,9 @@ pub(crate) fn valid_task_id(id: &str) -> bool {
     id.rsplit_once(':').is_some_and(|(node, n)| {
         !node.is_empty()
             && node.len() <= 64
-            && node.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+            && node
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
             && !n.is_empty()
             && n.len() <= 19
             && n.chars().all(|c| c.is_ascii_digit())
@@ -55,7 +57,11 @@ pub(crate) fn rows(tasks: &J, opaque_id: &str) -> Vec<ServerProcess> {
     let ids: HashSet<&str> = all.iter().map(|(id, _)| id.as_str()).collect();
     let mut out: Vec<ServerProcess> = all
         .iter()
-        .filter(|(_, t)| !t.get("parent_task_id").and_then(J::as_str).is_some_and(|p| ids.contains(p)))
+        .filter(|(_, t)| {
+            !t.get("parent_task_id")
+                .and_then(J::as_str)
+                .is_some_and(|p| ids.contains(p))
+        })
         .map(|(id, t)| {
             let text = |k: &str| t.get(k).map(J::text).filter(|v| !v.is_empty());
             let action = text("action").unwrap_or_default();
@@ -64,21 +70,34 @@ pub(crate) fn rows(tasks: &J, opaque_id: &str) -> Vec<ServerProcess> {
             let cancelled = t.get("cancelled").and_then(J::as_bool).unwrap_or(false);
             ServerProcess {
                 id: (*id).clone(),
-                status: Some(if cancelled { "cancelándose" } else { "ejecutando" }.into()),
+                status: Some(
+                    if cancelled {
+                        "cancelándose"
+                    } else {
+                        "ejecutando"
+                    }
+                    .into(),
+                ),
                 active: true,
-                system: text("type").as_deref() == Some("persistent") || action.starts_with("internal:"),
+                system: text("type").as_deref() == Some("persistent")
+                    || action.starts_with("internal:"),
                 own: header == Some(opaque_id),
                 program: header.filter(|h| !h.is_empty()).map(str::to_string),
                 database: desc.as_deref().and_then(indices),
                 command: Some(action).filter(|a| !a.is_empty()),
                 elapsed_ms: f(t, &["running_time_in_nanos"]).map(|ns| (ns / 1e6) as u64),
-                cpu_ms: f(t, &["resource_stats", "total", "cpu_time_in_nanos"]).map(|ns| (ns / 1e6) as u64),
+                cpu_ms: f(t, &["resource_stats", "total", "cpu_time_in_nanos"])
+                    .map(|ns| (ns / 1e6) as u64),
                 sql: desc.map(|d| crate::http::clip(&d, MAX_TEXT)),
                 ..Default::default()
             }
         })
         .collect();
-    out.sort_by(|a, b| a.system.cmp(&b.system).then(b.elapsed_ms.cmp(&a.elapsed_ms)));
+    out.sort_by(|a, b| {
+        a.system
+            .cmp(&b.system)
+            .then(b.elapsed_ms.cmp(&a.elapsed_ms))
+    });
     out.truncate(MAX_ROWS);
     out
 }
@@ -87,20 +106,27 @@ pub(crate) fn rows(tasks: &J, opaque_id: &str) -> Vec<ServerProcess> {
 /// cancellable and not this session's.
 pub(crate) fn check_cancel(id: &str, status: u16, body: &str, opaque_id: &str) -> Result<()> {
     if status == 404 {
-        return Err(Error::Query(format!("la tarea {id} ya terminó o no existe")));
+        return Err(Error::Query(format!(
+            "la tarea {id} ya terminó o no existe"
+        )));
     }
-    let j = J::parse(body).map_err(|e| Error::Query(format!("Respuesta inesperada del servidor: {e}")))?;
+    let j = J::parse(body)
+        .map_err(|e| Error::Query(format!("Respuesta inesperada del servidor: {e}")))?;
     if j.get("completed").and_then(J::as_bool) == Some(true) {
         return Err(Error::Query(format!("la tarea {id} ya terminó")));
     }
     let Some(task) = j.get("task") else {
-        return Err(Error::Query(format!("la tarea {id} ya terminó o no existe")));
+        return Err(Error::Query(format!(
+            "la tarea {id} ya terminó o no existe"
+        )));
     };
     if task.at(&["headers", "X-Opaque-Id"]).and_then(J::as_str) == Some(opaque_id) {
         return Err(Error::Query("esa es una tarea de la sesión con la que DBine está consultando: no se puede cancelar desde acá".into()));
     }
     if task.get("cancellable").and_then(J::as_bool) == Some(false) {
-        return Err(Error::Query(format!("la tarea {id} no se puede cancelar (el servidor no la marca como cancelable)")));
+        return Err(Error::Query(format!(
+            "la tarea {id} no se puede cancelar (el servidor no la marca como cancelable)"
+        )));
     }
     Ok(())
 }
@@ -110,7 +136,13 @@ pub(crate) fn cancel_failure(body: &str) -> Option<String> {
     let j = J::parse(body).ok()?;
     ["node_failures", "task_failures"].iter().find_map(|k| {
         let first = j.get(k)?.as_arr()?.first()?;
-        Some(first.at(&["caused_by", "reason"]).or_else(|| first.get("reason")).map(J::text).unwrap_or_else(|| first.compact()))
+        Some(
+            first
+                .at(&["caused_by", "reason"])
+                .or_else(|| first.get("reason"))
+                .map(J::text)
+                .unwrap_or_else(|| first.compact()),
+        )
     })
 }
 
@@ -131,9 +163,20 @@ mod tests {
         )
         .unwrap();
         let r = rows(&t, "me");
-        assert_eq!(r.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["n1:7", "n1:149", "n1:43"]);
+        assert_eq!(
+            r.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            ["n1:7", "n1:149", "n1:43"]
+        );
         let s = &r[0];
-        assert_eq!((s.database.as_deref(), s.program.as_deref(), s.elapsed_ms, s.cpu_ms), (Some("films"), Some("app"), Some(2500), Some(120)));
+        assert_eq!(
+            (
+                s.database.as_deref(),
+                s.program.as_deref(),
+                s.elapsed_ms,
+                s.cpu_ms
+            ),
+            (Some("films"), Some("app"), Some(2500), Some(120))
+        );
         assert!(s.sql.as_deref().unwrap().contains("source["));
         assert!(r[1].own && !r[1].system);
         assert!(r[2].system);
@@ -141,14 +184,43 @@ mod tests {
 
     #[test]
     fn task_ids_and_cancel_checks() {
-        assert!(valid_task_id("gT921SvoSiywpqoXvL4OBw:149") && valid_task_id("uycW5Z-tSoO_UtEDkqwBWQ:1"));
-        assert!(!valid_task_id("149") && !valid_task_id("a:b") && !valid_task_id("x/../_cluster:1") && !valid_task_id(":1"));
+        assert!(
+            valid_task_id("gT921SvoSiywpqoXvL4OBw:149")
+                && valid_task_id("uycW5Z-tSoO_UtEDkqwBWQ:1")
+        );
+        assert!(
+            !valid_task_id("149")
+                && !valid_task_id("a:b")
+                && !valid_task_id("x/../_cluster:1")
+                && !valid_task_id(":1")
+        );
         assert!(check_cancel("n:1", 404, "", "me").is_err());
         assert!(check_cancel("n:1", 200, r#"{"completed":true,"task":{}}"#, "me").is_err());
-        assert!(check_cancel("n:1", 200, r#"{"completed":false,"task":{"headers":{"X-Opaque-Id":"me"}}}"#, "me").is_err());
-        assert!(check_cancel("n:1", 200, r#"{"completed":false,"task":{"cancellable":false}}"#, "me").is_err());
-        assert!(check_cancel("n:1", 200, r#"{"completed":false,"task":{"cancellable":true}}"#, "me").is_ok());
-        assert_eq!(cancel_failure(r#"{"node_failures":[{"caused_by":{"reason":"no"}}]}"#).as_deref(), Some("no"));
+        assert!(check_cancel(
+            "n:1",
+            200,
+            r#"{"completed":false,"task":{"headers":{"X-Opaque-Id":"me"}}}"#,
+            "me"
+        )
+        .is_err());
+        assert!(check_cancel(
+            "n:1",
+            200,
+            r#"{"completed":false,"task":{"cancellable":false}}"#,
+            "me"
+        )
+        .is_err());
+        assert!(check_cancel(
+            "n:1",
+            200,
+            r#"{"completed":false,"task":{"cancellable":true}}"#,
+            "me"
+        )
+        .is_ok());
+        assert_eq!(
+            cancel_failure(r#"{"node_failures":[{"caused_by":{"reason":"no"}}]}"#).as_deref(),
+            Some("no")
+        );
         assert_eq!(cancel_failure(r#"{"nodes":{}}"#), None);
     }
 }

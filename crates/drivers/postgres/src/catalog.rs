@@ -28,14 +28,29 @@ const SYSTEM_SCHEMAS: &[&str] = &[
 ];
 
 /// KingbaseES keeps its own system schemas next to PostgreSQL's.
-const KINGBASE_SCHEMAS: &[&str] =
-    &["sys", "sys_catalog", "sysaudit", "sysmac", "anon", "dbms_sql", "perf", "src_restrict", "xlog_record_read"];
+const KINGBASE_SCHEMAS: &[&str] = &[
+    "sys",
+    "sys_catalog",
+    "sysaudit",
+    "sysmac",
+    "anon",
+    "dbms_sql",
+    "perf",
+    "src_restrict",
+    "xlog_record_read",
+];
 
 /// The system schemas a variant adds to PostgreSQL's.
 fn variant_schemas(v: Variant) -> &'static [&'static str] {
     match v {
         Variant::Kingbase => KINGBASE_SCHEMAS,
-        Variant::Materialize => &["mz_catalog", "mz_internal", "mz_introspection", "mz_unsafe", "mz_catalog_unstable"],
+        Variant::Materialize => &[
+            "mz_catalog",
+            "mz_internal",
+            "mz_introspection",
+            "mz_unsafe",
+            "mz_catalog_unstable",
+        ],
         Variant::RisingWave => &["rw_catalog"],
         Variant::CrateDb => &["sys", "blob"],
         Variant::Edb => &["sys", "pgagent"],
@@ -65,7 +80,11 @@ fn variant_schemas(v: Variant) -> &'static [&'static str] {
 pub fn user_schema(v: Variant, col: &str) -> String {
     let mut names: Vec<&str> = SYSTEM_SCHEMAS.to_vec();
     names.extend_from_slice(variant_schemas(v));
-    let list = names.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ");
+    let list = names
+        .iter()
+        .map(|n| format!("'{n}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "{col} NOT IN ({list}) AND {col} NOT LIKE 'pg\\_toast%' AND {col} NOT LIKE 'pg\\_temp\\_%' \
          AND {col} NOT LIKE '\\_timescaledb%'"
@@ -78,7 +97,9 @@ pub fn user_schema(v: Variant, col: &str) -> String {
 pub fn system_schema(v: Variant, name: &str) -> bool {
     SYSTEM_SCHEMAS.contains(&name)
         || variant_schemas(v).contains(&name)
-        || ["pg_toast", "pg_temp_", "_timescaledb"].iter().any(|p| name.starts_with(p))
+        || ["pg_toast", "pg_temp_", "_timescaledb"]
+            .iter()
+            .any(|p| name.starts_with(p))
         || (v == Variant::Materialize && name.starts_with("mz_"))
 }
 
@@ -86,7 +107,15 @@ pub fn system_schema(v: Variant, name: &str) -> bool {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 pub(crate) fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// A string literal for a text-protocol query. Redshift treats backslashes
@@ -143,9 +172,15 @@ pub fn cell(r: &SimpleQueryRow, name: &str) -> Option<String> {
 }
 
 /// `character varying(50)`, `numeric(18,2)` from `information_schema.columns`.
-pub fn info_type(data_type: &str, char_len: Option<&str>, precision: Option<&str>, scale: Option<&str>) -> String {
+pub fn info_type(
+    data_type: &str,
+    char_len: Option<&str>,
+    precision: Option<&str>,
+    scale: Option<&str>,
+) -> String {
     match data_type {
-        "character varying" | "character" | "varchar" | "char" | "bpchar" | "nvarchar" | "nchar" => match char_len {
+        "character varying" | "character" | "varchar" | "char" | "bpchar" | "nvarchar"
+        | "nchar" => match char_len {
             Some(n) if !n.is_empty() => format!("{data_type}({n})"),
             _ => data_type.to_string(),
         },
@@ -165,7 +200,10 @@ mod tests {
     fn literals_escape_quotes_and_backslashes() {
         // E'…' reads the same with standard_conforming_strings on or off.
         assert_eq!(lit(Variant::Postgres, "o'k\\"), "E'o''k\\\\'");
-        assert_eq!(lit(Variant::Postgres, "x\\'; drop table t; --"), "E'x\\\\''; drop table t; --'");
+        assert_eq!(
+            lit(Variant::Postgres, "x\\'; drop table t; --"),
+            "E'x\\\\''; drop table t; --'"
+        );
         assert_eq!(lit(Variant::Redshift, "o'k\\"), "'o''k\\\\'");
         assert_eq!(lit(Variant::Materialize, "o'k\\"), "'o''k\\'");
     }
@@ -179,22 +217,47 @@ mod tests {
 
     #[test]
     fn system_schemas_by_engine() {
-        for name in ["pg_catalog", "information_schema", "pg_toast", "pg_toast_temp_3", "pg_temp_3", "crdb_internal", "pg_extension", "_timescaledb_catalog", "timescaledb_information"] {
+        for name in [
+            "pg_catalog",
+            "information_schema",
+            "pg_toast",
+            "pg_toast_temp_3",
+            "pg_temp_3",
+            "crdb_internal",
+            "pg_extension",
+            "_timescaledb_catalog",
+            "timescaledb_information",
+        ] {
             assert!(system_schema(Variant::Postgres, name), "{name}");
         }
         for name in ["public", "ventas", "pg_ventas", "mz_ventas", "sys"] {
             assert!(!system_schema(Variant::Postgres, name), "{name}");
         }
-        assert!(system_schema(Variant::Materialize, "mz_catalog_unstable") && system_schema(Variant::Materialize, "mz_whatever"));
-        assert!(system_schema(Variant::RisingWave, "rw_catalog") && system_schema(Variant::Kingbase, "sys_catalog"));
-        assert!(system_schema(Variant::OpenGauss, "dbe_perf") && system_schema(Variant::H2, "INFORMATION_SCHEMA"));
+        assert!(
+            system_schema(Variant::Materialize, "mz_catalog_unstable")
+                && system_schema(Variant::Materialize, "mz_whatever")
+        );
+        assert!(
+            system_schema(Variant::RisingWave, "rw_catalog")
+                && system_schema(Variant::Kingbase, "sys_catalog")
+        );
+        assert!(
+            system_schema(Variant::OpenGauss, "dbe_perf")
+                && system_schema(Variant::H2, "INFORMATION_SCHEMA")
+        );
         assert!(!system_schema(Variant::H2, "PUBLIC") && !system_schema(Variant::CrateDb, "doc"));
     }
 
     #[test]
     fn info_types_carry_length_and_precision() {
-        assert_eq!(info_type("character varying", Some("50"), None, None), "character varying(50)");
-        assert_eq!(info_type("numeric", None, Some("18"), Some("2")), "numeric(18,2)");
+        assert_eq!(
+            info_type("character varying", Some("50"), None, None),
+            "character varying(50)"
+        );
+        assert_eq!(
+            info_type("numeric", None, Some("18"), Some("2")),
+            "numeric(18,2)"
+        );
         assert_eq!(info_type("numeric", None, None, None), "numeric");
         assert_eq!(info_type("integer", None, Some("32"), Some("0")), "integer");
     }

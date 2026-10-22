@@ -25,10 +25,22 @@ async fn emulator() {
         .json(&json!({ "instanceId": "i1", "instance": { "config": "projects/test/instanceConfigs/emulator-config", "displayName": "i1", "nodeCount": 1 } }))
         .send()
         .await;
-    let _ = http.post(format!("{url}/v1/projects/test/instances/i1/databases")).json(&json!({ "createStatement": "CREATE DATABASE `db1`" })).send().await;
+    let _ = http
+        .post(format!("{url}/v1/projects/test/instances/i1/databases"))
+        .json(&json!({ "createStatement": "CREATE DATABASE `db1`" }))
+        .send()
+        .await;
 
-    let mut cfg = ConnectionConfig { driver: "spanner".into(), database: "db1".into(), ..Default::default() };
-    for (k, v) in [("project_id", "test"), ("instance", "i1"), ("endpoint_url", url.as_str())] {
+    let mut cfg = ConnectionConfig {
+        driver: "spanner".into(),
+        database: "db1".into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("project_id", "test"),
+        ("instance", "i1"),
+        ("endpoint_url", url.as_str()),
+    ] {
         cfg.options.insert(k.into(), v.into());
     }
     let d = dbine_driver_spanner::drivers().pop().unwrap();
@@ -36,6 +48,12 @@ async fn emulator() {
     let mut s = d.connect(&cfg, None).await.unwrap();
     let list = s.processes().await;
     eprintln!("{list:?}");
-    assert!(matches!(list, Err(dbine_driver::Error::Unsupported(_))), "the emulator has no SPANNER_SYS");
-    assert!(s.cancel_query("1') --").await.is_err(), "the id is validated");
+    assert!(
+        matches!(list, Err(dbine_driver::Error::Unsupported(_))),
+        "the emulator has no SPANNER_SYS"
+    );
+    assert!(
+        s.cancel_query("1') --").await.is_err(),
+        "the id is validated"
+    );
 }

@@ -24,17 +24,28 @@ const MARK: &str = "dbine_processes_list";
 /// (letters, digits and `-_.:`). Anything else is refused before SQL.
 pub(crate) fn valid_id(id: &str) -> Option<&str> {
     let id = id.trim();
-    (!id.is_empty() && id.len() <= 128 && id.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:".contains(c))).then_some(id)
+    (!id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.:".contains(c)))
+    .then_some(id)
 }
 
 /// The statement's first word, upper-cased ("SELECT", "INSERT"…).
 fn command(sql: &str) -> Option<String> {
-    let word: String = sql.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let word: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     (!word.is_empty()).then(|| word.to_ascii_uppercase())
 }
 
 fn opt(v: Option<&Value>) -> Option<String> {
-    v.map(text).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    v.map(text)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn num(v: Option<&Value>) -> Option<f64> {
@@ -52,7 +63,14 @@ fn row(r: &[Value]) -> ServerProcess {
     let cancelled = num(r.get(9)).is_some_and(|v| v != 0.0);
     ServerProcess {
         id: opt(r.first()).unwrap_or_default(),
-        status: Some(if cancelled { "cancelando" } else { "en ejecución" }.into()),
+        status: Some(
+            if cancelled {
+                "cancelando"
+            } else {
+                "en ejecución"
+            }
+            .into(),
+        ),
         active: true,
         // A distributed query's parts on other shards.
         system: num(r.get(10)).is_some_and(|v| v == 0.0),
@@ -83,13 +101,24 @@ impl ClickHouseSession {
         let rows = tokio::time::timeout(QUERY_LIMIT, self.rows(&sql, &[]))
             .await
             .map_err(|_| Error::Query("la lista de consultas tardó demasiado".into()))??;
-        Ok(rows.iter().map(|r| row(r)).filter(|p| !p.id.is_empty()).collect())
+        Ok(rows
+            .iter()
+            .map(|r| row(r))
+            .filter(|p| !p.id.is_empty())
+            .collect())
     }
 
     pub(crate) async fn cancel_running(&self, id: &str) -> Result<()> {
-        let id = valid_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta de ClickHouse", id.trim())))?;
+        let id = valid_id(id).ok_or_else(|| {
+            Error::Query(format!(
+                "«{}» no es un id de consulta de ClickHouse",
+                id.trim()
+            ))
+        })?;
         // Checked above: no quote or backslash can be in it.
-        let rows = self.rows(&format!("KILL QUERY WHERE query_id = '{id}' ASYNC"), &[]).await?;
+        let rows = self
+            .rows(&format!("KILL QUERY WHERE query_id = '{id}' ASYNC"), &[])
+            .await?;
         if rows.is_empty() {
             return Err(Error::Query(format!(
                 "no se pudo cancelar la consulta {id}: ya terminó o tu usuario no tiene permiso para verla"
@@ -106,7 +135,10 @@ mod tests {
 
     #[test]
     fn ids_are_checked() {
-        assert_eq!(valid_id(" 4f8e2a1c-1b2c-4d5e-8f90-a1b2c3d4e5f6 "), Some("4f8e2a1c-1b2c-4d5e-8f90-a1b2c3d4e5f6"));
+        assert_eq!(
+            valid_id(" 4f8e2a1c-1b2c-4d5e-8f90-a1b2c3d4e5f6 "),
+            Some("4f8e2a1c-1b2c-4d5e-8f90-a1b2c3d4e5f6")
+        );
         assert_eq!(valid_id("my_job.1:a"), Some("my_job.1:a"));
         assert_eq!(valid_id("x' OR 1=1 --"), None);
         assert_eq!(valid_id(""), None);

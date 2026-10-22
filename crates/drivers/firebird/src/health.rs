@@ -17,12 +17,14 @@ const MAX_OBJECTS: usize = 200;
 /// The gap a sweep is measured against when automatic sweeping is off.
 const DEFAULT_SWEEP: i64 = 20_000;
 
-const MON: &str = "SELECT MON$OLDEST_TRANSACTION, MON$OLDEST_ACTIVE, MON$OLDEST_SNAPSHOT, MON$NEXT_TRANSACTION,
+const MON: &str =
+    "SELECT MON$OLDEST_TRANSACTION, MON$OLDEST_ACTIVE, MON$OLDEST_SNAPSHOT, MON$NEXT_TRANSACTION,
        MON$SWEEP_INTERVAL, MON$FORCED_WRITES, MON$READ_ONLY
   FROM MON$DATABASE";
 
 /// Persistent user tables (no views, GTTs or external tables).
-const TABLES: &str = "COALESCE(r.RDB$SYSTEM_FLAG, 0) = 0 AND r.RDB$VIEW_BLR IS NULL AND r.RDB$EXTERNAL_FILE IS NULL
+const TABLES: &str =
+    "COALESCE(r.RDB$SYSTEM_FLAG, 0) = 0 AND r.RDB$VIEW_BLR IS NULL AND r.RDB$EXTERNAL_FILE IS NULL
    AND COALESCE(r.RDB$RELATION_TYPE, 0) = 0";
 
 /// Active user indexes whose selectivity was never computed (0 or NULL).
@@ -58,8 +60,17 @@ fn no_pk_sql() -> String {
 /// Title, severity and detail of the transaction gap: `oit` the oldest
 /// interesting, `oat` the oldest active, `next` the next transaction and
 /// `interval` the sweep interval (0: automatic sweep off).
-pub(crate) fn transaction_gap(oit: i64, oat: i64, next: i64, interval: i64) -> (String, Severity, String) {
-    let limit = if interval > 0 { interval } else { DEFAULT_SWEEP };
+pub(crate) fn transaction_gap(
+    oit: i64,
+    oat: i64,
+    next: i64,
+    interval: i64,
+) -> (String, Severity, String) {
+    let limit = if interval > 0 {
+        interval
+    } else {
+        DEFAULT_SWEEP
+    };
     let gap = next - oit;
     let open = next - oat;
     let auto = if interval > 0 {
@@ -71,7 +82,9 @@ pub(crate) fn transaction_gap(oit: i64, oat: i64, next: i64, interval: i64) -> (
         return (
             format!("Brecha de transacciones: {gap} (sin barrido pendiente)"),
             Severity::Ok,
-            format!("Distancia entre la transacción interesante más antigua y la siguiente. {auto}"),
+            format!(
+                "Distancia entre la transacción interesante más antigua y la siguiente. {auto}"
+            ),
         );
     }
     if open > limit && oat - oit <= limit {
@@ -123,7 +136,9 @@ fn read(c: &mut Conn) -> Read {
             let has_rows = match checked.iter().find(|(t, _)| *t == table) {
                 Some((_, v)) => *v,
                 None => {
-                    let v = c.rows(&format!("SELECT FIRST 1 1 FROM {}", q(&table)), vec![]).is_ok_and(|r| !r.is_empty());
+                    let v = c
+                        .rows(&format!("SELECT FIRST 1 1 FROM {}", q(&table)), vec![])
+                        .is_ok_and(|r| !r.is_empty());
                     checked.push((table.clone(), v));
                     v
                 }
@@ -139,20 +154,32 @@ fn read(c: &mut Conn) -> Read {
     });
     let inactive = c.rows(&inactive_sql(), vec![]);
     let no_pk = c.rows(&no_pk_sql(), vec![]);
-    Read { mon, zero_stats, inactive, no_pk }
+    Read {
+        mon,
+        zero_stats,
+        inactive,
+        no_pk,
+    }
 }
 
 impl FirebirdSession {
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
         let mut t = self.target.clone();
         let database = database.trim();
-        t.attach.db_name = if database.is_empty() { self.database.clone() } else { database.to_string() };
-        let r = tokio::task::spawn_blocking(move || Conn::open(&t).map(|mut c| read(&mut c))).await.map_err(join_err)??;
+        t.attach.db_name = if database.is_empty() {
+            self.database.clone()
+        } else {
+            database.to_string()
+        };
+        let r = tokio::task::spawn_blocking(move || Conn::open(&t).map(|mut c| read(&mut c)))
+            .await
+            .map_err(join_err)??;
         let mut out = Vec::new();
 
         if let Some(m) = r.mon.ok().and_then(|rows| rows.into_iter().next()) {
             if let (Some(oit), Some(oat), Some(next)) = (ival(&m, 0), ival(&m, 1), ival(&m, 3)) {
-                let (title, sev, detail) = transaction_gap(oit, oat, next, ival(&m, 4).unwrap_or(0));
+                let (title, sev, detail) =
+                    transaction_gap(oit, oat, next, ival(&m, 4).unwrap_or(0));
                 out.push(
                     HealthCheck::new("transaction_gap", "Mantenimiento", title, sev).detail(format!(
                         "{detail} (más antigua interesante: {oit}, más antigua activa: {oat}, siguiente: {next})"
@@ -183,7 +210,10 @@ impl FirebirdSession {
 
         if let Ok(rows) = r.zero_stats {
             let objects: Vec<String> = rows.iter().map(|(i, t)| format!("{t} · {i}")).collect();
-            let fixes: Vec<String> = rows.iter().map(|(i, _)| format!("SET STATISTICS INDEX {};", q(i))).collect();
+            let fixes: Vec<String> = rows
+                .iter()
+                .map(|(i, _)| format!("SET STATISTICS INDEX {};", q(i)))
+                .collect();
             let mut check = HealthCheck::new(
                 "index_statistics",
                 "Rendimiento",
@@ -207,8 +237,14 @@ impl FirebirdSession {
 
         if let Ok(rows) = r.inactive {
             if !rows.is_empty() {
-                let objects: Vec<String> = rows.iter().map(|r| format!("{} · {}", col(r, 1), col(r, 0))).collect();
-                let fixes: Vec<String> = rows.iter().map(|r| format!("ALTER INDEX {} ACTIVE;", q(&col(r, 0)))).collect();
+                let objects: Vec<String> = rows
+                    .iter()
+                    .map(|r| format!("{} · {}", col(r, 1), col(r, 0)))
+                    .collect();
+                let fixes: Vec<String> = rows
+                    .iter()
+                    .map(|r| format!("ALTER INDEX {} ACTIVE;", q(&col(r, 0))))
+                    .collect();
                 out.push(
                     HealthCheck::new("inactive_indexes", "Rendimiento", format!("{} índices inactivos", objects.len()), Severity::Info)
                         .detail("Un índice inactivo no se usa ni se mantiene. Si ya no hace falta, borralo; si sí, activarlo lo reconstruye.")
@@ -255,6 +291,9 @@ mod tests {
         assert!(title.contains("barrido"), "{title}");
         assert_eq!(sev, Severity::Warning);
         assert!(detail.contains("apagado"));
-        assert_eq!(transaction_gap(0, 300_000, 300_000, 20_000).1, Severity::Critical);
+        assert_eq!(
+            transaction_gap(0, 300_000, 300_000, 20_000).1,
+            Severity::Critical
+        );
     }
 }

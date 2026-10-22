@@ -269,7 +269,9 @@ impl PreviewLimits {
     pub fn new(rows: Option<u32>, bytes: Option<u64>) -> Self {
         PreviewLimits {
             rows: rows.unwrap_or(DEFAULT_ROWS).clamp(1, 1000),
-            bytes: bytes.unwrap_or(DEFAULT_BYTES).clamp(64 * 1024, 8 * 1024 * 1024),
+            bytes: bytes
+                .unwrap_or(DEFAULT_BYTES)
+                .clamp(64 * 1024, 8 * 1024 * 1024),
         }
     }
 }
@@ -285,14 +287,41 @@ impl Default for PreviewLimits {
 
 /// A key that holds (or points at) a credential or a server's address.
 fn is_credential_key(key: &str) -> bool {
-    let n: String = key.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect();
+    let n: String = key
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
     const EXACT: &[&str] = &[
-        "user", "username", "userid", "uid", "login", "host", "hostname", "server", "servername", "port", "url",
-        "uri", "dsn", "address", "endpoint",
+        "user",
+        "username",
+        "userid",
+        "uid",
+        "login",
+        "host",
+        "hostname",
+        "server",
+        "servername",
+        "port",
+        "url",
+        "uri",
+        "dsn",
+        "address",
+        "endpoint",
     ];
     const CONTAINS: &[&str] = &[
-        "password", "passwd", "pwd", "secret", "token", "apikey", "credential", "connectionstring", "connstr",
-        "accesskey", "privatekey", "authentication",
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "token",
+        "apikey",
+        "credential",
+        "connectionstring",
+        "connstr",
+        "accesskey",
+        "privatekey",
+        "authentication",
     ];
     EXACT.contains(&n.as_str()) || CONTAINS.iter().any(|c| n.contains(c))
 }
@@ -373,16 +402,35 @@ fn read_target(v: Option<&Value>, w: &mut Warnings) -> Option<NotebookTarget> {
         w.credentials = true;
     }
     // DataFrame SQL (`results` is how it was first written): nothing else applies.
-    if ["dataframes", "results"].iter().any(|k| m.get(*k).and_then(Value::as_bool) == Some(true)) {
-        return Some(NotebookTarget { results: true, ..Default::default() });
+    if ["dataframes", "results"]
+        .iter()
+        .any(|k| m.get(*k).and_then(Value::as_bool) == Some(true))
+    {
+        return Some(NotebookTarget {
+            results: true,
+            ..Default::default()
+        });
     }
-    let name = |k: &str| str_of(m, k).map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    let name = |k: &str| {
+        str_of(m, k)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    };
     let mut connection = name("connection");
-    if connection.as_deref().is_some_and(looks_like_connection_string) {
+    if connection
+        .as_deref()
+        .is_some_and(looks_like_connection_string)
+    {
         w.credentials = true;
         connection = None;
     }
-    let t = NotebookTarget { connection, database: name("database"), environment: name("environment"), results: false };
+    let t = NotebookTarget {
+        connection,
+        database: name("database"),
+        environment: name("environment"),
+        results: false,
+    };
     (t != NotebookTarget::default()).then_some(t)
 }
 
@@ -399,7 +447,10 @@ fn flag_credentials(m: &Map<String, Value>, w: &mut Warnings) {
 }
 
 fn valid_id(id: &str) -> bool {
-    (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 fn new_id() -> String {
@@ -410,12 +461,20 @@ fn is_sql_kernel(meta: &Map<String, Value>) -> bool {
     let ks = meta.get("kernelspec").and_then(Value::as_object);
     let li = meta.get("language_info").and_then(Value::as_object);
     let sql = |s: Option<&str>| s.is_some_and(|s| s.eq_ignore_ascii_case("sql"));
-    sql(ks.and_then(|k| str_of(k, "name"))) || sql(ks.and_then(|k| str_of(k, "language"))) || sql(li.and_then(|l| str_of(l, "name")))
+    sql(ks.and_then(|k| str_of(k, "name")))
+        || sql(ks.and_then(|k| str_of(k, "language")))
+        || sql(li.and_then(|l| str_of(l, "name")))
 }
 
 fn kernel_language(meta: &Map<String, Value>) -> Option<String> {
-    let li = meta.get("language_info").and_then(Value::as_object).and_then(|l| str_of(l, "name"));
-    let ks = meta.get("kernelspec").and_then(Value::as_object).and_then(|k| str_of(k, "language"));
+    let li = meta
+        .get("language_info")
+        .and_then(Value::as_object)
+        .and_then(|l| str_of(l, "name"));
+    let ks = meta
+        .get("kernelspec")
+        .and_then(Value::as_object)
+        .and_then(|k| str_of(k, "language"));
     li.or(ks).map(str::to_string)
 }
 
@@ -433,13 +492,20 @@ fn strip_sql_magic(src: &str) -> Option<(String, bool)> {
 /// Parses `.ipynb` text. Errors (in Spanish): not JSON, not nbformat 4.
 pub fn parse(text: &str) -> Result<Notebook, String> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let root: Value = serde_json::from_str(text).map_err(|e| format!("el archivo no es un notebook válido: {e}"))?;
-    let obj = root.as_object().ok_or_else(|| "el archivo no es un notebook de Jupyter".to_string())?;
+    let root: Value = serde_json::from_str(text)
+        .map_err(|e| format!("el archivo no es un notebook válido: {e}"))?;
+    let obj = root
+        .as_object()
+        .ok_or_else(|| "el archivo no es un notebook de Jupyter".to_string())?;
     if obj.get("nbformat").and_then(Value::as_u64) != Some(4) {
         return Err("el notebook no usa la versión 4 del formato de Jupyter (nbformat 4)".into());
     }
     let mut w = Warnings::default();
-    let mut meta = obj.get("metadata").and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut meta = obj
+        .get("metadata")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
     let dbine = meta.remove("dbine");
     let dbine = dbine.as_ref().and_then(Value::as_object);
     let sql_kernel = is_sql_kernel(&meta);
@@ -459,7 +525,11 @@ pub fn parse(text: &str) -> Result<Notebook, String> {
             if dropped {
                 w.credentials = true;
             }
-            (read_target(d.get("target"), &mut w), d.get("save_results").and_then(Value::as_bool), parameters)
+            (
+                read_target(d.get("target"), &mut w),
+                d.get("save_results").and_then(Value::as_bool),
+                parameters,
+            )
         }
         None => (None, None, Vec::new()),
     };
@@ -473,11 +543,19 @@ pub fn parse(text: &str) -> Result<Notebook, String> {
     }
 
     let mut ids = HashSet::new();
-    let ctx = Ctx { sql_kernel, kernel_lang };
+    let ctx = Ctx {
+        sql_kernel,
+        kernel_lang,
+    };
     let cells = obj
         .get("cells")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter(|c| c.is_object()).map(|c| read_cell(c, &ctx, &mut ids, &mut w)).collect())
+        .map(|a| {
+            a.iter()
+                .filter(|c| c.is_object())
+                .map(|c| read_cell(c, &ctx, &mut ids, &mut w))
+                .collect()
+        })
         .unwrap_or_default();
     let cells = unique_cell_names(cells);
 
@@ -501,7 +579,10 @@ struct Ctx {
 fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) -> NotebookCell {
     let empty = Map::new();
     let m = c.as_object().unwrap_or(&empty);
-    let meta = m.get("metadata").and_then(Value::as_object).unwrap_or(&empty);
+    let meta = m
+        .get("metadata")
+        .and_then(Value::as_object)
+        .unwrap_or(&empty);
     let mut id = [str_of(m, "id"), str_of(meta, "azdata_cell_guid")]
         .into_iter()
         .flatten()
@@ -512,7 +593,10 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
         id = new_id();
     }
     let source = source_text(m.get("source"));
-    let execution_count = m.get("execution_count").and_then(Value::as_u64).map(|n| n.min(u32::MAX as u64) as u32);
+    let execution_count = m
+        .get("execution_count")
+        .and_then(Value::as_u64)
+        .map(|n| n.min(u32::MAX as u64) as u32);
     let mut cell = NotebookCell {
         id,
         kind: CellKind::Foreign,
@@ -545,7 +629,11 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
                 cell.kind = CellKind::Sql;
                 cell.source = sql;
                 cell.language = Some("sql".into());
-            } else if let Some(d) = meta.get("dbine").and_then(Value::as_object).filter(|d| str_of(d, "kind") == Some("write")) {
+            } else if let Some(d) = meta
+                .get("dbine")
+                .and_then(Value::as_object)
+                .filter(|d| str_of(d, "kind") == Some("write"))
+            {
                 flag_credentials(d, w);
                 cell.kind = CellKind::Write;
                 cell.language = None;
@@ -556,14 +644,24 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
                 cell.kind = CellKind::Sql;
                 cell.language = Some(lang.unwrap_or("sql").to_string());
                 cell.target = read_target(d.get("target"), w);
-                cell.name = str_of(d, "name").map(str::trim).filter(|n| local::valid_name(n)).map(String::from);
-                cell.keep_result = d.get("keep_result").and_then(Value::as_bool).unwrap_or(true);
-                cell.chart = d.get("chart").filter(|c| !c.is_null()).cloned().map(|mut c| {
-                    if scrub(&mut c, is_credential_key, false) {
-                        w.credentials = true;
-                    }
-                    c
-                });
+                cell.name = str_of(d, "name")
+                    .map(str::trim)
+                    .filter(|n| local::valid_name(n))
+                    .map(String::from);
+                cell.keep_result = d
+                    .get("keep_result")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                cell.chart = d
+                    .get("chart")
+                    .filter(|c| !c.is_null())
+                    .cloned()
+                    .map(|mut c| {
+                        if scrub(&mut c, is_credential_key, false) {
+                            w.credentials = true;
+                        }
+                        c
+                    });
                 let run = d.get("run").and_then(Value::as_object);
                 cell.result = read_outputs(m.get("outputs"), run, w);
             } else if ctx.sql_kernel && lang.is_none_or(|l| l.eq_ignore_ascii_case("sql")) {
@@ -591,15 +689,36 @@ fn read_write_cell(v: Option<&Value>, w: &mut Warnings) -> WriteCell {
     let empty = Map::new();
     let m = v.and_then(Value::as_object).unwrap_or(&empty);
     flag_credentials(m, w);
-    let text = |k: &str| str_of(m, k).map(str::trim).filter(|s| !s.is_empty() && s.len() <= 256).map(String::from);
+    let text = |k: &str| {
+        str_of(m, k)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 256)
+            .map(String::from)
+    };
     let names = |v: Option<&Value>| -> Vec<String> {
-        v.and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).take(64).map(String::from).collect()).unwrap_or_default()
+        v.and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .take(64)
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     let mapping = m.get("mapping").and_then(Value::as_array).map(|a| {
         a.iter()
             .filter_map(|p| {
-                let (s, t) = (p.get("source")?.as_str()?.trim(), p.get("target")?.as_str()?.trim());
-                (!s.is_empty() && !t.is_empty()).then(|| write::ColumnPair { source: s.into(), target: t.into() })
+                let (s, t) = (
+                    p.get("source")?.as_str()?.trim(),
+                    p.get("target")?.as_str()?.trim(),
+                );
+                (!s.is_empty() && !t.is_empty()).then(|| write::ColumnPair {
+                    source: s.into(),
+                    target: t.into(),
+                })
             })
             .take(4096)
             .collect()
@@ -611,7 +730,10 @@ fn read_write_cell(v: Option<&Value>, w: &mut Warnings) -> WriteCell {
         table: text("table"),
         create: m.get("create").and_then(Value::as_bool).unwrap_or(false),
         // An unknown mode reads as the one that changes no existing row.
-        mode: m.get("mode").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or(dbine_driver::WriteMode::Insert),
+        mode: m
+            .get("mode")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(dbine_driver::WriteMode::Insert),
         keys: names(m.get("keys")),
         mapping,
     }
@@ -639,7 +761,10 @@ pub fn write_summary_line(r: &WriteSummary) -> String {
     match &r.error {
         Some(e) => parts.push(format!("Write failed: {e}")),
         None => {
-            let mut counts = vec![format!("{} inserted", r.inserted), format!("{} updated", r.updated)];
+            let mut counts = vec![
+                format!("{} inserted", r.inserted),
+                format!("{} updated", r.updated),
+            ];
             if r.deleted > 0 {
                 counts.push(format!("{} deleted", r.deleted));
             }
@@ -660,10 +785,18 @@ pub fn write_summary_line(r: &WriteSummary) -> String {
 pub fn write_cell_text(w: &WriteCell) -> String {
     let target = match &w.target {
         Some(t) if t.environment.is_some() => t.environment.clone().unwrap_or_default(),
-        Some(t) => [t.connection.clone(), t.database.clone()].into_iter().flatten().collect::<Vec<_>>().join(" › "),
+        Some(t) => [t.connection.clone(), t.database.clone()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" › "),
         None => String::new(),
     };
-    let table = [w.schema.clone(), w.table.clone()].into_iter().flatten().collect::<Vec<_>>().join(".");
+    let table = [w.schema.clone(), w.table.clone()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(".");
     let mode = match w.mode {
         dbine_driver::WriteMode::Insert => "insert".to_string(),
         dbine_driver::WriteMode::Update => format!("update by {}", w.keys.join(", ")),
@@ -706,15 +839,31 @@ fn strip_tags(html: &str) -> String {
             _ => {}
         }
     }
-    out.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+    out.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
 }
 
 fn push_lines(out: &mut Vec<String>, text: &str) {
-    out.extend(text.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
+    out.extend(
+        text.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(String::from),
+    );
 }
 
-fn read_outputs(outputs: Option<&Value>, run: Option<&Map<String, Value>>, w: &mut Warnings) -> Option<CellResult> {
-    let outputs = outputs.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+fn read_outputs(
+    outputs: Option<&Value>,
+    run: Option<&Map<String, Value>>,
+    w: &mut Warnings,
+) -> Option<CellResult> {
+    let outputs = outputs
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     let mut info = run.cloned();
     let mut res = CellResult::default();
     let mut any = info.is_some();
@@ -726,10 +875,26 @@ fn read_outputs(outputs: Option<&Value>, run: Option<&Map<String, Value>>, w: &m
                 any = true;
             }
             Some("error") => {
-                let msg = str_of(o, "evalue").map(str::trim).filter(|s| !s.is_empty()).map(String::from).unwrap_or_else(|| {
-                    o.get("traceback").and_then(Value::as_array).map(|t| t.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n")).unwrap_or_default()
-                });
-                let msg = if msg.trim().is_empty() { "Error".to_string() } else { msg };
+                let msg = str_of(o, "evalue")
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .unwrap_or_else(|| {
+                        o.get("traceback")
+                            .and_then(Value::as_array)
+                            .map(|t| {
+                                t.iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            })
+                            .unwrap_or_default()
+                    });
+                let msg = if msg.trim().is_empty() {
+                    "Error".to_string()
+                } else {
+                    msg
+                };
                 res.error = Some(match res.error.take() {
                     Some(prev) => format!("{prev}\n{msg}"),
                     None => msg,
@@ -739,7 +904,11 @@ fn read_outputs(outputs: Option<&Value>, run: Option<&Map<String, Value>>, w: &m
             Some("execute_result") | Some("display_data") => {
                 let empty = Map::new();
                 let data = o.get("data").and_then(Value::as_object).unwrap_or(&empty);
-                let md = o.get("metadata").and_then(Value::as_object).and_then(|m| m.get("dbine")).and_then(Value::as_object);
+                let md = o
+                    .get("metadata")
+                    .and_then(Value::as_object)
+                    .and_then(|m| m.get("dbine"))
+                    .and_then(Value::as_object);
                 if let Some(md) = md {
                     flag_credentials(md, w);
                     if info.is_none() {
@@ -778,7 +947,9 @@ fn read_params(v: Option<&Value>, w: &mut Warnings) -> Option<Map<String, Value>
     let m = v?.as_object()?;
     let mut out = Map::new();
     for (k, v) in m {
-        if !params::valid_name(k) || !(v.is_null() || v.is_string() || v.is_number() || v.is_boolean()) {
+        if !params::valid_name(k)
+            || !(v.is_null() || v.is_string() || v.is_number() || v.is_boolean())
+        {
             continue;
         }
         if is_credential_param(k) && !v.is_null() {
@@ -793,14 +964,24 @@ fn read_params(v: Option<&Value>, w: &mut Warnings) -> Option<Map<String, Value>
 /// A parameter whose value a result doesn't record: a credential's or a
 /// server's (a user name or a port is fine).
 pub(crate) fn is_credential_param(name: &str) -> bool {
-    is_credential_key(name) && !matches!(name.to_ascii_lowercase().as_str(), "user" | "username" | "login" | "port")
+    is_credential_key(name)
+        && !matches!(
+            name.to_ascii_lowercase().as_str(),
+            "user" | "username" | "login" | "port"
+        )
 }
 
 /// A result's parameter values as they are written (the file, its
 /// summary line, the exports): without the credentials', which the file
 /// never holds (on read they are dropped too).
 fn recorded_params(r: &CellResult) -> Option<Map<String, Value>> {
-    let p: Map<String, Value> = r.params.as_ref()?.iter().filter(|(k, _)| !is_credential_param(k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let p: Map<String, Value> = r
+        .params
+        .as_ref()?
+        .iter()
+        .filter(|(k, _)| !is_credential_param(k))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     (!p.is_empty()).then_some(p)
 }
 
@@ -825,13 +1006,22 @@ fn read_statement(dr: Option<&Value>, md: Option<&Map<String, Value>>) -> Stored
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(Value::as_str).collect())
         .filter(|a: &Vec<&str>| a.len() == fields.len());
-    let keys: Vec<String> = fields.iter().map(|f| str_of(f, "name").unwrap_or_default().to_string()).collect();
+    let keys: Vec<String> = fields
+        .iter()
+        .map(|f| str_of(f, "name").unwrap_or_default().to_string())
+        .collect();
     let columns = fields
         .iter()
         .enumerate()
         .map(|(i, f)| StoredColumn {
-            name: original.as_ref().map(|o| o[i].to_string()).unwrap_or_else(|| keys[i].clone()),
-            type_name: str_of(f, "dbine_type").or_else(|| str_of(f, "type")).unwrap_or_default().to_string(),
+            name: original
+                .as_ref()
+                .map(|o| o[i].to_string())
+                .unwrap_or_else(|| keys[i].clone()),
+            type_name: str_of(f, "dbine_type")
+                .or_else(|| str_of(f, "type"))
+                .unwrap_or_default()
+                .to_string(),
         })
         .collect();
     let rows: Vec<Vec<Value>> = dr
@@ -840,12 +1030,21 @@ fn read_statement(dr: Option<&Value>, md: Option<&Map<String, Value>>) -> Stored
         .map(|rows| {
             rows.iter()
                 .map(|r| match r {
-                    Value::Array(a) => (0..keys.len()).map(|i| scalar(a.get(i).cloned().unwrap_or(Value::Null))).collect(),
+                    Value::Array(a) => (0..keys.len())
+                        .map(|i| scalar(a.get(i).cloned().unwrap_or(Value::Null)))
+                        .collect(),
                     // Keyed by name (Table Schema) or by position (Azure Data Studio).
                     Value::Object(o) => keys
                         .iter()
                         .enumerate()
-                        .map(|(i, k)| scalar(o.get(k).or_else(|| o.get(&i.to_string())).cloned().unwrap_or(Value::Null)))
+                        .map(|(i, k)| {
+                            scalar(
+                                o.get(k)
+                                    .or_else(|| o.get(&i.to_string()))
+                                    .cloned()
+                                    .unwrap_or(Value::Null),
+                            )
+                        })
                         .collect(),
                     _ => vec![Value::Null; keys.len()],
                 })
@@ -860,7 +1059,11 @@ fn read_statement(dr: Option<&Value>, md: Option<&Map<String, Value>>) -> Stored
         rows,
         rows_total,
         rows_kept: kept,
-        truncated: md.and_then(|m| m.get("truncated")).and_then(Value::as_bool).unwrap_or(false) || rows_total > kept,
+        truncated: md
+            .and_then(|m| m.get("truncated"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || rows_total > kept,
         rows_affected: num("rows_affected"),
         statement: md.and_then(|m| str_of(m, "statement")).map(String::from),
     }
@@ -936,7 +1139,12 @@ fn cut_messages(msgs: &[String], n: usize) -> Vec<String> {
 /// always; then the rest of the error, the rows (the trailing ones dropped)
 /// and the messages, in that order, while they fit. `keep` false: no rows
 /// and no messages.
-pub fn preview(result: &CellResult, keep: bool, limits: PreviewLimits, execution_count: Option<u32>) -> Preview {
+pub fn preview(
+    result: &CellResult,
+    keep: bool,
+    limits: PreviewLimits,
+    execution_count: Option<u32>,
+) -> Preview {
     let mut budget = if keep { limits.rows as usize } else { 0 };
     let capped: Vec<StoredStatement> = result
         .results
@@ -945,7 +1153,10 @@ pub fn preview(result: &CellResult, keep: bool, limits: PreviewLimits, execution
             let n = s.rows.len().min(budget);
             budget -= n;
             StoredStatement {
-                rows: s.rows[..n].iter().map(|r| r.iter().map(cut_value).collect()).collect(),
+                rows: s.rows[..n]
+                    .iter()
+                    .map(|r| r.iter().map(cut_value).collect())
+                    .collect(),
                 rows_total: s.rows_total.max(s.rows.len() as u64),
                 ..s.clone()
             }
@@ -959,33 +1170,75 @@ pub fn preview(result: &CellResult, keep: bool, limits: PreviewLimits, execution
             .map(|s| {
                 let n = s.rows.len().min(left);
                 left -= n;
-                let mut s2 = StoredStatement { rows: s.rows[..n].to_vec(), ..s.clone() };
+                let mut s2 = StoredStatement {
+                    rows: s.rows[..n].to_vec(),
+                    ..s.clone()
+                };
                 s2.rows_kept = n as u64;
-                s2.truncated = if keep { s.truncated || s2.rows_kept < s2.rows_total } else { s2.rows_total > 0 };
+                s2.truncated = if keep {
+                    s.truncated || s2.rows_kept < s2.rows_total
+                } else {
+                    s2.rows_total > 0
+                };
                 s2
             })
             .collect()
     };
-    let messages = if keep { result.messages.clone() } else { Vec::new() };
+    let messages = if keep {
+        result.messages.clone()
+    } else {
+        Vec::new()
+    };
     let fits = |p: &Preview| {
-        let size = serde_json::to_vec(&result_outputs(p, result, keep, execution_count)).map(|v| v.len()).unwrap_or(usize::MAX);
+        let size = serde_json::to_vec(&result_outputs(p, result, keep, execution_count))
+            .map(|v| v.len())
+            .unwrap_or(usize::MAX);
         size as u64 <= limits.bytes
     };
-    let full = Preview { statements: make(total), messages: messages.clone(), error: result.error.clone(), cut: false };
+    let full = Preview {
+        statements: make(total),
+        messages: messages.clone(),
+        error: result.error.clone(),
+        cut: false,
+    };
     if fits(&full) {
         return full;
     }
     let error_at = |n: usize| result.error.as_deref().map(|e| cut_chars(e, n));
-    let error_len = result.error.as_deref().map(|e| e.chars().count()).unwrap_or(0);
-    let mut p = Preview { statements: make(0), messages: Vec::new(), error: error_at(MIN_ERROR_CHARS), cut: true };
+    let error_len = result
+        .error
+        .as_deref()
+        .map(|e| e.chars().count())
+        .unwrap_or(0);
+    let mut p = Preview {
+        statements: make(0),
+        messages: Vec::new(),
+        error: error_at(MIN_ERROR_CHARS),
+        cut: true,
+    };
     if error_len > MIN_ERROR_CHARS {
-        let n = largest(MIN_ERROR_CHARS, error_len, |n| fits(&Preview { error: error_at(n), ..p.clone() }));
+        let n = largest(MIN_ERROR_CHARS, error_len, |n| {
+            fits(&Preview {
+                error: error_at(n),
+                ..p.clone()
+            })
+        });
         p.error = error_at(n);
     }
-    let k = largest(0, total, |k| fits(&Preview { statements: make(k), ..p.clone() }));
+    let k = largest(0, total, |k| {
+        fits(&Preview {
+            statements: make(k),
+            ..p.clone()
+        })
+    });
     p.statements = make(k);
     let chars: usize = messages.iter().map(|m| m.chars().count()).sum();
-    let n = largest(0, chars, |n| fits(&Preview { messages: cut_messages(&messages, n), ..p.clone() }));
+    let n = largest(0, chars, |n| {
+        fits(&Preview {
+            messages: cut_messages(&messages, n),
+            ..p.clone()
+        })
+    });
     p.messages = cut_messages(&messages, n);
     p.cut = p.error != result.error || p.messages != messages;
     p
@@ -1018,7 +1271,12 @@ pub fn summary_line(s: &StoredStatement, r: &CellResult) -> String {
         parts.push(t.to_string());
     }
     if let Some(p) = recorded_params(r) {
-        parts.push(p.iter().map(|(k, v)| format!("{k} = {}", display_value(v))).collect::<Vec<_>>().join(", "));
+        parts.push(
+            p.iter()
+                .map(|(k, v)| format!("{k} = {}", display_value(v)))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
     }
     parts.join(" · ")
 }
@@ -1057,7 +1315,11 @@ fn unique_names(cols: &[StoredColumn]) -> (Vec<String>, bool) {
         .iter()
         .enumerate()
         .map(|(i, c)| {
-            let base = if c.name.is_empty() { format!("column_{}", i + 1) } else { c.name.clone() };
+            let base = if c.name.is_empty() {
+                format!("column_{}", i + 1)
+            } else {
+                c.name.clone()
+            };
             let mut name = base.clone();
             let mut n = 2;
             while used.contains(&name) || (name != c.name && all.contains(name.as_str())) {
@@ -1074,7 +1336,11 @@ fn unique_names(cols: &[StoredColumn]) -> (Vec<String>, bool) {
 
 /// Table Schema's type for a column, from its values.
 fn schema_type(rows: &[Vec<Value>], i: usize) -> &'static str {
-    let vals: Vec<&Value> = rows.iter().filter_map(|r| r.get(i)).filter(|v| !v.is_null()).collect();
+    let vals: Vec<&Value> = rows
+        .iter()
+        .filter_map(|r| r.get(i))
+        .filter(|v| !v.is_null())
+        .collect();
     if vals.is_empty() {
         "string"
     } else if vals.iter().all(|v| v.is_boolean()) {
@@ -1105,16 +1371,37 @@ pub fn text_table(cols: &[StoredColumn], rows: &[Vec<Value>]) -> String {
     let body: Vec<Vec<String>> = rows
         .iter()
         .take(TEXT_ROWS)
-        .map(|r| (0..cols.len()).map(|i| cell(display_value(r.get(i).unwrap_or(&Value::Null)))).collect())
+        .map(|r| {
+            (0..cols.len())
+                .map(|i| cell(display_value(r.get(i).unwrap_or(&Value::Null))))
+                .collect()
+        })
         .collect();
     let widths: Vec<usize> = (0..cols.len())
-        .map(|i| body.iter().map(|r| r[i].chars().count()).chain([head[i].chars().count()]).max().unwrap_or(0))
+        .map(|i| {
+            body.iter()
+                .map(|r| r[i].chars().count())
+                .chain([head[i].chars().count()])
+                .max()
+                .unwrap_or(0)
+        })
         .collect();
     let line = |cells: &[String]| {
-        let parts: Vec<String> = cells.iter().zip(&widths).map(|(c, w)| format!("{c:<w$}")).collect();
+        let parts: Vec<String> = cells
+            .iter()
+            .zip(&widths)
+            .map(|(c, w)| format!("{c:<w$}"))
+            .collect();
         parts.join(" | ").trim_end().to_string()
     };
-    let mut out = vec![line(&head), widths.iter().map(|w| "-".repeat(*w)).collect::<Vec<_>>().join("-+-")];
+    let mut out = vec![
+        line(&head),
+        widths
+            .iter()
+            .map(|w| "-".repeat(*w))
+            .collect::<Vec<_>>()
+            .join("-+-"),
+    ];
     out.extend(body.iter().map(|r| line(r)));
     if rows.len() > TEXT_ROWS {
         out.push("…".into());
@@ -1145,11 +1432,20 @@ pub fn html_table(cols: &[StoredColumn], rows: &[Vec<Value>]) -> String {
 
 /// Splits text as nbformat stores sources: lines, each with its `\n`.
 pub(crate) fn lines(s: &str) -> Value {
-    Value::Array(s.split_inclusive('\n').map(|l| Value::String(l.into())).collect())
+    Value::Array(
+        s.split_inclusive('\n')
+            .map(|l| Value::String(l.into()))
+            .collect(),
+    )
 }
 
 /// The outputs of a SQL cell's result (already previewed).
-pub(crate) fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_count: Option<u32>) -> Vec<Value> {
+pub(crate) fn result_outputs(
+    p: &Preview,
+    r: &CellResult,
+    keep: bool,
+    execution_count: Option<u32>,
+) -> Vec<Value> {
     let mut out = Vec::new();
     for s in &p.statements {
         let summary = summary_line(s, r);
@@ -1198,10 +1494,20 @@ pub(crate) fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_
                 .collect();
             data.insert(
                 "text/html".into(),
-                Value::String(format!("<p>{}</p>\n{}", escape_html(&summary), html_table(&s.columns, &s.rows))),
+                Value::String(format!(
+                    "<p>{}</p>\n{}",
+                    escape_html(&summary),
+                    html_table(&s.columns, &s.rows)
+                )),
             );
-            data.insert(DATARESOURCE.into(), json!({ "schema": { "fields": fields }, "data": rows }));
-            data.insert("text/plain".into(), Value::String(format!("{summary}\n\n{}", text_table(&s.columns, &s.rows))));
+            data.insert(
+                DATARESOURCE.into(),
+                json!({ "schema": { "fields": fields }, "data": rows }),
+            );
+            data.insert(
+                "text/plain".into(),
+                Value::String(format!("{summary}\n\n{}", text_table(&s.columns, &s.rows))),
+            );
         } else {
             data.insert("text/plain".into(), Value::String(summary));
         }
@@ -1216,7 +1522,9 @@ pub(crate) fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_
         out.push(json!({ "output_type": "stream", "name": "stdout", "text": lines(&(p.messages.join("\n") + "\n")) }));
     }
     if let Some(e) = &p.error {
-        out.push(json!({ "output_type": "error", "ename": "Error", "evalue": e, "traceback": [e] }));
+        out.push(
+            json!({ "output_type": "error", "ename": "Error", "evalue": e, "traceback": [e] }),
+        );
     }
     out
 }
@@ -1229,8 +1537,16 @@ fn target_json(t: &NotebookTarget) -> Option<Value> {
         return Some(json!({ "dataframes": true }));
     }
     let mut m = Map::new();
-    for (k, v) in [("connection", &t.connection), ("database", &t.database), ("environment", &t.environment)] {
-        if let Some(v) = v.as_deref().map(str::trim).filter(|v| !v.is_empty() && !(k == "connection" && looks_like_connection_string(v))) {
+    for (k, v) in [
+        ("connection", &t.connection),
+        ("database", &t.database),
+        ("environment", &t.environment),
+    ] {
+        if let Some(v) = v
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty() && !(k == "connection" && looks_like_connection_string(v)))
+        {
             m.insert(k.into(), Value::String(v.into()));
         }
     }
@@ -1243,13 +1559,20 @@ fn target_json(t: &NotebookTarget) -> Option<Value> {
 /// don't fit in what the cell's byte cap leaves after `used`; otherwise at
 /// most `limits.rows` per series, labels cut like cell values. Returns the
 /// bytes the kept points take.
-fn chart_points(m: &mut Map<String, Value>, keep: bool, limits: PreviewLimits, used: usize) -> usize {
+fn chart_points(
+    m: &mut Map<String, Value>,
+    keep: bool,
+    limits: PreviewLimits,
+    used: usize,
+) -> usize {
     m.remove("data");
     let kind = m.get("type").and_then(Value::as_str).unwrap_or("");
     let agg = m.get("agg").and_then(Value::as_str).unwrap_or("none");
     let summary = matches!(kind, "histogram" | "box" | "kpi");
     let raw = !summary && (kind == "scatter" || agg == "none");
-    let Some(pts) = m.get_mut("points") else { return 0 };
+    let Some(pts) = m.get_mut("points") else {
+        return 0;
+    };
     let mut size = 0;
     let ok = keep && !raw && pts.is_object() && {
         let max = limits.rows as usize;
@@ -1270,7 +1593,9 @@ fn chart_points(m: &mut Map<String, Value>, keep: bool, limits: PreviewLimits, u
                 }
             }
         }
-        size = serde_json::to_vec(pts).map(|v| v.len()).unwrap_or(usize::MAX);
+        size = serde_json::to_vec(pts)
+            .map(|v| v.len())
+            .unwrap_or(usize::MAX);
         (used.saturating_add(size)) as u64 <= limits.bytes
     };
     if ok {
@@ -1299,8 +1624,17 @@ fn cell_chart_points(m: &mut Map<String, Value>, keep: bool, limits: PreviewLimi
     }
 }
 
-fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut HashSet<String>) -> Value {
-    let mut id = if valid_id(&c.id) { c.id.clone() } else { new_id() };
+fn write_cell(
+    c: &NotebookCell,
+    nb: &Notebook,
+    limits: PreviewLimits,
+    ids: &mut HashSet<String>,
+) -> Value {
+    let mut id = if valid_id(&c.id) {
+        c.id.clone()
+    } else {
+        new_id()
+    };
     while !ids.insert(id.clone()) {
         id = new_id();
     }
@@ -1320,7 +1654,9 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
                 }
                 v
             }
-            None => json!({ "cell_type": "raw", "id": id, "metadata": {}, "source": lines(&c.source) }),
+            None => {
+                json!({ "cell_type": "raw", "id": id, "metadata": {}, "source": lines(&c.source) })
+            }
         },
         CellKind::Write => {
             let def = c.write.clone().unwrap_or_default();
@@ -1337,8 +1673,15 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
             d.insert("write".into(), w);
             let mut outputs = Vec::new();
             if let Some(r) = &c.write_result {
-                let short = WriteSummary { error: r.error.as_ref().map(|e| e.chars().take(2000).collect()), warnings: Vec::new(), ..r.clone() };
-                d.insert("write_result".into(), serde_json::to_value(&short).unwrap_or(Value::Null));
+                let short = WriteSummary {
+                    error: r.error.as_ref().map(|e| e.chars().take(2000).collect()),
+                    warnings: Vec::new(),
+                    ..r.clone()
+                };
+                d.insert(
+                    "write_result".into(),
+                    serde_json::to_value(&short).unwrap_or(Value::Null),
+                );
                 let line = write_summary_line(&short);
                 outputs.push(match &short.error {
                     Some(e) => json!({ "output_type": "error", "ename": "Error", "evalue": e, "traceback": [line] }),
@@ -1360,7 +1703,12 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
             if let Some(t) = c.target.as_ref().and_then(target_json) {
                 d.insert("target".into(), t);
             }
-            if let Some(n) = c.name.as_deref().map(str::trim).filter(|n| local::valid_name(n)) {
+            if let Some(n) = c
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| local::valid_name(n))
+            {
                 d.insert("name".into(), Value::String(n.into()));
             }
             d.insert("keep_result".into(), Value::Bool(c.keep_result));
@@ -1384,7 +1732,9 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
                 scrub(&mut chart, is_credential_key, false);
                 if let Some(m) = chart.as_object_mut() {
                     // The points count toward the cell's byte cap: dropped when they don't fit.
-                    let used = serde_json::to_vec(&outputs).map(|v| v.len()).unwrap_or(usize::MAX);
+                    let used = serde_json::to_vec(&outputs)
+                        .map(|v| v.len())
+                        .unwrap_or(usize::MAX);
                     cell_chart_points(m, keep, limits, used);
                 }
                 d.insert("chart".into(), chart);
@@ -1413,7 +1763,10 @@ pub fn to_value(nb: &Notebook, limits: PreviewLimits) -> Value {
         dbine.insert("parameters".into(), params::parameters_json(&nb.parameters));
     }
     let mut meta = Map::new();
-    meta.insert("kernelspec".into(), json!({ "name": "sql", "display_name": "SQL", "language": "sql" }));
+    meta.insert(
+        "kernelspec".into(),
+        json!({ "name": "sql", "display_name": "SQL", "language": "sql" }),
+    );
     meta.insert("language_info".into(), json!({ "name": "sql" }));
     meta.insert("dbine".into(), Value::Object(dbine));
     let mut extra = nb.extra_metadata.clone();
@@ -1424,7 +1777,11 @@ pub fn to_value(nb: &Notebook, limits: PreviewLimits) -> Value {
         }
     }
     let mut ids = HashSet::new();
-    let cells: Vec<Value> = nb.cells.iter().map(|c| write_cell(c, nb, limits, &mut ids)).collect();
+    let cells: Vec<Value> = nb
+        .cells
+        .iter()
+        .map(|c| write_cell(c, nb, limits, &mut ids))
+        .collect();
     json!({ "cells": cells, "metadata": meta, "nbformat": 4, "nbformat_minor": 5 })
 }
 
@@ -1432,7 +1789,10 @@ pub fn to_value(nb: &Notebook, limits: PreviewLimits) -> Value {
 pub fn serialize(nb: &Notebook, limits: PreviewLimits) -> String {
     let v = to_value(nb, limits);
     let mut buf = Vec::new();
-    let mut ser = serde_json::Serializer::with_formatter(&mut buf, serde_json::ser::PrettyFormatter::with_indent(b" "));
+    let mut ser = serde_json::Serializer::with_formatter(
+        &mut buf,
+        serde_json::ser::PrettyFormatter::with_indent(b" "),
+    );
     // A Value always serializes.
     let _ = v.serialize(&mut ser);
     let mut s = String::from_utf8(buf).unwrap_or_default();
@@ -1446,7 +1806,13 @@ mod tests {
 
     fn stmt(cols: &[&str], rows: Vec<Vec<Value>>, total: u64) -> StoredStatement {
         StoredStatement {
-            columns: cols.iter().map(|c| StoredColumn { name: c.to_string(), type_name: "int".into() }).collect(),
+            columns: cols
+                .iter()
+                .map(|c| StoredColumn {
+                    name: c.to_string(),
+                    type_name: "int".into(),
+                })
+                .collect(),
             rows_kept: rows.len() as u64,
             rows,
             rows_total: total,
@@ -1490,7 +1856,12 @@ mod tests {
 
     fn notebook(cells: Vec<NotebookCell>) -> Notebook {
         Notebook {
-            target: Some(NotebookTarget { connection: Some("Ventas prod".into()), database: Some("ventas".into()), environment: None, results: false }),
+            target: Some(NotebookTarget {
+                connection: Some("Ventas prod".into()),
+                database: Some("ventas".into()),
+                environment: None,
+                results: false,
+            }),
             save_results: true,
             save_results_set: true,
             cells,
@@ -1502,7 +1873,9 @@ mod tests {
     }
 
     fn rows(n: usize) -> Vec<Vec<Value>> {
-        (0..n).map(|i| vec![json!(i), json!(format!("fila {i}"))]).collect()
+        (0..n)
+            .map(|i| vec![json!(i), json!(format!("fila {i}"))])
+            .collect()
     }
 
     #[test]
@@ -1520,17 +1893,32 @@ mod tests {
                 summary_line(&r.results[0], &r),
             ];
             for text in outs {
-                for secret in ["tok-SECRET-1", "pw-SECRET-2", "host-SECRET-3", "api_token", "password"] {
+                for secret in [
+                    "tok-SECRET-1",
+                    "pw-SECRET-2",
+                    "host-SECRET-3",
+                    "api_token",
+                    "password",
+                ] {
                     assert!(!text.contains(secret), "{secret} in {text}");
                 }
                 assert!(text.contains("2026-10") && text.contains("ana"), "{text}");
             }
         }
         // What is kept reads back.
-        let text = serialize(&notebook(vec![sql_cell("c1", "SELECT 1", Some(r.clone()))]), PreviewLimits::default());
+        let text = serialize(
+            &notebook(vec![sql_cell("c1", "SELECT 1", Some(r.clone()))]),
+            PreviewLimits::default(),
+        );
         let back = parse(&text).unwrap();
         assert!(back.warnings.is_empty());
-        let kept = back.cells[0].result.as_ref().unwrap().params.clone().unwrap();
+        let kept = back.cells[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .params
+            .clone()
+            .unwrap();
         let mut keys: Vec<_> = kept.keys().cloned().collect();
         keys.sort();
         assert_eq!(keys, ["db_host", "mes", "user"]);
@@ -1541,10 +1929,29 @@ mod tests {
         let mut r = result(vec![stmt(&["id", "name"], rows(3), 3)]);
         r.messages = vec!["NOTICE: hola".into()];
         let mut c = sql_cell("c1", "SELECT id, name\nFROM t", Some(r));
-        c.target = Some(NotebookTarget { connection: None, database: Some("otra".into()), environment: None, results: false });
+        c.target = Some(NotebookTarget {
+            connection: None,
+            database: Some("otra".into()),
+            environment: None,
+            results: false,
+        });
         c.chart = Some(json!({ "type": "bar", "x": "name", "y": ["id"] }));
-        let md = NotebookCell { kind: CellKind::Markdown, source: "# Título\n\nTexto".into(), language: None, execution_count: None, result: None, ..sql_cell("m1", "", None) };
-        let mut err = sql_cell("c2", "SELECT nope", Some(CellResult { error: Some("column \"nope\" does not exist".into()), ..result(vec![]) }));
+        let md = NotebookCell {
+            kind: CellKind::Markdown,
+            source: "# Título\n\nTexto".into(),
+            language: None,
+            execution_count: None,
+            result: None,
+            ..sql_cell("m1", "", None)
+        };
+        let mut err = sql_cell(
+            "c2",
+            "SELECT nope",
+            Some(CellResult {
+                error: Some("column \"nope\" does not exist".into()),
+                ..result(vec![])
+            }),
+        );
         err.execution_count = Some(2);
         let nb = notebook(vec![md, c, err]);
         let text = serialize(&nb, PreviewLimits::default());
@@ -1556,10 +1963,19 @@ mod tests {
         assert_eq!(back.cells.len(), 3);
         assert_eq!(back.cells[0], nb.cells[0]);
         let (a, b) = (&back.cells[1], &nb.cells[1]);
-        assert_eq!((a.kind, &a.source, &a.target, &a.chart, a.execution_count), (b.kind, &b.source, &b.target, &b.chart, b.execution_count));
+        assert_eq!(
+            (a.kind, &a.source, &a.target, &a.chart, a.execution_count),
+            (b.kind, &b.source, &b.target, &b.chart, b.execution_count)
+        );
         assert_eq!(a.result, b.result);
-        assert_eq!(back.cells[2].result.as_ref().unwrap().error.as_deref(), Some("column \"nope\" does not exist"));
-        assert_eq!(back.cells[2].result.as_ref().unwrap().ran_at, "2026-10-18T14:32:05Z");
+        assert_eq!(
+            back.cells[2].result.as_ref().unwrap().error.as_deref(),
+            Some("column \"nope\" does not exist")
+        );
+        assert_eq!(
+            back.cells[2].result.as_ref().unwrap().ran_at,
+            "2026-10-18T14:32:05Z"
+        );
         // Same text again.
         assert_eq!(serialize(&back, PreviewLimits::default()), text);
         let v: Value = serde_json::from_str(&text).unwrap();
@@ -1567,41 +1983,101 @@ mod tests {
         assert_eq!(v["metadata"]["kernelspec"]["name"], "sql");
         assert_eq!(v["metadata"]["dbine"]["version"], 1);
         let out = &v["cells"][1]["outputs"][0];
-        assert_eq!(out["data"][DATARESOURCE]["data"][0], json!({ "id": 0, "name": "fila 0" }));
-        assert_eq!(out["data"][DATARESOURCE]["schema"]["fields"][0], json!({ "name": "id", "type": "integer", "dbine_type": "int" }));
-        assert!(out["data"]["text/plain"].as_str().unwrap().starts_with("3 / 3 rows · 2026-10-18T14:32:05Z · 412 ms · Ventas prod › ventas"));
+        assert_eq!(
+            out["data"][DATARESOURCE]["data"][0],
+            json!({ "id": 0, "name": "fila 0" })
+        );
+        assert_eq!(
+            out["data"][DATARESOURCE]["schema"]["fields"][0],
+            json!({ "name": "id", "type": "integer", "dbine_type": "int" })
+        );
+        assert!(out["data"]["text/plain"]
+            .as_str()
+            .unwrap()
+            .starts_with("3 / 3 rows · 2026-10-18T14:32:05Z · 412 ms · Ventas prod › ventas"));
     }
 
     #[test]
     fn previews_are_capped_by_rows_and_bytes_per_cell() {
-        let nb = notebook(vec![sql_cell("c", "SELECT", Some(result(vec![stmt(&["id", "name"], rows(500), 100_000), stmt(&["id", "name"], rows(50), 50)])))]);
+        let nb = notebook(vec![sql_cell(
+            "c",
+            "SELECT",
+            Some(result(vec![
+                stmt(&["id", "name"], rows(500), 100_000),
+                stmt(&["id", "name"], rows(50), 50),
+            ])),
+        )]);
         let limits = PreviewLimits::new(Some(100), Some(64 * 1024));
-        let back = parse(&serialize(&nb, PreviewLimits::new(Some(100), Some(8 * 1024 * 1024)))).unwrap();
+        let back = parse(&serialize(
+            &nb,
+            PreviewLimits::new(Some(100), Some(8 * 1024 * 1024)),
+        ))
+        .unwrap();
         let r = back.cells[0].result.as_ref().unwrap();
-        assert_eq!((r.results[0].rows_kept, r.results[0].rows_total, r.results[0].truncated), (100, 100_000, true));
+        assert_eq!(
+            (
+                r.results[0].rows_kept,
+                r.results[0].rows_total,
+                r.results[0].truncated
+            ),
+            (100, 100_000, true)
+        );
         // The row budget is the cell's: the first statement used it all.
-        assert_eq!((r.results[1].rows_kept, r.results[1].rows_total, r.results[1].truncated), (0, 50, true));
+        assert_eq!(
+            (
+                r.results[1].rows_kept,
+                r.results[1].rows_total,
+                r.results[1].truncated
+            ),
+            (0, 50, true)
+        );
         // A small byte budget: trailing rows dropped, the whole cell fits.
-        let big: Vec<Vec<Value>> = (0..1000).map(|i| vec![json!(i), json!("x".repeat(300))]).collect();
-        let nb = notebook(vec![sql_cell("c", "SELECT", Some(result(vec![stmt(&["id", "name"], big.clone(), 1000), stmt(&["id"], vec![vec![json!(1)]], 1)])))]);
+        let big: Vec<Vec<Value>> = (0..1000)
+            .map(|i| vec![json!(i), json!("x".repeat(300))])
+            .collect();
+        let nb = notebook(vec![sql_cell(
+            "c",
+            "SELECT",
+            Some(result(vec![
+                stmt(&["id", "name"], big.clone(), 1000),
+                stmt(&["id"], vec![vec![json!(1)]], 1),
+            ])),
+        )]);
         let v = to_value(&nb, PreviewLimits::new(Some(1000), Some(1)));
         assert_eq!(PreviewLimits::new(Some(5000), Some(1)).rows, 1000);
         let size = serde_json::to_vec(&v["cells"][0]["outputs"]).unwrap().len() as u64;
         assert!(size <= limits.bytes, "{size}");
         let back = parse(&serialize(&nb, limits)).unwrap();
         let r = back.cells[0].result.as_ref().unwrap();
-        assert!(r.results[0].rows_kept > 0 && r.results[0].rows_kept < 1000 && r.results[0].truncated);
+        assert!(
+            r.results[0].rows_kept > 0 && r.results[0].rows_kept < 1000 && r.results[0].truncated
+        );
         assert_eq!((r.results[1].rows_kept, r.results[1].truncated), (0, true));
         // Even the header too big: no rows, summary kept.
         let huge = "n".repeat(70 * 1024);
-        let nb = notebook(vec![sql_cell("c", "SELECT", Some(result(vec![stmt(&[&huge], vec![vec![json!(1)]; 10], 10)])))]);
+        let nb = notebook(vec![sql_cell(
+            "c",
+            "SELECT",
+            Some(result(vec![stmt(&[&huge], vec![vec![json!(1)]; 10], 10)])),
+        )]);
         let back = parse(&serialize(&nb, limits)).unwrap();
         let s = &back.cells[0].result.as_ref().unwrap().results[0];
         assert_eq!((s.rows_kept, s.rows_total, s.truncated), (0, 10, true));
         // Long values are cut.
-        let nb = notebook(vec![sql_cell("c", "SELECT", Some(result(vec![stmt(&["t"], vec![vec![json!("a".repeat(5000))]], 1)])))]);
+        let nb = notebook(vec![sql_cell(
+            "c",
+            "SELECT",
+            Some(result(vec![stmt(
+                &["t"],
+                vec![vec![json!("a".repeat(5000))]],
+                1,
+            )])),
+        )]);
         let back = parse(&serialize(&nb, limits)).unwrap();
-        let v = back.cells[0].result.as_ref().unwrap().results[0].rows[0][0].as_str().unwrap().to_string();
+        let v = back.cells[0].result.as_ref().unwrap().results[0].rows[0][0]
+            .as_str()
+            .unwrap()
+            .to_string();
         assert_eq!(v.chars().count(), MAX_VALUE_CHARS + 1);
         assert!(v.ends_with('…'));
     }
@@ -1613,13 +2089,21 @@ mod tests {
         nb.cells[0].chart = Some(json!({ "type": "bar", "points": [[1, 2]] }));
         let check = |nb: &Notebook| {
             let text = serialize(nb, PreviewLimits::default());
-            assert!(!text.contains("fila 0") && !text.contains("<table>") && !text.contains(DATARESOURCE) && !text.contains("points"));
+            assert!(
+                !text.contains("fila 0")
+                    && !text.contains("<table>")
+                    && !text.contains(DATARESOURCE)
+                    && !text.contains("points")
+            );
             let v: Value = serde_json::from_str(&text).unwrap();
             let out = &v["cells"][0]["outputs"][0];
             assert_eq!(out["metadata"]["dbine"]["rows_kept"], 0);
             assert_eq!(out["metadata"]["dbine"]["rows_total"], 3);
             assert_eq!(out["metadata"]["dbine"]["truncated"], true);
-            assert!(out["data"]["text/plain"].as_str().unwrap().starts_with("0 / 3 rows · "));
+            assert!(out["data"]["text/plain"]
+                .as_str()
+                .unwrap()
+                .starts_with("0 / 3 rows · "));
             let back = parse(&text).unwrap();
             let s = &back.cells[0].result.as_ref().unwrap().results[0];
             assert_eq!((s.rows_total, s.rows_kept, s.rows.len()), (3, 0, 0));
@@ -1632,7 +2116,12 @@ mod tests {
         nb.save_results = true;
         nb.cells[0].keep_result = false;
         check(&nb);
-        assert!(!parse(&serialize(&nb, PreviewLimits::default())).unwrap().cells[0].keep_result);
+        assert!(
+            !parse(&serialize(&nb, PreviewLimits::default()))
+                .unwrap()
+                .cells[0]
+                .keep_result
+        );
     }
 
     const ADS: &str = r##"{
@@ -1683,14 +2172,40 @@ mod tests {
         let nb = parse(ADS).unwrap();
         assert_eq!(nb.origin, "ads");
         assert_eq!(nb.target, None);
-        assert_eq!(nb.cells.iter().map(|c| c.kind).collect::<Vec<_>>(), [CellKind::Markdown, CellKind::Sql, CellKind::Sql]);
+        assert_eq!(
+            nb.cells.iter().map(|c| c.kind).collect::<Vec<_>>(),
+            [CellKind::Markdown, CellKind::Sql, CellKind::Sql]
+        );
         assert_eq!(nb.cells[0].id, "6d0e8a3c-6b4f-4d4e-9b0f-2a1d2b3c4d5e");
         assert_eq!(nb.cells[0].source, "# Ventas\nPor región");
         let r = nb.cells[1].result.as_ref().unwrap();
-        assert_eq!(r.results[0].columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["region", "total"]);
-        assert_eq!(r.results[0].rows, vec![vec![json!("Norte"), json!("10")], vec![json!("Sur"), json!("20")]]);
-        assert_eq!(r.messages, ["(2 rows affected)", "Total execution time: 00:00:00.012"]);
-        assert!(nb.cells[2].result.as_ref().unwrap().error.as_deref().unwrap().contains("Invalid object name 'nope'"));
+        assert_eq!(
+            r.results[0]
+                .columns
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            ["region", "total"]
+        );
+        assert_eq!(
+            r.results[0].rows,
+            vec![
+                vec![json!("Norte"), json!("10")],
+                vec![json!("Sur"), json!("20")]
+            ]
+        );
+        assert_eq!(
+            r.messages,
+            ["(2 rows affected)", "Total execution time: 00:00:00.012"]
+        );
+        assert!(nb.cells[2]
+            .result
+            .as_ref()
+            .unwrap()
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("Invalid object name 'nope'"));
         // Its connection is neither read nor written back.
         assert!(nb.warnings.iter().any(|w| w.contains("credenciales")));
         assert!(nb.extra_metadata.get("connection_name").is_none());
@@ -1716,7 +2231,10 @@ mod tests {
         assert_eq!(nb.origin, "jupyter");
         assert_eq!(nb.cells[0].kind, CellKind::Foreign);
         assert_eq!(nb.cells[0].language.as_deref(), Some("python"));
-        assert_eq!((nb.cells[1].kind, nb.cells[1].source.as_str()), (CellKind::Sql, "SELECT * FROM ventas"));
+        assert_eq!(
+            (nb.cells[1].kind, nb.cells[1].source.as_str()),
+            (CellKind::Sql, "SELECT * FROM ventas")
+        );
         assert!(nb.cells[1].result.is_none());
         assert_eq!(nb.cells[2].source, "SELECT 1");
         assert_eq!(nb.warnings.len(), 1);
@@ -1724,14 +2242,19 @@ mod tests {
         let model = serde_json::to_string(&nb).unwrap();
         let text = serialize(&nb, PreviewLimits::default());
         for s in [&model, &text] {
-            assert!(!s.contains("pass") && !s.contains("postgresql://") && !s.contains("host/db"), "{s}");
+            assert!(
+                !s.contains("pass") && !s.contains("postgresql://") && !s.contains("host/db"),
+                "{s}"
+            );
         }
     }
 
     #[test]
     fn foreign_cells_are_written_back_unchanged() {
         let py = r#"{"cell_type":"code","execution_count":7,"id":"abc-1","metadata":{"collapsed":false,"tags":["x"]},"outputs":[{"data":{"image/png":"iVBORw0KGgo=","text/plain":["<Figure>"]},"execution_count":7,"metadata":{"needs_background":"light"},"output_type":"execute_result"},{"name":"stderr","output_type":"stream","text":["warn 1.5e-7\n"]}],"source":["import pandas as pd\n","df = pd.DataFrame({'a': [1.10, 2]})"]}"#;
-        let src = format!(r#"{{"metadata":{{"kernelspec":{{"name":"python3","language":"python"}}}},"nbformat":4,"nbformat_minor":5,"cells":[{py}]}}"#);
+        let src = format!(
+            r#"{{"metadata":{{"kernelspec":{{"name":"python3","language":"python"}}}},"nbformat":4,"nbformat_minor":5,"cells":[{py}]}}"#
+        );
         let nb = parse(&src).unwrap();
         assert_eq!(nb.cells[0].kind, CellKind::Foreign);
         assert!(nb.cells[0].source.starts_with("import pandas"));
@@ -1739,24 +2262,42 @@ mod tests {
         let v: Value = serde_json::from_str(&text).unwrap();
         let orig: Value = serde_json::from_str(py).unwrap();
         assert_eq!(v["cells"][0], orig);
-        assert_eq!(serde_json::to_string(&v["cells"][0]).unwrap(), serde_json::to_string(&orig).unwrap());
+        assert_eq!(
+            serde_json::to_string(&v["cells"][0]).unwrap(),
+            serde_json::to_string(&orig).unwrap()
+        );
     }
 
     #[test]
     fn cell_names_and_the_dataframe_sql_target_round_trip() {
-        let mut nb = notebook(vec![sql_cell("a", "SELECT 1", None), sql_cell("b", "SELECT * FROM ventas", None)]);
+        let mut nb = notebook(vec![
+            sql_cell("a", "SELECT 1", None),
+            sql_cell("b", "SELECT * FROM ventas", None),
+        ]);
         nb.cells[0].name = Some("ventas".into());
         nb.cells[1].name = Some("c2".into());
-        nb.cells[1].target = Some(NotebookTarget { results: true, ..Default::default() });
+        nb.cells[1].target = Some(NotebookTarget {
+            results: true,
+            ..Default::default()
+        });
         let text = serialize(&nb, PreviewLimits::default());
         let v: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["cells"][0]["metadata"]["dbine"]["name"], "ventas");
         // No connection name is made up for it.
-        assert_eq!(v["cells"][1]["metadata"]["dbine"]["target"], json!({ "dataframes": true }));
+        assert_eq!(
+            v["cells"][1]["metadata"]["dbine"]["target"],
+            json!({ "dataframes": true })
+        );
         let back = parse(&text).unwrap();
         assert_eq!(back.cells[0].name.as_deref(), Some("ventas"));
         assert_eq!(back.cells[1].name.as_deref(), Some("c2"));
-        assert_eq!(back.cells[1].target, Some(NotebookTarget { results: true, ..Default::default() }));
+        assert_eq!(
+            back.cells[1].target,
+            Some(NotebookTarget {
+                results: true,
+                ..Default::default()
+            })
+        );
         // An older file has no names: read as before.
         let old = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1}},"cells":[{"cell_type":"code","id":"x","metadata":{"dbine":{"keep_result":true}},"outputs":[],"source":"SELECT 1"}]}"#;
         assert_eq!(parse(old).unwrap().cells[0].name, None);
@@ -1766,26 +2307,57 @@ mod tests {
           {"cell_type":"code","id":"y","metadata":{"dbine":{"name":"ventas"}},"outputs":[],"source":"SELECT 1"},
           {"cell_type":"code","id":"z","metadata":{"dbine":{"name":"x; DROP TABLE t","target":{"results":true,"connection":"Ventas"}}},"outputs":[],"source":"SELECT 1"}]}"#;
         let nb = parse(bad).unwrap();
-        assert_eq!(nb.cells.iter().map(|c| c.name.as_deref()).collect::<Vec<_>>(), vec![Some("Ventas"), None, None]);
-        assert_eq!(nb.cells[2].target, Some(NotebookTarget { results: true, ..Default::default() }));
+        assert_eq!(
+            nb.cells
+                .iter()
+                .map(|c| c.name.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("Ventas"), None, None]
+        );
+        assert_eq!(
+            nb.cells[2].target,
+            Some(NotebookTarget {
+                results: true,
+                ..Default::default()
+            })
+        );
     }
 
     #[test]
     fn the_earlier_results_target_is_still_read_and_written_as_dataframes() {
-        let df = NotebookTarget { results: true, ..Default::default() };
-        let file = |target: &str| {
-            format!(r#"{{"nbformat":4,"nbformat_minor":5,"metadata":{{"dbine":{{"version":1}}}},"cells":[{{"cell_type":"code","id":"x","metadata":{{"dbine":{{"target":{target}}}}},"outputs":[],"source":"SELECT 1"}}]}}"#)
+        let df = NotebookTarget {
+            results: true,
+            ..Default::default()
         };
-        for target in [r#"{"results":true}"#, r#"{"dataframes":true}"#, r#"{"dataframes":true,"connection":"Ventas"}"#] {
+        let file = |target: &str| {
+            format!(
+                r#"{{"nbformat":4,"nbformat_minor":5,"metadata":{{"dbine":{{"version":1}}}},"cells":[{{"cell_type":"code","id":"x","metadata":{{"dbine":{{"target":{target}}}}},"outputs":[],"source":"SELECT 1"}}]}}"#
+            )
+        };
+        for target in [
+            r#"{"results":true}"#,
+            r#"{"dataframes":true}"#,
+            r#"{"dataframes":true,"connection":"Ventas"}"#,
+        ] {
             let nb = parse(&file(target)).unwrap();
             assert_eq!(nb.cells[0].target, Some(df.clone()), "{target}");
             // Saved again: the new form, nothing else.
             let v: Value = serde_json::from_str(&serialize(&nb, PreviewLimits::default())).unwrap();
-            assert_eq!(v["cells"][0]["metadata"]["dbine"]["target"], json!({ "dataframes": true }), "{target}");
+            assert_eq!(
+                v["cells"][0]["metadata"]["dbine"]["target"],
+                json!({ "dataframes": true }),
+                "{target}"
+            );
         }
         // `false` is no target of its own; a connection beside it still reads.
         let nb = parse(&file(r#"{"dataframes":false,"connection":"Ventas"}"#)).unwrap();
-        assert_eq!(nb.cells[0].target, Some(NotebookTarget { connection: Some("Ventas".into()), ..Default::default() }));
+        assert_eq!(
+            nb.cells[0].target,
+            Some(NotebookTarget {
+                connection: Some("Ventas".into()),
+                ..Default::default()
+            })
+        );
     }
 
     #[test]
@@ -1800,48 +2372,111 @@ mod tests {
      "target": { "connection": "Otra", "dsn": "x" } } } } ]
 }"#;
         let nb = parse(src).unwrap();
-        assert_eq!(nb.target, Some(NotebookTarget { connection: Some("Ventas".into()), ..Default::default() }));
-        assert_eq!(nb.cells[0].target, Some(NotebookTarget { connection: Some("Otra".into()), ..Default::default() }));
+        assert_eq!(
+            nb.target,
+            Some(NotebookTarget {
+                connection: Some("Ventas".into()),
+                ..Default::default()
+            })
+        );
+        assert_eq!(
+            nb.cells[0].target,
+            Some(NotebookTarget {
+                connection: Some("Otra".into()),
+                ..Default::default()
+            })
+        );
         assert_eq!(nb.cells[0].chart, Some(json!({ "type": "bar" })));
-        assert_eq!(nb.extra_metadata, json!({ "other_tool": { "theme": "dark" } }));
+        assert_eq!(
+            nb.extra_metadata,
+            json!({ "other_tool": { "theme": "dark" } })
+        );
         assert_eq!(nb.warnings.len(), 1);
-        let all = format!("{}{}", serde_json::to_string(&nb).unwrap(), serialize(&nb, PreviewLimits::default()));
-        assert!(!all.contains("s3cr3t") && !all.contains("tok123") && !all.contains("10.0.0.5") && !all.contains("\"sa\""));
+        let all = format!(
+            "{}{}",
+            serde_json::to_string(&nb).unwrap(),
+            serialize(&nb, PreviewLimits::default())
+        );
+        assert!(
+            !all.contains("s3cr3t")
+                && !all.contains("tok123")
+                && !all.contains("10.0.0.5")
+                && !all.contains("\"sa\"")
+        );
     }
 
     #[test]
     fn duplicate_columns_and_array_rows() {
-        let nb = notebook(vec![sql_cell("c", "SELECT", Some(result(vec![stmt(&["id", "id", "id_2"], vec![vec![json!(1), json!(2), json!(3)]], 1)])))]);
+        let nb = notebook(vec![sql_cell(
+            "c",
+            "SELECT",
+            Some(result(vec![stmt(
+                &["id", "id", "id_2"],
+                vec![vec![json!(1), json!(2), json!(3)]],
+                1,
+            )])),
+        )]);
         let text = serialize(&nb, PreviewLimits::default());
         let v: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(v["cells"][0]["outputs"][0]["data"][DATARESOURCE]["data"][0], json!({ "id": 1, "id_3": 2, "id_2": 3 }));
+        assert_eq!(
+            v["cells"][0]["outputs"][0]["data"][DATARESOURCE]["data"][0],
+            json!({ "id": 1, "id_3": 2, "id_2": 3 })
+        );
         let back = parse(&text).unwrap();
         assert_eq!(back.cells[0].result, nb.cells[0].result);
         // Rows as arrays are read too.
         let src = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1}},"cells":[{"cell_type":"code","id":"c","metadata":{"dbine":{}},"outputs":[{"output_type":"execute_result","metadata":{},"data":{"application/vnd.dataresource+json":{"schema":{"fields":[{"name":"a"},{"name":"b"}]},"data":[[1,{"x":1}]]}}}],"source":"x"}]}"#;
         let nb = parse(src).unwrap();
-        assert_eq!(nb.cells[0].result.as_ref().unwrap().results[0].rows, vec![vec![json!(1), json!("{\"x\":1}")]]);
+        assert_eq!(
+            nb.cells[0].result.as_ref().unwrap().results[0].rows,
+            vec![vec![json!(1), json!("{\"x\":1}")]]
+        );
     }
 
     #[test]
     fn the_row_budget_is_shared_by_the_cells_statements() {
-        let r = result(vec![stmt(&["id", "name"], rows(30), 30), stmt(&["id", "name"], rows(30), 30), stmt(&["id"], vec![], 0)]);
+        let r = result(vec![
+            stmt(&["id", "name"], rows(30), 30),
+            stmt(&["id", "name"], rows(30), 30),
+            stmt(&["id"], vec![], 0),
+        ]);
         let p = preview(&r, true, PreviewLimits::new(Some(50), None), Some(1));
-        let kept: Vec<_> = p.statements.iter().map(|s| (s.rows_kept, s.rows.len(), s.truncated)).collect();
+        let kept: Vec<_> = p
+            .statements
+            .iter()
+            .map(|s| (s.rows_kept, s.rows.len(), s.truncated))
+            .collect();
         assert_eq!(kept, [(30, 30, false), (20, 20, true), (0, 0, false)]);
         assert!(!p.cut);
-        let back = parse(&serialize(&notebook(vec![sql_cell("c", "SELECT", Some(r))]), PreviewLimits::new(Some(50), None))).unwrap();
-        let total: u64 = back.cells[0].result.as_ref().unwrap().results.iter().map(|s| s.rows_kept).sum();
+        let back = parse(&serialize(
+            &notebook(vec![sql_cell("c", "SELECT", Some(r))]),
+            PreviewLimits::new(Some(50), None),
+        ))
+        .unwrap();
+        let total: u64 = back.cells[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .results
+            .iter()
+            .map(|s| s.rows_kept)
+            .sum();
         assert_eq!(total, 50);
     }
 
     #[test]
     fn messages_and_errors_fit_in_the_byte_cap() {
         let limits = PreviewLimits::new(Some(1000), Some(64 * 1024));
-        let size = |nb: &Notebook| serde_json::to_vec(&to_value(nb, limits)["cells"][0]["outputs"]).unwrap().len() as u64;
+        let size = |nb: &Notebook| {
+            serde_json::to_vec(&to_value(nb, limits)["cells"][0]["outputs"])
+                .unwrap()
+                .len() as u64
+        };
         // Messages: cut to what's left, marked.
         let mut r = result(vec![stmt(&["id", "name"], rows(10), 10)]);
-        r.messages = (0..2000).map(|i| format!("NOTICE {i}: {}", "m".repeat(100))).collect();
+        r.messages = (0..2000)
+            .map(|i| format!("NOTICE {i}: {}", "m".repeat(100)))
+            .collect();
         let nb = notebook(vec![sql_cell("c", "SELECT", Some(r.clone()))]);
         assert!(size(&nb) <= limits.bytes);
         let back = parse(&serialize(&nb, limits)).unwrap();
@@ -1861,76 +2496,152 @@ mod tests {
         assert!(b.truncated && e.starts_with("ERROR: ") && e.ends_with('…'));
         assert!(e.chars().count() >= MIN_ERROR_CHARS && e.chars().count() < 200_000);
         // Even when nothing else fits, at least the error's first 2,000 chars.
-        let p = preview(&CellResult { error: Some("x".repeat(10_000)), ..result(vec![]) }, true, PreviewLimits { rows: 10, bytes: 10 }, None);
+        let p = preview(
+            &CellResult {
+                error: Some("x".repeat(10_000)),
+                ..result(vec![])
+            },
+            true,
+            PreviewLimits {
+                rows: 10,
+                bytes: 10,
+            },
+            None,
+        );
         assert_eq!(p.error.unwrap().chars().count(), MIN_ERROR_CHARS);
         // Small ones are untouched.
         let mut r = result(vec![stmt(&["id"], vec![vec![json!(1)]], 1)]);
         r.messages = vec!["hola".into()];
         r.error = Some("boom".into());
         let p = preview(&r, true, limits, None);
-        assert_eq!((p.messages, p.error.as_deref(), p.cut), (vec!["hola".to_string()], Some("boom"), false));
+        assert_eq!(
+            (p.messages, p.error.as_deref(), p.cut),
+            (vec!["hola".to_string()], Some("boom"), false)
+        );
     }
 
     #[test]
     fn chart_points_are_only_aggregates_within_the_caps() {
         let pts = |n: usize, label: &str| json!({ "categories": (0..n).map(|i| format!("{label}{i}")).collect::<Vec<_>>(), "series": [{ "name": "total", "values": (0..n).collect::<Vec<_>>() }] });
         let write = |chart: Value, limits: PreviewLimits| {
-            let mut c = sql_cell("c", "SELECT", Some(result(vec![stmt(&["id", "name"], rows(3), 3)])));
+            let mut c = sql_cell(
+                "c",
+                "SELECT",
+                Some(result(vec![stmt(&["id", "name"], rows(3), 3)])),
+            );
             c.chart = Some(chart);
             to_value(&notebook(vec![c]), limits)["cells"][0]["metadata"]["dbine"]["chart"].clone()
         };
         let limits = PreviewLimits::new(Some(10), None);
         // Aggregated: kept, capped to the cell's rows, long labels cut.
         let long = "l".repeat(5000);
-        let out = write(json!({ "type": "bar", "agg": "sum", "points": pts(50, &long) }), limits);
+        let out = write(
+            json!({ "type": "bar", "agg": "sum", "points": pts(50, &long) }),
+            limits,
+        );
         assert_eq!(out["points"]["categories"].as_array().unwrap().len(), 10);
-        assert_eq!(out["points"]["series"][0]["values"].as_array().unwrap().len(), 10);
-        assert_eq!(out["points"]["categories"][0].as_str().unwrap().chars().count(), MAX_VALUE_CHARS + 1);
+        assert_eq!(
+            out["points"]["series"][0]["values"]
+                .as_array()
+                .unwrap()
+                .len(),
+            10
+        );
+        assert_eq!(
+            out["points"]["categories"][0]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            MAX_VALUE_CHARS + 1
+        );
         // Raw rows: no aggregation, or a scatter.
-        for chart in [json!({ "type": "bar", "agg": "none", "points": pts(3, "a") }), json!({ "type": "bar", "points": pts(3, "a") }), json!({ "type": "scatter", "agg": "sum", "points": pts(3, "a") })] {
+        for chart in [
+            json!({ "type": "bar", "agg": "none", "points": pts(3, "a") }),
+            json!({ "type": "bar", "points": pts(3, "a") }),
+            json!({ "type": "scatter", "agg": "sum", "points": pts(3, "a") }),
+        ] {
             let out = write(chart, limits);
-            assert!(out.get("points").is_none() && out.get("type").is_some(), "{out}");
+            assert!(
+                out.get("points").is_none() && out.get("type").is_some(),
+                "{out}"
+            );
         }
         // Points that don't fit in what the byte cap leaves: dropped.
         let big = PreviewLimits::new(Some(1000), Some(64 * 1024));
-        let out = write(json!({ "type": "bar", "agg": "sum", "points": pts(1000, &"x".repeat(200)) }), big);
+        let out = write(
+            json!({ "type": "bar", "agg": "sum", "points": pts(1000, &"x".repeat(200)) }),
+            big,
+        );
         assert!(out.get("points").is_none());
-        assert_eq!(write(json!({ "type": "bar", "agg": "count", "points": pts(5, "a") }), big)["points"]["categories"].as_array().unwrap().len(), 5);
+        assert_eq!(
+            write(
+                json!({ "type": "bar", "agg": "count", "points": pts(5, "a") }),
+                big
+            )["points"]["categories"]
+                .as_array()
+                .unwrap()
+                .len(),
+            5
+        );
     }
 
     #[test]
     fn several_charts_share_the_cells_byte_cap() {
         let pts = |n: usize| json!({ "categories": (0..n).map(|i| format!("c{i}")).collect::<Vec<_>>(), "series": [{ "name": "v", "values": (0..n).collect::<Vec<_>>() }] });
         let write = |chart: Value, limits: PreviewLimits| {
-            let mut c = sql_cell("c", "SELECT", Some(result(vec![stmt(&["id", "name"], rows(3), 3)])));
+            let mut c = sql_cell(
+                "c",
+                "SELECT",
+                Some(result(vec![stmt(&["id", "name"], rows(3), 3)])),
+            );
             c.chart = Some(chart);
             to_value(&notebook(vec![c]), limits)["cells"][0]["metadata"]["dbine"]["chart"].clone()
         };
         let one = serde_json::to_vec(&pts(300)).unwrap().len() as u64;
         let limits = PreviewLimits::new(Some(1000), Some(64 * 1024));
-        let out = write(json!({ "view": "chart", "active": 0, "points": pts(3), "charts": [
+        let out = write(
+            json!({ "view": "chart", "active": 0, "points": pts(3), "charts": [
             { "title": "a", "type": "bar", "agg": "sum", "points": pts(300) },
             { "title": "raw", "type": "scatter", "agg": "sum", "points": pts(3) },
             { "title": "h", "type": "histogram", "agg": "none", "points": pts(5) },
             { "title": "k", "type": "kpi", "agg": "none", "points": pts(1), "whole": true, "aggregate": { "method": "server" } },
             { "title": "line", "type": "line", "agg": "none", "points": pts(3) },
-        ] }), limits);
+        ] }),
+            limits,
+        );
         let list = out["charts"].as_array().unwrap();
         assert!(out.get("points").is_none(), "no stray top-level points");
-        assert_eq!(list[0]["points"]["categories"].as_array().unwrap().len(), 300);
-        assert!(list[1].get("points").is_none() && list[4].get("points").is_none(), "raw rows aren't kept");
-        assert!(list[2].get("points").is_some() && list[3].get("points").is_some(), "histograms and KPIs are summaries");
+        assert_eq!(
+            list[0]["points"]["categories"].as_array().unwrap().len(),
+            300
+        );
+        assert!(
+            list[1].get("points").is_none() && list[4].get("points").is_none(),
+            "raw rows aren't kept"
+        );
+        assert!(
+            list[2].get("points").is_some() && list[3].get("points").is_some(),
+            "histograms and KPIs are summaries"
+        );
         assert_eq!(list[3]["aggregate"]["method"], "server");
         // ~40 KB each under a 64 KB cap: the first keeps its points, the second doesn't.
         let wide = json!({ "categories": (0..1000).map(|i| format!("{i:0>36}")).collect::<Vec<_>>(), "series": [{ "name": "v", "values": (0..1000).collect::<Vec<_>>() }] });
-        let out = write(json!({ "charts": [{ "type": "bar", "agg": "sum", "points": wide.clone() }, { "type": "bar", "agg": "sum", "points": wide }] }), limits);
+        let out = write(
+            json!({ "charts": [{ "type": "bar", "agg": "sum", "points": wide.clone() }, { "type": "bar", "agg": "sum", "points": wide }] }),
+            limits,
+        );
         let list = out["charts"].as_array().unwrap();
-        assert!(list[0].get("points").is_some() && list[1].get("points").is_none(), "{one}");
+        assert!(
+            list[0].get("points").is_some() && list[1].get("points").is_none(),
+            "{one}"
+        );
         // Rows not kept: no chart keeps points.
         let mut c = sql_cell("c", "SELECT", Some(result(vec![stmt(&["id"], rows(3), 3)])));
         c.keep_result = false;
         c.chart = Some(json!({ "charts": [{ "type": "bar", "agg": "sum", "points": pts(3) }] }));
-        let out = to_value(&notebook(vec![c]), limits)["cells"][0]["metadata"]["dbine"]["chart"].clone();
+        let out =
+            to_value(&notebook(vec![c]), limits)["cells"][0]["metadata"]["dbine"]["chart"].clone();
         assert!(out["charts"][0].get("points").is_none());
     }
 
@@ -1945,7 +2656,10 @@ mod tests {
         assert!(!parse(ADS).unwrap().save_results_set);
         let said = parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1,"save_results":false}},"cells":[]}"#).unwrap();
         assert!(said.save_results_set && !said.save_results);
-        let unsaid = parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1}},"cells":[]}"#).unwrap();
+        let unsaid = parse(
+            r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1}},"cells":[]}"#,
+        )
+        .unwrap();
         assert!(!unsaid.save_results_set);
     }
 
@@ -1955,15 +2669,27 @@ mod tests {
           "cells":[{"cell_type":"code","id":"c","metadata":{"dbine":{"target":{"connection":"Server=db;User Id=sa;Password=s3cr3t"}}},"outputs":[],"source":"SELECT 1"},
                    {"cell_type":"code","id":"d","metadata":{"dbine":{"target":{"connection":"Ventas (prod) = 2"}}},"outputs":[],"source":"SELECT 1"}]}"#;
         let nb = parse(src).unwrap();
-        assert_eq!(nb.target, Some(NotebookTarget { database: Some("ventas".into()), ..Default::default() }));
+        assert_eq!(
+            nb.target,
+            Some(NotebookTarget {
+                database: Some("ventas".into()),
+                ..Default::default()
+            })
+        );
         assert_eq!(nb.cells[0].target, None);
         // A name with "=" alone is still a name.
-        assert_eq!(nb.cells[1].target.as_ref().unwrap().connection.as_deref(), Some("Ventas (prod) = 2"));
+        assert_eq!(
+            nb.cells[1].target.as_ref().unwrap().connection.as_deref(),
+            Some("Ventas (prod) = 2")
+        );
         assert_eq!(nb.warnings.len(), 1);
         assert!(!serde_json::to_string(&nb).unwrap().contains("s3cr3t"));
         // Never written either.
         let mut nb = notebook(vec![]);
-        nb.target = Some(NotebookTarget { connection: Some("mysql://root:pw@h/db".into()), ..Default::default() });
+        nb.target = Some(NotebookTarget {
+            connection: Some("mysql://root:pw@h/db".into()),
+            ..Default::default()
+        });
         assert!(!serialize(&nb, PreviewLimits::default()).contains("pw@h"));
     }
 

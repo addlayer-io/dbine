@@ -13,7 +13,9 @@
 use crate::create_db::{quota, tablespace};
 use crate::{err, quote, OracleSession};
 use dbine_driver::serde_static::intern;
-use dbine_driver::{DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result};
+use dbine_driver::{
+    DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result,
+};
 use std::collections::BTreeMap;
 
 fn yes(v: &str) -> bool {
@@ -30,7 +32,12 @@ fn shown_quota(max_bytes: i64) -> String {
     if max_bytes < 0 {
         return "UNLIMITED".into();
     }
-    for (unit, size) in [("T", 1i64 << 40), ("G", 1 << 30), ("M", 1 << 20), ("K", 1 << 10)] {
+    for (unit, size) in [
+        ("T", 1i64 << 40),
+        ("G", 1 << 30),
+        ("M", 1 << 20),
+        ("K", 1 << 10),
+    ] {
         if max_bytes >= size && max_bytes % size == 0 {
             return format!("{}{unit}", max_bytes / size);
         }
@@ -61,14 +68,24 @@ pub(crate) fn alter(database: &str, changes: &BTreeMap<String, String>) -> Resul
         return Err(Error::Query("Falta el nombre del esquema.".into()));
     }
     let user = format!("ALTER USER {}", quote(database));
-    let (mut first, mut out, mut quotas, mut last) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut first, mut out, mut quotas, mut last) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for (key, value) in changes {
         let value = value.trim();
         match key.as_str() {
-            "default_tablespace" => out.push(format!("{user} DEFAULT TABLESPACE {}", tablespace(value)?)),
-            "temporary_tablespace" => out.push(format!("{user} TEMPORARY TABLESPACE {}", tablespace(value)?)),
+            "default_tablespace" => {
+                out.push(format!("{user} DEFAULT TABLESPACE {}", tablespace(value)?))
+            }
+            "temporary_tablespace" => out.push(format!(
+                "{user} TEMPORARY TABLESPACE {}",
+                tablespace(value)?
+            )),
             "profile" => {
-                let p = if value.eq_ignore_ascii_case("DEFAULT") { "DEFAULT".to_string() } else { tablespace(value)? };
+                let p = if value.eq_ignore_ascii_case("DEFAULT") {
+                    "DEFAULT".to_string()
+                } else {
+                    tablespace(value)?
+                };
                 out.push(format!("{user} PROFILE {p}"));
             }
             "account_locked" => {
@@ -82,18 +99,31 @@ pub(crate) fn alter(database: &str, changes: &BTreeMap<String, String>) -> Resul
                 // Empty: no quota (0) on that tablespace.
                 Some(ts) => quotas.push(format!(
                     "{user} QUOTA {} ON {}",
-                    if value.is_empty() { "0".to_string() } else { quota(value)? },
+                    if value.is_empty() {
+                        "0".to_string()
+                    } else {
+                        quota(value)?
+                    },
                     quote(ts)
                 )),
                 None => return Err(Error::Query(format!("propiedad desconocida: {k}"))),
             },
         }
     }
-    Ok(first.into_iter().chain(out).chain(quotas).chain(last).collect())
+    Ok(first
+        .into_iter()
+        .chain(out)
+        .chain(quotas)
+        .chain(last)
+        .collect())
 }
 
 pub(crate) fn script(database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
-    Ok(alter(database, changes)?.iter().map(|s| format!("{s};")).collect::<Vec<_>>().join("\n"))
+    Ok(alter(database, changes)?
+        .iter()
+        .map(|s| format!("{s};"))
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 const USER: &str = "SELECT account_status, TO_CHAR(created, 'YYYY-MM-DD HH24:MI:SS'), default_tablespace, temporary_tablespace, profile,
@@ -102,7 +132,9 @@ const USER: &str = "SELECT account_status, TO_CHAR(created, 'YYYY-MM-DD HH24:MI:
 
 /// The figures that need no row type: text columns by position.
 fn texts(row: &oracledb::Row, n: usize) -> Result<Vec<Option<String>>> {
-    (0..n).map(|i| row.get::<Option<String>>(i).map_err(err)).collect()
+    (0..n)
+        .map(|i| row.get::<Option<String>>(i).map_err(err))
+        .collect()
 }
 
 impl OracleSession {
@@ -149,42 +181,102 @@ impl OracleSession {
             })
             .await?;
         let get = |i: usize| user.get(i).cloned().flatten().unwrap_or_default();
-        let at = |v: &Vec<Option<String>>, i: usize| v.get(i).cloned().flatten().unwrap_or_default();
+        let at =
+            |v: &Vec<Option<String>>, i: usize| v.get(i).cloned().flatten().unwrap_or_default();
 
         let mut info = vec![
-            PropertyInfo { group: String::new(), label: "Estado de la cuenta".into(), value: get(0) },
-            PropertyInfo { group: String::new(), label: "Creado".into(), value: get(1) },
-            PropertyInfo { group: String::new(), label: "Autenticación".into(), value: get(5) },
+            PropertyInfo {
+                group: String::new(),
+                label: "Estado de la cuenta".into(),
+                value: get(0),
+            },
+            PropertyInfo {
+                group: String::new(),
+                label: "Creado".into(),
+                value: get(1),
+            },
+            PropertyInfo {
+                group: String::new(),
+                label: "Autenticación".into(),
+                value: get(5),
+            },
         ];
         if let Some(l) = last_login {
-            info.push(PropertyInfo { group: String::new(), label: "Último inicio de sesión".into(), value: l });
+            info.push(PropertyInfo {
+                group: String::new(),
+                label: "Último inicio de sesión".into(),
+                value: l,
+            });
         }
         for (i, label) in [(6, "Bloqueada desde"), (7, "Contraseña vence")] {
             if !get(i).is_empty() {
-                info.push(PropertyInfo { group: String::new(), label: label.into(), value: get(i) });
+                info.push(PropertyInfo {
+                    group: String::new(),
+                    label: label.into(),
+                    value: get(i),
+                });
             }
         }
         if !segments.is_empty() {
-            info.push(PropertyInfo { group: String::new(), label: "Tamaño (segmentos)".into(), value: human(at(&segments, 0).parse().unwrap_or(0)) });
-            info.push(PropertyInfo { group: String::new(), label: "Segmentos".into(), value: at(&segments, 1) });
+            info.push(PropertyInfo {
+                group: String::new(),
+                label: "Tamaño (segmentos)".into(),
+                value: human(at(&segments, 0).parse().unwrap_or(0)),
+            });
+            info.push(PropertyInfo {
+                group: String::new(),
+                label: "Segmentos".into(),
+                value: at(&segments, 1),
+            });
         }
         if !objects.is_empty() {
-            info.push(PropertyInfo { group: String::new(), label: "Objetos".into(), value: at(&objects, 0) });
-            info.push(PropertyInfo { group: String::new(), label: "Tablas".into(), value: at(&objects, 1) });
+            info.push(PropertyInfo {
+                group: String::new(),
+                label: "Objetos".into(),
+                value: at(&objects, 0),
+            });
+            info.push(PropertyInfo {
+                group: String::new(),
+                label: "Tablas".into(),
+                value: at(&objects, 1),
+            });
         }
 
         let mut values = BTreeMap::new();
         values.insert("default_tablespace".to_string(), get(2));
         values.insert("temporary_tablespace".to_string(), get(3));
         values.insert("profile".to_string(), get(4));
-        values.insert("account_locked".to_string(), if get(0).contains("LOCKED") { "true".into() } else { String::new() });
+        values.insert(
+            "account_locked".to_string(),
+            if get(0).contains("LOCKED") {
+                "true".into()
+            } else {
+                String::new()
+            },
+        );
         let mut fields = vec![
-            Field::new("default_tablespace", "Tablespace por defecto", FieldKind::Text)
-                .help("Donde van las tablas e índices nuevos del esquema.")
-                .group("Almacenamiento"),
-            Field::new("temporary_tablespace", "Tablespace temporal", FieldKind::Text).group("Almacenamiento"),
-            Field::new("profile", "Perfil (PROFILE)", FieldKind::Text).help("Límites de recursos y reglas de contraseña.").group("Cuenta"),
-            Field::new("account_locked", "Cuenta bloqueada (ACCOUNT LOCK)", FieldKind::Bool).group("Cuenta"),
+            Field::new(
+                "default_tablespace",
+                "Tablespace por defecto",
+                FieldKind::Text,
+            )
+            .help("Donde van las tablas e índices nuevos del esquema.")
+            .group("Almacenamiento"),
+            Field::new(
+                "temporary_tablespace",
+                "Tablespace temporal",
+                FieldKind::Text,
+            )
+            .group("Almacenamiento"),
+            Field::new("profile", "Perfil (PROFILE)", FieldKind::Text)
+                .help("Límites de recursos y reglas de contraseña.")
+                .group("Cuenta"),
+            Field::new(
+                "account_locked",
+                "Cuenta bloqueada (ACCOUNT LOCK)",
+                FieldKind::Bool,
+            )
+            .group("Cuenta"),
         ];
 
         // A quota field per tablespace with one, and the default tablespace.
@@ -192,7 +284,11 @@ impl OracleSession {
             .iter()
             .map(|q| {
                 let max: i64 = at(q, 2).parse().unwrap_or(0);
-                (at(q, 0), shown_quota(max), Some(human(at(q, 1).parse().unwrap_or(0))))
+                (
+                    at(q, 0),
+                    shown_quota(max),
+                    Some(human(at(q, 1).parse().unwrap_or(0))),
+                )
             })
             .filter(|q| !q.0.is_empty())
             .collect();
@@ -202,23 +298,38 @@ impl OracleSession {
         for (ts, max, used) in with_quota {
             let key = quota_key(&ts);
             fields.push(
-                Field::new(intern(&key), intern(&format!("Cuota en {ts}")), FieldKind::Text)
-                    .placeholder("UNLIMITED, 500M o 10G")
-                    .help("Vacía: sin cuota (0).")
-                    .group("Cuotas"),
+                Field::new(
+                    intern(&key),
+                    intern(&format!("Cuota en {ts}")),
+                    FieldKind::Text,
+                )
+                .placeholder("UNLIMITED, 500M o 10G")
+                .help("Vacía: sin cuota (0).")
+                .group("Cuotas"),
             );
             values.insert(key, max);
             if let Some(used) = used {
-                info.push(PropertyInfo { group: "Cuotas".into(), label: format!("Usado en {ts}"), value: used });
+                info.push(PropertyInfo {
+                    group: "Cuotas".into(),
+                    label: format!("Usado en {ts}"),
+                    value: used,
+                });
             }
         }
 
-        let mut choices: Vec<FieldChoices> = self.create_database_choices_impl().await.unwrap_or_default();
+        let mut choices: Vec<FieldChoices> = self
+            .create_database_choices_impl()
+            .await
+            .unwrap_or_default();
         choices.retain(|c| c.key == "default_tablespace" || c.key == "temporary_tablespace");
         for c in &mut choices {
             c.default = None;
         }
-        choices.push(FieldChoices { key: "profile".into(), default: None, values: profiles });
+        choices.push(FieldChoices {
+            key: "profile".into(),
+            default: None,
+            values: profiles,
+        });
 
         let mut warnings = BTreeMap::new();
         warnings.insert(
@@ -227,7 +338,8 @@ impl OracleSession {
         );
         warnings.insert(
             "default_tablespace".to_string(),
-            "Solo afecta a los segmentos nuevos: las tablas e índices existentes no se mueven.".to_string(),
+            "Solo afecta a los segmentos nuevos: las tablas e índices existentes no se mueven."
+                .to_string(),
         );
         warnings.insert(
             "profile".to_string(),
@@ -239,16 +351,33 @@ impl OracleSession {
                 "Una cuota menor que lo usado no borra datos, pero los objetos del esquema ya no pueden crecer en ese tablespace.".to_string(),
             );
         }
-        Ok(DatabaseProperties { fields, values, info, choices, warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices,
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let statements = alter(database, changes)?;
         self.run(move |c| {
             for (i, sql) in statements.iter().enumerate() {
                 if let Err(e) = c.execute(sql, &[]) {
                     let e = err(e);
-                    return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+                    return Err(if i == 0 {
+                        e
+                    } else {
+                        Error::Query(format!(
+                            "se aplicaron {i} de {} cambios; falló: {sql}\n{e}",
+                            statements.len()
+                        ))
+                    });
                 }
             }
             Ok(())
@@ -262,7 +391,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -296,11 +428,19 @@ ALTER USER \"VENTAS\" ACCOUNT LOCK;"
 
     #[test]
     fn values_are_checked() {
-        for bad in [("quota:USERS", "10X"), ("quota:USERS", "1.5G"), ("default_tablespace", " "), ("quota:", "1M"), ("nope", "1")] {
+        for bad in [
+            ("quota:USERS", "10X"),
+            ("quota:USERS", "1.5G"),
+            ("default_tablespace", " "),
+            ("quota:", "1M"),
+            ("nope", "1"),
+        ] {
             assert!(script("V", &c(&[bad])).is_err(), "{bad:?}");
         }
         // Odd names are quoted, never loose.
-        assert!(script("a\"b", &c(&[("profile", "x\" y")])).unwrap().contains("ALTER USER \"a\"\"b\" PROFILE \"x\"\" y\""));
+        assert!(script("a\"b", &c(&[("profile", "x\" y")]))
+            .unwrap()
+            .contains("ALTER USER \"a\"\"b\" PROFILE \"x\"\" y\""));
         assert!(script(" ", &c(&[])).is_err());
     }
 

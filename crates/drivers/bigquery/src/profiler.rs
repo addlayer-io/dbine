@@ -48,12 +48,20 @@ struct Seen {
 
 impl Seen {
     fn new(now: i64) -> Self {
-        Self { since: now, mark: now, ids: HashMap::new(), pending: HashMap::new() }
+        Self {
+            since: now,
+            mark: now,
+            ids: HashMap::new(),
+            pending: HashMap::new(),
+        }
     }
 
     /// Where the next read starts: back to the oldest job still running.
     fn from(&self) -> i64 {
-        self.pending.values().copied().fold(self.mark - OVERLAP_MS, i64::min)
+        self.pending
+            .values()
+            .copied()
+            .fold(self.mark - OVERLAP_MS, i64::min)
     }
 
     /// A job not finished yet: read again until it is.
@@ -81,7 +89,10 @@ impl Seen {
 }
 
 fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn at<'a>(v: &'a Json, ptr: &str) -> &'a str {
@@ -101,7 +112,9 @@ fn ms(v: &Json, ptr: &str) -> Option<i64> {
 }
 
 fn utc(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms).map_or_else(String::new, |t| t.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+    chrono::DateTime::from_timestamp_millis(ms).map_or_else(String::new, |t| {
+        t.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+    })
 }
 
 /// The datasets a job names (anonymous result datasets, `_…`, left out).
@@ -115,7 +128,12 @@ fn datasets(v: &Json) -> BTreeSet<String> {
     ] {
         out.insert(at(v, p).to_string());
     }
-    for t in v.pointer("/statistics/query/referencedTables").and_then(Json::as_array).into_iter().flatten() {
+    for t in v
+        .pointer("/statistics/query/referencedTables")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+    {
         out.insert(at(t, "/datasetId").to_string());
     }
     out.retain(|d| !d.is_empty() && !d.starts_with('_'));
@@ -136,12 +154,18 @@ fn statement(v: &Json) -> Option<ProfiledStatement> {
     let created = ms(v, "/statistics/creationTime")?;
     let started = ms(v, "/statistics/startTime");
     let ended = ms(v, "/statistics/endTime");
-    let mut detail: Vec<String> =
-        Some(at(v, "/statistics/query/statementType")).filter(|t| !t.is_empty()).map(str::to_string).into_iter().collect();
+    let mut detail: Vec<String> = Some(at(v, "/statistics/query/statementType"))
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .into_iter()
+        .collect();
     if let Some(b) = n(v, "/statistics/query/totalBytesBilled") {
         detail.push(format!("{b} bytes facturados"));
     }
-    if v.pointer("/statistics/query/cacheHit").and_then(Json::as_bool) == Some(true) {
+    if v.pointer("/statistics/query/cacheHit")
+        .and_then(Json::as_bool)
+        == Some(true)
+    {
         detail.push("desde caché".into());
     }
     let ds = datasets(v);
@@ -160,7 +184,9 @@ fn statement(v: &Json) -> Option<ProfiledStatement> {
         // Slot time: BigQuery's closest figure to CPU time (it can exceed
         // the duration, since a job runs on many slots at once).
         cpu_ms: n(v, "/statistics/query/totalSlotMs").or(n(v, "/statistics/totalSlotMs")),
-        reads: n(v, "/statistics/query/totalBytesProcessed").or(n(v, "/statistics/totalBytesProcessed")).map(|b| b as u64),
+        reads: n(v, "/statistics/query/totalBytesProcessed")
+            .or(n(v, "/statistics/totalBytesProcessed"))
+            .map(|b| b as u64),
         // Nothing reports what a job wrote (DML counts rows, in `rows`).
         writes: None,
         ..Default::default()
@@ -185,7 +211,13 @@ impl BigQuerySession {
                 q.push(("pageToken", t));
             }
             let resp = self.api.get(&["jobs"], &q).await?;
-            out.extend(resp.get("jobs").and_then(Json::as_array).into_iter().flatten().cloned());
+            out.extend(
+                resp.get("jobs")
+                    .and_then(Json::as_array)
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
             match resp.get("nextPageToken").and_then(Json::as_str) {
                 Some(t) if !t.is_empty() => token = Some(t.to_string()),
                 _ => break,
@@ -195,10 +227,18 @@ impl BigQuerySession {
     }
 }
 
-pub(crate) async fn start(s: &BigQuerySession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
-    let dataset = if opts.database.is_empty() { s.dataset.clone().unwrap_or_default() } else { opts.database.clone() };
+pub(crate) async fn start(
+    s: &BigQuerySession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
+    let dataset = if opts.database.is_empty() {
+        s.dataset.clone().unwrap_or_default()
+    } else {
+        opts.database.clone()
+    };
     let now = now_ms();
-    let mut started = ProfilerStarted::new(ProfilerMode::Complete, "jobs.list").units(Some("bytes"), None);
+    let mut started =
+        ProfilerStarted::new(ProfilerMode::Complete, "jobs.list").units(Some("bytes"), None);
     let all = match s.profiler_jobs(true, now, 1).await {
         Ok(_) => true,
         Err(e) => {
@@ -213,7 +253,15 @@ pub(crate) async fn start(s: &BigQuerySession, opts: &ProfilerOptions) -> Result
     if all {
         started = started.note("Cada consulta aparece al terminar su job; las que no nombran ningún dataset también se muestran.");
     }
-    Ok((State { dataset, all, seen: Seen::new(now), next: Instant::now() }, started))
+    Ok((
+        State {
+            dataset,
+            all,
+            seen: Seen::new(now),
+            next: Instant::now(),
+        },
+        started,
+    ))
 }
 
 pub(crate) async fn poll(s: &BigQuerySession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
@@ -229,7 +277,9 @@ pub(crate) async fn poll(s: &BigQuerySession, state: &mut State) -> Result<Vec<P
     let mut gets = 0;
     for mut job in jobs {
         let id = at(&job, "/jobReference/jobId").to_string();
-        let Some(created) = ms(&job, "/statistics/creationTime") else { continue };
+        let Some(created) = ms(&job, "/statistics/creationTime") else {
+            continue;
+        };
         // Also filtered here: the emulator ignores minCreationTime.
         if id.is_empty() || created < from || created < state.seen.since {
             continue;
@@ -243,8 +293,11 @@ pub(crate) async fn poll(s: &BigQuerySession, state: &mut State) -> Result<Vec<P
         }
         if job.get("configuration").is_none() && gets < GETS {
             gets += 1;
-            let loc: Vec<(&str, String)> =
-                Some(at(&job, "/jobReference/location")).filter(|l| !l.is_empty()).map(|l| ("location", l.to_string())).into_iter().collect();
+            let loc: Vec<(&str, String)> = Some(at(&job, "/jobReference/location"))
+                .filter(|l| !l.is_empty())
+                .map(|l| ("location", l.to_string()))
+                .into_iter()
+                .collect();
             if let Ok(full) = s.api.get(&["jobs", &id], &loc).await {
                 job = full;
             }
@@ -287,11 +340,20 @@ mod tests {
         assert_eq!(st.database.as_deref(), Some("ds1, ds2"));
         assert_eq!(st.user.as_deref(), Some("ana@example.com"));
         assert_eq!(st.detail.as_deref(), Some("SELECT"));
-        assert_eq!((st.cpu_ms, st.reads, st.writes), (Some(37.0), Some(2048), None));
+        assert_eq!(
+            (st.cpu_ms, st.reads, st.writes),
+            (Some(37.0), Some(2048), None)
+        );
         // Seconds (the emulator) read as milliseconds.
-        assert_eq!(ms(&json!({"t": "1700000000"}), "/t"), Some(1_700_000_000_000));
+        assert_eq!(
+            ms(&json!({"t": "1700000000"}), "/t"),
+            Some(1_700_000_000_000)
+        );
         // Not a query: nothing.
-        assert!(statement(&json!({"configuration": {"jobType": "LOAD"}, "statistics": {"creationTime": "1"}})).is_none());
+        assert!(statement(
+            &json!({"configuration": {"jobType": "LOAD"}, "statistics": {"creationTime": "1"}})
+        )
+        .is_none());
     }
 
     #[test]
@@ -300,7 +362,10 @@ mod tests {
         assert!(belongs(&j, "ds1") && belongs(&j, "DS2") && belongs(&j, ""));
         assert!(!belongs(&j, "other"));
         // A job naming no dataset belongs anywhere.
-        assert!(belongs(&json!({"configuration": {"query": {"query": "SELECT 1"}}}), "other"));
+        assert!(belongs(
+            &json!({"configuration": {"query": {"query": "SELECT 1"}}}),
+            "other"
+        ));
     }
 
     #[test]

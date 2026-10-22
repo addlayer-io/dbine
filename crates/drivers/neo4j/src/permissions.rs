@@ -76,12 +76,21 @@ fn segment_cover(segment: &str) -> Cover {
 }
 
 /// The access to an action any of `actions` gives.
-fn neo4j_access(privs: &[Privilege], actions: &[&str], database: Option<&str>, dbms: bool, missing: &str) -> Access {
+fn neo4j_access(
+    privs: &[Privilege],
+    actions: &[&str],
+    database: Option<&str>,
+    dbms: bool,
+    missing: &str,
+) -> Access {
     let cover = |p: &Privilege| {
         if !actions.contains(&p.action.as_str()) {
             return Cover::None;
         }
-        match (graph_cover(&p.graph, database, dbms), segment_cover(&p.segment)) {
+        match (
+            graph_cover(&p.graph, database, dbms),
+            segment_cover(&p.segment),
+        ) {
             (Cover::None, _) | (_, Cover::None) => Cover::None,
             (Cover::Full, Cover::Full) => Cover::Full,
             _ => Cover::Part,
@@ -109,21 +118,60 @@ fn neo4j_access(privs: &[Privilege], actions: &[&str], database: Option<&str>, d
 pub(crate) fn neo4j_decide(privs: &[Privilege], database: Option<&str>) -> Permissions {
     let database = database.map(str::trim).filter(|d| !d.is_empty());
     const TX: &[&str] = &["transaction_management", "database_actions"];
-    let with = |a: &'static str| -> Vec<&'static str> { std::iter::once(a).chain(TX.iter().copied()).collect() };
+    let with = |a: &'static str| -> Vec<&'static str> {
+        std::iter::once(a).chain(TX.iter().copied()).collect()
+    };
     // Anything that changes users, roles or privileges.
     let manages = |a: &str| {
-        a == "dbms_actions" || (!a.starts_with("show_") && (a.contains("user") || a.contains("role") || a.contains("privilege") || a.contains("password")))
+        a == "dbms_actions"
+            || (!a.starts_with("show_")
+                && (a.contains("user")
+                    || a.contains("role")
+                    || a.contains("privilege")
+                    || a.contains("password")))
     };
-    let security = match neo4j_access(privs, &["user_management", "create_user", "dbms_actions"], None, true, "USER MANAGEMENT") {
-        Access::Denied { .. } if privs.iter().any(|p| p.granted && manages(&p.action)) => Access::Unknown,
+    let security = match neo4j_access(
+        privs,
+        &["user_management", "create_user", "dbms_actions"],
+        None,
+        true,
+        "USER MANAGEMENT",
+    ) {
+        Access::Denied { .. } if privs.iter().any(|p| p.granted && manages(&p.action)) => {
+            Access::Unknown
+        }
         other => other,
     };
     Permissions {
-        profiler: neo4j_access(privs, &with("show_transaction"), database, false, "SHOW TRANSACTION"),
-        kill_session: neo4j_access(privs, &with("terminate_transaction"), database, false, "TERMINATE TRANSACTION"),
-        create_database: neo4j_access(privs, &["create_database", "database_management", "dbms_actions"], None, true, "CREATE DATABASE"),
+        profiler: neo4j_access(
+            privs,
+            &with("show_transaction"),
+            database,
+            false,
+            "SHOW TRANSACTION",
+        ),
+        kill_session: neo4j_access(
+            privs,
+            &with("terminate_transaction"),
+            database,
+            false,
+            "TERMINATE TRANSACTION",
+        ),
+        create_database: neo4j_access(
+            privs,
+            &["create_database", "database_management", "dbms_actions"],
+            None,
+            true,
+            "CREATE DATABASE",
+        ),
         drop_database: match database {
-            Some(_) => neo4j_access(privs, &["drop_database", "database_management", "dbms_actions"], None, true, "DROP DATABASE"),
+            Some(_) => neo4j_access(
+                privs,
+                &["drop_database", "database_management", "dbms_actions"],
+                None,
+                true,
+                "DROP DATABASE",
+            ),
             None => Access::Unknown,
         },
         manage_security: security,
@@ -133,14 +181,23 @@ pub(crate) fn neo4j_decide(privs: &[Privilege], database: Option<&str>) -> Permi
 
 /// Neo4j Community: a single database and no privileges.
 fn neo4j_community() -> Permissions {
-    Permissions { profiler: Access::Allowed, kill_session: Access::Allowed, manage_security: Access::Allowed, ..Default::default() }
+    Permissions {
+        profiler: Access::Allowed,
+        kill_session: Access::Allowed,
+        manage_security: Access::Allowed,
+        ..Default::default()
+    }
 }
 
 /// Memgraph without authorization (no users, or Community): every user may
 /// do everything but creating and dropping databases, which Community
 /// doesn't have.
 fn memgraph_open(enterprise_dbs: bool) -> Permissions {
-    let dbs = if enterprise_dbs { Access::Allowed } else { Access::Unknown };
+    let dbs = if enterprise_dbs {
+        Access::Allowed
+    } else {
+        Access::Unknown
+    };
     Permissions {
         backup: Access::Allowed,
         restore: Access::Allowed,
@@ -155,7 +212,10 @@ fn memgraph_open(enterprise_dbs: bool) -> Permissions {
 /// Memgraph Enterprise: `(privilege, effective)` of `SHOW PRIVILEGES FOR`
 /// (`GRANT` or `DENY`; fine-grained label rows left out).
 pub(crate) fn memgraph_decide(rows: &[(String, String)], database: Option<&str>) -> Permissions {
-    let has = |name: &str| rows.iter().any(|(p, e)| p.eq_ignore_ascii_case(name) && e.eq_ignore_ascii_case("GRANT"));
+    let has = |name: &str| {
+        rows.iter()
+            .any(|(p, e)| p.eq_ignore_ascii_case(name) && e.eq_ignore_ascii_case("GRANT"))
+    };
     let snapshots = Access::check(has("DURABILITY"), "DURABILITY");
     let dbs = Access::check(has("MULTI_DATABASE_EDIT"), "MULTI_DATABASE_EDIT");
     Permissions {
@@ -163,7 +223,11 @@ pub(crate) fn memgraph_decide(rows: &[(String, String)], database: Option<&str>)
         restore: snapshots,
         profiler: Access::check(has("TRANSACTION_MANAGEMENT"), "TRANSACTION_MANAGEMENT"),
         create_database: dbs.clone(),
-        drop_database: if database.is_some_and(|d| !d.trim().is_empty()) { dbs } else { Access::Unknown },
+        drop_database: if database.is_some_and(|d| !d.trim().is_empty()) {
+            dbs
+        } else {
+            Access::Unknown
+        },
         manage_security: Access::check(has("AUTH"), "AUTH"),
         ..Default::default()
     }
@@ -175,9 +239,16 @@ fn text(r: &Map<String, Value>, k: &str) -> String {
 
 impl GraphSession {
     /// Rows by column name; `None` when the server refused the statement.
-    async fn permission_rows(&mut self, q: &str, db: Option<&str>) -> Result<std::result::Result<Vec<Map<String, Value>>, String>> {
+    async fn permission_rows(
+        &mut self,
+        q: &str,
+        db: Option<&str>,
+    ) -> Result<std::result::Result<Vec<Map<String, Value>>, String>> {
         match self.query_on(q, db).await {
-            Ok((cols, rows)) => Ok(Ok(rows.into_iter().map(|r| cols.iter().cloned().zip(r).collect()).collect())),
+            Ok((cols, rows)) => Ok(Ok(rows
+                .into_iter()
+                .map(|r| cols.iter().cloned().zip(r).collect())
+                .collect())),
             Err(e @ Error::Connect(_)) => Err(e),
             Err(e) => {
                 tracing::debug!("graph: permissions check refused: {e}");
@@ -188,10 +259,19 @@ impl GraphSession {
 }
 
 async fn neo4j(s: &mut GraphSession, database: Option<&str>) -> Result<Permissions> {
-    let Ok(ed) = s.permission_rows("CALL dbms.components() YIELD edition RETURN edition", Some("system")).await? else {
+    let Ok(ed) = s
+        .permission_rows(
+            "CALL dbms.components() YIELD edition RETURN edition",
+            Some("system"),
+        )
+        .await?
+    else {
         return Ok(Permissions::default());
     };
-    if ed.first().is_some_and(|r| text(r, "edition").eq_ignore_ascii_case("community")) {
+    if ed
+        .first()
+        .is_some_and(|r| text(r, "edition").eq_ignore_ascii_case("community"))
+    {
         return Ok(neo4j_community());
     }
     let q = "SHOW USER PRIVILEGES YIELD access, action, graph, segment";
@@ -214,7 +294,11 @@ async fn memgraph(s: &mut GraphSession, database: Option<&str>) -> Result<Permis
     let Ok(me) = s.permission_rows("SHOW CURRENT USER", None).await? else {
         return Ok(Permissions::default());
     };
-    let Some(user) = me.first().map(|r| text(r, "user")).filter(|u| !u.is_empty()) else {
+    let Some(user) = me
+        .first()
+        .map(|r| text(r, "user"))
+        .filter(|u| !u.is_empty())
+    else {
         // No users: authentication is off. Multi-tenancy may still be
         // Enterprise only: unknown.
         return Ok(memgraph_open(false));
@@ -252,28 +336,63 @@ mod tests {
     }
 
     fn p(granted: bool, action: &str, graph: &str, segment: &str) -> Privilege {
-        Privilege { granted, action: action.into(), graph: graph.into(), segment: segment.into() }
+        Privilege {
+            granted,
+            action: action.into(),
+            graph: graph.into(),
+            segment: segment.into(),
+        }
     }
 
     /// What Neo4j 5 lists for PUBLIC.
     fn public() -> Vec<Privilege> {
-        vec![p(true, "access", "HOME", "database"), p(true, "execute", "*", "PROCEDURE(*)"), p(true, "load", "*", "ALL DATA")]
+        vec![
+            p(true, "access", "HOME", "database"),
+            p(true, "execute", "*", "PROCEDURE(*)"),
+            p(true, "load", "*", "ALL DATA"),
+        ]
     }
 
     #[test]
     fn the_admin_role() {
         let mut privs = public();
-        privs.extend([p(true, "transaction_management", "*", "USER(*)"), p(true, "dbms_actions", "*", "database"), p(true, "access", "*", "database")]);
+        privs.extend([
+            p(true, "transaction_management", "*", "USER(*)"),
+            p(true, "dbms_actions", "*", "database"),
+            p(true, "access", "*", "database"),
+        ]);
         let x = neo4j_decide(&privs, Some("neo4j"));
-        assert_eq!((&x.profiler, &x.kill_session, &x.create_database, &x.drop_database, &x.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&x.backup, &x.restore), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (
+                &x.profiler,
+                &x.kill_session,
+                &x.create_database,
+                &x.drop_database,
+                &x.manage_security
+            ),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
+        assert_eq!(
+            (&x.backup, &x.restore),
+            (&Access::Unknown, &Access::Unknown)
+        );
         assert_eq!(neo4j_decide(&privs, None).drop_database, Access::Unknown);
     }
 
     #[test]
     fn a_reader_is_denied() {
         let mut privs = public();
-        privs.extend([p(true, "match", "*", "NODE(*)"), p(true, "access", "*", "database"), p(true, "show_user", "*", "database")]);
+        privs.extend([
+            p(true, "match", "*", "NODE(*)"),
+            p(true, "access", "*", "database"),
+            p(true, "show_user", "*", "database"),
+        ]);
         let x = neo4j_decide(&privs, Some("neo4j"));
         assert!(denied(&x.profiler, "SHOW TRANSACTION"));
         assert!(denied(&x.kill_session, "TERMINATE TRANSACTION"));
@@ -296,7 +415,10 @@ mod tests {
         assert_eq!(x.create_database, Access::Allowed);
         assert!(denied(&x.drop_database, "DROP DATABASE"));
         // Another database: not granted there.
-        assert!(denied(&neo4j_decide(&privs, Some("other")).profiler, "SHOW TRANSACTION"));
+        assert!(denied(
+            &neo4j_decide(&privs, Some("other")).profiler,
+            "SHOW TRANSACTION"
+        ));
         // All databases, granted on one: unknown.
         assert_eq!(neo4j_decide(&privs, None).profiler, Access::Unknown);
         // The home database may be this one.
@@ -306,12 +428,21 @@ mod tests {
 
     #[test]
     fn denies_win() {
-        let privs = vec![p(true, "transaction_management", "*", "USER(*)"), p(false, "show_transaction", "*", "USER(*)")];
+        let privs = vec![
+            p(true, "transaction_management", "*", "USER(*)"),
+            p(false, "show_transaction", "*", "USER(*)"),
+        ];
         let x = neo4j_decide(&privs, Some("neo4j"));
         assert!(denied(&x.profiler, "SHOW TRANSACTION (denegado)"));
         assert_eq!(x.kill_session, Access::Allowed);
-        let privs = vec![p(true, "transaction_management", "*", "USER(*)"), p(false, "terminate_transaction", "*", "USER(ana)")];
-        assert_eq!(neo4j_decide(&privs, Some("neo4j")).kill_session, Access::Unknown);
+        let privs = vec![
+            p(true, "transaction_management", "*", "USER(*)"),
+            p(false, "terminate_transaction", "*", "USER(ana)"),
+        ];
+        assert_eq!(
+            neo4j_decide(&privs, Some("neo4j")).kill_session,
+            Access::Unknown
+        );
     }
 
     #[test]
@@ -325,18 +456,39 @@ mod tests {
     #[test]
     fn community_editions() {
         let x = neo4j_community();
-        assert_eq!((&x.profiler, &x.kill_session, &x.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&x.create_database, &x.drop_database), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&x.profiler, &x.kill_session, &x.manage_security),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
+        assert_eq!(
+            (&x.create_database, &x.drop_database),
+            (&Access::Unknown, &Access::Unknown)
+        );
         let x = memgraph_open(false);
-        assert_eq!((&x.backup, &x.restore, &x.profiler, &x.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&x.backup, &x.restore, &x.profiler, &x.manage_security),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
         assert_eq!(x.create_database, Access::Unknown);
     }
 
     #[test]
     fn memgraph_enterprise() {
-        let rows = vec![("DURABILITY".to_string(), "GRANT".to_string()), ("AUTH".into(), "DENY".into()), ("MATCH".into(), "GRANT".into())];
+        let rows = vec![
+            ("DURABILITY".to_string(), "GRANT".to_string()),
+            ("AUTH".into(), "DENY".into()),
+            ("MATCH".into(), "GRANT".into()),
+        ];
         let x = memgraph_decide(&rows, Some("memgraph"));
-        assert_eq!((&x.backup, &x.restore), (&Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&x.backup, &x.restore),
+            (&Access::Allowed, &Access::Allowed)
+        );
         assert!(denied(&x.profiler, "TRANSACTION_MANAGEMENT"));
         assert!(denied(&x.manage_security, "AUTH"));
         assert!(denied(&x.drop_database, "MULTI_DATABASE_EDIT"));

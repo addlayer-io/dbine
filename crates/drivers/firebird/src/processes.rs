@@ -13,8 +13,8 @@ use crate::monitor::in_snapshot;
 use crate::{err, message, Conn};
 use dbine_driver::{Error, Result, ServerProcess};
 use rsfbclient_core::{
-    Column, Dialect, FirebirdClientSqlOps, SqlType, TrDataAccessMode, TrIsolationLevel, TrLockResolution, TrOp,
-    TransactionConfiguration,
+    Column, Dialect, FirebirdClientSqlOps, SqlType, TrDataAccessMode, TrIsolationLevel,
+    TrLockResolution, TrOp, TransactionConfiguration,
 };
 
 /// Each attachment, with its running statement (the oldest, if it runs
@@ -56,20 +56,30 @@ fn text(c: Option<&Column>) -> Option<String> {
 
 /// The statement's first keyword, upper case ("SELECT", "EXECUTE"…).
 fn command(sql: &str) -> Option<String> {
-    let w: String = sql.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let w: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     (!w.is_empty()).then(|| w.to_ascii_uppercase())
 }
 
 /// The client program's file name, without its folder.
 fn program(path: String) -> String {
-    path.rsplit(['/', '\\']).next().filter(|p| !p.is_empty()).map(str::to_string).unwrap_or(path)
+    path.rsplit(['/', '\\'])
+        .next()
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .unwrap_or(path)
 }
 
 pub(crate) fn assemble(rows: Vec<Vec<Column>>) -> Vec<ServerProcess> {
     let mut out: Vec<ServerProcess> = Vec::new();
     for r in rows {
         let at = |i: usize| r.get(i);
-        let Some(id) = count(at(0)).map(|n| n.to_string()) else { continue };
+        let Some(id) = count(at(0)).map(|n| n.to_string()) else {
+            continue;
+        };
         if out.last().is_some_and(|p| p.id == id) {
             continue;
         }
@@ -107,7 +117,11 @@ pub fn processes(c: &mut Conn) -> Result<Vec<ServerProcess>> {
         .map_err(|e| Error::Query(message(&e)))?
         .pop()
         .unwrap_or_else(|| Ok(Vec::new()))
-        .map_err(|e| Error::Query(format!("No se pudieron leer las conexiones (MON$ATTACHMENTS): {e}")))?;
+        .map_err(|e| {
+            Error::Query(format!(
+                "No se pudieron leer las conexiones (MON$ATTACHMENTS): {e}"
+            ))
+        })?;
     Ok(assemble(rows))
 }
 
@@ -135,21 +149,34 @@ fn delete(c: &mut Conn, id: i64, sql: &str) -> Result<()> {
     let r = (|| {
         let (_, mut stmt) = c
             .client
-            .prepare_statement(&mut c.db, &mut tr, Dialect::D3, &format!("SELECT COUNT(*) FROM MON$ATTACHMENTS WHERE MON$ATTACHMENT_ID = {id}"))
+            .prepare_statement(
+                &mut c.db,
+                &mut tr,
+                Dialect::D3,
+                &format!("SELECT COUNT(*) FROM MON$ATTACHMENTS WHERE MON$ATTACHMENT_ID = {id}"),
+            )
             .map_err(err)?;
         let found = (|| {
             c.client.execute(&mut c.db, &mut tr, &mut stmt, vec![])?;
             c.client.fetch(&mut c.db, &mut tr, &mut stmt)
         })();
-        let _ = c.client.free_statement(&mut stmt, rsfbclient_core::FreeStmtOp::Drop);
+        let _ = c
+            .client
+            .free_statement(&mut stmt, rsfbclient_core::FreeStmtOp::Drop);
         if found.map_err(err)?.and_then(|r| count(r.first())) != Some(1) {
             return Err(Error::Query(format!(
                 "la conexión {id} no existe o tu usuario no la ve (hace falta SYSDBA, RDB$ADMIN o MONITOR_ANY_ATTACHMENT para las de otros usuarios)"
             )));
         }
-        c.client.exec_immediate(&mut c.db, &mut tr, Dialect::D3, sql).map_err(err)
+        c.client
+            .exec_immediate(&mut c.db, &mut tr, Dialect::D3, sql)
+            .map_err(err)
     })();
-    let op = if r.is_ok() { TrOp::Commit } else { TrOp::Rollback };
+    let op = if r.is_ok() {
+        TrOp::Commit
+    } else {
+        TrOp::Rollback
+    };
     if let Err(e) = c.client.transaction_operation(&mut tr, op) {
         return r.and(Err(err(e)));
     }
@@ -159,17 +186,31 @@ fn delete(c: &mut Conn, id: i64, sql: &str) -> Result<()> {
 pub fn cancel(c: &mut Conn, own: i64, id: &str) -> Result<()> {
     let id = attachment_id(id)?;
     if id == own {
-        return Err(Error::Query("esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá".into()));
+        return Err(Error::Query(
+            "esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá"
+                .into(),
+        ));
     }
-    delete(c, id, &format!("DELETE FROM MON$STATEMENTS WHERE MON$ATTACHMENT_ID = {id} AND MON$STATE = 1"))
+    delete(
+        c,
+        id,
+        &format!("DELETE FROM MON$STATEMENTS WHERE MON$ATTACHMENT_ID = {id} AND MON$STATE = 1"),
+    )
 }
 
 pub fn kill(c: &mut Conn, own: i64, id: &str) -> Result<()> {
     let id = attachment_id(id)?;
     if id == own {
-        return Err(Error::Query("esa es la sesión con la que DBine está consultando: no se puede cerrar desde acá".into()));
+        return Err(Error::Query(
+            "esa es la sesión con la que DBine está consultando: no se puede cerrar desde acá"
+                .into(),
+        ));
     }
-    delete(c, id, &format!("DELETE FROM MON$ATTACHMENTS WHERE MON$ATTACHMENT_ID = {id}"))
+    delete(
+        c,
+        id,
+        &format!("DELETE FROM MON$ATTACHMENTS WHERE MON$ATTACHMENT_ID = {id}"),
+    )
 }
 
 #[cfg(test)]
@@ -196,18 +237,75 @@ mod tests {
     fn rows_become_processes() {
         use SqlType::{Integer as I, Null as N, Text as T};
         let list = assemble(vec![
-            row(vec![I(7), I(1), I(0), I(0), T("DBINE".into()), T("172.17.0.1/5000".into()), T("/opt/app/dbine".into()),
-                     T("/data/test.fdb".into()), I(1500), I(90), I(3), T(" select 1 from rdb$database".into()), I(1)]),
+            row(vec![
+                I(7),
+                I(1),
+                I(0),
+                I(0),
+                T("DBINE".into()),
+                T("172.17.0.1/5000".into()),
+                T("/opt/app/dbine".into()),
+                T("/data/test.fdb".into()),
+                I(1500),
+                I(90),
+                I(3),
+                T(" select 1 from rdb$database".into()),
+                I(1),
+            ]),
             // A second statement of the same attachment.
-            row(vec![I(7), I(1), I(0), I(0), N, N, N, N, I(10), N, N, T("SELECT 2".into()), I(1)]),
-            row(vec![I(8), I(0), I(0), I(1), T("SYSDBA".into()), N, N, N, N, I(5), I(0), N, N]),
-            row(vec![I(2), I(0), I(1), I(0), T("Garbage Collector".into()), N, N, N, N, N, N, N, N]),
+            row(vec![
+                I(7),
+                I(1),
+                I(0),
+                I(0),
+                N,
+                N,
+                N,
+                N,
+                I(10),
+                N,
+                N,
+                T("SELECT 2".into()),
+                I(1),
+            ]),
+            row(vec![
+                I(8),
+                I(0),
+                I(0),
+                I(1),
+                T("SYSDBA".into()),
+                N,
+                N,
+                N,
+                N,
+                I(5),
+                I(0),
+                N,
+                N,
+            ]),
+            row(vec![
+                I(2),
+                I(0),
+                I(1),
+                I(0),
+                T("Garbage Collector".into()),
+                N,
+                N,
+                N,
+                N,
+                N,
+                N,
+                N,
+                N,
+            ]),
         ]);
         assert_eq!(list.len(), 3);
         let w = &list[0];
         assert!(w.active && w.elapsed_ms == Some(1500) && w.command.as_deref() == Some("SELECT"));
         assert_eq!(w.program.as_deref(), Some("dbine"));
-        assert!(!list[1].active && list[1].own && list[1].sql.is_none() && list[1].elapsed_ms.is_none());
+        assert!(
+            !list[1].active && list[1].own && list[1].sql.is_none() && list[1].elapsed_ms.is_none()
+        );
         assert!(list[2].system);
     }
 }

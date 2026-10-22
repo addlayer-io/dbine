@@ -33,9 +33,14 @@ pub(crate) fn fields(flavor: Flavor) -> Vec<Field> {
             .placeholder("/clickhouse/databases/{uuid}")
             .help("Vacía: la configurada en el servidor (database_replicated_default_zk_path).")
             .when("engine", &["Replicated"]),
-        Field::new("shard", "Shard", FieldKind::Text).placeholder("{shard}").when("engine", &["Replicated"]),
-        Field::new("replica", "Réplica", FieldKind::Text).placeholder("{replica}").when("engine", &["Replicated"]),
-        Field::new("cluster", "Clúster (ON CLUSTER)", FieldKind::Text).help("Crea la base en todos los nodos del clúster."),
+        Field::new("shard", "Shard", FieldKind::Text)
+            .placeholder("{shard}")
+            .when("engine", &["Replicated"]),
+        Field::new("replica", "Réplica", FieldKind::Text)
+            .placeholder("{replica}")
+            .when("engine", &["Replicated"]),
+        Field::new("cluster", "Clúster (ON CLUSTER)", FieldKind::Text)
+            .help("Crea la base en todos los nodos del clúster."),
         Field::new("comment", "Comentario", FieldKind::Textarea),
     ]
 }
@@ -56,7 +61,9 @@ pub(crate) fn literal(s: &str) -> String {
 /// Keeper paths, shard and replica names: letters, digits, `/ _ - .` and
 /// `{macro}`s.
 fn keeper_text(v: &str, path: bool) -> bool {
-    v.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '{' | '}') || (path && c == '/'))
+    v.chars().all(|c| {
+        c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '{' | '}') || (path && c == '/')
+    })
 }
 
 /// The `CREATE DATABASE` for `name`.
@@ -75,7 +82,9 @@ pub(crate) fn script(flavor: Flavor, name: &str, o: &BTreeMap<String, String>) -
             let (path, shard, replica) = (opt(o, "zoo_path"), opt(o, "shard"), opt(o, "replica"));
             match path {
                 None if shard.is_some() || replica.is_some() => {
-                    return Err(Error::Query("para elegir shard o réplica, indicá también la ruta en Keeper".into()));
+                    return Err(Error::Query(
+                        "para elegir shard o réplica, indicá también la ruta en Keeper".into(),
+                    ));
                 }
                 None => sql.push_str("\nENGINE = Replicated"),
                 Some(p) => {
@@ -89,7 +98,12 @@ pub(crate) fn script(flavor: Flavor, name: &str, o: &BTreeMap<String, String>) -
                             return Err(bad(what, v));
                         }
                     }
-                    sql.push_str(&format!("\nENGINE = Replicated({}, {}, {})", literal(p), literal(shard), literal(replica)));
+                    sql.push_str(&format!(
+                        "\nENGINE = Replicated({}, {}, {})",
+                        literal(p),
+                        literal(shard),
+                        literal(replica)
+                    ));
                 }
             }
         }
@@ -108,30 +122,61 @@ impl ClickHouseSession {
         if self.flavor == Flavor::Timeplus {
             return Ok(Vec::new());
         }
-        let first = |rows: Vec<Vec<serde_json::Value>>| rows.first().and_then(|r| r.first()).map(text).filter(|v| !v.is_empty());
+        let first = |rows: Vec<Vec<serde_json::Value>>| {
+            rows.first()
+                .and_then(|r| r.first())
+                .map(text)
+                .filter(|v| !v.is_empty())
+        };
         let clusters: Vec<String> = self
-            .rows("SELECT DISTINCT cluster FROM system.clusters ORDER BY cluster", &[])
+            .rows(
+                "SELECT DISTINCT cluster FROM system.clusters ORDER BY cluster",
+                &[],
+            )
             .await
             .unwrap_or_default()
             .iter()
             .filter_map(|r| r.first().map(text))
             .collect();
-        let engine = self.rows("SELECT value FROM system.settings WHERE name = 'default_database_engine'", &[]).await.ok().and_then(first);
+        let engine = self
+            .rows(
+                "SELECT value FROM system.settings WHERE name = 'default_database_engine'",
+                &[],
+            )
+            .await
+            .ok()
+            .and_then(first);
         let zoo = self
             .rows("SELECT value FROM system.server_settings WHERE name = 'database_replicated_default_zk_path'", &[])
             .await
             .ok()
             .and_then(first);
         Ok(vec![
-            FieldChoices { key: "engine".into(), default: engine.or_else(|| Some("Atomic".into())), values: Vec::new() },
-            FieldChoices { key: "zoo_path".into(), default: zoo, values: Vec::new() },
-            FieldChoices { key: "cluster".into(), default: None, values: clusters },
+            FieldChoices {
+                key: "engine".into(),
+                default: engine.or_else(|| Some("Atomic".into())),
+                values: Vec::new(),
+            },
+            FieldChoices {
+                key: "zoo_path".into(),
+                default: zoo,
+                values: Vec::new(),
+            },
+            FieldChoices {
+                key: "cluster".into(),
+                default: None,
+                values: clusters,
+            },
         ])
     }
 
     /// One statement; `ON CLUSTER` answers with each host's status, read
     /// to the end so a failing host surfaces.
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let sql = script(self.flavor, name, o)?;
         self.rows(&sql, &[]).await.map(|_| ())
     }
@@ -142,14 +187,31 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script(Flavor::ClickHouse, "ventas", &o(&[])).unwrap(), "CREATE DATABASE `ventas`");
-        assert_eq!(script(Flavor::ClickHouse, "ven`tas", &o(&[("comment", " ")])).unwrap(), "CREATE DATABASE `ven\\`tas`");
-        assert_eq!(script(Flavor::Timeplus, "v", &o(&[("engine", "Memory"), ("comment", "x")])).unwrap(), "CREATE DATABASE `v`");
+        assert_eq!(
+            script(Flavor::ClickHouse, "ventas", &o(&[])).unwrap(),
+            "CREATE DATABASE `ventas`"
+        );
+        assert_eq!(
+            script(Flavor::ClickHouse, "ven`tas", &o(&[("comment", " ")])).unwrap(),
+            "CREATE DATABASE `ven\\`tas`"
+        );
+        assert_eq!(
+            script(
+                Flavor::Timeplus,
+                "v",
+                &o(&[("engine", "Memory"), ("comment", "x")])
+            )
+            .unwrap(),
+            "CREATE DATABASE `v`"
+        );
         assert!(fields(Flavor::Timeplus).is_empty());
     }
 
@@ -164,10 +226,24 @@ mod tests {
             .unwrap(),
             "CREATE DATABASE `v` ON CLUSTER `prod`\nENGINE = Replicated('/clickhouse/db/{uuid}', '{shard}', 'r-1')\nCOMMENT 'it\\'s \\\\ ok'"
         );
-        assert_eq!(script(Flavor::ClickHouse, "v", &o(&[("engine", "Replicated")])).unwrap(), "CREATE DATABASE `v`\nENGINE = Replicated");
-        assert_eq!(script(Flavor::ClickHouse, "v", &o(&[("engine", "Atomic")])).unwrap(), "CREATE DATABASE `v`\nENGINE = Atomic");
+        assert_eq!(
+            script(Flavor::ClickHouse, "v", &o(&[("engine", "Replicated")])).unwrap(),
+            "CREATE DATABASE `v`\nENGINE = Replicated"
+        );
+        assert_eq!(
+            script(Flavor::ClickHouse, "v", &o(&[("engine", "Atomic")])).unwrap(),
+            "CREATE DATABASE `v`\nENGINE = Atomic"
+        );
         // Options of another engine are ignored.
-        assert_eq!(script(Flavor::ClickHouse, "v", &o(&[("engine", "Memory"), ("zoo_path", "x")])).unwrap(), "CREATE DATABASE `v`\nENGINE = Memory");
+        assert_eq!(
+            script(
+                Flavor::ClickHouse,
+                "v",
+                &o(&[("engine", "Memory"), ("zoo_path", "x")])
+            )
+            .unwrap(),
+            "CREATE DATABASE `v`\nENGINE = Memory"
+        );
     }
 
     #[test]
@@ -177,7 +253,11 @@ mod tests {
             &[("engine", "Lazy")],
             &[("engine", "Replicated"), ("zoo_path", "relative/path")],
             &[("engine", "Replicated"), ("zoo_path", "/a'b")],
-            &[("engine", "Replicated"), ("zoo_path", "/a"), ("shard", "s')")],
+            &[
+                ("engine", "Replicated"),
+                ("zoo_path", "/a"),
+                ("shard", "s')"),
+            ],
             &[("engine", "Replicated"), ("replica", "r1")],
         ] {
             assert!(script(Flavor::ClickHouse, "v", &o(bad)).is_err(), "{bad:?}");

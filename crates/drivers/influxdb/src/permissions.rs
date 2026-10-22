@@ -46,12 +46,18 @@ fn classify<T>(r: Result<T>) -> Result<std::result::Result<T, Error>> {
 /// `admin`: `Some(true)` SHOW USERS answered; `Some(false)` refused for
 /// lacking admin.
 pub(crate) fn v1_decide(admin: Option<bool>, database: Option<&str>) -> Permissions {
-    let Some(admin) = admin else { return Permissions::default() };
+    let Some(admin) = admin else {
+        return Permissions::default();
+    };
     let a = Access::check(admin, V1_ADMIN);
     Permissions {
         profiler: a.clone(),
         create_database: a.clone(),
-        drop_database: if database.is_some_and(|d| !d.trim().is_empty()) { a.clone() } else { Access::Unknown },
+        drop_database: if database.is_some_and(|d| !d.trim().is_empty()) {
+            a.clone()
+        } else {
+            Access::Unknown
+        },
         manage_security: a,
         ..Default::default()
     }
@@ -63,7 +69,10 @@ fn needs_admin(e: &Error) -> bool {
     m.contains("requires admin")
 }
 
-pub(crate) async fn v1(s: &mut crate::v1::InfluxQlSession, database: Option<&str>) -> Result<Permissions> {
+pub(crate) async fn v1(
+    s: &mut crate::v1::InfluxQlSession,
+    database: Option<&str>,
+) -> Result<Permissions> {
     let admin = match classify(s.query("SHOW USERS").await)? {
         Ok(_) => Some(true),
         Err(e) if needs_admin(&e) => Some(false),
@@ -109,10 +118,16 @@ pub(crate) fn v2_decide(authorizations: &[J], org: &str, bucket: Option<&str>) -
         .iter()
         .filter(|a| a["status"].as_str().is_none_or(|s| s == "active"))
         .map(perms)
-        .filter(|ps| ps.iter().any(|p| p["action"] == "read" && p["resource"]["type"] == "authorizations"))
+        .filter(|ps| {
+            ps.iter()
+                .any(|p| p["action"] == "read" && p["resource"]["type"] == "authorizations")
+        })
         .collect();
     let decide = |bucket: Option<&str>| {
-        let each: Vec<bool> = candidates.iter().map(|ps| ps.iter().any(|p| writes_buckets(p, org, bucket))).collect();
+        let each: Vec<bool> = candidates
+            .iter()
+            .map(|ps| ps.iter().any(|p| writes_buckets(p, org, bucket)))
+            .collect();
         agree(&each).map_or(Access::Unknown, |ok| Access::check(ok, "write:buckets"))
     };
     let bucket = bucket.map(str::trim).filter(|b| !b.is_empty());
@@ -128,7 +143,9 @@ pub(crate) fn v2_decide(authorizations: &[J], org: &str, bucket: Option<&str>) -
 
 /// `list`: `/api/v2/authorizations`' answer.
 pub(crate) fn v2(list: Result<J>, org: &str, bucket: Option<&str>) -> Result<Permissions> {
-    let Ok(v) = classify(list)? else { return Ok(Permissions::default()) };
+    let Ok(v) = classify(list)? else {
+        return Ok(Permissions::default());
+    };
     let auths = v["authorizations"].as_array().cloned().unwrap_or_default();
     Ok(v2_decide(&auths, org, bucket))
 }
@@ -143,12 +160,20 @@ pub(crate) fn v3_decide(admin: Option<bool>, database: Option<&str>) -> Permissi
         Some(true) => Permissions {
             profiler: Access::Allowed,
             create_database: Access::Allowed,
-            drop_database: if database.is_some_and(|d| !d.trim().is_empty()) { Access::Allowed } else { Access::Unknown },
+            drop_database: if database.is_some_and(|d| !d.trim().is_empty()) {
+                Access::Allowed
+            } else {
+                Access::Unknown
+            },
             ..Default::default()
         },
         Some(false) => Permissions {
             create_database: Access::check(false, V3_ADMIN),
-            drop_database: if database.is_some_and(|d| !d.trim().is_empty()) { Access::check(false, V3_ADMIN) } else { Access::Unknown },
+            drop_database: if database.is_some_and(|d| !d.trim().is_empty()) {
+                Access::check(false, V3_ADMIN)
+            } else {
+                Access::Unknown
+            },
             ..Default::default()
         },
     }
@@ -177,9 +202,26 @@ mod tests {
     #[test]
     fn v1_admins_and_the_rest() {
         let p = v1_decide(Some(true), Some("telegraf"));
-        assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (
+                &p.profiler,
+                &p.create_database,
+                &p.drop_database,
+                &p.manage_security
+            ),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
         let p = v1_decide(Some(false), None);
-        assert!(denied(&p.profiler, "ALL PRIVILEGES") && denied(&p.create_database, "administrador") && denied(&p.manage_security, "ALL PRIVILEGES"));
+        assert!(
+            denied(&p.profiler, "ALL PRIVILEGES")
+                && denied(&p.create_database, "administrador")
+                && denied(&p.manage_security, "ALL PRIVILEGES")
+        );
         assert_eq!(p.drop_database, Access::Unknown);
         assert_eq!(v1_decide(None, Some("x")), Permissions::default());
         assert!(needs_admin(&Error::AuthFailed(
@@ -198,44 +240,102 @@ mod tests {
 
     #[test]
     fn v2_operator_and_org_tokens() {
-        let all = auth(true, vec![json!({ "action": "write", "resource": { "type": "buckets" } })]);
+        let all = auth(
+            true,
+            vec![json!({ "action": "write", "resource": { "type": "buckets" } })],
+        );
         let p = v2_decide(&[all], "dbine", Some("test"));
-        assert_eq!((&p.create_database, &p.drop_database), (&Access::Allowed, &Access::Allowed));
-        let org = auth(true, vec![json!({ "action": "write", "resource": { "type": "buckets", "orgID": "0a1", "org": "dbine" } })]);
-        assert_eq!(v2_decide(&[org.clone()], "dbine", None).create_database, Access::Allowed);
-        assert_eq!(v2_decide(&[org.clone()], "0a1", None).create_database, Access::Allowed);
-        assert!(denied(&v2_decide(&[org], "other", None).create_database, "write:buckets"));
+        assert_eq!(
+            (&p.create_database, &p.drop_database),
+            (&Access::Allowed, &Access::Allowed)
+        );
+        let org = auth(
+            true,
+            vec![
+                json!({ "action": "write", "resource": { "type": "buckets", "orgID": "0a1", "org": "dbine" } }),
+            ],
+        );
+        assert_eq!(
+            v2_decide(&[org.clone()], "dbine", None).create_database,
+            Access::Allowed
+        );
+        assert_eq!(
+            v2_decide(&[org.clone()], "0a1", None).create_database,
+            Access::Allowed
+        );
+        assert!(denied(
+            &v2_decide(&[org], "other", None).create_database,
+            "write:buckets"
+        ));
     }
 
     #[test]
     fn v2_bucket_tokens_and_disagreement() {
-        let one = auth(true, vec![json!({ "action": "write", "resource": { "type": "buckets", "id": "b1", "name": "test", "orgID": "0a1" } })]);
+        let one = auth(
+            true,
+            vec![
+                json!({ "action": "write", "resource": { "type": "buckets", "id": "b1", "name": "test", "orgID": "0a1" } }),
+            ],
+        );
         let p = v2_decide(&[one.clone()], "0a1", Some("test"));
         assert!(denied(&p.create_database, "write:buckets"));
         assert_eq!(p.drop_database, Access::Allowed);
-        assert!(denied(&v2_decide(&[one.clone()], "0a1", Some("other")).drop_database, "write:buckets"));
+        assert!(denied(
+            &v2_decide(&[one.clone()], "0a1", Some("other")).drop_database,
+            "write:buckets"
+        ));
         // Two candidates that disagree: can't tell which is ours.
-        let all = auth(true, vec![json!({ "action": "write", "resource": { "type": "buckets" } })]);
-        assert_eq!(v2_decide(&[one.clone(), all], "0a1", None).create_database, Access::Unknown);
+        let all = auth(
+            true,
+            vec![json!({ "action": "write", "resource": { "type": "buckets" } })],
+        );
+        assert_eq!(
+            v2_decide(&[one.clone(), all], "0a1", None).create_database,
+            Access::Unknown
+        );
         // Tokens that can't read authorizations aren't ours.
         let reader = auth(false, vec![]);
-        assert_eq!(v2_decide(&[one, reader], "0a1", Some("test")).drop_database, Access::Allowed);
+        assert_eq!(
+            v2_decide(&[one, reader], "0a1", Some("test")).drop_database,
+            Access::Allowed
+        );
         // Nothing visible: unknown.
         assert_eq!(v2_decide(&[], "0a1", Some("test")), Permissions::default());
-        assert_eq!(v2(Ok(json!({ "authorizations": [] })), "0a1", None).unwrap(), Permissions::default());
-        assert_eq!(v2(Err(Error::AuthFailed("no".into())), "0a1", None).unwrap(), Permissions::default());
+        assert_eq!(
+            v2(Ok(json!({ "authorizations": [] })), "0a1", None).unwrap(),
+            Permissions::default()
+        );
+        assert_eq!(
+            v2(Err(Error::AuthFailed("no".into())), "0a1", None).unwrap(),
+            Permissions::default()
+        );
         assert!(v2(Err(Error::Connect("down".into())), "0a1", None).is_err());
     }
 
     #[test]
     fn v3_admin_and_resource_tokens() {
         let p = v3(Ok(()), Some("db")).unwrap();
-        assert_eq!((&p.profiler, &p.create_database, &p.drop_database), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.profiler, &p.create_database, &p.drop_database),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
         let p = v3::<()>(Err(Error::AuthFailed("unauthorized".into())), Some("db")).unwrap();
-        assert!(denied(&p.create_database, "token de administrador") && denied(&p.drop_database, "token de administrador"));
+        assert!(
+            denied(&p.create_database, "token de administrador")
+                && denied(&p.drop_database, "token de administrador")
+        );
         assert_eq!(p.profiler, Access::Unknown);
-        assert_eq!(v3::<()>(Err(Error::Query("table not found".into())), None).unwrap(), Permissions::default());
-        let p = v3::<()>(Err(Error::AuthFailed("the request was not authenticated".into())), None).unwrap();
+        assert_eq!(
+            v3::<()>(Err(Error::Query("table not found".into())), None).unwrap(),
+            Permissions::default()
+        );
+        let p = v3::<()>(
+            Err(Error::AuthFailed(
+                "the request was not authenticated".into(),
+            )),
+            None,
+        )
+        .unwrap();
         assert_eq!(p, Permissions::default());
     }
 }

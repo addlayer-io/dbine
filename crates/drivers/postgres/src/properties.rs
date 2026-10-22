@@ -30,7 +30,9 @@ use crate::session::PgSession;
 use crate::{err, Variant};
 use dbine_driver::serde_static::intern;
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result};
+use dbine_driver::{
+    DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use tokio_postgres::SimpleQueryRow;
 
@@ -43,7 +45,9 @@ const REGIONS: &str = "Regiones";
 pub(crate) fn unsupported(v: Variant) -> Option<&'static str> {
     match v {
         Variant::Denodo => Some("las bases de Denodo se administran desde Denodo"),
-        Variant::CrateDb => Some("CrateDB tiene una sola base por clúster: se organizan en esquemas"),
+        Variant::CrateDb => {
+            Some("CrateDB tiene una sola base por clúster: se organizan en esquemas")
+        }
         Variant::H2 => Some("H2 tiene una base por archivo y no la modifica con ALTER DATABASE"),
         _ => None,
     }
@@ -59,7 +63,11 @@ fn has_settings(v: Variant) -> bool {
 }
 
 fn has_comment(v: Variant) -> bool {
-    pg_like(v) || matches!(v, Variant::Cockroach | Variant::Redshift | Variant::Materialize)
+    pg_like(v)
+        || matches!(
+            v,
+            Variant::Cockroach | Variant::Redshift | Variant::Materialize
+        )
 }
 
 /// How a setting's value is written.
@@ -79,7 +87,8 @@ const ISOLATION: &[(&str, &str)] = &[
     ("read uncommitted", "READ UNCOMMITTED"),
 ];
 
-const TIME_HELP: &str = "Con unidad: 30s, 5min, 500ms. 0 la desactiva. Vacío: el valor del servidor (RESET).";
+const TIME_HELP: &str =
+    "Con unidad: 30s, 5min, 500ms. 0 la desactiva. Vacío: el valor del servidor (RESET).";
 const MEM_HELP: &str = "Con unidad: 64MB, 1GB. Vacío: el valor del servidor (RESET).";
 const EMPTY_HELP: &str = "Vacío: el valor del servidor (RESET).";
 
@@ -139,10 +148,23 @@ const PG_ONLY: &[&str] = &[
 ];
 
 /// Settings whose value is a list of names (each item quoted on its own).
-const LISTS: &[&str] = &["search_path", "temp_tablespaces", "session_preload_libraries", "local_preload_libraries"];
+const LISTS: &[&str] = &[
+    "search_path",
+    "temp_tablespaces",
+    "session_preload_libraries",
+    "local_preload_libraries",
+];
 
 fn kind_of(name: &str) -> Kind {
-    SETTINGS.iter().find(|s| s.0 == name).map(|s| s.2).unwrap_or(if LISTS.contains(&name) { Kind::List } else { Kind::Text })
+    SETTINGS
+        .iter()
+        .find(|s| s.0 == name)
+        .map(|s| s.2)
+        .unwrap_or(if LISTS.contains(&name) {
+            Kind::List
+        } else {
+            Kind::Text
+        })
 }
 
 /// `work_mem`, `TimeZone`, `app.tenant`: what `SET` takes unquoted.
@@ -150,11 +172,15 @@ fn param_ok(v: &str) -> bool {
     !v.is_empty()
         && v.len() <= 63
         && v.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-        && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
 }
 
 fn yes(v: &str) -> bool {
-    matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "t" | "on" | "1" | "yes")
+    matches!(
+        v.trim().to_ascii_lowercase().as_str(),
+        "true" | "t" | "on" | "1" | "yes"
+    )
 }
 
 fn flag(v: Option<String>) -> String {
@@ -185,10 +211,12 @@ fn split_list(v: &str) -> Vec<String> {
         .iter()
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
-        .map(|p| match p.strip_prefix('"').and_then(|p| p.strip_suffix('"')) {
-            Some(inner) => inner.replace("\"\"", "\""),
-            None => p.to_string(),
-        })
+        .map(
+            |p| match p.strip_prefix('"').and_then(|p| p.strip_suffix('"')) {
+                Some(inner) => inner.replace("\"\"", "\""),
+                None => p.to_string(),
+            },
+        )
         .collect()
 }
 
@@ -198,16 +226,35 @@ fn setting(v: Variant, db: &str, name: &str, value: &str) -> Result<String> {
     if value.is_empty() {
         return Ok(format!("ALTER DATABASE {db} RESET {name}"));
     }
-    check(value.len() <= 1024 && !value.chars().any(char::is_control), name, value)?;
+    check(
+        value.len() <= 1024 && !value.chars().any(char::is_control),
+        name,
+        value,
+    )?;
     let rhs = match kind_of(name) {
         Kind::List => {
             let items = split_list(value);
-            check(!items.is_empty() && items.iter().all(|i| !i.chars().any(char::is_control)), name, value)?;
-            items.iter().map(|i| lit(v, i)).collect::<Vec<_>>().join(", ")
+            check(
+                !items.is_empty() && items.iter().all(|i| !i.chars().any(char::is_control)),
+                name,
+                value,
+            )?;
+            items
+                .iter()
+                .map(|i| lit(v, i))
+                .collect::<Vec<_>>()
+                .join(", ")
         }
         Kind::OnOff if yes(value) => "on".to_string(),
         Kind::OnOff => {
-            check(matches!(value.to_ascii_lowercase().as_str(), "off" | "false" | "f" | "0" | "no"), name, value)?;
+            check(
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "off" | "false" | "f" | "0" | "no"
+                ),
+                name,
+                value,
+            )?;
             "off".to_string()
         }
         Kind::Pick(options) => {
@@ -221,13 +268,27 @@ fn setting(v: Variant, db: &str, name: &str, value: &str) -> Result<String> {
 }
 
 fn comment(v: Variant, db: &str, value: &str) -> Result<String> {
-    check(!value.contains('\0') && value.len() <= 8192, "comentario", value)?;
-    Ok(format!("COMMENT ON DATABASE {db} IS {}", if value.is_empty() { "NULL".to_string() } else { lit(v, value) }))
+    check(
+        !value.contains('\0') && value.len() <= 8192,
+        "comentario",
+        value,
+    )?;
+    Ok(format!(
+        "COMMENT ON DATABASE {db} IS {}",
+        if value.is_empty() {
+            "NULL".to_string()
+        } else {
+            lit(v, value)
+        }
+    ))
 }
 
 fn owner(db: &str, value: &str) -> Result<String> {
     check(!value.is_empty(), "dueño", value)?;
-    Ok(format!("ALTER DATABASE {db} OWNER TO {}", ident("dueño", value)?))
+    Ok(format!(
+        "ALTER DATABASE {db} OWNER TO {}",
+        ident("dueño", value)?
+    ))
 }
 
 fn unknown(k: &str) -> Error {
@@ -235,22 +296,35 @@ fn unknown(k: &str) -> Error {
 }
 
 fn regions(v: &str) -> Result<Vec<String>> {
-    v.split(',').map(str::trim).filter(|r| !r.is_empty()).map(|r| ident("región", r)).collect()
+    v.split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map(|r| ident("región", r))
+        .collect()
 }
 
 /// `500MB`, `2 GB`, `1TB` (Yellowbrick's MAX_SIZE), normalized.
 fn max_size(v: &str) -> Option<String> {
-    let s: String = v.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_uppercase();
+    let s: String = v
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_uppercase();
     let digits = s.chars().take_while(char::is_ascii_digit).count();
     let (n, unit) = s.split_at(digits);
     let n: u64 = n.parse().ok().filter(|n| *n > 0)?;
-    matches!(unit, "" | "MB" | "GB" | "TB").then(|| format!("{n}{}", if unit.is_empty() { "MB" } else { unit }))
+    matches!(unit, "" | "MB" | "GB" | "TB")
+        .then(|| format!("{n}{}", if unit.is_empty() { "MB" } else { unit }))
 }
 
 /// The statements for `changes`, in a safe order: owner and simple
 /// options first, then the defaults and the comment, and what rewrites or
 /// moves data (SET TABLESPACE, regions dropped) last.
-pub(crate) fn alter(v: Variant, database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
+pub(crate) fn alter(
+    v: Variant,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
     if let Some(why) = unsupported(v) {
         return Err(Error::Unsupported(why.into()));
     }
@@ -284,48 +358,83 @@ pub(crate) fn alter(v: Variant, database: &str, changes: &BTreeMap<String, Strin
         match v {
             Variant::Cockroach => match key.as_str() {
                 // Handled together below.
-                "primary_region" | "add_regions" | "drop_regions" | "secondary_region" | "survive" | "placement" => {}
+                "primary_region" | "add_regions" | "drop_regions" | "secondary_region"
+                | "survive" | "placement" => {}
                 k => return Err(unknown(k)),
             },
-            Variant::Redshift => match key.as_str() {
-                "connection_limit" => {
-                    let n = if value.is_empty() || value.eq_ignore_ascii_case("UNLIMITED") {
-                        "UNLIMITED".to_string()
-                    } else {
-                        int(value, 0).ok_or_else(|| Error::Query(format!("límite de conexiones: «{value}» no es un número ni UNLIMITED")))?.to_string()
-                    };
-                    out.push(format!("ALTER DATABASE {db} CONNECTION LIMIT {n}"));
+            Variant::Redshift => {
+                match key.as_str() {
+                    "connection_limit" => {
+                        let n = if value.is_empty() || value.eq_ignore_ascii_case("UNLIMITED") {
+                            "UNLIMITED".to_string()
+                        } else {
+                            int(value, 0).ok_or_else(|| Error::Query(format!("límite de conexiones: «{value}» no es un número ni UNLIMITED")))?.to_string()
+                        };
+                        out.push(format!("ALTER DATABASE {db} CONNECTION LIMIT {n}"));
+                    }
+                    "collate" => {
+                        check(
+                            matches!(value, "CASE_SENSITIVE" | "CASE_INSENSITIVE"),
+                            "intercalación",
+                            value,
+                        )?;
+                        out.push(format!("ALTER DATABASE {db} COLLATE {value}"));
+                    }
+                    "isolation" => {
+                        check(
+                            matches!(value, "SERIALIZABLE" | "SNAPSHOT"),
+                            "nivel de aislamiento",
+                            value,
+                        )?;
+                        late.push(format!("ALTER DATABASE {db} ISOLATION LEVEL {value}"));
+                    }
+                    k => return Err(unknown(k)),
                 }
-                "collate" => {
-                    check(matches!(value, "CASE_SENSITIVE" | "CASE_INSENSITIVE"), "intercalación", value)?;
-                    out.push(format!("ALTER DATABASE {db} COLLATE {value}"));
-                }
-                "isolation" => {
-                    check(matches!(value, "SERIALIZABLE" | "SNAPSHOT"), "nivel de aislamiento", value)?;
-                    late.push(format!("ALTER DATABASE {db} ISOLATION LEVEL {value}"));
-                }
-                k => return Err(unknown(k)),
-            },
+            }
             Variant::Yellowbrick => match key.as_str() {
                 "connection_limit" => out.push(connection_limit(&db, value)?),
-                "allow_connections" => out.push(format!("ALTER DATABASE {db} ALLOW_CONNECTIONS {}", yes(value))),
-                "hot_standby" => out.push(format!("ALTER DATABASE {db} SET HOT_STANDBY {}", if yes(value) { "ON" } else { "OFF" })),
-                "max_size" if value.is_empty() => out.push(format!("ALTER DATABASE {db} RESET MAX_SIZE")),
+                "allow_connections" => out.push(format!(
+                    "ALTER DATABASE {db} ALLOW_CONNECTIONS {}",
+                    yes(value)
+                )),
+                "hot_standby" => out.push(format!(
+                    "ALTER DATABASE {db} SET HOT_STANDBY {}",
+                    if yes(value) { "ON" } else { "OFF" }
+                )),
+                "max_size" if value.is_empty() => {
+                    out.push(format!("ALTER DATABASE {db} RESET MAX_SIZE"))
+                }
                 "max_size" => {
-                    let s = max_size(value).ok_or_else(|| Error::Query(format!("tamaño máximo: «{value}» no es un tamaño (p. ej. 500GB)")))?;
+                    let s = max_size(value).ok_or_else(|| {
+                        Error::Query(format!(
+                            "tamaño máximo: «{value}» no es un tamaño (p. ej. 500GB)"
+                        ))
+                    })?;
                     out.push(format!("ALTER DATABASE {db} SET MAX_SIZE = '{s}'"));
                 }
-                "read_only" => late.push(format!("ALTER DATABASE {db} SET READONLY {}", if yes(value) { "ON" } else { "OFF" })),
+                "read_only" => late.push(format!(
+                    "ALTER DATABASE {db} SET READONLY {}",
+                    if yes(value) { "ON" } else { "OFF" }
+                )),
                 k => return Err(unknown(k)),
             },
             Variant::RisingWave => match key.as_str() {
-                "resource_group" if value.is_empty() => out.push(format!("ALTER DATABASE {db} RESET RESOURCE_GROUP DEFERRED")),
-                "resource_group" => out.push(format!("ALTER DATABASE {db} SET RESOURCE_GROUP = {} DEFERRED", ident("grupo de recursos", value)?)),
+                "resource_group" if value.is_empty() => {
+                    out.push(format!("ALTER DATABASE {db} RESET RESOURCE_GROUP DEFERRED"))
+                }
+                "resource_group" => out.push(format!(
+                    "ALTER DATABASE {db} SET RESOURCE_GROUP = {} DEFERRED",
+                    ident("grupo de recursos", value)?
+                )),
                 "barrier_interval_ms" | "checkpoint_frequency" => {
                     let n = if value.is_empty() {
                         "DEFAULT".to_string()
                     } else {
-                        int(value, 1).ok_or_else(|| Error::Query(format!("{key}: «{value}» no es un número positivo")))?.to_string()
+                        int(value, 1)
+                            .ok_or_else(|| {
+                                Error::Query(format!("{key}: «{value}» no es un número positivo"))
+                            })?
+                            .to_string()
                     };
                     out.push(format!("ALTER DATABASE {db} SET {key} = {n}"));
                 }
@@ -334,8 +443,13 @@ pub(crate) fn alter(v: Variant, database: &str, changes: &BTreeMap<String, Strin
             Variant::Materialize => return Err(unknown(key)),
             _ => match key.as_str() {
                 "connection_limit" => out.push(connection_limit(&db, value)?),
-                "allow_connections" if v != Variant::OpenGauss => out.push(format!("ALTER DATABASE {db} ALLOW_CONNECTIONS {}", yes(value))),
-                "is_template" if !matches!(v, Variant::OpenGauss | Variant::Yugabyte) => out.push(format!("ALTER DATABASE {db} IS_TEMPLATE {}", yes(value))),
+                "allow_connections" if v != Variant::OpenGauss => out.push(format!(
+                    "ALTER DATABASE {db} ALLOW_CONNECTIONS {}",
+                    yes(value)
+                )),
+                "is_template" if !matches!(v, Variant::OpenGauss | Variant::Yugabyte) => {
+                    out.push(format!("ALTER DATABASE {db} IS_TEMPLATE {}", yes(value)))
+                }
                 "refresh_collation_version" => {
                     if yes(value) {
                         late.push(format!("ALTER DATABASE {db} REFRESH COLLATION VERSION"));
@@ -343,7 +457,10 @@ pub(crate) fn alter(v: Variant, database: &str, changes: &BTreeMap<String, Strin
                 }
                 "tablespace" if v != Variant::Yugabyte => {
                     check(!value.is_empty(), "tablespace", value)?;
-                    late.push(format!("ALTER DATABASE {db} SET TABLESPACE {}", ident("tablespace", value)?));
+                    late.push(format!(
+                        "ALTER DATABASE {db} SET TABLESPACE {}",
+                        ident("tablespace", value)?
+                    ));
                 }
                 k => return Err(unknown(k)),
             },
@@ -361,7 +478,15 @@ pub(crate) fn alter(v: Variant, database: &str, changes: &BTreeMap<String, Strin
 }
 
 fn connection_limit(db: &str, value: &str) -> Result<String> {
-    let n = if value.is_empty() { -1 } else { int(value, -1).ok_or_else(|| Error::Query(format!("límite de conexiones: «{value}» no es un número (-1 o más)")))? };
+    let n = if value.is_empty() {
+        -1
+    } else {
+        int(value, -1).ok_or_else(|| {
+            Error::Query(format!(
+                "límite de conexiones: «{value}» no es un número (-1 o más)"
+            ))
+        })?
+    };
     Ok(format!("ALTER DATABASE {db} CONNECTION LIMIT {n}"))
 }
 
@@ -370,10 +495,16 @@ fn connection_limit(db: &str, value: &str) -> Result<String> {
 /// REGION; on one that already is, a new primary has to be added first, so
 /// a primary that is also in "Agregar regiones" goes after the ADDs. Drops
 /// go last (a primary can only be dropped when it's the last region).
-fn cockroach_regions(db: &str, changes: &BTreeMap<String, String>) -> Result<(Vec<String>, Vec<String>)> {
+fn cockroach_regions(
+    db: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<(Vec<String>, Vec<String>)> {
     let get = |k: &str| changes.get(k).map(|v| v.trim());
     let (mut first, mut last) = (Vec::new(), Vec::new());
-    let adds = get("add_regions").map(regions).transpose()?.unwrap_or_default();
+    let adds = get("add_regions")
+        .map(regions)
+        .transpose()?
+        .unwrap_or_default();
     let primary = match get("primary_region") {
         Some("") => {
             return Err(Error::Query(
@@ -383,7 +514,9 @@ fn cockroach_regions(db: &str, changes: &BTreeMap<String, String>) -> Result<(Ve
         Some(p) => Some(ident("región principal", p)?),
         None => None,
     };
-    let set_primary = primary.as_ref().map(|p| format!("ALTER DATABASE {db} SET PRIMARY REGION {p}"));
+    let set_primary = primary
+        .as_ref()
+        .map(|p| format!("ALTER DATABASE {db} SET PRIMARY REGION {p}"));
     let primary_added = primary.as_ref().is_some_and(|p| adds.contains(p));
     if !primary_added {
         first.extend(set_primary.clone());
@@ -396,7 +529,10 @@ fn cockroach_regions(db: &str, changes: &BTreeMap<String, String>) -> Result<(Ve
     }
     match get("secondary_region") {
         Some("") => first.push(format!("ALTER DATABASE {db} DROP SECONDARY REGION")),
-        Some(r) => first.push(format!("ALTER DATABASE {db} SET SECONDARY REGION {}", ident("región secundaria", r)?)),
+        Some(r) => first.push(format!(
+            "ALTER DATABASE {db} SET SECONDARY REGION {}",
+            ident("región secundaria", r)?
+        )),
         None => {}
     }
     if let Some(s) = get("survive") {
@@ -407,18 +543,30 @@ fn cockroach_regions(db: &str, changes: &BTreeMap<String, String>) -> Result<(Ve
         check(matches!(p, "DEFAULT" | "RESTRICTED"), "ubicación", p)?;
         first.push(format!("ALTER DATABASE {db} PLACEMENT {p}"));
     }
-    for r in get("drop_regions").map(regions).transpose()?.unwrap_or_default() {
+    for r in get("drop_regions")
+        .map(regions)
+        .transpose()?
+        .unwrap_or_default()
+    {
         last.push(format!("ALTER DATABASE {db} DROP REGION {r}"));
     }
     Ok((first, last))
 }
 
 /// What "Ver script" shows: exactly what `alter_database` runs.
-pub(crate) fn script(v: Variant, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
+pub(crate) fn script(
+    v: Variant,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<String> {
     Ok(alter(v, database, changes)?.join(";\n"))
 }
 
-fn sel(key: &'static str, label: &'static str, options: Vec<(&'static str, &'static str)>) -> Field {
+fn sel(
+    key: &'static str,
+    label: &'static str,
+    options: Vec<(&'static str, &'static str)>,
+) -> Field {
     Field::new(key, label, FieldKind::Select(options))
 }
 
@@ -427,7 +575,11 @@ fn bool_field(key: &'static str, label: &'static str) -> Field {
 }
 
 fn info(group: &str, label: &str, value: impl Into<String>) -> PropertyInfo {
-    PropertyInfo { group: group.into(), label: label.into(), value: value.into() }
+    PropertyInfo {
+        group: group.into(),
+        label: label.into(),
+        value: value.into(),
+    }
 }
 
 fn owner_field() -> Field {
@@ -435,7 +587,12 @@ fn owner_field() -> Field {
 }
 
 fn comment_field() -> Field {
-    Field::new("comment", "Comentario (COMMENT ON DATABASE)", FieldKind::Textarea).help("Vacío: sin comentario.")
+    Field::new(
+        "comment",
+        "Comentario (COMMENT ON DATABASE)",
+        FieldKind::Textarea,
+    )
+    .help("Vacío: sin comentario.")
 }
 
 /// Bytes as `12 MB`, `3.4 GB`.
@@ -473,11 +630,18 @@ impl PgSession {
 
     /// The first cell of `sql`, `None` when it fails or is null.
     async fn maybe_one(&self, sql: &str) -> Option<String> {
-        self.maybe(sql).await.first().and_then(|r| r.get(0).map(str::to_string))
+        self.maybe(sql)
+            .await
+            .first()
+            .and_then(|r| r.get(0).map(str::to_string))
     }
 
     async fn first_column(&self, sql: &str) -> Vec<String> {
-        self.maybe(sql).await.iter().filter_map(|r| r.get(0).map(str::to_string)).collect()
+        self.maybe(sql)
+            .await
+            .iter()
+            .filter_map(|r| r.get(0).map(str::to_string))
+            .collect()
     }
 
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
@@ -501,7 +665,11 @@ impl PgSession {
                 _ => "SELECT rolname FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%' AND rolname NOT LIKE 'crdb\\_internal%' ORDER BY 1",
             };
             let roles = self.first_column(roles_sql).await;
-            p.choices.push(FieldChoices { key: "owner".into(), default: None, values: roles });
+            p.choices.push(FieldChoices {
+                key: "owner".into(),
+                default: None,
+                values: roles,
+            });
         }
         if has_settings(self.variant) {
             self.settings(database, &mut p).await;
@@ -516,8 +684,20 @@ impl PgSession {
         let name = lit(v, database);
         let cols: BTreeSet<String> =
             self.first_column("SELECT attname::text FROM pg_attribute WHERE attrelid = 'pg_catalog.pg_database'::regclass AND attnum > 0").await.into_iter().collect();
-        let col = |c: &str, expr: &str| if cols.contains(c) { expr.to_string() } else { "NULL".to_string() };
-        let locale = if cols.contains("datlocale") { "d.datlocale::text" } else if cols.contains("daticulocale") { "d.daticulocale::text" } else { "NULL" };
+        let col = |c: &str, expr: &str| {
+            if cols.contains(c) {
+                expr.to_string()
+            } else {
+                "NULL".to_string()
+            }
+        };
+        let locale = if cols.contains("datlocale") {
+            "d.datlocale::text"
+        } else if cols.contains("daticulocale") {
+            "d.daticulocale::text"
+        } else {
+            "NULL"
+        };
         let sql = format!(
             "SELECT d.oid::text AS oid, pg_get_userbyid(d.datdba) AS owner, pg_encoding_to_char(d.encoding) AS enc, \
              d.datcollate::text AS coll, d.datctype::text AS ctype, d.datconnlimit::text AS lim, \
@@ -532,7 +712,9 @@ impl PgSession {
             col("datcompatibility", "d.datcompatibility::text"),
         );
         let rows = self.text(&sql).await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
         let get = |c: &str| cell(r, c);
         let oid = get("oid").unwrap_or_default();
         // Only digits reach the SQL below.
@@ -551,12 +733,22 @@ impl PgSession {
             // PostgreSQL keeps no creation date; PG_VERSION is written when
             // the database is created (needs pg_stat_file's privilege).
             if v != Variant::Yugabyte {
-                if let Some(t) = self.maybe_one(&format!("SELECT ((pg_stat_file('base/{oid}/PG_VERSION')).modification)::text")).await {
+                if let Some(t) = self
+                    .maybe_one(&format!(
+                        "SELECT ((pg_stat_file('base/{oid}/PG_VERSION')).modification)::text"
+                    ))
+                    .await
+                {
                     p.info.push(info("", "Creada", t));
                 }
             }
         }
-        if let Some(n) = self.maybe_one(&format!("SELECT count(*)::text FROM pg_stat_activity WHERE datname = {name}")).await {
+        if let Some(n) = self
+            .maybe_one(&format!(
+                "SELECT count(*)::text FROM pg_stat_activity WHERE datname = {name}"
+            ))
+            .await
+        {
             p.info.push(info("", "Conexiones abiertas", n));
         }
         if let Some(c) = get("compat") {
@@ -565,7 +757,11 @@ impl PgSession {
         p.info.push(info("", "OID", oid.clone()));
 
         // Locale: facts and the collation version action.
-        p.info.push(info(LOCALE, "Codificación (encoding)", get("enc").unwrap_or_default()));
+        p.info.push(info(
+            LOCALE,
+            "Codificación (encoding)",
+            get("enc").unwrap_or_default(),
+        ));
         if let Some(prov) = get("prov") {
             let label = match prov.as_str() {
                 "i" => "ICU",
@@ -574,8 +770,16 @@ impl PgSession {
             };
             p.info.push(info(LOCALE, "Proveedor de locale", label));
         }
-        p.info.push(info(LOCALE, "Intercalación (LC_COLLATE)", get("coll").unwrap_or_default()));
-        p.info.push(info(LOCALE, "Clasificación de caracteres (LC_CTYPE)", get("ctype").unwrap_or_default()));
+        p.info.push(info(
+            LOCALE,
+            "Intercalación (LC_COLLATE)",
+            get("coll").unwrap_or_default(),
+        ));
+        p.info.push(info(
+            LOCALE,
+            "Clasificación de caracteres (LC_CTYPE)",
+            get("ctype").unwrap_or_default(),
+        ));
         if let Some(l) = get("loc").filter(|l| !l.is_empty()) {
             p.info.push(info(LOCALE, "Locale del proveedor", l));
         }
@@ -585,9 +789,21 @@ impl PgSession {
         // REFRESH COLLATION VERSION (15+), when a version is recorded.
         if cols.contains("datcollversion") && ver >= 150000 && oid_ok {
             if let Some(recorded) = get("collver").filter(|c| !c.is_empty()) {
-                let actual = self.maybe_one(&format!("SELECT pg_database_collation_actual_version({oid}::oid)")).await;
-                p.info.push(info(LOCALE, "Versión de intercalación registrada", recorded.clone()));
-                p.info.push(info(LOCALE, "Versión de intercalación del sistema", actual.clone().unwrap_or_else(|| "—".into())));
+                let actual = self
+                    .maybe_one(&format!(
+                        "SELECT pg_database_collation_actual_version({oid}::oid)"
+                    ))
+                    .await;
+                p.info.push(info(
+                    LOCALE,
+                    "Versión de intercalación registrada",
+                    recorded.clone(),
+                ));
+                p.info.push(info(
+                    LOCALE,
+                    "Versión de intercalación del sistema",
+                    actual.clone().unwrap_or_else(|| "—".into()),
+                ));
                 if actual.as_ref().is_some_and(|a| *a != recorded) {
                     p.info.push(info(
                         LOCALE,
@@ -600,7 +816,8 @@ impl PgSession {
                         "Registra la versión de intercalación del sistema operativo o de ICU como la de la base. Se aplica una vez; no queda marcado.",
                     ),
                 );
-                p.values.insert("refresh_collation_version".into(), String::new());
+                p.values
+                    .insert("refresh_collation_version".into(), String::new());
             }
         }
 
@@ -612,34 +829,72 @@ impl PgSession {
             }
         }
         if v != Variant::Yugabyte && oid_ok {
-            if let Some(age) = self.maybe_one(&format!("SELECT age(datfrozenxid)::text FROM pg_database WHERE oid = {oid}::oid")).await {
-                p.info.push(info(STORAGE, "Edad del XID congelado (age(datfrozenxid))", age));
+            if let Some(age) = self
+                .maybe_one(&format!(
+                    "SELECT age(datfrozenxid)::text FROM pg_database WHERE oid = {oid}::oid"
+                ))
+                .await
+            {
+                p.info.push(info(
+                    STORAGE,
+                    "Edad del XID congelado (age(datfrozenxid))",
+                    age,
+                ));
             }
         }
 
         // The editable fields.
         p.fields.push(owner_field());
-        p.values.insert("owner".into(), get("owner").unwrap_or_default());
-        p.fields.push(Field::new("connection_limit", "Límite de conexiones (CONNECTION LIMIT)", FieldKind::Number).help("-1: sin límite."));
-        p.values.insert("connection_limit".into(), get("lim").unwrap_or_else(|| "-1".into()));
+        p.values
+            .insert("owner".into(), get("owner").unwrap_or_default());
+        p.fields.push(
+            Field::new(
+                "connection_limit",
+                "Límite de conexiones (CONNECTION LIMIT)",
+                FieldKind::Number,
+            )
+            .help("-1: sin límite."),
+        );
+        p.values.insert(
+            "connection_limit".into(),
+            get("lim").unwrap_or_else(|| "-1".into()),
+        );
         let new_options = ver >= 90500 && v != Variant::OpenGauss;
         if new_options && cols.contains("datallowconn") {
-            p.fields.push(bool_field("allow_connections", "Permitir conexiones (ALLOW_CONNECTIONS)").help("Desactivado, nadie puede conectarse a la base."));
-            p.values.insert("allow_connections".into(), flag(get("allow")));
+            p.fields.push(
+                bool_field(
+                    "allow_connections",
+                    "Permitir conexiones (ALLOW_CONNECTIONS)",
+                )
+                .help("Desactivado, nadie puede conectarse a la base."),
+            );
+            p.values
+                .insert("allow_connections".into(), flag(get("allow")));
         }
         if new_options && v != Variant::Yugabyte && cols.contains("datistemplate") {
             p.fields.push(bool_field("is_template", "Es plantilla (IS_TEMPLATE)").help("Cualquier usuario con CREATEDB puede copiarla; no se puede borrar mientras lo sea."));
             p.values.insert("is_template".into(), flag(get("tmpl")));
         }
         p.fields.push(comment_field());
-        let note = if oid_ok { self.maybe_one(&format!("SELECT shobj_description({oid}::oid, 'pg_database')")).await } else { None };
+        let note = if oid_ok {
+            self.maybe_one(&format!(
+                "SELECT shobj_description({oid}::oid, 'pg_database')"
+            ))
+            .await
+        } else {
+            None
+        };
         p.values.insert("comment".into(), note.unwrap_or_default());
         if v != Variant::Yugabyte {
             p.fields.push(Field::new("tablespace", "Tablespace (SET TABLESPACE)", FieldKind::Text).group(STORAGE).help(
                 "Mueve los archivos de la base al tablespace elegido. Nadie puede estar conectado a la base mientras tanto.",
             ));
             let spaces = self.first_column("SELECT spcname::text FROM pg_tablespace WHERE spcname <> 'pg_global' ORDER BY 1").await;
-            p.choices.push(FieldChoices { key: "tablespace".into(), default: None, values: spaces });
+            p.choices.push(FieldChoices {
+                key: "tablespace".into(),
+                default: None,
+                values: spaces,
+            });
         }
 
         p.warnings.insert(
@@ -677,16 +932,41 @@ impl PgSession {
         }
         // What the server knows, with its value outside this database.
         let mut server: BTreeMap<String, Option<String>> = BTreeMap::new();
-        for r in self.maybe("SELECT lower(name) AS name, setting, unit FROM pg_settings").await {
+        for r in self
+            .maybe("SELECT lower(name) AS name, setting, unit FROM pg_settings")
+            .await
+        {
             let Some(n) = cell(&r, "name") else { continue };
             let unit = cell(&r, "unit").unwrap_or_default();
-            let val = cell(&r, "setting").map(|s| if unit.is_empty() || unit.starts_with(|c: char| c.is_ascii_digit()) { s } else { format!("{s}{unit}") });
+            let val = cell(&r, "setting").map(|s| {
+                if unit.is_empty() || unit.starts_with(|c: char| c.is_ascii_digit()) {
+                    s
+                } else {
+                    format!("{s}{unit}")
+                }
+            });
             server.insert(n, val);
         }
-        let mut names: Vec<String> = SETTINGS.iter().map(|s| s.0.to_string()).filter(|n| server.is_empty() || server.contains_key(n)).collect();
+        let mut names: Vec<String> = SETTINGS
+            .iter()
+            .map(|s| s.0.to_string())
+            .filter(|n| server.is_empty() || server.contains_key(n))
+            .collect();
         // CockroachDB's own only on CockroachDB, PostgreSQL's logging not there.
-        let crdb_only = ["default_int_size", "serial_normalization", "sql_safe_updates", "vectorize", "distsql"];
-        names.retain(|n| if v == Variant::Cockroach { !PG_ONLY.contains(&n.as_str()) } else { !crdb_only.contains(&n.as_str()) });
+        let crdb_only = [
+            "default_int_size",
+            "serial_normalization",
+            "sql_safe_updates",
+            "vectorize",
+            "distsql",
+        ];
+        names.retain(|n| {
+            if v == Variant::Cockroach {
+                !PG_ONLY.contains(&n.as_str())
+            } else {
+                !crdb_only.contains(&n.as_str())
+            }
+        });
         for n in current.keys() {
             if !names.contains(n) && param_ok(n) {
                 names.push(n.clone());
@@ -694,13 +974,18 @@ impl PgSession {
         }
         for n in names {
             let key = intern(&format!("set:{n}"));
-            let (label, kind, help) = SETTINGS.iter().find(|s| s.0 == n).map(|s| (s.1, s.2, s.3)).unwrap_or((intern(&n), kind_of(&n), EMPTY_HELP));
+            let (label, kind, help) = SETTINGS
+                .iter()
+                .find(|s| s.0 == n)
+                .map(|s| (s.1, s.2, s.3))
+                .unwrap_or((intern(&n), kind_of(&n), EMPTY_HELP));
             let field_kind = match kind {
                 Kind::OnOff => FieldKind::Select(vec![("on", "Sí (on)"), ("off", "No (off)")]),
                 Kind::Pick(options) => FieldKind::Select(options.to_vec()),
                 Kind::Text | Kind::List => FieldKind::Text,
             };
-            p.fields.push(Field::new(key, label, field_kind).group(CONFIG).help(help));
+            p.fields
+                .push(Field::new(key, label, field_kind).group(CONFIG).help(help));
             let value = current.get(&n).cloned().map(|val| match kind {
                 Kind::OnOff => (if yes(&val) { "on" } else { "off" }).to_string(),
                 Kind::Pick(_) => val.to_ascii_lowercase(),
@@ -708,7 +993,11 @@ impl PgSession {
             });
             p.values.insert(key.to_string(), value.unwrap_or_default());
             if let Some(Some(d)) = server.get(&n) {
-                p.choices.push(FieldChoices { key: key.into(), default: Some(d.clone()), values: Vec::new() });
+                p.choices.push(FieldChoices {
+                    key: key.into(),
+                    default: Some(d.clone()),
+                    values: Vec::new(),
+                });
             }
         }
         p.warnings.insert(
@@ -718,7 +1007,11 @@ impl PgSession {
         p.info.push(info(CONFIG, "Alcance", "Valores por defecto de las sesiones que se conecten a esta base, para cualquier usuario (ALTER DATABASE … SET)."));
     }
 
-    async fn cockroach_properties(&mut self, database: &str, p: &mut DatabaseProperties) -> Result<()> {
+    async fn cockroach_properties(
+        &mut self,
+        database: &str,
+        p: &mut DatabaseProperties,
+    ) -> Result<()> {
         let name = lit(Variant::Cockroach, database);
         let rows = self
             .text(&format!(
@@ -726,38 +1019,86 @@ impl PgSession {
                  FROM [SHOW DATABASES] WHERE database_name = {name}"
             ))
             .await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
         let get = |c: &str| cell(r, c).filter(|s| !s.is_empty());
         let pg = self
             .maybe(&format!("SELECT oid::text AS oid, pg_encoding_to_char(encoding) AS enc, datcollate::text AS coll FROM pg_database WHERE datname = {name}"))
             .await;
         let pg = pg.first();
-        if let Some(n) = self.maybe_one(&format!("SELECT count(*)::text FROM pg_stat_activity WHERE datname = {name}")).await {
+        if let Some(n) = self
+            .maybe_one(&format!(
+                "SELECT count(*)::text FROM pg_stat_activity WHERE datname = {name}"
+            ))
+            .await
+        {
             p.info.push(info("", "Conexiones abiertas", n));
         }
         if let Some(r) = pg {
-            p.info.push(info("", "Codificación (encoding)", cell(r, "enc").unwrap_or_default()));
-            p.info.push(info("", "Intercalación", cell(r, "coll").unwrap_or_default()));
+            p.info.push(info(
+                "",
+                "Codificación (encoding)",
+                cell(r, "enc").unwrap_or_default(),
+            ));
+            p.info.push(info(
+                "",
+                "Intercalación",
+                cell(r, "coll").unwrap_or_default(),
+            ));
         }
         p.fields.push(owner_field());
-        p.values.insert("owner".into(), get("owner").unwrap_or_default());
+        p.values
+            .insert("owner".into(), get("owner").unwrap_or_default());
         p.fields.push(comment_field());
-        let oid = pg.and_then(|r| cell(r, "oid")).filter(|o| !o.is_empty() && o.chars().all(|c| c.is_ascii_digit()));
+        let oid = pg
+            .and_then(|r| cell(r, "oid"))
+            .filter(|o| !o.is_empty() && o.chars().all(|c| c.is_ascii_digit()));
         let note = match oid {
-            Some(oid) => self.maybe_one(&format!("SELECT shobj_description({oid}::oid, 'pg_database')")).await,
+            Some(oid) => {
+                self.maybe_one(&format!(
+                    "SELECT shobj_description({oid}::oid, 'pg_database')"
+                ))
+                .await
+            }
             None => None,
         };
         p.values.insert("comment".into(), note.unwrap_or_default());
 
         // Regions, when the cluster has them.
-        let cluster = self.first_column("SELECT region FROM [SHOW REGIONS FROM CLUSTER] ORDER BY 1").await;
+        let cluster = self
+            .first_column("SELECT region FROM [SHOW REGIONS FROM CLUSTER] ORDER BY 1")
+            .await;
         let primary = get("primary_region");
-        p.info.push(info(REGIONS, "Regiones de la base", get("regions").unwrap_or_else(|| "Ninguna (no es multirregión)".into())));
-        p.info.push(info(REGIONS, "Regiones del clúster", if cluster.is_empty() { "Ninguna: el clúster no declara localidades (--locality)".into() } else { cluster.join(", ") }));
+        p.info.push(info(
+            REGIONS,
+            "Regiones de la base",
+            get("regions").unwrap_or_else(|| "Ninguna (no es multirregión)".into()),
+        ));
+        p.info.push(info(
+            REGIONS,
+            "Regiones del clúster",
+            if cluster.is_empty() {
+                "Ninguna: el clúster no declara localidades (--locality)".into()
+            } else {
+                cluster.join(", ")
+            },
+        ));
         if !cluster.is_empty() || primary.is_some() {
             let placement = if primary.is_some() {
-                let create = self.maybe_one(&format!("SELECT create_statement FROM [SHOW CREATE DATABASE {}]", quote_ident(Quote::Double, database))).await;
-                Some(if create.is_some_and(|c| c.contains("PLACEMENT RESTRICTED")) { "RESTRICTED" } else { "DEFAULT" })
+                let create = self
+                    .maybe_one(&format!(
+                        "SELECT create_statement FROM [SHOW CREATE DATABASE {}]",
+                        quote_ident(Quote::Double, database)
+                    ))
+                    .await;
+                Some(
+                    if create.is_some_and(|c| c.contains("PLACEMENT RESTRICTED")) {
+                        "RESTRICTED"
+                    } else {
+                        "DEFAULT"
+                    },
+                )
             } else {
                 None
             };
@@ -777,16 +1118,39 @@ impl PgSession {
                     .group(REGIONS)
                     .help("RESTRICTED deja las réplicas de las tablas regionales solo en su región."),
             ]);
-            p.values.insert("primary_region".into(), primary.clone().unwrap_or_default());
+            p.values
+                .insert("primary_region".into(), primary.clone().unwrap_or_default());
             p.values.insert("add_regions".into(), String::new());
             p.values.insert("drop_regions".into(), String::new());
-            p.values.insert("secondary_region".into(), get("secondary_region").unwrap_or_default());
-            p.values.insert("survive".into(), get("survival_goal").map(|s| s.to_ascii_uppercase()).unwrap_or_default());
-            p.values.insert("placement".into(), placement.unwrap_or_default().into());
-            for k in ["primary_region", "add_regions", "drop_regions", "secondary_region"] {
-                p.choices.push(FieldChoices { key: k.into(), default: None, values: cluster.clone() });
+            p.values.insert(
+                "secondary_region".into(),
+                get("secondary_region").unwrap_or_default(),
+            );
+            p.values.insert(
+                "survive".into(),
+                get("survival_goal")
+                    .map(|s| s.to_ascii_uppercase())
+                    .unwrap_or_default(),
+            );
+            p.values
+                .insert("placement".into(), placement.unwrap_or_default().into());
+            for k in [
+                "primary_region",
+                "add_regions",
+                "drop_regions",
+                "secondary_region",
+            ] {
+                p.choices.push(FieldChoices {
+                    key: k.into(),
+                    default: None,
+                    values: cluster.clone(),
+                });
             }
-            p.warnings.insert("drop_regions".into(), "Quitar una región mueve sus réplicas y sus datos a las demás regiones de la base.".into());
+            p.warnings.insert(
+                "drop_regions".into(),
+                "Quitar una región mueve sus réplicas y sus datos a las demás regiones de la base."
+                    .into(),
+            );
             p.warnings.insert(
                 "survive".into(),
                 "Cambiar la supervivencia vuelve a ubicar las réplicas de toda la base: con REGION, las escrituras pasan a esperar entre regiones.".into(),
@@ -797,7 +1161,11 @@ impl PgSession {
         Ok(())
     }
 
-    async fn redshift_properties(&mut self, database: &str, p: &mut DatabaseProperties) -> Result<()> {
+    async fn redshift_properties(
+        &mut self,
+        database: &str,
+        p: &mut DatabaseProperties,
+    ) -> Result<()> {
         let v = Variant::Redshift;
         let name = lit(v, database);
         let rows = self
@@ -806,13 +1174,36 @@ impl PgSession {
                  LEFT JOIN pg_user u ON u.usesysid = d.datdba WHERE d.datname = {name}"
             ))
             .await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
-        let lim = cell(r, "lim").map(|l| if l == "-1" || l.is_empty() { "UNLIMITED".to_string() } else { l.to_ascii_uppercase() });
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let lim = cell(r, "lim").map(|l| {
+            if l == "-1" || l.is_empty() {
+                "UNLIMITED".to_string()
+            } else {
+                l.to_ascii_uppercase()
+            }
+        });
         p.fields.push(owner_field());
-        p.values.insert("owner".into(), cell(r, "owner").unwrap_or_default());
-        p.fields.push(Field::new("connection_limit", "Límite de conexiones (CONNECTION LIMIT)", FieldKind::Text).placeholder("UNLIMITED o un número"));
-        p.values.insert("connection_limit".into(), lim.unwrap_or_else(|| "UNLIMITED".into()));
-        p.choices.push(FieldChoices { key: "connection_limit".into(), default: None, values: vec!["UNLIMITED".into()] });
+        p.values
+            .insert("owner".into(), cell(r, "owner").unwrap_or_default());
+        p.fields.push(
+            Field::new(
+                "connection_limit",
+                "Límite de conexiones (CONNECTION LIMIT)",
+                FieldKind::Text,
+            )
+            .placeholder("UNLIMITED o un número"),
+        );
+        p.values.insert(
+            "connection_limit".into(),
+            lim.unwrap_or_else(|| "UNLIMITED".into()),
+        );
+        p.choices.push(FieldChoices {
+            key: "connection_limit".into(),
+            default: None,
+            values: vec!["UNLIMITED".into()],
+        });
 
         let meta = self
             .maybe(&format!(
@@ -823,20 +1214,45 @@ impl PgSession {
             if let Some(t) = cell(m, "database_type") {
                 p.info.push(info("", "Tipo", t));
             }
-            let options = cell(m, "database_options").unwrap_or_default().to_ascii_lowercase();
-            let collate = if options.contains("case_insensitive") || options.contains("\"ci\"") { "CASE_INSENSITIVE" } else { "CASE_SENSITIVE" };
+            let options = cell(m, "database_options")
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let collate = if options.contains("case_insensitive") || options.contains("\"ci\"") {
+                "CASE_INSENSITIVE"
+            } else {
+                "CASE_SENSITIVE"
+            };
             p.values.insert("collate".into(), collate.into());
             if let Some(iso) = cell(m, "database_isolation_level") {
-                let iso = if iso.to_ascii_lowercase().contains("snapshot") { "SNAPSHOT" } else { "SERIALIZABLE" };
+                let iso = if iso.to_ascii_lowercase().contains("snapshot") {
+                    "SNAPSHOT"
+                } else {
+                    "SERIALIZABLE"
+                };
                 p.values.insert("isolation".into(), iso.into());
             }
         }
-        if let Some(n) = self.maybe_one(&format!("SELECT count(*)::text FROM stv_sessions WHERE trim(db_name) = {name}")).await {
+        if let Some(n) = self
+            .maybe_one(&format!(
+                "SELECT count(*)::text FROM stv_sessions WHERE trim(db_name) = {name}"
+            ))
+            .await
+        {
             p.info.push(info("", "Conexiones abiertas", n));
         }
         p.fields.push(
-            sel("collate", "Intercalación (COLLATE)", vec![("CASE_SENSITIVE", "Distingue mayúsculas (CASE_SENSITIVE)"), ("CASE_INSENSITIVE", "No distingue mayúsculas (CASE_INSENSITIVE)")])
-                .help("Cómo se comparan y buscan los textos."),
+            sel(
+                "collate",
+                "Intercalación (COLLATE)",
+                vec![
+                    ("CASE_SENSITIVE", "Distingue mayúsculas (CASE_SENSITIVE)"),
+                    (
+                        "CASE_INSENSITIVE",
+                        "No distingue mayúsculas (CASE_INSENSITIVE)",
+                    ),
+                ],
+            )
+            .help("Cómo se comparan y buscan los textos."),
         );
         if database != "dev" {
             p.fields.push(
@@ -849,12 +1265,20 @@ impl PgSession {
             .maybe_one(&format!("SELECT description FROM pg_description WHERE objoid = (SELECT oid FROM pg_database WHERE datname = {name}) LIMIT 1"))
             .await;
         p.values.insert("comment".into(), note.unwrap_or_default());
-        p.warnings.insert("isolation".into(), "Falla si hay otras conexiones abiertas a la base. Rige para las sesiones nuevas.".into());
+        p.warnings.insert(
+            "isolation".into(),
+            "Falla si hay otras conexiones abiertas a la base. Rige para las sesiones nuevas."
+                .into(),
+        );
         p.warnings.insert("collate".into(), "Cambia cómo se comparan los textos en todas las consultas de la base: los resultados de filtros y uniones pueden cambiar.".into());
         Ok(())
     }
 
-    async fn yellowbrick_properties(&mut self, database: &str, p: &mut DatabaseProperties) -> Result<()> {
+    async fn yellowbrick_properties(
+        &mut self,
+        database: &str,
+        p: &mut DatabaseProperties,
+    ) -> Result<()> {
         let v = Variant::Yellowbrick;
         let name = lit(v, database);
         let rows = self
@@ -862,13 +1286,30 @@ impl PgSession {
                 "SELECT pg_get_userbyid(datdba) AS owner, datconnlimit::text AS lim, datallowconn::text AS allow FROM pg_database WHERE datname = {name}"
             ))
             .await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
         p.fields.push(owner_field());
-        p.values.insert("owner".into(), cell(r, "owner").unwrap_or_default());
-        p.fields.push(Field::new("connection_limit", "Límite de conexiones (CONNECTION LIMIT)", FieldKind::Number).help("-1: sin límite."));
-        p.values.insert("connection_limit".into(), cell(r, "lim").unwrap_or_else(|| "-1".into()));
-        p.fields.push(bool_field("allow_connections", "Permitir conexiones (ALLOW_CONNECTIONS)"));
-        p.values.insert("allow_connections".into(), flag(cell(r, "allow")));
+        p.values
+            .insert("owner".into(), cell(r, "owner").unwrap_or_default());
+        p.fields.push(
+            Field::new(
+                "connection_limit",
+                "Límite de conexiones (CONNECTION LIMIT)",
+                FieldKind::Number,
+            )
+            .help("-1: sin límite."),
+        );
+        p.values.insert(
+            "connection_limit".into(),
+            cell(r, "lim").unwrap_or_else(|| "-1".into()),
+        );
+        p.fields.push(bool_field(
+            "allow_connections",
+            "Permitir conexiones (ALLOW_CONNECTIONS)",
+        ));
+        p.values
+            .insert("allow_connections".into(), flag(cell(r, "allow")));
 
         let sys = self
             .maybe(&format!(
@@ -877,7 +1318,11 @@ impl PgSession {
             ))
             .await;
         if let Some(s) = sys.first() {
-            let bytes = |c: &str| cell(s, c).and_then(|b| b.parse::<f64>().ok()).map(pretty_bytes);
+            let bytes = |c: &str| {
+                cell(s, c)
+                    .and_then(|b| b.parse::<f64>().ok())
+                    .map(pretty_bytes)
+            };
             if let Some(b) = bytes("comp") {
                 p.info.push(info("", "Tamaño comprimido", b));
             }
@@ -887,19 +1332,40 @@ impl PgSession {
             if let Some(t) = cell(s, "tables") {
                 p.info.push(info("", "Tablas", t));
             }
-            p.info.push(info("", "Codificación (encoding)", cell(s, "encoding").unwrap_or_default()));
-            p.info.push(info("", "Intercalación", cell(s, "collation").unwrap_or_default()));
+            p.info.push(info(
+                "",
+                "Codificación (encoding)",
+                cell(s, "encoding").unwrap_or_default(),
+            ));
+            p.info.push(info(
+                "",
+                "Intercalación",
+                cell(s, "collation").unwrap_or_default(),
+            ));
             if let Some(why) = cell(s, "readonly_reason").filter(|w| !w.is_empty()) {
                 p.info.push(info("", "Motivo de solo lectura", why));
             }
             p.values.insert("read_only".into(), flag(cell(s, "ro")));
             p.values.insert("hot_standby".into(), flag(cell(s, "hs")));
-            p.values.insert("max_size".into(), cell(s, "max").and_then(|m| m.parse::<u64>().ok()).map(bytes_to_size).unwrap_or_default());
+            p.values.insert(
+                "max_size".into(),
+                cell(s, "max")
+                    .and_then(|m| m.parse::<u64>().ok())
+                    .map(bytes_to_size)
+                    .unwrap_or_default(),
+            );
         }
         p.fields.extend([
-            bool_field("read_only", "Solo lectura (READONLY)").help("Espera a que terminen las transacciones que escriben."),
-            bool_field("hot_standby", "Destino de restauración o réplica (HOT_STANDBY)").help("Solo sobre una base vacía."),
-            Field::new("max_size", "Tamaño máximo (MAX_SIZE)", FieldKind::Text).placeholder("500GB").help("En MB, GB o TB. Vacío: sin límite."),
+            bool_field("read_only", "Solo lectura (READONLY)")
+                .help("Espera a que terminen las transacciones que escriben."),
+            bool_field(
+                "hot_standby",
+                "Destino de restauración o réplica (HOT_STANDBY)",
+            )
+            .help("Solo sobre una base vacía."),
+            Field::new("max_size", "Tamaño máximo (MAX_SIZE)", FieldKind::Text)
+                .placeholder("500GB")
+                .help("En MB, GB o TB. Vacío: sin límite."),
         ]);
         p.warnings.insert("read_only".into(), "En solo lectura nadie puede escribir en la base; las transacciones que escriben y estén en curso se esperan.".into());
         p.warnings.insert(
@@ -913,7 +1379,11 @@ impl PgSession {
         Ok(())
     }
 
-    async fn risingwave_properties(&mut self, database: &str, p: &mut DatabaseProperties) -> Result<()> {
+    async fn risingwave_properties(
+        &mut self,
+        database: &str,
+        p: &mut DatabaseProperties,
+    ) -> Result<()> {
         let v = Variant::RisingWave;
         let name = lit(v, database);
         let cols: BTreeSet<String> = self
@@ -921,7 +1391,13 @@ impl PgSession {
             .await
             .into_iter()
             .collect();
-        let col = |c: &str| if cols.contains(c) { format!("d.{c}::text") } else { "NULL".into() };
+        let col = |c: &str| {
+            if cols.contains(c) {
+                format!("d.{c}::text")
+            } else {
+                "NULL".into()
+            }
+        };
         let rows = self
             .text(&format!(
                 "SELECT d.id::text AS id, u.name AS owner, {} AS rg, {} AS barrier, {} AS checkpoint \
@@ -931,31 +1407,68 @@ impl PgSession {
                 col("checkpoint_frequency"),
             ))
             .await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
-        p.info.push(info("", "ID", cell(r, "id").unwrap_or_default()));
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        p.info
+            .push(info("", "ID", cell(r, "id").unwrap_or_default()));
         p.fields.push(owner_field());
-        p.values.insert("owner".into(), cell(r, "owner").unwrap_or_default());
+        p.values
+            .insert("owner".into(), cell(r, "owner").unwrap_or_default());
         if cols.contains("resource_group") {
             p.fields.push(Field::new("resource_group", "Grupo de recursos (RESOURCE_GROUP)", FieldKind::Text).help(
                 "Función de la edición con licencia. Cambia el grupo de la base sin mover los trabajos que ya corren (DEFERRED). Vacío: el grupo por defecto.",
             ));
-            p.values.insert("resource_group".into(), cell(r, "rg").unwrap_or_default());
-            let groups = self.first_column("SELECT name FROM rw_catalog.rw_resource_groups ORDER BY 1").await;
-            p.choices.push(FieldChoices { key: "resource_group".into(), default: None, values: groups });
+            p.values
+                .insert("resource_group".into(), cell(r, "rg").unwrap_or_default());
+            let groups = self
+                .first_column("SELECT name FROM rw_catalog.rw_resource_groups ORDER BY 1")
+                .await;
+            p.choices.push(FieldChoices {
+                key: "resource_group".into(),
+                default: None,
+                values: groups,
+            });
         }
         for (k, label, c) in [
-            ("barrier_interval_ms", "Intervalo de barreras (ms)", "barrier_interval_ms"),
-            ("checkpoint_frequency", "Frecuencia de checkpoint (barreras)", "checkpoint_frequency"),
+            (
+                "barrier_interval_ms",
+                "Intervalo de barreras (ms)",
+                "barrier_interval_ms",
+            ),
+            (
+                "checkpoint_frequency",
+                "Frecuencia de checkpoint (barreras)",
+                "checkpoint_frequency",
+            ),
         ] {
             if cols.contains(c) {
-                p.fields.push(Field::new(k, label, FieldKind::Number).group(CONFIG).help("RisingWave 2.5 o posterior, con licencia. Vacío: el del sistema (DEFAULT)."));
-                p.values.insert(k.into(), cell(r, if k == "barrier_interval_ms" { "barrier" } else { "checkpoint" }).unwrap_or_default());
+                p.fields
+                    .push(Field::new(k, label, FieldKind::Number).group(CONFIG).help(
+                    "RisingWave 2.5 o posterior, con licencia. Vacío: el del sistema (DEFAULT).",
+                ));
+                p.values.insert(
+                    k.into(),
+                    cell(
+                        r,
+                        if k == "barrier_interval_ms" {
+                            "barrier"
+                        } else {
+                            "checkpoint"
+                        },
+                    )
+                    .unwrap_or_default(),
+                );
             }
         }
         Ok(())
     }
 
-    async fn materialize_properties(&mut self, database: &str, p: &mut DatabaseProperties) -> Result<()> {
+    async fn materialize_properties(
+        &mut self,
+        database: &str,
+        p: &mut DatabaseProperties,
+    ) -> Result<()> {
         let name = lit(Variant::Materialize, database);
         let rows = self
             .text(&format!(
@@ -963,8 +1476,11 @@ impl PgSession {
                  LEFT JOIN mz_internal.mz_comments c ON c.id = d.id AND c.object_type = 'database' WHERE d.name = {name}"
             ))
             .await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
-        p.info.push(info("", "ID", cell(r, "id").unwrap_or_default()));
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        p.info
+            .push(info("", "ID", cell(r, "id").unwrap_or_default()));
         if let Some(n) = self
             .maybe_one(&format!("SELECT count(*)::text FROM mz_schemas s JOIN mz_databases d ON d.id = s.database_id WHERE d.name = {name}"))
             .await
@@ -972,18 +1488,31 @@ impl PgSession {
             p.info.push(info("", "Esquemas", n));
         }
         p.fields.push(owner_field());
-        p.values.insert("owner".into(), cell(r, "owner").unwrap_or_default());
+        p.values
+            .insert("owner".into(), cell(r, "owner").unwrap_or_default());
         p.fields.push(comment_field());
-        p.values.insert("comment".into(), cell(r, "note").unwrap_or_default());
+        p.values
+            .insert("comment".into(), cell(r, "note").unwrap_or_default());
         Ok(())
     }
 
     /// Run the statements one by one; a later failure says how many applied.
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let statements = alter(self.variant, database, changes)?;
         for (i, sql) in statements.iter().enumerate() {
             if let Err(e) = self.client.batch_execute(sql).await.map_err(err) {
-                return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+                return Err(if i == 0 {
+                    e
+                } else {
+                    Error::Query(format!(
+                        "se aplicaron {i} de {} cambios; falló: {sql}\n{e}",
+                        statements.len()
+                    ))
+                });
             }
         }
         Ok(())
@@ -995,7 +1524,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -1031,7 +1563,16 @@ ALTER DATABASE \"ventas\" SET TABLESPACE \"rápido\""
         // An unchecked action is nothing; an empty comment drops it; an
         // empty limit is no limit.
         assert_eq!(
-            script(Variant::Postgres, "v", &c(&[("refresh_collation_version", ""), ("comment", ""), ("connection_limit", "")])).unwrap(),
+            script(
+                Variant::Postgres,
+                "v",
+                &c(&[
+                    ("refresh_collation_version", ""),
+                    ("comment", ""),
+                    ("connection_limit", "")
+                ])
+            )
+            .unwrap(),
             "ALTER DATABASE \"v\" CONNECTION LIMIT -1;\nCOMMENT ON DATABASE \"v\" IS NULL"
         );
     }
@@ -1039,11 +1580,26 @@ ALTER DATABASE \"ventas\" SET TABLESPACE \"rápido\""
     #[test]
     fn settings_are_quoted_by_kind() {
         let s = |k: &str, v: &str| script(Variant::Postgres, "v", &c(&[(k, v)]));
-        assert_eq!(s("set:search_path", "\"$user\", public, \"a, b\"").unwrap(), "ALTER DATABASE \"v\" SET search_path = E'$user', E'public', E'a, b'");
-        assert_eq!(s("set:timezone", "America/Argentina/Buenos_Aires").unwrap(), "ALTER DATABASE \"v\" SET timezone = E'America/Argentina/Buenos_Aires'");
-        assert_eq!(s("set:default_transaction_read_only", "on").unwrap(), "ALTER DATABASE \"v\" SET default_transaction_read_only = on");
-        assert_eq!(s("set:default_transaction_isolation", "SERIALIZABLE").unwrap(), "ALTER DATABASE \"v\" SET default_transaction_isolation = E'serializable'");
-        assert_eq!(s("set:app.tenant", "it's").unwrap(), "ALTER DATABASE \"v\" SET app.tenant = E'it''s'");
+        assert_eq!(
+            s("set:search_path", "\"$user\", public, \"a, b\"").unwrap(),
+            "ALTER DATABASE \"v\" SET search_path = E'$user', E'public', E'a, b'"
+        );
+        assert_eq!(
+            s("set:timezone", "America/Argentina/Buenos_Aires").unwrap(),
+            "ALTER DATABASE \"v\" SET timezone = E'America/Argentina/Buenos_Aires'"
+        );
+        assert_eq!(
+            s("set:default_transaction_read_only", "on").unwrap(),
+            "ALTER DATABASE \"v\" SET default_transaction_read_only = on"
+        );
+        assert_eq!(
+            s("set:default_transaction_isolation", "SERIALIZABLE").unwrap(),
+            "ALTER DATABASE \"v\" SET default_transaction_isolation = E'serializable'"
+        );
+        assert_eq!(
+            s("set:app.tenant", "it's").unwrap(),
+            "ALTER DATABASE \"v\" SET app.tenant = E'it''s'"
+        );
         for bad in [
             ("set:work_mem; DROP", "1"),
             ("set:", "1"),
@@ -1052,24 +1608,43 @@ ALTER DATABASE \"ventas\" SET TABLESPACE \"rápido\""
             ("set:work_mem", "64\nMB"),
             ("set:search_path", ",,"),
         ] {
-            assert!(script(Variant::Postgres, "v", &c(&[bad])).is_err(), "{bad:?}");
+            assert!(
+                script(Variant::Postgres, "v", &c(&[bad])).is_err(),
+                "{bad:?}"
+            );
         }
     }
 
     #[test]
     fn lists_split_outside_quotes() {
         assert_eq!(split_list("\"$user\", public"), vec!["$user", "public"]);
-        assert_eq!(split_list(" a ,\"b \"\"c\"\"\", , d"), vec!["a", "b \"c\"", "d"]);
+        assert_eq!(
+            split_list(" a ,\"b \"\"c\"\"\", , d"),
+            vec!["a", "b \"c\"", "d"]
+        );
         assert!(split_list(" , ").is_empty());
     }
 
     #[test]
     fn values_are_checked() {
-        for bad in [("connection_limit", "-2"), ("connection_limit", "5 OR 1"), ("owner", ""), ("owner", "a\nb"), ("tablespace", ""), ("nope", "1"), ("comment", "a\0b")] {
-            assert!(script(Variant::Postgres, "v", &c(&[bad])).is_err(), "{bad:?}");
+        for bad in [
+            ("connection_limit", "-2"),
+            ("connection_limit", "5 OR 1"),
+            ("owner", ""),
+            ("owner", "a\nb"),
+            ("tablespace", ""),
+            ("nope", "1"),
+            ("comment", "a\0b"),
+        ] {
+            assert!(
+                script(Variant::Postgres, "v", &c(&[bad])).is_err(),
+                "{bad:?}"
+            );
         }
         // Names are quoted, not rejected.
-        assert!(script(Variant::Postgres, "v\"x", &c(&[("owner", "o\"k")])).unwrap().contains("ALTER DATABASE \"v\"\"x\" OWNER TO \"o\"\"k\""));
+        assert!(script(Variant::Postgres, "v\"x", &c(&[("owner", "o\"k")]))
+            .unwrap()
+            .contains("ALTER DATABASE \"v\"\"x\" OWNER TO \"o\"\"k\""));
         for v in [Variant::Denodo, Variant::CrateDb, Variant::H2] {
             assert!(!supported(v) && script(v, "v", &c(&[])).is_err());
         }
@@ -1080,13 +1655,26 @@ ALTER DATABASE \"ventas\" SET TABLESPACE \"rápido\""
         // openGauss: no IS_TEMPLATE nor ALLOW_CONNECTIONS; YugabyteDB: no
         // tablespace nor IS_TEMPLATE.
         assert!(script(Variant::OpenGauss, "v", &c(&[("is_template", "true")])).is_err());
-        assert!(script(Variant::OpenGauss, "v", &c(&[("allow_connections", "true")])).is_err());
+        assert!(script(
+            Variant::OpenGauss,
+            "v",
+            &c(&[("allow_connections", "true")])
+        )
+        .is_err());
         assert!(script(Variant::Yugabyte, "v", &c(&[("tablespace", "t")])).is_err());
         assert!(script(Variant::Yugabyte, "v", &c(&[("is_template", "")])).is_err());
-        assert_eq!(script(Variant::Greenplum, "v", &c(&[("set:search_path", "s")])).unwrap(), "ALTER DATABASE \"v\" SET search_path = E's'");
+        assert_eq!(
+            script(Variant::Greenplum, "v", &c(&[("set:search_path", "s")])).unwrap(),
+            "ALTER DATABASE \"v\" SET search_path = E's'"
+        );
         // Materialize: owner and comment only.
         assert_eq!(
-            script(Variant::Materialize, "v", &c(&[("owner", "r"), ("comment", "x")])).unwrap(),
+            script(
+                Variant::Materialize,
+                "v",
+                &c(&[("owner", "r"), ("comment", "x")])
+            )
+            .unwrap(),
             "ALTER DATABASE \"v\" OWNER TO \"r\";\nCOMMENT ON DATABASE \"v\" IS 'x'"
         );
         assert!(script(Variant::Materialize, "v", &c(&[("set:work_mem", "1MB")])).is_err());
@@ -1097,7 +1685,16 @@ ALTER DATABASE \"ventas\" SET TABLESPACE \"rápido\""
     fn cockroach_regions_order() {
         // Becoming multi-region: the primary first, then the others.
         assert_eq!(
-            script(Variant::Cockroach, "v", &c(&[("primary_region", "us-east1"), ("add_regions", "us-west1, eu-west1"), ("survive", "REGION")])).unwrap(),
+            script(
+                Variant::Cockroach,
+                "v",
+                &c(&[
+                    ("primary_region", "us-east1"),
+                    ("add_regions", "us-west1, eu-west1"),
+                    ("survive", "REGION")
+                ])
+            )
+            .unwrap(),
             "ALTER DATABASE \"v\" SET PRIMARY REGION \"us-east1\";
 ALTER DATABASE \"v\" ADD REGION \"us-west1\";
 ALTER DATABASE \"v\" ADD REGION \"eu-west1\";
@@ -1108,7 +1705,15 @@ ALTER DATABASE \"v\" SURVIVE REGION FAILURE"
             script(
                 Variant::Cockroach,
                 "v",
-                &c(&[("primary_region", "eu-west1"), ("add_regions", "eu-west1"), ("drop_regions", "us-east1"), ("owner", "root"), ("set:sql_safe_updates", "on"), ("placement", "RESTRICTED"), ("secondary_region", "")])
+                &c(&[
+                    ("primary_region", "eu-west1"),
+                    ("add_regions", "eu-west1"),
+                    ("drop_regions", "us-east1"),
+                    ("owner", "root"),
+                    ("set:sql_safe_updates", "on"),
+                    ("placement", "RESTRICTED"),
+                    ("secondary_region", "")
+                ])
             )
             .unwrap(),
             "ALTER DATABASE \"v\" ADD REGION \"eu-west1\";
@@ -1128,7 +1733,17 @@ ALTER DATABASE \"v\" DROP REGION \"us-east1\""
     #[test]
     fn redshift_yellowbrick_risingwave() {
         assert_eq!(
-            script(Variant::Redshift, "v", &c(&[("isolation", "SNAPSHOT"), ("collate", "CASE_INSENSITIVE"), ("connection_limit", "unlimited"), ("comment", "x\\y")])).unwrap(),
+            script(
+                Variant::Redshift,
+                "v",
+                &c(&[
+                    ("isolation", "SNAPSHOT"),
+                    ("collate", "CASE_INSENSITIVE"),
+                    ("connection_limit", "unlimited"),
+                    ("comment", "x\\y")
+                ])
+            )
+            .unwrap(),
             "ALTER DATABASE \"v\" COLLATE CASE_INSENSITIVE;
 ALTER DATABASE \"v\" CONNECTION LIMIT UNLIMITED;
 COMMENT ON DATABASE \"v\" IS 'x\\\\y';
@@ -1137,21 +1752,48 @@ ALTER DATABASE \"v\" ISOLATION LEVEL SNAPSHOT"
         assert!(script(Variant::Redshift, "v", &c(&[("connection_limit", "-1")])).is_err());
         assert!(script(Variant::Redshift, "v", &c(&[("set:work_mem", "1")])).is_err());
         assert_eq!(
-            script(Variant::Yellowbrick, "v", &c(&[("read_only", "true"), ("max_size", "500 gb"), ("hot_standby", ""), ("allow_connections", "true")])).unwrap(),
+            script(
+                Variant::Yellowbrick,
+                "v",
+                &c(&[
+                    ("read_only", "true"),
+                    ("max_size", "500 gb"),
+                    ("hot_standby", ""),
+                    ("allow_connections", "true")
+                ])
+            )
+            .unwrap(),
             "ALTER DATABASE \"v\" ALLOW_CONNECTIONS true;
 ALTER DATABASE \"v\" SET HOT_STANDBY OFF;
 ALTER DATABASE \"v\" SET MAX_SIZE = '500GB';
 ALTER DATABASE \"v\" SET READONLY ON"
         );
-        assert_eq!(script(Variant::Yellowbrick, "v", &c(&[("max_size", "")])).unwrap(), "ALTER DATABASE \"v\" RESET MAX_SIZE");
+        assert_eq!(
+            script(Variant::Yellowbrick, "v", &c(&[("max_size", "")])).unwrap(),
+            "ALTER DATABASE \"v\" RESET MAX_SIZE"
+        );
         assert!(script(Variant::Yellowbrick, "v", &c(&[("max_size", "5 PB")])).is_err());
         assert_eq!(
-            script(Variant::RisingWave, "v", &c(&[("barrier_interval_ms", "500"), ("checkpoint_frequency", ""), ("resource_group", "rg1")])).unwrap(),
+            script(
+                Variant::RisingWave,
+                "v",
+                &c(&[
+                    ("barrier_interval_ms", "500"),
+                    ("checkpoint_frequency", ""),
+                    ("resource_group", "rg1")
+                ])
+            )
+            .unwrap(),
             "ALTER DATABASE \"v\" SET barrier_interval_ms = 500;
 ALTER DATABASE \"v\" SET checkpoint_frequency = DEFAULT;
 ALTER DATABASE \"v\" SET RESOURCE_GROUP = \"rg1\" DEFERRED"
         );
-        assert!(script(Variant::RisingWave, "v", &c(&[("barrier_interval_ms", "0")])).is_err());
+        assert!(script(
+            Variant::RisingWave,
+            "v",
+            &c(&[("barrier_interval_ms", "0")])
+        )
+        .is_err());
         assert!(script(Variant::RisingWave, "v", &c(&[("comment", "x")])).is_err());
     }
 

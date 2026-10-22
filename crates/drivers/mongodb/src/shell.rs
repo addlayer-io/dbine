@@ -29,7 +29,8 @@ pub enum Shape {
     Reply,
     /// `create` from `db.createCollection(name, options, { ifNotExists: true })`
     /// (a DBine extension): an existing namespace is not an error.
-    CreateIfMissing,    /// A user/role command from `db.runCommand(cmd, options, { ifExists: true })`
+    CreateIfMissing,
+    /// A user/role command from `db.runCommand(cmd, options, { ifExists: true })`
     /// (a DBine extension): skipped when its user or role doesn't exist.
     IfExists,
     /// `db.c.renameCollection(new)`: `renameCollection` runs on `admin`
@@ -52,12 +53,18 @@ type R<T> = std::result::Result<T, String>;
 /// a line starting with `.` continues the previous call chain).
 #[cfg(test)]
 pub fn parse_script(text: &str) -> R<Vec<Stmt>> {
-    Ok(parse_script_text(text)?.into_iter().map(|(_, s)| s).collect())
+    Ok(parse_script_text(text)?
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect())
 }
 
 /// [`parse_script`], with each statement's source text.
 pub fn parse_script_text(text: &str) -> R<Vec<(String, Stmt)>> {
-    let mut p = P { s: text.chars().collect(), i: 0 };
+    let mut p = P {
+        s: text.chars().collect(),
+        i: 0,
+    };
     let mut out = Vec::new();
     loop {
         p.ws();
@@ -67,7 +74,11 @@ pub fn parse_script_text(text: &str) -> R<Vec<(String, Stmt)>> {
         }
         let Some(c) = p.peek() else { break };
         let start = p.i;
-        let stmt = if c == '{' { p.value().and_then(to_doc).map(|d| command_stmt(d, false)) } else { p.db_call() };
+        let stmt = if c == '{' {
+            p.value().and_then(to_doc).map(|d| command_stmt(d, false))
+        } else {
+            p.db_call()
+        };
         let stmt = stmt.map_err(|m| p.at_line(m))?;
         let src: String = p.s[start..p.i].iter().collect();
         out.push((src.trim().to_string(), stmt));
@@ -106,8 +117,15 @@ pub struct ParseError {
 /// line). A syntax error anywhere runs nothing, as a script file that
 /// doesn't parse.
 pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
-    let mut p = P { s: text.chars().collect(), i: 0 };
-    let bytes: Vec<usize> = text.char_indices().map(|(b, _)| b).chain(std::iter::once(text.len())).collect();
+    let mut p = P {
+        s: text.chars().collect(),
+        i: 0,
+    };
+    let bytes: Vec<usize> = text
+        .char_indices()
+        .map(|(b, _)| b)
+        .chain(std::iter::once(text.len()))
+        .collect();
     let line = |b: usize| text.as_bytes()[..b].iter().filter(|&&c| c == b'\n').count() as u32 + 1;
     let mut out = Vec::new();
     loop {
@@ -119,18 +137,28 @@ pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
         let Some(c) = p.peek() else { return Ok(out) };
         let start = bytes[p.i];
         let item = if c == '{' {
-            p.value().and_then(to_doc).map(|d| Item::Run(command_stmt(d, false)))
+            p.value()
+                .and_then(to_doc)
+                .map(|d| Item::Run(command_stmt(d, false)))
         } else if let Some(h) = p.helper() {
             h
         } else {
             p.db_call().map(Item::Run)
         };
         match item {
-            Ok(item) => out.push(Unit { item, start, line: line(start) }),
+            Ok(item) => out.push(Unit {
+                item,
+                start,
+                line: line(start),
+            }),
             Err(m) => {
                 let at = bytes[p.i.min(p.s.len())];
                 // The error carries the line apart (no "línea N: " prefix).
-                return Err(ParseError { message: m, offset: at, line: line(at) });
+                return Err(ParseError {
+                    message: m,
+                    offset: at,
+                    line: line(at),
+                });
             }
         }
     }
@@ -138,7 +166,11 @@ pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
 
 /// How a raw command document runs, from its first key.
 pub fn command_stmt(cmd: Document, admin: bool) -> Stmt {
-    let name = cmd.keys().next().map(|k| k.to_ascii_lowercase()).unwrap_or_default();
+    let name = cmd
+        .keys()
+        .next()
+        .map(|k| k.to_ascii_lowercase())
+        .unwrap_or_default();
     let explain = cmd.get_bool("explain").unwrap_or(false);
     let shape = match name.as_str() {
         "find" | "listcollections" | "listindexes" => Shape::Cursor,
@@ -185,14 +217,19 @@ const READ_COMMANDS: &[&str] = &[
 
 /// `Some(reason)` when the command writes (read-only connections refuse it).
 pub fn write_reason(cmd: &Document) -> Option<String> {
-    let Some((name, val)) = cmd.iter().next() else { return Some("comando vacío".into()) };
+    let Some((name, val)) = cmd.iter().next() else {
+        return Some("comando vacío".into());
+    };
     let lname = name.to_ascii_lowercase();
     if !READ_COMMANDS.contains(&lname.as_str()) {
         return Some(name.clone());
     }
     match lname.as_str() {
         "aggregate" => {
-            let stages = cmd.get_array("pipeline").map(|a| a.as_slice()).unwrap_or(&[]);
+            let stages = cmd
+                .get_array("pipeline")
+                .map(|a| a.as_slice())
+                .unwrap_or(&[]);
             stages.iter().find_map(|s| {
                 let d = s.as_document()?;
                 d.keys().find(|k| *k == "$out" || *k == "$merge").cloned()
@@ -205,7 +242,10 @@ pub fn write_reason(cmd: &Document) -> Option<String> {
 
 /// A single relaxed-JSON value (shell helpers allowed), as extended JSON.
 pub fn parse_value(text: &str) -> R<Value> {
-    let mut p = P { s: text.chars().collect(), i: 0 };
+    let mut p = P {
+        s: text.chars().collect(),
+        i: 0,
+    };
     let v = p.value().map_err(|m| p.at_line(m))?;
     p.ws();
     if p.peek().is_some() {
@@ -233,7 +273,11 @@ fn db_method(method: &str, args: Vec<Value>) -> R<Stmt> {
             if let Some(f) = first {
                 cmd.insert("filter", to_doc(f)?);
             }
-            Stmt { cmd, shape: Shape::Cursor, admin: false }
+            Stmt {
+                cmd,
+                shape: Shape::Cursor,
+                admin: false,
+            }
         }
         "runCommand" | "adminCommand" => {
             let cmd = match first {
@@ -255,8 +299,17 @@ fn db_method(method: &str, args: Vec<Value>) -> R<Stmt> {
             if let Some(o) = opt_doc(&mut a)? {
                 cmd.extend(o);
             }
-            let guard = opt_doc(&mut a)?.is_some_and(|g| g.get_bool("ifNotExists").unwrap_or(false));
-            Stmt { cmd, shape: if guard { Shape::CreateIfMissing } else { Shape::Reply }, admin: false }
+            let guard =
+                opt_doc(&mut a)?.is_some_and(|g| g.get_bool("ifNotExists").unwrap_or(false));
+            Stmt {
+                cmd,
+                shape: if guard {
+                    Shape::CreateIfMissing
+                } else {
+                    Shape::Reply
+                },
+                admin: false,
+            }
         }
         // db.createView(name, source, pipeline[, options])
         "createView" => {
@@ -265,7 +318,9 @@ fn db_method(method: &str, args: Vec<Value>) -> R<Stmt> {
             let pipeline: Vec<Bson> = match a.next() {
                 Some(Value::Array(st)) => st.into_iter().map(to_bson).collect::<R<_>>()?,
                 None => Vec::new(),
-                Some(other) => return Err(format!("createView espera un array de etapas, no {other}")),
+                Some(other) => {
+                    return Err(format!("createView espera un array de etapas, no {other}"))
+                }
             };
             let mut cmd = doc! { "create": name, "viewOn": source, "pipeline": pipeline };
             if let Some(o) = opt_doc(&mut a)? {
@@ -351,7 +406,11 @@ impl P {
 
     /// `msg` with the line the parser stopped at, as one message.
     fn at_line(&self, msg: String) -> String {
-        let line = self.s[..self.i.min(self.s.len())].iter().filter(|c| **c == '\n').count() + 1;
+        let line = self.s[..self.i.min(self.s.len())]
+            .iter()
+            .filter(|c| **c == '\n')
+            .count()
+            + 1;
         format!("línea {line}: {msg}")
     }
 
@@ -370,7 +429,9 @@ impl P {
                 }
                 Some('/') if self.at(1) == Some('*') => {
                     self.i += 2;
-                    while self.peek().is_some() && !(self.peek() == Some('*') && self.at(1) == Some('/')) {
+                    while self.peek().is_some()
+                        && !(self.peek() == Some('*') && self.at(1) == Some('/'))
+                    {
                         self.i += 1;
                     }
                     self.i = (self.i + 2).min(self.s.len());
@@ -434,8 +495,15 @@ impl P {
     fn db_call(&mut self) -> R<Stmt> {
         match self.ident() {
             Some(w) if w == "db" => {}
-            Some(w) => return self.err(format!("se esperaba `db.` o un documento {{…}}, no `{w}`")),
-            None => return self.err(format!("se esperaba `db.` o un documento {{…}}, no '{}'", self.peek().unwrap_or(' '))),
+            Some(w) => {
+                return self.err(format!("se esperaba `db.` o un documento {{…}}, no `{w}`"))
+            }
+            None => {
+                return self.err(format!(
+                    "se esperaba `db.` o un documento {{…}}, no '{}'",
+                    self.peek().unwrap_or(' ')
+                ))
+            }
         }
         // Collection name segments until one is followed by `(`.
         let mut parts: Vec<String> = Vec::new();
@@ -444,7 +512,9 @@ impl P {
             match self.peek() {
                 Some('.') => {
                     self.i += 1;
-                    let Some(name) = self.ident() else { return self.err("se esperaba un nombre después de '.'") };
+                    let Some(name) = self.ident() else {
+                        return self.err("se esperaba un nombre después de '.'");
+                    };
                     self.ws();
                     if self.peek() == Some('(') {
                         break (name, self.args()?);
@@ -454,7 +524,9 @@ impl P {
                 Some('[') => {
                     self.i += 1;
                     self.ws();
-                    let Value::String(name) = self.value()? else { return self.err("se esperaba un nombre entre comillas") };
+                    let Value::String(name) = self.value()? else {
+                        return self.err("se esperaba un nombre entre comillas");
+                    };
                     self.expect(']')?;
                     parts.push(name);
                 }
@@ -467,7 +539,9 @@ impl P {
                     return self.err("getCollection necesita el nombre de la colección");
                 };
                 self.expect('.')?;
-                let Some(m) = self.ident() else { return self.err("se esperaba un método de colección") };
+                let Some(m) = self.ident() else {
+                    return self.err("se esperaba un método de colección");
+                };
                 let a = self.args()?;
                 (name, m, a)
             } else {
@@ -484,8 +558,14 @@ impl P {
                 break;
             }
             self.i += 1;
-            let Some(m) = self.ident() else { return self.err("se esperaba un método después de '.'") };
-            let a = if self.eat_peek('(') { self.args()? } else { Vec::new() };
+            let Some(m) = self.ident() else {
+                return self.err("se esperaba un método después de '.'");
+            };
+            let a = if self.eat_peek('(') {
+                self.args()?
+            } else {
+                Vec::new()
+            };
             modifier(&mut stmt, &m, a).or_else(|e| self.err(e))?;
         }
         Ok(stmt)
@@ -511,7 +591,9 @@ impl P {
             return None;
         }
         let item = match word {
-            "use" if arg.contains(char::is_whitespace) => return Some(self.err(format!("`use` lleva solo el nombre de la base, no `{arg}`"))),
+            "use" if arg.contains(char::is_whitespace) => {
+                return Some(self.err(format!("`use` lleva solo el nombre de la base, no `{arg}`")))
+            }
             "use" => Item::Use(arg.trim_matches(|c| c == '"' || c == '\'').to_string()),
             _ => Item::Show(arg.to_ascii_lowercase()),
         };
@@ -526,7 +608,9 @@ impl P {
 
     fn value(&mut self) -> R<Value> {
         self.ws();
-        let Some(c) = self.peek() else { return self.err("se esperaba un valor y terminó el texto") };
+        let Some(c) = self.peek() else {
+            return self.err("se esperaba un valor y terminó el texto");
+        };
         match c {
             '{' => {
                 self.i += 1;
@@ -563,9 +647,13 @@ impl P {
             '/' => self.regex(),
             c if c.is_ascii_digit() || c == '-' || c == '+' || c == '.' => self.number(),
             _ => {
-                let Some(mut w) = self.ident() else { return self.err(format!("valor inesperado '{c}'")) };
+                let Some(mut w) = self.ident() else {
+                    return self.err(format!("valor inesperado '{c}'"));
+                };
                 if w == "new" {
-                    let Some(n) = self.ident() else { return self.err("se esperaba un constructor después de `new`") };
+                    let Some(n) = self.ident() else {
+                        return self.err("se esperaba un constructor después de `new`");
+                    };
                     w = n;
                 }
                 match w.as_str() {
@@ -578,7 +666,11 @@ impl P {
                         if self.eat_peek('(') {
                             self.args()?;
                         }
-                        Ok(if w == "MinKey" { json!({ "$minKey": 1 }) } else { json!({ "$maxKey": 1 }) })
+                        Ok(if w == "MinKey" {
+                            json!({ "$minKey": 1 })
+                        } else {
+                            json!({ "$maxKey": 1 })
+                        })
                     }
                     _ if self.eat_peek('(') => {
                         let args = self.args()?;
@@ -616,12 +708,16 @@ impl P {
         self.i += 1;
         let mut out = String::new();
         loop {
-            let Some(c) = self.peek() else { return self.err("texto sin cerrar") };
+            let Some(c) = self.peek() else {
+                return self.err("texto sin cerrar");
+            };
             self.i += 1;
             match c {
                 c if c == q => return Ok(out),
                 '\\' => {
-                    let Some(e) = self.peek() else { return self.err("texto sin cerrar") };
+                    let Some(e) = self.peek() else {
+                        return self.err("texto sin cerrar");
+                    };
                     self.i += 1;
                     match e {
                         'n' => out.push('\n'),
@@ -631,8 +727,14 @@ impl P {
                         'f' => out.push('\u{c}'),
                         '0' => out.push('\0'),
                         'u' => {
-                            let hex: String = self.s.get(self.i..self.i + 4).map(|h| h.iter().collect()).unwrap_or_default();
-                            let Some(ch) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) else {
+                            let hex: String = self
+                                .s
+                                .get(self.i..self.i + 4)
+                                .map(|h| h.iter().collect())
+                                .unwrap_or_default();
+                            let Some(ch) =
+                                u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32)
+                            else {
                                 return self.err("escape \\u inválido");
                             };
                             self.i += 4;
@@ -681,7 +783,9 @@ impl P {
         let mut pat = String::new();
         let mut in_class = false;
         loop {
-            let Some(c) = self.peek() else { return self.err("expresión regular sin cerrar") };
+            let Some(c) = self.peek() else {
+                return self.err("expresión regular sin cerrar");
+            };
             self.i += 1;
             match c {
                 '\\' => {
@@ -741,14 +845,17 @@ fn constructor(name: &str, args: Vec<Value>) -> R<Value> {
             let ms = match args.first() {
                 None => Utc::now().timestamp_millis(),
                 Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0) as i64,
-                Some(Value::String(s)) => parse_date(s).ok_or_else(|| format!("fecha inválida: \"{s}\""))?,
+                Some(Value::String(s)) => {
+                    parse_date(s).ok_or_else(|| format!("fecha inválida: \"{s}\""))?
+                }
                 Some(other) => return Err(format!("fecha inválida: {other}")),
             };
             json!({ "$date": { "$numberLong": ms.to_string() } })
         }
         "NumberLong" | "Long" => {
             let s = arg_str(&args, 0).unwrap_or_else(|| "0".into());
-            s.parse::<i64>().map_err(|_| format!("NumberLong inválido: {s}"))?;
+            s.parse::<i64>()
+                .map_err(|_| format!("NumberLong inválido: {s}"))?;
             json!({ "$numberLong": s })
         }
         "NumberInt" | "Int32" => {
@@ -756,7 +863,9 @@ fn constructor(name: &str, args: Vec<Value>) -> R<Value> {
             let n: i32 = s.parse().map_err(|_| format!("NumberInt inválido: {s}"))?;
             json!({ "$numberInt": n.to_string() })
         }
-        "NumberDecimal" | "Decimal128" => json!({ "$numberDecimal": arg_str(&args, 0).unwrap_or_else(|| "0".into()) }),
+        "NumberDecimal" | "Decimal128" => {
+            json!({ "$numberDecimal": arg_str(&args, 0).unwrap_or_else(|| "0".into()) })
+        }
         "Double" => json!(args.first().and_then(Value::as_f64).unwrap_or(0.0)),
         "Timestamp" => {
             let t = args.first().and_then(Value::as_u64).unwrap_or(0);
@@ -764,8 +873,14 @@ fn constructor(name: &str, args: Vec<Value>) -> R<Value> {
             json!({ "$timestamp": { "t": t, "i": i } })
         }
         "UUID" => {
-            let hex: String = arg_str(&args, 0).unwrap_or_default().chars().filter(|c| *c != '-').collect();
-            let bytes = decode_hex(&hex).filter(|b| b.len() == 16).ok_or_else(|| format!("UUID inválido: {hex}"))?;
+            let hex: String = arg_str(&args, 0)
+                .unwrap_or_default()
+                .chars()
+                .filter(|c| *c != '-')
+                .collect();
+            let bytes = decode_hex(&hex)
+                .filter(|b| b.len() == 16)
+                .ok_or_else(|| format!("UUID inválido: {hex}"))?;
             json!({ "$binary": { "base64": b64(&bytes), "subType": "04" } })
         }
         "BinData" => {
@@ -773,7 +888,10 @@ fn constructor(name: &str, args: Vec<Value>) -> R<Value> {
             let data = arg_str(&args, 1).unwrap_or_default();
             json!({ "$binary": { "base64": data, "subType": format!("{sub:02x}") } })
         }
-        "RegExp" => regex_value(&arg_str(&args, 0).unwrap_or_default(), &arg_str(&args, 1).unwrap_or_default()),
+        "RegExp" => regex_value(
+            &arg_str(&args, 0).unwrap_or_default(),
+            &arg_str(&args, 1).unwrap_or_default(),
+        ),
         other => return Err(format!("constructor desconocido `{other}(…)`")),
     })
 }
@@ -784,19 +902,31 @@ pub fn parse_date(s: &str) -> Option<i64> {
     if let Ok(d) = DateTime::parse_from_rfc3339(s) {
         return Some(d.timestamp_millis());
     }
-    for f in ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M"] {
+    for f in [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M",
+    ] {
         if let Ok(d) = NaiveDateTime::parse_from_str(s.trim_end_matches('Z'), f) {
             return Some(d.and_utc().timestamp_millis());
         }
     }
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().map(|d| d.and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis())
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().map(|d| {
+        d.and_hms_opt(0, 0, 0)
+            .expect("midnight")
+            .and_utc()
+            .timestamp_millis()
+    })
 }
 
 fn decode_hex(h: &str) -> Option<Vec<u8>> {
     if h.len() % 2 != 0 {
         return None;
     }
-    (0..h.len()).step_by(2).map(|i| u8::from_str_radix(h.get(i..i + 2)?, 16).ok()).collect()
+    (0..h.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(h.get(i..i + 2)?, 16).ok())
+        .collect()
 }
 
 fn b64(bytes: &[u8]) -> String {
@@ -820,7 +950,11 @@ const UPDATE_OPTS: &[&str] = &["upsert", "arrayFilters", "hint", "collation"];
 
 fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
     let mut a = args.into_iter();
-    let stmt = |cmd, shape| Stmt { cmd, shape, admin: false };
+    let stmt = |cmd, shape| Stmt {
+        cmd,
+        shape,
+        admin: false,
+    };
     Ok(match method {
         "find" | "findOne" => {
             let mut cmd = doc! { "find": coll, "filter": filter_arg(&mut a)? };
@@ -837,7 +971,9 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
             let first = a.next().unwrap_or(Value::Array(Vec::new()));
             let (pipeline, opts) = match first {
                 Value::Array(stages) => (stages, opt_doc(&mut a)?),
-                stage @ Value::Object(_) => (std::iter::once(stage).chain(a.by_ref()).collect(), None),
+                stage @ Value::Object(_) => {
+                    (std::iter::once(stage).chain(a.by_ref()).collect(), None)
+                }
                 other => return Err(format!("aggregate espera un array de etapas, no {other}")),
             };
             let pipeline: Vec<Bson> = pipeline.into_iter().map(to_bson).collect::<R<_>>()?;
@@ -851,7 +987,11 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
                     }
                 }
             }
-            let shape = if cmd.get_bool("explain").unwrap_or(false) { Shape::Reply } else { Shape::Cursor };
+            let shape = if cmd.get_bool("explain").unwrap_or(false) {
+                Shape::Reply
+            } else {
+                Shape::Cursor
+            };
             stmt(cmd, shape)
         }
         "countDocuments" => {
@@ -864,13 +1004,23 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
                     pipeline.push(Bson::Document(doc! { "$limit": l.clone() }));
                 }
             }
-            pipeline.push(Bson::Document(doc! { "$group": { "_id": 1, "count": { "$sum": 1 } } }));
-            stmt(doc! { "aggregate": coll, "pipeline": pipeline, "cursor": {} }, Shape::CountAgg)
+            pipeline.push(Bson::Document(
+                doc! { "$group": { "_id": 1, "count": { "$sum": 1 } } },
+            ));
+            stmt(
+                doc! { "aggregate": coll, "pipeline": pipeline, "cursor": {} },
+                Shape::CountAgg,
+            )
         }
         "estimatedDocumentCount" => stmt(doc! { "count": coll }, Shape::Count),
-        "count" => stmt(doc! { "count": coll, "query": filter_arg(&mut a)? }, Shape::Count),
+        "count" => stmt(
+            doc! { "count": coll, "query": filter_arg(&mut a)? },
+            Shape::Count,
+        ),
         "distinct" => {
-            let Some(Value::String(key)) = a.next() else { return Err("distinct necesita el nombre del campo".into()) };
+            let Some(Value::String(key)) = a.next() else {
+                return Err("distinct necesita el nombre del campo".into());
+            };
             let cmd = doc! { "distinct": coll, "key": key.as_str(), "query": filter_arg(&mut a)? };
             stmt(cmd, Shape::Distinct(key))
         }
@@ -878,7 +1028,10 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
         "stats" => stmt(doc! { "collStats": coll }, Shape::Reply),
         "insertOne" | "insert" | "insertMany" => {
             let docs: Vec<Bson> = match a.next() {
-                Some(Value::Array(v)) => v.into_iter().map(|d| to_doc(d).map(Bson::Document)).collect::<R<_>>()?,
+                Some(Value::Array(v)) => v
+                    .into_iter()
+                    .map(|d| to_doc(d).map(Bson::Document))
+                    .collect::<R<_>>()?,
                 Some(v) => vec![Bson::Document(to_doc(v)?)],
                 None => return Err(format!("{method} necesita un documento")),
             };
@@ -893,7 +1046,9 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
         "updateOne" | "updateMany" | "replaceOne" => {
             let q = filter_arg(&mut a)?;
             let u = match a.next() {
-                Some(Value::Array(p)) if method != "replaceOne" => Bson::Array(p.into_iter().map(to_bson).collect::<R<_>>()?),
+                Some(Value::Array(p)) if method != "replaceOne" => {
+                    Bson::Array(p.into_iter().map(to_bson).collect::<R<_>>()?)
+                }
                 Some(v) => Bson::Document(to_doc(v)?),
                 None => return Err(format!("{method} necesita el documento de cambios")),
             };
@@ -910,7 +1065,10 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
         "deleteOne" | "deleteMany" | "remove" => {
             let q = filter_arg(&mut a)?;
             let limit = if method == "deleteOne" { 1 } else { 0 };
-            stmt(doc! { "delete": coll, "deletes": [{ "q": q, "limit": limit }] }, Shape::Write)
+            stmt(
+                doc! { "delete": coll, "deletes": [{ "q": q, "limit": limit }] },
+                Shape::Write,
+            )
         }
         "drop" => stmt(doc! { "drop": coll }, Shape::Reply),
         // db.c.renameCollection(new[, dropTarget]), in the same database.
@@ -920,19 +1078,36 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
                 _ => return Err("renameCollection necesita el nombre nuevo como texto".into()),
             };
             let drop_target = matches!(a.next(), Some(Value::Bool(true)));
-            Stmt { cmd: doc! { "renameCollection": coll, "to": to, "dropTarget": drop_target }, shape: Shape::Rename, admin: true }
+            Stmt {
+                cmd: doc! { "renameCollection": coll, "to": to, "dropTarget": drop_target },
+                shape: Shape::Rename,
+                admin: true,
+            }
         }
         // db.c.createIndex(keys[, options]) / createIndexes([keys…][, options])
         "createIndex" | "ensureIndex" => {
-            let keys = a.next().ok_or_else(|| format!("{method} necesita las claves del índice"))?;
+            let keys = a
+                .next()
+                .ok_or_else(|| format!("{method} necesita las claves del índice"))?;
             let opts = opt_doc(&mut a)?;
-            stmt(doc! { "createIndexes": coll, "indexes": [index_spec(keys, opts.as_ref())?] }, Shape::Reply)
+            stmt(
+                doc! { "createIndexes": coll, "indexes": [index_spec(keys, opts.as_ref())?] },
+                Shape::Reply,
+            )
         }
         "createIndexes" => {
-            let Some(Value::Array(all)) = a.next() else { return Err("createIndexes espera un array de claves".into()) };
+            let Some(Value::Array(all)) = a.next() else {
+                return Err("createIndexes espera un array de claves".into());
+            };
             let opts = opt_doc(&mut a)?;
-            let specs: Vec<Bson> = all.into_iter().map(|k| index_spec(k, opts.as_ref()).map(Bson::Document)).collect::<R<_>>()?;
-            stmt(doc! { "createIndexes": coll, "indexes": specs }, Shape::Reply)
+            let specs: Vec<Bson> = all
+                .into_iter()
+                .map(|k| index_spec(k, opts.as_ref()).map(Bson::Document))
+                .collect::<R<_>>()?;
+            stmt(
+                doc! { "createIndexes": coll, "indexes": specs },
+                Shape::Reply,
+            )
         }
         "dropIndex" | "dropIndexes" => {
             let index = match a.next() {
@@ -947,7 +1122,11 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
             let mut index = match a.next() {
                 Some(Value::String(s)) => doc! { "name": s },
                 Some(v @ Value::Object(_)) => doc! { "keyPattern": to_doc(v)? },
-                _ => return Err(format!("{method} necesita el nombre o las claves del índice")),
+                _ => {
+                    return Err(format!(
+                        "{method} necesita el nombre o las claves del índice"
+                    ))
+                }
             };
             index.insert("hidden", method == "hideIndex");
             stmt(doc! { "collMod": coll, "index": index }, Shape::Reply)
@@ -986,7 +1165,10 @@ fn modifier(stmt: &mut Stmt, name: &str, args: Vec<Value>) -> R<()> {
             stmt.cmd.insert(name, to_bson(v)?);
         }
         "limit" | "skip" | "batchSize" | "maxTimeMS" => {
-            let n = first.as_ref().and_then(Value::as_i64).ok_or_else(|| format!(".{name}() necesita un número"))?;
+            let n = first
+                .as_ref()
+                .and_then(Value::as_i64)
+                .ok_or_else(|| format!(".{name}() necesita un número"))?;
             if name == "maxTimeMS" {
                 stmt.cmd.insert(name, n);
                 return Ok(());
@@ -1033,10 +1215,16 @@ mod tests {
     #[test]
     fn hide_and_unhide_index() {
         let h = one(r#"db.getCollection("pedidos").hideIndex("ix_a")"#);
-        assert_eq!(h.cmd, doc! { "collMod": "pedidos", "index": { "name": "ix_a", "hidden": true } });
+        assert_eq!(
+            h.cmd,
+            doc! { "collMod": "pedidos", "index": { "name": "ix_a", "hidden": true } }
+        );
         assert_eq!(write_reason(&h.cmd).as_deref(), Some("collMod"));
         let u = one("db.pedidos.unhideIndex({ a: 1, b: -1 })");
-        assert_eq!(u.cmd, doc! { "collMod": "pedidos", "index": { "keyPattern": { "a": 1, "b": -1 }, "hidden": false } });
+        assert_eq!(
+            u.cmd,
+            doc! { "collMod": "pedidos", "index": { "keyPattern": { "a": 1, "b": -1 }, "hidden": false } }
+        );
         assert!(parse_script("db.pedidos.hideIndex()").is_err());
     }
 
@@ -1053,7 +1241,10 @@ mod tests {
 
     #[test]
     fn several_statements_by_newline_and_semicolon() {
-        let v = parse_script("db.a.find()\ndb.b.countDocuments({})  ; db.getCollectionNames()\n{ ping: 1 }").unwrap();
+        let v = parse_script(
+            "db.a.find()\ndb.b.countDocuments({})  ; db.getCollectionNames()\n{ ping: 1 }",
+        )
+        .unwrap();
         assert_eq!(v.len(), 4);
         assert_eq!(v[1].shape, Shape::CountAgg);
         assert_eq!(v[2].cmd.get_bool("nameOnly"), Ok(true));
@@ -1063,9 +1254,14 @@ mod tests {
 
     #[test]
     fn shell_constructors_become_bson() {
-        let s = one(r#"db.c.find({_id: ObjectId("65a1b2c3d4e5f60718293a4b"), at: {$gte: ISODate("2024-01-31")}, n: NumberLong("9007199254740993"), r: /ab\/c/i, trailing: [1,2,],})"#);
+        let s = one(
+            r#"db.c.find({_id: ObjectId("65a1b2c3d4e5f60718293a4b"), at: {$gte: ISODate("2024-01-31")}, n: NumberLong("9007199254740993"), r: /ab\/c/i, trailing: [1,2,],})"#,
+        );
         let f = s.cmd.get_document("filter").unwrap();
-        assert_eq!(f.get_object_id("_id").unwrap().to_hex(), "65a1b2c3d4e5f60718293a4b");
+        assert_eq!(
+            f.get_object_id("_id").unwrap().to_hex(),
+            "65a1b2c3d4e5f60718293a4b"
+        );
         let at = f.get_document("at").unwrap().get_datetime("$gte").unwrap();
         assert_eq!(at.timestamp_millis(), 1_706_659_200_000);
         assert_eq!(f.get_i64("n"), Ok(9_007_199_254_740_993));
@@ -1087,52 +1283,97 @@ mod tests {
 
     #[test]
     fn collection_names_with_dots_and_brackets() {
-        assert_eq!(one("db.system.views.find()").cmd.get_str("find"), Ok("system.views"));
-        assert_eq!(one("db['my-coll'].find()").cmd.get_str("find"), Ok("my-coll"));
-        assert_eq!(one("db.getCollection(\"a b\").find({}).limit(1)").cmd.get_str("find"), Ok("a b"));
+        assert_eq!(
+            one("db.system.views.find()").cmd.get_str("find"),
+            Ok("system.views")
+        );
+        assert_eq!(
+            one("db['my-coll'].find()").cmd.get_str("find"),
+            Ok("my-coll")
+        );
+        assert_eq!(
+            one("db.getCollection(\"a b\").find({}).limit(1)")
+                .cmd
+                .get_str("find"),
+            Ok("a b")
+        );
     }
 
     #[test]
     fn writes_and_distinct() {
         let s = one("db.c.updateMany({a: 1}, {$set: {b: 2}}, {upsert: true})");
         assert_eq!(s.shape, Shape::Write);
-        let u = s.cmd.get_array("updates").unwrap()[0].as_document().unwrap().clone();
+        let u = s.cmd.get_array("updates").unwrap()[0]
+            .as_document()
+            .unwrap()
+            .clone();
         assert_eq!(u.get_bool("multi"), Ok(true));
         assert_eq!(u.get_bool("upsert"), Ok(true));
         let d = one("db.c.distinct('city', {active: true})");
         assert_eq!(d.shape, Shape::Distinct("city".into()));
         let del = one("db.c.deleteOne({x: 1})");
-        assert_eq!(del.cmd.get_array("deletes").unwrap()[0].as_document().unwrap().get_i32("limit"), Ok(1));
+        assert_eq!(
+            del.cmd.get_array("deletes").unwrap()[0]
+                .as_document()
+                .unwrap()
+                .get_i32("limit"),
+            Ok(1)
+        );
     }
 
     #[test]
     fn read_only_whitelist() {
         assert_eq!(write_reason(&one("db.c.find({})").cmd), None);
-        assert_eq!(write_reason(&one("db.c.aggregate([{$match: {}}])").cmd), None);
-        assert_eq!(write_reason(&one("db.c.aggregate([{$match: {}}, {$out: 'x'}])").cmd).as_deref(), Some("$out"));
-        assert_eq!(write_reason(&one("db.c.insertOne({a: 1})").cmd).as_deref(), Some("insert"));
-        assert_eq!(write_reason(&one("db.runCommand({dropDatabase: 1})").cmd).as_deref(), Some("dropDatabase"));
+        assert_eq!(
+            write_reason(&one("db.c.aggregate([{$match: {}}])").cmd),
+            None
+        );
+        assert_eq!(
+            write_reason(&one("db.c.aggregate([{$match: {}}, {$out: 'x'}])").cmd).as_deref(),
+            Some("$out")
+        );
+        assert_eq!(
+            write_reason(&one("db.c.insertOne({a: 1})").cmd).as_deref(),
+            Some("insert")
+        );
+        assert_eq!(
+            write_reason(&one("db.runCommand({dropDatabase: 1})").cmd).as_deref(),
+            Some("dropDatabase")
+        );
         assert_eq!(write_reason(&one("db.c.find().explain()").cmd), None);
         assert_eq!(write_reason(&one("db.c.find().count()").cmd), None);
     }
 
     #[test]
     fn units_with_use_and_show() {
-        let u = parse_units("use ventas\nshow collections;\ndb.c.find({ a: 1 })\n  .limit(2); { ping: 1 }\nuse = 3").unwrap_err();
+        let u = parse_units(
+            "use ventas\nshow collections;\ndb.c.find({ a: 1 })\n  .limit(2); { ping: 1 }\nuse = 3",
+        )
+        .unwrap_err();
         // `use = 3` isn't the helper: it's an unparsable call.
         assert_eq!(u.line, 5);
-        let u = parse_units("use ventas\nshow collections;\ndb.c.find({ a: 'é' })\n  .limit(2); { ping: 1 }").unwrap();
-        let items: Vec<(&Item, u32, usize)> = u.iter().map(|u| (&u.item, u.line, u.start)).collect();
+        let u = parse_units(
+            "use ventas\nshow collections;\ndb.c.find({ a: 'é' })\n  .limit(2); { ping: 1 }",
+        )
+        .unwrap();
+        let items: Vec<(&Item, u32, usize)> =
+            u.iter().map(|u| (&u.item, u.line, u.start)).collect();
         assert_eq!(items[0], (&Item::Use("ventas".into()), 1, 0));
         assert_eq!(items[1], (&Item::Show("collections".into()), 2, 11));
         assert!(matches!(items[2], (Item::Run(_), 3, 29)));
         assert!(matches!(items[3], (Item::Run(_), 4, 65)));
         assert_eq!(u.len(), 4);
         // A collection called `use` is still a call.
-        assert!(matches!(parse_units("db.use.find()").unwrap()[0].item, Item::Run(_)));
+        assert!(matches!(
+            parse_units("db.use.find()").unwrap()[0].item,
+            Item::Run(_)
+        ));
         let e = parse_units("db.c.find({})\n  db.c.find({a: })").unwrap_err();
         assert_eq!((e.line, e.offset), (2, 30));
-        assert!(e.message.starts_with("se esperaba un valor") || !e.message.starts_with("línea"), "{e:?}");
+        assert!(
+            e.message.starts_with("se esperaba un valor") || !e.message.starts_with("línea"),
+            "{e:?}"
+        );
         assert!(parse_units("use a b").is_err());
     }
 

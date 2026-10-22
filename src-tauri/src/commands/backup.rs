@@ -39,8 +39,17 @@ pub async fn backup_list(state: State<'_, AppState>, args: ListArgs) -> CommandR
         None => (Vec::new(), None),
         Some(_) => {
             let key = format!("backup:{}:{}", args.connection_id, args.database);
-            let r = match state.session(&key, &args.connection_id, &args.database).await {
-                Ok(entry) => entry.session.lock().await.backups(db).await.map_err(|e| e.to_string()),
+            let r = match state
+                .session(&key, &args.connection_id, &args.database)
+                .await
+            {
+                Ok(entry) => entry
+                    .session
+                    .lock()
+                    .await
+                    .backups(db)
+                    .await
+                    .map_err(|e| e.to_string()),
                 Err(e) => Err(e.to_string()),
             };
             match r {
@@ -49,7 +58,11 @@ pub async fn backup_list(state: State<'_, AppState>, args: ListArgs) -> CommandR
             }
         }
     };
-    Ok(BackupList { copies, native, native_error })
+    Ok(BackupList {
+        copies,
+        native,
+        native_error,
+    })
 }
 
 #[derive(Deserialize)]
@@ -67,15 +80,27 @@ pub struct BackupScript {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn backup_script(state: State<'_, AppState>, args: ScriptArgs) -> CommandResult<BackupScript> {
+pub async fn backup_script(
+    state: State<'_, AppState>,
+    args: ScriptArgs,
+) -> CommandResult<BackupScript> {
     let driver = driver_of(&state, &args.connection_id)?;
     let script = driver.backup_script(&args.action)?;
     let secret_keys: Vec<&str> = driver
         .backup()
-        .map(|s| s.backup_options.iter().chain(&s.restore_options).filter(|f| f.secret || matches!(f.kind, FieldKind::Password)).map(|f| f.key).collect())
+        .map(|s| {
+            s.backup_options
+                .iter()
+                .chain(&s.restore_options)
+                .filter(|f| f.secret || matches!(f.kind, FieldKind::Password))
+                .map(|f| f.key)
+                .collect()
+        })
         .unwrap_or_default();
     let options = match &args.action {
-        BackupAction::Backup { options, .. } | BackupAction::Restore { options, .. } => Some(options),
+        BackupAction::Backup { options, .. } | BackupAction::Restore { options, .. } => {
+            Some(options)
+        }
         BackupAction::Delete { .. } => None,
     };
     let mut shown = script.clone();
@@ -96,8 +121,15 @@ pub struct DefaultPathArgs {
 /// Where a new copy goes unless the user picks another place:
 /// Documents/DBine/Backups/<connection>/<database>-<date>.<ext>.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn backup_default_path(app: AppHandle, state: State<'_, AppState>, args: DefaultPathArgs) -> CommandResult<String> {
-    let conn = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("la conexión ya no existe".into()))?;
+pub async fn backup_default_path(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: DefaultPathArgs,
+) -> CommandResult<String> {
+    let conn = state
+        .store
+        .get_connection(&args.connection_id)?
+        .ok_or_else(|| CommandError::NotFound("la conexión ya no existe".into()))?;
     let driver = driver_of(&state, &args.connection_id)?;
     let base = app
         .path()
@@ -111,9 +143,21 @@ pub async fn backup_default_path(app: AppHandle, state: State<'_, AppState>, arg
         Language::Json => "js",
         _ => "txt",
     };
-    let name = if args.database.is_empty() { conn.name.as_str() } else { args.database.as_str() };
-    let file = format!("{}-{}.{ext}", safe(name), chrono::Local::now().format("%Y%m%d-%H%M%S"));
-    let path: PathBuf = base.join("DBine").join("Backups").join(safe(&conn.name)).join(file);
+    let name = if args.database.is_empty() {
+        conn.name.as_str()
+    } else {
+        args.database.as_str()
+    };
+    let file = format!(
+        "{}-{}.{ext}",
+        safe(name),
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    );
+    let path: PathBuf = base
+        .join("DBine")
+        .join("Backups")
+        .join(safe(&conn.name))
+        .join(file);
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -121,10 +165,20 @@ pub async fn backup_default_path(app: AppHandle, state: State<'_, AppState>, arg
 fn safe(name: &str) -> String {
     let s: String = name
         .chars()
-        .map(|c| if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() { "backup".into() } else { s }
+    if s.is_empty() {
+        "backup".into()
+    } else {
+        s
+    }
 }
 
 #[derive(Deserialize)]
@@ -142,17 +196,30 @@ pub struct CopyArgs {
 /// Write a copy of the database (DROP IF EXISTS + CREATE of every object,
 /// its indexes and keys, and the rows) and keep it in the list.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn backup_copy(app: AppHandle, state: State<'_, AppState>, args: CopyArgs) -> CommandResult<BackupCopy> {
+pub async fn backup_copy(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: CopyArgs,
+) -> CommandResult<BackupCopy> {
     make_copy(&state, Some(&app), args).await
 }
 
 /// `backup_copy`'s work; `app` is `None` with no window to tell the
 /// progress to (a scheduled task).
-pub(crate) async fn make_copy(state: &AppState, app: Option<&AppHandle>, args: CopyArgs) -> CommandResult<BackupCopy> {
+pub(crate) async fn make_copy(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    args: CopyArgs,
+) -> CommandResult<BackupCopy> {
     let started = std::time::Instant::now();
     let created_at = chrono::Utc::now().to_rfc3339();
     if let Some(dir) = PathBuf::from(&args.path).parent() {
-        std::fs::create_dir_all(dir).map_err(|e| CommandError::BadRequest(format!("no se pudo crear la carpeta {}: {e}", dir.display())))?;
+        std::fs::create_dir_all(dir).map_err(|e| {
+            CommandError::BadRequest(format!(
+                "no se pudo crear la carpeta {}: {e}",
+                dir.display()
+            ))
+        })?;
     }
     let driver = driver_of(state, &args.connection_id)?;
     let gen = GenerateArgs {
@@ -175,7 +242,9 @@ pub(crate) async fn make_copy(state: &AppState, app: Option<&AppHandle>, args: C
         data_tables: None,
     };
     let key = format!("script:{}", args.backup_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, true)
+        .await?;
     let res = generate(app, driver, &entry, &gen).await;
     state.sessions.remove(&key);
     let done = match res {
@@ -215,7 +284,12 @@ pub async fn backup_copy_delete(state: State<'_, AppState>, args: DeleteArgs) ->
             match std::fs::remove_file(&b.path) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(CommandError::BadRequest(format!("no se pudo borrar {}: {e}", b.path))),
+                Err(e) => {
+                    return Err(CommandError::BadRequest(format!(
+                        "no se pudo borrar {}: {e}",
+                        b.path
+                    )))
+                }
             }
         }
     }

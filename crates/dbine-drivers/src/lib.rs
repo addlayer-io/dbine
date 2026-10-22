@@ -150,10 +150,14 @@ pub mod plugins {
     fn file() -> &'static File {
         static FILE: OnceLock<File> = OnceLock::new();
         FILE.get_or_init(|| {
-            serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/plugins.json"))).unwrap_or_else(|e| {
-                tracing::error!("catálogo de drivers ilegible: {e}");
-                File { catalog: Catalog::default(), drivers: Vec::new() }
-            })
+            serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/plugins.json")))
+                .unwrap_or_else(|e| {
+                    tracing::error!("catálogo de drivers ilegible: {e}");
+                    File {
+                        catalog: Catalog::default(),
+                        drivers: Vec::new(),
+                    }
+                })
         })
     }
 
@@ -194,7 +198,11 @@ pub mod plugins {
 
     pub fn packages() -> Vec<Package> {
         let up = updater();
-        let pkg_of = |m: &serde_json::Value| m.get("package").and_then(|p| p.as_str()).map(str::to_string);
+        let pkg_of = |m: &serde_json::Value| {
+            m.get("package")
+                .and_then(|p| p.as_str())
+                .map(str::to_string)
+        };
         let mut names: Vec<String> = file().drivers.iter().filter_map(pkg_of).collect();
         names.sort();
         names.dedup();
@@ -208,14 +216,25 @@ pub mod plugins {
                         .drivers
                         .iter()
                         .filter(|m| pkg_of(m).as_deref() == Some(p.as_str()))
-                        .filter_map(|m| m.get("info").and_then(|i| i.get("name")).and_then(|n| n.as_str()).map(str::to_string))
+                        .filter_map(|m| {
+                            m.get("info")
+                                .and_then(|i| i.get("name"))
+                                .and_then(|n| n.as_str())
+                                .map(str::to_string)
+                        })
                         .collect(),
                     version: info.as_ref().map(|i| i.version.clone()).unwrap_or_default(),
                     size: info.as_ref().map(|i| i.size).unwrap_or(0),
                     installed: info.as_ref().and_then(|i| i.installed),
-                    available: info.as_ref().map(|i| i.available.clone()).unwrap_or_default(),
+                    available: info
+                        .as_ref()
+                        .map(|i| i.available.clone())
+                        .unwrap_or_default(),
                     previous: info.as_ref().and_then(|i| i.previous.clone()),
-                    status: info.as_ref().map(|i| i.status.clone()).unwrap_or(PkgStatus::UpToDate),
+                    status: info
+                        .as_ref()
+                        .map(|i| i.status.clone())
+                        .unwrap_or(PkgStatus::UpToDate),
                     min_app_needed: info.and_then(|i| i.min_app_needed),
                     package: p,
                 }
@@ -282,10 +301,20 @@ pub fn infos() -> Vec<DriverInfo> {
 
 /// Open a session; SQL sessions are wrapped read-only when the connection
 /// asks for it (other drivers enforce it themselves).
-pub async fn open_session(cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
-    let driver = find(&cfg.driver).ok_or_else(|| Error::Unsupported(format!("no hay driver '{}'", cfg.driver)))?;
+pub async fn open_session(
+    cfg: &ConnectionConfig,
+    database: Option<&str>,
+) -> Result<Box<dyn Session>> {
+    let driver = find(&cfg.driver)
+        .ok_or_else(|| Error::Unsupported(format!("no hay driver '{}'", cfg.driver)))?;
     let s = driver.connect(cfg, database).await?;
-    Ok(if cfg.read_only && driver.info().language == Language::Sql { Box::new(ReadOnlySession::with_dialect(s, driver.script_dialect())) } else { s })
+    Ok(
+        if cfg.read_only && driver.info().language == Language::Sql {
+            Box::new(ReadOnlySession::with_dialect(s, driver.script_dialect()))
+        } else {
+            s
+        },
+    )
 }
 
 #[cfg(test)]

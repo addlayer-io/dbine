@@ -6,7 +6,9 @@
 //! left out. Nothing is switched on.
 
 use crate::{text, DremioSession};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
@@ -26,35 +28,65 @@ pub(crate) struct State {
     seen: HashMap<String, i64>,
 }
 
-pub(crate) async fn start(s: &DremioSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &DremioSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let mut last = Err(Error::Query(String::new()));
     let mut table = "";
     for t in ["sys.jobs_recent", "sys.jobs"] {
-        last = s.strings(&format!("{OWN} SELECT max(submitted_epoch_millis) AS t FROM {t}")).await;
+        last = s
+            .strings(&format!(
+                "{OWN} SELECT max(submitted_epoch_millis) AS t FROM {t}"
+            ))
+            .await;
         if last.is_ok() {
             table = t;
             break;
         }
     }
     let rows = last.map_err(|e| match e {
-        Error::Query(m) => Error::Query(format!("No se pudo leer el historial de trabajos (sys.jobs_recent / sys.jobs): {m}")),
+        Error::Query(m) => Error::Query(format!(
+            "No se pudo leer el historial de trabajos (sys.jobs_recent / sys.jobs): {m}"
+        )),
         e => e,
     })?;
     // Jobs submitted up to now ran before profiling: not reported.
-    let after = rows.first().and_then(|r| r.first()).and_then(|t| t.parse::<i64>().ok()).map_or(0, |t| t + 1);
+    let after = rows
+        .first()
+        .and_then(|r| r.first())
+        .and_then(|t| t.parse::<i64>().ok())
+        .map_or(0, |t| t + 1);
     let mut note = String::from(
         "Dremio guarda cada trabajo; aparece al terminar. Sin permiso de administrador solo se ven los trabajos propios.",
     );
     if !opts.database.is_empty() {
-        note.push_str(&format!(" Se muestran los que corren en {} o leen sus datasets.", opts.database));
+        note.push_str(&format!(
+            " Se muestran los que corren en {} o leen sus datasets.",
+            opts.database
+        ));
     }
-    let state = State { table, database: opts.database.clone(), after, seen: HashMap::new() };
-    Ok((state, ProfilerStarted::new(ProfilerMode::Complete, table).units(Some("filas"), None).note(note)))
+    let state = State {
+        table,
+        database: opts.database.clone(),
+        after,
+        seen: HashMap::new(),
+    };
+    Ok((
+        state,
+        ProfilerStarted::new(ProfilerMode::Complete, table)
+            .units(Some("filas"), None)
+            .note(note),
+    ))
 }
 
 pub(crate) async fn poll(s: &DremioSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
     // `context` exists only in `sys.jobs_recent`.
-    let context = if state.table == "sys.jobs_recent" { "context" } else { "'' AS context" };
+    let context = if state.table == "sys.jobs_recent" {
+        "context"
+    } else {
+        "'' AS context"
+    };
     let sql = format!(
         "{OWN} SELECT job_id, status, query_type, user_name, queried_datasets, {context}, submitted_epoch_millis, \
                 final_state_epoch_millis, rows_returned, rows_scanned, execution_cpu_time_millis, queue_name, error_msg, query \
@@ -72,11 +104,20 @@ fn jobs(rows: &[Map<String, Value>], state: &mut State) -> Vec<ProfiledStatement
     let mut oldest_running: Option<i64> = None;
     let mut newest = state.after;
     for r in rows {
-        let n = |k: &str| r.get(k).and_then(|v| v.as_i64().or_else(|| text(v).parse().ok()));
-        let (Some(id), Some(submitted)) = (r.get("job_id").map(text), n("submitted_epoch_millis")) else { continue };
+        let n = |k: &str| {
+            r.get(k)
+                .and_then(|v| v.as_i64().or_else(|| text(v).parse().ok()))
+        };
+        let (Some(id), Some(submitted)) = (r.get("job_id").map(text), n("submitted_epoch_millis"))
+        else {
+            continue;
+        };
         newest = newest.max(submitted);
         let status = r.get("status").map(text).unwrap_or_default();
-        if !matches!(status.as_str(), "COMPLETED" | "FAILED" | "CANCELED" | "CANCELLED") {
+        if !matches!(
+            status.as_str(),
+            "COMPLETED" | "FAILED" | "CANCELED" | "CANCELLED"
+        ) {
             oldest_running = Some(oldest_running.map_or(submitted, |o| o.min(submitted)));
             continue;
         }
@@ -86,12 +127,20 @@ fn jobs(rows: &[Map<String, Value>], state: &mut State) -> Vec<ProfiledStatement
         let query = r.get("query").map(text).unwrap_or_default();
         let context = r.get("context").map(text).unwrap_or_default();
         let datasets = r.get("queried_datasets").map(text).unwrap_or_default();
-        if query.trim().is_empty() || query.starts_with(OWN) || !in_database(&state.database, &context, &datasets) {
+        if query.trim().is_empty()
+            || query.starts_with(OWN)
+            || !in_database(&state.database, &context, &datasets)
+        {
             continue;
         }
         let end = n("final_state_epoch_millis").filter(|e| *e > 0);
         let error = match status.as_str() {
-            "FAILED" => Some(r.get("error_msg").map(text).filter(|e| !e.is_empty()).unwrap_or_else(|| "falló".into())),
+            "FAILED" => Some(
+                r.get("error_msg")
+                    .map(text)
+                    .filter(|e| !e.is_empty())
+                    .unwrap_or_else(|| "falló".into()),
+            ),
             "CANCELED" | "CANCELLED" => Some("cancelado".into()),
             _ => None,
         };
@@ -118,7 +167,9 @@ fn jobs(rows: &[Map<String, Value>], state: &mut State) -> Vec<ProfiledStatement
         });
     }
     // Never back: what started before `after` was seen, or ran before profiling.
-    state.after = state.after.max(oldest_running.map_or(newest, |o| o.min(newest)));
+    state.after = state
+        .after
+        .max(oldest_running.map_or(newest, |o| o.min(newest)));
     let after = state.after;
     state.seen.retain(|_, t| *t >= after);
     out.sort_by(|a, b| a.time.cmp(&b.time));
@@ -128,7 +179,10 @@ fn jobs(rows: &[Map<String, Value>], state: &mut State) -> Vec<ProfiledStatement
 /// The container of a job's context (`[space, folder]` → `space`).
 fn first_level(context: &str) -> Option<String> {
     let c = context.trim().trim_start_matches('[').trim_end_matches(']');
-    c.split(',').next().map(|p| p.trim().to_string()).filter(|p| !p.is_empty())
+    c.split(',')
+        .next()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
 }
 
 /// Whether a job runs in `db`'s container (its context) or reads one of
@@ -164,7 +218,13 @@ fn utc_ms(ms: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}", sod / 3600, sod % 3600 / 60, sod % 60, ms.rem_euclid(1000))
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}",
+        sod / 3600,
+        sod % 3600 / 60,
+        sod % 60,
+        ms.rem_euclid(1000)
+    )
 }
 
 #[cfg(test)]
@@ -172,7 +232,13 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn row(id: &str, status: &str, submitted: i64, context: &str, datasets: &str) -> Map<String, Value> {
+    fn row(
+        id: &str,
+        status: &str,
+        submitted: i64,
+        context: &str,
+        datasets: &str,
+    ) -> Map<String, Value> {
         json!({"job_id": id, "status": status, "submitted_epoch_millis": submitted, "final_state_epoch_millis": submitted + 250,
                "context": context, "queried_datasets": datasets, "query": format!("SELECT {id}"), "user_name": "u",
                "rows_returned": 3, "query_type": "REST", "rows_scanned": 803, "execution_cpu_time_millis": "887", "queue_name": "SMALL"})
@@ -197,16 +263,39 @@ mod tests {
 
     #[test]
     fn jobs_once_after_they_end() {
-        let mut st = State { table: "sys.jobs_recent", database: String::new(), after: 100, seen: HashMap::new() };
-        let out = jobs(&[row("a", "COMPLETED", 100, "", ""), row("b", "RUNNING", 200, "", "")], &mut st);
+        let mut st = State {
+            table: "sys.jobs_recent",
+            database: String::new(),
+            after: 100,
+            seen: HashMap::new(),
+        };
+        let out = jobs(
+            &[
+                row("a", "COMPLETED", 100, "", ""),
+                row("b", "RUNNING", 200, "", ""),
+            ],
+            &mut st,
+        );
         assert_eq!(out.len(), 1);
         assert_eq!((out[0].duration_ms, out[0].rows), (Some(250.0), Some(3)));
-        assert_eq!((out[0].cpu_ms, out[0].reads, out[0].writes), (Some(887.0), Some(803), None));
+        assert_eq!(
+            (out[0].cpu_ms, out[0].reads, out[0].writes),
+            (Some(887.0), Some(803), None)
+        );
         assert_eq!(out[0].detail.as_deref(), Some("REST; cola SMALL"));
         assert_eq!(st.after, 200);
-        let out = jobs(&[row("b", "FAILED", 200, "", ""), row("c", "COMPLETED", 300, "", "")], &mut st);
+        let out = jobs(
+            &[
+                row("b", "FAILED", 200, "", ""),
+                row("c", "COMPLETED", 300, "", ""),
+            ],
+            &mut st,
+        );
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].error.as_deref(), Some("falló"));
-        assert!(jobs(&[row("c", "COMPLETED", 300, "", "")], &mut st).is_empty(), "reported once");
+        assert!(
+            jobs(&[row("c", "COMPLETED", 300, "", "")], &mut st).is_empty(),
+            "reported once"
+        );
     }
 }

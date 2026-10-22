@@ -9,20 +9,47 @@
 
 use crate::schema::{q, string_literal as lit};
 use crate::{text, ClickHouseSession, Flavor};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 
 pub(crate) fn spec(flavor: Flavor) -> SecuritySpec {
-    let mut object_kinds = vec!["", "schema", "table", "view", "materialized_view", "dictionary"];
+    let mut object_kinds = vec![
+        "",
+        "schema",
+        "table",
+        "view",
+        "materialized_view",
+        "dictionary",
+    ];
     if flavor == Flavor::Timeplus {
         object_kinds.insert(2, "stream");
     }
     SecuritySpec {
         privileges: vec![
-            "SELECT", "INSERT", "ALTER", "CREATE", "DROP", "TRUNCATE", "OPTIMIZE", "SHOW", "dictGet", "ALTER UPDATE",
-            "ALTER DELETE", "CREATE TABLE", "CREATE VIEW", "CREATE DICTIONARY", "DROP TABLE", "KILL QUERY", "SYSTEM",
-            "INTROSPECTION", "SOURCES", "ACCESS MANAGEMENT", "ALL",
+            "SELECT",
+            "INSERT",
+            "ALTER",
+            "CREATE",
+            "DROP",
+            "TRUNCATE",
+            "OPTIMIZE",
+            "SHOW",
+            "dictGet",
+            "ALTER UPDATE",
+            "ALTER DELETE",
+            "CREATE TABLE",
+            "CREATE VIEW",
+            "CREATE DICTIONARY",
+            "DROP TABLE",
+            "KILL QUERY",
+            "SYSTEM",
+            "INTROSPECTION",
+            "SOURCES",
+            "ACCESS MANAGEMENT",
+            "ALL",
         ],
         object_kinds,
         create_user: true,
@@ -33,7 +60,8 @@ pub(crate) fn spec(flavor: Flavor) -> SecuritySpec {
     }
 }
 
-const USERS: &str = "SELECT name, storage, toString(auth_type), toString(host_ip), toString(host_names),
+const USERS: &str =
+    "SELECT name, storage, toString(auth_type), toString(host_ip), toString(host_names),
        toString(host_names_regexp), toString(host_names_like), default_database
   FROM system.users ORDER BY name";
 const ROLES: &str = "SELECT name, storage FROM system.roles ORDER BY name";
@@ -63,7 +91,13 @@ fn from_sql(storage: &str) -> bool {
 pub(crate) async fn principals(s: &mut ClickHouseSession) -> Result<Vec<Principal>> {
     let users = s.rows(USERS, &[]).await?;
     let roles = s.rows(ROLES, &[]).await?;
-    let admins: HashSet<String> = s.rows(ADMINS, &[]).await.unwrap_or_default().iter().filter_map(|r| cell(r, 0)).collect();
+    let admins: HashSet<String> = s
+        .rows(ADMINS, &[])
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|r| cell(r, 0))
+        .collect();
     let mut out = Vec::new();
     for r in &users {
         let name = cell(r, 0).unwrap_or_default();
@@ -71,7 +105,10 @@ pub(crate) async fn principals(s: &mut ClickHouseSession) -> Result<Vec<Principa
         let empty = |i| matches!(cell(r, i).as_deref(), None | Some("[]"));
         let mut details = vec![("Almacenamiento".into(), storage.clone())];
         if let Some(a) = cell(r, 2).filter(|a| a != "[]") {
-            details.push(("Autenticación".into(), a.trim_matches(|c| c == '[' || c == ']').replace('\'', "")));
+            details.push((
+                "Autenticación".into(),
+                a.trim_matches(|c| c == '[' || c == ']').replace('\'', ""),
+            ));
         }
         if let Some(d) = cell(r, 7) {
             details.push(("Base predeterminada".into(), d));
@@ -101,7 +138,9 @@ pub(crate) async fn principals(s: &mut ClickHouseSession) -> Result<Vec<Principa
         });
     }
     for r in s.rows(ROLE_GRANTS, &[]).await.unwrap_or_default() {
-        let (Some(member), Some(role)) = (cell(&r, 0).or_else(|| cell(&r, 1)), cell(&r, 2)) else { continue };
+        let (Some(member), Some(role)) = (cell(&r, 0).or_else(|| cell(&r, 1)), cell(&r, 2)) else {
+            continue;
+        };
         if let Some(p) = out.iter_mut().find(|p| p.name == member) {
             p.member_of.push(role);
         }
@@ -112,7 +151,8 @@ pub(crate) async fn principals(s: &mut ClickHouseSession) -> Result<Vec<Principa
 pub(crate) async fn grants(s: &mut ClickHouseSession, principal: &str) -> Result<Vec<Grant>> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    let mut queue: VecDeque<(String, Option<String>)> = VecDeque::from([(principal.to_string(), None)]);
+    let mut queue: VecDeque<(String, Option<String>)> =
+        VecDeque::from([(principal.to_string(), None)]);
     while let Some((name, via)) = queue.pop_front() {
         if !seen.insert(name.clone()) || seen.len() > 64 {
             continue;
@@ -172,15 +212,27 @@ fn privileges(p: &[String]) -> Result<String> {
     let mut out = Vec::new();
     for x in p {
         let (name, cols) = match x.split_once('(') {
-            Some((n, c)) => (n.trim(), Some(c.trim().strip_suffix(')').ok_or_else(|| bad(x))?)),
+            Some((n, c)) => (
+                n.trim(),
+                Some(c.trim().strip_suffix(')').ok_or_else(|| bad(x))?),
+            ),
             None => (x.trim(), None),
         };
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_') {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
+        {
             return Err(bad(x));
         }
         match cols {
             Some(c) => {
-                let cols: Vec<String> = c.split(',').map(|c| c.trim().trim_matches('`')).filter(|c| !c.is_empty()).map(q).collect();
+                let cols: Vec<String> = c
+                    .split(',')
+                    .map(|c| c.trim().trim_matches('`'))
+                    .filter(|c| !c.is_empty())
+                    .map(q)
+                    .collect();
                 if cols.is_empty() {
                     return Err(bad(x));
                 }
@@ -195,27 +247,74 @@ fn privileges(p: &[String]) -> Result<String> {
 pub(crate) fn script(a: &SecurityAction) -> Result<String> {
     Ok(match a {
         SecurityAction::CreateUser { name, password } => {
-            let pw = password.as_deref().filter(|p| !p.is_empty()).ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))?;
-            format!("CREATE USER {} IDENTIFIED WITH sha256_password BY {};", q(name), lit(pw))
+            let pw = password
+                .as_deref()
+                .filter(|p| !p.is_empty())
+                .ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))?;
+            format!(
+                "CREATE USER {} IDENTIFIED WITH sha256_password BY {};",
+                q(name),
+                lit(pw)
+            )
         }
         SecurityAction::CreateRole { name } => format!("CREATE ROLE {};", q(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::Role } => format!("DROP ROLE {};", q(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::User } => format!("DROP USER {};", q(name)),
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::Role,
+        } => format!("DROP ROLE {};", q(name)),
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::User,
+        } => format!("DROP USER {};", q(name)),
         SecurityAction::SetPassword { name, password } => {
-            format!("ALTER USER {} IDENTIFIED WITH sha256_password BY {};", q(name), lit(password))
+            format!(
+                "ALTER USER {} IDENTIFIED WITH sha256_password BY {};",
+                q(name),
+                lit(password)
+            )
         }
-        SecurityAction::SetLogin { name, enabled: false } => {
+        SecurityAction::SetLogin {
+            name,
+            enabled: false,
+        } => {
             format!("-- ClickHouse no bloquea cuentas: sin hosts permitidos, no puede ingresar.\nALTER USER {} HOST NONE;", q(name))
         }
-        SecurityAction::SetLogin { name, enabled: true } => {
+        SecurityAction::SetLogin {
+            name,
+            enabled: true,
+        } => {
             format!("-- Permite el ingreso desde cualquier host (reemplaza la lista anterior).\nALTER USER {} HOST ANY;", q(name))
         }
-        SecurityAction::Grant { privileges: p, object, to, grantable } => {
-            format!("GRANT {} ON {} TO {}{};", privileges(p)?, on(object), q(to), if *grantable { " WITH GRANT OPTION" } else { "" })
+        SecurityAction::Grant {
+            privileges: p,
+            object,
+            to,
+            grantable,
+        } => {
+            format!(
+                "GRANT {} ON {} TO {}{};",
+                privileges(p)?,
+                on(object),
+                q(to),
+                if *grantable { " WITH GRANT OPTION" } else { "" }
+            )
         }
-        SecurityAction::Revoke { privileges: p, object, from } => format!("REVOKE {} ON {} FROM {};", privileges(p)?, on(object), q(from)),
-        SecurityAction::AddMember { role, member } => format!("GRANT {} TO {};", q(role), q(member)),
-        SecurityAction::RemoveMember { role, member } => format!("REVOKE {} FROM {};", q(role), q(member)),
+        SecurityAction::Revoke {
+            privileges: p,
+            object,
+            from,
+        } => format!(
+            "REVOKE {} ON {} FROM {};",
+            privileges(p)?,
+            on(object),
+            q(from)
+        ),
+        SecurityAction::AddMember { role, member } => {
+            format!("GRANT {} TO {};", q(role), q(member))
+        }
+        SecurityAction::RemoveMember { role, member } => {
+            format!("REVOKE {} FROM {};", q(role), q(member))
+        }
     })
 }
 
@@ -227,11 +326,23 @@ mod tests {
     fn writes_the_scripts() {
         let s = |a| script(&a).unwrap();
         assert_eq!(
-            s(SecurityAction::CreateUser { name: "ana`x".into(), password: Some("p'w".into()) }),
+            s(SecurityAction::CreateUser {
+                name: "ana`x".into(),
+                password: Some("p'w".into())
+            }),
             "CREATE USER `ana\\`x` IDENTIFIED WITH sha256_password BY 'p\\'w';"
         );
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: None }).is_err());
-        assert_eq!(s(SecurityAction::CreateRole { name: "lectores".into() }), "CREATE ROLE `lectores`;");
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: None
+        })
+        .is_err());
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "lectores".into()
+            }),
+            "CREATE ROLE `lectores`;"
+        );
         assert_eq!(
             s(SecurityAction::Grant {
                 privileges: vec!["SELECT (id, total)".into(), "INSERT".into()],
@@ -242,13 +353,51 @@ mod tests {
             "GRANT SELECT(`id`, `total`), INSERT ON `ventas`.`facturas` TO `ana` WITH GRANT OPTION;"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["dictGet".into()], object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "d".into() }), from: "r".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["dictGet".into()],
+                object: Some(ObjectRef {
+                    kind: "schema".into(),
+                    schema: None,
+                    name: "d".into()
+                }),
+                from: "r".into()
+            }),
             "REVOKE dictGet ON `d`.* FROM `r`;"
         );
-        assert_eq!(s(SecurityAction::Grant { privileges: vec!["SHOW".into()], object: None, to: "r".into(), grantable: false }), "GRANT SHOW ON *.* TO `r`;");
-        assert!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: false }).ends_with("ALTER USER `ana` HOST NONE;"));
-        assert_eq!(s(SecurityAction::AddMember { role: "r".into(), member: "ana".into() }), "GRANT `r` TO `ana`;");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "r".into(), member: "ana".into() }), "REVOKE `r` FROM `ana`;");
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT; DROP TABLE x".into()], object: None, to: "a".into(), grantable: false }).is_err());
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["SHOW".into()],
+                object: None,
+                to: "r".into(),
+                grantable: false
+            }),
+            "GRANT SHOW ON *.* TO `r`;"
+        );
+        assert!(s(SecurityAction::SetLogin {
+            name: "ana".into(),
+            enabled: false
+        })
+        .ends_with("ALTER USER `ana` HOST NONE;"));
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "r".into(),
+                member: "ana".into()
+            }),
+            "GRANT `r` TO `ana`;"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "r".into(),
+                member: "ana".into()
+            }),
+            "REVOKE `r` FROM `ana`;"
+        );
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT; DROP TABLE x".into()],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
     }
 }

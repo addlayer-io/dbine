@@ -17,7 +17,13 @@ impl Default for Endpoints {
             ollama: std::env::var("OLLAMA_HOST")
                 .ok()
                 .filter(|h| !h.is_empty())
-                .map(|h| if h.starts_with("http") { h } else { format!("http://{h}") })
+                .map(|h| {
+                    if h.starts_with("http") {
+                        h
+                    } else {
+                        format!("http://{h}")
+                    }
+                })
                 .unwrap_or_else(|| "http://127.0.0.1:11434".into()),
             lmstudio: "http://127.0.0.1:1234".into(),
             models_dir: std::env::temp_dir().join("dbine-models"),
@@ -51,15 +57,23 @@ pub struct ProviderInfo {
 }
 
 fn claude_models() -> Vec<ModelInfo> {
-    [("sonnet", "Sonnet: equilibrado"), ("opus", "Opus: el más capaz"), ("haiku", "Haiku: el más rápido")]
-        .into_iter()
-        .map(|(id, d)| ModelInfo { id: id.into(), detail: Some(d.into()) })
-        .collect()
+    [
+        ("sonnet", "Sonnet: equilibrado"),
+        ("opus", "Opus: el más capaz"),
+        ("haiku", "Haiku: el más rápido"),
+    ]
+    .into_iter()
+    .map(|(id, d)| ModelInfo {
+        id: id.into(),
+        detail: Some(d.into()),
+    })
+    .collect()
 }
 
 async fn detect_ollama(ep: &Endpoints) -> ProviderInfo {
     let path = crate::env::find("ollama");
-    let app = cfg!(target_os = "macos") && std::path::Path::new("/Applications/Ollama.app").exists();
+    let app =
+        cfg!(target_os = "macos") && std::path::Path::new("/Applications/Ollama.app").exists();
     let installed = path.is_some() || app;
     let mut p = ProviderInfo {
         kind: ProviderKind::Ollama,
@@ -81,7 +95,10 @@ async fn detect_ollama(ep: &Endpoints) -> ProviderInfo {
         Ok(models) => {
             p.installed = true;
             p.available = true;
-            p.status = format!("{} modelo(s) · local, nada sale de esta máquina", models.len());
+            p.status = format!(
+                "{} modelo(s) · local, nada sale de esta máquina",
+                models.len()
+            );
             p.models = models;
         }
         Err(_) if installed => {
@@ -94,7 +111,8 @@ async fn detect_ollama(ep: &Endpoints) -> ProviderInfo {
 }
 
 async fn detect_lmstudio(ep: &Endpoints) -> ProviderInfo {
-    let app = cfg!(target_os = "macos") && std::path::Path::new("/Applications/LM Studio.app").exists();
+    let app =
+        cfg!(target_os = "macos") && std::path::Path::new("/Applications/LM Studio.app").exists();
     let cli = crate::env::find("lms");
     let mut p = ProviderInfo {
         kind: ProviderKind::LmStudio,
@@ -111,14 +129,21 @@ async fn detect_lmstudio(ep: &Endpoints) -> ProviderInfo {
         Ok(models) if !models.is_empty() => {
             p.installed = true;
             p.available = true;
-            p.status = format!("{} modelo(s) · local, nada sale de esta máquina", models.len());
+            p.status = format!(
+                "{} modelo(s) · local, nada sale de esta máquina",
+                models.len()
+            );
             p.models = models;
         }
         Ok(_) => {
             p.installed = true;
             p.status = "el servidor está corriendo pero no hay modelos cargados".into();
         }
-        Err(_) if p.installed => p.status = "instalado, pero su servidor local no está iniciado (Developer › Start Server)".into(),
+        Err(_) if p.installed => {
+            p.status =
+                "instalado, pero su servidor local no está iniciado (Developer › Start Server)"
+                    .into()
+        }
         Err(_) => p.status = "no instalado".into(),
     }
     p
@@ -133,10 +158,17 @@ fn detect_cli(kind: ProviderKind, bin: &str, account: &str) -> ProviderInfo {
         installed,
         available: installed,
         local: false,
-        status: if installed { format!("instalado · usa tu cuenta de {account}") } else { "no instalado".into() },
+        status: if installed {
+            format!("instalado · usa tu cuenta de {account}")
+        } else {
+            "no instalado".into()
+        },
         models: match kind {
             ProviderKind::ClaudeCode => claude_models(),
-            _ => vec![ModelInfo { id: String::new(), detail: Some("el modelo configurado en Codex".into()) }],
+            _ => vec![ModelInfo {
+                id: String::new(),
+                detail: Some("el modelo configurado en Codex".into()),
+            }],
         },
         action: None,
         path: path.map(|p| p.display().to_string()),
@@ -153,7 +185,13 @@ fn detect_embedded(ep: &Endpoints) -> ProviderInfo {
         available: embedded::ENABLED && !have.is_empty(),
         local: true,
         status: String::new(),
-        models: have.iter().map(|m| ModelInfo { id: m.id.into(), detail: Some(m.detail.into()) }).collect(),
+        models: have
+            .iter()
+            .map(|m| ModelInfo {
+                id: m.id.into(),
+                detail: Some(m.detail.into()),
+            })
+            .collect(),
         action: None,
         path: None,
     };
@@ -163,7 +201,10 @@ fn detect_embedded(ep: &Endpoints) -> ProviderInfo {
         p.action = Some("download_model");
         "sin instalar nada: descargá un modelo (una sola vez)".into()
     } else {
-        format!("{} modelo(s) · local, nada sale de esta máquina", have.len())
+        format!(
+            "{} modelo(s) · local, nada sale de esta máquina",
+            have.len()
+        )
     };
     p
 }
@@ -172,7 +213,10 @@ fn detect_embedded(ep: &Endpoints) -> ProviderInfo {
 pub async fn detect(ep: &Endpoints) -> Vec<ProviderInfo> {
     // The PATH lookup may run the login shell: off the async threads.
     let clis = tokio::task::spawn_blocking(|| {
-        (detect_cli(ProviderKind::ClaudeCode, "claude", "Claude"), detect_cli(ProviderKind::Codex, "codex", "ChatGPT / OpenAI"))
+        (
+            detect_cli(ProviderKind::ClaudeCode, "claude", "Claude"),
+            detect_cli(ProviderKind::Codex, "codex", "ChatGPT / OpenAI"),
+        )
     })
     .await
     .ok();

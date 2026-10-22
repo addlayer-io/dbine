@@ -54,7 +54,9 @@
 use crate::ddl::{lit, q};
 use crate::{Api, DatabricksSession};
 use base64::Engine as _;
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{ColumnInfo, Error, Result, Session};
 use serde_json::{json, Value as Json};
 use std::collections::VecDeque;
@@ -120,7 +122,9 @@ pub(crate) fn kind_of(ty: &str) -> Kind {
     let t = ty.trim().to_ascii_lowercase();
     let base = t.split(['(', '<', ' ']).next().unwrap_or("").trim();
     match base {
-        "tinyint" | "smallint" | "int" | "integer" | "bigint" | "byte" | "short" | "long" => Kind::Int,
+        "tinyint" | "smallint" | "int" | "integer" | "bigint" | "byte" | "short" | "long" => {
+            Kind::Int
+        }
         "float" | "real" => Kind::Real,
         "double" => Kind::Double,
         "decimal" | "dec" | "numeric" => Kind::Decimal,
@@ -153,8 +157,17 @@ pub(crate) fn select_expr(name: &str, kind: Kind) -> String {
 }
 
 /// The read's statement.
-pub(crate) fn read_sql(table: &str, names: &[String], kinds: &[Kind], filter: Option<&str>) -> String {
-    let list: Vec<String> = names.iter().zip(kinds).map(|(n, k)| select_expr(n, *k)).collect();
+pub(crate) fn read_sql(
+    table: &str,
+    names: &[String],
+    kinds: &[Kind],
+    filter: Option<&str>,
+) -> String {
+    let list: Vec<String> = names
+        .iter()
+        .zip(kinds)
+        .map(|(n, k)| select_expr(n, *k))
+        .collect();
     let mut sql = format!("SELECT {} FROM {table}", list.join(", "));
     if let Some(f) = filter.map(str::trim).filter(|f| !f.is_empty()) {
         sql.push_str(&format!(" WHERE {f}"));
@@ -196,11 +209,19 @@ fn zoned(s: &str) -> String {
 pub(crate) fn to_cell(v: Option<String>, kind: Kind) -> Result<Cell> {
     let Some(s) = v else { return Ok(Cell::Null) };
     Ok(match kind {
-        Kind::Int => Cell::Int(s.trim().parse::<i64>().map_err(|_| unreadable(&s, "entera"))?),
+        Kind::Int => Cell::Int(
+            s.trim()
+                .parse::<i64>()
+                .map_err(|_| unreadable(&s, "entera"))?,
+        ),
         Kind::Real => Cell::Float(match special_double(&s) {
             Some(f) => f,
             // The float's own value, not the double nearest to its text.
-            None => f64::from(s.trim().parse::<f32>().map_err(|_| unreadable(&s, "FLOAT"))?),
+            None => f64::from(
+                s.trim()
+                    .parse::<f32>()
+                    .map_err(|_| unreadable(&s, "FLOAT"))?,
+            ),
         }),
         Kind::Double => Cell::Float(parse_double(&s)?),
         Kind::Decimal => Cell::Decimal(s),
@@ -209,7 +230,11 @@ pub(crate) fn to_cell(v: Option<String>, kind: Kind) -> Result<Cell> {
             b if b.eq_ignore_ascii_case("false") => Cell::Bool(false),
             _ => return Err(unreadable(&s, "BOOLEAN")),
         },
-        Kind::Binary => Cell::Bytes(base64::engine::general_purpose::STANDARD.decode(&s).map_err(|_| unreadable(&s, "BINARY"))?),
+        Kind::Binary => Cell::Bytes(
+            base64::engine::general_purpose::STANDARD
+                .decode(&s)
+                .map_err(|_| unreadable(&s, "BINARY"))?,
+        ),
         Kind::Date => Cell::Date(s),
         Kind::Timestamp => Cell::DateTimeTz(zoned(&s)),
         Kind::TimestampNtz => Cell::DateTime(s.replacen('T', " ", 1)),
@@ -244,7 +269,10 @@ fn double_sql(f: f64) -> String {
     if f.is_nan() {
         "CAST('NaN' AS DOUBLE)".into()
     } else if f.is_infinite() {
-        format!("CAST('{}Infinity' AS DOUBLE)", if f < 0.0 { "-" } else { "" })
+        format!(
+            "CAST('{}Infinity' AS DOUBLE)",
+            if f < 0.0 { "-" } else { "" }
+        )
     } else {
         format!("{f:e}")
     }
@@ -264,9 +292,14 @@ fn cell_text(c: &Cell) -> Option<String> {
             Ok(s) => s.to_string(),
             Err(_) => format!("0x{}", hex(b)),
         },
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => {
-            s.clone()
-        }
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => s.clone(),
     })
 }
 
@@ -297,11 +330,17 @@ pub(crate) fn slit(s: &str) -> String {
 
 /// `0xCAFE` (how grid text shows binaries) as its bytes.
 fn hex_text(s: &str) -> Option<Vec<u8>> {
-    let h = s.trim().strip_prefix("0x").or_else(|| s.trim().strip_prefix("0X"))?;
+    let h = s
+        .trim()
+        .strip_prefix("0x")
+        .or_else(|| s.trim().strip_prefix("0X"))?;
     if !h.len().is_multiple_of(2) || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok()).collect()
+    (0..h.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok())
+        .collect()
 }
 
 /// The key type of every `map<K, V>` in a type (`array<map<int,string>>`
@@ -344,7 +383,12 @@ fn is_string_type(ty: &str) -> bool {
 /// as a JVM object name, and dates and timestamps as day or microsecond
 /// counts, so they can't be read back.
 pub(crate) fn unreadable_map_key(ty: &str) -> Option<String> {
-    map_keys(ty).into_iter().find(|k| !matches!(kind_of(k), Kind::Text | Kind::Int | Kind::Bool | Kind::Decimal | Kind::Real | Kind::Double))
+    map_keys(ty).into_iter().find(|k| {
+        !matches!(
+            kind_of(k),
+            Kind::Text | Kind::Int | Kind::Bool | Kind::Decimal | Kind::Real | Kind::Double
+        )
+    })
 }
 
 /// Whether a key's JSON text converts to key type `key` without doubt:
@@ -353,7 +397,15 @@ pub(crate) fn unreadable_map_key(ty: &str) -> Option<String> {
 fn loadable_map_key(key: &str) -> bool {
     matches!(
         kind_of(key),
-        Kind::Text | Kind::Int | Kind::Bool | Kind::Decimal | Kind::Real | Kind::Double | Kind::Date | Kind::Timestamp | Kind::TimestampNtz
+        Kind::Text
+            | Kind::Int
+            | Kind::Bool
+            | Kind::Decimal
+            | Kind::Real
+            | Kind::Double
+            | Kind::Date
+            | Kind::Timestamp
+            | Kind::TimestampNtz
     )
 }
 
@@ -364,7 +416,10 @@ fn loadable_map_key(key: &str) -> bool {
 pub(crate) enum JsonLoad {
     Plain,
     /// A top-level `map<key, value>` whose key isn't a string.
-    Keys { key: String, value: String },
+    Keys {
+        key: String,
+        value: String,
+    },
 }
 
 /// A target column: its kind, catalog type and, if nested, how its JSON
@@ -384,7 +439,12 @@ pub(crate) fn target(name: &str, ty: &str) -> Result<Target> {
         let keys = map_keys(ty);
         let t = ty.trim();
         let top_map = t.len() > 5 && t[..4].eq_ignore_ascii_case("map<") && t.ends_with('>');
-        let odd: Vec<usize> = keys.iter().enumerate().filter(|(_, k)| !is_string_type(k)).map(|(i, _)| i).collect();
+        let odd: Vec<usize> = keys
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| !is_string_type(k))
+            .map(|(i, _)| i)
+            .collect();
         match odd.as_slice() {
             [] => {}
             [0] if top_map && !loadable_map_key(&keys[0]) => {
@@ -406,7 +466,11 @@ pub(crate) fn target(name: &str, ty: &str) -> Result<Target> {
             }
         }
     }
-    Ok(Target { kind, ty: ty.to_string(), json })
+    Ok(Target {
+        kind,
+        ty: ty.to_string(),
+        json,
+    })
 }
 
 /// A cell as a Spark literal for the target column `t`.
@@ -574,7 +638,11 @@ fn download_error(e: impl std::fmt::Display) -> Error {
 /// Hand a chunk's rows over to `tx`: inline (`data_array`) or streamed from
 /// its external links (fetched without the workspace token), in blocks.
 /// Stops quietly if the reader is gone.
-async fn send_chunk(http: &reqwest::Client, mut chunk: Json, tx: &mpsc::Sender<Result<Block>>) -> Result<()> {
+async fn send_chunk(
+    http: &reqwest::Client,
+    mut chunk: Json,
+    tx: &mpsc::Sender<Result<Block>>,
+) -> Result<()> {
     if let Some(Json::Array(rows)) = chunk.get_mut("data_array").map(Json::take) {
         let rows = rows
             .into_iter()
@@ -586,23 +654,45 @@ async fn send_chunk(http: &reqwest::Client, mut chunk: Json, tx: &mpsc::Sender<R
         let _ = tx.send(Ok(Block::Rows(rows))).await;
         return Ok(());
     }
-    for link in chunk.get("external_links").and_then(Json::as_array).into_iter().flatten() {
-        let Some(url) = link.get("external_link").and_then(Json::as_str) else { continue };
+    for link in chunk
+        .get("external_links")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(url) = link.get("external_link").and_then(Json::as_str) else {
+            continue;
+        };
         // The client's overall timeout would cut a download that waits for
         // the reader: only each network read is timed.
         let mut req = http.get(url).timeout(Duration::from_secs(7 * 24 * 3600));
-        for (k, v) in link.get("http_headers").and_then(Json::as_object).into_iter().flatten() {
+        for (k, v) in link
+            .get("http_headers")
+            .and_then(Json::as_object)
+            .into_iter()
+            .flatten()
+        {
             if let Some(v) = v.as_str() {
                 req = req.header(k.as_str(), v);
             }
         }
-        let mut resp = tokio::time::timeout(READ_WAIT, req.send()).await.map_err(download_error)?.map_err(download_error)?;
+        let mut resp = tokio::time::timeout(READ_WAIT, req.send())
+            .await
+            .map_err(download_error)?
+            .map_err(download_error)?;
         let status = resp.status();
         if !status.is_success() {
-            return Err(Error::Query(format!("no se pudo descargar un bloque del resultado: HTTP {}", status.as_u16())));
+            return Err(Error::Query(format!(
+                "no se pudo descargar un bloque del resultado: HTTP {}",
+                status.as_u16()
+            )));
         }
         let mut split = Splitter::default();
-        while let Some(piece) = tokio::time::timeout(READ_WAIT, resp.chunk()).await.map_err(download_error)?.map_err(download_error)? {
+        while let Some(piece) = tokio::time::timeout(READ_WAIT, resp.chunk())
+            .await
+            .map_err(download_error)?
+            .map_err(download_error)?
+        {
             // In parts, so a block ends near BLOCK_BYTES whatever the size
             // of the network's pieces.
             for part in piece.chunks(64 * 1024) {
@@ -646,7 +736,10 @@ fn fetch(api: &Api, id: &str, i: u64, first: Option<Json>) -> Download {
         let r = async {
             let chunk = match first {
                 Some(c) => c,
-                None => api.get(&format!("/api/2.0/sql/statements/{id}/result/chunks/{i}")).await?,
+                None => {
+                    api.get(&format!("/api/2.0/sql/statements/{id}/result/chunks/{i}"))
+                        .await?
+                }
             };
             send_chunk(&api.http, chunk, &tx).await
         }
@@ -667,7 +760,9 @@ pub(crate) fn chunk_plan(resp: &Json) -> Result<(u64, Option<u64>)> {
             "Databricks truncó el resultado de la lectura (el límite de las respuestas en línea es de unos 25 MiB); no se copia una tabla incompleta.".into(),
         ));
     }
-    let rows = resp.pointer("/manifest/total_row_count").and_then(Json::as_u64);
+    let rows = resp
+        .pointer("/manifest/total_row_count")
+        .and_then(Json::as_u64);
     match (resp.pointer("/manifest/total_chunk_count").and_then(Json::as_u64), rows) {
         (Some(c), _) => Ok((c, rows)),
         (None, Some(0)) => Ok((0, rows)),
@@ -677,25 +772,39 @@ pub(crate) fn chunk_plan(resp: &Json) -> Result<(u64, Option<u64>)> {
 
 /// The version of the latest Delta commit, from `DESCRIBE HISTORY`'s rows.
 fn history_version(st: &crate::Statement) -> Option<i64> {
-    let i = st.columns.iter().position(|(n, _)| n.eq_ignore_ascii_case("version"))?;
+    let i = st
+        .columns
+        .iter()
+        .position(|(n, _)| n.eq_ignore_ascii_case("version"))?;
     json_i64(st.rows.first()?.get(i)?)
 }
 
 fn json_i64(v: &Json) -> Option<i64> {
-    v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
 /// Whether the versions after `before` (`DESCRIBE HISTORY`'s rows, newest
 /// first) can be undone: each is a write of `user`, and there are exactly
 /// `sent` of them (the load's committed statements).
 pub(crate) fn only_our_writes(st: &crate::Statement, before: i64, user: &str, sent: usize) -> bool {
-    let col = |name: &str| st.columns.iter().position(|(n, _)| n.eq_ignore_ascii_case(name));
-    let (Some(v), Some(op), Some(who)) = (col("version"), col("operation"), col("userName")) else { return false };
-    let later: Vec<&Vec<Json>> =
-        st.rows.iter().filter(|r| r.get(v).and_then(json_i64).is_some_and(|n| n > before)).collect();
+    let col = |name: &str| {
+        st.columns
+            .iter()
+            .position(|(n, _)| n.eq_ignore_ascii_case(name))
+    };
+    let (Some(v), Some(op), Some(who)) = (col("version"), col("operation"), col("userName")) else {
+        return false;
+    };
+    let later: Vec<&Vec<Json>> = st
+        .rows
+        .iter()
+        .filter(|r| r.get(v).and_then(json_i64).is_some_and(|n| n > before))
+        .collect();
     later.len() == sent
         && later.iter().all(|r| {
-            r.get(op).and_then(Json::as_str) == Some("WRITE") && r.get(who).and_then(Json::as_str).is_some_and(|u| u == user)
+            r.get(op).and_then(Json::as_str) == Some("WRITE")
+                && r.get(who).and_then(Json::as_str).is_some_and(|u| u == user)
         })
 }
 
@@ -727,34 +836,56 @@ impl DatabricksSession {
             Ok(r) => (r, true),
             Err(Error::Query(m)) => {
                 tracing::debug!("databricks external links refused, reading inline: {m}");
-                (self.api.post("/api/2.0/sql/statements", &self.request(sql, None)).await?, false)
+                (
+                    self.api
+                        .post("/api/2.0/sql/statements", &self.request(sql, None))
+                        .await?,
+                    false,
+                )
             }
             Err(e) => return Err(e),
         };
-        let id = resp.get("statement_id").and_then(Json::as_str).unwrap_or_default().to_string();
+        let id = resp
+            .get("statement_id")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string();
         self.set_running(Some(id.clone()));
         let mut delay = Duration::from_millis(250);
         loop {
             match resp.pointer("/status/state").and_then(Json::as_str) {
                 Some("SUCCEEDED") => return Ok((id, resp, external)),
                 Some("FAILED") => {
-                    let msg = resp.pointer("/status/error/message").and_then(Json::as_str).unwrap_or("la sentencia falló");
+                    let msg = resp
+                        .pointer("/status/error/message")
+                        .and_then(Json::as_str)
+                        .unwrap_or("la sentencia falló");
                     return Err(Error::Query(msg.to_string()));
                 }
                 Some("CANCELED") | Some("CLOSED") => return Err(Error::Cancelled),
                 _ => {
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(2));
-                    resp = self.api.get(&format!("/api/2.0/sql/statements/{id}")).await?;
+                    resp = self
+                        .api
+                        .get(&format!("/api/2.0/sql/statements/{id}"))
+                        .await?;
                 }
             }
         }
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let described = self.columns(&spec.table).await?;
         if described.is_empty() {
-            return Err(Error::Query(format!("No se encontró la tabla {}.", spec.table.name)));
+            return Err(Error::Query(format!(
+                "No se encontró la tabla {}.",
+                spec.table.name
+            )));
         }
         let names: Vec<String> = match &spec.columns {
             Some(c) => c.clone(),
@@ -771,21 +902,41 @@ impl DatabricksSession {
                     )));
                 }
             }
-            cols.push(TransferColumn { name: n.clone(), type_name: c.data_type.clone(), nullable: c.nullable });
+            cols.push(TransferColumn {
+                name: n.clone(),
+                type_name: c.data_type.clone(),
+                nullable: c.nullable,
+            });
         }
         let kinds: Vec<Kind> = cols.iter().map(|c| kind_of(&c.type_name)).collect();
-        let sql = read_sql(&self.fq(&spec.table)?, &names, &kinds, spec.filter.as_deref());
+        let sql = read_sql(
+            &self.fq(&spec.table)?,
+            &names,
+            &kinds,
+            spec.filter.as_deref(),
+        );
         let r = self.read_chunks(&sql, &cols, &kinds, sink).await;
         self.set_running(None);
         r
     }
 
-    async fn read_chunks(&self, sql: &str, cols: &[TransferColumn], kinds: &[Kind], sink: BatchSinkRef) -> Result<u64> {
+    async fn read_chunks(
+        &self,
+        sql: &str,
+        cols: &[TransferColumn],
+        kinds: &[Kind],
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let (id, mut resp, external) = self.submit_read(sql).await?;
         let (chunks, expected) = chunk_plan(&resp)?;
-        let mut first = resp.get_mut("result").map(Json::take).filter(|r| r.get("chunk_index").and_then(Json::as_u64).unwrap_or(0) == 0);
+        let mut first = resp
+            .get_mut("result")
+            .map(Json::take)
+            .filter(|r| r.get("chunk_index").and_then(Json::as_u64).unwrap_or(0) == 0);
 
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(cols)?;
         let mut builder = BatchBuilder::new();
         // An inline chunk comes parsed whole: one at a time.
         let in_flight = if external { IN_FLIGHT } else { 1 };
@@ -793,20 +944,32 @@ impl DatabricksSession {
         let mut next = 0u64;
         let cells = |values: Vec<Option<String>>| {
             let mut values = values.into_iter();
-            kinds.iter().map(|k| to_cell(values.next().flatten(), *k)).collect::<Result<Vec<Cell>>>()
+            kinds
+                .iter()
+                .map(|k| to_cell(values.next().flatten(), *k))
+                .collect::<Result<Vec<Cell>>>()
         };
         loop {
             while pending.len() < in_flight && next < chunks {
-                pending.push_back(fetch(&self.api, &id, next, if next == 0 { first.take() } else { None }));
+                pending.push_back(fetch(
+                    &self.api,
+                    &id,
+                    next,
+                    if next == 0 { first.take() } else { None },
+                ));
                 next += 1;
             }
-            let Some(mut d) = pending.pop_front() else { break };
+            let Some(mut d) = pending.pop_front() else {
+                break;
+            };
             while let Some(block) = d.rx.recv().await {
                 let block = match block {
                     Ok(b) => b,
                     Err(e) => return Err(self.cancelled_or(&id, e).await),
                 };
-                let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+                let mut s = sink
+                    .lock()
+                    .map_err(|_| Error::State("destino de lotes".into()))?;
                 match block {
                     Block::Rows(rows) => {
                         for r in rows {
@@ -815,9 +978,14 @@ impl DatabricksSession {
                     }
                     Block::Raw(data, ranges) => {
                         for (a, b) in ranges {
-                            let values: Vec<Json> = serde_json::from_slice(&data[a..b])
-                                .map_err(|e| Error::Query(format!("bloque del resultado ilegible: {e}")))?;
-                            builder.push(cells(values.into_iter().map(json_text).collect())?, &mut *s)?;
+                            let values: Vec<Json> =
+                                serde_json::from_slice(&data[a..b]).map_err(|e| {
+                                    Error::Query(format!("bloque del resultado ilegible: {e}"))
+                                })?;
+                            builder.push(
+                                cells(values.into_iter().map(json_text).collect())?,
+                                &mut *s,
+                            )?;
                         }
                     }
                 }
@@ -827,7 +995,11 @@ impl DatabricksSession {
                 return Err(Error::State(format!("lectura interrumpida: {e}")));
             }
         }
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         if let Some(n) = expected.filter(|n| *n != builder.rows) {
             return Err(Error::Query(format!(
                 "Databricks anunció {n} filas y se leyeron {}; no se copia una tabla incompleta.",
@@ -844,7 +1016,9 @@ impl DatabricksSession {
             return e;
         }
         match self.api.get(&format!("/api/2.0/sql/statements/{id}")).await {
-            Ok(r) if r.pointer("/status/state").and_then(Json::as_str) == Some("CANCELED") => Error::Cancelled,
+            Ok(r) if r.pointer("/status/state").and_then(Json::as_str) == Some("CANCELED") => {
+                Error::Cancelled
+            }
             _ => e,
         }
     }
@@ -853,20 +1027,35 @@ impl DatabricksSession {
     /// that isn't Delta can't be put back after a failed load, so it's
     /// refused.
     async fn delta_version(&self, table: &str, shown: &str) -> Result<i64> {
-        let detail = self.run(&format!("DESCRIBE DETAIL {table}"), 1, None).await?;
+        let detail = self
+            .run(&format!("DESCRIBE DETAIL {table}"), 1, None)
+            .await?;
         let format = detail
             .columns
             .iter()
             .position(|(n, _)| n.eq_ignore_ascii_case("format"))
-            .and_then(|i| detail.rows.first()?.get(i)?.as_str().map(str::to_ascii_lowercase));
+            .and_then(|i| {
+                detail
+                    .rows
+                    .first()?
+                    .get(i)?
+                    .as_str()
+                    .map(str::to_ascii_lowercase)
+            });
         if format.as_deref() != Some("delta") {
             return Err(Error::Unsupported(format!(
                 "La tabla {shown} no es Delta (formato {}): la carga masiva de Databricks confirma por tandas y solo en una tabla Delta puede deshacerlas si la carga falla.",
                 format.as_deref().unwrap_or("desconocido")
             )));
         }
-        let history = self.run(&format!("DESCRIBE HISTORY {table} LIMIT 1"), 1, None).await?;
-        history_version(&history).ok_or_else(|| Error::Query(format!("No se pudo leer la versión Delta de la tabla {shown}.")))
+        let history = self
+            .run(&format!("DESCRIBE HISTORY {table} LIMIT 1"), 1, None)
+            .await?;
+        history_version(&history).ok_or_else(|| {
+            Error::Query(format!(
+                "No se pudo leer la versión Delta de la tabla {shown}."
+            ))
+        })
     }
 
     /// After a failed load that committed `committed` statements: put the
@@ -916,11 +1105,17 @@ impl DatabricksSession {
         source: &mut dyn BatchSource,
         progress: Progress<'_>,
     ) -> Result<u64> {
-        let names: Vec<String> =
-            if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
         let described = self.columns(&spec.table).await?;
         if described.is_empty() {
-            return Err(Error::Query(format!("No se encontró la tabla {}.", spec.table.name)));
+            return Err(Error::Query(format!(
+                "No se encontró la tabla {}.",
+                spec.table.name
+            )));
         }
         let mut targets = Vec::with_capacity(names.len());
         for n in &names {
@@ -964,7 +1159,10 @@ impl DatabricksSession {
                         targets.len()
                     ))));
                 }
-                for (sql, n) in stmts.push(&tuple(&row, targets), seen).map_err(Exec::NotApplied)? {
+                for (sql, n) in stmts
+                    .push(&tuple(&row, targets), seen)
+                    .map_err(Exec::NotApplied)?
+                {
                     self.exec(&sql).await?;
                     *committed += 1;
                     done += n as u64;
@@ -993,22 +1191,36 @@ impl DatabricksSession {
         if let Some(o) = body.as_object_mut() {
             o.remove("on_wait_timeout");
         }
-        let post = self.api.http.post(format!("{}/api/2.0/sql/statements", self.api.base)).timeout(Duration::from_secs(600)).json(&body);
+        let post = self
+            .api
+            .http
+            .post(format!("{}/api/2.0/sql/statements", self.api.base))
+            .timeout(Duration::from_secs(600))
+            .json(&body);
         let resp = match call(&self.api, post).await {
             Ok(r) => r,
             // Refused before it ran (a 4xx answer, or never sent).
             Err(c) if !c.may_run() => return Err(Exec::NotApplied(c.err)),
             Err(c) => return Err(Exec::Unknown(c.err)),
         };
-        let Some(id) = resp.get("statement_id").and_then(Json::as_str).map(str::to_string) else {
+        let Some(id) = resp
+            .get("statement_id")
+            .and_then(Json::as_str)
+            .map(str::to_string)
+        else {
             return match statement_end(&resp) {
                 Some(End::Succeeded) => Ok(()),
                 Some(End::Failed(e)) => Err(Exec::NotApplied(e)),
-                None => Err(Exec::Unknown(Error::Query("Databricks no devolvió el identificador de la sentencia".into()))),
+                None => Err(Exec::Unknown(Error::Query(
+                    "Databricks no devolvió el identificador de la sentencia".into(),
+                ))),
             };
         };
         self.set_running(Some(id.clone()));
-        let mut guard = CancelOnDrop { api: self.api.clone(), id: Some(id.clone()) };
+        let mut guard = CancelOnDrop {
+            api: self.api.clone(),
+            id: Some(id.clone()),
+        };
         let r = follow(&self.api, &id, resp).await;
         if r.is_ok() {
             guard.id = None;
@@ -1044,7 +1256,10 @@ pub(crate) fn statement_end(resp: &Json) -> Option<End> {
     match resp.pointer("/status/state").and_then(Json::as_str)? {
         "SUCCEEDED" | "CLOSED" => Some(End::Succeeded),
         "FAILED" => {
-            let msg = resp.pointer("/status/error/message").and_then(Json::as_str).unwrap_or("la sentencia falló");
+            let msg = resp
+                .pointer("/status/error/message")
+                .and_then(Json::as_str)
+                .unwrap_or("la sentencia falló");
             Some(End::Failed(Error::Query(msg.to_string())))
         }
         "CANCELED" => Some(End::Failed(Error::Cancelled)),
@@ -1072,21 +1287,41 @@ impl CallError {
 /// An API call that keeps what `Api::send` drops: whether the request was
 /// sent and the HTTP status.
 async fn call(api: &Api, req: reqwest::RequestBuilder) -> std::result::Result<Json, CallError> {
-    let auth = api.bearer().await.map_err(|err| CallError { sent: false, status: None, err })?;
+    let auth = api.bearer().await.map_err(|err| CallError {
+        sent: false,
+        status: None,
+        err,
+    })?;
     let resp = req
         .header("Authorization", auth)
         .send()
         .await
-        .map_err(|e| CallError { sent: !e.is_connect(), status: None, err: Error::Connect(e.to_string()) })?;
+        .map_err(|e| CallError {
+            sent: !e.is_connect(),
+            status: None,
+            err: Error::Connect(e.to_string()),
+        })?;
     let status = resp.status().as_u16();
-    let text = resp.text().await.map_err(|e| CallError { sent: true, status: None, err: Error::Connect(e.to_string()) })?;
+    let text = resp.text().await.map_err(|e| CallError {
+        sent: true,
+        status: None,
+        err: Error::Connect(e.to_string()),
+    })?;
     let body: Json = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "message": text }));
     if (200..300).contains(&status) {
         return Ok(body);
     }
     let msg = crate::api_message(&body, status);
-    let err = if matches!(status, 401 | 403) { Error::AuthFailed(msg) } else { Error::Query(msg) };
-    Err(CallError { sent: true, status: Some(status), err })
+    let err = if matches!(status, 401 | 403) {
+        Error::AuthFailed(msg)
+    } else {
+        Error::Query(msg)
+    };
+    Err(CallError {
+        sent: true,
+        status: Some(status),
+        err,
+    })
 }
 
 /// Poll statement `id` (`resp`: its last status) until it ends. After
@@ -1108,14 +1343,23 @@ async fn follow(api: &Api, id: &str, mut resp: Json) -> Result<End> {
         }
         tokio::time::sleep(delay).await;
         delay = (delay * 2).min(max);
-        match call(api, api.http.get(format!("{}/api/2.0/sql/statements/{id}", api.base))).await {
+        match call(
+            api,
+            api.http
+                .get(format!("{}/api/2.0/sql/statements/{id}", api.base)),
+        )
+        .await
+        {
             Ok(r) => {
                 resp = r;
                 failed = 0;
             }
             Err(c) => {
                 failed += 1;
-                tracing::debug!("databricks status poll of {id} failed ({failed}): {}", c.err);
+                tracing::debug!(
+                    "databricks status poll of {id} failed ({failed}): {}",
+                    c.err
+                );
                 if failed < POLL_TRIES {
                     continue;
                 }
@@ -1134,7 +1378,10 @@ async fn follow(api: &Api, id: &str, mut resp: Json) -> Result<End> {
 /// checked by polling, not by this answer).
 async fn cancel(api: &Api, id: &str) {
     for _ in 0..3 {
-        let req = api.http.post(format!("{}/api/2.0/sql/statements/{id}/cancel", api.base)).json(&json!({}));
+        let req = api
+            .http
+            .post(format!("{}/api/2.0/sql/statements/{id}/cancel", api.base))
+            .json(&json!({}));
         match call(api, req).await {
             Ok(_) => return,
             Err(c) => tracing::debug!("databricks cancel of {id} failed: {}", c.err),
@@ -1152,7 +1399,9 @@ struct CancelOnDrop {
 
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
-        let (Some(id), Ok(rt)) = (self.id.take(), tokio::runtime::Handle::try_current()) else { return };
+        let (Some(id), Ok(rt)) = (self.id.take(), tokio::runtime::Handle::try_current()) else {
+            return;
+        };
         let api = self.api.clone();
         rt.spawn(async move { cancel(&api, &id).await });
     }
@@ -1160,7 +1409,10 @@ impl Drop for CancelOnDrop {
 
 /// `INSERT INTO t (cols) VALUES ` (the rows follow).
 pub(crate) fn insert_head(table: &str, names: &[String]) -> String {
-    format!("INSERT INTO {table} ({}) VALUES ", names.iter().map(|n| q(n)).collect::<Vec<_>>().join(", "))
+    format!(
+        "INSERT INTO {table} ({}) VALUES ",
+        names.iter().map(|n| q(n)).collect::<Vec<_>>().join(", ")
+    )
 }
 
 /// A row's tuple: `(v1, v2, …)`.
@@ -1203,9 +1455,21 @@ pub(crate) struct Statements {
 
 impl Statements {
     pub(crate) fn new(head: String, spec: &LoadSpec) -> Self {
-        let max_rows = usize::try_from(spec.commit_rows).unwrap_or(usize::MAX).max(1);
-        let max_bytes = usize::try_from(spec.commit_bytes).unwrap_or(usize::MAX).clamp(1, STMT_BYTES);
-        Statements { head_cost: json_len(&head), head, stmt: String::new(), cost: 0, rows: 0, max_rows, max_bytes }
+        let max_rows = usize::try_from(spec.commit_rows)
+            .unwrap_or(usize::MAX)
+            .max(1);
+        let max_bytes = usize::try_from(spec.commit_bytes)
+            .unwrap_or(usize::MAX)
+            .clamp(1, STMT_BYTES);
+        Statements {
+            head_cost: json_len(&head),
+            head,
+            stmt: String::new(),
+            cost: 0,
+            rows: 0,
+            max_rows,
+            max_bytes,
+        }
     }
 
     /// Add row number `n`'s tuple; gives the statements ready to run (with
@@ -1225,7 +1489,8 @@ impl Statements {
             ready.extend(self.finish());
         }
         self.cost += if self.rows == 0 { self.head_cost } else { 2 } + cost;
-        self.stmt.push_str(if self.rows == 0 { &self.head } else { ", " });
+        self.stmt
+            .push_str(if self.rows == 0 { &self.head } else { ", " });
         self.stmt.push_str(tuple);
         self.rows += 1;
         if self.rows >= self.max_rows || self.stmt.len() >= self.max_bytes {
@@ -1237,7 +1502,12 @@ impl Statements {
     /// The statement being built, if it has rows.
     pub(crate) fn finish(&mut self) -> Option<(String, usize)> {
         self.cost = 0;
-        (self.rows > 0).then(|| (std::mem::take(&mut self.stmt), std::mem::replace(&mut self.rows, 0)))
+        (self.rows > 0).then(|| {
+            (
+                std::mem::take(&mut self.stmt),
+                std::mem::replace(&mut self.rows, 0),
+            )
+        })
     }
 }
 
@@ -1272,63 +1542,131 @@ mod tests {
 
     #[test]
     fn read_statement() {
-        let names = vec!["id".to_string(), "at".into(), "local".into(), "odd`name".into()];
+        let names = vec![
+            "id".to_string(),
+            "at".into(),
+            "local".into(),
+            "odd`name".into(),
+        ];
         let kinds = [Kind::Int, Kind::Timestamp, Kind::TimestampNtz, Kind::Text];
         assert_eq!(
             read_sql("`c`.`s`.`t`", &names, &kinds, Some(" id > 5 ")),
             "SELECT `id`, date_format(`at`, 'yyyy-MM-dd HH:mm:ss.SSSSSSxxx') AS `at`, CAST(`local` AS STRING) AS `local`, `odd``name` FROM `c`.`s`.`t` WHERE id > 5"
         );
-        assert_eq!(select_expr("iv", Kind::Other), "CAST(`iv` AS STRING) AS `iv`");
+        assert_eq!(
+            select_expr("iv", Kind::Other),
+            "CAST(`iv` AS STRING) AS `iv`"
+        );
         assert_eq!(
             select_expr("n", Kind::Nested),
             "to_json(`n`, map('timestampFormat', 'yyyy-MM-dd\\'T\\'HH:mm:ss.SSSSSSXXX', 'timestampNTZFormat', 'yyyy-MM-dd\\'T\\'HH:mm:ss.SSSSSS')) AS `n`"
         );
-        assert_eq!(read_sql("t", &names[..1], &kinds[..1], Some("  ")), "SELECT `id` FROM t");
+        assert_eq!(
+            read_sql("t", &names[..1], &kinds[..1], Some("  ")),
+            "SELECT `id` FROM t"
+        );
     }
 
     #[test]
     fn answers_become_typed_cells() {
         let s = |v: &str| Some(v.to_string());
         assert_eq!(to_cell(None, Kind::Int).unwrap(), Cell::Null);
-        assert_eq!(to_cell(s("9007199254740993"), Kind::Int).unwrap(), Cell::Int(9_007_199_254_740_993));
-        assert_eq!(to_cell(s("-9223372036854775808"), Kind::Int).unwrap(), Cell::Int(i64::MIN));
-        assert_eq!(to_cell(s("0.1"), Kind::Real).unwrap(), Cell::Float(f64::from(0.1f32)));
+        assert_eq!(
+            to_cell(s("9007199254740993"), Kind::Int).unwrap(),
+            Cell::Int(9_007_199_254_740_993)
+        );
+        assert_eq!(
+            to_cell(s("-9223372036854775808"), Kind::Int).unwrap(),
+            Cell::Int(i64::MIN)
+        );
+        assert_eq!(
+            to_cell(s("0.1"), Kind::Real).unwrap(),
+            Cell::Float(f64::from(0.1f32))
+        );
         assert_eq!(to_cell(s("0.1"), Kind::Double).unwrap(), Cell::Float(0.1));
-        assert_eq!(to_cell(s("1.0E300"), Kind::Double).unwrap(), Cell::Float(1e300));
-        assert_eq!(to_cell(s("-Infinity"), Kind::Real).unwrap(), Cell::Float(f64::NEG_INFINITY));
+        assert_eq!(
+            to_cell(s("1.0E300"), Kind::Double).unwrap(),
+            Cell::Float(1e300)
+        );
+        assert_eq!(
+            to_cell(s("-Infinity"), Kind::Real).unwrap(),
+            Cell::Float(f64::NEG_INFINITY)
+        );
         assert!(matches!(to_cell(s("NaN"), Kind::Double).unwrap(), Cell::Float(f) if f.is_nan()));
-        assert_eq!(to_cell(s("12345678901234567890.1234567890"), Kind::Decimal).unwrap(), Cell::Decimal("12345678901234567890.1234567890".into()));
+        assert_eq!(
+            to_cell(s("12345678901234567890.1234567890"), Kind::Decimal).unwrap(),
+            Cell::Decimal("12345678901234567890.1234567890".into())
+        );
         assert_eq!(to_cell(s("true"), Kind::Bool).unwrap(), Cell::Bool(true));
         assert_eq!(to_cell(s("false"), Kind::Bool).unwrap(), Cell::Bool(false));
-        assert_eq!(to_cell(s("yv4A"), Kind::Binary).unwrap(), Cell::Bytes(vec![0xCA, 0xFE, 0]));
-        assert_eq!(to_cell(s("2024-01-31"), Kind::Date).unwrap(), Cell::Date("2024-01-31".into()));
+        assert_eq!(
+            to_cell(s("yv4A"), Kind::Binary).unwrap(),
+            Cell::Bytes(vec![0xCA, 0xFE, 0])
+        );
+        assert_eq!(
+            to_cell(s("2024-01-31"), Kind::Date).unwrap(),
+            Cell::Date("2024-01-31".into())
+        );
         assert_eq!(
             to_cell(s("2024-01-31 13:45:00.123456-03:00"), Kind::Timestamp).unwrap(),
             Cell::DateTimeTz("2024-01-31 13:45:00.123456-03:00".into())
         );
-        assert_eq!(to_cell(s("2024-01-31T13:45:00.000Z"), Kind::Timestamp).unwrap(), Cell::DateTimeTz("2024-01-31 13:45:00.000+00:00".into()));
-        assert_eq!(to_cell(s("2024-01-31 13:45:00.5"), Kind::TimestampNtz).unwrap(), Cell::DateTime("2024-01-31 13:45:00.5".into()));
-        assert_eq!(to_cell(s("{\"a\":[1,2]}"), Kind::Nested).unwrap(), Cell::Json("{\"a\":[1,2]}".into()));
-        assert_eq!(to_cell(s("1"), Kind::Variant).unwrap(), Cell::Json("1".into()));
-        assert_eq!(to_cell(s("hola"), Kind::Text).unwrap(), Cell::Text("hola".into()));
+        assert_eq!(
+            to_cell(s("2024-01-31T13:45:00.000Z"), Kind::Timestamp).unwrap(),
+            Cell::DateTimeTz("2024-01-31 13:45:00.000+00:00".into())
+        );
+        assert_eq!(
+            to_cell(s("2024-01-31 13:45:00.5"), Kind::TimestampNtz).unwrap(),
+            Cell::DateTime("2024-01-31 13:45:00.5".into())
+        );
+        assert_eq!(
+            to_cell(s("{\"a\":[1,2]}"), Kind::Nested).unwrap(),
+            Cell::Json("{\"a\":[1,2]}".into())
+        );
+        assert_eq!(
+            to_cell(s("1"), Kind::Variant).unwrap(),
+            Cell::Json("1".into())
+        );
+        assert_eq!(
+            to_cell(s("hola"), Kind::Text).unwrap(),
+            Cell::Text("hola".into())
+        );
     }
 
     #[test]
     fn literals_for_each_target() {
         assert_eq!(v(&Cell::Null, "int"), "NULL");
         assert_eq!(v(&Cell::Int(-7), "bigint"), "-7");
-        assert_eq!(v(&Cell::UInt(u64::MAX), "decimal(20,0)"), "18446744073709551615");
+        assert_eq!(
+            v(&Cell::UInt(u64::MAX), "decimal(20,0)"),
+            "18446744073709551615"
+        );
         assert_eq!(v(&Cell::Bool(true), "int"), "1");
         assert_eq!(v(&Cell::Int(0), "boolean"), "FALSE");
         assert_eq!(v(&Cell::Bool(true), "boolean"), "TRUE");
         assert_eq!(v(&Cell::Float(0.1), "double"), "1e-1");
-        assert_eq!(v(&Cell::Float(90.33333333333333), "double"), "9.033333333333333e1");
+        assert_eq!(
+            v(&Cell::Float(90.33333333333333), "double"),
+            "9.033333333333333e1"
+        );
         assert_eq!(v(&Cell::Float(f64::NAN), "float"), "CAST('NaN' AS DOUBLE)");
-        assert_eq!(v(&Cell::Float(f64::NEG_INFINITY), "double"), "CAST('-Infinity' AS DOUBLE)");
-        assert_eq!(v(&Cell::Decimal("-123.4500".into()), "decimal(10,4)"), "-123.4500");
+        assert_eq!(
+            v(&Cell::Float(f64::NEG_INFINITY), "double"),
+            "CAST('-Infinity' AS DOUBLE)"
+        );
+        assert_eq!(
+            v(&Cell::Decimal("-123.4500".into()), "decimal(10,4)"),
+            "-123.4500"
+        );
         assert_eq!(v(&Cell::Decimal("+.5".into()), "decimal(3,2)"), ".5");
-        assert_eq!(v(&Cell::Text("1e5".into()), "double"), "CAST('1e5' AS double)");
-        assert_eq!(v(&Cell::Text("x'); DROP".into()), "int"), "CAST('x\\'); DROP' AS int)");
+        assert_eq!(
+            v(&Cell::Text("1e5".into()), "double"),
+            "CAST('1e5' AS double)"
+        );
+        assert_eq!(
+            v(&Cell::Text("x'); DROP".into()), "int"),
+            "CAST('x\\'); DROP' AS int)"
+        );
         assert_eq!(v(&Cell::Bytes(vec![0xCA, 0xFE, 0]), "binary"), "X'CAFE00'");
         assert_eq!(v(&Cell::Text("ab".into()), "binary"), "X'6162'");
         assert_eq!(v(&Cell::Text("O'B\\n".into()), "string"), "'O\\'B\\\\n'");
@@ -1336,17 +1674,32 @@ mod tests {
         assert_eq!(v(&Cell::Bytes(b"hi".to_vec()), "string"), "'hi'");
         assert_eq!(v(&Cell::Bytes(vec![0xFF]), "string"), "'0xFF'");
         assert_eq!(v(&Cell::Uuid("7f1c…".into()), "string"), "'7f1c…'");
-        assert_eq!(v(&Cell::Date("2024-01-31".into()), "date"), "CAST('2024-01-31' AS date)");
         assert_eq!(
-            v(&Cell::DateTimeTz("2024-01-31 13:45:00.123456-03:00".into()), "timestamp"),
+            v(&Cell::Date("2024-01-31".into()), "date"),
+            "CAST('2024-01-31' AS date)"
+        );
+        assert_eq!(
+            v(
+                &Cell::DateTimeTz("2024-01-31 13:45:00.123456-03:00".into()),
+                "timestamp"
+            ),
             "CAST('2024-01-31 13:45:00.123456-03:00' AS timestamp)"
         );
         assert_eq!(
-            v(&Cell::DateTime("2024-01-31 13:45:00".into()), "timestamp_ntz"),
+            v(
+                &Cell::DateTime("2024-01-31 13:45:00".into()),
+                "timestamp_ntz"
+            ),
             "CAST('2024-01-31 13:45:00' AS timestamp_ntz)"
         );
-        assert_eq!(v(&Cell::Json("[1,2]".into()), "array<int>"), "from_json('[1,2]', 'array<int>', map('mode', 'FAILFAST'))");
-        assert_eq!(v(&Cell::Json("{\"a\":1}".into()), "variant"), "parse_json('{\"a\":1}')");
+        assert_eq!(
+            v(&Cell::Json("[1,2]".into()), "array<int>"),
+            "from_json('[1,2]', 'array<int>', map('mode', 'FAILFAST'))"
+        );
+        assert_eq!(
+            v(&Cell::Json("{\"a\":1}".into()), "variant"),
+            "parse_json('{\"a\":1}')"
+        );
         assert_eq!(v(&Cell::Int(3), "variant"), "parse_json('3')");
     }
 
@@ -1358,17 +1711,36 @@ mod tests {
     fn insert_statement() {
         let targets = vec![target("id", "int").unwrap(), target("b", "binary").unwrap()];
         let spec = LoadSpec {
-            table: dbine_driver::ObjectRef { kind: "table".into(), schema: None, name: "t".into() },
+            table: dbine_driver::ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: "t".into(),
+            },
             columns: vec![],
             table_lock: false,
             keep_identity: false,
             commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
             commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
         };
-        let mut st = Statements::new(insert_head("`c`.`s`.`t`", &["id".into(), "b".into()]), &spec);
-        assert!(st.push(&tuple(&[Cell::Int(1), Cell::Bytes(vec![1])], &targets), 1).unwrap().is_empty());
-        assert!(st.push(&tuple(&[Cell::Null, Cell::Null], &targets), 2).unwrap().is_empty());
-        assert_eq!(st.finish(), Some(("INSERT INTO `c`.`s`.`t` (`id`, `b`) VALUES (1, X'01'), (NULL, NULL)".to_string(), 2)));
+        let mut st = Statements::new(
+            insert_head("`c`.`s`.`t`", &["id".into(), "b".into()]),
+            &spec,
+        );
+        assert!(st
+            .push(&tuple(&[Cell::Int(1), Cell::Bytes(vec![1])], &targets), 1)
+            .unwrap()
+            .is_empty());
+        assert!(st
+            .push(&tuple(&[Cell::Null, Cell::Null], &targets), 2)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            st.finish(),
+            Some((
+                "INSERT INTO `c`.`s`.`t` (`id`, `b`) VALUES (1, X'01'), (NULL, NULL)".to_string(),
+                2
+            ))
+        );
         assert_eq!(st.finish(), None);
     }
 
@@ -1380,28 +1752,46 @@ mod tests {
         assert_eq!(plain_number("."), None);
         assert_eq!(plain_number("1e5"), None);
         assert_eq!(plain_number(""), None);
-        assert_eq!(zoned("2024-01-31 13:45:00+05:30"), "2024-01-31 13:45:00+05:30");
+        assert_eq!(
+            zoned("2024-01-31 13:45:00+05:30"),
+            "2024-01-31 13:45:00+05:30"
+        );
     }
 
     #[tokio::test]
     async fn inline_chunks_become_rows() {
         let (tx, mut rx) = mpsc::channel(4);
-        let chunk = json!({ "chunk_index": 0, "data_array": [["1", null, "yv4="], ["2", "x", null]] });
-        send_chunk(&reqwest::Client::new(), chunk, &tx).await.unwrap();
+        let chunk =
+            json!({ "chunk_index": 0, "data_array": [["1", null, "yv4="], ["2", "x", null]] });
+        send_chunk(&reqwest::Client::new(), chunk, &tx)
+            .await
+            .unwrap();
         match rx.recv().await {
             Some(Ok(Block::Rows(rows))) => {
-                assert_eq!(rows, vec![vec![Some("1".into()), None, Some("yv4=".into())], vec![Some("2".into()), Some("x".into()), None]])
+                assert_eq!(
+                    rows,
+                    vec![
+                        vec![Some("1".into()), None, Some("yv4=".into())],
+                        vec![Some("2".into()), Some("x".into()), None]
+                    ]
+                )
             }
             other => panic!("{other:?}"),
         }
-        send_chunk(&reqwest::Client::new(), json!({ "chunk_index": 3 }), &tx).await.unwrap();
+        send_chunk(&reqwest::Client::new(), json!({ "chunk_index": 3 }), &tx)
+            .await
+            .unwrap();
         drop(tx);
         assert!(rx.recv().await.is_none());
     }
 
     fn spec(rows: u64, bytes: u64) -> LoadSpec {
         LoadSpec {
-            table: dbine_driver::ObjectRef { kind: "table".into(), schema: None, name: "t".into() },
+            table: dbine_driver::ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: "t".into(),
+            },
             columns: vec![],
             table_lock: false,
             keep_identity: false,
@@ -1436,21 +1826,44 @@ mod tests {
             "transform_keys(from_json('{\"1\":\"a\"}', 'map<string,string>', map('mode', 'FAILFAST')), (k, v) -> CAST(k AS int))"
         );
         assert_eq!(
-            target("m", "MAP<DECIMAL(10,2), ARRAY<MAP<STRING,INT>>>").unwrap().json,
-            JsonLoad::Keys { key: "DECIMAL(10,2)".into(), value: "ARRAY<MAP<STRING,INT>>".into() }
+            target("m", "MAP<DECIMAL(10,2), ARRAY<MAP<STRING,INT>>>")
+                .unwrap()
+                .json,
+            JsonLoad::Keys {
+                key: "DECIMAL(10,2)".into(),
+                value: "ARRAY<MAP<STRING,INT>>".into()
+            }
         );
         // A struct field named `map` isn't a map.
-        assert_eq!(target("s", "struct<map:int,b:map<string,bigint>>").unwrap().json, JsonLoad::Plain);
-        for ty in ["array<map<int,string>>", "map<int,map<bigint,string>>", "struct<a:map<date,int>>"] {
-            assert!(matches!(target("x", ty), Err(Error::Unsupported(_))), "{ty}");
+        assert_eq!(
+            target("s", "struct<map:int,b:map<string,bigint>>")
+                .unwrap()
+                .json,
+            JsonLoad::Plain
+        );
+        for ty in [
+            "array<map<int,string>>",
+            "map<int,map<bigint,string>>",
+            "struct<a:map<date,int>>",
+        ] {
+            assert!(
+                matches!(target("x", ty), Err(Error::Unsupported(_))),
+                "{ty}"
+            );
         }
-        assert_eq!(map_keys("map<int,struct<a:map<string,int>>>"), vec!["int".to_string(), "string".into()]);
+        assert_eq!(
+            map_keys("map<int,struct<a:map<string,int>>>"),
+            vec!["int".to_string(), "string".into()]
+        );
     }
 
     #[test]
     fn non_text_types_are_cast() {
         assert_eq!(
-            v(&Cell::Text("INTERVAL '1 02:03:04' DAY TO SECOND".into()), "interval day to second"),
+            v(
+                &Cell::Text("INTERVAL '1 02:03:04' DAY TO SECOND".into()),
+                "interval day to second"
+            ),
             "CAST('INTERVAL \\'1 02:03:04\\' DAY TO SECOND' AS interval day to second)"
         );
         assert_eq!(v(&Cell::Text("abc".into()), "varchar(10)"), "'abc'");
@@ -1462,22 +1875,43 @@ mod tests {
         assert_eq!(slit("a${x}b"), "'a$' '{x}b'");
         assert_eq!(slit("${a}${b}"), "'$' '{a}$' '{b}'");
         assert_eq!(slit("$ { } $x"), "'$ { } $x'");
-        assert_eq!(v(&Cell::Text("${spark.app.name}".into()), "string"), "'$' '{spark.app.name}'");
-        assert_eq!(v(&Cell::Json("{\"k\":\"${x}\"}".into()), "variant"), "parse_json('{\"k\":\"$' '{x}\"}')");
+        assert_eq!(
+            v(&Cell::Text("${spark.app.name}".into()), "string"),
+            "'$' '{spark.app.name}'"
+        );
+        assert_eq!(
+            v(&Cell::Json("{\"k\":\"${x}\"}".into()), "variant"),
+            "parse_json('{\"k\":\"$' '{x}\"}')"
+        );
     }
 
     #[test]
     fn statements_follow_the_commit_window() {
         let t = |i: i64| tuple(&[Cell::Int(i)], &[target("id", "bigint").unwrap()]);
         // By rows.
-        let mut st = Statements::new("INSERT INTO t (`id`) VALUES ".into(), &spec(3, LoadSpec::DEFAULT_COMMIT_BYTES));
+        let mut st = Statements::new(
+            "INSERT INTO t (`id`) VALUES ".into(),
+            &spec(3, LoadSpec::DEFAULT_COMMIT_BYTES),
+        );
         assert!(st.push(&t(1), 1).unwrap().is_empty());
         assert!(st.push(&t(2), 2).unwrap().is_empty());
-        assert_eq!(st.push(&t(3), 3).unwrap(), vec![("INSERT INTO t (`id`) VALUES (1), (2), (3)".to_string(), 3)]);
+        assert_eq!(
+            st.push(&t(3), 3).unwrap(),
+            vec![("INSERT INTO t (`id`) VALUES (1), (2), (3)".to_string(), 3)]
+        );
         assert!(st.push(&t(4), 4).unwrap().is_empty());
-        assert_eq!(st.finish(), Some(("INSERT INTO t (`id`) VALUES (4)".to_string(), 1)));
+        assert_eq!(
+            st.finish(),
+            Some(("INSERT INTO t (`id`) VALUES (4)".to_string(), 1))
+        );
         // The default window of 100k narrow rows is a single statement.
-        let mut st = Statements::new("INSERT INTO t (`id`) VALUES ".into(), &spec(LoadSpec::DEFAULT_COMMIT_ROWS, LoadSpec::DEFAULT_COMMIT_BYTES));
+        let mut st = Statements::new(
+            "INSERT INTO t (`id`) VALUES ".into(),
+            &spec(
+                LoadSpec::DEFAULT_COMMIT_ROWS,
+                LoadSpec::DEFAULT_COMMIT_BYTES,
+            ),
+        );
         for i in 1..LoadSpec::DEFAULT_COMMIT_ROWS as i64 {
             assert!(st.push(&t(i), i as u64).unwrap().is_empty());
         }
@@ -1500,7 +1934,9 @@ mod tests {
         // A row that can't fit in any statement: a clear refusal.
         let huge = format!("('{}')", "x".repeat(STMT_BYTES));
         match st.push(&huge, 7) {
-            Err(Error::Unsupported(m)) => assert!(m.contains("La fila 7") && m.contains("16 MiB"), "{m}"),
+            Err(Error::Unsupported(m)) => {
+                assert!(m.contains("La fila 7") && m.contains("16 MiB"), "{m}")
+            }
             other => panic!("{other:?}"),
         }
     }
@@ -1508,10 +1944,20 @@ mod tests {
     #[test]
     fn truncated_or_unsized_answers_are_errors() {
         let plan = |m: Json| chunk_plan(&json!({ "manifest": m }));
-        assert_eq!(plan(json!({ "total_chunk_count": 3, "total_row_count": 10, "truncated": false })).unwrap(), (3, Some(10)));
+        assert_eq!(
+            plan(json!({ "total_chunk_count": 3, "total_row_count": 10, "truncated": false }))
+                .unwrap(),
+            (3, Some(10))
+        );
         assert_eq!(plan(json!({ "total_row_count": 0 })).unwrap(), (0, Some(0)));
-        assert!(matches!(plan(json!({ "total_chunk_count": 1, "total_row_count": 10, "truncated": true })), Err(Error::Query(_))));
-        assert!(matches!(plan(json!({ "total_row_count": 10 })), Err(Error::Query(_))));
+        assert!(matches!(
+            plan(json!({ "total_chunk_count": 1, "total_row_count": 10, "truncated": true })),
+            Err(Error::Query(_))
+        ));
+        assert!(matches!(
+            plan(json!({ "total_row_count": 10 })),
+            Err(Error::Query(_))
+        ));
         assert!(matches!(chunk_plan(&json!({})), Err(Error::Query(_))));
     }
 
@@ -1550,12 +1996,21 @@ mod tests {
     #[test]
     fn restore_only_undoes_our_writes() {
         let hist = |rows: Vec<Vec<Json>>| crate::Statement {
-            columns: ["version", "timestamp", "userId", "userName", "operation"].iter().map(|n| (n.to_string(), "STRING".into())).collect(),
+            columns: ["version", "timestamp", "userId", "userName", "operation"]
+                .iter()
+                .map(|n| (n.to_string(), "STRING".into()))
+                .collect(),
             rows,
             ..Default::default()
         };
-        let row = |v: &str, user: &str, op: &str| vec![json!(v), json!("t"), json!("1"), json!(user), json!(op)];
-        let ours = hist(vec![row("7", "yo@x.com", "WRITE"), row("6", "yo@x.com", "WRITE"), row("5", "otro", "WRITE")]);
+        let row = |v: &str, user: &str, op: &str| {
+            vec![json!(v), json!("t"), json!("1"), json!(user), json!(op)]
+        };
+        let ours = hist(vec![
+            row("7", "yo@x.com", "WRITE"),
+            row("6", "yo@x.com", "WRITE"),
+            row("5", "otro", "WRITE"),
+        ]);
         assert_eq!(history_version(&ours), Some(7));
         assert!(only_our_writes(&ours, 5, "yo@x.com", 2));
         assert!(!only_our_writes(&ours, 5, "yo@x.com", 1));
@@ -1567,8 +2022,14 @@ mod tests {
     #[test]
     fn restore_needs_exactly_the_committed_writes() {
         let hist = crate::Statement {
-            columns: ["version", "userName", "operation"].iter().map(|n| (n.to_string(), "STRING".into())).collect(),
-            rows: vec![vec![json!("7"), json!("yo"), json!("WRITE")], vec![json!("6"), json!("yo"), json!("WRITE")]],
+            columns: ["version", "userName", "operation"]
+                .iter()
+                .map(|n| (n.to_string(), "STRING".into()))
+                .collect(),
+            rows: vec![
+                vec![json!("7"), json!("yo"), json!("WRITE")],
+                vec![json!("6"), json!("yo"), json!("WRITE")],
+            ],
             ..Default::default()
         };
         assert!(only_our_writes(&hist, 5, "yo", 2));
@@ -1586,14 +2047,24 @@ mod tests {
         assert_eq!(sql, "DESCRIBE HISTORY `c`.`s`.`t` LIMIT 5002");
         assert!(max_rows >= committed + 2);
         let hist = crate::Statement {
-            columns: ["version", "userName", "operation"].iter().map(|n| (n.to_string(), "STRING".into())).collect(),
-            rows: (0..max_rows as i64).rev().map(|v| vec![json!(v.to_string()), json!("yo"), json!("WRITE")]).collect(),
+            columns: ["version", "userName", "operation"]
+                .iter()
+                .map(|n| (n.to_string(), "STRING".into()))
+                .collect(),
+            rows: (0..max_rows as i64)
+                .rev()
+                .map(|v| vec![json!(v.to_string()), json!("yo"), json!("WRITE")])
+                .collect(),
             ..Default::default()
         };
         // Versions 5001 down to 0: the 5000 after version 1 are the load.
         assert!(only_our_writes(&hist, 1, "yo", committed));
         // The old cap kept the newest 1000 rows only, which can't match.
-        let capped = crate::Statement { columns: hist.columns.clone(), rows: hist.rows[..1_000].to_vec(), ..Default::default() };
+        let capped = crate::Statement {
+            columns: hist.columns.clone(),
+            rows: hist.rows[..1_000].to_vec(),
+            ..Default::default()
+        };
         assert!(!only_our_writes(&capped, 1, "yo", committed));
     }
 
@@ -1604,7 +2075,13 @@ mod tests {
             Block::Rows(r) => r.clone(),
             Block::Raw(data, ranges) => ranges
                 .iter()
-                .map(|(a, z)| serde_json::from_slice::<Vec<Json>>(&data[*a..*z]).unwrap().into_iter().map(json_text).collect())
+                .map(|(a, z)| {
+                    serde_json::from_slice::<Vec<Json>>(&data[*a..*z])
+                        .unwrap()
+                        .into_iter()
+                        .map(json_text)
+                        .collect()
+                })
                 .collect(),
         }
     }
@@ -1613,8 +2090,11 @@ mod tests {
     fn splitter_finds_whole_rows_across_pieces() {
         let text = r#" [ ["1", null, "a]b[\"c\\"],
             ["2","x,y" ,"\\\"]"] ,["3",null,null] ] "#;
-        let want: Vec<Vec<Option<String>>> =
-            serde_json::from_str::<Vec<Vec<Json>>>(text).unwrap().into_iter().map(|r| r.into_iter().map(json_text).collect()).collect();
+        let want: Vec<Vec<Option<String>>> = serde_json::from_str::<Vec<Vec<Json>>>(text)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.into_iter().map(json_text).collect())
+            .collect();
         for step in 1..text.len() {
             let mut sp = Splitter::default();
             let mut got = Vec::new();
@@ -1633,9 +2113,19 @@ mod tests {
 
     #[test]
     fn splitter_refuses_cut_or_odd_answers() {
-        for bad in [r#"[["1"],["2""#, r#"[["1"]"#, r#"[["1"]]]"#, r#"[["1"]] ["2"]"#, r#"{"a":1}"#, r#"["1"]"#, ""] {
+        for bad in [
+            r#"[["1"],["2""#,
+            r#"[["1"]"#,
+            r#"[["1"]]]"#,
+            r#"[["1"]] ["2"]"#,
+            r#"{"a":1}"#,
+            r#"["1"]"#,
+            "",
+        ] {
             let mut sp = Splitter::default();
-            let r = sp.feed(bad.as_bytes()).and_then(|_| sp.finish().map(|_| ()));
+            let r = sp
+                .feed(bad.as_bytes())
+                .and_then(|_| sp.finish().map(|_| ()));
             assert!(r.is_err(), "{bad}");
         }
         let mut sp = Splitter::default();
@@ -1666,7 +2156,13 @@ mod tests {
                         buf.extend_from_slice(&tmp[..n]);
                         if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
                             let head = String::from_utf8_lossy(&buf[..p]).to_ascii_lowercase();
-                            let len = head.lines().find_map(|l| l.strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())).unwrap_or(0);
+                            let len = head
+                                .lines()
+                                .find_map(|l| {
+                                    l.strip_prefix("content-length:")
+                                        .map(|v| v.trim().parse().unwrap())
+                                })
+                                .unwrap_or(0);
                             break (p + 4, len);
                         }
                     };
@@ -1679,7 +2175,10 @@ mod tests {
                     }
                     let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
                     let mut first = head.lines().next().unwrap_or("").split(' ');
-                    let (method, path) = (first.next().unwrap_or("").to_string(), first.next().unwrap_or("").to_string());
+                    let (method, path) = (
+                        first.next().unwrap_or("").to_string(),
+                        first.next().unwrap_or("").to_string(),
+                    );
                     let body = String::from_utf8_lossy(&buf[head_end..head_end + len]).to_string();
                     let (status, text) = h(&method, &path, &body);
                     let resp = format!(
@@ -1717,7 +2216,11 @@ mod tests {
         while let Some(b) = rx.recv().await {
             let b = b.unwrap();
             if let Block::Raw(data, _) = &b {
-                assert!(data.len() <= BLOCK_BYTES + 64 * 1024 + 2048, "bloque de {} bytes", data.len());
+                assert!(
+                    data.len() <= BLOCK_BYTES + 64 * 1024 + 2048,
+                    "bloque de {} bytes",
+                    data.len()
+                );
             }
             rows += rows_of(&b).len();
         }
@@ -1729,8 +2232,19 @@ mod tests {
 
     #[test]
     fn json_len_matches_serde() {
-        for s in ["abc", "a\"b\\c", "\n\r\t\u{8}\u{c}", "\u{1}\u{1f}\u{7f}", "ñ€😀", ""] {
-            assert_eq!(json_len(s) + 2, serde_json::to_string(s).unwrap().len(), "{s:?}");
+        for s in [
+            "abc",
+            "a\"b\\c",
+            "\n\r\t\u{8}\u{c}",
+            "\u{1}\u{1f}\u{7f}",
+            "ñ€😀",
+            "",
+        ] {
+            assert_eq!(
+                json_len(s) + 2,
+                serde_json::to_string(s).unwrap().len(),
+                "{s:?}"
+            );
         }
     }
 
@@ -1757,24 +2271,42 @@ mod tests {
 
     #[test]
     fn map_keys_that_json_alters_are_refused() {
-        for ty in ["map<binary,int>", "array<map<date,int>>", "map<timestamp,string>", "struct<a:map<timestamp_ntz,int>>"] {
+        for ty in [
+            "map<binary,int>",
+            "array<map<date,int>>",
+            "map<timestamp,string>",
+            "struct<a:map<timestamp_ntz,int>>",
+        ] {
             assert!(unreadable_map_key(ty).is_some(), "{ty}");
         }
-        for ty in ["map<string,int>", "map<int,map<string,bigint>>", "map<decimal(10,2),string>", "map<boolean,double>", "array<int>"] {
+        for ty in [
+            "map<string,int>",
+            "map<int,map<string,bigint>>",
+            "map<decimal(10,2),string>",
+            "map<boolean,double>",
+            "array<int>",
+        ] {
             assert_eq!(unreadable_map_key(ty), None, "{ty}");
         }
         match target("m", "map<binary,int>") {
             Err(Error::Unsupported(m)) => assert!(m.contains("binary"), "{m}"),
             other => panic!("{other:?}"),
         }
-        assert!(matches!(target("m", "map<date,int>").unwrap().json, JsonLoad::Keys { .. }));
+        assert!(matches!(
+            target("m", "map<date,int>").unwrap().json,
+            JsonLoad::Keys { .. }
+        ));
     }
 
     // --- A load statement is followed to its end.
 
     fn session(base: String) -> DatabricksSession {
         DatabricksSession {
-            api: Api { http: reqwest::Client::new(), base, auth: crate::Auth::Pat("t".into()) },
+            api: Api {
+                http: reqwest::Client::new(),
+                base,
+                auth: crate::Auth::Pat("t".into()),
+            },
             warehouse: "w".into(),
             catalog: None,
             schema: None,
@@ -1786,18 +2318,26 @@ mod tests {
     /// A server whose statement `s1` is PENDING and whose status polls
     /// fail; once cancelled, the polls answer `after_cancel` (None: they
     /// keep failing). Gives the base URL and the cancels received.
-    async fn flaky(after_cancel: Option<&'static str>) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    async fn flaky(
+        after_cancel: Option<&'static str>,
+    ) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let cancels = Arc::new(AtomicUsize::new(0));
         let c = cancels.clone();
         let base = serve(Arc::new(move |m, p, _| match (m, p) {
-            ("POST", "/api/2.0/sql/statements") => (200, r#"{"statement_id":"s1","status":{"state":"PENDING"}}"#.into()),
+            ("POST", "/api/2.0/sql/statements") => (
+                200,
+                r#"{"statement_id":"s1","status":{"state":"PENDING"}}"#.into(),
+            ),
             ("POST", "/api/2.0/sql/statements/s1/cancel") => {
                 c.fetch_add(1, Ordering::SeqCst);
                 (200, "{}".into())
             }
             ("GET", "/api/2.0/sql/statements/s1") => match after_cancel {
-                Some(state) if c.load(Ordering::SeqCst) > 0 => (200, format!(r#"{{"statement_id":"s1","status":{{"state":"{state}"}}}}"#)),
+                Some(state) if c.load(Ordering::SeqCst) > 0 => (
+                    200,
+                    format!(r#"{{"statement_id":"s1","status":{{"state":"{state}"}}}}"#),
+                ),
                 _ => (503, r#"{"message":"temporarily unavailable"}"#.into()),
             },
             _ => (404, "{}".into()),
@@ -1810,7 +2350,9 @@ mod tests {
     async fn a_statement_that_cant_be_followed_is_cancelled_before_failing() {
         let (base, cancels) = flaky(Some("CANCELED")).await;
         match session(base).exec("INSERT INTO t VALUES (1)").await {
-            Err(Exec::NotApplied(Error::Query(m))) => assert!(m.contains("se canceló") && m.contains("temporarily"), "{m}"),
+            Err(Exec::NotApplied(Error::Query(m))) => {
+                assert!(m.contains("se canceló") && m.contains("temporarily"), "{m}")
+            }
             other => panic!("{other:?}"),
         }
         assert!(cancels.load(std::sync::atomic::Ordering::SeqCst) >= 1);
@@ -1835,12 +2377,36 @@ mod tests {
     #[tokio::test]
     async fn a_failed_submit_is_unknown_only_if_it_may_have_run() {
         let base = serve(Arc::new(|_, _, _| (500, r#"{"message":"boom"}"#.into()))).await;
-        assert!(matches!(session(base).exec("INSERT INTO t VALUES (1)").await, Err(Exec::Unknown(_))));
-        let base = serve(Arc::new(|_, _, _| (429, r#"{"message":"slow down"}"#.into()))).await;
-        assert!(matches!(session(base).exec("INSERT INTO t VALUES (1)").await, Err(Exec::NotApplied(_))));
-        let base = serve(Arc::new(|_, _, _| (200, r#"{"statement_id":"s1","status":{"state":"FAILED","error":{"message":"bad"}}}"#.into()))).await;
-        assert!(matches!(session(base).exec("INSERT INTO t VALUES (1)").await, Err(Exec::NotApplied(Error::Query(m))) if m == "bad"));
-        let base = serve(Arc::new(|_, _, _| (200, r#"{"statement_id":"s1","status":{"state":"CLOSED"}}"#.into()))).await;
+        assert!(matches!(
+            session(base).exec("INSERT INTO t VALUES (1)").await,
+            Err(Exec::Unknown(_))
+        ));
+        let base = serve(Arc::new(|_, _, _| {
+            (429, r#"{"message":"slow down"}"#.into())
+        }))
+        .await;
+        assert!(matches!(
+            session(base).exec("INSERT INTO t VALUES (1)").await,
+            Err(Exec::NotApplied(_))
+        ));
+        let base = serve(Arc::new(|_, _, _| {
+            (
+                200,
+                r#"{"statement_id":"s1","status":{"state":"FAILED","error":{"message":"bad"}}}"#
+                    .into(),
+            )
+        }))
+        .await;
+        assert!(
+            matches!(session(base).exec("INSERT INTO t VALUES (1)").await, Err(Exec::NotApplied(Error::Query(m))) if m == "bad")
+        );
+        let base = serve(Arc::new(|_, _, _| {
+            (
+                200,
+                r#"{"statement_id":"s1","status":{"state":"CLOSED"}}"#.into(),
+            )
+        }))
+        .await;
         assert!(session(base).exec("INSERT INTO t VALUES (1)").await.is_ok());
     }
 
@@ -1854,8 +2420,15 @@ mod tests {
             )
         }))
         .await;
-        let e = session(base).undo_load("`t`", 5, 2, Error::Query("falló la fila 30".into())).await;
+        let e = session(base)
+            .undo_load("`t`", 5, 2, Error::Query("falló la fila 30".into()))
+            .await;
         let m = e.to_string();
-        assert!(m.contains("falló la fila 30") && m.contains("no se pudieron deshacer") && m.contains("versión Delta"), "{m}");
+        assert!(
+            m.contains("falló la fila 30")
+                && m.contains("no se pudieron deshacer")
+                && m.contains("versión Delta"),
+            "{m}"
+        );
     }
 }

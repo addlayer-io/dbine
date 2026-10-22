@@ -139,10 +139,24 @@ pub fn encoded_len(v: &Value) -> usize {
             _ => 9,
         },
         Value::Float(_) => 9,
-        Value::Bytes(b) => b.len() + if b.len() < 0x100 { 2 } else if b.len() < 0x10000 { 3 } else { 5 },
+        Value::Bytes(b) => {
+            b.len()
+                + if b.len() < 0x100 {
+                    2
+                } else if b.len() < 0x10000 {
+                    3
+                } else {
+                    5
+                }
+        }
         Value::String(s) => head(s.len()) + s.len(),
         Value::List(l) => head(l.len()) + l.iter().map(encoded_len).sum::<usize>(),
-        Value::Map(m) => head(m.len()) + m.iter().map(|(k, x)| head(k.len()) + k.len() + encoded_len(x)).sum::<usize>(),
+        Value::Map(m) => {
+            head(m.len())
+                + m.iter()
+                    .map(|(k, x)| head(k.len()) + k.len() + encoded_len(x))
+                    .sum::<usize>()
+        }
         Value::Struct(_, f) => 2 + f.iter().map(encoded_len).sum::<usize>(),
     }
 }
@@ -259,7 +273,9 @@ impl<'a> Decoder<'a> {
     }
 
     fn string(&mut self, n: usize) -> Result<Value, String> {
-        Ok(Value::String(String::from_utf8_lossy(self.take(n)?).into_owned()))
+        Ok(Value::String(
+            String::from_utf8_lossy(self.take(n)?).into_owned(),
+        ))
     }
 
     fn list(&mut self, n: usize) -> Result<Value, String> {
@@ -315,20 +331,52 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        for i in [0, 1, -1, -16, -17, 127, 128, -128, -129, 32767, 32768, -32769, 1 << 31, i64::MIN, i64::MAX] {
+        for i in [
+            0,
+            1,
+            -1,
+            -16,
+            -17,
+            127,
+            128,
+            -128,
+            -129,
+            32767,
+            32768,
+            -32769,
+            1 << 31,
+            i64::MIN,
+            i64::MAX,
+        ] {
             round(Value::Int(i));
         }
         round(Value::Float(1.5));
         round(Value::String("é".repeat(300)));
         round(Value::List((0..20).map(Value::Int).collect()));
-        round(map([("a", Value::Null), ("b", Value::Bool(true)), ("c", Value::Bytes(vec![1, 2]))]));
-        round(Value::Struct(tag::NODE, vec![Value::Int(1), Value::List(vec![]), map([])]));
+        round(map([
+            ("a", Value::Null),
+            ("b", Value::Bool(true)),
+            ("c", Value::Bytes(vec![1, 2])),
+        ]));
+        round(Value::Struct(
+            tag::NODE,
+            vec![Value::Int(1), Value::List(vec![]), map([])],
+        ));
         // Every size header (for `encoded_len`).
         for n in [15, 16, 255, 256, 65_535, 65_536] {
             round(Value::String("x".repeat(n)));
             round(Value::Bytes(vec![7; n]));
             round(Value::List(vec![Value::Null; n]));
-            round(Value::Map((0..n).map(|i| (format!("{i:k$}", k = if n > 300 { 1 } else { 20 }), Value::Int(i as i64))).collect()));
+            round(Value::Map(
+                (0..n)
+                    .map(|i| {
+                        (
+                            format!("{i:k$}", k = if n > 300 { 1 } else { 20 }),
+                            Value::Int(i as i64),
+                        )
+                    })
+                    .collect(),
+            ));
         }
         for i in [2_147_483_647, -2_147_483_648, 2_147_483_648, -2_147_483_649] {
             round(Value::Int(i));

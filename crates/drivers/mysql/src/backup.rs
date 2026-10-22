@@ -49,11 +49,16 @@ pub(crate) fn script(product: Variant, action: &BackupAction) -> Result<String> 
         Variant::StarRocks | Variant::Doris => snapshot_script(action),
         Variant::Manticore => manticore_script(action),
         Variant::GreptimeDb => greptime_script(action),
-        _ => Err(Error::Unsupported("este motor no tiene backups propios".into())),
+        _ => Err(Error::Unsupported(
+            "este motor no tiene backups propios".into(),
+        )),
     }
 }
 
-pub(crate) async fn history(s: &mut MySqlSession, database: Option<&str>) -> Result<Vec<BackupEntry>> {
+pub(crate) async fn history(
+    s: &mut MySqlSession,
+    database: Option<&str>,
+) -> Result<Vec<BackupEntry>> {
     let mut entries = match s.product {
         Variant::MySql => mysql_history(s).await?,
         Variant::TiDb => tidb_history(s).await?,
@@ -87,7 +92,10 @@ fn required<'a>(options: &'a BTreeMap<String, String>, key: &str, what: &str) ->
 }
 
 fn database(db: &Option<String>) -> Result<&str> {
-    db.as_deref().map(str::trim).filter(|d| !d.is_empty()).ok_or_else(|| Error::Query("Falta la base de datos.".into()))
+    db.as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .ok_or_else(|| Error::Query("Falta la base de datos.".into()))
 }
 
 /// `"text"`, for engines whose PROPERTIES take double-quoted strings.
@@ -100,7 +108,9 @@ fn number<'a>(v: &'a str, what: &str) -> Result<&'a str> {
     if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) {
         Ok(v)
     } else {
-        Err(Error::Query(format!("{what} tiene que ser un número entero.")))
+        Err(Error::Query(format!(
+            "{what} tiene que ser un número entero."
+        )))
     }
 }
 
@@ -110,12 +120,15 @@ fn unsupported(what: &str) -> Error {
 
 /// "2026-09-29 12:40:26.050" → "2026-09-29T12:40:26.050".
 fn iso(s: Option<String>) -> Option<String> {
-    s.filter(|v| !v.is_empty() && !v.starts_with("0000")).map(|v| v.trim().replacen(' ', "T", 1))
+    s.filter(|v| !v.is_empty() && !v.starts_with("0000"))
+        .map(|v| v.trim().replacen(' ', "T", 1))
 }
 
 /// Now in UTC as `YYYYMMDD_HHMMSS`, for default labels.
 fn stamp() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs()) as i64;
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
     let z = days + 719_468;
@@ -127,7 +140,12 @@ fn stamp() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}{m:02}{d:02}_{:02}{:02}{:02}", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!(
+        "{y:04}{m:02}{d:02}_{:02}{:02}{:02}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 /// Rows of a query, or an explanation of what the server lacks.
@@ -140,7 +158,11 @@ async fn rows_or(s: &mut MySqlSession, sql: &str, missing: &str) -> Result<Vec<R
 
 fn details(r: &Row, cols: &[(&str, &str)]) -> Vec<(String, String)> {
     cols.iter()
-        .filter_map(|(col, label)| named(r, &[col]).filter(|v| !v.is_empty() && v != "0").map(|v| (label.to_string(), v)))
+        .filter_map(|(col, label)| {
+            named(r, &[col])
+                .filter(|v| !v.is_empty() && v != "0")
+                .map(|v| (label.to_string(), v))
+        })
         .collect()
 }
 
@@ -198,14 +220,28 @@ async fn mysql_history(s: &mut MySqlSession) -> Result<Vec<BackupEntry>> {
         .map(|r| {
             let source = named(r, &["SOURCE"]).unwrap_or_default();
             let local = source.eq_ignore_ascii_case("LOCAL INSTANCE");
-            let mut d = details(r, &[("ERROR_NO", "Código de error"), ("ERROR_MESSAGE", "Error"), ("BINLOG_FILE", "Binlog")]);
+            let mut d = details(
+                r,
+                &[
+                    ("ERROR_NO", "Código de error"),
+                    ("ERROR_MESSAGE", "Error"),
+                    ("BINLOG_FILE", "Binlog"),
+                ],
+            );
             if !local && !source.is_empty() {
                 d.insert(0, ("Origen".into(), source));
             }
             BackupEntry {
                 id: named(r, &["DESTINATION"]).unwrap_or_default(),
                 database: None,
-                kind: Some(if local { "Clonación local" } else { "Clonación remota" }.into()),
+                kind: Some(
+                    if local {
+                        "Clonación local"
+                    } else {
+                        "Clonación remota"
+                    }
+                    .into(),
+                ),
                 started: iso(named(r, &["BEGIN_TIME"])),
                 finished: iso(named(r, &["END_TIME"])),
                 size,
@@ -253,7 +289,10 @@ fn tidb_spec() -> BackupSpec {
 fn tidb_options(options: &BTreeMap<String, String>) -> Result<String> {
     let mut sql = String::new();
     if let Some(r) = opt(options, "rate_limit") {
-        sql += &format!(" RATE_LIMIT = {} MB/SECOND", number(r, "El límite de velocidad")?);
+        sql += &format!(
+            " RATE_LIMIT = {} MB/SECOND",
+            number(r, "El límite de velocidad")?
+        );
     }
     if opt(options, "checksum") == Some("false") {
         sql += " CHECKSUM = FALSE";
@@ -263,24 +302,34 @@ fn tidb_options(options: &BTreeMap<String, String>) -> Result<String> {
 
 fn tidb_script(action: &BackupAction) -> Result<String> {
     match action {
-        BackupAction::Backup { database: db, options } => {
+        BackupAction::Backup {
+            database: db,
+            options,
+        } => {
             let dest = required(options, "destination", "el destino")?;
             let mut sql = format!("BACKUP DATABASE {} TO {}", ident(database(db)?), lit(dest));
             sql += &tidb_options(options)?;
             if let Some(ts) = opt(options, "last_backup") {
-                sql += &format!(" LAST_BACKUP = {}", number(ts, "El TSO del backup anterior")?);
+                sql += &format!(
+                    " LAST_BACKUP = {}",
+                    number(ts, "El TSO del backup anterior")?
+                );
             }
             Ok(sql + ";")
         }
-        BackupAction::Restore { source, database: db, options } => Ok(format!(
+        BackupAction::Restore {
+            source,
+            database: db,
+            options,
+        } => Ok(format!(
             "RESTORE DATABASE {} FROM {}{};",
             ident(database(db)?),
             lit(source.trim()),
             tidb_options(options)?
         )),
-        BackupAction::Delete { .. } => {
-            Err(unsupported("TiDB no borra backups por SQL: se borra su carpeta en el almacenamiento"))
-        }
+        BackupAction::Delete { .. } => Err(unsupported(
+            "TiDB no borra backups por SQL: se borra su carpeta en el almacenamiento",
+        )),
     }
 }
 
@@ -291,10 +340,18 @@ async fn tidb_history(s: &mut MySqlSession) -> Result<Vec<BackupEntry>> {
             // A job that ended keeps its last stage (e.g. "Checksum") with
             // a finish time and 100 % progress.
             let finished = iso(named(&r, &["Finish_Time"]));
-            let done = finished.is_some() && named(&r, &["Progress"]).and_then(|p| p.parse::<f64>().ok()) == Some(100.0);
+            let done = finished.is_some()
+                && named(&r, &["Progress"]).and_then(|p| p.parse::<f64>().ok()) == Some(100.0);
             let state = named(&r, &["State"]);
-            let done = done || state.as_deref().is_some_and(|s| s.eq_ignore_ascii_case("Finished"));
-            let state = if done { Some("Finished".to_string()) } else { state };
+            let done = done
+                || state
+                    .as_deref()
+                    .is_some_and(|s| s.eq_ignore_ascii_case("Finished"));
+            let state = if done {
+                Some("Finished".to_string())
+            } else {
+                state
+            };
             out.push(BackupEntry {
                 id: named(&r, &["Destination"]).unwrap_or_default(),
                 database: None,
@@ -305,7 +362,15 @@ async fn tidb_history(s: &mut MySqlSession) -> Result<Vec<BackupEntry>> {
                 location: named(&r, &["Destination"]),
                 restorable: backup && done,
                 status: state,
-                details: details(&r, &[("Id", "Trabajo"), ("Progress", "Progreso (%)"), ("Connection", "Conexión"), ("Message", "Mensaje")]),
+                details: details(
+                    &r,
+                    &[
+                        ("Id", "Trabajo"),
+                        ("Progress", "Progreso (%)"),
+                        ("Connection", "Conexión"),
+                        ("Message", "Mensaje"),
+                    ],
+                ),
             });
         }
     }
@@ -339,16 +404,24 @@ fn storage_fields(restore: bool) -> Vec<Field> {
 
 fn singlestore_spec() -> BackupSpec {
     let mut backup_options = storage_fields(false);
-    backup_options.insert(0, Field::new("type", "Tipo", FieldKind::Select(vec![
-        ("full", "Completo"),
-        ("init", "Completo, base de incrementales (WITH INIT)"),
-        ("differential", "Incremental (WITH DIFFERENTIAL)"),
-    ]))
-    .default_value("full"));
+    backup_options.insert(
+        0,
+        Field::new(
+            "type",
+            "Tipo",
+            FieldKind::Select(vec![
+                ("full", "Completo"),
+                ("init", "Completo, base de incrementales (WITH INIT)"),
+                ("differential", "Incremental (WITH DIFFERENTIAL)"),
+            ]),
+        )
+        .default_value("full"),
+    );
     let mut restore_options = storage_fields(true);
     restore_options.push(
-        Field::new("source_database", "Base dentro del backup", FieldKind::Text)
-            .help("Vacío: la que indica la carpeta del backup (…/base.backup) o, si no, la de destino."),
+        Field::new("source_database", "Base dentro del backup", FieldKind::Text).help(
+            "Vacío: la que indica la carpeta del backup (…/base.backup) o, si no, la de destino.",
+        ),
     );
     BackupSpec {
         backup_options,
@@ -375,7 +448,10 @@ fn singlestore_target(options: &BTreeMap<String, String>, path: &str) -> String 
     };
     if storage != "local" {
         sql += &format!(" CONFIG {}", lit(opt(options, "config").unwrap_or("{}")));
-        sql += &format!(" CREDENTIALS {}", lit(opt(options, "credentials").unwrap_or("{}")));
+        sql += &format!(
+            " CREDENTIALS {}",
+            lit(opt(options, "credentials").unwrap_or("{}"))
+        );
     }
     sql
 }
@@ -384,43 +460,80 @@ fn singlestore_target(options: &BTreeMap<String, String>, path: &str) -> String 
 fn backup_folder(source: &str) -> Option<(&str, &str)> {
     let s = source.trim_end_matches('/');
     let (parent, last) = s.rsplit_once('/')?;
-    let db = last.strip_suffix(".backup").or_else(|| last.strip_suffix(".incr_backup"))?;
+    let db = last
+        .strip_suffix(".backup")
+        .or_else(|| last.strip_suffix(".incr_backup"))?;
     (!db.is_empty()).then_some((if parent.is_empty() { "/" } else { parent }, db))
 }
 
 fn singlestore_script(action: &BackupAction) -> Result<String> {
     match action {
-        BackupAction::Backup { database: db, options } => {
+        BackupAction::Backup {
+            database: db,
+            options,
+        } => {
             let path = required(options, "path", "la carpeta de destino")?;
             let with = match opt(options, "type") {
                 Some("init") => " WITH INIT",
                 Some("differential") => " WITH DIFFERENTIAL",
                 _ => "",
             };
-            Ok(format!("BACKUP DATABASE {}{with} TO {};", ident(database(db)?), singlestore_target(options, path)))
+            Ok(format!(
+                "BACKUP DATABASE {}{with} TO {};",
+                ident(database(db)?),
+                singlestore_target(options, path)
+            ))
         }
-        BackupAction::Restore { source, database: db, options } => {
+        BackupAction::Restore {
+            source,
+            database: db,
+            options,
+        } => {
             let target = database(db)?;
             let typed = source.trim();
-            let typed = if typed.is_empty() { required(options, "path", "la carpeta del backup")? } else { typed };
+            let typed = if typed.is_empty() {
+                required(options, "path", "la carpeta del backup")?
+            } else {
+                typed
+            };
             let (path, from_folder) = match backup_folder(typed) {
                 Some((parent, name)) => (parent, Some(name)),
                 None => (typed, None),
             };
-            let source_db = opt(options, "source_database").or(from_folder).unwrap_or(target);
-            let rename = if source_db == target { String::new() } else { format!(" AS {}", ident(target)) };
-            Ok(format!("RESTORE DATABASE {}{rename} FROM {};", ident(source_db), singlestore_target(options, path)))
+            let source_db = opt(options, "source_database")
+                .or(from_folder)
+                .unwrap_or(target);
+            let rename = if source_db == target {
+                String::new()
+            } else {
+                format!(" AS {}", ident(target))
+            };
+            Ok(format!(
+                "RESTORE DATABASE {}{rename} FROM {};",
+                ident(source_db),
+                singlestore_target(options, path)
+            ))
         }
-        BackupAction::Delete { .. } => Err(unsupported("SingleStore no borra backups por SQL: se borra su carpeta")),
+        BackupAction::Delete { .. } => Err(unsupported(
+            "SingleStore no borra backups por SQL: se borra su carpeta",
+        )),
     }
 }
 
-async fn singlestore_history(s: &mut MySqlSession, database: Option<&str>) -> Result<Vec<BackupEntry>> {
+async fn singlestore_history(
+    s: &mut MySqlSession,
+    database: Option<&str>,
+) -> Result<Vec<BackupEntry>> {
     let mut sql = "SELECT * FROM information_schema.MV_BACKUP_HISTORY".to_string();
     if let Some(db) = database {
         sql += &format!(" WHERE DATABASE_NAME = {}", lit(db));
     }
-    let rows = rows_or(s, &sql, "No se puede leer information_schema.MV_BACKUP_HISTORY").await?;
+    let rows = rows_or(
+        s,
+        &sql,
+        "No se puede leer information_schema.MV_BACKUP_HISTORY",
+    )
+    .await?;
     Ok(rows
         .iter()
         .map(|r| {
@@ -436,20 +549,26 @@ async fn singlestore_history(s: &mut MySqlSession, database: Option<&str>) -> Re
             BackupEntry {
                 id,
                 database: db,
-                kind: named(r, &["INCR_BACKUP_TYPE", "BACKUP_TYPE", "TYPE"]).or_else(|| Some("Completo".into())),
+                kind: named(r, &["INCR_BACKUP_TYPE", "BACKUP_TYPE", "TYPE"])
+                    .or_else(|| Some("Completo".into())),
                 started: iso(named(r, &["START_TIMESTAMP"])),
                 finished: iso(named(r, &["END_TIMESTAMP"])),
                 size: named(r, &["SIZE", "BACKUP_SIZE"]).and_then(|v| v.parse().ok()),
                 location: Some(path),
-                restorable: status.as_deref().is_some_and(|s| s.eq_ignore_ascii_case("Success")),
+                restorable: status
+                    .as_deref()
+                    .is_some_and(|s| s.eq_ignore_ascii_case("Success")),
                 status,
-                details: details(r, &[
-                    ("BACKUP_ID", "Id"),
-                    ("NUM_PARTITIONS", "Particiones"),
-                    ("INCR_BACKUP_ID", "Id incremental"),
-                    ("ERROR_CODE", "Código de error"),
-                    ("ERROR_MESSAGE", "Error"),
-                ]),
+                details: details(
+                    r,
+                    &[
+                        ("BACKUP_ID", "Id"),
+                        ("NUM_PARTITIONS", "Particiones"),
+                        ("INCR_BACKUP_ID", "Id incremental"),
+                        ("ERROR_CODE", "Código de error"),
+                        ("ERROR_MESSAGE", "Error"),
+                    ],
+                ),
             }
         })
         .collect())
@@ -506,28 +625,49 @@ fn oceanbase_script(action: &BackupAction) -> Result<String> {
 }
 
 async fn oceanbase_history(s: &mut MySqlSession) -> Result<Vec<BackupEntry>> {
-    let mut rows = s.optional_rows("SELECT * FROM oceanbase.DBA_OB_BACKUP_JOBS").await;
-    rows.extend(rows_or(s, "SELECT * FROM oceanbase.DBA_OB_BACKUP_JOB_HISTORY", "No se puede leer el historial de backups del tenant").await?);
+    let mut rows = s
+        .optional_rows("SELECT * FROM oceanbase.DBA_OB_BACKUP_JOBS")
+        .await;
+    rows.extend(
+        rows_or(
+            s,
+            "SELECT * FROM oceanbase.DBA_OB_BACKUP_JOB_HISTORY",
+            "No se puede leer el historial de backups del tenant",
+        )
+        .await?,
+    );
     Ok(rows
         .iter()
         .map(|r| {
-            let incremental = named(r, &["BACKUP_TYPE"]).is_some_and(|t| t.to_ascii_uppercase().starts_with("INC"));
+            let incremental = named(r, &["BACKUP_TYPE"])
+                .is_some_and(|t| t.to_ascii_uppercase().starts_with("INC"));
             BackupEntry {
                 id: named(r, &["BACKUP_SET_ID", "JOB_ID"]).unwrap_or_default(),
                 database: None,
-                kind: Some(if incremental { "Incremental" } else { "Completo" }.into()),
+                kind: Some(
+                    if incremental {
+                        "Incremental"
+                    } else {
+                        "Completo"
+                    }
+                    .into(),
+                ),
                 started: iso(named(r, &["START_TIMESTAMP"])),
                 finished: iso(named(r, &["END_TIMESTAMP"])),
-                size: named(r, &["OUTPUT_BYTES", "OUTPUT_BYTES_DISPLAY"]).and_then(|v| v.parse().ok()),
+                size: named(r, &["OUTPUT_BYTES", "OUTPUT_BYTES_DISPLAY"])
+                    .and_then(|v| v.parse().ok()),
                 location: named(r, &["PATH", "BACKUP_DEST"]),
                 status: named(r, &["STATUS"]),
-                details: details(r, &[
-                    ("JOB_ID", "Trabajo"),
-                    ("PLUS_ARCHIVELOG", "Con logs archivados"),
-                    ("RESULT", "Resultado"),
-                    ("COMMENT", "Comentario"),
-                    ("DESCRIPTION", "Descripción"),
-                ]),
+                details: details(
+                    r,
+                    &[
+                        ("JOB_ID", "Trabajo"),
+                        ("PLUS_ARCHIVELOG", "Con logs archivados"),
+                        ("RESULT", "Resultado"),
+                        ("COMMENT", "Comentario"),
+                        ("DESCRIPTION", "Descripción"),
+                    ],
+                ),
                 restorable: false,
             }
         })
@@ -587,17 +727,35 @@ fn snapshot_id(source: &str) -> Result<(&str, &str, &str)> {
 
 fn snapshot_script(action: &BackupAction) -> Result<String> {
     match action {
-        BackupAction::Backup { database: db, options } => {
+        BackupAction::Backup {
+            database: db,
+            options,
+        } => {
             let db = database(db)?;
             let repo = required(options, "repository", "el repositorio")?;
-            let label = opt(options, "label").map_or_else(|| format!("{db}_{}", stamp()), str::to_string);
-            Ok(format!("BACKUP SNAPSHOT {}.{} TO {}{};", ident(db), ident(&label), ident(repo), table_list(options)))
+            let label =
+                opt(options, "label").map_or_else(|| format!("{db}_{}", stamp()), str::to_string);
+            Ok(format!(
+                "BACKUP SNAPSHOT {}.{} TO {}{};",
+                ident(db),
+                ident(&label),
+                ident(repo),
+                table_list(options)
+            ))
         }
-        BackupAction::Restore { source, database: db, options } => {
+        BackupAction::Restore {
+            source,
+            database: db,
+            options,
+        } => {
             let (repo, label, ts) = snapshot_id(source)?;
             let mut props = vec![format!("{} = {}", dq("backup_timestamp"), dq(ts))];
             if let Some(n) = opt(options, "replication_num") {
-                props.push(format!("{} = {}", dq("replication_num"), dq(number(n, "La cantidad de réplicas")?)));
+                props.push(format!(
+                    "{} = {}",
+                    dq("replication_num"),
+                    dq(number(n, "La cantidad de réplicas")?)
+                ));
             }
             Ok(format!(
                 "RESTORE SNAPSHOT {}.{} FROM {}{} PROPERTIES ({});",
@@ -608,20 +766,35 @@ fn snapshot_script(action: &BackupAction) -> Result<String> {
                 props.join(", ")
             ))
         }
-        BackupAction::Delete { .. } => Err(unsupported("este motor no borra snapshots por SQL: se borra su carpeta en el repositorio")),
+        BackupAction::Delete { .. } => Err(unsupported(
+            "este motor no borra snapshots por SQL: se borra su carpeta en el repositorio",
+        )),
     }
 }
 
-async fn snapshot_history(s: &mut MySqlSession, database: Option<&str>) -> Result<Vec<BackupEntry>> {
-    let repos: Vec<(String, Option<String>)> = rows_or(s, "SHOW REPOSITORIES", "No se pueden listar los repositorios")
-        .await?
-        .iter()
-        .filter_map(|r| Some((named(r, &["RepoName", "Name"])?, named(r, &["Location"]))))
-        .collect();
+async fn snapshot_history(
+    s: &mut MySqlSession,
+    database: Option<&str>,
+) -> Result<Vec<BackupEntry>> {
+    let repos: Vec<(String, Option<String>)> = rows_or(
+        s,
+        "SHOW REPOSITORIES",
+        "No se pueden listar los repositorios",
+    )
+    .await?
+    .iter()
+    .filter_map(|r| Some((named(r, &["RepoName", "Name"])?, named(r, &["Location"]))))
+    .collect();
     let mut out = Vec::new();
     for (repo, location) in repos {
-        for r in s.optional_rows(&format!("SHOW SNAPSHOT ON {}", ident(&repo))).await {
-            let (Some(label), Some(ts)) = (named(&r, &["Snapshot"]), named(&r, &["Timestamp"])) else { continue };
+        for r in s
+            .optional_rows(&format!("SHOW SNAPSHOT ON {}", ident(&repo)))
+            .await
+        {
+            let (Some(label), Some(ts)) = (named(&r, &["Snapshot"]), named(&r, &["Timestamp"]))
+            else {
+                continue;
+            };
             let db = named(&r, &["Database", "DbName"]);
             if let (Some(want), Some(have)) = (database, db.as_deref()) {
                 if !want.eq_ignore_ascii_case(have) {
@@ -636,16 +809,27 @@ async fn snapshot_history(s: &mut MySqlSession, database: Option<&str>) -> Resul
                 started: snapshot_time(&ts),
                 finished: None,
                 size: None,
-                location: location.clone().map(|l| format!("{l} ({repo})")).or_else(|| Some(repo.clone())),
-                restorable: status.as_deref().is_none_or(|s| s.eq_ignore_ascii_case("OK")),
+                location: location
+                    .clone()
+                    .map(|l| format!("{l} ({repo})"))
+                    .or_else(|| Some(repo.clone())),
+                restorable: status
+                    .as_deref()
+                    .is_none_or(|s| s.eq_ignore_ascii_case("OK")),
                 status,
-                details: vec![("Snapshot".into(), label), ("Repositorio".into(), repo.clone())],
+                details: vec![
+                    ("Snapshot".into(), label),
+                    ("Repositorio".into(), repo.clone()),
+                ],
             });
         }
     }
     // The job still running (finished ones are in the repository).
     if let Some(db) = database {
-        for r in s.optional_rows(&format!("SHOW BACKUP FROM {}", ident(db))).await {
+        for r in s
+            .optional_rows(&format!("SHOW BACKUP FROM {}", ident(db)))
+            .await
+        {
             let state = named(&r, &["State"]).unwrap_or_default();
             if state.eq_ignore_ascii_case("FINISHED") {
                 continue;
@@ -659,7 +843,15 @@ async fn snapshot_history(s: &mut MySqlSession, database: Option<&str>) -> Resul
                 size: None,
                 location: named(&r, &["RepoName"]),
                 status: Some(state),
-                details: details(&r, &[("JobId", "Trabajo"), ("Progress", "Progreso"), ("TaskErrMsg", "Error"), ("Status", "Detalle")]),
+                details: details(
+                    &r,
+                    &[
+                        ("JobId", "Trabajo"),
+                        ("Progress", "Progreso"),
+                        ("TaskErrMsg", "Error"),
+                        ("Status", "Detalle"),
+                    ],
+                ),
                 restorable: false,
             });
         }
@@ -705,10 +897,16 @@ fn manticore_spec() -> BackupSpec {
 
 /// A folder or table name Manticore takes unquoted.
 fn bare<'a>(v: &'a str, what: &str) -> Result<&'a str> {
-    if !v.is_empty() && !v.chars().any(|c| c.is_whitespace() || matches!(c, ';' | '\'' | '"' | '`' | ',' | '\\')) {
+    if !v.is_empty()
+        && !v
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, ';' | '\'' | '"' | '`' | ',' | '\\'))
+    {
         Ok(v)
     } else {
-        Err(Error::Query(format!("{what} no puede tener espacios, comillas, comas ni «;».")))
+        Err(Error::Query(format!(
+            "{what} no puede tener espacios, comillas, comas ni «;»."
+        )))
     }
 }
 
@@ -744,18 +942,46 @@ fn manticore_script(action: &BackupAction) -> Result<String> {
 
 fn greptime_fields(restore: bool) -> Vec<Field> {
     vec![
-        Field::new("path", if restore { "Carpeta de la copia" } else { "Carpeta de destino" }, FieldKind::Text)
-            .required()
-            .placeholder("backups/mibase/ o s3://bucket/carpeta/")
-            .help("Relativa a la carpeta de copias del servidor, o una URL s3://."),
-        Field::new("format", "Formato", FieldKind::Select(vec![("parquet", "Parquet"), ("csv", "CSV"), ("json", "JSON")]))
-            .default_value("parquet"),
-        Field::new("storage", "Almacenamiento", FieldKind::Select(vec![("local", "El servidor"), ("s3", "S3 (o compatible)")]))
-            .default_value("local"),
+        Field::new(
+            "path",
+            if restore {
+                "Carpeta de la copia"
+            } else {
+                "Carpeta de destino"
+            },
+            FieldKind::Text,
+        )
+        .required()
+        .placeholder("backups/mibase/ o s3://bucket/carpeta/")
+        .help("Relativa a la carpeta de copias del servidor, o una URL s3://."),
+        Field::new(
+            "format",
+            "Formato",
+            FieldKind::Select(vec![
+                ("parquet", "Parquet"),
+                ("csv", "CSV"),
+                ("json", "JSON"),
+            ]),
+        )
+        .default_value("parquet"),
+        Field::new(
+            "storage",
+            "Almacenamiento",
+            FieldKind::Select(vec![("local", "El servidor"), ("s3", "S3 (o compatible)")]),
+        )
+        .default_value("local"),
         Field::new("access_key_id", "Access key ID", FieldKind::Text).when("storage", &["s3"]),
-        Field::new("secret_access_key", "Secret access key", FieldKind::Password).secret().when("storage", &["s3"]),
+        Field::new(
+            "secret_access_key",
+            "Secret access key",
+            FieldKind::Password,
+        )
+        .secret()
+        .when("storage", &["s3"]),
         Field::new("region", "Región", FieldKind::Text).when("storage", &["s3"]),
-        Field::new("endpoint", "Endpoint", FieldKind::Text).placeholder("vacío: AWS").when("storage", &["s3"]),
+        Field::new("endpoint", "Endpoint", FieldKind::Text)
+            .placeholder("vacío: AWS")
+            .when("storage", &["s3"]),
     ]
 }
 
@@ -775,13 +1001,22 @@ fn greptime_spec() -> BackupSpec {
 }
 
 fn greptime_copy(db: &str, dir: &str, path: &str, options: &BTreeMap<String, String>) -> String {
-    let path = if path.ends_with('/') { path.to_string() } else { format!("{path}/") };
+    let path = if path.ends_with('/') {
+        path.to_string()
+    } else {
+        format!("{path}/")
+    };
     let format = match opt(options, "format") {
         Some("csv") => "csv",
         Some("json") => "json",
         _ => "parquet",
     };
-    let mut sql = format!("COPY DATABASE {} {dir} {} WITH (FORMAT = {})", ident(db), lit(&path), lit(format));
+    let mut sql = format!(
+        "COPY DATABASE {} {dir} {} WITH (FORMAT = {})",
+        ident(db),
+        lit(&path),
+        lit(format)
+    );
     if opt(options, "storage") == Some("s3") {
         let conn: Vec<String> = [
             ("ACCESS_KEY_ID", "access_key_id"),
@@ -801,17 +1036,29 @@ fn greptime_copy(db: &str, dir: &str, path: &str, options: &BTreeMap<String, Str
 
 fn greptime_script(action: &BackupAction) -> Result<String> {
     match action {
-        BackupAction::Backup { database: db, options } => {
-            Ok(greptime_copy(database(db)?, "TO", required(options, "path", "la carpeta de destino")?, options))
-        }
-        BackupAction::Restore { source, database: db, options } => {
+        BackupAction::Backup {
+            database: db,
+            options,
+        } => Ok(greptime_copy(
+            database(db)?,
+            "TO",
+            required(options, "path", "la carpeta de destino")?,
+            options,
+        )),
+        BackupAction::Restore {
+            source,
+            database: db,
+            options,
+        } => {
             let path = match source.trim() {
                 "" => required(options, "path", "la carpeta de la copia")?,
                 s => s,
             };
             Ok(greptime_copy(database(db)?, "FROM", path, options))
         }
-        BackupAction::Delete { .. } => Err(unsupported("GreptimeDB no borra copias por SQL: se borra su carpeta")),
+        BackupAction::Delete { .. } => Err(unsupported(
+            "GreptimeDB no borra copias por SQL: se borra su carpeta",
+        )),
     }
 }
 
@@ -820,22 +1067,47 @@ mod tests {
     use super::*;
 
     fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
     fn backup(db: &str, pairs: &[(&str, &str)]) -> BackupAction {
-        BackupAction::Backup { database: Some(db.into()), options: opts(pairs) }
+        BackupAction::Backup {
+            database: Some(db.into()),
+            options: opts(pairs),
+        }
     }
     fn restore(source: &str, db: &str, pairs: &[(&str, &str)]) -> BackupAction {
-        BackupAction::Restore { source: source.into(), database: Some(db.into()), options: opts(pairs) }
+        BackupAction::Restore {
+            source: source.into(),
+            database: Some(db.into()),
+            options: opts(pairs),
+        }
     }
 
     #[test]
     fn variants_without_native_backups() {
-        for v in [Variant::MariaDb, Variant::Databend, Variant::AuroraMySql, Variant::CloudSqlMySql, Variant::VeloDb] {
+        for v in [
+            Variant::MariaDb,
+            Variant::Databend,
+            Variant::AuroraMySql,
+            Variant::CloudSqlMySql,
+            Variant::VeloDb,
+        ] {
             assert!(spec(v).is_none(), "{v:?}");
             assert!(script(v, &backup("x", &[])).is_err());
         }
-        for v in [Variant::MySql, Variant::TiDb, Variant::SingleStore, Variant::OceanBase, Variant::StarRocks, Variant::Doris, Variant::Manticore, Variant::GreptimeDb] {
+        for v in [
+            Variant::MySql,
+            Variant::TiDb,
+            Variant::SingleStore,
+            Variant::OceanBase,
+            Variant::StarRocks,
+            Variant::Doris,
+            Variant::Manticore,
+            Variant::GreptimeDb,
+        ] {
             assert!(spec(v).is_some(), "{v:?}");
         }
     }
@@ -853,63 +1125,156 @@ mod tests {
     fn tidb_backup_and_restore() {
         let s = script(
             Variant::TiDb,
-            &backup("my`db", &[("destination", "s3://b/p"), ("rate_limit", "120"), ("checksum", "false"), ("last_backup", "4156")]),
+            &backup(
+                "my`db",
+                &[
+                    ("destination", "s3://b/p"),
+                    ("rate_limit", "120"),
+                    ("checksum", "false"),
+                    ("last_backup", "4156"),
+                ],
+            ),
         )
         .unwrap();
         assert_eq!(s, "BACKUP DATABASE `my``db` TO 's3://b/p' RATE_LIMIT = 120 MB/SECOND CHECKSUM = FALSE LAST_BACKUP = 4156;");
-        assert!(script(Variant::TiDb, &backup("d", &[("destination", "x"), ("rate_limit", "1; DROP")])).is_err());
-        let r = script(Variant::TiDb, &restore("local:///tmp/b", "d", &[("checksum", "true")])).unwrap();
+        assert!(script(
+            Variant::TiDb,
+            &backup("d", &[("destination", "x"), ("rate_limit", "1; DROP")])
+        )
+        .is_err());
+        let r = script(
+            Variant::TiDb,
+            &restore("local:///tmp/b", "d", &[("checksum", "true")]),
+        )
+        .unwrap();
         assert_eq!(r, "RESTORE DATABASE `d` FROM 'local:///tmp/b';");
     }
 
     #[test]
     fn singlestore_backup_and_restore() {
-        let s = script(Variant::SingleStore, &backup("d", &[("type", "init"), ("path", "/bk")])).unwrap();
+        let s = script(
+            Variant::SingleStore,
+            &backup("d", &[("type", "init"), ("path", "/bk")]),
+        )
+        .unwrap();
         assert_eq!(s, "BACKUP DATABASE `d` WITH INIT TO '/bk';");
         let s = script(
             Variant::SingleStore,
-            &backup("d", &[("storage", "s3"), ("path", "bucket/p"), ("config", "{\"region\":\"us-east-1\"}"), ("credentials", "{}")]),
+            &backup(
+                "d",
+                &[
+                    ("storage", "s3"),
+                    ("path", "bucket/p"),
+                    ("config", "{\"region\":\"us-east-1\"}"),
+                    ("credentials", "{}"),
+                ],
+            ),
         )
         .unwrap();
         assert_eq!(s, "BACKUP DATABASE `d` TO S3 'bucket/p' CONFIG '{\"region\":\"us-east-1\"}' CREDENTIALS '{}';");
         // From a history entry: the folder names the database.
-        let r = script(Variant::SingleStore, &restore("/bk/orig.backup", "copy", &[])).unwrap();
+        let r = script(
+            Variant::SingleStore,
+            &restore("/bk/orig.backup", "copy", &[]),
+        )
+        .unwrap();
         assert_eq!(r, "RESTORE DATABASE `orig` AS `copy` FROM '/bk';");
         let r = script(Variant::SingleStore, &restore("/bk", "d", &[])).unwrap();
         assert_eq!(r, "RESTORE DATABASE `d` FROM '/bk';");
-        let r = script(Variant::SingleStore, &restore("/bk", "d", &[("source_database", "o")])).unwrap();
+        let r = script(
+            Variant::SingleStore,
+            &restore("/bk", "d", &[("source_database", "o")]),
+        )
+        .unwrap();
         assert_eq!(r, "RESTORE DATABASE `o` AS `d` FROM '/bk';");
     }
 
     #[test]
     fn oceanbase_tenant_backup() {
-        let s = script(Variant::OceanBase, &backup("", &[("incremental", "true"), ("plus_archivelog", "true"), ("destination", "file:///b")])).unwrap();
+        let s = script(
+            Variant::OceanBase,
+            &backup(
+                "",
+                &[
+                    ("incremental", "true"),
+                    ("plus_archivelog", "true"),
+                    ("destination", "file:///b"),
+                ],
+            ),
+        )
+        .unwrap();
         assert_eq!(s, "ALTER SYSTEM SET DATA_BACKUP_DEST = 'file:///b';\nALTER SYSTEM BACKUP INCREMENTAL DATABASE PLUS ARCHIVELOG;");
-        assert_eq!(script(Variant::OceanBase, &backup("", &[])).unwrap(), "ALTER SYSTEM BACKUP DATABASE;");
+        assert_eq!(
+            script(Variant::OceanBase, &backup("", &[])).unwrap(),
+            "ALTER SYSTEM BACKUP DATABASE;"
+        );
     }
 
     #[test]
     fn snapshots_in_a_repository() {
-        let s = script(Variant::StarRocks, &backup("d", &[("repository", "repo"), ("label", "l1"), ("tables", "a, b`c")])).unwrap();
+        let s = script(
+            Variant::StarRocks,
+            &backup(
+                "d",
+                &[
+                    ("repository", "repo"),
+                    ("label", "l1"),
+                    ("tables", "a, b`c"),
+                ],
+            ),
+        )
+        .unwrap();
         assert_eq!(s, "BACKUP SNAPSHOT `d`.`l1` TO `repo` ON (`a`, `b``c`);");
         let s = script(Variant::Doris, &backup("d", &[("repository", "repo")])).unwrap();
-        assert!(s.starts_with("BACKUP SNAPSHOT `d`.`d_2") && s.ends_with("` TO `repo`;"), "{s}");
-        let r = script(Variant::StarRocks, &restore("repo/l1/2026-09-29-12-40-50", "d2", &[("replication_num", "1")])).unwrap();
+        assert!(
+            s.starts_with("BACKUP SNAPSHOT `d`.`d_2") && s.ends_with("` TO `repo`;"),
+            "{s}"
+        );
+        let r = script(
+            Variant::StarRocks,
+            &restore(
+                "repo/l1/2026-09-29-12-40-50",
+                "d2",
+                &[("replication_num", "1")],
+            ),
+        )
+        .unwrap();
         assert_eq!(
             r,
             "RESTORE SNAPSHOT `d2`.`l1` FROM `repo` PROPERTIES (\"backup_timestamp\" = \"2026-09-29-12-40-50\", \"replication_num\" = \"1\");"
         );
         assert!(script(Variant::StarRocks, &restore("nope", "d", &[])).is_err());
-        assert_eq!(snapshot_time("2026-09-29-12-40-50").as_deref(), Some("2026-09-29T12:40:50"));
-        assert_eq!(snapshot_time("2026-09-29-13-14-31-608").as_deref(), Some("2026-09-29T13:14:31.608"));
+        assert_eq!(
+            snapshot_time("2026-09-29-12-40-50").as_deref(),
+            Some("2026-09-29T12:40:50")
+        );
+        assert_eq!(
+            snapshot_time("2026-09-29-13-14-31-608").as_deref(),
+            Some("2026-09-29T13:14:31.608")
+        );
         assert_eq!(snapshot_time(""), None);
     }
 
     #[test]
     fn manticore_backup() {
-        let s = script(Variant::Manticore, &backup("", &[("directory", "/b"), ("tables", "a,b"), ("compression", "true")])).unwrap();
+        let s = script(
+            Variant::Manticore,
+            &backup(
+                "",
+                &[
+                    ("directory", "/b"),
+                    ("tables", "a,b"),
+                    ("compression", "true"),
+                ],
+            ),
+        )
+        .unwrap();
         assert_eq!(s, "BACKUP TABLE a, b TO /b OPTION compression = yes;");
-        assert!(script(Variant::Manticore, &backup("", &[("directory", "/b; DROP")])).is_err());
+        assert!(script(
+            Variant::Manticore,
+            &backup("", &[("directory", "/b; DROP")])
+        )
+        .is_err());
     }
 
     #[test]
@@ -918,7 +1283,16 @@ mod tests {
         assert_eq!(s, "COPY DATABASE `d` TO 'bk/d/' WITH (FORMAT = 'parquet');");
         let r = script(
             Variant::GreptimeDb,
-            &restore("s3://b/p/", "d", &[("format", "csv"), ("storage", "s3"), ("access_key_id", "k"), ("secret_access_key", "s'x")]),
+            &restore(
+                "s3://b/p/",
+                "d",
+                &[
+                    ("format", "csv"),
+                    ("storage", "s3"),
+                    ("access_key_id", "k"),
+                    ("secret_access_key", "s'x"),
+                ],
+            ),
         )
         .unwrap();
         assert_eq!(r, "COPY DATABASE `d` FROM 's3://b/p/' WITH (FORMAT = 'csv') CONNECTION (ACCESS_KEY_ID = 'k', SECRET_ACCESS_KEY = 's''x');");
@@ -934,7 +1308,10 @@ mod tests {
     #[test]
     fn backup_folders() {
         assert_eq!(backup_folder("/a/b/db.backup/"), Some(("/a/b", "db")));
-        assert_eq!(backup_folder("bucket/db.incr_backup"), Some(("bucket", "db")));
+        assert_eq!(
+            backup_folder("bucket/db.incr_backup"),
+            Some(("bucket", "db"))
+        );
         assert_eq!(backup_folder("/a/b"), None);
     }
 }

@@ -20,7 +20,9 @@ pub struct Answer {
 
 impl Answer {
     pub fn col(&self, name: &str) -> Option<usize> {
-        self.columns.iter().position(|c| c.eq_ignore_ascii_case(name))
+        self.columns
+            .iter()
+            .position(|c| c.eq_ignore_ascii_case(name))
     }
 
     pub fn get<'a>(&self, row: &'a [J], name: &str) -> &'a J {
@@ -32,7 +34,12 @@ impl Answer {
     fn table(&self, key: &str, title: &str, cols: &[(&str, &str)]) -> MonitorTable {
         let titles: Vec<&str> = cols.iter().map(|c| c.1).collect();
         let mut t = MonitorTable::new(key, title, &titles);
-        t.rows = self.rows.iter().take(MAX_ROWS).map(|r| cols.iter().map(|c| self.get(r, c.0).clone()).collect()).collect();
+        t.rows = self
+            .rows
+            .iter()
+            .take(MAX_ROWS)
+            .map(|r| cols.iter().map(|c| self.get(r, c.0).clone()).collect())
+            .collect();
         t
     }
 }
@@ -92,7 +99,10 @@ fn parse_line(line: &str) -> Option<Sample> {
         let mut chars = body.char_indices().peekable();
         let end;
         loop {
-            while chars.peek().is_some_and(|(_, c)| *c == ',' || c.is_whitespace()) {
+            while chars
+                .peek()
+                .is_some_and(|(_, c)| *c == ',' || c.is_whitespace())
+            {
                 chars.next();
             }
             let (start, c) = chars.next()?;
@@ -132,7 +142,11 @@ fn parse_line(line: &str) -> Option<Sample> {
         "-Inf" => f64::NEG_INFINITY,
         v => v.parse().ok()?,
     };
-    Some(Sample { name, labels, value })
+    Some(Sample {
+        name,
+        labels,
+        value,
+    })
 }
 
 pub struct Prom(pub Vec<Sample>);
@@ -142,8 +156,15 @@ impl Prom {
         Prom(parse_prometheus(text))
     }
 
-    pub fn sum_where(&self, name: &str, f: impl Fn(&BTreeMap<String, String>) -> bool) -> Option<f64> {
-        self.0.iter().filter(|s| s.name == name && f(&s.labels)).fold(None, |a, s| Some(a.unwrap_or(0.0) + s.value))
+    pub fn sum_where(
+        &self,
+        name: &str,
+        f: impl Fn(&BTreeMap<String, String>) -> bool,
+    ) -> Option<f64> {
+        self.0
+            .iter()
+            .filter(|s| s.name == name && f(&s.labels))
+            .fold(None, |a, s| Some(a.unwrap_or(0.0) + s.value))
     }
 
     pub fn sum(&self, name: &str) -> Option<f64> {
@@ -184,83 +205,273 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
 
     // --- metrics from the Prometheus endpoint ---
     let host_total = p.sum("sys_total_physical_memory_size");
-    let host_used = host_total.zip(p.sum("sys_free_physical_memory_size")).map(|(t, f)| t - f);
-    let heap_used = p.sum_where("jvm_memory_used_bytes", |l| l.get("area").is_some_and(|a| a == "heap"));
+    let host_used = host_total
+        .zip(p.sum("sys_free_physical_memory_size"))
+        .map(|(t, f)| t - f);
+    let heap_used = p.sum_where("jvm_memory_used_bytes", |l| {
+        l.get("area").is_some_and(|a| a == "heap")
+    });
     // Pools without a limit report -1.
-    let heap_max = p
-        .0
-        .iter()
-        .filter(|x| x.name == "jvm_memory_max_bytes" && x.value > 0.0 && x.labels.get("area").is_some_and(|a| a == "heap"))
-        .fold(None, |a: Option<f64>, x| Some(a.unwrap_or(0.0) + x.value));
-    let files = |kinds: &[&str]| p.sum_where("file_size", |l| l.get("name").is_some_and(|n| kinds.contains(&n.as_str())));
+    let heap_max =
+        p.0.iter()
+            .filter(|x| {
+                x.name == "jvm_memory_max_bytes"
+                    && x.value > 0.0
+                    && x.labels.get("area").is_some_and(|a| a == "heap")
+            })
+            .fold(None, |a: Option<f64>, x| Some(a.unwrap_or(0.0) + x.value));
+    let files = |kinds: &[&str]| {
+        p.sum_where("file_size", |l| {
+            l.get("name").is_some_and(|n| kinds.contains(&n.as_str()))
+        })
+    };
     let m = &mut s.metrics;
-    m.push(Metric::new("cpu", "CPU del servidor", "CPU", MetricUnit::Percent, p.sum("sys_cpu_load")).max(Some(100.0)));
-    m.push(Metric::new("cpu_process", "CPU del DataNode", "CPU", MetricUnit::Percent, p.sum("process_cpu_load")).max(Some(100.0)));
     m.push(
-        Metric::new("cpu_time", "Tiempo de CPU del DataNode", "CPU", MetricUnit::Percent, p.sum("process_cpu_time").map(|ns| ns / 1e9 * 100.0))
-            .counter(),
+        Metric::new(
+            "cpu",
+            "CPU del servidor",
+            "CPU",
+            MetricUnit::Percent,
+            p.sum("sys_cpu_load"),
+        )
+        .max(Some(100.0)),
     );
     m.push(
-        Metric::new("mem_used", "Memoria de la JVM (heap)", "Memoria", MetricUnit::Bytes, heap_used.or(p.sum("process_used_mem")))
-            .max(heap_max.or(p.sum("process_max_mem"))),
+        Metric::new(
+            "cpu_process",
+            "CPU del DataNode",
+            "CPU",
+            MetricUnit::Percent,
+            p.sum("process_cpu_load"),
+        )
+        .max(Some(100.0)),
     );
-    m.push(Metric::new("mem_host", "Memoria del servidor", "Memoria", MetricUnit::Bytes, host_used).max(host_total));
     m.push(
-        Metric::new("connections", "Conexiones de clientes", "Conexiones", MetricUnit::Count, p.with("thrift_connections", "name", "ClientRPC")),
+        Metric::new(
+            "cpu_time",
+            "Tiempo de CPU del DataNode",
+            "CPU",
+            MetricUnit::Percent,
+            p.sum("process_cpu_time").map(|ns| ns / 1e9 * 100.0),
+        )
+        .counter(),
     );
+    m.push(
+        Metric::new(
+            "mem_used",
+            "Memoria de la JVM (heap)",
+            "Memoria",
+            MetricUnit::Bytes,
+            heap_used.or(p.sum("process_used_mem")),
+        )
+        .max(heap_max.or(p.sum("process_max_mem"))),
+    );
+    m.push(
+        Metric::new(
+            "mem_host",
+            "Memoria del servidor",
+            "Memoria",
+            MetricUnit::Bytes,
+            host_used,
+        )
+        .max(host_total),
+    );
+    m.push(Metric::new(
+        "connections",
+        "Conexiones de clientes",
+        "Conexiones",
+        MetricUnit::Count,
+        p.with("thrift_connections", "name", "ClientRPC"),
+    ));
     let running = i.queries.as_ref().map(|q| own_filtered(q).len() as f64);
-    m.push(Metric::new("active_sessions", "Consultas en curso", "Conexiones", MetricUnit::Count, running));
-    m.push(Metric::new("threads", "Hilos del DataNode", "Servidor", MetricUnit::Count, p.sum("process_threads_count")));
-    m.push(Metric::new("net_in", "Red entrante", "Red", MetricUnit::Bytes, p.sum_where("received_bytes", not_lo)).counter());
-    m.push(Metric::new("net_out", "Red saliente", "Red", MetricUnit::Bytes, p.sum_where("transmitted_bytes", not_lo)).counter());
-    m.push(Metric::new("disk_read", "Lectura en disco (host)", "Disco", MetricUnit::Bytes, p.with("disk_io_size", "type", "read")).counter());
-    m.push(Metric::new("disk_write", "Escritura en disco (host)", "Disco", MetricUnit::Bytes, p.with("disk_io_size", "type", "write")).counter());
-    let schema_all = p.sum_where("cache", |l| l.get("name").is_some_and(|n| n == "SchemaCache") && l.get("type").is_some_and(|t| t == "all"));
-    let schema_hit = p.sum_where("cache", |l| l.get("name").is_some_and(|n| n == "SchemaCache") && l.get("type").is_some_and(|t| t == "hit"));
-    let hit = schema_hit.zip(schema_all).filter(|(_, a)| *a > 0.0).map(|(h, a)| h / a * 100.0);
-    m.push(Metric::new("cache_hit", "Aciertos de la caché de esquema", "Caché", MetricUnit::Percent, hit).max(Some(100.0)));
+    m.push(Metric::new(
+        "active_sessions",
+        "Consultas en curso",
+        "Conexiones",
+        MetricUnit::Count,
+        running,
+    ));
+    m.push(Metric::new(
+        "threads",
+        "Hilos del DataNode",
+        "Servidor",
+        MetricUnit::Count,
+        p.sum("process_threads_count"),
+    ));
+    m.push(
+        Metric::new(
+            "net_in",
+            "Red entrante",
+            "Red",
+            MetricUnit::Bytes,
+            p.sum_where("received_bytes", not_lo),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "net_out",
+            "Red saliente",
+            "Red",
+            MetricUnit::Bytes,
+            p.sum_where("transmitted_bytes", not_lo),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "disk_read",
+            "Lectura en disco (host)",
+            "Disco",
+            MetricUnit::Bytes,
+            p.with("disk_io_size", "type", "read"),
+        )
+        .counter(),
+    );
+    m.push(
+        Metric::new(
+            "disk_write",
+            "Escritura en disco (host)",
+            "Disco",
+            MetricUnit::Bytes,
+            p.with("disk_io_size", "type", "write"),
+        )
+        .counter(),
+    );
+    let schema_all = p.sum_where("cache", |l| {
+        l.get("name").is_some_and(|n| n == "SchemaCache")
+            && l.get("type").is_some_and(|t| t == "all")
+    });
+    let schema_hit = p.sum_where("cache", |l| {
+        l.get("name").is_some_and(|n| n == "SchemaCache")
+            && l.get("type").is_some_and(|t| t == "hit")
+    });
+    let hit = schema_hit
+        .zip(schema_all)
+        .filter(|(_, a)| *a > 0.0)
+        .map(|(h, a)| h / a * 100.0);
+    m.push(
+        Metric::new(
+            "cache_hit",
+            "Aciertos de la caché de esquema",
+            "Caché",
+            MetricUnit::Percent,
+            hit,
+        )
+        .max(Some(100.0)),
+    );
     let disk_total = p.sum("sys_disk_total_space");
     m.push(
-        Metric::new("storage_used", "Archivos de datos (TsFile, WAL, mods)", "Almacenamiento", MetricUnit::Bytes, files(&["seq", "unseq", "wal", "mods"]))
-            .max(disk_total),
+        Metric::new(
+            "storage_used",
+            "Archivos de datos (TsFile, WAL, mods)",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            files(&["seq", "unseq", "wal", "mods"]),
+        )
+        .max(disk_total),
     );
-    m.push(Metric::new("wal_size", "WAL", "Almacenamiento", MetricUnit::Bytes, files(&["wal"])));
+    m.push(Metric::new(
+        "wal_size",
+        "WAL",
+        "Almacenamiento",
+        MetricUnit::Bytes,
+        files(&["wal"]),
+    ));
     m.push(
         Metric::new(
             "disk_used",
             "Disco del servidor usado",
             "Almacenamiento",
             MetricUnit::Bytes,
-            disk_total.zip(p.sum("sys_disk_available_space")).map(|(t, a)| t - a),
+            disk_total
+                .zip(p.sum("sys_disk_available_space"))
+                .map(|(t, a)| t - a),
         )
         .max(disk_total),
     );
-    let series_total = i
-        .series
-        .as_ref()
-        .map(|a| a.rows.iter().filter_map(|r| r.get(1).and_then(number)).sum::<f64>());
-    m.push(Metric::new("series", "Series temporales", "Almacenamiento", MetricUnit::Count, series_total));
-    m.push(Metric::new("devices", "Dispositivos", "Almacenamiento", MetricUnit::Count, i.devices));
-    m.push(Metric::new("uptime", "Tiempo activo", "Servidor", MetricUnit::Seconds, p.sum("up_time").map(|ns| ns / 1e9)));
+    let series_total = i.series.as_ref().map(|a| {
+        a.rows
+            .iter()
+            .filter_map(|r| r.get(1).and_then(number))
+            .sum::<f64>()
+    });
+    m.push(Metric::new(
+        "series",
+        "Series temporales",
+        "Almacenamiento",
+        MetricUnit::Count,
+        series_total,
+    ));
+    m.push(Metric::new(
+        "devices",
+        "Dispositivos",
+        "Almacenamiento",
+        MetricUnit::Count,
+        i.devices,
+    ));
+    m.push(Metric::new(
+        "uptime",
+        "Tiempo activo",
+        "Servidor",
+        MetricUnit::Seconds,
+        p.sum("up_time").map(|ns| ns / 1e9),
+    ));
 
     // --- cluster ---
     if let Some(c) = &i.cluster {
         let status = c.col("Status");
         let total = c.rows.len() as f64;
-        let up = c.rows.iter().filter(|r| status.and_then(|i| r.get(i)).is_some_and(|v| text(v) == "Running")).count() as f64;
-        s.metrics.push(Metric::new("nodes_running", "Nodos en ejecución", "Cluster", MetricUnit::Count, Some(up)).max(Some(total)));
+        let up = c
+            .rows
+            .iter()
+            .filter(|r| {
+                status
+                    .and_then(|i| r.get(i))
+                    .is_some_and(|v| text(v) == "Running")
+            })
+            .count() as f64;
+        s.metrics.push(
+            Metric::new(
+                "nodes_running",
+                "Nodos en ejecución",
+                "Cluster",
+                MetricUnit::Count,
+                Some(up),
+            )
+            .max(Some(total)),
+        );
     }
     if let Some(r) = &i.regions {
         let count = |ty: &str| {
-            r.rows.iter().filter(|row| text(r.get(row, "Type")).eq_ignore_ascii_case(ty)).count() as f64
+            r.rows
+                .iter()
+                .filter(|row| text(r.get(row, "Type")).eq_ignore_ascii_case(ty))
+                .count() as f64
         };
-        s.metrics.push(Metric::new("data_regions", "Regiones de datos", "Cluster", MetricUnit::Count, Some(count("DataRegion"))));
-        s.metrics.push(Metric::new("schema_regions", "Regiones de esquema", "Cluster", MetricUnit::Count, Some(count("SchemaRegion"))));
+        s.metrics.push(Metric::new(
+            "data_regions",
+            "Regiones de datos",
+            "Cluster",
+            MetricUnit::Count,
+            Some(count("DataRegion")),
+        ));
+        s.metrics.push(Metric::new(
+            "schema_regions",
+            "Regiones de esquema",
+            "Cluster",
+            MetricUnit::Count,
+            Some(count("SchemaRegion")),
+        ));
     }
 
     // --- tables ---
     if let Some(q) = &i.queries {
-        let mut t = MonitorTable::new("queries", "Consultas en curso", &["id", "DataNode", "tiempo transcurrido (s)", "consulta"]);
+        let mut t = MonitorTable::new(
+            "queries",
+            "Consultas en curso",
+            &["id", "DataNode", "tiempo transcurrido (s)", "consulta"],
+        );
         for r in own_filtered(q).into_iter().take(MAX_ROWS) {
             t.rows.push(vec![
                 q.get(r, "QueryId").clone(),
@@ -290,12 +501,30 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
         let series: BTreeMap<String, J> = i
             .series
             .as_ref()
-            .map(|a| a.rows.iter().map(|r| (r.first().map(text).unwrap_or_default(), r.get(1).cloned().unwrap_or(J::Null))).collect())
+            .map(|a| {
+                a.rows
+                    .iter()
+                    .map(|r| {
+                        (
+                            r.first().map(text).unwrap_or_default(),
+                            r.get(1).cloned().unwrap_or(J::Null),
+                        )
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
         let mut t = MonitorTable::new(
             "databases",
             "Bases de datos",
-            &["base", "series", "TTL (ms)", "réplicas de esquema", "réplicas de datos", "intervalo de partición (ms)", "grupos de regiones de datos"],
+            &[
+                "base",
+                "series",
+                "TTL (ms)",
+                "réplicas de esquema",
+                "réplicas de datos",
+                "intervalo de partición (ms)",
+                "grupos de regiones de datos",
+            ],
         );
         for r in d.rows.iter().take(MAX_ROWS) {
             let name = text(d.get(r, "Database"));
@@ -343,7 +572,13 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
         }
     }
     if let Some(v) = &i.variables {
-        let var = |k: &str| v.rows.iter().find(|r| r.first().map(text).as_deref() == Some(k)).and_then(|r| r.get(1)).map(text);
+        let var = |k: &str| {
+            v.rows
+                .iter()
+                .find(|r| r.first().map(text).as_deref() == Some(k))
+                .and_then(|r| r.get(1))
+                .map(text)
+        };
         for (k, label) in [
             ("ClusterName", "Cluster"),
             ("DataReplicationFactor", "Réplicas de datos"),
@@ -356,10 +591,22 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             ("DiskSpaceWarningThreshold", "Umbral de aviso de disco"),
         ] {
             // Consensus classes by their simple name.
-            info(label, var(k).map(|v| if v.starts_with("org.") { v.rsplit('.').next().unwrap_or(&v).to_string() } else { v }));
+            info(
+                label,
+                var(k).map(|v| {
+                    if v.starts_with("org.") {
+                        v.rsplit('.').next().unwrap_or(&v).to_string()
+                    } else {
+                        v
+                    }
+                }),
+            );
         }
     }
-    info("Núcleos del servidor", p.sum("sys_cpu_cores").map(|c| c.to_string()));
+    info(
+        "Núcleos del servidor",
+        p.sum("sys_cpu_cores").map(|c| c.to_string()),
+    );
 
     // --- notes ---
     match &i.prom {
@@ -386,7 +633,14 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
 
 /// `SHOW QUERIES` rows without the monitor's own statement.
 fn own_filtered(q: &Answer) -> Vec<&Vec<J>> {
-    q.rows.iter().filter(|r| !text(q.get(r, "Statement")).trim().eq_ignore_ascii_case("SHOW QUERIES")).collect()
+    q.rows
+        .iter()
+        .filter(|r| {
+            !text(q.get(r, "Statement"))
+                .trim()
+                .eq_ignore_ascii_case("SHOW QUERIES")
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -394,7 +648,10 @@ mod tests {
     use super::*;
 
     fn answer(cols: &[&str], rows: Vec<Vec<J>>) -> Answer {
-        Answer { columns: cols.iter().map(|c| c.to_string()).collect(), rows }
+        Answer {
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            rows,
+        }
     }
 
     #[test]
@@ -428,28 +685,65 @@ mod tests {
              up_time{} 3E10\n",
         );
         let inputs = Inputs {
-            version: Some(answer(&["Version", "BuildInfo"], vec![vec![json!("1.3.2"), json!("aa0ff4a")]])),
+            version: Some(answer(
+                &["Version", "BuildInfo"],
+                vec![vec![json!("1.3.2"), json!("aa0ff4a")]],
+            )),
             variables: Some(answer(
                 &["Variable", "Value"],
-                vec![vec![json!("ClusterName"), json!("defaultCluster")], vec![json!("DataRegionConsensusProtocolClass"), json!("org.apache.iotdb.consensus.iot.IoTConsensus")]],
+                vec![
+                    vec![json!("ClusterName"), json!("defaultCluster")],
+                    vec![
+                        json!("DataRegionConsensusProtocolClass"),
+                        json!("org.apache.iotdb.consensus.iot.IoTConsensus"),
+                    ],
+                ],
             )),
             cluster: Some(answer(
                 &["NodeID", "NodeType", "Status"],
-                vec![vec![json!(0), json!("ConfigNode"), json!("Running")], vec![json!(1), json!("DataNode"), json!("Unknown")]],
+                vec![
+                    vec![json!(0), json!("ConfigNode"), json!("Running")],
+                    vec![json!(1), json!("DataNode"), json!("Unknown")],
+                ],
             )),
-            regions: Some(answer(&["RegionId", "Type"], vec![vec![json!(1), json!("DataRegion")], vec![json!(2), json!("SchemaRegion")]])),
+            regions: Some(answer(
+                &["RegionId", "Type"],
+                vec![
+                    vec![json!(1), json!("DataRegion")],
+                    vec![json!(2), json!("SchemaRegion")],
+                ],
+            )),
             queries: Some(answer(
                 &["QueryId", "DataNodeId", "ElapsedTime", "Statement"],
-                vec![vec![json!("q1"), json!(1), json!(0.05), json!("SHOW QUERIES")], vec![json!("q2"), json!(1), json!(3.2), json!("select * from root.**")]],
+                vec![
+                    vec![json!("q1"), json!(1), json!(0.05), json!("SHOW QUERIES")],
+                    vec![
+                        json!("q2"),
+                        json!(1),
+                        json!(3.2),
+                        json!("select * from root.**"),
+                    ],
+                ],
             )),
-            databases: Some(answer(&["Database", "TTL"], vec![vec![json!("root.a"), json!("INF")]])),
-            series: Some(answer(&["Column", "count(timeseries)"], vec![vec![json!("root.a"), json!(4)]])),
+            databases: Some(answer(
+                &["Database", "TTL"],
+                vec![vec![json!("root.a"), json!("INF")]],
+            )),
+            series: Some(answer(
+                &["Column", "count(timeseries)"],
+                vec![vec![json!("root.a"), json!(4)]],
+            )),
             devices: Some(2.0),
             prom: Some(prom),
             prom_note: None,
         };
         let s = snapshot("Apache IoTDB", &inputs);
-        let m = |k: &str| s.metrics.iter().find(|m| m.key == k).unwrap_or_else(|| panic!("{k}"));
+        let m = |k: &str| {
+            s.metrics
+                .iter()
+                .find(|m| m.key == k)
+                .unwrap_or_else(|| panic!("{k}"))
+        };
         assert_eq!(m("cpu").value, Some(7.5));
         assert_eq!(m("cpu_time").value, Some(200.0));
         assert!(m("cpu_time").counter);
@@ -465,18 +759,38 @@ mod tests {
         assert_eq!(m("nodes_running").max, Some(2.0));
         assert_eq!(m("data_regions").value, Some(1.0));
         let q = s.tables.iter().find(|t| t.key == "queries").unwrap();
-        assert_eq!(q.rows, vec![vec![json!("q2"), json!(1), json!(3.2), json!("select * from root.**")]]);
+        assert_eq!(
+            q.rows,
+            vec![vec![
+                json!("q2"),
+                json!(1),
+                json!(3.2),
+                json!("select * from root.**")
+            ]]
+        );
         let d = s.tables.iter().find(|t| t.key == "databases").unwrap();
         assert_eq!(d.rows[0][1], json!(4));
-        assert!(s.info.iter().any(|(k, v)| k == "Consenso de datos" && v == "IoTConsensus"));
+        assert!(s
+            .info
+            .iter()
+            .any(|(k, v)| k == "Consenso de datos" && v == "IoTConsensus"));
         assert!(s.info.iter().any(|(k, v)| k == "Versión" && v == "1.3.2"));
     }
 
     #[test]
     fn without_metrics_endpoint() {
-        let inputs = Inputs { prom_note: Some("sin métricas".into()), ..Default::default() };
+        let inputs = Inputs {
+            prom_note: Some("sin métricas".into()),
+            ..Default::default()
+        };
         let s = snapshot("TimechoDB", &inputs);
-        assert!(s.metrics.iter().find(|m| m.key == "cpu").unwrap().value.is_none());
+        assert!(s
+            .metrics
+            .iter()
+            .find(|m| m.key == "cpu")
+            .unwrap()
+            .value
+            .is_none());
         assert!(s.notes.iter().any(|n| n == "sin métricas"));
         assert_eq!(s.notes.len(), 4);
     }

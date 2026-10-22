@@ -60,7 +60,11 @@ pub struct KeychainSecret {
 impl KeychainSecret {
     /// Read it (the system may ask the user to allow it).
     pub fn fetch(&self) -> Option<String> {
-        keyring::Entry::new(&self.service, &self.account).ok()?.get_password().ok().filter(|p| !p.is_empty())
+        keyring::Entry::new(&self.service, &self.account)
+            .ok()?
+            .get_password()
+            .ok()
+            .filter(|p| !p.is_empty())
     }
 }
 
@@ -117,8 +121,13 @@ impl Candidate {
 
     /// Whether it carries a password or another secret.
     pub fn has_secret(&self) -> bool {
-        self.config.password.as_deref().is_some_and(|p| !p.is_empty())
-            || SECRET_OPTIONS.iter().any(|k| self.config.options.get(*k).is_some_and(|v| !v.is_empty()))
+        self.config
+            .password
+            .as_deref()
+            .is_some_and(|p| !p.is_empty())
+            || SECRET_OPTIONS
+                .iter()
+                .any(|k| self.config.options.get(*k).is_some_and(|v| !v.is_empty()))
     }
 
     /// Set the DBine driver for what the source calls the engine, or mark it
@@ -138,7 +147,12 @@ impl Candidate {
 }
 
 /// Option keys this module may fill with a secret.
-const SECRET_OPTIONS: &[&str] = &["connection_string", "auth_token", "token", "secret_access_key"];
+const SECRET_OPTIONS: &[&str] = &[
+    "connection_string",
+    "auth_token",
+    "token",
+    "secret_access_key",
+];
 
 pub struct Found {
     /// The file read (or the folder, for several projects).
@@ -181,7 +195,9 @@ pub fn read_text(text: &str) -> Found {
 }
 
 fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from)
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
 }
 
 /// The per-user application data folder (`~/Library/Application Support`,
@@ -192,7 +208,11 @@ fn app_data() -> Option<PathBuf> {
     } else if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from)
     } else {
-        Some(std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or(home()?.join(".config")))
+        Some(
+            std::env::var_os("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .unwrap_or(home()?.join(".config")),
+        )
     }
 }
 
@@ -272,13 +292,20 @@ const MANUAL: &[(&str, &str)] = &[
 fn driver_for(probe: &str) -> std::result::Result<&'static str, String> {
     let p = probe.to_ascii_lowercase();
     if let Some((_, label)) = MANUAL.iter().find(|(k, _)| p.contains(k)) {
-        return Err(format!("{label} se configura con credenciales de la nube: creala a mano en DBine"));
+        return Err(format!(
+            "{label} se configura con credenciales de la nube: creala a mano en DBine"
+        ));
     }
     DRIVERS
         .iter()
         .find(|(k, _)| p.contains(k))
         .map(|(_, d)| *d)
-        .ok_or_else(|| format!("DBine no tiene un driver para «{}»", probe.split_whitespace().next().unwrap_or(probe)))
+        .ok_or_else(|| {
+            format!(
+                "DBine no tiene un driver para «{}»",
+                probe.split_whitespace().next().unwrap_or(probe)
+            )
+        })
 }
 
 /// A connection URL (`scheme://user:pass@host:port/db?x=y`), split.
@@ -306,7 +333,9 @@ fn parse_url(url: &str) -> Option<Url> {
     // Several hosts (`a:1,b:2`): the first.
     let hostport = hostport.split(',').next().unwrap_or("");
     let (host, port) = match hostport.rsplit_once(':') {
-        Some((h, p)) if !h.ends_with(']') || hostport.starts_with('[') => (h, p.parse().unwrap_or(0)),
+        Some((h, p)) if !h.ends_with(']') || hostport.starts_with('[') => {
+            (h, p.parse().unwrap_or(0))
+        }
         _ => (hostport, 0),
     };
     let (user, password) = match auth {
@@ -353,7 +382,12 @@ pub(crate) fn redact_url(url: &str) -> String {
 pub(crate) fn libsql_url(url: &str) -> (String, Option<String>) {
     let url = url.trim();
     let token = parse_url(url)
-        .and_then(|u| u.params.into_iter().find(|(k, _)| k == "authtoken" || k == "auth_token").map(|(_, v)| v))
+        .and_then(|u| {
+            u.params
+                .into_iter()
+                .find(|(k, _)| k == "authtoken" || k == "auth_token")
+                .map(|(_, v)| v)
+        })
         .filter(|t| !t.is_empty());
     let base = url.split(['?', '#']).next().unwrap_or("").to_string();
     (base, token)
@@ -378,9 +412,15 @@ pub(crate) fn descriptor_name(descriptor: &str) -> Option<String> {
 /// What follows the `@` of an Oracle JDBC/EZConnect URL, without the
 /// `user/password@` some carry before it.
 fn oracle_target(url: &str) -> String {
-    let rest = url.trim().strip_prefix("jdbc:oracle:thin:").unwrap_or(url.trim());
+    let rest = url
+        .trim()
+        .strip_prefix("jdbc:oracle:thin:")
+        .unwrap_or(url.trim());
     // At the last `@`: a password may hold one, a target never does.
-    rest.rsplit_once('@').map(|(_, t)| t).unwrap_or(rest).to_string()
+    rest.rsplit_once('@')
+        .map(|(_, t)| t)
+        .unwrap_or(rest)
+        .to_string()
 }
 
 fn pct_decode(s: &str) -> String {
@@ -413,7 +453,19 @@ fn hex_val(c: u8) -> Option<u8> {
 }
 
 fn truthy(v: &str) -> bool {
-    matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "yes" | "1" | "require" | "required" | "verify-ca" | "verify-full" | "mandatory" | "strict" | "sspi")
+    matches!(
+        v.trim().to_ascii_lowercase().as_str(),
+        "true"
+            | "yes"
+            | "1"
+            | "require"
+            | "required"
+            | "verify-ca"
+            | "verify-full"
+            | "mandatory"
+            | "strict"
+            | "sspi"
+    )
 }
 
 /// Fill the host, port, database, login and TLS of `c` (its driver already
@@ -431,12 +483,17 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
         }
         "oracle" => {
             // At the last `@`: a password may hold one, a target never does.
-            let Some((login, target)) = rest.rsplit_once('@') else { return false };
+            let Some((login, target)) = rest.rsplit_once('@') else {
+                return false;
+            };
             // `user/password@…`: the login goes where secrets are kept, never
             // into the target (or a name made from it).
             let login = login.strip_prefix("oracle:thin:").unwrap_or(login);
             if let Some((user, password)) = login.split_once('/') {
-                let password = password.strip_prefix('"').and_then(|p| p.strip_suffix('"')).unwrap_or(password);
+                let password = password
+                    .strip_prefix('"')
+                    .and_then(|p| p.strip_suffix('"'))
+                    .unwrap_or(password);
                 if cfg.username.is_none() && !user.is_empty() {
                     cfg.username = Some(user.to_string());
                 }
@@ -446,7 +503,8 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
             }
             let target = target.trim();
             if target.starts_with('(') {
-                cfg.options.insert("connect_descriptor".into(), target.to_string());
+                cfg.options
+                    .insert("connect_descriptor".into(), target.to_string());
                 return true;
             }
             let t = target.trim_start_matches("//");
@@ -469,7 +527,10 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
             cfg.port = p.parse().unwrap_or(0);
             if !service.is_empty() {
                 cfg.options.insert("service".into(), service.to_string());
-                cfg.options.insert("connect_by".into(), if sid { "sid" } else { "service_name" }.into());
+                cfg.options.insert(
+                    "connect_by".into(),
+                    if sid { "sid" } else { "service_name" }.into(),
+                );
             }
             return !cfg.host.is_empty();
         }
@@ -477,7 +538,9 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
     }
     // `sqlserver://h[:p];k=v;…` and the usual `scheme://…?k=v`.
     let (main, props) = rest.split_once(';').unwrap_or((rest, ""));
-    let Some(u) = parse_url(main) else { return false };
+    let Some(u) = parse_url(main) else {
+        return false;
+    };
     cfg.host = u.host.clone();
     if u.port != 0 {
         cfg.port = u.port;
@@ -490,7 +553,12 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
         cfg.password = u.password.clone();
     }
     let mut params = u.params;
-    params.extend(props.split(';').filter_map(|kv| kv.split_once('=')).map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string())));
+    params.extend(
+        props
+            .split(';')
+            .filter_map(|kv| kv.split_once('='))
+            .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string())),
+    );
     for (k, v) in &params {
         match k.as_str() {
             "databasename" | "database" => cfg.database = v.clone(),
@@ -505,17 +573,23 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
     true
 }
 
-const WINDOWS_AUTH: &str = "La autenticación de Windows no está en DBine: se importa con usuario y contraseña.";
+const WINDOWS_AUTH: &str =
+    "La autenticación de Windows no está en DBine: se importa con usuario y contraseña.";
 
 /// An ADO.NET / ODBC connection string (`Server=h,1433;Database=d;User Id=u;…`)
 /// for SQL Server, applied to `c`.
 fn apply_ado(c: &mut Candidate, s: &str) {
     let cfg = &mut c.config;
     for part in split_ado(s) {
-        let Some((k, v)) = part.split_once('=') else { continue };
+        let Some((k, v)) = part.split_once('=') else {
+            continue;
+        };
         let v = v.trim();
         // `len() >= 2`: a lone `"` both starts and ends with a quote.
-        let v = if v.len() >= 2 && (v.starts_with('{') && v.ends_with('}')) || (v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')) {
+        let v = if v.len() >= 2 && (v.starts_with('{') && v.ends_with('}'))
+            || (v.starts_with('"') && v.ends_with('"'))
+            || (v.starts_with('\'') && v.ends_with('\''))
+        {
             v[1..v.len() - 1].to_string()
         } else {
             v.to_string()
@@ -526,18 +600,26 @@ fn apply_ado(c: &mut Candidate, s: &str) {
                 cfg.host = h.to_string();
             }
             "initialcatalog" | "database" => cfg.database = v,
-            "userid" | "uid" | "user" | "username" => cfg.username = Some(v).filter(|x| !x.is_empty()),
+            "userid" | "uid" | "user" | "username" => {
+                cfg.username = Some(v).filter(|x| !x.is_empty())
+            }
             "password" | "pwd" => cfg.password = Some(v).filter(|x| !x.is_empty()),
             "encrypt" => cfg.encrypt = truthy(&v),
             "trustservercertificate" => cfg.trust_server_certificate = truthy(&v),
-            "integratedsecurity" | "trusted_connection" if truthy(&v) => c.notes.push(WINDOWS_AUTH.into()),
+            "integratedsecurity" | "trusted_connection" if truthy(&v) => {
+                c.notes.push(WINDOWS_AUTH.into())
+            }
             "authentication" => {
                 let a = v.to_ascii_lowercase();
                 let auth = if a.contains("service principal") {
                     Some("entra_sp")
                 } else if a.contains("password") {
                     Some("entra_password")
-                } else if a.contains("interactive") || a.contains("integrated") || a.contains("mfa") || a.contains("default") {
+                } else if a.contains("interactive")
+                    || a.contains("integrated")
+                    || a.contains("mfa")
+                    || a.contains("default")
+                {
                     c.notes.push("Ese método de Microsoft Entra ID no está en DBine: elegí otro al conectar.".into());
                     Some("entra_password")
                 } else {
@@ -607,27 +689,70 @@ mod tests {
 
     #[test]
     fn urls() {
-        let u = parse_url("postgresql://ana%40x:p%3Ass@db.local:6543/ventas?sslmode=require").unwrap();
-        assert_eq!((u.user.as_deref(), u.password.as_deref(), u.host.as_str(), u.port, u.path.as_str()), (Some("ana@x"), Some("p:ss"), "db.local", 6543, "ventas"));
-        assert_eq!(u.params, vec![("sslmode".to_string(), "require".to_string())]);
+        let u =
+            parse_url("postgresql://ana%40x:p%3Ass@db.local:6543/ventas?sslmode=require").unwrap();
+        assert_eq!(
+            (
+                u.user.as_deref(),
+                u.password.as_deref(),
+                u.host.as_str(),
+                u.port,
+                u.path.as_str()
+            ),
+            (Some("ana@x"), Some("p:ss"), "db.local", 6543, "ventas")
+        );
+        assert_eq!(
+            u.params,
+            vec![("sslmode".to_string(), "require".to_string())]
+        );
         let u = parse_url("mongodb+srv://c.example.net/").unwrap();
-        assert_eq!((u.host.as_str(), u.port, u.user), ("c.example.net", 0, None));
+        assert_eq!(
+            (u.host.as_str(), u.port, u.user),
+            ("c.example.net", 0, None)
+        );
         let u = parse_url("redis://:secreto@127.0.0.1:6380/2").unwrap();
-        assert_eq!((u.password.as_deref(), u.port, u.path.as_str()), (Some("secreto"), 6380, "2"));
+        assert_eq!(
+            (u.password.as_deref(), u.port, u.path.as_str()),
+            (Some("secreto"), 6380, "2")
+        );
         assert!(parse_url("host:1521/XE").is_none());
     }
 
     #[test]
     fn urls_lose_their_secrets() {
-        assert_eq!(redact_url("postgres://ana:pw@pg:5433/app?sslmode=require"), "postgres://pg:5433/app");
-        assert_eq!(redact_url("libsql://app-org.turso.io?authToken=eyJ.x.y"), "libsql://app-org.turso.io");
+        assert_eq!(
+            redact_url("postgres://ana:pw@pg:5433/app?sslmode=require"),
+            "postgres://pg:5433/app"
+        );
+        assert_eq!(
+            redact_url("libsql://app-org.turso.io?authToken=eyJ.x.y"),
+            "libsql://app-org.turso.io"
+        );
         assert_eq!(redact_url("https://u:p@h/x#frag"), "https://h/x");
         assert_eq!(redact_url("h:1521/XE"), "h:1521/XE");
-        assert_eq!(libsql_url("libsql://app-org.turso.io?authToken=eyJ%2Ex&tls=1"), ("libsql://app-org.turso.io".to_string(), Some("eyJ.x".to_string())));
-        assert_eq!(libsql_url("http://localhost:8080?auth_token=t"), ("http://localhost:8080".to_string(), Some("t".to_string())));
-        assert_eq!(libsql_url("libsql://db.turso.io"), ("libsql://db.turso.io".to_string(), None));
-        assert_eq!(oracle_target("jdbc:oracle:thin:scott/tiger@//ora:1521/XE"), "//ora:1521/XE");
-        assert_eq!(oracle_target("jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS=(HOST=h)))"), "(DESCRIPTION=(ADDRESS=(HOST=h)))");
+        assert_eq!(
+            libsql_url("libsql://app-org.turso.io?authToken=eyJ%2Ex&tls=1"),
+            (
+                "libsql://app-org.turso.io".to_string(),
+                Some("eyJ.x".to_string())
+            )
+        );
+        assert_eq!(
+            libsql_url("http://localhost:8080?auth_token=t"),
+            ("http://localhost:8080".to_string(), Some("t".to_string()))
+        );
+        assert_eq!(
+            libsql_url("libsql://db.turso.io"),
+            ("libsql://db.turso.io".to_string(), None)
+        );
+        assert_eq!(
+            oracle_target("jdbc:oracle:thin:scott/tiger@//ora:1521/XE"),
+            "//ora:1521/XE"
+        );
+        assert_eq!(
+            oracle_target("jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS=(HOST=h)))"),
+            "(DESCRIPTION=(ADDRESS=(HOST=h)))"
+        );
         assert_eq!(oracle_target("ora:1521/XE"), "ora:1521/XE");
     }
 
@@ -656,26 +781,73 @@ mod tests {
     fn jdbc_urls() {
         let mut c = cand("sqlserver");
         assert!(apply_jdbc(&mut c, "jdbc:sqlserver://sql.local:14330;databaseName=ventas;encrypt=true;trustServerCertificate=true"));
-        assert_eq!((c.config.host.as_str(), c.config.port, c.config.database.as_str(), c.config.encrypt, c.config.trust_server_certificate), ("sql.local", 14330, "ventas", true, true));
+        assert_eq!(
+            (
+                c.config.host.as_str(),
+                c.config.port,
+                c.config.database.as_str(),
+                c.config.encrypt,
+                c.config.trust_server_certificate
+            ),
+            ("sql.local", 14330, "ventas", true, true)
+        );
         let mut c = cand("oracle");
         assert!(apply_jdbc(&mut c, "jdbc:oracle:thin:@ora.local:1521:ORCL"));
-        assert_eq!((c.config.host.as_str(), c.config.port, c.config.options["service"].as_str(), c.config.options["connect_by"].as_str()), ("ora.local", 1521, "ORCL", "sid"));
+        assert_eq!(
+            (
+                c.config.host.as_str(),
+                c.config.port,
+                c.config.options["service"].as_str(),
+                c.config.options["connect_by"].as_str()
+            ),
+            ("ora.local", 1521, "ORCL", "sid")
+        );
         let mut c = cand("oracle");
-        assert!(apply_jdbc(&mut c, "jdbc:oracle:thin:@//ora.local:1522/FREEPDB1"));
-        assert_eq!((c.config.port, c.config.options["service"].as_str(), c.config.options["connect_by"].as_str()), (1522, "FREEPDB1", "service_name"));
+        assert!(apply_jdbc(
+            &mut c,
+            "jdbc:oracle:thin:@//ora.local:1522/FREEPDB1"
+        ));
+        assert_eq!(
+            (
+                c.config.port,
+                c.config.options["service"].as_str(),
+                c.config.options["connect_by"].as_str()
+            ),
+            (1522, "FREEPDB1", "service_name")
+        );
         let mut c = cand("sqlite");
         assert!(apply_jdbc(&mut c, "jdbc:sqlite:/Users/ana/x.db"));
         assert_eq!(c.config.host, "/Users/ana/x.db");
         let mut c = cand("postgres");
-        assert!(apply_jdbc(&mut c, "jdbc:postgresql://pg:5433/app?sslmode=require&user=ana"));
-        assert_eq!((c.config.host.as_str(), c.config.port, c.config.database.as_str(), c.config.encrypt, c.config.username.as_deref()), ("pg", 5433, "app", true, Some("ana")));
+        assert!(apply_jdbc(
+            &mut c,
+            "jdbc:postgresql://pg:5433/app?sslmode=require&user=ana"
+        ));
+        assert_eq!(
+            (
+                c.config.host.as_str(),
+                c.config.port,
+                c.config.database.as_str(),
+                c.config.encrypt,
+                c.config.username.as_deref()
+            ),
+            ("pg", 5433, "app", true, Some("ana"))
+        );
     }
 
     #[test]
     fn ado_strings() {
         let mut c = cand("sqlserver");
         apply_ado(&mut c, "Server=tcp:srv.database.windows.net,1433;Initial Catalog=ventas;User ID=ana;Password={p;x};Encrypt=True;TrustServerCertificate=False;Authentication=Active Directory Password");
-        assert_eq!((c.config.host.as_str(), c.config.database.as_str(), c.config.username.as_deref(), c.config.encrypt), ("srv.database.windows.net,1433", "ventas", Some("ana"), true));
+        assert_eq!(
+            (
+                c.config.host.as_str(),
+                c.config.database.as_str(),
+                c.config.username.as_deref(),
+                c.config.encrypt
+            ),
+            ("srv.database.windows.net,1433", "ventas", Some("ana"), true)
+        );
         assert_eq!(c.config.options["auth"], "entra_password");
         assert_eq!(c.config.password.as_deref(), Some("p;x"));
     }

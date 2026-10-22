@@ -13,11 +13,18 @@ use dbine_driver::ConnectionConfig;
 use std::collections::BTreeMap;
 
 fn env(k: &str) -> Option<String> {
-    std::env::var(format!("DBINE_TEST_DATABRICKS_{k}")).ok().filter(|v| !v.is_empty())
+    std::env::var(format!("DBINE_TEST_DATABRICKS_{k}"))
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 fn cfg() -> Option<ConnectionConfig> {
-    let mut c = ConnectionConfig { driver: "databricks".into(), host: env("HOST")?, database: env("CATALOG")?, ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "databricks".into(),
+        host: env("HOST")?,
+        database: env("CATALOG")?,
+        ..Default::default()
+    };
     c.options.insert("warehouse".into(), env("WAREHOUSE")?);
     c.options.insert("token".into(), env("TOKEN")?);
     Some(c)
@@ -40,17 +47,29 @@ async fn databricks_properties() {
     assert!(!p.values["owner"].is_empty());
     assert!(!p.info.is_empty());
 
-    let mut changes: BTreeMap<String, String> = [("comment".to_string(), "ventas 'históricas'".to_string())].into();
+    let mut changes: BTreeMap<String, String> =
+        [("comment".to_string(), "ventas 'históricas'".to_string())].into();
     if p.fields.iter().any(|f| f.key == "predictive_optimization") {
         changes.insert("predictive_optimization".into(), "DISABLE".into());
     }
-    eprintln!("{}", d.alter_database_script("dbine_props", &changes).unwrap());
+    eprintln!(
+        "{}",
+        d.alter_database_script("dbine_props", &changes).unwrap()
+    );
     s.alter_database("dbine_props", &changes).await.unwrap();
     let p = s.database_properties("dbine_props").await.unwrap();
     for (k, v) in &changes {
         assert_eq!(p.values.get(k), Some(v), "{k}");
     }
-    s.alter_database("dbine_props", &[("comment".to_string(), String::new())].into()).await.unwrap();
-    assert_eq!(s.database_properties("dbine_props").await.unwrap().values["comment"], "");
+    s.alter_database(
+        "dbine_props",
+        &[("comment".to_string(), String::new())].into(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        s.database_properties("dbine_props").await.unwrap().values["comment"],
+        ""
+    );
     s.drop_database("dbine_props").await.unwrap();
 }

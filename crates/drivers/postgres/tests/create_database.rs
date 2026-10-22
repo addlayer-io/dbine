@@ -28,7 +28,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -43,7 +45,10 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 /// Runs `sql`, ignoring errors (cleanup).
@@ -54,21 +59,35 @@ async fn quiet(s: &mut Box<dyn Session>, sql: &str) {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
 /// The first cell of the first row, as text.
 async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
-    let c = &out.results.iter().rfind(|r| !r.rows.is_empty()).unwrap_or_else(|| panic!("{sql}: no rows")).rows[0][0];
-    c.as_str().map(str::to_string).unwrap_or_else(|| c.to_string())
+    let c = &out
+        .results
+        .iter()
+        .rfind(|r| !r.rows.is_empty())
+        .unwrap_or_else(|| panic!("{sql}: no rows"))
+        .rows[0][0];
+    c.as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| c.to_string())
 }
 
 fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 /// Choices, the create with `options` (checked by `verify` returning
@@ -103,19 +122,36 @@ async fn exercise(
 
     let choices = s.create_database_choices().await.unwrap();
     for k in choice_keys {
-        let c = choices.iter().find(|c| c.key == *k).unwrap_or_else(|| panic!("{id}: no choices for {k}: {choices:?}"));
-        assert!(c.default.is_some() || !c.values.is_empty(), "{id}: empty choices for {k}");
+        let c = choices
+            .iter()
+            .find(|c| c.key == *k)
+            .unwrap_or_else(|| panic!("{id}: no choices for {k}: {choices:?}"));
+        assert!(
+            c.default.is_some() || !c.values.is_empty(),
+            "{id}: empty choices for {k}"
+        );
     }
-    eprintln!("{id} choices: {:?}", choices.iter().map(|c| (&c.key, &c.default, c.values.len())).collect::<Vec<_>>());
+    eprintln!(
+        "{id} choices: {:?}",
+        choices
+            .iter()
+            .map(|c| (&c.key, &c.default, c.values.len()))
+            .collect::<Vec<_>>()
+    );
 
     let options = opts(options);
     let fields = d.create_database_fields();
     for k in options.keys() {
-        assert!(fields.iter().any(|f| f.key == k), "{id}: {k} isn't one of its fields");
+        assert!(
+            fields.iter().any(|f| f.key == k),
+            "{id}: {k} isn't one of its fields"
+        );
     }
     let script = d.create_database_script(DB, &options).unwrap();
     eprintln!("{script}");
-    s.create_database_with(DB, &options).await.unwrap_or_else(|e| panic!("{id}: {e}\n{script}"));
+    s.create_database_with(DB, &options)
+        .await
+        .unwrap_or_else(|e| panic!("{id}: {e}\n{script}"));
     let got = scalar(&mut s, verify).await;
     assert_eq!(got, expect, "{id}");
 
@@ -124,7 +160,9 @@ async fn exercise(
     }
     s.drop_database(DB).await.unwrap();
     // Without options it's the plain create.
-    s.create_database_with(PLAIN, &BTreeMap::new()).await.unwrap();
+    s.create_database_with(PLAIN, &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database(PLAIN).await.unwrap();
     if owner_sql.is_some() {
         quiet(&mut s, &format!("DROP USER {OWNER}")).await;
@@ -282,6 +320,8 @@ async fn materialize_plain_only() {
     assert!(d.create_database_fields().is_empty());
     let mut s = d.connect(&cfg, None).await.unwrap();
     let _ = s.drop_database(PLAIN).await;
-    s.create_database_with(PLAIN, &BTreeMap::new()).await.unwrap();
+    s.create_database_with(PLAIN, &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database(PLAIN).await.unwrap();
 }

@@ -8,7 +8,11 @@ async fn duckdb_row_estimates_and_comments() {
     let path = std::env::temp_dir().join(format!("dbine-duck-stats-{}.duckdb", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let d = dbine_driver_duckdb::drivers().remove(0);
-    let cfg = ConnectionConfig { driver: "duckdb".into(), host: path.to_string_lossy().into(), ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: "duckdb".into(),
+        host: path.to_string_lossy().into(),
+        ..Default::default()
+    };
     let mut s = d.connect(&cfg, None).await.unwrap();
     let mut out = QueryOutcome::default();
     s.execute(
@@ -30,12 +34,23 @@ async fn duckdb_row_estimates_and_comments() {
     .unwrap();
 
     let objects = s.list_objects().await.unwrap();
-    let mut rows: Vec<(String, u64)> = s.row_estimates().await.unwrap().into_iter().map(|e| (e.object.name, e.rows)).collect();
+    let mut rows: Vec<(String, u64)> = s
+        .row_estimates()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| (e.object.name, e.rows))
+        .collect();
     rows.sort();
     assert_eq!(rows, vec![("empty_t".into(), 0), ("t".into(), 1000)]);
 
-    let mut comments: Vec<(String, String, String)> =
-        s.object_comments().await.unwrap().into_iter().map(|c| (c.object.kind, c.object.name, c.comment)).collect();
+    let mut comments: Vec<(String, String, String)> = s
+        .object_comments()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| (c.object.kind, c.object.name, c.comment))
+        .collect();
     comments.sort();
     assert_eq!(
         comments,
@@ -48,7 +63,10 @@ async fn duckdb_row_estimates_and_comments() {
     );
     // The kinds match list_objects, so the app can pair them.
     for (kind, name, _) in &comments {
-        assert!(objects.iter().any(|o| &o.kind == kind && &o.name == name), "{kind} {name} not in list_objects");
+        assert!(
+            objects.iter().any(|o| &o.kind == kind && &o.name == name),
+            "{kind} {name} not in list_objects"
+        );
     }
     drop(s);
     let _ = std::fs::remove_file(&path);

@@ -7,7 +7,10 @@
 //! option.
 
 use crate::SpannerSession;
-use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
+    SecuritySpec,
+};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
@@ -38,7 +41,12 @@ async fn named(s: &mut SpannerSession, sql: &str) -> Result<Vec<Row>> {
         .and_then(Json::as_array)
         .into_iter()
         .flatten()
-        .map(|f| f.get("name").and_then(Json::as_str).unwrap_or_default().to_ascii_lowercase())
+        .map(|f| {
+            f.get("name")
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+        })
         .collect();
     Ok(r.get("rows")
         .and_then(Json::as_array)
@@ -77,12 +85,30 @@ fn explain(e: Error) -> Error {
 
 /// (member role, role) pairs.
 async fn memberships(s: &mut SpannerSession) -> Result<Vec<(String, String)>> {
-    let rows = named(s, "SELECT ROLE_NAME, GRANTEE FROM INFORMATION_SCHEMA.ROLE_GRANTEES").await.map_err(explain)?;
-    Ok(rows.iter().map(|r| (get(r, "grantee").to_string(), get(r, "role_name").to_string())).collect())
+    let rows = named(
+        s,
+        "SELECT ROLE_NAME, GRANTEE FROM INFORMATION_SCHEMA.ROLE_GRANTEES",
+    )
+    .await
+    .map_err(explain)?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            (
+                get(r, "grantee").to_string(),
+                get(r, "role_name").to_string(),
+            )
+        })
+        .collect())
 }
 
 pub async fn principals(s: &mut SpannerSession) -> Result<Vec<Principal>> {
-    let roles = named(s, "SELECT * FROM INFORMATION_SCHEMA.ROLES ORDER BY ROLE_NAME").await.map_err(explain)?;
+    let roles = named(
+        s,
+        "SELECT * FROM INFORMATION_SCHEMA.ROLES ORDER BY ROLE_NAME",
+    )
+    .await
+    .map_err(explain)?;
     let members = memberships(s).await?;
     Ok(roles
         .iter()
@@ -122,13 +148,21 @@ pub async fn principals(s: &mut SpannerSession) -> Result<Vec<Principal>> {
 /// role it comes through.
 fn closure(principal: &str, members: &[(String, String)]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    let mut queue: Vec<(String, String)> =
-        members.iter().filter(|(m, _)| m == principal).map(|(_, r)| (r.clone(), r.clone())).collect();
+    let mut queue: Vec<(String, String)> = members
+        .iter()
+        .filter(|(m, _)| m == principal)
+        .map(|(_, r)| (r.clone(), r.clone()))
+        .collect();
     while let Some((role, via)) = queue.pop() {
         if role == principal || out.iter().any(|(r, _)| *r == role) {
             continue;
         }
-        queue.extend(members.iter().filter(|(m, _)| *m == role).map(|(_, r)| (r.clone(), via.clone())));
+        queue.extend(
+            members
+                .iter()
+                .filter(|(m, _)| *m == role)
+                .map(|(_, r)| (r.clone(), via.clone())),
+        );
         out.push((role, via));
     }
     out
@@ -153,29 +187,55 @@ pub async fn grants(s: &mut SpannerSession, principal: &str) -> Result<Vec<Grant
     for (role, through) in closure(principal, &members) {
         via.insert(role, Some(through));
     }
-    let views: Vec<String> = named(s, "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'VIEW'")
-        .await
-        .unwrap_or_default()
-        .iter()
-        .map(|r| qualified(get(r, "table_schema"), get(r, "table_name")))
-        .collect();
+    let views: Vec<String> = named(
+        s,
+        "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'VIEW'",
+    )
+    .await
+    .unwrap_or_default()
+    .iter()
+    .map(|r| qualified(get(r, "table_schema"), get(r, "table_name")))
+    .collect();
     // (grantee, grant)
     let mut found: Vec<(String, Grant)> = Vec::new();
-    let tables = named(s, "SELECT * FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES").await.map_err(explain)?;
+    let tables = named(s, "SELECT * FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES")
+        .await
+        .map_err(explain)?;
     for r in &tables {
         let object = qualified(get(r, "table_schema"), get(r, "table_name"));
-        let kind = if views.contains(&object) { kinds::VIEW } else { kinds::TABLE };
+        let kind = if views.contains(&object) {
+            kinds::VIEW
+        } else {
+            kinds::TABLE
+        };
         found.push((
             get(r, "grantee").to_string(),
-            Grant { privilege: get(r, "privilege_type").to_string(), object: Some(object), object_kind: Some(kind.into()), ..Default::default() },
+            Grant {
+                privilege: get(r, "privilege_type").to_string(),
+                object: Some(object),
+                object_kind: Some(kind.into()),
+                ..Default::default()
+            },
         ));
     }
     // Column privileges, grouped per table and privilege; those the table
     // grant already gives aren't repeated.
     let mut columns: Vec<((String, String, String), Vec<String>)> = Vec::new();
-    for r in named(s, "SELECT * FROM INFORMATION_SCHEMA.COLUMN_PRIVILEGES ORDER BY COLUMN_NAME").await.unwrap_or_default() {
-        let key = (get(&r, "grantee").to_string(), qualified(get(&r, "table_schema"), get(&r, "table_name")), get(&r, "privilege_type").to_string());
-        let whole = found.iter().any(|(g, x)| *g == key.0 && x.object.as_deref() == Some(key.1.as_str()) && x.privilege == key.2);
+    for r in named(
+        s,
+        "SELECT * FROM INFORMATION_SCHEMA.COLUMN_PRIVILEGES ORDER BY COLUMN_NAME",
+    )
+    .await
+    .unwrap_or_default()
+    {
+        let key = (
+            get(&r, "grantee").to_string(),
+            qualified(get(&r, "table_schema"), get(&r, "table_name")),
+            get(&r, "privilege_type").to_string(),
+        );
+        let whole = found.iter().any(|(g, x)| {
+            *g == key.0 && x.object.as_deref() == Some(key.1.as_str()) && x.privilege == key.2
+        });
         if whole {
             continue;
         }
@@ -187,26 +247,46 @@ pub async fn grants(s: &mut SpannerSession, principal: &str) -> Result<Vec<Grant
     for ((grantee, object, privilege), cols) in columns {
         found.push((
             grantee,
-            Grant { privilege: format!("{privilege} ({})", cols.join(", ")), object: Some(object), object_kind: Some(kinds::TABLE.into()), ..Default::default() },
+            Grant {
+                privilege: format!("{privilege} ({})", cols.join(", ")),
+                object: Some(object),
+                object_kind: Some(kinds::TABLE.into()),
+                ..Default::default()
+            },
         ));
     }
-    for r in named(s, "SELECT * FROM INFORMATION_SCHEMA.CHANGE_STREAM_PRIVILEGES").await.unwrap_or_default() {
+    for r in named(
+        s,
+        "SELECT * FROM INFORMATION_SCHEMA.CHANGE_STREAM_PRIVILEGES",
+    )
+    .await
+    .unwrap_or_default()
+    {
         found.push((
             get(&r, "grantee").to_string(),
             Grant {
                 privilege: get(&r, "privilege_type").to_string(),
-                object: Some(qualified(get(&r, "change_stream_schema"), get(&r, "change_stream_name"))),
+                object: Some(qualified(
+                    get(&r, "change_stream_schema"),
+                    get(&r, "change_stream_name"),
+                )),
                 object_kind: Some("change_stream".into()),
                 ..Default::default()
             },
         ));
     }
-    for r in named(s, "SELECT * FROM INFORMATION_SCHEMA.ROUTINE_PRIVILEGES").await.unwrap_or_default() {
+    for r in named(s, "SELECT * FROM INFORMATION_SCHEMA.ROUTINE_PRIVILEGES")
+        .await
+        .unwrap_or_default()
+    {
         found.push((
             get(&r, "grantee").to_string(),
             Grant {
                 privilege: get(&r, "privilege_type").to_string(),
-                object: Some(qualified(get(&r, "specific_schema"), get(&r, "specific_name"))),
+                object: Some(qualified(
+                    get(&r, "specific_schema"),
+                    get(&r, "specific_name"),
+                )),
                 object_kind: Some(kinds::FUNCTION.into()),
                 ..Default::default()
             },
@@ -220,7 +300,12 @@ pub async fn grants(s: &mut SpannerSession, principal: &str) -> Result<Vec<Grant
         })
         .collect();
     out.sort_by(|a, b| {
-        (a.via.is_some(), &a.object_kind, &a.object, &a.privilege).cmp(&(b.via.is_some(), &b.object_kind, &b.object, &b.privilege))
+        (a.via.is_some(), &a.object_kind, &a.object, &a.privilege).cmp(&(
+            b.via.is_some(),
+            &b.object_kind,
+            &b.object,
+            &b.privilege,
+        ))
     });
     out.dedup();
     Ok(out)
@@ -243,7 +328,10 @@ fn privileges(p: &[String]) -> Result<String> {
     let mut out = Vec::new();
     for x in p {
         let (name, cols) = match x.split_once('(') {
-            Some((n, c)) => (n.trim(), Some(c.trim().strip_suffix(')').ok_or_else(|| bad(x))?)),
+            Some((n, c)) => (
+                n.trim(),
+                Some(c.trim().strip_suffix(')').ok_or_else(|| bad(x))?),
+            ),
             None => (x.trim(), None),
         };
         if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic()) {
@@ -252,7 +340,12 @@ fn privileges(p: &[String]) -> Result<String> {
         let name = name.to_uppercase();
         match cols {
             Some(c) => {
-                let cols: Vec<String> = c.split(',').map(|c| c.trim().trim_matches('`')).filter(|c| !c.is_empty()).map(bq).collect();
+                let cols: Vec<String> = c
+                    .split(',')
+                    .map(|c| c.trim().trim_matches('`'))
+                    .filter(|c| !c.is_empty())
+                    .map(bq)
+                    .collect();
                 if cols.is_empty() {
                     return Err(bad(x));
                 }
@@ -267,7 +360,10 @@ fn privileges(p: &[String]) -> Result<String> {
 /// `TABLE t`, `VIEW v`, `CHANGE STREAM cs`, `TABLE FUNCTION f`.
 fn target(object: &Option<ObjectRef>) -> Result<String> {
     let Some(o) = object else {
-        return Err(Error::Query("en Spanner los permisos se otorgan sobre una tabla, una vista o un flujo de cambios".into()));
+        return Err(Error::Query(
+            "en Spanner los permisos se otorgan sobre una tabla, una vista o un flujo de cambios"
+                .into(),
+        ));
     };
     let name = match o.schema() {
         Some(sc) => format!("{}.{}", bq(sc), bq(&o.name)),
@@ -320,7 +416,11 @@ pub fn script(a: &SecurityAction) -> Result<String> {
 /// does. No grant option (Spanner has no WITH GRANT OPTION).
 pub fn schema_spec() -> SchemaSpec {
     // No WITH GRANT OPTION in Spanner (see `script`).
-    SchemaSpec { privileges: vec!["USAGE"], grant_option: false, ..SchemaSpec::default() }
+    SchemaSpec {
+        privileges: vec!["USAGE"],
+        grant_option: false,
+        ..SchemaSpec::default()
+    }
 }
 
 fn schema_name(name: &str) -> Result<String> {
@@ -343,62 +443,152 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: None, name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: None,
+            name: name.into(),
+        })
     }
 
     #[test]
     fn writes_the_scripts() {
         let s = |a| script(&a).unwrap();
-        assert_eq!(s(SecurityAction::CreateRole { name: "lec`tores".into() }), "CREATE ROLE `lec\\`tores`;");
-        assert!(s(SecurityAction::Drop { name: "r".into(), kind: PrincipalKind::Role }).ends_with("\nDROP ROLE `r`;"));
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["select".into(), "INSERT".into()], object: obj("table", "Facturas"), to: "r".into(), grantable: false }),
+            s(SecurityAction::CreateRole {
+                name: "lec`tores".into()
+            }),
+            "CREATE ROLE `lec\\`tores`;"
+        );
+        assert!(s(SecurityAction::Drop {
+            name: "r".into(),
+            kind: PrincipalKind::Role
+        })
+        .ends_with("\nDROP ROLE `r`;"));
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["select".into(), "INSERT".into()],
+                object: obj("table", "Facturas"),
+                to: "r".into(),
+                grantable: false
+            }),
             "GRANT SELECT, INSERT ON TABLE `Facturas` TO ROLE `r`;"
         );
         assert_eq!(
             s(SecurityAction::Grant {
                 privileges: vec!["SELECT (id, `total`)".into()],
-                object: Some(ObjectRef { kind: "table".into(), schema: Some("ventas".into()), name: "f".into() }),
+                object: Some(ObjectRef {
+                    kind: "table".into(),
+                    schema: Some("ventas".into()),
+                    name: "f".into()
+                }),
                 to: "r".into(),
                 grantable: false
             }),
             "GRANT SELECT(`id`, `total`) ON TABLE `ventas`.`f` TO ROLE `r`;"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["SELECT".into()], object: obj("view", "v"), from: "r".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["SELECT".into()],
+                object: obj("view", "v"),
+                from: "r".into()
+            }),
             "REVOKE SELECT ON VIEW `v` FROM ROLE `r`;"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["SELECT".into()], object: obj("change_stream", "cs"), from: "r".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["SELECT".into()],
+                object: obj("change_stream", "cs"),
+                from: "r".into()
+            }),
             "REVOKE SELECT ON CHANGE STREAM `cs` FROM ROLE `r`;"
         );
-        assert_eq!(s(SecurityAction::AddMember { role: "a".into(), member: "b".into() }), "GRANT ROLE `a` TO ROLE `b`;");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "a".into(), member: "b".into() }), "REVOKE ROLE `a` FROM ROLE `b`;");
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "a".into(),
+                member: "b".into()
+            }),
+            "GRANT ROLE `a` TO ROLE `b`;"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "a".into(),
+                member: "b".into()
+            }),
+            "REVOKE ROLE `a` FROM ROLE `b`;"
+        );
         for a in [
-            SecurityAction::CreateUser { name: "a".into(), password: None },
-            SecurityAction::SetLogin { name: "a".into(), enabled: true },
-            SecurityAction::Drop { name: "a".into(), kind: PrincipalKind::User },
+            SecurityAction::CreateUser {
+                name: "a".into(),
+                password: None,
+            },
+            SecurityAction::SetLogin {
+                name: "a".into(),
+                enabled: true,
+            },
+            SecurityAction::Drop {
+                name: "a".into(),
+                kind: PrincipalKind::User,
+            },
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT".into()], object: None, to: "r".into(), grantable: false }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT".into()], object: obj("table", "t"), to: "r".into(), grantable: true }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT; DROP".into()], object: obj("table", "t"), to: "r".into(), grantable: false }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT (a".into()], object: obj("table", "t"), to: "r".into(), grantable: false }).is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT".into()],
+            object: None,
+            to: "r".into(),
+            grantable: false
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT".into()],
+            object: obj("table", "t"),
+            to: "r".into(),
+            grantable: true
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT; DROP".into()],
+            object: obj("table", "t"),
+            to: "r".into(),
+            grantable: false
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT (a".into()],
+            object: obj("table", "t"),
+            to: "r".into(),
+            grantable: false
+        })
+        .is_err());
     }
 
     #[test]
     fn schema_scripts() {
-        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA `ventas`;");
+        assert_eq!(
+            create_schema(" ventas ").unwrap(),
+            "CREATE SCHEMA `ventas`;"
+        );
         assert_eq!(drop_schema("ven`tas").unwrap(), "DROP SCHEMA `ven\\`tas`;");
         assert!(create_schema("").is_err());
         let spec = schema_spec();
         assert!(!spec.owner && !spec.cascade && spec.privileges == vec!["USAGE"]);
         let schema = obj("schema", "ven`tas");
         assert_eq!(
-            script(&SecurityAction::Grant { privileges: vec!["usage".into()], object: schema.clone(), to: "lect".into(), grantable: false }).unwrap(),
+            script(&SecurityAction::Grant {
+                privileges: vec!["usage".into()],
+                object: schema.clone(),
+                to: "lect".into(),
+                grantable: false
+            })
+            .unwrap(),
             "GRANT USAGE ON SCHEMA `ven\\`tas` TO ROLE `lect`;"
         );
-        assert!(script(&SecurityAction::Grant { privileges: vec!["USAGE".into()], object: schema, to: "lect".into(), grantable: true }).is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["USAGE".into()],
+            object: schema,
+            to: "lect".into(),
+            grantable: true
+        })
+        .is_err());
     }
 }

@@ -16,14 +16,28 @@ fn text(v: &Value) -> String {
 fn number(v: &Value) -> Option<f64> {
     match v {
         Value::Number(n) => n.as_f64(),
-        Value::String(s) => s.trim().trim_start_matches('~').replace(',', "").split_whitespace().next()?.parse().ok(),
+        Value::String(s) => s
+            .trim()
+            .trim_start_matches('~')
+            .replace(',', "")
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok(),
         _ => None,
     }
 }
 
 fn node(v: &Value) -> PlanNode {
-    let name = ["name", "operator_name", "operator_type"].iter().find_map(|k| v.get(*k)).map(text).unwrap_or_default();
-    let mut n = PlanNode { op: name.trim().to_string(), ..Default::default() };
+    let name = ["name", "operator_name", "operator_type"]
+        .iter()
+        .find_map(|k| v.get(*k))
+        .map(text)
+        .unwrap_or_default();
+    let mut n = PlanNode {
+        op: name.trim().to_string(),
+        ..Default::default()
+    };
     match v.get("extra_info") {
         Some(Value::Object(m)) => {
             for (k, val) in m {
@@ -36,7 +50,17 @@ fn node(v: &Value) -> PlanNode {
                     Value::Array(a) => a.iter().map(text).collect::<Vec<_>>().join(", "),
                     v => text(v),
                 };
-                if n.detail.is_empty() && matches!(k.as_str(), "Table" | "Join Type" | "Conditions" | "Aggregates" | "Filters" | "Projections") {
+                if n.detail.is_empty()
+                    && matches!(
+                        k.as_str(),
+                        "Table"
+                            | "Join Type"
+                            | "Conditions"
+                            | "Aggregates"
+                            | "Filters"
+                            | "Projections"
+                    )
+                {
                     n.detail = shown.clone();
                 }
                 n.props.push((k.clone(), shown));
@@ -51,7 +75,11 @@ fn node(v: &Value) -> PlanNode {
     if let Some(t) = v.get("operator_timing").and_then(number) {
         n.actual_ms = Some(t * 1000.0);
     }
-    n.children = v.get("children").and_then(Value::as_array).map(|c| c.iter().map(node).collect()).unwrap_or_default();
+    n.children = v
+        .get("children")
+        .and_then(Value::as_array)
+        .map(|c| c.iter().map(node).collect())
+        .unwrap_or_default();
     n
 }
 
@@ -65,8 +93,22 @@ pub fn from_json(stmt: &str, v: &Value, actual: bool) -> Plan {
         let mut r = roots.remove(0);
         roots.push(r.children.remove(0));
     }
-    let root = if roots.len() == 1 { roots.remove(0) } else { PlanNode { op: "QUERY".into(), children: roots, ..Default::default() } };
-    Plan { statement: stmt.to_string(), root, actual, raw_format: "json".into(), raw: serde_json::to_string_pretty(v).unwrap_or_default() }
+    let root = if roots.len() == 1 {
+        roots.remove(0)
+    } else {
+        PlanNode {
+            op: "QUERY".into(),
+            children: roots,
+            ..Default::default()
+        }
+    };
+    Plan {
+        statement: stmt.to_string(),
+        root,
+        actual,
+        raw_format: "json".into(),
+        raw: serde_json::to_string_pretty(v).unwrap_or_default(),
+    }
 }
 
 #[cfg(test)]
@@ -80,9 +122,15 @@ mod tests {
         let p = from_json("q", &est, false);
         assert_eq!(p.root.op, "PROJECTION");
         let scan = &p.root.children[0];
-        assert_eq!((scan.op.as_str(), scan.object.as_deref(), scan.est_rows), ("SEQ_SCAN", Some("t"), Some(3.0)));
+        assert_eq!(
+            (scan.op.as_str(), scan.object.as_deref(), scan.est_rows),
+            ("SEQ_SCAN", Some("t"), Some(3.0))
+        );
         let act = json!({"latency": 0.01, "children": [{"operator_name": "PROJECTION", "operator_cardinality": 3, "operator_timing": 0.002, "children": []}]});
         let p = from_json("q", &act, true);
-        assert_eq!((p.root.op.as_str(), p.root.actual_rows, p.root.actual_ms), ("PROJECTION", Some(3.0), Some(2.0)));
+        assert_eq!(
+            (p.root.op.as_str(), p.root.actual_rows, p.root.actual_ms),
+            ("PROJECTION", Some(3.0), Some(2.0))
+        );
     }
 }

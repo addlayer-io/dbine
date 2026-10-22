@@ -23,12 +23,17 @@ const TAG: &str = "/* dbine-processes */";
 /// A query id as the coordinator makes them (`20241004_153012_00042_x7k2p`).
 pub(crate) fn valid_id(id: &str) -> Option<&str> {
     let id = id.trim();
-    (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')).then_some(id)
+    (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .then_some(id)
 }
 
 /// The statement's first word, upper-cased ("SELECT", "INSERT"…).
 fn command(sql: &str) -> Option<String> {
-    let word: String = sql.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let word: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     (!word.is_empty()).then(|| word.to_ascii_uppercase())
 }
 
@@ -48,7 +53,10 @@ fn row(r: &[String]) -> ServerProcess {
         user: opt(r.get(2)),
         program: opt(r.get(3)),
         command: sql.as_deref().and_then(command),
-        elapsed_ms: r.get(5).and_then(|v| v.trim().parse::<f64>().ok()).map(|v| v.max(0.0) as u64),
+        elapsed_ms: r
+            .get(5)
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .map(|v| v.max(0.0) as u64),
         sql,
         ..Default::default()
     }
@@ -66,11 +74,16 @@ impl TrinoSession {
         let rows = tokio::time::timeout(QUERY_LIMIT, self.strings(&sql))
             .await
             .map_err(|_| Error::Query("la lista de consultas tardó demasiado".into()))??;
-        Ok(rows.iter().map(|r| row(r)).filter(|p| !p.id.is_empty()).collect())
+        Ok(rows
+            .iter()
+            .map(|r| row(r))
+            .filter(|p| !p.id.is_empty())
+            .collect())
     }
 
     pub(crate) async fn cancel_running(&mut self, id: &str) -> Result<()> {
-        let id = valid_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta", id.trim())))?;
+        let id = valid_id(id)
+            .ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta", id.trim())))?;
         // Presto's procedure takes the message positionally too.
         let message = match self.flavor {
             Flavor::Presto => "'Cancelada desde DBine'",
@@ -82,7 +95,9 @@ impl TrinoSession {
         };
         self.strings(&sql).await.map(|_| ()).map_err(|e| match e {
             Error::Query(m) if m.contains("not running") || m.contains("not found") => {
-                Error::Query(format!("no se pudo cancelar la consulta {id}: ya terminó o no existe"))
+                Error::Query(format!(
+                    "no se pudo cancelar la consulta {id}: ya terminó o no existe"
+                ))
             }
             e => e,
         })
@@ -95,14 +110,19 @@ mod tests {
 
     #[test]
     fn ids_are_checked() {
-        assert_eq!(valid_id(" 20241004_153012_00042_x7k2p "), Some("20241004_153012_00042_x7k2p"));
+        assert_eq!(
+            valid_id(" 20241004_153012_00042_x7k2p "),
+            Some("20241004_153012_00042_x7k2p")
+        );
         assert_eq!(valid_id("x'); DROP"), None);
         assert_eq!(valid_id(""), None);
     }
 
     #[test]
     fn rows_become_processes() {
-        let r: Vec<String> = ["q1", "RUNNING", "ana", "dbine", " select 1", "1500"].map(String::from).to_vec();
+        let r: Vec<String> = ["q1", "RUNNING", "ana", "dbine", " select 1", "1500"]
+            .map(String::from)
+            .to_vec();
         let p = row(&r);
         assert!(p.active && !p.own);
         assert_eq!(p.command.as_deref(), Some("SELECT"));

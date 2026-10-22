@@ -104,7 +104,8 @@ fn with_db_create(sql: &str) -> String {
 /// Redshift and RisingWave.
 const USER_SQL: &str = "SELECT usesuper::text AS super, usecreatedb::text AS createdb FROM pg_user WHERE usename = current_user";
 
-const MATERIALIZE_SQL: &str = "SELECT mz_is_superuser()::text AS super, has_system_privilege('CREATEDB')::text AS createdb,
+const MATERIALIZE_SQL: &str =
+    "SELECT mz_is_superuser()::text AS super, has_system_privilege('CREATEDB')::text AS createdb,
        has_system_privilege('CREATEROLE')::text AS createrole";
 
 const CRATE_SQL: &str = "SELECT u.superuser::text AS super,
@@ -216,7 +217,11 @@ fn offered(v: Variant, p: Permissions) -> Permissions {
 /// The flags to what the UI allows. `drop_target`: the explorer named a
 /// database (drop refers to it).
 pub(crate) fn decide(v: Variant, f: &Flags, drop_target: bool) -> Permissions {
-    let mut p = if f.super_ == Some(true) { Permissions::all() } else { rules(v, f) };
+    let mut p = if f.super_ == Some(true) {
+        Permissions::all()
+    } else {
+        rules(v, f)
+    };
     if !drop_target {
         p.drop_database = Access::Unknown;
     }
@@ -226,35 +231,74 @@ pub(crate) fn decide(v: Variant, f: &Flags, drop_target: bool) -> Permissions {
 /// A login that isn't the server's administrator (or couldn't tell).
 fn rules(v: Variant, f: &Flags) -> Permissions {
     // Denied only when the superuser check itself answered.
-    let known = |a: Access| if f.super_.is_some() { a } else { Access::Unknown };
+    let known = |a: Access| {
+        if f.super_.is_some() {
+            a
+        } else {
+            Access::Unknown
+        }
+    };
     match v {
         Variant::Cockroach => Permissions {
-            backup: known(access(any(&[f.db_backup, f.sys_backup]), "privilegio BACKUP sobre la base (o rol admin)")),
+            backup: known(access(
+                any(&[f.db_backup, f.sys_backup]),
+                "privilegio BACKUP sobre la base (o rol admin)",
+            )),
             restore: known(access(
                 any(&[f.sys_restore, f.createdb]),
                 "privilegio de sistema RESTORE u opción CREATEDB (o rol admin)",
             )),
             profiler: only_allowed(f.stats),
             kill_session: only_allowed(f.signal),
-            create_database: known(access(any(&[f.createdb, f.sys_createdb]), "opción CREATEDB (o rol admin)")),
-            drop_database: known(access(any(&[f.owner, f.db_drop]), "ser el dueño de la base o tener DROP sobre ella (o rol admin)")),
-            manage_security: known(access(any(&[f.createrole, f.sys_createrole]), "opción CREATEROLE (o rol admin)")),
-            create_schema: known(access(f.db_create, "privilegio CREATE sobre la base (o rol admin)")),
+            create_database: known(access(
+                any(&[f.createdb, f.sys_createdb]),
+                "opción CREATEDB (o rol admin)",
+            )),
+            drop_database: known(access(
+                any(&[f.owner, f.db_drop]),
+                "ser el dueño de la base o tener DROP sobre ella (o rol admin)",
+            )),
+            manage_security: known(access(
+                any(&[f.createrole, f.sys_createrole]),
+                "opción CREATEROLE (o rol admin)",
+            )),
+            create_schema: known(access(
+                f.db_create,
+                "privilegio CREATE sobre la base (o rol admin)",
+            )),
         },
         Variant::Redshift | Variant::RisingWave => Permissions {
             create_database: known(access(f.createdb, "CREATEDB (o superusuario)")),
-            create_schema: known(access(f.db_create, "privilegio CREATE sobre la base (o superusuario)")),
+            create_schema: known(access(
+                f.db_create,
+                "privilegio CREATE sobre la base (o superusuario)",
+            )),
             ..Default::default()
         },
         Variant::Materialize => Permissions {
-            create_database: known(access(f.createdb, "privilegio de sistema CREATEDB (o superusuario)")),
-            manage_security: known(access(f.createrole, "privilegio de sistema CREATEROLE (o superusuario)")),
-            create_schema: known(access(f.db_create, "privilegio CREATE sobre la base (o superusuario)")),
+            create_database: known(access(
+                f.createdb,
+                "privilegio de sistema CREATEDB (o superusuario)",
+            )),
+            manage_security: known(access(
+                f.createrole,
+                "privilegio de sistema CREATEROLE (o superusuario)",
+            )),
+            create_schema: known(access(
+                f.db_create,
+                "privilegio CREATE sobre la base (o superusuario)",
+            )),
             ..Default::default()
         },
         Variant::CrateDb => {
             let al = only_allowed(f.al);
-            Permissions { backup: al.clone(), restore: al.clone(), profiler: al.clone(), manage_security: al, ..Default::default() }
+            Permissions {
+                backup: al.clone(),
+                restore: al.clone(),
+                profiler: al.clone(),
+                manage_security: al,
+                ..Default::default()
+            }
         }
         Variant::H2 => {
             let admin = || known(Access::check(false, "derechos de administrador (ADMIN)"));
@@ -277,18 +321,31 @@ fn rules(v: Variant, f: &Flags) -> Permissions {
                 // Its own history and terminate function.
                 Variant::Yellowbrick => (Access::Unknown, Access::Unknown),
                 _ => (
-                    known(access(f.stats, "rol pg_read_all_stats o pg_monitor (o superusuario)")),
+                    known(access(
+                        f.stats,
+                        "rol pg_read_all_stats o pg_monitor (o superusuario)",
+                    )),
                     known(access(f.signal, "rol pg_signal_backend (o superusuario)")),
                 ),
             };
-            let admin = if v == Variant::OpenGauss { "SYSADMIN" } else { "superusuario" };
+            let admin = if v == Variant::OpenGauss {
+                "SYSADMIN"
+            } else {
+                "superusuario"
+            };
             Permissions {
                 profiler: stats,
                 kill_session: signal,
                 create_database: known(access(f.createdb, &format!("CREATEDB (o {admin})"))),
-                drop_database: known(access(f.owner, &format!("ser el dueño de la base (o {admin})"))),
+                drop_database: known(access(
+                    f.owner,
+                    &format!("ser el dueño de la base (o {admin})"),
+                )),
                 manage_security: known(access(f.createrole, &format!("CREATEROLE (o {admin})"))),
-                create_schema: known(access(f.db_create, &format!("privilegio CREATE sobre la base (o {admin})"))),
+                create_schema: known(access(
+                    f.db_create,
+                    &format!("privilegio CREATE sobre la base (o {admin})"),
+                )),
                 ..Default::default()
             }
         }
@@ -303,7 +360,9 @@ async fn first_row(s: &PgSession, sql: &str) -> Result<Option<SimpleQueryRow>> {
         Err(e @ Error::Connect(_)) => Err(e),
         Err(e) => {
             if s.client.is_closed() {
-                return Err(Error::Connect("se cerró la conexión con el servidor".into()));
+                return Err(Error::Connect(
+                    "se cerró la conexión con el servidor".into(),
+                ));
             }
             tracing::debug!("{:?}: permissions check refused: {e}", s.variant);
             Ok(None)
@@ -325,7 +384,10 @@ pub(crate) async fn check(s: &PgSession, database: Option<&str>) -> Result<Permi
     let v = s.variant;
     let target = database.map(str::trim).filter(|d| !d.is_empty());
     let db = target.unwrap_or(&s.database);
-    let fill = |sql: &str| sql.replace("{db}", &lit(v, db)).replace("{ident}", &quote_ident(Quote::Double, db));
+    let fill = |sql: &str| {
+        sql.replace("{db}", &lit(v, db))
+            .replace("{ident}", &quote_ident(Quote::Double, db))
+    };
     let queries: Vec<String> = match v {
         Variant::Denodo => return Ok(Permissions::default()),
         Variant::Cockroach => vec![
@@ -342,7 +404,10 @@ pub(crate) async fn check(s: &PgSession, database: Option<&str>) -> Result<Permi
         Variant::H2 => vec![H2_SQL.into(), H2_OLD_SQL.into()],
         _ => vec![fill(&with_db_create(PG_SQL)), fill(PG_SQL)],
     };
-    Ok(flags(s, &queries).await?.map(|f| decide(v, &f, target.is_some())).unwrap_or_default())
+    Ok(flags(s, &queries)
+        .await?
+        .map(|f| decide(v, &f, target.is_some()))
+        .unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -353,7 +418,14 @@ mod tests {
         matches!(a, Access::Denied { missing } if missing.contains(what))
     }
 
-    fn pg(super_: bool, createdb: bool, createrole: bool, stats: bool, signal: bool, owner: bool) -> Flags {
+    fn pg(
+        super_: bool,
+        createdb: bool,
+        createrole: bool,
+        stats: bool,
+        signal: bool,
+        owner: bool,
+    ) -> Flags {
         Flags {
             super_: Some(super_),
             createdb: Some(createdb),
@@ -389,14 +461,21 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(p, expected);
-        assert_eq!(decide(Variant::Postgres, &f, false).drop_database, Access::Unknown);
+        assert_eq!(
+            decide(Variant::Postgres, &f, false).drop_database,
+            Access::Unknown
+        );
         // No native backups on PostgreSQL itself; CockroachDB has them.
         assert_eq!(decide(Variant::Cockroach, &f, true), Permissions::all());
     }
 
     #[test]
     fn a_plain_postgres_role_is_denied_what_it_lacks() {
-        let p = decide(Variant::Postgres, &pg(false, false, false, false, false, false), true);
+        let p = decide(
+            Variant::Postgres,
+            &pg(false, false, false, false, false, false),
+            true,
+        );
         assert!(denied(&p.profiler, "pg_read_all_stats"));
         assert!(denied(&p.kill_session, "pg_signal_backend"));
         assert!(denied(&p.create_database, "CREATEDB"));
@@ -405,10 +484,22 @@ mod tests {
         assert_eq!((p.backup, p.restore), (Access::Unknown, Access::Unknown));
         // CREATE on the database wasn't read (older query): unknown.
         assert_eq!(p.create_schema, Access::Unknown);
-        let f = Flags { db_create: Some(false), ..pg(false, false, false, false, false, false) };
-        assert!(denied(&decide(Variant::Postgres, &f, true).create_schema, "CREATE sobre la base"));
-        let f = Flags { db_create: Some(true), ..f };
-        assert_eq!(decide(Variant::Greenplum, &f, true).create_schema, Access::Allowed);
+        let f = Flags {
+            db_create: Some(false),
+            ..pg(false, false, false, false, false, false)
+        };
+        assert!(denied(
+            &decide(Variant::Postgres, &f, true).create_schema,
+            "CREATE sobre la base"
+        ));
+        let f = Flags {
+            db_create: Some(true),
+            ..f
+        };
+        assert_eq!(
+            decide(Variant::Greenplum, &f, true).create_schema,
+            Access::Allowed
+        );
     }
 
     #[test]
@@ -416,25 +507,46 @@ mod tests {
         for sql in [PG_SQL, OPENGAUSS_SQL, COCKROACH_SQL, COCKROACH_OLD_SQL] {
             let with = with_db_create(sql);
             assert_ne!(with, sql);
-            assert!(with.contains("AS db_create\n  FROM pg_roles r WHERE r.rolname = current_user"), "{with}");
+            assert!(
+                with.contains("AS db_create\n  FROM pg_roles r WHERE r.rolname = current_user"),
+                "{with}"
+            );
         }
     }
 
     #[test]
     fn create_schema_only_where_schemas_are_created() {
-        let f = Flags { super_: Some(true), ..Default::default() };
+        let f = Flags {
+            super_: Some(true),
+            ..Default::default()
+        };
         for v in [Variant::CrateDb, Variant::Denodo] {
             assert_eq!(decide(v, &f, true).create_schema, Access::Unknown, "{v:?}");
         }
-        let f = Flags { super_: Some(false), createdb: Some(false), db_create: Some(false), ..Default::default() };
-        assert!(denied(&decide(Variant::Redshift, &f, true).create_schema, "CREATE"));
-        assert!(denied(&decide(Variant::Materialize, &f, true).create_schema, "CREATE"));
+        let f = Flags {
+            super_: Some(false),
+            createdb: Some(false),
+            db_create: Some(false),
+            ..Default::default()
+        };
+        assert!(denied(
+            &decide(Variant::Redshift, &f, true).create_schema,
+            "CREATE"
+        ));
+        assert!(denied(
+            &decide(Variant::Materialize, &f, true).create_schema,
+            "CREATE"
+        ));
         assert_eq!(decide(Variant::H2, &f, true).create_schema, Access::Unknown);
     }
 
     #[test]
     fn a_monitoring_owner_role_is_allowed() {
-        let p = decide(Variant::Aurora, &pg(false, true, true, true, true, true), true);
+        let p = decide(
+            Variant::Aurora,
+            &pg(false, true, true, true, true, true),
+            true,
+        );
         assert_eq!(p.profiler, Access::Allowed);
         assert_eq!(p.kill_session, Access::Allowed);
         assert_eq!(p.create_database, Access::Allowed);
@@ -445,18 +557,33 @@ mod tests {
     #[test]
     fn nothing_known_leaves_everything_unknown() {
         for v in Variant::ALL {
-            assert_eq!(decide(v, &Flags::default(), true), Permissions::default(), "{v:?}");
+            assert_eq!(
+                decide(v, &Flags::default(), true),
+                Permissions::default(),
+                "{v:?}"
+            );
         }
     }
 
     #[test]
     fn opengauss_and_yellowbrick() {
-        let p = decide(Variant::OpenGauss, &pg(false, false, false, true, false, true), true);
+        let p = decide(
+            Variant::OpenGauss,
+            &pg(false, false, false, true, false, true),
+            true,
+        );
         assert_eq!(p.profiler, Access::Allowed);
         assert!(denied(&p.kill_session, "SYSADMIN"));
         assert_eq!(p.drop_database, Access::Allowed);
-        let p = decide(Variant::Yellowbrick, &pg(false, false, false, false, false, false), true);
-        assert_eq!((p.profiler, p.kill_session), (Access::Unknown, Access::Unknown));
+        let p = decide(
+            Variant::Yellowbrick,
+            &pg(false, false, false, false, false, false),
+            true,
+        );
+        assert_eq!(
+            (p.profiler, p.kill_session),
+            (Access::Unknown, Access::Unknown)
+        );
         assert!(denied(&p.create_database, "CREATEDB"));
     }
 
@@ -485,14 +612,37 @@ mod tests {
         assert!(denied(&p.drop_database, "dueño"));
         assert!(denied(&p.manage_security, "CREATEROLE"));
         // VIEWACTIVITY / CANCELQUERY as role options can't be read.
-        assert_eq!((p.profiler.clone(), p.kill_session.clone()), (Access::Unknown, Access::Unknown));
+        assert_eq!(
+            (p.profiler.clone(), p.kill_session.clone()),
+            (Access::Unknown, Access::Unknown)
+        );
 
-        let owner = Flags { createdb: Some(true), db_backup: Some(true), owner: Some(true), stats: Some(true), ..limited.clone() };
+        let owner = Flags {
+            createdb: Some(true),
+            db_backup: Some(true),
+            owner: Some(true),
+            stats: Some(true),
+            ..limited.clone()
+        };
         let p = decide(Variant::Cockroach, &owner, true);
-        assert_eq!((p.backup, p.restore, p.drop_database, p.profiler), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (p.backup, p.restore, p.drop_database, p.profiler),
+            (
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed
+            )
+        );
 
         // Before system privileges: only what the old query read.
-        let old = Flags { super_: Some(false), createdb: Some(false), createrole: Some(true), owner: Some(false), ..Default::default() };
+        let old = Flags {
+            super_: Some(false),
+            createdb: Some(false),
+            createrole: Some(true),
+            owner: Some(false),
+            ..Default::default()
+        };
         let p = decide(Variant::Cockroach, &old, true);
         assert_eq!((p.backup, p.restore), (Access::Unknown, Access::Unknown));
         assert_eq!(p.manage_security, Access::Allowed);
@@ -502,29 +652,113 @@ mod tests {
 
     #[test]
     fn user_catalog_engines() {
-        let f = Flags { super_: Some(false), createdb: Some(false), ..Default::default() };
+        let f = Flags {
+            super_: Some(false),
+            createdb: Some(false),
+            ..Default::default()
+        };
         let p = decide(Variant::Redshift, &f, true);
         assert!(denied(&p.create_database, "CREATEDB"));
-        assert_eq!((p.profiler, p.kill_session, p.drop_database, p.manage_security), Default::default());
-        let p = decide(Variant::RisingWave, &Flags { super_: Some(true), ..f }, true);
+        assert_eq!(
+            (
+                p.profiler,
+                p.kill_session,
+                p.drop_database,
+                p.manage_security
+            ),
+            Default::default()
+        );
+        let p = decide(
+            Variant::RisingWave,
+            &Flags {
+                super_: Some(true),
+                ..f
+            },
+            true,
+        );
         // Neither profiler nor kill on RisingWave.
-        assert_eq!((p.profiler, p.kill_session), (Access::Unknown, Access::Unknown));
-        assert_eq!((p.create_database, p.drop_database, p.manage_security), (Access::Allowed, Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (p.profiler, p.kill_session),
+            (Access::Unknown, Access::Unknown)
+        );
+        assert_eq!(
+            (p.create_database, p.drop_database, p.manage_security),
+            (Access::Allowed, Access::Allowed, Access::Allowed)
+        );
     }
 
     #[test]
     fn crate_and_h2() {
-        let p = decide(Variant::CrateDb, &Flags { super_: Some(false), al: Some(true), ..Default::default() }, true);
-        assert_eq!((p.backup, p.restore, p.profiler, p.manage_security), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
-        assert_eq!((p.create_database, p.kill_session), (Access::Unknown, Access::Unknown));
-        let p = decide(Variant::CrateDb, &Flags { super_: Some(false), al: Some(false), ..Default::default() }, true);
+        let p = decide(
+            Variant::CrateDb,
+            &Flags {
+                super_: Some(false),
+                al: Some(true),
+                ..Default::default()
+            },
+            true,
+        );
+        assert_eq!(
+            (p.backup, p.restore, p.profiler, p.manage_security),
+            (
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed
+            )
+        );
+        assert_eq!(
+            (p.create_database, p.kill_session),
+            (Access::Unknown, Access::Unknown)
+        );
+        let p = decide(
+            Variant::CrateDb,
+            &Flags {
+                super_: Some(false),
+                al: Some(false),
+                ..Default::default()
+            },
+            true,
+        );
         assert_eq!(p, Permissions::default());
 
-        let p = decide(Variant::H2, &Flags { super_: Some(false), ..Default::default() }, true);
+        let p = decide(
+            Variant::H2,
+            &Flags {
+                super_: Some(false),
+                ..Default::default()
+            },
+            true,
+        );
         assert!(denied(&p.backup, "ADMIN"));
         assert!(denied(&p.kill_session, "ADMIN"));
-        assert_eq!((p.create_database, p.drop_database), (Access::Unknown, Access::Unknown));
-        let p = decide(Variant::H2, &Flags { super_: Some(true), ..Default::default() }, true);
-        assert_eq!((p.backup, p.restore, p.profiler, p.kill_session, p.manage_security), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (p.create_database, p.drop_database),
+            (Access::Unknown, Access::Unknown)
+        );
+        let p = decide(
+            Variant::H2,
+            &Flags {
+                super_: Some(true),
+                ..Default::default()
+            },
+            true,
+        );
+        assert_eq!(
+            (
+                p.backup,
+                p.restore,
+                p.profiler,
+                p.kill_session,
+                p.manage_security
+            ),
+            (
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed
+            )
+        );
     }
 }

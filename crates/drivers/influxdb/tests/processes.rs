@@ -11,8 +11,15 @@ use dbine_driver::{ConnectionConfig, Error, QueryOutcome, Session};
 use std::time::Duration;
 
 async fn open(driver: &str, url: &str, db: Option<&str>) -> Box<dyn Session> {
-    let d = dbine_driver_influxdb::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
-    let cfg = ConnectionConfig { driver: driver.into(), host: url.into(), ..Default::default() };
+    let d = dbine_driver_influxdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
+    let cfg = ConnectionConfig {
+        driver: driver.into(),
+        host: url.into(),
+        ..Default::default()
+    };
     d.connect(&cfg, db).await.unwrap()
 }
 
@@ -25,12 +32,30 @@ async fn influxdb1() {
         eprintln!("DBINE_TEST_INFLUXDB1_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_influxdb::drivers().into_iter().find(|d| d.info().id == "influxdb1").unwrap();
-    assert!(d.capabilities().processes && d.capabilities().cancel_query && !d.capabilities().kill_session);
+    let d = dbine_driver_influxdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "influxdb1")
+        .unwrap();
+    assert!(
+        d.capabilities().processes
+            && d.capabilities().cancel_query
+            && !d.capabilities().kill_session
+    );
     let http = reqwest::Client::new();
-    http.post(format!("{url}/query")).form(&[("q", "CREATE DATABASE dbine_processes")]).send().await.unwrap();
-    let lines: Vec<String> = (1..=5000).map(|i| format!("m,t=a v={i} {i}000000000")).collect();
-    let r = http.post(format!("{url}/write?db=dbine_processes")).body(lines.join("\n")).send().await.unwrap();
+    http.post(format!("{url}/query"))
+        .form(&[("q", "CREATE DATABASE dbine_processes")])
+        .send()
+        .await
+        .unwrap();
+    let lines: Vec<String> = (1..=5000)
+        .map(|i| format!("m,t=a v={i} {i}000000000"))
+        .collect();
+    let r = http
+        .post(format!("{url}/write?db=dbine_processes"))
+        .body(lines.join("\n"))
+        .send()
+        .await
+        .unwrap();
     assert!(r.status().is_success());
 
     let mut admin = open("influxdb1", &url, None).await;
@@ -43,18 +68,45 @@ async fn influxdb1() {
     tokio::time::sleep(Duration::from_millis(700)).await;
 
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.sql.as_deref().unwrap_or("").contains("GROUP BY time(1ms)")).unwrap_or_else(|| panic!("the query in {list:#?}"));
+    let w = list
+        .iter()
+        .find(|p| {
+            p.sql
+                .as_deref()
+                .unwrap_or("")
+                .contains("GROUP BY time(1ms)")
+        })
+        .unwrap_or_else(|| panic!("the query in {list:#?}"));
     eprintln!("{w:#?}");
     assert!(w.active && !w.own);
-    assert_eq!((w.database.as_deref(), w.command.as_deref()), (Some("dbine_processes"), Some("SELECT")));
-    assert!(list.iter().any(|p| p.own), "its own SHOW QUERIES is flagged");
+    assert_eq!(
+        (w.database.as_deref(), w.command.as_deref()),
+        (Some("dbine_processes"), Some("SELECT"))
+    );
+    assert!(
+        list.iter().any(|p| p.own),
+        "its own SHOW QUERIES is flagged"
+    );
 
     admin.cancel_query(&w.id).await.unwrap();
-    let failed = tokio::time::timeout(Duration::from_secs(20), slow).await.expect("the query stopped").unwrap();
+    let failed = tokio::time::timeout(Duration::from_secs(20), slow)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     assert!(failed, "the query was killed");
-    assert!(admin.cancel_query(&w.id).await.is_err(), "nothing left to kill");
-    assert!(admin.cancel_query("1; DROP DATABASE x").await.is_err(), "the id is validated");
-    http.post(format!("{url}/query")).form(&[("q", "DROP DATABASE dbine_processes")]).send().await.unwrap();
+    assert!(
+        admin.cancel_query(&w.id).await.is_err(),
+        "nothing left to kill"
+    );
+    assert!(
+        admin.cancel_query("1; DROP DATABASE x").await.is_err(),
+        "the id is validated"
+    );
+    http.post(format!("{url}/query"))
+        .form(&[("q", "DROP DATABASE dbine_processes")])
+        .send()
+        .await
+        .unwrap();
 }
 
 /// The list reads `system.queries` (its own query is there, running), and
@@ -66,14 +118,28 @@ async fn influxdb3() {
         eprintln!("DBINE_TEST_INFLUXDB3_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_influxdb::drivers().into_iter().find(|d| d.info().id == "influxdb3").unwrap();
+    let d = dbine_driver_influxdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "influxdb3")
+        .unwrap();
     assert!(d.capabilities().processes && !d.capabilities().cancel_query);
     let http = reqwest::Client::new();
-    let r = http.post(format!("{url}/api/v3/write_lp?db=dbine_processes")).body("m,t=a v=1").send().await.unwrap();
+    let r = http
+        .post(format!("{url}/api/v3/write_lp?db=dbine_processes"))
+        .body("m,t=a v=1")
+        .send()
+        .await
+        .unwrap();
     assert!(r.status().is_success());
     let mut s = open("influxdb3", &url, None).await;
     let list = s.processes().await.unwrap();
     eprintln!("{list:#?}");
-    assert!(list.iter().any(|p| p.own && p.active), "its own query is listed");
-    assert!(matches!(s.cancel_query("x").await, Err(Error::Unsupported(_))));
+    assert!(
+        list.iter().any(|p| p.own && p.active),
+        "its own query is listed"
+    );
+    assert!(matches!(
+        s.cancel_query("x").await,
+        Err(Error::Unsupported(_))
+    ));
 }

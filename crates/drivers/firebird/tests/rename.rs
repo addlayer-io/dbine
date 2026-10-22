@@ -11,13 +11,18 @@
 
 use dbine_driver::dependencies::{Confidence, DependencyScan, Relation};
 use dbine_driver::rename::{rewrite_references, with_create_style, RewriteOptions};
-use dbine_driver::{kinds, ConnectionConfig, Driver, Error, ObjectRef, QueryOutcome, RenameRequest, RenameTarget, Session, TableSchema};
+use dbine_driver::{
+    kinds, ConnectionConfig, Driver, Error, ObjectRef, QueryOutcome, RenameRequest, RenameTarget,
+    Session, TableSchema,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
 fn config() -> Option<ConnectionConfig> {
     let url = std::env::var("DBINE_TEST_FIREBIRD_URL").ok()?;
-    let rest = url.strip_prefix("firebird://").expect("firebird://user:pass@host:port/path");
+    let rest = url
+        .strip_prefix("firebird://")
+        .expect("firebird://user:pass@host:port/path");
     let (cred, addr) = rest.split_once('@').unwrap();
     let (user, pass) = cred.split_once(':').unwrap();
     let (hostport, path) = addr.split_once('/').unwrap();
@@ -51,19 +56,38 @@ async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> Value {
     let mut out = QueryOutcome::default();
     s.execute(sql, 10, &mut out).await.unwrap();
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
-    out.results.first().and_then(|r| r.rows.first()).and_then(|r| r.first()).cloned().unwrap_or(Value::Null)
+    out.results
+        .first()
+        .and_then(|r| r.rows.first())
+        .and_then(|r| r.first())
+        .cloned()
+        .unwrap_or(Value::Null)
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: kinds::TABLE.into(), schema: None, name: name.into() }
+    ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: name.into(),
+    }
 }
 
 async fn schema_of(s: &mut Box<dyn Session>, name: &str) -> TableSchema {
-    s.database_schema().await.unwrap().into_iter().find(|t| t.name == name).unwrap()
+    s.database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.name == name)
+        .unwrap()
 }
 
 async fn columns(s: &mut Box<dyn Session>, name: &str) -> Vec<String> {
-    schema_of(s, name).await.columns.into_iter().map(|c| c.name).collect()
+    schema_of(s, name)
+        .await
+        .columns
+        .into_iter()
+        .map(|c| c.name)
+        .collect()
 }
 
 const CLEANUP: &[&str] = &[
@@ -102,14 +126,23 @@ struct Plan {
 /// code dependent rewritten (the clean ones kept, as the dialog
 /// preselects), dropped before the driver's rename and created after it
 /// (`DropCreate`), triggers and procedures dropped before the views.
-async fn plan(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, target: RenameTarget, new: &str) -> Plan {
+async fn plan(
+    d: &Arc<dyn Driver>,
+    s: &mut Box<dyn Session>,
+    target: RenameTarget,
+    new: &str,
+) -> Plan {
     let spec = d.rename_spec().unwrap();
     assert!(spec.allows(&target));
     let dialect = d.script_dialect();
     let scan = DependencyScan::new(d.info(), dialect, d.capabilities().foreign_keys);
-    let report = s.dependents(&target.dependency_target(), &scan).await.unwrap();
+    let report = s
+        .dependents(&target.dependency_target(), &scan)
+        .await
+        .unwrap();
     let rewrite_target = target.rewrite_target();
-    let (mut rewritten, mut manual, mut drops, mut creates) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut rewritten, mut manual, mut drops, mut creates) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for dep in &report.items {
         if dep.relation != Relation::Code {
             continue;
@@ -118,8 +151,20 @@ async fn plan(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, target: RenameTarge
             manual.push(dep.name.clone());
             continue;
         }
-        let def = s.definition(&ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() }).await.unwrap().unwrap();
-        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW, ..Default::default() };
+        let def = s
+            .definition(&ObjectRef {
+                kind: dep.kind.clone(),
+                schema: dep.schema.clone(),
+                name: dep.name.clone(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        let opts = RewriteOptions {
+            dependent_schema: dep.schema.clone(),
+            keep_view_columns: dep.kind == kinds::VIEW,
+            ..Default::default()
+        };
         let r = rewrite_references(&def, &dialect, &rewrite_target, new, &spec, &opts);
         if r.edits.is_empty() || !r.unresolved.is_empty() {
             eprintln!("manual {}: {:?}", dep.name, r.unresolved);
@@ -140,11 +185,26 @@ async fn plan(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, target: RenameTarge
         Some(t) => Some(schema_of(s, &t.name).await),
         None => None,
     };
-    let middle = d.rename_script(&RenameRequest { target, new_name: new.into(), table, definition: None }).unwrap();
-    let statements = drops.into_iter().chain(middle.statements).chain(creates).collect();
+    let middle = d
+        .rename_script(&RenameRequest {
+            target,
+            new_name: new.into(),
+            table,
+            definition: None,
+        })
+        .unwrap();
+    let statements = drops
+        .into_iter()
+        .chain(middle.statements)
+        .chain(creates)
+        .collect();
     rewritten.sort();
     manual.sort();
-    Plan { statements, rewritten, manual }
+    Plan {
+        statements,
+        rewritten,
+        manual,
+    }
 }
 
 /// Runs the statements in one transaction, as the app's atomic run would:
@@ -182,40 +242,81 @@ async fn rename_column_with_impact_live() {
     for st in FIXTURE {
         run(&mut s, st).await;
     }
-    let pepe = || RenameTarget::Column { table: table("RN_T"), column: "PEPE".into() };
+    let pepe = || RenameTarget::Column {
+        table: table("RN_T"),
+        column: "PEPE".into(),
+    };
 
     // 1. Only columns: no table rename.
-    assert!(matches!(d.rename_script(&RenameRequest { target: RenameTarget::Object { object: table("RN_T"), parent: None }, new_name: "X".into(), table: None, definition: None }), Err(Error::Unsupported(_))));
+    assert!(matches!(
+        d.rename_script(&RenameRequest {
+            target: RenameTarget::Object {
+                object: table("RN_T"),
+                parent: None
+            },
+            new_name: "X".into(),
+            table: None,
+            definition: None
+        }),
+        Err(Error::Unsupported(_))
+    ));
 
     // 2. A CHECK uses the column: the driver refuses before the server would.
     let t = schema_of(&mut s, "RN_T").await;
-    let refused = d.rename_script(&RenameRequest { target: pepe(), new_name: "NOMBRE".into(), table: Some(t.clone()), definition: None });
-    assert!(matches!(&refused, Err(Error::Unsupported(m)) if m.contains("CHECK")), "{refused:?}");
+    let refused = d.rename_script(&RenameRequest {
+        target: pepe(),
+        new_name: "NOMBRE".into(),
+        table: Some(t.clone()),
+        definition: None,
+    });
+    assert!(
+        matches!(&refused, Err(Error::Unsupported(m)) if m.contains("CHECK")),
+        "{refused:?}"
+    );
     // The server's own answer (it names the first user it finds).
-    let e = try_run(&mut s, "ALTER TABLE RN_T ALTER COLUMN PEPE TO NOMBRE").await.expect("refused");
+    let e = try_run(&mut s, "ALTER TABLE RN_T ALTER COLUMN PEPE TO NOMBRE")
+        .await
+        .expect("refused");
     eprintln!("server, CHECK: {e}");
     assert!(e.contains("is referenced in"), "{e}");
     // A primary key column: refused as well.
-    let id = RenameTarget::Column { table: table("RN_T"), column: "ID".into() };
-    assert!(matches!(d.rename_script(&RenameRequest { target: id, new_name: "X".into(), table: Some(t), definition: None }), Err(Error::Unsupported(m)) if m.contains("clave")));
+    let id = RenameTarget::Column {
+        table: table("RN_T"),
+        column: "ID".into(),
+    };
+    assert!(
+        matches!(d.rename_script(&RenameRequest { target: id, new_name: "X".into(), table: Some(t), definition: None }), Err(Error::Unsupported(m)) if m.contains("clave"))
+    );
     // A foreign key column nothing else uses: the key alone blocks it.
-    let e = try_run(&mut s, "ALTER TABLE RN_T2 ALTER COLUMN T_ID TO T_ID2").await.expect("refused");
+    let e = try_run(&mut s, "ALTER TABLE RN_T2 ALTER COLUMN T_ID TO T_ID2")
+        .await
+        .expect("refused");
     eprintln!("server, key: {e}");
     assert!(e.contains("Integrity Constraint"), "{e}");
     run(&mut s, "ALTER TABLE RN_T DROP CONSTRAINT RN_CK_PEPE").await;
 
     // 3. With the CHECK gone, the view, the procedure and the trigger still block it.
-    let e = try_run(&mut s, "ALTER TABLE RN_T ALTER COLUMN PEPE TO NOMBRE").await.expect("refused");
+    let e = try_run(&mut s, "ALTER TABLE RN_T ALTER COLUMN PEPE TO NOMBRE")
+        .await
+        .expect("refused");
     eprintln!("server, code: {e}");
     assert!(e.contains("referenced in RN_"), "{e}");
 
     // 4. In one transaction it can't work: the drops take effect at commit
     //    and the rename, checked at once, still sees the view.
     let p = plan(&d, &mut s, pepe(), "NOMBRE").await;
-    let e = run_atomic(&mut s, &p.statements).await.expect("refused in one transaction");
+    let e = run_atomic(&mut s, &p.statements)
+        .await
+        .expect("refused in one transaction");
     assert!(e.contains("is referenced in"), "{e}");
-    assert!(columns(&mut s, "RN_T").await.contains(&"PEPE".to_string()), "rolled back");
-    assert_eq!(scalar(&mut s, "SELECT PEPE FROM RN_V WHERE ID = 1").await, Value::from(10));
+    assert!(
+        columns(&mut s, "RN_T").await.contains(&"PEPE".to_string()),
+        "rolled back"
+    );
+    assert_eq!(
+        scalar(&mut s, "SELECT PEPE FROM RN_V WHERE ID = 1").await,
+        Value::from(10)
+    );
     assert!(!d.rename_spec().unwrap().transactional);
 
     // 5. The real run, statement by statement: the dependents dropped, the
@@ -228,23 +329,41 @@ async fn rename_column_with_impact_live() {
         run(&mut s, st).await;
     }
     let cols = columns(&mut s, "RN_T").await;
-    assert!(cols.contains(&"NOMBRE".to_string()) && !cols.contains(&"PEPE".to_string()), "{cols:?}");
+    assert!(
+        cols.contains(&"NOMBRE".to_string()) && !cols.contains(&"PEPE".to_string()),
+        "{cols:?}"
+    );
     // The view keeps its output column (`NOMBRE AS PEPE`).
-    assert_eq!(scalar(&mut s, "SELECT PEPE FROM RN_V WHERE ID = 1").await, Value::from(10));
+    assert_eq!(
+        scalar(&mut s, "SELECT PEPE FROM RN_V WHERE ID = 1").await,
+        Value::from(10)
+    );
     run(&mut s, "EXECUTE PROCEDURE RN_P_USA").await;
     run(&mut s, "EXECUTE PROCEDURE RN_P_OTRA").await;
     run(&mut s, "INSERT INTO RN_T (ID) VALUES (2)").await;
-    assert_eq!(scalar(&mut s, "SELECT NOMBRE FROM RN_T WHERE ID = 1").await, Value::from(11));
-    assert_eq!(scalar(&mut s, "SELECT NOMBRE FROM RN_T WHERE ID = 2").await, Value::from(0), "the trigger runs");
+    assert_eq!(
+        scalar(&mut s, "SELECT NOMBRE FROM RN_T WHERE ID = 1").await,
+        Value::from(11)
+    );
+    assert_eq!(
+        scalar(&mut s, "SELECT NOMBRE FROM RN_T WHERE ID = 2").await,
+        Value::from(0),
+        "the trigger runs"
+    );
     // The other table's procedure wasn't touched.
-    assert_eq!(scalar(&mut s, "SELECT PEPE FROM RN_OTRA WHERE ID = 1").await, Value::from(6));
+    assert_eq!(
+        scalar(&mut s, "SELECT PEPE FROM RN_OTRA WHERE ID = 1").await,
+        Value::from(6)
+    );
     // The plain index followed by itself.
     assert_eq!(
         scalar(&mut s, "SELECT TRIM(RDB$FIELD_NAME) FROM RDB$INDEX_SEGMENTS WHERE RDB$INDEX_NAME = 'RN_IX_PEPE'").await,
         Value::from("NOMBRE")
     );
     // The dynamic one now fails: it's the user's to fix.
-    assert!(try_run(&mut s, "EXECUTE PROCEDURE RN_P_DIN").await.is_some());
+    assert!(try_run(&mut s, "EXECUTE PROCEDURE RN_P_DIN")
+        .await
+        .is_some());
 
     for st in CLEANUP {
         let _ = try_run(&mut s, st).await;

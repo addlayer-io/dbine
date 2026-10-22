@@ -12,9 +12,15 @@ use std::time::Duration;
 #[tokio::main]
 async fn main() {
     let secret = new_secret();
-    let desk = endpoint(secret, &Relays::Public, true).await.expect("DBine's endpoint");
-    let phone_ep = endpoint(new_secret(), &Relays::Public, false).await.expect("the phone's endpoint");
-    tokio::time::timeout(Duration::from_secs(25), desk.online()).await.expect("DBine reached a relay");
+    let desk = endpoint(secret, &Relays::Public, true)
+        .await
+        .expect("DBine's endpoint");
+    let phone_ep = endpoint(new_secret(), &Relays::Public, false)
+        .await
+        .expect("the phone's endpoint");
+    tokio::time::timeout(Duration::from_secs(25), desk.online())
+        .await
+        .expect("DBine reached a relay");
     let desktop = Keys::generate().unwrap();
     let phone = Keys::generate().unwrap();
     let known = phone.public.clone();
@@ -22,18 +28,34 @@ async fn main() {
     let desk2 = desk.clone();
     let server = tokio::spawn(async move {
         let s = next(&desk2).await.unwrap().unwrap();
-        let Accepted::Connected(mut ch) = accept(s, &d2, None, |k| k == known.as_slice()).await.unwrap() else { panic!("not a paired phone") };
+        let Accepted::Connected(mut ch) = accept(s, &d2, None, |k| k == known.as_slice())
+            .await
+            .unwrap()
+        else {
+            panic!("not a paired phone")
+        };
         let got = ch.recv().await.unwrap();
         ch.send(&got).await.unwrap();
         let _ = ch.recv().await;
     });
     let started = std::time::Instant::now();
-    let remote = Remote { node: id_of(secret), relays: Vec::new() };
-    let s = dial(&phone_ep, &remote).await.expect("dial DBine by its id");
-    let mut ch = connect(s, &desktop.public, &phone).await.expect("handshake");
+    let remote = Remote {
+        node: id_of(secret),
+        relays: Vec::new(),
+    };
+    let s = dial(&phone_ep, &remote)
+        .await
+        .expect("dial DBine by its id");
+    let mut ch = connect(s, &desktop.public, &phone)
+        .await
+        .expect("handshake");
     ch.send(b"desde cualquier red").await.unwrap();
     assert_eq!(ch.recv().await.unwrap(), b"desde cualquier red");
-    println!("OK in {:?} through {:?}", started.elapsed(), home_relay(&desk));
+    println!(
+        "OK in {:?} through {:?}",
+        started.elapsed(),
+        home_relay(&desk)
+    );
     drop(ch);
     let _ = server.await;
     desk.close().await;

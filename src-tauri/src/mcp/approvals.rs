@@ -88,7 +88,12 @@ impl Approvals {
 
     /// The requests waiting for an answer, oldest first.
     pub fn pending(&self) -> Vec<ApprovalRequest> {
-        self.pending.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(r, _)| r.clone()).collect()
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(r, _)| r.clone())
+            .collect()
     }
 
     fn notify(&self, new: bool) {
@@ -99,12 +104,18 @@ impl Approvals {
     }
 
     pub fn approves_all(&self, client_id: &str, kind: ApprovalKind) -> bool {
-        self.approve_all.lock().unwrap_or_else(|e| e.into_inner()).contains(&(client_id.to_string(), kind))
+        self.approve_all
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&(client_id.to_string(), kind))
     }
 
     /// The clients (and kinds) that currently approve everything.
     pub fn approve_all_clients(&self) -> HashSet<(String, ApprovalKind)> {
-        self.approve_all.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.approve_all
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Ask the user and wait for the answer, at most `timeout`. If the
@@ -115,9 +126,15 @@ impl Approvals {
         }
         let id = req.id.clone();
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap_or_else(|e| e.into_inner()).push((req, tx));
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((req, tx));
         self.notify(true);
-        let _withdraw = Withdraw { approvals: self, id: &id };
+        let _withdraw = Withdraw {
+            approvals: self,
+            id: &id,
+        };
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(Decision::Approve | Decision::ApproveAll)) => Outcome::Approved,
             Ok(Ok(Decision::Reject)) | Ok(Err(_)) => Outcome::Rejected,
@@ -131,11 +148,19 @@ impl Approvals {
     pub fn answer(&self, id: &str, decision: Decision) -> Result<(), String> {
         {
             let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-            let i = pending.iter().position(|(r, _)| r.id == id).ok_or_else(|| "esa solicitud ya no está pendiente: se respondió o venció".to_string())?;
+            let i = pending
+                .iter()
+                .position(|(r, _)| r.id == id)
+                .ok_or_else(|| {
+                    "esa solicitud ya no está pendiente: se respondió o venció".to_string()
+                })?;
             let (req, tx) = pending.remove(i);
             let _ = tx.send(decision);
             if decision == Decision::ApproveAll {
-                self.approve_all.lock().unwrap_or_else(|e| e.into_inner()).insert((req.client_id.clone(), req.kind));
+                self.approve_all
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert((req.client_id.clone(), req.kind));
                 let mut i = 0;
                 while i < pending.len() {
                     if pending[i].0.client_id == req.client_id && pending[i].0.kind == req.kind {
@@ -154,13 +179,19 @@ impl Approvals {
     /// Tests: approve everything of `kind` for a client, as if chosen in the dialog.
     #[cfg(test)]
     pub fn approve_all_for(&self, client_id: &str, kind: ApprovalKind) {
-        self.approve_all.lock().unwrap_or_else(|e| e.into_inner()).insert((client_id.to_string(), kind));
+        self.approve_all
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert((client_id.to_string(), kind));
     }
 
     /// Stop approving everything of `kind` (every kind: `None`) for a
     /// client: it's asked again.
     pub fn clear_approve_all(&self, client_id: &str, kind: Option<ApprovalKind>) {
-        self.approve_all.lock().unwrap_or_else(|e| e.into_inner()).retain(|(c, k)| c != client_id || kind.is_some_and(|kind| kind != *k));
+        self.approve_all
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(c, k)| c != client_id || kind.is_some_and(|kind| kind != *k));
     }
 
     /// A revoked client: no approve-all, and its pending requests rejected.
@@ -245,7 +276,9 @@ mod tests {
         let a = Arc::new(Approvals::default());
         let events = Arc::new(Mutex::new(Vec::<(usize, bool)>::new()));
         let ev = events.clone();
-        a.set_sink(Arc::new(move |list, new| ev.lock().unwrap().push((list.len(), new))));
+        a.set_sink(Arc::new(move |list, new| {
+            ev.lock().unwrap().push((list.len(), new))
+        }));
 
         let t = tokio::spawn({
             let a = a.clone();
@@ -267,11 +300,17 @@ mod tests {
         a.answer("2", Decision::Reject).unwrap();
         assert_eq!(t.await.unwrap(), Outcome::Rejected);
 
-        assert_eq!(a.ask(req("3", "claude"), Duration::from_millis(30)).await, Outcome::TimedOut);
+        assert_eq!(
+            a.ask(req("3", "claude"), Duration::from_millis(30)).await,
+            Outcome::TimedOut
+        );
         assert!(a.pending().is_empty());
         // The UI heard of each new request and of each removal.
         let ev = events.lock().unwrap().clone();
-        assert!(ev.contains(&(1, true)) && ev.contains(&(0, false)), "{ev:?}");
+        assert!(
+            ev.contains(&(1, true)) && ev.contains(&(0, false)),
+            "{ev:?}"
+        );
     }
 
     #[tokio::test]
@@ -296,15 +335,24 @@ mod tests {
         // The same client's queued request goes through; another client's waits.
         assert_eq!(queued.await.unwrap(), Outcome::Approved);
         assert_eq!(a.pending().len(), 1);
-        assert!(a.approves_all("claude", ApprovalKind::Write) && !a.approves_all("codex", ApprovalKind::Write));
+        assert!(
+            a.approves_all("claude", ApprovalKind::Write)
+                && !a.approves_all("codex", ApprovalKind::Write)
+        );
         // Approving every write doesn't approve reads.
         assert!(!a.approves_all("claude", ApprovalKind::Read));
         // Later requests aren't asked.
-        assert_eq!(a.ask(req("4", "claude"), Duration::from_millis(10)).await, Outcome::AutoApproved);
+        assert_eq!(
+            a.ask(req("4", "claude"), Duration::from_millis(10)).await,
+            Outcome::AutoApproved
+        );
 
         // Removing approve-all asks again.
         a.clear_approve_all("claude", None);
-        assert_eq!(a.ask(req("5", "claude"), Duration::from_millis(10)).await, Outcome::TimedOut);
+        assert_eq!(
+            a.ask(req("5", "claude"), Duration::from_millis(10)).await,
+            Outcome::TimedOut
+        );
 
         // Revoking a client clears approve-all and rejects what it has pending.
         a.answer("3", Decision::ApproveAll).unwrap();
@@ -327,12 +375,24 @@ mod tests {
         let a = Arc::new(Approvals::default());
         let read = tokio::spawn({
             let a = a.clone();
-            async move { a.ask(req_of("r1", "claude", ApprovalKind::Read), Duration::from_secs(5)).await }
+            async move {
+                a.ask(
+                    req_of("r1", "claude", ApprovalKind::Read),
+                    Duration::from_secs(5),
+                )
+                .await
+            }
         });
         pending(&a, 1).await;
         let write = tokio::spawn({
             let a = a.clone();
-            async move { a.ask(req_of("w1", "claude", ApprovalKind::Write), Duration::from_secs(5)).await }
+            async move {
+                a.ask(
+                    req_of("w1", "claude", ApprovalKind::Write),
+                    Duration::from_secs(5),
+                )
+                .await
+            }
         });
         pending(&a, 2).await;
         assert_eq!(a.pending()[0].kind, ApprovalKind::Read);
@@ -340,14 +400,27 @@ mod tests {
         a.answer("r1", Decision::ApproveAll).unwrap();
         assert_eq!(read.await.unwrap(), Outcome::Approved);
         assert_eq!(a.pending().len(), 1);
-        assert!(a.approves_all("claude", ApprovalKind::Read) && !a.approves_all("claude", ApprovalKind::Write));
-        assert_eq!(a.ask(req_of("r2", "claude", ApprovalKind::Read), Duration::from_millis(10)).await, Outcome::AutoApproved);
+        assert!(
+            a.approves_all("claude", ApprovalKind::Read)
+                && !a.approves_all("claude", ApprovalKind::Write)
+        );
+        assert_eq!(
+            a.ask(
+                req_of("r2", "claude", ApprovalKind::Read),
+                Duration::from_millis(10)
+            )
+            .await,
+            Outcome::AutoApproved
+        );
         a.answer("w1", Decision::Reject).unwrap();
         assert_eq!(write.await.unwrap(), Outcome::Rejected);
         // Clearing one kind keeps the other.
         a.approve_all_for("claude", ApprovalKind::Write);
         a.clear_approve_all("claude", Some(ApprovalKind::Read));
-        assert!(!a.approves_all("claude", ApprovalKind::Read) && a.approves_all("claude", ApprovalKind::Write));
+        assert!(
+            !a.approves_all("claude", ApprovalKind::Read)
+                && a.approves_all("claude", ApprovalKind::Write)
+        );
     }
 
     #[tokio::test]

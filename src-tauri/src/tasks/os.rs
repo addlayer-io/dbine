@@ -33,7 +33,10 @@ pub fn old_label_ids(dir: &Path) -> Vec<String> {
         .filter_map(|e| e.ok())
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            name.strip_prefix(OLD_LABEL_PREFIX)?.strip_suffix(".plist").filter(|id| !id.is_empty()).map(str::to_string)
+            name.strip_prefix(OLD_LABEL_PREFIX)?
+                .strip_suffix(".plist")
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
         })
         .collect();
     ids.sort();
@@ -61,7 +64,10 @@ pub fn plan_label_moves(old_ids: &[String], tasks: &[ScheduledTask]) -> Vec<Labe
 
 fn hm(time: &str) -> (u32, u32) {
     let (h, m) = time.trim().split_once(':').unwrap_or(("0", "0"));
-    (h.parse().unwrap_or(0).min(23), m.parse().unwrap_or(0).min(59))
+    (
+        h.parse().unwrap_or(0).min(23),
+        m.parse().unwrap_or(0).min(59),
+    )
 }
 
 /// The program the scheduler starts. Refused when it would break after the
@@ -77,7 +83,10 @@ pub fn executable() -> Result<PathBuf, String> {
         return Err("Las tareas programadas no se registran desde una versión de desarrollo: usá la app instalada.".into());
     }
     // An AppImage runs from a mount that changes each start: its own path.
-    let exe = std::env::var_os("APPIMAGE").map(PathBuf::from).map_or_else(std::env::current_exe, Ok).map_err(|e| e.to_string())?;
+    let exe = std::env::var_os("APPIMAGE")
+        .map(PathBuf::from)
+        .map_or_else(std::env::current_exe, Ok)
+        .map_err(|e| e.to_string())?;
     let s = exe.to_string_lossy();
     if s.starts_with("/Volumes/") || s.contains("/AppTranslocation/") {
         return Err("DBine se está ejecutando desde la imagen de disco o desde una copia temporal de macOS: movelo a Aplicaciones y abrilo desde ahí para programar tareas.".into());
@@ -88,7 +97,10 @@ pub fn executable() -> Result<PathBuf, String> {
 // -- macOS -------------------------------------------------------------------
 
 fn xml(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// launchd's Weekday: 0 or 7 is Sunday, 1 Monday (ours: 1 Monday … 7 Sunday).
@@ -101,10 +113,21 @@ pub fn launchd_plist(task_id: &str, exe: &Path, schedule: &Schedule) -> String {
         Schedule::Daily { time } => format!("<key>StartCalendarInterval</key>{}", cal("", time)),
         Schedule::Weekly { days, time } => format!(
             "<key>StartCalendarInterval</key><array>{}</array>",
-            days.iter().map(|d| cal(&format!("<key>Weekday</key><integer>{}</integer>", d % 7), time)).collect::<String>()
+            days.iter()
+                .map(|d| cal(
+                    &format!("<key>Weekday</key><integer>{}</integer>", d % 7),
+                    time
+                ))
+                .collect::<String>()
         ),
-        Schedule::Monthly { day, time } => format!("<key>StartCalendarInterval</key>{}", cal(&format!("<key>Day</key><integer>{day}</integer>"), time)),
-        Schedule::Interval { minutes } => format!("<key>StartInterval</key><integer>{}</integer>", minutes * 60),
+        Schedule::Monthly { day, time } => format!(
+            "<key>StartCalendarInterval</key>{}",
+            cal(&format!("<key>Day</key><integer>{day}</integer>"), time)
+        ),
+        Schedule::Interval { minutes } => format!(
+            "<key>StartInterval</key><integer>{}</integer>",
+            minutes * 60
+        ),
     };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -126,11 +149,27 @@ pub fn launchd_plist(task_id: &str, exe: &Path, schedule: &Schedule) -> String {
 // -- Windows -----------------------------------------------------------------
 
 /// Task Scheduler's XML (schtasks /XML): logged-on user only.
-pub fn schtasks_xml(task_id: &str, exe: &Path, schedule: &Schedule, now: chrono::NaiveDateTime) -> String {
-    const DAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+pub fn schtasks_xml(
+    task_id: &str,
+    exe: &Path,
+    schedule: &Schedule,
+    now: chrono::NaiveDateTime,
+) -> String {
+    const DAYS: [&str; 7] = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ];
     let start = |time: &str| {
         let (h, m) = hm(time);
-        format!("<StartBoundary>{}T{h:02}:{m:02}:00</StartBoundary>", now.format("%Y-%m-%d"))
+        format!(
+            "<StartBoundary>{}T{h:02}:{m:02}:00</StartBoundary>",
+            now.format("%Y-%m-%d")
+        )
     };
     let trigger = match schedule {
         Schedule::Daily { time } => format!("<CalendarTrigger>{}<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>", start(time)),
@@ -190,20 +229,33 @@ pub fn systemd_timer(task_id: &str, schedule: &Schedule) -> String {
         }
         Schedule::Weekly { days, time } => {
             let (h, m) = hm(time);
-            let names: Vec<&str> = days.iter().filter_map(|d| DAYS.get((*d as usize).wrapping_sub(1)).copied()).collect();
-            format!("OnCalendar={} *-*-* {h:02}:{m:02}:00\nPersistent=true", names.join(","))
+            let names: Vec<&str> = days
+                .iter()
+                .filter_map(|d| DAYS.get((*d as usize).wrapping_sub(1)).copied())
+                .collect();
+            format!(
+                "OnCalendar={} *-*-* {h:02}:{m:02}:00\nPersistent=true",
+                names.join(",")
+            )
         }
         Schedule::Monthly { day, time } => {
             let (h, m) = hm(time);
             format!("OnCalendar=*-*-{day:02} {h:02}:{m:02}:00\nPersistent=true")
         }
-        Schedule::Interval { minutes } => format!("OnActiveSec={minutes}min\nOnUnitActiveSec={minutes}min"),
+        Schedule::Interval { minutes } => {
+            format!("OnActiveSec={minutes}min\nOnUnitActiveSec={minutes}min")
+        }
     };
     format!("[Unit]\nDescription=DBine: tarea programada {task_id}\n\n[Timer]\n{when}\n\n[Install]\nWantedBy=timers.target\n")
 }
 
 pub fn systemd_service(task_id: &str, exe: &Path) -> String {
-    let quoted = format!("\"{}\"", exe.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\""));
+    let quoted = format!(
+        "\"{}\"",
+        exe.to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+    );
     format!("[Unit]\nDescription=DBine: tarea programada {task_id}\n\n[Service]\nType=oneshot\nExecStart={quoted} --run-task {task_id}\n")
 }
 
@@ -218,7 +270,13 @@ pub fn cron_line(task_id: &str, exe: &Path, schedule: &Schedule) -> String {
         }
         Schedule::Weekly { days, time } => {
             let (h, m) = hm(time);
-            format!("{m} {h} * * {}", days.iter().map(|d| (d % 7).to_string()).collect::<Vec<_>>().join(","))
+            format!(
+                "{m} {h} * * {}",
+                days.iter()
+                    .map(|d| (d % 7).to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
         }
         Schedule::Monthly { day, time } => {
             let (h, m) = hm(time);
@@ -256,12 +314,17 @@ fn run(cmd: &mut Command) -> Result<String, String> {
 #[cfg(target_os = "macos")]
 fn agent_path(task_id: &str) -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").ok_or("sin carpeta de usuario")?;
-    Ok(PathBuf::from(home).join("Library/LaunchAgents").join(format!("{LABEL_PREFIX}{task_id}.plist")))
+    Ok(PathBuf::from(home)
+        .join("Library/LaunchAgents")
+        .join(format!("{LABEL_PREFIX}{task_id}.plist")))
 }
 
 #[cfg(target_os = "macos")]
 fn gui_domain() -> Result<String, String> {
-    Ok(format!("gui/{}", run(Command::new("/usr/bin/id").arg("-u"))?.trim()))
+    Ok(format!(
+        "gui/{}",
+        run(Command::new("/usr/bin/id").arg("-u"))?.trim()
+    ))
 }
 
 #[cfg(target_os = "macos")]
@@ -272,11 +335,16 @@ fn register(task: &ScheduledTask, exe: &Path) -> Result<(), String> {
     }
     let domain = gui_domain()?;
     // Replace a previous one: launchd keeps what it loaded until booted out.
-    let _ = run(Command::new("/bin/launchctl").args(["bootout", &format!("{domain}/{LABEL_PREFIX}{}", task.id)]));
-    std::fs::write(&path, launchd_plist(&task.id, exe, &task.schedule)).map_err(|e| e.to_string())?;
-    run(Command::new("/bin/launchctl").arg("bootstrap").arg(&domain).arg(&path))
-        .map(|_| ())
-        .map_err(|e| format!("macOS no aceptó la tarea programada: {e}"))
+    let _ = run(Command::new("/bin/launchctl")
+        .args(["bootout", &format!("{domain}/{LABEL_PREFIX}{}", task.id)]));
+    std::fs::write(&path, launchd_plist(&task.id, exe, &task.schedule))
+        .map_err(|e| e.to_string())?;
+    run(Command::new("/bin/launchctl")
+        .arg("bootstrap")
+        .arg(&domain)
+        .arg(&path))
+    .map(|_| ())
+    .map_err(|e| format!("macOS no aceptó la tarea programada: {e}"))
 }
 
 #[cfg(target_os = "macos")]
@@ -290,11 +358,15 @@ pub fn unregister(task_id: &str) -> Result<(), String> {
 fn unregister_label(prefix: &str, task_id: &str) -> Result<(), String> {
     let domain = gui_domain()?;
     let home = std::env::var_os("HOME").ok_or("sin carpeta de usuario")?;
-    let path = PathBuf::from(home).join("Library/LaunchAgents").join(format!("{prefix}{task_id}.plist"));
+    let path = PathBuf::from(home)
+        .join("Library/LaunchAgents")
+        .join(format!("{prefix}{task_id}.plist"));
     if prefix == OLD_LABEL_PREFIX && !path.exists() {
         return Ok(());
     }
-    let _ = run(Command::new("/bin/launchctl").args(["bootout", &format!("{domain}/{prefix}{task_id}")]));
+    let _ =
+        run(Command::new("/bin/launchctl")
+            .args(["bootout", &format!("{domain}/{prefix}{task_id}")]));
     match std::fs::remove_file(path) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
         _ => Ok(()),
@@ -308,23 +380,33 @@ fn unregister_label(prefix: &str, task_id: &str) -> Result<(), String> {
 /// Idempotent: with no old entry left it does nothing.
 #[cfg(target_os = "macos")]
 pub fn migrate_old_labels(tasks: &[ScheduledTask]) -> Vec<String> {
-    let Some(home) = std::env::var_os("HOME") else { return Vec::new() };
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
     let ids = old_label_ids(&PathBuf::from(home).join("Library/LaunchAgents"));
     let mut registered = Vec::new();
     for step in plan_label_moves(&ids, tasks) {
         match step {
             LabelMove::Register(id) => {
-                let Some(task) = tasks.iter().find(|t| t.id == id) else { continue };
+                let Some(task) = tasks.iter().find(|t| t.id == id) else {
+                    continue;
+                };
                 match executable().and_then(|exe| register(task, &exe)) {
                     Ok(()) => {
                         registered.push(id.clone());
                         match unregister_label(OLD_LABEL_PREFIX, &id) {
-                            Ok(()) => tracing::info!(task = %id, "scheduled task moved to the new identifier's label"),
-                            Err(e) => tracing::warn!(task = %id, "scheduled task: the old label's entry stays: {e}"),
+                            Ok(()) => {
+                                tracing::info!(task = %id, "scheduled task moved to the new identifier's label")
+                            }
+                            Err(e) => {
+                                tracing::warn!(task = %id, "scheduled task: the old label's entry stays: {e}")
+                            }
                         }
                     }
                     // The old entry still runs it: retried next start.
-                    Err(e) => tracing::warn!(task = %id, "scheduled task not moved to the new label: {e}"),
+                    Err(e) => {
+                        tracing::warn!(task = %id, "scheduled task not moved to the new label: {e}")
+                    }
                 }
             }
             LabelMove::Remove(id) => {
@@ -352,19 +434,39 @@ pub fn is_registered(task_id: &str) -> bool {
 fn schtasks(args: &[&str]) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new("schtasks").args(args).creation_flags(CREATE_NO_WINDOW).output().map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+    let out = std::process::Command::new("schtasks")
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
 }
 
 #[cfg(windows)]
 fn register(task: &ScheduledTask, exe: &Path) -> Result<(), String> {
-    let xml = schtasks_xml(&task.id, exe, &task.schedule, chrono::Local::now().naive_local());
+    let xml = schtasks_xml(
+        &task.id,
+        exe,
+        &task.schedule,
+        chrono::Local::now().naive_local(),
+    );
     // schtasks reads the XML as UTF-16 (with its BOM).
     let mut bytes = vec![0xFF, 0xFE];
     bytes.extend(xml.encode_utf16().flat_map(|u| u.to_le_bytes()));
     let file = std::env::temp_dir().join(format!("dbine-task-{}.xml", task.id));
     std::fs::write(&file, bytes).map_err(|e| e.to_string())?;
-    let r = schtasks(&["/Create", "/TN", &schtasks_name(&task.id), "/XML", &file.to_string_lossy(), "/F"]);
+    let r = schtasks(&[
+        "/Create",
+        "/TN",
+        &schtasks_name(&task.id),
+        "/XML",
+        &file.to_string_lossy(),
+        "/F",
+    ]);
     let _ = std::fs::remove_file(&file);
     r.map_err(|e| format!("Windows no aceptó la tarea programada: {e}"))
 }
@@ -394,7 +496,8 @@ fn units_dir() -> Result<PathBuf, String> {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn has_systemd() -> bool {
     run(Command::new("systemctl").args(["--user", "is-system-running"])).is_ok()
-        || std::path::Path::new("/run/systemd/system").exists() && run(Command::new("systemctl").args(["--user", "--version"])).is_ok()
+        || std::path::Path::new("/run/systemd/system").exists()
+            && run(Command::new("systemctl").args(["--user", "--version"])).is_ok()
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -406,16 +509,33 @@ fn unit(task_id: &str) -> String {
 fn crontab_without(task_id: &str) -> Result<String, String> {
     let current = run(Command::new("crontab").arg("-l")).unwrap_or_default();
     let tag = format!("{CRON_TAG}{task_id}");
-    Ok(current.lines().filter(|l| !l.trim_end().ends_with(&tag)).map(|l| format!("{l}\n")).collect())
+    Ok(current
+        .lines()
+        .filter(|l| !l.trim_end().ends_with(&tag))
+        .map(|l| format!("{l}\n"))
+        .collect())
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn write_crontab(text: &str) -> Result<(), String> {
     use std::io::Write;
-    let mut child = Command::new("crontab").arg("-").stdin(std::process::Stdio::piped()).spawn().map_err(|e| e.to_string())?;
-    child.stdin.take().ok_or("crontab")?.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    let mut child = Command::new("crontab")
+        .arg("-")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or("crontab")?
+        .write_all(text.as_bytes())
+        .map_err(|e| e.to_string())?;
     let status = child.wait().map_err(|e| e.to_string())?;
-    if status.success() { Ok(()) } else { Err(format!("crontab terminó con {status}")) }
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("crontab terminó con {status}"))
+    }
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -424,14 +544,28 @@ fn register(task: &ScheduledTask, exe: &Path) -> Result<(), String> {
         let dir = units_dir()?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let name = unit(&task.id);
-        std::fs::write(dir.join(format!("{name}.service")), systemd_service(&task.id, exe)).map_err(|e| e.to_string())?;
-        std::fs::write(dir.join(format!("{name}.timer")), systemd_timer(&task.id, &task.schedule)).map_err(|e| e.to_string())?;
+        std::fs::write(
+            dir.join(format!("{name}.service")),
+            systemd_service(&task.id, exe),
+        )
+        .map_err(|e| e.to_string())?;
+        std::fs::write(
+            dir.join(format!("{name}.timer")),
+            systemd_timer(&task.id, &task.schedule),
+        )
+        .map_err(|e| e.to_string())?;
         run(Command::new("systemctl").args(["--user", "daemon-reload"]))?;
-        run(Command::new("systemctl").args(["--user", "enable", "--now", &format!("{name}.timer")]))
-            .map(|_| ())
-            .map_err(|e| format!("systemd no aceptó la tarea programada: {e}"))?;
+        run(Command::new("systemctl").args([
+            "--user",
+            "enable",
+            "--now",
+            &format!("{name}.timer"),
+        ]))
+        .map(|_| ())
+        .map_err(|e| format!("systemd no aceptó la tarea programada: {e}"))?;
         // Restart so a changed schedule takes effect now.
-        let _ = run(Command::new("systemctl").args(["--user", "restart", &format!("{name}.timer")]));
+        let _ =
+            run(Command::new("systemctl").args(["--user", "restart", &format!("{name}.timer")]));
         return Ok(());
     }
     let mut text = crontab_without(&task.id)?;
@@ -446,7 +580,12 @@ pub fn unregister(task_id: &str) -> Result<(), String> {
     if let Ok(dir) = units_dir() {
         let timer = dir.join(format!("{name}.timer"));
         if timer.exists() {
-            let _ = run(Command::new("systemctl").args(["--user", "disable", "--now", &format!("{name}.timer")]));
+            let _ = run(Command::new("systemctl").args([
+                "--user",
+                "disable",
+                "--now",
+                &format!("{name}.timer"),
+            ]));
             let _ = std::fs::remove_file(&timer);
             let _ = std::fs::remove_file(dir.join(format!("{name}.service")));
             let _ = run(Command::new("systemctl").args(["--user", "daemon-reload"]));
@@ -462,7 +601,8 @@ pub fn unregister(task_id: &str) -> Result<(), String> {
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn is_registered(task_id: &str) -> bool {
     units_dir().is_ok_and(|d| d.join(format!("{}.timer", unit(task_id))).exists())
-        || run(Command::new("crontab").arg("-l")).is_ok_and(|c| c.contains(&format!("{CRON_TAG}{task_id}")))
+        || run(Command::new("crontab").arg("-l"))
+            .is_ok_and(|c| c.contains(&format!("{CRON_TAG}{task_id}")))
 }
 
 #[cfg(test)]
@@ -475,7 +615,14 @@ mod tests {
 
     #[test]
     fn launchd() {
-        let p = launchd_plist("t1", &exe(), &Schedule::Weekly { days: vec![1, 7], time: "08:05".into() });
+        let p = launchd_plist(
+            "t1",
+            &exe(),
+            &Schedule::Weekly {
+                days: vec![1, 7],
+                time: "08:05".into(),
+            },
+        );
         assert!(p.contains("<string>io.addlayer.dbine.task.t1</string>"));
         assert!(p.contains("<key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>5</integer>"));
         assert!(p.contains("<key>Weekday</key><integer>0</integer>"));
@@ -488,24 +635,53 @@ mod tests {
     fn old_labels_move() {
         let dir = std::env::temp_dir().join(format!("dbine-agents-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        for f in ["com.addlayer.dbine.task.a.plist", "com.addlayer.dbine.task.b.plist", "com.addlayer.dbine.task.c.plist", "io.addlayer.dbine.task.a.plist", "com.other.plist", "com.addlayer.dbine.task..plist"] {
+        for f in [
+            "com.addlayer.dbine.task.a.plist",
+            "com.addlayer.dbine.task.b.plist",
+            "com.addlayer.dbine.task.c.plist",
+            "io.addlayer.dbine.task.a.plist",
+            "com.other.plist",
+            "com.addlayer.dbine.task..plist",
+        ] {
             std::fs::write(dir.join(f), "").unwrap();
         }
         let ids = old_label_ids(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(ids, ["a", "b", "c"]);
-        let task = |id: &str, enabled: bool| ScheduledTask { id: id.into(), enabled, ..Default::default() };
+        let task = |id: &str, enabled: bool| ScheduledTask {
+            id: id.into(),
+            enabled,
+            ..Default::default()
+        };
         // a enabled, b disabled, c deleted.
         let plan = plan_label_moves(&ids, &[task("a", true), task("b", false)]);
-        assert_eq!(plan, [LabelMove::Register("a".into()), LabelMove::Remove("b".into()), LabelMove::Remove("c".into())]);
+        assert_eq!(
+            plan,
+            [
+                LabelMove::Register("a".into()),
+                LabelMove::Remove("b".into()),
+                LabelMove::Remove("c".into())
+            ]
+        );
         // Nothing left under the old label: nothing to do.
         assert!(plan_label_moves(&[], &[task("a", true)]).is_empty());
     }
 
     #[test]
     fn windows() {
-        let now = chrono::NaiveDate::from_ymd_opt(2026, 10, 8).unwrap().and_hms_opt(9, 30, 0).unwrap();
-        let x = schtasks_xml("t1", Path::new("C:\\Program Files\\DBine\\dbine.exe"), &Schedule::Weekly { days: vec![2, 6], time: "07:00".into() }, now);
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 10, 8)
+            .unwrap()
+            .and_hms_opt(9, 30, 0)
+            .unwrap();
+        let x = schtasks_xml(
+            "t1",
+            Path::new("C:\\Program Files\\DBine\\dbine.exe"),
+            &Schedule::Weekly {
+                days: vec![2, 6],
+                time: "07:00".into(),
+            },
+            now,
+        );
         assert!(x.contains("<StartBoundary>2026-10-08T07:00:00</StartBoundary>"));
         assert!(x.contains("<DaysOfWeek><Tuesday /><Saturday /></DaysOfWeek>"));
         assert!(x.contains("<LogonType>InteractiveToken</LogonType>"));
@@ -516,12 +692,49 @@ mod tests {
 
     #[test]
     fn linux() {
-        assert!(systemd_timer("t1", &Schedule::Weekly { days: vec![1, 3], time: "22:00".into() }).contains("OnCalendar=Mon,Wed *-*-* 22:00:00"));
-        assert!(systemd_timer("t1", &Schedule::Monthly { day: 5, time: "01:30".into() }).contains("OnCalendar=*-*-05 01:30:00"));
-        assert!(systemd_service("t1", Path::new("/opt/DBine/dbine")).contains("ExecStart=\"/opt/DBine/dbine\" --run-task t1"));
-        assert_eq!(cron_line("t1", Path::new("/opt/dbine"), &Schedule::Daily { time: "06:45".into() }), "45 6 * * * '/opt/dbine' --run-task t1 # dbine-task:t1");
-        assert!(cron_line("t1", Path::new("/opt/dbine"), &Schedule::Weekly { days: vec![7], time: "06:00".into() }).starts_with("0 6 * * 0 "));
-        assert!(cron_line("t1", Path::new("/opt/dbine"), &Schedule::Interval { minutes: 10 }).starts_with("*/10 * * * * "));
+        assert!(systemd_timer(
+            "t1",
+            &Schedule::Weekly {
+                days: vec![1, 3],
+                time: "22:00".into()
+            }
+        )
+        .contains("OnCalendar=Mon,Wed *-*-* 22:00:00"));
+        assert!(systemd_timer(
+            "t1",
+            &Schedule::Monthly {
+                day: 5,
+                time: "01:30".into()
+            }
+        )
+        .contains("OnCalendar=*-*-05 01:30:00"));
+        assert!(systemd_service("t1", Path::new("/opt/DBine/dbine"))
+            .contains("ExecStart=\"/opt/DBine/dbine\" --run-task t1"));
+        assert_eq!(
+            cron_line(
+                "t1",
+                Path::new("/opt/dbine"),
+                &Schedule::Daily {
+                    time: "06:45".into()
+                }
+            ),
+            "45 6 * * * '/opt/dbine' --run-task t1 # dbine-task:t1"
+        );
+        assert!(cron_line(
+            "t1",
+            Path::new("/opt/dbine"),
+            &Schedule::Weekly {
+                days: vec![7],
+                time: "06:00".into()
+            }
+        )
+        .starts_with("0 6 * * 0 "));
+        assert!(cron_line(
+            "t1",
+            Path::new("/opt/dbine"),
+            &Schedule::Interval { minutes: 10 }
+        )
+        .starts_with("*/10 * * * * "));
     }
 }
 
@@ -538,20 +751,36 @@ mod os_live {
             id: format!("live-test-{}", std::process::id()),
             name: "live".into(),
             enabled: true,
-            schedule: Schedule::Monthly { day: 28, time: "03:00".into() },
+            schedule: Schedule::Monthly {
+                day: 28,
+                time: "03:00".into(),
+            },
             ..Default::default()
         };
         sync(&task).unwrap();
         assert!(is_registered(&task.id));
-        let listed = std::process::Command::new("/bin/launchctl").arg("list").output().unwrap();
-        assert!(String::from_utf8_lossy(&listed.stdout).contains(&format!("{LABEL_PREFIX}{}", task.id)));
+        let listed = std::process::Command::new("/bin/launchctl")
+            .arg("list")
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&listed.stdout).contains(&format!("{LABEL_PREFIX}{}", task.id))
+        );
         let plist = agent_path(&task.id).unwrap();
-        assert!(std::process::Command::new("/usr/bin/plutil").arg("-lint").arg(&plist).status().unwrap().success());
+        assert!(std::process::Command::new("/usr/bin/plutil")
+            .arg("-lint")
+            .arg(&plist)
+            .status()
+            .unwrap()
+            .success());
         // Registering again replaces it.
         sync(&task).unwrap();
         unregister(&task.id).unwrap();
         assert!(!is_registered(&task.id));
-        let listed = std::process::Command::new("/bin/launchctl").arg("list").output().unwrap();
+        let listed = std::process::Command::new("/bin/launchctl")
+            .arg("list")
+            .output()
+            .unwrap();
         assert!(!String::from_utf8_lossy(&listed.stdout).contains(&task.id));
     }
 
@@ -564,19 +793,41 @@ mod os_live {
             id: format!("live-mig-{}", std::process::id()),
             name: "live".into(),
             enabled: true,
-            schedule: Schedule::Monthly { day: 28, time: "03:00".into() },
+            schedule: Schedule::Monthly {
+                day: 28,
+                time: "03:00".into(),
+            },
             ..Default::default()
         };
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-        let old = home.join("Library/LaunchAgents").join(format!("{OLD_LABEL_PREFIX}{}.plist", task.id));
-        let plist = launchd_plist(&task.id, &executable().unwrap(), &task.schedule).replace(LABEL_PREFIX, OLD_LABEL_PREFIX);
+        let old = home
+            .join("Library/LaunchAgents")
+            .join(format!("{OLD_LABEL_PREFIX}{}.plist", task.id));
+        let plist = launchd_plist(&task.id, &executable().unwrap(), &task.schedule)
+            .replace(LABEL_PREFIX, OLD_LABEL_PREFIX);
         std::fs::write(&old, plist).unwrap();
         let domain = gui_domain().unwrap();
-        run(Command::new("/bin/launchctl").arg("bootstrap").arg(&domain).arg(&old)).unwrap();
-        let listed = || String::from_utf8_lossy(&std::process::Command::new("/bin/launchctl").arg("list").output().unwrap().stdout).into_owned();
+        run(Command::new("/bin/launchctl")
+            .arg("bootstrap")
+            .arg(&domain)
+            .arg(&old))
+        .unwrap();
+        let listed = || {
+            String::from_utf8_lossy(
+                &std::process::Command::new("/bin/launchctl")
+                    .arg("list")
+                    .output()
+                    .unwrap()
+                    .stdout,
+            )
+            .into_owned()
+        };
         assert!(listed().contains(&format!("{OLD_LABEL_PREFIX}{}", task.id)));
 
-        assert_eq!(migrate_old_labels(std::slice::from_ref(&task)), [task.id.clone()]);
+        assert_eq!(
+            migrate_old_labels(std::slice::from_ref(&task)),
+            [task.id.clone()]
+        );
         assert!(!old.exists());
         assert!(is_registered(&task.id));
         let now = listed();

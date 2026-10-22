@@ -6,7 +6,9 @@
 //!   cargo test -p dbine-driver-dremio -- --ignored transfer --nocapture
 //! ```
 
-use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{async_trait, kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -59,7 +61,13 @@ async fn bootstrap(c: &ConnectionConfig) {
     let http = reqwest::Client::new();
     let base = format!("http://{}:{}", c.host, c.port);
     for _ in 0..60 {
-        if http.get(format!("{base}/apiv2/server_status")).send().await.map(|r| r.status().is_success()).unwrap_or(false) {
+        if http
+            .get(format!("{base}/apiv2/server_status"))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+        {
             break;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -73,12 +81,22 @@ async fn bootstrap(c: &ConnectionConfig) {
 }
 
 fn batches(rows: Vec<Vec<Cell>>) -> Batches {
-    let v: Vec<RowBatch> = rows.chunks(1_000).map(|c| RowBatch { rows: c.to_vec(), bytes: 0 }).collect();
+    let v: Vec<RowBatch> = rows
+        .chunks(1_000)
+        .map(|c| RowBatch {
+            rows: c.to_vec(),
+            bytes: 0,
+        })
+        .collect();
     Batches(v.into_iter())
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: kinds::TABLE.into(), schema: Some("$scratch".into()), name: name.into() }
+    ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: Some("$scratch".into()),
+        name: name.into(),
+    }
 }
 
 async fn read(s: &mut dyn Session, spec: ReadSpec) -> Collect {
@@ -103,12 +121,34 @@ fn row(i: usize) -> Vec<Cell> {
     vec![
         Cell::Int(9_007_199_254_740_993 + n),
         Cell::Float(n as f64 / 3.0),
-        Cell::Decimal(format!("{}{}.{:04}", if i % 2 == 1 { "-" } else { "" }, 12_345_678_901_234i64 + n, i % 10_000)),
-        if i.is_multiple_of(7) { Cell::Null } else { Cell::Text(format!("fila {i} ñ'\"\\")) },
+        Cell::Decimal(format!(
+            "{}{}.{:04}",
+            if i % 2 == 1 { "-" } else { "" },
+            12_345_678_901_234i64 + n,
+            i % 10_000
+        )),
+        if i.is_multiple_of(7) {
+            Cell::Null
+        } else {
+            Cell::Text(format!("fila {i} ñ'\"\\"))
+        },
         Cell::Bytes(vec![(i % 256) as u8, 0, 0xFF]),
         Cell::Date(format!("2024-{:02}-{:02}", i % 12 + 1, i % 28 + 1)),
-        Cell::DateTime(format!("2024-01-{:02} {:02}:{:02}:{:02}.{:03}", i % 28 + 1, i % 24, i % 60, (i / 60) % 60, i % 1000)),
-        Cell::Time(format!("{:02}:{:02}:{:02}.{:03}", i % 24, i % 60, (i / 7) % 60, i % 1000)),
+        Cell::DateTime(format!(
+            "2024-01-{:02} {:02}:{:02}:{:02}.{:03}",
+            i % 28 + 1,
+            i % 24,
+            i % 60,
+            (i / 60) % 60,
+            i % 1000
+        )),
+        Cell::Time(format!(
+            "{:02}:{:02}:{:02}.{:03}",
+            i % 24,
+            i % 60,
+            (i / 7) % 60,
+            i % 1000
+        )),
         Cell::Bool(i.is_multiple_of(2)),
         Cell::Float(n as f64 * 0.5),
         Cell::Int(-n),
@@ -148,18 +188,49 @@ async fn transfer_dremio() {
     let rows: Vec<Vec<Cell>> = (0..ROWS).map(row).collect();
     let reports = Mutex::new(Vec::new());
     let t = Instant::now();
-    let n = s.bulk_load(&spec("dbine_tr"), &[], &mut batches(rows.clone()), &|n| reports.lock().unwrap().push(n)).await.expect("load");
+    let n = s
+        .bulk_load(&spec("dbine_tr"), &[], &mut batches(rows.clone()), &|n| {
+            reports.lock().unwrap().push(n)
+        })
+        .await
+        .expect("load");
     let secs = t.elapsed().as_secs_f64();
-    println!("dremio load: {n} rows in {secs:.2}s = {:.0} rows/s", n as f64 / secs);
+    println!(
+        "dremio load: {n} rows in {secs:.2}s = {:.0} rows/s",
+        n as f64 / secs
+    );
     assert_eq!(n as usize, ROWS);
     let reports = reports.into_inner().unwrap();
-    assert!(reports.len() >= 4 && reports.windows(2).all(|w| w[0] < w[1]) && *reports.last().unwrap() == ROWS as u64, "{reports:?}");
+    assert!(
+        reports.len() >= 4
+            && reports.windows(2).all(|w| w[0] < w[1])
+            && *reports.last().unwrap() == ROWS as u64,
+        "{reports:?}"
+    );
 
     let t = Instant::now();
-    let mut got = read(s.as_mut(), ReadSpec { table: table("dbine_tr"), columns: None, filter: None }).await;
+    let mut got = read(
+        s.as_mut(),
+        ReadSpec {
+            table: table("dbine_tr"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await;
     let secs = t.elapsed().as_secs_f64();
-    println!("dremio read: {} rows in {secs:.2}s = {:.0} rows/s", got.rows.len(), got.rows.len() as f64 / secs);
-    assert_eq!(got.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), COLS);
+    println!(
+        "dremio read: {} rows in {secs:.2}s = {:.0} rows/s",
+        got.rows.len(),
+        got.rows.len() as f64 / secs
+    );
+    assert_eq!(
+        got.columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>(),
+        COLS
+    );
     assert_eq!(got.columns[2].type_name, "DECIMAL(24,4)");
     by_id(&mut got.rows);
     assert_eq!(got.rows.len(), ROWS);
@@ -168,19 +239,46 @@ async fn transfer_dremio() {
     }
 
     // Filtered, some columns.
-    let f = read(s.as_mut(), ReadSpec { table: table("dbine_tr"), columns: Some(vec!["id".into(), "d".into()]), filter: Some("ok".into()) }).await;
+    let f = read(
+        s.as_mut(),
+        ReadSpec {
+            table: table("dbine_tr"),
+            columns: Some(vec!["id".into(), "d".into()]),
+            filter: Some("ok".into()),
+        },
+    )
+    .await;
     assert_eq!(f.rows.len(), ROWS / 2);
 
     // Table to table, with the read's columns.
     let t = Instant::now();
-    let n = s.bulk_load(&spec("dbine_tr2"), &got.columns, &mut batches(got.rows), &|_| {}).await.expect("copy");
+    let n = s
+        .bulk_load(
+            &spec("dbine_tr2"),
+            &got.columns,
+            &mut batches(got.rows),
+            &|_| {},
+        )
+        .await
+        .expect("copy");
     println!("dremio copy: {n} rows in {:.2}s", t.elapsed().as_secs_f64());
-    let mut back = read(s.as_mut(), ReadSpec { table: table("dbine_tr2"), columns: None, filter: None }).await.rows;
+    let mut back = read(
+        s.as_mut(),
+        ReadSpec {
+            table: table("dbine_tr2"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await
+    .rows;
     by_id(&mut back);
     assert_eq!(back, rows);
 
     // Zoned instants land as UTC; text into a binary column goes as its bytes.
-    s.execute("DELETE FROM \"$scratch\".dbine_tr2", 10, &mut out).await.unwrap();
+    s.execute("DELETE FROM \"$scratch\".dbine_tr2", 10, &mut out)
+        .await
+        .unwrap();
     let odd = vec![vec![
         Cell::Int(1),
         Cell::Float(f64::INFINITY),
@@ -194,8 +292,19 @@ async fn transfer_dremio() {
         Cell::Null,
         Cell::Null,
     ]];
-    s.bulk_load(&spec("dbine_tr2"), &[], &mut batches(odd), &|_| {}).await.expect("odd");
-    let back = read(s.as_mut(), ReadSpec { table: table("dbine_tr2"), columns: None, filter: None }).await.rows;
+    s.bulk_load(&spec("dbine_tr2"), &[], &mut batches(odd), &|_| {})
+        .await
+        .expect("odd");
+    let back = read(
+        s.as_mut(),
+        ReadSpec {
+            table: table("dbine_tr2"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await
+    .rows;
     assert_eq!(
         back,
         vec![vec![
@@ -213,15 +322,34 @@ async fn transfer_dremio() {
         ]]
     );
 
-    s.execute("DROP TABLE \"$scratch\".dbine_tr; DROP TABLE \"$scratch\".dbine_tr2", 10, &mut out).await.unwrap();
+    s.execute(
+        "DROP TABLE \"$scratch\".dbine_tr; DROP TABLE \"$scratch\".dbine_tr2",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
 }
 
 async fn count(s: &mut dyn Session, name: &str) -> usize {
-    read(s, ReadSpec { table: table(name), columns: Some(vec!["id".into()]), filter: None }).await.rows.len()
+    read(
+        s,
+        ReadSpec {
+            table: table(name),
+            columns: Some(vec!["id".into()]),
+            filter: None,
+        },
+    )
+    .await
+    .rows
+    .len()
 }
 
 fn spec2(name: &str, cols: &[&str]) -> LoadSpec {
-    LoadSpec { columns: cols.iter().map(|s| s.to_string()).collect(), ..spec(name) }
+    LoadSpec {
+        columns: cols.iter().map(|s| s.to_string()).collect(),
+        ..spec(name)
+    }
 }
 
 /// Values the planner or the text casts used to mangle: text outside
@@ -243,14 +371,55 @@ async fn transfer_dremio_fidelity() {
     .await
     .unwrap();
     let rows = vec![
-        vec![Cell::Int(1), Cell::Text("😀 a".into()), Cell::Decimal("0.0000000001".into()), Cell::Float(0.1f32 as f64), Cell::Float(-0.0)],
-        vec![Cell::Int(2), Cell::Text("Ω 中".into()), Cell::Decimal("-0.0000001000".into()), Cell::Float(f32::MAX as f64), Cell::Float(0.1)],
-        vec![Cell::Int(3), Cell::Text("𝄞 ñ '".into()), Cell::Decimal("0.0000000000".into()), Cell::Float(1.4e-45f32 as f64), Cell::Float(-1e-300)],
-        vec![Cell::Int(4), Cell::Null, Cell::Decimal("-12345678901234567890.1234567890".into()), Cell::Float(-0.0), Cell::Null],
+        vec![
+            Cell::Int(1),
+            Cell::Text("😀 a".into()),
+            Cell::Decimal("0.0000000001".into()),
+            Cell::Float(0.1f32 as f64),
+            Cell::Float(-0.0),
+        ],
+        vec![
+            Cell::Int(2),
+            Cell::Text("Ω 中".into()),
+            Cell::Decimal("-0.0000001000".into()),
+            Cell::Float(f32::MAX as f64),
+            Cell::Float(0.1),
+        ],
+        vec![
+            Cell::Int(3),
+            Cell::Text("𝄞 ñ '".into()),
+            Cell::Decimal("0.0000000000".into()),
+            Cell::Float(1.4e-45f32 as f64),
+            Cell::Float(-1e-300),
+        ],
+        vec![
+            Cell::Int(4),
+            Cell::Null,
+            Cell::Decimal("-12345678901234567890.1234567890".into()),
+            Cell::Float(-0.0),
+            Cell::Null,
+        ],
     ];
-    let n = s.bulk_load(&spec2("dbine_trf", &["id", "s", "d", "f", "v"]), &[], &mut batches(rows.clone()), &|_| {}).await.expect("load");
+    let n = s
+        .bulk_load(
+            &spec2("dbine_trf", &["id", "s", "d", "f", "v"]),
+            &[],
+            &mut batches(rows.clone()),
+            &|_| {},
+        )
+        .await
+        .expect("load");
     assert_eq!(n, 4);
-    let mut back = read(s.as_mut(), ReadSpec { table: table("dbine_trf"), columns: None, filter: None }).await.rows;
+    let mut back = read(
+        s.as_mut(),
+        ReadSpec {
+            table: table("dbine_trf"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await
+    .rows;
     by_id(&mut back);
     assert_eq!(back.len(), 4);
     for (got, want) in back.iter().zip(&rows) {
@@ -261,8 +430,14 @@ async fn transfer_dremio_fidelity() {
         }
     }
     // -0.0 into FLOAT keeps its sign too.
-    assert!(matches!(back[3][3], Cell::Float(f) if f == 0.0 && f.is_sign_negative()), "{:?}", back[3][3]);
-    s.execute("DROP TABLE \"$scratch\".dbine_trf", 10, &mut out).await.unwrap();
+    assert!(
+        matches!(back[3][3], Cell::Float(f) if f == 0.0 && f.is_sign_negative()),
+        "{:?}",
+        back[3][3]
+    );
+    s.execute("DROP TABLE \"$scratch\".dbine_trf", 10, &mut out)
+        .await
+        .unwrap();
 }
 
 /// A statement whose text (or binary, decimal, date...) column is NULL in
@@ -291,25 +466,71 @@ async fn transfer_dremio_all_null_columns() {
         r
     };
     // One row, then a full statement of NULLs.
-    let n = s.bulk_load(&spec2("dbine_trn", &cols), &[], &mut batches(vec![nulls(1)]), &|_| {}).await.expect("one row");
+    let n = s
+        .bulk_load(
+            &spec2("dbine_trn", &cols),
+            &[],
+            &mut batches(vec![nulls(1)]),
+            &|_| {},
+        )
+        .await
+        .expect("one row");
     assert_eq!(n, 1);
     let many: Vec<Vec<Cell>> = (2..=3_000).map(nulls).collect();
-    let n = s.bulk_load(&spec2("dbine_trn", &cols), &[], &mut batches(many), &|_| {}).await.expect("all NULL");
+    let n = s
+        .bulk_load(&spec2("dbine_trn", &cols), &[], &mut batches(many), &|_| {})
+        .await
+        .expect("all NULL");
     assert_eq!(n, 2_999);
     // Tagged text next to a NULL-only binary column.
     let mixed = vec![
-        vec![Cell::Int(3_001), Cell::Text("Ω".into()), Cell::Null, Cell::Null, Cell::Null, Cell::Null, Cell::Null],
-        vec![Cell::Int(3_002), Cell::Text("ñ".into()), Cell::Null, Cell::Null, Cell::Null, Cell::Null, Cell::Null],
+        vec![
+            Cell::Int(3_001),
+            Cell::Text("Ω".into()),
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+        ],
+        vec![
+            Cell::Int(3_002),
+            Cell::Text("ñ".into()),
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+        ],
     ];
-    let n = s.bulk_load(&spec2("dbine_trn", &cols), &[], &mut batches(mixed.clone()), &|_| {}).await.expect("mixed");
+    let n = s
+        .bulk_load(
+            &spec2("dbine_trn", &cols),
+            &[],
+            &mut batches(mixed.clone()),
+            &|_| {},
+        )
+        .await
+        .expect("mixed");
     assert_eq!(n, 2);
-    let mut back = read(s.as_mut(), ReadSpec { table: table("dbine_trn"), columns: None, filter: None }).await.rows;
+    let mut back = read(
+        s.as_mut(),
+        ReadSpec {
+            table: table("dbine_trn"),
+            columns: None,
+            filter: None,
+        },
+    )
+    .await
+    .rows;
     by_id(&mut back);
     assert_eq!(back.len(), 3_002);
     assert_eq!(back[0], nulls(1));
     assert_eq!(back[2_998], nulls(2_999));
     assert_eq!(back[3_000..], mixed[..]);
-    s.execute("DROP TABLE \"$scratch\".dbine_trn", 10, &mut out).await.unwrap();
+    s.execute("DROP TABLE \"$scratch\".dbine_trn", 10, &mut out)
+        .await
+        .unwrap();
 
     // STRUCT/LIST/MAP targets: refused before anything is written.
     s.execute(
@@ -319,10 +540,22 @@ async fn transfer_dremio_all_null_columns() {
     )
     .await
     .unwrap();
-    let r = s.bulk_load(&spec2("dbine_trc", &["id", "l"]), &[], &mut batches(vec![vec![Cell::Int(1), Cell::Json("[\"a\"]".into())]]), &|_| {}).await;
-    assert!(matches!(r, Err(dbine_driver::Error::Unsupported(_))), "{r:?}");
+    let r = s
+        .bulk_load(
+            &spec2("dbine_trc", &["id", "l"]),
+            &[],
+            &mut batches(vec![vec![Cell::Int(1), Cell::Json("[\"a\"]".into())]]),
+            &|_| {},
+        )
+        .await;
+    assert!(
+        matches!(r, Err(dbine_driver::Error::Unsupported(_))),
+        "{r:?}"
+    );
     assert_eq!(count(s.as_mut(), "dbine_trc").await, 0);
-    s.execute("DROP TABLE \"$scratch\".dbine_trc", 10, &mut out).await.unwrap();
+    s.execute("DROP TABLE \"$scratch\".dbine_trc", 10, &mut out)
+        .await
+        .unwrap();
 }
 
 /// One INSERT statement's rows (the driver's 5,000), then either the end
@@ -383,10 +616,19 @@ async fn transfer_dremio_no_late_commit() {
     )
     .await
     .unwrap();
-    let rows: Vec<Vec<Cell>> = (0..5_000).map(|i| vec![Cell::Int(i), Cell::Text(format!("fila {i}"))]).collect();
+    let rows: Vec<Vec<Cell>> = (0..5_000)
+        .map(|i| vec![Cell::Int(i), Cell::Text(format!("fila {i}"))])
+        .collect();
     let spec = spec2("dbine_trl", &["id", "s"]);
     let gated = |hold: bool, stage: &Arc<AtomicU8>| Gated {
-        rows: rows.chunks(1_000).map(|c| RowBatch { rows: c.to_vec(), bytes: 0 }).collect::<Vec<_>>().into_iter(),
+        rows: rows
+            .chunks(1_000)
+            .map(|c| RowBatch {
+                rows: c.to_vec(),
+                bytes: 0,
+            })
+            .collect::<Vec<_>>()
+            .into_iter(),
         hold,
         stage: stage.clone(),
     };
@@ -409,11 +651,18 @@ async fn transfer_dremio_no_late_commit() {
         let now = count(s.as_mut(), "dbine_trl").await;
         tokio::time::sleep(Duration::from_secs(15)).await;
         let later = count(s.as_mut(), "dbine_trl").await;
-        println!("dropped {ms} ms into the INSERT (in flight: {flying}): {now} rows, {later} 15 s later");
+        println!(
+            "dropped {ms} ms into the INSERT (in flight: {flying}): {now} rows, {later} 15 s later"
+        );
         assert_eq!(now, later, "rows committed after the dropped load returned");
-        s.execute("DELETE FROM \"$scratch\".dbine_trl", 10, &mut out).await.unwrap();
+        s.execute("DELETE FROM \"$scratch\".dbine_trl", 10, &mut out)
+            .await
+            .unwrap();
     }
-    assert!(in_flight >= 2, "only {in_flight} drops hit a running INSERT");
+    assert!(
+        in_flight >= 2,
+        "only {in_flight} drops hit a running INSERT"
+    );
 
     // Interrupted while the INSERT runs.
     let mut interrupted_in_flight = false;
@@ -430,7 +679,9 @@ async fn transfer_dremio_no_late_commit() {
             flying
         });
         let reported = std::sync::atomic::AtomicU64::new(0);
-        let r = s.bulk_load(&spec, &[], &mut src, &|n| reported.store(n, SeqCst)).await;
+        let r = s
+            .bulk_load(&spec, &[], &mut src, &|n| reported.store(n, SeqCst))
+            .await;
         let reported = reported.load(SeqCst) as usize;
         let flying = t.await.unwrap();
         interrupted_in_flight |= flying;
@@ -438,14 +689,25 @@ async fn transfer_dremio_no_late_commit() {
         tokio::time::sleep(Duration::from_secs(15)).await;
         let later = count(s.as_mut(), "dbine_trl").await;
         println!("interrupted {ms} ms into the INSERT (in flight: {flying}): {r:?}, {now} rows ({reported} reported), {later} 15 s later");
-        assert_eq!(now, later, "rows committed after the interrupted load returned");
+        assert_eq!(
+            now, later,
+            "rows committed after the interrupted load returned"
+        );
         // Cancelled (the job's rows, if it won the race, reported), or
         // ended with exactly the rows it returned.
         assert_eq!(now, reported, "{r:?}");
-        assert!(matches!(r, Err(dbine_driver::Error::Cancelled)) || r.as_ref().is_ok_and(|n| *n as usize == now), "{r:?}");
-        s.execute("DELETE FROM \"$scratch\".dbine_trl", 10, &mut out).await.unwrap();
+        assert!(
+            matches!(r, Err(dbine_driver::Error::Cancelled))
+                || r.as_ref().is_ok_and(|n| *n as usize == now),
+            "{r:?}"
+        );
+        s.execute("DELETE FROM \"$scratch\".dbine_trl", 10, &mut out)
+            .await
+            .unwrap();
     }
     assert!(interrupted_in_flight, "no interrupt hit a running INSERT");
 
-    s.execute("DROP TABLE \"$scratch\".dbine_trl", 10, &mut out).await.unwrap();
+    s.execute("DROP TABLE \"$scratch\".dbine_trl", 10, &mut out)
+        .await
+        .unwrap();
 }

@@ -15,7 +15,11 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn num(v: Option<&Value>) -> Option<f64> {
-    v.and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))).filter(|n| n.is_finite())
+    v.and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+    })
+    .filter(|n| n.is_finite())
 }
 
 fn text(v: &Value) -> String {
@@ -52,13 +56,20 @@ fn fmt_num(n: f64) -> String {
 
 /// `{projectId, datasetId, tableId}` → `project.dataset.table`.
 pub(crate) fn table_name(t: &Value) -> String {
-    ["projectId", "datasetId", "tableId"].iter().filter_map(|k| t.get(*k).and_then(Value::as_str)).collect::<Vec<_>>().join(".")
+    ["projectId", "datasetId", "tableId"]
+        .iter()
+        .filter_map(|k| t.get(*k).and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 /// Statement types that have no plan worth showing (DDL, DCL…).
 pub(crate) fn is_ddl(statement_type: &str) -> bool {
     let t = statement_type.to_ascii_uppercase();
-    (t.starts_with("CREATE_") || t.starts_with("DROP_") || t.starts_with("ALTER_") || matches!(t.as_str(), "GRANT" | "REVOKE"))
+    (t.starts_with("CREATE_")
+        || t.starts_with("DROP_")
+        || t.starts_with("ALTER_")
+        || matches!(t.as_str(), "GRANT" | "REVOKE"))
         && t != "CREATE_TABLE_AS_SELECT"
 }
 
@@ -73,7 +84,10 @@ pub(crate) fn no_plan_text(stmt: &str) -> bool {
         .collect();
     match words.first().map(String::as_str) {
         Some("create") => !(words.iter().any(|w| w == "as") && words.iter().any(|w| w == "select")),
-        Some("drop" | "alter" | "grant" | "revoke" | "declare" | "set" | "begin" | "commit" | "rollback" | "undrop") => true,
+        Some(
+            "drop" | "alter" | "grant" | "revoke" | "declare" | "set" | "begin" | "commit"
+            | "rollback" | "undrop",
+        ) => true,
         _ => false,
     }
 }
@@ -83,23 +97,40 @@ pub(crate) fn no_plan_text(stmt: &str) -> bool {
 /// The estimated plan of a dry-run job; `tables` are the referenced
 /// tables' resources (`tables.get`), when they could be read.
 pub(crate) fn dry_run(statement: &str, job: &Value, tables: &[(String, Option<Value>)]) -> Plan {
-    let q = job.pointer("/statistics/query").cloned().unwrap_or(Value::Null);
-    let st = q.get("statementType").map(text).filter(|s| !s.is_empty()).unwrap_or_else(|| "QUERY".into());
-    let mut root = PlanNode { op: st, ..Default::default() };
-    let processed = num(q.get("totalBytesProcessed")).or_else(|| num(job.pointer("/statistics/totalBytesProcessed")));
+    let q = job
+        .pointer("/statistics/query")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let st = q
+        .get("statementType")
+        .map(text)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "QUERY".into());
+    let mut root = PlanNode {
+        op: st,
+        ..Default::default()
+    };
+    let processed = num(q.get("totalBytesProcessed"))
+        .or_else(|| num(job.pointer("/statistics/totalBytesProcessed")));
     if let Some(b) = processed {
         root.detail = format!("procesaría {}", bytes(b));
         root.props.push(("Bytes a procesar".into(), fmt_num(b)));
     }
     if let Some(a) = q.get("totalBytesProcessedAccuracy").and_then(Value::as_str) {
-        root.props.push(("Precisión de la estimación".into(), a.to_string()));
+        root.props
+            .push(("Precisión de la estimación".into(), a.to_string()));
     }
     root.props.push((
         "Nota".into(),
-        "BigQuery arma las etapas al ejecutar: el plan con etapas es el real (Ejecutar con plan)".into(),
+        "BigQuery arma las etapas al ejecutar: el plan con etapas es el real (Ejecutar con plan)"
+            .into(),
     ));
     for (name, meta) in tables {
-        let mut t = PlanNode { op: "Tabla".into(), object: Some(name.clone()), ..Default::default() };
+        let mut t = PlanNode {
+            op: "Tabla".into(),
+            object: Some(name.clone()),
+            ..Default::default()
+        };
         if let Some(m) = meta {
             if let Some(kind) = m.get("type").and_then(Value::as_str) {
                 t.op = match kind {
@@ -115,14 +146,26 @@ pub(crate) fn dry_run(statement: &str, job: &Value, tables: &[(String, Option<Va
                 t.props.push(("Tamaño (bytes)".into(), fmt_num(b)));
             }
             if let Some(p) = m.get("timePartitioning") {
-                let field = p.get("field").and_then(Value::as_str).unwrap_or("_PARTITIONTIME");
-                t.props.push(("Particionada por".into(), format!("{field} ({})", p.get("type").map(text).unwrap_or_default())));
+                let field = p
+                    .get("field")
+                    .and_then(Value::as_str)
+                    .unwrap_or("_PARTITIONTIME");
+                t.props.push((
+                    "Particionada por".into(),
+                    format!("{field} ({})", p.get("type").map(text).unwrap_or_default()),
+                ));
             }
             if let Some(p) = m.get("rangePartitioning") {
-                t.props.push(("Particionada por rango".into(), p.get("field").map(text).unwrap_or_default()));
+                t.props.push((
+                    "Particionada por rango".into(),
+                    p.get("field").map(text).unwrap_or_default(),
+                ));
             }
             if let Some(Value::Array(f)) = m.pointer("/clustering/fields") {
-                t.props.push(("Clustering".into(), f.iter().map(text).collect::<Vec<_>>().join(", ")));
+                t.props.push((
+                    "Clustering".into(),
+                    f.iter().map(text).collect::<Vec<_>>().join(", "),
+                ));
             }
         }
         root.children.push(t);
@@ -140,14 +183,33 @@ pub(crate) fn dry_run(statement: &str, job: &Value, tables: &[(String, Option<Va
 
 /// The measured plan of a finished job (`jobs.get`).
 pub(crate) fn job_plan(statement: &str, job: &Value) -> Plan {
-    let q = job.pointer("/statistics/query").cloned().unwrap_or(Value::Null);
-    let stages = q.get("queryPlan").and_then(Value::as_array).cloned().unwrap_or_default();
+    let q = job
+        .pointer("/statistics/query")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let stages = q
+        .get("queryPlan")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut root = if stages.is_empty() {
-        let mut n = PlanNode { op: q.get("statementType").map(text).filter(|s| !s.is_empty()).unwrap_or_else(|| "QUERY".into()), ..Default::default() };
+        let mut n = PlanNode {
+            op: q
+                .get("statementType")
+                .map(text)
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "QUERY".into()),
+            ..Default::default()
+        };
         if q.get("cacheHit").and_then(Value::as_bool) == Some(true) {
-            n.warnings.push("Resultado tomado de la caché: BigQuery no ejecutó la consulta (sin etapas)".into());
+            n.warnings.push(
+                "Resultado tomado de la caché: BigQuery no ejecutó la consulta (sin etapas)".into(),
+            );
         } else {
-            n.props.push(("Nota".into(), "BigQuery no informó etapas para este trabajo".into()));
+            n.props.push((
+                "Nota".into(),
+                "BigQuery no informó etapas para este trabajo".into(),
+            ));
         }
         n
     } else {
@@ -168,14 +230,21 @@ pub(crate) fn job_plan(statement: &str, job: &Value) -> Plan {
         ("Filas modificadas (DML)", "numDmlAffectedRows"),
     ] {
         if let Some(v) = num(q.get(key)) {
-            let shown = if key.starts_with("totalBytes") { format!("{} ({})", fmt_num(v), bytes(v)) } else { fmt_num(v) };
+            let shown = if key.starts_with("totalBytes") {
+                format!("{} ({})", fmt_num(v), bytes(v))
+            } else {
+                fmt_num(v)
+            };
             top.push((label.into(), shown));
         }
     }
     if let Some(t) = q.get("billingTier") {
         top.push(("Nivel de facturación".into(), text(t)));
     }
-    if let (Some(s), Some(e)) = (num(job.pointer("/statistics/startTime")), num(job.pointer("/statistics/endTime"))) {
+    if let (Some(s), Some(e)) = (
+        num(job.pointer("/statistics/startTime")),
+        num(job.pointer("/statistics/endTime")),
+    ) {
         if e >= s {
             top.push(("Duración (ms)".into(), fmt_num(e - s)));
             if root.actual_ms.is_none() {
@@ -210,16 +279,31 @@ fn stage_tree(stages: &[Value]) -> PlanNode {
     let id_of = |s: &Value| s.get("id").map(text).unwrap_or_default();
     let mut consumer: BTreeMap<String, String> = BTreeMap::new();
     for s in stages {
-        for input in s.get("inputStages").and_then(Value::as_array).into_iter().flatten() {
+        for input in s
+            .get("inputStages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             consumer.entry(text(input)).or_insert_with(|| id_of(s));
         }
     }
     let by_id: BTreeMap<String, &Value> = stages.iter().map(|s| (id_of(s), s)).collect();
-    fn build(id: &str, by_id: &BTreeMap<String, &Value>, consumer: &BTreeMap<String, String>, depth: usize) -> PlanNode {
+    fn build(
+        id: &str,
+        by_id: &BTreeMap<String, &Value>,
+        consumer: &BTreeMap<String, String>,
+        depth: usize,
+    ) -> PlanNode {
         let s = by_id[id];
         let mut n = stage_node(s);
         if depth < 500 {
-            for input in s.get("inputStages").and_then(Value::as_array).into_iter().flatten() {
+            for input in s
+                .get("inputStages")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 let i = text(input);
                 if by_id.contains_key(&i) && consumer.get(&i).map(String::as_str) == Some(id) {
                     n.children.push(build(&i, by_id, consumer, depth + 1));
@@ -228,12 +312,24 @@ fn stage_tree(stages: &[Value]) -> PlanNode {
         }
         n
     }
-    let roots: Vec<String> = stages.iter().map(id_of).filter(|id| !consumer.contains_key(id)).collect();
-    let mut nodes: Vec<PlanNode> = roots.iter().rev().map(|id| build(id, &by_id, &consumer, 0)).collect();
+    let roots: Vec<String> = stages
+        .iter()
+        .map(id_of)
+        .filter(|id| !consumer.contains_key(id))
+        .collect();
+    let mut nodes: Vec<PlanNode> = roots
+        .iter()
+        .rev()
+        .map(|id| build(id, &by_id, &consumer, 0))
+        .collect();
     if nodes.len() == 1 {
         nodes.pop().expect("one")
     } else {
-        PlanNode { op: "QUERY".into(), children: nodes, ..Default::default() }
+        PlanNode {
+            op: "QUERY".into(),
+            children: nodes,
+            ..Default::default()
+        }
     }
 }
 
@@ -241,8 +337,14 @@ fn stage_node(s: &Value) -> PlanNode {
     let f = |k: &str| num(s.get(k));
     let name = s.get("name").map(text).unwrap_or_default();
     // "S02: Join+" → op "Join+", stage id kept in props.
-    let op = name.split_once(": ").map_or(name.as_str(), |(_, o)| o).to_string();
-    let mut n = PlanNode { op, ..Default::default() };
+    let op = name
+        .split_once(": ")
+        .map_or(name.as_str(), |(_, o)| o)
+        .to_string();
+    let mut n = PlanNode {
+        op,
+        ..Default::default()
+    };
     n.props.push(("Etapa".into(), name.clone()));
     n.actual_rows = f("recordsWritten");
     n.self_cost = f("slotMs");
@@ -253,9 +355,20 @@ fn stage_node(s: &Value) -> PlanNode {
     };
     let mut kinds = Vec::new();
     let mut tables = Vec::new();
-    for step in s.get("steps").and_then(Value::as_array).into_iter().flatten() {
+    for step in s
+        .get("steps")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let kind = step.get("kind").map(text).unwrap_or_default();
-        let subs: Vec<String> = step.get("substeps").and_then(Value::as_array).into_iter().flatten().map(text).collect();
+        let subs: Vec<String> = step
+            .get("substeps")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(text)
+            .collect();
         for sub in &subs {
             if let Some(t) = sub.strip_prefix("FROM ") {
                 if !t.starts_with("__stage") {
@@ -291,11 +404,16 @@ fn stage_node(s: &Value) -> PlanNode {
         n.props.push(("Estado".into(), st.to_string()));
     }
     if let Some(sp) = f("shuffleOutputBytesSpilled").filter(|b| *b > 0.0) {
-        n.warnings.push(format!("El shuffle derramó {} a disco", bytes(sp)));
+        n.warnings
+            .push(format!("El shuffle derramó {} a disco", bytes(sp)));
     }
     if let (Some(avg), Some(max)) = (f("computeMsAvg"), f("computeMsMax")) {
         if max >= 1000.0 && max > 5.0 * avg.max(1.0) {
-            n.warnings.push(format!("Desbalance: el trabajador más lento tardó {} ms (promedio {} ms)", fmt_num(max), fmt_num(avg)));
+            n.warnings.push(format!(
+                "Desbalance: el trabajador más lento tardó {} ms (promedio {} ms)",
+                fmt_num(max),
+                fmt_num(avg)
+            ));
         }
     }
     n
@@ -344,15 +462,29 @@ mod tests {
         assert!(p.actual);
         let root = &p.root;
         assert_eq!(root.op, "Output");
-        assert!(root.props.iter().any(|(k, v)| k == "Bytes facturados" && v.starts_with("104857600 (100.0 MiB)")));
-        assert!(root.props.iter().any(|(k, v)| k == "Duración (ms)" && v == "2500"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Bytes facturados" && v.starts_with("104857600 (100.0 MiB)")));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Duración (ms)" && v == "2500"));
         assert_eq!(root.total_cost, Some(9000.0));
         let join = &root.children[0];
-        assert_eq!((join.op.as_str(), join.detail.as_str()), ("Join+", "READ → JOIN → AGGREGATE"));
+        assert_eq!(
+            (join.op.as_str(), join.detail.as_str()),
+            ("Join+", "READ → JOIN → AGGREGATE")
+        );
         assert!(join.object.is_none());
         assert!(join.warnings.iter().any(|w| w.contains("2.0 MiB")));
-        let [orders, cust] = &join.children[..] else { panic!("{join:#?}") };
-        assert_eq!((orders.object.as_deref(), orders.actual_rows), (Some("p.ds.orders"), Some(5_000_000.0)));
+        let [orders, cust] = &join.children[..] else {
+            panic!("{join:#?}")
+        };
+        assert_eq!(
+            (orders.object.as_deref(), orders.actual_rows),
+            (Some("p.ds.orders"), Some(5_000_000.0))
+        );
         assert_eq!(orders.actual_ms, Some(1000.0));
         assert_eq!(orders.executions, Some(40.0));
         assert!(orders.warnings.iter().any(|w| w.starts_with("Desbalance")));
@@ -382,13 +514,30 @@ mod tests {
         .unwrap();
         let p = dry_run("q", &job, &[("p.ds.orders".into(), Some(meta))]);
         assert!(!p.actual);
-        assert_eq!((p.root.op.as_str(), p.root.detail.as_str()), ("SELECT", "procesaría 3.0 MiB"));
+        assert_eq!(
+            (p.root.op.as_str(), p.root.detail.as_str()),
+            ("SELECT", "procesaría 3.0 MiB")
+        );
         let t = &p.root.children[0];
-        assert_eq!((t.op.as_str(), t.object.as_deref(), t.est_rows), ("Tabla", Some("p.ds.orders"), Some(5_000_000.0)));
-        assert!(t.props.iter().any(|(k, v)| k == "Particionada por" && v == "day (DAY)"));
-        assert_eq!(table_name(&serde_json::json!({"projectId":"p","datasetId":"d","tableId":"t"})), "p.d.t");
+        assert_eq!(
+            (t.op.as_str(), t.object.as_deref(), t.est_rows),
+            ("Tabla", Some("p.ds.orders"), Some(5_000_000.0))
+        );
+        assert!(t
+            .props
+            .iter()
+            .any(|(k, v)| k == "Particionada por" && v == "day (DAY)"));
+        assert_eq!(
+            table_name(&serde_json::json!({"projectId":"p","datasetId":"d","tableId":"t"})),
+            "p.d.t"
+        );
         assert!(is_ddl("CREATE_TABLE") && !is_ddl("CREATE_TABLE_AS_SELECT") && !is_ddl("SELECT"));
-        assert!(no_plan_text("CREATE TABLE t (a INT64)") && !no_plan_text("create table t as select 1"));
-        assert!(!no_plan_text("with x as (select 1) select * from x") && no_plan_text("DECLARE x INT64"));
+        assert!(
+            no_plan_text("CREATE TABLE t (a INT64)") && !no_plan_text("create table t as select 1")
+        );
+        assert!(
+            !no_plan_text("with x as (select 1) select * from x")
+                && no_plan_text("DECLARE x INT64")
+        );
     }
 }

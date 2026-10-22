@@ -3,7 +3,10 @@
 //! reader's choice), and a print layout (the index hides, code opens).
 //! Every text from the database goes through [`esc`].
 
-use super::{diagram, key_marks, qualified, thousands, Anchors, Doc, Labels, ObjectDoc, TableDoc, DIAGRAM_MAX};
+use super::{
+    diagram, key_marks, qualified, thousands, Anchors, Doc, Labels, ObjectDoc, TableDoc,
+    DIAGRAM_MAX,
+};
 use dbine_driver::{ColumnDef, TableSchema};
 use std::fmt::Write;
 
@@ -29,7 +32,11 @@ const LOGO: &str = include_str!("../../../web/public/brand/dbine-logo-horizontal
 
 /// What the search box matches, lowercased.
 fn search_text<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
-    esc(&parts.into_iter().collect::<Vec<_>>().join(" ").to_lowercase())
+    esc(&parts
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase())
 }
 
 const CSS: &str = r#"
@@ -136,21 +143,42 @@ pub fn render(doc: &Doc, l: &Labels) -> String {
     let _ = write!(out, "<aside><div class=\"product\">{logo}</div><div class=\"brand\">{}</div><input id=\"q\" type=\"search\" placeholder=\"{}\" aria-label=\"{}\"><nav>", esc(&doc.database), esc(l.get("search")), esc(l.get("search")));
     let diagrams = diagram_sets(doc);
     if doc.diagram && !diagrams.0.is_empty() {
-        let _ = write!(out, "<ul><li><a href=\"#diagram\">{}</a></li></ul>", esc(l.get("diagram")));
+        let _ = write!(
+            out,
+            "<ul><li><a href=\"#diagram\">{}</a></li></ul>",
+            esc(l.get("diagram"))
+        );
     }
     for (si, s) in doc.schemas.iter().enumerate() {
-        let _ = write!(out, "<div class=\"toc-group\"><div class=\"toc-schema\"><a href=\"#s{}\">{}</a></div>", si + 1, esc(&schema_title(&s.name)));
+        let _ = write!(
+            out,
+            "<div class=\"toc-group\"><div class=\"toc-schema\"><a href=\"#s{}\">{}</a></div>",
+            si + 1,
+            esc(&schema_title(&s.name))
+        );
         let mut last_kind = "";
         for t in &s.tables {
             if t.kind_label != last_kind {
                 if !last_kind.is_empty() {
                     out.push_str("</ul>");
                 }
-                let _ = write!(out, "<div class=\"toc-kind\">{}</div><ul>", esc(&t.kind_label));
+                let _ = write!(
+                    out,
+                    "<div class=\"toc-kind\">{}</div><ul>",
+                    esc(&t.kind_label)
+                );
                 last_kind = &t.kind_label;
             }
-            let id = anchors.table(t.table.schema.as_deref(), None, &t.table.name).unwrap_or("");
-            let _ = write!(out, "<li data-s=\"{}\"><a href=\"#{}\">{}</a></li>", table_search(&t.table), esc(id), esc(&t.table.name));
+            let id = anchors
+                .table(t.table.schema.as_deref(), None, &t.table.name)
+                .unwrap_or("");
+            let _ = write!(
+                out,
+                "<li data-s=\"{}\"><a href=\"#{}\">{}</a></li>",
+                table_search(&t.table),
+                esc(id),
+                esc(&t.table.name)
+            );
         }
         if !last_kind.is_empty() {
             out.push_str("</ul>");
@@ -158,7 +186,13 @@ pub fn render(doc: &Doc, l: &Labels) -> String {
         for (gi, g) in s.groups.iter().enumerate() {
             let _ = write!(out, "<div class=\"toc-kind\">{}</div><ul>", esc(&g.label));
             for (ii, o) in g.items.iter().enumerate() {
-                let _ = write!(out, "<li data-s=\"{}\"><a href=\"#{}\">{}</a></li>", object_search(o), obj_ids[si][gi][ii], esc(&o.name));
+                let _ = write!(
+                    out,
+                    "<li data-s=\"{}\"><a href=\"#{}\">{}</a></li>",
+                    object_search(o),
+                    obj_ids[si][gi][ii],
+                    esc(&o.name)
+                );
             }
             out.push_str("</ul>");
         }
@@ -172,7 +206,12 @@ pub fn render(doc: &Doc, l: &Labels) -> String {
         None => doc.engine.clone(),
     };
     let _ = write!(out, "<header><h1>{}</h1><dl>", esc(&title));
-    for (k, v) in [("database", &doc.database), ("connection", &doc.connection), ("engine", &engine), ("generated", &doc.generated_at)] {
+    for (k, v) in [
+        ("database", &doc.database),
+        ("connection", &doc.connection),
+        ("engine", &engine),
+        ("generated", &doc.generated_at),
+    ] {
         if !v.is_empty() {
             let _ = write!(out, "<dt>{}</dt><dd>{}</dd>", esc(l.get(k)), esc(v));
         }
@@ -184,7 +223,11 @@ pub fn render(doc: &Doc, l: &Labels) -> String {
         esc(l.get("print"))
     );
     if !doc.notes.is_empty() {
-        let _ = write!(out, "<div class=\"notes\"><strong>{}</strong><ul>", esc(l.get("notes")));
+        let _ = write!(
+            out,
+            "<div class=\"notes\"><strong>{}</strong><ul>",
+            esc(l.get("notes"))
+        );
         for note in &doc.notes {
             let _ = write!(out, "<li>{}</li>", esc(note));
         }
@@ -197,21 +240,48 @@ pub fn render(doc: &Doc, l: &Labels) -> String {
         if !sets.is_empty() || !skipped.is_empty() {
             let _ = write!(out, "<h2 id=\"diagram\">{}</h2>", esc(l.get("diagram")));
         }
-        let link = |t: &TableSchema| anchors.table(t.schema.as_deref(), None, &t.name).map(str::to_string);
+        let link = |t: &TableSchema| {
+            anchors
+                .table(t.schema.as_deref(), None, &t.name)
+                .map(str::to_string)
+        };
         for (i, (name, tables)) in sets.iter().enumerate() {
             if let Some(n) = name {
-                let _ = write!(out, "<h5>{}</h5>", esc(&l.fill("diagramFor", &[("name", n.clone())])));
+                let _ = write!(
+                    out,
+                    "<h5>{}</h5>",
+                    esc(&l.fill("diagramFor", &[("name", n.clone())]))
+                );
             }
-            let _ = write!(out, "<div class=\"erd\">{}</div>", diagram::svg(tables, &format!("erd{}", i + 1), &link));
+            let _ = write!(
+                out,
+                "<div class=\"erd\">{}</div>",
+                diagram::svg(tables, &format!("erd{}", i + 1), &link)
+            );
         }
         for count in skipped {
-            let _ = write!(out, "<p class=\"dim\">{}</p>", esc(&l.fill("diagramSkipped", &[("count", count.to_string()), ("max", DIAGRAM_MAX.to_string())])));
+            let _ = write!(
+                out,
+                "<p class=\"dim\">{}</p>",
+                esc(&l.fill(
+                    "diagramSkipped",
+                    &[
+                        ("count", count.to_string()),
+                        ("max", DIAGRAM_MAX.to_string())
+                    ]
+                ))
+            );
         }
     }
 
     // Schemas.
     for (si, s) in doc.schemas.iter().enumerate() {
-        let _ = write!(out, "<h2 id=\"s{}\">{}</h2>", si + 1, esc(&schema_title(&s.name)));
+        let _ = write!(
+            out,
+            "<h2 id=\"s{}\">{}</h2>",
+            si + 1,
+            esc(&schema_title(&s.name))
+        );
         let mut last_kind = "";
         for t in &s.tables {
             if t.kind_label != last_kind {
@@ -234,7 +304,11 @@ pub fn render(doc: &Doc, l: &Labels) -> String {
 /// Diagrams to draw (`None` name: the whole database; else per schema),
 /// and the table counts of what's too big to draw.
 fn diagram_sets(doc: &Doc) -> (Vec<(Option<String>, Vec<&TableSchema>)>, Vec<usize>) {
-    let all: Vec<&TableSchema> = doc.schemas.iter().flat_map(|s| s.tables.iter().map(|t| &t.table)).collect();
+    let all: Vec<&TableSchema> = doc
+        .schemas
+        .iter()
+        .flat_map(|s| s.tables.iter().map(|t| &t.table))
+        .collect();
     if !doc.diagram || all.is_empty() {
         return (Vec::new(), Vec::new());
     }
@@ -258,11 +332,20 @@ fn diagram_sets(doc: &Doc) -> (Vec<(Option<String>, Vec<&TableSchema>)>, Vec<usi
 }
 
 fn table_search(t: &TableSchema) -> String {
-    search_text(std::iter::once(t.name.as_str()).chain(t.schema.as_deref()).chain(t.columns.iter().map(|c| c.name.as_str())))
+    search_text(
+        std::iter::once(t.name.as_str())
+            .chain(t.schema.as_deref())
+            .chain(t.columns.iter().map(|c| c.name.as_str())),
+    )
 }
 
 fn object_search(o: &ObjectDoc) -> String {
-    search_text(std::iter::once(o.name.as_str()).chain(o.schema.as_deref()).chain(o.parent.as_deref()).chain(o.columns.iter().map(|c| c.name.as_str())))
+    search_text(
+        std::iter::once(o.name.as_str())
+            .chain(o.schema.as_deref())
+            .chain(o.parent.as_deref())
+            .chain(o.columns.iter().map(|c| c.name.as_str())),
+    )
 }
 
 fn yes_no(l: &Labels, v: bool) -> &str {
@@ -270,7 +353,12 @@ fn yes_no(l: &Labels, v: bool) -> &str {
 }
 
 /// A link to a table when it's in the document, else its name.
-fn table_link(anchors: &Anchors, schema: Option<&str>, default_schema: Option<&str>, name: &str) -> String {
+fn table_link(
+    anchors: &Anchors,
+    schema: Option<&str>,
+    default_schema: Option<&str>,
+    name: &str,
+) -> String {
     let text = esc(&qualified(schema, name));
     match anchors.table(schema, default_schema, name) {
         Some(id) => format!("<a href=\"#{}\">{text}</a>", esc(id)),
@@ -278,14 +366,29 @@ fn table_link(anchors: &Anchors, schema: Option<&str>, default_schema: Option<&s
     }
 }
 
-fn columns_table(out: &mut String, cols: &[ColumnDef], t: Option<&TableSchema>, anchors: &Anchors, l: &Labels) {
+fn columns_table(
+    out: &mut String,
+    cols: &[ColumnDef],
+    t: Option<&TableSchema>,
+    anchors: &Anchors,
+    l: &Labels,
+) {
     if cols.is_empty() {
         let _ = write!(out, "<p class=\"dim\">{}</p>", esc(l.get("noColumns")));
         return;
     }
     let with_key = t.is_some();
-    let with_comment = cols.iter().any(|c| c.comment.as_deref().is_some_and(|x| !x.trim().is_empty()));
-    let _ = write!(out, "<table><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th>", esc(l.get("column")), esc(l.get("type")), esc(l.get("nullable")), esc(l.get("default")));
+    let with_comment = cols
+        .iter()
+        .any(|c| c.comment.as_deref().is_some_and(|x| !x.trim().is_empty()));
+    let _ = write!(
+        out,
+        "<table><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th>",
+        esc(l.get("column")),
+        esc(l.get("type")),
+        esc(l.get("nullable")),
+        esc(l.get("default"))
+    );
     if with_key {
         let _ = write!(out, "<th>{}</th>", esc(l.get("key")));
     }
@@ -296,25 +399,52 @@ fn columns_table(out: &mut String, cols: &[ColumnDef], t: Option<&TableSchema>, 
     for c in cols {
         let mut ty = esc(&c.data_type);
         if c.auto_increment {
-            let _ = write!(ty, " <span class=\"dim\">({})</span>", esc(l.get("autoIncrement")));
+            let _ = write!(
+                ty,
+                " <span class=\"dim\">({})</span>",
+                esc(l.get("autoIncrement"))
+            );
         }
-        let _ = write!(out, "<tr><td><code>{}</code></td><td>{ty}</td><td>{}</td><td>{}</td>", esc(&c.name), esc(yes_no(l, c.nullable)), esc(c.default_value.as_deref().unwrap_or("")));
+        let _ = write!(
+            out,
+            "<tr><td><code>{}</code></td><td>{ty}</td><td>{}</td><td>{}</td>",
+            esc(&c.name),
+            esc(yes_no(l, c.nullable)),
+            esc(c.default_value.as_deref().unwrap_or(""))
+        );
         if let Some(t) = t {
             let marks = key_marks(t, &c.name);
             let mut cell = String::new();
             if marks.starts_with("PK") {
                 cell.push_str("<span class=\"pk\">PK</span>");
             }
-            for fk in t.foreign_keys.iter().filter(|f| f.columns.iter().any(|x| x.eq_ignore_ascii_case(&c.name))) {
+            for fk in t
+                .foreign_keys
+                .iter()
+                .filter(|f| f.columns.iter().any(|x| x.eq_ignore_ascii_case(&c.name)))
+            {
                 if !cell.is_empty() {
                     cell.push(' ');
                 }
-                let _ = write!(cell, "<span class=\"fk\">FK</span> → {}", table_link(anchors, fk.ref_schema.as_deref(), t.schema.as_deref(), &fk.ref_table));
+                let _ = write!(
+                    cell,
+                    "<span class=\"fk\">FK</span> → {}",
+                    table_link(
+                        anchors,
+                        fk.ref_schema.as_deref(),
+                        t.schema.as_deref(),
+                        &fk.ref_table
+                    )
+                );
             }
             let _ = write!(out, "<td>{cell}</td>");
         }
         if with_comment {
-            let _ = write!(out, "<td class=\"pre\">{}</td>", esc(c.comment.as_deref().unwrap_or("")));
+            let _ = write!(
+                out,
+                "<td class=\"pre\">{}</td>",
+                esc(c.comment.as_deref().unwrap_or(""))
+            );
         }
         out.push_str("</tr>");
     }
@@ -323,20 +453,42 @@ fn columns_table(out: &mut String, cols: &[ColumnDef], t: Option<&TableSchema>, 
 
 fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labels) {
     let t = &td.table;
-    let id = anchors.table(t.schema.as_deref(), None, &t.name).unwrap_or("");
-    let _ = write!(out, "<section class=\"obj\" id=\"{}\" data-s=\"{}\"><h4>{}</h4>", esc(id), table_search(t), esc(&qualified(t.schema.as_deref(), &t.name)));
+    let id = anchors
+        .table(t.schema.as_deref(), None, &t.name)
+        .unwrap_or("");
+    let _ = write!(
+        out,
+        "<section class=\"obj\" id=\"{}\" data-s=\"{}\"><h4>{}</h4>",
+        esc(id),
+        table_search(t),
+        esc(&qualified(t.schema.as_deref(), &t.name))
+    );
     if let Some(c) = t.comment.as_deref().filter(|c| !c.trim().is_empty()) {
         let _ = write!(out, "<p class=\"comment\">{}</p>", esc(c));
     }
     if let Some(rows) = td.rows {
-        let _ = write!(out, "<p class=\"dim\">{}: {}</p>", esc(l.get("rows")), thousands(rows));
+        let _ = write!(
+            out,
+            "<p class=\"dim\">{}: {}</p>",
+            esc(l.get("rows")),
+            thousands(rows)
+        );
     }
     let _ = write!(out, "<h5>{}</h5>", esc(l.get("columns")));
     columns_table(out, &t.columns, Some(t), anchors, l);
 
     if let Some(pk) = &t.primary_key {
-        let name = pk.name.as_deref().map(|n| format!("<code>{}</code> ", esc(n))).unwrap_or_default();
-        let _ = write!(out, "<h5>{}</h5><p>{name}({})</p>", esc(l.get("primaryKey")), esc(&pk.columns.join(", ")));
+        let name = pk
+            .name
+            .as_deref()
+            .map(|n| format!("<code>{}</code> ", esc(n)))
+            .unwrap_or_default();
+        let _ = write!(
+            out,
+            "<h5>{}</h5><p>{name}({})</p>",
+            esc(l.get("primaryKey")),
+            esc(&pk.columns.join(", "))
+        );
     }
     if doc.foreign_keys && !t.foreign_keys.is_empty() {
         let _ = write!(
@@ -390,9 +542,20 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
         out.push_str("</tbody></table>");
     }
     if !t.checks.is_empty() {
-        let _ = write!(out, "<h5>{}</h5><table><thead><tr><th>{}</th><th>{}</th></tr></thead><tbody>", esc(l.get("checks")), esc(l.get("name")), esc(l.get("condition")));
+        let _ = write!(
+            out,
+            "<h5>{}</h5><table><thead><tr><th>{}</th><th>{}</th></tr></thead><tbody>",
+            esc(l.get("checks")),
+            esc(l.get("name")),
+            esc(l.get("condition"))
+        );
         for ck in &t.checks {
-            let _ = write!(out, "<tr><td><code>{}</code></td><td><code>{}</code></td></tr>", esc(ck.name.as_deref().unwrap_or("")), esc(&ck.expression));
+            let _ = write!(
+                out,
+                "<tr><td><code>{}</code></td><td><code>{}</code></td></tr>",
+                esc(ck.name.as_deref().unwrap_or("")),
+                esc(&ck.expression)
+            );
         }
         out.push_str("</tbody></table>");
     }
@@ -404,13 +567,27 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
         out.push_str("</tbody></table>");
     }
     if !td.triggers.is_empty() {
-        let _ = write!(out, "<h5>{}</h5><p>{}</p>", esc(l.get("triggers")), esc(&td.triggers.join(", ")));
+        let _ = write!(
+            out,
+            "<h5>{}</h5><p>{}</p>",
+            esc(l.get("triggers")),
+            esc(&td.triggers.join(", "))
+        );
     }
     if doc.dependencies && !td.used_by.is_empty() {
         let _ = write!(out, "<h5>{}</h5><ul>", esc(l.get("usedBy")));
         for u in &td.used_by {
-            let name = if u.table { table_link(anchors, u.schema.as_deref(), None, &u.name) } else { esc(&qualified(u.schema.as_deref(), &u.name)) };
-            let _ = write!(out, "<li>{name} <span class=\"dim\">· {} · {}</span></li>", esc(&u.kind_label), esc(&u.how));
+            let name = if u.table {
+                table_link(anchors, u.schema.as_deref(), None, &u.name)
+            } else {
+                esc(&qualified(u.schema.as_deref(), &u.name))
+            };
+            let _ = write!(
+                out,
+                "<li>{name} <span class=\"dim\">· {} · {}</span></li>",
+                esc(&u.kind_label),
+                esc(&u.how)
+            );
         }
         out.push_str("</ul>");
     }
@@ -418,19 +595,43 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
 }
 
 fn object(out: &mut String, doc: &Doc, o: &ObjectDoc, id: &str, l: &Labels) {
-    let _ = write!(out, "<section class=\"obj\" id=\"{}\" data-s=\"{}\"><h4>{}</h4>", esc(id), object_search(o), esc(&qualified(o.schema.as_deref(), &o.name)));
+    let _ = write!(
+        out,
+        "<section class=\"obj\" id=\"{}\" data-s=\"{}\"><h4>{}</h4>",
+        esc(id),
+        object_search(o),
+        esc(&qualified(o.schema.as_deref(), &o.name))
+    );
     if let Some(p) = &o.parent {
-        let _ = write!(out, "<p class=\"dim\">{}: {}</p>", esc(l.get("parent")), esc(p));
+        let _ = write!(
+            out,
+            "<p class=\"dim\">{}: {}</p>",
+            esc(l.get("parent")),
+            esc(p)
+        );
     }
     if let Some(c) = o.comment.as_deref() {
         let _ = write!(out, "<p class=\"comment\">{}</p>", esc(c));
     }
     if !o.columns.is_empty() {
         let _ = write!(out, "<h5>{}</h5>", esc(l.get("columns")));
-        columns_table(out, &o.columns, None, &Anchors { tables: Default::default() }, l);
+        columns_table(
+            out,
+            &o.columns,
+            None,
+            &Anchors {
+                tables: Default::default(),
+            },
+            l,
+        );
     }
     if let Some(src) = o.source.as_deref().filter(|_| doc.source) {
-        let _ = write!(out, "<details><summary>{}</summary><pre><code>{}</code></pre></details>", esc(l.get("source")), esc(src.trim_end()));
+        let _ = write!(
+            out,
+            "<details><summary>{}</summary><pre><code>{}</code></pre></details>",
+            esc(l.get("source")),
+            esc(src.trim_end())
+        );
     }
     out.push_str("</section>\n");
 }
@@ -443,9 +644,18 @@ mod tests {
 
     #[test]
     fn escapes_everything() {
-        assert_eq!(esc(r#"<a href="x">'&'</a>"#), "&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;");
+        assert_eq!(
+            esc(r#"<a href="x">'&'</a>"#),
+            "&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;"
+        );
         let html = render(&sample(), &Labels::new(&BTreeMap::new()));
-        for raw in ["users<script>", "<img src=x", "<b>bold</b>", "shop</title>", "<i>"] {
+        for raw in [
+            "users<script>",
+            "<img src=x",
+            "<b>bold</b>",
+            "shop</title>",
+            "<i>",
+        ] {
             assert!(!html.contains(raw), "unescaped {raw}");
         }
         assert!(html.contains("users&lt;script&gt;"));
@@ -459,8 +669,12 @@ mod tests {
     fn links_tables_and_draws_the_diagram() {
         let html = render(&sample(), &Labels::new(&BTreeMap::new()));
         // orders' FK points at users (t2), from the column and the FK table.
-        assert!(html.contains("<span class=\"fk\">FK</span> → <a href=\"#t2\">app.users&lt;script&gt;</a>"));
-        assert!(html.contains("id=\"t1\"") && html.contains("id=\"t2\"") && html.contains("id=\"o1\""));
+        assert!(html.contains(
+            "<span class=\"fk\">FK</span> → <a href=\"#t2\">app.users&lt;script&gt;</a>"
+        ));
+        assert!(
+            html.contains("id=\"t1\"") && html.contains("id=\"t2\"") && html.contains("id=\"o1\"")
+        );
         assert!(html.contains("<svg class=\"erd-svg\""));
         assert!(html.contains("<details><summary>Código</summary>"));
         assert!(html.contains("Usada por"));
@@ -473,12 +687,29 @@ mod tests {
         let mut doc = sample();
         let many = |schema: &str, n: usize| -> Vec<TableDoc> {
             (0..n)
-                .map(|i| TableDoc { table: TableSchema { kind: "table".into(), schema: Some(schema.into()), name: format!("t{i}"), ..Default::default() }, kind_label: "Tablas".into(), ..Default::default() })
+                .map(|i| TableDoc {
+                    table: TableSchema {
+                        kind: "table".into(),
+                        schema: Some(schema.into()),
+                        name: format!("t{i}"),
+                        ..Default::default()
+                    },
+                    kind_label: "Tablas".into(),
+                    ..Default::default()
+                })
                 .collect()
         };
         doc.schemas = vec![
-            crate::dbdocs::SchemaDoc { name: Some("a".into()), tables: many("a", 100), groups: vec![] },
-            crate::dbdocs::SchemaDoc { name: Some("b".into()), tables: many("b", 200), groups: vec![] },
+            crate::dbdocs::SchemaDoc {
+                name: Some("a".into()),
+                tables: many("a", 100),
+                groups: vec![],
+            },
+            crate::dbdocs::SchemaDoc {
+                name: Some("b".into()),
+                tables: many("b", 200),
+                groups: vec![],
+            },
         ];
         let (sets, skipped) = diagram_sets(&doc);
         assert_eq!(sets.len(), 1);

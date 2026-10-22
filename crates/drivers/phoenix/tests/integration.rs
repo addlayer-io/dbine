@@ -7,7 +7,9 @@
 //! `DBINE_TEST_PHOENIX_SERIALIZATION=json` for a server set to JSON.
 
 use dbine_driver::read_only::ReadOnlySession;
-use dbine_driver::{kinds, ConnectionConfig, DdlParts, Error, ObjectRef, QueryOutcome, Session, TableSchema};
+use dbine_driver::{
+    kinds, ConnectionConfig, DdlParts, Error, ObjectRef, QueryOutcome, Session, TableSchema,
+};
 
 fn cfg(read_only: bool) -> Option<ConnectionConfig> {
     let url = reqwest::Url::parse(&std::env::var("DBINE_TEST_PHOENIX_URL").ok()?).expect("URL");
@@ -25,7 +27,11 @@ fn cfg(read_only: bool) -> Option<ConnectionConfig> {
 }
 
 fn obj(kind: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: Some("DBINE".into()), name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: Some("DBINE".into()),
+        name: name.into(),
+    }
 }
 
 #[tokio::test]
@@ -61,16 +67,35 @@ async fn phoenix() {
     assert_eq!(out.results[0].rows_affected, Some(1));
 
     let objs = s.list_objects().await.unwrap();
-    let has = |k: &str, n: &str| objs.iter().any(|o| o.kind == k && o.name == n && o.schema.as_deref() == Some("DBINE"));
-    assert!(has(kinds::TABLE, "T") && has(kinds::VIEW, "V") && has(kinds::SEQUENCE, "SEQ"), "{objs:?}");
+    let has = |k: &str, n: &str| {
+        objs.iter()
+            .any(|o| o.kind == k && o.name == n && o.schema.as_deref() == Some("DBINE"))
+    };
+    assert!(
+        has(kinds::TABLE, "T") && has(kinds::VIEW, "V") && has(kinds::SEQUENCE, "SEQ"),
+        "{objs:?}"
+    );
     assert!(!objs.iter().any(|o| o.schema.as_deref() == Some("SYSTEM")));
 
     let cols = s.columns(&obj(kinds::TABLE, "T")).await.unwrap();
     assert_eq!(cols.len(), 5, "{cols:?}");
-    assert!(cols[0].primary_key && !cols[0].nullable && cols[1].nullable, "{cols:?}");
+    assert!(
+        cols[0].primary_key && !cols[0].nullable && cols[1].nullable,
+        "{cols:?}"
+    );
     assert_eq!(cols[1].data_type, "VARCHAR(20)");
-    assert!(s.definition(&obj(kinds::VIEW, "V")).await.unwrap().unwrap().contains("ID > 5"));
-    assert!(s.definition(&obj(kinds::SEQUENCE, "SEQ")).await.unwrap().unwrap().contains("START WITH 10"));
+    assert!(s
+        .definition(&obj(kinds::VIEW, "V"))
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("ID > 5"));
+    assert!(s
+        .definition(&obj(kinds::SEQUENCE, "SEQ"))
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("START WITH 10"));
 
     let q = s.browse_query(&obj(kinds::TABLE, "T"), 10);
     let mut out = QueryOutcome::default();
@@ -79,31 +104,68 @@ async fn phoenix() {
     assert_eq!((r.rows.len(), r.total_rows, r.truncated), (4, 10, true));
     assert_eq!(r.rows[0][0], serde_json::json!(1));
     assert_eq!(r.rows[0][2], serde_json::json!("1.25"));
-    assert!(r.rows[0][3].as_str().unwrap().starts_with("2024-01-31 13:45:00"), "{:?}", r.rows[0]);
-    assert!(r.rows[0][4].as_str().unwrap().starts_with("2024-01-31"), "{:?}", r.rows[0]);
+    assert!(
+        r.rows[0][3]
+            .as_str()
+            .unwrap()
+            .starts_with("2024-01-31 13:45:00"),
+        "{:?}",
+        r.rows[0]
+    );
+    assert!(
+        r.rows[0][4].as_str().unwrap().starts_with("2024-01-31"),
+        "{:?}",
+        r.rows[0]
+    );
 
     // More rows than one frame (500).
     let mut out = QueryOutcome::default();
-    s.execute("SELECT a.ID FROM DBINE.T a, DBINE.T b, DBINE.T c, DBINE.T d", 10, &mut out).await.unwrap();
+    s.execute(
+        "SELECT a.ID FROM DBINE.T a, DBINE.T b, DBINE.T c, DBINE.T d",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results[0].total_rows, 12 * 12 * 12 * 12);
 
     // Error mid-script.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT 1 FROM DBINE.T LIMIT 1; SELECT * FROM NOPE; SELECT 2", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute(
+            "SELECT 1 FROM DBINE.T LIMIT 1; SELECT * FROM NOPE; SELECT 2",
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
     assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Read-only: the connection is read-only on the server too.
     let mut ro = d.connect(&cfg(true).unwrap(), None).await.unwrap();
     let mut out = QueryOutcome::default();
-    let e = ro.execute("UPSERT INTO DBINE.T (ID) VALUES (99)", 10, &mut out).await;
+    let e = ro
+        .execute("UPSERT INTO DBINE.T (ID) VALUES (99)", 10, &mut out)
+        .await;
     assert!(e.is_err(), "{e:?}");
-    ro.execute("SELECT COUNT(*) FROM DBINE.T", 10, &mut out).await.unwrap();
+    ro.execute("SELECT COUNT(*) FROM DBINE.T", 10, &mut out)
+        .await
+        .unwrap();
     let mut wrapped = ReadOnlySession::new(d.connect(&c, None).await.unwrap());
-    assert!(wrapped.execute("DROP TABLE DBINE.T", 10, &mut out).await.is_err());
+    assert!(wrapped
+        .execute("DROP TABLE DBINE.T", 10, &mut out)
+        .await
+        .is_err());
 
     let mut out = QueryOutcome::default();
-    s.execute("DROP VIEW DBINE.V; DROP TABLE DBINE.T; DROP SEQUENCE DBINE.SEQ", 10, &mut out).await.unwrap();
+    s.execute(
+        "DROP VIEW DBINE.V; DROP TABLE DBINE.T; DROP SEQUENCE DBINE.SEQ",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -124,7 +186,14 @@ async fn plans() {
     .unwrap();
     let q = "SELECT Y, COUNT(*) FROM DBINE.PLAN_T WHERE X = 1 GROUP BY Y";
     let mut out = QueryOutcome::default();
-    s.explain(&format!("{q}; UPSERT INTO DBINE.PLAN_T VALUES (3, 3, 'c')"), false, 10, &mut out).await.unwrap();
+    s.explain(
+        &format!("{q}; UPSERT INTO DBINE.PLAN_T VALUES (3, 3, 'c')"),
+        false,
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert!(out.results.is_empty());
     assert_eq!(out.plans.len(), 2);
     println!("{}\n{:#?}", out.plans[0].raw, out.plans[0].root);
@@ -137,23 +206,38 @@ async fn plans() {
     };
     assert_eq!(scan.object.as_deref(), Some("DBINE.PLAN_T"));
     let mut out = QueryOutcome::default();
-    s.execute("SELECT COUNT(*) FROM DBINE.PLAN_T", 10, &mut out).await.unwrap();
-    assert_eq!(out.results[0].rows[0][0], serde_json::json!(2), "the UPSERT didn't run");
+    s.execute("SELECT COUNT(*) FROM DBINE.PLAN_T", 10, &mut out)
+        .await
+        .unwrap();
+    assert_eq!(
+        out.results[0].rows[0][0],
+        serde_json::json!(2),
+        "the UPSERT didn't run"
+    );
 
     let mut out = QueryOutcome::default();
     s.explain(q, true, 10, &mut out).await.unwrap();
     assert_eq!(out.results.len(), 1);
     assert_eq!(out.plans.len(), 1);
-    s.execute("DROP TABLE DBINE.PLAN_T", 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute("DROP TABLE DBINE.PLAN_T", 10, &mut QueryOutcome::default())
+        .await
+        .unwrap();
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
 }
 
 async fn schema_of(s: &mut Box<dyn Session>, schema: &str) -> Vec<TableSchema> {
-    s.database_schema().await.unwrap().into_iter().filter(|t| t.schema.as_deref() == Some(schema)).collect()
+    s.database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.schema.as_deref() == Some(schema))
+        .collect()
 }
 
 /// Slow on the all-in-one image (about a minute: the salted table's regions
@@ -185,35 +269,109 @@ async fn schema_and_ddl() {
     .await;
 
     let src = schema_of(&mut s, "DBINE_DDL").await;
-    assert_eq!(src.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["CLIENTES", "ITEMS", "PEDIDOS"], "{src:#?}");
+    assert_eq!(
+        src.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+        ["CLIENTES", "ITEMS", "PEDIDOS"],
+        "{src:#?}"
+    );
     let cli = &src[0];
-    assert_eq!(cli.primary_key.as_ref().unwrap().name.as_deref(), Some("PK_CLI"));
-    assert_eq!(cli.options.get("SALT_BUCKETS").map(String::as_str), Some("2"));
+    assert_eq!(
+        cli.primary_key.as_ref().unwrap().name.as_deref(),
+        Some("PK_CLI")
+    );
+    assert_eq!(
+        cli.options.get("SALT_BUCKETS").map(String::as_str),
+        Some("2")
+    );
     let email = cli.columns.iter().find(|c| c.name == "EMAIL").unwrap();
     assert_eq!(email.options.get("family").map(String::as_str), Some("CF1"));
-    assert_eq!(cli.columns[3].default_value.as_deref(), Some("0"), "{:?}", cli.columns);
+    assert_eq!(
+        cli.columns[3].default_value.as_deref(),
+        Some("0"),
+        "{:?}",
+        cli.columns
+    );
     assert_eq!(cli.indexes.len(), 1);
-    assert_eq!((cli.indexes[0].columns.clone(), cli.indexes[0].kind.as_deref()), (vec!["NOMBRE".to_string()], Some("global")));
+    assert_eq!(
+        (
+            cli.indexes[0].columns.clone(),
+            cli.indexes[0].kind.as_deref()
+        ),
+        (vec!["NOMBRE".to_string()], Some("global"))
+    );
     let ped = &src[2];
-    assert_eq!(ped.primary_key.as_ref().unwrap().columns, ["CLIENTE_ID", "PEDIDO_ID"]);
-    assert_eq!(ped.options.get("IMMUTABLE_ROWS").map(String::as_str), Some("true"));
-    assert!(!ped.columns[2].nullable && ped.columns[3].data_type == "DECIMAL(12, 2)", "{:?}", ped.columns);
-    let ix: Vec<_> = ped.indexes.iter().map(|i| (i.name.as_str(), i.columns.clone(), i.kind.as_deref().unwrap())).collect();
+    assert_eq!(
+        ped.primary_key.as_ref().unwrap().columns,
+        ["CLIENTE_ID", "PEDIDO_ID"]
+    );
+    assert_eq!(
+        ped.options.get("IMMUTABLE_ROWS").map(String::as_str),
+        Some("true")
+    );
+    assert!(
+        !ped.columns[2].nullable && ped.columns[3].data_type == "DECIMAL(12, 2)",
+        "{:?}",
+        ped.columns
+    );
+    let ix: Vec<_> = ped
+        .indexes
+        .iter()
+        .map(|i| {
+            (
+                i.name.as_str(),
+                i.columns.clone(),
+                i.kind.as_deref().unwrap(),
+            )
+        })
+        .collect();
     assert_eq!(
         ix,
-        [("IX_ESTADO", vec!["ESTADO".to_string(), "TOTAL".to_string()], "local"), ("IX_PED", vec!["PEDIDO_ID".to_string()], "global")]
+        [
+            (
+                "IX_ESTADO",
+                vec!["ESTADO".to_string(), "TOTAL".to_string()],
+                "local"
+            ),
+            ("IX_PED", vec!["PEDIDO_ID".to_string()], "global")
+        ]
     );
     assert_eq!(src[1].columns[1].data_type, "VARCHAR ARRAY");
     assert!(src.iter().all(|t| t.foreign_keys.is_empty()));
 
     // Round trip into another schema: every table first, then the indexes.
-    let moved: Vec<_> = src.iter().map(|t| TableSchema { schema: Some("DBINE_DDL2".into()), ..t.clone() }).collect();
+    let moved: Vec<_> = src
+        .iter()
+        .map(|t| TableSchema {
+            schema: Some("DBINE_DDL2".into()),
+            ..t.clone()
+        })
+        .collect();
     let mut script = Vec::new();
     for t in &moved {
-        script.push(d.table_ddl(t, DdlParts { create: true, if_exists: true, ..Default::default() }).unwrap());
+        script.push(
+            d.table_ddl(
+                t,
+                DdlParts {
+                    create: true,
+                    if_exists: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
     }
     for t in &moved {
-        script.push(d.table_ddl(t, DdlParts { indexes: true, foreign_keys: true, ..Default::default() }).unwrap());
+        script.push(
+            d.table_ddl(
+                t,
+                DdlParts {
+                    indexes: true,
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
     }
     let script = script.join("\n");
     println!("{script}");
@@ -221,28 +379,65 @@ async fn schema_and_ddl() {
     assert_eq!(schema_of(&mut s, "DBINE_DDL2").await, moved);
 
     // Inserts.
-    let t = ObjectRef { kind: kinds::TABLE.into(), schema: Some("DBINE_DDL2".into()), name: "CLIENTES".into() };
+    let t = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: Some("DBINE_DDL2".into()),
+        name: "CLIENTES".into(),
+    };
     let ins = d
         .insert_script(
             &t,
             &["ID".into(), "NOMBRE".into(), "EMAIL".into(), "SALDO".into()],
-            &[vec![1.into(), "O'Brien".into(), serde_json::Value::Null, 1.5.into()], vec![2.into(), "b".into(), "b@x".into(), 0.into()]],
+            &[
+                vec![
+                    1.into(),
+                    "O'Brien".into(),
+                    serde_json::Value::Null,
+                    1.5.into(),
+                ],
+                vec![2.into(), "b".into(), "b@x".into(), 0.into()],
+            ],
         )
         .unwrap();
     assert!(ins.starts_with("UPSERT INTO"), "{ins}");
     run(&mut s, &ins).await;
     let mut out = QueryOutcome::default();
-    s.execute("SELECT NOMBRE FROM DBINE_DDL2.CLIENTES WHERE ID = 1", 10, &mut out).await.unwrap();
+    s.execute(
+        "SELECT NOMBRE FROM DBINE_DDL2.CLIENTES WHERE ID = 1",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!("O'Brien"));
 
     // Drop with the generated DDL; databases aren't created from DBine.
     for t in &moved {
-        run(&mut s, &d.table_ddl(t, DdlParts { drop: true, if_exists: true, ..Default::default() }).unwrap()).await;
+        run(
+            &mut s,
+            &d.table_ddl(
+                t,
+                DdlParts {
+                    drop: true,
+                    if_exists: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .await;
     }
     assert!(schema_of(&mut s, "DBINE_DDL2").await.is_empty());
     assert!(!d.capabilities().create_database);
-    assert!(matches!(s.create_database("X").await, Err(Error::Unsupported(_))));
-    run(&mut s, "DROP TABLE DBINE_DDL.ITEMS; DROP TABLE DBINE_DDL.PEDIDOS; DROP TABLE DBINE_DDL.CLIENTES").await;
+    assert!(matches!(
+        s.create_database("X").await,
+        Err(Error::Unsupported(_))
+    ));
+    run(
+        &mut s,
+        "DROP TABLE DBINE_DDL.ITEMS; DROP TABLE DBINE_DDL.PEDIDOS; DROP TABLE DBINE_DDL.CLIENTES",
+    )
+    .await;
 }
 
 /// With the HBase UIs published too:
@@ -274,20 +469,41 @@ async fn monitor() {
     .await
     .unwrap();
     let snap = s.monitor().await.unwrap();
-    let v = |k: &str| snap.metrics.iter().find(|m| m.key == k).and_then(|m| m.value);
+    let v = |k: &str| {
+        snap.metrics
+            .iter()
+            .find(|m| m.key == k)
+            .and_then(|m| m.value)
+    };
     eprintln!(
         "{:?}\ninfo {:?}\nnotes {:?}\ntables {:?}",
-        snap.metrics.iter().map(|m| (m.key.as_str(), m.value, m.max)).collect::<Vec<_>>(),
+        snap.metrics
+            .iter()
+            .map(|m| (m.key.as_str(), m.value, m.max))
+            .collect::<Vec<_>>(),
         snap.info,
         snap.notes,
-        snap.tables.iter().map(|t| (t.key.as_str(), t.rows.len())).collect::<Vec<_>>()
+        snap.tables
+            .iter()
+            .map(|t| (t.key.as_str(), t.rows.len()))
+            .collect::<Vec<_>>()
     );
     assert!(v("tables").unwrap() >= 1.0);
     if hbase.is_some() {
-        assert!(snap.tables.iter().any(|t| t.key == "top_objects" && t.rows.iter().any(|r| r[0] == "DBINE_MON")));
+        assert!(snap
+            .tables
+            .iter()
+            .any(|t| t.key == "top_objects" && t.rows.iter().any(|r| r[0] == "DBINE_MON")));
         assert!(v("cpu").is_some() && v("mem_used").is_some() && v("regions").unwrap() >= 1.0);
-        assert!(v("queries").unwrap() > 0.0 && v("region_servers") == Some(1.0) && v("uptime").is_some());
-        assert!(snap.tables.iter().any(|t| t.key == "nodes" && !t.rows.is_empty()));
+        assert!(
+            v("queries").unwrap() > 0.0
+                && v("region_servers") == Some(1.0)
+                && v("uptime").is_some()
+        );
+        assert!(snap
+            .tables
+            .iter()
+            .any(|t| t.key == "nodes" && !t.rows.is_empty()));
     }
 }
 
@@ -299,9 +515,16 @@ async fn avatica_generic() {
     let Some(mut c) = cfg(false) else { return };
     c.driver = "avatica".into();
     // The Query Server speaks protobuf unless configured otherwise.
-    let ser = c.options.get("serialization").cloned().unwrap_or_else(|| "protobuf".into());
+    let ser = c
+        .options
+        .get("serialization")
+        .cloned()
+        .unwrap_or_else(|| "protobuf".into());
     c.options.insert("serialization".into(), ser);
-    let d = dbine_driver_phoenix::drivers().into_iter().find(|d| d.info().id == "avatica").unwrap();
+    let d = dbine_driver_phoenix::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "avatica")
+        .unwrap();
     assert!(!d.capabilities().monitor && d.designer().is_none());
     let mut s = d.connect(&c, None).await.unwrap();
     let v = s.server_version().await.unwrap();
@@ -317,10 +540,23 @@ async fn avatica_generic() {
     .await
     .unwrap();
     let objs = s.list_objects().await.unwrap();
-    assert!(objs.iter().any(|o| o.name == "DBINE_AV" && o.kind == kinds::TABLE), "{objs:?}");
-    assert!(objs.iter().any(|o| o.name == "DBINE_AV_V" && o.kind == kinds::VIEW));
-    assert!(!objs.iter().any(|o| o.schema.as_deref() == Some("SYSTEM")), "system tables are left out");
-    let t = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "DBINE_AV".into() };
+    assert!(
+        objs.iter()
+            .any(|o| o.name == "DBINE_AV" && o.kind == kinds::TABLE),
+        "{objs:?}"
+    );
+    assert!(objs
+        .iter()
+        .any(|o| o.name == "DBINE_AV_V" && o.kind == kinds::VIEW));
+    assert!(
+        !objs.iter().any(|o| o.schema.as_deref() == Some("SYSTEM")),
+        "system tables are left out"
+    );
+    let t = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: "DBINE_AV".into(),
+    };
     let cols = s.columns(&t).await.unwrap();
     let names: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, vec!["ID", "NAME", "D"]);
@@ -328,13 +564,19 @@ async fn avatica_generic() {
     assert_eq!(cols[2].data_type, "DECIMAL(10,2)");
     assert!(!cols[0].nullable && cols[1].nullable);
     let schema = s.database_schema().await.unwrap();
-    assert!(schema.iter().any(|t| t.name == "DBINE_AV" && t.columns.len() == 3));
+    assert!(schema
+        .iter()
+        .any(|t| t.name == "DBINE_AV" && t.columns.len() == 3));
     let mut out = QueryOutcome::default();
-    s.execute(&s.browse_query(&t, 10), 10, &mut out).await.unwrap();
+    s.execute(&s.browse_query(&t, 10), 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows[0][1], serde_json::json!("a"));
     assert!(matches!(s.monitor().await, Err(Error::Unsupported(_))));
     let mut out = QueryOutcome::default();
-    s.execute("DROP VIEW DBINE_AV_V; DROP TABLE DBINE_AV", 10, &mut out).await.unwrap();
+    s.execute("DROP VIEW DBINE_AV_V; DROP TABLE DBINE_AV", 10, &mut out)
+        .await
+        .unwrap();
 }
 
 /// Schema sync: columns added (in a column family, with a default) and
@@ -367,19 +609,51 @@ async fn schema_sync() {
     let old = find("T");
     let mut new = old.clone();
     new.columns.retain(|c| c.name != "BAJA");
-    let mut email = ColumnDef { name: "EMAIL".into(), data_type: "VARCHAR".into(), nullable: true, default_value: Some("'-'".into()), ..Default::default() };
+    let mut email = ColumnDef {
+        name: "EMAIL".into(),
+        data_type: "VARCHAR".into(),
+        nullable: true,
+        default_value: Some("'-'".into()),
+        ..Default::default()
+    };
     email.options.insert("family".into(), "CF1".into());
     new.columns.push(email);
-    new.indexes = vec![IndexDef { name: "IX_NOMBRE".into(), columns: vec!["EMAIL".into()], unique: false, kind: Some("global".into()), filter: None, ..Default::default() }];
+    new.indexes = vec![IndexDef {
+        name: "IX_NOMBRE".into(),
+        columns: vec!["EMAIL".into()],
+        unique: false,
+        kind: Some("global".into()),
+        filter: None,
+        ..Default::default()
+    }];
     let nueva = dbine_driver::TableSchema {
         kind: "table".into(),
         schema: Some("DBINE_SYNC".into()),
         name: "NUEVA".into(),
-        columns: vec![ColumnDef { name: "ID".into(), data_type: "INTEGER".into(), nullable: false, ..Default::default() }],
-        primary_key: Some(KeyDef { name: Some("PK_N".into()), columns: vec!["ID".into()] }),
+        columns: vec![ColumnDef {
+            name: "ID".into(),
+            data_type: "INTEGER".into(),
+            nullable: false,
+            ..Default::default()
+        }],
+        primary_key: Some(KeyDef {
+            name: Some("PK_N".into()),
+            columns: vec!["ID".into()],
+        }),
         ..Default::default()
     };
-    let script = d.sync_script(&[TableChange::Alter { old, new: new.clone() }, TableChange::Drop { table: find("VIEJA") }, TableChange::Create { table: nueva }]).unwrap();
+    let script = d
+        .sync_script(&[
+            TableChange::Alter {
+                old,
+                new: new.clone(),
+            },
+            TableChange::Drop {
+                table: find("VIEJA"),
+            },
+            TableChange::Create { table: nueva },
+        ])
+        .unwrap();
     println!("{script:#?}");
     for stmt in &script.statements {
         run(&mut s, stmt).await;
@@ -387,10 +661,23 @@ async fn schema_sync() {
     let all = schema_of(&mut s, "DBINE_SYNC").await;
     assert!(all.iter().all(|t| t.name != "VIEJA") && all.iter().any(|t| t.name == "NUEVA"));
     let now = all.into_iter().find(|t| t.name == "T").unwrap();
-    let again = d.sync_script(&[TableChange::Alter { old: now.clone(), new }]).unwrap();
-    assert!(again.statements.is_empty(), "{:?}\n{now:#?}", again.statements);
+    let again = d
+        .sync_script(&[TableChange::Alter {
+            old: now.clone(),
+            new,
+        }])
+        .unwrap();
+    assert!(
+        again.statements.is_empty(),
+        "{:?}\n{now:#?}",
+        again.statements
+    );
     run(&mut s, "UPSERT INTO DBINE_SYNC.T (ID) VALUES (2)").await;
-    run(&mut s, "DROP TABLE DBINE_SYNC.T; DROP TABLE DBINE_SYNC.NUEVA").await;
+    run(
+        &mut s,
+        "DROP TABLE DBINE_SYNC.T; DROP TABLE DBINE_SYNC.NUEVA",
+    )
+    .await;
 }
 
 /// "Nuevo esquema…" / "Borrar esquema…": the schema shows in
@@ -403,28 +690,72 @@ async fn create_and_drop_schema() {
     let d = dbine_driver_phoenix::drivers().remove(0);
     let spec = d.schema_spec().unwrap();
     assert!(!spec.owner && !spec.cascade && spec.privileges.contains(&"R"));
-    assert!(dbine_driver_phoenix::drivers().remove(1).schema_spec().is_none());
+    assert!(dbine_driver_phoenix::drivers()
+        .remove(1)
+        .schema_spec()
+        .is_none());
     let mut s = d.connect(&c, None).await.unwrap();
     let mut out = QueryOutcome::default();
-    let _ = s.execute("DROP TABLE IF EXISTS \"DBINE_SC\".T", 10, &mut out).await;
-    let _ = s.execute(&d.drop_schema_script(None, "DBINE_SC", false).unwrap(), 10, &mut out).await;
+    let _ = s
+        .execute("DROP TABLE IF EXISTS \"DBINE_SC\".T", 10, &mut out)
+        .await;
+    let _ = s
+        .execute(
+            &d.drop_schema_script(None, "DBINE_SC", false).unwrap(),
+            10,
+            &mut out,
+        )
+        .await;
 
     let mut out = QueryOutcome::default();
-    s.execute(&d.create_schema_script(None, "DBINE_SC", None).unwrap(), 10, &mut out).await.unwrap();
+    s.execute(
+        &d.create_schema_script(None, "DBINE_SC", None).unwrap(),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     let mut out = QueryOutcome::default();
     s.execute("SELECT TABLE_SCHEM FROM SYSTEM.CATALOG WHERE TABLE_SCHEM = 'DBINE_SC' AND TENANT_ID IS NULL", 10, &mut out).await.unwrap();
-    assert!(!out.results[0].rows.is_empty(), "the schema isn't in SYSTEM.CATALOG");
+    assert!(
+        !out.results[0].rows.is_empty(),
+        "the schema isn't in SYSTEM.CATALOG"
+    );
     // Empty, it's listed (the tree shows it and can drop it).
-    let listed = s.list_schemas().await.unwrap().expect("Phoenix lists schemas");
-    assert!(listed.iter().any(|x| x.name == "DBINE_SC" && !x.system), "{listed:?}");
-    assert!(listed.iter().any(|x| x.name == "SYSTEM" && x.system), "{listed:?}");
+    let listed = s
+        .list_schemas()
+        .await
+        .unwrap()
+        .expect("Phoenix lists schemas");
+    assert!(
+        listed.iter().any(|x| x.name == "DBINE_SC" && !x.system),
+        "{listed:?}"
+    );
+    assert!(
+        listed.iter().any(|x| x.name == "SYSTEM" && x.system),
+        "{listed:?}"
+    );
     // Names HBase would refuse (slowly) are refused before running.
-    assert!(d.create_schema_script(None, "Mi Esquema", None).is_err() && d.create_schema_script(None, "q\"x", None).is_err());
+    assert!(
+        d.create_schema_script(None, "Mi Esquema", None).is_err()
+            && d.create_schema_script(None, "q\"x", None).is_err()
+    );
 
     // What "Nuevo esquema…" writes for a grant (the default: `security_script` on the schema).
-    let grant = d.schema_grant_script(Some("ignored"), "DBINE_SC", &["R".into(), "W".into()], "dbine_ana", false).unwrap();
+    let grant = d
+        .schema_grant_script(
+            Some("ignored"),
+            "DBINE_SC",
+            &["R".into(), "W".into()],
+            "dbine_ana",
+            false,
+        )
+        .unwrap();
     assert_eq!(grant, "GRANT 'RW' ON SCHEMA \"DBINE_SC\" TO 'dbine_ana'");
-    assert!(d.schema_owner_script(None, "DBINE_SC", "ana").unwrap().is_none());
+    assert!(d
+        .schema_owner_script(None, "DBINE_SC", "ana")
+        .unwrap()
+        .is_none());
     let mut out = QueryOutcome::default();
     match s.execute(&grant, 10, &mut out).await {
         Ok(()) => eprintln!("the server has ACLs: {grant} ran"),
@@ -432,17 +763,46 @@ async fn create_and_drop_schema() {
     }
 
     let mut out = QueryOutcome::default();
-    s.execute("CREATE TABLE \"DBINE_SC\".T (ID BIGINT NOT NULL PRIMARY KEY)", 10, &mut out).await.unwrap();
+    s.execute(
+        "CREATE TABLE \"DBINE_SC\".T (ID BIGINT NOT NULL PRIMARY KEY)",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     let mut out = QueryOutcome::default();
-    assert!(s.execute(&d.drop_schema_script(None, "DBINE_SC", false).unwrap(), 10, &mut out).await.is_err(), "dropped a schema with a table");
+    assert!(
+        s.execute(
+            &d.drop_schema_script(None, "DBINE_SC", false).unwrap(),
+            10,
+            &mut out
+        )
+        .await
+        .is_err(),
+        "dropped a schema with a table"
+    );
     let mut out = QueryOutcome::default();
-    s.execute("DROP TABLE \"DBINE_SC\".T", 10, &mut out).await.unwrap();
+    s.execute("DROP TABLE \"DBINE_SC\".T", 10, &mut out)
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
-    s.execute(&d.drop_schema_script(None, "DBINE_SC", false).unwrap(), 10, &mut out).await.unwrap();
+    s.execute(
+        &d.drop_schema_script(None, "DBINE_SC", false).unwrap(),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     let mut out = QueryOutcome::default();
     s.execute("SELECT TABLE_SCHEM FROM SYSTEM.CATALOG WHERE TABLE_SCHEM = 'DBINE_SC' AND TENANT_ID IS NULL", 10, &mut out).await.unwrap();
     assert!(out.results[0].rows.is_empty(), "the schema is still there");
-    assert!(!s.list_schemas().await.unwrap().unwrap().iter().any(|x| x.name == "DBINE_SC"));
+    assert!(!s
+        .list_schemas()
+        .await
+        .unwrap()
+        .unwrap()
+        .iter()
+        .any(|x| x.name == "DBINE_SC"));
 }
 
 /// The editor's script contract: Phoenix's code and SQLSTATE with the
@@ -456,34 +816,82 @@ async fn script_errors_and_transactions() {
     assert_eq!(d.script_mode(), dbine_driver::sql::ScriptMode::PerStatement);
     let mut s = d.connect(&c, None).await.unwrap();
     let mut other = d.connect(&c, None).await.unwrap();
-    let script = "SELECT 1 FROM SYSTEM.CATALOG LIMIT 1;\nSELECT 2 FROM\n  SYSTEM.CATALOG WHERE\n  nope = 1;";
+    let script =
+        "SELECT 1 FROM SYSTEM.CATALOG LIMIT 1;\nSELECT 2 FROM\n  SYSTEM.CATALOG WHERE\n  nope = 1;";
     let mut out = QueryOutcome::default();
-    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
-    assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("504"), Some("42703")), "{e:?}");
+    let e = s
+        .execute(script, 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
+    assert_eq!(
+        (e.code.as_deref(), e.sqlstate.as_deref()),
+        (Some("504"), Some("42703")),
+        "{e:?}"
+    );
     assert_eq!(out.results.len(), 1);
-    let e = s.execute("SELECT 1;\nSELECT 2 FROM SYSTEM.CATALOG\n  WHER x", 10, &mut QueryOutcome::default()).await.unwrap_err().to_script_error();
+    let e = s
+        .execute(
+            "SELECT 1;\nSELECT 2 FROM SYSTEM.CATALOG\n  WHER x",
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await
+        .unwrap_err()
+        .to_script_error();
     eprintln!("{e:?}");
     assert_eq!(e.code.as_deref(), Some("603"), "{e:?}");
     assert_eq!(e.line, Some(3));
-    assert_eq!(e.offset, Some("SELECT 1;\nSELECT 2 FROM SYSTEM.CATALOG\n  WHER ".len()));
+    assert_eq!(
+        e.offset,
+        Some("SELECT 1;\nSELECT 2 FROM SYSTEM.CATALOG\n  WHER ".len())
+    );
 
     let run = |sql: &'static str| sql;
     let mut go = QueryOutcome::default();
-    let _ = s.execute("DROP TABLE IF EXISTS DBINE.TX", 10, &mut go).await;
-    s.execute(run("CREATE TABLE DBINE.TX (ID INTEGER PRIMARY KEY)"), 10, &mut go).await.unwrap();
+    let _ = s
+        .execute("DROP TABLE IF EXISTS DBINE.TX", 10, &mut go)
+        .await;
+    s.execute(
+        run("CREATE TABLE DBINE.TX (ID INTEGER PRIMARY KEY)"),
+        10,
+        &mut go,
+    )
+    .await
+    .unwrap();
     s.set_autocommit(false).await.unwrap();
-    s.execute("UPSERT INTO DBINE.TX VALUES (1)", 10, &mut go).await.unwrap();
-    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    s.execute("UPSERT INTO DBINE.TX VALUES (1)", 10, &mut go)
+        .await
+        .unwrap();
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(dbine_driver::TxState::Open)
+    );
     s.rollback().await.unwrap();
-    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
-    s.execute("UPSERT INTO DBINE.TX VALUES (2)", 10, &mut go).await.unwrap();
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(dbine_driver::TxState::Idle)
+    );
+    s.execute("UPSERT INTO DBINE.TX VALUES (2)", 10, &mut go)
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
-    other.execute("SELECT COUNT(*) FROM DBINE.TX", 10, &mut out).await.unwrap();
-    assert_eq!(out.results[0].rows[0][0], serde_json::json!(0), "not visible before the commit");
+    other
+        .execute("SELECT COUNT(*) FROM DBINE.TX", 10, &mut out)
+        .await
+        .unwrap();
+    assert_eq!(
+        out.results[0].rows[0][0],
+        serde_json::json!(0),
+        "not visible before the commit"
+    );
     s.commit().await.unwrap();
     s.set_autocommit(true).await.unwrap();
     let mut out = QueryOutcome::default();
-    other.execute("SELECT ID FROM DBINE.TX", 10, &mut out).await.unwrap();
+    other
+        .execute("SELECT ID FROM DBINE.TX", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows, vec![vec![serde_json::json!(2)]]);
     s.execute("DROP TABLE DBINE.TX", 10, &mut go).await.unwrap();
 }

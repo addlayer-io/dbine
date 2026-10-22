@@ -198,11 +198,22 @@ fn candidates(explicit: Option<&str>) -> Vec<PathBuf> {
         &["libodbc.so.2", "libodbc.so.1", "libodbc.so"]
     };
     let dirs: &[&str] = if cfg!(target_os = "macos") {
-        &["/opt/homebrew/lib", "/usr/local/lib", "/opt/local/lib", "/usr/lib"]
+        &[
+            "/opt/homebrew/lib",
+            "/usr/local/lib",
+            "/opt/local/lib",
+            "/usr/lib",
+        ]
     } else if cfg!(target_os = "windows") {
         &[]
     } else {
-        &["/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib", "/usr/local/lib"]
+        &[
+            "/usr/lib/x86_64-linux-gnu",
+            "/usr/lib/aarch64-linux-gnu",
+            "/usr/lib64",
+            "/usr/lib",
+            "/usr/local/lib",
+        ]
     };
     for d in dirs {
         for n in names {

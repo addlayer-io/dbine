@@ -28,7 +28,9 @@ pub fn set_components_dir(dir: PathBuf) {
 }
 
 pub fn components_dir() -> PathBuf {
-    DIR.get().cloned().unwrap_or_else(|| std::env::temp_dir().join("dbine-components"))
+    DIR.get()
+        .cloned()
+        .unwrap_or_else(|| std::env::temp_dir().join("dbine-components"))
 }
 
 /// Where download progress goes (the app forwards it to the UI).

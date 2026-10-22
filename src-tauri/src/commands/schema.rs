@@ -17,7 +17,9 @@ pub fn driver_of(state: &AppState, connection_id: &str) -> CommandResult<&'stati
         .ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?
         .config
         .driver;
-    dbine_drivers::find(&id).ok_or_else(|| CommandError::BadRequest(format!("esta versión no incluye el driver '{id}'")))
+    dbine_drivers::find(&id).ok_or_else(|| {
+        CommandError::BadRequest(format!("esta versión no incluye el driver '{id}'"))
+    })
 }
 
 #[derive(Deserialize)]
@@ -27,9 +29,17 @@ pub struct DatabaseArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn database_schema(state: State<'_, AppState>, args: DatabaseArgs) -> CommandResult<Vec<TableSchema>> {
+pub async fn database_schema(
+    state: State<'_, AppState>,
+    args: DatabaseArgs,
+) -> CommandResult<Vec<TableSchema>> {
     state
-        .meta_read(&args.connection_id, &args.database, crate::commands::explorer::SCHEMA_LIMIT, |s| Box::pin(s.database_schema()))
+        .meta_read(
+            &args.connection_id,
+            &args.database,
+            crate::commands::explorer::SCHEMA_LIMIT,
+            |s| Box::pin(s.database_schema()),
+        )
         .await
 }
 
@@ -64,8 +74,15 @@ pub struct InsertScriptArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn insert_script(state: State<'_, AppState>, args: InsertScriptArgs) -> CommandResult<String> {
-    Ok(driver_of(&state, &args.connection_id)?.insert_script(&args.target, &args.columns, &args.rows)?)
+pub async fn insert_script(
+    state: State<'_, AppState>,
+    args: InsertScriptArgs,
+) -> CommandResult<String> {
+    Ok(driver_of(&state, &args.connection_id)?.insert_script(
+        &args.target,
+        &args.columns,
+        &args.rows,
+    )?)
 }
 
 #[derive(Deserialize)]
@@ -102,7 +119,10 @@ pub struct UpdateScriptArgs {
 /// `inserts`, the new rows' INSERTs go last (an empty list only asks
 /// whether the engine writes them, the same way).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn update_script(state: State<'_, AppState>, args: UpdateScriptArgs) -> CommandResult<String> {
+pub async fn update_script(
+    state: State<'_, AppState>,
+    args: UpdateScriptArgs,
+) -> CommandResult<String> {
     let driver = driver_of(&state, &args.connection_id)?;
     if args.deletes.is_none() && args.inserts.is_none() {
         return Ok(driver.update_script(&args.target, &args.changes)?);
@@ -115,10 +135,20 @@ pub async fn update_script(state: State<'_, AppState>, args: UpdateScriptArgs) -
         parts.push(driver.update_script(&args.target, &args.changes)?);
     }
     if let Some(inserts) = &args.inserts {
-        parts.extend(super::data_compare::new_rows_parts(driver.as_ref(), &args.target, inserts, &args.identity, &args.columns)?);
+        parts.extend(super::data_compare::new_rows_parts(
+            driver.as_ref(),
+            &args.target,
+            inserts,
+            &args.identity,
+            &args.columns,
+        )?);
     }
     let sep = driver.script_separator();
-    Ok(parts.into_iter().filter(|p| !p.trim().is_empty()).collect::<Vec<_>>().join(&format!("\n{sep}\n")))
+    Ok(parts
+        .into_iter()
+        .filter(|p| !p.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(&format!("\n{sep}\n")))
 }
 
 #[derive(Deserialize)]
@@ -137,22 +167,36 @@ pub struct CreateDatabaseArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn create_database(state: State<'_, AppState>, args: CreateDatabaseArgs) -> CommandResult<()> {
+pub async fn create_database(
+    state: State<'_, AppState>,
+    args: CreateDatabaseArgs,
+) -> CommandResult<()> {
     if args.name.trim().is_empty() {
-        return Err(CommandError::BadRequest("la base necesita un nombre".into()));
+        return Err(CommandError::BadRequest(
+            "la base necesita un nombre".into(),
+        ));
     }
-    let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+    let entry = state
+        .session(&meta_key(&args.connection_id, ""), &args.connection_id, "")
+        .await?;
     let mut s = entry.session.lock().await;
-    Ok(s.create_database_with(args.name.trim(), &args.options).await?)
+    Ok(s.create_database_with(args.name.trim(), &args.options)
+        .await?)
 }
 
 /// What "Ver script" shows for "Nueva base de datos".
 #[tauri::command(rename_all = "camelCase")]
-pub async fn create_database_script(state: State<'_, AppState>, args: CreateDatabaseArgs) -> CommandResult<String> {
+pub async fn create_database_script(
+    state: State<'_, AppState>,
+    args: CreateDatabaseArgs,
+) -> CommandResult<String> {
     if args.name.trim().is_empty() {
-        return Err(CommandError::BadRequest("la base necesita un nombre".into()));
+        return Err(CommandError::BadRequest(
+            "la base necesita un nombre".into(),
+        ));
     }
-    Ok(driver_of(&state, &args.connection_id)?.create_database_script(args.name.trim(), &args.options)?)
+    Ok(driver_of(&state, &args.connection_id)?
+        .create_database_script(args.name.trim(), &args.options)?)
 }
 
 #[derive(Deserialize)]
@@ -165,8 +209,13 @@ pub struct ConnectionArgs {
 /// dropping databases are (some changes can't run from inside the
 /// database: PostgreSQL's SET TABLESPACE).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn database_properties(state: State<'_, AppState>, args: DatabaseArgs) -> CommandResult<dbine_driver::DatabaseProperties> {
-    let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+pub async fn database_properties(
+    state: State<'_, AppState>,
+    args: DatabaseArgs,
+) -> CommandResult<dbine_driver::DatabaseProperties> {
+    let entry = state
+        .session(&meta_key(&args.connection_id, ""), &args.connection_id, "")
+        .await?;
     let mut s = entry.session.lock().await;
     Ok(s.database_properties(&args.database).await?)
 }
@@ -181,17 +230,26 @@ pub struct AlterDatabaseArgs {
 
 /// The script "Aplicar" shows before it runs.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn alter_database_script(state: State<'_, AppState>, args: AlterDatabaseArgs) -> CommandResult<String> {
-    Ok(driver_of(&state, &args.connection_id)?.alter_database_script(&args.database, &args.changes)?)
+pub async fn alter_database_script(
+    state: State<'_, AppState>,
+    args: AlterDatabaseArgs,
+) -> CommandResult<String> {
+    Ok(driver_of(&state, &args.connection_id)?
+        .alter_database_script(&args.database, &args.changes)?)
 }
 
 /// Apply the confirmed changes. Refused on read-only connections.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn alter_database(state: State<'_, AppState>, args: AlterDatabaseArgs) -> CommandResult<()> {
+pub async fn alter_database(
+    state: State<'_, AppState>,
+    args: AlterDatabaseArgs,
+) -> CommandResult<()> {
     if args.changes.is_empty() {
         return Ok(());
     }
-    let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+    let entry = state
+        .session(&meta_key(&args.connection_id, ""), &args.connection_id, "")
+        .await?;
     let mut s = entry.session.lock().await;
     Ok(s.alter_database(&args.database, &args.changes).await?)
 }
@@ -199,18 +257,30 @@ pub async fn alter_database(state: State<'_, AppState>, args: AlterDatabaseArgs)
 /// The server's suggestions for "Nueva base de datos"'s options
 /// (collations, default paths, users…). Empty when it has none.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn create_database_choices(state: State<'_, AppState>, args: ConnectionArgs) -> CommandResult<Vec<dbine_driver::FieldChoices>> {
-    let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+pub async fn create_database_choices(
+    state: State<'_, AppState>,
+    args: ConnectionArgs,
+) -> CommandResult<Vec<dbine_driver::FieldChoices>> {
+    let entry = state
+        .session(&meta_key(&args.connection_id, ""), &args.connection_id, "")
+        .await?;
     let mut s = entry.session.lock().await;
     Ok(s.create_database_choices().await?)
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn drop_database(state: State<'_, AppState>, args: DatabaseNameArgs) -> CommandResult<()> {
+pub async fn drop_database(
+    state: State<'_, AppState>,
+    args: DatabaseNameArgs,
+) -> CommandResult<()> {
     // Sessions on that database would keep it busy (and some engines refuse
     // to drop a database with connections): close ours first.
-    state.sessions.retain(|_, e| !(e.connection_id == args.connection_id && e.database == args.name));
-    let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+    state
+        .sessions
+        .retain(|_, e| !(e.connection_id == args.connection_id && e.database == args.name));
+    let entry = state
+        .session(&meta_key(&args.connection_id, ""), &args.connection_id, "")
+        .await?;
     let mut s = entry.session.lock().await;
     Ok(s.drop_database(&args.name).await?)
 }
@@ -246,24 +316,51 @@ pub struct DropObjectsResult {
 /// triggers…) with the driver's own DDL. In passes: an object others depend
 /// on goes once they're gone. Refused on read-only connections.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn drop_objects(app: AppHandle, state: State<'_, AppState>, args: DropObjectsArgs) -> CommandResult<DropObjectsResult> {
-    let conn = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
+pub async fn drop_objects(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: DropObjectsArgs,
+) -> CommandResult<DropObjectsResult> {
+    let conn = state
+        .store
+        .get_connection(&args.connection_id)?
+        .ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
     if conn.config.read_only {
-        return Err(CommandError::BadRequest(format!("«{}» es de solo lectura: no se pueden eliminar objetos", conn.name)));
+        return Err(CommandError::BadRequest(format!(
+            "«{}» es de solo lectura: no se pueden eliminar objetos",
+            conn.name
+        )));
     }
     let driver = driver_of(&state, &args.connection_id)?;
     let mut work: Vec<(ObjectRef, String)> = Vec::new();
     let mut errors: Vec<(ObjectRef, String)> = Vec::new();
     for o in &args.objects {
-        let stmt = if o.kind == dbine_driver::kinds::TABLE || o.kind == dbine_driver::kinds::COLLECTION {
-            let t = TableSchema { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone(), ..Default::default() };
-            driver.table_ddl(&t, DdlParts { drop: true, ..Default::default() }).ok()
-        } else {
-            crate::commands::scripts::drop_other(driver.as_ref(), o, false)
-        };
+        let stmt =
+            if o.kind == dbine_driver::kinds::TABLE || o.kind == dbine_driver::kinds::COLLECTION {
+                let t = TableSchema {
+                    kind: o.kind.clone(),
+                    schema: o.schema.clone(),
+                    name: o.name.clone(),
+                    ..Default::default()
+                };
+                driver
+                    .table_ddl(
+                        &t,
+                        DdlParts {
+                            drop: true,
+                            ..Default::default()
+                        },
+                    )
+                    .ok()
+            } else {
+                crate::commands::scripts::drop_other(driver.as_ref(), o, false)
+            };
         match stmt.filter(|s| !s.trim().is_empty()) {
             Some(s) => work.push((o.clone(), s)),
-            None => errors.push((o.clone(), "este motor no permite eliminar este tipo de objeto desde DBine".into())),
+            None => errors.push((
+                o.clone(),
+                "este motor no permite eliminar este tipo de objeto desde DBine".into(),
+            )),
         }
     }
     let total = args.objects.len();
@@ -272,15 +369,27 @@ pub async fn drop_objects(app: AppHandle, state: State<'_, AppState>, args: Drop
     let mut progress = |done: usize, force: bool| {
         let Some(id) = &args.id else { return };
         let now = std::time::Instant::now();
-        if !force && last_emit.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(150)) {
+        if !force
+            && last_emit
+                .is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(150))
+        {
             return;
         }
         last_emit = Some(now);
-        let _ = app.emit("drop-objects-progress", DropProgress { id: id.clone(), done, total });
+        let _ = app.emit(
+            "drop-objects-progress",
+            DropProgress {
+                id: id.clone(),
+                done,
+                total,
+            },
+        );
     };
     progress(errors.len(), true);
     let key = format!("drop:{}", uuid::Uuid::new_v4());
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, false)
+        .await?;
     let mut dropped = Vec::new();
     let result = async {
         let mut pending = work;
@@ -289,10 +398,14 @@ pub async fn drop_objects(app: AppHandle, state: State<'_, AppState>, args: Drop
             for (o, sql) in pending.iter() {
                 let mut s = entry.session.lock().await;
                 let mut out = dbine_driver::QueryOutcome::default();
-                let r = s.execute(sql, 0, &mut out).await.map_err(|e| e.to_string()).and_then(|_| match out.error.take() {
-                    Some(e) => Err(e),
-                    None => Ok(()),
-                });
+                let r = s
+                    .execute(sql, 0, &mut out)
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|_| match out.error.take() {
+                        Some(e) => Err(e),
+                        None => Ok(()),
+                    });
                 match r {
                     Ok(()) => {
                         dropped.push(o.clone());

@@ -15,14 +15,19 @@ pub struct SaveFolderArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn save_folder(state: State<'_, AppState>, args: SaveFolderArgs) -> CommandResult<ConnectionFolder> {
+pub async fn save_folder(
+    state: State<'_, AppState>,
+    args: SaveFolderArgs,
+) -> CommandResult<ConnectionFolder> {
     let mut f = args.folder;
     if f.id.is_empty() {
         f.id = uuid::Uuid::new_v4().to_string();
     }
     f.name = f.name.trim().to_string();
     if f.name.is_empty() {
-        return Err(CommandError::BadRequest("la carpeta necesita un nombre".into()));
+        return Err(CommandError::BadRequest(
+            "la carpeta necesita un nombre".into(),
+        ));
     }
     Ok(state.store.save_folder(&f)?)
 }
@@ -46,8 +51,13 @@ pub struct MoveConnectionArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn move_connection(state: State<'_, AppState>, args: MoveConnectionArgs) -> CommandResult<()> {
-    Ok(state.store.move_connection(&args.connection_id, args.folder_id.as_deref())?)
+pub async fn move_connection(
+    state: State<'_, AppState>,
+    args: MoveConnectionArgs,
+) -> CommandResult<()> {
+    Ok(state
+        .store
+        .move_connection(&args.connection_id, args.folder_id.as_deref())?)
 }
 
 #[derive(Deserialize)]
@@ -61,6 +71,11 @@ pub struct ReorderExplorerArgs {
 
 /// Drag and drop in the explorer: the items land in the level, in that order.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn reorder_explorer(state: State<'_, AppState>, args: ReorderExplorerArgs) -> CommandResult<()> {
-    Ok(state.store.reorder_explorer(args.kind, args.parent_id.as_deref(), &args.ids)?)
+pub async fn reorder_explorer(
+    state: State<'_, AppState>,
+    args: ReorderExplorerArgs,
+) -> CommandResult<()> {
+    Ok(state
+        .store
+        .reorder_explorer(args.kind, args.parent_id.as_deref(), &args.ids)?)
 }

@@ -42,12 +42,20 @@ struct Seen {
 
 impl Seen {
     fn new(now: i64) -> Self {
-        Self { since: now, mark: now, ids: HashMap::new(), pending: HashMap::new() }
+        Self {
+            since: now,
+            mark: now,
+            ids: HashMap::new(),
+            pending: HashMap::new(),
+        }
     }
 
     /// Where the next read starts: back to the oldest query still running.
     fn from(&self) -> i64 {
-        self.pending.values().copied().fold(self.mark - OVERLAP_MS, i64::min)
+        self.pending
+            .values()
+            .copied()
+            .fold(self.mark - OVERLAP_MS, i64::min)
     }
 
     fn running(&mut self, id: &str, at: i64) {
@@ -74,7 +82,10 @@ impl Seen {
 }
 
 fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Epoch milliseconds as `YYYY-MM-DD HH:MM:SS.mmm` (UTC).
@@ -89,11 +100,20 @@ fn utc(ms: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}", rem / 3_600_000, rem / 60_000 % 60, rem / 1000 % 60, rem % 1000)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}",
+        rem / 3_600_000,
+        rem / 60_000 % 60,
+        rem / 1000 % 60,
+        rem % 1000
+    )
 }
 
 fn text<'a>(v: &'a Json, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(Json::as_str).map(str::trim).filter(|s| !s.is_empty())
+    v.get(key)
+        .and_then(Json::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }
 
 fn num(v: &Json, key: &str) -> Option<f64> {
@@ -107,7 +127,9 @@ fn num(v: &Json, key: &str) -> Option<f64> {
 fn escape(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -117,7 +139,10 @@ fn statement(q: &Json, start: i64) -> Option<ProfiledStatement> {
     let sql = text(q, "query_text")?;
     let status = text(q, "status").unwrap_or("");
     let user = text(q, "user_name");
-    let mut detail: Vec<String> = text(q, "statement_type").map(str::to_string).into_iter().collect();
+    let mut detail: Vec<String> = text(q, "statement_type")
+        .map(str::to_string)
+        .into_iter()
+        .collect();
     if let Some(w) = text(q, "warehouse_id") {
         detail.push(format!("warehouse {w}"));
     }
@@ -156,7 +181,12 @@ fn take(res: &[Json], from: i64, seen: &mut Seen) -> Vec<ProfiledStatement> {
     res.sort_by_key(|q| num(q, "query_start_time_ms").unwrap_or(0.0) as i64);
     let mut out = Vec::new();
     for q in res {
-        let (Some(id), Some(at)) = (text(q, "query_id"), num(q, "query_start_time_ms").map(|t| t as i64)) else { continue };
+        let (Some(id), Some(at)) = (
+            text(q, "query_id"),
+            num(q, "query_start_time_ms").map(|t| t as i64),
+        ) else {
+            continue;
+        };
         if at < from {
             continue;
         }
@@ -182,7 +212,13 @@ impl DatabricksSession {
         );
         for _ in 0..pages {
             let r = self.api.get(&path).await?;
-            out.extend(r.get("res").and_then(Json::as_array).into_iter().flatten().cloned());
+            out.extend(
+                r.get("res")
+                    .and_then(Json::as_array)
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
             match text(&r, "next_page_token") {
                 // The token carries the filter.
                 Some(t) if r.get("has_next_page").and_then(Json::as_bool) != Some(false) => {
@@ -195,7 +231,10 @@ impl DatabricksSession {
     }
 }
 
-pub(crate) async fn start(s: &DatabricksSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &DatabricksSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let _ = opts;
     let now = now_ms();
     s.started_since(now, 1, 1).await?;
@@ -203,10 +242,19 @@ pub(crate) async fn start(s: &DatabricksSession, opts: &ProfilerOptions) -> Resu
         "Databricks no informa el catálogo de cada consulta: se ven las de todos los warehouses del workspace. \
          Sin permisos de administrador (o CAN_MANAGE sobre el warehouse) solo se ven tus consultas.",
     );
-    Ok((State { seen: Seen::new(now), next: Instant::now() }, started))
+    Ok((
+        State {
+            seen: Seen::new(now),
+            next: Instant::now(),
+        },
+        started,
+    ))
 }
 
-pub(crate) async fn poll(s: &DatabricksSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
+pub(crate) async fn poll(
+    s: &DatabricksSession,
+    state: &mut State,
+) -> Result<Vec<ProfiledStatement>> {
     if Instant::now() < state.next {
         return Ok(Vec::new());
     }
@@ -241,9 +289,15 @@ mod tests {
         assert_eq!(out.len(), 2);
         let a = &out[0];
         assert_eq!(a.time, "2023-11-14 22:13:20.123");
-        assert_eq!((a.duration_ms, a.rows, a.application.as_deref()), (Some(250.0), Some(1), Some("Tableau")));
+        assert_eq!(
+            (a.duration_ms, a.rows, a.application.as_deref()),
+            (Some(250.0), Some(1), Some("Tableau"))
+        );
         assert_eq!(a.detail.as_deref(), Some("SELECT · warehouse wh1"));
-        assert_eq!((a.cpu_ms, a.reads, a.writes), (Some(480.0), Some(4096), Some(0)));
+        assert_eq!(
+            (a.cpu_ms, a.reads, a.writes),
+            (Some(480.0), Some(4096), Some(0))
+        );
         assert_eq!((out[1].cpu_ms, out[1].reads), (None, None));
         assert_eq!(out[1].error.as_deref(), Some("syntax"));
         assert!(seen.pending.contains_key("b"));
@@ -252,7 +306,10 @@ mod tests {
             json!({"query_id": "b", "status": "FINISHED", "query_start_time_ms": 1_700_000_001_000i64, "query_text": "SELECT 2"}),
         ];
         let out = take(&res, seen.from(), &mut seen);
-        assert_eq!(out.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["SELECT 2"]);
+        assert_eq!(
+            out.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            ["SELECT 2"]
+        );
         assert!(seen.pending.is_empty());
     }
 

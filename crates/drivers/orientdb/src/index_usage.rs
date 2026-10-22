@@ -14,21 +14,39 @@ use crate::{as_text, ddl};
 use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport};
 use serde_json::Value;
 
-pub(crate) const NOTE: &str = "OrientDB no lleva la cuenta del uso de cada índice: se listan sin contadores.";
+pub(crate) const NOTE: &str =
+    "OrientDB no lleva la cuenta del uso de cada índice: se listan sin contadores.";
 
 /// The report for `class` from the database's metadata.
 pub(crate) fn report(meta: &Value, class: &str) -> Option<IndexUsageReport> {
-    let c = meta.get("classes").and_then(Value::as_array)?.iter().find(|c| c.get("name").and_then(Value::as_str) == Some(class))?;
+    let c = meta
+        .get("classes")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|c| c.get("name").and_then(Value::as_str) == Some(class))?;
     let indexes = meta
         .get("indexes")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|ix| ix.pointer("/configuration/indexDefinition/className").and_then(Value::as_str) == Some(class))
+        .filter(|ix| {
+            ix.pointer("/configuration/indexDefinition/className")
+                .and_then(Value::as_str)
+                == Some(class)
+        })
         .map(|ix| {
             let (fields, _) = ddl::index_parts(ix);
-            let ty = ix.pointer("/configuration/type").map(as_text).unwrap_or_default();
-            IndexUsage { name: ix.get("name").map(as_text).unwrap_or_default(), unique: ty.starts_with("UNIQUE"), kind: ty, key_columns: fields, ..Default::default() }
+            let ty = ix
+                .pointer("/configuration/type")
+                .map(as_text)
+                .unwrap_or_default();
+            IndexUsage {
+                name: ix.get("name").map(as_text).unwrap_or_default(),
+                unique: ty.starts_with("UNIQUE"),
+                kind: ty,
+                key_columns: fields,
+                ..Default::default()
+            }
         })
         .collect();
     let foreign_keys = c
@@ -36,7 +54,11 @@ pub(crate) fn report(meta: &Value, class: &str) -> Option<IndexUsageReport> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|p| p.get("type").and_then(Value::as_str).is_some_and(|t| t.starts_with("LINK")))
+        .filter(|p| {
+            p.get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|t| t.starts_with("LINK"))
+        })
         .filter_map(|p| {
             let lc = p.get("linkedClass").and_then(Value::as_str)?;
             Some(ForeignKeyDef {
@@ -50,7 +72,14 @@ pub(crate) fn report(meta: &Value, class: &str) -> Option<IndexUsageReport> {
             })
         })
         .collect();
-    Some(IndexUsageReport { stats_available: false, note: Some(NOTE.into()), indexes, foreign_keys, seek_scan_split: false, ..Default::default() })
+    Some(IndexUsageReport {
+        stats_available: false,
+        note: Some(NOTE.into()),
+        indexes,
+        foreign_keys,
+        seek_scan_split: false,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]

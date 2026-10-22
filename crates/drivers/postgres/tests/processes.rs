@@ -21,7 +21,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -71,9 +73,14 @@ const PG: Engine = Engine {
 
 /// The id `processes` gives the session whose raw id is `raw`: RisingWave
 /// prefixes it with the frontend's worker id.
-fn find<'a>(list: &'a [dbine_driver::ServerProcess], e: &Engine, raw: &str) -> Option<&'a dbine_driver::ServerProcess> {
+fn find<'a>(
+    list: &'a [dbine_driver::ServerProcess],
+    e: &Engine,
+    raw: &str,
+) -> Option<&'a dbine_driver::ServerProcess> {
     if e.driver == "risingwave" {
-        list.iter().find(|p| p.id.rsplit_once(':').map(|(_, n)| n) == Some(raw))
+        list.iter()
+            .find(|p| p.id.rsplit_once(':').map(|(_, n)| n) == Some(raw))
     } else {
         list.iter().find(|p| p.id == raw)
     }
@@ -88,7 +95,10 @@ async fn list_and_cancel(e: Engine) {
         return;
     };
     let driver = e.driver;
-    let d = dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     assert!(d.capabilities().processes && d.capabilities().cancel_query);
     let mut admin = d.connect(&cfg, None).await.unwrap();
     let own_raw = match e.id_sql {
@@ -111,65 +121,122 @@ async fn list_and_cancel(e: Engine) {
     let list = admin.processes().await.unwrap();
     let w = match &worker_raw {
         Some(raw) => find(&list, &e, raw),
-        None => list.iter().find(|p| p.sql.as_deref().is_some_and(|q| q.contains("dbine_processes_test") && !q.contains("processes()"))),
+        None => list.iter().find(|p| {
+            p.sql
+                .as_deref()
+                .is_some_and(|q| q.contains("dbine_processes_test") && !q.contains("processes()"))
+        }),
     }
     .expect("the worker is listed");
     eprintln!("{driver}: {w:#?}");
     assert!(!w.own && !w.system, "{w:?}");
     if e.shows_sql {
         assert!(w.active, "{w:?}");
-        assert!(w.sql.as_deref().unwrap_or("").contains("dbine_processes_test"), "{w:?}");
+        assert!(
+            w.sql
+                .as_deref()
+                .unwrap_or("")
+                .contains("dbine_processes_test"),
+            "{w:?}"
+        );
         assert!(w.elapsed_ms.unwrap_or(0) >= 500, "{w:?}");
         assert_eq!(w.command.as_deref(), Some("SELECT"));
     }
-    let own = list.iter().find(|p| p.own).expect("its own session is flagged");
+    let own = list
+        .iter()
+        .find(|p| p.own)
+        .expect("its own session is flagged");
     if let Some(raw) = &own_raw {
         assert_eq!(find(&list, &e, raw).map(|p| &p.id), Some(&own.id));
     }
     let (worker_id, own_id) = (w.id.clone(), own.id.clone());
 
     admin.cancel_query(&worker_id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), running).await.expect("the statement stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), running)
+        .await
+        .expect("the statement stopped")
+        .unwrap();
     assert!(r.is_err(), "the statement was cancelled");
-    assert_eq!(scalar(&mut worker, "SELECT 1").await, "1", "the session is still open");
-    assert!(admin.cancel_query("1; DROP TABLE x").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query(&own_id).await.is_err(), "not its own session");
+    assert_eq!(
+        scalar(&mut worker, "SELECT 1").await,
+        "1",
+        "the session is still open"
+    );
+    assert!(
+        admin.cancel_query("1; DROP TABLE x").await.is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin.cancel_query(&own_id).await.is_err(),
+        "not its own session"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn postgres() {
-    list_and_cancel(Engine { env: "DBINE_TEST_POSTGRES_URL", ..PG }).await;
+    list_and_cancel(Engine {
+        env: "DBINE_TEST_POSTGRES_URL",
+        ..PG
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn timescaledb() {
-    list_and_cancel(Engine { driver: "timescaledb", env: "DBINE_TEST_TIMESCALEDB_URL", ..PG }).await;
+    list_and_cancel(Engine {
+        driver: "timescaledb",
+        env: "DBINE_TEST_TIMESCALEDB_URL",
+        ..PG
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn yugabytedb() {
-    list_and_cancel(Engine { driver: "yugabytedb", env: "DBINE_TEST_YUGABYTEDB_URL", ..PG }).await;
+    list_and_cancel(Engine {
+        driver: "yugabytedb",
+        env: "DBINE_TEST_YUGABYTEDB_URL",
+        ..PG
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn opengauss() {
-    list_and_cancel(Engine { driver: "opengauss", env: "DBINE_TEST_OPENGAUSS_URL", ..PG }).await;
+    list_and_cancel(Engine {
+        driver: "opengauss",
+        env: "DBINE_TEST_OPENGAUSS_URL",
+        ..PG
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn cockroachdb() {
-    list_and_cancel(Engine { driver: "cockroachdb", env: "DBINE_TEST_COCKROACH_URL", id_sql: Some("SHOW session_id"), ..PG }).await;
+    list_and_cancel(Engine {
+        driver: "cockroachdb",
+        env: "DBINE_TEST_COCKROACH_URL",
+        id_sql: Some("SHOW session_id"),
+        ..PG
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn risingwave() {
-    list_and_cancel(Engine { driver: "risingwave", env: "DBINE_TEST_RISINGWAVE_URL", id_sql: Some("SELECT pg_backend_pid()::varchar"), ..PG }).await;
+    list_and_cancel(Engine {
+        driver: "risingwave",
+        env: "DBINE_TEST_RISINGWAVE_URL",
+        id_sql: Some("SELECT pg_backend_pid()::varchar"),
+        ..PG
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -194,7 +261,8 @@ async fn cratedb() {
         driver: "cratedb",
         env: "DBINE_TEST_CRATEDB_URL",
         id_sql: None,
-        busy_sql: "SELECT sum(a) AS dbine_processes_test FROM generate_series(1, 2000000000) AS t(a)",
+        busy_sql:
+            "SELECT sum(a) AS dbine_processes_test FROM generate_series(1, 2000000000) AS t(a)",
         shows_sql: true,
     })
     .await;

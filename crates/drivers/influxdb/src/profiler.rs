@@ -16,7 +16,9 @@
 use crate::v1::{statement_tables, InfluxQlSession};
 use crate::v3::SqlSession;
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use serde_json::Value as J;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -27,7 +29,9 @@ const BATCH: usize = 1000;
 const OWN: &str = "/* dbine profiler */";
 
 fn now() -> String {
-    chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+    chrono::Utc::now()
+        .format("%Y-%m-%d %H:%M:%S%.3f")
+        .to_string()
 }
 
 // -- InfluxDB 1.x -------------------------------------------------------------------------
@@ -39,7 +43,10 @@ pub(crate) struct V1State {
     first_seen: HashMap<String, String>,
 }
 
-pub(crate) async fn v1_start(s: &mut InfluxQlSession, opts: &ProfilerOptions) -> Result<(V1State, ProfilerStarted)> {
+pub(crate) async fn v1_start(
+    s: &mut InfluxQlSession,
+    opts: &ProfilerOptions,
+) -> Result<(V1State, ProfilerStarted)> {
     s.query("SHOW QUERIES").await.map_err(|e| match e {
         Error::Query(m) => Error::Query(format!("SHOW QUERIES no respondió (con autenticación hace falta un usuario administrador): {m}")),
         e => e,
@@ -48,20 +55,39 @@ pub(crate) async fn v1_start(s: &mut InfluxQlSession, opts: &ProfilerOptions) ->
         "InfluxDB 1.x solo muestra las consultas en curso, sin usuario ni cliente: las que duran menos de una décima \
          de segundo pueden no verse.",
     );
-    let state = V1State { sampler: Sampler::new(now()), database: opts.database.clone(), first_seen: HashMap::new() };
+    let state = V1State {
+        sampler: Sampler::new(now()),
+        database: opts.database.clone(),
+        first_seen: HashMap::new(),
+    };
     Ok((state, started))
 }
 
-pub(crate) async fn v1_poll(s: &mut InfluxQlSession, state: &mut V1State) -> Result<Vec<ProfiledStatement>> {
+pub(crate) async fn v1_poll(
+    s: &mut InfluxQlSession,
+    state: &mut V1State,
+) -> Result<Vec<ProfiledStatement>> {
     let mut out = Vec::new();
     let until = Instant::now() + SAMPLE_FOR;
     loop {
         let results = s.query("SHOW QUERIES").await?;
         let mut samples = Vec::new();
         for (cols, rows) in results.iter().flat_map(statement_tables) {
-            let col = |r: &[J], name: &str| cols.iter().position(|c| c == name).and_then(|i| r.get(i)).map(text);
+            let col = |r: &[J], name: &str| {
+                cols.iter()
+                    .position(|c| c == name)
+                    .and_then(|i| r.get(i))
+                    .map(text)
+            };
             for r in &rows {
-                if let Some(x) = v1_sample(col(r, "qid"), col(r, "query"), col(r, "database"), col(r, "duration"), col(r, "status"), state) {
+                if let Some(x) = v1_sample(
+                    col(r, "qid"),
+                    col(r, "query"),
+                    col(r, "database"),
+                    col(r, "duration"),
+                    col(r, "status"),
+                    state,
+                ) {
                     samples.push(x);
                 }
             }
@@ -97,7 +123,9 @@ fn v1_sample(
 ) -> Option<Sample> {
     let (qid, query) = (qid?, query?);
     let db = db.filter(|d| !d.is_empty());
-    if query.trim().eq_ignore_ascii_case("SHOW QUERIES") || (!state.database.is_empty() && db.as_deref() != Some(state.database.as_str())) {
+    if query.trim().eq_ignore_ascii_case("SHOW QUERIES")
+        || (!state.database.is_empty() && db.as_deref() != Some(state.database.as_str()))
+    {
         return None;
     }
     let ms = duration.as_deref().and_then(go_duration_ms);
@@ -106,7 +134,9 @@ fn v1_sample(
         .entry(qid.clone())
         .or_insert_with(|| {
             let back = chrono::Duration::microseconds((ms.unwrap_or(0.0) * 1000.0) as i64);
-            (chrono::Utc::now() - back).format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+            (chrono::Utc::now() - back)
+                .format("%Y-%m-%d %H:%M:%S%.3f")
+                .to_string()
         })
         .clone();
     Some(Sample {
@@ -129,13 +159,23 @@ fn go_duration_ms(s: &str) -> Option<f64> {
         return None;
     }
     while !rest.is_empty() {
-        let n = rest.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(rest.len());
+        let n = rest
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .unwrap_or(rest.len());
         let value: f64 = rest[..n].parse().ok()?;
         rest = &rest[n..];
-        let (factor, len) = [("ns", 1e-6), ("µs", 1e-3), ("us", 1e-3), ("ms", 1.0), ("s", 1e3), ("m", 60e3), ("h", 3600e3)]
-            .iter()
-            .find(|(u, _)| rest.starts_with(u))
-            .map(|(u, f)| (*f, u.len()))?;
+        let (factor, len) = [
+            ("ns", 1e-6),
+            ("µs", 1e-3),
+            ("us", 1e-3),
+            ("ms", 1.0),
+            ("s", 1e3),
+            ("m", 60e3),
+            ("h", 3600e3),
+        ]
+        .iter()
+        .find(|(u, _)| rest.starts_with(u))
+        .map(|(u, f)| (*f, u.len()))?;
         total += value * factor;
         rest = &rest[len..];
     }
@@ -153,19 +193,33 @@ pub(crate) struct V3State {
     ids: HashMap<String, String>,
 }
 
-pub(crate) async fn v3_start(s: &mut SqlSession, opts: &ProfilerOptions) -> Result<(V3State, ProfilerStarted)> {
+pub(crate) async fn v3_start(
+    s: &mut SqlSession,
+    opts: &ProfilerOptions,
+) -> Result<(V3State, ProfilerStarted)> {
     let db = Some(opts.database.clone())
         .filter(|d| !d.is_empty())
         .or_else(|| s.db.clone())
         .unwrap_or_else(|| "_internal".into());
     let q = format!("{OWN} SELECT CAST(now() AS VARCHAR) AS t");
     let (_, rows) = v3_sql(s, &db, &q).await?;
-    let t = rows.first().and_then(|r| r.first()).map(text).unwrap_or_default();
+    let t = rows
+        .first()
+        .and_then(|r| r.first())
+        .map(text)
+        .unwrap_or_default();
     let started = ProfilerStarted::new(ProfilerMode::Complete, "system.queries").note(
         "InfluxDB 3 guarda las últimas consultas de todo el servidor (1000 por omisión, --query-log-size) sin \
          indicar la base, el usuario ni el cliente: se ven las de todas las bases.",
     );
-    Ok((V3State { db, after: t.replace('T', " ").trim_end_matches('Z').to_string(), ids: HashMap::new() }, started))
+    Ok((
+        V3State {
+            db,
+            after: t.replace('T', " ").trim_end_matches('Z').to_string(),
+            ids: HashMap::new(),
+        },
+        started,
+    ))
 }
 
 /// A query through `db`, whatever the session's database is.
@@ -176,7 +230,10 @@ async fn v3_sql(s: &mut SqlSession, db: &str, q: &str) -> Result<(Vec<String>, V
     r
 }
 
-pub(crate) async fn v3_poll(s: &mut SqlSession, state: &mut V3State) -> Result<Vec<ProfiledStatement>> {
+pub(crate) async fn v3_poll(
+    s: &mut SqlSession,
+    state: &mut V3State,
+) -> Result<Vec<ProfiledStatement>> {
     let after = state.after.replace('\'', "''");
     let q = format!(
         "{OWN} SELECT id, CAST(issue_time AS VARCHAR) AS issue_time, query_type, query_text, \
@@ -194,8 +251,15 @@ fn v3_rows(cols: &[String], rows: &[Vec<J>], state: &mut V3State) -> Vec<Profile
     let mut oldest_running: Option<String> = None;
     let mut newest = state.after.clone();
     for r in rows {
-        let get = |name: &str| cols.iter().position(|c| c == name).and_then(|i| r.get(i)).filter(|v| !v.is_null());
-        let (Some(id), Some(issued)) = (get("id").map(text), get("issue_time").map(text)) else { continue };
+        let get = |name: &str| {
+            cols.iter()
+                .position(|c| c == name)
+                .and_then(|i| r.get(i))
+                .filter(|v| !v.is_null())
+        };
+        let (Some(id), Some(issued)) = (get("id").map(text), get("issue_time").map(text)) else {
+            continue;
+        };
         let issued = issued.replace('T', " ").trim_end_matches('Z').to_string();
         if issued > newest {
             newest = issued.clone();
@@ -216,7 +280,10 @@ fn v3_rows(cols: &[String], rows: &[Vec<J>], state: &mut V3State) -> Vec<Profile
         let error = if get("cancelled").and_then(J::as_bool) == Some(true) {
             Some("cancelada".to_string())
         } else if get("success").and_then(J::as_bool) == Some(false) {
-            Some(format!("falló (fase {})", get("phase").map(text).unwrap_or_default()))
+            Some(format!(
+                "falló (fase {})",
+                get("phase").map(text).unwrap_or_default()
+            ))
         } else {
             None
         };
@@ -227,10 +294,16 @@ fn v3_rows(cols: &[String], rows: &[Vec<J>], state: &mut V3State) -> Vec<Profile
         }
         out.push(ProfiledStatement {
             time: millis(&issued),
-            duration_ms: get("duration").map(text).as_deref().and_then(iso_duration_ms),
+            duration_ms: get("duration")
+                .map(text)
+                .as_deref()
+                .and_then(iso_duration_ms),
             // The CPU time the query's execution used. Nothing counts what
             // it read or wrote (the partitions and files stay in detail).
-            cpu_ms: get("compute").map(text).as_deref().and_then(iso_duration_ms),
+            cpu_ms: get("compute")
+                .map(text)
+                .as_deref()
+                .and_then(iso_duration_ms),
             text: text_,
             error,
             detail: Some(detail.join("; ")).filter(|d| !d.is_empty()),
@@ -312,25 +385,63 @@ mod tests {
     fn interval_durations() {
         assert_eq!(iso_duration_ms("PT0.25S"), Some(250.0));
         assert_eq!(iso_duration_ms("PT1M0.5S"), Some(60_500.0));
-        assert_eq!(iso_duration_ms("0 days 0 hours 0 mins 1.5 secs"), Some(1500.0));
+        assert_eq!(
+            iso_duration_ms("0 days 0 hours 0 mins 1.5 secs"),
+            Some(1500.0)
+        );
     }
 
     #[test]
     fn v1_rows_keep_their_start() {
-        let mut st = V1State { sampler: Sampler::new(""), database: "db".into(), first_seen: HashMap::new() };
-        let mut row = |q: &str, db: &str| v1_sample(Some("7".into()), Some(q.into()), Some(db.into()), Some("1s".into()), Some("running".into()), &mut st);
+        let mut st = V1State {
+            sampler: Sampler::new(""),
+            database: "db".into(),
+            first_seen: HashMap::new(),
+        };
+        let mut row = |q: &str, db: &str| {
+            v1_sample(
+                Some("7".into()),
+                Some(q.into()),
+                Some(db.into()),
+                Some("1s".into()),
+                Some("running".into()),
+                &mut st,
+            )
+        };
         let a = row("SELECT 1", "db").unwrap();
         assert_eq!(a.duration_ms, Some(1000.0));
         assert!(row("SHOW QUERIES", "db").is_none());
         assert!(row("SELECT 1", "other").is_none());
-        let b = v1_sample(Some("7".into()), Some("SELECT 1".into()), Some("db".into()), Some("2s".into()), None, &mut st).unwrap();
+        let b = v1_sample(
+            Some("7".into()),
+            Some("SELECT 1".into()),
+            Some("db".into()),
+            Some("2s".into()),
+            None,
+            &mut st,
+        )
+        .unwrap();
         assert_eq!(a.started, b.started);
     }
 
     #[test]
     fn v3_rows_once_and_after_they_end() {
-        let cols: Vec<String> = ["id", "issue_time", "query_text", "duration", "compute", "success", "running"].map(String::from).to_vec();
-        let mut st = V3State { db: "d".into(), after: "2026-01-01 00:00:00".into(), ids: HashMap::new() };
+        let cols: Vec<String> = [
+            "id",
+            "issue_time",
+            "query_text",
+            "duration",
+            "compute",
+            "success",
+            "running",
+        ]
+        .map(String::from)
+        .to_vec();
+        let mut st = V3State {
+            db: "d".into(),
+            after: "2026-01-01 00:00:00".into(),
+            ids: HashMap::new(),
+        };
         let rows = vec![
             vec![
                 json!("a"),
@@ -341,19 +452,41 @@ mod tests {
                 json!(true),
                 json!(false),
             ],
-            vec![json!("b"), json!("2026-01-01T00:00:02"), json!("SELECT 2"), J::Null, J::Null, J::Null, json!(true)],
+            vec![
+                json!("b"),
+                json!("2026-01-01T00:00:02"),
+                json!("SELECT 2"),
+                J::Null,
+                J::Null,
+                J::Null,
+                json!(true),
+            ],
         ];
         let out = v3_rows(&cols, &rows, &mut st);
         assert_eq!(out.len(), 1);
-        assert_eq!((out[0].time.as_str(), out[0].duration_ms), ("2026-01-01 00:00:01.123", Some(100.0)));
+        assert_eq!(
+            (out[0].time.as_str(), out[0].duration_ms),
+            ("2026-01-01 00:00:01.123", Some(100.0))
+        );
         assert!((out[0].cpu_ms.unwrap() - 0.672337).abs() < 1e-9);
         assert_eq!((out[0].reads, out[0].writes), (None, None));
         assert_eq!(st.after, "2026-01-01 00:00:02");
         // Read again from the running one, which has ended.
-        let rows = vec![vec![json!("b"), json!("2026-01-01T00:00:02"), json!("SELECT 2"), json!("PT2S"), J::Null, json!(false), json!(false)]];
+        let rows = vec![vec![
+            json!("b"),
+            json!("2026-01-01T00:00:02"),
+            json!("SELECT 2"),
+            json!("PT2S"),
+            J::Null,
+            json!(false),
+            json!(false),
+        ]];
         let out = v3_rows(&cols, &rows, &mut st);
         assert_eq!(out.len(), 1);
-        assert_eq!((out[0].text.as_str(), out[0].error.is_some()), ("SELECT 2", true));
+        assert_eq!(
+            (out[0].text.as_str(), out[0].error.is_some()),
+            ("SELECT 2", true)
+        );
         assert!(v3_rows(&cols, &rows, &mut st).is_empty(), "reported once");
     }
 }

@@ -34,8 +34,16 @@ pub fn neo4j_node(v: &Value, actual: bool) -> PlanNode {
         node.actual_rows = v.get("rows").and_then(Value::as_f64);
         node.self_cost = v.get("dbHits").and_then(Value::as_f64);
         // `time` is in nanoseconds (only with the pipelined/slotted runtimes' timing).
-        node.actual_ms = v.get("time").and_then(Value::as_f64).filter(|t| *t > 0.0).map(|t| t / 1e6);
-        for (k, label) in [("dbHits", "DB hits"), ("pageCacheHits", "Page cache hits"), ("pageCacheMisses", "Page cache misses")] {
+        node.actual_ms = v
+            .get("time")
+            .and_then(Value::as_f64)
+            .filter(|t| *t > 0.0)
+            .map(|t| t / 1e6);
+        for (k, label) in [
+            ("dbHits", "DB hits"),
+            ("pageCacheHits", "Page cache hits"),
+            ("pageCacheMisses", "Page cache misses"),
+        ] {
             if let Some(x) = v.get(k).and_then(Value::as_i64) {
                 node.props.push((label.into(), x.to_string()));
             }
@@ -48,11 +56,23 @@ pub fn neo4j_node(v: &Value, actual: bool) -> PlanNode {
             }
         }
     }
-    let ids: Vec<String> = v.get("identifiers").map(Value::as_list).unwrap_or_default().iter().filter_map(|x| x.as_str().map(str::to_string)).collect();
+    let ids: Vec<String> = v
+        .get("identifiers")
+        .map(Value::as_list)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|x| x.as_str().map(str::to_string))
+        .collect();
     if !ids.is_empty() {
         node.props.push(("Identificadores".into(), ids.join(", ")));
     }
-    node.children = v.get("children").map(Value::as_list).unwrap_or_default().iter().map(|c| neo4j_node(c, actual)).collect();
+    node.children = v
+        .get("children")
+        .map(Value::as_list)
+        .unwrap_or_default()
+        .iter()
+        .map(|c| neo4j_node(c, actual))
+        .collect();
     if actual {
         let below: f64 = node.children.iter().filter_map(|c| c.total_cost).sum();
         node.total_cost = Some(node.self_cost.unwrap_or(0.0) + below);
@@ -89,18 +109,28 @@ pub fn memgraph(statement: &str, rows: &[(String, Option<(f64, f64, f64)>)], act
             continue;
         };
         let col = line[..star].chars().count();
-        let parent = last.iter().rev().find(|(c, _)| *c == col).or_else(|| last.iter().rev().find(|(c, _)| *c < col)).map(|x| x.1);
+        let parent = last
+            .iter()
+            .rev()
+            .find(|(c, _)| *c == col)
+            .or_else(|| last.iter().rev().find(|(c, _)| *c < col))
+            .map(|x| x.1);
         let body = line[star + 1..].trim();
         let (op, detail) = match body.split_once(' ') {
             Some((o, d)) => (o.to_string(), d.trim().to_string()),
             None => (body.to_string(), String::new()),
         };
-        let mut n = PlanNode { op, detail, ..Default::default() };
+        let mut n = PlanNode {
+            op,
+            detail,
+            ..Default::default()
+        };
         if let Some((hits, rel, ms)) = figures {
             n.actual_rows = Some(*hits);
             n.actual_ms = Some(*ms);
             n.self_cost = Some(*rel);
-            n.props.push(("Tiempo relativo".into(), format!("{rel:.2} %")));
+            n.props
+                .push(("Tiempo relativo".into(), format!("{rel:.2} %")));
         }
         nodes.push((n, parent));
         let idx = nodes.len() - 1;
@@ -124,10 +154,17 @@ pub fn memgraph(statement: &str, rows: &[(String, Option<(f64, f64, f64)>)], act
             None => root = Some(n),
         }
     }
-    let raw = rows.iter().map(|r| r.0.as_str()).collect::<Vec<_>>().join("\n");
+    let raw = rows
+        .iter()
+        .map(|r| r.0.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     Plan {
         statement: statement.to_string(),
-        root: root.unwrap_or_else(|| PlanNode { op: "PLAN".into(), ..Default::default() }),
+        root: root.unwrap_or_else(|| PlanNode {
+            op: "PLAN".into(),
+            ..Default::default()
+        }),
         actual,
         raw_format: "text".into(),
         raw,
@@ -152,26 +189,47 @@ pub fn neptune(statement: &str, text: &str, actual: bool) -> Plan {
     let mut section = String::new();
     for line in text.lines() {
         let t = line.trim();
-        if t.is_empty() || t.starts_with('╔') || t.starts_with('╚') || t.starts_with('╟') || t.starts_with('╠') {
+        if t.is_empty()
+            || t.starts_with('╔')
+            || t.starts_with('╚')
+            || t.starts_with('╟')
+            || t.starts_with('╠')
+        {
             continue;
         }
         if !t.starts_with('║') {
             section = t.to_string();
             continue;
         }
-        let cells: Vec<String> = t.trim_matches('║').split('│').map(|c| c.trim().to_string()).collect();
+        let cells: Vec<String> = t
+            .trim_matches('║')
+            .split('│')
+            .map(|c| c.trim().to_string())
+            .collect();
         if cells.first().map(String::as_str) == Some("ID") {
             header = cells;
             tables.push((std::mem::take(&mut section), Vec::new()));
             continue;
         }
-        let Some((_, rows)) = tables.last_mut() else { continue };
-        let get = |name: &str| header.iter().position(|h| h == name).and_then(|i| cells.get(i)).cloned().unwrap_or_default();
+        let Some((_, rows)) = tables.last_mut() else {
+            continue;
+        };
+        let get = |name: &str| {
+            header
+                .iter()
+                .position(|h| h == name)
+                .and_then(|i| cells.get(i))
+                .cloned()
+                .unwrap_or_default()
+        };
         if get("ID").is_empty() {
             // Wrapped arguments of the row above.
             if let Some(r) = rows.last_mut() {
                 for (i, h) in header.iter().enumerate() {
-                    if let (Some(c), Some(slot)) = (cells.get(i).filter(|c| !c.is_empty()), r.cells.iter_mut().find(|x| &x.0 == h)) {
+                    if let (Some(c), Some(slot)) = (
+                        cells.get(i).filter(|c| !c.is_empty()),
+                        r.cells.iter_mut().find(|x| &x.0 == h),
+                    ) {
                         slot.1.push(' ');
                         slot.1.push_str(c);
                     }
@@ -181,28 +239,56 @@ pub fn neptune(statement: &str, text: &str, actual: bool) -> Plan {
         }
         rows.push(Row {
             id: get("ID"),
-            outs: [get("Out #1"), get("Out #2")].into_iter().filter(|o| !o.is_empty() && o != "-").collect(),
+            outs: [get("Out #1"), get("Out #2")]
+                .into_iter()
+                .filter(|o| !o.is_empty() && o != "-")
+                .collect(),
             cells: header.iter().cloned().zip(cells.iter().cloned()).collect(),
         });
     }
-    fn build(id: &str, rows: &[Row], subs: &[(String, PlanNode)], actual: bool, depth: usize) -> PlanNode {
+    fn build(
+        id: &str,
+        rows: &[Row],
+        subs: &[(String, PlanNode)],
+        actual: bool,
+        depth: usize,
+    ) -> PlanNode {
         let r = rows.iter().find(|r| r.id == id).expect("row");
-        let cell = |k: &str| r.cells.iter().find(|c| c.0 == k).map(|c| c.1.clone()).unwrap_or_default();
+        let cell = |k: &str| {
+            r.cells
+                .iter()
+                .find(|c| c.0 == k)
+                .map(|c| c.1.clone())
+                .unwrap_or_default()
+        };
         let num = |k: &str| cell(k).parse::<f64>().ok();
         let args = cell("Arguments");
-        let mut n = PlanNode { op: cell("Name"), detail: args.clone(), ..Default::default() };
+        let mut n = PlanNode {
+            op: cell("Name"),
+            detail: args.clone(),
+            ..Default::default()
+        };
         if actual {
             n.actual_rows = num("Units Out");
             n.actual_ms = num("Time (ms)");
             n.self_cost = n.actual_ms;
         }
         for (k, v) in &r.cells {
-            if !matches!(k.as_str(), "ID" | "Out #1" | "Out #2" | "Name" | "Arguments") && v != "-" && !v.is_empty() {
+            if !matches!(
+                k.as_str(),
+                "ID" | "Out #1" | "Out #2" | "Name" | "Arguments"
+            ) && v != "-"
+                && !v.is_empty()
+            {
                 n.props.push((k.clone(), v.clone()));
             }
         }
         if depth < 200 {
-            n.children = rows.iter().filter(|c| c.outs.contains(&r.id)).map(|c| build(&c.id, rows, subs, actual, depth + 1)).collect();
+            n.children = rows
+                .iter()
+                .filter(|c| c.outs.contains(&r.id))
+                .map(|c| build(&c.id, rows, subs, actual, depth + 1))
+                .collect();
         }
         for (name, sub) in subs {
             if args.contains(&format!("subQuery={name}")) || args.contains(&format!("={name}")) {
@@ -221,7 +307,10 @@ pub fn neptune(statement: &str, text: &str, actual: bool) -> Plan {
             [one] => build(&one.id, rows, subs, actual, 0),
             _ => PlanNode {
                 op: "PLAN".into(),
-                children: roots.iter().map(|r| build(&r.id, rows, subs, actual, 0)).collect(),
+                children: roots
+                    .iter()
+                    .map(|r| build(&r.id, rows, subs, actual, 0))
+                    .collect(),
                 ..Default::default()
             },
         }
@@ -236,7 +325,13 @@ pub fn neptune(statement: &str, text: &str, actual: bool) -> Plan {
         Some((_, rows)) if !rows.is_empty() => tree(rows, &subs, actual),
         _ => dbine_driver::plan::tree_from_indented_text(text),
     };
-    Plan { statement: statement.to_string(), root, actual, raw_format: "text".into(), raw: text.to_string() }
+    Plan {
+        statement: statement.to_string(),
+        root,
+        actual,
+        raw_format: "text".into(),
+        raw: text.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -248,7 +343,13 @@ mod tests {
     fn neo4j_profile() {
         let leaf = map([
             ("operatorType", "NodeByLabelScan@neo4j".into()),
-            ("args", map([("EstimatedRows", Value::Float(10.0)), ("Details", "n:Person".into())])),
+            (
+                "args",
+                map([
+                    ("EstimatedRows", Value::Float(10.0)),
+                    ("Details", "n:Person".into()),
+                ]),
+            ),
             ("identifiers", Value::List(vec!["n".into()])),
             ("dbHits", Value::Int(11)),
             ("rows", Value::Int(10)),
@@ -268,17 +369,27 @@ mod tests {
         assert_eq!(p.root.actual_ms, Some(2.0));
         assert_eq!(p.root.total_cost, Some(11.0));
         let c = &p.root.children[0];
-        assert_eq!((c.op.as_str(), c.detail.as_str(), c.est_rows, c.actual_rows), ("NodeByLabelScan", "n:Person", Some(10.0), Some(10.0)));
+        assert_eq!(
+            (c.op.as_str(), c.detail.as_str(), c.est_rows, c.actual_rows),
+            ("NodeByLabelScan", "n:Person", Some(10.0), Some(10.0))
+        );
         assert!(neo4j("x", &map([])).is_none());
     }
 
     #[test]
     fn memgraph_branches() {
-        let rows: Vec<(String, Option<(f64, f64, f64)>)> =
-            [" * Produce {a, b}", " * Cartesian {a : b}", " |\\ ", " | * ScanAll (b)", " | * Once", " * ScanAll (a)", " * Once"]
-                .iter()
-                .map(|l| (l.to_string(), None))
-                .collect();
+        let rows: Vec<(String, Option<(f64, f64, f64)>)> = [
+            " * Produce {a, b}",
+            " * Cartesian {a : b}",
+            " |\\ ",
+            " | * ScanAll (b)",
+            " | * Once",
+            " * ScanAll (a)",
+            " * Once",
+        ]
+        .iter()
+        .map(|l| (l.to_string(), None))
+        .collect();
         let p = memgraph("q", &rows, false);
         assert_eq!(p.root.op, "Produce");
         let cart = &p.root.children[0];
@@ -288,7 +399,10 @@ mod tests {
         assert_eq!(cart.children[0].children[0].op, "Once");
         assert_eq!(cart.children[1].detail, "(a)");
         assert_eq!(cart.children[1].children[0].op, "Once");
-        let prof = vec![("* Produce {n}".to_string(), Some((2.0, 10.0, 0.5))), ("* ScanAll (n)".to_string(), Some((3.0, 90.0, 1.0)))];
+        let prof = vec![
+            ("* Produce {n}".to_string(), Some((2.0, 10.0, 0.5))),
+            ("* ScanAll (n)".to_string(), Some((3.0, 90.0, 1.0))),
+        ];
         let p = memgraph("q", &prof, true);
         assert_eq!(p.root.total_cost, Some(100.0));
         assert_eq!(p.root.children[0].actual_rows, Some(3.0));
@@ -325,7 +439,13 @@ subQuery1
         let sub = &p.root.children[0];
         assert_eq!(sub.op, "DFESubquery");
         assert_eq!(sub.detail, "subQuery=subQuery1 extra=1");
-        assert_eq!(sub.children.iter().map(|c| c.op.as_str()).collect::<Vec<_>>(), ["SolutionInjection", "DFELimit"]);
+        assert_eq!(
+            sub.children
+                .iter()
+                .map(|c| c.op.as_str())
+                .collect::<Vec<_>>(),
+            ["SolutionInjection", "DFELimit"]
+        );
         assert_eq!(sub.children[1].children[0].op, "DFEScan");
         assert_eq!(p.root.actual_rows, Some(1.0));
     }

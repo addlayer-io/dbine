@@ -10,12 +10,20 @@ use dbine_driver::{Access, Permissions};
 use rusqlite::Connection;
 
 pub(crate) fn decide(query_only: bool) -> Permissions {
-    Permissions { backup: Access::check(!query_only, "PRAGMA query_only = OFF (la conexión no permite escrituras)"), ..Default::default() }
+    Permissions {
+        backup: Access::check(
+            !query_only,
+            "PRAGMA query_only = OFF (la conexión no permite escrituras)",
+        ),
+        ..Default::default()
+    }
 }
 
 /// `PRAGMA query_only`; `None` when it can't be read.
 pub(crate) fn query_only(c: &Connection) -> Option<bool> {
-    c.query_row("PRAGMA query_only", [], |r| r.get::<_, i64>(0)).ok().map(|v| v != 0)
+    c.query_row("PRAGMA query_only", [], |r| r.get::<_, i64>(0))
+        .ok()
+        .map(|v| v != 0)
 }
 
 pub(crate) fn check(c: &Connection) -> Permissions {
@@ -31,7 +39,10 @@ mod tests {
     fn backup_is_allowed_unless_query_only() {
         assert_eq!(decide(false).backup, Access::Allowed);
         assert!(decide(true).backup.is_denied());
-        assert_eq!((decide(false).restore, decide(false).drop_database), (Access::Unknown, Access::Unknown));
+        assert_eq!(
+            (decide(false).restore, decide(false).drop_database),
+            (Access::Unknown, Access::Unknown)
+        );
     }
 
     #[test]
@@ -41,7 +52,10 @@ mod tests {
         let (db, copy, copy2) = (dir.join("a.db"), dir.join("copy.db"), dir.join("copy2.db"));
         let _ = std::fs::remove_file(&copy);
         let _ = std::fs::remove_file(&copy2);
-        Connection::open(&db).unwrap().execute_batch("CREATE TABLE IF NOT EXISTS t (x); INSERT INTO t VALUES (1);").unwrap();
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch("CREATE TABLE IF NOT EXISTS t (x); INSERT INTO t VALUES (1);")
+            .unwrap();
         let mut perm = std::fs::metadata(&db).unwrap().permissions();
         perm.set_readonly(true);
         std::fs::set_permissions(&db, perm.clone()).unwrap();
@@ -49,12 +63,15 @@ mod tests {
         // Opened read-only: the backup is allowed, and VACUUM INTO does work.
         let c = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         assert_eq!(check(&c).backup, Access::Allowed);
-        c.execute_batch(&format!("VACUUM INTO '{}'", copy.display())).unwrap();
+        c.execute_batch(&format!("VACUUM INTO '{}'", copy.display()))
+            .unwrap();
 
         // query_only: denied, and VACUUM INTO is refused.
         c.execute_batch("PRAGMA query_only = ON").unwrap();
         assert!(check(&c).backup.is_denied());
-        assert!(c.execute_batch(&format!("VACUUM INTO '{}'", copy2.display())).is_err());
+        assert!(c
+            .execute_batch(&format!("VACUUM INTO '{}'", copy2.display()))
+            .is_err());
 
         drop(c);
         #[allow(clippy::permissions_set_readonly_false)]

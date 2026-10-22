@@ -30,13 +30,19 @@ fn param<'a>(t: &'a TableMetadata, key: &str) -> Option<&'a str> {
 
 /// `numRows`, else `recordCount`; negative or unreadable: none.
 pub(crate) fn rows_of(num_rows: Option<&str>, record_count: Option<&str>) -> Option<u64> {
-    let n = |v: Option<&str>| v.and_then(|v| v.trim().parse::<i64>().ok()).filter(|n| *n >= 0).map(|n| n as u64);
+    let n = |v: Option<&str>| {
+        v.and_then(|v| v.trim().parse::<i64>().ok())
+            .filter(|n| *n >= 0)
+            .map(|n| n as u64)
+    };
     n(num_rows).or_else(|| n(record_count))
 }
 
 /// A view comment worth keeping: not empty, not Athena's fixed text.
 pub(crate) fn view_comment(v: Option<&str>) -> Option<String> {
-    v.map(str::trim).filter(|c| !c.is_empty() && *c != PRESTO_VIEW).map(str::to_string)
+    v.map(str::trim)
+        .filter(|c| !c.is_empty() && *c != PRESTO_VIEW)
+        .map(str::to_string)
 }
 
 pub(crate) async fn row_estimates(s: &AthenaSession) -> Result<Vec<RowEstimate>> {
@@ -46,7 +52,11 @@ pub(crate) async fn row_estimates(s: &AthenaSession) -> Result<Vec<RowEstimate>>
         .filter(|t| !is_view(t))
         .filter_map(|t| {
             Some(RowEstimate {
-                object: ObjectRef { kind: kinds::TABLE.into(), schema: None, name: t.name().to_string() },
+                object: ObjectRef {
+                    kind: kinds::TABLE.into(),
+                    schema: None,
+                    name: t.name().to_string(),
+                },
                 rows: rows_of(param(t, "numRows"), param(t, "recordCount"))?,
             })
         })
@@ -60,7 +70,11 @@ pub(crate) async fn object_comments(s: &AthenaSession) -> Result<Vec<ObjectComme
         .filter(|t| is_view(t))
         .filter_map(|t| {
             Some(ObjectComment {
-                object: ObjectRef { kind: kinds::VIEW.into(), schema: None, name: t.name().to_string() },
+                object: ObjectRef {
+                    kind: kinds::VIEW.into(),
+                    schema: None,
+                    name: t.name().to_string(),
+                },
                 comment: view_comment(param(t, "comment"))?,
             })
         })
@@ -83,6 +97,9 @@ mod tests {
     fn view_comments() {
         assert_eq!(view_comment(Some("Presto View")), None);
         assert_eq!(view_comment(Some(" ")), None);
-        assert_eq!(view_comment(Some("ventas por día")).as_deref(), Some("ventas por día"));
+        assert_eq!(
+            view_comment(Some("ventas por día")).as_deref(),
+            Some("ventas por día")
+        );
     }
 }

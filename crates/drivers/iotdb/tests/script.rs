@@ -9,7 +9,9 @@ use dbine_driver::{ConnectionConfig, Error, QueryOutcome, ScriptMode};
 #[tokio::test]
 #[ignore]
 async fn statements_one_by_one() {
-    let Ok(url) = std::env::var("DBINE_TEST_IOTDB_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_IOTDB_URL") else {
+        return;
+    };
     let cfg = ConnectionConfig {
         driver: "iotdb".into(),
         host: url,
@@ -26,11 +28,18 @@ async fn statements_one_by_one() {
     let mut out = QueryOutcome::default();
     s.execute(&units[0].text, 10, &mut out).await.unwrap();
     let err = s.execute(&units[1].text, 10, &mut out).await.unwrap_err();
-    let Error::Statement(e) = err else { panic!("{err:?}") };
+    let Error::Statement(e) = err else {
+        panic!("{err:?}")
+    };
     assert_eq!((e.line, e.offset), (Some(1), Some(14)), "{}", e.message);
     // The whole script at once: placed in it.
     let mut out = QueryOutcome::default();
-    let Error::Statement(e) = s.execute(script, 10, &mut out).await.unwrap_err() else { panic!() };
-    assert_eq!((e.line, e.offset), (Some(3), Some(script.find("root.x").unwrap())));
+    let Error::Statement(e) = s.execute(script, 10, &mut out).await.unwrap_err() else {
+        panic!()
+    };
+    assert_eq!(
+        (e.line, e.offset),
+        (Some(3), Some(script.find("root.x").unwrap()))
+    );
     assert_eq!(out.results.len(), 1);
 }

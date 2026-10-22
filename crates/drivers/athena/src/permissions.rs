@@ -22,7 +22,9 @@ pub fn profiler(outcome: Option<Option<&str>>) -> Access {
     match outcome {
         None => Access::Allowed,
         Some(Some("AccessDeniedException" | "AccessDenied" | "UnauthorizedOperation")) => {
-            Access::Denied { missing: LIST_EXECUTIONS.into() }
+            Access::Denied {
+                missing: LIST_EXECUTIONS.into(),
+            }
         }
         // Throttling, a network error…: not an answer.
         Some(_) => Access::Unknown,
@@ -30,7 +32,12 @@ pub fn profiler(outcome: Option<Option<&str>>) -> Access {
 }
 
 pub(crate) async fn check(s: &AthenaSession) -> Permissions {
-    let probe = s.client.list_query_executions().work_group(&s.workgroup).max_results(1).send();
+    let probe = s
+        .client
+        .list_query_executions()
+        .work_group(&s.workgroup)
+        .max_results(1)
+        .send();
     let profiler = match tokio::time::timeout(LIMIT, probe).await {
         Ok(Ok(_)) => profiler(None),
         Ok(Err(e)) => {
@@ -39,7 +46,10 @@ pub(crate) async fn check(s: &AthenaSession) -> Permissions {
         }
         Err(_) => Access::Unknown,
     };
-    Permissions { profiler, ..Default::default() }
+    Permissions {
+        profiler,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]
@@ -49,7 +59,12 @@ mod tests {
     #[test]
     fn the_probe_decides_the_profiler() {
         assert_eq!(profiler(None), Access::Allowed);
-        assert_eq!(profiler(Some(Some("AccessDeniedException"))), Access::Denied { missing: LIST_EXECUTIONS.into() });
+        assert_eq!(
+            profiler(Some(Some("AccessDeniedException"))),
+            Access::Denied {
+                missing: LIST_EXECUTIONS.into()
+            }
+        );
         assert_eq!(profiler(Some(Some("ThrottlingException"))), Access::Unknown);
         assert_eq!(profiler(Some(None)), Access::Unknown);
     }

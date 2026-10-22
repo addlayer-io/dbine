@@ -59,7 +59,9 @@
 
 use crate::ddl::path;
 use crate::{http_error, query_error, Cancel, CbSession, Conn};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{kinds, Error, Result};
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -116,7 +118,9 @@ impl ResultsScanner {
             return Ok(out);
         }
         if !self.inside {
-            let Some(open) = find_results(&self.buf) else { return Ok(out) };
+            let Some(open) = find_results(&self.buf) else {
+                return Ok(out);
+            };
             self.inside = true;
             self.at = open + 1;
             self.start = self.at;
@@ -140,7 +144,9 @@ impl ResultsScanner {
                     b',' | b']' if self.depth == 0 => {
                         let elem = self.buf[self.start..i].trim_ascii();
                         if !elem.is_empty() {
-                            out.push(serde_json::from_slice(elem).map_err(|e| Error::Query(format!("Respuesta inesperada de Couchbase: {e}")))?);
+                            out.push(serde_json::from_slice(elem).map_err(|e| {
+                                Error::Query(format!("Respuesta inesperada de Couchbase: {e}"))
+                            })?);
                         }
                         self.start = i + 1;
                         if b == b']' {
@@ -166,16 +172,27 @@ impl ResultsScanner {
     pub(crate) fn finish(self) -> Result<()> {
         let tail: Value = if self.inside {
             if !self.ended {
-                return Err(Error::Query("Couchbase cortó la respuesta antes de terminar los resultados".into()));
+                return Err(Error::Query(
+                    "Couchbase cortó la respuesta antes de terminar los resultados".into(),
+                ));
             }
             // What follows `results: [...]` is the rest of the object.
             let mut obj = b"{\"_\":0".to_vec();
             obj.extend_from_slice(&self.buf);
             serde_json::from_slice(&obj).unwrap_or(Value::Null)
         } else {
-            serde_json::from_slice(&self.buf).map_err(|_| Error::Query(format!("Respuesta inesperada de Couchbase: {}", String::from_utf8_lossy(&self.buf).trim())))?
+            serde_json::from_slice(&self.buf).map_err(|_| {
+                Error::Query(format!(
+                    "Respuesta inesperada de Couchbase: {}",
+                    String::from_utf8_lossy(&self.buf).trim()
+                ))
+            })?
         };
-        if let Some(errs) = tail.get("errors").and_then(Value::as_array).filter(|e| !e.is_empty()) {
+        if let Some(errs) = tail
+            .get("errors")
+            .and_then(Value::as_array)
+            .filter(|e| !e.is_empty())
+        {
             return Err(query_error(errs, None));
         }
         match tail.get("status").and_then(Value::as_str) {
@@ -242,7 +259,11 @@ impl RowShape {
     /// same rule a load uses).
     fn asked(names: Vec<String>) -> Self {
         let key = doc_key_column(&names);
-        RowShape { names, key, all_fields: None }
+        RowShape {
+            names,
+            key,
+            all_fields: None,
+        }
     }
 
     /// The key and then every field the documents have (sorted). The key
@@ -261,7 +282,11 @@ impl RowShape {
         };
         let all: HashSet<String> = fields.iter().cloned().collect();
         let names = std::iter::once(key).chain(fields).collect();
-        Ok(RowShape { names, key: Some(0), all_fields: Some(all) })
+        Ok(RowShape {
+            names,
+            key: Some(0),
+            all_fields: Some(all),
+        })
     }
 
     /// A `{k, v}` result (key and document) as a row. A missing field is a
@@ -316,7 +341,11 @@ impl RowShape {
 
 /// A row's key (`None`: `UUID()`) and document, what the insert script
 /// writes.
-fn row_parts(names: &[String], key_col: Option<usize>, row: &[Cell]) -> (Option<String>, serde_json::Map<String, Value>) {
+fn row_parts(
+    names: &[String],
+    key_col: Option<usize>,
+    row: &[Cell],
+) -> (Option<String>, serde_json::Map<String, Value>) {
     let drop_key = key_col.is_some_and(|i| names[i] == "_id" || names[i] == "meta_id");
     let doc: serde_json::Map<String, Value> = names
         .iter()
@@ -333,10 +362,13 @@ fn row_parts(names: &[String], key_col: Option<usize>, row: &[Cell]) -> (Option<
             (n.clone(), v)
         })
         .collect();
-    let key = key_col.and_then(|i| row.get(i)).filter(|c| !matches!(c, Cell::Null)).map(|c| match c.to_json() {
-        Value::String(s) => s,
-        other => other.to_string(),
-    });
+    let key = key_col
+        .and_then(|i| row.get(i))
+        .filter(|c| !matches!(c, Cell::Null))
+        .map(|c| match c.to_json() {
+            Value::String(s) => s,
+            other => other.to_string(),
+        });
     (key, doc)
 }
 
@@ -383,7 +415,11 @@ fn doc_key_column(names: &[String]) -> Option<usize> {
 /// A load's key column: [`doc_key_column`], else `id`, else `key` (those
 /// two stay in the document).
 fn key_column(names: &[String]) -> Option<usize> {
-    doc_key_column(names).or_else(|| ["id", "key"].iter().find_map(|k| names.iter().position(|c| c == k)))
+    doc_key_column(names).or_else(|| {
+        ["id", "key"]
+            .iter()
+            .find_map(|k| names.iter().position(|c| c == k))
+    })
 }
 
 /// A transfer's hold on the session's interrupt state while this lives:
@@ -437,7 +473,10 @@ struct InFlight {
 }
 
 impl InFlight {
-    fn settle(&mut self, r: std::result::Result<Done, tokio::task::JoinError>) -> (u64, Result<()>) {
+    fn settle(
+        &mut self,
+        r: std::result::Result<Done, tokio::task::JoinError>,
+    ) -> (u64, Result<()>) {
         match r {
             Ok(d) => {
                 self.bytes = self.bytes.saturating_sub(d.bytes);
@@ -468,7 +507,9 @@ impl Drop for InFlight {
                 // the wait).
                 tokio::task::block_in_place(|| {
                     if rx.recv_timeout(DROP_WAIT).is_err() {
-                        tracing::warn!("couchbase: a cancelled load's INSERTs didn't end in {DROP_WAIT:?}");
+                        tracing::warn!(
+                            "couchbase: a cancelled load's INSERTs didn't end in {DROP_WAIT:?}"
+                        );
                     }
                 });
             }
@@ -479,10 +520,16 @@ impl Drop for InFlight {
                 // load's statements.
                 set.abort_all();
                 drop(set);
-                let (query, user, password) = (conn.query.clone(), conn.user.clone(), conn.password.clone());
-                let waited = std::thread::spawn(move || stop_and_wait_blocking(&query, &user, &password, &id)).join();
+                let (query, user, password) =
+                    (conn.query.clone(), conn.user.clone(), conn.password.clone());
+                let waited = std::thread::spawn(move || {
+                    stop_and_wait_blocking(&query, &user, &password, &id)
+                })
+                .join();
                 if !matches!(waited, Ok(true)) {
-                    tracing::warn!("couchbase: couldn't confirm that a cancelled load's INSERTs ended");
+                    tracing::warn!(
+                        "couchbase: couldn't confirm that a cancelled load's INSERTs ended"
+                    );
                 }
             }
         }
@@ -494,11 +541,24 @@ impl Drop for InFlight {
 /// so one still in transit shows up), up to [`DROP_WAIT`]. Own runtime and
 /// HTTP client: the caller's are blocked. `true` once none is left.
 fn stop_and_wait_blocking(query: &str, user: &str, password: &str, id: &str) -> bool {
-    let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return false };
-    let Ok(http) = reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(10)).build() else { return false };
+    let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
+        return false;
+    };
+    let Ok(http) = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+    else {
+        return false;
+    };
     let post = |stmt: &str| {
         let body = json!({"statement": stmt, "$id": id});
-        let req = http.post(format!("{query}/query/service")).basic_auth(user, Some(password)).json(&body);
+        let req = http
+            .post(format!("{query}/query/service"))
+            .basic_auth(user, Some(password))
+            .json(&body);
         async move { req.send().await.ok()?.json::<Value>().await.ok() }
     };
     rt.block_on(async {
@@ -506,8 +566,13 @@ fn stop_and_wait_blocking(query: &str, user: &str, password: &str, id: &str) -> 
         let (mut quiet, mut failed) = (0, 0);
         while tokio::time::Instant::now() < deadline {
             post("DELETE FROM system:active_requests WHERE clientContextID = $id").await;
-            let left = post("SELECT RAW COUNT(*) FROM system:active_requests WHERE clientContextID = $id").await;
-            match left.as_ref().map(|v| v.pointer("/results/0").and_then(Value::as_u64)) {
+            let left =
+                post("SELECT RAW COUNT(*) FROM system:active_requests WHERE clientContextID = $id")
+                    .await;
+            match left
+                .as_ref()
+                .map(|v| v.pointer("/results/0").and_then(Value::as_u64))
+            {
                 Some(Some(0)) => {
                     quiet += 1;
                     if quiet >= 2 {
@@ -559,15 +624,27 @@ async fn insert(conn: &Conn, body: Vec<u8>, docs: usize) -> (u64, Result<()>) {
             }),
         );
     };
-    let written = v.pointer("/metrics/mutationCount").and_then(Value::as_u64).unwrap_or(0);
-    if let Some(errs) = v.get("errors").and_then(Value::as_array).filter(|e| !e.is_empty()) {
+    let written = v
+        .pointer("/metrics/mutationCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if let Some(errs) = v
+        .get("errors")
+        .and_then(Value::as_array)
+        .filter(|e| !e.is_empty())
+    {
         return (written, Err(query_error(errs, None)));
     }
     if v.get("status").and_then(Value::as_str) == Some("stopped") {
         return (written, Err(Error::Cancelled));
     }
     if written as usize != docs {
-        return (written, Err(Error::Query(format!("INSERT: se escribieron {written} de {docs} documentos"))));
+        return (
+            written,
+            Err(Error::Query(format!(
+                "INSERT: se escribieron {written} de {docs} documentos"
+            ))),
+        );
     }
     (written, Ok(()))
 }
@@ -622,8 +699,12 @@ impl Loader<'_> {
             return Ok(());
         }
         let bytes = self.buf.len();
-        while !self.flight.set.is_empty() && (self.flight.set.len() >= IN_FLIGHT || self.flight.bytes + bytes > IN_FLIGHT_BYTES) {
-            let Some(r) = self.flight.set.join_next().await else { break };
+        while !self.flight.set.is_empty()
+            && (self.flight.set.len() >= IN_FLIGHT || self.flight.bytes + bytes > IN_FLIGHT_BYTES)
+        {
+            let Some(r) = self.flight.set.join_next().await else {
+                break;
+            };
             self.settled(r)?;
         }
         // Interrupted (maybe while waiting for room): nothing new starts.
@@ -639,7 +720,11 @@ impl Loader<'_> {
         self.flight.bytes += bytes;
         self.flight.set.spawn(async move {
             let (written, result) = insert(&conn, body, docs).await;
-            Done { bytes, written, result }
+            Done {
+                bytes,
+                written,
+                result,
+            }
         });
         Ok(())
     }
@@ -680,12 +765,21 @@ fn lock_err<T>(_: T) -> Error {
 }
 
 impl CbSession {
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         if spec.table.kind != kinds::COLLECTION {
             return dbine_driver::transfer::read_via_execute(self, spec, sink).await;
         }
         let ks = path(spec.table.schema(), &spec.table.name);
-        let filter = match spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        let filter = match spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
             Some(f) => format!(" WHERE {f}"),
             None => String::new(),
         };
@@ -711,17 +805,34 @@ impl CbSession {
                 let fields = v
                     .get("results")
                     .and_then(Value::as_array)
-                    .map(|r| r.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .map(|r| {
+                        r.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
                     .unwrap_or_default();
                 RowShape::discovered(fields)?
             }
         };
-        let body = read_body(&format!("SELECT META(d).id AS k, d AS v FROM {ks} AS d{filter}"));
+        let body = read_body(&format!(
+            "SELECT META(d).id AS k, d AS v FROM {ks} AS d{filter}"
+        ));
         let mut resp = cancel
-            .run(async { conn.http.post(format!("{}/query/service", conn.query)).basic_auth(&conn.user, Some(&conn.password)).json(&body).send().await.map_err(http_error) })
+            .run(async {
+                conn.http
+                    .post(format!("{}/query/service", conn.query))
+                    .basic_auth(&conn.user, Some(&conn.password))
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(http_error)
+            })
             .await?;
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(Error::AuthFailed(resp.text().await.unwrap_or_default().trim().to_string()));
+            return Err(Error::AuthFailed(
+                resp.text().await.unwrap_or_default().trim().to_string(),
+            ));
         }
 
         let cols: Vec<TransferColumn> = shape
@@ -730,14 +841,20 @@ impl CbSession {
             .enumerate()
             .map(|(i, n)| {
                 let key = Some(i) == shape.key;
-                TransferColumn { name: n.clone(), type_name: if key { "string".into() } else { String::new() }, nullable: !key }
+                TransferColumn {
+                    name: n.clone(),
+                    type_name: if key { "string".into() } else { String::new() },
+                    nullable: !key,
+                }
             })
             .collect();
         sink.lock().map_err(lock_err)?.begin(&cols)?;
         let mut scanner = ResultsScanner::default();
         let mut builder = BatchBuilder::new();
         loop {
-            let chunk = cancel.run(async { resp.chunk().await.map_err(http_error) }).await?;
+            let chunk = cancel
+                .run(async { resp.chunk().await.map_err(http_error) })
+                .await?;
             let Some(chunk) = chunk else { break };
             let found = scanner.feed(&chunk)?;
             if found.is_empty() {
@@ -767,13 +884,20 @@ impl CbSession {
         progress: Progress<'_>,
     ) -> Result<u64> {
         if self.conn.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se cargan datos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se cargan datos.".into(),
+            ));
         }
         if spec.table.kind != kinds::COLLECTION {
-            return Err(Error::Unsupported("en Couchbase solo se cargan documentos en una colección".into()));
+            return Err(Error::Unsupported(
+                "en Couchbase solo se cargan documentos en una colección".into(),
+            ));
         }
-        let names: Vec<String> =
-            if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
         let key_col = key_column(&names);
 
         // Every statement of the load carries this id: a dropped load stops
@@ -784,7 +908,10 @@ impl CbSession {
         let id = crate::context_id();
         let cancel = self.cancel.clone();
         let _current = Current::set(&cancel, None);
-        let mut body = self.body(&insert_statement(&path(spec.table.schema(), &spec.table.name)), Some(&id));
+        let mut body = self.body(
+            &insert_statement(&path(spec.table.schema(), &spec.table.name)),
+            Some(&id),
+        );
         // Only the mutations are wanted back.
         body["pretty"] = Value::Bool(false);
         body["scan_consistency"] = json!("not_bounded");
@@ -796,7 +923,12 @@ impl CbSession {
             prefix,
             buf: Vec::new(),
             docs: 0,
-            flight: InFlight { set: JoinSet::new(), bytes: 0, conn: self.conn.clone(), id },
+            flight: InFlight {
+                set: JoinSet::new(),
+                bytes: 0,
+                conn: self.conn.clone(),
+                id,
+            },
             done: 0,
             reported: 0,
             every: spec.commit_rows.max(1),
@@ -809,11 +941,17 @@ impl CbSession {
                 if cancel.flag.load(Ordering::SeqCst) {
                     return Err(Error::Cancelled);
                 }
-                let Some(batch) = source.next().await else { break };
+                let Some(batch) = source.next().await else {
+                    break;
+                };
                 for row in &batch.rows {
                     rows += 1;
                     if row.len() != names.len() {
-                        return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), names.len())));
+                        return Err(Error::Query(format!(
+                            "la fila tiene {} valores y la carga {} columnas",
+                            row.len(),
+                            names.len()
+                        )));
                     }
                     l.add(&entry_bytes(&names, key_col, row, rows)?).await?;
                 }
@@ -879,7 +1017,10 @@ mod tests {
         s.feed(br#"{"results":[{"k":1},"#).unwrap();
         assert!(s.finish().is_err());
         let mut s = ResultsScanner::default();
-        assert!(s.feed(br#"{"results": [ ], "status": "success"}"#).unwrap().is_empty());
+        assert!(s
+            .feed(br#"{"results": [ ], "status": "success"}"#)
+            .unwrap()
+            .is_empty());
         s.finish().unwrap();
     }
 
@@ -901,18 +1042,36 @@ mod tests {
         );
         // `id` is the key and stays in the document; no key: none sent (UUID()).
         let n = names(&["id", "a"]);
-        assert_eq!(row_entry(&n, key_column(&n), &[Cell::Text("k".into()), Cell::Bool(true)]), json!({"k": "k", "v": {"id": "k", "a": true}}));
-        assert_eq!(row_entry(&n, key_column(&n), &[Cell::Null, Cell::Int(1)]), json!({"v": {"a": 1}}));
+        assert_eq!(
+            row_entry(
+                &n,
+                key_column(&n),
+                &[Cell::Text("k".into()), Cell::Bool(true)]
+            ),
+            json!({"k": "k", "v": {"id": "k", "a": true}})
+        );
+        assert_eq!(
+            row_entry(&n, key_column(&n), &[Cell::Null, Cell::Int(1)]),
+            json!({"v": {"a": 1}})
+        );
         let n = names(&["a"]);
-        assert_eq!(row_entry(&n, key_column(&n), &[Cell::Float(1.5)]), json!({"v": {"a": 1.5}}));
-        assert!(insert_statement("`b`.`s`.`c`").starts_with("INSERT INTO `b`.`s`.`c` (KEY IFMISSINGORNULL(_k, UUID()), VALUE _v)"));
+        assert_eq!(
+            row_entry(&n, key_column(&n), &[Cell::Float(1.5)]),
+            json!({"v": {"a": 1.5}})
+        );
+        assert!(insert_statement("`b`.`s`.`c`")
+            .starts_with("INSERT INTO `b`.`s`.`c` (KEY IFMISSINGORNULL(_k, UUID()), VALUE _v)"));
     }
 
     #[test]
     fn documents_become_rows() {
         let doc = json!({"n": 5, "f": 1.5, "big": u64::MAX, "ok": false, "tags": ["p"], "o": {"k": null}, "s": "t", "nul": null});
-        let shape = RowShape::discovered(doc.as_object().unwrap().keys().rev().cloned().collect()).unwrap();
-        assert_eq!(shape.names, ["_id", "big", "f", "n", "nul", "o", "ok", "s", "tags"]);
+        let shape =
+            RowShape::discovered(doc.as_object().unwrap().keys().rev().cloned().collect()).unwrap();
+        assert_eq!(
+            shape.names,
+            ["_id", "big", "f", "n", "nul", "o", "ok", "s", "tags"]
+        );
         let row = shape.row("k1", &doc).unwrap();
         let by = |n: &str| row[shape.names.iter().position(|c| c == n).unwrap()].clone();
         assert_eq!(by("_id"), Cell::Text("k1".into()));
@@ -926,16 +1085,26 @@ mod tests {
         // An explicit null isn't a missing field.
         assert_eq!(by("nul"), Cell::Json("null".into()));
         let row = shape.row("k2", &json!({"n": 1})).unwrap();
-        assert_eq!(row[shape.names.iter().position(|c| c == "nul").unwrap()], Cell::Null);
+        assert_eq!(
+            row[shape.names.iter().position(|c| c == "nul").unwrap()],
+            Cell::Null
+        );
     }
 
     #[test]
     fn explicit_nulls_and_missing_fields_round_trip() {
         let shape = RowShape::discovered(names(&["a", "b"])).unwrap();
-        for doc in [json!({"a": null, "b": 1}), json!({"b": 1}), json!({"a": null})] {
+        for doc in [
+            json!({"a": null, "b": 1}),
+            json!({"b": 1}),
+            json!({"a": null}),
+        ] {
             let row = shape.row("k", &doc).unwrap();
             let n = &shape.names;
-            assert_eq!(row_entry(n, key_column(n), &row), json!({"k": "k", "v": doc}));
+            assert_eq!(
+                row_entry(n, key_column(n), &row),
+                json!({"k": "k", "v": doc})
+            );
         }
     }
 
@@ -943,22 +1112,48 @@ mod tests {
     fn fields_found_later_are_columns_or_fail() {
         // Every field the documents have is a column (the server gathers them).
         let shape = RowShape::discovered(names(&["a", "extra"])).unwrap();
-        assert_eq!(shape.row("pr99999", &json!({"a": 1, "extra": "x"})).unwrap(), vec![Cell::Text("pr99999".into()), Cell::Int(1), Cell::Text("x".into())]);
+        assert_eq!(
+            shape
+                .row("pr99999", &json!({"a": 1, "extra": "x"}))
+                .unwrap(),
+            vec![
+                Cell::Text("pr99999".into()),
+                Cell::Int(1),
+                Cell::Text("x".into())
+            ]
+        );
         // A field that appears after they were gathered fails the read.
         let e = shape.row("late", &json!({"a": 1, "new": 2})).unwrap_err();
-        assert!(matches!(&e, Error::Query(m) if m.contains("«new»")), "{e:?}");
+        assert!(
+            matches!(&e, Error::Query(m) if m.contains("«new»")),
+            "{e:?}"
+        );
         // Asked-for columns: other fields are left out on purpose.
         let asked = RowShape::asked(names(&["_id", "a"]));
-        assert_eq!(asked.row("k", &json!({"a": 1, "new": 2})).unwrap(), vec![Cell::Text("k".into()), Cell::Int(1)]);
+        assert_eq!(
+            asked.row("k", &json!({"a": 1, "new": 2})).unwrap(),
+            vec![Cell::Text("k".into()), Cell::Int(1)]
+        );
     }
 
     #[test]
     fn non_object_documents_fail() {
         let shape = RowShape::discovered(names(&["a"])).unwrap();
-        for doc in [json!([1, 2, 3]), json!("hello"), json!(7), json!(true), Value::Null] {
+        for doc in [
+            json!([1, 2, 3]),
+            json!("hello"),
+            json!(7),
+            json!(true),
+            Value::Null,
+        ] {
             let e = shape.row("sh", &doc).unwrap_err();
-            assert!(matches!(&e, Error::Unsupported(m) if m.contains("no es un objeto JSON")), "{doc}: {e:?}");
-            assert!(RowShape::asked(names(&["_id", "a"])).row("sh", &doc).is_err());
+            assert!(
+                matches!(&e, Error::Unsupported(m) if m.contains("no es un objeto JSON")),
+                "{doc}: {e:?}"
+            );
+            assert!(RowShape::asked(names(&["_id", "a"]))
+                .row("sh", &doc)
+                .is_err());
         }
     }
 
@@ -969,14 +1164,35 @@ mod tests {
         assert_eq!(shape.names, ["meta_id", "_id", "x"]);
         let doc = json!({"_id": "inner", "x": 1});
         let row = shape.row("sh_idfield", &doc).unwrap();
-        assert_eq!(row, vec![Cell::Text("sh_idfield".into()), Cell::Text("inner".into()), Cell::Int(1)]);
+        assert_eq!(
+            row,
+            vec![
+                Cell::Text("sh_idfield".into()),
+                Cell::Text("inner".into()),
+                Cell::Int(1)
+            ]
+        );
         let n = &shape.names;
-        assert_eq!(row_entry(n, key_column(n), &row), json!({"k": "sh_idfield", "v": {"_id": "inner", "x": 1}}));
+        assert_eq!(
+            row_entry(n, key_column(n), &row),
+            json!({"k": "sh_idfield", "v": {"_id": "inner", "x": 1}})
+        );
         // Asking only for `_id` (the key) would hide the field: it fails.
-        assert!(matches!(RowShape::asked(names(&["_id", "x"])).row("k", &doc), Err(Error::Unsupported(_))));
-        assert_eq!(RowShape::asked(names(&["meta_id", "_id"])).row("k", &doc).unwrap(), vec![Cell::Text("k".into()), Cell::Text("inner".into())]);
+        assert!(matches!(
+            RowShape::asked(names(&["_id", "x"])).row("k", &doc),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(
+            RowShape::asked(names(&["meta_id", "_id"]))
+                .row("k", &doc)
+                .unwrap(),
+            vec![Cell::Text("k".into()), Cell::Text("inner".into())]
+        );
         // Both names taken: no name left for the key.
-        assert!(matches!(RowShape::discovered(names(&["_id", "meta_id"])), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            RowShape::discovered(names(&["_id", "meta_id"])),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -985,18 +1201,32 @@ mod tests {
         let shape = RowShape::discovered(names(&["x", "meta_id"])).unwrap();
         assert_eq!(shape.names, ["_id", "meta_id", "x"]);
         let n = &shape.names;
-        for (key, doc) in [("k1", json!({"meta_id": "m1", "x": 1})), ("k2", json!({"x": 2})), ("k3", json!({"meta_id": null}))] {
+        for (key, doc) in [
+            ("k1", json!({"meta_id": "m1", "x": 1})),
+            ("k2", json!({"x": 2})),
+            ("k3", json!({"meta_id": null})),
+        ] {
             let row = shape.row(key, &doc).unwrap();
             assert_eq!(row[0], Cell::Text(key.into()));
             // Same key, same document: nothing re-keyed, dropped or invented.
-            assert_eq!(row_entry(n, key_column(n), &row), json!({"k": key, "v": doc}), "{key}");
+            assert_eq!(
+                row_entry(n, key_column(n), &row),
+                json!({"k": key, "v": doc}),
+                "{key}"
+            );
         }
     }
 
     #[test]
     fn read_and_load_agree_on_the_key() {
         // With both names, the first one is the key on both sides.
-        for cols in [&["_id", "meta_id", "x"][..], &["meta_id", "_id", "x"], &["x", "meta_id", "_id"], &["x", "_id"], &["meta_id"]] {
+        for cols in [
+            &["_id", "meta_id", "x"][..],
+            &["meta_id", "_id", "x"],
+            &["x", "meta_id", "_id"],
+            &["x", "_id"],
+            &["meta_id"],
+        ] {
             let n = names(cols);
             assert_eq!(RowShape::asked(n.clone()).key, key_column(&n), "{cols:?}");
         }
@@ -1005,9 +1235,23 @@ mod tests {
         assert_eq!(key_column(&names(&["key", "id"])), Some(1));
         assert_eq!(RowShape::asked(names(&["id"])).key, None);
         let n = names(&["meta_id", "_id", "x"]);
-        assert_eq!(row_entry(&n, key_column(&n), &[Cell::Text("k".into()), Cell::Text("f".into()), Cell::Int(1)]), json!({"k": "k", "v": {"_id": "f", "x": 1}}));
+        assert_eq!(
+            row_entry(
+                &n,
+                key_column(&n),
+                &[Cell::Text("k".into()), Cell::Text("f".into()), Cell::Int(1)]
+            ),
+            json!({"k": "k", "v": {"_id": "f", "x": 1}})
+        );
         let n = names(&["_id", "meta_id", "x"]);
-        assert_eq!(row_entry(&n, key_column(&n), &[Cell::Text("k".into()), Cell::Text("f".into()), Cell::Int(1)]), json!({"k": "k", "v": {"meta_id": "f", "x": 1}}));
+        assert_eq!(
+            row_entry(
+                &n,
+                key_column(&n),
+                &[Cell::Text("k".into()), Cell::Text("f".into()), Cell::Int(1)]
+            ),
+            json!({"k": "k", "v": {"meta_id": "f", "x": 1}})
+        );
     }
 
     #[test]
@@ -1016,7 +1260,10 @@ mod tests {
         cancel.flag.store(true, Ordering::SeqCst);
         {
             let _c = Current::set(&cancel, Some("id1"));
-            assert!(!cancel.flag.load(Ordering::SeqCst), "a stale interrupt cancels nothing");
+            assert!(
+                !cancel.flag.load(Ordering::SeqCst),
+                "a stale interrupt cancels nothing"
+            );
             assert_eq!(cancel.current.lock().unwrap().as_deref(), Some("id1"));
             cancel.flag.store(true, Ordering::SeqCst);
         }
@@ -1045,10 +1292,28 @@ mod tests {
     #[test]
     fn entries_are_json_and_bounded() {
         let n = names(&["_id", "s"]);
-        let e = entry_bytes(&n, key_column(&n), &[Cell::Text("k\"1".into()), Cell::Text("a\u{1}".into())], 1).unwrap();
-        assert_eq!(serde_json::from_slice::<Value>(&e).unwrap(), json!({"k": "k\"1", "v": {"s": "a\u{1}"}}));
+        let e = entry_bytes(
+            &n,
+            key_column(&n),
+            &[Cell::Text("k\"1".into()), Cell::Text("a\u{1}".into())],
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&e).unwrap(),
+            json!({"k": "k\"1", "v": {"s": "a\u{1}"}})
+        );
         let big = "x".repeat(MAX_DOC);
-        let e = entry_bytes(&n, key_column(&n), &[Cell::Text("k".into()), Cell::Text(big)], 3).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("fila 3")), "{e:?}");
+        let e = entry_bytes(
+            &n,
+            key_column(&n),
+            &[Cell::Text("k".into()), Cell::Text(big)],
+            3,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("fila 3")),
+            "{e:?}"
+        );
     }
 }

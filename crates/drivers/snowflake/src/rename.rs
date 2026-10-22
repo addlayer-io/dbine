@@ -28,13 +28,22 @@
 //! and every DDL statement commits by itself.
 
 use crate::script;
-use dbine_driver::rename::{quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
+use dbine_driver::rename::{
+    quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{kinds, Error, ObjectRef, Result, ScriptDialect, SyncScript};
 
 const FOLD: Fold = Fold::Upper;
 
-const KINDS: [&str; 6] = [kinds::TABLE, kinds::VIEW, kinds::MATERIALIZED_VIEW, kinds::SEQUENCE, kinds::FUNCTION, kinds::PROCEDURE];
+const KINDS: [&str; 6] = [
+    kinds::TABLE,
+    kinds::VIEW,
+    kinds::MATERIALIZED_VIEW,
+    kinds::SEQUENCE,
+    kinds::FUNCTION,
+    kinds::PROCEDURE,
+];
 
 pub(crate) fn spec() -> RenameSpec {
     RenameSpec {
@@ -97,7 +106,10 @@ pub(crate) fn database_script(database: &str, new_name: &str) -> Result<SyncScri
 /// script dialect reads backslash escapes, which `quote_new` would take
 /// for backtick identifiers).
 fn quoting() -> ScriptDialect {
-    ScriptDialect { backslash_escapes: false, ..script::dialect() }
+    ScriptDialect {
+        backslash_escapes: false,
+        ..script::dialect()
+    }
 }
 
 fn q(name: &str) -> String {
@@ -118,7 +130,12 @@ fn new_qualified(schema: Option<&str>, to: &str) -> String {
 
 pub(crate) fn script(req: &RenameRequest) -> Result<SyncScript> {
     let to = quote_new(&req.new_name, &quoting(), FOLD, false);
-    let one = |sql: String| Ok(SyncScript { statements: vec![sql], warnings: Vec::new() });
+    let one = |sql: String| {
+        Ok(SyncScript {
+            statements: vec![sql],
+            warnings: Vec::new(),
+        })
+    };
     match &req.target {
         RenameTarget::Object { object, .. } => {
             let word = match object.kind.as_str() {
@@ -127,30 +144,51 @@ pub(crate) fn script(req: &RenameRequest) -> Result<SyncScript> {
                 kinds::MATERIALIZED_VIEW => "MATERIALIZED VIEW",
                 kinds::SEQUENCE => "SEQUENCE",
                 kinds::FUNCTION | kinds::PROCEDURE => return routine(req, object, &to),
-                k => return Err(Error::Unsupported(format!("Snowflake no renombra objetos de tipo «{k}» desde DBine."))),
+                k => {
+                    return Err(Error::Unsupported(format!(
+                        "Snowflake no renombra objetos de tipo «{k}» desde DBine."
+                    )))
+                }
             };
-            one(format!("ALTER {word} {} RENAME TO {};", qualified(object.schema(), &object.name), new_qualified(object.schema(), &to)))
+            one(format!(
+                "ALTER {word} {} RENAME TO {};",
+                qualified(object.schema(), &object.name),
+                new_qualified(object.schema(), &to)
+            ))
         }
-        RenameTarget::Column { table, column } => {
-            one(format!("ALTER TABLE {} RENAME COLUMN {} TO {to};", qualified(table.schema(), &table.name), q(column)))
-        }
+        RenameTarget::Column { table, column } => one(format!(
+            "ALTER TABLE {} RENAME COLUMN {} TO {to};",
+            qualified(table.schema(), &table.name),
+            q(column)
+        )),
         RenameTarget::Schema { database, schema } => {
             let db = database.as_deref().filter(|d| !d.is_empty());
             let new = match db {
                 Some(d) => format!("{}.{to}", q(d)),
                 None => to,
             };
-            one(format!("ALTER SCHEMA {} RENAME TO {new};", qualified(db, schema)))
+            one(format!(
+                "ALTER SCHEMA {} RENAME TO {new};",
+                qualified(db, schema)
+            ))
         }
-        RenameTarget::Index { .. } => Err(Error::Unsupported("Snowflake no tiene índices que se puedan renombrar.".into())),
-        RenameTarget::Constraint { .. } => Err(Error::Unsupported("Snowflake no renombra restricciones.".into())),
+        RenameTarget::Index { .. } => Err(Error::Unsupported(
+            "Snowflake no tiene índices que se puedan renombrar.".into(),
+        )),
+        RenameTarget::Constraint { .. } => Err(Error::Unsupported(
+            "Snowflake no renombra restricciones.".into(),
+        )),
     }
 }
 
 /// `ALTER FUNCTION|PROCEDURE s.f(<types>) RENAME TO s.new` for each
 /// overload in the definition.
 fn routine(req: &RenameRequest, object: &ObjectRef, to: &str) -> Result<SyncScript> {
-    let word = if object.kind == kinds::PROCEDURE { "PROCEDURE" } else { "FUNCTION" };
+    let word = if object.kind == kinds::PROCEDURE {
+        "PROCEDURE"
+    } else {
+        "FUNCTION"
+    };
     let definition = req.definition.as_deref().filter(|d| !d.trim().is_empty()).ok_or_else(|| {
         Error::Unsupported(format!(
             "No se pudo leer la definición de «{}»: sin los tipos de sus argumentos Snowflake no sabe cuál renombrar.",
@@ -159,17 +197,30 @@ fn routine(req: &RenameRequest, object: &ObjectRef, to: &str) -> Result<SyncScri
     })?;
     let sigs = signatures(definition, word, &object.name)?;
     if sigs.is_empty() {
-        return Err(Error::Unsupported(format!("No se reconocen los argumentos de «{}» en su definición.", object.name)));
+        return Err(Error::Unsupported(format!(
+            "No se reconocen los argumentos de «{}» en su definición.",
+            object.name
+        )));
     }
     let name = qualified(object.schema(), &object.name);
     let new = new_qualified(object.schema(), to);
-    let statements = sigs.iter().map(|types| format!("ALTER {word} {name}({}) RENAME TO {new};", types.join(", "))).collect::<Vec<_>>();
+    let statements = sigs
+        .iter()
+        .map(|types| format!("ALTER {word} {name}({}) RENAME TO {new};", types.join(", ")))
+        .collect::<Vec<_>>();
     let warnings = if statements.len() > 1 {
-        vec![format!("«{}» tiene {} sobrecargas: se renombran todas.", object.name, statements.len())]
+        vec![format!(
+            "«{}» tiene {} sobrecargas: se renombran todas.",
+            object.name,
+            statements.len()
+        )]
     } else {
         Vec::new()
     };
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 /// The argument types of each `CREATE OR REPLACE <word> <name>(…) RETURNS
@@ -195,8 +246,13 @@ pub(crate) fn signatures(definition: &str, word: &str, name: &str) -> Result<Vec
         if text.is_empty() {
             continue;
         }
-        let rest = strip_words(text, &["CREATE", "OR", "REPLACE", word]).ok_or_else(ambiguous)?.trim_start();
-        let after = if rest.len() >= name.len() && rest.is_char_boundary(name.len()) && rest[..name.len()].eq_ignore_ascii_case(name) {
+        let rest = strip_words(text, &["CREATE", "OR", "REPLACE", word])
+            .ok_or_else(ambiguous)?
+            .trim_start();
+        let after = if rest.len() >= name.len()
+            && rest.is_char_boundary(name.len())
+            && rest[..name.len()].eq_ignore_ascii_case(name)
+        {
             &rest[name.len()..]
         } else if let Some(r) = rest.strip_prefix(&q(name)) {
             r
@@ -208,15 +264,21 @@ pub(crate) fn signatures(definition: &str, word: &str, name: &str) -> Result<Vec
         // `RETURNS … AS '<body>'` (a body that holds `$$`), the literal
         // running to the end of the unit.
         let tail = tail.trim_start();
-        let returns = tail.len() >= 8 && tail.is_char_boundary(8) && tail[..8].eq_ignore_ascii_case("RETURNS ");
+        let returns = tail.len() >= 8
+            && tail.is_char_boundary(8)
+            && tail[..8].eq_ignore_ascii_case("RETURNS ");
         let dollar = tail.find("$$");
         let quote = tail.find('\'').filter(|q| dollar.is_none_or(|d| *q < d));
         let open = quote.or(dollar).ok_or_else(ambiguous)?;
         let header = tail[..open].trim_end();
-        let as_kw = header.len() >= 3 && header.is_char_boundary(header.len() - 3) && header[header.len() - 3..].eq_ignore_ascii_case(" AS");
+        let as_kw = header.len() >= 3
+            && header.is_char_boundary(header.len() - 3)
+            && header[header.len() - 3..].eq_ignore_ascii_case(" AS");
         let body_ok = match quote {
             Some(q) => literal_end(tail, q) == Some(tail.len()),
-            None => tail.matches("$$").count() == 2 && tail.ends_with("$$") && tail.len() >= open + 4,
+            None => {
+                tail.matches("$$").count() == 2 && tail.ends_with("$$") && tail.len() >= open + 4
+            }
         };
         if !returns || !as_kw || !body_ok {
             return Err(ambiguous());
@@ -256,14 +318,57 @@ fn literal_end(text: &str, open: usize) -> Option<usize> {
 /// Snowflake's type names (and their synonyms), as words separated by one
 /// space.
 const TYPE_NAMES: &[&str] = &[
-    "NUMBER", "DECIMAL", "DEC", "NUMERIC", "INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "BYTEINT",
-    "FLOAT", "FLOAT4", "FLOAT8", "DOUBLE", "DOUBLE PRECISION", "REAL",
-    "VARCHAR", "CHAR", "CHARACTER", "CHAR VARYING", "CHARACTER VARYING", "NCHAR", "NCHAR VARYING", "NVARCHAR", "NVARCHAR2",
-    "STRING", "TEXT", "BINARY", "VARBINARY", "BOOLEAN",
-    "DATE", "DATETIME", "TIME", "TIMESTAMP", "TIMESTAMP_LTZ", "TIMESTAMP_NTZ", "TIMESTAMP_TZ",
-    "TIMESTAMPLTZ", "TIMESTAMPNTZ", "TIMESTAMPTZ",
-    "TIMESTAMP WITH LOCAL TIME ZONE", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITHOUT TIME ZONE",
-    "VARIANT", "OBJECT", "ARRAY", "MAP", "VECTOR", "GEOGRAPHY", "GEOMETRY", "FILE",
+    "NUMBER",
+    "DECIMAL",
+    "DEC",
+    "NUMERIC",
+    "INT",
+    "INTEGER",
+    "BIGINT",
+    "SMALLINT",
+    "TINYINT",
+    "BYTEINT",
+    "FLOAT",
+    "FLOAT4",
+    "FLOAT8",
+    "DOUBLE",
+    "DOUBLE PRECISION",
+    "REAL",
+    "VARCHAR",
+    "CHAR",
+    "CHARACTER",
+    "CHAR VARYING",
+    "CHARACTER VARYING",
+    "NCHAR",
+    "NCHAR VARYING",
+    "NVARCHAR",
+    "NVARCHAR2",
+    "STRING",
+    "TEXT",
+    "BINARY",
+    "VARBINARY",
+    "BOOLEAN",
+    "DATE",
+    "DATETIME",
+    "TIME",
+    "TIMESTAMP",
+    "TIMESTAMP_LTZ",
+    "TIMESTAMP_NTZ",
+    "TIMESTAMP_TZ",
+    "TIMESTAMPLTZ",
+    "TIMESTAMPNTZ",
+    "TIMESTAMPTZ",
+    "TIMESTAMP WITH LOCAL TIME ZONE",
+    "TIMESTAMP WITH TIME ZONE",
+    "TIMESTAMP WITHOUT TIME ZONE",
+    "VARIANT",
+    "OBJECT",
+    "ARRAY",
+    "MAP",
+    "VECTOR",
+    "GEOGRAPHY",
+    "GEOMETRY",
+    "FILE",
 ];
 
 #[derive(Debug, PartialEq)]
@@ -282,7 +387,11 @@ enum Tok<'a> {
 /// spaces, parentheses and commas: no quotes, `;`, `$`, comments or line
 /// breaks.
 fn valid_type(ty: &str) -> bool {
-    if ty.is_empty() || !ty.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ' ' | '(' | ')' | ',')) {
+    if ty.is_empty()
+        || !ty
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ' ' | '(' | ')' | ','))
+    {
         return false;
     }
     let mut toks = Vec::new();
@@ -378,7 +487,10 @@ fn strip_words<'a>(text: &'a str, words: &[&str]) -> Option<&'a str> {
     let mut rest = text;
     for w in words {
         rest = rest.trim_start();
-        if rest.len() < w.len() || !rest.is_char_boundary(w.len()) || !rest[..w.len()].eq_ignore_ascii_case(w) {
+        if rest.len() < w.len()
+            || !rest.is_char_boundary(w.len())
+            || !rest[..w.len()].eq_ignore_ascii_case(w)
+        {
             return None;
         }
         rest = &rest[w.len()..];
@@ -424,7 +536,11 @@ fn arguments(text: &str) -> Option<(Vec<String>, &str)> {
 /// The type of `NAME TYPE [DEFAULT …]` (or of `[NAME TYPE]`, an optional
 /// argument as Snowflake lists it).
 fn arg_type(arg: &str) -> Option<String> {
-    let arg = arg.trim().trim_start_matches('[').trim_end_matches(']').trim();
+    let arg = arg
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
     let rest = if let Some(r) = arg.strip_prefix('"') {
         &r[r.find('"')? + 1..]
     } else {
@@ -447,11 +563,20 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: Some(schema.into()),
+            name: name.into(),
+        }
     }
 
     fn req(target: RenameTarget, new: &str, definition: Option<&str>) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: definition.map(Into::into) }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: definition.map(Into::into),
+        }
     }
 
     fn stmts(r: &RenameRequest) -> Vec<String> {
@@ -459,28 +584,60 @@ mod tests {
     }
 
     fn object(kind: &str, new: &str) -> RenameRequest {
-        req(RenameTarget::Object { object: obj(kind, "APP", "CLIENTES"), parent: None }, new, None)
+        req(
+            RenameTarget::Object {
+                object: obj(kind, "APP", "CLIENTES"),
+                parent: None,
+            },
+            new,
+            None,
+        )
     }
 
     #[test]
     fn databases_rename_natively_with_quoted_names() {
         let s = spec();
         assert!(s.databases && !s.database_moves && s.database_from.is_none());
-        assert!(s.database_note.as_deref().is_some_and(|n| n.contains("shares")));
+        assert!(s
+            .database_note
+            .as_deref()
+            .is_some_and(|n| n.contains("shares")));
         let out = database_script("Sales", "sales_2024").unwrap();
-        assert_eq!(out.statements, vec![r#"ALTER DATABASE "Sales" RENAME TO "sales_2024";"#]);
+        assert_eq!(
+            out.statements,
+            vec![r#"ALTER DATABASE "Sales" RENAME TO "sales_2024";"#]
+        );
         assert_eq!(out.warnings.len(), 1);
-        assert_eq!(database_script("A\"b", "C").unwrap().statements, vec![r#"ALTER DATABASE "A""b" RENAME TO "C";"#]);
+        assert_eq!(
+            database_script("A\"b", "C").unwrap().statements,
+            vec![r#"ALTER DATABASE "A""b" RENAME TO "C";"#]
+        );
         assert!(database_script("", "x").is_err());
     }
 
     #[test]
     fn spec_lists_what_snowflake_renames() {
         let s = spec();
-        assert_eq!(s.kinds, ["table", "view", "materialized_view", "sequence", "function", "procedure"]);
+        assert_eq!(
+            s.kinds,
+            [
+                "table",
+                "view",
+                "materialized_view",
+                "sequence",
+                "function",
+                "procedure"
+            ]
+        );
         assert!(s.columns && s.schemas && !s.indexes && !s.constraints && !s.transactional);
-        assert_eq!((s.fold, s.replace), (Fold::Upper, ReplaceStyle::CreateOrReplace));
-        assert!(s.note.as_deref().is_some_and(|n| n.contains("procedimientos") && n.contains("EXECUTE AS")));
+        assert_eq!(
+            (s.fold, s.replace),
+            (Fold::Upper, ReplaceStyle::CreateOrReplace)
+        );
+        assert!(s
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("procedimientos") && n.contains("EXECUTE AS")));
     }
 
     #[test]
@@ -489,7 +646,9 @@ mod tests {
         // app lists every dependent for the user and refuses to put one back.
         let s = spec();
         assert_eq!(s.references, ReferenceStyle::None);
-        let target = dbine_driver::rename::RewriteTarget::Object { object: obj(kinds::TABLE, "S", "T") };
+        let target = dbine_driver::rename::RewriteTarget::Object {
+            object: obj(kinds::TABLE, "S", "T"),
+        };
         for def in [
             "CREATE OR REPLACE TASK S.K WAREHOUSE = W SCHEDULE = '1 minute' AS INSERT INTO S.LOG SELECT * FROM S.T",
             "CREATE OR REPLACE STREAM S.ST ON TABLE S.T",
@@ -505,45 +664,113 @@ mod tests {
     fn a_renamed_routine_keeps_its_rights_through_alter() {
         // `ALTER … RENAME TO` keeps owner, EXECUTE AS, SECURE and grants;
         // nothing is created again.
-        let def = "CREATE OR REPLACE PROCEDURE TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;";
+        let def =
+            "CREATE OR REPLACE PROCEDURE TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;";
         for kind in [kinds::PROCEDURE, kinds::FUNCTION] {
-            let def = if kind == kinds::FUNCTION { def.replace("PROCEDURE", "FUNCTION") } else { def.to_string() };
+            let def = if kind == kinds::FUNCTION {
+                def.replace("PROCEDURE", "FUNCTION")
+            } else {
+                def.to_string()
+            };
             let s = stmts(&routine_req(kind, &def));
             assert_eq!(s.len(), 1);
-            assert!(s[0].starts_with("ALTER ") && s[0].contains(" RENAME TO ") && !s[0].contains("CREATE"), "{s:?}");
+            assert!(
+                s[0].starts_with("ALTER ")
+                    && s[0].contains(" RENAME TO ")
+                    && !s[0].contains("CREATE"),
+                "{s:?}"
+            );
         }
     }
 
     #[test]
     fn tables_keep_their_schema_and_upper_case_stays_bare() {
-        assert_eq!(stmts(&object(kinds::TABLE, "CLIENTES2")), ["ALTER TABLE \"APP\".\"CLIENTES\" RENAME TO \"APP\".CLIENTES2;"]);
+        assert_eq!(
+            stmts(&object(kinds::TABLE, "CLIENTES2")),
+            ["ALTER TABLE \"APP\".\"CLIENTES\" RENAME TO \"APP\".CLIENTES2;"]
+        );
         // Lower or mixed case is kept with quotes, with ", not backticks.
-        assert_eq!(stmts(&object(kinds::TABLE, "Clientes")), ["ALTER TABLE \"APP\".\"CLIENTES\" RENAME TO \"APP\".\"Clientes\";"]);
-        assert_eq!(stmts(&object(kinds::TABLE, "MI \"T\"")), ["ALTER TABLE \"APP\".\"CLIENTES\" RENAME TO \"APP\".\"MI \"\"T\"\"\";"]);
+        assert_eq!(
+            stmts(&object(kinds::TABLE, "Clientes")),
+            ["ALTER TABLE \"APP\".\"CLIENTES\" RENAME TO \"APP\".\"Clientes\";"]
+        );
+        assert_eq!(
+            stmts(&object(kinds::TABLE, "MI \"T\"")),
+            ["ALTER TABLE \"APP\".\"CLIENTES\" RENAME TO \"APP\".\"MI \"\"T\"\"\";"]
+        );
         // A reserved word is quoted.
-        assert_eq!(stmts(&object(kinds::TABLE, "TABLE")), ["ALTER TABLE \"APP\".\"CLIENTES\" RENAME TO \"APP\".\"TABLE\";"]);
+        assert_eq!(
+            stmts(&object(kinds::TABLE, "TABLE")),
+            ["ALTER TABLE \"APP\".\"CLIENTES\" RENAME TO \"APP\".\"TABLE\";"]
+        );
     }
 
     #[test]
     fn views_materialized_views_and_sequences() {
-        assert_eq!(stmts(&object(kinds::VIEW, "V2")), ["ALTER VIEW \"APP\".\"CLIENTES\" RENAME TO \"APP\".V2;"]);
-        assert_eq!(stmts(&object(kinds::MATERIALIZED_VIEW, "MV2")), ["ALTER MATERIALIZED VIEW \"APP\".\"CLIENTES\" RENAME TO \"APP\".MV2;"]);
-        assert_eq!(stmts(&object(kinds::SEQUENCE, "S2")), ["ALTER SEQUENCE \"APP\".\"CLIENTES\" RENAME TO \"APP\".S2;"]);
+        assert_eq!(
+            stmts(&object(kinds::VIEW, "V2")),
+            ["ALTER VIEW \"APP\".\"CLIENTES\" RENAME TO \"APP\".V2;"]
+        );
+        assert_eq!(
+            stmts(&object(kinds::MATERIALIZED_VIEW, "MV2")),
+            ["ALTER MATERIALIZED VIEW \"APP\".\"CLIENTES\" RENAME TO \"APP\".MV2;"]
+        );
+        assert_eq!(
+            stmts(&object(kinds::SEQUENCE, "S2")),
+            ["ALTER SEQUENCE \"APP\".\"CLIENTES\" RENAME TO \"APP\".S2;"]
+        );
     }
 
     #[test]
     fn columns() {
-        let r = req(RenameTarget::Column { table: obj(kinds::TABLE, "APP", "T"), column: "PEPE".into() }, "PEPA", None);
-        assert_eq!(stmts(&r), ["ALTER TABLE \"APP\".\"T\" RENAME COLUMN \"PEPE\" TO PEPA;"]);
-        let r = req(RenameTarget::Column { table: obj(kinds::TABLE, "APP", "T"), column: "PEPE".into() }, "pepa", None);
-        assert_eq!(stmts(&r), ["ALTER TABLE \"APP\".\"T\" RENAME COLUMN \"PEPE\" TO \"pepa\";"]);
+        let r = req(
+            RenameTarget::Column {
+                table: obj(kinds::TABLE, "APP", "T"),
+                column: "PEPE".into(),
+            },
+            "PEPA",
+            None,
+        );
+        assert_eq!(
+            stmts(&r),
+            ["ALTER TABLE \"APP\".\"T\" RENAME COLUMN \"PEPE\" TO PEPA;"]
+        );
+        let r = req(
+            RenameTarget::Column {
+                table: obj(kinds::TABLE, "APP", "T"),
+                column: "PEPE".into(),
+            },
+            "pepa",
+            None,
+        );
+        assert_eq!(
+            stmts(&r),
+            ["ALTER TABLE \"APP\".\"T\" RENAME COLUMN \"PEPE\" TO \"pepa\";"]
+        );
     }
 
     #[test]
     fn schemas_in_their_database() {
-        let r = req(RenameTarget::Schema { database: Some("VENTAS".into()), schema: "APP".into() }, "COMERCIAL", None);
-        assert_eq!(stmts(&r), ["ALTER SCHEMA \"VENTAS\".\"APP\" RENAME TO \"VENTAS\".COMERCIAL;"]);
-        let r = req(RenameTarget::Schema { database: None, schema: "APP".into() }, "Comercial", None);
+        let r = req(
+            RenameTarget::Schema {
+                database: Some("VENTAS".into()),
+                schema: "APP".into(),
+            },
+            "COMERCIAL",
+            None,
+        );
+        assert_eq!(
+            stmts(&r),
+            ["ALTER SCHEMA \"VENTAS\".\"APP\" RENAME TO \"VENTAS\".COMERCIAL;"]
+        );
+        let r = req(
+            RenameTarget::Schema {
+                database: None,
+                schema: "APP".into(),
+            },
+            "Comercial",
+            None,
+        );
         assert_eq!(stmts(&r), ["ALTER SCHEMA \"APP\" RENAME TO \"Comercial\";"]);
     }
 
@@ -553,7 +780,14 @@ mod tests {
                    SELECT 'CREATE OR REPLACE FUNCTION TOTAL(Z FLOAT)' $$;\n\n\
                    CREATE OR REPLACE FUNCTION TOTAL() RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;\n\n\
                    CREATE OR REPLACE FUNCTION TOTAL(P NUMBER(38,2), \"q r\" TIMESTAMP_NTZ(9)) RETURNS NUMBER LANGUAGE JAVASCRIPT AS $$ return 1; $$;";
-        let r = req(RenameTarget::Object { object: obj(kinds::FUNCTION, "APP", "TOTAL"), parent: None }, "SUMA", Some(def));
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::FUNCTION, "APP", "TOTAL"),
+                parent: None,
+            },
+            "SUMA",
+            Some(def),
+        );
         let s = script(&r).unwrap();
         assert_eq!(
             s.statements,
@@ -569,16 +803,40 @@ mod tests {
     #[test]
     fn procedures_and_optional_arguments() {
         let def = "CREATE OR REPLACE PROCEDURE CARGA(N NUMBER, [MODO VARCHAR]) RETURNS VARCHAR LANGUAGE SQL AS $$\nBEGIN\n  RETURN 'ok';\nEND;\n$$;";
-        let r = req(RenameTarget::Object { object: obj(kinds::PROCEDURE, "APP", "CARGA"), parent: None }, "Carga2", Some(def));
-        assert_eq!(stmts(&r), ["ALTER PROCEDURE \"APP\".\"CARGA\"(NUMBER, VARCHAR) RENAME TO \"APP\".\"Carga2\";"]);
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::PROCEDURE, "APP", "CARGA"),
+                parent: None,
+            },
+            "Carga2",
+            Some(def),
+        );
+        assert_eq!(
+            stmts(&r),
+            ["ALTER PROCEDURE \"APP\".\"CARGA\"(NUMBER, VARCHAR) RENAME TO \"APP\".\"Carga2\";"]
+        );
         assert_eq!(arg_type("B NUMBER DEFAULT 5").as_deref(), Some("NUMBER"));
         // Without a definition there are no types to name it by.
-        let r = req(RenameTarget::Object { object: obj(kinds::PROCEDURE, "APP", "CARGA"), parent: None }, "X", None);
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::PROCEDURE, "APP", "CARGA"),
+                parent: None,
+            },
+            "X",
+            None,
+        );
         assert!(matches!(script(&r), Err(Error::Unsupported(_))));
     }
 
     fn routine_req(kind: &str, def: &str) -> RenameRequest {
-        req(RenameTarget::Object { object: obj(kind, "APP", "TOTAL"), parent: None }, "SUMA", Some(def))
+        req(
+            RenameTarget::Object {
+                object: obj(kind, "APP", "TOTAL"),
+                parent: None,
+            },
+            "SUMA",
+            Some(def),
+        )
     }
 
     #[test]
@@ -587,7 +845,10 @@ mod tests {
         // early and the rest reads as a second CREATE carrying SQL in its types.
         let fake = "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;\n\
                     CREATE OR REPLACE FUNCTION TOTAL(A NUMBER) RENAME TO APP.X; DROP TABLE APP.T; ALTER FUNCTION APP.Y(NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 2 $$;";
-        assert!(matches!(script(&routine_req(kinds::FUNCTION, fake)), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(&routine_req(kinds::FUNCTION, fake)),
+            Err(Error::Unsupported(_))
+        ));
         // A stray `$$` left in the body.
         let odd = "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ select '$$' $$;";
         assert!(script(&routine_req(kinds::FUNCTION, odd)).is_err());
@@ -606,11 +867,17 @@ mod tests {
         // holds `$$`: a '…' literal with `\` and `'` escaped.
         let body = "select '$$'; drop table app.t; -- \\' $$";
         let lit = format!("'{}'", body.replace('\\', "\\\\").replace('\'', "''"));
-        let def = format!("CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS {lit};");
+        let def = format!(
+            "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS {lit};"
+        );
         assert_eq!(script::units(&def).len(), 1, "{def}");
-        assert_eq!(stmts(&routine_req(kinds::FUNCTION, &def)), ["ALTER FUNCTION \"APP\".\"TOTAL\"(NUMBER) RENAME TO \"APP\".SUMA;"]);
+        assert_eq!(
+            stmts(&routine_req(kinds::FUNCTION, &def)),
+            ["ALTER FUNCTION \"APP\".\"TOTAL\"(NUMBER) RENAME TO \"APP\".SUMA;"]
+        );
         // A literal that ends before the unit does is refused.
-        let early = "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS '1' || 'x';";
+        let early =
+            "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS '1' || 'x';";
         assert!(script(&routine_req(kinds::FUNCTION, early)).is_err());
         assert_eq!(literal_end("'a\\'b''c' x", 0), Some(9));
         assert_eq!(literal_end("'open", 0), None);
@@ -631,8 +898,13 @@ mod tests {
             "(X ARRAY(NUMBER) RENAME TO Y)",
             "(X NUMBER, )",
         ] {
-            let def = format!("CREATE OR REPLACE FUNCTION TOTAL{args} RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;");
-            assert!(script(&routine_req(kinds::FUNCTION, &def)).is_err(), "{args}");
+            let def = format!(
+                "CREATE OR REPLACE FUNCTION TOTAL{args} RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;"
+            );
+            assert!(
+                script(&routine_req(kinds::FUNCTION, &def)).is_err(),
+                "{args}"
+            );
         }
         assert!(!valid_type("NUMBER;"));
         assert!(!valid_type("VARCHAR'"));
@@ -660,10 +932,33 @@ mod tests {
 
     #[test]
     fn refuses_what_snowflake_does_not_rename() {
-        assert!(matches!(script(&object(kinds::STREAM, "X")), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(&object(kinds::STREAM, "X")),
+            Err(Error::Unsupported(_))
+        ));
         let t = obj(kinds::TABLE, "APP", "T");
-        assert!(matches!(script(&req(RenameTarget::Index { table: t.clone(), index: "I".into() }, "J", None)), Err(Error::Unsupported(_))));
-        assert!(matches!(script(&req(RenameTarget::Constraint { table: t, constraint: "C".into() }, "D", None)), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(&req(
+                RenameTarget::Index {
+                    table: t.clone(),
+                    index: "I".into()
+                },
+                "J",
+                None
+            )),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(&req(
+                RenameTarget::Constraint {
+                    table: t,
+                    constraint: "C".into()
+                },
+                "D",
+                None
+            )),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]

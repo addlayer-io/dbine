@@ -16,12 +16,20 @@ pub enum Access {
     Allowed,
     /// `missing`: the privilege, role or grant it lacks, in the engine's
     /// own terms (`BACKUP DATABASE`, `pg_read_all_stats`, `PROCESS`…).
-    Denied { missing: String },
+    Denied {
+        missing: String,
+    },
 }
 
 impl Access {
     pub fn check(allowed: bool, missing: impl Into<String>) -> Self {
-        if allowed { Access::Allowed } else { Access::Denied { missing: missing.into() } }
+        if allowed {
+            Access::Allowed
+        } else {
+            Access::Denied {
+                missing: missing.into(),
+            }
+        }
     }
 
     pub fn is_denied(&self) -> bool {
@@ -81,12 +89,21 @@ mod tests {
 
     #[test]
     fn serializes_for_the_ui() {
-        let p = Permissions { backup: Access::check(false, "BACKUP DATABASE"), restore: Access::Allowed, ..Default::default() };
+        let p = Permissions {
+            backup: Access::check(false, "BACKUP DATABASE"),
+            restore: Access::Allowed,
+            ..Default::default()
+        };
         let v = serde_json::to_value(&p).unwrap();
-        assert_eq!(v["backup"], serde_json::json!({ "state": "denied", "missing": "BACKUP DATABASE" }));
+        assert_eq!(
+            v["backup"],
+            serde_json::json!({ "state": "denied", "missing": "BACKUP DATABASE" })
+        );
         assert_eq!(v["restore"], serde_json::json!({ "state": "allowed" }));
         assert_eq!(v["profiler"], serde_json::json!({ "state": "unknown" }));
-        let back: Permissions = serde_json::from_value(serde_json::json!({ "backup": { "state": "allowed" } })).unwrap();
+        let back: Permissions =
+            serde_json::from_value(serde_json::json!({ "backup": { "state": "allowed" } }))
+                .unwrap();
         assert_eq!(back.backup, Access::Allowed);
         assert_eq!(back.restore, Access::Unknown);
     }
@@ -104,6 +121,9 @@ mod tests {
         assert_eq!(p.manage_security, Access::Allowed);
         assert_eq!(Permissions::all().create_schema, Access::Allowed);
         let v = serde_json::to_value(Permissions::default()).unwrap();
-        assert_eq!(v["create_schema"], serde_json::json!({ "state": "unknown" }));
+        assert_eq!(
+            v["create_schema"],
+            serde_json::json!({ "state": "unknown" })
+        );
     }
 }

@@ -51,7 +51,9 @@ use aws_sdk_dynamodb::primitives::Blob;
 use aws_sdk_dynamodb::types::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::Client;
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{kinds, Error, Result};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -90,12 +92,21 @@ const TYPE_CODES: [&str; 10] = ["S", "N", "B", "BOOL", "NULL", "L", "M", "SS", "
 /// code when none was seen.
 fn column_type(seen: u16) -> String {
     let all = seen == 0;
-    TYPE_CODES.iter().enumerate().filter(|(i, _)| all || seen & (1 << i) != 0).map(|(_, c)| *c).collect::<Vec<_>>().join(" | ")
+    TYPE_CODES
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| all || seen & (1 << i) != 0)
+        .map(|(_, c)| *c)
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 fn type_bit(v: &AttributeValue) -> u16 {
     let code = crate::type_code(v);
-    TYPE_CODES.iter().position(|c| *c == code).map_or(0, |i| 1 << i)
+    TYPE_CODES
+        .iter()
+        .position(|c| *c == code)
+        .map_or(0, |i| 1 << i)
 }
 
 /// A column this crate read from DynamoDB (its type made only of
@@ -108,8 +119,12 @@ fn dynamo_column(type_name: &str) -> bool {
 /// A number's exact text without exponent (`1.5E+3` → `1500`).
 pub(crate) fn plain_number(n: &str) -> String {
     let n = n.trim().trim_start_matches('+');
-    let Some((m, e)) = n.split_once(['e', 'E']) else { return n.to_string() };
-    let Ok(exp) = e.trim_start_matches('+').parse::<i64>() else { return n.to_string() };
+    let Some((m, e)) = n.split_once(['e', 'E']) else {
+        return n.to_string();
+    };
+    let Ok(exp) = e.trim_start_matches('+').parse::<i64>() else {
+        return n.to_string();
+    };
     // Far beyond DynamoDB's range: left as is (and refused) instead of
     // spelling out millions of zeros.
     if exp.abs() > 1_000 {
@@ -135,7 +150,11 @@ pub(crate) fn plain_number(n: &str) -> String {
     } else if point >= len {
         format!("{digits}{}", "0".repeat((point - len) as usize))
     } else {
-        format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+        format!(
+            "{}.{}",
+            &digits[..point as usize],
+            &digits[point as usize..]
+        )
     };
     let zero = body.chars().all(|c| c == '0' || c == '.');
     if neg && !zero {
@@ -156,7 +175,9 @@ fn check_number(n: &str) -> Result<String> {
         return Err(Error::Query(format!("«{n}» no es un número")));
     }
     let digits = format!("{int}{frac}");
-    let Some(first) = digits.bytes().position(|b| b != b'0') else { return Ok("0".into()) };
+    let Some(first) = digits.bytes().position(|b| b != b'0') else {
+        return Ok("0".into());
+    };
     let last = digits.bytes().rposition(|b| b != b'0').unwrap_or(first);
     let exp = int.len() as i64 - 1 - first as i64;
     if last - first + 1 > 38 || !(-130..=125).contains(&exp) {
@@ -193,17 +214,27 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
         return None;
     }
     let v = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
-    s.as_bytes().chunks(2).map(|p| Some(v(p[0])? << 4 | v(p[1])?)).collect()
+    s.as_bytes()
+        .chunks(2)
+        .map(|p| Some(v(p[0])? << 4 | v(p[1])?))
+        .collect()
 }
 
 fn unknown_type() -> Error {
-    Error::Unsupported("DynamoDB devolvió un tipo de atributo que esta versión de DBine no conoce".into())
+    Error::Unsupported(
+        "DynamoDB devolvió un tipo de atributo que esta versión de DBine no conoce".into(),
+    )
 }
 
 /// An attribute as exact JSON (see the module's notes).
 fn write_json(v: &AttributeValue, out: &mut String) -> Result<()> {
     let text = |s: &str, out: &mut String| out.push_str(&serde_json::Value::from(s).to_string());
-    fn list<T>(out: &mut String, tag: &str, xs: &[T], mut each: impl FnMut(&T, &mut String) -> Result<()>) -> Result<()> {
+    fn list<T>(
+        out: &mut String,
+        tag: &str,
+        xs: &[T],
+        mut each: impl FnMut(&T, &mut String) -> Result<()>,
+    ) -> Result<()> {
         if !tag.is_empty() {
             let _ = write!(out, "{{\"{tag}\":");
         }
@@ -286,7 +317,9 @@ pub(crate) fn attr_cell(v: &AttributeValue) -> Result<Cell> {
 }
 
 fn item_row(item: &Item, cols: &[TransferColumn]) -> Result<Vec<Cell>> {
-    cols.iter().map(|c| item.get(&c.name).map_or(Ok(Cell::Null), attr_cell)).collect()
+    cols.iter()
+        .map(|c| item.get(&c.name).map_or(Ok(Cell::Null), attr_cell))
+        .collect()
 }
 
 /// A JSON value with its numbers' text kept (serde_json here would turn
@@ -313,7 +346,10 @@ fn json_number(s: &str) -> bool {
         None => (m, None),
     };
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    digits(int) && (int == "0" || !int.starts_with('0')) && frac.is_none_or(digits) && e.is_none_or(digits)
+    digits(int)
+        && (int == "0" || !int.starts_with('0'))
+        && frac.is_none_or(digits)
+        && e.is_none_or(digits)
 }
 
 struct Parser<'a> {
@@ -406,7 +442,10 @@ impl Parser<'_> {
             }
             _ => {
                 let start = self.i;
-                while matches!(self.s.get(self.i), Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')) {
+                while matches!(
+                    self.s.get(self.i),
+                    Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+                ) {
                     self.i += 1;
                 }
                 let n = std::str::from_utf8(&self.s[start..self.i]).ok()?;
@@ -418,7 +457,10 @@ impl Parser<'_> {
 
 /// A JSON document, numbers as their text; `None` when it isn't JSON.
 fn parse_json(s: &str) -> Option<J> {
-    let mut p = Parser { s: s.as_bytes(), i: 0 };
+    let mut p = Parser {
+        s: s.as_bytes(),
+        i: 0,
+    };
     let v = p.value(0)?;
     p.peek().is_none().then_some(v)
 }
@@ -426,19 +468,42 @@ fn parse_json(s: &str) -> Option<J> {
 /// A tagged value (`{"$SS": […]}`…), when `k` / `v` are one.
 fn tagged(k: &str, v: &J) -> Option<Result<AttributeValue>> {
     let strs = |v: &J| match v {
-        J::Arr(a) if !a.is_empty() => a.iter().map(|x| if let J::Str(s) = x { Some(s.clone()) } else { None }).collect::<Option<Vec<_>>>(),
+        J::Arr(a) if !a.is_empty() => a
+            .iter()
+            .map(|x| {
+                if let J::Str(s) = x {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Option<Vec<_>>>(),
         _ => None,
     };
     let unique = |xs: &[String]| xs.iter().collect::<HashSet<_>>().len() == xs.len();
     match (k, v) {
         ("$B", J::Str(h)) => unhex(h).map(|b| Ok(AttributeValue::B(Blob::new(b)))),
-        ("$SS", v) => strs(v).filter(|s| unique(s)).map(|s| Ok(AttributeValue::Ss(s))),
+        ("$SS", v) => strs(v)
+            .filter(|s| unique(s))
+            .map(|s| Ok(AttributeValue::Ss(s))),
         ("$BS", v) => {
             let s = strs(v).filter(|s| unique(s))?;
-            s.iter().map(|h| unhex(h).map(Blob::new)).collect::<Option<Vec<_>>>().map(|b| Ok(AttributeValue::Bs(b)))
+            s.iter()
+                .map(|h| unhex(h).map(Blob::new))
+                .collect::<Option<Vec<_>>>()
+                .map(|b| Ok(AttributeValue::Bs(b)))
         }
         ("$NS", J::Arr(a)) if !a.is_empty() => {
-            let ns = a.iter().map(|x| if let J::Num(n) = x { Some(n.as_str()) } else { None }).collect::<Option<Vec<_>>>()?;
+            let ns = a
+                .iter()
+                .map(|x| {
+                    if let J::Num(n) = x {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Option<Vec<_>>>()?;
             let ns = match ns.into_iter().map(check_number).collect::<Result<Vec<_>>>() {
                 Ok(n) => n,
                 Err(e) => return Some(Err(e)),
@@ -453,7 +518,11 @@ fn tagged(k: &str, v: &J) -> Option<Result<AttributeValue>> {
 
 fn map_attr(o: &[(String, J)], tags: bool) -> Result<AttributeValue> {
     // A repeated key: the last one wins, as in serde_json.
-    Ok(AttributeValue::M(o.iter().map(|(k, v)| Ok((k.clone(), j_attr(v, tags)?))).collect::<Result<_>>()?))
+    Ok(AttributeValue::M(
+        o.iter()
+            .map(|(k, v)| Ok((k.clone(), j_attr(v, tags)?)))
+            .collect::<Result<_>>()?,
+    ))
 }
 
 /// A JSON value as an attribute; with `tags`, its one-key tag objects as
@@ -493,7 +562,12 @@ pub(crate) fn cell_attr(c: &Cell, tags: bool) -> Result<Option<AttributeValue>> 
             Some(v) => j_attr(&v, tags)?,
             None => AttributeValue::S(s.clone()),
         },
-        Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => AttributeValue::S(s.clone()),
+        Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s) => AttributeValue::S(s.clone()),
     }))
 }
 
@@ -526,13 +600,25 @@ fn canon_number(n: &str) -> String {
 /// An item's size as DynamoDB counts it (names plus values; numbers take
 /// about a byte per two significant digits).
 fn attr_size(v: &AttributeValue) -> usize {
-    let num = |n: &str| canon_number(n).bytes().filter(u8::is_ascii_digit).count().div_ceil(2) + 1;
+    let num = |n: &str| {
+        canon_number(n)
+            .bytes()
+            .filter(u8::is_ascii_digit)
+            .count()
+            .div_ceil(2)
+            + 1
+    };
     match v {
         AttributeValue::S(s) => s.len(),
         AttributeValue::N(n) => num(n),
         AttributeValue::B(b) => b.as_ref().len(),
         AttributeValue::L(l) => 3 + l.iter().map(|x| 1 + attr_size(x)).sum::<usize>(),
-        AttributeValue::M(m) => 3 + m.iter().map(|(k, x)| 1 + k.len() + attr_size(x)).sum::<usize>(),
+        AttributeValue::M(m) => {
+            3 + m
+                .iter()
+                .map(|(k, x)| 1 + k.len() + attr_size(x))
+                .sum::<usize>()
+        }
         AttributeValue::Ss(s) => s.iter().map(String::len).sum(),
         AttributeValue::Ns(n) => n.iter().map(|n| num(n)).sum(),
         AttributeValue::Bs(b) => b.iter().map(|b| b.as_ref().len()).sum(),
@@ -574,7 +660,11 @@ enum Retry {
 /// Request errors worth another try.
 fn retry_of(code: Option<&str>) -> Retry {
     match code {
-        Some("ProvisionedThroughputExceededException" | "ThrottlingException" | "RequestLimitExceeded") => Retry::Fresh,
+        Some(
+            "ProvisionedThroughputExceededException"
+            | "ThrottlingException"
+            | "RequestLimitExceeded",
+        ) => Retry::Fresh,
         Some("InternalServerError" | "TransactionInProgressException") => Retry::Same,
         _ => Retry::No,
     }
@@ -587,7 +677,11 @@ fn request_token() -> String {
     let state = std::collections::hash_map::RandomState::new();
     let mut h = state.build_hasher();
     h.write_u64(SEQ.fetch_add(1, Ordering::Relaxed));
-    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos()),
+    );
     let a = h.finish();
     h.write_u64(std::process::id().into());
     format!("{a:016x}{:016x}", h.finish())
@@ -603,7 +697,15 @@ fn cancelled() -> Error {
 
 /// One transaction of conditional puts, retried while throttled; its rows
 /// and bytes when written.
-async fn put_tx(client: Client, table: String, pk: String, items: Vec<Item>, keys: Vec<String>, bytes: usize, stop: Arc<AtomicBool>) -> Result<(u64, usize)> {
+async fn put_tx(
+    client: Client,
+    table: String,
+    pk: String,
+    items: Vec<Item>,
+    keys: Vec<String>,
+    bytes: usize,
+    stop: Arc<AtomicBool>,
+) -> Result<(u64, usize)> {
     let rows = items.len() as u64;
     let actions: Vec<TransactWriteItem> = items
         .into_iter()
@@ -626,21 +728,39 @@ async fn put_tx(client: Client, table: String, pk: String, items: Vec<Item>, key
         if stop.load(Ordering::SeqCst) {
             return Err(cancelled());
         }
-        let e = match client.transact_write_items().set_transact_items(Some(actions.clone())).client_request_token(&token).send().await {
+        let e = match client
+            .transact_write_items()
+            .set_transact_items(Some(actions.clone()))
+            .client_request_token(&token)
+            .send()
+            .await
+        {
             Ok(_) => return Ok((rows, bytes)),
             Err(e) => e,
         };
         let retry = match e.as_service_error() {
             Some(TransactWriteItemsError::TransactionCanceledException(tc)) => {
                 let reasons = tc.cancellation_reasons();
-                if let Some(i) = reasons.iter().position(|r| r.code() == Some("ConditionalCheckFailed")) {
+                if let Some(i) = reasons
+                    .iter()
+                    .position(|r| r.code() == Some("ConditionalCheckFailed"))
+                {
                     return Err(Error::Query(format!(
                         "Ya hay un ítem con la clave {} (en la tabla o antes en los mismos datos): la carga nunca reemplaza ítems.",
                         keys.get(i).map_or("?", String::as_str)
                     )));
                 }
                 let busy = |c: Option<&str>| {
-                    matches!(c, None | Some("None" | "ThrottlingError" | "TransactionConflict" | "ProvisionedThroughputExceeded" | "RequestLimitExceeded"))
+                    matches!(
+                        c,
+                        None | Some(
+                            "None"
+                                | "ThrottlingError"
+                                | "TransactionConflict"
+                                | "ProvisionedThroughputExceeded"
+                                | "RequestLimitExceeded"
+                        )
+                    )
                 };
                 if !reasons.iter().all(|r| busy(r.code())) {
                     let why: Vec<String> = reasons
@@ -648,9 +768,19 @@ async fn put_tx(client: Client, table: String, pk: String, items: Vec<Item>, key
                         .enumerate()
                         .filter(|(_, r)| !busy(r.code()))
                         .take(3)
-                        .map(|(i, r)| format!("{}: {} {}", keys.get(i).map_or("?", String::as_str), r.code().unwrap_or_default(), r.message().unwrap_or_default()))
+                        .map(|(i, r)| {
+                            format!(
+                                "{}: {} {}",
+                                keys.get(i).map_or("?", String::as_str),
+                                r.code().unwrap_or_default(),
+                                r.message().unwrap_or_default()
+                            )
+                        })
                         .collect();
-                    return Err(Error::Query(format!("DynamoDB canceló la escritura de {rows} ítems. {}", why.join("; "))));
+                    return Err(Error::Query(format!(
+                        "DynamoDB canceló la escritura de {rows} ítems. {}",
+                        why.join("; ")
+                    )));
                 }
                 Retry::Fresh
             }
@@ -660,7 +790,10 @@ async fn put_tx(client: Client, table: String, pk: String, items: Vec<Item>, key
             return Err(if retry == Retry::No {
                 err(e)
             } else {
-                Error::Query(format!("DynamoDB siguió rechazando la escritura después de {MAX_TRIES} intentos ({})", e.code().unwrap_or("?")))
+                Error::Query(format!(
+                    "DynamoDB siguió rechazando la escritura después de {MAX_TRIES} intentos ({})",
+                    e.code().unwrap_or("?")
+                ))
             });
         }
         if retry == Retry::Fresh {
@@ -691,7 +824,10 @@ impl Alive {
     /// Wait until no task is alive, for at most `limit`; how many still are.
     fn wait(&self, limit: Duration) -> usize {
         let n = self.n.lock().unwrap_or_else(|p| p.into_inner());
-        let (n, _) = self.zero.wait_timeout_while(n, limit, |n| *n > 0).unwrap_or_else(|p| p.into_inner());
+        let (n, _) = self
+            .zero
+            .wait_timeout_while(n, limit, |n| *n > 0)
+            .unwrap_or_else(|p| p.into_inner());
         *n
     }
 }
@@ -750,7 +886,12 @@ impl Writer {
 
     fn spawn(&mut self, items: Vec<Item>, keys: Vec<String>, bytes: usize) {
         self.bytes += bytes;
-        let (c, t, pk, stop) = (self.client.clone(), self.table.clone(), self.pk.clone(), self.stop.clone());
+        let (c, t, pk, stop) = (
+            self.client.clone(),
+            self.table.clone(),
+            self.pk.clone(),
+            self.stop.clone(),
+        );
         let guard = AliveGuard::new(&self.alive);
         self.set.spawn(async move {
             let _guard = guard;
@@ -767,7 +908,9 @@ impl Writer {
 
     /// Wait until `bytes` more fit.
     async fn room(&mut self, bytes: usize) -> Result<()> {
-        while !self.set.is_empty() && (self.set.len() >= IN_FLIGHT || self.bytes + bytes > MAX_INFLIGHT_BYTES) {
+        while !self.set.is_empty()
+            && (self.set.len() >= IN_FLIGHT || self.bytes + bytes > MAX_INFLIGHT_BYTES)
+        {
             if let Some(r) = self.set.join_next().await {
                 self.done(r)?;
             }
@@ -814,8 +957,10 @@ impl Drop for Writer {
             // are dropped (and `alive` reaches zero) instead of finishing.
             Ok(RuntimeFlavor::MultiThread) => {
                 let alive = self.alive.clone();
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tokio::task::block_in_place(|| alive.wait(DRAIN))))
-                    .unwrap_or_else(|_| alive.count())
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    tokio::task::block_in_place(|| alive.wait(DRAIN))
+                }))
+                .unwrap_or_else(|_| alive.count())
             }
             // Outside any runtime the tasks run on the runtime's own threads.
             Err(_) => self.alive.wait(DRAIN),
@@ -835,7 +980,13 @@ impl Drop for Writer {
 }
 
 /// Every page of one scan segment, into `tx`.
-async fn scan_segment(client: Client, table: String, index: Option<String>, segment: i32, tx: mpsc::Sender<Result<Vec<Item>>>) {
+async fn scan_segment(
+    client: Client,
+    table: String,
+    index: Option<String>,
+    segment: i32,
+    tx: mpsc::Sender<Result<Vec<Item>>>,
+) {
     let mut start: Option<Item> = None;
     loop {
         let r = client
@@ -870,7 +1021,13 @@ async fn scan_segment(client: Client, table: String, index: Option<String>, segm
 async fn select_pages(client: Client, stmt: String, tx: mpsc::Sender<Result<Vec<Item>>>) {
     let mut token: Option<String> = None;
     loop {
-        match client.execute_statement().statement(&stmt).set_next_token(token.take()).send().await {
+        match client
+            .execute_statement()
+            .statement(&stmt)
+            .set_next_token(token.take())
+            .send()
+            .await
+        {
             Ok(out) => {
                 let next = out.next_token.filter(|t| !t.is_empty());
                 if tx.send(Ok(out.items.unwrap_or_default())).await.is_err() {
@@ -900,20 +1057,39 @@ impl Drop for AbortOnDrop {
 }
 
 /// The pages of a read, as they arrive (at most [`SEGMENTS`] waiting).
-fn pages(client: &Client, table: &str, index: Option<&str>, filter: Option<&str>) -> (mpsc::Receiver<Result<Vec<Item>>>, AbortOnDrop) {
+fn pages(
+    client: &Client,
+    table: &str,
+    index: Option<&str>,
+    filter: Option<&str>,
+) -> (mpsc::Receiver<Result<Vec<Item>>>, AbortOnDrop) {
     let (tx, rx) = mpsc::channel::<Result<Vec<Item>>>(SEGMENTS as usize);
     let mut tasks = Vec::new();
     match filter {
         Some(f) => {
             let from = match index {
-                Some(i) => format!("{}.{}", quote_ident(Quote::Double, table), quote_ident(Quote::Double, i)),
+                Some(i) => format!(
+                    "{}.{}",
+                    quote_ident(Quote::Double, table),
+                    quote_ident(Quote::Double, i)
+                ),
                 None => quote_ident(Quote::Double, table),
             };
-            tasks.push(tokio::spawn(select_pages(client.clone(), format!("SELECT * FROM {from} WHERE {f}"), tx)));
+            tasks.push(tokio::spawn(select_pages(
+                client.clone(),
+                format!("SELECT * FROM {from} WHERE {f}"),
+                tx,
+            )));
         }
         None => {
             for seg in 0..SEGMENTS {
-                tasks.push(tokio::spawn(scan_segment(client.clone(), table.to_string(), index.map(str::to_string), seg, tx.clone())));
+                tasks.push(tokio::spawn(scan_segment(
+                    client.clone(),
+                    table.to_string(),
+                    index.map(str::to_string),
+                    seg,
+                    tx.clone(),
+                )));
             }
         }
     }
@@ -925,11 +1101,19 @@ fn lock_err<T>(_: T) -> Error {
 }
 
 impl DynamoSession {
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let (table, index) = target(&spec.table)?;
         let (table, index) = (table.to_string(), index.map(str::to_string));
         let keys = self.key_names(&table).await;
-        let filter = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty());
+        let filter = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty());
 
         // Without asked-for columns, every attribute name (and its types)
         // first.
@@ -954,7 +1138,11 @@ impl DynamoSession {
         // column's JSON carries this crate's tags.
         let cols: Vec<TransferColumn> = names
             .iter()
-            .map(|n| TransferColumn { name: n.clone(), type_name: column_type(types.get(n).copied().unwrap_or(0)), nullable: !keys.contains(n) })
+            .map(|n| TransferColumn {
+                name: n.clone(),
+                type_name: column_type(types.get(n).copied().unwrap_or(0)),
+                nullable: !keys.contains(n),
+            })
             .collect();
         sink.lock().map_err(lock_err)?.begin(&cols)?;
         let known: HashSet<&str> = names.iter().map(String::as_str).collect();
@@ -964,13 +1152,20 @@ impl DynamoSession {
         while let Some(page) = rx.recv().await {
             let items = page?;
             if inferred {
-                if let Some(a) = items.iter().flat_map(|i| i.keys()).find(|k| !known.contains(k.as_str())) {
+                if let Some(a) = items
+                    .iter()
+                    .flat_map(|i| i.keys())
+                    .find(|k| !known.contains(k.as_str()))
+                {
                     return Err(Error::Query(format!(
                         "El atributo «{a}» apareció mientras se leía {table} (la tabla cambió durante la copia): volvé a copiarla."
                     )));
                 }
             }
-            let rows = items.iter().map(|i| item_row(i, &cols)).collect::<Result<Vec<_>>>()?;
+            let rows = items
+                .iter()
+                .map(|i| item_row(i, &cols))
+                .collect::<Result<Vec<_>>>()?;
             let mut s = sink.lock().map_err(lock_err)?;
             for r in rows {
                 builder.push(r, &mut *s)?;
@@ -988,25 +1183,38 @@ impl DynamoSession {
         progress: Progress<'_>,
     ) -> Result<u64> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se cargan datos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se cargan datos.".into(),
+            ));
         }
         if spec.table.kind == kinds::INDEX {
-            return Err(Error::Unsupported("en DynamoDB se cargan ítems en una tabla, no en un índice".into()));
+            return Err(Error::Unsupported(
+                "en DynamoDB se cargan ítems en una tabla, no en un índice".into(),
+            ));
         }
         let table = spec.table.name.clone();
-        let names: Vec<String> =
-            if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
         let keys = crate::key_order(self.describe(&table).await?.key_schema());
         let Some(pk) = keys.first().cloned() else {
-            return Err(Error::Query(format!("no se pudo leer la clave de la tabla {table}")));
+            return Err(Error::Query(format!(
+                "no se pudo leer la clave de la tabla {table}"
+            )));
         };
         if let Some(k) = keys.iter().find(|k| !names.contains(k)) {
-            return Err(Error::Query(format!("La carga no trae el atributo «{k}», que es clave de la tabla {table}.")));
+            return Err(Error::Query(format!(
+                "La carga no trae el atributo «{k}», que es clave de la tabla {table}."
+            )));
         }
 
         // Tags only in the JSON of columns read from DynamoDB: in anyone
         // else's JSON a `{"$B": …}` is a plain map.
-        let tags: Vec<bool> = (0..names.len()).map(|i| columns.get(i).is_some_and(|c| dynamo_column(&c.type_name))).collect();
+        let tags: Vec<bool> = (0..names.len())
+            .map(|i| columns.get(i).is_some_and(|c| dynamo_column(&c.type_name)))
+            .collect();
 
         let every = spec.commit_rows.max(1);
         let mut reported = 0u64;
@@ -1059,12 +1267,20 @@ async fn load(
     source: &mut dyn BatchSource,
     tick: &mut (dyn FnMut(u64, bool) + Send),
 ) -> Result<()> {
-    let (mut items, mut item_keys, mut bytes) = (Vec::with_capacity(TX_ITEMS), Vec::with_capacity(TX_ITEMS), 0usize);
+    let (mut items, mut item_keys, mut bytes) = (
+        Vec::with_capacity(TX_ITEMS),
+        Vec::with_capacity(TX_ITEMS),
+        0usize,
+    );
     let mut in_tx: HashSet<String> = HashSet::new();
     while let Some(batch) = source.next().await {
         for row in batch.rows {
             if row.len() != names.len() {
-                return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), names.len())));
+                return Err(Error::Query(format!(
+                    "la fila tiene {} valores y la carga {} columnas",
+                    row.len(),
+                    names.len()
+                )));
             }
             let item = row_item(names, &row, tags)?;
             let key = key_text(&item, keys);
@@ -1081,11 +1297,17 @@ async fn load(
             if items.len() >= TX_ITEMS || bytes + size > TX_BYTES {
                 w.room(bytes).await?;
                 tick(w.written, false);
-                w.spawn(std::mem::take(&mut items), std::mem::take(&mut item_keys), bytes);
+                w.spawn(
+                    std::mem::take(&mut items),
+                    std::mem::take(&mut item_keys),
+                    bytes,
+                );
                 (bytes, in_tx) = (0, HashSet::new());
             }
             if !in_tx.insert(key.clone()) {
-                return Err(Error::Query(format!("La clave {key} está repetida en los datos: la carga nunca reemplaza ítems.")));
+                return Err(Error::Query(format!(
+                    "La clave {key} está repetida en los datos: la carga nunca reemplaza ítems."
+                )));
             }
             items.push(item);
             item_keys.push(key);
@@ -1133,7 +1355,10 @@ mod tests {
     fn numbers_keep_their_exact_text() {
         assert_eq!(plain_number("1.5E+3"), "1500");
         assert_eq!(plain_number("-1.25e-3"), "-0.00125");
-        assert_eq!(plain_number("12345678901234567890123456789012345678"), "12345678901234567890123456789012345678");
+        assert_eq!(
+            plain_number("12345678901234567890123456789012345678"),
+            "12345678901234567890123456789012345678"
+        );
         assert_eq!(plain_number("1E125"), format!("1{}", "0".repeat(125)));
         assert_eq!(plain_number("0.00E5"), "0");
         assert_eq!(plain_number("123.456e1"), "1234.56");
@@ -1143,7 +1368,10 @@ mod tests {
         assert_eq!(number_cell("-9223372036854775808"), Cell::Int(i64::MIN));
         assert_eq!(number_cell("18446744073709551615"), Cell::UInt(u64::MAX));
         assert_eq!(number_cell("0.1"), Cell::Decimal("0.1".into()));
-        assert_eq!(number_cell("99999999999999999999999999999999999999"), Cell::Decimal("99999999999999999999999999999999999999".into()));
+        assert_eq!(
+            number_cell("99999999999999999999999999999999999999"),
+            Cell::Decimal("99999999999999999999999999999999999999".into())
+        );
     }
 
     #[test]
@@ -1153,13 +1381,34 @@ mod tests {
         assert!(check_number(&"9".repeat(38)).is_ok());
         assert!(check_number(&format!("{}000", "9".repeat(38))).is_ok());
         assert!(check_number("1E125").is_ok() && check_number("1E-130").is_ok());
-        for bad in [&"9".repeat(39), "1E126", "1E-131", "1e999999999", "abc", "1.2.3", "--1"] {
+        for bad in [
+            &"9".repeat(39),
+            "1E126",
+            "1E-131",
+            "1e999999999",
+            "abc",
+            "1.2.3",
+            "--1",
+        ] {
             let e = check_number(bad).unwrap_err().to_string();
-            assert!(e.contains("DynamoDB no guarda") || e.contains("no es un número"), "{bad}: {e}");
+            assert!(
+                e.contains("DynamoDB no guarda") || e.contains("no es un número"),
+                "{bad}: {e}"
+            );
         }
-        let e = row_item(&["f".into()], &[Cell::Float(1e300)], &[]).unwrap_err().to_string();
-        assert!(e.contains("atributo «f»") && e.contains("38 dígitos"), "{e}");
-        assert!(row_item(&["d".into()], &[Cell::Decimal(format!("0.{}", "1".repeat(39)))], &[]).is_err());
+        let e = row_item(&["f".into()], &[Cell::Float(1e300)], &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("atributo «f»") && e.contains("38 dígitos"),
+            "{e}"
+        );
+        assert!(row_item(
+            &["d".into()],
+            &[Cell::Decimal(format!("0.{}", "1".repeat(39)))],
+            &[]
+        )
+        .is_err());
         assert!(cell_attr(&Cell::Float(f64::NAN), false).is_err());
         assert!(cell_attr(&Cell::Float(1e-200), false).is_err());
     }
@@ -1167,36 +1416,81 @@ mod tests {
     #[test]
     fn attributes_become_cells() {
         assert_eq!(attr_cell(&s("x")).unwrap(), Cell::Text("x".into()));
-        assert_eq!(attr_cell(&AttributeValue::B(Blob::new(vec![0, 255]))).unwrap(), Cell::Bytes(vec![0, 255]));
-        assert_eq!(attr_cell(&AttributeValue::Bool(true)).unwrap(), Cell::Bool(true));
-        assert_eq!(attr_cell(&AttributeValue::Null(true)).unwrap(), Cell::Json("null".into()));
-        assert_eq!(attr_cell(&AttributeValue::L(vec![n("1"), s("a")])).unwrap(), Cell::Json("[1,\"a\"]".into()));
+        assert_eq!(
+            attr_cell(&AttributeValue::B(Blob::new(vec![0, 255]))).unwrap(),
+            Cell::Bytes(vec![0, 255])
+        );
+        assert_eq!(
+            attr_cell(&AttributeValue::Bool(true)).unwrap(),
+            Cell::Bool(true)
+        );
+        assert_eq!(
+            attr_cell(&AttributeValue::Null(true)).unwrap(),
+            Cell::Json("null".into())
+        );
+        assert_eq!(
+            attr_cell(&AttributeValue::L(vec![n("1"), s("a")])).unwrap(),
+            Cell::Json("[1,\"a\"]".into())
+        );
         let map = m(&[("b", n("2")), ("a", AttributeValue::Bool(false))]);
-        assert_eq!(attr_cell(&map).unwrap(), Cell::Json("{\"a\":false,\"b\":2}".into()));
-        assert_eq!(attr_cell(&AttributeValue::Ss(vec!["x".into(), "y".into()])).unwrap(), Cell::Json("{\"$SS\":[\"x\",\"y\"]}".into()));
-        assert_eq!(attr_cell(&AttributeValue::Ns(vec!["1".into(), "2.5".into()])).unwrap(), Cell::Json("{\"$NS\":[1,2.5]}".into()));
-        assert_eq!(attr_cell(&AttributeValue::Bs(vec![Blob::new(vec![1, 0xab])])).unwrap(), Cell::Json("{\"$BS\":[\"01ab\"]}".into()));
+        assert_eq!(
+            attr_cell(&map).unwrap(),
+            Cell::Json("{\"a\":false,\"b\":2}".into())
+        );
+        assert_eq!(
+            attr_cell(&AttributeValue::Ss(vec!["x".into(), "y".into()])).unwrap(),
+            Cell::Json("{\"$SS\":[\"x\",\"y\"]}".into())
+        );
+        assert_eq!(
+            attr_cell(&AttributeValue::Ns(vec!["1".into(), "2.5".into()])).unwrap(),
+            Cell::Json("{\"$NS\":[1,2.5]}".into())
+        );
+        assert_eq!(
+            attr_cell(&AttributeValue::Bs(vec![Blob::new(vec![1, 0xab])])).unwrap(),
+            Cell::Json("{\"$BS\":[\"01ab\"]}".into())
+        );
     }
 
     #[test]
     fn nested_values_round_trip_without_loss() {
         // Problems seen: nested binaries cut at 1024 bytes, nested numbers
         // over 15 digits turned to text, sets turned to lists, NULL lost.
-        let big = AttributeValue::B(Blob::new((0..2000).map(|i| (i % 251) as u8).collect::<Vec<u8>>()));
+        let big = AttributeValue::B(Blob::new(
+            (0..2000).map(|i| (i % 251) as u8).collect::<Vec<u8>>(),
+        ));
         let v = m(&[
             ("bin", big.clone()),
             ("num", n("12345678901234567890.123")),
             ("tiny", n("-0.001")),
-            ("l", AttributeValue::L(vec![big.clone(), AttributeValue::Null(true), n("-0.5")])),
+            (
+                "l",
+                AttributeValue::L(vec![big.clone(), AttributeValue::Null(true), n("-0.5")]),
+            ),
             ("ss", AttributeValue::Ss(vec!["x".into(), "y".into()])),
-            ("ns", AttributeValue::Ns(vec!["1".into(), "99999999999999999999999999999999999999".into()])),
-            ("bs", AttributeValue::Bs(vec![Blob::new(vec![1]), Blob::new(vec![2, 3])])),
+            (
+                "ns",
+                AttributeValue::Ns(vec![
+                    "1".into(),
+                    "99999999999999999999999999999999999999".into(),
+                ]),
+            ),
+            (
+                "bs",
+                AttributeValue::Bs(vec![Blob::new(vec![1]), Blob::new(vec![2, 3])]),
+            ),
             ("tag", m(&[("$B", s("not hex"))])),
             ("tag2", m(&[("$SS", AttributeValue::L(vec![s("a")]))])),
             ("uni", s("ñ \"q\" \\ \u{1F600}")),
         ]);
-        let Cell::Json(text) = attr_cell(&v).unwrap() else { panic!() };
-        assert!(!text.contains('…') && text.contains(&hex(&(0..2000).map(|i| (i % 251) as u8).collect::<Vec<_>>())));
+        let Cell::Json(text) = attr_cell(&v).unwrap() else {
+            panic!()
+        };
+        assert!(
+            !text.contains('…')
+                && text.contains(&hex(&(0..2000)
+                    .map(|i| (i % 251) as u8)
+                    .collect::<Vec<_>>()))
+        );
         assert!(text.contains("12345678901234567890.123"), "{text}");
         assert_eq!(round(&v), v);
         for top in [
@@ -1214,22 +1508,54 @@ mod tests {
 
     #[test]
     fn json_cells_keep_every_digit() {
-        let v = json("{\"x\":123456789012345678901234567890,\"y\":0.1234567890123456789,\"z\":-1.5e3}");
-        assert_eq!(v, m(&[("x", n("123456789012345678901234567890")), ("y", n("0.1234567890123456789")), ("z", n("-1500"))]));
-        assert_eq!(json(" [1, \"a\", null, true, {\"k\": []}] "), AttributeValue::L(vec![n("1"), s("a"), AttributeValue::Null(true), AttributeValue::Bool(true), m(&[("k", AttributeValue::L(vec![]))])]));
+        let v =
+            json("{\"x\":123456789012345678901234567890,\"y\":0.1234567890123456789,\"z\":-1.5e3}");
+        assert_eq!(
+            v,
+            m(&[
+                ("x", n("123456789012345678901234567890")),
+                ("y", n("0.1234567890123456789")),
+                ("z", n("-1500"))
+            ])
+        );
+        assert_eq!(
+            json(" [1, \"a\", null, true, {\"k\": []}] "),
+            AttributeValue::L(vec![
+                n("1"),
+                s("a"),
+                AttributeValue::Null(true),
+                AttributeValue::Bool(true),
+                m(&[("k", AttributeValue::L(vec![]))])
+            ])
+        );
         // Not JSON: text, as the insert script writes it.
-        for t in ["{\"a\":01}", "[1,]", "{a:1}", "nul", "1 2", "\"x", "[\"\\", "{\"a\":1}x"] {
+        for t in [
+            "{\"a\":01}",
+            "[1,]",
+            "{a:1}",
+            "nul",
+            "1 2",
+            "\"x",
+            "[\"\\",
+            "{\"a\":1}x",
+        ] {
             assert_eq!(json(t), s(t), "{t}");
         }
         // Tags that don't hold a valid value stay maps.
-        assert_eq!(json("{\"$SS\":[\"a\",\"a\"]}"), m(&[("$SS", AttributeValue::L(vec![s("a"), s("a")]))]));
+        assert_eq!(
+            json("{\"$SS\":[\"a\",\"a\"]}"),
+            m(&[("$SS", AttributeValue::L(vec![s("a"), s("a")]))])
+        );
         assert_eq!(json("{\"$B\":\"xyz\"}"), m(&[("$B", s("xyz"))]));
         assert!(cell_attr(&Cell::Json("{\"x\":1e400}".into()), false).is_err());
     }
 
     #[test]
     fn rows_become_items() {
-        let names: Vec<String> = ["pk", "n", "f", "d", "b", "j", "gone", "it's"].iter().map(|s| s.to_string()).collect();
+        let names: Vec<String> = ["pk", "n", "f", "d", "b", "j", "gone", "it's"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let row = vec![
             Cell::Text("a".into()),
             Cell::Int(-5),
@@ -1246,12 +1572,32 @@ mod tests {
         assert_eq!(item["f"], n("1.5"));
         assert_eq!(item["d"], n("12345678901234567890.5"));
         assert_eq!(item["b"], AttributeValue::B(Blob::new(vec![1, 2])));
-        assert_eq!(item["j"], m(&[("x", AttributeValue::L(vec![n("1"), s("y"), AttributeValue::Null(true), AttributeValue::Bool(true)]))]));
+        assert_eq!(
+            item["j"],
+            m(&[(
+                "x",
+                AttributeValue::L(vec![
+                    n("1"),
+                    s("y"),
+                    AttributeValue::Null(true),
+                    AttributeValue::Bool(true)
+                ])
+            )])
+        );
         assert_eq!(item["it's"], s("2024-01-02 03:04:05"));
         assert!(!item.contains_key("gone"));
-        assert!(row_item(&names[..1], &[Cell::Null], &[]).unwrap().is_empty());
+        assert!(row_item(&names[..1], &[Cell::Null], &[])
+            .unwrap()
+            .is_empty());
         // And back: the cells read are the cells written.
-        let cols: Vec<TransferColumn> = names.iter().map(|n| TransferColumn { name: n.clone(), type_name: String::new(), nullable: true }).collect();
+        let cols: Vec<TransferColumn> = names
+            .iter()
+            .map(|n| TransferColumn {
+                name: n.clone(),
+                type_name: String::new(),
+                nullable: true,
+            })
+            .collect();
         let back = item_row(&item, &cols).unwrap();
         assert_eq!(back[1], Cell::Int(-5));
         assert_eq!(back[2], Cell::Decimal("1.5".into()));
@@ -1262,10 +1608,17 @@ mod tests {
 
     #[test]
     fn sizes_and_keys() {
-        let item = Item::from([("id".to_string(), s("k1")), ("n".to_string(), n("1.50")), ("l".to_string(), AttributeValue::L(vec![s("ab")]))]);
+        let item = Item::from([
+            ("id".to_string(), s("k1")),
+            ("n".to_string(), n("1.50")),
+            ("l".to_string(), AttributeValue::L(vec![s("ab")])),
+        ]);
         // id 2+2, n 1+(2 digits → 1)+1, l 1+3+1+2.
         assert_eq!(item_size(&item), 4 + 3 + 7);
-        assert_eq!(key_text(&item, &["id".into(), "n".into()]), "id=\"k1\", n=1.5");
+        assert_eq!(
+            key_text(&item, &["id".into(), "n".into()]),
+            "id=\"k1\", n=1.5"
+        );
         let big = Item::from([("id".to_string(), s(&"x".repeat(MAX_ITEM)))]);
         assert!(item_size(&big) > MAX_ITEM);
     }
@@ -1275,14 +1628,29 @@ mod tests {
         // A PostgreSQL jsonb or MySQL JSON value that happens to look like
         // a tag: the map it says, whatever its value.
         let plain = |c: &str| cell_attr(&Cell::Json(c.into()), false).unwrap().unwrap();
-        assert_eq!(plain("{\"$M\":{\"k\":1}}"), m(&[("$M", m(&[("k", n("1"))]))]));
+        assert_eq!(
+            plain("{\"$M\":{\"k\":1}}"),
+            m(&[("$M", m(&[("k", n("1"))]))])
+        );
         assert_eq!(plain("{\"$B\":\"00ff\"}"), m(&[("$B", s("00ff"))]));
         assert_eq!(plain("{\"$B\":\"zz\"}"), m(&[("$B", s("zz"))]));
-        assert_eq!(plain("{\"$SS\":[\"x\",\"y\"]}"), m(&[("$SS", AttributeValue::L(vec![s("x"), s("y")]))]));
-        assert_eq!(plain("{\"$NS\":[1]}"), m(&[("$NS", AttributeValue::L(vec![n("1")]))]));
-        assert_eq!(plain("[{\"$BS\":[\"01\"]}]"), AttributeValue::L(vec![m(&[("$BS", AttributeValue::L(vec![s("01")]))])]));
+        assert_eq!(
+            plain("{\"$SS\":[\"x\",\"y\"]}"),
+            m(&[("$SS", AttributeValue::L(vec![s("x"), s("y")]))])
+        );
+        assert_eq!(
+            plain("{\"$NS\":[1]}"),
+            m(&[("$NS", AttributeValue::L(vec![n("1")]))])
+        );
+        assert_eq!(
+            plain("[{\"$BS\":[\"01\"]}]"),
+            AttributeValue::L(vec![m(&[("$BS", AttributeValue::L(vec![s("01")]))])])
+        );
         // The same text read from DynamoDB is the tagged type.
-        assert_eq!(json("{\"$B\":\"00ff\"}"), AttributeValue::B(Blob::new(vec![0, 255])));
+        assert_eq!(
+            json("{\"$B\":\"00ff\"}"),
+            AttributeValue::B(Blob::new(vec![0, 255]))
+        );
         assert_eq!(json("{\"$M\":{\"k\":1}}"), m(&[("k", n("1"))]));
         // Per column: only the ones read from DynamoDB.
         let names: Vec<String> = vec!["a".into(), "b".into()];
@@ -1300,7 +1668,18 @@ mod tests {
             assert!(dynamo_column(t), "{t}");
         }
         // Other engines' types (and no type) aren't DynamoDB's.
-        for t in ["", "jsonb", "json", "JSON", "object", "s", "S | jsonb", "S |", "string | object", "map<string,string>"] {
+        for t in [
+            "",
+            "jsonb",
+            "json",
+            "JSON",
+            "object",
+            "s",
+            "S | jsonb",
+            "S |",
+            "string | object",
+            "map<string,string>",
+        ] {
             assert!(!dynamo_column(t), "{t}");
         }
     }
@@ -1308,21 +1687,37 @@ mod tests {
     #[test]
     fn retries_keep_the_token_only_when_the_try_may_have_been_written() {
         assert_eq!(retry_of(Some("InternalServerError")), Retry::Same);
-        assert_eq!(retry_of(Some("TransactionInProgressException")), Retry::Same);
+        assert_eq!(
+            retry_of(Some("TransactionInProgressException")),
+            Retry::Same
+        );
         assert_eq!(retry_of(Some("ThrottlingException")), Retry::Fresh);
-        assert_eq!(retry_of(Some("ProvisionedThroughputExceededException")), Retry::Fresh);
+        assert_eq!(
+            retry_of(Some("ProvisionedThroughputExceededException")),
+            Retry::Fresh
+        );
         assert_eq!(retry_of(Some("ValidationException")), Retry::No);
         assert_eq!(retry_of(None), Retry::No);
         let tokens: HashSet<String> = (0..1000).map(|_| request_token()).collect();
         assert_eq!(tokens.len(), 1000);
-        assert!(tokens.iter().all(|t| t.len() == 32 && t.bytes().all(|b| b.is_ascii_hexdigit())));
+        assert!(tokens
+            .iter()
+            .all(|t| t.len() == 32 && t.bytes().all(|b| b.is_ascii_hexdigit())));
     }
 
     #[test]
     fn errors_say_what_was_written() {
-        let e = noted(Error::Query("falló".into()), " (quedaron escritos 5 ítems en t)");
-        assert!(matches!(&e, Error::Query(m) if m == "falló (quedaron escritos 5 ítems en t)"), "{e:?}");
-        assert!(matches!(noted(Error::Unsupported("x".into()), "!"), Error::Unsupported(m) if m == "x!"));
+        let e = noted(
+            Error::Query("falló".into()),
+            " (quedaron escritos 5 ítems en t)",
+        );
+        assert!(
+            matches!(&e, Error::Query(m) if m == "falló (quedaron escritos 5 ítems en t)"),
+            "{e:?}"
+        );
+        assert!(
+            matches!(noted(Error::Unsupported("x".into()), "!"), Error::Unsupported(m) if m == "x!")
+        );
         assert!(matches!(noted(Error::Cancelled, "!"), Error::Cancelled));
     }
 
@@ -1345,7 +1740,11 @@ mod tests {
     /// nor waits for [`DRAIN`].
     #[test]
     fn a_writer_dropped_during_runtime_shutdown_neither_panics_nor_hangs() {
-        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
         let alive = Arc::new(Alive::default());
         let a = alive.clone();
         rt.spawn(async move {
@@ -1374,7 +1773,11 @@ mod tests {
         assert_eq!(alive.count(), 1);
         let start = std::time::Instant::now();
         rt.shutdown_timeout(Duration::from_secs(3));
-        assert!(start.elapsed() < Duration::from_secs(3), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            start.elapsed()
+        );
         assert_eq!(alive.count(), 0);
     }
 
@@ -1402,7 +1805,8 @@ mod tests {
             if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
                 let r = ctx.response_mut();
                 *r.status_mut() = 500u16.try_into().unwrap();
-                r.headers_mut().insert("x-amzn-ErrorType", "InternalServerError");
+                r.headers_mut()
+                    .insert("x-amzn-ErrorType", "InternalServerError");
             }
             Ok(())
         }
@@ -1416,7 +1820,8 @@ mod tests {
         use aws_sdk_dynamodb::config::{retry::RetryConfig, BehaviorVersion, Credentials, Region};
         use aws_sdk_dynamodb::types::*;
         const T: &str = "dbine_xfer_token";
-        let url = std::env::var("DBINE_TEST_DYNAMODB_URL").unwrap_or_else(|_| "http://localhost:25300".into());
+        let url = std::env::var("DBINE_TEST_DYNAMODB_URL")
+            .unwrap_or_else(|_| "http://localhost:25300".into());
         let base = aws_sdk_dynamodb::Config::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(Region::new("us-east-1"))
@@ -1424,21 +1829,46 @@ mod tests {
             .credentials_provider(Credentials::new("dummy", "dummy", None, None, "t"))
             .http_client(plain_http_client());
         let plain = Client::from_conf(base.clone().build());
-        let lossy = Client::from_conf(base.retry_config(RetryConfig::disabled()).interceptor(LoseFirstAnswer(Default::default())).build());
+        let lossy = Client::from_conf(
+            base.retry_config(RetryConfig::disabled())
+                .interceptor(LoseFirstAnswer(Default::default()))
+                .build(),
+        );
         let _ = plain.delete_table().table_name(T).send().await;
         plain
             .create_table()
             .table_name(T)
             .billing_mode(BillingMode::PayPerRequest)
-            .attribute_definitions(AttributeDefinition::builder().attribute_name("id").attribute_type(ScalarAttributeType::S).build().unwrap())
-            .key_schema(KeySchemaElement::builder().attribute_name("id").key_type(KeyType::Hash).build().unwrap())
+            .attribute_definitions(
+                AttributeDefinition::builder()
+                    .attribute_name("id")
+                    .attribute_type(ScalarAttributeType::S)
+                    .build()
+                    .unwrap(),
+            )
+            .key_schema(
+                KeySchemaElement::builder()
+                    .attribute_name("id")
+                    .key_type(KeyType::Hash)
+                    .build()
+                    .unwrap(),
+            )
             .send()
             .await
             .unwrap();
-        let items: Vec<Item> = (0..3).map(|i| Item::from([("id".to_string(), s(&format!("k{i}")))])).collect();
+        let items: Vec<Item> = (0..3)
+            .map(|i| Item::from([("id".to_string(), s(&format!("k{i}")))]))
+            .collect();
         let keys: Vec<String> = (0..3).map(|i| format!("id=\"k{i}\"")).collect();
         let r = put_tx(lossy, T.into(), "id".into(), items, keys, 7, Arc::default()).await;
-        let n = plain.scan().table_name(T).select(Select::Count).send().await.unwrap().count;
+        let n = plain
+            .scan()
+            .table_name(T)
+            .select(Select::Count)
+            .send()
+            .await
+            .unwrap()
+            .count;
         let _ = plain.delete_table().table_name(T).send().await;
         assert_eq!(r.unwrap(), (3, 7));
         assert_eq!(n, 3);

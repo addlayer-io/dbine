@@ -9,7 +9,9 @@
 //! its fields; GSI indexes have no uniqueness. A primary index is added so
 //! the collection can be browsed and queried without other indexes.
 
-use super::couchdb::{json_caps, key_as_index, parse_json_type, render_json_type, schemaless_note, unique_to_plain};
+use super::couchdb::{
+    json_caps, key_as_index, parse_json_type, render_json_type, schemaless_note, unique_to_plain,
+};
 use super::{Caps, Dialect, Rendered};
 use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Report, Severity};
@@ -86,7 +88,10 @@ mod tests {
     #[test]
     fn types() {
         let d = Couchbase;
-        assert_eq!(d.parse_type(&parse("integer | string")), L::Json { binary: true });
+        assert_eq!(
+            d.parse_type(&parse("integer | string")),
+            L::Json { binary: true }
+        );
         assert_eq!(d.parse_type(&parse("string")), L::Text { unicode: true });
         assert_eq!(d.render_type(&L::int(8)).native, "integer");
         assert!(d.render_type(&L::int(8)).notes.is_empty());

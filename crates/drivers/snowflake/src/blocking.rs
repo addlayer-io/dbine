@@ -18,7 +18,12 @@ use std::collections::BTreeSet;
 
 fn get<'a>(s: &'a Set, row: usize, name: &str) -> Option<&'a str> {
     let i = s.cols.iter().position(|c| c.eq_ignore_ascii_case(name))?;
-    s.rows.get(row)?.get(i)?.as_deref().map(str::trim).filter(|v| !v.is_empty())
+    s.rows
+        .get(row)?
+        .get(i)?
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
 }
 
 /// Milliseconds since a timestamp as the SQL API gives it: epoch seconds
@@ -38,7 +43,9 @@ fn ms_since(ts: &str, now_ms: i64) -> Option<u64> {
 /// A transaction id: a signed 64-bit integer.
 fn txn_id(s: &str) -> Option<i64> {
     let s = s.trim();
-    (!s.is_empty() && s.len() <= 20).then(|| s.parse().ok()).flatten()
+    (!s.is_empty() && s.len() <= 20)
+        .then(|| s.parse().ok())
+        .flatten()
 }
 
 /// The database of a fully qualified table name.
@@ -56,7 +63,9 @@ pub(crate) fn chain(locks: &Set, txns: &Set, now_ms: i64) -> Vec<BlockedSession>
     let base = |id: &str| {
         let t = txn_row(id);
         let l = lock_row(id);
-        let session = t.and_then(|r| get(txns, r, "session")).or_else(|| l.and_then(|r| get(locks, r, "session")));
+        let session = t
+            .and_then(|r| get(txns, r, "session"))
+            .or_else(|| l.and_then(|r| get(locks, r, "session")));
         let started = l
             .and_then(|r| get(locks, r, "transaction_started_on"))
             .or_else(|| t.and_then(|r| get(txns, r, "started_on")));
@@ -76,7 +85,9 @@ pub(crate) fn chain(locks: &Set, txns: &Set, now_ms: i64) -> Vec<BlockedSession>
         if status(r) != "WAITING" {
             continue;
         }
-        let Some(id) = get(locks, r, "transaction").filter(|t| txn_id(t).is_some()) else { continue };
+        let Some(id) = get(locks, r, "transaction").filter(|t| txn_id(t).is_some()) else {
+            continue;
+        };
         if !waiters.insert(id.to_string()) {
             continue;
         }
@@ -91,10 +102,16 @@ pub(crate) fn chain(locks: &Set, txns: &Set, now_ms: i64) -> Vec<BlockedSession>
                 .find(|t| *t != id)
                 .map(str::to_string),
         };
-        let table = txn_id(resource).is_none().then(|| resource.to_string()).filter(|t| !t.is_empty());
+        let table = txn_id(resource)
+            .is_none()
+            .then(|| resource.to_string())
+            .filter(|t| !t.is_empty());
         let mut s = base(id);
         s.blocked_by = holder.clone();
-        s.wait = Some(format!("Esperando un bloqueo ({})", get(locks, r, "type").unwrap_or("PARTITIONS")));
+        s.wait = Some(format!(
+            "Esperando un bloqueo ({})",
+            get(locks, r, "type").unwrap_or("PARTITIONS")
+        ));
         s.database = table.as_deref().and_then(database_of);
         s.object = table.clone();
         out.push(s);
@@ -109,7 +126,10 @@ pub(crate) fn chain(locks: &Set, txns: &Set, now_ms: i64) -> Vec<BlockedSession>
         }
         let mut s = base(&h);
         s.wait = Some("Retiene el bloqueo".into());
-        let held = lock_row(&h).and_then(|r| get(locks, r, "resource")).filter(|r| txn_id(r).is_none()).map(str::to_string);
+        let held = lock_row(&h)
+            .and_then(|r| get(locks, r, "resource"))
+            .filter(|r| txn_id(r).is_none())
+            .map(str::to_string);
         s.object = held.or(table);
         s.database = s.object.as_deref().and_then(database_of);
         out.push(s);
@@ -127,7 +147,9 @@ async fn show(r: &(dyn Runner + Sync), what: &str) -> Result<Set> {
 
 pub async fn blocking(r: &(dyn Runner + Sync)) -> Result<Vec<BlockedSession>> {
     let locks = show(r, "LOCKS").await?;
-    if !(0..locks.rows.len()).any(|i| get(&locks, i, "status").is_some_and(|s| s.eq_ignore_ascii_case("WAITING"))) {
+    if !(0..locks.rows.len())
+        .any(|i| get(&locks, i, "status").is_some_and(|s| s.eq_ignore_ascii_case("WAITING")))
+    {
         return Ok(Vec::new());
     }
     let txns = show(r, "TRANSACTIONS").await.unwrap_or_default();
@@ -135,8 +157,11 @@ pub async fn blocking(r: &(dyn Runner + Sync)) -> Result<Vec<BlockedSession>> {
 }
 
 pub async fn kill(r: &(dyn Runner + Sync), id: &str) -> Result<()> {
-    let n = txn_id(id).ok_or_else(|| Error::Query(format!("«{id}» no es un id de transacción de Snowflake")))?;
-    r.rows(&format!("SELECT SYSTEM$ABORT_TRANSACTION({n})")).await.map(|_| ())
+    let n = txn_id(id)
+        .ok_or_else(|| Error::Query(format!("«{id}» no es un id de transacción de Snowflake")))?;
+    r.rows(&format!("SELECT SYSTEM$ABORT_TRANSACTION({n})"))
+        .await
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -146,25 +171,87 @@ mod tests {
     fn set(cols: &[&str], rows: &[&[&str]]) -> Set {
         Set {
             cols: cols.iter().map(|c| c.to_string()).collect(),
-            rows: rows.iter().map(|r| r.iter().map(|v| (!v.is_empty()).then(|| v.to_string())).collect()).collect(),
+            rows: rows
+                .iter()
+                .map(|r| {
+                    r.iter()
+                        .map(|v| (!v.is_empty()).then(|| v.to_string()))
+                        .collect()
+                })
+                .collect(),
         }
     }
 
-    const LOCK_COLS: &[&str] = &["resource", "type", "transaction", "transaction_started_on", "status", "acquired_on", "query_id", "session"];
+    const LOCK_COLS: &[&str] = &[
+        "resource",
+        "type",
+        "transaction",
+        "transaction_started_on",
+        "status",
+        "acquired_on",
+        "query_id",
+        "session",
+    ];
 
     #[test]
     fn table_locks() {
         let locks = set(
             LOCK_COLS,
             &[
-                &["DB1.PUBLIC.T", "PARTITIONS", "1721330303831000000", "1721330300.000000000", "HOLDING", "1721330301.0", "q1", ""],
-                &["DB1.PUBLIC.T", "PARTITIONS", "1721330310000000000", "1721330310.000000000", "WAITING", "", "q2", ""],
-                &["DB1.PUBLIC.U", "PARTITIONS", "9", "1721330300.0", "HOLDING", "1721330300.0", "q3", ""],
+                &[
+                    "DB1.PUBLIC.T",
+                    "PARTITIONS",
+                    "1721330303831000000",
+                    "1721330300.000000000",
+                    "HOLDING",
+                    "1721330301.0",
+                    "q1",
+                    "",
+                ],
+                &[
+                    "DB1.PUBLIC.T",
+                    "PARTITIONS",
+                    "1721330310000000000",
+                    "1721330310.000000000",
+                    "WAITING",
+                    "",
+                    "q2",
+                    "",
+                ],
+                &[
+                    "DB1.PUBLIC.U",
+                    "PARTITIONS",
+                    "9",
+                    "1721330300.0",
+                    "HOLDING",
+                    "1721330300.0",
+                    "q3",
+                    "",
+                ],
             ],
         );
         let txns = set(
-            &["id", "user", "session", "name", "started_on", "state", "scope"],
-            &[&["1721330303831000000", "ANA", "123", "", "1721330300.0", "running", "0"], &["1721330310000000000", "BETO", "456", "", "", "running", "0"]],
+            &[
+                "id",
+                "user",
+                "session",
+                "name",
+                "started_on",
+                "state",
+                "scope",
+            ],
+            &[
+                &[
+                    "1721330303831000000",
+                    "ANA",
+                    "123",
+                    "",
+                    "1721330300.0",
+                    "running",
+                    "0",
+                ],
+                &["1721330310000000000", "BETO", "456", "", "", "running", "0"],
+            ],
         );
         let c = chain(&locks, &txns, 1_721_330_315_000);
         assert_eq!(c.len(), 2);
@@ -186,15 +273,41 @@ mod tests {
         let locks = set(
             LOCK_COLS,
             &[
-                &["1111", "ROW", "2222", "1721330310.0", "WAITING", "", "q2", ""],
-                &["DB.S.H", "ROW", "1111", "1721330300.0", "HOLDING", "1721330300.0", "q1", ""],
+                &[
+                    "1111",
+                    "ROW",
+                    "2222",
+                    "1721330310.0",
+                    "WAITING",
+                    "",
+                    "q2",
+                    "",
+                ],
+                &[
+                    "DB.S.H",
+                    "ROW",
+                    "1111",
+                    "1721330300.0",
+                    "HOLDING",
+                    "1721330300.0",
+                    "q1",
+                    "",
+                ],
             ],
         );
         let c = chain(&locks, &Set::default(), 1_721_330_320_000);
         assert_eq!(c[0].blocked_by.as_deref(), Some("1111"));
         assert_eq!(c[1].id, "1111");
         assert_eq!(c[1].object.as_deref(), Some("DB.S.H"));
-        assert!(chain(&set(LOCK_COLS, &[&["DB.S.H", "PARTITIONS", "1", "", "HOLDING", "", "", ""]]), &Set::default(), 0).is_empty());
+        assert!(chain(
+            &set(
+                LOCK_COLS,
+                &[&["DB.S.H", "PARTITIONS", "1", "", "HOLDING", "", "", ""]]
+            ),
+            &Set::default(),
+            0
+        )
+        .is_empty());
     }
 
     #[test]
@@ -204,6 +317,9 @@ mod tests {
         assert_eq!(txn_id("1); DROP TABLE t"), None);
         assert_eq!(txn_id(""), None);
         assert_eq!(ms_since("1000.5 1440", 2_000_000), Some(999_500));
-        assert_eq!(ms_since("2024-07-18 12:18:23.831 -0700", 1_721_330_304_831), Some(1000));
+        assert_eq!(
+            ms_since("2024-07-18 12:18:23.831 -0700", 1_721_330_304_831),
+            Some(1000)
+        );
     }
 }

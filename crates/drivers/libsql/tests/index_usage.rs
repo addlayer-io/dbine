@@ -12,7 +12,9 @@ use dbine_driver::{ConnectionConfig, ObjectRef, QueryOutcome, Session, TableChan
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
 }
 
 #[tokio::test]
@@ -24,9 +26,17 @@ async fn index_usage_live() {
     };
     let d = dbine_driver_libsql::drivers().remove(0);
     assert!(d.supports_index_usage());
-    let cfg = ConnectionConfig { driver: "libsql".into(), host: url, ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: "libsql".into(),
+        host: url,
+        ..Default::default()
+    };
     let mut s = d.connect(&cfg, None).await.unwrap();
-    run(&mut s, "DROP TABLE IF EXISTS ixu_t; DROP TABLE IF EXISTS ixu_p;").await;
+    run(
+        &mut s,
+        "DROP TABLE IF EXISTS ixu_t; DROP TABLE IF EXISTS ixu_p;",
+    )
+    .await;
     run(
         &mut s,
         "CREATE TABLE ixu_p (id INTEGER PRIMARY KEY);
@@ -40,7 +50,11 @@ async fn index_usage_live() {
     for i in 0..5 {
         run(&mut s, &format!("SELECT * FROM ixu_t WHERE a = {i}")).await;
     }
-    let t = ObjectRef { kind: "table".into(), schema: None, name: "ixu_t".into() };
+    let t = ObjectRef {
+        kind: "table".into(),
+        schema: None,
+        name: "ixu_t".into(),
+    };
     let r = s.index_usage(&t).await.unwrap().expect("report");
     eprintln!("{r:#?}");
     assert!(!r.stats_available && r.note.is_some());
@@ -51,13 +65,29 @@ async fn index_usage_live() {
     assert_eq!(r.foreign_keys.len(), 1);
     assert_eq!(r.foreign_keys[0].ref_table, "ixu_p");
 
-    let old = s.database_schema().await.unwrap().into_iter().find(|x| x.name == "ixu_t").unwrap();
+    let old = s
+        .database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|x| x.name == "ixu_t")
+        .unwrap();
     let mut new = old.clone();
     new.indexes.retain(|i| i.name != "ixu_b");
-    for st in d.sync_script(&[TableChange::Alter { old, new }]).unwrap().statements {
+    for st in d
+        .sync_script(&[TableChange::Alter { old, new }])
+        .unwrap()
+        .statements
+    {
         run(&mut s, &st).await;
     }
     let r = s.index_usage(&t).await.unwrap().unwrap();
-    assert_eq!(r.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["PRIMARY KEY", "ixu_a"]);
+    assert_eq!(
+        r.indexes
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect::<Vec<_>>(),
+        ["PRIMARY KEY", "ixu_a"]
+    );
     run(&mut s, "DROP TABLE ixu_t; DROP TABLE ixu_p;").await;
 }

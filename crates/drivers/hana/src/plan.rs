@@ -48,16 +48,27 @@ pub fn tree(ops: &[Op]) -> PlanNode {
         if op.name.contains("CROSS JOIN") || op.name.contains("PRODUCT") {
             n.warnings.push("Producto cartesiano".into());
         }
-        n.children = ops.iter().filter(|c| c.parent == Some(op.id) && c.id != op.id).map(|c| node(c, ops)).collect();
+        n.children = ops
+            .iter()
+            .filter(|c| c.parent == Some(op.id) && c.id != op.id)
+            .map(|c| node(c, ops))
+            .collect();
         n
     }
     let ids: Vec<i64> = ops.iter().map(|o| o.id).collect();
-    let mut roots: Vec<PlanNode> =
-        ops.iter().filter(|o| o.parent.is_none_or(|p| !ids.contains(&p))).map(|o| node(o, ops)).collect();
+    let mut roots: Vec<PlanNode> = ops
+        .iter()
+        .filter(|o| o.parent.is_none_or(|p| !ids.contains(&p)))
+        .map(|o| node(o, ops))
+        .collect();
     if roots.len() == 1 {
         roots.pop().expect("one")
     } else {
-        PlanNode { op: "PLAN".into(), children: roots, ..Default::default() }
+        PlanNode {
+            op: "PLAN".into(),
+            children: roots,
+            ..Default::default()
+        }
     }
 }
 
@@ -72,7 +83,10 @@ pub fn raw(ops: &[Op]) -> String {
     fn line(o: &Op, depth: usize, out: &mut String) {
         let mut l = format!("{}{}", "  ".repeat(depth), o.name);
         if !o.details.is_empty() {
-            l.push_str(&format!(" ({})", o.details.split_whitespace().collect::<Vec<_>>().join(" ")));
+            l.push_str(&format!(
+                " ({})",
+                o.details.split_whitespace().collect::<Vec<_>>().join(" ")
+            ));
         }
         if !o.table.is_empty() {
             l.push_str(&format!(" [{}]", o.table));
@@ -88,7 +102,10 @@ pub fn raw(ops: &[Op]) -> String {
     }
     let ids: Vec<i64> = ops.iter().map(|o| o.id).collect();
     let mut out = String::new();
-    for o in ops.iter().filter(|o| o.parent.is_none_or(|p| !ids.contains(&p))) {
+    for o in ops
+        .iter()
+        .filter(|o| o.parent.is_none_or(|p| !ids.contains(&p)))
+    {
         line(o, 0, &mut out);
         walk(ops, o.id, 1, &mut out);
     }
@@ -105,7 +122,11 @@ mod tests {
             parent,
             name: name.into(),
             table: table.into(),
-            schema: if table.is_empty() { String::new() } else { "S".into() },
+            schema: if table.is_empty() {
+                String::new()
+            } else {
+                "S".into()
+            },
             output_size: Some(rows),
             subtree_cost: Some(cost),
             engine: "HEX".into(),

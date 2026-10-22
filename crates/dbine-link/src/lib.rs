@@ -14,9 +14,9 @@
 //! Nothing here knows about databases: DBine answers the requests with its
 //! own sessions, and the connections never leave the desktop.
 
-pub mod proto;
 #[cfg(feature = "iroh")]
 pub mod net;
+pub mod proto;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -65,21 +65,32 @@ pub struct Keys {
 
 impl std::fmt::Debug for Keys {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Keys").field("public", &fingerprint(&self.public)).finish_non_exhaustive()
+        f.debug_struct("Keys")
+            .field("public", &fingerprint(&self.public))
+            .finish_non_exhaustive()
     }
 }
 
 impl Keys {
     pub fn generate() -> Result<Keys> {
-        let kp = snow::Builder::new(CONNECT.parse().map_err(err)?).generate_keypair().map_err(err)?;
-        Ok(Keys { private: kp.private, public: kp.public })
+        let kp = snow::Builder::new(CONNECT.parse().map_err(err)?)
+            .generate_keypair()
+            .map_err(err)?;
+        Ok(Keys {
+            private: kp.private,
+            public: kp.public,
+        })
     }
 }
 
 /// A short, readable form of a public key, to compare on both screens.
 pub fn fingerprint(public: &[u8]) -> String {
     let hex: String = public.iter().take(6).map(|b| format!("{b:02X}")).collect();
-    hex.as_bytes().chunks(4).map(|c| String::from_utf8_lossy(c).into_owned()).collect::<Vec<_>>().join("-")
+    hex.as_bytes()
+        .chunks(4)
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 /// Random bytes from the OS.
@@ -98,7 +109,9 @@ mod b64 {
     pub fn serialize<S: serde::Serializer>(v: &[u8], s: S) -> std::result::Result<S::Ok, S::Error> {
         s.serialize_str(&URL_SAFE_NO_PAD.encode(v))
     }
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Vec<u8>, D::Error> {
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        d: D,
+    ) -> std::result::Result<Vec<u8>, D::Error> {
         let s = String::deserialize(d)?;
         URL_SAFE_NO_PAD.decode(s).map_err(serde::de::Error::custom)
     }
@@ -140,7 +153,10 @@ pub struct Remote {
 impl Invite {
     /// The QR's text: a dbine.com/pair link with the invite in its fragment.
     pub fn encode(&self) -> String {
-        format!("{INVITE_LINK}{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(self).unwrap_or_default()))
+        format!(
+            "{INVITE_LINK}{}",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(self).unwrap_or_default())
+        )
     }
 
     /// Read a QR's text or an opened link: the link form, or the first
@@ -151,12 +167,18 @@ impl Invite {
             .strip_prefix(INVITE_LINK)
             .or_else(|| text.strip_prefix(INVITE_PREFIX))
             .ok_or("no es un código de DBine")?;
-        let raw = URL_SAFE_NO_PAD.decode(body).map_err(|_| "el código está dañado".to_string())?;
-        let invite: Invite = serde_json::from_slice(&raw).map_err(|_| "el código está dañado".to_string())?;
+        let raw = URL_SAFE_NO_PAD
+            .decode(body)
+            .map_err(|_| "el código está dañado".to_string())?;
+        let invite: Invite =
+            serde_json::from_slice(&raw).map_err(|_| "el código está dañado".to_string())?;
         if invite.v != VERSION {
             return Err("el código es de otra versión de DBine: actualizá la app".into());
         }
-        if invite.key.len() != 32 || invite.secret.len() != 32 || (invite.addrs.is_empty() && invite.remote.is_none()) {
+        if invite.key.len() != 32
+            || invite.secret.len() != 32
+            || (invite.addrs.is_empty() && invite.remote.is_none())
+        {
             return Err("el código está incompleto".into());
         }
         Ok(invite)
@@ -209,7 +231,10 @@ impl<S: AsyncReadExt + AsyncWriteExt + Unpin> Channel<S> {
         let mut out = vec![0u8; 65_535];
         let mut first = {
             let frame = recv_raw(&mut self.stream).await?;
-            let n = self.noise.read_message(&frame, &mut out).map_err(|_| "mensaje inválido".to_string())?;
+            let n = self
+                .noise
+                .read_message(&frame, &mut out)
+                .map_err(|_| "mensaje inválido".to_string())?;
             out[..n].to_vec()
         };
         if first.len() < 4 {
@@ -222,7 +247,10 @@ impl<S: AsyncReadExt + AsyncWriteExt + Unpin> Channel<S> {
         let mut msg = first.split_off(4);
         while msg.len() < want {
             let frame = recv_raw(&mut self.stream).await?;
-            let n = self.noise.read_message(&frame, &mut out).map_err(|_| "mensaje inválido".to_string())?;
+            let n = self
+                .noise
+                .read_message(&frame, &mut out)
+                .map_err(|_| "mensaje inválido".to_string())?;
             msg.extend_from_slice(&out[..n]);
         }
         if msg.len() != want {
@@ -245,7 +273,12 @@ impl<S: AsyncReadExt + AsyncWriteExt + Unpin> Channel<S> {
 /// The phone pairs: proves it has the QR's secret, and both learn each
 /// other's key. `hello` travels in the first message, encrypted: the name
 /// DBine shows to confirm.
-pub async fn pair<S: AsyncReadExt + AsyncWriteExt + Unpin>(mut stream: S, invite: &Invite, phone: &Keys, hello: &[u8]) -> Result<Channel<S>> {
+pub async fn pair<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    mut stream: S,
+    invite: &Invite,
+    phone: &Keys,
+    hello: &[u8],
+) -> Result<Channel<S>> {
     let hs = snow::Builder::new(PAIR.parse().map_err(err)?)
         .local_private_key(&phone.private)
         .remote_public_key(&invite.key)
@@ -254,11 +287,19 @@ pub async fn pair<S: AsyncReadExt + AsyncWriteExt + Unpin>(mut stream: S, invite
         .map_err(err)?;
     stream.write_all(&[MODE_PAIR]).await.map_err(err)?;
     let (stream, noise) = initiate(stream, hs, hello).await?;
-    Ok(Channel { stream, noise, peer: invite.key.clone() })
+    Ok(Channel {
+        stream,
+        noise,
+        peer: invite.key.clone(),
+    })
 }
 
 /// The phone connects to a DBine it paired with.
-pub async fn connect<S: AsyncReadExt + AsyncWriteExt + Unpin>(mut stream: S, desktop_key: &[u8], phone: &Keys) -> Result<Channel<S>> {
+pub async fn connect<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    mut stream: S,
+    desktop_key: &[u8],
+    phone: &Keys,
+) -> Result<Channel<S>> {
     let hs = snow::Builder::new(CONNECT.parse().map_err(err)?)
         .local_private_key(&phone.private)
         .remote_public_key(desktop_key)
@@ -266,20 +307,34 @@ pub async fn connect<S: AsyncReadExt + AsyncWriteExt + Unpin>(mut stream: S, des
         .map_err(err)?;
     stream.write_all(&[MODE_CONNECT]).await.map_err(err)?;
     let (stream, noise) = initiate(stream, hs, &[]).await?;
-    Ok(Channel { stream, noise, peer: desktop_key.to_vec() })
+    Ok(Channel {
+        stream,
+        noise,
+        peer: desktop_key.to_vec(),
+    })
 }
 
-async fn initiate<S: AsyncReadExt + AsyncWriteExt + Unpin>(mut stream: S, mut hs: snow::HandshakeState, payload: &[u8]) -> Result<(S, snow::TransportState)> {
+async fn initiate<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    mut stream: S,
+    mut hs: snow::HandshakeState,
+    payload: &[u8],
+) -> Result<(S, snow::TransportState)> {
     let run = async {
         let mut buf = vec![0u8; 65_535];
         let n = hs.write_message(payload, &mut buf).map_err(err)?;
         send_raw(&mut stream, &buf[..n]).await?;
-        let reply = recv_raw(&mut stream).await.map_err(|_| "DBine rechazó la conexión".to_string())?;
+        let reply = recv_raw(&mut stream)
+            .await
+            .map_err(|_| "DBine rechazó la conexión".to_string())?;
         let mut out = vec![0u8; 65_535];
-        hs.read_message(&reply, &mut out).map_err(|_| "DBine no se pudo verificar: no es la computadora vinculada".to_string())?;
+        hs.read_message(&reply, &mut out).map_err(|_| {
+            "DBine no se pudo verificar: no es la computadora vinculada".to_string()
+        })?;
         Ok::<_, String>(())
     };
-    tokio::time::timeout(HANDSHAKE_LIMIT, run).await.map_err(|_| "DBine no respondió".to_string())??;
+    tokio::time::timeout(HANDSHAKE_LIMIT, run)
+        .await
+        .map_err(|_| "DBine no respondió".to_string())??;
     Ok((stream, hs.into_transport_mode().map_err(err)?))
 }
 
@@ -310,7 +365,10 @@ pub async fn accept<S: AsyncReadExt + AsyncWriteExt + Unpin>(
 /// can rate-limit pairing before any crypto runs).
 pub async fn read_mode<S: AsyncReadExt + Unpin>(stream: &mut S) -> Result<bool> {
     let mut mode = [0u8; 1];
-    tokio::time::timeout(HANDSHAKE_LIMIT, stream.read_exact(&mut mode)).await.map_err(|_| "handshake demasiado lento".to_string())?.map_err(err)?;
+    tokio::time::timeout(HANDSHAKE_LIMIT, stream.read_exact(&mut mode))
+        .await
+        .map_err(|_| "handshake demasiado lento".to_string())?
+        .map_err(err)?;
     match mode[0] {
         MODE_PAIR => Ok(true),
         MODE_CONNECT => Ok(false),
@@ -329,9 +387,16 @@ pub async fn accept_mode<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     let run = async {
         let mode = [if pairing { MODE_PAIR } else { MODE_CONNECT }];
         let mut hs = match (mode[0], pairing_secret) {
-            (MODE_PAIR, Some(secret)) => snow::Builder::new(PAIR.parse().map_err(err)?).local_private_key(&desktop.private).psk(2, secret).build_responder().map_err(err)?,
+            (MODE_PAIR, Some(secret)) => snow::Builder::new(PAIR.parse().map_err(err)?)
+                .local_private_key(&desktop.private)
+                .psk(2, secret)
+                .build_responder()
+                .map_err(err)?,
             (MODE_PAIR, None) => return Err("no hay un código de vinculación abierto".to_string()),
-            (MODE_CONNECT, _) => snow::Builder::new(CONNECT.parse().map_err(err)?).local_private_key(&desktop.private).build_responder().map_err(err)?,
+            (MODE_CONNECT, _) => snow::Builder::new(CONNECT.parse().map_err(err)?)
+                .local_private_key(&desktop.private)
+                .build_responder()
+                .map_err(err)?,
             _ => return Err("protocolo desconocido".to_string()),
         };
         let first = recv_raw(&mut stream).await?;
@@ -339,9 +404,14 @@ pub async fn accept_mode<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         // With psk2, a wrong secret only shows when the phone reads our
         // reply; the payload's MAC already fails here for IK when keys don't
         // match.
-        let n = hs.read_message(&first, &mut hello).map_err(|_| "handshake inválido".to_string())?;
+        let n = hs
+            .read_message(&first, &mut hello)
+            .map_err(|_| "handshake inválido".to_string())?;
         hello.truncate(n);
-        let peer = hs.get_remote_static().ok_or("handshake sin clave")?.to_vec();
+        let peer = hs
+            .get_remote_static()
+            .ok_or("handshake sin clave")?
+            .to_vec();
         if mode[0] == MODE_CONNECT && !known(&peer) {
             return Err("celular no vinculado".to_string());
         }
@@ -350,12 +420,22 @@ pub async fn accept_mode<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         send_raw(&mut stream, &buf[..n]).await?;
         Ok::<_, String>((mode[0], hs, hello, peer))
     };
-    let (mode, hs, hello, peer) = tokio::time::timeout(HANDSHAKE_LIMIT, run).await.map_err(|_| "handshake demasiado lento".to_string())??;
-    let channel = Channel { stream, noise: hs.into_transport_mode().map_err(err)?, peer };
+    let (mode, hs, hello, peer) = tokio::time::timeout(HANDSHAKE_LIMIT, run)
+        .await
+        .map_err(|_| "handshake demasiado lento".to_string())??;
+    let channel = Channel {
+        stream,
+        noise: hs.into_transport_mode().map_err(err)?,
+        peer,
+    };
     // A pairing with the wrong secret fails on the first transport message
     // (the phone can't decrypt our reply and closes): the caller only keeps
     // the phone after the confirmation exchange in `proto`.
-    Ok(if mode == MODE_PAIR { Accepted::Paired { channel, hello } } else { Accepted::Connected(channel) })
+    Ok(if mode == MODE_PAIR {
+        Accepted::Paired { channel, hello }
+    } else {
+        Accepted::Connected(channel)
+    })
 }
 
 #[cfg(test)]
@@ -364,7 +444,14 @@ mod tests {
     use tokio::io::duplex;
 
     fn invite(desktop: &Keys, secret: [u8; 32]) -> Invite {
-        Invite { v: VERSION, key: desktop.public.clone(), secret: secret.to_vec(), addrs: vec!["192.168.1.10:27518".into()], name: "mac".into(), remote: None }
+        Invite {
+            v: VERSION,
+            key: desktop.public.clone(),
+            secret: secret.to_vec(),
+            addrs: vec!["192.168.1.10:27518".into()],
+            name: "mac".into(),
+            remote: None,
+        }
     }
 
     #[test]
@@ -385,7 +472,10 @@ mod tests {
 
     #[test]
     fn fingerprints_are_short() {
-        assert_eq!(fingerprint(&[0xAB, 0xCD, 0x01, 0x02, 0x03, 0x04, 0x99]), "ABCD-0102-0304");
+        assert_eq!(
+            fingerprint(&[0xAB, 0xCD, 0x01, 0x02, 0x03, 0x04, 0x99]),
+            "ABCD-0102-0304"
+        );
     }
 
     #[tokio::test]
@@ -400,7 +490,13 @@ mod tests {
         let d2 = desktop.clone();
         let server = tokio::spawn(async move { accept(b, &d2, Some(&secret), |_| false).await });
         let mut ch = pair(a, &inv, &phone, b"Pixel").await.unwrap();
-        let Accepted::Paired { channel: mut sch, hello } = server.await.unwrap().unwrap() else { panic!("not a pairing") };
+        let Accepted::Paired {
+            channel: mut sch,
+            hello,
+        } = server.await.unwrap().unwrap()
+        else {
+            panic!("not a pairing")
+        };
         assert_eq!(hello, b"Pixel");
         assert_eq!(sch.peer, phone.public);
         ch.send(b"hola").await.unwrap();
@@ -414,9 +510,12 @@ mod tests {
         let (a, b) = duplex(1 << 20);
         let d2 = desktop.clone();
         let known = phone.public.clone();
-        let server = tokio::spawn(async move { accept(b, &d2, None, move |k| k == known.as_slice()).await });
+        let server =
+            tokio::spawn(async move { accept(b, &d2, None, move |k| k == known.as_slice()).await });
         let mut ch = connect(a, &desktop.public, &phone).await.unwrap();
-        let Accepted::Connected(mut sch) = server.await.unwrap().unwrap() else { panic!("not a connection") };
+        let Accepted::Connected(mut sch) = server.await.unwrap().unwrap() else {
+            panic!("not a connection")
+        };
         ch.send_json(&serde_json::json!({"x": 1})).await.unwrap();
         assert_eq!(sch.recv_json::<serde_json::Value>().await.unwrap()["x"], 1);
     }
@@ -455,7 +554,8 @@ mod tests {
         let (a, b) = duplex(1 << 16);
         let d2 = desktop.clone();
         let known = phone.public.clone();
-        let server = tokio::spawn(async move { accept(b, &d2, None, move |k| k == known.as_slice()).await });
+        let server =
+            tokio::spawn(async move { accept(b, &d2, None, move |k| k == known.as_slice()).await });
         assert!(connect(a, &other.public, &phone).await.is_err());
         let _ = server.await;
     }

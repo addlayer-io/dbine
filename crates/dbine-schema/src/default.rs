@@ -75,7 +75,9 @@ fn last_cast(s: &str) -> Option<usize> {
             b'\'' => q = !q,
             b'(' if !q => depth += 1,
             b')' if !q => depth -= 1,
-            b':' if !q && depth == 0 && i + 1 < bytes.len() && bytes[i + 1] == b':' => found = Some(i),
+            b':' if !q && depth == 0 && i + 1 < bytes.len() && bytes[i + 1] == b':' => {
+                found = Some(i)
+            }
             _ => {}
         }
     }
@@ -116,10 +118,18 @@ pub fn parse_default(raw: &str) -> DefaultValue {
     // Typed literals: `NUMERIC '0'` (Spanner, BigQuery), `DATE '2020-01-01'`.
     if let Some((kw, lit)) = s.split_once(char::is_whitespace) {
         let lit = lit.trim();
-        if lit.len() >= 2 && lit.starts_with('\'') && lit.ends_with('\'') && kw.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        if lit.len() >= 2
+            && lit.starts_with('\'')
+            && lit.ends_with('\'')
+            && kw.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
             let inner = lit[1..lit.len() - 1].replace("''", "'");
             return match kw.to_ascii_lowercase().as_str() {
-                "numeric" | "bignumeric" | "decimal" | "int64" | "float64" | "json" if inner.parse::<f64>().is_ok() => DefaultValue::Number(inner),
+                "numeric" | "bignumeric" | "decimal" | "int64" | "float64" | "json"
+                    if inner.parse::<f64>().is_ok() =>
+                {
+                    DefaultValue::Number(inner)
+                }
                 _ => DefaultValue::Text(inner),
             };
         }
@@ -141,26 +151,55 @@ pub fn parse_default(raw: &str) -> DefaultValue {
         }
     }
     match call {
-        "current_timestamp" | "now" | "getdate" | "sysdatetime" | "systimestamp" | "sysdate" | "localtimestamp"
-        | "current_timestamp(3)" | "current_timestamp(6)" | "getutcdate" | "sysutcdatetime" | "clock_timestamp"
-        | "transaction_timestamp" | "statement_timestamp" | "datetime('now')" | "sysdatetimeoffset"
-        | "current_datetime" | "current_bigdatetime" | "current_utctimestamp" | "sys_datetime" | "sys_timestamp"
-        | "local_timestamp" | "timestamp" => return DefaultValue::CurrentTimestamp,
-        "current_date" | "curdate" | "date('now')" | "today" | "sys_date" | "date" => return DefaultValue::CurrentDate,
-        "current_time" | "curtime" | "time('now')" | "localtime" | "local_time" | "sys_time" | "systime" | "current_bigtime"
-        | "time" => return DefaultValue::CurrentTime,
-        "gen_random_uuid" | "uuid_generate_v4" | "newid" | "newsequentialid" | "uuid" | "sys_guid" | "generateuuidv4"
-        | "uuid_generate_v1" | "random_uuid" | "generate_uuid" | "uuid_string" | "gen_uuid" | "sysuuid" | "newuid"
-        | "uuid_generate" => return DefaultValue::NewUuid,
+        "current_timestamp"
+        | "now"
+        | "getdate"
+        | "sysdatetime"
+        | "systimestamp"
+        | "sysdate"
+        | "localtimestamp"
+        | "current_timestamp(3)"
+        | "current_timestamp(6)"
+        | "getutcdate"
+        | "sysutcdatetime"
+        | "clock_timestamp"
+        | "transaction_timestamp"
+        | "statement_timestamp"
+        | "datetime('now')"
+        | "sysdatetimeoffset"
+        | "current_datetime"
+        | "current_bigdatetime"
+        | "current_utctimestamp"
+        | "sys_datetime"
+        | "sys_timestamp"
+        | "local_timestamp"
+        | "timestamp" => return DefaultValue::CurrentTimestamp,
+        "current_date" | "curdate" | "date('now')" | "today" | "sys_date" | "date" => {
+            return DefaultValue::CurrentDate
+        }
+        "current_time" | "curtime" | "time('now')" | "localtime" | "local_time" | "sys_time"
+        | "systime" | "current_bigtime" | "time" => return DefaultValue::CurrentTime,
+        "gen_random_uuid" | "uuid_generate_v4" | "newid" | "newsequentialid" | "uuid"
+        | "sys_guid" | "generateuuidv4" | "uuid_generate_v1" | "random_uuid" | "generate_uuid"
+        | "uuid_string" | "gen_uuid" | "sysuuid" | "newuid" | "uuid_generate" => {
+            return DefaultValue::NewUuid
+        }
         _ => {}
     }
     // Today and now as SQL Server and Oracle spell them (SQL Server's catalog
     // rewrites `CAST(GETDATE() AS date)` as `CONVERT([date],getdate())`).
     let compact: String = lower.chars().filter(|c| !c.is_whitespace()).collect();
     match compact.as_str() {
-        "convert([date],getdate())" | "convert([date],sysdatetime())" | "convert(date,getdate())" | "cast(getdate()asdate)"
-        | "cast(sysdatetime()asdate)" | "trunc(sysdate)" => return DefaultValue::CurrentDate,
-        "convert([time],getdate())" | "convert([time],sysdatetime())" | "convert(time,getdate())" | "cast(getdate()astime)"
+        "convert([date],getdate())"
+        | "convert([date],sysdatetime())"
+        | "convert(date,getdate())"
+        | "cast(getdate()asdate)"
+        | "cast(sysdatetime()asdate)"
+        | "trunc(sysdate)" => return DefaultValue::CurrentDate,
+        "convert([time],getdate())"
+        | "convert([time],sysdatetime())"
+        | "convert(time,getdate())"
+        | "cast(getdate()astime)"
         | "cast(sysdatetime()astime)" => return DefaultValue::CurrentTime,
         _ => {}
     }
@@ -173,13 +212,27 @@ pub fn parse_default(raw: &str) -> DefaultValue {
             }
         }
     }
-    if ["current_timestamp(", "now(", "now64(", "localtimestamp(", "current_datetime("].iter().any(|p| lower.starts_with(p)) {
+    if [
+        "current_timestamp(",
+        "now(",
+        "now64(",
+        "localtimestamp(",
+        "current_datetime(",
+    ]
+    .iter()
+    .any(|p| lower.starts_with(p))
+    {
         return DefaultValue::CurrentTimestamp;
     }
     if let Some(rest) = lower.strip_prefix("nextval(") {
         let inner = rest.trim_end_matches(')');
         let name = inner.trim().trim_matches('\'');
-        let name = name.split("::").next().unwrap_or(name).trim_matches('\'').trim_matches('"');
+        let name = name
+            .split("::")
+            .next()
+            .unwrap_or(name)
+            .trim_matches('\'')
+            .trim_matches('"');
         return DefaultValue::NextVal(name.to_string());
     }
     if lower.starts_with("current_time(") {
@@ -206,7 +259,10 @@ mod tests {
 
     #[test]
     fn catalog_wrapping() {
-        assert_eq!(parse_default("('abc'::character varying)"), Text("abc".into()));
+        assert_eq!(
+            parse_default("('abc'::character varying)"),
+            Text("abc".into())
+        );
         assert_eq!(parse_default("((0))"), Number("0".into()));
         assert_eq!(parse_default("(getdate())"), CurrentTimestamp);
         assert_eq!(parse_default("'it''s'::text"), Text("it's".into()));
@@ -230,7 +286,10 @@ mod tests {
     fn engine_spellings() {
         assert_eq!(parse_default("CURRENT TIMESTAMP"), CurrentTimestamp);
         assert_eq!(parse_default("current date"), CurrentDate);
-        assert_eq!(parse_default("CURRENT YEAR TO FRACTION(3)"), CurrentTimestamp);
+        assert_eq!(
+            parse_default("CURRENT YEAR TO FRACTION(3)"),
+            CurrentTimestamp
+        );
         assert_eq!(parse_default("CURRENT HOUR TO SECOND"), CurrentTime);
         assert_eq!(parse_default("now64(3)"), CurrentTimestamp);
         assert_eq!(parse_default("CURRENT_DATETIME()"), CurrentTimestamp);
@@ -240,17 +299,35 @@ mod tests {
         assert_eq!(parse_default("autoincrement"), NextVal(String::new()));
         assert_eq!(parse_default("CAST('t' AS BOOLEAN)"), Text("t".into()));
         assert_eq!(parse_default("NUMERIC '0'"), Number("0".into()));
-        assert_eq!(parse_default("DATE '2020-01-01'"), Text("2020-01-01".into()));
-        assert_eq!(parse_default("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), CurrentTimestamp);
+        assert_eq!(
+            parse_default("DATE '2020-01-01'"),
+            Text("2020-01-01".into())
+        );
+        assert_eq!(
+            parse_default("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            CurrentTimestamp
+        );
     }
 
     #[test]
     fn sequences_and_expressions() {
-        assert_eq!(parse_default("nextval('pedidos_id_seq'::regclass)"), NextVal("pedidos_id_seq".into()));
-        assert_eq!(parse_default("PEDIDOS_SEQ.NEXTVAL"), NextVal("pedidos_seq".into()));
-        assert_eq!(parse_default("NEXT VALUE FOR [dbo].[seq]"), NextVal("dbo.seq".into()));
+        assert_eq!(
+            parse_default("nextval('pedidos_id_seq'::regclass)"),
+            NextVal("pedidos_id_seq".into())
+        );
+        assert_eq!(
+            parse_default("PEDIDOS_SEQ.NEXTVAL"),
+            NextVal("pedidos_seq".into())
+        );
+        assert_eq!(
+            parse_default("NEXT VALUE FOR [dbo].[seq]"),
+            NextVal("dbo.seq".into())
+        );
         assert_eq!(parse_default("lower('X')"), Expr("lower('X')".into()));
-        assert_eq!(parse_default("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), CurrentTimestamp);
+        assert_eq!(
+            parse_default("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            CurrentTimestamp
+        );
         assert_eq!(parse_default("(CONVERT([date],getdate()))"), CurrentDate);
         assert_eq!(parse_default("TRUNC(SYSDATE)"), CurrentDate);
     }

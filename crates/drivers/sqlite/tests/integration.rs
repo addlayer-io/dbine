@@ -5,7 +5,12 @@ use dbine_driver::{kinds, ConnectionConfig, Error, ObjectRef, QueryOutcome, Sess
 use std::time::Duration;
 
 fn cfg(path: &std::path::Path, read_only: bool) -> ConnectionConfig {
-    ConnectionConfig { driver: "sqlite".into(), host: path.display().to_string(), read_only, ..Default::default() }
+    ConnectionConfig {
+        driver: "sqlite".into(),
+        host: path.display().to_string(),
+        read_only,
+        ..Default::default()
+    }
 }
 
 async fn open(path: &std::path::Path, read_only: bool) -> Box<dyn Session> {
@@ -44,12 +49,21 @@ async fn full_round_trip() {
     assert_eq!(kinds_of("v").as_deref(), Some(kinds::VIEW));
     assert_eq!(kinds_of("tr").as_deref(), Some(kinds::TRIGGER));
 
-    let t = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "t".into() };
+    let t = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: "t".into(),
+    };
     let cols = s.columns(&t).await.unwrap();
     assert_eq!(cols.len(), 2);
     assert!(cols[0].primary_key && cols[0].auto_increment);
     assert!(!cols[1].nullable);
-    assert!(s.definition(&t).await.unwrap().unwrap().starts_with("CREATE TABLE"));
+    assert!(s
+        .definition(&t)
+        .await
+        .unwrap()
+        .unwrap()
+        .starts_with("CREATE TABLE"));
 
     let q = s.browse_query(&t, 2);
     let mut out = QueryOutcome::default();
@@ -64,7 +78,10 @@ async fn full_round_trip() {
 
     // An error in the middle keeps what ran before.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out)
+        .await
+        .unwrap_err();
     assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
@@ -94,18 +111,38 @@ async fn full_round_trip() {
     let mut out = QueryOutcome::default();
     s.execute("VACUUM", 10, &mut out).await.unwrap();
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
-    s.execute("INSERT INTO t (name) VALUES ('manual')", 10, &mut out).await.unwrap();
+    s.execute("INSERT INTO t (name) VALUES ('manual')", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Open));
     s.set_autocommit(true).await.unwrap();
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
-    s.execute("BEGIN; DELETE FROM t WHERE name = 'manual'; COMMIT", 10, &mut out).await.unwrap();
+    s.execute(
+        "BEGIN; DELETE FROM t WHERE name = 'manual'; COMMIT",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     // A write that fails in Manual mode leaves no empty transaction open.
     s.set_autocommit(false).await.unwrap();
-    assert!(s.execute("INSERT INTO nope VALUES (1)", 10, &mut out).await.is_err());
+    assert!(s
+        .execute("INSERT INTO nope VALUES (1)", 10, &mut out)
+        .await
+        .is_err());
     let mut one = QueryOutcome::default();
-    s.execute("SELECT min(id) FROM t", 10, &mut one).await.unwrap();
+    s.execute("SELECT min(id) FROM t", 10, &mut one)
+        .await
+        .unwrap();
     let id = one.results[0].rows[0][0].clone();
-    let e = s.execute(&format!("INSERT INTO t (id, name) VALUES ({id}, 'dup')"), 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute(
+            &format!("INSERT INTO t (id, name) VALUES ({id}, 'dup')"),
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
     assert!(e.to_string().contains("UNIQUE"), "{e}");
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
     s.set_autocommit(true).await.unwrap();
@@ -114,7 +151,10 @@ async fn full_round_trip() {
     // Read-only: the file is opened read-only, so writes fail at the engine.
     let mut ro = open(&path, true).await;
     let mut out = QueryOutcome::default();
-    assert!(ro.execute("INSERT INTO t (name) VALUES ('z')", 10, &mut out).await.is_err());
+    assert!(ro
+        .execute("INSERT INTO t (name) VALUES ('z')", 10, &mut out)
+        .await
+        .is_err());
     drop(ro);
     let _ = std::fs::remove_file(&path);
 }
@@ -135,27 +175,44 @@ async fn plans() {
 
     // Estimated: nothing runs.
     let mut out = QueryOutcome::default();
-    s.explain("SELECT * FROM a JOIN b ON b.a_id = a.id ORDER BY a.g; DELETE FROM b; CREATE TABLE c (x)", false, 10, &mut out)
-        .await
-        .unwrap();
+    s.explain(
+        "SELECT * FROM a JOIN b ON b.a_id = a.id ORDER BY a.g; DELETE FROM b; CREATE TABLE c (x)",
+        false,
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.plans.len(), 2);
     assert!(out.results.is_empty());
     assert_eq!(out.messages.len(), 1, "{:?}", out.messages);
     assert_eq!(out.plans[0].root.op, "QUERY PLAN");
     assert!(!out.plans[0].root.children.is_empty());
     let mut check = QueryOutcome::default();
-    s.execute("SELECT count(*) FROM b", 10, &mut check).await.unwrap();
+    s.execute("SELECT count(*) FROM b", 10, &mut check)
+        .await
+        .unwrap();
     assert_eq!(check.results[0].rows[0][0], serde_json::json!(3));
 
     // With analyze the script runs once; plans stay estimated.
     let mut out = QueryOutcome::default();
-    s.explain("DELETE FROM b WHERE id = 1; SELECT count(*) FROM b", true, 10, &mut out).await.unwrap();
+    s.explain(
+        "DELETE FROM b WHERE id = 1; SELECT count(*) FROM b",
+        true,
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.plans.len(), 2);
     assert!(out.plans.iter().all(|p| !p.actual));
     assert_eq!(out.results[1].rows[0][0], serde_json::json!(2));
 
     let mut out = QueryOutcome::default();
-    assert!(s.explain("SELECT 1; SELECT * FROM missing", true, 10, &mut out).await.is_err());
+    assert!(s
+        .explain("SELECT 1; SELECT * FROM missing", true, 10, &mut out)
+        .await
+        .is_err());
     assert_eq!(out.results.len(), 1);
     let _ = std::fs::remove_file(&path);
 }
@@ -177,19 +234,38 @@ async fn schema_and_insert_script() {
     .unwrap();
     let schema = s.database_schema().await.unwrap();
     assert_eq!(schema.len(), 2);
-    assert_eq!(schema[1].foreign_keys[0].on_delete.as_deref(), Some("CASCADE"));
+    assert_eq!(
+        schema[1].foreign_keys[0].on_delete.as_deref(),
+        Some("CASCADE")
+    );
     assert_eq!(schema[1].indexes[0].name, "b_a");
     assert!(!d.capabilities().create_database && d.capabilities().foreign_keys);
 
-    let target = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "a".into() };
+    let target = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: "a".into(),
+    };
     let ins = d
-        .insert_script(&target, &["n".into(), "ok".into()], &[vec!["O'Brien".into(), true.into()], vec!["x".into(), serde_json::Value::Null]])
+        .insert_script(
+            &target,
+            &["n".into(), "ok".into()],
+            &[
+                vec!["O'Brien".into(), true.into()],
+                vec!["x".into(), serde_json::Value::Null],
+            ],
+        )
         .unwrap();
     let mut out = QueryOutcome::default();
     s.execute(&ins, 10, &mut out).await.unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("SELECT n, ok FROM a ORDER BY id", 10, &mut out).await.unwrap();
-    assert_eq!(out.results[0].rows[0], vec![serde_json::json!("O'Brien"), serde_json::json!(1)]);
+    s.execute("SELECT n, ok FROM a ORDER BY id", 10, &mut out)
+        .await
+        .unwrap();
+    assert_eq!(
+        out.results[0].rows[0],
+        vec![serde_json::json!("O'Brien"), serde_json::json!(1)]
+    );
     drop(s);
     let _ = std::fs::remove_file(&path);
 }
@@ -214,17 +290,35 @@ async fn monitor() {
     .unwrap();
     let snap = s.monitor().await.unwrap();
     for m in &snap.metrics {
-        eprintln!("{:<14} {:<44} {:?} max={:?}", m.key, m.label, m.value, m.max);
+        eprintln!(
+            "{:<14} {:<44} {:?} max={:?}",
+            m.key, m.label, m.value, m.max
+        );
     }
     eprintln!("{:?}\n{:?}\n{:?}", snap.info, snap.tables, snap.notes);
-    let v = |k: &str| snap.metrics.iter().find(|m| m.key == k).and_then(|m| m.value);
+    let v = |k: &str| {
+        snap.metrics
+            .iter()
+            .find(|m| m.key == k)
+            .and_then(|m| m.value)
+    };
     assert!(v("file_size").is_some() && v("storage_used").unwrap() > 100_000.0);
     assert!(v("wal_size").unwrap() > 0.0, "WAL mode leaves a -wal file");
     assert!(v("mem_used").unwrap() > 0.0 && v("cache_size").is_some());
-    assert!(snap.info.iter().any(|(k, v)| k.starts_with("Modo del diario") && v == "wal"));
-    let top = snap.tables.iter().find(|t| t.key == "top_objects").expect("dbstat");
+    assert!(snap
+        .info
+        .iter()
+        .any(|(k, v)| k.starts_with("Modo del diario") && v == "wal"));
+    let top = snap
+        .tables
+        .iter()
+        .find(|t| t.key == "top_objects")
+        .expect("dbstat");
     assert_eq!(top.rows[0][0], serde_json::json!("t"));
-    assert!(snap.tables.iter().any(|t| t.key == "databases" && t.rows.len() == 1));
+    assert!(snap
+        .tables
+        .iter()
+        .any(|t| t.key == "databases" && t.rows.len() == 1));
     drop(s);
     let _ = std::fs::remove_file(&path);
 }
@@ -237,9 +331,17 @@ async fn run_read_only_reads_and_refuses_the_rest() {
     s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, n TEXT); INSERT INTO t (n) VALUES ('a'), ('b'), ('c');", 100, &mut out).await.unwrap();
 
     let mut out = QueryOutcome::default();
-    s.run_read_only("SELECT id, n FROM t ORDER BY id", 2, &mut out).await.unwrap();
+    s.run_read_only("SELECT id, n FROM t ORDER BY id", 2, &mut out)
+        .await
+        .unwrap();
     let r = &out.results[0];
-    assert_eq!(r.rows, vec![vec![serde_json::json!(1), "a".into()], vec![serde_json::json!(2), "b".into()]]);
+    assert_eq!(
+        r.rows,
+        vec![
+            vec![serde_json::json!(1), "a".into()],
+            vec![serde_json::json!(2), "b".into()]
+        ]
+    );
     assert_eq!((r.total_rows, r.truncated), (3, true));
 
     let other = temp_db("ro-attached");
@@ -267,17 +369,27 @@ async fn run_read_only_reads_and_refuses_the_rest() {
     // The session goes on as before: its own reads and writes work, and
     // nothing above changed the table.
     let mut out = QueryOutcome::default();
-    s.execute("INSERT INTO t (n) VALUES ('d'); SELECT count(*) FROM t", 100, &mut out).await.unwrap();
+    s.execute(
+        "INSERT INTO t (n) VALUES ('d'); SELECT count(*) FROM t",
+        100,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results[1].rows[0][0], serde_json::json!(4));
     let mut out = QueryOutcome::default();
-    s.run_read_only("SELECT count(*) FROM t", 100, &mut out).await.unwrap();
+    s.run_read_only("SELECT count(*) FROM t", 100, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!(4));
     drop(s);
 
     // A read-only connection reads too.
     let mut s = open(&path, true).await;
     let mut out = QueryOutcome::default();
-    s.run_read_only("SELECT max(id) FROM t", 100, &mut out).await.unwrap();
+    s.run_read_only("SELECT max(id) FROM t", 100, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!(4));
     drop(s);
     let _ = std::fs::remove_file(&path);
@@ -286,16 +398,43 @@ async fn run_read_only_reads_and_refuses_the_rest() {
 #[tokio::test]
 async fn run_read_only_in_memory_keeps_the_session_writable() {
     let d = dbine_driver_sqlite::drivers().pop().unwrap();
-    let cfg = ConnectionConfig { driver: "sqlite".into(), host: ":memory:".into(), ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: ":memory:".into(),
+        ..Default::default()
+    };
     let mut s = d.connect(&cfg, None).await.unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("CREATE TABLE t (a); INSERT INTO t VALUES (1)", 100, &mut out).await.unwrap();
-    for bad in ["DELETE FROM t", "PRAGMA query_only = OFF", "SELECT 1; DELETE FROM t"] {
-        assert!(s.run_read_only(bad, 100, &mut QueryOutcome::default()).await.is_err(), "{bad}");
+    s.execute(
+        "CREATE TABLE t (a); INSERT INTO t VALUES (1)",
+        100,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    for bad in [
+        "DELETE FROM t",
+        "PRAGMA query_only = OFF",
+        "SELECT 1; DELETE FROM t",
+    ] {
+        assert!(
+            s.run_read_only(bad, 100, &mut QueryOutcome::default())
+                .await
+                .is_err(),
+            "{bad}"
+        );
     }
     let mut out = QueryOutcome::default();
-    s.run_read_only("SELECT count(*) FROM t", 100, &mut out).await.unwrap();
+    s.run_read_only("SELECT count(*) FROM t", 100, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!(1));
     // query_only was put back: the session still writes.
-    s.execute("INSERT INTO t VALUES (2)", 100, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(
+        "INSERT INTO t VALUES (2)",
+        100,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
 }

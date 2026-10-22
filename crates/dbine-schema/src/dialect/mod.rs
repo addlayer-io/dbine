@@ -68,11 +68,18 @@ pub struct Note {
 
 impl Rendered {
     pub fn exact(native: impl Into<String>) -> Self {
-        Self { native: native.into(), notes: Vec::new() }
+        Self {
+            native: native.into(),
+            notes: Vec::new(),
+        }
     }
 
     pub fn with(mut self, severity: Severity, code: IssueCode, message: impl Into<String>) -> Self {
-        self.notes.push(Note { severity, code, message: message.into() });
+        self.notes.push(Note {
+            severity,
+            code,
+            message: message.into(),
+        });
         self
     }
 }
@@ -112,7 +119,13 @@ pub struct Caps {
     pub case: IdentCase,
 }
 
-pub const ALL_ACTIONS: &[&str] = &["CASCADE", "SET NULL", "SET DEFAULT", "RESTRICT", "NO ACTION"];
+pub const ALL_ACTIONS: &[&str] = &[
+    "CASCADE",
+    "SET NULL",
+    "SET DEFAULT",
+    "RESTRICT",
+    "NO ACTION",
+];
 
 impl Caps {
     /// Switch off what the driver's designer says the engine lacks.
@@ -193,8 +206,8 @@ pub fn include_support(driver_id: &str, caps_default: bool) -> IncludeSupport {
     match driver_id {
         // openGauss: only on ubtree (Ustore) indexes. Greenplum: only from 7,
         // and the id doesn't say which. CockroachDB writes it as STORING.
-        "redshift" | "yellowbrick" | "cratedb" | "h2" | "materialize" | "denodo" | "opengauss" | "greengage"
-        | "greenplum" | "fabric" | "db2i" => IncludeSupport::No,
+        "redshift" | "yellowbrick" | "cratedb" | "h2" | "materialize" | "denodo" | "opengauss"
+        | "greengage" | "greenplum" | "fabric" | "db2i" => IncludeSupport::No,
         "db2" | "db2zos" => IncludeSupport::UniqueOnly,
         _ if caps_default => IncludeSupport::Yes,
         _ => IncludeSupport::No,
@@ -257,10 +270,12 @@ fn core(driver_id: &str) -> Option<&'static dyn Dialect> {
     static OR: oracle::Oracle = oracle::Oracle;
     static LITE: sqlite::Sqlite = sqlite::Sqlite;
     Some(match driver_id {
-        "postgres" | "timescaledb" | "yugabytedb" | "kingbase" | "alloydb" | "cloudsql_postgres" | "aurora_postgres"
-        | "edb" | "fujitsu" | "opengauss" | "cockroachdb" | "greenplum" | "cloudberry" | "greengage" | "dsql"
-        | "yellowbrick" | "redshift" | "risingwave" | "materialize" | "cratedb" | "h2" | "denodo" => &PG,
-        "mysql" | "mariadb" | "tidb" | "oceanbase" | "singlestore" | "aurora-mysql" | "cloudsql-mysql" => &MY,
+        "postgres" | "timescaledb" | "yugabytedb" | "kingbase" | "alloydb"
+        | "cloudsql_postgres" | "aurora_postgres" | "edb" | "fujitsu" | "opengauss"
+        | "cockroachdb" | "greenplum" | "cloudberry" | "greengage" | "dsql" | "yellowbrick"
+        | "redshift" | "risingwave" | "materialize" | "cratedb" | "h2" | "denodo" => &PG,
+        "mysql" | "mariadb" | "tidb" | "oceanbase" | "singlestore" | "aurora-mysql"
+        | "cloudsql-mysql" => &MY,
         "sqlserver" | "azuresql" | "fabric" | "babelfish" => &MS,
         "oracle" | "oracle_adb" => &OR,
         "sqlite" | "libsql" => &LITE,
@@ -269,12 +284,20 @@ fn core(driver_id: &str) -> Option<&'static dyn Dialect> {
 }
 
 /// Shared renderer for defaults most SQL engines spell the same way.
-pub(crate) fn standard_default(d: &DefaultValue, ty: &LogicalType, now: &str, uuid: Option<&str>, bool_as_int: bool) -> Option<String> {
+pub(crate) fn standard_default(
+    d: &DefaultValue,
+    ty: &LogicalType,
+    now: &str,
+    uuid: Option<&str>,
+    bool_as_int: bool,
+) -> Option<String> {
     Some(match d {
         DefaultValue::Null => "NULL".into(),
         DefaultValue::Number(n) => n.clone(),
         DefaultValue::Text(s) => crate::default::quote(s),
-        DefaultValue::Bool(b) if bool_as_int || !matches!(ty, LogicalType::Bool) => if *b { "1" } else { "0" }.into(),
+        DefaultValue::Bool(b) if bool_as_int || !matches!(ty, LogicalType::Bool) => {
+            if *b { "1" } else { "0" }.into()
+        }
         DefaultValue::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
         DefaultValue::CurrentTimestamp => now.into(),
         DefaultValue::CurrentDate => "CURRENT_DATE".into(),

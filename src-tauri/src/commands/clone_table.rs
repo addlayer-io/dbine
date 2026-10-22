@@ -6,7 +6,9 @@
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_driver::{async_trait, Driver, ObjectRef, Session};
-use dbine_transfer::clone_table::{clone_table as run_clone, CloneControl, CloneEvent, CloneOptions, CloneRequest, Rename};
+use dbine_transfer::clone_table::{
+    clone_table as run_clone, CloneControl, CloneEvent, CloneOptions, CloneRequest, Rename,
+};
 use dbine_transfer::Endpoints;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -16,7 +18,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
 /// Running clones, by run id (for `clone_table_cancel`).
-static RUNNING: LazyLock<Mutex<HashMap<String, CloneControl>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static RUNNING: LazyLock<Mutex<HashMap<String, CloneControl>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn running() -> std::sync::MutexGuard<'static, HashMap<String, CloneControl>> {
     RUNNING.lock().unwrap_or_else(|p| p.into_inner())
@@ -34,11 +37,20 @@ struct AppEndpoints {
 
 impl AppEndpoints {
     async fn open(&self, read_only: bool) -> dbine_driver::Result<Box<dyn Session>> {
-        let key = format!("clone:{}:{}", self.run_id, self.seq.fetch_add(1, Ordering::Relaxed));
-        let entry = self.state.dedicated_session(&key, &self.connection_id, &self.database, read_only).await.map_err(driver_error);
+        let key = format!(
+            "clone:{}:{}",
+            self.run_id,
+            self.seq.fetch_add(1, Ordering::Relaxed)
+        );
+        let entry = self
+            .state
+            .dedicated_session(&key, &self.connection_id, &self.database, read_only)
+            .await
+            .map_err(driver_error);
         // The clone owns the connection: it leaves the app's map.
         self.state.sessions.remove(&key);
-        let entry = Arc::try_unwrap(entry?).map_err(|_| dbine_driver::Error::State("la conexión quedó compartida".into()))?;
+        let entry = Arc::try_unwrap(entry?)
+            .map_err(|_| dbine_driver::Error::State("la conexión quedó compartida".into()))?;
         Ok(entry.session.into_inner())
     }
 }
@@ -111,16 +123,24 @@ impl Drop for Registered {
 /// `clone-table-progress` events `{ runId, event, … }` (`phase`, `progress`,
 /// `log`). Whatever fails, the clone is dropped; the original is only read.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn clone_table(app: AppHandle, state: State<'_, AppState>, args: CloneArgs) -> CommandResult<CloneResult> {
+pub async fn clone_table(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: CloneArgs,
+) -> CommandResult<CloneResult> {
     if args.run_id.is_empty() || args.run_id.len() > 100 {
-        return Err(CommandError::BadRequest("identificador de clonado inválido".into()));
+        return Err(CommandError::BadRequest(
+            "identificador de clonado inválido".into(),
+        ));
     }
     let driver = crate::commands::schema::driver_of(&state, &args.connection_id)?.clone();
     let control = CloneControl::default();
     {
         let mut r = running();
         if r.contains_key(&args.run_id) {
-            return Err(CommandError::BadRequest("ese clonado ya está en curso".into()));
+            return Err(CommandError::BadRequest(
+                "ese clonado ya está en curso".into(),
+            ));
         }
         r.insert(args.run_id.clone(), control.clone());
     }
@@ -136,7 +156,10 @@ pub async fn clone_table(app: AppHandle, state: State<'_, AppState>, args: Clone
     let req = CloneRequest {
         source: args.object,
         new_name: args.new_name,
-        options: CloneOptions { with_data: args.with_data, with_indexes: args.with_indexes },
+        options: CloneOptions {
+            with_data: args.with_data,
+            with_indexes: args.with_indexes,
+        },
     };
     let run_id = args.run_id.clone();
     let emit = move |e: CloneEvent| {
@@ -147,7 +170,13 @@ pub async fn clone_table(app: AppHandle, state: State<'_, AppState>, args: Clone
         let _ = app.emit("clone-table-progress", v);
     };
     let r = run_clone(endpoints, req, &control, emit).await?;
-    Ok(CloneResult { table: r.table, rows: r.rows, elapsed_ms: r.elapsed_ms, notes: r.notes, renames: r.renames })
+    Ok(CloneResult {
+        table: r.table,
+        rows: r.rows,
+        elapsed_ms: r.elapsed_ms,
+        notes: r.notes,
+        renames: r.renames,
+    })
 }
 
 #[derive(Deserialize)]

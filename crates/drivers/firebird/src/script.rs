@@ -49,7 +49,11 @@ enum State {
 }
 
 pub fn split(sql: &str) -> Vec<String> {
-    pieces(sql).into_iter().filter(|p| !p.skipped).map(|p| p.text).collect()
+    pieces(sql)
+        .into_iter()
+        .filter(|p| !p.skipped)
+        .map(|p| p.text)
+        .collect()
 }
 
 /// One statement of a script, or an isql command it skips.
@@ -67,7 +71,11 @@ pub struct Piece {
 pub fn pieces(sql: &str) -> Vec<Piece> {
     let chars: Vec<char> = sql.chars().collect();
     // Byte offset of each char (and of the end).
-    let bytes: Vec<usize> = sql.char_indices().map(|(b, _)| b).chain(std::iter::once(sql.len())).collect();
+    let bytes: Vec<usize> = sql
+        .char_indices()
+        .map(|(b, _)| b)
+        .chain(std::iter::once(sql.len()))
+        .collect();
     let mut seg = 0usize;
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -162,8 +170,14 @@ fn push(out: &mut Vec<Piece>, stmt: &str, at: usize) {
         return;
     }
     let upper = text.to_ascii_uppercase();
-    let skipped = ISQL_ONLY.iter().any(|c| upper == *c || upper.starts_with(&format!("{c} ")));
-    out.push(Piece { text: text.to_string(), start: at + (stmt.len() - lead.len()), skipped });
+    let skipped = ISQL_ONLY
+        .iter()
+        .any(|c| upper == *c || upper.starts_with(&format!("{c} ")));
+    out.push(Piece {
+        text: text.to_string(),
+        start: at + (stmt.len() - lead.len()),
+        skipped,
+    });
 }
 
 /// The new terminator when `stmt` is `SET TERM <t>`.
@@ -171,7 +185,8 @@ fn set_term(stmt: &str) -> Option<String> {
     let s = strip_leading_comments(stmt);
     let mut parts = s.split_whitespace();
     let (a, b, t) = (parts.next()?, parts.next()?, parts.next()?);
-    (a.eq_ignore_ascii_case("SET") && b.eq_ignore_ascii_case("TERM") && parts.next().is_none()).then(|| t.to_string())
+    (a.eq_ignore_ascii_case("SET") && b.eq_ignore_ascii_case("TERM") && parts.next().is_none())
+        .then(|| t.to_string())
 }
 
 /// The text without leading whitespace and comments.
@@ -240,7 +255,10 @@ fn is_psql_head(head: &[String]) -> bool {
     let object = |w: &str| matches!(w, "PROCEDURE" | "FUNCTION" | "TRIGGER" | "PACKAGE");
     match h.as_slice() {
         ["EXECUTE", "BLOCK", ..] => true,
-        ["CREATE", "OR", "ALTER", o, ..] | ["CREATE", o, ..] | ["RECREATE", o, ..] | ["ALTER", o, ..] => object(o),
+        ["CREATE", "OR", "ALTER", o, ..]
+        | ["CREATE", o, ..]
+        | ["RECREATE", o, ..]
+        | ["ALTER", o, ..] => object(o),
         _ => false,
     }
 }
@@ -251,17 +269,26 @@ mod tests {
 
     #[test]
     fn plain_statements() {
-        assert_eq!(split("select 1 from rdb$database; select ';' from rdb$database;"), vec![
-            "select 1 from rdb$database",
-            "select ';' from rdb$database"
-        ]);
-        assert_eq!(split("-- c;\nselect 1 from rdb$database /* ; */"), vec!["select 1 from rdb$database /* ; */"]);
+        assert_eq!(
+            split("select 1 from rdb$database; select ';' from rdb$database;"),
+            vec!["select 1 from rdb$database", "select ';' from rdb$database"]
+        );
+        assert_eq!(
+            split("-- c;\nselect 1 from rdb$database /* ; */"),
+            vec!["select 1 from rdb$database /* ; */"]
+        );
     }
 
     #[test]
     fn set_term_blocks() {
         let sql = "SET TERM ^ ;\nCREATE PROCEDURE p AS\nBEGIN\n  x = 1;\nEND^\nSET TERM ; ^\nSELECT 1 FROM rdb$database;";
-        assert_eq!(split(sql), vec!["CREATE PROCEDURE p AS\nBEGIN\n  x = 1;\nEND", "SELECT 1 FROM rdb$database"]);
+        assert_eq!(
+            split(sql),
+            vec![
+                "CREATE PROCEDURE p AS\nBEGIN\n  x = 1;\nEND",
+                "SELECT 1 FROM rdb$database"
+            ]
+        );
     }
 
     #[test]
@@ -308,9 +335,10 @@ mod tests {
 
     #[test]
     fn isql_commands_are_skipped() {
-        assert_eq!(split("SET AUTODDL ON;\nSET NAMES UTF8;\nSET GENERATOR g TO 5;\nshow tables;"), vec![
-            "SET GENERATOR g TO 5"
-        ]);
+        assert_eq!(
+            split("SET AUTODDL ON;\nSET NAMES UTF8;\nSET GENERATOR g TO 5;\nshow tables;"),
+            vec!["SET GENERATOR g TO 5"]
+        );
     }
 }
 
@@ -370,7 +398,11 @@ pub fn split_name(name: &str) -> Vec<String> {
                 was_quoted = true;
             }
             '.' if !quoted => {
-                parts.push(if was_quoted { std::mem::take(&mut cur) } else { std::mem::take(&mut cur).to_uppercase() });
+                parts.push(if was_quoted {
+                    std::mem::take(&mut cur)
+                } else {
+                    std::mem::take(&mut cur).to_uppercase()
+                });
                 was_quoted = false;
             }
             c => cur.push(c),
@@ -386,9 +418,18 @@ mod name_tests {
 
     #[test]
     fn execute_procedure_parts() {
-        assert_eq!(execute_procedure("execute procedure p(1, 2)"), Some(("p".into(), "(1, 2)".into())));
-        assert_eq!(execute_procedure("EXECUTE PROCEDURE \"My P\" 1"), Some(("\"My P\"".into(), "1".into())));
-        assert_eq!(execute_procedure("EXECUTE PROCEDURE pkg.p"), Some(("pkg.p".into(), "".into())));
+        assert_eq!(
+            execute_procedure("execute procedure p(1, 2)"),
+            Some(("p".into(), "(1, 2)".into()))
+        );
+        assert_eq!(
+            execute_procedure("EXECUTE PROCEDURE \"My P\" 1"),
+            Some(("\"My P\"".into(), "1".into()))
+        );
+        assert_eq!(
+            execute_procedure("EXECUTE PROCEDURE pkg.p"),
+            Some(("pkg.p".into(), "".into()))
+        );
         assert_eq!(execute_procedure("select 1"), None);
         assert_eq!(split_name("pkg.p"), vec!["PKG", "P"]);
         assert_eq!(split_name("\"My\"\"P\""), vec!["My\"P"]);

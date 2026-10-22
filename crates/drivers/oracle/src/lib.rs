@@ -29,10 +29,11 @@ mod transfer;
 
 use dbine_driver::sql::{select_top, Limit, Quote};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, kinds, BoundStatement, ParamValue, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
-    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Message,
-    MessageLevel, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptDefaults, ScriptDialect,
-    ScriptError, ScriptMode, Session, StatementEnd, TableSchema, TxState,
+    async_trait, json_bytes, json_f64, json_i64, kinds, BoundStatement, Capabilities, ColumnInfo,
+    ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
+    Family, Field, FieldKind, Language, Message, MessageLevel, ObjectKindInfo, ObjectRef,
+    ParamValue, QueryOutcome, Result, ResultColumn, ScriptDefaults, ScriptDialect, ScriptError,
+    ScriptMode, Session, StatementEnd, TableSchema, TxState,
 };
 use oracledb::{Connection, Cursor, OracleNumber, OracleTimestamp, Row};
 use serde_json::Value;
@@ -48,8 +49,14 @@ const PACKAGE: &str = "package";
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![
-        Arc::new(OracleDriver { info: info(), autonomous: false }),
-        Arc::new(OracleDriver { info: autonomous_info(), autonomous: true }),
+        Arc::new(OracleDriver {
+            info: info(),
+            autonomous: false,
+        }),
+        Arc::new(OracleDriver {
+            info: autonomous_info(),
+            autonomous: true,
+        }),
     ]
 }
 
@@ -189,13 +196,20 @@ fn autonomous_connect_string(cfg: &ConnectionConfig) -> Result<String> {
     let name = cfg.option("adb_name").map(str::trim).unwrap_or("");
     if name.is_empty() || wallet_dir(cfg).is_none() {
         return Err(Error::Connect(
-            "Falta la cadena de conexión, o el wallet y el nombre de la base para armar el alias.".into(),
+            "Falta la cadena de conexión, o el wallet y el nombre de la base para armar el alias."
+                .into(),
         ));
     }
     if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(Error::Connect("El nombre de la base solo lleva letras, números y _.".into()));
+        return Err(Error::Connect(
+            "El nombre de la base solo lleva letras, números y _.".into(),
+        ));
     }
-    Ok(format!("{}_{}", name.to_ascii_lowercase(), cfg.option("adb_service").unwrap_or("low")))
+    Ok(format!(
+        "{}_{}",
+        name.to_ascii_lowercase(),
+        cfg.option("adb_service").unwrap_or("low")
+    ))
 }
 
 // ---------------------------------------------------------------- errors
@@ -246,20 +260,31 @@ fn connect_string(cfg: &ConnectionConfig) -> Result<String> {
     }
     let host = cfg.host.trim();
     if host.is_empty() {
-        return Err(Error::Connect("Falta el servidor o el descriptor de conexión.".into()));
+        return Err(Error::Connect(
+            "Falta el servidor o el descriptor de conexión.".into(),
+        ));
     }
     let service = cfg.option("service").map(str::trim).unwrap_or("");
     if service.is_empty() {
-        return Err(Error::Connect("Falta el nombre de servicio o el SID.".into()));
+        return Err(Error::Connect(
+            "Falta el nombre de servicio o el SID.".into(),
+        ));
     }
-    if [host, service].iter().any(|v| v.contains(['(', ')', '=', ' '])) {
+    if [host, service]
+        .iter()
+        .any(|v| v.contains(['(', ')', '=', ' ']))
+    {
         return Err(Error::Connect(
             "El servidor y el servicio no pueden llevar espacios, paréntesis ni '='. Para algo más \
              complejo usá el descriptor de conexión."
                 .into(),
         ));
     }
-    let key = if cfg.option("connect_by") == Some("sid") { "SID" } else { "SERVICE_NAME" };
+    let key = if cfg.option("connect_by") == Some("sid") {
+        "SID"
+    } else {
+        "SERVICE_NAME"
+    };
     let protocol = if cfg.encrypt { "TCPS" } else { "TCP" };
     let port = cfg.port_or(DEFAULT_PORT);
     Ok(format!(
@@ -268,7 +293,11 @@ fn connect_string(cfg: &ConnectionConfig) -> Result<String> {
 }
 
 fn build_config(cfg: &ConnectionConfig, autonomous: bool) -> Result<oracledb::Config> {
-    let connect_string = if autonomous { autonomous_connect_string(cfg)? } else { connect_string(cfg)? };
+    let connect_string = if autonomous {
+        autonomous_connect_string(cfg)?
+    } else {
+        connect_string(cfg)?
+    };
     let user = cfg.username_or_empty().trim();
     if user.is_empty() {
         return Err(Error::AuthFailed("Falta el usuario.".into()));
@@ -346,7 +375,10 @@ impl Driver for OracleDriver {
 
     /// SQL*Plus and SQL Developer go on after a failed statement.
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     /// The editor starts in Auto, as the connection's «autocommit» option
@@ -372,7 +404,12 @@ impl Driver for OracleDriver {
         true
     }
 
-    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+    fn index_toggle_script(
+        &self,
+        table: &ObjectRef,
+        index: &dbine_driver::IndexUsage,
+        enable: bool,
+    ) -> Result<dbine_driver::SyncScript> {
         index_usage::toggle_script(table, index, enable)
     }
 
@@ -439,11 +476,19 @@ impl Driver for OracleDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -484,26 +529,59 @@ impl Driver for OracleDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         ddl::sync_script(changes)
     }
 
     /// One INSERT per row (no multi-row VALUES before 23ai), booleans as 1 / 0.
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
-        Ok(dbine_driver::ddl::insert_script(&ddl::FLAVOR, target.schema(), &target.name, columns, rows, 1))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        Ok(dbine_driver::ddl::insert_script(
+            &ddl::FLAVOR,
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+            1,
+        ))
     }
 
     /// `UPDATE … WHERE <key>` per changed row, with the INSERTs' literals.
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
-        Ok(dbine_driver::ddl::update_script(&ddl::FLAVOR, target.schema(), &target.name, changes))
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
+        Ok(dbine_driver::ddl::update_script(
+            &ddl::FLAVOR,
+            target.schema(),
+            &target.name,
+            changes,
+        ))
     }
 
     /// `DELETE … WHERE <key>` per row key, with the INSERTs' literals.
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
-        Ok(dbine_driver::ddl::delete_script(&ddl::FLAVOR, target.schema(), &target.name, keys))
+        Ok(dbine_driver::ddl::delete_script(
+            &ddl::FLAVOR,
+            target.schema(),
+            &target.name,
+            keys,
+        ))
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let config = build_config(cfg, self.autonomous)?;
         let autocommit = cfg.option("autocommit").is_none_or(|v| v == "true");
         let schema = database.filter(|d| !d.is_empty()).map(str::to_string);
@@ -513,7 +591,12 @@ impl Driver for OracleDriver {
         let task = tokio::task::spawn_blocking(move || open(c2, schema.as_deref(), true));
         let (conn, ids, schema) = tokio::time::timeout(CONNECT_TIMEOUT, task)
             .await
-            .map_err(|_| Error::Connect(format!("El servidor no respondió en {} s.", CONNECT_TIMEOUT.as_secs())))?
+            .map_err(|_| {
+                Error::Connect(format!(
+                    "El servidor no respondió en {} s.",
+                    CONNECT_TIMEOUT.as_secs()
+                ))
+            })?
             .map_err(join_err)??;
         Ok(Box::new(OracleSession {
             shared: Arc::new(Shared {
@@ -536,11 +619,22 @@ impl Driver for OracleDriver {
 /// A logged-in connection on `schema` (the user's own when `None`): the
 /// connection, its (SID, SERIAL#) and the current schema. `serveroutput`:
 /// DBMS_OUTPUT enabled (SET SERVEROUTPUT ON).
-fn open(config: oracledb::Config, schema: Option<&str>, serveroutput: bool) -> Result<(Connection, (usize, usize), String)> {
+fn open(
+    config: oracledb::Config,
+    schema: Option<&str>,
+    serveroutput: bool,
+) -> Result<(Connection, (usize, usize), String)> {
     let conn = oracledb::connect(config).map_err(connect_err)?;
-    let ids = (conn.session_id().map_err(err)?, conn.serial_num().map_err(err)?);
+    let ids = (
+        conn.session_id().map_err(err)?,
+        conn.serial_num().map_err(err)?,
+    );
     if let Some(s) = schema {
-        conn.execute(&format!("ALTER SESSION SET CURRENT_SCHEMA = {}", quote(s)), &[]).map_err(err)?;
+        conn.execute(
+            &format!("ALTER SESSION SET CURRENT_SCHEMA = {}", quote(s)),
+            &[],
+        )
+        .map_err(err)?;
     }
     let schema: String = conn
         .query_row(CURRENT_SCHEMA, &[])
@@ -668,8 +762,14 @@ fn schema_name(name: &str) -> Result<String> {
         return Err(Error::Query("Falta el nombre del esquema.".into()));
     }
     let simple = name.starts_with(|c: char| c.is_ascii_alphabetic())
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '#'));
-    Ok(if simple { name.to_ascii_uppercase() } else { name.to_string() })
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '#'));
+    Ok(if simple {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_string()
+    })
 }
 
 /// First column of every row, as text.
@@ -777,7 +877,10 @@ impl Session for OracleSession {
     async fn server_version(&mut self) -> Result<String> {
         self.run(|c| {
             let banner = c
-                .query_row("SELECT banner FROM v$version WHERE banner LIKE 'Oracle%'", &[])
+                .query_row(
+                    "SELECT banner FROM v$version WHERE banner LIKE 'Oracle%'",
+                    &[],
+                )
                 .and_then(|r| r.get::<String>(0));
             Ok(match banner {
                 Ok(b) => b,
@@ -791,7 +894,9 @@ impl Session for OracleSession {
         self.run(|c| match c.query(LIST_SCHEMAS, &[]) {
             Ok(cur) => strings(cur),
             // ORA-00904: ORACLE_MAINTAINED doesn't exist (11g).
-            Err(e) if db_code(&e) == Some(904) => strings(c.query(LIST_SCHEMAS_11G, &[]).map_err(err)?),
+            Err(e) if db_code(&e) == Some(904) => {
+                strings(c.query(LIST_SCHEMAS_11G, &[]).map_err(err)?)
+            }
             Err(e) => Err(err(e)),
         })
         .await
@@ -804,7 +909,9 @@ impl Session for OracleSession {
             for row in c.query(LIST_OBJECTS, &[&owner]).map_err(err)? {
                 let row = row.map_err(err)?;
                 let ty: String = row.get(0).map_err(err)?;
-                let Some(kind) = object_kind(&ty) else { continue };
+                let Some(kind) = object_kind(&ty) else {
+                    continue;
+                };
                 out.push(DbObject {
                     kind: kind.to_string(),
                     schema: None,
@@ -816,7 +923,12 @@ impl Session for OracleSession {
             match c.query(structure::PUBLIC_SYNONYMS, &[&owner]) {
                 Ok(rows) => {
                     for name in strings(rows)? {
-                        out.push(DbObject { kind: kinds::SYNONYM.into(), schema: Some("PUBLIC".into()), name, parent: None });
+                        out.push(DbObject {
+                            kind: kinds::SYNONYM.into(),
+                            schema: Some("PUBLIC".into()),
+                            name,
+                            parent: None,
+                        });
                     }
                 }
                 Err(e) => tracing::debug!("oracle: public synonyms not listed: {e}"),
@@ -845,11 +957,17 @@ impl Session for OracleSession {
                 let char_used: Option<String> = row.get(10).map_err(err)?;
                 out.push(ColumnInfo {
                     name: row.get(0).map_err(err)?,
-                    data_type: char_semantics(format_type(&ty, len, data_len, precision, scale), &ty, char_used.as_deref()),
+                    data_type: char_semantics(
+                        format_type(&ty, len, data_len, precision, scale),
+                        &ty,
+                        char_used.as_deref(),
+                    ),
                     nullable: nullable.as_deref() != Some("N"),
                     primary_key: pk == 1,
                     auto_increment: identity.as_deref() == Some("YES"),
-                    default_value: default.map(|d| d.trim().to_string()).filter(|d| !d.is_empty()),
+                    default_value: default
+                        .map(|d| d.trim().to_string())
+                        .filter(|d| !d.is_empty()),
                 });
             }
             Ok(out)
@@ -863,15 +981,27 @@ impl Session for OracleSession {
         // Built from the dictionary without the owner, so two schemas compare
         // equal and the DDL runs on either.
         match obj.kind.as_str() {
-            kinds::SEQUENCE => return self.run(move |c| structure::sequence(c, &owner, &name)).await,
+            kinds::SEQUENCE => {
+                return self
+                    .run(move |c| structure::sequence(c, &owner, &name))
+                    .await
+            }
             kinds::SYNONYM => {
                 let schema = self.schema.clone();
-                return self.run(move |c| structure::synonym(c, &owner, &name, &schema)).await;
+                return self
+                    .run(move |c| structure::synonym(c, &owner, &name, &schema))
+                    .await;
             }
-            kinds::TYPE => return self.run(move |c| definition_fallback(c, kinds::TYPE, &owner, &name)).await,
+            kinds::TYPE => {
+                return self
+                    .run(move |c| definition_fallback(c, kinds::TYPE, &owner, &name))
+                    .await
+            }
             _ => {}
         }
-        let Some(meta) = metadata_type(&obj.kind) else { return Ok(None) };
+        let Some(meta) = metadata_type(&obj.kind) else {
+            return Ok(None);
+        };
         let kind = obj.kind.clone();
         let prepare = !self.metadata_ready;
         self.metadata_ready = true;
@@ -881,12 +1011,26 @@ impl Session for OracleSession {
                     tracing::debug!("oracle: DBMS_METADATA transforms: {e}");
                 }
             }
-            let get_ddl = || c.query_row("SELECT DBMS_METADATA.GET_DDL(:1, :2, :3) FROM dual", &[&meta, &name, &owner]).and_then(|r| r.get::<Option<String>>(0));
+            let get_ddl = || {
+                c.query_row(
+                    "SELECT DBMS_METADATA.GET_DDL(:1, :2, :3) FROM dual",
+                    &[&meta, &name, &owner],
+                )
+                .and_then(|r| r.get::<Option<String>>(0))
+            };
             // Now and then DBMS_METADATA raises NO_DATA_FOUND for a
             // materialized view (the query then has no row) and answers the
             // next time: the fallback's shorter DDL would show as a difference.
-            match get_ddl().or_else(|e| if matches!(e.kind(), oracledb::ErrorKind::NoDataFound) { get_ddl() } else { Err(e) }) {
-                Ok(Some(ddl)) if kind == kinds::TABLE => Ok(Some(with_indexes(c, ddl.trim(), &owner, &name))),
+            match get_ddl().or_else(|e| {
+                if matches!(e.kind(), oracledb::ErrorKind::NoDataFound) {
+                    get_ddl()
+                } else {
+                    Err(e)
+                }
+            }) {
+                Ok(Some(ddl)) if kind == kinds::TABLE => {
+                    Ok(Some(with_indexes(c, ddl.trim(), &owner, &name)))
+                }
                 Ok(Some(ddl)) => Ok(Some(ddl.trim().to_string())),
                 // No privilege on DBMS_METADATA for someone else's object:
                 // rebuild what the dictionary views give.
@@ -924,15 +1068,26 @@ impl Session for OracleSession {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -965,10 +1120,18 @@ impl Session for OracleSession {
     /// the caller's thread, as the plugin proxy does for this call.
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
         let owner = obj.schema().unwrap_or(&self.schema);
-        let plain = select_top(Quote::Double, Limit::FetchFirst, Some(owner), &obj.name, limit);
+        let plain = select_top(
+            Quote::Double,
+            Limit::FetchFirst,
+            Some(owner),
+            &obj.name,
+            limit,
+        );
         let columns = self.browse_columns(owner, &obj.name);
         let table = dbine_driver::sql::qualified_name(Quote::Double, Some(owner), &obj.name);
-        columns.and_then(|c| spatial::browse(&table, &c, limit)).unwrap_or(plain)
+        columns
+            .and_then(|c| spatial::browse(&table, &c, limit))
+            .unwrap_or(plain)
     }
 
     /// SQL*Plus-like: statements end at `;` or a `/` line, PL/SQL units at a
@@ -985,7 +1148,14 @@ impl Session for OracleSession {
         let (local, result, last_compiled) = self
             .run(move |c| {
                 let mut local = fork;
-                let mut cx = Ctx { text: &text, autocommit, serveroutput: &shared.serveroutput, killed: &shared.killed, last_compiled, binds: &[] };
+                let mut cx = Ctx {
+                    text: &text,
+                    autocommit,
+                    serveroutput: &shared.serveroutput,
+                    killed: &shared.killed,
+                    last_compiled,
+                    binds: &[],
+                };
                 let result = run_script(c, &statements, max_rows, &mut cx, &mut local);
                 Ok((local, result, cx.last_compiled))
             })
@@ -1000,7 +1170,13 @@ impl Session for OracleSession {
         // EXECUTE IMMEDIATE, even one that failed later): the tab follows
         // the schema, and a reconnect goes back to it.
         if switches_schema && !self.shared.killed.load(Ordering::SeqCst) {
-            let current: Result<String> = self.run(|c| c.query_row(CURRENT_SCHEMA, &[]).and_then(|r| r.get(0)).map_err(err)).await;
+            let current: Result<String> = self
+                .run(|c| {
+                    c.query_row(CURRENT_SCHEMA, &[])
+                        .and_then(|r| r.get(0))
+                        .map_err(err)
+                })
+                .await;
             match current {
                 Ok(schema) => {
                     self.schema = schema.clone();
@@ -1017,15 +1193,35 @@ impl Session for OracleSession {
     /// schema it switches to). A SQL*Plus command, DDL (Oracle binds no
     /// values there) or more than one statement: `Unsupported`, before
     /// anything runs, and the app sends literals.
-    async fn execute_bound(&mut self, bound: &BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn execute_bound(
+        &mut self,
+        bound: &BoundStatement,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let text = bound.numbered(":");
         let statements = script::split(&text);
         let ddl = |s: &script::Statement| {
-            matches!(script::first_word(&s.text).as_str(), "CREATE" | "ALTER" | "DROP" | "GRANT" | "REVOKE" | "TRUNCATE" | "COMMENT" | "RENAME" | "AUDIT")
+            matches!(
+                script::first_word(&s.text).as_str(),
+                "CREATE"
+                    | "ALTER"
+                    | "DROP"
+                    | "GRANT"
+                    | "REVOKE"
+                    | "TRUNCATE"
+                    | "COMMENT"
+                    | "RENAME"
+                    | "AUDIT"
+            )
         };
         match statements.as_slice() {
             [s] if s.command.is_none() && !ddl(s) => {}
-            _ => return Err(Error::Unsupported("Oracle recibe los parámetros de una sentencia por vez (sin DDL)".into())),
+            _ => {
+                return Err(Error::Unsupported(
+                    "Oracle recibe los parámetros de una sentencia por vez (sin DDL)".into(),
+                ))
+            }
         }
         let autocommit = self.autocommit;
         let last_compiled = self.last_compiled.clone();
@@ -1035,7 +1231,14 @@ impl Session for OracleSession {
         let (local, result, last_compiled) = self
             .run(move |c| {
                 let mut local = fork;
-                let mut cx = Ctx { text: &text, autocommit, serveroutput: &shared.serveroutput, killed: &shared.killed, last_compiled, binds: &values };
+                let mut cx = Ctx {
+                    text: &text,
+                    autocommit,
+                    serveroutput: &shared.serveroutput,
+                    killed: &shared.killed,
+                    last_compiled,
+                    binds: &values,
+                };
                 let result = run_script(c, &statements, max_rows, &mut cx, &mut local);
                 Ok((local, result, cx.last_compiled))
             })
@@ -1061,14 +1264,24 @@ impl Session for OracleSession {
     /// from `DBMS_XPLAN.DISPLAY_CURSOR(…, 'ALLSTATS LAST')`). Nothing runs
     /// twice, so DML gets actual figures too. Without access to those
     /// views (SELECT_CATALOG_ROLE) it falls back to estimated plans.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let statements: Vec<_> = script::split(text).into_iter().filter(|s| s.command.is_none()).collect();
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        let statements: Vec<_> = script::split(text)
+            .into_iter()
+            .filter(|s| s.command.is_none())
+            .collect();
         let autocommit = self.autocommit;
         let fork = out.fork();
         let (local, result) = self
             .run(move |c| {
                 let mut local = fork;
-                let result = explain_script(c, &statements, analyze, max_rows, autocommit, &mut local);
+                let result =
+                    explain_script(c, &statements, analyze, max_rows, autocommit, &mut local);
                 Ok((local, result))
             })
             .await?;
@@ -1084,8 +1297,15 @@ impl Session for OracleSession {
     /// only rolls itself back).
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
         self.run(|c| {
-            let id: Option<String> = c.query_row(TRANSACTION_ID, &[]).and_then(|r| r.get(0)).map_err(err)?;
-            Ok(Some(if id.is_some() { TxState::Open } else { TxState::Idle }))
+            let id: Option<String> = c
+                .query_row(TRANSACTION_ID, &[])
+                .and_then(|r| r.get(0))
+                .map_err(err)?;
+            Ok(Some(if id.is_some() {
+                TxState::Open
+            } else {
+                TxState::Idle
+            }))
         })
         .await
     }
@@ -1122,7 +1342,8 @@ impl Session for OracleSession {
 
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         let database = database.map(str::to_string);
-        self.run(move |c| backup::history(c, database.as_deref())).await
+        self.run(move |c| backup::history(c, database.as_deref()))
+            .await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
@@ -1152,7 +1373,11 @@ impl Session for OracleSession {
         self.run(move |c| processes::cancel(c, &id)).await
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -1176,21 +1401,36 @@ impl Session for OracleSession {
         source: &mut dyn dbine_driver::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::WriteResult> {
-        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::Oracle, spec, columns, source, progress, true).await
+        dbine_driver::write::staged_write(
+            self,
+            dbine_driver::write::StageFlavor::Oracle,
+            spec,
+            columns,
+            source,
+            progress,
+            true,
+        )
+        .await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
         Some(self)
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1212,11 +1452,16 @@ impl Session for OracleSession {
             let config = config.clone();
             let shared = shared.clone();
             std::thread::spawn(move || {
-                let Ok((sid, serial)) = shared.ids.lock().map(|ids| *ids) else { return };
+                let Ok((sid, serial)) = shared.ids.lock().map(|ids| *ids) else {
+                    return;
+                };
                 // Set first: the killed statement may return before KILL does.
                 shared.killed.store(true, Ordering::SeqCst);
                 let killed = oracledb::connect(config).and_then(|c| {
-                    c.execute(&format!("ALTER SYSTEM KILL SESSION '{sid}, {serial}' IMMEDIATE"), &[])
+                    c.execute(
+                        &format!("ALTER SYSTEM KILL SESSION '{sid}, {serial}' IMMEDIATE"),
+                        &[],
+                    )
                 });
                 match killed {
                     // ORA-00031: marked for kill, it goes away shortly.
@@ -1231,20 +1476,30 @@ impl Session for OracleSession {
     }
 
     /// "Chequeo de salud" of the schema (see `health`).
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
     /// "Buscar en la base" from the dictionary (see `search`).
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 
     /// The dictionary plus DBA_INDEX_USAGE (see `index_usage`).
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let owner = self.owner(table);
         let name = table.name.clone();
-        self.run(move |c| index_usage::report(c, &owner, &name).map(Some)).await
+        self.run(move |c| index_usage::report(c, &owner, &name).map(Some))
+            .await
     }
 
     /// ALL_TABLES.NUM_ROWS, the optimizer statistics (see `stats`).
@@ -1260,7 +1515,8 @@ impl Session for OracleSession {
     /// One query: SESSION_PRIVS and SESSION_ROLES (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         let database = database.map(str::to_string);
-        self.run(move |c| permissions::check(c, database.as_deref())).await
+        self.run(move |c| permissions::check(c, database.as_deref()))
+            .await
     }
 }
 
@@ -1295,7 +1551,10 @@ fn with_indexes(c: &Connection, table_ddl: &str, owner: &str, name: &str) -> Str
     };
     for (ix_owner, ix) in indexes {
         match c
-            .query_row("SELECT DBMS_METADATA.GET_DDL('INDEX', :1, :2) FROM dual", &[&ix, &ix_owner])
+            .query_row(
+                "SELECT DBMS_METADATA.GET_DDL('INDEX', :1, :2) FROM dual",
+                &[&ix, &ix_owner],
+            )
             .and_then(|r| r.get::<Option<String>>(0))
         {
             Ok(Some(d)) if !d.trim().is_empty() => {
@@ -1309,19 +1568,30 @@ fn with_indexes(c: &Connection, table_ddl: &str, owner: &str, name: &str) -> Str
     out
 }
 
-fn definition_fallback(c: &Connection, kind: &str, owner: &str, name: &str) -> Result<Option<String>> {
+fn definition_fallback(
+    c: &Connection,
+    kind: &str,
+    owner: &str,
+    name: &str,
+) -> Result<Option<String>> {
     let qualified = format!("{}.{}", quote(owner), quote(name));
     match kind {
         "view" => {
             let text = c
-                .query_row("SELECT text FROM all_views WHERE owner = :1 AND view_name = :2", &[&owner, &name])
+                .query_row(
+                    "SELECT text FROM all_views WHERE owner = :1 AND view_name = :2",
+                    &[&owner, &name],
+                )
                 .and_then(|r| r.get::<Option<String>>(0))
                 .map_err(err)?;
             Ok(text.map(|t| format!("CREATE OR REPLACE VIEW {qualified} AS\n{}", t.trim())))
         }
         "materialized_view" => {
             let text = c
-                .query_row("SELECT query FROM all_mviews WHERE owner = :1 AND mview_name = :2", &[&owner, &name])
+                .query_row(
+                    "SELECT query FROM all_mviews WHERE owner = :1 AND mview_name = :2",
+                    &[&owner, &name],
+                )
                 .and_then(|r| r.get::<Option<String>>(0))
                 .map_err(err)?;
             Ok(text.map(|t| format!("CREATE MATERIALIZED VIEW {qualified} AS\n{}", t.trim())))
@@ -1343,7 +1613,12 @@ fn definition_fallback(c: &Connection, kind: &str, owner: &str, name: &str) -> R
             let mut lines = Vec::new();
             for row in rows {
                 let row = row.map_err(err)?;
-                lines.push((row.get::<i64>(0).map_err(err)?, row.get::<Option<String>>(1).map_err(err)?.unwrap_or_default()));
+                lines.push((
+                    row.get::<i64>(0).map_err(err)?,
+                    row.get::<Option<String>>(1)
+                        .map_err(err)?
+                        .unwrap_or_default(),
+                ));
             }
             Ok(plsql_source(&lines))
         }
@@ -1402,7 +1677,13 @@ fn switches_schema(statements: &[script::Statement]) -> bool {
 /// `out.continue_on_error == Some(true)`, records a failure and goes on, as
 /// SQL*Plus does; a fatal error or a cancel still ends the script. Every
 /// other caller stops at the first failure, as before.
-fn run_script(c: &Connection, statements: &[script::Statement], max_rows: usize, cx: &mut Ctx, out: &mut QueryOutcome) -> Result<()> {
+fn run_script(
+    c: &Connection,
+    statements: &[script::Statement],
+    max_rows: usize,
+    cx: &mut Ctx,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     let own = out.current_statement.is_none();
     for (index, s) in statements.iter().enumerate() {
         let offset = s.start.min(cx.text.len());
@@ -1417,7 +1698,10 @@ fn run_script(c: &Connection, statements: &[script::Statement], max_rows: usize,
         // Its DBMS_OUTPUT lines, failed or not (what a block printed before
         // raising), after every statement as SQL*Plus does: DDL and DML
         // print too through their triggers.
-        if s.command.is_none() && cx.serveroutput.load(Ordering::SeqCst) && !cx.killed.load(Ordering::SeqCst) {
+        if s.command.is_none()
+            && cx.serveroutput.load(Ordering::SeqCst)
+            && !cx.killed.load(Ordering::SeqCst)
+        {
             drain_output(c, out);
         }
         if !own {
@@ -1436,9 +1720,16 @@ fn run_script(c: &Connection, statements: &[script::Statement], max_rows: usize,
             return Err(Error::Cancelled);
         }
         let failed = r.err().map(|e| match e {
-            Error::Statement(_) | Error::Cancelled | Error::Connect(_) | Error::AuthFailed(_) | Error::Io(_) => e,
+            Error::Statement(_)
+            | Error::Cancelled
+            | Error::Connect(_)
+            | Error::AuthFailed(_)
+            | Error::Io(_) => e,
             // No place given (SHOW ERRORS reading ALL_ERRORS…): the unit's.
-            other => ScriptError::new(other.to_string()).at_offset(offset).at_line(line).into(),
+            other => ScriptError::new(other.to_string())
+                .at_offset(offset)
+                .at_line(line)
+                .into(),
         });
         let editor = out.continue_on_error.is_some() || out.progress_sink.is_some();
         if let Some(e) = &failed {
@@ -1470,23 +1761,46 @@ fn run_script(c: &Connection, statements: &[script::Statement], max_rows: usize,
 }
 
 /// One statement or SQL*Plus command of the script.
-fn run_unit(c: &Connection, s: &script::Statement, max_rows: usize, cx: &mut Ctx, out: &mut QueryOutcome) -> Result<()> {
+fn run_unit(
+    c: &Connection,
+    s: &script::Statement,
+    max_rows: usize,
+    cx: &mut Ctx,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     use script::Command;
     match &s.command {
         Some(Command::Prompt(text)) => out.info(text.clone()),
         Some(Command::ServerOutput(on)) => {
-            c.execute(if *on { SERVEROUTPUT_ON } else { SERVEROUTPUT_OFF }, &[]).map_err(|e| statement_error(&e, cx.text, s))?;
+            c.execute(
+                if *on {
+                    SERVEROUTPUT_ON
+                } else {
+                    SERVEROUTPUT_OFF
+                },
+                &[],
+            )
+            .map_err(|e| statement_error(&e, cx.text, s))?;
             cx.serveroutput.store(*on, Ordering::SeqCst);
         }
-        Some(Command::ShowErrors(target)) => show_errors(c, target.as_ref().or(cx.last_compiled.as_ref()), out)?,
+        Some(Command::ShowErrors(target)) => {
+            show_errors(c, target.as_ref().or(cx.last_compiled.as_ref()), out)?
+        }
         Some(Command::Ignored) => {}
         Some(Command::Unsupported) if script::first_word(&s.text) == "WHENEVER" => {
-            out.warning(format!("SQL*Plus: «{}» no se aplica; para eso está «Seguir si hay un error».", s.text));
+            out.warning(format!(
+                "SQL*Plus: «{}» no se aplica; para eso está «Seguir si hay un error».",
+                s.text
+            ));
         }
-        Some(Command::Unsupported) => out.warning(format!("SQL*Plus: DBine no ejecuta «{}»; se omite.", s.text)),
+        Some(Command::Unsupported) => out.warning(format!(
+            "SQL*Plus: DBine no ejecuta «{}»; se omite.",
+            s.text
+        )),
         None => {
             let before = out.results.len();
-            run_statement(c, &s.text, max_rows, cx.autocommit, out, cx.binds).map_err(|e| statement_error(&e, cx.text, s))?;
+            run_statement(c, &s.text, max_rows, cx.autocommit, out, cx.binds)
+                .map_err(|e| statement_error(&e, cx.text, s))?;
             let tag = script::tag(&s.text);
             for r in &mut out.results[before..] {
                 r.tag.get_or_insert_with(|| tag.clone());
@@ -1506,10 +1820,17 @@ fn run_unit(c: &Connection, s: &script::Statement, max_rows: usize, cx: &mut Ctx
 /// to `text`, what `execute` got.
 fn statement_error(e: &oracledb::Error, text: &str, s: &script::Statement) -> Error {
     match e.kind() {
-        oracledb::ErrorKind::DbError(d) => db_statement_error(d.code(), d.offset(), d.message(), text, s),
+        oracledb::ErrorKind::DbError(d) => {
+            db_statement_error(d.code(), d.offset(), d.message(), text, s)
+        }
         kind => {
             let mut se = ScriptError::new(e.to_string());
-            if matches!(kind, oracledb::ErrorKind::DeadConnection | oracledb::ErrorKind::NotConnected | oracledb::ErrorKind::UnableToRecover) {
+            if matches!(
+                kind,
+                oracledb::ErrorKind::DeadConnection
+                    | oracledb::ErrorKind::NotConnected
+                    | oracledb::ErrorKind::UnableToRecover
+            ) {
                 se = se.fatal();
             }
             let at = s.start.min(text.len());
@@ -1519,14 +1840,24 @@ fn statement_error(e: &oracledb::Error, text: &str, s: &script::Statement) -> Er
 }
 
 /// [`statement_error`] for a server error: its code, parse offset and text.
-fn db_statement_error(code: usize, offset: usize, message: &str, text: &str, s: &script::Statement) -> Error {
+fn db_statement_error(
+    code: usize,
+    offset: usize,
+    message: &str,
+    text: &str,
+    s: &script::Statement,
+) -> Error {
     let message = message.trim_end();
     let mut se = ScriptError::new(message).with_code(format!("ORA-{code:05}"));
     // The session is gone (killed, connection lost, instance down).
     if matches!(code, 28 | 1012 | 1089 | 1092 | 3113 | 3114 | 3135) {
         se = se.fatal();
     }
-    let place = if s.verbatim { error_place(&s.text, message, offset) } else { None };
+    let place = if s.verbatim {
+        error_place(&s.text, message, offset)
+    } else {
+        None
+    };
     let at = (s.start + place.unwrap_or(0)).min(text.len());
     se.at_offset(at).at_line(line_of(text, at)).into()
 }
@@ -1544,7 +1875,11 @@ fn script_units(text: &str) -> Vec<dbine_driver::ScriptStatement> {
                 start,
                 end: start + written.len(),
                 line: line_of(text, start),
-                kind: if s.plsql || s.command.is_some() { StatementKind::Block } else { StatementKind::Sql },
+                kind: if s.plsql || s.command.is_some() {
+                    StatementKind::Block
+                } else {
+                    StatementKind::Sql
+                },
                 repeat: 1,
                 error: None,
             })
@@ -1554,7 +1889,11 @@ fn script_units(text: &str) -> Vec<dbine_driver::ScriptStatement> {
 
 /// 1-based line of byte `at` in `text`.
 fn line_of(text: &str, at: usize) -> u32 {
-    text.as_bytes()[..at.min(text.len())].iter().filter(|&&b| b == b'\n').count() as u32 + 1
+    text.as_bytes()[..at.min(text.len())]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count() as u32
+        + 1
 }
 
 /// Byte offset in `stmt` of where the server says it failed (see
@@ -1569,7 +1908,12 @@ fn error_place(stmt: &str, message: &str, offset: usize) -> Option<usize> {
             return line_col_offset(stmt, line, 1);
         }
     }
-    (offset > 0).then(|| (0..=offset.min(stmt.len())).rev().find(|&i| stmt.is_char_boundary(i)).unwrap_or(0))
+    (offset > 0).then(|| {
+        (0..=offset.min(stmt.len()))
+            .rev()
+            .find(|&i| stmt.is_char_boundary(i))
+            .unwrap_or(0)
+    })
 }
 
 /// `ORA-06550: line 3, column 7:` → (3, 7).
@@ -1583,15 +1927,29 @@ fn plsql_line_col(message: &str) -> Option<(usize, usize)> {
 /// `ORA-06512: at line 4` (no object name: the anonymous block itself) → 4.
 fn anonymous_block_line(message: &str) -> Option<usize> {
     let rest = &message[message.find("ORA-06512: at line ")? + "ORA-06512: at line ".len()..];
-    rest.chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+    rest.chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()
 }
 
 /// Byte offset of 1-based `line`, `col` (characters) in `text`.
 fn line_col_offset(text: &str, line: usize, col: usize) -> Option<usize> {
-    let start = if line <= 1 { 0 } else { text.match_indices('\n').nth(line - 2)?.0 + 1 };
+    let start = if line <= 1 {
+        0
+    } else {
+        text.match_indices('\n').nth(line - 2)?.0 + 1
+    };
     let row = &text[start..];
     let row = &row[..row.find('\n').unwrap_or(row.len())];
-    Some(start + row.char_indices().nth(col.saturating_sub(1)).map_or(row.len(), |(i, _)| i))
+    Some(
+        start
+            + row
+                .char_indices()
+                .nth(col.saturating_sub(1))
+                .map_or(row.len(), |(i, _)| i),
+    )
 }
 
 /// The compile errors and warnings of `obj`, by ALL_ERRORS: (line,
@@ -1607,7 +1965,10 @@ struct CompileError {
     warning: bool,
 }
 
-fn object_errors(c: &Connection, obj: &script::Object) -> std::result::Result<Vec<CompileError>, oracledb::Error> {
+fn object_errors(
+    c: &Connection,
+    obj: &script::Object,
+) -> std::result::Result<Vec<CompileError>, oracledb::Error> {
     // '' binds as NULL: the current schema.
     let owner = obj.owner.clone().unwrap_or_default();
     let mut errors = Vec::new();
@@ -1616,7 +1977,11 @@ fn object_errors(c: &Connection, obj: &script::Object) -> std::result::Result<Ve
         errors.push(CompileError {
             line: row.get::<i64>(0)?.max(0) as usize,
             position: row.get::<i64>(1)?.max(0) as usize,
-            text: row.get::<Option<String>>(2)?.unwrap_or_default().trim_end().to_string(),
+            text: row
+                .get::<Option<String>>(2)?
+                .unwrap_or_default()
+                .trim_end()
+                .to_string(),
             warning: row.get::<Option<String>>(3)?.as_deref() == Some("WARNING"),
         });
     }
@@ -1633,7 +1998,10 @@ fn object_label(obj: &script::Object) -> String {
 /// `PLS-00201: …` → `PLS-00201`.
 fn message_code(text: &str) -> Option<String> {
     let (code, _) = text.split_once(':')?;
-    let ok = code.len() == 9 && code.as_bytes()[3] == b'-' && code[..3].bytes().all(|b| b.is_ascii_uppercase()) && code[4..].bytes().all(|b| b.is_ascii_digit());
+    let ok = code.len() == 9
+        && code.as_bytes()[3] == b'-'
+        && code[..3].bytes().all(|b| b.is_ascii_uppercase())
+        && code[4..].bytes().all(|b| b.is_ascii_digit());
     ok.then(|| code.to_string())
 }
 
@@ -1641,7 +2009,13 @@ fn message_code(text: &str) -> Option<String> {
 /// SQL Developer shows them. The object exists (invalid), so the statement
 /// itself didn't fail: a warning says so, and each error is recorded at its
 /// line of the script, with PL/SQL's code. Warnings (PLW-) are messages.
-fn report_compile(c: &Connection, obj: &script::Object, text: &str, s: &script::Statement, out: &mut QueryOutcome) {
+fn report_compile(
+    c: &Connection,
+    obj: &script::Object,
+    text: &str,
+    s: &script::Statement,
+    out: &mut QueryOutcome,
+) {
     let errors = match object_errors(c, obj) {
         Ok(e) => e,
         Err(e) => {
@@ -1668,9 +2042,17 @@ fn report_compile(c: &Connection, obj: &script::Object, text: &str, s: &script::
             .map_or(s.start, |o| s.start + o);
         let code = message_code(&e.text);
         if e.warning {
-            out.message(Message { level: MessageLevel::Warning, text: e.text, code, line: Some(line_of(text, at)), ..Default::default() });
+            out.message(Message {
+                level: MessageLevel::Warning,
+                text: e.text,
+                code,
+                line: Some(line_of(text, at)),
+                ..Default::default()
+            });
         } else {
-            let mut se = ScriptError::new(e.text).at_offset(at).at_line(line_of(text, at));
+            let mut se = ScriptError::new(e.text)
+                .at_offset(at)
+                .at_line(line_of(text, at));
             se.code = code;
             out.push_error(se);
         }
@@ -1715,7 +2097,11 @@ fn run_statement(
         // (building it uncached, not running it) evicts that entry; the
         // retry then parses it afresh.
         Err(e) if db_code(&e) == Some(1003) => {
-            drop(c.statement(sql).map(|b| b.exclude_from_cache()).and_then(|b| b.build()));
+            drop(
+                c.statement(sql)
+                    .map(|b| b.exclude_from_cache())
+                    .and_then(|b| b.build()),
+            );
             run_statement_with(c, sql, max_rows, autocommit, out, false, binds)
         }
         other => other,
@@ -1742,13 +2128,18 @@ fn run_statement_with(
         out.results.push(Default::default());
         return Ok(());
     }
-    let mut stmt = c.statement(sql).map(|b| if cached { b } else { b.exclude_from_cache() }).and_then(|b| b.build())?;
+    let mut stmt = c
+        .statement(sql)
+        .map(|b| if cached { b } else { b.exclude_from_cache() })
+        .and_then(|b| b.build())?;
     if stmt.is_query() {
         // Object columns (SDO_GEOMETRY…): the client can't read them, the
         // query runs again with them converted on the server.
         let cursor = match stmt.query(params) {
             Ok(cursor) => cursor,
-            Err(e) if is_object_error(&e) => return run_converted(c, sql, max_rows, out, Some(e), params),
+            Err(e) if is_object_error(&e) => {
+                return run_converted(c, sql, max_rows, out, Some(e), params)
+            }
             Err(e) => return Err(e),
         };
         if cursor.columns().iter().any(|m| is_object_type(m.db_type())) {
@@ -1776,7 +2167,8 @@ fn run_statement_with(
 /// NUMBER (exact), dates as DATE / TIMESTAMP, booleans as 1 / 0 (BOOLEAN
 /// is only 23ai's), NULL as a NULL VARCHAR2.
 fn bind_value(v: &ParamValue) -> Box<dyn oracledb::ToDbValue> {
-    let part = |s: &str, a: usize, b: usize| s.get(a..b).and_then(|x| x.parse::<u32>().ok()).unwrap_or(0);
+    let part =
+        |s: &str, a: usize, b: usize| s.get(a..b).and_then(|x| x.parse::<u32>().ok()).unwrap_or(0);
     match v {
         ParamValue::Null => Box::new(None::<String>),
         ParamValue::Text(s) => Box::new(s.clone()),
@@ -1785,9 +2177,16 @@ fn bind_value(v: &ParamValue) -> Box<dyn oracledb::ToDbValue> {
             Err(_) => Box::new(n.clone()),
         },
         ParamValue::Bool(b) => Box::new(*b as i64),
-        ParamValue::Date(d) => Box::new(OracleTimestamp::new_date(part(d, 0, 4) as i16, part(d, 5, 7) as u8, part(d, 8, 10) as u8)),
+        ParamValue::Date(d) => Box::new(OracleTimestamp::new_date(
+            part(d, 0, 4) as i16,
+            part(d, 5, 7) as u8,
+            part(d, 8, 10) as u8,
+        )),
         ParamValue::DateTime(d) => {
-            let nanos = d.get(20..).map(|f| format!("{f:0<9}")[..9].parse::<u32>().unwrap_or(0)).unwrap_or(0);
+            let nanos = d
+                .get(20..)
+                .map(|f| format!("{f:0<9}")[..9].parse::<u32>().unwrap_or(0))
+                .unwrap_or(0);
             Box::new(OracleTimestamp::new_timestamp(
                 part(d, 0, 4) as i16,
                 part(d, 5, 7) as u8,
@@ -1803,12 +2202,23 @@ fn bind_value(v: &ParamValue) -> Box<dyn oracledb::ToDbValue> {
 
 /// A query's rows into `out`. Columns that are geometries converted to
 /// text (`spatial::converted`) are typed `SDO_GEOMETRY` and come whole.
-fn fetch(c: &Connection, sql: &str, cursor: Cursor, max_rows: usize, out: &mut QueryOutcome) -> std::result::Result<(), oracledb::Error> {
-    let types: Vec<&'static oracledb::DbType> = cursor.columns().iter().map(|m| m.db_type()).collect();
+fn fetch(
+    c: &Connection,
+    sql: &str,
+    cursor: Cursor,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> std::result::Result<(), oracledb::Error> {
+    let types: Vec<&'static oracledb::DbType> =
+        cursor.columns().iter().map(|m| m.db_type()).collect();
     let names: Vec<&str> = cursor.columns().iter().map(|m| m.name()).collect();
     let geo = spatial::converted(sql, &names);
     // WITH LOCAL TIME ZONE values come in the database's time zone.
-    let dbtz = if types.iter().any(|t| t.name() == "DB_TYPE_TIMESTAMP_LTZ") { db_time_zone(c) } else { None };
+    let dbtz = if types.iter().any(|t| t.name() == "DB_TYPE_TIMESTAMP_LTZ") {
+        db_time_zone(c)
+    } else {
+        None
+    };
     out.begin_result(
         cursor
             .columns()
@@ -1816,7 +2226,11 @@ fn fetch(c: &Connection, sql: &str, cursor: Cursor, max_rows: usize, out: &mut Q
             .zip(&geo)
             .map(|(m, g)| ResultColumn {
                 name: m.name().to_string(),
-                type_name: if *g { spatial::TYPE_NAME.into() } else { m.data_type() },
+                type_name: if *g {
+                    spatial::TYPE_NAME.into()
+                } else {
+                    m.data_type()
+                },
             })
             .collect(),
     );
@@ -1826,7 +2240,13 @@ fn fetch(c: &Connection, sql: &str, cursor: Cursor, max_rows: usize, out: &mut Q
             types
                 .iter()
                 .enumerate()
-                .map(|(i, t)| if geo[i] { geometry_text(&row, i) } else { cell_in(&row, i, t, dbtz) })
+                .map(|(i, t)| {
+                    if geo[i] {
+                        geometry_text(&row, i)
+                    } else {
+                        cell_in(&row, i, t, dbtz)
+                    }
+                })
                 .collect(),
             max_rows,
         );
@@ -1854,24 +2274,39 @@ fn run_converted(
     original: Option<oracledb::Error>,
     params: &[&dyn oracledb::ToDbValue],
 ) -> std::result::Result<(), oracledb::Error> {
-    let mut stmt = c.statement(sql).and_then(|b| b.exclude_from_cache().build())?;
+    let mut stmt = c
+        .statement(sql)
+        .and_then(|b| b.exclude_from_cache().build())?;
     stmt.ensure_fully_parsed()?;
-    let columns: Vec<(String, bool)> =
-        stmt.out_metadata().iter().map(|m| (m.name().to_string(), is_object_type(m.db_type()))).collect();
+    let columns: Vec<(String, bool)> = stmt
+        .out_metadata()
+        .iter()
+        .map(|m| (m.name().to_string(), is_object_type(m.db_type())))
+        .collect();
     drop(stmt);
-    let objects: Vec<String> = columns.iter().filter(|(_, o)| *o).map(|(n, _)| n.clone()).collect();
+    let objects: Vec<String> = columns
+        .iter()
+        .filter(|(_, o)| *o)
+        .map(|(n, _)| n.clone())
+        .collect();
     if objects.is_empty() {
         // Not described as objects after all: run it as it is.
         return match original {
             Some(e) => Err(e),
             None => {
-                let cursor = c.statement(sql).and_then(|b| b.exclude_from_cache().build()).and_then(|s| s.query(params))?;
+                let cursor = c
+                    .statement(sql)
+                    .and_then(|b| b.exclude_from_cache().build())
+                    .and_then(|s| s.query(params))?;
                 fetch(c, sql, cursor, max_rows, out)
             }
         };
     }
     let wrapped = spatial::wrap(sql, &columns);
-    let run = c.statement(&wrapped).and_then(|b| b.exclude_from_cache().build()).and_then(|s| s.query(params));
+    let run = c
+        .statement(&wrapped)
+        .and_then(|b| b.exclude_from_cache().build())
+        .and_then(|s| s.query(params));
     match run {
         Ok(cursor) => {
             fetch(c, &wrapped, cursor, max_rows, out)?;
@@ -1927,7 +2362,8 @@ fn explain_script(
         );
     }
     if stats {
-        c.execute("ALTER SESSION SET statistics_level = ALL", &[]).map_err(err)?;
+        c.execute("ALTER SESSION SET statistics_level = ALL", &[])
+            .map_err(err)?;
     }
     let result = statements.iter().try_for_each(|s| {
         let explainable = !s.plsql && plan::explainable(&script::first_word(&s.text));
@@ -1983,23 +2419,39 @@ fn explain_script(
 
 /// Whether this login can read the executed cursor's plan statistics.
 fn cursor_stats_available(c: &Connection) -> bool {
-    ["SELECT 1 FROM v$session WHERE 1 = 0", "SELECT 1 FROM v$sql_plan_statistics_all WHERE 1 = 0"]
-        .iter()
-        .all(|q| c.query(q, &[]).is_ok())
+    [
+        "SELECT 1 FROM v$session WHERE 1 = 0",
+        "SELECT 1 FROM v$sql_plan_statistics_all WHERE 1 = 0",
+    ]
+    .iter()
+    .all(|q| c.query(q, &[]).is_ok())
 }
 
 /// A `STATEMENT_ID` for PLAN_TABLE, unique enough for one session.
 fn statement_id() -> String {
     use std::sync::atomic::AtomicU64;
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() % 1_000_000_000_000);
-    format!("DBINE_{nanos}_{}", SEQ.fetch_add(1, Ordering::Relaxed) % 10_000)
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() % 1_000_000_000_000);
+    format!(
+        "DBINE_{nanos}_{}",
+        SEQ.fetch_add(1, Ordering::Relaxed) % 10_000
+    )
 }
 
 /// Every row of a plan query, columns by lower-case name, NULLs left out.
-fn plan_rows(c: &Connection, sql: &str, params: &[&dyn oracledb::ToDbValue]) -> Result<Vec<plan::PlanRow>> {
+fn plan_rows(
+    c: &Connection,
+    sql: &str,
+    params: &[&dyn oracledb::ToDbValue],
+) -> Result<Vec<plan::PlanRow>> {
     let cursor = c.query(sql, params).map_err(err)?;
-    let names: Vec<String> = cursor.columns().iter().map(|m| m.name().to_ascii_lowercase()).collect();
+    let names: Vec<String> = cursor
+        .columns()
+        .iter()
+        .map(|m| m.name().to_ascii_lowercase())
+        .collect();
     let mut out = Vec::new();
     for row in cursor {
         let row = row.map_err(err)?;
@@ -2017,7 +2469,11 @@ fn plan_rows(c: &Connection, sql: &str, params: &[&dyn oracledb::ToDbValue]) -> 
 /// DBMS_XPLAN's text, or empty when it can't be had.
 fn xplan(c: &Connection, sql: &str, params: &[&dyn oracledb::ToDbValue]) -> String {
     match c.query(sql, params).and_then(|cur| {
-        cur.map(|r| r.and_then(|r| r.get::<Option<String>>(0)).map(Option::unwrap_or_default)).collect::<std::result::Result<Vec<_>, _>>()
+        cur.map(|r| {
+            r.and_then(|r| r.get::<Option<String>>(0))
+                .map(Option::unwrap_or_default)
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()
     }) {
         Ok(lines) => lines.join("\n"),
         Err(e) => {
@@ -2037,11 +2493,18 @@ fn estimated_plan(c: &Connection, stmt: &str, autocommit: bool) -> Result<dbine_
     }
     let result = plan_rows(
         c,
-        &format!("SELECT {} FROM plan_table WHERE statement_id = :1 ORDER BY id", plan::select_list(&[])),
+        &format!(
+            "SELECT {} FROM plan_table WHERE statement_id = :1 ORDER BY id",
+            plan::select_list(&[])
+        ),
         &[&id],
     )
     .map(|rows| {
-        let raw = xplan(c, "SELECT plan_table_output FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', :1, 'TYPICAL'))", &[&id]);
+        let raw = xplan(
+            c,
+            "SELECT plan_table_output FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', :1, 'TYPICAL'))",
+            &[&id],
+        );
         plan::tree(stmt, &rows, false, &raw)
     });
     if let Err(e) = c.execute("DELETE FROM plan_table WHERE statement_id = :1", &[&id]) {
@@ -2062,8 +2525,10 @@ fn cursor_plan(c: &Connection, stmt: &str) -> Result<Option<dbine_driver::Plan>>
             &[],
         )
         .map_err(err)?;
-    let (Some(sql_id), Some(child)) = (row.get::<Option<String>>(0).map_err(err)?, row.get::<Option<String>>(1).map_err(err)?)
-    else {
+    let (Some(sql_id), Some(child)) = (
+        row.get::<Option<String>>(0).map_err(err)?,
+        row.get::<Option<String>>(1).map_err(err)?,
+    ) else {
         return Ok(None);
     };
     let rows = plan_rows(
@@ -2106,14 +2571,16 @@ fn execute_immediate(sql: &str) -> String {
 /// without EXECUTE on DBMS_OUTPUT just gets no messages.
 fn drain_output(c: &Connection, out: &mut QueryOutcome) {
     for _ in 0..100 {
-        let lines = c.execute(GET_OUTPUT, &[&oracledb::DB_TYPE_CURSOR]).and_then(|mut r| {
-            let cursor: Cursor = r.out_bind_data().take(0)?;
-            let mut lines = Vec::new();
-            for row in cursor {
-                lines.push(row?.get::<Option<String>>(0)?.unwrap_or_default());
-            }
-            Ok(lines)
-        });
+        let lines = c
+            .execute(GET_OUTPUT, &[&oracledb::DB_TYPE_CURSOR])
+            .and_then(|mut r| {
+                let cursor: Cursor = r.out_bind_data().take(0)?;
+                let mut lines = Vec::new();
+                for row in cursor {
+                    lines.push(row?.get::<Option<String>>(0)?.unwrap_or_default());
+                }
+                Ok(lines)
+            });
         match lines {
             Ok(lines) => {
                 let n = lines.len();
@@ -2143,7 +2610,10 @@ fn cell(row: &Row, i: usize, ty: &oracledb::DbType) -> Value {
 /// which WITH LOCAL TIME ZONE values come: shown with it (without it, with
 /// no offset).
 fn cell_in(row: &Row, i: usize, ty: &oracledb::DbType, dbtz: Option<i32>) -> Value {
-    fn val<T>(r: std::result::Result<Option<T>, oracledb::Error>, f: impl FnOnce(T) -> Value) -> Value {
+    fn val<T>(
+        r: std::result::Result<Option<T>, oracledb::Error>,
+        f: impl FnOnce(T) -> Value,
+    ) -> Value {
         match r {
             Ok(Some(v)) => f(v),
             Ok(None) => Value::Null,
@@ -2151,22 +2621,43 @@ fn cell_in(row: &Row, i: usize, ty: &oracledb::DbType, dbtz: Option<i32>) -> Val
         }
     }
     match ty.name() {
-        "DB_TYPE_NUMBER" | "DB_TYPE_BINARY_INTEGER" => val(row.get::<Option<OracleNumber>>(i), |n| number(&n.to_string())),
+        "DB_TYPE_NUMBER" | "DB_TYPE_BINARY_INTEGER" => {
+            val(row.get::<Option<OracleNumber>>(i), |n| {
+                number(&n.to_string())
+            })
+        }
         "DB_TYPE_BINARY_FLOAT" => val(row.get::<Option<f32>>(i), |v| json_f64(v as f64)),
         "DB_TYPE_BINARY_DOUBLE" => val(row.get::<Option<f64>>(i), json_f64),
         "DB_TYPE_BOOLEAN" => val(row.get::<Option<bool>>(i), Value::Bool),
-        "DB_TYPE_DATE" => val(row.get::<Option<OracleTimestamp>>(i), |t| timestamp(&t, false, false).into()),
-        "DB_TYPE_TIMESTAMP" => val(row.get::<Option<OracleTimestamp>>(i), |t| timestamp(&t, true, false).into()),
+        "DB_TYPE_DATE" => val(row.get::<Option<OracleTimestamp>>(i), |t| {
+            timestamp(&t, false, false).into()
+        }),
+        "DB_TYPE_TIMESTAMP" => val(row.get::<Option<OracleTimestamp>>(i), |t| {
+            timestamp(&t, true, false).into()
+        }),
         "DB_TYPE_TIMESTAMP_LTZ" => val(row.get::<Option<OracleTimestamp>>(i), |t| {
             let s = timestamp(&t, true, false);
-            dbtz.map_or(s.clone(), |off| format!("{s} {}", offset_text(off))).into()
+            dbtz.map_or(s.clone(), |off| format!("{s} {}", offset_text(off)))
+                .into()
         }),
-        "DB_TYPE_TIMESTAMP_TZ" => val(row.get::<Option<OracleTimestamp>>(i), |t| timestamp(&t, true, true).into()),
-        "DB_TYPE_RAW" | "DB_TYPE_LONG_RAW" | "DB_TYPE_BLOB" => val(row.get::<Option<Vec<u8>>>(i), |b| json_bytes(&b)),
-        "DB_TYPE_INTERVAL_DS" => val(row.get::<Option<oracledb::OracleIntervalDS>>(i), |v| v.to_string().into()),
-        "DB_TYPE_INTERVAL_YM" => val(row.get::<Option<oracledb::OracleIntervalYM>>(i), |v| v.to_string().into()),
-        "DB_TYPE_JSON" => val(row.get::<Option<oracledb::JsonValue>>(i), |j| json_text(&j).into()),
-        "DB_TYPE_VECTOR" => val(row.get::<Option<oracledb::Vector>>(i), |v| vector(&v).into()),
+        "DB_TYPE_TIMESTAMP_TZ" => val(row.get::<Option<OracleTimestamp>>(i), |t| {
+            timestamp(&t, true, true).into()
+        }),
+        "DB_TYPE_RAW" | "DB_TYPE_LONG_RAW" | "DB_TYPE_BLOB" => {
+            val(row.get::<Option<Vec<u8>>>(i), |b| json_bytes(&b))
+        }
+        "DB_TYPE_INTERVAL_DS" => val(row.get::<Option<oracledb::OracleIntervalDS>>(i), |v| {
+            v.to_string().into()
+        }),
+        "DB_TYPE_INTERVAL_YM" => val(row.get::<Option<oracledb::OracleIntervalYM>>(i), |v| {
+            v.to_string().into()
+        }),
+        "DB_TYPE_JSON" => val(row.get::<Option<oracledb::JsonValue>>(i), |j| {
+            json_text(&j).into()
+        }),
+        "DB_TYPE_VECTOR" => val(row.get::<Option<oracledb::Vector>>(i), |v| {
+            vector(&v).into()
+        }),
         "DB_TYPE_CURSOR" => "<cursor>".into(),
         // VARCHAR2, CHAR, NCHAR, NVARCHAR2, LONG, CLOB, NCLOB, ROWID…
         _ => val(row.get::<Option<String>>(i), |s| cap(s).into()),
@@ -2186,8 +2677,17 @@ fn number(s: &str) -> Value {
 /// WITH TIME ZONE value, which the client gives as its UTC clock and its
 /// offset: shown as its own local clock with that offset.
 fn timestamp(t: &OracleTimestamp, fraction: bool, tz: bool) -> String {
-    let off = if tz { t.tz_hour_offset() as i32 * 60 + t.tz_minute_offset() as i32 } else { 0 };
-    let ((y, mo, d), h, mi) = shift((t.year() as i32, t.month() as u32, t.day() as u32), t.hour() as u32, t.minute() as u32, off);
+    let off = if tz {
+        t.tz_hour_offset() as i32 * 60 + t.tz_minute_offset() as i32
+    } else {
+        0
+    };
+    let ((y, mo, d), h, mi) = shift(
+        (t.year() as i32, t.month() as u32, t.day() as u32),
+        t.hour() as u32,
+        t.minute() as u32,
+        off,
+    );
     let mut s = format!(
         "{}{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
         if y < 0 { "-" } else { "" },
@@ -2212,19 +2712,30 @@ fn timestamp(t: &OracleTimestamp, fraction: bool, tz: bool) -> String {
 
 /// `±HH:MM` of an offset in minutes.
 fn offset_text(off: i32) -> String {
-    format!("{}{:02}:{:02}", if off < 0 { '-' } else { '+' }, off.abs() / 60, off.abs() % 60)
+    format!(
+        "{}{:02}:{:02}",
+        if off < 0 { '-' } else { '+' },
+        off.abs() / 60,
+        off.abs() % 60
+    )
 }
 
 /// The database's time zone as an offset in minutes (`DBTIMEZONE`); `None`
 /// when it's a region other than UTC (its offset changes with the date).
 fn db_time_zone(c: &Connection) -> Option<i32> {
-    let tz: String = c.query_row("SELECT DBTIMEZONE FROM dual", &[]).and_then(|r| r.get(0)).ok()?;
+    let tz: String = c
+        .query_row("SELECT DBTIMEZONE FROM dual", &[])
+        .and_then(|r| r.get(0))
+        .ok()?;
     parse_offset(&tz)
 }
 
 fn parse_offset(tz: &str) -> Option<i32> {
     let tz = tz.trim();
-    if ["UTC", "GMT", "Z", "ETC/UTC", "ETC/GMT"].iter().any(|z| tz.eq_ignore_ascii_case(z)) {
+    if ["UTC", "GMT", "Z", "ETC/UTC", "ETC/GMT"]
+        .iter()
+        .any(|z| tz.eq_ignore_ascii_case(z))
+    {
         return Some(0);
     }
     let sign = match tz.as_bytes().first()? {
@@ -2241,7 +2752,11 @@ fn parse_offset(tz: &str) -> Option<i32> {
 /// no year 0 (-1 is 1 BC, and BC leap years are the multiples of 4).
 fn shift(date: (i32, u32, u32), h: u32, mi: u32, minutes: i32) -> ((i32, u32, u32), u32, u32) {
     fn month_days(y: i32, m: u32) -> u32 {
-        let leap = if y > 1582 { y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) } else { y % 4 == 0 };
+        let leap = if y > 1582 {
+            y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
+        } else {
+            y % 4 == 0
+        };
         match m {
             4 | 6 | 9 | 11 => 30,
             2 if leap => 29,
@@ -2328,7 +2843,9 @@ fn json_value(j: &oracledb::JsonValue) -> Value {
         J::BinaryFloat(v) => json_f64(*v as f64),
         J::Number(n) => {
             let s = n.to_string();
-            serde_json::from_str::<serde_json::Number>(&s).map(Value::Number).unwrap_or(Value::String(s))
+            serde_json::from_str::<serde_json::Number>(&s)
+                .map(Value::Number)
+                .unwrap_or(Value::String(s))
         }
         J::String(s) => Value::String(s.clone()),
         J::Timestamp(t) => timestamp(t, true, false).into(),
@@ -2337,14 +2854,19 @@ fn json_value(j: &oracledb::JsonValue) -> Value {
         J::Raw(b) | J::JsonId(b) => json_bytes(b.as_slice()),
         J::Vector(v) => vector(v).into(),
         J::JsonArray(a) => Value::Array(a.iter().map(json_value).collect()),
-        J::JsonObject(o) => Value::Object(o.iter().map(|(k, v)| (k.clone(), json_value(v))).collect()),
+        J::JsonObject(o) => {
+            Value::Object(o.iter().map(|(k, v)| (k.clone(), json_value(v))).collect())
+        }
     }
 }
 
 fn vector(v: &oracledb::Vector) -> String {
     use oracledb::VectorData as D;
     fn list<T: ToString>(xs: &[T]) -> String {
-        format!("[{}]", xs.iter().map(T::to_string).collect::<Vec<_>>().join(", "))
+        format!(
+            "[{}]",
+            xs.iter().map(T::to_string).collect::<Vec<_>>().join(", ")
+        )
     }
     match v {
         oracledb::Vector::Dense(d) => match d {
@@ -2373,7 +2895,13 @@ fn char_semantics(formatted: String, ty: &str, char_used: Option<&str>) -> Strin
 /// `VARCHAR2(20)`, `NUMBER(10,2)`, `NUMBER`, `TIMESTAMP(6)`… from
 /// ALL_TAB_COLUMNS (character lengths in characters; `CHAR` semantics are
 /// added by [`char_semantics`]).
-fn format_type(ty: &str, char_len: Option<i64>, data_len: Option<i64>, precision: Option<i64>, scale: Option<i64>) -> String {
+fn format_type(
+    ty: &str,
+    char_len: Option<i64>,
+    data_len: Option<i64>,
+    precision: Option<i64>,
+    scale: Option<i64>,
+) -> String {
     match ty {
         "RAW" => match data_len {
             Some(n) if n > 0 => format!("RAW({n})"),
@@ -2403,10 +2931,21 @@ mod tests {
 
     #[test]
     fn update_script_by_key() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("APP".into()), name: "CLIENTES".into() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("APP".into()),
+            name: "CLIENTES".into(),
+        };
         let c = dbine_driver::RowChange {
-            key: vec![("ID".into(), serde_json::json!(7)), ("REGION".into(), Value::Null)],
-            set: vec![("NOMBRE".into(), serde_json::json!("O'Brien")), ("BAJA".into(), Value::Null)], ..Default::default()
+            key: vec![
+                ("ID".into(), serde_json::json!(7)),
+                ("REGION".into(), Value::Null),
+            ],
+            set: vec![
+                ("NOMBRE".into(), serde_json::json!("O'Brien")),
+                ("BAJA".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             drivers()[0].update_script(&t, &[c]).unwrap(),
@@ -2414,11 +2953,20 @@ mod tests {
         );
     }
 
-
     #[test]
     fn delete_script_by_composite_key() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("APP".into()), name: "CLIENTES".into() };
-        let keys = vec![vec![("NOMBRE".into(), serde_json::json!("O'Brien")), ("REGION".into(), Value::Null)], vec![]];
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("APP".into()),
+            name: "CLIENTES".into(),
+        };
+        let keys = vec![
+            vec![
+                ("NOMBRE".into(), serde_json::json!("O'Brien")),
+                ("REGION".into(), Value::Null),
+            ],
+            vec![],
+        ];
         assert_eq!(
             drivers()[0].delete_script(&t, &keys).unwrap(),
             "DELETE FROM \"APP\".\"CLIENTES\" WHERE \"NOMBRE\" = 'O''Brien' AND \"REGION\" IS NULL;"
@@ -2429,7 +2977,13 @@ mod tests {
     fn script_contract() {
         for d in drivers() {
             assert_eq!(d.script_dialect(), ScriptDialect::oracle());
-            assert_eq!(d.script_defaults(), ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true });
+            assert_eq!(
+                d.script_defaults(),
+                ScriptDefaults {
+                    continue_on_error: true,
+                    confirm_unsafe_dml: true
+                }
+            );
             assert!(d.supports_manual_transactions());
             assert_eq!(d.script_mode(), ScriptMode::PerStatement);
         }
@@ -2441,7 +2995,10 @@ mod tests {
         let sql = "SET SERVEROUTPUT ON\nPROMPT Creando tabla;\nCREATE TABLE t (a NUMBER);\n-- c\nBEGIN\n  NULL;\nEND;\n/\nSHOW ERRORS\nSELECT 1 FROM dual\n/\nEXEC p(1, -\n  2);\nSELECT * FROM no_such_table;\nselect q'[a;b]' from dual;\n";
         let d = drivers().into_iter().next().unwrap();
         let units = d.split_script(sql);
-        let got: Vec<_> = units.iter().map(|u| (u.text.as_str(), u.line, u.kind)).collect();
+        let got: Vec<_> = units
+            .iter()
+            .map(|u| (u.text.as_str(), u.line, u.kind))
+            .collect();
         assert_eq!(
             got,
             vec![
@@ -2470,8 +3027,12 @@ mod tests {
     fn schema_switches() {
         let yes = |sql: &str| switches_schema(&script::split(sql));
         assert!(yes("alter session set current_schema = hr"));
-        assert!(yes("BEGIN EXECUTE IMMEDIATE 'ALTER SESSION SET CURRENT_SCHEMA = HR'; END;"));
-        assert!(!yes("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual"));
+        assert!(yes(
+            "BEGIN EXECUTE IMMEDIATE 'ALTER SESSION SET CURRENT_SCHEMA = HR'; END;"
+        ));
+        assert!(!yes(
+            "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual"
+        ));
         assert!(!yes("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD'"));
         assert!(!yes("PROMPT current_schema"));
     }
@@ -2484,17 +3045,41 @@ mod tests {
         assert_eq!(error_place(block, msg, 0), Some(8));
         // Runtime error raised in the block itself.
         let block = "declare\n  n number;\nbegin\n  n := 1 / 0;\nend;";
-        assert_eq!(error_place(block, "ORA-01476: divisor is equal to zero\nORA-06512: at line 4", 0), Some(block.find("  n := 1").unwrap()));
+        assert_eq!(
+            error_place(
+                block,
+                "ORA-01476: divisor is equal to zero\nORA-06512: at line 4",
+                0
+            ),
+            Some(block.find("  n := 1").unwrap())
+        );
         // …but not in a called object.
-        assert_eq!(error_place("begin p; end;", "ORA-01476: x\nORA-06512: at \"HR.P\", line 4\nORA-06512: at line 1", 0), Some(0));
+        assert_eq!(
+            error_place(
+                "begin p; end;",
+                "ORA-01476: x\nORA-06512: at \"HR.P\", line 4\nORA-06512: at line 1",
+                0
+            ),
+            Some(0)
+        );
         // Parse offsets count bytes.
-        assert_eq!(error_place("select 'é', nope from dual", "ORA-00904: \"NOPE\": invalid identifier", 13), Some(13));
+        assert_eq!(
+            error_place(
+                "select 'é', nope from dual",
+                "ORA-00904: \"NOPE\": invalid identifier",
+                13
+            ),
+            Some(13)
+        );
         assert_eq!(error_place("select 'é'", "ORA-01756", 9), Some(8));
         assert_eq!(error_place("select 1 from dual", "ORA-00001: x", 0), None);
         assert_eq!(line_col_offset("a\nbc\nd", 2, 2), Some(3));
         assert_eq!(line_col_offset("a\nbc", 9, 1), None);
         assert_eq!(line_of("a\nb\nc", 4), 3);
-        assert_eq!(message_code("PLS-00201: identifier"), Some("PLS-00201".into()));
+        assert_eq!(
+            message_code("PLS-00201: identifier"),
+            Some("PLS-00201".into())
+        );
         assert_eq!(message_code("PL/SQL: Statement ignored"), None);
     }
 
@@ -2502,7 +3087,13 @@ mod tests {
     fn statement_errors_point_into_the_text() {
         let text = "select 1 from dual;\nselect nope from dual";
         let st = script::split(text);
-        let Error::Statement(se) = db_statement_error(904, 7, "ORA-00904: \"NOPE\": invalid identifier\n", text, &st[1]) else {
+        let Error::Statement(se) = db_statement_error(
+            904,
+            7,
+            "ORA-00904: \"NOPE\": invalid identifier\n",
+            text,
+            &st[1],
+        ) else {
             panic!()
         };
         assert_eq!(se.code.as_deref(), Some("ORA-00904"));
@@ -2510,7 +3101,13 @@ mod tests {
         assert_eq!(se.offset, Some(text.find("nope").unwrap()));
         assert_eq!(se.line, Some(2));
         assert!(!se.fatal);
-        let Error::Statement(se) = db_statement_error(3113, 0, "ORA-03113: end-of-file on communication channel", text, &st[0]) else {
+        let Error::Statement(se) = db_statement_error(
+            3113,
+            0,
+            "ORA-03113: end-of-file on communication channel",
+            text,
+            &st[0],
+        ) else {
             panic!()
         };
         assert!(se.fatal);
@@ -2518,7 +3115,13 @@ mod tests {
         // An EXEC (rewritten) points at its line.
         let text = "select 1 from dual;\nexec p(1)";
         let st = script::split(text);
-        let Error::Statement(se) = db_statement_error(6550, 0, "ORA-06550: line 1, column 7:\nPLS-00201", text, &st[1]) else {
+        let Error::Statement(se) = db_statement_error(
+            6550,
+            0,
+            "ORA-06550: line 1, column 7:\nPLS-00201",
+            text,
+            &st[1],
+        ) else {
             panic!()
         };
         assert_eq!((se.offset, se.line), (Some(20), Some(2)));
@@ -2528,33 +3131,59 @@ mod tests {
     fn numbers_stay_exact() {
         assert_eq!(number("42"), serde_json::json!(42));
         assert_eq!(number("-7"), serde_json::json!(-7));
-        assert_eq!(number("12345678901234567890"), serde_json::json!("12345678901234567890"));
+        assert_eq!(
+            number("12345678901234567890"),
+            serde_json::json!("12345678901234567890")
+        );
         assert_eq!(number("3.14"), serde_json::json!("3.14"));
-        assert_eq!(number("9007199254740993"), serde_json::json!("9007199254740993"));
+        assert_eq!(
+            number("9007199254740993"),
+            serde_json::json!("9007199254740993")
+        );
     }
 
     #[test]
     fn types_carry_length_and_precision() {
-        assert_eq!(format_type("VARCHAR2", Some(20), Some(20), None, None), "VARCHAR2(20)");
+        assert_eq!(
+            format_type("VARCHAR2", Some(20), Some(20), None, None),
+            "VARCHAR2(20)"
+        );
         assert_eq!(format_type("NUMBER", None, Some(22), None, None), "NUMBER");
-        assert_eq!(format_type("NUMBER", None, Some(22), None, Some(0)), "INTEGER");
-        assert_eq!(format_type("NUMBER", None, Some(22), Some(10), Some(2)), "NUMBER(10,2)");
-        assert_eq!(format_type("NUMBER", None, Some(22), Some(5), Some(0)), "NUMBER(5)");
-        assert_eq!(format_type("TIMESTAMP(6)", Some(0), Some(11), None, Some(6)), "TIMESTAMP(6)");
+        assert_eq!(
+            format_type("NUMBER", None, Some(22), None, Some(0)),
+            "INTEGER"
+        );
+        assert_eq!(
+            format_type("NUMBER", None, Some(22), Some(10), Some(2)),
+            "NUMBER(10,2)"
+        );
+        assert_eq!(
+            format_type("NUMBER", None, Some(22), Some(5), Some(0)),
+            "NUMBER(5)"
+        );
+        assert_eq!(
+            format_type("TIMESTAMP(6)", Some(0), Some(11), None, Some(6)),
+            "TIMESTAMP(6)"
+        );
         assert_eq!(format_type("RAW", Some(0), Some(4), None, None), "RAW(4)");
     }
 
     #[test]
     fn char_length_semantics_are_kept() {
         // VARCHAR2(40 CHAR): CHAR_LENGTH 40, DATA_LENGTH 160 (AL32UTF8).
-        let t = |ty: &str, used: Option<&str>| char_semantics(format_type(ty, Some(40), Some(160), None, None), ty, used);
+        let t = |ty: &str, used: Option<&str>| {
+            char_semantics(format_type(ty, Some(40), Some(160), None, None), ty, used)
+        };
         assert_eq!(t("VARCHAR2", Some("C")), "VARCHAR2(40 CHAR)");
         assert_eq!(t("CHAR", Some("C")), "CHAR(40 CHAR)");
         assert_eq!(t("VARCHAR2", Some("B")), "VARCHAR2(40)");
         // National types are always in characters: `NVARCHAR2(40 CHAR)` is invalid.
         assert_eq!(t("NVARCHAR2", Some("C")), "NVARCHAR2(40)");
         assert_eq!(t("NCHAR", Some("C")), "NCHAR(40)");
-        assert_eq!(char_semantics("NUMBER(10)".into(), "NUMBER", None), "NUMBER(10)");
+        assert_eq!(
+            char_semantics("NUMBER(10)".into(), "NUMBER", None),
+            "NUMBER(10)"
+        );
     }
 
     #[test]
@@ -2598,8 +3227,16 @@ mod tests {
     fn json_numbers_stay_exact() {
         use oracledb::JsonValue as J;
         let n: OracleNumber = "12345678901234567890123.456789".parse().unwrap();
-        let doc = J::JsonArray(vec![J::Number(n), J::String("x\"y".into()), J::Null, J::Boolean(true)]);
-        assert_eq!(json_text(&doc), r#"[12345678901234567890123.456789,"x\"y",null,true]"#);
+        let doc = J::JsonArray(vec![
+            J::Number(n),
+            J::String("x\"y".into()),
+            J::Null,
+            J::Boolean(true),
+        ]);
+        assert_eq!(
+            json_text(&doc),
+            r#"[12345678901234567890123.456789,"x\"y",null,true]"#
+        );
     }
 
     #[test]
@@ -2608,17 +3245,29 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let pem = dir.join("ewallet.pem");
         std::fs::write(&pem, "x").unwrap();
-        let mut cfg = ConnectionConfig { username: Some("ADMIN".into()), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            username: Some("ADMIN".into()),
+            ..Default::default()
+        };
         assert!(autonomous_connect_string(&cfg).is_err());
         // A file inside the wallet stands for its folder.
-        cfg.options.insert("wallet_dir".into(), pem.to_string_lossy().into());
-        assert_eq!(wallet_dir(&cfg).as_deref(), Some(dir.to_string_lossy().as_ref()));
+        cfg.options
+            .insert("wallet_dir".into(), pem.to_string_lossy().into());
+        assert_eq!(
+            wallet_dir(&cfg).as_deref(),
+            Some(dir.to_string_lossy().as_ref())
+        );
         cfg.options.insert("adb_name".into(), "MiBase".into());
         assert_eq!(autonomous_connect_string(&cfg).unwrap(), "mibase_low");
         cfg.options.insert("adb_service".into(), "tp".into());
         assert_eq!(autonomous_connect_string(&cfg).unwrap(), "mibase_tp");
-        cfg.options.insert("connect_descriptor".into(), " (description=(address=(protocol=tcps)(port=1522)(host=h))) ".into());
-        assert!(autonomous_connect_string(&cfg).unwrap().starts_with("(description="));
+        cfg.options.insert(
+            "connect_descriptor".into(),
+            " (description=(address=(protocol=tcps)(port=1522)(host=h))) ".into(),
+        );
+        assert!(autonomous_connect_string(&cfg)
+            .unwrap()
+            .starts_with("(description="));
         assert!(build_config(&cfg, true).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
         let i = autonomous_info();
@@ -2627,7 +3276,10 @@ mod tests {
 
     #[test]
     fn connect_string_from_fields() {
-        let mut cfg = ConnectionConfig { host: "db.local".into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            host: "db.local".into(),
+            ..Default::default()
+        };
         cfg.options.insert("service".into(), "FREEPDB1".into());
         assert_eq!(
             connect_string(&cfg).unwrap(),
@@ -2642,7 +3294,8 @@ mod tests {
         );
         cfg.options.insert("service".into(), "x)(y=z".into());
         assert!(connect_string(&cfg).is_err());
-        cfg.options.insert("connect_descriptor".into(), " MY_ALIAS ".into());
+        cfg.options
+            .insert("connect_descriptor".into(), " MY_ALIAS ".into());
         assert_eq!(connect_string(&cfg).unwrap(), "MY_ALIAS");
     }
 

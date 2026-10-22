@@ -36,11 +36,21 @@ pub struct Hive {
     flavor: Flavor,
 }
 
-static HIVE: Hive = Hive { flavor: Flavor::Hive };
-static IMPALA: Hive = Hive { flavor: Flavor::Impala };
-static SPARK: Hive = Hive { flavor: Flavor::Spark };
-static DATABRICKS: Hive = Hive { flavor: Flavor::Databricks };
-static ATHENA: Hive = Hive { flavor: Flavor::Athena };
+static HIVE: Hive = Hive {
+    flavor: Flavor::Hive,
+};
+static IMPALA: Hive = Hive {
+    flavor: Flavor::Impala,
+};
+static SPARK: Hive = Hive {
+    flavor: Flavor::Spark,
+};
+static DATABRICKS: Hive = Hive {
+    flavor: Flavor::Databricks,
+};
+static ATHENA: Hive = Hive {
+    flavor: Flavor::Athena,
+};
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
     Some(match driver_id {
@@ -96,7 +106,11 @@ impl Hive {
     }
 
     fn string_note(&self, r: Rendered, what: &str) -> Rendered {
-        r.with(Severity::Warning, IssueCode::TypeApproximated, format!("{} no tiene {what}: queda como texto.", self.engine()))
+        r.with(
+            Severity::Warning,
+            IssueCode::TypeApproximated,
+            format!("{} no tiene {what}: queda como texto.", self.engine()),
+        )
     }
 }
 
@@ -115,10 +129,17 @@ impl Dialect for Hive {
         let p = |i| t.arg_u32(i);
         if let Some((head, args)) = generic(&t.raw) {
             return match head.as_str() {
-                "array" if args.len() == 1 => L::Array { of: Box::new(nested(self, &args[0])) },
-                "map" if args.len() == 2 => L::Map { key: Box::new(nested(self, &args[0])), value: Box::new(nested(self, &args[1])) },
+                "array" if args.len() == 1 => L::Array {
+                    of: Box::new(nested(self, &args[0])),
+                },
+                "map" if args.len() == 2 => L::Map {
+                    key: Box::new(nested(self, &args[0])),
+                    value: Box::new(nested(self, &args[1])),
+                },
                 "struct" => L::Json { binary: true },
-                _ => L::Other { native: t.raw.clone() },
+                _ => L::Other {
+                    native: t.raw.clone(),
+                },
             };
         }
         let spark_like = matches!(self.f(), Flavor::Spark | Flavor::Databricks);
@@ -136,18 +157,41 @@ impl Dialect for Hive {
                 scale: p(1).or(Some(0)),
             },
             "string" => L::Text { unicode: true },
-            "varchar" => L::Varchar { len: p(0), unicode: true },
-            "char" => L::Char { len: p(0).or(Some(1)), unicode: true },
+            "varchar" => L::Varchar {
+                len: p(0),
+                unicode: true,
+            },
+            "char" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode: true,
+            },
             "binary" => L::Blob,
             "date" => L::Date,
-            "timestamp" if t.with_tz => L::Timestamp { precision: Some(9), tz: true },
-            "timestamp" if spark_like => L::Timestamp { precision: Some(6), tz: true },
-            "timestamp" => L::Timestamp { precision: Some(if self.f() == Flavor::Athena { 6 } else { 9 }), tz: false },
-            "timestamp_ntz" => L::Timestamp { precision: Some(6), tz: false },
-            "timestamp_ltz" => L::Timestamp { precision: Some(6), tz: true },
+            "timestamp" if t.with_tz => L::Timestamp {
+                precision: Some(9),
+                tz: true,
+            },
+            "timestamp" if spark_like => L::Timestamp {
+                precision: Some(6),
+                tz: true,
+            },
+            "timestamp" => L::Timestamp {
+                precision: Some(if self.f() == Flavor::Athena { 6 } else { 9 }),
+                tz: false,
+            },
+            "timestamp_ntz" => L::Timestamp {
+                precision: Some(6),
+                tz: false,
+            },
+            "timestamp_ltz" => L::Timestamp {
+                precision: Some(6),
+                tz: true,
+            },
             "variant" => L::Json { binary: true },
             _ if t.name.starts_with("interval") => L::Interval,
-            _ => L::Other { native: t.raw.clone() },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -270,7 +314,9 @@ impl Dialect for Hive {
             DefaultValue::Null => "NULL".into(),
             DefaultValue::Number(n) => n.clone(),
             DefaultValue::Text(s) => literal(s),
-            DefaultValue::Bool(b) if matches!(ty, L::Bool) => if *b { "TRUE" } else { "FALSE" }.into(),
+            DefaultValue::Bool(b) if matches!(ty, L::Bool) => {
+                if *b { "TRUE" } else { "FALSE" }.into()
+            }
             DefaultValue::Bool(b) => if *b { "1" } else { "0" }.into(),
             DefaultValue::CurrentTimestamp if matches!(ty, L::Date) => "current_date()".into(),
             DefaultValue::CurrentTimestamp => "current_timestamp()".into(),
@@ -303,10 +349,23 @@ impl Dialect for Hive {
         use IssueCode::*;
         use Severity::*;
         if self.f() == Flavor::Databricks {
-            for c in t.columns.iter_mut().filter(|c| c.auto_increment && c.data_type != "BIGINT") {
+            for c in t
+                .columns
+                .iter_mut()
+                .filter(|c| c.auto_increment && c.data_type != "BIGINT")
+            {
                 let widen = matches!(c.data_type.as_str(), "TINYINT" | "SMALLINT" | "INT");
-                let msg = format!("Las columnas de identidad de Delta son BIGINT: {} pasa a BIGINT.", c.data_type);
-                report.push(if widen { Info } else { Loss }, if widen { TypeChanged } else { RangeLoss }, &t.name, Some(&c.name), msg);
+                let msg = format!(
+                    "Las columnas de identidad de Delta son BIGINT: {} pasa a BIGINT.",
+                    c.data_type
+                );
+                report.push(
+                    if widen { Info } else { Loss },
+                    if widen { TypeChanged } else { RangeLoss },
+                    &t.name,
+                    Some(&c.name),
+                    msg,
+                );
                 c.data_type = "BIGINT".into();
             }
             not_enforced(t, report, "Databricks");
@@ -314,19 +373,36 @@ impl Dialect for Hive {
         }
         if let Some(k) = t.primary_key.take().filter(|k| !k.columns.is_empty()) {
             let msg = if self.f() == Flavor::Impala {
-                "Impala solo tiene clave primaria en tablas Kudu (formato KUDU): se omite.".to_string()
+                "Impala solo tiene clave primaria en tablas Kudu (formato KUDU): se omite."
+                    .to_string()
             } else {
-                format!("{} no tiene claves primarias: se omite ({}).", self.engine(), k.columns.join(", "))
+                format!(
+                    "{} no tiene claves primarias: se omite ({}).",
+                    self.engine(),
+                    k.columns.join(", ")
+                )
             };
             report.push(Dropped, PrimaryKeyDropped, &t.name, None, msg);
         }
         if self.f() == Flavor::Athena {
             if !t.options.contains_key("table_type") {
                 t.options.insert("table_type".into(), "iceberg".into());
-                report.push(Info, OptionAdded, &t.name, Some("table_type"), "Tabla Iceberg, la que Athena crea y modifica con SQL.");
+                report.push(
+                    Info,
+                    OptionAdded,
+                    &t.name,
+                    Some("table_type"),
+                    "Tabla Iceberg, la que Athena crea y modifica con SQL.",
+                );
             }
             if !t.options.contains_key("location") {
-                report.push(Warning, OptionAdded, &t.name, Some("location"), "Athena necesita la ubicación S3 de la tabla (location): hay que completarla.");
+                report.push(
+                    Warning,
+                    OptionAdded,
+                    &t.name,
+                    Some("location"),
+                    "Athena necesita la ubicación S3 de la tabla (location): hay que completarla.",
+                );
             }
         }
     }
@@ -345,7 +421,15 @@ mod tests {
 
     #[test]
     fn ids() {
-        for id in ["hive", "cloudera", "impala", "spark", "kyuubi", "databricks", "azure_databricks"] {
+        for id in [
+            "hive",
+            "cloudera",
+            "impala",
+            "spark",
+            "kyuubi",
+            "databricks",
+            "azure_databricks",
+        ] {
             assert!(lookup(id).is_some(), "{id}");
         }
         assert_eq!(athena().id(), "athena");
@@ -356,26 +440,91 @@ mod tests {
         let h = &HIVE;
         assert_eq!(lt(h, "int"), L::int(4));
         assert_eq!(lt(h, "TINYINT"), L::int(1));
-        assert_eq!(lt(h, "decimal(10,2)"), L::Decimal { precision: Some(10), scale: Some(2) });
-        assert_eq!(lt(h, "decimal"), L::Decimal { precision: Some(10), scale: Some(0) });
-        assert_eq!(lt(&IMPALA, "DECIMAL"), L::Decimal { precision: Some(9), scale: Some(0) });
+        assert_eq!(
+            lt(h, "decimal(10,2)"),
+            L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }
+        );
+        assert_eq!(
+            lt(h, "decimal"),
+            L::Decimal {
+                precision: Some(10),
+                scale: Some(0)
+            }
+        );
+        assert_eq!(
+            lt(&IMPALA, "DECIMAL"),
+            L::Decimal {
+                precision: Some(9),
+                scale: Some(0)
+            }
+        );
         assert_eq!(lt(h, "float"), L::Float { bytes: 4 });
         assert_eq!(lt(&IMPALA, "REAL"), L::Float { bytes: 8 });
         assert_eq!(lt(&SPARK, "real"), L::Float { bytes: 4 });
         assert_eq!(lt(h, "string"), L::Text { unicode: true });
-        assert_eq!(lt(h, "varchar(20)"), L::Varchar { len: Some(20), unicode: true });
-        assert_eq!(lt(h, "char(2)"), L::Char { len: Some(2), unicode: true });
+        assert_eq!(
+            lt(h, "varchar(20)"),
+            L::Varchar {
+                len: Some(20),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            lt(h, "char(2)"),
+            L::Char {
+                len: Some(2),
+                unicode: true
+            }
+        );
         assert_eq!(lt(h, "binary"), L::Blob);
-        assert_eq!(lt(h, "timestamp"), L::Timestamp { precision: Some(9), tz: false });
-        assert_eq!(lt(h, "timestamp with local time zone"), L::Timestamp { precision: Some(9), tz: true });
-        assert_eq!(lt(&DATABRICKS, "timestamp"), L::Timestamp { precision: Some(6), tz: true });
-        assert_eq!(lt(&DATABRICKS, "timestamp_ntz"), L::Timestamp { precision: Some(6), tz: false });
+        assert_eq!(
+            lt(h, "timestamp"),
+            L::Timestamp {
+                precision: Some(9),
+                tz: false
+            }
+        );
+        assert_eq!(
+            lt(h, "timestamp with local time zone"),
+            L::Timestamp {
+                precision: Some(9),
+                tz: true
+            }
+        );
+        assert_eq!(
+            lt(&DATABRICKS, "timestamp"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: true
+            }
+        );
+        assert_eq!(
+            lt(&DATABRICKS, "timestamp_ntz"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: false
+            }
+        );
         assert_eq!(lt(&DATABRICKS, "variant"), L::Json { binary: true });
-        assert_eq!(lt(h, "array<string>"), L::Array { of: Box::new(L::Text { unicode: true }) });
-        assert_eq!(lt(h, "map<string,decimal(10,2)>"), L::Map {
-            key: Box::new(L::Text { unicode: true }),
-            value: Box::new(L::Decimal { precision: Some(10), scale: Some(2) })
-        });
+        assert_eq!(
+            lt(h, "array<string>"),
+            L::Array {
+                of: Box::new(L::Text { unicode: true })
+            }
+        );
+        assert_eq!(
+            lt(h, "map<string,decimal(10,2)>"),
+            L::Map {
+                key: Box::new(L::Text { unicode: true }),
+                value: Box::new(L::Decimal {
+                    precision: Some(10),
+                    scale: Some(2)
+                })
+            }
+        );
         assert_eq!(lt(h, "struct<a:int,b:string>"), L::Json { binary: true });
         assert_eq!(lt(&DATABRICKS, "INTERVAL DAY TO SECOND"), L::Interval);
         assert!(matches!(lt(h, "uniontype<int,string>"), L::Other { .. }));
@@ -386,36 +535,146 @@ mod tests {
         let r = |t: L| DATABRICKS.render_type(&t);
         assert_eq!(r(L::Bool).native, "BOOLEAN");
         assert_eq!(r(L::int(1)).native, "TINYINT");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }).native, "BIGINT");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }).native, "DECIMAL(20, 0)");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            })
+            .native,
+            "BIGINT"
+        );
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            })
+            .native,
+            "DECIMAL(20, 0)"
+        );
         assert_eq!(r(L::int(16)).notes[0].code, IssueCode::RangeLoss);
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(2) }).native, "DECIMAL(12, 2)");
-        assert_eq!(r(L::Decimal { precision: Some(65), scale: Some(30) }).native, "DECIMAL(38, 30)");
-        assert_eq!(r(L::Decimal { precision: None, scale: None }).native, "DECIMAL(38, 10)");
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            })
+            .native,
+            "DECIMAL(12, 2)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(65),
+                scale: Some(30)
+            })
+            .native,
+            "DECIMAL(38, 30)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: None,
+                scale: None
+            })
+            .native,
+            "DECIMAL(38, 10)"
+        );
         assert_eq!(r(L::Float { bytes: 4 }).native, "FLOAT");
         assert_eq!(r(L::Float { bytes: 8 }).native, "DOUBLE");
         assert_eq!(r(L::Money).native, "DECIMAL(19, 4)");
-        assert_eq!(r(L::Char { len: Some(3), unicode: true }).native, "CHAR(3)");
-        assert_eq!(r(L::Char { len: Some(300), unicode: true }).native, "VARCHAR(300)");
-        assert_eq!(r(L::Varchar { len: Some(30), unicode: true }).native, "VARCHAR(30)");
+        assert_eq!(
+            r(L::Char {
+                len: Some(3),
+                unicode: true
+            })
+            .native,
+            "CHAR(3)"
+        );
+        assert_eq!(
+            r(L::Char {
+                len: Some(300),
+                unicode: true
+            })
+            .native,
+            "VARCHAR(300)"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(30),
+                unicode: true
+            })
+            .native,
+            "VARCHAR(30)"
+        );
         assert_eq!(r(L::Text { unicode: true }).native, "STRING");
         assert_eq!(r(L::Binary { len: Some(16) }).native, "BINARY");
         assert_eq!(r(L::Blob).native, "BINARY");
         assert_eq!(r(L::Bit { len: None }).native, "BINARY");
         assert_eq!(r(L::Date).native, "DATE");
-        assert_eq!(r(L::Time { precision: None, tz: false }).native, "STRING");
-        assert_eq!(r(L::Timestamp { precision: Some(6), tz: true }).native, "TIMESTAMP");
-        assert_eq!(r(L::Timestamp { precision: Some(3), tz: false }).native, "TIMESTAMP_NTZ");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            })
+            .native,
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(6),
+                tz: true
+            })
+            .native,
+            "TIMESTAMP"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(3),
+                tz: false
+            })
+            .native,
+            "TIMESTAMP_NTZ"
+        );
         assert_eq!(r(L::Interval).native, "STRING");
         assert_eq!(r(L::Year).native, "SMALLINT");
         assert_eq!(r(L::Uuid).native, "STRING");
         assert_eq!(r(L::Json { binary: true }).native, "STRING");
         assert_eq!(r(L::Xml).native, "STRING");
-        assert_eq!(r(L::Enum { values: vec!["a".into()] }).native, "STRING");
-        assert_eq!(r(L::Set { values: vec!["a".into()] }).native, "ARRAY<STRING>");
-        assert_eq!(r(L::Array { of: Box::new(L::int(4)) }).native, "ARRAY<INT>");
-        assert_eq!(r(L::Map { key: Box::new(L::Text { unicode: true }), value: Box::new(L::int(8)) }).native, "MAP<STRING, BIGINT>");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }).native, "STRING");
+        assert_eq!(
+            r(L::Enum {
+                values: vec!["a".into()]
+            })
+            .native,
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Set {
+                values: vec!["a".into()]
+            })
+            .native,
+            "ARRAY<STRING>"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(4))
+            })
+            .native,
+            "ARRAY<INT>"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Text { unicode: true }),
+                value: Box::new(L::int(8))
+            })
+            .native,
+            "MAP<STRING, BIGINT>"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            })
+            .native,
+            "STRING"
+        );
         assert_eq!(r(L::Inet).native, "STRING");
         assert_eq!(r(L::MacAddr).native, "STRING");
         assert_eq!(r(L::RowVersion).native, "BINARY");
@@ -423,30 +682,96 @@ mod tests {
 
     #[test]
     fn flavor_differences() {
-        assert_eq!(HIVE.render_type(&L::Timestamp { precision: Some(6), tz: false }).native, "TIMESTAMP");
-        assert!(HIVE.render_type(&L::Timestamp { precision: Some(6), tz: true }).notes.iter().any(|n| n.code == IssueCode::TimeZoneLoss));
-        assert_eq!(IMPALA.render_type(&L::Array { of: Box::new(L::int(4)) }).native, "STRING");
-        assert_eq!(HIVE.render_type(&L::Varchar { len: Some(70_000), unicode: true }).native, "STRING");
+        assert_eq!(
+            HIVE.render_type(&L::Timestamp {
+                precision: Some(6),
+                tz: false
+            })
+            .native,
+            "TIMESTAMP"
+        );
+        assert!(HIVE
+            .render_type(&L::Timestamp {
+                precision: Some(6),
+                tz: true
+            })
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::TimeZoneLoss));
+        assert_eq!(
+            IMPALA
+                .render_type(&L::Array {
+                    of: Box::new(L::int(4))
+                })
+                .native,
+            "STRING"
+        );
+        assert_eq!(
+            HIVE.render_type(&L::Varchar {
+                len: Some(70_000),
+                unicode: true
+            })
+            .native,
+            "STRING"
+        );
         assert_eq!(ATHENA.render_type(&L::int(2)).native, "INT");
-        assert_eq!(ATHENA.render_type(&L::Varchar { len: Some(20), unicode: true }).native, "STRING");
+        assert_eq!(
+            ATHENA
+                .render_type(&L::Varchar {
+                    len: Some(20),
+                    unicode: true
+                })
+                .native,
+            "STRING"
+        );
         assert!(!HIVE.caps().nullability && DATABRICKS.caps().nullability);
-        assert_eq!(DATABRICKS.render_default(&DefaultValue::Text("it's".into()), &L::Text { unicode: true }).as_deref(), Some("'it\\'s'"));
-        assert_eq!(DATABRICKS.render_default(&DefaultValue::CurrentTimestamp, &L::Timestamp { precision: None, tz: true }).as_deref(), Some("current_timestamp()"));
+        assert_eq!(
+            DATABRICKS
+                .render_default(
+                    &DefaultValue::Text("it's".into()),
+                    &L::Text { unicode: true }
+                )
+                .as_deref(),
+            Some("'it\\'s'")
+        );
+        assert_eq!(
+            DATABRICKS
+                .render_default(
+                    &DefaultValue::CurrentTimestamp,
+                    &L::Timestamp {
+                        precision: None,
+                        tz: true
+                    }
+                )
+                .as_deref(),
+            Some("current_timestamp()")
+        );
     }
 
     #[test]
     fn finalize_per_flavor() {
         let t = || TableSchema {
             name: "t".into(),
-            columns: vec![ColumnDef { name: "id".into(), data_type: "INT".into(), auto_increment: true, ..Default::default() }],
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
+            columns: vec![ColumnDef {
+                name: "id".into(),
+                data_type: "INT".into(),
+                auto_increment: true,
+                ..Default::default()
+            }],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
             ..Default::default()
         };
         let mut x = t();
         let mut rep = Report::default();
         HIVE.finalize(&mut x, &mut rep);
         assert!(x.primary_key.is_none());
-        assert!(rep.issues.iter().any(|i| i.code == IssueCode::PrimaryKeyDropped));
+        assert!(rep
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::PrimaryKeyDropped));
 
         let mut x = t();
         let mut rep = Report::default();
@@ -457,7 +782,13 @@ mod tests {
         let mut x = t();
         let mut rep = Report::default();
         ATHENA.finalize(&mut x, &mut rep);
-        assert_eq!(x.options.get("table_type").map(String::as_str), Some("iceberg"));
-        assert!(rep.issues.iter().any(|i| i.object.as_deref() == Some("location")));
+        assert_eq!(
+            x.options.get("table_type").map(String::as_str),
+            Some("iceberg")
+        );
+        assert!(rep
+            .issues
+            .iter()
+            .any(|i| i.object.as_deref() == Some("location")));
     }
 }

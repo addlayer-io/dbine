@@ -14,7 +14,9 @@ type Objects = BTreeMap<(String, Option<String>, String), String>;
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
 }
 
 async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objects) {
@@ -25,14 +27,24 @@ async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objec
         .into_iter()
         .map(|mut t| {
             t.indexes.sort_by(|a, b| a.name.cmp(&b.name));
-            (format!("{}.{}", t.schema.clone().unwrap_or_default(), t.name), t)
+            (
+                format!("{}.{}", t.schema.clone().unwrap_or_default(), t.name),
+                t,
+            )
         })
         .collect();
     let mut objects = Objects::new();
     for o in s.list_objects().await.unwrap() {
         if CODE_KINDS.contains(&o.kind.as_str()) {
-            let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
-            objects.insert((o.kind, o.schema, o.name), s.definition(&r).await.unwrap().expect("definition"));
+            let r = ObjectRef {
+                kind: o.kind.clone(),
+                schema: o.schema.clone(),
+                name: o.name.clone(),
+            };
+            objects.insert(
+                (o.kind, o.schema, o.name),
+                s.definition(&r).await.unwrap().expect("definition"),
+            );
         }
     }
     (tables, objects)
@@ -86,14 +98,24 @@ CREATE INDEX ix_cliente ON ventas.pedidos (cliente);
 #[tokio::test]
 async fn compare_and_sync_everything() {
     let dir = std::env::temp_dir();
-    let (pa, pb) = (dir.join(format!("dbine-cmp-a-{}.duckdb", std::process::id())), dir.join(format!("dbine-cmp-b-{}.duckdb", std::process::id())));
+    let (pa, pb) = (
+        dir.join(format!("dbine-cmp-a-{}.duckdb", std::process::id())),
+        dir.join(format!("dbine-cmp-b-{}.duckdb", std::process::id())),
+    );
     for p in [&pa, &pb] {
         let _ = std::fs::remove_file(p);
     }
     let d = dbine_driver_duckdb::drivers().remove(0);
     let kinds: Vec<&str> = d.info().object_kinds.iter().map(|k| k.id).collect();
-    assert!(kinds.contains(&"type") && kinds.contains(&"sequence"), "{kinds:?}");
-    let cfg = |p: &std::path::Path| ConnectionConfig { driver: "duckdb".into(), host: p.to_string_lossy().into(), ..Default::default() };
+    assert!(
+        kinds.contains(&"type") && kinds.contains(&"sequence"),
+        "{kinds:?}"
+    );
+    let cfg = |p: &std::path::Path| ConnectionConfig {
+        driver: "duckdb".into(),
+        host: p.to_string_lossy().into(),
+        ..Default::default()
+    };
     let mut a = d.connect(&cfg(&pa), None).await.unwrap();
     let mut b = d.connect(&cfg(&pb), None).await.unwrap();
     run(&mut a, A).await;
@@ -106,27 +128,54 @@ async fn compare_and_sync_everything() {
     }
     let p = &ta["ventas.pedidos"];
     assert_eq!(p.checks.len(), 2, "{:?}", p.checks);
-    let ix = |n: &str| p.indexes.iter().find(|i| i.name == n).unwrap().columns.clone();
+    let ix = |n: &str| {
+        p.indexes
+            .iter()
+            .find(|i| i.name == n)
+            .unwrap()
+            .columns
+            .clone()
+    };
     assert_eq!(ix("ix_cliente"), ["(lower(cliente))", "id"]);
     assert_eq!(ix("ix_mas"), ["(id + 1)"]);
-    let obj = |o: &Objects, k: &str, s: &str, n: &str| o.get(&(k.to_string(), Some(s.to_string()), n.to_string())).cloned();
-    assert_eq!(obj(&oa, "type", "main", "estado").as_deref(), Some("CREATE TYPE \"main\".\"estado\" AS ENUM('nuevo', 'pagado', 'it''s');"));
-    assert_eq!(obj(&oa, "type", "ventas", "punto").as_deref(), Some("CREATE TYPE \"ventas\".\"punto\" AS STRUCT(x INTEGER, y VARCHAR);"));
-    assert_eq!(obj(&oa, "type", "main", "importe").as_deref(), Some("CREATE TYPE \"main\".\"importe\" AS DECIMAL(18,2);"));
+    let obj = |o: &Objects, k: &str, s: &str, n: &str| {
+        o.get(&(k.to_string(), Some(s.to_string()), n.to_string()))
+            .cloned()
+    };
+    assert_eq!(
+        obj(&oa, "type", "main", "estado").as_deref(),
+        Some("CREATE TYPE \"main\".\"estado\" AS ENUM('nuevo', 'pagado', 'it''s');")
+    );
+    assert_eq!(
+        obj(&oa, "type", "ventas", "punto").as_deref(),
+        Some("CREATE TYPE \"ventas\".\"punto\" AS STRUCT(x INTEGER, y VARCHAR);")
+    );
+    assert_eq!(
+        obj(&oa, "type", "main", "importe").as_deref(),
+        Some("CREATE TYPE \"main\".\"importe\" AS DECIMAL(18,2);")
+    );
     let seq = obj(&oa, "sequence", "ventas", "folio").unwrap();
-    assert!(seq.starts_with("CREATE SEQUENCE \"ventas\".\"folio\" INCREMENT BY 5") && seq.contains("START WITH 100 CYCLE"), "{seq}");
+    assert!(
+        seq.starts_with("CREATE SEQUENCE \"ventas\".\"folio\" INCREMENT BY 5")
+            && seq.contains("START WITH 100 CYCLE"),
+        "{seq}"
+    );
 
     // The compare: tables by schema and name, objects by kind, schema and name.
     let mut tables = Vec::new();
     for (name, t) in &ta {
         match tb.get(name) {
             None => tables.push(TableChange::Create { table: t.clone() }),
-            Some(o) if o != t => tables.push(TableChange::Alter { old: o.clone(), new: t.clone() }),
+            Some(o) if o != t => tables.push(TableChange::Alter {
+                old: o.clone(),
+                new: t.clone(),
+            }),
             Some(_) => {}
         }
     }
     assert_eq!(tables.len(), 1);
-    let (mut before, mut early, mut after, mut late) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut before, mut early, mut after, mut late) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for ((k, s, n), def) in &oa {
         let prereq = PREREQS.contains(&k.as_str());
         match ob.get(&(k.clone(), s.clone(), n.clone())) {
@@ -134,19 +183,33 @@ async fn compare_and_sync_everything() {
             Some(_) => before.push(drop_other(k, s.as_deref(), n)),
             None => {}
         }
-        if prereq { early.push(def.clone()) } else { after.push(def.clone()) }
+        if prereq {
+            early.push(def.clone())
+        } else {
+            after.push(def.clone())
+        }
     }
     for (k, s, n) in ob.keys() {
         if !oa.contains_key(&(k.clone(), s.clone(), n.clone())) {
             let drop = drop_other(k, s.as_deref(), n);
-            if PREREQS.contains(&k.as_str()) { late.push(drop) } else { before.push(drop) }
+            if PREREQS.contains(&k.as_str()) {
+                late.push(drop)
+            } else {
+                before.push(drop)
+            }
         }
     }
     let script = d.sync_script(&tables).unwrap();
     for w in &script.warnings {
         eprintln!("aviso: {w}");
     }
-    let all: Vec<String> = before.into_iter().chain(early).chain(script.statements).chain(after).chain(late).collect();
+    let all: Vec<String> = before
+        .into_iter()
+        .chain(early)
+        .chain(script.statements)
+        .chain(after)
+        .chain(late)
+        .collect();
     for s in &all {
         run(&mut b, s).await;
     }
@@ -155,7 +218,9 @@ async fn compare_and_sync_everything() {
     assert_eq!(tb2, ta);
     assert_eq!(ob2, oa);
     let mut out = QueryOutcome::default();
-    b.execute("SELECT cliente FROM ventas.pedidos", 10, &mut out).await.unwrap();
+    b.execute("SELECT cliente FROM ventas.pedidos", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows, [[serde_json::json!("uno")]]);
     drop((a, b));
     for p in [&pa, &pb] {

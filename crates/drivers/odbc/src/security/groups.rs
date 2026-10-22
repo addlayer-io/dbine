@@ -9,15 +9,29 @@
 //! - **Mimer SQL**: idents (`INFORMATION_SCHEMA.EXT_IDENTS`) of type USER,
 //!   GROUP or PROGRAM; membership is the MEMBER privilege on a group.
 
-use super::{get, grantee, ident, lit, option, password, privileges, role, rows, unsupported_action, user, with_roles, Dialect, Row};
+use super::{
+    get, grantee, ident, lit, option, password, privileges, role, rows, unsupported_action, user,
+    with_roles, Dialect, Row,
+};
 use crate::OdbcSession;
-use dbine_driver::{kinds, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use std::collections::{HashMap, HashSet};
 
 pub fn spec(d: Dialect) -> SecuritySpec {
     match d {
         Dialect::Cubrid => SecuritySpec {
-            privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "ALTER", "INDEX", "EXECUTE", "ALL PRIVILEGES"],
+            privileges: vec![
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "ALTER",
+                "INDEX",
+                "EXECUTE",
+                "ALL PRIVILEGES",
+            ],
             object_kinds: vec![kinds::TABLE, kinds::VIEW, kinds::PROCEDURE],
             create_user: true,
             create_role: true,
@@ -26,7 +40,19 @@ pub fn spec(d: Dialect) -> SecuritySpec {
             per_database: false,
         },
         Dialect::Zen => SecuritySpec {
-            privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "ALTER", "REFERENCES", "EXECUTE", "ALL", "CREATETAB", "CREATEVIEW", "CREATESP"],
+            privileges: vec![
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "ALTER",
+                "REFERENCES",
+                "EXECUTE",
+                "ALL",
+                "CREATETAB",
+                "CREATEVIEW",
+                "CREATESP",
+            ],
             // "" = database rights (CREATETAB…).
             object_kinds: vec!["", kinds::TABLE, kinds::VIEW, kinds::PROCEDURE],
             create_user: true,
@@ -36,9 +62,30 @@ pub fn spec(d: Dialect) -> SecuritySpec {
             per_database: false,
         },
         _ => SecuritySpec {
-            privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "REFERENCES", "EXECUTE", "USAGE", "ALL", "BACKUP", "DATABANK", "IDENT", "SCHEMA", "SHADOW", "STATISTICS"],
+            privileges: vec![
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "REFERENCES",
+                "EXECUTE",
+                "USAGE",
+                "ALL",
+                "BACKUP",
+                "DATABANK",
+                "IDENT",
+                "SCHEMA",
+                "SHADOW",
+                "STATISTICS",
+            ],
             // "" = system privileges.
-            object_kinds: vec!["", kinds::TABLE, kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION],
+            object_kinds: vec![
+                "",
+                kinds::TABLE,
+                kinds::VIEW,
+                kinds::PROCEDURE,
+                kinds::FUNCTION,
+            ],
             create_user: true,
             create_role: true,
             passwords: true,
@@ -50,19 +97,35 @@ pub fn spec(d: Dialect) -> SecuritySpec {
 
 // CUBRID -----------------------------------------------------------------------
 
-const CUBRID_MEMBERS: &str = "SELECT u.name AS member, g.name AS grp FROM db_user u, TABLE(u.direct_groups) AS t(g)";
+const CUBRID_MEMBERS: &str =
+    "SELECT u.name AS member, g.name AS grp FROM db_user u, TABLE(u.direct_groups) AS t(g)";
 
 pub async fn cubrid_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
     let d = Dialect::Cubrid;
     let links = rows(s, CUBRID_MEMBERS).await.unwrap_or_default();
-    let groups: HashSet<String> = links.iter().map(|l| get(l, "grp").to_ascii_uppercase()).chain(["DBA".into(), "PUBLIC".into()]).collect();
+    let groups: HashSet<String> = links
+        .iter()
+        .map(|l| get(l, "grp").to_ascii_uppercase())
+        .chain(["DBA".into(), "PUBLIC".into()])
+        .collect();
     let mut out = Vec::new();
     for u in rows(s, "SELECT name FROM db_user").await? {
         let name = get(&u, "name").to_string();
-        let member_of: Vec<String> = links.iter().filter(|l| get(l, "member").eq_ignore_ascii_case(&name)).map(|l| get(l, "grp").to_string()).collect();
-        let base = if groups.contains(&name.to_ascii_uppercase()) { role(d, &name) } else { user(&name) };
+        let member_of: Vec<String> = links
+            .iter()
+            .filter(|l| get(l, "member").eq_ignore_ascii_case(&name))
+            .map(|l| get(l, "grp").to_string())
+            .collect();
+        let base = if groups.contains(&name.to_ascii_uppercase()) {
+            role(d, &name)
+        } else {
+            user(&name)
+        };
         out.push(Principal {
-            superuser: Some(name.eq_ignore_ascii_case("DBA") || member_of.iter().any(|g| g.eq_ignore_ascii_case("DBA"))),
+            superuser: Some(
+                name.eq_ignore_ascii_case("DBA")
+                    || member_of.iter().any(|g| g.eq_ignore_ascii_case("DBA")),
+            ),
             system: name.eq_ignore_ascii_case("DBA") || name.eq_ignore_ascii_case("PUBLIC"),
             member_of,
             ..base
@@ -74,9 +137,16 @@ pub async fn cubrid_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
 /// A `db_auth` row: `object_name` (11.4) or `class_name`, with the owner
 /// when the version has it.
 pub(super) fn cubrid_grant(r: &Row, via: Option<String>) -> Grant {
-    let name = [get(r, "object_name"), get(r, "class_name")].into_iter().find(|v| !v.is_empty()).unwrap_or_default();
+    let name = [get(r, "object_name"), get(r, "class_name")]
+        .into_iter()
+        .find(|v| !v.is_empty())
+        .unwrap_or_default();
     let owner = get(r, "owner_name");
-    let object = if owner.is_empty() { name.to_string() } else { format!("{owner}.{name}") };
+    let object = if owner.is_empty() {
+        name.to_string()
+    } else {
+        format!("{owner}.{name}")
+    };
     let kind = match get(r, "object_type").to_ascii_uppercase().as_str() {
         "VIEW" | "VCLASS" => kinds::VIEW,
         "PROCEDURE" | "FUNCTION" => kinds::PROCEDURE,
@@ -96,10 +166,16 @@ pub async fn cubrid_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant
     let auth = rows(s, "SELECT * FROM db_auth").await?;
     let mut members: HashMap<String, Vec<String>> = HashMap::new();
     for l in rows(s, CUBRID_MEMBERS).await.unwrap_or_default() {
-        members.entry(get(&l, "member").to_ascii_lowercase()).or_default().push(get(&l, "grp").to_string());
+        members
+            .entry(get(&l, "member").to_ascii_lowercase())
+            .or_default()
+            .push(get(&l, "grp").to_string());
     }
     Ok(with_roles(grantee(principal).1, &members, |n, via| {
-        auth.iter().filter(|r| get(r, "grantee_name").eq_ignore_ascii_case(n)).map(|r| cubrid_grant(r, via.clone())).collect()
+        auth.iter()
+            .filter(|r| get(r, "grantee_name").eq_ignore_ascii_case(n))
+            .map(|r| cubrid_grant(r, via.clone()))
+            .collect()
     }))
 }
 
@@ -111,7 +187,13 @@ pub(super) fn zen_rights(mask: u64) -> Vec<&'static str> {
     if mask & 0x40 != 0 {
         out.push("SELECT");
     }
-    for (bit, p) in [(0x02, "UPDATE"), (0x04, "INSERT"), (0x08, "DELETE"), (0x10, "REFERENCES"), (0x20, "ALTER")] {
+    for (bit, p) in [
+        (0x02, "UPDATE"),
+        (0x04, "INSERT"),
+        (0x08, "DELETE"),
+        (0x10, "REFERENCES"),
+        (0x20, "ALTER"),
+    ] {
         if mask & 0x80 != 0 && mask & bit != 0 {
             out.push(p);
         }
@@ -120,7 +202,9 @@ pub(super) fn zen_rights(mask: u64) -> Vec<&'static str> {
 }
 
 async fn zen_members(s: &OdbcSession) -> Vec<Row> {
-    rows(s, "CALL psp_users(null, null, null)").await.unwrap_or_default()
+    rows(s, "CALL psp_users(null, null, null)")
+        .await
+        .unwrap_or_default()
 }
 
 pub async fn zen_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
@@ -131,7 +215,10 @@ pub async fn zen_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
         let name = get(&u, "name").to_string();
         let flags: u64 = get(&u, "flags").parse().unwrap_or(0);
         if flags & 64 != 0 {
-            out.push(Principal { system: name.eq_ignore_ascii_case("PUBLIC"), ..role(d, &name) });
+            out.push(Principal {
+                system: name.eq_ignore_ascii_case("PUBLIC"),
+                ..role(d, &name)
+            });
             continue;
         }
         let member_of = members
@@ -166,12 +253,18 @@ pub async fn zen_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> 
     let mut members: HashMap<String, Vec<String>> = HashMap::new();
     for m in zen_members(s).await {
         if !get(&m, "group_name").is_empty() {
-            members.entry(get(&m, "user_name").to_ascii_lowercase()).or_default().push(get(&m, "group_name").to_string());
+            members
+                .entry(get(&m, "user_name").to_ascii_lowercase())
+                .or_default()
+                .push(get(&m, "group_name").to_string());
         }
     }
     Ok(with_roles(grantee(principal).1, &members, |n, via| {
         let mut out = Vec::new();
-        for r in rights.iter().filter(|r| get(r, "grantee").eq_ignore_ascii_case(n)) {
+        for r in rights
+            .iter()
+            .filter(|r| get(r, "grantee").eq_ignore_ascii_case(n))
+        {
             let mask: u64 = get(r, "rights").parse().unwrap_or(0);
             let table = get(r, "tabname");
             for p in zen_rights(mask) {
@@ -196,7 +289,13 @@ const MIMER_MEMBERS: &str =
 pub async fn mimer_principals(s: &OdbcSession) -> Result<Vec<Principal>> {
     let d = Dialect::Mimer;
     let links = rows(s, MIMER_MEMBERS).await.unwrap_or_default();
-    let of = |n: &str| -> Vec<String> { links.iter().filter(|l| get(l, "grantee") == n).map(|l| get(l, "grp").to_string()).collect() };
+    let of = |n: &str| -> Vec<String> {
+        links
+            .iter()
+            .filter(|l| get(l, "grantee") == n)
+            .map(|l| get(l, "grp").to_string())
+            .collect()
+    };
     let mut out = Vec::new();
     for i in rows(s, "SELECT IDENT_NAME, IDENT_TYPE, HAS_PASSWORD, IDENT_LOGIN, IDENT_CREATOR FROM INFORMATION_SCHEMA.EXT_IDENTS").await? {
         let name = get(&i, "ident_name").to_string();
@@ -256,19 +355,35 @@ pub async fn mimer_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>
     .unwrap_or_default();
     let mut members: HashMap<String, Vec<String>> = HashMap::new();
     for l in rows(s, MIMER_MEMBERS).await.unwrap_or_default() {
-        members.entry(get(&l, "grantee").to_ascii_lowercase()).or_default().push(get(&l, "grp").to_string());
+        members
+            .entry(get(&l, "grantee").to_ascii_lowercase())
+            .or_default()
+            .push(get(&l, "grp").to_string());
     }
     Ok(with_roles(grantee(principal).1, &members, |n, via| {
         let mut out: Vec<Grant> = sys
             .iter()
             .filter(|r| get(r, "grantee") == n)
-            .map(|r| Grant { privilege: get(r, "privilege_type").to_string(), grantable: super::yes(get(r, "is_grantable")), via: via.clone(), ..Default::default() })
+            .map(|r| Grant {
+                privilege: get(r, "privilege_type").to_string(),
+                grantable: super::yes(get(r, "is_grantable")),
+                via: via.clone(),
+                ..Default::default()
+            })
             .collect();
         for r in tabs.iter().filter(|r| get(r, "grantee") == n) {
-            let kind = if get(r, "table_type").eq_ignore_ascii_case("VIEW") { kinds::VIEW } else { kinds::TABLE };
+            let kind = if get(r, "table_type").eq_ignore_ascii_case("VIEW") {
+                kinds::VIEW
+            } else {
+                kinds::TABLE
+            };
             out.push(Grant {
                 privilege: get(r, "privilege_type").to_string(),
-                object: Some(format!("{}.{}", get(r, "table_schema"), get(r, "table_name"))),
+                object: Some(format!(
+                    "{}.{}",
+                    get(r, "table_schema"),
+                    get(r, "table_name")
+                )),
                 object_kind: Some(kind.into()),
                 grantable: super::yes(get(r, "is_grantable")),
                 denied: false,
@@ -280,7 +395,11 @@ pub async fn mimer_grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>
             let name = get(r, "object_name");
             out.push(Grant {
                 privilege: get(r, "privilege_type").to_string(),
-                object: Some(if schema.is_empty() { name.to_string() } else { format!("{schema}.{name}") }),
+                object: Some(if schema.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{schema}.{name}")
+                }),
                 object_kind: Some(mimer_kind(get(r, "object_type")).into()),
                 grantable: super::yes(get(r, "is_grantable")),
                 denied: false,
@@ -298,7 +417,9 @@ fn on(d: Dialect, o: &ObjectRef) -> String {
     match (d, o.kind.as_str()) {
         (Dialect::Zen, k) if k == kinds::VIEW => format!(" ON VIEW {q}"),
         (Dialect::Zen, k) if k == kinds::PROCEDURE => format!(" ON PROCEDURE {q}"),
-        (Dialect::Mimer | Dialect::Cubrid, k) if k == kinds::PROCEDURE => format!(" ON PROCEDURE {q}"),
+        (Dialect::Mimer | Dialect::Cubrid, k) if k == kinds::PROCEDURE => {
+            format!(" ON PROCEDURE {q}")
+        }
         (Dialect::Mimer, k) if k == kinds::FUNCTION => format!(" ON FUNCTION {q}"),
         _ => format!(" ON {q}"),
     }
@@ -316,41 +437,114 @@ pub fn script(d: Dialect, a: &SecurityAction) -> Result<String> {
     Ok(match (d, a) {
         (_, SecurityAction::SetLogin { .. }) => return unsupported_action(NO_LOCK),
         // CUBRID
-        (Dialect::Cubrid, SecurityAction::CreateUser { name, password: p }) => format!("CREATE USER {} PASSWORD {};", id(name), lit(password(p)?)),
-        (Dialect::Cubrid, SecurityAction::SetPassword { name, password: p }) => format!("ALTER USER {} PASSWORD {};", id(name), lit(p)),
-        (Dialect::Cubrid, SecurityAction::CreateRole { name }) => format!("CREATE USER {};", id(name)),
+        (Dialect::Cubrid, SecurityAction::CreateUser { name, password: p }) => {
+            format!("CREATE USER {} PASSWORD {};", id(name), lit(password(p)?))
+        }
+        (Dialect::Cubrid, SecurityAction::SetPassword { name, password: p }) => {
+            format!("ALTER USER {} PASSWORD {};", id(name), lit(p))
+        }
+        (Dialect::Cubrid, SecurityAction::CreateRole { name }) => {
+            format!("CREATE USER {};", id(name))
+        }
         (Dialect::Cubrid, SecurityAction::Drop { name, .. }) => format!("DROP USER {};", id(name)),
-        (Dialect::Cubrid, SecurityAction::AddMember { role, member }) => format!("ALTER USER {} ADD MEMBERS {};", id(role), id(member)),
-        (Dialect::Cubrid, SecurityAction::RemoveMember { role, member }) => format!("ALTER USER {} DROP MEMBERS {};", id(role), id(member)),
+        (Dialect::Cubrid, SecurityAction::AddMember { role, member }) => {
+            format!("ALTER USER {} ADD MEMBERS {};", id(role), id(member))
+        }
+        (Dialect::Cubrid, SecurityAction::RemoveMember { role, member }) => {
+            format!("ALTER USER {} DROP MEMBERS {};", id(role), id(member))
+        }
         // Zen
-        (Dialect::Zen, SecurityAction::CreateUser { name, password: p }) => format!("CREATE USER {} WITH PASSWORD {};", id(name), quoted_pw(password(p)?)),
-        (Dialect::Zen, SecurityAction::SetPassword { name, password: p }) => format!("ALTER USER {} WITH PASSWORD {};", id(name), quoted_pw(p)),
-        (Dialect::Zen, SecurityAction::CreateRole { name }) => format!("CREATE GROUP {};", id(name)),
-        (Dialect::Zen, SecurityAction::Drop { name, kind: PrincipalKind::User }) => format!("DROP USER {};", id(name)),
-        (Dialect::Zen, SecurityAction::Drop { name, kind: PrincipalKind::Role }) => format!("DROP GROUP {};", id(name)),
-        (Dialect::Zen, SecurityAction::AddMember { role, member }) => format!("ALTER GROUP {} ADD USER {};", id(role), id(member)),
-        (Dialect::Zen, SecurityAction::RemoveMember { role, member }) => format!("ALTER GROUP {} DROP USER {};", id(role), id(member)),
-        (Dialect::Zen, SecurityAction::Grant { grantable: true, .. }) => return unsupported_action("Zen no otorga permisos con opción de otorgarlos a otros"),
+        (Dialect::Zen, SecurityAction::CreateUser { name, password: p }) => format!(
+            "CREATE USER {} WITH PASSWORD {};",
+            id(name),
+            quoted_pw(password(p)?)
+        ),
+        (Dialect::Zen, SecurityAction::SetPassword { name, password: p }) => {
+            format!("ALTER USER {} WITH PASSWORD {};", id(name), quoted_pw(p))
+        }
+        (Dialect::Zen, SecurityAction::CreateRole { name }) => {
+            format!("CREATE GROUP {};", id(name))
+        }
+        (
+            Dialect::Zen,
+            SecurityAction::Drop {
+                name,
+                kind: PrincipalKind::User,
+            },
+        ) => format!("DROP USER {};", id(name)),
+        (
+            Dialect::Zen,
+            SecurityAction::Drop {
+                name,
+                kind: PrincipalKind::Role,
+            },
+        ) => format!("DROP GROUP {};", id(name)),
+        (Dialect::Zen, SecurityAction::AddMember { role, member }) => {
+            format!("ALTER GROUP {} ADD USER {};", id(role), id(member))
+        }
+        (Dialect::Zen, SecurityAction::RemoveMember { role, member }) => {
+            format!("ALTER GROUP {} DROP USER {};", id(role), id(member))
+        }
+        (
+            Dialect::Zen,
+            SecurityAction::Grant {
+                grantable: true, ..
+            },
+        ) => return unsupported_action("Zen no otorga permisos con opción de otorgarlos a otros"),
         // Mimer
-        (_, SecurityAction::CreateUser { name, password: p }) => format!("CREATE IDENT {} AS USER USING {};", id(name), lit(password(p)?)),
-        (_, SecurityAction::SetPassword { name, password: p }) => format!("ALTER IDENT {} SET PASSWORD {};", id(name), lit(p)),
+        (_, SecurityAction::CreateUser { name, password: p }) => format!(
+            "CREATE IDENT {} AS USER USING {};",
+            id(name),
+            lit(password(p)?)
+        ),
+        (_, SecurityAction::SetPassword { name, password: p }) => {
+            format!("ALTER IDENT {} SET PASSWORD {};", id(name), lit(p))
+        }
         (_, SecurityAction::CreateRole { name }) => format!("CREATE IDENT {} AS GROUP;", id(name)),
         (_, SecurityAction::Drop { name, .. }) => format!("DROP IDENT {};", id(name)),
-        (_, SecurityAction::AddMember { role, member }) => format!("GRANT MEMBER ON {} TO {};", id(role), id(member)),
-        (_, SecurityAction::RemoveMember { role, member }) => format!("REVOKE MEMBER ON {} FROM {};", id(role), id(member)),
+        (_, SecurityAction::AddMember { role, member }) => {
+            format!("GRANT MEMBER ON {} TO {};", id(role), id(member))
+        }
+        (_, SecurityAction::RemoveMember { role, member }) => {
+            format!("REVOKE MEMBER ON {} FROM {};", id(role), id(member))
+        }
         // GRANT / REVOKE, the same in the three.
-        (_, SecurityAction::Grant { privileges: p, object, to, grantable }) => {
+        (
+            _,
+            SecurityAction::Grant {
+                privileges: p,
+                object,
+                to,
+                grantable,
+            },
+        ) => {
             let on = match object {
                 Some(o) => on(d, o),
                 None if d == Dialect::Cubrid => return Err(dbine_driver::Error::Query("elegí una tabla, una vista o un procedimiento: CUBRID no tiene permisos del sistema".into())),
                 None => String::new(),
             };
-            format!("GRANT {}{on} TO {}{};", privileges(p)?, id(to), option(*grantable))
+            format!(
+                "GRANT {}{on} TO {}{};",
+                privileges(p)?,
+                id(to),
+                option(*grantable)
+            )
         }
-        (_, SecurityAction::Revoke { privileges: p, object, from }) => {
+        (
+            _,
+            SecurityAction::Revoke {
+                privileges: p,
+                object,
+                from,
+            },
+        ) => {
             let on = match object {
                 Some(o) => on(d, o),
-                None if d == Dialect::Cubrid => return Err(dbine_driver::Error::Query("elegí una tabla, una vista o un procedimiento".into())),
+                None if d == Dialect::Cubrid => {
+                    return Err(dbine_driver::Error::Query(
+                        "elegí una tabla, una vista o un procedimiento".into(),
+                    ))
+                }
                 None => String::new(),
             };
             format!("REVOKE {}{on} FROM {};", privileges(p)?, id(from))

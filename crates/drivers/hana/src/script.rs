@@ -20,7 +20,11 @@ pub fn split(sql: &str) -> Vec<String> {
 /// The statements of a script, each with its byte offset in it.
 pub fn pieces(sql: &str) -> Vec<(String, usize)> {
     let chars: Vec<char> = sql.chars().collect();
-    let bytes: Vec<usize> = sql.char_indices().map(|(b, _)| b).chain(std::iter::once(sql.len())).collect();
+    let bytes: Vec<usize> = sql
+        .char_indices()
+        .map(|(b, _)| b)
+        .chain(std::iter::once(sql.len()))
+        .collect();
     let mut seg = 0usize;
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -180,10 +184,10 @@ mod tests {
 
     #[test]
     fn plain_statements() {
-        assert_eq!(split("select 1 from dummy; select ';' from dummy;"), vec![
-            "select 1 from dummy",
-            "select ';' from dummy"
-        ]);
+        assert_eq!(
+            split("select 1 from dummy; select ';' from dummy;"),
+            vec!["select 1 from dummy", "select ';' from dummy"]
+        );
     }
 
     #[test]

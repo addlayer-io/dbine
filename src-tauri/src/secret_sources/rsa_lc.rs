@@ -8,7 +8,9 @@
 //! 1024-bit keys, below what aws-lc-rs's safe wrapper takes (2048 to 8192).
 //! OAEP goes through aws-lc-rs.
 
-use aws_lc_rs::rsa::{OaepPrivateDecryptingKey, PrivateDecryptingKey, OAEP_SHA1_MGF1SHA1, OAEP_SHA256_MGF1SHA256};
+use aws_lc_rs::rsa::{
+    OaepPrivateDecryptingKey, PrivateDecryptingKey, OAEP_SHA1_MGF1SHA1, OAEP_SHA256_MGF1SHA256,
+};
 use rsa::pkcs1::EncodeRsaPrivateKey;
 use rsa::pkcs8::EncodePrivateKey;
 
@@ -26,10 +28,20 @@ pub fn decrypt(key: &rsa::RsaPrivateKey, padding: Padding, ciphertext: &[u8]) ->
         Padding::Pkcs1v15 => pkcs1v15(key, ciphertext),
         Padding::OaepSha1 | Padding::OaepSha256 => {
             let der = key.to_pkcs8_der().ok()?;
-            let key = OaepPrivateDecryptingKey::new(PrivateDecryptingKey::from_pkcs8(der.as_bytes()).ok()?).ok()?;
-            let alg = if matches!(padding, Padding::OaepSha1) { &OAEP_SHA1_MGF1SHA1 } else { &OAEP_SHA256_MGF1SHA256 };
+            let key = OaepPrivateDecryptingKey::new(
+                PrivateDecryptingKey::from_pkcs8(der.as_bytes()).ok()?,
+            )
+            .ok()?;
+            let alg = if matches!(padding, Padding::OaepSha1) {
+                &OAEP_SHA1_MGF1SHA1
+            } else {
+                &OAEP_SHA256_MGF1SHA256
+            };
             let mut out = vec![0u8; key.min_output_size()];
-            let plain = key.decrypt(alg, ciphertext, &mut out, None).ok().map(|p| p.to_vec());
+            let plain = key
+                .decrypt(alg, ciphertext, &mut out, None)
+                .ok()
+                .map(|p| p.to_vec());
             out.iter_mut().for_each(|b| *b = 0);
             plain
         }
@@ -50,7 +62,15 @@ fn pkcs1v15(key: &rsa::RsaPrivateKey, ciphertext: &[u8]) -> Option<Vec<u8>> {
         }
         let mut out = vec![0u8; aws_lc_sys::RSA_size(rsa) as usize];
         let mut n = 0usize;
-        let ok = aws_lc_sys::RSA_decrypt(rsa, &mut n, out.as_mut_ptr(), out.len(), ciphertext.as_ptr(), ciphertext.len(), aws_lc_sys::RSA_PKCS1_PADDING as _);
+        let ok = aws_lc_sys::RSA_decrypt(
+            rsa,
+            &mut n,
+            out.as_mut_ptr(),
+            out.len(),
+            ciphertext.as_ptr(),
+            ciphertext.len(),
+            aws_lc_sys::RSA_PKCS1_PADDING as _,
+        );
         aws_lc_sys::RSA_free(rsa);
         if ok == 1 && n <= out.len() {
             let plain = out[..n].to_vec();

@@ -13,14 +13,24 @@ use dbine_driver::{ConnectionConfig, QueryOutcome};
 use std::time::Duration;
 
 fn env(k: &str) -> Option<String> {
-    std::env::var(format!("DBINE_TEST_DATABRICKS_{k}")).ok().filter(|v| !v.is_empty())
+    std::env::var(format!("DBINE_TEST_DATABRICKS_{k}"))
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 fn cfg() -> Option<ConnectionConfig> {
-    let mut c = ConnectionConfig { driver: "databricks".into(), host: env("HOST")?, database: env("CATALOG")?, ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "databricks".into(),
+        host: env("HOST")?,
+        database: env("CATALOG")?,
+        ..Default::default()
+    };
     c.options.insert("warehouse".into(), env("WAREHOUSE")?);
     c.options.insert("token".into(), env("TOKEN")?);
-    c.options.insert("schema".into(), env("SCHEMA").unwrap_or_else(|| "default".into()));
+    c.options.insert(
+        "schema".into(),
+        env("SCHEMA").unwrap_or_else(|| "default".into()),
+    );
     Some(c)
 }
 
@@ -49,7 +59,12 @@ async fn databricks() {
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_secs(2)).await;
         let list = admin.processes().await.unwrap();
-        if let Some(p) = list.into_iter().find(|p| p.sql.as_deref().unwrap_or("").contains("dbine_processes_test")) {
+        if let Some(p) = list.into_iter().find(|p| {
+            p.sql
+                .as_deref()
+                .unwrap_or("")
+                .contains("dbine_processes_test")
+        }) {
             found = Some(p);
             break;
         }
@@ -59,9 +74,18 @@ async fn databricks() {
     assert!(w.active && !w.own && !w.system, "{w:?}");
 
     admin.cancel_query(&w.id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(60), running).await.expect("the query stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(60), running)
+        .await
+        .expect("the query stopped")
+        .unwrap();
     assert!(r.is_err(), "the query was cancelled");
     let mut out = QueryOutcome::default();
-    worker.execute("SELECT 1", 10, &mut out).await.expect("the session still works");
-    assert!(admin.cancel_query("../../jobs").await.is_err(), "the id is validated");
+    worker
+        .execute("SELECT 1", 10, &mut out)
+        .await
+        .expect("the session still works");
+    assert!(
+        admin.cancel_query("../../jobs").await.is_err(),
+        "the id is validated"
+    );
 }

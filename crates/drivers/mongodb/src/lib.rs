@@ -85,9 +85,10 @@ mod transfer;
 
 use dbine_driver::async_trait;
 use dbine_driver::{
-    kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
-    DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn,
-    MonitorSnapshot, ScriptError, Session, TableSchema,
+    kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
+    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language,
+    MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError,
+    Session, TableSchema,
 };
 use futures::TryStreamExt;
 use mongodb::bson::{doc, Bson, Document};
@@ -95,10 +96,10 @@ use mongodb::error::ErrorKind;
 use mongodb::options::{AuthMechanism, ClientOptions, Credential, ServerAddress, Tls, TlsOptions};
 use mongodb::{Client, Database};
 use shell::{Item, Shape, Stmt};
-use steps::Step;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+use steps::Step;
 
 /// Syntax help for the editor (Spanish, as all UI text).
 pub const QUERY_HELP: &str = "Sintaxis tipo mongosh, una sentencia por línea o separadas con `;`:\n\
@@ -117,9 +118,15 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![
-        Arc::new(MongoDriver { flavor: Flavor::Mongo }),
-        Arc::new(MongoDriver { flavor: Flavor::Ferret }),
-        Arc::new(MongoDriver { flavor: Flavor::DocumentDb }),
+        Arc::new(MongoDriver {
+            flavor: Flavor::Mongo,
+        }),
+        Arc::new(MongoDriver {
+            flavor: Flavor::Ferret,
+        }),
+        Arc::new(MongoDriver {
+            flavor: Flavor::DocumentDb,
+        }),
     ]
 }
 
@@ -192,7 +199,9 @@ fn build_info(flavor: Flavor) -> DriverInfo {
         fields.extend([
             Field::username(),
             Field::password(),
-            Field::new("auth_source", "Base de autenticación", FieldKind::Text).placeholder("admin").advanced(),
+            Field::new("auth_source", "Base de autenticación", FieldKind::Text)
+                .placeholder("admin")
+                .advanced(),
         ]);
     }
     match flavor {
@@ -217,7 +226,9 @@ fn build_info(flavor: Flavor) -> DriverInfo {
                     .advanced(),
             );
             fields.push(Field::encrypt().default_value("true"));
-            fields.push(Field::trust_cert().help("Necesario si te conectás por un túnel (el certificado no coincide con localhost)."));
+            fields.push(Field::trust_cert().help(
+                "Necesario si te conectás por un túnel (el certificado no coincide con localhost).",
+            ));
             fields.push(
                 Field::new("ca_file", "Certificado de la CA de AWS", FieldKind::File)
                     .placeholder("global-bundle.pem")
@@ -276,15 +287,25 @@ const AUTH_KERBEROS: &str = "kerberos";
 
 /// The login the form asks for; `None` without a user (no authentication).
 fn credential(cfg: &ConnectionConfig, flavor: Flavor) -> Result<Option<Credential>> {
-    let user = cfg.username.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    let user = cfg
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
     let kerberos = flavor == Flavor::Mongo && cfg.option("auth") == Some(AUTH_KERBEROS);
     if kerberos {
-        let user = user.ok_or_else(|| Error::AuthFailed("Kerberos necesita el principal (usuario@DOMINIO)".into()))?;
+        let user = user.ok_or_else(|| {
+            Error::AuthFailed("Kerberos necesita el principal (usuario@DOMINIO)".into())
+        })?;
         let mut c = Credential::default();
         c.username = Some(user.to_string());
         c.mechanism = Some(AuthMechanism::Gssapi);
         c.source = Some("$external".into());
-        if let Some(service) = cfg.option("kerberos_service").map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(service) = cfg
+            .option("kerberos_service")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             c.mechanism_properties = Some(doc! { "SERVICE_NAME": service });
         }
         return Ok(Some(c));
@@ -317,10 +338,16 @@ async fn client_options(cfg: &ConnectionConfig, flavor: Flavor) -> Result<Client
 
 async fn base_options(cfg: &ConnectionConfig, flavor: Flavor) -> Result<ClientOptions> {
     if let Some(uri) = cfg.option("connection_string") {
-        return ClientOptions::parse(uri).await.map_err(|e| Error::Connect(format!("cadena de conexión inválida: {e}")));
+        return ClientOptions::parse(uri)
+            .await
+            .map_err(|e| Error::Connect(format!("cadena de conexión inválida: {e}")));
     }
     let mut o = ClientOptions::default();
-    let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
+    let host = if cfg.host.trim().is_empty() {
+        "localhost"
+    } else {
+        cfg.host.trim()
+    };
     o.hosts = host
         .split(',')
         .filter(|h| !h.trim().is_empty())
@@ -329,7 +356,10 @@ async fn base_options(cfg: &ConnectionConfig, flavor: Flavor) -> Result<ClientOp
             if h.contains(':') && !h.starts_with('[') {
                 ServerAddress::parse(h)
             } else {
-                Ok(ServerAddress::Tcp { host: h.to_string(), port: Some(cfg.port_or(27017)) })
+                Ok(ServerAddress::Tcp {
+                    host: h.to_string(),
+                    port: Some(cfg.port_or(27017)),
+                })
             }
         })
         .collect::<std::result::Result<_, _>>()
@@ -340,7 +370,9 @@ async fn base_options(cfg: &ConnectionConfig, flavor: Flavor) -> Result<ClientOp
         None if o.hosts.len() == 1 => o.direct_connection = Some(true),
         None => {}
     }
-    let tls = cfg.encrypt || cfg.option("tls").is_some_and(|v| v == "true") || (flavor == Flavor::DocumentDb && cfg.option("ca_file").is_some());
+    let tls = cfg.encrypt
+        || cfg.option("tls").is_some_and(|v| v == "true")
+        || (flavor == Flavor::DocumentDb && cfg.option("ca_file").is_some());
     if tls {
         let mut t = TlsOptions::default();
         if cfg.trust_server_certificate {
@@ -381,9 +413,16 @@ impl Driver for MongoDriver {
         self.flavor == Flavor::Mongo
     }
 
-    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+    fn index_toggle_script(
+        &self,
+        table: &ObjectRef,
+        index: &dbine_driver::IndexUsage,
+        enable: bool,
+    ) -> Result<dbine_driver::SyncScript> {
         if !self.supports_index_toggle() {
-            return Err(dbine_driver::Error::Unsupported("este motor no deshabilita índices".into()));
+            return Err(dbine_driver::Error::Unsupported(
+                "este motor no deshabilita índices".into(),
+            ));
         }
         index_usage::toggle_script(table, index, enable)
     }
@@ -432,7 +471,11 @@ impl Driver for MongoDriver {
     }
 
     /// The `profile` command, in mongosh form (see `properties`).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(self.flavor, database, changes)
     }
 
@@ -448,7 +491,10 @@ impl Driver for MongoDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -468,19 +514,37 @@ impl Driver for MongoDriver {
 
     /// Collections moved with `renameCollection`, views created again (see
     /// `rename::database_script`).
-    fn rename_database_script(&self, database: &str, new_name: &str, objects: &[dbine_driver::rename::DatabaseObject]) -> Result<dbine_driver::SyncScript> {
+    fn rename_database_script(
+        &self,
+        database: &str,
+        new_name: &str,
+        objects: &[dbine_driver::rename::DatabaseObject],
+    ) -> Result<dbine_driver::SyncScript> {
         rename::database_script(self.flavor, database, new_name, objects)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
         ddl::insert_script(target, columns, rows)
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::update_script(target, changes)
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         ddl::delete_script(target, keys)
     }
 
@@ -492,7 +556,11 @@ impl Driver for MongoDriver {
         security::script(self.flavor, action)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -500,7 +568,11 @@ impl Driver for MongoDriver {
         ddl::sorted_browse(query, sort)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let mut o = client_options(cfg, self.flavor).await?;
         o.app_name = Some("DBine".into());
         o.connect_timeout = Some(TIMEOUT);
@@ -514,10 +586,26 @@ impl Driver for MongoDriver {
             .unwrap_or_else(|| "test".into());
         let client = Client::with_options(o).map_err(err)?;
         // The client is lazy: a ping proves the server and the login.
-        client.database("admin").run_command(doc! { "ping": 1 }).await.map_err(err)?;
+        client
+            .database("admin")
+            .run_command(doc! { "ping": 1 })
+            .await
+            .map_err(err)?;
         static SEQ: AtomicU64 = AtomicU64::new(0);
-        let tag = format!("dbine-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed));
-        Ok(Box::new(MongoSession { db: client.database(&db_name), client, read_only: cfg.read_only, tag, flavor: self.flavor, profiler: None, interrupted: Arc::default() }))
+        let tag = format!(
+            "dbine-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        );
+        Ok(Box::new(MongoSession {
+            db: client.database(&db_name),
+            client,
+            read_only: cfg.read_only,
+            tag,
+            flavor: self.flavor,
+            profiler: None,
+            interrupted: Arc::default(),
+        }))
     }
 }
 
@@ -575,9 +663,19 @@ impl MongoSession {
         let admin = self.client.database("admin");
         let docs: Vec<Document> = match what {
             "dbs" | "databases" => {
-                let r = admin.run_command(doc! { "listDatabases": 1 }).await.map_err(cmd_err)?;
-                let mut v: Vec<Document> = r.get_array("databases").map(|a| a.iter().filter_map(Bson::as_document).cloned().collect()).unwrap_or_default();
-                v.sort_by(|a, b| a.get_str("name").unwrap_or("").cmp(b.get_str("name").unwrap_or("")));
+                let r = admin
+                    .run_command(doc! { "listDatabases": 1 })
+                    .await
+                    .map_err(cmd_err)?;
+                let mut v: Vec<Document> = r
+                    .get_array("databases")
+                    .map(|a| a.iter().filter_map(Bson::as_document).cloned().collect())
+                    .unwrap_or_default();
+                v.sort_by(|a, b| {
+                    a.get_str("name")
+                        .unwrap_or("")
+                        .cmp(b.get_str("name").unwrap_or(""))
+                });
                 v
             }
             "collections" | "tables" => {
@@ -588,18 +686,38 @@ impl MongoSession {
                         names.push(doc! { "name": n });
                     }
                 }
-                names.sort_by(|a, b| a.get_str("name").unwrap_or("").cmp(b.get_str("name").unwrap_or("")));
+                names.sort_by(|a, b| {
+                    a.get_str("name")
+                        .unwrap_or("")
+                        .cmp(b.get_str("name").unwrap_or(""))
+                });
                 names
             }
             "users" => {
-                let r = self.db.run_command(doc! { "usersInfo": 1 }).await.map_err(cmd_err)?;
-                r.get_array("users").map(|a| a.iter().filter_map(Bson::as_document).cloned().collect()).unwrap_or_default()
+                let r = self
+                    .db
+                    .run_command(doc! { "usersInfo": 1 })
+                    .await
+                    .map_err(cmd_err)?;
+                r.get_array("users")
+                    .map(|a| a.iter().filter_map(Bson::as_document).cloned().collect())
+                    .unwrap_or_default()
             }
             "roles" => {
-                let r = self.db.run_command(doc! { "rolesInfo": 1, "showBuiltinRoles": true }).await.map_err(cmd_err)?;
-                r.get_array("roles").map(|a| a.iter().filter_map(Bson::as_document).cloned().collect()).unwrap_or_default()
+                let r = self
+                    .db
+                    .run_command(doc! { "rolesInfo": 1, "showBuiltinRoles": true })
+                    .await
+                    .map_err(cmd_err)?;
+                r.get_array("roles")
+                    .map(|a| a.iter().filter_map(Bson::as_document).cloned().collect())
+                    .unwrap_or_default()
             }
-            other => return Err(Error::Unsupported(format!("`show {other}` no está disponible (sí show dbs, collections, users y roles)."))),
+            other => {
+                return Err(Error::Unsupported(format!(
+                    "`show {other}` no está disponible (sí show dbs, collections, users y roles)."
+                )))
+            }
         };
         push_docs(out, &docs, max_rows);
         Ok(())
@@ -618,7 +736,11 @@ impl MongoSession {
     }
 
     async fn run(&self, stmt: Stmt, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let db = if stmt.admin { self.client.database("admin") } else { self.db.clone() };
+        let db = if stmt.admin {
+            self.client.database("admin")
+        } else {
+            self.db.clone()
+        };
         let mut cmd = stmt.cmd;
         if stmt.shape == Shape::Rename {
             // `renameCollection` takes namespaces: the session's database.
@@ -675,7 +797,10 @@ impl MongoSession {
             }
             Shape::Distinct(key) => {
                 let r = db.run_command(cmd).await.map_err(cmd_err)?;
-                out.begin_result(vec![ResultColumn { name: key, type_name: String::new() }]);
+                out.begin_result(vec![ResultColumn {
+                    name: key,
+                    type_name: String::new(),
+                }]);
                 for v in r.get_array("values").map(|a| a.as_slice()).unwrap_or(&[]) {
                     out.push_row(vec![convert::cell(v)], max_rows);
                 }
@@ -685,7 +810,8 @@ impl MongoSession {
                 let r = db.run_command(cmd).await.map_err(cmd_err)?;
                 check_write_errors(&r)?;
                 let n = if upd {
-                    count_of(&r, "nModified") + r.get_array("upserted").map(|a| a.len() as u64).unwrap_or(0)
+                    count_of(&r, "nModified")
+                        + r.get_array("upserted").map(|a| a.len() as u64).unwrap_or(0)
                 } else {
                     count_of(&r, "n")
                 };
@@ -701,7 +827,9 @@ impl MongoSession {
                         out.info("La colección no existía; no se borró nada.");
                         return Ok(());
                     }
-                    Err(e) if stmt.shape == Shape::CreateIfMissing && command_code(&e) == Some(48) => {
+                    Err(e)
+                        if stmt.shape == Shape::CreateIfMissing && command_code(&e) == Some(48) =>
+                    {
                         out.info("La colección ya existía; se dejó como estaba.");
                         return Ok(());
                     }
@@ -728,9 +856,10 @@ impl MongoSession {
 /// message ends with the code name, as mongosh shows it).
 fn cmd_err(e: mongodb::error::Error) -> Error {
     match e.kind.as_ref() {
-        ErrorKind::Command(c) if c.code != 18 => {
-            Error::Statement(Box::new(ScriptError::new(format!("{} ({})", c.message, c.code_name)).with_code(c.code.to_string())))
-        }
+        ErrorKind::Command(c) if c.code != 18 => Error::Statement(Box::new(
+            ScriptError::new(format!("{} ({})", c.message, c.code_name))
+                .with_code(c.code.to_string()),
+        )),
         _ => err(e),
     }
 }
@@ -759,12 +888,20 @@ fn count_of(r: &Document, key: &str) -> u64 {
 fn check_write_errors(r: &Document) -> Result<()> {
     let fail = |d: &Document| {
         let mut se = ScriptError::new(d.get_str("errmsg").unwrap_or("error de escritura"));
-        if let Some(code) = d.get("code").and_then(|c| c.as_i32().or_else(|| c.as_i64().map(|n| n as i32))) {
+        if let Some(code) = d
+            .get("code")
+            .and_then(|c| c.as_i32().or_else(|| c.as_i64().map(|n| n as i32)))
+        {
             se = se.with_code(code.to_string());
         }
         Err(Error::Statement(Box::new(se)))
     };
-    if let Some(e) = r.get_array("writeErrors").ok().and_then(|a| a.first()).and_then(Bson::as_document) {
+    if let Some(e) = r
+        .get_array("writeErrors")
+        .ok()
+        .and_then(|a| a.first())
+        .and_then(Bson::as_document)
+    {
         return fail(e);
     }
     if let Ok(e) = r.get_document("writeConcernError") {
@@ -774,7 +911,10 @@ fn check_write_errors(r: &Document) -> Result<()> {
 }
 
 fn scalar(out: &mut QueryOutcome, name: &str, v: &Bson) -> Result<()> {
-    out.begin_result(vec![ResultColumn { name: name.into(), type_name: convert::type_name(v).into() }]);
+    out.begin_result(vec![ResultColumn {
+        name: name.into(),
+        type_name: convert::type_name(v).into(),
+    }]);
     out.push_row(vec![convert::cell(v)], usize::MAX);
     Ok(())
 }
@@ -782,21 +922,39 @@ fn scalar(out: &mut QueryOutcome, name: &str, v: &Bson) -> Result<()> {
 /// One row per document, columns = the union of their keys.
 fn push_docs(out: &mut QueryOutcome, docs: &[Document], max_rows: usize) {
     let keys = convert::union_keys(docs);
-    out.begin_result(keys.iter().map(|k| ResultColumn { name: k.clone(), type_name: String::new() }).collect());
+    out.begin_result(
+        keys.iter()
+            .map(|k| ResultColumn {
+                name: k.clone(),
+                type_name: String::new(),
+            })
+            .collect(),
+    );
     for d in docs {
-        out.push_row(keys.iter().map(|k| d.get(k).map_or(serde_json::Value::Null, convert::cell)).collect(), max_rows);
+        out.push_row(
+            keys.iter()
+                .map(|k| d.get(k).map_or(serde_json::Value::Null, convert::cell))
+                .collect(),
+            max_rows,
+        );
     }
 }
 
 /// `db.<name>.find({}).limit(n)`, or `db.getCollection("…")` for names
 /// that aren't plain identifiers.
 fn browse_text(name: &str, limit: u32) -> String {
-    let plain = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if plain {
         format!("db.{name}.find({{}}).limit({limit})")
     } else {
-        format!("db.getCollection({}).find({{}}).limit({limit})", serde_json::Value::String(name.into()))
+        format!(
+            "db.getCollection({}).find({{}}).limit({limit})",
+            serde_json::Value::String(name.into())
+        )
     }
 }
 
@@ -815,10 +973,14 @@ async fn kill_tagged(client: Client, tag: String) {
         { "command.comment": tag.as_str() },
         { "cursor.originatingCommand.comment": tag.as_str() },
     ] };
-    let Ok(r) = admin.run_command(filter).await else { return };
+    let Ok(r) = admin.run_command(filter).await else {
+        return;
+    };
     for op in r.get_array("inprog").map(|a| a.as_slice()).unwrap_or(&[]) {
         if let Some(id) = op.as_document().and_then(|d| d.get("opid")) {
-            let _ = admin.run_command(doc! { "killOp": 1, "op": id.clone() }).await;
+            let _ = admin
+                .run_command(doc! { "killOp": 1, "op": id.clone() })
+                .await;
         }
     }
 }
@@ -826,13 +988,29 @@ async fn kill_tagged(client: Client, tag: String) {
 #[async_trait]
 impl Session for MongoSession {
     async fn server_version(&mut self) -> Result<String> {
-        let r = self.client.database("admin").run_command(doc! { "buildInfo": 1 }).await.map_err(err)?;
+        let r = self
+            .client
+            .database("admin")
+            .run_command(doc! { "buildInfo": 1 })
+            .await
+            .map_err(err)?;
         let version = r.get_str("version").unwrap_or("?");
-        Ok(match (self.flavor, r.get_document("ferretdb").and_then(|f| f.get_str("version"))) {
-            (_, Ok(fv)) => format!("FerretDB {} (compatible con MongoDB {version})", fv.trim_start_matches('v')),
-            (Flavor::DocumentDb, _) => format!("Amazon DocumentDB (compatible con MongoDB {version})"),
-            _ => format!("MongoDB {version}"),
-        })
+        Ok(
+            match (
+                self.flavor,
+                r.get_document("ferretdb")
+                    .and_then(|f| f.get_str("version")),
+            ) {
+                (_, Ok(fv)) => format!(
+                    "FerretDB {} (compatible con MongoDB {version})",
+                    fv.trim_start_matches('v')
+                ),
+                (Flavor::DocumentDb, _) => {
+                    format!("Amazon DocumentDB (compatible con MongoDB {version})")
+                }
+                _ => format!("MongoDB {version}"),
+            },
+        )
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
@@ -857,14 +1035,20 @@ impl Session for MongoSession {
         processes::cancel(&self.client, self.flavor, &self.tag, id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -877,7 +1061,11 @@ impl Session for MongoSession {
         }
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -924,7 +1112,9 @@ impl Session for MongoSession {
                 Ok(v)
             }
             // Without the privilege, at least the session's database.
-            Err(e) if matches!(e.kind.as_ref(), ErrorKind::Command(_)) => Ok(vec![self.db.name().to_string()]),
+            Err(e) if matches!(e.kind.as_ref(), ErrorKind::Command(_)) => {
+                Ok(vec![self.db.name().to_string()])
+            }
             Err(e) => Err(err(e)),
         }
     }
@@ -948,8 +1138,17 @@ impl Session for MongoSession {
                 if name.starts_with("system.") {
                     return None;
                 }
-                let kind = if d.get_str("type") == Ok("view") { kinds::VIEW } else { kinds::COLLECTION };
-                Some(DbObject { kind: kind.into(), schema: None, name: name.into(), parent: None })
+                let kind = if d.get_str("type") == Ok("view") {
+                    kinds::VIEW
+                } else {
+                    kinds::COLLECTION
+                };
+                Some(DbObject {
+                    kind: kind.into(),
+                    schema: None,
+                    name: name.into(),
+                    parent: None,
+                })
             })
             .collect();
         v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -963,14 +1162,27 @@ impl Session for MongoSession {
     }
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
-        let spec = self.first_batch(doc! { "listCollections": 1, "filter": { "name": &obj.name } }, 1).await?;
-        let Some(mut spec) = spec.into_iter().next() else { return Ok(None) };
+        let spec = self
+            .first_batch(
+                doc! { "listCollections": 1, "filter": { "name": &obj.name } },
+                1,
+            )
+            .await?;
+        let Some(mut spec) = spec.into_iter().next() else {
+            return Ok(None);
+        };
         spec.remove("idIndex");
         // A view: the command that creates it (what the schema compare runs).
         if spec.get_str("type") == Ok("view") {
-            return Ok(Some(ddl::view_definition(&obj.name, spec.get_document("options").ok())));
+            return Ok(Some(ddl::view_definition(
+                &obj.name,
+                spec.get_document("options").ok(),
+            )));
         }
-        if let Ok(ix) = self.first_batch(doc! { "listIndexes": &obj.name }, usize::MAX).await {
+        if let Ok(ix) = self
+            .first_batch(doc! { "listIndexes": &obj.name }, usize::MAX)
+            .await
+        {
             spec.insert("indexes", ix);
         }
         let v = Bson::Document(spec).into_relaxed_extjson();
@@ -984,8 +1196,13 @@ impl Session for MongoSession {
     /// As `mongosh --file`: a script that doesn't parse runs nothing, and
     /// the first failing statement stops it.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let units = shell::parse_units(text)
-            .map_err(|e| Error::Statement(Box::new(ScriptError::new(e.message).at_offset(e.offset).at_line(e.line))))?;
+        let units = shell::parse_units(text).map_err(|e| {
+            Error::Statement(Box::new(
+                ScriptError::new(e.message)
+                    .at_offset(e.offset)
+                    .at_line(e.line),
+            ))
+        })?;
         if units.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
@@ -1001,7 +1218,13 @@ impl Session for MongoSession {
                 Item::Use(name) => self.use_db(&name, out),
                 Item::Show(what) => self.show(&what, max_rows, out).await,
             };
-            let r = r.map_err(|e| if self.interrupted.load(Ordering::SeqCst) { Error::Cancelled } else { e });
+            let r = r.map_err(|e| {
+                if self.interrupted.load(Ordering::SeqCst) {
+                    Error::Cancelled
+                } else {
+                    e
+                }
+            });
             step.end(out, r)?;
         }
         Ok(())
@@ -1013,7 +1236,13 @@ impl Session for MongoSession {
     /// delete or findAndModify, so a write's figures come from that dry run
     /// and the write itself runs once afterwards. Aggregations with
     /// `$out`/`$merge` only get the `queryPlanner` plan.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let stmts = shell::parse_script_text(text).map_err(Error::Query)?;
         if stmts.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
@@ -1021,7 +1250,9 @@ impl Session for MongoSession {
         for (src, stmt) in stmts {
             // An explicit `.explain()` / `{ explain: … }`: plan its command.
             let stmt = match stmt.cmd.iter().next() {
-                Some((k, Bson::Document(inner))) if k == "explain" => shell::command_stmt(inner.clone(), stmt.admin),
+                Some((k, Bson::Document(inner))) if k == "explain" => {
+                    shell::command_stmt(inner.clone(), stmt.admin)
+                }
                 _ => stmt,
             };
             let writes = shell::write_reason(&stmt.cmd);
@@ -1032,9 +1263,17 @@ impl Session for MongoSession {
                     )));
                 }
             }
-            let name = stmt.cmd.keys().next().map(|k| k.to_ascii_lowercase()).unwrap_or_default();
+            let name = stmt
+                .cmd
+                .keys()
+                .next()
+                .map(|k| k.to_ascii_lowercase())
+                .unwrap_or_default();
             if !plan::explainable(&name) {
-                out.info(format!("`{}`: el comando {name} no tiene plan de ejecución.", clip(&src, 80)));
+                out.info(format!(
+                    "`{}`: el comando {name} no tiene plan de ejecución.",
+                    clip(&src, 80)
+                ));
                 if analyze {
                     self.run(stmt, max_rows, out).await?;
                 }
@@ -1042,8 +1281,16 @@ impl Session for MongoSession {
             }
             let pipeline_writes = name == "aggregate" && writes.is_some();
             let actual = analyze && !pipeline_writes;
-            let verbosity = if actual { "executionStats" } else { "queryPlanner" };
-            let db = if stmt.admin { self.client.database("admin") } else { self.db.clone() };
+            let verbosity = if actual {
+                "executionStats"
+            } else {
+                "queryPlanner"
+            };
+            let db = if stmt.admin {
+                self.client.database("admin")
+            } else {
+                self.db.clone()
+            };
             let reply = db
                 .run_command(doc! { "explain": stmt.cmd.clone(), "verbosity": verbosity })
                 .await
@@ -1061,10 +1308,17 @@ impl Session for MongoSession {
     /// documents (plus those a `$jsonSchema` validator declares), `_id` as
     /// primary key, the indexes and the creation options.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let infos = self.first_batch(doc! { "listCollections": 1, "authorizedCollections": true }, usize::MAX).await?;
+        let infos = self
+            .first_batch(
+                doc! { "listCollections": 1, "authorizedCollections": true },
+                usize::MAX,
+            )
+            .await?;
         let mut out = Vec::new();
         for info in infos {
-            let Ok(name) = info.get_str("name") else { continue };
+            let Ok(name) = info.get_str("name") else {
+                continue;
+            };
             if name.starts_with("system.") {
                 continue;
             }
@@ -1076,9 +1330,20 @@ impl Session for MongoSession {
                 .map(|docs| convert::infer_columns(&docs))
                 .unwrap_or_default()
                 .into_iter()
-                .map(|c| ColumnDef { name: c.name, data_type: c.data_type, nullable: c.nullable, ..Default::default() })
+                .map(|c| ColumnDef {
+                    name: c.name,
+                    data_type: c.data_type,
+                    nullable: c.nullable,
+                    ..Default::default()
+                })
                 .collect();
-            let indexes = if view { Vec::new() } else { self.first_batch(doc! { "listIndexes": name }, usize::MAX).await.unwrap_or_default() };
+            let indexes = if view {
+                Vec::new()
+            } else {
+                self.first_batch(doc! { "listIndexes": name }, usize::MAX)
+                    .await
+                    .unwrap_or_default()
+            };
             out.push(ddl::table_schema(&info, columns, &indexes));
         }
         out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -1095,22 +1360,35 @@ impl Session for MongoSession {
         if names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
             return Err(Error::Query(format!("la base «{name}» ya existe")));
         }
-        self.client.database(name).create_collection("_dbine").await.map_err(err)
+        self.client
+            .database(name)
+            .create_collection("_dbine")
+            .await
+            .map_err(err)
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         self.refuse_if_read_only("Conexión de solo lectura: no se puede borrar una base.")?;
         if ddl::is_system_database(name) {
-            return Err(Error::Query(format!("«{name}» es una base del sistema de MongoDB y no se borra")));
+            return Err(Error::Query(format!(
+                "«{name}» es una base del sistema de MongoDB y no se borra"
+            )));
         }
         self.client.database(name).drop().await.map_err(err)
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -1138,7 +1416,10 @@ impl Session for MongoSession {
         permissions::check(self, database).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         self.index_usage_report(table).await
     }
 }
@@ -1150,7 +1431,10 @@ mod tests {
     #[test]
     fn browse_query_quotes_odd_names() {
         assert_eq!(browse_text("users", 50), "db.users.find({}).limit(50)");
-        assert_eq!(browse_text("my-coll", 50), "db.getCollection(\"my-coll\").find({}).limit(50)");
+        assert_eq!(
+            browse_text("my-coll", 50),
+            "db.getCollection(\"my-coll\").find({}).limit(50)"
+        );
         // What browse_query writes, the parser reads back.
         for n in ["users", "my-coll", "a.b", "stats", "getCollection"] {
             let st = shell::parse_script(&browse_text(n, 5)).unwrap();
@@ -1160,26 +1444,52 @@ mod tests {
 
     #[test]
     fn kerberos_logins() {
-        let mut cfg = ConnectionConfig { username: Some("ana@CONTOSO.LOCAL".into()), password: Some("x".into()), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            username: Some("ana@CONTOSO.LOCAL".into()),
+            password: Some("x".into()),
+            ..Default::default()
+        };
         // Unchanged: user and password, SCRAM by default.
         let c = credential(&cfg, Flavor::Mongo).unwrap().unwrap();
         assert_eq!((c.mechanism, c.password.as_deref()), (None, Some("x")));
         cfg.options.insert("auth".into(), AUTH_KERBEROS.into());
-        cfg.options.insert("kerberos_service".into(), "mongosvc".into());
+        cfg.options
+            .insert("kerberos_service".into(), "mongosvc".into());
         let c = credential(&cfg, Flavor::Mongo).unwrap().unwrap();
         assert_eq!(c.mechanism, Some(AuthMechanism::Gssapi));
-        assert_eq!((c.username.as_deref(), c.password, c.source.as_deref()), (Some("ana@CONTOSO.LOCAL"), None, Some("$external")));
-        assert_eq!(c.mechanism_properties.unwrap().get_str("SERVICE_NAME"), Ok("mongosvc"));
+        assert_eq!(
+            (c.username.as_deref(), c.password, c.source.as_deref()),
+            (Some("ana@CONTOSO.LOCAL"), None, Some("$external"))
+        );
+        assert_eq!(
+            c.mechanism_properties.unwrap().get_str("SERVICE_NAME"),
+            Ok("mongosvc")
+        );
         // Only MongoDB offers it.
-        assert_eq!(credential(&cfg, Flavor::Ferret).unwrap().unwrap().mechanism, None);
+        assert_eq!(
+            credential(&cfg, Flavor::Ferret).unwrap().unwrap().mechanism,
+            None
+        );
         cfg.username = None;
-        assert!(matches!(credential(&cfg, Flavor::Mongo), Err(Error::AuthFailed(_))));
+        assert!(matches!(
+            credential(&cfg, Flavor::Mongo),
+            Err(Error::AuthFailed(_))
+        ));
         // The form: the password and auth database only for passwords.
         let info = build_info(Flavor::Mongo);
-        let when = |k: &str| info.fields.iter().find(|f| f.key == k).and_then(|f| f.when.as_ref()).map(|w| w.values.clone());
+        let when = |k: &str| {
+            info.fields
+                .iter()
+                .find(|f| f.key == k)
+                .and_then(|f| f.when.as_ref())
+                .map(|w| w.values.clone())
+        };
         assert_eq!(when("password"), Some(vec![AUTH_PASSWORD]));
         assert_eq!(when("kerberos_service"), Some(vec![AUTH_KERBEROS]));
-        assert!(build_info(Flavor::DocumentDb).fields.iter().all(|f| f.key != "auth" && f.when.is_none()));
+        assert!(build_info(Flavor::DocumentDb)
+            .fields
+            .iter()
+            .all(|f| f.key != "auth" && f.when.is_none()));
     }
 
     #[test]
@@ -1187,19 +1497,33 @@ mod tests {
         let ids: Vec<&str> = drivers().iter().map(|d| d.info().id).collect();
         assert_eq!(ids, ["mongodb", "ferretdb", "documentdb"]);
         for f in [Flavor::Mongo, Flavor::Ferret, Flavor::DocumentDb] {
-            assert!(info(f).fields.iter().any(|x| x.key == "connection_string" && x.secret));
+            assert!(info(f)
+                .fields
+                .iter()
+                .any(|x| x.key == "connection_string" && x.secret));
         }
-        assert!(info(Flavor::DocumentDb).fields.iter().any(|x| x.key == "ca_file"));
+        assert!(info(Flavor::DocumentDb)
+            .fields
+            .iter()
+            .any(|x| x.key == "ca_file"));
     }
 
     #[tokio::test]
     async fn documentdb_disables_retryable_writes() {
-        let mut c = ConnectionConfig { driver: "documentdb".into(), host: "h".into(), ..Default::default() };
-        c.options.insert("ca_file".into(), "/tmp/global-bundle.pem".into());
+        let mut c = ConnectionConfig {
+            driver: "documentdb".into(),
+            host: "h".into(),
+            ..Default::default()
+        };
+        c.options
+            .insert("ca_file".into(), "/tmp/global-bundle.pem".into());
         let o = client_options(&c, Flavor::DocumentDb).await.unwrap();
         assert_eq!(o.retry_writes, Some(false));
         match o.tls {
-            Some(Tls::Enabled(t)) => assert_eq!(t.ca_file_path.as_deref(), Some(std::path::Path::new("/tmp/global-bundle.pem"))),
+            Some(Tls::Enabled(t)) => assert_eq!(
+                t.ca_file_path.as_deref(),
+                Some(std::path::Path::new("/tmp/global-bundle.pem"))
+            ),
             _ => panic!("TLS expected"),
         }
         let o = client_options(&c, Flavor::Mongo).await.unwrap();

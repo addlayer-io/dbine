@@ -32,12 +32,17 @@ fn enrich(n: &mut PlanNode) {
                     _ => name.to_string(),
                 });
                 let tail = rest.rsplit('"').next().unwrap_or_default().trim();
-                n.op = format!("{}{}", kind, if tail.is_empty() { "" } else { tail }).trim().to_string();
+                n.op = format!("{}{}", kind, if tail.is_empty() { "" } else { tail })
+                    .trim()
+                    .to_string();
             }
         }
     }
     // `Sort (record length: 84, key length: 12)` → props.
-    if let Some((op, args)) = n.op.split_once(" (").filter(|(_, a)| a.ends_with(')') && a.contains(": ")) {
+    if let Some((op, args)) =
+        n.op.split_once(" (")
+            .filter(|(_, a)| a.ends_with(')') && a.contains(": "))
+    {
         let args = args.trim_end_matches(')').to_string();
         n.op = op.to_string();
         for a in args.split(", ") {
@@ -65,7 +70,10 @@ mod tests {
         assert_eq!(root.op, "Select Expression");
         let sort = &root.children[0];
         assert_eq!(sort.op, "Sort");
-        assert_eq!(sort.props[0], ("record length".to_string(), "84".to_string()));
+        assert_eq!(
+            sort.props[0],
+            ("record length".to_string(), "84".to_string())
+        );
         let join = &sort.children[0];
         assert_eq!(join.op, "Nested Loop Join (inner)");
         let scan = &join.children[0].children[0];
@@ -75,6 +83,9 @@ mod tests {
         let by_id = &join.children[1].children[0];
         assert_eq!(by_id.object.as_deref(), Some("T"));
         assert_eq!(by_id.op, "Table Access By ID");
-        assert_eq!(by_id.children[0].children[0].object.as_deref(), Some("RDB$PRIMARY1"));
+        assert_eq!(
+            by_id.children[0].children[0].object.as_deref(),
+            Some("RDB$PRIMARY1")
+        );
     }
 }

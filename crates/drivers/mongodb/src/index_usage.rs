@@ -31,8 +31,8 @@
 //!   maintained and the planner ignores it, so unhiding is instant. `_id_`
 //!   can't be hidden. FerretDB and DocumentDB have no hidden indexes.
 
-use crate::{Flavor, MongoSession};
 use crate::ddl::q;
+use crate::{Flavor, MongoSession};
 use dbine_driver::{Error, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript};
 use mongodb::bson::{doc, Bson, Document};
 use std::collections::HashMap;
@@ -58,7 +58,10 @@ fn as_u64(b: &Bson) -> u64 {
 
 fn date_text(b: &Bson) -> Option<String> {
     match b {
-        Bson::DateTime(d) => d.try_to_rfc3339_string().ok().map(|s| s.replace('T', " ").chars().take(19).collect()),
+        Bson::DateTime(d) => d
+            .try_to_rfc3339_string()
+            .ok()
+            .map(|s| s.replace('T', " ").chars().take(19).collect()),
         _ => None,
     }
 }
@@ -67,7 +70,9 @@ fn date_text(b: &Bson) -> Option<String> {
 pub(crate) fn accesses(rows: &[Document]) -> HashMap<String, Access> {
     let mut out: HashMap<String, Access> = HashMap::new();
     for r in rows {
-        let Ok(name) = r.get_str("name") else { continue };
+        let Ok(name) = r.get_str("name") else {
+            continue;
+        };
         let a = out.entry(name.to_string()).or_default();
         if let Ok(acc) = r.get_document("accesses") {
             a.ops += acc.get("ops").map(as_u64).unwrap_or(0);
@@ -123,7 +128,15 @@ pub(crate) fn index_of(spec: &Document) -> Option<IndexUsage> {
     }
     let clustered = spec.get_bool("clustered").unwrap_or(false);
     let primary_key = name == "_id_" || clustered;
-    let mut kind = if kinds.is_empty() { if clustered { "CLUSTERED".to_string() } else { "BTREE".to_string() } } else { kinds.join(" ") };
+    let mut kind = if kinds.is_empty() {
+        if clustered {
+            "CLUSTERED".to_string()
+        } else {
+            "BTREE".to_string()
+        }
+    } else {
+        kinds.join(" ")
+    };
     if spec.get("expireAfterSeconds").is_some() {
         kind.push_str(" TTL");
     }
@@ -149,18 +162,34 @@ pub(crate) fn index_of(spec: &Document) -> Option<IndexUsage> {
 }
 
 /// Hides (`enable` false) or unhides `index` of `table`, in shell syntax.
-pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+pub(crate) fn toggle_script(
+    table: &ObjectRef,
+    index: &IndexUsage,
+    enable: bool,
+) -> Result<SyncScript> {
     if index.name == "_id_" {
-        return Err(Error::Unsupported("el índice _id_ no se puede deshabilitar".into()));
+        return Err(Error::Unsupported(
+            "el índice _id_ no se puede deshabilitar".into(),
+        ));
     }
     let method = if enable { "unhideIndex" } else { "hideIndex" };
-    let statements = vec![format!("db.getCollection({}).{method}({})", q(&table.name), q(&index.name))];
+    let statements = vec![format!(
+        "db.getCollection({}).{method}({})",
+        q(&table.name),
+        q(&index.name)
+    )];
     let warnings = if enable {
         Vec::new()
     } else {
-        vec!["El índice se sigue manteniendo en cada escritura; el planificador deja de usarlo.".to_string()]
+        vec![
+            "El índice se sigue manteniendo en cada escritura; el planificador deja de usarlo."
+                .to_string(),
+        ]
     };
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 /// What the note says when the counters were read: why there are no writes.
@@ -168,7 +197,12 @@ pub(crate) const NO_WRITES_NOTE: &str = "MongoDB no cuenta escrituras por índic
 
 /// The report from the reads. `stats` `None`: `$indexStats` was refused
 /// (`note` says why).
-pub(crate) fn assemble(specs: &[Document], stats: Option<&HashMap<String, Access>>, sizes: Option<&Document>, note: Option<String>) -> IndexUsageReport {
+pub(crate) fn assemble(
+    specs: &[Document],
+    stats: Option<&HashMap<String, Access>>,
+    sizes: Option<&Document>,
+    note: Option<String>,
+) -> IndexUsageReport {
     let mut since: Option<String> = None;
     let indexes = specs
         .iter()
@@ -182,12 +216,23 @@ pub(crate) fn assemble(specs: &[Document], stats: Option<&HashMap<String, Access
                     }
                 }
             }
-            ix.size_kb = sizes.and_then(|d| d.get(&ix.name)).map(as_u64).map(|b| b.div_ceil(1024));
+            ix.size_kb = sizes
+                .and_then(|d| d.get(&ix.name))
+                .map(as_u64)
+                .map(|b| b.div_ceil(1024));
             ix
         })
         .collect();
     let note = note.or_else(|| stats.is_some().then(|| NO_WRITES_NOTE.to_string()));
-    IndexUsageReport { since, stats_available: stats.is_some(), note, indexes, foreign_keys: Vec::new(), seek_scan_split: false, writes_counted: false }
+    IndexUsageReport {
+        since,
+        stats_available: stats.is_some(),
+        note,
+        indexes,
+        foreign_keys: Vec::new(),
+        seek_scan_split: false,
+        writes_counted: false,
+    }
 }
 
 /// Why `$indexStats` failed, for the note.
@@ -203,9 +248,16 @@ pub(crate) fn stats_note(e: &mongodb::error::Error) -> String {
 }
 
 impl MongoSession {
-    async fn aggregate_all(&self, coll: &str, pipeline: Vec<Document>) -> std::result::Result<Vec<Document>, mongodb::error::Error> {
+    async fn aggregate_all(
+        &self,
+        coll: &str,
+        pipeline: Vec<Document>,
+    ) -> std::result::Result<Vec<Document>, mongodb::error::Error> {
         use futures::TryStreamExt;
-        let mut cur = self.db.run_cursor_command(doc! { "aggregate": coll, "pipeline": pipeline, "cursor": {} }).await?;
+        let mut cur = self
+            .db
+            .run_cursor_command(doc! { "aggregate": coll, "pipeline": pipeline, "cursor": {} })
+            .await?;
         let mut out = Vec::new();
         while let Some(d) = cur.try_next().await? {
             out.push(d);
@@ -213,7 +265,10 @@ impl MongoSession {
         Ok(out)
     }
 
-    pub(crate) async fn index_usage_report(&self, obj: &ObjectRef) -> Result<Option<IndexUsageReport>> {
+    pub(crate) async fn index_usage_report(
+        &self,
+        obj: &ObjectRef,
+    ) -> Result<Option<IndexUsageReport>> {
         let specs = match self.first_batch(doc! { "listIndexes": &obj.name }, usize::MAX).await {
             Ok(s) => s,
             // A view or a missing collection: nothing to report.
@@ -226,16 +281,28 @@ impl MongoSession {
             // FerretDB answers `$indexStats` with every counter at zero.
             (None, Some("FerretDB no cuenta el uso de los índices ($indexStats devuelve ceros): se listan sin contadores.".to_string()))
         } else {
-            match self.aggregate_all(&obj.name, vec![doc! { "$indexStats": {} }]).await {
+            match self
+                .aggregate_all(&obj.name, vec![doc! { "$indexStats": {} }])
+                .await
+            {
                 Ok(rows) => (Some(accesses(&rows)), None),
                 Err(e) => (None, Some(stats_note(&e))),
             }
         };
-        let coll = self.aggregate_all(&obj.name, vec![doc! { "$collStats": { "storageStats": {} } }]).await.unwrap_or_default();
+        let coll = self
+            .aggregate_all(
+                &obj.name,
+                vec![doc! { "$collStats": { "storageStats": {} } }],
+            )
+            .await
+            .unwrap_or_default();
         // One row per shard: sizes merged.
         let mut sizes = Document::new();
         for r in &coll {
-            if let Ok(s) = r.get_document("storageStats").and_then(|s| s.get_document("indexSizes")) {
+            if let Ok(s) = r
+                .get_document("storageStats")
+                .and_then(|s| s.get_document("indexSizes"))
+            {
                 for (k, v) in s {
                     let prev = sizes.get(k).map(as_u64).unwrap_or(0);
                     sizes.insert(k.clone(), Bson::Int64((prev + as_u64(v)) as i64));
@@ -292,19 +359,45 @@ mod tests {
 
     #[test]
     fn toggle_scripts() {
-        let t = ObjectRef { kind: "collection".into(), schema: None, name: "pedidos".into() };
-        let ix = IndexUsage { name: "ix_\"a".into(), ..Default::default() };
+        let t = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: "pedidos".into(),
+        };
+        let ix = IndexUsage {
+            name: "ix_\"a".into(),
+            ..Default::default()
+        };
         let off = toggle_script(&t, &ix, false).unwrap();
-        assert_eq!(off.statements, [r#"db.getCollection("pedidos").hideIndex("ix_\"a")"#]);
-        assert_eq!(off.warnings, ["El índice se sigue manteniendo en cada escritura; el planificador deja de usarlo."]);
+        assert_eq!(
+            off.statements,
+            [r#"db.getCollection("pedidos").hideIndex("ix_\"a")"#]
+        );
+        assert_eq!(
+            off.warnings,
+            ["El índice se sigue manteniendo en cada escritura; el planificador deja de usarlo."]
+        );
         let on = toggle_script(&t, &ix, true).unwrap();
-        assert_eq!(on.statements, [r#"db.getCollection("pedidos").unhideIndex("ix_\"a")"#]);
+        assert_eq!(
+            on.statements,
+            [r#"db.getCollection("pedidos").unhideIndex("ix_\"a")"#]
+        );
         assert!(on.warnings.is_empty());
         // The statements parse back to `collMod`.
         let parsed = crate::shell::parse_script(&off.statements[0]).unwrap();
-        assert_eq!(parsed[0].cmd, doc! { "collMod": "pedidos", "index": { "name": "ix_\"a", "hidden": true } });
-        let id = IndexUsage { name: "_id_".into(), primary_key: true, ..Default::default() };
-        assert!(matches!(toggle_script(&t, &id, false), Err(Error::Unsupported(_))));
+        assert_eq!(
+            parsed[0].cmd,
+            doc! { "collMod": "pedidos", "index": { "name": "ix_\"a", "hidden": true } }
+        );
+        let id = IndexUsage {
+            name: "_id_".into(),
+            primary_key: true,
+            ..Default::default()
+        };
+        assert!(matches!(
+            toggle_script(&t, &id, false),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -340,8 +433,14 @@ mod tests {
         assert_eq!(get("_id_").size_kb, Some(4));
         assert_eq!(get("email_1").size_kb, Some(1));
         // Reads and shares stay; writes are unknown: none, nothing unused.
-        assert_eq!(get("email_1").read_share.map(|v| (v * 100.0).round()), Some(71.0));
-        assert!(r.indexes.iter().all(|i| i.updates == 0 && !i.unused && i.writes_per_read.is_none()));
+        assert_eq!(
+            get("email_1").read_share.map(|v| (v * 100.0).round()),
+            Some(71.0)
+        );
+        assert!(r
+            .indexes
+            .iter()
+            .all(|i| i.updates == 0 && !i.unused && i.writes_per_read.is_none()));
         // No seek / scan split: no health.
         assert!(r.indexes.iter().all(|i| i.seek_health.is_none()));
     }

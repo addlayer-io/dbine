@@ -68,7 +68,9 @@
 use crate::session::{lit, named, MySqlSession};
 use crate::{err, Variant};
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, Session, SyncScript};
+use dbine_driver::{
+    Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, Session, SyncScript,
+};
 use mysql_async::prelude::Queryable;
 use mysql_async::Row;
 use std::collections::HashMap;
@@ -102,12 +104,17 @@ pub(crate) fn show_index_sql(table: &ObjectRef) -> String {
 /// switch: SingleStore, StarRocks, Doris / VeloDB, Databend and GreptimeDB
 /// only drop and recreate, Manticore has no indexes to list.
 pub(crate) fn toggle_supported(v: Variant) -> bool {
-    matches!(v, Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase)
+    matches!(
+        v,
+        Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase
+    )
 }
 
-pub(crate) const TOGGLE_MAINTAINED: &str = "El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo.";
+pub(crate) const TOGGLE_MAINTAINED: &str =
+    "El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo.";
 pub(crate) const TOGGLE_HINTS: &str = "Las consultas que lo nombran en FORCE INDEX, USE INDEX o IGNORE INDEX fallan mientras esté deshabilitado.";
-pub(crate) const TOGGLE_UNIQUE: &str = "Sigue haciendo cumplir la unicidad aunque el optimizador no lo use.";
+pub(crate) const TOGGLE_UNIQUE: &str =
+    "Sigue haciendo cumplir la unicidad aunque el optimizador no lo use.";
 pub(crate) const TOGGLE_IMPLICIT_PK: &str = "Si la tabla no tiene clave primaria, el primer índice UNIQUE sobre columnas NOT NULL hace de clave primaria implícita y el servidor no deja deshabilitarlo.";
 
 /// `ALTER TABLE … ALTER INDEX …` that hides `index` from the optimizer
@@ -115,12 +122,21 @@ pub(crate) const TOGGLE_IMPLICIT_PK: &str = "Si la tabla no tiene clave primaria
 /// any of these engines; an implicit one (the first NOT NULL unique key of
 /// a table without a primary key) isn't visible from `IndexUsage`, so a
 /// unique index gets a warning and the server has the last word.
-pub(crate) fn toggle_script(v: Variant, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+pub(crate) fn toggle_script(
+    v: Variant,
+    table: &ObjectRef,
+    index: &IndexUsage,
+    enable: bool,
+) -> Result<SyncScript> {
     if !toggle_supported(v) {
-        return Err(Error::Unsupported("este motor no deshabilita índices".into()));
+        return Err(Error::Unsupported(
+            "este motor no deshabilita índices".into(),
+        ));
     }
     if index.primary_key || index.name.eq_ignore_ascii_case("PRIMARY") {
-        return Err(Error::Unsupported("la clave primaria no se puede deshabilitar".into()));
+        return Err(Error::Unsupported(
+            "la clave primaria no se puede deshabilitar".into(),
+        ));
     }
     let state = match (v, enable) {
         (Variant::MariaDb, false) => "IGNORED",
@@ -128,7 +144,11 @@ pub(crate) fn toggle_script(v: Variant, table: &ObjectRef, index: &IndexUsage, e
         (_, false) => "INVISIBLE",
         (_, true) => "VISIBLE",
     };
-    let statement = format!("ALTER TABLE {} ALTER INDEX {} {state}", table_sql(table), quote_ident(Quote::Backtick, &index.name));
+    let statement = format!(
+        "ALTER TABLE {} ALTER INDEX {} {state}",
+        table_sql(table),
+        quote_ident(Quote::Backtick, &index.name)
+    );
     let mut warnings = Vec::new();
     if !enable {
         warnings.push(TOGGLE_MAINTAINED.to_string());
@@ -138,7 +158,10 @@ pub(crate) fn toggle_script(v: Variant, table: &ObjectRef, index: &IndexUsage, e
             warnings.push(TOGGLE_IMPLICIT_PK.to_string());
         }
     }
-    Ok(SyncScript { statements: vec![statement], warnings })
+    Ok(SyncScript {
+        statements: vec![statement],
+        warnings,
+    })
 }
 
 pub(crate) fn foreign_keys_sql(table: &ObjectRef) -> String {
@@ -166,7 +189,11 @@ pub(crate) fn perf_schema_sql(table: &ObjectRef) -> String {
 
 /// The table's storage engine.
 pub(crate) fn engine_sql(table: &ObjectRef) -> String {
-    format!("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = {} AND TABLE_NAME = {}", db_expr(table), lit(&table.name))
+    format!(
+        "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = {} AND TABLE_NAME = {}",
+        db_expr(table),
+        lit(&table.name)
+    )
 }
 
 /// The instrument the table I/O counters come from.
@@ -174,7 +201,11 @@ pub(crate) const PERF_INSTRUMENT_SQL: &str =
     "SELECT ENABLED FROM performance_schema.setup_instruments WHERE NAME = 'wait/io/table/sql/handler'";
 
 pub(crate) fn userstat_sql(table: &ObjectRef) -> (String, String) {
-    let filter = format!("TABLE_SCHEMA = {} AND TABLE_NAME = {}", db_expr(table), lit(&table.name));
+    let filter = format!(
+        "TABLE_SCHEMA = {} AND TABLE_NAME = {}",
+        db_expr(table),
+        lit(&table.name)
+    );
     (
         format!("SELECT INDEX_NAME, ROWS_READ FROM information_schema.INDEX_STATISTICS WHERE {filter}"),
         format!("SELECT ROWS_READ, ROWS_CHANGED FROM information_schema.TABLE_STATISTICS WHERE {filter}"),
@@ -212,7 +243,8 @@ pub(crate) fn oceanbase_usage_sql(table: &ObjectRef) -> String {
 }
 
 /// Whether OceanBase collects index usage (`_iut_enable`).
-pub(crate) const OCEANBASE_ENABLED_SQL: &str = "SELECT VALUE FROM oceanbase.GV$OB_PARAMETERS WHERE NAME = '_iut_enable'";
+pub(crate) const OCEANBASE_ENABLED_SQL: &str =
+    "SELECT VALUE FROM oceanbase.GV$OB_PARAMETERS WHERE NAME = '_iut_enable'";
 
 /// Rows written since the table's statistics were last gathered (OceanBase):
 /// the table's own row, or its partitions'.
@@ -270,20 +302,31 @@ pub(crate) struct KeyPart {
 pub(crate) fn key_part(get: &dyn Fn(&[&str]) -> Option<String>) -> Option<KeyPart> {
     let index = get(&["Key_name", "INDEX_NAME"])?;
     let kind = get(&["Index_type", "INDEX_TYPE"]).filter(|k| !k.is_empty());
-    let spatial = kind.as_deref().is_some_and(|k| k.eq_ignore_ascii_case("SPATIAL"));
+    let spatial = kind
+        .as_deref()
+        .is_some_and(|k| k.eq_ignore_ascii_case("SPATIAL"));
     // TiDB writes the text NULL for an empty expression.
     let expression = get(&["Expression"]).filter(|e| !e.is_empty() && e != "NULL");
-    let part = match (get(&["Column_name", "COLUMN_NAME"]).filter(|c| !c.is_empty() && c != "NULL"), expression) {
+    let part = match (
+        get(&["Column_name", "COLUMN_NAME"]).filter(|c| !c.is_empty() && c != "NULL"),
+        expression,
+    ) {
         (_, Some(e)) => Some(format!("({})", e.replace("\\'", "'"))),
-        (Some(c), None) => Some(match get(&["Sub_part", "SUB_PART"]).filter(|n| !n.is_empty() && n != "NULL" && !spatial) {
-            Some(n) => format!("{c}({n})"),
-            None => c,
-        }),
+        (Some(c), None) => Some(
+            match get(&["Sub_part", "SUB_PART"])
+                .filter(|n| !n.is_empty() && n != "NULL" && !spatial)
+            {
+                Some(n) => format!("{c}({n})"),
+                None => c,
+            },
+        ),
         _ => None,
     };
     Some(KeyPart {
         index,
-        seq: get(&["Seq_in_index", "SEQ_IN_INDEX"]).and_then(|s| s.parse().ok()).unwrap_or(0),
+        seq: get(&["Seq_in_index", "SEQ_IN_INDEX"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0),
         part,
         descending: get(&["Collation", "COLLATION"]).is_some_and(|c| c.eq_ignore_ascii_case("D")),
         unique: get(&["Non_unique", "NON_UNIQUE"]).is_some_and(|n| n == "0"),
@@ -324,7 +367,11 @@ pub(crate) struct Usage {
 
 /// The key parts grouped by index, in the order `SHOW INDEX` lists them
 /// (the primary key first), with their counters and sizes.
-pub(crate) fn assemble(parts: &[KeyPart], usage: Option<&Usage>, sizes: Option<&HashMap<String, u64>>) -> Vec<IndexUsage> {
+pub(crate) fn assemble(
+    parts: &[KeyPart],
+    usage: Option<&Usage>,
+    sizes: Option<&HashMap<String, u64>>,
+) -> Vec<IndexUsage> {
     let mut order: Vec<&str> = Vec::new();
     for p in parts {
         if !order.contains(&p.index.as_str()) {
@@ -338,7 +385,10 @@ pub(crate) fn assemble(parts: &[KeyPart], usage: Option<&Usage>, sizes: Option<&
             own.sort_by_key(|p| p.seq);
             let first = own[0];
             let primary_key = name == "PRIMARY";
-            let c = usage.and_then(|u| u.reads.get(name)).cloned().unwrap_or_default();
+            let c = usage
+                .and_then(|u| u.reads.get(name))
+                .cloned()
+                .unwrap_or_default();
             // TiDB's clustered key is the row handle: no reads are counted on it.
             let handle = primary_key && (first.clustered || usage.is_some_and(|u| u.pk_untracked));
             IndexUsage {
@@ -346,11 +396,31 @@ pub(crate) fn assemble(parts: &[KeyPart], usage: Option<&Usage>, sizes: Option<&
                 kind: first.kind.clone().unwrap_or_default(),
                 unique: primary_key || first.unique,
                 primary_key,
-                key_columns: own.iter().filter_map(|p| p.part.as_ref().map(|c| if p.descending { format!("{c} DESC") } else { c.clone() })).collect(),
+                key_columns: own
+                    .iter()
+                    .filter_map(|p| {
+                        p.part.as_ref().map(|c| {
+                            if p.descending {
+                                format!("{c} DESC")
+                            } else {
+                                c.clone()
+                            }
+                        })
+                    })
+                    .collect(),
                 size_kb: sizes.and_then(|m| m.get(name).copied()),
                 seeks: c.seeks,
-                scans: c.scans + if primary_key { usage.map_or(0, |u| u.table_scans) } else { 0 },
-                updates: if handle { 0 } else { usage.map_or(0, |u| u.writes) },
+                scans: c.scans
+                    + if primary_key {
+                        usage.map_or(0, |u| u.table_scans)
+                    } else {
+                        0
+                    },
+                updates: if handle {
+                    0
+                } else {
+                    usage.map_or(0, |u| u.writes)
+                },
                 last_read: c.last_read,
                 disabled: first.disabled,
                 ..Default::default()
@@ -360,7 +430,9 @@ pub(crate) fn assemble(parts: &[KeyPart], usage: Option<&Usage>, sizes: Option<&
 }
 
 /// Foreign key rows (`foreign_keys_sql`'s columns) grouped by constraint.
-pub(crate) fn foreign_keys(rows: &[(String, String, Option<String>, String, String)]) -> Vec<ForeignKeyDef> {
+pub(crate) fn foreign_keys(
+    rows: &[(String, String, Option<String>, String, String)],
+) -> Vec<ForeignKeyDef> {
     let mut out: Vec<ForeignKeyDef> = Vec::new();
     for (name, col, ref_schema, ref_table, ref_col) in rows {
         match out.last_mut() {
@@ -384,7 +456,9 @@ pub(crate) fn foreign_keys(rows: &[(String, String, Option<String>, String, Stri
 /// `SHOW GLOBAL STATUS LIKE 'Uptime'`'s seconds into the start time.
 pub(crate) fn since_sql(uptime: &str) -> Option<String> {
     let secs: u64 = uptime.trim().parse().ok()?;
-    Some(format!("SELECT DATE_FORMAT(NOW() - INTERVAL {secs} SECOND, '%Y-%m-%d %H:%i:%s')"))
+    Some(format!(
+        "SELECT DATE_FORMAT(NOW() - INTERVAL {secs} SECOND, '%Y-%m-%d %H:%i:%s')"
+    ))
 }
 
 pub(crate) const NOTE_PERF_ROWS: &str = "performance_schema cuenta filas leídas por cada índice sin separar búsquedas de recorridos: «seeks» son esas filas, «scans» de la clave primaria las leídas recorriendo la tabla (InnoDB) y «updates», las filas escritas en la tabla.";
@@ -415,7 +489,10 @@ pub(crate) fn no_counters_note(v: Variant) -> &'static str {
 
 /// Rows of `sql`, or the server's refusal (`Err((code, message))`); a
 /// broken connection is an error.
-async fn probe(s: &mut MySqlSession, sql: &str) -> Result<std::result::Result<Vec<Row>, (u16, String)>> {
+async fn probe(
+    s: &mut MySqlSession,
+    sql: &str,
+) -> Result<std::result::Result<Vec<Row>, (u16, String)>> {
     match s.conn.query::<Row, _>(sql).await {
         Ok(rows) => Ok(Ok(rows)),
         Err(mysql_async::Error::Server(e)) => {
@@ -428,7 +505,10 @@ async fn probe(s: &mut MySqlSession, sql: &str) -> Result<std::result::Result<Ve
 
 /// The first cell of the first row, if any.
 async fn scalar(s: &mut MySqlSession, sql: &str) -> Result<Option<String>> {
-    Ok(probe(s, sql).await?.ok().and_then(|rows| rows.first().and_then(|r| crate::session::at(r, 0))))
+    Ok(probe(s, sql)
+        .await?
+        .ok()
+        .and_then(|rows| rows.first().and_then(|r| crate::session::at(r, 0))))
 }
 
 /// ER_TABLEACCESS_DENIED_ERROR, ER_SPECIFIC_ACCESS_DENIED_ERROR, ER_DBACCESS_DENIED_ERROR, ER_ACCESS_DENIED_ERROR.
@@ -437,15 +517,25 @@ fn denied(code: u16) -> bool {
 }
 
 fn num(s: Option<String>) -> u64 {
-    s.and_then(|v| v.trim().parse::<f64>().ok()).map_or(0, |n| n.max(0.0) as u64)
+    s.and_then(|v| v.trim().parse::<f64>().ok())
+        .map_or(0, |n| n.max(0.0) as u64)
 }
 
 /// performance_schema's counters: `Ok(None)` + a note when off or refused.
-async fn perf_schema(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::result::Result<Usage, &'static str>> {
-    if scalar(s, "SELECT @@performance_schema").await?.is_none_or(|v| v == "0" || v.eq_ignore_ascii_case("OFF")) {
+async fn perf_schema(
+    s: &mut MySqlSession,
+    table: &ObjectRef,
+) -> Result<std::result::Result<Usage, &'static str>> {
+    if scalar(s, "SELECT @@performance_schema")
+        .await?
+        .is_none_or(|v| v == "0" || v.eq_ignore_ascii_case("OFF"))
+    {
         return Ok(Err(NOTE_PERF_OFF));
     }
-    if scalar(s, PERF_INSTRUMENT_SQL).await?.is_some_and(|v| v.eq_ignore_ascii_case("NO")) {
+    if scalar(s, PERF_INSTRUMENT_SQL)
+        .await?
+        .is_some_and(|v| v.eq_ignore_ascii_case("NO"))
+    {
         return Ok(Err(NOTE_PERF_INSTRUMENT));
     }
     match probe(s, &perf_schema_sql(table)).await? {
@@ -455,7 +545,13 @@ async fn perf_schema(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::res
                 u.writes += num(crate::session::at(r, 2));
                 match crate::session::at(r, 0) {
                     Some(ix) => {
-                        u.reads.insert(ix, Counters { seeks: num(crate::session::at(r, 1)), ..Default::default() });
+                        u.reads.insert(
+                            ix,
+                            Counters {
+                                seeks: num(crate::session::at(r, 1)),
+                                ..Default::default()
+                            },
+                        );
                     }
                     None => u.table_scans += num(crate::session::at(r, 1)),
                 }
@@ -470,15 +566,26 @@ async fn perf_schema(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::res
 /// MariaDB's userstat counters; `None` when userstat is off (or its views
 /// fail: performance_schema is tried next).
 async fn userstat(s: &mut MySqlSession, table: &ObjectRef) -> Result<Option<Usage>> {
-    if !scalar(s, "SELECT @@userstat").await?.is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("ON")) {
+    if !scalar(s, "SELECT @@userstat")
+        .await?
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("ON"))
+    {
         return Ok(None);
     }
     let (index_sql, table_sql) = userstat_sql(table);
-    let Ok(rows) = probe(s, &index_sql).await? else { return Ok(None) };
+    let Ok(rows) = probe(s, &index_sql).await? else {
+        return Ok(None);
+    };
     let mut u = Usage::default();
     for r in &rows {
         if let Some(ix) = crate::session::at(r, 0) {
-            u.reads.insert(ix, Counters { seeks: num(crate::session::at(r, 1)), ..Default::default() });
+            u.reads.insert(
+                ix,
+                Counters {
+                    seeks: num(crate::session::at(r, 1)),
+                    ..Default::default()
+                },
+            );
         }
     }
     match probe(s, &table_sql).await? {
@@ -495,7 +602,10 @@ async fn userstat(s: &mut MySqlSession, table: &ObjectRef) -> Result<Option<Usag
     Ok(Some(u))
 }
 
-async fn tidb(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::result::Result<Usage, &'static str>> {
+async fn tidb(
+    s: &mut MySqlSession,
+    table: &ObjectRef,
+) -> Result<std::result::Result<Usage, &'static str>> {
     let mut rows = None;
     for view in ["CLUSTER_TIDB_INDEX_USAGE", "TIDB_INDEX_USAGE"] {
         if let Ok(r) = probe(s, &tidb_usage_sql(view, table)).await? {
@@ -503,11 +613,20 @@ async fn tidb(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::result::Re
             break;
         }
     }
-    let Some(rows) = rows else { return Ok(Err(NOTE_TIDB_OLD)) };
-    let mut u = Usage { seek_scan_split: true, ..Default::default() };
+    let Some(rows) = rows else {
+        return Ok(Err(NOTE_TIDB_OLD));
+    };
+    let mut u = Usage {
+        seek_scan_split: true,
+        ..Default::default()
+    };
     for r in &rows {
         if let Some(ix) = crate::session::at(r, 0) {
-            let c = Counters { seeks: num(crate::session::at(r, 1)), scans: num(crate::session::at(r, 2)), last_read: crate::session::at(r, 3) };
+            let c = Counters {
+                seeks: num(crate::session::at(r, 1)),
+                scans: num(crate::session::at(r, 2)),
+                last_read: crate::session::at(r, 3),
+            };
             u.reads.insert(ix, c);
         }
     }
@@ -519,18 +638,34 @@ async fn tidb(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::result::Re
     Ok(Ok(u))
 }
 
-async fn oceanbase(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::result::Result<Usage, &'static str>> {
-    if scalar(s, OCEANBASE_ENABLED_SQL).await?.is_some_and(|v| v.eq_ignore_ascii_case("False")) {
+async fn oceanbase(
+    s: &mut MySqlSession,
+    table: &ObjectRef,
+) -> Result<std::result::Result<Usage, &'static str>> {
+    if scalar(s, OCEANBASE_ENABLED_SQL)
+        .await?
+        .is_some_and(|v| v.eq_ignore_ascii_case("False"))
+    {
         return Ok(Err(NOTE_OCEANBASE_OFF));
     }
     let rows = match probe(s, &oceanbase_usage_sql(table)).await? {
         Ok(rows) => rows,
         Err(_) => return Ok(Err(NOTE_OCEANBASE_DENIED)),
     };
-    let mut u = Usage { pk_untracked: true, ..Default::default() };
+    let mut u = Usage {
+        pk_untracked: true,
+        ..Default::default()
+    };
     for r in &rows {
         if let Some(ix) = crate::session::at(r, 0) {
-            u.reads.insert(ix, Counters { seeks: num(crate::session::at(r, 1)), last_read: crate::session::at(r, 2), ..Default::default() });
+            u.reads.insert(
+                ix,
+                Counters {
+                    seeks: num(crate::session::at(r, 1)),
+                    last_read: crate::session::at(r, 2),
+                    ..Default::default()
+                },
+            );
         }
     }
     match probe(s, &oceanbase_writes_sql(table)).await? {
@@ -546,7 +681,11 @@ pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<In
     let parts: Vec<KeyPart> = if v == Variant::Databend {
         databend_parts(s, table).await?
     } else {
-        s.rows(&show_index_sql(table)).await?.iter().filter_map(|r| key_part(&|n: &[&str]| named(r, n))).collect()
+        s.rows(&show_index_sql(table))
+            .await?
+            .iter()
+            .filter_map(|r| key_part(&|n: &[&str]| named(r, n)))
+            .collect()
     };
     let fk_rows: Vec<_> = if v.has_foreign_keys() {
         match probe(s, &foreign_keys_sql(table)).await? {
@@ -554,7 +693,13 @@ pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<In
                 .iter()
                 .map(|r| {
                     let at = |i| crate::session::at(r, i);
-                    (at(0).unwrap_or_default(), at(1).unwrap_or_default(), at(2), at(3).unwrap_or_default(), at(4).unwrap_or_default())
+                    (
+                        at(0).unwrap_or_default(),
+                        at(1).unwrap_or_default(),
+                        at(2),
+                        at(3).unwrap_or_default(),
+                        at(4).unwrap_or_default(),
+                    )
                 })
                 .collect(),
             Err(_) => Vec::new(),
@@ -564,7 +709,12 @@ pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<In
     };
 
     // The counters.
-    let maria = v == Variant::MariaDb || (v == Variant::MySql && s.server_version().await.unwrap_or_default().contains("MariaDB"));
+    let maria = v == Variant::MariaDb
+        || (v == Variant::MySql
+            && s.server_version()
+                .await
+                .unwrap_or_default()
+                .contains("MariaDB"));
     let (mut usage, note): (Option<Usage>, Option<&str>) = match v {
         Variant::MariaDb | Variant::MySql if maria => match userstat(s, table).await? {
             Some(u) => (Some(u), Some(NOTE_USERSTAT_ROWS)),
@@ -597,7 +747,9 @@ pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<In
     }
     let sizes = if v.is_mysql_server() {
         probe(s, &innodb_size_sql(table)).await?.ok().map(|rows| {
-            rows.iter().filter_map(|r| Some((crate::session::at(r, 0)?, num(crate::session::at(r, 1))))).collect::<HashMap<_, _>>()
+            rows.iter()
+                .filter_map(|r| Some((crate::session::at(r, 0)?, num(crate::session::at(r, 1)))))
+                .collect::<HashMap<_, _>>()
         })
     } else {
         None
@@ -605,7 +757,12 @@ pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<In
     // OceanBase keeps its counts in a table, across restarts: no start.
     let since = match usage.as_ref().filter(|_| v != Variant::OceanBase) {
         Some(_) => match probe(s, "SHOW GLOBAL STATUS LIKE 'Uptime'").await? {
-            Ok(rows) => match rows.first().and_then(|r| crate::session::at(r, 1)).as_deref().and_then(since_sql) {
+            Ok(rows) => match rows
+                .first()
+                .and_then(|r| crate::session::at(r, 1))
+                .as_deref()
+                .and_then(since_sql)
+            {
                 Some(sql) => scalar(s, &sql).await?,
                 None => None,
             },
@@ -648,15 +805,34 @@ async fn databend_parts(s: &mut MySqlSession, table: &ObjectRef) -> Result<Vec<K
     let mut parts = Vec::new();
     for r in s.optional_rows("SELECT * FROM system.indexes").await {
         let get = |n: &str| named(&r, &[n]).unwrap_or_default();
-        let Some((t, ix)) = crate::structure::databend_index(&db, &get("name"), &get("type"), &get("original"), &get("definition")) else { continue };
+        let Some((t, ix)) = crate::structure::databend_index(
+            &db,
+            &get("name"),
+            &get("type"),
+            &get("original"),
+            &get("definition"),
+        ) else {
+            continue;
+        };
         if t != table.name {
             continue;
         }
         for (n, c) in ix.columns.iter().enumerate() {
-            parts.push(KeyPart { index: ix.name.clone(), seq: n as u64 + 1, part: Some(c.clone()), kind: ix.kind.clone(), ..Default::default() });
+            parts.push(KeyPart {
+                index: ix.name.clone(),
+                seq: n as u64 + 1,
+                part: Some(c.clone()),
+                kind: ix.kind.clone(),
+                ..Default::default()
+            });
         }
         if ix.columns.is_empty() {
-            parts.push(KeyPart { index: ix.name.clone(), seq: 1, kind: ix.kind.clone(), ..Default::default() });
+            parts.push(KeyPart {
+                index: ix.name.clone(),
+                seq: 1,
+                kind: ix.kind.clone(),
+                ..Default::default()
+            });
         }
     }
     Ok(parts)
@@ -667,71 +843,190 @@ mod tests {
     use super::*;
 
     fn row(cells: &[(&str, &str)]) -> KeyPart {
-        let m: HashMap<String, String> = cells.iter().map(|(k, v)| (k.to_ascii_lowercase(), v.to_string())).collect();
-        key_part(&|names: &[&str]| names.iter().find_map(|n| m.get(&n.to_ascii_lowercase()).cloned())).unwrap()
+        let m: HashMap<String, String> = cells
+            .iter()
+            .map(|(k, v)| (k.to_ascii_lowercase(), v.to_string()))
+            .collect();
+        key_part(&|names: &[&str]| {
+            names
+                .iter()
+                .find_map(|n| m.get(&n.to_ascii_lowercase()).cloned())
+        })
+        .unwrap()
     }
 
     fn t(schema: Option<&str>, name: &str) -> ObjectRef {
-        ObjectRef { kind: "table".into(), schema: schema.map(Into::into), name: name.into() }
+        ObjectRef {
+            kind: "table".into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        }
     }
 
     #[test]
     fn queries_name_the_table_and_its_database() {
         let x = t(None, "it's");
         assert_eq!(show_index_sql(&x), "SHOW INDEX FROM `it's`");
-        assert_eq!(show_index_sql(&t(Some("d`b"), "t")), "SHOW INDEX FROM `d``b`.`t`");
+        assert_eq!(
+            show_index_sql(&t(Some("d`b"), "t")),
+            "SHOW INDEX FROM `d``b`.`t`"
+        );
         let ps = perf_schema_sql(&x);
-        assert!(ps.contains("OBJECT_SCHEMA = DATABASE() AND OBJECT_NAME = 'it''s'"), "{ps}");
+        assert!(
+            ps.contains("OBJECT_SCHEMA = DATABASE() AND OBJECT_NAME = 'it''s'"),
+            "{ps}"
+        );
         assert!(ps.contains("COUNT_FETCH, COUNT_INSERT + COUNT_UPDATE + COUNT_DELETE"));
         assert!(perf_schema_sql(&t(Some("shop"), "t")).contains("OBJECT_SCHEMA = 'shop'"));
         let (ix, tb) = userstat_sql(&x);
-        assert!(ix.contains("INDEX_STATISTICS") && ix.contains("ROWS_READ") && tb.contains("ROWS_CHANGED"));
+        assert!(
+            ix.contains("INDEX_STATISTICS")
+                && ix.contains("ROWS_READ")
+                && tb.contains("ROWS_CHANGED")
+        );
         let tidb = tidb_usage_sql("CLUSTER_TIDB_INDEX_USAGE", &x);
-        assert!(tidb.contains("FROM information_schema.CLUSTER_TIDB_INDEX_USAGE") && tidb.contains("GROUP BY INDEX_NAME"), "{tidb}");
-        assert!(tidb.contains("PERCENTAGE_ACCESS_1_10, 0)),\n"), "under 10% are seeks: {tidb}");
+        assert!(
+            tidb.contains("FROM information_schema.CLUSTER_TIDB_INDEX_USAGE")
+                && tidb.contains("GROUP BY INDEX_NAME"),
+            "{tidb}"
+        );
+        assert!(
+            tidb.contains("PERCENTAGE_ACCESS_1_10, 0)),\n"),
+            "under 10% are seeks: {tidb}"
+        );
         assert!(tidb_writes_sql(&x).contains("modify_count"));
         let ob = oceanbase_usage_sql(&t(Some("shop"), "orders"));
-        assert!(ob.contains("t.OBJECT_NAME = 'orders'") && ob.contains("o.OWNER = 'shop'"), "{ob}");
-        assert!(ob.contains("u.NAME = CONCAT('__idx_', t.OBJECT_ID, '_', o.OBJECT_NAME)"), "{ob}");
+        assert!(
+            ob.contains("t.OBJECT_NAME = 'orders'") && ob.contains("o.OWNER = 'shop'"),
+            "{ob}"
+        );
+        assert!(
+            ob.contains("u.NAME = CONCAT('__idx_', t.OBJECT_ID, '_', o.OBJECT_NAME)"),
+            "{ob}"
+        );
         assert!(oceanbase_writes_sql(&x).contains("DBA_TAB_MODIFICATIONS"));
-        assert!(innodb_size_sql(&x).contains("SUBSTRING_INDEX(table_name, '#', 1) = 'it''s'"), "partitions summed");
+        assert!(
+            innodb_size_sql(&x).contains("SUBSTRING_INDEX(table_name, '#', 1) = 'it''s'"),
+            "partitions summed"
+        );
         assert!(foreign_keys_sql(&x).contains("REFERENCED_TABLE_NAME IS NOT NULL"));
-        assert_eq!(since_sql("3600").as_deref(), Some("SELECT DATE_FORMAT(NOW() - INTERVAL 3600 SECOND, '%Y-%m-%d %H:%i:%s')"));
+        assert_eq!(
+            since_sql("3600").as_deref(),
+            Some("SELECT DATE_FORMAT(NOW() - INTERVAL 3600 SECOND, '%Y-%m-%d %H:%i:%s')")
+        );
         assert_eq!(since_sql("x; DROP"), None);
     }
 
     #[test]
     fn show_index_rows_become_indexes() {
         let parts = vec![
-            row(&[("Key_name", "PRIMARY"), ("Seq_in_index", "1"), ("Column_name", "id"), ("Non_unique", "0"), ("Index_type", "BTREE"), ("Collation", "A")]),
-            row(&[("Key_name", "ix_ab"), ("Seq_in_index", "2"), ("Column_name", "b"), ("Non_unique", "1"), ("Index_type", "BTREE"), ("Sub_part", "10")]),
-            row(&[("Key_name", "ix_ab"), ("Seq_in_index", "1"), ("Column_name", "a"), ("Non_unique", "1"), ("Index_type", "BTREE"), ("Collation", "D")]),
-            row(&[("Key_name", "ix_expr"), ("Seq_in_index", "1"), ("Column_name", "NULL"), ("Expression", "lower(`c`)"), ("Non_unique", "0")]),
-            row(&[("Key_name", "sp"), ("Seq_in_index", "1"), ("Column_name", "g"), ("Sub_part", "32"), ("Index_type", "SPATIAL"), ("Non_unique", "1")]),
-            row(&[("Key_name", "ix_never"), ("Seq_in_index", "1"), ("Column_name", "d"), ("Non_unique", "1"), ("Index_type", "BTREE")]),
+            row(&[
+                ("Key_name", "PRIMARY"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "id"),
+                ("Non_unique", "0"),
+                ("Index_type", "BTREE"),
+                ("Collation", "A"),
+            ]),
+            row(&[
+                ("Key_name", "ix_ab"),
+                ("Seq_in_index", "2"),
+                ("Column_name", "b"),
+                ("Non_unique", "1"),
+                ("Index_type", "BTREE"),
+                ("Sub_part", "10"),
+            ]),
+            row(&[
+                ("Key_name", "ix_ab"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "a"),
+                ("Non_unique", "1"),
+                ("Index_type", "BTREE"),
+                ("Collation", "D"),
+            ]),
+            row(&[
+                ("Key_name", "ix_expr"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "NULL"),
+                ("Expression", "lower(`c`)"),
+                ("Non_unique", "0"),
+            ]),
+            row(&[
+                ("Key_name", "sp"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "g"),
+                ("Sub_part", "32"),
+                ("Index_type", "SPATIAL"),
+                ("Non_unique", "1"),
+            ]),
+            row(&[
+                ("Key_name", "ix_never"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "d"),
+                ("Non_unique", "1"),
+                ("Index_type", "BTREE"),
+            ]),
         ];
         let usage = Usage {
-            reads: HashMap::from([("PRIMARY".to_string(), Counters { seeks: 4, ..Default::default() }), ("ix_ab".to_string(), Counters { seeks: 6, ..Default::default() })]),
+            reads: HashMap::from([
+                (
+                    "PRIMARY".to_string(),
+                    Counters {
+                        seeks: 4,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "ix_ab".to_string(),
+                    Counters {
+                        seeks: 6,
+                        ..Default::default()
+                    },
+                ),
+            ]),
             writes: 9,
             table_scans: 3,
             ..Default::default()
         };
         let sizes = HashMap::from([("PRIMARY".to_string(), 16u64)]);
         let out = assemble(&parts, Some(&usage), Some(&sizes));
-        assert_eq!(out.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["PRIMARY", "ix_ab", "ix_expr", "sp", "ix_never"]);
+        assert_eq!(
+            out.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+            ["PRIMARY", "ix_ab", "ix_expr", "sp", "ix_never"]
+        );
         assert!(out[0].primary_key && out[0].unique && out[0].kind == "BTREE");
-        assert_eq!((out[0].seeks, out[0].scans, out[0].updates, out[0].size_kb), (4, 3, 9, Some(16)), "table scans read the clustered key");
+        assert_eq!(
+            (out[0].seeks, out[0].scans, out[0].updates, out[0].size_kb),
+            (4, 3, 9, Some(16)),
+            "table scans read the clustered key"
+        );
         assert_eq!(out[1].scans, 0);
         assert_eq!(out[1].key_columns, ["a DESC", "b(10)"]);
         assert!(!out[1].unique);
         assert_eq!(out[2].key_columns, ["(lower(`c`))"]);
         assert!(out[2].unique);
-        assert_eq!(out[3].key_columns, ["g"], "a spatial index's SUB_PART isn't a prefix");
+        assert_eq!(
+            out[3].key_columns,
+            ["g"],
+            "a spatial index's SUB_PART isn't a prefix"
+        );
         // Not read: zeros, but the table's writes.
-        assert_eq!((out[4].seeks, out[4].scans, out[4].updates, out[4].size_kb), (0, 0, 9, None));
-        let r = IndexUsageReport { stats_available: true, indexes: out, seek_scan_split: false, ..Default::default() }.derived();
+        assert_eq!(
+            (out[4].seeks, out[4].scans, out[4].updates, out[4].size_kb),
+            (0, 0, 9, None)
+        );
+        let r = IndexUsageReport {
+            stats_available: true,
+            indexes: out,
+            seek_scan_split: false,
+            ..Default::default()
+        }
+        .derived();
         assert!(r.indexes[4].unused && !r.indexes[1].unused);
-        assert!(r.indexes.iter().all(|i| i.seek_health.is_none()), "one counter: no seek health");
+        assert!(
+            r.indexes.iter().all(|i| i.seek_health.is_none()),
+            "one counter: no seek health"
+        );
         assert_eq!(r.indexes[1].read_share, Some(6.0 / 13.0));
 
         // No counters: listed, all zeros.
@@ -743,11 +1038,32 @@ mod tests {
     #[test]
     fn tidb_clustered_key_keeps_zeros() {
         let parts = vec![
-            row(&[("Key_name", "PRIMARY"), ("Seq_in_index", "1"), ("Column_name", "id"), ("Non_unique", "0"), ("Clustered", "YES"), ("Expression", "NULL")]),
-            row(&[("Key_name", "ix_a"), ("Seq_in_index", "1"), ("Column_name", "a"), ("Non_unique", "1"), ("Clustered", "NO"), ("Sub_part", "NULL")]),
+            row(&[
+                ("Key_name", "PRIMARY"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "id"),
+                ("Non_unique", "0"),
+                ("Clustered", "YES"),
+                ("Expression", "NULL"),
+            ]),
+            row(&[
+                ("Key_name", "ix_a"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "a"),
+                ("Non_unique", "1"),
+                ("Clustered", "NO"),
+                ("Sub_part", "NULL"),
+            ]),
         ];
         let usage = Usage {
-            reads: HashMap::from([("ix_a".to_string(), Counters { seeks: 2, scans: 1, last_read: Some("2026-10-01 23:06:29".into()) })]),
+            reads: HashMap::from([(
+                "ix_a".to_string(),
+                Counters {
+                    seeks: 2,
+                    scans: 1,
+                    last_read: Some("2026-10-01 23:06:29".into()),
+                },
+            )]),
             writes: 50,
             seek_scan_split: true,
             ..Default::default()
@@ -756,19 +1072,50 @@ mod tests {
         assert_eq!((out[0].updates, out[1].updates), (0, 50));
         assert_eq!(out[1].key_columns, ["a"]);
         assert_eq!(out[1].last_read.as_deref(), Some("2026-10-01 23:06:29"));
-        let r = IndexUsageReport { stats_available: true, indexes: out, seek_scan_split: true, ..Default::default() }.derived();
+        let r = IndexUsageReport {
+            stats_available: true,
+            indexes: out,
+            seek_scan_split: true,
+            ..Default::default()
+        }
+        .derived();
         assert!(!r.indexes[0].unused, "the row handle is never unused");
-        assert_eq!(r.indexes[1].seek_ratio.map(|x| (x * 100.0).round()), Some(67.0));
+        assert_eq!(
+            r.indexes[1].seek_ratio.map(|x| (x * 100.0).round()),
+            Some(67.0)
+        );
     }
 
     #[test]
     fn oceanbase_primary_key_keeps_zeros() {
         let parts = vec![
-            row(&[("Key_name", "PRIMARY"), ("Seq_in_index", "1"), ("Column_name", "id"), ("Non_unique", "0"), ("Expression", "NULL")]),
-            row(&[("Key_name", "ix_a"), ("Seq_in_index", "1"), ("Column_name", "a"), ("Non_unique", "1"), ("Expression", "NULL")]),
+            row(&[
+                ("Key_name", "PRIMARY"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "id"),
+                ("Non_unique", "0"),
+                ("Expression", "NULL"),
+            ]),
+            row(&[
+                ("Key_name", "ix_a"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "a"),
+                ("Non_unique", "1"),
+                ("Expression", "NULL"),
+            ]),
         ];
-        let usage = Usage { writes: 7, pk_untracked: true, ..Default::default() };
-        let r = IndexUsageReport { stats_available: true, indexes: assemble(&parts, Some(&usage), None), seek_scan_split: false, ..Default::default() }.derived();
+        let usage = Usage {
+            writes: 7,
+            pk_untracked: true,
+            ..Default::default()
+        };
+        let r = IndexUsageReport {
+            stats_available: true,
+            indexes: assemble(&parts, Some(&usage), None),
+            seek_scan_split: false,
+            ..Default::default()
+        }
+        .derived();
         assert_eq!((r.indexes[0].updates, r.indexes[0].unused), (0, false));
         assert_eq!((r.indexes[1].updates, r.indexes[1].unused), (7, true));
     }
@@ -776,72 +1123,192 @@ mod tests {
     #[test]
     fn olap_show_index_rows() {
         // StarRocks / Doris: no Non_unique, a bitmap index.
-        let p = row(&[("Key_name", "ix_bm"), ("Seq_in_index", "1"), ("Column_name", "k"), ("Index_type", "BITMAP")]);
+        let p = row(&[
+            ("Key_name", "ix_bm"),
+            ("Seq_in_index", "1"),
+            ("Column_name", "k"),
+            ("Index_type", "BITMAP"),
+        ]);
         let out = assemble(&[p], None, None);
-        assert_eq!((out[0].kind.as_str(), out[0].unique, out[0].key_columns.clone()), ("BITMAP", false, vec!["k".to_string()]));
+        assert_eq!(
+            (
+                out[0].kind.as_str(),
+                out[0].unique,
+                out[0].key_columns.clone()
+            ),
+            ("BITMAP", false, vec!["k".to_string()])
+        );
     }
 
     #[test]
     fn disabled_indexes_from_show_index() {
         let parts = vec![
             // MySQL 8.0 / TiDB / OceanBase: Visible.
-            row(&[("Key_name", "PRIMARY"), ("Seq_in_index", "1"), ("Column_name", "id"), ("Non_unique", "0"), ("Visible", "YES")]),
-            row(&[("Key_name", "ix_hidden"), ("Seq_in_index", "1"), ("Column_name", "a"), ("Non_unique", "1"), ("Visible", "NO")]),
+            row(&[
+                ("Key_name", "PRIMARY"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "id"),
+                ("Non_unique", "0"),
+                ("Visible", "YES"),
+            ]),
+            row(&[
+                ("Key_name", "ix_hidden"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "a"),
+                ("Non_unique", "1"),
+                ("Visible", "NO"),
+            ]),
             // MariaDB 10.6+: Ignored.
-            row(&[("Key_name", "ix_ignored"), ("Seq_in_index", "1"), ("Column_name", "b"), ("Non_unique", "1"), ("Ignored", "YES")]),
-            row(&[("Key_name", "ix_used"), ("Seq_in_index", "1"), ("Column_name", "c"), ("Non_unique", "1"), ("Ignored", "NO")]),
+            row(&[
+                ("Key_name", "ix_ignored"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "b"),
+                ("Non_unique", "1"),
+                ("Ignored", "YES"),
+            ]),
+            row(&[
+                ("Key_name", "ix_used"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "c"),
+                ("Non_unique", "1"),
+                ("Ignored", "NO"),
+            ]),
             // MySQL 5.7, MariaDB before 10.6: no such column.
-            row(&[("Key_name", "ix_old"), ("Seq_in_index", "1"), ("Column_name", "d"), ("Non_unique", "1")]),
+            row(&[
+                ("Key_name", "ix_old"),
+                ("Seq_in_index", "1"),
+                ("Column_name", "d"),
+                ("Non_unique", "1"),
+            ]),
         ];
         let out = assemble(&parts, None, None);
-        assert_eq!(out.iter().map(|i| i.disabled).collect::<Vec<_>>(), [false, true, true, false, false]);
+        assert_eq!(
+            out.iter().map(|i| i.disabled).collect::<Vec<_>>(),
+            [false, true, true, false, false]
+        );
     }
 
     #[test]
     fn toggle_scripts_per_engine() {
         let x = t(Some("shop"), "or`ders");
-        let ix = IndexUsage { name: "ix_fecha".into(), kind: "BTREE".into(), ..Default::default() };
+        let ix = IndexUsage {
+            name: "ix_fecha".into(),
+            kind: "BTREE".into(),
+            ..Default::default()
+        };
         for v in [Variant::MySql, Variant::TiDb, Variant::OceanBase] {
             let off = toggle_script(v, &x, &ix, false).unwrap();
-            assert_eq!(off.statements, ["ALTER TABLE `shop`.`or``ders` ALTER INDEX `ix_fecha` INVISIBLE"], "{v:?}");
+            assert_eq!(
+                off.statements,
+                ["ALTER TABLE `shop`.`or``ders` ALTER INDEX `ix_fecha` INVISIBLE"],
+                "{v:?}"
+            );
             assert_eq!(off.warnings, [TOGGLE_MAINTAINED, TOGGLE_HINTS]);
             let on = toggle_script(v, &x, &ix, true).unwrap();
-            assert_eq!(on.statements, ["ALTER TABLE `shop`.`or``ders` ALTER INDEX `ix_fecha` VISIBLE"], "{v:?}");
+            assert_eq!(
+                on.statements,
+                ["ALTER TABLE `shop`.`or``ders` ALTER INDEX `ix_fecha` VISIBLE"],
+                "{v:?}"
+            );
             assert!(on.warnings.is_empty());
         }
         let maria = toggle_script(Variant::MariaDb, &t(None, "t"), &ix, false).unwrap();
-        assert_eq!(maria.statements, ["ALTER TABLE `t` ALTER INDEX `ix_fecha` IGNORED"]);
-        assert_eq!(toggle_script(Variant::MariaDb, &t(None, "t"), &ix, true).unwrap().statements, ["ALTER TABLE `t` ALTER INDEX `ix_fecha` NOT IGNORED"]);
+        assert_eq!(
+            maria.statements,
+            ["ALTER TABLE `t` ALTER INDEX `ix_fecha` IGNORED"]
+        );
+        assert_eq!(
+            toggle_script(Variant::MariaDb, &t(None, "t"), &ix, true)
+                .unwrap()
+                .statements,
+            ["ALTER TABLE `t` ALTER INDEX `ix_fecha` NOT IGNORED"]
+        );
 
         // A unique key: still enforced, and maybe the implicit primary key.
-        let uq = IndexUsage { name: "uq_codigo".into(), unique: true, ..Default::default() };
-        let w = toggle_script(Variant::MySql, &x, &uq, false).unwrap().warnings;
-        assert_eq!(w, [TOGGLE_MAINTAINED, TOGGLE_HINTS, TOGGLE_UNIQUE, TOGGLE_IMPLICIT_PK]);
+        let uq = IndexUsage {
+            name: "uq_codigo".into(),
+            unique: true,
+            ..Default::default()
+        };
+        let w = toggle_script(Variant::MySql, &x, &uq, false)
+            .unwrap()
+            .warnings;
+        assert_eq!(
+            w,
+            [
+                TOGGLE_MAINTAINED,
+                TOGGLE_HINTS,
+                TOGGLE_UNIQUE,
+                TOGGLE_IMPLICIT_PK
+            ]
+        );
 
         // The primary key, and the engines without the switch.
-        let pk = IndexUsage { name: "PRIMARY".into(), primary_key: true, unique: true, ..Default::default() };
+        let pk = IndexUsage {
+            name: "PRIMARY".into(),
+            primary_key: true,
+            unique: true,
+            ..Default::default()
+        };
         for enable in [false, true] {
-            assert!(matches!(toggle_script(Variant::MySql, &x, &pk, enable), Err(Error::Unsupported(m)) if m.contains("clave primaria")));
+            assert!(
+                matches!(toggle_script(Variant::MySql, &x, &pk, enable), Err(Error::Unsupported(m)) if m.contains("clave primaria"))
+            );
         }
-        for v in [Variant::SingleStore, Variant::StarRocks, Variant::Doris, Variant::VeloDb, Variant::Databend, Variant::GreptimeDb, Variant::Manticore] {
+        for v in [
+            Variant::SingleStore,
+            Variant::StarRocks,
+            Variant::Doris,
+            Variant::VeloDb,
+            Variant::Databend,
+            Variant::GreptimeDb,
+            Variant::Manticore,
+        ] {
             assert!(!toggle_supported(v), "{v:?}");
-            assert!(matches!(toggle_script(v, &x, &ix, false), Err(Error::Unsupported(_))), "{v:?}");
+            assert!(
+                matches!(toggle_script(v, &x, &ix, false), Err(Error::Unsupported(_))),
+                "{v:?}"
+            );
         }
     }
 
     #[test]
     fn foreign_key_columns_group_by_constraint() {
-        let row = |n: &str, c: &str, t: &str, r: &str| (n.to_string(), c.to_string(), None, t.to_string(), r.to_string());
-        let fks = foreign_keys(&[row("fk_a", "x", "p", "id"), row("fk_a", "y", "p", "id2"), row("fk_b", "z", "q", "id")]);
+        let row = |n: &str, c: &str, t: &str, r: &str| {
+            (
+                n.to_string(),
+                c.to_string(),
+                None,
+                t.to_string(),
+                r.to_string(),
+            )
+        };
+        let fks = foreign_keys(&[
+            row("fk_a", "x", "p", "id"),
+            row("fk_a", "y", "p", "id2"),
+            row("fk_b", "z", "q", "id"),
+        ]);
         assert_eq!(fks.len(), 2);
-        assert_eq!((fks[0].columns.clone(), fks[0].ref_columns.clone()), (vec!["x".to_string(), "y".into()], vec!["id".to_string(), "id2".into()]));
-        assert_eq!((fks[1].ref_table.as_str(), fks[1].ref_schema.as_deref()), ("q", None));
+        assert_eq!(
+            (fks[0].columns.clone(), fks[0].ref_columns.clone()),
+            (
+                vec!["x".to_string(), "y".into()],
+                vec!["id".to_string(), "id2".into()]
+            )
+        );
+        assert_eq!(
+            (fks[1].ref_table.as_str(), fks[1].ref_schema.as_deref()),
+            ("q", None)
+        );
     }
 
     #[test]
     fn notes_name_what_to_turn_on() {
         assert!(NOTE_PERF_DENIED.contains("SELECT sobre performance_schema"));
-        assert!(NOTE_MARIADB_OFF.contains("userstat") && NOTE_MARIADB_OFF.contains("performance_schema"));
+        assert!(
+            NOTE_MARIADB_OFF.contains("userstat")
+                && NOTE_MARIADB_OFF.contains("performance_schema")
+        );
         assert!(no_counters_note(Variant::SingleStore).starts_with("SingleStore"));
         assert!(!supported(Variant::Manticore) && supported(Variant::GreptimeDb));
     }
@@ -851,13 +1318,31 @@ mod tests {
         let counted = Usage::default();
         let mysql = full_note(Variant::MySql, Some(NOTE_PERF_ROWS), Some(&counted)).unwrap();
         assert!(mysql.starts_with(NOTE_PERF_ROWS) && mysql.contains("desde el arranque del servidor, salvo que las estadísticas se hayan reiniciado o activado después"));
-        assert!(full_note(Variant::MariaDb, Some(NOTE_USERSTAT_ROWS), Some(&counted)).unwrap().ends_with(NOTE_SINCE_START));
+        assert!(
+            full_note(Variant::MariaDb, Some(NOTE_USERSTAT_ROWS), Some(&counted))
+                .unwrap()
+                .ends_with(NOTE_SINCE_START)
+        );
         // No counters: no window to bound.
-        assert_eq!(full_note(Variant::MySql, Some(NOTE_PERF_DENIED), None).as_deref(), Some(NOTE_PERF_DENIED));
+        assert_eq!(
+            full_note(Variant::MySql, Some(NOTE_PERF_DENIED), None).as_deref(),
+            Some(NOTE_PERF_DENIED)
+        );
         // TiDB without SELECT on mysql.stats_meta: the note names it.
-        let blind = Usage { writes_unknown: true, ..Default::default() };
-        assert!(full_note(Variant::TiDb, Some(NOTE_TIDB), Some(&blind)).unwrap().contains("SELECT sobre mysql.stats_meta"));
-        assert_eq!(full_note(Variant::TiDb, Some(NOTE_TIDB), Some(&counted)).as_deref(), Some(NOTE_TIDB));
-        assert_eq!(full_note(Variant::OceanBase, Some(NOTE_OCEANBASE), Some(&counted)).as_deref(), Some(NOTE_OCEANBASE));
+        let blind = Usage {
+            writes_unknown: true,
+            ..Default::default()
+        };
+        assert!(full_note(Variant::TiDb, Some(NOTE_TIDB), Some(&blind))
+            .unwrap()
+            .contains("SELECT sobre mysql.stats_meta"));
+        assert_eq!(
+            full_note(Variant::TiDb, Some(NOTE_TIDB), Some(&counted)).as_deref(),
+            Some(NOTE_TIDB)
+        );
+        assert_eq!(
+            full_note(Variant::OceanBase, Some(NOTE_OCEANBASE), Some(&counted)).as_deref(),
+            Some(NOTE_OCEANBASE)
+        );
     }
 }

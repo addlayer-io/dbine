@@ -86,8 +86,14 @@ fn find_word(s: &str, word: &str, from: usize) -> Option<usize> {
             (None, '(' | '[') => depth += 1,
             (None, ')' | ']') => depth -= 1,
             (None, _) if depth == 0 && up[i..].starts_with(word) => {
-                let before = s[..i].chars().next_back().is_none_or(|c| !c.is_alphanumeric() && c != '_');
-                let after = s[i + word.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_');
+                let before = s[..i]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|c| !c.is_alphanumeric() && c != '_');
+                let after = s[i + word.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| !c.is_alphanumeric() && c != '_');
                 if before && after {
                     return Some(i);
                 }
@@ -112,7 +118,12 @@ pub fn parse(name: &str, kind: &str, ddl: &str) -> Option<IndexDef> {
     let on = find_word(ddl, "ON", 0)?;
     let open = on + ddl[on..].find('(')?;
     let (cols, mut rest) = balanced(ddl, open)?;
-    let mut ix = IndexDef { name: name.into(), kind: Some(kind.into()), columns: split_top(cols).iter().map(|c| entry(c)).collect(), ..Default::default() };
+    let mut ix = IndexDef {
+        name: name.into(),
+        kind: Some(kind.into()),
+        columns: split_top(cols).iter().map(|c| entry(c)).collect(),
+        ..Default::default()
+    };
     if let Some(at) = find_word(ddl, "STORING", rest) {
         let open = at + ddl[at..].find('(')?;
         let (inc, end) = balanced(ddl, open)?;
@@ -122,7 +133,10 @@ pub fn parse(name: &str, kind: &str, ddl: &str) -> Option<IndexDef> {
     let opts = find_word(ddl, "OPTIONS", rest);
     if let Some(at) = find_word(ddl, "PARTITION BY", rest) {
         let end = opts.filter(|o| *o > at).unwrap_or(ddl.len());
-        let p = ddl[at + "PARTITION BY".len()..end].trim().trim_end_matches(';').trim();
+        let p = ddl[at + "PARTITION BY".len()..end]
+            .trim()
+            .trim_end_matches(';')
+            .trim();
         if !p.is_empty() {
             ix.options.insert(PARTITION_BY.into(), p.to_string());
         }
@@ -132,7 +146,8 @@ pub fn parse(name: &str, kind: &str, ddl: &str) -> Option<IndexDef> {
         let (inner, _) = balanced(ddl, open)?;
         for kv in split_top(inner) {
             if let Some((k, v)) = kv.split_once('=') {
-                ix.options.insert(k.trim().to_lowercase(), v.trim().to_string());
+                ix.options
+                    .insert(k.trim().to_lowercase(), v.trim().to_string());
             }
         }
     }
@@ -143,8 +158,13 @@ pub fn parse(name: &str, kind: &str, ddl: &str) -> Option<IndexDef> {
 /// `index_name`, `ddl`) into the tables.
 pub fn attach(tables: &mut [TableSchema], kind: &str, rows: &[crate::ddl::Row]) {
     for r in rows {
-        let (Some(t), Some(n), Some(d)) = (r.get("table_name"), r.get("index_name"), r.get("ddl")) else { continue };
-        let Some(ix) = parse(n, kind, d) else { continue };
+        let (Some(t), Some(n), Some(d)) = (r.get("table_name"), r.get("index_name"), r.get("ddl"))
+        else {
+            continue;
+        };
+        let Some(ix) = parse(n, kind, d) else {
+            continue;
+        };
         if let Some(t) = tables.iter_mut().find(|x| &x.name == t) {
             t.indexes.push(ix);
         }
@@ -167,15 +187,35 @@ pub fn create(t: &TableSchema, ix: &IndexDef, if_not_exists: bool) -> Option<Str
         if if_not_exists { "IF NOT EXISTS " } else { "" },
         ident(&ix.name),
         table_name(t),
-        ix.columns.iter().map(|c| column_entry(c)).collect::<Vec<_>>().join(", ")
+        ix.columns
+            .iter()
+            .map(|c| column_entry(c))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
     if !ix.include.is_empty() {
-        s.push_str(&format!(" STORING ({})", ix.include.iter().map(|c| column_entry(c)).collect::<Vec<_>>().join(", ")));
+        s.push_str(&format!(
+            " STORING ({})",
+            ix.include
+                .iter()
+                .map(|c| column_entry(c))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
-    if let Some(p) = ix.options.get(PARTITION_BY).filter(|p| !p.trim().is_empty()) {
+    if let Some(p) = ix
+        .options
+        .get(PARTITION_BY)
+        .filter(|p| !p.trim().is_empty())
+    {
         s.push_str(&format!(" PARTITION BY {}", p.trim()));
     }
-    let opts: Vec<String> = ix.options.iter().filter(|(k, _)| k.as_str() != PARTITION_BY).map(|(k, v)| format!("{k} = {v}")).collect();
+    let opts: Vec<String> = ix
+        .options
+        .iter()
+        .filter(|(k, _)| k.as_str() != PARTITION_BY)
+        .map(|(k, v)| format!("{k} = {v}"))
+        .collect();
     if !opts.is_empty() {
         s.push_str(&format!(" OPTIONS ({})", opts.join(", ")));
     }
@@ -185,7 +225,12 @@ pub fn create(t: &TableSchema, ix: &IndexDef, if_not_exists: bool) -> Option<Str
 
 /// One index's DROP statement (it's dropped with its table too).
 pub fn drop(t: &TableSchema, ix: &IndexDef) -> Option<String> {
-    Some(format!("DROP {} IF EXISTS {} ON {};", kind(ix)?, ident(&ix.name), table_name(t)))
+    Some(format!(
+        "DROP {} IF EXISTS {} ON {};",
+        kind(ix)?,
+        ident(&ix.name),
+        table_name(t)
+    ))
 }
 
 /// The index statements of a table sync: a changed index is dropped and
@@ -197,16 +242,27 @@ pub fn sync(old: &TableSchema, new: &TableSchema) -> (Vec<String>, Vec<String>) 
         let mut ib = low(&b.include);
         ia.sort();
         ib.sort();
-        low(&a.columns) == low(&b.columns) && a.kind.as_deref().map(str::to_uppercase) == b.kind.as_deref().map(str::to_uppercase) && ia == ib && a.options == b.options
+        low(&a.columns) == low(&b.columns)
+            && a.kind.as_deref().map(str::to_uppercase) == b.kind.as_deref().map(str::to_uppercase)
+            && ia == ib
+            && a.options == b.options
     };
     let (mut drops, mut creates) = (Vec::new(), Vec::new());
     for o in old.indexes.iter().filter(|i| supported(i)) {
-        if !new.indexes.iter().any(|n| n.name.eq_ignore_ascii_case(&o.name) && same(o, n)) {
+        if !new
+            .indexes
+            .iter()
+            .any(|n| n.name.eq_ignore_ascii_case(&o.name) && same(o, n))
+        {
             drops.extend(drop(new, o));
         }
     }
     for n in new.indexes.iter().filter(|i| supported(i)) {
-        if !old.indexes.iter().any(|o| o.name.eq_ignore_ascii_case(&n.name) && same(o, n)) {
+        if !old
+            .indexes
+            .iter()
+            .any(|o| o.name.eq_ignore_ascii_case(&n.name) && same(o, n))
+        {
             creates.extend(create(new, n, false));
         }
     }
@@ -235,40 +291,104 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn opts(v: &[(&str, &str)]) -> BTreeMap<String, String> {
-        v.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        v.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn search_and_vector_index_ddl_is_read() {
         let ix = parse("ix", SEARCH, "CREATE SEARCH INDEX ix ON `p.ds.t`(ALL COLUMNS) OPTIONS(analyzer='LOG_ANALYZER', data_types=['STRING', 'INT64'])").unwrap();
         assert_eq!(ix.columns, vec!["ALL COLUMNS"]);
-        assert_eq!(ix.options, opts(&[("analyzer", "'LOG_ANALYZER'"), ("data_types", "['STRING', 'INT64']")]));
-        let ix = parse("ix", SEARCH, "CREATE SEARCH INDEX ix ON ds.t(a, `b` OPTIONS(index_granularity='COLUMN'))").unwrap();
-        assert_eq!(ix.columns, vec!["a", "`b` OPTIONS(index_granularity='COLUMN')"]);
+        assert_eq!(
+            ix.options,
+            opts(&[
+                ("analyzer", "'LOG_ANALYZER'"),
+                ("data_types", "['STRING', 'INT64']")
+            ])
+        );
+        let ix = parse(
+            "ix",
+            SEARCH,
+            "CREATE SEARCH INDEX ix ON ds.t(a, `b` OPTIONS(index_granularity='COLUMN'))",
+        )
+        .unwrap();
+        assert_eq!(
+            ix.columns,
+            vec!["a", "`b` OPTIONS(index_granularity='COLUMN')"]
+        );
         assert!(ix.options.is_empty());
         let ix = parse("vx", VECTOR, "CREATE VECTOR INDEX vx ON ds.t(emb) STORING(a, b) PARTITION BY DATE(ts) OPTIONS(index_type = 'IVF', distance_type = 'COSINE')").unwrap();
         assert_eq!(ix.columns, vec!["emb"]);
         assert_eq!(ix.include, vec!["a", "b"]);
-        assert_eq!(ix.options, opts(&[("distance_type", "'COSINE'"), ("index_type", "'IVF'"), (PARTITION_BY, "DATE(ts)")]));
+        assert_eq!(
+            ix.options,
+            opts(&[
+                ("distance_type", "'COSINE'"),
+                ("index_type", "'IVF'"),
+                (PARTITION_BY, "DATE(ts)")
+            ])
+        );
     }
 
     #[test]
     fn index_statements() {
-        let t = TableSchema { schema: Some("ds".into()), name: "t".into(), ..Default::default() };
-        let ix = IndexDef { name: "vx".into(), kind: Some(VECTOR.into()), columns: vec!["emb".into()], include: vec!["a".into()], options: opts(&[("index_type", "'IVF'"), (PARTITION_BY, "DATE(ts)")]), ..Default::default() };
+        let t = TableSchema {
+            schema: Some("ds".into()),
+            name: "t".into(),
+            ..Default::default()
+        };
+        let ix = IndexDef {
+            name: "vx".into(),
+            kind: Some(VECTOR.into()),
+            columns: vec!["emb".into()],
+            include: vec!["a".into()],
+            options: opts(&[("index_type", "'IVF'"), (PARTITION_BY, "DATE(ts)")]),
+            ..Default::default()
+        };
         assert_eq!(create(&t, &ix, false).unwrap(), "CREATE VECTOR INDEX `vx` ON `ds`.`t` (`emb`) STORING (`a`) PARTITION BY DATE(ts) OPTIONS (index_type = 'IVF');");
-        assert_eq!(drop(&t, &ix).unwrap(), "DROP VECTOR INDEX IF EXISTS `vx` ON `ds`.`t`;");
-        let s = IndexDef { name: "sx".into(), kind: Some(SEARCH.into()), columns: vec!["ALL COLUMNS".into()], ..Default::default() };
-        assert_eq!(create(&t, &s, true).unwrap(), "CREATE SEARCH INDEX IF NOT EXISTS `sx` ON `ds`.`t` (ALL COLUMNS);");
-        assert!(create(&t, &IndexDef { name: "b".into(), ..Default::default() }, false).is_none());
+        assert_eq!(
+            drop(&t, &ix).unwrap(),
+            "DROP VECTOR INDEX IF EXISTS `vx` ON `ds`.`t`;"
+        );
+        let s = IndexDef {
+            name: "sx".into(),
+            kind: Some(SEARCH.into()),
+            columns: vec!["ALL COLUMNS".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            create(&t, &s, true).unwrap(),
+            "CREATE SEARCH INDEX IF NOT EXISTS `sx` ON `ds`.`t` (ALL COLUMNS);"
+        );
+        assert!(create(
+            &t,
+            &IndexDef {
+                name: "b".into(),
+                ..Default::default()
+            },
+            false
+        )
+        .is_none());
     }
 
     #[test]
     fn changed_indexes_are_remade() {
-        let s = IndexDef { name: "sx".into(), kind: Some(SEARCH.into()), columns: vec!["ALL COLUMNS".into()], ..Default::default() };
-        let old = TableSchema { name: "t".into(), indexes: vec![s.clone()], ..Default::default() };
+        let s = IndexDef {
+            name: "sx".into(),
+            kind: Some(SEARCH.into()),
+            columns: vec!["ALL COLUMNS".into()],
+            ..Default::default()
+        };
+        let old = TableSchema {
+            name: "t".into(),
+            indexes: vec![s.clone()],
+            ..Default::default()
+        };
         let mut new = old.clone();
-        new.indexes[0].options.insert("analyzer".into(), "'NO_OP_ANALYZER'".into());
+        new.indexes[0]
+            .options
+            .insert("analyzer".into(), "'NO_OP_ANALYZER'".into());
         let (d, c) = sync(&old, &new);
         assert_eq!(d, vec!["DROP SEARCH INDEX IF EXISTS `sx` ON `t`;"]);
         assert_eq!(c, vec!["CREATE SEARCH INDEX `sx` ON `t` (ALL COLUMNS) OPTIONS (analyzer = 'NO_OP_ANALYZER');"]);

@@ -17,7 +17,11 @@ use dbine_driver::ConnectionConfig;
 
 fn config() -> Option<ConnectionConfig> {
     let url = std::env::var("DBINE_TEST_LIBSQL_URL").ok()?;
-    let mut cfg = ConnectionConfig { driver: "libsql".into(), host: url, ..Default::default() };
+    let mut cfg = ConnectionConfig {
+        driver: "libsql".into(),
+        host: url,
+        ..Default::default()
+    };
     if let Ok(t) = std::env::var("DBINE_TEST_LIBSQL_TOKEN") {
         cfg.options.insert("auth_token".into(), t);
     }

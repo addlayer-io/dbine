@@ -42,7 +42,9 @@ pub(crate) fn memgraph_counts(rows: &[serde_json::Map<String, Value>]) -> Vec<(b
                 "edge-type" => true,
                 _ => return None,
             };
-            if r.get("property").is_some_and(|p| !p.is_null() && !as_text(p).is_empty() && p != &Value::Array(Vec::new())) {
+            if r.get("property").is_some_and(|p| {
+                !p.is_null() && !as_text(p).is_empty() && p != &Value::Array(Vec::new())
+            }) {
                 return None;
             }
             let name = r.get("label").map(as_text).filter(|n| !n.is_empty())?;
@@ -53,7 +55,14 @@ pub(crate) fn memgraph_counts(rows: &[serde_json::Map<String, Value>]) -> Vec<(b
 }
 
 fn estimate(rel: bool, name: String, rows: u64) -> RowEstimate {
-    RowEstimate { object: ObjectRef { kind: if rel { RELATIONSHIP } else { LABEL }.into(), schema: None, name }, rows }
+    RowEstimate {
+        object: ObjectRef {
+            kind: if rel { RELATIONSHIP } else { LABEL }.into(),
+            schema: None,
+            name,
+        },
+        rows,
+    }
 }
 
 impl GraphSession {
@@ -64,7 +73,10 @@ impl GraphSession {
                 for rel in [false, true] {
                     for name in self.labels(rel).await.unwrap_or_default() {
                         let n = self.strings(&count_store_query(rel, &name)).await.ok();
-                        if let Some(n) = n.and_then(|v| v.into_iter().next()).and_then(|v| v.parse().ok()) {
+                        if let Some(n) = n
+                            .and_then(|v| v.into_iter().next())
+                            .and_then(|v| v.parse().ok())
+                        {
                             out.push(estimate(rel, name, n));
                         }
                     }
@@ -73,7 +85,10 @@ impl GraphSession {
             }
             Flavor::Memgraph => {
                 let rows = self.records("SHOW INDEX INFO").await.unwrap_or_default();
-                Ok(memgraph_counts(&rows).into_iter().map(|(rel, name, n)| estimate(rel, name, n)).collect())
+                Ok(memgraph_counts(&rows)
+                    .into_iter()
+                    .map(|(rel, name, n)| estimate(rel, name, n))
+                    .collect())
             }
             Flavor::Neptune => Ok(Vec::new()),
         }
@@ -87,8 +102,14 @@ mod tests {
 
     #[test]
     fn count_store_shapes() {
-        assert_eq!(count_store_query(false, "Person"), "MATCH (n:Person) RETURN count(n)");
-        assert_eq!(count_store_query(true, "ACTED IN"), "MATCH ()-[r:`ACTED IN`]->() RETURN count(r)");
+        assert_eq!(
+            count_store_query(false, "Person"),
+            "MATCH (n:Person) RETURN count(n)"
+        );
+        assert_eq!(
+            count_store_query(true, "ACTED IN"),
+            "MATCH ()-[r:`ACTED IN`]->() RETURN count(r)"
+        );
     }
 
     #[test]
@@ -102,6 +123,12 @@ mod tests {
         .into_iter()
         .map(|v| v.as_object().unwrap().clone())
         .collect();
-        assert_eq!(memgraph_counts(&rows), vec![(false, "Person".to_string(), 7), (true, "KNOWS".to_string(), 3)]);
+        assert_eq!(
+            memgraph_counts(&rows),
+            vec![
+                (false, "Person".to_string(), 7),
+                (true, "KNOWS".to_string(), 3)
+            ]
+        );
     }
 }

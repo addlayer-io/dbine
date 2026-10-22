@@ -44,14 +44,22 @@ pub(crate) fn fields() -> Vec<Field> {
         Field::new("location", "Ubicación", FieldKind::Text)
             .placeholder("US, EU, southamerica-east1…")
             .help("Vacía: la de la conexión (o US). No se puede cambiar después."),
-        Field::new("table_expiration_days", "Vencimiento por defecto de las tablas (días)", FieldKind::Number)
-            .help("Vacío: las tablas nuevas no vencen."),
+        Field::new(
+            "table_expiration_days",
+            "Vencimiento por defecto de las tablas (días)",
+            FieldKind::Number,
+        )
+        .help("Vacío: las tablas nuevas no vencen."),
         Field::new("description", "Descripción", FieldKind::Textarea),
         Field::new("labels", "Etiquetas (labels)", FieldKind::Textarea)
             .placeholder("equipo=ventas\nentorno=prod")
             .help("Una por línea, como clave=valor: minúsculas, números, _ y -."),
-        Field::new("collation", "Intercalación por defecto (collation)", FieldKind::Select(vec![("und:ci", "Sin distinguir mayúsculas (und:ci)")]))
-            .help("Vacía: las comparaciones distinguen mayúsculas."),
+        Field::new(
+            "collation",
+            "Intercalación por defecto (collation)",
+            FieldKind::Select(vec![("und:ci", "Sin distinguir mayúsculas (und:ci)")]),
+        )
+        .help("Vacía: las comparaciones distinguen mayúsculas."),
     ]
 }
 
@@ -63,19 +71,24 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
 /// `-`, at most 63 characters; a key starts with a letter.
 pub(crate) fn label_part(v: &str, key: bool) -> bool {
     v.chars().count() <= 63
-        && v.chars().all(|c| c.is_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+        && v.chars()
+            .all(|c| c.is_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
         && (!key || v.chars().next().is_some_and(char::is_lowercase))
 }
 
 pub(crate) fn labels(v: &str) -> Result<Map<String, Json>> {
     let mut out = Map::new();
     for line in v.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let (k, val) = line.split_once('=').map_or((line, ""), |(k, v)| (k.trim(), v.trim()));
+        let (k, val) = line
+            .split_once('=')
+            .map_or((line, ""), |(k, v)| (k.trim(), v.trim()));
         if !label_part(k, true) {
             return Err(Error::Query(format!("etiquetas: «{k}» no es una clave válida (minúsculas, números, _ y -, empezando por una letra)")));
         }
         if !label_part(val, false) {
-            return Err(Error::Query(format!("etiquetas: el valor de «{k}», «{val}», solo admite minúsculas, números, _ y -")));
+            return Err(Error::Query(format!(
+                "etiquetas: el valor de «{k}», «{val}», solo admite minúsculas, números, _ y -"
+            )));
         }
         out.insert(k.to_string(), json!(val));
     }
@@ -87,7 +100,12 @@ pub(crate) fn labels(v: &str) -> Result<Map<String, Json>> {
 
 /// The `datasets.insert` body for dataset `name`. `project` and
 /// `location` (the connection's) are filled by the session.
-pub(crate) fn body(name: &str, o: &BTreeMap<String, String>, project: Option<&str>, location: Option<&str>) -> Result<Json> {
+pub(crate) fn body(
+    name: &str,
+    o: &BTreeMap<String, String>,
+    project: Option<&str>,
+    location: Option<&str>,
+) -> Result<Json> {
     let mut reference = json!({ "datasetId": name });
     if let Some(p) = project {
         reference["projectId"] = json!(p);
@@ -96,7 +114,9 @@ pub(crate) fn body(name: &str, o: &BTreeMap<String, String>, project: Option<&st
     match opt(o, "location") {
         Some(l) => {
             if !l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-                return Err(Error::Query(format!("ubicación: «{l}» no es una región ni una multirregión")));
+                return Err(Error::Query(format!(
+                    "ubicación: «{l}» no es una región ni una multirregión"
+                )));
             }
             body["location"] = json!(l);
         }
@@ -111,7 +131,11 @@ pub(crate) fn body(name: &str, o: &BTreeMap<String, String>, project: Option<&st
             .parse()
             .ok()
             .filter(|n| (1..=100_000).contains(n))
-            .ok_or_else(|| Error::Query(format!("vencimiento de las tablas: «{d}» no es un número entero de días")))?;
+            .ok_or_else(|| {
+                Error::Query(format!(
+                    "vencimiento de las tablas: «{d}» no es un número entero de días"
+                ))
+            })?;
         body["defaultTableExpirationMs"] = json!((days * 86_400_000).to_string());
     }
     if let Some(d) = opt(o, "description") {
@@ -125,7 +149,9 @@ pub(crate) fn body(name: &str, o: &BTreeMap<String, String>, project: Option<&st
     }
     if let Some(c) = opt(o, "collation") {
         if c != "und:ci" {
-            return Err(Error::Query(format!("intercalación: «{c}» no es un valor válido (und:ci)")));
+            return Err(Error::Query(format!(
+                "intercalación: «{c}» no es un valor válido (und:ci)"
+            )));
         }
         body["defaultCollation"] = json!(c);
     }
@@ -135,7 +161,10 @@ pub(crate) fn body(name: &str, o: &BTreeMap<String, String>, project: Option<&st
 /// What "Ver script" shows: the request and its body.
 pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String> {
     let body = body(name, o, None, None)?;
-    Ok(format!("POST datasets (datasets.insert)\n{}", serde_json::to_string_pretty(&body)?))
+    Ok(format!(
+        "POST datasets (datasets.insert)\n{}",
+        serde_json::to_string_pretty(&body)?
+    ))
 }
 
 impl BigQuerySession {
@@ -148,8 +177,17 @@ impl BigQuerySession {
         }])
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
-        let body = body(name, o, Some(&self.api.project), self.api.location.as_deref())?;
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
+        let body = body(
+            name,
+            o,
+            Some(&self.api.project),
+            self.api.location.as_deref(),
+        )?;
         self.api.post(&["datasets"], &[], &body).await.map(|_| ())
     }
 }
@@ -159,14 +197,23 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
         // The body of the plain create (see `create_database`).
-        assert_eq!(body("ventas", &o(&[]), Some("p"), Some("EU")).unwrap(), json!({ "datasetReference": { "projectId": "p", "datasetId": "ventas" }, "location": "EU" }));
-        assert_eq!(body("ventas", &o(&[("labels", " ")]), Some("p"), None).unwrap(), json!({ "datasetReference": { "projectId": "p", "datasetId": "ventas" } }));
+        assert_eq!(
+            body("ventas", &o(&[]), Some("p"), Some("EU")).unwrap(),
+            json!({ "datasetReference": { "projectId": "p", "datasetId": "ventas" }, "location": "EU" })
+        );
+        assert_eq!(
+            body("ventas", &o(&[("labels", " ")]), Some("p"), None).unwrap(),
+            json!({ "datasetReference": { "projectId": "p", "datasetId": "ventas" } })
+        );
         assert_eq!(script("v", &o(&[])).unwrap(), "POST datasets (datasets.insert)\n{\n  \"datasetReference\": {\n    \"datasetId\": \"v\"\n  }\n}");
     }
 

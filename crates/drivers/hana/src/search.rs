@@ -32,34 +32,56 @@ fn plan(q: &CodeSearch) -> Option<Vec<&str>> {
     if q.text.is_empty() || q.kinds.is_empty() {
         return None;
     }
-    q.kinds.iter().map(|k| source_sql(k).map(|_| k.as_str())).collect()
+    q.kinds
+        .iter()
+        .map(|k| source_sql(k).map(|_| k.as_str()))
+        .collect()
 }
 
 impl HanaSession {
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
         let Some(plan) = plan(q) else { return Ok(None) };
         let schema = self.schema.clone();
         let mut report = CodeSearchReport::default();
         for kind in plan {
-            let Some(sql) = source_sql(kind) else { continue };
+            let Some(sql) = source_sql(kind) else {
+                continue;
+            };
             let rows = self.rows(sql, &[&schema]).await?;
             // `definition` takes the first row of a name: two rows of one
             // name (not expected) would make the hits differ.
             let mut seen = HashSet::new();
             let mut objects = Vec::new();
             for r in &rows {
-                let Some(name) = r.first().and_then(text) else { continue };
+                let Some(name) = r.first().and_then(text) else {
+                    continue;
+                };
                 if !seen.insert(name.clone()) {
                     return Ok(None);
                 }
-                let parent = if kind == kinds::TRIGGER { r.get(1).and_then(text) } else { None };
-                let source = r.get(2).and_then(text).map(|d| if kind == kinds::VIEW { view_ddl(&schema, &name, &d) } else { d });
+                let parent = if kind == kinds::TRIGGER {
+                    r.get(1).and_then(text)
+                } else {
+                    None
+                };
+                let source = r.get(2).and_then(text).map(|d| {
+                    if kind == kinds::VIEW {
+                        view_ddl(&schema, &name, &d)
+                    } else {
+                        d
+                    }
+                });
                 objects.push((name, parent, source));
             }
             for (name, parent, source) in objects {
                 report.scanned += 1;
                 let Some(source) = source else { continue };
-                report.hits.extend(hits_in(kind, None, &name, parent.as_deref(), &source, q));
+                report
+                    .hits
+                    .extend(hits_in(kind, None, &name, parent.as_deref(), &source, q));
                 if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                     report.hits.truncate(q.max_hits);
                     report.truncated = true;
@@ -76,30 +98,58 @@ mod tests {
     use super::*;
 
     fn q(kinds: &[&str]) -> CodeSearch {
-        CodeSearch { text: "ventas".into(), kinds: kinds.iter().map(|k| k.to_string()).collect(), ..Default::default() }
+        CodeSearch {
+            text: "ventas".into(),
+            kinds: kinds.iter().map(|k| k.to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn only_kinds_with_a_catalog_source() {
-        assert_eq!(plan(&q(&["view", "trigger"])), Some(vec!["view", "trigger"]));
-        assert_eq!(plan(&q(&[])), None, "every kind: tables need GET_OBJECT_DEFINITION");
+        assert_eq!(
+            plan(&q(&["view", "trigger"])),
+            Some(vec!["view", "trigger"])
+        );
+        assert_eq!(
+            plan(&q(&[])),
+            None,
+            "every kind: tables need GET_OBJECT_DEFINITION"
+        );
         assert_eq!(plan(&q(&["view", "table"])), None);
         assert_eq!(plan(&q(&["sequence"])), None);
-        assert_eq!(plan(&CodeSearch { text: String::new(), ..q(&["view"]) }), None);
+        assert_eq!(
+            plan(&CodeSearch {
+                text: String::new(),
+                ..q(&["view"])
+            }),
+            None
+        );
     }
 
     #[test]
     fn the_schema_is_a_parameter() {
-        for k in [kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION, kinds::TRIGGER] {
+        for k in [
+            kinds::VIEW,
+            kinds::PROCEDURE,
+            kinds::FUNCTION,
+            kinds::TRIGGER,
+        ] {
             let sql = source_sql(k).unwrap();
-            assert!(sql.contains("SCHEMA_NAME = ?") && !sql.contains("LIKE"), "{sql}");
+            assert!(
+                sql.contains("SCHEMA_NAME = ?") && !sql.contains("LIKE"),
+                "{sql}"
+            );
         }
     }
 
     #[test]
     fn views_as_definition_builds_them() {
         let src = view_ddl("APP", "V_VENTAS", "  SELECT ID\nFROM VENTAS \n");
-        assert_eq!(src, "CREATE VIEW \"APP\".\"V_VENTAS\" AS\nSELECT ID\nFROM VENTAS");
+        assert_eq!(
+            src,
+            "CREATE VIEW \"APP\".\"V_VENTAS\" AS\nSELECT ID\nFROM VENTAS"
+        );
         let h = hits_in(kinds::VIEW, None, "V_VENTAS", None, &src, &q(&["view"]));
         assert_eq!(h.iter().map(|h| h.line).collect::<Vec<_>>(), vec![1, 3]);
     }

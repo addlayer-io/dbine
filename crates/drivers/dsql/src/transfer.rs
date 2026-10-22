@@ -41,7 +41,9 @@
 
 use crate::{err, open_session, DsqlSession, Reopen};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{ColumnInfo, Error, ObjectRef, Result, Session};
 use futures::{pin_mut, StreamExt};
 use postgres_native_tls::MakeTlsConnector;
@@ -81,8 +83,14 @@ fn lock_err<T>(_: T) -> Error {
 
 /// The catalog columns named in `wanted`, in that order (exact name first,
 /// then ignoring case); all of them when `None`.
-pub(crate) fn pick<'a>(catalog: &'a [ColumnInfo], wanted: Option<&[String]>, table: &str) -> Result<Vec<&'a ColumnInfo>> {
-    let Some(wanted) = wanted else { return Ok(catalog.iter().collect()) };
+pub(crate) fn pick<'a>(
+    catalog: &'a [ColumnInfo],
+    wanted: Option<&[String]>,
+    table: &str,
+) -> Result<Vec<&'a ColumnInfo>> {
+    let Some(wanted) = wanted else {
+        return Ok(catalog.iter().collect());
+    };
     wanted
         .iter()
         .map(|n| {
@@ -159,7 +167,12 @@ fn digits(s: &str) -> bool {
 /// `YYYY-MM-DD` (no era suffix, 4-digit year).
 fn iso_date(s: &str) -> bool {
     let b = s.as_bytes();
-    b.len() == 10 && b[4] == b'-' && b[7] == b'-' && digits(&s[..4]) && digits(&s[5..7]) && digits(&s[8..])
+    b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && digits(&s[..4])
+        && digits(&s[5..7])
+        && digits(&s[8..])
 }
 
 /// `HH:MM:SS[.f…]` with the hour at most 23: PostgreSQL's `time` also
@@ -205,7 +218,9 @@ fn plain_decimal(v: &str) -> bool {
     let mut parts = v.splitn(2, '.');
     let int = parts.next().unwrap_or("");
     let frac = parts.next();
-    (int.is_empty() || digits(int)) && frac.is_none_or(|f| f.is_empty() || digits(f)) && v.bytes().any(|b| b.is_ascii_digit())
+    (int.is_empty() || digits(int))
+        && frac.is_none_or(|f| f.is_empty() || digits(f))
+        && v.bytes().any(|b| b.is_ascii_digit())
 }
 
 /// A text value of a column as a cell; what doesn't parse stays text.
@@ -221,7 +236,10 @@ pub(crate) fn text_cell(k: Kind, v: Option<&str>) -> Cell {
         Kind::Int => v.parse().map_or_else(|_| text(), Cell::Int),
         Kind::Float => v.parse().map_or_else(|_| text(), Cell::Float),
         Kind::Numeric if plain_decimal(v) => Cell::Decimal(v.to_string()),
-        Kind::Bytea => v.strip_prefix("\\x").and_then(crate::unhex).map_or_else(text, Cell::Bytes),
+        Kind::Bytea => v
+            .strip_prefix("\\x")
+            .and_then(crate::unhex)
+            .map_or_else(text, Cell::Bytes),
         Kind::Uuid if v.len() == 36 => Cell::Uuid(v.to_ascii_lowercase()),
         Kind::Date if iso_date(v) => Cell::Date(v.to_string()),
         Kind::Time if iso_time(v) => Cell::Time(v.to_string()),
@@ -235,7 +253,11 @@ pub(crate) fn text_cell(k: Kind, v: Option<&str>) -> Cell {
 /// Output settings every value above parses from: ISO dates and hex
 /// binaries. DSQL may refuse a setting; the defaults are these anyway.
 async fn portable_output(s: &DsqlSession) {
-    for set in ["SET DateStyle = ISO, YMD", "SET bytea_output = hex", "SET extra_float_digits = 3"] {
+    for set in [
+        "SET DateStyle = ISO, YMD",
+        "SET bytea_output = hex",
+        "SET extra_float_digits = 3",
+    ] {
         if let Err(e) = s.client.simple_query(set).await {
             tracing::debug!("dsql: {set}: {e}");
         }
@@ -255,10 +277,21 @@ async fn primary_key(s: &DsqlSession, t: &ObjectRef, catalog: &[ColumnInfo]) -> 
     match s.client.query(q, &[&schema, &t.name]).await {
         Ok(rows) if !rows.is_empty() => {
             let key: String = rows[0].get(2);
-            let order: Vec<i32> = key.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+            let order: Vec<i32> = key
+                .split_whitespace()
+                .filter_map(|n| n.parse().ok())
+                .collect();
             let mut cols: Vec<(usize, String)> = rows
                 .iter()
-                .map(|r| (order.iter().position(|n| *n == r.get::<_, i32>(1)).unwrap_or(usize::MAX), r.get(0)))
+                .map(|r| {
+                    (
+                        order
+                            .iter()
+                            .position(|n| *n == r.get::<_, i32>(1))
+                            .unwrap_or(usize::MAX),
+                        r.get(0),
+                    )
+                })
                 .collect();
             cols.sort();
             cols.into_iter().map(|(_, n)| n).collect()
@@ -266,7 +299,11 @@ async fn primary_key(s: &DsqlSession, t: &ObjectRef, catalog: &[ColumnInfo]) -> 
         Ok(_) => Vec::new(),
         Err(e) => {
             tracing::debug!("dsql: primary key of {}: {e}", t.name);
-            catalog.iter().filter(|c| c.primary_key).map(|c| c.name.clone()).collect()
+            catalog
+                .iter()
+                .filter(|c| c.primary_key)
+                .map(|c| c.name.clone())
+                .collect()
         }
     }
 }
@@ -279,7 +316,13 @@ pub(crate) fn literal(v: &str) -> String {
 
 /// One keyset page: `select` (the columns, the key's appended at the end
 /// when not among them) after the row whose key is `after`.
-pub(crate) fn page_sql(select: &str, filter: Option<&str>, key: &[String], after: Option<&[String]>, limit: usize) -> String {
+pub(crate) fn page_sql(
+    select: &str,
+    filter: Option<&str>,
+    key: &[String],
+    after: Option<&[String]>,
+    limit: usize,
+) -> String {
     let mut s = select.to_string();
     let quoted: Vec<String> = key.iter().map(|k| quote_ident(Quote::Double, k)).collect();
     let mut conds = Vec::new();
@@ -307,7 +350,11 @@ pub(crate) fn next_limit(limit: usize, rows: usize, bytes: usize) -> usize {
     fit.clamp(1, (limit * 4).min(MAX_PAGE_ROWS))
 }
 
-pub(crate) async fn read_batches(s: &mut DsqlSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut DsqlSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let table = table_name(&spec.table);
     let catalog = s.columns(&spec.table).await?;
     if catalog.is_empty() {
@@ -323,7 +370,10 @@ pub(crate) async fn read_batches(s: &mut DsqlSession, spec: &ReadSpec, sink: Bat
         match all.iter().position(|c| &c.name == k) {
             Some(i) => key_at.push(i),
             None => {
-                let c = catalog.iter().find(|c| &c.name == k).ok_or_else(|| Error::State(format!("clave de {table}")))?;
+                let c = catalog
+                    .iter()
+                    .find(|c| &c.name == k)
+                    .ok_or_else(|| Error::State(format!("clave de {table}")))?;
                 key_at.push(all.len());
                 all.push(c);
             }
@@ -332,12 +382,20 @@ pub(crate) async fn read_batches(s: &mut DsqlSession, spec: &ReadSpec, sink: Bat
     let base = select_sql(&table, &all, None);
     let filter = spec.filter.as_deref();
     portable_output(s).await;
-    let stmt = s.client.prepare(&select_sql(&table, &all, filter)).await.map_err(err)?;
+    let stmt = s
+        .client
+        .prepare(&select_sql(&table, &all, filter))
+        .await
+        .map_err(err)?;
     let kinds: Vec<Kind> = stmt.columns().iter().map(|c| Kind::of(c.type_())).collect();
     drop(stmt);
     let described: Vec<TransferColumn> = cols
         .iter()
-        .map(|c| TransferColumn { name: c.name.clone(), type_name: c.data_type.clone(), nullable: c.nullable })
+        .map(|c| TransferColumn {
+            name: c.name.clone(),
+            type_name: c.data_type.clone(),
+            nullable: c.nullable,
+        })
         .collect();
     sink.lock().map_err(lock_err)?.begin(&described)?;
     let n = cols.len();
@@ -346,11 +404,19 @@ pub(crate) async fn read_batches(s: &mut DsqlSession, spec: &ReadSpec, sink: Bat
     if key.is_empty() {
         // Nothing to page by: one statement, which DSQL ends after 5 minutes.
         tracing::warn!("dsql: {table} has no primary key; read in one statement");
-        let stream = s.client.simple_query_raw(&select_sql(&table, &cols, filter)).await.map_err(err)?;
+        let stream = s
+            .client
+            .simple_query_raw(&select_sql(&table, &cols, filter))
+            .await
+            .map_err(err)?;
         pin_mut!(stream);
         while let Some(msg) = stream.next().await {
             if let SimpleQueryMessage::Row(r) = msg.map_err(err)? {
-                let cells = kinds[..n].iter().enumerate().map(|(i, k)| text_cell(*k, r.get(i))).collect();
+                let cells = kinds[..n]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, k)| text_cell(*k, r.get(i)))
+                    .collect();
                 builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
             }
         }
@@ -372,10 +438,18 @@ pub(crate) async fn read_batches(s: &mut DsqlSession, spec: &ReadSpec, sink: Bat
                 if let SimpleQueryMessage::Row(r) = msg.map_err(err)? {
                     let mut last = Vec::with_capacity(key_at.len());
                     for &i in &key_at {
-                        last.push(r.get(i).ok_or_else(|| Error::State(format!("clave nula en {table}")))?.to_string());
+                        last.push(
+                            r.get(i)
+                                .ok_or_else(|| Error::State(format!("clave nula en {table}")))?
+                                .to_string(),
+                        );
                     }
                     after = Some(last);
-                    let cells: Vec<Cell> = kinds[..n].iter().enumerate().map(|(i, k)| text_cell(*k, r.get(i))).collect();
+                    let cells: Vec<Cell> = kinds[..n]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, k)| text_cell(*k, r.get(i)))
+                        .collect();
                     bytes += cells.iter().map(Cell::size).sum::<usize>();
                     page.push(cells);
                     if bytes >= PAGE_BYTES {
@@ -407,7 +481,11 @@ pub(crate) async fn read_batches(s: &mut DsqlSession, spec: &ReadSpec, sink: Bat
 pub(crate) struct TextParam(pub(crate) Option<String>);
 
 impl ToSql for TextParam {
-    fn to_sql(&self, _: &Type, out: &mut BytesMut) -> std::result::Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+    fn to_sql(
+        &self,
+        _: &Type,
+        out: &mut BytesMut,
+    ) -> std::result::Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
         match &self.0 {
             None => Ok(IsNull::Yes),
             Some(s) => {
@@ -470,7 +548,11 @@ pub(crate) fn insert_head(table: &str, cols: &[String], identity: bool) -> Strin
     format!(
         "INSERT INTO {table} ({}){} VALUES ",
         list.join(", "),
-        if identity { " OVERRIDING SYSTEM VALUE" } else { "" }
+        if identity {
+            " OVERRIDING SYSTEM VALUE"
+        } else {
+            ""
+        }
     )
 }
 
@@ -533,7 +615,10 @@ pub(crate) fn bind_for(c: &Cell, plain_ts: bool, column: &str) -> Result<Option<
 fn backoff(attempt: u32) -> Duration {
     // 50 ms doubling up to ~3 s, with jitter so parallel windows spread out.
     let base = 50u64 << attempt.min(6);
-    let jitter = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos() as u64) % base;
+    let jitter = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos() as u64)
+        % base;
     Duration::from_millis(base + jitter)
 }
 
@@ -549,7 +634,9 @@ struct CancelOnDrop {
 
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
-        let Some(token) = self.token.take() else { return };
+        let Some(token) = self.token.take() else {
+            return;
+        };
         let tls = self.tls.clone();
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
@@ -577,7 +664,11 @@ struct Shared<'a> {
 }
 
 /// A connection loading windows until the queue closes or the load stops.
-async fn worker(client: &Client, cancel: (CancelToken, MakeTlsConnector), sh: &Shared<'_>) -> Result<()> {
+async fn worker(
+    client: &Client,
+    cancel: (CancelToken, MakeTlsConnector),
+    sh: &Shared<'_>,
+) -> Result<()> {
     let mut prepared: Option<(usize, Statement)> = None;
     loop {
         let next = tokio::select! {
@@ -593,7 +684,10 @@ async fn worker(client: &Client, cancel: (CancelToken, MakeTlsConnector), sh: &S
             let stmt = match &prepared {
                 Some((k, st)) if *k == n => st.clone(),
                 _ => {
-                    let st = client.prepare(&insert_sql(&sh.head, sh.ncols, n)).await.map_err(err)?;
+                    let st = client
+                        .prepare(&insert_sql(&sh.head, sh.ncols, n))
+                        .await
+                        .map_err(err)?;
                     prepared = Some((n, st.clone()));
                     st
                 }
@@ -604,8 +698,12 @@ async fn worker(client: &Client, cancel: (CancelToken, MakeTlsConnector), sh: &S
                     // Another window failed: nothing new starts.
                     return Ok(());
                 }
-                let refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
-                let mut guard = CancelOnDrop { token: Some(cancel.0.clone()), tls: cancel.1.clone() };
+                let refs: Vec<&(dyn ToSql + Sync)> =
+                    params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
+                let mut guard = CancelOnDrop {
+                    token: Some(cancel.0.clone()),
+                    tls: cancel.1.clone(),
+                };
                 let res = client.execute(&stmt, &refs).await;
                 guard.token = None;
                 match res {
@@ -631,7 +729,10 @@ async fn worker(client: &Client, cancel: (CancelToken, MakeTlsConnector), sh: &S
                 todo.push(params);
                 continue;
             }
-            let mut total = sh.done.lock().map_err(|_| Error::State("progreso de la carga".into()))?;
+            let mut total = sh
+                .done
+                .lock()
+                .map_err(|_| Error::State("progreso de la carga".into()))?;
             *total += n as u64;
             (sh.progress)(*total);
         }
@@ -641,7 +742,11 @@ async fn worker(client: &Client, cancel: (CancelToken, MakeTlsConnector), sh: &S
 /// Another connection like the session's (a fresh IAM token when it logged
 /// in through IAM; the test hook's password otherwise).
 async fn another(r: &Reopen) -> Result<DsqlSession> {
-    let password = if r.target.region.is_empty() { r.password.clone() } else { crate::auth_token(&r.cfg, &r.target).await? };
+    let password = if r.target.region.is_empty() {
+        r.password.clone()
+    } else {
+        crate::auth_token(&r.cfg, &r.target).await?
+    };
     open_session(&r.cfg, &r.target, &password, r.ssl).await
 }
 
@@ -660,7 +765,12 @@ pub(crate) fn reseed_sql(table: &str, column: &str) -> String {
     )
 }
 
-pub(crate) async fn bulk_load(s: &mut DsqlSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &mut DsqlSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     let table = table_name(&spec.table);
     let ncols = spec.columns.len();
     if ncols == 0 {
@@ -681,7 +791,10 @@ pub(crate) async fn bulk_load(s: &mut DsqlSession, spec: &LoadSpec, source: &mut
         match another(&s.reopen).await {
             Ok(x) => extra.push(x),
             Err(e) => {
-                tracing::debug!("dsql: bulk load goes on with {} connection(s): {e}", extra.len() + 1);
+                tracing::debug!(
+                    "dsql: bulk load goes on with {} connection(s): {e}",
+                    extra.len() + 1
+                );
                 break;
             }
         }
@@ -698,7 +811,14 @@ pub(crate) async fn bulk_load(s: &mut DsqlSession, spec: &LoadSpec, source: &mut
         }
         stop_tx.send_replace(true);
     };
-    let sh = Shared { rx: tokio::sync::Mutex::new(rx), head: insert_head(&table, &names, identity), ncols, done: Mutex::new(0), progress, stop: stop_rx.clone() };
+    let sh = Shared {
+        rx: tokio::sync::Mutex::new(rx),
+        head: insert_head(&table, &names, identity),
+        ncols,
+        done: Mutex::new(0),
+        progress,
+        stop: stop_rx.clone(),
+    };
 
     let stop = stop_rx.clone();
     // Owns the queue's sender: it closes when this ends, so the workers
@@ -725,7 +845,10 @@ pub(crate) async fn bulk_load(s: &mut DsqlSession, spec: &LoadSpec, source: &mut
             let Some(batch) = batch else { break };
             for row in batch.rows {
                 if row.len() != ncols {
-                    return Err(Error::Query(format!("una fila trae {} valores y la carga espera {ncols}", row.len())));
+                    return Err(Error::Query(format!(
+                        "una fila trae {} valores y la carga espera {ncols}",
+                        row.len()
+                    )));
                 }
                 let mut binds = Vec::with_capacity(ncols);
                 let mut size = 0u64;
@@ -772,10 +895,17 @@ pub(crate) async fn bulk_load(s: &mut DsqlSession, spec: &LoadSpec, source: &mut
     futures::join!(produce, workers);
     drop(conns);
     drop(extra);
-    if let Some(e) = first.lock().map_err(|_| Error::State("error de la carga".into()))?.take() {
+    if let Some(e) = first
+        .lock()
+        .map_err(|_| Error::State("error de la carga".into()))?
+        .take()
+    {
         return Err(e);
     }
-    let total = *sh.done.lock().map_err(|_| Error::State("progreso de la carga".into()))?;
+    let total = *sh
+        .done
+        .lock()
+        .map_err(|_| Error::State("progreso de la carga".into()))?;
 
     if identity {
         for c in cols.iter().filter(|c| c.auto_increment) {
@@ -797,12 +927,23 @@ mod tests {
     use super::*;
 
     fn col(name: &str, ty: &str) -> ColumnInfo {
-        ColumnInfo { name: name.into(), data_type: ty.into(), nullable: true, primary_key: false, auto_increment: false, default_value: None }
+        ColumnInfo {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable: true,
+            primary_key: false,
+            auto_increment: false,
+            default_value: None,
+        }
     }
 
     fn spec(rows: u64, bytes: u64) -> LoadSpec {
         LoadSpec {
-            table: ObjectRef { kind: "table".into(), schema: Some("app".into()), name: "t".into() },
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: Some("app".into()),
+                name: "t".into(),
+            },
             columns: vec!["a".into()],
             table_lock: false,
             keep_identity: false,
@@ -815,12 +956,21 @@ mod tests {
     fn picks_columns_in_the_requested_order() {
         let cat = vec![col("id", "integer"), col("Name", "text"), col("m", "money")];
         let got = pick(&cat, Some(&["m".into(), "name".into()]), "t").unwrap();
-        assert_eq!(got.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["m", "Name"]);
+        assert_eq!(
+            got.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            vec!["m", "Name"]
+        );
         assert_eq!(pick(&cat, None, "t").unwrap().len(), 3);
         assert!(pick(&cat, Some(&["zz".into()]), "t").is_err());
         let sel = select_sql("\"app\".\"t\"", &got, Some(" id > 3 "));
-        assert_eq!(sel, "SELECT \"m\"::numeric AS \"m\", \"Name\" FROM \"app\".\"t\" WHERE (id > 3)");
-        assert_eq!(select_sql("t", &got[1..], Some("  ")), "SELECT \"Name\" FROM t");
+        assert_eq!(
+            sel,
+            "SELECT \"m\"::numeric AS \"m\", \"Name\" FROM \"app\".\"t\" WHERE (id > 3)"
+        );
+        assert_eq!(
+            select_sql("t", &got[1..], Some("  ")),
+            "SELECT \"Name\" FROM t"
+        );
     }
 
     #[test]
@@ -837,31 +987,88 @@ mod tests {
         assert_eq!(text_cell(Kind::Int, None), Cell::Null);
         assert_eq!(text_cell(Kind::Bool, Some("t")), Cell::Bool(true));
         assert_eq!(text_cell(Kind::Bool, Some("f")), Cell::Bool(false));
-        assert_eq!(text_cell(Kind::Int, Some("-9223372036854775808")), Cell::Int(i64::MIN));
+        assert_eq!(
+            text_cell(Kind::Int, Some("-9223372036854775808")),
+            Cell::Int(i64::MIN)
+        );
         assert_eq!(text_cell(Kind::Float, Some("0.1")), Cell::Float(0.1));
         assert!(matches!(text_cell(Kind::Float, Some("NaN")), Cell::Float(f) if f.is_nan()));
-        assert_eq!(text_cell(Kind::Float, Some("-Infinity")), Cell::Float(f64::NEG_INFINITY));
-        assert_eq!(text_cell(Kind::Numeric, Some("-12345678901234567890.0001")), Cell::Decimal("-12345678901234567890.0001".into()));
-        assert_eq!(text_cell(Kind::Numeric, Some("NaN")), Cell::Text("NaN".into()));
-        assert_eq!(text_cell(Kind::Bytea, Some("\\xcafe00")), Cell::Bytes(vec![0xca, 0xfe, 0]));
+        assert_eq!(
+            text_cell(Kind::Float, Some("-Infinity")),
+            Cell::Float(f64::NEG_INFINITY)
+        );
+        assert_eq!(
+            text_cell(Kind::Numeric, Some("-12345678901234567890.0001")),
+            Cell::Decimal("-12345678901234567890.0001".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Numeric, Some("NaN")),
+            Cell::Text("NaN".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Bytea, Some("\\xcafe00")),
+            Cell::Bytes(vec![0xca, 0xfe, 0])
+        );
         assert_eq!(text_cell(Kind::Bytea, Some("\\x")), Cell::Bytes(vec![]));
-        assert_eq!(text_cell(Kind::Uuid, Some("A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11")), Cell::Uuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11".into()));
-        assert_eq!(text_cell(Kind::Date, Some("2024-02-29")), Cell::Date("2024-02-29".into()));
-        assert_eq!(text_cell(Kind::Date, Some("0044-03-15 BC")), Cell::Text("0044-03-15 BC".into()));
-        assert_eq!(text_cell(Kind::Date, Some("infinity")), Cell::Text("infinity".into()));
-        assert_eq!(text_cell(Kind::Time, Some("13:45:00.123456")), Cell::Time("13:45:00.123456".into()));
-        assert_eq!(text_cell(Kind::Timestamp, Some("2024-01-31 13:45:00")), Cell::DateTime("2024-01-31 13:45:00".into()));
-        assert_eq!(text_cell(Kind::Timestamp, Some("2024-01-31 13:45:00.5 BC")), Cell::Text("2024-01-31 13:45:00.5 BC".into()));
-        assert_eq!(text_cell(Kind::Timestamptz, Some("2024-01-31 13:45:00+00")), Cell::DateTimeTz("2024-01-31 13:45:00+00:00".into()));
-        assert_eq!(text_cell(Kind::Timestamptz, Some("2024-01-31 13:45:00.25-03:30")), Cell::DateTimeTz("2024-01-31 13:45:00.25-03:30".into()));
-        assert_eq!(text_cell(Kind::Timestamptz, Some("1850-01-01 00:00:00-04:16:48")), Cell::Text("1850-01-01 00:00:00-04:16:48".into()));
-        assert_eq!(text_cell(Kind::Json, Some("{\"a\": 1}")), Cell::Json("{\"a\": 1}".into()));
-        assert_eq!(text_cell(Kind::Text, Some("hola")), Cell::Text("hola".into()));
+        assert_eq!(
+            text_cell(Kind::Uuid, Some("A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11")),
+            Cell::Uuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Date, Some("2024-02-29")),
+            Cell::Date("2024-02-29".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Date, Some("0044-03-15 BC")),
+            Cell::Text("0044-03-15 BC".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Date, Some("infinity")),
+            Cell::Text("infinity".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Time, Some("13:45:00.123456")),
+            Cell::Time("13:45:00.123456".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Timestamp, Some("2024-01-31 13:45:00")),
+            Cell::DateTime("2024-01-31 13:45:00".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Timestamp, Some("2024-01-31 13:45:00.5 BC")),
+            Cell::Text("2024-01-31 13:45:00.5 BC".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Timestamptz, Some("2024-01-31 13:45:00+00")),
+            Cell::DateTimeTz("2024-01-31 13:45:00+00:00".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Timestamptz, Some("2024-01-31 13:45:00.25-03:30")),
+            Cell::DateTimeTz("2024-01-31 13:45:00.25-03:30".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Timestamptz, Some("1850-01-01 00:00:00-04:16:48")),
+            Cell::Text("1850-01-01 00:00:00-04:16:48".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Json, Some("{\"a\": 1}")),
+            Cell::Json("{\"a\": 1}".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Text, Some("hola")),
+            Cell::Text("hola".into())
+        );
     }
 
     #[test]
     fn decimals_are_plain_digits() {
-        for ok in ["0", "-1.5", "12.", ".5", "100000000000000000000000000000.000001"] {
+        for ok in [
+            "0",
+            "-1.5",
+            "12.",
+            ".5",
+            "100000000000000000000000000000.000001",
+        ] {
             assert!(plain_decimal(ok), "{ok}");
         }
         for bad in ["", "-", ".", "1e5", "NaN", "Infinity", "1.2.3", "--1"] {
@@ -874,15 +1081,39 @@ mod tests {
         assert_eq!(bind_text(&Cell::Null), None);
         assert_eq!(bind_text(&Cell::Bool(true)).as_deref(), Some("true"));
         assert_eq!(bind_text(&Cell::Int(-5)).as_deref(), Some("-5"));
-        assert_eq!(bind_text(&Cell::UInt(u64::MAX)).as_deref(), Some("18446744073709551615"));
+        assert_eq!(
+            bind_text(&Cell::UInt(u64::MAX)).as_deref(),
+            Some("18446744073709551615")
+        );
         assert_eq!(bind_text(&Cell::Float(0.1)).as_deref(), Some("0.1"));
-        assert_eq!(bind_text(&Cell::Float(1e300)).unwrap().parse::<f64>().unwrap(), 1e300);
+        assert_eq!(
+            bind_text(&Cell::Float(1e300))
+                .unwrap()
+                .parse::<f64>()
+                .unwrap(),
+            1e300
+        );
         assert_eq!(bind_text(&Cell::Float(f64::NAN)).as_deref(), Some("NaN"));
-        assert_eq!(bind_text(&Cell::Float(f64::NEG_INFINITY)).as_deref(), Some("-Infinity"));
-        assert_eq!(bind_text(&Cell::Bytes(vec![0xCA, 0xFE, 0x01])).as_deref(), Some("\\xcafe01"));
-        assert_eq!(bind_text(&Cell::Decimal("1.50".into())).as_deref(), Some("1.50"));
-        assert_eq!(bind_text(&Cell::DateTimeTz("2024-01-31 13:45:00+00:00".into())).as_deref(), Some("2024-01-31 13:45:00+00:00"));
-        assert_eq!(bind_text(&Cell::Json("[1,2]".into())).as_deref(), Some("[1,2]"));
+        assert_eq!(
+            bind_text(&Cell::Float(f64::NEG_INFINITY)).as_deref(),
+            Some("-Infinity")
+        );
+        assert_eq!(
+            bind_text(&Cell::Bytes(vec![0xCA, 0xFE, 0x01])).as_deref(),
+            Some("\\xcafe01")
+        );
+        assert_eq!(
+            bind_text(&Cell::Decimal("1.50".into())).as_deref(),
+            Some("1.50")
+        );
+        assert_eq!(
+            bind_text(&Cell::DateTimeTz("2024-01-31 13:45:00+00:00".into())).as_deref(),
+            Some("2024-01-31 13:45:00+00:00")
+        );
+        assert_eq!(
+            bind_text(&Cell::Json("[1,2]".into())).as_deref(),
+            Some("[1,2]")
+        );
     }
 
     #[test]
@@ -890,16 +1121,25 @@ mod tests {
         let p = TextParam(Some("12".into()));
         assert!(matches!(p.encode_format(&Type::INT4), Format::Text));
         let mut buf = BytesMut::new();
-        assert!(matches!(p.to_sql(&Type::INT4, &mut buf).unwrap(), IsNull::No));
+        assert!(matches!(
+            p.to_sql(&Type::INT4, &mut buf).unwrap(),
+            IsNull::No
+        ));
         assert_eq!(&buf[..], b"12");
-        assert!(matches!(TextParam(None).to_sql(&Type::INT4, &mut buf).unwrap(), IsNull::Yes));
+        assert!(matches!(
+            TextParam(None).to_sql(&Type::INT4, &mut buf).unwrap(),
+            IsNull::Yes
+        ));
         assert!(TextParam::accepts(&Type::BYTEA));
     }
 
     #[test]
     fn windows_respect_dsql_limits() {
         // The spec's window, capped at 3,000 rows and 4 MiB.
-        assert_eq!(window_limits(&spec(100_000, 512 << 20), 5), (3_000, MAX_TX_BYTES));
+        assert_eq!(
+            window_limits(&spec(100_000, 512 << 20), 5),
+            (3_000, MAX_TX_BYTES)
+        );
         assert_eq!(window_limits(&spec(500, 1 << 20), 5), (500, 1 << 20));
         // 0: no limit of its own.
         assert_eq!(window_limits(&spec(0, 0), 5), (3_000, MAX_TX_BYTES));
@@ -911,8 +1151,14 @@ mod tests {
     #[test]
     fn insert_statements() {
         let head = insert_head("\"app\".\"t\"", &["id".into(), "Nombre".into()], false);
-        assert_eq!(head, "INSERT INTO \"app\".\"t\" (\"id\", \"Nombre\") VALUES ");
-        assert_eq!(insert_sql(&head, 2, 3), format!("{head}($1, $2), ($3, $4), ($5, $6)"));
+        assert_eq!(
+            head,
+            "INSERT INTO \"app\".\"t\" (\"id\", \"Nombre\") VALUES "
+        );
+        assert_eq!(
+            insert_sql(&head, 2, 3),
+            format!("{head}($1, $2), ($3, $4), ($5, $6)")
+        );
         assert_eq!(insert_sql("I ", 1, 1), "I ($1)");
         let id = insert_head("t", &["id".into()], true);
         assert_eq!(id, "INSERT INTO t (\"id\") OVERRIDING SYSTEM VALUE VALUES ");
@@ -925,7 +1171,9 @@ mod tests {
         assert!(retryable(Some("40001")));
         assert!(!retryable(Some("23505")));
         assert!(!retryable(None));
-        assert!(backoff(1) >= Duration::from_millis(100) && backoff(1) < Duration::from_millis(200));
+        assert!(
+            backoff(1) >= Duration::from_millis(100) && backoff(1) < Duration::from_millis(200)
+        );
         assert!(backoff(20) < Duration::from_millis(6_400));
     }
 
@@ -944,16 +1192,28 @@ mod tests {
 
     #[test]
     fn time_24_00_stays_text() {
-        assert_eq!(text_cell(Kind::Time, Some("24:00:00")), Cell::Text("24:00:00".into()));
-        assert_eq!(text_cell(Kind::Time, Some("23:59:59.999999")), Cell::Time("23:59:59.999999".into()));
-        assert_eq!(text_cell(Kind::Time, Some("00:00:00")), Cell::Time("00:00:00".into()));
+        assert_eq!(
+            text_cell(Kind::Time, Some("24:00:00")),
+            Cell::Text("24:00:00".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Time, Some("23:59:59.999999")),
+            Cell::Time("23:59:59.999999".into())
+        );
+        assert_eq!(
+            text_cell(Kind::Time, Some("00:00:00")),
+            Cell::Time("00:00:00".into())
+        );
     }
 
     #[test]
     fn reads_go_in_keyset_pages() {
         let base = "SELECT \"a\", \"id\" FROM t";
         let key = vec!["id".to_string()];
-        assert_eq!(page_sql(base, None, &key, None, 256), "SELECT \"a\", \"id\" FROM t ORDER BY \"id\" LIMIT 256");
+        assert_eq!(
+            page_sql(base, None, &key, None, 256),
+            "SELECT \"a\", \"id\" FROM t ORDER BY \"id\" LIMIT 256"
+        );
         assert_eq!(
             page_sql(base, Some(" a > 1 "), &key, Some(&["41".into()]), 10),
             "SELECT \"a\", \"id\" FROM t WHERE (a > 1) AND (\"id\") > (E'41') ORDER BY \"id\" LIMIT 10"
@@ -980,19 +1240,37 @@ mod tests {
         assert!(!plain_timestamp("timestamp(6) with time zone"));
         assert!(!plain_timestamp("text"));
         let tz = |v: &str| Cell::DateTimeTz(v.into());
-        assert_eq!(bind_for(&tz("2024-01-31 13:45:00+00:00"), true, "c").unwrap().as_deref(), Some("2024-01-31 13:45:00"));
+        assert_eq!(
+            bind_for(&tz("2024-01-31 13:45:00+00:00"), true, "c")
+                .unwrap()
+                .as_deref(),
+            Some("2024-01-31 13:45:00")
+        );
         let e = bind_for(&tz("2024-01-31 13:45:00-03:00"), true, "c").unwrap_err();
         assert!(e.to_string().contains("timestamp sin zona"), "{e}");
         // A timestamptz column takes the offset.
-        assert_eq!(bind_for(&tz("2024-01-31 13:45:00-03:00"), false, "c").unwrap().as_deref(), Some("2024-01-31 13:45:00-03:00"));
-        assert_eq!(bind_for(&Cell::DateTime("2024-01-31 13:45:00".into()), true, "c").unwrap().as_deref(), Some("2024-01-31 13:45:00"));
+        assert_eq!(
+            bind_for(&tz("2024-01-31 13:45:00-03:00"), false, "c")
+                .unwrap()
+                .as_deref(),
+            Some("2024-01-31 13:45:00-03:00")
+        );
+        assert_eq!(
+            bind_for(&Cell::DateTime("2024-01-31 13:45:00".into()), true, "c")
+                .unwrap()
+                .as_deref(),
+            Some("2024-01-31 13:45:00")
+        );
     }
 
     #[test]
     fn identity_sequences_move_past_the_loaded_values() {
         let sql = reseed_sql("\"app\".\"t\"", "Id");
         assert!(sql.contains("pg_get_serial_sequence($1, $2)"), "{sql}");
-        assert!(sql.contains("max(\"Id\")::int8 AS hi, min(\"Id\")::int8 AS lo FROM \"app\".\"t\""), "{sql}");
+        assert!(
+            sql.contains("max(\"Id\")::int8 AS hi, min(\"Id\")::int8 AS lo FROM \"app\".\"t\""),
+            "{sql}"
+        );
         assert!(sql.contains("p.last_value < x.hi"), "{sql}");
     }
 }

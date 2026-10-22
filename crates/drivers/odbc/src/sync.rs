@@ -29,12 +29,18 @@ fn squash(t: &str) -> String {
 }
 
 fn default_of(c: &ColumnDef) -> Option<String> {
-    c.default_value.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    c.default_value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub fn sync_script(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
     match eng(p) {
-        Eng::NetSuite => Err(Error::Unsupported("SuiteAnalytics Connect es de solo lectura: no se cambian tablas".into())),
+        Eng::NetSuite => Err(Error::Unsupported(
+            "SuiteAnalytics Connect es de solo lectura: no se cambian tablas".into(),
+        )),
         Eng::Hive | Eng::Impala | Eng::Spark => Ok(hive(p, changes)),
         _ => sql(p, changes),
     }
@@ -88,20 +94,38 @@ fn sql(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
     let changes: Vec<TableChange> = changes
         .iter()
         .map(|c| match c {
-            TableChange::Create { table } => TableChange::Create { table: prepare(p, table) },
-            TableChange::Drop { table } => TableChange::Drop { table: prepare(p, table) },
-            TableChange::Alter { old, new } => TableChange::Alter { old: prepare(p, old), new: prepare(p, new) },
+            TableChange::Create { table } => TableChange::Create {
+                table: prepare(p, table),
+            },
+            TableChange::Drop { table } => TableChange::Drop {
+                table: prepare(p, table),
+            },
+            TableChange::Alter { old, new } => TableChange::Alter {
+                old: prepare(p, old),
+                new: prepare(p, new),
+            },
         })
         .collect();
 
-    let std = |set_data_type| ColumnAlter::Standard { set_data_type, using_cast: false };
+    let std = |set_data_type| ColumnAlter::Standard {
+        set_data_type,
+        using_cast: false,
+    };
     let column = match e {
-        Eng::Db2 | Eng::Db2i | Eng::Db2zos | Eng::Vertica | Eng::MonetDb | Eng::Ignite3 => std(true),
-        Eng::Ase | Eng::Informix | Eng::Cubrid | Eng::Virtuoso | Eng::Zen => ColumnAlter::Modify { keyword: "MODIFY" },
+        Eng::Db2 | Eng::Db2i | Eng::Db2zos | Eng::Vertica | Eng::MonetDb | Eng::Ignite3 => {
+            std(true)
+        }
+        Eng::Ase | Eng::Informix | Eng::Cubrid | Eng::Virtuoso | Eng::Zen => {
+            ColumnAlter::Modify { keyword: "MODIFY" }
+        }
         // Teradata changes an existing column with ADD and its new definition.
         Eng::Teradata => ColumnAlter::Modify { keyword: "ADD" },
-        Eng::Exasol => ColumnAlter::Modify { keyword: "MODIFY COLUMN" },
-        Eng::Ingres | Eng::Access => ColumnAlter::Modify { keyword: "ALTER COLUMN" },
+        Eng::Exasol => ColumnAlter::Modify {
+            keyword: "MODIFY COLUMN",
+        },
+        Eng::Ingres | Eng::Access => ColumnAlter::Modify {
+            keyword: "ALTER COLUMN",
+        },
         Eng::Sqla | Eng::Altibase | Eng::Dameng | Eng::Iris | Eng::MaxDb => ColumnAlter::Oracle,
         _ => ColumnAlter::None,
     };
@@ -188,7 +212,18 @@ fn sql(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
     let dd = |t: &TableSchema, parts: DdlParts| Ok(design::table_ddl(p, t, parts));
     let mut st = AlterStyle::from_flavor(&f, column, &cd, &dd);
     st.add_column = match e {
-        Eng::Generic | Eng::SqlServer | Eng::Ase | Eng::Sqla | Eng::Informix | Eng::Teradata | Eng::Dameng | Eng::Virtuoso | Eng::Zen | Eng::MaxDb | Eng::DBase | Eng::Altibase => "ADD",
+        Eng::Generic
+        | Eng::SqlServer
+        | Eng::Ase
+        | Eng::Sqla
+        | Eng::Informix
+        | Eng::Teradata
+        | Eng::Dameng
+        | Eng::Virtuoso
+        | Eng::Zen
+        | Eng::MaxDb
+        | Eng::DBase
+        | Eng::Altibase => "ADD",
         _ => "ADD COLUMN",
     };
     st.drop_index = match e {
@@ -200,7 +235,16 @@ fn sql(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
     }
     st.drop_pk_keyword = matches!(
         e,
-        Eng::Db2 | Eng::Db2i | Eng::Db2zos | Eng::Sqla | Eng::Exasol | Eng::Altibase | Eng::Cubrid | Eng::Dameng | Eng::Zen | Eng::MaxDb
+        Eng::Db2
+            | Eng::Db2i
+            | Eng::Db2zos
+            | Eng::Sqla
+            | Eng::Exasol
+            | Eng::Altibase
+            | Eng::Cubrid
+            | Eng::Dameng
+            | Eng::Zen
+            | Eng::MaxDb
     );
     // CUBRID: a table's comment with ALTER TABLE (a column's goes with
     // MODIFY). MODIFY engines without inline comments: COMMENT ON, also for
@@ -208,15 +252,30 @@ fn sql(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
     let comment_hook = |t: &TableSchema, c: Option<&ColumnDef>, text: Option<&str>| {
         let name = qualified_name(q, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
         match c {
-            None if e == Eng::Cubrid => Some(format!("ALTER TABLE {name} COMMENT = {};", lit(text.unwrap_or("")))),
+            None if e == Eng::Cubrid => Some(format!(
+                "ALTER TABLE {name} COMMENT = {};",
+                lit(text.unwrap_or(""))
+            )),
             // Vertica comments projection columns, not table columns.
             Some(_) if matches!(e, Eng::Cubrid | Eng::Vertica) => None,
-            None => Some(format!("COMMENT ON TABLE {name} IS {};", text.map(lit).unwrap_or_else(|| "NULL".into()))),
-            Some(c) => Some(format!("COMMENT ON COLUMN {name}.{} IS {};", quote_ident(q, &c.name), text.map(lit).unwrap_or_else(|| "NULL".into()))),
+            None => Some(format!(
+                "COMMENT ON TABLE {name} IS {};",
+                text.map(lit).unwrap_or_else(|| "NULL".into())
+            )),
+            Some(c) => Some(format!(
+                "COMMENT ON COLUMN {name}.{} IS {};",
+                quote_ident(q, &c.name),
+                text.map(lit).unwrap_or_else(|| "NULL".into())
+            )),
         }
     };
-    let hook = matches!(e, Eng::Cubrid | Eng::Vertica) || (modify && f.comment_on && !f.inline_comments);
-    let script = alter::sync_script_with_comments(&st, hook.then_some(&comment_hook as alter::CommentSql), &changes)?;
+    let hook =
+        matches!(e, Eng::Cubrid | Eng::Vertica) || (modify && f.comment_on && !f.inline_comments);
+    let script = alter::sync_script_with_comments(
+        &st,
+        hook.then_some(&comment_hook as alter::CommentSql),
+        &changes,
+    )?;
 
     // The engine's own spelling of each statement.
     let mut out: Vec<String> = Vec::new();
@@ -226,7 +285,10 @@ fn sql(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
             out.push(own.clone());
             continue;
         }
-        let extra = after.iter().find(|(prefix, _)| s.starts_with(prefix.as_str())).map(|(_, x)| x.clone());
+        let extra = after
+            .iter()
+            .find(|(prefix, _)| s.starts_with(prefix.as_str()))
+            .map(|(_, x)| x.clone());
         let rewritten = match s.strip_prefix("ALTER TABLE ") {
             Some(rest) => rewrite(e, q, rest).map(|r| format!("ALTER TABLE {r}")),
             None => Some(s.clone()),
@@ -243,7 +305,11 @@ fn sql(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
     if e == Eng::Db2 {
         out = with_reorgs(out, &changes, q);
     }
-    if e == Eng::Db2zos && out.iter().any(|s| s.contains(" ALTER COLUMN ") || s.contains(" DROP COLUMN ")) {
+    if e == Eng::Db2zos
+        && out
+            .iter()
+            .any(|s| s.contains(" ALTER COLUMN ") || s.contains(" DROP COLUMN "))
+    {
         warnings.push("Db2 for z/OS: los cambios de columnas pueden dejar el tablespace con REORG pendiente; corré el utilitario REORG después.".into());
     }
     if matches!(e, Eng::Generic | Eng::SqlServer) {
@@ -252,7 +318,10 @@ fn sql(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
     out.extend(comments);
     let mut all = script.warnings;
     all.extend(warnings);
-    Ok(SyncScript { statements: out, warnings: all })
+    Ok(SyncScript {
+        statements: out,
+        warnings: all,
+    })
 }
 
 /// `rest` is an ALTER TABLE statement without its first two words. `None`
@@ -273,22 +342,42 @@ fn rewrite(e: Eng, q: Quote, rest: &str) -> Option<String> {
             _ => {}
         }
     }
-    let Some(i) = split else { return Some(rest.to_string()) };
+    let Some(i) = split else {
+        return Some(rest.to_string());
+    };
     let (name, tail) = (&rest[..i], &rest[i + 1..]);
     let body = tail.strip_suffix(';').unwrap_or(tail);
     let is_ident = |s: &str| s.starts_with(['"', '[', '`']);
     let new_tail: String = match e {
-        Eng::Ase | Eng::Sqla | Eng::Informix | Eng::Teradata if body.starts_with("DROP COLUMN ") => format!("DROP {};", &body[12..]),
-        Eng::Netezza | Eng::Ingres if body.starts_with("DROP COLUMN ") || (e == Eng::Ingres && body.starts_with("DROP CONSTRAINT ")) => {
+        Eng::Ase | Eng::Sqla | Eng::Informix | Eng::Teradata
+            if body.starts_with("DROP COLUMN ") =>
+        {
+            format!("DROP {};", &body[12..])
+        }
+        Eng::Netezza | Eng::Ingres
+            if body.starts_with("DROP COLUMN ")
+                || (e == Eng::Ingres && body.starts_with("DROP CONSTRAINT ")) =>
+        {
             format!("{body} RESTRICT;")
         }
         Eng::MaxDb if body.starts_with("DROP COLUMN ") => format!("DROP ({});", &body[12..]),
-        Eng::MaxDb if body.strip_prefix("ADD ").is_some_and(is_ident) => format!("ADD ({});", &body[4..]),
-        Eng::Altibase if body.strip_prefix("ADD ").is_some_and(is_ident) => format!("ADD COLUMN ({});", &body[4..]),
+        Eng::MaxDb if body.strip_prefix("ADD ").is_some_and(is_ident) => {
+            format!("ADD ({});", &body[4..])
+        }
+        Eng::Altibase if body.strip_prefix("ADD ").is_some_and(is_ident) => {
+            format!("ADD COLUMN ({});", &body[4..])
+        }
         Eng::Informix if body.starts_with("MODIFY ") => format!("MODIFY ({});", &body[7..]),
         // Informix names a CHECK after it.
-        Eng::Informix if body.starts_with("ADD CHECK ") => format!("ADD CONSTRAINT {};", &body[4..]),
-        Eng::Informix if body.starts_with("ADD CONSTRAINT ") && body[15..].split_once(" CHECK ").is_some_and(|(n, _)| split_ident(n, q).is_some_and(|(_, rest)| rest.is_empty())) => {
+        Eng::Informix if body.starts_with("ADD CHECK ") => {
+            format!("ADD CONSTRAINT {};", &body[4..])
+        }
+        Eng::Informix
+            if body.starts_with("ADD CONSTRAINT ")
+                && body[15..].split_once(" CHECK ").is_some_and(|(n, _)| {
+                    split_ident(n, q).is_some_and(|(_, rest)| rest.is_empty())
+                }) =>
+        {
             let (n, cond) = body[15..].split_once(" CHECK ")?;
             format!("ADD CONSTRAINT CHECK {cond} CONSTRAINT {n};")
         }
@@ -297,7 +386,9 @@ fn rewrite(e: Eng, q: Quote, rest: &str) -> Option<String> {
             format!("ADD CONSTRAINT PRIMARY KEY {keys} CONSTRAINT {n};")
         }
         Eng::Informix if body.starts_with("ADD PRIMARY KEY ") => format!("ADD CONSTRAINT {body};"),
-        Eng::Sqla | Eng::Iris | Eng::Altibase if body.starts_with("MODIFY (") && body.ends_with(')') => {
+        Eng::Sqla | Eng::Iris | Eng::Altibase
+            if body.starts_with("MODIFY (") && body.ends_with(')') =>
+        {
             let inner = &body[8..body.len() - 1];
             match e {
                 Eng::Sqla => format!("ALTER {inner};"),
@@ -308,7 +399,11 @@ fn rewrite(e: Eng, q: Quote, rest: &str) -> Option<String> {
                     if what == "NULL" || what == "NOT NULL" {
                         format!("ALTER COLUMN ({col} {what});")
                     } else if let Some(d) = what.strip_prefix("DEFAULT ") {
-                        if d == "NULL" { format!("ALTER COLUMN ({col} DROP DEFAULT);") } else { format!("ALTER COLUMN ({col} SET DEFAULT {d});") }
+                        if d == "NULL" {
+                            format!("ALTER COLUMN ({col} DROP DEFAULT);")
+                        } else {
+                            format!("ALTER COLUMN ({col} SET DEFAULT {d});")
+                        }
                     } else {
                         format!("MODIFY COLUMN ({inner});")
                     }
@@ -318,7 +413,9 @@ fn rewrite(e: Eng, q: Quote, rest: &str) -> Option<String> {
         Eng::MonetDb if body.starts_with("ALTER COLUMN ") && body.ends_with(" DROP NOT NULL") => {
             format!("{} SET NULL;", body.trim_end_matches(" DROP NOT NULL"))
         }
-        Eng::Db2zos if body.starts_with("ALTER COLUMN ") && body.ends_with(" NOT NULL") => return None,
+        Eng::Db2zos if body.starts_with("ALTER COLUMN ") && body.ends_with(" NOT NULL") => {
+            return None
+        }
         _ => return Some(rest.to_string()),
     };
     Some(format!("{name} {new_tail}"))
@@ -332,14 +429,21 @@ fn with_reorgs(statements: Vec<String>, changes: &[TableChange], q: Quote) -> Ve
     let names: Vec<String> = changes
         .iter()
         .filter_map(|c| match c {
-            TableChange::Alter { new, .. } => Some(qualified_name(q, new.schema.as_deref().filter(|s| !s.is_empty()), &new.name)),
+            TableChange::Alter { new, .. } => Some(qualified_name(
+                q,
+                new.schema.as_deref().filter(|s| !s.is_empty()),
+                &new.name,
+            )),
             _ => None,
         })
         .collect();
     let pending = |s: &str, name: &str| {
-        s.strip_prefix(&format!("ALTER TABLE {name} ")).is_some_and(|t| {
-            t.starts_with("DROP COLUMN ") || (t.starts_with("ALTER COLUMN ") && (t.contains(" SET DATA TYPE ") || t.ends_with(" NOT NULL;")))
-        })
+        s.strip_prefix(&format!("ALTER TABLE {name} "))
+            .is_some_and(|t| {
+                t.starts_with("DROP COLUMN ")
+                    || (t.starts_with("ALTER COLUMN ")
+                        && (t.contains(" SET DATA TYPE ") || t.ends_with(" NOT NULL;")))
+            })
     };
     let mut out = Vec::new();
     for (i, s) in statements.iter().enumerate() {
@@ -351,7 +455,10 @@ fn with_reorgs(statements: Vec<String>, changes: &[TableChange], q: Quote) -> Ve
             let done = statements[..=i].iter().filter(|x| pending(x, name)).count();
             let more = statements[i + 1..].iter().any(|x| pending(x, name));
             if done % 3 == 0 || !more {
-                out.push(format!("CALL SYSPROC.ADMIN_CMD({});", lit(&format!("REORG TABLE {name}"))));
+                out.push(format!(
+                    "CALL SYSPROC.ADMIN_CMD({});",
+                    lit(&format!("REORG TABLE {name}"))
+                ));
             }
         }
     }
@@ -371,38 +478,81 @@ fn hive(p: &Preset, changes: &[TableChange]) -> SyncScript {
         }
         d
     };
-    let (mut drops, mut alters, mut creates, mut warnings) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut drops, mut alters, mut creates, mut warnings) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for ch in changes {
         match ch {
             TableChange::Drop { table } => {
-                warnings.push(format!("Se borra la tabla {} con todos sus datos.", display(table)));
-                drops.push(design::table_ddl(p, table, DdlParts { drop: true, ..Default::default() }));
+                warnings.push(format!(
+                    "Se borra la tabla {} con todos sus datos.",
+                    display(table)
+                ));
+                drops.push(design::table_ddl(
+                    p,
+                    table,
+                    DdlParts {
+                        drop: true,
+                        ..Default::default()
+                    },
+                ));
             }
-            TableChange::Create { table } => creates.push(design::table_ddl(p, table, DdlParts { create: true, ..Default::default() })),
+            TableChange::Create { table } => creates.push(design::table_ddl(
+                p,
+                table,
+                DdlParts {
+                    create: true,
+                    ..Default::default()
+                },
+            )),
             TableChange::Alter { old, new } => {
-                let name = qualified_name(q, new.schema.as_deref().filter(|s| !s.is_empty()), &new.name);
+                let name = qualified_name(
+                    q,
+                    new.schema.as_deref().filter(|s| !s.is_empty()),
+                    &new.name,
+                );
                 let tname = display(new);
-                let dropped: Vec<&ColumnDef> = old.columns.iter().filter(|o| find(new, &o.name).is_none()).collect();
-                let added: Vec<&ColumnDef> = new.columns.iter().filter(|n| find(old, &n.name).is_none()).collect();
-                let pk = |t: &TableSchema| t.primary_key.as_ref().map(|k| k.columns.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>());
+                let dropped: Vec<&ColumnDef> = old
+                    .columns
+                    .iter()
+                    .filter(|o| find(new, &o.name).is_none())
+                    .collect();
+                let added: Vec<&ColumnDef> = new
+                    .columns
+                    .iter()
+                    .filter(|n| find(old, &n.name).is_none())
+                    .collect();
+                let pk = |t: &TableSchema| {
+                    t.primary_key.as_ref().map(|k| {
+                        k.columns
+                            .iter()
+                            .map(|c| c.to_lowercase())
+                            .collect::<Vec<_>>()
+                    })
+                };
                 if pk(old) != pk(new) {
                     warnings.push(format!("{tname}: la clave primaria no se cambia con ALTER; hay que recrear la tabla."));
                 }
                 let mut changed = Vec::new();
                 for n in &new.columns {
-                    let Some(o) = find(old, &n.name) else { continue };
+                    let Some(o) = find(old, &n.name) else {
+                        continue;
+                    };
                     if o.nullable != n.nullable || default_of(o) != default_of(n) {
                         warnings.push(format!("{tname}.{}: NOT NULL y los valores por defecto no se cambian con ALTER en este motor; se deja como está.", n.name));
                     }
                     let ty = squash(&o.data_type) != squash(&n.data_type);
-                    let cm = o.comment.as_deref().unwrap_or("") != n.comment.as_deref().unwrap_or("");
+                    let cm =
+                        o.comment.as_deref().unwrap_or("") != n.comment.as_deref().unwrap_or("");
                     if ty || cm {
                         changed.push((o, n, ty));
                     }
                 }
                 // The table's comment is its `comment` property in all three.
                 if old.comment.as_deref().unwrap_or("") != new.comment.as_deref().unwrap_or("") {
-                    alters.push(format!("ALTER TABLE {name} SET TBLPROPERTIES ('comment' = {});", lit(new.comment.as_deref().unwrap_or(""))));
+                    alters.push(format!(
+                        "ALTER TABLE {name} SET TBLPROPERTIES ('comment' = {});",
+                        lit(new.comment.as_deref().unwrap_or(""))
+                    ));
                 }
                 if e == Eng::Hive && !dropped.is_empty() {
                     // Hive can't drop a column: the whole list is replaced (metadata only).
@@ -410,24 +560,39 @@ fn hive(p: &Preset, changes: &[TableChange]) -> SyncScript {
                         "{tname}: Hive no borra columnas; se reemplaza la lista entera con REPLACE COLUMNS, que cambia solo los metadatos (los datos de los archivos no se tocan)."
                     ));
                     let all: Vec<String> = new.columns.iter().map(col).collect();
-                    alters.push(format!("ALTER TABLE {name} REPLACE COLUMNS (\n    {}\n);", all.join(",\n    ")));
+                    alters.push(format!(
+                        "ALTER TABLE {name} REPLACE COLUMNS (\n    {}\n);",
+                        all.join(",\n    ")
+                    ));
                     continue;
                 }
                 for c in &dropped {
                     if e == Eng::Impala {
-                        warnings.push(format!("Se borra la columna {tname}.{} con sus datos.", c.name));
-                        alters.push(format!("ALTER TABLE {name} DROP COLUMN {};", quote_ident(q, &c.name)));
+                        warnings.push(format!(
+                            "Se borra la columna {tname}.{} con sus datos.",
+                            c.name
+                        ));
+                        alters.push(format!(
+                            "ALTER TABLE {name} DROP COLUMN {};",
+                            quote_ident(q, &c.name)
+                        ));
                     } else {
                         warnings.push(format!("{tname}.{}: Spark no borra columnas de tablas Hive; se deja como está.", c.name));
                     }
                 }
                 if !added.is_empty() {
                     let defs: Vec<String> = added.iter().map(|c| col(c)).collect();
-                    alters.push(format!("ALTER TABLE {name} ADD COLUMNS ({});", defs.join(", ")));
+                    alters.push(format!(
+                        "ALTER TABLE {name} ADD COLUMNS ({});",
+                        defs.join(", ")
+                    ));
                 }
                 for (o, n, ty) in changed {
                     if ty {
-                        warnings.push(format!("{tname}.{}: {} → {}. Puede fallar si los tipos no son compatibles.", n.name, o.data_type, n.data_type));
+                        warnings.push(format!(
+                            "{tname}.{}: {} → {}. Puede fallar si los tipos no son compatibles.",
+                            n.name, o.data_type, n.data_type
+                        ));
                     }
                     match e {
                         Eng::Spark if ty => warnings.push(format!("{tname}.{}: Spark solo cambia el comentario de una columna de tabla Hive; el tipo se deja como está.", n.name)),
@@ -442,8 +607,15 @@ fn hive(p: &Preset, changes: &[TableChange]) -> SyncScript {
             }
         }
     }
-    let statements = [drops, alters, creates].into_iter().flatten().filter(|s| !s.trim().is_empty()).collect();
-    SyncScript { statements, warnings }
+    let statements = [drops, alters, creates]
+        .into_iter()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+    SyncScript {
+        statements,
+        warnings,
+    }
 }
 
 #[cfg(test)]
@@ -457,16 +629,32 @@ mod tests {
     }
 
     fn col(n: &str, t: &str, null: bool) -> ColumnDef {
-        ColumnDef { name: n.into(), data_type: t.into(), nullable: null, ..Default::default() }
+        ColumnDef {
+            name: n.into(),
+            data_type: t.into(),
+            nullable: null,
+            ..Default::default()
+        }
     }
 
     fn old() -> TableSchema {
         TableSchema {
             schema: Some("S".into()),
             name: "T".into(),
-            columns: vec![col("ID", "INTEGER", false), col("N", "VARCHAR(10)", false), col("D", "DATE", true)],
-            primary_key: Some(KeyDef { name: Some("PK_T".into()), columns: vec!["ID".into()] }),
-            indexes: vec![IndexDef { name: "IX_N".into(), columns: vec!["N".into()], ..Default::default() }],
+            columns: vec![
+                col("ID", "INTEGER", false),
+                col("N", "VARCHAR(10)", false),
+                col("D", "DATE", true),
+            ],
+            primary_key: Some(KeyDef {
+                name: Some("PK_T".into()),
+                columns: vec!["ID".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "IX_N".into(),
+                columns: vec!["N".into()],
+                ..Default::default()
+            }],
             ..Default::default()
         }
     }
@@ -474,7 +662,10 @@ mod tests {
     /// N wider and nullable with a default, D dropped, E added, IX_N on E.
     fn new() -> TableSchema {
         let mut t = old();
-        t.columns[1] = ColumnDef { default_value: Some("'x'".into()), ..col("N", "VARCHAR(40)", true) };
+        t.columns[1] = ColumnDef {
+            default_value: Some("'x'".into()),
+            ..col("N", "VARCHAR(40)", true)
+        };
         t.columns.retain(|c| c.name != "D");
         t.columns.push(col("E", "INTEGER", true));
         t.indexes[0].columns = vec!["E".into()];
@@ -482,7 +673,14 @@ mod tests {
     }
 
     fn run(id: &str) -> SyncScript {
-        sync_script(preset(id), &[TableChange::Alter { old: old(), new: new() }]).unwrap()
+        sync_script(
+            preset(id),
+            &[TableChange::Alter {
+                old: old(),
+                new: new(),
+            }],
+        )
+        .unwrap()
     }
 
     #[test]
@@ -504,7 +702,11 @@ mod tests {
         // Db2 for i needs no REORG; z/OS doesn't change nullability.
         assert!(!run("db2i").statements.iter().any(|s| s.contains("REORG")));
         let z = run("db2zos");
-        assert!(!z.statements.iter().any(|s| s.contains("NOT NULL")), "{:?}", z.statements);
+        assert!(
+            !z.statements.iter().any(|s| s.contains("NOT NULL")),
+            "{:?}",
+            z.statements
+        );
         assert!(z.warnings.iter().any(|w| w.contains("nulabilidad")));
     }
 
@@ -527,46 +729,106 @@ mod tests {
     #[test]
     fn oracle_like_engines_rewrite_modify() {
         let s = run("sqlanywhere");
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ALTER \"N\" VARCHAR(40);".to_string()), "{:?}", s.statements);
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ALTER \"N\" NULL;".to_string()));
-        assert!(s.statements.contains(&"DROP INDEX \"S\".\"T\".\"IX_N\";".to_string()));
+        assert!(
+            s.statements
+                .contains(&"ALTER TABLE \"S\".\"T\" ALTER \"N\" VARCHAR(40);".to_string()),
+            "{:?}",
+            s.statements
+        );
+        assert!(s
+            .statements
+            .contains(&"ALTER TABLE \"S\".\"T\" ALTER \"N\" NULL;".to_string()));
+        assert!(s
+            .statements
+            .contains(&"DROP INDEX \"S\".\"T\".\"IX_N\";".to_string()));
         let s = run("altibase");
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" MODIFY COLUMN (\"N\" VARCHAR(40));".to_string()), "{:?}", s.statements);
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ALTER COLUMN (\"N\" NULL);".to_string()));
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ALTER COLUMN (\"N\" SET DEFAULT 'x');".to_string()));
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ADD COLUMN (\"E\" INTEGER);".to_string()));
+        assert!(
+            s.statements.contains(
+                &"ALTER TABLE \"S\".\"T\" MODIFY COLUMN (\"N\" VARCHAR(40));".to_string()
+            ),
+            "{:?}",
+            s.statements
+        );
+        assert!(s
+            .statements
+            .contains(&"ALTER TABLE \"S\".\"T\" ALTER COLUMN (\"N\" NULL);".to_string()));
+        assert!(s.statements.contains(
+            &"ALTER TABLE \"S\".\"T\" ALTER COLUMN (\"N\" SET DEFAULT 'x');".to_string()
+        ));
+        assert!(s
+            .statements
+            .contains(&"ALTER TABLE \"S\".\"T\" ADD COLUMN (\"E\" INTEGER);".to_string()));
         let s = run("maxdb");
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" DROP (\"D\");".to_string()), "{:?}", s.statements);
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" MODIFY (\"N\" VARCHAR(40));".to_string()));
-        assert!(s.statements.contains(&"DROP INDEX \"IX_N\" ON \"S\".\"T\";".to_string()));
+        assert!(
+            s.statements
+                .contains(&"ALTER TABLE \"S\".\"T\" DROP (\"D\");".to_string()),
+            "{:?}",
+            s.statements
+        );
+        assert!(s
+            .statements
+            .contains(&"ALTER TABLE \"S\".\"T\" MODIFY (\"N\" VARCHAR(40));".to_string()));
+        assert!(s
+            .statements
+            .contains(&"DROP INDEX \"IX_N\" ON \"S\".\"T\";".to_string()));
     }
 
     #[test]
     fn informix_and_teradata() {
         let s = run("informix");
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" MODIFY (\"N\" VARCHAR(40) DEFAULT 'x');".to_string()), "{:?}", s.statements);
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" DROP \"D\";".to_string()));
+        assert!(
+            s.statements.contains(
+                &"ALTER TABLE \"S\".\"T\" MODIFY (\"N\" VARCHAR(40) DEFAULT 'x');".to_string()
+            ),
+            "{:?}",
+            s.statements
+        );
+        assert!(s
+            .statements
+            .contains(&"ALTER TABLE \"S\".\"T\" DROP \"D\";".to_string()));
         let mut n = new();
         n.primary_key.as_mut().unwrap().columns.push("E".into());
-        let s = sync_script(preset("informix"), &[TableChange::Alter { old: old(), new: n }]).unwrap();
+        let s = sync_script(
+            preset("informix"),
+            &[TableChange::Alter { old: old(), new: n }],
+        )
+        .unwrap();
         assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ADD CONSTRAINT PRIMARY KEY (\"ID\", \"E\") CONSTRAINT \"PK_T\";".to_string()), "{:?}", s.statements);
         let s = run("teradata");
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ADD \"N\" VARCHAR(40) DEFAULT 'x';".to_string()), "{:?}", s.statements);
-        assert!(s.statements.contains(&"DROP INDEX \"IX_N\" ON \"S\".\"T\";".to_string()));
+        assert!(
+            s.statements.contains(
+                &"ALTER TABLE \"S\".\"T\" ADD \"N\" VARCHAR(40) DEFAULT 'x';".to_string()
+            ),
+            "{:?}",
+            s.statements
+        );
+        assert!(s
+            .statements
+            .contains(&"DROP INDEX \"IX_N\" ON \"S\".\"T\";".to_string()));
         assert!(s.warnings.iter().any(|w| w.contains("Teradata")));
     }
 
     #[test]
     fn checks_and_included_columns() {
         use dbine_driver::CheckDef;
-        let chk = |n: Option<&str>, e: &str| CheckDef { name: n.map(Into::into), expression: e.into() };
+        let chk = |n: Option<&str>, e: &str| CheckDef {
+            name: n.map(Into::into),
+            expression: e.into(),
+        };
         let mut o = old();
         o.checks = vec![chk(Some("CK_N"), "(N <> '')")];
         let mut n = o.clone();
         n.checks = vec![chk(Some("CK_N"), "(N <> 'x')"), chk(None, "(ID > 0)")];
         n.indexes[0].unique = true;
         n.indexes[0].include = vec!["D".into()];
-        let s = sync_script(preset("db2"), &[TableChange::Alter { old: o.clone(), new: n.clone() }]).unwrap();
+        let s = sync_script(
+            preset("db2"),
+            &[TableChange::Alter {
+                old: o.clone(),
+                new: n.clone(),
+            }],
+        )
+        .unwrap();
         for want in [
             "ALTER TABLE \"S\".\"T\" DROP CONSTRAINT \"CK_N\";",
             "DROP INDEX \"S\".\"IX_N\";",
@@ -574,23 +836,68 @@ mod tests {
             "ALTER TABLE \"S\".\"T\" ADD CONSTRAINT \"CK_N\" CHECK (N <> 'x');",
             "ALTER TABLE \"S\".\"T\" ADD CHECK (ID > 0);",
         ] {
-            assert!(s.statements.iter().any(|x| x == want), "{want}\n{:#?}", s.statements);
+            assert!(
+                s.statements.iter().any(|x| x == want),
+                "{want}\n{:#?}",
+                s.statements
+            );
         }
-        let s = sync_script(preset("informix"), &[TableChange::Alter { old: o, new: n.clone() }]).unwrap();
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ADD CONSTRAINT CHECK (N <> 'x') CONSTRAINT \"CK_N\";".to_string()), "{:#?}", s.statements);
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ADD CONSTRAINT CHECK (ID > 0);".to_string()), "{:#?}", s.statements);
-        let ddl = design::table_ddl(preset("informix"), &n, DdlParts { create: true, ..Default::default() });
-        assert!(ddl.contains("    CHECK (N <> 'x') CONSTRAINT \"CK_N\","), "{ddl}");
+        let s = sync_script(
+            preset("informix"),
+            &[TableChange::Alter {
+                old: o,
+                new: n.clone(),
+            }],
+        )
+        .unwrap();
+        assert!(
+            s.statements.contains(
+                &"ALTER TABLE \"S\".\"T\" ADD CONSTRAINT CHECK (N <> 'x') CONSTRAINT \"CK_N\";"
+                    .to_string()
+            ),
+            "{:#?}",
+            s.statements
+        );
+        assert!(
+            s.statements
+                .contains(&"ALTER TABLE \"S\".\"T\" ADD CONSTRAINT CHECK (ID > 0);".to_string()),
+            "{:#?}",
+            s.statements
+        );
+        let ddl = design::table_ddl(
+            preset("informix"),
+            &n,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            ddl.contains("    CHECK (N <> 'x') CONSTRAINT \"CK_N\","),
+            "{ddl}"
+        );
     }
 
     #[test]
     fn engines_without_column_changes_warn() {
         for id in ["odbc", "netezza", "ocient", "ignite", "heavydb"] {
             let s = run(id);
-            assert!(!s.statements.iter().any(|x| x.contains("VARCHAR(40)")), "{id}: {:?}", s.statements);
-            assert!(s.warnings.iter().any(|w| w.contains("no modifica columnas")), "{id}: {:?}", s.warnings);
+            assert!(
+                !s.statements.iter().any(|x| x.contains("VARCHAR(40)")),
+                "{id}: {:?}",
+                s.statements
+            );
+            assert!(
+                s.warnings
+                    .iter()
+                    .any(|w| w.contains("no modifica columnas")),
+                "{id}: {:?}",
+                s.warnings
+            );
         }
-        assert!(run("netezza").statements.contains(&"ALTER TABLE \"S\".\"T\" DROP COLUMN \"D\" RESTRICT;".to_string()));
+        assert!(run("netezza")
+            .statements
+            .contains(&"ALTER TABLE \"S\".\"T\" DROP COLUMN \"D\" RESTRICT;".to_string()));
         assert!(run("odbc").warnings.iter().any(|w| w.contains("genérica")));
         assert!(sync_script(preset("netsuite"), &[]).is_err());
     }
@@ -599,19 +906,43 @@ mod tests {
     fn modify_engines_move_comments_apart() {
         let mut n = old();
         n.columns[1].comment = Some("nombre".into());
-        let s = sync_script(preset("exasol"), &[TableChange::Alter { old: old(), new: n }]).unwrap();
-        assert_eq!(s.statements, ["COMMENT ON COLUMN \"S\".\"T\".\"N\" IS 'nombre';"]);
+        let s = sync_script(
+            preset("exasol"),
+            &[TableChange::Alter { old: old(), new: n }],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["COMMENT ON COLUMN \"S\".\"T\".\"N\" IS 'nombre';"]
+        );
         let s = run("monetdb");
-        assert!(s.statements.contains(&"ALTER TABLE \"S\".\"T\" ALTER COLUMN \"N\" SET NULL;".to_string()), "{:?}", s.statements);
+        assert!(
+            s.statements
+                .contains(&"ALTER TABLE \"S\".\"T\" ALTER COLUMN \"N\" SET NULL;".to_string()),
+            "{:?}",
+            s.statements
+        );
         let s = run("cubrid");
-        assert!(s.statements.contains(&"DROP INDEX \"IX_N\" ON \"S\".\"T\";".to_string()), "{:?}", s.statements);
+        assert!(
+            s.statements
+                .contains(&"DROP INDEX \"IX_N\" ON \"S\".\"T\";".to_string()),
+            "{:?}",
+            s.statements
+        );
     }
 
     #[test]
     fn hive_family() {
         let mut o = old();
         o.columns[1].comment = Some("n".into());
-        let s = sync_script(preset("impala"), &[TableChange::Alter { old: o.clone(), new: new() }]).unwrap();
+        let s = sync_script(
+            preset("impala"),
+            &[TableChange::Alter {
+                old: o.clone(),
+                new: new(),
+            }],
+        )
+        .unwrap();
         assert_eq!(
             s.statements,
             [
@@ -620,10 +951,24 @@ mod tests {
                 "ALTER TABLE `S`.`T` CHANGE COLUMN `N` `N` VARCHAR(40);",
             ]
         );
-        let s = sync_script(preset("hive"), &[TableChange::Alter { old: o.clone(), new: new() }]).unwrap();
+        let s = sync_script(
+            preset("hive"),
+            &[TableChange::Alter {
+                old: o.clone(),
+                new: new(),
+            }],
+        )
+        .unwrap();
         assert_eq!(s.statements, ["ALTER TABLE `S`.`T` REPLACE COLUMNS (\n    `ID` INTEGER,\n    `N` VARCHAR(40),\n    `E` INTEGER\n);"]);
-        let s = sync_script(preset("spark"), &[TableChange::Alter { old: o, new: new() }]).unwrap();
-        assert_eq!(s.statements, ["ALTER TABLE `S`.`T` ADD COLUMNS (`E` INTEGER);"]);
+        let s = sync_script(
+            preset("spark"),
+            &[TableChange::Alter { old: o, new: new() }],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["ALTER TABLE `S`.`T` ADD COLUMNS (`E` INTEGER);"]
+        );
         assert!(s.warnings.iter().any(|w| w.contains("Spark no borra")));
     }
 
@@ -632,19 +977,69 @@ mod tests {
         let mut n = old();
         n.comment = Some("it's T".into());
         for id in ["hive", "impala", "spark"] {
-            let s = sync_script(preset(id), &[TableChange::Alter { old: old(), new: n.clone() }]).unwrap();
-            assert_eq!(s.statements, ["ALTER TABLE `S`.`T` SET TBLPROPERTIES ('comment' = 'it''s T');"], "{id}");
+            let s = sync_script(
+                preset(id),
+                &[TableChange::Alter {
+                    old: old(),
+                    new: n.clone(),
+                }],
+            )
+            .unwrap();
+            assert_eq!(
+                s.statements,
+                ["ALTER TABLE `S`.`T` SET TBLPROPERTIES ('comment' = 'it''s T');"],
+                "{id}"
+            );
         }
-        let s = sync_script(preset("cubrid"), &[TableChange::Alter { old: n.clone(), new: old() }]).unwrap();
+        let s = sync_script(
+            preset("cubrid"),
+            &[TableChange::Alter {
+                old: n.clone(),
+                new: old(),
+            }],
+        )
+        .unwrap();
         assert_eq!(s.statements, ["ALTER TABLE \"S\".\"T\" COMMENT = '';"]);
-        let s = sync_script(preset("cubrid"), &[TableChange::Alter { old: old(), new: n.clone() }]).unwrap();
-        assert_eq!(s.statements, ["ALTER TABLE \"S\".\"T\" COMMENT = 'it''s T';"]);
-        let s = sync_script(preset("vertica"), &[TableChange::Alter { old: n.clone(), new: old() }]).unwrap();
+        let s = sync_script(
+            preset("cubrid"),
+            &[TableChange::Alter {
+                old: old(),
+                new: n.clone(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["ALTER TABLE \"S\".\"T\" COMMENT = 'it''s T';"]
+        );
+        let s = sync_script(
+            preset("vertica"),
+            &[TableChange::Alter {
+                old: n.clone(),
+                new: old(),
+            }],
+        )
+        .unwrap();
         assert_eq!(s.statements, ["COMMENT ON TABLE \"S\".\"T\" IS NULL;"]);
         // A MODIFY engine without inline comments: the added column's goes with COMMENT ON.
         let mut n = old();
-        n.columns.push(ColumnDef { name: "E".into(), data_type: "INTEGER".into(), nullable: true, comment: Some("nueva".into()), ..Default::default() });
-        let s = sync_script(preset("exasol"), &[TableChange::Alter { old: old(), new: n }]).unwrap();
-        assert_eq!(s.statements.last().map(String::as_str), Some("COMMENT ON COLUMN \"S\".\"T\".\"E\" IS 'nueva';"), "{:?}", s.statements);
+        n.columns.push(ColumnDef {
+            name: "E".into(),
+            data_type: "INTEGER".into(),
+            nullable: true,
+            comment: Some("nueva".into()),
+            ..Default::default()
+        });
+        let s = sync_script(
+            preset("exasol"),
+            &[TableChange::Alter { old: old(), new: n }],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements.last().map(String::as_str),
+            Some("COMMENT ON COLUMN \"S\".\"T\".\"E\" IS 'nueva';"),
+            "{:?}",
+            s.statements
+        );
     }
 }

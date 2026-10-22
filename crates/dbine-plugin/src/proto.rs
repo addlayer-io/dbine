@@ -3,12 +3,16 @@
 //! `serde_json::Value`, which needs a self-describing format).
 
 use dbine_driver::runtime::ComponentProgress;
-use dbine_driver::{
-    Capabilities, ColumnFilter, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
-    BlockedSession, DriverInfo, Error, KeyPage, KeyScan, KeySearch, MonitorSnapshot, ObjectRef, ProfiledStatement, ProfilerOptions,
-    ProfilerStarted, QueryOutcome, ResultColumn, RowChange, SortKey, SyncScript, TableChange, TableSchema,
+use dbine_driver::transfer::{
+    BucketSum, CloneScript, CopySpec, DeltaResult, DeltaSpec, LoadSpec, ReadSpec, RowBatch,
+    TransferColumn,
 };
-use dbine_driver::transfer::{BucketSum, CloneScript, CopySpec, DeltaResult, DeltaSpec, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::{
+    BlockedSession, Capabilities, ColumnFilter, ColumnInfo, ConnectionConfig, CreateTemplate,
+    DbObject, DdlParts, DesignerSpec, DriverInfo, Error, KeyPage, KeyScan, KeySearch,
+    MonitorSnapshot, ObjectRef, ProfiledStatement, ProfilerOptions, ProfilerStarted, QueryOutcome,
+    ResultColumn, RowChange, SortKey, SyncScript, TableChange, TableSchema,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{self, Read, Write};
@@ -50,20 +54,37 @@ pub struct Ready {
 /// App → host.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ToHost {
-    Call { id: u64, call: Call },
+    Call {
+        id: u64,
+        call: Call,
+    },
     /// Stop what the session is running (its interrupter), if it can.
-    Cancel { session: u64 },
+    Cancel {
+        session: u64,
+    },
     /// Stop a call: the app stopped waiting for it.
-    Abort { id: u64 },
+    Abort {
+        id: u64,
+    },
     /// The app dropped the session: close it (and whatever it runs).
-    Close { session: u64 },
+    Close {
+        session: u64,
+    },
     /// The app's row sink failed for this call: drop the rest of its rows.
-    SinkFailed { id: u64, error: String },
+    SinkFailed {
+        id: u64,
+        error: String,
+    },
     /// A bulk load's next batch (`None`: that was the last). Only sent to
     /// hosts whose manifest says `supports_bulk_load`.
-    Batch { id: u64, batch: Option<RowBatch> },
+    Batch {
+        id: u64,
+        batch: Option<RowBatch>,
+    },
     /// The app took a batch of a `ReadBatches` call: the host may send another.
-    BatchAck { id: u64 },
+    BatchAck {
+        id: u64,
+    },
 }
 
 /// One `Driver` or `Session` method. Driver methods name the driver (a
@@ -71,26 +92,84 @@ pub enum ToHost {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Call {
     Manifest,
-    Connect { driver: String, config: ConnectionConfig, database: Option<String> },
-    SyncScript { driver: String, changes: Vec<TableChange> },
+    Connect {
+        driver: String,
+        config: ConnectionConfig,
+        database: Option<String>,
+    },
+    SyncScript {
+        driver: String,
+        changes: Vec<TableChange>,
+    },
     /// The statements that disable or enable an index. A host published
     /// before it answers `Unsupported` (and its manifest doesn't offer it).
-    IndexToggleScript { driver: String, table: ObjectRef, index: dbine_driver::IndexUsage, enable: bool },
-    TableDdl { driver: String, table: TableSchema, parts: DdlParts },
-    InsertScript { driver: String, target: ObjectRef, columns: Vec<String>, rows: Vec<Vec<Value>> },
-    FilteredBrowse { driver: String, browse: String, filters: Vec<ColumnFilter> },
-    UpdateScript { driver: String, target: ObjectRef, changes: Vec<RowChange> },
-    DeleteScript { driver: String, target: ObjectRef, keys: Vec<Vec<(String, Value)>> },
-    SecurityScript { driver: String, action: dbine_driver::SecurityAction },
-    BackupScript { driver: String, action: dbine_driver::BackupAction },
-    DataLoadWrap { driver: String, table: TableSchema },
+    IndexToggleScript {
+        driver: String,
+        table: ObjectRef,
+        index: dbine_driver::IndexUsage,
+        enable: bool,
+    },
+    TableDdl {
+        driver: String,
+        table: TableSchema,
+        parts: DdlParts,
+    },
+    InsertScript {
+        driver: String,
+        target: ObjectRef,
+        columns: Vec<String>,
+        rows: Vec<Vec<Value>>,
+    },
+    FilteredBrowse {
+        driver: String,
+        browse: String,
+        filters: Vec<ColumnFilter>,
+    },
+    UpdateScript {
+        driver: String,
+        target: ObjectRef,
+        changes: Vec<RowChange>,
+    },
+    DeleteScript {
+        driver: String,
+        target: ObjectRef,
+        keys: Vec<Vec<(String, Value)>>,
+    },
+    SecurityScript {
+        driver: String,
+        action: dbine_driver::SecurityAction,
+    },
+    BackupScript {
+        driver: String,
+        action: dbine_driver::BackupAction,
+    },
+    DataLoadWrap {
+        driver: String,
+        table: TableSchema,
+    },
 
-    ServerVersion { session: u64 },
-    ListDatabases { session: u64 },
-    ListObjects { session: u64 },
-    Columns { session: u64, obj: ObjectRef },
-    Definition { session: u64, obj: ObjectRef },
-    BrowseQuery { session: u64, obj: ObjectRef, limit: u32 },
+    ServerVersion {
+        session: u64,
+    },
+    ListDatabases {
+        session: u64,
+    },
+    ListObjects {
+        session: u64,
+    },
+    Columns {
+        session: u64,
+        obj: ObjectRef,
+    },
+    Definition {
+        session: u64,
+        obj: ObjectRef,
+    },
+    BrowseQuery {
+        session: u64,
+        obj: ObjectRef,
+        limit: u32,
+    },
     /// `sink`: the app streams the rows (export, migration): they come back
     /// as `SinkBegin` / `SinkRow` events instead of in the outcome.
     ///
@@ -108,41 +187,120 @@ pub enum Call {
         #[serde(default)]
         live: bool,
     },
-    Explain { session: u64, text: String, analyze: bool, max_rows: u64, sink: bool },
-    DatabaseSchema { session: u64 },
-    CreateDatabase { session: u64, name: String },
-    DropDatabase { session: u64, name: String },
-    Monitor { session: u64 },
-    Blocking { session: u64 },
-    Principals { session: u64 },
-    Grants { session: u64, principal: String },
-    Backups { session: u64, database: Option<String> },
-    KillSession { session: u64, id: String },
-    ProfilerStart { session: u64, opts: ProfilerOptions },
-    ProfilerPoll { session: u64 },
-    ProfilerStop { session: u64 },
-    ScanKeys { session: u64, scan: KeyScan },
+    Explain {
+        session: u64,
+        text: String,
+        analyze: bool,
+        max_rows: u64,
+        sink: bool,
+    },
+    DatabaseSchema {
+        session: u64,
+    },
+    CreateDatabase {
+        session: u64,
+        name: String,
+    },
+    DropDatabase {
+        session: u64,
+        name: String,
+    },
+    Monitor {
+        session: u64,
+    },
+    Blocking {
+        session: u64,
+    },
+    Principals {
+        session: u64,
+    },
+    Grants {
+        session: u64,
+        principal: String,
+    },
+    Backups {
+        session: u64,
+        database: Option<String>,
+    },
+    KillSession {
+        session: u64,
+        id: String,
+    },
+    ProfilerStart {
+        session: u64,
+        opts: ProfilerOptions,
+    },
+    ProfilerPoll {
+        session: u64,
+    },
+    ProfilerStop {
+        session: u64,
+    },
+    ScanKeys {
+        session: u64,
+        scan: KeyScan,
+    },
     /// A table's rows in batches: `BatchBegin` / `Batch` events, at most
     /// `BATCH_WINDOW` not yet acknowledged; the reply is the row count.
-    ReadBatches { session: u64, spec: ReadSpec },
+    ReadBatches {
+        session: u64,
+        spec: ReadSpec,
+    },
     /// A bulk load: the app sends the batches (`ToHost::Batch`), at most
     /// `BATCH_WINDOW` not yet taken (`FromHost::BatchAck`); the reply is the
     /// row count, `Committed` events the progress.
-    BulkLoad { session: u64, spec: LoadSpec, columns: Vec<TransferColumn> },
+    BulkLoad {
+        session: u64,
+        spec: LoadSpec,
+        columns: Vec<TransferColumn>,
+    },
     /// A table copied between two sessions of this host.
-    CopyNative { driver: String, from: u64, to: u64, spec: CopySpec },
+    CopyNative {
+        driver: String,
+        from: u64,
+        to: u64,
+        spec: CopySpec,
+    },
     /// What makes the target identical to the source (two sessions of this host).
-    CloneScript { driver: String, from: u64, to: u64, tables: Vec<ObjectRef> },
-    DeltaFilter { driver: String, spec: DeltaSpec, buckets: Vec<i64> },
-    KeyRange { session: u64, table: ObjectRef, column: String },
-    DeltaSummary { session: u64, spec: DeltaSpec },
+    CloneScript {
+        driver: String,
+        from: u64,
+        to: u64,
+        tables: Vec<ObjectRef>,
+    },
+    DeltaFilter {
+        driver: String,
+        spec: DeltaSpec,
+        buckets: Vec<i64>,
+    },
+    KeyRange {
+        session: u64,
+        table: ObjectRef,
+        column: String,
+    },
+    DeltaSummary {
+        session: u64,
+        spec: DeltaSpec,
+    },
     /// Like `BulkLoad`: the app sends the source rows as `ToHost::Batch`.
-    DeltaApply { session: u64, spec: DeltaSpec, buckets: Vec<i64>, columns: Vec<TransferColumn> },
+    DeltaApply {
+        session: u64,
+        spec: DeltaSpec,
+        buckets: Vec<i64>,
+        columns: Vec<TransferColumn>,
+    },
     /// A notebook's write cell (`Session::write_rows`); like `BulkLoad`, the
     /// app sends the rows as `ToHost::Batch`. Only for hosts whose manifest
     /// lists `write_modes`.
-    WriteRows { session: u64, spec: dbine_driver::WriteSpec, columns: Vec<TransferColumn> },
-    Permissions { session: u64, database: Option<String> },
+    WriteRows {
+        session: u64,
+        spec: dbine_driver::WriteSpec,
+        columns: Vec<TransferColumn>,
+    },
+    Permissions {
+        session: u64,
+        database: Option<String>,
+    },
     /// "Nuevo esquema…" / "Borrar esquema…". A host published before them
     /// answers `Unsupported` (see `unknown_call`). `database` came later: a
     /// host that doesn't know it ignores it, and an app that doesn't send
@@ -163,117 +321,250 @@ pub enum Call {
     },
     /// A host published before it answers `Unsupported`, which the app
     /// reads as `None` (the owner goes in the create).
-    SchemaOwnerScript { driver: String, database: Option<String>, name: String, owner: String },
+    SchemaOwnerScript {
+        driver: String,
+        database: Option<String>,
+        name: String,
+        owner: String,
+    },
     /// A host published before it answers `Unsupported`, and the app asks
     /// `SecurityScript` instead (what that host did).
-    SchemaGrantScript { driver: String, database: Option<String>, name: String, privileges: Vec<String>, to: String, grantable: bool },
+    SchemaGrantScript {
+        driver: String,
+        database: Option<String>,
+        name: String,
+        privileges: Vec<String>,
+        to: String,
+        grantable: bool,
+    },
     /// Every schema, even empty ones. A host published before it answers
     /// `Unsupported`, which the app reads as "not listed" (`None`).
-    ListSchemas { session: u64 },
+    ListSchemas {
+        session: u64,
+    },
     /// Manual transactions. A host published before them answers
     /// `Unsupported`: `TransactionState` then reads as "not tracked" (`None`).
-    TransactionState { session: u64 },
-    SetAutocommit { session: u64, on: bool },
-    Commit { session: u64 },
-    Rollback { session: u64 },
+    TransactionState {
+        session: u64,
+    },
+    SetAutocommit {
+        session: u64,
+        on: bool,
+    },
+    Commit {
+        session: u64,
+    },
+    Rollback {
+        session: u64,
+    },
     /// The driver's own `split_script` (SQL*Plus lines, `EXEC`…), which the
     /// app's lexer can't reproduce from the dialect. A host published before
     /// it answers `Unsupported`, and the app splits with the dialect.
-    SplitScript { driver: String, text: String },
+    SplitScript {
+        driver: String,
+        text: String,
+    },
     /// A table's indexes and their usage. A host published before it
     /// answers `Unsupported`, which the app reads as "not reported" (`None`).
-    IndexUsage { session: u64, table: ObjectRef },
+    IndexUsage {
+        session: u64,
+        table: ObjectRef,
+    },
     /// What depends on an object. A host published before it answers
     /// `Unsupported`, and the app runs the generic scan through the host's
     /// other calls.
-    Dependents { session: u64, target: dbine_driver::DependencyTarget, scan: dbine_driver::DependencyScan },
+    Dependents {
+        session: u64,
+        target: dbine_driver::DependencyTarget,
+        scan: dbine_driver::DependencyScan,
+    },
     /// The server's sessions (the Monitor's "Procesos"). A host published
     /// before it answers `Unsupported`; the app only asks drivers whose
     /// capabilities say `processes`.
-    Processes { session: u64 },
+    Processes {
+        session: u64,
+    },
     /// Stop another session's statement. Same as `Processes` for older hosts.
-    CancelQuery { session: u64, id: String },
+    CancelQuery {
+        session: u64,
+        id: String,
+    },
     /// "Nueva base de datos" with options: the script, the server's
     /// suggestions, and the creation. A host published before them
     /// answers `Unsupported`; the app only asks drivers whose manifest
     /// lists `create_database_fields`.
-    CreateDatabaseScript { driver: String, name: String, options: std::collections::BTreeMap<String, String> },
-    CreateDatabaseChoices { session: u64 },
-    CreateDatabaseWith { session: u64, name: String, options: std::collections::BTreeMap<String, String> },
+    CreateDatabaseScript {
+        driver: String,
+        name: String,
+        options: std::collections::BTreeMap<String, String>,
+    },
+    CreateDatabaseChoices {
+        session: u64,
+    },
+    CreateDatabaseWith {
+        session: u64,
+        name: String,
+        options: std::collections::BTreeMap<String, String>,
+    },
     /// "Propiedades" of a database: read, the script, apply. A host
     /// published before them answers `Unsupported`; the app only asks
     /// drivers whose capabilities say `database_properties`.
-    DatabaseProperties { session: u64, database: String },
-    AlterDatabaseScript { driver: String, database: String, changes: std::collections::BTreeMap<String, String> },
-    AlterDatabase { session: u64, database: String, changes: std::collections::BTreeMap<String, String> },
+    DatabaseProperties {
+        session: u64,
+        database: String,
+    },
+    AlterDatabaseScript {
+        driver: String,
+        database: String,
+        changes: std::collections::BTreeMap<String, String>,
+    },
+    AlterDatabase {
+        session: u64,
+        database: String,
+        changes: std::collections::BTreeMap<String, String>,
+    },
     /// "Buscar en la base" from the catalog. A host published before it
     /// answers `Unsupported`, and the app scans the definitions itself.
-    SearchCode { session: u64, query: dbine_driver::search::CodeSearch },
+    SearchCode {
+        session: u64,
+        query: dbine_driver::search::CodeSearch,
+    },
     /// "Chequeo de salud": the engine's own findings. A host published
     /// before it answers `Unsupported` (none of its own).
-    HealthChecks { session: u64, database: String },
+    HealthChecks {
+        session: u64,
+        database: String,
+    },
     /// "Documentar la base": rows from statistics and comments on views,
     /// routines… A host published before them answers `Unsupported`
     /// (none known).
-    RowEstimates { session: u64 },
-    ObjectComments { session: u64 },
+    RowEstimates {
+        session: u64,
+    },
+    ObjectComments {
+        session: u64,
+    },
     /// "Renombrar…": the statements that rename an object. A host published
     /// before it answers `Unsupported` (and its manifest doesn't offer it).
-    RenameScript { driver: String, request: dbine_driver::RenameRequest },
+    RenameScript {
+        driver: String,
+        request: dbine_driver::RenameRequest,
+    },
     /// "Renombrar…" on a database. A host published before it answers
     /// `Unsupported` (and its manifest doesn't offer it).
-    RenameDatabaseScript { driver: String, database: String, new_name: String, objects: Vec<dbine_driver::rename::DatabaseObject> },
+    RenameDatabaseScript {
+        driver: String,
+        database: String,
+        new_name: String,
+        objects: Vec<dbine_driver::rename::DatabaseObject>,
+    },
     /// "Asignar login…": the server's logins with no user in the session's
     /// database. A host published before it answers `Unsupported`, and the
     /// dialog lets the user type the login.
-    UnmappedLogins { session: u64 },
+    UnmappedLogins {
+        session: u64,
+    },
     /// "Asignar login…": the statement that maps a server login to a user
     /// of the current database. A host published before it answers
     /// `Unsupported` (and its manifest doesn't offer it).
-    MapLoginScript { driver: String, login: String, user: String, default_schema: Option<String> },
+    MapLoginScript {
+        driver: String,
+        login: String,
+        user: String,
+        default_schema: Option<String>,
+    },
     /// `Session::run_read_only`: one statement as a read the server
     /// enforces (what MCP and the AI assistant run without asking). Replies
     /// `Run` like `Execute`. A host published before it answers
     /// `Unsupported`, which the app treats as "the engine can't enforce
     /// it": the read needs the user's approval.
-    RunReadOnly { session: u64, statement: String, max_rows: u64, sink: bool },
+    RunReadOnly {
+        session: u64,
+        statement: String,
+        max_rows: u64,
+        sink: bool,
+    },
     /// The data grid's column sort on a (filtered) browse query. A host
     /// published before it answers `Unsupported`: the grid then sorts the
     /// rows it loaded.
-    SortedBrowse { driver: String, query: String, sort: Vec<SortKey> },
+    SortedBrowse {
+        driver: String,
+        query: String,
+        sort: Vec<SortKey>,
+    },
     /// A chart over the whole result: the user's query in a `GROUP BY`
     /// (`Driver::aggregate_query`). A host published before it answers
     /// `Unsupported`: the app aggregates the rows itself.
-    AggregateQuery { driver: String, query: String, spec: dbine_driver::AggregateSpec },
+    AggregateQuery {
+        driver: String,
+        query: String,
+        spec: dbine_driver::AggregateSpec,
+    },
     /// `Session::execute_bound`: one statement with its parameters bound
     /// (notebook parameters). Replies `Run` like `Execute`. A host published
     /// before it answers `Unsupported`: the app runs the statement with the
     /// values as literals.
-    ExecuteBound { session: u64, statement: dbine_driver::BoundStatement, max_rows: u64, sink: bool },
+    ExecuteBound {
+        session: u64,
+        statement: dbine_driver::BoundStatement,
+        max_rows: u64,
+        sink: bool,
+    },
     /// `Driver::param_literal`: a parameter's value as a literal of the
     /// engine. A host published before it answers `Unsupported`: the app
     /// uses the contract's default for the driver's dialect.
-    ParamLiteral { driver: String, value: dbine_driver::ParamValue },
+    ParamLiteral {
+        driver: String,
+        value: dbine_driver::ParamValue,
+    },
 }
 
 /// Host → app.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum FromHost {
-    Reply { id: u64, result: Result<Reply, WireError> },
-    SinkBegin { id: u64, index: u64, columns: Vec<ResultColumn> },
-    SinkRow { id: u64, index: u64, row: Vec<Value> },
+    Reply {
+        id: u64,
+        result: Result<Reply, WireError>,
+    },
+    SinkBegin {
+        id: u64,
+        index: u64,
+        columns: Vec<ResultColumn>,
+    },
+    SinkRow {
+        id: u64,
+        index: u64,
+        row: Vec<Value>,
+    },
     /// A message of a `live` `Execute`, as it arrives.
-    Message { id: u64, message: dbine_driver::Message },
+    Message {
+        id: u64,
+        message: dbine_driver::Message,
+    },
     /// A statement of a `live` `Execute` ended.
-    StatementEnded { id: u64, end: dbine_driver::StatementEnd },
+    StatementEnded {
+        id: u64,
+        end: dbine_driver::StatementEnd,
+    },
     /// A component download of a driver (DuckDB's library…).
     Progress(ComponentProgress),
-    BatchBegin { id: u64, columns: Vec<TransferColumn> },
-    Batch { id: u64, batch: RowBatch },
+    BatchBegin {
+        id: u64,
+        columns: Vec<TransferColumn>,
+    },
+    Batch {
+        id: u64,
+        batch: RowBatch,
+    },
     /// A bulk load took a batch: the app may send another.
-    BatchAck { id: u64 },
+    BatchAck {
+        id: u64,
+    },
     /// Rows committed so far by a bulk load or native copy.
-    Committed { id: u64, rows: u64 },
+    Committed {
+        id: u64,
+        rows: u64,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -285,7 +576,10 @@ pub enum Reply {
     Pair(String, String),
     Objects(Vec<DbObject>),
     Columns(Vec<ColumnInfo>),
-    Session { id: u64, interruptible: bool },
+    Session {
+        id: u64,
+        interruptible: bool,
+    },
     /// A run (`execute` / `explain`): what it produced, and the error that
     /// stopped it (what ran before stays in the outcome).
     Run(QueryOutcome, Option<WireError>),
@@ -486,9 +780,21 @@ impl From<&Error> for WireError {
             Error::AuthFailed(m) => ("auth_failed", m.clone()),
             Error::Unsupported(m) => ("unsupported", m.clone()),
             Error::Query(m) => ("query", m.clone()),
-            Error::Statement(d) => return WireError { kind: "query".into(), message: d.message.clone(), detail: Some((**d).clone()), connect: None },
+            Error::Statement(d) => {
+                return WireError {
+                    kind: "query".into(),
+                    message: d.message.clone(),
+                    detail: Some((**d).clone()),
+                    connect: None,
+                }
+            }
             Error::ConnectFailed(f) => {
-                return WireError { kind: "connect".into(), message: f.message.clone(), detail: None, connect: Some((**f).clone()) }
+                return WireError {
+                    kind: "connect".into(),
+                    message: f.message.clone(),
+                    detail: None,
+                    connect: Some((**f).clone()),
+                }
             }
             Error::State(m) => ("state", m.clone()),
             Error::Secrets(m) => ("secrets", m.clone()),
@@ -496,7 +802,12 @@ impl From<&Error> for WireError {
             Error::Io(e) => ("io", e.to_string()),
             Error::Serde(e) => ("serde", e.to_string()),
         };
-        WireError { kind: kind.into(), message, detail: None, connect: None }
+        WireError {
+            kind: kind.into(),
+            message,
+            detail: None,
+            connect: None,
+        }
     }
 }
 
@@ -525,7 +836,8 @@ impl From<WireError> for Error {
 
 pub fn write_frame<T: Serialize>(w: &mut impl Write, msg: &T) -> io::Result<()> {
     let body = rmp_serde::to_vec_named(msg).map_err(io::Error::other)?;
-    let len = u32::try_from(body.len()).map_err(|_| io::Error::other("mensaje demasiado grande"))?;
+    let len =
+        u32::try_from(body.len()).map_err(|_| io::Error::other("mensaje demasiado grande"))?;
     w.write_all(&len.to_le_bytes())?;
     w.write_all(&body)?;
     w.flush()
@@ -534,7 +846,9 @@ pub fn write_frame<T: Serialize>(w: &mut impl Write, msg: &T) -> io::Result<()> 
 /// The next message, or `None` at the end of the stream.
 pub fn read_frame<T: for<'de> Deserialize<'de>>(r: &mut impl Read) -> io::Result<Option<T>> {
     match read_raw(r)? {
-        Some(body) => rmp_serde::from_slice(&body).map(Some).map_err(io::Error::other),
+        Some(body) => rmp_serde::from_slice(&body)
+            .map(Some)
+            .map_err(io::Error::other),
         None => Ok(None),
     }
 }
@@ -549,7 +863,9 @@ pub fn read_raw(r: &mut impl Read) -> io::Result<Option<Vec<u8>>> {
     }
     let len = u32::from_le_bytes(len) as usize;
     if len > MAX_FRAME {
-        return Err(io::Error::other(format!("mensaje de {len} bytes: el canal con el driver está roto")));
+        return Err(io::Error::other(format!(
+            "mensaje de {len} bytes: el canal con el driver está roto"
+        )));
     }
     let mut body = vec![0u8; len];
     r.read_exact(&mut body)?;
@@ -606,7 +922,10 @@ mod tests {
         let m: Meta = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(m.script_mode, Some(dbine_driver::ScriptMode::Whole));
         let d = m.script_dialect.unwrap();
-        assert_eq!((d.batch, d.plsql_blocks), (dbine_driver::sql::BatchLine::None, true));
+        assert_eq!(
+            (d.batch, d.plsql_blocks),
+            (dbine_driver::sql::BatchLine::None, true)
+        );
         assert!(m.script_defaults.is_none());
         // Known values still read.
         let body = rmp_serde::to_vec_named(&json!({ "script_mode": "batches" })).unwrap();
@@ -626,11 +945,22 @@ mod tests {
         enum NewToHost {
             Call { id: u64, call: NewCall },
         }
-        let body = rmp_serde::to_vec_named(&NewToHost::Call { id: 42, call: NewCall::FutureThing { session: 1, depth: 3 } }).unwrap();
+        let body = rmp_serde::to_vec_named(&NewToHost::Call {
+            id: 42,
+            call: NewCall::FutureThing {
+                session: 1,
+                depth: 3,
+            },
+        })
+        .unwrap();
         assert!(rmp_serde::from_slice::<ToHost>(&body).is_err());
         assert_eq!(unknown_call(&body), Some((42, "FutureThing".to_string())));
         // A known one still reads as such.
-        let known = rmp_serde::to_vec_named(&ToHost::Call { id: 1, call: Call::Manifest }).unwrap();
+        let known = rmp_serde::to_vec_named(&ToHost::Call {
+            id: 1,
+            call: Call::Manifest,
+        })
+        .unwrap();
         assert!(rmp_serde::from_slice::<ToHost>(&known).is_ok());
     }
 
@@ -639,7 +969,11 @@ mod tests {
         // An app built before `database`: a new host reads `None`.
         #[derive(Serialize)]
         enum OldCall {
-            CreateSchemaScript { driver: String, name: String, owner: Option<String> },
+            CreateSchemaScript {
+                driver: String,
+                name: String,
+                owner: Option<String>,
+            },
         }
         #[derive(Serialize)]
         enum OldToHost {
@@ -647,53 +981,98 @@ mod tests {
         }
         let body = rmp_serde::to_vec_named(&OldToHost::Call {
             id: 1,
-            call: OldCall::CreateSchemaScript { driver: "dremio".into(), name: "a.b".into(), owner: None },
+            call: OldCall::CreateSchemaScript {
+                driver: "dremio".into(),
+                name: "a.b".into(),
+                owner: None,
+            },
         })
         .unwrap();
         match rmp_serde::from_slice::<ToHost>(&body).unwrap() {
-            ToHost::Call { call: Call::CreateSchemaScript { database, name, .. }, .. } => assert_eq!((database, name.as_str()), (None, "a.b")),
+            ToHost::Call {
+                call: Call::CreateSchemaScript { database, name, .. },
+                ..
+            } => assert_eq!((database, name.as_str()), (None, "a.b")),
             other => panic!("{other:?}"),
         }
         // A host built before `database` ignores it.
         #[derive(Deserialize, Debug)]
         #[allow(dead_code)]
         enum HostCall {
-            DropSchemaScript { driver: String, name: String, cascade: bool },
+            DropSchemaScript {
+                driver: String,
+                name: String,
+                cascade: bool,
+            },
         }
         #[derive(Deserialize, Debug)]
         #[allow(dead_code)]
         enum HostToHost {
             Call { id: u64, call: HostCall },
         }
-        let call = Call::DropSchemaScript { driver: "dremio".into(), name: "a.b".into(), cascade: true, database: Some("lake".into()) };
+        let call = Call::DropSchemaScript {
+            driver: "dremio".into(),
+            name: "a.b".into(),
+            cascade: true,
+            database: Some("lake".into()),
+        };
         let body = rmp_serde::to_vec_named(&ToHost::Call { id: 2, call }).unwrap();
         assert!(rmp_serde::from_slice::<HostToHost>(&body).is_ok());
     }
 
     fn rename_request() -> dbine_driver::RenameRequest {
         dbine_driver::RenameRequest {
-            target: dbine_driver::RenameTarget::Column { table: ObjectRef { kind: "table".into(), schema: Some("public".into()), name: "t".into() }, column: "a".into() },
+            target: dbine_driver::RenameTarget::Column {
+                table: ObjectRef {
+                    kind: "table".into(),
+                    schema: Some("public".into()),
+                    name: "t".into(),
+                },
+                column: "a".into(),
+            },
             new_name: "b".into(),
-            table: Some(TableSchema { name: "t".into(), ..Default::default() }),
+            table: Some(TableSchema {
+                name: "t".into(),
+                ..Default::default()
+            }),
             definition: None,
         }
     }
 
     #[test]
     fn a_rename_round_trips() {
-        let body = rmp_serde::to_vec_named(&ToHost::Call { id: 9, call: Call::RenameScript { driver: "postgres".into(), request: rename_request() } }).unwrap();
+        let body = rmp_serde::to_vec_named(&ToHost::Call {
+            id: 9,
+            call: Call::RenameScript {
+                driver: "postgres".into(),
+                request: rename_request(),
+            },
+        })
+        .unwrap();
         match rmp_serde::from_slice::<ToHost>(&body).unwrap() {
-            ToHost::Call { call: Call::RenameScript { driver, request }, .. } => {
+            ToHost::Call {
+                call: Call::RenameScript { driver, request },
+                ..
+            } => {
                 assert_eq!(driver, "postgres");
                 assert_eq!(request.new_name, "b");
-                assert!(matches!(request.target, dbine_driver::RenameTarget::Column { ref column, .. } if column == "a"));
+                assert!(
+                    matches!(request.target, dbine_driver::RenameTarget::Column { ref column, .. } if column == "a")
+                );
                 assert_eq!(request.table.unwrap().name, "t");
             }
             other => panic!("{other:?}"),
         }
         // The manifest's spec, and a manifest without it.
-        let spec = dbine_driver::RenameSpec { kinds: vec!["table".into()], columns: true, fold: dbine_driver::Fold::Lower, transactional: true, ..Default::default() };
-        let back: dbine_driver::RenameSpec = rmp_serde::from_slice(&rmp_serde::to_vec_named(&spec).unwrap()).unwrap();
+        let spec = dbine_driver::RenameSpec {
+            kinds: vec!["table".into()],
+            columns: true,
+            fold: dbine_driver::Fold::Lower,
+            transactional: true,
+            ..Default::default()
+        };
+        let back: dbine_driver::RenameSpec =
+            rmp_serde::from_slice(&rmp_serde::to_vec_named(&spec).unwrap()).unwrap();
         assert_eq!(back.kinds, vec!["table".to_string()]);
         assert_eq!(back.fold, dbine_driver::Fold::Lower);
         assert!(back.transactional && back.columns && !back.schemas);
@@ -706,7 +1085,10 @@ mod tests {
         #[allow(dead_code)]
         enum OldCall {
             Manifest,
-            SecurityScript { driver: String, action: dbine_driver::SecurityAction },
+            SecurityScript {
+                driver: String,
+                action: dbine_driver::SecurityAction,
+            },
         }
         #[derive(Deserialize)]
         #[allow(dead_code)]
@@ -714,46 +1096,214 @@ mod tests {
             Call { id: u64, call: OldCall },
         }
         for (id, call, name) in [
-            (5, Call::CreateSchemaScript { driver: "postgres".into(), name: "ventas".into(), owner: Some("ana".into()), database: None }, "CreateSchemaScript"),
-            (6, Call::DropSchemaScript { driver: "postgres".into(), name: "ventas".into(), cascade: true, database: None }, "DropSchemaScript"),
+            (
+                5,
+                Call::CreateSchemaScript {
+                    driver: "postgres".into(),
+                    name: "ventas".into(),
+                    owner: Some("ana".into()),
+                    database: None,
+                },
+                "CreateSchemaScript",
+            ),
+            (
+                6,
+                Call::DropSchemaScript {
+                    driver: "postgres".into(),
+                    name: "ventas".into(),
+                    cascade: true,
+                    database: None,
+                },
+                "DropSchemaScript",
+            ),
             (7, Call::ListSchemas { session: 3 }, "ListSchemas"),
-            (8, Call::SchemaOwnerScript { driver: "postgres".into(), database: None, name: "ventas".into(), owner: "ana".into() }, "SchemaOwnerScript"),
+            (
+                8,
+                Call::SchemaOwnerScript {
+                    driver: "postgres".into(),
+                    database: None,
+                    name: "ventas".into(),
+                    owner: "ana".into(),
+                },
+                "SchemaOwnerScript",
+            ),
             (
                 9,
-                Call::SchemaGrantScript { driver: "postgres".into(), database: None, name: "v".into(), privileges: vec![], to: "ana".into(), grantable: false },
+                Call::SchemaGrantScript {
+                    driver: "postgres".into(),
+                    database: None,
+                    name: "v".into(),
+                    privileges: vec![],
+                    to: "ana".into(),
+                    grantable: false,
+                },
                 "SchemaGrantScript",
             ),
-            (10, Call::SplitScript { driver: "oracle".into(), text: "PROMPT a\n".into() }, "SplitScript"),
-            (11, Call::IndexUsage { session: 3, table: ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() } }, "IndexUsage"),
+            (
+                10,
+                Call::SplitScript {
+                    driver: "oracle".into(),
+                    text: "PROMPT a\n".into(),
+                },
+                "SplitScript",
+            ),
+            (
+                11,
+                Call::IndexUsage {
+                    session: 3,
+                    table: ObjectRef {
+                        kind: "table".into(),
+                        schema: Some("dbo".into()),
+                        name: "t".into(),
+                    },
+                },
+                "IndexUsage",
+            ),
             (
                 12,
                 Call::Dependents {
                     session: 3,
-                    target: dbine_driver::DependencyTarget { object: ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() }, column: None },
-                    scan: dbine_driver::DependencyScan { source_kinds: vec!["view".into()], dialect: dbine_driver::ScriptDialect::generic(), foreign_keys: true },
+                    target: dbine_driver::DependencyTarget {
+                        object: ObjectRef {
+                            kind: "table".into(),
+                            schema: Some("dbo".into()),
+                            name: "t".into(),
+                        },
+                        column: None,
+                    },
+                    scan: dbine_driver::DependencyScan {
+                        source_kinds: vec!["view".into()],
+                        dialect: dbine_driver::ScriptDialect::generic(),
+                        foreign_keys: true,
+                    },
                 },
                 "Dependents",
             ),
             (13, Call::Processes { session: 3 }, "Processes"),
-            (14, Call::CancelQuery { session: 3, id: "53".into() }, "CancelQuery"),
-            (15, Call::CreateDatabaseScript { driver: "sqlserver".into(), name: "v".into(), options: Default::default() }, "CreateDatabaseScript"),
-            (16, Call::CreateDatabaseChoices { session: 3 }, "CreateDatabaseChoices"),
-            (17, Call::CreateDatabaseWith { session: 3, name: "v".into(), options: Default::default() }, "CreateDatabaseWith"),
-            (18, Call::DatabaseProperties { session: 3, database: "v".into() }, "DatabaseProperties"),
-            (19, Call::AlterDatabaseScript { driver: "sqlserver".into(), database: "v".into(), changes: Default::default() }, "AlterDatabaseScript"),
-            (20, Call::AlterDatabase { session: 3, database: "v".into(), changes: Default::default() }, "AlterDatabase"),
-            (21, Call::SearchCode { session: 3, query: Default::default() }, "SearchCode"),
-            (22, Call::HealthChecks { session: 3, database: "v".into() }, "HealthChecks"),
+            (
+                14,
+                Call::CancelQuery {
+                    session: 3,
+                    id: "53".into(),
+                },
+                "CancelQuery",
+            ),
+            (
+                15,
+                Call::CreateDatabaseScript {
+                    driver: "sqlserver".into(),
+                    name: "v".into(),
+                    options: Default::default(),
+                },
+                "CreateDatabaseScript",
+            ),
+            (
+                16,
+                Call::CreateDatabaseChoices { session: 3 },
+                "CreateDatabaseChoices",
+            ),
+            (
+                17,
+                Call::CreateDatabaseWith {
+                    session: 3,
+                    name: "v".into(),
+                    options: Default::default(),
+                },
+                "CreateDatabaseWith",
+            ),
+            (
+                18,
+                Call::DatabaseProperties {
+                    session: 3,
+                    database: "v".into(),
+                },
+                "DatabaseProperties",
+            ),
+            (
+                19,
+                Call::AlterDatabaseScript {
+                    driver: "sqlserver".into(),
+                    database: "v".into(),
+                    changes: Default::default(),
+                },
+                "AlterDatabaseScript",
+            ),
+            (
+                20,
+                Call::AlterDatabase {
+                    session: 3,
+                    database: "v".into(),
+                    changes: Default::default(),
+                },
+                "AlterDatabase",
+            ),
+            (
+                21,
+                Call::SearchCode {
+                    session: 3,
+                    query: Default::default(),
+                },
+                "SearchCode",
+            ),
+            (
+                22,
+                Call::HealthChecks {
+                    session: 3,
+                    database: "v".into(),
+                },
+                "HealthChecks",
+            ),
             (23, Call::RowEstimates { session: 3 }, "RowEstimates"),
             (24, Call::ObjectComments { session: 3 }, "ObjectComments"),
-            (25, Call::RenameScript { driver: "postgres".into(), request: rename_request() }, "RenameScript"),
-            (26, Call::RenameDatabaseScript { driver: "postgres".into(), database: "v".into(), new_name: "w".into(), objects: Vec::new() }, "RenameDatabaseScript"),
+            (
+                25,
+                Call::RenameScript {
+                    driver: "postgres".into(),
+                    request: rename_request(),
+                },
+                "RenameScript",
+            ),
+            (
+                26,
+                Call::RenameDatabaseScript {
+                    driver: "postgres".into(),
+                    database: "v".into(),
+                    new_name: "w".into(),
+                    objects: Vec::new(),
+                },
+                "RenameDatabaseScript",
+            ),
             (27, Call::UnmappedLogins { session: 3 }, "UnmappedLogins"),
-            (28, Call::MapLoginScript { driver: "sqlserver".into(), login: "ana".into(), user: "ana".into(), default_schema: Some("dbo".into()) }, "MapLoginScript"),
-            (29, Call::RunReadOnly { session: 3, statement: "SELECT 1".into(), max_rows: 10, sink: false }, "RunReadOnly"),
+            (
+                28,
+                Call::MapLoginScript {
+                    driver: "sqlserver".into(),
+                    login: "ana".into(),
+                    user: "ana".into(),
+                    default_schema: Some("dbo".into()),
+                },
+                "MapLoginScript",
+            ),
+            (
+                29,
+                Call::RunReadOnly {
+                    session: 3,
+                    statement: "SELECT 1".into(),
+                    max_rows: 10,
+                    sink: false,
+                },
+                "RunReadOnly",
+            ),
             (
                 30,
-                Call::SortedBrowse { driver: "postgres".into(), query: "SELECT * FROM t".into(), sort: vec![SortKey { column: "a".into(), descending: true }] },
+                Call::SortedBrowse {
+                    driver: "postgres".into(),
+                    query: "SELECT * FROM t".into(),
+                    sort: vec![SortKey {
+                        column: "a".into(),
+                        descending: true,
+                    }],
+                },
                 "SortedBrowse",
             ),
             (
@@ -764,7 +1314,10 @@ mod tests {
                     spec: dbine_driver::AggregateSpec {
                         x: Some("a".into()),
                         split: None,
-                        measures: vec![dbine_driver::Measure { column: None, func: dbine_driver::AggFn::Count }],
+                        measures: vec![dbine_driver::Measure {
+                            column: None,
+                            func: dbine_driver::AggFn::Count,
+                        }],
                         max_groups: 10,
                     },
                 },
@@ -775,7 +1328,10 @@ mod tests {
                 Call::ExecuteBound {
                     session: 3,
                     statement: dbine_driver::BoundStatement {
-                        parts: vec![dbine_driver::BoundPart::Text("SELECT ".into()), dbine_driver::BoundPart::Param(0)],
+                        parts: vec![
+                            dbine_driver::BoundPart::Text("SELECT ".into()),
+                            dbine_driver::BoundPart::Param(0),
+                        ],
                         values: vec![dbine_driver::ParamValue::Text("x".into())],
                     },
                     max_rows: 10,
@@ -783,7 +1339,14 @@ mod tests {
                 },
                 "ExecuteBound",
             ),
-            (33, Call::ParamLiteral { driver: "postgres".into(), value: dbine_driver::ParamValue::Date("2026-10-18".into()) }, "ParamLiteral"),
+            (
+                33,
+                Call::ParamLiteral {
+                    driver: "postgres".into(),
+                    value: dbine_driver::ParamValue::Date("2026-10-18".into()),
+                },
+                "ParamLiteral",
+            ),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
@@ -795,7 +1358,10 @@ mod tests {
         struct OldPermissions {
             backup: dbine_driver::Access,
         }
-        let body = rmp_serde::to_vec_named(&OldPermissions { backup: dbine_driver::Access::Allowed }).unwrap();
+        let body = rmp_serde::to_vec_named(&OldPermissions {
+            backup: dbine_driver::Access::Allowed,
+        })
+        .unwrap();
         let p: dbine_driver::Permissions = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(p.create_schema, dbine_driver::Access::Unknown);
     }
@@ -803,11 +1369,24 @@ mod tests {
     #[test]
     fn database_properties_round_trip() {
         let p = dbine_driver::DatabaseProperties {
-            fields: vec![dbine_driver::Field::new("recovery", "Modelo de recuperación", dbine_driver::FieldKind::Text).group("Opciones")],
+            fields: vec![dbine_driver::Field::new(
+                "recovery",
+                "Modelo de recuperación",
+                dbine_driver::FieldKind::Text,
+            )
+            .group("Opciones")],
             values: [("recovery".to_string(), "FULL".to_string())].into(),
-            info: vec![dbine_driver::PropertyInfo { group: String::new(), label: "Tamaño".into(), value: "16 MB".into() }],
+            info: vec![dbine_driver::PropertyInfo {
+                group: String::new(),
+                label: "Tamaño".into(),
+                value: "16 MB".into(),
+            }],
             choices: Vec::new(),
-            warnings: [("recovery".to_string(), "rompe la cadena de backups".to_string())].into(),
+            warnings: [(
+                "recovery".to_string(),
+                "rompe la cadena de backups".to_string(),
+            )]
+            .into(),
         };
         let body = rmp_serde::to_vec_named(&Reply::DatabaseProperties(p)).unwrap();
         match rmp_serde::from_slice::<Reply>(&body).unwrap() {
@@ -837,7 +1416,12 @@ mod tests {
                 last_read: Some("2026-01-02 04:00:00".into()),
                 ..Default::default()
             }],
-            foreign_keys: vec![dbine_driver::ForeignKeyDef { columns: vec!["p".into()], ref_table: "p".into(), ref_columns: vec!["id".into()], ..Default::default() }],
+            foreign_keys: vec![dbine_driver::ForeignKeyDef {
+                columns: vec!["p".into()],
+                ref_table: "p".into(),
+                ref_columns: vec!["id".into()],
+                ..Default::default()
+            }],
         });
         let body = rmp_serde::to_vec_named(&Reply::IndexUsage(report.clone())).unwrap();
         match rmp_serde::from_slice::<Reply>(&body).unwrap() {
@@ -848,7 +1432,16 @@ mod tests {
 
     #[test]
     fn a_schema_list_round_trips() {
-        let list = Some(vec![dbine_driver::SchemaInfo { name: "ventas".into(), system: false }, dbine_driver::SchemaInfo { name: "sys".into(), system: true }]);
+        let list = Some(vec![
+            dbine_driver::SchemaInfo {
+                name: "ventas".into(),
+                system: false,
+            },
+            dbine_driver::SchemaInfo {
+                name: "sys".into(),
+                system: true,
+            },
+        ]);
         let body = rmp_serde::to_vec_named(&Reply::Schemas(list.clone())).unwrap();
         match rmp_serde::from_slice::<Reply>(&body).unwrap() {
             Reply::Schemas(back) => assert_eq!(back, list),
@@ -859,9 +1452,20 @@ mod tests {
     #[test]
     fn frames_round_trip_with_json_cells() {
         let mut buf = Vec::new();
-        let msg = FromHost::SinkRow { id: 7, index: 1, row: vec![json!(1), json!("a"), json!(null), json!({"k": [1.5, true]})] };
+        let msg = FromHost::SinkRow {
+            id: 7,
+            index: 1,
+            row: vec![json!(1), json!("a"), json!(null), json!({"k": [1.5, true]})],
+        };
         write_frame(&mut buf, &msg).unwrap();
-        write_frame(&mut buf, &FromHost::Reply { id: 7, result: Err(WireError::from(&Error::Cancelled)) }).unwrap();
+        write_frame(
+            &mut buf,
+            &FromHost::Reply {
+                id: 7,
+                result: Err(WireError::from(&Error::Cancelled)),
+            },
+        )
+        .unwrap();
         let mut r = buf.as_slice();
         match read_frame::<FromHost>(&mut r).unwrap().unwrap() {
             FromHost::SinkRow { id, index, row } => {
@@ -871,7 +1475,9 @@ mod tests {
             other => panic!("{other:?}"),
         }
         match read_frame::<FromHost>(&mut r).unwrap().unwrap() {
-            FromHost::Reply { result: Err(w), .. } => assert!(matches!(Error::from(w), Error::Cancelled)),
+            FromHost::Reply { result: Err(w), .. } => {
+                assert!(matches!(Error::from(w), Error::Cancelled))
+            }
             other => panic!("{other:?}"),
         }
         assert!(read_frame::<FromHost>(&mut r).unwrap().is_none());
@@ -879,24 +1485,36 @@ mod tests {
 
     #[test]
     fn errors_keep_their_kind() {
-        for e in [Error::Connect("c".into()), Error::Unsupported("u".into()), Error::Query("q".into()), Error::State("s".into())] {
+        for e in [
+            Error::Connect("c".into()),
+            Error::Unsupported("u".into()),
+            Error::Query("q".into()),
+            Error::State("s".into()),
+        ] {
             let back = Error::from(WireError::from(&e));
             assert_eq!(std::mem::discriminant(&back), std::mem::discriminant(&e));
             assert_eq!(back.to_string(), e.to_string());
         }
         let io = Error::Io(io::Error::other("x"));
-        assert_eq!(Error::from(WireError::from(&io)).to_string(), io.to_string());
+        assert_eq!(
+            Error::from(WireError::from(&io)).to_string(),
+            io.to_string()
+        );
     }
 
     #[test]
     fn connect_failures_cross_with_their_kind_and_stay_compatible() {
         use dbine_driver::{ConnectFailure, ConnectFailureKind};
-        let mut f = ConnectFailure::from_message("Client with IP address '203.0.113.7' is not allowed to access the server.");
+        let mut f = ConnectFailure::from_message(
+            "Client with IP address '203.0.113.7' is not allowed to access the server.",
+        );
         f.code = Some("40615".into());
         let e = Error::connect_failed(f.clone());
         let body = rmp_serde::to_vec_named(&WireError::from(&e)).unwrap();
         let back = Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap());
-        let Error::ConnectFailed(got) = back else { panic!("{back:?}") };
+        let Error::ConnectFailed(got) = back else {
+            panic!("{back:?}")
+        };
         assert_eq!(*got, f);
         assert_eq!(got.kind, ConnectFailureKind::Firewall);
         // An app built before the classification reads a plain connect error.
@@ -919,22 +1537,44 @@ mod tests {
             message: String,
             detail: Option<dbine_driver::ScriptError>,
         }
-        let body = rmp_serde::to_vec_named(&OldHost { kind: "connect".into(), message: "se cayó".into(), detail: None }).unwrap();
+        let body = rmp_serde::to_vec_named(&OldHost {
+            kind: "connect".into(),
+            message: "se cayó".into(),
+            detail: None,
+        })
+        .unwrap();
         let back = Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap());
-        assert!(matches!(&back, Error::Connect(m) if m == "se cayó"), "{back:?}");
-        assert_eq!(back.connect_failure().unwrap().kind, ConnectFailureKind::Unknown);
+        assert!(
+            matches!(&back, Error::Connect(m) if m == "se cayó"),
+            "{back:?}"
+        );
+        assert_eq!(
+            back.connect_failure().unwrap().kind,
+            ConnectFailureKind::Unknown
+        );
         // A plain connect error still leaves the field out: same bytes as before.
         let plain = rmp_serde::to_vec_named(&WireError::from(&Error::Connect("x".into()))).unwrap();
-        let old = rmp_serde::to_vec_named(&OldHost { kind: "connect".into(), message: "x".into(), detail: None }).unwrap();
+        let old = rmp_serde::to_vec_named(&OldHost {
+            kind: "connect".into(),
+            message: "x".into(),
+            detail: None,
+        })
+        .unwrap();
         assert_eq!(plain, old);
     }
 
     #[test]
     fn statement_errors_cross_with_their_details() {
-        let e = Error::from(dbine_driver::ScriptError::new("Invalid object name 't'.").with_code("208").at_line(3));
+        let e = Error::from(
+            dbine_driver::ScriptError::new("Invalid object name 't'.")
+                .with_code("208")
+                .at_line(3),
+        );
         let body = rmp_serde::to_vec_named(&WireError::from(&e)).unwrap();
         let back = Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap());
-        let Error::Statement(d) = back else { panic!("{back:?}") };
+        let Error::Statement(d) = back else {
+            panic!("{back:?}")
+        };
         assert_eq!((d.code.as_deref(), d.line), (Some("208"), Some(3)));
         // An app built before the details reads a plain query error.
         #[derive(Deserialize)]
@@ -943,15 +1583,25 @@ mod tests {
             message: String,
         }
         let old: OldWire = rmp_serde::from_slice(&body).unwrap();
-        assert_eq!((old.kind.as_str(), old.message.as_str()), ("query", "Invalid object name 't'."));
+        assert_eq!(
+            (old.kind.as_str(), old.message.as_str()),
+            ("query", "Invalid object name 't'.")
+        );
         // A host built before them sends no detail.
         #[derive(Serialize)]
         struct OldHost {
             kind: String,
             message: String,
         }
-        let body = rmp_serde::to_vec_named(&OldHost { kind: "query".into(), message: "x".into() }).unwrap();
-        assert!(matches!(Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap()), Error::Query(_)));
+        let body = rmp_serde::to_vec_named(&OldHost {
+            kind: "query".into(),
+            message: "x".into(),
+        })
+        .unwrap();
+        assert!(matches!(
+            Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap()),
+            Error::Query(_)
+        ));
     }
 
     #[test]
@@ -963,10 +1613,16 @@ mod tests {
             error: Option<String>,
             elapsed_ms: u64,
         }
-        let old = OldOutcome { results: vec![], messages: vec!["PRINT".into()], error: None, elapsed_ms: 1 };
+        let old = OldOutcome {
+            results: vec![],
+            messages: vec!["PRINT".into()],
+            error: None,
+            elapsed_ms: 1,
+        };
         let body = rmp_serde::to_vec_named(&Reply::Run(QueryOutcome::default(), None)).unwrap();
         assert!(rmp_serde::from_slice::<Reply>(&body).is_ok());
-        let o: QueryOutcome = rmp_serde::from_slice(&rmp_serde::to_vec_named(&old).unwrap()).unwrap();
+        let o: QueryOutcome =
+            rmp_serde::from_slice(&rmp_serde::to_vec_named(&old).unwrap()).unwrap();
         assert_eq!(o.messages, vec!["PRINT"]);
         assert!(o.log.is_empty() && o.errors.is_empty());
     }

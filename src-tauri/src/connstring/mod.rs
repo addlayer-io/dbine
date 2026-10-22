@@ -67,31 +67,71 @@ pub struct Conn {
 
 impl Conn {
     /// `database` empty = the connection's own.
-    pub fn new(name: &str, cfg: &ConnectionConfig, info: Option<&DriverInfo>, database: &str) -> Conn {
-        let secret: Vec<&str> = info.map(|i| i.fields.iter().filter(|f| f.secret).map(|f| f.key).collect()).unwrap_or_default();
+    pub fn new(
+        name: &str,
+        cfg: &ConnectionConfig,
+        info: Option<&DriverInfo>,
+        database: &str,
+    ) -> Conn {
+        let secret: Vec<&str> = info
+            .map(|i| {
+                i.fields
+                    .iter()
+                    .filter(|f| f.secret)
+                    .map(|f| f.key)
+                    .collect()
+            })
+            .unwrap_or_default();
         let mut opts: BTreeMap<String, String> = cfg
             .options
             .iter()
-            .filter(|(k, v)| !v.trim().is_empty() && !k.starts_with("ssh.") && k.as_str() != dbine_core::secret_sources::OPTION)
+            .filter(|(k, v)| {
+                !v.trim().is_empty()
+                    && !k.starts_with("ssh.")
+                    && k.as_str() != dbine_core::secret_sources::OPTION
+            })
             .filter(|(k, _)| !SECRET_KEYS.contains(&k.as_str()) && !secret.contains(&k.as_str()))
             .map(|(k, v)| (k.clone(), v.trim().to_string()))
             .collect();
         // A field left at its default isn't saved: the driver's default.
         if let Some(i) = info {
-            for f in i.fields.iter().filter(|f| !f.secret && !f.default.is_empty() && !SECRET_KEYS.contains(&f.key)) {
-                if matches!(f.key, "odbc_driver" | "auth" | "auth_mode" | "connect_by" | "adb_service" | "serialization") {
-                    opts.entry(f.key.to_string()).or_insert_with(|| f.default.to_string());
+            for f in i
+                .fields
+                .iter()
+                .filter(|f| !f.secret && !f.default.is_empty() && !SECRET_KEYS.contains(&f.key))
+            {
+                if matches!(
+                    f.key,
+                    "odbc_driver"
+                        | "auth"
+                        | "auth_mode"
+                        | "connect_by"
+                        | "adb_service"
+                        | "serialization"
+                ) {
+                    opts.entry(f.key.to_string())
+                        .or_insert_with(|| f.default.to_string());
                 }
             }
         }
         let auth = opts.get("auth").or(opts.get("auth_mode")).cloned();
-        let iam = matches!(auth.as_deref(), Some("aws_iam" | "gcp_iam" | "azure_entra")) || cfg.driver == "dsql" || (cfg.driver == "neptune" && opts.get("iam").map(String::as_str) == Some("true"));
-        let database = if database.is_empty() { cfg.database.clone() } else { database.to_string() };
+        let iam = matches!(auth.as_deref(), Some("aws_iam" | "gcp_iam" | "azure_entra"))
+            || cfg.driver == "dsql"
+            || (cfg.driver == "neptune" && opts.get("iam").map(String::as_str) == Some("true"));
+        let database = if database.is_empty() {
+            cfg.database.clone()
+        } else {
+            database.to_string()
+        };
         Conn {
             driver: cfg.driver.clone(),
             dialect: info.map(|i| i.dialect.to_string()).unwrap_or_default(),
             host: python::strip_url_credentials(&cfg.host),
-            port: if cfg.port != 0 { cfg.port } else { info.map(|i| i.default_port).unwrap_or(0) },
+            port: if cfg.port != 0 {
+                cfg.port
+            } else {
+                info.map(|i| i.default_port).unwrap_or(0)
+            },
             database: database.clone(),
             user: cfg.username_or_empty().trim().to_string(),
             encrypt: cfg.encrypt,
@@ -105,7 +145,10 @@ impl Conn {
     }
 
     fn opt(&self, k: &str) -> Option<&str> {
-        self.opts.get(k).map(String::as_str).filter(|v| !v.is_empty())
+        self.opts
+            .get(k)
+            .map(String::as_str)
+            .filter(|v| !v.is_empty())
     }
 
     fn host_or_localhost(&self) -> &str {
@@ -123,7 +166,11 @@ impl Conn {
 }
 
 fn hp(host: &str, port: u16) -> String {
-    let h = if host.contains(':') && !host.starts_with('[') { format!("[{host}]") } else { host.to_string() };
+    let h = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
     if port == 0 {
         h
     } else {
@@ -149,7 +196,13 @@ pub struct Note {
 }
 
 pub fn note(code: &'static str, args: &[(&str, &str)]) -> Note {
-    Note { code, args: args.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() }
+    Note {
+        code,
+        args: args
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    }
 }
 
 /// One format of a connection.
@@ -213,7 +266,9 @@ fn pct_path(s: &str) -> String {
 
 /// An ADO.NET value: quoted when it has `;`, `=`, quotes, braces or edge spaces.
 pub fn ado_val(s: &str) -> String {
-    let needs = s.contains([';', '=', '\'', '"', '{', '}']) || s.starts_with(char::is_whitespace) || s.ends_with(char::is_whitespace);
+    let needs = s.contains([';', '=', '\'', '"', '{', '}'])
+        || s.starts_with(char::is_whitespace)
+        || s.ends_with(char::is_whitespace);
     if !needs {
         s.to_string()
     } else if s.contains('"') && !s.contains('\'') {
@@ -276,7 +331,10 @@ pub fn prop_val(s: &str) -> String {
 
 /// `key=value;` pairs, without the ones left out.
 fn pairs(parts: &[(&str, Option<V>)], val: fn(&str) -> String) -> String {
-    parts.iter().filter_map(|(k, v)| v.as_ref().map(|v| format!("{k}={};", v.esc(val)))).collect()
+    parts
+        .iter()
+        .filter_map(|(k, v)| v.as_ref().map(|v| format!("{k}={};", v.esc(val))))
+        .collect()
 }
 
 /// `?k=v&…` (percent-encoded), empty when there's nothing.
@@ -284,7 +342,10 @@ fn query(q: &[(&str, V)]) -> String {
     if q.is_empty() {
         return String::new();
     }
-    let parts: Vec<String> = q.iter().map(|(k, v)| format!("{k}={}", v.esc(pct))).collect();
+    let parts: Vec<String> = q
+        .iter()
+        .map(|(k, v)| format!("{k}={}", v.esc(pct)))
+        .collect();
     format!("?{}", parts.join("&"))
 }
 
@@ -355,9 +416,10 @@ impl B<'_> {
         match self.fill {
             Fill::Placeholder => Some(V::R(placeholder(key))),
             Fill::Masked => Some(V::R(MASK.into())),
-            Fill::Values(m) => {
-                m.get(key).filter(|v| !v.is_empty()).map(|v| V::t(v.clone()))
-            }
+            Fill::Values(m) => m
+                .get(key)
+                .filter(|v| !v.is_empty())
+                .map(|v| V::t(v.clone())),
         }
     }
 
@@ -371,13 +433,21 @@ impl B<'_> {
     }
 
     fn push(&mut self, id: &'static str, label: impl Into<String>, text: String, notes: Vec<Note>) {
-        self.out.push(Built { id, label: label.into(), text, notes, secret: false });
+        self.out.push(Built {
+            id,
+            label: label.into(),
+            text,
+            notes,
+            secret: false,
+        });
     }
 
     /// The SQLAlchemy URL of the Python export, as a string. `extra`
     /// replaces or adds query parameters.
     fn sqlalchemy(&mut self, extra: &[(&str, V)], notes: Vec<Note>) {
-        let Some(u) = python::sqlalchemy_url(&self.c.py) else { return };
+        let Some(u) = python::sqlalchemy_url(&self.c.py) else {
+            return;
+        };
         if let Some(text) = self.sa_text(&u, extra) {
             self.push("sqlalchemy", "Python (SQLAlchemy)", text, notes);
         }
@@ -397,9 +467,17 @@ impl B<'_> {
             "False" => return Some(V::t("false")),
             _ => {}
         }
-        let inner = expr.strip_prefix("os.environ[").and_then(|e| e.strip_suffix(']')).or_else(|| expr.strip_prefix("os.environ.get(").and_then(|e| e.strip_suffix(')')))?;
+        let inner = expr
+            .strip_prefix("os.environ[")
+            .and_then(|e| e.strip_suffix(']'))
+            .or_else(|| {
+                expr.strip_prefix("os.environ.get(")
+                    .and_then(|e| e.strip_suffix(')'))
+            })?;
         let name = python::py_unlit(inner)?;
-        let what = name.strip_prefix(&python::env_var(&self.c.py.name, ""))?.to_ascii_lowercase();
+        let what = name
+            .strip_prefix(&python::env_var(&self.c.py.name, ""))?
+            .to_ascii_lowercase();
         match what.as_str() {
             "user" => Some(V::R("${DB_USER}".into())),
             "private_key_file" => Some(V::R("${PRIVATE_KEY_FILE}".into())),
@@ -409,8 +487,26 @@ impl B<'_> {
     }
 
     fn sa_text(&self, u: &SaUrl, extra: &[(&str, V)]) -> Option<String> {
-        let arg = |k: &str| u.args.iter().find(|(a, _)| a == k).and_then(|(_, v)| self.sa_val(v));
-        let mut connect: Vec<(String, V)> = u.connect_args.iter().filter_map(|(k, v)| Some((k.clone(), if v == "{}" { V::t("{}") } else { self.sa_val(v)? }))).collect();
+        let arg = |k: &str| {
+            u.args
+                .iter()
+                .find(|(a, _)| a == k)
+                .and_then(|(_, v)| self.sa_val(v))
+        };
+        let mut connect: Vec<(String, V)> = u
+            .connect_args
+            .iter()
+            .filter_map(|(k, v)| {
+                Some((
+                    k.clone(),
+                    if v == "{}" {
+                        V::t("{}")
+                    } else {
+                        self.sa_val(v)?
+                    },
+                ))
+            })
+            .collect();
         let mut user = arg("username");
         let mut pw = arg("password");
         // python-oracledb's user and password given as connect arguments.
@@ -428,10 +524,18 @@ impl B<'_> {
         match (&user, &pw) {
             (None, None) => {}
             (Some(u), None) => out.push_str(&format!("{}@", u.esc(pct))),
-            (u, Some(p)) => out.push_str(&format!("{}:{}@", u.as_ref().map(|u| u.esc(pct)).unwrap_or_default(), p.esc(pct))),
+            (u, Some(p)) => out.push_str(&format!(
+                "{}:{}@",
+                u.as_ref().map(|u| u.esc(pct)).unwrap_or_default(),
+                p.esc(pct)
+            )),
         }
         if let Some(V::T(h) | V::R(h)) = arg("host") {
-            out.push_str(&if h.contains(':') && !h.starts_with('[') { format!("[{h}]") } else { h });
+            out.push_str(&if h.contains(':') && !h.starts_with('[') {
+                format!("[{h}]")
+            } else {
+                h
+            });
         }
         if let Some(V::T(p) | V::R(p)) = arg("port") {
             out.push_str(&format!(":{p}"));
@@ -441,11 +545,18 @@ impl B<'_> {
             out.push('/');
             out.push_str(&d.replace('?', "%3F").replace('#', "%23"));
         }
-        let mut q: Vec<(String, V)> = u.query.iter().map(|(k, v)| (k.clone(), V::t(v.clone()))).collect();
+        let mut q: Vec<(String, V)> = u
+            .query
+            .iter()
+            .map(|(k, v)| (k.clone(), V::t(v.clone())))
+            .collect();
         for (k, v) in connect {
             match (u.drivername.as_str(), k.as_str()) {
                 // PyMySQL turns on TLS with any `ssl_*` parameter.
-                (d, "ssl") if d.starts_with("mysql") => q.push(("ssl_check_hostname".into(), V::t(if self.c.trust { "false" } else { "true" }))),
+                (d, "ssl") if d.starts_with("mysql") => q.push((
+                    "ssl_check_hostname".into(),
+                    V::t(if self.c.trust { "false" } else { "true" }),
+                )),
                 ("sqlite+libsql", "auth_token") => q.push(("authToken".into(), v)),
                 _ => q.push((k, v)),
             }
@@ -455,7 +566,10 @@ impl B<'_> {
             q.push((k.to_string(), v.clone()));
         }
         if !q.is_empty() {
-            let parts: Vec<String> = q.iter().map(|(k, v)| format!("{k}={}", v.esc(pct))).collect();
+            let parts: Vec<String> = q
+                .iter()
+                .map(|(k, v)| format!("{k}={}", v.esc(pct)))
+                .collect();
             out.push('?');
             out.push_str(&parts.join("&"));
         }
@@ -465,7 +579,11 @@ impl B<'_> {
 
 /// Every format of the connection, built with `fill`.
 pub fn build_all(c: &Conn, fill: &Fill) -> Vec<Built> {
-    let mut b = B { c, fill, out: Vec::new() };
+    let mut b = B {
+        c,
+        fill,
+        out: Vec::new(),
+    };
     let id = c.driver.as_str();
     match id {
         "sqlite" => sqlite(&mut b),
@@ -493,7 +611,8 @@ pub fn build_all(c: &Conn, fill: &Fill) -> Vec<Built> {
         "tdengine" => tdengine(&mut b),
         "influxdb" | "influxdb1" | "influxdb3" => influx(&mut b),
         "oracle" | "oracle_adb" => oracle(&mut b),
-        "elasticsearch" | "opensearch" | "opendistro" | "solr" | "couchdb" | "ksqldb" | "orientdb" | "etcd" | "iotdb" | "timechodb" => http(&mut b),
+        "elasticsearch" | "opensearch" | "opendistro" | "solr" | "couchdb" | "ksqldb"
+        | "orientdb" | "etcd" | "iotdb" | "timechodb" => http(&mut b),
         _ if python::ODBC_IDS.contains(&id) => odbc_engine(&mut b),
         _ => match c.dialect.as_str() {
             "postgres" => postgres(&mut b),
@@ -512,7 +631,9 @@ pub fn build(c: &Conn, format: &str, fill: &Fill) -> Option<Built> {
     let mut out = build_all(c, fill).into_iter().find(|b| b.id == format)?;
     if let Fill::Values(_) = fill {
         let none = BTreeMap::new();
-        let bare = build_all(c, &Fill::Values(&none)).into_iter().find(|b| b.id == format);
+        let bare = build_all(c, &Fill::Values(&none))
+            .into_iter()
+            .find(|b| b.id == format);
         out.secret = bare.is_none_or(|b| b.text != out.text);
     }
     Some(out)
@@ -554,9 +675,21 @@ fn pg_sslmode(c: &Conn) -> Option<&'static str> {
 fn postgres(b: &mut B) {
     let c = b.c;
     let dsql = c.driver == "dsql";
-    let user = if dsql && c.user.is_empty() { "admin".to_string() } else { c.user.clone() };
-    let db = if dsql { "postgres".to_string() } else { c.database.clone() };
-    let pw = if user.is_empty() { None } else { b.s("password") };
+    let user = if dsql && c.user.is_empty() {
+        "admin".to_string()
+    } else {
+        c.user.clone()
+    };
+    let db = if dsql {
+        "postgres".to_string()
+    } else {
+        c.database.clone()
+    };
+    let pw = if user.is_empty() {
+        None
+    } else {
+        b.s("password")
+    };
     let ssl = pg_sslmode(c);
     let root = c.opt("ssl_root_cert").map(str::to_string);
     let mut notes = Vec::new();
@@ -570,12 +703,25 @@ fn postgres(b: &mut B) {
     if let Some(r) = &root {
         q.push(("sslrootcert", V::t(r.clone())));
     }
-    let path = if db.is_empty() { String::new() } else { format!("/{}", pct(&db)) };
-    let uri = format!("postgresql://{}{}{}{}", userinfo(&user, pw.as_ref()), c.hp(), path, query(&q));
+    let path = if db.is_empty() {
+        String::new()
+    } else {
+        format!("/{}", pct(&db))
+    };
+    let uri = format!(
+        "postgresql://{}{}{}{}",
+        userinfo(&user, pw.as_ref()),
+        c.hp(),
+        path,
+        query(&q)
+    );
     b.push("uri", "URI (postgresql://)", uri.clone(), notes.clone());
 
     // libpq keyword/value (psql, psycopg, any libpq client).
-    let mut kv = vec![format!("host={}", libpq_val(c.host_or_localhost())), format!("port={}", c.port)];
+    let mut kv = vec![
+        format!("host={}", libpq_val(c.host_or_localhost())),
+        format!("port={}", c.port),
+    ];
     if !db.is_empty() {
         kv.push(format!("dbname={}", libpq_val(&db)));
     }
@@ -591,10 +737,21 @@ fn postgres(b: &mut B) {
     if let Some(r) = &root {
         kv.push(format!("sslrootcert={}", libpq_val(r)));
     }
-    b.push("libpq", "libpq (psql, psycopg)", kv.join(" "), notes.clone());
+    b.push(
+        "libpq",
+        "libpq (psql, psycopg)",
+        kv.join(" "),
+        notes.clone(),
+    );
 
     // Npgsql.
-    let npg_ssl = ssl.map(|m| if m == "require" { "Require" } else { "VerifyFull" });
+    let npg_ssl = ssl.map(|m| {
+        if m == "require" {
+            "Require"
+        } else {
+            "VerifyFull"
+        }
+    });
     let ado = pairs(
         &[
             ("Host", Some(V::t(c.host_or_localhost()))),
@@ -610,7 +767,11 @@ fn postgres(b: &mut B) {
     b.push("adonet", "ADO.NET (Npgsql)", ado, notes.clone());
 
     // JDBC: pgjdbc, or Amazon's for Redshift.
-    let jdbc_scheme = if c.driver == "redshift" { "redshift" } else { "postgresql" };
+    let jdbc_scheme = if c.driver == "redshift" {
+        "redshift"
+    } else {
+        "postgresql"
+    };
     let mut jq: Vec<(&str, V)> = Vec::new();
     if !user.is_empty() {
         jq.push(("user", V::t(user.clone())));
@@ -622,13 +783,22 @@ fn postgres(b: &mut B) {
         jq.push(("ssl", V::t("true")));
     }
     jq.extend(q.iter().cloned());
-    b.push("jdbc", "JDBC", format!("jdbc:{jdbc_scheme}://{}/{}{}", c.hp(), pct(&db), query(&jq)), notes.clone());
+    b.push(
+        "jdbc",
+        "JDBC",
+        format!("jdbc:{jdbc_scheme}://{}/{}{}", c.hp(), pct(&db), query(&jq)),
+        notes.clone(),
+    );
 
     let sa_extra: Vec<(&str, V)> = q.clone();
     b.sqlalchemy(&sa_extra, notes.clone());
 
     // ODBC (psqlODBC, or Amazon's driver for Redshift).
-    let driver = if c.driver == "redshift" { "Amazon Redshift (x64)" } else { "PostgreSQL Unicode" };
+    let driver = if c.driver == "redshift" {
+        "Amazon Redshift (x64)"
+    } else {
+        "PostgreSQL Unicode"
+    };
     let odbc = pairs(
         &[
             ("DRIVER", Some(V::R(format!("{{{driver}}}")))),
@@ -645,7 +815,12 @@ fn postgres(b: &mut B) {
     on.push(note("odbc_driver_name", &[("driver", driver)]));
     b.push("odbc", "ODBC", odbc, on);
     b.push("node", "Node.js (pg)", uri.clone(), notes.clone());
-    b.push("go", "Go (pgx)", uri.replacen("postgresql://", "postgres://", 1), notes);
+    b.push(
+        "go",
+        "Go (pgx)",
+        uri.replacen("postgresql://", "postgres://", 1),
+        notes,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -657,17 +832,43 @@ fn mysql(b: &mut B) {
     let mariadb = c.driver == "mariadb";
     let tls = c.encrypt || c.iam;
     let ca = c.opt("ca_cert").map(str::to_string);
-    let notes: Vec<Note> = if tls && c.trust { vec![note("tls_unverified", &[])] } else { vec![] };
-    let path = if c.database.is_empty() { String::new() } else { format!("/{}", pct(&c.database)) };
+    let notes: Vec<Note> = if tls && c.trust {
+        vec![note("tls_unverified", &[])]
+    } else {
+        vec![]
+    };
+    let path = if c.database.is_empty() {
+        String::new()
+    } else {
+        format!("/{}", pct(&c.database))
+    };
 
     let mut q: Vec<(&str, V)> = Vec::new();
     if tls {
-        q.push(("ssl-mode", V::t(if c.trust { "REQUIRED" } else { "VERIFY_IDENTITY" })));
+        q.push((
+            "ssl-mode",
+            V::t(if c.trust {
+                "REQUIRED"
+            } else {
+                "VERIFY_IDENTITY"
+            }),
+        ));
     }
     if let Some(ca) = &ca {
         q.push(("ssl-ca", V::t(ca.clone())));
     }
-    b.push("uri", "URI (mysql://)", format!("mysql://{}{}{}{}", userinfo(&c.user, pw.as_ref()), c.hp(), path, query(&q)), notes.clone());
+    b.push(
+        "uri",
+        "URI (mysql://)",
+        format!(
+            "mysql://{}{}{}{}",
+            userinfo(&c.user, pw.as_ref()),
+            c.hp(),
+            path,
+            query(&q)
+        ),
+        notes.clone(),
+    );
     let ado = pairs(
         &[
             ("Server", Some(V::t(c.host_or_localhost()))),
@@ -675,7 +876,10 @@ fn mysql(b: &mut B) {
             ("Database", some_t(&c.database)),
             ("User ID", some_t(&c.user)),
             ("Password", pw.clone()),
-            ("SslMode", tls.then(|| V::t(if c.trust { "Required" } else { "VerifyFull" }))),
+            (
+                "SslMode",
+                tls.then(|| V::t(if c.trust { "Required" } else { "VerifyFull" })),
+            ),
             ("SslCa", ca.clone().map(V::t)),
         ],
         ado_val,
@@ -690,34 +894,91 @@ fn mysql(b: &mut B) {
     }
     if tls {
         if mariadb {
-            jq.push(("sslMode", V::t(if c.trust { "trust" } else { "verify-full" })));
+            jq.push((
+                "sslMode",
+                V::t(if c.trust { "trust" } else { "verify-full" }),
+            ));
         } else {
-            jq.push(("sslMode", V::t(if c.trust { "REQUIRED" } else { "VERIFY_IDENTITY" })));
+            jq.push((
+                "sslMode",
+                V::t(if c.trust {
+                    "REQUIRED"
+                } else {
+                    "VERIFY_IDENTITY"
+                }),
+            ));
         }
     }
     let scheme = if mariadb { "mariadb" } else { "mysql" };
-    b.push("jdbc", if mariadb { "JDBC (MariaDB Connector/J)" } else { "JDBC (Connector/J)" }, format!("jdbc:{scheme}://{}/{}{}", c.hp(), pct(&c.database), query(&jq)), notes.clone());
+    b.push(
+        "jdbc",
+        if mariadb {
+            "JDBC (MariaDB Connector/J)"
+        } else {
+            "JDBC (Connector/J)"
+        },
+        format!(
+            "jdbc:{scheme}://{}/{}{}",
+            c.hp(),
+            pct(&c.database),
+            query(&jq)
+        ),
+        notes.clone(),
+    );
     b.sqlalchemy(&[], notes.clone());
     let odbc = pairs(
         &[
-            ("DRIVER", Some(V::R("{MySQL ODBC 8.0 Unicode Driver}".into()))),
+            (
+                "DRIVER",
+                Some(V::R("{MySQL ODBC 8.0 Unicode Driver}".into())),
+            ),
             ("SERVER", Some(V::t(c.host_or_localhost()))),
             ("PORT", Some(V::t(c.port.to_string()))),
             ("DATABASE", some_t(&c.database)),
             ("UID", some_t(&c.user)),
             ("PWD", pw.clone()),
-            ("SSLMODE", tls.then(|| V::t(if c.trust { "REQUIRED" } else { "VERIFY_IDENTITY" }))),
+            (
+                "SSLMODE",
+                tls.then(|| {
+                    V::t(if c.trust {
+                        "REQUIRED"
+                    } else {
+                        "VERIFY_IDENTITY"
+                    })
+                }),
+            ),
             ("SSLCA", ca.clone().map(V::t)),
         ],
         odbc_val,
     );
     let mut on = notes.clone();
-    on.push(note("odbc_driver_name", &[("driver", "MySQL ODBC 8.0 Unicode Driver")]));
+    on.push(note(
+        "odbc_driver_name",
+        &[("driver", "MySQL ODBC 8.0 Unicode Driver")],
+    ));
     b.push("odbc", "ODBC", odbc, on);
 
     // mysql2 reads `ssl` as JSON.
-    let nq: Vec<(&str, V)> = if tls { vec![("ssl", V::t(format!("{{\"rejectUnauthorized\":{}}}", !c.trust)))] } else { vec![] };
-    b.push("node", "Node.js (mysql2)", format!("mysql://{}{}{}{}", userinfo(&c.user, pw.as_ref()), c.hp(), path, query(&nq)), notes.clone());
+    let nq: Vec<(&str, V)> = if tls {
+        vec![(
+            "ssl",
+            V::t(format!("{{\"rejectUnauthorized\":{}}}", !c.trust)),
+        )]
+    } else {
+        vec![]
+    };
+    b.push(
+        "node",
+        "Node.js (mysql2)",
+        format!(
+            "mysql://{}{}{}{}",
+            userinfo(&c.user, pw.as_ref()),
+            c.hp(),
+            path,
+            query(&nq)
+        ),
+        notes.clone(),
+    );
 
     // go-sql-driver/mysql: the password is taken as it is (no escaping); the
     // database name is percent-encoded (the driver path-unescapes it since
@@ -729,9 +990,22 @@ fn mysql(b: &mut B) {
     };
     let mut gq: Vec<String> = vec!["parseTime=true".into()];
     if tls {
-        gq.insert(0, format!("tls={}", if c.trust { "skip-verify" } else { "true" }));
+        gq.insert(
+            0,
+            format!("tls={}", if c.trust { "skip-verify" } else { "true" }),
+        );
     }
-    b.push("go", "Go (go-sql-driver/mysql)", format!("{creds}tcp({})/{}?{}", c.hp(), pct(&c.database), gq.join("&")), notes);
+    b.push(
+        "go",
+        "Go (go-sql-driver/mysql)",
+        format!(
+            "{creds}tcp({})/{}?{}",
+            c.hp(),
+            pct(&c.database),
+            gq.join("&")
+        ),
+        notes,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -747,7 +1021,13 @@ fn mssql_instance(host: &str) -> (&str, Option<&str>) {
 
 fn mssql(b: &mut B) {
     let c = b.c;
-    let auth = c.auth.clone().unwrap_or_else(|| if c.driver == "fabric" { "entra_default".into() } else { "sql".into() });
+    let auth = c.auth.clone().unwrap_or_else(|| {
+        if c.driver == "fabric" {
+            "entra_default".into()
+        } else {
+            "sql".into()
+        }
+    });
     let forced = matches!(c.driver.as_str(), "azuresql" | "fabric") || auth == "entra_token";
     let encrypt = c.encrypt || forced;
     let (host, instance) = mssql_instance(c.host_or_localhost());
@@ -772,7 +1052,9 @@ fn mssql(b: &mut B) {
         "entra_token" => notes.push(note("access_token", &[])),
         "windows_integrated" => notes.push(note("integrated", &[])),
         "windows_ntlm" => notes.push(note("ntlm", &[])),
-        a if a.starts_with("entra_") && a != "entra_password" && a != "entra_sp" => notes.push(note("entra", &[])),
+        a if a.starts_with("entra_") && a != "entra_password" && a != "entra_sp" => {
+            notes.push(note("entra", &[]))
+        }
         _ => {}
     }
     if encrypt && c.trust {
@@ -800,16 +1082,30 @@ fn mssql(b: &mut B) {
             ("Server", Some(V::t(server))),
             ("Database", some_t(&c.database)),
             ("Authentication", ado_auth.map(V::t)),
-            ("Integrated Security", (auth == "windows_integrated").then(|| V::t("True"))),
+            (
+                "Integrated Security",
+                (auth == "windows_integrated").then(|| V::t("True")),
+            ),
             ("User ID", some_t(&user)),
             ("Password", pw.clone()),
-            ("Encrypt", Some(V::t(if encrypt { "True" } else { "False" }))),
-            ("TrustServerCertificate", (c.trust || !encrypt).then(|| V::t("True"))),
+            (
+                "Encrypt",
+                Some(V::t(if encrypt { "True" } else { "False" })),
+            ),
+            (
+                "TrustServerCertificate",
+                (c.trust || !encrypt).then(|| V::t("True")),
+            ),
             ("ApplicationIntent", c.read_only.then(|| V::t("ReadOnly"))),
         ],
         ado_val,
     );
-    b.push("adonet", "ADO.NET (Microsoft.Data.SqlClient)", ado, notes.clone());
+    b.push(
+        "adonet",
+        "ADO.NET (Microsoft.Data.SqlClient)",
+        ado,
+        notes.clone(),
+    );
 
     // Microsoft JDBC Driver.
     let pw = secret(b);
@@ -820,11 +1116,23 @@ fn mssql(b: &mut B) {
     }
     let mut props: Vec<(&str, Option<V>)> = vec![
         ("databaseName", some_t(&c.database)),
-        ("encrypt", Some(V::t(if encrypt { "true" } else { "false" }))),
-        ("trustServerCertificate", (c.trust || !encrypt).then(|| V::t("true"))),
+        (
+            "encrypt",
+            Some(V::t(if encrypt { "true" } else { "false" })),
+        ),
+        (
+            "trustServerCertificate",
+            (c.trust || !encrypt).then(|| V::t("true")),
+        ),
         ("authentication", jdbc_auth.clone().map(V::t)),
-        ("integratedSecurity", matches!(auth.as_str(), "windows_integrated" | "windows_ntlm").then(|| V::t("true"))),
-        ("authenticationScheme", (auth == "windows_ntlm").then(|| V::t("NTLM"))),
+        (
+            "integratedSecurity",
+            matches!(auth.as_str(), "windows_integrated" | "windows_ntlm").then(|| V::t("true")),
+        ),
+        (
+            "authenticationScheme",
+            (auth == "windows_ntlm").then(|| V::t("NTLM")),
+        ),
         ("applicationIntent", c.read_only.then(|| V::t("ReadOnly"))),
         ("user", some_t(&user)),
         ("password", pw.clone()),
@@ -857,21 +1165,33 @@ fn mssql(b: &mut B) {
     };
     let odbc = pairs(
         &[
-            ("DRIVER", Some(V::R("{ODBC Driver 18 for SQL Server}".into()))),
+            (
+                "DRIVER",
+                Some(V::R("{ODBC Driver 18 for SQL Server}".into())),
+            ),
             ("SERVER", Some(V::t(odbc_server))),
             ("DATABASE", some_t(&c.database)),
             ("Authentication", odbc_auth.map(V::t)),
-            ("Trusted_Connection", (auth == "windows_integrated").then(|| V::t("yes"))),
+            (
+                "Trusted_Connection",
+                (auth == "windows_integrated").then(|| V::t("yes")),
+            ),
             ("UID", some_t(&user)),
             ("PWD", pw.clone()),
             ("Encrypt", Some(V::t(if encrypt { "yes" } else { "no" }))),
-            ("TrustServerCertificate", (c.trust || !encrypt).then(|| V::t("yes"))),
+            (
+                "TrustServerCertificate",
+                (c.trust || !encrypt).then(|| V::t("yes")),
+            ),
             ("ApplicationIntent", c.read_only.then(|| V::t("ReadOnly"))),
         ],
         odbc_val,
     );
     let mut on = notes.clone();
-    on.push(note("odbc_driver_name", &[("driver", "ODBC Driver 18 for SQL Server")]));
+    on.push(note(
+        "odbc_driver_name",
+        &[("driver", "ODBC Driver 18 for SQL Server")],
+    ));
     b.push("odbc", "ODBC", odbc, on);
 
     // pymssql (the Python export's) has no Entra ID or Windows sign-in.
@@ -883,25 +1203,70 @@ fn mssql(b: &mut B) {
     let pw = secret(b);
     let authentication = match auth.as_str() {
         "windows_ntlm" => {
-            let (domain, name) = c.user.split_once('\\').map(|(d, u)| (d.to_string(), u.to_string())).unwrap_or((String::new(), c.user.clone()));
-            Some(json!({"type": "ntlm", "options": obj(vec![("userName", js(&name)), ("password", jv(pw.clone())), ("domain", js(&domain))])}))
+            let (domain, name) = c
+                .user
+                .split_once('\\')
+                .map(|(d, u)| (d.to_string(), u.to_string()))
+                .unwrap_or((String::new(), c.user.clone()));
+            Some(
+                json!({"type": "ntlm", "options": obj(vec![("userName", js(&name)), ("password", jv(pw.clone())), ("domain", js(&domain))])}),
+            )
         }
-        "entra_password" => Some(json!({"type": "azure-active-directory-password", "options": obj(vec![("userName", js(&c.user)), ("password", jv(pw.clone())), ("clientId", tenant.as_ref().and(client.as_deref()).map(js).unwrap_or(Value::Null)), ("tenantId", tenant.as_deref().map(js).unwrap_or(Value::Null))])})),
-        "entra_sp" => Some(json!({"type": "azure-active-directory-service-principal-secret", "options": obj(vec![("clientId", js(&user)), ("clientSecret", jv(pw.clone())), ("tenantId", tenant.as_deref().map(js).unwrap_or(Value::Null))])})),
-        "entra_msi" => Some(json!({"type": "azure-active-directory-msi-app-service", "options": obj(vec![("clientId", js(&user))])})),
-        "entra_token" => Some(json!({"type": "azure-active-directory-access-token", "options": {"token": "${DB_ACCESS_TOKEN}"}})),
-        "entra_default" | "entra_mfa" | "entra_integrated" => Some(json!({"type": "azure-active-directory-default", "options": obj(vec![("clientId", client.as_deref().map(js).unwrap_or(Value::Null)), ("tenantId", tenant.as_deref().map(js).unwrap_or(Value::Null))])})),
+        "entra_password" => Some(
+            json!({"type": "azure-active-directory-password", "options": obj(vec![("userName", js(&c.user)), ("password", jv(pw.clone())), ("clientId", tenant.as_ref().and(client.as_deref()).map(js).unwrap_or(Value::Null)), ("tenantId", tenant.as_deref().map(js).unwrap_or(Value::Null))])}),
+        ),
+        "entra_sp" => Some(
+            json!({"type": "azure-active-directory-service-principal-secret", "options": obj(vec![("clientId", js(&user)), ("clientSecret", jv(pw.clone())), ("tenantId", tenant.as_deref().map(js).unwrap_or(Value::Null))])}),
+        ),
+        "entra_msi" => Some(
+            json!({"type": "azure-active-directory-msi-app-service", "options": obj(vec![("clientId", js(&user))])}),
+        ),
+        "entra_token" => Some(
+            json!({"type": "azure-active-directory-access-token", "options": {"token": "${DB_ACCESS_TOKEN}"}}),
+        ),
+        "entra_default" | "entra_mfa" | "entra_integrated" => Some(
+            json!({"type": "azure-active-directory-default", "options": obj(vec![("clientId", client.as_deref().map(js).unwrap_or(Value::Null)), ("tenantId", tenant.as_deref().map(js).unwrap_or(Value::Null))])}),
+        ),
         _ => None,
     };
     let sql_login = auth == "sql";
     let cfg = obj(vec![
         ("server", js(host)),
-        ("port", if instance.is_some() { Value::Null } else { json!(c.port) }),
+        (
+            "port",
+            if instance.is_some() {
+                Value::Null
+            } else {
+                json!(c.port)
+            },
+        ),
         ("database", js(&c.database)),
         ("user", if sql_login { js(&c.user) } else { Value::Null }),
-        ("password", if sql_login { jv(pw.clone()) } else { Value::Null }),
+        (
+            "password",
+            if sql_login {
+                jv(pw.clone())
+            } else {
+                Value::Null
+            },
+        ),
         ("authentication", authentication.unwrap_or(Value::Null)),
-        ("options", obj(vec![("encrypt", json!(encrypt)), ("trustServerCertificate", json!(c.trust || !encrypt)), ("instanceName", instance.map(js).unwrap_or(Value::Null)), ("readOnlyIntent", if c.read_only { json!(true) } else { Value::Null })])),
+        (
+            "options",
+            obj(vec![
+                ("encrypt", json!(encrypt)),
+                ("trustServerCertificate", json!(c.trust || !encrypt)),
+                ("instanceName", instance.map(js).unwrap_or(Value::Null)),
+                (
+                    "readOnlyIntent",
+                    if c.read_only {
+                        json!(true)
+                    } else {
+                        Value::Null
+                    },
+                ),
+            ]),
+        ),
     ]);
     let mut nn = notes.clone();
     if auth == "windows_integrated" {
@@ -941,7 +1306,16 @@ fn mssql(b: &mut B) {
     if fedauth.is_some() {
         gn.push(note("go_azuread", &[]));
     }
-    b.push("go", "Go (go-mssqldb)", format!("sqlserver://{}{at}{}", userinfo(&user, pw.as_ref()), query(&gq)), gn);
+    b.push(
+        "go",
+        "Go (go-mssqldb)",
+        format!(
+            "sqlserver://{}{at}{}",
+            userinfo(&user, pw.as_ref()),
+            query(&gq)
+        ),
+        gn,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -950,8 +1324,20 @@ fn mssql(b: &mut B) {
 fn oracle(b: &mut B) {
     let c = b.c;
     let adb = c.driver == "oracle_adb";
-    let descriptor = c.opt("connect_descriptor").map(|d| d.split_whitespace().collect::<Vec<_>>().join(" "));
-    let alias = if adb { c.opt("adb_name").map(|n| format!("{}_{}", n.to_ascii_lowercase(), c.opt("adb_service").unwrap_or("high"))) } else { None };
+    let descriptor = c
+        .opt("connect_descriptor")
+        .map(|d| d.split_whitespace().collect::<Vec<_>>().join(" "));
+    let alias = if adb {
+        c.opt("adb_name").map(|n| {
+            format!(
+                "{}_{}",
+                n.to_ascii_lowercase(),
+                c.opt("adb_service").unwrap_or("high")
+            )
+        })
+    } else {
+        None
+    };
     let sid = c.opt("connect_by") == Some("sid");
     let service = c.opt("service").unwrap_or("").to_string();
     // Easy Connect, a descriptor or a TNS alias.
@@ -974,7 +1360,12 @@ fn oracle(b: &mut B) {
         notes.push(note("tns_alias", &[]));
     }
 
-    b.push("easyconnect", "Easy Connect / TNS", target.clone(), notes.clone());
+    b.push(
+        "easyconnect",
+        "Easy Connect / TNS",
+        target.clone(),
+        notes.clone(),
+    );
 
     let pw = b.pw();
     let ado = pairs(
@@ -984,11 +1375,22 @@ fn oracle(b: &mut B) {
             ("Data Source", Some(V::t(target.clone()))),
             ("DBA Privilege", role.clone().map(V::t)),
             ("Wallet_Location", wallet.clone().map(V::t)),
-            ("TNS_ADMIN", wallet.clone().or(c.opt("tns_admin").map(str::to_string)).map(V::t)),
+            (
+                "TNS_ADMIN",
+                wallet
+                    .clone()
+                    .or(c.opt("tns_admin").map(str::to_string))
+                    .map(V::t),
+            ),
         ],
         ado_val,
     );
-    b.push("adonet", "ADO.NET (Oracle.ManagedDataAccess)", ado, notes.clone());
+    b.push(
+        "adonet",
+        "ADO.NET (Oracle.ManagedDataAccess)",
+        ado,
+        notes.clone(),
+    );
 
     let pw = b.pw();
     let url = if descriptor.is_some() || alias.is_some() {
@@ -1009,40 +1411,93 @@ fn oracle(b: &mut B) {
     }
     b.push("jdbc", "JDBC (thin)", jdbc_props(url, &c.user, pw), jn);
     // The export's DSN for a descriptor or an alias is the one written here.
-    let dsn: Vec<(&str, V)> = if descriptor.is_some() || alias.is_some() || adb { vec![("dsn", V::t(target.clone()))] } else { vec![] };
+    let dsn: Vec<(&str, V)> = if descriptor.is_some() || alias.is_some() || adb {
+        vec![("dsn", V::t(target.clone()))]
+    } else {
+        vec![]
+    };
     b.sqlalchemy(&dsn, notes.clone());
 
     // python-oracledb: user/password@dsn; a password with special
     // characters goes in double quotes.
     let pw = b.pw();
-    let quoted = |s: &str| if s.contains(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '$' && ch != '#') { format!("\"{s}\"") } else { s.to_string() };
+    let quoted = |s: &str| {
+        if s.contains(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '$' && ch != '#')
+        {
+            format!("\"{s}\"")
+        } else {
+            s.to_string()
+        }
+    };
     let creds = match (&pw, c.user.is_empty()) {
         (_, true) => String::new(),
         (None, false) => format!("{}@", c.user),
         (Some(p), false) => format!("{}/{}@", c.user, p.esc(quoted)),
     };
-    b.push("oracledb", "Python (python-oracledb)", format!("{creds}{target}"), notes.clone());
+    b.push(
+        "oracledb",
+        "Python (python-oracledb)",
+        format!("{creds}{target}"),
+        notes.clone(),
+    );
 
     let pw = b.pw();
     let node = obj(vec![
         ("user", js(&c.user)),
         ("password", jv(pw)),
         ("connectString", js(&target)),
-        ("configDir", wallet.as_deref().map(js).unwrap_or(Value::Null)),
-        ("walletLocation", wallet.as_deref().map(js).unwrap_or(Value::Null)),
-        ("walletPassword", if wallet.is_some() { jv(b.s("wallet_password")) } else { Value::Null }),
-        ("privilege", role.as_deref().map(|r| Value::String(format!("oracledb.{r}"))).unwrap_or(Value::Null)),
+        (
+            "configDir",
+            wallet.as_deref().map(js).unwrap_or(Value::Null),
+        ),
+        (
+            "walletLocation",
+            wallet.as_deref().map(js).unwrap_or(Value::Null),
+        ),
+        (
+            "walletPassword",
+            if wallet.is_some() {
+                jv(b.s("wallet_password"))
+            } else {
+                Value::Null
+            },
+        ),
+        (
+            "privilege",
+            role.as_deref()
+                .map(|r| Value::String(format!("oracledb.{r}")))
+                .unwrap_or(Value::Null),
+        ),
     ]);
-    b.push("node", "Node.js (node-oracledb) · JSON", pretty(&node), notes.clone());
+    b.push(
+        "node",
+        "Node.js (node-oracledb) · JSON",
+        pretty(&node),
+        notes.clone(),
+    );
 
     // go-ora: only Easy Connect fits its URL.
     if descriptor.is_none() && alias.is_none() {
         let pw = b.pw();
-        let (path, mut q) = if sid { (String::new(), vec![("SID", V::t(service.clone()))]) } else { (format!("/{}", pct(&service)), vec![]) };
+        let (path, mut q) = if sid {
+            (String::new(), vec![("SID", V::t(service.clone()))])
+        } else {
+            (format!("/{}", pct(&service)), vec![])
+        };
         if let Some(w) = &wallet {
             q.push(("WALLET", V::t(w.clone())));
         }
-        b.push("go", "Go (go-ora)", format!("oracle://{}{}{path}{}", userinfo(&c.user, pw.as_ref()), c.hp(), query(&q)), notes);
+        b.push(
+            "go",
+            "Go (go-ora)",
+            format!(
+                "oracle://{}{}{path}{}",
+                userinfo(&c.user, pw.as_ref()),
+                c.hp(),
+                query(&q)
+            ),
+            notes,
+        );
     }
 }
 
@@ -1060,7 +1515,11 @@ fn file_path(c: &Conn) -> String {
 /// `file:` URI of a path (RFC 8089), as SQLite reads it.
 fn file_uri(path: &str, read_only: bool) -> String {
     let p = path.replace('\\', "/");
-    let p = if p.len() > 1 && p.as_bytes()[1] == b':' { format!("/{p}") } else { p };
+    let p = if p.len() > 1 && p.as_bytes()[1] == b':' {
+        format!("/{p}")
+    } else {
+        p
+    };
     let mut out = format!("file:{}", pct_path(&p));
     if read_only {
         out.push_str("?mode=ro");
@@ -1073,23 +1532,69 @@ fn sqlite(b: &mut B) {
     let path = file_path(c);
     b.push("path", "", path.clone(), vec![]);
     b.push("uri", "URI (file:)", file_uri(&path, c.read_only), vec![]);
-    let ado = pairs(&[("Data Source", Some(V::t(path.clone()))), ("Mode", c.read_only.then(|| V::t("ReadOnly")))], ado_val);
+    let ado = pairs(
+        &[
+            ("Data Source", Some(V::t(path.clone()))),
+            ("Mode", c.read_only.then(|| V::t("ReadOnly"))),
+        ],
+        ado_val,
+    );
     b.push("adonet", "ADO.NET (Microsoft.Data.Sqlite)", ado, vec![]);
-    b.push("jdbc", "JDBC (sqlite-jdbc)", format!("jdbc:sqlite:{path}"), vec![]);
+    b.push(
+        "jdbc",
+        "JDBC (sqlite-jdbc)",
+        format!("jdbc:sqlite:{path}"),
+        vec![],
+    );
     b.sqlalchemy(&[], vec![]);
-    let odbc = pairs(&[("DRIVER", Some(V::R("{SQLite3 ODBC Driver}".into()))), ("Database", Some(V::t(path)))], odbc_val);
-    b.push("odbc", "ODBC", odbc, vec![note("odbc_driver_name", &[("driver", "SQLite3 ODBC Driver")])]);
+    let odbc = pairs(
+        &[
+            ("DRIVER", Some(V::R("{SQLite3 ODBC Driver}".into()))),
+            ("Database", Some(V::t(path))),
+        ],
+        odbc_val,
+    );
+    b.push(
+        "odbc",
+        "ODBC",
+        odbc,
+        vec![note(
+            "odbc_driver_name",
+            &[("driver", "SQLite3 ODBC Driver")],
+        )],
+    );
 }
 
 fn libsql(b: &mut B) {
     let c = b.c;
-    let host = c.host.trim_start_matches("libsql://").trim_start_matches("https://").trim_end_matches('/').to_string();
+    let host = c
+        .host
+        .trim_start_matches("libsql://")
+        .trim_start_matches("https://")
+        .trim_end_matches('/')
+        .to_string();
     let tok = b.s("auth_token");
-    let q: Vec<(&str, V)> = tok.clone().map(|t| vec![("authToken", t)]).unwrap_or_default();
-    b.push("uri", "URI (libsql://)", format!("libsql://{host}{}", query(&q)), vec![]);
+    let q: Vec<(&str, V)> = tok
+        .clone()
+        .map(|t| vec![("authToken", t)])
+        .unwrap_or_default();
+    b.push(
+        "uri",
+        "URI (libsql://)",
+        format!("libsql://{host}{}", query(&q)),
+        vec![],
+    );
     b.sqlalchemy(&[], vec![]);
     let tok = b.s("auth_token");
-    b.push("node", "Node.js (@libsql/client) · JSON", pretty(&obj(vec![("url", Value::String(format!("libsql://{host}"))), ("authToken", jv(tok))])), vec![]);
+    b.push(
+        "node",
+        "Node.js (@libsql/client) · JSON",
+        pretty(&obj(vec![
+            ("url", Value::String(format!("libsql://{host}"))),
+            ("authToken", jv(tok)),
+        ])),
+        vec![],
+    );
 }
 
 fn duckdb(b: &mut B) {
@@ -1109,9 +1614,25 @@ fn duckdb(b: &mut B) {
     if c.read_only {
         sa.push_str("?read_only=true");
     }
-    b.push("sqlalchemy", "Python (SQLAlchemy, duckdb_engine)", sa, vec![]);
-    let odbc = pairs(&[("DRIVER", Some(V::R("{DuckDB Driver}".into()))), ("Database", Some(V::t(path)))], odbc_val);
-    b.push("odbc", "ODBC", odbc, vec![note("odbc_driver_name", &[("driver", "DuckDB Driver")])]);
+    b.push(
+        "sqlalchemy",
+        "Python (SQLAlchemy, duckdb_engine)",
+        sa,
+        vec![],
+    );
+    let odbc = pairs(
+        &[
+            ("DRIVER", Some(V::R("{DuckDB Driver}".into()))),
+            ("Database", Some(V::t(path))),
+        ],
+        odbc_val,
+    );
+    b.push(
+        "odbc",
+        "ODBC",
+        odbc,
+        vec![note("odbc_driver_name", &[("driver", "DuckDB Driver")])],
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1178,11 +1699,21 @@ fn odbc_engine(b: &mut B) {
     if id == "odbc" {
         if let Some(dsn) = c.opt("dsn") {
             let pw = b.pw();
-            let s = pairs(&[("DSN", Some(V::t(dsn))), ("UID", some_t(&c.user)), ("PWD", pw)], odbc_val);
+            let s = pairs(
+                &[
+                    ("DSN", Some(V::t(dsn))),
+                    ("UID", some_t(&c.user)),
+                    ("PWD", pw),
+                ],
+                odbc_val,
+            );
             b.push("odbc", "ODBC", s, notes);
         } else {
             // The saved connection string is a secret (it may hold credentials).
-            let s = b.s("connection_string").map(|v| v.esc(|s| s.to_string())).unwrap_or_default();
+            let s = b
+                .s("connection_string")
+                .map(|v| v.esc(|s| s.to_string()))
+                .unwrap_or_default();
             notes.push(note("saved_string", &[]));
             b.push("odbc", "ODBC", s, notes);
         }
@@ -1190,7 +1721,13 @@ fn odbc_engine(b: &mut B) {
     }
     let driver = c.opt("odbc_driver").unwrap_or("").to_string();
     let pw = b.pw();
-    let mut parts: Vec<(&str, Option<V>)> = vec![("DRIVER", Some(V::R(format!("{{{}}}", if driver.is_empty() { "…" } else { &driver }.replace('}', "}}")))))];
+    let mut parts: Vec<(&str, Option<V>)> = vec![(
+        "DRIVER",
+        Some(V::R(format!(
+            "{{{}}}",
+            if driver.is_empty() { "…" } else { &driver }.replace('}', "}}")
+        ))),
+    )];
     if file {
         parts.push(("DBQ", Some(V::t(file_path(c)))));
     } else {
@@ -1222,13 +1759,94 @@ fn odbc_engine(b: &mut B) {
     let db = some_t(&c.database);
     let user = some_t(&c.user);
     let ado: Option<(&str, String)> = match id.as_str() {
-        "db2" | "db2i" | "db2zos" => Some(("ADO.NET (IBM.Data.Db2)", pairs(&[("Server", Some(V::t(c.hp()))), ("Database", db), ("UID", user), ("PWD", pw), ("Security", c.encrypt.then(|| V::t("SSL")))], ado_val))),
-        "teradata" => Some(("ADO.NET (Teradata.Client.Provider)", pairs(&[("Data Source", host), ("Port Number", port), ("Database", db), ("User Id", user), ("Password", pw)], ado_val))),
-        "vertica" => Some(("ADO.NET (Vertica.Data)", pairs(&[("Host", host), ("Port", port), ("Database", db), ("User", user), ("Password", pw)], ado_val))),
-        "sybase" => Some(("ADO.NET (AdoNetCore.AseClient)", pairs(&[("Data Source", host), ("Port", port), ("Database", db), ("Uid", user), ("Pwd", pw)], ado_val))),
-        "sqlanywhere" => Some(("ADO.NET (Sap.Data.SQLAnywhere)", pairs(&[("Host", Some(V::t(c.hp()))), ("DatabaseName", db), ("UserID", user), ("Password", pw)], ado_val))),
-        "iris" | "cache" => Some(("ADO.NET (InterSystems)", pairs(&[("Server", host), ("Port", port), ("Namespace", db), ("User ID", user), ("Password", pw)], ado_val))),
-        "access" => Some(("ADO.NET (OleDb, ACE)", pairs(&[("Provider", Some(V::t("Microsoft.ACE.OLEDB.12.0"))), ("Data Source", Some(V::t(file_path(c)))), ("Jet OLEDB:Database Password", b.s("password"))], ado_val))),
+        "db2" | "db2i" | "db2zos" => Some((
+            "ADO.NET (IBM.Data.Db2)",
+            pairs(
+                &[
+                    ("Server", Some(V::t(c.hp()))),
+                    ("Database", db),
+                    ("UID", user),
+                    ("PWD", pw),
+                    ("Security", c.encrypt.then(|| V::t("SSL"))),
+                ],
+                ado_val,
+            ),
+        )),
+        "teradata" => Some((
+            "ADO.NET (Teradata.Client.Provider)",
+            pairs(
+                &[
+                    ("Data Source", host),
+                    ("Port Number", port),
+                    ("Database", db),
+                    ("User Id", user),
+                    ("Password", pw),
+                ],
+                ado_val,
+            ),
+        )),
+        "vertica" => Some((
+            "ADO.NET (Vertica.Data)",
+            pairs(
+                &[
+                    ("Host", host),
+                    ("Port", port),
+                    ("Database", db),
+                    ("User", user),
+                    ("Password", pw),
+                ],
+                ado_val,
+            ),
+        )),
+        "sybase" => Some((
+            "ADO.NET (AdoNetCore.AseClient)",
+            pairs(
+                &[
+                    ("Data Source", host),
+                    ("Port", port),
+                    ("Database", db),
+                    ("Uid", user),
+                    ("Pwd", pw),
+                ],
+                ado_val,
+            ),
+        )),
+        "sqlanywhere" => Some((
+            "ADO.NET (Sap.Data.SQLAnywhere)",
+            pairs(
+                &[
+                    ("Host", Some(V::t(c.hp()))),
+                    ("DatabaseName", db),
+                    ("UserID", user),
+                    ("Password", pw),
+                ],
+                ado_val,
+            ),
+        )),
+        "iris" | "cache" => Some((
+            "ADO.NET (InterSystems)",
+            pairs(
+                &[
+                    ("Server", host),
+                    ("Port", port),
+                    ("Namespace", db),
+                    ("User ID", user),
+                    ("Password", pw),
+                ],
+                ado_val,
+            ),
+        )),
+        "access" => Some((
+            "ADO.NET (OleDb, ACE)",
+            pairs(
+                &[
+                    ("Provider", Some(V::t("Microsoft.ACE.OLEDB.12.0"))),
+                    ("Data Source", Some(V::t(file_path(c)))),
+                    ("Jet OLEDB:Database Password", b.s("password")),
+                ],
+                ado_val,
+            ),
+        )),
         _ => None,
     };
     if let Some((label, text)) = ado {
@@ -1248,7 +1866,12 @@ fn mongo(b: &mut B) {
     // The saved connection string (a secret) is the URI as it is.
     if let Fill::Values(m) = b.fill {
         if let Some(s) = m.get("connection_string").filter(|s| !s.trim().is_empty()) {
-            b.push("uri", "URI (mongodb://)", s.trim().to_string(), vec![note("same_uri", &[])]);
+            b.push(
+                "uri",
+                "URI (mongodb://)",
+                s.trim().to_string(),
+                vec![note("same_uri", &[])],
+            );
             return;
         }
     }
@@ -1263,8 +1886,15 @@ fn mongo(b: &mut B) {
     };
     // A URI host may bring its own path (its options are left out with
     // the user info: they may hold credentials).
-    let (hosts, path) = rest.split_once('/').map(|(h, p)| (h.to_string(), p.to_string())).unwrap_or((rest, String::new()));
-    let db = if c.database.is_empty() { path } else { pct(&c.database) };
+    let (hosts, path) = rest
+        .split_once('/')
+        .map(|(h, p)| (h.to_string(), p.to_string()))
+        .unwrap_or((rest, String::new()));
+    let db = if c.database.is_empty() {
+        path
+    } else {
+        pct(&c.database)
+    };
     let mut q: Vec<(&str, V)> = Vec::new();
     if let Some(a) = c.opt("auth_source") {
         q.push(("authSource", V::t(a)));
@@ -1296,7 +1926,15 @@ fn mongo(b: &mut B) {
     if c.host.is_empty() && matches!(b.fill, Fill::Placeholder | Fill::Masked) {
         notes.push(note("saved_string_mongo", &[]));
     }
-    b.push("uri", "URI (mongodb://)", format!("{scheme}://{}{hosts}/{db}{qs}", userinfo(&c.user, pw.as_ref())), notes);
+    b.push(
+        "uri",
+        "URI (mongodb://)",
+        format!(
+            "{scheme}://{}{hosts}/{db}{qs}",
+            userinfo(&c.user, pw.as_ref())
+        ),
+        notes,
+    );
 }
 
 fn redis(b: &mut B) {
@@ -1304,8 +1942,21 @@ fn redis(b: &mut B) {
     let pw = b.s("password");
     let scheme = if c.encrypt { "rediss" } else { "redis" };
     let db = c.database.parse::<u32>().unwrap_or(0);
-    let notes: Vec<Note> = if c.encrypt && c.trust { vec![note("tls_unverified", &[])] } else { vec![] };
-    b.push("uri", "URI (redis://)", format!("{scheme}://{}{}/{db}", userinfo(&c.user, pw.as_ref()), c.hp()), notes.clone());
+    let notes: Vec<Note> = if c.encrypt && c.trust {
+        vec![note("tls_unverified", &[])]
+    } else {
+        vec![]
+    };
+    b.push(
+        "uri",
+        "URI (redis://)",
+        format!(
+            "{scheme}://{}{}/{db}",
+            userinfo(&c.user, pw.as_ref()),
+            c.hp()
+        ),
+        notes.clone(),
+    );
     let pw = b.s("password");
     let mut parts = vec![c.hp()];
     if !c.user.is_empty() {
@@ -1323,7 +1974,12 @@ fn redis(b: &mut B) {
     parts.push("abortConnect=false".into());
     let mut n = notes;
     n.push(note("stackexchange_commas", &[]));
-    b.push("adonet", "ADO.NET (StackExchange.Redis)", parts.join(","), n);
+    b.push(
+        "adonet",
+        "ADO.NET (StackExchange.Redis)",
+        parts.join(","),
+        n,
+    );
 }
 
 fn cassandra(b: &mut B) {
@@ -1338,12 +1994,34 @@ fn cassandra(b: &mut B) {
     let pw = b.pw();
     let cfg = obj(vec![
         ("contactPoints", json!([c.hp()])),
-        ("localDataCenter", dc.as_deref().map(js).unwrap_or(Value::Null)),
+        (
+            "localDataCenter",
+            dc.as_deref().map(js).unwrap_or(Value::Null),
+        ),
         ("keyspace", js(&c.database)),
-        ("credentials", if c.user.is_empty() { Value::Null } else { obj(vec![("username", js(&c.user)), ("password", jv(pw))]) }),
-        ("sslOptions", if tls { json!({"rejectUnauthorized": !c.trust}) } else { Value::Null }),
+        (
+            "credentials",
+            if c.user.is_empty() {
+                Value::Null
+            } else {
+                obj(vec![("username", js(&c.user)), ("password", jv(pw))])
+            },
+        ),
+        (
+            "sslOptions",
+            if tls {
+                json!({"rejectUnauthorized": !c.trust})
+            } else {
+                Value::Null
+            },
+        ),
     ]);
-    b.push("node", "Node.js (cassandra-driver) · JSON", pretty(&cfg), notes.clone());
+    b.push(
+        "node",
+        "Node.js (cassandra-driver) · JSON",
+        pretty(&cfg),
+        notes.clone(),
+    );
     let pw = b.pw();
     let mut q: Vec<(&str, V)> = Vec::new();
     if let Some(d) = &dc {
@@ -1352,10 +2030,20 @@ fn cassandra(b: &mut B) {
     if tls {
         q.push(("enablessl", V::t("true")));
     }
-    let url = format!("jdbc:cassandra://{}/{}{}", c.hp(), pct(&c.database), query(&q));
+    let url = format!(
+        "jdbc:cassandra://{}/{}{}",
+        c.hp(),
+        pct(&c.database),
+        query(&q)
+    );
     let mut jn = notes;
     jn.extend(jdbc_notes(&c.user, pw.is_some()));
-    b.push("jdbc", "JDBC (cassandra-jdbc-wrapper)", jdbc_props(url, &c.user, pw), jn);
+    b.push(
+        "jdbc",
+        "JDBC (cassandra-jdbc-wrapper)",
+        jdbc_props(url, &c.user, pw),
+        jn,
+    );
 }
 
 fn neo4j(b: &mut B) {
@@ -1375,26 +2063,71 @@ fn neo4j(b: &mut B) {
     }
     b.push("uri", "URI (Bolt)", uri.clone(), notes.clone());
     let pw = if id == "neptune" { None } else { b.pw() };
-    let cfg = obj(vec![("uri", js(&uri)), ("user", js(&c.user)), ("password", jv(pw)), ("database", js(&c.database))]);
-    b.push("node", "Node.js (neo4j-driver) · JSON", pretty(&cfg), notes.clone());
+    let cfg = obj(vec![
+        ("uri", js(&uri)),
+        ("user", js(&c.user)),
+        ("password", jv(pw)),
+        ("database", js(&c.database)),
+    ]);
+    b.push(
+        "node",
+        "Node.js (neo4j-driver) · JSON",
+        pretty(&cfg),
+        notes.clone(),
+    );
     if id != "neptune" {
         let pw = b.pw();
-        let q: Vec<(&str, V)> = if c.database.is_empty() { vec![] } else { vec![("database", V::t(c.database.clone()))] };
-        let url = format!("jdbc:neo4j{}://{}{}", if tls { "+s" } else { "" }, c.hp(), query(&q));
+        let q: Vec<(&str, V)> = if c.database.is_empty() {
+            vec![]
+        } else {
+            vec![("database", V::t(c.database.clone()))]
+        };
+        let url = format!(
+            "jdbc:neo4j{}://{}{}",
+            if tls { "+s" } else { "" },
+            c.hp(),
+            query(&q)
+        );
         let mut jn = vec![];
         jn.extend(jdbc_notes(&c.user, pw.is_some()));
-        b.push("jdbc", "JDBC (Neo4j JDBC)", jdbc_props(url, &c.user, pw), jn);
+        b.push(
+            "jdbc",
+            "JDBC (Neo4j JDBC)",
+            jdbc_props(url, &c.user, pw),
+            jn,
+        );
     }
 }
 
 fn couchbase(b: &mut B) {
     let c = b.c;
     let scheme = if c.encrypt { "couchbases" } else { "couchbase" };
-    let host = c.host.trim_start_matches("couchbase://").trim_start_matches("couchbases://").to_string();
-    let uri = format!("{scheme}://{}", if host.is_empty() { "localhost".into() } else { host });
-    b.push("uri", "URI (couchbase://)", uri.clone(), vec![note("credentials_apart", &[])]);
+    let host = c
+        .host
+        .trim_start_matches("couchbase://")
+        .trim_start_matches("couchbases://")
+        .to_string();
+    let uri = format!(
+        "{scheme}://{}",
+        if host.is_empty() {
+            "localhost".into()
+        } else {
+            host
+        }
+    );
+    b.push(
+        "uri",
+        "URI (couchbase://)",
+        uri.clone(),
+        vec![note("credentials_apart", &[])],
+    );
     let pw = b.pw();
-    let cfg = obj(vec![("connectionString", js(&uri)), ("username", js(&c.user)), ("password", jv(pw)), ("bucket", js(&c.database))]);
+    let cfg = obj(vec![
+        ("connectionString", js(&uri)),
+        ("username", js(&c.user)),
+        ("password", jv(pw)),
+        ("bucket", js(&c.database)),
+    ]);
     b.push("node", "Node.js (couchbase) · JSON", pretty(&cfg), vec![]);
 }
 
@@ -1426,36 +2159,85 @@ fn http(b: &mut B) {
                 obj(vec![("apiKey", jv(b.s("api_key")))])
             };
             let cfg = match c.opt("cloud_id") {
-                Some(cid) if id == "elasticsearch" => obj(vec![("cloud", json!({"id": cid})), ("auth", auth)]),
-                _ => obj(vec![("node", js(&base)), ("auth", auth), ("tls", if tls && c.trust { json!({"rejectUnauthorized": false}) } else { Value::Null })]),
+                Some(cid) if id == "elasticsearch" => {
+                    obj(vec![("cloud", json!({"id": cid})), ("auth", auth)])
+                }
+                _ => obj(vec![
+                    ("node", js(&base)),
+                    ("auth", auth),
+                    (
+                        "tls",
+                        if tls && c.trust {
+                            json!({"rejectUnauthorized": false})
+                        } else {
+                            Value::Null
+                        },
+                    ),
+                ]),
             };
-            let label = if id == "elasticsearch" { "Node.js (@elastic/elasticsearch) · JSON" } else { "Node.js (@opensearch-project/opensearch) · JSON" };
+            let label = if id == "elasticsearch" {
+                "Node.js (@elastic/elasticsearch) · JSON"
+            } else {
+                "Node.js (@opensearch-project/opensearch) · JSON"
+            };
             b.push("node", label, pretty(&cfg), vec![]);
             let pw = b.pw();
-            let url = if id == "elasticsearch" { format!("jdbc:es://{base}") } else { format!("jdbc:opensearch://{base}") };
+            let url = if id == "elasticsearch" {
+                format!("jdbc:es://{base}")
+            } else {
+                format!("jdbc:opensearch://{base}")
+            };
             let jn = jdbc_notes(&c.user, pw.is_some());
             b.push("jdbc", "JDBC", jdbc_props(url, &c.user, pw), jn);
         }
         "orientdb" => {
             let pw = b.pw();
-            b.push("uri", "URL (REST)", http_url(c, &c.user, pw.as_ref()), vec![]);
+            b.push(
+                "uri",
+                "URL (REST)",
+                http_url(c, &c.user, pw.as_ref()),
+                vec![],
+            );
             let pw = b.pw();
-            let url = format!("jdbc:orient:remote:{}/{}", c.host_or_localhost(), c.database);
+            let url = format!(
+                "jdbc:orient:remote:{}/{}",
+                c.host_or_localhost(),
+                c.database
+            );
             let mut jn = vec![note("other_port", &[("port", "2424")])];
             jn.extend(jdbc_notes(&c.user, pw.is_some()));
-            b.push("jdbc", "JDBC (orientdb-jdbc)", jdbc_props(url, &c.user, pw), jn);
+            b.push(
+                "jdbc",
+                "JDBC (orientdb-jdbc)",
+                jdbc_props(url, &c.user, pw),
+                jn,
+            );
         }
         "iotdb" | "timechodb" => {
             let pw = b.pw();
-            b.push("uri", "URL (REST)", http_url(c, &c.user, pw.as_ref()), vec![]);
+            b.push(
+                "uri",
+                "URL (REST)",
+                http_url(c, &c.user, pw.as_ref()),
+                vec![],
+            );
             let pw = b.pw();
             let url = format!("jdbc:iotdb://{}/", hp(c.host_or_localhost(), 6667));
             let mut jn = vec![note("other_port", &[("port", "6667")])];
             jn.extend(jdbc_notes(&c.user, pw.is_some()));
-            b.push("jdbc", "JDBC (iotdb-jdbc)", jdbc_props(url, &c.user, pw), jn);
+            b.push(
+                "jdbc",
+                "JDBC (iotdb-jdbc)",
+                jdbc_props(url, &c.user, pw),
+                jn,
+            );
         }
         "etcd" => {
-            let n = if c.user.is_empty() { vec![] } else { vec![note("credentials_apart", &[])] };
+            let n = if c.user.is_empty() {
+                vec![]
+            } else {
+                vec![note("credentials_apart", &[])]
+            };
             b.push("uri", "URL (endpoint)", base, n);
         }
         "couchdb" => {
@@ -1489,26 +2271,72 @@ fn influx(b: &mut B) {
         "influxdb" => {
             b.push("uri", "URL", base.clone(), vec![note("token_apart", &[])]);
             let tok = b.s("token");
-            b.push("node", "Node.js (@influxdata/influxdb-client) · JSON", pretty(&obj(vec![("url", js(&base)), ("token", jv(tok)), ("org", c.opt("org").map(js).unwrap_or(Value::Null)), ("bucket", js(&c.database))])), vec![]);
+            b.push(
+                "node",
+                "Node.js (@influxdata/influxdb-client) · JSON",
+                pretty(&obj(vec![
+                    ("url", js(&base)),
+                    ("token", jv(tok)),
+                    ("org", c.opt("org").map(js).unwrap_or(Value::Null)),
+                    ("bucket", js(&c.database)),
+                ])),
+                vec![],
+            );
         }
         _ => {
             b.push("uri", "URL", base.clone(), vec![note("token_apart", &[])]);
             let tok = b.s("token");
-            b.push("node", "Node.js (@influxdata/influxdb3-client) · JSON", pretty(&obj(vec![("host", js(&base)), ("token", jv(tok)), ("database", js(&c.database))])), vec![]);
+            b.push(
+                "node",
+                "Node.js (@influxdata/influxdb3-client) · JSON",
+                pretty(&obj(vec![
+                    ("host", js(&base)),
+                    ("token", jv(tok)),
+                    ("database", js(&c.database)),
+                ])),
+                vec![],
+            );
         }
     }
 }
 
 fn clickhouse(b: &mut B) {
     let c = b.c;
-    let port = if c.py.port != 0 { c.py.port } else if c.encrypt { 8443 } else { 8123 };
+    let port = if c.py.port != 0 {
+        c.py.port
+    } else if c.encrypt {
+        8443
+    } else {
+        8123
+    };
     let scheme = if c.encrypt { "https" } else { "http" };
     let at = hp(c.host_or_localhost(), port);
-    let notes: Vec<Note> = if c.encrypt && c.trust { vec![note("tls_unverified", &[])] } else { vec![] };
+    let notes: Vec<Note> = if c.encrypt && c.trust {
+        vec![note("tls_unverified", &[])]
+    } else {
+        vec![]
+    };
     let pw = b.s("password");
-    let user = if c.user.is_empty() { "default".to_string() } else { c.user.clone() };
-    let dbq: Vec<(&str, V)> = if c.database.is_empty() { vec![] } else { vec![("database", V::t(c.database.clone()))] };
-    b.push("uri", "URL (HTTP)", format!("{scheme}://{}{at}/{}", userinfo(&user, pw.as_ref()), query(&dbq)), notes.clone());
+    let user = if c.user.is_empty() {
+        "default".to_string()
+    } else {
+        c.user.clone()
+    };
+    let dbq: Vec<(&str, V)> = if c.database.is_empty() {
+        vec![]
+    } else {
+        vec![("database", V::t(c.database.clone()))]
+    };
+    b.push(
+        "uri",
+        "URL (HTTP)",
+        format!(
+            "{scheme}://{}{at}/{}",
+            userinfo(&user, pw.as_ref()),
+            query(&dbq)
+        ),
+        notes.clone(),
+    );
 
     let pw = b.s("password");
     let ado = pairs(
@@ -1525,10 +2353,23 @@ fn clickhouse(b: &mut B) {
     b.push("adonet", "ADO.NET (ClickHouse.Client)", ado, notes.clone());
 
     let pw = b.s("password");
-    let url = format!("jdbc:clickhouse:{scheme}://{at}/{}{}", pct(&c.database), if c.encrypt && c.trust { "?ssl=true&sslmode=none" } else { "" });
+    let url = format!(
+        "jdbc:clickhouse:{scheme}://{at}/{}{}",
+        pct(&c.database),
+        if c.encrypt && c.trust {
+            "?ssl=true&sslmode=none"
+        } else {
+            ""
+        }
+    );
     let mut jn = notes.clone();
     jn.extend(jdbc_notes(&user, pw.is_some()));
-    b.push("jdbc", "JDBC (clickhouse-jdbc)", jdbc_props(url, &user, pw), jn);
+    b.push(
+        "jdbc",
+        "JDBC (clickhouse-jdbc)",
+        jdbc_props(url, &user, pw),
+        jn,
+    );
 
     let pw = b.s("password");
     let mut q: Vec<(&str, V)> = Vec::new();
@@ -1538,12 +2379,35 @@ fn clickhouse(b: &mut B) {
             q.push(("verify", V::t("false")));
         }
     }
-    let path = if c.database.is_empty() { String::new() } else { format!("/{}", pct(&c.database)) };
-    b.push("sqlalchemy", "Python (SQLAlchemy, clickhouse-connect)", format!("clickhousedb://{}{at}{path}{}", userinfo(&user, pw.as_ref()), query(&q)), notes.clone());
+    let path = if c.database.is_empty() {
+        String::new()
+    } else {
+        format!("/{}", pct(&c.database))
+    };
+    b.push(
+        "sqlalchemy",
+        "Python (SQLAlchemy, clickhouse-connect)",
+        format!(
+            "clickhousedb://{}{at}{path}{}",
+            userinfo(&user, pw.as_ref()),
+            query(&q)
+        ),
+        notes.clone(),
+    );
 
     let pw = b.s("password");
-    let cfg = obj(vec![("url", Value::String(format!("{scheme}://{at}"))), ("username", js(&user)), ("password", jv(pw)), ("database", js(&c.database))]);
-    b.push("node", "Node.js (@clickhouse/client) · JSON", pretty(&cfg), notes);
+    let cfg = obj(vec![
+        ("url", Value::String(format!("{scheme}://{at}"))),
+        ("username", js(&user)),
+        ("password", jv(pw)),
+        ("database", js(&c.database)),
+    ]);
+    b.push(
+        "node",
+        "Node.js (@clickhouse/client) · JSON",
+        pretty(&cfg),
+        notes,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1553,8 +2417,18 @@ fn cosmos(b: &mut B) {
     let c = b.c;
     let endpoint = format!("{}/", python::http_base(&c.py).trim_end_matches('/'));
     let key = b.s("account_key");
-    let s = pairs(&[("AccountEndpoint", Some(V::t(endpoint))), ("AccountKey", key)], |s| s.to_string());
-    let n = if c.database.is_empty() { vec![] } else { vec![note("cosmos_database", &[("database", &c.database)])] };
+    let s = pairs(
+        &[
+            ("AccountEndpoint", Some(V::t(endpoint))),
+            ("AccountKey", key),
+        ],
+        |s| s.to_string(),
+    );
+    let n = if c.database.is_empty() {
+        vec![]
+    } else {
+        vec![note("cosmos_database", &[("database", &c.database)])]
+    };
     b.push("azure", "Azure Cosmos DB", s, n);
 }
 
@@ -1563,10 +2437,26 @@ fn aws_credentials(b: &B) -> (Value, Vec<Note>) {
     let c = b.c;
     match c.auth.as_deref() {
         Some("keys") => (
-            obj(vec![("accessKeyId", c.opt("access_key_id").map(js).unwrap_or(Value::Null)), ("secretAccessKey", jv(b.s("secret_access_key"))), ("sessionToken", jv(b.s("session_token").filter(|v| matches!(v, V::T(_)))))]),
+            obj(vec![
+                (
+                    "accessKeyId",
+                    c.opt("access_key_id").map(js).unwrap_or(Value::Null),
+                ),
+                ("secretAccessKey", jv(b.s("secret_access_key"))),
+                (
+                    "sessionToken",
+                    jv(b.s("session_token").filter(|v| matches!(v, V::T(_)))),
+                ),
+            ]),
             vec![],
         ),
-        Some("profile") => (Value::Null, vec![note("aws_profile", &[("profile", c.opt("profile").unwrap_or("default"))])]),
+        Some("profile") => (
+            Value::Null,
+            vec![note(
+                "aws_profile",
+                &[("profile", c.opt("profile").unwrap_or("default"))],
+            )],
+        ),
         _ => (Value::Null, vec![note("aws_default", &[])]),
     }
 }
@@ -1574,7 +2464,14 @@ fn aws_credentials(b: &B) -> (Value, Vec<Note>) {
 fn dynamo(b: &mut B) {
     let c = b.c;
     let (creds, notes) = aws_credentials(b);
-    let cfg = obj(vec![("region", c.opt("region").map(js).unwrap_or(Value::Null)), ("endpoint", c.opt("endpoint_url").map(js).unwrap_or(Value::Null)), ("credentials", creds)]);
+    let cfg = obj(vec![
+        ("region", c.opt("region").map(js).unwrap_or(Value::Null)),
+        (
+            "endpoint",
+            c.opt("endpoint_url").map(js).unwrap_or(Value::Null),
+        ),
+        ("credentials", creds),
+    ]);
     b.push("node", "AWS SDK · JSON", pretty(&cfg), notes);
 }
 
@@ -1598,11 +2495,19 @@ fn athena(b: &mut B) {
         }
         Some("profile") => {
             parts.push(("CredentialsProvider", Some(V::t("ProfileCredentials"))));
-            parts.push(("ProfileName", Some(V::t(c.opt("profile").unwrap_or("default")))));
+            parts.push((
+                "ProfileName",
+                Some(V::t(c.opt("profile").unwrap_or("default"))),
+            ));
         }
         _ => parts.push(("CredentialsProvider", Some(V::t("DefaultChain")))),
     }
-    b.push("jdbc", "JDBC (Athena JDBC 3)", format!("jdbc:athena://{}", pairs(&parts, mssql_jdbc_val)), notes.clone());
+    b.push(
+        "jdbc",
+        "JDBC (Athena JDBC 3)",
+        format!("jdbc:athena://{}", pairs(&parts, mssql_jdbc_val)),
+        notes.clone(),
+    );
 
     let secret = if keys { b.s("secret_access_key") } else { None };
     let mut op: Vec<(&str, Option<V>)> = vec![
@@ -1621,12 +2526,18 @@ fn athena(b: &mut B) {
         }
         Some("profile") => {
             op.push(("AuthenticationType", Some(V::t("IAM Profile"))));
-            op.push(("AWSProfile", Some(V::t(c.opt("profile").unwrap_or("default")))));
+            op.push((
+                "AWSProfile",
+                Some(V::t(c.opt("profile").unwrap_or("default"))),
+            ));
         }
         _ => op.push(("AuthenticationType", Some(V::t("Default Credentials")))),
     }
     let mut on = notes.clone();
-    on.push(note("odbc_driver_name", &[("driver", "Amazon Athena ODBC (x64)")]));
+    on.push(note(
+        "odbc_driver_name",
+        &[("driver", "Amazon Athena ODBC (x64)")],
+    ));
     b.push("odbc", "ODBC", pairs(&op, odbc_val), on);
 
     b.sqlalchemy(&[], notes);
@@ -1636,28 +2547,56 @@ fn bigquery(b: &mut B) {
     let c = b.c;
     let project = c.opt("project_id").unwrap_or("").to_string();
     let sa = c.auth.as_deref() == Some("service_account");
-    let notes = vec![note(if sa { "gcp_service_account" } else { "gcp_adc" }, &[])];
-    let mut url = format!("jdbc:bigquery://https://www.googleapis.com/bigquery/v2:443;ProjectId={project};");
+    let notes = vec![note(
+        if sa { "gcp_service_account" } else { "gcp_adc" },
+        &[],
+    )];
+    let mut url =
+        format!("jdbc:bigquery://https://www.googleapis.com/bigquery/v2:443;ProjectId={project};");
     if !c.database.is_empty() {
         url.push_str(&format!("DefaultDataset={};", c.database));
     }
     if let Some(l) = c.opt("location") {
         url.push_str(&format!("Location={l};"));
     }
-    url.push_str(if sa { "OAuthType=0;OAuthPvtKeyPath=${GOOGLE_APPLICATION_CREDENTIALS};" } else { "OAuthType=3;" });
+    url.push_str(if sa {
+        "OAuthType=0;OAuthPvtKeyPath=${GOOGLE_APPLICATION_CREDENTIALS};"
+    } else {
+        "OAuthType=3;"
+    });
     b.push("jdbc", "JDBC (Simba BigQuery)", url, notes.clone());
     b.sqlalchemy(&[], notes);
 }
 
 fn spanner(b: &mut B) {
     let c = b.c;
-    let path = format!("projects/{}/instances/{}/databases/{}", c.opt("project_id").unwrap_or(""), c.opt("instance").unwrap_or(""), c.database);
+    let path = format!(
+        "projects/{}/instances/{}/databases/{}",
+        c.opt("project_id").unwrap_or(""),
+        c.opt("instance").unwrap_or(""),
+        c.database
+    );
     let sa = c.auth.as_deref() == Some("service_account");
-    let mut notes = vec![note(if sa { "gcp_service_account" } else { "gcp_adc" }, &[])];
+    let mut notes = vec![note(
+        if sa { "gcp_service_account" } else { "gcp_adc" },
+        &[],
+    )];
     if c.opt("endpoint_url").is_some() {
         notes.push(note("emulator", &[]));
     }
-    b.push("jdbc", "JDBC (google-cloud-spanner-jdbc)", format!("jdbc:cloudspanner:/{path}{}", if sa { "?credentials=${GOOGLE_APPLICATION_CREDENTIALS}" } else { "" }), notes.clone());
+    b.push(
+        "jdbc",
+        "JDBC (google-cloud-spanner-jdbc)",
+        format!(
+            "jdbc:cloudspanner:/{path}{}",
+            if sa {
+                "?credentials=${GOOGLE_APPLICATION_CREDENTIALS}"
+            } else {
+                ""
+            }
+        ),
+        notes.clone(),
+    );
     b.sqlalchemy(&[], notes.clone());
     b.push("go", "Go (go-sql-spanner)", path, notes);
 }
@@ -1670,12 +2609,21 @@ fn snowflake(b: &mut B) {
     let schema = c.opt("schema").map(str::to_string);
     let wh = c.opt("warehouse").map(str::to_string);
     let role = c.opt("role").map(str::to_string);
-    let notes: Vec<Note> = if keypair { vec![note("keypair", &[])] } else { vec![note("pat", &[])] };
+    let notes: Vec<Note> = if keypair {
+        vec![note("keypair", &[])]
+    } else {
+        vec![note("pat", &[])]
+    };
     let tok = |b: &B| if keypair { None } else { b.s("token") };
 
     let pw = tok(b);
     let mut q: Vec<(&str, V)> = Vec::new();
-    for (k, v) in [("db", some_t(&c.database)), ("schema", schema.clone().map(V::t)), ("warehouse", wh.clone().map(V::t)), ("role", role.clone().map(V::t))] {
+    for (k, v) in [
+        ("db", some_t(&c.database)),
+        ("schema", schema.clone().map(V::t)),
+        ("warehouse", wh.clone().map(V::t)),
+        ("role", role.clone().map(V::t)),
+    ] {
         if let Some(v) = v {
             q.push((k, v));
         }
@@ -1687,7 +2635,16 @@ fn snowflake(b: &mut B) {
     }
     let mut jn = notes.clone();
     jn.extend(jdbc_notes(&c.user, pw.is_some()));
-    b.push("jdbc", "JDBC (snowflake-jdbc)", jdbc_props(format!("jdbc:snowflake://{host}/{}", query(&jq)), &c.user, pw), jn);
+    b.push(
+        "jdbc",
+        "JDBC (snowflake-jdbc)",
+        jdbc_props(
+            format!("jdbc:snowflake://{host}/{}", query(&jq)),
+            &c.user,
+            pw,
+        ),
+        jn,
+    );
 
     let pw = tok(b);
     let ado = pairs(
@@ -1696,7 +2653,10 @@ fn snowflake(b: &mut B) {
             ("user", some_t(&c.user)),
             ("password", pw),
             ("authenticator", keypair.then(|| V::t("snowflake_jwt"))),
-            ("private_key_file", keypair.then(|| V::R("${PRIVATE_KEY_FILE}".into()))),
+            (
+                "private_key_file",
+                keypair.then(|| V::R("${PRIVATE_KEY_FILE}".into())),
+            ),
             ("db", some_t(&c.database)),
             ("schema", schema.clone().map(V::t)),
             ("warehouse", wh.clone().map(V::t)),
@@ -1724,7 +2684,16 @@ fn snowflake(b: &mut B) {
             path.push_str(&format!("/{}", pct(s)));
         }
     }
-    b.push("go", "Go (gosnowflake)", format!("{}{account}{path}{}", userinfo(&c.user, pw.as_ref()), query(&gq)), notes.clone());
+    b.push(
+        "go",
+        "Go (gosnowflake)",
+        format!(
+            "{}{account}{path}{}",
+            userinfo(&c.user, pw.as_ref()),
+            query(&gq)
+        ),
+        notes.clone(),
+    );
 
     let pw = tok(b);
     let odbc = pairs(
@@ -1738,12 +2707,18 @@ fn snowflake(b: &mut B) {
             ("UID", some_t(&c.user)),
             ("PWD", pw),
             ("Authenticator", keypair.then(|| V::t("SNOWFLAKE_JWT"))),
-            ("PRIV_KEY_FILE", keypair.then(|| V::R("${PRIVATE_KEY_FILE}".into()))),
+            (
+                "PRIV_KEY_FILE",
+                keypair.then(|| V::R("${PRIVATE_KEY_FILE}".into())),
+            ),
         ],
         odbc_val,
     );
     let mut on = notes.clone();
-    on.push(note("odbc_driver_name", &[("driver", "SnowflakeDSIIDriver")]));
+    on.push(note(
+        "odbc_driver_name",
+        &[("driver", "SnowflakeDSIIDriver")],
+    ));
     b.push("odbc", "ODBC", odbc, on);
 
     let pw = tok(b);
@@ -1751,23 +2726,54 @@ fn snowflake(b: &mut B) {
         ("account", js(&account)),
         ("username", js(&c.user)),
         ("password", jv(pw)),
-        ("authenticator", if keypair { json!("SNOWFLAKE_JWT") } else { Value::Null }),
-        ("privateKeyPath", if keypair { json!("${PRIVATE_KEY_FILE}") } else { Value::Null }),
+        (
+            "authenticator",
+            if keypair {
+                json!("SNOWFLAKE_JWT")
+            } else {
+                Value::Null
+            },
+        ),
+        (
+            "privateKeyPath",
+            if keypair {
+                json!("${PRIVATE_KEY_FILE}")
+            } else {
+                Value::Null
+            },
+        ),
         ("database", js(&c.database)),
         ("schema", schema.as_deref().map(js).unwrap_or(Value::Null)),
         ("warehouse", wh.as_deref().map(js).unwrap_or(Value::Null)),
         ("role", role.as_deref().map(js).unwrap_or(Value::Null)),
     ]);
-    b.push("node", "Node.js (snowflake-sdk) · JSON", pretty(&cfg), notes);
+    b.push(
+        "node",
+        "Node.js (snowflake-sdk) · JSON",
+        pretty(&cfg),
+        notes,
+    );
 }
 
 fn databricks(b: &mut B) {
     let c = b.c;
-    let host = c.host.trim_start_matches("https://").trim_end_matches('/').to_string();
+    let host = c
+        .host
+        .trim_start_matches("https://")
+        .trim_end_matches('/')
+        .to_string();
     let wh = c.opt("warehouse").unwrap_or("");
-    let http_path = if wh.starts_with('/') || wh.is_empty() { wh.to_string() } else { format!("/sql/1.0/warehouses/{wh}") };
+    let http_path = if wh.starts_with('/') || wh.is_empty() {
+        wh.to_string()
+    } else {
+        format!("/sql/1.0/warehouses/{wh}")
+    };
     let schema = c.opt("schema").map(str::to_string);
-    let notes: Vec<Note> = if matches!(c.auth.as_deref(), None | Some("pat")) { vec![] } else { vec![note("databricks_pat", &[])] };
+    let notes: Vec<Note> = if matches!(c.auth.as_deref(), None | Some("pat")) {
+        vec![]
+    } else {
+        vec![note("databricks_pat", &[])]
+    };
 
     let tok = b.s("token");
     let mut url = format!("jdbc:databricks://{host}:443/default;transportMode=http;ssl=1;AuthMech=3;httpPath={http_path}");
@@ -1801,7 +2807,10 @@ fn databricks(b: &mut B) {
         odbc_val,
     );
     let mut on = notes.clone();
-    on.push(note("odbc_driver_name", &[("driver", "Simba Spark ODBC Driver")]));
+    on.push(note(
+        "odbc_driver_name",
+        &[("driver", "Simba Spark ODBC Driver")],
+    ));
     b.push("odbc", "ODBC", odbc, on);
     b.sqlalchemy(&[], notes.clone());
 
@@ -1813,11 +2822,30 @@ fn databricks(b: &mut B) {
     if let Some(s) = &schema {
         gq.push(("schema", V::t(s.clone())));
     }
-    b.push("go", "Go (databricks-sql-go)", format!("token:{}@{host}:443{}{}", tok.map(|t| t.esc(pct)).unwrap_or_default(), http_path, query(&gq)), notes.clone());
+    b.push(
+        "go",
+        "Go (databricks-sql-go)",
+        format!(
+            "token:{}@{host}:443{}{}",
+            tok.map(|t| t.esc(pct)).unwrap_or_default(),
+            http_path,
+            query(&gq)
+        ),
+        notes.clone(),
+    );
 
     let tok = b.s("token");
-    let cfg = obj(vec![("host", js(&host)), ("path", js(&http_path)), ("token", jv(tok))]);
-    b.push("node", "Node.js (@databricks/sql) · JSON", pretty(&cfg), notes);
+    let cfg = obj(vec![
+        ("host", js(&host)),
+        ("path", js(&http_path)),
+        ("token", jv(tok)),
+    ]);
+    b.push(
+        "node",
+        "Node.js (@databricks/sql) · JSON",
+        pretty(&cfg),
+        notes,
+    );
 }
 
 fn trino(b: &mut B) {
@@ -1833,10 +2861,23 @@ fn trino(b: &mut B) {
         }
     }
     let p = pw(b);
-    let q: Vec<(&str, V)> = if c.encrypt { vec![("SSL", V::t("true"))] } else { vec![] };
+    let q: Vec<(&str, V)> = if c.encrypt {
+        vec![("SSL", V::t("true"))]
+    } else {
+        vec![]
+    };
     let scheme = if presto { "presto" } else { "trino" };
     let jn = jdbc_notes(&c.user, p.is_some());
-    b.push("jdbc", "JDBC", jdbc_props(format!("jdbc:{scheme}://{}{path}{}", c.hp(), query(&q)), &c.user, p), jn);
+    b.push(
+        "jdbc",
+        "JDBC",
+        jdbc_props(
+            format!("jdbc:{scheme}://{}{path}{}", c.hp(), query(&q)),
+            &c.user,
+            p,
+        ),
+        jn,
+    );
     b.sqlalchemy(&[], vec![]);
     if !presto {
         let p = pw(b);
@@ -1848,7 +2889,17 @@ fn trino(b: &mut B) {
             gq.push(("schema", V::t(s.clone())));
         }
         let s = if c.encrypt { "https" } else { "http" };
-        b.push("go", "Go (trino-go-client)", format!("{s}://{}{}{}", userinfo(&c.user, p.as_ref()), c.hp(), query(&gq)), vec![]);
+        b.push(
+            "go",
+            "Go (trino-go-client)",
+            format!(
+                "{s}://{}{}{}",
+                userinfo(&c.user, p.as_ref()),
+                c.hp(),
+                query(&gq)
+            ),
+            vec![],
+        );
     }
 }
 
@@ -1862,11 +2913,23 @@ fn flight(b: &mut B) {
     if dremio {
         notes.push(note("other_port", &[("port", "32010")]));
     }
-    let n = if c.user.is_empty() { vec![note("token_apart", &[])] } else { vec![note("credentials_apart", &[])] };
+    let n = if c.user.is_empty() {
+        vec![note("token_apart", &[])]
+    } else {
+        vec![note("credentials_apart", &[])]
+    };
     let mut un = notes.clone();
     un.extend(n);
-    b.push("uri", "URI (Arrow Flight SQL)", format!("{scheme}://{at}"), un);
-    let mut q: Vec<(&str, V)> = vec![("useEncryption", V::t(if c.encrypt { "true" } else { "false" }))];
+    b.push(
+        "uri",
+        "URI (Arrow Flight SQL)",
+        format!("{scheme}://{at}"),
+        un,
+    );
+    let mut q: Vec<(&str, V)> = vec![(
+        "useEncryption",
+        V::t(if c.encrypt { "true" } else { "false" }),
+    )];
     if c.encrypt && c.trust {
         q.push(("disableCertificateVerification", V::t("true")));
     }
@@ -1874,38 +2937,89 @@ fn flight(b: &mut B) {
         if let Some(t) = b.s("token") {
             q.push(("token", t));
         }
-        b.push("jdbc", "JDBC (Arrow Flight SQL)", format!("jdbc:arrow-flight-sql://{at}{}", query(&q)), notes);
+        b.push(
+            "jdbc",
+            "JDBC (Arrow Flight SQL)",
+            format!("jdbc:arrow-flight-sql://{at}{}", query(&q)),
+            notes,
+        );
     } else {
         let pw = b.pw();
         let mut jn = notes;
         jn.extend(jdbc_notes(&c.user, pw.is_some()));
-        b.push("jdbc", "JDBC (Arrow Flight SQL)", jdbc_props(format!("jdbc:arrow-flight-sql://{at}{}", query(&q)), &c.user, pw), jn);
+        b.push(
+            "jdbc",
+            "JDBC (Arrow Flight SQL)",
+            jdbc_props(
+                format!("jdbc:arrow-flight-sql://{at}{}", query(&q)),
+                &c.user,
+                pw,
+            ),
+            jn,
+        );
     }
 }
 
 fn drill(b: &mut B) {
     let c = b.c;
     let pw = b.pw();
-    b.push("uri", "URL (REST)", http_url(c, &c.user, pw.as_ref()), vec![]);
+    b.push(
+        "uri",
+        "URL (REST)",
+        http_url(c, &c.user, pw.as_ref()),
+        vec![],
+    );
     let pw = b.pw();
     let mut jn = vec![note("other_port", &[("port", "31010")])];
     jn.extend(jdbc_notes(&c.user, pw.is_some()));
-    let url = format!("jdbc:drill:drillbit={}{}", hp(c.host_or_localhost(), 31010), if c.database.is_empty() { String::new() } else { format!(";schema={}", c.database) });
-    b.push("jdbc", "JDBC (drill-jdbc)", jdbc_props(url, &c.user, pw), jn);
+    let url = format!(
+        "jdbc:drill:drillbit={}{}",
+        hp(c.host_or_localhost(), 31010),
+        if c.database.is_empty() {
+            String::new()
+        } else {
+            format!(";schema={}", c.database)
+        }
+    );
+    b.push(
+        "jdbc",
+        "JDBC (drill-jdbc)",
+        jdbc_props(url, &c.user, pw),
+        jn,
+    );
     b.sqlalchemy(&[], vec![]);
 }
 
 fn phoenix(b: &mut B) {
     let c = b.c;
     let scheme = if c.encrypt { "https" } else { "http" };
-    let path = c.opt("path").map(|p| format!("/{}", p.trim_start_matches('/'))).unwrap_or_default();
+    let path = c
+        .opt("path")
+        .map(|p| format!("/{}", p.trim_start_matches('/')))
+        .unwrap_or_default();
     let url = format!("{scheme}://{}{path}", c.hp());
-    let ser = c.opt("serialization").unwrap_or(if c.driver == "phoenix" { "protobuf" } else { "json" }).to_ascii_uppercase();
+    let ser = c
+        .opt("serialization")
+        .unwrap_or(if c.driver == "phoenix" {
+            "protobuf"
+        } else {
+            "json"
+        })
+        .to_ascii_uppercase();
     b.push("uri", "URL (Avatica)", url.clone(), vec![]);
-    let jdbc = if c.driver == "phoenix" { format!("jdbc:phoenix:thin:url={url};serialization={ser}") } else { format!("jdbc:avatica:remote:url={url};serialization={ser}") };
+    let jdbc = if c.driver == "phoenix" {
+        format!("jdbc:phoenix:thin:url={url};serialization={ser}")
+    } else {
+        format!("jdbc:avatica:remote:url={url};serialization={ser}")
+    };
     let pw = b.pw();
     let jn = jdbc_notes(&c.user, pw.is_some());
-    b.push("jdbc", "JDBC (thin client)", jdbc_props(jdbc, &c.user, pw), jn);
+    b.push(
+        "jdbc",
+        "JDBC (thin client)",
+        jdbc_props(jdbc, &c.user, pw),
+        jn,
+    );
     b.sqlalchemy(&[], vec![]);
 }
 
@@ -1923,9 +3037,23 @@ fn hana(b: &mut B) {
         }
     }
     let jn = jdbc_notes(&c.user, pw.is_some());
-    b.push("jdbc", "JDBC (ngdbc)", jdbc_props(format!("jdbc:sap://{}/{}", c.hp(), query(&q)), &c.user, pw), jn);
+    b.push(
+        "jdbc",
+        "JDBC (ngdbc)",
+        jdbc_props(format!("jdbc:sap://{}/{}", c.hp(), query(&q)), &c.user, pw),
+        jn,
+    );
     let pw = b.pw();
-    let ado = pairs(&[("Server", Some(V::t(c.hp()))), ("UserName", some_t(&c.user)), ("Password", pw), ("databaseName", some_t(&c.database)), ("encrypt", c.encrypt.then(|| V::t("true")))], ado_val);
+    let ado = pairs(
+        &[
+            ("Server", Some(V::t(c.hp()))),
+            ("UserName", some_t(&c.user)),
+            ("Password", pw),
+            ("databaseName", some_t(&c.database)),
+            ("encrypt", c.encrypt.then(|| V::t("true"))),
+        ],
+        ado_val,
+    );
     b.push("adonet", "ADO.NET (Sap.Data.Hana)", ado, vec![]);
     b.sqlalchemy(&[], vec![]);
     let pw = b.pw();
@@ -1937,14 +3065,33 @@ fn hana(b: &mut B) {
             ("UID", some_t(&c.user)),
             ("PWD", pw),
             ("ENCRYPT", c.encrypt.then(|| V::t("TRUE"))),
-            ("sslValidateCertificate", (c.encrypt && c.trust).then(|| V::t("FALSE"))),
+            (
+                "sslValidateCertificate",
+                (c.encrypt && c.trust).then(|| V::t("FALSE")),
+            ),
         ],
         odbc_val,
     );
-    b.push("odbc", "ODBC", odbc, vec![note("odbc_driver_name", &[("driver", "HDBODBC")])]);
+    b.push(
+        "odbc",
+        "ODBC",
+        odbc,
+        vec![note("odbc_driver_name", &[("driver", "HDBODBC")])],
+    );
     let pw = b.pw();
-    let cfg = obj(vec![("serverNode", js(&c.hp())), ("uid", js(&c.user)), ("pwd", jv(pw)), ("databaseName", js(&c.database)), ("encrypt", if c.encrypt { json!(true) } else { Value::Null })]);
-    b.push("node", "Node.js (@sap/hana-client) · JSON", pretty(&cfg), vec![]);
+    let cfg = obj(vec![
+        ("serverNode", js(&c.hp())),
+        ("uid", js(&c.user)),
+        ("pwd", jv(pw)),
+        ("databaseName", js(&c.database)),
+        ("encrypt", if c.encrypt { json!(true) } else { Value::Null }),
+    ]);
+    b.push(
+        "node",
+        "Node.js (@sap/hana-client) · JSON",
+        pretty(&cfg),
+        vec![],
+    );
 }
 
 fn firebird(b: &mut B) {
@@ -1960,19 +3107,52 @@ fn firebird(b: &mut B) {
         q.push(("roleName", V::t(r.clone())));
     }
     let jn = jdbc_notes(&c.user, pw.is_some());
-    b.push("jdbc", "JDBC (Jaybird)", jdbc_props(format!("jdbc:firebirdsql://{}/{}{}", c.hp(), c.database, query(&q)), &c.user, pw), jn);
+    b.push(
+        "jdbc",
+        "JDBC (Jaybird)",
+        jdbc_props(
+            format!("jdbc:firebirdsql://{}/{}{}", c.hp(), c.database, query(&q)),
+            &c.user,
+            pw,
+        ),
+        jn,
+    );
     let pw = b.pw();
     let ado = pairs(
-        &[("DataSource", Some(V::t(c.host_or_localhost()))), ("Port", Some(V::t(c.port.to_string()))), ("Database", some_t(&c.database)), ("User", some_t(&c.user)), ("Password", pw), ("Role", role.clone().map(V::t)), ("Charset", charset.clone().map(V::t))],
+        &[
+            ("DataSource", Some(V::t(c.host_or_localhost()))),
+            ("Port", Some(V::t(c.port.to_string()))),
+            ("Database", some_t(&c.database)),
+            ("User", some_t(&c.user)),
+            ("Password", pw),
+            ("Role", role.clone().map(V::t)),
+            ("Charset", charset.clone().map(V::t)),
+        ],
         ado_val,
     );
-    b.push("adonet", "ADO.NET (FirebirdSql.Data.FirebirdClient)", ado, vec![]);
+    b.push(
+        "adonet",
+        "ADO.NET (FirebirdSql.Data.FirebirdClient)",
+        ado,
+        vec![],
+    );
     b.sqlalchemy(&[], vec![]);
     let pw = b.pw();
     let odbc = pairs(
         &[
-            ("DRIVER", Some(V::R("{Firebird/InterBase(r) driver}".into()))),
-            ("DBNAME", Some(V::t(format!("{}/{}:{}", c.host_or_localhost(), c.port, c.database)))),
+            (
+                "DRIVER",
+                Some(V::R("{Firebird/InterBase(r) driver}".into())),
+            ),
+            (
+                "DBNAME",
+                Some(V::t(format!(
+                    "{}/{}:{}",
+                    c.host_or_localhost(),
+                    c.port,
+                    c.database
+                ))),
+            ),
             ("UID", some_t(&c.user)),
             ("PWD", pw),
             ("ROLE", role.map(V::t)),
@@ -1980,14 +3160,31 @@ fn firebird(b: &mut B) {
         ],
         odbc_val,
     );
-    b.push("odbc", "ODBC", odbc, vec![note("odbc_driver_name", &[("driver", "Firebird/InterBase(r) driver")])]);
+    b.push(
+        "odbc",
+        "ODBC",
+        odbc,
+        vec![note(
+            "odbc_driver_name",
+            &[("driver", "Firebird/InterBase(r) driver")],
+        )],
+    );
 }
 
 fn tdengine(b: &mut B) {
     let c = b.c;
     let pw = b.pw();
     let jn = jdbc_notes(&c.user, pw.is_some());
-    b.push("jdbc", "JDBC (taos-jdbcdriver, REST)", jdbc_props(format!("jdbc:TAOS-RS://{}/{}", c.hp(), c.database), &c.user, pw), jn);
+    b.push(
+        "jdbc",
+        "JDBC (taos-jdbcdriver, REST)",
+        jdbc_props(
+            format!("jdbc:TAOS-RS://{}/{}", c.hp(), c.database),
+            &c.user,
+            pw,
+        ),
+        jn,
+    );
     b.sqlalchemy(&[], vec![]);
     let pw = b.pw();
     let creds = match (c.user.is_empty(), &pw) {
@@ -1995,7 +3192,12 @@ fn tdengine(b: &mut B) {
         (false, None) => format!("{}@", c.user),
         (false, Some(p)) => format!("{}:{}@", c.user, p.esc(|s| s.to_string())),
     };
-    b.push("go", "Go (driver-go, taosRestful)", format!("{creds}http({})/{}", c.hp(), c.database), vec![]);
+    b.push(
+        "go",
+        "Go (driver-go, taosRestful)",
+        format!("{creds}http({})/{}", c.hp(), c.database),
+        vec![],
+    );
 }
 
 #[cfg(test)]

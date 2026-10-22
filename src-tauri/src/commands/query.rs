@@ -2,7 +2,8 @@ use crate::error::CommandResult;
 use crate::state::{AppState, SessionEntry};
 use dbine_driver::sql::{self, ScriptMode, ScriptStatement, StatementKind};
 use dbine_driver::{
-    Driver, Error, Message, MessageLevel, MessageSinkRef, ProgressSinkRef, QueryOutcome, ScriptError, Session, StatementEnd, StatementResult, TxState,
+    Driver, Error, Message, MessageLevel, MessageSinkRef, ProgressSinkRef, QueryOutcome,
+    ScriptError, Session, StatementEnd, StatementResult, TxState,
 };
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -158,8 +159,17 @@ pub enum PlanMode {
 /// Run a script. Server errors don't fail the call: they come back in
 /// `error` / `errors` next to whatever ran. Connection problems do fail it.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: ExecuteArgs) -> CommandResult<ExecuteResponse> {
-    let driver = state.store.get_connection(&args.connection_id).ok().flatten().and_then(|c| dbine_drivers::find(&c.config.driver));
+pub async fn execute_query(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ExecuteArgs,
+) -> CommandResult<ExecuteResponse> {
+    let driver = state
+        .store
+        .get_connection(&args.connection_id)
+        .ok()
+        .flatten()
+        .and_then(|c| dbine_drivers::find(&c.config.driver));
     // A notebook cell's parameters: from here on `sql` has each value as
     // the engine's literal (what the checks and a driver that doesn't bind
     // see); `prepared` keeps them apart for the ones that do. The history
@@ -168,11 +178,19 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
         (Some(p), Some(d)) => {
             use crate::notebook::params;
             let values = params::resolve(&p.definitions, &p.values)?;
-            Some(params::prepare_text(&args.sql, &params::Engine::Driver(d.as_ref()), &p.definitions, &values, None)?)
+            Some(params::prepare_text(
+                &args.sql,
+                &params::Engine::Driver(d.as_ref()),
+                &p.definitions,
+                &values,
+                None,
+            )?)
         }
         _ => None,
     };
-    let sql: &str = prepared.as_ref().map_or(args.sql.as_str(), |p| p.text.as_str());
+    let sql: &str = prepared
+        .as_ref()
+        .map_or(args.sql.as_str(), |p| p.text.as_str());
     let units = match (args.plan, driver) {
         (PlanMode::None, Some(d)) => script_units(args.mode, d.as_ref(), sql),
         _ => None,
@@ -181,15 +199,36 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     let pos = Utf16::new(sql);
     // The actual plan runs the script too (EXPLAIN ANALYZE, SET STATISTICS
     // XML…): only the estimated one is exempt.
-    if let (Some(d), false, true) = (driver, args.confirmed_unsafe, args.plan != PlanMode::Estimated) {
-        let found = if editor { unsafe_dml(d.as_ref(), sql) } else { Vec::new() };
+    if let (Some(d), false, true) = (
+        driver,
+        args.confirmed_unsafe,
+        args.plan != PlanMode::Estimated,
+    ) {
+        let found = if editor {
+            unsafe_dml(d.as_ref(), sql)
+        } else {
+            Vec::new()
+        };
         if !found.is_empty() {
-            let needs_confirmation =
-                found.into_iter().map(|u| UnsafeDml { keyword: u.keyword, start: pos.at(u.start), end: pos.at(u.end), line: u.line }).collect();
-            return Ok(ExecuteResponse { outcome: QueryOutcome::default(), needs_confirmation, session_closed: false });
+            let needs_confirmation = found
+                .into_iter()
+                .map(|u| UnsafeDml {
+                    keyword: u.keyword,
+                    start: pos.at(u.start),
+                    end: pos.at(u.end),
+                    line: u.line,
+                })
+                .collect();
+            return Ok(ExecuteResponse {
+                outcome: QueryOutcome::default(),
+                needs_confirmation,
+                session_closed: false,
+            });
         }
     }
-    let entry = state.session(&args.session_id, &args.connection_id, &args.database).await?;
+    let entry = state
+        .session(&args.session_id, &args.connection_id, &args.database)
+        .await?;
     if let Some(id) = &args.query_id {
         if let Err(e) = state.store.mark_query_run(id) {
             tracing::warn!(%e, "could not record query run");
@@ -197,7 +236,12 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
         // A run is a moment worth keeping in the query's timeline.
         if args.record {
             if let Ok(Some(q)) = state.store.get_query(id) {
-                if let Err(e) = state.store.add_query_version(id, &q.sql, &chrono::Utc::now().to_rfc3339(), None) {
+                if let Err(e) = state.store.add_query_version(
+                    id,
+                    &q.sql,
+                    &chrono::Utc::now().to_rfc3339(),
+                    None,
+                ) {
                     tracing::warn!(%e, "could not record the query's version");
                 }
             }
@@ -209,7 +253,14 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     let watched = (args.record && args.plan == PlanMode::None)
         .then(|| {
             use tauri::Manager;
-            app.try_state::<crate::link::LinkRuntime>().map(|l| l.query_started(&args.session_id, &args.connection_id, &args.database, &args.sql))
+            app.try_state::<crate::link::LinkRuntime>().map(|l| {
+                l.query_started(
+                    &args.session_id,
+                    &args.connection_id,
+                    &args.database,
+                    &args.sql,
+                )
+            })
         })
         .flatten();
     let max_rows = args.max_rows.unwrap_or(DEFAULT_MAX_ROWS).max(1);
@@ -226,7 +277,11 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
                     // it themselves.
                     out.push_error(e.to_script_error());
                     out.elapsed_ms = started.elapsed().as_millis() as u64;
-                    return Ok(ExecuteResponse { outcome: out, needs_confirmation: Vec::new(), session_closed: false });
+                    return Ok(ExecuteResponse {
+                        outcome: out,
+                        needs_confirmation: Vec::new(),
+                        session_closed: false,
+                    });
                 }
             }
         }
@@ -238,10 +293,18 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
         out.message_sink = Some(MessageSinkRef(Arc::new(move |m: &Message| {
             let mut message = m.clone();
             rebase_line(&mut message.line, m.statement.and_then(|i| units.get(i)));
-            let _ = app.emit("query-message", QueryMessage { session_id: id.clone(), message });
+            let _ = app.emit(
+                "query-message",
+                QueryMessage {
+                    session_id: id.clone(),
+                    message,
+                },
+            );
         })));
     }
-    let continue_on_error = args.continue_on_error.unwrap_or_else(|| driver.is_some_and(|d| d.script_defaults().continue_on_error));
+    let continue_on_error = args
+        .continue_on_error
+        .unwrap_or_else(|| driver.is_some_and(|d| d.script_defaults().continue_on_error));
     if editor && args.plan == PlanMode::None && shared_units.is_none() {
         // The driver splits the script itself (`Whole`): it reports each
         // statement as it ends and its messages as they arrive (lines of
@@ -251,9 +314,19 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
         out.continue_on_error = Some(continue_on_error);
         let (app2, id) = (app.clone(), args.session_id.clone());
         out.message_sink = Some(MessageSinkRef(Arc::new(move |m: &Message| {
-            let _ = app2.emit("query-message", QueryMessage { session_id: id.clone(), message: m.clone() });
+            let _ = app2.emit(
+                "query-message",
+                QueryMessage {
+                    session_id: id.clone(),
+                    message: m.clone(),
+                },
+            );
         })));
-        let (app2, id, sql) = (app.clone(), args.session_id.clone(), Arc::new(sql.to_string()));
+        let (app2, id, sql) = (
+            app.clone(),
+            args.session_id.clone(),
+            Arc::new(sql.to_string()),
+        );
         out.progress_sink = Some(ProgressSinkRef(Arc::new(move |p: &StatementEnd| {
             let pos = Utf16::new(&sql);
             let at = pos.at(p.offset);
@@ -269,15 +342,25 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
                     iteration: 1,
                     repeat: 1,
                     elapsed_ms: p.elapsed_ms,
-                    results: p.results.iter().cloned().map(|mut r| {
-                        r.offset = r.offset.map(|o| pos.at(o));
-                        r
-                    }).collect(),
+                    results: p
+                        .results
+                        .iter()
+                        .cloned()
+                        .map(|mut r| {
+                            r.offset = r.offset.map(|o| pos.at(o));
+                            r
+                        })
+                        .collect(),
                     log: p.log.clone(),
-                    errors: p.errors.iter().cloned().map(|mut e| {
-                        e.offset = e.offset.map(|o| pos.at(o));
-                        e
-                    }).collect(),
+                    errors: p
+                        .errors
+                        .iter()
+                        .cloned()
+                        .map(|mut e| {
+                            e.offset = e.offset.map(|o| pos.at(o));
+                            e
+                        })
+                        .collect(),
                 },
             );
         })));
@@ -295,35 +378,66 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
                 iteration: p.iteration,
                 repeat: p.unit.repeat.max(1),
                 elapsed_ms: p.elapsed_ms,
-                results: p.results.iter().cloned().map(|mut r| {
-                    r.offset = r.offset.map(|o| pos.at(o));
-                    r
-                }).collect(),
+                results: p
+                    .results
+                    .iter()
+                    .cloned()
+                    .map(|mut r| {
+                        r.offset = r.offset.map(|o| pos.at(o));
+                        r
+                    })
+                    .collect(),
                 log: p.log.to_vec(),
-                errors: p.errors.iter().cloned().map(|mut e| {
-                    e.offset = e.offset.map(|o| pos.at(o));
-                    e
-                }).collect(),
+                errors: p
+                    .errors
+                    .iter()
+                    .cloned()
+                    .map(|mut e| {
+                        e.offset = e.offset.map(|o| pos.at(o));
+                        e
+                    })
+                    .collect(),
             },
         );
     };
     let run = async {
         match (args.plan, &shared_units) {
             (PlanMode::None, Some(units)) => {
-                let script = ScriptRun { units, continue_on_error, max_rows, cancelled: &entry.cancelled, progress: &progress, bound: prepared.as_ref() };
+                let script = ScriptRun {
+                    units,
+                    continue_on_error,
+                    max_rows,
+                    cancelled: &entry.cancelled,
+                    progress: &progress,
+                    bound: prepared.as_ref(),
+                };
                 run_script(&mut **session, script, &mut out).await
             }
-            (PlanMode::None, None) => match prepared.as_ref().filter(|p| p.bound.len() == 1).and_then(|p| p.bound_unit(0)) {
-                Some(b) => execute_bound_or_literal(&mut **session, b, sql, max_rows, &mut out).await,
+            (PlanMode::None, None) => match prepared
+                .as_ref()
+                .filter(|p| p.bound.len() == 1)
+                .and_then(|p| p.bound_unit(0))
+            {
+                Some(b) => {
+                    execute_bound_or_literal(&mut **session, b, sql, max_rows, &mut out).await
+                }
                 None => session.execute(sql, max_rows, &mut out).await,
             },
             (PlanMode::Estimated, _) => session.explain(sql, false, max_rows, &mut out).await,
             (PlanMode::Actual, _) => session.explain(sql, true, max_rows, &mut out).await,
         }
     };
-    let registered = || state.sessions.get(&args.session_id).is_some_and(|e| Arc::ptr_eq(&e, &entry));
+    let registered = || {
+        state
+            .sessions
+            .get(&args.session_id)
+            .is_some_and(|e| Arc::ptr_eq(&e, &entry))
+    };
     let finished = run_cancellable(run, &entry, CANCEL_GRACE, registered).await;
-    let usable = matches!(finished, Run::Finished(_) | Run::Cancelled { keep: true, .. });
+    let usable = matches!(
+        finished,
+        Run::Finished(_) | Run::Cancelled { keep: true, .. }
+    );
     if editor && usable {
         out.transaction = session.transaction_state().await.unwrap_or_else(|e| {
             tracing::debug!(%e, "transaction state unknown");
@@ -337,7 +451,8 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     // same session (see `AppState::session`).
     if let Some(db) = out.database.as_deref().filter(|d| !d.is_empty()) {
         if usable {
-            *entry.switched_to.lock().unwrap_or_else(|p| p.into_inner()) = (db != entry.database).then(|| db.to_string());
+            *entry.switched_to.lock().unwrap_or_else(|p| p.into_inner()) =
+                (db != entry.database).then(|| db.to_string());
         } else {
             out.database = None;
         }
@@ -355,7 +470,12 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
             out.push_error(e.to_script_error());
         }
         Run::Cancelled { keep, completed } => {
-            let driver = state.store.get_connection(&args.connection_id).ok().flatten().map(|c| c.config.driver);
+            let driver = state
+                .store
+                .get_connection(&args.connection_id)
+                .ok()
+                .flatten()
+                .map(|c| c.config.driver);
             if !keep || cancel_ends_session(driver.as_deref()) {
                 // The statement was dropped mid-flight, the server closed the
                 // connection, or the driver's interrupter ends the session
@@ -370,7 +490,11 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
             // Finished before the cancel reached it: its results stand.
             if !completed {
                 out.error = Some("Ejecución cancelada.".into());
-                out.message(Message { level: MessageLevel::Error, text: "Ejecución cancelada.".into(), ..Default::default() });
+                out.message(Message {
+                    level: MessageLevel::Error,
+                    text: "Ejecución cancelada.".into(),
+                    ..Default::default()
+                });
             }
         }
     }
@@ -388,10 +512,26 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
         g.finish(&out);
     }
     if args.record {
-        let origin = crate::commands::history::Origin { query_id: args.query_id.clone(), project_id: args.project_id.clone(), file_path: args.file_path.clone() };
-        crate::commands::history::record(&state, &args.connection_id, &args.database, history_text(&args), started_at, &out, origin);
+        let origin = crate::commands::history::Origin {
+            query_id: args.query_id.clone(),
+            project_id: args.project_id.clone(),
+            file_path: args.file_path.clone(),
+        };
+        crate::commands::history::record(
+            &state,
+            &args.connection_id,
+            &args.database,
+            history_text(&args),
+            started_at,
+            &out,
+            origin,
+        );
     }
-    Ok(ExecuteResponse { outcome: out, needs_confirmation: Vec::new(), session_closed })
+    Ok(ExecuteResponse {
+        outcome: out,
+        needs_confirmation: Vec::new(),
+        session_closed,
+    })
 }
 
 /// What the history keeps of a run: the text the user wrote. A notebook
@@ -427,12 +567,14 @@ fn unsafe_dml(driver: &dyn Driver, sql: &str) -> Vec<sql::UnsafeStatement> {
         .into_iter()
         .filter(|u| u.kind == StatementKind::Sql)
         .flat_map(|u| {
-            sql::unsafe_statements(&u.text, &dialect).into_iter().map(move |mut x| {
-                x.start += u.start;
-                x.end += u.start;
-                x.line += u.line - 1;
-                x
-            })
+            sql::unsafe_statements(&u.text, &dialect)
+                .into_iter()
+                .map(move |mut x| {
+                    x.start += u.start;
+                    x.end += u.start;
+                    x.line += u.line - 1;
+                    x
+                })
         })
         .collect()
 }
@@ -553,10 +695,19 @@ struct Progress<'a> {
 /// failure it goes on only with `continue_on_error`; it always stops on a
 /// cancel, a lost connection or an error the driver marks fatal, and then
 /// returns that error (already recorded, except `Cancelled`).
-async fn run_script(session: &mut dyn Session, run: ScriptRun<'_>, out: &mut QueryOutcome) -> dbine_driver::Result<()> {
+async fn run_script(
+    session: &mut dyn Session,
+    run: ScriptRun<'_>,
+    out: &mut QueryOutcome,
+) -> dbine_driver::Result<()> {
     let total = run.units.len();
     // A client-side error (`GO 99999999999`): nothing runs, as in SSMS.
-    if let Some((idx, unit, msg)) = run.units.iter().enumerate().find_map(|(i, u)| u.error.as_ref().map(|m| (i, u, m))) {
+    if let Some((idx, unit, msg)) = run
+        .units
+        .iter()
+        .enumerate()
+        .find_map(|(i, u)| u.error.as_ref().map(|m| (i, u, m)))
+    {
         let mut e = ScriptError::new(msg.clone()).fatal();
         e.statement = Some(idx);
         e.offset = Some(unit.start);
@@ -585,7 +736,9 @@ async fn run_script(session: &mut dyn Session, run: ScriptRun<'_>, out: &mut Que
             let (r0, l0, e0) = (out.results.len(), out.log.len(), out.errors.len());
             let started = std::time::Instant::now();
             let r = match run.bound.and_then(|p| p.bound_unit(idx)) {
-                Some(b) => execute_bound_or_literal(session, b, &unit.text, run.max_rows, out).await,
+                Some(b) => {
+                    execute_bound_or_literal(session, b, &unit.text, run.max_rows, out).await
+                }
                 None => session.execute(&unit.text, run.max_rows, out).await,
             };
             out.adopt_plain_messages();
@@ -684,8 +837,18 @@ pub(crate) async fn run_unattended(
     max_rows: usize,
 ) -> CommandResult<QueryOutcome> {
     let driver = crate::commands::schema::driver_of(state, connection_id)?;
-    let entry = state.dedicated_session(key, connection_id, database, false).await?;
-    let out = run_on_entry(driver.as_ref(), &entry, sql, continue_on_error, max_rows, None).await;
+    let entry = state
+        .dedicated_session(key, connection_id, database, false)
+        .await?;
+    let out = run_on_entry(
+        driver.as_ref(),
+        &entry,
+        sql,
+        continue_on_error,
+        max_rows,
+        None,
+    )
+    .await;
     state.sessions.remove(key);
     Ok(out)
 }
@@ -705,22 +868,40 @@ pub(crate) async fn run_on_entry(
     bound: Option<&crate::notebook::params::Prepared>,
 ) -> QueryOutcome {
     let units = script_units(RunMode::Auto, driver, sql);
-    let continue_on_error = continue_on_error.unwrap_or_else(|| driver.script_defaults().continue_on_error);
+    let continue_on_error =
+        continue_on_error.unwrap_or_else(|| driver.script_defaults().continue_on_error);
     let mut out = QueryOutcome::default();
     let finished = {
         let mut session = entry.session.lock().await;
-        let ready = if entry.autocommit.load(Ordering::SeqCst) { Ok(()) } else { session.set_autocommit(true).await };
+        let ready = if entry.autocommit.load(Ordering::SeqCst) {
+            Ok(())
+        } else {
+            session.set_autocommit(true).await
+        };
         let run = async {
             ready?;
             match &units {
                 Some(units) => {
-                    let script = ScriptRun { units, continue_on_error, max_rows, cancelled: &entry.cancelled, progress: &|_| {}, bound };
+                    let script = ScriptRun {
+                        units,
+                        continue_on_error,
+                        max_rows,
+                        cancelled: &entry.cancelled,
+                        progress: &|_| {},
+                        bound,
+                    };
                     run_script(&mut **session, script, &mut out).await
                 }
                 None => {
                     out.continue_on_error = Some(continue_on_error);
-                    match bound.filter(|p| p.bound.len() == 1).and_then(|p| p.bound_unit(0)) {
-                        Some(b) => execute_bound_or_literal(&mut **session, b, sql, max_rows, &mut out).await,
+                    match bound
+                        .filter(|p| p.bound.len() == 1)
+                        .and_then(|p| p.bound_unit(0))
+                    {
+                        Some(b) => {
+                            execute_bound_or_literal(&mut **session, b, sql, max_rows, &mut out)
+                                .await
+                        }
                         None => session.execute(sql, max_rows, &mut out).await,
                     }
                 }
@@ -754,7 +935,11 @@ fn recorded(errors: &[ScriptError], e: &Error) -> bool {
 /// 1-based line of a byte offset.
 fn line_of(script: &str, offset: usize) -> u32 {
     let end = offset.min(script.len());
-    script.as_bytes()[..end].iter().filter(|&&c| c == b'\n').count() as u32 + 1
+    script.as_bytes()[..end]
+        .iter()
+        .filter(|&&c| c == b'\n')
+        .count() as u32
+        + 1
 }
 
 fn forget_session(state: &AppState, key: &str, entry: &Arc<SessionEntry>) {
@@ -786,11 +971,19 @@ enum Run {
 /// way to stop it), when it doesn't return in time, when the driver reports
 /// the connection lost, or when the wake-up came from closing the session
 /// (`registered` false) rather than from a cancel.
-async fn run_cancellable<F>(run: F, entry: &SessionEntry, grace: Duration, registered: impl Fn() -> bool) -> Run
+async fn run_cancellable<F>(
+    run: F,
+    entry: &SessionEntry,
+    grace: Duration,
+    registered: impl Fn() -> bool,
+) -> Run
 where
     F: Future<Output = dbine_driver::Result<()>>,
 {
-    let dropped = Run::Cancelled { keep: false, completed: false };
+    let dropped = Run::Cancelled {
+        keep: false,
+        completed: false,
+    };
     tokio::pin!(run);
     tokio::select! {
         // The interrupter may stop it before the wake-up arrives.
@@ -823,9 +1016,22 @@ where
 /// reports the connection gone with it.
 fn after_cancel(r: dbine_driver::Result<()>) -> Run {
     match r {
-        Ok(()) => Run::Cancelled { keep: true, completed: true },
-        Err(dbine_driver::Error::Connect(_) | dbine_driver::Error::ConnectFailed(_) | dbine_driver::Error::Io(_)) => Run::Cancelled { keep: false, completed: false },
-        Err(_) => Run::Cancelled { keep: true, completed: false },
+        Ok(()) => Run::Cancelled {
+            keep: true,
+            completed: true,
+        },
+        Err(
+            dbine_driver::Error::Connect(_)
+            | dbine_driver::Error::ConnectFailed(_)
+            | dbine_driver::Error::Io(_),
+        ) => Run::Cancelled {
+            keep: false,
+            completed: false,
+        },
+        Err(_) => Run::Cancelled {
+            keep: true,
+            completed: false,
+        },
     }
 }
 
@@ -898,8 +1104,13 @@ pub struct AutocommitArgs {
 /// switches it. Returns the transaction state after the switch (a driver
 /// may commit the open transaction when autocommit comes back on).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn set_tab_autocommit(state: State<'_, AppState>, args: AutocommitArgs) -> CommandResult<Option<TxState>> {
-    let entry = state.session(&args.session_id, &args.connection_id, &args.database).await?;
+pub async fn set_tab_autocommit(
+    state: State<'_, AppState>,
+    args: AutocommitArgs,
+) -> CommandResult<Option<TxState>> {
+    let entry = state
+        .session(&args.session_id, &args.connection_id, &args.database)
+        .await?;
     let mut s = entry.session.lock().await;
     s.set_autocommit(args.autocommit).await?;
     entry.autocommit.store(args.autocommit, Ordering::SeqCst);
@@ -908,8 +1119,13 @@ pub async fn set_tab_autocommit(state: State<'_, AppState>, args: AutocommitArgs
 
 /// Commit the tab's open transaction. `None` when the tab has no session.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn commit_tab(state: State<'_, AppState>, args: SessionArgs) -> CommandResult<Option<TxState>> {
-    let Some(entry) = state.sessions.get(&args.session_id).map(|e| e.clone()) else { return Ok(None) };
+pub async fn commit_tab(
+    state: State<'_, AppState>,
+    args: SessionArgs,
+) -> CommandResult<Option<TxState>> {
+    let Some(entry) = state.sessions.get(&args.session_id).map(|e| e.clone()) else {
+        return Ok(None);
+    };
     let mut s = entry.session.lock().await;
     s.commit().await?;
     Ok(s.transaction_state().await.unwrap_or(None))
@@ -917,8 +1133,13 @@ pub async fn commit_tab(state: State<'_, AppState>, args: SessionArgs) -> Comman
 
 /// Roll back the tab's open transaction. `None` when the tab has no session.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn rollback_tab(state: State<'_, AppState>, args: SessionArgs) -> CommandResult<Option<TxState>> {
-    let Some(entry) = state.sessions.get(&args.session_id).map(|e| e.clone()) else { return Ok(None) };
+pub async fn rollback_tab(
+    state: State<'_, AppState>,
+    args: SessionArgs,
+) -> CommandResult<Option<TxState>> {
+    let Some(entry) = state.sessions.get(&args.session_id).map(|e| e.clone()) else {
+        return Ok(None);
+    };
     let mut s = entry.session.lock().await;
     s.rollback().await?;
     Ok(s.transaction_state().await.unwrap_or(None))
@@ -928,8 +1149,13 @@ pub async fn rollback_tab(state: State<'_, AppState>, args: SessionArgs) -> Comm
 /// or switching database). `None`: no session, or the driver doesn't track
 /// it.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn tab_transaction_state(state: State<'_, AppState>, args: SessionArgs) -> CommandResult<Option<TxState>> {
-    let Some(entry) = state.sessions.get(&args.session_id).map(|e| e.clone()) else { return Ok(None) };
+pub async fn tab_transaction_state(
+    state: State<'_, AppState>,
+    args: SessionArgs,
+) -> CommandResult<Option<TxState>> {
+    let Some(entry) = state.sessions.get(&args.session_id).map(|e| e.clone()) else {
+        return Ok(None);
+    };
     let mut s = entry.session.lock().await;
     Ok(s.transaction_state().await?)
 }
@@ -962,14 +1188,21 @@ pub struct SplitStatement {
 
 /// The script cut as the engine's tool would (see [`Driver::split_script`]).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn split_script(state: State<'_, AppState>, args: SplitArgs) -> CommandResult<Vec<SplitStatement>> {
+pub async fn split_script(
+    state: State<'_, AppState>,
+    args: SplitArgs,
+) -> CommandResult<Vec<SplitStatement>> {
     let id = match (&args.driver, &args.connection_id) {
         (Some(d), _) => Some(d.clone()),
         (None, Some(c)) => state.store.get_connection(c)?.map(|c| c.config.driver),
         (None, None) => None,
     };
     let driver = id.as_deref().and_then(dbine_drivers::find);
-    Ok(split_for_ui(driver.map(|d| d.as_ref()), &args.sql, args.statements))
+    Ok(split_for_ui(
+        driver.map(|d| d.as_ref()),
+        &args.sql,
+        args.statements,
+    ))
 }
 
 fn split_for_ui(driver: Option<&dyn Driver>, sql: &str, statements: bool) -> Vec<SplitStatement> {
@@ -983,7 +1216,15 @@ fn split_for_ui(driver: Option<&dyn Driver>, sql: &str, statements: bool) -> Vec
     let pos = Utf16::new(sql);
     units
         .into_iter()
-        .map(|u| SplitStatement { start: pos.at(u.start), end: pos.at(u.end), line: u.line, kind: u.kind, repeat: u.repeat, text: u.text, error: u.error })
+        .map(|u| SplitStatement {
+            start: pos.at(u.start),
+            end: pos.at(u.end),
+            line: u.line,
+            kind: u.kind,
+            repeat: u.repeat,
+            text: u.text,
+            error: u.error,
+        })
         .collect()
 }
 
@@ -1016,7 +1257,12 @@ mod tests {
         fn browse_query(&self, _: &ObjectRef, _: u32) -> String {
             unimplemented!()
         }
-        async fn execute(&mut self, _: &str, _: usize, _: &mut QueryOutcome) -> dbine_driver::Result<()> {
+        async fn execute(
+            &mut self,
+            _: &str,
+            _: usize,
+            _: &mut QueryOutcome,
+        ) -> dbine_driver::Result<()> {
             unimplemented!()
         }
     }
@@ -1065,10 +1311,21 @@ mod tests {
         cancel_soon(&e);
         let run = async {
             stop.notified().await;
-            Err(Error::Query("canceling statement due to user request".into()))
+            Err(Error::Query(
+                "canceling statement due to user request".into(),
+            ))
         };
         let r = run_cancellable(run, &e, GRACE, || true).await;
-        assert!(matches!(r, Run::Cancelled { keep: true, completed: false }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Run::Cancelled {
+                    keep: true,
+                    completed: false
+                }
+            ),
+            "{r:?}"
+        );
     }
 
     #[tokio::test]
@@ -1081,7 +1338,16 @@ mod tests {
             Ok(())
         };
         let r = run_cancellable(run, &e, GRACE, || true).await;
-        assert!(matches!(r, Run::Cancelled { keep: true, completed: true }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Run::Cancelled {
+                    keep: true,
+                    completed: true
+                }
+            ),
+            "{r:?}"
+        );
     }
 
     #[tokio::test]
@@ -1089,7 +1355,16 @@ mod tests {
         let e = entry(None);
         cancel_soon(&e);
         let r = run_cancellable(std::future::pending(), &e, GRACE, || true).await;
-        assert!(matches!(r, Run::Cancelled { keep: false, completed: false }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Run::Cancelled {
+                    keep: false,
+                    completed: false
+                }
+            ),
+            "{r:?}"
+        );
     }
 
     #[tokio::test]
@@ -1098,7 +1373,16 @@ mod tests {
         cancel_soon(&e);
         let started = std::time::Instant::now();
         let r = run_cancellable(std::future::pending(), &e, GRACE, || true).await;
-        assert!(matches!(r, Run::Cancelled { keep: false, completed: false }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Run::Cancelled {
+                    keep: false,
+                    completed: false
+                }
+            ),
+            "{r:?}"
+        );
         assert!(started.elapsed() >= GRACE);
     }
 
@@ -1113,7 +1397,16 @@ mod tests {
             Err(Error::Connect("connection closed".into()))
         };
         let r = run_cancellable(run, &e, GRACE, || true).await;
-        assert!(matches!(r, Run::Cancelled { keep: false, completed: false }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Run::Cancelled {
+                    keep: false,
+                    completed: false
+                }
+            ),
+            "{r:?}"
+        );
     }
 
     #[tokio::test]
@@ -1128,7 +1421,13 @@ mod tests {
             Err(Error::Cancelled)
         };
         let r = run_cancellable(run, &e, GRACE, || true).await;
-        let Run::Cancelled { keep, completed: false } = r else { panic!("{r:?}") };
+        let Run::Cancelled {
+            keep,
+            completed: false,
+        } = r
+        else {
+            panic!("{r:?}")
+        };
         assert!(keep, "the run itself looks recoverable");
         for id in CANCEL_ENDS_SESSION {
             assert!(cancel_ends_session(Some(id)), "{id}");
@@ -1138,7 +1437,15 @@ mod tests {
     #[test]
     fn engines_with_a_server_cancel_keep_the_session() {
         // SQL Server and its cloud variants: TDS attention, the session lives on.
-        for id in ["postgres", "mysql", "clickhouse", "mongodb", "sqlserver", "azuresql", "fabric"] {
+        for id in [
+            "postgres",
+            "mysql",
+            "clickhouse",
+            "mongodb",
+            "sqlserver",
+            "azuresql",
+            "fabric",
+        ] {
             assert!(!cancel_ends_session(Some(id)), "{id}");
         }
         assert!(cancel_ends_session(None));
@@ -1149,7 +1456,14 @@ mod tests {
         for id in CANCEL_ENDS_SESSION {
             assert!(dbine_drivers::find(id).is_some(), "{id}");
         }
-        for id in ["postgres", "mysql", "oracle", "sqlserver", "azuresql", "fabric"] {
+        for id in [
+            "postgres",
+            "mysql",
+            "oracle",
+            "sqlserver",
+            "azuresql",
+            "fabric",
+        ] {
             assert!(dbine_drivers::find(id).is_some(), "{id}");
         }
     }
@@ -1181,18 +1495,28 @@ mod tests {
         fn browse_query(&self, _: &ObjectRef, _: u32) -> String {
             unimplemented!()
         }
-        async fn execute(&mut self, text: &str, _: usize, out: &mut QueryOutcome) -> dbine_driver::Result<()> {
+        async fn execute(
+            &mut self,
+            text: &str,
+            _: usize,
+            out: &mut QueryOutcome,
+        ) -> dbine_driver::Result<()> {
             self.ran.push(text.to_string());
             out.messages.push(format!("ran {text}"));
             if let Some(at) = text.find("boom") {
-                return Err(ScriptError::new("Incorrect syntax near 'boom'.").with_code("102").at_offset(at).into());
+                return Err(ScriptError::new("Incorrect syntax near 'boom'.")
+                    .with_code("102")
+                    .at_offset(at)
+                    .into());
             }
             if text.contains("lost") {
                 return Err(Error::Connect("connection reset".into()));
             }
             if let Some(at) = text.find("stop") {
                 self.cancel.store(true, Ordering::SeqCst);
-                return Err(ScriptError::new("canceling statement due to user request").at_offset(at).into());
+                return Err(ScriptError::new("canceling statement due to user request")
+                    .at_offset(at)
+                    .into());
             }
             out.push_affected(1);
             Ok(())
@@ -1209,13 +1533,32 @@ mod tests {
     async fn run_units(sql: &str, dialect: sql::ScriptDialect, continue_on_error: bool) -> Ran {
         let units = sql::split_script(sql, &dialect);
         let cancel = Arc::new(AtomicBool::new(false));
-        let mut s = Scripted { ran: Vec::new(), cancel: cancel.clone() };
+        let mut s = Scripted {
+            ran: Vec::new(),
+            cancel: cancel.clone(),
+        };
         let mut out = QueryOutcome::default();
         let seen = std::sync::Mutex::new(Vec::new());
-        let progress = |p: Progress<'_>| seen.lock().unwrap().push((p.statement, p.iteration, p.errors.len()));
-        let run = ScriptRun { units: &units, continue_on_error, max_rows: 10, cancelled: &cancel, progress: &progress, bound: None };
+        let progress = |p: Progress<'_>| {
+            seen.lock()
+                .unwrap()
+                .push((p.statement, p.iteration, p.errors.len()))
+        };
+        let run = ScriptRun {
+            units: &units,
+            continue_on_error,
+            max_rows: 10,
+            cancelled: &cancel,
+            progress: &progress,
+            bound: None,
+        };
         let result = run_script(&mut s, run, &mut out).await;
-        Ran { result, ran: s.ran, out, progress: seen.into_inner().unwrap() }
+        Ran {
+            result,
+            ran: s.ran,
+            out,
+            progress: seen.into_inner().unwrap(),
+        }
     }
 
     #[tokio::test]
@@ -1224,12 +1567,25 @@ mod tests {
         let r = run_units(sql, sql::ScriptDialect::generic(), true).await;
         assert!(r.result.is_ok());
         assert_eq!(r.ran, vec!["select 1", "select boom", "select 3"]);
-        assert_eq!(r.out.results.iter().map(|x| x.statement).collect::<Vec<_>>(), vec![Some(0), Some(2)]);
+        assert_eq!(
+            r.out
+                .results
+                .iter()
+                .map(|x| x.statement)
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(2)]
+        );
         assert_eq!(r.out.results[1].line, Some(3));
         let e = &r.out.errors[0];
-        assert_eq!((e.statement, e.code.as_deref(), e.line), (Some(1), Some("102"), Some(2)));
+        assert_eq!(
+            (e.statement, e.code.as_deref(), e.line),
+            (Some(1), Some("102"), Some(2))
+        );
         assert_eq!(&sql[e.offset.unwrap()..e.offset.unwrap() + 4], "boom");
-        assert_eq!(r.out.error.as_deref(), Some("Incorrect syntax near 'boom'."));
+        assert_eq!(
+            r.out.error.as_deref(),
+            Some("Incorrect syntax near 'boom'.")
+        );
         // Messages and the error, in order, each with its statement.
         let log: Vec<_> = r.out.log.iter().map(|m| (m.level, m.statement)).collect();
         assert_eq!(
@@ -1247,7 +1603,12 @@ mod tests {
 
     #[tokio::test]
     async fn script_stops_at_the_first_error_by_default() {
-        let r = run_units("select 1; select boom; select 3", sql::ScriptDialect::generic(), false).await;
+        let r = run_units(
+            "select 1; select boom; select 3",
+            sql::ScriptDialect::generic(),
+            false,
+        )
+        .await;
         assert!(r.result.is_ok());
         assert_eq!(r.ran, vec!["select 1", "select boom"]);
         assert_eq!(r.out.errors.len(), 1);
@@ -1255,7 +1616,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_lost_connection_ends_the_script_even_when_continuing() {
-        let r = run_units("select 1; select lost; select 3", sql::ScriptDialect::generic(), true).await;
+        let r = run_units(
+            "select 1; select lost; select 3",
+            sql::ScriptDialect::generic(),
+            true,
+        )
+        .await;
         assert!(matches!(r.result, Err(Error::Connect(_))));
         assert_eq!(r.ran, vec!["select 1", "select lost"]);
         assert!(r.out.errors[0].fatal);
@@ -1263,16 +1629,48 @@ mod tests {
 
     #[tokio::test]
     async fn go_n_repeats_its_batch() {
-        let r = run_units("insert x\nGO 3\nselect 1", sql::ScriptDialect::tsql(), false).await;
+        let r = run_units(
+            "insert x\nGO 3\nselect 1",
+            sql::ScriptDialect::tsql(),
+            false,
+        )
+        .await;
         assert_eq!(r.ran, vec!["insert x", "insert x", "insert x", "select 1"]);
         assert_eq!(r.out.results.len(), 4);
-        assert!(r.out.messages.contains(&"Lote ejecutado 3 veces.".to_string()));
-        assert_eq!(r.progress.iter().map(|p| (p.0, p.1)).collect::<Vec<_>>(), vec![(0, 1), (0, 2), (0, 3), (1, 1)]);
+        assert!(r
+            .out
+            .messages
+            .contains(&"Lote ejecutado 3 veces.".to_string()));
+        assert_eq!(
+            r.progress.iter().map(|p| (p.0, p.1)).collect::<Vec<_>>(),
+            vec![(0, 1), (0, 2), (0, 3), (1, 1)]
+        );
         // A failing repetition doesn't end the repeats (sqlcmd runs all of
         // them and counts them); the script goes on after them.
-        let r = run_units("select boom\nGO 5\nselect 2", sql::ScriptDialect::tsql(), true).await;
-        assert_eq!(r.ran, vec!["select boom", "select boom", "select boom", "select boom", "select boom", "select 2"]);
-        assert!(r.out.messages.contains(&"Lote ejecutado 5 veces.".to_string()), "{:?}", r.out.messages);
+        let r = run_units(
+            "select boom\nGO 5\nselect 2",
+            sql::ScriptDialect::tsql(),
+            true,
+        )
+        .await;
+        assert_eq!(
+            r.ran,
+            vec![
+                "select boom",
+                "select boom",
+                "select boom",
+                "select boom",
+                "select boom",
+                "select 2"
+            ]
+        );
+        assert!(
+            r.out
+                .messages
+                .contains(&"Lote ejecutado 5 veces.".to_string()),
+            "{:?}",
+            r.out.messages
+        );
     }
 
     #[tokio::test]
@@ -1282,14 +1680,22 @@ mod tests {
         assert!(matches!(r.result, Err(Error::Statement(_))));
         assert!(r.ran.is_empty(), "{:?}", r.ran);
         let e = &r.out.errors[0];
-        assert_eq!((e.message.as_str(), e.statement, e.line, e.fatal), (sql::GO_COUNT_ERROR, Some(1), Some(2), true));
+        assert_eq!(
+            (e.message.as_str(), e.statement, e.line, e.fatal),
+            (sql::GO_COUNT_ERROR, Some(1), Some(2), true)
+        );
         assert_eq!(&sql[e.offset.unwrap()..e.offset.unwrap() + 2], "GO");
         assert_eq!(r.out.error.as_deref(), Some(sql::GO_COUNT_ERROR));
     }
 
     #[tokio::test]
     async fn cancel_stops_the_script() {
-        let r = run_units("select 1; select stop; select 3", sql::ScriptDialect::generic(), true).await;
+        let r = run_units(
+            "select 1; select stop; select 3",
+            sql::ScriptDialect::generic(),
+            true,
+        )
+        .await;
         assert!(matches!(r.result, Err(Error::Cancelled)));
         assert_eq!(r.ran, vec!["select 1", "select stop"]);
         assert_eq!(r.out.errors.len(), 1, "the server's cancel message is kept");
@@ -1323,23 +1729,58 @@ select
             s2.lock().unwrap().push((m.level, line));
         })));
         let cancel = Arc::new(AtomicBool::new(false));
-        let mut s = Scripted { ran: Vec::new(), cancel: cancel.clone() };
+        let mut s = Scripted {
+            ran: Vec::new(),
+            cancel: cancel.clone(),
+        };
         let progress = |_: Progress<'_>| {};
-        let run = ScriptRun { units: &units, continue_on_error: true, max_rows: 10, cancelled: &cancel, progress: &progress, bound: None };
+        let run = ScriptRun {
+            units: &units,
+            continue_on_error: true,
+            max_rows: 10,
+            cancelled: &cancel,
+            progress: &progress,
+            bound: None,
+        };
         run_script(&mut s, run, &mut out).await.unwrap();
         // The error is on line 4 of the script, live and in the outcome.
-        let live: Vec<_> = seen.lock().unwrap().iter().filter(|(l, _)| *l == MessageLevel::Error).map(|x| x.1).collect();
+        let live: Vec<_> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(l, _)| *l == MessageLevel::Error)
+            .map(|x| x.1)
+            .collect();
         assert_eq!(live, vec![Some(4)]);
         assert_eq!(out.errors[0].line, Some(4));
-        assert_eq!(out.log.iter().find(|m| m.level == MessageLevel::Error).unwrap().line, Some(4));
+        assert_eq!(
+            out.log
+                .iter()
+                .find(|m| m.level == MessageLevel::Error)
+                .unwrap()
+                .line,
+            Some(4)
+        );
     }
 
     #[tokio::test]
     async fn client_commands_are_not_sent() {
-        let r = run_units("DELIMITER //\nselect 1//\nDELIMITER ;\nselect 2;", sql::ScriptDialect::mysql(), false).await;
+        let r = run_units(
+            "DELIMITER //\nselect 1//\nDELIMITER ;\nselect 2;",
+            sql::ScriptDialect::mysql(),
+            false,
+        )
+        .await;
         assert_eq!(r.ran, vec!["select 1", "select 2"]);
         // Statement numbers follow split_script's, client commands included.
-        assert_eq!(r.out.results.iter().map(|x| x.statement).collect::<Vec<_>>(), vec![Some(1), Some(3)]);
+        assert_eq!(
+            r.out
+                .results
+                .iter()
+                .map(|x| x.statement)
+                .collect::<Vec<_>>(),
+            vec![Some(1), Some(3)]
+        );
     }
 
     #[test]
@@ -1349,14 +1790,28 @@ select
         assert_eq!(sf.script_mode(), ScriptMode::Whole);
         assert!(script_units(RunMode::Whole, sf, "select 1; select 2").is_none());
         assert!(script_units(RunMode::Auto, sf, "select 1; select 2").is_none());
-        assert_eq!(script_units(RunMode::PerStatement, sf, "select 1; select 2").unwrap().len(), 2);
+        assert_eq!(
+            script_units(RunMode::PerStatement, sf, "select 1; select 2")
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]
     fn unsafe_dml_is_checked_on_sql_engines_only() {
         let pg = dbine_drivers::find("postgres").unwrap().as_ref();
-        let found = unsafe_dml(pg, "select 1;\ndelete from t;\nupdate t set a = 1 where b = 2");
-        assert_eq!(found.iter().map(|u| (u.keyword.as_str(), u.line)).collect::<Vec<_>>(), vec![("DELETE", 2)]);
+        let found = unsafe_dml(
+            pg,
+            "select 1;\ndelete from t;\nupdate t set a = 1 where b = 2",
+        );
+        assert_eq!(
+            found
+                .iter()
+                .map(|u| (u.keyword.as_str(), u.line))
+                .collect::<Vec<_>>(),
+            vec![("DELETE", 2)]
+        );
         let redis = dbine_drivers::find("redis").unwrap().as_ref();
         assert!(unsafe_dml(redis, "delete from t").is_empty());
     }
@@ -1374,8 +1829,17 @@ select
         let ms = dbine_drivers::find("sqlserver").unwrap().as_ref();
         let p = "CREATE PROCEDURE p AS SET NOCOUNT ON; UPDATE t SET a = 1;\nGO\nUPDATE t SET a = 2\nSELECT * FROM t WHERE id = 1";
         let found = unsafe_dml(ms, p);
-        assert_eq!(found.iter().map(|u| (&p[u.start..u.end], u.line)).collect::<Vec<_>>(), vec![("UPDATE t SET a = 2", 3)]);
-        assert_eq!(split_for_ui(Some(ms), p, true)[0].text, "CREATE PROCEDURE p AS SET NOCOUNT ON; UPDATE t SET a = 1;");
+        assert_eq!(
+            found
+                .iter()
+                .map(|u| (&p[u.start..u.end], u.line))
+                .collect::<Vec<_>>(),
+            vec![("UPDATE t SET a = 2", 3)]
+        );
+        assert_eq!(
+            split_for_ui(Some(ms), p, true)[0].text,
+            "CREATE PROCEDURE p AS SET NOCOUNT ON; UPDATE t SET a = 1;"
+        );
     }
 
     #[test]
@@ -1385,9 +1849,23 @@ select
         let ora = dbine_drivers::find("oracle").unwrap().as_ref();
         let sql = "PROMPT Delete old rows\nEXEC p(1)\nSELECT 1 FROM dual;\nUPDATE t SET a = 1;";
         let st = split_for_ui(Some(ora), sql, true);
-        assert_eq!(st.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(), ["PROMPT Delete old rows", "EXEC p(1)", "SELECT 1 FROM dual", "UPDATE t SET a = 1"]);
+        assert_eq!(
+            st.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
+            [
+                "PROMPT Delete old rows",
+                "EXEC p(1)",
+                "SELECT 1 FROM dual",
+                "UPDATE t SET a = 1"
+            ]
+        );
         let found = unsafe_dml(ora, sql);
-        assert_eq!(found.iter().map(|u| (&sql[u.start..u.end], u.line)).collect::<Vec<_>>(), vec![("UPDATE t SET a = 1", 4)]);
+        assert_eq!(
+            found
+                .iter()
+                .map(|u| (&sql[u.start..u.end], u.line))
+                .collect::<Vec<_>>(),
+            vec![("UPDATE t SET a = 1", 4)]
+        );
     }
 
     #[test]
@@ -1396,7 +1874,10 @@ select
         let st = split_for_ui(None, sql, false);
         assert_eq!(st.len(), 2);
         let js: Vec<u16> = sql.encode_utf16().collect();
-        assert_eq!(String::from_utf16(&js[st[1].start..st[1].end]).unwrap(), "select 2");
+        assert_eq!(
+            String::from_utf16(&js[st[1].start..st[1].end]).unwrap(),
+            "select 2"
+        );
         assert_eq!(st[1].line, 2);
         // A driver's own units.
         let pg = dbine_drivers::find("postgres").unwrap().as_ref();
@@ -1422,7 +1903,10 @@ select
     #[test]
     fn utf16_positions() {
         let p = Utf16::new("aé😀b");
-        assert_eq!((p.at(0), p.at(1), p.at(3), p.at(7), p.at(8)), (0, 1, 2, 4, 5));
+        assert_eq!(
+            (p.at(0), p.at(1), p.at(3), p.at(7), p.at(8)),
+            (0, 1, 2, 4, 5)
+        );
         assert_eq!(line_of("a\nb\nc", 4), 3);
     }
 
@@ -1436,8 +1920,20 @@ select
             closer.cancel.notify_waiters();
         });
         let started = std::time::Instant::now();
-        let r = run_cancellable(std::future::pending(), &e, Duration::from_secs(30), || false).await;
-        assert!(matches!(r, Run::Cancelled { keep: false, completed: false }), "{r:?}");
+        let r = run_cancellable(std::future::pending(), &e, Duration::from_secs(30), || {
+            false
+        })
+        .await;
+        assert!(
+            matches!(
+                r,
+                Run::Cancelled {
+                    keep: false,
+                    completed: false
+                }
+            ),
+            "{r:?}"
+        );
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 
@@ -1453,8 +1949,20 @@ select
             closer.cancel.notify_waiters();
         });
         let started = std::time::Instant::now();
-        let r = run_cancellable(std::future::pending(), &e, Duration::from_secs(30), || open.load(Ordering::SeqCst)).await;
-        assert!(matches!(r, Run::Cancelled { keep: false, completed: false }), "{r:?}");
+        let r = run_cancellable(std::future::pending(), &e, Duration::from_secs(30), || {
+            open.load(Ordering::SeqCst)
+        })
+        .await;
+        assert!(
+            matches!(
+                r,
+                Run::Cancelled {
+                    keep: false,
+                    completed: false
+                }
+            ),
+            "{r:?}"
+        );
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 
@@ -1473,10 +1981,20 @@ select
         let p = args.params.as_ref().unwrap();
         let pg = dbine_drivers::find("postgres").unwrap();
         let values = params::resolve(&p.definitions, &p.values).unwrap();
-        let run = params::prepare_text(&args.sql, &params::Engine::Driver(pg.as_ref()), &p.definitions, &values, None).unwrap();
+        let run = params::prepare_text(
+            &args.sql,
+            &params::Engine::Driver(pg.as_ref()),
+            &p.definitions,
+            &values,
+            None,
+        )
+        .unwrap();
         // What runs has the values; what the history keeps doesn't.
         assert!(run.text.contains("hunter2-secret"), "{}", run.text);
-        assert_eq!(history_text(&args), "SELECT * FROM t WHERE pwd = {{db_password}} AND n = {{n}}");
+        assert_eq!(
+            history_text(&args),
+            "SELECT * FROM t WHERE pwd = {{db_password}} AND n = {{n}}"
+        );
         assert!(!history_text(&args).contains("hunter2"));
     }
 }

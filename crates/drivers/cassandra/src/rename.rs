@@ -8,7 +8,9 @@
 use crate::cql::{ident, qualified};
 use crate::ddl::keys;
 use crate::Flavor;
-use dbine_driver::rename::{quote_new, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle};
+use dbine_driver::rename::{
+    quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget,
+};
 use dbine_driver::{kinds, Error, Result, ScriptDialect, SyncScript, TableSchema};
 
 pub(crate) const NOTE: &str = "Cassandra solo renombra columnas de la clave primaria (de partición o de clustering). \
@@ -67,11 +69,18 @@ fn in_key(table: &TableSchema, column: &str) -> bool {
     if let Ok((pk, ck)) = keys(table) {
         return pk.iter().chain(ck.iter()).any(|c| c.name == column);
     }
-    table.primary_key.as_ref().is_some_and(|k| k.columns.iter().any(|c| c == column))
+    table
+        .primary_key
+        .as_ref()
+        .is_some_and(|k| k.columns.iter().any(|c| c == column))
 }
 
 /// The statements that rename the target.
-pub(crate) fn script(flavor: Flavor, dialect: &ScriptDialect, req: &RenameRequest) -> Result<SyncScript> {
+pub(crate) fn script(
+    flavor: Flavor,
+    dialect: &ScriptDialect,
+    req: &RenameRequest,
+) -> Result<SyncScript> {
     if flavor == Flavor::Keyspaces {
         return Err(Error::Unsupported(NOTHING.into()));
     }
@@ -109,24 +118,47 @@ mod tests {
     use dbine_driver::{ColumnDef, IndexDef, KeyDef, ObjectRef};
 
     fn dialect() -> ScriptDialect {
-        ScriptDialect { dollar_quotes: true, backtick_idents: false, compound_blocks: false, ..ScriptDialect::generic() }
+        ScriptDialect {
+            dollar_quotes: true,
+            backtick_idents: false,
+            compound_blocks: false,
+            ..ScriptDialect::generic()
+        }
     }
 
     fn table() -> TableSchema {
-        let col = |n: &str| ColumnDef { name: n.into(), data_type: "int".into(), ..Default::default() };
+        let col = |n: &str| ColumnDef {
+            name: n.into(),
+            data_type: "int".into(),
+            ..Default::default()
+        };
         TableSchema {
             schema: Some("ks".into()),
             name: "t".into(),
             columns: vec![col("id"), col("Ck"), col("pepe"), col("tagged")],
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into(), "Ck".into(), "tagged".into()] }),
-            indexes: vec![IndexDef { name: "t_tagged".into(), columns: vec!["values(tagged)".into()], ..Default::default() }],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into(), "Ck".into(), "tagged".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "t_tagged".into(),
+                columns: vec!["values(tagged)".into()],
+                ..Default::default()
+            }],
             ..Default::default()
         }
     }
 
     fn column(c: &str, new: &str) -> RenameRequest {
         RenameRequest {
-            target: RenameTarget::Column { table: ObjectRef { kind: kinds::TABLE.into(), schema: Some("ks".into()), name: "t".into() }, column: c.into() },
+            target: RenameTarget::Column {
+                table: ObjectRef {
+                    kind: kinds::TABLE.into(),
+                    schema: Some("ks".into()),
+                    name: "t".into(),
+                },
+                column: c.into(),
+            },
             new_name: new.into(),
             table: Some(table()),
             definition: None,
@@ -139,18 +171,33 @@ mod tests {
 
     #[test]
     fn key_columns_are_renamed_with_quotes_where_needed() {
-        assert_eq!(run(&column("id", "user_id")).unwrap().statements, vec!["ALTER TABLE ks.t RENAME id TO user_id;"]);
+        assert_eq!(
+            run(&column("id", "user_id")).unwrap().statements,
+            vec!["ALTER TABLE ks.t RENAME id TO user_id;"]
+        );
         // Mixed case, both ways.
-        assert_eq!(run(&column("Ck", "Fecha")).unwrap().statements, vec!["ALTER TABLE ks.t RENAME \"Ck\" TO \"Fecha\";"]);
+        assert_eq!(
+            run(&column("Ck", "Fecha")).unwrap().statements,
+            vec!["ALTER TABLE ks.t RENAME \"Ck\" TO \"Fecha\";"]
+        );
         // A CQL keyword.
-        assert_eq!(run(&column("id", "token")).unwrap().statements[0], "ALTER TABLE ks.t RENAME id TO \"token\";");
-        assert_eq!(run(&column("id", "nuevo")).unwrap().warnings, vec![VIEWS.to_string()]);
+        assert_eq!(
+            run(&column("id", "token")).unwrap().statements[0],
+            "ALTER TABLE ks.t RENAME id TO \"token\";"
+        );
+        assert_eq!(
+            run(&column("id", "nuevo")).unwrap().warnings,
+            vec![VIEWS.to_string()]
+        );
     }
 
     #[test]
     fn regular_and_indexed_columns_are_refused() {
         let e = run(&column("pepe", "juan")).unwrap_err().to_string();
-        assert!(e.contains("solo renombra columnas de la clave primaria") && e.contains("«pepe»"), "{e}");
+        assert!(
+            e.contains("solo renombra columnas de la clave primaria") && e.contains("«pepe»"),
+            "{e}"
+        );
         let e = run(&column("tagged", "etiquetas")).unwrap_err().to_string();
         assert!(e.contains("t_tagged"), "{e}");
     }
@@ -165,16 +212,51 @@ mod tests {
 
     #[test]
     fn everything_else_is_refused() {
-        let t = ObjectRef { kind: kinds::TABLE.into(), schema: Some("ks".into()), name: "t".into() };
-        let req = |target| RenameRequest { target, new_name: "x".into(), table: None, definition: None };
+        let t = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some("ks".into()),
+            name: "t".into(),
+        };
+        let req = |target| RenameRequest {
+            target,
+            new_name: "x".into(),
+            table: None,
+            definition: None,
+        };
         let msg = |target| run(&req(target)).unwrap_err().to_string();
-        assert!(msg(RenameTarget::Object { object: t.clone(), parent: None }).contains("no renombra tablas"));
-        assert!(msg(RenameTarget::Object { object: ObjectRef { kind: kinds::MATERIALIZED_VIEW.into(), ..t.clone() }, parent: None }).contains("vistas materializadas"));
-        assert!(msg(RenameTarget::Index { table: t.clone(), index: "i".into() }).contains("no renombra índices"));
-        assert!(msg(RenameTarget::Constraint { table: t.clone(), constraint: "c".into() }).contains("restricciones"));
-        assert!(msg(RenameTarget::Schema { database: None, schema: "ks".into() }).contains("keyspaces"));
+        assert!(msg(RenameTarget::Object {
+            object: t.clone(),
+            parent: None
+        })
+        .contains("no renombra tablas"));
+        assert!(msg(RenameTarget::Object {
+            object: ObjectRef {
+                kind: kinds::MATERIALIZED_VIEW.into(),
+                ..t.clone()
+            },
+            parent: None
+        })
+        .contains("vistas materializadas"));
+        assert!(msg(RenameTarget::Index {
+            table: t.clone(),
+            index: "i".into()
+        })
+        .contains("no renombra índices"));
+        assert!(msg(RenameTarget::Constraint {
+            table: t.clone(),
+            constraint: "c".into()
+        })
+        .contains("restricciones"));
+        assert!(msg(RenameTarget::Schema {
+            database: None,
+            schema: "ks".into()
+        })
+        .contains("keyspaces"));
         assert!(spec(Flavor::Keyspaces).is_none());
-        assert!(script(Flavor::Keyspaces, &dialect(), &column("id", "x")).unwrap_err().to_string().contains("Amazon Keyspaces"));
+        assert!(script(Flavor::Keyspaces, &dialect(), &column("id", "x"))
+            .unwrap_err()
+            .to_string()
+            .contains("Amazon Keyspaces"));
         let s = spec(Flavor::Scylla).unwrap();
         assert!(s.columns && s.kinds.is_empty() && !s.indexes && !s.schemas);
     }

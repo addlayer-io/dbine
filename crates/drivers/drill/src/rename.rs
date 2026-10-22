@@ -8,7 +8,9 @@
 //! backticks) and bind names when queried: the app rewrites the ones that
 //! name the view and puts them back with `CREATE OR REPLACE VIEW`.
 
-use dbine_driver::rename::{rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
+use dbine_driver::rename::{
+    rename_header, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
 use dbine_driver::sql::split_script;
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
@@ -69,9 +71,17 @@ pub fn script(req: &RenameRequest) -> Result<SyncScript> {
 /// overwrite a view that already has it.
 fn plain_create(def: &str) -> String {
     let lead = def.len() - def.trim_start().len();
-    let words: Vec<(usize, &str)> = def[lead..].split_whitespace().take(3).map(|w| (w.as_ptr() as usize - def.as_ptr() as usize, w)).collect();
+    let words: Vec<(usize, &str)> = def[lead..]
+        .split_whitespace()
+        .take(3)
+        .map(|w| (w.as_ptr() as usize - def.as_ptr() as usize, w))
+        .collect();
     match words.as_slice() {
-        [(start, c), (_, o), (r_at, r)] if c.eq_ignore_ascii_case("create") && o.eq_ignore_ascii_case("or") && r.eq_ignore_ascii_case("replace") => {
+        [(start, c), (_, o), (r_at, r)]
+            if c.eq_ignore_ascii_case("create")
+                && o.eq_ignore_ascii_case("or")
+                && r.eq_ignore_ascii_case("replace") =>
+        {
             format!("{}CREATE{}", &def[..*start], &def[r_at + r.len()..])
         }
         _ => def.to_string(),
@@ -84,11 +94,20 @@ mod tests {
     use dbine_driver::ObjectRef;
 
     fn obj(kind: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: Some("dfs.tmp".into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: Some("dfs.tmp".into()),
+            name: name.into(),
+        }
     }
 
     fn req(target: RenameTarget, new: &str) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: None }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: None,
+        }
     }
 
     #[test]
@@ -101,18 +120,40 @@ mod tests {
 
     #[test]
     fn views_are_created_again() {
-        let mut r = req(RenameTarget::Object { object: obj("view", "v"), parent: None }, "Ventas Netas");
-        r.definition = Some("CREATE OR REPLACE VIEW `dfs.tmp`.`v` AS\nSELECT `id`\nFROM `dfs`.`tmp`.`t`;".into());
+        let mut r = req(
+            RenameTarget::Object {
+                object: obj("view", "v"),
+                parent: None,
+            },
+            "Ventas Netas",
+        );
+        r.definition = Some(
+            "CREATE OR REPLACE VIEW `dfs.tmp`.`v` AS\nSELECT `id`\nFROM `dfs`.`tmp`.`t`;".into(),
+        );
         let s = script(&r).unwrap();
-        assert_eq!(s.statements, ["CREATE VIEW `dfs.tmp`.`Ventas Netas` AS\nSELECT `id`\nFROM `dfs`.`tmp`.`t`;", "DROP VIEW `dfs.tmp`.`v`;"]);
+        assert_eq!(
+            s.statements,
+            [
+                "CREATE VIEW `dfs.tmp`.`Ventas Netas` AS\nSELECT `id`\nFROM `dfs`.`tmp`.`t`;",
+                "DROP VIEW `dfs.tmp`.`v`;"
+            ]
+        );
         r.definition = None;
         assert!(matches!(script(&r), Err(Error::Query(_))));
     }
 
     #[test]
     fn stored_text_that_would_split_is_refused() {
-        let mut r = req(RenameTarget::Object { object: obj("view", "v"), parent: None }, "w");
-        r.definition = Some("CREATE VIEW `dfs.tmp`.`v` AS SELECT 1 AS `x`; DROP TABLE `dfs`.`tmp`.`secreta`".into());
+        let mut r = req(
+            RenameTarget::Object {
+                object: obj("view", "v"),
+                parent: None,
+            },
+            "w",
+        );
+        r.definition = Some(
+            "CREATE VIEW `dfs.tmp`.`v` AS SELECT 1 AS `x`; DROP TABLE `dfs`.`tmp`.`secreta`".into(),
+        );
         assert!(matches!(script(&r), Err(Error::Unsupported(m)) if m.contains("«v»")));
         // Drill reads `//` as a comment: the `'` in it hides nothing.
         r.definition = Some("CREATE VIEW `dfs.tmp`.`v` AS SELECT 1 AS `x` // it's\n; DROP TABLE `dfs`.`tmp`.`secreta`".into());
@@ -127,11 +168,26 @@ mod tests {
     #[test]
     fn refused() {
         for t in [
-            RenameTarget::Object { object: obj("table", "t"), parent: None },
-            RenameTarget::Column { table: obj("table", "t"), column: "c".into() },
-            RenameTarget::Index { table: obj("table", "t"), index: "r".into() },
-            RenameTarget::Constraint { table: obj("table", "t"), constraint: "c".into() },
-            RenameTarget::Schema { database: None, schema: "dfs.tmp".into() },
+            RenameTarget::Object {
+                object: obj("table", "t"),
+                parent: None,
+            },
+            RenameTarget::Column {
+                table: obj("table", "t"),
+                column: "c".into(),
+            },
+            RenameTarget::Index {
+                table: obj("table", "t"),
+                index: "r".into(),
+            },
+            RenameTarget::Constraint {
+                table: obj("table", "t"),
+                constraint: "c".into(),
+            },
+            RenameTarget::Schema {
+                database: None,
+                schema: "dfs.tmp".into(),
+            },
         ] {
             assert!(matches!(script(&req(t, "x")), Err(Error::Unsupported(_))));
         }

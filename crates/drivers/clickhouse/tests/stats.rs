@@ -34,14 +34,33 @@ async fn clickhouse_stats() {
         eprintln!("DBINE_TEST_CLICKHOUSE_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == "clickhouse").unwrap();
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "clickhouse")
+        .unwrap();
     let mut s = d.connect(&cfg, None).await.unwrap();
     let _ = s.drop_database("dbine_stats").await;
     s.create_database("dbine_stats").await.unwrap();
-    run(&mut s, "CREATE TABLE dbine_stats.ventas (id UInt64) ENGINE = MergeTree ORDER BY id").await;
-    run(&mut s, "INSERT INTO dbine_stats.ventas SELECT number FROM numbers(1234)").await;
-    run(&mut s, "CREATE TABLE dbine_stats.bitacora (id UInt64) ENGINE = Log").await;
-    run(&mut s, "CREATE VIEW dbine_stats.v AS SELECT id FROM dbine_stats.ventas COMMENT 'ventas por id'").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbine_stats.ventas (id UInt64) ENGINE = MergeTree ORDER BY id",
+    )
+    .await;
+    run(
+        &mut s,
+        "INSERT INTO dbine_stats.ventas SELECT number FROM numbers(1234)",
+    )
+    .await;
+    run(
+        &mut s,
+        "CREATE TABLE dbine_stats.bitacora (id UInt64) ENGINE = Log",
+    )
+    .await;
+    run(
+        &mut s,
+        "CREATE VIEW dbine_stats.v AS SELECT id FROM dbine_stats.ventas COMMENT 'ventas por id'",
+    )
+    .await;
     run(
         &mut s,
         "CREATE MATERIALIZED VIEW dbine_stats.mv ENGINE = MergeTree ORDER BY id AS SELECT id FROM dbine_stats.ventas COMMENT 'copia'",
@@ -51,15 +70,31 @@ async fn clickhouse_stats() {
     let mut db = d.connect(&cfg, Some("dbine_stats")).await.unwrap();
     let rows = db.row_estimates().await.unwrap();
     eprintln!("{rows:?}");
-    let ventas = rows.iter().find(|r| r.object.name == "ventas").expect("ventas");
-    assert_eq!((ventas.object.kind.as_str(), ventas.rows), (kinds::TABLE, 1234));
+    let ventas = rows
+        .iter()
+        .find(|r| r.object.name == "ventas")
+        .expect("ventas");
+    assert_eq!(
+        (ventas.object.kind.as_str(), ventas.rows),
+        (kinds::TABLE, 1234)
+    );
     // Log keeps its count too (0 here); views have none.
-    assert!(rows.iter().all(|r| r.object.name != "v" && r.object.name != "mv"), "{rows:?}");
+    assert!(
+        rows.iter()
+            .all(|r| r.object.name != "v" && r.object.name != "mv"),
+        "{rows:?}"
+    );
 
     let comments = db.object_comments().await.unwrap();
     eprintln!("{comments:?}");
-    assert!(comments.iter().any(|c| c.object.kind == kinds::VIEW && c.object.name == "v" && c.comment == "ventas por id"));
-    assert!(comments.iter().any(|c| c.object.kind == kinds::MATERIALIZED_VIEW && c.object.name == "mv" && c.comment == "copia"));
+    assert!(comments.iter().any(|c| c.object.kind == kinds::VIEW
+        && c.object.name == "v"
+        && c.comment == "ventas por id"));
+    assert!(comments
+        .iter()
+        .any(|c| c.object.kind == kinds::MATERIALIZED_VIEW
+            && c.object.name == "mv"
+            && c.comment == "copia"));
     drop(db);
     s.drop_database("dbine_stats").await.unwrap();
 }
@@ -71,7 +106,10 @@ async fn timeplus_stats() {
         eprintln!("DBINE_TEST_TIMEPLUS_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == "timeplus").unwrap();
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "timeplus")
+        .unwrap();
     let mut s = d.connect(&cfg, None).await.unwrap();
     run(&mut s, "DROP STREAM IF EXISTS dbine_stats_s").await;
     run(&mut s, "CREATE STREAM dbine_stats_s (a int64)").await;
@@ -79,7 +117,12 @@ async fn timeplus_stats() {
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let rows = s.row_estimates().await.unwrap();
     eprintln!("{rows:?}");
-    assert!(rows.iter().any(|r| r.object.kind == kinds::STREAM && r.object.name == "dbine_stats_s" && r.rows == 3), "{rows:?}");
+    assert!(
+        rows.iter().any(|r| r.object.kind == kinds::STREAM
+            && r.object.name == "dbine_stats_s"
+            && r.rows == 3),
+        "{rows:?}"
+    );
     let c = s.object_comments().await.unwrap();
     eprintln!("{c:?}");
     run(&mut s, "DROP STREAM dbine_stats_s").await;

@@ -96,7 +96,12 @@ pub struct Defs {
     pub function: Def,
 }
 
-const NO_DEFS: Defs = Defs { table: Def::None, view: Def::None, procedure: Def::None, function: Def::None };
+const NO_DEFS: Defs = Defs {
+    table: Def::None,
+    view: Def::None,
+    procedure: Def::None,
+    function: Def::None,
+};
 
 #[derive(Debug)]
 pub struct Preset {
@@ -143,7 +148,9 @@ impl Preset {
 
     /// The template uses a `{placeholder}` of [`V::Fmt`] or one of these values.
     pub fn uses_part(&self, v: fn(&V) -> bool, placeholder: &str) -> bool {
-        self.template.iter().any(|(_, x)| v(x) || matches!(x, V::Fmt(f) if f.contains(placeholder)))
+        self.template
+            .iter()
+            .any(|(_, x)| v(x) || matches!(x, V::Fmt(f) if f.contains(placeholder)))
     }
 
     pub fn uses(&self, v: fn(&V) -> bool) -> bool {
@@ -151,10 +158,15 @@ impl Preset {
     }
 
     pub fn is_system_schema(&self, schema: &str) -> bool {
-        self.system_schemas.iter().any(|p| match p.strip_suffix('*') {
-            Some(prefix) => schema.len() >= prefix.len() && schema[..prefix.len()].eq_ignore_ascii_case(prefix),
-            None => schema.eq_ignore_ascii_case(p),
-        })
+        self.system_schemas
+            .iter()
+            .any(|p| match p.strip_suffix('*') {
+                Some(prefix) => {
+                    schema.len() >= prefix.len()
+                        && schema[..prefix.len()].eq_ignore_ascii_case(prefix)
+                }
+                None => schema.eq_ignore_ascii_case(p),
+            })
     }
 }
 
@@ -1697,7 +1709,9 @@ mod tests {
     #[test]
     fn ids_are_unique_and_lowercase() {
         let mut ids: Vec<_> = PRESETS.iter().map(|p| p.id).collect();
-        assert!(ids.iter().all(|i| i.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')));
+        assert!(ids.iter().all(|i| i
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')));
         let n = ids.len();
         ids.sort();
         ids.dedup();

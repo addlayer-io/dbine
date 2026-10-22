@@ -11,7 +11,13 @@ use crate::seg;
 use dbine_driver::{ColumnDef, DdlParts, IndexDef, Result, SyncScript, TableChange, TableSchema};
 use serde_json::Value;
 
-const CREATE: DdlParts = DdlParts { drop: false, if_exists: false, create: true, indexes: true, foreign_keys: false };
+const CREATE: DdlParts = DdlParts {
+    drop: false,
+    if_exists: false,
+    create: true,
+    indexes: true,
+    foreign_keys: false,
+};
 
 fn eq_name(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
@@ -23,16 +29,25 @@ fn squash(t: &str) -> String {
 
 /// Per-field warnings: documents keep what they have.
 fn field_warnings(t: &str, old: &[ColumnDef], new: &[ColumnDef], out: &mut Vec<String>) {
-    for c in old.iter().filter(|c| !new.iter().any(|n| eq_name(&n.name, &c.name))) {
+    for c in old
+        .iter()
+        .filter(|c| !new.iter().any(|n| eq_name(&n.name, &c.name)))
+    {
         out.push(format!("Los documentos no tienen esquema fijo: el campo {t}.{} no se borra de los documentos que ya existen.", c.name));
     }
-    for c in new.iter().filter(|c| !old.iter().any(|o| eq_name(&o.name, &c.name))) {
+    for c in new
+        .iter()
+        .filter(|c| !old.iter().any(|o| eq_name(&o.name, &c.name)))
+    {
         out.push(format!("Los documentos no tienen esquema fijo: el campo {t}.{} no se agrega a los documentos que ya existen.", c.name));
     }
     for n in new {
         if let Some(o) = old.iter().find(|o| eq_name(&o.name, &n.name)) {
             if squash(&o.data_type) != squash(&n.data_type) || o.nullable != n.nullable {
-                out.push(format!("Los documentos no tienen esquema fijo: el campo {t}.{} no se cambia.", n.name));
+                out.push(format!(
+                    "Los documentos no tienen esquema fijo: el campo {t}.{} no se cambia.",
+                    n.name
+                ));
             }
         }
     }
@@ -47,15 +62,28 @@ fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
 
 /// The design documents of the `design_docs` option, by `_id`.
 fn design_docs(t: &TableSchema) -> Result<Vec<(String, Value)>> {
-    let Some(text) = t.options.get("design_docs").filter(|s| !s.trim().is_empty()) else { return Ok(Vec::new()) };
-    let docs: Vec<Value> = serde_json::from_str(text).map_err(|e| dbine_driver::Error::Query(format!("design_docs: JSON inválido ({e})")))?;
+    let Some(text) = t
+        .options
+        .get("design_docs")
+        .filter(|s| !s.trim().is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+    let docs: Vec<Value> = serde_json::from_str(text)
+        .map_err(|e| dbine_driver::Error::Query(format!("design_docs: JSON inválido ({e})")))?;
     Ok(docs
         .into_iter()
         .map(|mut d| {
             if let Some(m) = d.as_object_mut() {
                 m.remove("_rev");
             }
-            (d.get("_id").and_then(Value::as_str).unwrap_or_default().to_string(), d)
+            (
+                d.get("_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                d,
+            )
         })
         .collect())
 }
@@ -125,8 +153,14 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
             }
         }
     }
-    let statements = statements.into_iter().filter(|s: &String| !s.trim().is_empty()).collect();
-    Ok(SyncScript { statements, warnings })
+    let statements = statements
+        .into_iter()
+        .filter(|s: &String| !s.trim().is_empty())
+        .collect();
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 #[cfg(test)]
@@ -134,15 +168,30 @@ mod tests {
     use super::*;
 
     fn col(name: &str, ty: &str) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable: true,
+            ..Default::default()
+        }
     }
 
     fn ix(name: &str, cols: &[&str]) -> IndexDef {
-        IndexDef { name: name.into(), columns: cols.iter().map(|s| s.to_string()).collect(), ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     fn all_docs(cols: Vec<ColumnDef>, indexes: Vec<IndexDef>, ddocs: &str) -> TableSchema {
-        let mut t = TableSchema { kind: "collection".into(), name: "_all_docs".into(), columns: cols, indexes, ..Default::default() };
+        let mut t = TableSchema {
+            kind: "collection".into(),
+            name: "_all_docs".into(),
+            columns: cols,
+            indexes,
+            ..Default::default()
+        };
         if !ddocs.is_empty() {
             t.options.insert("design_docs".into(), ddocs.into());
         }
@@ -157,7 +206,11 @@ mod tests {
             r#"[{"_id":"_design/a","_rev":"1-x","views":{"v":{"map":"function(d){}"}}},{"_id":"_design/gone"}]"#,
         );
         let new = all_docs(
-            vec![col("_id", "string"), col("tipo", "number"), col("fecha", "string")],
+            vec![
+                col("_id", "string"),
+                col("tipo", "number"),
+                col("fecha", "string"),
+            ],
             vec![ix("por_tipo", &["tipo"]), ix("por_fecha", &["fecha:desc"])],
             r#"[{"_id":"_design/a","views":{"v":{"map":"function(d){ emit(1); }"}}},{"_id":"_design/b","language":"javascript"}]"#,
         );
@@ -184,17 +237,32 @@ mod tests {
     #[test]
     fn validation_functions_are_checks() {
         let f = "function (n) { if (!n.tipo) throw({ forbidden: 'tipo' }); }";
-        let old = all_docs(vec![], vec![], r#"[{"_id":"_design/v1","validate_doc_update":"function(){}"}]"#);
+        let old = all_docs(
+            vec![],
+            vec![],
+            r#"[{"_id":"_design/v1","validate_doc_update":"function(){}"}]"#,
+        );
         let mut new = old.clone();
         new.checks = vec![
-            dbine_driver::CheckDef { name: Some("_design/v2".into()), expression: f.into() },
-            dbine_driver::CheckDef { name: Some("_design/v1".into()), expression: "function(){ }".into() },
+            dbine_driver::CheckDef {
+                name: Some("_design/v2".into()),
+                expression: f.into(),
+            },
+            dbine_driver::CheckDef {
+                name: Some("_design/v1".into()),
+                expression: "function(){ }".into(),
+            },
         ];
         let mut old = old;
-        old.checks = vec![dbine_driver::CheckDef { name: Some("_design/v1".into()), expression: "function(){}".into() }];
+        old.checks = vec![dbine_driver::CheckDef {
+            name: Some("_design/v1".into()),
+            expression: "function(){}".into(),
+        }];
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(s.statements.len(), 1, "{s:?}");
-        let v: Value = serde_json::from_str(s.statements[0].strip_prefix("PUT _design/v2\n").unwrap()).unwrap();
+        let v: Value =
+            serde_json::from_str(s.statements[0].strip_prefix("PUT _design/v2\n").unwrap())
+                .unwrap();
         assert_eq!(v["validate_doc_update"], f);
         assert_eq!(s.warnings.len(), 1, "{s:?}");
         assert!(s.warnings[0].contains("_design/v1"));
@@ -203,7 +271,11 @@ mod tests {
     #[test]
     fn create_and_drop() {
         let t = all_docs(vec![], vec![ix("por_tipo", &["tipo"])], "");
-        let s = sync_script(&[TableChange::Create { table: t.clone() }, TableChange::Drop { table: t }]).unwrap();
+        let s = sync_script(&[
+            TableChange::Create { table: t.clone() },
+            TableChange::Drop { table: t },
+        ])
+        .unwrap();
         assert_eq!(s.statements, vec!["POST _index\n{\"index\":{\"fields\":[\"tipo\"]},\"name\":\"por_tipo\",\"type\":\"json\"}"]);
         assert_eq!(
             s.warnings,

@@ -56,8 +56,30 @@ enum Tok {
 }
 
 const KEYWORDS: &[&str] = &[
-    "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "BETWEEN", "IN", "IS", "MISSING", "NULL", "UPDATE", "DELETE", "INSERT",
-    "INTO", "VALUE", "SET", "REMOVE", "RETURNING", "ORDER", "BY", "ASC", "DESC", "EXISTS",
+    "SELECT",
+    "FROM",
+    "WHERE",
+    "AND",
+    "OR",
+    "NOT",
+    "BETWEEN",
+    "IN",
+    "IS",
+    "MISSING",
+    "NULL",
+    "UPDATE",
+    "DELETE",
+    "INSERT",
+    "INTO",
+    "VALUE",
+    "SET",
+    "REMOVE",
+    "RETURNING",
+    "ORDER",
+    "BY",
+    "ASC",
+    "DESC",
+    "EXISTS",
 ];
 
 fn tokens(s: &str) -> Vec<Tok> {
@@ -144,10 +166,14 @@ fn tokens(s: &str) -> Vec<Tok> {
                 out.push(Tok::Punct(c));
                 i += 1;
             }
-            _ if c.is_ascii_digit() || (c == '-' && cs.get(i + 1).is_some_and(char::is_ascii_digit)) => {
+            _ if c.is_ascii_digit()
+                || (c == '-' && cs.get(i + 1).is_some_and(char::is_ascii_digit)) =>
+            {
                 let start = i;
                 i += 1;
-                while i < cs.len() && (cs[i].is_ascii_alphanumeric() || matches!(cs[i], '.' | '+' | '-')) {
+                while i < cs.len()
+                    && (cs[i].is_ascii_alphanumeric() || matches!(cs[i], '.' | '+' | '-'))
+                {
                     i += 1;
                 }
                 out.push(Tok::Lit(cs[start..i].iter().collect()));
@@ -197,7 +223,10 @@ fn show(ts: &[Tok]) -> String {
             Tok::Lit(v) | Tok::Kw(v) | Tok::Func(v) | Tok::Op(v) => v.clone(),
             Tok::Punct(c) => c.to_string(),
         };
-        let glue = matches!(t, Tok::Punct(')' | ',' | '.')) || s.ends_with('(') || s.ends_with('.') || s.is_empty();
+        let glue = matches!(t, Tok::Punct(')' | ',' | '.'))
+            || s.ends_with('(')
+            || s.ends_with('.')
+            || s.is_empty();
         if !glue {
             s.push(' ');
         }
@@ -228,7 +257,9 @@ pub(crate) fn target_of(stmt: &str) -> (Verb, Option<(String, Option<String>)>) 
         Verb::Other => None,
     };
     let target = after.and_then(|i| match (ts.get(i + 1), ts.get(i + 2), ts.get(i + 3)) {
-        (Some(Tok::Ident(t)), Some(Tok::Punct('.')), Some(Tok::Ident(x))) => Some((t.clone(), Some(x.clone()))),
+        (Some(Tok::Ident(t)), Some(Tok::Punct('.')), Some(Tok::Ident(x))) => {
+            Some((t.clone(), Some(x.clone())))
+        }
         (Some(Tok::Ident(t)), _, _) => Some((t.clone(), None)),
         _ => None,
     });
@@ -249,7 +280,9 @@ enum Cond {
 /// has a top-level OR.
 fn conditions(stmt: &str) -> (Vec<(String, Cond)>, bool) {
     let ts = tokens(stmt);
-    let Some(w) = ts.iter().position(|t| *t == Tok::Kw("WHERE".into())) else { return (Vec::new(), false) };
+    let Some(w) = ts.iter().position(|t| *t == Tok::Kw("WHERE".into())) else {
+        return (Vec::new(), false);
+    };
     let mut depth = 0i32;
     let mut end = ts.len();
     for (i, t) in ts.iter().enumerate().skip(w + 1) {
@@ -335,14 +368,22 @@ fn closes_at_end(p: &[Tok]) -> bool {
 fn classify_cond(p: &[Tok]) -> Cond {
     let value = |t: &Tok| matches!(t, Tok::Lit(_));
     match p {
-        [Tok::Ident(a), Tok::Op(o), v] | [v, Tok::Op(o), Tok::Ident(a)] if value(v) => match o.as_str() {
-            "=" => Cond::Eq(a.clone()),
-            "<" | "<=" | ">" | ">=" => Cond::Range(a.clone()),
-            _ => Cond::Other,
-        },
+        [Tok::Ident(a), Tok::Op(o), v] | [v, Tok::Op(o), Tok::Ident(a)] if value(v) => {
+            match o.as_str() {
+                "=" => Cond::Eq(a.clone()),
+                "<" | "<=" | ">" | ">=" => Cond::Range(a.clone()),
+                _ => Cond::Other,
+            }
+        }
         [Tok::Ident(a), Tok::Kw(k), ..] if k == "BETWEEN" => Cond::Range(a.clone()),
-        [Tok::Ident(a), Tok::Kw(k), rest @ ..] if k == "IN" && !rest.is_empty() => Cond::In(a.clone()),
-        [Tok::Func(f), Tok::Punct('('), Tok::Ident(a), Tok::Punct(','), ..] if f == "begins_with" => Cond::Range(a.clone()),
+        [Tok::Ident(a), Tok::Kw(k), rest @ ..] if k == "IN" && !rest.is_empty() => {
+            Cond::In(a.clone())
+        }
+        [Tok::Func(f), Tok::Punct('('), Tok::Ident(a), Tok::Punct(','), ..]
+            if f == "begins_with" =>
+        {
+            Cond::Range(a.clone())
+        }
         _ => Cond::Other,
     }
 }
@@ -367,16 +408,27 @@ pub(crate) fn derive(stmt: &str, verb: Verb, t: &Target) -> Plan {
         None => t.table.clone(),
     };
     let on_index = t.index.is_some();
-    let mut access = PlanNode { object: Some(object.clone()), ..Default::default() };
-    access.props.push(("Clave de partición".into(), t.partition_key.clone()));
+    let mut access = PlanNode {
+        object: Some(object.clone()),
+        ..Default::default()
+    };
+    access
+        .props
+        .push(("Clave de partición".into(), t.partition_key.clone()));
     if let Some(sk) = &t.sort_key {
-        access.props.push(("Clave de ordenación".into(), sk.clone()));
+        access
+            .props
+            .push(("Clave de ordenación".into(), sk.clone()));
     }
     if let Some(n) = t.item_count {
-        access.props.push(("Ítems (aprox., cada 6 h)".into(), n.to_string()));
+        access
+            .props
+            .push(("Ítems (aprox., cada 6 h)".into(), n.to_string()));
     }
     if let Some(b) = t.size_bytes {
-        access.props.push(("Tamaño en bytes (aprox.)".into(), b.to_string()));
+        access
+            .props
+            .push(("Tamaño en bytes (aprox.)".into(), b.to_string()));
     }
     access.props.extend(t.props.iter().cloned());
     let mut filter = Vec::new();
@@ -388,29 +440,67 @@ pub(crate) fn derive(stmt: &str, verb: Verb, t: &Target) -> Plan {
     } else {
         let (conds, has_or) = conditions(stmt);
         let pk = &t.partition_key;
-        let pk_cond = conds.iter().find(|(_, c)| matches!(c, Cond::Eq(a) | Cond::In(a) if a == pk));
+        let pk_cond = conds
+            .iter()
+            .find(|(_, c)| matches!(c, Cond::Eq(a) | Cond::In(a) if a == pk));
         let sk_cond = t.sort_key.as_ref().and_then(|sk| {
-            conds.iter().find(|(_, c)| matches!(c, Cond::Eq(a) | Cond::Range(a) if a == sk))
+            conds
+                .iter()
+                .find(|(_, c)| matches!(c, Cond::Eq(a) | Cond::Range(a) if a == sk))
         });
         let full_key = matches!(pk_cond, Some((_, Cond::Eq(_))))
             && (t.sort_key.is_none() || matches!(sk_cond, Some((_, Cond::Eq(_)))));
-        let used: Vec<&String> = pk_cond.iter().chain(sk_cond.iter()).map(|(s, _)| s).collect();
-        let rest = || conds.iter().filter(|(s, _)| !used.contains(&s)).map(|(s, _)| s.clone()).collect::<Vec<_>>();
-        let key_text = used.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" AND ");
+        let used: Vec<&String> = pk_cond
+            .iter()
+            .chain(sk_cond.iter())
+            .map(|(s, _)| s)
+            .collect();
+        let rest = || {
+            conds
+                .iter()
+                .filter(|(s, _)| !used.contains(&s))
+                .map(|(s, _)| s.clone())
+                .collect::<Vec<_>>()
+        };
+        let key_text = used
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(" AND ");
 
         if has_or || pk_cond.is_none() {
             access.op = "Scan".into();
-            access.detail = if on_index { "todo el índice".into() } else { "toda la tabla".into() };
+            access.detail = if on_index {
+                "todo el índice".into()
+            } else {
+                "toda la tabla".into()
+            };
             access.est_rows = t.item_count.map(|n| n as f64);
-            access.warnings.push(format!("Scan: recorre {}", if on_index { "todo el índice" } else { "toda la tabla" }));
+            access.warnings.push(format!(
+                "Scan: recorre {}",
+                if on_index {
+                    "todo el índice"
+                } else {
+                    "toda la tabla"
+                }
+            ));
             filter = conds.iter().map(|(s, _)| s.clone()).collect();
             if !filter.is_empty() {
-                access.warnings.push("El filtro se aplica después de leer: se consume capacidad por cada ítem leído".into());
+                access.warnings.push(
+                    "El filtro se aplica después de leer: se consume capacidad por cada ítem leído"
+                        .into(),
+                );
             }
             if has_or {
-                access.props.push(("Motivo".into(), "OR en el WHERE: no se puede usar una condición de clave".into()));
+                access.props.push((
+                    "Motivo".into(),
+                    "OR en el WHERE: no se puede usar una condición de clave".into(),
+                ));
             } else {
-                access.props.push(("Motivo".into(), format!("el WHERE no fija la clave de partición {pk} con = o IN")));
+                access.props.push((
+                    "Motivo".into(),
+                    format!("el WHERE no fija la clave de partición {pk} con = o IN"),
+                ));
             }
             if matches!(verb, Verb::Update | Verb::Delete) {
                 access.warnings.push(format!(
@@ -430,7 +520,9 @@ pub(crate) fn derive(stmt: &str, verb: Verb, t: &Target) -> Plan {
             access.props.push(("Clave".into(), key_text));
             filter = rest();
             if matches!(verb, Verb::Update | Verb::Delete) && !filter.is_empty() {
-                access.props.push(("Condición".into(), filter.join(" AND ")));
+                access
+                    .props
+                    .push(("Condición".into(), filter.join(" AND ")));
                 filter.clear();
             }
         } else {
@@ -438,7 +530,10 @@ pub(crate) fn derive(stmt: &str, verb: Verb, t: &Target) -> Plan {
             access.detail = key_text.clone();
             access.props.push(("Condición de clave".into(), key_text));
             if matches!(pk_cond, Some((_, Cond::In(_)))) {
-                access.props.push(("Nota".into(), "IN en la clave de partición: una consulta por valor".into()));
+                access.props.push((
+                    "Nota".into(),
+                    "IN en la clave de partición: una consulta por valor".into(),
+                ));
             }
             filter = rest();
             if matches!(verb, Verb::Update | Verb::Delete) {
@@ -450,7 +545,11 @@ pub(crate) fn derive(stmt: &str, verb: Verb, t: &Target) -> Plan {
         }
     }
 
-    let mut root = PlanNode { op: verb_name(verb).into(), object: Some(object), ..Default::default() };
+    let mut root = PlanNode {
+        op: verb_name(verb).into(),
+        object: Some(object),
+        ..Default::default()
+    };
     root.props.push((
         "Origen".into(),
         "Derivado de la clave de la tabla: DynamoDB no expone planes de ejecución".into(),
@@ -513,16 +612,32 @@ mod tests {
 
     #[test]
     fn targets() {
-        assert_eq!(target_of(r#"SELECT * FROM "Orders"."byDate" WHERE a = 1"#), (Verb::Select, Some(("Orders".into(), Some("byDate".into())))));
-        assert_eq!(target_of("update Orders set x = 1 where customer = 'a'"), (Verb::Update, Some(("Orders".into(), None))));
-        assert_eq!(target_of(r#"INSERT INTO "my-t" VALUE {'a': 1}"#), (Verb::Insert, Some(("my-t".into(), None))));
-        assert_eq!(target_of(r#"DELETE FROM "t" WHERE "k" = 1"#).0, Verb::Delete);
+        assert_eq!(
+            target_of(r#"SELECT * FROM "Orders"."byDate" WHERE a = 1"#),
+            (Verb::Select, Some(("Orders".into(), Some("byDate".into()))))
+        );
+        assert_eq!(
+            target_of("update Orders set x = 1 where customer = 'a'"),
+            (Verb::Update, Some(("Orders".into(), None)))
+        );
+        assert_eq!(
+            target_of(r#"INSERT INTO "my-t" VALUE {'a': 1}"#),
+            (Verb::Insert, Some(("my-t".into(), None)))
+        );
+        assert_eq!(
+            target_of(r#"DELETE FROM "t" WHERE "k" = 1"#).0,
+            Verb::Delete
+        );
         assert_eq!(target_of("EXISTS(SELECT * FROM t)").0, Verb::Other);
     }
 
     #[test]
     fn get_item_with_the_full_key() {
-        let p = derive(r#"SELECT * FROM "Orders" WHERE "customer" = 'c1' AND order_id = 7"#, Verb::Select, &orders());
+        let p = derive(
+            r#"SELECT * FROM "Orders" WHERE "customer" = 'c1' AND order_id = 7"#,
+            Verb::Select,
+            &orders(),
+        );
         let a = access(&p);
         assert_eq!(a.op, "GetItem");
         assert_eq!(a.est_rows, Some(1.0));
@@ -545,27 +660,46 @@ mod tests {
         assert_eq!(a.detail, "customer = ? AND order_id BETWEEN 1 AND 9");
         assert!(a.warnings.is_empty());
 
-        let p = derive(r#"SELECT * FROM Orders WHERE customer IN ['a', 'b'] AND begins_with("order_id", 'x')"#, Verb::Select, &orders());
+        let p = derive(
+            r#"SELECT * FROM Orders WHERE customer IN ['a', 'b'] AND begins_with("order_id", 'x')"#,
+            Verb::Select,
+            &orders(),
+        );
         assert_eq!(access(&p).op, "Query");
         assert!(access(&p).props.iter().any(|(k, _)| k == "Nota"));
     }
 
     #[test]
     fn scan_without_partition_key_or_with_or() {
-        let p = derive("SELECT * FROM Orders WHERE status = 'open'", Verb::Select, &orders());
+        let p = derive(
+            "SELECT * FROM Orders WHERE status = 'open'",
+            Verb::Select,
+            &orders(),
+        );
         let a = access(&p);
         assert_eq!(a.op, "Scan");
         assert_eq!(a.est_rows, Some(12_000.0));
-        assert!(a.warnings.iter().any(|w| w == "Scan: recorre toda la tabla"));
+        assert!(a
+            .warnings
+            .iter()
+            .any(|w| w == "Scan: recorre toda la tabla"));
         assert!(a.warnings.iter().any(|w| w.starts_with("El filtro")));
 
-        let p = derive("SELECT * FROM Orders WHERE customer = 'a' OR customer = 'b'", Verb::Select, &orders());
+        let p = derive(
+            "SELECT * FROM Orders WHERE customer = 'a' OR customer = 'b'",
+            Verb::Select,
+            &orders(),
+        );
         assert_eq!(access(&p).op, "Scan");
         let p = derive("SELECT * FROM Orders", Verb::Select, &orders());
         assert_eq!(p.root.children[0].op, "Scan");
         assert_eq!(access(&p).warnings.len(), 1);
         // Parentheses around a conjunction don't hide the key.
-        let p = derive("SELECT * FROM Orders WHERE (customer = 'a' AND (order_id = 1))", Verb::Select, &orders());
+        let p = derive(
+            "SELECT * FROM Orders WHERE (customer = 'a' AND (order_id = 1))",
+            Verb::Select,
+            &orders(),
+        );
         assert_eq!(access(&p).op, "GetItem");
     }
 
@@ -575,22 +709,51 @@ mod tests {
         t.index = Some("byStatus".into());
         t.partition_key = "status".into();
         t.sort_key = None;
-        let p = derive(r#"SELECT * FROM "Orders"."byStatus" WHERE status = 'open'"#, Verb::Select, &t);
-        assert_eq!((access(&p).op.as_str(), access(&p).object.as_deref()), ("Query", Some("Orders.byStatus")));
+        let p = derive(
+            r#"SELECT * FROM "Orders"."byStatus" WHERE status = 'open'"#,
+            Verb::Select,
+            &t,
+        );
+        assert_eq!(
+            (access(&p).op.as_str(), access(&p).object.as_deref()),
+            ("Query", Some("Orders.byStatus"))
+        );
 
-        let p = derive("UPDATE Orders SET s = 1 WHERE customer = 'a' AND order_id = 2 AND s = 0", Verb::Update, &orders());
+        let p = derive(
+            "UPDATE Orders SET s = 1 WHERE customer = 'a' AND order_id = 2 AND s = 0",
+            Verb::Update,
+            &orders(),
+        );
         let a = access(&p);
         assert_eq!(a.op, "UpdateItem");
-        assert!(a.props.iter().any(|(k, v)| k == "Condición" && v == "s = 0"));
-        let p = derive("DELETE FROM Orders WHERE customer = 'a'", Verb::Delete, &orders());
-        assert!(access(&p).warnings.iter().any(|w| w.contains("clave primaria completa")));
-        let p = derive(r#"INSERT INTO Orders VALUE {'customer': 'a', 'order_id': 1}"#, Verb::Insert, &orders());
+        assert!(a
+            .props
+            .iter()
+            .any(|(k, v)| k == "Condición" && v == "s = 0"));
+        let p = derive(
+            "DELETE FROM Orders WHERE customer = 'a'",
+            Verb::Delete,
+            &orders(),
+        );
+        assert!(access(&p)
+            .warnings
+            .iter()
+            .any(|w| w.contains("clave primaria completa")));
+        let p = derive(
+            r#"INSERT INTO Orders VALUE {'customer': 'a', 'order_id': 1}"#,
+            Verb::Insert,
+            &orders(),
+        );
         assert_eq!(access(&p).op, "PutItem");
     }
 
     #[test]
     fn strings_with_keywords_are_values() {
-        let p = derive("SELECT * FROM Orders WHERE customer = 'x OR y' AND order_id = 1", Verb::Select, &orders());
+        let p = derive(
+            "SELECT * FROM Orders WHERE customer = 'x OR y' AND order_id = 1",
+            Verb::Select,
+            &orders(),
+        );
         assert_eq!(access(&p).op, "GetItem");
     }
 }

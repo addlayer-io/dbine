@@ -14,66 +14,117 @@ use serde::{Deserialize, Serialize};
 pub enum LogicalType {
     Bool,
     /// Whole number stored in `bytes` bytes (1, 2, 3, 4, 8 or 16).
-    Int { bytes: u8, unsigned: bool },
+    Int {
+        bytes: u8,
+        unsigned: bool,
+    },
     /// Exact number. `None` precision: the engine's unbounded / default
     /// numeric (PostgreSQL `numeric`, Oracle `NUMBER`).
-    Decimal { precision: Option<u32>, scale: Option<u32> },
+    Decimal {
+        precision: Option<u32>,
+        scale: Option<u32>,
+    },
     /// Binary floating point: 4 bytes (`real`) or 8 (`double`).
-    Float { bytes: u8 },
+    Float {
+        bytes: u8,
+    },
     /// Currency types (SQL Server `money`, PostgreSQL `money`).
     Money,
     /// Fixed-length text.
-    Char { len: Option<u32>, unicode: bool },
+    Char {
+        len: Option<u32>,
+        unicode: bool,
+    },
     /// Variable-length text with a limit.
-    Varchar { len: Option<u32>, unicode: bool },
+    Varchar {
+        len: Option<u32>,
+        unicode: bool,
+    },
     /// Unbounded text (`text`, `clob`, `nvarchar(max)`…).
-    Text { unicode: bool },
+    Text {
+        unicode: bool,
+    },
     /// Fixed-length bytes.
-    Binary { len: Option<u32> },
+    Binary {
+        len: Option<u32>,
+    },
     /// Variable-length bytes with a limit.
-    Varbinary { len: Option<u32> },
+    Varbinary {
+        len: Option<u32>,
+    },
     /// Unbounded bytes (`bytea`, `blob`, `varbinary(max)`…).
     Blob,
     /// Fixed-length bit string.
-    Bit { len: Option<u32> },
+    Bit {
+        len: Option<u32>,
+    },
     Date,
     /// Time of day; `precision` = fractional-second digits.
-    Time { precision: Option<u8>, tz: bool },
+    Time {
+        precision: Option<u8>,
+        tz: bool,
+    },
     /// Date and time; `tz` = the value carries or is normalized by a time
     /// zone (`timestamptz`, `datetimeoffset`, `TIMESTAMP WITH TIME ZONE`).
-    Timestamp { precision: Option<u8>, tz: bool },
+    Timestamp {
+        precision: Option<u8>,
+        tz: bool,
+    },
     Interval,
     Year,
     Uuid,
     /// JSON document; `binary` for the parsed/indexed kind (`jsonb`).
-    Json { binary: bool },
+    Json {
+        binary: bool,
+    },
     Xml,
     /// One value out of a fixed list.
-    Enum { values: Vec<String> },
+    Enum {
+        values: Vec<String>,
+    },
     /// Any subset of a fixed list (MySQL `SET`).
-    Set { values: Vec<String> },
-    Array { of: Box<LogicalType> },
+    Set {
+        values: Vec<String>,
+    },
+    Array {
+        of: Box<LogicalType>,
+    },
     /// Key → value map (ClickHouse `Map`, Cassandra `map`).
-    Map { key: Box<LogicalType>, value: Box<LogicalType> },
+    Map {
+        key: Box<LogicalType>,
+        value: Box<LogicalType>,
+    },
     /// Spatial value; `kind` = point, polygon… when the engine says.
-    Geometry { kind: Option<String>, srid: Option<u32>, geography: bool },
+    Geometry {
+        kind: Option<String>,
+        srid: Option<u32>,
+        geography: bool,
+    },
     /// IP address or network (`inet`, `cidr`, `IPv4`, `IPv6`).
     Inet,
     MacAddr,
     /// Row identifier / version stamp (`rowversion`, `ROWID`).
     RowVersion,
     /// Not classified: the native spelling, kept as is.
-    Other { native: String },
+    Other {
+        native: String,
+    },
 }
 
 impl LogicalType {
     pub fn int(bytes: u8) -> Self {
-        Self::Int { bytes, unsigned: false }
+        Self::Int {
+            bytes,
+            unsigned: false,
+        }
     }
 
     /// Text of any kind.
     pub fn is_text(&self) -> bool {
-        matches!(self, Self::Char { .. } | Self::Varchar { .. } | Self::Text { .. })
+        matches!(
+            self,
+            Self::Char { .. } | Self::Varchar { .. } | Self::Text { .. }
+        )
     }
 
     /// Short Spanish description for reports ("entero de 8 bytes").
@@ -81,20 +132,34 @@ impl LogicalType {
         match self {
             Self::Bool => "booleano".into(),
             Self::Int { bytes, unsigned } => {
-                format!("entero {}de {bytes} bytes", if *unsigned { "sin signo " } else { "" })
+                format!(
+                    "entero {}de {bytes} bytes",
+                    if *unsigned { "sin signo " } else { "" }
+                )
             }
-            Self::Decimal { precision: Some(p), scale } => format!("decimal({p}, {})", scale.unwrap_or(0)),
+            Self::Decimal {
+                precision: Some(p),
+                scale,
+            } => format!("decimal({p}, {})", scale.unwrap_or(0)),
             Self::Decimal { .. } => "decimal sin precisión fija".into(),
             Self::Float { bytes } => format!("coma flotante de {bytes} bytes"),
             Self::Money => "moneda".into(),
-            Self::Char { len, .. } => format!("texto fijo de {}", len.map_or("1".into(), |l| l.to_string())),
+            Self::Char { len, .. } => format!(
+                "texto fijo de {}",
+                len.map_or("1".into(), |l| l.to_string())
+            ),
             Self::Varchar { len: Some(l), .. } => format!("texto de hasta {l}"),
             Self::Varchar { len: None, .. } | Self::Text { .. } => "texto sin límite".into(),
             Self::Binary { .. } | Self::Varbinary { .. } | Self::Blob => "binario".into(),
             Self::Bit { .. } => "bits".into(),
             Self::Date => "fecha".into(),
             Self::Time { tz, .. } => if *tz { "hora con zona" } else { "hora" }.into(),
-            Self::Timestamp { tz, .. } => if *tz { "fecha y hora con zona" } else { "fecha y hora" }.into(),
+            Self::Timestamp { tz, .. } => if *tz {
+                "fecha y hora con zona"
+            } else {
+                "fecha y hora"
+            }
+            .into(),
             Self::Interval => "intervalo".into(),
             Self::Year => "año".into(),
             Self::Uuid => "UUID".into(),
@@ -141,7 +206,13 @@ mod tests {
 
     #[test]
     fn serializes_tagged() {
-        let t = LogicalType::Varchar { len: Some(10), unicode: true };
-        assert_eq!(serde_json::to_string(&t).unwrap(), r#"{"type":"varchar","len":10,"unicode":true}"#);
+        let t = LogicalType::Varchar {
+            len: Some(10),
+            unicode: true,
+        };
+        assert_eq!(
+            serde_json::to_string(&t).unwrap(),
+            r#"{"type":"varchar","len":10,"unicode":true}"#
+        );
     }
 }

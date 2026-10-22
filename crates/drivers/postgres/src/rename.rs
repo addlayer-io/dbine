@@ -19,7 +19,9 @@
 //! Denodo renames nothing.
 
 use crate::{Variant, SINK, SOURCE};
-use dbine_driver::rename::{quote_new, Fold, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
+use dbine_driver::rename::{
+    quote_new, Fold, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
 use dbine_driver::sql::{name_tokens, qualified_name, quote_ident, NameToken, Quote, TokenKind};
 use dbine_driver::{kinds, Error, ObjectRef, Result, SyncScript};
 
@@ -67,7 +69,13 @@ pub(crate) fn spec(v: Variant) -> Option<RenameSpec> {
             kinds::TRIGGER,
         ],
         Level::Basic | Level::Crate | Level::H2 => &[kinds::TABLE, kinds::VIEW],
-        Level::Streaming => &[kinds::TABLE, kinds::VIEW, kinds::MATERIALIZED_VIEW, SOURCE, SINK],
+        Level::Streaming => &[
+            kinds::TABLE,
+            kinds::VIEW,
+            kinds::MATERIALIZED_VIEW,
+            SOURCE,
+            SINK,
+        ],
     };
     // Only what the variant lists (Yellowbrick has no materialized views…).
     let listed = v.info().object_kinds;
@@ -78,8 +86,16 @@ pub(crate) fn spec(v: Variant) -> Option<RenameSpec> {
         .collect();
     let full = matches!(level, Level::Full | Level::Cockroach);
     let tracked: Vec<String> = match level {
-        Level::Full => vec![kinds::VIEW.into(), kinds::MATERIALIZED_VIEW.into(), kinds::TRIGGER.into()],
-        Level::Streaming => vec![kinds::VIEW.into(), kinds::MATERIALIZED_VIEW.into(), SINK.into()],
+        Level::Full => vec![
+            kinds::VIEW.into(),
+            kinds::MATERIALIZED_VIEW.into(),
+            kinds::TRIGGER.into(),
+        ],
+        Level::Streaming => vec![
+            kinds::VIEW.into(),
+            kinds::MATERIALIZED_VIEW.into(),
+            SINK.into(),
+        ],
         _ => Vec::new(),
     };
     let replace = match level {
@@ -217,7 +233,10 @@ fn database_note(v: Variant, r: DatabaseRename) -> String {
     if v == Variant::Yugabyte {
         note.push_str(" En un clúster de varios nodos, pg_terminate_backend solo alcanza las sesiones del nodo al que está conectado DBine.");
     }
-    note.push_str(&format!(" No se renombra «{}»: desde ahí se ejecuta el cambio.", r.from));
+    note.push_str(&format!(
+        " No se renombra «{}»: desde ahí se ejecuta el cambio.",
+        r.from
+    ));
     note
 }
 
@@ -227,7 +246,9 @@ pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Res
     let engine = v.info().name;
     let Some(r) = database_rename(v) else {
         return Err(Error::Unsupported(match v {
-            Variant::Materialize => "Materialize no renombra bases de datos: ALTER DATABASE solo cambia el dueño".into(),
+            Variant::Materialize => {
+                "Materialize no renombra bases de datos: ALTER DATABASE solo cambia el dueño".into()
+            }
             _ => format!("{engine} no renombra bases de datos desde DBine"),
         }));
     };
@@ -240,7 +261,9 @@ pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Res
         )));
     }
     if kept_databases(v).contains(&database) {
-        return Err(Error::Unsupported(format!("«{database}» es una base del sistema de {engine}: no se renombra")));
+        return Err(Error::Unsupported(format!(
+            "«{database}» es una base del sistema de {engine}: no se renombra"
+        )));
     }
     let mut statements = Vec::new();
     let mut warnings = Vec::new();
@@ -258,9 +281,18 @@ pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Res
         Sessions::Kept => warnings.push(format!("Las sesiones conectadas a «{database}» dejan de funcionar: tienen que reconectarse.")),
         Sessions::Closed => warnings.push(format!("Si quedan sesiones conectadas a «{database}», {engine} puede rechazar el cambio.")),
     }
-    statements.push(format!("ALTER DATABASE {} RENAME TO {};", q(database), q(new_name)));
-    warnings.push(format!("Lo que nombra «{database}» (código, aplicaciones, cadenas de conexión) no se actualiza."));
-    Ok(SyncScript { statements, warnings })
+    statements.push(format!(
+        "ALTER DATABASE {} RENAME TO {};",
+        q(database),
+        q(new_name)
+    ));
+    warnings.push(format!(
+        "Lo que nombra «{database}» (código, aplicaciones, cadenas de conexión) no se actualiza."
+    ));
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 fn q(name: &str) -> String {
@@ -275,7 +307,9 @@ pub(crate) fn script(v: Variant, req: &RenameRequest) -> Result<SyncScript> {
     let engine = v.info().name;
     let Some(spec) = spec(v) else {
         return Err(Error::Unsupported(match v {
-            Variant::Denodo => "Denodo no renombra objetos por SQL: las vistas se definen en Denodo".into(),
+            Variant::Denodo => {
+                "Denodo no renombra objetos por SQL: las vistas se definen en Denodo".into()
+            }
             _ => format!("{engine} no renombra objetos desde DBine"),
         }));
     };
@@ -288,29 +322,58 @@ pub(crate) fn script(v: Variant, req: &RenameRequest) -> Result<SyncScript> {
             RenameTarget::Constraint { .. } => "restricciones".into(),
             RenameTarget::Schema { .. } => "esquemas".into(),
         };
-        return Err(Error::Unsupported(format!("{engine} no renombra {what} desde DBine")));
+        return Err(Error::Unsupported(format!(
+            "{engine} no renombra {what} desde DBine"
+        )));
     }
     let new = quote_new(&req.new_name, &crate::script::DIALECT, spec.fold, false);
     let mut warnings = Vec::new();
     let statements = match &req.target {
-        RenameTarget::Object { object, parent } => object_statements(v, level, object, parent.as_deref(), req.definition.as_deref(), &new, &mut warnings)?,
+        RenameTarget::Object { object, parent } => object_statements(
+            v,
+            level,
+            object,
+            parent.as_deref(),
+            req.definition.as_deref(),
+            &new,
+            &mut warnings,
+        )?,
         RenameTarget::Column { table, column } => {
-            let alter = if table.kind == kinds::MATERIALIZED_VIEW { "ALTER MATERIALIZED VIEW" } else { "ALTER TABLE" };
-            vec![format!("{alter} {} RENAME COLUMN {} TO {new};", qn(table.schema(), &table.name), q(column))]
+            let alter = if table.kind == kinds::MATERIALIZED_VIEW {
+                "ALTER MATERIALIZED VIEW"
+            } else {
+                "ALTER TABLE"
+            };
+            vec![format!(
+                "{alter} {} RENAME COLUMN {} TO {new};",
+                qn(table.schema(), &table.name),
+                q(column)
+            )]
         }
         RenameTarget::Index { table, index } => vec![match level {
-            Level::Cockroach => format!("ALTER INDEX {}@{} RENAME TO {new};", qn(table.schema(), &table.name), q(index)),
+            Level::Cockroach => format!(
+                "ALTER INDEX {}@{} RENAME TO {new};",
+                qn(table.schema(), &table.name),
+                q(index)
+            ),
             _ => format!("ALTER INDEX {} RENAME TO {new};", qn(table.schema(), index)),
         }],
         RenameTarget::Constraint { table, constraint } => {
-            vec![format!("ALTER TABLE {} RENAME CONSTRAINT {} TO {new};", qn(table.schema(), &table.name), q(constraint))]
+            vec![format!(
+                "ALTER TABLE {} RENAME CONSTRAINT {} TO {new};",
+                qn(table.schema(), &table.name),
+                q(constraint)
+            )]
         }
         RenameTarget::Schema { schema, .. } => {
             warnings.push(format!("Los search_path (de usuarios, bases o funciones) que nombren «{schema}» no se actualizan."));
             vec![format!("ALTER SCHEMA {} RENAME TO {new};", q(schema))]
         }
     };
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 fn object_statements(
@@ -341,22 +404,46 @@ fn object_statements(
         SOURCE => "SOURCE",
         SINK => "SINK",
         kinds::TRIGGER => {
-            let table = parent.filter(|p| !p.is_empty()).ok_or_else(|| Error::Unsupported("falta la tabla del trigger para renombrarlo".into()))?;
-            return Ok(vec![format!("ALTER TRIGGER {} ON {} RENAME TO {new};", q(&object.name), qn(object.schema(), table))]);
+            let table = parent.filter(|p| !p.is_empty()).ok_or_else(|| {
+                Error::Unsupported("falta la tabla del trigger para renombrarlo".into())
+            })?;
+            return Ok(vec![format!(
+                "ALTER TRIGGER {} ON {} RENAME TO {new};",
+                q(&object.name),
+                qn(object.schema(), table)
+            )]);
         }
         kinds::FUNCTION | kinds::PROCEDURE => {
-            let word = if object.kind == kinds::PROCEDURE { "PROCEDURE" } else { "FUNCTION" };
-            let sigs = definition.map(|d| signatures(d, &object.name)).unwrap_or_default();
+            let word = if object.kind == kinds::PROCEDURE {
+                "PROCEDURE"
+            } else {
+                "FUNCTION"
+            };
+            let sigs = definition
+                .map(|d| signatures(d, &object.name))
+                .unwrap_or_default();
             if sigs.is_empty() {
                 warnings.push(format!("No se leyó la firma de «{}»: si tiene sobrecargas, el motor pide indicar sus argumentos.", object.name));
                 return Ok(vec![format!("ALTER {word} {name} RENAME TO {new};")]);
             }
             if sigs.len() > 1 {
-                warnings.push(format!("«{}» tiene {} sobrecargas: se renombran todas.", object.name, sigs.len()));
+                warnings.push(format!(
+                    "«{}» tiene {} sobrecargas: se renombran todas.",
+                    object.name,
+                    sigs.len()
+                ));
             }
-            return Ok(sigs.into_iter().map(|(kind, args)| format!("ALTER {kind} {name}({args}) RENAME TO {new};")).collect());
+            return Ok(sigs
+                .into_iter()
+                .map(|(kind, args)| format!("ALTER {kind} {name}({args}) RENAME TO {new};"))
+                .collect());
         }
-        other => return Err(Error::Unsupported(format!("{} no renombra objetos de tipo «{other}» desde DBine", v.info().name))),
+        other => {
+            return Err(Error::Unsupported(format!(
+                "{} no renombra objetos de tipo «{other}» desde DBine",
+                v.info().name
+            )))
+        }
     };
     Ok(vec![format!("ALTER {alter} {name} RENAME TO {new};")])
 }
@@ -364,7 +451,8 @@ fn object_statements(
 /// `CREATE DOMAIN …`: the type's definition is a domain's.
 fn is_domain(definition: &str) -> bool {
     let toks = name_tokens(definition, &crate::script::DIALECT);
-    toks.first().is_some_and(|t| word(t, "create")) && toks.get(1).is_some_and(|t| word(t, "domain"))
+    toks.first().is_some_and(|t| word(t, "create"))
+        && toks.get(1).is_some_and(|t| word(t, "domain"))
 }
 
 /// An unquoted word (a quoted name's text has no quotes, so it's shorter
@@ -384,44 +472,105 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: (!schema.is_empty()).then(|| schema.into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: (!schema.is_empty()).then(|| schema.into()),
+            name: name.into(),
+        }
     }
 
     fn req(target: RenameTarget, new: &str, definition: Option<&str>) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: definition.map(Into::into) }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: definition.map(Into::into),
+        }
     }
 
     fn object(kind: &str, name: &str, new: &str) -> RenameRequest {
-        req(RenameTarget::Object { object: obj(kind, "app", name), parent: None }, new, None)
+        req(
+            RenameTarget::Object {
+                object: obj(kind, "app", name),
+                parent: None,
+            },
+            new,
+            None,
+        )
     }
 
     fn stmts(v: Variant, r: &RenameRequest) -> Vec<String> {
-        script(v, r).unwrap_or_else(|e| panic!("{v:?}: {e}")).statements
+        script(v, r)
+            .unwrap_or_else(|e| panic!("{v:?}: {e}"))
+            .statements
     }
 
     #[test]
     fn tables_keep_the_new_names_case() {
         let pg = Variant::Postgres;
-        assert_eq!(stmts(pg, &object(kinds::TABLE, "Clientes", "nuevos")), ["ALTER TABLE \"app\".\"Clientes\" RENAME TO nuevos;"]);
+        assert_eq!(
+            stmts(pg, &object(kinds::TABLE, "Clientes", "nuevos")),
+            ["ALTER TABLE \"app\".\"Clientes\" RENAME TO nuevos;"]
+        );
         // A name that isn't lower case, or needs quotes, is quoted.
-        assert_eq!(stmts(pg, &object(kinds::TABLE, "t", "Nuevos")), ["ALTER TABLE \"app\".\"t\" RENAME TO \"Nuevos\";"]);
-        assert_eq!(stmts(pg, &object(kinds::TABLE, "t", "mi tabla")), ["ALTER TABLE \"app\".\"t\" RENAME TO \"mi tabla\";"]);
-        assert_eq!(stmts(pg, &object(kinds::TABLE, "t", "select")), ["ALTER TABLE \"app\".\"t\" RENAME TO \"select\";"]);
-        assert_eq!(stmts(pg, &object(kinds::TABLE, "t", "a\"b")), ["ALTER TABLE \"app\".\"t\" RENAME TO \"a\"\"b\";"]);
-        assert!(script(pg, &object(kinds::TABLE, "t", "n")).unwrap().warnings[0].contains("conservan sus nombres"));
+        assert_eq!(
+            stmts(pg, &object(kinds::TABLE, "t", "Nuevos")),
+            ["ALTER TABLE \"app\".\"t\" RENAME TO \"Nuevos\";"]
+        );
+        assert_eq!(
+            stmts(pg, &object(kinds::TABLE, "t", "mi tabla")),
+            ["ALTER TABLE \"app\".\"t\" RENAME TO \"mi tabla\";"]
+        );
+        assert_eq!(
+            stmts(pg, &object(kinds::TABLE, "t", "select")),
+            ["ALTER TABLE \"app\".\"t\" RENAME TO \"select\";"]
+        );
+        assert_eq!(
+            stmts(pg, &object(kinds::TABLE, "t", "a\"b")),
+            ["ALTER TABLE \"app\".\"t\" RENAME TO \"a\"\"b\";"]
+        );
+        assert!(script(pg, &object(kinds::TABLE, "t", "n"))
+            .unwrap()
+            .warnings[0]
+            .contains("conservan sus nombres"));
     }
 
     #[test]
     fn views_sequences_types_and_domains() {
         let pg = Variant::Postgres;
-        assert_eq!(stmts(pg, &object(kinds::VIEW, "v", "w")), ["ALTER VIEW \"app\".\"v\" RENAME TO w;"]);
-        assert_eq!(stmts(pg, &object(kinds::MATERIALIZED_VIEW, "mv", "mw")), ["ALTER MATERIALIZED VIEW \"app\".\"mv\" RENAME TO mw;"]);
-        assert_eq!(stmts(pg, &object(kinds::SEQUENCE, "s", "s2")), ["ALTER SEQUENCE \"app\".\"s\" RENAME TO s2;"]);
-        assert_eq!(stmts(pg, &object(kinds::TYPE, "mood", "humor")), ["ALTER TYPE \"app\".\"mood\" RENAME TO humor;"]);
-        let domain = req(RenameTarget::Object { object: obj(kinds::TYPE, "app", "pos"), parent: None }, "positivo", Some("CREATE DOMAIN \"app\".\"pos\" AS integer"));
-        assert_eq!(stmts(pg, &domain), ["ALTER DOMAIN \"app\".\"pos\" RENAME TO positivo;"]);
+        assert_eq!(
+            stmts(pg, &object(kinds::VIEW, "v", "w")),
+            ["ALTER VIEW \"app\".\"v\" RENAME TO w;"]
+        );
+        assert_eq!(
+            stmts(pg, &object(kinds::MATERIALIZED_VIEW, "mv", "mw")),
+            ["ALTER MATERIALIZED VIEW \"app\".\"mv\" RENAME TO mw;"]
+        );
+        assert_eq!(
+            stmts(pg, &object(kinds::SEQUENCE, "s", "s2")),
+            ["ALTER SEQUENCE \"app\".\"s\" RENAME TO s2;"]
+        );
+        assert_eq!(
+            stmts(pg, &object(kinds::TYPE, "mood", "humor")),
+            ["ALTER TYPE \"app\".\"mood\" RENAME TO humor;"]
+        );
+        let domain = req(
+            RenameTarget::Object {
+                object: obj(kinds::TYPE, "app", "pos"),
+                parent: None,
+            },
+            "positivo",
+            Some("CREATE DOMAIN \"app\".\"pos\" AS integer"),
+        );
+        assert_eq!(
+            stmts(pg, &domain),
+            ["ALTER DOMAIN \"app\".\"pos\" RENAME TO positivo;"]
+        );
         // Redshift renames views with ALTER TABLE.
-        assert_eq!(stmts(Variant::Redshift, &object(kinds::VIEW, "v", "w")), ["ALTER TABLE \"app\".\"v\" RENAME TO w;"]);
+        assert_eq!(
+            stmts(Variant::Redshift, &object(kinds::VIEW, "v", "w")),
+            ["ALTER TABLE \"app\".\"v\" RENAME TO w;"]
+        );
     }
 
     #[test]
@@ -429,7 +578,14 @@ mod tests {
         let def = "CREATE OR REPLACE FUNCTION app.f(a integer, b text DEFAULT 'x,y'::text, OUT c numeric(10,2))\n RETURNS numeric\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  EXECUTE 'CREATE FUNCTION app.f(z int) RETURNS int AS $$ select 1 $$';\nEND $function$\n\n\n\
                    CREATE OR REPLACE FUNCTION app.f(VARIADIC xs integer[] = ARRAY[1, 2])\n RETURNS integer\n LANGUAGE sql\nAS $function$ select 1 $function$\n\n\n\
                    CREATE OR REPLACE FUNCTION app.f()\n RETURNS integer\n LANGUAGE sql\nBEGIN ATOMIC\n SELECT 1;\nEND\n";
-        let r = req(RenameTarget::Object { object: obj(kinds::FUNCTION, "app", "f"), parent: None }, "G", Some(def));
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::FUNCTION, "app", "f"),
+                parent: None,
+            },
+            "G",
+            Some(def),
+        );
         let s = script(Variant::Postgres, &r).unwrap();
         assert_eq!(
             s.statements,
@@ -442,42 +598,142 @@ mod tests {
         assert!(s.warnings[0].contains("3 sobrecargas"), "{:?}", s.warnings);
         // A procedure, with a quoted mixed-case name.
         let def = "CREATE OR REPLACE PROCEDURE \"App\".\"Carga\"(IN n integer)\n LANGUAGE plpgsql\nAS $procedure$ BEGIN NULL; END $procedure$\n";
-        let r = req(RenameTarget::Object { object: obj(kinds::PROCEDURE, "App", "Carga"), parent: None }, "carga2", Some(def));
-        assert_eq!(stmts(Variant::Postgres, &r), ["ALTER PROCEDURE \"App\".\"Carga\"(IN n integer) RENAME TO carga2;"]);
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::PROCEDURE, "App", "Carga"),
+                parent: None,
+            },
+            "carga2",
+            Some(def),
+        );
+        assert_eq!(
+            stmts(Variant::Postgres, &r),
+            ["ALTER PROCEDURE \"App\".\"Carga\"(IN n integer) RENAME TO carga2;"]
+        );
         // No definition: the name alone (fine without overloads), with a warning.
-        let r = req(RenameTarget::Object { object: obj(kinds::FUNCTION, "app", "f"), parent: None }, "g", None);
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::FUNCTION, "app", "f"),
+                parent: None,
+            },
+            "g",
+            None,
+        );
         let s = script(Variant::Postgres, &r).unwrap();
         assert_eq!(s.statements, ["ALTER FUNCTION \"app\".\"f\" RENAME TO g;"]);
         assert_eq!(s.warnings.len(), 1);
         // CockroachDB's pg_get_functiondef.
         let def = "CREATE FUNCTION s.ff(\n\ta INT8,\n\tb STRING DEFAULT 'x,y':::STRING\n)\n\tRETURNS INT8\n\tLANGUAGE SQL\n\tAS $$\n\t\tSELECT a;\n\t$$";
-        let r = req(RenameTarget::Object { object: obj(kinds::FUNCTION, "s", "ff"), parent: None }, "ff2", Some(def));
-        assert_eq!(stmts(Variant::Cockroach, &r), ["ALTER FUNCTION \"s\".\"ff\"(a INT8, b STRING) RENAME TO ff2;"]);
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::FUNCTION, "s", "ff"),
+                parent: None,
+            },
+            "ff2",
+            Some(def),
+        );
+        assert_eq!(
+            stmts(Variant::Cockroach, &r),
+            ["ALTER FUNCTION \"s\".\"ff\"(a INT8, b STRING) RENAME TO ff2;"]
+        );
     }
 
     #[test]
     fn triggers_need_their_table() {
-        let r = req(RenameTarget::Object { object: obj(kinds::TRIGGER, "app", "tg"), parent: Some("Pedidos".into()) }, "tg_nuevo", None);
-        assert_eq!(stmts(Variant::Postgres, &r), ["ALTER TRIGGER \"tg\" ON \"app\".\"Pedidos\" RENAME TO tg_nuevo;"]);
-        let r = req(RenameTarget::Object { object: obj(kinds::TRIGGER, "app", "tg"), parent: None }, "x", None);
-        assert!(matches!(script(Variant::Postgres, &r), Err(Error::Unsupported(_))));
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::TRIGGER, "app", "tg"),
+                parent: Some("Pedidos".into()),
+            },
+            "tg_nuevo",
+            None,
+        );
+        assert_eq!(
+            stmts(Variant::Postgres, &r),
+            ["ALTER TRIGGER \"tg\" ON \"app\".\"Pedidos\" RENAME TO tg_nuevo;"]
+        );
+        let r = req(
+            RenameTarget::Object {
+                object: obj(kinds::TRIGGER, "app", "tg"),
+                parent: None,
+            },
+            "x",
+            None,
+        );
+        assert!(matches!(
+            script(Variant::Postgres, &r),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn columns_indexes_constraints_and_schemas() {
         let t = obj(kinds::TABLE, "app", "T");
-        let col = req(RenameTarget::Column { table: t.clone(), column: "Pepe".into() }, "pepe_nuevo", None);
-        assert_eq!(stmts(Variant::Postgres, &col), ["ALTER TABLE \"app\".\"T\" RENAME COLUMN \"Pepe\" TO pepe_nuevo;"]);
-        let mv = req(RenameTarget::Column { table: obj(kinds::MATERIALIZED_VIEW, "app", "mv"), column: "a".into() }, "b", None);
-        assert_eq!(stmts(Variant::Postgres, &mv), ["ALTER MATERIALIZED VIEW \"app\".\"mv\" RENAME COLUMN \"a\" TO b;"]);
-        let ix = req(RenameTarget::Index { table: t.clone(), index: "ix_pepe".into() }, "IX_Nuevo", None);
-        assert_eq!(stmts(Variant::Postgres, &ix), ["ALTER INDEX \"app\".\"ix_pepe\" RENAME TO \"IX_Nuevo\";"]);
-        assert_eq!(stmts(Variant::Cockroach, &ix), ["ALTER INDEX \"app\".\"T\"@\"ix_pepe\" RENAME TO \"IX_Nuevo\";"]);
-        let ck = req(RenameTarget::Constraint { table: t, constraint: "ck_pepe".into() }, "ck_nuevo", None);
-        assert_eq!(stmts(Variant::Postgres, &ck), ["ALTER TABLE \"app\".\"T\" RENAME CONSTRAINT \"ck_pepe\" TO ck_nuevo;"]);
-        let sc = req(RenameTarget::Schema { database: None, schema: "Ventas".into() }, "comercial", None);
+        let col = req(
+            RenameTarget::Column {
+                table: t.clone(),
+                column: "Pepe".into(),
+            },
+            "pepe_nuevo",
+            None,
+        );
+        assert_eq!(
+            stmts(Variant::Postgres, &col),
+            ["ALTER TABLE \"app\".\"T\" RENAME COLUMN \"Pepe\" TO pepe_nuevo;"]
+        );
+        let mv = req(
+            RenameTarget::Column {
+                table: obj(kinds::MATERIALIZED_VIEW, "app", "mv"),
+                column: "a".into(),
+            },
+            "b",
+            None,
+        );
+        assert_eq!(
+            stmts(Variant::Postgres, &mv),
+            ["ALTER MATERIALIZED VIEW \"app\".\"mv\" RENAME COLUMN \"a\" TO b;"]
+        );
+        let ix = req(
+            RenameTarget::Index {
+                table: t.clone(),
+                index: "ix_pepe".into(),
+            },
+            "IX_Nuevo",
+            None,
+        );
+        assert_eq!(
+            stmts(Variant::Postgres, &ix),
+            ["ALTER INDEX \"app\".\"ix_pepe\" RENAME TO \"IX_Nuevo\";"]
+        );
+        assert_eq!(
+            stmts(Variant::Cockroach, &ix),
+            ["ALTER INDEX \"app\".\"T\"@\"ix_pepe\" RENAME TO \"IX_Nuevo\";"]
+        );
+        let ck = req(
+            RenameTarget::Constraint {
+                table: t,
+                constraint: "ck_pepe".into(),
+            },
+            "ck_nuevo",
+            None,
+        );
+        assert_eq!(
+            stmts(Variant::Postgres, &ck),
+            ["ALTER TABLE \"app\".\"T\" RENAME CONSTRAINT \"ck_pepe\" TO ck_nuevo;"]
+        );
+        let sc = req(
+            RenameTarget::Schema {
+                database: None,
+                schema: "Ventas".into(),
+            },
+            "comercial",
+            None,
+        );
         let s = script(Variant::Postgres, &sc).unwrap();
-        assert_eq!(s.statements, ["ALTER SCHEMA \"Ventas\" RENAME TO comercial;"]);
+        assert_eq!(
+            s.statements,
+            ["ALTER SCHEMA \"Ventas\" RENAME TO comercial;"]
+        );
         assert!(s.warnings[0].contains("search_path"));
     }
 
@@ -486,14 +742,24 @@ mod tests {
         for v in Variant::ALL {
             let Some(s) = spec(v) else {
                 assert_eq!(v, Variant::Denodo);
-                assert!(matches!(script(v, &object(kinds::TABLE, "t", "u")), Err(Error::Unsupported(_))));
+                assert!(matches!(
+                    script(v, &object(kinds::TABLE, "t", "u")),
+                    Err(Error::Unsupported(_))
+                ));
                 continue;
             };
             assert_eq!(s.fold, Fold::Lower);
             assert!(s.kinds.contains(&kinds::TABLE.to_string()), "{v:?}");
             // Every kind it offers scripts.
             for k in &s.kinds {
-                let r = req(RenameTarget::Object { object: obj(k, "app", "x"), parent: Some("t".into()) }, "y", None);
+                let r = req(
+                    RenameTarget::Object {
+                        object: obj(k, "app", "x"),
+                        parent: Some("t".into()),
+                    },
+                    "y",
+                    None,
+                );
                 assert!(script(v, &r).is_ok(), "{v:?} {k}");
             }
             // Transactions only where the session has them.
@@ -503,29 +769,77 @@ mod tests {
         assert_eq!(pg.replace, ReplaceStyle::CreateOrReplace);
         assert!(pg.transactional && pg.columns && pg.indexes && pg.constraints && pg.schemas);
         assert_eq!(pg.tracked, ["view", "materialized_view", "trigger"]);
-        assert_eq!(pg.kinds, ["table", "view", "materialized_view", "sequence", "type", "function", "procedure", "trigger"]);
+        assert_eq!(
+            pg.kinds,
+            [
+                "table",
+                "view",
+                "materialized_view",
+                "sequence",
+                "type",
+                "function",
+                "procedure",
+                "trigger"
+            ]
+        );
         let crdb = spec(Variant::Cockroach).unwrap();
         assert_eq!(crdb.replace, ReplaceStyle::DropCreate);
         assert!(crdb.tracked.is_empty() && !crdb.transactional && crdb.note.is_some());
         assert!(!spec(Variant::Yugabyte).unwrap().transactional);
         let rs = spec(Variant::Redshift).unwrap();
         assert_eq!(rs.kinds, ["table", "view"]);
-        assert!(rs.columns && rs.schemas && !rs.indexes && !rs.constraints && !rs.transactional && rs.tracked.is_empty());
-        let ix = req(RenameTarget::Index { table: obj(kinds::TABLE, "app", "t"), index: "i".into() }, "j", None);
-        assert!(matches!(script(Variant::Redshift, &ix), Err(Error::Unsupported(_))));
-        assert!(matches!(script(Variant::Redshift, &object(kinds::FUNCTION, "f", "g")), Err(Error::Unsupported(_))));
+        assert!(
+            rs.columns
+                && rs.schemas
+                && !rs.indexes
+                && !rs.constraints
+                && !rs.transactional
+                && rs.tracked.is_empty()
+        );
+        let ix = req(
+            RenameTarget::Index {
+                table: obj(kinds::TABLE, "app", "t"),
+                index: "i".into(),
+            },
+            "j",
+            None,
+        );
+        assert!(matches!(
+            script(Variant::Redshift, &ix),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(Variant::Redshift, &object(kinds::FUNCTION, "f", "g")),
+            Err(Error::Unsupported(_))
+        ));
         let mz = spec(Variant::Materialize).unwrap();
-        assert_eq!(mz.kinds, ["table", "view", "materialized_view", "source", "sink"]);
+        assert_eq!(
+            mz.kinds,
+            ["table", "view", "materialized_view", "source", "sink"]
+        );
         assert!(!mz.columns && mz.schemas && mz.indexes && !mz.constraints && !mz.transactional);
         assert_eq!(mz.tracked, ["view", "materialized_view", "sink"]);
-        assert_eq!(stmts(Variant::RisingWave, &object(SINK, "k", "k2")), ["ALTER SINK \"app\".\"k\" RENAME TO k2;"]);
+        assert_eq!(
+            stmts(Variant::RisingWave, &object(SINK, "k", "k2")),
+            ["ALTER SINK \"app\".\"k\" RENAME TO k2;"]
+        );
         let cr = spec(Variant::CrateDb).unwrap();
         assert_eq!(cr.kinds, ["table", "view"]);
         assert!(cr.columns && !cr.schemas && !cr.indexes && cr.tracked.is_empty());
-        assert_eq!(stmts(Variant::CrateDb, &object(kinds::VIEW, "v", "w")), ["ALTER TABLE \"app\".\"v\" RENAME TO w;"]);
+        assert_eq!(
+            stmts(Variant::CrateDb, &object(kinds::VIEW, "v", "w")),
+            ["ALTER TABLE \"app\".\"v\" RENAME TO w;"]
+        );
         let h2 = spec(Variant::H2).unwrap();
         assert_eq!(h2.kinds, ["table", "view"]);
-        assert!(h2.columns && h2.indexes && h2.constraints && h2.schemas && !h2.transactional && h2.tracked.is_empty());
+        assert!(
+            h2.columns
+                && h2.indexes
+                && h2.constraints
+                && h2.schemas
+                && !h2.transactional
+                && h2.tracked.is_empty()
+        );
         assert_eq!(spec(Variant::Yellowbrick).unwrap().kinds, ["table", "view"]);
     }
 
@@ -535,12 +849,30 @@ mod tests {
 
     #[test]
     fn postgres_database_rename_ends_sessions_then_renames() {
-        for v in [Variant::Postgres, Variant::Timescale, Variant::AlloyDb, Variant::CloudSql, Variant::Aurora, Variant::Edb, Variant::Fujitsu, Variant::OpenGauss, Variant::Greenplum, Variant::Cloudberry, Variant::Greengage] {
+        for v in [
+            Variant::Postgres,
+            Variant::Timescale,
+            Variant::AlloyDb,
+            Variant::CloudSql,
+            Variant::Aurora,
+            Variant::Edb,
+            Variant::Fujitsu,
+            Variant::OpenGauss,
+            Variant::Greenplum,
+            Variant::Cloudberry,
+            Variant::Greengage,
+        ] {
             let s = spec(v).unwrap();
             assert!(s.databases && !s.database_moves, "{v:?}");
             assert_eq!(s.database_from.as_deref(), Some("postgres"), "{v:?}");
             let note = s.database_note.unwrap();
-            for part in ["cierra", "no se actualizan", "No es atómico", "dueño", "superusuario"] {
+            for part in [
+                "cierra",
+                "no se actualizan",
+                "No es atómico",
+                "dueño",
+                "superusuario",
+            ] {
                 assert!(note.contains(part), "{v:?}: {note}");
             }
             assert_eq!(
@@ -561,14 +893,28 @@ mod tests {
             ]
         );
         let w = db(Variant::Postgres, "a", "b").warnings;
-        assert!(w.iter().any(|w| w.contains("Se cierran")) && w.iter().any(|w| w.contains("no se actualiza")), "{w:?}");
-        assert_eq!(spec(Variant::Kingbase).unwrap().database_from.as_deref(), Some("kingbase"));
+        assert!(
+            w.iter().any(|w| w.contains("Se cierran"))
+                && w.iter().any(|w| w.contains("no se actualiza")),
+            "{w:?}"
+        );
+        assert_eq!(
+            spec(Variant::Kingbase).unwrap().database_from.as_deref(),
+            Some("kingbase")
+        );
     }
 
     #[test]
     fn yugabyte_and_redshift_database_rename() {
         let yb = spec(Variant::Yugabyte).unwrap();
-        assert!(yb.databases && yb.database_note.as_deref().unwrap().contains("varios nodos"));
+        assert!(
+            yb.databases
+                && yb
+                    .database_note
+                    .as_deref()
+                    .unwrap()
+                    .contains("varios nodos")
+        );
         assert_eq!(yb.database_from.as_deref(), Some("yugabyte"));
         assert_eq!(db(Variant::Yugabyte, "app", "app2").statements.len(), 2);
         // Yugabyte's own `postgres` database can be renamed; it doesn't run from it.
@@ -592,22 +938,39 @@ mod tests {
         let c = spec(Variant::Cockroach).unwrap();
         assert!(c.databases && !c.database_moves);
         assert_eq!(c.database_from.as_deref(), Some("defaultdb"));
-        assert!(c.database_note.as_deref().unwrap().contains("no las cierra"));
+        assert!(c
+            .database_note
+            .as_deref()
+            .unwrap()
+            .contains("no las cierra"));
         let s = db(Variant::Cockroach, "app", "App");
         assert_eq!(s.statements, ["ALTER DATABASE \"app\" RENAME TO \"App\";"]);
         assert!(s.warnings[0].contains("siguen abiertas"));
-        assert!(matches!(database_script(Variant::Cockroach, "system", "x"), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            database_script(Variant::Cockroach, "system", "x"),
+            Err(Error::Unsupported(_))
+        ));
         // Its `postgres` database is an ordinary one.
         assert!(database_script(Variant::Cockroach, "postgres", "pg").is_ok());
 
         let rw = spec(Variant::RisingWave).unwrap();
         assert_eq!(rw.database_from.as_deref(), Some("dev"));
-        assert_eq!(db(Variant::RisingWave, "a", "b").statements, ["ALTER DATABASE \"a\" RENAME TO \"b\";"]);
-        assert!(rw.database_note.as_deref().unwrap().contains("reconectarse"));
+        assert_eq!(
+            db(Variant::RisingWave, "a", "b").statements,
+            ["ALTER DATABASE \"a\" RENAME TO \"b\";"]
+        );
+        assert!(rw
+            .database_note
+            .as_deref()
+            .unwrap()
+            .contains("reconectarse"));
 
         let yb = spec(Variant::Yellowbrick).unwrap();
         assert_eq!(yb.database_from.as_deref(), Some("yellowbrick"));
-        assert_eq!(db(Variant::Yellowbrick, "a", "b").statements, ["ALTER DATABASE \"a\" RENAME TO \"b\";"]);
+        assert_eq!(
+            db(Variant::Yellowbrick, "a", "b").statements,
+            ["ALTER DATABASE \"a\" RENAME TO \"b\";"]
+        );
         assert!(yb.database_note.as_deref().unwrap().contains("Cerrá antes"));
     }
 
@@ -616,30 +979,68 @@ mod tests {
         for v in Variant::ALL {
             let Some(s) = spec(v) else { continue };
             if !s.databases {
-                assert!(matches!(database_script(v, "a", "b"), Err(Error::Unsupported(_))), "{v:?}");
+                assert!(
+                    matches!(database_script(v, "a", "b"), Err(Error::Unsupported(_))),
+                    "{v:?}"
+                );
                 continue;
             }
-            let from = s.database_from.clone().expect("a database rename runs from somewhere");
+            let from = s
+                .database_from
+                .clone()
+                .expect("a database rename runs from somewhere");
             let e = database_script(v, &from, "x").unwrap_err().to_string();
-            assert!(e.contains(&from) && e.contains("desde la que"), "{v:?}: {e}");
-            assert!(s.database_note.as_deref().unwrap().contains(&format!("«{from}»")), "{v:?}");
+            assert!(
+                e.contains(&from) && e.contains("desde la que"),
+                "{v:?}: {e}"
+            );
+            assert!(
+                s.database_note
+                    .as_deref()
+                    .unwrap()
+                    .contains(&format!("«{from}»")),
+                "{v:?}"
+            );
             if v != Variant::Cockroach && v != Variant::RisingWave {
                 for t in ["template0", "template1"] {
-                    assert!(database_script(v, t, "x").unwrap_err().to_string().contains("sistema"), "{v:?} {t}");
+                    assert!(
+                        database_script(v, t, "x")
+                            .unwrap_err()
+                            .to_string()
+                            .contains("sistema"),
+                        "{v:?} {t}"
+                    );
                 }
             }
             assert!(database_script(v, "", "x").is_err() && database_script(v, "a", "").is_err());
         }
-        for v in [Variant::Materialize, Variant::CrateDb, Variant::H2, Variant::Denodo] {
-            assert!(spec(v).is_none_or(|s| !s.databases && s.database_from.is_none()), "{v:?}");
-            assert!(matches!(database_script(v, "a", "b"), Err(Error::Unsupported(_))), "{v:?}");
+        for v in [
+            Variant::Materialize,
+            Variant::CrateDb,
+            Variant::H2,
+            Variant::Denodo,
+        ] {
+            assert!(
+                spec(v).is_none_or(|s| !s.databases && s.database_from.is_none()),
+                "{v:?}"
+            );
+            assert!(
+                matches!(database_script(v, "a", "b"), Err(Error::Unsupported(_))),
+                "{v:?}"
+            );
         }
     }
 
     #[test]
     fn the_sessions_literal_holds_whatever_standard_conforming_strings_says() {
-        assert_eq!(name_literal(Variant::Postgres, r"a\'; DROP"), r"E'a\\''; DROP'");
+        assert_eq!(
+            name_literal(Variant::Postgres, r"a\'; DROP"),
+            r"E'a\\''; DROP'"
+        );
         assert_eq!(name_literal(Variant::Postgres, "ventas"), "E'ventas'");
-        assert_eq!(name_literal(Variant::Redshift, r"a\b"), crate::catalog::lit(Variant::Redshift, r"a\b"));
+        assert_eq!(
+            name_literal(Variant::Redshift, r"a\b"),
+            crate::catalog::lit(Variant::Redshift, r"a\b")
+        );
     }
 }

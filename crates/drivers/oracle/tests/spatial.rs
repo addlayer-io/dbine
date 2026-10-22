@@ -11,7 +11,10 @@
 //!   cargo test -p dbine-driver-oracle --test spatial -- --ignored
 //! ```
 
-use dbine_driver::{ColumnFilter, ConnectionConfig, FilterOp, ObjectRef, QueryOutcome, Session, SortKey, StatementResult};
+use dbine_driver::{
+    ColumnFilter, ConnectionConfig, FilterOp, ObjectRef, QueryOutcome, Session, SortKey,
+    StatementResult,
+};
 use serde_json::{json, Value};
 
 fn cfg() -> Option<ConnectionConfig> {
@@ -35,7 +38,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 1000, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 1000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     if let Some(e) = out.error.take() {
         panic!("{sql}: {e}");
     }
@@ -43,16 +48,24 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
 }
 
 fn result(out: &QueryOutcome) -> &StatementResult {
-    out.results.iter().find(|r| !r.columns.is_empty()).expect("a result set")
+    out.results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .expect("a result set")
 }
 
 fn column(r: &StatementResult, name: &str) -> Vec<Value> {
-    let i = r.columns.iter().position(|c| c.name == name).unwrap_or_else(|| panic!("column {name}"));
+    let i = r
+        .columns
+        .iter()
+        .position(|c| c.name == name)
+        .unwrap_or_else(|| panic!("column {name}"));
     r.rows.iter().map(|row| row[i].clone()).collect()
 }
 
 const POINT: &str = "SRID=4326;POINT (-58.3816 -34.6037)";
-const POLYGON: &str = "SRID=4326;POLYGON ((-59.0 -35.0, -58.0 -35.0, -58.0 -34.0, -59.0 -34.0, -59.0 -35.0))";
+const POLYGON: &str =
+    "SRID=4326;POLYGON ((-59.0 -35.0, -58.0 -35.0, -58.0 -34.0, -59.0 -34.0, -59.0 -35.0))";
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
@@ -64,7 +77,11 @@ async fn oracle_geometries_reach_the_map() {
         run(&mut s, &format!("DROP TABLE IF EXISTS {t}")).await;
     }
     run(&mut s, "CREATE TABLE DBINE_GEO_MAP (ID NUMBER PRIMARY KEY, NAME VARCHAR2(20), \"Geom\" SDO_GEOMETRY)").await;
-    run(&mut s, "CREATE TABLE DBINE_GEO_LBL (ID NUMBER PRIMARY KEY, LABEL VARCHAR2(20))").await;
+    run(
+        &mut s,
+        "CREATE TABLE DBINE_GEO_LBL (ID NUMBER PRIMARY KEY, LABEL VARCHAR2(20))",
+    )
+    .await;
     run(
         &mut s,
         "INSERT INTO DBINE_GEO_MAP VALUES (1, 'point', SDO_GEOMETRY(2001, 4326, SDO_POINT_TYPE(-58.3816, -34.6037, NULL), NULL, NULL))",
@@ -92,25 +109,72 @@ async fn oracle_geometries_reach_the_map() {
 
     // Table data: the browse query converts the geometry column, sorted
     // and filtered as the grid does.
-    let obj = ObjectRef { kind: "table".into(), schema: None, name: "DBINE_GEO_MAP".into() };
+    let obj = ObjectRef {
+        kind: "table".into(),
+        schema: None,
+        name: "DBINE_GEO_MAP".into(),
+    };
     let browse = s.browse_query(&obj, 100);
-    assert!(browse.contains("SDO_UTIL.TO_WKTGEOMETRY(t.\"Geom\") AS \"Geom\""), "{browse}");
-    let sorted = d.sorted_browse(&browse, &[SortKey { column: "ID".into(), descending: false }]).unwrap();
+    assert!(
+        browse.contains("SDO_UTIL.TO_WKTGEOMETRY(t.\"Geom\") AS \"Geom\""),
+        "{browse}"
+    );
+    let sorted = d
+        .sorted_browse(
+            &browse,
+            &[SortKey {
+                column: "ID".into(),
+                descending: false,
+            }],
+        )
+        .unwrap();
     let out = run(&mut s, &sorted).await;
     let r = result(&out);
-    let types: Vec<(&str, &str)> = r.columns.iter().map(|c| (c.name.as_str(), c.type_name.as_str())).collect();
+    let types: Vec<(&str, &str)> = r
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c.type_name.as_str()))
+        .collect();
     assert_eq!(types[2], ("Geom", "SDO_GEOMETRY"), "{types:?}");
     let geoms = column(r, "Geom");
-    assert_eq!(geoms[..4], [json!(POINT), json!(POLYGON), Value::Null, json!("POINT (10.0 20.0)")]);
+    assert_eq!(
+        geoms[..4],
+        [
+            json!(POINT),
+            json!(POLYGON),
+            Value::Null,
+            json!("POINT (10.0 20.0)")
+        ]
+    );
     let line = geoms[4].as_str().unwrap();
     assert!(line.len() > 64 * 1024, "{}", line.len());
-    assert!(line.starts_with("SRID=4326;LINESTRING (-60.0 -30.0, -59.999 -30.00025, ") && line.ends_with(')'), "{}", &line[..80]);
+    assert!(
+        line.starts_with("SRID=4326;LINESTRING (-60.0 -30.0, -59.999 -30.00025, ")
+            && line.ends_with(')'),
+        "{}",
+        &line[..80]
+    );
     assert_eq!(line.matches(',').count(), 5999);
-    let filter = [ColumnFilter { column: "ID".into(), op: FilterOp::Eq, values: vec![json!(2)], sql: None }];
+    let filter = [ColumnFilter {
+        column: "ID".into(),
+        op: FilterOp::Eq,
+        values: vec![json!(2)],
+        sql: None,
+    }];
     let filtered = d.filtered_browse(&browse, &filter).unwrap();
-    assert_eq!(column(result(&run(&mut s, &filtered).await), "Geom"), [json!(POLYGON)]);
+    assert_eq!(
+        column(result(&run(&mut s, &filtered).await), "Geom"),
+        [json!(POLYGON)]
+    );
     // A table without geometries keeps SELECT *.
-    let plain = s.browse_query(&ObjectRef { kind: "table".into(), schema: None, name: "DBINE_GEO_LBL".into() }, 10);
+    let plain = s.browse_query(
+        &ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "DBINE_GEO_LBL".into(),
+        },
+        10,
+    );
     assert!(plain.starts_with("SELECT *\nFROM"), "{plain}");
 
     // A free query with the raw column: run again converted, the join's
@@ -124,23 +188,64 @@ async fn oracle_geometries_reach_the_map() {
     let names: Vec<&str> = r.columns.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["ID", "ID", "LABEL", "Geom"]);
     assert_eq!(r.columns[3].type_name, "SDO_GEOMETRY");
-    assert_eq!(column(r, "LABEL"), [json!("cuatro"), json!("tres"), json!("dos"), json!("uno")]);
-    assert_eq!(column(r, "Geom"), [json!("POINT (10.0 20.0)"), Value::Null, json!(POLYGON), json!(POINT)]);
-    assert!(out.log.iter().any(|m| m.text.contains("EWKT")) || out.messages.iter().any(|m| m.contains("EWKT")), "{:?} {:?}", out.log, out.messages);
+    assert_eq!(
+        column(r, "LABEL"),
+        [json!("cuatro"), json!("tres"), json!("dos"), json!("uno")]
+    );
+    assert_eq!(
+        column(r, "Geom"),
+        [
+            json!("POINT (10.0 20.0)"),
+            Value::Null,
+            json!(POLYGON),
+            json!(POINT)
+        ]
+    );
+    assert!(
+        out.log.iter().any(|m| m.text.contains("EWKT"))
+            || out.messages.iter().any(|m| m.contains("EWKT")),
+        "{:?} {:?}",
+        out.log,
+        out.messages
+    );
 
     // SELECT * and a script: each statement on its own.
-    let out = run(&mut s, "SELECT * FROM DBINE_GEO_MAP WHERE ID = 1;\nSELECT COUNT(*) N FROM DBINE_GEO_MAP;").await;
-    let sets: Vec<&StatementResult> = out.results.iter().filter(|r| !r.columns.is_empty()).collect();
+    let out = run(
+        &mut s,
+        "SELECT * FROM DBINE_GEO_MAP WHERE ID = 1;\nSELECT COUNT(*) N FROM DBINE_GEO_MAP;",
+    )
+    .await;
+    let sets: Vec<&StatementResult> = out
+        .results
+        .iter()
+        .filter(|r| !r.columns.is_empty())
+        .collect();
     assert_eq!(column(sets[0], "Geom"), [json!(POINT)]);
     assert_eq!(column(sets[1], "N"), [json!(5)]);
 
     // An object type that isn't a geometry: the client's error, with the hint.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT SDO_POINT_TYPE(1, 2, 3) P FROM dual", 10, &mut out).await;
+    let e = s
+        .execute("SELECT SDO_POINT_TYPE(1, 2, 3) P FROM dual", 10, &mut out)
+        .await;
     assert!(e.is_err() || out.error.is_some());
-    assert!(out.log.iter().any(|m| m.text.contains("SDO_UTIL.TO_WKTGEOMETRY")) || out.messages.iter().any(|m| m.contains("SDO_UTIL.TO_WKTGEOMETRY")), "{:?} {:?}", out.log, out.messages);
+    assert!(
+        out.log
+            .iter()
+            .any(|m| m.text.contains("SDO_UTIL.TO_WKTGEOMETRY"))
+            || out
+                .messages
+                .iter()
+                .any(|m| m.contains("SDO_UTIL.TO_WKTGEOMETRY")),
+        "{:?} {:?}",
+        out.log,
+        out.messages
+    );
     // The connection is still good.
-    assert_eq!(column(result(&run(&mut s, "SELECT 1 X FROM dual").await), "X"), [json!(1)]);
+    assert_eq!(
+        column(result(&run(&mut s, "SELECT 1 X FROM dual").await), "X"),
+        [json!(1)]
+    );
 
     for t in ["DBINE_GEO_MAP", "DBINE_GEO_LBL"] {
         run(&mut s, &format!("DROP TABLE {t}")).await;

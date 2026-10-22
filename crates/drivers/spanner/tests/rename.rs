@@ -16,9 +16,12 @@
 //! DBINE_TEST_SPANNER_URL=http://localhost:25303 cargo test -p dbine-driver-spanner --test rename -- --ignored --nocapture
 //! ```
 
-use dbine_driver::rename::{carried_dependents, rewrite_references, with_create_style, RewriteOptions};
+use dbine_driver::rename::{
+    carried_dependents, rewrite_references, with_create_style, RewriteOptions,
+};
 use dbine_driver::{
-    kinds, Confidence, ConnectionConfig, DependencyScan, Driver, ObjectRef, QueryOutcome, Relation, RenameRequest, RenameTarget, ReplaceStyle, Session,
+    kinds, Confidence, ConnectionConfig, DependencyScan, Driver, ObjectRef, QueryOutcome, Relation,
+    RenameRequest, RenameTarget, ReplaceStyle, Session,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -30,14 +33,27 @@ async fn connect(url: &str, db: &str) -> (Arc<dyn Driver>, Box<dyn Session>) {
         .json(&json!({ "instanceId": "i1", "instance": { "config": "projects/test/instanceConfigs/emulator-config", "displayName": "i1", "nodeCount": 1 } }))
         .send()
         .await;
-    let _ = http.delete(format!("{url}/v1/projects/test/instances/i1/databases/{db}")).send().await;
+    let _ = http
+        .delete(format!(
+            "{url}/v1/projects/test/instances/i1/databases/{db}"
+        ))
+        .send()
+        .await;
     http.post(format!("{url}/v1/projects/test/instances/i1/databases"))
         .json(&json!({ "createStatement": format!("CREATE DATABASE `{db}`") }))
         .send()
         .await
         .unwrap();
-    let mut cfg = ConnectionConfig { driver: "spanner".into(), database: db.into(), ..Default::default() };
-    for (k, v) in [("project_id", "test"), ("instance", "i1"), ("endpoint_url", url)] {
+    let mut cfg = ConnectionConfig {
+        driver: "spanner".into(),
+        database: db.into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("project_id", "test"),
+        ("instance", "i1"),
+        ("endpoint_url", url),
+    ] {
         cfg.options.insert(k.into(), v.into());
     }
     let d = dbine_driver_spanner::drivers().pop().unwrap();
@@ -47,7 +63,9 @@ async fn connect(url: &str, db: &str) -> (Arc<dyn Driver>, Box<dyn Session>) {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.map_err(|e| e.to_string())?;
+    s.execute(sql, 100, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     match out.error.take() {
         Some(e) => Err(format!("{e:?}")),
         None => Ok(out),
@@ -61,8 +79,19 @@ async fn ok(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
 /// The first column of each row, as text.
 async fn col(s: &mut Box<dyn Session>, sql: &str) -> Vec<String> {
     let out = ok(s, sql).await;
-    let rs = out.results.iter().find(|r| !r.columns.is_empty()).unwrap_or_else(|| panic!("{sql}: no rows"));
-    rs.rows.iter().map(|r| r[0].as_str().map(str::to_string).unwrap_or_else(|| r[0].to_string())).collect()
+    let rs = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .unwrap_or_else(|| panic!("{sql}: no rows"));
+    rs.rows
+        .iter()
+        .map(|r| {
+            r[0].as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| r[0].to_string())
+        })
+        .collect()
 }
 
 async fn setup(s: &mut Box<dyn Session>) {
@@ -96,33 +125,81 @@ async fn plan(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, mut req: RenameRequ
     assert!(spec.allows(&req.target), "{:?}", req.target);
     let dialect = d.script_dialect();
     let scan = DependencyScan::new(d.info(), dialect, d.capabilities().foreign_keys);
-    let report = s.dependents(&req.target.dependency_target(), &scan).await.unwrap();
-    eprintln!("dependents: {:?}", report.items.iter().map(|x| (&x.kind, &x.name, x.relation, x.confidence)).collect::<Vec<_>>());
+    let report = s
+        .dependents(&req.target.dependency_target(), &scan)
+        .await
+        .unwrap();
+    eprintln!(
+        "dependents: {:?}",
+        report
+            .items
+            .iter()
+            .map(|x| (&x.kind, &x.name, x.relation, x.confidence))
+            .collect::<Vec<_>>()
+    );
     if let RenameTarget::Object { object, .. } = &req.target {
         if object.kind != kinds::TABLE {
             req.definition = s.definition(object).await.unwrap();
         }
     }
     let (mut rewritten, mut drops, mut creates) = (Vec::new(), Vec::new(), Vec::new());
-    let mut skip: Vec<ObjectRef> = report.items.iter().map(|x| ObjectRef { kind: x.kind.clone(), schema: x.schema.clone(), name: x.name.clone() }).collect();
+    let mut skip: Vec<ObjectRef> = report
+        .items
+        .iter()
+        .map(|x| ObjectRef {
+            kind: x.kind.clone(),
+            schema: x.schema.clone(),
+            name: x.name.clone(),
+        })
+        .collect();
     if let RenameTarget::Object { object, .. } = &req.target {
         skip.push(object.clone());
     }
-    let (mut carried, mut carried_drops, mut carried_creates) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut carried, mut carried_drops, mut carried_creates) =
+        (Vec::new(), Vec::new(), Vec::new());
     for dep in report.items.iter().filter(|x| x.relation == Relation::Code) {
         assert_ne!(dep.confidence, Confidence::Review, "{}", dep.name);
-        let body = s.definition(&ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() }).await.unwrap().unwrap();
-        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW, ..Default::default() };
-        let r = rewrite_references(&body, &dialect, &req.target.rewrite_target(), &req.new_name, &spec, &opts);
+        let body = s
+            .definition(&ObjectRef {
+                kind: dep.kind.clone(),
+                schema: dep.schema.clone(),
+                name: dep.name.clone(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        let opts = RewriteOptions {
+            dependent_schema: dep.schema.clone(),
+            keep_view_columns: dep.kind == kinds::VIEW,
+            ..Default::default()
+        };
+        let r = rewrite_references(
+            &body,
+            &dialect,
+            &req.target.rewrite_target(),
+            &req.new_name,
+            &spec,
+            &opts,
+        );
         eprintln!("{} -> {} (unresolved {:?})", dep.name, r.text, r.unresolved);
         assert!(!r.edits.is_empty(), "{} not rewritten", dep.name);
         rewritten.push(dep.name.clone());
         assert_eq!(spec.replace_for(&dep.kind), ReplaceStyle::DropCreate);
         drops.push(format!("DROP VIEW `{}`", dep.name));
-        creates.push(with_create_style(&r.text, &dialect, ReplaceStyle::DropCreate).trim().to_string());
+        creates.push(
+            with_create_style(&r.text, &dialect, ReplaceStyle::DropCreate)
+                .trim()
+                .to_string(),
+        );
         // What reads it goes first and comes back after it, unchanged.
-        let root = ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() };
-        let (more, unreadable) = carried_dependents(s.as_mut(), &root, &skip, &scan).await.unwrap();
+        let root = ObjectRef {
+            kind: dep.kind.clone(),
+            schema: dep.schema.clone(),
+            name: dep.name.clone(),
+        };
+        let (more, unreadable) = carried_dependents(s.as_mut(), &root, &skip, &scan)
+            .await
+            .unwrap();
         assert!(unreadable.is_empty(), "{unreadable:?}");
         for (o, def) in more {
             if carried.contains(&o.name) {
@@ -135,8 +212,18 @@ async fn plan(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, mut req: RenameRequ
     }
     let middle = d.rename_script(&req).unwrap();
     eprintln!("warnings: {:?}", middle.warnings);
-    let statements = carried_drops.into_iter().chain(drops).chain(middle.statements).chain(creates).chain(carried_creates).collect();
-    Plan { statements, rewritten, carried }
+    let statements = carried_drops
+        .into_iter()
+        .chain(drops)
+        .chain(middle.statements)
+        .chain(creates)
+        .chain(carried_creates)
+        .collect();
+    Plan {
+        statements,
+        rewritten,
+        carried,
+    }
 }
 
 async fn apply(s: &mut Box<dyn Session>, statements: &[String]) {
@@ -147,33 +234,58 @@ async fn apply(s: &mut Box<dyn Session>, statements: &[String]) {
 }
 
 fn object(kind: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: None, name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: name.into(),
+    }
 }
 
 #[tokio::test]
 #[ignore]
 async fn renames_a_table_and_its_views_follow() {
-    let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else {
+        return;
+    };
     let (d, mut s) = connect(&url, "rename_t").await;
     setup(&mut s).await;
 
     // The engine refuses it alone while V names T.
-    assert!(run(&mut s, "ALTER TABLE T RENAME TO T_nuevo").await.is_err());
+    assert!(run(&mut s, "ALTER TABLE T RENAME TO T_nuevo")
+        .await
+        .is_err());
     // The emulator can't rename a table on either side of a foreign key
     // (GOOGLESQL_RET_CHECK in its foreign_key_validator); Spanner moves
     // them. So the key goes before the test here.
     ok(&mut s, "DROP VIEW `V4`").await;
     ok(&mut s, "DROP VIEW `V2`").await;
     ok(&mut s, "DROP VIEW `V`").await;
-    let err = run(&mut s, "ALTER TABLE T RENAME TO T_x").await.unwrap_err();
+    let err = run(&mut s, "ALTER TABLE T RENAME TO T_x")
+        .await
+        .unwrap_err();
     assert!(err.contains("RET_CHECK"), "{err}");
     ok(&mut s, "ALTER TABLE T2 DROP CONSTRAINT fk_t").await;
-    ok(&mut s, "CREATE VIEW V SQL SECURITY INVOKER AS SELECT T.id AS id, T.pepe AS pepe FROM T").await;
-    ok(&mut s, "CREATE VIEW V2 SQL SECURITY INVOKER AS SELECT V.pepe AS pepe FROM V").await;
-    ok(&mut s, "CREATE VIEW V4 SQL SECURITY INVOKER AS SELECT V2.pepe AS pepe FROM V2").await;
+    ok(
+        &mut s,
+        "CREATE VIEW V SQL SECURITY INVOKER AS SELECT T.id AS id, T.pepe AS pepe FROM T",
+    )
+    .await;
+    ok(
+        &mut s,
+        "CREATE VIEW V2 SQL SECURITY INVOKER AS SELECT V.pepe AS pepe FROM V",
+    )
+    .await;
+    ok(
+        &mut s,
+        "CREATE VIEW V4 SQL SECURITY INVOKER AS SELECT V2.pepe AS pepe FROM V2",
+    )
+    .await;
 
     let req = RenameRequest {
-        target: RenameTarget::Object { object: object(kinds::TABLE, "T"), parent: None },
+        target: RenameTarget::Object {
+            object: object(kinds::TABLE, "T"),
+            parent: None,
+        },
         new_name: "T_nuevo".into(),
         table: None,
         definition: None,
@@ -185,13 +297,34 @@ async fn renames_a_table_and_its_views_follow() {
     assert_eq!(p.carried, ["V2", "V4"]);
     apply(&mut s, &p.statements).await;
 
-    assert_eq!(col(&mut s, "SELECT pepe FROM V ORDER BY id").await, ["uno", "dos"]);
-    assert_eq!(col(&mut s, "SELECT pepe FROM V2 ORDER BY pepe").await, ["dos", "uno"]);
-    assert_eq!(col(&mut s, "SELECT pepe FROM V4 ORDER BY pepe").await, ["dos", "uno"]);
+    assert_eq!(
+        col(&mut s, "SELECT pepe FROM V ORDER BY id").await,
+        ["uno", "dos"]
+    );
+    assert_eq!(
+        col(&mut s, "SELECT pepe FROM V2 ORDER BY pepe").await,
+        ["dos", "uno"]
+    );
+    assert_eq!(
+        col(&mut s, "SELECT pepe FROM V4 ORDER BY pepe").await,
+        ["dos", "uno"]
+    );
     assert_eq!(col(&mut s, "SELECT pepe FROM V3").await, ["otra"]);
     // Index and CHECK followed the table.
-    assert_eq!(col(&mut s, "SELECT table_name FROM INFORMATION_SCHEMA.INDEXES WHERE index_name = 'ix_pepe'").await, ["T_nuevo"]);
-    assert!(run(&mut s, "INSERT INTO T_nuevo (id, pepe) VALUES (3, '')").await.is_err(), "CHECK kept");
+    assert_eq!(
+        col(
+            &mut s,
+            "SELECT table_name FROM INFORMATION_SCHEMA.INDEXES WHERE index_name = 'ix_pepe'"
+        )
+        .await,
+        ["T_nuevo"]
+    );
+    assert!(
+        run(&mut s, "INSERT INTO T_nuevo (id, pepe) VALUES (3, '')")
+            .await
+            .is_err(),
+        "CHECK kept"
+    );
     ok(&mut s, "INSERT INTO T_nuevo (id, pepe) VALUES (3, 'tres')").await;
     assert!(run(&mut s, "SELECT 1 FROM T").await.is_err());
 }
@@ -199,13 +332,22 @@ async fn renames_a_table_and_its_views_follow() {
 #[tokio::test]
 #[ignore]
 async fn renames_a_view_by_creating_it_again() {
-    let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else {
+        return;
+    };
     let (d, mut s) = connect(&url, "rename_v").await;
     setup(&mut s).await;
-    ok(&mut s, "CREATE VIEW VD SQL SECURITY DEFINER AS SELECT T3.pepe AS pepe FROM T3").await;
+    ok(
+        &mut s,
+        "CREATE VIEW VD SQL SECURITY DEFINER AS SELECT T3.pepe AS pepe FROM T3",
+    )
+    .await;
 
     let req = RenameRequest {
-        target: RenameTarget::Object { object: object(kinds::VIEW, "V"), parent: None },
+        target: RenameTarget::Object {
+            object: object(kinds::VIEW, "V"),
+            parent: None,
+        },
         new_name: "Vista_Nueva".into(),
         table: None,
         definition: None,
@@ -214,19 +356,38 @@ async fn renames_a_view_by_creating_it_again() {
     assert_eq!(p.rewritten, ["V2"]);
     assert_eq!(p.carried, ["V4"]);
     apply(&mut s, &p.statements).await;
-    assert_eq!(col(&mut s, "SELECT pepe FROM V4 ORDER BY pepe").await, ["dos", "uno"]);
-    assert_eq!(col(&mut s, "SELECT pepe FROM Vista_Nueva ORDER BY id").await, ["uno", "dos"]);
-    assert_eq!(col(&mut s, "SELECT pepe FROM V2 ORDER BY pepe").await, ["dos", "uno"]);
+    assert_eq!(
+        col(&mut s, "SELECT pepe FROM V4 ORDER BY pepe").await,
+        ["dos", "uno"]
+    );
+    assert_eq!(
+        col(&mut s, "SELECT pepe FROM Vista_Nueva ORDER BY id").await,
+        ["uno", "dos"]
+    );
+    assert_eq!(
+        col(&mut s, "SELECT pepe FROM V2 ORDER BY pepe").await,
+        ["dos", "uno"]
+    );
     assert!(run(&mut s, "SELECT 1 FROM V").await.is_err());
 
     // A DEFINER view stays DEFINER.
     let req = RenameRequest {
-        target: RenameTarget::Object { object: object(kinds::VIEW, "VD"), parent: None },
+        target: RenameTarget::Object {
+            object: object(kinds::VIEW, "VD"),
+            parent: None,
+        },
         new_name: "VD2".into(),
         table: None,
         definition: None,
     };
     let p = plan(&d, &mut s, req).await;
     apply(&mut s, &p.statements).await;
-    assert_eq!(col(&mut s, "SELECT security_type FROM INFORMATION_SCHEMA.VIEWS WHERE table_name = 'VD2'").await, ["DEFINER"]);
+    assert_eq!(
+        col(
+            &mut s,
+            "SELECT security_type FROM INFORMATION_SCHEMA.VIEWS WHERE table_name = 'VD2'"
+        )
+        .await,
+        ["DEFINER"]
+    );
 }

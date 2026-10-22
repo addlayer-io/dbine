@@ -22,7 +22,9 @@ async fn dsql_stats() {
         username: Some("postgres".into()),
         ..Default::default()
     };
-    let mut s = dbine_driver_dsql::connect_with_password(&cfg, "dbine").await.unwrap();
+    let mut s = dbine_driver_dsql::connect_with_password(&cfg, "dbine")
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
     s.execute(
         "DROP VIEW IF EXISTS st_v; DROP TABLE IF EXISTS st_t; DROP TABLE IF EXISTS st_nunca; DROP FUNCTION IF EXISTS st_f(int);
@@ -44,13 +46,29 @@ async fn dsql_stats() {
     let rows = s.row_estimates().await.unwrap();
     eprintln!("{rows:?}");
     let t = rows.iter().find(|r| r.object.name == "st_t").expect("st_t");
-    assert_eq!((t.object.kind.as_str(), t.object.schema.as_deref(), t.rows), (kinds::TABLE, Some("public"), 1234));
-    assert!(rows.iter().all(|r| r.object.name != "st_nunca"), "never analyzed");
+    assert_eq!(
+        (t.object.kind.as_str(), t.object.schema.as_deref(), t.rows),
+        (kinds::TABLE, Some("public"), 1234)
+    );
+    assert!(
+        rows.iter().all(|r| r.object.name != "st_nunca"),
+        "never analyzed"
+    );
 
     let c = s.object_comments().await.unwrap();
     eprintln!("{c:?}");
-    assert!(c.iter().any(|c| c.object.kind == kinds::VIEW && c.object.name == "st_v" && c.comment == "ventas por id"));
-    assert!(c.iter().any(|c| c.object.kind == kinds::FUNCTION && c.object.name == "st_f" && c.comment == "doble"));
+    assert!(c.iter().any(|c| c.object.kind == kinds::VIEW
+        && c.object.name == "st_v"
+        && c.comment == "ventas por id"));
+    assert!(c.iter().any(|c| c.object.kind == kinds::FUNCTION
+        && c.object.name == "st_f"
+        && c.comment == "doble"));
 
-    s.execute("DROP VIEW st_v; DROP TABLE st_t; DROP TABLE st_nunca; DROP FUNCTION st_f(int);", 10, &mut out).await.unwrap();
+    s.execute(
+        "DROP VIEW st_v; DROP TABLE st_t; DROP TABLE st_nunca; DROP FUNCTION st_f(int);",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
 }

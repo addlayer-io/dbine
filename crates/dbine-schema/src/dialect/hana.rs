@@ -33,40 +33,79 @@ impl Dialect for Hana {
         match t.name.as_str() {
             "boolean" => L::Bool,
             // HANA TINYINT is 0–255.
-            "tinyint" => L::Int { bytes: 1, unsigned: true },
+            "tinyint" => L::Int {
+                bytes: 1,
+                unsigned: true,
+            },
             "smallint" => L::int(2),
             "integer" | "int" => L::int(4),
             "bigint" => L::int(8),
             // DECIMAL without precision: floating decimal, 34 digits.
             "decimal" | "dec" | "numeric" => match p(0) {
-                Some(pr) => L::Decimal { precision: Some(pr), scale: p(1).or(Some(0)) },
-                None => L::Decimal { precision: None, scale: None },
+                Some(pr) => L::Decimal {
+                    precision: Some(pr),
+                    scale: p(1).or(Some(0)),
+                },
+                None => L::Decimal {
+                    precision: None,
+                    scale: None,
+                },
             },
-            "smalldecimal" => L::Decimal { precision: None, scale: None },
+            "smalldecimal" => L::Decimal {
+                precision: None,
+                scale: None,
+            },
             "real" => L::Float { bytes: 4 },
             "double" | "double precision" => L::Float { bytes: 8 },
-            "float" => L::Float { bytes: if p(0).is_some_and(|b| b <= 24) { 4 } else { 8 } },
-            "nchar" => L::Char { len: p(0).or(Some(1)), unicode: true },
-            "nvarchar" | "shorttext" => L::Varchar { len: p(0), unicode: true },
+            "float" => L::Float {
+                bytes: if p(0).is_some_and(|b| b <= 24) { 4 } else { 8 },
+            },
+            "nchar" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode: true,
+            },
+            "nvarchar" | "shorttext" => L::Varchar {
+                len: p(0),
+                unicode: true,
+            },
             // HANA 2 VARCHAR/CHAR/ALPHANUM: 7-bit ASCII (HANA Cloud aliases
             // VARCHAR to NVARCHAR; taking the narrower reading is safe).
-            "char" => L::Char { len: p(0).or(Some(1)), unicode: false },
-            "varchar" | "alphanum" => L::Varchar { len: p(0), unicode: false },
+            "char" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode: false,
+            },
+            "varchar" | "alphanum" => L::Varchar {
+                len: p(0),
+                unicode: false,
+            },
             "nclob" | "text" | "bintext" => L::Text { unicode: true },
             "clob" => L::Text { unicode: false },
-            "binary" => L::Binary { len: p(0).or(Some(1)) },
+            "binary" => L::Binary {
+                len: p(0).or(Some(1)),
+            },
             "varbinary" => L::Varbinary { len: p(0) },
             "blob" => L::Blob,
             "date" | "daydate" => L::Date,
-            "time" | "secondtime" => L::Time { precision: Some(0), tz: false },
-            "seconddate" => L::Timestamp { precision: Some(0), tz: false },
-            "timestamp" | "longdate" => L::Timestamp { precision: Some(TIMESTAMP_PRECISION), tz: false },
+            "time" | "secondtime" => L::Time {
+                precision: Some(0),
+                tz: false,
+            },
+            "seconddate" => L::Timestamp {
+                precision: Some(0),
+                tz: false,
+            },
+            "timestamp" | "longdate" => L::Timestamp {
+                precision: Some(TIMESTAMP_PRECISION),
+                tz: false,
+            },
             "st_geometry" | "st_point" => L::Geometry {
                 kind: (t.name == "st_point").then(|| "point".to_string()),
                 srid: p(0),
                 geography: false,
             },
-            _ => L::Other { native: t.raw.clone() },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -174,7 +213,14 @@ impl Dialect for Hana {
                 _ => "CURRENT_TIMESTAMP".into(),
             }),
             DefaultValue::NewUuid => None,
-            DefaultValue::Text(_) if matches!(ty, L::Text { .. } | L::Json { .. } | L::Xml | L::Array { .. } | L::Map { .. }) => None,
+            DefaultValue::Text(_)
+                if matches!(
+                    ty,
+                    L::Text { .. } | L::Json { .. } | L::Xml | L::Array { .. } | L::Map { .. }
+                ) =>
+            {
+                None
+            }
             other => standard_default(other, ty, "CURRENT_TIMESTAMP", None, false),
         }
     }
@@ -218,20 +264,74 @@ mod tests {
 
     #[test]
     fn parses_catalog_spellings() {
-        assert_eq!(p("TINYINT"), L::Int { bytes: 1, unsigned: true });
+        assert_eq!(
+            p("TINYINT"),
+            L::Int {
+                bytes: 1,
+                unsigned: true
+            }
+        );
         assert_eq!(p("SMALLINT"), L::int(2));
         assert_eq!(p("INTEGER"), L::int(4));
         assert_eq!(p("BIGINT"), L::int(8));
-        assert_eq!(p("DECIMAL(12,2)"), L::Decimal { precision: Some(12), scale: Some(2) });
-        assert_eq!(p("DECIMAL"), L::Decimal { precision: None, scale: None });
-        assert_eq!(p("SMALLDECIMAL"), L::Decimal { precision: None, scale: None });
+        assert_eq!(
+            p("DECIMAL(12,2)"),
+            L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }
+        );
+        assert_eq!(
+            p("DECIMAL"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
+        assert_eq!(
+            p("SMALLDECIMAL"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
         assert_eq!(p("REAL"), L::Float { bytes: 4 });
         assert_eq!(p("DOUBLE"), L::Float { bytes: 8 });
-        assert_eq!(p("NVARCHAR(100)"), L::Varchar { len: Some(100), unicode: true });
-        assert_eq!(p("NCHAR(3)"), L::Char { len: Some(3), unicode: true });
-        assert_eq!(p("VARCHAR(10)"), L::Varchar { len: Some(10), unicode: false });
-        assert_eq!(p("ALPHANUM(10)"), L::Varchar { len: Some(10), unicode: false });
-        assert_eq!(p("SHORTTEXT(10)"), L::Varchar { len: Some(10), unicode: true });
+        assert_eq!(
+            p("NVARCHAR(100)"),
+            L::Varchar {
+                len: Some(100),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p("NCHAR(3)"),
+            L::Char {
+                len: Some(3),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p("VARCHAR(10)"),
+            L::Varchar {
+                len: Some(10),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("ALPHANUM(10)"),
+            L::Varchar {
+                len: Some(10),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("SHORTTEXT(10)"),
+            L::Varchar {
+                len: Some(10),
+                unicode: true
+            }
+        );
         assert_eq!(p("NCLOB"), L::Text { unicode: true });
         assert_eq!(p("CLOB"), L::Text { unicode: false });
         assert_eq!(p("TEXT"), L::Text { unicode: true });
@@ -240,33 +340,125 @@ mod tests {
         assert_eq!(p("BLOB"), L::Blob);
         assert_eq!(p("BOOLEAN"), L::Bool);
         assert_eq!(p("DATE"), L::Date);
-        assert_eq!(p("TIME"), L::Time { precision: Some(0), tz: false });
-        assert_eq!(p("SECONDDATE"), L::Timestamp { precision: Some(0), tz: false });
-        assert_eq!(p("TIMESTAMP"), L::Timestamp { precision: Some(7), tz: false });
-        assert_eq!(p("ST_POINT(4326)"), L::Geometry { kind: Some("point".into()), srid: Some(4326), geography: false });
-        assert_eq!(p("ST_GEOMETRY"), L::Geometry { kind: None, srid: None, geography: false });
+        assert_eq!(
+            p("TIME"),
+            L::Time {
+                precision: Some(0),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("SECONDDATE"),
+            L::Timestamp {
+                precision: Some(0),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("TIMESTAMP"),
+            L::Timestamp {
+                precision: Some(7),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("ST_POINT(4326)"),
+            L::Geometry {
+                kind: Some("point".into()),
+                srid: Some(4326),
+                geography: false
+            }
+        );
+        assert_eq!(
+            p("ST_GEOMETRY"),
+            L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }
+        );
         assert!(matches!(p("REAL_VECTOR"), L::Other { .. }));
     }
 
     #[test]
     fn renders_every_variant() {
         assert_eq!(r(L::Bool), "BOOLEAN");
-        assert_eq!(r(L::Int { bytes: 1, unsigned: true }), "TINYINT");
+        assert_eq!(
+            r(L::Int {
+                bytes: 1,
+                unsigned: true
+            }),
+            "TINYINT"
+        );
         assert_eq!(r(L::int(1)), "SMALLINT");
-        assert_eq!(r(L::Int { bytes: 2, unsigned: true }), "INTEGER");
+        assert_eq!(
+            r(L::Int {
+                bytes: 2,
+                unsigned: true
+            }),
+            "INTEGER"
+        );
         assert_eq!(r(L::int(8)), "BIGINT");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "DECIMAL(20, 0)");
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "DECIMAL(20, 0)"
+        );
         assert_eq!(r(L::int(16)), "DECIMAL(38, 0)");
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(2) }), "DECIMAL(12, 2)");
-        assert_eq!(r(L::Decimal { precision: Some(50), scale: Some(2) }), "DECIMAL");
-        assert_eq!(r(L::Decimal { precision: None, scale: None }), "DECIMAL");
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }),
+            "DECIMAL(12, 2)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(50),
+                scale: Some(2)
+            }),
+            "DECIMAL"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: None,
+                scale: None
+            }),
+            "DECIMAL"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "REAL");
         assert_eq!(r(L::Float { bytes: 8 }), "DOUBLE");
         assert_eq!(r(L::Money), "DECIMAL(19, 4)");
-        assert_eq!(r(L::Char { len: Some(2), unicode: false }), "NCHAR(2)");
-        assert_eq!(r(L::Char { len: Some(3000), unicode: false }), "NVARCHAR(3000)");
-        assert_eq!(r(L::Varchar { len: Some(5000), unicode: true }), "NVARCHAR(5000)");
-        assert_eq!(r(L::Varchar { len: Some(5001), unicode: true }), "NCLOB");
+        assert_eq!(
+            r(L::Char {
+                len: Some(2),
+                unicode: false
+            }),
+            "NCHAR(2)"
+        );
+        assert_eq!(
+            r(L::Char {
+                len: Some(3000),
+                unicode: false
+            }),
+            "NVARCHAR(3000)"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(5000),
+                unicode: true
+            }),
+            "NVARCHAR(5000)"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(5001),
+                unicode: true
+            }),
+            "NCLOB"
+        );
         assert_eq!(r(L::Text { unicode: false }), "NCLOB");
         assert_eq!(r(L::Binary { len: Some(16) }), "BINARY(16)");
         assert_eq!(r(L::Varbinary { len: Some(100) }), "VARBINARY(100)");
@@ -274,47 +466,140 @@ mod tests {
         assert_eq!(r(L::Bit { len: Some(1) }), "BOOLEAN");
         assert_eq!(r(L::Bit { len: Some(9) }), "VARBINARY(2)");
         assert_eq!(r(L::Date), "DATE");
-        assert_eq!(r(L::Time { precision: Some(6), tz: false }), "TIME");
-        assert_eq!(r(L::Timestamp { precision: Some(0), tz: false }), "SECONDDATE");
-        assert_eq!(r(L::Timestamp { precision: Some(6), tz: true }), "TIMESTAMP");
-        assert!(Hana.render_type(&L::Timestamp { precision: Some(6), tz: true }).notes.iter().any(|n| n.code == IssueCode::TimeZoneLoss));
-        assert!(Hana.render_type(&L::Timestamp { precision: Some(9), tz: false }).notes.iter().any(|n| n.code == IssueCode::PrecisionLoss));
+        assert_eq!(
+            r(L::Time {
+                precision: Some(6),
+                tz: false
+            }),
+            "TIME"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(0),
+                tz: false
+            }),
+            "SECONDDATE"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(6),
+                tz: true
+            }),
+            "TIMESTAMP"
+        );
+        assert!(Hana
+            .render_type(&L::Timestamp {
+                precision: Some(6),
+                tz: true
+            })
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::TimeZoneLoss));
+        assert!(Hana
+            .render_type(&L::Timestamp {
+                precision: Some(9),
+                tz: false
+            })
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::PrecisionLoss));
         assert_eq!(r(L::Interval), "NVARCHAR(100)");
         assert_eq!(r(L::Year), "SMALLINT");
         assert_eq!(r(L::Uuid), "VARBINARY(16)");
         assert_eq!(r(L::Json { binary: false }), "NCLOB");
         assert_eq!(r(L::Xml), "NCLOB");
-        assert_eq!(r(L::Enum { values: vec!["ab".into()] }), "NVARCHAR(2)");
-        assert_eq!(r(L::Set { values: vec!["ab".into()] }), "NVARCHAR(2)");
-        assert_eq!(r(L::Array { of: Box::new(L::int(4)) }), "NCLOB");
-        assert_eq!(r(L::Map { key: Box::new(L::int(4)), value: Box::new(L::int(4)) }), "NCLOB");
-        assert_eq!(r(L::Geometry { kind: Some("point".into()), srid: Some(4326), geography: false }), "ST_POINT(4326)");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: true }), "ST_GEOMETRY(4326)");
+        assert_eq!(
+            r(L::Enum {
+                values: vec!["ab".into()]
+            }),
+            "NVARCHAR(2)"
+        );
+        assert_eq!(
+            r(L::Set {
+                values: vec!["ab".into()]
+            }),
+            "NVARCHAR(2)"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(4))
+            }),
+            "NCLOB"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::int(4)),
+                value: Box::new(L::int(4))
+            }),
+            "NCLOB"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: Some("point".into()),
+                srid: Some(4326),
+                geography: false
+            }),
+            "ST_POINT(4326)"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: true
+            }),
+            "ST_GEOMETRY(4326)"
+        );
         assert_eq!(r(L::Inet), "NVARCHAR(45)");
         assert_eq!(r(L::MacAddr), "NVARCHAR(17)");
         assert_eq!(r(L::RowVersion), "VARBINARY(8)");
-        assert_eq!(r(L::Other { native: "REAL_VECTOR".into() }), "REAL_VECTOR");
+        assert_eq!(
+            r(L::Other {
+                native: "REAL_VECTOR".into()
+            }),
+            "REAL_VECTOR"
+        );
     }
 
     #[test]
     fn round_trips_its_own_spellings() {
         for t in [
             L::Bool,
-            L::Int { bytes: 1, unsigned: true },
+            L::Int {
+                bytes: 1,
+                unsigned: true,
+            },
             L::int(2),
             L::int(4),
             L::int(8),
-            L::Decimal { precision: Some(12), scale: Some(2) },
-            L::Decimal { precision: None, scale: None },
+            L::Decimal {
+                precision: Some(12),
+                scale: Some(2),
+            },
+            L::Decimal {
+                precision: None,
+                scale: None,
+            },
             L::Float { bytes: 8 },
-            L::Varchar { len: Some(40), unicode: true },
-            L::Char { len: Some(3), unicode: true },
+            L::Varchar {
+                len: Some(40),
+                unicode: true,
+            },
+            L::Char {
+                len: Some(3),
+                unicode: true,
+            },
             L::Text { unicode: true },
             L::Varbinary { len: Some(16) },
             L::Blob,
             L::Date,
-            L::Timestamp { precision: Some(7), tz: false },
-            L::Timestamp { precision: Some(0), tz: false },
+            L::Timestamp {
+                precision: Some(7),
+                tz: false,
+            },
+            L::Timestamp {
+                precision: Some(0),
+                tz: false,
+            },
         ] {
             let native = r(t.clone());
             assert_eq!(p(&native), t, "{native}");
@@ -324,11 +609,40 @@ mod tests {
     #[test]
     fn defaults() {
         let d = |v: DefaultValue, t: L| Hana.render_default(&v, &t);
-        assert_eq!(d(DefaultValue::CurrentTimestamp, L::Timestamp { precision: None, tz: false }).as_deref(), Some("CURRENT_TIMESTAMP"));
-        assert_eq!(d(DefaultValue::CurrentDate, L::Date).as_deref(), Some("CURRENT_DATE"));
-        assert_eq!(d(DefaultValue::CurrentTime, L::Time { precision: None, tz: false }).as_deref(), Some("CURRENT_TIME"));
-        assert_eq!(d(DefaultValue::Bool(true), L::Bool).as_deref(), Some("TRUE"));
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTimestamp,
+                L::Timestamp {
+                    precision: None,
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        assert_eq!(
+            d(DefaultValue::CurrentDate, L::Date).as_deref(),
+            Some("CURRENT_DATE")
+        );
+        assert_eq!(
+            d(
+                DefaultValue::CurrentTime,
+                L::Time {
+                    precision: None,
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT_TIME")
+        );
+        assert_eq!(
+            d(DefaultValue::Bool(true), L::Bool).as_deref(),
+            Some("TRUE")
+        );
         assert_eq!(d(DefaultValue::NewUuid, L::Uuid), None);
-        assert_eq!(d(DefaultValue::Text("x".into()), L::Text { unicode: true }), None);
+        assert_eq!(
+            d(DefaultValue::Text("x".into()), L::Text { unicode: true }),
+            None
+        );
     }
 }

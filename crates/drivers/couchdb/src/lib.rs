@@ -47,7 +47,6 @@
 mod create_db;
 mod ddl;
 mod index_usage;
-mod sync;
 mod monitor;
 mod permissions;
 mod plan;
@@ -56,12 +55,14 @@ mod properties;
 mod security;
 mod stats;
 mod steps;
+mod sync;
 mod transfer;
 
 use dbine_driver::{
-    async_trait, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
-    CreateTemplate, DbObject, DdlParts, Driver, DriverInfo, Error, Family, Field, Language, MonitorSnapshot, ObjectKindInfo,
-    ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    async_trait, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo,
+    ConnectionConfig, CreateTemplate, DbObject, DdlParts, Driver, DriverInfo, Error, Family, Field,
+    Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn,
+    Session, TableSchema,
 };
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use reqwest::{Method, StatusCode};
@@ -100,7 +101,9 @@ fn info() -> &'static DriverInfo {
         dialect: "",
         default_port: 5984,
         fields: vec![
-            Field::host().placeholder("localhost").help("Un nombre de host o una URL completa (https://servidor:6984)."),
+            Field::host()
+                .placeholder("localhost")
+                .help("Un nombre de host o una URL completa (https://servidor:6984)."),
             Field::port(),
             Field::database(),
             Field::username(),
@@ -165,12 +168,20 @@ impl Driver for CouchDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
     /// "Propiedades" of a database (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -203,7 +214,10 @@ impl Driver for CouchDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -211,11 +225,20 @@ impl Driver for CouchDriver {
         ddl::table_ddl(table, parts)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
         ddl::insert_script(target, columns, rows)
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::update_script(target, changes)
     }
 
@@ -223,7 +246,11 @@ impl Driver for CouchDriver {
         ddl::delete_script(target, keys)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -231,21 +258,54 @@ impl Driver for CouchDriver {
         ddl::sorted_browse(query, sort)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let http = reqwest::Client::builder()
             .connect_timeout(TIMEOUT)
             .danger_accept_invalid_certs(cfg.trust_server_certificate)
             .user_agent("DBine")
             .build()
             .map_err(Error::connect)?;
-        let db = database.filter(|d| !d.is_empty()).unwrap_or(&cfg.database).to_string();
-        let auth = cfg.username.clone().filter(|u| !u.is_empty()).map(|u| (u, cfg.password.clone()));
-        let mut s = CouchSession { http, base: base_url(cfg), db, auth, read_only: cfg.read_only, version: String::new() };
-        let welcome = s.call(Method::GET, "/", None).await.map_err(|e| if e.is_query() { Error::Connect(e.to_string()) } else { e })?;
-        s.version = welcome.get("version").and_then(Value::as_str).unwrap_or("?").to_string();
+        let db = database
+            .filter(|d| !d.is_empty())
+            .unwrap_or(&cfg.database)
+            .to_string();
+        let auth = cfg
+            .username
+            .clone()
+            .filter(|u| !u.is_empty())
+            .map(|u| (u, cfg.password.clone()));
+        let mut s = CouchSession {
+            http,
+            base: base_url(cfg),
+            db,
+            auth,
+            read_only: cfg.read_only,
+            version: String::new(),
+        };
+        let welcome = s.call(Method::GET, "/", None).await.map_err(|e| {
+            if e.is_query() {
+                Error::Connect(e.to_string())
+            } else {
+                e
+            }
+        })?;
+        s.version = welcome
+            .get("version")
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .to_string();
         // With no database chosen, the first user database.
         if s.db.is_empty() {
-            s.db = s.list_databases().await.ok().and_then(|v| v.into_iter().next()).unwrap_or_default();
+            s.db = s
+                .list_databases()
+                .await
+                .ok()
+                .and_then(|v| v.into_iter().next())
+                .unwrap_or_default();
         }
         Ok(Box::new(s))
     }
@@ -264,7 +324,10 @@ impl CouchSession {
     /// One request; `path` starts with `/`. Non-2xx → error with the
     /// server's `error: reason`.
     async fn call(&self, method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
-        let mut rq = self.http.request(method, format!("{}{path}", self.base)).header("Accept", "application/json");
+        let mut rq = self
+            .http
+            .request(method, format!("{}{path}", self.base))
+            .header("Accept", "application/json");
         if let Some((u, p)) = &self.auth {
             rq = rq.basic_auth(u, p.as_deref());
         }
@@ -273,8 +336,15 @@ impl CouchSession {
         }
         let resp = rq.send().await.map_err(|e| Error::Connect(e.to_string()))?;
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| Error::Connect(e.to_string()))?;
-        let v: Value = if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text)) };
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?;
+        let v: Value = if text.trim().is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_str(&text).unwrap_or(Value::String(text))
+        };
         if status.is_success() {
             return Ok(v);
         }
@@ -286,10 +356,14 @@ impl CouchSession {
             return Err(Error::AuthFailed(msg));
         }
         // CouchDB's `error` ("not_found", "bad_request", "conflict"…) is its code.
-        Err(match v.get("error").map(as_text).filter(|c| !c.is_empty()) {
-            Some(code) => Error::Statement(Box::new(dbine_driver::ScriptError::new(msg).with_code(code))),
-            None => Error::Query(msg),
-        })
+        Err(
+            match v.get("error").map(as_text).filter(|c| !c.is_empty()) {
+                Some(code) => Error::Statement(Box::new(
+                    dbine_driver::ScriptError::new(msg).with_code(code),
+                )),
+                None => Error::Query(msg),
+            },
+        )
     }
 
     fn db_path(&self) -> Result<String> {
@@ -301,16 +375,32 @@ impl CouchSession {
 
     /// Path of a view object `ddoc/view`.
     fn view_path(&self, name: &str) -> Result<String> {
-        let (d, v) = name.split_once('/').ok_or_else(|| Error::Query(format!("vista inválida: {name}")))?;
-        Ok(format!("{}/_design/{}/_view/{}", self.db_path()?, seg(d), seg(v)))
+        let (d, v) = name
+            .split_once('/')
+            .ok_or_else(|| Error::Query(format!("vista inválida: {name}")))?;
+        Ok(format!(
+            "{}/_design/{}/_view/{}",
+            self.db_path()?,
+            seg(d),
+            seg(v)
+        ))
     }
 
     async fn sample(&self, obj: &ObjectRef) -> Result<Vec<Value>> {
         let r = if obj.kind == kinds::VIEW {
-            self.call(Method::GET, &format!("{}?limit=100", self.view_path(&obj.name)?), None).await?
+            self.call(
+                Method::GET,
+                &format!("{}?limit=100", self.view_path(&obj.name)?),
+                None,
+            )
+            .await?
         } else {
-            self.call(Method::POST, &format!("{}/_find", self.db_path()?), Some(&json!({ "selector": {}, "limit": 100 })))
-                .await?
+            self.call(
+                Method::POST,
+                &format!("{}/_find", self.db_path()?),
+                Some(&json!({ "selector": {}, "limit": 100 })),
+            )
+            .await?
         };
         Ok(documents(&r).unwrap_or_default())
     }
@@ -320,7 +410,15 @@ impl CouchSession {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 fn as_text(v: &Value) -> String {
@@ -336,7 +434,11 @@ pub enum Stmt {
     /// A Mango query for `_find`.
     Mango(Value),
     /// `METHOD path [body]`.
-    Http { method: String, path: String, body: Option<Value> },
+    Http {
+        method: String,
+        path: String,
+        body: Option<Value>,
+    },
 }
 
 const METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "HEAD", "COPY"];
@@ -365,7 +467,9 @@ fn json_values(text: &str) -> std::result::Result<Vec<Value>, String> {
 
 /// Split a script into statements.
 pub fn parse_script(text: &str) -> std::result::Result<Vec<Stmt>, String> {
-    parse_located(text).map(|v| v.into_iter().map(|(s, _)| s).collect()).map_err(|(e, _)| e)
+    parse_located(text)
+        .map(|v| v.into_iter().map(|(s, _)| s).collect())
+        .map_err(|(e, _)| e)
 }
 
 /// [`parse_script`], with where each statement's block starts (its HTTP
@@ -373,7 +477,8 @@ pub fn parse_script(text: &str) -> std::result::Result<Vec<Stmt>, String> {
 pub fn parse_located(text: &str) -> std::result::Result<Vec<(Stmt, usize)>, (String, usize)> {
     // Blocks: an HTTP line plus the lines until the next HTTP line, or the
     // loose JSON before the first one.
-    let mut blocks: Vec<(Option<(String, String)>, String, Option<usize>)> = vec![(None, String::new(), None)];
+    let mut blocks: Vec<(Option<(String, String)>, String, Option<usize>)> =
+        vec![(None, String::new(), None)];
     let mut at = 0;
     for line in text.split_inclusive('\n') {
         let start = at + (line.len() - line.trim_start().len());
@@ -401,12 +506,19 @@ pub fn parse_located(text: &str) -> std::result::Result<Vec<(Stmt, usize)>, (Str
         if let Some((method, path)) = head {
             // POST/PUT take the JSON after them as their body; loose JSON
             // after a GET is the next statement.
-            let body = if matches!(method.as_str(), "POST" | "PUT") { values.next() } else { None };
+            let body = if matches!(method.as_str(), "POST" | "PUT") {
+                values.next()
+            } else {
+                None
+            };
             out.push((Stmt::Http { method, path, body }, start));
         }
         for v in values {
             if !v.is_object() {
-                return Err((format!("se esperaba una consulta Mango {{\"selector\": …}}, no {v}"), start));
+                return Err((
+                    format!("se esperaba una consulta Mango {{\"selector\": …}}, no {v}"),
+                    start,
+                ));
             }
             out.push((Stmt::Mango(v), start));
         }
@@ -415,16 +527,35 @@ pub fn parse_located(text: &str) -> std::result::Result<Vec<(Stmt, usize)>, (Str
 }
 
 /// POST endpoints that only read.
-const READ_POSTS: &[&str] = &["_find", "_explain", "_all_docs", "_design_docs", "_bulk_get", "_changes", "_dbs_info", "_all_dbs"];
+const READ_POSTS: &[&str] = &[
+    "_find",
+    "_explain",
+    "_all_docs",
+    "_design_docs",
+    "_bulk_get",
+    "_changes",
+    "_dbs_info",
+    "_all_dbs",
+];
 
 /// `Some(what)` when the statement may write.
 pub fn write_reason(stmt: &Stmt) -> Option<String> {
-    let Stmt::Http { method, path, .. } = stmt else { return None };
-    let clean = path.split('?').next().unwrap_or_default().trim_end_matches('/');
+    let Stmt::Http { method, path, .. } = stmt else {
+        return None;
+    };
+    let clean = path
+        .split('?')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches('/');
     let last = clean.rsplit('/').next().unwrap_or_default();
     let read = match method.as_str() {
         "GET" | "HEAD" => true,
-        "POST" => READ_POSTS.contains(&last) || clean.contains("/_view/") || clean.contains("/_index/_explain"),
+        "POST" => {
+            READ_POSTS.contains(&last)
+                || clean.contains("/_view/")
+                || clean.contains("/_index/_explain")
+        }
         _ => false,
     };
     (!read).then(|| format!("{method} {path}"))
@@ -433,7 +564,17 @@ pub fn write_reason(stmt: &Stmt) -> Option<String> {
 /// The documents of a reply, if it holds a list of them.
 pub fn documents(v: &Value) -> Option<Vec<Value>> {
     if let Value::Array(a) = v {
-        return Some(a.iter().map(|x| if x.is_object() { x.clone() } else { json!({ "value": x }) }).collect());
+        return Some(
+            a.iter()
+                .map(|x| {
+                    if x.is_object() {
+                        x.clone()
+                    } else {
+                        json!({ "value": x })
+                    }
+                })
+                .collect(),
+        );
     }
     let obj = v.as_object()?;
     if let Some(Value::Array(docs)) = obj.get("docs") {
@@ -524,7 +665,11 @@ pub fn infer_columns(docs: &[Value]) -> Vec<ColumnInfo> {
             }
             types.sort_by(|a, b| b.1.cmp(&a.1));
             ColumnInfo {
-                data_type: if types.is_empty() { "null".into() } else { types.iter().map(|t| t.0).collect::<Vec<_>>().join("|") },
+                data_type: if types.is_empty() {
+                    "null".into()
+                } else {
+                    types.iter().map(|t| t.0).collect::<Vec<_>>().join("|")
+                },
                 nullable: present < docs.len() || null_seen,
                 primary_key: name == "_id",
                 auto_increment: false,
@@ -538,9 +683,21 @@ pub fn infer_columns(docs: &[Value]) -> Vec<ColumnInfo> {
 /// One row per document.
 pub fn push_docs(out: &mut QueryOutcome, docs: &[Value], max_rows: usize) {
     let keys = union_keys(docs);
-    out.begin_result(keys.iter().map(|k| ResultColumn { name: k.clone(), type_name: String::new() }).collect());
+    out.begin_result(
+        keys.iter()
+            .map(|k| ResultColumn {
+                name: k.clone(),
+                type_name: String::new(),
+            })
+            .collect(),
+    );
     for d in docs {
-        out.push_row(keys.iter().map(|k| d.get(k).map_or(Value::Null, cell)).collect(), max_rows);
+        out.push_row(
+            keys.iter()
+                .map(|k| d.get(k).map_or(Value::Null, cell))
+                .collect(),
+            max_rows,
+        );
     }
 }
 
@@ -552,12 +709,21 @@ impl Session for CouchSession {
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         match self.call(Method::GET, "/_all_dbs", None).await {
-            Ok(Value::Array(a)) => {
-                Ok(a.iter().filter_map(Value::as_str).filter(|n| !n.starts_with('_')).map(str::to_string).collect())
-            }
-            Ok(other) => Err(Error::Query(format!("respuesta inesperada de /_all_dbs: {other}"))),
+            Ok(Value::Array(a)) => Ok(a
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|n| !n.starts_with('_'))
+                .map(str::to_string)
+                .collect()),
+            Ok(other) => Err(Error::Query(format!(
+                "respuesta inesperada de /_all_dbs: {other}"
+            ))),
             // Non-admins can't list databases (CouchDB 3): the session's one.
-            Err(Error::Query(_) | Error::Statement(_) | Error::AuthFailed(_)) if !self.db.is_empty() => Ok(vec![self.db.clone()]),
+            Err(Error::Query(_) | Error::Statement(_) | Error::AuthFailed(_))
+                if !self.db.is_empty() =>
+            {
+                Ok(vec![self.db.clone()])
+            }
             Err(e) => Err(e),
         }
     }
@@ -572,13 +738,38 @@ impl Session for CouchSession {
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let r = self.call(Method::GET, &format!("{}/_design_docs?include_docs=true", self.db_path()?), None).await?;
-        let mut out = vec![DbObject { kind: kinds::COLLECTION.into(), schema: None, name: ALL_DOCS.into(), parent: None }];
+        let r = self
+            .call(
+                Method::GET,
+                &format!("{}/_design_docs?include_docs=true", self.db_path()?),
+                None,
+            )
+            .await?;
+        let mut out = vec![DbObject {
+            kind: kinds::COLLECTION.into(),
+            schema: None,
+            name: ALL_DOCS.into(),
+            parent: None,
+        }];
         let mut views = Vec::new();
-        for row in r.get("rows").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+        for row in r
+            .get("rows")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
             let Some(doc) = row.get("doc") else { continue };
-            let ddoc = doc.get("_id").and_then(Value::as_str).unwrap_or_default().trim_start_matches("_design/");
-            for v in doc.get("views").and_then(Value::as_object).map(|m| m.keys().collect::<Vec<_>>()).unwrap_or_default() {
+            let ddoc = doc
+                .get("_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim_start_matches("_design/");
+            for v in doc
+                .get("views")
+                .and_then(Value::as_object)
+                .map(|m| m.keys().collect::<Vec<_>>())
+                .unwrap_or_default()
+            {
                 views.push(DbObject {
                     kind: kinds::VIEW.into(),
                     schema: None,
@@ -599,9 +790,20 @@ impl Session for CouchSession {
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
         if obj.kind == kinds::VIEW {
-            let (d, v) = obj.name.split_once('/').ok_or_else(|| Error::Query(format!("vista inválida: {}", obj.name)))?;
-            let doc = self.call(Method::GET, &format!("{}/_design/{}", self.db_path()?, seg(d)), None).await?;
-            let Some(view) = doc.get("views").and_then(|vs| vs.get(v)) else { return Ok(None) };
+            let (d, v) = obj
+                .name
+                .split_once('/')
+                .ok_or_else(|| Error::Query(format!("vista inválida: {}", obj.name)))?;
+            let doc = self
+                .call(
+                    Method::GET,
+                    &format!("{}/_design/{}", self.db_path()?, seg(d)),
+                    None,
+                )
+                .await?;
+            let Some(view) = doc.get("views").and_then(|vs| vs.get(v)) else {
+                return Ok(None);
+            };
             let mut text = String::new();
             if let Some(lang) = doc.get("language").and_then(Value::as_str) {
                 text.push_str(&format!("// language: {}\n", comment_text(lang)));
@@ -609,18 +811,27 @@ impl Session for CouchSession {
             for part in ["map", "reduce"] {
                 match view.get(part) {
                     Some(Value::String(src)) => text.push_str(&format!("// {part}\n{src}\n\n")),
-                    Some(other) => text.push_str(&format!("// {part}\n{}\n\n", serde_json::to_string_pretty(other)?)),
+                    Some(other) => text.push_str(&format!(
+                        "// {part}\n{}\n\n",
+                        serde_json::to_string_pretty(other)?
+                    )),
                     None => {}
                 }
             }
             if let Some(opts) = view.get("options") {
-                text.push_str(&format!("// options\n{}\n", serde_json::to_string_pretty(opts)?));
+                text.push_str(&format!(
+                    "// options\n{}\n",
+                    serde_json::to_string_pretty(opts)?
+                ));
             }
             return Ok(Some(text.trim_end().to_string()));
         }
         let path = self.db_path()?;
         let mut info = self.call(Method::GET, &path, None).await?;
-        if let Ok(ix) = self.call(Method::GET, &format!("{path}/_index"), None).await {
+        if let Ok(ix) = self
+            .call(Method::GET, &format!("{path}/_index"), None)
+            .await
+        {
             if let (Some(m), Some(list)) = (info.as_object_mut(), ix.get("indexes")) {
                 m.insert("indexes".into(), list.clone());
             }
@@ -633,12 +844,33 @@ impl Session for CouchSession {
     /// (see `ddl.rs`).
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let path = self.db_path()?;
-        let columns = infer_columns(&self.sample(&ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: ALL_DOCS.into() }).await?)
-            .into_iter()
-            .map(|c| ColumnDef { name: c.name, data_type: c.data_type, nullable: c.nullable, ..Default::default() })
-            .collect();
-        let indexes = self.call(Method::GET, &format!("{path}/_index"), None).await?;
-        let ddocs = self.call(Method::GET, &format!("{path}/_design_docs?include_docs=true"), None).await?;
+        let columns = infer_columns(
+            &self
+                .sample(&ObjectRef {
+                    kind: kinds::COLLECTION.into(),
+                    schema: None,
+                    name: ALL_DOCS.into(),
+                })
+                .await?,
+        )
+        .into_iter()
+        .map(|c| ColumnDef {
+            name: c.name,
+            data_type: c.data_type,
+            nullable: c.nullable,
+            ..Default::default()
+        })
+        .collect();
+        let indexes = self
+            .call(Method::GET, &format!("{path}/_index"), None)
+            .await?;
+        let ddocs = self
+            .call(
+                Method::GET,
+                &format!("{path}/_design_docs?include_docs=true"),
+                None,
+            )
+            .await?;
         Ok(vec![ddl::all_docs_schema(columns, &indexes, &ddocs)])
     }
 
@@ -646,22 +878,35 @@ impl Session for CouchSession {
     async fn create_database(&mut self, name: &str) -> Result<()> {
         self.refuse_if_read_only("Conexión de solo lectura: no se puede crear una base.")?;
         ddl::check_database_name(name)?;
-        self.call(Method::PUT, &format!("/{}", seg(name)), None).await.map(|_| ())
+        self.call(Method::PUT, &format!("/{}", seg(name)), None)
+            .await
+            .map(|_| ())
     }
 
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -671,13 +916,20 @@ impl Session for CouchSession {
         if name.is_empty() || name.starts_with('_') {
             return Err(Error::Query(format!("«{name}» no es una base de usuario")));
         }
-        self.call(Method::DELETE, &format!("/{}", seg(name)), None).await.map(|_| ())
+        self.call(Method::DELETE, &format!("/{}", seg(name)), None)
+            .await
+            .map(|_| ())
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
         if obj.kind == kinds::VIEW {
             if let Some((d, v)) = obj.name.split_once('/') {
-                return format!("GET /{}/_design/{}/_view/{}?limit={limit}", seg(&self.db), seg(d), seg(v));
+                return format!(
+                    "GET /{}/_design/{}/_view/{}?limit={limit}",
+                    seg(&self.db),
+                    seg(d),
+                    seg(v)
+                );
             }
         }
         format!("{{\n  \"selector\": {{}},\n  \"limit\": {limit}\n}}")
@@ -705,7 +957,11 @@ impl Session for CouchSession {
         self.cancel_task(id).await
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -723,7 +979,11 @@ impl Session for CouchSession {
     /// and the first failing statement stops it (the app gets it whole).
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let stmts = parse_located(text).map_err(|(m, at)| {
-            Error::from(dbine_driver::ScriptError::new(m).at_offset(at).at_line(steps::line_at(text, at)))
+            Error::from(
+                dbine_driver::ScriptError::new(m)
+                    .at_offset(at)
+                    .at_line(steps::line_at(text, at)),
+            )
         })?;
         if stmts.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
@@ -732,7 +992,10 @@ impl Session for CouchSession {
         for (i, (stmt, at)) in stmts.into_iter().enumerate() {
             let step = steps::Step::start(out, own, i, at, steps::line_at(text, at));
             let r = match self.check_read_only(&stmt) {
-                Ok(()) => self.send(&stmt, max_rows, false).await.map(|reply| push_reply(out, &reply, max_rows)),
+                Ok(()) => self
+                    .send(&stmt, max_rows, false)
+                    .await
+                    .map(|reply| push_reply(out, &reply, max_rows)),
                 Err(e) => Err(e),
             };
             step.end(out, r)?;
@@ -744,7 +1007,13 @@ impl Session for CouchSession {
     /// with `analyze` they run with `execution_stats: true` and the plan
     /// carries those figures. Other requests have no plan: with `analyze`
     /// they run as in `execute`, without it they're skipped.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let stmts = parse_script(text).map_err(Error::Query)?;
         if stmts.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
@@ -752,7 +1021,9 @@ impl Session for CouchSession {
         for stmt in stmts {
             let label = stmt_label(&stmt);
             let Some(explain_path) = self.explain_path(&stmt)? else {
-                out.info(format!("`{label}`: solo las consultas Mango (_find) tienen plan de ejecución."));
+                out.info(format!(
+                    "`{label}`: solo las consultas Mango (_find) tienen plan de ejecución."
+                ));
                 if analyze {
                     self.check_read_only(&stmt)?;
                     let reply = self.send(&stmt, max_rows, false).await?;
@@ -769,7 +1040,8 @@ impl Session for CouchSession {
             } else {
                 None
             };
-            out.plans.push(plan::from_explain(&label, &explain, stats.as_ref()));
+            out.plans
+                .push(plan::from_explain(&label, &explain, stats.as_ref()));
         }
         Ok(())
     }
@@ -780,7 +1052,10 @@ impl Session for CouchSession {
     }
 
     /// Only `_all_docs` has indexes (views are indexes themselves).
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         if table.name != ALL_DOCS {
             return Ok(None);
         }
@@ -810,7 +1085,11 @@ impl CouchSession {
     }
 
     fn full_path(&self, path: &str) -> Result<String> {
-        Ok(if path.starts_with('/') { path.to_string() } else { format!("{}/{path}", self.db_path()?) })
+        Ok(if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("{}/{path}", self.db_path()?)
+        })
     }
 
     /// Where the statement's `_explain` goes, when it's a Mango query.
@@ -819,8 +1098,14 @@ impl CouchSession {
             Stmt::Mango(_) => Some(format!("{}/_explain", self.db_path()?)),
             Stmt::Http { method, path, .. } if method == "POST" => {
                 let full = self.full_path(path)?;
-                let clean = full.split('?').next().unwrap_or_default().trim_end_matches('/');
-                clean.strip_suffix("/_find").map(|p| format!("{p}/_explain"))
+                let clean = full
+                    .split('?')
+                    .next()
+                    .unwrap_or_default()
+                    .trim_end_matches('/');
+                clean
+                    .strip_suffix("/_find")
+                    .map(|p| format!("{p}/_explain"))
             }
             _ => None,
         })
@@ -834,7 +1119,12 @@ impl CouchSession {
                 if stats {
                     q["execution_stats"] = Value::Bool(true);
                 }
-                self.call(Method::POST, &format!("{}/_find", self.db_path()?), Some(&q)).await
+                self.call(
+                    Method::POST,
+                    &format!("{}/_find", self.db_path()?),
+                    Some(&q),
+                )
+                .await
             }
             Stmt::Http { method, path, body } => {
                 let path = self.full_path(path)?;
@@ -867,17 +1157,43 @@ impl CouchSession {
     /// `DELETE _index/<name>` (see the module docs): CouchDB's path for
     /// that index, with its design document; `None` for any other path.
     async fn index_by_name(&self, path: &str) -> Result<Option<String>> {
-        let Some((db, name)) = index_shorthand(path) else { return Ok(None) };
-        let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy().to_string();
-        let list = self.call(Method::GET, &format!("{db}/_index"), None).await?;
-        let found = list.get("indexes").and_then(Value::as_array).into_iter().flatten().find(|i| i.get("name").and_then(Value::as_str) == Some(name.as_str()));
-        let Some(ix) = found else { return Err(Error::Query(format!("No hay un índice Mango llamado «{name}»."))) };
-        let ddoc = ix.get("ddoc").and_then(Value::as_str).unwrap_or_default().trim_start_matches("_design/");
+        let Some((db, name)) = index_shorthand(path) else {
+            return Ok(None);
+        };
+        let name = percent_encoding::percent_decode_str(name)
+            .decode_utf8_lossy()
+            .to_string();
+        let list = self
+            .call(Method::GET, &format!("{db}/_index"), None)
+            .await?;
+        let found = list
+            .get("indexes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|i| i.get("name").and_then(Value::as_str) == Some(name.as_str()));
+        let Some(ix) = found else {
+            return Err(Error::Query(format!(
+                "No hay un índice Mango llamado «{name}»."
+            )));
+        };
+        let ddoc = ix
+            .get("ddoc")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim_start_matches("_design/");
         if ddoc.is_empty() {
-            return Err(Error::Query(format!("«{name}» es el índice de _id de CouchDB y no se borra.")));
+            return Err(Error::Query(format!(
+                "«{name}» es el índice de _id de CouchDB y no se borra."
+            )));
         }
         let kind = ix.get("type").and_then(Value::as_str).unwrap_or("json");
-        Ok(Some(format!("{db}/_index/{}/{}/{}", seg(ddoc), seg(kind), seg(&name))))
+        Ok(Some(format!(
+            "{db}/_index/{}/{}/{}",
+            seg(ddoc),
+            seg(kind),
+            seg(&name)
+        )))
     }
 }
 
@@ -889,7 +1205,8 @@ fn find_body(stmt: &Stmt, max_rows: usize) -> Value {
         Stmt::Http { body, .. } => body.clone().unwrap_or_else(|| json!({ "selector": {} })),
     };
     if let (Stmt::Mango(_), Some(m)) = (stmt, q.as_object_mut()) {
-        m.entry("limit").or_insert_with(|| json!(max_rows.saturating_add(1)));
+        m.entry("limit")
+            .or_insert_with(|| json!(max_rows.saturating_add(1)));
     }
     q
 }
@@ -932,7 +1249,10 @@ fn push_reply(out: &mut QueryOutcome, reply: &Value, max_rows: usize) {
         Some(docs) => push_docs(out, &docs, max_rows),
         None if reply.is_object() => push_docs(out, std::slice::from_ref(reply), max_rows),
         None => {
-            out.begin_result(vec![ResultColumn { name: "result".into(), type_name: String::new() }]);
+            out.begin_result(vec![ResultColumn {
+                name: "result".into(),
+                type_name: String::new(),
+            }]);
             out.push_row(vec![cell(reply)], max_rows);
         }
     }
@@ -944,7 +1264,10 @@ mod tests {
 
     #[test]
     fn a_language_cannot_end_its_comment() {
-        let c = format!("// language: {}", comment_text("js\nDELETE /db\r\u{85}\u{2028}\u{2029}x"));
+        let c = format!(
+            "// language: {}",
+            comment_text("js\nDELETE /db\r\u{85}\u{2028}\u{2029}x")
+        );
         assert_eq!(c, "// language: js?DELETE /db????x");
         assert_eq!(c.lines().count(), 1);
     }
@@ -971,8 +1294,22 @@ mod tests {
         assert_eq!(s.len(), 6);
         assert!(matches!(&s[5], Stmt::Mango(_)));
         assert!(matches!(&s[0], Stmt::Mango(_)));
-        assert_eq!(s[2], Stmt::Http { method: "GET".into(), path: "/db/_all_docs?include_docs=true".into(), body: None });
-        assert_eq!(s[3], Stmt::Http { method: "POST".into(), path: "_find".into(), body: Some(json!({ "selector": {} })) });
+        assert_eq!(
+            s[2],
+            Stmt::Http {
+                method: "GET".into(),
+                path: "/db/_all_docs?include_docs=true".into(),
+                body: None
+            }
+        );
+        assert_eq!(
+            s[3],
+            Stmt::Http {
+                method: "POST".into(),
+                path: "_find".into(),
+                body: Some(json!({ "selector": {} }))
+            }
+        );
         assert!(parse_script("{ selector: 1 }").is_err());
         assert!(parse_script("[1,2]").is_err());
     }
@@ -999,17 +1336,29 @@ mod tests {
         assert_eq!(documents(&all).unwrap()[0], json!({ "_id": "a", "x": 1 }));
         let view = json!({ "rows": [{ "id": "a", "key": 1, "value": null }] });
         assert_eq!(documents(&view).unwrap()[0]["key"], json!(1));
-        assert_eq!(documents(&json!(["db1", "db2"])).unwrap()[1], json!({ "value": "db2" }));
+        assert_eq!(
+            documents(&json!(["db1", "db2"])).unwrap()[1],
+            json!({ "value": "db2" })
+        );
         assert!(documents(&json!({ "ok": true })).is_none());
     }
 
     #[test]
     fn flattening_and_inference() {
-        let docs = vec![json!({ "n": 1, "_id": "a", "o": { "x": [1] } }), json!({ "_id": "b", "n": 2.5, "big": 9007199254740993_i64 })];
+        let docs = vec![
+            json!({ "n": 1, "_id": "a", "o": { "x": [1] } }),
+            json!({ "_id": "b", "n": 2.5, "big": 9007199254740993_i64 }),
+        ];
         let mut out = QueryOutcome::default();
         push_docs(&mut out, &docs, 10);
         let r = &out.results[0];
-        assert_eq!(r.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["_id", "n", "o", "big"]);
+        assert_eq!(
+            r.columns
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            ["_id", "n", "o", "big"]
+        );
         assert_eq!(r.rows[0][2], json!("{\"x\":[1]}"));
         assert_eq!(r.rows[1][3], json!("9007199254740993"));
         let cols = infer_columns(&docs);
@@ -1027,7 +1376,10 @@ mod tests {
 
     #[test]
     fn urls() {
-        let mut c = ConnectionConfig { host: "db.local".into(), ..Default::default() };
+        let mut c = ConnectionConfig {
+            host: "db.local".into(),
+            ..Default::default()
+        };
         assert_eq!(base_url(&c), "http://db.local:5984");
         c.encrypt = true;
         c.port = 6984;

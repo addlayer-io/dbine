@@ -24,10 +24,11 @@ use crate::backup::backup_err;
 use crate::err;
 use aws_sdk_dynamodb::error::{ProvideErrorMetadata, SdkError};
 use aws_sdk_dynamodb::types::{
-    AttributeDefinition, BillingMode, CreateGlobalSecondaryIndexAction, DeleteGlobalSecondaryIndexAction,
-    GlobalSecondaryIndex, GlobalSecondaryIndexUpdate, IndexStatus, KeySchemaElement, KeyType, LocalSecondaryIndex,
-    Projection, ProjectionType, ProvisionedThroughput, ScalarAttributeType, StreamSpecification, StreamViewType,
-    TableClass, TableStatus, Tag, TimeToLiveSpecification,
+    AttributeDefinition, BillingMode, CreateGlobalSecondaryIndexAction,
+    DeleteGlobalSecondaryIndexAction, GlobalSecondaryIndex, GlobalSecondaryIndexUpdate,
+    IndexStatus, KeySchemaElement, KeyType, LocalSecondaryIndex, Projection, ProjectionType,
+    ProvisionedThroughput, ScalarAttributeType, StreamSpecification, StreamViewType, TableClass,
+    TableStatus, Tag, TimeToLiveSpecification,
 };
 use aws_sdk_dynamodb::Client;
 use dbine_driver::{Error, QueryOutcome, Result};
@@ -43,16 +44,38 @@ const USAGE: &str = "Sintaxis: CREATE TABLE [IF NOT EXISTS] \"t\" { …JSON de C
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Admin {
-    CreateTable { table: String, if_not_exists: bool, spec: Json },
-    DropTable { table: String, if_exists: bool },
-    CreateIndex { index: String, table: String, spec: Json },
-    DropIndex { index: String, table: String },
+    CreateTable {
+        table: String,
+        if_not_exists: bool,
+        spec: Json,
+    },
+    DropTable {
+        table: String,
+        if_exists: bool,
+    },
+    CreateIndex {
+        index: String,
+        table: String,
+        spec: Json,
+    },
+    DropIndex {
+        index: String,
+        table: String,
+    },
     /// CreateBackup (on-demand backup of `table`, see `backup`).
-    CreateBackup { name: String, table: String },
+    CreateBackup {
+        name: String,
+        table: String,
+    },
     /// RestoreTableFromBackup into the new `table`.
-    RestoreBackup { table: String, arn: String },
+    RestoreBackup {
+        table: String,
+        arn: String,
+    },
     /// DeleteBackup.
-    DropBackup { arn: String },
+    DropBackup {
+        arn: String,
+    },
 }
 
 struct Cursor<'a> {
@@ -66,7 +89,9 @@ impl<'a> Cursor<'a> {
 
     fn peek_word(&self) -> &'a str {
         let s = self.s.trim_start();
-        let end = s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len());
+        let end = s
+            .find(|c: char| !c.is_ascii_alphabetic())
+            .unwrap_or(s.len());
         &s[..end]
     }
 
@@ -111,7 +136,10 @@ impl<'a> Cursor<'a> {
             }
             return Err(Error::Query("Falta cerrar las comillas del nombre.".into()));
         }
-        let end = self.s.find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))).unwrap_or(self.s.len());
+        let end = self
+            .s
+            .find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.')))
+            .unwrap_or(self.s.len());
         if end == 0 {
             return Err(usage());
         }
@@ -123,12 +151,16 @@ impl<'a> Cursor<'a> {
     fn body(&mut self) -> Result<Json> {
         let text = self.s.trim();
         if text.is_empty() {
-            return Err(Error::Query("Falta el cuerpo JSON después del nombre.".into()));
+            return Err(Error::Query(
+                "Falta el cuerpo JSON después del nombre.".into(),
+            ));
         }
-        let v: Json =
-            serde_json::from_str(text).map_err(|e| Error::Query(format!("El cuerpo no es un JSON válido: {e}")))?;
+        let v: Json = serde_json::from_str(text)
+            .map_err(|e| Error::Query(format!("El cuerpo no es un JSON válido: {e}")))?;
         if !v.is_object() {
-            return Err(Error::Query("El cuerpo tiene que ser un objeto JSON ({ … }).".into()));
+            return Err(Error::Query(
+                "El cuerpo tiene que ser un objeto JSON ({ … }).".into(),
+            ));
         }
         Ok(v)
     }
@@ -186,7 +218,11 @@ pub(crate) fn parse_admin(stmt: &str) -> Result<Option<Admin>> {
             }
             let table = c.ident()?;
             let spec = c.body()?;
-            Ok(Some(Admin::CreateTable { table, if_not_exists, spec }))
+            Ok(Some(Admin::CreateTable {
+                table,
+                if_not_exists,
+                spec,
+            }))
         } else {
             let if_exists = c.keyword("if");
             if if_exists {
@@ -219,25 +255,35 @@ fn build<T, E: std::fmt::Display>(r: std::result::Result<T, E>) -> Result<T> {
 }
 
 fn field<'a>(v: &'a Json, key: &str) -> Result<&'a Json> {
-    v.get(key).ok_or_else(|| Error::Query(format!("Falta \"{key}\" en {v}")))
+    v.get(key)
+        .ok_or_else(|| Error::Query(format!("Falta \"{key}\" en {v}")))
 }
 
 fn text<'a>(v: &'a Json, key: &str) -> Result<&'a str> {
-    field(v, key)?.as_str().ok_or_else(|| Error::Query(format!("\"{key}\" tiene que ser un texto")))
+    field(v, key)?
+        .as_str()
+        .ok_or_else(|| Error::Query(format!("\"{key}\" tiene que ser un texto")))
 }
 
 fn list<'a>(v: &'a Json, key: &str) -> Result<&'a Vec<Json>> {
-    field(v, key)?.as_array().ok_or_else(|| Error::Query(format!("\"{key}\" tiene que ser una lista")))
+    field(v, key)?
+        .as_array()
+        .ok_or_else(|| Error::Query(format!("\"{key}\" tiene que ser una lista")))
 }
 
 fn int(v: &Json, key: &str) -> Result<i64> {
-    field(v, key)?.as_i64().ok_or_else(|| Error::Query(format!("\"{key}\" tiene que ser un número entero")))
+    field(v, key)?
+        .as_i64()
+        .ok_or_else(|| Error::Query(format!("\"{key}\" tiene que ser un número entero")))
 }
 
 fn only_keys(v: &Json, allowed: &[&str], what: &str) -> Result<()> {
     if let Some(o) = v.as_object() {
         if let Some(k) = o.keys().find(|k| !allowed.contains(&k.as_str())) {
-            return Err(Error::Query(format!("{what}: \"{k}\" no se reconoce. Se admiten: {}.", allowed.join(", "))));
+            return Err(Error::Query(format!(
+                "{what}: \"{k}\" no se reconoce. Se admiten: {}.",
+                allowed.join(", ")
+            )));
         }
     }
     Ok(())
@@ -274,9 +320,12 @@ fn key_schema(v: &Json) -> Result<Vec<KeySchemaElement>> {
 /// `ALL` when not given.
 fn projection(v: &Json) -> Result<Projection> {
     let Some(p) = v.get("Projection") else {
-        return Ok(Projection::builder().projection_type(ProjectionType::All).build());
+        return Ok(Projection::builder()
+            .projection_type(ProjectionType::All)
+            .build());
     };
-    let mut b = Projection::builder().projection_type(ProjectionType::from(text(p, "ProjectionType")?));
+    let mut b =
+        Projection::builder().projection_type(ProjectionType::from(text(p, "ProjectionType")?));
     if let Some(attrs) = p.get("NonKeyAttributes").and_then(Json::as_array) {
         for a in attrs {
             b = b.non_key_attributes(a.as_str().unwrap_or_default());
@@ -286,7 +335,9 @@ fn projection(v: &Json) -> Result<Projection> {
 }
 
 fn throughput(v: &Json) -> Result<Option<ProvisionedThroughput>> {
-    let Some(p) = v.get("ProvisionedThroughput") else { return Ok(None) };
+    let Some(p) = v.get("ProvisionedThroughput") else {
+        return Ok(None);
+    };
     Ok(Some(build(
         ProvisionedThroughput::builder()
             .read_capacity_units(int(p, "ReadCapacityUnits")?)
@@ -367,33 +418,68 @@ pub(crate) fn table_spec(spec: &Json) -> Result<TableSpec> {
         None => None,
         Some(s) => Some(build(
             StreamSpecification::builder()
-                .stream_enabled(s.get("StreamEnabled").and_then(Json::as_bool).unwrap_or(true))
-                .set_stream_view_type(s.get("StreamViewType").and_then(Json::as_str).map(StreamViewType::from))
+                .stream_enabled(
+                    s.get("StreamEnabled")
+                        .and_then(Json::as_bool)
+                        .unwrap_or(true),
+                )
+                .set_stream_view_type(
+                    s.get("StreamViewType")
+                        .and_then(Json::as_str)
+                        .map(StreamViewType::from),
+                )
                 .build(),
         )?),
     };
     let tags = arr("Tags")
         .iter()
-        .map(|t| build(Tag::builder().key(text(t, "Key")?).value(text(t, "Value")?).build()))
+        .map(|t| {
+            build(
+                Tag::builder()
+                    .key(text(t, "Key")?)
+                    .value(text(t, "Value")?)
+                    .build(),
+            )
+        })
         .collect::<Result<_>>()?;
     Ok(TableSpec {
         attributes: attribute_definitions(spec)?,
         keys: key_schema(spec)?,
-        billing: spec.get("BillingMode").and_then(Json::as_str).map(BillingMode::from),
+        billing: spec
+            .get("BillingMode")
+            .and_then(Json::as_str)
+            .map(BillingMode::from),
         throughput: throughput(spec)?,
         gsis,
         lsis,
         stream,
-        class: spec.get("TableClass").and_then(Json::as_str).map(TableClass::from),
-        deletion_protection: spec.get("DeletionProtectionEnabled").and_then(Json::as_bool),
+        class: spec
+            .get("TableClass")
+            .and_then(Json::as_str)
+            .map(TableClass::from),
+        deletion_protection: spec
+            .get("DeletionProtectionEnabled")
+            .and_then(Json::as_bool),
         tags,
         ttl: spec.get("TimeToLiveSpecification").map(ttl).transpose()?,
     })
 }
 
 /// A `CREATE INDEX` body: the attribute definitions and the new GSI.
-fn index_spec(index: &str, spec: &Json) -> Result<(Vec<AttributeDefinition>, CreateGlobalSecondaryIndexAction)> {
-    only_keys(spec, &["AttributeDefinitions", "KeySchema", "Projection", "ProvisionedThroughput"], "CREATE INDEX")?;
+fn index_spec(
+    index: &str,
+    spec: &Json,
+) -> Result<(Vec<AttributeDefinition>, CreateGlobalSecondaryIndexAction)> {
+    only_keys(
+        spec,
+        &[
+            "AttributeDefinitions",
+            "KeySchema",
+            "Projection",
+            "ProvisionedThroughput",
+        ],
+        "CREATE INDEX",
+    )?;
     let attrs = match spec.get("AttributeDefinitions") {
         Some(_) => attribute_definitions(spec)?,
         None => Vec::new(),
@@ -419,9 +505,17 @@ fn is_not_found<E: ProvideErrorMetadata, R>(e: &SdkError<E, R>) -> bool {
 async fn wait_active(client: &Client, table: &str) -> Result<bool> {
     let started = Instant::now();
     loop {
-        let d = client.describe_table().table_name(table).send().await.map_err(err)?;
+        let d = client
+            .describe_table()
+            .table_name(table)
+            .send()
+            .await
+            .map_err(err)?;
         if let Some(t) = d.table() {
-            let gsis_ready = t.global_secondary_indexes().iter().all(|g| g.index_status() == Some(&IndexStatus::Active));
+            let gsis_ready = t
+                .global_secondary_indexes()
+                .iter()
+                .all(|g| g.index_status() == Some(&IndexStatus::Active));
             if t.table_status() == Some(&TableStatus::Active) && gsis_ready {
                 return Ok(true);
             }
@@ -458,12 +552,17 @@ fn still_pending(out: &mut QueryOutcome, table: &str, state: &str) {
 
 pub(crate) async fn run(client: &Client, admin: Admin, out: &mut QueryOutcome) -> Result<()> {
     match admin {
-        Admin::CreateTable { table, if_not_exists, spec } => {
+        Admin::CreateTable {
+            table,
+            if_not_exists,
+            spec,
+        } => {
             let spec = table_spec(&spec)?;
             if if_not_exists {
                 match client.describe_table().table_name(&table).send().await {
                     Ok(_) => {
-                        out.messages.push(format!("La tabla {table} ya existe; no se creó."));
+                        out.messages
+                            .push(format!("La tabla {table} ya existe; no se creó."));
                         return Ok(());
                     }
                     Err(e) if is_not_found(&e) => {}
@@ -489,12 +588,19 @@ pub(crate) async fn run(client: &Client, admin: Admin, out: &mut QueryOutcome) -
             if !wait_active(client, &table).await? {
                 still_pending(out, &table, "creándose");
                 if spec.ttl.is_some() {
-                    out.messages.push("El TTL no se configuró: la tabla todavía no está activa.".into());
+                    out.messages
+                        .push("El TTL no se configuró: la tabla todavía no está activa.".into());
                 }
                 return Ok(());
             }
             if let Some(ttl) = spec.ttl {
-                client.update_time_to_live().table_name(&table).time_to_live_specification(ttl).send().await.map_err(err)?;
+                client
+                    .update_time_to_live()
+                    .table_name(&table)
+                    .time_to_live_specification(ttl)
+                    .send()
+                    .await
+                    .map_err(err)?;
             }
             out.messages.push(format!("Tabla {table} creada."));
         }
@@ -502,7 +608,8 @@ pub(crate) async fn run(client: &Client, admin: Admin, out: &mut QueryOutcome) -
             match client.delete_table().table_name(&table).send().await {
                 Ok(_) => {}
                 Err(e) if if_exists && is_not_found(&e) => {
-                    out.messages.push(format!("La tabla {table} no existe; no se borró nada."));
+                    out.messages
+                        .push(format!("La tabla {table} no existe; no se borró nada."));
                     return Ok(());
                 }
                 Err(e) => return Err(err(e)),
@@ -519,35 +626,55 @@ pub(crate) async fn run(client: &Client, admin: Admin, out: &mut QueryOutcome) -
                 .update_table()
                 .table_name(&table)
                 .set_attribute_definitions((!attrs.is_empty()).then_some(attrs))
-                .global_secondary_index_updates(GlobalSecondaryIndexUpdate::builder().create(action).build())
+                .global_secondary_index_updates(
+                    GlobalSecondaryIndexUpdate::builder().create(action).build(),
+                )
                 .send()
                 .await
                 .map_err(err)?;
             if wait_active(client, &table).await? {
-                out.messages.push(format!("Índice {index} creado en {table}."));
+                out.messages
+                    .push(format!("Índice {index} creado en {table}."));
             } else {
                 still_pending(out, &table, "creando el índice");
             }
         }
         Admin::DropIndex { index, table } => {
-            let action = build(DeleteGlobalSecondaryIndexAction::builder().index_name(&index).build())?;
+            let action = build(
+                DeleteGlobalSecondaryIndexAction::builder()
+                    .index_name(&index)
+                    .build(),
+            )?;
             client
                 .update_table()
                 .table_name(&table)
-                .global_secondary_index_updates(GlobalSecondaryIndexUpdate::builder().delete(action).build())
+                .global_secondary_index_updates(
+                    GlobalSecondaryIndexUpdate::builder().delete(action).build(),
+                )
                 .send()
                 .await
                 .map_err(err)?;
             if wait_active(client, &table).await? {
-                out.messages.push(format!("Índice {index} borrado de {table}."));
+                out.messages
+                    .push(format!("Índice {index} borrado de {table}."));
             } else {
                 still_pending(out, &table, "borrando el índice");
             }
         }
         Admin::CreateBackup { name, table } => {
-            let r = client.create_backup().table_name(&table).backup_name(&name).send().await.map_err(backup_err)?;
-            let arn = r.backup_details().map(|d| d.backup_arn()).unwrap_or_default();
-            out.messages.push(format!("Backup {name} de {table} creado: {arn}"));
+            let r = client
+                .create_backup()
+                .table_name(&table)
+                .backup_name(&name)
+                .send()
+                .await
+                .map_err(backup_err)?;
+            let arn = r
+                .backup_details()
+                .map(|d| d.backup_arn())
+                .unwrap_or_default();
+            out.messages
+                .push(format!("Backup {name} de {table} creado: {arn}"));
         }
         Admin::RestoreBackup { table, arn } => {
             client
@@ -563,7 +690,12 @@ pub(crate) async fn run(client: &Client, admin: Admin, out: &mut QueryOutcome) -
             ));
         }
         Admin::DropBackup { arn } => {
-            client.delete_backup().backup_arn(&arn).send().await.map_err(backup_err)?;
+            client
+                .delete_backup()
+                .backup_arn(&arn)
+                .send()
+                .await
+                .map_err(backup_err)?;
             out.messages.push(format!("Backup {arn} borrado."));
         }
     }
@@ -581,15 +713,25 @@ mod tests {
         assert_eq!(parse_admin("INSERT INTO t VALUE {'a': 1}").unwrap(), None);
         assert_eq!(
             parse_admin("drop table if exists \"My\"\"T\"").unwrap(),
-            Some(Admin::DropTable { table: "My\"T".into(), if_exists: true })
+            Some(Admin::DropTable {
+                table: "My\"T".into(),
+                if_exists: true
+            })
         );
         assert_eq!(
             parse_admin("DROP INDEX byX ON orders").unwrap(),
-            Some(Admin::DropIndex { index: "byX".into(), table: "orders".into() })
+            Some(Admin::DropIndex {
+                index: "byX".into(),
+                table: "orders".into()
+            })
         );
         assert_eq!(
             parse_admin("create table t {\"KeySchema\": []}").unwrap(),
-            Some(Admin::CreateTable { table: "t".into(), if_not_exists: false, spec: json!({ "KeySchema": [] }) })
+            Some(Admin::CreateTable {
+                table: "t".into(),
+                if_not_exists: false,
+                spec: json!({ "KeySchema": [] })
+            })
         );
         assert!(parse_admin("CREATE TABLE t").is_err());
         assert!(parse_admin("CREATE TABLE t [1]").is_err());
@@ -597,11 +739,18 @@ mod tests {
         assert!(parse_admin("DROP TABLE t extra").is_err());
         assert_eq!(
             parse_admin("create backup b1 for table \"T\"").unwrap(),
-            Some(Admin::CreateBackup { name: "b1".into(), table: "T".into() })
+            Some(Admin::CreateBackup {
+                name: "b1".into(),
+                table: "T".into()
+            })
         );
         assert_eq!(
-            parse_admin("RESTORE TABLE t2 FROM BACKUP \"arn:aws:dynamodb:r:1:table/t/backup/x\"").unwrap(),
-            Some(Admin::RestoreBackup { table: "t2".into(), arn: "arn:aws:dynamodb:r:1:table/t/backup/x".into() })
+            parse_admin("RESTORE TABLE t2 FROM BACKUP \"arn:aws:dynamodb:r:1:table/t/backup/x\"")
+                .unwrap(),
+            Some(Admin::RestoreBackup {
+                table: "t2".into(),
+                arn: "arn:aws:dynamodb:r:1:table/t/backup/x".into()
+            })
         );
         assert!(parse_admin("CREATE BACKUP b1").is_err());
         assert!(parse_admin("DROP BACKUP \"a\" extra").is_err());
@@ -622,11 +771,22 @@ mod tests {
         });
         let t = table_spec(&spec).unwrap();
         assert_eq!(t.attributes.len(), 2);
-        assert_eq!(t.gsis[0].projection().and_then(|p| p.projection_type()), Some(&ProjectionType::All));
-        assert_eq!(t.throughput.as_ref().map(|p| p.read_capacity_units()), Some(2));
+        assert_eq!(
+            t.gsis[0].projection().and_then(|p| p.projection_type()),
+            Some(&ProjectionType::All)
+        );
+        assert_eq!(
+            t.throughput.as_ref().map(|p| p.read_capacity_units()),
+            Some(2)
+        );
         assert_eq!(t.ttl.as_ref().map(|t| t.enabled()), Some(true));
-        let e = table_spec(&json!({ "KeySchema": [], "AttributeDefinitions": [], "TableName": "x" })).unwrap_err();
+        let e =
+            table_spec(&json!({ "KeySchema": [], "AttributeDefinitions": [], "TableName": "x" }))
+                .unwrap_err();
         assert!(e.to_string().contains("TableName"), "{e}");
-        assert!(table_spec(&json!({ "KeySchema": [{ "AttributeName": "pk" }], "AttributeDefinitions": [] })).is_err());
+        assert!(table_spec(
+            &json!({ "KeySchema": [{ "AttributeName": "pk" }], "AttributeDefinitions": [] })
+        )
+        .is_err());
     }
 }

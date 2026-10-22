@@ -6,7 +6,9 @@
 //! (scylla.yaml); Amazon Keyspaces uses AWS IAM instead.
 
 use crate::{boolean, cql, text, texts, CassandraSession, Flavor};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 
 pub const KEYSPACES: &str = "Amazon Keyspaces controla el acceso con IAM de AWS: los usuarios y permisos se administran en IAM, no en la base";
 
@@ -18,7 +20,19 @@ Para administrarlos activá `authorizer: CassandraAuthorizer` en cassandra.yaml 
 
 pub fn spec(f: Flavor) -> Option<SecuritySpec> {
     (f != Flavor::Keyspaces).then(|| SecuritySpec {
-        privileges: vec!["SELECT", "MODIFY", "CREATE", "ALTER", "DROP", "AUTHORIZE", "DESCRIBE", "EXECUTE", "UNMASK", "SELECT_MASKED", "ALL PERMISSIONS"],
+        privileges: vec![
+            "SELECT",
+            "MODIFY",
+            "CREATE",
+            "ALTER",
+            "DROP",
+            "AUTHORIZE",
+            "DESCRIBE",
+            "EXECUTE",
+            "UNMASK",
+            "SELECT_MASKED",
+            "ALL PERMISSIONS",
+        ],
         object_kinds: vec!["", "table"],
         create_user: true,
         create_role: true,
@@ -35,9 +49,14 @@ fn explain(e: Error, authorizer: bool) -> Error {
     match e {
         Error::Query(m) => {
             let l = m.to_lowercase();
-            if l.contains("anonymous") || l.contains("allowallauthenticator") || l.contains("not logged in") {
+            if l.contains("anonymous")
+                || l.contains("allowallauthenticator")
+                || l.contains("not logged in")
+            {
                 Error::Unsupported(NO_AUTH.into())
-            } else if l.contains("allowallauthorizer") || (authorizer && l.contains("not supported")) {
+            } else if l.contains("allowallauthorizer")
+                || (authorizer && l.contains("not supported"))
+            {
                 Error::Unsupported(NO_AUTHORIZER.into())
             } else {
                 Error::Query(m)
@@ -59,7 +78,11 @@ struct RoleRow {
 /// role has a password. Cassandra keeps it in `system_auth`; ScyllaDB 6+
 /// in `system`.
 async fn roles_table(s: &CassandraSession) -> Option<Vec<RoleRow>> {
-    let tables: &[&str] = if s.flavor == Flavor::Scylla { &["system.roles", "system_auth.roles"] } else { &["system_auth.roles"] };
+    let tables: &[&str] = if s.flavor == Flavor::Scylla {
+        &["system.roles", "system_auth.roles"]
+    } else {
+        &["system_auth.roles"]
+    };
     for t in tables {
         let q = format!("SELECT role, is_superuser, can_login, member_of, salted_hash FROM {t}");
         if let Ok(rows) = s.rows(&q, ()).await {
@@ -87,7 +110,10 @@ pub async fn principals(s: &CassandraSession) -> Result<Vec<Principal>> {
         return Err(Error::Unsupported(KEYSPACES.into()));
     }
     // LIST ROLES proves authentication is on (and works for non-superusers).
-    let listed = s.rows("LIST ROLES", ()).await.map_err(|e| explain(e, false))?;
+    let listed = s
+        .rows("LIST ROLES", ())
+        .await
+        .map_err(|e| explain(e, false))?;
     let roles = match roles_table(s).await {
         Some(r) => r,
         None => {
@@ -95,8 +121,19 @@ pub async fn principals(s: &CassandraSession) -> Result<Vec<Principal>> {
             for r in &listed {
                 let name = text(r, 0);
                 let q = format!("LIST ROLES OF {} NORECURSIVE", cql::ident(&name));
-                let member_of = s.rows(&q, ()).await.ok().map(|v| v.iter().map(|r| text(r, 0)).filter(|x| *x != name).collect());
-                out.push(RoleRow { superuser: boolean(r, 1), login: boolean(r, 2), member_of, password: None, name });
+                let member_of = s.rows(&q, ()).await.ok().map(|v| {
+                    v.iter()
+                        .map(|r| text(r, 0))
+                        .filter(|x| *x != name)
+                        .collect()
+                });
+                out.push(RoleRow {
+                    superuser: boolean(r, 1),
+                    login: boolean(r, 2),
+                    member_of,
+                    password: None,
+                    name,
+                });
             }
             out
         }
@@ -106,12 +143,24 @@ pub async fn principals(s: &CassandraSession) -> Result<Vec<Principal>> {
         .map(|r| {
             // A role that can log in, or could (it has a password), is a user.
             let user = r.login || r.password == Some(true);
-            let mut details = vec![("Tipo".to_string(), if user { "Rol con ingreso (usuario)" } else { "Rol" }.to_string())];
+            let mut details = vec![(
+                "Tipo".to_string(),
+                if user {
+                    "Rol con ingreso (usuario)"
+                } else {
+                    "Rol"
+                }
+                .to_string(),
+            )];
             if let Some(p) = r.password {
                 details.push(("Contraseña".into(), if p { "Sí" } else { "No" }.into()));
             }
             Principal {
-                kind: if user { PrincipalKind::User } else { PrincipalKind::Role },
+                kind: if user {
+                    PrincipalKind::User
+                } else {
+                    PrincipalKind::Role
+                },
                 can_login: Some(r.login),
                 superuser: Some(r.superuser),
                 disabled: user.then_some(!r.login),
@@ -189,7 +238,9 @@ fn lit(s: &str) -> String {
 }
 
 fn password(p: Option<&str>) -> Result<String> {
-    p.filter(|p| !p.is_empty()).map(lit).ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))
+    p.filter(|p| !p.is_empty())
+        .map(lit)
+        .ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))
 }
 
 /// Permission names: letters and `_`; `ALL` is `ALL PERMISSIONS`.
@@ -199,18 +250,32 @@ fn permissions(p: &[String]) -> Result<Vec<String>> {
     }
     p.iter()
         .map(|x| {
-            let up = x.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_uppercase();
-            if up.is_empty() || !up.chars().all(|c| c.is_ascii_alphabetic() || c == '_' || c == ' ') {
+            let up = x
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_ascii_uppercase();
+            if up.is_empty()
+                || !up
+                    .chars()
+                    .all(|c| c.is_ascii_alphabetic() || c == '_' || c == ' ')
+            {
                 return Err(Error::Query(format!("«{x}» no es un permiso de Cassandra")));
             }
-            Ok(if up == "ALL" { "ALL PERMISSIONS".into() } else { up })
+            Ok(if up == "ALL" {
+                "ALL PERMISSIONS".into()
+            } else {
+                up
+            })
         })
         .collect()
 }
 
 /// The resource a permission applies to (`None`: all keyspaces).
 fn on(object: &Option<ObjectRef>) -> Result<String> {
-    let Some(o) = object else { return Ok("ALL KEYSPACES".into()) };
+    let Some(o) = object else {
+        return Ok("ALL KEYSPACES".into());
+    };
     let bad = || Error::Query(format!("«{}» no es un recurso de Cassandra", o.name));
     Ok(match o.kind.as_str() {
         "keyspace" | "database" | "schema" => format!("KEYSPACE {}", name(&o.name)?),
@@ -239,7 +304,11 @@ fn on(object: &Option<ObjectRef>) -> Result<String> {
                 },
             }
         }
-        k => return Err(Error::Query(format!("Cassandra no otorga permisos sobre objetos «{k}»"))),
+        k => {
+            return Err(Error::Query(format!(
+                "Cassandra no otorga permisos sobre objetos «{k}»"
+            )))
+        }
     })
 }
 
@@ -248,28 +317,65 @@ pub fn script(f: Flavor, a: &SecurityAction) -> Result<String> {
         return Err(Error::Unsupported(KEYSPACES.into()));
     }
     Ok(match a {
-        SecurityAction::CreateUser { name: n, password: p } => {
-            format!("CREATE ROLE {} WITH PASSWORD = {} AND LOGIN = true;", name(n)?, password(p.as_deref())?)
+        SecurityAction::CreateUser {
+            name: n,
+            password: p,
+        } => {
+            format!(
+                "CREATE ROLE {} WITH PASSWORD = {} AND LOGIN = true;",
+                name(n)?,
+                password(p.as_deref())?
+            )
         }
         SecurityAction::CreateRole { name: n } => format!("CREATE ROLE {};", name(n)?),
         SecurityAction::Drop { name: n, .. } => format!("DROP ROLE {};", name(n)?),
-        SecurityAction::SetPassword { name: n, password: p } => format!("ALTER ROLE {} WITH PASSWORD = {};", name(n)?, password(Some(p))?),
-        SecurityAction::SetLogin { name: n, enabled } => format!("ALTER ROLE {} WITH LOGIN = {enabled};", name(n)?),
-        SecurityAction::Grant { privileges, object, to, grantable } => {
+        SecurityAction::SetPassword {
+            name: n,
+            password: p,
+        } => format!(
+            "ALTER ROLE {} WITH PASSWORD = {};",
+            name(n)?,
+            password(Some(p))?
+        ),
+        SecurityAction::SetLogin { name: n, enabled } => {
+            format!("ALTER ROLE {} WITH LOGIN = {enabled};", name(n)?)
+        }
+        SecurityAction::Grant {
+            privileges,
+            object,
+            to,
+            grantable,
+        } => {
             if *grantable {
                 return Err(Error::Unsupported(
                     "Cassandra no tiene «con opción de otorgar»: otorgá además el permiso AUTHORIZE sobre el mismo recurso".into(),
                 ));
             }
             let (on, to) = (on(object)?, name(to)?);
-            permissions(privileges)?.iter().map(|p| format!("GRANT {p} ON {on} TO {to};")).collect::<Vec<_>>().join("\n")
+            permissions(privileges)?
+                .iter()
+                .map(|p| format!("GRANT {p} ON {on} TO {to};"))
+                .collect::<Vec<_>>()
+                .join("\n")
         }
-        SecurityAction::Revoke { privileges, object, from } => {
+        SecurityAction::Revoke {
+            privileges,
+            object,
+            from,
+        } => {
             let (on, from) = (on(object)?, name(from)?);
-            permissions(privileges)?.iter().map(|p| format!("REVOKE {p} ON {on} FROM {from};")).collect::<Vec<_>>().join("\n")
+            permissions(privileges)?
+                .iter()
+                .map(|p| format!("REVOKE {p} ON {on} FROM {from};"))
+                .collect::<Vec<_>>()
+                .join("\n")
         }
-        SecurityAction::AddMember { role, member } => format!("GRANT {} TO {};", name(role)?, name(member)?),
-        SecurityAction::RemoveMember { role, member } => format!("REVOKE {} FROM {};", name(role)?, name(member)?),
+        SecurityAction::AddMember { role, member } => {
+            format!("GRANT {} TO {};", name(role)?, name(member)?)
+        }
+        SecurityAction::RemoveMember { role, member } => {
+            format!("REVOKE {} FROM {};", name(role)?, name(member)?)
+        }
     })
 }
 
@@ -278,59 +384,177 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        })
     }
 
     #[test]
     fn writes_the_scripts() {
         let s = |a| script(Flavor::Cassandra, &a).unwrap();
         assert_eq!(
-            s(SecurityAction::CreateUser { name: "Ana".into(), password: Some("p'w".into()) }),
+            s(SecurityAction::CreateUser {
+                name: "Ana".into(),
+                password: Some("p'w".into())
+            }),
             "CREATE ROLE \"Ana\" WITH PASSWORD = 'p''w' AND LOGIN = true;"
         );
-        assert_eq!(s(SecurityAction::CreateRole { name: "lect".into() }), "CREATE ROLE lect;");
-        assert_eq!(s(SecurityAction::Drop { name: "lect".into(), kind: PrincipalKind::Role }), "DROP ROLE lect;");
-        assert_eq!(s(SecurityAction::SetPassword { name: "ana".into(), password: "x".into() }), "ALTER ROLE ana WITH PASSWORD = 'x';");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: false }), "ALTER ROLE ana WITH LOGIN = false;");
-        assert_eq!(s(SecurityAction::AddMember { role: "lect".into(), member: "ana".into() }), "GRANT lect TO ana;");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "lect".into(), member: "ana".into() }), "REVOKE lect FROM ana;");
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "lect".into()
+            }),
+            "CREATE ROLE lect;"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "lect".into(),
+                kind: PrincipalKind::Role
+            }),
+            "DROP ROLE lect;"
+        );
+        assert_eq!(
+            s(SecurityAction::SetPassword {
+                name: "ana".into(),
+                password: "x".into()
+            }),
+            "ALTER ROLE ana WITH PASSWORD = 'x';"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: false
+            }),
+            "ALTER ROLE ana WITH LOGIN = false;"
+        );
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "lect".into(),
+                member: "ana".into()
+            }),
+            "GRANT lect TO ana;"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "lect".into(),
+                member: "ana".into()
+            }),
+            "REVOKE lect FROM ana;"
+        );
         assert_eq!(
             s(SecurityAction::Grant { privileges: vec!["select".into(), "all".into()], object: None, to: "lect".into(), grantable: false }),
             "GRANT SELECT ON ALL KEYSPACES TO lect;\nGRANT ALL PERMISSIONS ON ALL KEYSPACES TO lect;"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["MODIFY".into()], object: obj("table", Some("ks"), "T"), to: "ana".into(), grantable: false }),
+            s(SecurityAction::Grant {
+                privileges: vec!["MODIFY".into()],
+                object: obj("table", Some("ks"), "T"),
+                to: "ana".into(),
+                grantable: false
+            }),
             "GRANT MODIFY ON TABLE ks.\"T\" TO ana;"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["SELECT".into()], object: obj("keyspace", None, "ks"), from: "lect".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["SELECT".into()],
+                object: obj("keyspace", None, "ks"),
+                from: "lect".into()
+            }),
             "REVOKE SELECT ON KEYSPACE ks FROM lect;"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["EXECUTE".into()], object: obj("resource", None, "ALL FUNCTIONS IN KEYSPACE ks"), from: "r".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["EXECUTE".into()],
+                object: obj("resource", None, "ALL FUNCTIONS IN KEYSPACE ks"),
+                from: "r".into()
+            }),
             "REVOKE EXECUTE ON ALL FUNCTIONS IN KEYSPACE ks FROM r;"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["EXECUTE".into()], object: obj("function", Some("ks"), "f(int, text)"), from: "r".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["EXECUTE".into()],
+                object: obj("function", Some("ks"), "f(int, text)"),
+                from: "r".into()
+            }),
             "REVOKE EXECUTE ON FUNCTION ks.f(int, text) FROM r;"
         );
         let e = |a| script(Flavor::Cassandra, &a).unwrap_err();
-        assert!(e(SecurityAction::Grant { privileges: vec!["SELECT; DROP".into()], object: None, to: "r".into(), grantable: false }).to_string().contains("no es un permiso"));
-        assert!(e(SecurityAction::Grant { privileges: vec!["SELECT".into()], object: obj("resource", None, "ALL x; DROP"), to: "r".into(), grantable: false }).to_string().contains("no es un recurso"));
-        assert!(e(SecurityAction::Grant { privileges: vec!["SELECT".into()], object: obj("function", None, "f'); x"), to: "r".into(), grantable: false }).to_string().contains("no es un recurso"));
-        assert!(matches!(e(SecurityAction::Grant { privileges: vec!["SELECT".into()], object: None, to: "r".into(), grantable: true }), Error::Unsupported(_)));
-        assert!(matches!(e(SecurityAction::CreateUser { name: "a".into(), password: None }), Error::Query(_)));
-        assert!(matches!(script(Flavor::Keyspaces, &SecurityAction::CreateRole { name: "a".into() }), Err(Error::Unsupported(_))));
+        assert!(e(SecurityAction::Grant {
+            privileges: vec!["SELECT; DROP".into()],
+            object: None,
+            to: "r".into(),
+            grantable: false
+        })
+        .to_string()
+        .contains("no es un permiso"));
+        assert!(e(SecurityAction::Grant {
+            privileges: vec!["SELECT".into()],
+            object: obj("resource", None, "ALL x; DROP"),
+            to: "r".into(),
+            grantable: false
+        })
+        .to_string()
+        .contains("no es un recurso"));
+        assert!(e(SecurityAction::Grant {
+            privileges: vec!["SELECT".into()],
+            object: obj("function", None, "f'); x"),
+            to: "r".into(),
+            grantable: false
+        })
+        .to_string()
+        .contains("no es un recurso"));
+        assert!(matches!(
+            e(SecurityAction::Grant {
+                privileges: vec!["SELECT".into()],
+                object: None,
+                to: "r".into(),
+                grantable: true
+            }),
+            Error::Unsupported(_)
+        ));
+        assert!(matches!(
+            e(SecurityAction::CreateUser {
+                name: "a".into(),
+                password: None
+            }),
+            Error::Query(_)
+        ));
+        assert!(matches!(
+            script(
+                Flavor::Keyspaces,
+                &SecurityAction::CreateRole { name: "a".into() }
+            ),
+            Err(Error::Unsupported(_))
+        ));
         assert!(spec(Flavor::Keyspaces).is_none() && spec(Flavor::Scylla).is_some());
     }
 
     #[test]
     fn resources() {
         assert_eq!(resource("<all keyspaces>"), (None, None));
-        assert_eq!(resource("<table ks.t>"), (Some("ks.t".into()), Some("table".into())));
-        assert_eq!(resource("<keyspace ks>"), (Some("ks".into()), Some("keyspace".into())));
-        assert_eq!(resource("<all functions in ks>"), (Some("ALL FUNCTIONS IN KEYSPACE ks".into()), Some("resource".into())));
-        assert_eq!(resource("<role ana>"), (Some("ana".into()), Some("role".into())));
-        assert_eq!(resource("<all mbeans>"), (Some("ALL MBEANS".into()), Some("resource".into())));
+        assert_eq!(
+            resource("<table ks.t>"),
+            (Some("ks.t".into()), Some("table".into()))
+        );
+        assert_eq!(
+            resource("<keyspace ks>"),
+            (Some("ks".into()), Some("keyspace".into()))
+        );
+        assert_eq!(
+            resource("<all functions in ks>"),
+            (
+                Some("ALL FUNCTIONS IN KEYSPACE ks".into()),
+                Some("resource".into())
+            )
+        );
+        assert_eq!(
+            resource("<role ana>"),
+            (Some("ana".into()), Some("role".into()))
+        );
+        assert_eq!(
+            resource("<all mbeans>"),
+            (Some("ALL MBEANS".into()), Some("resource".into()))
+        );
     }
 }

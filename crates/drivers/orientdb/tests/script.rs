@@ -29,7 +29,9 @@ async fn run(s: &mut Box<dyn Session>, text: &str) -> dbine_driver::Result<Query
 #[tokio::test]
 #[ignore]
 async fn statements_one_by_one() {
-    let Ok(url) = std::env::var("DBINE_TEST_ORIENTDB_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_ORIENTDB_URL") else {
+        return;
+    };
     let d = dbine_driver_orientdb::drivers().remove(0);
     assert_eq!(d.script_mode(), ScriptMode::PerStatement);
     let c = cfg(&url);
@@ -52,8 +54,15 @@ async fn statements_one_by_one() {
     // The whole text at once (Users and permissions, Backups…): each
     // statement placed, the failing one on its line.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT count(*) FROM Nota;\nSELECT FROM Nope", 10, &mut out).await.unwrap_err().to_script_error();
+    let e = s
+        .execute("SELECT count(*) FROM Nota;\nSELECT FROM Nope", 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
     assert_eq!(e.line, Some(2), "{e:?}");
-    assert_eq!((out.results[0].statement, out.results[0].line), (Some(0), Some(1)));
+    assert_eq!(
+        (out.results[0].statement, out.results[0].line),
+        (Some(0), Some(1))
+    );
     admin.drop_database("dbine_script").await.unwrap();
 }

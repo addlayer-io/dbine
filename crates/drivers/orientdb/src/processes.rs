@@ -22,15 +22,24 @@ const MAX_ROWS: usize = 2000;
 const LISTING: &str = "Server status";
 
 fn text(c: &Value, k: &str) -> Option<String> {
-    c.get(k).map(as_text).map(|v| v.trim().to_string()).filter(|v| !v.is_empty() && v != "-")
+    c.get(k)
+        .map(as_text)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty() && v != "-")
 }
 
 fn ms(c: &Value, k: &str) -> Option<u64> {
-    text(c, k).and_then(|v| v.parse::<f64>().ok()).map(|v| v.max(0.0) as u64)
+    text(c, k)
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| v.max(0.0) as u64)
 }
 
 pub(crate) fn rows(server: &Value) -> Vec<ServerProcess> {
-    let conns = server.get("connections").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let conns = server
+        .get("connections")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     let mut out: Vec<ServerProcess> = conns
         .iter()
         .filter_map(|c| {
@@ -41,7 +50,11 @@ pub(crate) fn rows(server: &Value) -> Vec<ServerProcess> {
             Some(ServerProcess {
                 id,
                 own,
-                status: Some(info.clone().filter(|_| active || own).unwrap_or_else(|| "inactiva".into())),
+                status: Some(
+                    info.clone()
+                        .filter(|_| active || own)
+                        .unwrap_or_else(|| "inactiva".into()),
+                ),
                 active,
                 user: text(c, "user"),
                 host: text(c, "remoteAddress").map(|a| a.trim_start_matches('/').to_string()),
@@ -49,8 +62,14 @@ pub(crate) fn rows(server: &Value) -> Vec<ServerProcess> {
                 database: text(c, "db"),
                 command: info.filter(|_| active),
                 // The running command's time isn't reported; this is the last one's.
-                elapsed_ms: if active { None } else { ms(c, "lastExecutionTime") },
-                sql: text(c, "commandDetail").filter(|_| active).map(|d| d.chars().take(MAX_TEXT).collect()),
+                elapsed_ms: if active {
+                    None
+                } else {
+                    ms(c, "lastExecutionTime")
+                },
+                sql: text(c, "commandDetail")
+                    .filter(|_| active)
+                    .map(|d| d.chars().take(MAX_TEXT).collect()),
                 ..Default::default()
             })
         })
@@ -74,25 +93,44 @@ impl OrientSession {
         let kill = action == "kill";
         if self.read_only {
             return Err(Error::Query(
-                if kill { "Conexión de solo lectura: no se pueden terminar conexiones." } else { "Conexión de solo lectura: no se pueden cancelar comandos." }.into(),
+                if kill {
+                    "Conexión de solo lectura: no se pueden terminar conexiones."
+                } else {
+                    "Conexión de solo lectura: no se pueden cancelar comandos."
+                }
+                .into(),
             ));
         }
         let id = id.trim();
         if !valid_id(id) {
-            return Err(Error::Query(format!("«{id}» no es un id de conexión (connectionId)")));
+            return Err(Error::Query(format!(
+                "«{id}» no es un id de conexión (connectionId)"
+            )));
         }
         let server = self.server().await?;
-        let conns = server.get("connections").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-        let Some(c) = conns.iter().find(|c| text(c, "connectionId").as_deref() == Some(id)) else {
-            return Err(Error::Query(format!("la conexión {id} ya se cerró o no existe")));
+        let conns = server
+            .get("connections")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let Some(c) = conns
+            .iter()
+            .find(|c| text(c, "connectionId").as_deref() == Some(id))
+        else {
+            return Err(Error::Query(format!(
+                "la conexión {id} ya se cerró o no existe"
+            )));
         };
         if text(c, "commandInfo").as_deref() == Some(LISTING) {
             return Err(Error::Query("esa es la conexión con la que DBine está consultando: no se puede cancelar desde acá".into()));
         }
         if !kill && !busy(c) {
-            return Err(Error::Query(format!("la conexión {id} no está ejecutando nada")));
+            return Err(Error::Query(format!(
+                "la conexión {id} no está ejecutando nada"
+            )));
         }
-        self.call(Method::POST, &format!("/connection/{action}/{id}"), None).await?;
+        self.call(Method::POST, &format!("/connection/{action}/{id}"), None)
+            .await?;
         Ok(())
     }
 }
@@ -110,12 +148,34 @@ mod tests {
             {"connectionId": "7", "db": "demo", "commandInfo": "-", "lastExecutionTime": "12", "protocol": "http"}
         ]});
         let r = rows(&s);
-        assert_eq!(r.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["6", "1", "7"]);
+        assert_eq!(
+            r.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            ["6", "1", "7"]
+        );
         assert!(r[0].active && !r[0].own);
-        assert_eq!((r[0].sql.as_deref(), r[0].host.as_deref(), r[0].program.as_deref()), (Some("select from V"), Some("10.0.0.2:6"), Some("OrientDB Java")));
+        assert_eq!(
+            (
+                r[0].sql.as_deref(),
+                r[0].host.as_deref(),
+                r[0].program.as_deref()
+            ),
+            (
+                Some("select from V"),
+                Some("10.0.0.2:6"),
+                Some("OrientDB Java")
+            )
+        );
         assert!(r[1].own && r[1].user.is_none() && r[1].database.is_none());
         assert_eq!(r[1].status.as_deref(), Some("Server status"));
-        assert_eq!((r[2].active, r[2].elapsed_ms, r[2].status.as_deref(), r[2].program.as_deref()), (false, Some(12), Some("inactiva"), Some("http")));
+        assert_eq!(
+            (
+                r[2].active,
+                r[2].elapsed_ms,
+                r[2].status.as_deref(),
+                r[2].program.as_deref()
+            ),
+            (false, Some(12), Some("inactiva"), Some("http"))
+        );
         assert!(valid_id("12") && !valid_id("1/../x") && !valid_id(""));
     }
 }

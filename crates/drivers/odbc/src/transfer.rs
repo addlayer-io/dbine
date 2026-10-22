@@ -54,7 +54,8 @@ use crate::presets::Preset;
 use crate::OdbcSession;
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::transfer::{
-    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, RowBatch, TransferColumn, CHUNK_ROWS,
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, RowBatch,
+    TransferColumn, CHUNK_ROWS,
 };
 use dbine_driver::{Error, Result};
 use std::ffi::c_void;
@@ -142,15 +143,26 @@ pub fn sizes_reliable(p: &Preset) -> bool {
 }
 
 fn column_list(quote: Quote, cols: &[String]) -> String {
-    cols.iter().map(|c| quote_ident(quote, c)).collect::<Vec<_>>().join(", ")
+    cols.iter()
+        .map(|c| quote_ident(quote, c))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The read's `SELECT`: the spec's columns in its order (all of them when
 /// `None`) and its filter.
 pub fn select_sql(quote: Quote, spec: &ReadSpec) -> String {
-    let cols = spec.columns.as_deref().map_or_else(|| "*".to_string(), |c| column_list(quote, c));
+    let cols = spec
+        .columns
+        .as_deref()
+        .map_or_else(|| "*".to_string(), |c| column_list(quote, c));
     let table = qualified_name(quote, spec.table.schema(), &spec.table.name);
-    match spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+    match spec
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+    {
         Some(f) => format!("SELECT {cols} FROM {table} WHERE ({f})"),
         None => format!("SELECT {cols} FROM {table}"),
     }
@@ -201,7 +213,17 @@ fn describe(api: &Api, st: &Stmt) -> Result<Vec<Col>> {
         let numeric = |field: u16| -> SqlLen {
             let mut v: SqlLen = 0;
             // SAFETY: numeric attribute, no character buffer.
-            let rc = unsafe { (api.SQLColAttributeW)(h, col, field, std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut v) };
+            let rc = unsafe {
+                (api.SQLColAttributeW)(
+                    h,
+                    col,
+                    field,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                    &mut v,
+                )
+            };
             if ok(rc) {
                 v
             } else {
@@ -213,9 +235,21 @@ fn describe(api: &Api, st: &Stmt) -> Result<Vec<Col>> {
         let mut unused: SqlLen = 0;
         // SAFETY: buffer length in bytes.
         let rc = unsafe {
-            (api.SQLColAttributeW)(h, col, SQL_DESC_TYPE_NAME, tbuf.as_mut_ptr() as *mut c_void, (tbuf.len() * 2) as i16, &mut tlen, &mut unused)
+            (api.SQLColAttributeW)(
+                h,
+                col,
+                SQL_DESC_TYPE_NAME,
+                tbuf.as_mut_ptr() as *mut c_void,
+                (tbuf.len() * 2) as i16,
+                &mut tlen,
+                &mut unused,
+            )
         };
-        let type_name = if ok(rc) { String::from_utf16_lossy(&tbuf[..((tlen.max(0) as usize) / 2).min(tbuf.len() - 1)]) } else { String::new() };
+        let type_name = if ok(rc) {
+            String::from_utf16_lossy(&tbuf[..((tlen.max(0) as usize) / 2).min(tbuf.len() - 1)])
+        } else {
+            String::new()
+        };
         let n = (name_len.max(0) as usize).min(name.len() - 1);
         out.push(Col {
             name: String::from_utf16_lossy(&name[..n]),
@@ -235,8 +269,16 @@ fn describe(api: &Api, st: &Stmt) -> Result<Vec<Col>> {
 fn transfer_column(c: &Col) -> TransferColumn {
     let size = (c.size > 0).then_some(c.size as u64);
     let digits = (c.digits >= 0).then_some(c.digits as u64);
-    let name = if c.type_name.is_empty() { format!("sql_type({})", c.sql_type) } else { c.type_name.clone() };
-    TransferColumn { name: c.name.clone(), type_name: crate::format_type(&name, c.sql_type, size, digits), nullable: c.nullable }
+    let name = if c.type_name.is_empty() {
+        format!("sql_type({})", c.sql_type)
+    } else {
+        c.type_name.clone()
+    };
+    TransferColumn {
+        name: c.name.clone(),
+        type_name: crate::format_type(&name, c.sql_type, size, digits),
+        nullable: c.nullable,
+    }
 }
 
 // ------------------------------------------------------------------- read
@@ -262,9 +304,14 @@ pub enum Fetch {
     Date,
     Timestamp,
     /// Text of at most `units` UTF-16 units: bindable.
-    Text { units: usize, as_: As },
+    Text {
+        units: usize,
+        as_: As,
+    },
     /// Binary of at most `len` bytes: bindable.
-    Bytes { len: usize },
+    Bytes {
+        len: usize,
+    },
     /// Unbounded text, read with `SQLGetData` to its end.
     LongText(As),
     LongBytes,
@@ -306,12 +353,20 @@ impl Fetch {
 /// JSON documents and Hive/Spark complex types (sent as JSON text).
 fn is_json(type_name: &str) -> bool {
     let t = type_name.trim().to_ascii_lowercase();
-    t == "json" || t == "jsonb" || ["array", "map", "struct", "uniontype"].iter().any(|p| t.starts_with(p))
+    t == "json"
+        || t == "jsonb"
+        || ["array", "map", "struct", "uniontype"]
+            .iter()
+            .any(|p| t.starts_with(p))
 }
 
 /// How column `c` is read; `sizes`: the driver's text sizes can be trusted.
 pub fn plan(c: &Col, sizes: bool) -> Fetch {
-    let text_as = if is_json(&c.type_name) { As::Json } else { As::Text };
+    let text_as = if is_json(&c.type_name) {
+        As::Json
+    } else {
+        As::Text
+    };
     match c.sql_type {
         SQL_BIT => Fetch::Bit,
         SQL_TINYINT | SQL_SMALLINT | SQL_INTEGER => Fetch::Int,
@@ -319,22 +374,41 @@ pub fn plan(c: &Col, sizes: bool) -> Fetch {
         SQL_BIGINT => Fetch::Int,
         SQL_REAL | SQL_FLOAT | SQL_DOUBLE => Fetch::Float,
         // Sign, point and a leading zero around the precision's digits.
-        SQL_NUMERIC | SQL_DECIMAL if (1..=1000).contains(&c.size) => Fetch::Text { units: c.size + 3, as_: As::Decimal },
+        SQL_NUMERIC | SQL_DECIMAL if (1..=1000).contains(&c.size) => Fetch::Text {
+            units: c.size + 3,
+            as_: As::Decimal,
+        },
         SQL_NUMERIC | SQL_DECIMAL => Fetch::LongText(As::Decimal),
         SQL_TYPE_DATE | SQL_DATETIME => Fetch::Date,
         SQL_TYPE_TIMESTAMP | SQL_TIMESTAMP_V2 => Fetch::Timestamp,
-        SQL_TYPE_TIME | SQL_TIME_V2 | SQL_SS_TIME2 => Fetch::Text { units: 32, as_: As::Time },
-        SQL_SS_TIMESTAMPOFFSET | SQL_TYPE_TIMESTAMP_TZ => Fetch::Text { units: 48, as_: As::DateTimeTz },
-        SQL_GUID => Fetch::Text { units: 40, as_: As::Uuid },
-        SQL_BINARY | SQL_VARBINARY if sizes && (1..=MAX_BOUND_BYTES).contains(&c.size) => Fetch::Bytes { len: c.size },
+        SQL_TYPE_TIME | SQL_TIME_V2 | SQL_SS_TIME2 => Fetch::Text {
+            units: 32,
+            as_: As::Time,
+        },
+        SQL_SS_TIMESTAMPOFFSET | SQL_TYPE_TIMESTAMP_TZ => Fetch::Text {
+            units: 48,
+            as_: As::DateTimeTz,
+        },
+        SQL_GUID => Fetch::Text {
+            units: 40,
+            as_: As::Uuid,
+        },
+        SQL_BINARY | SQL_VARBINARY if sizes && (1..=MAX_BOUND_BYTES).contains(&c.size) => {
+            Fetch::Bytes { len: c.size }
+        }
         SQL_BINARY | SQL_VARBINARY | SQL_LONGVARBINARY => Fetch::LongBytes,
         // CLR types: their binary form (as text the driver gives hex,
         // which can't be told from real text nor loaded back).
         SQL_SS_UDT => Fetch::LongBytes,
         // A character may take two UTF-16 units (engines that count
         // characters, not units).
-        SQL_CHAR | SQL_VARCHAR | SQL_WCHAR | SQL_WVARCHAR if sizes && (1..=MAX_BOUND_CHARS).contains(&c.size) => {
-            Fetch::Text { units: c.size * 2, as_: text_as }
+        SQL_CHAR | SQL_VARCHAR | SQL_WCHAR | SQL_WVARCHAR
+            if sizes && (1..=MAX_BOUND_CHARS).contains(&c.size) =>
+        {
+            Fetch::Text {
+                units: c.size * 2,
+                as_: text_as,
+            }
         }
         // LONGVARCHAR, XML, intervals, vendor types: text to its end.
         _ => Fetch::LongText(text_as),
@@ -379,7 +453,12 @@ pub fn text_cell(s: String, as_: As) -> Cell {
         As::Decimal => Cell::Decimal(decimal(&s)),
         As::Time => Cell::Time(s.trim().to_string()),
         As::DateTimeTz => Cell::DateTimeTz(with_offset(&s)),
-        As::Uuid => Cell::Uuid(s.trim().trim_start_matches('{').trim_end_matches('}').to_ascii_lowercase()),
+        As::Uuid => Cell::Uuid(
+            s.trim()
+                .trim_start_matches('{')
+                .trim_end_matches('}')
+                .to_ascii_lowercase(),
+        ),
         As::Json => Cell::Json(s),
     }
 }
@@ -388,7 +467,16 @@ fn get_fixed<T: Default>(api: &Api, st: &Stmt, col: u16, c_type: i16) -> Result<
     let mut v = T::default();
     let mut ind: SqlLen = 0;
     // SAFETY: `v` is a plain number or C struct of the declared size.
-    let rc = unsafe { (api.SQLGetData)(st.raw(), col, c_type, &mut v as *mut T as *mut c_void, size_of::<T>() as SqlLen, &mut ind) };
+    let rc = unsafe {
+        (api.SQLGetData)(
+            st.raw(),
+            col,
+            c_type,
+            &mut v as *mut T as *mut c_void,
+            size_of::<T>() as SqlLen,
+            &mut ind,
+        )
+    };
     if !ok(rc) {
         return Err(st.err());
     }
@@ -396,7 +484,12 @@ fn get_fixed<T: Default>(api: &Api, st: &Stmt, col: u16, c_type: i16) -> Result<
 }
 
 /// A whole long cell (text as UTF-16 units, or bytes), in chunks.
-fn get_long<T: Copy + Default>(api: &Api, st: &Stmt, col: u16, c_type: i16) -> Result<Option<Vec<T>>> {
+fn get_long<T: Copy + Default>(
+    api: &Api,
+    st: &Stmt,
+    col: u16,
+    c_type: i16,
+) -> Result<Option<Vec<T>>> {
     let unit = size_of::<T>();
     // Text chunks keep room for the NUL the driver writes.
     let nul = if c_type == SQL_C_WCHAR { unit } else { 0 };
@@ -409,7 +502,16 @@ fn get_long<T: Copy + Default>(api: &Api, st: &Stmt, col: u16, c_type: i16) -> R
         }
         let mut ind: SqlLen = 0;
         // SAFETY: buffer length in bytes.
-        let rc = unsafe { (api.SQLGetData)(st.raw(), col, c_type, buf.as_mut_ptr() as *mut c_void, cap as SqlLen, &mut ind) };
+        let rc = unsafe {
+            (api.SQLGetData)(
+                st.raw(),
+                col,
+                c_type,
+                buf.as_mut_ptr() as *mut c_void,
+                cap as SqlLen,
+                &mut ind,
+            )
+        };
         if rc == SQL_NO_DATA {
             break;
         }
@@ -436,12 +538,18 @@ fn get_cell(api: &Api, st: &Stmt, col: u16, f: Fetch) -> Result<Cell> {
         Fetch::UInt => get_fixed::<u64>(api, st, col, SQL_C_UBIGINT)?.map(Cell::UInt),
         Fetch::Float => get_fixed::<f64>(api, st, col, SQL_C_DOUBLE)?.map(Cell::Float),
         Fetch::Bit => get_fixed::<u8>(api, st, col, SQL_C_BIT)?.map(|b| Cell::Bool(b != 0)),
-        Fetch::Date => get_fixed::<SqlDate>(api, st, col, SQL_C_TYPE_DATE)?.map(|d| Cell::Date(fmt_date(&d))),
-        Fetch::Timestamp => get_fixed::<SqlTimestamp>(api, st, col, SQL_C_TYPE_TIMESTAMP)?.map(|t| Cell::DateTime(fmt_timestamp(&t))),
-        Fetch::Text { as_, .. } | Fetch::LongText(as_) => {
-            get_long::<u16>(api, st, col, SQL_C_WCHAR)?.map(|u| text_cell(String::from_utf16_lossy(&u), as_))
+        Fetch::Date => {
+            get_fixed::<SqlDate>(api, st, col, SQL_C_TYPE_DATE)?.map(|d| Cell::Date(fmt_date(&d)))
         }
-        Fetch::Bytes { .. } | Fetch::LongBytes => get_long::<u8>(api, st, col, SQL_C_BINARY)?.map(Cell::Bytes),
+        Fetch::Timestamp => get_fixed::<SqlTimestamp>(api, st, col, SQL_C_TYPE_TIMESTAMP)?
+            .map(|t| Cell::DateTime(fmt_timestamp(&t))),
+        Fetch::Text { as_, .. } | Fetch::LongText(as_) => {
+            get_long::<u16>(api, st, col, SQL_C_WCHAR)?
+                .map(|u| text_cell(String::from_utf16_lossy(&u), as_))
+        }
+        Fetch::Bytes { .. } | Fetch::LongBytes => {
+            get_long::<u8>(api, st, col, SQL_C_BINARY)?.map(Cell::Bytes)
+        }
     };
     Ok(cell.unwrap_or(Cell::Null))
 }
@@ -455,13 +563,19 @@ struct Bound {
 
 impl Bound {
     fn new(f: Fetch, rows: usize) -> Bound {
-        Bound { f, buf: vec![0u64; (f.elem() * rows).div_ceil(8)], ind: vec![0; rows] }
+        Bound {
+            f,
+            buf: vec![0u64; (f.elem() * rows).div_ceil(8)],
+            ind: vec![0; rows],
+        }
     }
 
     fn bytes(&self, r: usize) -> &[u8] {
         let e = self.f.elem();
         // SAFETY: the buffer holds `rows * elem` bytes.
-        let all = unsafe { std::slice::from_raw_parts(self.buf.as_ptr() as *const u8, self.buf.len() * 8) };
+        let all = unsafe {
+            std::slice::from_raw_parts(self.buf.as_ptr() as *const u8, self.buf.len() * 8)
+        };
         &all[r * e..(r + 1) * e]
     }
 
@@ -492,7 +606,12 @@ impl Bound {
                 if ind == SQL_NO_TOTAL || ind as usize + 2 > e {
                     return Err(truncated());
                 }
-                let units: Vec<u16> = self.bytes(r)[..ind as usize].as_chunks::<2>().0.iter().map(|p| u16::from_ne_bytes(*p)).collect();
+                let units: Vec<u16> = self.bytes(r)[..ind as usize]
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|p| u16::from_ne_bytes(*p))
+                    .collect();
                 text_cell(String::from_utf16_lossy(&units), as_)
             }
             Fetch::Bytes { .. } => {
@@ -524,14 +643,24 @@ fn set_attr(api: &Api, st: &Stmt, attr: i32, value: *mut c_void, len: i32) -> Sq
 
 /// Run `sql` and hand its rows to `sink` in batches; the rows read.
 /// `wanted`: how many columns the read asked for (`None`: all).
-pub fn read(c: &Conn, slot: &StmtSlot, sql: &str, sizes: bool, wanted: Option<usize>, sink: BatchSinkRef) -> Result<u64> {
+pub fn read(
+    c: &Conn,
+    slot: &StmtSlot,
+    sql: &str,
+    sizes: bool,
+    wanted: Option<usize>,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let api = c.api;
     let st = c.stmt(slot)?;
     st.exec(sql)?;
     let cols = describe(api, &st)?;
     if let Some(n) = wanted {
         if n != cols.len() {
-            return Err(Error::Query(format!("la lectura pidió {n} columnas y el servidor devolvió {}", cols.len())));
+            return Err(Error::Query(format!(
+                "la lectura pidió {n} columnas y el servidor devolvió {}",
+                cols.len()
+            )));
         }
     }
     let plan: Vec<Fetch> = cols.iter().map(|c| plan(c, sizes)).collect();
@@ -553,22 +682,49 @@ pub fn read(c: &Conn, slot: &StmtSlot, sql: &str, sizes: bool, wanted: Option<us
     } else {
         // Blocks of rows into column-wise buffers.
         let mut rows = rows_per_fetch(&plan);
-        if rows > 1 && set_attr(api, &st, SQL_ATTR_ROW_ARRAY_SIZE, rows as *mut c_void, SQL_IS_UINTEGER) != SQL_SUCCESS {
+        if rows > 1
+            && set_attr(
+                api,
+                &st,
+                SQL_ATTR_ROW_ARRAY_SIZE,
+                rows as *mut c_void,
+                SQL_IS_UINTEGER,
+            ) != SQL_SUCCESS
+        {
             // No block cursors (or another size substituted): one row a time.
-            set_attr(api, &st, SQL_ATTR_ROW_ARRAY_SIZE, std::ptr::without_provenance_mut(1), SQL_IS_UINTEGER);
+            set_attr(
+                api,
+                &st,
+                SQL_ATTR_ROW_ARRAY_SIZE,
+                std::ptr::without_provenance_mut(1),
+                SQL_IS_UINTEGER,
+            );
             rows = 1;
         }
         let mut fetched: SqlULen = 0;
         let mut bound: Vec<Bound> = plan.iter().map(|f| Bound::new(*f, rows)).collect();
         let _unbind = Unbind(api, &st);
-        if !ok(set_attr(api, &st, SQL_ATTR_ROWS_FETCHED_PTR, &mut fetched as *mut SqlULen as *mut c_void, SQL_IS_POINTER)) {
+        if !ok(set_attr(
+            api,
+            &st,
+            SQL_ATTR_ROWS_FETCHED_PTR,
+            &mut fetched as *mut SqlULen as *mut c_void,
+            SQL_IS_POINTER,
+        )) {
             return Err(st.err());
         }
         for (i, b) in bound.iter_mut().enumerate() {
             // SAFETY: `bound` outlives every fetch (unbound by `_unbind`,
             // dropped first).
             let rc = unsafe {
-                (api.SQLBindCol)(st.raw(), i as u16 + 1, b.f.c_type(), b.buf.as_mut_ptr() as *mut c_void, b.f.elem() as SqlLen, b.ind.as_mut_ptr())
+                (api.SQLBindCol)(
+                    st.raw(),
+                    i as u16 + 1,
+                    b.f.c_type(),
+                    b.buf.as_mut_ptr() as *mut c_void,
+                    b.f.elem() as SqlLen,
+                    b.ind.as_mut_ptr(),
+                )
             };
             if !ok(rc) {
                 return Err(st.err());
@@ -578,7 +734,11 @@ pub fn read(c: &Conn, slot: &StmtSlot, sql: &str, sizes: bool, wanted: Option<us
             let n = (fetched as usize).min(rows);
             let mut s = sink.lock().map_err(|_| lock_err())?;
             for r in 0..n {
-                let row = bound.iter().zip(&cols).map(|(b, c)| b.cell(r, &c.name)).collect::<Result<Vec<_>>>()?;
+                let row = bound
+                    .iter()
+                    .zip(&cols)
+                    .map(|(b, c)| b.cell(r, &c.name))
+                    .collect::<Result<Vec<_>>>()?;
                 builder.push(row, &mut *s)?;
             }
         }
@@ -672,8 +832,16 @@ impl Target {
             (false, SQL_SS_UDT) => SQL_VARBINARY,
             (false, _) => SQL_WVARCHAR,
         };
-        let by_value = !standard && !matches!(c.sql_type, SQL_DATETIME | SQL_TIMESTAMP_V2 | SQL_TIME_V2);
-        Target { name: c.name.clone(), bind, sql_type, size: c.size, digits: c.digits.max(0), by_value }
+        let by_value =
+            !standard && !matches!(c.sql_type, SQL_DATETIME | SQL_TIMESTAMP_V2 | SQL_TIME_V2);
+        Target {
+            name: c.name.clone(),
+            bind,
+            sql_type,
+            size: c.size,
+            digits: c.digits.max(0),
+            by_value,
+        }
     }
 
     fn numeric(&self) -> bool {
@@ -757,7 +925,14 @@ fn cell_text(cell: &Cell, numeric: bool) -> Option<String> {
         // Rust prints the shortest text that reads back as the same double.
         Cell::Float(f) => f.to_string(),
         Cell::Bytes(b) => String::from_utf8(b.clone()).unwrap_or_else(|_| hex(b)),
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => s.clone(),
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => s.clone(),
     })
 }
 
@@ -766,7 +941,9 @@ fn parse_int(s: &str) -> Option<i64> {
     let t = s.trim();
     t.parse::<i64>().ok().or_else(|| {
         let (int, frac) = t.split_once('.')?;
-        (frac.bytes().all(|b| b == b'0')).then(|| int.parse::<i64>().ok()).flatten()
+        (frac.bytes().all(|b| b == b'0'))
+            .then(|| int.parse::<i64>().ok())
+            .flatten()
     })
 }
 
@@ -774,7 +951,9 @@ fn parse_uint(s: &str) -> Option<u64> {
     let t = s.trim();
     t.parse::<u64>().ok().or_else(|| {
         let (int, frac) = t.split_once('.')?;
-        (frac.bytes().all(|b| b == b'0')).then(|| int.parse::<u64>().ok()).flatten()
+        (frac.bytes().all(|b| b == b'0'))
+            .then(|| int.parse::<u64>().ok())
+            .flatten()
     })
 }
 
@@ -805,7 +984,9 @@ pub fn to_val(cell: &Cell, t: &Target) -> std::result::Result<Val, String> {
                 Cell::Int(i) => Some(*i),
                 Cell::UInt(u) => i64::try_from(*u).ok(),
                 Cell::Bool(b) => Some(*b as i64),
-                Cell::Float(f) if f.fract() == 0.0 && *f >= -9.2e18 && *f <= 9.2e18 => Some(*f as i64),
+                Cell::Float(f) if f.fract() == 0.0 && *f >= -9.2e18 && *f <= 9.2e18 => {
+                    Some(*f as i64)
+                }
                 Cell::Decimal(s) | Cell::Text(s) => parse_int(s),
                 _ => None,
             }
@@ -848,7 +1029,9 @@ pub fn to_val(cell: &Cell, t: &Target) -> std::result::Result<Val, String> {
             Cell::Text(s) | Cell::Json(s) => Val::Bytes(s.as_bytes().to_vec()),
             _ => return Err(bad("datos binarios")),
         },
-        Bind::Text if t.temporal() => Val::Text(wide(&trim_fraction(&text(), t.fraction() as usize))),
+        Bind::Text if t.temporal() => {
+            Val::Text(wide(&trim_fraction(&text(), t.fraction() as usize)))
+        }
         Bind::Text => Val::Text(wide(&text())),
     })
 }
@@ -859,10 +1042,15 @@ pub fn to_val(cell: &Cell, t: &Target) -> std::result::Result<Val, String> {
 /// the driver. The extra digits are cut, never rounded: rounding may carry
 /// into the second, the day or the year.
 pub fn trim_fraction(s: &str, keep: usize) -> String {
-    let Some(dot) = s.rfind('.') else { return s.to_string() };
+    let Some(dot) = s.rfind('.') else {
+        return s.to_string();
+    };
     let digits = s[dot + 1..].bytes().take_while(u8::is_ascii_digit).count();
     // A dot not after a `hh:mm:ss` is no fraction.
-    if digits <= keep || !s[..dot].ends_with(|c: char| c.is_ascii_digit()) || !s[..dot].contains(':') {
+    if digits <= keep
+        || !s[..dot].ends_with(|c: char| c.is_ascii_digit())
+        || !s[..dot].contains(':')
+    {
         return s.to_string();
     }
     let cut = if keep == 0 { dot } else { dot + 1 + keep };
@@ -894,7 +1082,10 @@ pub fn declared(sql_type: i16, size: usize, ascii: bool) -> i16 {
 /// Rows of a parameter array the driver executed, by their status: the
 /// others failed or weren't run (with no status, a row isn't counted).
 pub fn applied_rows(status: &[u16]) -> usize {
-    status.iter().filter(|s| matches!(**s, SQL_PARAM_SUCCESS | SQL_PARAM_SUCCESS_WITH_INFO)).count()
+    status
+        .iter()
+        .filter(|s| matches!(**s, SQL_PARAM_SUCCESS | SQL_PARAM_SUCCESS_WITH_INFO))
+        .count()
 }
 
 /// Rows of one execution: grows while the parameter buffers, sized by
@@ -908,7 +1099,10 @@ pub struct Window {
 
 impl Window {
     pub fn new(columns: usize) -> Window {
-        Window { elems: vec![0; columns], rows: 0 }
+        Window {
+            elems: vec![0; columns],
+            rows: 0,
+        }
     }
 
     /// Bytes the buffers would take with `rows` rows.
@@ -922,7 +1116,12 @@ impl Window {
         if self.rows == 0 {
             return true;
         }
-        let wider: Vec<usize> = self.elems.iter().zip(elems).map(|(a, b)| *a.max(b)).collect();
+        let wider: Vec<usize> = self
+            .elems
+            .iter()
+            .zip(elems)
+            .map(|(a, b)| *a.max(b))
+            .collect();
         Self::bytes(&wider, self.rows + 1) <= PARAM_BYTES
     }
 
@@ -937,7 +1136,10 @@ impl Window {
 /// `INSERT INTO t (a, b) VALUES (?, ?)`.
 pub fn insert_sql(quote: Quote, table: &str, columns: &[String]) -> String {
     let marks = vec!["?"; columns.len()].join(", ");
-    format!("INSERT INTO {table} ({}) VALUES ({marks})", column_list(quote, columns))
+    format!(
+        "INSERT INTO {table} ({}) VALUES ({marks})",
+        column_list(quote, columns)
+    )
 }
 
 /// What the loading thread needs from the session.
@@ -1002,9 +1204,26 @@ impl<'a> Tx<'a> {
         let mut capable: u16 = 0;
         let mut len = 0i16;
         // SAFETY: SQL_TXN_CAPABLE is a SQLUSMALLINT.
-        let rc = unsafe { (api.SQLGetInfoW)(c.dbc.0, SQL_TXN_CAPABLE, &mut capable as *mut u16 as *mut c_void, 2, &mut len) };
+        let rc = unsafe {
+            (api.SQLGetInfoW)(
+                c.dbc.0,
+                SQL_TXN_CAPABLE,
+                &mut capable as *mut u16 as *mut c_void,
+                2,
+                &mut len,
+            )
+        };
         // SAFETY: integer attribute passed as the pointer value.
-        let on = ok(rc) && capable != 0 && ok(unsafe { (api.SQLSetConnectAttrW)(c.dbc.0, SQL_ATTR_AUTOCOMMIT, std::ptr::null_mut(), SQL_IS_UINTEGER) });
+        let on = ok(rc)
+            && capable != 0
+            && ok(unsafe {
+                (api.SQLSetConnectAttrW)(
+                    c.dbc.0,
+                    SQL_ATTR_AUTOCOMMIT,
+                    std::ptr::null_mut(),
+                    SQL_IS_UINTEGER,
+                )
+            });
         Tx { c, on }
     }
 
@@ -1014,7 +1233,11 @@ impl<'a> Tx<'a> {
         if ok(rc) {
             Ok(())
         } else {
-            Err(query_error(&diags(self.c.api, SQL_HANDLE_DBC, self.c.dbc.0)))
+            Err(query_error(&diags(
+                self.c.api,
+                SQL_HANDLE_DBC,
+                self.c.dbc.0,
+            )))
         }
     }
 }
@@ -1026,7 +1249,14 @@ impl Drop for Tx<'_> {
             // would otherwise commit it).
             let _ = self.end(SQL_ROLLBACK);
             // SAFETY: integer attribute passed as the pointer value.
-            unsafe { (self.c.api.SQLSetConnectAttrW)(self.c.dbc.0, SQL_ATTR_AUTOCOMMIT, std::ptr::without_provenance_mut(1), SQL_IS_UINTEGER) };
+            unsafe {
+                (self.c.api.SQLSetConnectAttrW)(
+                    self.c.dbc.0,
+                    SQL_ATTR_AUTOCOMMIT,
+                    std::ptr::without_provenance_mut(1),
+                    SQL_IS_UINTEGER,
+                )
+            };
         }
     }
 }
@@ -1060,15 +1290,34 @@ enum Arrays {
 /// once per row when the driver has no arrays. `applied` grows by the rows
 /// the driver executed, also when a later one fails (without transactions
 /// those are already committed).
-fn exec_window(api: &Api, st: &Stmt, targets: &[Target], rows: &[Vec<Val>], arrays: &mut Arrays, applied: &mut usize) -> Result<()> {
+fn exec_window(
+    api: &Api,
+    st: &Stmt,
+    targets: &[Target],
+    rows: &[Vec<Val>],
+    arrays: &mut Arrays,
+    applied: &mut usize,
+) -> Result<()> {
     let n = rows.len();
     if n == 0 {
         return Ok(());
     }
     if *arrays != Arrays::No {
-        let rc = set_attr(api, st, SQL_ATTR_PARAMSET_SIZE, n as *mut c_void, SQL_IS_UINTEGER);
+        let rc = set_attr(
+            api,
+            st,
+            SQL_ATTR_PARAMSET_SIZE,
+            n as *mut c_void,
+            SQL_IS_UINTEGER,
+        );
         if n > 1 && rc != SQL_SUCCESS {
-            set_attr(api, st, SQL_ATTR_PARAMSET_SIZE, std::ptr::without_provenance_mut(1), SQL_IS_UINTEGER);
+            set_attr(
+                api,
+                st,
+                SQL_ATTR_PARAMSET_SIZE,
+                std::ptr::without_provenance_mut(1),
+                SQL_IS_UINTEGER,
+            );
             *arrays = Arrays::No;
             tracing::debug!("odbc: the driver refused parameter arrays; one execution per row");
         } else if n > 1 {
@@ -1084,11 +1333,16 @@ fn exec_window(api: &Api, st: &Stmt, targets: &[Target], rows: &[Vec<Val>], arra
     // Column-wise parameter buffers.
     let mut bufs: Vec<(Vec<u64>, Vec<SqlLen>)> = Vec::with_capacity(targets.len());
     for (ci, t) in targets.iter().enumerate() {
-        let elem = rows.iter().map(|r| t.elem(r[ci].width())).max().unwrap_or(1);
+        let elem = rows
+            .iter()
+            .map(|r| t.elem(r[ci].width()))
+            .max()
+            .unwrap_or(1);
         let mut buf = vec![0u64; (elem * n).div_ceil(8)];
         let mut ind = vec![0 as SqlLen; n];
         // SAFETY: the buffer holds `n * elem` bytes.
-        let bytes = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len() * 8) };
+        let bytes =
+            unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len() * 8) };
         let mut max_units = 0usize;
         let mut ascii = true;
         for (r, row) in rows.iter().enumerate() {
@@ -1130,12 +1384,24 @@ fn exec_window(api: &Api, st: &Stmt, targets: &[Target], rows: &[Vec<Val>], arra
             Bind::Text if t.numeric() => (t.sql_type, t.size.max(1), t.digits),
             // The column's fraction (`to_val` cut longer ones to it).
             _ if t.temporal() => {
-                let base = if t.sql_type == SQL_TYPE_TIMESTAMP { 19 } else { 8 };
+                let base = if t.sql_type == SQL_TYPE_TIMESTAMP {
+                    19
+                } else {
+                    8
+                };
                 let digits = t.fraction();
-                (t.sql_type, base + if digits > 0 { 1 + digits as usize } else { 0 }, digits)
+                (
+                    t.sql_type,
+                    base + if digits > 0 { 1 + digits as usize } else { 0 },
+                    digits,
+                )
             }
             Bind::Text | Bind::Bytes => {
-                let size = if t.by_value { max_units.max(1) } else { t.size.max(max_units).max(1) };
+                let size = if t.by_value {
+                    max_units.max(1)
+                } else {
+                    t.size.max(max_units).max(1)
+                };
                 (declared(t.sql_type, size, ascii), size, 0)
             }
             _ => (t.sql_type, t.size, 0),
@@ -1165,7 +1431,13 @@ fn exec_window(api: &Api, st: &Stmt, targets: &[Target], rows: &[Vec<Val>], arra
     // Rows the driver doesn't report on count as not executed.
     let mut status = vec![SQL_PARAM_UNUSED; n];
     if n > 1 {
-        set_attr(api, st, SQL_ATTR_PARAM_STATUS_PTR, status.as_mut_ptr() as *mut c_void, SQL_IS_POINTER);
+        set_attr(
+            api,
+            st,
+            SQL_ATTR_PARAM_STATUS_PTR,
+            status.as_mut_ptr() as *mut c_void,
+            SQL_IS_POINTER,
+        );
     }
     if st.slot_cancelled() {
         return Err(Error::Cancelled);
@@ -1177,7 +1449,11 @@ fn exec_window(api: &Api, st: &Stmt, targets: &[Target], rows: &[Vec<Val>], arra
             *applied += applied_rows(&status);
         }
         Err(st.err())
-    } else if let Some(r) = status.iter().position(|s| *s == SQL_PARAM_ERROR).filter(|_| n > 1) {
+    } else if let Some(r) = status
+        .iter()
+        .position(|s| *s == SQL_PARAM_ERROR)
+        .filter(|_| n > 1)
+    {
         *applied += applied_rows(&status);
         let e = st.err();
         Err(match e {
@@ -1210,13 +1486,26 @@ fn exec_window(api: &Api, st: &Stmt, targets: &[Target], rows: &[Vec<Val>], arra
         (api.SQLFreeStmt)(st.raw(), SQL_RESET_PARAMS);
     }
     if n > 1 {
-        set_attr(api, st, SQL_ATTR_PARAM_STATUS_PTR, std::ptr::null_mut(), SQL_IS_POINTER);
+        set_attr(
+            api,
+            st,
+            SQL_ATTR_PARAM_STATUS_PTR,
+            std::ptr::null_mut(),
+            SQL_IS_POINTER,
+        );
     }
     drop(bufs);
     result
 }
 
-fn load(c: &Conn, slot: &StmtSlot, job: &Job, mut rx: mpsc::Receiver<Msg>, events: mpsc::UnboundedSender<Event>, gate: &Gate) -> Result<u64> {
+fn load(
+    c: &Conn,
+    slot: &StmtSlot,
+    job: &Job,
+    mut rx: mpsc::Receiver<Msg>,
+    events: mpsc::UnboundedSender<Event>,
+    gate: &Gate,
+) -> Result<u64> {
     let api = c.api;
     drop(gate.open()?);
     let cols = column_list(job.quote, &job.columns);
@@ -1238,7 +1527,8 @@ fn load(c: &Conn, slot: &StmtSlot, job: &Job, mut rx: mpsc::Receiver<Msg>, event
     // Dropped last: identity insert off, after the rollback of a failure.
     let mut _identity = Finally { c, slot, sql: None };
     if job.identity_insert && described.iter().any(|d| d.auto) {
-        c.stmt(slot)?.exec(&format!("SET IDENTITY_INSERT {} ON", job.table))?;
+        c.stmt(slot)?
+            .exec(&format!("SET IDENTITY_INSERT {} ON", job.table))?;
         _identity.sql = Some(format!("SET IDENTITY_INSERT {} OFF", job.table));
     }
     let tx = Tx::begin(c);
@@ -1254,8 +1544,16 @@ fn load(c: &Conn, slot: &StmtSlot, job: &Job, mut rx: mpsc::Receiver<Msg>, event
     // reported at each commit, without them after each execution (which
     // committed by itself), also the part of a failed one that went in.
     let (mut total, mut since_rows, mut since_bytes) = (0u64, 0u64, 0u64);
-    let commit_rows = if job.commit_rows == 0 { LoadSpec::DEFAULT_COMMIT_ROWS } else { job.commit_rows };
-    let commit_bytes = if job.commit_bytes == 0 { LoadSpec::DEFAULT_COMMIT_BYTES } else { job.commit_bytes };
+    let commit_rows = if job.commit_rows == 0 {
+        LoadSpec::DEFAULT_COMMIT_ROWS
+    } else {
+        job.commit_rows
+    };
+    let commit_bytes = if job.commit_bytes == 0 {
+        LoadSpec::DEFAULT_COMMIT_BYTES
+    } else {
+        job.commit_bytes
+    };
     let exec = |rows: &[Vec<Val>], arrays: &mut Arrays, total: &mut u64| -> Result<()> {
         let mut applied = 0usize;
         let r = if tx.on {
@@ -1282,15 +1580,25 @@ fn load(c: &Conn, slot: &StmtSlot, job: &Job, mut rx: mpsc::Receiver<Msg>, event
                 let mut pending: Vec<Vec<Val>> = Vec::new();
                 for (i, row) in batch.rows.iter().enumerate() {
                     if row.len() != targets.len() {
-                        return Err(Error::Query(format!("una fila trae {} valores para {} columnas", row.len(), targets.len())));
+                        return Err(Error::Query(format!(
+                            "una fila trae {} valores para {} columnas",
+                            row.len(),
+                            targets.len()
+                        )));
                     }
                     let vals = row
                         .iter()
                         .zip(&targets)
                         .map(|(cell, t)| to_val(cell, t))
                         .collect::<std::result::Result<Vec<_>, _>>()
-                        .map_err(|m| Error::Query(format!("fila {}: {m}", before + i as u64 + 1)))?;
-                    let elems: Vec<usize> = vals.iter().zip(&targets).map(|(v, t)| t.elem(v.width())).collect();
+                        .map_err(|m| {
+                            Error::Query(format!("fila {}: {m}", before + i as u64 + 1))
+                        })?;
+                    let elems: Vec<usize> = vals
+                        .iter()
+                        .zip(&targets)
+                        .map(|(v, t)| t.elem(v.width()))
+                        .collect();
                     if !window.fits(&elems) || (arrays == Arrays::No && window.rows > 0) {
                         exec(&pending, &mut arrays, &mut total)?;
                         pending.clear();
@@ -1357,7 +1665,12 @@ impl Drop for StopOnDrop {
 /// one is only read from `source` once the thread executed and freed the
 /// last, so the rows in flight are the orchestrator's window and nothing
 /// more (its slot for a batch is freed on the next `next()`).
-pub(crate) async fn bulk_load(s: &OdbcSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &OdbcSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if !supports_bulk_load(s.preset) {
         return Err(no_bulk_load(s.preset));
     }
@@ -1372,12 +1685,19 @@ pub(crate) async fn bulk_load(s: &OdbcSession, spec: &LoadSpec, source: &mut dyn
         commit_rows: spec.commit_rows,
         commit_bytes: spec.commit_bytes,
         identity_insert: spec.keep_identity
-            && (eng(s.preset) == Eng::Ase || (s.preset.is_generic() && (dbms.contains("sql server") || dbms.contains("adaptive server")))),
+            && (eng(s.preset) == Eng::Ase
+                || (s.preset.is_generic()
+                    && (dbms.contains("sql server") || dbms.contains("adaptive server")))),
     };
     let (tx, rx) = mpsc::channel::<Msg>(1);
     let (etx, mut erx) = mpsc::unbounded_channel::<Event>();
     let gate = std::sync::Arc::new(Gate::default());
-    let mut guard = StopOnDrop { gate: gate.clone(), inner: s.inner.clone(), api: s.api, armed: true };
+    let mut guard = StopOnDrop {
+        gate: gate.clone(),
+        inner: s.inner.clone(),
+        api: s.api,
+        armed: true,
+    };
     let inner = s.inner.clone();
     let worker = tokio::task::spawn_blocking(move || {
         let conn = inner.conn.lock().unwrap_or_else(|e| e.into_inner());
@@ -1434,66 +1754,182 @@ mod tests {
     }
 
     fn col(sql_type: i16, size: usize, type_name: &str) -> Col {
-        Col { name: "c".into(), sql_type, size, type_name: type_name.into(), nullable: true, ..Default::default() }
+        Col {
+            name: "c".into(),
+            sql_type,
+            size,
+            type_name: type_name.into(),
+            nullable: true,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn types_map_to_exact_cells() {
         assert_eq!(plan(&col(SQL_INTEGER, 10, "int"), true), Fetch::Int);
         assert_eq!(plan(&col(SQL_BIGINT, 19, "bigint"), true), Fetch::Int);
-        assert_eq!(plan(&Col { unsigned: true, ..col(SQL_BIGINT, 20, "bigint unsigned") }, true), Fetch::UInt);
+        assert_eq!(
+            plan(
+                &Col {
+                    unsigned: true,
+                    ..col(SQL_BIGINT, 20, "bigint unsigned")
+                },
+                true
+            ),
+            Fetch::UInt
+        );
         assert_eq!(plan(&col(SQL_DOUBLE, 15, "float"), true), Fetch::Float);
         assert_eq!(plan(&col(SQL_BIT, 1, "bit"), true), Fetch::Bit);
-        assert_eq!(plan(&col(SQL_DECIMAL, 38, "decimal"), true), Fetch::Text { units: 41, as_: As::Decimal });
-        assert_eq!(plan(&col(SQL_NUMERIC, 0, "numeric"), true), Fetch::LongText(As::Decimal));
+        assert_eq!(
+            plan(&col(SQL_DECIMAL, 38, "decimal"), true),
+            Fetch::Text {
+                units: 41,
+                as_: As::Decimal
+            }
+        );
+        assert_eq!(
+            plan(&col(SQL_NUMERIC, 0, "numeric"), true),
+            Fetch::LongText(As::Decimal)
+        );
         assert_eq!(plan(&col(SQL_TYPE_DATE, 10, "date"), true), Fetch::Date);
-        assert_eq!(plan(&col(SQL_TYPE_TIMESTAMP, 27, "datetime2"), true), Fetch::Timestamp);
-        assert_eq!(plan(&col(SQL_SS_TIME2, 16, "time"), true), Fetch::Text { units: 32, as_: As::Time });
-        assert_eq!(plan(&col(SQL_SS_TIMESTAMPOFFSET, 34, "datetimeoffset"), true), Fetch::Text { units: 48, as_: As::DateTimeTz });
-        assert_eq!(plan(&col(SQL_GUID, 36, "uniqueidentifier"), true), Fetch::Text { units: 40, as_: As::Uuid });
-        assert_eq!(plan(&col(SQL_VARBINARY, 16, "varbinary"), true), Fetch::Bytes { len: 16 });
-        assert_eq!(plan(&col(SQL_VARBINARY, 0, "varbinary"), true), Fetch::LongBytes);
-        assert_eq!(plan(&col(SQL_LONGVARBINARY, 100, "image"), true), Fetch::LongBytes);
-        assert_eq!(plan(&col(SQL_WVARCHAR, 50, "nvarchar"), true), Fetch::Text { units: 100, as_: As::Text });
-        assert_eq!(plan(&col(SQL_WVARCHAR, 50, "nvarchar"), false), Fetch::LongText(As::Text));
-        assert_eq!(plan(&col(SQL_WVARCHAR, 5000, "nvarchar"), true), Fetch::LongText(As::Text));
-        assert_eq!(plan(&col(SQL_WLONGVARCHAR, 0, "ntext"), true), Fetch::LongText(As::Text));
-        assert_eq!(plan(&col(SQL_VARCHAR, 255, "array<int>"), false), Fetch::LongText(As::Json));
-        assert_eq!(plan(&col(SQL_LONGVARCHAR, 0, "json"), true), Fetch::LongText(As::Json));
+        assert_eq!(
+            plan(&col(SQL_TYPE_TIMESTAMP, 27, "datetime2"), true),
+            Fetch::Timestamp
+        );
+        assert_eq!(
+            plan(&col(SQL_SS_TIME2, 16, "time"), true),
+            Fetch::Text {
+                units: 32,
+                as_: As::Time
+            }
+        );
+        assert_eq!(
+            plan(&col(SQL_SS_TIMESTAMPOFFSET, 34, "datetimeoffset"), true),
+            Fetch::Text {
+                units: 48,
+                as_: As::DateTimeTz
+            }
+        );
+        assert_eq!(
+            plan(&col(SQL_GUID, 36, "uniqueidentifier"), true),
+            Fetch::Text {
+                units: 40,
+                as_: As::Uuid
+            }
+        );
+        assert_eq!(
+            plan(&col(SQL_VARBINARY, 16, "varbinary"), true),
+            Fetch::Bytes { len: 16 }
+        );
+        assert_eq!(
+            plan(&col(SQL_VARBINARY, 0, "varbinary"), true),
+            Fetch::LongBytes
+        );
+        assert_eq!(
+            plan(&col(SQL_LONGVARBINARY, 100, "image"), true),
+            Fetch::LongBytes
+        );
+        assert_eq!(
+            plan(&col(SQL_WVARCHAR, 50, "nvarchar"), true),
+            Fetch::Text {
+                units: 100,
+                as_: As::Text
+            }
+        );
+        assert_eq!(
+            plan(&col(SQL_WVARCHAR, 50, "nvarchar"), false),
+            Fetch::LongText(As::Text)
+        );
+        assert_eq!(
+            plan(&col(SQL_WVARCHAR, 5000, "nvarchar"), true),
+            Fetch::LongText(As::Text)
+        );
+        assert_eq!(
+            plan(&col(SQL_WLONGVARCHAR, 0, "ntext"), true),
+            Fetch::LongText(As::Text)
+        );
+        assert_eq!(
+            plan(&col(SQL_VARCHAR, 255, "array<int>"), false),
+            Fetch::LongText(As::Json)
+        );
+        assert_eq!(
+            plan(&col(SQL_LONGVARCHAR, 0, "json"), true),
+            Fetch::LongText(As::Json)
+        );
         assert_eq!(plan(&col(-152, 0, "xml"), true), Fetch::LongText(As::Text));
     }
 
     #[test]
     fn text_cells_are_normalized() {
-        assert_eq!(text_cell(".50".into(), As::Decimal), Cell::Decimal("0.50".into()));
-        assert_eq!(text_cell("-.5".into(), As::Decimal), Cell::Decimal("-0.5".into()));
-        assert_eq!(text_cell("12345678901234567890.0123456789".into(), As::Decimal), Cell::Decimal("12345678901234567890.0123456789".into()));
+        assert_eq!(
+            text_cell(".50".into(), As::Decimal),
+            Cell::Decimal("0.50".into())
+        );
+        assert_eq!(
+            text_cell("-.5".into(), As::Decimal),
+            Cell::Decimal("-0.5".into())
+        );
+        assert_eq!(
+            text_cell("12345678901234567890.0123456789".into(), As::Decimal),
+            Cell::Decimal("12345678901234567890.0123456789".into())
+        );
         assert_eq!(
             text_cell("2024-01-02 03:04:05.1234567 -03:00".into(), As::DateTimeTz),
             Cell::DateTimeTz("2024-01-02 03:04:05.1234567-03:00".into())
         );
-        assert_eq!(text_cell("2024-01-02 03:04:05+00:00".into(), As::DateTimeTz), Cell::DateTimeTz("2024-01-02 03:04:05+00:00".into()));
+        assert_eq!(
+            text_cell("2024-01-02 03:04:05+00:00".into(), As::DateTimeTz),
+            Cell::DateTimeTz("2024-01-02 03:04:05+00:00".into())
+        );
         assert_eq!(
             text_cell("{6F9619FF-8B86-D011-B42D-00C04FC964FF}".into(), As::Uuid),
             Cell::Uuid("6f9619ff-8b86-d011-b42d-00c04fc964ff".into())
         );
-        assert_eq!(text_cell("13:45:00.1234567".into(), As::Time), Cell::Time("13:45:00.1234567".into()));
+        assert_eq!(
+            text_cell("13:45:00.1234567".into(), As::Time),
+            Cell::Time("13:45:00.1234567".into())
+        );
         // Text keeps its padding: it's data.
-        assert_eq!(text_cell("ab  ".into(), As::Text), Cell::Text("ab  ".into()));
+        assert_eq!(
+            text_cell("ab  ".into(), As::Text),
+            Cell::Text("ab  ".into())
+        );
     }
 
     #[test]
     fn bound_timestamps_keep_their_fraction() {
         let mut b = Bound::new(Fetch::Timestamp, 2);
-        let t = SqlTimestamp { year: 2024, month: 2, day: 29, hour: 23, minute: 59, second: 58, fraction: 123_456_700 };
+        let t = SqlTimestamp {
+            year: 2024,
+            month: 2,
+            day: 29,
+            hour: 23,
+            minute: 59,
+            second: 58,
+            fraction: 123_456_700,
+        };
         // SAFETY: two timestamps fit in the buffer.
-        unsafe { std::ptr::write_unaligned((b.buf.as_mut_ptr() as *mut u8).add(size_of::<SqlTimestamp>()) as *mut SqlTimestamp, t) };
+        unsafe {
+            std::ptr::write_unaligned(
+                (b.buf.as_mut_ptr() as *mut u8).add(size_of::<SqlTimestamp>()) as *mut SqlTimestamp,
+                t,
+            )
+        };
         b.ind = vec![SQL_NULL_DATA, 16];
         assert_eq!(b.cell(0, "t").unwrap(), Cell::Null);
-        assert_eq!(b.cell(1, "t").unwrap(), Cell::DateTime("2024-02-29 23:59:58.1234567".into()));
+        assert_eq!(
+            b.cell(1, "t").unwrap(),
+            Cell::DateTime("2024-02-29 23:59:58.1234567".into())
+        );
 
         // A text longer than the driver said is an error, not a silent cut.
-        let mut b = Bound::new(Fetch::Text { units: 2, as_: As::Text }, 1);
+        let mut b = Bound::new(
+            Fetch::Text {
+                units: 2,
+                as_: As::Text,
+            },
+            1,
+        );
         b.ind = vec![10];
         assert!(b.cell(0, "x").is_err());
     }
@@ -1501,14 +1937,31 @@ mod tests {
     #[test]
     fn fetch_blocks_fit_the_budget() {
         // Narrow rows: a full batch per fetch.
-        assert_eq!(rows_per_fetch(&[Fetch::Int, Fetch::Float, Fetch::Timestamp]), CHUNK_ROWS);
+        assert_eq!(
+            rows_per_fetch(&[Fetch::Int, Fetch::Float, Fetch::Timestamp]),
+            CHUNK_ROWS
+        );
         // Wide rows: bounded by bytes.
-        let wide = [Fetch::Text { units: 8000, as_: As::Text }, Fetch::Bytes { len: 8000 }];
+        let wide = [
+            Fetch::Text {
+                units: 8000,
+                as_: As::Text,
+            },
+            Fetch::Bytes { len: 8000 },
+        ];
         let n = rows_per_fetch(&wide);
         let per_row: usize = wide.iter().map(|f| f.elem() + size_of::<SqlLen>()).sum();
-        assert!(n * per_row <= FETCH_BYTES && (n + 1) * per_row > FETCH_BYTES, "{n}");
+        assert!(
+            n * per_row <= FETCH_BYTES && (n + 1) * per_row > FETCH_BYTES,
+            "{n}"
+        );
         // Never zero, even for one enormous row.
-        assert_eq!(rows_per_fetch(&[Fetch::Bytes { len: 64 * 1024 * 1024 }]), 1);
+        assert_eq!(
+            rows_per_fetch(&[Fetch::Bytes {
+                len: 64 * 1024 * 1024
+            }]),
+            1
+        );
     }
 
     #[test]
@@ -1530,64 +1983,135 @@ mod tests {
     }
 
     fn target(sql_type: i16, unsigned: bool) -> Target {
-        Target::of(&Col { unsigned, ..col(sql_type, 10, "") })
+        Target::of(&Col {
+            unsigned,
+            ..col(sql_type, 10, "")
+        })
     }
 
     #[test]
     fn cells_convert_to_parameters() {
         let int = target(SQL_INTEGER, false);
         assert_eq!(to_val(&Cell::Int(5), &int), Ok(Val::Int(5)));
-        assert_eq!(to_val(&Cell::Decimal("12.000".into()), &int), Ok(Val::Int(12)));
+        assert_eq!(
+            to_val(&Cell::Decimal("12.000".into()), &int),
+            Ok(Val::Int(12))
+        );
         assert_eq!(to_val(&Cell::Bool(true), &int), Ok(Val::Int(1)));
         assert!(to_val(&Cell::Decimal("12.5".into()), &int).is_err());
         assert!(to_val(&Cell::UInt(u64::MAX), &int).is_err());
-        assert_eq!(to_val(&Cell::UInt(u64::MAX), &target(SQL_BIGINT, true)), Ok(Val::UInt(u64::MAX)));
-        assert_eq!(to_val(&Cell::Float(0.1), &target(SQL_DOUBLE, false)), Ok(Val::Float(0.1)));
-        assert_eq!(to_val(&Cell::Text("t".into()), &target(SQL_BIT, false)), Ok(Val::Bit(1)));
+        assert_eq!(
+            to_val(&Cell::UInt(u64::MAX), &target(SQL_BIGINT, true)),
+            Ok(Val::UInt(u64::MAX))
+        );
+        assert_eq!(
+            to_val(&Cell::Float(0.1), &target(SQL_DOUBLE, false)),
+            Ok(Val::Float(0.1))
+        );
+        assert_eq!(
+            to_val(&Cell::Text("t".into()), &target(SQL_BIT, false)),
+            Ok(Val::Bit(1))
+        );
         assert_eq!(to_val(&Cell::Null, &target(SQL_BIT, false)), Ok(Val::Null));
         let blob = target(SQL_VARBINARY, false);
-        assert_eq!(to_val(&Cell::Bytes(vec![0, 255]), &blob), Ok(Val::Bytes(vec![0, 255])));
+        assert_eq!(
+            to_val(&Cell::Bytes(vec![0, 255]), &blob),
+            Ok(Val::Bytes(vec![0, 255]))
+        );
         assert!(to_val(&Cell::Int(1), &blob).is_err());
         // Exact values go as text, for the driver to convert.
         let dec = target(SQL_DECIMAL, false);
         assert_eq!(dec.bind, Bind::Text);
-        assert_eq!(to_val(&Cell::Decimal("-0.000000001".into()), &dec), Ok(Val::Text(wide("-0.000000001"))));
+        assert_eq!(
+            to_val(&Cell::Decimal("-0.000000001".into()), &dec),
+            Ok(Val::Text(wide("-0.000000001")))
+        );
         assert_eq!(to_val(&Cell::Bool(false), &dec), Ok(Val::Text(wide("0"))));
-        let ts = Target::of(&Col { digits: 7, ..col(SQL_TYPE_TIMESTAMP, 27, "datetime2") });
-        assert_eq!(to_val(&Cell::DateTime("2024-01-31 13:45:00.1234567".into()), &ts), Ok(Val::Text(wide("2024-01-31 13:45:00.1234567"))));
+        let ts = Target::of(&Col {
+            digits: 7,
+            ..col(SQL_TYPE_TIMESTAMP, 27, "datetime2")
+        });
+        assert_eq!(
+            to_val(&Cell::DateTime("2024-01-31 13:45:00.1234567".into()), &ts),
+            Ok(Val::Text(wide("2024-01-31 13:45:00.1234567")))
+        );
         let text = target(SQL_WVARCHAR, false);
-        assert_eq!(to_val(&Cell::Float(1e21), &text), Ok(Val::Text(wide("1000000000000000000000"))));
-        assert_eq!(to_val(&Cell::Bytes(vec![0xff]), &text), Ok(Val::Text(wide("0xFF"))));
+        assert_eq!(
+            to_val(&Cell::Float(1e21), &text),
+            Ok(Val::Text(wide("1000000000000000000000")))
+        );
+        assert_eq!(
+            to_val(&Cell::Bytes(vec![0xff]), &text),
+            Ok(Val::Text(wide("0xFF")))
+        );
         // Vendor types are declared as wide text.
         assert_eq!(target(SQL_SS_TIMESTAMPOFFSET, false).sql_type, SQL_WVARCHAR);
         assert_eq!(target(SQL_TIMESTAMP_V2, false).sql_type, SQL_TYPE_TIMESTAMP);
         // `(max)` columns are declared with the long types.
-        assert_eq!(Target::of(&col(SQL_WVARCHAR, 0, "nvarchar")).sql_type, SQL_WLONGVARCHAR);
-        assert_eq!(Target::of(&col(SQL_VARBINARY, 0, "varbinary")).sql_type, SQL_LONGVARBINARY);
-        assert_eq!(Target::of(&col(SQL_WVARCHAR, 50, "nvarchar")).sql_type, SQL_WVARCHAR);
+        assert_eq!(
+            Target::of(&col(SQL_WVARCHAR, 0, "nvarchar")).sql_type,
+            SQL_WLONGVARCHAR
+        );
+        assert_eq!(
+            Target::of(&col(SQL_VARBINARY, 0, "varbinary")).sql_type,
+            SQL_LONGVARBINARY
+        );
+        assert_eq!(
+            Target::of(&col(SQL_WVARCHAR, 50, "nvarchar")).sql_type,
+            SQL_WVARCHAR
+        );
     }
 
     #[test]
     fn statements_keep_the_requested_order() {
         let spec = ReadSpec {
-            table: ObjectRef { kind: "table".into(), schema: Some("app".into()), name: "t".into() },
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: Some("app".into()),
+                name: "t".into(),
+            },
             columns: Some(vec!["b".into(), "a".into()]),
             filter: Some("a > 1 OR b = 2".into()),
         };
-        assert_eq!(select_sql(Quote::Double, &spec), r#"SELECT "b", "a" FROM "app"."t" WHERE (a > 1 OR b = 2)"#);
-        let all = ReadSpec { columns: None, filter: Some("  ".into()), ..spec };
+        assert_eq!(
+            select_sql(Quote::Double, &spec),
+            r#"SELECT "b", "a" FROM "app"."t" WHERE (a > 1 OR b = 2)"#
+        );
+        let all = ReadSpec {
+            columns: None,
+            filter: Some("  ".into()),
+            ..spec
+        };
         assert_eq!(select_sql(Quote::Bracket, &all), "SELECT * FROM [app].[t]");
-        assert_eq!(insert_sql(Quote::Backtick, "`t`", &["a".into(), "b".into()]), "INSERT INTO `t` (`a`, `b`) VALUES (?, ?)");
+        assert_eq!(
+            insert_sql(Quote::Backtick, "`t`", &["a".into(), "b".into()]),
+            "INSERT INTO `t` (`a`, `b`) VALUES (?, ?)"
+        );
     }
 
     #[test]
     fn bulk_load_per_preset() {
-        for id in ["odbc", "db2", "sybase", "sqlanywhere", "informix", "teradata", "vertica", "access", "dbase", "nuodb", "iris"] {
+        for id in [
+            "odbc",
+            "db2",
+            "sybase",
+            "sqlanywhere",
+            "informix",
+            "teradata",
+            "vertica",
+            "access",
+            "dbase",
+            "nuodb",
+            "iris",
+        ] {
             assert!(supports_bulk_load(preset(id)), "{id}");
             assert!(sizes_reliable(preset(id)), "{id}");
         }
         for id in ["hive", "impala", "spark", "kyuubi", "cloudera"] {
-            assert!(!supports_bulk_load(preset(id)) && !sizes_reliable(preset(id)), "{id}");
+            assert!(
+                !supports_bulk_load(preset(id)) && !sizes_reliable(preset(id)),
+                "{id}"
+            );
             assert!(matches!(no_bulk_load(preset(id)), Error::Unsupported(_)));
         }
         assert!(!supports_bulk_load(preset("netsuite")));
@@ -1597,11 +2121,23 @@ mod tests {
     fn clr_types_travel_as_binary() {
         // hierarchyid, geography, geometry: their binary form, not the
         // driver's hex text (which reads as text and can't be loaded back).
-        assert_eq!(plan(&col(SQL_SS_UDT, 892, "hierarchyid"), true), Fetch::LongBytes);
-        assert_eq!(plan(&col(SQL_SS_UDT, 0, "geography"), true), Fetch::LongBytes);
+        assert_eq!(
+            plan(&col(SQL_SS_UDT, 892, "hierarchyid"), true),
+            Fetch::LongBytes
+        );
+        assert_eq!(
+            plan(&col(SQL_SS_UDT, 0, "geography"), true),
+            Fetch::LongBytes
+        );
         let t = Target::of(&col(SQL_SS_UDT, 892, "hierarchyid"));
-        assert_eq!((t.bind, t.sql_type, t.by_value), (Bind::Bytes, SQL_VARBINARY, true));
-        assert_eq!(to_val(&Cell::Bytes(vec![0x5B, 0x40]), &t), Ok(Val::Bytes(vec![0x5B, 0x40])));
+        assert_eq!(
+            (t.bind, t.sql_type, t.by_value),
+            (Bind::Bytes, SQL_VARBINARY, true)
+        );
+        assert_eq!(
+            to_val(&Cell::Bytes(vec![0x5B, 0x40]), &t),
+            Ok(Val::Bytes(vec![0x5B, 0x40]))
+        );
     }
 
     #[test]
@@ -1622,7 +2158,10 @@ mod tests {
         assert_eq!(declared(SQL_TYPE_DATE, 10, false), SQL_TYPE_DATE);
         // Vendor types (xml, sql_variant) are sized by their values.
         let variant = Target::of(&col(-150, 8_000, "sql_variant"));
-        assert_eq!((variant.bind, variant.sql_type, variant.by_value), (Bind::Text, SQL_WVARCHAR, true));
+        assert_eq!(
+            (variant.bind, variant.sql_type, variant.by_value),
+            (Bind::Text, SQL_WVARCHAR, true)
+        );
         assert!(!Target::of(&col(SQL_VARCHAR, 10, "varchar")).by_value);
     }
 
@@ -1630,29 +2169,66 @@ mod tests {
     fn fractions_are_cut_to_the_column() {
         // 9 digits (Db2, Oracle, Informix) into datetime2(7): a parameter
         // declared with 9 is refused by the driver.
-        let ts = Target::of(&Col { digits: 7, ..col(SQL_TYPE_TIMESTAMP, 27, "datetime2") });
+        let ts = Target::of(&Col {
+            digits: 7,
+            ..col(SQL_TYPE_TIMESTAMP, 27, "datetime2")
+        });
         assert_eq!(
             to_val(&Cell::DateTime("2024-01-01 00:00:00.123456789".into()), &ts),
             Ok(Val::Text(wide("2024-01-01 00:00:00.1234567")))
         );
         // Cut, never rounded (no carry into the next second or day).
-        assert_eq!(trim_fraction("1999-12-31 23:59:59.999999999", 7), "1999-12-31 23:59:59.9999999");
-        assert_eq!(trim_fraction("1999-12-31 23:59:59.999", 0), "1999-12-31 23:59:59");
-        assert_eq!(trim_fraction("2024-01-01 00:00:00.12", 7), "2024-01-01 00:00:00.12");
-        assert_eq!(trim_fraction("2024-01-01 00:00:00.123456789-03:00", 3), "2024-01-01 00:00:00.123-03:00");
+        assert_eq!(
+            trim_fraction("1999-12-31 23:59:59.999999999", 7),
+            "1999-12-31 23:59:59.9999999"
+        );
+        assert_eq!(
+            trim_fraction("1999-12-31 23:59:59.999", 0),
+            "1999-12-31 23:59:59"
+        );
+        assert_eq!(
+            trim_fraction("2024-01-01 00:00:00.12", 7),
+            "2024-01-01 00:00:00.12"
+        );
+        assert_eq!(
+            trim_fraction("2024-01-01 00:00:00.123456789-03:00", 3),
+            "2024-01-01 00:00:00.123-03:00"
+        );
         assert_eq!(trim_fraction("13:45:00.1234567", 3), "13:45:00.123");
         assert_eq!(trim_fraction("2024-01-01", 0), "2024-01-01");
         // Digits above 9 (a driver's odd report) are capped.
-        assert_eq!(Target::of(&Col { digits: 12, ..col(SQL_TYPE_TIMESTAMP, 30, "ts") }).fraction(), 9);
+        assert_eq!(
+            Target::of(&Col {
+                digits: 12,
+                ..col(SQL_TYPE_TIMESTAMP, 30, "ts")
+            })
+            .fraction(),
+            9
+        );
         // Decimals keep their scale.
-        assert_eq!(Target::of(&Col { digits: 10, ..col(SQL_DECIMAL, 38, "decimal") }).digits, 10);
+        assert_eq!(
+            Target::of(&Col {
+                digits: 10,
+                ..col(SQL_DECIMAL, 38, "decimal")
+            })
+            .digits,
+            10
+        );
     }
 
     #[test]
     fn partial_parameter_arrays_count_only_executed_rows() {
         // Without transactions the executed rows are committed and must be
         // reported, also when a later row of the same array fails.
-        assert_eq!(applied_rows(&[SQL_PARAM_SUCCESS, SQL_PARAM_SUCCESS_WITH_INFO, SQL_PARAM_ERROR, SQL_PARAM_UNUSED]), 2);
+        assert_eq!(
+            applied_rows(&[
+                SQL_PARAM_SUCCESS,
+                SQL_PARAM_SUCCESS_WITH_INFO,
+                SQL_PARAM_ERROR,
+                SQL_PARAM_UNUSED
+            ]),
+            2
+        );
         assert_eq!(applied_rows(&[SQL_PARAM_UNUSED; 3]), 0);
     }
 }

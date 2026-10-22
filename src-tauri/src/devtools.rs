@@ -47,7 +47,10 @@ const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `DBINE_DEV_PORT` picks another port (a second dev instance).
 fn port() -> u16 {
-    std::env::var("DBINE_DEV_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(17999)
+    std::env::var("DBINE_DEV_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(17999)
 }
 
 /// Where the token for `port` is written.
@@ -150,7 +153,11 @@ fn read_request<R: BufRead>(reader: &mut R, port: u16, token: &str) -> Result<Re
                 if len.is_some() {
                     return Err(Reject(400, "duplicate content-length"));
                 }
-                len = Some(value.parse().map_err(|_| Reject(400, "bad content-length"))?);
+                len = Some(
+                    value
+                        .parse()
+                        .map_err(|_| Reject(400, "bad content-length"))?,
+                );
             }
             "host" => {
                 if host.is_some() {
@@ -163,7 +170,8 @@ fn read_request<R: BufRead>(reader: &mut R, port: u16, token: &str) -> Result<Re
         }
     }
 
-    let host_ok = host.is_some_and(|h| h == format!("127.0.0.1:{port}") || h == format!("localhost:{port}"));
+    let host_ok =
+        host.is_some_and(|h| h == format!("127.0.0.1:{port}") || h == format!("localhost:{port}"));
     if !host_ok {
         return Err(Reject(403, "bad host"));
     }
@@ -175,7 +183,9 @@ fn read_request<R: BufRead>(reader: &mut R, port: u16, token: &str) -> Result<Re
         return Err(Reject(413, "body too large"));
     }
     let mut body = vec![0; len];
-    reader.read_exact(&mut body).map_err(|_| Reject(400, "incomplete body"))?;
+    reader
+        .read_exact(&mut body)
+        .map_err(|_| Reject(400, "incomplete body"))?;
     Ok(Request { label, body })
 }
 
@@ -232,7 +242,10 @@ pub fn start(app: AppHandle) {
             return;
         }
     };
-    tracing::info!("dev harness on http://{addr}/eval (token in {})", path.display());
+    tracing::info!(
+        "dev harness on http://{addr}/eval (token in {})",
+        path.display()
+    );
     let seq = AtomicU64::new(1);
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -261,10 +274,14 @@ pub fn start(app: AppHandle) {
             );
             let window = match label {
                 Some(l) => app.get_webview_window(&l),
-                None => app.get_webview_window(crate::windows::MAIN).or_else(|| crate::windows::target_window(&app)),
+                None => app
+                    .get_webview_window(crate::windows::MAIN)
+                    .or_else(|| crate::windows::target_window(&app)),
             };
             let result = match window.map(|w| w.eval(&wrapped)) {
-                Some(Ok(())) => rx.recv_timeout(Duration::from_secs(60)).unwrap_or_else(|_| r#"{"ok":false,"error":"timeout"}"#.into()),
+                Some(Ok(())) => rx
+                    .recv_timeout(Duration::from_secs(60))
+                    .unwrap_or_else(|_| r#"{"ok":false,"error":"timeout"}"#.into()),
                 _ => r#"{"ok":false,"error":"no window"}"#.into(),
             };
             pending().remove(&id);
@@ -281,7 +298,11 @@ mod tests {
     const PORT: u16 = 17999;
 
     fn req(raw: &str) -> Result<Request, Reject> {
-        read_request(&mut std::io::Cursor::new(raw.as_bytes().to_vec()), PORT, TOKEN)
+        read_request(
+            &mut std::io::Cursor::new(raw.as_bytes().to_vec()),
+            PORT,
+            TOKEN,
+        )
     }
 
     fn ok_head(extra: &str, body: &str) -> String {
@@ -294,7 +315,13 @@ mod tests {
     #[test]
     fn accepts_a_valid_request() {
         let r = req(&ok_head("", "return 1")).unwrap();
-        assert_eq!(r, Request { label: None, body: b"return 1".to_vec() });
+        assert_eq!(
+            r,
+            Request {
+                label: None,
+                body: b"return 1".to_vec()
+            }
+        );
     }
 
     #[test]
@@ -322,12 +349,20 @@ mod tests {
     #[test]
     fn refuses_browser_origins() {
         assert_eq!(req(&ok_head("Origin: null\r\n", "1")).unwrap_err().0, 403);
-        assert_eq!(req(&ok_head("Origin: https://evil.example\r\n", "1")).unwrap_err().0, 403);
+        assert_eq!(
+            req(&ok_head("Origin: https://evil.example\r\n", "1"))
+                .unwrap_err()
+                .0,
+            403
+        );
     }
 
     #[test]
     fn refuses_other_hosts() {
-        let rebound = ok_head("", "1").replace(&format!("127.0.0.1:{PORT}"), &format!("evil.example:{PORT}"));
+        let rebound = ok_head("", "1").replace(
+            &format!("127.0.0.1:{PORT}"),
+            &format!("evil.example:{PORT}"),
+        );
         assert_eq!(req(&rebound), Err(Reject(403, "bad host")));
         let other_port = ok_head("", "1").replace(&format!("127.0.0.1:{PORT}"), "127.0.0.1:80");
         assert_eq!(req(&other_port), Err(Reject(403, "bad host")));
@@ -337,9 +372,24 @@ mod tests {
 
     #[test]
     fn refuses_other_methods_and_paths() {
-        assert_eq!(req(&ok_head("", "1").replacen("POST", "GET", 1)).unwrap_err().0, 405);
-        assert_eq!(req(&ok_head("", "1").replacen("/eval", "/", 1)).unwrap_err().0, 404);
-        assert_eq!(req(&ok_head("", "1").replacen("/eval", "/evalx", 1)).unwrap_err().0, 404);
+        assert_eq!(
+            req(&ok_head("", "1").replacen("POST", "GET", 1))
+                .unwrap_err()
+                .0,
+            405
+        );
+        assert_eq!(
+            req(&ok_head("", "1").replacen("/eval", "/", 1))
+                .unwrap_err()
+                .0,
+            404
+        );
+        assert_eq!(
+            req(&ok_head("", "1").replacen("/eval", "/evalx", 1))
+                .unwrap_err()
+                .0,
+            404
+        );
     }
 
     #[test]
@@ -357,28 +407,43 @@ mod tests {
     fn requires_a_single_content_length() {
         let none = ok_head("", "").replace("Content-Length: 0\r\n", "");
         assert_eq!(req(&none).unwrap_err().0, 411);
-        assert_eq!(req(&ok_head("Content-Length: 1\r\n", "1")).unwrap_err().0, 400);
-        assert_eq!(req(&ok_head("Transfer-Encoding: chunked\r\n", "1")).unwrap_err().0, 411);
+        assert_eq!(
+            req(&ok_head("Content-Length: 1\r\n", "1")).unwrap_err().0,
+            400
+        );
+        assert_eq!(
+            req(&ok_head("Transfer-Encoding: chunked\r\n", "1"))
+                .unwrap_err()
+                .0,
+            411
+        );
     }
 
     #[test]
     fn refuses_a_short_body_and_an_oversized_head() {
         let short = ok_head("", "12345").replace("12345", "12");
         assert_eq!(req(&short).unwrap_err().0, 400);
-        let big = ok_head(&format!("X-Pad: {}\r\n", "a".repeat(MAX_HEAD as usize)), "1");
+        let big = ok_head(
+            &format!("X-Pad: {}\r\n", "a".repeat(MAX_HEAD as usize)),
+            "1",
+        );
         assert_eq!(req(&big).unwrap_err().0, 431);
     }
 
     #[test]
     fn token_file_is_fresh_and_private() {
-        let path = std::env::temp_dir().join(format!("dbine-devtools-test-{}.token", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("dbine-devtools-test-{}.token", std::process::id()));
         write_token(&path, "first").unwrap();
         write_token(&path, "second").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
         std::fs::remove_file(&path).unwrap();
         let t = new_token().unwrap();

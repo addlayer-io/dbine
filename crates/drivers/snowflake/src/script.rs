@@ -14,7 +14,8 @@ use dbine_driver::ScriptError;
 use serde_json::Value as Json;
 
 /// What the session holds after each run, read in the same request.
-pub const CONTEXT_QUERY: &str = "SELECT CURRENT_DATABASE(), CURRENT_SCHEMA(), CURRENT_WAREHOUSE(), CURRENT_ROLE()";
+pub const CONTEXT_QUERY: &str =
+    "SELECT CURRENT_DATABASE(), CURRENT_SCHEMA(), CURRENT_WAREHOUSE(), CURRENT_ROLE()";
 pub const VARIABLES_QUERY: &str = "SHOW VARIABLES";
 /// `ALTER SESSION` statements kept for replay, at most.
 const MAX_ALTERS: usize = 64;
@@ -36,13 +37,19 @@ pub fn dialect() -> ScriptDialect {
 /// The statements as Snowflake runs them: anonymous blocks (`BEGIN … END`,
 /// `DECLARE … BEGIN … END`) whole.
 pub fn units(text: &str) -> Vec<ScriptStatement> {
-    let rules = blocks::Rules { declare_opens: true, slash_comments: true, ..Default::default() };
+    let rules = blocks::Rules {
+        declare_opens: true,
+        slash_comments: true,
+        ..Default::default()
+    };
     blocks::merge(text, split_script(text, &dialect()), rules)
 }
 
 /// The first two words, upper-cased.
 pub fn head(stmt: &str) -> (String, String) {
-    let mut w = stmt.split(|c: char| c.is_whitespace() || c == ';' || c == '(').filter(|w| !w.is_empty());
+    let mut w = stmt
+        .split(|c: char| c.is_whitespace() || c == ';' || c == '(')
+        .filter(|w| !w.is_empty());
     let up = |s: Option<&str>| s.unwrap_or_default().to_ascii_uppercase();
     (up(w.next()), up(w.next()))
 }
@@ -62,9 +69,16 @@ pub fn changes_context(units: &[ScriptStatement]) -> bool {
 /// which is another request (another server session).
 pub fn leaves_transaction_open(units: &[ScriptStatement]) -> bool {
     let mut open = false;
-    for u in units.iter().filter(|u| u.kind != dbine_driver::StatementKind::Block) {
+    for u in units
+        .iter()
+        .filter(|u| u.kind != dbine_driver::StatementKind::Block)
+    {
         match head(&u.text) {
-            (a, b) if a == "BEGIN" && matches!(b.as_str(), "" | "TRANSACTION" | "WORK" | "NAME") => open = true,
+            (a, b)
+                if a == "BEGIN" && matches!(b.as_str(), "" | "TRANSACTION" | "WORK" | "NAME") =>
+            {
+                open = true
+            }
             (a, b) if a == "START" && b == "TRANSACTION" => open = true,
             (a, _) if a == "COMMIT" || a == "ROLLBACK" => open = false,
             _ => {}
@@ -103,7 +117,9 @@ impl Carry {
     /// The variables from `SHOW VARIABLES` (column names lower-cased).
     pub fn set_vars(&mut self, names: &[String], rows: &[Json]) {
         let col = |n: &str| names.iter().position(|c| c == n);
-        let (Some(n), Some(v), Some(t)) = (col("name"), col("value"), col("type")) else { return };
+        let (Some(n), Some(v), Some(t)) = (col("name"), col("value"), col("type")) else {
+            return;
+        };
         self.vars = rows
             .iter()
             .filter_map(|r| {
@@ -118,8 +134,13 @@ impl Carry {
 }
 
 fn var_name(name: &str) -> String {
-    let plain = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && name.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' || c == '$');
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' || c == '$');
     if plain {
         name.to_string()
     } else {
@@ -133,7 +154,9 @@ fn literal(value: Option<&str>, ty: &str) -> String {
     let quoted = format!("'{}'", v.replace('\\', "\\\\").replace('\'', "''"));
     match ty.to_ascii_lowercase().as_str() {
         "fixed" | "real" | "number" | "float" | "boolean" if !v.is_empty() => v.to_string(),
-        t @ ("date" | "time" | "timestamp_ltz" | "timestamp_ntz" | "timestamp_tz" | "binary") => format!("{quoted}::{t}"),
+        t @ ("date" | "time" | "timestamp_ltz" | "timestamp_ntz" | "timestamp_tz" | "binary") => {
+            format!("{quoted}::{t}")
+        }
         _ => quoted,
     }
 }
@@ -142,12 +165,23 @@ fn literal(value: Option<&str>, ty: &str) -> String {
 /// message. Its position (`line L at position P`, P from 0) counts in the
 /// failing statement, so it's placed only when the script had one.
 pub fn error(body: &Json, units: &[ScriptStatement]) -> Option<ScriptError> {
-    let message = body.get("message").and_then(Json::as_str).filter(|m| !m.is_empty())?;
+    let message = body
+        .get("message")
+        .and_then(Json::as_str)
+        .filter(|m| !m.is_empty())?;
     let mut e = ScriptError::new(message);
-    if let Some(c) = body.get("code").and_then(Json::as_str).filter(|c| !c.is_empty()) {
+    if let Some(c) = body
+        .get("code")
+        .and_then(Json::as_str)
+        .filter(|c| !c.is_empty())
+    {
         e = e.with_code(c);
     }
-    if let Some(s) = body.get("sqlState").and_then(Json::as_str).filter(|s| !s.is_empty()) {
+    if let Some(s) = body
+        .get("sqlState")
+        .and_then(Json::as_str)
+        .filter(|s| !s.is_empty())
+    {
         e = e.with_sqlstate(s);
     }
     if let ([u], Some((line, pos))) = (units, position(message)) {
@@ -177,7 +211,13 @@ fn offset_of(text: &str, line: u32, col: u32) -> Option<usize> {
     }
     let end = text[start..].find('\n').map_or(text.len(), |e| start + e);
     let skip = col.saturating_sub(1) as usize;
-    Some(start + text[start..end].char_indices().nth(skip).map_or(end - start, |(i, _)| i))
+    Some(
+        start
+            + text[start..end]
+                .char_indices()
+                .nth(skip)
+                .map_or(end - start, |(i, _)| i),
+    )
 }
 
 #[cfg(test)]
@@ -195,20 +235,33 @@ mod tests {
         // Anonymous blocks, as Snowsight runs them.
         let anon = "DECLARE\n  n INT DEFAULT 0;\nBEGIN\n  FOR i IN 1 TO 3 DO\n    n := n + i;\n  END FOR;\n  RETURN n;\nEND";
         assert_eq!(t(&format!("{anon};\nSELECT 3;")), vec![anon, "SELECT 3"]);
-        assert_eq!(t("BEGIN\n  CREATE TABLE t (a INT);\n  INSERT INTO t VALUES (1);\nEND;\nSELECT 1").len(), 2);
+        assert_eq!(
+            t("BEGIN\n  CREATE TABLE t (a INT);\n  INSERT INTO t VALUES (1);\nEND;\nSELECT 1")
+                .len(),
+            2
+        );
         // Transactions aren't blocks.
         assert_eq!(t("BEGIN; INSERT INTO t VALUES (1); COMMIT;").len(), 3);
-        assert_eq!(t("BEGIN TRANSACTION; INSERT INTO t VALUES (1); COMMIT;").len(), 3);
+        assert_eq!(
+            t("BEGIN TRANSACTION; INSERT INTO t VALUES (1); COMMIT;").len(),
+            3
+        );
     }
 
     #[test]
     fn slash_comments_split_as_the_server_does() {
         let t = |s: &str| units(s).into_iter().map(|u| u.text).collect::<Vec<_>>();
         // A quote in a `//` comment opens no string: the DELETE is a statement.
-        assert_eq!(t("SELECT 1 // it's\nDELETE FROM t; SELECT 2"), vec!["SELECT 1 // it's\nDELETE FROM t", "SELECT 2"]);
+        assert_eq!(
+            t("SELECT 1 // it's\nDELETE FROM t; SELECT 2"),
+            vec!["SELECT 1 // it's\nDELETE FROM t", "SELECT 2"]
+        );
         assert_eq!(t("SELECT 1 // '\n; DELETE FROM t; -- '").len(), 2);
         // A `;` in one doesn't end the statement.
-        assert_eq!(t("SELECT 1 // a; b\n, 2; SELECT 3"), vec!["SELECT 1 // a; b\n, 2", "SELECT 3"]);
+        assert_eq!(
+            t("SELECT 1 // a; b\n, 2; SELECT 3"),
+            vec!["SELECT 1 // a; b\n, 2", "SELECT 3"]
+        );
         // A `BEGIN` in one opens no block.
         assert_eq!(t("SELECT 1 // BEGIN\n; SELECT 2").len(), 2);
         // In strings and identifiers it's text.
@@ -219,8 +272,24 @@ mod tests {
     fn alter_session_and_variables_carry_over() {
         let mut c = Carry::default();
         c.absorb_alters(&units("alter session set TIMEZONE = 'UTC'; select 1; ALTER SESSION UNSET QUERY_TAG; alter session set TIMEZONE = 'UTC'"));
-        assert_eq!(c.alters, vec!["alter session set TIMEZONE = 'UTC'", "ALTER SESSION UNSET QUERY_TAG"]);
-        let names: Vec<String> = ["session_id", "created_on", "updated_on", "name", "value", "type", "comment"].map(String::from).to_vec();
+        assert_eq!(
+            c.alters,
+            vec![
+                "alter session set TIMEZONE = 'UTC'",
+                "ALTER SESSION UNSET QUERY_TAG"
+            ]
+        );
+        let names: Vec<String> = [
+            "session_id",
+            "created_on",
+            "updated_on",
+            "name",
+            "value",
+            "type",
+            "comment",
+        ]
+        .map(String::from)
+        .to_vec();
         let rows = vec![
             json!(["1", "t", "t", "N", "42", "fixed", null]),
             json!(["1", "t", "t", "S", "it's \\ x", "text", null]),
@@ -245,18 +314,34 @@ mod tests {
     #[test]
     fn only_use_and_execute_immediate_change_the_context() {
         assert!(changes_context(&units("select 1; use schema s")));
-        assert!(changes_context(&units("EXECUTE IMMEDIATE 'USE DATABASE d'")));
-        assert!(!changes_context(&units("CREATE ROLE r; GRANT ROLE r TO USER u; -- use x")));
-        assert!(!changes_context(&units("CREATE DATABASE \"V_BKP_1\" CLONE \"V\";")));
+        assert!(changes_context(&units(
+            "EXECUTE IMMEDIATE 'USE DATABASE d'"
+        )));
+        assert!(!changes_context(&units(
+            "CREATE ROLE r; GRANT ROLE r TO USER u; -- use x"
+        )));
+        assert!(!changes_context(&units(
+            "CREATE DATABASE \"V_BKP_1\" CLONE \"V\";"
+        )));
     }
 
     #[test]
     fn open_transactions_at_the_end_are_found() {
-        assert!(leaves_transaction_open(&units("BEGIN; INSERT INTO t VALUES (1)")));
-        assert!(leaves_transaction_open(&units("commit; begin transaction;\nselect 1")));
-        assert!(!leaves_transaction_open(&units("BEGIN; INSERT INTO t VALUES (1); COMMIT;")));
-        assert!(!leaves_transaction_open(&units("START TRANSACTION; ROLLBACK")));
-        assert!(!leaves_transaction_open(&units("BEGIN\n  INSERT INTO t VALUES (1);\nEND;")));
+        assert!(leaves_transaction_open(&units(
+            "BEGIN; INSERT INTO t VALUES (1)"
+        )));
+        assert!(leaves_transaction_open(&units(
+            "commit; begin transaction;\nselect 1"
+        )));
+        assert!(!leaves_transaction_open(&units(
+            "BEGIN; INSERT INTO t VALUES (1); COMMIT;"
+        )));
+        assert!(!leaves_transaction_open(&units(
+            "START TRANSACTION; ROLLBACK"
+        )));
+        assert!(!leaves_transaction_open(&units(
+            "BEGIN\n  INSERT INTO t VALUES (1);\nEND;"
+        )));
     }
 
     #[test]
@@ -265,7 +350,10 @@ mod tests {
         let s = "-- head\nselect 1\nfron t";
         let u = units(s);
         let e = error(&body, &u).unwrap();
-        assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("001003"), Some("42000")));
+        assert_eq!(
+            (e.code.as_deref(), e.sqlstate.as_deref()),
+            (Some("001003"), Some("42000"))
+        );
         assert_eq!((e.line, e.offset), (Some(3), Some(s.find("fron").unwrap())));
         // Several statements: which one failed isn't known.
         let e = error(&body, &units("select 1; select 2")).unwrap();

@@ -20,7 +20,9 @@ use crate::design::{self, Eng};
 use crate::presets::Preset;
 use crate::{col, OdbcSession};
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result};
+use dbine_driver::{
+    DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result,
+};
 use std::collections::BTreeMap;
 
 pub(crate) fn supported(p: &Preset) -> bool {
@@ -30,18 +32,90 @@ pub(crate) fn supported(p: &Preset) -> bool {
 /// ASE's `sp_dboption` options: field key, label, option name,
 /// `sysdatabases` status column (0: `status`, 1: `status2`), bit.
 const ASE_OPTIONS: &[(&str, &str, &str, usize, i64)] = &[
-    ("select_into", "Operaciones mínimamente registradas (select into/bulkcopy/pllsort)", "select into/bulkcopy/pllsort", 0, 4),
-    ("trunc_log", "Truncar el log en cada checkpoint (trunc log on chkpt)", "trunc log on chkpt", 0, 8),
-    ("no_chkpt", "Sin checkpoint al recuperar (no chkpt on recovery)", "no chkpt on recovery", 0, 16),
-    ("ddl_in_tran", "DDL dentro de transacciones (ddl in tran)", "ddl in tran", 0, 512),
-    ("read_only", "Solo lectura (read only)", "read only", 0, 1024),
-    ("dbo_only", "Solo el dueño (dbo use only)", "dbo use only", 0, 2048),
-    ("single_user", "Un solo usuario (single user)", "single user", 0, 4096),
-    ("nulls_default", "Columnas NULL por defecto (allow nulls by default)", "allow nulls by default", 0, 8192),
-    ("abort_tran", "Cancelar transacciones con el log lleno (abort tran on log full)", "abort tran on log full", 1, 1),
-    ("no_free_space", "Sin contabilidad de espacio libre (no free space acctg)", "no free space acctg", 1, 2),
-    ("auto_identity", "Columna IDENTITY automática (auto identity)", "auto identity", 1, 4),
-    ("identity_index", "IDENTITY en índices no únicos (identity in nonunique index)", "identity in nonunique index", 1, 8),
+    (
+        "select_into",
+        "Operaciones mínimamente registradas (select into/bulkcopy/pllsort)",
+        "select into/bulkcopy/pllsort",
+        0,
+        4,
+    ),
+    (
+        "trunc_log",
+        "Truncar el log en cada checkpoint (trunc log on chkpt)",
+        "trunc log on chkpt",
+        0,
+        8,
+    ),
+    (
+        "no_chkpt",
+        "Sin checkpoint al recuperar (no chkpt on recovery)",
+        "no chkpt on recovery",
+        0,
+        16,
+    ),
+    (
+        "ddl_in_tran",
+        "DDL dentro de transacciones (ddl in tran)",
+        "ddl in tran",
+        0,
+        512,
+    ),
+    (
+        "read_only",
+        "Solo lectura (read only)",
+        "read only",
+        0,
+        1024,
+    ),
+    (
+        "dbo_only",
+        "Solo el dueño (dbo use only)",
+        "dbo use only",
+        0,
+        2048,
+    ),
+    (
+        "single_user",
+        "Un solo usuario (single user)",
+        "single user",
+        0,
+        4096,
+    ),
+    (
+        "nulls_default",
+        "Columnas NULL por defecto (allow nulls by default)",
+        "allow nulls by default",
+        0,
+        8192,
+    ),
+    (
+        "abort_tran",
+        "Cancelar transacciones con el log lleno (abort tran on log full)",
+        "abort tran on log full",
+        1,
+        1,
+    ),
+    (
+        "no_free_space",
+        "Sin contabilidad de espacio libre (no free space acctg)",
+        "no free space acctg",
+        1,
+        2,
+    ),
+    (
+        "auto_identity",
+        "Columna IDENTITY automática (auto identity)",
+        "auto identity",
+        1,
+        4,
+    ),
+    (
+        "identity_index",
+        "IDENTITY en índices no únicos (identity in nonunique index)",
+        "identity in nonunique index",
+        1,
+        8,
+    ),
 ];
 
 /// ASE options that restrict who can use the database: turned off first,
@@ -57,7 +131,11 @@ fn literal(s: &str) -> String {
 }
 
 /// The statements for `changes` (ASE starts with `USE master`).
-pub(crate) fn statements(p: &Preset, database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
+pub(crate) fn statements(
+    p: &Preset,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
     if database.trim().is_empty() {
         return Err(Error::Query("Falta el nombre de la base".into()));
     }
@@ -116,14 +194,30 @@ pub(crate) fn statements(p: &Preset, database: &str, changes: &BTreeMap<String, 
     }
 }
 
-pub(crate) fn script(p: &Preset, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
-    let sep = if design::eng(p) == Eng::Ase { "\ngo\n" } else { ";\n" };
+pub(crate) fn script(
+    p: &Preset,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<String> {
+    let sep = if design::eng(p) == Eng::Ase {
+        "\ngo\n"
+    } else {
+        ";\n"
+    };
     let s = statements(p, database, changes)?;
-    Ok(if design::eng(p) == Eng::Ase || s.is_empty() { s.join(sep) } else { format!("{};", s.join(sep)) })
+    Ok(if design::eng(p) == Eng::Ase || s.is_empty() {
+        s.join(sep)
+    } else {
+        format!("{};", s.join(sep))
+    })
 }
 
 fn fact(group: &str, label: &str, value: String) -> PropertyInfo {
-    PropertyInfo { group: group.into(), label: label.into(), value }
+    PropertyInfo {
+        group: group.into(),
+        label: label.into(),
+        value,
+    }
 }
 
 impl OdbcSession {
@@ -132,7 +226,10 @@ impl OdbcSession {
             Eng::Ase => self.ase_properties(database).await,
             Eng::Netezza => self.netezza_properties(database).await,
             Eng::Informix => self.informix_properties(database).await,
-            _ => Err(Error::Unsupported(format!("{} no muestra las propiedades de una base", self.preset.name))),
+            _ => Err(Error::Unsupported(format!(
+                "{} no muestra las propiedades de una base",
+                self.preset.name
+            ))),
         }
     }
 
@@ -143,8 +240,14 @@ impl OdbcSession {
                 vec![database.to_string()],
             )
             .await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
-        let bits = |i: usize| col(r, 3 + i).and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(0);
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let bits = |i: usize| {
+            col(r, 3 + i)
+                .and_then(|s| s.trim().parse::<i64>().ok())
+                .unwrap_or(0)
+        };
         let mut info = vec![
             fact("", "Dueño", col(r, 1).unwrap_or_default()),
             fact("", "Creada", col(r, 2).unwrap_or_default()),
@@ -168,15 +271,34 @@ impl OdbcSession {
             .await
             .unwrap_or_default();
         if let Some(s) = size.first() {
-            info.push(fact("", "Datos (MB)", col(s, 0).unwrap_or_default().trim().to_string()));
-            info.push(fact("", "Log (MB)", col(s, 1).unwrap_or_default().trim().to_string()));
+            info.push(fact(
+                "",
+                "Datos (MB)",
+                col(s, 0).unwrap_or_default().trim().to_string(),
+            ));
+            info.push(fact(
+                "",
+                "Log (MB)",
+                col(s, 1).unwrap_or_default().trim().to_string(),
+            ));
         }
         let mut fields = Vec::new();
         let mut values = BTreeMap::new();
         for (key, label, _, column, bit) in ASE_OPTIONS {
-            let group = if ASE_RESTRICT.contains(key) { "Acceso" } else { "Opciones" };
+            let group = if ASE_RESTRICT.contains(key) {
+                "Acceso"
+            } else {
+                "Opciones"
+            };
             fields.push(Field::new(key, label, FieldKind::Bool).group(group));
-            values.insert(key.to_string(), if bits(*column) & bit != 0 { "true".into() } else { String::new() });
+            values.insert(
+                key.to_string(),
+                if bits(*column) & bit != 0 {
+                    "true".into()
+                } else {
+                    String::new()
+                },
+            );
         }
         let mut warnings = BTreeMap::new();
         for (k, w) in [
@@ -193,13 +315,30 @@ impl OdbcSession {
         ] {
             warnings.insert(k.to_string(), w.to_string());
         }
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings,
+        })
     }
 
     async fn netezza_properties(&mut self, database: &str) -> Result<DatabaseProperties> {
-        let (cols, rows) = self.query_named("SELECT * FROM _V_DATABASE WHERE DATABASE = ?".into(), vec![database.to_string()]).await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
-        let find = |names: &[&str]| cols.iter().position(|c| names.iter().any(|n| c.eq_ignore_ascii_case(n))).map(|i| col(r, i));
+        let (cols, rows) = self
+            .query_named(
+                "SELECT * FROM _V_DATABASE WHERE DATABASE = ?".into(),
+                vec![database.to_string()],
+            )
+            .await?;
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let find = |names: &[&str]| {
+            cols.iter()
+                .position(|c| names.iter().any(|n| c.eq_ignore_ascii_case(n)))
+                .map(|i| col(r, i))
+        };
         let mut info = Vec::new();
         let mut fields = Vec::new();
         let mut values = BTreeMap::new();
@@ -207,12 +346,22 @@ impl OdbcSession {
             info.push(fact("", "Creada", c.unwrap_or_default()));
         }
         if let Some(o) = find(&["OWNER"]) {
-            values.insert("owner".to_string(), o.unwrap_or_default().trim().to_string());
+            values.insert(
+                "owner".to_string(),
+                o.unwrap_or_default().trim().to_string(),
+            );
             fields.push(Field::new("owner", "Dueño", FieldKind::Text));
         }
         if let Some(s) = find(&["DEFSCHEMA", "DEFAULTSCHEMA", "DEFAULT_SCHEMA"]) {
-            values.insert("default_schema".to_string(), s.unwrap_or_default().trim().to_string());
-            fields.push(Field::new("default_schema", "Esquema por defecto", FieldKind::Text));
+            values.insert(
+                "default_schema".to_string(),
+                s.unwrap_or_default().trim().to_string(),
+            );
+            fields.push(Field::new(
+                "default_schema",
+                "Esquema por defecto",
+                FieldKind::Text,
+            ));
         }
         if let Some(h) = find(&["COLLECTHISTORY", "COLLECT_HISTORY"]) {
             let h = h.unwrap_or_default().trim().to_ascii_uppercase();
@@ -226,13 +375,24 @@ impl OdbcSession {
                 Field::new(
                     "collect_history",
                     "Historial de consultas (COLLECT HISTORY)",
-                    FieldKind::Select(vec![("ON", "Recolectar (ON)"), ("OFF", "No recolectar (OFF)"), ("DEFAULT", "Según la configuración (DEFAULT)")]),
+                    FieldKind::Select(vec![
+                        ("ON", "Recolectar (ON)"),
+                        ("OFF", "No recolectar (OFF)"),
+                        ("DEFAULT", "Según la configuración (DEFAULT)"),
+                    ]),
                 )
                 .group("Opciones"),
             );
         }
-        if let Some(d) = find(&["DATAVERSIONRETENTIONTIME", "DATA_VERSION_RETENTION_TIME", "RETENTIONTIME"]) {
-            values.insert("retention_days".to_string(), d.unwrap_or_default().trim().to_string());
+        if let Some(d) = find(&[
+            "DATAVERSIONRETENTIONTIME",
+            "DATA_VERSION_RETENTION_TIME",
+            "RETENTIONTIME",
+        ]) {
+            values.insert(
+                "retention_days".to_string(),
+                d.unwrap_or_default().trim().to_string(),
+            );
             fields.push(
                 Field::new("retention_days", "Retención de versiones (días)", FieldKind::Number)
                     .help("DATA VERSION RETENTION TIME, para consultas sobre datos pasados (time travel). 0: sin retención.")
@@ -241,21 +401,48 @@ impl OdbcSession {
         }
         // Whatever else the catalog reports, as facts.
         for (i, c) in cols.iter().enumerate() {
-            let known = ["DATABASE", "CREATEDATE", "OWNER", "DEFSCHEMA", "DEFAULTSCHEMA", "DEFAULT_SCHEMA", "COLLECTHISTORY", "COLLECT_HISTORY"];
-            if !known.iter().any(|k| c.eq_ignore_ascii_case(k)) && !c.to_ascii_uppercase().contains("RETENTION") {
+            let known = [
+                "DATABASE",
+                "CREATEDATE",
+                "OWNER",
+                "DEFSCHEMA",
+                "DEFAULTSCHEMA",
+                "DEFAULT_SCHEMA",
+                "COLLECTHISTORY",
+                "COLLECT_HISTORY",
+            ];
+            if !known.iter().any(|k| c.eq_ignore_ascii_case(k))
+                && !c.to_ascii_uppercase().contains("RETENTION")
+            {
                 if let Some(v) = col(r, i).filter(|v| !v.trim().is_empty()) {
                     info.push(fact("Catálogo", c, v.trim().to_string()));
                 }
             }
         }
-        let users = self.query("SELECT USERNAME FROM _V_USER ORDER BY USERNAME".into(), Vec::new()).await.unwrap_or_default();
-        let choices = vec![FieldChoices { key: "owner".into(), default: None, values: users.iter().filter_map(|r| col(r, 0)).collect() }];
+        let users = self
+            .query(
+                "SELECT USERNAME FROM _V_USER ORDER BY USERNAME".into(),
+                Vec::new(),
+            )
+            .await
+            .unwrap_or_default();
+        let choices = vec![FieldChoices {
+            key: "owner".into(),
+            default: None,
+            values: users.iter().filter_map(|r| col(r, 0)).collect(),
+        }];
         let mut warnings = BTreeMap::new();
         warnings.insert(
             "retention_days".to_string(),
             "Bajar la retención descarta las versiones anteriores de los datos: las consultas a fechas pasadas dejan de funcionar más allá del nuevo plazo.".to_string(),
         );
-        Ok(DatabaseProperties { fields, values, info, choices, warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices,
+            warnings,
+        })
     }
 
     async fn informix_properties(&mut self, database: &str) -> Result<DatabaseProperties> {
@@ -265,7 +452,9 @@ impl OdbcSession {
                 vec![database.to_string()],
             )
             .await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe la base «{database}»")))?;
         let on = |i: usize| col(r, i).is_some_and(|v| v.trim() == "1");
         let logging = if on(4) {
             "ANSI"
@@ -277,28 +466,52 @@ impl OdbcSession {
             "Sin log"
         };
         let mut info = vec![
-            fact("", "Dueño", col(r, 0).unwrap_or_default().trim().to_string()),
+            fact(
+                "",
+                "Dueño",
+                col(r, 0).unwrap_or_default().trim().to_string(),
+            ),
             fact("", "Creada", col(r, 1).unwrap_or_default()),
             fact("", "Modo de log", logging.into()),
-            fact("", "Idioma nacional (NLS)", if on(5) { "Sí" } else { "No" }.into()),
+            fact(
+                "",
+                "Idioma nacional (NLS)",
+                if on(5) { "Sí" } else { "No" }.into(),
+            ),
         ];
         let space = self
-            .query("SELECT DBINFO('dbspace', partnum) FROM sysmaster:sysdatabases WHERE name = ?".into(), vec![database.to_string()])
+            .query(
+                "SELECT DBINFO('dbspace', partnum) FROM sysmaster:sysdatabases WHERE name = ?"
+                    .into(),
+                vec![database.to_string()],
+            )
             .await
             .unwrap_or_default();
         if let Some(s) = space.first().and_then(|r| col(r, 0)) {
             info.push(fact("", "Dbspace", s.trim().to_string()));
         }
-        info.push(fact("", "Cómo cambiar el modo de log", "Con ondblog u ontape (requiere un backup de nivel 0), no con SQL.".into()));
-        Ok(DatabaseProperties { info, ..Default::default() })
+        info.push(fact(
+            "",
+            "Cómo cambiar el modo de log",
+            "Con ondblog u ontape (requiere un backup de nivel 0), no con SQL.".into(),
+        ));
+        Ok(DatabaseProperties {
+            info,
+            ..Default::default()
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let stmts = statements(self.preset, database, changes)?;
         if stmts.is_empty() {
             return Ok(());
         }
-        let back = (design::eng(self.preset) == Eng::Ase && !self.database.is_empty()).then(|| format!("USE {}", quote_ident(self.quote, &self.database)));
+        let back = (design::eng(self.preset) == Eng::Ase && !self.database.is_empty())
+            .then(|| format!("USE {}", quote_ident(self.quote, &self.database)));
         self.run(move |c, slot| {
             let exec = |s: &str| c.stmt(slot).and_then(|st| st.exec(s).map(|_| ()));
             // `USE master` isn't one of the changes.
@@ -308,7 +521,13 @@ impl OdbcSession {
             for (i, s) in stmts.iter().enumerate() {
                 if let Err(e) = exec(s) {
                     let done = i.saturating_sub(skip);
-                    result = Err(if done == 0 { e } else { Error::Query(format!("se aplicaron {done} de {total} cambios; falló: {s}\n{e}")) });
+                    result = Err(if done == 0 {
+                        e
+                    } else {
+                        Error::Query(format!(
+                            "se aplicaron {done} de {total} cambios; falló: {s}\n{e}"
+                        ))
+                    });
                     break;
                 }
             }
@@ -332,13 +551,26 @@ mod tests {
     }
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn ase_options_from_master_in_a_safe_order() {
         assert_eq!(
-            script(p("sybase"), "ven'tas", &c(&[("single_user", "true"), ("trunc_log", "true"), ("read_only", ""), ("abort_tran", "")])).unwrap(),
+            script(
+                p("sybase"),
+                "ven'tas",
+                &c(&[
+                    ("single_user", "true"),
+                    ("trunc_log", "true"),
+                    ("read_only", ""),
+                    ("abort_tran", "")
+                ])
+            )
+            .unwrap(),
             "USE master
 go
 EXEC sp_dboption 'ven''tas', 'read only', false
@@ -359,7 +591,13 @@ EXEC sp_dboption 'ven''tas', 'single user', true"
             script(p("netezza"), "ventas", &c(&[("owner", "admin"), ("collect_history", "OFF"), ("retention_days", "7"), ("default_schema", "s1")])).unwrap(),
             "ALTER DATABASE \"ventas\" COLLECT HISTORY OFF;\nALTER DATABASE \"ventas\" SET DEFAULT SCHEMA \"S1\";\nALTER DATABASE \"ventas\" OWNER TO \"ADMIN\";\nALTER DATABASE \"ventas\" DATA VERSION RETENTION TIME 7;"
         );
-        for bad in [("collect_history", "ON;"), ("retention_days", "100"), ("retention_days", "x"), ("owner", " "), ("nope", "1")] {
+        for bad in [
+            ("collect_history", "ON;"),
+            ("retention_days", "100"),
+            ("retention_days", "x"),
+            ("owner", " "),
+            ("nope", "1"),
+        ] {
             assert!(script(p("netezza"), "v", &c(&[bad])).is_err(), "{bad:?}");
         }
     }

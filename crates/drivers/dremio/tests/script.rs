@@ -10,7 +10,9 @@ use dbine_driver::{ConnectionConfig, Error, QueryOutcome, ScriptMode};
 #[tokio::test]
 #[ignore]
 async fn statements_one_by_one() {
-    let Ok(url) = std::env::var("DBINE_TEST_DREMIO_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_DREMIO_URL") else {
+        return;
+    };
     let url = reqwest::Url::parse(&url).unwrap();
     let c = ConnectionConfig {
         driver: "dremio".into(),
@@ -31,18 +33,26 @@ async fn statements_one_by_one() {
     let mut out = QueryOutcome::default();
     s.execute(&units[0].text, 10, &mut out).await.unwrap();
     assert_eq!(out.results[0].tag.as_deref(), Some("USE"));
-    assert!(out.log.iter().any(|m| m.text == "Contexto: $scratch"), "{:?}", out.log);
+    assert!(
+        out.log.iter().any(|m| m.text == "Contexto: $scratch"),
+        "{:?}",
+        out.log
+    );
     assert_eq!(out.database.as_deref(), Some("$scratch"));
     s.execute(&units[1].text, 10, &mut out).await.unwrap();
     assert_eq!(out.results.len(), 2);
     let err = s.execute(&units[2].text, 10, &mut out).await.unwrap_err();
-    let Error::Statement(e) = err else { panic!("{err:?}") };
+    let Error::Statement(e) = err else {
+        panic!("{err:?}")
+    };
     assert_eq!((e.line, e.offset), (Some(1), Some(14)), "{}", e.message);
 
     // The whole script in one call (the Backups / Users screens): the error
     // is placed in it.
     let mut out = QueryOutcome::default();
-    let Error::Statement(e) = s.execute(script, 10, &mut out).await.unwrap_err() else { panic!() };
+    let Error::Statement(e) = s.execute(script, 10, &mut out).await.unwrap_err() else {
+        panic!()
+    };
     assert_eq!((e.line, e.offset), (Some(3), Some(script.len() - 1)));
     assert_eq!(out.results.len(), 2);
 }

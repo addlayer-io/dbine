@@ -29,7 +29,8 @@ pub fn refold(name: &str, from: IdentCase, to: IdentCase) -> String {
         // Engines that keep case: a regular all-lower or all-upper name is
         // the common convention, fold it too.
         IdentCase::Preserve => {
-            !name.chars().any(|c| c.is_ascii_uppercase()) || !name.chars().any(|c| c.is_ascii_lowercase())
+            !name.chars().any(|c| c.is_ascii_uppercase())
+                || !name.chars().any(|c| c.is_ascii_lowercase())
         }
     };
     if !folded_in_source {
@@ -68,7 +69,9 @@ pub fn fit(name: &str, max: usize, taken: &mut HashSet<String>) -> String {
 }
 
 fn fnv(s: &str) -> u32 {
-    s.bytes().fold(0x811c9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x01000193))
+    s.bytes().fold(0x811c9dc5u32, |h, b| {
+        (h ^ b as u32).wrapping_mul(0x01000193)
+    })
 }
 
 #[cfg(test)]
@@ -77,12 +80,30 @@ mod tests {
 
     #[test]
     fn refolds_only_folded_names() {
-        assert_eq!(refold("CLIENTES", IdentCase::Upper, IdentCase::Lower), "clientes");
-        assert_eq!(refold("MiTabla", IdentCase::Upper, IdentCase::Lower), "MiTabla");
-        assert_eq!(refold("pedidos", IdentCase::Lower, IdentCase::Upper), "PEDIDOS");
-        assert_eq!(refold("my table", IdentCase::Lower, IdentCase::Upper), "my table");
-        assert_eq!(refold("Orders", IdentCase::Preserve, IdentCase::Lower), "Orders");
-        assert_eq!(refold("orders", IdentCase::Preserve, IdentCase::Upper), "ORDERS");
+        assert_eq!(
+            refold("CLIENTES", IdentCase::Upper, IdentCase::Lower),
+            "clientes"
+        );
+        assert_eq!(
+            refold("MiTabla", IdentCase::Upper, IdentCase::Lower),
+            "MiTabla"
+        );
+        assert_eq!(
+            refold("pedidos", IdentCase::Lower, IdentCase::Upper),
+            "PEDIDOS"
+        );
+        assert_eq!(
+            refold("my table", IdentCase::Lower, IdentCase::Upper),
+            "my table"
+        );
+        assert_eq!(
+            refold("Orders", IdentCase::Preserve, IdentCase::Lower),
+            "Orders"
+        );
+        assert_eq!(
+            refold("orders", IdentCase::Preserve, IdentCase::Upper),
+            "ORDERS"
+        );
     }
 
     #[test]

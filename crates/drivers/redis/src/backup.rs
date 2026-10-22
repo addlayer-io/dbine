@@ -61,7 +61,10 @@ async fn config(s: &mut RedisSession, name: &str) -> Option<String> {
 /// Unix seconds as ISO 8601 (UTC).
 fn iso(secs: i64) -> Option<String> {
     let s = crate::profiler::stamp(&secs.to_string())?;
-    Some(format!("{}Z", s.replacen(' ', "T", 1).trim_end_matches(".000")))
+    Some(format!(
+        "{}Z",
+        s.replacen(' ', "T", 1).trim_end_matches(".000")
+    ))
 }
 
 /// `dir` + `dbfilename`, the way the server joins them.
@@ -83,19 +86,38 @@ pub async fn history(s: &mut RedisSession) -> Result<Vec<BackupEntry>> {
         None => config(s, "dbfilename").await,
     };
     let path = rdb_path(config(s, "dir").await, file);
-    let kind = if path.as_deref().is_some_and(|p| p.ends_with(".dfs")) { "DFS" } else { "RDB" };
+    let kind = if path.as_deref().is_some_and(|p| p.ends_with(".dfs")) {
+        "DFS"
+    } else {
+        "RDB"
+    };
     let in_progress = info.get("rdb_bgsave_in_progress").is_some_and(|v| v == "1");
     let status = if in_progress || info.get("saving").is_some_and(|v| v == "1") {
         Some("en curso".to_string())
     } else {
-        info.get("rdb_last_bgsave_status").map(|v| if v == "ok" { "completado".to_string() } else { v.clone() })
+        info.get("rdb_last_bgsave_status").map(|v| {
+            if v == "ok" {
+                "completado".to_string()
+            } else {
+                v.clone()
+            }
+        })
     };
     let mut details = Vec::new();
     let labels = [
-        ("rdb_changes_since_last_save", "Cambios desde el último guardado"),
-        ("rdb_changes_since_last_success_save", "Cambios desde el último guardado"),
+        (
+            "rdb_changes_since_last_save",
+            "Cambios desde el último guardado",
+        ),
+        (
+            "rdb_changes_since_last_success_save",
+            "Cambios desde el último guardado",
+        ),
         ("rdb_last_bgsave_time_sec", "Duración del último BGSAVE (s)"),
-        ("last_success_save_duration_sec", "Duración del último guardado (s)"),
+        (
+            "last_success_save_duration_sec",
+            "Duración del último guardado (s)",
+        ),
         ("last_error", "Último error"),
         ("rdb_saves", "Guardados desde el inicio"),
         ("aof_enabled", "AOF activado"),
@@ -129,24 +151,47 @@ mod tests {
 
     fn backup(command: &str) -> Result<String> {
         let options = BTreeMap::from([("command".to_string(), command.to_string())]);
-        script(&BackupAction::Backup { database: None, options })
+        script(&BackupAction::Backup {
+            database: None,
+            options,
+        })
     }
 
     #[test]
     fn scripts() {
         assert_eq!(backup("BGSAVE").unwrap(), "BGSAVE");
         assert_eq!(backup("SAVE").unwrap(), "SAVE");
-        assert_eq!(script(&BackupAction::Backup { database: None, options: BTreeMap::new() }).unwrap(), "BGSAVE");
+        assert_eq!(
+            script(&BackupAction::Backup {
+                database: None,
+                options: BTreeMap::new()
+            })
+            .unwrap(),
+            "BGSAVE"
+        );
         assert!(backup("FLUSHALL").is_err());
-        assert!(matches!(script(&BackupAction::Delete { source: "x".into() }), Err(Error::Unsupported(_))));
-        let restore = BackupAction::Restore { source: "x".into(), database: None, options: BTreeMap::new() };
+        assert!(matches!(
+            script(&BackupAction::Delete { source: "x".into() }),
+            Err(Error::Unsupported(_))
+        ));
+        let restore = BackupAction::Restore {
+            source: "x".into(),
+            database: None,
+            options: BTreeMap::new(),
+        };
         assert!(matches!(script(&restore), Err(Error::Unsupported(_))));
     }
 
     #[test]
     fn times_and_paths() {
         assert_eq!(iso(1_706_708_700).as_deref(), Some("2024-01-31T13:45:00Z"));
-        assert_eq!(rdb_path(Some("/data/".into()), Some("dump.rdb".into())).as_deref(), Some("/data/dump.rdb"));
-        assert_eq!(rdb_path(None, Some("dump.rdb".into())).as_deref(), Some("dump.rdb"));
+        assert_eq!(
+            rdb_path(Some("/data/".into()), Some("dump.rdb".into())).as_deref(),
+            Some("/data/dump.rdb")
+        );
+        assert_eq!(
+            rdb_path(None, Some("dump.rdb".into())).as_deref(),
+            Some("dump.rdb")
+        );
     }
 }

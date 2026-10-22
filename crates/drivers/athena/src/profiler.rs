@@ -44,12 +44,20 @@ struct Seen {
 
 impl Seen {
     fn new(now: i64) -> Self {
-        Self { since: now, mark: now, ids: HashMap::new(), pending: HashMap::new() }
+        Self {
+            since: now,
+            mark: now,
+            ids: HashMap::new(),
+            pending: HashMap::new(),
+        }
     }
 
     /// Where the next read stops: back to the oldest execution still running.
     fn from(&self) -> i64 {
-        self.pending.values().copied().fold(self.mark - OVERLAP_MS, i64::min)
+        self.pending
+            .values()
+            .copied()
+            .fold(self.mark - OVERLAP_MS, i64::min)
     }
 
     fn running(&mut self, id: &str, at: i64) {
@@ -76,7 +84,10 @@ impl Seen {
 }
 
 fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn ms(t: &DateTime) -> i64 {
@@ -95,7 +106,13 @@ fn utc(ms: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}", rem / 3_600_000, rem / 60_000 % 60, rem / 1000 % 60, rem % 1000)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{:03}",
+        rem / 3_600_000,
+        rem / 60_000 % 60,
+        rem / 1000 % 60,
+        rem % 1000
+    )
 }
 
 fn submitted(q: &QueryExecution) -> Option<i64> {
@@ -105,7 +122,11 @@ fn submitted(q: &QueryExecution) -> Option<i64> {
 fn done(q: &QueryExecution) -> bool {
     matches!(
         q.status().and_then(|s| s.state()),
-        Some(QueryExecutionState::Succeeded | QueryExecutionState::Failed | QueryExecutionState::Cancelled)
+        Some(
+            QueryExecutionState::Succeeded
+                | QueryExecutionState::Failed
+                | QueryExecutionState::Cancelled
+        )
     )
 }
 
@@ -114,7 +135,8 @@ fn belongs(q: &QueryExecution, catalog: &str, database: &str) -> bool {
     let ctx = q.query_execution_context();
     let db = ctx.and_then(|c| c.database()).unwrap_or("");
     let cat = ctx.and_then(|c| c.catalog()).unwrap_or("");
-    (cat.is_empty() || cat.eq_ignore_ascii_case(catalog)) && (database.is_empty() || db.is_empty() || db.eq_ignore_ascii_case(database))
+    (cat.is_empty() || cat.eq_ignore_ascii_case(catalog))
+        && (database.is_empty() || db.is_empty() || db.eq_ignore_ascii_case(database))
 }
 
 fn statement(q: &QueryExecution) -> Option<ProfiledStatement> {
@@ -125,29 +147,60 @@ fn statement(q: &QueryExecution) -> Option<ProfiledStatement> {
     let status = q.status();
     let start = submitted(q)?;
     let st = q.statistics();
-    let mut detail: Vec<String> = q.statement_type().map(|t| t.as_str().to_string()).into_iter().collect();
+    let mut detail: Vec<String> = q
+        .statement_type()
+        .map(|t| t.as_str().to_string())
+        .into_iter()
+        .collect();
     if let Some(e) = st.and_then(|s| s.engine_execution_time_in_millis()) {
         detail.push(format!("motor {e} ms"));
     }
-    if let Some(w) = st.and_then(|s| s.query_queue_time_in_millis()).filter(|w| *w > 0) {
+    if let Some(w) = st
+        .and_then(|s| s.query_queue_time_in_millis())
+        .filter(|w| *w > 0)
+    {
         detail.push(format!("en cola {w} ms"));
     }
-    if st.and_then(|s| s.result_reuse_information()).is_some_and(|r| r.reused_previous_result()) {
+    if st
+        .and_then(|s| s.result_reuse_information())
+        .is_some_and(|r| r.reused_previous_result())
+    {
         detail.push("resultado reutilizado".into());
     }
-    let failed = matches!(status.and_then(|s| s.state()), Some(QueryExecutionState::Failed | QueryExecutionState::Cancelled));
+    let failed = matches!(
+        status.and_then(|s| s.state()),
+        Some(QueryExecutionState::Failed | QueryExecutionState::Cancelled)
+    );
     let error = status
-        .and_then(|s| s.athena_error().and_then(|e| e.error_message()).or(s.state_change_reason()))
+        .and_then(|s| {
+            s.athena_error()
+                .and_then(|e| e.error_message())
+                .or(s.state_change_reason())
+        })
         .map(str::to_string)
-        .or_else(|| failed.then(|| status.and_then(|s| s.state()).map_or("", |s| s.as_str()).to_string()));
+        .or_else(|| {
+            failed.then(|| {
+                status
+                    .and_then(|s| s.state())
+                    .map_or("", |s| s.as_str())
+                    .to_string()
+            })
+        });
     Some(ProfiledStatement {
         time: utc(start),
         duration_ms: st
             .and_then(|s| s.total_execution_time_in_millis())
             .map(|v| v as f64)
-            .or_else(|| status.and_then(|s| s.completion_date_time()).map(|c| (ms(c) - start).max(0) as f64)),
+            .or_else(|| {
+                status
+                    .and_then(|s| s.completion_date_time())
+                    .map(|c| (ms(c) - start).max(0) as f64)
+            }),
         text: text.to_string(),
-        database: q.query_execution_context().and_then(|c| c.database()).map(str::to_string),
+        database: q
+            .query_execution_context()
+            .and_then(|c| c.database())
+            .map(str::to_string),
         user: None,
         client: None,
         rows: None,
@@ -155,19 +208,29 @@ fn statement(q: &QueryExecution) -> Option<ProfiledStatement> {
         detail: (!detail.is_empty()).then(|| detail.join(" · ")),
         application: None,
         // Athena reports neither CPU time nor what a query wrote.
-        reads: st.and_then(|s| s.data_scanned_in_bytes()).map(|b| b.max(0) as u64),
+        reads: st
+            .and_then(|s| s.data_scanned_in_bytes())
+            .map(|b| b.max(0) as u64),
         ..Default::default()
     })
 }
 
 /// The new finished executions of a batch (in the listing's order); tracks
 /// the running ones.
-fn take(list: &[QueryExecution], catalog: &str, database: &str, from: i64, seen: &mut Seen) -> Vec<ProfiledStatement> {
+fn take(
+    list: &[QueryExecution],
+    catalog: &str,
+    database: &str,
+    from: i64,
+    seen: &mut Seen,
+) -> Vec<ProfiledStatement> {
     let mut out = Vec::new();
     let mut list: Vec<&QueryExecution> = list.iter().collect();
     list.sort_by_key(|q| submitted(q).unwrap_or(0));
     for q in list {
-        let (Some(id), Some(at)) = (q.query_execution_id(), submitted(q)) else { continue };
+        let (Some(id), Some(at)) = (q.query_execution_id(), submitted(q)) else {
+            continue;
+        };
         if at < from {
             continue;
         }
@@ -182,17 +245,37 @@ fn take(list: &[QueryExecution], catalog: &str, database: &str, from: i64, seen:
     out
 }
 
-pub(crate) async fn start(s: &AthenaSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
-    let database = if opts.database.is_empty() { s.database.clone().unwrap_or_default() } else { opts.database.clone() };
+pub(crate) async fn start(
+    s: &AthenaSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
+    let database = if opts.database.is_empty() {
+        s.database.clone().unwrap_or_default()
+    } else {
+        opts.database.clone()
+    };
     // Proves athena:ListQueryExecutions on the workgroup.
-    s.client.list_query_executions().work_group(&s.workgroup).max_results(1).send().await.map_err(err)?;
+    s.client
+        .list_query_executions()
+        .work_group(&s.workgroup)
+        .max_results(1)
+        .send()
+        .await
+        .map_err(err)?;
     let started = ProfilerStarted::new(ProfilerMode::Complete, format!("ListQueryExecutions ({})", s.workgroup))
         .units(Some("bytes"), None)
         .note(format!(
         "Se ven las consultas del workgroup {} al terminar. Athena no informa quién ejecutó cada una.",
         s.workgroup
     ));
-    Ok((State { database, seen: Seen::new(now_ms()), next: Instant::now() }, started))
+    Ok((
+        State {
+            database,
+            seen: Seen::new(now_ms()),
+            next: Instant::now(),
+        },
+        started,
+    ))
 }
 
 pub(crate) async fn poll(s: &AthenaSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
@@ -215,13 +298,33 @@ pub(crate) async fn poll(s: &AthenaSession, state: &mut State) -> Result<Vec<Pro
             .map_err(err)?;
         let ids: Vec<String> = page.query_execution_ids().to_vec();
         // Reported ones are known: only the rest are fetched.
-        let mut oldest = ids.iter().filter_map(|id| state.seen.ids.get(id).copied()).min().unwrap_or(i64::MAX);
-        let unknown: Vec<String> = ids.iter().filter(|id| !state.seen.ids.contains_key(*id)).cloned().collect();
+        let mut oldest = ids
+            .iter()
+            .filter_map(|id| state.seen.ids.get(id).copied())
+            .min()
+            .unwrap_or(i64::MAX);
+        let unknown: Vec<String> = ids
+            .iter()
+            .filter(|id| !state.seen.ids.contains_key(*id))
+            .cloned()
+            .collect();
         if !unknown.is_empty() {
-            let got = s.client.batch_get_query_execution().set_query_execution_ids(Some(unknown)).send().await.map_err(err)?;
+            let got = s
+                .client
+                .batch_get_query_execution()
+                .set_query_execution_ids(Some(unknown))
+                .send()
+                .await
+                .map_err(err)?;
             let list = got.query_executions();
             oldest = list.iter().filter_map(submitted).fold(oldest, i64::min);
-            out.extend(take(list, &s.catalog, &state.database, from, &mut state.seen));
+            out.extend(take(
+                list,
+                &s.catalog,
+                &state.database,
+                from,
+                &mut state.seen,
+            ));
         }
         // Newest first: once past `from`, the rest is older.
         match page.next_token() {
@@ -238,7 +341,8 @@ pub(crate) async fn poll(s: &AthenaSession, state: &mut State) -> Result<Vec<Pro
 mod tests {
     use super::*;
     use aws_sdk_athena::types::{
-        AthenaError, QueryExecutionContext, QueryExecutionStatistics, QueryExecutionStatus, StatementType,
+        AthenaError, QueryExecutionContext, QueryExecutionStatistics, QueryExecutionStatus,
+        StatementType,
     };
 
     fn exec(id: &str, at: i64, state: QueryExecutionState, db: &str) -> QueryExecution {
@@ -246,15 +350,28 @@ mod tests {
             .query_execution_id(id)
             .query(format!("SELECT '{id}'"))
             .statement_type(StatementType::Dml)
-            .query_execution_context(QueryExecutionContext::builder().catalog("AwsDataCatalog").database(db).build())
+            .query_execution_context(
+                QueryExecutionContext::builder()
+                    .catalog("AwsDataCatalog")
+                    .database(db)
+                    .build(),
+            )
             .status(
                 QueryExecutionStatus::builder()
                     .state(state.clone())
                     .submission_date_time(DateTime::from_millis(at))
-                    .set_athena_error((state == QueryExecutionState::Failed).then(|| AthenaError::builder().error_message("boom").build()))
+                    .set_athena_error(
+                        (state == QueryExecutionState::Failed)
+                            .then(|| AthenaError::builder().error_message("boom").build()),
+                    )
                     .build(),
             )
-            .statistics(QueryExecutionStatistics::builder().total_execution_time_in_millis(120).data_scanned_in_bytes(10).build())
+            .statistics(
+                QueryExecutionStatistics::builder()
+                    .total_execution_time_in_millis(120)
+                    .data_scanned_in_bytes(10)
+                    .build(),
+            )
             .build()
     }
 
@@ -262,7 +379,10 @@ mod tests {
     fn times_are_utc_milliseconds() {
         assert_eq!(utc(1_700_000_000_123), "2023-11-14 22:13:20.123");
         assert_eq!(utc(951_782_400_000), "2000-02-29 00:00:00.000");
-        assert_eq!(ms(&DateTime::from_millis(1_700_000_000_123)), 1_700_000_000_123);
+        assert_eq!(
+            ms(&DateTime::from_millis(1_700_000_000_123)),
+            1_700_000_000_123
+        );
     }
 
     #[test]
@@ -277,17 +397,32 @@ mod tests {
             exec("d", 1_004_000, Succeeded, "otra"),
         ];
         let out = take(&batch, "AwsDataCatalog", "ventas", seen.from(), &mut seen);
-        assert_eq!(out.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["SELECT 'a'", "SELECT 'c'"]);
-        assert_eq!((out[0].duration_ms, out[0].time.as_str()), (Some(120.0), "1970-01-01 00:16:41.000"));
+        assert_eq!(
+            out.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            ["SELECT 'a'", "SELECT 'c'"]
+        );
+        assert_eq!(
+            (out[0].duration_ms, out[0].time.as_str()),
+            (Some(120.0), "1970-01-01 00:16:41.000")
+        );
         assert_eq!(out[0].detail.as_deref(), Some("DML"));
-        assert_eq!((out[0].cpu_ms, out[0].reads, out[0].writes), (None, Some(10), None));
+        assert_eq!(
+            (out[0].cpu_ms, out[0].reads, out[0].writes),
+            (None, Some(10), None)
+        );
         assert_eq!(out[1].error.as_deref(), Some("boom"));
         // The running one is kept; once done, it's reported alone (the
         // others come again through the overlap).
         assert!(seen.pending.contains_key("b"));
         assert_eq!(seen.from(), 1_004_000 - OVERLAP_MS);
-        let batch = [exec("a", 1_001_000, Succeeded, "ventas"), exec("b", 1_002_000, Succeeded, "ventas")];
+        let batch = [
+            exec("a", 1_001_000, Succeeded, "ventas"),
+            exec("b", 1_002_000, Succeeded, "ventas"),
+        ];
         let out = take(&batch, "AwsDataCatalog", "ventas", seen.from(), &mut seen);
-        assert_eq!(out.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), ["SELECT 'b'"]);
+        assert_eq!(
+            out.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            ["SELECT 'b'"]
+        );
     }
 }

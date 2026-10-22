@@ -4,7 +4,9 @@
 //! supertable (`CREATE STABLE … TAGS (…)`). No NOT NULL, defaults, indexes
 //! or foreign keys; the table takes `COMMENT` and `TTL`.
 
-use dbine_driver::{kinds, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, RowChange, TableSchema};
+use dbine_driver::{
+    kinds, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, RowChange, TableSchema,
+};
 use serde_json::Value;
 
 pub const SUPERTABLE: &str = "supertable";
@@ -76,7 +78,10 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     let what = if stable { "STABLE" } else { "TABLE" };
     let mut out = Vec::new();
     if parts.drop {
-        out.push(format!("DROP {what} {}{name};", if parts.if_exists { "IF EXISTS " } else { "" }));
+        out.push(format!(
+            "DROP {what} {}{name};",
+            if parts.if_exists { "IF EXISTS " } else { "" }
+        ));
     }
     if parts.create {
         let col = |c: &dbine_driver::ColumnDef| format!("{} {}", q(&c.name), c.data_type);
@@ -84,7 +89,11 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
         let tags: Vec<String> = t.columns.iter().filter(|c| is_tag(c)).map(col).collect();
         let mut s = format!(
             "CREATE {what} {}{name} (\n    {}\n)",
-            if parts.if_exists && !parts.drop { "IF NOT EXISTS " } else { "" },
+            if parts.if_exists && !parts.drop {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             cols.join(",\n    ")
         );
         if stable {
@@ -94,7 +103,12 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
             s.push_str(&format!(" COMMENT {}", lit(c)));
         }
         if !stable {
-            if let Some(ttl) = t.options.get("ttl").map(|v| v.trim()).filter(|v| !v.is_empty()) {
+            if let Some(ttl) = t
+                .options
+                .get("ttl")
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
                 s.push_str(&format!(" TTL {ttl}"));
             }
         }
@@ -114,7 +128,11 @@ pub fn index_ddl(t: &TableSchema, ix: &dbine_driver::IndexDef) -> String {
         "CREATE INDEX {} ON {} ({});",
         q(&ix.name),
         qualified(t.schema.as_deref(), &t.name),
-        ix.columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(", ")
+        ix.columns
+            .iter()
+            .map(|c| q(c))
+            .collect::<Vec<_>>()
+            .join(", ")
     )
 }
 
@@ -161,7 +179,9 @@ pub fn literal(v: &Value) -> String {
         Value::Null => "NULL".into(),
         Value::Bool(b) => if *b { "true" } else { "false" }.into(),
         Value::Number(n) => n.to_string(),
-        Value::String(s) => match s.strip_prefix("0x").filter(|h| !h.is_empty() && h.len() % 2 == 0 && h.bytes().all(|b| b.is_ascii_hexdigit())) {
+        Value::String(s) => match s.strip_prefix("0x").filter(|h| {
+            !h.is_empty() && h.len() % 2 == 0 && h.bytes().all(|b| b.is_ascii_hexdigit())
+        }) {
             Some(hex) => format!("'\\x{hex}'"),
             None => lit(s),
         },
@@ -170,14 +190,25 @@ pub fn literal(v: &Value) -> String {
 }
 
 /// `INSERT INTO … (cols) VALUES (…) (…)`, 100 rows per statement.
-pub fn insert_script(db: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
+pub fn insert_script(
+    db: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> String {
     let name = qualified(db, table);
     let cols: Vec<String> = columns.iter().map(|c| q(c)).collect();
     rows.chunks(100)
         .map(|chunk| {
-            let values: Vec<String> =
-                chunk.iter().map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", "))).collect();
-            format!("INSERT INTO {name} ({}) VALUES\n  {};", cols.join(", "), values.join("\n  "))
+            let values: Vec<String> = chunk
+                .iter()
+                .map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
+                .collect();
+            format!(
+                "INSERT INTO {name} ({}) VALUES\n  {};",
+                cols.join(", "),
+                values.join("\n  ")
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -187,19 +218,38 @@ pub fn insert_script(db: Option<&str>, table: &str, columns: &[String], rows: &[
 /// no UPDATE, and writing a row with an existing timestamp overwrites it.
 /// The key (the timestamp, plus the composite key column if any) has to be
 /// there and has to have a value.
-pub fn update_script(db: Option<&str>, table: &str, changes: &[RowChange]) -> Result<String, String> {
+pub fn update_script(
+    db: Option<&str>,
+    table: &str,
+    changes: &[RowChange],
+) -> Result<String, String> {
     let name = qualified(db, table);
     let mut out = Vec::new();
     for c in changes.iter().filter(|c| !c.set.is_empty()) {
         if c.key.is_empty() || c.key.iter().any(|(_, v)| v.is_null()) {
             return Err("TDengine modifica una fila reescribiendo su marca de tiempo: la clave de la fila tiene que incluir el timestamp".into());
         }
-        let pairs: Vec<&(String, Value)> =
-            c.key.iter().chain(c.set.iter().filter(|(k, _)| !c.key.iter().any(|(kk, _)| kk == k))).collect();
+        let pairs: Vec<&(String, Value)> = c
+            .key
+            .iter()
+            .chain(
+                c.set
+                    .iter()
+                    .filter(|(k, _)| !c.key.iter().any(|(kk, _)| kk == k)),
+            )
+            .collect();
         out.push(format!(
             "INSERT INTO {name} ({}) VALUES ({});",
-            pairs.iter().map(|(k, _)| q(k)).collect::<Vec<_>>().join(", "),
-            pairs.iter().map(|(_, v)| literal(v)).collect::<Vec<_>>().join(", ")
+            pairs
+                .iter()
+                .map(|(k, _)| q(k))
+                .collect::<Vec<_>>()
+                .join(", "),
+            pairs
+                .iter()
+                .map(|(_, v)| literal(v))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     Ok(out.join("\n"))
@@ -211,11 +261,22 @@ pub fn update_script(db: Option<&str>, table: &str, changes: &[RowChange]) -> Re
 /// rows at that instant. On a supertable the row's `tbname` names the
 /// subtable to delete from (the supertable itself would delete that instant
 /// in every subtable).
-pub fn delete_script(db: Option<&str>, table: &str, supertable: bool, keys: &[Vec<(String, Value)>]) -> Result<String, String> {
+pub fn delete_script(
+    db: Option<&str>,
+    table: &str,
+    supertable: bool,
+    keys: &[Vec<(String, Value)>],
+) -> Result<String, String> {
     let mut out = Vec::new();
     for key in keys {
-        let sub = key.iter().find(|(k, _)| k.eq_ignore_ascii_case("tbname")).and_then(|(_, v)| v.as_str());
-        let rest: Vec<&(String, Value)> = key.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("tbname")).collect();
+        let sub = key
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("tbname"))
+            .and_then(|(_, v)| v.as_str());
+        let rest: Vec<&(String, Value)> = key
+            .iter()
+            .filter(|(k, _)| !k.eq_ignore_ascii_case("tbname"))
+            .collect();
         let [(ts, time)] = rest.as_slice() else {
             return Err(if rest.is_empty() {
                 "TDengine borra filas por su marca de tiempo: la clave de la fila tiene que incluir el timestamp".into()
@@ -224,7 +285,9 @@ pub fn delete_script(db: Option<&str>, table: &str, supertable: bool, keys: &[Ve
             });
         };
         if time.is_null() {
-            return Err("TDengine borra filas por su marca de tiempo: la fila no tiene timestamp".into());
+            return Err(
+                "TDengine borra filas por su marca de tiempo: la fila no tiene timestamp".into(),
+            );
         }
         let name = match (supertable, sub) {
             (_, Some(t)) => qualified(db, t),
@@ -233,7 +296,11 @@ pub fn delete_script(db: Option<&str>, table: &str, supertable: bool, keys: &[Ve
                 return Err("en una supertabla el borrado alcanza a todas sus subtablas: la clave tiene que incluir tbname".into())
             }
         };
-        out.push(format!("DELETE FROM {name} WHERE {} = {};", q(ts), literal(time)));
+        out.push(format!(
+            "DELETE FROM {name} WHERE {} = {};",
+            q(ts),
+            literal(time)
+        ));
     }
     Ok(out.join("\n"))
 }
@@ -245,7 +312,11 @@ mod tests {
     use serde_json::json;
 
     fn c(name: &str, ty: &str, tag: bool) -> ColumnDef {
-        let mut c = ColumnDef { name: name.into(), data_type: ty.into(), ..Default::default() };
+        let mut c = ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            ..Default::default()
+        };
         if tag {
             c.options.insert(TAG.into(), "true".into());
         }
@@ -256,29 +327,53 @@ mod tests {
     fn update_script_overwrites_timestamp() {
         let c = RowChange {
             key: vec![("ts".into(), json!("2024-01-31 10:00:00.000"))],
-            set: vec![("nombre".into(), json!("O'Brien")), ("v".into(), Value::Null)], ..Default::default()
+            set: vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("v".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(Some("iot"), "d1", &[c, RowChange::default()]).unwrap(),
             "INSERT INTO `iot`.`d1` (`ts`, `nombre`, `v`) VALUES ('2024-01-31 10:00:00.000', 'O''Brien', NULL);"
         );
-        let no_ts = RowChange { key: vec![], set: vec![("v".into(), json!(1))], ..Default::default() };
+        let no_ts = RowChange {
+            key: vec![],
+            set: vec![("v".into(), json!(1))],
+            ..Default::default()
+        };
         assert!(update_script(None, "d1", &[no_ts]).is_err());
-        let null_ts = RowChange { key: vec![("ts".into(), Value::Null)], set: vec![("v".into(), json!(1))], ..Default::default() };
+        let null_ts = RowChange {
+            key: vec![("ts".into(), Value::Null)],
+            set: vec![("v".into(), json!(1))],
+            ..Default::default()
+        };
         assert!(update_script(None, "d1", &[null_ts]).is_err());
     }
 
     #[test]
     fn delete_script_by_timestamp() {
-        let keys = vec![vec![("ts".into(), json!("2024-01-31 10:00:00.000"))], vec![("ts".into(), json!(1706695200000_i64))]];
+        let keys = vec![
+            vec![("ts".into(), json!("2024-01-31 10:00:00.000"))],
+            vec![("ts".into(), json!(1706695200000_i64))],
+        ];
         assert_eq!(
             delete_script(Some("iot"), "d1", false, &keys).unwrap(),
             "DELETE FROM `iot`.`d1` WHERE `ts` = '2024-01-31 10:00:00.000';\nDELETE FROM `iot`.`d1` WHERE `ts` = 1706695200000;"
         );
-        let sub = vec![vec![("tbname".into(), json!("d'1")), ("ts".into(), json!("2024-01-31 10:00:00.000"))]];
-        assert_eq!(delete_script(Some("iot"), "st", true, &sub).unwrap(), "DELETE FROM `iot`.`d'1` WHERE `ts` = '2024-01-31 10:00:00.000';");
+        let sub = vec![vec![
+            ("tbname".into(), json!("d'1")),
+            ("ts".into(), json!("2024-01-31 10:00:00.000")),
+        ]];
+        assert_eq!(
+            delete_script(Some("iot"), "st", true, &sub).unwrap(),
+            "DELETE FROM `iot`.`d'1` WHERE `ts` = '2024-01-31 10:00:00.000';"
+        );
         assert!(delete_script(Some("iot"), "st", true, &keys[..1]).is_err());
-        let composite = vec![vec![("ts".into(), json!("2024-01-31 10:00:00.000")), ("k".into(), Value::Null)]];
+        let composite = vec![vec![
+            ("ts".into(), json!("2024-01-31 10:00:00.000")),
+            ("k".into(), Value::Null),
+        ]];
         assert!(delete_script(None, "d1", false, &composite).is_err());
         assert!(delete_script(None, "d1", false, &[vec![("ts".into(), Value::Null)]]).is_err());
         assert!(delete_script(None, "d1", false, &[vec![]]).is_err());
@@ -290,11 +385,23 @@ mod tests {
             kind: kinds::TABLE.into(),
             schema: Some("iot".into()),
             name: "medidas".into(),
-            columns: vec![c("ts", "TIMESTAMP", false), c("v", "DOUBLE", false), c("loc", "VARCHAR(20)", true)],
+            columns: vec![
+                c("ts", "TIMESTAMP", false),
+                c("v", "DOUBLE", false),
+                c("loc", "VARCHAR(20)", true),
+            ],
             comment: Some("o'k".into()),
             ..Default::default()
         };
-        let s = table_ddl(&t, DdlParts { drop: true, if_exists: true, create: true, ..Default::default() });
+        let s = table_ddl(
+            &t,
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(
             s,
             "DROP STABLE IF EXISTS `iot`.`medidas`;\nCREATE STABLE `iot`.`medidas` (\n    `ts` TIMESTAMP,\n    `v` DOUBLE\n) TAGS (\n    `loc` VARCHAR(20)\n) COMMENT 'o''k';"
@@ -302,17 +409,53 @@ mod tests {
         let mut n = t.clone();
         n.columns.pop();
         n.options.insert("ttl".into(), "7".into());
-        let s = table_ddl(&n, DdlParts { if_exists: true, create: true, ..Default::default() });
-        assert!(s.starts_with("CREATE TABLE IF NOT EXISTS `iot`.`medidas` (") && s.ends_with("COMMENT 'o''k' TTL 7;"), "{s}");
-        assert_eq!(table_ddl(&n, DdlParts { indexes: true, foreign_keys: true, ..Default::default() }), "");
+        let s = table_ddl(
+            &n,
+            DdlParts {
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            s.starts_with("CREATE TABLE IF NOT EXISTS `iot`.`medidas` (")
+                && s.ends_with("COMMENT 'o''k' TTL 7;"),
+            "{s}"
+        );
+        assert_eq!(
+            table_ddl(
+                &n,
+                DdlParts {
+                    indexes: true,
+                    foreign_keys: true,
+                    ..Default::default()
+                }
+            ),
+            ""
+        );
     }
 
     #[test]
     fn inserts() {
-        let s = insert_script(Some("d"), "t", &["ts".into(), "s".into(), "b".into(), "x".into()], &[
-            vec![json!("2024-01-01 00:00:00.000"), json!("O'Brien"), json!("0xCAFE"), Value::Null],
-            vec![json!("2024-01-01 00:00:01.000"), json!(true), json!(1.5), json!(2)],
-        ]);
+        let s = insert_script(
+            Some("d"),
+            "t",
+            &["ts".into(), "s".into(), "b".into(), "x".into()],
+            &[
+                vec![
+                    json!("2024-01-01 00:00:00.000"),
+                    json!("O'Brien"),
+                    json!("0xCAFE"),
+                    Value::Null,
+                ],
+                vec![
+                    json!("2024-01-01 00:00:01.000"),
+                    json!(true),
+                    json!(1.5),
+                    json!(2),
+                ],
+            ],
+        );
         assert_eq!(
             s,
             "INSERT INTO `d`.`t` (`ts`, `s`, `b`, `x`) VALUES\n  ('2024-01-01 00:00:00.000', 'O''Brien', '\\xCAFE', NULL)\n  ('2024-01-01 00:00:01.000', true, 1.5, 2);"

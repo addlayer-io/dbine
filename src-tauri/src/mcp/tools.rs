@@ -40,12 +40,30 @@ const CELL_MAX: usize = 300;
 const TEXT_MAX: usize = 200_000;
 const LIST_MAX: usize = 5_000;
 
-const NAMES: &[&str] = &["list_connections", "list_databases", "list_objects", "describe_object", "index_usage", "sample_rows", "run_query", "explain", super::write::TOOL];
+const NAMES: &[&str] = &[
+    "list_connections",
+    "list_databases",
+    "list_objects",
+    "describe_object",
+    "index_usage",
+    "sample_rows",
+    "run_query",
+    "explain",
+    super::write::TOOL,
+];
 
 /// What DBine's own assistant may call (a local model, on the tab's
 /// connection): no list_connections (it stays on its connection) and no
 /// execute (it never writes).
-pub const ASSISTANT_TOOLS: &[&str] = &["list_databases", "list_objects", "describe_object", "index_usage", "sample_rows", "run_query", "explain"];
+pub const ASSISTANT_TOOLS: &[&str] = &[
+    "list_databases",
+    "list_objects",
+    "describe_object",
+    "index_usage",
+    "sample_rows",
+    "run_query",
+    "explain",
+];
 
 pub fn exists(name: &str) -> bool {
     NAMES.contains(&name)
@@ -131,22 +149,66 @@ pub async fn call(inner: &Inner, client: &McpClient, tool: &str, args: &Value) -
     }
     let mut connection = String::new();
     let mut phase = None;
-    let result = run(inner, tool, args, &mut connection, &mut phase, None, Who::Mcp(client)).await;
-    logged(inner, client.name.as_str(), tool, phase, args, connection, result)
+    let result = run(
+        inner,
+        tool,
+        args,
+        &mut connection,
+        &mut phase,
+        None,
+        Who::Mcp(client),
+    )
+    .await;
+    logged(
+        inner,
+        client.name.as_str(),
+        tool,
+        phase,
+        args,
+        connection,
+        result,
+    )
 }
 
 /// DBine's own assistant with a local model: the same tools, on the tab's
 /// connection only, at the level the user gave it in the chat (structure, or
 /// also data with "datos"), whatever MCP's settings say. Never writes.
-pub async fn assistant_call(inner: &Inner, conn: &SavedConnection, tool: &str, args: &Value, allow_data: bool) -> (String, bool) {
+pub async fn assistant_call(
+    inner: &Inner,
+    conn: &SavedConnection,
+    tool: &str,
+    args: &Value,
+    allow_data: bool,
+) -> (String, bool) {
     if !ASSISTANT_TOOLS.contains(&tool) {
         return (format!("herramienta desconocida: {tool}"), true);
     }
-    let level = if allow_data { McpLevel::Read } else { McpLevel::Schema };
+    let level = if allow_data {
+        McpLevel::Read
+    } else {
+        McpLevel::Schema
+    };
     let mut connection = String::new();
     let mut phase = None;
-    let result = run(inner, tool, args, &mut connection, &mut phase, Some((conn.clone(), level)), Who::Chat).await;
-    logged(inner, "Asistente de DBine", tool, phase, args, connection, result)
+    let result = run(
+        inner,
+        tool,
+        args,
+        &mut connection,
+        &mut phase,
+        Some((conn.clone(), level)),
+        Who::Chat,
+    )
+    .await;
+    logged(
+        inner,
+        "Asistente de DBine",
+        tool,
+        phase,
+        args,
+        connection,
+        result,
+    )
 }
 
 /// Who approves a read the engine can't enforce on the server.
@@ -163,13 +225,22 @@ pub(super) enum Who<'a> {
 /// The exact query a read of rows will run, for the user to approve first:
 /// the engine's browse query for sample_rows, the model's own for
 /// run_query and explain. An error (no such object) goes to the model.
-pub async fn assistant_preview(inner: &Inner, conn: &SavedConnection, tool: &str, args: &Value) -> Result<String, String> {
+pub async fn assistant_preview(
+    inner: &Inner,
+    conn: &SavedConnection,
+    tool: &str,
+    args: &Value,
+) -> Result<String, String> {
     let db = args.get("database").and_then(Value::as_str).unwrap_or("");
     match tool {
         "sample_rows" => {
             let obj = find_object(inner, conn, db, arg(args, "object")?).await?;
             let limit = arg_num(args, "limit", 20, SAMPLE_MAX);
-            let entry = inner.state.session(&crate::state::meta_key(&conn.id, db), &conn.id, db).await.map_err(|e| failure(conn, e))?;
+            let entry = inner
+                .state
+                .session(&crate::state::meta_key(&conn.id, db), &conn.id, db)
+                .await
+                .map_err(|e| failure(conn, e))?;
             let query = entry.session.lock().await.browse_query(&obj, limit as u32);
             Ok(query)
         }
@@ -180,7 +251,15 @@ pub async fn assistant_preview(inner: &Inner, conn: &SavedConnection, tool: &str
 
 /// The log entry of a call; `phase` names how a read ran (`run_query:enforced`,
 /// `run_query:approved`…) or why it didn't (`run_query:rejected`).
-fn logged(inner: &Inner, client: &str, tool: &str, phase: Option<&str>, args: &Value, connection: String, result: Result<Done, String>) -> (String, bool) {
+fn logged(
+    inner: &Inner,
+    client: &str,
+    tool: &str,
+    phase: Option<&str>,
+    args: &Value,
+    connection: String,
+    result: Result<Done, String>,
+) -> (String, bool) {
     let (ok, rows, error) = match &result {
         Ok(d) => (true, d.rows, None),
         Err(e) => (false, None, Some(e.clone())),
@@ -207,13 +286,33 @@ fn logged(inner: &Inner, client: &str, tool: &str, phase: Option<&str>, args: &V
 
 /// The call's arguments for the log: names, and the query cut short.
 pub(super) fn summary(tool: &str, args: &Value) -> String {
-    let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-    let where_ = [s("database"), s("object")].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(".");
+    let s = |k: &str| {
+        args.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    let where_ = [s("database"), s("object")]
+        .into_iter()
+        .filter(|x| !x.is_empty())
+        .collect::<Vec<_>>()
+        .join(".");
     match tool {
         "run_query" | "explain" | super::write::TOOL => {
-            let q = s(if tool == super::write::TOOL { "code" } else { "query" }).split_whitespace().collect::<Vec<_>>().join(" ");
+            let q = s(if tool == super::write::TOOL {
+                "code"
+            } else {
+                "query"
+            })
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
             let q = cut(&q, 200);
-            if where_.is_empty() { q } else { format!("[{where_}] {q}") }
+            if where_.is_empty() {
+                q
+            } else {
+                format!("[{where_}] {q}")
+            }
         }
         _ => where_,
     }
@@ -228,11 +327,16 @@ pub(super) fn cut(s: &str, max: usize) -> String {
 }
 
 pub(super) fn arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
-    args.get(key).and_then(Value::as_str).ok_or_else(|| format!("falta el argumento «{key}»"))
+    args.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("falta el argumento «{key}»"))
 }
 
 pub(super) fn arg_num(args: &Value, key: &str, default: u64, max: u64) -> u64 {
-    args.get(key).and_then(Value::as_u64).unwrap_or(default).clamp(1, max)
+    args.get(key)
+        .and_then(Value::as_u64)
+        .unwrap_or(default)
+        .clamp(1, max)
 }
 
 async fn run(
@@ -265,16 +369,35 @@ async fn run(
             needs.label()
         ));
     }
-    let db = if tool == "list_databases" { "" } else { arg(args, "database")? };
+    let db = if tool == "list_databases" {
+        ""
+    } else {
+        arg(args, "database")?
+    };
     match tool {
         "list_databases" => {
-            let dbs = inner.state.meta_read(&conn.id, "", META_LIMIT, |s| Box::pin(s.list_databases())).await.map_err(|e| failure(&conn, e))?;
+            let dbs = inner
+                .state
+                .meta_read(&conn.id, "", META_LIMIT, |s| Box::pin(s.list_databases()))
+                .await
+                .map_err(|e| failure(&conn, e))?;
             let n = dbs.len() as u64;
-            let text = if dbs.is_empty() { "(this engine has no databases: use database \"\")".to_string() } else { dbs.join("\n") };
-            Ok(Done { text, rows: Some(n) })
+            let text = if dbs.is_empty() {
+                "(this engine has no databases: use database \"\")".to_string()
+            } else {
+                dbs.join("\n")
+            };
+            Ok(Done {
+                text,
+                rows: Some(n),
+            })
         }
         "list_objects" => {
-            let objects = inner.state.meta_read(&conn.id, db, META_LIMIT, |s| Box::pin(s.list_objects())).await.map_err(|e| failure(&conn, e))?;
+            let objects = inner
+                .state
+                .meta_read(&conn.id, db, META_LIMIT, |s| Box::pin(s.list_objects()))
+                .await
+                .map_err(|e| failure(&conn, e))?;
             let mut lines: Vec<String> = objects
                 .iter()
                 .take(LIST_MAX)
@@ -292,38 +415,75 @@ async fn run(
             if lines.is_empty() {
                 lines.push("(no objects)".into());
             }
-            Ok(Done { text: lines.join("\n"), rows: Some(objects.len() as u64) })
+            Ok(Done {
+                text: lines.join("\n"),
+                rows: Some(objects.len() as u64),
+            })
         }
         "describe_object" => describe(inner, &conn, db, arg(args, "object")?).await,
-        "index_usage" => match args.get("object").and_then(Value::as_str).filter(|o| !o.trim().is_empty()) {
+        "index_usage" => match args
+            .get("object")
+            .and_then(Value::as_str)
+            .filter(|o| !o.trim().is_empty())
+        {
             Some(o) => index_usage(inner, &conn, db, o).await,
             None => index_overview(inner, &conn, db).await,
         },
         "sample_rows" => {
             let obj = find_object(inner, &conn, db, arg(args, "object")?).await?;
             let limit = arg_num(args, "limit", 20, SAMPLE_MAX);
-            let entry = inner.state.session(&crate::state::meta_key(&conn.id, db), &conn.id, db).await.map_err(|e| failure(&conn, e))?;
+            let entry = inner
+                .state
+                .session(&crate::state::meta_key(&conn.id, db), &conn.id, db)
+                .await
+                .map_err(|e| failure(&conn, e))?;
             let query = entry.session.lock().await.browse_query(&obj, limit as u32);
-            let out = run_read_only(inner, &conn, db, Op::Execute(query, limit as usize), Duration::from_secs(TIMEOUT_DEFAULT)).await?;
+            let out = run_read_only(
+                inner,
+                &conn,
+                db,
+                Op::Execute(query, limit as usize),
+                Duration::from_secs(TIMEOUT_DEFAULT),
+            )
+            .await?;
             Ok(results_text(&out, limit))
         }
         "run_query" => {
             let query = arg(args, "query")?;
             refuse_writes(&conn, query)?;
             let max = arg_num(args, "max_rows", QUERY_DEFAULT, QUERY_MAX);
-            let limit = Duration::from_secs(arg_num(args, "timeout_seconds", TIMEOUT_DEFAULT, TIMEOUT_MAX));
+            let limit = Duration::from_secs(arg_num(
+                args,
+                "timeout_seconds",
+                TIMEOUT_DEFAULT,
+                TIMEOUT_MAX,
+            ));
             let (key, entry) = read_only_session(inner, &conn, db).await?;
             let routed = reads::route(
                 approval_free(&conn, query),
                 async {
-                    match run_op(inner, &key, entry.clone(), Op::ReadOnly(query.to_string(), max as usize), limit).await {
+                    match run_op(
+                        inner,
+                        &key,
+                        entry.clone(),
+                        Op::ReadOnly(query.to_string(), max as usize),
+                        limit,
+                    )
+                    .await
+                    {
                         Ok(out) => Ok(Attempt::Done(out)),
                         Err(RunFail::Unsupported) => Ok(Attempt::NotEnforced),
                         Err(RunFail::Failed(e)) => Err(e),
                     }
                 },
                 approve_read(inner, who, tool, args, &conn, db, query),
-                run_read_only(inner, &conn, db, Op::Execute(query.to_string(), max as usize), limit),
+                run_read_only(
+                    inner,
+                    &conn,
+                    db,
+                    Op::Execute(query.to_string(), max as usize),
+                    limit,
+                ),
             )
             .await;
             let (out, how) = routed_phase(routed, phase)?;
@@ -331,9 +491,14 @@ async fn run(
         }
         "explain" => {
             let query = arg(args, "query")?;
-            let driver = dbine_drivers::find(&conn.config.driver).ok_or_else(|| format!("esta versión no incluye el driver '{}'", conn.config.driver))?;
+            let driver = dbine_drivers::find(&conn.config.driver).ok_or_else(|| {
+                format!("esta versión no incluye el driver '{}'", conn.config.driver)
+            })?;
             if !driver.supports_explain() {
-                return Err(format!("{} no ofrece planes de ejecución", driver.info().name));
+                return Err(format!(
+                    "{} no ofrece planes de ejecución",
+                    driver.info().name
+                ));
             }
             refuse_writes(&conn, query)?;
             let limit = Duration::from_secs(TIMEOUT_DEFAULT);
@@ -349,7 +514,15 @@ async fn run(
                 async {
                     match run_op(inner, &key, entry.clone(), Op::Probe, limit).await {
                         Err(RunFail::Unsupported) => Ok(Attempt::NotEnforced),
-                        _ => run_on(inner, &key, entry.clone(), Op::Explain(query.to_string()), limit).await.map(Attempt::Done),
+                        _ => run_on(
+                            inner,
+                            &key,
+                            entry.clone(),
+                            Op::Explain(query.to_string()),
+                            limit,
+                        )
+                        .await
+                        .map(Attempt::Done),
                     }
                 },
                 approve_read(inner, who, tool, args, &conn, db, query),
@@ -364,29 +537,53 @@ async fn run(
 }
 
 fn list_connections(inner: &Inner, default: McpLevel) -> Result<Done, String> {
-    let conns = inner.state.store.list_connections().map_err(|e| e.to_string())?;
+    let conns = inner
+        .state
+        .store
+        .list_connections()
+        .map_err(|e| e.to_string())?;
     let mut lines = Vec::new();
     for c in &conns {
         let level = effective_level(c, default).level;
         if level < McpLevel::Schema {
             continue;
         }
-        let engine = dbine_drivers::find(&c.config.driver).map(|d| d.info().name).unwrap_or(c.config.driver.as_str());
-        lines.push(format!("{} | {} | {} | id {}", c.name, engine, level.as_str(), c.id));
+        let engine = dbine_drivers::find(&c.config.driver)
+            .map(|d| d.info().name)
+            .unwrap_or(c.config.driver.as_str());
+        lines.push(format!(
+            "{} | {} | {} | id {}",
+            c.name,
+            engine,
+            level.as_str(),
+            c.id
+        ));
     }
     let n = lines.len() as u64;
     let text = if lines.is_empty() {
-        "(no connections are available to MCP: the user can enable them in DBine, Settings › MCP)".to_string()
+        "(no connections are available to MCP: the user can enable them in DBine, Settings › MCP)"
+            .to_string()
     } else {
         format!("name | engine | level | id\n{}", lines.join("\n"))
     };
-    Ok(Done { text, rows: Some(n) })
+    Ok(Done {
+        text,
+        rows: Some(n),
+    })
 }
 
 /// The connection a client named, with its effective level. A connection
 /// that doesn't exist and one MCP can't see answer the same.
-pub(super) fn find_connection(inner: &Inner, wanted: &str, default: McpLevel) -> Result<(SavedConnection, McpLevel), String> {
-    let conns = inner.state.store.list_connections().map_err(|e| e.to_string())?;
+pub(super) fn find_connection(
+    inner: &Inner,
+    wanted: &str,
+    default: McpLevel,
+) -> Result<(SavedConnection, McpLevel), String> {
+    let conns = inner
+        .state
+        .store
+        .list_connections()
+        .map_err(|e| e.to_string())?;
     let visible: Vec<(SavedConnection, McpLevel)> = conns
         .into_iter()
         .map(|c| {
@@ -399,7 +596,10 @@ pub(super) fn find_connection(inner: &Inner, wanted: &str, default: McpLevel) ->
     if let Some(hit) = visible.iter().find(|(c, _)| c.id == wanted) {
         return Ok(hit.clone());
     }
-    let named: Vec<_> = visible.into_iter().filter(|(c, _)| c.name.trim().eq_ignore_ascii_case(wanted)).collect();
+    let named: Vec<_> = visible
+        .into_iter()
+        .filter(|(c, _)| c.name.trim().eq_ignore_ascii_case(wanted))
+        .collect();
     match named.len() {
         1 => Ok(named.into_iter().next().unwrap()),
         0 => Err(format!("no hay ninguna conexión «{wanted}» disponible por MCP (list_connections muestra las que hay)")),
@@ -431,22 +631,53 @@ fn qualified(schema: Option<&str>, name: &str) -> String {
 }
 
 /// The object `wanted` names (`schema.name` or `name`, any case).
-async fn find_object(inner: &Inner, conn: &SavedConnection, db: &str, wanted: &str) -> Result<ObjectRef, String> {
-    let objects = inner.state.meta_read(&conn.id, db, META_LIMIT, |s| Box::pin(s.list_objects())).await.map_err(|e| failure(conn, e))?;
+async fn find_object(
+    inner: &Inner,
+    conn: &SavedConnection,
+    db: &str,
+    wanted: &str,
+) -> Result<ObjectRef, String> {
+    let objects = inner
+        .state
+        .meta_read(&conn.id, db, META_LIMIT, |s| Box::pin(s.list_objects()))
+        .await
+        .map_err(|e| failure(conn, e))?;
     let wanted = wanted.trim();
     let matches = |o: &&dbine_driver::DbObject| {
-        qualified(o.schema.as_deref(), &o.name).eq_ignore_ascii_case(wanted) || o.name.eq_ignore_ascii_case(wanted)
+        qualified(o.schema.as_deref(), &o.name).eq_ignore_ascii_case(wanted)
+            || o.name.eq_ignore_ascii_case(wanted)
     };
     // An exact qualified name beats a bare name found in several schemas.
-    let exact: Vec<_> = objects.iter().filter(|o| qualified(o.schema.as_deref(), &o.name) == wanted).collect();
-    let hits: Vec<_> = if exact.len() == 1 { exact } else { objects.iter().filter(matches).collect() };
-    let hits: Vec<_> = if hits.len() > 1 && hits.iter().any(|o| o.parent.is_none()) { hits.into_iter().filter(|o| o.parent.is_none()).collect() } else { hits };
+    let exact: Vec<_> = objects
+        .iter()
+        .filter(|o| qualified(o.schema.as_deref(), &o.name) == wanted)
+        .collect();
+    let hits: Vec<_> = if exact.len() == 1 {
+        exact
+    } else {
+        objects.iter().filter(matches).collect()
+    };
+    let hits: Vec<_> = if hits.len() > 1 && hits.iter().any(|o| o.parent.is_none()) {
+        hits.into_iter().filter(|o| o.parent.is_none()).collect()
+    } else {
+        hits
+    };
     match hits.as_slice() {
-        [o] => Ok(ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() }),
-        [] => Err(format!("no existe el objeto «{wanted}» en «{db}» (list_objects muestra los que hay)")),
+        [o] => Ok(ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        }),
+        [] => Err(format!(
+            "no existe el objeto «{wanted}» en «{db}» (list_objects muestra los que hay)"
+        )),
         many => Err(format!(
             "«{wanted}» coincide con varios objetos: {}. Indicá el esquema.",
-            many.iter().take(10).map(|o| qualified(o.schema.as_deref(), &o.name)).collect::<Vec<_>>().join(", ")
+            many.iter()
+                .take(10)
+                .map(|o| qualified(o.schema.as_deref(), &o.name))
+                .collect::<Vec<_>>()
+                .join(", ")
         )),
     }
 }
@@ -458,11 +689,19 @@ const OVERVIEW_TIME: Duration = Duration::from_secs(120);
 /// index_usage without an object: every table of the database, summed up in
 /// what an analysis needs (unused, disabled, never read), not every index.
 async fn index_overview(inner: &Inner, conn: &SavedConnection, db: &str) -> Result<Done, String> {
-    let objects = inner.state.meta_read(&conn.id, db, META_LIMIT, |s| Box::pin(s.list_objects())).await.map_err(|e| failure(conn, e))?;
+    let objects = inner
+        .state
+        .meta_read(&conn.id, db, META_LIMIT, |s| Box::pin(s.list_objects()))
+        .await
+        .map_err(|e| failure(conn, e))?;
     let tables: Vec<ObjectRef> = objects
         .iter()
         .filter(|o| o.kind == kinds::TABLE || o.kind == kinds::COLLECTION)
-        .map(|o| ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() })
+        .map(|o| ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        })
         .collect();
     let start = std::time::Instant::now();
     let (mut read, mut total, mut since, mut no_stats) = (0usize, 0usize, None, false);
@@ -472,7 +711,13 @@ async fn index_overview(inner: &Inner, conn: &SavedConnection, db: &str) -> Resu
             break;
         }
         let o = t.clone();
-        let Ok(Some(r)) = inner.state.meta_read(&conn.id, db, META_LIMIT, move |s| Box::pin(async move { s.index_usage(&o).await })).await else {
+        let Ok(Some(r)) = inner
+            .state
+            .meta_read(&conn.id, db, META_LIMIT, move |s| {
+                Box::pin(async move { s.index_usage(&o).await })
+            })
+            .await
+        else {
             continue;
         };
         let r = r.derived();
@@ -482,7 +727,13 @@ async fn index_overview(inner: &Inner, conn: &SavedConnection, db: &str) -> Resu
         let table = qualified(t.schema.as_deref(), &t.name);
         for i in &r.indexes {
             total += 1;
-            let line = format!("  {table}.{} ({}; {}){}", i.name, i.kind, i.key_columns.join(", "), i.size_kb.map(|k| format!(" {k} KB")).unwrap_or_default());
+            let line = format!(
+                "  {table}.{} ({}; {}){}",
+                i.name,
+                i.kind,
+                i.key_columns.join(", "),
+                i.size_kb.map(|k| format!(" {k} KB")).unwrap_or_default()
+            );
             if i.disabled {
                 disabled.push(line);
             } else if i.unused {
@@ -495,8 +746,14 @@ async fn index_overview(inner: &Inner, conn: &SavedConnection, db: &str) -> Resu
     let mut out = vec![format!(
         "{read} of {} tables read in {db}{}, {total} indexes{}",
         tables.len(),
-        if read < tables.len() { " (stopped early: too many tables or too slow; ask index_usage per table for the rest)" } else { "" },
-        since.map(|s| format!("; counters since {s}")).unwrap_or_default()
+        if read < tables.len() {
+            " (stopped early: too many tables or too slow; ask index_usage per table for the rest)"
+        } else {
+            ""
+        },
+        since
+            .map(|s| format!("; counters since {s}"))
+            .unwrap_or_default()
     )];
     if no_stats {
         out.push("usage counters not available for some tables (permissions or engine): judge only by structure there".into());
@@ -505,61 +762,140 @@ async fn index_overview(inner: &Inner, conn: &SavedConnection, db: &str) -> Resu
         out.push(format!("{title}: {}", lines.len()));
         out.extend(lines.into_iter().take(200));
     };
-    section("UNUSED (written, never read: they cost on every write)", unused);
+    section(
+        "UNUSED (written, never read: they cost on every write)",
+        unused,
+    );
     section("DISABLED", disabled);
     section("never read nor written (no evidence either way)", idle);
-    Ok(Done { rows: Some(total as u64), text: out.join("\n") })
+    Ok(Done {
+        rows: Some(total as u64),
+        text: out.join("\n"),
+    })
 }
 
-async fn index_usage(inner: &Inner, conn: &SavedConnection, db: &str, wanted: &str) -> Result<Done, String> {
+async fn index_usage(
+    inner: &Inner,
+    conn: &SavedConnection,
+    db: &str,
+    wanted: &str,
+) -> Result<Done, String> {
     let obj = find_object(inner, conn, db, wanted).await?;
     let o = obj.clone();
-    let report = inner.state.meta_read(&conn.id, db, META_LIMIT, move |s| Box::pin(async move { s.index_usage(&o).await })).await.map_err(|e| failure(conn, e))?;
+    let report = inner
+        .state
+        .meta_read(&conn.id, db, META_LIMIT, move |s| {
+            Box::pin(async move { s.index_usage(&o).await })
+        })
+        .await
+        .map_err(|e| failure(conn, e))?;
     let Some(report) = report.map(dbine_driver::IndexUsageReport::derived) else {
-        return Err(format!("{} no informa el uso de índices", conn.config.driver));
+        return Err(format!(
+            "{} no informa el uso de índices",
+            conn.config.driver
+        ));
     };
     let name = qualified(obj.schema.as_deref(), &obj.name);
-    let mut out = vec![format!("indexes of {name}{}", report.since.as_deref().map(|s| format!(" (counters since {s})")).unwrap_or_default())];
+    let mut out = vec![format!(
+        "indexes of {name}{}",
+        report
+            .since
+            .as_deref()
+            .map(|s| format!(" (counters since {s})"))
+            .unwrap_or_default()
+    )];
     if !report.stats_available {
-        out.push(format!("usage counters not available{}", report.note.as_deref().map(|n| format!(": {n}")).unwrap_or_default()));
+        out.push(format!(
+            "usage counters not available{}",
+            report
+                .note
+                .as_deref()
+                .map(|n| format!(": {n}"))
+                .unwrap_or_default()
+        ));
     }
     for i in &report.indexes {
         let mut flags = Vec::new();
-        if i.primary_key { flags.push("PK"); }
-        if i.unique { flags.push("UNIQUE"); }
-        if i.disabled { flags.push("DISABLED"); }
-        if i.unused { flags.push("UNUSED (written, never read)"); }
-        let share = i.read_share.map(|r| format!(" share {:.0}%", r * 100.0)).unwrap_or_default();
-        let writes = if report.writes_counted { format!(" writes {}", i.updates) } else { String::new() };
+        if i.primary_key {
+            flags.push("PK");
+        }
+        if i.unique {
+            flags.push("UNIQUE");
+        }
+        if i.disabled {
+            flags.push("DISABLED");
+        }
+        if i.unused {
+            flags.push("UNUSED (written, never read)");
+        }
+        let share = i
+            .read_share
+            .map(|r| format!(" share {:.0}%", r * 100.0))
+            .unwrap_or_default();
+        let writes = if report.writes_counted {
+            format!(" writes {}", i.updates)
+        } else {
+            String::new()
+        };
         let size = i.size_kb.map(|k| format!(" {k} KB")).unwrap_or_default();
         out.push(format!(
             "  {} {} ({}){}{} reads {} (seeks {}, scans {}, lookups {}){writes}{share}{}",
             i.name,
             i.kind,
             i.key_columns.join(", "),
-            if i.included_columns.is_empty() { String::new() } else { format!(" include ({})", i.included_columns.join(", ")) },
+            if i.included_columns.is_empty() {
+                String::new()
+            } else {
+                format!(" include ({})", i.included_columns.join(", "))
+            },
             size,
             i.reads,
             i.seeks,
             i.scans,
             i.lookups,
-            if flags.is_empty() { String::new() } else { format!(" [{}]", flags.join(", ")) },
+            if flags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", flags.join(", "))
+            },
         ));
     }
     if report.indexes.is_empty() {
         out.push("  (no indexes)".into());
     }
-    Ok(Done { rows: Some(report.indexes.len() as u64), text: out.join("\n") })
+    Ok(Done {
+        rows: Some(report.indexes.len() as u64),
+        text: out.join("\n"),
+    })
 }
 
-async fn describe(inner: &Inner, conn: &SavedConnection, db: &str, wanted: &str) -> Result<Done, String> {
+async fn describe(
+    inner: &Inner,
+    conn: &SavedConnection,
+    db: &str,
+    wanted: &str,
+) -> Result<Done, String> {
     let obj = find_object(inner, conn, db, wanted).await?;
     let o = obj.clone();
-    let columns = inner.state.meta_read(&conn.id, db, META_LIMIT, move |s| Box::pin(async move { s.columns(&o).await })).await.map_err(|e| failure(conn, e))?;
+    let columns = inner
+        .state
+        .meta_read(&conn.id, db, META_LIMIT, move |s| {
+            Box::pin(async move { s.columns(&o).await })
+        })
+        .await
+        .map_err(|e| failure(conn, e))?;
     let name = qualified(obj.schema.as_deref(), &obj.name);
     let mut out = vec![format!("{} {name}", obj.kind), "columns:".to_string()];
     for c in &columns {
-        let mut line = format!("  {} {}", c.name, if c.data_type.is_empty() { "?" } else { &c.data_type });
+        let mut line = format!(
+            "  {} {}",
+            c.name,
+            if c.data_type.is_empty() {
+                "?"
+            } else {
+                &c.data_type
+            }
+        );
         line.push_str(if c.nullable { " NULL" } else { " NOT NULL" });
         if c.primary_key {
             line.push_str(" PK");
@@ -577,9 +913,18 @@ async fn describe(inner: &Inner, conn: &SavedConnection, db: &str, wanted: &str)
     }
     // Keys and indexes come with the whole database's structure.
     if obj.kind == kinds::TABLE || obj.kind == kinds::COLLECTION {
-        match inner.state.meta_read(&conn.id, db, SCHEMA_LIMIT, |s| Box::pin(s.database_schema())).await {
+        match inner
+            .state
+            .meta_read(&conn.id, db, SCHEMA_LIMIT, |s| {
+                Box::pin(s.database_schema())
+            })
+            .await
+        {
             Ok(tables) => {
-                if let Some(t) = tables.iter().find(|t| t.name == obj.name && t.schema.as_deref().unwrap_or("") == obj.schema.as_deref().unwrap_or("")) {
+                if let Some(t) = tables.iter().find(|t| {
+                    t.name == obj.name
+                        && t.schema.as_deref().unwrap_or("") == obj.schema.as_deref().unwrap_or("")
+                }) {
                     if let Some(pk) = &t.primary_key {
                         out.push(format!("primary key: ({})", pk.columns.join(", ")));
                     }
@@ -588,7 +933,10 @@ async fn describe(inner: &Inner, conn: &SavedConnection, db: &str, wanted: &str)
                         for fk in &t.foreign_keys {
                             let mut line = format!(
                                 "  {}({}) -> {}({})",
-                                fk.name.as_deref().map(|n| format!("{n} ")).unwrap_or_default(),
+                                fk.name
+                                    .as_deref()
+                                    .map(|n| format!("{n} "))
+                                    .unwrap_or_default(),
                                 fk.columns.join(", "),
                                 qualified(fk.ref_schema.as_deref(), &fk.ref_table),
                                 fk.ref_columns.join(", ")
@@ -610,7 +958,10 @@ async fn describe(inner: &Inner, conn: &SavedConnection, db: &str, wanted: &str)
                                 i.name,
                                 if i.unique { " UNIQUE" } else { "" },
                                 i.columns.join(", "),
-                                i.kind.as_deref().map(|k| format!(" {k}")).unwrap_or_default()
+                                i.kind
+                                    .as_deref()
+                                    .map(|k| format!(" {k}"))
+                                    .unwrap_or_default()
                             ));
                         }
                     }
@@ -619,10 +970,16 @@ async fn describe(inner: &Inner, conn: &SavedConnection, db: &str, wanted: &str)
                     }
                 }
             }
-            Err(e) => out.push(format!("(keys and indexes unavailable: {})", failure(conn, e))),
+            Err(e) => out.push(format!(
+                "(keys and indexes unavailable: {})",
+                failure(conn, e)
+            )),
         }
     }
-    Ok(Done { text: out.join("\n"), rows: Some(columns.len() as u64) })
+    Ok(Done {
+        text: out.join("\n"),
+        rows: Some(columns.len() as u64),
+    })
 }
 
 /// For SQL engines, refuse a write before it reaches the server (the
@@ -631,7 +988,9 @@ async fn describe(inner: &Inner, conn: &SavedConnection, db: &str, wanted: &str)
 pub(super) fn refuse_writes_in(language: Language, query: &str) -> Result<(), String> {
     if language == Language::Sql {
         if let Some(kw) = dbine_driver::read_only::first_write(query) {
-            return Err(format!("DBine solo permite lecturas por MCP: la consulta tiene una sentencia {kw}"));
+            return Err(format!(
+                "DBine solo permite lecturas por MCP: la consulta tiene una sentencia {kw}"
+            ));
         }
     }
     Ok(())
@@ -647,7 +1006,8 @@ fn approval_free(conn: &SavedConnection, query: &str) -> bool {
 }
 
 fn refuse_writes(conn: &SavedConnection, query: &str) -> Result<(), String> {
-    let driver = dbine_drivers::find(&conn.config.driver).ok_or_else(|| format!("esta versión no incluye el driver '{}'", conn.config.driver))?;
+    let driver = dbine_drivers::find(&conn.config.driver)
+        .ok_or_else(|| format!("esta versión no incluye el driver '{}'", conn.config.driver))?;
     refuse_writes_in(driver.info().language, query)
 }
 
@@ -672,7 +1032,10 @@ pub(super) enum RunFail {
 }
 
 /// The routed read's log step, and its error as the client sees it.
-fn routed_phase(routed: Result<(QueryOutcome, How), Refused>, phase: &mut Option<&'static str>) -> Result<(QueryOutcome, How), String> {
+fn routed_phase(
+    routed: Result<(QueryOutcome, How), Refused>,
+    phase: &mut Option<&'static str>,
+) -> Result<(QueryOutcome, How), String> {
     match routed {
         Ok((out, how)) => {
             *phase = Some(how.phase());
@@ -688,7 +1051,10 @@ fn routed_phase(routed: Result<(QueryOutcome, How), Refused>, phase: &mut Option
 /// An MCP client is told the user approved the read in DBine.
 fn approved_head(how: How, mut done: Done) -> Done {
     if how == How::Approved {
-        done.text = format!("{}\n\n{}", "Aprobado por el usuario y ejecutado.", done.text);
+        done.text = format!(
+            "{}\n\n{}",
+            "Aprobado por el usuario y ejecutado.", done.text
+        );
     }
     done
 }
@@ -696,12 +1062,24 @@ fn approved_head(how: How, mut done: Done) -> Done {
 /// The user's approval of a read the engine can't enforce: DBine's dialog
 /// for an MCP client (the log gets the request first, as for `execute`);
 /// DBine's assistant was already approved in the chat.
-pub(super) async fn approve_read(inner: &Inner, who: Who<'_>, tool: &str, args: &Value, conn: &SavedConnection, db: &str, code: &str) -> Result<How, Refused> {
+pub(super) async fn approve_read(
+    inner: &Inner,
+    who: Who<'_>,
+    tool: &str,
+    args: &Value,
+    conn: &SavedConnection,
+    db: &str,
+    code: &str,
+) -> Result<How, Refused> {
     let client = match who {
         Who::Chat => return Ok(How::ApprovedInChat),
         Who::Mcp(client) => client,
     };
-    let request = super::write::approval_request(ApprovalKind::Read, client, conn, db, code).map_err(|message| Refused { message, phase: "request" })?;
+    let request = super::write::approval_request(ApprovalKind::Read, client, conn, db, code)
+        .map_err(|message| Refused {
+            message,
+            phase: "request",
+        })?;
     inner.activity.record(&ActivityEntry {
         id: 0,
         at: chrono::Utc::now().to_rfc3339(),
@@ -716,9 +1094,15 @@ pub(super) async fn approve_read(inner: &Inner, who: Who<'_>, tool: &str, args: 
     match inner.approvals.ask(request, APPROVAL_TIMEOUT).await {
         Outcome::Approved => Ok(How::Approved),
         Outcome::AutoApproved => Ok(How::AutoApproved),
-        Outcome::Rejected => Err(Refused { message: "Rechazado por el usuario en DBine: no se ejecutó nada.".into(), phase: "rejected" }),
+        Outcome::Rejected => Err(Refused {
+            message: "Rechazado por el usuario en DBine: no se ejecutó nada.".into(),
+            phase: "rejected",
+        }),
         Outcome::TimedOut => Err(Refused {
-            message: format!("Sin respuesta del usuario en {} segundos: rechazado, no se ejecutó nada.", APPROVAL_TIMEOUT.as_secs()),
+            message: format!(
+                "Sin respuesta del usuario en {} segundos: rechazado, no se ejecutó nada.",
+                APPROVAL_TIMEOUT.as_secs()
+            ),
             phase: "timeout",
         }),
     }
@@ -727,33 +1111,64 @@ pub(super) async fn approve_read(inner: &Inner, who: Who<'_>, tool: &str, args: 
 /// A read-only session of MCP's own for the database: `cfg.read_only` is
 /// forced, so SQL engines get the read-only decorator and the others their
 /// own read-only mode. Kept between calls; editing the connection drops it.
-async fn read_only_session(inner: &Inner, conn: &SavedConnection, db: &str) -> Result<(String, Arc<SessionEntry>), String> {
+async fn read_only_session(
+    inner: &Inner,
+    conn: &SavedConnection,
+    db: &str,
+) -> Result<(String, Arc<SessionEntry>), String> {
     let key = format!("mcp:{}:{db}", conn.id);
     if let Some(e) = inner.state.sessions.get(&key) {
         if e.connection_id == conn.id && e.database == db {
             return Ok((key, e.clone()));
         }
     }
-    let entry = inner.state.dedicated_session(&key, &conn.id, db, true).await.map_err(|e| failure(conn, e))?;
+    let entry = inner
+        .state
+        .dedicated_session(&key, &conn.id, db, true)
+        .await
+        .map_err(|e| failure(conn, e))?;
     Ok((key, entry))
 }
 
-async fn run_read_only(inner: &Inner, conn: &SavedConnection, db: &str, op: Op, limit: Duration) -> Result<QueryOutcome, String> {
+async fn run_read_only(
+    inner: &Inner,
+    conn: &SavedConnection,
+    db: &str,
+    op: Op,
+    limit: Duration,
+) -> Result<QueryOutcome, String> {
     let (key, entry) = read_only_session(inner, conn, db).await?;
     run_on(inner, &key, entry, op, limit).await
 }
 
 /// Run `op` on the session `key` holds, within `limit`; on timeout the
 /// statement is interrupted and the session dropped.
-pub(super) async fn run_on(inner: &Inner, key: &str, entry: Arc<SessionEntry>, op: Op, limit: Duration) -> Result<QueryOutcome, String> {
-    run_op(inner, key, entry, op, limit).await.map_err(|e| match e {
-        RunFail::Unsupported => Error::Unsupported("este motor no asegura lecturas de solo lectura en el servidor".into()).to_string(),
-        RunFail::Failed(e) => e,
-    })
+pub(super) async fn run_on(
+    inner: &Inner,
+    key: &str,
+    entry: Arc<SessionEntry>,
+    op: Op,
+    limit: Duration,
+) -> Result<QueryOutcome, String> {
+    run_op(inner, key, entry, op, limit)
+        .await
+        .map_err(|e| match e {
+            RunFail::Unsupported => Error::Unsupported(
+                "este motor no asegura lecturas de solo lectura en el servidor".into(),
+            )
+            .to_string(),
+            RunFail::Failed(e) => e,
+        })
 }
 
 /// `run_on`, telling `Unsupported` of `run_read_only` apart.
-pub(super) async fn run_op(inner: &Inner, key: &str, entry: Arc<SessionEntry>, op: Op, limit: Duration) -> Result<QueryOutcome, RunFail> {
+pub(super) async fn run_op(
+    inner: &Inner,
+    key: &str,
+    entry: Arc<SessionEntry>,
+    op: Op,
+    limit: Duration,
+) -> Result<QueryOutcome, RunFail> {
     let mut out = QueryOutcome::default();
     let work = async {
         let mut s = entry.session.lock().await;
@@ -774,8 +1189,14 @@ pub(super) async fn run_op(inner: &Inner, key: &str, entry: Arc<SessionEntry>, o
                 i();
             }
             entry.cancel.notify_waiters();
-            inner.state.sessions.remove_if(key, |_, e| Arc::ptr_eq(e, &entry));
-            return Err(RunFail::Failed(format!("la consulta superó el límite de {} s y se canceló", limit.as_secs())));
+            inner
+                .state
+                .sessions
+                .remove_if(key, |_, e| Arc::ptr_eq(e, &entry));
+            return Err(RunFail::Failed(format!(
+                "la consulta superó el límite de {} s y se canceló",
+                limit.as_secs()
+            )));
         }
     }
     if let Some(e) = out.error.take() {
@@ -790,17 +1211,28 @@ fn cell(v: &Value) -> String {
         Value::String(s) => s.clone(),
         other => other.to_string(),
     };
-    cut(&s.replace('\r', "").replace('\n', "\\n").replace('\t', " "), CELL_MAX)
+    cut(
+        &s.replace('\r', "").replace('\n', "\\n").replace('\t', " "),
+        CELL_MAX,
+    )
 }
 
 fn table_text(r: &StatementResult, shown_max: u64) -> String {
-    let mut lines = vec![r.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(" | ")];
+    let mut lines = vec![r
+        .columns
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect::<Vec<_>>()
+        .join(" | ")];
     for row in &r.rows {
         lines.push(row.iter().map(cell).collect::<Vec<_>>().join(" | "));
     }
     let total = r.total_rows.max(r.rows.len() as u64);
     if r.truncated || total > r.rows.len() as u64 {
-        lines.push(format!("({} of {total} rows shown; limit {shown_max})", r.rows.len()));
+        lines.push(format!(
+            "({} of {total} rows shown; limit {shown_max})",
+            r.rows.len()
+        ));
     } else {
         lines.push(format!("({} rows)", r.rows.len()));
     }
@@ -819,12 +1251,22 @@ pub(super) fn results_text(out: &QueryOutcome, max: u64) -> Done {
         }
     }
     if !out.messages.is_empty() {
-        parts.push(format!("messages:\n{}", out.messages.iter().map(|m| cut(m, 500)).collect::<Vec<_>>().join("\n")));
+        parts.push(format!(
+            "messages:\n{}",
+            out.messages
+                .iter()
+                .map(|m| cut(m, 500))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
     }
     if parts.is_empty() {
         parts.push("(no results)".into());
     }
-    Done { text: cap_text(parts.join("\n\n")), rows: Some(rows) }
+    Done {
+        text: cap_text(parts.join("\n\n")),
+        rows: Some(rows),
+    }
 }
 
 fn cap_text(s: String) -> String {
@@ -883,7 +1325,10 @@ fn plans_text(out: &QueryOutcome) -> Done {
         // Engines that give the plan as a result set.
         return results_text(out, 100);
     }
-    Done { text: cap_text(parts.join("\n\n")), rows: None }
+    Done {
+        text: cap_text(parts.join("\n\n")),
+        rows: None,
+    }
 }
 
 #[cfg(test)]
@@ -893,7 +1338,11 @@ mod tests {
     #[test]
     fn mcp_run_query_refuses_writes() {
         assert!(refuse_writes_in(Language::Sql, "select 1").is_ok());
-        assert!(refuse_writes_in(Language::Sql, "-- note\nWITH x AS (SELECT 1) SELECT * FROM x").is_ok());
+        assert!(refuse_writes_in(
+            Language::Sql,
+            "-- note\nWITH x AS (SELECT 1) SELECT * FROM x"
+        )
+        .is_ok());
         let e = refuse_writes_in(Language::Sql, "select 1; delete from t").unwrap_err();
         assert!(e.contains("DELETE"), "{e}");
         assert!(refuse_writes_in(Language::Sql, "DROP TABLE t").is_err());
@@ -903,7 +1352,10 @@ mod tests {
     #[test]
     fn mcp_summary_cuts_queries() {
         let long = "select ".to_string() + &"x, ".repeat(200);
-        let s = summary("run_query", &json!({ "connection": "c", "database": "main", "query": long }));
+        let s = summary(
+            "run_query",
+            &json!({ "connection": "c", "database": "main", "query": long }),
+        );
         assert!(s.starts_with("[main] select"));
         assert!(s.chars().count() < 220);
     }

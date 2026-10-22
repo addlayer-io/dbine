@@ -13,8 +13,12 @@ fn cfg() -> Option<ConnectionConfig> {
         driver: "flightsql".into(),
         host: url.host_str()?.into(),
         port: url.port().unwrap_or(0),
-        username: Some(std::env::var("DBINE_TEST_FLIGHTSQL_USER").unwrap_or_else(|_| "gizmosql_user".into())),
-        password: Some(std::env::var("DBINE_TEST_FLIGHTSQL_PASSWORD").unwrap_or_else(|_| "secreto1".into())),
+        username: Some(
+            std::env::var("DBINE_TEST_FLIGHTSQL_USER").unwrap_or_else(|_| "gizmosql_user".into()),
+        ),
+        password: Some(
+            std::env::var("DBINE_TEST_FLIGHTSQL_PASSWORD").unwrap_or_else(|_| "secreto1".into()),
+        ),
         ..Default::default()
     })
 }
@@ -47,6 +51,13 @@ async fn flightsql_stats() {
     assert_eq!((t.object.kind.as_str(), t.rows), (kinds::TABLE, 1234));
     let c = s.object_comments().await.unwrap();
     eprintln!("{c:?}");
-    assert!(c.iter().any(|c| c.object.kind == kinds::VIEW && c.object.name == "st_v" && c.comment == "ventas por id"), "{c:?}");
-    s.execute("DROP VIEW st_v; DROP TABLE st_t", 10, &mut out).await.unwrap();
+    assert!(
+        c.iter().any(|c| c.object.kind == kinds::VIEW
+            && c.object.name == "st_v"
+            && c.comment == "ventas por id"),
+        "{c:?}"
+    );
+    s.execute("DROP VIEW st_v; DROP TABLE st_t", 10, &mut out)
+        .await
+        .unwrap();
 }

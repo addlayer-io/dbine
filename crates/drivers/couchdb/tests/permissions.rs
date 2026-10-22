@@ -48,7 +48,10 @@ async fn admin_users_and_read_only() {
     let mut admin = d.connect(&c, None).await.expect("connect");
     let p = admin.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("admin: {p:?}");
-    assert_eq!((&p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+    assert_eq!(
+        (&p.create_database, &p.drop_database, &p.manage_security),
+        (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+    );
 
     let _ = run(&mut admin, "DELETE /dbine_perm").await;
     run(&mut admin, "PUT /dbine_perm").await.unwrap();
@@ -60,9 +63,16 @@ async fn admin_users_and_read_only() {
     run(&mut admin, "PUT /dbine_perm/_security {\"admins\": {\"names\": [\"perm_dba\"], \"roles\": []}, \"members\": {\"names\": [\"perm_dba\", \"perm_plain\"], \"roles\": []}}")
         .await
         .unwrap();
-    let user = |u: &str| ConnectionConfig { username: Some(u.into()), password: Some("pw".into()), ..c.clone() };
+    let user = |u: &str| ConnectionConfig {
+        username: Some(u.into()),
+        password: Some("pw".into()),
+        ..c.clone()
+    };
 
-    let mut s = d.connect(&user("perm_plain"), Some("dbine_perm")).await.expect("connect as plain user");
+    let mut s = d
+        .connect(&user("perm_plain"), Some("dbine_perm"))
+        .await
+        .expect("connect as plain user");
     let p = s.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("plain user: {p:?}");
     assert!(denied(&p.create_database, "_admin") && denied(&p.drop_database, "_admin"));
@@ -70,26 +80,52 @@ async fn admin_users_and_read_only() {
     // What it says, the server does.
     assert!(s.drop_database("dbine_perm").await.is_err());
 
-    let mut s = d.connect(&user("perm_dba"), Some("dbine_perm")).await.expect("connect as database admin");
+    let mut s = d
+        .connect(&user("perm_dba"), Some("dbine_perm"))
+        .await
+        .expect("connect as database admin");
     let p = s.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("database admin: {p:?}");
     assert_eq!(p.manage_security, Access::Allowed);
     assert!(denied(&p.drop_database, "_admin"));
 
-    let mut s = d.connect(&ConnectionConfig { read_only: true, ..c.clone() }, None).await.expect("connect read-only");
+    let mut s = d
+        .connect(
+            &ConnectionConfig {
+                read_only: true,
+                ..c.clone()
+            },
+            None,
+        )
+        .await
+        .expect("connect read-only");
     let p = s.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("read-only connection: {p:?}");
     // What the server grants: DBine's read-only mode isn't a missing privilege.
-    assert_eq!((&p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+    assert_eq!(
+        (&p.create_database, &p.drop_database, &p.manage_security),
+        (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+    );
 
     run(&mut admin, "DELETE /dbine_perm").await.unwrap();
     // A user document is deleted by its current revision.
     let http = reqwest::Client::new();
     let base = format!("http://{}:{}/_users/org.couchdb.user:", c.host, c.port);
     for u in ["perm_plain", "perm_dba"] {
-        let doc: serde_json::Value =
-            http.get(format!("{base}{u}")).basic_auth("admin", c.password.as_deref()).send().await.unwrap().json().await.unwrap();
+        let doc: serde_json::Value = http
+            .get(format!("{base}{u}"))
+            .basic_auth("admin", c.password.as_deref())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         let rev = doc["_rev"].as_str().unwrap();
-        http.delete(format!("{base}{u}?rev={rev}")).basic_auth("admin", c.password.as_deref()).send().await.unwrap();
+        http.delete(format!("{base}{u}?rev={rev}"))
+            .basic_auth("admin", c.password.as_deref())
+            .send()
+            .await
+            .unwrap();
     }
 }

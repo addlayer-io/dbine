@@ -70,7 +70,9 @@ impl Kind {
 /// Data files by extension (`.csv.gz` counts as CSV), as the "Archivos"
 /// driver reads them (crates/drivers/duckdb/src/files.rs, which isn't in
 /// the app's build when drivers are downloaded).
-const DATA_EXTS: &[&str] = &[".csv", ".tsv", ".parquet", ".json", ".jsonl", ".ndjson", ".xlsx"];
+const DATA_EXTS: &[&str] = &[
+    ".csv", ".tsv", ".parquet", ".json", ".jsonl", ".ndjson", ".xlsx",
+];
 /// Compressions DuckDB reads for the text formats.
 const COMPRESSED: &[&str] = &[".gz", ".zst"];
 
@@ -79,7 +81,10 @@ const COMPRESSED: &[&str] = &[".gz", ".zst"];
 pub fn data_stem(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_str()?;
     let lower = name.to_ascii_lowercase();
-    let base = COMPRESSED.iter().find_map(|c| lower.strip_suffix(c)).unwrap_or(&lower);
+    let base = COMPRESSED
+        .iter()
+        .find_map(|c| lower.strip_suffix(c))
+        .unwrap_or(&lower);
     let ext = DATA_EXTS.iter().find(|e| base.ends_with(*e))?;
     // A compressed workbook or Parquet isn't something DuckDB reads.
     if base.len() != lower.len() && matches!(*ext, ".parquet" | ".xlsx") {
@@ -92,7 +97,11 @@ pub fn data_stem(path: &Path) -> Option<String> {
 /// What a file is: by its first bytes when they say (a `.db` may be either
 /// engine's), else by its extension.
 pub fn classify(path: &Path) -> Option<Kind> {
-    let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
     let mut head = [0u8; 16];
     let read = std::fs::File::open(path).and_then(|mut f| {
         use std::io::Read;
@@ -108,10 +117,16 @@ pub fn classify(path: &Path) -> Option<Kind> {
     let n = read.unwrap_or(0);
     if ext == "ipynb" {
         // A JSON object (after a BOM and blanks).
-        let head = head[..n].strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&head[..n]);
-        return (head.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{')).then_some(Kind::Notebook);
+        let head = head[..n]
+            .strip_prefix(b"\xEF\xBB\xBF")
+            .unwrap_or(&head[..n]);
+        return (head.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{'))
+            .then_some(Kind::Notebook);
     }
-    let db_ext = matches!(ext.as_str(), "sqlite" | "sqlite3" | "db3" | "s3db" | "sl3" | "db" | "duckdb" | "ddb");
+    let db_ext = matches!(
+        ext.as_str(),
+        "sqlite" | "sqlite3" | "db3" | "s3db" | "sl3" | "db" | "duckdb" | "ddb"
+    );
     if db_ext && n == 16 && &head == b"SQLite format 3\0" {
         return Some(Kind::Sqlite);
     }
@@ -132,18 +147,28 @@ pub fn classify(path: &Path) -> Option<Kind> {
 
 /// The first query of a data file: its rows, the view's name quoted.
 pub fn first_query(view: &str) -> String {
-    format!("SELECT * FROM {} LIMIT {FIRST_ROWS}", quote_ident(Quote::Double, view))
+    format!(
+        "SELECT * FROM {} LIMIT {FIRST_ROWS}",
+        quote_ident(Quote::Double, view)
+    )
 }
 
 /// The connection a file opens as (not saved yet).
 pub fn connection_for(path: &Path, kind: Kind) -> SavedConnection {
-    let mut config = ConnectionConfig { driver: kind.driver().into(), host: path.to_string_lossy().into(), ..Default::default() };
+    let mut config = ConnectionConfig {
+        driver: kind.driver().into(),
+        host: path.to_string_lossy().into(),
+        ..Default::default()
+    };
     if kind == Kind::Data {
         config.options.insert("single".into(), "true".into());
     }
     SavedConnection {
         id: uuid::Uuid::new_v4().to_string(),
-        name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into()),
+        name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into()),
         color: None,
         config,
         save_password: false,
@@ -164,7 +189,11 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 /// A connection (temporary or saved) already on this file, as this kind.
-fn existing<'a>(conns: &'a [SavedConnection], path: &Path, kind: Kind) -> Option<&'a SavedConnection> {
+fn existing<'a>(
+    conns: &'a [SavedConnection],
+    path: &Path,
+    kind: Kind,
+) -> Option<&'a SavedConnection> {
     conns.iter().find(|c| {
         c.config.driver == kind.driver()
             && (kind != Kind::Data || c.config.option("single") == Some("true"))
@@ -220,7 +249,9 @@ pub fn received(app: &AppHandle, paths: Vec<PathBuf>, label: Option<&str>) {
     }
     tracing::info!(count = paths.len(), "files to open");
     queue(paths);
-    let win = label.and_then(|l| app.get_webview_window(l)).or_else(|| crate::windows::target_window(app));
+    let win = label
+        .and_then(|l| app.get_webview_window(l))
+        .or_else(|| crate::windows::target_window(app));
     match win {
         Some(w) => {
             let _ = w.emit("open-files", ());
@@ -262,26 +293,60 @@ pub struct OpenedFile {
 /// The connection for `path`: the one it has, or a new temporary one.
 pub fn open(store: &dbine_core::StateStore, path: &Path) -> CommandResult<OpenedFile> {
     if !path.is_file() {
-        return Err(CommandError::NotFound(format!("no existe el archivo «{}»", path.display())));
+        return Err(CommandError::NotFound(format!(
+            "no existe el archivo «{}»",
+            path.display()
+        )));
     }
-    let kind = classify(path).ok_or_else(|| CommandError::BadRequest(format!("DBine no abre este tipo de archivo: «{}»", path.display())))?;
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let kind = classify(path).ok_or_else(|| {
+        CommandError::BadRequest(format!(
+            "DBine no abre este tipo de archivo: «{}»",
+            path.display()
+        ))
+    })?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     if kind == Kind::Notebook {
         let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
         let path = Some(absolute.to_string_lossy().into_owned());
-        return Ok(OpenedFile { connection_id: String::new(), kind, name, existing: false, sql: None, path });
+        return Ok(OpenedFile {
+            connection_id: String::new(),
+            kind,
+            name,
+            existing: false,
+            sql: None,
+            path,
+        });
     }
-    let sql = (kind == Kind::Data).then(|| data_stem(path).map(|v| first_query(&v))).flatten();
+    let sql = (kind == Kind::Data)
+        .then(|| data_stem(path).map(|v| first_query(&v)))
+        .flatten();
     let mut known = store.list_temporary_connections()?;
     known.extend(store.list_connections()?);
     if let Some(c) = existing(&known, path, kind) {
-        return Ok(OpenedFile { connection_id: c.id.clone(), kind, name, existing: true, sql, path: None });
+        return Ok(OpenedFile {
+            connection_id: c.id.clone(),
+            kind,
+            name,
+            existing: true,
+            sql,
+            path: None,
+        });
     }
     // Absolute, as given (not canonicalized: on Windows that is a `\\?\`
     // path some readers don't take).
     let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     let conn = store.add_temporary_connection(&connection_for(&absolute, kind))?;
-    Ok(OpenedFile { connection_id: conn.id, kind, name, existing: false, sql, path: None })
+    Ok(OpenedFile {
+        connection_id: conn.id,
+        kind,
+        name,
+        existing: false,
+        sql,
+        path: None,
+    })
 }
 
 #[tauri::command]
@@ -290,7 +355,10 @@ pub fn open_files_take() -> Vec<String> {
 }
 
 fn take_pending() -> Vec<String> {
-    std::mem::take(&mut *pending()).into_iter().map(|p| p.to_string_lossy().into_owned()).collect()
+    std::mem::take(&mut *pending())
+        .into_iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -299,7 +367,10 @@ pub struct OpenFileArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn open_file(state: State<'_, AppState>, args: OpenFileArgs) -> CommandResult<OpenedFile> {
+pub async fn open_file(
+    state: State<'_, AppState>,
+    args: OpenFileArgs,
+) -> CommandResult<OpenedFile> {
     open(&state.store, Path::new(&args.path))
 }
 
@@ -375,12 +446,17 @@ mod drop {
             // SAFETY: same signature as the method replaced (an NSView's
             // `-(BOOL)performDragOperation:(id<NSDraggingInfo>)`); the
             // original is kept and always called.
-            let original = unsafe { method.set_implementation(std::mem::transmute::<Perform, Imp>(ours)) };
+            let original =
+                unsafe { method.set_implementation(std::mem::transmute::<Perform, Imp>(ours)) };
             let _ = ORIGINAL.set(original);
             tracing::debug!("open files: drop hook installed");
         }
 
-        unsafe extern "C-unwind" fn perform_drag_operation(this: *mut AnyObject, sel: Sel, info: *mut AnyObject) -> Bool {
+        unsafe extern "C-unwind" fn perform_drag_operation(
+            this: *mut AnyObject,
+            sel: Sel,
+            info: *mut AnyObject,
+        ) -> Bool {
             let paths = unsafe { external_paths(info) };
             if !paths.is_empty() {
                 if let Some(app) = APP.get() {
@@ -388,7 +464,11 @@ mod drop {
                     let label = app
                         .webview_windows()
                         .into_iter()
-                        .find(|(_, w)| w.ns_window().map(|p| p as *mut AnyObject == ns_window).unwrap_or(false))
+                        .find(|(_, w)| {
+                            w.ns_window()
+                                .map(|p| p as *mut AnyObject == ns_window)
+                                .unwrap_or(false)
+                        })
                         .map(|(l, _)| l);
                     super::super::received(app, paths, label.as_deref());
                 }
@@ -427,7 +507,13 @@ mod drop {
                         return None;
                     }
                     let utf8: *const std::ffi::c_char = unsafe { msg_send![s, UTF8String] };
-                    (!utf8.is_null()).then(|| PathBuf::from(unsafe { std::ffi::CStr::from_ptr(utf8) }.to_string_lossy().into_owned()))
+                    (!utf8.is_null()).then(|| {
+                        PathBuf::from(
+                            unsafe { std::ffi::CStr::from_ptr(utf8) }
+                                .to_string_lossy()
+                                .into_owned(),
+                        )
+                    })
                 })
                 .collect()
         }
@@ -455,7 +541,9 @@ mod drop {
             let app = win.app_handle().clone();
             let label = win.label().to_string();
             let _ = win.with_webview(move |pw| unsafe {
-                let Ok(core) = pw.controller().CoreWebView2() else { return };
+                let Ok(core) = pw.controller().CoreWebView2() else {
+                    return;
+                };
                 let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
                     let Some(args) = args else { return Ok(()) };
                     let mut text = PWSTR::null();
@@ -465,13 +553,22 @@ mod drop {
                     if webview2_com::take_pwstr(text) != MESSAGE {
                         return Ok(());
                     }
-                    let Ok(args) = args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>() else { return Ok(()) };
-                    let Ok(objects) = args.AdditionalObjects() else { return Ok(()) };
+                    let Ok(args) = args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>() else {
+                        return Ok(());
+                    };
+                    let Ok(objects) = args.AdditionalObjects() else {
+                        return Ok(());
+                    };
                     let mut count = 0u32;
                     let _ = objects.Count(&mut count);
                     let mut paths = Vec::new();
                     for i in 0..count {
-                        let Ok(file) = objects.GetValueAtIndex(i).and_then(|o| o.cast::<ICoreWebView2File>()) else { continue };
+                        let Ok(file) = objects
+                            .GetValueAtIndex(i)
+                            .and_then(|o| o.cast::<ICoreWebView2File>())
+                        else {
+                            continue;
+                        };
                         let mut path = PWSTR::null();
                         if file.Path(&mut path).is_ok() {
                             paths.push(PathBuf::from(webview2_com::take_pwstr(path)));
@@ -556,12 +653,15 @@ mod drop {
                         // a little later, unless the drag came back.
                         let seq = drag.seq.get();
                         let drag = drag.clone();
-                        glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
-                            if drag.seq.get() == seq {
-                                drag.paths.borrow_mut().clear();
-                                drag.dropping.set(false);
-                            }
-                        });
+                        glib::timeout_add_local_once(
+                            std::time::Duration::from_millis(300),
+                            move || {
+                                if drag.seq.get() == seq {
+                                    drag.paths.borrow_mut().clear();
+                                    drag.dropping.set(false);
+                                }
+                            },
+                        );
                     });
                 }
                 {
@@ -595,10 +695,22 @@ mod tests {
 
     #[test]
     fn data_files_and_their_view_names() {
-        assert_eq!(data_stem(Path::new("/d/ventas.csv")).as_deref(), Some("ventas"));
-        assert_eq!(data_stem(Path::new("/d/Ventas 2024.CSV.gz")).as_deref(), Some("Ventas 2024"));
-        assert_eq!(data_stem(Path::new("/d/log.ndjson")).as_deref(), Some("log"));
-        assert_eq!(data_stem(Path::new("/d/libro.xlsx")).as_deref(), Some("libro"));
+        assert_eq!(
+            data_stem(Path::new("/d/ventas.csv")).as_deref(),
+            Some("ventas")
+        );
+        assert_eq!(
+            data_stem(Path::new("/d/Ventas 2024.CSV.gz")).as_deref(),
+            Some("Ventas 2024")
+        );
+        assert_eq!(
+            data_stem(Path::new("/d/log.ndjson")).as_deref(),
+            Some("log")
+        );
+        assert_eq!(
+            data_stem(Path::new("/d/libro.xlsx")).as_deref(),
+            Some("libro")
+        );
         assert_eq!(data_stem(Path::new("/d/x.parquet.gz")), None);
         assert_eq!(data_stem(Path::new("/d/.csv")), None);
         assert_eq!(data_stem(Path::new("/d/notas.txt")), None);
@@ -606,8 +718,14 @@ mod tests {
 
     #[test]
     fn the_first_query_quotes_the_view() {
-        assert_eq!(first_query("ventas"), r#"SELECT * FROM "ventas" LIMIT 1000"#);
-        assert_eq!(first_query(r#"a"; DROP TABLE x; --"#), r#"SELECT * FROM "a""; DROP TABLE x; --" LIMIT 1000"#);
+        assert_eq!(
+            first_query("ventas"),
+            r#"SELECT * FROM "ventas" LIMIT 1000"#
+        );
+        assert_eq!(
+            first_query(r#"a"; DROP TABLE x; --"#),
+            r#"SELECT * FROM "a""; DROP TABLE x; --" LIMIT 1000"#
+        );
     }
 
     #[test]
@@ -631,14 +749,26 @@ mod tests {
         assert_eq!(classify(&w("e.sqlite3", b"")), Some(Kind::Sqlite));
         assert_eq!(classify(&w("f.duckdb", b"")), Some(Kind::Duckdb));
         // Someone else's .db (Thumbs.db) or a mislabeled file isn't opened.
-        assert_eq!(classify(&w("Thumbs.db", b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1 not sqlite")), None);
+        assert_eq!(
+            classify(&w(
+                "Thumbs.db",
+                b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1 not sqlite"
+            )),
+            None
+        );
         assert_eq!(classify(&w("g.sqlite", b"hello, this is plain text")), None);
         assert_eq!(classify(&w("h.csv", b"a,b\n1,2\n")), Some(Kind::Data));
         assert_eq!(classify(&w("i.parquet", b"PAR1")), Some(Kind::Data));
         assert_eq!(classify(&w("j.txt", b"x")), None);
         // Notebooks: a JSON object under .ipynb.
-        assert_eq!(classify(&w("k.ipynb", b"{\n \"cells\": []")), Some(Kind::Notebook));
-        assert_eq!(classify(&w("l.IPYNB", b"\xEF\xBB\xBF  \n{}")), Some(Kind::Notebook));
+        assert_eq!(
+            classify(&w("k.ipynb", b"{\n \"cells\": []")),
+            Some(Kind::Notebook)
+        );
+        assert_eq!(
+            classify(&w("l.IPYNB", b"\xEF\xBB\xBF  \n{}")),
+            Some(Kind::Notebook)
+        );
         assert_eq!(classify(&w("m.ipynb", b"[1, 2]")), None);
         assert_eq!(classify(&w("n.ipynb", b"")), None);
         let _ = std::fs::remove_dir_all(&d);
@@ -651,11 +781,30 @@ mod tests {
         std::fs::write(d.join("leeme.txt"), "x").unwrap();
         std::fs::create_dir_all(d.join("carpeta.csv")).unwrap();
         let abs = d.join("ventas.csv").to_string_lossy().into_owned();
-        let url = tauri::Url::from_file_path(d.join("ventas.csv")).unwrap().to_string();
-        let args = ["--new-window", "--run-task", "abc", "ventas.csv", "leeme.txt", "carpeta.csv", "no-existe.csv", &abs, &url]
-            .map(String::from);
+        let url = tauri::Url::from_file_path(d.join("ventas.csv"))
+            .unwrap()
+            .to_string();
+        let args = [
+            "--new-window",
+            "--run-task",
+            "abc",
+            "ventas.csv",
+            "leeme.txt",
+            "carpeta.csv",
+            "no-existe.csv",
+            &abs,
+            &url,
+        ]
+        .map(String::from);
         let got = paths_from_args(args, &d);
-        assert_eq!(got, [d.join("ventas.csv"), d.join("ventas.csv"), d.join("ventas.csv")]);
+        assert_eq!(
+            got,
+            [
+                d.join("ventas.csv"),
+                d.join("ventas.csv"),
+                d.join("ventas.csv")
+            ]
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -677,7 +826,10 @@ mod tests {
         let first = open(&store, &csv).unwrap();
         assert!(!first.existing);
         assert_eq!(first.kind, Kind::Data);
-        assert_eq!(first.sql.as_deref(), Some(r#"SELECT * FROM "it's ""ventas""" LIMIT 1000"#));
+        assert_eq!(
+            first.sql.as_deref(),
+            Some(r#"SELECT * FROM "it's ""ventas""" LIMIT 1000"#)
+        );
         let conn = store.get_connection(&first.connection_id).unwrap().unwrap();
         assert_eq!(conn.name, "it's \"ventas\".csv");
         assert_eq!(conn.config.driver, "duckdb_files");
@@ -697,18 +849,34 @@ mod tests {
         let opened = open(&store, &db).unwrap();
         assert!(opened.existing && opened.sql.is_none());
         assert_eq!(opened.connection_id, saved.id);
-        assert!(matches!(open(&store, &d.join("nada.csv")), Err(CommandError::NotFound(_))));
+        assert!(matches!(
+            open(&store, &d.join("nada.csv")),
+            Err(CommandError::NotFound(_))
+        ));
         std::fs::write(d.join("leeme.txt"), "x").unwrap();
-        assert!(matches!(open(&store, &d.join("leeme.txt")), Err(CommandError::BadRequest(_))));
+        assert!(matches!(
+            open(&store, &d.join("leeme.txt")),
+            Err(CommandError::BadRequest(_))
+        ));
         // A notebook opens as itself: no connection.
         let nb = d.join("análisis.ipynb");
         std::fs::write(&nb, r#"{"nbformat": 4, "cells": []}"#).unwrap();
         let before = store.list_temporary_connections().unwrap().len();
         let opened = open(&store, &nb).unwrap();
-        assert_eq!((opened.kind, opened.connection_id.as_str(), opened.name.as_str()), (Kind::Notebook, "", "análisis.ipynb"));
+        assert_eq!(
+            (
+                opened.kind,
+                opened.connection_id.as_str(),
+                opened.name.as_str()
+            ),
+            (Kind::Notebook, "", "análisis.ipynb")
+        );
         assert_eq!(opened.path.as_deref(), Some(nb.to_string_lossy().as_ref()));
         assert_eq!(store.list_temporary_connections().unwrap().len(), before);
-        assert_eq!(paths_from_args([nb.to_string_lossy().into_owned()], &d), [nb]);
+        assert_eq!(
+            paths_from_args([nb.to_string_lossy().into_owned()], &d),
+            [nb]
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 }

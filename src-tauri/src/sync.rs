@@ -42,7 +42,13 @@ fn yes() -> bool {
 
 impl Default for SyncConfig {
     fn default() -> Self {
-        Self { provider: None, folder: None, account: None, enabled: false, auto: true }
+        Self {
+            provider: None,
+            folder: None,
+            account: None,
+            enabled: false,
+            auto: true,
+        }
     }
 }
 
@@ -100,7 +106,10 @@ fn device_name() -> String {
         return n;
     }
     #[cfg(target_os = "macos")]
-    if let Ok(o) = std::process::Command::new("scutil").args(["--get", "ComputerName"]).output() {
+    if let Ok(o) = std::process::Command::new("scutil")
+        .args(["--get", "ComputerName"])
+        .output()
+    {
         let n = String::from_utf8_lossy(&o.stdout).trim().to_string();
         if !n.is_empty() {
             return n;
@@ -135,7 +144,10 @@ impl SyncManager {
             kc_prefix: identifier.to_string(),
             state,
             ids,
-            http: reqwest::Client::builder().timeout(Duration::from_secs(120)).build().unwrap_or_default(),
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()
+                .unwrap_or_default(),
             status: Mutex::new(RunStatus::default()),
             run_lock: tokio::sync::Mutex::new(()),
             passphrase: Mutex::new(None),
@@ -155,7 +167,10 @@ impl SyncManager {
     }
 
     pub fn save_config(&self, c: &SyncConfig) -> CommandResult<()> {
-        Ok(self.state.store.set_setting(K_CONFIG, Some(&serde_json::to_value(c).map_err(|e| CommandError::Internal(e.to_string()))?))?)
+        Ok(self.state.store.set_setting(
+            K_CONFIG,
+            Some(&serde_json::to_value(c).map_err(|e| CommandError::Internal(e.to_string()))?),
+        )?)
     }
 
     /// Which providers this build can use (OAuth ones need their client ID).
@@ -168,7 +183,10 @@ impl SyncManager {
     }
 
     fn kc_tokens(&self, kind: ProviderKind) -> String {
-        let k = serde_json::to_value(kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+        let k = serde_json::to_value(kind)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default();
         format!("{}.sync.token.{k}", self.kc_prefix)
     }
 
@@ -202,8 +220,11 @@ impl SyncManager {
         if let Some(t) = self.tokens.lock().unwrap().get(&key) {
             return Ok(t.clone());
         }
-        let raw = secrets::get_raw(&key)?.ok_or_else(|| CommandError::SyncAuth(format!("conectá la cuenta de {}", kind.label())))?;
-        let t: Tokens = serde_json::from_str(&raw).map_err(|e| CommandError::Internal(e.to_string()))?;
+        let raw = secrets::get_raw(&key)?.ok_or_else(|| {
+            CommandError::SyncAuth(format!("conectá la cuenta de {}", kind.label()))
+        })?;
+        let t: Tokens =
+            serde_json::from_str(&raw).map_err(|e| CommandError::Internal(e.to_string()))?;
         self.tokens.lock().unwrap().insert(key, t.clone());
         Ok(t)
     }
@@ -224,16 +245,26 @@ impl SyncManager {
 
     /// The configured backup place.
     pub fn cloud(&self, cfg: &SyncConfig) -> CommandResult<Box<dyn CloudStore>> {
-        let kind = cfg.provider.ok_or_else(|| CommandError::BadRequest("elegí dónde guardar el backup".into()))?;
+        let kind = cfg
+            .provider
+            .ok_or_else(|| CommandError::BadRequest("elegí dónde guardar el backup".into()))?;
         Ok(match kind {
             ProviderKind::Folder => {
-                let dir = cfg.folder.clone().ok_or_else(|| CommandError::BadRequest("elegí la carpeta".into()))?;
+                let dir = cfg
+                    .folder
+                    .clone()
+                    .ok_or_else(|| CommandError::BadRequest("elegí la carpeta".into()))?;
                 Box::new(FolderStore::new(dir))
             }
             ProviderKind::GoogleDrive | ProviderKind::Onedrive => {
                 let oc = self.ids.config(kind).ok_or_else(|| not_configured(kind))?;
                 let tokens = self.load_tokens(kind)?;
-                let src = Arc::new(TokenSource::new(oc, self.http.clone(), tokens, self.token_saver(kind)));
+                let src = Arc::new(TokenSource::new(
+                    oc,
+                    self.http.clone(),
+                    tokens,
+                    self.token_saver(kind),
+                ));
                 if kind == ProviderKind::GoogleDrive {
                     Box::new(GoogleDrive::new(src))
                 } else {
@@ -258,7 +289,10 @@ impl SyncManager {
             _ = rx => return Err(CommandError::Cancelled),
         };
         let key = self.kc_tokens(kind);
-        secrets::set_raw(&key, &serde_json::to_string(&tokens).map_err(|e| CommandError::Internal(e.to_string()))?)?;
+        secrets::set_raw(
+            &key,
+            &serde_json::to_string(&tokens).map_err(|e| CommandError::Internal(e.to_string()))?,
+        )?;
         self.tokens.lock().unwrap().insert(key, tokens);
         Ok(())
     }
@@ -294,7 +328,12 @@ impl SyncManager {
     }
 
     /// [`run`](Self::run) with a passphrase that isn't stored yet (setup).
-    pub async fn run_with<F, Fut>(&self, app: &AppHandle, passphrase: Option<String>, op: F) -> CommandResult<SyncAction>
+    pub async fn run_with<F, Fut>(
+        &self,
+        app: &AppHandle,
+        passphrase: Option<String>,
+        op: F,
+    ) -> CommandResult<SyncAction>
     where
         F: FnOnce(Box<dyn CloudStore>, String) -> Fut,
         Fut: std::future::Future<Output = dbine_sync::Result<SyncAction>>,
@@ -302,8 +341,14 @@ impl SyncManager {
         let _guard = self.run_lock.lock().await;
         let cfg = self.config();
         self.set_status(app, |s| s.running = true);
-        let before: HashMap<String, String> =
-            self.state.store.list_connections().unwrap_or_default().into_iter().map(|c| (c.id.clone(), c.updated_at)).collect();
+        let before: HashMap<String, String> = self
+            .state
+            .store
+            .list_connections()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| (c.id.clone(), c.updated_at))
+            .collect();
         let result: CommandResult<SyncAction> = async {
             let cloud = self.cloud(&cfg)?;
             let pass = match passphrase {
@@ -314,8 +359,14 @@ impl SyncManager {
         }
         .await;
         if let Ok(SyncAction::Downloaded { .. }) = &result {
-            let after: HashMap<String, String> =
-                self.state.store.list_connections().unwrap_or_default().into_iter().map(|c| (c.id.clone(), c.updated_at)).collect();
+            let after: HashMap<String, String> = self
+                .state
+                .store
+                .list_connections()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|c| (c.id.clone(), c.updated_at))
+                .collect();
             for (id, at) in &before {
                 if after.get(id) != Some(at) {
                     self.state.close_connection_sessions(id);
@@ -335,7 +386,9 @@ impl SyncManager {
                 }
                 Err(e) => {
                     s.last_error = Some(e.to_string());
-                    s.last_error_kind = serde_json::to_value(e).ok().and_then(|v| v.get("kind").and_then(|k| k.as_str().map(str::to_string)));
+                    s.last_error_kind = serde_json::to_value(e)
+                        .ok()
+                        .and_then(|v| v.get("kind").and_then(|k| k.as_str().map(str::to_string)));
                 }
             }
         });
@@ -375,8 +428,12 @@ pub fn start(app: AppHandle) {
         let mut retry_at = Instant::now();
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
-            let Some(state) = app.try_state::<AppState>() else { continue };
-            let Some(mgr) = state.sync.get() else { continue };
+            let Some(state) = app.try_state::<AppState>() else {
+                continue;
+            };
+            let Some(mgr) = state.sync.get() else {
+                continue;
+            };
             let cfg = mgr.config();
             if !cfg.enabled || !cfg.auto {
                 last_remote = None;
@@ -387,16 +444,24 @@ pub fn start(app: AppHandle) {
                 seen_rev = rev;
                 changed_at = Instant::now();
             }
-            let local_due = mgr.engine.is_dirty().unwrap_or(false) && changed_at.elapsed() >= SETTLE;
+            let local_due =
+                mgr.engine.is_dirty().unwrap_or(false) && changed_at.elapsed() >= SETTLE;
             let remote_due = last_remote.is_none_or(|t| t.elapsed() >= REMOTE_EVERY);
             if !(local_due || remote_due) || Instant::now() < retry_at {
                 continue;
             }
             last_remote = Some(Instant::now());
             let engine = &mgr.engine;
-            match mgr.run(&app, |cloud, pass| async move { engine.sync(cloud.as_ref(), &pass).await }).await {
+            match mgr
+                .run(&app, |cloud, pass| async move {
+                    engine.sync(cloud.as_ref(), &pass).await
+                })
+                .await
+            {
                 Ok(_) => retry_at = Instant::now(),
-                Err(CommandError::WrongPassphrase(_) | CommandError::SyncAuth(_)) => retry_at = Instant::now() + Duration::from_secs(15 * 60),
+                Err(CommandError::WrongPassphrase(_) | CommandError::SyncAuth(_)) => {
+                    retry_at = Instant::now() + Duration::from_secs(15 * 60)
+                }
                 Err(_) => retry_at = Instant::now() + Duration::from_secs(60),
             }
         }

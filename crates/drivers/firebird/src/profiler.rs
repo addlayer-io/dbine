@@ -16,7 +16,9 @@
 use crate::monitor::in_snapshot;
 use crate::{int, join_err, message, poisoned, text, Conn, FirebirdSession};
 use dbine_driver::profiler::{Sample, Sampler, SAMPLE_EVERY, SAMPLE_FOR};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use rsfbclient_core::{Column, Dialect, FirebirdClientSqlOps};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -40,7 +42,10 @@ SELECT CAST(s.MON$STATEMENT_ID AS VARCHAR(20)), CAST(CAST(s.MON$TIMESTAMP AS TIM
   LEFT JOIN MON$IO_STATS io ON io.MON$STAT_ID = s.MON$STAT_ID
  WHERE s.MON$STATE = 1 AND s.MON$ATTACHMENT_ID <> CURRENT_CONNECTION AND a.MON$SYSTEM_FLAG = 0";
 
-pub(crate) async fn start(s: &FirebirdSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &FirebirdSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let mut target = s.target.clone();
     if !opts.database.trim().is_empty() {
         target.attach.db_name = opts.database.trim().to_string();
@@ -79,7 +84,14 @@ pub(crate) async fn start(s: &FirebirdSession, opts: &ProfilerOptions) -> Result
     let started = ProfilerStarted::new(ProfilerMode::Sampled, "MON$STATEMENTS")
         .units(Some("páginas"), Some("páginas"))
         .note(notes.join(" "));
-    Ok((State { conn: Arc::new(Mutex::new(conn)), sampler: Sampler::new(since), database }, started))
+    Ok((
+        State {
+            conn: Arc::new(Mutex::new(conn)),
+            sampler: Sampler::new(since),
+            database,
+        },
+        started,
+    ))
 }
 
 pub(crate) async fn poll(state: &mut State) -> Result<Vec<ProfiledStatement>> {
@@ -90,11 +102,17 @@ pub(crate) async fn poll(state: &mut State) -> Result<Vec<ProfiledStatement>> {
         let rows = tokio::task::spawn_blocking(move || -> Result<Vec<Vec<Column>>> {
             let mut c = conn.lock().map_err(|_| poisoned())?;
             let mut res = in_snapshot(&mut c, &[RUNNING]).map_err(|e| Error::Query(message(&e)))?;
-            res.pop().unwrap_or_else(|| Ok(Vec::new())).map_err(Error::Query)
+            res.pop()
+                .unwrap_or_else(|| Ok(Vec::new()))
+                .map_err(Error::Query)
         })
         .await
         .map_err(join_err)??;
-        out.extend(state.sampler.feed(rows.iter().map(|r| sample(r, &state.database)).collect()));
+        out.extend(
+            state
+                .sampler
+                .feed(rows.iter().map(|r| sample(r, &state.database)).collect()),
+        );
         if Instant::now() + SAMPLE_EVERY > until {
             break;
         }
@@ -121,7 +139,9 @@ fn sample(r: &[Column], database: &str) -> Sample {
         user: t(4),
         client: t(6),
         application: t(5),
-        detail: n(7).filter(|v| *v > 0).map(|v| format!("registros leídos {v}")),
+        detail: n(7)
+            .filter(|v| *v > 0)
+            .map(|v| format!("registros leídos {v}")),
         reads: count(8),
         writes: count(9),
         ..Default::default()
@@ -142,7 +162,10 @@ mod tests {
 
     #[test]
     fn times_keep_milliseconds() {
-        assert_eq!(millis("2026-09-27 21:13:46.1120"), "2026-09-27 21:13:46.112");
+        assert_eq!(
+            millis("2026-09-27 21:13:46.1120"),
+            "2026-09-27 21:13:46.112"
+        );
         assert_eq!(millis("2026-09-27 21:13:46"), "2026-09-27 21:13:46");
     }
 
@@ -162,7 +185,11 @@ mod tests {
             Integer(3),
         ]
         .into_iter()
-        .map(|value| Column { value, raw_type: 0, name: String::new() })
+        .map(|value| Column {
+            value,
+            raw_type: 0,
+            name: String::new(),
+        })
         .collect();
         let s = sample(&row, "db");
         assert_eq!((s.reads, s.writes, s.cpu_ms), (Some(1200), Some(3), None));

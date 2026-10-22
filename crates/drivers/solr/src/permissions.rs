@@ -57,7 +57,11 @@ pub(crate) enum Authz {
     Off,
     /// Rule-based: the user's roles and the permissions they hold, and the
     /// whole list of permissions when readable.
-    RuleBased { roles: Vec<String>, held: Vec<String>, config: Option<Vec<Value>> },
+    RuleBased {
+        roles: Vec<String>,
+        held: Vec<String>,
+        config: Option<Vec<Value>>,
+    },
     /// Another plugin, or the server didn't say.
     Unknown,
 }
@@ -65,14 +69,20 @@ pub(crate) enum Authz {
 fn strs(v: Option<&Value>) -> Vec<String> {
     match v {
         Some(Value::String(s)) => vec![s.clone()],
-        Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
         _ => Vec::new(),
     }
 }
 
 /// From `/admin/info/system`'s `security`.
 pub(crate) fn authz(system: &Value) -> Authz {
-    let Some(sec) = system.get("security") else { return Authz::Off };
+    let Some(sec) = system.get("security") else {
+        return Authz::Off;
+    };
     match sec.get("authorizationPlugin").and_then(Value::as_str) {
         None => Authz::Off,
         Some(p) if p.ends_with(".RuleBasedAuthorizationPlugin") => Authz::RuleBased {
@@ -98,7 +108,10 @@ pub(crate) fn decided_by(config: &[Value], roles: &[String], name: &str) -> Opti
         if pname != name && pname != "all" {
             continue;
         }
-        if ["collection", "method", "params"].iter().any(|k| p.get(*k).is_some_and(|v| !v.is_null())) {
+        if ["collection", "method", "params"]
+            .iter()
+            .any(|k| p.get(*k).is_some_and(|v| !v.is_null()))
+        {
             return None;
         }
         let allowed = match p.get("role") {
@@ -118,7 +131,11 @@ fn may(a: &Authz, name: &str) -> Option<bool> {
     match a {
         Authz::Off => Some(true),
         Authz::Unknown => None,
-        Authz::RuleBased { roles, held, config } => match config {
+        Authz::RuleBased {
+            roles,
+            held,
+            config,
+        } => match config {
             Some(c) => decided_by(c, roles, name),
             None if held.iter().any(|h| h == name) => Some(true),
             None => None,
@@ -158,9 +175,11 @@ pub(crate) async fn check(s: &SolrSession) -> Result<Permissions> {
         None => Authz::Unknown,
     };
     if let Authz::RuleBased { config, .. } = &mut a {
-        *config = get(s, "/solr/admin/authorization")
-            .await?
-            .and_then(|v| v.pointer("/authorization/permissions").and_then(Value::as_array).cloned());
+        *config = get(s, "/solr/admin/authorization").await?.and_then(|v| {
+            v.pointer("/authorization/permissions")
+                .and_then(Value::as_array)
+                .cloned()
+        });
     }
     Ok(decide(&a, s.cloud))
 }
@@ -193,38 +212,70 @@ mod tests {
 
     #[test]
     fn without_authorization_everything_is_allowed() {
-        let a = authz(&json!({ "security": { "authenticationPlugin": "org.apache.solr.security.BasicAuthPlugin" } }));
+        let a = authz(
+            &json!({ "security": { "authenticationPlugin": "org.apache.solr.security.BasicAuthPlugin" } }),
+        );
         assert!(matches!(a, Authz::Off));
         let p = decide(&a, true);
-        assert_eq!((&p.backup, &p.restore, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.backup, &p.restore, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
         assert_eq!(decide(&a, false).backup, Access::Allowed);
         assert!(matches!(authz(&json!({})), Authz::Off));
-        assert!(matches!(authz(&json!({ "security": { "authorizationPlugin": "x.ExternalRoleRuleBasedAuthorizationPlugin" } })), Authz::Unknown));
+        assert!(matches!(
+            authz(
+                &json!({ "security": { "authorizationPlugin": "x.ExternalRoleRuleBasedAuthorizationPlugin" } })
+            ),
+            Authz::Unknown
+        ));
     }
 
     #[test]
     fn the_whole_list_decides() {
         let p = decide(&rule_based(&["reader"], &["read"], Some(standard())), true);
-        assert!(denied(&p.backup, "collection-admin-edit") && denied(&p.restore, "collection-admin-edit"));
+        assert!(
+            denied(&p.backup, "collection-admin-edit")
+                && denied(&p.restore, "collection-admin-edit")
+        );
         assert!(denied(&p.manage_security, "security-edit"));
-        let p = decide(&rule_based(&["ops"], &["collection-admin-edit"], Some(standard())), true);
+        let p = decide(
+            &rule_based(&["ops"], &["collection-admin-edit"], Some(standard())),
+            true,
+        );
         assert_eq!(p.backup, Access::Allowed);
         assert!(p.manage_security.is_denied());
         // Standalone: the replication handler has no predefined permission.
-        assert_eq!(decide(&rule_based(&["admin"], &[], Some(standard())), false).backup, Access::Unknown);
+        assert_eq!(
+            decide(&rule_based(&["admin"], &[], Some(standard())), false).backup,
+            Access::Unknown
+        );
     }
 
     #[test]
     fn first_match_wins_and_custom_ones_are_unknown() {
         let roles = ["x".to_string()];
         // Nothing matches: allowed.
-        assert_eq!(decided_by(&[json!({ "name": "read", "role": "admin" })], &roles, "security-edit"), Some(true));
+        assert_eq!(
+            decided_by(
+                &[json!({ "name": "read", "role": "admin" })],
+                &roles,
+                "security-edit"
+            ),
+            Some(true)
+        );
         // "all" first decides for everything after it.
-        let c = [json!({ "name": "all", "role": "*" }), json!({ "name": "security-edit", "role": "admin" })];
+        let c = [
+            json!({ "name": "all", "role": "*" }),
+            json!({ "name": "security-edit", "role": "admin" }),
+        ];
         assert_eq!(decided_by(&c, &roles, "security-edit"), Some(true));
         let c = [json!({ "name": "security-edit", "role": null })];
         assert_eq!(decided_by(&c, &roles, "security-edit"), Some(true));
-        let c = [json!({ "name": "mine", "path": "/admin/authentication", "role": "x" }), json!({ "name": "all", "role": "admin" })];
+        let c = [
+            json!({ "name": "mine", "path": "/admin/authentication", "role": "x" }),
+            json!({ "name": "all", "role": "admin" }),
+        ];
         assert_eq!(decided_by(&c, &roles, "security-edit"), None);
         let c = [json!({ "name": "all", "collection": "c1", "role": "admin" })];
         assert_eq!(decided_by(&c, &roles, "collection-admin-edit"), None);
@@ -233,9 +284,22 @@ mod tests {
     #[test]
     fn without_the_list_a_permission_not_held_proves_nothing() {
         let p = decide(&rule_based(&["reader"], &["read"], None), true);
-        assert_eq!((&p.backup, &p.manage_security), (&Access::Unknown, &Access::Unknown));
-        let p = decide(&rule_based(&["admin"], &["security-edit", "collection-admin-edit"], None), true);
-        assert_eq!((&p.backup, &p.manage_security), (&Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.backup, &p.manage_security),
+            (&Access::Unknown, &Access::Unknown)
+        );
+        let p = decide(
+            &rule_based(
+                &["admin"],
+                &["security-edit", "collection-admin-edit"],
+                None,
+            ),
+            true,
+        );
+        assert_eq!(
+            (&p.backup, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed)
+        );
         let p = decide(&Authz::Unknown, true);
         assert_eq!(p, Permissions::default());
     }
@@ -247,6 +311,8 @@ mod tests {
             "authorizationPlugin": "org.apache.solr.security.RuleBasedAuthorizationPlugin",
             "username": "solr", "roles": ["admin"], "permissions": ["all", "security-edit"],
         } }));
-        assert!(matches!(a, Authz::RuleBased { ref roles, ref held, .. } if roles == &["admin"] && held.len() == 2));
+        assert!(
+            matches!(a, Authz::RuleBased { ref roles, ref held, .. } if roles == &["admin"] && held.len() == 2)
+        );
     }
 }

@@ -40,7 +40,10 @@ fn setup() -> Option<(ConnectionConfig, String)> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 /// Cloud SQL and AlloyDB with their CA check only the chain, so only that
@@ -57,9 +60,15 @@ async fn cloud_sql_and_alloydb_trust_only_the_instance_ca() {
     for id in ["cloudsql_postgres", "alloydb"] {
         let d = driver(id);
         cfg.options.insert("ssl_root_cert".into(), ca.clone());
-        d.connect(&cfg, None).await.unwrap_or_else(|e| panic!("{id}: the instance CA connects: {e:?}"));
-        cfg.options.insert("ssl_root_cert".into(), other.to_string_lossy().into_owned());
-        assert!(d.connect(&cfg, None).await.is_err(), "{id}: a certificate from another CA was accepted");
+        d.connect(&cfg, None)
+            .await
+            .unwrap_or_else(|e| panic!("{id}: the instance CA connects: {e:?}"));
+        cfg.options
+            .insert("ssl_root_cert".into(), other.to_string_lossy().into_owned());
+        assert!(
+            d.connect(&cfg, None).await.is_err(),
+            "{id}: a certificate from another CA was accepted"
+        );
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -72,7 +81,12 @@ async fn plain_postgres_checks_the_name() {
     let Some((mut cfg, ca)) = setup() else { return };
     let d = driver("postgres");
     cfg.options.insert("ssl_root_cert".into(), ca);
-    assert!(d.connect(&cfg, None).await.is_err(), "a certificate for another name was accepted");
+    assert!(
+        d.connect(&cfg, None).await.is_err(),
+        "a certificate for another name was accepted"
+    );
     cfg.trust_server_certificate = true;
-    d.connect(&cfg, None).await.expect("trusting the server certificate connects");
+    d.connect(&cfg, None)
+        .await
+        .expect("trusting the server certificate connects");
 }

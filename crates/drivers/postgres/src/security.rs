@@ -23,7 +23,9 @@ use crate::catalog::{cell, comment_text, lit};
 use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use std::collections::HashMap;
 
 /// How an engine manages its users.
@@ -60,15 +62,37 @@ pub fn spec(v: Variant) -> Option<SecuritySpec> {
     let d = dialect(v)?;
     let listed: Vec<&str> = v.info().object_kinds.iter().map(|k| k.id).collect();
     let kinds = |all: &[&'static str]| -> Vec<&'static str> {
-        all.iter().copied().filter(|k| k.is_empty() || *k == "schema" || listed.contains(k)).collect()
+        all.iter()
+            .copied()
+            .filter(|k| k.is_empty() || *k == "schema" || listed.contains(k))
+            .collect()
     };
     Some(match d {
         Dialect::Pg => SecuritySpec {
             privileges: vec![
-                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "USAGE", "EXECUTE", "CREATE",
-                "CONNECT", "TEMPORARY", "ALL PRIVILEGES",
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "TRUNCATE",
+                "REFERENCES",
+                "TRIGGER",
+                "USAGE",
+                "EXECUTE",
+                "CREATE",
+                "CONNECT",
+                "TEMPORARY",
+                "ALL PRIVILEGES",
             ],
-            object_kinds: kinds(&["", "schema", "table", "view", "materialized_view", "procedure", "function"]),
+            object_kinds: kinds(&[
+                "",
+                "schema",
+                "table",
+                "view",
+                "materialized_view",
+                "procedure",
+                "function",
+            ]),
             create_user: true,
             create_role: true,
             passwords: true,
@@ -77,11 +101,28 @@ pub fn spec(v: Variant) -> Option<SecuritySpec> {
         },
         Dialect::Cockroach => SecuritySpec {
             privileges: vec![
-                "SELECT", "INSERT", "UPDATE", "DELETE", "USAGE", "EXECUTE", "CREATE", "DROP", "CONNECT", "ZONECONFIG", "ALL",
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "USAGE",
+                "EXECUTE",
+                "CREATE",
+                "DROP",
+                "CONNECT",
+                "ZONECONFIG",
+                "ALL",
             ],
             // No database-wide grants: they need the database's name, and
             // CockroachDB's DO blocks can't run dynamic SQL to look it up.
-            object_kinds: kinds(&["schema", "table", "view", "materialized_view", "procedure", "function"]),
+            object_kinds: kinds(&[
+                "schema",
+                "table",
+                "view",
+                "materialized_view",
+                "procedure",
+                "function",
+            ]),
             create_user: true,
             create_role: true,
             passwords: true,
@@ -89,7 +130,17 @@ pub fn spec(v: Variant) -> Option<SecuritySpec> {
             per_database: false,
         },
         Dialect::Redshift => SecuritySpec {
-            privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "REFERENCES", "USAGE", "CREATE", "TEMPORARY", "ALL"],
+            privileges: vec![
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "REFERENCES",
+                "USAGE",
+                "CREATE",
+                "TEMPORARY",
+                "ALL",
+            ],
             // Database-wide grants need the database's name, which a script
             // can't look up on Redshift (no DO blocks); functions need their
             // argument types.
@@ -102,8 +153,17 @@ pub fn spec(v: Variant) -> Option<SecuritySpec> {
         },
         Dialect::Materialize => SecuritySpec {
             privileges: vec![
-                "SELECT", "INSERT", "UPDATE", "DELETE", "USAGE", "CREATE", "ALL PRIVILEGES", "CREATEROLE", "CREATEDB",
-                "CREATECLUSTER", "CREATENETWORKPOLICY",
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "USAGE",
+                "CREATE",
+                "ALL PRIVILEGES",
+                "CREATEROLE",
+                "CREATEDB",
+                "CREATECLUSTER",
+                "CREATENETWORKPOLICY",
             ],
             // "": the SYSTEM privileges (CREATEROLE, CREATEDB…).
             object_kinds: kinds(&["", "schema", "table", "view", "materialized_view", "source"]),
@@ -125,7 +185,14 @@ pub fn spec(v: Variant) -> Option<SecuritySpec> {
             per_database: false,
         },
         Dialect::H2 => h2::spec(),
-        Dialect::RisingWave => risingwave::spec(kinds(&["schema", "table", "view", "materialized_view", "source", "sink"])),
+        Dialect::RisingWave => risingwave::spec(kinds(&[
+            "schema",
+            "table",
+            "view",
+            "materialized_view",
+            "source",
+            "sink",
+        ])),
     })
 }
 
@@ -138,7 +205,13 @@ fn yes(r: &tokio_postgres::SimpleQueryRow, name: &str) -> bool {
 /// Roles every service creates for its administrators and agents.
 const SERVICE_PREFIXES: &[&str] = &["pg_", "rds", "cloudsql", "alloydb", "azure_", "yb_", "gp_"];
 /// Membership that makes an administrator where there's no real superuser.
-const SERVICE_ADMINS: &[&str] = &["rds_superuser", "cloudsqlsuperuser", "alloydbsuperuser", "azure_pg_admin", "yb_superuser"];
+const SERVICE_ADMINS: &[&str] = &[
+    "rds_superuser",
+    "cloudsqlsuperuser",
+    "alloydbsuperuser",
+    "azure_pg_admin",
+    "yb_superuser",
+];
 
 /// (member, role) pairs.
 async fn memberships(s: &PgSession, d: Dialect) -> Vec<(String, String)> {
@@ -162,7 +235,10 @@ async fn memberships(s: &PgSession, d: Dialect) -> Vec<(String, String)> {
         Dialect::RisingWave => return Vec::new(),
     };
     match s.text(sql).await {
-        Ok(rows) => rows.iter().filter_map(|r| Some((cell(r, "member")?, cell(r, "role")?))).collect(),
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|r| Some((cell(r, "member")?, cell(r, "role")?)))
+            .collect(),
         Err(e) => {
             tracing::debug!("{:?}: role memberships unavailable: {e}", s.variant);
             Vec::new()
@@ -174,13 +250,21 @@ async fn memberships(s: &PgSession, d: Dialect) -> Vec<(String, String)> {
 /// role it comes through.
 fn closure(principal: &str, members: &[(String, String)]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    let mut queue: Vec<(String, String)> =
-        members.iter().filter(|(m, _)| m == principal).map(|(_, r)| (r.clone(), r.clone())).collect();
+    let mut queue: Vec<(String, String)> = members
+        .iter()
+        .filter(|(m, _)| m == principal)
+        .map(|(_, r)| (r.clone(), r.clone()))
+        .collect();
     while let Some((role, via)) = queue.pop() {
         if role == principal || out.iter().any(|(r, _)| *r == role) {
             continue;
         }
-        queue.extend(members.iter().filter(|(m, _)| *m == role).map(|(_, r)| (r.clone(), via.clone())));
+        queue.extend(
+            members
+                .iter()
+                .filter(|(m, _)| *m == role)
+                .map(|(_, r)| (r.clone(), via.clone())),
+        );
         out.push((role, via));
     }
     out
@@ -203,8 +287,15 @@ pub async fn principals(s: &PgSession) -> Result<Vec<Principal>> {
     for p in out.iter_mut() {
         p.member_of.sort();
         if s.variant.managed() || matches!(s.variant, Variant::Yugabyte) {
-            if let Some(admin) = p.member_of.iter().find(|r| SERVICE_ADMINS.contains(&r.as_str())) {
-                p.details.push(("Administrador del servicio".into(), format!("sí, por {admin}")));
+            if let Some(admin) = p
+                .member_of
+                .iter()
+                .find(|r| SERVICE_ADMINS.contains(&r.as_str()))
+            {
+                p.details.push((
+                    "Administrador del servicio".into(),
+                    format!("sí, por {admin}"),
+                ));
             }
         }
     }
@@ -226,7 +317,10 @@ async fn pg_principals(s: &PgSession, d: Dialect) -> Result<Vec<Principal>> {
               ORDER BY r.rolname"
         )
     };
-    let with_password = query("a.rolpassword IS NOT NULL", "LEFT JOIN pg_authid a ON a.oid = r.oid");
+    let with_password = query(
+        "a.rolpassword IS NOT NULL",
+        "LEFT JOIN pg_authid a ON a.oid = r.oid",
+    );
     let without = query("false", "");
     let rows = match d {
         Dialect::Cockroach | Dialect::Materialize => s.text(&without).await?,
@@ -241,7 +335,9 @@ async fn pg_principals(s: &PgSession, d: Dialect) -> Result<Vec<Principal>> {
             let name = cell(r, "name").unwrap_or_default();
             let login = yes(r, "login");
             let user = login || yes(r, "pw");
-            let oid: u64 = cell(r, "oid").and_then(|o| o.parse().ok()).unwrap_or(u64::MAX);
+            let oid: u64 = cell(r, "oid")
+                .and_then(|o| o.parse().ok())
+                .unwrap_or(u64::MAX);
             let system = match d {
                 Dialect::Cockroach => matches!(name.as_str(), "root" | "admin" | "node" | "public"),
                 Dialect::Materialize => name.starts_with("mz_"),
@@ -249,7 +345,12 @@ async fn pg_principals(s: &PgSession, d: Dialect) -> Result<Vec<Principal>> {
             };
             let mut details = vec![(
                 "Tipo".to_string(),
-                if user { "Usuario (rol con ingreso)" } else { "Rol (sin ingreso)" }.to_string(),
+                if user {
+                    "Usuario (rol con ingreso)"
+                } else {
+                    "Rol (sin ingreso)"
+                }
+                .to_string(),
             )];
             if yes(r, "createdb") {
                 details.push(("Puede crear bases".into(), "sí".into()));
@@ -264,7 +365,11 @@ async fn pg_principals(s: &PgSession, d: Dialect) -> Result<Vec<Principal>> {
                 details.push(("Vence".into(), v));
             }
             Principal {
-                kind: if user { PrincipalKind::User } else { PrincipalKind::Role },
+                kind: if user {
+                    PrincipalKind::User
+                } else {
+                    PrincipalKind::Role
+                },
                 can_login: Some(login),
                 superuser: Some(yes(r, "super")),
                 disabled: user.then(|| !login || yes(r, "expired")),
@@ -304,25 +409,37 @@ async fn redshift_principals(s: &PgSession) -> Result<Vec<Principal>> {
                 disabled: None,
                 member_of: Vec::new(),
                 details,
-                system: name == "rdsdb" || name.starts_with("rds") || cell(r, "id").as_deref() == Some("1"),
+                system: name == "rdsdb"
+                    || name.starts_with("rds")
+                    || cell(r, "id").as_deref() == Some("1"),
                 name,
             }
         })
         .collect();
-    if let Ok(groups) = s.text("SELECT groname AS name FROM pg_group ORDER BY groname").await {
-        out.extend(groups.iter().filter_map(|r| cell(r, "name")).map(|g| Principal {
-            name: format!("GROUP {g}"),
-            kind: PrincipalKind::Role,
-            can_login: Some(false),
-            details: vec![("Tipo".into(), "Grupo".into())],
-            ..Default::default()
-        }));
+    if let Ok(groups) = s
+        .text("SELECT groname AS name FROM pg_group ORDER BY groname")
+        .await
+    {
+        out.extend(
+            groups
+                .iter()
+                .filter_map(|r| cell(r, "name"))
+                .map(|g| Principal {
+                    name: format!("GROUP {g}"),
+                    kind: PrincipalKind::Role,
+                    can_login: Some(false),
+                    details: vec![("Tipo".into(), "Grupo".into())],
+                    ..Default::default()
+                }),
+        );
     }
     Ok(out)
 }
 
 async fn crate_principals(s: &PgSession) -> Result<Vec<Principal>> {
-    let users = s.text("SELECT name, superuser AS super FROM sys.users ORDER BY name").await?;
+    let users = s
+        .text("SELECT name, superuser AS super FROM sys.users ORDER BY name")
+        .await?;
     let mut out: Vec<Principal> = users
         .iter()
         .map(|r| {
@@ -341,13 +458,18 @@ async fn crate_principals(s: &PgSession) -> Result<Vec<Principal>> {
         .collect();
     // Roles came with CrateDB 5.6.
     if let Ok(roles) = s.text("SELECT name FROM sys.roles ORDER BY name").await {
-        out.extend(roles.iter().filter_map(|r| cell(r, "name")).map(|name| Principal {
-            name,
-            kind: PrincipalKind::Role,
-            can_login: Some(false),
-            details: vec![("Tipo".into(), "Rol".into())],
-            ..Default::default()
-        }));
+        out.extend(
+            roles
+                .iter()
+                .filter_map(|r| cell(r, "name"))
+                .map(|name| Principal {
+                    name,
+                    kind: PrincipalKind::Role,
+                    can_login: Some(false),
+                    details: vec![("Tipo".into(), "Rol".into())],
+                    ..Default::default()
+                }),
+        );
     }
     Ok(out)
 }
@@ -379,7 +501,12 @@ pub async fn grants(s: &PgSession, principal: &str) -> Result<Vec<Grant>> {
         })
         .collect();
     out.sort_by(|a, b| {
-        (a.via.is_some(), &a.object_kind, &a.object, &a.privilege).cmp(&(b.via.is_some(), &b.object_kind, &b.object, &b.privilege))
+        (a.via.is_some(), &a.object_kind, &a.object, &a.privilege).cmp(&(
+            b.via.is_some(),
+            &b.object_kind,
+            &b.object,
+            &b.privilege,
+        ))
     });
     out.dedup();
     Ok(out)
@@ -406,7 +533,10 @@ fn grant_row(r: &tokio_postgres::SimpleQueryRow) -> Option<(String, Grant)> {
 
 /// The ACLs of the session's database: relations, schemas, the database
 /// itself and routines, leaving out what owners hold by owning.
-async fn pg_grants(s: &PgSession, via: &HashMap<String, Option<String>>) -> Result<Vec<(String, Grant)>> {
+async fn pg_grants(
+    s: &PgSession,
+    via: &HashMap<String, Option<String>>,
+) -> Result<Vec<(String, Grant)>> {
     let filter = s.filter("n.nspname");
     let routine_kind = if s.version >= 110000 {
         "CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END"
@@ -451,7 +581,10 @@ async fn cockroach_grants(s: &PgSession, principal: &str) -> Result<Vec<(String,
         .iter()
         .filter_map(|r| {
             let schema = cell(r, "schema_name");
-            if matches!(schema.as_deref(), Some("pg_catalog" | "information_schema" | "crdb_internal" | "pg_extension")) {
+            if matches!(
+                schema.as_deref(),
+                Some("pg_catalog" | "information_schema" | "crdb_internal" | "pg_extension")
+            ) {
                 return None;
             }
             let kind = match cell(r, "object_type").as_deref() {
@@ -482,7 +615,10 @@ async fn cockroach_grants(s: &PgSession, principal: &str) -> Result<Vec<(String,
 /// `SHOW PRIVILEGES FOR` follows role membership too; it covers every
 /// database, so other databases' objects and PUBLIC's grants are left out.
 async fn materialize_grants(s: &PgSession, principal: &str) -> Result<Vec<(String, Grant)>> {
-    let sql = format!("SHOW PRIVILEGES FOR {}", quote_ident(Quote::Double, principal));
+    let sql = format!(
+        "SHOW PRIVILEGES FOR {}",
+        quote_ident(Quote::Double, principal)
+    );
     let rows = s.text(&sql).await?;
     Ok(rows
         .iter()
@@ -516,9 +652,13 @@ async fn materialize_grants(s: &PgSession, principal: &str) -> Result<Vec<(Strin
 
 /// Redshift's `svv_*_privileges` views (2023 on) name the grantee and
 /// whether it's a user, a group or a role.
-async fn redshift_grants(s: &PgSession, via: &HashMap<String, Option<String>>) -> Result<Vec<(String, Grant)>> {
+async fn redshift_grants(
+    s: &PgSession,
+    via: &HashMap<String, Option<String>>,
+) -> Result<Vec<(String, Grant)>> {
     let names = name_list(s.variant, via);
-    let grantee = "CASE identity_type WHEN 'group' THEN 'GROUP ' || identity_name ELSE identity_name END";
+    let grantee =
+        "CASE identity_type WHEN 'group' THEN 'GROUP ' || identity_name ELSE identity_name END";
     let queries = [
         format!(
             "SELECT {grantee} AS grantee, privilege_type AS privilege, admin_option AS grantable,
@@ -544,7 +684,10 @@ async fn redshift_grants(s: &PgSession, via: &HashMap<String, Option<String>>) -
     let mut out = Vec::new();
     let mut last = None;
     for q in queries {
-        match s.text(&format!("SELECT * FROM ({q}) g WHERE grantee IN ({names})")).await {
+        match s
+            .text(&format!("SELECT * FROM ({q}) g WHERE grantee IN ({names})"))
+            .await
+        {
             Ok(rows) => out.extend(rows.iter().filter_map(grant_row)),
             Err(e) => {
                 tracing::debug!("redshift privileges view unavailable: {e}");
@@ -558,7 +701,10 @@ async fn redshift_grants(s: &PgSession, via: &HashMap<String, Option<String>>) -
     }
 }
 
-async fn crate_grants(s: &PgSession, via: &HashMap<String, Option<String>>) -> Result<Vec<(String, Grant)>> {
+async fn crate_grants(
+    s: &PgSession,
+    via: &HashMap<String, Option<String>>,
+) -> Result<Vec<(String, Grant)>> {
     let sql = format!(
         "SELECT grantee, type AS privilege, class, ident, state FROM sys.privileges WHERE grantee IN ({})",
         name_list(s.variant, via)
@@ -598,7 +744,9 @@ fn privileges(p: &[String]) -> Result<String> {
     for x in p {
         let x = x.split_whitespace().collect::<Vec<_>>().join(" ");
         if x.is_empty() || !x.chars().all(|c| c.is_ascii_alphabetic() || c == ' ') {
-            return Err(Error::Query(format!("«{x}» no es un nombre de permiso válido")));
+            return Err(Error::Query(format!(
+                "«{x}» no es un nombre de permiso válido"
+            )));
         }
         out.push(x.to_uppercase());
     }
@@ -610,9 +758,16 @@ fn privileges(p: &[String]) -> Result<String> {
 fn routine_name(name: &str) -> Result<String> {
     match name.split_once('(') {
         Some((n, rest)) => {
-            let args = rest.strip_suffix(')').ok_or_else(|| Error::Query(format!("«{name}» no es un nombre de rutina válido")))?;
-            if !args.chars().all(|c| c.is_alphanumeric() || " ,._[]\"".contains(c)) {
-                return Err(Error::Query(format!("«{name}» no es un nombre de rutina válido")));
+            let args = rest.strip_suffix(')').ok_or_else(|| {
+                Error::Query(format!("«{name}» no es un nombre de rutina válido"))
+            })?;
+            if !args
+                .chars()
+                .all(|c| c.is_alphanumeric() || " ,._[]\"".contains(c))
+            {
+                return Err(Error::Query(format!(
+                    "«{name}» no es un nombre de rutina válido"
+                )));
             }
             Ok(format!("{}({args})", q(n)))
         }
@@ -636,7 +791,10 @@ fn target(o: &ObjectRef) -> Result<String> {
         "secret" => format!("SECRET {}", qualified(q(&o.name))),
         "function" => format!("FUNCTION {}", qualified(routine_name(&o.name)?)),
         "procedure" => format!("PROCEDURE {}", qualified(routine_name(&o.name)?)),
-        _ => format!("TABLE {}", qualified_name(Quote::Double, o.schema(), &o.name)),
+        _ => format!(
+            "TABLE {}",
+            qualified_name(Quote::Double, o.schema(), &o.name)
+        ),
     })
 }
 
@@ -673,19 +831,32 @@ fn cockroach_database() -> Error {
 }
 
 fn no_grant_option() -> Error {
-    Error::Query("Materialize no permite que un rol otorgue a otros sus permisos (no hay WITH GRANT OPTION)".into())
+    Error::Query(
+        "Materialize no permite que un rol otorgue a otros sus permisos (no hay WITH GRANT OPTION)"
+            .into(),
+    )
 }
 
 /// PostgreSQL's and CockroachDB's (`cascade`: `REVOKE … CASCADE`, which
 /// CockroachDB doesn't take).
 fn pg_script(v: Variant, a: &SecurityAction, cascade: bool) -> Result<String> {
     // openGauss asks every role for a password, or for none explicitly.
-    let no_password = if v == Variant::OpenGauss { " PASSWORD DISABLE" } else { "" };
+    let no_password = if v == Variant::OpenGauss {
+        " PASSWORD DISABLE"
+    } else {
+        ""
+    };
     let pw = |p: &Option<String>| {
-        p.as_deref().filter(|p| !p.is_empty()).map_or(no_password.to_string(), |p| format!(" PASSWORD {}", lit(v, p)))
+        p.as_deref()
+            .filter(|p| !p.is_empty())
+            .map_or(no_password.to_string(), |p| {
+                format!(" PASSWORD {}", lit(v, p))
+            })
     };
     Ok(match a {
-        SecurityAction::CreateUser { name, password } => format!("CREATE ROLE {} WITH LOGIN{};", q(name), pw(password)),
+        SecurityAction::CreateUser { name, password } => {
+            format!("CREATE ROLE {} WITH LOGIN{};", q(name), pw(password))
+        }
         SecurityAction::CreateRole { name } => format!("CREATE ROLE {}{no_password};", q(name)),
         SecurityAction::Drop { name, .. } => format!(
             "-- Si tiene objetos o permisos en alguna base, antes, en cada una:\n\
@@ -695,31 +866,72 @@ fn pg_script(v: Variant, a: &SecurityAction, cascade: bool) -> Result<String> {
             n = q(name),
             c = comment_text(&q(name))
         ),
-        SecurityAction::SetPassword { name, password } => format!("ALTER ROLE {} WITH PASSWORD {};", q(name), lit(v, password)),
-        SecurityAction::SetLogin { name, enabled } => {
-            format!("ALTER ROLE {} WITH {};", q(name), if *enabled { "LOGIN" } else { "NOLOGIN" })
+        SecurityAction::SetPassword { name, password } => {
+            format!("ALTER ROLE {} WITH PASSWORD {};", q(name), lit(v, password))
         }
-        SecurityAction::Grant { grantable: true, .. } if v == Variant::Materialize => return Err(no_grant_option()),
-        SecurityAction::Grant { privileges: p, object, to, grantable } => {
+        SecurityAction::SetLogin { name, enabled } => {
+            format!(
+                "ALTER ROLE {} WITH {};",
+                q(name),
+                if *enabled { "LOGIN" } else { "NOLOGIN" }
+            )
+        }
+        SecurityAction::Grant {
+            grantable: true, ..
+        } if v == Variant::Materialize => return Err(no_grant_option()),
+        SecurityAction::Grant {
+            privileges: p,
+            object,
+            to,
+            grantable,
+        } => {
             let option = if *grantable { " WITH GRANT OPTION" } else { "" };
             match object {
-                Some(o) => format!("GRANT {} ON {} TO {}{option};", privileges(p)?, target(o)?, q(to)),
-                None if v == Variant::Materialize => format!("GRANT {} ON SYSTEM TO {};", privileges(p)?, q(to)),
+                Some(o) => format!(
+                    "GRANT {} ON {} TO {}{option};",
+                    privileges(p)?,
+                    target(o)?,
+                    q(to)
+                ),
+                None if v == Variant::Materialize => {
+                    format!("GRANT {} ON SYSTEM TO {};", privileges(p)?, q(to))
+                }
                 None if v == Variant::Cockroach => return Err(cockroach_database()),
-                None => on_current_database(&format!("GRANT {} ON DATABASE %I TO %I{option}", privileges(p)?), to),
+                None => on_current_database(
+                    &format!("GRANT {} ON DATABASE %I TO %I{option}", privileges(p)?),
+                    to,
+                ),
             }
         }
-        SecurityAction::Revoke { privileges: p, object, from } => {
+        SecurityAction::Revoke {
+            privileges: p,
+            object,
+            from,
+        } => {
             let cascade = if cascade { " CASCADE" } else { "" };
             match object {
-                Some(o) => format!("REVOKE {} ON {} FROM {}{cascade};", privileges(p)?, target(o)?, q(from)),
-                None if v == Variant::Materialize => format!("REVOKE {} ON SYSTEM FROM {};", privileges(p)?, q(from)),
+                Some(o) => format!(
+                    "REVOKE {} ON {} FROM {}{cascade};",
+                    privileges(p)?,
+                    target(o)?,
+                    q(from)
+                ),
+                None if v == Variant::Materialize => {
+                    format!("REVOKE {} ON SYSTEM FROM {};", privileges(p)?, q(from))
+                }
                 None if v == Variant::Cockroach => return Err(cockroach_database()),
-                None => on_current_database(&format!("REVOKE {} ON DATABASE %I FROM %I{cascade}", privileges(p)?), from),
+                None => on_current_database(
+                    &format!("REVOKE {} ON DATABASE %I FROM %I{cascade}", privileges(p)?),
+                    from,
+                ),
             }
         }
-        SecurityAction::AddMember { role, member } => format!("GRANT {} TO {};", q(role), q(member)),
-        SecurityAction::RemoveMember { role, member } => format!("REVOKE {} FROM {};", q(role), q(member)),
+        SecurityAction::AddMember { role, member } => {
+            format!("GRANT {} TO {};", q(role), q(member))
+        }
+        SecurityAction::RemoveMember { role, member } => {
+            format!("REVOKE {} FROM {};", q(role), q(member))
+        }
     })
 }
 
@@ -748,30 +960,63 @@ fn redshift_script(a: &SecurityAction) -> Result<String> {
         }
     };
     Ok(match a {
-        SecurityAction::CreateUser { name, password } => match password.as_deref().filter(|p| !p.is_empty()) {
-            Some(p) => format!("CREATE USER {} PASSWORD {};", q(name), lit(v, p)),
-            None => format!("CREATE USER {} PASSWORD DISABLE;", q(name)),
-        },
-        SecurityAction::CreateRole { name } => format!("CREATE GROUP {};", rs_group(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::Role } => format!("DROP GROUP {};", rs_group(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::User } => format!("DROP USER {};", q(name)),
-        SecurityAction::SetPassword { name, password } => format!("ALTER USER {} PASSWORD {};", q(name), lit(v, password)),
-        SecurityAction::SetLogin { name, enabled: false } => format!("ALTER USER {} PASSWORD DISABLE;", q(name)),
-        SecurityAction::SetLogin { enabled: true, .. } => {
-            return Err(Error::Query("en Redshift el ingreso se habilita asignando una contraseña nueva".into()))
+        SecurityAction::CreateUser { name, password } => {
+            match password.as_deref().filter(|p| !p.is_empty()) {
+                Some(p) => format!("CREATE USER {} PASSWORD {};", q(name), lit(v, p)),
+                None => format!("CREATE USER {} PASSWORD DISABLE;", q(name)),
+            }
         }
-        SecurityAction::Grant { privileges: p, object, to, grantable } => format!(
+        SecurityAction::CreateRole { name } => format!("CREATE GROUP {};", rs_group(name)),
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::Role,
+        } => format!("DROP GROUP {};", rs_group(name)),
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::User,
+        } => format!("DROP USER {};", q(name)),
+        SecurityAction::SetPassword { name, password } => {
+            format!("ALTER USER {} PASSWORD {};", q(name), lit(v, password))
+        }
+        SecurityAction::SetLogin {
+            name,
+            enabled: false,
+        } => format!("ALTER USER {} PASSWORD DISABLE;", q(name)),
+        SecurityAction::SetLogin { enabled: true, .. } => {
+            return Err(Error::Query(
+                "en Redshift el ingreso se habilita asignando una contraseña nueva".into(),
+            ))
+        }
+        SecurityAction::Grant {
+            privileges: p,
+            object,
+            to,
+            grantable,
+        } => format!(
             "GRANT {} ON {} TO {}{};",
             privileges(p)?,
             on(object)?,
             rs_grantee(to),
             if *grantable { " WITH GRANT OPTION" } else { "" }
         ),
-        SecurityAction::Revoke { privileges: p, object, from } => {
-            format!("REVOKE {} ON {} FROM {};", privileges(p)?, on(object)?, rs_grantee(from))
+        SecurityAction::Revoke {
+            privileges: p,
+            object,
+            from,
+        } => {
+            format!(
+                "REVOKE {} ON {} FROM {};",
+                privileges(p)?,
+                on(object)?,
+                rs_grantee(from)
+            )
         }
-        SecurityAction::AddMember { role, member } => format!("ALTER GROUP {} ADD USER {};", rs_group(role), q(member)),
-        SecurityAction::RemoveMember { role, member } => format!("ALTER GROUP {} DROP USER {};", rs_group(role), q(member)),
+        SecurityAction::AddMember { role, member } => {
+            format!("ALTER GROUP {} ADD USER {};", rs_group(role), q(member))
+        }
+        SecurityAction::RemoveMember { role, member } => {
+            format!("ALTER GROUP {} DROP USER {};", rs_group(role), q(member))
+        }
     })
 }
 
@@ -781,8 +1026,14 @@ fn crate_script(v: Variant, a: &SecurityAction) -> Result<String> {
             None => String::new(),
             Some(o) => match o.kind.as_str() {
                 "schema" => format!(" ON SCHEMA {}", q(&o.name)),
-                "view" => format!(" ON VIEW {}", qualified_name(Quote::Double, o.schema(), &o.name)),
-                _ => format!(" ON TABLE {}", qualified_name(Quote::Double, o.schema(), &o.name)),
+                "view" => format!(
+                    " ON VIEW {}",
+                    qualified_name(Quote::Double, o.schema(), &o.name)
+                ),
+                _ => format!(
+                    " ON TABLE {}",
+                    qualified_name(Quote::Double, o.schema(), &o.name)
+                ),
             },
         }
     };
@@ -813,21 +1064,55 @@ mod tests {
     use super::*;
 
     fn table() -> Option<ObjectRef> {
-        Some(ObjectRef { kind: "table".into(), schema: Some("pub\"lic".into()), name: "fac\"turas".into() })
+        Some(ObjectRef {
+            kind: "table".into(),
+            schema: Some("pub\"lic".into()),
+            name: "fac\"turas".into(),
+        })
     }
 
     #[test]
     fn postgres_scripts_quote_and_escape() {
         let s = |a| script(Variant::Postgres, &a).unwrap();
         assert_eq!(
-            s(SecurityAction::CreateUser { name: "ana\"x".into(), password: Some("p'w\\".into()) }),
+            s(SecurityAction::CreateUser {
+                name: "ana\"x".into(),
+                password: Some("p'w\\".into())
+            }),
             "CREATE ROLE \"ana\"\"x\" WITH LOGIN PASSWORD E'p''w\\\\';"
         );
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: None }), "CREATE ROLE \"ana\" WITH LOGIN;");
-        assert_eq!(s(SecurityAction::CreateRole { name: "lectores".into() }), "CREATE ROLE \"lectores\";");
-        assert!(s(SecurityAction::Drop { name: "ana".into(), kind: PrincipalKind::User }).ends_with("\nDROP ROLE \"ana\";"));
-        assert_eq!(s(SecurityAction::SetPassword { name: "ana".into(), password: "x'y".into() }), "ALTER ROLE \"ana\" WITH PASSWORD E'x''y';");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: false }), "ALTER ROLE \"ana\" WITH NOLOGIN;");
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: None
+            }),
+            "CREATE ROLE \"ana\" WITH LOGIN;"
+        );
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "lectores".into()
+            }),
+            "CREATE ROLE \"lectores\";"
+        );
+        assert!(s(SecurityAction::Drop {
+            name: "ana".into(),
+            kind: PrincipalKind::User
+        })
+        .ends_with("\nDROP ROLE \"ana\";"));
+        assert_eq!(
+            s(SecurityAction::SetPassword {
+                name: "ana".into(),
+                password: "x'y".into()
+            }),
+            "ALTER ROLE \"ana\" WITH PASSWORD E'x''y';"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: false
+            }),
+            "ALTER ROLE \"ana\" WITH NOLOGIN;"
+        );
         assert_eq!(
             s(SecurityAction::Grant { privileges: vec!["select".into(), " update ".into()], object: table(), to: "ana".into(), grantable: true }),
             "GRANT SELECT, UPDATE ON TABLE \"pub\"\"lic\".\"fac\"\"turas\" TO \"ana\" WITH GRANT OPTION;"
@@ -835,7 +1120,11 @@ mod tests {
         assert_eq!(
             s(SecurityAction::Revoke {
                 privileges: vec!["usage".into()],
-                object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "ventas".into() }),
+                object: Some(ObjectRef {
+                    kind: "schema".into(),
+                    schema: None,
+                    name: "ventas".into()
+                }),
                 from: "r1".into()
             }),
             "REVOKE USAGE ON SCHEMA \"ventas\" FROM \"r1\" CASCADE;"
@@ -843,42 +1132,95 @@ mod tests {
         assert_eq!(
             s(SecurityAction::Grant {
                 privileges: vec!["EXECUTE".into()],
-                object: Some(ObjectRef { kind: "function".into(), schema: Some("public".into()), name: "f(integer, text[])".into() }),
+                object: Some(ObjectRef {
+                    kind: "function".into(),
+                    schema: Some("public".into()),
+                    name: "f(integer, text[])".into()
+                }),
                 to: "ana".into(),
                 grantable: false
             }),
             "GRANT EXECUTE ON FUNCTION \"public\".\"f\"(integer, text[]) TO \"ana\";"
         );
-        assert_eq!(s(SecurityAction::AddMember { role: "lectores".into(), member: "ana".into() }), "GRANT \"lectores\" TO \"ana\";");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "lectores".into(), member: "ana".into() }), "REVOKE \"lectores\" FROM \"ana\";");
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "lectores".into(),
+                member: "ana".into()
+            }),
+            "GRANT \"lectores\" TO \"ana\";"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "lectores".into(),
+                member: "ana".into()
+            }),
+            "REVOKE \"lectores\" FROM \"ana\";"
+        );
     }
 
     #[test]
     fn database_grants_run_on_the_current_database() {
         let s = script(
             Variant::Postgres,
-            &SecurityAction::Grant { privileges: vec!["CONNECT".into(), "temporary".into()], object: None, to: "o'k".into(), grantable: false },
+            &SecurityAction::Grant {
+                privileges: vec!["CONNECT".into(), "temporary".into()],
+                object: None,
+                to: "o'k".into(),
+                grantable: false,
+            },
         )
         .unwrap();
         assert!(s.ends_with(
             "DO $dbine$ BEGIN EXECUTE format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO %I', current_database(), E'o''k'); END $dbine$;"
         ));
         // A name that holds the dollar-quote tag gets another tag.
-        let s = script(Variant::Postgres, &SecurityAction::Revoke { privileges: vec!["CONNECT".into()], object: None, from: "$dbine$".into() }).unwrap();
+        let s = script(
+            Variant::Postgres,
+            &SecurityAction::Revoke {
+                privileges: vec!["CONNECT".into()],
+                object: None,
+                from: "$dbine$".into(),
+            },
+        )
+        .unwrap();
         assert!(s.contains("DO $dbine1$ BEGIN"), "{s}");
     }
 
     #[test]
     fn privilege_and_routine_names_cannot_inject() {
-        for bad in ["SELECT; DROP TABLE x", "SELECT --", "SEL'ECT", "", "CONNECT)"] {
-            let a = SecurityAction::Grant { privileges: vec![bad.into()], object: table(), to: "a".into(), grantable: false };
+        for bad in [
+            "SELECT; DROP TABLE x",
+            "SELECT --",
+            "SEL'ECT",
+            "",
+            "CONNECT)",
+        ] {
+            let a = SecurityAction::Grant {
+                privileges: vec![bad.into()],
+                object: table(),
+                to: "a".into(),
+                grantable: false,
+            };
             assert!(script(Variant::Postgres, &a).is_err(), "{bad}");
             assert!(script(Variant::Redshift, &a).is_err(), "{bad}");
         }
-        assert!(script(Variant::Postgres, &SecurityAction::Grant { privileges: vec![], object: None, to: "a".into(), grantable: false }).is_err());
+        assert!(script(
+            Variant::Postgres,
+            &SecurityAction::Grant {
+                privileges: vec![],
+                object: None,
+                to: "a".into(),
+                grantable: false
+            }
+        )
+        .is_err());
         let f = |name: &str| SecurityAction::Grant {
             privileges: vec!["EXECUTE".into()],
-            object: Some(ObjectRef { kind: "function".into(), schema: None, name: name.into() }),
+            object: Some(ObjectRef {
+                kind: "function".into(),
+                schema: None,
+                name: name.into(),
+            }),
             to: "a".into(),
             grantable: false,
         };
@@ -889,16 +1231,42 @@ mod tests {
     #[test]
     fn opengauss_roles_say_they_have_no_password() {
         let s = |a| script(Variant::OpenGauss, &a).unwrap();
-        assert_eq!(s(SecurityAction::CreateRole { name: "r".into() }), "CREATE ROLE \"r\" PASSWORD DISABLE;");
-        assert_eq!(s(SecurityAction::CreateUser { name: "u".into(), password: None }), "CREATE ROLE \"u\" WITH LOGIN PASSWORD DISABLE;");
-        assert_eq!(s(SecurityAction::CreateUser { name: "u".into(), password: Some("x".into()) }), "CREATE ROLE \"u\" WITH LOGIN PASSWORD E'x';");
+        assert_eq!(
+            s(SecurityAction::CreateRole { name: "r".into() }),
+            "CREATE ROLE \"r\" PASSWORD DISABLE;"
+        );
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "u".into(),
+                password: None
+            }),
+            "CREATE ROLE \"u\" WITH LOGIN PASSWORD DISABLE;"
+        );
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "u".into(),
+                password: Some("x".into())
+            }),
+            "CREATE ROLE \"u\" WITH LOGIN PASSWORD E'x';"
+        );
     }
 
     #[test]
     fn cockroach_revokes_without_cascade() {
-        let a = SecurityAction::Revoke { privileges: vec!["SELECT".into()], object: table(), from: "ana".into() };
-        assert_eq!(script(Variant::Cockroach, &a).unwrap(), "REVOKE SELECT ON TABLE \"pub\"\"lic\".\"fac\"\"turas\" FROM \"ana\";");
-        let a = SecurityAction::Revoke { privileges: vec!["CONNECT".into()], object: None, from: "ana".into() };
+        let a = SecurityAction::Revoke {
+            privileges: vec!["SELECT".into()],
+            object: table(),
+            from: "ana".into(),
+        };
+        assert_eq!(
+            script(Variant::Cockroach, &a).unwrap(),
+            "REVOKE SELECT ON TABLE \"pub\"\"lic\".\"fac\"\"turas\" FROM \"ana\";"
+        );
+        let a = SecurityAction::Revoke {
+            privileges: vec!["CONNECT".into()],
+            object: None,
+            from: "ana".into(),
+        };
         assert!(script(Variant::Cockroach, &a).is_err());
         assert!(!spec(Variant::Cockroach).unwrap().object_kinds.contains(&""));
     }
@@ -907,60 +1275,159 @@ mod tests {
     fn materialize_grants_system_privileges() {
         let s = |a| script(Variant::Materialize, &a).unwrap();
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["createrole".into()], object: None, to: "ana".into(), grantable: false }),
+            s(SecurityAction::Grant {
+                privileges: vec!["createrole".into()],
+                object: None,
+                to: "ana".into(),
+                grantable: false
+            }),
             "GRANT CREATEROLE ON SYSTEM TO \"ana\";"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["SELECT".into()], object: table(), from: "ana".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["SELECT".into()],
+                object: table(),
+                from: "ana".into()
+            }),
             "REVOKE SELECT ON TABLE \"pub\"\"lic\".\"fac\"\"turas\" FROM \"ana\";"
         );
-        assert!(script(Variant::Materialize, &SecurityAction::Grant { privileges: vec!["SELECT".into()], object: table(), to: "a".into(), grantable: true }).is_err());
+        assert!(script(
+            Variant::Materialize,
+            &SecurityAction::Grant {
+                privileges: vec!["SELECT".into()],
+                object: table(),
+                to: "a".into(),
+                grantable: true
+            }
+        )
+        .is_err());
     }
 
     #[test]
     fn redshift_has_users_and_groups() {
         let s = |a| script(Variant::Redshift, &a).unwrap();
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: Some("P\\w'1".into()) }), "CREATE USER \"ana\" PASSWORD 'P\\\\w''1';");
-        assert_eq!(s(SecurityAction::CreateRole { name: "ventas".into() }), "CREATE GROUP \"ventas\";");
-        assert_eq!(s(SecurityAction::Drop { name: "GROUP ventas".into(), kind: PrincipalKind::Role }), "DROP GROUP \"ventas\";");
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["SELECT".into()], object: table(), to: "GROUP ventas".into(), grantable: false }),
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: Some("P\\w'1".into())
+            }),
+            "CREATE USER \"ana\" PASSWORD 'P\\\\w''1';"
+        );
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "ventas".into()
+            }),
+            "CREATE GROUP \"ventas\";"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "GROUP ventas".into(),
+                kind: PrincipalKind::Role
+            }),
+            "DROP GROUP \"ventas\";"
+        );
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["SELECT".into()],
+                object: table(),
+                to: "GROUP ventas".into(),
+                grantable: false
+            }),
             "GRANT SELECT ON TABLE \"pub\"\"lic\".\"fac\"\"turas\" TO GROUP \"ventas\";"
         );
-        assert_eq!(s(SecurityAction::AddMember { role: "GROUP ventas".into(), member: "ana".into() }), "ALTER GROUP \"ventas\" ADD USER \"ana\";");
-        assert!(script(Variant::Redshift, &SecurityAction::Grant { privileges: vec!["CREATE".into()], object: None, to: "a".into(), grantable: false }).is_err());
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "GROUP ventas".into(),
+                member: "ana".into()
+            }),
+            "ALTER GROUP \"ventas\" ADD USER \"ana\";"
+        );
+        assert!(script(
+            Variant::Redshift,
+            &SecurityAction::Grant {
+                privileges: vec!["CREATE".into()],
+                object: None,
+                to: "a".into(),
+                grantable: false
+            }
+        )
+        .is_err());
     }
 
     #[test]
     fn cratedb_scripts() {
         let s = |a| script(Variant::CrateDb, &a).unwrap();
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: Some("x'y".into()) }), "CREATE USER \"ana\" WITH (password = 'x''y');");
-        assert_eq!(s(SecurityAction::Grant { privileges: vec!["dql".into()], object: None, to: "ana".into(), grantable: false }), "GRANT DQL TO \"ana\";");
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["DML".into()], object: table(), from: "ana".into() }),
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: Some("x'y".into())
+            }),
+            "CREATE USER \"ana\" WITH (password = 'x''y');"
+        );
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["dql".into()],
+                object: None,
+                to: "ana".into(),
+                grantable: false
+            }),
+            "GRANT DQL TO \"ana\";"
+        );
+        assert_eq!(
+            s(SecurityAction::Revoke {
+                privileges: vec!["DML".into()],
+                object: table(),
+                from: "ana".into()
+            }),
             "REVOKE DML ON TABLE \"pub\"\"lic\".\"fac\"\"turas\" FROM \"ana\";"
         );
-        assert!(script(Variant::CrateDb, &SecurityAction::SetLogin { name: "ana".into(), enabled: false }).is_err());
+        assert!(script(
+            Variant::CrateDb,
+            &SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: false
+            }
+        )
+        .is_err());
     }
 
     #[test]
     fn specs_follow_the_engine() {
         assert!(spec(Variant::Denodo).is_none());
-        assert!(script(Variant::Denodo, &SecurityAction::CreateRole { name: "r".into() }).is_err());
+        assert!(script(
+            Variant::Denodo,
+            &SecurityAction::CreateRole { name: "r".into() }
+        )
+        .is_err());
         let pg = spec(Variant::Postgres).unwrap();
         assert!(!pg.per_database);
         assert!(pg.object_kinds.contains(&"") && pg.object_kinds.contains(&"materialized_view"));
         // Yellowbrick's explorer has no procedures or materialized views.
         let yb = spec(Variant::Yellowbrick).unwrap();
-        assert!(!yb.object_kinds.contains(&"procedure") && !yb.object_kinds.contains(&"materialized_view"));
+        assert!(
+            !yb.object_kinds.contains(&"procedure")
+                && !yb.object_kinds.contains(&"materialized_view")
+        );
     }
 
     #[test]
     fn membership_closure_names_the_direct_role() {
         let m = |a: &str, b: &str| (a.to_string(), b.to_string());
-        let members = [m("ana", "lectores"), m("lectores", "base"), m("base", "lectores"), m("ana", "otros")];
+        let members = [
+            m("ana", "lectores"),
+            m("lectores", "base"),
+            m("base", "lectores"),
+            m("ana", "otros"),
+        ];
         let mut c = closure("ana", &members);
         c.sort();
-        assert_eq!(c, vec![m("base", "lectores"), m("lectores", "lectores"), m("otros", "otros")]);
+        assert_eq!(
+            c,
+            vec![
+                m("base", "lectores"),
+                m("lectores", "lectores"),
+                m("otros", "otros")
+            ]
+        );
     }
 }

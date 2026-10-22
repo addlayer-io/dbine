@@ -64,14 +64,29 @@ fn ase_size(v: &str, what: &str) -> Result<String> {
     let s = s.trim_end_matches('B');
     let digits = s.trim_end_matches(['K', 'M', 'G', 'T']);
     let unit = &s[digits.len()..];
-    if digits.is_empty() || digits.len() > 9 || !digits.chars().all(|c| c.is_ascii_digit()) || unit.len() > 1 {
-        return Err(Error::Query(format!("{what}: «{v}» no es un tamaño (100, 500M, 2G…)")));
+    if digits.is_empty()
+        || digits.len() > 9
+        || !digits.chars().all(|c| c.is_ascii_digit())
+        || unit.len() > 1
+    {
+        return Err(Error::Query(format!(
+            "{what}: «{v}» no es un tamaño (100, 500M, 2G…)"
+        )));
     }
-    Ok(if unit.is_empty() { digits.to_string() } else { format!("'{digits}{unit}'") })
+    Ok(if unit.is_empty() {
+        digits.to_string()
+    } else {
+        format!("'{digits}{unit}'")
+    })
 }
 
 /// `device [= size]`, `DEFAULT` when no device is named.
-fn ase_device(o: &BTreeMap<String, String>, device: &str, size: &str, what: &str) -> Result<Option<String>> {
+fn ase_device(
+    o: &BTreeMap<String, String>,
+    device: &str,
+    size: &str,
+    what: &str,
+) -> Result<Option<String>> {
     let dev = opt(o, device);
     let size = opt(o, size).map(|s| ase_size(s, what)).transpose()?;
     if let Some(d) = dev {
@@ -79,19 +94,31 @@ fn ase_device(o: &BTreeMap<String, String>, device: &str, size: &str, what: &str
     }
     Ok(match (dev, size) {
         (None, None) => None,
-        (d, s) => Some(format!("{}{}", d.unwrap_or("DEFAULT"), s.map(|s| format!(" = {s}")).unwrap_or_default())),
+        (d, s) => Some(format!(
+            "{}{}",
+            d.unwrap_or("DEFAULT"),
+            s.map(|s| format!(" = {s}")).unwrap_or_default()
+        )),
     })
 }
 
 /// The statements that create `name`: Sybase ASE switches to `master`
 /// first (and the session goes back to its database after).
-pub(crate) fn statements(p: &Preset, name: &str, o: &BTreeMap<String, String>) -> Result<Vec<String>> {
+pub(crate) fn statements(
+    p: &Preset,
+    name: &str,
+    o: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
     let name = name.trim();
     if name.is_empty() {
         return Err(Error::Query("Falta el nombre de la base".into()));
     }
     let eng = design::eng(p);
-    let quote = p.quote.unwrap_or(if eng == Eng::Ase { Quote::Bracket } else { Quote::Double });
+    let quote = p.quote.unwrap_or(if eng == Eng::Ase {
+        Quote::Bracket
+    } else {
+        Quote::Double
+    });
     let mut sql = format!("CREATE DATABASE {}", quote_ident(quote, name));
     match eng {
         Eng::Ase => {
@@ -102,10 +129,14 @@ pub(crate) fn statements(p: &Preset, name: &str, o: &BTreeMap<String, String>) -
             }
             if let Some(l) = &log {
                 if opt(o, "log_device").is_none() {
-                    return Err(Error::Query("para el tamaño del log, indicá su dispositivo".into()));
+                    return Err(Error::Query(
+                        "para el tamaño del log, indicá su dispositivo".into(),
+                    ));
                 }
                 sql.push_str(&format!("\nLOG ON {l}"));
-                if opt(o, "data_device").is_some_and(|d| opt(o, "log_device").is_some_and(|l| l.eq_ignore_ascii_case(d))) {
+                if opt(o, "data_device").is_some_and(|d| {
+                    opt(o, "log_device").is_some_and(|l| l.eq_ignore_ascii_case(d))
+                }) {
                     sql.push_str("\nWITH OVERRIDE");
                 }
             }
@@ -113,17 +144,28 @@ pub(crate) fn statements(p: &Preset, name: &str, o: &BTreeMap<String, String>) -
         }
         Eng::Netezza => {
             if let Some(h) = opt(o, "collect_history") {
-                check(matches!(h, "ON" | "OFF" | "DEFAULT"), "historial de consultas", h)?;
+                check(
+                    matches!(h, "ON" | "OFF" | "DEFAULT"),
+                    "historial de consultas",
+                    h,
+                )?;
                 sql.push_str(&format!("\nCOLLECT HISTORY {h}"));
             }
             if let Some(d) = opt(o, "retention_days") {
-                check(d.len() <= 2 && d.chars().all(|c| c.is_ascii_digit()), "retención de versiones", d)?;
+                check(
+                    d.len() <= 2 && d.chars().all(|c| c.is_ascii_digit()),
+                    "retención de versiones",
+                    d,
+                )?;
                 sql.push_str(&format!("\nDATA VERSION RETENTION TIME {d}"));
             }
             Ok(vec![sql])
         }
         _ if o.values().all(|v| v.trim().is_empty()) => Ok(vec![sql]),
-        _ => Err(Error::Unsupported(format!("{} no admite opciones al crear una base", p.name))),
+        _ => Err(Error::Unsupported(format!(
+            "{} no admite opciones al crear una base",
+            p.name
+        ))),
     }
 }
 
@@ -131,9 +173,16 @@ pub(crate) fn statements(p: &Preset, name: &str, o: &BTreeMap<String, String>) -
 /// script: its quoting comes from the driver at connect time).
 pub(crate) fn script(p: &Preset, name: &str, o: &BTreeMap<String, String>) -> Result<String> {
     if !matches!(design::eng(p), Eng::Ase | Eng::Netezza) {
-        return Err(Error::Unsupported(format!("{} no genera el script de creación de una base", p.name)));
+        return Err(Error::Unsupported(format!(
+            "{} no genera el script de creación de una base",
+            p.name
+        )));
     }
-    let sep = if design::eng(p) == Eng::Ase { "\ngo\n" } else { ";\n" };
+    let sep = if design::eng(p) == Eng::Ase {
+        "\ngo\n"
+    } else {
+        ";\n"
+    };
     Ok(statements(p, name, o)?.join(sep))
 }
 
@@ -145,28 +194,55 @@ impl OdbcSession {
         }
         // sysdevices.status: 1 default disk, 2 physical (database) disk.
         let rows = self
-            .query("SELECT name, status FROM master..sysdevices WHERE status & 2 = 2 ORDER BY name".into(), Vec::new())
+            .query(
+                "SELECT name, status FROM master..sysdevices WHERE status & 2 = 2 ORDER BY name"
+                    .into(),
+                Vec::new(),
+            )
             .await
             .unwrap_or_default();
-        let devices: Vec<String> = rows.iter().filter_map(|r| col(r, 0)).map(|s| s.trim().to_string()).collect();
+        let devices: Vec<String> = rows
+            .iter()
+            .filter_map(|r| col(r, 0))
+            .map(|s| s.trim().to_string())
+            .collect();
         let default = rows
             .iter()
-            .filter(|r| col(r, 1).and_then(|s| s.trim().parse::<i64>().ok()).is_some_and(|s| s & 1 == 1))
+            .filter(|r| {
+                col(r, 1)
+                    .and_then(|s| s.trim().parse::<i64>().ok())
+                    .is_some_and(|s| s & 1 == 1)
+            })
             .filter_map(|r| col(r, 0))
             .map(|s| s.trim().to_string())
             .collect::<Vec<_>>();
         let default = (!default.is_empty()).then(|| default.join(", "));
         Ok(vec![
-            FieldChoices { key: "data_device".into(), default, values: devices.clone() },
-            FieldChoices { key: "log_device".into(), default: None, values: devices },
+            FieldChoices {
+                key: "data_device".into(),
+                default,
+                values: devices.clone(),
+            },
+            FieldChoices {
+                key: "log_device".into(),
+                default: None,
+                values: devices,
+            },
         ])
     }
 
     /// Run [`statements`]; Sybase ASE goes back to the session's database
     /// after, even when the create failed.
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if !design::capabilities(self.preset).create_database {
-            return Err(Error::Unsupported(format!("{} no crea ni borra bases desde DBine", self.preset.name)));
+            return Err(Error::Unsupported(format!(
+                "{} no crea ni borra bases desde DBine",
+                self.preset.name
+            )));
         }
         let mut stmts = statements(self.preset, name, o)?;
         if design::eng(self.preset) == Eng::Ase {
@@ -194,25 +270,56 @@ mod tests {
     }
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script(p("sybase"), "ven]tas", &o(&[("data_device", " ")])).unwrap(), "USE master\ngo\nCREATE DATABASE [ven]]tas]");
-        assert_eq!(script(p("netezza"), "v", &o(&[])).unwrap(), "CREATE DATABASE \"v\"");
-        assert!(fields(p("db2")).is_empty() && fields(p("informix")).is_empty() && fields(p("teradata")).is_empty());
+        assert_eq!(
+            script(p("sybase"), "ven]tas", &o(&[("data_device", " ")])).unwrap(),
+            "USE master\ngo\nCREATE DATABASE [ven]]tas]"
+        );
+        assert_eq!(
+            script(p("netezza"), "v", &o(&[])).unwrap(),
+            "CREATE DATABASE \"v\""
+        );
+        assert!(
+            fields(p("db2")).is_empty()
+                && fields(p("informix")).is_empty()
+                && fields(p("teradata")).is_empty()
+        );
     }
 
     #[test]
     fn ase_devices() {
         assert_eq!(
-            script(p("sybase"), "v", &o(&[("data_device", "datadev1"), ("data_size", "500M"), ("log_device", "logdev1"), ("log_size", "100")])).unwrap(),
+            script(
+                p("sybase"),
+                "v",
+                &o(&[
+                    ("data_device", "datadev1"),
+                    ("data_size", "500M"),
+                    ("log_device", "logdev1"),
+                    ("log_size", "100")
+                ])
+            )
+            .unwrap(),
             "USE master\ngo\nCREATE DATABASE [v]\nON datadev1 = '500M'\nLOG ON logdev1 = 100"
         );
-        assert_eq!(script(p("sybase"), "v", &o(&[("data_size", "2 gb")])).unwrap(), "USE master\ngo\nCREATE DATABASE [v]\nON DEFAULT = '2G'");
         assert_eq!(
-            script(p("sybase"), "v", &o(&[("data_device", "dev"), ("log_device", "DEV")])).unwrap(),
+            script(p("sybase"), "v", &o(&[("data_size", "2 gb")])).unwrap(),
+            "USE master\ngo\nCREATE DATABASE [v]\nON DEFAULT = '2G'"
+        );
+        assert_eq!(
+            script(
+                p("sybase"),
+                "v",
+                &o(&[("data_device", "dev"), ("log_device", "DEV")])
+            )
+            .unwrap(),
             "USE master\ngo\nCREATE DATABASE [v]\nON dev\nLOG ON DEV\nWITH OVERRIDE"
         );
     }
@@ -220,14 +327,24 @@ mod tests {
     #[test]
     fn netezza_options() {
         assert_eq!(
-            script(p("netezza"), "v", &o(&[("collect_history", "OFF"), ("retention_days", "7")])).unwrap(),
+            script(
+                p("netezza"),
+                "v",
+                &o(&[("collect_history", "OFF"), ("retention_days", "7")])
+            )
+            .unwrap(),
             "CREATE DATABASE \"v\"\nCOLLECT HISTORY OFF\nDATA VERSION RETENTION TIME 7"
         );
     }
 
     #[test]
     fn values_are_checked() {
-        for bad in [("data_device", "dev; drop"), ("data_size", "big"), ("data_size", "1.5G"), ("log_size", "10")] {
+        for bad in [
+            ("data_device", "dev; drop"),
+            ("data_size", "big"),
+            ("data_size", "1.5G"),
+            ("log_size", "10"),
+        ] {
             assert!(script(p("sybase"), "v", &o(&[bad])).is_err(), "{bad:?}");
         }
         assert!(script(p("netezza"), "v", &o(&[("collect_history", "ON;")])).is_err());

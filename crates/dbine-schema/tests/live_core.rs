@@ -90,10 +90,24 @@ async fn connect(e: E) -> Option<Box<dyn Session>> {
         return common::session(e.driver(), e.env()).await;
     }
     static N: AtomicUsize = AtomicUsize::new(0);
-    let path = std::env::temp_dir().join(format!("dbine_live_core_{}_{}.db", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+    let path = std::env::temp_dir().join(format!(
+        "dbine_live_core_{}_{}.db",
+        std::process::id(),
+        N.fetch_add(1, Ordering::SeqCst)
+    ));
     let _ = std::fs::remove_file(&path);
-    let cfg = ConnectionConfig { driver: "sqlite".into(), host: path.to_string_lossy().into_owned(), ..Default::default() };
-    Some(dbine_drivers::find("sqlite").unwrap().connect(&cfg, None).await.expect("sqlite"))
+    let cfg = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: path.to_string_lossy().into_owned(),
+        ..Default::default()
+    };
+    Some(
+        dbine_drivers::find("sqlite")
+            .unwrap()
+            .connect(&cfg, None)
+            .await
+            .expect("sqlite"),
+    )
 }
 
 /// Drop the test tables in any case spelling a previous run left.
@@ -301,9 +315,18 @@ fn values(e: E) -> HashMap<String, (V, V)> {
             ("i2", same(Int(s("-32768")))),
             ("i4", same(Int(s("-2147483648")))),
             ("i8", same(Int(s("-9223372036854775808")))),
-            ("dec_p", (Num(s("-9999999999999999999999999999.9999999999")), Num(s("-12345.5")))),
+            (
+                "dec_p",
+                (
+                    Num(s("-9999999999999999999999999999.9999999999")),
+                    Num(s("-12345.5")),
+                ),
+            ),
             ("dec_money", (Num(s("999999999999999.9999")), Num(s("1.5")))),
-            ("num_libre", (Num(s("12345678901234567890.123456789")), Num(s("1.5")))),
+            (
+                "num_libre",
+                (Num(s("12345678901234567890.123456789")), Num(s("1.5"))),
+            ),
             ("dinero", (Num(s("92233720368547758.07")), Num(s("1.5")))),
             ("f4", (F(s("3.402823e38")), F(s("1.5")))),
             ("f8", (F(s("-1.7976931348623157e308")), F(s("-1.5")))),
@@ -315,7 +338,13 @@ fn values(e: E) -> HashMap<String, (V, V)> {
             ("d", same(Date(s("9999-12-31")))),
             ("t", (Time(s("23:59:59.999999")), Time(s("12:34:56")))),
             ("ttz", same(Skip)),
-            ("ts", (Ts(s("9999-12-31 23:59:59.999999")), Ts(s("2024-02-29 12:34:56")))),
+            (
+                "ts",
+                (
+                    Ts(s("9999-12-31 23:59:59.999999")),
+                    Ts(s("2024-02-29 12:34:56")),
+                ),
+            ),
             ("ts0", same(Ts(s("1000-01-01 00:00:00")))),
             ("tstz", same(TsTz(s("2024-02-29 23:59:59.999 +05:30")))),
             ("u", same(Uuid(s(UUID)))),
@@ -337,8 +366,17 @@ fn values(e: E) -> HashMap<String, (V, V)> {
             ("u4", same(Int(s("4294967295")))),
             ("i8", same(Int(s("-9223372036854775808")))),
             ("u8", (Int(s("18446744073709551615")), Int(s("1")))),
-            ("dec_p", (Num(format!("{}.{}", "9".repeat(35), "9".repeat(30))), Num(s("1.5")))),
-            ("dec_money", (Num(s("-999999999999999.9999")), Num(s("1.5")))),
+            (
+                "dec_p",
+                (
+                    Num(format!("{}.{}", "9".repeat(35), "9".repeat(30))),
+                    Num(s("1.5")),
+                ),
+            ),
+            (
+                "dec_money",
+                (Num(s("-999999999999999.9999")), Num(s("1.5"))),
+            ),
             ("f4", (F(s("3.402823e38")), F(s("1.5")))),
             ("f8", (F(s("1.7976931348623157e308")), F(s("1.5")))),
             ("ch", same(Str(fill(10)))),
@@ -351,7 +389,13 @@ fn values(e: E) -> HashMap<String, (V, V)> {
             ("blb", same(Hex(hex(300)))),
             ("d", same(Date(s("9999-12-31")))),
             ("t", (Time(s("23:59:59.999999")), Time(s("12:34:56")))),
-            ("dt", (Ts(s("9999-12-31 23:59:59.999999")), Ts(s("2024-02-29 12:34:56")))),
+            (
+                "dt",
+                (
+                    Ts(s("9999-12-31 23:59:59.999999")),
+                    Ts(s("2024-02-29 12:34:56")),
+                ),
+            ),
             ("dt0", same(Ts(s("1000-01-01 00:00:00")))),
             ("ts", same(Ts(s("2038-01-19 03:14:07.999")))),
             ("y", same(Int(s("2155")))),
@@ -369,7 +413,13 @@ fn values(e: E) -> HashMap<String, (V, V)> {
             ("i2", same(Int(s("-32768")))),
             ("i4", same(Int(s("-2147483648")))),
             ("i8", same(Int(s("-9223372036854775808")))),
-            ("dec_p", (Num(s("-9999999999999999999999999999.9999999999")), Num(s("-12345.5")))),
+            (
+                "dec_p",
+                (
+                    Num(s("-9999999999999999999999999999.9999999999")),
+                    Num(s("-12345.5")),
+                ),
+            ),
             ("dec_money", (Num(s("999999999999999.9999")), Num(s("1.5")))),
             ("mon", (Num(s("922337203685477.5807")), Num(s("1.5")))),
             ("smon", (Num(s("-214748.3648")), Num(s("1.5")))),
@@ -389,9 +439,21 @@ fn values(e: E) -> HashMap<String, (V, V)> {
             ("t", (Time(s("23:59:59.9999999")), Time(s("12:34:56")))),
             ("dt", same(Ts(s("9999-12-31 23:59:59.997")))),
             ("sdt", same(Ts(s("2079-06-06 23:59:00")))),
-            ("dt2", (Ts(s("9999-12-31 23:59:59.9999999")), Ts(s("2024-02-29 12:34:56.123456")))),
+            (
+                "dt2",
+                (
+                    Ts(s("9999-12-31 23:59:59.9999999")),
+                    Ts(s("2024-02-29 12:34:56.123456")),
+                ),
+            ),
             ("dt23", same(Ts(s("9999-12-31 23:59:59.999")))),
-            ("dto", (TsTz(s("9999-12-31 23:59:59.9999999 +14:00")), TsTz(s("2024-02-29 12:34:56.123 +05:30")))),
+            (
+                "dto",
+                (
+                    TsTz(s("9999-12-31 23:59:59.9999999 +14:00")),
+                    TsTz(s("2024-02-29 12:34:56.123 +05:30")),
+                ),
+            ),
             ("u", same(Uuid(s(UUID)))),
             ("x", same(Str(s("<a>ñ</a>")))),
             ("rv", same(Skip)),
@@ -403,10 +465,25 @@ fn values(e: E) -> HashMap<String, (V, V)> {
             ("n10", same(Int(s("-9999999999")))),
             ("n19", same(Int(s("-9999999999999999999")))),
             ("nint", (Num("9".repeat(38)), Num(s("1")))),
-            ("dec_p", (Num(s("-9999999999999999999999999999.9999999999")), Num(s("-12345.5")))),
+            (
+                "dec_p",
+                (
+                    Num(s("-9999999999999999999999999999.9999999999")),
+                    Num(s("-12345.5")),
+                ),
+            ),
             ("dec_money", (Num(s("999999999999999.9999")), Num(s("1.5")))),
-            ("num_libre", (Num(s("12345678901234567890.123456789")), Num(s("1.5")))),
-            ("fl", (Num(s("123456789012345678901234567890.12345678")), Num(s("1.5")))),
+            (
+                "num_libre",
+                (Num(s("12345678901234567890.123456789")), Num(s("1.5"))),
+            ),
+            (
+                "fl",
+                (
+                    Num(s("123456789012345678901234567890.12345678")),
+                    Num(s("1.5")),
+                ),
+            ),
             ("f4", (F(s("3.402823e38")), F(s("1.5")))),
             ("f8", (F(s("1.7976931348623157e308")), F(s("1.5")))),
             ("ch", same(Str(fill(10)))),
@@ -420,8 +497,20 @@ fn values(e: E) -> HashMap<String, (V, V)> {
             ("rw", same(Hex(hex(200)))),
             ("bl", same(Hex(hex(300)))),
             ("d", same(Ts(s("9999-12-31 23:59:59")))),
-            ("ts", (Ts(s("9999-12-31 23:59:59.999999")), Ts(s("2024-02-29 12:34:56")))),
-            ("ts9", (Ts(s("9999-12-31 23:59:59.999999999")), Ts(s("2024-02-29 12:34:56.123456")))),
+            (
+                "ts",
+                (
+                    Ts(s("9999-12-31 23:59:59.999999")),
+                    Ts(s("2024-02-29 12:34:56")),
+                ),
+            ),
+            (
+                "ts9",
+                (
+                    Ts(s("9999-12-31 23:59:59.999999999")),
+                    Ts(s("2024-02-29 12:34:56.123456")),
+                ),
+            ),
             ("tstz", same(TsTz(s("2024-02-29 23:59:59.123456 +05:30")))),
             ("tsl", same(TsTz(s("2024-02-29 23:59:59.123456 +05:30")))),
             ("iv", same(Skip)),
@@ -483,7 +572,10 @@ fn bool_lit(e: E, l: &L, b: bool) -> String {
 }
 
 fn is_binary(l: &L) -> bool {
-    matches!(l, L::Binary { .. } | L::Varbinary { .. } | L::Blob | L::RowVersion)
+    matches!(
+        l,
+        L::Binary { .. } | L::Varbinary { .. } | L::Blob | L::RowVersion
+    )
 }
 
 fn has_tz(l: &L) -> bool {
@@ -491,7 +583,9 @@ fn has_tz(l: &L) -> bool {
 }
 
 fn strip_offset(x: &str) -> &str {
-    x.rsplit_once([' ', '+']).filter(|(_, o)| o.contains(':') && o.len() <= 6).map_or(x, |(t, _)| t.trim_end())
+    x.rsplit_once([' ', '+'])
+        .filter(|(_, o)| o.contains(':') && o.len() <= 6)
+        .map_or(x, |(t, _)| t.trim_end())
 }
 
 /// The literal for `v` in a column of type `l` on engine `e`.
@@ -538,7 +632,10 @@ fn literal(e: E, l: &L, v: &V) -> Option<String> {
         },
         V::Set(x) => match l {
             L::Array { .. } => format!("'{{{x}}}'"),
-            L::Json { .. } => text_lit(e, &serde_json::to_string(&x.split(',').collect::<Vec<_>>()).unwrap()),
+            L::Json { .. } => text_lit(
+                e,
+                &serde_json::to_string(&x.split(',').collect::<Vec<_>>()).unwrap(),
+            ),
             _ => text_lit(e, x),
         },
     })
@@ -585,13 +682,25 @@ fn norm_num(s: &str) -> String {
     let int = int.trim_start_matches('0');
     let frac = frac.trim_end_matches('0');
     let int = if int.is_empty() { "0" } else { int };
-    let out = if frac.is_empty() { int.to_string() } else { format!("{int}.{frac}") };
-    if neg && out != "0" { format!("-{out}") } else { out }
+    let out = if frac.is_empty() {
+        int.to_string()
+    } else {
+        format!("{int}.{frac}")
+    };
+    if neg && out != "0" {
+        format!("-{out}")
+    } else {
+        out
+    }
 }
 
 fn norm_hex(s: &str) -> String {
     let s = s.trim();
-    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).or_else(|| s.strip_prefix("\\x")).unwrap_or(s);
+    let s = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .or_else(|| s.strip_prefix("\\x"))
+        .unwrap_or(s);
     s.to_ascii_lowercase().replace('-', "")
 }
 
@@ -620,20 +729,46 @@ fn check_value(l: &L, v: &V, got: &Value) -> Result<(), String> {
     match v {
         V::Skip => Ok(()),
         V::Int(n) | V::Num(n) => match l {
-            L::Bool => (truthy(&g) == Some(n != "0")).then_some(()).ok_or(()).or_else(|_| fail(n)),
+            L::Bool => (truthy(&g) == Some(n != "0"))
+                .then_some(())
+                .ok_or(())
+                .or_else(|_| fail(n)),
             L::Float { .. } => {
-                let (a, b) = (n.parse::<f64>().unwrap(), g.parse::<f64>().unwrap_or(f64::NAN));
-                ((a - b).abs() <= a.abs() * 1e-12).then_some(()).ok_or(()).or_else(|_| fail(n))
+                let (a, b) = (
+                    n.parse::<f64>().unwrap(),
+                    g.parse::<f64>().unwrap_or(f64::NAN),
+                );
+                ((a - b).abs() <= a.abs() * 1e-12)
+                    .then_some(())
+                    .ok_or(())
+                    .or_else(|_| fail(n))
             }
-            _ => (norm_num(n) == norm_num(&g)).then_some(()).ok_or(()).or_else(|_| fail(n)),
+            _ => (norm_num(n) == norm_num(&g))
+                .then_some(())
+                .ok_or(())
+                .or_else(|_| fail(n)),
         },
         V::F(x) => {
-            let (a, b) = (x.parse::<f64>().unwrap(), g.parse::<f64>().unwrap_or(f64::NAN));
-            let tol = if matches!(l, L::Float { bytes: 4 }) { 1e-6 } else { 1e-12 };
-            ((a - b).abs() <= a.abs() * tol).then_some(()).ok_or(()).or_else(|_| fail(x))
+            let (a, b) = (
+                x.parse::<f64>().unwrap(),
+                g.parse::<f64>().unwrap_or(f64::NAN),
+            );
+            let tol = if matches!(l, L::Float { bytes: 4 }) {
+                1e-6
+            } else {
+                1e-12
+            };
+            ((a - b).abs() <= a.abs() * tol)
+                .then_some(())
+                .ok_or(())
+                .or_else(|_| fail(x))
         }
         V::Str(x) => {
-            let g2 = if matches!(l, L::Char { .. }) { g.trim_end().to_string() } else { g.clone() };
+            let g2 = if matches!(l, L::Char { .. }) {
+                g.trim_end().to_string()
+            } else {
+                g.clone()
+            };
             if matches!(l, L::Xml) {
                 // Engines re-serialize XML.
                 return Ok(());
@@ -643,9 +778,17 @@ fn check_value(l: &L, v: &V, got: &Value) -> Result<(), String> {
         V::Hex(h) => {
             let got = norm_hex(&g);
             // binary(n) pads with zeros.
-            (got == *h || (matches!(l, L::Binary { .. }) && got.starts_with(h.as_str()))).then_some(()).ok_or(()).or_else(|_| fail(h))
+            (got == *h || (matches!(l, L::Binary { .. }) && got.starts_with(h.as_str())))
+                .then_some(())
+                .ok_or(())
+                .or_else(|_| fail(h))
         }
-        V::Date(d) => g.replace('T', " ").starts_with(d.as_str()).then_some(()).ok_or(()).or_else(|_| fail(d)),
+        V::Date(d) => g
+            .replace('T', " ")
+            .starts_with(d.as_str())
+            .then_some(())
+            .ok_or(())
+            .or_else(|_| fail(d)),
         V::Time(t) => {
             let (want, got) = (digits(t), digits(&g));
             (got == want || got.ends_with(&want) || got.starts_with(&format!("19700101{want}")))
@@ -657,15 +800,33 @@ fn check_value(l: &L, v: &V, got: &Value) -> Result<(), String> {
             if matches!(l, L::Date) {
                 return Ok(());
             }
-            (digits(x) == digits(&g)).then_some(()).ok_or(()).or_else(|_| fail(x))
+            (digits(x) == digits(&g))
+                .then_some(())
+                .ok_or(())
+                .or_else(|_| fail(x))
         }
-        V::TsTz(x) => (digits(strip_offset(x)) == digits(&g)).then_some(()).ok_or(()).or_else(|_| fail(x)),
-        V::Uuid(u) => (norm_hex(u) == norm_hex(&g)).then_some(()).ok_or(()).or_else(|_| fail(u)),
+        V::TsTz(x) => (digits(strip_offset(x)) == digits(&g))
+            .then_some(())
+            .ok_or(())
+            .or_else(|_| fail(x)),
+        V::Uuid(u) => (norm_hex(u) == norm_hex(&g))
+            .then_some(())
+            .ok_or(())
+            .or_else(|_| fail(u)),
         V::Json(j) => {
-            let (a, b) = (serde_json::from_str::<Value>(j).unwrap(), serde_json::from_str::<Value>(&g));
-            (b.as_ref().ok() == Some(&a)).then_some(()).ok_or(()).or_else(|_| fail(j))
+            let (a, b) = (
+                serde_json::from_str::<Value>(j).unwrap(),
+                serde_json::from_str::<Value>(&g),
+            );
+            (b.as_ref().ok() == Some(&a))
+                .then_some(())
+                .ok_or(())
+                .or_else(|_| fail(j))
         }
-        V::Bool(b) => (truthy(&g) == Some(*b)).then_some(()).ok_or(()).or_else(|_| fail(&b.to_string())),
+        V::Bool(b) => (truthy(&g) == Some(*b))
+            .then_some(())
+            .ok_or(())
+            .or_else(|_| fail(&b.to_string())),
         V::Set(x) => {
             if matches!(l, L::Array { .. } | L::Json { .. }) {
                 return Ok(());
@@ -688,34 +849,62 @@ fn lossy(issues: &[&[Issue]]) -> HashSet<String> {
 }
 
 fn issues_of<'a>(issues: &'a [Issue], column: &str) -> Vec<&'a Issue> {
-    issues.iter().filter(|i| i.object.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(column))).collect()
+    issues
+        .iter()
+        .filter(|i| {
+            i.object
+                .as_deref()
+                .is_some_and(|o| o.eq_ignore_ascii_case(column))
+        })
+        .collect()
 }
 
 /// `common::round_trip`, with this file's cleanup and messages.
 async fn rt(src: &mut Box<dyn Session>, from: E, dst: &mut Box<dyn Session>, to: E) -> RoundTrip {
     let tables = common::read(src, &TABLES).await;
-    assert_eq!(tables.len(), 2, "{from:?}: no se leyeron las tablas de origen");
-    let conversion = convert(&tables, from.driver(), to.driver(), &Options::default()).expect("convert");
+    assert_eq!(
+        tables.len(),
+        2,
+        "{from:?}: no se leyeron las tablas de origen"
+    );
+    let conversion =
+        convert(&tables, from.driver(), to.driver(), &Options::default()).expect("convert");
     clean(to, dst).await;
     let ddl = common::target_ddl(to.driver(), &conversion.tables);
     for script in &ddl {
         let mut out = QueryOutcome::default();
         if let Err(e) = dst.execute(script, 10, &mut out).await {
-            panic!("{from:?} → {to:?}: el DDL del destino falló: {e}\n---\n{}", short(script));
+            panic!(
+                "{from:?} → {to:?}: el DDL del destino falló: {e}\n---\n{}",
+                short(script)
+            );
         }
     }
     let names: Vec<&str> = conversion.tables.iter().map(|t| t.name.as_str()).collect();
     let back = common::read(dst, &names).await;
-    assert_eq!(back.len(), 2, "{from:?} → {to:?}: no se releyeron las tablas");
-    RoundTrip { conversion, ddl, back }
+    assert_eq!(
+        back.len(),
+        2,
+        "{from:?} → {to:?}: no se releyeron las tablas"
+    );
+    RoundTrip {
+        conversion,
+        ddl,
+        back,
+    }
 }
 
 fn table<'a>(ts: &'a [TableSchema], name: &str) -> &'a TableSchema {
-    ts.iter().find(|t| t.name == name).or_else(|| ts.iter().find(|t| t.name.eq_ignore_ascii_case(name))).unwrap()
+    ts.iter()
+        .find(|t| t.name == name)
+        .or_else(|| ts.iter().find(|t| t.name.eq_ignore_ascii_case(name)))
+        .unwrap()
 }
 
 fn action(a: &Option<String>) -> Option<String> {
-    a.as_ref().map(|a| a.to_ascii_uppercase()).filter(|a| a != "NO ACTION" && a != "RESTRICT")
+    a.as_ref()
+        .map(|a| a.to_ascii_uppercase())
+        .filter(|a| a != "NO ACTION" && a != "RESTRICT")
 }
 
 /// The target reports the types, keys and defaults the conversion chose.
@@ -725,38 +914,82 @@ fn check_created(r: &RoundTrip, to: E) -> Vec<String> {
     for t in &r.conversion.tables {
         let b = table(&r.back, &t.name);
         for c in &t.columns {
-            let Some(bc) = b.columns.iter().find(|x| x.name.eq_ignore_ascii_case(&c.name)) else {
+            let Some(bc) = b
+                .columns
+                .iter()
+                .find(|x| x.name.eq_ignore_ascii_case(&c.name))
+            else {
                 errs.push(format!("{}.{}: no está en el destino", t.name, c.name));
                 continue;
             };
-            let (want, got) = (logical_of(d, &parse(&c.data_type)), logical_of(d, &parse(&bc.data_type)));
+            let (want, got) = (
+                logical_of(d, &parse(&c.data_type)),
+                logical_of(d, &parse(&bc.data_type)),
+            );
             // MariaDB's JSON is LONGTEXT with a CHECK.
-            let maria_json = to == E::Maria && matches!(want, L::Json { .. }) && matches!(got, L::Text { .. });
+            let maria_json =
+                to == E::Maria && matches!(want, L::Json { .. }) && matches!(got, L::Text { .. });
             if want != got && !maria_json {
-                errs.push(format!("{}.{}: se creó «{}» ({want:?}) y volvió «{}» ({got:?})", t.name, c.name, c.data_type, bc.data_type));
+                errs.push(format!(
+                    "{}.{}: se creó «{}» ({want:?}) y volvió «{}» ({got:?})",
+                    t.name, c.name, c.data_type, bc.data_type
+                ));
             }
             if c.auto_increment != bc.auto_increment {
-                errs.push(format!("{}.{}: autoincremental {} → {}", t.name, c.name, c.auto_increment, bc.auto_increment));
+                errs.push(format!(
+                    "{}.{}: autoincremental {} → {}",
+                    t.name, c.name, c.auto_increment, bc.auto_increment
+                ));
             }
             if c.default_value.is_some() != bc.default_value.is_some() && !c.auto_increment {
-                errs.push(format!("{}.{}: default {:?} → {:?}", t.name, c.name, c.default_value, bc.default_value));
+                errs.push(format!(
+                    "{}.{}: default {:?} → {:?}",
+                    t.name, c.name, c.default_value, bc.default_value
+                ));
             }
         }
-        let pk = |k: &Option<dbine_driver::KeyDef>| k.as_ref().map(|k| k.columns.iter().map(|c| c.to_ascii_lowercase()).collect::<Vec<_>>());
+        let pk = |k: &Option<dbine_driver::KeyDef>| {
+            k.as_ref().map(|k| {
+                k.columns
+                    .iter()
+                    .map(|c| c.to_ascii_lowercase())
+                    .collect::<Vec<_>>()
+            })
+        };
         if pk(&t.primary_key) != pk(&b.primary_key) {
-            errs.push(format!("{}: clave primaria {:?} → {:?}", t.name, t.primary_key, b.primary_key));
+            errs.push(format!(
+                "{}: clave primaria {:?} → {:?}",
+                t.name, t.primary_key, b.primary_key
+            ));
         }
         if t.foreign_keys.len() != b.foreign_keys.len() {
-            errs.push(format!("{}: {} claves foráneas → {}", t.name, t.foreign_keys.len(), b.foreign_keys.len()));
+            errs.push(format!(
+                "{}: {} claves foráneas → {}",
+                t.name,
+                t.foreign_keys.len(),
+                b.foreign_keys.len()
+            ));
         }
         for (f, g) in t.foreign_keys.iter().zip(&b.foreign_keys) {
-            if action(&f.on_delete) != action(&g.on_delete) || action(&f.on_update) != action(&g.on_update) {
-                errs.push(format!("{}: FK {:?}/{:?} → {:?}/{:?}", t.name, f.on_delete, f.on_update, g.on_delete, g.on_update));
+            if action(&f.on_delete) != action(&g.on_delete)
+                || action(&f.on_update) != action(&g.on_update)
+            {
+                errs.push(format!(
+                    "{}: FK {:?}/{:?} → {:?}/{:?}",
+                    t.name, f.on_delete, f.on_update, g.on_delete, g.on_update
+                ));
             }
         }
         for ix in &t.indexes {
-            if !b.indexes.iter().any(|x| x.name.eq_ignore_ascii_case(&ix.name) && x.unique == ix.unique) {
-                errs.push(format!("{}: falta el índice {} ({:?})", t.name, ix.name, ix.columns));
+            if !b
+                .indexes
+                .iter()
+                .any(|x| x.name.eq_ignore_ascii_case(&ix.name) && x.unique == ix.unique)
+            {
+                errs.push(format!(
+                    "{}: falta el índice {} ({:?})",
+                    t.name, ix.name, ix.columns
+                ));
             }
         }
     }
@@ -783,7 +1016,9 @@ async fn insert_row(
         text_lit(e, "padre ñ")
     );
     let mut out = QueryOutcome::default();
-    s.execute(&p, 10, &mut out).await.map_err(|err| format!("{p}: {err}"))?;
+    s.execute(&p, 10, &mut out)
+        .await
+        .map_err(|err| format!("{p}: {err}"))?;
     let mut cols = Vec::new();
     let mut lits = Vec::new();
     let mut used = Vec::new();
@@ -797,7 +1032,13 @@ async fn insert_row(
             V::Int("1".into())
         } else {
             match vals.get(&lower) {
-                Some((boundary, safe)) => if lossy.contains(&lower) { safe.clone() } else { boundary.clone() },
+                Some((boundary, safe)) => {
+                    if lossy.contains(&lower) {
+                        safe.clone()
+                    } else {
+                        boundary.clone()
+                    }
+                }
                 None => continue,
             }
         };
@@ -807,28 +1048,60 @@ async fn insert_row(
             used.push((c.name.clone(), l, v));
         }
     }
-    let sql = format!("INSERT INTO {} ({}) VALUES ({})", e.q(&child.name), cols.join(", "), lits.join(", "));
+    let sql = format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        e.q(&child.name),
+        cols.join(", "),
+        lits.join(", ")
+    );
     let mut out = QueryOutcome::default();
-    s.execute(&sql, 10, &mut out).await.map_err(|err| format!("{err}\n---\n{}", short(&sql)))?;
+    s.execute(&sql, 10, &mut out)
+        .await
+        .map_err(|err| format!("{err}\n---\n{}", short(&sql)))?;
     Ok(used)
 }
 
 /// Read the child row back: every inserted value, the generated key and
 /// the defaults the target kept.
-async fn check_row(e: E, s: &mut Box<dyn Session>, tables: &[TableSchema], used: &[(String, L, V)], lossy: &HashSet<String>) -> Vec<String> {
+async fn check_row(
+    e: E,
+    s: &mut Box<dyn Session>,
+    tables: &[TableSchema],
+    used: &[(String, L, V)],
+    lossy: &HashSet<String>,
+) -> Vec<String> {
     let child = table(tables, "lc_tipos");
     // The Oracle driver can't read XMLTYPE (an object type) yet.
-    let used: Vec<&(String, L, V)> = used.iter().filter(|(_, l, _)| !(e == E::Ora && *l == L::Xml)).collect();
+    let used: Vec<&(String, L, V)> = used
+        .iter()
+        .filter(|(_, l, _)| !(e == E::Ora && *l == L::Xml))
+        .collect();
     let mut names: Vec<String> = used.iter().map(|(n, _, _)| n.clone()).collect();
-    let extra: Vec<&dbine_driver::ColumnDef> =
-        child.columns.iter().filter(|c| c.auto_increment || (c.default_value.is_some() && c.name.to_ascii_lowercase().starts_with("df_"))).collect();
+    let extra: Vec<&dbine_driver::ColumnDef> = child
+        .columns
+        .iter()
+        .filter(|c| {
+            c.auto_increment
+                || (c.default_value.is_some() && c.name.to_ascii_lowercase().starts_with("df_"))
+        })
+        .collect();
     names.extend(extra.iter().map(|c| c.name.clone()));
-    let sql = format!("SELECT {} FROM {}", names.iter().map(|n| e.q(n)).collect::<Vec<_>>().join(", "), e.q(&child.name));
+    let sql = format!(
+        "SELECT {} FROM {}",
+        names.iter().map(|n| e.q(n)).collect::<Vec<_>>().join(", "),
+        e.q(&child.name)
+    );
     let mut out = QueryOutcome::default();
     if let Err(err) = s.execute(&sql, 10, &mut out).await {
         return vec![format!("{sql}: {err}")];
     }
-    let Some(row) = out.results.iter().rev().find(|r| !r.columns.is_empty()).and_then(|r| r.rows.first()) else {
+    let Some(row) = out
+        .results
+        .iter()
+        .rev()
+        .find(|r| !r.columns.is_empty())
+        .and_then(|r| r.rows.first())
+    else {
         return vec![format!("{sql}: no volvió la fila")];
     };
     let mut errs = Vec::new();
@@ -842,7 +1115,10 @@ async fn check_row(e: E, s: &mut Box<dyn Session>, tables: &[TableSchema], used:
     }
     for (k, c) in extra.iter().enumerate() {
         if row[used.len() + k].is_null() {
-            errs.push(format!("{}.{}: quedó NULL (autoincremental o default que no se aplicó)", child.name, c.name));
+            errs.push(format!(
+                "{}.{}: quedó NULL (autoincremental o default que no se aplicó)",
+                child.name, c.name
+            ));
         }
     }
     errs
@@ -855,13 +1131,17 @@ async fn setup_source(e: E, s: &mut Box<dyn Session>) {
         common::exec(s, &st).await;
     }
     let tables = common::read(s, &TABLES).await;
-    insert_row(e, s, &tables, &values(e), &HashSet::new()).await.unwrap_or_else(|m| panic!("{e:?}: la fila de origen falló: {m}"));
+    insert_row(e, s, &tables, &values(e), &HashSet::new())
+        .await
+        .unwrap_or_else(|m| panic!("{e:?}: la fila de origen falló: {m}"));
 }
 
 /// A → B: the DDL runs, the types come back as chosen, the row fits.
 async fn pair(from: E, to: E) {
     let _guard = LOCK.lock().await;
-    let (Some(mut s), Some(mut d)) = (connect(from).await, connect(to).await) else { return };
+    let (Some(mut s), Some(mut d)) = (connect(from).await, connect(to).await) else {
+        return;
+    };
     setup_source(from, &mut s).await;
     clean(to, &mut d).await;
     let r = rt(&mut s, from, &mut d, to).await;
@@ -872,18 +1152,41 @@ async fn pair(from: E, to: E) {
         Err(m) => errs.push(format!("la fila en el destino falló: {m}")),
     }
     report(from, to, &r.conversion);
-    assert!(errs.is_empty(), "{from:?} → {to:?}:\n  {}\n---\n{}", errs.join("\n  "), short(&r.ddl.join("\n")));
+    assert!(
+        errs.is_empty(),
+        "{from:?} → {to:?}:\n  {}\n---\n{}",
+        errs.join("\n  "),
+        short(&r.ddl.join("\n"))
+    );
 }
 
 /// Print the conversion's report (for `--nocapture`).
 fn report(from: E, to: E, c: &Conversion) {
     eprintln!("== {from:?} → {to:?}");
     for m in &c.columns {
-        let notes: Vec<String> = issues_of(&c.issues, &m.column).iter().filter(|i| i.table == m.table).map(|i| format!("{:?}/{:?}", i.severity, i.code)).collect();
-        eprintln!("   {}.{}: {} → {} {}", m.table, m.column, m.source_type, m.target_type, notes.join(" "));
+        let notes: Vec<String> = issues_of(&c.issues, &m.column)
+            .iter()
+            .filter(|i| i.table == m.table)
+            .map(|i| format!("{:?}/{:?}", i.severity, i.code))
+            .collect();
+        eprintln!(
+            "   {}.{}: {} → {} {}",
+            m.table,
+            m.column,
+            m.source_type,
+            m.target_type,
+            notes.join(" ")
+        );
     }
-    for i in c.issues.iter().filter(|i| i.object.as_ref().is_none_or(|o| !c.columns.iter().any(|m| m.column.eq_ignore_ascii_case(o)))) {
-        eprintln!("   [{}] {:?}/{:?} {:?}: {}", i.table, i.severity, i.code, i.object, i.message);
+    for i in c.issues.iter().filter(|i| {
+        i.object
+            .as_ref()
+            .is_none_or(|o| !c.columns.iter().any(|m| m.column.eq_ignore_ascii_case(o)))
+    }) {
+        eprintln!(
+            "   [{}] {:?}/{:?} {:?}: {}",
+            i.table, i.severity, i.code, i.object, i.message
+        );
     }
 }
 
@@ -905,21 +1208,55 @@ fn fits(a: &L, b: &L) -> bool {
     };
     let range = |bytes: u8, unsigned: bool| -> (i128, i128) {
         let bits = u32::from(bytes) * 8;
-        if unsigned { (0, (1i128 << bits.min(126)) - 1) } else { (-(1i128 << (bits - 1).min(126)), (1i128 << (bits - 1).min(126)) - 1) }
+        if unsigned {
+            (0, (1i128 << bits.min(126)) - 1)
+        } else {
+            (
+                -(1i128 << (bits - 1).min(126)),
+                (1i128 << (bits - 1).min(126)) - 1,
+            )
+        }
     };
-    let len_ok = |x: &Option<u32>, y: &Option<u32>| y.is_none() || x.is_some_and(|x| x <= y.unwrap());
+    let len_ok =
+        |x: &Option<u32>, y: &Option<u32>| y.is_none() || x.is_some_and(|x| x <= y.unwrap());
     match (a, b) {
         _ if a == b => true,
         (Bool, Int { .. } | Decimal { .. }) => true,
-        (Int { bytes: x, unsigned: u }, Int { bytes: y, unsigned: v }) => {
+        (
+            Int {
+                bytes: x,
+                unsigned: u,
+            },
+            Int {
+                bytes: y,
+                unsigned: v,
+            },
+        ) => {
             let (ra, rb) = (range(*x, *u), range(*y, *v));
             rb.0 <= ra.0 && ra.1 <= rb.1
         }
         (Int { bytes, unsigned }, Decimal { precision, scale }) => {
-            precision.is_none() || precision.unwrap().saturating_sub(scale.unwrap_or(0)) >= int_digits(*bytes, *unsigned)
+            precision.is_none()
+                || precision.unwrap().saturating_sub(scale.unwrap_or(0))
+                    >= int_digits(*bytes, *unsigned)
         }
-        (Decimal { precision: Some(p), scale }, Int { bytes, unsigned }) => scale.unwrap_or(0) == 0 && *p < int_digits(*bytes, *unsigned),
-        (Decimal { precision: p1, scale: s1 }, Decimal { precision: p2, scale: s2 }) => match (p1, p2) {
+        (
+            Decimal {
+                precision: Some(p),
+                scale,
+            },
+            Int { bytes, unsigned },
+        ) => scale.unwrap_or(0) == 0 && *p < int_digits(*bytes, *unsigned),
+        (
+            Decimal {
+                precision: p1,
+                scale: s1,
+            },
+            Decimal {
+                precision: p2,
+                scale: s2,
+            },
+        ) => match (p1, p2) {
             (_, None) => true,
             (None, Some(_)) => false,
             (Some(p1), Some(p2)) => {
@@ -928,21 +1265,53 @@ fn fits(a: &L, b: &L) -> bool {
             }
         },
         (Float { bytes: x }, Float { bytes: y }) => x <= y,
-        (Money, Decimal { precision: Some(p), scale: Some(s) }) => *s >= 4 && p.saturating_sub(*s) >= 15,
-        (Char { len: x, unicode: u } | Varchar { len: x, unicode: u }, Char { len: y, unicode: v } | Varchar { len: y, unicode: v }) => {
-            (!u || *v) && len_ok(x, y)
+        (
+            Money,
+            Decimal {
+                precision: Some(p),
+                scale: Some(s),
+            },
+        ) => *s >= 4 && p.saturating_sub(*s) >= 15,
+        (
+            Char { len: x, unicode: u } | Varchar { len: x, unicode: u },
+            Char { len: y, unicode: v } | Varchar { len: y, unicode: v },
+        ) => (!u || *v) && len_ok(x, y),
+        (
+            Char { unicode: u, .. } | Varchar { unicode: u, .. } | Text { unicode: u },
+            Text { unicode: v },
+        ) => !u || *v,
+        (Binary { len: x } | Varbinary { len: x }, Binary { len: y } | Varbinary { len: y }) => {
+            len_ok(x, y)
         }
-        (Char { unicode: u, .. } | Varchar { unicode: u, .. } | Text { unicode: u }, Text { unicode: v }) => !u || *v,
-        (Binary { len: x } | Varbinary { len: x }, Binary { len: y } | Varbinary { len: y }) => len_ok(x, y),
         (Binary { .. } | Varbinary { .. } | Blob, Blob) => true,
         (Date, Date | Timestamp { .. }) => true,
-        (Time { precision: p, tz: t }, Time { precision: q, tz: u }) => (!t || *u) && q.unwrap_or(6) >= p.unwrap_or(6),
-        (Timestamp { precision: p, tz: t }, Timestamp { precision: q, tz: u }) => t == u && q.unwrap_or(6) >= p.unwrap_or(6),
+        (
+            Time {
+                precision: p,
+                tz: t,
+            },
+            Time {
+                precision: q,
+                tz: u,
+            },
+        ) => (!t || *u) && q.unwrap_or(6) >= p.unwrap_or(6),
+        (
+            Timestamp {
+                precision: p,
+                tz: t,
+            },
+            Timestamp {
+                precision: q,
+                tz: u,
+            },
+        ) => t == u && q.unwrap_or(6) >= p.unwrap_or(6),
         (Uuid, Char { len, .. } | Varchar { len, .. }) => len.is_none_or(|n| n >= 36),
         (Uuid, Text { .. } | Blob) => true,
         (Uuid, Binary { len } | Varbinary { len }) => len.is_none_or(|n| n >= 16),
         (Json { .. }, Json { .. } | Text { .. }) => true,
-        (Enum { values }, Char { len, .. } | Varchar { len, .. }) => len.is_none_or(|n| n as usize >= values.iter().map(|v| v.chars().count()).max().unwrap_or(0)),
+        (Enum { values }, Char { len, .. } | Varchar { len, .. }) => len.is_none_or(|n| {
+            n as usize >= values.iter().map(|v| v.chars().count()).max().unwrap_or(0)
+        }),
         (Enum { .. } | Set { .. } | Xml | Inet | MacAddr | Interval, Text { .. }) => true,
         (Year, Int { bytes, .. }) => *bytes >= 2,
         (RowVersion, Binary { len } | Varbinary { len }) => len.is_none_or(|n| n >= 8),
@@ -955,53 +1324,106 @@ fn fits(a: &L, b: &L) -> bool {
 /// what either report says is lost or approximated.
 async fn there_and_back(a: E, b: E) {
     let _guard = LOCK.lock().await;
-    let (Some(mut sa), Some(mut sb)) = (connect(a).await, connect(b).await) else { return };
+    let (Some(mut sa), Some(mut sb)) = (connect(a).await, connect(b).await) else {
+        return;
+    };
     setup_source(a, &mut sa).await;
     clean(b, &mut sb).await;
     let orig = common::read(&mut sa, &TABLES).await;
     let r1 = rt(&mut sa, a, &mut sb, b).await;
-    let mut errs: Vec<String> = check_created(&r1, b).into_iter().map(|e| format!("ida: {e}")).collect();
+    let mut errs: Vec<String> = check_created(&r1, b)
+        .into_iter()
+        .map(|e| format!("ida: {e}"))
+        .collect();
     let r2 = rt(&mut sb, b, &mut sa, a).await;
-    errs.extend(check_created(&r2, a).into_iter().map(|e| format!("vuelta: {e}")));
+    errs.extend(
+        check_created(&r2, a)
+            .into_iter()
+            .map(|e| format!("vuelta: {e}")),
+    );
     report(a, b, &r1.conversion);
     report(b, a, &r2.conversion);
 
     let d = for_driver(a.driver()).unwrap();
     let noted = |col: &str, pred: &dyn Fn(&Issue) -> bool| {
-        issues_of(&r1.conversion.issues, col).into_iter().chain(issues_of(&r2.conversion.issues, col)).any(|i| pred(i))
+        issues_of(&r1.conversion.issues, col)
+            .into_iter()
+            .chain(issues_of(&r2.conversion.issues, col))
+            .any(|i| pred(i))
     };
     eprintln!("== {a:?} → {b:?} → {a:?}: diferencias con el original");
     for ot in &orig {
         let ft = table(&r2.back, &ot.name);
         for oc in &ot.columns {
-            let Some(fc) = ft.columns.iter().find(|c| c.name.eq_ignore_ascii_case(&oc.name)) else {
+            let Some(fc) = ft
+                .columns
+                .iter()
+                .find(|c| c.name.eq_ignore_ascii_case(&oc.name))
+            else {
                 errs.push(format!("{}.{}: falta al volver", ot.name, oc.name));
                 continue;
             };
-            let (lo, lf) = (logical_of(d, &parse(&oc.data_type)), logical_of(d, &parse(&fc.data_type)));
+            let (lo, lf) = (
+                logical_of(d, &parse(&oc.data_type)),
+                logical_of(d, &parse(&fc.data_type)),
+            );
             if oc.data_type != fc.data_type {
-                eprintln!("   {}.{}: {} → {}", ot.name, oc.name, oc.data_type, fc.data_type);
+                eprintln!(
+                    "   {}.{}: {} → {}",
+                    ot.name, oc.name, oc.data_type, fc.data_type
+                );
             }
-            let reported = noted(&oc.name, &|i| i.severity >= Severity::Warning || matches!(i.code, IssueCode::TypeChanged | IssueCode::TypeApproximated));
+            let reported = noted(&oc.name, &|i| {
+                i.severity >= Severity::Warning
+                    || matches!(i.code, IssueCode::TypeChanged | IssueCode::TypeApproximated)
+            });
             if !fits(&lo, &lf) && !reported {
-                errs.push(format!("{}.{}: {} → {} sin aviso en el reporte ({lo:?} → {lf:?})", ot.name, oc.name, oc.data_type, fc.data_type));
+                errs.push(format!(
+                    "{}.{}: {} → {} sin aviso en el reporte ({lo:?} → {lf:?})",
+                    ot.name, oc.name, oc.data_type, fc.data_type
+                ));
             }
-            if oc.auto_increment && !fc.auto_increment && !noted(&oc.name, &|i| i.code == IssueCode::AutoIncrementDropped) {
-                errs.push(format!("{}.{}: dejó de ser autoincremental sin aviso", ot.name, oc.name));
+            if oc.auto_increment
+                && !fc.auto_increment
+                && !noted(&oc.name, &|i| i.code == IssueCode::AutoIncrementDropped)
+            {
+                errs.push(format!(
+                    "{}.{}: dejó de ser autoincremental sin aviso",
+                    ot.name, oc.name
+                ));
             }
-            if oc.default_value.is_some() && fc.default_value.is_none() && !noted(&oc.name, &|i| i.code == IssueCode::DefaultDropped) {
-                errs.push(format!("{}.{}: perdió el default {:?} sin aviso", ot.name, oc.name, oc.default_value));
+            if oc.default_value.is_some()
+                && fc.default_value.is_none()
+                && !noted(&oc.name, &|i| i.code == IssueCode::DefaultDropped)
+            {
+                errs.push(format!(
+                    "{}.{}: perdió el default {:?} sin aviso",
+                    ot.name, oc.name, oc.default_value
+                ));
             }
         }
         if ot.foreign_keys.len() != ft.foreign_keys.len() {
-            errs.push(format!("{}: {} claves foráneas → {}", ot.name, ot.foreign_keys.len(), ft.foreign_keys.len()));
+            errs.push(format!(
+                "{}: {} claves foráneas → {}",
+                ot.name,
+                ot.foreign_keys.len(),
+                ft.foreign_keys.len()
+            ));
         }
         for (f, g) in ot.foreign_keys.iter().zip(&ft.foreign_keys) {
             if action(&f.on_delete) != action(&g.on_delete) {
-                errs.push(format!("{}: ON DELETE {:?} → {:?}", ot.name, f.on_delete, g.on_delete));
+                errs.push(format!(
+                    "{}: ON DELETE {:?} → {:?}",
+                    ot.name, f.on_delete, g.on_delete
+                ));
             }
-            if action(&f.on_update) != action(&g.on_update) && !noted_fk(&r1.conversion, &r2.conversion) {
-                errs.push(format!("{}: ON UPDATE {:?} → {:?} sin aviso", ot.name, f.on_update, g.on_update));
+            if action(&f.on_update) != action(&g.on_update)
+                && !noted_fk(&r1.conversion, &r2.conversion)
+            {
+                errs.push(format!(
+                    "{}: ON UPDATE {:?} → {:?} sin aviso",
+                    ot.name, f.on_update, g.on_update
+                ));
             }
         }
     }
@@ -1011,11 +1433,18 @@ async fn there_and_back(a: E, b: E) {
         Ok(used) => errs.extend(check_row(a, &mut sa, &r2.back, &used, &lossy).await),
         Err(m) => errs.push(format!("la fila al volver falló: {m}")),
     }
-    assert!(errs.is_empty(), "{a:?} → {b:?} → {a:?}:\n  {}", errs.join("\n  "));
+    assert!(
+        errs.is_empty(),
+        "{a:?} → {b:?} → {a:?}:\n  {}",
+        errs.join("\n  ")
+    );
 }
 
 fn noted_fk(a: &Conversion, b: &Conversion) -> bool {
-    a.issues.iter().chain(&b.issues).any(|i| i.code == IssueCode::ForeignKeyActionChanged)
+    a.issues
+        .iter()
+        .chain(&b.issues)
+        .any(|i| i.code == IssueCode::ForeignKeyActionChanged)
 }
 
 // ------------------------------------------------------------------- tests
@@ -1088,14 +1517,68 @@ there_and_back! {
 fn fits_is_a_partial_order() {
     assert!(fits(&L::int(4), &L::int(8)));
     assert!(!fits(&L::int(8), &L::int(4)));
-    assert!(fits(&L::Int { bytes: 4, unsigned: true }, &L::int(8)));
-    assert!(!fits(&L::Int { bytes: 8, unsigned: true }, &L::int(8)));
-    assert!(fits(&L::int(4), &L::Decimal { precision: Some(10), scale: Some(0) }));
-    assert!(fits(&L::Varchar { len: Some(10), unicode: false }, &L::Varchar { len: Some(20), unicode: true }));
-    assert!(!fits(&L::Varchar { len: Some(10), unicode: true }, &L::Varchar { len: Some(20), unicode: false }));
-    assert!(fits(&L::Timestamp { precision: Some(3), tz: false }, &L::Timestamp { precision: None, tz: false }));
+    assert!(fits(
+        &L::Int {
+            bytes: 4,
+            unsigned: true
+        },
+        &L::int(8)
+    ));
+    assert!(!fits(
+        &L::Int {
+            bytes: 8,
+            unsigned: true
+        },
+        &L::int(8)
+    ));
+    assert!(fits(
+        &L::int(4),
+        &L::Decimal {
+            precision: Some(10),
+            scale: Some(0)
+        }
+    ));
+    assert!(fits(
+        &L::Varchar {
+            len: Some(10),
+            unicode: false
+        },
+        &L::Varchar {
+            len: Some(20),
+            unicode: true
+        }
+    ));
+    assert!(!fits(
+        &L::Varchar {
+            len: Some(10),
+            unicode: true
+        },
+        &L::Varchar {
+            len: Some(20),
+            unicode: false
+        }
+    ));
+    assert!(fits(
+        &L::Timestamp {
+            precision: Some(3),
+            tz: false
+        },
+        &L::Timestamp {
+            precision: None,
+            tz: false
+        }
+    ));
     assert_eq!(norm_num("-0012.3400"), "-12.34");
-    assert_eq!(digits("2024-02-29T23:59:59.120"), digits("2024-02-29 23:59:59.12"));
-    assert_eq!(strip_offset("2024-02-29 23:59:59.999 +05:30"), "2024-02-29 23:59:59.999");
-    assert_eq!(strip_offset("2024-02-29 23:59:59.999"), "2024-02-29 23:59:59.999");
+    assert_eq!(
+        digits("2024-02-29T23:59:59.120"),
+        digits("2024-02-29 23:59:59.12")
+    );
+    assert_eq!(
+        strip_offset("2024-02-29 23:59:59.999 +05:30"),
+        "2024-02-29 23:59:59.999"
+    );
+    assert_eq!(
+        strip_offset("2024-02-29 23:59:59.999"),
+        "2024-02-29 23:59:59.999"
+    );
 }

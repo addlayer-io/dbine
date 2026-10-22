@@ -6,7 +6,9 @@
 //! cluster is watched. Nothing is switched on.
 
 use crate::{text, DrillSession};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -23,11 +25,17 @@ pub(crate) struct State {
     seen: HashMap<String, i64>,
 }
 
-pub(crate) async fn start(s: &DrillSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
+pub(crate) async fn start(
+    s: &DrillSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
     let _ = opts;
     let list = list(s).await?;
     // What's listed now ran (or started) before profiling: not reported.
-    let mut state = State { after: 0, seen: HashMap::new() };
+    let mut state = State {
+        after: 0,
+        seen: HashMap::new(),
+    };
     for q in queries(&list, "finishedQueries").chain(queries(&list, "runningQueries")) {
         if let (Some(id), Some(t)) = (q.get("queryId").map(text), start_ms(q)) {
             state.after = state.after.max(t);
@@ -58,11 +66,15 @@ async fn list(s: &DrillSession) -> Result<Value> {
 }
 
 fn queries<'a>(list: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
-    list.get(key).and_then(Value::as_array).into_iter().flatten()
+    list.get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
 }
 
 fn start_ms(q: &Value) -> Option<i64> {
-    q.get("startTime").and_then(|v| v.as_i64().or_else(|| text(v).parse().ok()))
+    q.get("startTime")
+        .and_then(|v| v.as_i64().or_else(|| text(v).parse().ok()))
 }
 
 pub(crate) async fn poll(s: &DrillSession, state: &mut State) -> Result<Vec<ProfiledStatement>> {
@@ -71,14 +83,20 @@ pub(crate) async fn poll(s: &DrillSession, state: &mut State) -> Result<Vec<Prof
     let mut out = Vec::new();
     let mut newest = state.after;
     for q in queries(&list, "finishedQueries") {
-        let (Some(id), Some(start)) = (q.get("queryId").map(text), start_ms(q)) else { continue };
+        let (Some(id), Some(start)) = (q.get("queryId").map(text), start_ms(q)) else {
+            continue;
+        };
         newest = newest.max(start);
         if start < state.after || state.seen.contains_key(&id) {
             continue;
         }
         state.seen.insert(id.clone(), start);
         let mut st = statement(q, start);
-        let failed = !q.get("state").map(text).unwrap_or_default().eq_ignore_ascii_case("succeeded");
+        let failed = !q
+            .get("state")
+            .map(text)
+            .unwrap_or_default()
+            .eq_ignore_ascii_case("succeeded");
         // The list cuts long statements and has no error message: both are in the profile.
         if failed || st.text.chars().count() >= LISTED_TEXT {
             if let Ok(p) = s.conn.get(&format!("/profiles/{id}.json")).await {
@@ -86,14 +104,21 @@ pub(crate) async fn poll(s: &DrillSession, state: &mut State) -> Result<Vec<Prof
                     st.text = t;
                 }
                 if failed {
-                    st.error = p.get("error").map(text).map(|e| e.trim().to_string()).filter(|e| !e.is_empty()).or(st.error);
+                    st.error = p
+                        .get("error")
+                        .map(text)
+                        .map(|e| e.trim().to_string())
+                        .filter(|e| !e.is_empty())
+                        .or(st.error);
                 }
             }
         }
         out.push(st);
     }
     // Never back: what started before `after` was seen, or ran before profiling.
-    state.after = state.after.max(oldest_running.map_or(newest, |r| r.min(newest)));
+    state.after = state
+        .after
+        .max(oldest_running.map_or(newest, |r| r.min(newest)));
     let after = state.after;
     state.seen.retain(|_, t| *t >= after);
     out.sort_by(|a, b| a.time.cmp(&b.time));
@@ -102,7 +127,9 @@ pub(crate) async fn poll(s: &DrillSession, state: &mut State) -> Result<Vec<Prof
 
 /// A finished query of the list.
 fn statement(q: &Value, start: i64) -> ProfiledStatement {
-    let end = q.get("endTime").and_then(|v| v.as_i64().or_else(|| text(v).parse().ok()));
+    let end = q
+        .get("endTime")
+        .and_then(|v| v.as_i64().or_else(|| text(v).parse().ok()));
     let state = q.get("state").map(text).unwrap_or_default();
     let error = match state.as_str() {
         "Succeeded" | "" => None,
@@ -115,7 +142,11 @@ fn statement(q: &Value, start: i64) -> ProfiledStatement {
     if let Some(c) = q.get("totalCost").and_then(Value::as_f64) {
         detail.push(format!("costo {c}"));
     }
-    if let Some(queue) = q.get("queueName").map(text).filter(|q| !q.is_empty() && q != "-" && q != "Unknown") {
+    if let Some(queue) = q
+        .get("queueName")
+        .map(text)
+        .filter(|q| !q.is_empty() && q != "-" && q != "Unknown")
+    {
         detail.push(format!("cola {queue}"));
     }
     ProfiledStatement {
@@ -130,7 +161,9 @@ fn statement(q: &Value, start: i64) -> ProfiledStatement {
 }
 
 fn utc_ms(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms).map(|t| t.format("%Y-%m-%d %H:%M:%S%.3f").to_string()).unwrap_or_default()
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|t| t.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

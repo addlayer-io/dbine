@@ -36,21 +36,27 @@ async fn a_cancelled_write_is_survived() {
         eprintln!("DBINE_TEST_SQLSERVER_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == "sqlserver").unwrap();
+    let d = dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "sqlserver")
+        .unwrap();
     let mut s = d.connect(&cfg, Some("master")).await.unwrap();
     // A batch of many packets, dropped while it's still being written.
     let big = format!("SELECT 1 /* {} */", "x".repeat(4 * 1024 * 1024));
     let mut broke = false;
     for wait in [0u64, 1, 2, 5, 10, 20] {
         let mut out = QueryOutcome::default();
-        let _ = tokio::time::timeout(Duration::from_millis(wait), s.execute(&big, 1, &mut out)).await;
+        let _ =
+            tokio::time::timeout(Duration::from_millis(wait), s.execute(&big, 1, &mut out)).await;
         let mut out = QueryOutcome::default();
         if let Err(e) = s.execute("SELECT 1", 1, &mut out).await {
             eprintln!("after {wait} ms: {e}");
             broke = true;
             break;
         }
-        if out.error.as_ref().is_some_and(|e| e.contains("can no longer be used") || e.contains("se perdió la conexión")) {
+        if out.error.as_ref().is_some_and(|e| {
+            e.contains("can no longer be used") || e.contains("se perdió la conexión")
+        }) {
             eprintln!("after {wait} ms: {:?}", out.error);
             broke = true;
             break;

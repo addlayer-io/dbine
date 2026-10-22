@@ -113,7 +113,11 @@ pub fn lucene_tree(s: &str) -> PlanNode {
     if parts.len() == 1 && !parts[0].starts_with(['+', '-', '#']) {
         return clause(&parts[0]);
     }
-    let mut n = PlanNode { op: "BooleanQuery".into(), detail: clip(s, 300), ..Default::default() };
+    let mut n = PlanNode {
+        op: "BooleanQuery".into(),
+        detail: clip(s, 300),
+        ..Default::default()
+    };
     for p in parts {
         let (occur, body) = match p.chars().next() {
             Some('+') => ("MUST", &p[1..]),
@@ -132,7 +136,10 @@ pub fn lucene_tree(s: &str) -> PlanNode {
 /// One clause (no occur prefix).
 fn clause(s: &str) -> PlanNode {
     let s = s.trim();
-    let mut n = PlanNode { detail: clip(s, 300), ..Default::default() };
+    let mut n = PlanNode {
+        detail: clip(s, 300),
+        ..Default::default()
+    };
     // (sub query)^boost / (a b)~2
     if s.starts_with('(') {
         if let Some(end) = closing(s, 0) {
@@ -141,7 +148,9 @@ fn clause(s: &str) -> PlanNode {
             if let Some(b) = suffix.strip_prefix('^') {
                 inner.props.push(("boost".into(), b.to_string()));
             } else if let Some(m) = suffix.strip_prefix('~') {
-                inner.props.push(("minimum_should_match".into(), m.to_string()));
+                inner
+                    .props
+                    .push(("minimum_should_match".into(), m.to_string()));
             }
             return inner;
         }
@@ -153,7 +162,10 @@ fn clause(s: &str) -> PlanNode {
     // Name(args): IndexOrDocValuesQuery(…), ConstantScore(…), MatchNoDocsQuery("…")…
     if let Some(open) = s.find('(') {
         let name = &s[..open];
-        if !name.is_empty() && !name.contains(':') && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        if !name.is_empty()
+            && !name.contains(':')
+            && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        {
             n.op = name.to_string();
             if let Some(end) = closing(s, open) {
                 let inner = &s[open + 1..end];
@@ -166,7 +178,8 @@ fn clause(s: &str) -> PlanNode {
                 }
             }
             if name.contains("Script") {
-                n.warnings.push("Script: se evalúa documento por documento".into());
+                n.warnings
+                    .push("Script: se evalúa documento por documento".into());
             }
             return n;
         }
@@ -199,10 +212,14 @@ fn clause(s: &str) -> PlanNode {
         "RegexpQuery"
     } else if value.contains('*') || value.contains('?') {
         if value.starts_with('*') || value.starts_with('?') {
-            n.warnings.push("Comodín inicial: recorre todo el diccionario de términos".into());
+            n.warnings
+                .push("Comodín inicial: recorre todo el diccionario de términos".into());
         }
         "WildcardQuery"
-    } else if value.rsplit_once('~').is_some_and(|(_, d)| d.parse::<f64>().is_ok()) {
+    } else if value
+        .rsplit_once('~')
+        .is_some_and(|(_, d)| d.parse::<f64>().is_ok())
+    {
         "FuzzyQuery"
     } else {
         "TermQuery"
@@ -233,7 +250,10 @@ fn split_field(s: &str) -> Option<(&str, &str)> {
 pub fn aggs_nodes(aggs: &J) -> Vec<PlanNode> {
     let mut out = Vec::new();
     for (name, spec) in aggs.as_obj().map(Vec::as_slice).unwrap_or(&[]) {
-        let mut n = PlanNode { detail: name.clone(), ..Default::default() };
+        let mut n = PlanNode {
+            detail: name.clone(),
+            ..Default::default()
+        };
         for (k, v) in spec.as_obj().map(Vec::as_slice).unwrap_or(&[]) {
             match k.as_str() {
                 "aggs" | "aggregations" => n.children.extend(aggs_nodes(v)),
@@ -264,9 +284,16 @@ fn body_props(n: &mut PlanNode, body: Option<&J>) {
 /// Estimated plan of a search on `target` (the index expression) from the
 /// `_validate/query?explain&rewrite` reply.
 pub fn estimated_search(statement: &str, target: &str, body: Option<&J>, validate: &J) -> Plan {
-    let mut root = PlanNode { op: "Search".into(), object: Some(target.to_string()), ..Default::default() };
+    let mut root = PlanNode {
+        op: "Search".into(),
+        object: Some(target.to_string()),
+        ..Default::default()
+    };
     body_props(&mut root, body);
-    let expl = validate.get("explanations").and_then(J::as_arr).unwrap_or(&[]);
+    let expl = validate
+        .get("explanations")
+        .and_then(J::as_arr)
+        .unwrap_or(&[]);
     let per_index = expl.len() > 1;
     for e in expl {
         let index = e.get("index").map(J::text).unwrap_or_default();
@@ -274,12 +301,20 @@ pub fn estimated_search(statement: &str, target: &str, body: Option<&J>, validat
             (Some(x), _) => lucene_tree(x),
             (None, err) => PlanNode {
                 op: "Query".into(),
-                warnings: vec![format!("Consulta inválida: {}", err.map(J::text).unwrap_or_default())],
+                warnings: vec![format!(
+                    "Consulta inválida: {}",
+                    err.map(J::text).unwrap_or_default()
+                )],
                 ..Default::default()
             },
         };
         if per_index {
-            q = PlanNode { op: "Index".into(), object: Some(index), children: vec![q], ..Default::default() };
+            q = PlanNode {
+                op: "Index".into(),
+                object: Some(index),
+                children: vec![q],
+                ..Default::default()
+            };
         }
         root.children.push(q);
     }
@@ -288,9 +323,19 @@ pub fn estimated_search(statement: &str, target: &str, body: Option<&J>, validat
     }
     let aggs = body.and_then(|b| b.get("aggs").or_else(|| b.get("aggregations")));
     if let Some(a) = aggs {
-        root.children.push(PlanNode { op: "Aggregations".into(), children: aggs_nodes(a), ..Default::default() });
+        root.children.push(PlanNode {
+            op: "Aggregations".into(),
+            children: aggs_nodes(a),
+            ..Default::default()
+        });
     }
-    Plan { statement: statement.to_string(), root, actual: false, raw_format: "json".into(), raw: validate.pretty() }
+    Plan {
+        statement: statement.to_string(),
+        root,
+        actual: false,
+        raw_format: "json".into(),
+        raw: validate.pretty(),
+    }
 }
 
 /// A profile entry (query, aggregation or fetch phase) and its children.
@@ -311,10 +356,16 @@ fn profile_node(p: &J, name_key: &str, detail_key: &str) -> PlanNode {
         }
     }
     if n.op.contains("Script") && !n.warnings.iter().any(|w| w.starts_with("Script")) {
-        n.warnings.push("Script: se evalúa documento por documento".into());
+        n.warnings
+            .push("Script: se evalúa documento por documento".into());
     }
     for key in ["breakdown", "debug"] {
-        for (k, v) in p.get(key).and_then(J::as_obj).map(Vec::as_slice).unwrap_or(&[]) {
+        for (k, v) in p
+            .get(key)
+            .and_then(J::as_obj)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
             if !matches!(v, J::Num(x) if x.as_f64() == Some(0.0)) {
                 n.props.push((k.clone(), clip(&v.text(), 500)));
             }
@@ -331,25 +382,43 @@ fn profile_node(p: &J, name_key: &str, detail_key: &str) -> PlanNode {
 
 /// Actual plan of a search that ran with `"profile": true`.
 pub fn profiled_search(statement: &str, target: &str, body: Option<&J>, resp: &J) -> Plan {
-    let mut root = PlanNode { op: "Search".into(), object: Some(target.to_string()), ..Default::default() };
+    let mut root = PlanNode {
+        op: "Search".into(),
+        object: Some(target.to_string()),
+        ..Default::default()
+    };
     root.actual_ms = num(resp.get("took"));
-    root.actual_rows = num(resp.at(&["hits", "total", "value"])).or_else(|| num(resp.at(&["hits", "total"])));
-    if let Some(r) = resp.at(&["hits", "total", "relation"]).and_then(J::as_str).filter(|r| *r != "eq") {
-        root.props.push(("hits.total.relation".into(), r.to_string()));
+    root.actual_rows =
+        num(resp.at(&["hits", "total", "value"])).or_else(|| num(resp.at(&["hits", "total"])));
+    if let Some(r) = resp
+        .at(&["hits", "total", "relation"])
+        .and_then(J::as_str)
+        .filter(|r| *r != "eq")
+    {
+        root.props
+            .push(("hits.total.relation".into(), r.to_string()));
     }
-    for (k, path) in [("shards", &["_shards", "total"][..]), ("timed_out", &["timed_out"][..])] {
+    for (k, path) in [
+        ("shards", &["_shards", "total"][..]),
+        ("timed_out", &["timed_out"][..]),
+    ] {
         if let Some(v) = resp.at(path) {
             root.props.push((k.into(), v.text()));
         }
     }
     body_props(&mut root, body);
     if resp.get("timed_out").and_then(J::as_bool) == Some(true) {
-        root.warnings.push("La búsqueda superó el tiempo límite".into());
+        root.warnings
+            .push("La búsqueda superó el tiempo límite".into());
     }
     if num(resp.at(&["_shards", "failed"])).unwrap_or(0.0) > 0.0 {
         root.warnings.push("Fallaron algunos shards".into());
     }
-    for sh in resp.at(&["profile", "shards"]).and_then(J::as_arr).unwrap_or(&[]) {
+    for sh in resp
+        .at(&["profile", "shards"])
+        .and_then(J::as_arr)
+        .unwrap_or(&[])
+    {
         let id = sh.get("id").map(J::text).unwrap_or_default();
         let index = sh.get("index").map(J::text);
         // `[node][index][shard]` when the shard doesn't say (OpenSearch).
@@ -359,18 +428,35 @@ pub fn profiled_search(statement: &str, target: &str, body: Option<&J>, resp: &J
             _ if parts.len() == 3 => format!("{}[{}]", parts[1], parts[2]),
             _ => id.clone(),
         };
-        let mut shard = PlanNode { op: "Shard".into(), object: Some(object), detail: id, ..Default::default() };
+        let mut shard = PlanNode {
+            op: "Shard".into(),
+            object: Some(object),
+            detail: id,
+            ..Default::default()
+        };
         if let Some(node) = sh.get("node_id") {
             shard.props.push(("node_id".into(), node.text()));
         }
         for s in sh.get("searches").and_then(J::as_arr).unwrap_or(&[]) {
             if let Some(r) = ms(num(s.get("rewrite_time"))) {
-                shard.props.push(("rewrite_time (ms)".into(), r.to_string()));
+                shard
+                    .props
+                    .push(("rewrite_time (ms)".into(), r.to_string()));
             }
-            let queries: Vec<PlanNode> =
-                s.get("query").and_then(J::as_arr).unwrap_or(&[]).iter().map(|q| profile_node(q, "type", "description")).collect();
-            let mut collectors: Vec<PlanNode> =
-                s.get("collector").and_then(J::as_arr).unwrap_or(&[]).iter().map(|c| profile_node(c, "name", "reason")).collect();
+            let queries: Vec<PlanNode> = s
+                .get("query")
+                .and_then(J::as_arr)
+                .unwrap_or(&[])
+                .iter()
+                .map(|q| profile_node(q, "type", "description"))
+                .collect();
+            let mut collectors: Vec<PlanNode> = s
+                .get("collector")
+                .and_then(J::as_arr)
+                .unwrap_or(&[])
+                .iter()
+                .map(|c| profile_node(c, "name", "reason"))
+                .collect();
             // The collectors consume what the query matches.
             match collectors.first_mut() {
                 Some(c) => c.children.extend(queries),
@@ -380,10 +466,18 @@ pub fn profiled_search(statement: &str, target: &str, body: Option<&J>, resp: &J
         }
         let aggs = sh.get("aggregations").and_then(J::as_arr).unwrap_or(&[]);
         if !aggs.is_empty() {
-            let children: Vec<PlanNode> = aggs.iter().map(|a| profile_node(a, "type", "description")).collect();
+            let children: Vec<PlanNode> = aggs
+                .iter()
+                .map(|a| profile_node(a, "type", "description"))
+                .collect();
             let total: f64 = children.iter().filter_map(|c| c.actual_ms).sum();
             let actual_ms = Some((total * 1000.0).round() / 1000.0);
-            shard.children.push(PlanNode { op: "Aggregations".into(), actual_ms, children, ..Default::default() });
+            shard.children.push(PlanNode {
+                op: "Aggregations".into(),
+                actual_ms,
+                children,
+                ..Default::default()
+            });
         }
         if let Some(f) = sh.get("fetch") {
             let mut fetch = profile_node(f, "type", "description");
@@ -394,14 +488,27 @@ pub fn profiled_search(statement: &str, target: &str, body: Option<&J>, resp: &J
         shard.actual_ms = Some((total * 1000.0).round() / 1000.0);
         root.children.push(shard);
     }
-    let raw = resp.get("profile").map(|p| J::Obj(vec![("profile".into(), p.clone())])).unwrap_or(J::Null);
-    Plan { statement: statement.to_string(), root, actual: true, raw_format: "json".into(), raw: raw.pretty() }
+    let raw = resp
+        .get("profile")
+        .map(|p| J::Obj(vec![("profile".into(), p.clone())]))
+        .unwrap_or(J::Null);
+    Plan {
+        statement: statement.to_string(),
+        root,
+        actual: true,
+        raw_format: "json".into(),
+        raw: raw.pretty(),
+    }
 }
 
 /// Elasticsearch SQL: a node for the statement, with the translated DSL as
 /// props, over the search plan of that DSL (when there is one).
 pub fn sql_plan(statement: &str, dsl: &J, search: Option<Plan>) -> Plan {
-    let mut root = PlanNode { op: "SQL".into(), detail: clip(statement, 300), ..Default::default() };
+    let mut root = PlanNode {
+        op: "SQL".into(),
+        detail: clip(statement, 300),
+        ..Default::default()
+    };
     for (k, v) in dsl.as_obj().map(Vec::as_slice).unwrap_or(&[]) {
         root.props.push((k.clone(), clip(&v.text(), 2000)));
     }
@@ -410,16 +517,35 @@ pub fn sql_plan(statement: &str, dsl: &J, search: Option<Plan>) -> Plan {
             root.actual_ms = p.root.actual_ms;
             root.actual_rows = p.root.actual_rows;
             root.children.push(p.root);
-            (p.actual, format!("{{\n\"translate\": {},\n\"plan\": {}\n}}", dsl.pretty(), if p.raw.is_empty() { "null" } else { &p.raw }))
+            (
+                p.actual,
+                format!(
+                    "{{\n\"translate\": {},\n\"plan\": {}\n}}",
+                    dsl.pretty(),
+                    if p.raw.is_empty() { "null" } else { &p.raw }
+                ),
+            )
         }
         None => (false, dsl.pretty()),
     };
-    Plan { statement: statement.to_string(), root, actual, raw_format: "json".into(), raw }
+    Plan {
+        statement: statement.to_string(),
+        root,
+        actual,
+        raw_format: "json".into(),
+        raw,
+    }
 }
 
 /// `sourceBuilder={…}` and `indexName=…` of an OpenSearch index scan.
 pub fn os_scan_request(request: &str) -> Option<(String, J)> {
-    let index = request.split("indexName=").nth(1)?.split([',', ')']).next()?.trim().to_string();
+    let index = request
+        .split("indexName=")
+        .nth(1)?
+        .split([',', ')'])
+        .next()?
+        .trim()
+        .to_string();
     let start = request.find("sourceBuilder=")? + "sourceBuilder=".len();
     let s = &request[start..];
     let mut depth = 0;
@@ -445,10 +571,22 @@ pub fn os_scan_request(request: &str) -> Option<(String, J)> {
 /// OpenSearch SQL `_explain` (`root: {name, description, children}`) as a
 /// tree. `scan` adds, under each index scan, the plan of its pushed-down
 /// search (keyed by index name).
-pub fn os_sql_plan(statement: &str, explain: &J, scan: &mut dyn FnMut(&str, &J) -> Option<PlanNode>) -> Plan {
+pub fn os_sql_plan(
+    statement: &str,
+    explain: &J,
+    scan: &mut dyn FnMut(&str, &J) -> Option<PlanNode>,
+) -> Plan {
     fn walk(j: &J, scan: &mut dyn FnMut(&str, &J) -> Option<PlanNode>) -> PlanNode {
-        let mut n = PlanNode { op: j.get("name").map(J::text).unwrap_or_else(|| "?".into()), ..Default::default() };
-        for (k, v) in j.get("description").and_then(J::as_obj).map(Vec::as_slice).unwrap_or(&[]) {
+        let mut n = PlanNode {
+            op: j.get("name").map(J::text).unwrap_or_else(|| "?".into()),
+            ..Default::default()
+        };
+        for (k, v) in j
+            .get("description")
+            .and_then(J::as_obj)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
             let t = v.text();
             if k == "request" {
                 if let Some((index, dsl)) = os_scan_request(&t) {
@@ -478,19 +616,30 @@ pub fn os_sql_plan(statement: &str, explain: &J, scan: &mut dyn FnMut(&str, &J) 
         Some(r) => walk(r, scan),
         // Legacy engine: the DSL itself.
         None => {
-            let mut n = PlanNode { op: "SQL".into(), detail: clip(statement, 300), ..Default::default() };
+            let mut n = PlanNode {
+                op: "SQL".into(),
+                detail: clip(statement, 300),
+                ..Default::default()
+            };
             for (k, v) in explain.as_obj().map(Vec::as_slice).unwrap_or(&[]) {
                 n.props.push((k.clone(), clip(&v.text(), 2000)));
             }
             n
         }
     };
-    Plan { statement: statement.to_string(), root, actual: false, raw_format: "json".into(), raw: explain.pretty() }
+    Plan {
+        statement: statement.to_string(),
+        root,
+        actual: false,
+        raw_format: "json".into(),
+        raw: explain.pretty(),
+    }
 }
 
 /// The index a SQL statement reads (`… FROM <name> …`).
 pub fn sql_from(stmt: &str) -> Option<String> {
-    let mut words = stmt.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '(' || c == ')');
+    let mut words =
+        stmt.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '(' || c == ')');
     while let Some(w) = words.next() {
         if w.eq_ignore_ascii_case("from") {
             let name = words.find(|w| !w.is_empty())?;
@@ -542,7 +691,9 @@ mod tests {
         assert_eq!(c.children[0].op, "TermQuery");
         let m = lucene_tree("(a:1 b:2)~2");
         assert_eq!(m.op, "BooleanQuery");
-        assert!(m.props.contains(&("minimum_should_match".into(), "2".into())));
+        assert!(m
+            .props
+            .contains(&("minimum_should_match".into(), "2".into())));
     }
 
     #[test]
@@ -594,7 +745,10 @@ mod tests {
         assert!(!q.props.iter().any(|(k, _)| k == "next_doc"));
         assert_eq!(q.children[1].object.as_deref(), Some("year"));
         assert_eq!(shard.children[1].op, "Aggregations");
-        assert_eq!(shard.children[1].children[0].props[0], ("total_buckets".into(), "2".into()));
+        assert_eq!(
+            shard.children[1].children[0].props[0],
+            ("total_buckets".into(), "2".into())
+        );
         assert_eq!(shard.children[2].op, "Fetch");
         assert!(p.raw.starts_with("{\n  \"profile\""));
     }
@@ -605,7 +759,13 @@ mod tests {
         let mut seen = Vec::new();
         let p = os_sql_plan("SELECT …", &e, &mut |i, dsl| {
             seen.push((i.to_string(), dsl.get("size").map(J::text)));
-            Some(PlanNode { children: vec![PlanNode { op: "RangeQuery".into(), ..Default::default() }], ..Default::default() })
+            Some(PlanNode {
+                children: vec![PlanNode {
+                    op: "RangeQuery".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
         });
         assert_eq!(p.root.op, "ProjectOperator");
         assert_eq!(p.root.detail, "[title]");
@@ -618,7 +778,10 @@ mod tests {
 
     #[test]
     fn sql_from_finds_the_index() {
-        assert_eq!(sql_from("SELECT a FROM \"films\" WHERE x"), Some("films".into()));
+        assert_eq!(
+            sql_from("SELECT a FROM \"films\" WHERE x"),
+            Some("films".into())
+        );
         assert_eq!(sql_from("SHOW TABLES"), None);
     }
 }

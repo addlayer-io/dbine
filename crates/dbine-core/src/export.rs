@@ -121,7 +121,10 @@ fn text(v: &Value) -> Option<String> {
 /// (`-5`, `+3.2`, `-1e3`) is left alone: it can't be a formula.
 fn formula_safe(s: String) -> String {
     let trigger = |b: u8| matches!(b, b'=' | b'+' | b'-' | b'@' | b'\t' | b'\r');
-    let number = s.len() > 1 && s.bytes().all(|b| b.is_ascii_digit() || b"+-.eE".contains(&b)) && s.parse::<f64>().is_ok();
+    let number = s.len() > 1
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || b"+-.eE".contains(&b))
+        && s.parse::<f64>().is_ok();
     if number {
         return s;
     }
@@ -146,17 +149,29 @@ fn unique_names(cols: &[ResultColumn]) -> Vec<String> {
     let mut seen = std::collections::HashMap::<String, usize>::new();
     cols.iter()
         .map(|c| {
-            let base = if c.name.is_empty() { "columna".to_string() } else { c.name.clone() };
+            let base = if c.name.is_empty() {
+                "columna".to_string()
+            } else {
+                c.name.clone()
+            };
             let n = seen.entry(base.clone()).or_insert(0);
             *n += 1;
-            if *n == 1 { base } else { format!("{base}_{n}") }
+            if *n == 1 {
+                base
+            } else {
+                format!("{base}_{n}")
+            }
         })
         .collect()
 }
 
 fn numeric_type(t: &str) -> bool {
     let t = t.to_ascii_lowercase();
-    ["int", "dec", "num", "float", "double", "real", "money", "serial"].iter().any(|k| t.contains(k))
+    [
+        "int", "dec", "num", "float", "double", "real", "money", "serial",
+    ]
+    .iter()
+    .any(|k| t.contains(k))
 }
 
 /// A cell that is a number in the result (or a numeric string of a
@@ -217,7 +232,11 @@ impl Exporter {
     }
 
     fn nl(&self) -> &'static str {
-        if self.opts.crlf || self.opts.format == Format::CsvExcel { "\r\n" } else { "\n" }
+        if self.opts.crlf || self.opts.format == Format::CsvExcel {
+            "\r\n"
+        } else {
+            "\n"
+        }
     }
 
     fn text_out(&mut self) -> &mut BufWriter<File> {
@@ -244,12 +263,26 @@ impl Exporter {
                 });
                 let mut w = csv::WriterBuilder::new()
                     .delimiter(delim)
-                    .quote_style(if o.quote_all { csv::QuoteStyle::Always } else { csv::QuoteStyle::Necessary })
-                    .terminator(if self.nl() == "\r\n" { csv::Terminator::CRLF } else { csv::Terminator::Any(b'\n') })
+                    .quote_style(if o.quote_all {
+                        csv::QuoteStyle::Always
+                    } else {
+                        csv::QuoteStyle::Necessary
+                    })
+                    .terminator(if self.nl() == "\r\n" {
+                        csv::Terminator::CRLF
+                    } else {
+                        csv::Terminator::Any(b'\n')
+                    })
                     .from_writer(f);
                 if o.header {
                     let safe = o.formula_safe;
-                    w.write_record(self.names.iter().map(|n| if safe { formula_safe(n.clone()) } else { n.clone() }))?;
+                    w.write_record(self.names.iter().map(|n| {
+                        if safe {
+                            formula_safe(n.clone())
+                        } else {
+                            n.clone()
+                        }
+                    }))?;
                 }
                 self.writer = Some(Writer::Csv(w));
             }
@@ -273,13 +306,25 @@ impl Exporter {
                 let mut wb = rust_xlsxwriter::Workbook::new();
                 let bold = rust_xlsxwriter::Format::new().set_bold();
                 let ws = wb.add_worksheet_with_constant_memory();
-                let sheet: String = o.sheet.chars().filter(|c| !"[]:*?/\\".contains(*c)).take(31).collect();
-                ws.set_name(if sheet.is_empty() { "Resultado" } else { &sheet }).map_err(xlsx_err)?;
+                let sheet: String = o
+                    .sheet
+                    .chars()
+                    .filter(|c| !"[]:*?/\\".contains(*c))
+                    .take(31)
+                    .collect();
+                ws.set_name(if sheet.is_empty() {
+                    "Resultado"
+                } else {
+                    &sheet
+                })
+                .map_err(xlsx_err)?;
                 for (i, n) in self.names.iter().enumerate() {
                     let col = i as u16;
-                    ws.set_column_width(col, (n.chars().count() as f64 + 4.0).clamp(10.0, 60.0)).map_err(xlsx_err)?;
+                    ws.set_column_width(col, (n.chars().count() as f64 + 4.0).clamp(10.0, 60.0))
+                        .map_err(xlsx_err)?;
                     if o.header {
-                        ws.write_string_with_format(0, col, n, &bold).map_err(xlsx_err)?;
+                        ws.write_string_with_format(0, col, n, &bold)
+                            .map_err(xlsx_err)?;
                     }
                 }
                 if o.header {
@@ -350,9 +395,17 @@ impl Exporter {
                     _ => Quote::Double,
                 };
                 // Firebird takes one row per INSERT … VALUES.
-                let per = if self.opts.source == SourceStrings::Firebird { 1 } else { self.opts.rows_per_insert.max(1) };
+                let per = if self.opts.source == SourceStrings::Firebird {
+                    1
+                } else {
+                    self.opts.rows_per_insert.max(1)
+                };
                 let lit = Literal::pick(self.opts.source, q, self.opts.standard_strings);
-                let values: Vec<String> = row.iter().zip(&self.numeric).map(|(v, &num)| sql_literal(v, num, lit)).collect();
+                let values: Vec<String> = row
+                    .iter()
+                    .zip(&self.numeric)
+                    .map(|(v, &num)| sql_literal(v, num, lit))
+                    .collect();
                 let head = if self.in_batch == 0 {
                     let table = sql_table(&self.opts.table, q);
                     let cols: Vec<String> = self.names.iter().map(|c| quote_ident(q, c)).collect();
@@ -377,7 +430,9 @@ impl Exporter {
                     let tag = xml_name(name);
                     match text(v) {
                         None => out.push_str(&format!("    <{tag} null=\"true\"/>{nl}")),
-                        Some(t) => out.push_str(&format!("    <{tag}>{}</{tag}>{nl}", xml_escape(&t))),
+                        Some(t) => {
+                            out.push_str(&format!("    <{tag}>{}</{tag}>{nl}", xml_escape(&t)))
+                        }
                     }
                 }
                 out.push_str(&format!("  </{}>{nl}", xml_name(&self.opts.xml_row)));
@@ -386,7 +441,9 @@ impl Exporter {
             Format::Xlsx => {
                 let r = n + u64::from(self.opts.header);
                 if r > XLSX_MAX_ROWS {
-                    return Err(io::Error::other("Excel admite hasta 1.048.576 filas por hoja; exportá en CSV"));
+                    return Err(io::Error::other(
+                        "Excel admite hasta 1.048.576 filas por hoja; exportá en CSV",
+                    ));
                 }
                 let numeric = self.numeric.clone();
                 if let Some(Writer::Xlsx(wb)) = self.writer.as_mut() {
@@ -399,16 +456,23 @@ impl Exporter {
                             Value::Bool(b) => {
                                 ws.write_boolean(row, col, *b).map_err(xlsx_err)?;
                             }
-                            other => match as_number(other, numeric.get(i).copied().unwrap_or(false)) {
-                                // Past 15 digits Excel rounds: keep those as text.
-                                Some(f) if f.abs() < 1e15 => {
-                                    ws.write_number(row, col, f).map_err(xlsx_err)?;
+                            other => {
+                                match as_number(other, numeric.get(i).copied().unwrap_or(false)) {
+                                    // Past 15 digits Excel rounds: keep those as text.
+                                    Some(f) if f.abs() < 1e15 => {
+                                        ws.write_number(row, col, f).map_err(xlsx_err)?;
+                                    }
+                                    _ => {
+                                        let t = text(other).unwrap_or_default();
+                                        ws.write_string(
+                                            row,
+                                            col,
+                                            t.chars().take(32_767).collect::<String>(),
+                                        )
+                                        .map_err(xlsx_err)?;
+                                    }
                                 }
-                                _ => {
-                                    let t = text(other).unwrap_or_default();
-                                    ws.write_string(row, col, t.chars().take(32_767).collect::<String>()).map_err(xlsx_err)?;
-                                }
-                            },
+                            }
                         }
                     }
                 }
@@ -433,7 +497,11 @@ impl Exporter {
             Some(Writer::Csv(mut w)) => w.flush()?,
             Some(Writer::Text(mut f)) => {
                 match self.opts.format {
-                    Format::Json => f.write_all(if self.opts.pretty && self.rows > 0 { b"\n]\n" } else { b"]\n" })?,
+                    Format::Json => f.write_all(if self.opts.pretty && self.rows > 0 {
+                        b"\n]\n"
+                    } else {
+                        b"]\n"
+                    })?,
                     Format::Sql if self.in_batch > 0 => f.write_all(b";\n")?,
                     Format::Xml => write!(f, "</{}>{nl}", xml_name(&self.opts.xml_root))?,
                     _ => {}
@@ -444,7 +512,10 @@ impl Exporter {
                 if self.opts.header && !self.names.is_empty() {
                     let last_row = self.rows as u32;
                     let last_col = (self.names.len() - 1) as u16;
-                    wb.worksheet_from_index(0).map_err(xlsx_err)?.autofilter(0, 0, last_row, last_col).map_err(xlsx_err)?;
+                    wb.worksheet_from_index(0)
+                        .map_err(xlsx_err)?
+                        .autofilter(0, 0, last_row, last_col)
+                        .map_err(xlsx_err)?;
                 }
                 wb.save(&self.path).map_err(xlsx_err)?;
             }
@@ -525,7 +596,11 @@ impl SourceStrings {
     /// From the connection's driver.
     pub fn of(driver: &dyn dbine_driver::Driver) -> Self {
         let info = driver.info();
-        Self::from_parts(info.id, info.dialect, driver.script_dialect().backslash_escapes)
+        Self::from_parts(
+            info.id,
+            info.dialect,
+            driver.script_dialect().backslash_escapes,
+        )
     }
 
     /// From the driver id, its dialect hint and whether its scripts read
@@ -594,10 +669,18 @@ impl Literal {
 fn sql_literal(v: &Value, numeric_col: bool, lit: Literal) -> String {
     match v {
         Value::Null => "NULL".into(),
-        Value::Bool(b) => if *b { "1".into() } else { "0".into() },
+        Value::Bool(b) => {
+            if *b {
+                "1".into()
+            } else {
+                "0".into()
+            }
+        }
         Value::Number(n) => n.to_string(),
         // Only finite numbers go bare: "NaN" or "inf" would be identifiers.
-        Value::String(s) if numeric_col && s.trim().parse::<f64>().is_ok_and(f64::is_finite) => s.trim().to_string(),
+        Value::String(s) if numeric_col && s.trim().parse::<f64>().is_ok_and(f64::is_finite) => {
+            s.trim().to_string()
+        }
         Value::String(s) => string_literal(s, lit),
         other => string_literal(&other.to_string(), lit),
     }
@@ -683,12 +766,18 @@ fn spliced_literal(s: &str, src: SourceStrings) -> String {
     // Oracle (23ai) misreads a nested `((…) || (…))` in a VALUES list of
     // more than one row (ORA-00907); its strings stop at 4000 bytes (32767
     // extended) anyway, so the chain stays flat there.
-    let group = if src == SourceStrings::Oracle { usize::MAX } else { SPLICE_GROUP };
+    let group = if src == SourceStrings::Oracle {
+        usize::MAX
+    } else {
+        SPLICE_GROUP
+    };
     while parts.len() > 1 {
         parts = parts
             .chunks(group)
             .map(|g| match src {
-                SourceStrings::SqlServer if long => format!("CONCAT(CAST('' AS varchar(max)), {})", g.join(", ")),
+                SourceStrings::SqlServer if long => {
+                    format!("CONCAT(CAST('' AS varchar(max)), {})", g.join(", "))
+                }
                 SourceStrings::SqlServer if g.len() > 1 => format!("CONCAT({})", g.join(", ")),
                 _ if g.len() > 1 => format!("({})", g.join(" || ")),
                 _ => g[0].clone(),
@@ -739,8 +828,15 @@ fn dual_safe_literal(s: &str) -> String {
 
 /// `schema.table` quoted part by part; empty → "tabla".
 fn sql_table(name: &str, q: Quote) -> String {
-    let name = if name.trim().is_empty() { "tabla" } else { name.trim() };
-    name.split('.').map(|p| quote_ident(q, p.trim())).collect::<Vec<_>>().join(".")
+    let name = if name.trim().is_empty() {
+        "tabla"
+    } else {
+        name.trim()
+    };
+    name.split('.')
+        .map(|p| quote_ident(q, p.trim()))
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 fn xml_escape(s: &str) -> String {
@@ -763,16 +859,33 @@ fn xml_escape(s: &str) -> String {
 fn xml_name(s: &str) -> String {
     let mut out: String = s
         .chars()
-        .map(|c| if c.is_alphanumeric() || matches!(c, '_' | '-' | '.') { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '_' | '-' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    if out.is_empty() || !out.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') || out.to_lowercase().starts_with("xml") {
+    if out.is_empty()
+        || !out
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_')
+        || out.to_lowercase().starts_with("xml")
+    {
         out.insert(0, '_');
     }
     out
 }
 
 /// Export rows already in memory (the grid's) to a file.
-pub fn export_rows(path: &Path, opts: ExportOptions, columns: &[ResultColumn], rows: &[Vec<Value>]) -> io::Result<u64> {
+pub fn export_rows(
+    path: &Path,
+    opts: ExportOptions,
+    columns: &[ResultColumn],
+    rows: &[Vec<Value>],
+) -> io::Result<u64> {
     let mut e = Exporter::new(path, 0, opts);
     e.begin(0, columns)?;
     for r in rows {
@@ -788,22 +901,42 @@ mod tests {
 
     fn cols() -> Vec<ResultColumn> {
         vec![
-            ResultColumn { name: "id".into(), type_name: "int".into() },
-            ResultColumn { name: "nombre".into(), type_name: "varchar".into() },
-            ResultColumn { name: "total".into(), type_name: "decimal".into() },
-            ResultColumn { name: "id".into(), type_name: "int".into() },
+            ResultColumn {
+                name: "id".into(),
+                type_name: "int".into(),
+            },
+            ResultColumn {
+                name: "nombre".into(),
+                type_name: "varchar".into(),
+            },
+            ResultColumn {
+                name: "total".into(),
+                type_name: "decimal".into(),
+            },
+            ResultColumn {
+                name: "id".into(),
+                type_name: "int".into(),
+            },
         ]
     }
     fn rows() -> Vec<Vec<Value>> {
         vec![
-            vec![json!(1), json!("Pérez; \"el\" <1>"), json!("10.50"), json!(7)],
+            vec![
+                json!(1),
+                json!("Pérez; \"el\" <1>"),
+                json!("10.50"),
+                json!(7),
+            ],
             vec![json!(2), Value::Null, json!("3"), Value::Null],
         ]
     }
     fn run(format: Format, tweak: impl FnOnce(&mut ExportOptions)) -> String {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("out");
-        let mut o = ExportOptions { format, ..Default::default() };
+        let mut o = ExportOptions {
+            format,
+            ..Default::default()
+        };
         tweak(&mut o);
         export_rows(&p, o, &cols(), &rows()).unwrap();
         String::from_utf8_lossy(&std::fs::read(&p).unwrap()).to_string()
@@ -811,7 +944,10 @@ mod tests {
 
     #[test]
     fn csv_variants() {
-        assert_eq!(run(Format::Csv, |_| {}), "id,nombre,total,id_2\n1,\"Pérez; \"\"el\"\" <1>\",10.50,7\n2,,3,\n");
+        assert_eq!(
+            run(Format::Csv, |_| {}),
+            "id,nombre,total,id_2\n1,\"Pérez; \"\"el\"\" <1>\",10.50,7\n2,,3,\n"
+        );
         let excel = run(Format::CsvExcel, |_| {});
         assert!(excel.starts_with('\u{feff}'), "BOM so Excel reads UTF-8");
         assert!(excel.contains("id;nombre;total;id_2\r\n"));
@@ -821,9 +957,18 @@ mod tests {
     #[test]
     fn csv_cells_cannot_become_formulas() {
         let cols = vec![
-            ResultColumn { name: "=HYPERLINK(\"x\")".into(), type_name: "varchar".into() },
-            ResultColumn { name: "n".into(), type_name: "varchar".into() },
-            ResultColumn { name: "amount".into(), type_name: "decimal".into() },
+            ResultColumn {
+                name: "=HYPERLINK(\"x\")".into(),
+                type_name: "varchar".into(),
+            },
+            ResultColumn {
+                name: "n".into(),
+                type_name: "varchar".into(),
+            },
+            ResultColumn {
+                name: "amount".into(),
+                type_name: "decimal".into(),
+            },
         ];
         let rows = vec![
             vec![json!("=1+1"), json!(-5), json!("-12.50")],
@@ -831,20 +976,32 @@ mod tests {
             vec![json!("@SUM(A1)"), json!("-2+3"), Value::Null],
             vec![json!("\t=1"), json!("\r=1"), json!("1")],
             vec![json!("-"), json!("ok"), json!("2")],
-            vec![json!("Ana;=cmd|' /C calc'!A0"), json!("x,=WEBSERVICE(B2)"), json!("3")],
+            vec![
+                json!("Ana;=cmd|' /C calc'!A0"),
+                json!("x,=WEBSERVICE(B2)"),
+                json!("3"),
+            ],
             vec![json!("a; +cmd"), json!("1,2"), json!("4")],
         ];
         let out = |f: Format, safe: Option<bool>| {
             let dir = tempfile::tempdir().unwrap();
             let p = dir.path().join("out");
-            let mut o = ExportOptions { format: f, ..Default::default() };
+            let mut o = ExportOptions {
+                format: f,
+                ..Default::default()
+            };
             if let Some(v) = safe {
                 o.formula_safe = v;
             }
             export_rows(&p, o, &cols, &rows).unwrap();
             String::from_utf8_lossy(&std::fs::read(&p).unwrap()).to_string()
         };
-        for f in [Format::CsvExcel, Format::Csv, Format::CsvSemicolon, Format::Tsv] {
+        for f in [
+            Format::CsvExcel,
+            Format::Csv,
+            Format::CsvSemicolon,
+            Format::Tsv,
+        ] {
             let s = out(f, None);
             assert!(s.contains("'=HYPERLINK"), "{f:?}: {s}");
             assert!(s.contains("'=1+1"), "{f:?}: {s}");
@@ -854,25 +1011,56 @@ mod tests {
             assert!(s.contains("'-2+3") && s.contains("'-"), "{f:?}: {s}");
             // A piece after `,` or `;` that a spreadsheet with another list
             // separator would make its own cell.
-            assert!(!s.contains(";=") && !s.contains(",=") && !s.contains(";+cmd"), "{f:?}: {s}");
+            assert!(
+                !s.contains(";=") && !s.contains(",=") && !s.contains(";+cmd"),
+                "{f:?}: {s}"
+            );
             // Numbers stay numbers: a JSON number, a number written as text
             // and any value of a numeric column.
-            assert!(!s.contains("'-5") && !s.contains("'-12.50") && !s.contains("'-1"), "{f:?}: {s}");
+            assert!(
+                !s.contains("'-5") && !s.contains("'-12.50") && !s.contains("'-1"),
+                "{f:?}: {s}"
+            );
         }
         // Off: the values exactly as they are.
         let raw = out(Format::Csv, Some(false));
-        assert!(raw.starts_with("\"=HYPERLINK(\"\"x\"\")\",n,amount\n=1+1,-5,-12.50\n"), "{raw}");
-        assert!(!raw.contains("'=") && !raw.contains("'@") && raw.contains("\n+cmd"), "{raw}");
+        assert!(
+            raw.starts_with("\"=HYPERLINK(\"\"x\"\")\",n,amount\n=1+1,-5,-12.50\n"),
+            "{raw}"
+        );
+        assert!(
+            !raw.contains("'=") && !raw.contains("'@") && raw.contains("\n+cmd"),
+            "{raw}"
+        );
         // The column's declared type doesn't exempt text: SQLite keeps any
         // text in an INTEGER column.
-        let typed = vec![ResultColumn { name: "id".into(), type_name: "INTEGER".into() }];
+        let typed = vec![ResultColumn {
+            name: "id".into(),
+            type_name: "INTEGER".into(),
+        }];
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("typed.csv");
-        let o = ExportOptions { format: Format::Csv, ..Default::default() };
-        export_rows(&p, o, &typed, &[vec![json!("=HYPERLINK(\"http://x\")")], vec![json!("-5")], vec![json!(-7)]]).unwrap();
+        let o = ExportOptions {
+            format: Format::Csv,
+            ..Default::default()
+        };
+        export_rows(
+            &p,
+            o,
+            &typed,
+            &[
+                vec![json!("=HYPERLINK(\"http://x\")")],
+                vec![json!("-5")],
+                vec![json!(-7)],
+            ],
+        )
+        .unwrap();
         let s = std::fs::read_to_string(&p).unwrap();
         assert!(s.contains("'=HYPERLINK"), "{s}");
-        assert!(s.contains("\n-5\n") && !s.contains("'-5") && s.ends_with("-7\n"), "{s}");
+        assert!(
+            s.contains("\n-5\n") && !s.contains("'-5") && s.ends_with("-7\n"),
+            "{s}"
+        );
         // Scheduled tasks send the options as JSON, often without the field.
         let o: ExportOptions = serde_json::from_value(json!({ "format": "csv" })).unwrap();
         assert!(o.formula_safe);
@@ -887,7 +1075,9 @@ mod tests {
         assert!(compact.starts_with("[{\"id\":1,\"nombre\":"));
         let lines = run(Format::JsonLines, |_| {});
         assert_eq!(lines.lines().count(), 2);
-        assert!(lines.lines().all(|l| serde_json::from_str::<Value>(l).is_ok()));
+        assert!(lines
+            .lines()
+            .all(|l| serde_json::from_str::<Value>(l).is_ok()));
     }
 
     #[test]
@@ -992,7 +1182,10 @@ mod tests {
         // No connection: doubled backslashes, unless the user says the target
         // reads strings the standard way.
         assert_eq!(lit(EXPLOIT, Unknown, Quote::Double, false), dual);
-        assert_eq!(lit(EXPLOIT, Unknown, Quote::Double, true), "'x\\'');DROP TABLE users;#'");
+        assert_eq!(
+            lit(EXPLOIT, Unknown, Quote::Double, true),
+            "'x\\'');DROP TABLE users;#'"
+        );
         // A source that reads backslash escapes, or backtick quoting: always
         // doubled, whatever the user says.
         assert_eq!(lit(EXPLOIT, Backslash, Quote::Double, true), dual);
@@ -1001,37 +1194,96 @@ mod tests {
         // Standard engines DBine knows: the backslash as the engine's
         // character function, whatever the user says.
         for std in [false, true] {
-            assert_eq!(lit(EXPLOIT, Postgres, Quote::Double, std), "('x' || chr(92) || ''');DROP TABLE users;#')");
-            assert_eq!(lit(EXPLOIT, DuckDb, Quote::Double, std), "('x' || chr(92) || ''');DROP TABLE users;#')");
-            assert_eq!(lit(EXPLOIT, Oracle, Quote::Double, std), "('x' || CHR(92) || ''');DROP TABLE users;#')");
-            assert_eq!(lit(EXPLOIT, Sqlite, Quote::Double, std), "('x' || char(92) || ''');DROP TABLE users;#')");
-            assert_eq!(lit(EXPLOIT, SqlServer, Quote::Bracket, std), "CONCAT('x', CHAR(92), ''');DROP TABLE users;#')");
-            assert_eq!(lit(EXPLOIT, Firebird, Quote::Double, std), "('x' || ASCII_CHAR(92) || ''');DROP TABLE users;#')");
-            assert_eq!(lit(EXPLOIT, Hana, Quote::Double, std), "('x' || NCHAR(92) || ''');DROP TABLE users;#')");
+            assert_eq!(
+                lit(EXPLOIT, Postgres, Quote::Double, std),
+                "('x' || chr(92) || ''');DROP TABLE users;#')"
+            );
+            assert_eq!(
+                lit(EXPLOIT, DuckDb, Quote::Double, std),
+                "('x' || chr(92) || ''');DROP TABLE users;#')"
+            );
+            assert_eq!(
+                lit(EXPLOIT, Oracle, Quote::Double, std),
+                "('x' || CHR(92) || ''');DROP TABLE users;#')"
+            );
+            assert_eq!(
+                lit(EXPLOIT, Sqlite, Quote::Double, std),
+                "('x' || char(92) || ''');DROP TABLE users;#')"
+            );
+            assert_eq!(
+                lit(EXPLOIT, SqlServer, Quote::Bracket, std),
+                "CONCAT('x', CHAR(92), ''');DROP TABLE users;#')"
+            );
+            assert_eq!(
+                lit(EXPLOIT, Firebird, Quote::Double, std),
+                "('x' || ASCII_CHAR(92) || ''');DROP TABLE users;#')"
+            );
+            assert_eq!(
+                lit(EXPLOIT, Hana, Quote::Double, std),
+                "('x' || NCHAR(92) || ''');DROP TABLE users;#')"
+            );
             for src in [Trino, Netezza] {
-                assert_eq!(lit(EXPLOIT, src, Quote::Double, std), "('x' || chr(92) || ''');DROP TABLE users;#')", "{src:?}");
+                assert_eq!(
+                    lit(EXPLOIT, src, Quote::Double, std),
+                    "('x' || chr(92) || ''');DROP TABLE users;#')",
+                    "{src:?}"
+                );
             }
             for src in [Db2, Teradata, Vertica, Exasol, Dremio] {
-                assert_eq!(lit(EXPLOIT, src, Quote::Double, std), "('x' || CHR(92) || ''');DROP TABLE users;#')", "{src:?}");
+                assert_eq!(
+                    lit(EXPLOIT, src, Quote::Double, std),
+                    "('x' || CHR(92) || ''');DROP TABLE users;#')",
+                    "{src:?}"
+                );
             }
         }
-        assert_eq!(lit("a\0b\\", Firebird, Quote::Double, false), "('a' || ASCII_CHAR(0) || 'b' || ASCII_CHAR(92))");
-        assert_eq!(lit("ñ\\€", Hana, Quote::Double, false), "('ñ' || NCHAR(92) || '€')");
+        assert_eq!(
+            lit("a\0b\\", Firebird, Quote::Double, false),
+            "('a' || ASCII_CHAR(0) || 'b' || ASCII_CHAR(92))"
+        );
+        assert_eq!(
+            lit("ñ\\€", Hana, Quote::Double, false),
+            "('ñ' || NCHAR(92) || '€')"
+        );
         assert_eq!(lit("\\", Db2, Quote::Double, false), "CHR(92)");
         assert_eq!(lit("\\", Postgres, Quote::Double, false), "chr(92)");
         assert_eq!(lit("\\", SqlServer, Quote::Bracket, false), "CHAR(92)");
-        assert_eq!(lit("\\\\", SqlServer, Quote::Bracket, false), "CONCAT(CHAR(92), CHAR(92))");
-        assert_eq!(lit("a\\", Sqlite, Quote::Double, false), "('a' || char(92))");
-        assert_eq!(lit("a\0b", SqlServer, Quote::Bracket, false), "CONCAT('a', CHAR(0), 'b')");
+        assert_eq!(
+            lit("\\\\", SqlServer, Quote::Bracket, false),
+            "CONCAT(CHAR(92), CHAR(92))"
+        );
+        assert_eq!(
+            lit("a\\", Sqlite, Quote::Double, false),
+            "('a' || char(92))"
+        );
+        assert_eq!(
+            lit("a\0b", SqlServer, Quote::Bracket, false),
+            "CONCAT('a', CHAR(0), 'b')"
+        );
         // Without a backslash it's the plain standard literal.
-        assert_eq!(lit("it's\nok", Postgres, Quote::Double, false), "'it''s\nok'");
+        assert_eq!(
+            lit("it's\nok", Postgres, Quote::Double, false),
+            "'it''s\nok'"
+        );
         assert_eq!(lit("", SqlServer, Quote::Bracket, false), "''");
         // Line breaks stay as they are in the dual-safe form too.
-        assert_eq!(lit("a\0b\nc\rd\u{1a}e", Unknown, Quote::Double, false), "'a\\0b\nc\rd\\Ze'");
+        assert_eq!(
+            lit("a\0b\nc\rd\u{1a}e", Unknown, Quote::Double, false),
+            "'a\\0b\nc\rd\\Ze'"
+        );
         // JSON values go through the same literal.
-        let json_lit = |src| sql_literal(&json!({"k": "it's \\ ok"}), false, Literal::pick(src, Quote::Double, false));
+        let json_lit = |src| {
+            sql_literal(
+                &json!({"k": "it's \\ ok"}),
+                false,
+                Literal::pick(src, Quote::Double, false),
+            )
+        };
         assert_eq!(json_lit(Unknown), "'{\"k\":\"it''s \\\\\\\\ ok\"}'");
-        assert_eq!(json_lit(Postgres), "('{\"k\":\"it''s ' || chr(92) || chr(92) || ' ok\"}')");
+        assert_eq!(
+            json_lit(Postgres),
+            "('{\"k\":\"it''s ' || chr(92) || chr(92) || ' ok\"}')"
+        );
         let standard = Literal::Standard;
         assert_eq!(sql_literal(&json!("NaN"), true, standard), "'NaN'");
         assert_eq!(sql_literal(&json!(" 1e3 "), true, standard), "1e3");
@@ -1051,7 +1303,12 @@ mod tests {
         let oracle = spliced_literal(&v, SourceStrings::Oracle);
         assert_eq!(eval_spliced(&oracle), v);
         assert_eq!(depth(&oracle), 2, "one flat chain of CHR(92) on Oracle");
-        let spliced = SOURCES.into_iter().filter(|s| !matches!(s, SourceStrings::Unknown | SourceStrings::Backslash | SourceStrings::Oracle));
+        let spliced = SOURCES.into_iter().filter(|s| {
+            !matches!(
+                s,
+                SourceStrings::Unknown | SourceStrings::Backslash | SourceStrings::Oracle
+            )
+        });
         for src in spliced {
             let s = spliced_literal(&v, src);
             assert_eq!(eval_spliced(&s), v, "{src:?}");
@@ -1059,7 +1316,13 @@ mod tests {
             assert!(depth(&s) <= 8, "{src:?}: {}", depth(&s));
             if src == SourceStrings::SqlServer {
                 // Past 4000 characters CONCAT has to return varchar(max).
-                assert!(s.starts_with("CONCAT(CAST('' AS varchar(max)), CONCAT(CAST('' AS varchar(max)), "), "{}", &s[..80]);
+                assert!(
+                    s.starts_with(
+                        "CONCAT(CAST('' AS varchar(max)), CONCAT(CAST('' AS varchar(max)), "
+                    ),
+                    "{}",
+                    &s[..80]
+                );
             }
         }
     }
@@ -1130,7 +1393,10 @@ mod tests {
                 let end = literal_end(&expr, i, false);
                 out.push_str(&decode(&expr[i + 1..end], false));
                 i = end + 1;
-            } else if let Some(p) = ["chr(", "CHR(", "char(", "CHAR(", "ASCII_CHAR(", "NCHAR("].iter().find(|p| rest.starts_with(**p)) {
+            } else if let Some(p) = ["chr(", "CHR(", "char(", "CHAR(", "ASCII_CHAR(", "NCHAR("]
+                .iter()
+                .find(|p| rest.starts_with(**p))
+            {
                 let close = rest.find(')').unwrap();
                 out.push(char::from_u32(rest[p.len()..close].parse().unwrap()).unwrap());
                 i += close + 1;
@@ -1155,7 +1421,10 @@ mod tests {
                 standard_strings: std,
                 ..Default::default()
             };
-            let cols = [ResultColumn { name: "v".into(), type_name: "varchar".into() }];
+            let cols = [ResultColumn {
+                name: "v".into(),
+                type_name: "varchar".into(),
+            }];
             export_rows(&p, o, &cols, &[vec![json!(value)]]).unwrap();
             std::fs::read_to_string(&p).unwrap()
         };
@@ -1170,7 +1439,8 @@ mod tests {
                     let lit = Literal::pick(src, q, std);
                     for value in TRICKY {
                         let script = one(src, quote, std, value);
-                        let ctx = format!("src={src:?} quote={quote} std={std} lit={lit:?}: {script:?}");
+                        let ctx =
+                            format!("src={src:?} quote={quote} std={std} lit={lit:?}: {script:?}");
                         let head = script.find("VALUES\n  (").unwrap() + "VALUES\n  (".len();
                         assert!(script.ends_with(");\n"), "{ctx}");
                         let expr = &script[head..script.len() - 3];
@@ -1185,19 +1455,30 @@ mod tests {
                         if lit != Literal::Standard || !value.contains('\\') {
                             rules.push(true);
                         }
-                        let shapes: Vec<String> = rules.iter().map(|&r| skeleton(&script, r)).collect();
+                        let shapes: Vec<String> =
+                            rules.iter().map(|&r| skeleton(&script, r)).collect();
                         for shape in &shapes {
                             assert_eq!(shape, &shapes[0], "{ctx}");
-                            assert!(!shape.contains("DROP") && shape.matches(';').count() == 1, "{ctx}: {shape}");
+                            assert!(
+                                !shape.contains("DROP") && shape.matches(';').count() == 1,
+                                "{ctx}: {shape}"
+                            );
                         }
                         // The source engine reads back exactly the value.
                         match lit {
                             Literal::Spliced(_) => {
-                                assert!(!script.contains('\\'), "no backslash in a spliced script: {ctx}");
+                                assert!(
+                                    !script.contains('\\'),
+                                    "no backslash in a spliced script: {ctx}"
+                                );
                                 assert_eq!(eval_spliced(expr), value, "{ctx}");
                             }
-                            Literal::DualSafe => assert_eq!(decode(&expr[1..expr.len() - 1], true), value, "{ctx}"),
-                            Literal::Standard => assert_eq!(decode(&expr[1..expr.len() - 1], false), value, "{ctx}"),
+                            Literal::DualSafe => {
+                                assert_eq!(decode(&expr[1..expr.len() - 1], true), value, "{ctx}")
+                            }
+                            Literal::Standard => {
+                                assert_eq!(decode(&expr[1..expr.len() - 1], false), value, "{ctx}")
+                            }
                         }
                     }
                 }
@@ -1217,7 +1498,16 @@ mod tests {
     fn xlsx_is_a_real_workbook() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("out.xlsx");
-        export_rows(&p, ExportOptions { format: Format::Xlsx, ..Default::default() }, &cols(), &rows()).unwrap();
+        export_rows(
+            &p,
+            ExportOptions {
+                format: Format::Xlsx,
+                ..Default::default()
+            },
+            &cols(),
+            &rows(),
+        )
+        .unwrap();
         let bytes = std::fs::read(&p).unwrap();
         assert_eq!(&bytes[..2], b"PK", "a zip (xlsx) file");
     }

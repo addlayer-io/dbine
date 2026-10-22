@@ -109,7 +109,9 @@ fn need<'a>(o: &'a BTreeMap<String, String>, k: &str, what: &str) -> Result<&'a 
 
 /// `(yyyy, mm, dd, hh, mi, ss)` of now, UTC.
 fn now() -> (i64, i64, i64, u64, u64, u64) {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
     // Days to a civil date (Howard Hinnant's algorithm).
     let z = days + 719_468;
@@ -417,18 +419,26 @@ pub fn spec(p: &Preset) -> Option<BackupSpec> {
 fn cl_name(v: &str, what: &str) -> Result<String> {
     let n = v.trim().to_ascii_uppercase();
     let ok = (1..=10).contains(&n.len())
-        && n.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || "$#@".contains(c))
-        && n.chars().all(|c| c.is_ascii_alphanumeric() || "$#@_.".contains(c));
+        && n.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || "$#@".contains(c))
+        && n.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "$#@_.".contains(c));
     if ok {
         Ok(n)
     } else {
-        Err(Error::Query(format!("«{v}» no es un nombre válido de {what} de IBM i")))
+        Err(Error::Query(format!(
+            "«{v}» no es un nombre válido de {what} de IBM i"
+        )))
     }
 }
 
 /// `LIB/FILE`.
 fn savf(v: &str) -> Result<(String, String)> {
-    let (l, f) = v.trim().split_once('/').ok_or_else(|| Error::Query(format!("«{v}» no es BIBLIOTECA/ARCHIVO")))?;
+    let (l, f) = v
+        .trim()
+        .split_once('/')
+        .ok_or_else(|| Error::Query(format!("«{v}» no es BIBLIOTECA/ARCHIVO")))?;
     Ok((cl_name(l, "biblioteca")?, cl_name(f, "archivo")?))
 }
 
@@ -437,7 +447,9 @@ fn qcmdexc(cmd: &str) -> String {
 }
 
 pub fn script(p: &Preset, a: &BackupAction) -> Result<String> {
-    let Some(e) = engine(p) else { return Err(Error::Unsupported(unsupported(p).into())) };
+    let Some(e) = engine(p) else {
+        return Err(Error::Unsupported(unsupported(p).into()));
+    };
     match (e, a) {
         (Engine::Db2, BackupAction::Backup { database, options }) => {
             let path = need(options, "path", "la carpeta del servidor")?;
@@ -665,7 +677,10 @@ pub fn script(p: &Preset, a: &BackupAction) -> Result<String> {
 /// A plain identifier as is, anything else in double quotes.
 fn quoted(name: &str, fold_up: bool) -> String {
     let n = name.trim();
-    let plain = n.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    let plain = n
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         && !(fold_up && n.chars().any(|c| c.is_ascii_lowercase()));
     if plain {
@@ -687,7 +702,10 @@ fn mimer_ident(name: &str) -> String {
 
 /// An ASE database name, in brackets.
 fn ase_db(db: Option<&str>) -> Result<String> {
-    let db = db.map(str::trim).filter(|d| !d.is_empty()).ok_or_else(|| Error::Query("falta la base de datos".into()))?;
+    let db = db
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .ok_or_else(|| Error::Query("falta la base de datos".into()))?;
     Ok(format!("[{}]", db.replace(']', "]]")))
 }
 
@@ -709,9 +727,22 @@ async fn rows(s: &OdbcSession, sql: &str) -> Result<Vec<Row>> {
         let st = c.stmt(slot)?;
         st.exec(&sql)?;
         let n = st.num_cols()?;
-        let names: Vec<String> = st.describe(n)?.into_iter().map(|c| c.name.to_ascii_lowercase()).collect();
+        let names: Vec<String> = st
+            .describe(n)?
+            .into_iter()
+            .map(|c| c.name.to_ascii_lowercase())
+            .collect();
         let data = st.text_rows()?;
-        Ok(data.into_iter().map(|r| names.iter().cloned().zip(r.into_iter().map(Option::unwrap_or_default)).collect()).collect())
+        Ok(data
+            .into_iter()
+            .map(|r| {
+                names
+                    .iter()
+                    .cloned()
+                    .zip(r.into_iter().map(Option::unwrap_or_default))
+                    .collect()
+            })
+            .collect())
     })
     .await
 }
@@ -719,8 +750,17 @@ async fn rows(s: &OdbcSession, sql: &str) -> Result<Vec<Row>> {
 /// `20260929154500` → `2026-09-29T15:45:00`.
 fn db2_time(v: &str) -> Option<String> {
     let v = v.trim();
-    (v.len() >= 14 && v.chars().take(14).all(|c| c.is_ascii_digit()))
-        .then(|| format!("{}-{}-{}T{}:{}:{}", &v[0..4], &v[4..6], &v[6..8], &v[8..10], &v[10..12], &v[12..14]))
+    (v.len() >= 14 && v.chars().take(14).all(|c| c.is_ascii_digit())).then(|| {
+        format!(
+            "{}-{}-{}T{}:{}:{}",
+            &v[0..4],
+            &v[4..6],
+            &v[6..8],
+            &v[8..10],
+            &v[10..12],
+            &v[12..14]
+        )
+    })
 }
 
 /// `2026-09-29 15:45:00[.fff]` → `2026-09-29T15:45:00[.fff]`.
@@ -748,7 +788,10 @@ pub(crate) fn db2_entry(r: &Row, database: &str) -> BackupEntry {
     };
     let mut details = Vec::new();
     if get(r, "objecttype") == "P" {
-        details.push(("Alcance".into(), format!("{} espacios de tablas", get(r, "num_tbsps"))));
+        details.push((
+            "Alcance".into(),
+            format!("{} espacios de tablas", get(r, "num_tbsps")),
+        ));
     }
     let device = match get(r, "devicetype") {
         "D" => "disco",
@@ -786,7 +829,11 @@ fn informix_bar_entry(r: &Row) -> BackupEntry {
         "5" => "ON-Bar (todo el sistema)",
         other => other,
     };
-    let status = if get(r, "act_status") == "0" { "completado".to_string() } else { format!("falló ({})", get(r, "act_status")) };
+    let status = if get(r, "act_status") == "0" {
+        "completado".to_string()
+    } else {
+        format!("falló ({})", get(r, "act_status"))
+    };
     let mut details = Vec::new();
     if let Some(l) = some(get(r, "act_type_level")) {
         details.push(("Nivel".into(), l));
@@ -807,13 +854,22 @@ fn db2i_entry(r: &Row) -> BackupEntry {
     let file = format!("{}/{}", get(r, "save_file_library"), get(r, "save_file"));
     let lib = get(r, "library_name");
     let mut details = Vec::new();
-    for (k, label) in [("objects_saved", "Objetos"), ("data_compressed", "Comprimido"), ("save_while_active", "Mientras se usaba"), ("save_command", "Comando")] {
+    for (k, label) in [
+        ("objects_saved", "Objetos"),
+        ("data_compressed", "Comprimido"),
+        ("save_while_active", "Mientras se usaba"),
+        ("save_command", "Comando"),
+    ] {
         if let Some(v) = some(get(r, k)) {
             details.push((label.to_string(), v));
         }
     }
     BackupEntry {
-        id: if lib.is_empty() { file.clone() } else { format!("{file}@{lib}") },
+        id: if lib.is_empty() {
+            file.clone()
+        } else {
+            format!("{file}@{lib}")
+        },
         database: some(lib),
         kind: Some("SAVLIB".into()),
         started: sql_time(get(r, "save_timestamp")),
@@ -854,22 +910,34 @@ fn dameng_entry(r: &Row) -> BackupEntry {
     };
     let path = some(get(r, "backup_path"));
     BackupEntry {
-        id: path.clone().unwrap_or_else(|| get(r, "backup_name").to_string()),
+        id: path
+            .clone()
+            .unwrap_or_else(|| get(r, "backup_name").to_string()),
         database: some(get(r, "object_name")),
         kind: some(kind),
         started: sql_time(get(r, "backup_time")),
         location: path,
         status: Some("completado".into()),
-        details: some(get(r, "backup_name")).map(|n| vec![("Nombre".to_string(), n)]).unwrap_or_default(),
+        details: some(get(r, "backup_name"))
+            .map(|n| vec![("Nombre".to_string(), n)])
+            .unwrap_or_default(),
         ..Default::default()
     }
 }
 
-pub async fn history(s: &OdbcSession, p: &Preset, database: Option<&str>) -> Result<Vec<BackupEntry>> {
-    let Some(e) = engine(p) else { return Err(Error::Unsupported(unsupported(p).into())) };
+pub async fn history(
+    s: &OdbcSession,
+    p: &Preset,
+    database: Option<&str>,
+) -> Result<Vec<BackupEntry>> {
+    let Some(e) = engine(p) else {
+        return Err(Error::Unsupported(unsupported(p).into()));
+    };
     match e {
         Engine::Db2 => {
-            let current = database.map(str::to_string).unwrap_or_else(|| s.database.clone());
+            let current = database
+                .map(str::to_string)
+                .unwrap_or_else(|| s.database.clone());
             let rs = rows(
                 s,
                 "SELECT START_TIME, END_TIME, OPERATIONTYPE, OBJECTTYPE, NUM_TBSPS, LOCATION, DEVICETYPE, SQLCODE, ENTRY_STATUS, COMMENT
@@ -921,7 +989,11 @@ pub async fn history(s: &OdbcSession, p: &Preset, database: Option<&str>) -> Res
             Ok(rs.iter().map(db2i_entry).collect())
         }
         Engine::Vertica => {
-            let rs = rows(s, "SELECT * FROM ARCHIVE_RESTORE_POINTS ORDER BY save_time DESC LIMIT 500").await?;
+            let rs = rows(
+                s,
+                "SELECT * FROM ARCHIVE_RESTORE_POINTS ORDER BY save_time DESC LIMIT 500",
+            )
+            .await?;
             Ok(rs.iter().map(vertica_entry).collect())
         }
         Engine::Mimer => {
@@ -945,9 +1017,13 @@ pub async fn history(s: &OdbcSession, p: &Preset, database: Option<&str>) -> Res
             out.sort_by(|a, b| b.started.cmp(&a.started));
             Ok(out)
         }
-        Engine::Ase | Engine::SqlAnywhere | Engine::MonetDb | Engine::Virtuoso | Engine::Machbase => {
-            Err(Error::Unsupported("este motor no lista sus backups por SQL".into()))
-        }
+        Engine::Ase
+        | Engine::SqlAnywhere
+        | Engine::MonetDb
+        | Engine::Virtuoso
+        | Engine::Machbase => Err(Error::Unsupported(
+            "este motor no lista sus backups por SQL".into(),
+        )),
     }
 }
 
@@ -960,38 +1036,95 @@ mod tests {
     }
 
     fn opts(kv: &[(&str, &str)]) -> BTreeMap<String, String> {
-        kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        kv.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn backup(id: &str, db: Option<&str>, kv: &[(&str, &str)]) -> Result<String> {
-        script(preset(id), &BackupAction::Backup { database: db.map(Into::into), options: opts(kv) })
+        script(
+            preset(id),
+            &BackupAction::Backup {
+                database: db.map(Into::into),
+                options: opts(kv),
+            },
+        )
     }
 
     fn restore(id: &str, source: &str, db: Option<&str>, kv: &[(&str, &str)]) -> Result<String> {
-        script(preset(id), &BackupAction::Restore { source: source.into(), database: db.map(Into::into), options: opts(kv) })
+        script(
+            preset(id),
+            &BackupAction::Restore {
+                source: source.into(),
+                database: db.map(Into::into),
+                options: opts(kv),
+            },
+        )
     }
 
     fn delete(id: &str, source: &str) -> Result<String> {
-        script(preset(id), &BackupAction::Delete { source: source.into() })
+        script(
+            preset(id),
+            &BackupAction::Delete {
+                source: source.into(),
+            },
+        )
     }
 
     #[test]
     fn every_preset_has_backups_or_a_reason() {
-        let with: Vec<&str> = crate::PRESETS.iter().filter(|p| spec(p).is_some()).map(|p| p.id).collect();
-        assert_eq!(with, vec!["db2", "db2i", "sybase", "sqlanywhere", "informix", "vertica", "dameng", "gbase8s", "monetdb", "virtuoso", "mimer", "machbase"]);
+        let with: Vec<&str> = crate::PRESETS
+            .iter()
+            .filter(|p| spec(p).is_some())
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(
+            with,
+            vec![
+                "db2",
+                "db2i",
+                "sybase",
+                "sqlanywhere",
+                "informix",
+                "vertica",
+                "dameng",
+                "gbase8s",
+                "monetdb",
+                "virtuoso",
+                "mimer",
+                "machbase"
+            ]
+        );
         let generic = unsupported(preset("db2"));
         for p in crate::PRESETS.iter().filter(|p| spec(p).is_none()) {
             assert_ne!(unsupported(p), generic, "{} needs its own reason", p.id);
-            assert!(matches!(script(p, &BackupAction::Delete { source: "x".into() }), Err(Error::Unsupported(_))));
+            assert!(matches!(
+                script(p, &BackupAction::Delete { source: "x".into() }),
+                Err(Error::Unsupported(_))
+            ));
         }
-        for p in crate::PRESETS.iter().filter_map(|p| spec(p).map(|s| (p, s))) {
+        for p in crate::PRESETS
+            .iter()
+            .filter_map(|p| spec(p).map(|s| (p, s)))
+        {
             let (p, s) = p;
             assert!(!s.note.is_empty(), "{}", p.id);
             if !s.restore {
-                assert!(matches!(restore(p.id, "x", Some("y"), &[]), Err(Error::Unsupported(_))), "{}", p.id);
+                assert!(
+                    matches!(
+                        restore(p.id, "x", Some("y"), &[]),
+                        Err(Error::Unsupported(_))
+                    ),
+                    "{}",
+                    p.id
+                );
             }
             if !s.delete {
-                assert!(matches!(delete(p.id, "x"), Err(Error::Unsupported(_))), "{}", p.id);
+                assert!(
+                    matches!(delete(p.id, "x"), Err(Error::Unsupported(_))),
+                    "{}",
+                    p.id
+                );
             }
         }
     }
@@ -1009,10 +1142,17 @@ mod tests {
         assert!(backup("db2", Some("SAMPLE"), &[]).is_err());
         assert!(backup("db2", Some("x'); DROP"), &[("path", "/b")]).is_err());
         let e = db2_entry(
-            &[("start_time", "20260929154500"), ("end_time", "20260929154610"), ("operationtype", "N"), ("location", "/db2/bk"), ("devicetype", "D"), ("sqlcode", "")]
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            &[
+                ("start_time", "20260929154500"),
+                ("end_time", "20260929154610"),
+                ("operationtype", "N"),
+                ("location", "/db2/bk"),
+                ("devicetype", "D"),
+                ("sqlcode", ""),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
             "SAMPLE",
         );
         assert_eq!(e.id, "20260929154500");
@@ -1024,25 +1164,68 @@ mod tests {
 
     #[test]
     fn ase_and_sql_anywhere() {
-        assert_eq!(backup("sybase", Some("ventas"), &[("path", "/d/v'1.dmp"), ("compression", "101")]).unwrap(), "DUMP DATABASE [ventas] TO '/d/v''1.dmp' WITH COMPRESSION = 101");
-        assert!(backup("sybase", Some("ventas"), &[("path", "/d"), ("compression", "1; x")]).is_err());
+        assert_eq!(
+            backup(
+                "sybase",
+                Some("ventas"),
+                &[("path", "/d/v'1.dmp"), ("compression", "101")]
+            )
+            .unwrap(),
+            "DUMP DATABASE [ventas] TO '/d/v''1.dmp' WITH COMPRESSION = 101"
+        );
+        assert!(backup(
+            "sybase",
+            Some("ventas"),
+            &[("path", "/d"), ("compression", "1; x")]
+        )
+        .is_err());
         assert!(backup("sybase", None, &[("path", "/d")]).is_err());
-        assert_eq!(restore("sybase", "/d/v.dmp", Some("ventas2"), &[]).unwrap(), "LOAD DATABASE [ventas2] FROM '/d/v.dmp'\ngo\nONLINE DATABASE [ventas2]");
-        assert_eq!(crate::split_go(&restore("sybase", "/d/v.dmp", Some("v"), &[]).unwrap()).unwrap().len(), 2);
+        assert_eq!(
+            restore("sybase", "/d/v.dmp", Some("ventas2"), &[]).unwrap(),
+            "LOAD DATABASE [ventas2] FROM '/d/v.dmp'\ngo\nONLINE DATABASE [ventas2]"
+        );
+        assert_eq!(
+            crate::split_go(&restore("sybase", "/d/v.dmp", Some("v"), &[]).unwrap())
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(spec(preset("sybase")).unwrap().script_database, "master");
         assert_eq!(
-            backup("sqlanywhere", None, &[("path", "/bk"), ("log", "rename"), ("comment", "a'b")]).unwrap(),
+            backup(
+                "sqlanywhere",
+                None,
+                &[("path", "/bk"), ("log", "rename"), ("comment", "a'b")]
+            )
+            .unwrap(),
             "BACKUP DATABASE DIRECTORY '/bk' TRANSACTION LOG RENAME WITH COMMENT 'a''b';"
         );
-        assert_eq!(backup("sqlanywhere", None, &[("path", "/bk/v"), ("mode", "archive"), ("log", "rename")]).unwrap(), "BACKUP DATABASE TO '/bk/v';");
+        assert_eq!(
+            backup(
+                "sqlanywhere",
+                None,
+                &[("path", "/bk/v"), ("mode", "archive"), ("log", "rename")]
+            )
+            .unwrap(),
+            "BACKUP DATABASE TO '/bk/v';"
+        );
     }
 
     #[test]
     fn informix() {
-        assert_eq!(backup("informix", None, &[("path", "/bk")]).unwrap(), "EXECUTE FUNCTION task('ontape archive directory level 0', '/bk/');");
-        assert_eq!(backup("gbase8s", None, &[("tool", "onbar"), ("level", "1")]).unwrap(), "EXECUTE FUNCTION task('onbar backup whole system level 1');");
+        assert_eq!(
+            backup("informix", None, &[("path", "/bk")]).unwrap(),
+            "EXECUTE FUNCTION task('ontape archive directory level 0', '/bk/');"
+        );
+        assert_eq!(
+            backup("gbase8s", None, &[("tool", "onbar"), ("level", "1")]).unwrap(),
+            "EXECUTE FUNCTION task('onbar backup whole system level 1');"
+        );
         assert!(backup("informix", None, &[("path", "/bk"), ("level", "3")]).is_err());
-        assert_eq!(spec(preset("informix")).unwrap().script_database, "sysadmin");
+        assert_eq!(
+            spec(preset("informix")).unwrap().script_database,
+            "sysadmin"
+        );
     }
 
     #[test]
@@ -1051,86 +1234,215 @@ mod tests {
             backup("db2i", None, &[("library", "ventas"), ("savf", "bk1"), ("compress", "*high"), ("active", "*SYNCLIB")]).unwrap(),
             "CALL QSYS2.QCMDEXC('CRTSAVF FILE(QGPL/BK1)');\nCALL QSYS2.QCMDEXC('SAVLIB LIB(VENTAS) DEV(*SAVF) SAVF(QGPL/BK1) DTACPR(*HIGH) SAVACT(*SYNCLIB)');"
         );
-        assert!(backup("db2i", None, &[("library", "VENTAS"), ("savf", "X) DLTLIB(Y")]).is_err());
+        assert!(backup(
+            "db2i",
+            None,
+            &[("library", "VENTAS"), ("savf", "X) DLTLIB(Y")]
+        )
+        .is_err());
         assert!(backup("db2i", None, &[("library", "TOOLONGNAME1")]).is_err());
         let auto = backup("db2i", None, &[("library", "VENTAS")]).unwrap();
         assert!(auto.contains("SAVF(QGPL/DB"), "{auto}");
-        assert_eq!(restore("db2i", "QGPL/BK1@VENTAS", None, &[]).unwrap(), "CALL QSYS2.QCMDEXC('RSTLIB SAVLIB(VENTAS) DEV(*SAVF) SAVF(QGPL/BK1)');");
+        assert_eq!(
+            restore("db2i", "QGPL/BK1@VENTAS", None, &[]).unwrap(),
+            "CALL QSYS2.QCMDEXC('RSTLIB SAVLIB(VENTAS) DEV(*SAVF) SAVF(QGPL/BK1)');"
+        );
         assert_eq!(
             restore("db2i", "QGPL/BK1@VENTAS", Some("ventas2"), &[("replace", "true")]).unwrap(),
             "CALL QSYS2.QCMDEXC('RSTLIB SAVLIB(VENTAS) DEV(*SAVF) SAVF(QGPL/BK1) RSTLIB(VENTAS2) MBROPT(*ALL)');"
         );
-        assert_eq!(restore("db2i", "QGPL/BK1", Some("VENTAS"), &[]).unwrap(), "CALL QSYS2.QCMDEXC('RSTLIB SAVLIB(VENTAS) DEV(*SAVF) SAVF(QGPL/BK1)');");
+        assert_eq!(
+            restore("db2i", "QGPL/BK1", Some("VENTAS"), &[]).unwrap(),
+            "CALL QSYS2.QCMDEXC('RSTLIB SAVLIB(VENTAS) DEV(*SAVF) SAVF(QGPL/BK1)');"
+        );
         assert!(restore("db2i", "QGPL/BK1", None, &[]).is_err());
-        assert_eq!(delete("db2i", "QGPL/BK1@VENTAS").unwrap(), "CALL QSYS2.QCMDEXC('DLTF FILE(QGPL/BK1)');");
+        assert_eq!(
+            delete("db2i", "QGPL/BK1@VENTAS").unwrap(),
+            "CALL QSYS2.QCMDEXC('DLTF FILE(QGPL/BK1)');"
+        );
         assert!(delete("db2i", "BK1").is_err());
         let e = db2i_entry(
-            &[("save_file_library", "QGPL"), ("save_file", "BK1"), ("library_name", "VENTAS"), ("save_timestamp", "2026-09-29 15:45:00.000000"), ("objsize", "1048576")]
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            &[
+                ("save_file_library", "QGPL"),
+                ("save_file", "BK1"),
+                ("library_name", "VENTAS"),
+                ("save_timestamp", "2026-09-29 15:45:00.000000"),
+                ("objsize", "1048576"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
         );
-        assert_eq!((e.id.as_str(), e.size, e.restorable), ("QGPL/BK1@VENTAS", Some(1_048_576), true));
+        assert_eq!(
+            (e.id.as_str(), e.size, e.restorable),
+            ("QGPL/BK1@VENTAS", Some(1_048_576), true)
+        );
         assert_eq!(e.started.as_deref(), Some("2026-09-29T15:45:00.000000"));
     }
 
     /// What `Session::execute` sends, one call per element, with the
     /// preset's default batch mode.
     fn sent(id: &str, script: &str) -> Vec<String> {
-        crate::split(preset(id).batch, script).into_iter().map(|s| s.trim().to_string()).collect()
+        crate::split(preset(id).batch, script)
+            .into_iter()
+            .map(|s| s.trim().to_string())
+            .collect()
     }
 
     #[test]
     fn multi_statement_scripts_split_as_execute_sends_them() {
         assert_eq!(
-            sent("sybase", &restore("sybase", "/d/v.dmp", Some("v"), &[]).unwrap()),
+            sent(
+                "sybase",
+                &restore("sybase", "/d/v.dmp", Some("v"), &[]).unwrap()
+            ),
             vec!["LOAD DATABASE [v] FROM '/d/v.dmp'", "ONLINE DATABASE [v]"]
         );
-        assert_eq!(sent("sybase", &backup("sybase", Some("v"), &[("path", "/d/v.dmp")]).unwrap()), vec!["DUMP DATABASE [v] TO '/d/v.dmp'"]);
-        let i = sent("db2i", &backup("db2i", None, &[("library", "VENTAS"), ("savf", "BK1")]).unwrap());
-        assert_eq!(i.len(), 2);
-        assert!(i[0].starts_with("CALL QSYS2.QCMDEXC('CRTSAVF") && i[1].starts_with("CALL QSYS2.QCMDEXC('SAVLIB"), "{i:?}");
-        let m = sent("mimer", &backup("mimer", None, &[("databank", "V"), ("path", "/bk")]).unwrap());
-        assert_eq!(m.len(), 4, "{m:?}");
-        assert_eq!((m[0].as_str(), m[3].as_str()), ("START BACKUP", "COMMIT BACKUP"));
-        assert!(m[1].starts_with("CREATE BACKUP IN '/bk/V_") && m[2].ends_with("FOR DATABANK LOGDB"), "{m:?}");
         assert_eq!(
-            sent("virtuoso", &backup("virtuoso", None, &[("prefix", "p")]).unwrap()),
+            sent(
+                "sybase",
+                &backup("sybase", Some("v"), &[("path", "/d/v.dmp")]).unwrap()
+            ),
+            vec!["DUMP DATABASE [v] TO '/d/v.dmp'"]
+        );
+        let i = sent(
+            "db2i",
+            &backup("db2i", None, &[("library", "VENTAS"), ("savf", "BK1")]).unwrap(),
+        );
+        assert_eq!(i.len(), 2);
+        assert!(
+            i[0].starts_with("CALL QSYS2.QCMDEXC('CRTSAVF")
+                && i[1].starts_with("CALL QSYS2.QCMDEXC('SAVLIB"),
+            "{i:?}"
+        );
+        let m = sent(
+            "mimer",
+            &backup("mimer", None, &[("databank", "V"), ("path", "/bk")]).unwrap(),
+        );
+        assert_eq!(m.len(), 4, "{m:?}");
+        assert_eq!(
+            (m[0].as_str(), m[3].as_str()),
+            ("START BACKUP", "COMMIT BACKUP")
+        );
+        assert!(
+            m[1].starts_with("CREATE BACKUP IN '/bk/V_") && m[2].ends_with("FOR DATABANK LOGDB"),
+            "{m:?}"
+        );
+        assert_eq!(
+            sent(
+                "virtuoso",
+                &backup("virtuoso", None, &[("prefix", "p")]).unwrap()
+            ),
             vec!["backup_context_clear()", "backup_online('p', 100000)"]
         );
         assert_eq!(
-            sent("vertica", &backup("vertica", None, &[("archive", "a"), ("create", "true")]).unwrap()),
+            sent(
+                "vertica",
+                &backup("vertica", None, &[("archive", "a"), ("create", "true")]).unwrap()
+            ),
             vec!["CREATE ARCHIVE a", "SAVE RESTORE POINT TO ARCHIVE a"]
         );
-        for (id, kv) in [("db2", vec![("path", "/b")]), ("informix", vec![("path", "/b")]), ("sqlanywhere", vec![("path", "/b")]), ("dameng", vec![("path", "/b")])] {
-            assert_eq!(sent(id, &backup(id, Some("X"), &kv).unwrap()).len(), 1, "{id}");
+        for (id, kv) in [
+            ("db2", vec![("path", "/b")]),
+            ("informix", vec![("path", "/b")]),
+            ("sqlanywhere", vec![("path", "/b")]),
+            ("dameng", vec![("path", "/b")]),
+        ] {
+            assert_eq!(
+                sent(id, &backup(id, Some("X"), &kv).unwrap()).len(),
+                1,
+                "{id}"
+            );
         }
     }
 
     #[test]
     fn others() {
         assert_eq!(
-            backup("vertica", None, &[("archive", "diario"), ("create", "true"), ("limit", "7")]).unwrap(),
+            backup(
+                "vertica",
+                None,
+                &[("archive", "diario"), ("create", "true"), ("limit", "7")]
+            )
+            .unwrap(),
             "CREATE ARCHIVE diario LIMIT 7;\nSAVE RESTORE POINT TO ARCHIVE diario;"
         );
-        assert_eq!(backup("vertica", None, &[("archive", "Mi Archivo")]).unwrap(), "SAVE RESTORE POINT TO ARCHIVE \"Mi Archivo\";");
-        assert_eq!(delete("vertica", "diario#a1b2").unwrap(), "REMOVE RESTORE POINT FROM ARCHIVE diario ID 'a1b2';");
-        assert!(delete("vertica", "diario").is_err());
-        let e = vertica_entry(&[("id", "a1b2"), ("archive", "diario"), ("index", "1"), ("state", "COMPLETE"), ("save_time", "2026-09-29 15:45:00")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
-        assert_eq!((e.id.as_str(), e.status.as_deref()), ("diario#a1b2", Some("complete")));
-        assert_eq!(backup("monetdb", None, &[("path", "/bk/v.tar.gz")]).unwrap(), "CALL sys.hot_snapshot('/bk/v.tar.gz');");
         assert_eq!(
-            backup("virtuoso", None, &[("prefix", "dbine_"), ("dir", "/bk"), ("pages", "5000")]).unwrap(),
+            backup("vertica", None, &[("archive", "Mi Archivo")]).unwrap(),
+            "SAVE RESTORE POINT TO ARCHIVE \"Mi Archivo\";"
+        );
+        assert_eq!(
+            delete("vertica", "diario#a1b2").unwrap(),
+            "REMOVE RESTORE POINT FROM ARCHIVE diario ID 'a1b2';"
+        );
+        assert!(delete("vertica", "diario").is_err());
+        let e = vertica_entry(
+            &[
+                ("id", "a1b2"),
+                ("archive", "diario"),
+                ("index", "1"),
+                ("state", "COMPLETE"),
+                ("save_time", "2026-09-29 15:45:00"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        );
+        assert_eq!(
+            (e.id.as_str(), e.status.as_deref()),
+            ("diario#a1b2", Some("complete"))
+        );
+        assert_eq!(
+            backup("monetdb", None, &[("path", "/bk/v.tar.gz")]).unwrap(),
+            "CALL sys.hot_snapshot('/bk/v.tar.gz');"
+        );
+        assert_eq!(
+            backup(
+                "virtuoso",
+                None,
+                &[("prefix", "dbine_"), ("dir", "/bk"), ("pages", "5000")]
+            )
+            .unwrap(),
             "backup_context_clear();\nbackup_online('dbine_', 5000, 0, vector('/bk'));"
         );
-        assert_eq!(backup("virtuoso", None, &[("prefix", "p"), ("new", "false")]).unwrap(), "backup_online('p', 100000);");
+        assert_eq!(
+            backup("virtuoso", None, &[("prefix", "p"), ("new", "false")]).unwrap(),
+            "backup_online('p', 100000);"
+        );
         assert!(backup("virtuoso", None, &[("prefix", "p"), ("pages", "10")]).is_err());
         let m = backup("mimer", None, &[("databank", "ventas"), ("path", "/bk/")]).unwrap();
-        assert!(m.starts_with("START BACKUP;\nCREATE BACKUP IN '/bk/ventas_2"), "{m}");
-        assert!(m.contains("FOR DATABANK \"ventas\";\nCREATE BACKUP IN '/bk/LOGDB_") && m.ends_with("FOR DATABANK LOGDB;\nCOMMIT BACKUP;"), "{m}");
-        assert!(!backup("mimer", None, &[("databank", "V"), ("path", "/bk"), ("logdb", "false")]).unwrap().contains("LOGDB"));
-        assert_eq!(backup("dameng", None, &[("path", "/dm/bk/f1")]).unwrap(), "BACKUP DATABASE FULL BACKUPSET '/dm/bk/f1' COMPRESSED;");
-        assert_eq!(backup("dameng", None, &[("path", "/p"), ("kind", "increment"), ("compress", "false")]).unwrap(), "BACKUP DATABASE INCREMENT BACKUPSET '/p';");
-        assert_eq!(backup("machbase", None, &[("path", "/bk/1")]).unwrap(), "BACKUP DATABASE INTO DISK = '/bk/1';");
+        assert!(
+            m.starts_with("START BACKUP;\nCREATE BACKUP IN '/bk/ventas_2"),
+            "{m}"
+        );
+        assert!(
+            m.contains("FOR DATABANK \"ventas\";\nCREATE BACKUP IN '/bk/LOGDB_")
+                && m.ends_with("FOR DATABANK LOGDB;\nCOMMIT BACKUP;"),
+            "{m}"
+        );
+        assert!(!backup(
+            "mimer",
+            None,
+            &[("databank", "V"), ("path", "/bk"), ("logdb", "false")]
+        )
+        .unwrap()
+        .contains("LOGDB"));
+        assert_eq!(
+            backup("dameng", None, &[("path", "/dm/bk/f1")]).unwrap(),
+            "BACKUP DATABASE FULL BACKUPSET '/dm/bk/f1' COMPRESSED;"
+        );
+        assert_eq!(
+            backup(
+                "dameng",
+                None,
+                &[("path", "/p"), ("kind", "increment"), ("compress", "false")]
+            )
+            .unwrap(),
+            "BACKUP DATABASE INCREMENT BACKUPSET '/p';"
+        );
+        assert_eq!(
+            backup("machbase", None, &[("path", "/bk/1")]).unwrap(),
+            "BACKUP DATABASE INTO DISK = '/bk/1';"
+        );
     }
 }

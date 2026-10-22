@@ -83,11 +83,17 @@ pub enum ParamError {
     /// `{{name}}` where a table, column or function name goes.
     Identifier { cell: Option<String>, name: String },
     /// The engine can't write the value (NULL in Redis…).
-    Literal { cell: Option<String>, name: String, message: String },
+    Literal {
+        cell: Option<String>,
+        name: String,
+        message: String,
+    },
 }
 
 fn in_cell(cell: &Option<String>) -> String {
-    cell.as_deref().map(|c| format!(" (celda {c})")).unwrap_or_default()
+    cell.as_deref()
+        .map(|c| format!(" (celda {c})"))
+        .unwrap_or_default()
 }
 
 impl fmt::Display for ParamError {
@@ -126,22 +132,43 @@ impl From<ParamError> for crate::error::CommandError {
 
 /// A parameter name: a letter or `_`, then letters, digits or `_` (ASCII).
 pub fn valid_name(name: &str) -> bool {
-    name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    name.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && name.len() <= MAX_NAME
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// A name a default must not be kept under (a password, a token…).
 pub(crate) fn secret_name(name: &str) -> bool {
-    let n: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect();
-    ["password", "passwd", "pwd", "secret", "token", "apikey", "credential", "connectionstring", "connstr", "accesskey", "privatekey"]
-        .iter()
-        .any(|w| n.contains(w))
+    let n: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    [
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "token",
+        "apikey",
+        "credential",
+        "connectionstring",
+        "connstr",
+        "accesskey",
+        "privatekey",
+    ]
+    .iter()
+    .any(|w| n.contains(w))
 }
 
 /// A default that is a credential or a connection's details.
 pub(crate) fn sensitive_default(p: &NotebookParameter) -> bool {
-    p.default.as_ref().is_some_and(|d| !d.is_null() && (secret_name(&p.name) || d.as_str().is_some_and(super::looks_like_connection_string)))
+    p.default.as_ref().is_some_and(|d| {
+        !d.is_null()
+            && (secret_name(&p.name) || d.as_str().is_some_and(super::looks_like_connection_string))
+    })
 }
 
 /// The parameters of `metadata.dbine.parameters`: entries with a valid,
@@ -151,20 +178,32 @@ pub(crate) fn sensitive_default(p: &NotebookParameter) -> bool {
 pub fn read_parameters(v: Option<&Value>) -> (Vec<NotebookParameter>, bool) {
     let mut out: Vec<NotebookParameter> = Vec::new();
     let mut dropped = false;
-    for item in v.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
-        let Ok(mut p) = serde_json::from_value::<NotebookParameter>(item.clone()) else { continue };
+    for item in v
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+    {
+        let Ok(mut p) = serde_json::from_value::<NotebookParameter>(item.clone()) else {
+            continue;
+        };
         p.name = p.name.trim().to_string();
         if !valid_name(&p.name) || out.iter().any(|o| o.name.eq_ignore_ascii_case(&p.name)) {
             continue;
         }
-        if p.default.as_ref().is_some_and(|d| !(d.is_string() || d.is_number() || d.is_boolean())) {
+        if p.default
+            .as_ref()
+            .is_some_and(|d| !(d.is_string() || d.is_number() || d.is_boolean()))
+        {
             p.default = None;
         }
         if sensitive_default(&p) {
             p.default = None;
             dropped = true;
         }
-        p.description = p.description.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
+        p.description = p
+            .description
+            .map(|d| d.trim().to_string())
+            .filter(|d| !d.is_empty());
         p.options.retain(|o| !o.trim().is_empty());
         p.options.truncate(MAX_OPTIONS);
         out.push(p);
@@ -185,7 +224,9 @@ pub fn parameters_json(ps: &[NotebookParameter]) -> Value {
                 let mut v = serde_json::to_value(&p).unwrap_or(Value::Null);
                 if let Some(m) = v.as_object_mut() {
                     // Only what is set.
-                    m.retain(|k, v| !(v.is_null() || (k == "required" && v == &Value::Bool(false))));
+                    m.retain(|k, v| {
+                        !(v.is_null() || (k == "required" && v == &Value::Bool(false)))
+                    });
                 }
                 v
             })
@@ -202,7 +243,10 @@ fn empty(v: &Value) -> bool {
 
 /// `v` as `p`'s type.
 pub fn value_of(p: &NotebookParameter, v: &Value) -> Result<ParamValue, ParamError> {
-    let bad = |message: &str| ParamError::Invalid { name: p.name.clone(), message: message.into() };
+    let bad = |message: &str| ParamError::Invalid {
+        name: p.name.clone(),
+        message: message.into(),
+    };
     let text = || match v {
         Value::String(s) => Some(s.clone()),
         Value::Number(n) => Some(n.to_string()),
@@ -224,15 +268,30 @@ pub fn value_of(p: &NotebookParameter, v: &Value) -> Result<ParamValue, ParamErr
             }
             Ok(ParamValue::Text(s))
         }
-        ParamType::Number => text().and_then(|s| ParamValue::number(&s)).ok_or_else(|| bad("tiene que ser un número (por ejemplo 12 o -3.5)")),
-        ParamType::Date => text().and_then(|s| ParamValue::date(&s)).ok_or_else(|| bad("tiene que ser una fecha AAAA-MM-DD")),
-        ParamType::Datetime => {
-            text().and_then(|s| ParamValue::datetime(&s)).ok_or_else(|| bad("tiene que ser una fecha y hora AAAA-MM-DD HH:MM[:SS]"))
-        }
+        ParamType::Number => text()
+            .and_then(|s| ParamValue::number(&s))
+            .ok_or_else(|| bad("tiene que ser un número (por ejemplo 12 o -3.5)")),
+        ParamType::Date => text()
+            .and_then(|s| ParamValue::date(&s))
+            .ok_or_else(|| bad("tiene que ser una fecha AAAA-MM-DD")),
+        ParamType::Datetime => text()
+            .and_then(|s| ParamValue::datetime(&s))
+            .ok_or_else(|| bad("tiene que ser una fecha y hora AAAA-MM-DD HH:MM[:SS]")),
         ParamType::Boolean => match v {
             Value::Bool(b) => Ok(ParamValue::Bool(*b)),
-            Value::String(s) if matches!(s.trim().to_ascii_lowercase().as_str(), "true" | "1" | "sí" | "si" | "yes") => Ok(ParamValue::Bool(true)),
-            Value::String(s) if matches!(s.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no") => Ok(ParamValue::Bool(false)),
+            Value::String(s)
+                if matches!(
+                    s.trim().to_ascii_lowercase().as_str(),
+                    "true" | "1" | "sí" | "si" | "yes"
+                ) =>
+            {
+                Ok(ParamValue::Bool(true))
+            }
+            Value::String(s)
+                if matches!(s.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no") =>
+            {
+                Ok(ParamValue::Bool(false))
+            }
             Value::Number(n) if n.as_i64() == Some(1) => Ok(ParamValue::Bool(true)),
             Value::Number(n) if n.as_i64() == Some(0) => Ok(ParamValue::Bool(false)),
             _ => Err(bad("tiene que ser verdadero o falso")),
@@ -250,12 +309,22 @@ pub fn value_of(p: &NotebookParameter, v: &Value) -> Result<ParamValue, ParamErr
 /// The values a run uses: each parameter's given value, else its default,
 /// else NULL; a required one with neither is an error (all of them listed).
 /// Names not defined are ignored.
-pub fn resolve(defs: &[NotebookParameter], given: &Values) -> Result<BTreeMap<String, ParamValue>, ParamError> {
+pub fn resolve(
+    defs: &[NotebookParameter],
+    given: &Values,
+) -> Result<BTreeMap<String, ParamValue>, ParamError> {
     let mut out = BTreeMap::new();
     let mut missing = Vec::new();
     for p in defs {
-        let given = given.get(&p.name).or_else(|| given.iter().find(|(k, _)| k.eq_ignore_ascii_case(&p.name)).map(|(_, v)| v));
-        let v = given.filter(|v| !empty(v)).or_else(|| p.default.as_ref().filter(|v| !empty(v)));
+        let given = given.get(&p.name).or_else(|| {
+            given
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(&p.name))
+                .map(|(_, v)| v)
+        });
+        let v = given
+            .filter(|v| !empty(v))
+            .or_else(|| p.default.as_ref().filter(|v| !empty(v)));
         match v {
             Some(v) => {
                 out.insert(p.name.clone(), value_of(p, v)?);
@@ -277,8 +346,12 @@ pub fn resolve(defs: &[NotebookParameter], given: &Values) -> Result<BTreeMap<St
 pub fn value_json(v: &ParamValue) -> Value {
     match v {
         ParamValue::Null => Value::Null,
-        ParamValue::Text(s) | ParamValue::Date(s) | ParamValue::DateTime(s) => Value::String(s.clone()),
-        ParamValue::Number(n) => serde_json::from_str::<serde_json::Number>(n).map(Value::Number).unwrap_or_else(|_| Value::String(n.clone())),
+        ParamValue::Text(s) | ParamValue::Date(s) | ParamValue::DateTime(s) => {
+            Value::String(s.clone())
+        }
+        ParamValue::Number(n) => serde_json::from_str::<serde_json::Number>(n)
+            .map(Value::Number)
+            .unwrap_or_else(|_| Value::String(n.clone())),
         ParamValue::Bool(b) => Value::Bool(*b),
     }
 }
@@ -286,7 +359,9 @@ pub fn value_json(v: &ParamValue) -> Value {
 /// The values a result records: the parameters its cell used.
 #[allow(dead_code)] // Used by `prepare_notebook`.
 pub fn values_json(values: &BTreeMap<String, ParamValue>, used: &[String]) -> Map<String, Value> {
-    used.iter().filter_map(|n| values.get(n).map(|v| (n.clone(), value_json(v)))).collect()
+    used.iter()
+        .filter_map(|n| values.get(n).map(|v| (n.clone(), value_json(v))))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -311,10 +386,16 @@ fn marker_at(b: &[u8], i: usize) -> Option<(&str, usize)> {
         j += 1;
     }
     let start = j;
-    if !b.get(j).is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_') {
+    if !b
+        .get(j)
+        .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_')
+    {
         return None;
     }
-    while b.get(j).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
+    while b
+        .get(j)
+        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+    {
         j += 1;
     }
     let end_name = j;
@@ -328,7 +409,9 @@ fn marker_at(b: &[u8], i: usize) -> Option<(&str, usize)> {
     if i > 0 && b[i - 1] == b'{' {
         return None;
     }
-    std::str::from_utf8(&b[start..end_name]).ok().map(|n| (n, j + 2))
+    std::str::from_utf8(&b[start..end_name])
+        .ok()
+        .map(|n| (n, j + 2))
 }
 
 /// Every `{{name}}` of `text`, wherever it is (strings and comments too).
@@ -396,8 +479,32 @@ pub fn to_named_binds(text: &str, names: &[String]) -> String {
 
 /// Words after which what follows is a name, not a value.
 const NAME_AFTER: &[&str] = &[
-    "from", "join", "into", "update", "table", "view", "index", "database", "schema", "use", "exec", "execute", "call", "as", "by", "set",
-    "truncate", "describe", "procedure", "function", "trigger", "sequence", "keyspace", "collection", "type", "label",
+    "from",
+    "join",
+    "into",
+    "update",
+    "table",
+    "view",
+    "index",
+    "database",
+    "schema",
+    "use",
+    "exec",
+    "execute",
+    "call",
+    "as",
+    "by",
+    "set",
+    "truncate",
+    "describe",
+    "procedure",
+    "function",
+    "trigger",
+    "sequence",
+    "keyspace",
+    "collection",
+    "type",
+    "label",
 ];
 
 /// How a cell's language writes strings and comments, for the languages
@@ -446,17 +553,33 @@ fn clike_tokens(text: &str, l: CLike) -> Vec<NameToken<'_>> {
                 j += if b[j] == b'\\' { 2 } else { 1 };
             }
             let end = (j + 1).min(b.len());
-            let kind = if c == b'`' { TokenKind::Name } else { TokenKind::String };
-            out.push(NameToken { kind, text: &text[i..end], start: i, end });
+            let kind = if c == b'`' {
+                TokenKind::Name
+            } else {
+                TokenKind::String
+            };
+            out.push(NameToken {
+                kind,
+                text: &text[i..end],
+                start: i,
+                end,
+            });
             i = end;
             continue;
         }
         if c.is_ascii_alphanumeric() || c == b'_' || c == b'$' || c >= 0x80 {
             let mut j = i;
-            while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'$' || b[j] >= 0x80) {
+            while j < b.len()
+                && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'$' || b[j] >= 0x80)
+            {
                 j += 1;
             }
-            out.push(NameToken { kind: TokenKind::Name, text: &text[i..j], start: i, end: j });
+            out.push(NameToken {
+                kind: TokenKind::Name,
+                text: &text[i..j],
+                start: i,
+                end: j,
+            });
             i = j;
             continue;
         }
@@ -464,7 +587,12 @@ fn clike_tokens(text: &str, l: CLike) -> Vec<NameToken<'_>> {
         while j < b.len() && !text.is_char_boundary(j) {
             j += 1;
         }
-        out.push(NameToken { kind: TokenKind::Punct, text: &text[i..j], start: i, end: j });
+        out.push(NameToken {
+            kind: TokenKind::Punct,
+            text: &text[i..j],
+            start: i,
+            end: j,
+        });
         i = j;
     }
     out
@@ -497,7 +625,9 @@ impl Engine<'_> {
     fn literal(&self, v: &ParamValue) -> dbine_driver::Result<String> {
         match self {
             Engine::Driver(d) => d.param_literal(v),
-            Engine::DataFrames => dbine_driver::params::literal(Language::Sql, "duckdb", "duckdb", v),
+            Engine::DataFrames => {
+                dbine_driver::params::literal(Language::Sql, "duckdb", "duckdb", v)
+            }
         }
     }
 
@@ -517,10 +647,38 @@ impl Engine<'_> {
     fn tokens<'t>(&self, text: &'t str) -> Vec<NameToken<'t>> {
         match self.language() {
             Language::Sql | Language::Cql => name_tokens(text, &self.dialect()),
-            Language::Json => clike_tokens(text, CLike { single: true, slash: true, hash: false }),
-            Language::Redis => clike_tokens(text, CLike { single: true, slash: false, hash: true }),
-            Language::Flux => clike_tokens(text, CLike { single: false, slash: true, hash: false }),
-            Language::Cypher => clike_tokens(text, CLike { single: true, slash: true, hash: false }),
+            Language::Json => clike_tokens(
+                text,
+                CLike {
+                    single: true,
+                    slash: true,
+                    hash: false,
+                },
+            ),
+            Language::Redis => clike_tokens(
+                text,
+                CLike {
+                    single: true,
+                    slash: false,
+                    hash: true,
+                },
+            ),
+            Language::Flux => clike_tokens(
+                text,
+                CLike {
+                    single: false,
+                    slash: true,
+                    hash: false,
+                },
+            ),
+            Language::Cypher => clike_tokens(
+                text,
+                CLike {
+                    single: true,
+                    slash: true,
+                    hash: false,
+                },
+            ),
         }
     }
 }
@@ -530,7 +688,12 @@ impl Engine<'_> {
 /// an error; in a comment it stays text. In SQL code an undefined
 /// `{{name}}` is an error too (`{{` means nothing there); in other
 /// languages it stays text (a search template's own `{{x}}`).
-pub fn markers(text: &str, engine: &Engine<'_>, defs: &[NotebookParameter], cell: Option<&str>) -> Result<Vec<Marker>, ParamError> {
+pub fn markers(
+    text: &str,
+    engine: &Engine<'_>,
+    defs: &[NotebookParameter],
+    cell: Option<&str>,
+) -> Result<Vec<Marker>, ParamError> {
     let found = all_markers(text);
     if found.is_empty() {
         return Ok(Vec::new());
@@ -551,31 +714,57 @@ pub fn markers(text: &str, engine: &Engine<'_>, defs: &[NotebookParameter], cell
         if holder.kind == TokenKind::String || quoted_name {
             let Some(p) = def else { continue };
             return Err(if quoted_name {
-                ParamError::Identifier { cell, name: p.name.clone() }
+                ParamError::Identifier {
+                    cell,
+                    name: p.name.clone(),
+                }
             } else {
-                ParamError::InString { cell, name: p.name.clone() }
+                ParamError::InString {
+                    cell,
+                    name: p.name.clone(),
+                }
             });
         }
         let Some(p) = def else {
             if sql {
-                return Err(ParamError::Undefined { cell, name: written });
+                return Err(ParamError::Undefined {
+                    cell,
+                    name: written,
+                });
             }
             continue;
         };
-        let ident = || ParamError::Identifier { cell: cell.clone(), name: p.name.clone() };
+        let ident = || ParamError::Identifier {
+            cell: cell.clone(),
+            name: p.name.clone(),
+        };
         let prev = toks[..at].last();
         let next = toks.iter().find(|t| t.start >= end);
         // Glued to a word: part of a name (`tabla_{{mes}}`, `{{x}}_2`).
-        let glued = |t: Option<&NameToken<'_>>, touches: bool| t.is_some_and(|t| touches && t.kind == TokenKind::Name);
-        if glued(prev, prev.is_some_and(|t| t.end == start)) || glued(next, next.is_some_and(|t| t.start == end)) {
+        let glued = |t: Option<&NameToken<'_>>, touches: bool| {
+            t.is_some_and(|t| touches && t.kind == TokenKind::Name)
+        };
+        if glued(prev, prev.is_some_and(|t| t.end == start))
+            || glued(next, next.is_some_and(|t| t.start == end))
+        {
             return Err(ident());
         }
-        let punct = |t: Option<&NameToken<'_>>, c: &str| t.is_some_and(|t| t.kind == TokenKind::Punct && t.text == c);
+        let punct = |t: Option<&NameToken<'_>>, c: &str| {
+            t.is_some_and(|t| t.kind == TokenKind::Punct && t.text == c)
+        };
         // `t.{{c}}`, `{{s}}.t`, `{{f}}(…)`.
         if punct(prev, ".") || punct(next, ".") || (sql && punct(next, "(")) {
             return Err(ident());
         }
-        let word = |t: Option<&NameToken<'_>>| t.filter(|t| t.kind == TokenKind::Name && !b[t.start..].starts_with(b"\"") && !b[t.start..].starts_with(b"`") && !b[t.start..].starts_with(b"[")).map(|t| t.text.to_ascii_lowercase());
+        let word = |t: Option<&NameToken<'_>>| {
+            t.filter(|t| {
+                t.kind == TokenKind::Name
+                    && !b[t.start..].starts_with(b"\"")
+                    && !b[t.start..].starts_with(b"`")
+                    && !b[t.start..].starts_with(b"[")
+            })
+            .map(|t| t.text.to_ascii_lowercase())
+        };
         match language {
             Language::Sql | Language::Cql => {
                 if word(prev).is_some_and(|w| NAME_AFTER.contains(&w.as_str())) {
@@ -598,7 +787,13 @@ pub fn markers(text: &str, engine: &Engine<'_>, defs: &[NotebookParameter], cell
             // A label or a relationship type (`(n:{{l}})`, `[:{{t}}]`); a
             // map's value (`{k: {{v}}}`) is a value.
             Language::Cypher => {
-                if punct(prev, ":") && (punct(next, ")") || punct(next, "]") || punct(next, "{") || punct(next, "|") || punct(next, ":")) {
+                if punct(prev, ":")
+                    && (punct(next, ")")
+                        || punct(next, "]")
+                        || punct(next, "{")
+                        || punct(next, "|")
+                        || punct(next, ":"))
+                {
                     return Err(ident());
                 }
                 if word(prev).is_some_and(|w| w == "as") {
@@ -607,14 +802,23 @@ pub fn markers(text: &str, engine: &Engine<'_>, defs: &[NotebookParameter], cell
             }
             Language::Flux => {}
         }
-        out.push(Marker { name: p.name.clone(), start, end });
+        out.push(Marker {
+            name: p.name.clone(),
+            start,
+            end,
+        });
     }
     Ok(out)
 }
 
 /// A text with its markers as the parts of a [`BoundStatement`] (values in
 /// order of first use).
-fn bound(text: &str, markers: &[&Marker], values: &BTreeMap<String, ParamValue>, base: usize) -> BoundStatement {
+fn bound(
+    text: &str,
+    markers: &[&Marker],
+    values: &BTreeMap<String, ParamValue>,
+    base: usize,
+) -> BoundStatement {
     let mut parts = Vec::new();
     let mut names: Vec<&str> = Vec::new();
     let mut vals = Vec::new();
@@ -638,7 +842,10 @@ fn bound(text: &str, markers: &[&Marker], values: &BTreeMap<String, ParamValue>,
     if at < text.len() {
         parts.push(BoundPart::Text(text[at..].to_string()));
     }
-    BoundStatement { parts, values: vals }
+    BoundStatement {
+        parts,
+        values: vals,
+    }
 }
 
 /// A cell's text ready to run.
@@ -660,7 +867,10 @@ pub struct Prepared {
 impl Prepared {
     /// A unit's bound form, by index, when it has values.
     pub fn bound_unit(&self, i: usize) -> Option<&BoundStatement> {
-        self.bound.get(i).and_then(Option::as_ref).filter(|b| b.has_params())
+        self.bound
+            .get(i)
+            .and_then(Option::as_ref)
+            .filter(|b| b.has_params())
     }
 }
 
@@ -675,7 +885,11 @@ pub fn prepare_text(
 ) -> Result<Prepared, ParamError> {
     let ms = markers(text, engine, defs, cell)?;
     if ms.is_empty() {
-        return Ok(Prepared { text: text.to_string(), bound: Vec::new(), used: Vec::new() });
+        return Ok(Prepared {
+            text: text.to_string(),
+            bound: Vec::new(),
+            used: Vec::new(),
+        });
     }
     let mut used: Vec<String> = Vec::new();
     for m in &ms {
@@ -686,7 +900,11 @@ pub fn prepare_text(
     let mut lits: BTreeMap<&str, String> = BTreeMap::new();
     for n in &used {
         let v = values.get(n).cloned().unwrap_or(ParamValue::Null);
-        let lit = engine.literal(&v).map_err(|e| ParamError::Literal { cell: cell.map(str::to_string), name: n.clone(), message: e.to_string() })?;
+        let lit = engine.literal(&v).map_err(|e| ParamError::Literal {
+            cell: cell.map(str::to_string),
+            name: n.clone(),
+            message: e.to_string(),
+        })?;
         lits.insert(n.as_str(), lit);
     }
     let all: Vec<&Marker> = ms.iter().collect();
@@ -694,21 +912,42 @@ pub fn prepare_text(
     let lit_names: Vec<&String> = used.iter().collect();
     let literal = whole.render(|i| {
         // `whole.values` are in order of first use, as `used`.
-        lit_names.get(i).and_then(|n| lits.get(n.as_str())).cloned().unwrap_or_default()
+        lit_names
+            .get(i)
+            .and_then(|n| lits.get(n.as_str()))
+            .cloned()
+            .unwrap_or_default()
     });
-    let mut out = Prepared { text: literal, bound: Vec::new(), used };
+    let mut out = Prepared {
+        text: literal,
+        bound: Vec::new(),
+        used,
+    };
     if engine.binds() {
         let src_units = engine.split(text);
         let lit_units = engine.split(&out.text);
-        let verbatim = src_units.iter().all(|u| text.get(u.start..u.end).is_some_and(|s| s == u.text));
+        let verbatim = src_units
+            .iter()
+            .all(|u| text.get(u.start..u.end).is_some_and(|s| s == u.text));
         // Each marker inside one unit, and the units the same in both texts.
-        let inside = ms.iter().all(|m| src_units.iter().any(|u| u.start <= m.start && m.end <= u.end));
-        let same = src_units.len() == lit_units.len() && src_units.iter().zip(&lit_units).all(|(a, b)| a.kind == b.kind && a.repeat == b.repeat);
+        let inside = ms.iter().all(|m| {
+            src_units
+                .iter()
+                .any(|u| u.start <= m.start && m.end <= u.end)
+        });
+        let same = src_units.len() == lit_units.len()
+            && src_units
+                .iter()
+                .zip(&lit_units)
+                .all(|(a, b)| a.kind == b.kind && a.repeat == b.repeat);
         if verbatim && inside && same {
             out.bound = src_units
                 .iter()
                 .map(|u| {
-                    let mine: Vec<&Marker> = ms.iter().filter(|m| u.start <= m.start && m.end <= u.end).collect();
+                    let mine: Vec<&Marker> = ms
+                        .iter()
+                        .filter(|m| u.start <= m.start && m.end <= u.end)
+                        .collect();
                     (!mine.is_empty()).then(|| bound(&u.text, &mine, values, u.start))
                 })
                 .collect();
@@ -745,11 +984,20 @@ pub async fn run_prepared(
                 r => return r.map(|()| true),
             }
         }
-        session.execute(literal, max_rows, out).await.map(|()| false)
+        session
+            .execute(literal, max_rows, out)
+            .await
+            .map(|()| false)
     }
     if driver.script_mode() == dbine_driver::ScriptMode::Whole {
-        let b = if p.bound.len() == 1 { p.bound_unit(0) } else { None };
-        return one(session, b, &p.text, max_rows, out).await.map(usize::from);
+        let b = if p.bound.len() == 1 {
+            p.bound_unit(0)
+        } else {
+            None
+        };
+        return one(session, b, &p.text, max_rows, out)
+            .await
+            .map(usize::from);
     }
     let units = driver.split_script(&p.text);
     let aligned = p.bound.len() == units.len();
@@ -814,13 +1062,32 @@ pub fn prepare_notebook(
         let dataframes = c.target.as_ref().is_some_and(|t| t.results);
         let label = c.name.clone().unwrap_or_else(|| (index + 1).to_string());
         let prepared = if dataframes {
-            prepare_text(&c.source, &Engine::DataFrames, &nb.parameters, &values, Some(&label))?
+            prepare_text(
+                &c.source,
+                &Engine::DataFrames,
+                &nb.parameters,
+                &values,
+                Some(&label),
+            )?
         } else {
             let Some(d) = driver_of(c) else { continue };
-            prepare_text(&c.source, &Engine::Driver(d.as_ref()), &nb.parameters, &values, Some(&label))?
+            prepare_text(
+                &c.source,
+                &Engine::Driver(d.as_ref()),
+                &nb.parameters,
+                &values,
+                Some(&label),
+            )?
         };
         let vals = values_json(&values, &prepared.used);
-        out.push(PreparedCell { id: c.id.clone(), index, name: c.name.clone(), dataframes, prepared, values: vals });
+        out.push(PreparedCell {
+            id: c.id.clone(),
+            index,
+            name: c.name.clone(),
+            dataframes,
+            prepared,
+            values: vals,
+        });
     }
     Ok(out)
 }

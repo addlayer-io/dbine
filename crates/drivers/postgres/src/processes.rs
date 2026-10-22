@@ -42,7 +42,8 @@ const MAX_ROWS: usize = 2000;
 const RUNNING: &str = "en ejecución";
 const IDLE: &str = "inactiva";
 const IDLE_IN_TXN: &str = "inactiva en transacción";
-const OWN: &str = "esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá";
+const OWN: &str =
+    "esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá";
 
 /// Variants whose sessions answer `cancel_query` (all of them list).
 pub(crate) fn cancel_supported(v: Variant) -> bool {
@@ -60,46 +61,73 @@ pub(crate) fn cancel_unsupported_reason(v: Variant) -> Option<&'static str> {
 }
 
 fn text(r: &SimpleQueryRow, name: &str) -> Option<String> {
-    cell(r, name).map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+    cell(r, name)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 fn ms(r: &SimpleQueryRow, name: &str) -> Option<u64> {
-    cell(r, name).and_then(|v| v.trim().parse::<f64>().ok()).map(|v| v.max(0.0) as u64)
+    cell(r, name)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map(|v| v.max(0.0) as u64)
 }
 
 fn truthy(r: &SimpleQueryRow, name: &str) -> bool {
-    matches!(cell(r, name).map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("t" | "true" | "1"))
+    matches!(
+        cell(r, name)
+            .map(|v| v.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("t" | "true" | "1")
+    )
 }
 
 /// The statement's first word, upper-cased (`SELECT`, `INSERT`…).
 fn command_of(sql: &str) -> Option<String> {
-    sql.split_whitespace().next().map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric()).to_ascii_uppercase()).filter(|w| !w.is_empty())
+    sql.split_whitespace()
+        .next()
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_ascii_alphanumeric())
+                .to_ascii_uppercase()
+        })
+        .filter(|w| !w.is_empty())
 }
 
 /// A token unique to one listing query, so the engines without a "my
 /// session id" function find their own session by its statement text.
 fn nonce() -> String {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or_default();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
     format!("dbine_{:x}_{:x}", t, std::process::id())
 }
 
 fn first(rows: &[SimpleQueryRow]) -> Option<String> {
-    rows.first().and_then(|r| r.get(0)).map(|v| v.trim().to_string())
+    rows.first()
+        .and_then(|r| r.get(0))
+        .map(|v| v.trim().to_string())
 }
 
 /// The first row per id: an engine that joins sessions to their running
 /// statements gives one row per statement.
 fn dedup(list: Vec<ServerProcess>) -> Vec<ServerProcess> {
     let mut seen = HashSet::new();
-    list.into_iter().filter(|p| !p.id.is_empty() && seen.insert(p.id.clone())).collect()
+    list.into_iter()
+        .filter(|p| !p.id.is_empty() && seen.insert(p.id.clone()))
+        .collect()
 }
 
 fn int_id(id: &str, engine: &str) -> Result<i64> {
-    id.parse::<i64>().ok().filter(|n| *n > 0).ok_or_else(|| Error::Query(format!("«{id}» no es un id de sesión de {engine}")))
+    id.parse::<i64>()
+        .ok()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| Error::Query(format!("«{id}» no es un id de sesión de {engine}")))
 }
 
 fn nothing_running(id: &str) -> Error {
-    Error::Query(format!("la sesión {id} no está ejecutando nada (o tu usuario no ve sus consultas)"))
+    Error::Query(format!(
+        "la sesión {id} no está ejecutando nada (o tu usuario no ve sus consultas)"
+    ))
 }
 
 pub(crate) async fn processes(s: &PgSession) -> Result<Vec<ServerProcess>> {
@@ -128,14 +156,27 @@ pub(crate) async fn cancel(s: &PgSession, id: &str) -> Result<()> {
         Variant::CrateDb => cratedb_cancel(s, id).await,
         Variant::H2 => {
             let n = int_id(id, "H2")?;
-            if first(&s.text("SELECT CAST(SESSION_ID() AS VARCHAR)").await?).as_deref() == Some(id) {
+            if first(&s.text("SELECT CAST(SESSION_ID() AS VARCHAR)").await?).as_deref() == Some(id)
+            {
                 return Err(Error::Query(OWN.into()));
             }
-            let r = first(&s.text(&format!("SELECT CASE WHEN CANCEL_SESSION({n}) THEN 't' ELSE 'f' END")).await?);
+            let r = first(
+                &s.text(&format!(
+                    "SELECT CASE WHEN CANCEL_SESSION({n}) THEN 't' ELSE 'f' END"
+                ))
+                .await?,
+            );
             cancelled(r, id)
         }
         Variant::Redshift | Variant::Materialize => {
-            let n = int_id(id, if s.variant == Variant::Redshift { "Redshift" } else { "Materialize" })?;
+            let n = int_id(
+                id,
+                if s.variant == Variant::Redshift {
+                    "Redshift"
+                } else {
+                    "Materialize"
+                },
+            )?;
             if first(&s.text("SELECT pg_backend_pid()").await?).as_deref() == Some(id) {
                 return Err(Error::Query(OWN.into()));
             }
@@ -168,9 +209,21 @@ async fn postgres(s: &PgSession) -> Result<Vec<ServerProcess>> {
     let ver = s.version;
     // Before 10 only client backends show up, except in openGauss, whose
     // background threads have no client port.
-    let system = if ver >= 100000 { "coalesce(backend_type, '') <> 'client backend'" } else { "client_port IS NULL" };
-    let wait = if ver >= 90600 { "coalesce(wait_event_type || ': ' || wait_event, '')" } else { "CASE WHEN waiting THEN 'Lock' ELSE '' END" };
-    let blocked_by = if ver >= 90600 { "(pg_blocking_pids(pid))[1]::text" } else { "NULL::text" };
+    let system = if ver >= 100000 {
+        "coalesce(backend_type, '') <> 'client backend'"
+    } else {
+        "client_port IS NULL"
+    };
+    let wait = if ver >= 90600 {
+        "coalesce(wait_event_type || ': ' || wait_event, '')"
+    } else {
+        "CASE WHEN waiting THEN 'Lock' ELSE '' END"
+    };
+    let blocked_by = if ver >= 90600 {
+        "(pg_blocking_pids(pid))[1]::text"
+    } else {
+        "NULL::text"
+    };
     let rows = s
         .text_within(
             &format!(
@@ -207,7 +260,10 @@ async fn postgres(s: &PgSession) -> Result<Vec<ServerProcess>> {
                 wait: text(r, "wait"),
                 blocked_by: text(r, "blocked_by"),
                 // An idle session's text is its last statement, not one running.
-                sql: text(r, "query").filter(|_| active || text(r, "state").is_some_and(|st| st.starts_with("idle in transaction"))),
+                sql: text(r, "query").filter(|_| {
+                    active
+                        || text(r, "state").is_some_and(|st| st.starts_with("idle in transaction"))
+                }),
                 ..Default::default()
             }
         })
@@ -217,13 +273,21 @@ async fn postgres(s: &PgSession) -> Result<Vec<ServerProcess>> {
 
 async fn postgres_cancel(s: &PgSession, id: &str) -> Result<()> {
     // Backend pids are int4; openGauss's are thread ids (int8).
-    let n: i64 = if s.variant == Variant::OpenGauss { id.parse().ok() } else { id.parse::<i32>().ok().map(i64::from) }
-        .filter(|n| *n > 0)
-        .ok_or_else(|| Error::Query(format!("«{id}» no es un id de sesión (PID)")))?;
+    let n: i64 = if s.variant == Variant::OpenGauss {
+        id.parse().ok()
+    } else {
+        id.parse::<i32>().ok().map(i64::from)
+    }
+    .filter(|n| *n > 0)
+    .ok_or_else(|| Error::Query(format!("«{id}» no es un id de sesión (PID)")))?;
     if first(&s.text("SELECT pg_backend_pid()::text").await?).as_deref() == Some(id) {
         return Err(Error::Query(OWN.into()));
     }
-    let sql = if s.variant == Variant::OpenGauss { format!("SELECT pg_cancel_backend({n})::text") } else { format!("SELECT pg_cancel_backend({n}::int)::text") };
+    let sql = if s.variant == Variant::OpenGauss {
+        format!("SELECT pg_cancel_backend({n})::text")
+    } else {
+        format!("SELECT pg_cancel_backend({n}::int)::text")
+    };
     cancelled(first(&s.text(&sql).await?), id)
 }
 
@@ -232,7 +296,9 @@ async fn postgres_cancel(s: &PgSession, id: &str) -> Result<()> {
 
 fn crdb_id(id: &str) -> Result<&str> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(Error::Query(format!("«{id}» no es un id de sesión de CockroachDB")));
+        return Err(Error::Query(format!(
+            "«{id}» no es un id de sesión de CockroachDB"
+        )));
     }
     Ok(id)
 }
@@ -242,7 +308,9 @@ fn crdb_id(id: &str) -> Result<&str> {
 /// (v25+ closes it to non-admins) the `SHOW CLUSTER …` statements give the
 /// rest.
 async fn cockroach(s: &PgSession) -> Result<Vec<ServerProcess>> {
-    let _ = s.text_within("SET allow_unsafe_internals = true", QUERY_LIMIT).await;
+    let _ = s
+        .text_within("SET allow_unsafe_internals = true", QUERY_LIMIT)
+        .await;
     let sql = |sessions: &str, queries: &str, txn: &str, db: &str| {
         format!(
             "SELECT s.session_id AS id, s.user_name, s.client_address, s.application_name, {db} AS db,
@@ -258,13 +326,29 @@ async fn cockroach(s: &PgSession) -> Result<Vec<ServerProcess>> {
     };
     let rows = match s
         .text_within(
-            &sql("crdb_internal.cluster_sessions", "crdb_internal.cluster_queries", "coalesce(s.kv_txn, '') <> ''", "q.database"),
+            &sql(
+                "crdb_internal.cluster_sessions",
+                "crdb_internal.cluster_queries",
+                "coalesce(s.kv_txn, '') <> ''",
+                "q.database",
+            ),
             QUERY_LIMIT,
         )
         .await
     {
         Ok(rows) => rows,
-        Err(_) => s.text_within(&sql("[SHOW CLUSTER SESSIONS]", "[SHOW CLUSTER STATEMENTS]", "false", "NULL::STRING"), QUERY_LIMIT).await?,
+        Err(_) => {
+            s.text_within(
+                &sql(
+                    "[SHOW CLUSTER SESSIONS]",
+                    "[SHOW CLUSTER STATEMENTS]",
+                    "false",
+                    "NULL::STRING",
+                ),
+                QUERY_LIMIT,
+            )
+            .await?
+        }
     };
     Ok(dedup(
         rows.iter()
@@ -274,10 +358,20 @@ async fn cockroach(s: &PgSession) -> Result<Vec<ServerProcess>> {
                 let sql = text(r, "query").filter(|_| active || in_txn);
                 ServerProcess {
                     id: text(r, "id").unwrap_or_default(),
-                    status: Some(if active { RUNNING } else if in_txn { IDLE_IN_TXN } else { IDLE }.into()),
+                    status: Some(
+                        if active {
+                            RUNNING
+                        } else if in_txn {
+                            IDLE_IN_TXN
+                        } else {
+                            IDLE
+                        }
+                        .into(),
+                    ),
                     active,
                     // The internal executor's sessions are named `$ internal-…`.
-                    system: text(r, "application_name").is_some_and(|a| a.starts_with("$ internal")),
+                    system: text(r, "application_name")
+                        .is_some_and(|a| a.starts_with("$ internal")),
                     own: truthy(r, "own"),
                     user: text(r, "user_name"),
                     host: text(r, "client_address"),
@@ -298,8 +392,17 @@ async fn cockroach_cancel(s: &PgSession, id: &str) -> Result<()> {
     if first(&s.text("SHOW session_id").await?).as_deref() == Some(id) {
         return Err(Error::Query(OWN.into()));
     }
-    let rows = s.text_within(&format!("SELECT query_id FROM [SHOW CLUSTER STATEMENTS] WHERE session_id = '{id}'"), QUERY_LIMIT).await?;
-    let ids: Vec<String> = rows.iter().filter_map(|r| text(r, "query_id")).filter(|q| q.chars().all(|c| c.is_ascii_hexdigit())).collect();
+    let rows = s
+        .text_within(
+            &format!("SELECT query_id FROM [SHOW CLUSTER STATEMENTS] WHERE session_id = '{id}'"),
+            QUERY_LIMIT,
+        )
+        .await?;
+    let ids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| text(r, "query_id"))
+        .filter(|q| q.chars().all(|c| c.is_ascii_hexdigit()))
+        .collect();
     if ids.is_empty() {
         return Err(nothing_running(id));
     }
@@ -396,7 +499,10 @@ async fn yellowbrick(s: &PgSession) -> Result<Vec<ServerProcess>> {
         )
         .await?;
     // This very query names its session.
-    let own: Option<String> = rows.iter().find(|r| text(r, "query").is_some_and(|q| q.contains(&tag))).and_then(|r| text(r, "id"));
+    let own: Option<String> = rows
+        .iter()
+        .find(|r| text(r, "query").is_some_and(|q| q.contains(&tag)))
+        .and_then(|r| text(r, "id"));
     Ok(dedup(
         rows.iter()
             .map(|r| {
@@ -404,7 +510,11 @@ async fn yellowbrick(s: &PgSession) -> Result<Vec<ServerProcess>> {
                 let sql = text(r, "query").filter(|_| active);
                 let id = text(r, "id").unwrap_or_default();
                 ServerProcess {
-                    status: if active { text(r, "qstate").or_else(|| Some(RUNNING.into())) } else { text(r, "state") },
+                    status: if active {
+                        text(r, "qstate").or_else(|| Some(RUNNING.into()))
+                    } else {
+                        text(r, "state")
+                    },
                     active,
                     // Internal applications are named yb-… (yb-lime, …).
                     system: text(r, "app").is_some_and(|a| a.starts_with("yb-")),
@@ -438,10 +548,16 @@ async fn yellowbrick_cancel(s: &PgSession, id: &str) -> Result<()> {
             QUERY_LIMIT,
         )
         .await?;
-    if rows.iter().any(|r| text(r, "sid").as_deref() == Some(id) && text(r, "query").is_some_and(|q| q.contains(&tag))) {
+    if rows.iter().any(|r| {
+        text(r, "sid").as_deref() == Some(id) && text(r, "query").is_some_and(|q| q.contains(&tag))
+    }) {
         return Err(Error::Query(OWN.into()));
     }
-    let ids: Vec<i64> = rows.iter().filter(|r| text(r, "sid").and_then(|v| v.parse().ok()) == Some(n)).filter_map(|r| text(r, "qid")?.parse().ok()).collect();
+    let ids: Vec<i64> = rows
+        .iter()
+        .filter(|r| text(r, "sid").and_then(|v| v.parse().ok()) == Some(n))
+        .filter_map(|r| text(r, "qid")?.parse().ok())
+        .collect();
     if ids.is_empty() {
         return Err(nothing_running(id));
     }
@@ -490,7 +606,10 @@ async fn materialize(s: &PgSession) -> Result<Vec<ServerProcess>> {
 /// is on; ids are `<worker>:<session>`, the session part being that
 /// session's `pg_backend_pid()`.
 async fn risingwave(s: &PgSession) -> Result<Vec<ServerProcess>> {
-    let own = first(&s.text_within("SELECT pg_backend_pid()::varchar", QUERY_LIMIT).await?);
+    let own = first(
+        &s.text_within("SELECT pg_backend_pid()::varchar", QUERY_LIMIT)
+            .await?,
+    );
     let rows = s.text_within("SHOW PROCESSLIST", QUERY_LIMIT).await?;
     let mut list: Vec<ServerProcess> = rows
         .iter()
@@ -528,13 +647,24 @@ fn rw_ms(t: &str) -> Option<u64> {
     } else {
         (t, 1.0)
     };
-    n.trim().parse::<f64>().ok().map(|v| (v * scale).max(0.0) as u64)
+    n.trim()
+        .parse::<f64>()
+        .ok()
+        .map(|v| (v * scale).max(0.0) as u64)
 }
 
 fn rw_id(id: &str) -> Result<&str> {
     match id.split_once(':') {
-        Some((w, n)) if !w.is_empty() && !n.is_empty() && w.chars().chain(n.chars()).all(|c| c.is_ascii_digit()) => Ok(id),
-        _ => Err(Error::Query(format!("«{id}» no es un id de sesión de RisingWave (worker:sesión)"))),
+        Some((w, n))
+            if !w.is_empty()
+                && !n.is_empty()
+                && w.chars().chain(n.chars()).all(|c| c.is_ascii_digit()) =>
+        {
+            Ok(id)
+        }
+        _ => Err(Error::Query(format!(
+            "«{id}» no es un id de sesión de RisingWave (worker:sesión)"
+        ))),
     }
 }
 
@@ -609,7 +739,14 @@ async fn cratedb(s: &PgSession) -> Result<Vec<ServerProcess>> {
 }
 
 fn is_uuid(id: &str) -> bool {
-    id.len() == 36 && id.chars().enumerate().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { c == '-' } else { c.is_ascii_hexdigit() })
+    id.len() == 36
+        && id.chars().enumerate().all(|(i, c)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                c == '-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        })
 }
 
 async fn cratedb_cancel(s: &PgSession, id: &str) -> Result<()> {
@@ -619,13 +756,31 @@ async fn cratedb_cancel(s: &PgSession, id: &str) -> Result<()> {
         int_id(id, "CrateDB")?;
     }
     // Every job, this one included: it names DBine's own session.
-    let rows = s.text_within(&format!("SELECT '{tag}' AS tag, id, session_id::text AS sid, stmt FROM sys.jobs"), QUERY_LIMIT).await?;
-    let own = rows.iter().find(|r| text(r, "stmt").is_some_and(|q| q.contains(&tag)));
-    let mine = |r: &SimpleQueryRow| if by_job { text(r, "id").as_deref() == Some(id) } else { text(r, "sid").as_deref() == Some(id) };
+    let rows = s
+        .text_within(
+            &format!("SELECT '{tag}' AS tag, id, session_id::text AS sid, stmt FROM sys.jobs"),
+            QUERY_LIMIT,
+        )
+        .await?;
+    let own = rows
+        .iter()
+        .find(|r| text(r, "stmt").is_some_and(|q| q.contains(&tag)));
+    let mine = |r: &SimpleQueryRow| {
+        if by_job {
+            text(r, "id").as_deref() == Some(id)
+        } else {
+            text(r, "sid").as_deref() == Some(id)
+        }
+    };
     if own.is_some_and(&mine) {
         return Err(Error::Query(OWN.into()));
     }
-    let jobs: Vec<String> = rows.iter().filter(|r| mine(r)).filter_map(|r| text(r, "id")).filter(|j| is_uuid(j)).collect();
+    let jobs: Vec<String> = rows
+        .iter()
+        .filter(|r| mine(r))
+        .filter_map(|r| text(r, "id"))
+        .filter(|j| is_uuid(j))
+        .collect();
     if jobs.is_empty() {
         return Err(nothing_running(id));
     }
@@ -694,12 +849,22 @@ async fn denodo(s: &PgSession) -> Result<Vec<ServerProcess>> {
         rows.iter()
             .take(MAX_ROWS)
             .map(|r| {
-                let sql = text(r, "query_running").map(|q| q.chars().take(MAX_TEXT).collect::<String>());
+                let sql =
+                    text(r, "query_running").map(|q| q.chars().take(MAX_TEXT).collect::<String>());
                 let active = sql.is_some();
                 let queued = truthy(r, "query_running_queued");
                 ServerProcess {
                     id: text(r, "session_id").unwrap_or_default(),
-                    status: Some(if queued { "en cola" } else if active { RUNNING } else { IDLE }.into()),
+                    status: Some(
+                        if queued {
+                            "en cola"
+                        } else if active {
+                            RUNNING
+                        } else {
+                            IDLE
+                        }
+                        .into(),
+                    ),
                     active,
                     own: sql.as_deref() == Some(SQL),
                     user: text(r, "user_name"),

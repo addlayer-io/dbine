@@ -23,7 +23,8 @@
 //! credentials stay with the provider's own tools, nothing is kept here.
 
 use crate::secret_sources::{
-    azure_vault_host, bitwarden_urls, check_master_command, check_vault_auth, delinea_platform_host, is_uuid, service_url, url_segment, valid_aws_profile, valid_aws_region,
+    azure_vault_host, bitwarden_urls, check_master_command, check_vault_auth,
+    delinea_platform_host, is_uuid, service_url, url_segment, valid_aws_profile, valid_aws_region,
     valid_azure_tenant, valid_gcloud_account, MasterSource, VaultAuth,
 };
 use crate::state::StateStore;
@@ -45,7 +46,15 @@ pub fn secret_key(account_id: &str, slot: &str) -> String {
 /// Bitwarden's and KeePass's, and a CCP key's), Bitwarden's client secret, a
 /// token (Vault, Secrets Manager), AppRole's secret ID, Delinea's password
 /// (or client secret) and Conjur's API key.
-pub const ALL_SLOTS: &[&str] = &["client_secret", "refresh_token", "passphrase", "token", "secret_id", "password", "api_key"];
+pub const ALL_SLOTS: &[&str] = &[
+    "client_secret",
+    "refresh_token",
+    "passphrase",
+    "token",
+    "secret_id",
+    "password",
+    "api_key",
+];
 
 fn is_keychain(m: &MasterSource) -> bool {
     *m == MasterSource::Keychain
@@ -182,7 +191,20 @@ pub enum AccountConfig {
 }
 
 /// Every kind of account, as stored.
-pub const KINDS: &[&str] = &["zoho", "bitwarden", "bitwarden_sm", "vault", "delinea", "conjur", "ccp", "onepassword", "aws", "azure", "gcp", "keepass"];
+pub const KINDS: &[&str] = &[
+    "zoho",
+    "bitwarden",
+    "bitwarden_sm",
+    "vault",
+    "delinea",
+    "conjur",
+    "ccp",
+    "onepassword",
+    "aws",
+    "azure",
+    "gcp",
+    "keepass",
+];
 
 impl AccountConfig {
     pub fn kind(&self) -> &'static str {
@@ -207,19 +229,38 @@ impl AccountConfig {
     /// passphrase) are listed too.
     pub fn slots(&self) -> &'static [&'static str] {
         match self {
-            Self::Zoho { master: MasterSource::Keychain, .. } => &["client_secret", "refresh_token", "passphrase"],
+            Self::Zoho {
+                master: MasterSource::Keychain,
+                ..
+            } => &["client_secret", "refresh_token", "passphrase"],
             Self::Zoho { .. } => &["client_secret", "refresh_token"],
-            Self::Bitwarden { master: MasterSource::Keychain, .. } => &["client_secret", "passphrase"],
+            Self::Bitwarden {
+                master: MasterSource::Keychain,
+                ..
+            } => &["client_secret", "passphrase"],
             Self::Bitwarden { .. } => &["client_secret"],
             Self::BitwardenSm { .. } => &["token"],
-            Self::Vault { auth: VaultAuth::Approle, .. } => &["secret_id"],
+            Self::Vault {
+                auth: VaultAuth::Approle,
+                ..
+            } => &["secret_id"],
             Self::Vault { .. } => &["token"],
-            Self::Delinea { master: MasterSource::Keychain, .. } => &["password"],
+            Self::Delinea {
+                master: MasterSource::Keychain,
+                ..
+            } => &["password"],
             Self::Delinea { .. } => &[],
             Self::Conjur { .. } => &["api_key"],
             Self::Ccp { .. } => &["passphrase"],
-            Self::KeePass { master: MasterSource::Keychain, .. } => &["passphrase"],
-            Self::KeePass { .. } | Self::OnePassword { .. } | Self::Aws { .. } | Self::Azure { .. } | Self::Gcp { .. } => &[],
+            Self::KeePass {
+                master: MasterSource::Keychain,
+                ..
+            } => &["passphrase"],
+            Self::KeePass { .. }
+            | Self::OnePassword { .. }
+            | Self::Aws { .. }
+            | Self::Azure { .. }
+            | Self::Gcp { .. } => &[],
         }
     }
 
@@ -227,12 +268,21 @@ impl AccountConfig {
     pub fn required_slots(&self) -> &'static [&'static str] {
         match self {
             Self::Zoho { .. } => &["client_secret", "refresh_token"],
-            Self::Bitwarden { master: MasterSource::Keychain, .. } => &["client_secret", "passphrase"],
+            Self::Bitwarden {
+                master: MasterSource::Keychain,
+                ..
+            } => &["client_secret", "passphrase"],
             Self::Bitwarden { .. } => &["client_secret"],
             Self::BitwardenSm { .. } => &["token"],
-            Self::Delinea { master: MasterSource::Keychain, .. } => &["password"],
+            Self::Delinea {
+                master: MasterSource::Keychain,
+                ..
+            } => &["password"],
             Self::Conjur { .. } => &["api_key"],
-            Self::KeePass { master: MasterSource::Keychain, .. } => &["passphrase"],
+            Self::KeePass {
+                master: MasterSource::Keychain,
+                ..
+            } => &["passphrase"],
             _ => &[],
         }
     }
@@ -241,8 +291,26 @@ impl AccountConfig {
     /// from (kept there, asked or a command's output) and the command.
     pub fn master(&self) -> Option<(&'static str, MasterSource, &str)> {
         match self {
-            Self::Zoho { master, master_command, .. } | Self::Bitwarden { master, master_command, .. } | Self::KeePass { master, master_command, .. } => Some(("passphrase", *master, master_command)),
-            Self::Delinea { master, master_command, .. } => Some(("password", *master, master_command)),
+            Self::Zoho {
+                master,
+                master_command,
+                ..
+            }
+            | Self::Bitwarden {
+                master,
+                master_command,
+                ..
+            }
+            | Self::KeePass {
+                master,
+                master_command,
+                ..
+            } => Some(("passphrase", *master, master_command)),
+            Self::Delinea {
+                master,
+                master_command,
+                ..
+            } => Some(("password", *master, master_command)),
             _ => None,
         }
     }
@@ -251,34 +319,55 @@ impl AccountConfig {
         let no_control = |s: &str| !s.chars().any(char::is_control);
         let service = |url: &str, what: &str| -> Result<()> {
             if service_url(url).is_none() {
-                return Err(bad(format!("la URL de {what} tiene que ser https:// (http:// solo para esta computadora)")));
+                return Err(bad(format!(
+                    "la URL de {what} tiene que ser https:// (http:// solo para esta computadora)"
+                )));
             }
             Ok(())
         };
         let path_ok = |p: &str| p.len() <= 1024 && no_control(p);
         match self {
-            Self::Zoho { data_center, client_id, master, master_command } => {
+            Self::Zoho {
+                data_center,
+                client_id,
+                master,
+                master_command,
+            } => {
                 if crate::secret_sources::zoho_hosts(data_center).is_none() {
-                    return Err(bad(format!("el centro de datos de Zoho «{}» no es válido", data_center.trim())));
+                    return Err(bad(format!(
+                        "el centro de datos de Zoho «{}» no es válido",
+                        data_center.trim()
+                    )));
                 }
                 if !valid_zoho_client_id(client_id) {
                     return Err(bad("falta el ID del cliente de Zoho (1000.XXXX)"));
                 }
                 match master {
-                    MasterSource::None => return Err(bad("Zoho Vault necesita la frase de contraseña maestra")),
-                    MasterSource::Command if master_command.trim().is_empty() => return Err(bad("falta el comando que devuelve la contraseña maestra")),
+                    MasterSource::None => {
+                        return Err(bad("Zoho Vault necesita la frase de contraseña maestra"))
+                    }
+                    MasterSource::Command if master_command.trim().is_empty() => {
+                        return Err(bad("falta el comando que devuelve la contraseña maestra"))
+                    }
                     _ => {}
                 }
                 if master_command.contains(['\0', '\n', '\r']) {
                     return Err(bad("el comando tiene que ser una sola línea"));
                 }
             }
-            Self::Bitwarden { server, client_id, master, master_command } => {
+            Self::Bitwarden {
+                server,
+                client_id,
+                master,
+                master_command,
+            } => {
                 if bitwarden_urls(server).is_none() {
                     return Err(bad("el servidor de Bitwarden tiene que ser bitwarden.com, bitwarden.eu o la URL https:// del servidor propio"));
                 }
                 if !client_id.trim().strip_prefix("user.").is_some_and(is_uuid) {
-                    return Err(bad("falta el client_id de la clave de API de Bitwarden (user.xxxxxxxx-…)"));
+                    return Err(bad(
+                        "falta el client_id de la clave de API de Bitwarden (user.xxxxxxxx-…)",
+                    ));
                 }
                 if *master == MasterSource::None {
                     return Err(bad("Bitwarden necesita la contraseña maestra"));
@@ -290,7 +379,14 @@ impl AccountConfig {
                     return Err(bad("el servidor de Bitwarden tiene que ser bitwarden.com, bitwarden.eu o la URL https:// del servidor propio"));
                 }
             }
-            Self::Vault { address, namespace, ca_file, auth, approle_mount, role_id } => {
+            Self::Vault {
+                address,
+                namespace,
+                ca_file,
+                auth,
+                approle_mount,
+                role_id,
+            } => {
                 // Stricter than an inline definition: plain HTTP only to this computer.
                 service(address, "Vault")?;
                 if namespace.len() > 255 || !no_control(namespace) {
@@ -301,25 +397,48 @@ impl AccountConfig {
                 }
                 check_vault_auth(*auth, approle_mount, role_id)?;
             }
-            Self::Delinea { url, platform_url, username, domain, master, master_command } => {
+            Self::Delinea {
+                url,
+                platform_url,
+                username,
+                domain,
+                master,
+                master_command,
+            } => {
                 service(url, "Secret Server")?;
-                if !platform_url.trim().is_empty() && delinea_platform_host(platform_url).is_none() {
-                    return Err(bad("la URL de Delinea Platform tiene que ser https://<inquilino>.delinea.app"));
+                if !platform_url.trim().is_empty() && delinea_platform_host(platform_url).is_none()
+                {
+                    return Err(bad(
+                        "la URL de Delinea Platform tiene que ser https://<inquilino>.delinea.app",
+                    ));
                 }
                 if username.trim().is_empty() || username.len() > 255 || !no_control(username) {
-                    return Err(bad("falta el usuario de Delinea (o el ID del cliente en Delinea Platform)"));
+                    return Err(bad(
+                        "falta el usuario de Delinea (o el ID del cliente en Delinea Platform)",
+                    ));
                 }
                 if domain.len() > 255 || !no_control(domain) {
                     return Err(bad("el dominio de Delinea no es válido"));
                 }
                 if *master == MasterSource::None {
-                    return Err(bad("Delinea necesita la contraseña (o el secreto del cliente)"));
+                    return Err(bad(
+                        "Delinea necesita la contraseña (o el secreto del cliente)",
+                    ));
                 }
                 check_master_command(*master, master_command)?;
             }
-            Self::Conjur { url, conjur_account, login, ca_file } => {
+            Self::Conjur {
+                url,
+                conjur_account,
+                login,
+                ca_file,
+            } => {
                 service(url, "Conjur")?;
-                if conjur_account.trim().is_empty() || conjur_account.len() > 255 || !no_control(conjur_account) || conjur_account.contains(['/', '?', '#']) {
+                if conjur_account.trim().is_empty()
+                    || conjur_account.len() > 255
+                    || !no_control(conjur_account)
+                    || conjur_account.contains(['/', '?', '#'])
+                {
                     return Err(bad("falta la cuenta de Conjur (o no es válida)"));
                 }
                 if login.trim().is_empty() || login.len() > 1024 || !no_control(login) {
@@ -329,12 +448,21 @@ impl AccountConfig {
                     return Err(bad("la ruta del certificado de la CA no es válida"));
                 }
             }
-            Self::Ccp { url, app_id, client_cert, client_key, ca_file } => {
+            Self::Ccp {
+                url,
+                app_id,
+                client_cert,
+                client_key,
+                ca_file,
+            } => {
                 service(url, "Central Credential Provider")?;
                 if app_id.trim().is_empty() || app_id.len() > 1024 || !no_control(app_id) {
                     return Err(bad("falta el AppID del Central Credential Provider"));
                 }
-                if ![client_cert, client_key, ca_file].iter().all(|p| path_ok(p)) {
+                if ![client_cert, client_key, ca_file]
+                    .iter()
+                    .all(|p| path_ok(p))
+                {
                     return Err(bad("un dato del Central Credential Provider no es válido"));
                 }
                 if client_cert.trim().is_empty() && !client_key.trim().is_empty() {
@@ -343,7 +471,13 @@ impl AccountConfig {
             }
             Self::OnePassword { account } => {
                 let a = account.trim();
-                if a.is_empty() || a.len() > 255 || a.starts_with('-') || !a.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@')) {
+                if a.is_empty()
+                    || a.len() > 255
+                    || a.starts_with('-')
+                    || !a
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@'))
+                {
                     return Err(bad("la cuenta de 1Password no es válida"));
                 }
             }
@@ -352,15 +486,22 @@ impl AccountConfig {
                     return Err(bad("el perfil de AWS no es válido"));
                 }
                 if !valid_aws_region(region.trim()) {
-                    return Err(bad(format!("la región de AWS «{}» no es válida", region.trim())));
+                    return Err(bad(format!(
+                        "la región de AWS «{}» no es válida",
+                        region.trim()
+                    )));
                 }
             }
             Self::Azure { tenant, vault_url } => {
                 if !tenant.is_empty() && !valid_azure_tenant(tenant) {
-                    return Err(bad("el inquilino de Microsoft Entra no es válido (su ID o su dominio)"));
+                    return Err(bad(
+                        "el inquilino de Microsoft Entra no es válido (su ID o su dominio)",
+                    ));
                 }
                 if azure_vault_host(vault_url).is_none() {
-                    return Err(bad("la URL del almacén tiene que ser https://<nombre>.vault.azure.net"));
+                    return Err(bad(
+                        "la URL del almacén tiene que ser https://<nombre>.vault.azure.net",
+                    ));
                 }
             }
             Self::Gcp { project, account } => {
@@ -368,10 +509,17 @@ impl AccountConfig {
                     return Err(bad("falta el proyecto de Google Cloud (o no es válido)"));
                 }
                 if !account.is_empty() && !valid_gcloud_account(account) {
-                    return Err(bad("la cuenta de gcloud tiene que ser un correo (ana@example.com)"));
+                    return Err(bad(
+                        "la cuenta de gcloud tiene que ser un correo (ana@example.com)",
+                    ));
                 }
             }
-            Self::KeePass { file, key_file, master, master_command } => {
+            Self::KeePass {
+                file,
+                key_file,
+                master,
+                master_command,
+            } => {
                 if file.trim().is_empty() || !path_ok(file) {
                     return Err(bad("falta el archivo de la base de KeePass (.kdbx)"));
                 }
@@ -379,7 +527,9 @@ impl AccountConfig {
                     return Err(bad("la ruta del archivo de clave no es válida"));
                 }
                 if *master == MasterSource::None && key_file.trim().is_empty() {
-                    return Err(bad("sin contraseña maestra, la base de KeePass necesita un archivo de clave"));
+                    return Err(bad(
+                        "sin contraseña maestra, la base de KeePass necesita un archivo de clave",
+                    ));
                 }
                 check_master_command(*master, master_command)?;
             }
@@ -391,7 +541,11 @@ impl AccountConfig {
 /// A Zoho client ID as the API console shows it (`1000.XXXX`).
 pub fn valid_zoho_client_id(id: &str) -> bool {
     let id = id.trim();
-    !id.is_empty() && id.len() <= 200 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    !id.is_empty()
+        && id.len() <= 200
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 /// One account, as the state DB keeps it.
@@ -457,8 +611,16 @@ fn now() -> String {
 type Row = (String, String, String, String, String, String);
 
 fn from_row((id, label, identity, config, created_at, updated_at): Row) -> Result<SecretAccount> {
-    let config: AccountConfig = serde_json::from_str(&config).map_err(|e| bad(format!("la cuenta «{label}» no se pudo leer: {e}")))?;
-    Ok(SecretAccount { id, label, identity, config, created_at, updated_at })
+    let config: AccountConfig = serde_json::from_str(&config)
+        .map_err(|e| bad(format!("la cuenta «{label}» no se pudo leer: {e}")))?;
+    Ok(SecretAccount {
+        id,
+        label,
+        identity,
+        config,
+        created_at,
+        updated_at,
+    })
 }
 
 const COLUMNS: &str = "id, label, identity, config_json, created_at, updated_at";
@@ -469,7 +631,18 @@ impl StateStore {
         let rows: Vec<Row> = {
             let c = self.lock()?;
             let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM secret_accounts ORDER BY label COLLATE NOCASE, created_at")).map_err(db_err)?;
-            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))).map_err(db_err)?;
+            let rows = st
+                .query_map([], |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                })
+                .map_err(db_err)?;
             rows.collect::<rusqlite::Result<_>>().map_err(db_err)?
         };
         // One that can't be read (a newer version's kind) is left out.
@@ -479,7 +652,20 @@ impl StateStore {
     pub fn get_secret_account(&self, id: &str) -> Result<Option<SecretAccount>> {
         let row: Option<Row> = self
             .lock()?
-            .query_row(&format!("SELECT {COLUMNS} FROM secret_accounts WHERE id = ?1"), [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM secret_accounts WHERE id = ?1"),
+                [id],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
+            )
             .optional()
             .map_err(db_err)?;
         row.map(from_row).transpose()
@@ -499,21 +685,33 @@ impl StateStore {
         )
         .map_err(db_err)?;
         drop(c);
-        self.get_secret_account(&a.id)?.ok_or_else(|| bad("la cuenta no se guardó"))
+        self.get_secret_account(&a.id)?
+            .ok_or_else(|| bad("la cuenta no se guardó"))
     }
 
     pub fn rename_secret_account(&self, id: &str, label: &str) -> Result<SecretAccount> {
         check_label(label)?;
-        let n = self.lock()?.execute("UPDATE secret_accounts SET label = ?2, updated_at = ?3 WHERE id = ?1", params![id, label.trim(), now()]).map_err(db_err)?;
+        let n = self
+            .lock()?
+            .execute(
+                "UPDATE secret_accounts SET label = ?2, updated_at = ?3 WHERE id = ?1",
+                params![id, label.trim(), now()],
+            )
+            .map_err(db_err)?;
         if n == 0 {
             return Err(bad(format!("no existe la cuenta «{id}»")));
         }
-        self.get_secret_account(id)?.ok_or_else(|| bad("la cuenta no se guardó"))
+        self.get_secret_account(id)?
+            .ok_or_else(|| bad("la cuenta no se guardó"))
     }
 
     /// Remove the row (its keychain items: [`delete_secrets`]). Whether it existed.
     pub fn delete_secret_account(&self, id: &str) -> Result<bool> {
-        Ok(self.lock()?.execute("DELETE FROM secret_accounts WHERE id = ?1", [id]).map_err(db_err)? > 0)
+        Ok(self
+            .lock()?
+            .execute("DELETE FROM secret_accounts WHERE id = ?1", [id])
+            .map_err(db_err)?
+            > 0)
     }
 }
 
@@ -548,7 +746,12 @@ mod tests {
             id: id.into(),
             label: label.into(),
             identity: "ana@example.com".into(),
-            config: AccountConfig::Zoho { data_center: "eu".into(), client_id: "1000.ABCDEF".into(), master: MasterSource::Keychain, master_command: String::new() },
+            config: AccountConfig::Zoho {
+                data_center: "eu".into(),
+                client_id: "1000.ABCDEF".into(),
+                master: MasterSource::Keychain,
+                master_command: String::new(),
+            },
             created_at: String::new(),
             updated_at: String::new(),
         }
@@ -561,17 +764,39 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.sqlite");
         let store = StateStore::open(&path).unwrap();
-        let a = store.save_secret_account(&zoho("6f1c2d4e-0000-4000-8000-000000000001", "Zoho · trabajo")).unwrap();
+        let a = store
+            .save_secret_account(&zoho(
+                "6f1c2d4e-0000-4000-8000-000000000001",
+                "Zoho · trabajo",
+            ))
+            .unwrap();
         assert!(!a.created_at.is_empty());
         let mut b = zoho("6f1c2d4e-0000-4000-8000-000000000002", "Ana personal");
-        b.config = AccountConfig::Zoho { data_center: "com".into(), client_id: "1000.B".into(), master: MasterSource::Command, master_command: "pass show zoho".into() };
+        b.config = AccountConfig::Zoho {
+            data_center: "com".into(),
+            client_id: "1000.B".into(),
+            master: MasterSource::Command,
+            master_command: "pass show zoho".into(),
+        };
         store.save_secret_account(&b).unwrap();
         let all = store.list_secret_accounts().unwrap();
-        assert_eq!(all.iter().map(|a| a.label.as_str()).collect::<Vec<_>>(), ["Ana personal", "Zoho · trabajo"], "by label");
-        assert_eq!(store.get_secret_account(&a.id).unwrap().unwrap().config, a.config);
+        assert_eq!(
+            all.iter().map(|a| a.label.as_str()).collect::<Vec<_>>(),
+            ["Ana personal", "Zoho · trabajo"],
+            "by label"
+        );
+        assert_eq!(
+            store.get_secret_account(&a.id).unwrap().unwrap().config,
+            a.config
+        );
         // Renaming keeps the rest; saving again keeps created_at.
-        let r = store.rename_secret_account(&a.id, "  Zoho Vault  ").unwrap();
-        assert_eq!((r.label.as_str(), r.created_at.as_str()), ("Zoho Vault", a.created_at.as_str()));
+        let r = store
+            .rename_secret_account(&a.id, "  Zoho Vault  ")
+            .unwrap();
+        assert_eq!(
+            (r.label.as_str(), r.created_at.as_str()),
+            ("Zoho Vault", a.created_at.as_str())
+        );
         assert!(store.rename_secret_account(&a.id, " ").is_err());
         assert!(store.rename_secret_account("missing", "x").is_err());
         let again = store.save_secret_account(&r).unwrap();
@@ -579,13 +804,26 @@ mod tests {
         // The JSON a row keeps: no secret slot, and the default master left out.
         let json = serde_json::to_string(&again).unwrap();
         assert_eq!(serde_json::from_str::<SecretAccount>(&json).unwrap(), again);
-        assert!(json.contains("\"kind\":\"zoho\"") && !json.contains("master") && !json.contains("secret\"") && !json.contains("refresh"), "{json}");
+        assert!(
+            json.contains("\"kind\":\"zoho\"")
+                && !json.contains("master")
+                && !json.contains("secret\"")
+                && !json.contains("refresh"),
+            "{json}"
+        );
         // Not in what backups and exports carry.
         let snap = serde_json::to_string(&store.snapshot().unwrap()).unwrap();
-        assert!(!snap.contains("1000.ABCDEF") && !snap.contains(&a.id) && !snap.contains("Zoho Vault"), "{snap}");
+        assert!(
+            !snap.contains("1000.ABCDEF") && !snap.contains(&a.id) && !snap.contains("Zoho Vault"),
+            "{snap}"
+        );
         let rev = store.revision().unwrap();
         store.save_secret_account(&b).unwrap();
-        assert_eq!(store.revision().unwrap(), rev, "not a change a backup has to carry");
+        assert_eq!(
+            store.revision().unwrap(),
+            rev,
+            "not a change a backup has to carry"
+        );
         // Removed.
         assert!(store.delete_secret_account(&a.id).unwrap());
         assert!(!store.delete_secret_account(&a.id).unwrap());
@@ -600,32 +838,88 @@ mod tests {
     fn what_an_account_may_be() {
         let store = StateStore::open_in_memory().unwrap();
         for bad_id in ["", "a/b", "../x", "id with space", &"x".repeat(65)] {
-            assert!(store.save_secret_account(&zoho(bad_id, "x")).is_err(), "{bad_id}");
+            assert!(
+                store.save_secret_account(&zoho(bad_id, "x")).is_err(),
+                "{bad_id}"
+            );
         }
-        assert!(store.save_secret_account(&zoho("ok-1", "")).is_err(), "a label");
+        assert!(
+            store.save_secret_account(&zoho("ok-1", "")).is_err(),
+            "a label"
+        );
         assert!(store.save_secret_account(&zoho("ok-1", "a\nb")).is_err());
         let mut z = zoho("ok-1", "x");
-        z.config = AccountConfig::Zoho { data_center: "evil.com".into(), client_id: "1000.A".into(), master: MasterSource::Keychain, master_command: String::new() };
-        assert!(store.save_secret_account(&z).is_err(), "only Zoho's data centres");
-        z.config = AccountConfig::Zoho { data_center: "eu".into(), client_id: "1000.A".into(), master: MasterSource::None, master_command: String::new() };
-        assert!(store.save_secret_account(&z).is_err(), "Zoho needs the passphrase");
-        z.config = AccountConfig::Zoho { data_center: "eu".into(), client_id: "1000.A".into(), master: MasterSource::Command, master_command: String::new() };
-        assert!(store.save_secret_account(&z).is_err(), "the command is missing");
-        z.config = AccountConfig::Zoho { data_center: "eu".into(), client_id: "1000 A".into(), master: MasterSource::Ask, master_command: String::new() };
+        z.config = AccountConfig::Zoho {
+            data_center: "evil.com".into(),
+            client_id: "1000.A".into(),
+            master: MasterSource::Keychain,
+            master_command: String::new(),
+        };
+        assert!(
+            store.save_secret_account(&z).is_err(),
+            "only Zoho's data centres"
+        );
+        z.config = AccountConfig::Zoho {
+            data_center: "eu".into(),
+            client_id: "1000.A".into(),
+            master: MasterSource::None,
+            master_command: String::new(),
+        };
+        assert!(
+            store.save_secret_account(&z).is_err(),
+            "Zoho needs the passphrase"
+        );
+        z.config = AccountConfig::Zoho {
+            data_center: "eu".into(),
+            client_id: "1000.A".into(),
+            master: MasterSource::Command,
+            master_command: String::new(),
+        };
+        assert!(
+            store.save_secret_account(&z).is_err(),
+            "the command is missing"
+        );
+        z.config = AccountConfig::Zoho {
+            data_center: "eu".into(),
+            client_id: "1000 A".into(),
+            master: MasterSource::Ask,
+            master_command: String::new(),
+        };
         assert!(store.save_secret_account(&z).is_err());
     }
 
     #[test]
     fn keychain_keys_and_slots() {
-        assert_eq!(secret_key("6f1c", "client_secret"), "secret_account:6f1c#client_secret");
-        assert_eq!(secret_key("6f1c", "refresh_token"), "secret_account:6f1c#refresh_token");
-        assert_eq!(secret_key("6f1c", "passphrase"), "secret_account:6f1c#passphrase");
+        assert_eq!(
+            secret_key("6f1c", "client_secret"),
+            "secret_account:6f1c#client_secret"
+        );
+        assert_eq!(
+            secret_key("6f1c", "refresh_token"),
+            "secret_account:6f1c#refresh_token"
+        );
+        assert_eq!(
+            secret_key("6f1c", "passphrase"),
+            "secret_account:6f1c#passphrase"
+        );
         // Never a connection's: those are its ID, or `source_token:` inside it.
         assert!(!secret_key("x", "passphrase").starts_with(crate::secret_sources::TOKEN_PREFIX));
         let kept = zoho("a", "x").config;
-        assert_eq!(kept.slots(), &["client_secret", "refresh_token", "passphrase"]);
-        let asked = AccountConfig::Zoho { data_center: "eu".into(), client_id: "1000.A".into(), master: MasterSource::Ask, master_command: String::new() };
-        assert_eq!(asked.slots(), &["client_secret", "refresh_token"], "an asked passphrase is never kept");
+        assert_eq!(
+            kept.slots(),
+            &["client_secret", "refresh_token", "passphrase"]
+        );
+        let asked = AccountConfig::Zoho {
+            data_center: "eu".into(),
+            client_id: "1000.A".into(),
+            master: MasterSource::Ask,
+            master_command: String::new(),
+        };
+        assert_eq!(
+            asked.slots(),
+            &["client_secret", "refresh_token"],
+            "an asked passphrase is never kept"
+        );
         for s in kept.slots() {
             assert!(ALL_SLOTS.contains(s));
         }
@@ -634,18 +928,71 @@ mod tests {
     /// One account of every kind, as the wizards make them.
     pub fn every_kind() -> Vec<AccountConfig> {
         vec![
-            AccountConfig::Zoho { data_center: "eu".into(), client_id: "1000.ABCDEF".into(), master: MasterSource::Keychain, master_command: String::new() },
-            AccountConfig::Bitwarden { server: "bitwarden.eu".into(), client_id: "user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04".into(), master: MasterSource::Ask, master_command: String::new() },
-            AccountConfig::BitwardenSm { server: "https://vw.example.com".into() },
-            AccountConfig::Vault { address: "https://vault.example.com:8200".into(), namespace: "admin".into(), ca_file: "~/ca.pem".into(), auth: VaultAuth::Approle, approle_mount: String::new(), role_id: "r-1".into() },
-            AccountConfig::Delinea { url: "https://acme.secretservercloud.com".into(), platform_url: String::new(), username: "svc_dbine".into(), domain: "CORP".into(), master: MasterSource::Keychain, master_command: String::new() },
-            AccountConfig::Conjur { url: "https://conjur.example.com".into(), conjur_account: "myorg".into(), login: "host/apps/dbine".into(), ca_file: String::new() },
-            AccountConfig::Ccp { url: "https://ccp.example.com".into(), app_id: "DBine".into(), client_cert: "~/dbine.p12".into(), client_key: String::new(), ca_file: "~/ca.pem".into() },
-            AccountConfig::OnePassword { account: "my.1password.com".into() },
-            AccountConfig::Aws { profile: "prod".into(), region: "eu-west-1".into() },
-            AccountConfig::Azure { tenant: "contoso.onmicrosoft.com".into(), vault_url: "https://kv1.vault.azure.net".into() },
-            AccountConfig::Gcp { project: "my-proj".into(), account: "ana@example.com".into() },
-            AccountConfig::KeePass { file: "~/db.kdbx".into(), key_file: "~/db.keyx".into(), master: MasterSource::Command, master_command: "pass kp".into() },
+            AccountConfig::Zoho {
+                data_center: "eu".into(),
+                client_id: "1000.ABCDEF".into(),
+                master: MasterSource::Keychain,
+                master_command: String::new(),
+            },
+            AccountConfig::Bitwarden {
+                server: "bitwarden.eu".into(),
+                client_id: "user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04".into(),
+                master: MasterSource::Ask,
+                master_command: String::new(),
+            },
+            AccountConfig::BitwardenSm {
+                server: "https://vw.example.com".into(),
+            },
+            AccountConfig::Vault {
+                address: "https://vault.example.com:8200".into(),
+                namespace: "admin".into(),
+                ca_file: "~/ca.pem".into(),
+                auth: VaultAuth::Approle,
+                approle_mount: String::new(),
+                role_id: "r-1".into(),
+            },
+            AccountConfig::Delinea {
+                url: "https://acme.secretservercloud.com".into(),
+                platform_url: String::new(),
+                username: "svc_dbine".into(),
+                domain: "CORP".into(),
+                master: MasterSource::Keychain,
+                master_command: String::new(),
+            },
+            AccountConfig::Conjur {
+                url: "https://conjur.example.com".into(),
+                conjur_account: "myorg".into(),
+                login: "host/apps/dbine".into(),
+                ca_file: String::new(),
+            },
+            AccountConfig::Ccp {
+                url: "https://ccp.example.com".into(),
+                app_id: "DBine".into(),
+                client_cert: "~/dbine.p12".into(),
+                client_key: String::new(),
+                ca_file: "~/ca.pem".into(),
+            },
+            AccountConfig::OnePassword {
+                account: "my.1password.com".into(),
+            },
+            AccountConfig::Aws {
+                profile: "prod".into(),
+                region: "eu-west-1".into(),
+            },
+            AccountConfig::Azure {
+                tenant: "contoso.onmicrosoft.com".into(),
+                vault_url: "https://kv1.vault.azure.net".into(),
+            },
+            AccountConfig::Gcp {
+                project: "my-proj".into(),
+                account: "ana@example.com".into(),
+            },
+            AccountConfig::KeePass {
+                file: "~/db.kdbx".into(),
+                key_file: "~/db.keyx".into(),
+                master: MasterSource::Command,
+                master_command: "pass kp".into(),
+            },
         ]
     }
 
@@ -655,23 +1002,48 @@ mod tests {
     fn every_kind_round_trips_without_secrets_in_the_state() {
         let store = StateStore::open_in_memory().unwrap();
         let all = every_kind();
-        assert_eq!(all.iter().map(AccountConfig::kind).collect::<Vec<_>>(), KINDS, "one of each");
+        assert_eq!(
+            all.iter().map(AccountConfig::kind).collect::<Vec<_>>(),
+            KINDS,
+            "one of each"
+        );
         for (i, config) in all.iter().enumerate() {
-            let a = SecretAccount { id: format!("6f1c2d4e-0000-4000-8000-0000000001{i:02}"), label: format!("{} {i}", config.kind()), identity: "ana@example.com".into(), config: config.clone(), created_at: String::new(), updated_at: String::new() };
+            let a = SecretAccount {
+                id: format!("6f1c2d4e-0000-4000-8000-0000000001{i:02}"),
+                label: format!("{} {i}", config.kind()),
+                identity: "ana@example.com".into(),
+                config: config.clone(),
+                created_at: String::new(),
+                updated_at: String::new(),
+            };
             let saved = store.save_secret_account(&a).unwrap();
             assert_eq!(&saved.config, config);
             let json = serde_json::to_string(&saved).unwrap();
-            assert!(json.contains(&format!("\"kind\":\"{}\"", config.kind())), "{json}");
+            assert!(
+                json.contains(&format!("\"kind\":\"{}\"", config.kind())),
+                "{json}"
+            );
             assert_eq!(serde_json::from_str::<SecretAccount>(&json).unwrap(), saved);
             for slot in ALL_SLOTS {
-                assert!(!json.contains(&format!("\"{slot}\"")), "no slot in the row: {json}");
+                assert!(
+                    !json.contains(&format!("\"{slot}\"")),
+                    "no slot in the row: {json}"
+                );
             }
-            assert_eq!(store.get_secret_account(&a.id).unwrap().unwrap().config, *config);
+            assert_eq!(
+                store.get_secret_account(&a.id).unwrap().unwrap().config,
+                *config
+            );
         }
         assert_eq!(store.list_secret_accounts().unwrap().len(), all.len());
         let rev = store.revision().unwrap();
         let snap = serde_json::to_string(&store.snapshot().unwrap()).unwrap();
-        assert!(!snap.contains("6f1c2d4e-0000-4000-8000-0000000001") && !snap.contains("kv1.vault.azure.net") && !snap.contains("svc_dbine"), "{snap}");
+        assert!(
+            !snap.contains("6f1c2d4e-0000-4000-8000-0000000001")
+                && !snap.contains("kv1.vault.azure.net")
+                && !snap.contains("svc_dbine"),
+            "{snap}"
+        );
         assert_eq!(store.revision().unwrap(), rev);
     }
 
@@ -682,19 +1054,64 @@ mod tests {
                 assert!(ALL_SLOTS.contains(s), "{}: {s}", c.kind());
             }
             for s in c.required_slots() {
-                assert!(c.slots().contains(s), "{}: a required slot is kept", c.kind());
+                assert!(
+                    c.slots().contains(s),
+                    "{}: a required slot is kept",
+                    c.kind()
+                );
             }
             if let Some((slot, master, _)) = c.master() {
-                assert_eq!(c.slots().contains(&slot), master == MasterSource::Keychain, "{}: only a kept master password has a slot", c.kind());
+                assert_eq!(
+                    c.slots().contains(&slot),
+                    master == MasterSource::Keychain,
+                    "{}: only a kept master password has a slot",
+                    c.kind()
+                );
             }
             c.validate().unwrap_or_else(|e| panic!("{}: {e}", c.kind()));
         }
         let kinds = |c: AccountConfig| c.slots();
-        assert_eq!(kinds(AccountConfig::Vault { address: "https://v".into(), namespace: String::new(), ca_file: String::new(), auth: VaultAuth::Token, approle_mount: String::new(), role_id: String::new() }), &["token"]);
-        assert_eq!(kinds(AccountConfig::BitwardenSm { server: String::new() }), &["token"]);
-        assert_eq!(kinds(AccountConfig::Conjur { url: "https://c".into(), conjur_account: "a".into(), login: "l".into(), ca_file: String::new() }), &["api_key"]);
-        assert!(kinds(AccountConfig::Aws { profile: String::new(), region: "us-east-1".into() }).is_empty(), "ambient credentials: nothing kept");
-        assert!(kinds(AccountConfig::OnePassword { account: "my".into() }).is_empty(), "op keeps its own session");
+        assert_eq!(
+            kinds(AccountConfig::Vault {
+                address: "https://v".into(),
+                namespace: String::new(),
+                ca_file: String::new(),
+                auth: VaultAuth::Token,
+                approle_mount: String::new(),
+                role_id: String::new()
+            }),
+            &["token"]
+        );
+        assert_eq!(
+            kinds(AccountConfig::BitwardenSm {
+                server: String::new()
+            }),
+            &["token"]
+        );
+        assert_eq!(
+            kinds(AccountConfig::Conjur {
+                url: "https://c".into(),
+                conjur_account: "a".into(),
+                login: "l".into(),
+                ca_file: String::new()
+            }),
+            &["api_key"]
+        );
+        assert!(
+            kinds(AccountConfig::Aws {
+                profile: String::new(),
+                region: "us-east-1".into()
+            })
+            .is_empty(),
+            "ambient credentials: nothing kept"
+        );
+        assert!(
+            kinds(AccountConfig::OnePassword {
+                account: "my".into()
+            })
+            .is_empty(),
+            "op keeps its own session"
+        );
         assert_eq!(secret_key("6f1c", "api_key"), "secret_account:6f1c#api_key");
     }
 
@@ -703,40 +1120,159 @@ mod tests {
     #[test]
     fn what_each_kind_may_be() {
         let bad = [
-            AccountConfig::Bitwarden { server: "http://vw.example.com".into(), client_id: "user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04".into(), master: MasterSource::Keychain, master_command: String::new() },
-            AccountConfig::Bitwarden { server: "bitwarden.com".into(), client_id: "6f1c2a9e".into(), master: MasterSource::Keychain, master_command: String::new() },
-            AccountConfig::Bitwarden { server: "bitwarden.com".into(), client_id: "user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04".into(), master: MasterSource::None, master_command: String::new() },
-            AccountConfig::BitwardenSm { server: "https://a@b".into() },
-            AccountConfig::Vault { address: "http://vault.example.com:8200".into(), namespace: String::new(), ca_file: String::new(), auth: VaultAuth::Token, approle_mount: String::new(), role_id: String::new() },
-            AccountConfig::Vault { address: "https://vault".into(), namespace: String::new(), ca_file: String::new(), auth: VaultAuth::Approle, approle_mount: String::new(), role_id: String::new() },
-            AccountConfig::Delinea { url: "https://ss".into(), platform_url: "https://evil.example.com".into(), username: "u".into(), domain: String::new(), master: MasterSource::Keychain, master_command: String::new() },
-            AccountConfig::Delinea { url: "https://ss".into(), platform_url: String::new(), username: "u".into(), domain: String::new(), master: MasterSource::Command, master_command: String::new() },
-            AccountConfig::Conjur { url: "ftp://c".into(), conjur_account: "a".into(), login: "l".into(), ca_file: String::new() },
-            AccountConfig::Conjur { url: "https://c".into(), conjur_account: "a/b".into(), login: "l".into(), ca_file: String::new() },
-            AccountConfig::Ccp { url: "https://ccp".into(), app_id: " ".into(), client_cert: String::new(), client_key: String::new(), ca_file: String::new() },
-            AccountConfig::Ccp { url: "https://ccp".into(), app_id: "a".into(), client_cert: String::new(), client_key: "~/k.pem".into(), ca_file: String::new() },
-            AccountConfig::OnePassword { account: "--debug".into() },
-            AccountConfig::OnePassword { account: String::new() },
-            AccountConfig::Aws { profile: "--debug".into(), region: "us-east-1".into() },
-            AccountConfig::Aws { profile: String::new(), region: "evil.com/".into() },
-            AccountConfig::Azure { tenant: "--debug".into(), vault_url: "https://kv1.vault.azure.net".into() },
-            AccountConfig::Azure { tenant: String::new(), vault_url: "https://kv1.vault.azure.net.evil.com".into() },
-            AccountConfig::Gcp { project: "a/b".into(), account: String::new() },
-            AccountConfig::Gcp { project: "p".into(), account: "--debug".into() },
-            AccountConfig::Gcp { project: "p".into(), account: "ana".into() },
-            AccountConfig::KeePass { file: String::new(), key_file: String::new(), master: MasterSource::Keychain, master_command: String::new() },
-            AccountConfig::KeePass { file: "~/db.kdbx".into(), key_file: String::new(), master: MasterSource::None, master_command: String::new() },
+            AccountConfig::Bitwarden {
+                server: "http://vw.example.com".into(),
+                client_id: "user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04".into(),
+                master: MasterSource::Keychain,
+                master_command: String::new(),
+            },
+            AccountConfig::Bitwarden {
+                server: "bitwarden.com".into(),
+                client_id: "6f1c2a9e".into(),
+                master: MasterSource::Keychain,
+                master_command: String::new(),
+            },
+            AccountConfig::Bitwarden {
+                server: "bitwarden.com".into(),
+                client_id: "user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04".into(),
+                master: MasterSource::None,
+                master_command: String::new(),
+            },
+            AccountConfig::BitwardenSm {
+                server: "https://a@b".into(),
+            },
+            AccountConfig::Vault {
+                address: "http://vault.example.com:8200".into(),
+                namespace: String::new(),
+                ca_file: String::new(),
+                auth: VaultAuth::Token,
+                approle_mount: String::new(),
+                role_id: String::new(),
+            },
+            AccountConfig::Vault {
+                address: "https://vault".into(),
+                namespace: String::new(),
+                ca_file: String::new(),
+                auth: VaultAuth::Approle,
+                approle_mount: String::new(),
+                role_id: String::new(),
+            },
+            AccountConfig::Delinea {
+                url: "https://ss".into(),
+                platform_url: "https://evil.example.com".into(),
+                username: "u".into(),
+                domain: String::new(),
+                master: MasterSource::Keychain,
+                master_command: String::new(),
+            },
+            AccountConfig::Delinea {
+                url: "https://ss".into(),
+                platform_url: String::new(),
+                username: "u".into(),
+                domain: String::new(),
+                master: MasterSource::Command,
+                master_command: String::new(),
+            },
+            AccountConfig::Conjur {
+                url: "ftp://c".into(),
+                conjur_account: "a".into(),
+                login: "l".into(),
+                ca_file: String::new(),
+            },
+            AccountConfig::Conjur {
+                url: "https://c".into(),
+                conjur_account: "a/b".into(),
+                login: "l".into(),
+                ca_file: String::new(),
+            },
+            AccountConfig::Ccp {
+                url: "https://ccp".into(),
+                app_id: " ".into(),
+                client_cert: String::new(),
+                client_key: String::new(),
+                ca_file: String::new(),
+            },
+            AccountConfig::Ccp {
+                url: "https://ccp".into(),
+                app_id: "a".into(),
+                client_cert: String::new(),
+                client_key: "~/k.pem".into(),
+                ca_file: String::new(),
+            },
+            AccountConfig::OnePassword {
+                account: "--debug".into(),
+            },
+            AccountConfig::OnePassword {
+                account: String::new(),
+            },
+            AccountConfig::Aws {
+                profile: "--debug".into(),
+                region: "us-east-1".into(),
+            },
+            AccountConfig::Aws {
+                profile: String::new(),
+                region: "evil.com/".into(),
+            },
+            AccountConfig::Azure {
+                tenant: "--debug".into(),
+                vault_url: "https://kv1.vault.azure.net".into(),
+            },
+            AccountConfig::Azure {
+                tenant: String::new(),
+                vault_url: "https://kv1.vault.azure.net.evil.com".into(),
+            },
+            AccountConfig::Gcp {
+                project: "a/b".into(),
+                account: String::new(),
+            },
+            AccountConfig::Gcp {
+                project: "p".into(),
+                account: "--debug".into(),
+            },
+            AccountConfig::Gcp {
+                project: "p".into(),
+                account: "ana".into(),
+            },
+            AccountConfig::KeePass {
+                file: String::new(),
+                key_file: String::new(),
+                master: MasterSource::Keychain,
+                master_command: String::new(),
+            },
+            AccountConfig::KeePass {
+                file: "~/db.kdbx".into(),
+                key_file: String::new(),
+                master: MasterSource::None,
+                master_command: String::new(),
+            },
         ];
         for c in bad {
             assert!(c.validate().is_err(), "{c:?}");
         }
         // A Google account saved before the gcloud account was kept: the
         // active one, as before; and it saves back the same.
-        let old: AccountConfig = serde_json::from_str(r#"{"kind":"gcp","project":"my-proj"}"#).unwrap();
-        assert_eq!(old, AccountConfig::Gcp { project: "my-proj".into(), account: String::new() });
+        let old: AccountConfig =
+            serde_json::from_str(r#"{"kind":"gcp","project":"my-proj"}"#).unwrap();
+        assert_eq!(
+            old,
+            AccountConfig::Gcp {
+                project: "my-proj".into(),
+                account: String::new()
+            }
+        );
         assert!(old.validate().is_ok());
-        assert_eq!(serde_json::to_string(&old).unwrap(), r#"{"kind":"gcp","project":"my-proj"}"#);
-        let local = AccountConfig::Vault { address: "http://127.0.0.1:8200".into(), namespace: String::new(), ca_file: String::new(), auth: VaultAuth::Token, approle_mount: String::new(), role_id: String::new() };
+        assert_eq!(
+            serde_json::to_string(&old).unwrap(),
+            r#"{"kind":"gcp","project":"my-proj"}"#
+        );
+        let local = AccountConfig::Vault {
+            address: "http://127.0.0.1:8200".into(),
+            namespace: String::new(),
+            ca_file: String::new(),
+            auth: VaultAuth::Token,
+            approle_mount: String::new(),
+            role_id: String::new(),
+        };
         assert!(local.validate().is_ok(), "plain HTTP to this computer");
     }
 }

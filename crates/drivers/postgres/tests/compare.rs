@@ -14,16 +14,22 @@
 //! `DBINE_TEST_TIMESCALE_URL` and `DBINE_TEST_YUGABYTE_URL` run the same
 //! checks on TimescaleDB and YugabyteDB.
 
-use dbine_driver::{ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session, TableChange, TableSchema};
+use dbine_driver::{
+    ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session, TableChange, TableSchema,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -36,12 +42,17 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<(), String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.map_err(|e| e.to_string())?;
+    s.execute(sql, 100, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     match out.error.take() {
         Some(e) => Err(e),
         None => Ok(()),
@@ -52,7 +63,9 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<(), String> {
 /// transaction that made it).
 async fn run_all(s: &mut Box<dyn Session>, script: &str) {
     for stmt in script.split(";\n").map(str::trim).filter(|s| !s.is_empty()) {
-        run(s, stmt).await.unwrap_or_else(|e| panic!("{e}\n---\n{stmt}"));
+        run(s, stmt)
+            .await
+            .unwrap_or_else(|e| panic!("{e}\n---\n{stmt}"));
     }
 }
 
@@ -146,7 +159,17 @@ CREATE INDEX docs_titulo_ix ON app.docs (titulo);
 ";
 
 /// The object kinds the compare reads by their source (src-tauri's list).
-const CODE_KINDS: &[&str] = &["view", "materialized_view", "procedure", "function", "trigger", "sequence", "synonym", "type", "domain"];
+const CODE_KINDS: &[&str] = &[
+    "view",
+    "materialized_view",
+    "procedure",
+    "function",
+    "trigger",
+    "sequence",
+    "synonym",
+    "type",
+    "domain",
+];
 /// Made before the tables, dropped after them.
 const PREREQS: &[&str] = &["type", "sequence", "domain"];
 
@@ -166,7 +189,11 @@ fn normalized(mut t: TableSchema) -> TableSchema {
 }
 
 fn squash(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").trim_end_matches(';').to_string()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches(';')
+        .to_string()
 }
 
 async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objects) {
@@ -183,8 +210,16 @@ async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objec
         if !CODE_KINDS.contains(&o.kind.as_str()) || o.schema.as_deref() != Some("app") {
             continue;
         }
-        let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
-        let def = s.definition(&r).await.expect("definition").unwrap_or_else(|| panic!("no definition for {r:?}"));
+        let r = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
+        let def = s
+            .definition(&r)
+            .await
+            .expect("definition")
+            .unwrap_or_else(|| panic!("no definition for {r:?}"));
         objects.insert((o.kind, o.schema, o.name), def);
     }
     (tables, objects)
@@ -200,7 +235,10 @@ fn drop_other(kind: &str, schema: Option<&str>, name: &str) -> String {
         Some(s) => format!("{}.{}", quote(s), quote(name)),
         None => quote(name),
     };
-    format!("DROP {} IF EXISTS {full};", kind.replace('_', " ").to_uppercase())
+    format!(
+        "DROP {} IF EXISTS {full};",
+        kind.replace('_', " ").to_uppercase()
+    )
 }
 
 /// What src-tauri's compare `drop_statements` writes on PostgreSQL: a
@@ -209,13 +247,22 @@ fn drop_other(kind: &str, schema: Option<&str>, name: &str) -> String {
 /// what `definition` read (`pg_get_triggerdef` / `pg_get_functiondef`,
 /// joined); the parsing is simple: the test's definitions have no defaults
 /// nor tricky names.
-fn drop_statements(kind: &str, schema: Option<&str>, name: &str, def: &str, whole: bool) -> Vec<String> {
+fn drop_statements(
+    kind: &str,
+    schema: Option<&str>,
+    name: &str,
+    def: &str,
+    whole: bool,
+) -> Vec<String> {
     let plain = drop_other(kind, schema, name);
     match kind {
         "trigger" => {
             let tables: Vec<String> = def
                 .split("CREATE ")
-                .filter_map(|d| d.split_once(" ON ").map(|(_, rest)| rest.split_whitespace().next().unwrap_or("").to_string()))
+                .filter_map(|d| {
+                    d.split_once(" ON ")
+                        .map(|(_, rest)| rest.split_whitespace().next().unwrap_or("").to_string())
+                })
                 .filter(|t| !t.is_empty())
                 .map(|t| match schema {
                     Some(s) if !t.contains('.') => format!("{}.{t}", quote(s)),
@@ -225,7 +272,10 @@ fn drop_statements(kind: &str, schema: Option<&str>, name: &str, def: &str, whol
             if tables.is_empty() {
                 return vec![plain];
             }
-            tables.into_iter().map(|t| format!("DROP TRIGGER IF EXISTS {} ON {t};", quote(name))).collect()
+            tables
+                .into_iter()
+                .map(|t| format!("DROP TRIGGER IF EXISTS {} ON {t};", quote(name)))
+                .collect()
         }
         "function" | "procedure" if whole => {
             let keyword = kind.to_uppercase();
@@ -233,13 +283,19 @@ fn drop_statements(kind: &str, schema: Option<&str>, name: &str, def: &str, whol
             // `CREATE OR REPLACE …` (PostgreSQL) or `CREATE …` (CockroachDB).
             let sigs: Vec<String> = def
                 .split("CREATE ")
-                .filter_map(|d| d.strip_prefix("OR REPLACE ").unwrap_or(d).strip_prefix(&head))
+                .filter_map(|d| {
+                    d.strip_prefix("OR REPLACE ")
+                        .unwrap_or(d)
+                        .strip_prefix(&head)
+                })
                 .filter_map(|d| d.find(')').map(|end| d[..=end].to_string()))
                 .collect();
             if sigs.len() < 2 {
                 return vec![plain];
             }
-            sigs.into_iter().map(|sig| format!("DROP {keyword} IF EXISTS {sig};")).collect()
+            sigs.into_iter()
+                .map(|sig| format!("DROP {keyword} IF EXISTS {sig};"))
+                .collect()
         }
         _ => vec![plain],
     }
@@ -254,7 +310,12 @@ fn drops_in_order(items: Vec<(String, String, Vec<String>)>) -> Vec<String> {
     while !left.is_empty() {
         // The first one no other remaining definition names.
         let i = (0..left.len())
-            .find(|&i| !left.iter().enumerate().any(|(j, (n, d, _))| j != i && *n != left[i].0 && named_in(&left[i].0, d)))
+            .find(|&i| {
+                !left
+                    .iter()
+                    .enumerate()
+                    .any(|(j, (n, d, _))| j != i && *n != left[i].0 && named_in(&left[i].0, d))
+            })
             .unwrap_or(0);
         for s in left.remove(i).2 {
             if !out.contains(&s) {
@@ -268,16 +329,29 @@ fn drops_in_order(items: Vec<(String, String, Vec<String>)>) -> Vec<String> {
 /// Whether `text` names `name` as a whole word.
 fn named_in(name: &str, text: &str) -> bool {
     let word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-    text.to_lowercase().split(|c: char| !word(c)).any(|w| w == name.to_lowercase())
+    text.to_lowercase()
+        .split(|c: char| !word(c))
+        .any(|w| w == name.to_lowercase())
 }
 
 /// `plan` in src-tauri's compare: object drops, prerequisites, tables,
 /// other objects, then dropped prerequisites.
-fn plan(d: &dyn Driver, tables: &[TableChange], objects: &[(Op, String, Option<String>, String, String)]) -> Vec<String> {
-    let (mut before, mut early, mut after, mut late) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+fn plan(
+    d: &dyn Driver,
+    tables: &[TableChange],
+    objects: &[(Op, String, Option<String>, String, String)],
+) -> Vec<String> {
+    let (mut before, mut early, mut after, mut late) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for (op, kind, schema, name, def) in objects {
         let prereq = PREREQS.contains(&kind.as_str());
-        let drops = || (name.clone(), def.clone(), drop_statements(kind, schema.as_deref(), name, def, *op == Op::Drop));
+        let drops = || {
+            (
+                name.clone(),
+                def.clone(),
+                drop_statements(kind, schema.as_deref(), name, def, *op == Op::Drop),
+            )
+        };
         match op {
             Op::Drop if prereq => late.push(drops()),
             Op::Drop | Op::Replace => before.push(drops()),
@@ -295,11 +369,20 @@ fn plan(d: &dyn Driver, tables: &[TableChange], objects: &[(Op, String, Option<S
     for w in &script.warnings {
         eprintln!("aviso: {w}");
     }
-    drops_in_order(before).into_iter().chain(early).chain(script.statements).chain(after).chain(drops_in_order(late)).collect()
+    drops_in_order(before)
+        .into_iter()
+        .chain(early)
+        .chain(script.statements)
+        .chain(after)
+        .chain(drops_in_order(late))
+        .collect()
 }
 
 fn ix<'a>(t: &'a TableSchema, n: &str) -> &'a dbine_driver::IndexDef {
-    t.indexes.iter().find(|i| i.name == n).unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes))
+    t.indexes
+        .iter()
+        .find(|i| i.name == n)
+        .unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes))
 }
 
 /// Sets up both databases, checks what was read with `inspect`, syncs B to
@@ -357,7 +440,10 @@ async fn compare_and_sync(
     for (name, t) in &ta {
         match tb.get(name) {
             None => tables.push(TableChange::Create { table: t.clone() }),
-            Some(o) if o != t => tables.push(TableChange::Alter { old: o.clone(), new: t.clone() }),
+            Some(o) if o != t => tables.push(TableChange::Alter {
+                old: o.clone(),
+                new: t.clone(),
+            }),
             Some(_) => {}
         }
     }
@@ -370,7 +456,9 @@ async fn compare_and_sync(
     for ((k, s, n), def) in &oa {
         match ob.get(&(k.clone(), s.clone(), n.clone())) {
             None => objects.push((Op::Create, k.clone(), s.clone(), n.clone(), def.clone())),
-            Some(o) if squash(o) != squash(def) => objects.push((Op::Replace, k.clone(), s.clone(), n.clone(), def.clone())),
+            Some(o) if squash(o) != squash(def) => {
+                objects.push((Op::Replace, k.clone(), s.clone(), n.clone(), def.clone()))
+            }
             Some(_) => {}
         }
     }
@@ -384,7 +472,10 @@ async fn compare_and_sync(
     eprintln!("---- sync script\n{}", statements.join("\n"));
     for (i, s) in statements.iter().enumerate() {
         if let Err(e) = run(&mut b, s).await {
-            panic!("statement {i} failed: {e}\n---\n{s}\n---\nwhole script:\n{}", statements.join("\n"));
+            panic!(
+                "statement {i} failed: {e}\n---\n{s}\n---\nwhole script:\n{}",
+                statements.join("\n")
+            );
         }
     }
     let (tb2, ob2) = read(&mut b).await;
@@ -392,7 +483,11 @@ async fn compare_and_sync(
         assert_eq!(tb2.get(name), Some(t), "table {name} after the sync");
     }
     assert_eq!(tb2.len(), ta.len());
-    let squashed = |o: &Objects| o.iter().map(|(k, v)| (k.clone(), squash(v))).collect::<Vec<_>>();
+    let squashed = |o: &Objects| {
+        o.iter()
+            .map(|(k, v)| (k.clone(), squash(v)))
+            .collect::<Vec<_>>()
+    };
     assert_eq!(squashed(&ob2), squashed(&oa));
 
     if own_databases {
@@ -406,7 +501,10 @@ async fn compare_and_sync(
             run(s, "DROP SCHEMA IF EXISTS app CASCADE").await.unwrap();
         }
     }
-    objects.into_iter().map(|(op, _, _, n, _)| (op, n)).collect()
+    objects
+        .into_iter()
+        .map(|(op, _, _, n, _)| (op, n))
+        .collect()
 }
 
 fn pg_inspect(ta: &BTreeMap<String, TableSchema>, oa: &Objects) {
@@ -414,32 +512,65 @@ fn pg_inspect(ta: &BTreeMap<String, TableSchema>, oa: &Objects) {
     let o = |i: &dbine_driver::IndexDef, k: &str| i.options.get(k).cloned();
     let uq = ix(docs, "docs_codigo_uq");
     assert_eq!(uq.include, ["titulo"]);
-    assert_eq!(o(uq, "constraint").as_deref(), Some("UNIQUE NULLS NOT DISTINCT (codigo) INCLUDE (titulo) WITH (fillfactor=70)"));
+    assert_eq!(
+        o(uq, "constraint").as_deref(),
+        Some("UNIQUE NULLS NOT DISTINCT (codigo) INCLUDE (titulo) WITH (fillfactor=70)")
+    );
     let ex = ix(docs, "docs_vigencia_ex");
     assert_eq!(ex.kind.as_deref(), Some("EXCLUDE"));
-    assert!(o(ex, "constraint").unwrap().starts_with("EXCLUDE USING gist (vigencia WITH &&) WHERE"));
+    assert!(o(ex, "constraint")
+        .unwrap()
+        .starts_with("EXCLUDE USING gist (vigencia WITH &&) WHERE"));
     let t = ix(docs, "docs_titulo_ix");
     assert_eq!(t.include, ["codigo"]);
     assert_eq!(o(t, "fillfactor").as_deref(), Some("80"));
-    assert_eq!(o(t, "keys").as_deref(), Some("titulo DESC NULLS LAST, lower(cuerpo) text_pattern_ops"));
+    assert_eq!(
+        o(t, "keys").as_deref(),
+        Some("titulo DESC NULLS LAST, lower(cuerpo) text_pattern_ops")
+    );
     let fts = ix(docs, "docs_fts_ix");
     assert_eq!(fts.kind.as_deref(), Some("gin"));
-    assert!(fts.columns[0].starts_with("(to_tsvector('spanish'::regconfig"), "{:?}", fts.columns);
-    assert_eq!(o(ix(docs, "docs_id_brin"), "pages_per_range").as_deref(), Some("16"));
+    assert!(
+        fts.columns[0].starts_with("(to_tsvector('spanish'::regconfig"),
+        "{:?}",
+        fts.columns
+    );
+    assert_eq!(
+        o(ix(docs, "docs_id_brin"), "pages_per_range").as_deref(),
+        Some("16")
+    );
     let sala = ix(docs, "docs_sala_ux");
     assert!(sala.options.contains_key("nulls_not_distinct") && sala.filter.is_some());
     assert_eq!(ix(docs, "docs_cuerpo_hash").kind.as_deref(), Some("hash"));
     assert_eq!(docs.checks.len(), 1);
     assert_eq!(docs.checks[0].name.as_deref(), Some("docs_codigo_ck"));
-    let get = |k: &str, n: &str| oa.get(&(k.to_string(), Some("app".to_string()), n.to_string())).cloned().unwrap_or_else(|| panic!("{k} {n}"));
-    assert!(get("sequence", "folio").contains("AS integer INCREMENT BY 5 MINVALUE 1 MAXVALUE 2147483647 START WITH 100 CACHE 10 NO CYCLE"));
+    let get = |k: &str, n: &str| {
+        oa.get(&(k.to_string(), Some("app".to_string()), n.to_string()))
+            .cloned()
+            .unwrap_or_else(|| panic!("{k} {n}"))
+    };
+    assert!(get("sequence", "folio").contains(
+        "AS integer INCREMENT BY 5 MINVALUE 1 MAXVALUE 2147483647 START WITH 100 CACHE 10 NO CYCLE"
+    ));
     assert!(get("sequence", "suelta").contains("OWNED BY \"app\".\"docs\".\"sala\""));
-    assert_eq!(get("type", "mood"), "CREATE TYPE \"app\".\"mood\" AS ENUM (E'bien', E'mal', E'así así');");
-    assert!(get("type", "positivo").contains("DEFAULT 1 NOT NULL\n    CONSTRAINT positivo_ck CHECK ((VALUE > 0))"));
-    assert_eq!(get("type", "punto"), "CREATE TYPE \"app\".\"punto\" AS (\n    x double precision,\n    y double precision\n);");
+    assert_eq!(
+        get("type", "mood"),
+        "CREATE TYPE \"app\".\"mood\" AS ENUM (E'bien', E'mal', E'así así');"
+    );
+    assert!(get("type", "positivo")
+        .contains("DEFAULT 1 NOT NULL\n    CONSTRAINT positivo_ck CHECK ((VALUE > 0))"));
+    assert_eq!(
+        get("type", "punto"),
+        "CREATE TYPE \"app\".\"punto\" AS (\n    x double precision,\n    y double precision\n);"
+    );
     assert!(get("type", "rango_fl").contains("SUBTYPE = double precision"));
     // Identity sequences and range constructors belong to their owner.
-    assert!(!oa.keys().any(|(k, _, n)| k == "function" || n.contains("docs_id_seq")), "{:?}", oa.keys());
+    assert!(
+        !oa.keys()
+            .any(|(k, _, n)| k == "function" || n.contains("docs_id_seq")),
+        "{:?}",
+        oa.keys()
+    );
 }
 
 const PG_OPS: [(Op, &str); 7] = [
@@ -463,7 +594,10 @@ async fn postgres() {
         eprintln!("DBINE_TEST_POSTGRES_URL not set; skipping");
         return;
     };
-    assert_eq!(compare_and_sync("postgres", &url, PG_SOURCE, PG_TARGET, pg_inspect).await, ops(&PG_OPS));
+    assert_eq!(
+        compare_and_sync("postgres", &url, PG_SOURCE, PG_TARGET, pg_inspect).await,
+        ops(&PG_OPS)
+    );
 }
 
 #[tokio::test]
@@ -473,7 +607,10 @@ async fn timescale() {
         eprintln!("DBINE_TEST_TIMESCALE_URL not set; skipping");
         return;
     };
-    assert_eq!(compare_and_sync("timescaledb", &url, PG_SOURCE, PG_TARGET, pg_inspect).await, ops(&PG_OPS));
+    assert_eq!(
+        compare_and_sync("timescaledb", &url, PG_SOURCE, PG_TARGET, pg_inspect).await,
+        ops(&PG_OPS)
+    );
 }
 
 #[tokio::test]
@@ -487,18 +624,47 @@ async fn cockroach() {
         let docs = &ta["docs"];
         assert_eq!(ix(docs, "docs_codigo_uq").include, ["titulo"]);
         let t = ix(docs, "docs_titulo_ix");
-        assert_eq!((t.include.as_slice(), t.options.get("keys").map(String::as_str)), (&["j".to_string()][..], Some("titulo DESC, codigo ASC")));
+        assert_eq!(
+            (
+                t.include.as_slice(),
+                t.options.get("keys").map(String::as_str)
+            ),
+            (&["j".to_string()][..], Some("titulo DESC, codigo ASC"))
+        );
         assert_eq!(ix(docs, "docs_j_gin").kind.as_deref(), Some("gin"));
         assert_eq!(t.kind.as_deref(), Some("btree"));
         assert_eq!(ix(docs, "docs_lower_ix").columns, ["(lower(titulo))"]);
         assert_eq!(docs.checks.len(), 1);
-        let get = |k: &str, n: &str| oa.get(&(k.to_string(), Some("app".to_string()), n.to_string())).cloned().unwrap_or_else(|| panic!("{k} {n}"));
-        assert!(get("sequence", "folio").contains("INCREMENT BY 5") && get("sequence", "folio").contains("START WITH 100"));
-        assert_eq!(get("type", "mood"), "CREATE TYPE \"app\".\"mood\" AS ENUM (E'bien', E'mal', E'así así');");
-        assert!(get("type", "punto").contains("x FLOAT8") || get("type", "punto").contains("x double precision"), "{}", get("type", "punto"));
+        let get = |k: &str, n: &str| {
+            oa.get(&(k.to_string(), Some("app".to_string()), n.to_string()))
+                .cloned()
+                .unwrap_or_else(|| panic!("{k} {n}"))
+        };
+        assert!(
+            get("sequence", "folio").contains("INCREMENT BY 5")
+                && get("sequence", "folio").contains("START WITH 100")
+        );
+        assert_eq!(
+            get("type", "mood"),
+            "CREATE TYPE \"app\".\"mood\" AS ENUM (E'bien', E'mal', E'así así');"
+        );
+        assert!(
+            get("type", "punto").contains("x FLOAT8")
+                || get("type", "punto").contains("x double precision"),
+            "{}",
+            get("type", "punto")
+        );
     })
     .await;
-    assert_eq!(got, ops(&[(Op::Replace, "folio"), (Op::Replace, "mood"), (Op::Create, "punto"), (Op::Drop, "extra")]));
+    assert_eq!(
+        got,
+        ops(&[
+            (Op::Replace, "folio"),
+            (Op::Replace, "mood"),
+            (Op::Create, "punto"),
+            (Op::Drop, "extra")
+        ])
+    );
 }
 
 const OG_SOURCE: &str = "
@@ -555,21 +721,49 @@ async fn opengauss() {
     let got = compare_and_sync("opengauss", &url, OG_SOURCE, OG_TARGET, |ta, oa| {
         let docs = &ta["docs"];
         let uq = ix(docs, "docs_codigo_uq");
-        assert_eq!((uq.include.as_slice(), uq.options.get("constraint").map(String::as_str)), (&["titulo".to_string()][..], Some("UNIQUE (codigo) INCLUDE (titulo) WITH (storage_type=ustore, index_type=rcr)")));
+        assert_eq!(
+            (
+                uq.include.as_slice(),
+                uq.options.get("constraint").map(String::as_str)
+            ),
+            (
+                &["titulo".to_string()][..],
+                Some("UNIQUE (codigo) INCLUDE (titulo) WITH (storage_type=ustore, index_type=rcr)")
+            )
+        );
         let t = ix(docs, "docs_titulo_ix");
         assert_eq!(t.include, ["codigo"]);
         assert_eq!(t.options.get("fillfactor").map(String::as_str), Some("80"));
-        assert!(t.options.get("keys").is_some_and(|k| k.starts_with("titulo DESC")), "{t:?}");
+        assert!(
+            t.options
+                .get("keys")
+                .is_some_and(|k| k.starts_with("titulo DESC")),
+            "{t:?}"
+        );
         assert_eq!(docs.checks.len(), 1);
         assert!(ix(&ta["notas"], "notas_fts_ix").columns[0].starts_with("(to_tsvector("));
-        let get = |k: &str, n: &str| oa.get(&(k.to_string(), Some("app".to_string()), n.to_string())).cloned().unwrap_or_else(|| panic!("{k} {n}"));
-        assert_eq!(get("synonym", "sin_docs"), "CREATE SYNONYM \"app\".\"sin_docs\" FOR app.docs;");
+        let get = |k: &str, n: &str| {
+            oa.get(&(k.to_string(), Some("app".to_string()), n.to_string()))
+                .cloned()
+                .unwrap_or_else(|| panic!("{k} {n}"))
+        };
+        assert_eq!(
+            get("synonym", "sin_docs"),
+            "CREATE SYNONYM \"app\".\"sin_docs\" FOR app.docs;"
+        );
         assert!(get("sequence", "folio").contains("START WITH 100"));
     })
     .await;
     assert_eq!(
         got,
-        ops(&[(Op::Replace, "folio"), (Op::Create, "sin_docs"), (Op::Replace, "mood"), (Op::Create, "punto"), (Op::Drop, "extra"), (Op::Drop, "sin_viejo")])
+        ops(&[
+            (Op::Replace, "folio"),
+            (Op::Create, "sin_docs"),
+            (Op::Replace, "mood"),
+            (Op::Create, "punto"),
+            (Op::Drop, "extra"),
+            (Op::Drop, "sin_viejo")
+        ])
     );
 }
 
@@ -626,17 +820,48 @@ async fn h2() {
     };
     let got = compare_and_sync("h2", &url, H2_SOURCE, H2_TARGET, |ta, oa| {
         let docs = &ta["docs"];
-        assert_eq!(ix(docs, "docs_codigo_uq").options.get("constraint").map(String::as_str), Some("UNIQUE (\"codigo\")"));
-        assert_eq!(ix(docs, "docs_titulo_ix").options.get("keys").map(String::as_str), Some("\"titulo\" DESC, \"codigo\""));
+        assert_eq!(
+            ix(docs, "docs_codigo_uq")
+                .options
+                .get("constraint")
+                .map(String::as_str),
+            Some("UNIQUE (\"codigo\")")
+        );
+        assert_eq!(
+            ix(docs, "docs_titulo_ix")
+                .options
+                .get("keys")
+                .map(String::as_str),
+            Some("\"titulo\" DESC, \"codigo\"")
+        );
         assert_eq!(ix(docs, "docs_cant_hash").kind.as_deref(), Some("HASH"));
         assert_eq!(ix(docs, "docs_g_sp").kind.as_deref(), Some("SPATIAL"));
         assert_eq!(docs.checks.len(), 1);
-        let get = |k: &str, n: &str| oa.get(&(k.to_string(), Some("app".to_string()), n.to_string())).cloned().unwrap_or_else(|| panic!("{k} {n}"));
-        assert!(get("sequence", "folio").contains("START WITH 100") && get("sequence", "folio").contains("CACHE 10"));
-        assert!(get("domain", "positivo").contains("DEFAULT 1") && get("domain", "positivo").contains("CHECK (VALUE > 0)"), "{}", get("domain", "positivo"));
+        let get = |k: &str, n: &str| {
+            oa.get(&(k.to_string(), Some("app".to_string()), n.to_string()))
+                .cloned()
+                .unwrap_or_else(|| panic!("{k} {n}"))
+        };
+        assert!(
+            get("sequence", "folio").contains("START WITH 100")
+                && get("sequence", "folio").contains("CACHE 10")
+        );
+        assert!(
+            get("domain", "positivo").contains("DEFAULT 1")
+                && get("domain", "positivo").contains("CHECK (VALUE > 0)"),
+            "{}",
+            get("domain", "positivo")
+        );
     })
     .await;
-    assert_eq!(got, ops(&[(Op::Replace, "positivo"), (Op::Replace, "folio"), (Op::Drop, "extra")]));
+    assert_eq!(
+        got,
+        ops(&[
+            (Op::Replace, "positivo"),
+            (Op::Replace, "folio"),
+            (Op::Drop, "extra")
+        ])
+    );
 }
 
 const MZ_SOURCE: &str = "
@@ -670,8 +895,16 @@ async fn materialize() {
     };
     let got = compare_and_sync("materialize", &url, MZ_SOURCE, MZ_TARGET, |ta, oa| {
         assert_eq!(ix(&ta["docs"], "docs_titulo_ix").columns.len(), 2);
-        let get = |n: &str| oa.get(&("type".to_string(), Some("app".to_string()), n.to_string())).cloned().unwrap_or_else(|| panic!("{n}"));
-        assert!(get("enteros").starts_with("CREATE TYPE app.enteros AS LIST"), "{}", get("enteros"));
+        let get = |n: &str| {
+            oa.get(&("type".to_string(), Some("app".to_string()), n.to_string()))
+                .cloned()
+                .unwrap_or_else(|| panic!("{n}"))
+        };
+        assert!(
+            get("enteros").starts_with("CREATE TYPE app.enteros AS LIST"),
+            "{}",
+            get("enteros")
+        );
     })
     .await;
     assert_eq!(got, ops(&[(Op::Replace, "enteros"), (Op::Create, "par")]));
@@ -694,7 +927,10 @@ async fn cratedb() {
         return;
     };
     let d = driver("cratedb");
-    let mut s = d.connect(&parse_url("cratedb", &url), None).await.expect("connect");
+    let mut s = d
+        .connect(&parse_url("cratedb", &url), None)
+        .await
+        .expect("connect");
     let clean = "DROP TABLE IF EXISTS cmp_a.docs;\nDROP TABLE IF EXISTS cmp_a.nuevos;\nDROP TABLE IF EXISTS cmp_b.docs;\nDROP TABLE IF EXISTS cmp_b.nuevos";
     run_all(&mut s, clean).await;
     run_all(
@@ -710,21 +946,44 @@ async fn cratedb() {
     let tb = crate_read(&mut s, "cmp_b").await;
     eprintln!("{ta:#?}");
     let nuevos = &ta["nuevos"];
-    assert_eq!(ix(nuevos, "b").options.get("analyzer").map(String::as_str), Some("spanish"));
+    assert_eq!(
+        ix(nuevos, "b").options.get("analyzer").map(String::as_str),
+        Some("spanish")
+    );
     assert_eq!(ix(nuevos, "d").kind.as_deref(), Some("OFF"));
     assert_eq!(ix(nuevos, "ft").columns, ["c"]);
     assert_eq!(nuevos.checks.len(), 2);
-    assert_eq!(ix(&ta["docs"], "ft").options.get("analyzer").map(String::as_str), Some("english"));
+    assert_eq!(
+        ix(&ta["docs"], "ft")
+            .options
+            .get("analyzer")
+            .map(String::as_str),
+        Some("english")
+    );
 
     let changes = vec![
-        TableChange::Alter { old: tb["docs"].clone(), new: ta["docs"].clone() },
-        TableChange::Create { table: ta["nuevos"].clone() },
+        TableChange::Alter {
+            old: tb["docs"].clone(),
+            new: ta["docs"].clone(),
+        },
+        TableChange::Create {
+            table: ta["nuevos"].clone(),
+        },
     ];
     let script = d.sync_script(&changes).unwrap();
     eprintln!("{}\n{:?}", script.statements.join("\n"), script.warnings);
-    assert!(script.warnings.iter().any(|w| w.contains("cmp_b.docs") && w.contains("recrear la tabla")), "{:?}", script.warnings);
+    assert!(
+        script
+            .warnings
+            .iter()
+            .any(|w| w.contains("cmp_b.docs") && w.contains("recrear la tabla")),
+        "{:?}",
+        script.warnings
+    );
     for st in &script.statements {
-        run(&mut s, st).await.unwrap_or_else(|e| panic!("{e}\n{st}"));
+        run(&mut s, st)
+            .await
+            .unwrap_or_else(|e| panic!("{e}\n{st}"));
     }
     let tb2 = crate_read(&mut s, "cmp_b").await;
     assert_eq!(tb2["nuevos"], ta["nuevos"]);
@@ -768,8 +1027,20 @@ async fn risingwave() {
     let got = compare_and_sync("risingwave", &url, &source, &target, |ta, _| {
         let docs = &ta["docs"];
         let i = ix(docs, "docs_ix");
-        assert_eq!((i.include.as_slice(), i.options.get("keys").map(String::as_str)), (&["c".to_string()][..], Some("a DESC, b")));
-        assert_eq!(ix(docs, "docs_ix2").options.get("distributed_by").map(String::as_str), Some("lower(b)"));
+        assert_eq!(
+            (
+                i.include.as_slice(),
+                i.options.get("keys").map(String::as_str)
+            ),
+            (&["c".to_string()][..], Some("a DESC, b"))
+        );
+        assert_eq!(
+            ix(docs, "docs_ix2")
+                .options
+                .get("distributed_by")
+                .map(String::as_str),
+            Some("lower(b)")
+        );
         assert!(ix(docs, "docs_todo").include.is_empty());
     })
     .await;
@@ -834,19 +1105,43 @@ async fn yugabyte() {
         let docs = &ta["docs"];
         let uq = ix(docs, "docs_codigo_uq");
         assert_eq!(uq.include, ["titulo"]);
-        assert!(uq.options.get("constraint").is_some_and(|c| c.contains("NULLS NOT DISTINCT")), "{uq:?}");
+        assert!(
+            uq.options
+                .get("constraint")
+                .is_some_and(|c| c.contains("NULLS NOT DISTINCT")),
+            "{uq:?}"
+        );
         let t = ix(docs, "docs_titulo_ix");
         assert_eq!(t.include, ["codigo"]);
-        assert!(t.options.get("keys").is_some_and(|k| k.starts_with("titulo DESC")), "{t:?}");
-        assert!(ix(docs, "docs_sala_hash").options.get("keys").is_some_and(|k| k.contains("HASH")));
+        assert!(
+            t.options
+                .get("keys")
+                .is_some_and(|k| k.starts_with("titulo DESC")),
+            "{t:?}"
+        );
+        assert!(ix(docs, "docs_sala_hash")
+            .options
+            .get("keys")
+            .is_some_and(|k| k.contains("HASH")));
         assert_eq!(ix(docs, "docs_fts_ix").kind.as_deref(), Some("ybgin"));
         assert_eq!(docs.checks.len(), 1);
-        assert!(oa.contains_key(&("type".to_string(), Some("app".to_string()), "rango_fl".to_string())));
+        assert!(oa.contains_key(&(
+            "type".to_string(),
+            Some("app".to_string()),
+            "rango_fl".to_string()
+        )));
     })
     .await;
     assert_eq!(
         got,
-        ops(&[(Op::Replace, "folio"), (Op::Replace, "mood"), (Op::Create, "positivo"), (Op::Create, "punto"), (Op::Create, "rango_fl"), (Op::Drop, "extra")])
+        ops(&[
+            (Op::Replace, "folio"),
+            (Op::Replace, "mood"),
+            (Op::Create, "positivo"),
+            (Op::Create, "punto"),
+            (Op::Create, "rango_fl"),
+            (Op::Drop, "extra")
+        ])
     );
 }
 
@@ -881,18 +1176,34 @@ fn without(t: &TableSchema, f: impl FnOnce(&mut TableSchema)) -> TableSchema {
 
 /// Runs the script CompareView's sync would make for one side: `tables` as
 /// `changesOf` gives them, `objects` (kind, name) dropped.
-async fn sync_side(d: &dyn Driver, s: &mut Box<dyn Session>, tables: &[TableChange], objects: &[(&str, &str)], read_objects: &Objects) {
+async fn sync_side(
+    d: &dyn Driver,
+    s: &mut Box<dyn Session>,
+    tables: &[TableChange],
+    objects: &[(&str, &str)],
+    read_objects: &Objects,
+) {
     let mut objs = Vec::new();
     for ((k, sc, n), def) in read_objects {
         if objects.contains(&(k.as_str(), n.as_str())) {
             objs.push((Op::Drop, k.clone(), sc.clone(), n.clone(), def.clone()));
         }
     }
-    assert_eq!(objs.len(), objects.len(), "{objects:?} in {:?}", read_objects.keys());
+    assert_eq!(
+        objs.len(),
+        objects.len(),
+        "{objects:?} in {:?}",
+        read_objects.keys()
+    );
     let statements = plan(d, tables, &objs);
     eprintln!("---- drop script\n{}", statements.join("\n"));
     for st in &statements {
-        run(s, st).await.unwrap_or_else(|e| panic!("{e}\n---\n{st}\n---\nwhole script:\n{}", statements.join("\n")));
+        run(s, st).await.unwrap_or_else(|e| {
+            panic!(
+                "{e}\n---\n{st}\n---\nwhole script:\n{}",
+                statements.join("\n")
+            )
+        });
     }
 }
 
@@ -919,42 +1230,107 @@ async fn compare_drops(id: &str, url: &str, pk_drops: bool) {
     let (tb, ob) = read(&mut b).await;
     assert_eq!(ta, tb);
     assert_eq!(oa.keys().collect::<Vec<_>>(), ob.keys().collect::<Vec<_>>());
-    for k in [("view", "v1"), ("view", "v2"), ("function", "audit"), ("trigger", "marca"), ("function", "f"), ("procedure", "p")] {
-        assert!(oa.keys().any(|(kind, _, n)| (kind.as_str(), n.as_str()) == k), "{k:?} in {:?}", oa.keys());
+    for k in [
+        ("view", "v1"),
+        ("view", "v2"),
+        ("function", "audit"),
+        ("trigger", "marca"),
+        ("function", "f"),
+        ("procedure", "p"),
+    ] {
+        assert!(
+            oa.keys()
+                .any(|(kind, _, n)| (kind.as_str(), n.as_str()) == k),
+            "{k:?} in {:?}",
+            oa.keys()
+        );
     }
-    eprintln!("-- marca\n{}\n-- f\n{}", oa.iter().find(|(k, _)| k.2 == "marca").unwrap().1, oa.iter().find(|(k, _)| k.2 == "f").unwrap().1);
+    eprintln!(
+        "-- marca\n{}\n-- f\n{}",
+        oa.iter().find(|(k, _)| k.2 == "marca").unwrap().1,
+        oa.iter().find(|(k, _)| k.2 == "f").unwrap().1
+    );
 
     // An unused index, dropped on the left only: the difference is just that.
     let no_ix = |t: &TableSchema| without(t, |n| n.indexes.retain(|i| i.name != "padre_nombre_ix"));
-    sync_side(d.as_ref(), &mut a, &[TableChange::Alter { old: ta["padre"].clone(), new: no_ix(&ta["padre"]) }], &[], &oa).await;
+    sync_side(
+        d.as_ref(),
+        &mut a,
+        &[TableChange::Alter {
+            old: ta["padre"].clone(),
+            new: no_ix(&ta["padre"]),
+        }],
+        &[],
+        &oa,
+    )
+    .await;
     let (ta1, _) = read(&mut a).await;
-    assert!(ta1["padre"].indexes.iter().all(|i| i.name != "padre_nombre_ix"));
+    assert!(ta1["padre"]
+        .indexes
+        .iter()
+        .all(|i| i.name != "padre_nombre_ix"));
     assert_eq!(ta1["padre"], no_ix(&tb["padre"]));
     assert_ne!(ta1, tb);
     // Then on the right: both read the same again.
-    sync_side(d.as_ref(), &mut b, &[TableChange::Alter { old: tb["padre"].clone(), new: no_ix(&tb["padre"]) }], &[], &ob).await;
+    sync_side(
+        d.as_ref(),
+        &mut b,
+        &[TableChange::Alter {
+            old: tb["padre"].clone(),
+            new: no_ix(&tb["padre"]),
+        }],
+        &[],
+        &ob,
+    )
+    .await;
     let (tb1, _) = read(&mut b).await;
     assert_eq!(ta1, tb1);
 
     // The rest on both sides at once, as the two tabs of the sync dialog.
-    let objects = [("view", "v1"), ("view", "v2"), ("trigger", "marca"), ("function", "audit"), ("function", "f"), ("procedure", "p")];
+    let objects = [
+        ("view", "v1"),
+        ("view", "v2"),
+        ("trigger", "marca"),
+        ("function", "audit"),
+        ("function", "f"),
+        ("procedure", "p"),
+    ];
     for (s, t, o) in [(&mut a, &ta1, &oa), (&mut b, &tb1, &ob)] {
         let hijo = without(&t["hijo"], |n| {
             n.indexes.retain(|i| i.name != "hijo_nota_ix");
             n.columns.retain(|c| c.name != "extra");
-            n.checks.retain(|c| c.name.as_deref() != Some("hijo_nota_ck"));
+            n.checks
+                .retain(|c| c.name.as_deref() != Some("hijo_nota_ck"));
             // Padre goes: the key that references it too (CompareView's cascade).
-            n.foreign_keys.retain(|f| f.name.as_deref() != Some("hijo_padre_fk"));
+            n.foreign_keys
+                .retain(|f| f.name.as_deref() != Some("hijo_padre_fk"));
             n.primary_key = None;
         });
-        let nieto = without(&t["nieto"], |n| n.foreign_keys.retain(|f| f.name.as_deref() != Some("nieto_hijo_fk")));
+        let nieto = without(&t["nieto"], |n| {
+            n.foreign_keys
+                .retain(|f| f.name.as_deref() != Some("nieto_hijo_fk"))
+        });
         let tables = [
-            TableChange::Alter { old: t["hijo"].clone(), new: hijo },
-            TableChange::Alter { old: t["nieto"].clone(), new: nieto },
-            TableChange::Drop { table: t["padre"].clone() },
+            TableChange::Alter {
+                old: t["hijo"].clone(),
+                new: hijo,
+            },
+            TableChange::Alter {
+                old: t["nieto"].clone(),
+                new: nieto,
+            },
+            TableChange::Drop {
+                table: t["padre"].clone(),
+            },
         ];
         let warnings = d.sync_script(&tables).expect("sync_script").warnings;
-        assert_eq!(warnings.iter().any(|w| w.contains("sin clave primaria: app.hijo")), !pk_drops, "{warnings:?}");
+        assert_eq!(
+            warnings
+                .iter()
+                .any(|w| w.contains("sin clave primaria: app.hijo")),
+            !pk_drops,
+            "{warnings:?}"
+        );
         sync_side(d.as_ref(), s, &tables, &objects, o).await;
     }
     let (ta2, oa2) = read(&mut a).await;
@@ -962,12 +1338,31 @@ async fn compare_drops(id: &str, url: &str, pk_drops: bool) {
     eprintln!("{ta2:#?}");
     assert_eq!(ta2.keys().collect::<Vec<_>>(), ["hijo", "nieto"]);
     let hijo = &ta2["hijo"];
-    assert!(hijo.indexes.iter().all(|i| i.name != "hijo_nota_ix"), "{:?}", hijo.indexes);
-    assert!(hijo.indexes.iter().any(|i| i.name == "hijo_padre_ix"), "{:?}", hijo.indexes);
-    assert_eq!(hijo.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "padre_id", "nota"]);
+    assert!(
+        hijo.indexes.iter().all(|i| i.name != "hijo_nota_ix"),
+        "{:?}",
+        hijo.indexes
+    );
+    assert!(
+        hijo.indexes.iter().any(|i| i.name == "hijo_padre_ix"),
+        "{:?}",
+        hijo.indexes
+    );
+    assert_eq!(
+        hijo.columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>(),
+        ["id", "padre_id", "nota"]
+    );
     assert!(hijo.checks.is_empty(), "{:?}", hijo.checks);
     assert!(hijo.foreign_keys.is_empty(), "{:?}", hijo.foreign_keys);
-    assert_eq!(hijo.primary_key.is_none(), pk_drops, "{:?}", hijo.primary_key);
+    assert_eq!(
+        hijo.primary_key.is_none(),
+        pk_drops,
+        "{:?}",
+        hijo.primary_key
+    );
     assert!(ta2["nieto"].foreign_keys.is_empty());
     assert!(oa2.is_empty(), "{:?}", oa2.keys());
     // Recompared: nothing left between the sides.
@@ -1023,17 +1418,44 @@ async fn cockroach_changes_a_primary_key() {
     let (t, _) = read(&mut s).await;
     let old = t["t"].clone();
     let mut new = old.clone();
-    new.primary_key = Some(dbine_driver::KeyDef { name: Some("t_pk2".into()), columns: vec!["a".into()] });
-    let script = d.sync_script(&[TableChange::Alter { old, new: new.clone() }]).expect("sync_script");
+    new.primary_key = Some(dbine_driver::KeyDef {
+        name: Some("t_pk2".into()),
+        columns: vec!["a".into()],
+    });
+    let script = d
+        .sync_script(&[TableChange::Alter {
+            old,
+            new: new.clone(),
+        }])
+        .expect("sync_script");
     eprintln!("{:#?}", script.statements);
-    assert!(script.statements.iter().all(|x| x != "ALTER TABLE \"app\".\"t\" DROP CONSTRAINT \"t_pk\";"), "{:?}", script.statements);
+    assert!(
+        script
+            .statements
+            .iter()
+            .all(|x| x != "ALTER TABLE \"app\".\"t\" DROP CONSTRAINT \"t_pk\";"),
+        "{:?}",
+        script.statements
+    );
     for st in &script.statements {
-        run(&mut s, st).await.unwrap_or_else(|e| panic!("{e}\n---\n{st}"));
+        run(&mut s, st)
+            .await
+            .unwrap_or_else(|e| panic!("{e}\n---\n{st}"));
     }
     let (t2, _) = read(&mut s).await;
     let got = &t2["t"];
-    assert_eq!(got.primary_key.as_ref().map(|k| k.columns.clone()), Some(vec!["a".to_string()]), "{got:#?}");
-    assert_eq!(got.primary_key.as_ref().and_then(|k| k.name.clone()).as_deref(), Some("t_pk2"));
+    assert_eq!(
+        got.primary_key.as_ref().map(|k| k.columns.clone()),
+        Some(vec!["a".to_string()]),
+        "{got:#?}"
+    );
+    assert_eq!(
+        got.primary_key
+            .as_ref()
+            .and_then(|k| k.name.clone())
+            .as_deref(),
+        Some("t_pk2")
+    );
     // No unique index left behind for the old key.
     assert!(got.indexes.is_empty(), "{:?}", got.indexes);
     drop(s);

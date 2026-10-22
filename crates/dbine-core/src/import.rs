@@ -35,7 +35,11 @@ pub struct ImportOptions {
 
 impl Default for ImportOptions {
     fn default() -> Self {
-        Self { delimiter: String::new(), header: true, sheet: None }
+        Self {
+            delimiter: String::new(),
+            header: true,
+            sheet: None,
+        }
     }
 }
 
@@ -62,7 +66,12 @@ pub fn detect(path: &Path, format: ImportFormat) -> ImportFormat {
     if format != ImportFormat::Auto {
         return format;
     }
-    match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("tsv" | "tab") => ImportFormat::Tsv,
         Some("json") => ImportFormat::Json,
         Some("jsonl" | "ndjson") => ImportFormat::JsonLines,
@@ -160,7 +169,10 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
             let (columns, pending) = if opts.header {
                 (first, None)
             } else {
-                ((1..=first.len()).map(|i| format!("columna{i}")).collect(), Some(first))
+                (
+                    (1..=first.len()).map(|i| format!("columna{i}")).collect(),
+                    Some(first),
+                )
             };
             let width = columns.len();
             let pending = pending.map(|r| Ok(r.iter().map(|s| typed(s)).collect::<Vec<_>>()));
@@ -171,14 +183,23 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                 v.truncate(width);
                 Ok(v)
             });
-            Ok(Reader { columns, sheets: Vec::new(), format, rows: Box::new(pending.into_iter().chain(rest)) })
+            Ok(Reader {
+                columns,
+                sheets: Vec::new(),
+                format,
+                rows: Box::new(pending.into_iter().chain(rest)),
+            })
         }
         ImportFormat::Json => {
-            let v: Value = serde_json::from_reader(BufReader::new(File::open(path)?)).map_err(bad)?;
+            let v: Value =
+                serde_json::from_reader(BufReader::new(File::open(path)?)).map_err(bad)?;
             let arr = match v {
                 Value::Array(a) => a,
                 // { "rows": [...] } / { "data": [...] }: the first array inside.
-                Value::Object(o) => o.into_iter().find_map(|(_, v)| v.as_array().cloned()).unwrap_or_default(),
+                Value::Object(o) => o
+                    .into_iter()
+                    .find_map(|(_, v)| v.as_array().cloned())
+                    .unwrap_or_default(),
                 other => vec![other],
             };
             let objs: Vec<Map<String, Value>> = arr
@@ -189,7 +210,12 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                 })
                 .collect();
             let (columns, rows) = objects_to_rows(objs);
-            Ok(Reader { columns, sheets: Vec::new(), format, rows: Box::new(rows.into_iter().map(Ok)) })
+            Ok(Reader {
+                columns,
+                sheets: Vec::new(),
+                format,
+                rows: Box::new(rows.into_iter().map(Ok)),
+            })
         }
         ImportFormat::JsonLines => {
             // Columns are the union of the keys: read the whole file once.
@@ -205,7 +231,12 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                 }
             }
             let (columns, rows) = objects_to_rows(objs);
-            Ok(Reader { columns, sheets: Vec::new(), format, rows: Box::new(rows.into_iter().map(Ok)) })
+            Ok(Reader {
+                columns,
+                sheets: Vec::new(),
+                format,
+                rows: Box::new(rows.into_iter().map(Ok)),
+            })
         }
         ImportFormat::Xlsx => {
             use calamine::{open_workbook_auto, Data, Reader as _};
@@ -220,12 +251,16 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                 match d {
                     Data::Empty => Value::Null,
                     Data::Int(i) => dbine_driver::json_i64(*i),
-                    Data::Float(f) if f.fract() == 0.0 && f.abs() < 9.0e15 => dbine_driver::json_i64(*f as i64),
+                    Data::Float(f) if f.fract() == 0.0 && f.abs() < 9.0e15 => {
+                        dbine_driver::json_i64(*f as i64)
+                    }
                     Data::Float(f) => dbine_driver::json_f64(*f),
                     Data::String(s) => typed(s),
                     Data::Bool(b) => Value::Bool(*b),
                     Data::DateTime(dt) => match dt.as_datetime() {
-                        Some(t) if t.time() == chrono::NaiveTime::MIN => t.format("%Y-%m-%d").to_string().into(),
+                        Some(t) if t.time() == chrono::NaiveTime::MIN => {
+                            t.format("%Y-%m-%d").to_string().into()
+                        }
                         Some(t) => t.format("%Y-%m-%d %H:%M:%S").to_string().into(),
                         None => Value::Null,
                     },
@@ -234,14 +269,43 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                 }
             };
             let mut all = range.rows();
-            let first: Vec<Value> = all.next().map(|r| r.iter().map(cell).collect()).unwrap_or_default();
+            let first: Vec<Value> = all
+                .next()
+                .map(|r| r.iter().map(cell).collect())
+                .unwrap_or_default();
             let (columns, pending) = if opts.header {
-                (first.iter().enumerate().map(|(i, v)| match v { Value::Null => format!("columna{}", i + 1), v => v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()) }).collect(), None)
+                (
+                    first
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| match v {
+                            Value::Null => format!("columna{}", i + 1),
+                            v => v
+                                .as_str()
+                                .map(str::to_string)
+                                .unwrap_or_else(|| v.to_string()),
+                        })
+                        .collect(),
+                    None,
+                )
             } else {
-                ((1..=first.len()).map(|i| format!("columna{i}")).collect::<Vec<_>>(), Some(first))
+                (
+                    (1..=first.len())
+                        .map(|i| format!("columna{i}"))
+                        .collect::<Vec<_>>(),
+                    Some(first),
+                )
             };
-            let rows: Vec<Vec<Value>> = pending.into_iter().chain(all.map(|r| r.iter().map(cell).collect())).collect();
-            Ok(Reader { columns, sheets, format, rows: Box::new(rows.into_iter().map(Ok)) })
+            let rows: Vec<Vec<Value>> = pending
+                .into_iter()
+                .chain(all.map(|r| r.iter().map(cell).collect()))
+                .collect();
+            Ok(Reader {
+                columns,
+                sheets,
+                format,
+                rows: Box::new(rows.into_iter().map(Ok)),
+            })
         }
         ImportFormat::Xml => {
             let text = std::fs::read_to_string(path)?;
@@ -257,14 +321,23 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                         m.insert(a.name().to_string(), typed(a.value()));
                     }
                     for f in row.children().filter(|n| n.is_element()) {
-                        let v = if f.attribute("null") == Some("true") { Value::Null } else { typed(f.text().unwrap_or("")) };
+                        let v = if f.attribute("null") == Some("true") {
+                            Value::Null
+                        } else {
+                            typed(f.text().unwrap_or(""))
+                        };
                         m.insert(f.tag_name().name().to_string(), v);
                     }
                     m
                 })
                 .collect();
             let (columns, rows) = objects_to_rows(objs);
-            Ok(Reader { columns, sheets: Vec::new(), format, rows: Box::new(rows.into_iter().map(Ok)) })
+            Ok(Reader {
+                columns,
+                sheets: Vec::new(),
+                format,
+                rows: Box::new(rows.into_iter().map(Ok)),
+            })
         }
     }
 }
@@ -272,9 +345,17 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
 /// `;` when the first line has more of them than commas (Spanish-locale CSV).
 fn sniff_delimiter(path: &Path) -> Option<u8> {
     let mut line = String::new();
-    BufReader::new(File::open(path).ok()?).read_line(&mut line).ok()?;
+    BufReader::new(File::open(path).ok()?)
+        .read_line(&mut line)
+        .ok()?;
     let count = |c: char| line.matches(c).count();
-    Some(if count(';') > count(',') { b';' } else if count('\t') > count(',') { b'\t' } else { b',' })
+    Some(if count(';') > count(',') {
+        b';'
+    } else if count('\t') > count(',') {
+        b'\t'
+    } else {
+        b','
+    })
 }
 
 /// Drops a UTF-8 BOM at the start of the stream.
@@ -285,7 +366,10 @@ struct BomSkip<R> {
 
 impl<R: io::Read> BomSkip<R> {
     fn new(inner: R) -> Self {
-        Self { inner, checked: false }
+        Self {
+            inner,
+            checked: false,
+        }
     }
 }
 
@@ -316,7 +400,11 @@ pub fn infer_type(values: &[&Value]) -> &'static str {
         "integer"
     } else if all(&|v| v.is_number()) {
         "number"
-    } else if all(&|v| v.as_str().is_some_and(|s| s.len() == 10 && chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok())) {
+    } else if all(&|v| {
+        v.as_str().is_some_and(|s| {
+            s.len() == 10 && chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()
+        })
+    }) {
         "date"
     } else if all(&|v| {
         v.as_str().is_some_and(|s| {
@@ -332,7 +420,12 @@ pub fn infer_type(values: &[&Value]) -> &'static str {
 }
 
 /// The first rows and the inferred column types.
-pub fn preview(path: &Path, format: ImportFormat, opts: &ImportOptions, limit: usize) -> io::Result<Preview> {
+pub fn preview(
+    path: &Path,
+    format: ImportFormat,
+    opts: &ImportOptions,
+    limit: usize,
+) -> io::Result<Preview> {
     let mut r = open(path, format, opts)?;
     let columns = r.columns.clone();
     let rows: Vec<Vec<Value>> = r.by_ref().take(limit.max(200)).collect::<io::Result<_>>()?;
@@ -341,10 +434,17 @@ pub fn preview(path: &Path, format: ImportFormat, opts: &ImportOptions, limit: u
         .enumerate()
         .map(|(i, name)| PreviewColumn {
             name: name.clone(),
-            inferred_type: infer_type(&rows.iter().filter_map(|row| row.get(i)).collect::<Vec<_>>()),
+            inferred_type: infer_type(
+                &rows.iter().filter_map(|row| row.get(i)).collect::<Vec<_>>(),
+            ),
         })
         .collect();
-    Ok(Preview { format: r.format, columns: cols, rows: rows.into_iter().take(limit).collect(), sheets: r.sheets })
+    Ok(Preview {
+        format: r.format,
+        columns: cols,
+        rows: rows.into_iter().take(limit).collect(),
+        sheets: r.sheets,
+    })
 }
 
 #[cfg(test)]
@@ -361,10 +461,28 @@ mod tests {
 
     #[test]
     fn csv_types_bom_and_sniffed_semicolons() {
-        let (_d, p) = file("a.csv", "\u{feff}id;nombre;monto;activo;cp\n1;Ana;10.5;true;01234\n2;;;false;5000\n".as_bytes());
+        let (_d, p) = file(
+            "a.csv",
+            "\u{feff}id;nombre;monto;activo;cp\n1;Ana;10.5;true;01234\n2;;;false;5000\n".as_bytes(),
+        );
         let pv = preview(&p, ImportFormat::Auto, &ImportOptions::default(), 50).unwrap();
-        assert_eq!(pv.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "nombre", "monto", "activo", "cp"]);
-        assert_eq!(pv.rows[0], vec![json!(1), json!("Ana"), json!(10.5), json!(true), json!("01234")]);
+        assert_eq!(
+            pv.columns
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "nombre", "monto", "activo", "cp"]
+        );
+        assert_eq!(
+            pv.rows[0],
+            vec![
+                json!(1),
+                json!("Ana"),
+                json!(10.5),
+                json!(true),
+                json!("01234")
+            ]
+        );
         assert_eq!(pv.rows[1][1], Value::Null);
         let types: Vec<&str> = pv.columns.iter().map(|c| c.inferred_type).collect();
         assert_eq!(types, ["integer", "text", "number", "boolean", "text"]);
@@ -375,7 +493,11 @@ mod tests {
         let (_d, p) = file("a.json", br#"[{"a":1,"b":{"x":1}},{"c":"2026-01-31"}]"#);
         let pv = preview(&p, ImportFormat::Auto, &ImportOptions::default(), 50).unwrap();
         assert_eq!(pv.columns.len(), 3);
-        assert_eq!(pv.rows[0][1], json!("{\"x\":1}"), "nested values as JSON text");
+        assert_eq!(
+            pv.rows[0][1],
+            json!("{\"x\":1}"),
+            "nested values as JSON text"
+        );
         assert_eq!(pv.columns[2].inferred_type, "date");
         let (_d2, p2) = file("a.jsonl", b"{\"a\":1}\n\n{\"a\":2,\"b\":true}\n");
         let r = open(&p2, ImportFormat::Auto, &ImportOptions::default()).unwrap();
@@ -386,8 +508,14 @@ mod tests {
     #[test]
     fn xml_as_exported() {
         let (_d, p) = file("a.xml", br#"<?xml version="1.0"?><rows><row><id>1</id><n null="true"/></row><row><id>2</id><n>x</n></row></rows>"#);
-        let rows: Vec<_> = open(&p, ImportFormat::Auto, &ImportOptions::default()).unwrap().collect::<io::Result<_>>().unwrap();
-        assert_eq!(rows, vec![vec![json!(1), Value::Null], vec![json!(2), json!("x")]]);
+        let rows: Vec<_> = open(&p, ImportFormat::Auto, &ImportOptions::default())
+            .unwrap()
+            .collect::<io::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![vec![json!(1), Value::Null], vec![json!(2), json!("x")]]
+        );
     }
 
     #[test]
@@ -395,10 +523,25 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("a.xlsx");
         let cols = vec![
-            dbine_driver::ResultColumn { name: "id".into(), type_name: "int".into() },
-            dbine_driver::ResultColumn { name: "nombre".into(), type_name: String::new() },
+            dbine_driver::ResultColumn {
+                name: "id".into(),
+                type_name: "int".into(),
+            },
+            dbine_driver::ResultColumn {
+                name: "nombre".into(),
+                type_name: String::new(),
+            },
         ];
-        crate::export::export_rows(&p, crate::export::ExportOptions { format: crate::export::Format::Xlsx, ..Default::default() }, &cols, &[vec![json!(7), json!("Ana")]]).unwrap();
+        crate::export::export_rows(
+            &p,
+            crate::export::ExportOptions {
+                format: crate::export::Format::Xlsx,
+                ..Default::default()
+            },
+            &cols,
+            &[vec![json!(7), json!("Ana")]],
+        )
+        .unwrap();
         let pv = preview(&p, ImportFormat::Auto, &ImportOptions::default(), 50).unwrap();
         assert_eq!(pv.columns[0].name, "id");
         assert_eq!(pv.rows[0], vec![json!(7), json!("Ana")]);

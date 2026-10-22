@@ -13,9 +13,13 @@ use std::collections::BTreeMap;
 
 pub(crate) fn fields() -> Vec<Field> {
     vec![
-        Field::new("managed_location", "Ubicación administrada (MANAGED LOCATION)", FieldKind::Text)
-            .placeholder("s3://bucket/ruta")
-            .help("Vacía: la raíz del metastore. Tiene que estar dentro de una ubicación externa."),
+        Field::new(
+            "managed_location",
+            "Ubicación administrada (MANAGED LOCATION)",
+            FieldKind::Text,
+        )
+        .placeholder("s3://bucket/ruta")
+        .help("Vacía: la raíz del metastore. Tiene que estar dentro de una ubicación externa."),
         Field::new("comment", "Comentario", FieldKind::Textarea),
     ]
 }
@@ -29,7 +33,9 @@ fn storage_url(v: &str) -> bool {
     match v.split_once("://") {
         Some((scheme, rest)) => {
             !scheme.is_empty()
-                && scheme.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
                 && !rest.is_empty()
                 && !v.chars().any(|c| c.is_control() || c == '\'' || c == '\\')
         }
@@ -63,10 +69,18 @@ impl DatabricksSession {
             .into_iter()
             .filter_map(|mut r| r.remove("url"))
             .collect();
-        Ok(vec![FieldChoices { key: "managed_location".into(), default: None, values: urls }])
+        Ok(vec![FieldChoices {
+            key: "managed_location".into(),
+            default: None,
+            values: urls,
+        }])
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let sql = script(name, o)?;
         self.run(&sql, 1, None).await.map(|_| ())
     }
@@ -77,13 +91,22 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script("ventas", &o(&[])).unwrap(), "CREATE CATALOG `ventas`");
-        assert_eq!(script("ven`tas", &o(&[("comment", " ")])).unwrap(), "CREATE CATALOG `ven``tas`");
+        assert_eq!(
+            script("ventas", &o(&[])).unwrap(),
+            "CREATE CATALOG `ventas`"
+        );
+        assert_eq!(
+            script("ven`tas", &o(&[("comment", " ")])).unwrap(),
+            "CREATE CATALOG `ven``tas`"
+        );
     }
 
     #[test]
@@ -96,8 +119,18 @@ mod tests {
 
     #[test]
     fn values_are_checked() {
-        for bad in ["/dbfs/tmp", "s3://", "S3://x", "s3://b/x' --", "s3://b\\x", "://x"] {
-            assert!(script("v", &o(&[("managed_location", bad)])).is_err(), "{bad}");
+        for bad in [
+            "/dbfs/tmp",
+            "s3://",
+            "S3://x",
+            "s3://b/x' --",
+            "s3://b\\x",
+            "://x",
+        ] {
+            assert!(
+                script("v", &o(&[("managed_location", bad)])).is_err(),
+                "{bad}"
+            );
         }
     }
 }

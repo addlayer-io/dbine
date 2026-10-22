@@ -12,7 +12,9 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn config(url: &str) -> ConnectionConfig {
-    let rest = url.strip_prefix("oracle://").expect("oracle://user:pass@host:port/service");
+    let rest = url
+        .strip_prefix("oracle://")
+        .expect("oracle://user:pass@host:port/service");
     let (cred, addr) = rest.split_once('@').unwrap();
     let (user, pass) = cred.split_once(':').unwrap();
     let (hostport, service) = addr.split_once('/').unwrap();
@@ -51,36 +53,84 @@ async fn schema_options() {
     };
     let d = dbine_driver_oracle::drivers().remove(0);
     let mut s = d.connect(&config(&url), None).await.unwrap();
-    for n in ["DBINE_CREATE_OPTS", "DBINE_CREATE_PLAIN", "DBINE_CREATE_TEMP"] {
+    for n in [
+        "DBINE_CREATE_OPTS",
+        "DBINE_CREATE_PLAIN",
+        "DBINE_CREATE_TEMP",
+    ] {
         let _ = s.drop_database(n).await;
     }
 
     let choices = s.create_database_choices().await.unwrap();
     eprintln!("{choices:?}");
     let get = |k: &str| choices.iter().find(|c| c.key == k).unwrap();
-    let default_ts = get("default_tablespace").default.clone().expect("default tablespace");
-    assert!(get("default_tablespace").values.contains(&"SYSAUX".to_string()));
-    let temp = get("temporary_tablespace").default.clone().expect("default temp");
+    let default_ts = get("default_tablespace")
+        .default
+        .clone()
+        .expect("default tablespace");
+    assert!(get("default_tablespace")
+        .values
+        .contains(&"SYSAUX".to_string()));
+    let temp = get("temporary_tablespace")
+        .default
+        .clone()
+        .expect("default temp");
     assert!(get("temporary_tablespace").values.contains(&temp));
 
     // Named tablespace and a quota: one CREATE USER.
-    let options: BTreeMap<String, String> =
-        [("default_tablespace", "sysaux"), ("temporary_tablespace", temp.as_str()), ("quota", "10M")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
-    assert_eq!(text(&mut s, &format!("{ACCOUNT}'DBINE_CREATE_OPTS'")).await, format!("SYSAUX|{temp}|10485760"));
+    let options: BTreeMap<String, String> = [
+        ("default_tablespace", "sysaux"),
+        ("temporary_tablespace", temp.as_str()),
+        ("quota", "10M"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
+    assert_eq!(
+        text(&mut s, &format!("{ACCOUNT}'DBINE_CREATE_OPTS'")).await,
+        format!("SYSAUX|{temp}|10485760")
+    );
 
     // Only a quota: the block finds the default tablespace.
-    let options: BTreeMap<String, String> = [("quota", "5M")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    eprintln!("{}", d.create_database_script("dbine_create_temp", &options).unwrap());
-    s.create_database_with("dbine_create_temp", &options).await.unwrap();
-    assert_eq!(text(&mut s, &format!("{ACCOUNT}'DBINE_CREATE_TEMP'")).await, format!("{default_ts}|{temp}|5242880"));
+    let options: BTreeMap<String, String> = [("quota", "5M")]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_temp", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_temp", &options)
+        .await
+        .unwrap();
+    assert_eq!(
+        text(&mut s, &format!("{ACCOUNT}'DBINE_CREATE_TEMP'")).await,
+        format!("{default_ts}|{temp}|5242880")
+    );
 
     // No options: the plain create (unlimited quota, -1).
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
-    assert_eq!(text(&mut s, &format!("{ACCOUNT}'DBINE_CREATE_PLAIN'")).await, format!("{default_ts}|{temp}|-1"));
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        text(&mut s, &format!("{ACCOUNT}'DBINE_CREATE_PLAIN'")).await,
+        format!("{default_ts}|{temp}|-1")
+    );
 
-    for n in ["DBINE_CREATE_OPTS", "DBINE_CREATE_PLAIN", "DBINE_CREATE_TEMP"] {
+    for n in [
+        "DBINE_CREATE_OPTS",
+        "DBINE_CREATE_PLAIN",
+        "DBINE_CREATE_TEMP",
+    ] {
         s.drop_database(n).await.unwrap();
     }
 }

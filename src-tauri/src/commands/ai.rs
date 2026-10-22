@@ -9,7 +9,9 @@ use crate::state::AppState;
 use dashmap::DashMap;
 use dbine_ai::embedded::{self, CatalogModel};
 use dbine_ai::prompts::{self, Prompts};
-use dbine_ai::{AiError, Cancel, ChatMessage, ChatRequest, Delta, Endpoints, ProviderInfo, ProviderKind};
+use dbine_ai::{
+    AiError, Cancel, ChatMessage, ChatRequest, Delta, Endpoints, ProviderInfo, ProviderKind,
+};
 use dbine_driver::{Language, TableSchema};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -30,7 +32,10 @@ pub struct AiRuntime {
 impl AiRuntime {
     pub fn new(models_dir: std::path::PathBuf) -> Self {
         Self {
-            endpoints: Endpoints { models_dir, ..Endpoints::default() },
+            endpoints: Endpoints {
+                models_dir,
+                ..Endpoints::default()
+            },
             chats: DashMap::new(),
             downloads: DashMap::new(),
             schemas: DashMap::new(),
@@ -71,14 +76,27 @@ pub struct DetectOut {
 fn ram_gb() -> u64 {
     #[cfg(target_os = "macos")]
     {
-        let out = std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output().ok();
-        if let Some(n) = out.and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok()) {
+        let out = std::process::Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+            .ok();
+        if let Some(n) = out.and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u64>()
+                .ok()
+        }) {
             return n / (1 << 30);
         }
     }
     #[cfg(target_os = "linux")]
     if let Ok(s) = std::fs::read_to_string("/proc/meminfo") {
-        if let Some(kb) = s.lines().find(|l| l.starts_with("MemTotal")).and_then(|l| l.split_whitespace().nth(1)).and_then(|v| v.parse::<u64>().ok()) {
+        if let Some(kb) = s
+            .lines()
+            .find(|l| l.starts_with("MemTotal"))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse::<u64>().ok())
+        {
             return kb / (1 << 20);
         }
     }
@@ -91,7 +109,11 @@ pub async fn ai_detect(ai: State<'_, AiRuntime>) -> CommandResult<DetectOut> {
     let installed = embedded::installed(&ai.endpoints.models_dir);
     let ram = ram_gb();
     // The biggest model this machine is comfortable with.
-    let best = embedded::CATALOG.iter().filter(|m| u64::from(m.min_ram_gb) <= ram).map(|m| m.id).last();
+    let best = embedded::CATALOG
+        .iter()
+        .filter(|m| u64::from(m.min_ram_gb) <= ram)
+        .map(|m| m.id)
+        .last();
     Ok(DetectOut {
         providers,
         catalog: embedded::CATALOG
@@ -105,7 +127,11 @@ pub async fn ai_detect(ai: State<'_, AiRuntime>) -> CommandResult<DetectOut> {
             .collect(),
         embedded_enabled: embedded::ENABLED,
         // Same rule as the built-in catalog: the 32B from 48 GB.
-        ollama_recommended_model: if ram >= 48 { "qwen2.5-coder:32b" } else { dbine_ai::ollama::RECOMMENDED_MODEL },
+        ollama_recommended_model: if ram >= 48 {
+            "qwen2.5-coder:32b"
+        } else {
+            dbine_ai::ollama::RECOMMENDED_MODEL
+        },
     })
 }
 
@@ -209,19 +235,34 @@ pub struct ChatOut {
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ContextItem {
-    Engine { name: String },
-    Database { name: String },
+    Engine {
+        name: String,
+    },
+    Database {
+        name: String,
+    },
     /// The object names a local model got.
-    Objects { count: usize },
+    Objects {
+        count: usize,
+    },
     /// The structure: tables with columns, of all of them.
-    Tables { shown: usize, total: usize },
+    Tables {
+        shown: usize,
+        total: usize,
+    },
     Editor,
     Selection,
     LastError,
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, AiRuntime>, mcp: State<'_, crate::mcp::McpRuntime>, args: ChatArgs) -> CommandResult<ChatOut> {
+pub async fn ai_chat(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ai: State<'_, AiRuntime>,
+    mcp: State<'_, crate::mcp::McpRuntime>,
+    args: ChatArgs,
+) -> CommandResult<ChatOut> {
     let cancel = Cancel::new();
     ai.chats.insert(args.chat_id.clone(), cancel.clone());
     let id = args.chat_id.clone();
@@ -408,8 +449,13 @@ struct DownloadEvent<'a> {
 /// Download a built-in model (resumes a partial one; checks SHA-256), with
 /// its engine the first time: one progress bar for both.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn ai_download_model(app: AppHandle, ai: State<'_, AiRuntime>, args: IdArgs) -> CommandResult<()> {
-    let m = embedded::catalog_model(&args.id).ok_or_else(|| CommandError::NotFound("modelo desconocido".into()))?;
+pub async fn ai_download_model(
+    app: AppHandle,
+    ai: State<'_, AiRuntime>,
+    args: IdArgs,
+) -> CommandResult<()> {
+    let m = embedded::catalog_model(&args.id)
+        .ok_or_else(|| CommandError::NotFound("modelo desconocido".into()))?;
     if ai.downloads.contains_key(m.id) {
         return Err(CommandError::BadRequest("ya se está descargando".into()));
     }
@@ -419,7 +465,15 @@ pub async fn ai_download_model(app: AppHandle, ai: State<'_, AiRuntime>, args: I
     let engine = embedded::engine_pending(dir);
     let total = engine + m.size;
     let progress = |done: u64| {
-        let _ = app.emit("ai-download", DownloadEvent { id: m.id, status: "descargando", done, total });
+        let _ = app.emit(
+            "ai-download",
+            DownloadEvent {
+                id: m.id,
+                status: "descargando",
+                done,
+                total,
+            },
+        );
     };
     let r = match embedded::ensure_engine(dir, &|done, _| progress(done), &cancel).await {
         Ok(()) => embedded::download(dir, m, &|done, _| progress(engine + done), &cancel).await,
@@ -432,7 +486,8 @@ pub async fn ai_download_model(app: AppHandle, ai: State<'_, AiRuntime>, args: I
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn ai_delete_model(ai: State<'_, AiRuntime>, args: IdArgs) -> CommandResult<()> {
-    let m = embedded::catalog_model(&args.id).ok_or_else(|| CommandError::NotFound("modelo desconocido".into()))?;
+    let m = embedded::catalog_model(&args.id)
+        .ok_or_else(|| CommandError::NotFound("modelo desconocido".into()))?;
     Ok(embedded::delete(&ai.endpoints.models_dir, m)?)
 }
 
@@ -443,10 +498,22 @@ pub async fn ai_start_ollama(ai: State<'_, AiRuntime>) -> CommandResult<()> {
 
 /// Download a model into Ollama (`ollama pull`), with progress.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn ai_pull_ollama(app: AppHandle, ai: State<'_, AiRuntime>, args: IdArgs) -> CommandResult<()> {
+pub async fn ai_pull_ollama(
+    app: AppHandle,
+    ai: State<'_, AiRuntime>,
+    args: IdArgs,
+) -> CommandResult<()> {
     let key = format!("ollama:{}", args.id);
     let progress = |status: &str, done: u64, total: u64| {
-        let _ = app.emit("ai-download", DownloadEvent { id: &key, status, done, total });
+        let _ = app.emit(
+            "ai-download",
+            DownloadEvent {
+                id: &key,
+                status,
+                done,
+                total,
+            },
+        );
     };
     Ok(dbine_ai::ollama::pull(&ai.endpoints.ollama, &args.id, &progress).await?)
 }
@@ -464,11 +531,20 @@ fn schema_budget(kind: ProviderKind) -> usize {
     }
 }
 
-async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &ChatArgs, p: &Prompts) -> (String, Vec<ContextItem>) {
+async fn build_system(
+    app: &AppHandle,
+    state: &AppState,
+    ai: &AiRuntime,
+    args: &ChatArgs,
+    p: &Prompts,
+) -> (String, Vec<ContextItem>) {
     let ctx = &args.context;
     let mut s = format!("{}\n", p.text("assistant.system"));
     let mut summary: Vec<ContextItem> = Vec::new();
-    let conn = ctx.connection_id.as_deref().and_then(|id| state.store.get_connection(id).ok().flatten());
+    let conn = ctx
+        .connection_id
+        .as_deref()
+        .and_then(|id| state.store.get_connection(id).ok().flatten());
     if let Some(conn) = &conn {
         let info = dbine_drivers::find(&conn.config.driver).map(|d| d.info());
         let db = ctx.database.clone().unwrap_or_default();
@@ -481,26 +557,45 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
                 Language::Flux => "Flux (InfluxDB)".into(),
                 Language::Cypher => "Cypher".into(),
             };
-            s.push_str(&format!("\n{}\n", p.fill("assistant.engine", &[("engine", info.name), ("language", &lang)])));
+            s.push_str(&format!(
+                "\n{}\n",
+                p.fill(
+                    "assistant.engine",
+                    &[("engine", info.name), ("language", &lang)]
+                )
+            ));
             if let Some(hint) = dialect_hint(info.dialect) {
                 s.push_str(&format!("{}\n", p.text(hint)));
             }
-            summary.push(ContextItem::Engine { name: info.name.to_string() });
+            summary.push(ContextItem::Engine {
+                name: info.name.to_string(),
+            });
         }
         if !db.is_empty() {
-            s.push_str(&format!("{}\n", p.fill("assistant.database", &[("database", &db)])));
+            s.push_str(&format!(
+                "{}\n",
+                p.fill("assistant.database", &[("database", &db)])
+            ));
             summary.push(ContextItem::Database { name: db.clone() });
         }
         if conn.config.read_only {
             s.push_str(&format!("{}\n", p.text("assistant.read_only")));
         }
         if let Some(o) = &ctx.object {
-            s.push_str(&format!("{}\n", p.fill("assistant.object", &[("object", o)])));
+            s.push_str(&format!(
+                "{}\n",
+                p.fill("assistant.object", &[("object", o)])
+            ));
         }
         if args.provider.local() {
             // A local model reads details through the catalog tools: it gets
             // only the names here (from the explorer's cached list).
-            match state.meta_read(&conn.id, &db, Duration::from_secs(60), |s| Box::pin(s.list_objects())).await {
+            match state
+                .meta_read(&conn.id, &db, Duration::from_secs(60), |s| {
+                    Box::pin(s.list_objects())
+                })
+                .await
+            {
                 Ok(objects) => {
                     let names: Vec<String> = objects
                         .iter()
@@ -511,7 +606,17 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
                         })
                         .collect();
                     let shown = names.len().min(SUMMARY_NAMES);
-                    let more = if names.len() > shown { format!("\n{}", p.fill("assistant.objects_more", &[("count", &(names.len() - shown).to_string())])) } else { String::new() };
+                    let more = if names.len() > shown {
+                        format!(
+                            "\n{}",
+                            p.fill(
+                                "assistant.objects_more",
+                                &[("count", &(names.len() - shown).to_string())]
+                            )
+                        )
+                    } else {
+                        String::new()
+                    };
                     s.push_str(&format!(
                         "\n<objects database=\"{db}\">\n{}{more}\n</objects>\n{}\n",
                         names[..shown].join("\n"),
@@ -519,22 +624,52 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
                     ));
                     summary.push(ContextItem::Objects { count: names.len() });
                 }
-                Err(e) => s.push_str(&format!("\n{}\n", p.fill("assistant.objects_failed", &[("error", &e.to_string())]))),
+                Err(e) => s.push_str(&format!(
+                    "\n{}\n",
+                    p.fill("assistant.objects_failed", &[("error", &e.to_string())])
+                )),
             }
         } else {
             // Claude Code and Codex have no tools: the structure goes as context.
-            let _ = app.emit("ai-status", StatusEvent { chat_id: &args.chat_id, phase: "schema", note: None });
+            let _ = app.emit(
+                "ai-status",
+                StatusEvent {
+                    chat_id: &args.chat_id,
+                    phase: "schema",
+                    note: None,
+                },
+            );
             match schema_for(state, ai, &conn.id, &db).await {
                 Ok(tables) => {
-                    let question = args.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
-                    let hint = format!("{question}\n{}\n{}", ctx.editor_sql.as_deref().unwrap_or(""), ctx.object.as_deref().unwrap_or(""));
-                    let (text, shown, total) = compact_schema(&tables, &hint, schema_budget(args.provider), p);
+                    let question = args
+                        .messages
+                        .iter()
+                        .map(|m| m.content.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let hint = format!(
+                        "{question}\n{}\n{}",
+                        ctx.editor_sql.as_deref().unwrap_or(""),
+                        ctx.object.as_deref().unwrap_or("")
+                    );
+                    let (text, shown, total) =
+                        compact_schema(&tables, &hint, schema_budget(args.provider), p);
                     s.push_str(&format!("\n<structure>\n{text}</structure>\n"));
                     summary.push(ContextItem::Tables { shown, total });
                 }
                 Err(e) => {
-                    s.push_str(&format!("\n{}\n", p.fill("assistant.structure_failed", &[("error", &e.to_string())])));
-                    let _ = app.emit("ai-status", StatusEvent { chat_id: &args.chat_id, phase: "schema", note: Some(format!("sin estructura: {e}")) });
+                    s.push_str(&format!(
+                        "\n{}\n",
+                        p.fill("assistant.structure_failed", &[("error", &e.to_string())])
+                    ));
+                    let _ = app.emit(
+                        "ai-status",
+                        StatusEvent {
+                            chat_id: &args.chat_id,
+                            phase: "schema",
+                            note: Some(format!("sin estructura: {e}")),
+                        },
+                    );
                 }
             }
         }
@@ -542,15 +677,25 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
         s.push_str(&format!("\n{}\n", p.text("assistant.no_database")));
     }
     if let Some(sql) = ctx.editor_sql.as_deref().filter(|t| !t.trim().is_empty()) {
-        s.push_str(&format!("\n<editor>\n{}\n</editor>\n", truncate(sql, 20_000, p)));
+        s.push_str(&format!(
+            "\n<editor>\n{}\n</editor>\n",
+            truncate(sql, 20_000, p)
+        ));
         summary.push(ContextItem::Editor);
     }
     if let Some(sel) = ctx.selection.as_deref().filter(|t| !t.trim().is_empty()) {
-        s.push_str(&format!("\n<selection>\n{}\n</selection>\n{}\n", truncate(sel, 10_000, p), p.text("assistant.selection_hint")));
+        s.push_str(&format!(
+            "\n<selection>\n{}\n</selection>\n{}\n",
+            truncate(sel, 10_000, p),
+            p.text("assistant.selection_hint")
+        ));
         summary.push(ContextItem::Selection);
     }
     if let Some(err) = ctx.last_error.as_deref().filter(|t| !t.trim().is_empty()) {
-        s.push_str(&format!("\n<last_error>\n{}\n</last_error>\n", truncate(err, 4_000, p)));
+        s.push_str(&format!(
+            "\n<last_error>\n{}\n</last_error>\n",
+            truncate(err, 4_000, p)
+        ));
         summary.push(ContextItem::LastError);
     }
     // Small models follow what comes last, and an example, best.
@@ -580,14 +725,45 @@ fn refused(text: &str) -> bool {
         return false;
     }
     const SIGNS: &[&str] = &[
-        "no puedo ayudar", "no puedo asistir", "no puedo hacer eso", "no puedo proporcionar", "lo siento, no puedo", "lo siento, pero no puedo",
-        "can't help with", "cannot help with", "can't assist", "cannot assist", "i'm sorry, but i can", "i am sorry, but i can",
-        "não posso ajudar", "desculpe, mas não posso", "je ne peux pas vous aider", "je ne peux pas t'aider", "non posso aiutar",
-        "kann ich nicht helfen", "kann ich ihnen nicht helfen", "kann ich dir nicht helfen", "ich kann ihnen dabei nicht helfen", "ich kann dir dabei nicht helfen",
-        "не могу помочь", "не могу с этим помочь", "не могу выполнить этот запрос",
-        "无法帮助", "无法协助", "不能帮助", "无法提供帮助", "抱歉，我无法", "抱歉，我不能",
-        "お手伝いできません", "お手伝いすることはできません", "お応えできません", "対応できません",
-        "도와드릴 수 없습니다", "도와드릴 수 없어요", "도움을 드릴 수 없습니다", "지원할 수 없습니다",
+        "no puedo ayudar",
+        "no puedo asistir",
+        "no puedo hacer eso",
+        "no puedo proporcionar",
+        "lo siento, no puedo",
+        "lo siento, pero no puedo",
+        "can't help with",
+        "cannot help with",
+        "can't assist",
+        "cannot assist",
+        "i'm sorry, but i can",
+        "i am sorry, but i can",
+        "não posso ajudar",
+        "desculpe, mas não posso",
+        "je ne peux pas vous aider",
+        "je ne peux pas t'aider",
+        "non posso aiutar",
+        "kann ich nicht helfen",
+        "kann ich ihnen nicht helfen",
+        "kann ich dir nicht helfen",
+        "ich kann ihnen dabei nicht helfen",
+        "ich kann dir dabei nicht helfen",
+        "не могу помочь",
+        "не могу с этим помочь",
+        "не могу выполнить этот запрос",
+        "无法帮助",
+        "无法协助",
+        "不能帮助",
+        "无法提供帮助",
+        "抱歉，我无法",
+        "抱歉，我不能",
+        "お手伝いできません",
+        "お手伝いすることはできません",
+        "お応えできません",
+        "対応できません",
+        "도와드릴 수 없습니다",
+        "도와드릴 수 없어요",
+        "도움을 드릴 수 없습니다",
+        "지원할 수 없습니다",
     ];
     SIGNS.iter().any(|s| t.contains(s))
 }
@@ -608,7 +784,13 @@ const TOOL_RESULT_MAX: usize = 12_000;
 /// DBine recognizes (models' own tool formats vary and small ones misuse
 /// them; this works the same on the built-in model, Ollama and LM Studio).
 fn tools_prompt(p: &Prompts, connection: &str, database: &str) -> String {
-    format!("\n{}\n", p.fill("assistant.tools", &[("connection", connection), ("database", database)]))
+    format!(
+        "\n{}\n",
+        p.fill(
+            "assistant.tools",
+            &[("connection", connection), ("database", database)]
+        )
+    )
 }
 
 /// The tool a model's answer asks for, wherever it wrote it: our
@@ -616,21 +798,34 @@ fn tools_prompt(p: &Prompts, connection: &str, database: &str) -> String {
 /// for), Qwen's own <tool_call> tags, a ```json block, or a bare
 /// {"name": …, "arguments": …} object after some text (small models mix them).
 fn tool_call(out: &str) -> Option<(String, serde_json::Value)> {
-    let tagged = [(TOOL_OPEN, TOOL_CLOSE), ("<herramienta>", "</herramienta>"), ("<tool_call>", "</tool_call>")]
-        .iter()
-        .filter_map(|(open, close)| {
-            let a = out.find(open)? + open.len();
-            let b = out[a..].find(close).map_or(out.len(), |b| a + b);
-            Some(&out[a..b])
-        })
-        .collect::<Vec<_>>();
+    let tagged = [
+        (TOOL_OPEN, TOOL_CLOSE),
+        ("<herramienta>", "</herramienta>"),
+        ("<tool_call>", "</tool_call>"),
+    ]
+    .iter()
+    .filter_map(|(open, close)| {
+        let a = out.find(open)? + open.len();
+        let b = out[a..].find(close).map_or(out.len(), |b| a + b);
+        Some(&out[a..b])
+    })
+    .collect::<Vec<_>>();
     for body in tagged.iter().copied().chain(json_objects(out)) {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(body.trim()) else { continue };
-        let Some(name) = v.get("name").and_then(|n| n.as_str()) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(body.trim()) else {
+            continue;
+        };
+        let Some(name) = v.get("name").and_then(|n| n.as_str()) else {
+            continue;
+        };
         if !crate::mcp::tools::ASSISTANT_TOOLS.contains(&name) {
             continue;
         }
-        let args = v.get("arguments").or_else(|| v.get("parameters")).filter(|a| a.is_object()).cloned().unwrap_or_else(|| serde_json::json!({}));
+        let args = v
+            .get("arguments")
+            .or_else(|| v.get("parameters"))
+            .filter(|a| a.is_object())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
         return Some((name.to_string(), args));
     }
     None
@@ -647,7 +842,13 @@ fn json_objects(text: &str) -> impl Iterator<Item = &str> {
             while j < b.len() {
                 let c = b[j];
                 if in_str {
-                    if esc { esc = false } else if c == b'\\' { esc = true } else if c == b'"' { in_str = false }
+                    if esc {
+                        esc = false
+                    } else if c == b'\\' {
+                        esc = true
+                    } else if c == b'"' {
+                        in_str = false
+                    }
                 } else if c == b'"' {
                     in_str = true;
                 } else if c == b'{' {
@@ -676,7 +877,12 @@ fn json_objects(text: &str) -> impl Iterator<Item = &str> {
 
 /// What the chat shows for a read ("estructura de ventas.clientes en tenant-compras").
 fn tool_label(name: &str, args: &serde_json::Value) -> String {
-    let s = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let s = |k: &str| {
+        args.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     let (db, obj) = (s("database"), s("object"));
     // Whole sentences (with and without the database), so the backend
     // catalog can translate each one.
@@ -687,15 +893,27 @@ fn tool_label(name: &str, args: &serde_json::Value) -> String {
         "list_objects" => "objetos de la base".into(),
         "describe_object" if with_db => format!("estructura de {obj} en {db}"),
         "describe_object" => format!("estructura de {obj}"),
-        "index_usage" if obj.is_empty() && with_db => format!("uso de índices de todas las tablas en {db}"),
+        "index_usage" if obj.is_empty() && with_db => {
+            format!("uso de índices de todas las tablas en {db}")
+        }
         "index_usage" if obj.is_empty() => "uso de índices de todas las tablas".into(),
         "index_usage" if with_db => format!("uso de índices de {obj} en {db}"),
         "index_usage" => format!("uso de índices de {obj}"),
         "sample_rows" if with_db => format!("filas de muestra de {obj} en {db}"),
         "sample_rows" => format!("filas de muestra de {obj}"),
         "run_query" => {
-            let q: String = s("query").split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
-            if with_db { format!("consulta en {db}: {q}") } else { format!("consulta de la conexión: {q}") }
+            let q: String = s("query")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(120)
+                .collect();
+            if with_db {
+                format!("consulta en {db}: {q}")
+            } else {
+                format!("consulta de la conexión: {q}")
+            }
         }
         "explain" if with_db => format!("plan de ejecución en {db}"),
         "explain" => "plan de ejecución".into(),
@@ -714,14 +932,23 @@ fn truncate(s: &str, max: usize, p: &Prompts) -> String {
     format!("{}\n{}", &s[..end], p.text("truncated"))
 }
 
-async fn schema_for(state: &AppState, ai: &AiRuntime, connection_id: &str, database: &str) -> CommandResult<Arc<Vec<TableSchema>>> {
+async fn schema_for(
+    state: &AppState,
+    ai: &AiRuntime,
+    connection_id: &str,
+    database: &str,
+) -> CommandResult<Arc<Vec<TableSchema>>> {
     let key = format!("{connection_id}\u{0}{database}");
     if let Some(e) = ai.schemas.get(&key) {
         if e.0.elapsed() < Duration::from_secs(600) {
             return Ok(e.1.clone());
         }
     }
-    let tables = state.meta_read(connection_id, database, Duration::from_secs(60), |s| Box::pin(s.database_schema())).await?;
+    let tables = state
+        .meta_read(connection_id, database, Duration::from_secs(60), |s| {
+            Box::pin(s.database_schema())
+        })
+        .await?;
     let tables = Arc::new(tables);
     ai.schemas.insert(key, (Instant::now(), tables.clone()));
     Ok(tables)
@@ -735,7 +962,11 @@ fn qualified(t: &TableSchema) -> String {
 }
 
 fn table_line(t: &TableSchema, p: &Prompts) -> String {
-    let pk: Vec<&str> = t.primary_key.as_ref().map(|k| k.columns.iter().map(String::as_str).collect()).unwrap_or_default();
+    let pk: Vec<&str> = t
+        .primary_key
+        .as_ref()
+        .map(|k| k.columns.iter().map(String::as_str).collect())
+        .unwrap_or_default();
     let cols: Vec<String> = t
         .columns
         .iter()
@@ -749,14 +980,22 @@ fn table_line(t: &TableSchema, p: &Prompts) -> String {
             s
         })
         .collect();
-    let kind = if t.kind.is_empty() || t.kind == "table" { String::new() } else { format!("[{}] ", t.kind) };
+    let kind = if t.kind.is_empty() || t.kind == "table" {
+        String::new()
+    } else {
+        format!("[{}] ", t.kind)
+    };
     let mut line = format!("{kind}{}({})", qualified(t), cols.join(", "));
     for fk in &t.foreign_keys {
         let target = match &fk.ref_schema {
             Some(s) if !s.is_empty() => format!("{s}.{}", fk.ref_table),
             _ => fk.ref_table.clone(),
         };
-        line.push_str(&format!("\n  FK ({}) -> {target}({})", fk.columns.join(", "), fk.ref_columns.join(", ")));
+        line.push_str(&format!(
+            "\n  FK ({}) -> {target}({})",
+            fk.columns.join(", "),
+            fk.ref_columns.join(", ")
+        ));
     }
     if let Some(c) = t.comment.as_deref().filter(|c| !c.is_empty()) {
         line.push_str(&format!("\n  -- {}", truncate(c, 200, p)));
@@ -769,16 +1008,28 @@ fn table_line(t: &TableSchema, p: &Prompts) -> String {
 /// in `hint` (the question, the editor) go first and whole; the rest whole
 /// while they fit, then by name only. Returns (text, tables with columns,
 /// total).
-fn compact_schema(tables: &[TableSchema], hint: &str, budget: usize, p: &Prompts) -> (String, usize, usize) {
+fn compact_schema(
+    tables: &[TableSchema],
+    hint: &str,
+    budget: usize,
+    p: &Prompts,
+) -> (String, usize, usize) {
     let hint = hint.to_lowercase();
     let mentioned = |t: &TableSchema| {
         let n = t.name.to_lowercase();
         // Whole-word-ish match, so "id" or "a" don't match everything.
-        n.len() > 2 && hint.match_indices(&n).any(|(i, _)| {
-            let before = hint[..i].chars().last().is_none_or(|c| !c.is_alphanumeric() && c != '_');
-            let after = hint[i + n.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_');
-            before && after
-        })
+        n.len() > 2
+            && hint.match_indices(&n).any(|(i, _)| {
+                let before = hint[..i]
+                    .chars()
+                    .last()
+                    .is_none_or(|c| !c.is_alphanumeric() && c != '_');
+                let after = hint[i + n.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| !c.is_alphanumeric() && c != '_');
+                before && after
+            })
     };
     let mut order: Vec<&TableSchema> = tables.iter().collect();
     order.sort_by_key(|t| !mentioned(t));
@@ -796,7 +1047,13 @@ fn compact_schema(tables: &[TableSchema], hint: &str, budget: usize, p: &Prompts
         }
     }
     if !names_only.is_empty() {
-        let mut rest = format!("{}\n", p.fill("assistant.other_tables", &[("names", &names_only.join(", "))]));
+        let mut rest = format!(
+            "{}\n",
+            p.fill(
+                "assistant.other_tables",
+                &[("names", &names_only.join(", "))]
+            )
+        );
         if out.len() + rest.len() > budget + 20_000 {
             rest = truncate(&rest, 20_000, p);
         }
@@ -816,17 +1073,49 @@ mod tests {
         assert_eq!(a["object"], "ventas.clientes");
         assert_eq!(tool_call("Primero listo las bases.\n<herramienta>{\"name\": \"list_databases\", \"arguments\": {}}</herramienta>").unwrap().0, "list_databases", "the old tag");
         assert_eq!(tool_call("First the databases.\n<tool>{\"name\": \"list_databases\", \"arguments\": {}}</tool>").unwrap().0, "list_databases");
-        assert_eq!(tool_call("{\"name\": \"list_databases\", \"arguments\": {}}").unwrap().0, "list_databases", "bare JSON");
-        assert!(tool_call("<tool>{\"name\": \"execute\", \"arguments\": {}}</tool>").is_none(), "never a write");
+        assert_eq!(
+            tool_call("{\"name\": \"list_databases\", \"arguments\": {}}")
+                .unwrap()
+                .0,
+            "list_databases",
+            "bare JSON"
+        );
+        assert!(
+            tool_call("<tool>{\"name\": \"execute\", \"arguments\": {}}</tool>").is_none(),
+            "never a write"
+        );
         assert!(tool_call("```sql\nSELECT 1;\n```").is_none());
         // What the 3B wrote in the owner's test: prose, then the JSON.
         let owner = "Como no tengo acceso a la conexión, podés usar index_usage:\n{\"name\": \"index_usage\", \"arguments\": {\"database\": \"tenant-compras\"}}";
         let (n, a) = tool_call(owner).unwrap();
-        assert_eq!((n.as_str(), a["database"].as_str()), ("index_usage", Some("tenant-compras")));
-        assert_eq!(tool_call("```json\n{\"name\": \"list_objects\", \"arguments\": {\"database\": \"b\"}}\n```").unwrap().0, "list_objects");
-        assert_eq!(tool_call("<tool_call>\n{\"name\": \"list_databases\", \"arguments\": {}}\n</tool_call>").unwrap().0, "list_databases");
+        assert_eq!(
+            (n.as_str(), a["database"].as_str()),
+            ("index_usage", Some("tenant-compras"))
+        );
+        assert_eq!(
+            tool_call(
+                "```json\n{\"name\": \"list_objects\", \"arguments\": {\"database\": \"b\"}}\n```"
+            )
+            .unwrap()
+            .0,
+            "list_objects"
+        );
+        assert_eq!(
+            tool_call(
+                "<tool_call>\n{\"name\": \"list_databases\", \"arguments\": {}}\n</tool_call>"
+            )
+            .unwrap()
+            .0,
+            "list_databases"
+        );
         assert!(tool_call("el objeto {\"name\": \"Pepe\"} no es una herramienta").is_none());
-        assert_eq!(tool_label("describe_object", &serde_json::json!({"database": "t1", "object": "ventas.clientes"})), "estructura de ventas.clientes en t1");
+        assert_eq!(
+            tool_label(
+                "describe_object",
+                &serde_json::json!({"database": "t1", "object": "ventas.clientes"})
+            ),
+            "estructura de ventas.clientes en t1"
+        );
     }
 
     #[test]
@@ -836,21 +1125,35 @@ mod tests {
         assert!(refused("Entschuldigung, dabei kann ich nicht helfen."));
         assert!(refused("Извините, я не могу помочь с этим."));
         assert!(refused("抱歉，我无法帮助你完成这个请求。"));
-        assert!(refused("申し訳ありませんが、そのご依頼はお手伝いできません。"));
+        assert!(refused(
+            "申し訳ありませんが、そのご依頼はお手伝いできません。"
+        ));
         assert!(refused("죄송하지만 그 요청은 도와드릴 수 없습니다."));
         assert!(!refused("このクエリは表を削除し、元に戻せません。"));
-        assert!(!refused("```sql\nSELECT 1;\n```\nLo siento, no puedo garantizar el orden."), "with code it answered");
-        assert!(!refused("Esta consulta borra la tabla y no se puede deshacer."));
-        assert!(!refused(&format!("{} lo siento, no puedo", "x".repeat(700))), "a long answer isn't a refusal");
+        assert!(
+            !refused("```sql\nSELECT 1;\n```\nLo siento, no puedo garantizar el orden."),
+            "with code it answered"
+        );
+        assert!(!refused(
+            "Esta consulta borra la tabla y no se puede deshacer."
+        ));
+        assert!(
+            !refused(&format!("{} lo siento, no puedo", "x".repeat(700))),
+            "a long answer isn't a refusal"
+        );
     }
 
     #[test]
     fn dialect_hints() {
         let p = prompts::get("es");
-        assert!(p.text(dialect_hint("mssql").unwrap()).contains("[base].esquema.tabla"));
+        assert!(p
+            .text(dialect_hint("mssql").unwrap())
+            .contains("[base].esquema.tabla"));
         assert!(p.text(dialect_hint("sybase").unwrap()).contains("TOP n"));
         assert!(p.text(dialect_hint("postgres").unwrap()).contains("LIMIT"));
-        assert!(prompts::get("en").text(dialect_hint("oracle").unwrap()).contains("FETCH FIRST n ROWS ONLY"));
+        assert!(prompts::get("en")
+            .text(dialect_hint("oracle").unwrap())
+            .contains("FETCH FIRST n ROWS ONLY"));
         assert!(dialect_hint("standard").is_none());
     }
 
@@ -861,18 +1164,32 @@ mod tests {
         for l in prompts::LANGS {
             let p = prompts::get(l);
             let tools = tools_prompt(p, "c1", "b1");
-            assert!(tools.contains(TOOL_OPEN) && tools.contains(TOOL_CLOSE), "{l}");
+            assert!(
+                tools.contains(TOOL_OPEN) && tools.contains(TOOL_CLOSE),
+                "{l}"
+            );
             // The example in the prompt is a call DBine recognizes.
-            let example = tools.lines().find(|x| x.starts_with(TOOL_OPEN) && x.contains("list_databases")).unwrap();
+            let example = tools
+                .lines()
+                .find(|x| x.starts_with(TOOL_OPEN) && x.contains("list_databases"))
+                .unwrap();
             assert_eq!(tool_call(example).unwrap().0, "list_databases", "{l}");
-            for k in ["assistant.dialect_mssql", "assistant.dialect_postgres", "assistant.dialect_mysql", "assistant.dialect_oracle", "assistant.dialect_sqlite"] {
+            for k in [
+                "assistant.dialect_mssql",
+                "assistant.dialect_postgres",
+                "assistant.dialect_mysql",
+                "assistant.dialect_oracle",
+                "assistant.dialect_sqlite",
+            ] {
                 assert!(!p.text(k).is_empty(), "{l}: {k}");
             }
         }
         let en = prompts::get("en");
         assert!(en.text("assistant.system").contains("English"));
         assert!(!en.text("assistant.system").contains("Respondé"));
-        assert!(prompts::get("es").text("assistant.system").contains("español"));
+        assert!(prompts::get("es")
+            .text("assistant.system")
+            .contains("español"));
         let (_, shown, _) = compact_schema(&[table("t", &["id"])], "", 1, en);
         assert_eq!(shown, 0);
         let (text, _, _) = compact_schema(&[table("t", &["id"])], "", 1, en);
@@ -881,8 +1198,21 @@ mod tests {
 
     #[test]
     fn context_items_serialize_for_the_ui() {
-        let v = serde_json::to_value(vec![ContextItem::Engine { name: "PostgreSQL".into() }, ContextItem::Tables { shown: 3, total: 10 }, ContextItem::LastError]).unwrap();
-        assert_eq!(v, serde_json::json!([{"kind": "engine", "name": "PostgreSQL"}, {"kind": "tables", "shown": 3, "total": 10}, {"kind": "last_error"}]));
+        let v = serde_json::to_value(vec![
+            ContextItem::Engine {
+                name: "PostgreSQL".into(),
+            },
+            ContextItem::Tables {
+                shown: 3,
+                total: 10,
+            },
+            ContextItem::LastError,
+        ])
+        .unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!([{"kind": "engine", "name": "PostgreSQL"}, {"kind": "tables", "shown": 3, "total": 10}, {"kind": "last_error"}])
+        );
     }
     use dbine_driver::{ColumnDef, ForeignKeyDef, KeyDef};
 
@@ -893,9 +1223,17 @@ mod tests {
             name: name.into(),
             columns: cols
                 .iter()
-                .map(|c| ColumnDef { name: (*c).into(), data_type: "int".into(), nullable: *c != "id", ..Default::default() })
+                .map(|c| ColumnDef {
+                    name: (*c).into(),
+                    data_type: "int".into(),
+                    nullable: *c != "id",
+                    ..Default::default()
+                })
                 .collect(),
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
             ..Default::default()
         }
     }
@@ -912,14 +1250,24 @@ mod tests {
         });
         let (text, shown, total) = compact_schema(&[p], "", 10_000, prompts::get("es"));
         assert_eq!((shown, total), (1, 1));
-        assert_eq!(text, "dbo.pedidos(id int PK, cliente_id int)\n  FK (cliente_id) -> dbo.clientes(id)\n");
+        assert_eq!(
+            text,
+            "dbo.pedidos(id int PK, cliente_id int)\n  FK (cliente_id) -> dbo.clientes(id)\n"
+        );
     }
 
     #[test]
     fn mentioned_tables_come_first_when_it_doesnt_fit() {
-        let mut tables: Vec<TableSchema> = (0..200).map(|i| table(&format!("tabla_{i:03}"), &["id", "a", "b", "c"])).collect();
+        let mut tables: Vec<TableSchema> = (0..200)
+            .map(|i| table(&format!("tabla_{i:03}"), &["id", "a", "b", "c"]))
+            .collect();
         tables.push(table("facturas", &["id", "total"]));
-        let (text, shown, total) = compact_schema(&tables, "sumá el total de FACTURAS por mes", 2_000, prompts::get("es"));
+        let (text, shown, total) = compact_schema(
+            &tables,
+            "sumá el total de FACTURAS por mes",
+            2_000,
+            prompts::get("es"),
+        );
         assert_eq!(total, 201);
         assert!(shown < total);
         assert!(text.starts_with("dbo.facturas("), "{}", &text[..60]);

@@ -22,7 +22,9 @@ fn cfg(user: Option<(&str, &str)>) -> Option<ConnectionConfig> {
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) {
-    s.execute(text, 10, &mut QueryOutcome::default()).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 10, &mut QueryOutcome::default())
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
 }
 
 #[tokio::test]
@@ -34,31 +36,71 @@ async fn root_role_decides() {
 
     // Auth off: everything the driver offers is allowed.
     let p = s.permissions(None).await.unwrap();
-    assert_eq!((p.backup, p.manage_security, p.restore), (Access::Allowed, Access::Allowed, Access::Unknown));
+    assert_eq!(
+        (p.backup, p.manage_security, p.restore),
+        (Access::Allowed, Access::Allowed, Access::Unknown)
+    );
 
-    for cleanup in ["user delete dbine_lim", "user delete root", "role delete root"] {
+    for cleanup in [
+        "user delete dbine_lim",
+        "user delete root",
+        "role delete root",
+    ] {
         let _ = s.execute(cleanup, 10, &mut QueryOutcome::default()).await;
     }
-    for cmd in ["role add root", "user add root raizpw", "user grant-role root root", "user add dbine_lim limpw", "auth enable"] {
+    for cmd in [
+        "role add root",
+        "user add root raizpw",
+        "user grant-role root root",
+        "user add dbine_lim limpw",
+        "auth enable",
+    ] {
         run(&mut s, cmd).await;
     }
 
     let d2 = d.clone();
     let result = async move {
         let d = d2;
-        let mut lim = d.connect(&cfg(Some(("dbine_lim", "limpw"))).unwrap(), None).await.unwrap();
+        let mut lim = d
+            .connect(&cfg(Some(("dbine_lim", "limpw"))).unwrap(), None)
+            .await
+            .unwrap();
         let p = lim.permissions(None).await.unwrap();
-        assert_eq!(p.backup, Access::Denied { missing: "rol root".into() });
-        assert_eq!(p.manage_security, Access::Denied { missing: "rol root".into() });
+        assert_eq!(
+            p.backup,
+            Access::Denied {
+                missing: "rol root".into()
+            }
+        );
+        assert_eq!(
+            p.manage_security,
+            Access::Denied {
+                missing: "rol root".into()
+            }
+        );
 
-        let mut root = d.connect(&cfg(Some(("root", "raizpw"))).unwrap(), None).await.unwrap();
+        let mut root = d
+            .connect(&cfg(Some(("root", "raizpw"))).unwrap(), None)
+            .await
+            .unwrap();
         let p = root.permissions(None).await.unwrap();
-        assert_eq!((p.backup, p.manage_security), (Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (p.backup, p.manage_security),
+            (Access::Allowed, Access::Allowed)
+        );
     };
     let outcome = tokio::spawn(result).await;
 
-    let mut root = d.connect(&cfg(Some(("root", "raizpw"))).unwrap(), None).await.unwrap();
-    for cmd in ["auth disable", "user delete dbine_lim", "user delete root", "role delete root"] {
+    let mut root = d
+        .connect(&cfg(Some(("root", "raizpw"))).unwrap(), None)
+        .await
+        .unwrap();
+    for cmd in [
+        "auth disable",
+        "user delete dbine_lim",
+        "user delete root",
+        "role delete root",
+    ] {
         run(&mut root, cmd).await;
     }
     if let Err(e) = outcome {

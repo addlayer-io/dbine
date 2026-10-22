@@ -41,7 +41,9 @@ fn driver() -> Arc<dyn Driver> {
 
 async fn try_run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100_000, &mut out).await.map_err(|e| e.to_string())?;
+    s.execute(sql, 100_000, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     match out.error.take() {
         Some(e) => Err(e),
         None => Ok(out),
@@ -49,7 +51,9 @@ async fn try_run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, St
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
-    try_run(s, sql).await.unwrap_or_else(|e| panic!("{e}\n{sql}"))
+    try_run(s, sql)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{sql}"))
 }
 
 /// Every row of every result as text.
@@ -59,7 +63,12 @@ async fn rows(s: &mut Box<dyn Session>, sql: &str) -> Vec<String> {
         .results
         .iter()
         .flat_map(|r| r.rows.iter())
-        .map(|r| r.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(" | "))
+        .map(|r| {
+            r.iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        })
         .collect();
     v.sort();
     v
@@ -465,7 +474,11 @@ async fn insertable(s: &mut Box<dyn Session>, t: &ObjectRef) -> Vec<String> {
         t.schema.as_deref().unwrap(),
         t.name
     );
-    run(s, &sql).await.results[0].rows.iter().map(|r| r[0].as_str().unwrap().to_string()).collect()
+    run(s, &sql).await.results[0]
+        .rows
+        .iter()
+        .map(|r| r[0].as_str().unwrap().to_string())
+        .collect()
 }
 
 async fn run_all(s: &mut Box<dyn Session>, what: &str, stmts: &[String]) {
@@ -480,9 +493,14 @@ async fn run_all(s: &mut Box<dyn Session>, what: &str, stmts: &[String]) {
 #[ignore]
 async fn clone_everything() {
     use futures::FutureExt;
-    let r = std::panic::AssertUnwindSafe(clone_and_compare()).catch_unwind().await;
+    let r = std::panic::AssertUnwindSafe(clone_and_compare())
+        .catch_unwind()
+        .await;
     // The test databases go away whatever happened.
-    let mut admin = driver().connect(&config(), Some("master")).await.expect("connect");
+    let mut admin = driver()
+        .connect(&config(), Some("master"))
+        .await
+        .expect("connect");
     drop_databases(&mut admin).await;
     if let Err(p) = r {
         std::panic::resume_unwind(p);
@@ -492,8 +510,15 @@ async fn clone_everything() {
 async fn clone_and_compare() {
     let d = driver();
     assert!(d.supports_clone());
-    let others: Vec<bool> = dbine_driver_sqlserver::drivers().iter().map(|d| d.supports_clone()).collect();
-    assert_eq!(others, vec![true, true, false, false], "SQL Server, Azure SQL, Fabric, Babelfish");
+    let others: Vec<bool> = dbine_driver_sqlserver::drivers()
+        .iter()
+        .map(|d| d.supports_clone())
+        .collect();
+    assert_eq!(
+        others,
+        vec![true, true, false, false],
+        "SQL Server, Azure SQL, Fabric, Babelfish"
+    );
 
     let mut admin = d.connect(&config(), Some("master")).await.expect("connect");
     drop_databases(&mut admin).await;
@@ -503,24 +528,65 @@ async fn clone_and_compare() {
     run(&mut setup, SOURCE_SQL).await;
     drop(setup);
 
-    let tables: Vec<ObjectRef> = ["Customer", "OrderHeader", "OrderLine", "Fact", "FactArchive", "Stock", "Place", "Session", "Price", "Empty", "Log"]
-        .iter()
-        .map(|n| ObjectRef { kind: "table".into(), schema: Some("ven".into()), name: (*n).into() })
-        .chain(std::iter::once(ObjectRef { kind: "table".into(), schema: Some("hist".into()), name: "PriceHistory".into() }))
-        .collect();
+    let tables: Vec<ObjectRef> = [
+        "Customer",
+        "OrderHeader",
+        "OrderLine",
+        "Fact",
+        "FactArchive",
+        "Stock",
+        "Place",
+        "Session",
+        "Price",
+        "Empty",
+        "Log",
+    ]
+    .iter()
+    .map(|n| ObjectRef {
+        kind: "table".into(),
+        schema: Some("ven".into()),
+        name: (*n).into(),
+    })
+    .chain(std::iter::once(ObjectRef {
+        kind: "table".into(),
+        schema: Some("hist".into()),
+        name: "PriceHistory".into(),
+    }))
+    .collect();
 
     // The source through the app's read-only wrapper.
-    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(d.connect(&config(), Some(SRC_DB)).await.unwrap()));
+    let mut src: Box<dyn Session> = Box::new(ReadOnlySession::new(
+        d.connect(&config(), Some(SRC_DB)).await.unwrap(),
+    ));
     let mut dst = d.connect(&config(), Some(DST_DB)).await.unwrap();
     let started = std::time::Instant::now();
-    let script = d.clone_script(&mut *src, &mut *dst, &tables).await.expect("clone script");
-    println!("clone script in {:?}: {} before, {} tables, {} after", started.elapsed(), script.before.len(), script.tables.len(), script.after.len());
+    let script = d
+        .clone_script(&mut *src, &mut *dst, &tables)
+        .await
+        .expect("clone script");
+    println!(
+        "clone script in {:?}: {} before, {} tables, {} after",
+        started.elapsed(),
+        script.before.len(),
+        script.tables.len(),
+        script.after.len()
+    );
     for n in &script.notes {
         println!("note: {n}");
     }
     let dump = std::env::var("DBINE_CLONE_DUMP").is_ok();
     if dump {
-        for s in script.before.iter().chain(script.tables.iter().flat_map(|t| std::iter::once(&t.create).chain(t.after_data.iter()))).chain(script.after.iter()) {
+        for s in script
+            .before
+            .iter()
+            .chain(
+                script
+                    .tables
+                    .iter()
+                    .flat_map(|t| std::iter::once(&t.create).chain(t.after_data.iter())),
+            )
+            .chain(script.after.iter())
+        {
             println!("----\n{s}");
         }
     }
@@ -533,13 +599,24 @@ async fn clone_and_compare() {
             run_all(&mut dst, "before_data", &t.before_data).await;
             if round == 0 {
                 let columns = insertable(&mut src, &t.table).await;
-                let memory = run(&mut dst, &format!("SELECT OBJECTPROPERTY(OBJECT_ID(N'[{}].[{}]'), 'TableIsMemoryOptimized')", t.table.schema.as_deref().unwrap(), t.table.name))
-                    .await
-                    .results[0]
+                let memory = run(
+                    &mut dst,
+                    &format!(
+                        "SELECT OBJECTPROPERTY(OBJECT_ID(N'[{}].[{}]'), 'TableIsMemoryOptimized')",
+                        t.table.schema.as_deref().unwrap(),
+                        t.table.name
+                    ),
+                )
+                .await
+                .results[0]
                     .rows[0][0]
                     == serde_json::json!(1);
                 let spec = CopySpec {
-                    source: ReadSpec { table: t.table.clone(), columns: Some(columns.clone()), filter: None },
+                    source: ReadSpec {
+                        table: t.table.clone(),
+                        columns: Some(columns.clone()),
+                        filter: None,
+                    },
                     target: LoadSpec {
                         table: t.table.clone(),
                         columns,
@@ -549,7 +626,9 @@ async fn clone_and_compare() {
                         commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
                     },
                 };
-                d.copy_native(&mut *src, &mut *dst, &spec, &|_| {}).await.unwrap_or_else(|e| panic!("copy {}: {e}", t.table.name));
+                d.copy_native(&mut *src, &mut *dst, &spec, &|_| {})
+                    .await
+                    .unwrap_or_else(|e| panic!("copy {}: {e}", t.table.name));
             }
             run_all(&mut dst, "after_data", &t.after_data).await;
         }
@@ -573,7 +652,12 @@ async fn clone_and_compare() {
     // Rows, each table (EXCEPT both ways over what the copy moved).
     for t in &tables {
         let name = format!("[{}].[{}]", t.schema.as_deref().unwrap(), t.name);
-        let cols = insertable(&mut a, t).await.iter().map(|c| format!("[{c}]")).collect::<Vec<_>>().join(", ");
+        let cols = insertable(&mut a, t)
+            .await
+            .iter()
+            .map(|c| format!("[{c}]"))
+            .collect::<Vec<_>>()
+            .join(", ");
         // xml / spatial compare as text.
         let cols = cols
             .split(", ")
@@ -587,14 +671,28 @@ async fn clone_and_compare() {
         let sql = format!("SELECT {cols} FROM {name}");
         let (x, y) = (rows(&mut a, &sql).await, rows(&mut b, &sql).await);
         if x != y {
-            differences.push(format!("rows: {name}: {} rows in the source, {} in the target, or different values", x.len(), y.len()));
+            differences.push(format!(
+                "rows: {name}: {} rows in the source, {} in the target, or different values",
+                x.len(),
+                y.len()
+            ));
         }
     }
     // The emptied identity table hands out the same next value.
-    let next_src = rows(&mut a, "INSERT INTO ven.Empty (X) OUTPUT inserted.Id VALUES (9)").await;
-    let next_dst = rows(&mut b, "INSERT INTO ven.Empty (X) OUTPUT inserted.Id VALUES (9)").await;
+    let next_src = rows(
+        &mut a,
+        "INSERT INTO ven.Empty (X) OUTPUT inserted.Id VALUES (9)",
+    )
+    .await;
+    let next_dst = rows(
+        &mut b,
+        "INSERT INTO ven.Empty (X) OUTPUT inserted.Id VALUES (9)",
+    )
+    .await;
     if next_src != next_dst {
-        differences.push(format!("identity: ven.Empty next value {next_src:?} (origen) vs {next_dst:?} (destino)"));
+        differences.push(format!(
+            "identity: ven.Empty next value {next_src:?} (origen) vs {next_dst:?} (destino)"
+        ));
     }
     let seq = "SELECT NEXT VALUE FOR ven.Seq";
     let (sa, sb) = (rows(&mut a, seq).await, rows(&mut b, seq).await);
@@ -609,7 +707,11 @@ async fn clone_and_compare() {
     drop(admin);
     // Only what can't be kept: the used sequence's START WITH.
     assert_eq!(script.notes.len(), 1, "{:?}", script.notes);
-    assert!(script.notes[0].contains("[ven].[Seq]"), "{:?}", script.notes);
+    assert!(
+        script.notes[0].contains("[ven].[Seq]"),
+        "{:?}",
+        script.notes
+    );
     assert!(differences.is_empty(), "{} differences", differences.len());
 }
 
@@ -638,7 +740,11 @@ async fn copied_columns(s: &mut Box<dyn Session>, t: &ObjectRef) -> Result<Vec<S
             AND graph_type IS NULL AND generated_always_type NOT IN (7, 8, 9, 10) ORDER BY column_id",
         nlit(&name)
     );
-    Ok(try_run(s, &sql).await?.results[0].rows.iter().map(|r| r[0].as_str().unwrap().to_string()).collect())
+    Ok(try_run(s, &sql).await?.results[0]
+        .rows
+        .iter()
+        .map(|r| r[0].as_str().unwrap().to_string())
+        .collect())
 }
 
 async fn drop_named(admin: &mut Box<dyn Session>, dbs: &[&str]) {
@@ -665,7 +771,10 @@ struct Case {
 /// Errors and differences of one case (empty: identical).
 async fn run_case(c: &Case) -> Vec<String> {
     let d = driver();
-    let (sdb, ddb) = (format!("dbine_cedge_{}_src", c.name), format!("dbine_cedge_{}_dst", c.name));
+    let (sdb, ddb) = (
+        format!("dbine_cedge_{}_src", c.name),
+        format!("dbine_cedge_{}_dst", c.name),
+    );
     let mut admin = d.connect(&config(), Some("master")).await.expect("connect");
     drop_named(&mut admin, &[&sdb, &ddb]).await;
     let r = async {
@@ -1437,7 +1546,10 @@ INSERT dbo.T2 (Id) VALUES (1)
 const TARGET_SQL: &[(&str, &str)] = &[
     ("execexists", "CREATE USER cv4_u WITHOUT LOGIN"),
     ("execrenamed", "CREATE USER cv6_new WITHOUT LOGIN"),
-    ("execcase", "ALTER DATABASE CURRENT COLLATE Latin1_General_CS_AS\nGO\nCREATE USER cv7_u WITHOUT LOGIN"),
+    (
+        "execcase",
+        "ALTER DATABASE CURRENT COLLATE Latin1_General_CS_AS\nGO\nCREATE USER cv7_u WITHOUT LOGIN",
+    ),
 ];
 
 /// A computed column over a function left out for its EXECUTE AS user:
@@ -1464,17 +1576,28 @@ async fn clone_refuses_computed_over_missing_execute_as_user() {
     let problems = run_case(&REFUSED).await;
     let want = "[dbo].[T]: la tabla no se puede crear igual porque la columna calculada [X] usa [dbo].[fN], que no se clona: \
                 el usuario «cv5_u» de EXECUTE AS no existe en el destino; crealo y volvé a clonar";
-    assert!(problems.len() == 1 && problems[0].starts_with("FATAL clone_script") && problems[0].contains(want), "{problems:#?}");
+    assert!(
+        problems.len() == 1
+            && problems[0].starts_with("FATAL clone_script")
+            && problems[0].contains(want),
+        "{problems:#?}"
+    );
 }
 
-const HELPER: (&str, &str) = ("no helper user left", "SELECT name FROM sys.database_principals WHERE name LIKE N'dbine%'");
+const HELPER: (&str, &str) = (
+    "no helper user left",
+    "SELECT name FROM sys.database_principals WHERE name LIKE N'dbine%'",
+);
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn clone_edge_cases() {
     let only = std::env::var("ONLY").ok();
     let mut failed = Vec::new();
-    for c in CASES.iter().filter(|c| only.as_deref().is_none_or(|o| o == c.name)) {
+    for c in CASES
+        .iter()
+        .filter(|c| only.as_deref().is_none_or(|o| o == c.name))
+    {
         let problems = run_case(c).await;
         println!("===== {}: {} problem(s)", c.name, problems.len());
         for p in &problems {

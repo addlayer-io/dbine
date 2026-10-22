@@ -20,21 +20,30 @@
 
 mod common;
 
-use dbine_driver::{ColumnDef, ConnectionConfig, DdlParts, ForeignKeyDef, IndexDef, KeyDef, QueryOutcome, Session, TableSchema};
+use dbine_driver::{
+    ColumnDef, ConnectionConfig, DdlParts, ForeignKeyDef, IndexDef, KeyDef, QueryOutcome, Session,
+    TableSchema,
+};
 use dbine_schema::convert::logical_of;
 use dbine_schema::dialect::for_driver;
 use dbine_schema::parse::parse;
 use dbine_schema::{convert, Conversion, IssueCode, LogicalType as L, Options, Severity};
 
 const ENGINES: &[&str] = &[
-    "odbc", "netsuite", "ingres", "zen", "altibase", "cubrid", "dameng", "heavydb", "iris", "cache", "machbase", "access", "dbase",
-    "mimer", "monetdb", "nuodb", "ocient", "virtuoso", "openedge", "maxdb", "sqream", "ignite", "ignite3",
+    "odbc", "netsuite", "ingres", "zen", "altibase", "cubrid", "dameng", "heavydb", "iris",
+    "cache", "machbase", "access", "dbase", "mimer", "monetdb", "nuodb", "ocient", "virtuoso",
+    "openedge", "maxdb", "sqream", "ignite", "ignite3",
 ];
 
 // ------------------------------------------------------------------ helpers
 
 fn col(name: &str, ty: &str) -> ColumnDef {
-    ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() }
+    ColumnDef {
+        name: name.into(),
+        data_type: ty.into(),
+        nullable: true,
+        ..Default::default()
+    }
 }
 
 fn not_null(mut c: ColumnDef) -> ColumnDef {
@@ -57,13 +66,19 @@ fn table(name: &str, cols: Vec<ColumnDef>, pk: &[&str]) -> TableSchema {
         kind: "table".into(),
         name: name.into(),
         columns: cols,
-        primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk.iter().map(|s| s.to_string()).collect() }),
+        primary_key: (!pk.is_empty()).then(|| KeyDef {
+            name: None,
+            columns: pk.iter().map(|s| s.to_string()).collect(),
+        }),
         ..Default::default()
     }
 }
 
 fn column<'a>(t: &'a TableSchema, c: &str) -> &'a ColumnDef {
-    t.columns.iter().find(|x| x.name.eq_ignore_ascii_case(c)).unwrap_or_else(|| panic!("no column {c} in {}: {:?}", t.name, t.columns))
+    t.columns
+        .iter()
+        .find(|x| x.name.eq_ignore_ascii_case(c))
+        .unwrap_or_else(|| panic!("no column {c} in {}: {:?}", t.name, t.columns))
 }
 
 fn ty<'a>(t: &'a TableSchema, c: &str) -> &'a str {
@@ -71,7 +86,12 @@ fn ty<'a>(t: &'a TableSchema, c: &str) -> &'a str {
 }
 
 fn has(r: &Conversion, code: IssueCode, object: &str) -> bool {
-    r.issues.iter().any(|i| i.code == code && i.object.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(object)))
+    r.issues.iter().any(|i| {
+        i.code == code
+            && i.object
+                .as_deref()
+                .is_some_and(|o| o.eq_ignore_ascii_case(object))
+    })
 }
 
 fn run(tables: &[TableSchema], from: &str, to: &str) -> Conversion {
@@ -81,8 +101,20 @@ fn run(tables: &[TableSchema], from: &str, to: &str) -> Conversion {
 /// The DDL the real driver writes for the converted tables.
 fn ddl(driver: &str, tables: &[TableSchema]) -> String {
     let d = dbine_drivers::find(driver).unwrap_or_else(|| panic!("no driver {driver}"));
-    let parts = DdlParts { create: true, indexes: true, foreign_keys: true, ..Default::default() };
-    tables.iter().map(|t| d.table_ddl(t, parts).unwrap_or_else(|e| panic!("{driver} table_ddl {}: {e}", t.name))).collect::<Vec<_>>().join("\n")
+    let parts = DdlParts {
+        create: true,
+        indexes: true,
+        foreign_keys: true,
+        ..Default::default()
+    };
+    tables
+        .iter()
+        .map(|t| {
+            d.table_ddl(t, parts)
+                .unwrap_or_else(|e| panic!("{driver} table_ddl {}: {e}", t.name))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The converted tables are consistent with the target: every type is one
@@ -96,38 +128,103 @@ fn check_target(r: &Conversion, to: &str) {
     for t in &r.tables {
         for c in &t.columns {
             let l = logical_of(d, &parse(&c.data_type));
-            assert!(!matches!(l, L::Other { .. }), "{to}: {}.{} → {} no se lee de vuelta", t.name, c.name, c.data_type);
-            assert!(c.name.len() <= caps.max_identifier, "{to}: {} supera {}", c.name, caps.max_identifier);
-            assert!(caps.defaults || c.default_value.is_none(), "{to}: default en {}", c.name);
-            assert!(caps.nullability || c.nullable, "{to}: NOT NULL en {}", c.name);
-            assert!(caps.auto_increment || !c.auto_increment, "{to}: autoincremental en {}", c.name);
+            assert!(
+                !matches!(l, L::Other { .. }),
+                "{to}: {}.{} → {} no se lee de vuelta",
+                t.name,
+                c.name,
+                c.data_type
+            );
+            assert!(
+                c.name.len() <= caps.max_identifier,
+                "{to}: {} supera {}",
+                c.name,
+                caps.max_identifier
+            );
+            assert!(
+                caps.defaults || c.default_value.is_none(),
+                "{to}: default en {}",
+                c.name
+            );
+            assert!(
+                caps.nullability || c.nullable,
+                "{to}: NOT NULL en {}",
+                c.name
+            );
+            assert!(
+                caps.auto_increment || !c.auto_increment,
+                "{to}: autoincremental en {}",
+                c.name
+            );
             if to != "access" && to != "iris" && to != "cache" && to != "zen" {
                 // Those three replace an identity column's type in their DDL.
-                assert!(script.contains(&c.data_type), "{to}: el DDL no tiene «{}»:\n{script}", c.data_type);
+                assert!(
+                    script.contains(&c.data_type),
+                    "{to}: el DDL no tiene «{}»:\n{script}",
+                    c.data_type
+                );
             }
         }
-        assert!(caps.foreign_keys || t.foreign_keys.is_empty(), "{to}: claves foráneas en {}", t.name);
-        assert!(caps.indexes || t.indexes.is_empty(), "{to}: índices en {}", t.name);
+        assert!(
+            caps.foreign_keys || t.foreign_keys.is_empty(),
+            "{to}: claves foráneas en {}",
+            t.name
+        );
+        assert!(
+            caps.indexes || t.indexes.is_empty(),
+            "{to}: índices en {}",
+            t.name
+        );
         if let Some(spec) = &designer {
-            assert!(spec.primary_key || t.primary_key.is_none(), "{to}: clave primaria en {}", t.name);
+            assert!(
+                spec.primary_key || t.primary_key.is_none(),
+                "{to}: clave primaria en {}",
+                t.name
+            );
         }
         for fk in &t.foreign_keys {
-            assert!(fk.on_delete.as_deref().is_none_or(|a| caps.on_delete.contains(&a)), "{to}: ON DELETE {:?}", fk.on_delete);
-            assert!(fk.on_update.as_deref().is_none_or(|a| caps.on_update.contains(&a)), "{to}: ON UPDATE {:?}", fk.on_update);
+            assert!(
+                fk.on_delete
+                    .as_deref()
+                    .is_none_or(|a| caps.on_delete.contains(&a)),
+                "{to}: ON DELETE {:?}",
+                fk.on_delete
+            );
+            assert!(
+                fk.on_update
+                    .as_deref()
+                    .is_none_or(|a| caps.on_update.contains(&a)),
+                "{to}: ON UPDATE {:?}",
+                fk.on_update
+            );
         }
     }
-    assert!(!r.issues.iter().any(|i| i.code == IssueCode::TypeUnknown), "{to}: tipos desconocidos: {:?}", r.issues);
+    assert!(
+        !r.issues.iter().any(|i| i.code == IssueCode::TypeUnknown),
+        "{to}: tipos desconocidos: {:?}",
+        r.issues
+    );
 }
 
 // ------------------------------------------------------------------ sources
 
 /// A PostgreSQL table as `database_schema` reports it.
 fn pg_tables() -> Vec<TableSchema> {
-    let clientes = table("clientes", vec![not_null(col("id", "integer")), col("nombre", "character varying(120)")], &["id"]);
+    let clientes = table(
+        "clientes",
+        vec![
+            not_null(col("id", "integer")),
+            col("nombre", "character varying(120)"),
+        ],
+        &["id"],
+    );
     let mut pedidos = table(
         "pedidos",
         vec![
-            not_null(with_default(col("id", "bigint"), "nextval('pedidos_id_seq'::regclass)")),
+            not_null(with_default(
+                col("id", "bigint"),
+                "nextval('pedidos_id_seq'::regclass)",
+            )),
             not_null(col("cliente_id", "integer")),
             col("cantidad", "smallint"),
             with_default(col("total", "numeric(12,2)"), "0"),
@@ -136,7 +233,10 @@ fn pg_tables() -> Vec<TableSchema> {
             col("ratio", "real"),
             col("medida", "double precision"),
             with_default(col("creado", "timestamp(6) with time zone"), "now()"),
-            with_default(col("alta", "timestamp without time zone"), "CURRENT_TIMESTAMP"),
+            with_default(
+                col("alta", "timestamp without time zone"),
+                "CURRENT_TIMESTAMP",
+            ),
             with_default(col("dia", "date"), "CURRENT_DATE"),
             col("hora", "time(3) without time zone"),
             with_default(col("activo", "boolean"), "true"),
@@ -146,7 +246,10 @@ fn pg_tables() -> Vec<TableSchema> {
             col("notas", "text"),
             col("foto", "bytea"),
             col("ip", "inet"),
-            with_default(col("estado", "character varying(20)"), "'nuevo'::character varying"),
+            with_default(
+                col("estado", "character varying(20)"),
+                "'nuevo'::character varying",
+            ),
             col("sigla", "character(3)"),
         ],
         &["id"],
@@ -160,8 +263,17 @@ fn pg_tables() -> Vec<TableSchema> {
         on_update: Some("RESTRICT".into()),
         ..Default::default()
     });
-    pedidos.indexes.push(IndexDef { name: "ix_pedidos_creado".into(), columns: vec!["creado".into()], ..Default::default() });
-    pedidos.indexes.push(IndexDef { name: "ux_pedidos_codigo".into(), columns: vec!["codigo".into()], unique: true, ..Default::default() });
+    pedidos.indexes.push(IndexDef {
+        name: "ix_pedidos_creado".into(),
+        columns: vec!["creado".into()],
+        ..Default::default()
+    });
+    pedidos.indexes.push(IndexDef {
+        name: "ux_pedidos_codigo".into(),
+        columns: vec!["codigo".into()],
+        unique: true,
+        ..Default::default()
+    });
     vec![clientes, pedidos]
 }
 
@@ -242,7 +354,10 @@ fn engine_table(id: &str) -> TableSchema {
             with_default(col("dia", "ANSIDATE"), "CURRENT_DATE"),
             col("viejo", "INGRESDATE"),
             col("hora", "TIME WITHOUT TIME ZONE"),
-            with_default(col("creado", "TIMESTAMP WITH TIME ZONE"), "CURRENT_TIMESTAMP"),
+            with_default(
+                col("creado", "TIMESTAMP WITH TIME ZONE"),
+                "CURRENT_TIMESTAMP",
+            ),
             col("activo", "BOOLEAN"),
             col("lapso", "INTERVAL DAY TO SECOND"),
         ],
@@ -378,7 +493,10 @@ fn engine_table(id: &str) -> TableSchema {
             col("LAPSO", "INTERVAL DAY TO SECOND"),
         ],
         "monetdb" => vec![
-            not_null(with_default(col("id", "int"), "next value for \"sys\".\"seq_7788\"")),
+            not_null(with_default(
+                col("id", "int"),
+                "next value for \"sys\".\"seq_7788\"",
+            )),
             col("enorme", "hugeint"),
             col("monto", "decimal(12,2)"),
             col("nombre", "varchar(100)"),
@@ -466,7 +584,10 @@ fn engine_table(id: &str) -> TableSchema {
     let pk_col = cols[0].name.clone();
     let mut t = table("muestra", cols, &[]);
     if id != "dbase" {
-        t.primary_key = Some(KeyDef { name: None, columns: vec![pk_col] });
+        t.primary_key = Some(KeyDef {
+            name: None,
+            columns: vec![pk_col],
+        });
     }
     t
 }
@@ -476,7 +597,11 @@ fn engine_table(id: &str) -> TableSchema {
 #[test]
 fn from_the_core_families_into_every_engine() {
     for to in ENGINES.iter().filter(|id| **id != "netsuite") {
-        for (from, tables) in [("postgres", pg_tables()), ("mysql", mysql_tables()), ("sqlserver", sqlserver_tables())] {
+        for (from, tables) in [
+            ("postgres", pg_tables()),
+            ("mysql", mysql_tables()),
+            ("sqlserver", sqlserver_tables()),
+        ] {
             let r = run(&tables, from, to);
             check_target(&r, to);
         }
@@ -493,8 +618,14 @@ fn postgres_to_ingres() {
     assert_eq!(ty(p, "grande"), "DECIMAL(39, 5)");
     assert!(has(&r, IssueCode::PrecisionLoss, "grande"));
     assert_eq!(ty(p, "creado"), "TIMESTAMP(6) WITH TIME ZONE");
-    assert_eq!(column(p, "creado").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
-    assert_eq!(column(p, "alta").default_value.as_deref(), Some("LOCAL_TIMESTAMP"));
+    assert_eq!(
+        column(p, "creado").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
+    assert_eq!(
+        column(p, "alta").default_value.as_deref(),
+        Some("LOCAL_TIMESTAMP")
+    );
     assert_eq!(ty(p, "dia"), "ANSIDATE");
     assert_eq!(ty(p, "hora"), "TIME(3)");
     assert_eq!(ty(p, "activo"), "BOOLEAN");
@@ -505,11 +636,20 @@ fn postgres_to_ingres() {
     assert_eq!(ty(p, "notas"), "LONG NVARCHAR");
     assert_eq!(ty(p, "foto"), "LONG BYTE");
     assert_eq!(ty(p, "estado"), "NVARCHAR(20)");
-    assert_eq!(column(p, "estado").default_value.as_deref(), Some("'nuevo'"));
+    assert_eq!(
+        column(p, "estado").default_value.as_deref(),
+        Some("'nuevo'")
+    );
     assert_eq!(p.foreign_keys[0].on_update.as_deref(), Some("RESTRICT"));
     let script = ddl("ingres", &r.tables);
-    assert!(script.contains("\"id\" BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"), "{script}");
-    assert!(script.contains("COMMENT ON") || !script.contains("COMMENT"), "{script}");
+    assert!(
+        script.contains("\"id\" BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"),
+        "{script}"
+    );
+    assert!(
+        script.contains("COMMENT ON") || !script.contains("COMMENT"),
+        "{script}"
+    );
 }
 
 #[test]
@@ -520,7 +660,10 @@ fn postgres_to_cubrid_and_dameng() {
     assert_eq!(column(p, "activo").default_value.as_deref(), Some("1"));
     assert_eq!(ty(p, "creado"), "DATETIMETZ");
     assert!(has(&r, IssueCode::PrecisionLoss, "creado"));
-    assert_eq!(column(p, "creado").default_value.as_deref(), Some("CURRENT_DATETIME"));
+    assert_eq!(
+        column(p, "creado").default_value.as_deref(),
+        Some("CURRENT_DATETIME")
+    );
     assert_eq!(ty(p, "notas"), "STRING");
     assert_eq!(ty(p, "datos"), "JSON");
     // ON UPDATE RESTRICT exists in CUBRID; ON DELETE CASCADE too.
@@ -533,7 +676,10 @@ fn postgres_to_cubrid_and_dameng() {
     assert_eq!(ty(p, "ID"), "BIGINT");
     assert_eq!(ty(p, "ACTIVO"), "BIT");
     assert_eq!(ty(p, "CREADO"), "TIMESTAMP(6) WITH TIME ZONE");
-    assert_eq!(column(p, "CREADO").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(p, "CREADO").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
     assert_eq!(column(p, "ALTA").default_value.as_deref(), Some("SYSDATE"));
     assert_eq!(ty(p, "LIBRE"), "NUMBER");
     assert_eq!(ty(p, "NOTAS"), "TEXT");
@@ -545,7 +691,12 @@ fn into_engines_without_keys() {
     for to in ["heavydb", "sqream", "machbase", "ocient"] {
         let r = run(&pg_tables(), "postgres", to);
         assert!(r.tables.iter().all(|t| t.primary_key.is_none()), "{to}");
-        assert!(r.issues.iter().any(|i| i.code == IssueCode::PrimaryKeyDropped && i.severity == Severity::Dropped), "{to}");
+        assert!(
+            r.issues
+                .iter()
+                .any(|i| i.code == IssueCode::PrimaryKeyDropped && i.severity == Severity::Dropped),
+            "{to}"
+        );
         assert!(r.tables.iter().all(|t| t.foreign_keys.is_empty()), "{to}");
         assert!(!ddl(to, &r.tables).contains("PRIMARY KEY"), "{to}");
     }
@@ -560,8 +711,18 @@ fn into_engines_without_keys() {
     let r = run(&pg_tables(), "postgres", "dbase");
     let c = &r.tables[0];
     assert!(c.primary_key.is_none());
-    assert!(c.indexes.iter().any(|i| i.unique && i.columns == ["ID"] && i.name.len() <= 10), "{:?}", c.indexes);
-    assert!(r.tables.iter().flat_map(|t| &t.columns).all(|c| c.name.len() <= 10 && c.default_value.is_none() && c.nullable));
+    assert!(
+        c.indexes
+            .iter()
+            .any(|i| i.unique && i.columns == ["ID"] && i.name.len() <= 10),
+        "{:?}",
+        c.indexes
+    );
+    assert!(r
+        .tables
+        .iter()
+        .flat_map(|t| &t.columns)
+        .all(|c| c.name.len() <= 10 && c.default_value.is_none() && c.nullable));
 }
 
 #[test]
@@ -582,7 +743,10 @@ fn mysql_to_zen_monetdb_and_access() {
     assert_eq!(ty(p, "grande"), "HUGEINT");
     assert_eq!(ty(p, "ts"), "TIMESTAMP(6) WITH TIME ZONE");
     assert_eq!(ty(p, "tipo"), "VARCHAR(1)");
-    assert!(r.issues.iter().any(|i| i.object.as_deref() == Some("tipo") && i.message.contains("a, b, c")));
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.object.as_deref() == Some("tipo") && i.message.contains("a, b, c")));
     assert!(ddl("monetdb", &r.tables).contains("\"id\" BIGINT AUTO_INCREMENT NOT NULL"));
 
     let r = run(&mysql_tables(), "mysql", "access");
@@ -595,7 +759,11 @@ fn mysql_to_zen_monetdb_and_access() {
     assert!(has(&r, IssueCode::PrecisionLoss, "alta"));
     assert_eq!(column(p, "alta").default_value.as_deref(), Some("Now()"));
     // The Access driver writes COUNTER for the auto-increment column.
-    assert!(ddl("access", &r.tables).contains("[id] COUNTER NOT NULL"), "{}", ddl("access", &r.tables));
+    assert!(
+        ddl("access", &r.tables).contains("[id] COUNTER NOT NULL"),
+        "{}",
+        ddl("access", &r.tables)
+    );
 }
 
 #[test]
@@ -618,7 +786,10 @@ fn sqlserver_to_iris_altibase_and_maxdb() {
     assert!(has(&r, IssueCode::PrecisionLoss, "Exacta"));
     assert!(has(&r, IssueCode::TimeZoneLoss, "Zona"));
     assert_eq!(ty(v, "NOMBRE"), "NVARCHAR(50)");
-    assert_eq!(column(v, "CREADO").default_value.as_deref(), Some("SYSDATE"));
+    assert_eq!(
+        column(v, "CREADO").default_value.as_deref(),
+        Some("SYSDATE")
+    );
     // Altibase has no identity the driver can write.
     assert!(!column(v, "ID").auto_increment);
     assert!(has(&r, IssueCode::AutoIncrementDropped, "Id"));
@@ -628,19 +799,38 @@ fn sqlserver_to_iris_altibase_and_maxdb() {
     assert_eq!(ty(v, "NOMBRE"), "VARCHAR(50) UNICODE");
     assert_eq!(ty(v, "ASCII"), "VARCHAR(8000) ASCII");
     assert_eq!(ty(v, "BYTES"), "LONG BYTE");
-    assert_eq!(column(v, "CREADO").default_value.as_deref(), Some("TIMESTAMP"));
+    assert_eq!(
+        column(v, "CREADO").default_value.as_deref(),
+        Some("TIMESTAMP")
+    );
     assert!(ddl("maxdb", &r.tables).contains("DEFAULT SERIAL"));
 }
 
 #[test]
 fn ignite_takes_a_unique_index_as_key() {
-    let mut t = table("t", vec![not_null(col("codigo", "uuid")), col("valor", "integer")], &[]);
-    t.indexes.push(IndexDef { name: "ux_codigo".into(), columns: vec!["codigo".into()], unique: true, ..Default::default() });
+    let mut t = table(
+        "t",
+        vec![not_null(col("codigo", "uuid")), col("valor", "integer")],
+        &[],
+    );
+    t.indexes.push(IndexDef {
+        name: "ux_codigo".into(),
+        columns: vec!["codigo".into()],
+        unique: true,
+        ..Default::default()
+    });
     for to in ["ignite", "ignite3"] {
         let r = run(&[t.clone()], "postgres", to);
-        assert_eq!(r.tables[0].primary_key.as_ref().map(|k| k.columns.clone()), Some(vec!["CODIGO".to_string()]), "{to}");
+        assert_eq!(
+            r.tables[0].primary_key.as_ref().map(|k| k.columns.clone()),
+            Some(vec!["CODIGO".to_string()]),
+            "{to}"
+        );
         assert!(r.tables[0].indexes.is_empty());
-        assert!(r.issues.iter().any(|i| i.code == IssueCode::PrimaryKeyAdded));
+        assert!(r
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::PrimaryKeyAdded));
         assert!(ddl(to, &r.tables).contains("PRIMARY KEY (\"CODIGO\")"));
     }
 }
@@ -655,7 +845,10 @@ fn generic_target_and_netsuite() {
     assert!(has(&r, IssueCode::TimeZoneLoss, "creado"));
     // The generic flavor writes no identity: reported, not silently lost.
     assert!(has(&r, IssueCode::AutoIncrementDropped, "id"));
-    assert!(r.issues.iter().any(|i| i.object.is_none() && i.message.contains("ODBC genérico")));
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.object.is_none() && i.message.contains("ODBC genérico")));
     // ON UPDATE isn't common to every engine.
     assert_eq!(p.foreign_keys[0].on_update, None);
     let e = convert(&pg_tables(), "postgres", "netsuite", &Options::default()).unwrap_err();
@@ -670,10 +863,19 @@ fn every_engine_into_the_core_families() {
         let src = vec![engine_table(from)];
         for to in ["postgres", "mysql", "sqlserver", "oracle"] {
             let r = run(&src, from, to);
-            assert!(!r.issues.iter().any(|i| i.code == IssueCode::TypeUnknown), "{from} → {to}: {:?}", r.issues);
+            assert!(
+                !r.issues.iter().any(|i| i.code == IssueCode::TypeUnknown),
+                "{from} → {to}: {:?}",
+                r.issues
+            );
             let d = for_driver(to).unwrap();
             for c in &r.tables[0].columns {
-                assert!(!matches!(logical_of(d, &parse(&c.data_type)), L::Other { .. }), "{from} → {to}: {} {}", c.name, c.data_type);
+                assert!(
+                    !matches!(logical_of(d, &parse(&c.data_type)), L::Other { .. }),
+                    "{from} → {to}: {} {}",
+                    c.name,
+                    c.data_type
+                );
             }
         }
     }
@@ -691,7 +893,10 @@ fn engines_to_postgres() {
     assert_eq!(ty(t, "viejo"), "timestamp(0)");
     assert_eq!(ty(t, "hora"), "time(0)");
     assert_eq!(ty(t, "creado"), "timestamp(6) with time zone");
-    assert_eq!(column(t, "creado").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(t, "creado").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
     assert_eq!(ty(t, "lapso"), "interval");
 
     let r = pg("zen");
@@ -706,7 +911,10 @@ fn engines_to_postgres() {
     let t = &r.tables[0];
     assert_eq!(t.name, "muestra");
     assert_eq!(ty(t, "creado"), "timestamp(6)");
-    assert_eq!(column(t, "creado").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(t, "creado").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
     assert_eq!(ty(t, "libre"), "numeric");
 
     let r = pg("cubrid");
@@ -714,25 +922,40 @@ fn engines_to_postgres() {
     assert_eq!(ty(t, "hash"), "bytea");
     assert_eq!(ty(t, "ts"), "timestamp(0) with time zone");
     // CUBRID's CURRENT_DATETIME is "now".
-    assert_eq!(column(t, "dt").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(t, "dt").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
 
     let r = pg("access");
     let t = &r.tables[0];
-    assert!(column(t, "Id").auto_increment, "COUNTER is an auto-increment");
+    assert!(
+        column(t, "Id").auto_increment,
+        "COUNTER is an auto-increment"
+    );
     assert_eq!(ty(t, "Chico"), "smallint");
     assert_eq!(ty(t, "Codigo"), "uuid");
-    assert_eq!(column(t, "Creado").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(t, "Creado").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
 
     let r = pg("monetdb");
     let t = &r.tables[0];
-    assert!(column(t, "id").auto_increment, "a sequence default is an auto-increment");
+    assert!(
+        column(t, "id").auto_increment,
+        "a sequence default is an auto-increment"
+    );
     assert_eq!(ty(t, "enorme"), "numeric(39, 0)");
     assert_eq!(ty(t, "creado"), "timestamp(6) with time zone");
 
     let r = pg("maxdb");
     let t = &r.tables[0];
     // MaxDB's bare TIMESTAMP default is "now".
-    assert_eq!(column(t, "creado").default_value.as_deref(), Some("CURRENT_TIMESTAMP"));
+    assert_eq!(
+        column(t, "creado").default_value.as_deref(),
+        Some("CURRENT_TIMESTAMP")
+    );
     assert_eq!(ty(t, "hash"), "bytea");
     assert_eq!(ty(t, "ascii"), "char(10)");
     assert_eq!(ty(t, "medida"), "numeric");
@@ -745,18 +968,59 @@ fn engines_to_postgres() {
 /// `b` is `a`, or a wider integer or a Unicode text that holds all of its values.
 fn holds(a: &L, b: &L) -> bool {
     match (a, b) {
-        (L::Int { bytes: x, unsigned: ux }, L::Int { bytes: y, unsigned: uy }) => {
-            (ux == uy && y >= x) || (!uy && *y >= L::signed_bytes_for(*x, *ux))
-        }
+        (
+            L::Int {
+                bytes: x,
+                unsigned: ux,
+            },
+            L::Int {
+                bytes: y,
+                unsigned: uy,
+            },
+        ) => (ux == uy && y >= x) || (!uy && *y >= L::signed_bytes_for(*x, *ux)),
         // Unicode holds any character set.
-        (L::Char { len: x, unicode: ux }, L::Char { len: y, unicode: uy }) | (L::Varchar { len: x, unicode: ux }, L::Varchar { len: y, unicode: uy }) => {
-            x == y && (*uy || !*ux)
-        }
+        (
+            L::Char {
+                len: x,
+                unicode: ux,
+            },
+            L::Char {
+                len: y,
+                unicode: uy,
+            },
+        )
+        | (
+            L::Varchar {
+                len: x,
+                unicode: ux,
+            },
+            L::Varchar {
+                len: y,
+                unicode: uy,
+            },
+        ) => x == y && (*uy || !*ux),
         (L::Text { unicode: ux }, L::Text { unicode: uy }) => *uy || !*ux,
         // More fractional digits hold fewer.
-        (L::Timestamp { precision: x, tz: tx }, L::Timestamp { precision: y, tz: ty }) | (L::Time { precision: x, tz: tx }, L::Time { precision: y, tz: ty }) => {
-            tx == ty && (x == y || x.zip(*y).is_some_and(|(x, y)| y >= x))
-        }
+        (
+            L::Timestamp {
+                precision: x,
+                tz: tx,
+            },
+            L::Timestamp {
+                precision: y,
+                tz: ty,
+            },
+        )
+        | (
+            L::Time {
+                precision: x,
+                tz: tx,
+            },
+            L::Time {
+                precision: y,
+                tz: ty,
+            },
+        ) => tx == ty && (x == y || x.zip(*y).is_some_and(|(x, y)| y >= x)),
         _ => a == b,
     }
 }
@@ -771,16 +1035,38 @@ fn round_trip_through_postgres() {
         let back = convert(&there.tables, "postgres", id, &Options::default()).unwrap();
         let d = for_driver(id).unwrap();
         // Any note on the column (even an Info like "booleano como SMALLINT") explains a change.
-        let flagged = |c: &str| there.issues.iter().chain(&back.issues).any(|i| i.object.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(c)));
+        let flagged = |c: &str| {
+            there.issues.iter().chain(&back.issues).any(|i| {
+                i.object
+                    .as_deref()
+                    .is_some_and(|o| o.eq_ignore_ascii_case(c))
+            })
+        };
         for (a, b) in src[0].columns.iter().zip(&back.tables[0].columns) {
             if flagged(&a.name) {
                 continue;
             }
             // Money is a decimal(19, 4) wherever the target has no money type.
-            let norm = |l: L| if l == L::Money { L::Decimal { precision: Some(19), scale: Some(4) } } else { l };
+            let norm = |l: L| {
+                if l == L::Money {
+                    L::Decimal {
+                        precision: Some(19),
+                        scale: Some(4),
+                    }
+                } else {
+                    l
+                }
+            };
             let la = norm(logical_of(d, &parse(&a.data_type)));
             let lb = norm(logical_of(d, &parse(&b.data_type)));
-            assert!(holds(&la, &lb), "{id}: {} {} → {} → {} ({la:?} → {lb:?})", a.name, a.data_type, ty(&there.tables[0], &a.name), b.data_type);
+            assert!(
+                holds(&la, &lb),
+                "{id}: {} {} → {} → {} ({la:?} → {lb:?})",
+                a.name,
+                a.data_type,
+                ty(&there.tables[0], &a.name),
+                b.data_type
+            );
         }
     }
 }
@@ -791,7 +1077,10 @@ fn between_odbc_engines() {
     let t = &r.tables[0];
     // Altibase's DATE carries a time: Dameng needs a TIMESTAMP.
     assert_eq!(ty(t, "CREADO"), "TIMESTAMP(6)");
-    assert_eq!(column(t, "CREADO").default_value.as_deref(), Some("SYSDATE"));
+    assert_eq!(
+        column(t, "CREADO").default_value.as_deref(),
+        Some("SYSDATE")
+    );
     assert_eq!(ty(t, "LIBRE"), "NUMBER");
     check_target(&r, "dameng");
 
@@ -808,7 +1097,9 @@ fn between_odbc_engines() {
     assert_eq!(ty(&r.tables[0], "Posix"), "POSIXTIME");
 
     for from in ENGINES {
-        for to in ["ingres", "cubrid", "monetdb", "heavydb", "access", "openedge"] {
+        for to in [
+            "ingres", "cubrid", "monetdb", "heavydb", "access", "openedge",
+        ] {
             let r = run(&[engine_table(from)], from, to);
             check_target(&r, to);
         }
@@ -830,7 +1121,10 @@ fn designer_types_are_understood() {
             if opaque.contains(&(id, t)) {
                 continue;
             }
-            assert!(!matches!(logical_of(d, &parse(t)), L::Other { .. }), "{id}: «{t}» no se reconoce");
+            assert!(
+                !matches!(logical_of(d, &parse(t)), L::Other { .. }),
+                "{id}: «{t}» no se reconoce"
+            );
         }
         // The family's caps are never wider than the designer.
         let caps = d.caps();
@@ -846,22 +1140,48 @@ async fn odbc_session() -> Option<Box<dyn Session>> {
         eprintln!("DBINE_TEST_ODBC_CONN no está definida: se saltea");
         return None;
     };
-    let cfg = ConnectionConfig { driver: "odbc".into(), options: [("connection_string".to_string(), conn)].into(), ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: "odbc".into(),
+        options: [("connection_string".to_string(), conn)].into(),
+        ..Default::default()
+    };
     let d = dbine_drivers::find("odbc").unwrap();
-    Some(d.connect(&cfg, None).await.unwrap_or_else(|e| panic!("odbc: {e}")))
+    Some(
+        d.connect(&cfg, None)
+            .await
+            .unwrap_or_else(|e| panic!("odbc: {e}")),
+    )
 }
 
 async fn rows(s: &mut Box<dyn Session>, sql: &str) -> Vec<Vec<serde_json::Value>> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
-    out.results.into_iter().rev().find(|r| !r.columns.is_empty()).map(|r| r.rows).unwrap_or_default()
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    out.results
+        .into_iter()
+        .rev()
+        .find(|r| !r.columns.is_empty())
+        .map(|r| r.rows)
+        .unwrap_or_default()
 }
 
 /// `common::round_trip` without the source schema (`dbo`, `public`), which
 /// doesn't exist on the other side: the tables go to the session's default.
-async fn trip(src: &mut Box<dyn Session>, from: &str, dst: &mut Box<dyn Session>, to: &str, names: &[&str]) -> common::RoundTrip {
+async fn trip(
+    src: &mut Box<dyn Session>,
+    from: &str,
+    dst: &mut Box<dyn Session>,
+    to: &str,
+    names: &[&str],
+) -> common::RoundTrip {
     let mut tables = common::read(src, names).await;
-    assert_eq!(tables.len(), names.len(), "{from}: {:?}", tables.iter().map(|t| &t.name).collect::<Vec<_>>());
+    assert_eq!(
+        tables.len(),
+        names.len(),
+        "{from}: {:?}",
+        tables.iter().map(|t| &t.name).collect::<Vec<_>>()
+    );
     for t in &mut tables {
         t.schema = None;
         for fk in &mut t.foreign_keys {
@@ -875,7 +1195,11 @@ async fn trip(src: &mut Box<dyn Session>, from: &str, dst: &mut Box<dyn Session>
     }
     let target: Vec<&str> = conversion.tables.iter().map(|t| t.name.as_str()).collect();
     let back = common::read(dst, &target).await;
-    common::RoundTrip { conversion, ddl, back }
+    common::RoundTrip {
+        conversion,
+        ddl,
+        back,
+    }
 }
 
 /// SQL Server read through the generic ODBC preset (the engine unknown to
@@ -885,13 +1209,30 @@ async fn trip(src: &mut Box<dyn Session>, from: &str, dst: &mut Box<dyn Session>
 #[tokio::test]
 #[ignore]
 async fn live_generic_odbc_sqlserver_and_postgres() {
-    let (Some(mut ms), Some(mut pg)) = (odbc_session().await, common::session("postgres", "DBINE_TEST_POSTGRES_URL").await) else {
+    let (Some(mut ms), Some(mut pg)) = (
+        odbc_session().await,
+        common::session("postgres", "DBINE_TEST_POSTGRES_URL").await,
+    ) else {
         return;
     };
 
     // --- SQL Server (through ODBC) → PostgreSQL.
-    common::exec_quiet(&mut ms, &["DROP TABLE IF EXISTS oe_tipos", "DROP TABLE IF EXISTS oe_padre"]).await;
-    common::exec_quiet(&mut pg, &["DROP TABLE IF EXISTS oe_tipos CASCADE", "DROP TABLE IF EXISTS oe_padre CASCADE"]).await;
+    common::exec_quiet(
+        &mut ms,
+        &[
+            "DROP TABLE IF EXISTS oe_tipos",
+            "DROP TABLE IF EXISTS oe_padre",
+        ],
+    )
+    .await;
+    common::exec_quiet(
+        &mut pg,
+        &[
+            "DROP TABLE IF EXISTS oe_tipos CASCADE",
+            "DROP TABLE IF EXISTS oe_padre CASCADE",
+        ],
+    )
+    .await;
     common::exec(
         &mut ms,
         "CREATE TABLE oe_padre (id int NOT NULL PRIMARY KEY, nombre nvarchar(50) NOT NULL);
@@ -911,10 +1252,24 @@ async fn live_generic_odbc_sqlserver_and_postgres() {
          CREATE UNIQUE INDEX ux_oe_tipos_u ON oe_tipos (u);",
     )
     .await;
-    let rt = trip(&mut ms, "odbc", &mut pg, "postgres", &["oe_padre", "oe_tipos"]).await;
+    let rt = trip(
+        &mut ms,
+        "odbc",
+        &mut pg,
+        "postgres",
+        &["oe_padre", "oe_tipos"],
+    )
+    .await;
     println!("{}", rt.ddl.join("\n"));
     for i in &rt.conversion.issues {
-        println!("{:?} {:?} {}.{}: {}", i.severity, i.code, i.table, i.object.as_deref().unwrap_or(""), i.message);
+        println!(
+            "{:?} {:?} {}.{}: {}",
+            i.severity,
+            i.code,
+            i.table,
+            i.object.as_deref().unwrap_or(""),
+            i.message
+        );
     }
     let t = &rt.back[1];
     let expect = [
@@ -946,7 +1301,11 @@ async fn live_generic_odbc_sqlserver_and_postgres() {
     assert!(common::col(t, "id").auto_increment, "identity survives");
     assert_eq!(t.foreign_keys.len(), 1);
     assert!(t.indexes.iter().any(|i| i.unique), "{:?}", t.indexes);
-    assert!(rt.conversion.issues.iter().any(|i| i.code == IssueCode::PrecisionLoss && i.object.as_deref() == Some("dt2")));
+    assert!(rt
+        .conversion
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::PrecisionLoss && i.object.as_deref() == Some("dt2")));
 
     // Boundary row on both sides (7 → 6 fractional digits where the report says so).
     common::exec(&mut ms, "INSERT INTO oe_padre VALUES (1, N'ñandú')").await;
@@ -969,10 +1328,22 @@ async fn live_generic_odbc_sqlserver_and_postgres() {
                  '2024-02-29 12:34:56.123456-03:00', '6F9619FF-8B86-D011-B42D-00C04FC964FF', true, '<a>1</a>')",
     )
     .await;
-    let a = rows(&mut ms, "SELECT grande, CAST(dec_p AS varchar(60)), nv, LEN(nmax), chico FROM oe_tipos").await;
-    let b = rows(&mut pg, "SELECT grande::text, dec_p::text, nv, length(nmax), chico FROM oe_tipos").await;
+    let a = rows(
+        &mut ms,
+        "SELECT grande, CAST(dec_p AS varchar(60)), nv, LEN(nmax), chico FROM oe_tipos",
+    )
+    .await;
+    let b = rows(
+        &mut pg,
+        "SELECT grande::text, dec_p::text, nv, length(nmax), chico FROM oe_tipos",
+    )
+    .await;
     println!("sqlserver: {a:?}\npostgres: {b:?}");
-    let s = |v: &serde_json::Value| v.as_str().map(String::from).unwrap_or_else(|| v.to_string());
+    let s = |v: &serde_json::Value| {
+        v.as_str()
+            .map(String::from)
+            .unwrap_or_else(|| v.to_string())
+    };
     assert_eq!(s(&a[0][0]), s(&b[0][0]));
     assert_eq!(s(&a[0][1]), s(&b[0][1]));
     assert_eq!(s(&a[0][2]), s(&b[0][2]));
@@ -993,7 +1364,13 @@ async fn live_generic_odbc_sqlserver_and_postgres() {
     let rt = trip(&mut pg, "postgres", &mut ms, "odbc", &["oe_vuelta"]).await;
     println!("{}", rt.ddl.join("\n"));
     let t = &rt.back[0];
-    println!("{:?}", t.columns.iter().map(|c| (&c.name, &c.data_type)).collect::<Vec<_>>());
+    println!(
+        "{:?}",
+        t.columns
+            .iter()
+            .map(|c| (&c.name, &c.data_type))
+            .collect::<Vec<_>>()
+    );
     // As SQL Server's ODBC driver reports them.
     let expect = [
         ("id", "int"),
@@ -1013,7 +1390,11 @@ async fn live_generic_odbc_sqlserver_and_postgres() {
     for (c, want) in expect {
         assert_eq!(common::col(t, c).data_type, want, "{c}");
     }
-    assert!(rt.conversion.issues.iter().any(|i| i.message.contains("ODBC genérico")));
+    assert!(rt
+        .conversion
+        .issues
+        .iter()
+        .any(|i| i.message.contains("ODBC genérico")));
     // And back to PostgreSQL through the generic reader.
     let again = run(&rt.back, "odbc", "postgres");
     let orig = common::read(&mut pg, &["oe_vuelta"]).await;
@@ -1026,13 +1407,36 @@ async fn live_generic_odbc_sqlserver_and_postgres() {
         }
         let a = logical_of(pgd, &parse(&c.data_type));
         let b = logical_of(pgd, &parse(ty(&again.tables[0], &c.name)));
-        assert_eq!(a, b, "{}: {} → {}", c.name, c.data_type, ty(&again.tables[0], &c.name));
+        assert_eq!(
+            a,
+            b,
+            "{}: {} → {}",
+            c.name,
+            c.data_type,
+            ty(&again.tables[0], &c.name)
+        );
     }
     common::exec(&mut ms, "INSERT INTO oe_vuelta (id, i2, i8, n, r, dp, c, v, d, b, u, t, m) VALUES (1, -32768, 9223372036854775807, 9999999999.99, 1.5, 2.5, 'abc', N'ñandú', '2024-02-29', 1, '6F9619FF-8B86-D011-B42D-00C04FC964FF', '12:34:56.789', 92233720368547758.07)").await;
     let r = rows(&mut ms, "SELECT b, n, t FROM oe_vuelta").await;
     println!("{r:?}");
     assert_eq!(r.len(), 1);
 
-    common::exec_quiet(&mut ms, &["DROP TABLE IF EXISTS oe_vuelta", "DROP TABLE IF EXISTS oe_tipos", "DROP TABLE IF EXISTS oe_padre"]).await;
-    common::exec_quiet(&mut pg, &["DROP TABLE IF EXISTS oe_vuelta", "DROP TABLE IF EXISTS oe_tipos CASCADE", "DROP TABLE IF EXISTS oe_padre CASCADE"]).await;
+    common::exec_quiet(
+        &mut ms,
+        &[
+            "DROP TABLE IF EXISTS oe_vuelta",
+            "DROP TABLE IF EXISTS oe_tipos",
+            "DROP TABLE IF EXISTS oe_padre",
+        ],
+    )
+    .await;
+    common::exec_quiet(
+        &mut pg,
+        &[
+            "DROP TABLE IF EXISTS oe_vuelta",
+            "DROP TABLE IF EXISTS oe_tipos CASCADE",
+            "DROP TABLE IF EXISTS oe_padre CASCADE",
+        ],
+    )
+    .await;
 }

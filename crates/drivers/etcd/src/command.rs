@@ -37,7 +37,10 @@ impl Command {
     }
 
     pub fn word(&self, i: usize) -> String {
-        self.args.get(i).map(|a| String::from_utf8_lossy(a).into_owned()).unwrap_or_default()
+        self.args
+            .get(i)
+            .map(|a| String::from_utf8_lossy(a).into_owned())
+            .unwrap_or_default()
     }
 
     pub fn flag(&self, name: &str) -> bool {
@@ -45,14 +48,19 @@ impl Command {
     }
 
     pub fn flag_value(&self, name: &str) -> Option<&str> {
-        self.flags.iter().find(|(n, _)| n == name).and_then(|(_, v)| v.as_deref())
+        self.flags
+            .iter()
+            .find(|(n, _)| n == name)
+            .and_then(|(_, v)| v.as_deref())
     }
 
     /// The verb plus the sub-command when there is one (`lease grant`).
     pub fn name(&self) -> String {
         let v = self.verb();
         match v.as_str() {
-            "lease" | "member" | "endpoint" | "alarm" | "user" | "role" | "auth" | "snapshot" => format!("{v} {}", self.word(1).to_ascii_lowercase()),
+            "lease" | "member" | "endpoint" | "alarm" | "user" | "role" | "auth" | "snapshot" => {
+                format!("{v} {}", self.word(1).to_ascii_lowercase())
+            }
             _ => v,
         }
     }
@@ -62,14 +70,26 @@ impl Command {
 pub fn is_read(c: &Command) -> bool {
     matches!(
         c.name().as_str(),
-        "get" | "lease timetolive" | "lease list" | "member list" | "endpoint status" | "alarm list" | "user list" | "role list"
-            | "user get" | "role get" | "auth status" | "snapshot save"
+        "get"
+            | "lease timetolive"
+            | "lease list"
+            | "member list"
+            | "endpoint status"
+            | "alarm list"
+            | "user list"
+            | "role list"
+            | "user get"
+            | "role get"
+            | "auth status"
+            | "snapshot save"
     )
 }
 
 #[cfg(test)]
 pub fn parse_script(text: &str) -> Result<Vec<Command>, String> {
-    parse_placed(text).map(|v| v.into_iter().map(|p| p.command).collect()).map_err(|(e, line, _)| format!("línea {line}: {e}"))
+    parse_placed(text)
+        .map(|v| v.into_iter().map(|p| p.command).collect())
+        .map_err(|(e, line, _)| format!("línea {line}: {e}"))
 }
 
 /// A command of an editor script with its place: byte offset of its first
@@ -96,7 +116,10 @@ pub fn parse_placed(text: &str) -> Result<Vec<Placed>, (String, u32, usize)> {
         let start = line_start + (line.len() - line.trim_start().len());
         let mut c = Command::default();
         for (w, quoted) in words {
-            match std::str::from_utf8(&w).ok().filter(|s| !quoted && s.starts_with("--") && s.len() > 2) {
+            match std::str::from_utf8(&w)
+                .ok()
+                .filter(|s| !quoted && s.starts_with("--") && s.len() > 2)
+            {
                 Some(f) => {
                     let f = &f[2..];
                     let (k, v) = match f.split_once('=') {
@@ -108,7 +131,11 @@ pub fn parse_placed(text: &str) -> Result<Vec<Placed>, (String, u32, usize)> {
                 None => c.args.push(w),
             }
         }
-        out.push(Placed { command: c, start, line: n as u32 + 1 });
+        out.push(Placed {
+            command: c,
+            start,
+            line: n as u32 + 1,
+        });
     }
     Ok(out)
 }
@@ -137,15 +164,22 @@ fn parse_line(line: &str) -> Result<Vec<(Vec<u8>, bool)>, String> {
                     quoted = true;
                     i += 1;
                     loop {
-                        let Some(&c) = b.get(i) else { return Err("comillas sin cerrar".into()) };
+                        let Some(&c) = b.get(i) else {
+                            return Err("comillas sin cerrar".into());
+                        };
                         i += 1;
                         match c {
                             b'"' => break,
                             b'\\' => {
-                                let Some(&n) = b.get(i) else { return Err("comillas sin cerrar".into()) };
+                                let Some(&n) = b.get(i) else {
+                                    return Err("comillas sin cerrar".into());
+                                };
                                 i += 1;
                                 if n == b'x' {
-                                    if let (Some(h), Some(l)) = (b.get(i).and_then(|&x| hex(x)), b.get(i + 1).and_then(|&x| hex(x))) {
+                                    if let (Some(h), Some(l)) = (
+                                        b.get(i).and_then(|&x| hex(x)),
+                                        b.get(i + 1).and_then(|&x| hex(x)),
+                                    ) {
                                         cur.push(h * 16 + l);
                                         i += 2;
                                         continue;
@@ -167,7 +201,9 @@ fn parse_line(line: &str) -> Result<Vec<(Vec<u8>, bool)>, String> {
                     quoted = true;
                     i += 1;
                     loop {
-                        let Some(&c) = b.get(i) else { return Err("comillas sin cerrar".into()) };
+                        let Some(&c) = b.get(i) else {
+                            return Err("comillas sin cerrar".into());
+                        };
                         i += 1;
                         if c == b'\'' {
                             break;
@@ -189,7 +225,8 @@ fn parse_line(line: &str) -> Result<Vec<(Vec<u8>, bool)>, String> {
 pub fn quote_arg(s: &str) -> String {
     let safe = !s.is_empty()
         && !s.starts_with("--")
-        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"/_-.:@+=,".contains(&b));
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/_-.:@+=,".contains(&b));
     if safe {
         return s.to_string();
     }
@@ -225,7 +262,9 @@ pub fn prefix_end(prefix: &[u8]) -> Vec<u8> {
 /// Lease ids are shown and typed in hex, like etcdctl.
 pub fn parse_lease(s: &str) -> Result<i64, String> {
     let t = s.trim().trim_start_matches("0x");
-    u64::from_str_radix(t, 16).map(|v| v as i64).map_err(|_| format!("id de lease inválido: {s} (va en hexadecimal, como lo muestra lease list)"))
+    u64::from_str_radix(t, 16).map(|v| v as i64).map_err(|_| {
+        format!("id de lease inválido: {s} (va en hexadecimal, como lo muestra lease list)")
+    })
 }
 
 pub fn lease_hex(id: i64) -> String {
@@ -239,15 +278,33 @@ mod tests {
     #[test]
     fn placed_commands() {
         let p = parse_placed("get a\r\n# c\n\n  put \"é\" v\nlease list").unwrap();
-        let v: Vec<(usize, u32, String)> = p.iter().map(|c| (c.start, c.line, c.command.verb())).collect();
-        assert_eq!(v, [(0, 1, "get".into()), (14, 4, "put".into()), (25, 5, "lease".into())]);
-        assert_eq!(parse_placed("get a\nget \"open").err().map(|e| (e.1, e.2)), Some((2, 6)));
-        assert!(parse_script("get a\nget \"open").unwrap_err().starts_with("línea 2: "));
+        let v: Vec<(usize, u32, String)> = p
+            .iter()
+            .map(|c| (c.start, c.line, c.command.verb()))
+            .collect();
+        assert_eq!(
+            v,
+            [
+                (0, 1, "get".into()),
+                (14, 4, "put".into()),
+                (25, 5, "lease".into())
+            ]
+        );
+        assert_eq!(
+            parse_placed("get a\nget \"open").err().map(|e| (e.1, e.2)),
+            Some((2, 6))
+        );
+        assert!(parse_script("get a\nget \"open")
+            .unwrap_err()
+            .starts_with("línea 2: "));
     }
 
     #[test]
     fn lines_words_flags_and_quotes() {
-        let s = parse_script("get /a --prefix --limit=5\n# nada\nput \"k 1\" 'v \\n' --lease=1a\nput k \"--x\"").unwrap();
+        let s = parse_script(
+            "get /a --prefix --limit=5\n# nada\nput \"k 1\" 'v \\n' --lease=1a\nput k \"--x\"",
+        )
+        .unwrap();
         assert_eq!(s.len(), 3);
         assert_eq!(s[0].name(), "get");
         assert!(s[0].flag("prefix"));
@@ -266,7 +323,13 @@ mod tests {
     fn names_and_read_only() {
         let s = parse_script("lease grant 60\nLEASE list\nmember list\ndel x\nget x").unwrap();
         assert_eq!(s[0].name(), "lease grant");
-        assert!(!is_read(&s[0]) && is_read(&s[1]) && is_read(&s[2]) && !is_read(&s[3]) && is_read(&s[4]));
+        assert!(
+            !is_read(&s[0])
+                && is_read(&s[1])
+                && is_read(&s[2])
+                && !is_read(&s[3])
+                && is_read(&s[4])
+        );
     }
 
     #[test]

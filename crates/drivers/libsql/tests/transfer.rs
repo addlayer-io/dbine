@@ -3,7 +3,9 @@
 //! (`--release … --nocapture` prints the 1M-row rates). `DBINE_LIBSQL_URL`
 //! points elsewhere.
 
-use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{kinds, ConnectionConfig, Error, ObjectRef, QueryOutcome, Session};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -54,8 +56,18 @@ fn url() -> String {
 }
 
 async fn open(read_only: bool) -> Box<dyn Session> {
-    let cfg = ConnectionConfig { driver: "libsql".into(), host: url(), read_only, ..Default::default() };
-    dbine_driver_libsql::drivers().pop().unwrap().connect(&cfg, None).await.unwrap()
+    let cfg = ConnectionConfig {
+        driver: "libsql".into(),
+        host: url(),
+        read_only,
+        ..Default::default()
+    };
+    dbine_driver_libsql::drivers()
+        .pop()
+        .unwrap()
+        .connect(&cfg, None)
+        .await
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
@@ -64,11 +76,19 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) {
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: kinds::TABLE.into(), schema: None, name: name.into() }
+    ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: name.into(),
+    }
 }
 
 fn all(name: &str) -> ReadSpec {
-    ReadSpec { table: table(name), columns: None, filter: None }
+    ReadSpec {
+        table: table(name),
+        columns: None,
+        filter: None,
+    }
 }
 
 #[derive(Default)]
@@ -88,7 +108,10 @@ impl BatchSink for Collect {
     }
 }
 
-async fn read_all(s: &mut Box<dyn Session>, spec: &ReadSpec) -> (Vec<TransferColumn>, Vec<Vec<Cell>>) {
+async fn read_all(
+    s: &mut Box<dyn Session>,
+    spec: &ReadSpec,
+) -> (Vec<TransferColumn>, Vec<Vec<Cell>>) {
     let sink = Arc::new(Mutex::new(Collect::default()));
     let n = s.read_batches(spec, sink.clone()).await.unwrap();
     let c = std::mem::take(&mut *sink.lock().unwrap());
@@ -100,7 +123,15 @@ struct VecSource(std::vec::IntoIter<RowBatch>);
 
 impl VecSource {
     fn new(rows: Vec<Vec<Cell>>, per: usize) -> Self {
-        VecSource(rows.chunks(per).map(|c| RowBatch { rows: c.to_vec(), bytes: 0 }).collect::<Vec<_>>().into_iter())
+        VecSource(
+            rows.chunks(per)
+                .map(|c| RowBatch {
+                    rows: c.to_vec(),
+                    bytes: 0,
+                })
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
     }
 }
 
@@ -138,22 +169,61 @@ async fn round_trip_every_type_with_windows() {
     // itself ("string or blob too big").
     let big: Vec<u8> = (0..4_990_000).map(|i| (i % 251) as u8).collect();
     let rows = vec![
-        vec![Cell::Int(1), Cell::Int(i64::MIN), Cell::Float(1.5), Cell::Text("ñandú 'q'".into()), Cell::Bytes(vec![0, 255]), Cell::Decimal("12.25".into())],
-        vec![Cell::Int(2), Cell::Null, Cell::Null, Cell::Text(String::new()), Cell::Null, Cell::Null],
-        vec![Cell::Int(3), Cell::Int(i64::MAX), Cell::Float(-1e300), Cell::Text("big".into()), Cell::Bytes(big.clone()), Cell::Int(7)],
-        vec![Cell::Int(4), Cell::Bool(true), Cell::Float(0.1), Cell::Uuid("123e4567-e89b-12d3-a456-426614174000".into()), Cell::Bytes(vec![]), Cell::UInt(5)],
+        vec![
+            Cell::Int(1),
+            Cell::Int(i64::MIN),
+            Cell::Float(1.5),
+            Cell::Text("ñandú 'q'".into()),
+            Cell::Bytes(vec![0, 255]),
+            Cell::Decimal("12.25".into()),
+        ],
+        vec![
+            Cell::Int(2),
+            Cell::Null,
+            Cell::Null,
+            Cell::Text(String::new()),
+            Cell::Null,
+            Cell::Null,
+        ],
+        vec![
+            Cell::Int(3),
+            Cell::Int(i64::MAX),
+            Cell::Float(-1e300),
+            Cell::Text("big".into()),
+            Cell::Bytes(big.clone()),
+            Cell::Int(7),
+        ],
+        vec![
+            Cell::Int(4),
+            Cell::Bool(true),
+            Cell::Float(0.1),
+            Cell::Uuid("123e4567-e89b-12d3-a456-426614174000".into()),
+            Cell::Bytes(vec![]),
+            Cell::UInt(5),
+        ],
     ];
     let committed = Arc::new(Mutex::new(Vec::new()));
     let c2 = committed.clone();
     let cols = ["id", "i", "r", "s", "b", "n"];
     // Windows of 3 rows over batches of 2: a window spans two requests.
     let mut src = VecSource::new(rows.clone(), 2);
-    let n = s.bulk_load(&load_spec(&t, &cols, 3), &[], &mut src, &move |n| c2.lock().unwrap().push(n)).await.unwrap();
+    let n = s
+        .bulk_load(&load_spec(&t, &cols, 3), &[], &mut src, &move |n| {
+            c2.lock().unwrap().push(n)
+        })
+        .await
+        .unwrap();
     assert_eq!(n, 4);
     assert_eq!(*committed.lock().unwrap(), vec![3, 4]);
 
     let (tcols, back) = read_all(&mut s, &all(&t)).await;
-    assert_eq!(tcols.iter().map(|c| c.type_name.as_str()).collect::<Vec<_>>(), ["INTEGER", "INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC"]);
+    assert_eq!(
+        tcols
+            .iter()
+            .map(|c| c.type_name.as_str())
+            .collect::<Vec<_>>(),
+        ["INTEGER", "INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC"]
+    );
     assert!(!tcols[0].nullable && !tcols[3].nullable && tcols[1].nullable);
     assert_eq!(back[0][..5], rows[0][..5]);
     assert_eq!(back[0][5], Cell::Float(12.25));
@@ -164,13 +234,21 @@ async fn round_trip_every_type_with_windows() {
     assert_eq!(back[3][4], Cell::Bytes(vec![]));
 
     // Subset and filter.
-    let spec = ReadSpec { table: table(&t), columns: Some(vec!["s".into(), "id".into()]), filter: Some("id IN (2, 4)".into()) };
+    let spec = ReadSpec {
+        table: table(&t),
+        columns: Some(vec!["s".into(), "id".into()]),
+        filter: Some("id IN (2, 4)".into()),
+    };
     let (_, back) = read_all(&mut s, &spec).await;
     assert_eq!(back.len(), 2);
     assert_eq!(back[0], vec![Cell::Text(String::new()), Cell::Int(2)]);
 
     // A view has no rowid: it's read through a streaming cursor.
-    run(&mut s, &format!("DROP VIEW IF EXISTS {t}_v; CREATE VIEW {t}_v AS SELECT id, b FROM {t}")).await;
+    run(
+        &mut s,
+        &format!("DROP VIEW IF EXISTS {t}_v; CREATE VIEW {t}_v AS SELECT id, b FROM {t}"),
+    )
+    .await;
     let (vcols, vrows) = read_all(&mut s, &all(&format!("{t}_v"))).await;
     assert_eq!(vcols.len(), 2);
     assert_eq!(vrows.len(), 4);
@@ -179,18 +257,41 @@ async fn round_trip_every_type_with_windows() {
 
     // A failing row rolls back its window; the committed one stays.
     run(&mut s, &format!("DELETE FROM {t}")).await;
-    let mut src = VecSource::new(vec![vec![Cell::Int(1)], vec![Cell::Int(2)], vec![Cell::Null]], 1);
-    let e = s.bulk_load(&load_spec(&t, &["s"], 2), &[], &mut src, &|_| {}).await.unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.contains("NOT NULL")), "{e:?}");
-    let (_, back) = read_all(&mut s, &ReadSpec { table: table(&t), columns: Some(vec!["s".into()]), filter: None }).await;
+    let mut src = VecSource::new(
+        vec![vec![Cell::Int(1)], vec![Cell::Int(2)], vec![Cell::Null]],
+        1,
+    );
+    let e = s
+        .bulk_load(&load_spec(&t, &["s"], 2), &[], &mut src, &|_| {})
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&e, Error::Query(m) if m.contains("NOT NULL")),
+        "{e:?}"
+    );
+    let (_, back) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: table(&t),
+            columns: Some(vec!["s".into()]),
+            filter: None,
+        },
+    )
+    .await;
     // Window 1 (rows 1 and 2) committed; window 2 (row 3) rolled back.
-    assert_eq!(back, vec![vec![Cell::Text("1".into())], vec![Cell::Text("2".into())]]);
+    assert_eq!(
+        back,
+        vec![vec![Cell::Text("1".into())], vec![Cell::Text("2".into())]]
+    );
     run(&mut s, &format!("INSERT INTO {t} (s) VALUES ('after')")).await; // no transaction left open
 
     // A read-only session refuses to load.
     let mut ro = open(true).await;
     let mut src = VecSource::new(vec![vec![Cell::Text("x".into())]], 1);
-    assert!(ro.bulk_load(&load_spec(&t, &["s"], 10), &[], &mut src, &|_| {}).await.is_err());
+    assert!(ro
+        .bulk_load(&load_spec(&t, &["s"], 10), &[], &mut src, &|_| {})
+        .await
+        .is_err());
     run(&mut s, &format!("DROP TABLE {t}")).await;
 }
 
@@ -199,16 +300,40 @@ async fn round_trip_every_type_with_windows() {
 #[ignore = "needs dbine-test-libsql (sqld) on port 25880"]
 async fn load_benchmark() {
     let _serial = SERIAL.lock().await;
-    let n: i64 = if cfg!(debug_assertions) { 50_000 } else { 1_000_000 };
+    let n: i64 = if cfg!(debug_assertions) {
+        50_000
+    } else {
+        1_000_000
+    };
     let t = unique("bench");
     let mut s = open(false).await;
     run(&mut s, &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, a INTEGER, f REAL, s TEXT, b BLOB)")).await;
     let rows: Vec<Vec<Cell>> = (0..n)
-        .map(|i| vec![Cell::Int(i), Cell::Int(i * 7), Cell::Float(i as f64 / 3.0), Cell::Text(format!("row {i:08}")), Cell::Bytes(vec![(i % 256) as u8; 16])])
+        .map(|i| {
+            vec![
+                Cell::Int(i),
+                Cell::Int(i * 7),
+                Cell::Float(i as f64 / 3.0),
+                Cell::Text(format!("row {i:08}")),
+                Cell::Bytes(vec![(i % 256) as u8; 16]),
+            ]
+        })
         .collect();
     let mut src = VecSource::new(rows, 1_000);
     let start = Instant::now();
-    let loaded = s.bulk_load(&load_spec(&t, &["id", "a", "f", "s", "b"], LoadSpec::DEFAULT_COMMIT_ROWS), &[], &mut src, &|_| {}).await.unwrap();
+    let loaded = s
+        .bulk_load(
+            &load_spec(
+                &t,
+                &["id", "a", "f", "s", "b"],
+                LoadSpec::DEFAULT_COMMIT_ROWS,
+            ),
+            &[],
+            &mut src,
+            &|_| {},
+        )
+        .await
+        .unwrap();
     let load = start.elapsed();
     assert_eq!(loaded, n as u64);
     let start = Instant::now();
@@ -217,12 +342,26 @@ async fn load_benchmark() {
     assert_eq!(back.len(), n as usize);
     assert_eq!(back[12_345][3], Cell::Text("row 00012345".into()));
     let rate = |d: std::time::Duration| (n as f64 / d.as_secs_f64()) as u64;
-    println!("libsql {n} rows: bulk_load {load:?} ({} rows/s), read_batches {read:?} ({} rows/s)", rate(load), rate(read));
+    println!(
+        "libsql {n} rows: bulk_load {load:?} ({} rows/s), read_batches {read:?} ({} rows/s)",
+        rate(load),
+        rate(read)
+    );
     run(&mut s, &format!("DROP TABLE {t}")).await;
 }
 
 async fn count(s: &mut Box<dyn Session>, t: &str) -> usize {
-    read_all(s, &ReadSpec { table: table(t), columns: Some(vec!["id".into()]), filter: None }).await.1.len()
+    read_all(
+        s,
+        &ReadSpec {
+            table: table(t),
+            columns: Some(vec!["id".into()]),
+            filter: None,
+        },
+    )
+    .await
+    .1
+    .len()
 }
 
 /// Gives its batches, then never ends (a source still reading when the
@@ -249,16 +388,26 @@ async fn cancelled_load_commits_nothing_late() {
     let _serial = SERIAL.lock().await;
     let t = unique("cancel");
     let mut other = open(false).await;
-    run(&mut other, &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, s TEXT)")).await;
+    run(
+        &mut other,
+        &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, s TEXT)"),
+    )
+    .await;
     let pad = "x".repeat(200);
-    let rows: Vec<Vec<Cell>> = (0..6000).map(|i| vec![Cell::Int(i), Cell::Text(format!("{i} {pad}"))]).collect();
+    let rows: Vec<Vec<Cell>> = (0..6000)
+        .map(|i| vec![Cell::Int(i), Cell::Text(format!("{i} {pad}"))])
+        .collect();
     let mut cancelled = 0;
     for ms in [0u64, 10, 30, 60, 100, 150, 250, 400, 700] {
         let mut s = open(false).await;
         // One request with every row, and its window's end.
         let mut src = VecSource::new(rows.clone(), 6000);
         let spec = load_spec(&t, &["id", "s"], 6000);
-        let r = tokio::time::timeout(Duration::from_millis(ms), s.bulk_load(&spec, &[], &mut src, &|_| {})).await;
+        let r = tokio::time::timeout(
+            Duration::from_millis(ms),
+            s.bulk_load(&spec, &[], &mut src, &|_| {}),
+        )
+        .await;
         if let Ok(done) = r {
             assert_eq!(done.unwrap(), 6000);
         } else {
@@ -268,27 +417,57 @@ async fn cancelled_load_commits_nothing_late() {
         // abandoned stream to expire.
         let start = Instant::now();
         run(&mut other, &format!("DELETE FROM {t}")).await;
-        assert!(start.elapsed() < Duration::from_secs(3), "{ms} ms: the cleanup waited {:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "{ms} ms: the cleanup waited {:?}",
+            start.elapsed()
+        );
         tokio::time::sleep(Duration::from_millis(1500)).await;
-        assert_eq!(count(&mut other, &t).await, 0, "{ms} ms: rows committed after the cancel's cleanup");
+        assert_eq!(
+            count(&mut other, &t).await,
+            0,
+            "{ms} ms: rows committed after the cancel's cleanup"
+        );
         drop(s);
     }
-    assert!(cancelled > 0, "no load was cancelled: the rows went too fast to test");
+    assert!(
+        cancelled > 0,
+        "no load was cancelled: the rows went too fast to test"
+    );
 
     // Cancelled between requests, with the window open (the source is
     // still reading): the window is rolled back and the lock freed.
     let mut s = open(false).await;
-    let mut src = Stalled(vec![RowBatch { rows: rows[..100].to_vec(), bytes: 0 }]);
+    let mut src = Stalled(vec![RowBatch {
+        rows: rows[..100].to_vec(),
+        bytes: 0,
+    }]);
     let spec = load_spec(&t, &["id", "s"], 100_000);
-    assert!(tokio::time::timeout(Duration::from_millis(800), s.bulk_load(&spec, &[], &mut src, &|_| {})).await.is_err());
+    assert!(tokio::time::timeout(
+        Duration::from_millis(800),
+        s.bulk_load(&spec, &[], &mut src, &|_| {})
+    )
+    .await
+    .is_err());
     let start = Instant::now();
-    run(&mut other, &format!("INSERT INTO {t} (id, s) VALUES (-1, 'other')")).await;
-    assert!(start.elapsed() < Duration::from_secs(3), "the insert waited {:?}", start.elapsed());
+    run(
+        &mut other,
+        &format!("INSERT INTO {t} (id, s) VALUES (-1, 'other')"),
+    )
+    .await;
+    assert!(
+        start.elapsed() < Duration::from_secs(3),
+        "the insert waited {:?}",
+        start.elapsed()
+    );
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(count(&mut other, &t).await, 1);
     // The session keeps working (on a new stream).
     let mut src = VecSource::new(rows[..10].to_vec(), 10);
-    assert_eq!(s.bulk_load(&spec, &[], &mut src, &|_| {}).await.unwrap(), 10);
+    assert_eq!(
+        s.bulk_load(&spec, &[], &mut src, &|_| {}).await.unwrap(),
+        10
+    );
     assert_eq!(count(&mut other, &t).await, 11);
     run(&mut other, &format!("DROP TABLE {t}")).await;
 }
@@ -302,7 +481,13 @@ async fn reals_keep_their_bits() {
     let _serial = SERIAL.lock().await;
     let t = unique("reals");
     let mut s = open(false).await;
-    run(&mut s, &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, r REAL NOT NULL)")).await;
+    run(
+        &mut s,
+        &format!(
+            "DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, r REAL NOT NULL)"
+        ),
+    )
+    .await;
     let mut x = 0x0123_4567_89AB_CDEFu64;
     let mut vals: Vec<f64> = Vec::new();
     while vals.len() < 3000 {
@@ -314,16 +499,48 @@ async fn reals_keep_their_bits() {
             vals.push(f);
         }
     }
-    vals.extend([1.0715660391465826e-75, 5e-324, -5e-324, f64::MAX, f64::MIN_POSITIVE, 0.1, f64::INFINITY, f64::NEG_INFINITY]);
-    let rows: Vec<Vec<Cell>> = vals.iter().enumerate().map(|(i, f)| vec![Cell::Int(i as i64), Cell::Float(*f)]).collect();
+    vals.extend([
+        1.0715660391465826e-75,
+        5e-324,
+        -5e-324,
+        f64::MAX,
+        f64::MIN_POSITIVE,
+        0.1,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ]);
+    let rows: Vec<Vec<Cell>> = vals
+        .iter()
+        .enumerate()
+        .map(|(i, f)| vec![Cell::Int(i as i64), Cell::Float(*f)])
+        .collect();
     let mut src = VecSource::new(rows.clone(), 1000);
-    assert_eq!(s.bulk_load(&load_spec(&t, &["id", "r"], 2000), &[], &mut src, &|_| {}).await.unwrap(), vals.len() as u64);
+    assert_eq!(
+        s.bulk_load(&load_spec(&t, &["id", "r"], 2000), &[], &mut src, &|_| {})
+            .await
+            .unwrap(),
+        vals.len() as u64
+    );
 
     // Stored as REAL, the infinities too (not the text 'Inf').
-    let bad = ReadSpec { table: table(&t), columns: Some(vec!["id".into()]), filter: Some("typeof(r) <> 'real'".into()) };
+    let bad = ReadSpec {
+        table: table(&t),
+        columns: Some(vec!["id".into()]),
+        filter: Some("typeof(r) <> 'real'".into()),
+    };
     assert_eq!(read_all(&mut s, &bad).await.1, Vec::<Vec<Cell>>::new());
-    let inf = ReadSpec { table: table(&t), columns: Some(vec!["r".into()]), filter: Some("r IN (9e999, -9e999)".into()) };
-    assert_eq!(read_all(&mut s, &inf).await.1, vec![vec![Cell::Float(f64::INFINITY)], vec![Cell::Float(f64::NEG_INFINITY)]]);
+    let inf = ReadSpec {
+        table: table(&t),
+        columns: Some(vec!["r".into()]),
+        filter: Some("r IN (9e999, -9e999)".into()),
+    };
+    assert_eq!(
+        read_all(&mut s, &inf).await.1,
+        vec![
+            vec![Cell::Float(f64::INFINITY)],
+            vec![Cell::Float(f64::NEG_INFINITY)]
+        ]
+    );
     let check = |back: &[Vec<Cell>], vals: &[f64]| {
         assert_eq!(back.len(), vals.len());
         for (row, v) in back.iter().zip(vals) {
@@ -341,15 +558,25 @@ async fn reals_keep_their_bits() {
     run(&mut s, &format!("DROP VIEW IF EXISTS {t}_v; CREATE VIEW {t}_v AS SELECT id, r FROM {t} WHERE abs(r) < 9e999")).await;
     let (_, back) = read_all(&mut s, &all(&format!("{t}_v"))).await;
     check(&back, &vals[..vals.len() - 2]);
-    run(&mut s, &format!("DROP VIEW {t}_v; CREATE VIEW {t}_v AS SELECT id, r FROM {t}")).await;
+    run(
+        &mut s,
+        &format!("DROP VIEW {t}_v; CREATE VIEW {t}_v AS SELECT id, r FROM {t}"),
+    )
+    .await;
     let sink = Arc::new(Mutex::new(Collect::default()));
-    let e = s.read_batches(&all(&format!("{t}_v")), sink).await.unwrap_err();
+    let e = s
+        .read_batches(&all(&format!("{t}_v")), sink)
+        .await
+        .unwrap_err();
     assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
     run(&mut s, &format!("DROP VIEW {t}_v")).await;
 
     // NaN can't be stored: refused, not turned into NULL.
     let mut src = VecSource::new(vec![vec![Cell::Int(-1), Cell::Float(f64::NAN)]], 1);
-    let e = s.bulk_load(&load_spec(&t, &["id", "r"], 10), &[], &mut src, &|_| {}).await.unwrap_err();
+    let e = s
+        .bulk_load(&load_spec(&t, &["id", "r"], 10), &[], &mut src, &|_| {})
+        .await
+        .unwrap_err();
     assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
     run(&mut s, &format!("DROP TABLE {t}")).await;
 }
@@ -375,9 +602,20 @@ async fn read_memory_is_bounded() {
     let t = unique("mem");
     let mut s = open(false).await;
     let cols: Vec<String> = (0..60).map(|i| format!("c{i}")).collect();
-    let defs = cols.iter().map(|c| format!("{c} INTEGER")).collect::<Vec<_>>().join(", ");
-    let exprs = (0..60).map(|i| format!("i * {} + 1000000000", i + 1)).collect::<Vec<_>>().join(", ");
-    run(&mut s, &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} ({defs})")).await;
+    let defs = cols
+        .iter()
+        .map(|c| format!("{c} INTEGER"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let exprs = (0..60)
+        .map(|i| format!("i * {} + 1000000000", i + 1))
+        .collect::<Vec<_>>()
+        .join(", ");
+    run(
+        &mut s,
+        &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} ({defs})"),
+    )
+    .await;
     run(
         &mut s,
         &format!("INSERT INTO {t} WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20000) SELECT {exprs} FROM n"),
@@ -385,9 +623,15 @@ async fn read_memory_is_bounded() {
     .await;
     let base = CUR.load(Ordering::Relaxed);
     PEAK.store(base, Ordering::Relaxed);
-    let n = s.read_batches(&all(&t), Arc::new(Mutex::new(Discard))).await.unwrap();
+    let n = s
+        .read_batches(&all(&t), Arc::new(Mutex::new(Discard)))
+        .await
+        .unwrap();
     let peak = PEAK.load(Ordering::Relaxed).saturating_sub(base);
-    println!("libsql read 20000 x 60: peak {} KiB above baseline", peak / 1024);
+    println!(
+        "libsql read 20000 x 60: peak {} KiB above baseline",
+        peak / 1024
+    );
     assert_eq!(n, 20_000);
     assert!(peak < 32 * 1024 * 1024, "peak {} MiB", peak / (1024 * 1024));
     run(&mut s, &format!("DROP TABLE {t}")).await;
@@ -402,8 +646,18 @@ async fn reals_every_exponent_and_mixed_columns() {
     let _serial = SERIAL.lock().await;
     let t = unique("pow2");
     let mut s = open(false).await;
-    run(&mut s, &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, r REAL, a)")).await;
-    let pow2 = |e: i32| if e >= -1022 { f64::from_bits(((e + 1023) as u64) << 52) } else { f64::from_bits(1u64 << (e + 1074)) };
+    run(
+        &mut s,
+        &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, r REAL, a)"),
+    )
+    .await;
+    let pow2 = |e: i32| {
+        if e >= -1022 {
+            f64::from_bits(((e + 1023) as u64) << 52)
+        } else {
+            f64::from_bits(1u64 << (e + 1074))
+        }
+    };
     let mut rows: Vec<Vec<Cell>> = Vec::new();
     for e in -1074..=1023 {
         let f = pow2(e) * if e % 2 == 0 { 1.0 } else { -1.0 };
@@ -415,10 +669,28 @@ async fn reals_every_exponent_and_mixed_columns() {
         };
         rows.push(vec![Cell::Int(rows.len() as i64), Cell::Float(f), a]);
     }
-    rows.push(vec![Cell::Int(rows.len() as i64), Cell::Float(-0.0), Cell::Float(-0.0)]);
-    rows.push(vec![Cell::Int(rows.len() as i64), Cell::Float(f64::NEG_INFINITY), Cell::Float(f64::INFINITY)]);
+    rows.push(vec![
+        Cell::Int(rows.len() as i64),
+        Cell::Float(-0.0),
+        Cell::Float(-0.0),
+    ]);
+    rows.push(vec![
+        Cell::Int(rows.len() as i64),
+        Cell::Float(f64::NEG_INFINITY),
+        Cell::Float(f64::INFINITY),
+    ]);
     let mut src = VecSource::new(rows.clone(), 700);
-    assert_eq!(s.bulk_load(&load_spec(&t, &["id", "r", "a"], 1500), &[], &mut src, &|_| {}).await.unwrap(), rows.len() as u64);
+    assert_eq!(
+        s.bulk_load(
+            &load_spec(&t, &["id", "r", "a"], 1500),
+            &[],
+            &mut src,
+            &|_| {}
+        )
+        .await
+        .unwrap(),
+        rows.len() as u64
+    );
     let (_, back) = read_all(&mut s, &all(&t)).await;
     assert_eq!(back.len(), rows.len());
     // SQLite's REAL affinity stores an integral real as an integer: -0.0
@@ -428,7 +700,9 @@ async fn reals_every_exponent_and_mixed_columns() {
     for (got, want) in back.iter().zip(&rows) {
         for (g, w) in got.iter().zip(want) {
             match (g, w) {
-                (Cell::Float(g), Cell::Float(w)) => assert_eq!(g.to_bits(), w.to_bits(), "{w:e} came back as {g:e}"),
+                (Cell::Float(g), Cell::Float(w)) => {
+                    assert_eq!(g.to_bits(), w.to_bits(), "{w:e} came back as {g:e}")
+                }
                 _ => assert_eq!(g, w),
             }
         }
@@ -448,7 +722,11 @@ async fn reals_load_as_fast_as_integers() {
     let mut s = open(false).await;
     let cols: Vec<String> = (0..60).map(|i| format!("c{i}")).collect();
     let names: Vec<&str> = cols.iter().map(String::as_str).collect();
-    let ddl = cols.iter().map(|c| format!("{c} REAL")).collect::<Vec<_>>().join(", ");
+    let ddl = cols
+        .iter()
+        .map(|c| format!("{c} REAL"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let mut x = 0x9E37_79B9_7F4A_7C15u64;
     let mut next = move || {
         x ^= x << 13;
@@ -467,11 +745,22 @@ async fn reals_load_as_fast_as_integers() {
             },
             _ => (next() >> 11) as f64 / (1u64 << 53) as f64,
         };
-        run(&mut s, &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} ({ddl})")).await;
-        let rows: Vec<Vec<Cell>> = (0..1000).map(|_| (0..60).map(|_| Cell::Float(gen())).collect()).collect();
+        run(
+            &mut s,
+            &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} ({ddl})"),
+        )
+        .await;
+        let rows: Vec<Vec<Cell>> = (0..1000)
+            .map(|_| (0..60).map(|_| Cell::Float(gen())).collect())
+            .collect();
         let mut src = VecSource::new(rows.clone(), 1000);
         let start = Instant::now();
-        assert_eq!(s.bulk_load(&load_spec(&t, &names, 10_000), &[], &mut src, &|_| {}).await.unwrap(), 1000);
+        assert_eq!(
+            s.bulk_load(&load_spec(&t, &names, 10_000), &[], &mut src, &|_| {})
+                .await
+                .unwrap(),
+            1000
+        );
         let took = start.elapsed();
         println!("libsql 1000 × 60 REAL ({kind}): {took:?}");
         assert!(took < Duration::from_secs(5), "{kind}: {took:?}");
@@ -479,7 +768,8 @@ async fn reals_load_as_fast_as_integers() {
         let mut bad = 0;
         for (g, w) in back.iter().flatten().zip(rows.iter().flatten()) {
             match (g, w) {
-                (Cell::Float(g), Cell::Float(w)) if g.to_bits() == w.to_bits() || (*w == 0.0 && *g == 0.0) => {}
+                (Cell::Float(g), Cell::Float(w))
+                    if g.to_bits() == w.to_bits() || (*w == 0.0 && *g == 0.0) => {}
                 _ => bad += 1,
             }
         }
@@ -499,7 +789,9 @@ async fn cutting_proxy(cut: usize) -> String {
     let http = reqwest::Client::new();
     tokio::spawn(async move {
         loop {
-            let Ok((mut sock, _)) = listener.accept().await else { return };
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
             let (inserts, http) = (inserts.clone(), http.clone());
             tokio::spawn(async move {
                 let mut buf = Vec::new();
@@ -531,14 +823,22 @@ async fn cutting_proxy(cut: usize) -> String {
                     let body = buf[head_end..head_end + len].to_vec();
                     buf.drain(..head_end + len);
                     let is_insert = String::from_utf8_lossy(&body).contains("INSERT INTO");
-                    let resp = http.post(format!("{}{path}", url())).header("content-type", "application/json").body(body).send().await.unwrap();
+                    let resp = http
+                        .post(format!("{}{path}", url()))
+                        .header("content-type", "application/json")
+                        .body(body)
+                        .send()
+                        .await
+                        .unwrap();
                     let status = resp.status().as_u16();
                     let bytes = resp.bytes().await.unwrap();
                     if is_insert && inserts.fetch_add(1, Ordering::SeqCst) + 1 == cut {
                         return; // the reply is lost
                     }
                     let head = format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n", bytes.len());
-                    if sock.write_all(head.as_bytes()).await.is_err() || sock.write_all(&bytes).await.is_err() {
+                    if sock.write_all(head.as_bytes()).await.is_err()
+                        || sock.write_all(&bytes).await.is_err()
+                    {
                         return;
                     }
                 }
@@ -559,18 +859,44 @@ async fn lost_reply_leaves_no_lock() {
     let _serial = SERIAL.lock().await;
     let t = unique("lost");
     let mut other = open(false).await;
-    run(&mut other, &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, s TEXT)")).await;
+    run(
+        &mut other,
+        &format!("DROP TABLE IF EXISTS {t}; CREATE TABLE {t} (id INTEGER PRIMARY KEY, s TEXT)"),
+    )
+    .await;
     let proxy = cutting_proxy(2).await;
-    let cfg = ConnectionConfig { driver: "libsql".into(), host: proxy, ..Default::default() };
-    let mut s = dbine_driver_libsql::drivers().pop().unwrap().connect(&cfg, None).await.unwrap();
-    let rows: Vec<Vec<Cell>> = (0..300).map(|i| vec![Cell::Int(i), Cell::Text(format!("r{i}"))]).collect();
+    let cfg = ConnectionConfig {
+        driver: "libsql".into(),
+        host: proxy,
+        ..Default::default()
+    };
+    let mut s = dbine_driver_libsql::drivers()
+        .pop()
+        .unwrap()
+        .connect(&cfg, None)
+        .await
+        .unwrap();
+    let rows: Vec<Vec<Cell>> = (0..300)
+        .map(|i| vec![Cell::Int(i), Cell::Text(format!("r{i}"))])
+        .collect();
     // Three requests in one window; the second one's reply is lost.
     let mut src = VecSource::new(rows, 100);
-    let e = s.bulk_load(&load_spec(&t, &["id", "s"], 10_000), &[], &mut src, &|_| {}).await.unwrap_err();
+    let e = s
+        .bulk_load(&load_spec(&t, &["id", "s"], 10_000), &[], &mut src, &|_| {})
+        .await
+        .unwrap_err();
     assert!(matches!(e, Error::Connect(_)), "{e:?}");
     let start = Instant::now();
-    run(&mut other, &format!("INSERT INTO {t} (id, s) VALUES (-1, 'other')")).await;
-    assert!(start.elapsed() < Duration::from_secs(2), "the writer waited {:?} for the orphaned window", start.elapsed());
+    run(
+        &mut other,
+        &format!("INSERT INTO {t} (id, s) VALUES (-1, 'other')"),
+    )
+    .await;
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "the writer waited {:?} for the orphaned window",
+        start.elapsed()
+    );
     assert_eq!(count(&mut other, &t).await, 1);
     run(&mut other, &format!("DROP TABLE {t}")).await;
 }

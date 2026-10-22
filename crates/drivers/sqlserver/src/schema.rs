@@ -4,7 +4,8 @@
 use dbine_driver::ddl::{self, AutoIncrement, SqlFlavor};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{
-    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, KeyDef, RowChange, TableSchema,
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, KeyDef,
+    RowChange, TableSchema,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -64,7 +65,11 @@ pub fn designer() -> DesignerSpec {
 }
 
 pub fn create_templates() -> Vec<CreateTemplate> {
-    let t = |kind, label, template: &str| CreateTemplate { kind, label, template: template.to_string() };
+    let t = |kind, label, template: &str| CreateTemplate {
+        kind,
+        label,
+        template: template.to_string(),
+    };
     vec![
         t(
             kinds::VIEW,
@@ -99,7 +104,10 @@ fn nlit(s: &str) -> String {
 }
 
 fn schema_of(t: &TableSchema) -> &str {
-    t.schema.as_deref().filter(|s| !s.is_empty()).unwrap_or("dbo")
+    t.schema
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("dbo")
 }
 
 fn comment_stmt(t: &TableSchema, column: Option<&str>, text: &str) -> String {
@@ -111,7 +119,10 @@ fn comment_stmt(t: &TableSchema, column: Option<&str>, text: &str) -> String {
         nlit(&t.name)
     );
     if let Some(c) = column {
-        s.push_str(&format!(", @level2type = N'COLUMN', @level2name = {}", nlit(c)));
+        s.push_str(&format!(
+            ", @level2type = N'COLUMN', @level2name = {}",
+            nlit(c)
+        ));
     }
     s.push(';');
     s
@@ -120,7 +131,10 @@ fn comment_stmt(t: &TableSchema, column: Option<&str>, text: &str) -> String {
 /// A comment change for the schema sync (`MS_Description`): added or
 /// updated (as a clone writes it), or dropped when `text` is `None`.
 pub fn comment_change(t: &TableSchema, column: Option<&ColumnDef>, text: Option<&str>) -> String {
-    let mut levels = vec![("SCHEMA".to_string(), schema_of(t).to_string()), ("TABLE".to_string(), t.name.clone())];
+    let mut levels = vec![
+        ("SCHEMA".to_string(), schema_of(t).to_string()),
+        ("TABLE".to_string(), t.name.clone()),
+    ];
     if let Some(c) = column {
         levels.push(("COLUMN".to_string(), c.name.clone()));
     }
@@ -133,10 +147,19 @@ pub fn comment_change(t: &TableSchema, column: Option<&ColumnDef>, text: Option<
         }),
         None => {
             let list: Vec<String> = (0..3)
-                .map(|i| levels.get(i).map_or("NULL, NULL".to_string(), |(ty, nm)| format!("{}, {}", nlit(ty), nlit(nm))))
+                .map(|i| {
+                    levels.get(i).map_or("NULL, NULL".to_string(), |(ty, nm)| {
+                        format!("{}, {}", nlit(ty), nlit(nm))
+                    })
+                })
                 .collect();
-            let args: Vec<String> =
-                levels.iter().enumerate().map(|(i, (ty, nm))| format!("@level{i}type = {}, @level{i}name = {}", nlit(ty), nlit(nm))).collect();
+            let args: Vec<String> = levels
+                .iter()
+                .enumerate()
+                .map(|(i, (ty, nm))| {
+                    format!("@level{i}type = {}, @level{i}name = {}", nlit(ty), nlit(nm))
+                })
+                .collect();
             format!(
                 "IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', {}))\n    EXEC sys.sp_dropextendedproperty @name = N'MS_Description', {};",
                 list.join(", "),
@@ -147,30 +170,61 @@ pub fn comment_change(t: &TableSchema, column: Option<&ColumnDef>, text: Option<
 }
 
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
-    let name = qualified_name(Quote::Bracket, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
+    let name = qualified_name(
+        Quote::Bracket,
+        t.schema.as_deref().filter(|s| !s.is_empty()),
+        &t.name,
+    );
     let object_id = |kind: &str| format!("OBJECT_ID({}, N'{kind}')", nlit(&name));
     let mut out: Vec<String> = Vec::new();
 
     if parts.drop {
-        out.push(if parts.if_exists { format!("DROP TABLE IF EXISTS {name};") } else { format!("DROP TABLE {name};") });
+        out.push(if parts.if_exists {
+            format!("DROP TABLE IF EXISTS {name};")
+        } else {
+            format!("DROP TABLE {name};")
+        });
     }
 
     if parts.create {
-        let mut create = ddl::table_ddl(&FLAVOR, t, DdlParts { create: true, ..Default::default() });
+        let mut create = ddl::table_ddl(
+            &FLAVOR,
+            t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
         // IDENTITY with its own seed / increment and named DEFAULTs (the
         // generic builder writes `IDENTITY(1,1)` and unnamed defaults).
         for c in &t.columns {
             create = column_extras(create, c);
         }
         // A computed column takes no NULL / NOT NULL (only after PERSISTED).
-        for c in t.columns.iter().filter(|c| c.data_type.trim_start().to_ascii_uppercase().starts_with("AS ")) {
+        for c in t.columns.iter().filter(|c| {
+            c.data_type
+                .trim_start()
+                .to_ascii_uppercase()
+                .starts_with("AS ")
+        }) {
             let line = format!("    {} {}", q(&c.name), c.data_type);
-            create = create.replace(&format!("{line} NULL"), &line).replace(&format!("{line} NOT NULL"), &line);
+            create = create
+                .replace(&format!("{line} NULL"), &line)
+                .replace(&format!("{line} NOT NULL"), &line);
         }
         // Only one clustered index per table: the key gives way when another
         // index is the clustered one, or when it says it's nonclustered.
-        let nonclustered = t.options.get(crate::structure::PRIMARY_KEY).is_some_and(|v| v.trim().eq_ignore_ascii_case("NONCLUSTERED"));
-        if nonclustered || t.indexes.iter().any(|i| i.kind.as_deref().is_some_and(|k| k.starts_with("CLUSTERED"))) {
+        let nonclustered = t
+            .options
+            .get(crate::structure::PRIMARY_KEY)
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("NONCLUSTERED"));
+        if nonclustered
+            || t.indexes.iter().any(|i| {
+                i.kind
+                    .as_deref()
+                    .is_some_and(|k| k.starts_with("CLUSTERED"))
+            })
+        {
             create = create.replacen(" PRIMARY KEY (", " PRIMARY KEY NONCLUSTERED (", 1);
         }
         let mut stmts = vec![create];
@@ -183,8 +237,16 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
             }
         }
         if parts.if_exists && !parts.drop {
-            let body = stmts.join("\n").lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n");
-            out.push(format!("IF {} IS NULL\nBEGIN\n{body}\nEND;", object_id("U")));
+            let body = stmts
+                .join("\n")
+                .lines()
+                .map(|l| format!("    {l}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            out.push(format!(
+                "IF {} IS NULL\nBEGIN\n{body}\nEND;",
+                object_id("U")
+            ));
         } else {
             out.extend(stmts);
         }
@@ -193,14 +255,30 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     if parts.indexes {
         // Every kind (INCLUDE, WITH options, columnstore, XML, spatial,
         // full-text), in an order the server accepts.
-        out.extend(crate::structure::index_statements(&name, t, parts.if_exists));
+        out.extend(crate::structure::index_statements(
+            &name,
+            t,
+            parts.if_exists,
+        ));
     }
 
     if parts.foreign_keys {
         for fk in &t.foreign_keys {
             // Rebuild through the generic builder: one FK, one ALTER.
-            let one = TableSchema { schema: t.schema.clone(), name: t.name.clone(), foreign_keys: vec![fk.clone()], ..Default::default() };
-            let mut s = ddl::table_ddl(&FLAVOR, &one, DdlParts { foreign_keys: true, ..Default::default() });
+            let one = TableSchema {
+                schema: t.schema.clone(),
+                name: t.name.clone(),
+                foreign_keys: vec![fk.clone()],
+                ..Default::default()
+            };
+            let mut s = ddl::table_ddl(
+                &FLAVOR,
+                &one,
+                DdlParts {
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            );
             if parts.if_exists {
                 if let Some(n) = fk.name.as_deref().filter(|n| !n.is_empty()) {
                     let fk_name = qualified_name(Quote::Bracket, Some(schema_of(t)), n);
@@ -226,7 +304,8 @@ fn identity_args(v: &str) -> Option<String> {
     let num = |s: &str| {
         let s = s.trim();
         let digits = s.strip_prefix('-').unwrap_or(s);
-        (!digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit() || c == '.')).then(|| s.to_string())
+        (!digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit() || c == '.'))
+            .then(|| s.to_string())
     };
     Some(format!("{},{}", num(seed)?, num(inc)?))
 }
@@ -234,9 +313,16 @@ fn identity_args(v: &str) -> Option<String> {
 /// The column's line in `create` with its IDENTITY seed / increment and
 /// its DEFAULT's name, from [`IDENTITY_OPTION`] / [`DEFAULT_NAME_OPTION`].
 fn column_extras(create: String, c: &ColumnDef) -> String {
-    let identity = c.options.get(IDENTITY_OPTION).filter(|_| c.auto_increment).and_then(|v| identity_args(v));
+    let identity = c
+        .options
+        .get(IDENTITY_OPTION)
+        .filter(|_| c.auto_increment)
+        .and_then(|v| identity_args(v));
     let default = c.default_value.as_deref().filter(|d| !d.is_empty());
-    let named = c.options.get(DEFAULT_NAME_OPTION).filter(|n| !n.is_empty() && default.is_some());
+    let named = c
+        .options
+        .get(DEFAULT_NAME_OPTION)
+        .filter(|n| !n.is_empty() && default.is_some());
     if identity.is_none() && named.is_none() {
         return create;
     }
@@ -245,13 +331,19 @@ fn column_extras(create: String, c: &ColumnDef) -> String {
     create
         .split('\n')
         .map(|l| {
-            let Some(rest) = l.strip_prefix(&head) else { return l.to_string() };
+            let Some(rest) = l.strip_prefix(&head) else {
+                return l.to_string();
+            };
             let mut rest = rest.to_string();
             if let Some(i) = &identity {
                 rest = rest.replacen(" IDENTITY(1,1)", &format!(" IDENTITY({i})"), 1);
             }
             if let (Some(n), Some(d)) = (named, default) {
-                rest = rest.replacen(&format!(" DEFAULT {d}"), &format!(" CONSTRAINT {} DEFAULT {d}", q(n)), 1);
+                rest = rest.replacen(
+                    &format!(" DEFAULT {d}"),
+                    &format!(" CONSTRAINT {} DEFAULT {d}", q(n)),
+                    1,
+                );
             }
             format!("{head}{rest}")
         })
@@ -305,17 +397,43 @@ pub fn fabric_designer() -> DesignerSpec {
 /// IDENTITY has no seed nor increment, and there are no indexes nor
 /// extended properties.
 pub fn fabric_table_ddl(t: &TableSchema, parts: DdlParts) -> String {
-    let name = qualified_name(Quote::Bracket, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
+    let name = qualified_name(
+        Quote::Bracket,
+        t.schema.as_deref().filter(|s| !s.is_empty()),
+        &t.name,
+    );
     let mut out: Vec<String> = Vec::new();
     if parts.drop {
-        out.push(if parts.if_exists { format!("DROP TABLE IF EXISTS {name};") } else { format!("DROP TABLE {name};") });
+        out.push(if parts.if_exists {
+            format!("DROP TABLE IF EXISTS {name};")
+        } else {
+            format!("DROP TABLE {name};")
+        });
     }
     if parts.create {
-        let bare = TableSchema { primary_key: None, foreign_keys: Vec::new(), indexes: Vec::new(), comment: None, ..t.clone() };
-        let create = ddl::table_ddl(&FLAVOR, &bare, DdlParts { create: true, ..Default::default() }).replace(" IDENTITY(1,1)", " IDENTITY");
+        let bare = TableSchema {
+            primary_key: None,
+            foreign_keys: Vec::new(),
+            indexes: Vec::new(),
+            comment: None,
+            ..t.clone()
+        };
+        let create = ddl::table_ddl(
+            &FLAVOR,
+            &bare,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .replace(" IDENTITY(1,1)", " IDENTITY");
         let mut stmts = vec![create];
         if let Some(pk) = t.primary_key.as_ref().filter(|k| !k.columns.is_empty()) {
-            let cname = pk.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| format!("PK_{}", t.name));
+            let cname = pk
+                .name
+                .clone()
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| format!("PK_{}", t.name));
             let cols: Vec<String> = pk.columns.iter().map(|c| q(c)).collect();
             stmts.push(format!(
                 "ALTER TABLE {name} ADD CONSTRAINT {} PRIMARY KEY NONCLUSTERED ({}) NOT ENFORCED;",
@@ -325,7 +443,12 @@ pub fn fabric_table_ddl(t: &TableSchema, parts: DdlParts) -> String {
         }
         if parts.if_exists && !parts.drop {
             let object_id = format!("OBJECT_ID({}, N'U')", nlit(&name));
-            let body = stmts.join("\n").lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n");
+            let body = stmts
+                .join("\n")
+                .lines()
+                .map(|l| format!("    {l}"))
+                .collect::<Vec<_>>()
+                .join("\n");
             out.push(format!("IF {object_id} IS NULL\nBEGIN\n{body}\nEND;"));
         } else {
             out.extend(stmts);
@@ -341,14 +464,25 @@ pub fn fabric_table_ddl(t: &TableSchema, parts: DdlParts) -> String {
                     cols.join(", ")
                 ));
             } else {
-                out.push(format!("-- Índice {} omitido: los almacenes de Fabric no tienen índices.", crate::comment_text(&ix.name)));
+                out.push(format!(
+                    "-- Índice {} omitido: los almacenes de Fabric no tienen índices.",
+                    crate::comment_text(&ix.name)
+                ));
             }
         }
     }
     if parts.foreign_keys {
         for (i, fk) in t.foreign_keys.iter().enumerate() {
-            let cname = fk.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| format!("FK_{}_{}", t.name, i + 1));
-            let rs = fk.ref_schema.as_deref().filter(|s| !s.is_empty()).or(t.schema.as_deref().filter(|s| !s.is_empty()));
+            let cname = fk
+                .name
+                .clone()
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| format!("FK_{}_{}", t.name, i + 1));
+            let rs = fk
+                .ref_schema
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or(t.schema.as_deref().filter(|s| !s.is_empty()));
             let cols: Vec<String> = fk.columns.iter().map(|c| q(c)).collect();
             let refs: Vec<String> = fk.ref_columns.iter().map(|c| q(c)).collect();
             out.push(format!(
@@ -378,7 +512,12 @@ fn is_hex_binary(s: &str) -> bool {
     s.len() > 2 && s.starts_with("0x") && s[2..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
+pub fn insert_script(
+    schema: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> String {
     let name = qualified_name(Quote::Bracket, schema.filter(|s| !s.is_empty()), table);
     let cols: Vec<String> = columns.iter().map(|c| q(c)).collect();
     rows.chunks(INSERT_BATCH)
@@ -387,7 +526,11 @@ pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows
                 .iter()
                 .map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
                 .collect();
-            format!("INSERT INTO {name} ({}) VALUES\n  {};", cols.join(", "), tuples.join(",\n  "))
+            format!(
+                "INSERT INTO {name} ({}) VALUES\n  {};",
+                cols.join(", "),
+                tuples.join(",\n  ")
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -398,7 +541,11 @@ pub fn update_script(schema: Option<&str>, table: &str, changes: &[RowChange]) -
     ddl::update_script_with(Quote::Bracket, schema, table, changes, &literal)
 }
 
-pub fn delete_script(schema: Option<&str>, table: &str, keys: &[Vec<(String, serde_json::Value)>]) -> String {
+pub fn delete_script(
+    schema: Option<&str>,
+    table: &str,
+    keys: &[Vec<(String, serde_json::Value)>],
+) -> String {
     ddl::delete_script_with(Quote::Bracket, schema, table, keys, &literal)
 }
 
@@ -457,7 +604,8 @@ SELECT s.name, t.name, fk.name, pc.name, rs.name, rt.name, rc.name,
 
 /// `NO_ACTION` is the default; the others as SQL writes them.
 pub fn fk_rule(desc: Option<String>) -> Option<String> {
-    desc.filter(|d| d != "NO_ACTION").map(|d| d.replace('_', " "))
+    desc.filter(|d| d != "NO_ACTION")
+        .map(|d| d.replace('_', " "))
 }
 
 /// Tables keyed by (schema, name), in catalog order.
@@ -473,7 +621,13 @@ impl Builder {
         self.order.push(key.clone());
         self.tables.insert(
             key,
-            TableSchema { kind: kinds::TABLE.into(), schema: Some(schema), name, comment, ..Default::default() },
+            TableSchema {
+                kind: kinds::TABLE.into(),
+                schema: Some(schema),
+                name,
+                comment,
+                ..Default::default()
+            },
         );
     }
 
@@ -501,9 +655,14 @@ impl Builder {
         column: String,
         included: bool,
     ) {
-        let Some(t) = self.get(schema, table) else { return };
+        let Some(t) = self.get(schema, table) else {
+            return;
+        };
         if primary {
-            let pk = t.primary_key.get_or_insert_with(|| KeyDef { name: Some(index), columns: Vec::new() });
+            let pk = t.primary_key.get_or_insert_with(|| KeyDef {
+                name: Some(index),
+                columns: Vec::new(),
+            });
             pk.columns.push(column);
             return;
         }
@@ -537,7 +696,9 @@ impl Builder {
         on_delete: Option<String>,
         on_update: Option<String>,
     ) {
-        let Some(t) = self.get(schema, table) else { return };
+        let Some(t) = self.get(schema, table) else {
+            return;
+        };
         match t.foreign_keys.last_mut() {
             Some(fk) if fk.name.as_deref() == Some(name.as_str()) => {
                 fk.columns.push(column);
@@ -557,18 +718,32 @@ impl Builder {
 
     /// One row of [`IDENTITY_SQL`]: only a seed / increment other than
     /// `1,1` goes into the column's options (the default stays implicit).
-    pub fn identity(&mut self, schema: &str, table: &str, column: &str, seed: &str, increment: &str) {
+    pub fn identity(
+        &mut self,
+        schema: &str,
+        table: &str,
+        column: &str,
+        seed: &str,
+        increment: &str,
+    ) {
         let (seed, increment) = (seed.trim(), increment.trim());
         if seed == "1" && increment == "1" {
             return;
         }
-        if let Some(c) = self.get(schema, table).and_then(|t| t.columns.iter_mut().find(|c| c.name == column)) {
-            c.options.insert(IDENTITY_OPTION.into(), format!("{seed},{increment}"));
+        if let Some(c) = self
+            .get(schema, table)
+            .and_then(|t| t.columns.iter_mut().find(|c| c.name == column))
+        {
+            c.options
+                .insert(IDENTITY_OPTION.into(), format!("{seed},{increment}"));
         }
     }
 
     pub fn finish(mut self) -> Vec<TableSchema> {
-        self.order.iter().filter_map(|k| self.tables.remove(k)).collect()
+        self.order
+            .iter()
+            .filter_map(|k| self.tables.remove(k))
+            .collect()
     }
 }
 
@@ -603,7 +778,11 @@ mod tests {
     fn update_script_uses_unicode_literals() {
         let c = RowChange {
             key: vec![("id".into(), json!(7)), ("region".into(), Value::Null)],
-            set: vec![("nombre".into(), json!("O'Brien")), ("baja".into(), Value::Null)], ..Default::default()
+            set: vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("baja".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(Some("dbo"), "clientes", &[c]),
@@ -614,16 +793,40 @@ mod tests {
     #[test]
     fn fabric_keys_are_not_enforced_and_there_are_no_indexes() {
         let t = sample();
-        let all = DdlParts { create: true, indexes: true, foreign_keys: true, ..Default::default() };
+        let all = DdlParts {
+            create: true,
+            indexes: true,
+            foreign_keys: true,
+            ..Default::default()
+        };
         let s = fabric_table_ddl(&t, all);
-        assert!(s.contains(" IDENTITY NOT NULL") || s.contains(" IDENTITY,") || s.contains(" IDENTITY\n"), "{s}");
+        assert!(
+            s.contains(" IDENTITY NOT NULL")
+                || s.contains(" IDENTITY,")
+                || s.contains(" IDENTITY\n"),
+            "{s}"
+        );
         assert!(!s.contains("IDENTITY(1,1)"), "{s}");
         assert!(!s.contains("sp_addextendedproperty"), "{s}");
-        assert!(s.contains("PRIMARY KEY NONCLUSTERED ([id]) NOT ENFORCED;"), "{s}");
-        assert!(s.lines().filter(|l| l.contains("FOREIGN KEY")).all(|l| l.ends_with("NOT ENFORCED;")), "{s}");
-        assert!(!s.contains("CREATE INDEX") && !s.contains("CREATE NONCLUSTERED INDEX"), "{s}");
+        assert!(
+            s.contains("PRIMARY KEY NONCLUSTERED ([id]) NOT ENFORCED;"),
+            "{s}"
+        );
+        assert!(
+            s.lines()
+                .filter(|l| l.contains("FOREIGN KEY"))
+                .all(|l| l.ends_with("NOT ENFORCED;")),
+            "{s}"
+        );
+        assert!(
+            !s.contains("CREATE INDEX") && !s.contains("CREATE NONCLUSTERED INDEX"),
+            "{s}"
+        );
         let create = s.split(';').next().unwrap();
-        assert!(!create.contains("PRIMARY KEY"), "keys go in ALTER TABLE: {s}");
+        assert!(
+            !create.contains("PRIMARY KEY"),
+            "keys go in ALTER TABLE: {s}"
+        );
     }
 
     fn sample() -> TableSchema {
@@ -632,12 +835,36 @@ mod tests {
             schema: Some("ventas".into()),
             name: "pedidos".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "int".into(), nullable: false, auto_increment: true, ..Default::default() },
-                ColumnDef { name: "cliente_id".into(), data_type: "int".into(), comment: Some("Dueño".into()), ..Default::default() },
-                ColumnDef { name: "total".into(), data_type: "decimal(18,2)".into(), nullable: false, default_value: Some("((0))".into()), ..Default::default() },
-                ColumnDef { name: "doble".into(), data_type: "AS ([total]*(2))".into(), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    nullable: false,
+                    auto_increment: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "cliente_id".into(),
+                    data_type: "int".into(),
+                    comment: Some("Dueño".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "total".into(),
+                    data_type: "decimal(18,2)".into(),
+                    nullable: false,
+                    default_value: Some("((0))".into()),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "doble".into(),
+                    data_type: "AS ([total]*(2))".into(),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some("PK_pedidos".into()), columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("PK_pedidos".into()),
+                columns: vec!["id".into()],
+            }),
             foreign_keys: vec![ForeignKeyDef {
                 name: Some("FK_pedidos_clientes".into()),
                 columns: vec!["cliente_id".into()],
@@ -660,12 +887,23 @@ mod tests {
         }
     }
 
-    const ALL: DdlParts = DdlParts { drop: false, if_exists: false, create: true, indexes: true, foreign_keys: true };
+    const ALL: DdlParts = DdlParts {
+        drop: false,
+        if_exists: false,
+        create: true,
+        indexes: true,
+        foreign_keys: true,
+    };
 
     #[test]
     fn create_with_identity_comments_indexes_and_fks() {
         let s = table_ddl(&sample(), ALL);
-        assert!(s.starts_with("CREATE TABLE [ventas].[pedidos] (\n    [id] int IDENTITY(1,1) NOT NULL,"), "{s}");
+        assert!(
+            s.starts_with(
+                "CREATE TABLE [ventas].[pedidos] (\n    [id] int IDENTITY(1,1) NOT NULL,"
+            ),
+            "{s}"
+        );
         assert!(s.contains("[total] decimal(18,2) DEFAULT ((0)) NOT NULL,"));
         assert!(s.contains("    [doble] AS ([total]*(2)),\n"), "{s}");
         assert!(s.contains("CONSTRAINT [PK_pedidos] PRIMARY KEY ([id])"));
@@ -678,35 +916,94 @@ mod tests {
     #[test]
     fn identity_seed_increment_and_named_defaults() {
         let mut t = sample();
-        t.columns[0].options.insert(IDENTITY_OPTION.into(), "1000,5".into());
-        t.columns[2].options.insert(DEFAULT_NAME_OPTION.into(), "DF_pedidos_total".into());
+        t.columns[0]
+            .options
+            .insert(IDENTITY_OPTION.into(), "1000,5".into());
+        t.columns[2]
+            .options
+            .insert(DEFAULT_NAME_OPTION.into(), "DF_pedidos_total".into());
         let s = table_ddl(&t, ALL);
         assert!(s.contains("    [id] int IDENTITY(1000,5) NOT NULL,"), "{s}");
-        assert!(s.contains("    [total] decimal(18,2) CONSTRAINT [DF_pedidos_total] DEFAULT ((0)) NOT NULL,"), "{s}");
+        assert!(
+            s.contains(
+                "    [total] decimal(18,2) CONSTRAINT [DF_pedidos_total] DEFAULT ((0)) NOT NULL,"
+            ),
+            "{s}"
+        );
         // Anything but numbers is not written.
-        t.columns[0].options.insert(IDENTITY_OPTION.into(), "1,1) x(".into());
+        t.columns[0]
+            .options
+            .insert(IDENTITY_OPTION.into(), "1,1) x(".into());
         assert!(table_ddl(&t, ALL).contains("[id] int IDENTITY(1,1) NOT NULL"));
         assert_eq!(identity_args("-10, 2").as_deref(), Some("-10,2"));
         // Only a non-default seed / increment is kept.
         let mut b = Builder::default();
         b.table("dbo".into(), "t".into(), None);
-        b.column("dbo", "t", ColumnDef { name: "id".into(), data_type: "int".into(), auto_increment: true, ..Default::default() });
-        b.column("dbo", "t", ColumnDef { name: "id2".into(), data_type: "int".into(), auto_increment: true, ..Default::default() });
+        b.column(
+            "dbo",
+            "t",
+            ColumnDef {
+                name: "id".into(),
+                data_type: "int".into(),
+                auto_increment: true,
+                ..Default::default()
+            },
+        );
+        b.column(
+            "dbo",
+            "t",
+            ColumnDef {
+                name: "id2".into(),
+                data_type: "int".into(),
+                auto_increment: true,
+                ..Default::default()
+            },
+        );
         b.identity("dbo", "t", "id", "1", "1");
         b.identity("dbo", "t", "id2", "1000", "5");
         let t = b.finish().remove(0);
         assert!(t.columns[0].options.is_empty());
-        assert_eq!(t.columns[1].options.get(IDENTITY_OPTION).map(String::as_str), Some("1000,5"));
+        assert_eq!(
+            t.columns[1]
+                .options
+                .get(IDENTITY_OPTION)
+                .map(String::as_str),
+            Some("1000,5")
+        );
     }
 
     #[test]
     fn guards_when_if_exists() {
-        let s = table_ddl(&sample(), DdlParts { if_exists: true, ..ALL });
-        assert!(s.starts_with("IF OBJECT_ID(N'[ventas].[pedidos]', N'U') IS NULL\nBEGIN\n    CREATE TABLE"), "{s}");
+        let s = table_ddl(
+            &sample(),
+            DdlParts {
+                if_exists: true,
+                ..ALL
+            },
+        );
+        assert!(
+            s.starts_with(
+                "IF OBJECT_ID(N'[ventas].[pedidos]', N'U') IS NULL\nBEGIN\n    CREATE TABLE"
+            ),
+            "{s}"
+        );
         assert!(s.contains("IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[ventas].[pedidos]') AND name = N'IX_total')\n    CREATE UNIQUE"));
-        assert!(s.contains("IF OBJECT_ID(N'[ventas].[FK_pedidos_clientes]', N'F') IS NULL\n    ALTER TABLE"));
-        let d = table_ddl(&sample(), DdlParts { drop: true, if_exists: true, create: true, ..Default::default() });
-        assert!(d.starts_with("DROP TABLE IF EXISTS [ventas].[pedidos];\nCREATE TABLE"), "{d}");
+        assert!(s.contains(
+            "IF OBJECT_ID(N'[ventas].[FK_pedidos_clientes]', N'F') IS NULL\n    ALTER TABLE"
+        ));
+        let d = table_ddl(
+            &sample(),
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            d.starts_with("DROP TABLE IF EXISTS [ventas].[pedidos];\nCREATE TABLE"),
+            "{d}"
+        );
     }
 
     #[test]
@@ -714,24 +1011,49 @@ mod tests {
         let mut t = sample();
         t.indexes[0].kind = Some("CLUSTERED".into());
         let s = table_ddl(&t, ALL);
-        assert!(s.contains("CONSTRAINT [PK_pedidos] PRIMARY KEY NONCLUSTERED ([id])"), "{s}");
+        assert!(
+            s.contains("CONSTRAINT [PK_pedidos] PRIMARY KEY NONCLUSTERED ([id])"),
+            "{s}"
+        );
         assert!(s.contains("CREATE UNIQUE CLUSTERED INDEX [IX_total]"));
     }
 
     #[test]
     fn inserts_use_unicode_literals_bits_and_1000_row_batches() {
-        let rows = vec![vec![json!(1), json!("Año O'Brien"), json!(true), json!("0xFF00"), Value::Null]];
-        let s = insert_script(Some("dbo"), "t", &["a".into(), "b".into(), "c".into(), "d".into(), "e".into()], &rows);
+        let rows = vec![vec![
+            json!(1),
+            json!("Año O'Brien"),
+            json!(true),
+            json!("0xFF00"),
+            Value::Null,
+        ]];
+        let s = insert_script(
+            Some("dbo"),
+            "t",
+            &["a".into(), "b".into(), "c".into(), "d".into(), "e".into()],
+            &rows,
+        );
         assert_eq!(s, "INSERT INTO [dbo].[t] ([a], [b], [c], [d], [e]) VALUES\n  (1, N'Año O''Brien', 1, 0xFF00, NULL);");
         let many: Vec<Vec<Value>> = (0..2500).map(|i| vec![json!(i)]).collect();
-        assert_eq!(insert_script(None, "t", &["a".into()], &many).matches("INSERT INTO").count(), 3);
+        assert_eq!(
+            insert_script(None, "t", &["a".into()], &many)
+                .matches("INSERT INTO")
+                .count(),
+            3
+        );
     }
 
     #[test]
     fn filters_lose_their_outer_parens() {
         assert_eq!(strip_parens("([a] IS NOT NULL)"), "[a] IS NOT NULL");
-        assert_eq!(strip_parens("([a]>(1)) AND ([b]<(2))"), "([a]>(1)) AND ([b]<(2))");
-        assert_eq!(fk_rule(Some("SET_NULL".into())).as_deref(), Some("SET NULL"));
+        assert_eq!(
+            strip_parens("([a]>(1)) AND ([b]<(2))"),
+            "([a]>(1)) AND ([b]<(2))"
+        );
+        assert_eq!(
+            fk_rule(Some("SET_NULL".into())).as_deref(),
+            Some("SET NULL")
+        );
         assert_eq!(fk_rule(Some("NO_ACTION".into())), None);
     }
 
@@ -741,7 +1063,19 @@ mod tests {
     fn basic_index_rows_keep_included_columns_apart() {
         let mut b = Builder::default();
         b.table("dbo".into(), "d".into(), None);
-        let row = |b: &mut Builder, ix: &str, kind: &str, col: &str, inc: bool| b.index_column("dbo", "d", ix.into(), false, false, kind.into(), None, col.into(), inc);
+        let row = |b: &mut Builder, ix: &str, kind: &str, col: &str, inc: bool| {
+            b.index_column(
+                "dbo",
+                "d",
+                ix.into(),
+                false,
+                false,
+                kind.into(),
+                None,
+                col.into(),
+                inc,
+            )
+        };
         // In INDEXES_SQL's order: keys first, then the included ones.
         row(&mut b, "IX", "NONCLUSTERED", "EntityChangeId", false);
         for c in ["Id", "Module"] {
@@ -751,7 +1085,16 @@ mod tests {
             row(&mut b, "NCCI", "NONCLUSTERED COLUMNSTORE", c, true);
         }
         let t = b.finish().remove(0);
-        assert_eq!((t.indexes[0].columns.as_slice(), t.indexes[0].include.as_slice()), (&["EntityChangeId".to_string()][..], &["Id".to_string(), "Module".to_string()][..]));
+        assert_eq!(
+            (
+                t.indexes[0].columns.as_slice(),
+                t.indexes[0].include.as_slice()
+            ),
+            (
+                &["EntityChangeId".to_string()][..],
+                &["Id".to_string(), "Module".to_string()][..]
+            )
+        );
         assert_eq!(t.indexes[1].columns, ["a", "b"]);
         assert!(t.indexes[1].include.is_empty());
     }

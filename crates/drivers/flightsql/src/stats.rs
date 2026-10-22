@@ -29,19 +29,41 @@ fn count(v: &Value) -> Option<u64> {
 }
 
 /// `[schema, name, value]` rows as `(object, value)`.
-fn objects<'a>(kind: &'a str, rows: &'a [Vec<Value>]) -> impl Iterator<Item = (ObjectRef, &'a Value)> + 'a {
+fn objects<'a>(
+    kind: &'a str,
+    rows: &'a [Vec<Value>],
+) -> impl Iterator<Item = (ObjectRef, &'a Value)> + 'a {
     rows.iter().filter(|r| r.len() == 3).map(move |r| {
-        (ObjectRef { kind: kind.into(), schema: Some(text(&r[0])).filter(|s| !s.is_empty()), name: text(&r[1]) }, &r[2])
+        (
+            ObjectRef {
+                kind: kind.into(),
+                schema: Some(text(&r[0])).filter(|s| !s.is_empty()),
+                name: text(&r[1]),
+            },
+            &r[2],
+        )
     })
 }
 
 pub(crate) fn estimates(rows: &[Vec<Value>]) -> Vec<RowEstimate> {
-    objects(kinds::TABLE, rows).filter_map(|(object, v)| Some(RowEstimate { object, rows: count(v)? })).collect()
+    objects(kinds::TABLE, rows)
+        .filter_map(|(object, v)| {
+            Some(RowEstimate {
+                object,
+                rows: count(v)?,
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn comments(rows: &[Vec<Value>]) -> Vec<ObjectComment> {
     objects(kinds::VIEW, rows)
-        .filter_map(|(object, v)| Some(ObjectComment { object, comment: Some(text(v).trim().to_string()).filter(|c| !c.is_empty())? }))
+        .filter_map(|(object, v)| {
+            Some(ObjectComment {
+                object,
+                comment: Some(text(v).trim().to_string()).filter(|c| !c.is_empty())?,
+            })
+        })
         .collect()
 }
 
@@ -64,7 +86,10 @@ pub(crate) async fn row_estimates(s: &FlightSession) -> Result<Vec<RowEstimate>>
          WHERE {} AND NOT internal AND NOT temporary ORDER BY 1, 2",
         s.duckdb_database()
     );
-    Ok(s.rows(&sql).await.map(|(_, rows)| estimates(&rows)).unwrap_or_default())
+    Ok(s.rows(&sql)
+        .await
+        .map(|(_, rows)| estimates(&rows))
+        .unwrap_or_default())
 }
 
 pub(crate) async fn object_comments(s: &FlightSession) -> Result<Vec<ObjectComment>> {
@@ -76,7 +101,10 @@ pub(crate) async fn object_comments(s: &FlightSession) -> Result<Vec<ObjectComme
          WHERE {} AND NOT internal AND NOT temporary AND comment IS NOT NULL ORDER BY 1, 2",
         s.duckdb_database()
     );
-    Ok(s.rows(&sql).await.map(|(_, rows)| comments(&rows)).unwrap_or_default())
+    Ok(s.rows(&sql)
+        .await
+        .map(|(_, rows)| comments(&rows))
+        .unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -86,15 +114,31 @@ mod tests {
 
     #[test]
     fn duckdb_rows() {
-        let e = estimates(&[vec![json!("main"), json!("ventas"), json!(1200)], vec![json!("main"), json!("x"), Value::Null]]);
+        let e = estimates(&[
+            vec![json!("main"), json!("ventas"), json!(1200)],
+            vec![json!("main"), json!("x"), Value::Null],
+        ]);
         assert_eq!(e.len(), 1);
-        assert_eq!((e[0].object.schema.as_deref(), e[0].object.name.as_str(), e[0].rows), (Some("main"), "ventas", 1200));
+        assert_eq!(
+            (
+                e[0].object.schema.as_deref(),
+                e[0].object.name.as_str(),
+                e[0].rows
+            ),
+            (Some("main"), "ventas", 1200)
+        );
     }
 
     #[test]
     fn duckdb_view_comments() {
-        let c = comments(&[vec![json!("main"), json!("v"), json!("ventas por día")], vec![json!("main"), json!("w"), json!(" ")]]);
+        let c = comments(&[
+            vec![json!("main"), json!("v"), json!("ventas por día")],
+            vec![json!("main"), json!("w"), json!(" ")],
+        ]);
         assert_eq!(c.len(), 1);
-        assert_eq!((c[0].object.kind.as_str(), c[0].comment.as_str()), ("view", "ventas por día"));
+        assert_eq!(
+            (c[0].object.kind.as_str(), c[0].comment.as_str()),
+            ("view", "ventas por día")
+        );
     }
 }

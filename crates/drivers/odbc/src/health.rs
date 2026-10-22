@@ -52,7 +52,9 @@ fn lit(v: &str) -> String {
 
 /// An identifier usable unquoted (ASE and Informix catalog prefixes).
 fn plain(name: &str) -> bool {
-    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit())
+    !name.is_empty()
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !name.starts_with(|c: char| c.is_ascii_digit())
 }
 
 /// A Db2 command run through SYSPROC.ADMIN_CMD.
@@ -77,7 +79,14 @@ impl FixIfSome for HealthCheck {
     }
 }
 
-fn found(id: &str, category: &str, none: &str, some: String, sev: Severity, n: usize) -> HealthCheck {
+fn found(
+    id: &str,
+    category: &str,
+    none: &str,
+    some: String,
+    sev: Severity,
+    n: usize,
+) -> HealthCheck {
     if n == 0 {
         HealthCheck::new(id, category, none, Severity::Ok)
     } else {
@@ -87,7 +96,11 @@ fn found(id: &str, category: &str, none: &str, some: String, sev: Severity, n: u
 
 impl OdbcSession {
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
-        let db = if database.is_empty() { self.database.clone() } else { database.to_string() };
+        let db = if database.is_empty() {
+            self.database.clone()
+        } else {
+            database.to_string()
+        };
         let mut out = match design::eng(self.preset) {
             Eng::Db2 => self.db2_health().await,
             Eng::Ase => self.ase_health(&db).await,
@@ -101,7 +114,11 @@ impl OdbcSession {
     }
 
     async fn rows_of(&self, sql: &str, params: &[&str]) -> Result<Rows> {
-        self.query(sql.to_string(), params.iter().map(|p| p.to_string()).collect()).await
+        self.query(
+            sql.to_string(),
+            params.iter().map(|p| p.to_string()).collect(),
+        )
+        .await
     }
 
     async fn db2_health(&self) -> Vec<HealthCheck> {
@@ -119,7 +136,18 @@ impl OdbcSession {
                 .detail("Un objeto inválido (vista, rutina, trigger…) falla o se revalida al usarse; si lo que cambió lo rompió, la revalidación falla y SYSCAT.INVALIDOBJECTS dice por qué.")
                 .objects(list(&rows, |r| format!("{}.{} ({})", s(r, 0), s(r, 1), s(r, 2))));
             if !schemas.is_empty() {
-                c = c.fix(schemas.iter().map(|sch| format!("CALL SYSPROC.ADMIN_REVALIDATE_DB_OBJECTS(NULL, {}, NULL);", lit(sch))).collect::<Vec<_>>().join("\n"));
+                c = c.fix(
+                    schemas
+                        .iter()
+                        .map(|sch| {
+                            format!(
+                                "CALL SYSPROC.ADMIN_REVALIDATE_DB_OBJECTS(NULL, {}, NULL);",
+                                lit(sch)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
             }
             out.push(c);
         }
@@ -158,7 +186,16 @@ impl OdbcSession {
         );
         if let Ok(rows) = self.rows_of(&sql, &[]).await {
             if !rows.is_empty() {
-                let fixes: Vec<String> = rows.iter().map(|r| format!("SET INTEGRITY FOR {}.{} IMMEDIATE CHECKED;", dq(&s(r, 0)), dq(&s(r, 1)))).collect();
+                let fixes: Vec<String> = rows
+                    .iter()
+                    .map(|r| {
+                        format!(
+                            "SET INTEGRITY FOR {}.{} IMMEDIATE CHECKED;",
+                            dq(&s(r, 0)),
+                            dq(&s(r, 1))
+                        )
+                    })
+                    .collect();
                 out.push(
                     HealthCheck::new("set_integrity_pending", "Integridad", format!("{} tablas en estado de integridad pendiente", rows.len()), Severity::Critical)
                         .detail("Una tabla en SET INTEGRITY pending (tras un LOAD o al agregar una restricción) no se puede leer ni cambiar hasta que se verifiquen sus restricciones.")
@@ -176,7 +213,13 @@ impl OdbcSession {
         if let Ok(rows) = self.rows_of(&sql, &[]).await {
             let fixes: Vec<String> = rows
                 .iter()
-                .map(|r| db2_cmd(&format!("RUNSTATS ON TABLE {}.{} WITH DISTRIBUTION AND INDEXES ALL", dq(&s(r, 0)), dq(&s(r, 1)))))
+                .map(|r| {
+                    db2_cmd(&format!(
+                        "RUNSTATS ON TABLE {}.{} WITH DISTRIBUTION AND INDEXES ALL",
+                        dq(&s(r, 0)),
+                        dq(&s(r, 1))
+                    ))
+                })
                 .collect();
             let mut c = found("missing_stats", "Rendimiento", "Todas las tablas tienen estadísticas", format!("{} tablas sin estadísticas (nunca se corrió RUNSTATS)", rows.len()), Severity::Warning, rows.len())
                 .detail("Sin estadísticas el optimizador supone tamaños por defecto y puede elegir planes muy malos. La recolección automática las junta con el tiempo; si está apagada, corré RUNSTATS.")
@@ -206,13 +249,25 @@ impl OdbcSession {
 
     async fn ase_health(&self, db: &str) -> Vec<HealthCheck> {
         let mut out = Vec::new();
-        if let Ok(rows) = self.rows_of("SELECT status, status2 FROM master..sysdatabases WHERE name = ?", &[db]).await {
+        if let Ok(rows) = self
+            .rows_of(
+                "SELECT status, status2 FROM master..sysdatabases WHERE name = ?",
+                &[db],
+            )
+            .await
+        {
             if let Some(r) = rows.first() {
                 let (st, _st2) = (int(r, 0), int(r, 1));
                 let on = |bit: i64| st & bit != 0;
-                let option = |key: &str| format!("USE master\ngo\nEXEC sp_dboption {}, {}, false\ngo\nUSE {db}\ngo\nCHECKPOINT\ngo", lit(db), lit(key));
+                let option = |key: &str| {
+                    format!("USE master\ngo\nEXEC sp_dboption {}, {}, false\ngo\nUSE {db}\ngo\nCHECKPOINT\ngo", lit(db), lit(key))
+                };
                 if on(4096) || on(2048) {
-                    let key = if on(4096) { "single user" } else { "dbo use only" };
+                    let key = if on(4096) {
+                        "single user"
+                    } else {
+                        "dbo use only"
+                    };
                     out.push(
                         HealthCheck::new("access_restricted", "Configuración", format!("La base está en «{key}»"), Severity::Warning)
                             .detail("Solo un usuario (o solo el dueño) puede entrar. Suele quedar así después de un mantenimiento: si ya terminó, sacá la opción.")
@@ -274,7 +329,13 @@ impl OdbcSession {
 
     async fn informix_health(&self, db: &str) -> Vec<HealthCheck> {
         let mut out = Vec::new();
-        if let Ok(rows) = self.rows_of("SELECT is_logging, is_buff_log FROM sysmaster:sysdatabases WHERE name = ?", &[db]).await {
+        if let Ok(rows) = self
+            .rows_of(
+                "SELECT is_logging, is_buff_log FROM sysmaster:sysdatabases WHERE name = ?",
+                &[db],
+            )
+            .await
+        {
             if let Some(r) = rows.first() {
                 let logging = int(r, 0) == 1;
                 let buffered = int(r, 1) == 1;
@@ -333,8 +394,14 @@ mod tests {
 
     #[test]
     fn quoting_for_db2_commands() {
-        assert_eq!(db2_cmd(&format!("REORG TABLE {}.{}", dq("S"), dq("it's"))), "CALL SYSPROC.ADMIN_CMD('REORG TABLE \"S\".\"it''s\"');");
-        assert_eq!(db2_user("TABSCHEMA"), "TABSCHEMA NOT LIKE 'SYS%' AND TABSCHEMA NOT IN ('NULLID', 'SQLJ', 'IBM_RTMON')");
+        assert_eq!(
+            db2_cmd(&format!("REORG TABLE {}.{}", dq("S"), dq("it's"))),
+            "CALL SYSPROC.ADMIN_CMD('REORG TABLE \"S\".\"it''s\"');"
+        );
+        assert_eq!(
+            db2_user("TABSCHEMA"),
+            "TABSCHEMA NOT LIKE 'SYS%' AND TABSCHEMA NOT IN ('NULLID', 'SQLJ', 'IBM_RTMON')"
+        );
         assert!(plain("ventas_2024") && !plain("a b") && !plain("x;drop") && !plain("1abc"));
     }
 }

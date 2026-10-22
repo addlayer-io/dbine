@@ -45,7 +45,10 @@ impl ConnectionConfig {
 
     /// A non-empty option value.
     pub fn option(&self, key: &str) -> Option<&str> {
-        self.options.get(key).map(String::as_str).filter(|v| !v.is_empty())
+        self.options
+            .get(key)
+            .map(String::as_str)
+            .filter(|v| !v.is_empty())
     }
 
     pub fn username_or_empty(&self) -> &str {

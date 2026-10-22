@@ -6,7 +6,9 @@
 //! PostgreSQL underneath).
 
 use crate::entra;
-use dbine_driver::{ConnectionConfig, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, Result};
+use dbine_driver::{
+    ConnectionConfig, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, Result,
+};
 use std::time::Duration;
 
 pub const DEFAULT_PORT: u16 = 1433;
@@ -20,7 +22,12 @@ pub enum Variant {
 }
 
 impl Variant {
-    pub const ALL: [Variant; 4] = [Variant::SqlServer, Variant::AzureSql, Variant::Fabric, Variant::Babelfish];
+    pub const ALL: [Variant; 4] = [
+        Variant::SqlServer,
+        Variant::AzureSql,
+        Variant::Fabric,
+        Variant::Babelfish,
+    ];
 
     /// The server always encrypts (the login refuses plain TDS).
     pub fn forces_encryption(self) -> bool {
@@ -109,14 +116,22 @@ fn auth_field(v: Variant) -> Field {
     } else {
         entra_help!()
     };
-    Field::new("auth", "Autenticación", FieldKind::Select(auth_options(v))).default_value(v.default_auth()).help(help)
+    Field::new("auth", "Autenticación", FieldKind::Select(auth_options(v)))
+        .default_value(v.default_auth())
+        .help(help)
 }
 
 /// The auth methods that sign in with a user and a password.
 const USER_AUTH: &[&str] = &["sql", "entra_password", WINDOWS_NTLM];
 /// The auth methods that take a user: those with a password, the browser
 /// sign-in (a hint, optional) and the integrated one (the UPN, required).
-const ACCOUNT_AUTH: &[&str] = &["sql", "entra_password", WINDOWS_NTLM, entra::MFA, entra::INTEGRATED];
+const ACCOUNT_AUTH: &[&str] = &[
+    "sql",
+    "entra_password",
+    WINDOWS_NTLM,
+    entra::MFA,
+    entra::INTEGRATED,
+];
 
 fn entra_fields() -> Vec<Field> {
     vec![
@@ -143,7 +158,12 @@ fn entra_fields() -> Vec<Field> {
 }
 
 fn object_kinds(v: Variant) -> Vec<ObjectKindInfo> {
-    let mut k = vec![ObjectKindInfo::tables(), ObjectKindInfo::views(), ObjectKindInfo::procedures(), ObjectKindInfo::functions()];
+    let mut k = vec![
+        ObjectKindInfo::tables(),
+        ObjectKindInfo::views(),
+        ObjectKindInfo::procedures(),
+        ObjectKindInfo::functions(),
+    ];
     if v != Variant::Fabric {
         k.push(ObjectKindInfo::triggers());
     }
@@ -154,7 +174,12 @@ fn object_kinds(v: Variant) -> Vec<ObjectKindInfo> {
 pub fn info(v: Variant) -> DriverInfo {
     let (id, name, fields) = match v {
         Variant::SqlServer => {
-            let mut f = vec![Field::host(), Field::port(), Field::database(), auth_field(v)];
+            let mut f = vec![
+                Field::host(),
+                Field::port(),
+                Field::database(),
+                auth_field(v),
+            ];
             f.push(
                 Field::username()
                     .help(
@@ -210,7 +235,11 @@ pub fn info(v: Variant) -> DriverInfo {
     DriverInfo {
         id,
         name,
-        family: if v == Variant::Fabric { Family::Analytical } else { Family::Relational },
+        family: if v == Variant::Fabric {
+            Family::Analytical
+        } else {
+            Family::Relational
+        },
         language: Language::Sql,
         dialect: "mssql",
         default_port: DEFAULT_PORT,
@@ -230,26 +259,40 @@ pub(crate) const SQL_CLIENT_APP: &str = "2fd908ad-0664-4344-b9be-cd3e8b574c38";
 
 /// How to log in, resolved from the form.
 pub enum Login {
-    Sql { user: String, password: String },
+    Sql {
+        user: String,
+        password: String,
+    },
     Token(String),
     /// The user signed in to the computer (SSPI / Kerberos).
     Integrated,
     /// A domain user (`DOMINIO\usuario`) and password, over NTLMv2. Built
     /// only where tiberius can use it (see [`NTLM_SUPPORTED`]).
     #[cfg_attr(not(windows), allow(dead_code))]
-    Windows { user: String, password: String },
+    Windows {
+        user: String,
+        password: String,
+    },
 }
 
 pub async fn login(cfg: &ConnectionConfig, v: Variant) -> Result<Login> {
     let auth = cfg.option("auth").unwrap_or(v.default_auth());
     let windows = matches!(auth, WINDOWS_INTEGRATED | WINDOWS_NTLM);
     if windows && !v.windows() {
-        return Err(Error::AuthFailed("este motor no admite la autenticación de Windows".into()));
+        return Err(Error::AuthFailed(
+            "este motor no admite la autenticación de Windows".into(),
+        ));
     }
     if auth != "sql" && !windows && !v.entra() {
-        return Err(Error::AuthFailed("este motor solo admite usuario y contraseña".into()));
+        return Err(Error::AuthFailed(
+            "este motor solo admite usuario y contraseña".into(),
+        ));
     }
-    let user = cfg.username.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    let user = cfg
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
     match auth {
         "sql" => {
             let user = user.ok_or_else(|| Error::AuthFailed("falta el usuario".into()))?;
@@ -308,8 +351,14 @@ fn option<'a>(cfg: &'a ConnectionConfig, key: &str) -> Option<&'a str> {
 
 /// A tenant ID or domain, safe to put in a URL path.
 pub(crate) fn valid_tenant(tenant: &str) -> Result<()> {
-    if tenant.is_empty() || !tenant.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_')) {
-        return Err(Error::AuthFailed("el inquilino (tenant ID) no es válido".into()));
+    if tenant.is_empty()
+        || !tenant
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_'))
+    {
+        return Err(Error::AuthFailed(
+            "el inquilino (tenant ID) no es válido".into(),
+        ));
     }
     Ok(())
 }
@@ -335,7 +384,10 @@ pub(crate) async fn token_body(tenant: &str, form: &[(&str, &str)]) -> Result<se
         .send()
         .await
         .map_err(|e| Error::Connect(format!("no se pudo llegar a Microsoft Entra ID: {e}")))?;
-    let body: serde_json::Value = resp.json().await.map_err(|e| Error::Connect(e.to_string()))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| Error::Connect(e.to_string()))?;
     token_from(&body)?;
     Ok(body)
 }
@@ -350,7 +402,10 @@ pub(crate) fn token_from(body: &serde_json::Value) -> Result<String> {
         .and_then(|d| d.as_str())
         .unwrap_or("respuesta inesperada de Microsoft Entra ID");
     // The first line; the rest is trace and correlation ids.
-    Err(Error::AuthFailed(format!("Microsoft Entra ID rechazó el inicio de sesión: {}", desc.lines().next().unwrap_or(desc))))
+    Err(Error::AuthFailed(format!(
+        "Microsoft Entra ID rechazó el inicio de sesión: {}",
+        desc.lines().next().unwrap_or(desc)
+    )))
 }
 
 #[cfg(test)]
@@ -361,7 +416,9 @@ mod tests {
     #[test]
     fn token_errors_read_as_auth_failures() {
         assert_eq!(token_from(&json!({"access_token": "abc"})).unwrap(), "abc");
-        let e = token_from(&json!({"error": "invalid_grant", "error_description": "AADSTS50126: bad password\r\nTrace ID: x"}));
+        let e = token_from(
+            &json!({"error": "invalid_grant", "error_description": "AADSTS50126: bad password\r\nTrace ID: x"}),
+        );
         assert!(matches!(e, Err(Error::AuthFailed(m)) if m.ends_with("AADSTS50126: bad password")));
     }
 
@@ -373,7 +430,10 @@ mod tests {
         let fabric = info(Variant::Fabric);
         let auth = fabric.fields.iter().find(|f| f.key == "auth").unwrap();
         assert!(matches!(&auth.kind, FieldKind::Select(o) if o.iter().all(|(k, _)| *k != "sql")));
-        assert!(info(Variant::Babelfish).fields.iter().all(|f| f.key != "auth"));
+        assert!(info(Variant::Babelfish)
+            .fields
+            .iter()
+            .all(|f| f.key != "auth"));
         assert!(Variant::AzureSql.forces_encryption() && !Variant::Babelfish.forces_encryption());
     }
 
@@ -387,7 +447,11 @@ mod tests {
         info(v)
             .fields
             .into_iter()
-            .filter(|f| f.when.as_ref().is_none_or(|w| w.key != "auth" || w.values.contains(&auth)))
+            .filter(|f| {
+                f.when
+                    .as_ref()
+                    .is_none_or(|w| w.key != "auth" || w.values.contains(&auth))
+            })
             .map(|f| f.key)
             .collect()
     }
@@ -399,7 +463,10 @@ mod tests {
         assert!(ms.contains(&WINDOWS_NTLM));
         for v in [Variant::AzureSql, Variant::Fabric] {
             let keys = auth_keys(v);
-            assert!(!keys.contains(&WINDOWS_INTEGRATED) && !keys.contains(&WINDOWS_NTLM), "{v:?}");
+            assert!(
+                !keys.contains(&WINDOWS_INTEGRATED) && !keys.contains(&WINDOWS_NTLM),
+                "{v:?}"
+            );
         }
         // SQL logins stay the default.
         assert_eq!(Variant::SqlServer.default_auth(), "sql");
@@ -410,13 +477,28 @@ mod tests {
         let v = Variant::SqlServer;
         // The current user: neither user nor password.
         let integrated = shown(v, WINDOWS_INTEGRATED);
-        assert!(!integrated.contains(&"username") && !integrated.contains(&"password"), "{integrated:?}");
-        assert!(!integrated.iter().any(|k| ["tenant_id", "client_id", "client_secret", "access_token"].contains(k)));
+        assert!(
+            !integrated.contains(&"username") && !integrated.contains(&"password"),
+            "{integrated:?}"
+        );
+        assert!(!integrated.iter().any(|k| [
+            "tenant_id",
+            "client_id",
+            "client_secret",
+            "access_token"
+        ]
+        .contains(k)));
         assert!(integrated.contains(&"host") && integrated.contains(&"encrypt"));
         // A domain user: user and password (the password is a secret).
         let ntlm = shown(v, WINDOWS_NTLM);
-        assert!(ntlm.contains(&"username") && ntlm.contains(&"password"), "{ntlm:?}");
-        assert!(info(v).fields.iter().any(|f| f.key == "password" && f.secret));
+        assert!(
+            ntlm.contains(&"username") && ntlm.contains(&"password"),
+            "{ntlm:?}"
+        );
+        assert!(info(v)
+            .fields
+            .iter()
+            .any(|f| f.key == "password" && f.secret));
         // SQL logins are unchanged.
         let sql = shown(v, "sql");
         assert!(sql.contains(&"username") && sql.contains(&"password"));
@@ -426,18 +508,30 @@ mod tests {
     async fn windows_logins_resolve() {
         let mut cfg = ConnectionConfig::default();
         cfg.options.insert("auth".into(), WINDOWS_INTEGRATED.into());
-        assert!(matches!(login(&cfg, Variant::SqlServer).await, Ok(Login::Integrated)));
+        assert!(matches!(
+            login(&cfg, Variant::SqlServer).await,
+            Ok(Login::Integrated)
+        ));
         for v in [Variant::AzureSql, Variant::Fabric, Variant::Babelfish] {
-            assert!(matches!(login(&cfg, v).await, Err(Error::AuthFailed(m)) if m.contains("Windows")), "{v:?}");
+            assert!(
+                matches!(login(&cfg, v).await, Err(Error::AuthFailed(m)) if m.contains("Windows")),
+                "{v:?}"
+            );
         }
         cfg.options.insert("auth".into(), WINDOWS_NTLM.into());
         if NTLM_SUPPORTED {
-            assert!(matches!(login(&cfg, Variant::SqlServer).await, Err(Error::AuthFailed(m)) if m.contains("DOMINIO")));
+            assert!(
+                matches!(login(&cfg, Variant::SqlServer).await, Err(Error::AuthFailed(m)) if m.contains("DOMINIO"))
+            );
             cfg.username = Some(" CONTOSO\\ana ".into());
             cfg.password = Some("x".into());
-            assert!(matches!(login(&cfg, Variant::SqlServer).await, Ok(Login::Windows { user, .. }) if user == "CONTOSO\\ana"));
+            assert!(
+                matches!(login(&cfg, Variant::SqlServer).await, Ok(Login::Windows { user, .. }) if user == "CONTOSO\\ana")
+            );
         } else {
-            assert!(matches!(login(&cfg, Variant::SqlServer).await, Err(Error::AuthFailed(m)) if m.contains("solo está disponible en Windows")));
+            assert!(
+                matches!(login(&cfg, Variant::SqlServer).await, Err(Error::AuthFailed(m)) if m.contains("solo está disponible en Windows"))
+            );
         }
     }
 
@@ -445,25 +539,57 @@ mod tests {
     fn entra_methods_match_ssms() {
         for v in [Variant::SqlServer, Variant::AzureSql, Variant::Fabric] {
             let keys = auth_keys(v);
-            for k in [entra::MFA, "entra_password", entra::INTEGRATED, "entra_sp", entra::MSI, entra::DEFAULT, "entra_token"] {
+            for k in [
+                entra::MFA,
+                "entra_password",
+                entra::INTEGRATED,
+                "entra_sp",
+                entra::MSI,
+                entra::DEFAULT,
+                "entra_token",
+            ] {
                 assert!(keys.contains(&k), "{v:?} {k}");
             }
         }
-        assert!(auth_keys(Variant::Babelfish).iter().all(|k| !k.starts_with("entra")));
+        assert!(auth_keys(Variant::Babelfish)
+            .iter()
+            .all(|k| !k.starts_with("entra")));
     }
 
     #[test]
     fn entra_methods_show_their_fields() {
         for v in [Variant::SqlServer, Variant::AzureSql, Variant::Fabric] {
             let mfa = shown(v, entra::MFA);
-            assert!(mfa.contains(&"username") && mfa.contains(&"tenant_id") && mfa.contains(&"client_id"), "{mfa:?}");
-            assert!(!mfa.contains(&"password") && !mfa.contains(&"client_secret") && !mfa.contains(&"access_token"));
+            assert!(
+                mfa.contains(&"username")
+                    && mfa.contains(&"tenant_id")
+                    && mfa.contains(&"client_id"),
+                "{mfa:?}"
+            );
+            assert!(
+                !mfa.contains(&"password")
+                    && !mfa.contains(&"client_secret")
+                    && !mfa.contains(&"access_token")
+            );
             let integrated = shown(v, entra::INTEGRATED);
-            assert!(integrated.contains(&"username") && integrated.contains(&"tenant_id") && !integrated.contains(&"password"));
+            assert!(
+                integrated.contains(&"username")
+                    && integrated.contains(&"tenant_id")
+                    && !integrated.contains(&"password")
+            );
             let msi = shown(v, entra::MSI);
-            assert!(msi.contains(&"client_id") && !msi.contains(&"tenant_id") && !msi.contains(&"username"), "{msi:?}");
+            assert!(
+                msi.contains(&"client_id")
+                    && !msi.contains(&"tenant_id")
+                    && !msi.contains(&"username"),
+                "{msi:?}"
+            );
             let default = shown(v, entra::DEFAULT);
-            assert!(default.contains(&"tenant_id") && default.contains(&"client_id") && !default.contains(&"username"));
+            assert!(
+                default.contains(&"tenant_id")
+                    && default.contains(&"client_id")
+                    && !default.contains(&"username")
+            );
             assert!(!default.contains(&"password") && !default.contains(&"client_secret"));
         }
     }
@@ -472,27 +598,57 @@ mod tests {
     async fn entra_logins_check_their_fields_first() {
         let mut cfg = ConnectionConfig::default();
         cfg.options.insert("auth".into(), entra::INTEGRATED.into());
-        assert!(matches!(login(&cfg, Variant::AzureSql).await, Err(Error::AuthFailed(m)) if m.contains("usuario@dominio")));
+        assert!(
+            matches!(login(&cfg, Variant::AzureSql).await, Err(Error::AuthFailed(m)) if m.contains("usuario@dominio"))
+        );
         cfg.username = Some("sin-dominio".into());
-        assert!(matches!(login(&cfg, Variant::AzureSql).await, Err(Error::AuthFailed(m)) if m.contains("usuario@dominio")));
+        assert!(
+            matches!(login(&cfg, Variant::AzureSql).await, Err(Error::AuthFailed(m)) if m.contains("usuario@dominio"))
+        );
         for auth in [entra::MFA, entra::INTEGRATED, entra::DEFAULT] {
             cfg.options.insert("auth".into(), auth.into());
-            cfg.options.insert("tenant_id".into(), "contoso/../x".into());
-            assert!(matches!(login(&cfg, Variant::Fabric).await, Err(Error::AuthFailed(m)) if m.contains("inquilino")), "{auth}");
-            assert!(matches!(login(&cfg, Variant::Babelfish).await, Err(Error::AuthFailed(_))), "{auth}");
+            cfg.options
+                .insert("tenant_id".into(), "contoso/../x".into());
+            assert!(
+                matches!(login(&cfg, Variant::Fabric).await, Err(Error::AuthFailed(m)) if m.contains("inquilino")),
+                "{auth}"
+            );
+            assert!(
+                matches!(
+                    login(&cfg, Variant::Babelfish).await,
+                    Err(Error::AuthFailed(_))
+                ),
+                "{auth}"
+            );
         }
     }
 
     #[tokio::test]
     async fn logins_need_their_fields() {
-        let mut cfg = ConnectionConfig { username: Some("sa".into()), password: Some("x".into()), ..Default::default() };
-        assert!(matches!(login(&cfg, Variant::SqlServer).await, Ok(Login::Sql { .. })));
+        let mut cfg = ConnectionConfig {
+            username: Some("sa".into()),
+            password: Some("x".into()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            login(&cfg, Variant::SqlServer).await,
+            Ok(Login::Sql { .. })
+        ));
         cfg.options.insert("auth".into(), "entra_token".into());
-        assert!(matches!(login(&cfg, Variant::AzureSql).await, Err(Error::AuthFailed(_))));
-        cfg.options.insert("access_token".into(), "Bearer eyJ".into());
+        assert!(matches!(
+            login(&cfg, Variant::AzureSql).await,
+            Err(Error::AuthFailed(_))
+        ));
+        cfg.options
+            .insert("access_token".into(), "Bearer eyJ".into());
         assert!(matches!(login(&cfg, Variant::AzureSql).await, Ok(Login::Token(t)) if t == "eyJ"));
-        assert!(matches!(login(&cfg, Variant::Babelfish).await, Err(Error::AuthFailed(_))));
+        assert!(matches!(
+            login(&cfg, Variant::Babelfish).await,
+            Err(Error::AuthFailed(_))
+        ));
         cfg.options.insert("auth".into(), "entra_sp".into());
-        assert!(matches!(login(&cfg, Variant::Fabric).await, Err(Error::AuthFailed(m)) if m.contains("tenant")));
+        assert!(
+            matches!(login(&cfg, Variant::Fabric).await, Err(Error::AuthFailed(m)) if m.contains("tenant"))
+        );
     }
 }

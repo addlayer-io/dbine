@@ -63,8 +63,14 @@ const EVICTION: &[(&str, &str)] = &[
 const DURABILITY: &[(&str, &str)] = &[
     ("none", "Ninguna (none)"),
     ("majority", "Mayoría (majority)"),
-    ("majorityAndPersistActive", "Mayoría y disco en el activo (majorityAndPersistActive)"),
-    ("persistToMajority", "Disco en la mayoría (persistToMajority)"),
+    (
+        "majorityAndPersistActive",
+        "Mayoría y disco en el activo (majorityAndPersistActive)",
+    ),
+    (
+        "persistToMajority",
+        "Disco en la mayoría (persistToMajority)",
+    ),
 ];
 
 const SETTINGS: &[Setting] = &[
@@ -90,7 +96,8 @@ const SETTINGS: &[Setting] = &[
         key: "flush",
         param: "flushEnabled",
         label: "Permitir vaciar el bucket (flushEnabled)",
-        help: "Con flush activo, cualquiera con permiso puede borrar todos los documentos de una vez.",
+        help:
+            "Con flush activo, cualquiera con permiso puede borrar todos los documentos de una vez.",
         group: "",
         kind: Kind::Bool("1", "0"),
         read: Read::Flush,
@@ -177,7 +184,11 @@ const SETTINGS: &[Setting] = &[
         label: "Compresión (compressionMode)",
         help: "",
         group: "Documentos",
-        kind: Kind::OneOf(&[("off", "Desactivada (off)"), ("passive", "Pasiva (passive)"), ("active", "Activa (active)")]),
+        kind: Kind::OneOf(&[
+            ("off", "Desactivada (off)"),
+            ("passive", "Pasiva (passive)"),
+            ("active", "Activa (active)"),
+        ]),
         read: Read::Ptr("/compressionMode"),
     },
     Setting {
@@ -193,9 +204,16 @@ const SETTINGS: &[Setting] = &[
         key: "durability_fallback",
         param: "durabilityImpossibleFallback",
         label: "Si no se alcanza la mayoría (durabilityImpossibleFallback)",
-        help: "fallbackToActiveAck da por buena una escritura durable que solo llegó al nodo activo.",
+        help:
+            "fallbackToActiveAck da por buena una escritura durable que solo llegó al nodo activo.",
         group: "Durabilidad",
-        kind: Kind::OneOf(&[("disabled", "Falla la escritura (disabled)"), ("fallbackToActiveAck", "Alcanza con el activo (fallbackToActiveAck)")]),
+        kind: Kind::OneOf(&[
+            ("disabled", "Falla la escritura (disabled)"),
+            (
+                "fallbackToActiveAck",
+                "Alcanza con el activo (fallbackToActiveAck)",
+            ),
+        ]),
         read: Read::Ptr("/durabilityImpossibleFallback"),
     },
     Setting {
@@ -243,7 +261,13 @@ fn bad(what: &str, v: &str) -> Error {
 /// The form value of `s` for the dialog's value `v`.
 fn form_value(s: &Setting, v: &str) -> Result<String> {
     let v = v.trim();
-    let num = |lo: u64, hi: u64| v.parse::<u64>().ok().filter(|n| (lo..=hi).contains(n)).map(|n| n.to_string()).ok_or_else(|| bad(s.label, v));
+    let num = |lo: u64, hi: u64| {
+        v.parse::<u64>()
+            .ok()
+            .filter(|n| (lo..=hi).contains(n))
+            .map(|n| n.to_string())
+            .ok_or_else(|| bad(s.label, v))
+    };
     match s.kind {
         Kind::Num(lo, hi) => num(lo, hi),
         Kind::HistoryBytes => v
@@ -252,7 +276,11 @@ fn form_value(s: &Setting, v: &str) -> Result<String> {
             .filter(|n| *n == 0 || *n >= 2_147_483_648)
             .map(|n| n.to_string())
             .ok_or_else(|| bad(s.label, v)),
-        Kind::OneOf(options) => options.iter().find(|o| o.0 == v).map(|o| o.0.to_string()).ok_or_else(|| bad(s.label, v)),
+        Kind::OneOf(options) => options
+            .iter()
+            .find(|o| o.0 == v)
+            .map(|o| o.0.to_string())
+            .ok_or_else(|| bad(s.label, v)),
         Kind::Bool(on, off) => match v {
             "true" => Ok(on.into()),
             "" | "false" => Ok(off.into()),
@@ -274,26 +302,45 @@ pub(crate) fn alter(bucket: &str, changes: &BTreeMap<String, String>) -> Result<
             form.push((s.param, form_value(s, v)?));
         }
     }
-    if let Some(k) = changes.keys().find(|k| !SETTINGS.iter().any(|s| s.key == k.as_str())) {
+    if let Some(k) = changes
+        .keys()
+        .find(|k| !SETTINGS.iter().any(|s| s.key == k.as_str()))
+    {
         return Err(Error::Query(format!("propiedad desconocida: {k}")));
     }
     if form.is_empty() {
         return Ok(None);
     }
-    Ok(Some((format!("/pools/default/buckets/{}", encode(name)), form)))
+    Ok(Some((
+        format!("/pools/default/buckets/{}", encode(name)),
+        form,
+    )))
 }
 
 pub(crate) fn script(bucket: &str, changes: &BTreeMap<String, String>) -> Result<String> {
-    Ok(alter(bucket, changes)?.map(|(path, form)| format!("POST {path}\n{}", body(&form))).unwrap_or_default())
+    Ok(alter(bucket, changes)?
+        .map(|(path, form)| format!("POST {path}\n{}", body(&form)))
+        .unwrap_or_default())
 }
 
 fn current(s: &Setting, b: &Value) -> Option<String> {
     match s.read {
-        Read::RamMib => b.pointer("/quota/rawRAM").and_then(Value::as_u64).map(|n| (n / MIB).to_string()),
-        Read::Flush => Some(if b.pointer("/controllers/flush").is_some() { "true".into() } else { String::new() }),
+        Read::RamMib => b
+            .pointer("/quota/rawRAM")
+            .and_then(Value::as_u64)
+            .map(|n| (n / MIB).to_string()),
+        Read::Flush => Some(if b.pointer("/controllers/flush").is_some() {
+            "true".into()
+        } else {
+            String::new()
+        }),
         Read::Ptr(p) => match (b.pointer(p)?, s.kind) {
             (Value::Bool(on), _) => Some(if *on { "true".into() } else { String::new() }),
-            (Value::String(v), Kind::Bool(on, _)) => Some(if v == on || v == "true" { "true".into() } else { String::new() }),
+            (Value::String(v), Kind::Bool(on, _)) => Some(if v == on || v == "true" {
+                "true".into()
+            } else {
+                String::new()
+            }),
             (Value::String(v), _) => Some(v.clone()),
             (Value::Number(n), _) => Some(n.to_string()),
             _ => None,
@@ -302,7 +349,9 @@ fn current(s: &Setting, b: &Value) -> Option<String> {
 }
 
 fn mb(v: Option<&Value>) -> String {
-    v.and_then(Value::as_u64).map(|n| format!("{:.1} MB", n as f64 / MIB as f64)).unwrap_or_default()
+    v.and_then(Value::as_u64)
+        .map(|n| format!("{:.1} MB", n as f64 / MIB as f64))
+        .unwrap_or_default()
 }
 
 fn shown(v: Option<&Value>) -> String {
@@ -316,9 +365,19 @@ fn shown(v: Option<&Value>) -> String {
 impl CbSession {
     pub(crate) async fn properties(&mut self, bucket: &str) -> Result<DatabaseProperties> {
         let name = bucket_name(bucket)?;
-        let b = self.conn.mgmt_get(&format!("/pools/default/buckets/{}", encode(name))).await?;
-        let kind = b.get("bucketType").and_then(Value::as_str).unwrap_or_default();
-        let fact = |group: &str, label: &str, value: String| PropertyInfo { group: group.into(), label: label.into(), value };
+        let b = self
+            .conn
+            .mgmt_get(&format!("/pools/default/buckets/{}", encode(name)))
+            .await?;
+        let kind = b
+            .get("bucketType")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let fact = |group: &str, label: &str, value: String| PropertyInfo {
+            group: group.into(),
+            label: label.into(),
+            value,
+        };
         let mut info = vec![
             fact(
                 "",
@@ -331,20 +390,54 @@ impl CbSession {
             ),
             fact("", "Documentos", shown(b.pointer("/basicStats/itemCount"))),
             fact("", "Memoria usada", mb(b.pointer("/basicStats/memUsed"))),
-            fact("", "Memoria total (todos los nodos)", mb(b.pointer("/quota/ram"))),
-            fact("", "Cuota de memoria usada", b.pointer("/basicStats/quotaPercentUsed").and_then(Value::as_f64).map(|p| format!("{p:.1} %")).unwrap_or_default()),
+            fact(
+                "",
+                "Memoria total (todos los nodos)",
+                mb(b.pointer("/quota/ram")),
+            ),
+            fact(
+                "",
+                "Cuota de memoria usada",
+                b.pointer("/basicStats/quotaPercentUsed")
+                    .and_then(Value::as_f64)
+                    .map(|p| format!("{p:.1} %"))
+                    .unwrap_or_default(),
+            ),
         ];
         if kind != "ephemeral" {
-            info.push(fact("", "Disco usado", mb(b.pointer("/basicStats/diskUsed"))));
-            info.push(fact("", "Datos en disco", mb(b.pointer("/basicStats/dataUsed"))));
+            info.push(fact(
+                "",
+                "Disco usado",
+                mb(b.pointer("/basicStats/diskUsed")),
+            ));
+            info.push(fact(
+                "",
+                "Datos en disco",
+                mb(b.pointer("/basicStats/dataUsed")),
+            ));
         }
-        info.push(fact("", "Operaciones por segundo", shown(b.pointer("/basicStats/opsPerSec"))));
-        info.push(fact("", "Nodos", b.get("nodes").and_then(Value::as_array).map(|n| n.len().to_string()).unwrap_or_default()));
+        info.push(fact(
+            "",
+            "Operaciones por segundo",
+            shown(b.pointer("/basicStats/opsPerSec")),
+        ));
+        info.push(fact(
+            "",
+            "Nodos",
+            b.get("nodes")
+                .and_then(Value::as_array)
+                .map(|n| n.len().to_string())
+                .unwrap_or_default(),
+        ));
         if let Some(s) = b.get("storageBackend") {
             info.push(fact("", "Almacenamiento (storageBackend)", shown(Some(s))));
         }
         if let Some(c) = b.get("conflictResolutionType") {
-            info.push(fact("", "Resolución de conflictos (conflictResolutionType)", shown(Some(c))));
+            info.push(fact(
+                "",
+                "Resolución de conflictos (conflictResolutionType)",
+                shown(Some(c)),
+            ));
         }
         info.push(fact("", "vBuckets", shown(b.get("numVBuckets"))));
         info.push(fact("", "UUID", shown(b.get("uuid"))));
@@ -360,15 +453,29 @@ impl CbSession {
             let field_kind = match s.kind {
                 Kind::Num(..) | Kind::HistoryBytes => FieldKind::Number,
                 Kind::Bool(..) => FieldKind::Bool,
-                Kind::OneOf(o) if s.key == "eviction" => {
-                    FieldKind::Select(o.iter().copied().filter(|(v, _)| (kind == "ephemeral") == matches!(*v, "noEviction" | "nruEviction")).collect())
-                }
+                Kind::OneOf(o) if s.key == "eviction" => FieldKind::Select(
+                    o.iter()
+                        .copied()
+                        .filter(|(v, _)| {
+                            (kind == "ephemeral") == matches!(*v, "noEviction" | "nruEviction")
+                        })
+                        .collect(),
+                ),
                 Kind::OneOf(o) if s.key == "durability" && kind == "ephemeral" => {
-                    FieldKind::Select(o.iter().copied().filter(|(v, _)| matches!(*v, "none" | "majority")).collect())
+                    FieldKind::Select(
+                        o.iter()
+                            .copied()
+                            .filter(|(v, _)| matches!(*v, "none" | "majority"))
+                            .collect(),
+                    )
                 }
                 Kind::OneOf(o) => FieldKind::Select(o.to_vec()),
             };
-            fields.push(Field::new(s.key, s.label, field_kind).help(s.help).group(s.group));
+            fields.push(
+                Field::new(s.key, s.label, field_kind)
+                    .help(s.help)
+                    .group(s.group),
+            );
             values.insert(s.key.to_string(), v);
         }
 
@@ -395,20 +502,38 @@ impl CbSession {
             "ram_quota".into(),
             "Bajar la memoria por debajo de lo que ocupan los datos desaloja documentos de la memoria (o, en un bucket efímero, rechaza escrituras).".into(),
         );
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, bucket: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        bucket: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.conn.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden modificar las propiedades de una base.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden modificar las propiedades de una base."
+                    .into(),
+            ));
         }
         // One request: it applies all of it or nothing.
-        let Some((path, form)) = alter(bucket, changes)? else { return Ok(()) };
+        let Some((path, form)) = alter(bucket, changes)? else {
+            return Ok(());
+        };
         let rb = self
             .conn
             .http
             .post(format!("{}{path}", self.conn.mgmt))
-            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
             .body(body(&form));
         self.conn.mgmt_send(rb).await.map(|_| ())
     }
@@ -419,7 +544,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -440,7 +568,10 @@ mod tests {
             .unwrap(),
             "POST /pools/default/buckets/ventas\nramQuota=256&replicaNumber=0&flushEnabled=0&evictionPolicy=fullEviction&accessScannerEnabled=true&durabilityMinLevel=majority&historyRetentionBytes=0"
         );
-        assert_eq!(script("a%b", &c(&[("flush", "true")])).unwrap(), "POST /pools/default/buckets/a%25b\nflushEnabled=1");
+        assert_eq!(
+            script("a%b", &c(&[("flush", "true")])).unwrap(),
+            "POST /pools/default/buckets/a%25b\nflushEnabled=1"
+        );
         assert_eq!(script("v", &c(&[])).unwrap(), "");
     }
 

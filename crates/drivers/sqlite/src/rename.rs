@@ -15,7 +15,10 @@
 
 use crate::properties::Flavor;
 use crate::schema::{table_ddl, VIRTUAL_TABLE};
-use dbine_driver::rename::{quote_new, rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
+use dbine_driver::rename::{
+    quote_new, rename_header, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget,
+    ReplaceStyle,
+};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote, ScriptDialect};
 use dbine_driver::{kinds, DdlParts, Error, ObjectRef, Result, SyncScript, TableSchema};
 
@@ -25,7 +28,10 @@ const LEGACY_OFF: &str = "PRAGMA legacy_alter_table = OFF;";
 
 /// SQLite's script dialect (`[name]` too, trigger bodies kept whole).
 pub fn dialect() -> ScriptDialect {
-    ScriptDialect { bracket_idents: true, ..ScriptDialect::generic() }
+    ScriptDialect {
+        bracket_idents: true,
+        ..ScriptDialect::generic()
+    }
 }
 
 fn engine(f: Flavor) -> &'static str {
@@ -37,7 +43,12 @@ fn engine(f: Flavor) -> &'static str {
 
 pub fn spec(_f: Flavor) -> RenameSpec {
     RenameSpec {
-        kinds: vec![kinds::TABLE.into(), VIRTUAL_TABLE.into(), kinds::VIEW.into(), kinds::TRIGGER.into()],
+        kinds: vec![
+            kinds::TABLE.into(),
+            VIRTUAL_TABLE.into(),
+            kinds::VIEW.into(),
+            kinds::TRIGGER.into(),
+        ],
         columns: true,
         indexes: true,
         constraints: false,
@@ -51,7 +62,10 @@ pub fn spec(_f: Flavor) -> RenameSpec {
         note: Some(NOTE.into()),
         // Only a table's or a column's rename is followed; what is created
         // again under a new name isn't.
-        tracked_for: [kinds::VIEW, kinds::TRIGGER, "index"].into_iter().map(|k| (k.to_string(), Vec::new())).collect(),
+        tracked_for: [kinds::VIEW, kinds::TRIGGER, "index"]
+            .into_iter()
+            .map(|k| (k.to_string(), Vec::new()))
+            .collect(),
         ..Default::default()
     }
 }
@@ -73,7 +87,9 @@ pub fn script(f: Flavor, req: &RenameRequest) -> Result<SyncScript> {
     let engine = engine(f);
     let new = written(&req.new_name);
     let statements = match &req.target {
-        RenameTarget::Object { object, .. } if object.kind == kinds::TABLE || object.kind == VIRTUAL_TABLE => {
+        RenameTarget::Object { object, .. }
+            if object.kind == kinds::TABLE || object.kind == VIRTUAL_TABLE =>
+        {
             let rename = format!("ALTER TABLE {} RENAME TO {new};", qn(object));
             match f {
                 Flavor::Sqlite => vec![LEGACY_OFF.to_string(), rename],
@@ -81,64 +97,145 @@ pub fn script(f: Flavor, req: &RenameRequest) -> Result<SyncScript> {
             }
         }
         RenameTarget::Object { object, .. } if object.kind == kinds::TRIGGER => {
-            let def = req
-                .definition
-                .as_deref()
-                .ok_or_else(|| Error::Query(format!("no se pudo leer la definición del trigger «{}» para renombrarlo", object.name)))?;
-            let created = rename_header(def, &dialect(), Fold::None, &req.new_name)
-                .ok_or_else(|| Error::Query(format!("no se pudo leer el encabezado CREATE TRIGGER de «{}»", object.name)))?;
-            vec![terminated(&created), format!("DROP TRIGGER {};", qn(object))]
+            let def = req.definition.as_deref().ok_or_else(|| {
+                Error::Query(format!(
+                    "no se pudo leer la definición del trigger «{}» para renombrarlo",
+                    object.name
+                ))
+            })?;
+            let created =
+                rename_header(def, &dialect(), Fold::None, &req.new_name).ok_or_else(|| {
+                    Error::Query(format!(
+                        "no se pudo leer el encabezado CREATE TRIGGER de «{}»",
+                        object.name
+                    ))
+                })?;
+            vec![
+                terminated(&created),
+                format!("DROP TRIGGER {};", qn(object)),
+            ]
         }
         RenameTarget::Object { object, .. } if object.kind == kinds::VIEW => {
-            let def = req
-                .definition
-                .as_deref()
-                .ok_or_else(|| Error::Query(format!("no se pudo leer la definición de la vista «{}» para renombrarla", object.name)))?;
-            let created = rename_header(def, &dialect(), Fold::None, &req.new_name)
-                .ok_or_else(|| Error::Query(format!("no se pudo leer el encabezado CREATE VIEW de «{}»", object.name)))?;
+            let def = req.definition.as_deref().ok_or_else(|| {
+                Error::Query(format!(
+                    "no se pudo leer la definición de la vista «{}» para renombrarla",
+                    object.name
+                ))
+            })?;
+            let created =
+                rename_header(def, &dialect(), Fold::None, &req.new_name).ok_or_else(|| {
+                    Error::Query(format!(
+                        "no se pudo leer el encabezado CREATE VIEW de «{}»",
+                        object.name
+                    ))
+                })?;
             vec![terminated(&created), format!("DROP VIEW {};", qn(object))]
         }
-        RenameTarget::Object { object, .. } => return Err(Error::Unsupported(format!("{engine} no renombra objetos de tipo «{}»", object.kind))),
-        RenameTarget::Column { table, column } => vec![format!("ALTER TABLE {} RENAME COLUMN {} TO {new};", qn(table), q(column))],
-        RenameTarget::Index { table, index } => index_script(engine, table, index, &req.new_name, req.table.as_ref())?,
-        RenameTarget::Constraint { .. } => {
-            return Err(Error::Unsupported(format!("{engine} no renombra restricciones: hay que reconstruir la tabla con el nombre nuevo")))
+        RenameTarget::Object { object, .. } => {
+            return Err(Error::Unsupported(format!(
+                "{engine} no renombra objetos de tipo «{}»",
+                object.kind
+            )))
         }
-        RenameTarget::Schema { .. } => return Err(Error::Unsupported(format!("{engine} no renombra bases adjuntas"))),
+        RenameTarget::Column { table, column } => vec![format!(
+            "ALTER TABLE {} RENAME COLUMN {} TO {new};",
+            qn(table),
+            q(column)
+        )],
+        RenameTarget::Index { table, index } => {
+            index_script(engine, table, index, &req.new_name, req.table.as_ref())?
+        }
+        RenameTarget::Constraint { .. } => {
+            return Err(Error::Unsupported(format!(
+            "{engine} no renombra restricciones: hay que reconstruir la tabla con el nombre nuevo"
+        )))
+        }
+        RenameTarget::Schema { .. } => {
+            return Err(Error::Unsupported(format!(
+                "{engine} no renombra bases adjuntas"
+            )))
+        }
     };
-    Ok(SyncScript { statements, warnings: vec![] })
+    Ok(SyncScript {
+        statements,
+        warnings: vec![],
+    })
 }
 
 /// The index created again with the new name (keys, order, collation and
 /// `WHERE` as the catalog reads them), then the old one dropped.
-fn index_script(engine: &str, table: &ObjectRef, index: &str, new_name: &str, schema: Option<&TableSchema>) -> Result<Vec<String>> {
+fn index_script(
+    engine: &str,
+    table: &ObjectRef,
+    index: &str,
+    new_name: &str,
+    schema: Option<&TableSchema>,
+) -> Result<Vec<String>> {
     if index.starts_with("sqlite_autoindex_") {
         return Err(Error::Unsupported(format!(
             "ese índice es el de una restricción PRIMARY KEY o UNIQUE: {engine} le pone el nombre y no se renombra"
         )));
     }
-    let t = schema.ok_or_else(|| Error::Query(format!("no se pudo leer la definición de la tabla «{}» para renombrar el índice", table.name)))?;
+    let t = schema.ok_or_else(|| {
+        Error::Query(format!(
+            "no se pudo leer la definición de la tabla «{}» para renombrar el índice",
+            table.name
+        ))
+    })?;
     let ix = t
         .indexes
         .iter()
         .find(|i| i.name == index)
-        .or_else(|| t.indexes.iter().find(|i| i.name.eq_ignore_ascii_case(index)))
-        .ok_or_else(|| Error::Query(format!("la tabla «{}» no tiene el índice «{index}»", table.name)))?;
+        .or_else(|| {
+            t.indexes
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(index))
+        })
+        .ok_or_else(|| {
+            Error::Query(format!(
+                "la tabla «{}» no tiene el índice «{index}»",
+                table.name
+            ))
+        })?;
     let one = TableSchema {
         name: t.name.clone(),
-        indexes: vec![dbine_driver::IndexDef { name: new_name.to_string(), ..ix.clone() }],
+        indexes: vec![dbine_driver::IndexDef {
+            name: new_name.to_string(),
+            ..ix.clone()
+        }],
         ..Default::default()
     };
-    let ddl = table_ddl(&one, DdlParts { indexes: true, ..Default::default() });
+    let ddl = table_ddl(
+        &one,
+        DdlParts {
+            indexes: true,
+            ..Default::default()
+        },
+    );
     // The DDL quotes the name in double quotes; the new one goes as the
     // rewrite of the dependents writes it.
-    let created = ddl.trim().replacen(&format!("INDEX {}", q(new_name)), &format!("INDEX {}", written(new_name)), 1);
+    let created = ddl.trim().replacen(
+        &format!("INDEX {}", q(new_name)),
+        &format!("INDEX {}", written(new_name)),
+        1,
+    );
     let created = match table.schema() {
-        Some(s) if !s.is_empty() => created.replacen(&format!("INDEX {}", written(new_name)), &format!("INDEX {}.{}", q(s), written(new_name)), 1),
+        Some(s) if !s.is_empty() => created.replacen(
+            &format!("INDEX {}", written(new_name)),
+            &format!("INDEX {}.{}", q(s), written(new_name)),
+            1,
+        ),
         _ => created,
     };
-    let old = ObjectRef { kind: kinds::INDEX.into(), schema: table.schema.clone(), name: ix.name.clone() };
-    Ok(vec![terminated(&created), format!("DROP INDEX {};", qn(&old))])
+    let old = ObjectRef {
+        kind: kinds::INDEX.into(),
+        schema: table.schema.clone(),
+        name: ix.name.clone(),
+    };
+    Ok(vec![
+        terminated(&created),
+        format!("DROP INDEX {};", qn(&old)),
+    ])
 }
 
 fn terminated(sql: &str) -> String {
@@ -156,15 +253,31 @@ mod tests {
     use dbine_driver::IndexDef;
 
     fn req(target: RenameTarget, new: &str) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: None }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: None,
+        }
     }
 
     fn obj(kind: &str, name: &str) -> RenameTarget {
-        RenameTarget::Object { object: ObjectRef { kind: kind.into(), schema: None, name: name.into() }, parent: None }
+        RenameTarget::Object {
+            object: ObjectRef {
+                kind: kind.into(),
+                schema: None,
+                name: name.into(),
+            },
+            parent: None,
+        }
     }
 
     fn tref(name: &str) -> ObjectRef {
-        ObjectRef { kind: kinds::TABLE.into(), schema: None, name: name.into() }
+        ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: name.into(),
+        }
     }
 
     #[test]
@@ -174,11 +287,32 @@ mod tests {
             assert_eq!(s.kinds, ["table", "virtual_table", "view", "trigger"]);
             assert!(s.columns && s.indexes && !s.constraints && !s.schemas && s.transactional);
             assert_eq!(s.tracked, ["view", "trigger"]);
-            let target = |kind: &str| RenameTarget::Object { object: ObjectRef { kind: kind.into(), schema: None, name: "x".into() }, parent: None };
+            let target = |kind: &str| RenameTarget::Object {
+                object: ObjectRef {
+                    kind: kind.into(),
+                    schema: None,
+                    name: "x".into(),
+                },
+                parent: None,
+            };
             assert_eq!(s.tracked_for_target(&target("table")), ["view", "trigger"]);
-            assert_eq!(s.tracked_for_target(&RenameTarget::Column { table: tref("t"), column: "c".into() }), ["view", "trigger"]);
-            assert!(s.tracked_for_target(&target("view")).is_empty() && s.tracked_for_target(&target("trigger")).is_empty());
-            assert!(s.tracked_for_target(&RenameTarget::Index { table: tref("t"), index: "i".into() }).is_empty());
+            assert_eq!(
+                s.tracked_for_target(&RenameTarget::Column {
+                    table: tref("t"),
+                    column: "c".into()
+                }),
+                ["view", "trigger"]
+            );
+            assert!(
+                s.tracked_for_target(&target("view")).is_empty()
+                    && s.tracked_for_target(&target("trigger")).is_empty()
+            );
+            assert!(s
+                .tracked_for_target(&RenameTarget::Index {
+                    table: tref("t"),
+                    index: "i".into()
+                })
+                .is_empty());
             assert_eq!(s.replace, ReplaceStyle::DropCreate);
             assert_eq!(s.fold, Fold::None);
             assert!(s.note.as_deref().unwrap().contains("rota"));
@@ -187,42 +321,103 @@ mod tests {
 
     #[test]
     fn tables() {
-        let s = script(Flavor::Sqlite, &req(obj("table", "clientes"), "Clientes Viejos")).unwrap();
-        assert_eq!(s.statements, ["PRAGMA legacy_alter_table = OFF;", "ALTER TABLE \"clientes\" RENAME TO [Clientes Viejos];"]);
+        let s = script(
+            Flavor::Sqlite,
+            &req(obj("table", "clientes"), "Clientes Viejos"),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            [
+                "PRAGMA legacy_alter_table = OFF;",
+                "ALTER TABLE \"clientes\" RENAME TO [Clientes Viejos];"
+            ]
+        );
         // libSQL's server refuses the PRAGMA.
         let s = script(Flavor::Libsql, &req(obj("table", "a\"b"), "Nueva")).unwrap();
         assert_eq!(s.statements, ["ALTER TABLE \"a\"\"b\" RENAME TO Nueva;"]);
-        assert!(s.statements.iter().all(|x| !x.contains("legacy_alter_table")));
+        assert!(s
+            .statements
+            .iter()
+            .all(|x| !x.contains("legacy_alter_table")));
         let s = script(Flavor::Libsql, &req(obj("virtual_table", "docs"), "select")).unwrap();
         assert_eq!(s.statements, ["ALTER TABLE \"docs\" RENAME TO [select];"]);
-        let other = RenameTarget::Object { object: ObjectRef { kind: "table".into(), schema: Some("aux".into()), name: "t".into() }, parent: None };
-        assert_eq!(script(Flavor::Sqlite, &req(other, "u")).unwrap().statements[1], "ALTER TABLE \"aux\".\"t\" RENAME TO u;");
+        let other = RenameTarget::Object {
+            object: ObjectRef {
+                kind: "table".into(),
+                schema: Some("aux".into()),
+                name: "t".into(),
+            },
+            parent: None,
+        };
+        assert_eq!(
+            script(Flavor::Sqlite, &req(other, "u")).unwrap().statements[1],
+            "ALTER TABLE \"aux\".\"t\" RENAME TO u;"
+        );
     }
 
     #[test]
     fn columns() {
         for f in [Flavor::Sqlite, Flavor::Libsql] {
-            let s = script(f, &req(RenameTarget::Column { table: tref("t"), column: "pepe".into() }, "Nuevo Pepe")).unwrap();
-            assert_eq!(s.statements, ["ALTER TABLE \"t\" RENAME COLUMN \"pepe\" TO [Nuevo Pepe];"]);
-            let s = script(f, &req(RenameTarget::Column { table: tref("t"), column: "pepe".into() }, "pepa")).unwrap();
-            assert_eq!(s.statements, ["ALTER TABLE \"t\" RENAME COLUMN \"pepe\" TO pepa;"]);
+            let s = script(
+                f,
+                &req(
+                    RenameTarget::Column {
+                        table: tref("t"),
+                        column: "pepe".into(),
+                    },
+                    "Nuevo Pepe",
+                ),
+            )
+            .unwrap();
+            assert_eq!(
+                s.statements,
+                ["ALTER TABLE \"t\" RENAME COLUMN \"pepe\" TO [Nuevo Pepe];"]
+            );
+            let s = script(
+                f,
+                &req(
+                    RenameTarget::Column {
+                        table: tref("t"),
+                        column: "pepe".into(),
+                    },
+                    "pepa",
+                ),
+            )
+            .unwrap();
+            assert_eq!(
+                s.statements,
+                ["ALTER TABLE \"t\" RENAME COLUMN \"pepe\" TO pepa;"]
+            );
         }
     }
 
     #[test]
     fn triggers_are_created_again() {
         let mut r = req(obj("trigger", "tr_log"), "Tr Log");
-        r.definition = Some("CREATE TRIGGER tr_log AFTER INSERT ON t BEGIN INSERT INTO log VALUES (NEW.id); END".into());
+        r.definition = Some(
+            "CREATE TRIGGER tr_log AFTER INSERT ON t BEGIN INSERT INTO log VALUES (NEW.id); END"
+                .into(),
+        );
         let s = script(Flavor::Libsql, &r).unwrap();
         assert_eq!(
             s.statements,
             ["CREATE TRIGGER [Tr Log] AFTER INSERT ON t BEGIN INSERT INTO log VALUES (NEW.id); END;", "DROP TRIGGER \"tr_log\";"]
         );
         let mut r = req(obj("trigger", "tr_log"), "tr2");
-        r.definition = Some("CREATE TRIGGER IF NOT EXISTS \"tr_log\" BEFORE DELETE ON t BEGIN SELECT 1; END;".into());
+        r.definition = Some(
+            "CREATE TRIGGER IF NOT EXISTS \"tr_log\" BEFORE DELETE ON t BEGIN SELECT 1; END;"
+                .into(),
+        );
         let s = script(Flavor::Sqlite, &r).unwrap();
-        assert_eq!(s.statements[0], "CREATE TRIGGER IF NOT EXISTS \"tr2\" BEFORE DELETE ON t BEGIN SELECT 1; END;");
-        assert!(matches!(script(Flavor::Sqlite, &req(obj("trigger", "x"), "y")), Err(Error::Query(_))));
+        assert_eq!(
+            s.statements[0],
+            "CREATE TRIGGER IF NOT EXISTS \"tr2\" BEFORE DELETE ON t BEGIN SELECT 1; END;"
+        );
+        assert!(matches!(
+            script(Flavor::Sqlite, &req(obj("trigger", "x"), "y")),
+            Err(Error::Query(_))
+        ));
     }
 
     #[test]
@@ -230,8 +425,17 @@ mod tests {
         let mut r = req(obj("view", "v"), "Ventas Netas");
         r.definition = Some("CREATE VIEW v AS SELECT id FROM t".into());
         let s = script(Flavor::Sqlite, &r).unwrap();
-        assert_eq!(s.statements, ["CREATE VIEW [Ventas Netas] AS SELECT id FROM t;", "DROP VIEW \"v\";"]);
-        assert!(matches!(script(Flavor::Libsql, &req(obj("view", "v"), "w")), Err(Error::Query(_))));
+        assert_eq!(
+            s.statements,
+            [
+                "CREATE VIEW [Ventas Netas] AS SELECT id FROM t;",
+                "DROP VIEW \"v\";"
+            ]
+        );
+        assert!(matches!(
+            script(Flavor::Libsql, &req(obj("view", "v"), "w")),
+            Err(Error::Query(_))
+        ));
     }
 
     #[test]
@@ -243,31 +447,71 @@ mod tests {
                 columns: vec!["pepe".into(), "(lower(x))".into()],
                 unique: true,
                 filter: Some("pepe IS NOT NULL".into()),
-                options: [("desc".to_string(), "pepe".to_string()), ("collate:pepe".to_string(), "NOCASE".to_string())].into(),
+                options: [
+                    ("desc".to_string(), "pepe".to_string()),
+                    ("collate:pepe".to_string(), "NOCASE".to_string()),
+                ]
+                .into(),
                 ..Default::default()
             }],
             ..Default::default()
         };
-        let mut r = req(RenameTarget::Index { table: tref("t"), index: "IX_PEPE".into() }, "Ix Nuevo");
+        let mut r = req(
+            RenameTarget::Index {
+                table: tref("t"),
+                index: "IX_PEPE".into(),
+            },
+            "Ix Nuevo",
+        );
         r.table = Some(t.clone());
         let s = script(Flavor::Sqlite, &r).unwrap();
         assert_eq!(
             s.statements,
             ["CREATE UNIQUE INDEX [Ix Nuevo] ON \"t\" (\"pepe\" COLLATE NOCASE DESC, (lower(x))) WHERE pepe IS NOT NULL;", "DROP INDEX \"ix_pepe\";"]
         );
-        let mut r = req(RenameTarget::Index { table: tref("t"), index: "nada".into() }, "x");
+        let mut r = req(
+            RenameTarget::Index {
+                table: tref("t"),
+                index: "nada".into(),
+            },
+            "x",
+        );
         r.table = Some(t);
         assert!(matches!(script(Flavor::Libsql, &r), Err(Error::Query(_))));
-        let r = req(RenameTarget::Index { table: tref("t"), index: "sqlite_autoindex_t_1".into() }, "x");
-        assert!(matches!(script(Flavor::Sqlite, &r), Err(Error::Unsupported(_))));
+        let r = req(
+            RenameTarget::Index {
+                table: tref("t"),
+                index: "sqlite_autoindex_t_1".into(),
+            },
+            "x",
+        );
+        assert!(matches!(
+            script(Flavor::Sqlite, &r),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn refused() {
-        assert!(matches!(script(Flavor::Sqlite, &req(obj("sequence", "s"), "w")), Err(Error::Unsupported(_))));
-        let c = RenameTarget::Constraint { table: tref("t"), constraint: "ck".into() };
-        assert!(matches!(script(Flavor::Sqlite, &req(c, "ck2")), Err(Error::Unsupported(_))));
-        let d = RenameTarget::Schema { database: None, schema: "aux".into() };
-        assert!(matches!(script(Flavor::Libsql, &req(d, "aux2")), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(Flavor::Sqlite, &req(obj("sequence", "s"), "w")),
+            Err(Error::Unsupported(_))
+        ));
+        let c = RenameTarget::Constraint {
+            table: tref("t"),
+            constraint: "ck".into(),
+        };
+        assert!(matches!(
+            script(Flavor::Sqlite, &req(c, "ck2")),
+            Err(Error::Unsupported(_))
+        ));
+        let d = RenameTarget::Schema {
+            database: None,
+            schema: "aux".into(),
+        };
+        assert!(matches!(
+            script(Flavor::Libsql, &req(d, "aux2")),
+            Err(Error::Unsupported(_))
+        ));
     }
 }

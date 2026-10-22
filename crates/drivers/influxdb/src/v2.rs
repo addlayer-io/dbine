@@ -2,12 +2,13 @@
 //! annotated CSV. Buckets are the databases, measurements the objects.
 
 use crate::csv;
+use crate::http::{self, send_err};
 use crate::monitor;
 use crate::plan;
-use crate::http::{self, send_err};
 use dbine_driver::{
-    async_trait, kinds, ColumnDef, ColumnInfo, ConnectionConfig, DbObject, DriverInfo, Error, Family, Field, FieldKind,
-    KeyDef, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    async_trait, kinds, ColumnDef, ColumnInfo, ConnectionConfig, DbObject, DriverInfo, Error,
+    Family, Field, FieldKind, KeyDef, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, Plan,
+    QueryOutcome, Result, ResultColumn, Session, TableSchema,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -24,7 +25,9 @@ pub fn info() -> DriverInfo {
             Field::host().help("Servidor o URL (https://… para InfluxDB Cloud)."),
             Field::port().placeholder("8086"),
             Field::new("org", "Organización", FieldKind::Text).required(),
-            Field::new("token", "Token", FieldKind::Password).required().secret(),
+            Field::new("token", "Token", FieldKind::Password)
+                .required()
+                .secret(),
             Field::new("database", "Bucket", FieldKind::Text).placeholder("(ninguno)"),
             Field::encrypt(),
             Field::trust_cert(),
@@ -32,7 +35,13 @@ pub fn info() -> DriverInfo {
         ],
         databases_label: "Buckets",
         has_schemas: false,
-        object_kinds: vec![ObjectKindInfo::new(kinds::MEASUREMENT, "Measurements", true, true, false)],
+        object_kinds: vec![ObjectKindInfo::new(
+            kinds::MEASUREMENT,
+            "Measurements",
+            true,
+            true,
+            false,
+        )],
     }
 }
 
@@ -46,9 +55,18 @@ pub struct FluxSession {
 }
 
 pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
-    let org = cfg.option("org").ok_or_else(|| Error::Connect("Falta la organización.".into()))?.to_string();
-    let token = cfg.option("token").or(cfg.password.as_deref().filter(|p| !p.is_empty())).unwrap_or("").to_string();
-    let bucket = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
+    let org = cfg
+        .option("org")
+        .ok_or_else(|| Error::Connect("Falta la organización.".into()))?
+        .to_string();
+    let token = cfg
+        .option("token")
+        .or(cfg.password.as_deref().filter(|p| !p.is_empty()))
+        .unwrap_or("")
+        .to_string();
+    let bucket = database
+        .filter(|d| !d.is_empty())
+        .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
     let s = FluxSession {
         http: http::client(cfg)?,
         base: http::base_url(cfg, 8086),
@@ -58,7 +76,12 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
         read_only: cfg.read_only,
     };
     // Checks the token and the organization in one call.
-    s.get("/api/v2/buckets", &[("org", s.org.as_str()), ("limit", "1")]).await.map_err(|e| match e {
+    s.get(
+        "/api/v2/buckets",
+        &[("org", s.org.as_str()), ("limit", "1")],
+    )
+    .await
+    .map_err(|e| match e {
         Error::Query(m) => Error::Connect(m),
         e => e,
     })?;
@@ -71,7 +94,17 @@ pub fn flux_str(s: &str) -> String {
 }
 
 /// Flux calls that write or send data somewhere.
-const WRITES: &[&str] = &["to", "wideTo", "post", "message", "sendEvent", "endpoint", "publish", "exec", "delete"];
+const WRITES: &[&str] = &[
+    "to",
+    "wideTo",
+    "post",
+    "message",
+    "sendEvent",
+    "endpoint",
+    "publish",
+    "exec",
+    "delete",
+];
 
 /// The first writing call of a script (outside strings and comments).
 pub fn first_write(script: &str) -> Option<String> {
@@ -131,7 +164,10 @@ pub fn keys_script(bucket: &str, measurements: &[String]) -> String {
     let mut names = Vec::new();
     for (i, m) in measurements.iter().enumerate() {
         let m = flux_str(m);
-        for (f, kind) in [("measurementTagKeys", "tag"), ("measurementFieldKeys", "field")] {
+        for (f, kind) in [
+            ("measurementTagKeys", "tag"),
+            ("measurementFieldKeys", "field"),
+        ] {
             let v = format!("{}{i}", &kind[..1]);
             s.push_str(&format!(
                 "{v} = schema.{f}(bucket: {b}, measurement: {m}, {SCHEMA_RANGE})\n  \
@@ -140,13 +176,20 @@ pub fn keys_script(bucket: &str, measurements: &[String]) -> String {
             names.push(v);
         }
     }
-    s.push_str(&format!("union(tables: [{}])\n  |> group()", names.join(", ")));
+    s.push_str(&format!(
+        "union(tables: [{}])\n  |> group()",
+        names.join(", ")
+    ));
     s
 }
 
 impl FluxSession {
     pub(crate) async fn send(&self, req: reqwest::RequestBuilder) -> Result<serde_json::Value> {
-        let resp = req.header("Authorization", format!("Token {}", self.token)).send().await.map_err(send_err)?;
+        let resp = req
+            .header("Authorization", format!("Token {}", self.token))
+            .send()
+            .await
+            .map_err(send_err)?;
         let body = http::text(resp).await?;
         Ok(serde_json::from_str(&body).unwrap_or_default())
     }
@@ -159,7 +202,11 @@ impl FluxSession {
         Ok(())
     }
 
-    pub(crate) async fn get(&self, path: &str, query: &[(&str, &str)]) -> Result<serde_json::Value> {
+    pub(crate) async fn get(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<serde_json::Value> {
         let resp = self
             .http
             .get(format!("{}{path}", self.base))
@@ -195,7 +242,11 @@ impl FluxSession {
         let mut out: Vec<String> = Vec::new();
         for t in self.flux(script).await? {
             if let Some(i) = t.columns.iter().position(|c| c == "_value") {
-                out.extend(t.rows.iter().filter_map(|r| r[i].as_str().map(str::to_string)));
+                out.extend(
+                    t.rows
+                        .iter()
+                        .filter_map(|r| r[i].as_str().map(str::to_string)),
+                );
             }
         }
         out.sort();
@@ -204,7 +255,9 @@ impl FluxSession {
     }
 
     fn bucket(&self) -> Result<&str> {
-        self.bucket.as_deref().ok_or_else(|| Error::Query("No hay un bucket seleccionado.".into()))
+        self.bucket
+            .as_deref()
+            .ok_or_else(|| Error::Query("No hay un bucket seleccionado.".into()))
     }
 }
 
@@ -215,15 +268,33 @@ const SCHEMA_RANGE: &str = crate::transfer::FLUX_ALL_TIME;
 #[async_trait]
 impl Session for FluxSession {
     /// The measurement pivoted, streamed as annotated CSV (see `transfer.rs`).
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         let catalog = self.columns(&spec.table).await?;
         let cols = crate::transfer::read_columns(&catalog, &spec.columns)?;
-        let tags: Vec<&str> = catalog.iter().filter(|c| c.data_type == "tag").map(|c| c.name.as_str()).collect();
-        let filter = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty());
+        let tags: Vec<&str> = catalog
+            .iter()
+            .filter(|c| c.data_type == "tag")
+            .map(|c| c.name.as_str())
+            .collect();
+        let filter = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty());
         // Strings the CSV can't give back take a slower script: look first.
         let check = crate::transfer::flux_check_script(self.bucket()?, &spec.table.name, &tags);
-        let lossy = self.flux(&check).await.map_err(crate::transfer::flux_err)?.iter().any(|t| !t.rows.is_empty());
-        let script = crate::transfer::flux_read_script(self.bucket()?, &spec.table.name, lossy, filter);
+        let lossy = self
+            .flux(&check)
+            .await
+            .map_err(crate::transfer::flux_err)?
+            .iter()
+            .any(|t| !t.rows.is_empty());
+        let script =
+            crate::transfer::flux_read_script(self.bucket()?, &spec.table.name, lossy, filter);
         let body = json!({
             "query": script,
             "type": "flux",
@@ -248,22 +319,58 @@ impl Session for FluxSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden escribir puntos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden escribir puntos.".into(),
+            ));
         }
         let bucket = self.bucket()?.to_string();
         let target = self.columns(&spec.table).await?;
-        let params = [("org", self.org.as_str()), ("bucket", bucket.as_str()), ("precision", "ns")];
-        let url = reqwest::Url::parse_with_params(&format!("{}/api/v2/write", self.base), &params).map_err(|e| Error::Query(e.to_string()))?;
+        let params = [
+            ("org", self.org.as_str()),
+            ("bucket", bucket.as_str()),
+            ("precision", "ns"),
+        ];
+        let url = reqwest::Url::parse_with_params(&format!("{}/api/v2/write", self.base), &params)
+            .map_err(|e| Error::Query(e.to_string()))?;
         let auth = crate::transfer::Auth::Token(self.token.clone());
-        let ep = crate::transfer::Endpoint { http: self.http.clone(), url: url.into(), auth, api: crate::Api::Flux };
-        crate::transfer::load(ep, &spec.table.name, &target, spec, columns, source, progress).await
+        let ep = crate::transfer::Endpoint {
+            http: self.http.clone(),
+            url: url.into(),
+            auth,
+            api: crate::Api::Flux,
+        };
+        crate::transfer::load(
+            ep,
+            &spec.table.name,
+            &target,
+            spec,
+            columns,
+            source,
+            progress,
+        )
+        .await
     }
 
     async fn server_version(&mut self) -> Result<String> {
-        let resp = self.http.get(format!("{}/health", self.base)).send().await.map_err(send_err)?;
-        let v: serde_json::Value = serde_json::from_str(&http::text(resp).await?).unwrap_or_default();
+        let resp = self
+            .http
+            .get(format!("{}/health", self.base))
+            .send()
+            .await
+            .map_err(send_err)?;
+        let v: serde_json::Value =
+            serde_json::from_str(&http::text(resp).await?).unwrap_or_default();
         let version = v.get("version").and_then(|v| v.as_str()).unwrap_or("");
-        Ok(format!("InfluxDB {}", if version.is_empty() { "2 (Cloud)" } else { version }).trim().to_string())
+        Ok(format!(
+            "InfluxDB {}",
+            if version.is_empty() {
+                "2 (Cloud)"
+            } else {
+                version
+            }
+        )
+        .trim()
+        .to_string())
     }
 
     /// `/metrics` (Prometheus), `/health` and the bucket names (the storage
@@ -292,20 +399,44 @@ impl Session for FluxSession {
             .send()
             .await
             .map_err(send_err)?;
-        let prom = http::text(resp).await.ok().map(|t| monitor::Prom::parse(&t));
+        let prom = http::text(resp)
+            .await
+            .ok()
+            .map(|t| monitor::Prom::parse(&t));
         let health = match self.http.get(format!("{}/health", self.base)).send().await {
-            Ok(r) => http::text(r).await.ok().and_then(|b| serde_json::from_str(&b).ok()),
+            Ok(r) => http::text(r)
+                .await
+                .ok()
+                .and_then(|b| serde_json::from_str(&b).ok()),
             Err(_) => None,
         };
         let mut buckets = BTreeMap::new();
-        if let Ok(v) = self.get("/api/v2/buckets", &[("org", self.org.as_str()), ("limit", "100")]).await {
-            for b in v.get("buckets").and_then(|b| b.as_array()).into_iter().flatten() {
-                if let (Some(id), Some(name)) = (b.get("id").and_then(|i| i.as_str()), b.get("name").and_then(|n| n.as_str())) {
+        if let Ok(v) = self
+            .get(
+                "/api/v2/buckets",
+                &[("org", self.org.as_str()), ("limit", "100")],
+            )
+            .await
+        {
+            for b in v
+                .get("buckets")
+                .and_then(|b| b.as_array())
+                .into_iter()
+                .flatten()
+            {
+                if let (Some(id), Some(name)) = (
+                    b.get("id").and_then(|i| i.as_str()),
+                    b.get("name").and_then(|n| n.as_str()),
+                ) {
                     buckets.insert(id.to_string(), name.to_string());
                 }
             }
         }
-        Ok(monitor::v2_snapshot(prom.as_ref(), health.as_ref(), &buckets))
+        Ok(monitor::v2_snapshot(
+            prom.as_ref(),
+            health.as_ref(),
+            &buckets,
+        ))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
@@ -313,11 +444,24 @@ impl Session for FluxSession {
         let mut offset = 0;
         loop {
             let off = offset.to_string();
-            let v = self.get("/api/v2/buckets", &[("org", self.org.as_str()), ("limit", "100"), ("offset", &off)]).await?;
+            let v = self
+                .get(
+                    "/api/v2/buckets",
+                    &[
+                        ("org", self.org.as_str()),
+                        ("limit", "100"),
+                        ("offset", &off),
+                    ],
+                )
+                .await?;
             let page: Vec<String> = v
                 .get("buckets")
                 .and_then(|b| b.as_array())
-                .map(|b| b.iter().filter_map(|b| b.get("name")?.as_str().map(str::to_string)).collect())
+                .map(|b| {
+                    b.iter()
+                        .filter_map(|b| b.get("name")?.as_str().map(str::to_string))
+                        .collect()
+                })
                 .unwrap_or_default();
             let n = page.len();
             out.extend(page.into_iter().filter(|b| !b.starts_with('_')));
@@ -331,7 +475,9 @@ impl Session for FluxSession {
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let Some(bucket) = self.bucket.clone() else { return Ok(Vec::new()) };
+        let Some(bucket) = self.bucket.clone() else {
+            return Ok(Vec::new());
+        };
         let script = format!(
             "import \"influxdata/influxdb/schema\"\nschema.measurements(bucket: {}, {SCHEMA_RANGE})",
             flux_str(&bucket)
@@ -340,7 +486,12 @@ impl Session for FluxSession {
             .values(&script)
             .await?
             .into_iter()
-            .map(|name| DbObject { kind: kinds::MEASUREMENT.into(), schema: None, name, parent: None })
+            .map(|name| DbObject {
+                kind: kinds::MEASUREMENT.into(),
+                schema: None,
+                name,
+                parent: None,
+            })
             .collect())
     }
 
@@ -366,8 +517,19 @@ impl Session for FluxSession {
         };
         let mut out = vec![col("_time".into(), "time", true)];
         // Flux's own columns, not tags; other keys may start with `_`.
-        let own = ["_start", "_stop", "_field", "_measurement", "_time", "_value"];
-        out.extend(tags.into_iter().filter(|t| !own.contains(&t.as_str())).map(|t| col(t, "tag", true)));
+        let own = [
+            "_start",
+            "_stop",
+            "_field",
+            "_measurement",
+            "_time",
+            "_value",
+        ];
+        out.extend(
+            tags.into_iter()
+                .filter(|t| !own.contains(&t.as_str()))
+                .map(|t| col(t, "tag", true)),
+        );
         out.extend(fields.into_iter().map(|f| col(f, "field", false)));
         Ok(out)
     }
@@ -380,36 +542,58 @@ impl Session for FluxSession {
     /// Flux reports no field types without reading the data (`field`, as
     /// in [`Session::columns`]); `_time` and the tags key the series.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let measurements: Vec<String> = self.list_objects().await?.into_iter().map(|o| o.name).collect();
+        let measurements: Vec<String> = self
+            .list_objects()
+            .await?
+            .into_iter()
+            .map(|o| o.name)
+            .collect();
         if measurements.is_empty() {
             return Ok(Vec::new());
         }
         let mut tables: BTreeMap<String, TableSchema> = measurements
             .iter()
             .map(|m| {
-                let time = ColumnDef { name: "_time".into(), data_type: "time".into(), nullable: false, ..Default::default() };
+                let time = ColumnDef {
+                    name: "_time".into(),
+                    data_type: "time".into(),
+                    nullable: false,
+                    ..Default::default()
+                };
                 let t = TableSchema {
                     kind: kinds::MEASUREMENT.into(),
                     name: m.clone(),
                     columns: vec![time],
-                    primary_key: Some(KeyDef { name: None, columns: vec!["_time".into()] }),
+                    primary_key: Some(KeyDef {
+                        name: None,
+                        columns: vec!["_time".into()],
+                    }),
                     ..Default::default()
                 };
                 (m.clone(), t)
             })
             .collect();
         let mut keys: Vec<(String, String, String)> = Vec::new();
-        for t in self.flux(&keys_script(self.bucket()?, &measurements)).await? {
+        for t in self
+            .flux(&keys_script(self.bucket()?, &measurements))
+            .await?
+        {
             let col = |n: &str| t.columns.iter().position(|c| c == n);
-            let (Some(m), Some(k), Some(v)) = (col("m"), col("k"), col("_value")) else { continue };
-            let s = |r: &Vec<serde_json::Value>, i: usize| r[i].as_str().unwrap_or_default().to_string();
+            let (Some(m), Some(k), Some(v)) = (col("m"), col("k"), col("_value")) else {
+                continue;
+            };
+            let s = |r: &Vec<serde_json::Value>, i: usize| {
+                r[i].as_str().unwrap_or_default().to_string()
+            };
             keys.extend(t.rows.iter().map(|r| (s(r, m), s(r, k), s(r, v))));
         }
         // Tags first, then fields, each sorted (like `columns`).
         keys.sort_by(|a, b| (&a.0, a.1 != "tag", &a.2).cmp(&(&b.0, b.1 != "tag", &b.2)));
         keys.dedup();
         for (m, kind, key) in keys {
-            let Some(t) = tables.get_mut(&m) else { continue };
+            let Some(t) = tables.get_mut(&m) else {
+                continue;
+            };
             if kind == "tag" {
                 if key.starts_with('_') {
                     continue;
@@ -418,44 +602,77 @@ impl Session for FluxSession {
                     pk.columns.push(key.clone());
                 }
                 let options = [("tag".to_string(), "true".to_string())].into();
-                t.columns.push(ColumnDef { name: key, data_type: "tag".into(), nullable: false, options, ..Default::default() });
+                t.columns.push(ColumnDef {
+                    name: key,
+                    data_type: "tag".into(),
+                    nullable: false,
+                    options,
+                    ..Default::default()
+                });
             } else {
-                t.columns.push(ColumnDef { name: key, data_type: "field".into(), ..Default::default() });
+                t.columns.push(ColumnDef {
+                    name: key,
+                    data_type: "field".into(),
+                    ..Default::default()
+                });
             }
         }
         Ok(tables.into_values().collect())
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.create_database_with(name, &std::collections::BTreeMap::new()).await
+        self.create_database_with(name, &std::collections::BTreeMap::new())
+            .await
     }
 
     /// `POST /api/v2/buckets` with the retention rules (see [`crate::create_db`]).
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.check_writable("Conexión de solo lectura: no se pueden crear buckets.")?;
-        let orgs = self.get("/api/v2/orgs", &[("org", self.org.as_str())]).await?;
+        let orgs = self
+            .get("/api/v2/orgs", &[("org", self.org.as_str())])
+            .await?;
         let org_id = orgs
             .pointer("/orgs/0/id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::Query(format!("No se encontró la organización «{}».", self.org)))?
             .to_string();
         let body = crate::create_db::bucket(name, &org_id, options)?;
-        self.send(self.http.post(format!("{}{}", self.base, crate::create_db::V2_PATH)).json(&body)).await?;
+        self.send(
+            self.http
+                .post(format!("{}{}", self.base, crate::create_db::V2_PATH))
+                .json(&body),
+        )
+        .await?;
         Ok(())
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         self.check_writable("Conexión de solo lectura: no se pueden borrar buckets.")?;
         if self.bucket.as_deref() == Some(name) {
-            return Err(Error::Query(format!("No se puede borrar «{name}»: es el bucket de esta conexión.")));
+            return Err(Error::Query(format!(
+                "No se puede borrar «{name}»: es el bucket de esta conexión."
+            )));
         }
-        let v = self.get("/api/v2/buckets", &[("org", self.org.as_str()), ("name", name)]).await?;
+        let v = self
+            .get(
+                "/api/v2/buckets",
+                &[("org", self.org.as_str()), ("name", name)],
+            )
+            .await?;
         let id = v
             .pointer("/buckets/0/id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::Query(format!("No existe el bucket «{name}».")))?
             .to_string();
-        self.send(self.http.delete(format!("{}/api/v2/buckets/{id}", self.base))).await?;
+        self.send(
+            self.http
+                .delete(format!("{}/api/v2/buckets/{id}", self.base)),
+        )
+        .await?;
         Ok(())
     }
 
@@ -487,7 +704,11 @@ impl Session for FluxSession {
         }
         for t in tables {
             out.begin_result(
-                t.columns.into_iter().zip(t.types).map(|(name, type_name)| ResultColumn { name, type_name }).collect(),
+                t.columns
+                    .into_iter()
+                    .zip(t.types)
+                    .map(|(name, type_name)| ResultColumn { name, type_name })
+                    .collect(),
             );
             for row in t.rows {
                 out.push_row(row, max_rows);
@@ -498,7 +719,13 @@ impl Session for FluxSession {
 
     /// Flux has no estimated plan; a run with the `profiler` package on
     /// returns the plan it used and each operator's time.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if !analyze {
             return Err(Error::Unsupported(
                 "Flux no tiene plan estimado: usá «Ejecutar con plan» para ver el perfil real de la consulta (paquete profiler)."
@@ -521,8 +748,18 @@ impl Session for FluxSession {
         let mut results = Vec::new();
         for t in tables {
             let m = t.columns.iter().position(|c| c == "_measurement");
-            let kind = m.and_then(|i| t.rows.first()?.get(i)?.as_str().map(str::to_string)).unwrap_or_default();
-            let rows = || t.rows.iter().map(|r| t.columns.iter().cloned().zip(r.iter().cloned()).collect::<plan::Row>());
+            let kind = m
+                .and_then(|i| t.rows.first()?.get(i)?.as_str().map(str::to_string))
+                .unwrap_or_default();
+            let rows = || {
+                t.rows.iter().map(|r| {
+                    t.columns
+                        .iter()
+                        .cloned()
+                        .zip(r.iter().cloned())
+                        .collect::<plan::Row>()
+                })
+            };
             match kind.as_str() {
                 "profiler/query" => query = rows().next(),
                 "profiler/operator" => operators.extend(rows()),
@@ -534,7 +771,11 @@ impl Session for FluxSession {
         }
         for t in results {
             out.begin_result(
-                t.columns.into_iter().zip(t.types).map(|(name, type_name)| ResultColumn { name, type_name }).collect(),
+                t.columns
+                    .into_iter()
+                    .zip(t.types)
+                    .map(|(name, type_name)| ResultColumn { name, type_name })
+                    .collect(),
             );
             for row in t.rows {
                 out.push_row(row, max_rows);
@@ -558,11 +799,18 @@ impl Session for FluxSession {
 
     /// `write:buckets` from the visible authorizations (see `permissions`).
     /// "Propiedades" (see [`crate::properties`]).
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -587,7 +835,10 @@ pub fn with_profiler(script: &str) -> String {
         }
     }
     let mut out: Vec<String> = lines[..end].iter().map(|s| s.to_string()).collect();
-    if !lines[..end].iter().any(|l| l.trim().trim_start_matches("import").trim() == "\"profiler\"") {
+    if !lines[..end]
+        .iter()
+        .any(|l| l.trim().trim_start_matches("import").trim() == "\"profiler\"")
+    {
         out.push("import \"profiler\"".into());
     }
     out.push("option profiler.enabledProfilers = [\"query\", \"operator\"]".into());
@@ -609,13 +860,25 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     }
     let float = |n: &serde_json::Number| {
         let s = n.as_f64().unwrap_or_default().to_string();
-        if s.contains('.') { s } else { format!("{s}.0") }
+        if s.contains('.') {
+            s
+        } else {
+            format!("{s}.0")
+        }
     };
     let mut parts = Vec::new();
     for f in filters {
         let c = format!("r[{}]", flux_str(&f.column));
-        let text = |v: &J| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
-        let first = || f.values.first().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)));
+        let text = |v: &J| {
+            v.as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| v.to_string())
+        };
+        let first = || {
+            f.values.first().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })
+        };
         let cmp = |op: &str| -> Result<String> {
             Ok(match first()? {
                 J::Number(n) => format!("(exists {c} and float(v: {c}) {op} {})", float(n)),
@@ -627,12 +890,32 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
         let re = || first().map(|v| crate::v1::regex_literal(&text(v)));
         let set = || {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{}» necesita al menos un valor", f.column)));
+                return Err(Error::Query(format!(
+                    "el filtro de «{}» necesita al menos un valor",
+                    f.column
+                )));
             }
-            Ok(match f.values.iter().map(J::as_number).collect::<Option<Vec<_>>>() {
-                Some(ns) => format!("contains(value: float(v: {c}), set: [{}])", ns.into_iter().map(float).collect::<Vec<_>>().join(", ")),
-                None => format!("contains(value: {c}, set: [{}])", f.values.iter().map(|v| flux_str(&text(v))).collect::<Vec<_>>().join(", ")),
-            })
+            Ok(
+                match f
+                    .values
+                    .iter()
+                    .map(J::as_number)
+                    .collect::<Option<Vec<_>>>()
+                {
+                    Some(ns) => format!(
+                        "contains(value: float(v: {c}), set: [{}])",
+                        ns.into_iter().map(float).collect::<Vec<_>>().join(", ")
+                    ),
+                    None => format!(
+                        "contains(value: {c}, set: [{}])",
+                        f.values
+                            .iter()
+                            .map(|v| flux_str(&text(v)))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                },
+            )
         };
         parts.push(match f.op {
             FilterOp::Eq => cmp("==")?,
@@ -656,21 +939,31 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
             FilterOp::TrueOrNull => format!("(not exists {c} or {c} == true)"),
             FilterOp::FalseOrNull => format!("(not exists {c} or {c} == false)"),
             FilterOp::Sql | FilterOp::SqlRight => {
-                return Err(Error::Unsupported("Flux no toma condiciones SQL: se filtran en la grilla".into()))
+                return Err(Error::Unsupported(
+                    "Flux no toma condiciones SQL: se filtran en la grilla".into(),
+                ))
             }
         });
     }
     let filter = format!("  |> filter(fn: (r) => {})", parts.join(" and "));
     let mut lines: Vec<String> = browse.lines().map(str::to_string).collect();
-    let pivot = lines.iter().position(|l| l.trim_start().starts_with("|> pivot("));
-    let limit = lines.iter().position(|l| l.trim_start().starts_with("|> limit("));
+    let pivot = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with("|> pivot("));
+    let limit = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with("|> limit("));
     match (pivot, limit) {
         (Some(p), Some(l)) if l < p => {
             lines.insert(p + 1, filter);
             lines.remove(l);
         }
         (Some(p), _) => lines.insert(p + 1, filter),
-        _ => return Err(Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())),
+        _ => {
+            return Err(Error::Unsupported(
+                "no se pudo agregar el filtro a la consulta de este objeto".into(),
+            ))
+        }
     }
     Ok(lines.join("\n"))
 }
@@ -691,16 +984,39 @@ pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<Stri
             "Flux ordena todas las columnas en el mismo sentido: con sentidos mezclados se ordenan las filas cargadas".into(),
         ));
     }
-    let cant = || Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into());
+    let cant =
+        || Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into());
     let is = |l: &String, f: &str| l.trim_start().starts_with(f);
-    let mut lines: Vec<String> = query.lines().filter(|l| !l.trim_start().starts_with("|> sort(")).map(str::to_string).collect();
-    let pivot = lines.iter().position(|l| is(l, "|> pivot(")).ok_or_else(cant)?;
-    if let Some(l) = lines.iter().position(|l| is(l, "|> limit(")).filter(|&l| l < pivot) {
+    let mut lines: Vec<String> = query
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("|> sort("))
+        .map(str::to_string)
+        .collect();
+    let pivot = lines
+        .iter()
+        .position(|l| is(l, "|> pivot("))
+        .ok_or_else(cant)?;
+    if let Some(l) = lines
+        .iter()
+        .position(|l| is(l, "|> limit("))
+        .filter(|&l| l < pivot)
+    {
         lines.remove(l);
     }
-    let last = lines.iter().rposition(|l| is(l, "|> limit(")).filter(|&l| l > pivot).ok_or_else(cant)?;
-    let columns = sort.iter().map(|k| flux_str(&k.column)).collect::<Vec<_>>().join(", ");
-    lines.insert(last, format!("  |> sort(columns: [{columns}], desc: {desc})"));
+    let last = lines
+        .iter()
+        .rposition(|l| is(l, "|> limit("))
+        .filter(|&l| l > pivot)
+        .ok_or_else(cant)?;
+    let columns = sort
+        .iter()
+        .map(|k| flux_str(&k.column))
+        .collect::<Vec<_>>()
+        .join(", ");
+    lines.insert(
+        last,
+        format!("  |> sort(columns: [{columns}], desc: {desc})"),
+    );
     Ok(lines.join("\n"))
 }
 
@@ -711,7 +1027,10 @@ mod tests {
     #[test]
     fn sorted_browse_before_the_last_limit() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let browse = "from(bucket: \"b\")\n  |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"cpu\")\n  |> limit(n: 200)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> drop(columns: [\"_start\", \"_stop\"])\n  |> limit(n: 200)";
         let tail = "  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> drop(columns: [\"_start\", \"_stop\"])\n";
         assert_eq!(sorted_browse(browse, &[]).unwrap(), browse);
@@ -727,18 +1046,34 @@ mod tests {
             format!("{head}{tail}  |> sort(columns: [\"re\\\"gion \\${{x}}\", \"_time\"], desc: false)\n  |> limit(n: 200)")
         );
         // After a filter.
-        let f = filtered_browse(browse, &[ColumnFilter { column: "host".into(), op: FilterOp::Eq, values: vec![serde_json::json!("a")], sql: None }])
-            .unwrap();
+        let f = filtered_browse(
+            browse,
+            &[ColumnFilter {
+                column: "host".into(),
+                op: FilterOp::Eq,
+                values: vec![serde_json::json!("a")],
+                sql: None,
+            }],
+        )
+        .unwrap();
         let s = sorted_browse(&f, &[k("usage", false)]).unwrap();
         assert!(s.ends_with("|> filter(fn: (r) => r[\"host\"] == \"a\")\n  |> group()\n  |> drop(columns: [\"_start\", \"_stop\"])\n  |> sort(columns: [\"usage\"], desc: false)\n  |> limit(n: 200)"), "{s}");
-        assert!(matches!(sorted_browse(browse, &[k("a", false), k("b", true)]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            sorted_browse(browse, &[k("a", false), k("b", true)]),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn filtered_browse_after_the_pivot() {
         use dbine_driver::{ColumnFilter, FilterOp};
         use serde_json::json;
-        let f = |column: &str, op: FilterOp, values: Vec<serde_json::Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<serde_json::Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let browse = "from(bucket: \"b\")\n  |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"cpu\")\n  |> limit(n: 200)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> drop(columns: [\"_start\", \"_stop\"])\n  |> limit(n: 200)";
         assert_eq!(
             filtered_browse(
@@ -755,7 +1090,18 @@ mod tests {
             .unwrap(),
             "from(bucket: \"b\")\n  |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"cpu\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r[\"host\"] == \"O\\\"Brien \\${x}\" and (exists r[\"usage\"] and float(v: r[\"usage\"]) > 5.0) and r[\"path\"] =~ /a\\.b/ and not exists r[\"region\"] and (exists r[\"code\"] and contains(value: float(v: r[\"code\"]), set: [1.0, 2.5])) and r[\"_time\"] >= time(v: \"2024-01-01T00:00:00Z\"))\n  |> group()\n  |> drop(columns: [\"_start\", \"_stop\"])\n  |> limit(n: 200)"
         );
-        assert!(matches!(filtered_browse(browse, &[ColumnFilter { column: "x".into(), op: FilterOp::Sql, values: vec![], sql: Some("1".into()) }]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            filtered_browse(
+                browse,
+                &[ColumnFilter {
+                    column: "x".into(),
+                    op: FilterOp::Sql,
+                    values: vec![],
+                    sql: Some("1".into())
+                }]
+            ),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -774,7 +1120,9 @@ mod tests {
     fn one_script_for_every_measurement() {
         let s = keys_script("b", &["cpu".into(), "m\"x".into()]);
         assert!(s.starts_with("import \"influxdata/influxdb/schema\"\nt0 = schema.measurementTagKeys(bucket: \"b\", measurement: \"cpu\""));
-        assert!(s.contains("f1 = schema.measurementFieldKeys(bucket: \"b\", measurement: \"m\\\"x\""));
+        assert!(
+            s.contains("f1 = schema.measurementFieldKeys(bucket: \"b\", measurement: \"m\\\"x\"")
+        );
         assert!(s.contains("({m: \"cpu\", k: \"field\", _value: string(v: r._value)})"));
         assert!(s.ends_with("union(tables: [t0, f0, t1, f1])\n  |> group()"));
     }
@@ -786,9 +1134,18 @@ mod tests {
 
     #[test]
     fn writes_are_found_outside_strings() {
-        assert_eq!(first_write("from(bucket: \"b\") |> range(start: -1h) |> to(bucket: \"c\")").as_deref(), Some("to"));
-        assert_eq!(first_write("import \"http\"\nhttp.post(url: \"x\")").as_deref(), Some("post"));
-        assert_eq!(first_write("from(bucket: \"to(\") |> range(start: -1h) // to(bucket)"), None);
+        assert_eq!(
+            first_write("from(bucket: \"b\") |> range(start: -1h) |> to(bucket: \"c\")").as_deref(),
+            Some("to")
+        );
+        assert_eq!(
+            first_write("import \"http\"\nhttp.post(url: \"x\")").as_deref(),
+            Some("post")
+        );
+        assert_eq!(
+            first_write("from(bucket: \"to(\") |> range(start: -1h) // to(bucket)"),
+            None
+        );
         assert_eq!(first_write("x = 1\ntotal(x)"), None);
     }
 }

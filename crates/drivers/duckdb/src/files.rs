@@ -69,7 +69,10 @@ pub enum Format {
 pub fn format_of(path: &Path) -> Option<(Format, String)> {
     let name = path.file_name()?.to_str()?;
     let lower = name.to_ascii_lowercase();
-    let base = lower.strip_suffix(".gz").or_else(|| lower.strip_suffix(".zst")).unwrap_or(&lower);
+    let base = lower
+        .strip_suffix(".gz")
+        .or_else(|| lower.strip_suffix(".zst"))
+        .unwrap_or(&lower);
     let (stem_len, format) = [
         (".csv", Format::Csv),
         (".tsv", Format::Tsv),
@@ -98,7 +101,12 @@ pub fn folder(path: &str) -> PathBuf {
 /// (view name, file, format) for every data file, sorted; a name taken
 /// twice (a.csv and a.parquet) gets its format appended.
 pub fn scan(dir: &Path, recursive: bool) -> std::io::Result<Vec<(String, PathBuf, Format)>> {
-    fn walk(dir: &Path, prefix: &str, recursive: bool, out: &mut Vec<(String, PathBuf, Format)>) -> std::io::Result<()> {
+    fn walk(
+        dir: &Path,
+        prefix: &str,
+        recursive: bool,
+        out: &mut Vec<(String, PathBuf, Format)>,
+    ) -> std::io::Result<()> {
         let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
         entries.sort_by_key(|e| e.file_name());
         for e in entries {
@@ -114,7 +122,9 @@ pub fn scan(dir: &Path, recursive: bool) -> std::io::Result<Vec<(String, PathBuf
                 if recursive {
                     walk(&path, &format!("{prefix}{name}/"), recursive, out)?;
                 }
-            } else if let Some((format, stem)) = format_of(&path).filter(|(f, _)| *f != Format::Xlsx) {
+            } else if let Some((format, stem)) =
+                format_of(&path).filter(|(f, _)| *f != Format::Xlsx)
+            {
                 out.push((format!("{prefix}{stem}"), path, format));
             }
         }
@@ -151,7 +161,10 @@ pub fn view_sql(name: &str, path: &Path, format: Format) -> String {
         Format::Json => format!("read_json_auto({p})"),
         Format::Xlsx => format!("read_xlsx({p})"),
     };
-    format!("CREATE OR REPLACE VIEW {} AS SELECT * FROM {reader}", quote_ident(Quote::Double, name))
+    format!(
+        "CREATE OR REPLACE VIEW {} AS SELECT * FROM {reader}",
+        quote_ident(Quote::Double, name)
+    )
 }
 
 /// The one file of a "Sólo este archivo" connection: (view name, file,
@@ -172,10 +185,22 @@ mod tests {
 
     #[test]
     fn formats_and_names() {
-        assert_eq!(format_of(Path::new("/d/ventas.csv")), Some((Format::Csv, "ventas".into())));
-        assert_eq!(format_of(Path::new("/d/Ventas.CSV.gz")), Some((Format::Csv, "Ventas".into())));
-        assert_eq!(format_of(Path::new("/d/x.parquet")), Some((Format::Parquet, "x".into())));
-        assert_eq!(format_of(Path::new("/d/log.ndjson")), Some((Format::Json, "log".into())));
+        assert_eq!(
+            format_of(Path::new("/d/ventas.csv")),
+            Some((Format::Csv, "ventas".into()))
+        );
+        assert_eq!(
+            format_of(Path::new("/d/Ventas.CSV.gz")),
+            Some((Format::Csv, "Ventas".into()))
+        );
+        assert_eq!(
+            format_of(Path::new("/d/x.parquet")),
+            Some((Format::Parquet, "x".into()))
+        );
+        assert_eq!(
+            format_of(Path::new("/d/log.ndjson")),
+            Some((Format::Json, "log".into()))
+        );
         assert_eq!(format_of(Path::new("/d/notas.txt")), None);
         assert_eq!(format_of(Path::new("/d/.csv")), None);
     }
@@ -185,10 +210,23 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dbine-files-scan-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).unwrap();
-        for f in ["a.csv", "a.parquet", "b.json", "leeme.txt", "sub/c.tsv", ".oculto.csv"] {
+        for f in [
+            "a.csv",
+            "a.parquet",
+            "b.json",
+            "leeme.txt",
+            "sub/c.tsv",
+            ".oculto.csv",
+        ] {
             std::fs::write(dir.join(f), "x").unwrap();
         }
-        let names = |r: bool| scan(&dir, r).unwrap().into_iter().map(|(n, _, _)| n).collect::<Vec<_>>();
+        let names = |r: bool| {
+            scan(&dir, r)
+                .unwrap()
+                .into_iter()
+                .map(|(n, _, _)| n)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(names(false), ["a_csv", "a_parquet", "b"]);
         assert_eq!(names(true), ["a_csv", "a_parquet", "b", "sub/c"]);
         assert_eq!(folder(&dir.join("b.json").to_string_lossy()), dir);
@@ -197,8 +235,18 @@ mod tests {
 
     #[test]
     fn single_files_and_workbooks() {
-        assert_eq!(single(Path::new("/d/Ventas 2024.csv")), Some(("Ventas 2024".into(), "/d/Ventas 2024.csv".into(), Format::Csv)));
-        assert_eq!(single(Path::new("/d/libro.XLSX")).map(|s| s.2), Some(Format::Xlsx));
+        assert_eq!(
+            single(Path::new("/d/Ventas 2024.csv")),
+            Some((
+                "Ventas 2024".into(),
+                "/d/Ventas 2024.csv".into(),
+                Format::Csv
+            ))
+        );
+        assert_eq!(
+            single(Path::new("/d/libro.XLSX")).map(|s| s.2),
+            Some(Format::Xlsx)
+        );
         assert_eq!(single(Path::new("/d/notas.txt")), None);
         assert_eq!(
             view_sql("o\"k", Path::new("/d/it's.xlsx"), Format::Xlsx),
@@ -211,7 +259,14 @@ mod tests {
         for f in ["a.csv", "b.xlsx"] {
             std::fs::write(dir.join(f), "x").unwrap();
         }
-        assert_eq!(scan(&dir, false).unwrap().into_iter().map(|(n, _, _)| n).collect::<Vec<_>>(), ["a"]);
+        assert_eq!(
+            scan(&dir, false)
+                .unwrap()
+                .into_iter()
+                .map(|(n, _, _)| n)
+                .collect::<Vec<_>>(),
+            ["a"]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

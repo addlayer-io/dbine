@@ -63,7 +63,14 @@ impl Cell {
     /// Estimated bytes it takes in memory (for the batch's byte bound).
     pub fn size(&self) -> usize {
         16 + match self {
-            Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => s.len(),
+            Cell::Decimal(s)
+            | Cell::Text(s)
+            | Cell::Date(s)
+            | Cell::Time(s)
+            | Cell::DateTime(s)
+            | Cell::DateTimeTz(s)
+            | Cell::Uuid(s)
+            | Cell::Json(s) => s.len(),
             Cell::Bytes(b) => b.len(),
             _ => 0,
         }
@@ -107,7 +114,13 @@ impl Cell {
                 Value::String(s)
             }
             Cell::Json(s) => serde_json::from_str(s).unwrap_or_else(|_| Value::String(s.clone())),
-            Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => Value::String(s.clone()),
+            Cell::Decimal(s)
+            | Cell::Text(s)
+            | Cell::Date(s)
+            | Cell::Time(s)
+            | Cell::DateTime(s)
+            | Cell::DateTimeTz(s)
+            | Cell::Uuid(s) => Value::String(s.clone()),
         }
     }
 }
@@ -238,7 +251,13 @@ pub struct DeltaSpec {
 pub enum Buckets {
     /// First key column is an integer: `width`-wide ranges from `lo`
     /// (rows outside `lo..=hi` fall in the edge buckets `-1` and `n`).
-    Range { column: String, lo: i64, hi: i64, width: i64, n: u64 },
+    Range {
+        column: String,
+        lo: i64,
+        hi: i64,
+        width: i64,
+        n: u64,
+    },
     /// A hash of the key modulo `n` (a prime).
     Hash { n: u64 },
 }
@@ -317,7 +336,13 @@ impl Default for BatchBuilder {
 
 impl BatchBuilder {
     pub fn new() -> Self {
-        BatchBuilder { batch: RowBatch { rows: Vec::with_capacity(CHUNK_ROWS), bytes: 0 }, rows: 0 }
+        BatchBuilder {
+            batch: RowBatch {
+                rows: Vec::with_capacity(CHUNK_ROWS),
+                bytes: 0,
+            },
+            rows: 0,
+        }
     }
 
     /// Add a row; a full batch goes to `sink`.
@@ -337,7 +362,10 @@ impl BatchBuilder {
             return Ok(());
         }
         // The next batch isn't sized after one huge row.
-        let next = RowBatch { rows: Vec::with_capacity(self.batch.rows.len().min(CHUNK_ROWS)), bytes: 0 };
+        let next = RowBatch {
+            rows: Vec::with_capacity(self.batch.rows.len().min(CHUNK_ROWS)),
+            bytes: 0,
+        };
         sink.batch(std::mem::replace(&mut self.batch, next))
     }
 }
@@ -356,7 +384,12 @@ pub struct JsonBatches {
 
 impl JsonBatches {
     pub fn new(sink: BatchSinkRef) -> Self {
-        JsonBatches { sink, builder: BatchBuilder::new(), wanted: None, pick: Vec::new() }
+        JsonBatches {
+            sink,
+            builder: BatchBuilder::new(),
+            wanted: None,
+            pick: Vec::new(),
+        }
     }
 
     /// Hand over only `columns`, in that order (a read's `ReadSpec::columns`).
@@ -367,7 +400,10 @@ impl JsonBatches {
 
     /// Hand over the last batch; the rows read.
     pub fn finish(&mut self) -> crate::Result<u64> {
-        let mut sink = self.sink.lock().map_err(|_| crate::Error::State("destino de lotes".into()))?;
+        let mut sink = self
+            .sink
+            .lock()
+            .map_err(|_| crate::Error::State("destino de lotes".into()))?;
         self.builder.flush(&mut *sink)?;
         Ok(self.builder.rows)
     }
@@ -386,24 +422,40 @@ impl crate::RowSink for JsonBatches {
                     columns
                         .iter()
                         .position(|c| c.name.eq_ignore_ascii_case(n))
-                        .ok_or_else(|| io::Error::other(format!("la lectura no trae la columna «{n}»")))
+                        .ok_or_else(|| {
+                            io::Error::other(format!("la lectura no trae la columna «{n}»"))
+                        })
                 })
                 .collect::<io::Result<_>>()?,
         };
         let cols: Vec<TransferColumn> = self
             .pick
             .iter()
-            .map(|&i| TransferColumn { name: columns[i].name.clone(), type_name: columns[i].type_name.clone(), nullable: true })
+            .map(|&i| TransferColumn {
+                name: columns[i].name.clone(),
+                type_name: columns[i].type_name.clone(),
+                nullable: true,
+            })
             .collect();
-        self.sink.lock().map_err(|_| io::Error::other("destino de lotes"))?.begin(&cols)
+        self.sink
+            .lock()
+            .map_err(|_| io::Error::other("destino de lotes"))?
+            .begin(&cols)
     }
 
     fn row(&mut self, index: usize, row: &[Value]) -> io::Result<()> {
         if index != 0 {
             return Ok(());
         }
-        let mut sink = self.sink.lock().map_err(|_| io::Error::other("destino de lotes"))?;
-        let cells = self.pick.iter().map(|&i| row.get(i).map(Cell::from_json).unwrap_or(Cell::Null)).collect();
+        let mut sink = self
+            .sink
+            .lock()
+            .map_err(|_| io::Error::other("destino de lotes"))?;
+        let cells = self
+            .pick
+            .iter()
+            .map(|&i| row.get(i).map(Cell::from_json).unwrap_or(Cell::Null))
+            .collect();
         self.builder.push(cells, &mut *sink)
     }
 }
@@ -411,16 +463,30 @@ impl crate::RowSink for JsonBatches {
 /// Read a table through `execute` + `browse_query`, turning its grid
 /// values into cells: the default [`Session::read_batches`](crate::Session::read_batches),
 /// and the fallback for drivers published before it existed.
-pub async fn read_via_execute<S: crate::Session + ?Sized>(session: &mut S, spec: &ReadSpec, sink: BatchSinkRef) -> crate::Result<u64> {
+pub async fn read_via_execute<S: crate::Session + ?Sized>(
+    session: &mut S,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> crate::Result<u64> {
     if spec.filter.is_some() {
-        return Err(crate::Error::Unsupported("este motor no filtra la lectura por lotes".into()));
+        return Err(crate::Error::Unsupported(
+            "este motor no filtra la lectura por lotes".into(),
+        ));
     }
     let query = session.browse_query(&spec.table, u32::MAX);
-    let adapter = Arc::new(Mutex::new(JsonBatches::new(sink).with_columns(spec.columns.clone())));
-    let mut out = crate::QueryOutcome { sink: Some(crate::RowSinkRef(adapter.clone())), ..Default::default() };
+    let adapter = Arc::new(Mutex::new(
+        JsonBatches::new(sink).with_columns(spec.columns.clone()),
+    ));
+    let mut out = crate::QueryOutcome {
+        sink: Some(crate::RowSinkRef(adapter.clone())),
+        ..Default::default()
+    };
     let r = session.execute(&query, usize::MAX, &mut out).await;
     out.sink = None;
-    let rows = adapter.lock().map_err(|_| crate::Error::State("lector de lotes".into()))?.finish()?;
+    let rows = adapter
+        .lock()
+        .map_err(|_| crate::Error::State("lector de lotes".into()))?
+        .finish()?;
     r?;
     if let Some(e) = out.sink_error.or(out.error) {
         return Err(crate::Error::Query(e));
@@ -486,13 +552,17 @@ mod tests {
             b.push(vec![Cell::Int(i)], &mut sink).unwrap();
         }
         b.flush(&mut sink).unwrap();
-        assert_eq!(sink.0.iter().map(RowBatch::len).collect::<Vec<_>>(), vec![1000, 1000, 500]);
+        assert_eq!(
+            sink.0.iter().map(RowBatch::len).collect::<Vec<_>>(),
+            vec![1000, 1000, 500]
+        );
 
         // Wide rows: the byte bound closes the batch first.
         let mut sink = Collect(Vec::new());
         let mut b = BatchBuilder::new();
         for _ in 0..10 {
-            b.push(vec![Cell::Bytes(vec![0; 1024 * 1024])], &mut sink).unwrap();
+            b.push(vec![Cell::Bytes(vec![0; 1024 * 1024])], &mut sink)
+                .unwrap();
         }
         b.flush(&mut sink).unwrap();
         assert!(sink.0.iter().all(|x| x.len() <= 2));
@@ -507,8 +577,14 @@ mod tests {
         assert_eq!(s.len(), 2 + 4096 * 2);
         assert!(!s.ends_with('…'));
         assert_eq!(Cell::from_json(&serde_json::json!(5)), Cell::Int(5));
-        assert_eq!(Cell::from_json(&serde_json::json!(u64::MAX)), Cell::UInt(u64::MAX));
-        assert_eq!(Cell::from_json(&serde_json::json!({"a": 1})), Cell::Json("{\"a\":1}".into()));
+        assert_eq!(
+            Cell::from_json(&serde_json::json!(u64::MAX)),
+            Cell::UInt(u64::MAX)
+        );
+        assert_eq!(
+            Cell::from_json(&serde_json::json!({"a": 1})),
+            Cell::Json("{\"a\":1}".into())
+        );
     }
 
     #[test]
@@ -516,11 +592,25 @@ mod tests {
         use crate::RowSink;
         let sink = Arc::new(Mutex::new(Collect(Vec::new())));
         let mut j = JsonBatches::new(sink.clone()).with_columns(Some(vec!["C".into(), "a".into()]));
-        let col = |n: &str| crate::ResultColumn { name: n.into(), type_name: String::new() };
+        let col = |n: &str| crate::ResultColumn {
+            name: n.into(),
+            type_name: String::new(),
+        };
         j.begin(0, &[col("a"), col("b"), col("c")]).unwrap();
-        j.row(0, &[serde_json::json!(1), serde_json::json!(2), serde_json::json!(3)]).unwrap();
+        j.row(
+            0,
+            &[
+                serde_json::json!(1),
+                serde_json::json!(2),
+                serde_json::json!(3),
+            ],
+        )
+        .unwrap();
         assert_eq!(j.finish().unwrap(), 1);
-        assert_eq!(sink.lock().unwrap().0[0].rows, vec![vec![Cell::Int(3), Cell::Int(1)]]);
+        assert_eq!(
+            sink.lock().unwrap().0[0].rows,
+            vec![vec![Cell::Int(3), Cell::Int(1)]]
+        );
         // A column the read doesn't bring is an error, not a silent shift.
         let mut j = JsonBatches::new(sink).with_columns(Some(vec!["z".into()]));
         assert!(j.begin(0, &[col("a")]).is_err());
@@ -528,7 +618,11 @@ mod tests {
 
     #[test]
     fn changed_buckets_are_the_differences() {
-        let b = |bucket, rows, sum: &str| BucketSum { bucket, rows, sum: sum.into() };
+        let b = |bucket, rows, sum: &str| BucketSum {
+            bucket,
+            rows,
+            sum: sum.into(),
+        };
         let src = vec![b(0, 10, "5"), b(1, 10, "6"), b(2, 3, "1")];
         let dst = vec![b(0, 10, "5"), b(1, 10, "7"), b(3, 1, "9")];
         assert_eq!(changed_buckets(&src, &dst), vec![1, 2, 3]);
@@ -536,7 +630,14 @@ mod tests {
 
     #[test]
     fn batches_serialize_bytes_compactly() {
-        let batch = RowBatch { rows: vec![vec![Cell::Bytes(vec![1, 2, 3]), Cell::Decimal("12.3400".into()), Cell::Null]], bytes: 0 };
+        let batch = RowBatch {
+            rows: vec![vec![
+                Cell::Bytes(vec![1, 2, 3]),
+                Cell::Decimal("12.3400".into()),
+                Cell::Null,
+            ]],
+            bytes: 0,
+        };
         let json = serde_json::to_string(&batch).unwrap();
         let back: RowBatch = serde_json::from_str(&json).unwrap();
         assert_eq!(back.rows, batch.rows);

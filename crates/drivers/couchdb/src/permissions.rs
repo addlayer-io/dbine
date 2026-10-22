@@ -32,12 +32,20 @@ impl User {
 }
 
 fn strs(v: Option<&Value>) -> Vec<String> {
-    v.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect()
+    v.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
 }
 
 pub(crate) fn user(session: &Value) -> Option<User> {
     let ctx = session.get("userCtx")?;
-    Some(User { name: ctx.get("name").and_then(Value::as_str).map(str::to_string), roles: strs(ctx.get("roles")) })
+    Some(User {
+        name: ctx.get("name").and_then(Value::as_str).map(str::to_string),
+        roles: strs(ctx.get("roles")),
+    })
 }
 
 /// The user is in `_security.admins`, by name or role.
@@ -56,7 +64,11 @@ pub(crate) fn decide(user: Option<&User>, db_admin: Option<bool>, database: bool
         let admin = Access::check(u.server_admin(), "_admin (administrador del servidor)");
         p.create_database = admin.clone();
         p.drop_database = if database { admin } else { Access::Unknown };
-        p.manage_security = if u.server_admin() || db_admin == Some(true) { Access::Allowed } else { Access::Unknown };
+        p.manage_security = if u.server_admin() || db_admin == Some(true) {
+            Access::Allowed
+        } else {
+            Access::Unknown
+        };
     }
     p
 }
@@ -77,9 +89,9 @@ pub(crate) async fn check(s: &CouchSession, database: Option<&str>) -> Result<Pe
     let database = database.map(str::trim).filter(|d| !d.is_empty());
     let u = get(s, "/_session").await?.as_ref().and_then(user);
     let db_admin = match (&u, database) {
-        (Some(u), Some(db)) if !u.server_admin() => {
-            get(s, &format!("/{}/_security", seg(db))).await?.map(|sec| database_admin(&sec, u))
-        }
+        (Some(u), Some(db)) if !u.server_admin() => get(s, &format!("/{}/_security", seg(db)))
+            .await?
+            .map(|sec| database_admin(&sec, u)),
         _ => None,
     };
     Ok(decide(u.as_ref(), db_admin, database.is_some()))
@@ -96,10 +108,17 @@ mod tests {
 
     #[test]
     fn a_server_admin_may_do_everything_offered() {
-        let u = user(&json!({ "ok": true, "userCtx": { "name": "admin", "roles": ["_admin"] } })).unwrap();
+        let u = user(&json!({ "ok": true, "userCtx": { "name": "admin", "roles": ["_admin"] } }))
+            .unwrap();
         let p = decide(Some(&u), None, true);
-        assert_eq!((&p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.backup, &p.profiler, &p.kill_session), (&Access::Unknown, &Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.create_database, &p.drop_database, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
+        assert_eq!(
+            (&p.backup, &p.profiler, &p.kill_session),
+            (&Access::Unknown, &Access::Unknown, &Access::Unknown)
+        );
         assert_eq!(decide(Some(&u), None, false).drop_database, Access::Unknown);
     }
 
@@ -110,11 +129,23 @@ mod tests {
         assert!(denied(&p.create_database, "_admin") && denied(&p.drop_database, "_admin"));
         // It may still sign users up: not proven.
         assert_eq!(p.manage_security, Access::Unknown);
-        assert!(database_admin(&json!({ "admins": { "names": [], "roles": ["ventas"] } }), &u));
-        assert!(database_admin(&json!({ "admins": { "names": ["ana"] } }), &u));
-        assert!(!database_admin(&json!({ "members": { "names": ["ana"] } }), &u));
+        assert!(database_admin(
+            &json!({ "admins": { "names": [], "roles": ["ventas"] } }),
+            &u
+        ));
+        assert!(database_admin(
+            &json!({ "admins": { "names": ["ana"] } }),
+            &u
+        ));
+        assert!(!database_admin(
+            &json!({ "members": { "names": ["ana"] } }),
+            &u
+        ));
         assert!(!database_admin(&json!({}), &u));
-        assert_eq!(decide(Some(&u), Some(true), true).manage_security, Access::Allowed);
+        assert_eq!(
+            decide(Some(&u), Some(true), true).manage_security,
+            Access::Allowed
+        );
     }
 
     #[test]

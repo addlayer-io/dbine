@@ -10,7 +10,11 @@ pub fn base_url(cfg: &ConnectionConfig, default_port: u16) -> String {
     let host = if host.is_empty() { "localhost" } else { host };
     if host.starts_with("http://") || host.starts_with("https://") {
         let has_port = host.split("://").nth(1).is_some_and(|h| h.contains(':'));
-        return if has_port || cfg.port == 0 { host.to_string() } else { format!("{host}:{}", cfg.port) };
+        return if has_port || cfg.port == 0 {
+            host.to_string()
+        } else {
+            format!("{host}:{}", cfg.port)
+        };
     }
     let scheme = if cfg.encrypt { "https" } else { "http" };
     format!("{scheme}://{host}:{}", cfg.port_or(default_port))
@@ -53,19 +57,30 @@ pub async fn text(resp: reqwest::Response) -> Result<String> {
 /// `{"error": …}` (v1, v3) or `{"code": …, "message": …}` (v2).
 pub fn error_message(body: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
-    ["error", "message"].iter().find_map(|k| v.get(k)?.as_str().map(str::to_string))
+    ["error", "message"]
+        .iter()
+        .find_map(|k| v.get(k)?.as_str().map(str::to_string))
 }
 
 /// RFC 3339 timestamps (`2024-01-31T13:45:00.5Z`) as DBine shows dates
 /// (`2024-01-31 13:45:00.5`, UTC); anything else unchanged.
 pub fn iso_time(s: &str) -> Option<String> {
     let b = s.as_bytes();
-    let looks = b.len() >= 19 && b[4] == b'-' && b[7] == b'-' && b[10] == b'T' && b[13] == b':' && b[16] == b':';
+    let looks = b.len() >= 19
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[10] == b'T'
+        && b[13] == b':'
+        && b[16] == b':';
     if !looks {
         return None;
     }
     if let Ok(t) = chrono::DateTime::parse_from_rfc3339(s) {
-        return Some(t.with_timezone(&chrono::Utc).format("%Y-%m-%d %H:%M:%S%.f").to_string());
+        return Some(
+            t.with_timezone(&chrono::Utc)
+                .format("%Y-%m-%d %H:%M:%S%.f")
+                .to_string(),
+        );
     }
     Some(s.trim_end_matches('Z').replacen('T', " ", 1))
 }
@@ -89,7 +104,10 @@ mod tests {
 
     #[test]
     fn urls() {
-        let mut cfg = ConnectionConfig { host: "db".into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            host: "db".into(),
+            ..Default::default()
+        };
         assert_eq!(base_url(&cfg, 8086), "http://db:8086");
         cfg.encrypt = true;
         cfg.port = 443;
@@ -104,15 +122,27 @@ mod tests {
 
     #[test]
     fn times() {
-        assert_eq!(iso_time("2024-01-31T13:45:00Z").unwrap(), "2024-01-31 13:45:00");
-        assert_eq!(iso_time("2024-01-31T13:45:00.123456789Z").unwrap(), "2024-01-31 13:45:00.123456789");
-        assert_eq!(iso_time("2024-01-31T13:45:00").unwrap(), "2024-01-31 13:45:00");
+        assert_eq!(
+            iso_time("2024-01-31T13:45:00Z").unwrap(),
+            "2024-01-31 13:45:00"
+        );
+        assert_eq!(
+            iso_time("2024-01-31T13:45:00.123456789Z").unwrap(),
+            "2024-01-31 13:45:00.123456789"
+        );
+        assert_eq!(
+            iso_time("2024-01-31T13:45:00").unwrap(),
+            "2024-01-31 13:45:00"
+        );
         assert!(iso_time("cpu").is_none());
     }
 
     #[test]
     fn errors() {
-        assert_eq!(error_message(r#"{"code":"invalid","message":"bad"}"#).unwrap(), "bad");
+        assert_eq!(
+            error_message(r#"{"code":"invalid","message":"bad"}"#).unwrap(),
+            "bad"
+        );
         assert_eq!(error_message(r#"{"error":"boom"}"#).unwrap(), "boom");
         assert!(error_message("plain").is_none());
         assert_eq!(escape(r#"a"b\c"#, '"'), r#"a\"b\\c"#);

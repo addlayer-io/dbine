@@ -17,7 +17,9 @@
 //! Each change is one statement in its own transaction, committed.
 
 use crate::{err, int, join_err, text, Conn, FirebirdSession};
-use dbine_driver::{DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result};
+use dbine_driver::{
+    DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result,
+};
 use rsfbclient_core::{Column, Dialect, FirebirdClientSqlOps, TrOp};
 use std::collections::BTreeMap;
 
@@ -26,7 +28,11 @@ fn yes(v: &str) -> bool {
 }
 
 fn flag(on: bool) -> String {
-    if on { "true".into() } else { String::new() }
+    if on {
+        "true".into()
+    } else {
+        String::new()
+    }
 }
 
 /// The statements for `changes`, in a fixed order.
@@ -36,27 +42,40 @@ pub(crate) fn alter(changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
         let value = value.trim();
         out.push(match key.as_str() {
             "charset" => {
-                if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-                    return Err(Error::Query(format!("juego de caracteres: «{value}» no es un valor válido")));
+                if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    return Err(Error::Query(format!(
+                        "juego de caracteres: «{value}» no es un valor válido"
+                    )));
                 }
-                format!("ALTER DATABASE SET DEFAULT CHARACTER SET {}", value.to_ascii_uppercase())
+                format!(
+                    "ALTER DATABASE SET DEFAULT CHARACTER SET {}",
+                    value.to_ascii_uppercase()
+                )
             }
             "comment" if value.is_empty() => "COMMENT ON DATABASE IS NULL".into(),
             "comment" => format!("COMMENT ON DATABASE IS '{}'", value.replace('\'', "''")),
             "linger" if value.is_empty() || value == "0" => "ALTER DATABASE DROP LINGER".into(),
             "linger" => {
                 if value.len() > 9 || !value.chars().all(|c| c.is_ascii_digit()) {
-                    return Err(Error::Query(format!("demora al cerrar: «{value}» no es un número de segundos")));
+                    return Err(Error::Query(format!(
+                        "demora al cerrar: «{value}» no es un número de segundos"
+                    )));
                 }
                 format!("ALTER DATABASE SET LINGER TO {value}")
             }
             "sql_security" => {
                 if !matches!(value, "DEFINER" | "INVOKER") {
-                    return Err(Error::Query(format!("SQL SECURITY: «{value}» no es DEFINER ni INVOKER")));
+                    return Err(Error::Query(format!(
+                        "SQL SECURITY: «{value}» no es DEFINER ni INVOKER"
+                    )));
                 }
                 format!("ALTER DATABASE SET DEFAULT SQL SECURITY {value}")
             }
-            "publication" => format!("ALTER DATABASE {} PUBLICATION", if yes(value) { "ENABLE" } else { "DISABLE" }),
+            "publication" => format!(
+                "ALTER DATABASE {} PUBLICATION",
+                if yes(value) { "ENABLE" } else { "DISABLE" }
+            ),
             "publication_all" if yes(value) => "ALTER DATABASE INCLUDE ALL TO PUBLICATION".into(),
             "publication_all" => "ALTER DATABASE EXCLUDE ALL FROM PUBLICATION".into(),
             k => return Err(Error::Query(format!("propiedad desconocida: {k}"))),
@@ -66,7 +85,11 @@ pub(crate) fn alter(changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
 }
 
 pub(crate) fn script(changes: &BTreeMap<String, String>) -> Result<String> {
-    Ok(alter(changes)?.iter().map(|s| format!("{s};")).collect::<Vec<_>>().join("\n"))
+    Ok(alter(changes)?
+        .iter()
+        .map(|s| format!("{s};"))
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 /// `1.5 GB`.
@@ -120,13 +143,26 @@ struct Read {
 
 fn read(c: &mut Conn) -> Result<Read> {
     let first = |rows: Result<Vec<Vec<Column>>>| rows.ok().and_then(|r| r.into_iter().next());
-    let mon = first(c.rows(MON, vec![])).ok_or_else(|| Error::Query("MON$DATABASE no devolvió filas".into()))?;
-    let mon3 = first(c.rows("SELECT MON$OWNER, MON$CRYPT_STATE, MON$SEC_DATABASE FROM MON$DATABASE", vec![]));
-    let replica = first(c.rows("SELECT MON$REPLICA_MODE FROM MON$DATABASE", vec![])).and_then(|r| r.first().and_then(int));
-    let db = first(c.rows("SELECT TRIM(RDB$CHARACTER_SET_NAME), RDB$DESCRIPTION FROM RDB$DATABASE", vec![])).unwrap_or_default();
-    let linger = first(c.rows("SELECT RDB$LINGER FROM RDB$DATABASE", vec![])).map(|r| r.first().and_then(int));
-    let sql_security = first(c.rows("SELECT CASE WHEN RDB$SQL_SECURITY THEN 'DEFINER' ELSE 'INVOKER' END FROM RDB$DATABASE", vec![]))
-        .and_then(|r| r.first().and_then(text));
+    let mon = first(c.rows(MON, vec![]))
+        .ok_or_else(|| Error::Query("MON$DATABASE no devolvió filas".into()))?;
+    let mon3 = first(c.rows(
+        "SELECT MON$OWNER, MON$CRYPT_STATE, MON$SEC_DATABASE FROM MON$DATABASE",
+        vec![],
+    ));
+    let replica = first(c.rows("SELECT MON$REPLICA_MODE FROM MON$DATABASE", vec![]))
+        .and_then(|r| r.first().and_then(int));
+    let db = first(c.rows(
+        "SELECT TRIM(RDB$CHARACTER_SET_NAME), RDB$DESCRIPTION FROM RDB$DATABASE",
+        vec![],
+    ))
+    .unwrap_or_default();
+    let linger = first(c.rows("SELECT RDB$LINGER FROM RDB$DATABASE", vec![]))
+        .map(|r| r.first().and_then(int));
+    let sql_security = first(c.rows(
+        "SELECT CASE WHEN RDB$SQL_SECURITY THEN 'DEFINER' ELSE 'INVOKER' END FROM RDB$DATABASE",
+        vec![],
+    ))
+    .and_then(|r| r.first().and_then(text));
     let publication = first(c.rows(
         "SELECT RDB$ACTIVE_FLAG, RDB$AUTO_ENABLE FROM RDB$PUBLICATIONS WHERE RDB$PUBLICATION_NAME = 'RDB$DEFAULT'",
         vec![],
@@ -139,12 +175,25 @@ fn read(c: &mut Conn) -> Result<Read> {
     ))
     .unwrap_or_default();
     let charsets = c
-        .rows("SELECT TRIM(RDB$CHARACTER_SET_NAME) FROM RDB$CHARACTER_SETS ORDER BY 1", vec![])
+        .rows(
+            "SELECT TRIM(RDB$CHARACTER_SET_NAME) FROM RDB$CHARACTER_SETS ORDER BY 1",
+            vec![],
+        )
         .unwrap_or_default()
         .iter()
         .filter_map(|r| r.first().and_then(text))
         .collect();
-    Ok(Read { mon, mon3, replica, db, linger, sql_security, publication, relations, charsets })
+    Ok(Read {
+        mon,
+        mon3,
+        replica,
+        db,
+        linger,
+        sql_security,
+        publication,
+        relations,
+        charsets,
+    })
 }
 
 impl FirebirdSession {
@@ -157,7 +206,11 @@ impl FirebirdSession {
     {
         let mut t = self.target.clone();
         let database = database.trim();
-        t.attach.db_name = if database.is_empty() { self.database.clone() } else { database.to_string() };
+        t.attach.db_name = if database.is_empty() {
+            self.database.clone()
+        } else {
+            database.to_string()
+        };
         tokio::task::spawn_blocking(move || {
             let mut c = Conn::open(&t)?;
             f(&mut c)
@@ -170,41 +223,106 @@ impl FirebirdSession {
         let r = self.on_database(database, read).await?;
         let m = |i: usize| r.mon.get(i);
         let n = |i: usize| m(i).and_then(int);
-        let t = |i: usize| m(i).and_then(text).map(|s| s.trim().to_string()).unwrap_or_default();
-        let yes_no = |i: usize| if n(i) == Some(1) { "Sí".to_string() } else { "No".to_string() };
-        let fact = |group: &str, label: &str, value: String| PropertyInfo { group: group.into(), label: label.into(), value };
+        let t = |i: usize| {
+            m(i).and_then(text)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default()
+        };
+        let yes_no = |i: usize| {
+            if n(i) == Some(1) {
+                "Sí".to_string()
+            } else {
+                "No".to_string()
+            }
+        };
+        let fact = |group: &str, label: &str, value: String| PropertyInfo {
+            group: group.into(),
+            label: label.into(),
+            value,
+        };
 
         let mut info = vec![fact("", "Archivo", t(0))];
         if let Some(m3) = &r.mon3 {
-            info.push(fact("", "Dueño", m3.first().and_then(text).map(|s| s.trim().to_string()).unwrap_or_default()));
+            info.push(fact(
+                "",
+                "Dueño",
+                m3.first()
+                    .and_then(text)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default(),
+            ));
         }
         info.push(fact("", "Creada", t(11)));
         info.push(fact("", "ODS", format!("{}.{}", t(2), t(3))));
         info.push(fact("", "Dialecto SQL", t(4)));
         info.push(fact("", "Solo lectura", yes_no(9)));
-        info.push(fact("", "Apagado (shutdown)", label(n(12), &["En línea", "Multiusuario", "Un solo usuario", "Completo"])));
-        info.push(fact("", "Copia (nbackup)", label(n(13), &["Normal", "Bloqueada (BEGIN BACKUP)", "Fusionando"])));
+        info.push(fact(
+            "",
+            "Apagado (shutdown)",
+            label(
+                n(12),
+                &["En línea", "Multiusuario", "Un solo usuario", "Completo"],
+            ),
+        ));
+        info.push(fact(
+            "",
+            "Copia (nbackup)",
+            label(n(13), &["Normal", "Bloqueada (BEGIN BACKUP)", "Fusionando"]),
+        ));
         if let Some(m3) = &r.mon3 {
             info.push(fact(
                 "",
                 "Cifrado",
-                label(m3.get(1).and_then(int), &["Sin cifrar", "Cifrada", "Descifrándose", "Cifrándose"]),
+                label(
+                    m3.get(1).and_then(int),
+                    &["Sin cifrar", "Cifrada", "Descifrándose", "Cifrándose"],
+                ),
             ));
-            info.push(fact("", "Base de seguridad", m3.get(2).and_then(text).map(|s| s.trim().to_string()).unwrap_or_default()));
+            info.push(fact(
+                "",
+                "Base de seguridad",
+                m3.get(2)
+                    .and_then(text)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default(),
+            ));
         }
         if let Some(rm) = r.replica {
-            info.push(fact("Replicación", "Modo de réplica", label(Some(rm), &["No es réplica", "Réplica de solo lectura", "Réplica de lectura y escritura"])));
+            info.push(fact(
+                "Replicación",
+                "Modo de réplica",
+                label(
+                    Some(rm),
+                    &[
+                        "No es réplica",
+                        "Réplica de solo lectura",
+                        "Réplica de lectura y escritura",
+                    ],
+                ),
+            ));
         }
         if !r.relations.is_empty() {
-            info.push(fact("", "Tablas", r.relations.first().and_then(int).unwrap_or(0).to_string()));
-            info.push(fact("", "Vistas", r.relations.get(1).and_then(int).unwrap_or(0).to_string()));
+            info.push(fact(
+                "",
+                "Tablas",
+                r.relations.first().and_then(int).unwrap_or(0).to_string(),
+            ));
+            info.push(fact(
+                "",
+                "Vistas",
+                r.relations.get(1).and_then(int).unwrap_or(0).to_string(),
+            ));
         }
         let (page, pages) = (n(1).unwrap_or(0), n(5).unwrap_or(0));
         info.push(fact("Almacenamiento", "Tamaño", human(page * pages)));
         info.push(fact("Almacenamiento", "Tamaño de página", t(1)));
         info.push(fact("Almacenamiento", "Páginas", t(5)));
         info.push(fact("Almacenamiento", "Páginas en caché", t(6)));
-        info.push(fact("Almacenamiento", "Escrituras forzadas (forced writes)", yes_no(8)));
+        info.push(fact(
+            "Almacenamiento",
+            "Escrituras forzadas (forced writes)",
+            yes_no(8),
+        ));
         info.push(fact("Almacenamiento", "Espacio reservado", yes_no(10)));
         info.push(fact("Mantenimiento", "Intervalo de barrido (sweep)", t(7)));
         info.push(fact("Mantenimiento", "Transacción más vieja (OIT)", t(14)));
@@ -218,12 +336,25 @@ impl FirebirdSession {
 
         let mut values = BTreeMap::new();
         let mut fields = vec![
-            Field::new("charset", "Juego de caracteres por defecto", FieldKind::Text)
-                .help("El de las columnas y dominios nuevos que no indiquen otro."),
+            Field::new(
+                "charset",
+                "Juego de caracteres por defecto",
+                FieldKind::Text,
+            )
+            .help("El de las columnas y dominios nuevos que no indiquen otro."),
             Field::new("comment", "Comentario", FieldKind::Textarea),
         ];
-        values.insert("charset".to_string(), r.db.first().and_then(text).map(|s| s.trim().to_string()).unwrap_or_default());
-        values.insert("comment".to_string(), r.db.get(1).and_then(text).unwrap_or_default());
+        values.insert(
+            "charset".to_string(),
+            r.db.first()
+                .and_then(text)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default(),
+        );
+        values.insert(
+            "comment".to_string(),
+            r.db.get(1).and_then(text).unwrap_or_default(),
+        );
         let mut warnings = BTreeMap::new();
         warnings.insert(
             "charset".to_string(),
@@ -262,21 +393,42 @@ impl FirebirdSession {
                     .group("Replicación"),
             );
             fields.push(
-                Field::new("publication_all", "Publicar todas las tablas (INCLUDE ALL)", FieldKind::Bool)
-                    .help("También las que se creen después.")
-                    .group("Replicación"),
+                Field::new(
+                    "publication_all",
+                    "Publicar todas las tablas (INCLUDE ALL)",
+                    FieldKind::Bool,
+                )
+                .help("También las que se creen después.")
+                .group("Replicación"),
             );
-            warnings.insert("publication".into(), "Desactivarla deja de enviar los cambios a las réplicas.".into());
+            warnings.insert(
+                "publication".into(),
+                "Desactivarla deja de enviar los cambios a las réplicas.".into(),
+            );
             warnings.insert(
                 "publication_all".into(),
                 "Activarlo agrega a la publicación todas las tablas (también las nuevas); desactivarlo las quita a todas, también las agregadas una por una.".into(),
             );
         }
-        let choices = vec![FieldChoices { key: "charset".into(), default: None, values: r.charsets }];
-        Ok(DatabaseProperties { fields, values, info, choices, warnings })
+        let choices = vec![FieldChoices {
+            key: "charset".into(),
+            default: None,
+            values: r.charsets,
+        }];
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices,
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let statements = alter(changes)?;
         self.on_database(database, move |c| {
             for (i, sql) in statements.iter().enumerate() {
@@ -286,7 +438,14 @@ impl FirebirdSession {
                     .and_then(|_| c.end_transaction(TrOp::Commit))
                     .map_err(err);
                 if let Err(e) = r {
-                    return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+                    return Err(if i == 0 {
+                        e
+                    } else {
+                        Error::Query(format!(
+                            "se aplicaron {i} de {} cambios; falló: {sql}\n{e}",
+                            statements.len()
+                        ))
+                    });
                 }
             }
             Ok(())
@@ -300,7 +459,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -330,7 +492,14 @@ ALTER DATABASE SET DEFAULT SQL SECURITY DEFINER;"
 
     #[test]
     fn values_are_checked() {
-        for bad in [("charset", "UTF8; DROP"), ("charset", ""), ("linger", "-1"), ("linger", "1e3"), ("sql_security", "OWNER"), ("nope", "1")] {
+        for bad in [
+            ("charset", "UTF8; DROP"),
+            ("charset", ""),
+            ("linger", "-1"),
+            ("linger", "1e3"),
+            ("sql_security", "OWNER"),
+            ("nope", "1"),
+        ] {
             assert!(script(&c(&[bad])).is_err(), "{bad:?}");
         }
     }

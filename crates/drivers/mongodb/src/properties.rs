@@ -28,7 +28,11 @@ fn unsupported() -> Error {
 /// The `profile` command for `changes` (`profile` level, `slowms`,
 /// `sample_rate`), or none when nothing changes. The level stays as it is
 /// (`-1`) when only the server-wide values change.
-pub(crate) fn commands(flavor: Flavor, database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<Document>> {
+pub(crate) fn commands(
+    flavor: Flavor,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<Vec<Document>> {
     if flavor != Flavor::Mongo {
         return Err(unsupported());
     }
@@ -42,7 +46,11 @@ pub(crate) fn commands(flavor: Flavor, database: &str, changes: &BTreeMap<String
                     "0" => 0,
                     "1" => 1,
                     "2" => 2,
-                    _ => return Err(Error::Query(format!("nivel de profiling: «{value}» no es 0, 1 ni 2"))),
+                    _ => {
+                        return Err(Error::Query(format!(
+                            "nivel de profiling: «{value}» no es 0, 1 ni 2"
+                        )))
+                    }
                 };
             }
             "slowms" => {
@@ -53,11 +61,17 @@ pub(crate) fn commands(flavor: Flavor, database: &str, changes: &BTreeMap<String
                     .ok_or_else(|| Error::Query(format!("umbral de operación lenta: «{value}» no es una cantidad de milisegundos")))?);
             }
             "sample_rate" => {
-                rate = Some(value
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|r| (0.0..=1.0).contains(r))
-                    .ok_or_else(|| Error::Query(format!("muestra de operaciones: «{value}» no es un número entre 0 y 1")))?);
+                rate = Some(
+                    value
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|r| (0.0..=1.0).contains(r))
+                        .ok_or_else(|| {
+                            Error::Query(format!(
+                                "muestra de operaciones: «{value}» no es un número entre 0 y 1"
+                            ))
+                        })?,
+                );
             }
             k => return Err(Error::Query(format!("propiedad desconocida: {k}"))),
         }
@@ -95,11 +109,22 @@ fn shell(database: &str, cmd: &Document) -> String {
     )
 }
 
-pub(crate) fn alter(flavor: Flavor, database: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
-    Ok(commands(flavor, database, changes)?.iter().map(|c| shell(database, c)).collect())
+pub(crate) fn alter(
+    flavor: Flavor,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
+    Ok(commands(flavor, database, changes)?
+        .iter()
+        .map(|c| shell(database, c))
+        .collect())
 }
 
-pub(crate) fn script(flavor: Flavor, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
+pub(crate) fn script(
+    flavor: Flavor,
+    database: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<String> {
     Ok(alter(flavor, database, changes)?.join("\n"))
 }
 
@@ -119,18 +144,30 @@ fn bytes(n: f64) -> String {
 }
 
 fn fact(group: &str, label: &str, value: String) -> PropertyInfo {
-    PropertyInfo { group: group.into(), label: label.into(), value }
+    PropertyInfo {
+        group: group.into(),
+        label: label.into(),
+        value,
+    }
 }
 
 impl MongoSession {
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         check_database_name(database)?;
         let db = self.client.database(database);
-        let stats = db.run_command(doc! { "dbStats": 1, "scale": 1 }).await.map_err(err)?;
+        let stats = db
+            .run_command(doc! { "dbStats": 1, "scale": 1 })
+            .await
+            .map_err(err)?;
         let count = |k: &str| num(&stats, &[k]).map(|n| (n as i64).to_string());
         let size = |k: &str| num(&stats, &[k]).map(bytes);
         let mut info = Vec::new();
-        for (k, label) in [("collections", "Colecciones"), ("views", "Vistas"), ("objects", "Documentos (objects)"), ("indexes", "Índices")] {
+        for (k, label) in [
+            ("collections", "Colecciones"),
+            ("views", "Vistas"),
+            ("objects", "Documentos (objects)"),
+            ("indexes", "Índices"),
+        ] {
             if let Some(v) = count(k) {
                 info.push(fact("", label, v));
             }
@@ -146,8 +183,14 @@ impl MongoSession {
                 info.push(fact(STORAGE, label, v));
             }
         }
-        if let (Some(used), Some(total)) = (num(&stats, &["fsUsedSize"]), num(&stats, &["fsTotalSize"])) {
-            info.push(fact(STORAGE, "Disco del servidor (usado / total)", format!("{} / {}", bytes(used), bytes(total))));
+        if let (Some(used), Some(total)) =
+            (num(&stats, &["fsUsedSize"]), num(&stats, &["fsTotalSize"]))
+        {
+            info.push(fact(
+                STORAGE,
+                "Disco del servidor (usado / total)",
+                format!("{} / {}", bytes(used), bytes(total)),
+            ));
         }
 
         let mut fields = Vec::new();
@@ -212,11 +255,23 @@ impl MongoSession {
                 }
             }
         }
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
-        self.refuse_if_read_only("Conexión de solo lectura: no se pueden modificar las propiedades de una base.")?;
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
+        self.refuse_if_read_only(
+            "Conexión de solo lectura: no se pueden modificar las propiedades de una base.",
+        )?;
         let cmds = commands(self.flavor, database, changes)?;
         let db = self.client.database(database);
         for (i, cmd) in cmds.iter().enumerate() {
@@ -225,7 +280,11 @@ impl MongoSession {
                 return Err(if i == 0 {
                     e
                 } else {
-                    Error::Query(format!("se aplicaron {i} de {} cambios; falló: {}\n{e}", cmds.len(), shell(database, cmd)))
+                    Error::Query(format!(
+                        "se aplicaron {i} de {} cambios; falló: {}\n{e}",
+                        cmds.len(),
+                        shell(database, cmd)
+                    ))
                 });
             }
         }
@@ -238,13 +297,21 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn one_profile_command() {
         assert_eq!(
-            script(Flavor::Mongo, "ventas", &c(&[("profile", "1"), ("slowms", "250"), ("sample_rate", "0.5")])).unwrap(),
+            script(
+                Flavor::Mongo,
+                "ventas",
+                &c(&[("profile", "1"), ("slowms", "250"), ("sample_rate", "0.5")])
+            )
+            .unwrap(),
             r#"db.getSiblingDB("ventas").runCommand({profile: 1, slowms: 250, sampleRate: 0.5})"#
         );
         assert_eq!(
@@ -264,7 +331,15 @@ mod tests {
 
     #[test]
     fn values_are_checked() {
-        for bad in [("profile", "3"), ("profile", "1;"), ("slowms", "-1"), ("slowms", "abc"), ("sample_rate", "1.5"), ("sample_rate", "x"), ("nope", "1")] {
+        for bad in [
+            ("profile", "3"),
+            ("profile", "1;"),
+            ("slowms", "-1"),
+            ("slowms", "abc"),
+            ("sample_rate", "1.5"),
+            ("sample_rate", "x"),
+            ("nope", "1"),
+        ] {
             assert!(script(Flavor::Mongo, "v", &c(&[bad])).is_err(), "{bad:?}");
         }
         assert!(script(Flavor::Mongo, "a\"b", &c(&[("profile", "1")])).is_err());

@@ -49,7 +49,9 @@
 //! the float back as that decimal.
 
 use crate::{solr_error_message, SolrSession};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, ObjectRef, Result, Session};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
@@ -104,7 +106,8 @@ impl Kind {
             "DatePointField" | "TrieDateField" | "DateRangeField" => Kind::Date,
             "BinaryField" => Kind::Binary,
             "UUIDField" => Kind::Uuid,
-            "StrField" | "TextField" | "SortableTextField" | "ICUCollationField" | "CollationField" => Kind::Text,
+            "StrField" | "TextField" | "SortableTextField" | "ICUCollationField"
+            | "CollationField" => Kind::Text,
             _ => Kind::Other,
         }
     }
@@ -157,7 +160,10 @@ impl Schema {
                 .filter_map(|f| {
                     Some((
                         f.get("name")?.as_str()?.to_string(),
-                        f.get(second).and_then(Value::as_str).unwrap_or_default().to_string(),
+                        f.get(second)
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
                         f.get("multiValued").and_then(Value::as_bool),
                     ))
                 })
@@ -166,17 +172,35 @@ impl Schema {
         let mut dynamic = list("dynamicFields", "type");
         dynamic.sort_by_key(|d| std::cmp::Reverse(d.0.len()));
         let mut flags = std::collections::HashMap::new();
-        for (k, p) in [("fields", "f:"), ("dynamicFields", "d:"), ("fieldTypes", "t:")] {
+        for (k, p) in [
+            ("fields", "f:"),
+            ("dynamicFields", "d:"),
+            ("fieldTypes", "t:"),
+        ] {
             for f in s.get(k).and_then(Value::as_array).into_iter().flatten() {
-                let Some(name) = f.get("name").and_then(Value::as_str) else { continue };
-                let b = |k: &str| f.get(k).and_then(|v| v.as_bool().or_else(|| v.as_str()?.parse().ok()));
-                flags.insert(format!("{p}{name}"), [b("stored"), b("docValues"), b("useDocValuesAsStored")]);
+                let Some(name) = f.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                let b = |k: &str| {
+                    f.get(k)
+                        .and_then(|v| v.as_bool().or_else(|| v.as_str()?.parse().ok()))
+                };
+                flags.insert(
+                    format!("{p}{name}"),
+                    [b("stored"), b("docValues"), b("useDocValuesAsStored")],
+                );
             }
         }
         Schema {
             flags,
-            version: s.get("version").and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok())).unwrap_or(0.0),
-            key: s.get("uniqueKey").and_then(Value::as_str).map(str::to_string),
+            version: s
+                .get("version")
+                .and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok()))
+                .unwrap_or(0.0),
+            key: s
+                .get("uniqueKey")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             fields: list("fields", "type"),
             dynamic,
             types: list("fieldTypes", "class"),
@@ -186,8 +210,15 @@ impl Schema {
                 .into_iter()
                 .flatten()
                 .filter_map(|c| {
-                    let max = c.get("maxChars").and_then(|m| m.as_u64().or_else(|| m.as_str()?.parse().ok())).map(|m| m as usize);
-                    Some((c.get("source")?.as_str()?.to_string(), c.get("dest")?.as_str()?.to_string(), max))
+                    let max = c
+                        .get("maxChars")
+                        .and_then(|m| m.as_u64().or_else(|| m.as_str()?.parse().ok()))
+                        .map(|m| m as usize);
+                    Some((
+                        c.get("source")?.as_str()?.to_string(),
+                        c.get("dest")?.as_str()?.to_string(),
+                        max,
+                    ))
                 })
                 .collect(),
         }
@@ -195,7 +226,8 @@ impl Schema {
 
     /// Whether the schema defines `name` (explicitly or by a dynamic pattern).
     pub fn defines(&self, name: &str) -> bool {
-        self.fields.iter().any(|f| f.0 == name) || self.dynamic.iter().any(|d| dynamic_match(&d.0, name))
+        self.fields.iter().any(|f| f.0 == name)
+            || self.dynamic.iter().any(|d| dynamic_match(&d.0, name))
     }
 
     /// The fields Solr fills from `name` by copyField.
@@ -239,7 +271,11 @@ impl Schema {
         let t = self.types.iter().find(|t| t.0 == *ty);
         let multi = mv.or(t.and_then(|t| t.2)).unwrap_or(false);
         let kind = t.map_or(Kind::Other, |t| Kind::from_class(&t.1));
-        Some(FieldType { type_name: if multi { format!("{ty}[]") } else { ty.clone() }, kind, multi })
+        Some(FieldType {
+            type_name: if multi { format!("{ty}[]") } else { ty.clone() },
+            kind,
+            multi,
+        })
     }
 
     /// Whether a value written to `name` can be read back: stored, or with
@@ -264,9 +300,16 @@ impl Schema {
         // docValues are on by default from schema 1.7 for the types that
         // have them (not text or binary); unsure cases count as off, so
         // the worst outcome is a refusal, never a silent loss.
-        let class = self.types.iter().find(|x| x.0 == ty).map(|x| x.1.as_str()).unwrap_or_default();
+        let class = self
+            .types
+            .iter()
+            .find(|x| x.0 == ty)
+            .map(|x| x.1.as_str())
+            .unwrap_or_default();
         let kind = Kind::from_class(class);
-        let default_dv = self.version >= 1.7 && !matches!(kind, Kind::Other | Kind::Binary) && !class.ends_with("TextField");
+        let default_dv = self.version >= 1.7
+            && !matches!(kind, Kind::Other | Kind::Binary)
+            && !class.ends_with("TextField");
         flag(1).unwrap_or(default_dv) && flag(2).unwrap_or(true)
     }
 }
@@ -292,7 +335,9 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 pub fn b64_encode(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for c in data.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         for i in 0..4 {
             if i <= c.len() {
                 out.push(B64[(n >> (18 - 6 * i) & 63) as usize] as char);
@@ -366,7 +411,8 @@ pub fn cell_date_to_solr(c: &Cell) -> Option<String> {
     let num = |s: &str| s.parse::<i64>().ok();
     match c {
         Cell::Date(s) => (s.len() == 10).then(|| format!("{s}T00:00:00Z")),
-        Cell::DateTime(s) => (s.len() >= 19 && s.as_bytes()[10] == b' ').then(|| format!("{}T{}Z", &s[..10], &s[11..])),
+        Cell::DateTime(s) => (s.len() >= 19 && s.as_bytes()[10] == b' ')
+            .then(|| format!("{}T{}Z", &s[..10], &s[11..])),
         Cell::DateTimeTz(s) => {
             if s.len() < 25 || s.as_bytes()[10] != b' ' {
                 return None;
@@ -384,7 +430,11 @@ pub fn cell_date_to_solr(c: &Cell) -> Option<String> {
             let minutes = days_from_civil(y, mo, d) * 1440 + h * 60 + mi - offset;
             let (y, mo, d) = civil_from_days(minutes.div_euclid(1440));
             let m = minutes.rem_euclid(1440);
-            Some(format!("{y:04}-{mo:02}-{d:02}T{:02}:{:02}{rest}Z", m / 60, m % 60))
+            Some(format!(
+                "{y:04}-{mo:02}-{d:02}T{:02}:{:02}{rest}Z",
+                m / 60,
+                m % 60
+            ))
         }
         _ => None,
     }
@@ -409,7 +459,9 @@ pub fn to_cell(v: &Value, kind: Kind) -> Cell {
             }
         }
         Value::String(s) => match kind {
-            Kind::Date => solr_date_to_cell(s).map_or_else(|| Cell::Text(s.clone()), Cell::DateTimeTz),
+            Kind::Date => {
+                solr_date_to_cell(s).map_or_else(|| Cell::Text(s.clone()), Cell::DateTimeTz)
+            }
             Kind::Binary => b64_decode(s).map_or_else(|| Cell::Text(s.clone()), Cell::Bytes),
             Kind::Uuid => Cell::Uuid(s.clone()),
             _ => Cell::Text(s.clone()),
@@ -419,14 +471,18 @@ pub fn to_cell(v: &Value, kind: Kind) -> Cell {
 }
 
 pub fn doc_row(doc: &Map<String, Value>, cols: &[(String, Kind)]) -> Vec<Cell> {
-    cols.iter().map(|(n, k)| doc.get(n).map_or(Cell::Null, |v| to_cell(v, *k))).collect()
+    cols.iter()
+        .map(|(n, k)| doc.get(n).map_or(Cell::Null, |v| to_cell(v, *k)))
+        .collect()
 }
 
 /// A name `fl` takes as a plain field: anything else (`score`, `[docid]`,
 /// commas, spaces, functions) would be read as something else.
 pub fn plain_fl_name(n: &str) -> bool {
     n != "score"
-        && n.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && n.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
@@ -536,7 +592,11 @@ impl DocScanner {
             }
         }
         // Drop what's been read, except a document or a string in progress.
-        let keep = self.doc_start.unwrap_or(if self.in_str { self.str_start } else { self.pos });
+        let keep = self.doc_start.unwrap_or(if self.in_str {
+            self.str_start
+        } else {
+            self.pos
+        });
         if keep > 0 {
             self.buf.drain(..keep);
             self.pos -= keep;
@@ -551,7 +611,9 @@ impl DocScanner {
         if self.doc_start.is_some() || depth == 0 || depth > 2 {
             return;
         }
-        let text = || serde_json::from_slice::<String>(&self.buf[self.str_start..=end]).unwrap_or_default();
+        let text = || {
+            serde_json::from_slice::<String>(&self.buf[self.str_start..=end]).unwrap_or_default()
+        };
         if self.str_is_key {
             self.keys[depth - 1] = text();
         } else if depth == 1 && self.keys[0] == "nextCursorMark" {
@@ -581,7 +643,14 @@ pub struct Col {
 
 impl Col {
     pub fn new(name: &str, kind: Kind, multi: bool) -> Col {
-        Col { name: name.to_string(), kind, multi, fed_by: Vec::new(), hidden: false, java: JavaText::Unknown }
+        Col {
+            name: name.to_string(),
+            kind,
+            multi,
+            fed_by: Vec::new(),
+            hidden: false,
+            java: JavaText::Unknown,
+        }
     }
 }
 
@@ -606,7 +675,14 @@ pub enum JavaText {
 fn java_layout(short: &str, two: &str, same: impl Fn(&str) -> bool) -> String {
     let parts = |s: &str| -> (bool, String, i32) {
         let (m, e) = s.split_once('e').unwrap_or((s, "0"));
-        (m.starts_with('-'), m.bytes().filter(u8::is_ascii_digit).map(char::from).collect(), e.parse().unwrap_or(0))
+        (
+            m.starts_with('-'),
+            m.bytes()
+                .filter(u8::is_ascii_digit)
+                .map(char::from)
+                .collect(),
+            e.parse().unwrap_or(0),
+        )
     };
     let (neg, mut digits, mut n) = parts(short);
     if digits.len() == 1 && same(two) {
@@ -624,7 +700,11 @@ fn java_layout(short: &str, two: &str, same: impl Fn(&str) -> bool) -> String {
             format!("{d}{}.0", "0".repeat((n + 1) as usize - d.len()))
         }
     } else {
-        format!("{}.{}E{n}", &d[..1], if d.len() > 1 { &d[1..] } else { "0" })
+        format!(
+            "{}.{}E{n}",
+            &d[..1],
+            if d.len() > 1 { &d[1..] } else { "0" }
+        )
     };
     if neg {
         format!("-{body}")
@@ -635,8 +715,18 @@ fn java_layout(short: &str, two: &str, same: impl Fn(&str) -> bool) -> String {
 
 /// The shortest digits of a value (Rust's `{:e}`), a tie between two of
 /// that length going to the even one, as Java does.
-fn shortest_even(short: String, exact: impl Fn(usize) -> String, same: impl Fn(&str) -> bool) -> String {
-    let len = short.split('e').next().unwrap_or_default().bytes().filter(u8::is_ascii_digit).count();
+fn shortest_even(
+    short: String,
+    exact: impl Fn(usize) -> String,
+    same: impl Fn(&str) -> bool,
+) -> String {
+    let len = short
+        .split('e')
+        .next()
+        .unwrap_or_default()
+        .bytes()
+        .filter(u8::is_ascii_digit)
+        .count();
     let even = exact(len.saturating_sub(1));
     if same(&even) {
         even
@@ -764,7 +854,10 @@ impl Big {
     }
 
     fn cmp(&self, o: &Big) -> std::cmp::Ordering {
-        self.0.len().cmp(&o.0.len()).then_with(|| self.0.iter().rev().cmp(o.0.iter().rev()))
+        self.0
+            .len()
+            .cmp(&o.0.len())
+            .then_with(|| self.0.iter().rev().cmp(o.0.iter().rev()))
     }
 
     /// `FDBigInteger.quoRemIteration`: `self / s`, leaving `10·(self % s)`.
@@ -779,10 +872,14 @@ impl Big {
     }
 }
 
-const N_5_BITS: [i32; 27] = [0, 3, 5, 7, 10, 12, 14, 17, 19, 21, 24, 26, 28, 31, 33, 35, 38, 40, 42, 45, 47, 49, 52, 54, 56, 59, 61];
+const N_5_BITS: [i32; 27] = [
+    0, 3, 5, 7, 10, 12, 14, 17, 19, 21, 24, 26, 28, 31, 33, 35, 38, 40, 42, 45, 47, 49, 52, 54, 56,
+    59, 61,
+];
 const INSIGNIFICANT_DIGITS: [i32; 64] = [
-    0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12,
-    12, 12, 12, 13, 13, 13, 14, 14, 14, 15, 15, 15, 15, 16, 16, 16, 17, 17, 17, 18, 18, 18, 19,
+    0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9,
+    9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 12, 12, 13, 13, 13, 14, 14, 14, 15, 15, 15, 15, 16, 16,
+    16, 17, 17, 17, 18, 18, 18, 19,
 ];
 
 fn n5bits(e5: i32) -> i32 {
@@ -800,8 +897,16 @@ fn java17_dtoa(bin_exp: i32, mut fract: u64, n_sig: i32) -> (Vec<u8>, i32) {
     if (-21..=62).contains(&bin_exp) && n_tiny == 0 && n_fract < 64 {
         // An integer: its digits, the ones past the precision rounded off.
         let p2 = bin_exp - n_sig - 1;
-        let insignificant = if bin_exp > n_sig && p2 > 1 && p2 < 64 { INSIGNIFICANT_DIGITS[p2 as usize] } else { 0 };
-        let mut l = if bin_exp >= 52 { fract << (bin_exp - 52) } else { fract >> (52 - bin_exp) };
+        let insignificant = if bin_exp > n_sig && p2 > 1 && p2 < 64 {
+            INSIGNIFICANT_DIGITS[p2 as usize]
+        } else {
+            0
+        };
+        let mut l = if bin_exp >= 52 {
+            fract << (bin_exp - 52)
+        } else {
+            fract >> (52 - bin_exp)
+        };
         if insignificant != 0 {
             let pow10 = 10u64.pow(insignificant as u32);
             let residue = l % pow10;
@@ -811,10 +916,14 @@ fn java17_dtoa(bin_exp: i32, mut fract: u64, n_sig: i32) -> (Vec<u8>, i32) {
             }
         }
         let s = l.to_string();
-        return (s.trim_end_matches('0').as_bytes().to_vec(), insignificant + s.len() as i32);
+        return (
+            s.trim_end_matches('0').as_bytes().to_vec(),
+            insignificant + s.len() as i32,
+        );
     }
     let d2 = f64::from_bits((1023u64 << 52) | (fract & ((1u64 << 52) - 1)));
-    let mut dec_exp = ((d2 - 1.5) * 0.289529654 + 0.176091259 + bin_exp as f64 * 0.301029995663981).floor() as i32;
+    let mut dec_exp = ((d2 - 1.5) * 0.289529654 + 0.176091259 + bin_exp as f64 * 0.301029995663981)
+        .floor() as i32;
     let b5 = (-dec_exp).max(0);
     let mut b2 = b5 + n_tiny + bin_exp;
     let s5 = dec_exp.max(0);
@@ -867,13 +976,21 @@ fn java17_dtoa(bin_exp: i32, mut fract: u64, n_sig: i32) -> (Vec<u8>, i32) {
                     q = b / s;
                     b = (b % s).wrapping_mul(10);
                     m = m.wrapping_mul(10);
-                    (lo, hi) = if m > 0 { (b < m, b.wrapping_add(m) > tens) } else { (true, true) };
+                    (lo, hi) = if m > 0 {
+                        (b < m, b.wrapping_add(m) > tens)
+                    } else {
+                        (true, true)
+                    };
                     digits.push(b'0' + q as u8);
                 }
                 (lo, hi, b.wrapping_shl(1).wrapping_sub(tens).signum() as i32)
             }};
         }
-        (low, high, low_diff) = if b_bits < 32 && ten_s_bits < 32 { small!(i32) } else { small!(i64) };
+        (low, high, low_diff) = if b_bits < 32 && ten_s_bits < 32 {
+            small!(i32)
+        } else {
+            small!(i64)
+        };
     } else {
         let s = Big::pow52(1, s5, s2);
         let mut b = Big::pow52(fract, b5, b2);
@@ -1048,14 +1165,21 @@ pub fn array_items(s: &str) -> Option<Vec<Cell>> {
             i = j + 1;
             want_item = false;
         } else {
-            let j = (i..end).find(|&j| matches!(b[j], b',' | b' ' | b'\t' | b'\r' | b'\n')).unwrap_or(end);
+            let j = (i..end)
+                .find(|&j| matches!(b[j], b',' | b' ' | b'\t' | b'\r' | b'\n'))
+                .unwrap_or(end);
             let tok = std::str::from_utf8(&b[i..j]).ok()?;
             items.push(match tok {
                 "true" => Cell::Bool(true),
                 "false" => Cell::Bool(false),
                 "null" => Cell::Null,
-                t if t.bytes().all(|x| x.is_ascii_digit() || matches!(x, b'-' | b'+' | b'.' | b'e' | b'E')) => {
-                    serde_json::from_str::<Value>(t).ok().filter(Value::is_number)?;
+                t if t.bytes().all(|x| {
+                    x.is_ascii_digit() || matches!(x, b'-' | b'+' | b'.' | b'e' | b'E')
+                }) =>
+                {
+                    serde_json::from_str::<Value>(t)
+                        .ok()
+                        .filter(Value::is_number)?;
                     Cell::Decimal(t.to_string())
                 }
                 _ => return None,
@@ -1071,7 +1195,11 @@ pub fn array_items(s: &str) -> Option<Vec<Cell>> {
 /// digits); `None` for anything else.
 fn json_scalar(s: &str) -> Option<Cell> {
     let t = s.trim();
-    if plain_decimal(t).is_some() || (!t.is_empty() && t.bytes().all(|x| x.is_ascii_digit() || matches!(x, b'-' | b'+' | b'.' | b'e' | b'E'))) {
+    if plain_decimal(t).is_some()
+        || (!t.is_empty()
+            && t.bytes()
+                .all(|x| x.is_ascii_digit() || matches!(x, b'-' | b'+' | b'.' | b'e' | b'E')))
+    {
         // serde_json refuses `1e400`; it is still a number to check.
         if t.bytes().any(|x| x.is_ascii_digit()) {
             return Some(Cell::Decimal(t.to_string()));
@@ -1098,7 +1226,9 @@ fn scalar_array(s: &str) -> Option<usize> {
         return None;
     }
     let a = serde_json::from_str::<Vec<Value>>(t).ok()?;
-    a.iter().all(|v| !v.is_object() && !v.is_array()).then_some(a.len())
+    a.iter()
+        .all(|v| !v.is_object() && !v.is_array())
+        .then_some(a.len())
 }
 
 /// Plain decimal digits, normalised (`-012.50` → `-12.5`), to compare
@@ -1111,7 +1241,11 @@ fn norm_decimal(s: &str) -> String {
     let (int, frac) = s.split_once('.').unwrap_or((s, ""));
     let int = int.trim_start_matches('0');
     let frac = frac.trim_end_matches('0');
-    let mut out = if int.is_empty() { "0".to_string() } else { int.to_string() };
+    let mut out = if int.is_empty() {
+        "0".to_string()
+    } else {
+        int.to_string()
+    };
     if !frac.is_empty() {
         out.push('.');
         out.push_str(frac);
@@ -1125,7 +1259,9 @@ fn norm_decimal(s: &str) -> String {
 fn plain_digits(s: &str) -> bool {
     let d = s.strip_prefix(['-', '+']).unwrap_or(s);
     let (i, f) = d.split_once('.').unwrap_or((d, ""));
-    !(i.is_empty() && f.is_empty()) && i.bytes().all(|b| b.is_ascii_digit()) && f.bytes().all(|b| b.is_ascii_digit())
+    !(i.is_empty() && f.is_empty())
+        && i.bytes().all(|b| b.is_ascii_digit())
+        && f.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// A decimal number as plain digits, the exponent applied (`1.25e2` →
@@ -1154,7 +1290,11 @@ pub fn plain_decimal(s: &str) -> Option<String> {
     } else if point as usize >= digits.len() {
         format!("{digits}{}", "0".repeat(point as usize - digits.len()))
     } else {
-        format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+        format!(
+            "{}.{}",
+            &digits[..point as usize],
+            &digits[point as usize..]
+        )
     };
     Some(format!("{sign}{out}"))
 }
@@ -1174,7 +1314,13 @@ fn exact_float(v: f64, kind: Kind, java: JavaText) -> std::result::Result<String
     if !v.is_finite() {
         return Err("está fuera de rango");
     }
-    let neg_zero = |s: String| if v == 0.0 && v.is_sign_negative() { "-0.0".to_string() } else { s };
+    let neg_zero = |s: String| {
+        if v == 0.0 && v.is_sign_negative() {
+            "-0.0".to_string()
+        } else {
+            s
+        }
+    };
     if kind != Kind::Float32 {
         return Ok(neg_zero(format!("{v}")));
     }
@@ -1239,17 +1385,33 @@ fn write_number(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
         Cell::UInt(u) if kind.is_int() => int(buf, *u as i128, &u.to_string()),
         Cell::Int(i) if kind.is_float() => {
             // Exact only if the float type holds the integer as is.
-            let ok = if kind == Kind::Float32 { (*i as f32) as i128 == *i as i128 } else { (*i as f64) as i128 == *i as i128 };
+            let ok = if kind == Kind::Float32 {
+                (*i as f32) as i128 == *i as i128
+            } else {
+                (*i as f64) as i128 == *i as i128
+            };
             if !ok {
-                return Err(misfit(col, &i.to_string(), "tiene más dígitos de los que el tipo guarda"));
+                return Err(misfit(
+                    col,
+                    &i.to_string(),
+                    "tiene más dígitos de los que el tipo guarda",
+                ));
             }
             let _ = write!(buf, "{i}");
             Ok(())
         }
         Cell::UInt(u) if kind.is_float() => {
-            let ok = if kind == Kind::Float32 { (*u as f32) as u128 == *u as u128 } else { (*u as f64) as u128 == *u as u128 };
+            let ok = if kind == Kind::Float32 {
+                (*u as f32) as u128 == *u as u128
+            } else {
+                (*u as f64) as u128 == *u as u128
+            };
             if !ok {
-                return Err(misfit(col, &u.to_string(), "tiene más dígitos de los que el tipo guarda"));
+                return Err(misfit(
+                    col,
+                    &u.to_string(),
+                    "tiene más dígitos de los que el tipo guarda",
+                ));
             }
             let _ = write!(buf, "{u}");
             Ok(())
@@ -1285,7 +1447,11 @@ fn write_number(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
             let v: f64 = n.parse().map_err(|_| misfit(col, s, "no es un número"))?;
             let back = exact_float(v, kind, col.java).map_err(|why| misfit(col, s, why))?;
             if norm_decimal(&back) != n {
-                return Err(misfit(col, s, "tiene más dígitos de los que el tipo guarda"));
+                return Err(misfit(
+                    col,
+                    s,
+                    "tiene más dígitos de los que el tipo guarda",
+                ));
             }
             // The decimal's own digits: they are the exact value.
             buf.extend_from_slice(n.as_bytes());
@@ -1296,7 +1462,14 @@ fn write_number(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
         Cell::Decimal(s) => Err(misfit(col, s, "está fuera de rango")),
         // Text and anything else: Solr parses it and rejects what it can't.
         _ => {
-            write_str(buf, c.to_json().as_str().map(str::to_string).unwrap_or_else(|| c.to_json().to_string()).as_str());
+            write_str(
+                buf,
+                c.to_json()
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| c.to_json().to_string())
+                    .as_str(),
+            );
             Ok(())
         }
     }
@@ -1353,7 +1526,11 @@ fn write_bool(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
         _ => None,
     };
     let Some(v) = v else {
-        let shown = c.to_json().as_str().map(str::to_string).unwrap_or_else(|| c.to_json().to_string());
+        let shown = c
+            .to_json()
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| c.to_json().to_string());
         return Err(Error::Query(format!(
             "El valor {shown} no es un booleano claro para el campo «{}» de Solr: lo guardaría como false sin avisar, así que la carga se detiene.",
             col.name
@@ -1368,7 +1545,9 @@ pub fn write_value(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
     let kind = col.kind;
     match c {
         Cell::Null => buf.extend_from_slice(b"null"),
-        Cell::Int(_) | Cell::UInt(_) | Cell::Float(_) if kind.is_int() || kind.is_float() => return write_number(buf, c, col),
+        Cell::Int(_) | Cell::UInt(_) | Cell::Float(_) if kind.is_int() || kind.is_float() => {
+            return write_number(buf, c, col)
+        }
         Cell::Decimal(_) if kind.is_int() || kind.is_float() => return write_number(buf, c, col),
         // Solr parses a numeric text into a float field rounding it
         // (`"0.1234567891234"` into a pfloat): checked like a number.
@@ -1377,23 +1556,42 @@ pub fn write_value(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
         }
         // Any other text: Java's parser takes `1.5f`, `0x1p3`… rounding
         // them; only NaN and the infinities are left to it.
-        Cell::Text(s) if (kind.is_int() || kind.is_float()) && !(kind.is_float() && matches!(s.trim(), "NaN" | "Infinity" | "-Infinity")) => {
+        Cell::Text(s)
+            if (kind.is_int() || kind.is_float())
+                && !(kind.is_float() && matches!(s.trim(), "NaN" | "Infinity" | "-Infinity")) =>
+        {
             return Err(misfit(col, &format!("«{s}»"), "no es un número decimal"))
         }
         // A JSON scalar is its value: a number is checked like one (Solr
         // rounds `0.1234567891234` into a pfloat), a string or boolean
         // goes as that value.
-        Cell::Json(s) if (kind.is_int() || kind.is_float() || kind == Kind::Bool) && json_scalar(s).is_some() => {
+        Cell::Json(s)
+            if (kind.is_int() || kind.is_float() || kind == Kind::Bool)
+                && json_scalar(s).is_some() =>
+        {
             return write_value(buf, &json_scalar(s).unwrap_or(Cell::Null), col)
         }
-        Cell::Json(s) if kind == Kind::Other && matches!(json_scalar(s), Some(Cell::Decimal(_))) => {
+        Cell::Json(s)
+            if kind == Kind::Other && matches!(json_scalar(s), Some(Cell::Decimal(_))) =>
+        {
             return Err(unknown_numeric(col, s.trim()))
         }
         Cell::Int(_) | Cell::UInt(_) | Cell::Float(_) | Cell::Decimal(_) if kind == Kind::Other => {
-            let shown = c.to_json().as_str().map(str::to_string).unwrap_or_else(|| c.to_json().to_string());
+            let shown = c
+                .to_json()
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| c.to_json().to_string());
             return Err(unknown_numeric(col, &shown));
         }
-        Cell::Bool(_) | Cell::Int(_) | Cell::UInt(_) | Cell::Text(_) | Cell::Decimal(_) | Cell::Float(_) if kind == Kind::Bool => {
+        Cell::Bool(_)
+        | Cell::Int(_)
+        | Cell::UInt(_)
+        | Cell::Text(_)
+        | Cell::Decimal(_)
+        | Cell::Float(_)
+            if kind == Kind::Bool =>
+        {
             return write_bool(buf, c, col)
         }
         Cell::Bool(b) => buf.extend_from_slice(if *b { b"true" } else { b"false" }),
@@ -1411,7 +1609,9 @@ pub fn write_value(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
             let _ = serde_json::to_writer(&mut *buf, &c.to_json());
         }
         Cell::Bytes(b) => write_str(buf, &b64_encode(b)),
-        Cell::Date(_) | Cell::DateTime(_) | Cell::DateTimeTz(_) if matches!(kind, Kind::Date | Kind::Other) => {
+        Cell::Date(_) | Cell::DateTime(_) | Cell::DateTimeTz(_)
+            if matches!(kind, Kind::Date | Kind::Other) =>
+        {
             // `Other` too: a date-like type DBine doesn't know rounds the same.
             if sub_millis(c) {
                 return Err(too_precise(col, c.to_json().as_str().unwrap_or_default()));
@@ -1421,7 +1621,9 @@ pub fn write_value(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
                 None => write_str(buf, c.to_json().as_str().unwrap_or_default()),
             }
         }
-        Cell::Text(s) if kind == Kind::Date && iso_sub_millis(s) => return Err(too_precise(col, s)),
+        Cell::Text(s) if kind == Kind::Date && iso_sub_millis(s) => {
+            return Err(too_precise(col, s))
+        }
         Cell::Json(s) if col.multi && scalar_array(s).is_some() => {
             let items = array_items(s).unwrap_or_default();
             if items.is_empty() {
@@ -1458,9 +1660,14 @@ pub fn write_value(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
             }
             buf.push(b']');
         }
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Json(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => {
-            write_str(buf, s)
-        }
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Json(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s) => write_str(buf, s),
     }
     Ok(())
 }
@@ -1473,7 +1680,11 @@ fn written_items(c: &Cell, col: &Col) -> Result<(Vec<Cell>, bool)> {
     write_value(&mut buf, c, col)?;
     let text = String::from_utf8_lossy(&buf);
     let list = text.starts_with('[');
-    let items = if list { array_items(&text) } else { array_items(&format!("[{text}]")) };
+    let items = if list {
+        array_items(&text)
+    } else {
+        array_items(&format!("[{text}]"))
+    };
     Ok((items.unwrap_or_default(), list))
 }
 
@@ -1513,14 +1724,20 @@ fn copy_choices(item: &Cell, src: &Col, max: Option<usize>) -> (Vec<(Option<Form
         // Solr cuts only string input, and counts UTF-16 units (half an
         // emoji is a lone surrogate, read back as U+FFFD).
         let text = match (item, max) {
-            (Cell::Text(s), Some(m)) => String::from_utf16_lossy(&s.encode_utf16().take(m).collect::<Vec<u16>>()),
+            (Cell::Text(s), Some(m)) => {
+                String::from_utf16_lossy(&s.encode_utf16().take(m).collect::<Vec<u16>>())
+            }
             _ => item_text(item),
         };
         return (vec![(None, text)], false);
     };
     let v: f64 = tok.parse().unwrap_or(f64::NAN);
     let integer = !tok.contains(['.', 'e', 'E']);
-    let java = if v.is_finite() { java_double_on(v, src.java) } else { None };
+    let java = if v.is_finite() {
+        java_double_on(v, src.java)
+    } else {
+        None
+    };
     let known = java.is_some();
     let mut out = Vec::new();
     if src.kind.is_float() {
@@ -1561,18 +1778,30 @@ struct CopyPlan {
 /// value is left to Solr; one with any other value (or NULL, which Solr
 /// would fill) is refused: Solr would replace it without a word.
 fn copy_plan(cols: &[Col], row: &[Cell]) -> Result<CopyPlan> {
-    let mut plan = CopyPlan { skip: vec![false; cols.len()], forms: vec![Vec::new(); cols.len()] };
+    let mut plan = CopyPlan {
+        skip: vec![false; cols.len()],
+        forms: vec![Vec::new(); cols.len()],
+    };
     for (j, col) in cols.iter().enumerate() {
         if col.fed_by.is_empty() || SKIP.contains(&col.name.as_str()) {
             continue;
         }
-        let sources: Vec<(usize, Option<usize>)> =
-            col.fed_by.iter().copied().filter(|&(i, _)| row.get(i).is_some_and(|v| !matches!(v, Cell::Null))).collect();
+        let sources: Vec<(usize, Option<usize>)> = col
+            .fed_by
+            .iter()
+            .copied()
+            .filter(|&(i, _)| row.get(i).is_some_and(|v| !matches!(v, Cell::Null)))
+            .collect();
         if sources.is_empty() {
             // Nothing to copy: the destination is written as it came.
             continue;
         }
-        let names: Vec<&str> = col.fed_by.iter().filter_map(|&(i, _)| cols.get(i)).map(|c| c.name.as_str()).collect();
+        let names: Vec<&str> = col
+            .fed_by
+            .iter()
+            .filter_map(|&(i, _)| cols.get(i))
+            .map(|c| c.name.as_str())
+            .collect();
         let value = row.get(j).unwrap_or(&Cell::Null);
         if matches!(value, Cell::Null) {
             if col.hidden {
@@ -1690,7 +1919,11 @@ pub fn encode_new_doc(buf: &mut Vec<u8>, cols: &[Col], row: &[Cell]) -> Result<(
 }
 
 fn encode_fields(buf: &mut Vec<u8>, cols: &[Col], row: &[Cell], mut first: bool) -> Result<()> {
-    let plan = if cols.iter().any(|c| !c.fed_by.is_empty()) { Some(copy_plan(cols, row)?) } else { None };
+    let plan = if cols.iter().any(|c| !c.fed_by.is_empty()) {
+        Some(copy_plan(cols, row)?)
+    } else {
+        None
+    };
     for (j, (col, c)) in cols.iter().zip(row).enumerate() {
         if matches!(c, Cell::Null) || SKIP.contains(&col.name.as_str()) {
             continue;
@@ -1712,7 +1945,11 @@ fn encode_fields(buf: &mut Vec<u8>, cols: &[Col], row: &[Cell], mut first: bool)
         first = false;
         write_str(buf, &col.name);
         buf.push(b':');
-        match plan.as_ref().map(|p| p.forms[j].as_slice()).filter(|f| f.iter().any(Option::is_some)) {
+        match plan
+            .as_ref()
+            .map(|p| p.forms[j].as_slice())
+            .filter(|f| f.iter().any(Option::is_some))
+        {
             Some(forms) => write_forms(buf, c, col, forms)?,
             None => write_value(buf, c, col)?,
         }
@@ -1724,9 +1961,14 @@ fn encode_fields(buf: &mut Vec<u8>, cols: &[Col], row: &[Cell], mut first: bool)
 fn key_text(c: &Cell) -> Option<String> {
     match c {
         Cell::Null => None,
-        Cell::Text(s) | Cell::Uuid(s) | Cell::Decimal(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Json(s) => {
-            Some(s.clone())
-        }
+        Cell::Text(s)
+        | Cell::Uuid(s)
+        | Cell::Decimal(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Json(s) => Some(s.clone()),
         Cell::Bytes(b) => Some(b64_encode(b)),
         other => Some(other.to_json().to_string()),
     }
@@ -1761,13 +2003,26 @@ pub fn conflict_key(msg: &str) -> Option<String> {
 async fn send_update(client: reqwest::Client, url: String, mut body: Vec<u8>, rows: u64) -> Sent {
     use dbine_driver_elasticsearch::http::net_err;
     body.push(b']');
-    let rb = client.post(&url).header("Content-Type", "application/json").timeout(TIMEOUT).body(body);
-    let fail = |err: Error, unsure: bool| SendFail { err, foreign: None, unsure };
+    let rb = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .timeout(TIMEOUT)
+        .body(body);
+    let fail = |err: Error, unsure: bool| SendFail {
+        err,
+        foreign: None,
+        unsure,
+    };
     let mut wait = Duration::from_millis(500);
     let mut attempt = 0u32;
     loop {
         // A Vec body is reusable: the clone shares its bytes.
-        let Some(try_rb) = rb.try_clone() else { return Err(fail(Error::State("cuerpo de /update no reutilizable".into()), false)) };
+        let Some(try_rb) = rb.try_clone() else {
+            return Err(fail(
+                Error::State("cuerpo de /update no reutilizable".into()),
+                false,
+            ));
+        };
         let retry = attempt < 6;
         match try_rb.send().await {
             // Never reached the server: safe to send again.
@@ -1838,7 +2093,10 @@ impl Window {
     }
 
     /// A finished request's outcome, noting what the undo needs to know.
-    fn take(&mut self, r: Option<std::result::Result<Sent, tokio::task::JoinError>>) -> Result<u64> {
+    fn take(
+        &mut self,
+        r: Option<std::result::Result<Sent, tokio::task::JoinError>>,
+    ) -> Result<u64> {
         match r {
             None => Ok(0),
             Some(Ok(Ok(n))) => Ok(n),
@@ -1865,8 +2123,15 @@ struct Target<'a> {
 
 impl SolrSession {
     async fn schema(&self, c: &str) -> Result<Schema> {
-        let body = self.call(self.client.get(format!("{}/solr/{}/schema?wt=json", self.base, seg(c))).timeout(TIMEOUT)).await?;
-        let v: Value = serde_json::from_str(&body).map_err(|e| Error::Query(format!("Respuesta inesperada del esquema: {e}")))?;
+        let body = self
+            .call(
+                self.client
+                    .get(format!("{}/solr/{}/schema?wt=json", self.base, seg(c)))
+                    .timeout(TIMEOUT),
+            )
+            .await?;
+        let v: Value = serde_json::from_str(&body)
+            .map_err(|e| Error::Query(format!("Respuesta inesperada del esquema: {e}")))?;
         Ok(Schema::parse(&v))
     }
 
@@ -1884,8 +2149,16 @@ impl SolrSession {
         use dbine_driver_elasticsearch::http::net_err;
         let timeout = || Error::Connect("Tiempo de espera agotado leyendo de Solr.".into());
         // No overall limit (a page may be long): each wait is limited.
-        let send = self.client.post(url).form(params).timeout(Duration::from_secs(24 * 3600)).send();
-        let mut resp = tokio::time::timeout(TIMEOUT, send).await.map_err(|_| timeout())?.map_err(net_err)?;
+        let send = self
+            .client
+            .post(url)
+            .form(params)
+            .timeout(Duration::from_secs(24 * 3600))
+            .send();
+        let mut resp = tokio::time::timeout(TIMEOUT, send)
+            .await
+            .map_err(|_| timeout())?
+            .map_err(net_err)?;
         let status = resp.status().as_u16();
         if status >= 400 {
             let text = resp.text().await.map_err(net_err)?;
@@ -1893,12 +2166,18 @@ impl SolrSession {
         }
         let mut scan = DocScanner::default();
         let (mut n, mut bytes) = (0usize, 0usize);
-        while let Some(chunk) = tokio::time::timeout(TIMEOUT, resp.chunk()).await.map_err(|_| timeout())?.map_err(net_err)? {
+        while let Some(chunk) = tokio::time::timeout(TIMEOUT, resp.chunk())
+            .await
+            .map_err(|_| timeout())?
+            .map_err(net_err)?
+        {
             bytes += chunk.len();
-            let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+            let mut s = sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?;
             scan.feed(&chunk, &mut |doc| {
-                let d: Map<String, Value> =
-                    serde_json::from_slice(doc).map_err(|e| Error::Query(format!("Respuesta inesperada de select: {e}")))?;
+                let d: Map<String, Value> = serde_json::from_slice(doc)
+                    .map_err(|e| Error::Query(format!("Respuesta inesperada de select: {e}")))?;
                 n += 1;
                 builder.push(doc_row(&d, kinds), &mut *s)?;
                 Ok(())
@@ -1907,7 +2186,11 @@ impl SolrSession {
         Ok((n, bytes, scan.cursor))
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let c = collection(&spec.table.name, "origen")?;
         let schema = self.schema(&c).await?;
         let Some(key) = schema.key.clone() else {
@@ -1918,14 +2201,23 @@ impl SolrSession {
         let names: Vec<String> = match &spec.columns {
             Some(cols) => {
                 if let Some(n) = cols.iter().find(|n| schema.field(n).is_none()) {
-                    return Err(Error::Query(format!("la colección {c} no tiene el campo «{n}»")));
+                    return Err(Error::Query(format!(
+                        "la colección {c} no tiene el campo «{n}»"
+                    )));
                 }
                 cols.clone()
             }
             None => {
                 // `columns` builds its URLs from the name as is.
-                let o = ObjectRef { name: seg(&c), ..spec.table.clone() };
-                self.columns(&o).await?.into_iter().map(|c| c.name).collect()
+                let o = ObjectRef {
+                    name: seg(&c),
+                    ..spec.table.clone()
+                };
+                self.columns(&o)
+                    .await?
+                    .into_iter()
+                    .map(|c| c.name)
+                    .collect()
             }
         };
         let fields: Vec<Option<FieldType>> = names.iter().map(|n| schema.field(n)).collect();
@@ -1941,9 +2233,17 @@ impl SolrSession {
         let kinds: Vec<(String, Kind)> = names
             .iter()
             .zip(&fields)
-            .map(|(n, f)| (n.clone(), f.as_ref().map_or(Kind::Other, |f| if f.multi { Kind::Other } else { f.kind })))
+            .map(|(n, f)| {
+                (
+                    n.clone(),
+                    f.as_ref()
+                        .map_or(Kind::Other, |f| if f.multi { Kind::Other } else { f.kind }),
+                )
+            })
             .collect();
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
 
         let url = format!("{}/solr/{}/select", self.base, seg(&c));
         // Names `fl` would misread: ask for every stored field and pick by name.
@@ -1955,7 +2255,11 @@ impl SolrSession {
             "*".to_string()
         };
         let sort = format!("{key} asc");
-        let filter = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty());
+        let filter = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty());
         let mut cursor = "*".to_string();
         let mut page_rows = PAGE_FIRST;
         let mut builder = BatchBuilder::new();
@@ -1973,7 +2277,9 @@ impl SolrSession {
             if let Some(f) = filter {
                 params.push(("fq", f));
             }
-            let (n, bytes, next) = self.read_page(&url, &params, &kinds, &mut builder, &sink).await?;
+            let (n, bytes, next) = self
+                .read_page(&url, &params, &kinds, &mut builder, &sink)
+                .await?;
             let next = next.unwrap_or_else(|| cursor.clone());
             if next == cursor || n == 0 {
                 break;
@@ -1981,7 +2287,11 @@ impl SolrSession {
             cursor = next;
             page_rows = next_page(n, bytes);
         }
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
@@ -1993,11 +2303,16 @@ impl SolrSession {
         progress: Progress<'_>,
     ) -> Result<u64> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden cargar datos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden cargar datos.".into(),
+            ));
         }
         let c = collection(&spec.table.name, "destino")?;
-        let names: Vec<String> =
-            if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
         let schema = self.schema(&c).await?;
         let Some(key) = schema.key.clone() else {
             return Err(Error::Unsupported(format!(
@@ -2019,11 +2334,26 @@ impl SolrSession {
         for col in &mut cols {
             col.java = java;
         }
-        let t = Target { collection: &c, key: &key, base: format!("{}/solr/{}/update", self.base, seg(&c)) };
+        let t = Target {
+            collection: &c,
+            key: &key,
+            base: format!("{}/solr/{}/update", self.base, seg(&c)),
+        };
 
         let mut inflight: JoinSet<Sent> = JoinSet::new();
         let mut window = Window::default();
-        let r = self.load_windows(spec, &cols, key_at, &t, source, progress, &mut inflight, &mut window).await;
+        let r = self
+            .load_windows(
+                spec,
+                &cols,
+                key_at,
+                &t,
+                source,
+                progress,
+                &mut inflight,
+                &mut window,
+            )
+            .await;
         let Err(e) = r else { return r };
         // Nothing may land after returning: wait for what's in flight, then
         // delete the window's documents this load wrote, which autoCommit
@@ -2031,9 +2361,18 @@ impl SolrSession {
         while let Some(r) = inflight.join_next().await {
             let _ = window.take(Some(r));
         }
-        let mine: Vec<String> = window.sent.iter().filter(|k| !window.foreign.contains(*k)).cloned().collect();
+        let mine: Vec<String> = window
+            .sent
+            .iter()
+            .filter(|k| !window.foreign.contains(*k))
+            .cloned()
+            .collect();
         // Nothing to delete and no window committed: nothing to commit.
-        let undo = if mine.is_empty() && !window.committed { Ok(()) } else { self.undo_window(&t.base, &mine).await };
+        let undo = if mine.is_empty() && !window.committed {
+            Ok(())
+        } else {
+            self.undo_window(&t.base, &mine).await
+        };
         let e = match undo {
             Ok(()) => e,
             Err(u) if mine.is_empty() => Error::Query(format!(
@@ -2060,9 +2399,17 @@ impl SolrSession {
     /// refusal, never a wrong guess.
     async fn java_text(&self) -> JavaText {
         let url = format!("{}/solr/admin/info/system?wt=json", self.base);
-        let Ok(body) = self.call(self.client.get(url).timeout(Duration::from_secs(30))).await else { return JavaText::Unknown };
+        let Ok(body) = self
+            .call(self.client.get(url).timeout(Duration::from_secs(30)))
+            .await
+        else {
+            return JavaText::Unknown;
+        };
         let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
-        let spec = v.pointer("/jvm/spec/version").and_then(Value::as_str).unwrap_or_default();
+        let spec = v
+            .pointer("/jvm/spec/version")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         // `17`, `21`; `1.8` before Java 9.
         match spec.split('.').next().and_then(|m| m.parse::<u32>().ok()) {
             Some(m) if m >= 19 => JavaText::Java19,
@@ -2077,10 +2424,20 @@ impl SolrSession {
     async fn undo_window(&self, base: &str, keys: &[String]) -> Result<()> {
         for chunk in keys.chunks(DELETE_IDS) {
             let body = serde_json::json!({ "delete": chunk }).to_string();
-            let rb = self.client.post(format!("{base}?wt=json")).header("Content-Type", "application/json").timeout(TIMEOUT).body(body);
+            let rb = self
+                .client
+                .post(format!("{base}?wt=json"))
+                .header("Content-Type", "application/json")
+                .timeout(TIMEOUT)
+                .body(body);
             self.call(rb).await?;
         }
-        self.call(self.client.get(format!("{base}?commit=true&wt=json")).timeout(TIMEOUT)).await?;
+        self.call(
+            self.client
+                .get(format!("{base}?commit=true&wt=json"))
+                .timeout(TIMEOUT),
+        )
+        .await?;
         Ok(())
     }
 
@@ -2092,8 +2449,11 @@ impl SolrSession {
             // `id` values are taken as is (`ids` would split them on commas).
             let mut params: Vec<(&str, &str)> = vec![("fl", t.key), ("wt", "json")];
             params.extend(chunk.iter().map(|k| ("id", k.as_str())));
-            let body = self.call(self.client.post(&url).form(&params).timeout(TIMEOUT)).await?;
-            let v: Value = serde_json::from_str(&body).map_err(|e| Error::Query(format!("Respuesta inesperada de get: {e}")))?;
+            let body = self
+                .call(self.client.post(&url).form(&params).timeout(TIMEOUT))
+                .await?;
+            let v: Value = serde_json::from_str(&body)
+                .map_err(|e| Error::Query(format!("Respuesta inesperada de get: {e}")))?;
             // One id answers `{"doc": …}`, several `{"response": {"docs": […]}}`.
             let doc = v
                 .pointer("/response/docs/0")
@@ -2128,7 +2488,12 @@ impl SolrSession {
             w.take(inflight.join_next().await)?;
         }
         w.sent.extend(keys);
-        inflight.spawn(send_update(self.client.clone(), format!("{}?wt=json", t.base), body, rows));
+        inflight.spawn(send_update(
+            self.client.clone(),
+            format!("{}?wt=json", t.base),
+            body,
+            rows,
+        ));
         Ok(())
     }
 
@@ -2161,10 +2526,17 @@ impl SolrSession {
             let finished = batch.is_none();
             for row in batch.map(|b| b.rows).unwrap_or_default() {
                 if row.len() != cols.len() {
-                    return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), cols.len())));
+                    return Err(Error::Query(format!(
+                        "la fila tiene {} valores y la carga {} columnas",
+                        row.len(),
+                        cols.len()
+                    )));
                 }
                 let Some(k) = key_text(&row[key_at]) else {
-                    return Err(Error::Query(format!("una fila no tiene valor en la clave «{}»: Solr no la puede guardar.", t.key)));
+                    return Err(Error::Query(format!(
+                        "una fila no tiene valor en la clave «{}»: Solr no la puede guardar.",
+                        t.key
+                    )));
                 };
                 if w.seen.contains(&k) {
                     return Err(Error::Query(format!(
@@ -2188,7 +2560,8 @@ impl SolrSession {
                 if buf.len() >= REQUEST_BYTES || window_full {
                     let hint = buf.len();
                     let body = std::mem::replace(&mut buf, fresh(hint));
-                    self.dispatch(t, body, std::mem::take(&mut keys), buffered, inflight, w).await?;
+                    self.dispatch(t, body, std::mem::take(&mut keys), buffered, inflight, w)
+                        .await?;
                     buffered = 0;
                 }
                 if window_full {
@@ -2197,7 +2570,12 @@ impl SolrSession {
                     while let Some(r) = inflight.join_next().await {
                         w.take(Some(r))?;
                     }
-                    self.call(self.client.get(format!("{base}?commit=true&openSearcher=false&wt=json")).timeout(TIMEOUT)).await?;
+                    self.call(
+                        self.client
+                            .get(format!("{base}?commit=true&openSearcher=false&wt=json"))
+                            .timeout(TIMEOUT),
+                    )
+                    .await?;
                     w.committed = true;
                     done += w.rows;
                     w.next();
@@ -2212,13 +2590,26 @@ impl SolrSession {
             }
         }
         if buffered > 0 {
-            self.dispatch(t, std::mem::take(&mut buf), std::mem::take(&mut keys), buffered, inflight, w).await?;
+            self.dispatch(
+                t,
+                std::mem::take(&mut buf),
+                std::mem::take(&mut keys),
+                buffered,
+                inflight,
+                w,
+            )
+            .await?;
         }
         while let Some(r) = inflight.join_next().await {
             w.take(Some(r))?;
         }
         // The last commit also opens a searcher: the documents are visible.
-        self.call(self.client.get(format!("{base}?commit=true&wt=json")).timeout(TIMEOUT)).await?;
+        self.call(
+            self.client
+                .get(format!("{base}?commit=true&wt=json"))
+                .timeout(TIMEOUT),
+        )
+        .await?;
         if w.rows > 0 || done == 0 {
             done += w.rows;
             w.next();
@@ -2267,10 +2658,24 @@ mod tests {
     fn schema_resolves_fields_and_dynamic_patterns() {
         let s = schema();
         assert_eq!(s.key.as_deref(), Some("id"));
-        assert_eq!(s.field("id"), Some(FieldType { type_name: "string".into(), kind: Kind::Text, multi: false }));
+        assert_eq!(
+            s.field("id"),
+            Some(FieldType {
+                type_name: "string".into(),
+                kind: Kind::Text,
+                multi: false
+            })
+        );
         assert_eq!(s.field("tags").unwrap().type_name, "string[]");
         // `*_ss` is longer than `*_s`: it wins.
-        assert_eq!(s.field("x_ss"), Some(FieldType { type_name: "strings[]".into(), kind: Kind::Text, multi: true }));
+        assert_eq!(
+            s.field("x_ss"),
+            Some(FieldType {
+                type_name: "strings[]".into(),
+                kind: Kind::Text,
+                multi: true
+            })
+        );
         assert_eq!(s.field("when_dt").unwrap().kind, Kind::Date);
         assert_eq!(s.field("n_i").unwrap().kind, Kind::Int32);
         assert_eq!(s.field("b_bin").unwrap().kind, Kind::Binary);
@@ -2278,9 +2683,15 @@ mod tests {
         assert_eq!(s.field("unknown"), None);
         assert!(dynamic_match("*", "x"));
         assert!(!dynamic_match("*_s", "_s"));
-        assert_eq!(Kind::from_class("org.apache.solr.schema.UUIDField"), Kind::Uuid);
+        assert_eq!(
+            Kind::from_class("org.apache.solr.schema.UUIDField"),
+            Kind::Uuid
+        );
         assert_eq!(Kind::from_class("solr.BoolField"), Kind::Bool);
-        assert_eq!(Kind::from_class("solr.LatLonPointSpatialField"), Kind::Other);
+        assert_eq!(
+            Kind::from_class("solr.LatLonPointSpatialField"),
+            Kind::Other
+        );
     }
 
     #[test]
@@ -2297,19 +2708,40 @@ mod tests {
 
     #[test]
     fn dates_both_ways() {
-        assert_eq!(solr_date_to_cell("2024-01-02T03:04:05Z").as_deref(), Some("2024-01-02 03:04:05+00:00"));
-        assert_eq!(solr_date_to_cell("2024-01-02T03:04:05.123Z").as_deref(), Some("2024-01-02 03:04:05.123+00:00"));
+        assert_eq!(
+            solr_date_to_cell("2024-01-02T03:04:05Z").as_deref(),
+            Some("2024-01-02 03:04:05+00:00")
+        );
+        assert_eq!(
+            solr_date_to_cell("2024-01-02T03:04:05.123Z").as_deref(),
+            Some("2024-01-02 03:04:05.123+00:00")
+        );
         assert_eq!(solr_date_to_cell("2024-01"), None);
-        assert_eq!(cell_date_to_solr(&Cell::Date("2024-02-29".into())).as_deref(), Some("2024-02-29T00:00:00Z"));
-        assert_eq!(cell_date_to_solr(&Cell::DateTime("2024-02-29 10:11:12.5".into())).as_deref(), Some("2024-02-29T10:11:12.5Z"));
+        assert_eq!(
+            cell_date_to_solr(&Cell::Date("2024-02-29".into())).as_deref(),
+            Some("2024-02-29T00:00:00Z")
+        );
+        assert_eq!(
+            cell_date_to_solr(&Cell::DateTime("2024-02-29 10:11:12.5".into())).as_deref(),
+            Some("2024-02-29T10:11:12.5Z")
+        );
         // Offsets move to UTC, across days, months and years.
         assert_eq!(
             cell_date_to_solr(&Cell::DateTimeTz("2024-01-01 01:30:00.250-03:00".into())).as_deref(),
             Some("2024-01-01T04:30:00.250Z")
         );
-        assert_eq!(cell_date_to_solr(&Cell::DateTimeTz("2024-01-01 01:30:00+05:45".into())).as_deref(), Some("2023-12-31T19:45:00Z"));
-        assert_eq!(cell_date_to_solr(&Cell::DateTimeTz("2024-02-28 23:00:00-02:00".into())).as_deref(), Some("2024-02-29T01:00:00Z"));
-        assert_eq!(cell_date_to_solr(&Cell::DateTimeTz("2024-01-02 03:04:05+00:00".into())).as_deref(), Some("2024-01-02T03:04:05Z"));
+        assert_eq!(
+            cell_date_to_solr(&Cell::DateTimeTz("2024-01-01 01:30:00+05:45".into())).as_deref(),
+            Some("2023-12-31T19:45:00Z")
+        );
+        assert_eq!(
+            cell_date_to_solr(&Cell::DateTimeTz("2024-02-28 23:00:00-02:00".into())).as_deref(),
+            Some("2024-02-29T01:00:00Z")
+        );
+        assert_eq!(
+            cell_date_to_solr(&Cell::DateTimeTz("2024-01-02 03:04:05+00:00".into())).as_deref(),
+            Some("2024-01-02T03:04:05Z")
+        );
         assert_eq!(cell_date_to_solr(&Cell::Text("x".into())), None);
         for d in [-1000, 0, 1, 59, 60, 365, 10_957, 19_723, 2_932_896] {
             let (y, m, dd) = civil_from_days(d);
@@ -2415,7 +2847,11 @@ mod tests {
             })
         );
         // Arrays of objects would be child documents: they go as text.
-        let a = encode(&cols_one("a_s", Kind::Text, true), &[Cell::Json("[{\"x\":1}]".into())]).unwrap();
+        let a = encode(
+            &cols_one("a_s", Kind::Text, true),
+            &[Cell::Json("[{\"x\":1}]".into())],
+        )
+        .unwrap();
         assert_eq!(a, r#"{"a_s":"[{\"x\":1}]"}"#);
     }
 
@@ -2444,19 +2880,47 @@ mod tests {
         assert!(one(Kind::Int32, Cell::Float(3e9)).is_err());
         // Digits a float type can't hold.
         assert!(one(Kind::Float64, Cell::Int(i64::MAX)).is_err());
-        assert!(one(Kind::Float64, Cell::Decimal("0.12345678901234567890".into())).is_err());
+        assert!(one(
+            Kind::Float64,
+            Cell::Decimal("0.12345678901234567890".into())
+        )
+        .is_err());
         assert!(one(Kind::Float32, Cell::Float(0.1234567891234)).is_err());
         assert!(one(Kind::Float32, Cell::Int(16_777_217)).is_err());
         // What fits is written as the exact number.
-        assert_eq!(one(Kind::Int32, Cell::Int(i32::MAX as i64)).unwrap(), format!("{{\"f\":{}}}", i32::MAX));
-        assert_eq!(one(Kind::Int32, Cell::Decimal("-12.000".into())).unwrap(), r#"{"f":-12}"#);
+        assert_eq!(
+            one(Kind::Int32, Cell::Int(i32::MAX as i64)).unwrap(),
+            format!("{{\"f\":{}}}", i32::MAX)
+        );
+        assert_eq!(
+            one(Kind::Int32, Cell::Decimal("-12.000".into())).unwrap(),
+            r#"{"f":-12}"#
+        );
         assert_eq!(one(Kind::Int64, Cell::Float(-4.0)).unwrap(), r#"{"f":-4}"#);
-        assert_eq!(one(Kind::Int64, Cell::UInt(i64::MAX as u64)).unwrap(), format!("{{\"f\":{}}}", i64::MAX));
-        assert_eq!(one(Kind::Float64, Cell::Decimal("12.50".into())).unwrap(), r#"{"f":12.5}"#);
-        assert_eq!(one(Kind::Float64, Cell::Int(1 << 53)).unwrap(), format!("{{\"f\":{}}}", 1u64 << 53));
-        assert_eq!(one(Kind::Float32, Cell::Float(0.1f32 as f64)).unwrap(), r#"{"f":0.1}"#);
-        assert_eq!(one(Kind::Float32, Cell::Decimal("0.1".into())).unwrap(), r#"{"f":0.1}"#);
-        assert_eq!(one(Kind::Float64, Cell::Float(0.1)).unwrap(), r#"{"f":0.1}"#);
+        assert_eq!(
+            one(Kind::Int64, Cell::UInt(i64::MAX as u64)).unwrap(),
+            format!("{{\"f\":{}}}", i64::MAX)
+        );
+        assert_eq!(
+            one(Kind::Float64, Cell::Decimal("12.50".into())).unwrap(),
+            r#"{"f":12.5}"#
+        );
+        assert_eq!(
+            one(Kind::Float64, Cell::Int(1 << 53)).unwrap(),
+            format!("{{\"f\":{}}}", 1u64 << 53)
+        );
+        assert_eq!(
+            one(Kind::Float32, Cell::Float(0.1f32 as f64)).unwrap(),
+            r#"{"f":0.1}"#
+        );
+        assert_eq!(
+            one(Kind::Float32, Cell::Decimal("0.1".into())).unwrap(),
+            r#"{"f":0.1}"#
+        );
+        assert_eq!(
+            one(Kind::Float64, Cell::Float(0.1)).unwrap(),
+            r#"{"f":0.1}"#
+        );
         // The pint/plong split comes from the class.
         assert_eq!(Kind::from_class("solr.IntPointField"), Kind::Int32);
         assert_eq!(Kind::from_class("solr.LongPointField"), Kind::Int64);
@@ -2469,24 +2933,49 @@ mod tests {
     #[test]
     fn multi_valued_numbers_are_checked_one_by_one() {
         let ints = cols_one("nums_is", Kind::Int32, true);
-        assert_eq!(encode(&ints, &[Cell::Json("[1, -2]".into())]).unwrap(), r#"{"nums_is":[1,-2]}"#);
+        assert_eq!(
+            encode(&ints, &[Cell::Json("[1, -2]".into())]).unwrap(),
+            r#"{"nums_is":[1,-2]}"#
+        );
         assert!(encode(&ints, &[Cell::Json("[1, 12.5]".into())]).is_err());
         assert!(encode(&ints, &[Cell::Json("[3000000000]".into())]).is_err());
         let floats = cols_one("xs_fs", Kind::Float32, true);
-        assert_eq!(encode(&floats, &[Cell::Json("[0.1, 2]".into())]).unwrap(), r#"{"xs_fs":[0.1,2]}"#);
+        assert_eq!(
+            encode(&floats, &[Cell::Json("[0.1, 2]".into())]).unwrap(),
+            r#"{"xs_fs":[0.1,2]}"#
+        );
     }
 
     #[test]
     fn engine_limits_are_refused() {
         // An empty list would read back as NULL.
-        let e = encode(&cols_one("tags", Kind::Text, true), &[Cell::Json("[]".into())]).unwrap_err();
+        let e = encode(
+            &cols_one("tags", Kind::Text, true),
+            &[Cell::Json("[]".into())],
+        )
+        .unwrap_err();
         assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
         // Digits past milliseconds would be dropped…
-        let e = one(Kind::Date, Cell::DateTime("2024-01-02 03:04:05.123456".into())).unwrap_err();
+        let e = one(
+            Kind::Date,
+            Cell::DateTime("2024-01-02 03:04:05.123456".into()),
+        )
+        .unwrap_err();
         assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
-        assert!(one(Kind::Date, Cell::DateTimeTz("2024-01-02 03:04:05.1234+01:00".into())).is_err());
+        assert!(one(
+            Kind::Date,
+            Cell::DateTimeTz("2024-01-02 03:04:05.1234+01:00".into())
+        )
+        .is_err());
         // …unless they are zeros.
-        assert_eq!(one(Kind::Date, Cell::DateTime("2024-01-02 03:04:05.123000".into())).unwrap(), r#"{"f":"2024-01-02T03:04:05.123000Z"}"#);
+        assert_eq!(
+            one(
+                Kind::Date,
+                Cell::DateTime("2024-01-02 03:04:05.123000".into())
+            )
+            .unwrap(),
+            r#"{"f":"2024-01-02T03:04:05.123000Z"}"#
+        );
         assert!(one(Kind::Date, Cell::DateTime("2024-01-02 03:04:05.12".into())).is_ok());
     }
 
@@ -2512,10 +3001,19 @@ mod tests {
                 {"source": "*_t", "dest": "all"}
             ]
         }}));
-        assert_eq!(s.copy_dests("title"), vec!["all".to_string(), "title_sort".into()]);
-        assert_eq!(s.copy_dests("name_t"), vec!["name_s".to_string(), "all".into()]);
+        assert_eq!(
+            s.copy_dests("title"),
+            vec!["all".to_string(), "title_sort".into()]
+        );
+        assert_eq!(
+            s.copy_dests("name_t"),
+            vec!["name_s".to_string(), "all".into()]
+        );
         assert!(s.copy_dests("id").is_empty());
-        let names: Vec<String> = ["id", "title", "all", "title_sort", "name_t", "name_s"].iter().map(|n| n.to_string()).collect();
+        let names: Vec<String> = ["id", "title", "all", "title_sort", "name_t", "name_s"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         let cols = load_cols(&s, &names).unwrap();
         assert_eq!(cols[2].fed_by, vec![(1, None), (4, None)]);
         assert_eq!(cols[3].fed_by, vec![(1, None)]);
@@ -2536,7 +3034,10 @@ mod tests {
         assert_eq!(doc, r#"{"id":"1","title":"T","name_t":"N"}"#);
         // No source value: the destination is written as it came.
         let doc = encode(&cols, &row(Cell::Null, Cell::Null)).unwrap();
-        assert_eq!(doc, r#"{"id":"1","all":["T","N"],"title_sort":"T","name_s":"N"}"#);
+        assert_eq!(
+            doc,
+            r#"{"id":"1","all":["T","N"],"title_sort":"T","name_s":"N"}"#
+        );
     }
 
     /// A copyField destination with its own value (PG → Solr, where a
@@ -2557,14 +3058,26 @@ mod tests {
                 {"source": "title_t", "dest": "short_ss", "maxChars": 3}
             ]
         }}));
-        let names: Vec<String> = ["id", "title_t", "alt_s"].iter().map(|n| n.to_string()).collect();
+        let names: Vec<String> = ["id", "title_t", "alt_s"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         let cols = load_cols(&s, &names).unwrap();
         let t = |v: &str| Cell::Text(v.into());
         let e = encode(&cols, &[t("1"), t("A"), t("B-distinto")]).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("alt_s") && m.contains("B-distinto")), "{e:?}");
-        assert_eq!(encode(&cols, &[t("1"), t("A"), t("A")]).unwrap(), r#"{"id":"1","title_t":"A"}"#);
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("alt_s") && m.contains("B-distinto")),
+            "{e:?}"
+        );
+        assert_eq!(
+            encode(&cols, &[t("1"), t("A"), t("A")]).unwrap(),
+            r#"{"id":"1","title_t":"A"}"#
+        );
         // maxChars: the copy keeps the first 3 characters.
-        let names: Vec<String> = ["id", "title_t", "short_ss"].iter().map(|n| n.to_string()).collect();
+        let names: Vec<String> = ["id", "title_t", "short_ss"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         let cols = load_cols(&s, &names).unwrap();
         assert_eq!(cols[2].fed_by, vec![(1, Some(3))]);
         assert!(encode(&cols, &[t("1"), t("Hola"), Cell::Json("[\"Hol\"]".into())]).is_ok());
@@ -2582,23 +3095,50 @@ mod tests {
         let names: Vec<String> = ["id", "score"].iter().map(|n| n.to_string()).collect();
         assert!(load_cols(&s, &names).is_ok());
         // Numbers into a type DBine doesn't know: refused.
-        for c in [Cell::Int(5), Cell::Float(12.75), Cell::Decimal("1.5".into())] {
+        for c in [
+            Cell::Int(5),
+            Cell::Float(12.75),
+            Cell::Decimal("1.5".into()),
+        ] {
             assert!(matches!(one(Kind::Other, c), Err(Error::Unsupported(_))));
         }
-        let e = encode(&cols_one("v", Kind::Other, true), &[Cell::Json("[1, 2]".into())]).unwrap_err();
+        let e = encode(
+            &cols_one("v", Kind::Other, true),
+            &[Cell::Json("[1, 2]".into())],
+        )
+        .unwrap_err();
         assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
         // Dates into it lose no digits silently either.
-        assert!(matches!(one(Kind::Other, Cell::DateTime("2024-01-02 03:04:05.123456".into())), Err(Error::Unsupported(_))));
-        assert!(one(Kind::Other, Cell::DateTime("2024-01-02 03:04:05.123".into())).is_ok());
-        assert!(matches!(one(Kind::Date, Cell::Text("2024-01-02T03:04:05.1234Z".into())), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            one(
+                Kind::Other,
+                Cell::DateTime("2024-01-02 03:04:05.123456".into())
+            ),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(one(
+            Kind::Other,
+            Cell::DateTime("2024-01-02 03:04:05.123".into())
+        )
+        .is_ok());
+        assert!(matches!(
+            one(Kind::Date, Cell::Text("2024-01-02T03:04:05.1234Z".into())),
+            Err(Error::Unsupported(_))
+        ));
         // Booleans: only clear values (Solr stores "yes" or 5 as false).
         assert_eq!(one(Kind::Bool, Cell::Int(1)).unwrap(), r#"{"f":true}"#);
-        assert_eq!(one(Kind::Bool, Cell::Text("F".into())).unwrap(), r#"{"f":false}"#);
+        assert_eq!(
+            one(Kind::Bool, Cell::Text("F".into())).unwrap(),
+            r#"{"f":false}"#
+        );
         assert!(one(Kind::Bool, Cell::Int(5)).is_err());
         assert!(one(Kind::Bool, Cell::Text("yes".into())).is_err());
         // Numeric text into a float field is checked like a number.
         assert!(one(Kind::Float32, Cell::Text("0.1234567891234".into())).is_err());
-        assert_eq!(one(Kind::Float64, Cell::Text("12.50".into())).unwrap(), r#"{"f":12.5}"#);
+        assert_eq!(
+            one(Kind::Float64, Cell::Text("12.50".into())).unwrap(),
+            r#"{"f":12.5}"#
+        );
     }
 
     /// Items of a multi-valued numeric field keep their exact digits: a
@@ -2607,17 +3147,30 @@ mod tests {
     fn multi_valued_items_keep_their_digits() {
         let doubles = cols_one("xs_ds", Kind::Float64, true);
         assert!(encode(&doubles, &[Cell::Json("[0.12345678901234567890]".into())]).is_err());
-        assert!(one(Kind::Float64, Cell::Decimal("0.12345678901234567890".into())).is_err());
-        assert_eq!(encode(&doubles, &[Cell::Json("[1.25e2, -0.5]".into())]).unwrap(), r#"{"xs_ds":[125,-0.5]}"#);
+        assert!(one(
+            Kind::Float64,
+            Cell::Decimal("0.12345678901234567890".into())
+        )
+        .is_err());
+        assert_eq!(
+            encode(&doubles, &[Cell::Json("[1.25e2, -0.5]".into())]).unwrap(),
+            r#"{"xs_ds":[125,-0.5]}"#
+        );
         let ints = cols_one("xs_is", Kind::Int64, true);
         assert!(encode(&ints, &[Cell::Json("[1e0, 12.5e-1]".into())]).is_err());
         // Into text: the number's own digits.
         let texts = cols_one("xs_ss", Kind::Text, true);
-        assert_eq!(encode(&texts, &[Cell::Json("[2.50, \"a\\\"b\", true]".into())]).unwrap(), r#"{"xs_ss":["2.50","a\"b",true]}"#);
+        assert_eq!(
+            encode(&texts, &[Cell::Json("[2.50, \"a\\\"b\", true]".into())]).unwrap(),
+            r#"{"xs_ss":["2.50","a\"b",true]}"#
+        );
         assert_eq!(array_items("[ ]"), Some(vec![]));
         assert_eq!(array_items("[1,]"), None);
         assert_eq!(array_items("[1 2]"), None);
-        assert_eq!(array_items("[\"x,y\", null]"), Some(vec![Cell::Text("x,y".into()), Cell::Null]));
+        assert_eq!(
+            array_items("[\"x,y\", null]"),
+            Some(vec![Cell::Text("x,y".into()), Cell::Null])
+        );
         assert_eq!(plain_decimal("-1.5E3").as_deref(), Some("-1500"));
         assert_eq!(plain_decimal("12e-4").as_deref(), Some("0.0012"));
         assert_eq!(plain_decimal("x"), None);
@@ -2629,26 +3182,51 @@ mod tests {
     fn numeric_text_and_json_scalars_are_checked() {
         let fs = cols_one("m_fs", Kind::Float32, true);
         assert!(encode(&fs, &[Cell::Json("[\"0.1234567891234\"]".into())]).is_err());
-        assert_eq!(encode(&fs, &[Cell::Json("[\"0.5\", 2]".into())]).unwrap(), r#"{"m_fs":[0.5,2]}"#);
+        assert_eq!(
+            encode(&fs, &[Cell::Json("[\"0.5\", 2]".into())]).unwrap(),
+            r#"{"m_fs":[0.5,2]}"#
+        );
         let ds = cols_one("m_ds", Kind::Float64, true);
         assert!(encode(&ds, &[Cell::Json("[\"0.12345678901234567890\"]".into())]).is_err());
-        assert!(encode(&cols_one("m_is", Kind::Int32, true), &[Cell::Json("[\"12.5\"]".into())]).is_err());
+        assert!(encode(
+            &cols_one("m_is", Kind::Int32, true),
+            &[Cell::Json("[\"12.5\"]".into())]
+        )
+        .is_err());
         assert!(encode(&fs, &[Cell::Json("[\"1.5f\"]".into())]).is_err());
         // One JSON scalar into a single-valued field.
         assert!(one(Kind::Float32, Cell::Json("0.1234567891234".into())).is_err());
         assert!(one(Kind::Float32, Cell::Json("\"0.1234567891234\"".into())).is_err());
         assert!(one(Kind::Float64, Cell::Json("1e400".into())).is_err());
         assert!(one(Kind::Int32, Cell::Json("3000000000".into())).is_err());
-        assert_eq!(one(Kind::Float32, Cell::Json(" 0.5 ".into())).unwrap(), r#"{"f":0.5}"#);
-        assert_eq!(one(Kind::Int64, Cell::Json("\"-12\"".into())).unwrap(), r#"{"f":-12}"#);
-        assert_eq!(one(Kind::Bool, Cell::Json("true".into())).unwrap(), r#"{"f":true}"#);
+        assert_eq!(
+            one(Kind::Float32, Cell::Json(" 0.5 ".into())).unwrap(),
+            r#"{"f":0.5}"#
+        );
+        assert_eq!(
+            one(Kind::Int64, Cell::Json("\"-12\"".into())).unwrap(),
+            r#"{"f":-12}"#
+        );
+        assert_eq!(
+            one(Kind::Bool, Cell::Json("true".into())).unwrap(),
+            r#"{"f":true}"#
+        );
         assert!(one(Kind::Bool, Cell::Json("\"yes\"".into())).is_err());
-        assert!(matches!(one(Kind::Other, Cell::Json("1.5".into())), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            one(Kind::Other, Cell::Json("1.5".into())),
+            Err(Error::Unsupported(_))
+        ));
         // Text that isn't a plain decimal into a number field.
         assert!(one(Kind::Float32, Cell::Text("1.5f".into())).is_err());
-        assert_eq!(one(Kind::Float64, Cell::Text("NaN".into())).unwrap(), r#"{"f":"NaN"}"#);
+        assert_eq!(
+            one(Kind::Float64, Cell::Text("NaN".into())).unwrap(),
+            r#"{"f":"NaN"}"#
+        );
         // Text fields keep the JSON text as before.
-        assert_eq!(one(Kind::Text, Cell::Json("1.50".into())).unwrap(), r#"{"f":"1.50"}"#);
+        assert_eq!(
+            one(Kind::Text, Cell::Json("1.50".into())).unwrap(),
+            r#"{"f":"1.50"}"#
+        );
     }
 
     /// Solr drops null items of a list (`[1,null,2]` reads back `[1,2]`).
@@ -2659,7 +3237,11 @@ mod tests {
             let e = encode(&is, &[Cell::Json(v.into())]).unwrap_err();
             assert!(matches!(e, Error::Unsupported(_)), "{v}: {e:?}");
         }
-        let e = encode(&cols_one("t_ss", Kind::Text, true), &[Cell::Json("[\"a\", null]".into())]).unwrap_err();
+        let e = encode(
+            &cols_one("t_ss", Kind::Text, true),
+            &[Cell::Json("[\"a\", null]".into())],
+        )
+        .unwrap_err();
         assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
     }
 
@@ -2689,12 +3271,21 @@ mod tests {
         for n in ["ignored_note", "_text_", "nodv_s", "hide_s"] {
             assert!(!s.retrievable(n), "{n}");
         }
-        let names: Vec<String> = ["id", "ignored_note"].iter().map(|n| n.to_string()).collect();
+        let names: Vec<String> = ["id", "ignored_note"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         let cols = load_cols(&s, &names).unwrap();
         let e = encode(&cols, &[Cell::Text("1".into()), Cell::Text("nota".into())]).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("ignored_note")), "{e:?}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("ignored_note")),
+            "{e:?}"
+        );
         // No value: nothing is lost.
-        assert_eq!(encode(&cols, &[Cell::Text("1".into()), Cell::Null]).unwrap(), r#"{"id":"1"}"#);
+        assert_eq!(
+            encode(&cols, &[Cell::Text("1".into()), Cell::Null]).unwrap(),
+            r#"{"id":"1"}"#
+        );
     }
 
     /// maxChars counts UTF-16 units and cuts only strings.
@@ -2707,16 +3298,28 @@ mod tests {
             "fieldTypes": [{"name": "string", "class": "solr.StrField"}, {"name": "plong", "class": "solr.LongPointField"}],
             "copyFields": [{"source": "emo_t", "dest": "emo_s", "maxChars": 1}, {"source": "n_l", "dest": "n_s", "maxChars": 1}]
         }}));
-        let names: Vec<String> = ["id", "emo_t", "emo_s"].iter().map(|n| n.to_string()).collect();
+        let names: Vec<String> = ["id", "emo_t", "emo_s"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         let cols = load_cols(&s, &names).unwrap();
         let t = |v: &str| Cell::Text(v.into());
         // Solr keeps half the emoji: not what the row holds.
-        assert!(matches!(encode(&cols, &[t("1"), t("😀😀"), t("😀")]), Err(Error::Unsupported(_))));
-        assert_eq!(encode(&cols, &[t("1"), t("ab"), t("a")]).unwrap(), r#"{"id":"1","emo_t":"ab"}"#);
+        assert!(matches!(
+            encode(&cols, &[t("1"), t("😀😀"), t("😀")]),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(
+            encode(&cols, &[t("1"), t("ab"), t("a")]).unwrap(),
+            r#"{"id":"1","emo_t":"ab"}"#
+        );
         // A number isn't cut.
         let names: Vec<String> = ["id", "n_l", "n_s"].iter().map(|n| n.to_string()).collect();
         let cols = load_cols(&s, &names).unwrap();
-        assert_eq!(encode(&cols, &[t("1"), Cell::Int(123), t("123")]).unwrap(), r#"{"id":"1","n_l":123}"#);
+        assert_eq!(
+            encode(&cols, &[t("1"), Cell::Int(123), t("123")]).unwrap(),
+            r#"{"id":"1","n_l":123}"#
+        );
     }
 
     /// Java's `Double.toString`/`Float.toString`, as Java 17 and 21 print
@@ -2741,7 +3344,13 @@ mod tests {
         ] {
             assert_eq!(java_double(v), s, "{v:e}");
         }
-        for (f, s) in [(0.1f32, "0.1"), (16777216.0, "1.6777216E7"), (f32::from_bits(0xc9800b12), "-1048930.2"), (1.4e-45, "1.4E-45"), (1e-3, "0.001")] {
+        for (f, s) in [
+            (0.1f32, "0.1"),
+            (16777216.0, "1.6777216E7"),
+            (f32::from_bits(0xc9800b12), "-1048930.2"),
+            (1.4e-45, "1.4E-45"),
+            (1e-3, "0.001"),
+        ] {
             assert_eq!(java_float(f), s, "{f:e}");
         }
         // Java 17 prints some with other digits: as Java 17 does (checked
@@ -2762,7 +3371,11 @@ mod tests {
             assert_eq!(java_double_on(v, JavaText::Java17).as_deref(), Some(s));
             assert_eq!(java_double_on(v, JavaText::Java19), Some(java_double(v)));
             let same = java_double(v) == s;
-            assert_eq!(java_double_on(v, JavaText::Unknown).is_some(), same, "{v:e}");
+            assert_eq!(
+                java_double_on(v, JavaText::Unknown).is_some(),
+                same,
+                "{v:e}"
+            );
         }
         for (f, s) in [
             (2f32.powi(-38), "3.6379788E-12"),
@@ -2774,7 +3387,11 @@ mod tests {
         ] {
             assert_eq!(java17_float(f), s, "{f:e}");
             assert_eq!(java_float_on(f, JavaText::Java17).as_deref(), Some(s));
-            assert_eq!(java_float_on(f, JavaText::Unknown).is_some(), java_float(f) == s, "{f:e}");
+            assert_eq!(
+                java_float_on(f, JavaText::Unknown).is_some(),
+                java_float(f) == s,
+                "{f:e}"
+            );
         }
     }
 
@@ -2815,27 +3432,68 @@ mod tests {
         let t = |v: &str| Cell::Text(v.into());
         // `1e-7` would be replaced by `1.0E-7`.
         let e = encode(&cols, &[t("x1a"), Cell::Float(1e-7), t("1e-7")]).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("px_s") && m.contains("1e-7")), "{e:?}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("px_s") && m.contains("1e-7")),
+            "{e:?}"
+        );
         // Solr's own copies: the source goes the way that gives them.
-        assert_eq!(encode(&cols, &[t("a"), Cell::Float(100.0), t("100.0")]).unwrap(), r#"{"id":"a","px_d":100.0}"#);
-        assert_eq!(encode(&cols, &[t("a"), Cell::Float(100.0), t("100")]).unwrap(), r#"{"id":"a","px_d":100}"#);
-        assert_eq!(encode(&cols, &[t("a"), Cell::Float(1e-7), t("1.0E-7")]).unwrap(), r#"{"id":"a","px_d":1.0E-7}"#);
-        assert_eq!(encode(&cols, &[t("a"), Cell::Float(2.5), t("2.5")]).unwrap(), r#"{"id":"a","px_d":2.5}"#);
-        assert_eq!(encode(&cols, &[t("a"), Cell::Float(-0.0), t("-0.0")]).unwrap(), r#"{"id":"a","px_d":-0.0}"#);
+        assert_eq!(
+            encode(&cols, &[t("a"), Cell::Float(100.0), t("100.0")]).unwrap(),
+            r#"{"id":"a","px_d":100.0}"#
+        );
+        assert_eq!(
+            encode(&cols, &[t("a"), Cell::Float(100.0), t("100")]).unwrap(),
+            r#"{"id":"a","px_d":100}"#
+        );
+        assert_eq!(
+            encode(&cols, &[t("a"), Cell::Float(1e-7), t("1.0E-7")]).unwrap(),
+            r#"{"id":"a","px_d":1.0E-7}"#
+        );
+        assert_eq!(
+            encode(&cols, &[t("a"), Cell::Float(2.5), t("2.5")]).unwrap(),
+            r#"{"id":"a","px_d":2.5}"#
+        );
+        assert_eq!(
+            encode(&cols, &[t("a"), Cell::Float(-0.0), t("-0.0")]).unwrap(),
+            r#"{"id":"a","px_d":-0.0}"#
+        );
         assert!(encode(&cols, &[t("a"), Cell::Float(-0.0), t("0")]).is_err());
         // Java 17 prints 1e23 as `9.999999999999999E22`: unsure, refused
         // with that reason; known from Java 19.
         let e = encode(&cols, &[t("a"), Cell::Float(1e23), t("1.0E23")]).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("versión de Java")), "{e:?}");
-        let modern: Vec<Col> = cols.iter().cloned().map(|c| Col { java: JavaText::Java19, ..c }).collect();
-        assert_eq!(encode(&modern, &[t("a"), Cell::Float(1e23), t("1.0E23")]).unwrap(), r#"{"id":"a","px_d":1.0E23}"#);
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("versión de Java")),
+            "{e:?}"
+        );
+        let modern: Vec<Col> = cols
+            .iter()
+            .cloned()
+            .map(|c| Col {
+                java: JavaText::Java19,
+                ..c
+            })
+            .collect();
+        assert_eq!(
+            encode(&modern, &[t("a"), Cell::Float(1e23), t("1.0E23")]).unwrap(),
+            r#"{"id":"a","px_d":1.0E23}"#
+        );
         // Java 17 prints 2⁻²⁴ as `5.9604644775390625E-8`: the shortest
         // text is refused there (and when unsure), Solr's own copy loads.
-        let old: Vec<Col> = cols.iter().cloned().map(|c| Col { java: JavaText::Java17, ..c }).collect();
+        let old: Vec<Col> = cols
+            .iter()
+            .cloned()
+            .map(|c| Col {
+                java: JavaText::Java17,
+                ..c
+            })
+            .collect();
         let p = Cell::Float(2f64.powi(-24));
         for c in [&old, &cols] {
             let e = encode(c, &[t("a"), p.clone(), t("5.960464477539063E-8")]).unwrap_err();
-            assert!(matches!(&e, Error::Unsupported(m) if m.contains("px_s")), "{e:?}");
+            assert!(
+                matches!(&e, Error::Unsupported(m) if m.contains("px_s")),
+                "{e:?}"
+            );
         }
         assert_eq!(
             encode(&old, &[t("a"), p.clone(), t("5.9604644775390625E-8")]).unwrap(),
@@ -2848,10 +3506,21 @@ mod tests {
         // Two destinations wanting the number written two ways: refused.
         let two = load_names(&s, &["id", "px_d", "px_s", "px2_s"]);
         assert!(encode(&two, &[t("a"), Cell::Float(100.0), t("100"), t("100.0")]).is_err());
-        assert_eq!(encode(&two, &[t("a"), Cell::Float(100.0), t("100.0"), t("100.0")]).unwrap(), r#"{"id":"a","px_d":100.0}"#);
+        assert_eq!(
+            encode(&two, &[t("a"), Cell::Float(100.0), t("100.0"), t("100.0")]).unwrap(),
+            r#"{"id":"a","px_d":100.0}"#
+        );
         // Each item of a list its own way.
         let list = load_names(&s, &["id", "xs_ds", "xs_ss"]);
-        let doc = encode(&list, &[t("a"), Cell::Json("[100.0,5,1e-7]".into()), Cell::Json(r#"["100.0","5","1.0E-7"]"#.into())]).unwrap();
+        let doc = encode(
+            &list,
+            &[
+                t("a"),
+                Cell::Json("[100.0,5,1e-7]".into()),
+                Cell::Json(r#"["100.0","5","1.0E-7"]"#.into()),
+            ],
+        )
+        .unwrap();
         assert_eq!(doc, r#"{"id":"a","xs_ds":[100.0,5,1.0E-7]}"#);
     }
 
@@ -2862,12 +3531,31 @@ mod tests {
         let cols = load_names(&s, &["id", "title_t", "alt_s"]);
         let t = |v: &str| Cell::Text(v.into());
         let e = encode(&cols, &[t("1"), t("A"), Cell::Null]).unwrap_err();
-        assert!(matches!(&e, Error::Unsupported(m) if m.contains("alt_s") && m.contains("NULL")), "{e:?}");
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m.contains("alt_s") && m.contains("NULL")),
+            "{e:?}"
+        );
         // No source value: nothing is copied.
-        assert_eq!(encode(&cols, &[t("1"), Cell::Null, Cell::Null]).unwrap(), r#"{"id":"1"}"#);
+        assert_eq!(
+            encode(&cols, &[t("1"), Cell::Null, Cell::Null]).unwrap(),
+            r#"{"id":"1"}"#
+        );
         // A destination that keeps nothing reads back NULL anyway.
-        let hidden: Vec<Col> = cols.iter().cloned().map(|c| if c.name == "alt_s" { Col { hidden: true, ..c } } else { c }).collect();
-        assert_eq!(encode(&hidden, &[t("1"), t("A"), Cell::Null]).unwrap(), r#"{"id":"1","title_t":"A"}"#);
+        let hidden: Vec<Col> = cols
+            .iter()
+            .cloned()
+            .map(|c| {
+                if c.name == "alt_s" {
+                    Col { hidden: true, ..c }
+                } else {
+                    c
+                }
+            })
+            .collect();
+        assert_eq!(
+            encode(&hidden, &[t("1"), t("A"), Cell::Null]).unwrap(),
+            r#"{"id":"1","title_t":"A"}"#
+        );
     }
 
     /// A negative zero keeps its sign; a pfloat takes a decimal only if Solr
@@ -2875,15 +3563,30 @@ mod tests {
     #[test]
     fn negative_zero_and_float_texts() {
         let floats = cols_one("xs_fs", Kind::Float32, true);
-        assert_eq!(encode(&floats, &[Cell::Json("[16777216, -0.0]".into())]).unwrap(), r#"{"xs_fs":[16777216,-0.0]}"#);
-        assert_eq!(one(Kind::Float64, Cell::Float(-0.0)).unwrap(), r#"{"f":-0.0}"#);
-        assert_eq!(one(Kind::Float32, Cell::Decimal("-0".into())).unwrap(), r#"{"f":-0.0}"#);
-        assert_eq!(one(Kind::Int32, Cell::Decimal("-0.0".into())).unwrap(), r#"{"f":0}"#);
+        assert_eq!(
+            encode(&floats, &[Cell::Json("[16777216, -0.0]".into())]).unwrap(),
+            r#"{"xs_fs":[16777216,-0.0]}"#
+        );
+        assert_eq!(
+            one(Kind::Float64, Cell::Float(-0.0)).unwrap(),
+            r#"{"f":-0.0}"#
+        );
+        assert_eq!(
+            one(Kind::Float32, Cell::Decimal("-0".into())).unwrap(),
+            r#"{"f":-0.0}"#
+        );
+        assert_eq!(
+            one(Kind::Int32, Cell::Decimal("-0.0".into())).unwrap(),
+            r#"{"f":0}"#
+        );
         assert!(one(Kind::Float32, Cell::Decimal("1e-45".into())).is_err());
         // Solr prints this float as `1.4E-45` on Java 17 and 19 alike.
         let doc = format!(r#"{{"f":{}}}"#, plain_decimal("1.4e-45").unwrap());
         assert_eq!(one(Kind::Float32, Cell::Float(1.4e-45)).unwrap(), doc);
-        let modern = vec![Col { java: JavaText::Java19, ..Col::new("f", Kind::Float32, false) }];
+        let modern = vec![Col {
+            java: JavaText::Java19,
+            ..Col::new("f", Kind::Float32, false)
+        }];
         assert_eq!(encode(&modern, &[Cell::Float(1.4e-45)]).unwrap(), doc);
         assert!(encode(&modern, &[Cell::Decimal("1e-45".into())]).is_err());
     }
@@ -2893,8 +3596,16 @@ mod tests {
     /// read back changed there: refused on Java 17 and when unsure.
     #[test]
     fn float_decimals_follow_the_servers_java() {
-        let on = |java: JavaText| vec![Col { java, ..Col::new("f", Kind::Float32, false) }];
-        for (dec, j17) in [("3.637979E-12", "3.6379788E-12"), ("1.2621775E-29", "1.26217745E-29")] {
+        let on = |java: JavaText| {
+            vec![Col {
+                java,
+                ..Col::new("f", Kind::Float32, false)
+            }]
+        };
+        for (dec, j17) in [
+            ("3.637979E-12", "3.6379788E-12"),
+            ("1.2621775E-29", "1.26217745E-29"),
+        ] {
             for java in [JavaText::Java17, JavaText::Unknown] {
                 let e = encode(&on(java), &[Cell::Decimal(dec.into())]).unwrap_err();
                 assert!(matches!(&e, Error::Query(m) if m.contains(dec)), "{e:?}");
@@ -2910,18 +3621,39 @@ mod tests {
     /// as a number Solr would keep in its Java form (`1.0E-7`).
     #[test]
     fn float_into_text_is_its_text() {
-        assert_eq!(one(Kind::Text, Cell::Float(1e-7)).unwrap(), r#"{"f":"1e-7"}"#);
-        assert_eq!(one(Kind::Text, Cell::Float(100.0)).unwrap(), r#"{"f":"100.0"}"#);
-        assert_eq!(one(Kind::Text, Cell::Float(2f64.powi(-24))).unwrap(), r#"{"f":"5.960464477539063e-8"}"#);
+        assert_eq!(
+            one(Kind::Text, Cell::Float(1e-7)).unwrap(),
+            r#"{"f":"1e-7"}"#
+        );
+        assert_eq!(
+            one(Kind::Text, Cell::Float(100.0)).unwrap(),
+            r#"{"f":"100.0"}"#
+        );
+        assert_eq!(
+            one(Kind::Text, Cell::Float(2f64.powi(-24))).unwrap(),
+            r#"{"f":"5.960464477539063e-8"}"#
+        );
     }
 
     /// The load's documents only insert.
     #[test]
     fn load_documents_are_insert_only() {
         let mut buf = Vec::new();
-        encode_new_doc(&mut buf, &cols_one("id", Kind::Text, false), &[Cell::Text("k".into())]).unwrap();
-        assert_eq!(String::from_utf8(buf).unwrap(), r#"{"_version_":-1,"id":"k"}"#);
-        assert_eq!(conflict_key("version conflict for keep expected=-1 actual=1877680411802337280").as_deref(), Some("keep"));
+        encode_new_doc(
+            &mut buf,
+            &cols_one("id", Kind::Text, false),
+            &[Cell::Text("k".into())],
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            r#"{"_version_":-1,"id":"k"}"#
+        );
+        assert_eq!(
+            conflict_key("version conflict for keep expected=-1 actual=1877680411802337280")
+                .as_deref(),
+            Some("keep")
+        );
         assert_eq!(
             conflict_key("Async exception during distributed update: version conflict for a b expected=-1 actual=1").as_deref(),
             Some("a b")
@@ -2962,7 +3694,9 @@ mod tests {
     fn read_helpers() {
         assert!(plain_fl_name("title_s"));
         assert!(plain_fl_name("_x"));
-        for bad in ["score", "[docid]", "a,b", "a b", "1x", "", "sum(a,b)", "a:b"] {
+        for bad in [
+            "score", "[docid]", "a,b", "a b", "1x", "", "sum(a,b)", "a:b",
+        ] {
             assert!(!plain_fl_name(bad), "{bad}");
         }
         assert_eq!(next_page(0, 0), PAGE_FIRST);
@@ -2977,14 +3711,20 @@ mod tests {
         assert_eq!(seg("my coll/1"), "my%20coll%2F1");
         assert_eq!(seg("books_v-2.x"), "books_v-2.x");
         assert_eq!(key_text(&Cell::Int(5)).as_deref(), Some("5"));
-        assert_eq!(key_text(&Cell::Text("a\"b".into())).as_deref(), Some("a\"b"));
+        assert_eq!(
+            key_text(&Cell::Text("a\"b".into())).as_deref(),
+            Some("a\"b")
+        );
         assert_eq!(key_text(&Cell::Null), None);
     }
 
     #[test]
     fn read_back_what_was_written() {
         let s = schema();
-        let names: Vec<String> = ["id", "n_i", "when_dt", "b_bin", "tags"].iter().map(|n| n.to_string()).collect();
+        let names: Vec<String> = ["id", "n_i", "when_dt", "b_bin", "tags"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         let cols = load_cols(&s, &names).unwrap();
         let row = vec![
             Cell::Text("k".into()),
@@ -2995,7 +3735,10 @@ mod tests {
         ];
         let doc: Map<String, Value> = serde_json::from_str(&encode(&cols, &row).unwrap()).unwrap();
         // Multi-valued fields read as JSON (kind Other).
-        let read: Vec<(String, Kind)> = cols.iter().map(|c| (c.name.clone(), if c.multi { Kind::Other } else { c.kind })).collect();
+        let read: Vec<(String, Kind)> = cols
+            .iter()
+            .map(|c| (c.name.clone(), if c.multi { Kind::Other } else { c.kind }))
+            .collect();
         let back = doc_row(&doc, &read);
         assert_eq!(back[..4], row[..4]);
         assert_eq!(back[4], Cell::Json("[\"a\",\"b\"]".into()));

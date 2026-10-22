@@ -34,16 +34,31 @@ async fn orientdb_options() {
     let _ = s.drop_database("dbine_create_opts").await;
 
     let o: BTreeMap<String, String> = [("storage".to_string(), "memory".to_string())].into();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &o).unwrap());
-    s.create_database_with("dbine_create_opts", &o).await.unwrap();
-    let mut db = d.connect(&cfg(Some("dbine_create_opts")), Some("dbine_create_opts")).await.unwrap();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &o).unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &o)
+        .await
+        .unwrap();
+    let mut db = d
+        .connect(&cfg(Some("dbine_create_opts")), Some("dbine_create_opts"))
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
-    db.execute("SELECT type FROM metadata:storage", 10, &mut out).await.unwrap();
-    assert_eq!(out.results.last().unwrap().rows[0][0], Value::String("memory".into()));
+    db.execute("SELECT type FROM metadata:storage", 10, &mut out)
+        .await
+        .unwrap();
+    assert_eq!(
+        out.results.last().unwrap().rows[0][0],
+        Value::String("memory".into())
+    );
     drop(db);
     s.drop_database("dbine_create_opts").await.unwrap();
 
     // Without options it's the plain create, on disk.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }

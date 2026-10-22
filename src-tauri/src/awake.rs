@@ -22,7 +22,9 @@ type Hold = std::sync::mpsc::Sender<()>;
 
 impl Awake {
     pub const fn new() -> Awake {
-        Awake { held: Mutex::new(None) }
+        Awake {
+            held: Mutex::new(None),
+        }
     }
 
     /// Hold the computer awake (or release it).
@@ -54,13 +56,23 @@ impl Drop for Awake {
 
 #[cfg(target_os = "macos")]
 fn start() -> Option<Hold> {
-    std::process::Command::new("/usr/bin/caffeinate").args(["-i", "-w", &std::process::id().to_string()]).spawn().ok()
+    std::process::Command::new("/usr/bin/caffeinate")
+        .args(["-i", "-w", &std::process::id().to_string()])
+        .spawn()
+        .ok()
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn start() -> Option<Hold> {
     std::process::Command::new("systemd-inhibit")
-        .args(["--what=idle:sleep", "--who=DBine", "--why=Una consulta está en curso", "--mode=block", "sleep", "infinity"])
+        .args([
+            "--what=idle:sleep",
+            "--who=DBine",
+            "--why=Una consulta está en curso",
+            "--mode=block",
+            "sleep",
+            "infinity",
+        ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -75,7 +87,9 @@ fn stop(mut child: Hold) {
 
 #[cfg(windows)]
 fn start() -> Option<Hold> {
-    use windows::Win32::System::Power::{SetThreadExecutionState, ES_CONTINUOUS, ES_SYSTEM_REQUIRED};
+    use windows::Win32::System::Power::{
+        SetThreadExecutionState, ES_CONTINUOUS, ES_SYSTEM_REQUIRED,
+    };
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     std::thread::Builder::new()
         .name("dbine-awake".into())
@@ -106,7 +120,12 @@ mod tests {
             let held = a.held.lock().unwrap();
             held.as_ref().map(|c| c.id()).expect("caffeinate started")
         };
-        let alive = |pid: u32| std::process::Command::new("/bin/kill").args(["-0", &pid.to_string()]).status().is_ok_and(|s| s.success());
+        let alive = |pid: u32| {
+            std::process::Command::new("/bin/kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .is_ok_and(|s| s.success())
+        };
         assert!(alive(pid));
         // Holding again doesn't start a second one.
         a.set(true);

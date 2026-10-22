@@ -34,7 +34,12 @@ fn source(lang: &str) -> &'static str {
 /// "zh-TW", which gets the Simplified Chinese file): English when there's no
 /// file for it.
 pub fn lang(code: &str) -> &'static str {
-    let base = code.split(['-', '_']).next().unwrap_or("").trim().to_ascii_lowercase();
+    let base = code
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     LANGS.iter().copied().find(|l| *l == base).unwrap_or("en")
 }
 
@@ -44,13 +49,21 @@ pub struct Prompts {
 }
 
 fn parse(lang: &'static str) -> Prompts {
-    let raw: serde_json::Map<String, Value> = serde_json::from_str(source(lang)).unwrap_or_else(|e| panic!("prompts/{lang}.json: {e}"));
+    let raw: serde_json::Map<String, Value> =
+        serde_json::from_str(source(lang)).unwrap_or_else(|e| panic!("prompts/{lang}.json: {e}"));
     let texts = raw
         .into_iter()
         .map(|(k, v)| {
             let text = match v {
                 Value::String(s) => s,
-                Value::Array(lines) => lines.iter().map(|l| l.as_str().unwrap_or_else(|| panic!("prompts/{lang}.json: {k}: not text"))).collect::<Vec<_>>().join("\n"),
+                Value::Array(lines) => lines
+                    .iter()
+                    .map(|l| {
+                        l.as_str()
+                            .unwrap_or_else(|| panic!("prompts/{lang}.json: {k}: not text"))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 _ => panic!("prompts/{lang}.json: {k}: not text"),
             };
             (k, text)
@@ -64,7 +77,9 @@ pub fn get(code: &str) -> &'static Prompts {
     static ALL: OnceLock<Vec<Prompts>> = OnceLock::new();
     let all = ALL.get_or_init(|| LANGS.iter().map(|l| parse(l)).collect());
     let l = lang(code);
-    all.iter().find(|p| p.lang == l).expect("a prompt file per language")
+    all.iter()
+        .find(|p| p.lang == l)
+        .expect("a prompt file per language")
 }
 
 impl Prompts {
@@ -87,13 +102,18 @@ impl Prompts {
     /// that itself has braces (SQL, JSON) is never filled again.
     pub fn fill(&self, key: &str, values: &[(&str, &str)]) -> String {
         let t = self.text(key);
-        let mut out = String::with_capacity(t.len() + values.iter().map(|(_, v)| v.len()).sum::<usize>());
+        let mut out =
+            String::with_capacity(t.len() + values.iter().map(|(_, v)| v.len()).sum::<usize>());
         let mut rest = t;
         while let Some(i) = rest.find('{') {
             out.push_str(&rest[..i]);
             let after = &rest[i + 1..];
-            let name_len = after.find(|c: char| !(c.is_ascii_lowercase() || c == '_')).unwrap_or(after.len());
-            let value = (name_len > 0 && after[name_len..].starts_with('}')).then(|| values.iter().find(|(n, _)| *n == &after[..name_len])).flatten();
+            let name_len = after
+                .find(|c: char| !(c.is_ascii_lowercase() || c == '_'))
+                .unwrap_or(after.len());
+            let value = (name_len > 0 && after[name_len..].starts_with('}'))
+                .then(|| values.iter().find(|(n, _)| *n == &after[..name_len]))
+                .flatten();
             match value {
                 Some((_, v)) => {
                     out.push_str(v);
@@ -141,7 +161,9 @@ mod tests {
     }
 
     fn tags(t: &str) -> BTreeSet<String> {
-        found(t, '<', '>', |c| c.is_ascii_lowercase() || c == '_' || c == '/')
+        found(t, '<', '>', |c| {
+            c.is_ascii_lowercase() || c == '_' || c == '/'
+        })
     }
 
     #[test]
@@ -177,10 +199,19 @@ mod tests {
     #[test]
     fn fill_replaces_only_known_placeholders_once() {
         let p = get("es");
-        let s = p.fill("assistant.objects_failed", &[("error", "falta {error} y {x}")]);
-        assert_eq!(s, "(No se pudo listar los objetos de la base: falta {error} y {x}.)");
+        let s = p.fill(
+            "assistant.objects_failed",
+            &[("error", "falta {error} y {x}")],
+        );
+        assert_eq!(
+            s,
+            "(No se pudo listar los objetos de la base: falta {error} y {x}.)"
+        );
         // The JSON examples in the tools text keep their braces.
-        let t = p.fill("assistant.tools", &[("connection", "c1"), ("database", "b1")]);
+        let t = p.fill(
+            "assistant.tools",
+            &[("connection", "c1"), ("database", "b1")],
+        );
         assert!(t.contains("«c1»") && t.contains("«b1»"));
         assert!(t.contains("<tool>{\"name\": \"list_databases\", \"arguments\": {}}</tool>"));
         assert!(!t.contains("{connection}"));
@@ -193,8 +224,20 @@ mod tests {
             // The language rule: the file's language, unless the user writes in another.
             assert!(p.text("assistant.system").lines().count() >= 10, "{l}");
             // The optimizer and the tools protocol: what the answer is read by.
-            assert!(p.text("optimizer.system").contains("NONE") && p.text("optimizer.repair").contains("NONE"), "{l}");
-            for t in ["list_databases", "list_objects", "describe_object", "index_usage", "sample_rows", "run_query", "explain"] {
+            assert!(
+                p.text("optimizer.system").contains("NONE")
+                    && p.text("optimizer.repair").contains("NONE"),
+                "{l}"
+            );
+            for t in [
+                "list_databases",
+                "list_objects",
+                "describe_object",
+                "index_usage",
+                "sample_rows",
+                "run_query",
+                "explain",
+            ] {
                 assert!(p.text("assistant.tools").contains(t), "{l}: {t}");
             }
         }

@@ -5,13 +5,18 @@
 
 use super::*;
 use crate::notebook::access::{Access, Gate, Policy};
-use crate::notebook::local::{existing_tables, open_sandboxed, prepare, Fetched, LiveRows, LoadedTable, LocalSource, Prepared};
+use crate::notebook::local::{
+    existing_tables, open_sandboxed, prepare, Fetched, LiveRows, LoadedTable, LocalSource, Prepared,
+};
 use dbine_driver::ResultColumn;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
 fn temp(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("dbine-nbfiles-{tag}-{}", uuid::Uuid::new_v4().simple()));
+    let dir = std::env::temp_dir().join(format!(
+        "dbine-nbfiles-{tag}-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     dir.canonicalize().unwrap()
 }
@@ -30,13 +35,32 @@ fn reader_calls_are_found_outside_strings_and_comments() {
     let sql = "SELECT * FROM c2 c JOIN read_csv('/Users/x/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID";
     let c = reader_calls(sql).unwrap();
     assert_eq!(c.len(), 1);
-    assert_eq!((c[0].function.as_str(), c[0].paths.clone(), c[0].list, c[0].rest.as_str()), ("read_csv", vec!["/Users/x/Downloads/CustomerTest.csv".to_string()], false, ""));
-    assert_eq!(&sql[c[0].start..c[0].end], "read_csv('/Users/x/Downloads/CustomerTest.csv')");
+    assert_eq!(
+        (
+            c[0].function.as_str(),
+            c[0].paths.clone(),
+            c[0].list,
+            c[0].rest.as_str()
+        ),
+        (
+            "read_csv",
+            vec!["/Users/x/Downloads/CustomerTest.csv".to_string()],
+            false,
+            ""
+        )
+    );
+    assert_eq!(
+        &sql[c[0].start..c[0].end],
+        "read_csv('/Users/x/Downloads/CustomerTest.csv')"
+    );
 
     // Escaped quotes and named arguments (`=` and `:=`).
     let c = reader_calls("SELECT * FROM read_csv('/d/it''s.csv', header = true, delim := ';', columns = {'a': 'INT'})").unwrap();
     assert_eq!(c[0].paths, ["/d/it's.csv"]);
-    assert_eq!(c[0].rest, ", header = true, delim := ';', columns = {'a': 'INT'}");
+    assert_eq!(
+        c[0].rest,
+        ", header = true, delim := ';', columns = {'a': 'INT'}"
+    );
 
     // Comments and strings don't count; a list with a glob; a comment inside the call is left out.
     let sql = "-- read_csv('/a.csv')\nSELECT 'read_csv(''/b.csv'')' /* read_parquet('/c') */ FROM read_parquet(['/x/1.parquet', 'exports/*.parquet'] /* ) */, hive_partitioning = true) p";
@@ -49,10 +73,23 @@ fn reader_calls_are_found_outside_strings_and_comments() {
 
     // Any case, every reader, several calls in order.
     let c = reader_calls("SELECT * FROM READ_CSV_AUTO('a.csv'), read_ndjson('b.ndjson'), parquet_scan('c.parquet'), read_json_auto('d.json'), read_xlsx('e.xlsx')").unwrap();
-    assert_eq!(c.iter().map(|c| c.function.as_str()).collect::<Vec<_>>(), ["read_csv_auto", "read_ndjson", "parquet_scan", "read_json_auto", "read_xlsx"]);
+    assert_eq!(
+        c.iter().map(|c| c.function.as_str()).collect::<Vec<_>>(),
+        [
+            "read_csv_auto",
+            "read_ndjson",
+            "parquet_scan",
+            "read_json_auto",
+            "read_xlsx"
+        ]
+    );
 
     // Not a call, or qualified: not a reader call.
-    assert!(reader_calls("SELECT read_csv FROM t; SELECT x.read_csv('a') FROM t; SELECT * FROM read_text('a')").unwrap().is_empty());
+    assert!(reader_calls(
+        "SELECT read_csv FROM t; SELECT x.read_csv('a') FROM t; SELECT * FROM read_text('a')"
+    )
+    .unwrap()
+    .is_empty());
 }
 
 #[test]
@@ -73,8 +110,16 @@ fn reader_calls_refuse_paths_that_are_not_written_out() {
     for sql in ["SELECT * FROM read_csv('a.csv'; COPY (SELECT 1) TO 'a.csv')", "SELECT * FROM read_csv('a.csv', x = (1); COPY (SELECT 1) TO 'a.csv' (USE_TMP_FILE false); SELECT (1))"] {
         assert!(reader_calls(sql).is_err(), "{sql}");
     }
-    assert!(reader_calls("SELECT * FROM read_csv('a.csv', header = (true").unwrap_err().contains("falta cerrar"));
-    assert!(reader_calls("SELECT * FROM read_csv('a.csv', delim = E'\\t')").unwrap_err().contains("comillas simples"));
+    assert!(
+        reader_calls("SELECT * FROM read_csv('a.csv', header = (true")
+            .unwrap_err()
+            .contains("falta cerrar")
+    );
+    assert!(
+        reader_calls("SELECT * FROM read_csv('a.csv', delim = E'\\t')")
+            .unwrap_err()
+            .contains("comillas simples")
+    );
 }
 
 // -- statements -------------------------------------------------------------------------------
@@ -95,7 +140,10 @@ fn statements_that_write_attach_or_configure_are_refused() {
         ("LOAD httpfs", "LOAD"),
         ("UPDATE EXTENSIONS", "UPDATE EXTENSIONS"),
         ("CREATE SECRET s (TYPE s3)", "CREATE SECRET"),
-        ("CREATE OR REPLACE PERSISTENT SECRET s (TYPE s3)", "CREATE SECRET"),
+        (
+            "CREATE OR REPLACE PERSISTENT SECRET s (TYPE s3)",
+            "CREATE SECRET",
+        ),
         ("DROP SECRET s", "DROP SECRET"),
         ("SET enable_external_access = true", "SET"),
         ("SET GLOBAL threads = 1", "SET"),
@@ -138,31 +186,72 @@ fn paths_resolve_home_relative_globs_and_symlinks() {
     let r = |raw: &str, base: Option<&Path>| resolve(raw, base, Some(&home));
     let base = Some(nb.as_path());
 
-    assert_eq!(r("~/Downloads/h.csv", None).unwrap(), [home.join("Downloads/h.csv")]);
+    assert_eq!(
+        r("~/Downloads/h.csv", None).unwrap(),
+        [home.join("Downloads/h.csv")]
+    );
     assert_eq!(r("a.csv", base).unwrap(), [nb.join("a.csv")]);
     assert_eq!(r("./sub/../a.csv", base).unwrap(), [nb.join("a.csv")]);
-    assert_eq!(r(&nb.join("a.csv").to_string_lossy(), None).unwrap(), [nb.join("a.csv")]);
+    assert_eq!(
+        r(&nb.join("a.csv").to_string_lossy(), None).unwrap(),
+        [nb.join("a.csv")]
+    );
     // Globs: sorted, only what matches.
-    assert_eq!(r("exports/ventas_*.csv", base).unwrap(), [nb.join("exports/ventas_1.csv"), nb.join("exports/ventas_2.csv")]);
-    assert_eq!(r("exports/ventas_[2-9].csv", base).unwrap(), [nb.join("exports/ventas_2.csv")]);
+    assert_eq!(
+        r("exports/ventas_*.csv", base).unwrap(),
+        [
+            nb.join("exports/ventas_1.csv"),
+            nb.join("exports/ventas_2.csv")
+        ]
+    );
+    assert_eq!(
+        r("exports/ventas_[2-9].csv", base).unwrap(),
+        [nb.join("exports/ventas_2.csv")]
+    );
     assert_eq!(r("exports/ventas_?.csv", base).unwrap().len(), 2);
-    assert_eq!(r("exports/**/ventas_*.csv", base).unwrap(), [nb.join("exports/2025/ventas_9.csv"), nb.join("exports/ventas_1.csv"), nb.join("exports/ventas_2.csv")]);
-    assert!(r("exports/nada_*.csv", base).unwrap_err().starts_with("ningún archivo coincide con «"));
+    assert_eq!(
+        r("exports/**/ventas_*.csv", base).unwrap(),
+        [
+            nb.join("exports/2025/ventas_9.csv"),
+            nb.join("exports/ventas_1.csv"),
+            nb.join("exports/ventas_2.csv")
+        ]
+    );
+    assert!(r("exports/nada_*.csv", base)
+        .unwrap_err()
+        .starts_with("ningún archivo coincide con «"));
 
     // A symlink is the file it points to.
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(nb.join("a.csv"), dir.join("enlace.csv")).unwrap();
-        assert_eq!(r(&dir.join("enlace.csv").to_string_lossy(), None).unwrap(), [nb.join("a.csv")]);
+        assert_eq!(
+            r(&dir.join("enlace.csv").to_string_lossy(), None).unwrap(),
+            [nb.join("a.csv")]
+        );
     }
 
     // Clear errors naming the path.
     let missing = r("falta.csv", base).unwrap_err();
-    assert_eq!(missing, format!("no existe el archivo «{}»", nb.join("falta.csv").display()));
+    assert_eq!(
+        missing,
+        format!("no existe el archivo «{}»", nb.join("falta.csv").display())
+    );
     let rel = r("a.csv", None).unwrap_err();
-    assert!(rel.starts_with("«a.csv» es una ruta relativa: guardá el notebook"), "{rel}");
+    assert!(
+        rel.starts_with("«a.csv» es una ruta relativa: guardá el notebook"),
+        "{rel}"
+    );
     assert!(r("sub", base).unwrap_err().contains("es una carpeta"));
-    for url in ["https://example.com/x.csv", "http://h/x.csv", "s3://bucket/x.parquet", "gs://b/x.csv", "azure://c/x.csv", "abfss://c@a/x", "hf://datasets/x"] {
+    for url in [
+        "https://example.com/x.csv",
+        "http://h/x.csv",
+        "s3://bucket/x.parquet",
+        "gs://b/x.csv",
+        "azure://c/x.csv",
+        "abfss://c@a/x",
+        "hf://datasets/x",
+    ] {
         let e = r(url, base).unwrap_err();
         assert!(e.contains("no es un archivo local"), "{url}: {e}");
     }
@@ -179,15 +268,37 @@ fn a_plan_rebuilds_the_call_with_resolved_paths() {
     let sql = "SELECT * FROM read_csv('it''s.csv', header = true) t JOIN read_csv(['x/*.csv', 'x/1.csv']) u ON true";
     let p = plan(sql, Some(&dir), None, 100).unwrap();
     let q = |p: &Path| lit(&p.to_string_lossy());
-    assert_eq!(p[0].text, format!("read_csv({}, header = true)", q(&dir.join("it's.csv"))));
+    assert_eq!(
+        p[0].text,
+        format!("read_csv({}, header = true)", q(&dir.join("it's.csv")))
+    );
     // A glob or a list: a list of the files, each once.
-    assert_eq!(p[1].text, format!("read_csv([{}, {}])", q(&dir.join("x/1.csv")), q(&dir.join("x/2.csv"))));
+    assert_eq!(
+        p[1].text,
+        format!(
+            "read_csv([{}, {}])",
+            q(&dir.join("x/1.csv")),
+            q(&dir.join("x/2.csv"))
+        )
+    );
     assert_eq!(p[1].display, "x/*.csv, x/1.csv");
     assert_eq!(p[0].display, "it's.csv");
-    assert_eq!(p[1].files.iter().map(|f| f.display.as_str()).collect::<Vec<_>>(), ["x/1.csv", "x/2.csv"]);
+    assert_eq!(
+        p[1].files
+            .iter()
+            .map(|f| f.display.as_str())
+            .collect::<Vec<_>>(),
+        ["x/1.csv", "x/2.csv"]
+    );
     assert!(p[0].files[0].size > 0 && p[0].files[0].mtime_ms > 0);
     let out = rewrite(sql, &p);
-    assert_eq!(out, format!("SELECT * FROM \"{}\" t JOIN \"{}\" u ON true", p[0].table, p[1].table));
+    assert_eq!(
+        out,
+        format!(
+            "SELECT * FROM \"{}\" t JOIN \"{}\" u ON true",
+            p[0].table, p[1].table
+        )
+    );
     assert!(p[0].table.starts_with("file:") && p[0].table != p[1].table);
     // The key follows the file: another size, another key; the table stays.
     let before = p[0].key.clone();
@@ -199,21 +310,40 @@ fn a_plan_rebuilds_the_call_with_resolved_paths() {
     // A workbook is one file.
     write(&dir.join("x/a.xlsx"), "x");
     write(&dir.join("x/b.xlsx"), "x");
-    assert!(plan("SELECT * FROM read_xlsx('x/*.xlsx')", Some(&dir), None, 100).unwrap_err().contains("un solo archivo"));
+    assert!(
+        plan("SELECT * FROM read_xlsx('x/*.xlsx')", Some(&dir), None, 100)
+            .unwrap_err()
+            .contains("un solo archivo")
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn data(path: &str) -> DataFile {
-    DataFile { path: path.into(), display: path.into(), size: 1, mtime_ms: 1, ..Default::default() }
+    DataFile {
+        path: path.into(),
+        display: path.into(),
+        size: 1,
+        mtime_ms: 1,
+        ..Default::default()
+    }
 }
 
 #[test]
 fn only_granted_or_approved_files_are_allowed() {
     let f = data("/d/a.csv");
     // Nobody allowed it: the run asks.
-    assert_eq!(allowed_files(std::slice::from_ref(&f), &Access::default()), Err(Gate::Ask(vec![f.clone()])));
-    let approved = Access { approved: vec!["/d/a.csv".into()], ..Default::default() };
-    assert_eq!(allowed_files(std::slice::from_ref(&f), &approved), Ok(vec![f]));
+    assert_eq!(
+        allowed_files(std::slice::from_ref(&f), &Access::default()),
+        Err(Gate::Ask(vec![f.clone()]))
+    );
+    let approved = Access {
+        approved: vec!["/d/a.csv".into()],
+        ..Default::default()
+    };
+    assert_eq!(
+        allowed_files(std::slice::from_ref(&f), &approved),
+        Ok(vec![f])
+    );
 }
 
 #[test]
@@ -222,16 +352,39 @@ fn globs_keep_their_canonical_pattern() {
     write(&dir.join("exports/ventas_1.csv"), "n\n1\n");
     write(&dir.join("exports/ventas_2.csv"), "n\n2\n");
     let reads = plan("SELECT * FROM read_csv('exports/../exports/ventas_*.csv'), read_csv('exports/ventas_1.csv')", Some(&dir), None, 100).unwrap();
-    let want = dir.join("exports").join("ventas_*.csv").to_string_lossy().to_string();
-    assert!(reads[0].files.iter().all(|f| f.pattern.as_deref() == Some(want.as_str())), "{:?}", reads[0].files);
+    let want = dir
+        .join("exports")
+        .join("ventas_*.csv")
+        .to_string_lossy()
+        .to_string();
+    assert!(
+        reads[0]
+            .files
+            .iter()
+            .all(|f| f.pattern.as_deref() == Some(want.as_str())),
+        "{:?}",
+        reads[0].files
+    );
     assert_eq!(reads[1].files[0].pattern, None);
     assert!(pattern_matches(&want, &reads[0].files[1].path));
-    assert!(!pattern_matches(&want, &dir.join("exports/otro.csv").to_string_lossy()));
-    assert!(!pattern_matches(&want, &dir.join("exports/sub/ventas_1.csv").to_string_lossy()));
+    assert!(!pattern_matches(
+        &want,
+        &dir.join("exports/otro.csv").to_string_lossy()
+    ));
+    assert!(!pattern_matches(
+        &want,
+        &dir.join("exports/sub/ventas_1.csv").to_string_lossy()
+    ));
     let deep = dir.join("**").join("*.csv").to_string_lossy().to_string();
     assert!(pattern_matches(&deep, &dir.join("a.csv").to_string_lossy()));
-    assert!(pattern_matches(&deep, &dir.join("x/y/a.csv").to_string_lossy()));
-    assert!(!pattern_matches(&deep, &dir.join("x/y/a.txt").to_string_lossy()));
+    assert!(pattern_matches(
+        &deep,
+        &dir.join("x/y/a.csv").to_string_lossy()
+    ));
+    assert!(!pattern_matches(
+        &deep,
+        &dir.join("x/y/a.txt").to_string_lossy()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -239,9 +392,15 @@ fn globs_keep_their_canonical_pattern() {
 
 async fn rows_of(s: &mut dyn Session, sql: &str) -> Vec<Vec<Value>> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10_000, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10_000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
-    out.results.into_iter().find(|r| !r.columns.is_empty()).map(|r| r.rows).unwrap_or_default()
+    out.results
+        .into_iter()
+        .find(|r| !r.columns.is_empty())
+        .map(|r| r.rows)
+        .unwrap_or_default()
 }
 
 async fn fails(s: &mut dyn Session, sql: &str) -> String {
@@ -254,21 +413,49 @@ async fn fails(s: &mut dyn Session, sql: &str) -> String {
 
 /// A DuckDB session that can write files (the test's setup, not a cell).
 async fn writer() -> Box<dyn Session> {
-    let mut cfg = ConnectionConfig { driver: "duckdb".into(), host: ":memory:".into(), ..Default::default() };
+    let mut cfg = ConnectionConfig {
+        driver: "duckdb".into(),
+        host: ":memory:".into(),
+        ..Default::default()
+    };
     cfg.options.insert("isolated".into(), "true".into());
-    dbine_drivers::open_session(&cfg, None).await.expect("DuckDB")
+    dbine_drivers::open_session(&cfg, None)
+        .await
+        .expect("DuckDB")
 }
 
 fn cell(name: &str, sql: &str) -> LocalSource {
-    LocalSource { name: name.into(), local: false, sql: sql.into(), connection_id: Some("conn".into()), database: None, run: None, rows: None, files_key: String::new() }
+    LocalSource {
+        name: name.into(),
+        local: false,
+        sql: sql.into(),
+        connection_id: Some("conn".into()),
+        database: None,
+        run: None,
+        rows: None,
+        files_key: String::new(),
+    }
 }
 
 fn clientes() -> LocalSource {
     let mut c = cell("c2", "SELECT CustomerID, nombre FROM clientes");
     c.run = Some(1);
     c.rows = Some(LiveRows {
-        columns: vec![ResultColumn { name: "CustomerID".into(), type_name: "int".into() }, ResultColumn { name: "nombre".into(), type_name: "nvarchar".into() }],
-        rows: vec![vec![json!(1), json!("Ana")], vec![json!(2), json!("Luis")], vec![json!(3), json!("Eva")]],
+        columns: vec![
+            ResultColumn {
+                name: "CustomerID".into(),
+                type_name: "int".into(),
+            },
+            ResultColumn {
+                name: "nombre".into(),
+                type_name: "nvarchar".into(),
+            },
+        ],
+        rows: vec![
+            vec![json!(1), json!("Ana")],
+            vec![json!(2), json!("Luis")],
+            vec![json!(3), json!("Eva")],
+        ],
     });
     c
 }
@@ -295,7 +482,11 @@ async fn prep(
 ) -> CommandResult<(String, Vec<LoadedTable>)> {
     let mut access = Access::default();
     for _ in 0..2 {
-        match prepare(s, tables, present, sql, sources, cap, base, &access, out, cancel, rerun).await? {
+        match prepare(
+            s, tables, present, sql, sources, cap, base, &access, out, cancel, rerun,
+        )
+        .await?
+        {
             Prepared::Ready(sql, loaded) => return Ok((sql, loaded)),
             Prepared::Ask(files) => access.approved = files.into_iter().map(|f| f.path).collect(),
         }
@@ -307,8 +498,14 @@ async fn prep(
 async fn notebook_files_csv_parquet_and_ndjson_join_a_cell_table() {
     let dir = temp("join");
     let nb = dir.join("notebooks");
-    write(&nb.join("CustomerTest.csv"), "CustomerID,ciudad\n1,Rosario\n2,Córdoba\n4,Salta\n");
-    write(&nb.join("eventos.ndjson"), "{\"CustomerID\": 1, \"tag\": \"web\"}\n{\"CustomerID\": 2, \"tag\": \"app\"}\n");
+    write(
+        &nb.join("CustomerTest.csv"),
+        "CustomerID,ciudad\n1,Rosario\n2,Córdoba\n4,Salta\n",
+    );
+    write(
+        &nb.join("eventos.ndjson"),
+        "{\"CustomerID\": 1, \"tag\": \"web\"}\n{\"CustomerID\": 2, \"tag\": \"app\"}\n",
+    );
     let parquet = dir.join("datos/ventas.parquet");
     std::fs::create_dir_all(parquet.parent().unwrap()).unwrap();
     {
@@ -323,45 +520,163 @@ async fn notebook_files_csv_parquet_and_ndjson_join_a_cell_table() {
                JOIN read_ndjson('eventos.ndjson') j ON j.CustomerID = c.CustomerID ORDER BY 1";
     let mut tables = HashMap::new();
     let mut out = QueryOutcome::default();
-    let (run, loaded) = prep(s.as_mut(), &mut tables, &HashSet::new(), sql, &sources, 1_000, Some(&nb), &mut out, None, never).await.unwrap();
+    let (run, loaded) = prep(
+        s.as_mut(),
+        &mut tables,
+        &HashSet::new(),
+        sql,
+        &sources,
+        1_000,
+        Some(&nb),
+        &mut out,
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert!(!run.contains("read_"), "{run}");
-    assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!("Ana"), json!("Rosario"), json!("12.50"), json!("web")], vec![json!("Luis"), json!("Córdoba"), json!("7.25"), json!("app")]]);
-    let summary: Vec<(&str, u64, &str, bool)> = loaded.iter().map(|l| (l.name.as_str(), l.rows, l.origin, l.cached)).collect();
+    assert_eq!(
+        rows_of(s.as_mut(), &run).await,
+        vec![
+            vec![json!("Ana"), json!("Rosario"), json!("12.50"), json!("web")],
+            vec![json!("Luis"), json!("Córdoba"), json!("7.25"), json!("app")]
+        ]
+    );
+    let summary: Vec<(&str, u64, &str, bool)> = loaded
+        .iter()
+        .map(|l| (l.name.as_str(), l.rows, l.origin, l.cached))
+        .collect();
     let pq = parquet.to_string_lossy().to_string();
-    assert_eq!(summary, vec![("c2", 3, "run", false), ("CustomerTest.csv", 3, "file", false), (pq.as_str(), 2, "file", false), ("eventos.ndjson", 2, "file", false)]);
+    assert_eq!(
+        summary,
+        vec![
+            ("c2", 3, "run", false),
+            ("CustomerTest.csv", 3, "file", false),
+            (pq.as_str(), 2, "file", false),
+            ("eventos.ndjson", 2, "file", false)
+        ]
+    );
     assert!(loaded[1].files[0].size > 0 && loaded[1].files[0].mtime_ms > 0);
     // The notebook's session was granted nothing: it still can't read the file itself.
-    assert_eq!(rows_of(s.as_mut(), "SELECT current_setting('allowed_paths')::VARCHAR").await, vec![vec![json!("[]")]]);
+    assert_eq!(
+        rows_of(
+            s.as_mut(),
+            "SELECT current_setting('allowed_paths')::VARCHAR"
+        )
+        .await,
+        vec![vec![json!("[]")]]
+    );
     let csv = nb.join("CustomerTest.csv");
-    for direct in [format!("SELECT * FROM read_text({})", lit(&csv.to_string_lossy())), format!("SELECT * FROM {}", lit(&csv.to_string_lossy()))] {
-        assert!(fails(s.as_mut(), &direct).await.contains("disabled"), "{direct}");
+    for direct in [
+        format!("SELECT * FROM read_text({})", lit(&csv.to_string_lossy())),
+        format!("SELECT * FROM {}", lit(&csv.to_string_lossy())),
+    ] {
+        assert!(
+            fails(s.as_mut(), &direct).await.contains("disabled"),
+            "{direct}"
+        );
     }
 
     // Again: the files are already loaded.
     let present = existing_tables(s.as_mut()).await.unwrap();
-    let (_, loaded) = prep(s.as_mut(), &mut tables, &present, sql, &sources, 1_000, Some(&nb), &mut QueryOutcome::default(), None, never).await.unwrap();
+    let (_, loaded) = prep(
+        s.as_mut(),
+        &mut tables,
+        &present,
+        sql,
+        &sources,
+        1_000,
+        Some(&nb),
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert!(loaded.iter().all(|l| l.cached), "{loaded:?}");
     // The CSV changed: only it is read again.
     write(&csv, "CustomerID,ciudad\n1,Mendoza\n2,Córdoba\n");
-    let (run, loaded) = prep(s.as_mut(), &mut tables, &present, sql, &sources, 1_000, Some(&nb), &mut QueryOutcome::default(), None, never).await.unwrap();
-    assert_eq!(loaded.iter().map(|l| l.cached).collect::<Vec<_>>(), [true, false, true, true]);
+    let (run, loaded) = prep(
+        s.as_mut(),
+        &mut tables,
+        &present,
+        sql,
+        &sources,
+        1_000,
+        Some(&nb),
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        loaded.iter().map(|l| l.cached).collect::<Vec<_>>(),
+        [true, false, true, true]
+    );
     assert_eq!(rows_of(s.as_mut(), &run).await[0][1], json!("Mendoza"));
 
     // A results cell that reads a file is a table too; its table follows the file.
-    let mut c3 = cell("c3", "SELECT count(*) AS n FROM read_csv('CustomerTest.csv')");
+    let mut c3 = cell(
+        "c3",
+        "SELECT count(*) AS n FROM read_csv('CustomerTest.csv')",
+    );
     c3.local = true;
     let sources = vec![clientes(), c3];
-    let (run, _) = prep(s.as_mut(), &mut tables, &present, "SELECT n FROM c3", &sources, 1_000, Some(&nb), &mut QueryOutcome::default(), None, never).await.unwrap();
+    let (run, _) = prep(
+        s.as_mut(),
+        &mut tables,
+        &present,
+        "SELECT n FROM c3",
+        &sources,
+        1_000,
+        Some(&nb),
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!(2)]]);
     write(&csv, "CustomerID,ciudad\n1,Mendoza\n2,Córdoba\n3,Jujuy\n");
     let present = existing_tables(s.as_mut()).await.unwrap();
-    let (run, loaded) = prep(s.as_mut(), &mut tables, &present, "SELECT n FROM c3", &sources, 1_000, Some(&nb), &mut QueryOutcome::default(), None, never).await.unwrap();
+    let (run, loaded) = prep(
+        s.as_mut(),
+        &mut tables,
+        &present,
+        "SELECT n FROM c3",
+        &sources,
+        1_000,
+        Some(&nb),
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert!(loaded.iter().all(|l| !l.cached), "{loaded:?}");
     assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!(3)]]);
 
     // An unsaved notebook can't read relative paths.
-    let e = prep(s.as_mut(), &mut tables, &present, sql, &sources, 1_000, None, &mut QueryOutcome::default(), None, never).await.unwrap_err();
-    assert!(e.to_string().contains("«CustomerTest.csv» es una ruta relativa"), "{e}");
+    let e = prep(
+        s.as_mut(),
+        &mut tables,
+        &present,
+        sql,
+        &sources,
+        1_000,
+        None,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("«CustomerTest.csv» es una ruta relativa"),
+        "{e}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -369,25 +684,98 @@ async fn notebook_files_csv_parquet_and_ndjson_join_a_cell_table() {
 async fn notebook_files_globs_and_lists_and_the_row_cap() {
     let dir = temp("glob");
     for i in 1..=3 {
-        write(&dir.join(format!("exports/ventas_{i}.csv")), &format!("n\n{i}\n{}\n", i * 10));
+        write(
+            &dir.join(format!("exports/ventas_{i}.csv")),
+            &format!("n\n{i}\n{}\n", i * 10),
+        );
     }
     write(&dir.join("exports/otro.csv"), "n\n999\n");
     let mut s = open_sandboxed().await.expect("DuckDB");
     let mut out = QueryOutcome::default();
     let sql = "SELECT (SELECT sum(n) FROM read_csv('exports/ventas_*.csv')) AS g, (SELECT sum(n) FROM read_csv(['exports/ventas_1.csv', 'exports/otro.csv'])) AS l";
-    let (run, loaded) = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), sql, &[], 1_000, Some(&dir), &mut out, None, never).await.unwrap();
-    assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!(66), json!(1010)]]);
-    assert_eq!(loaded.iter().map(|l| (l.name.as_str(), l.files.len(), l.rows)).collect::<Vec<_>>(), [("exports/ventas_*.csv", 3, 6), ("exports/ventas_1.csv, exports/otro.csv", 2, 3)]);
+    let (run, loaded) = prep(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        sql,
+        &[],
+        1_000,
+        Some(&dir),
+        &mut out,
+        None,
+        never,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rows_of(s.as_mut(), &run).await,
+        vec![vec![json!(66), json!(1010)]]
+    );
+    assert_eq!(
+        loaded
+            .iter()
+            .map(|l| (l.name.as_str(), l.files.len(), l.rows))
+            .collect::<Vec<_>>(),
+        [
+            ("exports/ventas_*.csv", 3, 6),
+            ("exports/ventas_1.csv, exports/otro.csv", 2, 3)
+        ]
+    );
     // Cut at the cap, and said.
     let mut out = QueryOutcome::default();
-    let (_, loaded) = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT * FROM read_csv('exports/*.csv')", &[], 4, Some(&dir), &mut out, None, never).await.unwrap();
+    let (_, loaded) = prep(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        "SELECT * FROM read_csv('exports/*.csv')",
+        &[],
+        4,
+        Some(&dir),
+        &mut out,
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert!(loaded[0].capped && loaded[0].rows == 4, "{loaded:?}");
-    assert!(out.log.iter().any(|m| m.text.contains("se cargó con las primeras 4 filas")), "{:?}", out.log);
+    assert!(
+        out.log
+            .iter()
+            .any(|m| m.text.contains("se cargó con las primeras 4 filas")),
+        "{:?}",
+        out.log
+    );
     // An unencrypted or local URL is refused before anything runs (the
     // rest: notebook::remote's tests).
-    let e = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT * FROM read_parquet('http://example.com/x.parquet')", &[], 4, Some(&dir), &mut out, None, never).await.unwrap_err();
+    let e = prep(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        "SELECT * FROM read_parquet('http://example.com/x.parquet')",
+        &[],
+        4,
+        Some(&dir),
+        &mut out,
+        None,
+        never,
+    )
+    .await
+    .unwrap_err();
     assert!(e.to_string().contains("sin cifrar"), "{e}");
-    let e = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT * FROM read_parquet('https://127.0.0.1/x.parquet')", &[], 4, Some(&dir), &mut out, None, never).await.unwrap_err();
+    let e = prep(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        "SELECT * FROM read_parquet('https://127.0.0.1/x.parquet')",
+        &[],
+        4,
+        Some(&dir),
+        &mut out,
+        None,
+        never,
+    )
+    .await
+    .unwrap_err();
     assert!(e.to_string().contains("servidores públicos"), "{e}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -404,19 +792,58 @@ async fn notebook_files_an_allowed_file_is_never_written() {
     for sql in [
         format!("COPY (SELECT 1) TO {p}"),
         format!("SELECT * FROM read_csv({p}); COPY (SELECT 1 AS x) TO {p} (USE_TMP_FILE false)"),
-        format!("SELECT * FROM read_csv({p}); EXPORT DATABASE {}", lit(&dir.to_string_lossy())),
+        format!(
+            "SELECT * FROM read_csv({p}); EXPORT DATABASE {}",
+            lit(&dir.to_string_lossy())
+        ),
         format!("ATTACH {p} AS x"),
     ] {
-        let e = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), &sql, &[], 100, Some(&dir), &mut QueryOutcome::default(), None, never).await.unwrap_err();
-        assert!(e.to_string().contains("no se puede usar en una celda"), "{sql}: {e}");
+        let e = prep(
+            s.as_mut(),
+            &mut HashMap::new(),
+            &HashSet::new(),
+            &sql,
+            &[],
+            100,
+            Some(&dir),
+            &mut QueryOutcome::default(),
+            None,
+            never,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            e.to_string().contains("no se puede usar en una celda"),
+            "{sql}: {e}"
+        );
     }
     // After the file was read into a table, the notebook's session still has no access to it:
     // DuckDB refuses the write too.
-    let (run, _) = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), &format!("SELECT * FROM read_csv({p})"), &[], 100, Some(&dir), &mut QueryOutcome::default(), None, never).await.unwrap();
+    let (run, _) = prep(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        &format!("SELECT * FROM read_csv({p})"),
+        &[],
+        100,
+        Some(&dir),
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert_eq!(rows_of(s.as_mut(), &run).await.len(), 1);
-    for sql in [format!("COPY (SELECT 1 AS x) TO {p} (USE_TMP_FILE false)"), format!("COPY (SELECT 1 AS x) TO {p}"), format!("ATTACH {p} AS x")] {
+    for sql in [
+        format!("COPY (SELECT 1 AS x) TO {p} (USE_TMP_FILE false)"),
+        format!("COPY (SELECT 1 AS x) TO {p}"),
+        format!("ATTACH {p} AS x"),
+    ] {
         let e = fails(s.as_mut(), &sql).await;
-        assert!(e.contains("disabled") || e.contains("Permission"), "{sql}: {e}");
+        assert!(
+            e.contains("disabled") || e.contains("Permission"),
+            "{sql}: {e}"
+        );
     }
     assert_eq!(std::fs::read_to_string(&csv).unwrap(), original);
     let _ = std::fs::remove_dir_all(&dir);
@@ -429,11 +856,20 @@ async fn notebook_files_reader_session_gets_exactly_its_files() {
     write(&dir.join("b.csv"), "x\n2\n");
     let a = plan("SELECT * FROM read_csv('a.csv')", Some(&dir), None, 10).unwrap();
     let mut r = open_reader(&reader_paths(&a[0]), None).await.unwrap();
-    assert_eq!(rows_of(r.as_mut(), &format!("SELECT * FROM {}", a[0].text)).await, vec![vec![json!(1)]]);
+    assert_eq!(
+        rows_of(r.as_mut(), &format!("SELECT * FROM {}", a[0].text)).await,
+        vec![vec![json!(1)]]
+    );
     let b = lit(&dir.join("b.csv").to_string_lossy());
-    assert!(fails(r.as_mut(), &format!("SELECT * FROM read_csv({b})")).await.contains("disabled"));
-    assert!(!fails(r.as_mut(), &format!("SET allowed_paths = [{b}]")).await.is_empty());
-    assert!(fails(r.as_mut(), "SET enable_external_access = true").await.contains("locked"));
+    assert!(fails(r.as_mut(), &format!("SELECT * FROM read_csv({b})"))
+        .await
+        .contains("disabled"));
+    assert!(!fails(r.as_mut(), &format!("SET allowed_paths = [{b}]"))
+        .await
+        .is_empty());
+    assert!(fails(r.as_mut(), "SET enable_external_access = true")
+        .await
+        .contains("locked"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -446,12 +882,28 @@ async fn notebook_files_workbooks_with_the_excel_extension() {
         let mut out = QueryOutcome::default();
         let made = w.execute(&format!("INSTALL excel; LOAD excel; COPY (SELECT 1 AS id, 'Ana' AS nombre) TO {} (FORMAT xlsx, HEADER true)", lit(&book.to_string_lossy())), 1, &mut out).await;
         if made.is_err() || out.error.is_some() || !book.exists() {
-            eprintln!("skipped: DuckDB's excel extension isn't available here ({made:?} {:?})", out.error);
+            eprintln!(
+                "skipped: DuckDB's excel extension isn't available here ({made:?} {:?})",
+                out.error
+            );
             return;
         }
     }
     let mut s = open_sandboxed().await.expect("DuckDB");
-    let (run, loaded) = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT nombre FROM read_xlsx('libro.xlsx')", &[], 100, Some(&dir), &mut QueryOutcome::default(), None, never).await.unwrap();
+    let (run, loaded) = prep(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        "SELECT nombre FROM read_xlsx('libro.xlsx')",
+        &[],
+        100,
+        Some(&dir),
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!("Ana")]]);
     assert_eq!(loaded[0].name, "libro.xlsx");
     let _ = std::fs::remove_dir_all(&dir);
@@ -471,49 +923,159 @@ async fn notebook_files_ask_before_reading_and_check_the_approval() {
     let nb = nb.to_string_lossy().to_string();
     let mut s = open_sandboxed().await.expect("DuckDB");
     let sql = "SELECT (SELECT sum(n) FROM read_csv('a.csv')) + (SELECT sum(n) FROM read_csv('b.csv')) AS t";
-    let (a, b) = (dir.join("a.csv").to_string_lossy().to_string(), dir.join("b.csv").to_string_lossy().to_string());
+    let (a, b) = (
+        dir.join("a.csv").to_string_lossy().to_string(),
+        dir.join("b.csv").to_string_lossy().to_string(),
+    );
     let mut tables = HashMap::new();
-    let mut access = Access { notebook: Some(nb.clone()), store: Some(&store), ..Default::default() };
+    let mut access = Access {
+        notebook: Some(nb.clone()),
+        store: Some(&store),
+        ..Default::default()
+    };
 
     // Nobody allowed them: both asked about, nothing read or loaded.
-    let r = prepare(s.as_mut(), &mut tables, &HashSet::new(), sql, &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap();
-    let Prepared::Ask(files) = r else { panic!("{r:?}") };
-    assert_eq!(files.iter().map(|f| f.path.clone()).collect::<Vec<_>>(), vec![a.clone(), b.clone()]);
+    let r = prepare(
+        s.as_mut(),
+        &mut tables,
+        &HashSet::new(),
+        sql,
+        &[],
+        100,
+        Some(&dir),
+        &access,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
+    let Prepared::Ask(files) = r else {
+        panic!("{r:?}")
+    };
+    assert_eq!(
+        files.iter().map(|f| f.path.clone()).collect::<Vec<_>>(),
+        vec![a.clone(), b.clone()]
+    );
     assert!(tables.is_empty());
     assert!(existing_tables(s.as_mut()).await.unwrap().is_empty());
 
     // An approval that doesn't cover every file read: asked again for the rest, nothing read.
     access.approved = vec![a.clone()];
-    let r = prepare(s.as_mut(), &mut tables, &HashSet::new(), sql, &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap();
-    let Prepared::Ask(files) = r else { panic!("{r:?}") };
-    assert_eq!(files.iter().map(|f| f.path.clone()).collect::<Vec<_>>(), vec![b.clone()]);
+    let r = prepare(
+        s.as_mut(),
+        &mut tables,
+        &HashSet::new(),
+        sql,
+        &[],
+        100,
+        Some(&dir),
+        &access,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
+    let Prepared::Ask(files) = r else {
+        panic!("{r:?}")
+    };
+    assert_eq!(
+        files.iter().map(|f| f.path.clone()).collect::<Vec<_>>(),
+        vec![b.clone()]
+    );
     assert!(existing_tables(s.as_mut()).await.unwrap().is_empty());
 
     // Approved: it runs, and the files' records are kept.
     access.approved = vec![a.clone(), b.clone()];
-    let r = prepare(s.as_mut(), &mut tables, &HashSet::new(), sql, &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap();
-    let Prepared::Ready(run, loaded) = r else { panic!("{r:?}") };
+    let r = prepare(
+        s.as_mut(),
+        &mut tables,
+        &HashSet::new(),
+        sql,
+        &[],
+        100,
+        Some(&dir),
+        &access,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
+    let Prepared::Ready(run, loaded) = r else {
+        panic!("{r:?}")
+    };
     assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!(3)]]);
-    assert!(loaded.iter().flat_map(|l| &l.files).all(|f| f.previous_mtime_ms.is_none()));
+    assert!(loaded
+        .iter()
+        .flat_map(|l| &l.files)
+        .all(|f| f.previous_mtime_ms.is_none()));
     let first = store.file_record(&nb, &a).unwrap().expect("record");
 
     // The content changes: the run goes on and says so, with the date it had.
     std::thread::sleep(std::time::Duration::from_millis(20));
     write(&dir.join("a.csv"), "n\n5\n");
     let present = existing_tables(s.as_mut()).await.unwrap();
-    let r = prepare(s.as_mut(), &mut tables, &present, sql, &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap();
-    let Prepared::Ready(run, loaded) = r else { panic!("{r:?}") };
+    let r = prepare(
+        s.as_mut(),
+        &mut tables,
+        &present,
+        sql,
+        &[],
+        100,
+        Some(&dir),
+        &access,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
+    let Prepared::Ready(run, loaded) = r else {
+        panic!("{r:?}")
+    };
     assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!(7)]]);
-    let fa = loaded.iter().flat_map(|l| &l.files).find(|f| f.path == a).unwrap();
+    let fa = loaded
+        .iter()
+        .flat_map(|l| &l.files)
+        .find(|f| f.path == a)
+        .unwrap();
     assert_eq!(fa.previous_mtime_ms, Some(first.mtime_ms));
-    assert!(loaded.iter().flat_map(|l| &l.files).find(|f| f.path == b).unwrap().previous_mtime_ms.is_none());
-    assert_ne!(store.file_record(&nb, &a).unwrap().unwrap().sha256, first.sha256);
+    assert!(loaded
+        .iter()
+        .flat_map(|l| &l.files)
+        .find(|f| f.path == b)
+        .unwrap()
+        .previous_mtime_ms
+        .is_none());
+    assert_ne!(
+        store.file_record(&nb, &a).unwrap().unwrap().sha256,
+        first.sha256
+    );
 
     // A blocked file is refused even when "approved": never asked, never read.
     let env = dir.join(".env").to_string_lossy().to_string();
     access.approved.push(env.clone());
-    let e = prepare(s.as_mut(), &mut tables, &present, "SELECT * FROM read_csv('.env')", &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap_err();
-    assert!(e.to_string().contains(&format!("«{env}»")) && e.to_string().contains("nunca deja"), "{e}");
+    let e = prepare(
+        s.as_mut(),
+        &mut tables,
+        &present,
+        "SELECT * FROM read_csv('.env')",
+        &[],
+        100,
+        Some(&dir),
+        &access,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        e.to_string().contains(&format!("«{env}»")) && e.to_string().contains("nunca deja"),
+        "{e}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -523,21 +1085,80 @@ async fn notebook_files_a_glob_grant_covers_new_files_of_its_pattern() {
     write(&dir.join("exports/ventas_1.csv"), "n\n1\n");
     write(&dir.join("otro.csv"), "n\n9\n");
     let store = dbine_core::StateStore::open_in_memory().unwrap();
-    let pattern = dir.join("exports").join("ventas_*.csv").to_string_lossy().to_string();
-    let grants = vec![dbine_core::file_grants::FileGrant { notebook: "nb".into(), target: pattern, pattern: true, granted_at: String::new() }];
-    let access = Access { notebook: Some("nb".into()), grants, store: Some(&store), policy: Policy::default(), approved: Vec::new(), net: Default::default() };
+    let pattern = dir
+        .join("exports")
+        .join("ventas_*.csv")
+        .to_string_lossy()
+        .to_string();
+    let grants = vec![dbine_core::file_grants::FileGrant {
+        notebook: "nb".into(),
+        target: pattern,
+        pattern: true,
+        granted_at: String::new(),
+    }];
+    let access = Access {
+        notebook: Some("nb".into()),
+        grants,
+        store: Some(&store),
+        policy: Policy::default(),
+        approved: Vec::new(),
+        net: Default::default(),
+    };
     let mut s = open_sandboxed().await.expect("DuckDB");
     let sql = "SELECT sum(n) FROM read_csv('exports/ventas_*.csv')";
-    let r = prepare(s.as_mut(), &mut HashMap::new(), &HashSet::new(), sql, &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap();
+    let r = prepare(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        sql,
+        &[],
+        100,
+        Some(&dir),
+        &access,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert!(matches!(r, Prepared::Ready(..)), "{r:?}");
     // A new file of the same pattern: not asked.
     write(&dir.join("exports/ventas_2.csv"), "n\n2\n");
-    let r = prepare(s.as_mut(), &mut HashMap::new(), &HashSet::new(), sql, &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap();
-    let Prepared::Ready(run, _) = r else { panic!("{r:?}") };
+    let r = prepare(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        sql,
+        &[],
+        100,
+        Some(&dir),
+        &access,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
+    let Prepared::Ready(run, _) = r else {
+        panic!("{r:?}")
+    };
     assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!(3)]]);
     // Another file: asked.
-    let r = prepare(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT * FROM read_csv('otro.csv')", &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap();
+    let r = prepare(
+        s.as_mut(),
+        &mut HashMap::new(),
+        &HashSet::new(),
+        "SELECT * FROM read_csv('otro.csv')",
+        &[],
+        100,
+        Some(&dir),
+        &access,
+        &mut QueryOutcome::default(),
+        None,
+        never,
+    )
+    .await
+    .unwrap();
     assert!(matches!(r, Prepared::Ask(ref f) if f.len() == 1), "{r:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
-

@@ -40,23 +40,51 @@ async fn check(id: &str, env: &str) {
         eprintln!("{env} not set; skipping");
         return;
     };
-    let d = dbine_driver_elasticsearch::drivers().into_iter().find(|d| d.info().id == id).unwrap();
-    let cfg = ConnectionConfig { driver: id.into(), host: url, ..Default::default() };
+    let d = dbine_driver_elasticsearch::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap();
+    let cfg = ConnectionConfig {
+        driver: id.into(),
+        host: url,
+        ..Default::default()
+    };
     let mut s = d.connect(&cfg, None).await.unwrap();
     for stmt in CLEANUP.split("\n\n") {
         let _ = s.execute(stmt, 10, &mut QueryOutcome::default()).await;
     }
-    s.execute(SEED, 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(SEED, 10, &mut QueryOutcome::default())
+        .await
+        .unwrap();
 
     let rows = s.row_estimates().await.unwrap();
-    let get = |n: &str| rows.iter().find(|e| e.object.name == n).map(|e| (e.object.kind.clone(), e.rows));
-    assert_eq!(get("dbine_stats"), Some(("index".to_string(), 3)), "{id}: {rows:?}");
-    assert_eq!(get("dbine-stats-ds"), Some(("stream".to_string(), 2)), "{id}: {rows:?}");
+    let get = |n: &str| {
+        rows.iter()
+            .find(|e| e.object.name == n)
+            .map(|e| (e.object.kind.clone(), e.rows))
+    };
+    assert_eq!(
+        get("dbine_stats"),
+        Some(("index".to_string(), 3)),
+        "{id}: {rows:?}"
+    );
+    assert_eq!(
+        get("dbine-stats-ds"),
+        Some(("stream".to_string(), 2)),
+        "{id}: {rows:?}"
+    );
     // Backing indices are hidden (`.ds-…`), as in the object list.
-    assert!(!rows.iter().any(|e| e.object.name.starts_with(".ds-dbine-stats-ds")), "{id}: {rows:?}");
+    assert!(
+        !rows
+            .iter()
+            .any(|e| e.object.name.starts_with(".ds-dbine-stats-ds")),
+        "{id}: {rows:?}"
+    );
     assert!(s.object_comments().await.unwrap().is_empty());
 
-    s.execute(CLEANUP, 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(CLEANUP, 10, &mut QueryOutcome::default())
+        .await
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -29,7 +29,10 @@
 
 use crate::{check, http_error, KsqlSession, Lines, Stop};
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, RowBatch,
+    TransferColumn,
+};
 use dbine_driver::{kinds, Error, Result};
 use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
@@ -69,7 +72,10 @@ fn source_columns(d: &Value) -> Vec<Column> {
                 name: crate::text(&f["name"]),
                 ty: Ty::of(&schema),
                 type_name: crate::schema_type(&schema),
-                key: matches!(f.get("type").and_then(Value::as_str), Some("KEY" | "PRIMARY_KEY")),
+                key: matches!(
+                    f.get("type").and_then(Value::as_str),
+                    Some("KEY" | "PRIMARY_KEY")
+                ),
             }
         })
         .collect()
@@ -77,7 +83,9 @@ fn source_columns(d: &Value) -> Vec<Column> {
 
 /// `name` among `cols`: as written, or else ignoring case.
 fn find<'a>(cols: &'a [Column], name: &str) -> Option<&'a Column> {
-    cols.iter().find(|c| c.name == name).or_else(|| cols.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
+    cols.iter()
+        .find(|c| c.name == name)
+        .or_else(|| cols.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
 }
 
 /// The pull query of a read: `TIME` and nested values in the forms that
@@ -92,7 +100,10 @@ fn read_sql(table: &str, filter: Option<&str>, cols: &[&Column]) -> String {
             Ty::Time => format!("FORMAT_TIME({q}, 'HH:mm:ss.SSS') AS {q}"),
             t if t.is_nested() => {
                 if t.has_time() {
-                    plain.push(format!("{q} AS {}", quote_ident(Quote::Backtick, &format!("dbine plain {}", plain.len()))));
+                    plain.push(format!(
+                        "{q} AS {}",
+                        quote_ident(Quote::Backtick, &format!("dbine plain {}", plain.len()))
+                    ));
                 }
                 format!("TO_JSON_STRING({q}) AS {q}")
             }
@@ -100,7 +111,11 @@ fn read_sql(table: &str, filter: Option<&str>, cols: &[&Column]) -> String {
         });
     }
     list.extend(plain);
-    let mut sql = format!("SELECT {} FROM {}", list.join(", "), quote_ident(Quote::Backtick, table));
+    let mut sql = format!(
+        "SELECT {} FROM {}",
+        list.join(", "),
+        quote_ident(Quote::Backtick, table)
+    );
     if let Some(f) = filter.map(str::trim).filter(|f| !f.is_empty()) {
         sql.push_str(&format!(" WHERE {f}"));
     }
@@ -168,16 +183,26 @@ fn uncertain(e: Error, rows: usize) -> Error {
 }
 
 impl KsqlSession {
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         if spec.table.kind == kinds::TOPIC {
-            return Err(Error::Unsupported("un topic no tiene columnas: se lee a través de un stream".into()));
+            return Err(Error::Unsupported(
+                "un topic no tiene columnas: se lee a través de un stream".into(),
+            ));
         }
         self.begin();
         let all = source_columns(&self.describe(&spec.table.name).await?);
         let cols: Vec<&Column> = match &spec.columns {
             Some(names) if !names.is_empty() => names
                 .iter()
-                .map(|n| find(&all, n).ok_or_else(|| Error::Query(format!("{} no tiene la columna «{n}»", spec.table.name))))
+                .map(|n| {
+                    find(&all, n).ok_or_else(|| {
+                        Error::Query(format!("{} no tiene la columna «{n}»", spec.table.name))
+                    })
+                })
                 .collect::<Result<_>>()?,
             _ => all.iter().collect(),
         };
@@ -220,12 +245,24 @@ impl KsqlSession {
                         let mut plain = raw[cols.len()..].iter();
                         cols.iter()
                             .zip(&raw)
-                            .map(|(c, v)| to_cell(v, &c.ty, if c.ty.is_nested() && c.ty.has_time() { plain.next().copied() } else { None }))
+                            .map(|(c, v)| {
+                                to_cell(
+                                    v,
+                                    &c.ty,
+                                    if c.ty.is_nested() && c.ty.has_time() {
+                                        plain.next().copied()
+                                    } else {
+                                        None
+                                    },
+                                )
+                            })
                             .collect()
                     }
                     _ => break Err(Error::Query(format!("fila ilegible: {l}"))),
                 };
-                let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+                let mut s = sink
+                    .lock()
+                    .map_err(|_| Error::State("destino de lotes".into()))?;
                 if let Err(e) = builder.push(cells, &mut *s) {
                     break Err(e.into());
                 }
@@ -241,24 +278,47 @@ impl KsqlSession {
             if header {
                 header = false;
                 if let Some(id) = v.get("queryId").and_then(Value::as_str) {
-                    *self.in_flight.query_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
+                    *self
+                        .in_flight
+                        .query_id
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
                 }
-                let tc: Vec<TransferColumn> =
-                    cols.iter().map(|c| TransferColumn { name: c.name.clone(), type_name: c.type_name.clone(), nullable: true }).collect();
-                sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&tc)?;
+                let tc: Vec<TransferColumn> = cols
+                    .iter()
+                    .map(|c| TransferColumn {
+                        name: c.name.clone(),
+                        type_name: c.type_name.clone(),
+                        nullable: true,
+                    })
+                    .collect();
+                sink.lock()
+                    .map_err(|_| Error::State("destino de lotes".into()))?
+                    .begin(&tc)?;
             }
             // Anything else: final messages ("Query Completed"…).
         };
         drop(lines);
         self.close_query();
         r?;
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
-    pub(crate) async fn transfer_load(&mut self, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+    pub(crate) async fn transfer_load(
+        &mut self,
+        spec: &LoadSpec,
+        source: &mut dyn BatchSource,
+        progress: Progress<'_>,
+    ) -> Result<u64> {
         if spec.table.kind == kinds::TOPIC {
-            return Err(Error::Unsupported("ksqlDB no inserta en topics: hay que hacerlo en un stream".into()));
+            return Err(Error::Unsupported(
+                "ksqlDB no inserta en topics: hay que hacerlo en un stream".into(),
+            ));
         }
         self.begin();
         // The target's columns, to write each value as ksqlDB takes it.
@@ -267,25 +327,46 @@ impl KsqlSession {
         for c in &spec.columns {
             match find(&all, c) {
                 Some(f) => cols.push(f),
-                None => return Err(Error::Query(format!("{} no tiene la columna {c}.", spec.table.name))),
+                None => {
+                    return Err(Error::Query(format!(
+                        "{} no tiene la columna {c}.",
+                        spec.table.name
+                    )))
+                }
             }
         }
         // ksqlDB rejects every row that lacks the key.
-        if let Some(k) = all.iter().find(|k| k.key && !cols.iter().any(|c| c.name == k.name)) {
-            return Err(Error::Query(format!("la carga no trae la columna clave {} de {}: ksqlDB la exige en cada fila", k.name, spec.table.name)));
+        if let Some(k) = all
+            .iter()
+            .find(|k| k.key && !cols.iter().any(|c| c.name == k.name))
+        {
+            return Err(Error::Query(format!(
+                "la carga no trae la columna clave {} de {}: ksqlDB la exige en cada fila",
+                k.name, spec.table.name
+            )));
         }
         // /inserts-stream only answers over HTTP/2: h2c on plain HTTP, ALPN on TLS.
         let h2 = if self.conn.base.starts_with("https") {
             self.conn.http.clone()
         } else {
-            reqwest::Client::builder().http2_prior_knowledge().connect_timeout(Duration::from_secs(15)).build().map_err(Error::connect)?
+            reqwest::Client::builder()
+                .http2_prior_knowledge()
+                .connect_timeout(Duration::from_secs(15))
+                .build()
+                .map_err(Error::connect)?
         };
         let mut load = Load {
             h2,
             url: format!("{}/inserts-stream", self.conn.base),
             // Quoted, like the columns: ksqlDB upper-cases bare names.
-            head: format!("{}\n", json!({ "target": quote_ident(Quote::Backtick, &spec.table.name) })),
-            keys: cols.iter().map(|c| json_text(&quote_ident(Quote::Backtick, &c.name))).collect(),
+            head: format!(
+                "{}\n",
+                json!({ "target": quote_ident(Quote::Backtick, &spec.table.name) })
+            ),
+            keys: cols
+                .iter()
+                .map(|c| json_text(&quote_ident(Quote::Backtick, &c.name)))
+                .collect(),
             cols,
             progress,
             every_rows: spec.commit_rows.max(1),
@@ -326,7 +407,11 @@ impl KsqlSession {
         while let Some(b) = self.next_batch(source).await? {
             for row in &b.rows {
                 if row.len() != load.cols.len() {
-                    return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), load.cols.len())));
+                    return Err(Error::Query(format!(
+                        "la fila tiene {} valores y la carga {} columnas",
+                        row.len(),
+                        load.cols.len()
+                    )));
                 }
                 // A row that can't go stops the load before it's sent, with
                 // the rows before it in the same request.
@@ -338,18 +423,24 @@ impl KsqlSession {
                         line.push(',');
                     }
                     if col.key && *cell == Cell::Null {
-                        return Err(at_value(Error::Query("ksqlDB no acepta una clave nula".into()), at, &col.name));
+                        return Err(at_value(
+                            Error::Query("ksqlDB no acepta una clave nula".into()),
+                            at,
+                            &col.name,
+                        ));
                     }
                     line.push_str(&load.keys[i]);
                     line.push(':');
-                    write_value(&mut line, cell, &col.ty).map_err(|e| at_value(e, at, &col.name))?;
+                    write_value(&mut line, cell, &col.ty)
+                        .map_err(|e| at_value(e, at, &col.name))?;
                 }
                 line.push_str("}\n");
                 body.push_str(&line);
                 rows += 1;
                 if rows >= load.limit || body.len() >= CHUNK_BYTES {
                     let chunk = std::mem::replace(&mut body, load.head.clone());
-                    self.send_rows(load, chunk, std::mem::take(&mut rows)).await?;
+                    self.send_rows(load, chunk, std::mem::take(&mut rows))
+                        .await?;
                 }
             }
         }
@@ -380,11 +471,28 @@ impl KsqlSession {
     }
 
     /// One `/inserts-stream` request, in its own task (see [`Request`]).
-    async fn insert_chunk(&self, load: &Load<'_>, body: String, rows: usize) -> (usize, Option<Error>) {
-        let rb = self.conn.auth(load.h2.post(&load.url)).header("Content-Type", crate::DELIMITED).body(body);
+    async fn insert_chunk(
+        &self,
+        load: &Load<'_>,
+        body: String,
+        rows: usize,
+    ) -> (usize, Option<Error>) {
+        let rb = self
+            .conn
+            .auth(load.h2.post(&load.url))
+            .header("Content-Type", crate::DELIMITED)
+            .body(body);
         let mut req = Request(Some(tokio::spawn(send_chunk(rb, rows, load.done + 1))));
         let r = match req.0.as_mut() {
-            Some(t) => t.await.unwrap_or_else(|e| (0, Some(uncertain(Error::State(format!("envío interrumpido: {e}")), rows)))),
+            Some(t) => t.await.unwrap_or_else(|e| {
+                (
+                    0,
+                    Some(uncertain(
+                        Error::State(format!("envío interrumpido: {e}")),
+                        rows,
+                    )),
+                )
+            }),
             None => (0, None),
         };
         req.0 = None;
@@ -428,7 +536,11 @@ impl Drop for Request {
 /// goes away, so leaving early (on a cancel or on the first rejected row)
 /// would leave rows loading after the load returned. The rows in the
 /// target, and why not all.
-async fn send_chunk(rb: reqwest::RequestBuilder, rows: usize, first: u64) -> (usize, Option<Error>) {
+async fn send_chunk(
+    rb: reqwest::RequestBuilder,
+    rows: usize,
+    first: u64,
+) -> (usize, Option<Error>) {
     let resp = match rb.send().await {
         Ok(r) => r,
         // Nothing got there.
@@ -447,7 +559,15 @@ async fn send_chunk(rb: reqwest::RequestBuilder, rows: usize, first: u64) -> (us
             Ok(Ok(Some(l))) => l,
             Ok(Ok(None)) => break,
             Ok(Err(e)) => return (ok.len(), Some(uncertain(e, rows))),
-            Err(_) => return (ok.len(), Some(uncertain(Error::Query("ksqlDB dejó de confirmar filas".into()), rows))),
+            Err(_) => {
+                return (
+                    ok.len(),
+                    Some(uncertain(
+                        Error::Query("ksqlDB dejó de confirmar filas".into()),
+                        rows,
+                    )),
+                )
+            }
         };
         if l.trim().is_empty() {
             continue;
@@ -469,7 +589,13 @@ async fn send_chunk(rb: reqwest::RequestBuilder, rows: usize, first: u64) -> (us
     }
     match rejected {
         None if ok.len() == rows => (rows, None),
-        None => (ok.len(), Some(uncertain(Error::Query(format!("ksqlDB confirmó {} filas de {rows}", ok.len())), rows))),
+        None => (
+            ok.len(),
+            Some(uncertain(
+                Error::Query(format!("ksqlDB confirmó {} filas de {rows}", ok.len())),
+                rows,
+            )),
+        ),
         // ksqlDB inserts in order and may leave the rows before the
         // rejected one unacknowledged, yet they're in.
         Some((Some(s), msg)) => {
@@ -542,7 +668,9 @@ fn decimal_parts(s: &str) -> Option<(bool, String, i64)> {
         None => (s, None),
     };
     let (int, frac) = mant.split_once('.').unwrap_or((mant, ""));
-    if (int.is_empty() && frac.is_empty()) || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+    if (int.is_empty() && frac.is_empty())
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let exp = match exp {
@@ -553,7 +681,11 @@ fn decimal_parts(s: &str) -> Option<(bool, String, i64)> {
                 return None;
             }
             // Only digits are left, so a failed parse is an overflow.
-            x.parse::<i64>().unwrap_or(if x.starts_with('-') { i64::MIN / 4 } else { i64::MAX / 4 })
+            x.parse::<i64>().unwrap_or(if x.starts_with('-') {
+                i64::MIN / 4
+            } else {
+                i64::MAX / 4
+            })
         }
     };
     // Leading zeros may run from the integer part into the fraction
@@ -563,14 +695,21 @@ fn decimal_parts(s: &str) -> Option<(bool, String, i64)> {
     let sig = all.trim_start_matches('0');
     let point = int.len() as i64 - (all.len() - sig.len()) as i64;
     let digits = sig.trim_end_matches('0').to_string();
-    let point = if digits.is_empty() { 0 } else { point.saturating_add(exp) };
+    let point = if digits.is_empty() {
+        0
+    } else {
+        point.saturating_add(exp)
+    };
     Some((neg, digits, point))
 }
 
 /// How many integer and fractional digits `digits` has with the point at
 /// `point` once written without an exponent.
 fn decimal_widths(digits: &str, point: i64) -> (u64, u64) {
-    (point.max(0) as u64, (digits.len() as i64).saturating_sub(point).max(0) as u64)
+    (
+        point.max(0) as u64,
+        (digits.len() as i64).saturating_sub(point).max(0) as u64,
+    )
 }
 
 /// Plain text of [`decimal_parts`]; the caller has bounded its width.
@@ -676,8 +815,18 @@ pub(crate) enum Ty {
 
 impl Ty {
     fn of(s: &Value) -> Ty {
-        let member = || Box::new(s.get("memberSchema").map_or(Ty::Other(String::new()), Ty::of));
-        let param = |k: &str| s.pointer(k).map(crate::text).and_then(|t| t.parse().ok()).unwrap_or(0);
+        let member = || {
+            Box::new(
+                s.get("memberSchema")
+                    .map_or(Ty::Other(String::new()), Ty::of),
+            )
+        };
+        let param = |k: &str| {
+            s.pointer(k)
+                .map(crate::text)
+                .and_then(|t| t.parse().ok())
+                .unwrap_or(0)
+        };
         match s.get("type").and_then(Value::as_str).unwrap_or_default() {
             "BOOLEAN" => Ty::Boolean,
             "INTEGER" | "INT" => Ty::Integer,
@@ -696,7 +845,12 @@ impl Ty {
                     .and_then(Value::as_array)
                     .into_iter()
                     .flatten()
-                    .map(|f| (crate::text(&f["name"]), f.get("schema").map_or(Ty::Other(String::new()), Ty::of)))
+                    .map(|f| {
+                        (
+                            crate::text(&f["name"]),
+                            f.get("schema").map_or(Ty::Other(String::new()), Ty::of),
+                        )
+                    })
                     .collect(),
             ),
             t => Ty::Other(t.to_string()),
@@ -732,7 +886,13 @@ impl Ty {
             Ty::Timestamp => "TIMESTAMP".into(),
             Ty::Array(t) => format!("ARRAY<{}>", t.name()),
             Ty::Map(t) => format!("MAP<STRING, {}>", t.name()),
-            Ty::Struct(f) => format!("STRUCT<{}>", f.iter().map(|(n, t)| format!("{} {}", quote_ident(Quote::Backtick, n), t.name())).collect::<Vec<_>>().join(", ")),
+            Ty::Struct(f) => format!(
+                "STRUCT<{}>",
+                f.iter()
+                    .map(|(n, t)| format!("{} {}", quote_ident(Quote::Backtick, n), t.name()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Ty::Other(t) => t.clone(),
         }
     }
@@ -751,7 +911,11 @@ enum J {
 }
 
 fn parse_j(s: &str) -> Option<J> {
-    let mut p = Parser { s: s.as_bytes(), text: s, i: 0 };
+    let mut p = Parser {
+        s: s.as_bytes(),
+        text: s,
+        i: 0,
+    };
     let v = p.value(0)?;
     p.ws();
     (p.i == p.s.len()).then_some(v)
@@ -829,7 +993,8 @@ impl Parser<'_> {
             }
             b'-' | b'0'..=b'9' => {
                 let start = self.i;
-                while let Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9') = self.s.get(self.i) {
+                while let Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9') = self.s.get(self.i)
+                {
                     self.i += 1;
                 }
                 let t = &self.text[start..self.i];
@@ -914,7 +1079,10 @@ fn patch_times(j: &mut J, plain: &J, ty: &Ty) {
         }
         (Ty::Struct(f), J::Obj(a), J::Obj(b)) => {
             for (k, x) in a.iter_mut() {
-                if let (Some((_, t)), Some((_, y))) = (f.iter().find(|(n, _)| n == k), b.iter().find(|(kb, _)| kb == k)) {
+                if let (Some((_, t)), Some((_, y))) = (
+                    f.iter().find(|(n, _)| n == k),
+                    b.iter().find(|(kb, _)| kb == k),
+                ) {
                     patch_times(x, y, t);
                 }
             }
@@ -932,14 +1100,19 @@ pub(crate) fn to_cell(raw: &str, ty: &Ty, plain: Option<&str>) -> Cell {
     }
     match ty {
         Ty::Boolean => Cell::Bool(raw == "true"),
-        Ty::Integer | Ty::Bigint => raw.parse().map(Cell::Int).unwrap_or_else(|_| Cell::Text(raw.to_string())),
+        Ty::Integer | Ty::Bigint => raw
+            .parse()
+            .map(Cell::Int)
+            .unwrap_or_else(|_| Cell::Text(raw.to_string())),
         // `"Infinity"`, `"-Infinity"` and `"NaN"` come quoted.
         Ty::Double => {
             let t = unquote(raw);
             t.parse().map(Cell::Float).unwrap_or(Cell::Text(t))
         }
         Ty::Decimal(..) => Cell::Decimal(plain_decimal(raw.trim_matches('"'))),
-        Ty::Bytes => base64_decode(&unquote(raw)).map(Cell::Bytes).unwrap_or_else(|| Cell::Text(unquote(raw))),
+        Ty::Bytes => base64_decode(&unquote(raw))
+            .map(Cell::Bytes)
+            .unwrap_or_else(|| Cell::Text(unquote(raw))),
         Ty::Date => Cell::Date(unquote(raw)),
         // `FORMAT_TIME`'s text, or milliseconds of the day.
         Ty::Time => match raw.parse::<i64>() {
@@ -949,11 +1122,18 @@ pub(crate) fn to_cell(raw: &str, ty: &Ty, plain: Option<&str>) -> Cell {
         Ty::Timestamp => Cell::DateTime(timestamp_text(&unquote(raw))),
         Ty::Array(_) | Ty::Map(_) | Ty::Struct(_) => {
             // `TO_JSON_STRING`'s text (a JSON string), or the plain value.
-            let text = if raw.starts_with('"') { unquote(raw) } else { raw.to_string() };
+            let text = if raw.starts_with('"') {
+                unquote(raw)
+            } else {
+                raw.to_string()
+            };
             if text == "null" {
                 return Cell::Null;
             }
-            match (plain.filter(|p| *p != "null").and_then(parse_j), parse_j(&text)) {
+            match (
+                plain.filter(|p| *p != "null").and_then(parse_j),
+                parse_j(&text),
+            ) {
                 (Some(p), Some(mut j)) => {
                     patch_times(&mut j, &p, ty);
                     let mut s = String::with_capacity(text.len() + 8);
@@ -979,7 +1159,14 @@ fn text_of(c: &Cell) -> String {
         Cell::UInt(u) => u.to_string(),
         Cell::Float(f) => f.to_string(),
         Cell::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => s.clone(),
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => s.clone(),
     }
 }
 
@@ -1004,7 +1191,9 @@ fn put_int(out: &mut String, n: i64, ty: &Ty) -> Result<()> {
 }
 
 fn int_text(t: &str) -> Result<i64> {
-    t.trim().parse().map_err(|_| bad(format!("«{t}» no es un entero")))
+    t.trim()
+        .parse()
+        .map_err(|_| bad(format!("«{t}» no es un entero")))
 }
 
 fn put_double(out: &mut String, f: f64) -> Result<()> {
@@ -1019,7 +1208,11 @@ fn put_double(out: &mut String, f: f64) -> Result<()> {
         out.push_str(if f > 0.0 { "1e400" } else { "-1e400" });
         return Ok(());
     }
-    out.push_str(&serde_json::Number::from_f64(f).map(|n| n.to_string()).unwrap_or_else(|| f.to_string()));
+    out.push_str(
+        &serde_json::Number::from_f64(f)
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| f.to_string()),
+    );
     Ok(())
 }
 
@@ -1030,7 +1223,11 @@ fn put_double(out: &mut String, f: f64) -> Result<()> {
 fn decimal_text(t: &str, p: u32, s: u32) -> Result<String> {
     let t = t.trim();
     let no = || bad(format!("«{t}» no es un número decimal"));
-    if t.is_empty() || !t.bytes().all(|b| matches!(b, b'0'..=b'9' | b'+' | b'-' | b'.' | b'e' | b'E')) {
+    if t.is_empty()
+        || !t
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'+' | b'-' | b'.' | b'e' | b'E'))
+    {
         return Err(no());
     }
     // Sizes are checked on the exponent form, before any digit is
@@ -1039,13 +1236,20 @@ fn decimal_text(t: &str, p: u32, s: u32) -> Result<String> {
     let (int, frac) = decimal_widths(&digits, point);
     if p > 0 {
         if int > p.saturating_sub(s) as u64 {
-            return Err(bad(format!("«{t}» no entra en DECIMAL({p}, {s}): admite {} dígitos enteros", p.saturating_sub(s))));
+            return Err(bad(format!(
+                "«{t}» no entra en DECIMAL({p}, {s}): admite {} dígitos enteros",
+                p.saturating_sub(s)
+            )));
         }
         if frac > s as u64 {
-            return Err(bad(format!("«{t}» no entra en DECIMAL({p}, {s}): tiene más de {s} decimales y se redondearía")));
+            return Err(bad(format!(
+                "«{t}» no entra en DECIMAL({p}, {s}): tiene más de {s} decimales y se redondearía"
+            )));
         }
     } else if int + frac > MAX_DECIMAL_DIGITS {
-        return Err(bad(format!("«{t}» tiene más de {MAX_DECIMAL_DIGITS} dígitos: no se puede cargar como DECIMAL")));
+        return Err(bad(format!(
+            "«{t}» tiene más de {MAX_DECIMAL_DIGITS} dígitos: no se puede cargar como DECIMAL"
+        )));
     }
     Ok(render_decimal(neg, &digits, point))
 }
@@ -1055,9 +1259,15 @@ fn valid_date(d: &str) -> bool {
     b.len() == 10
         && b[4] == b'-'
         && b[7] == b'-'
-        && [0, 1, 2, 3, 5, 6, 8, 9].iter().all(|&i| b[i].is_ascii_digit())
+        && [0, 1, 2, 3, 5, 6, 8, 9]
+            .iter()
+            .all(|&i| b[i].is_ascii_digit())
         && {
-            let (y, m, day) = (d[..4].parse::<u32>().unwrap_or(0), d[5..7].parse::<u32>().unwrap_or(0), d[8..10].parse::<u32>().unwrap_or(0));
+            let (y, m, day) = (
+                d[..4].parse::<u32>().unwrap_or(0),
+                d[5..7].parse::<u32>().unwrap_or(0),
+                d[8..10].parse::<u32>().unwrap_or(0),
+            );
             let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
             let last = match m {
                 2 if leap => 29,
@@ -1073,7 +1283,10 @@ fn valid_date(d: &str) -> bool {
 /// `YYYY-MM-DD`, from a date, or a date and time when the time is zero.
 fn date_text(t: &str) -> Result<String> {
     let t = t.trim();
-    let d = t.get(..10).filter(|d| valid_date(d)).ok_or_else(|| bad(format!("«{t}» no es una fecha")))?;
+    let d = t
+        .get(..10)
+        .filter(|d| valid_date(d))
+        .ok_or_else(|| bad(format!("«{t}» no es una fecha")))?;
     let rest = t[10..].trim_start_matches([' ', 'T']);
     if !rest.bytes().all(|b| matches!(b, b'0' | b':' | b'.')) {
         return Err(bad(format!("«{t}» tiene hora y DATE la perdería")));
@@ -1099,14 +1312,26 @@ fn clock(t: &str) -> Option<Result<String>> {
         Some(x) => two(x)?,
         None => 0,
     };
-    if parts.next().is_some() || h > 23 || m > 59 || s > 59 || !frac.bytes().all(|b| b.is_ascii_digit()) || (t.contains('.') && frac.is_empty()) {
+    if parts.next().is_some()
+        || h > 23
+        || m > 59
+        || s > 59
+        || !frac.bytes().all(|b| b.is_ascii_digit())
+        || (t.contains('.') && frac.is_empty())
+    {
         return None;
     }
     if frac.len() > 3 && frac.bytes().skip(3).any(|b| b != b'0') {
-        return Some(Err(bad(format!("«{t}» tiene más precisión que el milisegundo que guarda ksqlDB"))));
+        return Some(Err(bad(format!(
+            "«{t}» tiene más precisión que el milisegundo que guarda ksqlDB"
+        ))));
     }
     let ms = format!("{:0<3}", &frac[..frac.len().min(3)]);
-    Some(Ok(if ms == "000" { format!("{h:02}:{m:02}:{s:02}") } else { format!("{h:02}:{m:02}:{s:02}.{ms}") }))
+    Some(Ok(if ms == "000" {
+        format!("{h:02}:{m:02}:{s:02}")
+    } else {
+        format!("{h:02}:{m:02}:{s:02}.{ms}")
+    }))
 }
 
 fn time_value(t: &str) -> Result<String> {
@@ -1137,7 +1362,10 @@ fn timestamp_value(t: &str) -> Result<String> {
     let t = t.trim();
     let no = || bad(format!("«{t}» no es una fecha y hora"));
     // ksqlDB takes a DATE of year 0 but not a TIMESTAMP.
-    let d = t.get(..10).filter(|d| valid_date(d) && !d.starts_with("0000")).ok_or_else(no)?;
+    let d = t
+        .get(..10)
+        .filter(|d| valid_date(d) && !d.starts_with("0000"))
+        .ok_or_else(no)?;
     let rest = &t[10..];
     if rest.is_empty() {
         return Ok(format!("{d}T00:00:00"));
@@ -1145,7 +1373,11 @@ fn timestamp_value(t: &str) -> Result<String> {
     let rest = rest.strip_prefix(['T', ' ']).ok_or_else(no)?;
     let cut = rest.find(['Z', 'z', '+', '-']).unwrap_or(rest.len());
     let (time, z) = rest.split_at(cut);
-    let z = if z.is_empty() { String::new() } else { zone(z).ok_or_else(no)? };
+    let z = if z.is_empty() {
+        String::new()
+    } else {
+        zone(z).ok_or_else(no)?
+    };
     let time = clock(time).ok_or_else(no)??;
     Ok(format!("{d}T{time}{z}"))
 }
@@ -1161,7 +1393,9 @@ pub(crate) fn write_value(out: &mut String, c: &Cell, ty: &Ty) -> Result<()> {
         Ty::Integer | Ty::Bigint => {
             let n: i64 = match c {
                 Cell::Int(i) => *i,
-                Cell::UInt(u) => i64::try_from(*u).map_err(|_| bad(format!("{u} no entra en BIGINT")))?,
+                Cell::UInt(u) => {
+                    i64::try_from(*u).map_err(|_| bad(format!("{u} no entra en BIGINT")))?
+                }
                 Cell::Bool(b) => *b as i64,
                 Cell::Float(f) if f.fract() == 0.0 && f.abs() < 9.2e18 => *f as i64,
                 other => int_text(&text_of(other))?,
@@ -1173,10 +1407,14 @@ pub(crate) fn write_value(out: &mut String, c: &Cell, ty: &Ty) -> Result<()> {
                 Cell::Float(f) => *f,
                 Cell::Int(i) if (*i as f64) as i64 == *i => *i as f64,
                 Cell::UInt(u) if (*u as f64) as u64 == *u => *u as f64,
-                Cell::Int(_) | Cell::UInt(_) => return Err(bad(format!("{} no entra exacto en DOUBLE", text_of(c)))),
+                Cell::Int(_) | Cell::UInt(_) => {
+                    return Err(bad(format!("{} no entra exacto en DOUBLE", text_of(c))))
+                }
                 other => {
                     let t = text_of(other);
-                    t.trim().parse().map_err(|_| bad(format!("«{t}» no es un número")))?
+                    t.trim()
+                        .parse()
+                        .map_err(|_| bad(format!("«{t}» no es un número")))?
                 }
             };
             put_double(out, f)?;
@@ -1192,13 +1430,19 @@ pub(crate) fn write_value(out: &mut String, c: &Cell, ty: &Ty) -> Result<()> {
         // As text: a JSON number would go through a double.
         Ty::Decimal(p, s) => {
             let t = match c {
-                Cell::Bool(_) | Cell::Bytes(_) | Cell::Json(_) => return Err(bad(format!("«{}» no es un número decimal", text_of(c)))),
+                Cell::Bool(_) | Cell::Bytes(_) | Cell::Json(_) => {
+                    return Err(bad(format!("«{}» no es un número decimal", text_of(c))))
+                }
                 other => text_of(other),
             };
             push_str(out, &decimal_text(&t, *p, *s)?);
         }
         Ty::Str => match c {
-            Cell::Bytes(b) => push_str(out, std::str::from_utf8(b).map_err(|_| bad("el valor binario no es texto UTF-8".into()))?),
+            Cell::Bytes(b) => push_str(
+                out,
+                std::str::from_utf8(b)
+                    .map_err(|_| bad("el valor binario no es texto UTF-8".into()))?,
+            ),
             other => push_str(out, &text_of(other)),
         },
         Ty::Bytes => match c {
@@ -1210,10 +1454,17 @@ pub(crate) fn write_value(out: &mut String, c: &Cell, ty: &Ty) -> Result<()> {
         Ty::Timestamp => push_str(out, &timestamp_value(&text_of(c))?),
         Ty::Array(_) | Ty::Map(_) | Ty::Struct(_) => match c {
             Cell::Json(s) | Cell::Text(s) => {
-                let j = parse_j(s).ok_or_else(|| bad(format!("«{s}» no es un valor {}", ty.name())))?;
+                let j =
+                    parse_j(s).ok_or_else(|| bad(format!("«{s}» no es un valor {}", ty.name())))?;
                 write_j(out, &j, ty)?;
             }
-            other => return Err(bad(format!("«{}» no es un valor {}", text_of(other), ty.name()))),
+            other => {
+                return Err(bad(format!(
+                    "«{}» no es un valor {}",
+                    text_of(other),
+                    ty.name()
+                )))
+            }
         },
         Ty::Other(_) => push_str(out, &text_of(c)),
     }
@@ -1227,7 +1478,12 @@ fn write_j(out: &mut String, j: &J, ty: &Ty) -> Result<()> {
     match (ty, j) {
         (_, J::Null) => out.push_str("null"),
         (Ty::Integer | Ty::Bigint, J::Num(t) | J::Str(t)) => put_int(out, int_text(t)?, ty)?,
-        (Ty::Double, J::Num(t) | J::Str(t)) => put_double(out, t.trim().parse().map_err(|_| bad(format!("«{t}» no es un número")))?)?,
+        (Ty::Double, J::Num(t) | J::Str(t)) => put_double(
+            out,
+            t.trim()
+                .parse()
+                .map_err(|_| bad(format!("«{t}» no es un número")))?,
+        )?,
         (Ty::Boolean, J::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
         (Ty::Decimal(p, s), J::Num(t) | J::Str(t)) => push_str(out, &decimal_text(t, *p, *s)?),
         (Ty::Str, J::Str(t) | J::Num(t)) => push_str(out, t),
@@ -1292,11 +1548,21 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 pub(crate) fn base64_encode(b: &[u8]) -> String {
     let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
     for c in b.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         out.push(B64[(n >> 18) as usize & 63] as char);
         out.push(B64[(n >> 12) as usize & 63] as char);
-        out.push(if c.len() > 1 { B64[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if c.len() > 2 { B64[n as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            B64[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            B64[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -1355,7 +1621,11 @@ mod tests {
             arr(Ty::Integer),
         ];
         let raw = split_array(line).unwrap();
-        let cells: Vec<Cell> = raw.iter().zip(&types).map(|(r, t)| to_cell(r, t, None)).collect();
+        let cells: Vec<Cell> = raw
+            .iter()
+            .zip(&types)
+            .map(|(r, t)| to_cell(r, t, None))
+            .collect();
         assert_eq!(
             cells,
             vec![
@@ -1380,19 +1650,34 @@ mod tests {
             ]
         );
         assert_eq!(split_array("[]").unwrap(), Vec::<&str>::new());
-        assert_eq!(to_cell("1E+2", &Ty::Decimal(4, 0), None), Cell::Decimal("100".into()));
-        assert_eq!(to_cell("\"2024-01-31T13:45:00.000\"", &Ty::Timestamp, None), Cell::DateTime("2024-01-31 13:45:00".into()));
-        assert_eq!(to_cell("3723456", &Ty::Time, None), Cell::Time("01:02:03.456".into()));
+        assert_eq!(
+            to_cell("1E+2", &Ty::Decimal(4, 0), None),
+            Cell::Decimal("100".into())
+        );
+        assert_eq!(
+            to_cell("\"2024-01-31T13:45:00.000\"", &Ty::Timestamp, None),
+            Cell::DateTime("2024-01-31 13:45:00".into())
+        );
+        assert_eq!(
+            to_cell("3723456", &Ty::Time, None),
+            Cell::Time("01:02:03.456".into())
+        );
     }
 
     #[test]
     fn nested_times_come_from_the_plain_value() {
         // TO_JSON_STRING drops a nested TIME's milliseconds; the plain value
         // has them (and turns a STRUCT's decimals into doubles).
-        let ty = arr(Ty::Struct(vec![("t".into(), Ty::Time), ("D".into(), Ty::Decimal(30, 10))]));
+        let ty = arr(Ty::Struct(vec![
+            ("t".into(), Ty::Time),
+            ("D".into(), Ty::Decimal(30, 10)),
+        ]));
         let json = r#""[{\"D\":12345678901234567890.1234567890,\"t\":\"01:02:03\"}]""#;
         let plain = r#"[{"t":3723456,"D":1.2345678901234567E19}]"#;
-        assert_eq!(to_cell(json, &ty, Some(plain)), Cell::Json(r#"[{"D":12345678901234567890.1234567890,"t":"01:02:03.456"}]"#.into()));
+        assert_eq!(
+            to_cell(json, &ty, Some(plain)),
+            Cell::Json(r#"[{"D":12345678901234567890.1234567890,"t":"01:02:03.456"}]"#.into())
+        );
     }
 
     #[test]
@@ -1402,8 +1687,17 @@ mod tests {
         )
         .unwrap();
         let ty = Ty::of(&s);
-        assert_eq!(ty, Ty::Struct(vec![("lo".into(), Ty::Integer), ("M".into(), Ty::Map(Box::new(arr(Ty::Decimal(30, 10)))))]));
-        assert_eq!(ty.name(), "STRUCT<`lo` INTEGER, `M` MAP<STRING, ARRAY<DECIMAL(30, 10)>>>");
+        assert_eq!(
+            ty,
+            Ty::Struct(vec![
+                ("lo".into(), Ty::Integer),
+                ("M".into(), Ty::Map(Box::new(arr(Ty::Decimal(30, 10)))))
+            ])
+        );
+        assert_eq!(
+            ty.name(),
+            "STRUCT<`lo` INTEGER, `M` MAP<STRING, ARRAY<DECIMAL(30, 10)>>>"
+        );
         assert!(!ty.has_time());
     }
 
@@ -1414,16 +1708,42 @@ mod tests {
 
     #[test]
     fn cells_become_insert_json() {
-        assert_eq!(w(Cell::Decimal("12345678901234567.1234".into()), &Ty::Decimal(21, 4)).unwrap(), "\"12345678901234567.1234\"");
-        assert_eq!(w(Cell::Bytes(vec![0xca, 0xfe]), &Ty::Bytes).unwrap(), "\"yv4=\"");
-        assert_eq!(w(Cell::DateTimeTz("2024-01-31 10:45:00.123-03:00".into()), &Ty::Timestamp).unwrap(), "\"2024-01-31T10:45:00.123-03:00\"");
-        assert_eq!(w(Cell::DateTime("2024-01-31 00:00:00".into()), &Ty::Date).unwrap(), "\"2024-01-31\"");
+        assert_eq!(
+            w(
+                Cell::Decimal("12345678901234567.1234".into()),
+                &Ty::Decimal(21, 4)
+            )
+            .unwrap(),
+            "\"12345678901234567.1234\""
+        );
+        assert_eq!(
+            w(Cell::Bytes(vec![0xca, 0xfe]), &Ty::Bytes).unwrap(),
+            "\"yv4=\""
+        );
+        assert_eq!(
+            w(
+                Cell::DateTimeTz("2024-01-31 10:45:00.123-03:00".into()),
+                &Ty::Timestamp
+            )
+            .unwrap(),
+            "\"2024-01-31T10:45:00.123-03:00\""
+        );
+        assert_eq!(
+            w(Cell::DateTime("2024-01-31 00:00:00".into()), &Ty::Date).unwrap(),
+            "\"2024-01-31\""
+        );
         assert_eq!(w(Cell::Text("42".into()), &Ty::Bigint).unwrap(), "42");
         assert!(w(Cell::Text("x".into()), &Ty::Integer).is_err());
         assert!(w(Cell::Int(1 << 40), &Ty::Integer).is_err());
-        assert_eq!(w(Cell::Json("[1,2]".into()), &arr(Ty::Integer)).unwrap(), "[1,2]");
+        assert_eq!(
+            w(Cell::Json("[1,2]".into()), &arr(Ty::Integer)).unwrap(),
+            "[1,2]"
+        );
         assert_eq!(w(Cell::Null, &Ty::Str).unwrap(), "null");
-        assert_eq!(w(Cell::Text("a\"b".into()), &Ty::Str).unwrap(), "\"a\\\"b\"");
+        assert_eq!(
+            w(Cell::Text("a\"b".into()), &Ty::Str).unwrap(),
+            "\"a\\\"b\""
+        );
         assert_eq!(w(Cell::Float(0.1), &Ty::Double).unwrap(), "0.1");
         for n in 0..8 {
             let b: Vec<u8> = (0..n).map(|i| (i * 37 + 200) as u8).collect();
@@ -1436,18 +1756,43 @@ mod tests {
     fn nested_values_keep_digits_and_quoted_names() {
         // Decimals as text: as JSON numbers ksqlDB takes them through a double.
         assert_eq!(
-            w(Cell::Json("[12345678901234567890.1234567890, null]".into()), &arr(Ty::Decimal(30, 10))).unwrap(),
+            w(
+                Cell::Json("[12345678901234567890.1234567890, null]".into()),
+                &arr(Ty::Decimal(30, 10))
+            )
+            .unwrap(),
             r#"["12345678901234567890.123456789",null]"#
         );
         // STRUCT fields quoted: a bare `lo` would be `LO`, silently null.
-        let st = Ty::Struct(vec![("lo".into(), Ty::Integer), ("HI".into(), Ty::Decimal(30, 10)), ("t".into(), Ty::Time)]);
-        assert_eq!(w(Cell::Json(r#"{"lo":1,"HI":2.5,"t":"01:02:03.456"}"#.into()), &st).unwrap(), r#"{"`lo`":1,"`HI`":"2.5","`t`":"01:02:03.456"}"#);
+        let st = Ty::Struct(vec![
+            ("lo".into(), Ty::Integer),
+            ("HI".into(), Ty::Decimal(30, 10)),
+            ("t".into(), Ty::Time),
+        ]);
+        assert_eq!(
+            w(
+                Cell::Json(r#"{"lo":1,"HI":2.5,"t":"01:02:03.456"}"#.into()),
+                &st
+            )
+            .unwrap(),
+            r#"{"`lo`":1,"`HI`":"2.5","`t`":"01:02:03.456"}"#
+        );
         // …by the name the column has.
-        assert_eq!(w(Cell::Json(r#"{"LO":1}"#.into()), &st).unwrap(), r#"{"`lo`":1}"#);
+        assert_eq!(
+            w(Cell::Json(r#"{"LO":1}"#.into()), &st).unwrap(),
+            r#"{"`lo`":1}"#
+        );
         // A field the STRUCT doesn't have would be dropped.
         assert!(w(Cell::Json(r#"{"otro":1}"#.into()), &st).is_err());
         // MAP keys are data, not names.
-        assert_eq!(w(Cell::Json(r#"{"a b":["Infinity",1.5]}"#.into()), &Ty::Map(Box::new(arr(Ty::Double)))).unwrap(), r#"{"a b":[1e400,1.5]}"#);
+        assert_eq!(
+            w(
+                Cell::Json(r#"{"a b":["Infinity",1.5]}"#.into()),
+                &Ty::Map(Box::new(arr(Ty::Double)))
+            )
+            .unwrap(),
+            r#"{"a b":[1e400,1.5]}"#
+        );
         assert!(w(Cell::Json("[1".into()), &arr(Ty::Integer)).is_err());
         assert!(w(Cell::Json(r#"["x"]"#.into()), &arr(Ty::Integer)).is_err());
     }
@@ -1456,9 +1801,15 @@ mod tests {
     fn decimals_that_dont_fit_are_errors() {
         let d = Ty::Decimal(38, 10);
         assert!(w(Cell::Decimal("99999999999999999999999999999".into()), &d).is_err());
-        assert_eq!(w(Cell::Decimal("9999999999999999999999999999".into()), &d).unwrap(), "\"9999999999999999999999999999\"");
+        assert_eq!(
+            w(Cell::Decimal("9999999999999999999999999999".into()), &d).unwrap(),
+            "\"9999999999999999999999999999\""
+        );
         assert!(w(Cell::Decimal("1.00000000001".into()), &d).is_err());
-        assert_eq!(w(Cell::Decimal("1.00000000000000".into()), &d).unwrap(), "\"1\"");
+        assert_eq!(
+            w(Cell::Decimal("1.00000000000000".into()), &d).unwrap(),
+            "\"1\""
+        );
         assert_eq!(w(Cell::Decimal("-0.50".into()), &d).unwrap(), "\"-0.5\"");
         assert_eq!(w(Cell::Decimal("1E+2".into()), &d).unwrap(), "\"100\"");
         assert_eq!(w(Cell::Int(-7), &d).unwrap(), "\"-7\"");
@@ -1471,29 +1822,52 @@ mod tests {
     fn decimal_huge_exponents_are_rejected_not_zeroed_nor_expanded() {
         let d = Ty::Decimal(38, 10);
         // Exponents past an i64 used to parse as 0: `1e…` stored as 1.
-        for t in ["1e99999999999999999999", "-5E30000000000000000000", "1e-99999999999999999999"] {
+        for t in [
+            "1e99999999999999999999",
+            "-5E30000000000000000000",
+            "1e-99999999999999999999",
+        ] {
             let e = decimal_text(t, 38, 10).unwrap_err().to_string();
             assert!(e.contains("no entra en DECIMAL(38, 10)"), "{t}: {e}");
             assert!(w(Cell::Decimal(t.into()), &d).is_err(), "{t}");
         }
         // Nested: the JSON parser takes it as a number (a double's inf).
-        assert!(w(Cell::Json("[1e99999999999999999999]".into()), &arr(d.clone())).is_err());
+        assert!(w(
+            Cell::Json("[1e99999999999999999999]".into()),
+            &arr(d.clone())
+        )
+        .is_err());
         // Checked before expanding: these would be ~300 MB of zeros each.
         for t in ["1e300000000", "1e-300000000", "-9.5E+2000000000"] {
             assert!(decimal_text(t, 38, 10).is_err(), "{t}");
-            assert!(decimal_text(t, 0, 0).unwrap_err().to_string().contains("dígitos"), "{t}");
+            assert!(
+                decimal_text(t, 0, 0)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("dígitos"),
+                "{t}"
+            );
         }
         // A zero mantissa is zero whatever the exponent.
         assert_eq!(decimal_text("0e99999999999999999999", 38, 10).unwrap(), "0");
         assert_eq!(decimal_text("-0.000e-400000000", 38, 10).unwrap(), "0");
         // Exponent forms that fit still expand exactly.
-        assert_eq!(decimal_text("1.25e27", 38, 10).unwrap(), "1250000000000000000000000000");
+        assert_eq!(
+            decimal_text("1.25e27", 38, 10).unwrap(),
+            "1250000000000000000000000000"
+        );
         assert_eq!(decimal_text("-12.5E-9", 38, 10).unwrap(), "-0.0000000125");
         assert!(decimal_text("-12.5E-11", 38, 10).is_err());
         assert_eq!(decimal_text("0.00123e+3", 38, 10).unwrap(), "1.23");
         // Malformed exponents are not numbers (`1e5e5` used to give 1).
         for t in ["1e5e5", "1e", "1e+", "e5", "1e-+3"] {
-            assert!(decimal_text(t, 38, 10).unwrap_err().to_string().contains("no es un número"), "{t}");
+            assert!(
+                decimal_text(t, 38, 10)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("no es un número"),
+                "{t}"
+            );
         }
         // The read side keeps unexpandable text as is.
         assert_eq!(plain_decimal("1E+300000000"), "1E+300000000");
@@ -1503,40 +1877,98 @@ mod tests {
 
     #[test]
     fn times_keep_milliseconds_or_fail() {
-        assert_eq!(w(Cell::Time("23:59:59.999".into()), &Ty::Time).unwrap(), "\"23:59:59.999\"");
-        assert_eq!(w(Cell::Time("12:00:00.5".into()), &Ty::Time).unwrap(), "\"12:00:00.500\"");
-        assert_eq!(w(Cell::Time("12:00:00.500000000".into()), &Ty::Time).unwrap(), "\"12:00:00.500\"");
-        assert_eq!(w(Cell::Time("13:45".into()), &Ty::Time).unwrap(), "\"13:45:00\"");
+        assert_eq!(
+            w(Cell::Time("23:59:59.999".into()), &Ty::Time).unwrap(),
+            "\"23:59:59.999\""
+        );
+        assert_eq!(
+            w(Cell::Time("12:00:00.5".into()), &Ty::Time).unwrap(),
+            "\"12:00:00.500\""
+        );
+        assert_eq!(
+            w(Cell::Time("12:00:00.500000000".into()), &Ty::Time).unwrap(),
+            "\"12:00:00.500\""
+        );
+        assert_eq!(
+            w(Cell::Time("13:45".into()), &Ty::Time).unwrap(),
+            "\"13:45:00\""
+        );
         assert!(w(Cell::Time("12:00:00.0001".into()), &Ty::Time).is_err());
         assert!(w(Cell::Time("25:00:00".into()), &Ty::Time).is_err());
-        assert!(w(Cell::DateTime("2024-01-31 10:00:00.1234567".into()), &Ty::Timestamp).is_err());
-        assert_eq!(w(Cell::DateTime("2024-01-31 10:00:00.123000".into()), &Ty::Timestamp).unwrap(), "\"2024-01-31T10:00:00.123\"");
-        assert_eq!(w(Cell::DateTimeTz("2024-01-31 10:00:00+0300".into()), &Ty::Timestamp).unwrap(), "\"2024-01-31T10:00:00+03:00\"");
-        assert_eq!(w(Cell::Date("2024-01-31".into()), &Ty::Timestamp).unwrap(), "\"2024-01-31T00:00:00\"");
+        assert!(w(
+            Cell::DateTime("2024-01-31 10:00:00.1234567".into()),
+            &Ty::Timestamp
+        )
+        .is_err());
+        assert_eq!(
+            w(
+                Cell::DateTime("2024-01-31 10:00:00.123000".into()),
+                &Ty::Timestamp
+            )
+            .unwrap(),
+            "\"2024-01-31T10:00:00.123\""
+        );
+        assert_eq!(
+            w(
+                Cell::DateTimeTz("2024-01-31 10:00:00+0300".into()),
+                &Ty::Timestamp
+            )
+            .unwrap(),
+            "\"2024-01-31T10:00:00+03:00\""
+        );
+        assert_eq!(
+            w(Cell::Date("2024-01-31".into()), &Ty::Timestamp).unwrap(),
+            "\"2024-01-31T00:00:00\""
+        );
         assert!(w(Cell::Text("garbage".into()), &Ty::Timestamp).is_err());
         assert!(w(Cell::DateTime("2024-01-31 10:45:00".into()), &Ty::Date).is_err());
         assert!(w(Cell::Text("2024-13-01".into()), &Ty::Date).is_err());
         // ksqlDB rejects these itself, after taking the rows before them.
         assert!(w(Cell::Date("2023-02-29".into()), &Ty::Date).is_err());
-        assert_eq!(w(Cell::Date("2024-02-29".into()), &Ty::Date).unwrap(), "\"2024-02-29\"");
+        assert_eq!(
+            w(Cell::Date("2024-02-29".into()), &Ty::Date).unwrap(),
+            "\"2024-02-29\""
+        );
         assert!(w(Cell::Date("2024-04-31".into()), &Ty::Date).is_err());
         assert!(w(Cell::DateTime("0000-01-01 00:00:00".into()), &Ty::Timestamp).is_err());
-        assert_eq!(w(Cell::Date("0000-01-01".into()), &Ty::Date).unwrap(), "\"0000-01-01\"");
+        assert_eq!(
+            w(Cell::Date("0000-01-01".into()), &Ty::Date).unwrap(),
+            "\"0000-01-01\""
+        );
     }
 
     #[test]
     fn infinities_load_and_nan_is_unsupported() {
         assert_eq!(w(Cell::Float(f64::INFINITY), &Ty::Double).unwrap(), "1e400");
-        assert_eq!(w(Cell::Float(f64::NEG_INFINITY), &Ty::Double).unwrap(), "-1e400");
-        assert!(matches!(w(Cell::Float(f64::NAN), &Ty::Double), Err(Error::Unsupported(_))));
-        assert!(matches!(w(Cell::Json(r#"["NaN"]"#.into()), &arr(Ty::Double)), Err(Error::Unsupported(_))));
+        assert_eq!(
+            w(Cell::Float(f64::NEG_INFINITY), &Ty::Double).unwrap(),
+            "-1e400"
+        );
+        assert!(matches!(
+            w(Cell::Float(f64::NAN), &Ty::Double),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            w(Cell::Json(r#"["NaN"]"#.into()), &arr(Ty::Double)),
+            Err(Error::Unsupported(_))
+        ));
         assert!(w(Cell::Int((1 << 53) + 1), &Ty::Double).is_err());
     }
 
     #[test]
     fn reads_quote_names_and_keep_values_whole() {
-        let c = |name: &str, ty: Ty| Column { name: name.into(), type_name: String::new(), ty, key: false };
-        let cols = [c("id", Ty::Bigint), c("T", Ty::Time), c("a", arr(Ty::Time)), c("s", Ty::Struct(vec![("x".into(), Ty::Integer)]))];
+        let c = |name: &str, ty: Ty| Column {
+            name: name.into(),
+            type_name: String::new(),
+            ty,
+            key: false,
+        };
+        let cols = [
+            c("id", Ty::Bigint),
+            c("T", Ty::Time),
+            c("a", arr(Ty::Time)),
+            c("s", Ty::Struct(vec![("x".into(), Ty::Integer)])),
+        ];
         let refs: Vec<&Column> = cols.iter().collect();
         assert_eq!(
             read_sql("rev`v", Some(" `id` > 1 "), &refs),

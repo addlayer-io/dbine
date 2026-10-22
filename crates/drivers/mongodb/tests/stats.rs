@@ -15,9 +15,15 @@ async fn check(env: &str, driver: &str) {
         eprintln!("{env} not set; skipping");
         return;
     };
-    let mut c = ConnectionConfig { driver: driver.into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: driver.into(),
+        ..Default::default()
+    };
     c.options.insert("connection_string".into(), url);
-    let d = dbine_driver_mongodb::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_mongodb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     let mut s = d.connect(&c, None).await.unwrap();
     let _ = s.drop_database("dbine_stats").await;
     s.create_database("dbine_stats").await.unwrap();
@@ -32,12 +38,28 @@ async fn check(env: &str, driver: &str) {
     .unwrap();
 
     let rows = s.row_estimates().await.unwrap();
-    let get = |n: &str| rows.iter().find(|e| e.object.name == n).map(|e| (e.object.kind.clone(), e.rows));
-    assert_eq!(get("items"), Some(("collection".to_string(), 3)), "{driver}: {rows:?}");
-    assert_eq!(get("empty"), Some(("collection".to_string(), 0)), "{driver}: {rows:?}");
+    let get = |n: &str| {
+        rows.iter()
+            .find(|e| e.object.name == n)
+            .map(|e| (e.object.kind.clone(), e.rows))
+    };
+    assert_eq!(
+        get("items"),
+        Some(("collection".to_string(), 3)),
+        "{driver}: {rows:?}"
+    );
+    assert_eq!(
+        get("empty"),
+        Some(("collection".to_string(), 0)),
+        "{driver}: {rows:?}"
+    );
     if driver == "ferretdb" {
         // FerretDB takes `create` with `viewOn` but makes a plain, empty collection.
-        assert_eq!(get("items_view"), Some(("collection".to_string(), 0)), "{driver}: {rows:?}");
+        assert_eq!(
+            get("items_view"),
+            Some(("collection".to_string(), 0)),
+            "{driver}: {rows:?}"
+        );
     } else {
         assert_eq!(get("items_view"), None, "{driver}: views have no count");
     }

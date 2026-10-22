@@ -36,7 +36,10 @@ pub struct PkgState {
 impl LocalState {
     /// The saved state; empty when there's none or it's unreadable.
     pub fn load(path: &Path) -> LocalState {
-        std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
     }
 
     /// Write it beside and rename it: never half a file.
@@ -44,7 +47,10 @@ impl LocalState {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        write_atomic(path, &serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?)
+        write_atomic(
+            path,
+            &serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?,
+        )
     }
 
     pub fn pkg(&mut self, package: &str) -> &mut PkgState {
@@ -81,21 +87,36 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sub").join("state.json");
         assert_eq!(LocalState::load(&path), LocalState::default());
-        let mut s = LocalState { seq: 7, ..Default::default() };
+        let mut s = LocalState {
+            seq: 7,
+            ..Default::default()
+        };
         s.activate("postgres", "1.0.0+p1.e3");
         s.activate("postgres", "1.0.1+p1.e3");
         s.activate("postgres", "1.0.1+p1.e3");
-        s.pkg("postgres").bad.insert("1.0.2+p1.e3".into(), "user".into());
+        s.pkg("postgres")
+            .bad
+            .insert("1.0.2+p1.e3".into(), "user".into());
         s.save(&path).unwrap();
         let back = LocalState::load(&path);
         assert_eq!(back, s);
         let p = &back.packages["postgres"];
-        assert_eq!((p.active.as_deref(), p.previous.as_deref()), (Some("1.0.1+p1.e3"), Some("1.0.0+p1.e3")));
+        assert_eq!(
+            (p.active.as_deref(), p.previous.as_deref()),
+            (Some("1.0.1+p1.e3"), Some("1.0.0+p1.e3"))
+        );
         assert!(!dir.path().join("sub").join("state.json.tmp").exists());
         // Garbage reads as empty; unknown fields are ignored.
         std::fs::write(&path, b"{nope").unwrap();
         assert_eq!(LocalState::load(&path), LocalState::default());
-        std::fs::write(&path, br#"{"seq":3,"future":1,"packages":{"x":{"active":"1.0.0+p1.e3","other":2}}}"#).unwrap();
-        assert_eq!(LocalState::load(&path).packages["x"].active.as_deref(), Some("1.0.0+p1.e3"));
+        std::fs::write(
+            &path,
+            br#"{"seq":3,"future":1,"packages":{"x":{"active":"1.0.0+p1.e3","other":2}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            LocalState::load(&path).packages["x"].active.as_deref(),
+            Some("1.0.0+p1.e3")
+        );
     }
 }

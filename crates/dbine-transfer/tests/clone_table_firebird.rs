@@ -13,15 +13,20 @@
 //! `firebird://dbine:dbine@localhost:25602//var/lib/firebird/data/test.fdb`).
 
 use dbine_driver::{ConnectionConfig, ObjectRef, QueryOutcome, Session};
-use dbine_transfer::clone_table::{clone_table, CloneControl, CloneOptions, CloneRequest, ConfigEndpoints};
+use dbine_transfer::clone_table::{
+    clone_table, CloneControl, CloneOptions, CloneRequest, ConfigEndpoints,
+};
 use dbine_transfer::Endpoints;
 use serde_json::Value;
 use std::sync::Arc;
 
 fn endpoints() -> Arc<ConfigEndpoints> {
-    let url = std::env::var("DBINE_TEST_FIREBIRD_URL")
-        .unwrap_or_else(|_| "firebird://dbine:dbine@localhost:25602//var/lib/firebird/data/test.fdb".into());
-    let rest = url.strip_prefix("firebird://").expect("firebird://user:pass@host:port/path");
+    let url = std::env::var("DBINE_TEST_FIREBIRD_URL").unwrap_or_else(|_| {
+        "firebird://dbine:dbine@localhost:25602//var/lib/firebird/data/test.fdb".into()
+    });
+    let rest = url
+        .strip_prefix("firebird://")
+        .expect("firebird://user:pass@host:port/path");
     let (cred, addr) = rest.split_once('@').unwrap();
     let (user, pass) = cred.split_once(':').unwrap();
     let (hostport, path) = addr.split_once('/').unwrap();
@@ -35,17 +40,31 @@ fn endpoints() -> Arc<ConfigEndpoints> {
         password: Some(pass.into()),
         ..Default::default()
     };
-    let driver = dbine_drivers::find("firebird").expect("firebird driver").clone();
-    Arc::new(ConfigEndpoints { driver, config, database: None })
+    let driver = dbine_drivers::find("firebird")
+        .expect("firebird driver")
+        .clone();
+    Arc::new(ConfigEndpoints {
+        driver,
+        config,
+        database: None,
+    })
 }
 
 async fn query(s: &mut dyn Session, sql: &str) -> Result<Vec<Vec<Value>>, String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 1000, &mut out).await.map_err(|e| e.to_string())?;
+    s.execute(sql, 1000, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     if let Some(e) = out.error {
         return Err(e);
     }
-    Ok(out.results.into_iter().rev().find(|r| !r.columns.is_empty()).map(|r| r.rows).unwrap_or_default())
+    Ok(out
+        .results
+        .into_iter()
+        .rev()
+        .find(|r| !r.columns.is_empty())
+        .map(|r| r.rows)
+        .unwrap_or_default())
 }
 
 async fn run(s: &mut dyn Session, sql: &str) {
@@ -85,11 +104,23 @@ async fn next_id(s: &mut dyn Session, table: &str) -> i64 {
 
 async fn clone(src: &str, new_name: &str) -> Result<u64, String> {
     let req = CloneRequest {
-        source: ObjectRef { kind: "table".into(), schema: None, name: src.into() },
+        source: ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: src.into(),
+        },
         new_name: new_name.into(),
-        options: CloneOptions { with_data: true, with_indexes: true },
+        options: CloneOptions {
+            with_data: true,
+            with_indexes: true,
+        },
     };
-    clone_table(endpoints(), req, &CloneControl::default(), |e| println!("{e:?}")).await.map(|r| r.rows).map_err(|e| e.to_string())
+    clone_table(endpoints(), req, &CloneControl::default(), |e| {
+        println!("{e:?}")
+    })
+    .await
+    .map(|r| r.rows)
+    .map_err(|e| e.to_string())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -97,7 +128,14 @@ async fn clone(src: &str, new_name: &str) -> Result<u64, String> {
 async fn identity_kind_options_and_counter() {
     let mut s = endpoints().open_target().await.expect("connect");
     let s = &mut *s;
-    let tables = ["CLONFB_ALW", "CLONFB_ALW_C", "CLONFB_DEF", "CLONFB_DEF_C", "CLONFB_EMP", "CLONFB_EMP_C"];
+    let tables = [
+        "CLONFB_ALW",
+        "CLONFB_ALW_C",
+        "CLONFB_DEF",
+        "CLONFB_DEF_C",
+        "CLONFB_EMP",
+        "CLONFB_EMP_C",
+    ];
     for t in tables {
         drop_table(s, t).await;
     }
@@ -116,21 +154,41 @@ async fn identity_kind_options_and_counter() {
 
     let result = async {
         assert_eq!(clone("CLONFB_ALW", "CLONFB_ALW_C").await.unwrap(), 3);
-        assert_eq!(identity(s, "CLONFB_ALW_C").await, identity(s, "CLONFB_ALW").await);
+        assert_eq!(
+            identity(s, "CLONFB_ALW_C").await,
+            identity(s, "CLONFB_ALW").await
+        );
         assert_eq!(identity(s, "CLONFB_ALW_C").await, (0, 100, 3));
         // ALWAYS: an explicit id is refused on both.
-        assert!(query(s, "INSERT INTO CLONFB_ALW_C (ID, V) VALUES (999, 1)").await.is_err());
-        assert_eq!(next_id(s, "CLONFB_ALW_C").await, next_id(s, "CLONFB_ALW").await);
+        assert!(query(s, "INSERT INTO CLONFB_ALW_C (ID, V) VALUES (999, 1)")
+            .await
+            .is_err());
+        assert_eq!(
+            next_id(s, "CLONFB_ALW_C").await,
+            next_id(s, "CLONFB_ALW").await
+        );
 
         assert_eq!(clone("CLONFB_DEF", "CLONFB_DEF_C").await.unwrap(), 0);
-        assert_eq!(identity(s, "CLONFB_DEF_C").await, identity(s, "CLONFB_DEF").await);
+        assert_eq!(
+            identity(s, "CLONFB_DEF_C").await,
+            identity(s, "CLONFB_DEF").await
+        );
         assert_eq!(identity(s, "CLONFB_DEF_C").await, (1, 100, 3));
-        let (a, b) = (next_id(s, "CLONFB_DEF").await, next_id(s, "CLONFB_DEF_C").await);
+        let (a, b) = (
+            next_id(s, "CLONFB_DEF").await,
+            next_id(s, "CLONFB_DEF_C").await,
+        );
         assert_eq!((a, b), (109, 109));
 
         assert_eq!(clone("CLONFB_EMP", "CLONFB_EMP_C").await.unwrap(), 0);
-        assert_eq!(identity(s, "CLONFB_EMP_C").await, identity(s, "CLONFB_EMP").await);
-        assert_eq!(next_id(s, "CLONFB_EMP_C").await, next_id(s, "CLONFB_EMP").await);
+        assert_eq!(
+            identity(s, "CLONFB_EMP_C").await,
+            identity(s, "CLONFB_EMP").await
+        );
+        assert_eq!(
+            next_id(s, "CLONFB_EMP_C").await,
+            next_id(s, "CLONFB_EMP").await
+        );
     };
     let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(result)).await;
     for t in tables {
@@ -146,7 +204,14 @@ async fn identity_kind_options_and_counter() {
 async fn identity_counters_past_2_53_and_at_bigint_limit() {
     let mut s = endpoints().open_target().await.expect("connect");
     let s = &mut *s;
-    let tables = ["CLONFB_BIG", "CLONFB_BIG_C", "CLONFB_LIM", "CLONFB_LIM_C", "CLONFB_END", "CLONFB_END_C"];
+    let tables = [
+        "CLONFB_BIG",
+        "CLONFB_BIG_C",
+        "CLONFB_LIM",
+        "CLONFB_LIM_C",
+        "CLONFB_END",
+        "CLONFB_END_C",
+    ];
     for t in tables {
         drop_table(s, t).await;
     }
@@ -162,16 +227,25 @@ async fn identity_counters_past_2_53_and_at_bigint_limit() {
 
     let result = async {
         assert_eq!(clone("CLONFB_BIG", "CLONFB_BIG_C").await.unwrap(), 1);
-        let (a, b) = (next_id(s, "CLONFB_BIG").await, next_id(s, "CLONFB_BIG_C").await);
+        let (a, b) = (
+            next_id(s, "CLONFB_BIG").await,
+            next_id(s, "CLONFB_BIG_C").await,
+        );
         assert_eq!((a, b), (9007199254740994, 9007199254740994));
 
         assert_eq!(clone("CLONFB_LIM", "CLONFB_LIM_C").await.unwrap(), 1);
-        let (a, b) = (next_id(s, "CLONFB_LIM").await, next_id(s, "CLONFB_LIM_C").await);
+        let (a, b) = (
+            next_id(s, "CLONFB_LIM").await,
+            next_id(s, "CLONFB_LIM_C").await,
+        );
         assert_eq!((a, b), (9223372036854775800, 9223372036854775800));
 
         let e = clone("CLONFB_END", "CLONFB_END_C").await.unwrap_err();
         assert!(e.contains("límite de BIGINT"), "{e}");
-        assert!(query(s, "SELECT 1 FROM CLONFB_END_C").await.is_err(), "nothing left behind");
+        assert!(
+            query(s, "SELECT 1 FROM CLONFB_END_C").await.is_err(),
+            "nothing left behind"
+        );
     };
     let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(result)).await;
     for t in tables {
@@ -192,13 +266,26 @@ async fn checks_and_index_kinds_come_along_renamed() {
         drop_table(s, t).await;
     }
     run(s, "CREATE TABLE CLONFB_STR (ID INTEGER NOT NULL PRIMARY KEY, V INTEGER, N VARCHAR(20), CONSTRAINT CK_CLONFB_STR_V CHECK (V >= 0), CHECK (N <> ''))").await;
-    run(s, "CREATE DESCENDING INDEX IX_CLONFB_STR_V ON CLONFB_STR (V)").await;
-    run(s, "CREATE INDEX IX_CLONFB_STR_UP ON CLONFB_STR COMPUTED BY (UPPER(N))").await;
+    run(
+        s,
+        "CREATE DESCENDING INDEX IX_CLONFB_STR_V ON CLONFB_STR (V)",
+    )
+    .await;
+    run(
+        s,
+        "CREATE INDEX IX_CLONFB_STR_UP ON CLONFB_STR COMPUTED BY (UPPER(N))",
+    )
+    .await;
     run(s, "CREATE UNIQUE INDEX UX_CLONFB_STR_N ON CLONFB_STR (N)").await;
     run(s, "CREATE INDEX IX_CLONFB_STR_OFF ON CLONFB_STR (N, V)").await;
     run(s, "ALTER INDEX IX_CLONFB_STR_OFF INACTIVE").await;
     // Partial indexes: Firebird 5 on.
-    let partial = query(s, "CREATE INDEX IX_CLONFB_STR_P ON CLONFB_STR (V) WHERE V > 10").await.is_ok();
+    let partial = query(
+        s,
+        "CREATE INDEX IX_CLONFB_STR_P ON CLONFB_STR (V) WHERE V > 10",
+    )
+    .await
+    .is_ok();
     run(s, "INSERT INTO CLONFB_STR VALUES (1, 5, 'a')").await;
 
     let result = async {
@@ -214,23 +301,51 @@ async fn checks_and_index_kinds_come_along_renamed() {
             v
         };
         assert_eq!(expr(&c), expr(&o));
-        assert!(c.checks.iter().any(|k| k.name.as_deref() == Some("CK_CLONFB_STR_C_V")), "{:?}", c.checks);
+        assert!(
+            c.checks
+                .iter()
+                .any(|k| k.name.as_deref() == Some("CK_CLONFB_STR_C_V")),
+            "{:?}",
+            c.checks
+        );
         // Indexes: same kind (DESC, COMPUTED), uniqueness, filter and
         // options (INACTIVE), each under its renamed name.
         let key = |t: &dbine_driver::TableSchema| {
-            let mut v: Vec<_> = t.indexes.iter().map(|i| (i.columns.clone(), i.unique, i.kind.clone(), i.filter.clone(), i.options.clone())).collect();
+            let mut v: Vec<_> = t
+                .indexes
+                .iter()
+                .map(|i| {
+                    (
+                        i.columns.clone(),
+                        i.unique,
+                        i.kind.clone(),
+                        i.filter.clone(),
+                        i.options.clone(),
+                    )
+                })
+                .collect();
             v.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
             v
         };
         assert_eq!(key(&c), key(&o));
         let names: Vec<&str> = c.indexes.iter().map(|i| i.name.as_str()).collect();
-        for n in ["IX_CLONFB_STR_C_V", "IX_CLONFB_STR_C_UP", "UX_CLONFB_STR_C_N", "IX_CLONFB_STR_C_OFF"] {
+        for n in [
+            "IX_CLONFB_STR_C_V",
+            "IX_CLONFB_STR_C_UP",
+            "UX_CLONFB_STR_C_N",
+            "IX_CLONFB_STR_C_OFF",
+        ] {
             assert!(names.contains(&n), "{names:?}");
         }
         if partial {
             assert!(names.contains(&"IX_CLONFB_STR_C_P"), "{names:?}");
         }
-        assert!(query(s, "INSERT INTO CLONFB_STR_C VALUES (2, -1, 'b')").await.is_err(), "the check came along");
+        assert!(
+            query(s, "INSERT INTO CLONFB_STR_C VALUES (2, -1, 'b')")
+                .await
+                .is_err(),
+            "the check came along"
+        );
     };
     let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(result)).await;
     for t in tables.iter().rev() {
@@ -258,20 +373,54 @@ async fn checks_and_computed_columns_reading_the_table_read_the_clone() {
 
     let result = async {
         let req = |src: &str, to: &str| CloneRequest {
-            source: ObjectRef { kind: "table".into(), schema: None, name: src.into() },
+            source: ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: src.into(),
+            },
             new_name: to.into(),
-            options: CloneOptions { with_data: true, with_indexes: true },
+            options: CloneOptions {
+                with_data: true,
+                with_indexes: true,
+            },
         };
         // CHECK with a subquery on the table: in the clone, on the clone.
-        let r = clone_table(endpoints(), req("CLONFB_SU", "CLONFB_SU_C"), &CloneControl::default(), |_| {}).await.unwrap();
-        assert!(r.notes.iter().any(|n| n.contains("misma tabla")), "{:?}", r.notes);
+        let r = clone_table(
+            endpoints(),
+            req("CLONFB_SU", "CLONFB_SU_C"),
+            &CloneControl::default(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert!(
+            r.notes.iter().any(|n| n.contains("misma tabla")),
+            "{:?}",
+            r.notes
+        );
         run(s, "INSERT INTO CLONFB_SU_C VALUES (4, 99)").await;
-        assert!(query(s, "INSERT INTO CLONFB_SU_C VALUES (5, 99)").await.is_err(), "the clone's check reads the clone");
+        assert!(
+            query(s, "INSERT INTO CLONFB_SU_C VALUES (5, 99)")
+                .await
+                .is_err(),
+            "the clone's check reads the clone"
+        );
         // Nothing of the clone's in the original's check: 99 is free there.
         run(s, "INSERT INTO CLONFB_SU VALUES (5, 99)").await;
         // A computed column counting the table's rows counts the clone's.
-        let r = clone_table(endpoints(), req("CLONFB_SC", "CLONFB_SC_C"), &CloneControl::default(), |_| {}).await.unwrap();
-        assert!(r.notes.iter().any(|n| n.contains("columna calculada T")), "{:?}", r.notes);
+        let r = clone_table(
+            endpoints(),
+            req("CLONFB_SC", "CLONFB_SC_C"),
+            &CloneControl::default(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert!(
+            r.notes.iter().any(|n| n.contains("columna calculada T")),
+            "{:?}",
+            r.notes
+        );
         run(s, "INSERT INTO CLONFB_SC_C (ID, P) VALUES (3, 2)").await;
         assert_eq!(int(s, "SELECT T FROM CLONFB_SC_C WHERE ID = 2").await, 1);
         assert_eq!(int(s, "SELECT T FROM CLONFB_SC WHERE ID = 2").await, 0);

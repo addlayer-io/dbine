@@ -23,8 +23,8 @@ use windows::Win32::System::Variant::VT_LPWSTR;
 use windows::Win32::UI::Shell::Common::{IObjectArray, IObjectCollection};
 use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 use windows::Win32::UI::Shell::{
-    DestinationList, EnumerableObjectCollection, ICustomDestinationList, IShellLinkW,
-    SetCurrentProcessExplicitAppUserModelID, ShellLink, SHStrDupW,
+    DestinationList, EnumerableObjectCollection, ICustomDestinationList, IShellLinkW, SHStrDupW,
+    SetCurrentProcessExplicitAppUserModelID, ShellLink,
 };
 
 /// Must match `identifier` in `tauri.conf.json`: the bundler writes it as the

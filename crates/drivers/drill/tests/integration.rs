@@ -12,11 +12,20 @@ use std::time::{Duration, Instant};
 
 fn cfg() -> Option<ConnectionConfig> {
     let url = reqwest::Url::parse(&std::env::var("DBINE_TEST_DRILL_URL").ok()?).expect("URL");
-    Some(ConnectionConfig { driver: "drill".into(), host: url.host_str()?.into(), port: url.port().unwrap_or(0), ..Default::default() })
+    Some(ConnectionConfig {
+        driver: "drill".into(),
+        host: url.host_str()?.into(),
+        port: url.port().unwrap_or(0),
+        ..Default::default()
+    })
 }
 
 fn obj(kind: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: Some("dfs.tmp".into()), name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: Some("dfs.tmp".into()),
+        name: name.into(),
+    }
 }
 
 #[tokio::test]
@@ -30,13 +39,23 @@ async fn drill() {
     assert!(d.connect(&bad, None).await.is_err());
 
     let mut s = d.connect(&c, None).await.unwrap();
-    assert!(s.server_version().await.unwrap().starts_with("Apache Drill 1."));
+    assert!(s
+        .server_version()
+        .await
+        .unwrap()
+        .starts_with("Apache Drill 1."));
     let dbs = s.list_databases().await.unwrap();
-    assert!(dbs.contains(&"dfs.tmp".to_string()) && dbs.contains(&"cp.default".to_string()), "{dbs:?}");
+    assert!(
+        dbs.contains(&"dfs.tmp".to_string()) && dbs.contains(&"cp.default".to_string()),
+        "{dbs:?}"
+    );
 
     let mut s = d.connect(&c, Some("dfs.tmp")).await.unwrap();
     let mut out = QueryOutcome::default();
-    for stmt in ["DROP TABLE IF EXISTS dbine_t", "DROP VIEW IF EXISTS dbine_v"] {
+    for stmt in [
+        "DROP TABLE IF EXISTS dbine_t",
+        "DROP VIEW IF EXISTS dbine_v",
+    ] {
         s.execute(stmt, 10, &mut out).await.unwrap();
     }
     let mut out = QueryOutcome::default();
@@ -55,13 +74,23 @@ async fn drill() {
     // The session option persisted: the table was written as JSON files.
     let objs = s.list_objects().await.unwrap();
     let has = |k: &str, n: &str| objs.iter().any(|o| o.kind == k && o.name == n);
-    assert!(has(kinds::VIEW, "dbine_v") && has("file", "dbine_t"), "{objs:?}");
+    assert!(
+        has(kinds::VIEW, "dbine_v") && has("file", "dbine_t"),
+        "{objs:?}"
+    );
     let cols = s.columns(&obj("file", "dbine_t")).await.unwrap();
     assert!(cols.iter().any(|c| c.name == "full_name"), "{cols:?}");
     let vcols = s.columns(&obj(kinds::VIEW, "dbine_v")).await.unwrap();
     assert_eq!(vcols.len(), 2);
-    let def = s.definition(&obj(kinds::VIEW, "dbine_v")).await.unwrap().unwrap();
-    assert!(def.starts_with("CREATE OR REPLACE VIEW `dfs.tmp`.`dbine_v` AS"), "{def}");
+    let def = s
+        .definition(&obj(kinds::VIEW, "dbine_v"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        def.starts_with("CREATE OR REPLACE VIEW `dfs.tmp`.`dbine_v` AS"),
+        "{def}"
+    );
 
     let q = s.browse_query(&obj("file", "dbine_t"), 10);
     let mut out = QueryOutcome::default();
@@ -79,28 +108,63 @@ async fn drill() {
     )
     .await
     .unwrap();
-    assert_eq!(out.results[0].rows[0], vec![json!("2024-01-31 13:45:00.123"), json!("2024-01-31"), json!("1.5"), json!("0x616263"), json!("9007199254740993")]);
+    assert_eq!(
+        out.results[0].rows[0],
+        vec![
+            json!("2024-01-31 13:45:00.123"),
+            json!("2024-01-31"),
+            json!("1.5"),
+            json!("0x616263"),
+            json!("9007199254740993")
+        ]
+    );
 
     // USE persists between runs.
     let mut out = QueryOutcome::default();
-    s.execute("USE cp.`default`; SELECT count(*) FROM `employee.json`", 10, &mut out).await.unwrap();
-    s.execute("SELECT count(*) AS n FROM `employee.json`", 10, &mut out).await.unwrap();
+    s.execute(
+        "USE cp.`default`; SELECT count(*) FROM `employee.json`",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    s.execute("SELECT count(*) AS n FROM `employee.json`", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[2].rows[0][0], json!(1155));
-    assert_eq!(out.database.as_deref(), Some("cp.default"), "the tab follows USE");
+    assert_eq!(
+        out.database.as_deref(),
+        Some("cp.default"),
+        "the tab follows USE"
+    );
     let mut out = QueryOutcome::default();
     s.execute("USE dfs.tmp", 10, &mut out).await.unwrap();
     assert_eq!(out.database.as_deref(), Some("dfs.tmp"));
 
     // Errors carry Drill's message and stop the script.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT 1 FROM (VALUES(1)); SELECT * FROM nope; SELECT 2 FROM (VALUES(1))", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute(
+            "SELECT 1 FROM (VALUES(1)); SELECT * FROM nope; SELECT 2 FROM (VALUES(1))",
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
     assert!(e.is_query() && e.to_string().contains("nope"), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Plans.
     let q = "SELECT n.n_regionkey, count(*) FROM cp.`tpch/nation.parquet` n JOIN cp.`tpch/region.parquet` r ON n.n_regionkey = r.r_regionkey GROUP BY n.n_regionkey";
     let mut out = QueryOutcome::default();
-    s.explain(&format!("{q}; DROP VIEW IF EXISTS nothing_here"), false, 10, &mut out).await.unwrap();
+    s.explain(
+        &format!("{q}; DROP VIEW IF EXISTS nothing_here"),
+        false,
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.plans.len(), 1);
     assert!(out.results.is_empty());
     assert_eq!(out.plans[0].root.op, "Screen");
@@ -119,15 +183,32 @@ async fn drill() {
     }
     let mut acc = Vec::new();
     scans(&p.root, &mut acc);
-    assert!(acc.contains(&(Some("cp.tpch/nation.parquet".into()), Some(25.0))), "{acc:?}");
+    assert!(
+        acc.contains(&(Some("cp.tpch/nation.parquet".into()), Some(25.0))),
+        "{acc:?}"
+    );
 
     // Templates.
     for t in d.create_templates() {
-        let sql = t.template.replace("{schema}", "dfs.tmp").replace("{name}", "dbine_tpl");
-        s.execute(&sql, 10, &mut QueryOutcome::default()).await.unwrap_or_else(|e| panic!("{}: {e}", t.label));
-        let _ = s.execute("DROP TABLE IF EXISTS dfs.tmp.dbine_tpl; DROP VIEW IF EXISTS dfs.tmp.dbine_tpl", 10, &mut QueryOutcome::default()).await;
+        let sql = t
+            .template
+            .replace("{schema}", "dfs.tmp")
+            .replace("{name}", "dbine_tpl");
+        s.execute(&sql, 10, &mut QueryOutcome::default())
+            .await
+            .unwrap_or_else(|e| panic!("{}: {e}", t.label));
+        let _ = s
+            .execute(
+                "DROP TABLE IF EXISTS dfs.tmp.dbine_tpl; DROP VIEW IF EXISTS dfs.tmp.dbine_tpl",
+                10,
+                &mut QueryOutcome::default(),
+            )
+            .await;
     }
-    assert!(matches!(d.insert_script(&obj(kinds::TABLE, "x"), &["a".into()], &[vec![json!(1)]]), Err(Error::Unsupported(_))));
+    assert!(matches!(
+        d.insert_script(&obj(kinds::TABLE, "x"), &["a".into()], &[vec![json!(1)]]),
+        Err(Error::Unsupported(_))
+    ));
 
     // Cancel: the request stops and Drill cancels the query.
     let stop = s.interrupter().unwrap();
@@ -144,9 +225,18 @@ async fn drill() {
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_millis(500)).await;
         let mut out = QueryOutcome::default();
-        s.execute("SELECT 1 FROM (VALUES(1))", 10, &mut out).await.unwrap();
+        s.execute("SELECT 1 FROM (VALUES(1))", 10, &mut out)
+            .await
+            .unwrap();
         let snap = s.monitor().await.unwrap();
-        if snap.tables.iter().find(|t| t.key == "queries").unwrap().rows.is_empty() {
+        if snap
+            .tables
+            .iter()
+            .find(|t| t.key == "queries")
+            .unwrap()
+            .rows
+            .is_empty()
+        {
             gone = true;
             break;
         }
@@ -155,9 +245,18 @@ async fn drill() {
 
     // Read-only (the registry wraps SQL sessions).
     let mut ro = ReadOnlySession::new(d.connect(&c, Some("dfs.tmp")).await.unwrap());
-    assert!(ro.execute("DROP TABLE dbine_t", 10, &mut QueryOutcome::default()).await.is_err());
+    assert!(ro
+        .execute("DROP TABLE dbine_t", 10, &mut QueryOutcome::default())
+        .await
+        .is_err());
 
-    s.execute("DROP VIEW dbine_v; DROP TABLE dbine_t", 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(
+        "DROP VIEW dbine_v; DROP TABLE dbine_t",
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -166,19 +265,53 @@ async fn monitor() {
     let Some(c) = cfg() else { return };
     let d = dbine_driver_drill::drivers().remove(0);
     let mut s = d.connect(&c, None).await.unwrap();
-    s.execute("SELECT count(*) FROM cp.`employee.json`", 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(
+        "SELECT count(*) FROM cp.`employee.json`",
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
     let snap = s.monitor().await.unwrap();
-    let v = |k: &str| snap.metrics.iter().find(|m| m.key == k).and_then(|m| m.value);
-    for k in ["cpu", "mem_used", "direct_used", "connections", "queries", "uptime", "threads"] {
+    let v = |k: &str| {
+        snap.metrics
+            .iter()
+            .find(|m| m.key == k)
+            .and_then(|m| m.value)
+    };
+    for k in [
+        "cpu",
+        "mem_used",
+        "direct_used",
+        "connections",
+        "queries",
+        "uptime",
+        "threads",
+    ] {
         assert!(v(k).is_some(), "{k}: {:#?}", snap.metrics);
     }
     assert!(v("mem_used").unwrap() > 1e6 && v("queries").unwrap() >= 1.0);
-    assert!(snap.metrics.iter().find(|m| m.key == "mem_used").unwrap().max.is_some());
+    assert!(snap
+        .metrics
+        .iter()
+        .find(|m| m.key == "mem_used")
+        .unwrap()
+        .max
+        .is_some());
     let nodes = snap.tables.iter().find(|t| t.key == "nodes").unwrap();
     assert_eq!(nodes.rows.len(), 1);
     assert_eq!(nodes.rows[0][2], json!("ONLINE"));
-    assert!(!snap.tables.iter().find(|t| t.key == "sessions").unwrap().rows.is_empty());
-    assert!(snap.info.iter().any(|(k, v)| k == "Versión" && v.starts_with("1.")));
+    assert!(!snap
+        .tables
+        .iter()
+        .find(|t| t.key == "sessions")
+        .unwrap()
+        .rows
+        .is_empty());
+    assert!(snap
+        .info
+        .iter()
+        .any(|(k, v)| k == "Versión" && v.starts_with("1.")));
 }
 
 /// The profiler reports another session's queries once each (a slow one,
@@ -191,18 +324,35 @@ async fn profiler() {
     assert!(d.supports_profiler());
     let mut p = d.connect(&c, None).await.unwrap();
     let mut w = d.connect(&c, Some("dfs.tmp")).await.unwrap();
-    let opts = dbine_driver::ProfilerOptions { database: "dfs.tmp".into(), change_server: false };
+    let opts = dbine_driver::ProfilerOptions {
+        database: "dfs.tmp".into(),
+        change_server: false,
+    };
     let started = p.profiler_start(&opts).await.expect("profiler_start");
     eprintln!("{started:?}");
     let marker = format!("dbine_prof_{}", std::process::id());
     let mut out = QueryOutcome::default();
     w.execute(&format!("SELECT count(*) AS {marker}_slow FROM cp.`employee.json` a JOIN cp.`employee.json` b ON a.department_id = b.department_id"), 10, &mut out).await.unwrap();
-    w.execute(&format!("SELECT 1 AS {marker}_fast FROM (VALUES(1))"), 10, &mut out).await.unwrap();
-    let e = w.execute(&format!("SELECT {marker}_bad FROM nope.nada"), 10, &mut out).await;
+    w.execute(
+        &format!("SELECT 1 AS {marker}_fast FROM (VALUES(1))"),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    let e = w
+        .execute(&format!("SELECT {marker}_bad FROM nope.nada"), 10, &mut out)
+        .await;
     assert!(e.is_err());
     let mut got = Vec::new();
     let until = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < until && got.iter().filter(|s: &&dbine_driver::ProfiledStatement| s.text.contains(&marker)).count() < 3 {
+    while Instant::now() < until
+        && got
+            .iter()
+            .filter(|s: &&dbine_driver::ProfiledStatement| s.text.contains(&marker))
+            .count()
+            < 3
+    {
         got.extend(p.profiler_poll().await.expect("profiler_poll"));
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -212,11 +362,21 @@ async fn profiler() {
     let mine: Vec<_> = got.iter().filter(|s| s.text.contains(&marker)).collect();
     eprintln!("{mine:#?}");
     for kind in ["_slow", "_fast", "_bad"] {
-        assert_eq!(mine.iter().filter(|s| s.text.contains(kind)).count(), 1, "{kind} once");
+        assert_eq!(
+            mine.iter().filter(|s| s.text.contains(kind)).count(),
+            1,
+            "{kind} once"
+        );
     }
     let bad = mine.iter().find(|s| s.text.contains("_bad")).unwrap();
-    assert!(bad.error.as_deref().is_some_and(|e| e.contains("nope")), "{:?}", bad.error);
-    assert!(mine.iter().all(|s| s.duration_ms.is_some() && s.user.is_some()));
+    assert!(
+        bad.error.as_deref().is_some_and(|e| e.contains("nope")),
+        "{:?}",
+        bad.error
+    );
+    assert!(mine
+        .iter()
+        .all(|s| s.duration_ms.is_some() && s.user.is_some()));
 }
 
 /// The editor's script contract: one REST query per statement, Drill's
@@ -228,13 +388,29 @@ async fn script_errors_and_session() {
     let d = dbine_driver_drill::drivers().remove(0);
     assert_eq!(d.script_mode(), dbine_driver::sql::ScriptMode::PerStatement);
     let mut s = d.connect(&c, None).await.unwrap();
-    let script = "USE cp;\n-- a comment\nSELECT 1 AS a FROM (VALUES(1));\nSELECT *\n  FROM nope_nope";
+    let script =
+        "USE cp;\n-- a comment\nSELECT 1 AS a FROM (VALUES(1));\nSELECT *\n  FROM nope_nope";
     let mut out = QueryOutcome::default();
-    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
+    let e = s
+        .execute(script, 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
     eprintln!("{e:?}");
     assert_eq!(e.code.as_deref(), Some("CalciteContextException"), "{e:?}");
     assert_eq!(e.line, Some(5));
     assert_eq!(e.offset, Some(script.find("nope_nope").unwrap()));
-    let e = s.execute("SELECT 1 FROM (VALUES(1))\n WHERE x = 1", 10, &mut out).await.unwrap_err().to_script_error();
-    assert_eq!((e.line, e.offset), (Some(2), Some(" SELECT 1 FROM (VALUES(1))\n WHERE ".len() - 1)), "{e:?}");
+    let e = s
+        .execute("SELECT 1 FROM (VALUES(1))\n WHERE x = 1", 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
+    assert_eq!(
+        (e.line, e.offset),
+        (
+            Some(2),
+            Some(" SELECT 1 FROM (VALUES(1))\n WHERE ".len() - 1)
+        ),
+        "{e:?}"
+    );
 }

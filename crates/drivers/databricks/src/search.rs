@@ -22,7 +22,10 @@ fn narrow(q: &CodeSearch) -> (&'static str, Option<String>) {
     if q.case_sensitive {
         ("instr(routine_definition, :p0) > 0", Some(q.text.clone()))
     } else if q.text.is_ascii() {
-        ("instr(lower(routine_definition), :p0) > 0", Some(q.text.to_ascii_lowercase()))
+        (
+            "instr(lower(routine_definition), :p0) > 0",
+            Some(q.text.to_ascii_lowercase()),
+        )
     } else {
         ("true", None)
     }
@@ -45,29 +48,53 @@ fn covered(q: &CodeSearch) -> bool {
 }
 
 impl DatabricksSession {
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
         if !covered(q) {
             return Ok(None);
         }
-        let Ok(cat) = self.catalog().map(str::to_string) else { return Ok(None) };
+        let Ok(cat) = self.catalog().map(str::to_string) else {
+            return Ok(None);
+        };
         let (sql, arg) = functions_sql(&cat, q);
         let args: Vec<&str> = arg.as_deref().into_iter().collect();
         // `list_objects` leaves functions out if this view can't be read.
-        let Ok(rows) = self.text_rows(&sql, &args).await else { return Ok(None) };
+        let Ok(rows) = self.text_rows(&sql, &args).await else {
+            return Ok(None);
+        };
         let mut sources: BTreeMap<(String, String), Vec<Option<String>>> = BTreeMap::new();
         for mut r in rows {
-            let (Some(schema), Some(name)) = (r[0].clone(), r[1].clone()) else { continue };
-            sources.entry((schema, name)).or_default().push(r.swap_remove(2));
+            let (Some(schema), Some(name)) = (r[0].clone(), r[1].clone()) else {
+                continue;
+            };
+            sources
+                .entry((schema, name))
+                .or_default()
+                .push(r.swap_remove(2));
         }
         // `definition` reads the first row of a name: with two, which one
         // isn't fixed.
         if sources.values().any(|s| s.len() > 1) {
             return Ok(None);
         }
-        let mut report = CodeSearchReport { scanned: sources.len(), ..Default::default() };
+        let mut report = CodeSearchReport {
+            scanned: sources.len(),
+            ..Default::default()
+        };
         for ((schema, name), source) in &sources {
-            let Some(Some(source)) = source.first() else { continue };
-            report.hits.extend(hits_in(kinds::FUNCTION, Some(schema), name, None, source, q));
+            let Some(Some(source)) = source.first() else {
+                continue;
+            };
+            report.hits.extend(hits_in(
+                kinds::FUNCTION,
+                Some(schema),
+                name,
+                None,
+                source,
+                q,
+            ));
             if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                 report.hits.truncate(q.max_hits);
                 report.truncated = true;
@@ -83,13 +110,21 @@ mod tests {
     use super::*;
 
     fn q(text: &str, case: bool, kinds: &[&str]) -> CodeSearch {
-        CodeSearch { text: text.into(), case_sensitive: case, kinds: kinds.iter().map(|k| k.to_string()).collect(), ..Default::default() }
+        CodeSearch {
+            text: text.into(),
+            case_sensitive: case,
+            kinds: kinds.iter().map(|k| k.to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn only_functions() {
         assert!(covered(&q("x", false, &["function"])));
-        assert!(!covered(&q("x", false, &[])), "every kind: tables need SHOW CREATE TABLE");
+        assert!(
+            !covered(&q("x", false, &[])),
+            "every kind: tables need SHOW CREATE TABLE"
+        );
         assert!(!covered(&q("x", false, &["function", "view"])));
         assert!(!covered(&q("", false, &["function"])));
     }
@@ -98,13 +133,26 @@ mod tests {
     fn text_goes_as_a_parameter() {
         let (sql, arg) = functions_sql("main`x", &q("100%_x'", true, &["function"]));
         assert!(sql.starts_with("SELECT routine_schema, routine_name, IF(instr(routine_definition, :p0) > 0, routine_definition, NULL)"), "{sql}");
-        assert!(sql.contains("FROM `main``x`.information_schema.routines"), "{sql}");
+        assert!(
+            sql.contains("FROM `main``x`.information_schema.routines"),
+            "{sql}"
+        );
         assert!(!sql.contains("100%"), "never in the SQL");
-        assert_eq!(arg.as_deref(), Some("100%_x'"), "as is: instr has no wildcards");
+        assert_eq!(
+            arg.as_deref(),
+            Some("100%_x'"),
+            "as is: instr has no wildcards"
+        );
         let (sql, arg) = functions_sql("c", &q("Ventas", false, &["function"]));
-        assert!(sql.contains("IF(instr(lower(routine_definition), :p0) > 0"), "{sql}");
+        assert!(
+            sql.contains("IF(instr(lower(routine_definition), :p0) > 0"),
+            "{sql}"
+        );
         assert_eq!(arg.as_deref(), Some("ventas"));
         let (sql, arg) = functions_sql("c", &q("Año", false, &["function"]));
-        assert!(sql.contains("IF(true, routine_definition, NULL)") && arg.is_none(), "{sql}");
+        assert!(
+            sql.contains("IF(true, routine_definition, NULL)") && arg.is_none(),
+            "{sql}"
+        );
     }
 }

@@ -15,7 +15,9 @@
 //! and the history shows the backup's state.
 
 use crate::{bq, lit, monitor::rfc3339, SpannerSession};
-use dbine_driver::{BackupAction, BackupEntry, BackupSpec, Error, Field, FieldKind, QueryOutcome, Result};
+use dbine_driver::{
+    BackupAction, BackupEntry, BackupSpec, Error, Field, FieldKind, QueryOutcome, Result,
+};
 use serde_json::{json, Value as Json};
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -48,7 +50,10 @@ fn opt<'a>(options: &'a BTreeMap<String, String>, key: &str) -> &'a str {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// A backup or database id: `[a-z][a-z0-9_-]*[a-z0-9]`, 2 to 60 characters
@@ -57,18 +62,26 @@ fn check_id(id: &str, what: &str) -> Result<()> {
     let ok = (2..=60).contains(&id.len())
         && id.starts_with(|c: char| c.is_ascii_lowercase())
         && id.ends_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
-        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
     if ok {
         Ok(())
     } else {
-        Err(Error::Query(format!("'{id}' no es un ID de {what} válido: minúsculas, números, - y _, empezando con letra")))
+        Err(Error::Query(format!(
+            "'{id}' no es un ID de {what} válido: minúsculas, números, - y _, empezando con letra"
+        )))
     }
 }
 
 /// `<database>-YYYYMMDD-HHMMSS` (UTC), cut to 60 characters.
 fn default_id(database: &str, secs: u64) -> String {
     let t = rfc3339(secs);
-    let stamp = format!("{}-{}", t[..10].replace('-', ""), t[11..19].replace(':', ""));
+    let stamp = format!(
+        "{}-{}",
+        t[..10].replace('-', ""),
+        t[11..19].replace(':', "")
+    );
     let head: String = database.chars().take(60 - stamp.len() - 1).collect();
     format!("{}-{stamp}", head.trim_end_matches(['-', '_']))
 }
@@ -76,7 +89,11 @@ fn default_id(database: &str, secs: u64) -> String {
 pub fn script(action: &BackupAction) -> Result<String> {
     match action {
         BackupAction::Backup { database, options } => {
-            let db = database.as_deref().map(str::trim).filter(|d| !d.is_empty()).ok_or_else(|| Error::Query("Falta la base".into()))?;
+            let db = database
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .ok_or_else(|| Error::Query("Falta la base".into()))?;
             let id = match opt(options, "backup_id") {
                 "" => default_id(db, now()),
                 id => id.to_string(),
@@ -84,9 +101,19 @@ pub fn script(action: &BackupAction) -> Result<String> {
             check_id(&id, "backup")?;
             let days: u32 = match opt(options, "expire_days") {
                 "" => 7,
-                d => d.parse().ok().filter(|d| (1..=366).contains(d)).ok_or_else(|| Error::Query(format!("'{d}' no es una cantidad de días entre 1 y 366")))?,
+                d => d
+                    .parse()
+                    .ok()
+                    .filter(|d| (1..=366).contains(d))
+                    .ok_or_else(|| {
+                        Error::Query(format!("'{d}' no es una cantidad de días entre 1 y 366"))
+                    })?,
             };
-            let mut s = format!("CREATE BACKUP {} FROM DATABASE {} EXPIRE AFTER {days} DAYS", bq(&id), bq(db));
+            let mut s = format!(
+                "CREATE BACKUP {} FROM DATABASE {} EXPIRE AFTER {days} DAYS",
+                bq(&id),
+                bq(db)
+            );
             let version = opt(options, "version_time");
             if !version.is_empty() {
                 s.push_str(&format!(" AS OF {}", lit(version)));
@@ -94,12 +121,22 @@ pub fn script(action: &BackupAction) -> Result<String> {
             s.push(';');
             Ok(s)
         }
-        BackupAction::Restore { source, database, .. } => {
-            let target = database.as_deref().map(str::trim).filter(|d| !d.is_empty()).ok_or_else(|| Error::Query("Falta la base nueva donde restaurar".into()))?;
+        BackupAction::Restore {
+            source, database, ..
+        } => {
+            let target = database
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .ok_or_else(|| Error::Query("Falta la base nueva donde restaurar".into()))?;
             check_id(target, "base")?;
             let source = source.trim();
             check_id(source, "backup")?;
-            Ok(format!("RESTORE DATABASE {} FROM BACKUP {};", bq(target), bq(source)))
+            Ok(format!(
+                "RESTORE DATABASE {} FROM BACKUP {};",
+                bq(target),
+                bq(source)
+            ))
         }
         BackupAction::Delete { source } => {
             let source = source.trim();
@@ -113,9 +150,19 @@ pub fn script(action: &BackupAction) -> Result<String> {
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
-    Create { backup: String, database: String, days: u64, version: Option<String> },
-    Restore { database: String, backup: String },
-    Drop { backup: String },
+    Create {
+        backup: String,
+        database: String,
+        days: u64,
+        version: Option<String>,
+    },
+    Restore {
+        database: String,
+        backup: String,
+    },
+    Drop {
+        backup: String,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -171,8 +218,15 @@ fn kw(t: Option<&Tok>, k: &str) -> bool {
 
 /// One of DBine's backup statements, `None` for anything else.
 pub fn parse(stmt: &str) -> Result<Option<Command>> {
-    let head: Vec<String> = stmt.split_whitespace().take(2).map(str::to_ascii_uppercase).collect();
-    let which = match (head.first().map(String::as_str), head.get(1).map(String::as_str)) {
+    let head: Vec<String> = stmt
+        .split_whitespace()
+        .take(2)
+        .map(str::to_ascii_uppercase)
+        .collect();
+    let which = match (
+        head.first().map(String::as_str),
+        head.get(1).map(String::as_str),
+    ) {
         (Some("CREATE"), Some("BACKUP")) => 0,
         (Some("RESTORE"), Some("DATABASE")) => 1,
         (Some("DROP"), Some("BACKUP")) => 2,
@@ -192,18 +246,35 @@ pub fn parse(stmt: &str) -> Result<Option<Command>> {
     };
     let cmd = match which {
         0 => {
-            if !(kw(t.get(3), "FROM") && kw(t.get(4), "DATABASE") && kw(t.get(6), "EXPIRE") && kw(t.get(7), "AFTER") && kw(t.get(9), "DAYS")) {
+            if !(kw(t.get(3), "FROM")
+                && kw(t.get(4), "DATABASE")
+                && kw(t.get(6), "EXPIRE")
+                && kw(t.get(7), "AFTER")
+                && kw(t.get(9), "DAYS"))
+            {
                 return Err(bad());
             }
             let days: u64 = word(8)?.parse().map_err(|_| bad())?;
             let version = match (t.get(10), t.get(11), t.get(12)) {
                 (None, _, _) => None,
-                (Some(_), _, Some(Tok::Str(v))) if kw(t.get(10), "AS") && kw(t.get(11), "OF") && t.len() == 13 => Some(v.clone()),
+                (Some(_), _, Some(Tok::Str(v)))
+                    if kw(t.get(10), "AS") && kw(t.get(11), "OF") && t.len() == 13 =>
+                {
+                    Some(v.clone())
+                }
                 _ => return Err(bad()),
             };
-            Command::Create { backup: word(2)?, database: word(5)?, days, version }
+            Command::Create {
+                backup: word(2)?,
+                database: word(5)?,
+                days,
+                version,
+            }
         }
-        1 if kw(t.get(3), "FROM") && kw(t.get(4), "BACKUP") && t.len() == 6 => Command::Restore { database: word(2)?, backup: word(5)? },
+        1 if kw(t.get(3), "FROM") && kw(t.get(4), "BACKUP") && t.len() == 6 => Command::Restore {
+            database: word(2)?,
+            backup: word(5)?,
+        },
         2 if t.len() == 3 => Command::Drop { backup: word(2)? },
         _ => return Err(bad()),
     };
@@ -214,7 +285,12 @@ pub fn parse(stmt: &str) -> Result<Option<Command>> {
 pub async fn run(s: &SpannerSession, cmd: Command, out: &mut QueryOutcome) -> Result<()> {
     let instance = &s.instance;
     match cmd {
-        Command::Create { backup, database, days, version } => {
+        Command::Create {
+            backup,
+            database,
+            days,
+            version,
+        } => {
             let mut body = json!({
                 "database": format!("{instance}/databases/{database}"),
                 "expireTime": rfc3339(now() + days * 86_400),
@@ -222,17 +298,34 @@ pub async fn run(s: &SpannerSession, cmd: Command, out: &mut QueryOutcome) -> Re
             if let Some(v) = version {
                 body["versionTime"] = json!(v);
             }
-            s.api.post(&format!("{instance}/backups?backupId={}", enc(&backup)), &body).await.map_err(unimplemented)?;
-            out.messages.push(format!("Spanner está creando el backup {backup}; el historial muestra cuándo está listo."));
+            s.api
+                .post(
+                    &format!("{instance}/backups?backupId={}", enc(&backup)),
+                    &body,
+                )
+                .await
+                .map_err(unimplemented)?;
+            out.messages.push(format!(
+                "Spanner está creando el backup {backup}; el historial muestra cuándo está listo."
+            ));
         }
         Command::Restore { database, backup } => {
-            let body = json!({ "databaseId": database, "backup": format!("{instance}/backups/{backup}") });
-            s.api.post(&format!("{instance}/databases:restore"), &body).await.map_err(unimplemented)?;
-            out.messages.push(format!("Spanner está restaurando el backup {backup} en la base {database}."));
+            let body =
+                json!({ "databaseId": database, "backup": format!("{instance}/backups/{backup}") });
+            s.api
+                .post(&format!("{instance}/databases:restore"), &body)
+                .await
+                .map_err(unimplemented)?;
+            out.messages.push(format!(
+                "Spanner está restaurando el backup {backup} en la base {database}."
+            ));
         }
         Command::Drop { backup } => {
             let url = format!("{}/v1/{instance}/backups/{}", s.api.base, enc(&backup));
-            s.api.send(s.api.http.delete(url)).await.map_err(unimplemented)?;
+            s.api
+                .send(s.api.http.delete(url))
+                .await
+                .map_err(unimplemented)?;
             out.messages.push(format!("Se borró el backup {backup}."));
         }
     }
@@ -244,7 +337,9 @@ pub async fn run(s: &SpannerSession, cmd: Command, out: &mut QueryOutcome) -> Re
 fn unimplemented(e: Error) -> Error {
     match e {
         Error::Query(m) if m.contains("\"code\":12") || m.contains("UNIMPLEMENTED") => {
-            Error::Unsupported("Este servidor no tiene backups (el emulador de Spanner no los implementa).".into())
+            Error::Unsupported(
+                "Este servidor no tiene backups (el emulador de Spanner no los implementa).".into(),
+            )
         }
         other => other,
     }
@@ -252,7 +347,13 @@ fn unimplemented(e: Error) -> Error {
 
 fn enc(v: &str) -> String {
     v.bytes()
-        .map(|b| if b.is_ascii_alphanumeric() || b"-_.~/".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-_.~/".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
         .collect()
 }
 
@@ -264,7 +365,12 @@ fn short(name: &str) -> String {
 
 /// A ListBackups page as entries.
 pub fn entries(page: &Json) -> Vec<BackupEntry> {
-    let s = |b: &Json, k: &str| b.get(k).and_then(Json::as_str).filter(|v| !v.is_empty()).map(str::to_string);
+    let s = |b: &Json, k: &str| {
+        b.get(k)
+            .and_then(Json::as_str)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
     page.get("backups")
         .and_then(Json::as_array)
         .into_iter()
@@ -279,11 +385,21 @@ pub fn entries(page: &Json) -> Vec<BackupEntry> {
             if let Some(v) = s(b, "versionTime") {
                 details.push(("Versión de los datos".to_string(), v));
             }
-            let refs: Vec<String> = b.get("referencingDatabases").and_then(Json::as_array).into_iter().flatten().filter_map(Json::as_str).map(short).collect();
+            let refs: Vec<String> = b
+                .get("referencingDatabases")
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Json::as_str)
+                .map(short)
+                .collect();
             if !refs.is_empty() {
                 details.push(("Bases que lo usan".to_string(), refs.join(", ")));
             }
-            if let Some(v) = b.pointer("/encryptionInfo/encryptionType").and_then(Json::as_str) {
+            if let Some(v) = b
+                .pointer("/encryptionInfo/encryptionType")
+                .and_then(Json::as_str)
+            {
                 details.push(("Cifrado".to_string(), v.to_string()));
             }
             BackupEntry {
@@ -292,8 +408,13 @@ pub fn entries(page: &Json) -> Vec<BackupEntry> {
                 kind: Some("Completo".into()),
                 started: s(b, "createTime"),
                 finished: None,
-                size: b.get("sizeBytes").and_then(|v| v.as_str().and_then(|x| x.parse().ok()).or(v.as_u64())),
-                location: Some(name.rsplit_once("/backups/").map_or(name.clone(), |(i, _)| i.to_string())),
+                size: b
+                    .get("sizeBytes")
+                    .and_then(|v| v.as_str().and_then(|x| x.parse().ok()).or(v.as_u64())),
+                location: Some(
+                    name.rsplit_once("/backups/")
+                        .map_or(name.clone(), |(i, _)| i.to_string()),
+                ),
                 status: state.as_deref().map(|st| match st {
                     "READY" => "listo".to_string(),
                     "CREATING" => "creando".to_string(),
@@ -312,7 +433,10 @@ pub async fn history(s: &SpannerSession, database: Option<&str>) -> Result<Vec<B
     loop {
         let mut url = format!("{}/backups?pageSize=500", s.instance);
         if let Some(db) = database.map(str::trim).filter(|d| !d.is_empty()) {
-            url.push_str(&format!("&filter={}", enc(&format!("database:{}/databases/{db}", s.instance))));
+            url.push_str(&format!(
+                "&filter={}",
+                enc(&format!("database:{}/databases/{db}", s.instance))
+            ));
         }
         if let Some(t) = token.take() {
             url.push_str(&format!("&pageToken={}", enc(&t)));
@@ -333,33 +457,80 @@ mod tests {
     use super::*;
 
     fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn scripts() {
-        let s = script(&BackupAction::Backup { database: Some("ventas".into()), options: opts(&[("backup_id", "v-1"), ("expire_days", "30")]) }).unwrap();
-        assert_eq!(s, "CREATE BACKUP `v-1` FROM DATABASE `ventas` EXPIRE AFTER 30 DAYS;");
         let s = script(&BackupAction::Backup {
             database: Some("ventas".into()),
-            options: opts(&[("backup_id", "v-1"), ("version_time", "2026-09-29T10:00:00Z")]),
+            options: opts(&[("backup_id", "v-1"), ("expire_days", "30")]),
+        })
+        .unwrap();
+        assert_eq!(
+            s,
+            "CREATE BACKUP `v-1` FROM DATABASE `ventas` EXPIRE AFTER 30 DAYS;"
+        );
+        let s = script(&BackupAction::Backup {
+            database: Some("ventas".into()),
+            options: opts(&[
+                ("backup_id", "v-1"),
+                ("version_time", "2026-09-29T10:00:00Z"),
+            ]),
         })
         .unwrap();
         assert_eq!(s, "CREATE BACKUP `v-1` FROM DATABASE `ventas` EXPIRE AFTER 7 DAYS AS OF '2026-09-29T10:00:00Z';");
-        let s = script(&BackupAction::Backup { database: Some("ventas".into()), options: BTreeMap::new() }).unwrap();
+        let s = script(&BackupAction::Backup {
+            database: Some("ventas".into()),
+            options: BTreeMap::new(),
+        })
+        .unwrap();
         assert!(s.starts_with("CREATE BACKUP `ventas-2"), "{s}");
-        assert!(script(&BackupAction::Backup { database: Some("v".into()), options: opts(&[("backup_id", "Bad Id")]) }).is_err());
-        assert!(script(&BackupAction::Backup { database: Some("v".into()), options: opts(&[("backup_id", "ok1"), ("expire_days", "400")]) }).is_err());
-        let r = script(&BackupAction::Restore { source: "v-1".into(), database: Some("ventas_copia".into()), options: BTreeMap::new() }).unwrap();
+        assert!(script(&BackupAction::Backup {
+            database: Some("v".into()),
+            options: opts(&[("backup_id", "Bad Id")])
+        })
+        .is_err());
+        assert!(script(&BackupAction::Backup {
+            database: Some("v".into()),
+            options: opts(&[("backup_id", "ok1"), ("expire_days", "400")])
+        })
+        .is_err());
+        let r = script(&BackupAction::Restore {
+            source: "v-1".into(),
+            database: Some("ventas_copia".into()),
+            options: BTreeMap::new(),
+        })
+        .unwrap();
         assert_eq!(r, "RESTORE DATABASE `ventas_copia` FROM BACKUP `v-1`;");
-        assert!(script(&BackupAction::Restore { source: "v-1".into(), database: None, options: BTreeMap::new() }).is_err());
-        assert_eq!(script(&BackupAction::Delete { source: "v-1".into() }).unwrap(), "DROP BACKUP `v-1`;");
-        assert!(script(&BackupAction::Delete { source: "x`; DROP".into() }).is_err());
+        assert!(script(&BackupAction::Restore {
+            source: "v-1".into(),
+            database: None,
+            options: BTreeMap::new()
+        })
+        .is_err());
+        assert_eq!(
+            script(&BackupAction::Delete {
+                source: "v-1".into()
+            })
+            .unwrap(),
+            "DROP BACKUP `v-1`;"
+        );
+        assert!(script(&BackupAction::Delete {
+            source: "x`; DROP".into()
+        })
+        .is_err());
     }
 
     #[test]
     fn default_ids() {
-        assert_eq!(default_id("ventas", 1_790_690_400), "ventas-20260929-140000");
+        assert_eq!(
+            default_id("ventas", 1_790_690_400),
+            "ventas-20260929-140000"
+        );
         let long = "a".repeat(60);
         let id = default_id(&long, 0);
         assert_eq!(id.len(), 60);
@@ -368,16 +539,36 @@ mod tests {
 
     #[test]
     fn statements_round_trip() {
-        let b = script(&BackupAction::Backup { database: Some("ventas".into()), options: opts(&[("backup_id", "v-1"), ("version_time", "2026-09-29T10:00:00Z")]) }).unwrap();
+        let b = script(&BackupAction::Backup {
+            database: Some("ventas".into()),
+            options: opts(&[
+                ("backup_id", "v-1"),
+                ("version_time", "2026-09-29T10:00:00Z"),
+            ]),
+        })
+        .unwrap();
         assert_eq!(
             parse(&b).unwrap(),
-            Some(Command::Create { backup: "v-1".into(), database: "ventas".into(), days: 7, version: Some("2026-09-29T10:00:00Z".into()) })
+            Some(Command::Create {
+                backup: "v-1".into(),
+                database: "ventas".into(),
+                days: 7,
+                version: Some("2026-09-29T10:00:00Z".into())
+            })
         );
         assert_eq!(
             parse("restore database copia from backup `v-1`").unwrap(),
-            Some(Command::Restore { database: "copia".into(), backup: "v-1".into() })
+            Some(Command::Restore {
+                database: "copia".into(),
+                backup: "v-1".into()
+            })
         );
-        assert_eq!(parse("DROP BACKUP v1;").unwrap(), Some(Command::Drop { backup: "v1".into() }));
+        assert_eq!(
+            parse("DROP BACKUP v1;").unwrap(),
+            Some(Command::Drop {
+                backup: "v1".into()
+            })
+        );
         assert_eq!(parse("DROP TABLE t").unwrap(), None);
         assert_eq!(parse("SELECT 1").unwrap(), None);
         assert!(parse("CREATE BACKUP b FROM DATABASE d").is_err());
@@ -401,7 +592,9 @@ mod tests {
         assert_eq!(e[0].location.as_deref(), Some("projects/p/instances/i"));
         assert_eq!(e[0].status.as_deref(), Some("listo"));
         assert!(e[0].restorable);
-        assert!(e[0].details.contains(&("Bases que lo usan".into(), "copia".into())));
+        assert!(e[0]
+            .details
+            .contains(&("Bases que lo usan".into(), "copia".into())));
         assert_eq!(e[1].status.as_deref(), Some("creando"));
         assert!(!e[1].restorable);
     }

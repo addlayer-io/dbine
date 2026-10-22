@@ -25,7 +25,12 @@ const MONITOR_TAG: &str = "/* dbine-monitor */";
 /// digits, `_` and `-`; locations add nothing else.
 pub(crate) fn parse_id(id: &str) -> Option<(Option<&str>, &str)> {
     let id = id.trim();
-    let ok = |s: &str| !s.is_empty() && s.len() <= 1024 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    let ok = |s: &str| {
+        !s.is_empty()
+            && s.len() <= 1024
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
     match id.split_once('.') {
         Some((loc, job)) if ok(loc) && ok(job) => Some((Some(loc), job)),
         None if ok(id) => Some((None, id)),
@@ -34,7 +39,11 @@ pub(crate) fn parse_id(id: &str) -> Option<(Option<&str>, &str)> {
 }
 
 fn text(v: &Json, ptr: &str) -> Option<String> {
-    v.pointer(ptr).and_then(Json::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    v.pointer(ptr)
+        .and_then(Json::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn num(v: &Json, ptr: &str) -> Option<f64> {
@@ -57,17 +66,24 @@ fn row(v: &Json, now: f64) -> ServerProcess {
         _ => job,
     };
     let state = text(v, "/status/state");
-    let since = epoch_ms(num(v, "/statistics/startTime")).or(epoch_ms(num(v, "/statistics/creationTime")));
+    let since =
+        epoch_ms(num(v, "/statistics/startTime")).or(epoch_ms(num(v, "/statistics/creationTime")));
     ServerProcess {
         id,
         active: true,
-        wait: state.as_deref().filter(|s| s.eq_ignore_ascii_case("PENDING")).map(|_| "esperando slots".to_string()),
+        wait: state
+            .as_deref()
+            .filter(|s| s.eq_ignore_ascii_case("PENDING"))
+            .map(|_| "esperando slots".to_string()),
         status: state,
         user: text(v, "/user_email"),
-        command: text(v, "/statistics/query/statementType").or_else(|| text(v, "/configuration/jobType")),
+        command: text(v, "/statistics/query/statementType")
+            .or_else(|| text(v, "/configuration/jobType")),
         elapsed_ms: since.map(|t| (now - t).max(0.0) as u64),
         // Slot time is the closest BigQuery has to CPU time.
-        cpu_ms: num(v, "/statistics/query/totalSlotMs").or(num(v, "/statistics/totalSlotMs")).map(|v| v.max(0.0) as u64),
+        cpu_ms: num(v, "/statistics/query/totalSlotMs")
+            .or(num(v, "/statistics/totalSlotMs"))
+            .map(|v| v.max(0.0) as u64),
         sql: text(v, "/configuration/query/query").map(|q| q.chars().take(MAX_TEXT).collect()),
         ..Default::default()
     }
@@ -80,8 +96,14 @@ fn rows(resp: &Json, now: f64) -> Vec<ServerProcess> {
         .into_iter()
         .flatten()
         // Also filtered here: the emulator ignores `stateFilter`.
-        .filter(|j| text(j, "/status/state").is_some_and(|s| s.eq_ignore_ascii_case("RUNNING") || s.eq_ignore_ascii_case("PENDING")))
-        .filter(|j| !text(j, "/configuration/query/query").is_some_and(|q| q.starts_with(MONITOR_TAG)))
+        .filter(|j| {
+            text(j, "/status/state").is_some_and(|s| {
+                s.eq_ignore_ascii_case("RUNNING") || s.eq_ignore_ascii_case("PENDING")
+            })
+        })
+        .filter(|j| {
+            !text(j, "/configuration/query/query").is_some_and(|q| q.starts_with(MONITOR_TAG))
+        })
         .map(|j| row(j, now))
         .filter(|p| !p.id.is_empty())
         .collect()
@@ -111,17 +133,35 @@ impl BigQuerySession {
         })
         .await
         .map_err(|_| Error::Query("la lista de trabajos tardó demasiado".into()))??;
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0);
         Ok(rows(&resp, now))
     }
 
     pub(crate) async fn cancel_running(&self, id: &str) -> Result<()> {
-        let (location, job) = parse_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de trabajo de BigQuery", id.trim())))?;
-        let q: Vec<(&str, String)> = location.or(self.api.location.as_deref()).map(|l| ("location", l.to_string())).into_iter().collect();
-        self.api.post(&["jobs", job, "cancel"], &q, &Json::Null).await.map(|_| ()).map_err(|e| match e {
-            Error::Query(m) => Error::Query(format!("no se pudo cancelar el trabajo {job}: {m}")),
-            e => e,
-        })
+        let (location, job) = parse_id(id).ok_or_else(|| {
+            Error::Query(format!(
+                "«{}» no es un id de trabajo de BigQuery",
+                id.trim()
+            ))
+        })?;
+        let q: Vec<(&str, String)> = location
+            .or(self.api.location.as_deref())
+            .map(|l| ("location", l.to_string()))
+            .into_iter()
+            .collect();
+        self.api
+            .post(&["jobs", job, "cancel"], &q, &Json::Null)
+            .await
+            .map(|_| ())
+            .map_err(|e| match e {
+                Error::Query(m) => {
+                    Error::Query(format!("no se pudo cancelar el trabajo {job}: {m}"))
+                }
+                e => e,
+            })
     }
 }
 
@@ -132,8 +172,14 @@ mod tests {
 
     #[test]
     fn ids_are_checked() {
-        assert_eq!(parse_id("US.bquxjob_1a2b_3c"), Some((Some("US"), "bquxjob_1a2b_3c")));
-        assert_eq!(parse_id("southamerica-east1.job-1"), Some((Some("southamerica-east1"), "job-1")));
+        assert_eq!(
+            parse_id("US.bquxjob_1a2b_3c"),
+            Some((Some("US"), "bquxjob_1a2b_3c"))
+        );
+        assert_eq!(
+            parse_id("southamerica-east1.job-1"),
+            Some((Some("southamerica-east1"), "job-1"))
+        );
         assert_eq!(parse_id("job_1"), Some((None, "job_1")));
         assert_eq!(parse_id("../projects"), None);
         assert_eq!(parse_id("a.b.c"), None);

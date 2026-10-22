@@ -46,7 +46,10 @@ impl ProviderKind {
 
     /// Runs on this machine only (nothing is sent anywhere).
     pub fn local(self) -> bool {
-        matches!(self, ProviderKind::Embedded | ProviderKind::Ollama | ProviderKind::LmStudio)
+        matches!(
+            self,
+            ProviderKind::Embedded | ProviderKind::Ollama | ProviderKind::LmStudio
+        )
     }
 }
 
@@ -120,10 +123,17 @@ impl Cancel {
 
 /// Run a chat with the chosen provider, streaming the answer to `on_delta`;
 /// returns the whole answer text.
-pub async fn chat(req: &ChatRequest, endpoints: &Endpoints, on_delta: OnDelta<'_>, cancel: &Cancel) -> Result<String> {
+pub async fn chat(
+    req: &ChatRequest,
+    endpoints: &Endpoints,
+    on_delta: OnDelta<'_>,
+    cancel: &Cancel,
+) -> Result<String> {
     let run = async {
         match req.kind {
-            ProviderKind::Embedded => embedded::chat(&endpoints.models_dir, req, on_delta, cancel).await,
+            ProviderKind::Embedded => {
+                embedded::chat(&endpoints.models_dir, req, on_delta, cancel).await
+            }
             ProviderKind::Ollama => ollama::chat(&endpoints.ollama, req, on_delta).await,
             ProviderKind::LmStudio => openai::chat(&endpoints.lmstudio, req, on_delta).await,
             ProviderKind::ClaudeCode => cli::claude(req, on_delta).await,
@@ -139,14 +149,20 @@ pub async fn chat(req: &ChatRequest, endpoints: &Endpoints, on_delta: OnDelta<'_
 /// A chat's messages as one prompt, for the CLIs (they take a single
 /// prompt; the conversation so far goes in front of the new message).
 pub fn transcript(messages: &[ChatMessage], lang: &str) -> String {
-    let Some((last, before)) = messages.split_last() else { return String::new() };
+    let Some((last, before)) = messages.split_last() else {
+        return String::new();
+    };
     if before.is_empty() {
         return last.content.clone();
     }
     let p = prompts::get(lang);
     let mut out = String::from("<previous_conversation>\n");
     for m in before {
-        let who = p.text(if m.role == "assistant" { "transcript.assistant" } else { "transcript.user" });
+        let who = p.text(if m.role == "assistant" {
+            "transcript.assistant"
+        } else {
+            "transcript.user"
+        });
         out.push_str(&format!("[{who}]\n{}\n\n", m.content.trim()));
     }
     out.push_str("</previous_conversation>\n\n");
@@ -160,19 +176,29 @@ mod tests {
 
     #[test]
     fn transcript_puts_history_before_the_question() {
-        let m = |r: &str, c: &str| ChatMessage { role: r.into(), content: c.into() };
+        let m = |r: &str, c: &str| ChatMessage {
+            role: r.into(),
+            content: c.into(),
+        };
         assert_eq!(transcript(&[m("user", "hola")], "es"), "hola");
         let t = transcript(&[m("user", "a"), m("assistant", "b"), m("user", "c")], "es");
-        assert!(t.starts_with("<previous_conversation>\n[Usuario]\na\n\n[Asistente]\nb\n\n</previous_conversation>"));
+        assert!(t.starts_with(
+            "<previous_conversation>\n[Usuario]\na\n\n[Asistente]\nb\n\n</previous_conversation>"
+        ));
         assert!(t.ends_with("\n\nc"));
         let t = transcript(&[m("user", "a"), m("assistant", "b"), m("user", "c")], "en");
-        assert!(t.starts_with("<previous_conversation>\n[User]\na\n\n[Assistant]\nb"), "{t}");
+        assert!(
+            t.starts_with("<previous_conversation>\n[User]\na\n\n[Assistant]\nb"),
+            "{t}"
+        );
     }
 
     #[tokio::test]
     async fn cancel_before_waiting_still_cancels() {
         let c = Cancel::new();
         c.cancel();
-        tokio::time::timeout(std::time::Duration::from_millis(100), c.cancelled()).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_millis(100), c.cancelled())
+            .await
+            .unwrap();
     }
 }

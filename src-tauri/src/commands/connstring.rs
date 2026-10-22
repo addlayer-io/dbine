@@ -79,15 +79,23 @@ struct Loaded {
 }
 
 fn load(state: &AppState, id: &str, database: &str) -> CommandResult<Loaded> {
-    let saved = state.store.get_connection(id)?.ok_or_else(|| CommandError::NotFound(format!("no existe la conexión '{id}'")))?;
+    let saved = state
+        .store
+        .get_connection(id)?
+        .ok_or_else(|| CommandError::NotFound(format!("no existe la conexión '{id}'")))?;
     let info = dbine_drivers::find(&saved.config.driver).map(|d| d.info());
     let sources = source_defs::read(&saved.config).unwrap_or_default();
     let conn = Conn::new(&saved.name, &saved.config, info, database);
     let mut notes = Vec::new();
     if crate::tunnels::enabled(&saved.config) {
-        notes.push(note("tunnel", &[("ssh", saved.config.option("ssh.host").unwrap_or(""))]));
+        notes.push(note(
+            "tunnel",
+            &[("ssh", saved.config.option("ssh.host").unwrap_or(""))],
+        ));
     }
-    let vault_db = sources.values().any(|s| matches!(s, SecretSource::VaultDb { .. }));
+    let vault_db = sources
+        .values()
+        .any(|s| matches!(s, SecretSource::VaultDb { .. }));
     if conn.iam {
         notes.push(note("iam", &[]));
     }
@@ -96,7 +104,11 @@ fn load(state: &AppState, id: &str, database: &str) -> CommandResult<Loaded> {
     } else if !sources.is_empty() {
         notes.push(note("secret_manager", &[]));
     }
-    if !saved.save_password && !sources.contains_key("password") && !conn.iam && !conn.user.is_empty() {
+    if !saved.save_password
+        && !sources.contains_key("password")
+        && !conn.iam
+        && !conn.user.is_empty()
+    {
         notes.push(note("password_not_saved", &[]));
     }
     let blocked = if vault_db {
@@ -106,14 +118,28 @@ fn load(state: &AppState, id: &str, database: &str) -> CommandResult<Loaded> {
     } else {
         None
     };
-    Ok(Loaded { conn, info, notes, blocked })
+    Ok(Loaded {
+        conn,
+        info,
+        notes,
+        blocked,
+    })
 }
 
 /// A format of the engine carries a secret other than the IAM token.
 fn has_other_secrets(conn: &Conn) -> bool {
     let none = BTreeMap::new();
     let mut probe = BTreeMap::new();
-    for k in ["token", "client_secret", "account_key", "api_key", "auth_token", "secret_access_key", "wallet_password", "connection_string"] {
+    for k in [
+        "token",
+        "client_secret",
+        "account_key",
+        "api_key",
+        "auth_token",
+        "secret_access_key",
+        "wallet_password",
+        "connection_string",
+    ] {
         probe.insert(k.to_string(), "\u{1}".to_string());
     }
     let a = connstring::build_all(conn, &Fill::Values(&none));
@@ -122,14 +148,26 @@ fn has_other_secrets(conn: &Conn) -> bool {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn connection_string_info(state: State<'_, AppState>, args: ConnStringArgs) -> CommandResult<ConnStringInfo> {
+pub async fn connection_string_info(
+    state: State<'_, AppState>,
+    args: ConnStringArgs,
+) -> CommandResult<ConnStringInfo> {
     let l = load(&state, &args.connection_id, &args.database)?;
     let placeholder = connstring::build_all(&l.conn, &Fill::Placeholder);
     let none = BTreeMap::new();
     let bare = connstring::build_all(&l.conn, &Fill::Values(&none));
-    let has_secrets = placeholder.iter().zip(bare.iter()).any(|(p, b)| p.text != b.text);
+    let has_secrets = placeholder
+        .iter()
+        .zip(bare.iter())
+        .any(|(p, b)| p.text != b.text);
     Ok(ConnStringInfo {
-        formats: placeholder.into_iter().map(|b| ConnStringFormat { id: b.id, label: b.label }).collect(),
+        formats: placeholder
+            .into_iter()
+            .map(|b| ConnStringFormat {
+                id: b.id,
+                label: b.label,
+            })
+            .collect(),
         database: l.conn.database.clone(),
         notes: l.notes,
         has_secrets,
@@ -138,16 +176,27 @@ pub async fn connection_string_info(state: State<'_, AppState>, args: ConnString
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn connection_string_build(state: State<'_, AppState>, args: ConnStringBuildArgs) -> CommandResult<ConnStringBuilt> {
+pub async fn connection_string_build(
+    state: State<'_, AppState>,
+    args: ConnStringBuildArgs,
+) -> CommandResult<ConnStringBuilt> {
     let l = load(&state, &args.connection_id, &args.database)?;
     let unknown = || CommandError::BadRequest(format!("formato desconocido: {}", args.format));
     if !args.include_secrets {
         let b = connstring::build(&l.conn, &args.format, &Fill::Placeholder).ok_or_else(unknown)?;
-        return Ok(ConnStringBuilt { text: b.text, notes: b.notes, secret: false });
+        return Ok(ConnStringBuilt {
+            text: b.text,
+            notes: b.notes,
+            secret: false,
+        });
     }
     if !args.reveal {
         let b = connstring::build(&l.conn, &args.format, &Fill::Masked).ok_or_else(unknown)?;
-        return Ok(ConnStringBuilt { text: b.text, notes: b.notes, secret: false });
+        return Ok(ConnStringBuilt {
+            text: b.text,
+            notes: b.notes,
+            secret: false,
+        });
     }
     match l.blocked {
         // Leased credentials DBine revokes when it disconnects: a copy would
@@ -158,23 +207,45 @@ pub async fn connection_string_build(state: State<'_, AppState>, args: ConnStrin
     }
     let values = resolve(&state, &args.connection_id, args.password, l.info).await?;
     let b = connstring::build(&l.conn, &args.format, &Fill::Values(&values)).ok_or_else(unknown)?;
-    Ok(ConnStringBuilt { text: b.text, notes: b.notes, secret: b.secret })
+    Ok(ConnStringBuilt {
+        text: b.text,
+        notes: b.notes,
+        secret: b.secret,
+    })
 }
 
 /// The connection's secrets, as a connect resolves them (with its
 /// confirmations): `password` and the driver's secret fields by key.
-async fn resolve(state: &AppState, id: &str, typed: Option<String>, info: Option<&DriverInfo>) -> CommandResult<BTreeMap<String, String>> {
+async fn resolve(
+    state: &AppState,
+    id: &str,
+    typed: Option<String>,
+    info: Option<&DriverInfo>,
+) -> CommandResult<BTreeMap<String, String>> {
     // A password typed for this copy is used once and not kept: the
     // connection's typed secrets are left as they were.
-    let before = typed.as_ref().map(|_| state.typed_secrets.get(id).and_then(|t| t.get("password").cloned()));
+    let before = typed.as_ref().map(|_| {
+        state
+            .typed_secrets
+            .get(id)
+            .and_then(|t| t.get("password").cloned())
+    });
     if let Some(p) = typed {
-        state.typed_secrets.entry(id.to_string()).or_default().insert("password".to_string(), p);
+        state
+            .typed_secrets
+            .entry(id.to_string())
+            .or_default()
+            .insert("password".to_string(), p);
     }
     let resolved = state.connect_config(id).await;
     if let Some(prev) = before {
         match prev {
             Some(p) => {
-                state.typed_secrets.entry(id.to_string()).or_default().insert("password".to_string(), p);
+                state
+                    .typed_secrets
+                    .entry(id.to_string())
+                    .or_default()
+                    .insert("password".to_string(), p);
             }
             None => {
                 if let Some(mut t) = state.typed_secrets.get_mut(id) {
@@ -189,7 +260,15 @@ async fn resolve(state: &AppState, id: &str, typed: Option<String>, info: Option
     if let Some(p) = cfg.password.as_deref().filter(|p| !p.is_empty()) {
         out.insert("password".to_string(), p.to_string());
     }
-    for f in info.map(|i| i.fields.iter().filter(|f| f.secret && f.key != "password").collect::<Vec<_>>()).unwrap_or_default() {
+    for f in info
+        .map(|i| {
+            i.fields
+                .iter()
+                .filter(|f| f.secret && f.key != "password")
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+    {
         if let Some(v) = cfg.option(f.key) {
             out.insert(f.key.to_string(), v.to_string());
         }

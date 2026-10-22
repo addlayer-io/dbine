@@ -9,7 +9,10 @@
 
 use crate::command::{prefix_end, quote_arg, Command};
 use crate::{b64, cols, unb64, EtcdSession};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, QueryOutcome, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, QueryOutcome, Result, SecurityAction,
+    SecuritySpec,
+};
 use serde_json::{json, Value};
 
 pub fn spec() -> SecuritySpec {
@@ -55,7 +58,11 @@ fn arg(c: &Command, i: usize, what: &str) -> Result<String> {
 /// The key range of a permission from `<key> [<end>] [--prefix] [--from-key]`
 /// starting at argument `i` (etcdctl's rules; `"" --prefix` = every key).
 fn perm_range(c: &Command, i: usize) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
-    let key = c.args.get(i).cloned().ok_or_else(|| Error::Query(format!("{} necesita una clave", c.name())))?;
+    let key = c
+        .args
+        .get(i)
+        .cloned()
+        .ok_or_else(|| Error::Query(format!("{} necesita una clave", c.name())))?;
     let end = if c.flag("prefix") {
         Some(prefix_end(&key))
     } else if c.flag("from-key") {
@@ -63,7 +70,11 @@ fn perm_range(c: &Command, i: usize) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
     } else {
         c.args.get(i + 1).cloned()
     };
-    let key = if key.is_empty() && end.is_some() { vec![0] } else { key };
+    let key = if key.is_empty() && end.is_some() {
+        vec![0]
+    } else {
+        key
+    };
     Ok((key, end))
 }
 
@@ -72,7 +83,9 @@ fn perm_type(s: &str) -> Result<&'static str> {
         "READ" => Ok("READ"),
         "WRITE" => Ok("WRITE"),
         "READWRITE" => Ok("READWRITE"),
-        _ => Err(Error::Query(format!("Permiso inválido: {s:?}. Elegí READ, WRITE o READWRITE."))),
+        _ => Err(Error::Query(format!(
+            "Permiso inválido: {s:?}. Elegí READ, WRITE o READWRITE."
+        ))),
     }
 }
 
@@ -80,11 +93,19 @@ fn perm_type(s: &str) -> Result<&'static str> {
 /// (DBine's own, the console doesn't prompt) or etcdctl's
 /// `--new-user-password=…`.
 fn password(c: &Command) -> Option<String> {
-    c.args.get(3).map(|p| String::from_utf8_lossy(p).into_owned()).or_else(|| c.flag_value("new-user-password").map(str::to_string))
+    c.args
+        .get(3)
+        .map(|p| String::from_utf8_lossy(p).into_owned())
+        .or_else(|| c.flag_value("new-user-password").map(str::to_string))
 }
 
 /// Runs one auth command of the console.
-pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+pub async fn run(
+    s: &EtcdSession,
+    c: &Command,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     match c.name().as_str() {
         "user add" => {
             let name = arg(c, 2, "un nombre")?;
@@ -103,13 +124,23 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
         }
         "user delete" => {
             let name = arg(c, 2, "un usuario")?;
-            s.call("/v3/auth/user/delete", json!({"name": name})).await?;
+            s.call("/v3/auth/user/delete", json!({"name": name}))
+                .await?;
             out.push_affected(1);
         }
         "user passwd" => {
             let name = arg(c, 2, "un usuario")?;
-            let p = password(c).ok_or_else(|| Error::Query("user passwd necesita la contraseña nueva (user passwd <usuario> <contraseña>)".into()))?;
-            s.call("/v3/auth/user/changepw", json!({"name": name, "password": p})).await?;
+            let p = password(c).ok_or_else(|| {
+                Error::Query(
+                    "user passwd necesita la contraseña nueva (user passwd <usuario> <contraseña>)"
+                        .into(),
+                )
+            })?;
+            s.call(
+                "/v3/auth/user/changepw",
+                json!({"name": name, "password": p}),
+            )
+            .await?;
             out.push_affected(1);
             out.info(format!("contraseña de {name} cambiada"));
         }
@@ -118,16 +149,21 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
             let r = s.call("/v3/auth/user/get", json!({"name": name})).await?;
             out.begin_result(cols(&["user", "role"]));
             for role in strings(r.get("roles")) {
-                out.push_row(vec![Value::String(name.clone()), Value::String(role)], max_rows);
+                out.push_row(
+                    vec![Value::String(name.clone()), Value::String(role)],
+                    max_rows,
+                );
             }
         }
         "user grant-role" | "user revoke-role" => {
             let user = arg(c, 2, "un usuario y un rol")?;
             let role = arg(c, 3, "un usuario y un rol")?;
             if c.name() == "user grant-role" {
-                s.call("/v3/auth/user/grant", json!({"user": user, "role": role})).await?;
+                s.call("/v3/auth/user/grant", json!({"user": user, "role": role}))
+                    .await?;
             } else {
-                s.call("/v3/auth/user/revoke", json!({"name": user, "role": role})).await?;
+                s.call("/v3/auth/user/revoke", json!({"name": user, "role": role}))
+                    .await?;
             }
             out.push_affected(1);
         }
@@ -139,21 +175,31 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
         }
         "role delete" => {
             let name = arg(c, 2, "un rol")?;
-            s.call("/v3/auth/role/delete", json!({"role": name})).await?;
+            s.call("/v3/auth/role/delete", json!({"role": name}))
+                .await?;
             out.push_affected(1);
         }
         "role get" => {
             let name = arg(c, 2, "un rol")?;
             let r = s.call("/v3/auth/role/get", json!({"role": name})).await?;
             out.begin_result(cols(&["role", "permission", "key", "range_end"]));
-            for p in r.get("perm").and_then(Value::as_array).into_iter().flatten() {
+            for p in r
+                .get("perm")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 let end = unb64(p.get("range_end"));
                 out.push_row(
                     vec![
                         Value::String(name.clone()),
                         Value::String(perm_of(p).into()),
                         Value::String(String::from_utf8_lossy(&unb64(p.get("key"))).into_owned()),
-                        if end.is_empty() { Value::Null } else { Value::String(String::from_utf8_lossy(&end).into_owned()) },
+                        if end.is_empty() {
+                            Value::Null
+                        } else {
+                            Value::String(String::from_utf8_lossy(&end).into_owned())
+                        },
                     ],
                     max_rows,
                 );
@@ -167,7 +213,8 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
             if let Some(e) = end {
                 perm["range_end"] = json!(b64(&e));
             }
-            s.call("/v3/auth/role/grant", json!({"name": role, "perm": perm})).await?;
+            s.call("/v3/auth/role/grant", json!({"name": role, "perm": perm}))
+                .await?;
             out.push_affected(1);
         }
         "role revoke-permission" => {
@@ -184,7 +231,10 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
             let r = s.call("/v3/auth/status", json!({})).await?;
             out.begin_result(cols(&["enabled", "auth_revision"]));
             out.push_row(
-                vec![Value::Bool(auth_enabled(&r)), r.get("authRevision").cloned().unwrap_or(Value::Null)],
+                vec![
+                    Value::Bool(auth_enabled(&r)),
+                    r.get("authRevision").cloned().unwrap_or(Value::Null),
+                ],
                 max_rows,
             );
         }
@@ -204,7 +254,12 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
 }
 
 fn strings(v: Option<&Value>) -> Vec<String> {
-    v.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect()
+    v.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
 }
 
 /// proto3 JSON leaves out the default value: no `permType` is READ.
@@ -213,7 +268,10 @@ fn perm_of(p: &Value) -> &str {
 }
 
 fn auth_enabled(status: &Value) -> bool {
-    status.get("enabled").and_then(Value::as_bool).unwrap_or(false)
+    status
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 // -- reading -----------------------------------------------------------------
@@ -229,7 +287,11 @@ pub async fn principals(s: &EtcdSession) -> Result<Vec<Principal>> {
     let roles = strings(s.call("/v3/auth/role/list", json!({})).await?.get("roles"));
     let mut out = Vec::new();
     for name in users {
-        let member_of = strings(s.call("/v3/auth/user/get", json!({"name": name})).await?.get("roles"));
+        let member_of = strings(
+            s.call("/v3/auth/user/get", json!({"name": name}))
+                .await?
+                .get("roles"),
+        );
         out.push(Principal {
             superuser: Some(member_of.iter().any(|r| r == "root")),
             system: name == "root",
@@ -269,18 +331,41 @@ fn range_object(key: &[u8], end: &[u8]) -> (Option<String>, Option<String>) {
     } else if end == prefix_end(key).as_slice() {
         (Some(text(key)), Some("prefix".into()))
     } else {
-        (Some(format!("{} → {}", text(key), text(end))), Some("range".into()))
+        (
+            Some(format!("{} → {}", text(key), text(end))),
+            Some("range".into()),
+        )
     }
 }
 
-async fn role_grants(s: &EtcdSession, role: &str, via: Option<&str>, out: &mut Vec<Grant>) -> Result<()> {
+async fn role_grants(
+    s: &EtcdSession,
+    role: &str,
+    via: Option<&str>,
+    out: &mut Vec<Grant>,
+) -> Result<()> {
     if role == "root" {
-        out.push(Grant { privilege: "READWRITE".into(), via: via.map(str::to_string), ..Default::default() });
+        out.push(Grant {
+            privilege: "READWRITE".into(),
+            via: via.map(str::to_string),
+            ..Default::default()
+        });
     }
     let r = s.call("/v3/auth/role/get", json!({"role": role})).await?;
-    for p in r.get("perm").and_then(Value::as_array).into_iter().flatten() {
+    for p in r
+        .get("perm")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let (object, object_kind) = range_object(&unb64(p.get("key")), &unb64(p.get("range_end")));
-        out.push(Grant { privilege: perm_of(p).to_string(), object, object_kind, via: via.map(str::to_string), ..Default::default() });
+        out.push(Grant {
+            privilege: perm_of(p).to_string(),
+            object,
+            object_kind,
+            via: via.map(str::to_string),
+            ..Default::default()
+        });
     }
     Ok(())
 }
@@ -289,13 +374,18 @@ async fn role_grants(s: &EtcdSession, role: &str, via: Option<&str>, out: &mut V
 /// name that is both (like `root`) reads as the user.
 pub async fn grants(s: &EtcdSession, principal: &str) -> Result<Vec<Grant>> {
     let mut out = Vec::new();
-    match s.call("/v3/auth/user/get", json!({"name": principal})).await {
+    match s
+        .call("/v3/auth/user/get", json!({"name": principal}))
+        .await
+    {
         Ok(u) => {
             for role in strings(u.get("roles")) {
                 role_grants(s, &role, Some(&role), &mut out).await?;
             }
         }
-        Err(e) if e.is_query() && e.to_string().contains("user name not found") => role_grants(s, principal, None, &mut out).await?,
+        Err(e) if e.is_query() && e.to_string().contains("user name not found") => {
+            role_grants(s, principal, None, &mut out).await?
+        }
         Err(e) => return Err(e),
     }
     Ok(out)
@@ -308,7 +398,9 @@ fn check_name<'a>(name: &'a str, what: &str) -> Result<&'a str> {
         return Err(Error::Query(format!("Escribí el nombre del {what}.")));
     }
     if name.chars().any(char::is_control) {
-        return Err(Error::Query(format!("El nombre del {what} no puede tener caracteres de control.")));
+        return Err(Error::Query(format!(
+            "El nombre del {what} no puede tener caracteres de control."
+        )));
     }
     Ok(name)
 }
@@ -318,7 +410,9 @@ fn check_password(pw: &str) -> Result<&str> {
         return Err(Error::Query("Escribí la contraseña.".into()));
     }
     if pw.chars().any(char::is_control) {
-        return Err(Error::Query("La contraseña no puede tener caracteres de control.".into()));
+        return Err(Error::Query(
+            "La contraseña no puede tener caracteres de control.".into(),
+        ));
     }
     Ok(pw)
 }
@@ -326,7 +420,9 @@ fn check_password(pw: &str) -> Result<&str> {
 /// The `<key> [<end>] [--prefix|--from-key]` of an object: the whole
 /// keyspace without one; an explorer key ending in `/` is a prefix.
 fn object_range(o: Option<&ObjectRef>) -> Result<String> {
-    let Some(o) = o else { return Ok("\"\" --prefix".into()) };
+    let Some(o) = o else {
+        return Ok("\"\" --prefix".into());
+    };
     // The tab splits objects on the first '.' into schema and name.
     let name = match o.schema() {
         Some(s) => format!("{s}.{}", o.name),
@@ -336,7 +432,9 @@ fn object_range(o: Option<&ObjectRef>) -> Result<String> {
         "prefix" => format!("{} --prefix", quote_arg(&name)),
         "from_key" => format!("{} --from-key", quote_arg(&name)),
         "range" => {
-            let (a, b) = name.split_once(" → ").ok_or_else(|| Error::Query(format!("Rango inválido: {name}")))?;
+            let (a, b) = name
+                .split_once(" → ")
+                .ok_or_else(|| Error::Query(format!("Rango inválido: {name}")))?;
             format!("{} {}", quote_arg(a), quote_arg(b))
         }
         _ if name.ends_with('/') => format!("{} --prefix", quote_arg(&name)),
@@ -416,31 +514,104 @@ mod tests {
     use crate::command::parse_script;
 
     fn key(kind: &str, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: None, name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: None,
+            name: name.into(),
+        })
     }
 
     #[test]
     fn scripts() {
         let s = |a| script(&a).unwrap();
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: Some("p w".into()) }), "user add ana \"p w\"");
-        assert_eq!(s(SecurityAction::CreateUser { name: "--x".into(), password: None }), "user add \"--x\" --no-password");
-        assert_eq!(s(SecurityAction::CreateRole { name: "lect".into() }), "role add lect");
-        assert_eq!(s(SecurityAction::Drop { name: "lect".into(), kind: PrincipalKind::Role }), "role delete lect");
-        assert_eq!(s(SecurityAction::SetPassword { name: "ana".into(), password: "--y".into() }), "user passwd ana \"--y\"");
-        assert_eq!(s(SecurityAction::AddMember { role: "lect".into(), member: "ana".into() }), "user grant-role ana lect");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "lect".into(), member: "ana".into() }), "user revoke-role ana lect");
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: Some("p w".into())
+            }),
+            "user add ana \"p w\""
+        );
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "--x".into(),
+                password: None
+            }),
+            "user add \"--x\" --no-password"
+        );
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "lect".into()
+            }),
+            "role add lect"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "lect".into(),
+                kind: PrincipalKind::Role
+            }),
+            "role delete lect"
+        );
+        assert_eq!(
+            s(SecurityAction::SetPassword {
+                name: "ana".into(),
+                password: "--y".into()
+            }),
+            "user passwd ana \"--y\""
+        );
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "lect".into(),
+                member: "ana".into()
+            }),
+            "user grant-role ana lect"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "lect".into(),
+                member: "ana".into()
+            }),
+            "user revoke-role ana lect"
+        );
         let g = |p: &[&str], o| {
-            script(&SecurityAction::Grant { privileges: p.iter().map(|s| s.to_string()).collect(), object: o, to: "lect".into(), grantable: false })
+            script(&SecurityAction::Grant {
+                privileges: p.iter().map(|s| s.to_string()).collect(),
+                object: o,
+                to: "lect".into(),
+                grantable: false,
+            })
         };
-        assert_eq!(g(&["READ"], None).unwrap(), "role grant-permission lect read \"\" --prefix");
-        assert_eq!(g(&["read", "WRITE"], key("key", "/app/")).unwrap(), "role grant-permission lect readwrite /app/ --prefix");
-        assert_eq!(g(&["WRITE"], key("key", "/app/x")).unwrap(), "role grant-permission lect write /app/x");
-        assert_eq!(g(&["READ"], key("range", "a → c")).unwrap(), "role grant-permission lect read a c");
+        assert_eq!(
+            g(&["READ"], None).unwrap(),
+            "role grant-permission lect read \"\" --prefix"
+        );
+        assert_eq!(
+            g(&["read", "WRITE"], key("key", "/app/")).unwrap(),
+            "role grant-permission lect readwrite /app/ --prefix"
+        );
+        assert_eq!(
+            g(&["WRITE"], key("key", "/app/x")).unwrap(),
+            "role grant-permission lect write /app/x"
+        );
+        assert_eq!(
+            g(&["READ"], key("range", "a → c")).unwrap(),
+            "role grant-permission lect read a c"
+        );
         assert!(g(&["ALL"], None).is_err());
         assert!(g(&[], None).is_err());
-        assert!(matches!(script(&SecurityAction::SetLogin { name: "ana".into(), enabled: false }), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(&SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: false
+            }),
+            Err(Error::Unsupported(_))
+        ));
         assert_eq!(
-            script(&SecurityAction::Revoke { privileges: vec!["READ".into()], object: key("prefix", "/app/"), from: "lect".into() }).unwrap(),
+            script(&SecurityAction::Revoke {
+                privileges: vec!["READ".into()],
+                object: key("prefix", "/app/"),
+                from: "lect".into()
+            })
+            .unwrap(),
             "role revoke-permission lect /app/ --prefix"
         );
         assert!(check_name("a\nb", "rol").is_err());
@@ -448,7 +619,11 @@ mod tests {
 
     #[test]
     fn scripts_parse_back() {
-        let text = script(&SecurityAction::CreateUser { name: "ana".into(), password: Some("a \"b\" --c".into()) }).unwrap();
+        let text = script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: Some("a \"b\" --c".into()),
+        })
+        .unwrap();
         let c = &parse_script(&text).unwrap()[0];
         assert_eq!(c.name(), "user add");
         assert_eq!(password(c).as_deref(), Some("a \"b\" --c"));
@@ -456,16 +631,31 @@ mod tests {
         let c = &parse_script("role grant-permission lect read \"\" --prefix").unwrap()[0];
         assert_eq!(perm_range(c, 4).unwrap(), (vec![0], Some(vec![0])));
         let c = &parse_script("role revoke-permission lect /a/ --prefix").unwrap()[0];
-        assert_eq!(perm_range(c, 3).unwrap(), (b"/a/".to_vec(), Some(b"/a0".to_vec())));
+        assert_eq!(
+            perm_range(c, 3).unwrap(),
+            (b"/a/".to_vec(), Some(b"/a0".to_vec()))
+        );
     }
 
     #[test]
     fn ranges_read_back() {
-        assert_eq!(range_object(b"/a", b""), (Some("/a".into()), Some("key".into())));
+        assert_eq!(
+            range_object(b"/a", b""),
+            (Some("/a".into()), Some("key".into()))
+        );
         assert_eq!(range_object(&[0], &[0]), (None, None));
-        assert_eq!(range_object(b"/a/", b"/a0"), (Some("/a/".into()), Some("prefix".into())));
-        assert_eq!(range_object(b"a", &[0]), (Some("a".into()), Some("from_key".into())));
-        assert_eq!(range_object(b"a", b"c"), (Some("a → c".into()), Some("range".into())));
+        assert_eq!(
+            range_object(b"/a/", b"/a0"),
+            (Some("/a/".into()), Some("prefix".into()))
+        );
+        assert_eq!(
+            range_object(b"a", &[0]),
+            (Some("a".into()), Some("from_key".into()))
+        );
+        assert_eq!(
+            range_object(b"a", b"c"),
+            (Some("a → c".into()), Some("range".into()))
+        );
         assert!(handles("role grant-permission") && !handles("user list"));
     }
 }

@@ -8,8 +8,9 @@ use crate::processes;
 use crate::profiler;
 use crate::v1::cell;
 use dbine_driver::{
-    async_trait, kinds, ColumnDef, ColumnInfo, ConnectionConfig, DbObject, DriverInfo, Error, Family, Field, FieldKind,
-    KeyDef, Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    async_trait, kinds, ColumnDef, ColumnInfo, ConnectionConfig, DbObject, DriverInfo, Error,
+    Family, Field, FieldKind, KeyDef, Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable,
+    ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
 };
 use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 use serde_json::{json, Value as J};
@@ -26,14 +27,22 @@ pub fn info() -> DriverInfo {
             Field::host().help("Servidor o URL."),
             Field::port().placeholder("8181"),
             Field::new("database", "Base de datos", FieldKind::Text).placeholder("(ninguna)"),
-            Field::new("token", "Token", FieldKind::Password).secret().help("Vacío si el servidor corre sin autenticación."),
+            Field::new("token", "Token", FieldKind::Password)
+                .secret()
+                .help("Vacío si el servidor corre sin autenticación."),
             Field::encrypt(),
             Field::trust_cert(),
             Field::read_only(),
         ],
         databases_label: "Bases de datos",
         has_schemas: false,
-        object_kinds: vec![ObjectKindInfo::new(kinds::MEASUREMENT, "Tablas", true, true, false)],
+        object_kinds: vec![ObjectKindInfo::new(
+            kinds::MEASUREMENT,
+            "Tablas",
+            true,
+            true,
+            false,
+        )],
     }
 }
 
@@ -48,8 +57,14 @@ pub struct SqlSession {
 }
 
 pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
-    let db = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
-    let token = cfg.option("token").or(cfg.password.as_deref().filter(|p| !p.is_empty())).unwrap_or("").to_string();
+    let db = database
+        .filter(|d| !d.is_empty())
+        .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
+    let token = cfg
+        .option("token")
+        .or(cfg.password.as_deref().filter(|p| !p.is_empty()))
+        .unwrap_or("")
+        .to_string();
     let s = SqlSession {
         http: http::client(cfg)?,
         base: http::base_url(cfg, 8181),
@@ -77,7 +92,10 @@ impl<'de> Deserialize<'de> for OrderedRow {
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str("a JSON object")
             }
-            fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> std::result::Result<OrderedRow, A::Error> {
+            fn visit_map<A: MapAccess<'de>>(
+                self,
+                mut m: A,
+            ) -> std::result::Result<OrderedRow, A::Error> {
                 let mut v = Vec::new();
                 while let Some((k, val)) = m.next_entry::<String, J>()? {
                     v.push((k, val));
@@ -125,13 +143,21 @@ pub fn jsonl_table(body: &str) -> Result<(Vec<String>, Vec<Vec<J>>)> {
 pub fn schema_tables(rows: &[Vec<J>]) -> Vec<TableSchema> {
     let mut out: Vec<TableSchema> = Vec::new();
     for r in rows {
-        let s = |i: usize| r.get(i).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let s = |i: usize| {
+            r.get(i)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         let (table, name, data_type) = (s(0), s(1), s(2));
         if out.last().is_none_or(|t| t.name != table) {
             out.push(TableSchema {
                 kind: kinds::MEASUREMENT.into(),
                 name: table,
-                primary_key: Some(KeyDef { name: None, columns: Vec::new() }),
+                primary_key: Some(KeyDef {
+                    name: None,
+                    columns: Vec::new(),
+                }),
                 ..Default::default()
             });
         }
@@ -144,7 +170,13 @@ pub fn schema_tables(rows: &[Vec<J>]) -> Vec<TableSchema> {
         if tag || name == "time" {
             t.primary_key.as_mut().unwrap().columns.push(name.clone());
         }
-        t.columns.push(ColumnDef { nullable: s(3) != "NO" && !tag && name != "time", name, data_type, options, ..Default::default() });
+        t.columns.push(ColumnDef {
+            nullable: s(3) != "NO" && !tag && name != "time",
+            name,
+            data_type,
+            options,
+            ..Default::default()
+        });
     }
     out
 }
@@ -163,7 +195,10 @@ impl SqlSession {
     }
 
     async fn databases(&self) -> Result<Vec<String>> {
-        let req = self.http.get(format!("{}/api/v3/configure/database", self.base)).query(&[("format", "json")]);
+        let req = self
+            .http
+            .get(format!("{}/api/v3/configure/database", self.base))
+            .query(&[("format", "json")]);
         let body = http::text(self.auth(req).send().await.map_err(send_err)?).await?;
         let v: J = serde_json::from_str(&body)?;
         Ok(v.as_array()
@@ -175,7 +210,11 @@ impl SqlSession {
 
     /// A call to the database configuration API (`refusal`: the whole message
     /// for a read-only connection).
-    pub(crate) async fn configure(&self, req: reqwest::RequestBuilder, refusal: &str) -> Result<()> {
+    pub(crate) async fn configure(
+        &self,
+        req: reqwest::RequestBuilder,
+        refusal: &str,
+    ) -> Result<()> {
         if self.read_only {
             return Err(Error::Query(refusal.into()));
         }
@@ -184,8 +223,14 @@ impl SqlSession {
     }
 
     pub(crate) async fn sql(&self, q: &str) -> Result<(Vec<String>, Vec<Vec<J>>)> {
-        let db = self.db.as_deref().ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
-        let req = self.http.post(format!("{}/api/v3/query_sql", self.base)).json(&json!({ "db": db, "q": q, "format": "jsonl" }));
+        let db = self
+            .db
+            .as_deref()
+            .ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
+        let req = self
+            .http
+            .post(format!("{}/api/v3/query_sql", self.base))
+            .json(&json!({ "db": db, "q": q, "format": "jsonl" }));
         let body = http::text(self.auth(req).send().await.map_err(send_err)?).await?;
         jsonl_table(&body)
     }
@@ -194,8 +239,15 @@ impl SqlSession {
 #[async_trait]
 impl Session for SqlSession {
     /// A `SELECT` streamed as JSON lines (see `transfer.rs`).
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
-        let db = self.db.clone().ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
+        let db = self
+            .db
+            .clone()
+            .ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
         let cols = crate::transfer::read_columns(&self.columns(&spec.table).await?, &spec.columns)?;
         let quote = |n: &str| dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Double, n);
         let list = match &spec.columns {
@@ -203,10 +255,18 @@ impl Session for SqlSession {
             None => "*".to_string(),
         };
         let mut q = format!("SELECT {list} FROM {}", quote(&spec.table.name));
-        if let Some(f) = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        if let Some(f) = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
             q.push_str(&format!(" WHERE {f}"));
         }
-        let req = self.http.post(format!("{}/api/v3/query_sql", self.base)).json(&json!({ "db": db, "q": q, "format": "jsonl" }));
+        let req = self
+            .http
+            .post(format!("{}/api/v3/query_sql", self.base))
+            .json(&json!({ "db": db, "q": q, "format": "jsonl" }));
         crate::transfer::read_jsonl(self.auth(req), &cols, &sink).await
     }
 
@@ -220,24 +280,66 @@ impl Session for SqlSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden escribir puntos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden escribir puntos.".into(),
+            ));
         }
-        let db = self.db.clone().ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
+        let db = self
+            .db
+            .clone()
+            .ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
         let target = self.columns(&spec.table).await?;
-        let params = [("db", db.as_str()), ("precision", "nanosecond"), ("accept_partial", "false")];
-        let url = reqwest::Url::parse_with_params(&format!("{}/api/v3/write_lp", self.base), &params).map_err(|e| Error::Query(e.to_string()))?;
-        let auth = if self.token.is_empty() { crate::transfer::Auth::None } else { crate::transfer::Auth::Bearer(self.token.clone()) };
-        let ep = crate::transfer::Endpoint { http: self.http.clone(), url: url.into(), auth, api: crate::Api::Sql };
-        crate::transfer::load(ep, &spec.table.name, &target, spec, columns, source, progress).await
+        let params = [
+            ("db", db.as_str()),
+            ("precision", "nanosecond"),
+            ("accept_partial", "false"),
+        ];
+        let url =
+            reqwest::Url::parse_with_params(&format!("{}/api/v3/write_lp", self.base), &params)
+                .map_err(|e| Error::Query(e.to_string()))?;
+        let auth = if self.token.is_empty() {
+            crate::transfer::Auth::None
+        } else {
+            crate::transfer::Auth::Bearer(self.token.clone())
+        };
+        let ep = crate::transfer::Endpoint {
+            http: self.http.clone(),
+            url: url.into(),
+            auth,
+            api: crate::Api::Sql,
+        };
+        crate::transfer::load(
+            ep,
+            &spec.table.name,
+            &target,
+            spec,
+            columns,
+            source,
+            progress,
+        )
+        .await
     }
 
     async fn server_version(&mut self) -> Result<String> {
         let req = self.http.get(format!("{}/ping", self.base));
         let resp = self.auth(req).send().await.map_err(send_err)?;
-        let header = resp.headers().get("X-Influxdb-Version").and_then(|v| v.to_str().ok()).map(str::to_string);
-        let v: J = serde_json::from_str(&http::text(resp).await.unwrap_or_default()).unwrap_or_default();
-        let version = v.get("version").and_then(|v| v.as_str()).map(str::to_string).or(header).unwrap_or_default();
-        let product = v.get("product_name").and_then(|p| p.as_str()).unwrap_or("InfluxDB 3");
+        let header = resp
+            .headers()
+            .get("X-Influxdb-Version")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let v: J =
+            serde_json::from_str(&http::text(resp).await.unwrap_or_default()).unwrap_or_default();
+        let version = v
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or(header)
+            .unwrap_or_default();
+        let product = v
+            .get("product_name")
+            .and_then(|p| p.as_str())
+            .unwrap_or("InfluxDB 3");
         Ok(format!("{product} {version}").trim().to_string())
     }
 
@@ -274,7 +376,11 @@ impl Session for SqlSession {
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
         let saved = self.db.clone();
         if self.db.is_none() {
-            self.db = self.databases().await?.into_iter().find(|d| !d.starts_with('_'));
+            self.db = self
+                .databases()
+                .await?
+                .into_iter()
+                .find(|d| !d.starts_with('_'));
             if self.db.is_none() {
                 self.db = saved;
                 return Ok(Vec::new());
@@ -282,8 +388,13 @@ impl Session for SqlSession {
         }
         let r = tokio::time::timeout(processes::QUERY_LIMIT, self.sql(processes::V3_QUERIES)).await;
         self.db = saved;
-        let (cols, rows) = r.map_err(|_| Error::Query("system.queries no respondió a tiempo".into()))??;
-        Ok(processes::v3_rows(&cols, &rows, chrono::Utc::now().timestamp_millis()))
+        let (cols, rows) =
+            r.map_err(|_| Error::Query("system.queries no respondió a tiempo".into()))??;
+        Ok(processes::v3_rows(
+            &cols,
+            &rows,
+            chrono::Utc::now().timestamp_millis(),
+        ))
     }
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
@@ -291,20 +402,46 @@ impl Session for SqlSession {
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
-        let resp = self.auth(self.http.get(format!("{}/metrics", self.base))).send().await.map_err(send_err)?;
-        let prom = http::text(resp).await.ok().map(|t| monitor::Prom::parse(&t));
-        let ping = match self.auth(self.http.get(format!("{}/ping", self.base))).send().await {
-            Ok(r) => http::text(r).await.ok().and_then(|b| serde_json::from_str::<J>(&b).ok()),
+        let resp = self
+            .auth(self.http.get(format!("{}/metrics", self.base)))
+            .send()
+            .await
+            .map_err(send_err)?;
+        let prom = http::text(resp)
+            .await
+            .ok()
+            .map(|t| monitor::Prom::parse(&t));
+        let ping = match self
+            .auth(self.http.get(format!("{}/ping", self.base)))
+            .send()
+            .await
+        {
+            Ok(r) => http::text(r)
+                .await
+                .ok()
+                .and_then(|b| serde_json::from_str::<J>(&b).ok()),
             Err(_) => None,
         };
         let now = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
         let mut s = monitor::v3_snapshot(prom.as_ref(), ping.as_ref(), now);
 
         let dbs = self.databases().await.unwrap_or_default();
-        let db = self.db.clone().or_else(|| dbs.iter().find(|d| !d.starts_with('_')).cloned());
+        let db = self
+            .db
+            .clone()
+            .or_else(|| dbs.iter().find(|d| !d.starts_with('_')).cloned());
         if let Some(i) = s.metrics.iter().position(|m| m.key == "uptime") {
             let n = dbs.iter().filter(|d| !d.starts_with('_')).count() as f64;
-            s.metrics.insert(i, Metric::new("databases", "Bases de datos", "Almacenamiento", MetricUnit::Count, Some(n)));
+            s.metrics.insert(
+                i,
+                Metric::new(
+                    "databases",
+                    "Bases de datos",
+                    "Almacenamiento",
+                    MetricUnit::Count,
+                    Some(n),
+                ),
+            );
         }
         let Some(db) = db else {
             s.notes.push("No hay bases de datos: las consultas en curso y el tamaño de los archivos se leen de las tablas system de una base.".into());
@@ -316,12 +453,29 @@ impl Session for SqlSession {
         match self.sql(q).await {
             Ok((cols, rows)) => {
                 let ri = cols.iter().position(|c| c == "running");
-                let running = |r: &&Vec<J>| ri.and_then(|i| r.get(i)).and_then(|v| v.as_bool()).unwrap_or(false);
-                let own = |r: &&Vec<J>| r.iter().any(|v| v.as_str().is_some_and(|t| t.contains("FROM system.queries ORDER BY issue_time")));
-                let now_running: Vec<Vec<J>> = rows.iter().filter(running).filter(|r| !own(r)).cloned().collect();
-                let recent: Vec<Vec<J>> = rows.iter().filter(|r| !own(r)).take(20).cloned().collect();
-                s.tables.push(monitor::v3_queries_table(&cols, &now_running, true));
-                s.tables.push(monitor::v3_queries_table(&cols, &recent, false));
+                let running = |r: &&Vec<J>| {
+                    ri.and_then(|i| r.get(i))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                };
+                let own = |r: &&Vec<J>| {
+                    r.iter().any(|v| {
+                        v.as_str()
+                            .is_some_and(|t| t.contains("FROM system.queries ORDER BY issue_time"))
+                    })
+                };
+                let now_running: Vec<Vec<J>> = rows
+                    .iter()
+                    .filter(running)
+                    .filter(|r| !own(r))
+                    .cloned()
+                    .collect();
+                let recent: Vec<Vec<J>> =
+                    rows.iter().filter(|r| !own(r)).take(20).cloned().collect();
+                s.tables
+                    .push(monitor::v3_queries_table(&cols, &now_running, true));
+                s.tables
+                    .push(monitor::v3_queries_table(&cols, &recent, false));
             }
             Err(e) => s.notes.push(format!("No se pudo leer system.queries: {e}")),
         }
@@ -329,7 +483,13 @@ impl Session for SqlSession {
                  FROM system.parquet_files GROUP BY table_name ORDER BY size_bytes DESC LIMIT 20";
         match self.sql(q).await {
             Ok((cols, rows)) => {
-                let at = |r: &Vec<J>, n: &str| cols.iter().position(|c| c == n).and_then(|i| r.get(i)).cloned().unwrap_or(J::Null);
+                let at = |r: &Vec<J>, n: &str| {
+                    cols.iter()
+                        .position(|c| c == n)
+                        .and_then(|i| r.get(i))
+                        .cloned()
+                        .unwrap_or(J::Null)
+                };
                 let mut t = MonitorTable::new(
                     "top_objects",
                     &format!("Tablas más grandes de «{db}» (Parquet)"),
@@ -338,30 +498,56 @@ impl Session for SqlSession {
                 let mut total = 0.0;
                 for r in &rows {
                     total += at(r, "size_bytes").as_f64().unwrap_or(0.0);
-                    t.rows.push(vec![at(r, "table_name"), at(r, "files"), at(r, "row_count"), at(r, "size_bytes")]);
+                    t.rows.push(vec![
+                        at(r, "table_name"),
+                        at(r, "files"),
+                        at(r, "row_count"),
+                        at(r, "size_bytes"),
+                    ]);
                 }
                 let label = format!("Parquet persistido de «{db}»");
-                let i = s.metrics.iter().position(|m| m.key == "databases").unwrap_or(s.metrics.len());
-                s.metrics.insert(i, Metric::new("storage_used", &label, "Almacenamiento", MetricUnit::Bytes, Some(total)));
+                let i = s
+                    .metrics
+                    .iter()
+                    .position(|m| m.key == "databases")
+                    .unwrap_or(s.metrics.len());
+                s.metrics.insert(
+                    i,
+                    Metric::new(
+                        "storage_used",
+                        &label,
+                        "Almacenamiento",
+                        MetricUnit::Bytes,
+                        Some(total),
+                    ),
+                );
                 s.tables.push(t);
                 s.notes.push(format!(
                     "El espacio usado es el de los archivos Parquet ya persistidos de «{db}»; los datos que todavía están en memoria (WAL) no suman."
                 ));
             }
-            Err(e) => s.notes.push(format!("No se pudo leer system.parquet_files: {e}")),
+            Err(e) => s
+                .notes
+                .push(format!("No se pudo leer system.parquet_files: {e}")),
         }
         self.db = saved;
         Ok(s)
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::v3_start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::v3_poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -373,7 +559,12 @@ impl Session for SqlSession {
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
-        let mut v: Vec<String> = self.databases().await?.into_iter().filter(|d| !d.starts_with('_')).collect();
+        let mut v: Vec<String> = self
+            .databases()
+            .await?
+            .into_iter()
+            .filter(|d| !d.starts_with('_'))
+            .collect();
         v.sort();
         Ok(v)
     }
@@ -388,7 +579,12 @@ impl Session for SqlSession {
         Ok(rows
             .into_iter()
             .filter_map(|r| r.first()?.as_str().map(str::to_string))
-            .map(|name| DbObject { kind: kinds::MEASUREMENT.into(), schema: None, name, parent: None })
+            .map(|name| DbObject {
+                kind: kinds::MEASUREMENT.into(),
+                schema: None,
+                name,
+                parent: None,
+            })
             .collect())
     }
 
@@ -403,7 +599,12 @@ impl Session for SqlSession {
         Ok(rows
             .into_iter()
             .map(|r| {
-                let s = |i: usize| r.get(i).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                let s = |i: usize| {
+                    r.get(i)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string()
+                };
                 let (name, data_type) = (s(0), s(1));
                 // Tags are dictionary-encoded strings; with time they key the series.
                 let key = name == "time" || data_type.starts_with("Dictionary");
@@ -437,22 +638,37 @@ impl Session for SqlSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.create_database_with(name, &std::collections::BTreeMap::new()).await
+        self.create_database_with(name, &std::collections::BTreeMap::new())
+            .await
     }
 
     /// With the retention period (see [`crate::create_db`]).
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         let body = crate::create_db::database(name, options)?;
         let url = format!("{}{}", self.base, crate::create_db::V3_PATH);
-        self.configure(self.http.post(url).json(&body), "Conexión de solo lectura: no se pueden crear bases.").await
+        self.configure(
+            self.http.post(url).json(&body),
+            "Conexión de solo lectura: no se pueden crear bases.",
+        )
+        .await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.db.as_deref() == Some(name) {
-            return Err(Error::Query(format!("No se puede borrar «{name}»: es la base de datos de esta conexión.")));
+            return Err(Error::Query(format!(
+                "No se puede borrar «{name}»: es la base de datos de esta conexión."
+            )));
         }
         let url = format!("{}/api/v3/configure/database", self.base);
-        self.configure(self.http.delete(url).query(&[("db", name)]), "Conexión de solo lectura: no se pueden borrar bases.").await
+        self.configure(
+            self.http.delete(url).query(&[("db", name)]),
+            "Conexión de solo lectura: no se pueden borrar bases.",
+        )
+        .await
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
@@ -463,7 +679,15 @@ impl Session for SqlSession {
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         for stmt in dbine_driver::sql::split_statements(text) {
             let (columns, rows) = self.sql(&stmt).await?;
-            out.begin_result(columns.into_iter().map(|name| ResultColumn { name, type_name: String::new() }).collect());
+            out.begin_result(
+                columns
+                    .into_iter()
+                    .map(|name| ResultColumn {
+                        name,
+                        type_name: String::new(),
+                    })
+                    .collect(),
+            );
             for row in rows {
                 out.push_row(row, max_rows);
             }
@@ -471,24 +695,49 @@ impl Session for SqlSession {
         Ok(())
     }
 
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         for stmt in dbine_driver::sql::split_statements(text) {
-            let head = stmt.split_whitespace().next().unwrap_or_default().to_ascii_lowercase();
+            let head = stmt
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
             if analyze {
                 self.execute(&stmt, max_rows, out).await?;
             }
             if !matches!(head.as_str(), "select" | "with") {
                 if !analyze {
-                    out.messages.push(format!("Sin plan para «{}»: solo se explican consultas SELECT.", stmt.trim()));
+                    out.messages.push(format!(
+                        "Sin plan para «{}»: solo se explican consultas SELECT.",
+                        stmt.trim()
+                    ));
                 }
                 continue;
             }
-            let (columns, rows) = self.sql(&format!("EXPLAIN {}{stmt}", if analyze { "ANALYZE " } else { "" })).await?;
+            let (columns, rows) = self
+                .sql(&format!(
+                    "EXPLAIN {}{stmt}",
+                    if analyze { "ANALYZE " } else { "" }
+                ))
+                .await?;
             let col = |n: &str| columns.iter().position(|c| c == n);
             let (Some(ty), Some(pl)) = (col("plan_type"), col("plan")) else {
-                return Err(Error::Query("EXPLAIN no devolvió las columnas plan_type y plan".into()));
+                return Err(Error::Query(
+                    "EXPLAIN no devolvió las columnas plan_type y plan".into(),
+                ));
             };
-            let s = |r: &Vec<J>, i: usize| r.get(i).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let s = |r: &Vec<J>, i: usize| {
+                r.get(i)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
             let parts: Vec<(String, String)> = rows.iter().map(|r| (s(r, ty), s(r, pl))).collect();
             // The physical plan is what runs (with metrics when analyzed);
             // the logical one goes along in the raw text.
@@ -499,8 +748,18 @@ impl Session for SqlSession {
                 .map(|(_, p)| p.clone())
                 .unwrap_or_default();
             let root = plan::datafusion_tree(&main).unwrap_or_default();
-            let raw = parts.iter().map(|(t, p)| format!("{t}:\n{}", p.trim_end())).collect::<Vec<_>>().join("\n\n");
-            out.plans.push(Plan { statement: stmt.clone(), root, actual: analyze, raw_format: "text".into(), raw });
+            let raw = parts
+                .iter()
+                .map(|(t, p)| format!("{t}:\n{}", p.trim_end()))
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            out.plans.push(Plan {
+                statement: stmt.clone(),
+                root,
+                actual: analyze,
+                raw_format: "text".into(),
+                raw,
+            });
         }
         Ok(())
     }
@@ -508,17 +767,27 @@ impl Session for SqlSession {
     /// Admin token or not, from the admin-only `system.tokens` (see
     /// `permissions`).
     /// "Propiedades" (see [`crate::properties`]).
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         let q = "SELECT name FROM system.tokens LIMIT 1";
-        let req = self.http.post(format!("{}/api/v3/query_sql", self.base)).json(&json!({ "db": "_internal", "q": q, "format": "json" }));
+        let req = self
+            .http
+            .post(format!("{}/api/v3/query_sql", self.base))
+            .json(&json!({ "db": "_internal", "q": q, "format": "json" }));
         let answer = match self.auth(req).send().await {
             Ok(resp) => http::text(resp).await,
             Err(e) => Err(send_err(e)),
@@ -534,18 +803,28 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     if filters.is_empty() {
         return Ok(browse.to_string());
     }
-    let style = SqlFilterStyle { quote: dbine_driver::sql::Quote::Double, literal: &sql_literal, like: "LIKE", true_literal: "TRUE", false_literal: "FALSE" };
+    let style = SqlFilterStyle {
+        quote: dbine_driver::sql::Quote::Double,
+        literal: &sql_literal,
+        like: "LIKE",
+        true_literal: "TRUE",
+        false_literal: "FALSE",
+    };
     let mut parts = Vec::new();
     for f in filters {
         let c = sql_condition(std::slice::from_ref(f), &style)?;
-        let like = matches!(f.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith);
+        let like = matches!(
+            f.op,
+            FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith
+        );
         parts.push(match c.strip_suffix(" ESCAPE '\\'") {
             Some(s) if like => s.to_string(),
             _ => c,
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 fn sql_literal(v: &J) -> String {
@@ -553,21 +832,37 @@ fn sql_literal(v: &J) -> String {
 }
 
 /// Rows per table in the persisted Parquet files (catalog metadata).
-const PARQUET_ROWS: &str = "SELECT table_name, sum(row_count) AS row_count FROM system.parquet_files GROUP BY table_name";
+const PARQUET_ROWS: &str =
+    "SELECT table_name, sum(row_count) AS row_count FROM system.parquet_files GROUP BY table_name";
 
-fn parquet_row_estimates(cols: &[String], rows: &[Vec<J>]) -> Vec<dbine_driver::stats::RowEstimate> {
-    let (Some(t), Some(n)) = (cols.iter().position(|c| c == "table_name"), cols.iter().position(|c| c == "row_count")) else {
+fn parquet_row_estimates(
+    cols: &[String],
+    rows: &[Vec<J>],
+) -> Vec<dbine_driver::stats::RowEstimate> {
+    let (Some(t), Some(n)) = (
+        cols.iter().position(|c| c == "table_name"),
+        cols.iter().position(|c| c == "row_count"),
+    ) else {
         return Vec::new();
     };
     rows.iter()
         .filter_map(|r| {
             let name = r.get(t)?.as_str()?.to_string();
             let rows = match r.get(n)? {
-                J::Number(v) => v.as_u64().or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64))?,
+                J::Number(v) => v
+                    .as_u64()
+                    .or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64))?,
                 J::String(v) => v.trim().parse().ok()?,
                 _ => return None,
             };
-            Some(dbine_driver::stats::RowEstimate { object: ObjectRef { kind: kinds::MEASUREMENT.into(), schema: None, name }, rows })
+            Some(dbine_driver::stats::RowEstimate {
+                object: ObjectRef {
+                    kind: kinds::MEASUREMENT.into(),
+                    schema: None,
+                    name,
+                },
+                rows,
+            })
         })
         .collect()
 }
@@ -579,8 +874,9 @@ pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<Stri
     if sort.is_empty() {
         return Ok(query.to_string());
     }
-    set_order_by(query, &order_list(sort, dbine_driver::sql::Quote::Double))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+    set_order_by(query, &order_list(sort, dbine_driver::sql::Quote::Double)).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+    })
 }
 
 #[cfg(test)]
@@ -590,12 +886,26 @@ mod tests {
     #[test]
     fn sorted_browse_replaces_order_by_time() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let q = "SELECT *\nFROM \"cpu\"\nORDER BY time DESC\nLIMIT 200";
         assert_eq!(sorted_browse(q, &[]).unwrap(), q);
-        assert_eq!(sorted_browse(q, &[k("host", false)]).unwrap(), "SELECT *\nFROM \"cpu\"\nORDER BY \"host\" ASC\nLIMIT 200");
-        let f = filtered_browse(q, &[ColumnFilter { column: "host".into(), op: FilterOp::Eq, values: vec![serde_json::json!("O'Brien LIMIT 1")], sql: None }])
-            .unwrap();
+        assert_eq!(
+            sorted_browse(q, &[k("host", false)]).unwrap(),
+            "SELECT *\nFROM \"cpu\"\nORDER BY \"host\" ASC\nLIMIT 200"
+        );
+        let f = filtered_browse(
+            q,
+            &[ColumnFilter {
+                column: "host".into(),
+                op: FilterOp::Eq,
+                values: vec![serde_json::json!("O'Brien LIMIT 1")],
+                sql: None,
+            }],
+        )
+        .unwrap();
         assert_eq!(
             sorted_browse(&f, &[k("us\"age", true), k("time", false)]).unwrap(),
             "SELECT *\nFROM \"cpu\"\nWHERE \"host\" = 'O''Brien LIMIT 1'\nORDER BY \"us\"\"age\" DESC, \"time\" ASC\nLIMIT 200"
@@ -605,15 +915,33 @@ mod tests {
     #[test]
     fn parquet_rows_per_table() {
         let cols = vec!["table_name".to_string(), "row_count".to_string()];
-        let rows = vec![vec![json!("cpu"), json!(1500)], vec![json!("mem"), json!("20")], vec![json!("x"), J::Null]];
-        let got: Vec<_> = parquet_row_estimates(&cols, &rows).into_iter().map(|e| (e.object.kind, e.object.name, e.rows)).collect();
-        assert_eq!(got, vec![("measurement".into(), "cpu".into(), 1500), ("measurement".into(), "mem".into(), 20)]);
+        let rows = vec![
+            vec![json!("cpu"), json!(1500)],
+            vec![json!("mem"), json!("20")],
+            vec![json!("x"), J::Null],
+        ];
+        let got: Vec<_> = parquet_row_estimates(&cols, &rows)
+            .into_iter()
+            .map(|e| (e.object.kind, e.object.name, e.rows))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("measurement".into(), "cpu".into(), 1500),
+                ("measurement".into(), "mem".into(), 20)
+            ]
+        );
     }
 
     #[test]
     fn filtered_browse_before_order_by() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<J>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<J>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         assert_eq!(
             filtered_browse(
                 "SELECT *\nFROM \"cpu\"\nORDER BY time DESC\nLIMIT 200",
@@ -653,8 +981,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cols, ["time", "zeta", "alpha", "beta"]);
-        assert_eq!(rows[0], vec![json!("2024-01-31 13:45:00"), json!(1), json!("a"), J::Null]);
-        assert_eq!(rows[1], vec![json!("2024-01-31 13:46:00"), J::Null, J::Null, json!(2.5)]);
+        assert_eq!(
+            rows[0],
+            vec![json!("2024-01-31 13:45:00"), json!(1), json!("a"), J::Null]
+        );
+        assert_eq!(
+            rows[1],
+            vec![json!("2024-01-31 13:46:00"), J::Null, J::Null, json!(2.5)]
+        );
         assert!(jsonl_table("").unwrap().0.is_empty());
     }
 }

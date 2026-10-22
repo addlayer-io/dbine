@@ -110,7 +110,13 @@ fn yes() -> bool {
 
 impl Default for SchemaSpec {
     fn default() -> Self {
-        SchemaSpec { owner: false, owner_kinds: SchemaOwnerKinds::Both, cascade: false, privileges: Vec::new(), grant_option: true }
+        SchemaSpec {
+            owner: false,
+            owner_kinds: SchemaOwnerKinds::Both,
+            cascade: false,
+            privileges: Vec::new(),
+            grant_option: true,
+        }
     }
 }
 
@@ -140,19 +146,48 @@ impl SchemaOwnerKinds {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum SecurityAction {
-    CreateUser { name: String, password: Option<String> },
-    CreateRole { name: String },
-    Drop { name: String, kind: PrincipalKind },
-    SetPassword { name: String, password: String },
+    CreateUser {
+        name: String,
+        password: Option<String>,
+    },
+    CreateRole {
+        name: String,
+    },
+    Drop {
+        name: String,
+        kind: PrincipalKind,
+    },
+    SetPassword {
+        name: String,
+        password: String,
+    },
     /// Enable / disable signing in.
-    SetLogin { name: String, enabled: bool },
+    SetLogin {
+        name: String,
+        enabled: bool,
+    },
     /// `object`: None for database/server-wide privileges. A driver with
     /// a `SchemaSpec` whose `privileges` aren't empty accepts `kind:
     /// "schema"` (`schema: None`, `name`: the schema) here.
-    Grant { privileges: Vec<String>, object: Option<crate::ObjectRef>, to: String, grantable: bool },
-    Revoke { privileges: Vec<String>, object: Option<crate::ObjectRef>, from: String },
-    AddMember { role: String, member: String },
-    RemoveMember { role: String, member: String },
+    Grant {
+        privileges: Vec<String>,
+        object: Option<crate::ObjectRef>,
+        to: String,
+        grantable: bool,
+    },
+    Revoke {
+        privileges: Vec<String>,
+        object: Option<crate::ObjectRef>,
+        from: String,
+    },
+    AddMember {
+        role: String,
+        member: String,
+    },
+    RemoveMember {
+        role: String,
+        member: String,
+    },
 }
 
 impl SecurityAction {
@@ -173,18 +208,33 @@ mod tests {
 
     #[test]
     fn schema_spec_reads_back_and_defaults() {
-        let spec = SchemaSpec { owner: true, owner_kinds: SchemaOwnerKinds::Roles, cascade: true, privileges: vec!["USAGE", "CREATE"], grant_option: false };
-        let back: SchemaSpec = serde_json::from_value(serde_json::to_value(&spec).unwrap()).unwrap();
+        let spec = SchemaSpec {
+            owner: true,
+            owner_kinds: SchemaOwnerKinds::Roles,
+            cascade: true,
+            privileges: vec!["USAGE", "CREATE"],
+            grant_option: false,
+        };
+        let back: SchemaSpec =
+            serde_json::from_value(serde_json::to_value(&spec).unwrap()).unwrap();
         assert_eq!(back, spec);
         // A spec from before `grant_option` keeps offering the switch.
-        let old: SchemaSpec = serde_json::from_value(serde_json::json!({"owner": true, "privileges": ["USAGE"]})).unwrap();
+        let old: SchemaSpec =
+            serde_json::from_value(serde_json::json!({"owner": true, "privileges": ["USAGE"]}))
+                .unwrap();
         assert!(old.grant_option);
         assert_eq!(serde_json::to_value(spec).unwrap()["owner_kinds"], "roles");
         let empty: SchemaSpec = serde_json::from_value(serde_json::json!({})).unwrap();
         assert_eq!(empty, SchemaSpec::default());
         assert!(empty.grant_option);
         assert_eq!(empty.owner_kinds, SchemaOwnerKinds::Both);
-        assert!(SchemaOwnerKinds::Both.allows(PrincipalKind::Role) && SchemaOwnerKinds::Users.allows(PrincipalKind::User));
-        assert!(!SchemaOwnerKinds::Users.allows(PrincipalKind::Role) && !SchemaOwnerKinds::Roles.allows(PrincipalKind::User));
+        assert!(
+            SchemaOwnerKinds::Both.allows(PrincipalKind::Role)
+                && SchemaOwnerKinds::Users.allows(PrincipalKind::User)
+        );
+        assert!(
+            !SchemaOwnerKinds::Users.allows(PrincipalKind::Role)
+                && !SchemaOwnerKinds::Roles.allows(PrincipalKind::User)
+        );
     }
 }

@@ -13,7 +13,9 @@ fn bad(msg: &str) -> CommandError {
 
 /// The project's folder, canonical. It must exist and be a directory.
 pub fn canonical_root(p: &Path) -> CommandResult<PathBuf> {
-    let c = p.canonicalize().map_err(|_| bad("no se encuentra la carpeta del proyecto"))?;
+    let c = p
+        .canonicalize()
+        .map_err(|_| bad("no se encuentra la carpeta del proyecto"))?;
     if !c.is_dir() {
         return Err(bad("no se encuentra la carpeta del proyecto"));
     }
@@ -44,8 +46,12 @@ pub fn rel_ok(rel: &str) -> CommandResult<Vec<String>> {
     let mut out = Vec::with_capacity(parts.len());
     for p in parts {
         match p {
-            "" | "." | ".." => return Err(bad("la ruta no puede salir de la carpeta del proyecto")),
-            p if p.eq_ignore_ascii_case(".git") => return Err(bad("no se puede tocar la carpeta .git")),
+            "" | "." | ".." => {
+                return Err(bad("la ruta no puede salir de la carpeta del proyecto"))
+            }
+            p if p.eq_ignore_ascii_case(".git") => {
+                return Err(bad("no se puede tocar la carpeta .git"))
+            }
             p if cfg!(windows) && p.contains(':') => return Err(bad("la ruta no es válida")),
             p => out.push(p.to_string()),
         }
@@ -55,7 +61,9 @@ pub fn rel_ok(rel: &str) -> CommandResult<Vec<String>> {
 
 /// `abs` is the root itself, or something inside it and outside its `.git`.
 fn inside(root: &Path, abs: &Path) -> CommandResult<()> {
-    let rest = abs.strip_prefix(root).map_err(|_| bad("la ruta sale de la carpeta del proyecto"))?;
+    let rest = abs
+        .strip_prefix(root)
+        .map_err(|_| bad("la ruta sale de la carpeta del proyecto"))?;
     match rest.components().next() {
         Some(Component::Normal(first)) if first.to_string_lossy().eq_ignore_ascii_case(".git") => {
             Err(bad("no se puede tocar la carpeta .git"))
@@ -85,7 +93,11 @@ pub fn resolve_existing(root: &Path, rel: &str) -> CommandResult<PathBuf> {
 pub fn resolve_entry(root: &Path, rel: &str) -> CommandResult<PathBuf> {
     let parts = rel_ok(rel)?;
     let (name, dirs) = parts.split_last().ok_or_else(|| bad("falta la ruta"))?;
-    let parent = if dirs.is_empty() { root.to_path_buf() } else { resolve_existing(root, &dirs.join("/"))? };
+    let parent = if dirs.is_empty() {
+        root.to_path_buf()
+    } else {
+        resolve_existing(root, &dirs.join("/"))?
+    };
     if !parent.is_dir() {
         return Err(missing(rel));
     }
@@ -107,14 +119,18 @@ pub fn resolve_new(root: &Path, rel: &str) -> CommandResult<PathBuf> {
     for d in dirs {
         let next = cur.join(d);
         if std::fs::symlink_metadata(&next).is_ok() {
-            let canon = next.canonicalize().map_err(|_| bad("la ruta no es válida"))?;
+            let canon = next
+                .canonicalize()
+                .map_err(|_| bad("la ruta no es válida"))?;
             inside(root, &canon)?;
             if !canon.is_dir() {
                 return Err(bad("una parte de la ruta no es una carpeta"));
             }
             cur = canon;
         } else {
-            std::fs::create_dir(&next).map_err(|e| CommandError::Internal(format!("no se pudo crear la carpeta «{d}»: {e}")))?;
+            std::fs::create_dir(&next).map_err(|e| {
+                CommandError::Internal(format!("no se pudo crear la carpeta «{d}»: {e}"))
+            })?;
             cur = next;
         }
     }
@@ -143,12 +159,32 @@ mod tests {
 
     #[test]
     fn relative_paths_are_checked() {
-        for bad in ["", "../x", "a/../../x", "./a", "a//b", "/etc/passwd", "C:\\x", "c:/x", "\\\\srv\\share", ".git/config", "a/.GIT/x", ".Git", "a\0b"] {
+        for bad in [
+            "",
+            "../x",
+            "a/../../x",
+            "./a",
+            "a//b",
+            "/etc/passwd",
+            "C:\\x",
+            "c:/x",
+            "\\\\srv\\share",
+            ".git/config",
+            "a/.GIT/x",
+            ".Git",
+            "a\0b",
+        ] {
             assert!(rel_ok(bad).is_err(), "{bad:?} must be rejected");
         }
         assert!(rel_ok(&"a/".repeat(3000)).is_err(), "too long");
-        assert_eq!(rel_ok("consultas/ventas.sql").unwrap(), ["consultas", "ventas.sql"]);
-        assert_eq!(rel_ok("consultas\\ñandú año.sql").unwrap(), ["consultas", "ñandú año.sql"]);
+        assert_eq!(
+            rel_ok("consultas/ventas.sql").unwrap(),
+            ["consultas", "ventas.sql"]
+        );
+        assert_eq!(
+            rel_ok("consultas\\ñandú año.sql").unwrap(),
+            ["consultas", "ñandú año.sql"]
+        );
         assert_eq!(rel_ok(".gitignore").unwrap(), [".gitignore"]);
         assert!(rel_ok("a/..b/c..").is_ok(), "dots inside a name are fine");
     }
@@ -160,8 +196,14 @@ mod tests {
         std::fs::write(root.join("sql/a.sql"), "x").unwrap();
         std::fs::create_dir_all(root.join(".git")).unwrap();
         std::fs::write(root.join(".git/config"), "x").unwrap();
-        assert_eq!(resolve_existing(&root, "sql/a.sql").unwrap(), root.join("sql/a.sql"));
-        assert!(matches!(resolve_existing(&root, "sql/nope.sql"), Err(CommandError::NotFound(_))));
+        assert_eq!(
+            resolve_existing(&root, "sql/a.sql").unwrap(),
+            root.join("sql/a.sql")
+        );
+        assert!(matches!(
+            resolve_existing(&root, "sql/nope.sql"),
+            Err(CommandError::NotFound(_))
+        ));
         assert!(resolve_existing(&root, "../x").is_err());
         assert!(resolve_existing(&root, ".git/config").is_err());
         assert_eq!(to_rel(&root, &root.join("sql/a.sql")), "sql/a.sql");
@@ -197,7 +239,10 @@ mod tests {
         // Into .git through a link: rejected too.
         assert!(resolve_existing(&root, "g").is_err());
         // A link to a sibling inside the root: allowed, resolved to its target.
-        assert_eq!(resolve_existing(&root, "alias.sql").unwrap(), root.join("sql/a.sql"));
+        assert_eq!(
+            resolve_existing(&root, "alias.sql").unwrap(),
+            root.join("sql/a.sql")
+        );
         // The link itself, to delete or rename it, even when it points out.
         assert_eq!(resolve_entry(&root, "out").unwrap(), root.join("out"));
         assert!(resolve_entry(&root, "out/secret").is_err());

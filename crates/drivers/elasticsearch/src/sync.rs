@@ -6,24 +6,50 @@
 //! those only warn. Dynamic settings (replicas, refresh interval) go in
 //! `PUT /<index>/_settings`, aliases in `POST /_aliases`.
 
-use crate::ddl::{analysis_opt, check_index_name, field_mapping, index_ddl, json_obj_opt, opt, put_field, MAPPINGS_EXTRA, META_FIELDS};
+use crate::ddl::{
+    analysis_opt, check_index_name, field_mapping, index_ddl, json_obj_opt, opt, put_field,
+    MAPPINGS_EXTRA, META_FIELDS,
+};
 use crate::json::{Obj, J};
 use dbine_driver::{ColumnDef, DdlParts, Result, SyncScript, TableChange, TableSchema};
 use std::collections::BTreeSet;
 
 pub fn sync_script(changes: &[TableChange], opensearch: bool) -> Result<SyncScript> {
-    let (mut drops, mut alters, mut creates, mut warnings) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut drops, mut alters, mut creates, mut warnings) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for ch in changes {
         match ch {
-            TableChange::Create { table } => creates.push(index_ddl(table, DdlParts { create: true, ..Default::default() }, opensearch)?),
+            TableChange::Create { table } => creates.push(index_ddl(
+                table,
+                DdlParts {
+                    create: true,
+                    ..Default::default()
+                },
+                opensearch,
+            )?),
             TableChange::Drop { table } => {
-                warnings.push(format!("Se borra el índice {} con todos sus documentos.", table.name));
-                drops.push(index_ddl(table, DdlParts { drop: true, ..Default::default() }, opensearch)?);
+                warnings.push(format!(
+                    "Se borra el índice {} con todos sus documentos.",
+                    table.name
+                ));
+                drops.push(index_ddl(
+                    table,
+                    DdlParts {
+                        drop: true,
+                        ..Default::default()
+                    },
+                    opensearch,
+                )?);
             }
-            TableChange::Alter { old, new } => alter(old, new, opensearch, &mut alters, &mut warnings)?,
+            TableChange::Alter { old, new } => {
+                alter(old, new, opensearch, &mut alters, &mut warnings)?
+            }
         }
     }
-    Ok(SyncScript { statements: [drops, alters, creates].concat(), warnings })
+    Ok(SyncScript {
+        statements: [drops, alters, creates].concat(),
+        warnings,
+    })
 }
 
 fn squash(s: &str) -> String {
@@ -37,11 +63,20 @@ fn field(c: &ColumnDef) -> bool {
 
 /// A field's mapping without its description (`meta`), to compare.
 fn params(c: &ColumnDef, opensearch: bool) -> Result<String> {
-    let m: Obj = field_mapping(c, opensearch)?.into_iter().filter(|(k, _)| k != "meta").collect();
+    let m: Obj = field_mapping(c, opensearch)?
+        .into_iter()
+        .filter(|(k, _)| k != "meta")
+        .collect();
     Ok(J::Obj(m).compact())
 }
 
-fn alter(old: &TableSchema, new: &TableSchema, os: bool, out: &mut Vec<String>, warnings: &mut Vec<String>) -> Result<()> {
+fn alter(
+    old: &TableSchema,
+    new: &TableSchema,
+    os: bool,
+    out: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
     let name = new.name.trim();
     check_index_name(name)?;
     // Analysis (analyzers, tokenizers, filters…): only on a closed index,
@@ -60,8 +95,19 @@ fn alter(old: &TableSchema, new: &TableSchema, os: bool, out: &mut Vec<String>, 
             None => warnings.push(format!("{name}: el análisis propio del índice no se quita sin reindexar en uno nuevo; se deja como está.")),
         }
     }
-    let find = |t: &TableSchema, n: &str| t.columns.iter().find(|c| c.name.trim() == n.trim()).cloned();
-    let ty = |c: &ColumnDef| squash(if c.data_type.trim().is_empty() { "object" } else { &c.data_type });
+    let find = |t: &TableSchema, n: &str| {
+        t.columns
+            .iter()
+            .find(|c| c.name.trim() == n.trim())
+            .cloned()
+    };
+    let ty = |c: &ColumnDef| {
+        squash(if c.data_type.trim().is_empty() {
+            "object"
+        } else {
+            &c.data_type
+        })
+    };
 
     // Fields that go in the mapping update, by path.
     let mut put: Vec<ColumnDef> = Vec::new();
@@ -92,7 +138,11 @@ fn alter(old: &TableSchema, new: &TableSchema, os: bool, out: &mut Vec<String>, 
             Some(_) => {}
         }
     }
-    for o in old.columns.iter().filter(|c| field(c) && find(new, &c.name).is_none()) {
+    for o in old
+        .columns
+        .iter()
+        .filter(|c| field(c) && find(new, &c.name).is_none())
+    {
         warnings.push(format!(
             "{name}.{}: un campo no se puede quitar del mapping; queda (sin valores en los documentos nuevos). Para quitarlo, reindexá en otro índice.",
             o.name
@@ -102,7 +152,14 @@ fn alter(old: &TableSchema, new: &TableSchema, os: bool, out: &mut Vec<String>, 
     let mut body: Obj = Vec::new();
     if opt(&new.options, "dynamic") != opt(&old.options, "dynamic") {
         if let Some(d) = opt(&new.options, "dynamic") {
-            body.push(("dynamic".into(), if d == "true" || d == "false" { J::Bool(d == "true") } else { J::Str(d.into()) }));
+            body.push((
+                "dynamic".into(),
+                if d == "true" || d == "false" {
+                    J::Bool(d == "true")
+                } else {
+                    J::Str(d.into())
+                },
+            ));
         }
     }
     if old.comment.as_deref().unwrap_or("") != new.comment.as_deref().unwrap_or("") {
@@ -138,28 +195,60 @@ fn alter(old: &TableSchema, new: &TableSchema, os: bool, out: &mut Vec<String>, 
     let mut index: Obj = Vec::new();
     for key in ["number_of_replicas", "refresh_interval"] {
         if let Some(v) = opt(&new.options, key).filter(|v| Some(*v) != opt(&old.options, key)) {
-            let j = v.parse::<serde_json::Number>().map(J::Num).unwrap_or_else(|_| J::Str(v.into()));
+            let j = v
+                .parse::<serde_json::Number>()
+                .map(J::Num)
+                .unwrap_or_else(|_| J::Str(v.into()));
             index.push((key.into(), j));
         }
     }
     if !index.is_empty() {
-        out.push(format!("PUT /{name}/_settings\n{}", J::Obj(vec![("index".into(), J::Obj(index))]).pretty()));
+        out.push(format!(
+            "PUT /{name}/_settings\n{}",
+            J::Obj(vec![("index".into(), J::Obj(index))]).pretty()
+        ));
     }
-    for (key, what) in [("number_of_shards", "la cantidad de shards"), ("knn", "k-NN")] {
+    for (key, what) in [
+        ("number_of_shards", "la cantidad de shards"),
+        ("knn", "k-NN"),
+    ] {
         if opt(&new.options, key).is_some_and(|v| Some(v) != opt(&old.options, key)) {
-            warnings.push(format!("{name}: {what} no se cambia en un índice existente; se deja como está."));
+            warnings.push(format!(
+                "{name}: {what} no se cambia en un índice existente; se deja como está."
+            ));
         }
     }
 
     // Aliases.
     let aliases = |t: &TableSchema| -> BTreeSet<String> {
-        opt(&t.options, "aliases").unwrap_or("").split(',').map(str::trim).filter(|a| !a.is_empty()).map(str::to_string).collect()
+        opt(&t.options, "aliases")
+            .unwrap_or("")
+            .split(',')
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(str::to_string)
+            .collect()
     };
     let (oa, na) = (aliases(old), aliases(new));
-    let action = |verb: &str, a: &str| J::Obj(vec![(verb.into(), J::Obj(vec![("index".into(), J::Str(name.into())), ("alias".into(), J::Str(a.into()))]))]);
-    let actions: Vec<J> = oa.difference(&na).map(|a| action("remove", a)).chain(na.difference(&oa).map(|a| action("add", a))).collect();
+    let action = |verb: &str, a: &str| {
+        J::Obj(vec![(
+            verb.into(),
+            J::Obj(vec![
+                ("index".into(), J::Str(name.into())),
+                ("alias".into(), J::Str(a.into())),
+            ]),
+        )])
+    };
+    let actions: Vec<J> = oa
+        .difference(&na)
+        .map(|a| action("remove", a))
+        .chain(na.difference(&oa).map(|a| action("add", a)))
+        .collect();
     if !actions.is_empty() {
-        out.push(format!("POST /_aliases\n{}", J::Obj(vec![("actions".into(), J::Arr(actions))]).pretty()));
+        out.push(format!(
+            "POST /_aliases\n{}",
+            J::Obj(vec![("actions".into(), J::Arr(actions))]).pretty()
+        ));
     }
     Ok(())
 }
@@ -169,15 +258,30 @@ mod tests {
     use super::*;
 
     fn col(name: &str, ty: &str) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable: true,
+            ..Default::default()
+        }
     }
 
     fn idx() -> TableSchema {
         TableSchema {
             kind: "index".into(),
             name: "clientes".into(),
-            columns: vec![col("nombre", "text"), col("edad", "integer"), col("baja", "date"), col("dir", "nested"), col("dir.calle", "keyword")],
-            options: [("number_of_shards".to_string(), "1".to_string()), ("aliases".to_string(), "a1".to_string())].into(),
+            columns: vec![
+                col("nombre", "text"),
+                col("edad", "integer"),
+                col("baja", "date"),
+                col("dir", "nested"),
+                col("dir.calle", "keyword"),
+            ],
+            options: [
+                ("number_of_shards".to_string(), "1".to_string()),
+                ("aliases".to_string(), "a1".to_string()),
+            ]
+            .into(),
             ..Default::default()
         }
     }
@@ -195,7 +299,12 @@ mod tests {
         new.comment = Some("Clientes".into());
         let s = sync_script(&[TableChange::Alter { old: idx(), new }], false).unwrap();
         assert_eq!(s.statements.len(), 3, "{:?}", s.statements);
-        let m: serde_json::Value = serde_json::from_str(s.statements[0].strip_prefix("PUT /clientes/_mapping\n").unwrap()).unwrap();
+        let m: serde_json::Value = serde_json::from_str(
+            s.statements[0]
+                .strip_prefix("PUT /clientes/_mapping\n")
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             m,
             serde_json::json!({
@@ -207,25 +316,57 @@ mod tests {
                 }
             })
         );
-        assert_eq!(s.statements[1], "PUT /clientes/_settings\n{\n  \"index\": {\n    \"number_of_replicas\": 0\n  }\n}");
-        let a: serde_json::Value = serde_json::from_str(s.statements[2].strip_prefix("POST /_aliases\n").unwrap()).unwrap();
-        assert_eq!(a, serde_json::json!({"actions": [{"remove": {"index": "clientes", "alias": "a1"}}, {"add": {"index": "clientes", "alias": "a2"}}]}));
+        assert_eq!(
+            s.statements[1],
+            "PUT /clientes/_settings\n{\n  \"index\": {\n    \"number_of_replicas\": 0\n  }\n}"
+        );
+        let a: serde_json::Value =
+            serde_json::from_str(s.statements[2].strip_prefix("POST /_aliases\n").unwrap())
+                .unwrap();
+        assert_eq!(
+            a,
+            serde_json::json!({"actions": [{"remove": {"index": "clientes", "alias": "a1"}}, {"add": {"index": "clientes", "alias": "a2"}}]})
+        );
         let w = s.warnings.join("\n");
-        assert!(w.contains("reindexar") && w.contains("edad") && w.contains("baja"), "{w}");
+        assert!(
+            w.contains("reindexar") && w.contains("edad") && w.contains("baja"),
+            "{w}"
+        );
         assert_eq!(s.warnings.len(), 2);
     }
 
     #[test]
     fn analysis_changes_on_a_closed_index() {
         let mut new = idx();
-        new.options.insert("analysis".into(), r#"{"analyzer":{"es":{"type":"standard","stopwords":"_spanish_"}}}"#.into());
-        let s = sync_script(&[TableChange::Alter { old: idx(), new: new.clone() }], false).unwrap();
+        new.options.insert(
+            "analysis".into(),
+            r#"{"analyzer":{"es":{"type":"standard","stopwords":"_spanish_"}}}"#.into(),
+        );
+        let s = sync_script(
+            &[TableChange::Alter {
+                old: idx(),
+                new: new.clone(),
+            }],
+            false,
+        )
+        .unwrap();
         assert_eq!(s.statements.len(), 3, "{:?}", s.statements);
         assert_eq!(s.statements[0], "POST /clientes/_close");
-        assert!(s.statements[1].starts_with("PUT /clientes/_settings\n{\n  \"analysis\""), "{}", s.statements[1]);
+        assert!(
+            s.statements[1].starts_with("PUT /clientes/_settings\n{\n  \"analysis\""),
+            "{}",
+            s.statements[1]
+        );
         assert_eq!(s.statements[2], "POST /clientes/_open");
         // Removing it only warns.
-        let s = sync_script(&[TableChange::Alter { old: new, new: idx() }], false).unwrap();
+        let s = sync_script(
+            &[TableChange::Alter {
+                old: new,
+                new: idx(),
+            }],
+            false,
+        )
+        .unwrap();
         assert!(s.statements.is_empty() && s.warnings.len() == 1, "{s:?}");
     }
 
@@ -233,18 +374,36 @@ mod tests {
     fn the_description_keeps_the_rest_of_meta() {
         let mut old = idx();
         old.comment = Some("Clientes".into());
-        old.options.insert(MAPPINGS_EXTRA.into(), r#"{"_meta":{"owner":"x"}}"#.into());
+        old.options
+            .insert(MAPPINGS_EXTRA.into(), r#"{"_meta":{"owner":"x"}}"#.into());
         let mut new = old.clone();
         new.comment = None;
-        let s = sync_script(&[TableChange::Alter { old: old.clone(), new }], false).unwrap();
-        let m: serde_json::Value = serde_json::from_str(s.statements[0].strip_prefix("PUT /clientes/_mapping\n").unwrap()).unwrap();
+        let s = sync_script(
+            &[TableChange::Alter {
+                old: old.clone(),
+                new,
+            }],
+            false,
+        )
+        .unwrap();
+        let m: serde_json::Value = serde_json::from_str(
+            s.statements[0]
+                .strip_prefix("PUT /clientes/_mapping\n")
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(m, serde_json::json!({"_meta": {"owner": "x"}}));
         // Without other keys, an empty description takes it off.
         old.options.remove(MAPPINGS_EXTRA);
         let mut new = old.clone();
         new.comment = None;
         let s = sync_script(&[TableChange::Alter { old, new }], false).unwrap();
-        let m: serde_json::Value = serde_json::from_str(s.statements[0].strip_prefix("PUT /clientes/_mapping\n").unwrap()).unwrap();
+        let m: serde_json::Value = serde_json::from_str(
+            s.statements[0]
+                .strip_prefix("PUT /clientes/_mapping\n")
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(m, serde_json::json!({"_meta": {"description": ""}}));
     }
 
@@ -252,8 +411,19 @@ mod tests {
     fn create_and_drop() {
         let mut old = idx();
         old.name = "viejo".into();
-        let s = sync_script(&[TableChange::Create { table: idx() }, TableChange::Drop { table: old }], true).unwrap();
+        let s = sync_script(
+            &[
+                TableChange::Create { table: idx() },
+                TableChange::Drop { table: old },
+            ],
+            true,
+        )
+        .unwrap();
         assert_eq!(s.statements[0], "DELETE /viejo");
-        assert!(s.statements[1].starts_with("PUT /clientes\n{"), "{}", s.statements[1]);
+        assert!(
+            s.statements[1].starts_with("PUT /clientes\n{"),
+            "{}",
+            s.statements[1]
+        );
     }
 }

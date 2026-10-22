@@ -33,7 +33,10 @@ pub(crate) struct RangeEstimate {
 /// Size of a token range `(start, end]` of the Murmur3 ring (wrapping past
 /// the end); `None` for tokens of other partitioners.
 fn range_len(start: &str, end: &str) -> Option<f64> {
-    let (s, e) = (start.parse::<i64>().ok()? as i128, end.parse::<i64>().ok()? as i128);
+    let (s, e) = (
+        start.parse::<i64>().ok()? as i128,
+        end.parse::<i64>().ok()? as i128,
+    );
     let len = if e > s { e - s } else { e - s + (1i128 << 64) };
     Some(len as f64)
 }
@@ -53,7 +56,10 @@ pub(crate) fn per_table(ranges: &[RangeEstimate]) -> BTreeMap<String, u64> {
     }
     acc.into_iter()
         .map(|(t, (n, covered))| {
-            let share = covered.map(|c| c / RING).filter(|s| *s > 0.0 && *s <= 1.0).unwrap_or(1.0);
+            let share = covered
+                .map(|c| c / RING)
+                .filter(|s| *s > 0.0 && *s <= 1.0)
+                .unwrap_or(1.0);
             (t.to_string(), (n / share).round() as u64)
         })
         .collect()
@@ -61,31 +67,60 @@ pub(crate) fn per_table(ranges: &[RangeEstimate]) -> BTreeMap<String, u64> {
 
 impl CassandraSession {
     async fn ranges(&self, ks: &str) -> Vec<RangeEstimate> {
-        let read = |r: &scylla::value::Row| RangeEstimate { table: text(r, 0), start: text(r, 1), end: text(r, 2), partitions: int(r, 3) };
+        let read = |r: &scylla::value::Row| RangeEstimate {
+            table: text(r, 0),
+            start: text(r, 1),
+            end: text(r, 2),
+            partitions: int(r, 3),
+        };
         // Cassandra 4.0+: `primary` (the node's own ranges) beside `local_primary`.
         let cql = "SELECT table_name, range_start, range_end, partitions_count, range_type FROM system.table_estimates WHERE keyspace_name = ?";
         if let Ok(rows) = self.rows(cql, (ks,)).await {
-            return rows.iter().filter(|r| text(r, 4) == "primary").map(read).collect();
+            return rows
+                .iter()
+                .filter(|r| text(r, 4) == "primary")
+                .map(read)
+                .collect();
         }
         let cql = "SELECT table_name, range_start, range_end, partitions_count FROM system.size_estimates WHERE keyspace_name = ?";
-        self.rows(cql, (ks,)).await.map(|rows| rows.iter().map(read).collect()).unwrap_or_default()
+        self.rows(cql, (ks,))
+            .await
+            .map(|rows| rows.iter().map(read).collect())
+            .unwrap_or_default()
     }
 
     /// The keyspace's materialized views (without ScyllaDB's index views).
     async fn views(&self, ks: &str) -> Vec<(String, String)> {
         let indexes: Vec<String> = self
-            .rows("SELECT index_name FROM system_schema.indexes WHERE keyspace_name = ?", (ks,))
+            .rows(
+                "SELECT index_name FROM system_schema.indexes WHERE keyspace_name = ?",
+                (ks,),
+            )
             .await
-            .map(|rows| rows.iter().map(|r| format!("{}_index", text(r, 0))).collect())
+            .map(|rows| {
+                rows.iter()
+                    .map(|r| format!("{}_index", text(r, 0)))
+                    .collect()
+            })
             .unwrap_or_default();
-        self.rows("SELECT view_name, comment FROM system_schema.views WHERE keyspace_name = ?", (ks,))
-            .await
-            .map(|rows| rows.iter().map(|r| (text(r, 0), text(r, 1))).filter(|(v, _)| !indexes.contains(v)).collect())
-            .unwrap_or_default()
+        self.rows(
+            "SELECT view_name, comment FROM system_schema.views WHERE keyspace_name = ?",
+            (ks,),
+        )
+        .await
+        .map(|rows| {
+            rows.iter()
+                .map(|r| (text(r, 0), text(r, 1)))
+                .filter(|(v, _)| !indexes.contains(v))
+                .collect()
+        })
+        .unwrap_or_default()
     }
 
     pub(crate) async fn stats_rows(&self) -> Result<Vec<RowEstimate>> {
-        let Some(ks) = self.keyspace.clone() else { return Ok(Vec::new()) };
+        let Some(ks) = self.keyspace.clone() else {
+            return Ok(Vec::new());
+        };
         let ranges = self.ranges(&ks).await;
         if ranges.is_empty() {
             return Ok(Vec::new());
@@ -94,21 +129,38 @@ impl CassandraSession {
         Ok(per_table(&ranges)
             .into_iter()
             .map(|(name, rows)| {
-                let kind = if views.contains(&name) { kinds::MATERIALIZED_VIEW } else { kinds::TABLE };
-                RowEstimate { object: ObjectRef { kind: kind.into(), schema: Some(ks.clone()), name }, rows }
+                let kind = if views.contains(&name) {
+                    kinds::MATERIALIZED_VIEW
+                } else {
+                    kinds::TABLE
+                };
+                RowEstimate {
+                    object: ObjectRef {
+                        kind: kind.into(),
+                        schema: Some(ks.clone()),
+                        name,
+                    },
+                    rows,
+                }
             })
             .collect())
     }
 
     pub(crate) async fn stats_comments(&self) -> Result<Vec<ObjectComment>> {
-        let Some(ks) = self.keyspace.clone() else { return Ok(Vec::new()) };
+        let Some(ks) = self.keyspace.clone() else {
+            return Ok(Vec::new());
+        };
         Ok(self
             .views(&ks)
             .await
             .into_iter()
             .filter(|(_, c)| !c.trim().is_empty())
             .map(|(name, comment)| ObjectComment {
-                object: ObjectRef { kind: kinds::MATERIALIZED_VIEW.into(), schema: None, name },
+                object: ObjectRef {
+                    kind: kinds::MATERIALIZED_VIEW.into(),
+                    schema: None,
+                    name,
+                },
                 comment,
             })
             .collect())
@@ -120,7 +172,12 @@ mod tests {
     use super::*;
 
     fn r(table: &str, start: i64, end: i64, partitions: i64) -> RangeEstimate {
-        RangeEstimate { table: table.into(), start: start.to_string(), end: end.to_string(), partitions }
+        RangeEstimate {
+            table: table.into(),
+            start: start.to_string(),
+            end: end.to_string(),
+            partitions,
+        }
     }
 
     #[test]
@@ -140,7 +197,12 @@ mod tests {
 
     #[test]
     fn other_partitioners_keep_the_sum() {
-        let m = per_table(&[RangeEstimate { table: "t".into(), start: "abc".into(), end: "def".into(), partitions: 7 }]);
+        let m = per_table(&[RangeEstimate {
+            table: "t".into(),
+            start: "abc".into(),
+            end: "def".into(),
+            partitions: 7,
+        }]);
         assert_eq!(m["t"], 7);
     }
 

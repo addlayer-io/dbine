@@ -26,7 +26,10 @@ pub struct Client {
     http: reqwest::Client,
     base: String,
     /// SigV4 signing: (region, credentials provider).
-    iam: Option<(String, aws_credential_types::provider::SharedCredentialsProvider)>,
+    iam: Option<(
+        String,
+        aws_credential_types::provider::SharedCredentialsProvider,
+    )>,
 }
 
 pub fn base_url(cfg: &ConnectionConfig) -> String {
@@ -36,7 +39,11 @@ pub fn base_url(cfg: &ConnectionConfig) -> String {
         return host.trim_end_matches('/').to_string();
     }
     // Neptune only takes TLS; plain http is left for proxies / tunnels.
-    let scheme = if cfg.encrypt || cfg.option("iam") == Some("true") { "https" } else { "http" };
+    let scheme = if cfg.encrypt || cfg.option("iam") == Some("true") {
+        "https"
+    } else {
+        "http"
+    };
     format!("{scheme}://{host}:{}", cfg.port_or(8182))
 }
 
@@ -57,7 +64,10 @@ pub fn parse_results(text: &str) -> std::result::Result<Reply, String> {
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("un objeto con results")
         }
-        fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> std::result::Result<Self::Value, A::Error> {
+        fn visit_map<A: MapAccess<'de>>(
+            self,
+            mut m: A,
+        ) -> std::result::Result<Self::Value, A::Error> {
             let mut out = Vec::new();
             while let Some(k) = m.next_key::<String>()? {
                 if k == "results" {
@@ -71,7 +81,10 @@ pub fn parse_results(text: &str) -> std::result::Result<Reply, String> {
     }
     impl<'de> serde::de::DeserializeSeed<'de> for Rows {
         type Value = Vec<Vec<(String, Value)>>;
-        fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<Self::Value, D::Error> {
+        fn deserialize<D: Deserializer<'de>>(
+            self,
+            d: D,
+        ) -> std::result::Result<Self::Value, D::Error> {
             d.deserialize_seq(self)
         }
     }
@@ -80,7 +93,10 @@ pub fn parse_results(text: &str) -> std::result::Result<Reply, String> {
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("una lista de filas")
         }
-        fn visit_seq<A: SeqAccess<'de>>(self, mut s: A) -> std::result::Result<Self::Value, A::Error> {
+        fn visit_seq<A: SeqAccess<'de>>(
+            self,
+            mut s: A,
+        ) -> std::result::Result<Self::Value, A::Error> {
             let mut out = Vec::new();
             while let Some(r) = s.next_element_seed(Row)? {
                 out.push(r);
@@ -90,7 +106,10 @@ pub fn parse_results(text: &str) -> std::result::Result<Reply, String> {
     }
     impl<'de> serde::de::DeserializeSeed<'de> for Row {
         type Value = Vec<(String, Value)>;
-        fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<Self::Value, D::Error> {
+        fn deserialize<D: Deserializer<'de>>(
+            self,
+            d: D,
+        ) -> std::result::Result<Self::Value, D::Error> {
             d.deserialize_map(self)
         }
     }
@@ -99,7 +118,10 @@ pub fn parse_results(text: &str) -> std::result::Result<Reply, String> {
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("una fila")
         }
-        fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> std::result::Result<Self::Value, A::Error> {
+        fn visit_map<A: MapAccess<'de>>(
+            self,
+            mut m: A,
+        ) -> std::result::Result<Self::Value, A::Error> {
             let mut out = Vec::new();
             while let Some((k, v)) = m.next_entry::<String, Value>()? {
                 out.push((k, v));
@@ -108,7 +130,9 @@ pub fn parse_results(text: &str) -> std::result::Result<Reply, String> {
         }
     }
     let mut de = serde_json::Deserializer::from_str(text);
-    let rows = de.deserialize_map(Top).map_err(|e| format!("respuesta inesperada de Neptune: {e}"))?;
+    let rows = de
+        .deserialize_map(Top)
+        .map_err(|e| format!("respuesta inesperada de Neptune: {e}"))?;
     let mut reply = Reply::default();
     for r in &rows {
         for (k, _) in r {
@@ -119,7 +143,18 @@ pub fn parse_results(text: &str) -> std::result::Result<Reply, String> {
     }
     reply.rows = rows
         .into_iter()
-        .map(|r| reply.columns.iter().map(|c| r.iter().find(|(k, _)| k == c).map(|(_, v)| v.clone()).unwrap_or(Value::Null)).collect())
+        .map(|r| {
+            reply
+                .columns
+                .iter()
+                .map(|c| {
+                    r.iter()
+                        .find(|(k, _)| k == c)
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or(Value::Null)
+                })
+                .collect()
+        })
         .collect();
     Ok(reply)
 }
@@ -136,9 +171,21 @@ fn form(pairs: &[(&str, &str)]) -> String {
 fn error_of(status: reqwest::StatusCode, body: &str) -> Error {
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     let code = v.get("code").and_then(Value::as_str).unwrap_or_default();
-    let msg = v.get("detailedMessage").or_else(|| v.get("message")).and_then(Value::as_str).unwrap_or(body);
-    let text = if code.is_empty() { format!("HTTP {status}: {msg}") } else { format!("{code}: {msg}") };
-    if status.as_u16() == 401 || status.as_u16() == 403 || code.contains("AccessDenied") || code.contains("Signature") {
+    let msg = v
+        .get("detailedMessage")
+        .or_else(|| v.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or(body);
+    let text = if code.is_empty() {
+        format!("HTTP {status}: {msg}")
+    } else {
+        format!("{code}: {msg}")
+    };
+    if status.as_u16() == 401
+        || status.as_u16() == 403
+        || code.contains("AccessDenied")
+        || code.contains("Signature")
+    {
         Error::AuthFailed(text)
     } else {
         Error::Query(text)
@@ -163,27 +210,49 @@ impl Client {
         } else {
             None
         };
-        Ok(Client { http, base: base_url(cfg), iam })
+        Ok(Client {
+            http,
+            base: base_url(cfg),
+            iam,
+        })
     }
 
     /// One request; `body` is form-encoded.
     pub async fn call(&self, method: Method, path: &str, body: Option<String>) -> Result<String> {
         let url = format!("{}{path}", self.base);
-        let mut rq = self.http.request(method.clone(), &url).header("Accept", "application/json");
+        let mut rq = self
+            .http
+            .request(method.clone(), &url)
+            .header("Accept", "application/json");
         if body.is_some() {
             rq = rq.header("Content-Type", "application/x-www-form-urlencoded");
         }
         if let Some((region, provider)) = &self.iam {
-            for (k, v) in self.sign(region, provider, method.as_str(), &url, body.as_deref().unwrap_or("")).await? {
+            for (k, v) in self
+                .sign(
+                    region,
+                    provider,
+                    method.as_str(),
+                    &url,
+                    body.as_deref().unwrap_or(""),
+                )
+                .await?
+            {
                 rq = rq.header(k, v);
             }
         }
         if let Some(b) = body {
             rq = rq.body(b);
         }
-        let resp = rq.send().await.map_err(|e| Error::Connect(format!("no se pudo llegar a Neptune: {e}")))?;
+        let resp = rq
+            .send()
+            .await
+            .map_err(|e| Error::Connect(format!("no se pudo llegar a Neptune: {e}")))?;
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| Error::Connect(e.to_string()))?;
         if status.is_success() {
             Ok(text)
         } else {
@@ -201,7 +270,10 @@ impl Client {
     ) -> Result<Vec<(String, String)>> {
         use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningSettings};
         use aws_sigv4::sign::v4;
-        let creds = provider.provide_credentials().await.map_err(|e| Error::AuthFailed(format!("credenciales de AWS: {e}")))?;
+        let creds = provider
+            .provide_credentials()
+            .await
+            .map_err(|e| Error::AuthFailed(format!("credenciales de AWS: {e}")))?;
         let identity = creds.into();
         let params = v4::SigningParams::builder()
             .identity(&identity)
@@ -212,15 +284,30 @@ impl Client {
             .build()
             .map_err(|e| Error::AuthFailed(format!("firma SigV4: {e}")))?
             .into();
-        let host = url.split("://").nth(1).and_then(|r| r.split('/').next()).unwrap_or_default().to_string();
+        let host = url
+            .split("://")
+            .nth(1)
+            .and_then(|r| r.split('/').next())
+            .unwrap_or_default()
+            .to_string();
         let mut headers = vec![("host", host.as_str())];
         if !body.is_empty() {
             headers.push(("content-type", "application/x-www-form-urlencoded"));
         }
-        let req = SignableRequest::new(method, url, headers.into_iter(), SignableBody::Bytes(body.as_bytes()))
-            .map_err(|e| Error::AuthFailed(format!("firma SigV4: {e}")))?;
-        let (instructions, _) = sign(req, &params).map_err(|e| Error::AuthFailed(format!("firma SigV4: {e}")))?.into_parts();
-        Ok(instructions.headers().map(|(k, v)| (k.to_string(), v.to_string())).collect())
+        let req = SignableRequest::new(
+            method,
+            url,
+            headers.into_iter(),
+            SignableBody::Bytes(body.as_bytes()),
+        )
+        .map_err(|e| Error::AuthFailed(format!("firma SigV4: {e}")))?;
+        let (instructions, _) = sign(req, &params)
+            .map_err(|e| Error::AuthFailed(format!("firma SigV4: {e}")))?
+            .into_parts();
+        Ok(instructions
+            .headers()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect())
     }
 
     /// Run one openCypher statement.
@@ -230,23 +317,38 @@ impl Client {
         if let Some(p) = &p {
             pairs.push(("parameters", p.as_str()));
         }
-        let text = self.call(Method::POST, "/openCypher", Some(form(&pairs))).await?;
+        let text = self
+            .call(Method::POST, "/openCypher", Some(form(&pairs)))
+            .await?;
         parse_results(&text).map_err(Error::Query)
     }
 
     /// `explain=static` (plan only) or `dynamic` (runs it, with figures).
     pub async fn explain(&self, query: &str, mode: &str) -> Result<String> {
-        self.call(Method::POST, "/openCypher", Some(form(&[("query", query), ("explain", mode)]))).await
+        self.call(
+            Method::POST,
+            "/openCypher",
+            Some(form(&[("query", query), ("explain", mode)])),
+        )
+        .await
     }
 
     pub async fn json(&self, path: &str) -> Result<Value> {
         let t = self.call(Method::GET, path, None).await?;
-        serde_json::from_str(&t).map_err(|e| Error::Query(format!("respuesta inesperada de {path}: {e}")))
+        serde_json::from_str(&t)
+            .map_err(|e| Error::Query(format!("respuesta inesperada de {path}: {e}")))
     }
 
     /// Cancel one running query by its id (the process list).
     pub async fn cancel(&self, id: &str) -> Result<()> {
-        self.call(Method::POST, "/openCypher/status", Some(form(&[("cancelQuery", ""), ("queryId", id)]))).await.map(|_| ()).map_err(|e| match e {
+        self.call(
+            Method::POST,
+            "/openCypher/status",
+            Some(form(&[("cancelQuery", ""), ("queryId", id)])),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| match e {
             Error::Query(m) => Error::Query(format!("no se pudo cancelar la consulta {id}: {m}")),
             e => e,
         })
@@ -255,10 +357,21 @@ impl Client {
     /// Cancel the running queries whose text is `query` (the interrupter).
     pub async fn cancel_matching(&self, query: &str) -> Result<()> {
         let st = self.json("/openCypher/status").await?;
-        for q in st.get("queries").and_then(Value::as_array).cloned().unwrap_or_default() {
+        for q in st
+            .get("queries")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+        {
             if q.get("queryString").and_then(Value::as_str).map(str::trim) == Some(query.trim()) {
                 if let Some(id) = q.get("queryId").and_then(Value::as_str) {
-                    let _ = self.call(Method::POST, "/openCypher/status", Some(form(&[("cancelQuery", ""), ("queryId", id)]))).await;
+                    let _ = self
+                        .call(
+                            Method::POST,
+                            "/openCypher/status",
+                            Some(form(&[("cancelQuery", ""), ("queryId", id)])),
+                        )
+                        .await;
                 }
             }
         }
@@ -273,27 +386,56 @@ mod tests {
 
     #[test]
     fn results_keep_column_order() {
-        let r = parse_results(r#"{"results":[{"z":1,"a":{"~id":"1","~labels":["P"]}},{"a":null,"b":true}]}"#).unwrap();
+        let r = parse_results(
+            r#"{"results":[{"z":1,"a":{"~id":"1","~labels":["P"]}},{"a":null,"b":true}]}"#,
+        )
+        .unwrap();
         assert_eq!(r.columns, ["z", "a", "b"]);
-        assert_eq!(r.rows[0], vec![json!(1), json!({ "~id": "1", "~labels": ["P"] }), Value::Null]);
+        assert_eq!(
+            r.rows[0],
+            vec![
+                json!(1),
+                json!({ "~id": "1", "~labels": ["P"] }),
+                Value::Null
+            ]
+        );
         assert_eq!(r.rows[1], vec![Value::Null, Value::Null, json!(true)]);
-        assert_eq!(parse_results(r#"{"results":[]}"#).unwrap(), Reply::default());
+        assert_eq!(
+            parse_results(r#"{"results":[]}"#).unwrap(),
+            Reply::default()
+        );
         assert!(parse_results("[]").is_err());
     }
 
     #[test]
     fn urls_and_forms() {
-        let mut c = ConnectionConfig { host: "db.cluster-x.us-east-1.neptune.amazonaws.com".into(), encrypt: true, ..Default::default() };
-        assert_eq!(base_url(&c), "https://db.cluster-x.us-east-1.neptune.amazonaws.com:8182");
+        let mut c = ConnectionConfig {
+            host: "db.cluster-x.us-east-1.neptune.amazonaws.com".into(),
+            encrypt: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            base_url(&c),
+            "https://db.cluster-x.us-east-1.neptune.amazonaws.com:8182"
+        );
         c.host = "http://localhost:8182/".into();
         assert_eq!(base_url(&c), "http://localhost:8182");
-        assert_eq!(form(&[("query", "RETURN 1 AS a"), ("explain", "static")]), "query=RETURN%201%20AS%20a&explain=static");
+        assert_eq!(
+            form(&[("query", "RETURN 1 AS a"), ("explain", "static")]),
+            "query=RETURN%201%20AS%20a&explain=static"
+        );
     }
 
     #[test]
     fn errors() {
-        let e = error_of(reqwest::StatusCode::BAD_REQUEST, r#"{"code":"MalformedQueryException","detailedMessage":"bad"}"#);
+        let e = error_of(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"code":"MalformedQueryException","detailedMessage":"bad"}"#,
+        );
         assert!(matches!(e, Error::Query(m) if m == "MalformedQueryException: bad"));
-        assert!(matches!(error_of(reqwest::StatusCode::FORBIDDEN, "{}"), Error::AuthFailed(_)));
+        assert!(matches!(
+            error_of(reqwest::StatusCode::FORBIDDEN, "{}"),
+            Error::AuthFailed(_)
+        ));
     }
 }

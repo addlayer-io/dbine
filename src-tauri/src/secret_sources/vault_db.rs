@@ -63,13 +63,28 @@ impl Drop for Issued {
 }
 
 fn creds_path(req: &Request<'_>) -> String {
-    let mount = Some(req.mount.trim().trim_matches('/')).filter(|m| !m.is_empty()).unwrap_or("database");
-    let which = if req.static_role { "static-creds" } else { "creds" };
-    format!("{}/{which}/{}", vault::encode(&vault::segments(mount)), super::cloud_auth::uri_encode(req.role.trim()))
+    let mount = Some(req.mount.trim().trim_matches('/'))
+        .filter(|m| !m.is_empty())
+        .unwrap_or("database");
+    let which = if req.static_role {
+        "static-creds"
+    } else {
+        "creds"
+    };
+    format!(
+        "{}/{which}/{}",
+        vault::encode(&vault::segments(mount)),
+        super::cloud_auth::uri_encode(req.role.trim())
+    )
 }
 
 /// Ask Vault for the role's credentials.
-pub async fn issue(client: &reqwest::Client, conn: &Conn<'_>, token: &str, req: &Request<'_>) -> Result<Issued, String> {
+pub async fn issue(
+    client: &reqwest::Client,
+    conn: &Conn<'_>,
+    token: &str,
+    req: &Request<'_>,
+) -> Result<Issued, String> {
     let api = creds_path(req);
     let (status, json) = vault::call(client, conn, token, reqwest::Method::GET, &api, None).await;
     let status = status?;
@@ -81,7 +96,16 @@ pub async fn issue(client: &reqwest::Client, conn: &Conn<'_>, token: &str, req: 
 
 pub fn issue_error(status: u16, json: &Value, req: &Request<'_>) -> String {
     let role = req.role.trim();
-    let errors = json.get("errors").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ")).unwrap_or_default();
+    let errors = json
+        .get("errors")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+        .unwrap_or_default();
     let errors = super::exec::first_lines(&errors, 300);
     match status {
         403 => format!("Vault: permiso denegado para pedir las credenciales del rol «{role}» (el token venció o su política no lo permite)"),
@@ -91,8 +115,16 @@ pub fn issue_error(status: u16, json: &Value, req: &Request<'_>) -> String {
 }
 
 pub fn parse_issued(json: &Value, static_role: bool) -> Result<Issued, String> {
-    let data = json.get("data").filter(|d| d.is_object()).ok_or("Vault no devolvió credenciales")?;
-    let text = |k: &str| data.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+    let data = json
+        .get("data")
+        .filter(|d| d.is_object())
+        .ok_or("Vault no devolvió credenciales")?;
+    let text = |k: &str| {
+        data.get(k)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
     let (Some(username), Some(password)) = (text("username"), text("password")) else {
         return Err("Vault no devolvió el usuario y la contraseña del rol".into());
     };
@@ -100,30 +132,79 @@ pub fn parse_issued(json: &Value, static_role: bool) -> Result<Issued, String> {
     let (lease_id, ttl, renewable) = if static_role {
         (String::new(), secs(data.get("ttl")), false)
     } else {
-        let id = json.get("lease_id").and_then(Value::as_str).unwrap_or("").to_string();
-        (id, secs(json.get("lease_duration")), json.get("renewable").and_then(Value::as_bool).unwrap_or(false))
+        let id = json
+            .get("lease_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        (
+            id,
+            secs(json.get("lease_duration")),
+            json.get("renewable")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        )
     };
-    Ok(Issued { username, password, lease_id, ttl: Duration::from_secs(ttl), renewable })
+    Ok(Issued {
+        username,
+        password,
+        lease_id,
+        ttl: Duration::from_secs(ttl),
+        renewable,
+    })
 }
 
 /// Renew a lease for `increment`: its new duration and whether it can be
 /// renewed again.
-pub async fn renew(client: &reqwest::Client, conn: &Conn<'_>, token: &str, lease_id: &str, increment: Duration) -> Result<(Duration, bool), String> {
+pub async fn renew(
+    client: &reqwest::Client,
+    conn: &Conn<'_>,
+    token: &str,
+    lease_id: &str,
+    increment: Duration,
+) -> Result<(Duration, bool), String> {
     let body = serde_json::json!({ "lease_id": lease_id, "increment": increment.as_secs() });
-    let (status, json) = vault::call(client, conn, token, reqwest::Method::PUT, "sys/leases/renew", Some(&body)).await;
+    let (status, json) = vault::call(
+        client,
+        conn,
+        token,
+        reqwest::Method::PUT,
+        "sys/leases/renew",
+        Some(&body),
+    )
+    .await;
     match status? {
         200 => Ok((
-            Duration::from_secs(json.get("lease_duration").and_then(Value::as_u64).unwrap_or(0)),
-            json.get("renewable").and_then(Value::as_bool).unwrap_or(false),
+            Duration::from_secs(
+                json.get("lease_duration")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            ),
+            json.get("renewable")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         )),
         s => Err(vault::status_error(s, &json, "sys/leases/renew")),
     }
 }
 
 /// Revoke a lease (Vault drops the database user).
-pub async fn revoke(client: &reqwest::Client, conn: &Conn<'_>, token: &str, lease_id: &str) -> Result<(), String> {
+pub async fn revoke(
+    client: &reqwest::Client,
+    conn: &Conn<'_>,
+    token: &str,
+    lease_id: &str,
+) -> Result<(), String> {
     let body = serde_json::json!({ "lease_id": lease_id });
-    let (status, json) = vault::call(client, conn, token, reqwest::Method::PUT, "sys/leases/revoke", Some(&body)).await;
+    let (status, json) = vault::call(
+        client,
+        conn,
+        token,
+        reqwest::Method::PUT,
+        "sys/leases/revoke",
+        Some(&body),
+    )
+    .await;
     match status? {
         200 | 204 => Ok(()),
         s => Err(vault::status_error(s, &json, "sys/leases/revoke")),
@@ -160,20 +241,33 @@ impl Drop for Held {
 
 impl Held {
     fn conn(&self) -> Conn<'_> {
-        Conn { address: &self.address, namespace: &self.namespace }
+        Conn {
+            address: &self.address,
+            namespace: &self.namespace,
+        }
     }
 
     /// Revoke the lease, then the AppRole token (best effort; Vault would
     /// end both at their TTL anyway).
     async fn revoke(self) {
-        let Ok(client) = vault::client(&self.ca_file) else { return };
+        let Ok(client) = vault::client(&self.ca_file) else {
+            return;
+        };
         if !self.lease_id.is_empty() {
             if let Err(e) = revoke(&client, &self.conn(), &self.token, &self.lease_id).await {
                 tracing::warn!("vault lease revoke failed: {e}");
             }
         }
         if self.owned_token {
-            let _ = vault::call(&client, &self.conn(), &self.token, reqwest::Method::POST, "auth/token/revoke-self", None).await;
+            let _ = vault::call(
+                &client,
+                &self.conn(),
+                &self.token,
+                reqwest::Method::POST,
+                "auth/token/revoke-self",
+                None,
+            )
+            .await;
         }
     }
 }
@@ -191,7 +285,8 @@ struct Leases {
 static LEASES: LazyLock<Mutex<Leases>> = LazyLock::new(Mutex::default);
 /// One acquisition at a time per key: sessions opening together share one
 /// lease instead of each asking for one.
-static GATES: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = LazyLock::new(Mutex::default);
+static GATES: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+    LazyLock::new(Mutex::default);
 
 fn leases() -> std::sync::MutexGuard<'static, Leases> {
     LEASES.lock().unwrap_or_else(|e| e.into_inner())
@@ -248,7 +343,12 @@ pub async fn acquire(key: &str, hold: bool, src: &Source<'_>) -> Result<Arc<Reso
         // A form's key is used once: no gate to share.
         return issue_new(key, false, src).await;
     }
-    let gate = GATES.lock().unwrap_or_else(|e| e.into_inner()).entry(key.to_string()).or_default().clone();
+    let gate = GATES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(key.to_string())
+        .or_default()
+        .clone();
     let _turn = gate.lock().await;
     if let Some(r) = reuse(key).await {
         return Ok(r);
@@ -259,7 +359,10 @@ pub async fn acquire(key: &str, hold: bool, src: &Source<'_>) -> Result<Arc<Reso
 /// New credentials for `key`, held (a saved connection) or a form's.
 async fn issue_new(key: &str, hold: bool, src: &Source<'_>) -> Result<Arc<Resolved>, String> {
     let client = vault::client(src.req.ca_file)?;
-    let conn = Conn { address: src.req.address, namespace: src.req.namespace };
+    let conn = Conn {
+        address: src.req.address,
+        namespace: src.req.namespace,
+    };
     let login = vault::login(&client, &conn, &src.auth).await?;
     let issued = match issue(&client, &conn, &login.token, &src.req).await {
         Ok(i) => i,
@@ -296,7 +399,10 @@ async fn issue_new(key: &str, hold: bool, src: &Source<'_>) -> Result<Arc<Resolv
 
 fn held_of(i: &Issued, login: &Login, src: &Source<'_>) -> Held {
     Held {
-        resolved: Arc::new(Resolved { value: i.password.clone(), username: Some(i.username.clone()) }),
+        resolved: Arc::new(Resolved {
+            value: i.password.clone(),
+            username: Some(i.username.clone()),
+        }),
         lease_id: i.lease_id.clone(),
         expires: Instant::now() + i.ttl,
         ttl: i.ttl,
@@ -325,19 +431,46 @@ async fn reuse(key: &str) -> Option<Arc<Resolved>> {
         let l = leases();
         let h = l.current.get(key)?;
         let left = h.expires.saturating_duration_since(Instant::now());
-        (h.resolved.clone(), left, h.ttl, h.renewable, h.lease_id.clone(), (h.address.clone(), h.namespace.clone(), h.ca_file.clone(), h.token.clone()))
+        (
+            h.resolved.clone(),
+            left,
+            h.ttl,
+            h.renewable,
+            h.lease_id.clone(),
+            (
+                h.address.clone(),
+                h.namespace.clone(),
+                h.ca_file.clone(),
+                h.token.clone(),
+            ),
+        )
     };
     let mut token = call.3;
     let out = if left > margin(ttl) {
         Some(resolved)
     } else if renewable && !lease_id.is_empty() {
         let renewed = match vault::client(&call.2) {
-            Ok(client) => renew(&client, &Conn { address: &call.0, namespace: &call.1 }, &token, &lease_id, ttl).await.ok(),
+            Ok(client) => renew(
+                &client,
+                &Conn {
+                    address: &call.0,
+                    namespace: &call.1,
+                },
+                &token,
+                &lease_id,
+                ttl,
+            )
+            .await
+            .ok(),
             Err(_) => None,
         };
         match renewed {
             Some((new_ttl, again)) if new_ttl > margin(ttl) => {
-                if let Some(h) = leases().current.get_mut(key).filter(|h| h.lease_id == lease_id) {
+                if let Some(h) = leases()
+                    .current
+                    .get_mut(key)
+                    .filter(|h| h.lease_id == lease_id)
+                {
                     h.expires = Instant::now() + new_ttl;
                     h.renewable = again;
                 }
@@ -364,11 +497,15 @@ async fn renewer(key: String, lease_id: String) {
     loop {
         let wait = {
             let l = leases();
-            let Some(h) = l.current.get(&key).filter(|h| h.lease_id == lease_id) else { return };
+            let Some(h) = l.current.get(&key).filter(|h| h.lease_id == lease_id) else {
+                return;
+            };
             if !h.renewable {
                 return;
             }
-            h.expires.saturating_duration_since(Instant::now()).saturating_sub(margin(h.ttl))
+            h.expires
+                .saturating_duration_since(Instant::now())
+                .saturating_sub(margin(h.ttl))
         };
         tokio::time::sleep(wait.max(Duration::from_secs(5))).await;
         // Nothing of the connection is open any more (a scheduled task's or
@@ -380,19 +517,44 @@ async fn renewer(key: String, lease_id: String) {
         }
         let (address, namespace, ca_file, mut token, ttl, owned, token_renewable) = {
             let l = leases();
-            let Some(h) = l.current.get(&key).filter(|h| h.lease_id == lease_id) else { return };
-            (h.address.clone(), h.namespace.clone(), h.ca_file.clone(), h.token.clone(), h.ttl, h.owned_token, h.token_renewable)
+            let Some(h) = l.current.get(&key).filter(|h| h.lease_id == lease_id) else {
+                return;
+            };
+            (
+                h.address.clone(),
+                h.namespace.clone(),
+                h.ca_file.clone(),
+                h.token.clone(),
+                h.ttl,
+                h.owned_token,
+                h.token_renewable,
+            )
         };
-        let Ok(client) = vault::client(&ca_file) else { return };
-        let conn = Conn { address: &address, namespace: &namespace };
+        let Ok(client) = vault::client(&ca_file) else {
+            return;
+        };
+        let conn = Conn {
+            address: &address,
+            namespace: &namespace,
+        };
         if owned && token_renewable {
-            let _ = vault::call(&client, &conn, &token, reqwest::Method::POST, "auth/token/renew-self", None).await;
+            let _ = vault::call(
+                &client,
+                &conn,
+                &token,
+                reqwest::Method::POST,
+                "auth/token/renew-self",
+                None,
+            )
+            .await;
         }
         let r = renew(&client, &conn, &token, &lease_id, ttl).await;
         wipe(&mut token);
         let Ok((new_ttl, again)) = r else { return };
         let mut l = leases();
-        let Some(h) = l.current.get_mut(&key).filter(|h| h.lease_id == lease_id) else { return };
+        let Some(h) = l.current.get_mut(&key).filter(|h| h.lease_id == lease_id) else {
+            return;
+        };
         h.expires = Instant::now() + new_ttl;
         h.renewable = again;
         // At its maximum TTL: the next session asks for new credentials.
@@ -405,7 +567,10 @@ async fn renewer(key: String, lease_id: String) {
 async fn release_form(id: u64) {
     let found = {
         let mut l = leases();
-        l.form.iter().position(|(i, _)| *i == id).map(|i| l.form.swap_remove(i).1)
+        l.form
+            .iter()
+            .position(|(i, _)| *i == id)
+            .map(|i| l.form.swap_remove(i).1)
     };
     if let Some(h) = found {
         h.revoke().await;
@@ -417,14 +582,24 @@ pub async fn release(connection_id: &str) {
     let prefix = format!("{connection_id}\u{0}");
     let taken: Vec<Held> = {
         let mut l = leases();
-        let keys: Vec<String> = l.current.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
+        let keys: Vec<String> = l
+            .current
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
         let mut out: Vec<Held> = keys.iter().filter_map(|k| l.current.remove(k)).collect();
-        let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut l.retired).into_iter().partition(|(c, _)| c == connection_id);
+        let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut l.retired)
+            .into_iter()
+            .partition(|(c, _)| c == connection_id);
         l.retired = rest;
         out.extend(mine.into_iter().map(|(_, h)| h));
         out
     };
-    GATES.lock().unwrap_or_else(|e| e.into_inner()).retain(|k, _| !k.starts_with(&prefix));
+    GATES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|k, _| !k.starts_with(&prefix));
     for h in taken {
         h.revoke().await;
     }
@@ -449,7 +624,10 @@ pub async fn release_all() {
 /// Get credentials once and revoke them right away (the form's Test).
 pub async fn test(src: &Source<'_>) -> Result<(String, Option<String>), String> {
     let client = vault::client(src.req.ca_file)?;
-    let conn = Conn { address: src.req.address, namespace: src.req.namespace };
+    let conn = Conn {
+        address: src.req.address,
+        namespace: src.req.namespace,
+    };
     let login = vault::login(&client, &conn, &src.auth).await?;
     let r = issue(&client, &conn, &login.token, &src.req).await;
     if let Ok(i) = &r {
@@ -466,20 +644,34 @@ pub async fn test(src: &Source<'_>) -> Result<(String, Option<String>), String> 
 /// only, each under the list it's in.
 pub async fn browse(src: &Source<'_>) -> Result<super::browse::Listing, String> {
     let client = vault::client(src.req.ca_file)?;
-    let conn = Conn { address: src.req.address, namespace: src.req.namespace };
+    let conn = Conn {
+        address: src.req.address,
+        namespace: src.req.namespace,
+    };
     let login = vault::login(&client, &conn, &src.auth).await?;
     let r = browse_with(&client, &conn, &login.token, &src.req).await;
     login.done(&client, &conn).await;
     r
 }
 
-pub async fn browse_with(client: &reqwest::Client, conn: &Conn<'_>, token: &str, req: &Request<'_>) -> Result<super::browse::Listing, String> {
+pub async fn browse_with(
+    client: &reqwest::Client,
+    conn: &Conn<'_>,
+    token: &str,
+    req: &Request<'_>,
+) -> Result<super::browse::Listing, String> {
     use super::browse::{Entry, Listing};
-    let mount = Some(req.mount.trim().trim_matches('/')).filter(|m| !m.is_empty()).unwrap_or("database");
+    let mount = Some(req.mount.trim().trim_matches('/'))
+        .filter(|m| !m.is_empty())
+        .unwrap_or("database");
     let mut out = Vec::new();
     for which in ["roles", "static-roles"] {
-        let api = format!("{}/{which}?list=true", vault::encode(&vault::segments(mount)));
-        let (status, json) = vault::call(client, conn, token, reqwest::Method::GET, &api, None).await;
+        let api = format!(
+            "{}/{which}?list=true",
+            vault::encode(&vault::segments(mount))
+        );
+        let (status, json) =
+            vault::call(client, conn, token, reqwest::Method::GET, &api, None).await;
         match status? {
             200 => {
                 let keys = json.pointer("/data/keys").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -491,7 +683,9 @@ pub async fn browse_with(client: &reqwest::Client, conn: &Conn<'_>, token: &str,
             s => return Err(vault::status_error(s, &json, &format!("{mount}/{which}"))),
         }
     }
-    out.sort_by(|a, b| (a.path.as_str(), a.name.to_lowercase()).cmp(&(b.path.as_str(), b.name.to_lowercase())));
+    out.sort_by(|a, b| {
+        (a.path.as_str(), a.name.to_lowercase()).cmp(&(b.path.as_str(), b.name.to_lowercase()))
+    });
     Ok(Listing::complete(out))
 }
 
@@ -500,7 +694,10 @@ pub async fn browse_with(client: &reqwest::Client, conn: &Conn<'_>, token: &str,
 pub fn held_count(connection_id: &str) -> (usize, usize) {
     let prefix = format!("{connection_id}\u{0}");
     let l = leases();
-    (l.current.keys().filter(|k| k.starts_with(&prefix)).count(), l.retired.iter().filter(|(c, _)| c == connection_id).count())
+    (
+        l.current.keys().filter(|k| k.starts_with(&prefix)).count(),
+        l.retired.iter().filter(|(c, _)| c == connection_id).count(),
+    )
 }
 
 #[cfg(test)]
@@ -509,14 +706,27 @@ pub(crate) mod tests {
     use serde_json::json;
 
     fn req(role: &'static str, static_role: bool) -> Request<'static> {
-        Request { address: "http://v", namespace: "", ca_file: "", mount: "", role, static_role }
+        Request {
+            address: "http://v",
+            namespace: "",
+            ca_file: "",
+            mount: "",
+            role,
+            static_role,
+        }
     }
 
     #[test]
     fn creds_paths() {
-        assert_eq!(creds_path(&req("readonly", false)), "database/creds/readonly");
+        assert_eq!(
+            creds_path(&req("readonly", false)),
+            "database/creds/readonly"
+        );
         assert_eq!(creds_path(&req("app", true)), "database/static-creds/app");
-        let r = Request { mount: "/pg/prod/", ..req("a b", false) };
+        let r = Request {
+            mount: "/pg/prod/",
+            ..req("a b", false)
+        };
         assert_eq!(creds_path(&r), "pg/prod/creds/a%20b");
     }
 
@@ -524,10 +734,22 @@ pub(crate) mod tests {
     fn credentials_out_of_responses() {
         let dynamic = json!({ "lease_id": "database/creds/ro/abc", "lease_duration": 3600, "renewable": true, "data": { "username": "v-tok-ro-1", "password": "A1a-xyz" } });
         let i = parse_issued(&dynamic, false).unwrap();
-        assert_eq!((i.username.as_str(), i.password.as_str(), i.lease_id.as_str(), i.ttl.as_secs(), i.renewable), ("v-tok-ro-1", "A1a-xyz", "database/creds/ro/abc", 3600, true));
+        assert_eq!(
+            (
+                i.username.as_str(),
+                i.password.as_str(),
+                i.lease_id.as_str(),
+                i.ttl.as_secs(),
+                i.renewable
+            ),
+            ("v-tok-ro-1", "A1a-xyz", "database/creds/ro/abc", 3600, true)
+        );
         let fixed = json!({ "lease_id": "", "lease_duration": 0, "data": { "username": "app", "password": "rotated", "ttl": 86000, "last_vault_rotation": "2026-10-18T10:00:00Z" } });
         let i = parse_issued(&fixed, true).unwrap();
-        assert_eq!((i.lease_id.as_str(), i.ttl.as_secs(), i.renewable), ("", 86000, false));
+        assert_eq!(
+            (i.lease_id.as_str(), i.ttl.as_secs(), i.renewable),
+            ("", 86000, false)
+        );
         assert!(parse_issued(&json!({ "data": { "username": "x" } }), false).is_err());
         assert!(parse_issued(&Value::Null, false).is_err());
     }
@@ -535,9 +757,18 @@ pub(crate) mod tests {
     #[test]
     fn issue_errors_never_carry_values() {
         let r = req("ro", false);
-        assert!(issue_error(403, &json!({"errors":["permission denied"]}), &r).contains("permiso denegado"));
-        assert!(issue_error(400, &json!({"errors":["unknown role: ro"]}), &r).contains("no existe el rol «ro»"));
-        assert_eq!(issue_error(500, &json!({"errors":["boom"]}), &r), "Vault respondió 500: boom");
+        assert!(
+            issue_error(403, &json!({"errors":["permission denied"]}), &r)
+                .contains("permiso denegado")
+        );
+        assert!(
+            issue_error(400, &json!({"errors":["unknown role: ro"]}), &r)
+                .contains("no existe el rol «ro»")
+        );
+        assert_eq!(
+            issue_error(500, &json!({"errors":["boom"]}), &r),
+            "Vault respondió 500: boom"
+        );
     }
 
     #[test]

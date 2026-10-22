@@ -50,10 +50,21 @@ pub fn plain(b: &Bson) -> Value {
         Bson::RegularExpression(r) => Value::String(format!("/{}/{}", r.pattern, r.options)),
         Bson::Binary(bin) if bin.subtype == BinarySubtype::Uuid && bin.bytes.len() == 16 => {
             let h: String = bin.bytes.iter().map(|x| format!("{x:02x}")).collect();
-            Value::String(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
+            Value::String(format!(
+                "{}-{}-{}-{}-{}",
+                &h[0..8],
+                &h[8..12],
+                &h[12..16],
+                &h[16..20],
+                &h[20..32]
+            ))
         }
         Bson::Binary(bin) => json_bytes(&bin.bytes),
-        Bson::Document(d) => Value::Object(d.iter().map(|(k, v)| (k.clone(), plain(v))).collect::<Map<_, _>>()),
+        Bson::Document(d) => Value::Object(
+            d.iter()
+                .map(|(k, v)| (k.clone(), plain(v)))
+                .collect::<Map<_, _>>(),
+        ),
         Bson::Array(a) => Value::Array(a.iter().map(plain).collect()),
         Bson::MinKey => Value::String("MinKey".into()),
         Bson::MaxKey => Value::String("MaxKey".into()),
@@ -119,7 +130,11 @@ pub fn infer_columns(docs: &[Document]) -> Vec<ColumnInfo> {
                 }
             }
             types.sort_by(|a, b| b.1.cmp(&a.1));
-            let data_type = if types.is_empty() { "null".into() } else { types.iter().map(|t| t.0).collect::<Vec<_>>().join("|") };
+            let data_type = if types.is_empty() {
+                "null".into()
+            } else {
+                types.iter().map(|t| t.0).collect::<Vec<_>>().join("|")
+            };
             ColumnInfo {
                 primary_key: name == "_id",
                 nullable: present < docs.len() || null_seen,
@@ -147,16 +162,32 @@ mod tests {
     #[test]
     fn cells_flatten_nested_and_special_types() {
         let oid = ObjectId::parse_str("65a1b2c3d4e5f60718293a4b").unwrap();
-        assert_eq!(cell(&Bson::ObjectId(oid)), Value::String("65a1b2c3d4e5f60718293a4b".into()));
-        assert_eq!(cell(&Bson::DateTime(BDate::from_millis(1_706_708_700_000))), Value::String("2024-01-31 13:45:00".into()));
+        assert_eq!(
+            cell(&Bson::ObjectId(oid)),
+            Value::String("65a1b2c3d4e5f60718293a4b".into())
+        );
+        assert_eq!(
+            cell(&Bson::DateTime(BDate::from_millis(1_706_708_700_000))),
+            Value::String("2024-01-31 13:45:00".into())
+        );
         let nested = Bson::Document(doc! { "a": [1, { "b": oid }] });
-        assert_eq!(cell(&nested), Value::String(r#"{"a":[1,{"b":"65a1b2c3d4e5f60718293a4b"}]}"#.into()));
-        assert_eq!(cell(&Bson::Int64(1 << 60)), Value::String((1_i64 << 60).to_string()));
+        assert_eq!(
+            cell(&nested),
+            Value::String(r#"{"a":[1,{"b":"65a1b2c3d4e5f60718293a4b"}]}"#.into())
+        );
+        assert_eq!(
+            cell(&Bson::Int64(1 << 60)),
+            Value::String((1_i64 << 60).to_string())
+        );
     }
 
     #[test]
     fn inferred_types_and_nullability() {
-        let docs = vec![doc! { "_id": 1, "a": "x", "b": 1 }, doc! { "_id": 2, "a": 5, "b": 2 }, doc! { "_id": 3, "a": "y" }];
+        let docs = vec![
+            doc! { "_id": 1, "a": "x", "b": 1 },
+            doc! { "_id": 2, "a": 5, "b": 2 },
+            doc! { "_id": 3, "a": "y" },
+        ];
         let cols = infer_columns(&docs);
         assert_eq!(cols[0].name, "_id");
         assert!(cols[0].primary_key && !cols[0].nullable);

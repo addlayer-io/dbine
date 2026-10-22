@@ -33,7 +33,11 @@ pub fn parse_placed(text: &str) -> Result<Vec<Placed>, (String, u32, usize)> {
         let args = parse_line(line.trim_end_matches('\r')).map_err(|e| (e, n as u32 + 1, at))?;
         if !args.is_empty() {
             let indent = line.len() - line.trim_start().len();
-            out.push(Placed { args, start: at + indent, line: n as u32 + 1 });
+            out.push(Placed {
+                args,
+                start: at + indent,
+                line: n as u32 + 1,
+            });
         }
         at += line.len() + 1;
     }
@@ -128,7 +132,8 @@ fn hex(c: u8) -> u8 {
 pub fn quote_arg(s: &str) -> String {
     let plain = !s.is_empty()
         && !s.starts_with('#')
-        && s.chars().all(|c| !c.is_whitespace() && !c.is_control() && c != '"' && c != '\'' && c != '\\');
+        && s.chars()
+            .all(|c| !c.is_whitespace() && !c.is_control() && c != '"' && c != '\'' && c != '\\');
     if plain {
         return s.to_string();
     }
@@ -153,61 +158,209 @@ pub fn quote_arg(s: &str) -> String {
 /// subcommands that read.
 const READS: &[&str] = &[
     // keys and strings
-    "GET", "MGET", "GETRANGE", "SUBSTR", "STRLEN", "LCS", "EXISTS", "TYPE", "TTL", "PTTL", "EXPIRETIME",
-    "PEXPIRETIME", "KEYS", "SCAN", "RANDOMKEY", "DBSIZE", "DUMP", "TOUCH", "GETBIT", "BITCOUNT", "BITPOS",
-    "BITFIELD_RO", "SORT_RO",
+    "GET",
+    "MGET",
+    "GETRANGE",
+    "SUBSTR",
+    "STRLEN",
+    "LCS",
+    "EXISTS",
+    "TYPE",
+    "TTL",
+    "PTTL",
+    "EXPIRETIME",
+    "PEXPIRETIME",
+    "KEYS",
+    "SCAN",
+    "RANDOMKEY",
+    "DBSIZE",
+    "DUMP",
+    "TOUCH",
+    "GETBIT",
+    "BITCOUNT",
+    "BITPOS",
+    "BITFIELD_RO",
+    "SORT_RO",
     // hashes
-    "HGET", "HMGET", "HGETALL", "HKEYS", "HVALS", "HLEN", "HEXISTS", "HSTRLEN", "HSCAN", "HRANDFIELD", "HTTL",
-    "HPTTL", "HEXPIRETIME", "HPEXPIRETIME",
+    "HGET",
+    "HMGET",
+    "HGETALL",
+    "HKEYS",
+    "HVALS",
+    "HLEN",
+    "HEXISTS",
+    "HSTRLEN",
+    "HSCAN",
+    "HRANDFIELD",
+    "HTTL",
+    "HPTTL",
+    "HEXPIRETIME",
+    "HPEXPIRETIME",
     // lists
-    "LRANGE", "LINDEX", "LLEN", "LPOS",
+    "LRANGE",
+    "LINDEX",
+    "LLEN",
+    "LPOS",
     // sets
-    "SMEMBERS", "SISMEMBER", "SMISMEMBER", "SCARD", "SSCAN", "SRANDMEMBER", "SINTER", "SINTERCARD", "SUNION",
+    "SMEMBERS",
+    "SISMEMBER",
+    "SMISMEMBER",
+    "SCARD",
+    "SSCAN",
+    "SRANDMEMBER",
+    "SINTER",
+    "SINTERCARD",
+    "SUNION",
     "SDIFF",
     // sorted sets
-    "ZRANGE", "ZRANGEBYSCORE", "ZRANGEBYLEX", "ZREVRANGE", "ZREVRANGEBYSCORE", "ZREVRANGEBYLEX", "ZSCORE",
-    "ZMSCORE", "ZRANK", "ZREVRANK", "ZCARD", "ZCOUNT", "ZLEXCOUNT", "ZSCAN", "ZRANDMEMBER", "ZINTER", "ZUNION",
-    "ZDIFF", "ZINTERCARD",
+    "ZRANGE",
+    "ZRANGEBYSCORE",
+    "ZRANGEBYLEX",
+    "ZREVRANGE",
+    "ZREVRANGEBYSCORE",
+    "ZREVRANGEBYLEX",
+    "ZSCORE",
+    "ZMSCORE",
+    "ZRANK",
+    "ZREVRANK",
+    "ZCARD",
+    "ZCOUNT",
+    "ZLEXCOUNT",
+    "ZSCAN",
+    "ZRANDMEMBER",
+    "ZINTER",
+    "ZUNION",
+    "ZDIFF",
+    "ZINTERCARD",
     // streams
-    "XRANGE", "XREVRANGE", "XLEN", "XREAD", "XPENDING",
+    "XRANGE",
+    "XREVRANGE",
+    "XLEN",
+    "XREAD",
+    "XPENDING",
     // geo, hyperloglog
-    "GEOPOS", "GEODIST", "GEOHASH", "GEORADIUS_RO", "GEORADIUSBYMEMBER_RO", "GEOSEARCH", "PFCOUNT",
+    "GEOPOS",
+    "GEODIST",
+    "GEOHASH",
+    "GEORADIUS_RO",
+    "GEORADIUSBYMEMBER_RO",
+    "GEOSEARCH",
+    "PFCOUNT",
     // server and connection
-    "INFO", "PING", "ECHO", "TIME", "LASTSAVE", "ROLE", "LOLWUT", "SELECT", "COMMAND", "EVAL_RO", "EVALSHA_RO",
+    "INFO",
+    "PING",
+    "ECHO",
+    "TIME",
+    "LASTSAVE",
+    "ROLE",
+    "LOLWUT",
+    "SELECT",
+    "COMMAND",
+    "EVAL_RO",
+    "EVALSHA_RO",
     "FCALL_RO",
     // modules: RedisJSON, RediSearch, RedisTimeSeries, RedisBloom
-    "JSON.GET", "JSON.MGET", "JSON.TYPE", "JSON.STRLEN", "JSON.ARRLEN", "JSON.ARRINDEX", "JSON.OBJKEYS",
-    "JSON.OBJLEN", "JSON.RESP", "FT.SEARCH", "FT.AGGREGATE", "FT.INFO", "FT._LIST", "FT.EXPLAIN", "FT.PROFILE",
-    "TS.GET", "TS.MGET", "TS.RANGE", "TS.REVRANGE", "TS.MRANGE", "TS.MREVRANGE", "TS.INFO", "TS.QUERYINDEX",
-    "BF.EXISTS", "BF.MEXISTS", "BF.INFO", "CF.EXISTS", "CF.MEXISTS", "CF.COUNT", "CF.INFO", "CMS.QUERY",
-    "CMS.INFO", "TOPK.QUERY", "TOPK.LIST", "TOPK.INFO",
+    "JSON.GET",
+    "JSON.MGET",
+    "JSON.TYPE",
+    "JSON.STRLEN",
+    "JSON.ARRLEN",
+    "JSON.ARRINDEX",
+    "JSON.OBJKEYS",
+    "JSON.OBJLEN",
+    "JSON.RESP",
+    "FT.SEARCH",
+    "FT.AGGREGATE",
+    "FT.INFO",
+    "FT._LIST",
+    "FT.EXPLAIN",
+    "FT.PROFILE",
+    "TS.GET",
+    "TS.MGET",
+    "TS.RANGE",
+    "TS.REVRANGE",
+    "TS.MRANGE",
+    "TS.MREVRANGE",
+    "TS.INFO",
+    "TS.QUERYINDEX",
+    "BF.EXISTS",
+    "BF.MEXISTS",
+    "BF.INFO",
+    "CF.EXISTS",
+    "CF.MEXISTS",
+    "CF.COUNT",
+    "CF.INFO",
+    "CMS.QUERY",
+    "CMS.INFO",
+    "TOPK.QUERY",
+    "TOPK.LIST",
+    "TOPK.INFO",
 ];
 
 const READ_SUBCOMMANDS: &[(&str, &[&str])] = &[
     ("CONFIG", &["GET", "HELP"]),
-    ("OBJECT", &["ENCODING", "FREQ", "IDLETIME", "REFCOUNT", "HELP"]),
-    ("MEMORY", &["USAGE", "STATS", "DOCTOR", "MALLOC-STATS", "HELP"]),
+    (
+        "OBJECT",
+        &["ENCODING", "FREQ", "IDLETIME", "REFCOUNT", "HELP"],
+    ),
+    (
+        "MEMORY",
+        &["USAGE", "STATS", "DOCTOR", "MALLOC-STATS", "HELP"],
+    ),
     ("CLIENT", &["LIST", "INFO", "GETNAME", "ID", "HELP"]),
     ("SLOWLOG", &["GET", "LEN", "HELP"]),
-    ("ACL", &["WHOAMI", "LIST", "USERS", "CAT", "GETUSER", "HELP"]),
-    ("CLUSTER", &["INFO", "NODES", "SLOTS", "SHARDS", "MYID", "KEYSLOT", "COUNTKEYSINSLOT", "HELP"]),
+    (
+        "ACL",
+        &["WHOAMI", "LIST", "USERS", "CAT", "GETUSER", "HELP"],
+    ),
+    (
+        "CLUSTER",
+        &[
+            "INFO",
+            "NODES",
+            "SLOTS",
+            "SHARDS",
+            "MYID",
+            "KEYSLOT",
+            "COUNTKEYSINSLOT",
+            "HELP",
+        ],
+    ),
     ("XINFO", &["STREAM", "GROUPS", "CONSUMERS", "HELP"]),
     ("MODULE", &["LIST", "HELP"]),
     ("FUNCTION", &["LIST", "DUMP", "STATS", "HELP"]),
     ("SCRIPT", &["EXISTS", "HELP"]),
-    ("LATENCY", &["LATEST", "HISTORY", "DOCTOR", "GRAPH", "HISTOGRAM", "HELP"]),
-    ("PUBSUB", &["CHANNELS", "NUMSUB", "NUMPAT", "SHARDCHANNELS", "SHARDNUMSUB", "HELP"]),
+    (
+        "LATENCY",
+        &["LATEST", "HISTORY", "DOCTOR", "GRAPH", "HISTOGRAM", "HELP"],
+    ),
+    (
+        "PUBSUB",
+        &[
+            "CHANNELS",
+            "NUMSUB",
+            "NUMPAT",
+            "SHARDCHANNELS",
+            "SHARDNUMSUB",
+            "HELP",
+        ],
+    ),
 ];
 
 /// Whether a command (its first two arguments, any case) only reads.
 pub fn is_read(args: &[Vec<u8>]) -> bool {
-    let Some(name) = args.first() else { return true };
+    let Some(name) = args.first() else {
+        return true;
+    };
     let name = String::from_utf8_lossy(name).to_ascii_uppercase();
     if READS.contains(&name.as_str()) {
         return true;
     }
     if let Some((_, subs)) = READ_SUBCOMMANDS.iter().find(|(c, _)| *c == name) {
-        let sub = args.get(1).map(|s| String::from_utf8_lossy(s).to_ascii_uppercase()).unwrap_or_default();
+        let sub = args
+            .get(1)
+            .map(|s| String::from_utf8_lossy(s).to_ascii_uppercase())
+            .unwrap_or_default();
         return subs.contains(&sub.as_str());
     }
     false
@@ -218,7 +371,15 @@ pub fn is_read(args: &[Vec<u8>]) -> bool {
 pub fn is_streaming(name: &str) -> bool {
     matches!(
         name,
-        "SUBSCRIBE" | "PSUBSCRIBE" | "SSUBSCRIBE" | "MONITOR" | "SYNC" | "PSYNC" | "RESET" | "QUIT" | "HELLO"
+        "SUBSCRIBE"
+            | "PSUBSCRIBE"
+            | "SSUBSCRIBE"
+            | "MONITOR"
+            | "SYNC"
+            | "PSYNC"
+            | "RESET"
+            | "QUIT"
+            | "HELLO"
     )
 }
 
@@ -231,18 +392,28 @@ mod tests {
         let p = parse_placed("SET a 1\r\n# c\n\n  GET \"é\"\nDEL a").unwrap();
         let v: Vec<(usize, u32)> = p.iter().map(|c| (c.start, c.line)).collect();
         assert_eq!(v, [(0, 1), (16, 4), (25, 5)]);
-        assert_eq!(parse_placed("GET a\nGET \"open").err(), Some(("comillas sin cerrar".to_string(), 2, 6)));
+        assert_eq!(
+            parse_placed("GET a\nGET \"open").err(),
+            Some(("comillas sin cerrar".to_string(), 2, 6))
+        );
     }
 
     fn words(line: &str) -> Vec<String> {
-        parse_line(line).unwrap().into_iter().map(|a| String::from_utf8(a).unwrap()).collect()
+        parse_line(line)
+            .unwrap()
+            .into_iter()
+            .map(|a| String::from_utf8(a).unwrap())
+            .collect()
     }
 
     #[test]
     fn splits_on_whitespace_and_quotes() {
         assert_eq!(words("SET  key   value"), ["SET", "key", "value"]);
         assert_eq!(words(r#"SET "a key" 'it\'s'"#), ["SET", "a key", "it's"]);
-        assert_eq!(words(r#"SET k "line\nbreak \"q\" \x41""#), ["SET", "k", "line\nbreak \"q\" A"]);
+        assert_eq!(
+            words(r#"SET k "line\nbreak \"q\" \x41""#),
+            ["SET", "k", "line\nbreak \"q\" A"]
+        );
         assert_eq!(words(r#"GET ab"c d""#), ["GET", "abc d"]);
         assert_eq!(words(r#"SET k """#), ["SET", "k", ""]);
     }
@@ -263,12 +434,24 @@ mod tests {
 
     #[test]
     fn binary_escapes() {
-        assert_eq!(parse_line(r#"GET "\xff\x00""#).unwrap()[1], vec![0xff, 0x00]);
+        assert_eq!(
+            parse_line(r#"GET "\xff\x00""#).unwrap()[1],
+            vec![0xff, 0x00]
+        );
     }
 
     #[test]
     fn quoting_round_trips() {
-        for k in ["plain:key", "with space", "q\"uote", "back\\slash", "#hash", "", "nl\nx", "it's"] {
+        for k in [
+            "plain:key",
+            "with space",
+            "q\"uote",
+            "back\\slash",
+            "#hash",
+            "",
+            "nl\nx",
+            "it's",
+        ] {
             let line = format!("GET {}", quote_arg(k));
             assert_eq!(parse_line(&line).unwrap()[1], k.as_bytes(), "{line}");
         }

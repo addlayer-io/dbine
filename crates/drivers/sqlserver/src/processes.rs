@@ -108,7 +108,11 @@ fn sql(v: Variant) -> String {
 }
 
 fn text(r: &Row, i: usize) -> Option<String> {
-    r.try_get::<&str, _>(i).ok().flatten().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+    r.try_get::<&str, _>(i)
+        .ok()
+        .flatten()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 fn count(r: &Row, i: usize) -> Option<u64> {
@@ -117,13 +121,21 @@ fn count(r: &Row, i: usize) -> Option<u64> {
 
 /// The first id of `pg_blocking_pids` (`{123,456}`), or the id itself.
 fn first_id(v: &str) -> Option<String> {
-    let id: String = v.trim_start_matches('{').chars().take_while(char::is_ascii_digit).collect();
+    let id: String = v
+        .trim_start_matches('{')
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
     (!id.is_empty()).then_some(id)
 }
 
 /// The first keyword of a statement (`SELECT`, `UPDATE`…).
 fn first_word(sql: &str) -> Option<String> {
-    let w: String = sql.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let w: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     (!w.is_empty()).then(|| w.to_ascii_uppercase())
 }
 
@@ -145,7 +157,11 @@ pub(crate) async fn processes(s: &mut SqlServerSession) -> Result<Vec<ServerProc
                 host: text(r, 6),
                 program: text(r, 7),
                 database: text(r, 8),
-                command: if babelfish { sql.as_deref().filter(|_| active).and_then(first_word) } else { text(r, 9) },
+                command: if babelfish {
+                    sql.as_deref().filter(|_| active).and_then(first_word)
+                } else {
+                    text(r, 9)
+                },
                 elapsed_ms: count(r, 10),
                 cpu_ms: count(r, 11),
                 reads: count(r, 12),

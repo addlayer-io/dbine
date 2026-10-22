@@ -8,7 +8,9 @@
 //!   cargo test -p dbine-driver-oracle --test sort -- --ignored
 //! ```
 
-use dbine_driver::{ColumnFilter, ConnectionConfig, FilterOp, ObjectRef, QueryOutcome, Session, SortKey};
+use dbine_driver::{
+    ColumnFilter, ConnectionConfig, FilterOp, ObjectRef, QueryOutcome, Session, SortKey,
+};
 
 fn cfg() -> Option<ConnectionConfig> {
     let url = std::env::var("DBINE_TEST_ORACLE_URL").ok()?;
@@ -31,7 +33,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     if let Some(e) = out.error.take() {
         panic!("{sql}: {e}");
     }
@@ -39,9 +43,23 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
 }
 
 fn ids(out: &QueryOutcome) -> Vec<String> {
-    let r = out.results.iter().find(|r| !r.columns.is_empty()).expect("a result set");
-    let i = r.columns.iter().position(|c| c.name == "id").expect("the id column");
-    r.rows.iter().map(|row| match &row[i] { serde_json::Value::String(s) => s.clone(), v => v.to_string() }).collect()
+    let r = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .expect("a result set");
+    let i = r
+        .columns
+        .iter()
+        .position(|c| c.name == "id")
+        .expect("the id column");
+    r.rows
+        .iter()
+        .map(|row| match &row[i] {
+            serde_json::Value::String(s) => s.clone(),
+            v => v.to_string(),
+        })
+        .collect()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -53,16 +71,57 @@ async fn oracle_sorts_the_filtered_browse() {
     run(&mut s, "DROP TABLE IF EXISTS DBINE_SORT").await;
     run(&mut s, "CREATE TABLE DBINE_SORT (\"id\" NUMBER(10) PRIMARY KEY, \"Grupo Mixto\" VARCHAR2(10), \"Valor\" NUMBER(10))").await;
     run(&mut s, "INSERT INTO DBINE_SORT VALUES (1, 'b', 10), (2, 'a', 5), (3, 'b', 30), (4, 'a', 20), (5, 'c', 1), (6, 'a', 15)").await;
-    let obj = ObjectRef { kind: "table".into(), schema: None, name: "DBINE_SORT".into() };
-    let filter = [ColumnFilter { column: "Valor".into(), op: FilterOp::Ge, values: vec![serde_json::json!(5)], sql: None }];
-    let sort = [SortKey { column: "Grupo Mixto".into(), descending: false }, SortKey { column: "Valor".into(), descending: true }];
+    let obj = ObjectRef {
+        kind: "table".into(),
+        schema: None,
+        name: "DBINE_SORT".into(),
+    };
+    let filter = [ColumnFilter {
+        column: "Valor".into(),
+        op: FilterOp::Ge,
+        values: vec![serde_json::json!(5)],
+        sql: None,
+    }];
+    let sort = [
+        SortKey {
+            column: "Grupo Mixto".into(),
+            descending: false,
+        },
+        SortKey {
+            column: "Valor".into(),
+            descending: true,
+        },
+    ];
     // FETCH FIRST 3 takes the first rows of the ORDER BY.
-    for (limit, want) in [(100, vec!["4", "6", "2", "3", "1"]), (3, vec!["4", "6", "2"])] {
-        let q = d.filtered_browse(&s.browse_query(&obj, limit), &filter).unwrap();
+    for (limit, want) in [
+        (100, vec!["4", "6", "2", "3", "1"]),
+        (3, vec!["4", "6", "2"]),
+    ] {
+        let q = d
+            .filtered_browse(&s.browse_query(&obj, limit), &filter)
+            .unwrap();
         let q = d.sorted_browse(&q, &sort).unwrap();
         assert_eq!(ids(&run(&mut s, &q).await), want, "{q}");
     }
-    let q = d.sorted_browse(&s.browse_query(&obj, 100), &[SortKey { column: "Grupo Mixto".into(), descending: true }, SortKey { column: "id".into(), descending: false }]).unwrap();
-    assert_eq!(ids(&run(&mut s, &q).await), ["5", "1", "3", "2", "4", "6"], "{q}");
+    let q = d
+        .sorted_browse(
+            &s.browse_query(&obj, 100),
+            &[
+                SortKey {
+                    column: "Grupo Mixto".into(),
+                    descending: true,
+                },
+                SortKey {
+                    column: "id".into(),
+                    descending: false,
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        ids(&run(&mut s, &q).await),
+        ["5", "1", "3", "2", "4", "6"],
+        "{q}"
+    );
     run(&mut s, "DROP TABLE DBINE_SORT PURGE").await;
 }

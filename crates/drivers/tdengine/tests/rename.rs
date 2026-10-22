@@ -15,17 +15,37 @@
 
 use dbine_driver::dependencies::DependencyScan;
 use dbine_driver::rename::{rewrite_references, RenameRequest, RenameTarget, RewriteOptions};
-use dbine_driver::{Confidence, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Relation, Session};
+use dbine_driver::{
+    Confidence, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Relation, Session,
+};
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> dbine_driver::Result<QueryOutcome> {
     let mut out = QueryOutcome::default();
     s.execute(sql, 100, &mut out).await.map(|_| out)
 }
 
-async fn request(s: &mut Box<dyn Session>, kind: &str, table: &str, column: &str, new: &str) -> RenameRequest {
-    let t = s.database_schema().await.unwrap().into_iter().find(|t| t.name == table);
+async fn request(
+    s: &mut Box<dyn Session>,
+    kind: &str,
+    table: &str,
+    column: &str,
+    new: &str,
+) -> RenameRequest {
+    let t = s
+        .database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.name == table);
     RenameRequest {
-        target: RenameTarget::Column { table: ObjectRef { kind: kind.into(), schema: Some("dbine_rename".into()), name: table.into() }, column: column.into() },
+        target: RenameTarget::Column {
+            table: ObjectRef {
+                kind: kind.into(),
+                schema: Some("dbine_rename".into()),
+                name: table.into(),
+            },
+            column: column.into(),
+        },
         new_name: new.into(),
         table: t,
         definition: None,
@@ -34,23 +54,56 @@ async fn request(s: &mut Box<dyn Session>, kind: &str, table: &str, column: &str
 
 /// The rename as the app runs it: the streams that name the target
 /// rewritten, dropped first and created after. Returns the rewritten ones.
-async fn apply(d: &dyn Driver, s: &mut Box<dyn Session>, req: &RenameRequest) -> dbine_driver::Result<Vec<String>> {
+async fn apply(
+    d: &dyn Driver,
+    s: &mut Box<dyn Session>,
+    req: &RenameRequest,
+) -> dbine_driver::Result<Vec<String>> {
     let spec = d.rename_spec().unwrap();
     let dialect = d.script_dialect();
     let scan = DependencyScan::new(d.info(), dialect, d.capabilities().foreign_keys);
-    let report = s.dependents(&req.target.dependency_target(), &scan).await.unwrap();
+    let report = s
+        .dependents(&req.target.dependency_target(), &scan)
+        .await
+        .unwrap();
     let (mut drops, mut creates, mut names) = (Vec::new(), Vec::new(), Vec::new());
-    for dep in report.items.iter().filter(|x| x.relation == Relation::Code && x.confidence != Confidence::Review) {
-        let obj = ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() };
+    for dep in report
+        .items
+        .iter()
+        .filter(|x| x.relation == Relation::Code && x.confidence != Confidence::Review)
+    {
+        let obj = ObjectRef {
+            kind: dep.kind.clone(),
+            schema: dep.schema.clone(),
+            name: dep.name.clone(),
+        };
         let def = s.definition(&obj).await.unwrap().unwrap();
-        let r = rewrite_references(&def, &dialect, &req.target.rewrite_target(), &req.new_name, &spec, &RewriteOptions { dependent_schema: dep.schema.clone(), ..Default::default() });
-        assert!(r.unresolved.is_empty() && !r.edits.is_empty(), "{}: {def} -> {r:?}", dep.name);
+        let r = rewrite_references(
+            &def,
+            &dialect,
+            &req.target.rewrite_target(),
+            &req.new_name,
+            &spec,
+            &RewriteOptions {
+                dependent_schema: dep.schema.clone(),
+                ..Default::default()
+            },
+        );
+        assert!(
+            r.unresolved.is_empty() && !r.edits.is_empty(),
+            "{}: {def} -> {r:?}",
+            dep.name
+        );
         assert_eq!(dep.kind, "stream");
         drops.push(format!("DROP STREAM IF EXISTS `{}`", dep.name));
         creates.push(r.text);
         names.push(dep.name.clone());
     }
-    let statements: Vec<String> = drops.into_iter().chain(d.rename_script(req)?.statements).chain(creates).collect();
+    let statements: Vec<String> = drops
+        .into_iter()
+        .chain(d.rename_script(req)?.statements)
+        .chain(creates)
+        .collect();
     for st in &statements {
         eprintln!("> {st}");
         run(s, st).await?;
@@ -59,12 +112,31 @@ async fn apply(d: &dyn Driver, s: &mut Box<dyn Session>, req: &RenameRequest) ->
 }
 
 async fn stream_sql(s: &mut Box<dyn Session>, name: &str) -> String {
-    let out = run(s, &format!("SELECT sql FROM information_schema.ins_streams WHERE stream_name = '{name}'")).await.unwrap();
-    out.results[0].rows.first().and_then(|r| r[0].as_str()).unwrap_or_default().to_string()
+    let out = run(
+        s,
+        &format!("SELECT sql FROM information_schema.ins_streams WHERE stream_name = '{name}'"),
+    )
+    .await
+    .unwrap();
+    out.results[0]
+        .rows
+        .first()
+        .and_then(|r| r[0].as_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
 async fn columns(s: &mut Box<dyn Session>, table: &str) -> Vec<String> {
-    s.columns(&ObjectRef { kind: "table".into(), schema: Some("dbine_rename".into()), name: table.into() }).await.unwrap().into_iter().map(|c| c.name).collect()
+    s.columns(&ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbine_rename".into()),
+        name: table.into(),
+    })
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|c| c.name)
+    .collect()
 }
 
 #[tokio::test]
@@ -87,7 +159,11 @@ async fn tdengine_rename() {
     let db = "dbine_rename";
     {
         let mut s = d.connect(&cfg, None).await.unwrap();
-        let _ = run(&mut s, "DROP STREAM IF EXISTS dbine_rename_s1; DROP STREAM IF EXISTS dbine_rename_s2").await;
+        let _ = run(
+            &mut s,
+            "DROP STREAM IF EXISTS dbine_rename_s1; DROP STREAM IF EXISTS dbine_rename_s2",
+        )
+        .await;
         let _ = s.drop_database(db).await;
         s.create_database(db).await.unwrap();
     }
@@ -113,8 +189,17 @@ async fn tdengine_rename() {
     // Column of a normal table: the stream that names it is rewritten.
     let req = request(&mut s, "table", "t", "pepe", "PepA").await;
     assert!(spec.allows(&req.target));
-    assert_eq!(apply(d.as_ref(), &mut s, &req).await.unwrap(), ["dbine_rename_s1"]);
-    assert!(stream_sql(&mut s, "dbine_rename_s1").await.contains("sum(`PepA`)"), "{}", stream_sql(&mut s, "dbine_rename_s1").await);
+    assert_eq!(
+        apply(d.as_ref(), &mut s, &req).await.unwrap(),
+        ["dbine_rename_s1"]
+    );
+    assert!(
+        stream_sql(&mut s, "dbine_rename_s1")
+            .await
+            .contains("sum(`PepA`)"),
+        "{}",
+        stream_sql(&mut s, "dbine_rename_s1").await
+    );
     assert_eq!(columns(&mut s, "t").await, vec!["ts", "PepA"]);
     assert_eq!(columns(&mut s, "t2").await, vec!["ts", "pepe"]);
     let out = run(&mut s, "SELECT `PepA` FROM t").await.unwrap();
@@ -139,8 +224,17 @@ async fn tdengine_rename() {
     let st = d.rename_script(&req).unwrap().statements.remove(0);
     let err = run(&mut s, &st).await.unwrap_err();
     eprintln!("tag used by a stream: {err}");
-    assert_eq!(apply(d.as_ref(), &mut s, &req).await.unwrap(), ["dbine_rename_s2"]);
-    assert!(stream_sql(&mut s, "dbine_rename_s2").await.contains("count(region)"), "{}", stream_sql(&mut s, "dbine_rename_s2").await);
+    assert_eq!(
+        apply(d.as_ref(), &mut s, &req).await.unwrap(),
+        ["dbine_rename_s2"]
+    );
+    assert!(
+        stream_sql(&mut s, "dbine_rename_s2")
+            .await
+            .contains("count(region)"),
+        "{}",
+        stream_sql(&mut s, "dbine_rename_s2").await
+    );
     // The stream writes into its old output table again.
     run(&mut s, "INSERT INTO c1 VALUES (now, 2)").await.unwrap();
 
@@ -150,6 +244,11 @@ async fn tdengine_rename() {
     let req = request(&mut s, "subtable", "c1", "lugar", "x").await;
     assert!(d.rename_script(&req).is_err());
 
-    run(&mut s, "DROP STREAM IF EXISTS dbine_rename_s1; DROP STREAM IF EXISTS dbine_rename_s2").await.unwrap();
+    run(
+        &mut s,
+        "DROP STREAM IF EXISTS dbine_rename_s1; DROP STREAM IF EXISTS dbine_rename_s2",
+    )
+    .await
+    .unwrap();
     s.drop_database(db).await.unwrap();
 }

@@ -13,7 +13,11 @@ fn main() {
     // Before any driver opens a TLS connection (see Cargo.toml).
     let _ = rustls::crypto::ring::default_provider().install_default();
     let args: Vec<String> = std::env::args().collect();
-    if let Some(path) = args.iter().position(|a| a == "--check-catalog").and_then(|i| args.get(i + 1)) {
+    if let Some(path) = args
+        .iter()
+        .position(|a| a == "--check-catalog")
+        .and_then(|i| args.get(i + 1))
+    {
         match check_catalog(path) {
             Ok(n) => println!("catálogo válido: {n} drivers"),
             Err(e) => {
@@ -27,12 +31,23 @@ fn main() {
     if args.iter().any(|a| a == "--manifest") {
         let metas: Vec<dbine_plugin::DriverMeta> = packages
             .iter()
-            .flat_map(|(package, drivers)| drivers.iter().map(move |d| dbine_plugin::DriverMeta::of(package, d.as_ref())))
+            .flat_map(|(package, drivers)| {
+                drivers
+                    .iter()
+                    .map(move |d| dbine_plugin::DriverMeta::of(package, d.as_ref()))
+            })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&metas).expect("manifest"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&metas).expect("manifest")
+        );
         return;
     }
-    let wanted = args.iter().position(|a| a == "--package").and_then(|i| args.get(i + 1)).cloned();
+    let wanted = args
+        .iter()
+        .position(|a| a == "--package")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     let (package, drivers) = match wanted {
         Some(w) => match packages.iter().position(|(p, _)| *p == w) {
             Some(i) => packages.swap_remove(i),
@@ -61,14 +76,21 @@ fn check_catalog(path: &str) -> Result<usize, String> {
     }
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let file: File = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    let metas = dbine_plugin::parse_manifest(&file.drivers.to_string()).map_err(|e| e.to_string())?;
+    let metas =
+        dbine_plugin::parse_manifest(&file.drivers.to_string()).map_err(|e| e.to_string())?;
     for package in file.catalog.hosts.keys() {
         if !metas.iter().any(|m| &m.package == package) {
             return Err(format!("el driver «{package}» no tiene manifiesto"));
         }
     }
-    if let Some(m) = metas.iter().find(|m| !file.catalog.hosts.contains_key(&m.package)) {
-        return Err(format!("«{}» tiene manifiesto pero no host publicado", m.package));
+    if let Some(m) = metas
+        .iter()
+        .find(|m| !file.catalog.hosts.contains_key(&m.package))
+    {
+        return Err(format!(
+            "«{}» tiene manifiesto pero no host publicado",
+            m.package
+        ));
     }
     Ok(metas.len())
 }

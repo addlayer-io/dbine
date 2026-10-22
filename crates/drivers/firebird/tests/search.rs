@@ -32,15 +32,34 @@ fn config() -> Option<ConnectionConfig> {
 
 /// The app's scan, as commands/search.rs does it.
 async fn scan(s: &mut Box<dyn Session>, d: &dyn Driver, q: &CodeSearch) -> Vec<CodeHit> {
-    let with_source: Vec<&str> = d.info().object_kinds.iter().filter(|k| k.has_definition).map(|k| k.id).collect();
+    let with_source: Vec<&str> = d
+        .info()
+        .object_kinds
+        .iter()
+        .filter(|k| k.has_definition)
+        .map(|k| k.id)
+        .collect();
     let mut hits = Vec::new();
     for o in s.list_objects().await.unwrap() {
-        if !with_source.contains(&o.kind.as_str()) || !(q.kinds.is_empty() || q.kinds.contains(&o.kind)) {
+        if !with_source.contains(&o.kind.as_str())
+            || !(q.kinds.is_empty() || q.kinds.contains(&o.kind))
+        {
             continue;
         }
-        let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+        let r = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
         if let Ok(Some(src)) = s.definition(&r).await {
-            hits.extend(hits_in(&o.kind, o.schema.as_deref(), &o.name, o.parent.as_deref(), &src, q));
+            hits.extend(hits_in(
+                &o.kind,
+                o.schema.as_deref(),
+                &o.name,
+                o.parent.as_deref(),
+                &src,
+                q,
+            ));
         }
     }
     hits
@@ -98,13 +117,32 @@ async fn catalog_equals_scan() {
     let dir = base.database.rsplit_once('/').unwrap().0.to_string();
     let path = format!("{dir}/dbine_search.fdb");
     let _ = admin.drop_database(&path).await;
-    let options: BTreeMap<String, String> =
-        [("folder", dir.as_str()), ("charset", "utf8")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    admin.create_database_with("dbine_search", &options).await.unwrap();
-    let mut s = d.connect(&ConnectionConfig { database: path.clone(), ..base.clone() }, None).await.unwrap();
+    let options: BTreeMap<String, String> = [("folder", dir.as_str()), ("charset", "utf8")]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    admin
+        .create_database_with("dbine_search", &options)
+        .await
+        .unwrap();
+    let mut s = d
+        .connect(
+            &ConnectionConfig {
+                database: path.clone(),
+                ..base.clone()
+            },
+            None,
+        )
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
     s.execute(SCRIPT, 10, &mut out).await.unwrap();
-    assert!(out.error.is_none() && out.errors.is_empty(), "{:?} {:?}", out.error, out.errors);
+    assert!(
+        out.error.is_none() && out.errors.is_empty(),
+        "{:?} {:?}",
+        out.error,
+        out.errors
+    );
 
     let cases: &[(&str, bool, bool)] = &[
         ("ventas", true, false),
@@ -119,23 +157,62 @@ async fn catalog_equals_scan() {
     let mut all = Vec::new();
     for kinds in [vec![], vec!["trigger".to_string(), "type".to_string()]] {
         for &(text, word, case) in cases {
-            let q = CodeSearch { text: text.into(), whole_word: word, case_sensitive: case, kinds: kinds.clone(), ..Default::default() };
-            let fast = sorted(s.search_code(&q).await.unwrap().expect("Firebird answers from its catalog").hits);
+            let q = CodeSearch {
+                text: text.into(),
+                whole_word: word,
+                case_sensitive: case,
+                kinds: kinds.clone(),
+                ..Default::default()
+            };
+            let fast = sorted(
+                s.search_code(&q)
+                    .await
+                    .unwrap()
+                    .expect("Firebird answers from its catalog")
+                    .hits,
+            );
             let slow = sorted(scan(&mut s, d.as_ref(), &q).await);
             eprintln!("{text:?} {kinds:?}: {} hits", fast.len());
             assert_eq!(fast, slow, "{text:?} {kinds:?}");
             all.push(fast);
         }
     }
-    let found: std::collections::BTreeSet<String> = [all[0].clone(), all[1].clone(), all[4].clone()].concat().into_iter().map(|h| h.kind).collect();
-    for k in ["view", "procedure", "function", "package", "trigger", "sequence", "type"] {
+    let found: std::collections::BTreeSet<String> =
+        [all[0].clone(), all[1].clone(), all[4].clone()]
+            .concat()
+            .into_iter()
+            .map(|h| h.kind)
+            .collect();
+    for k in [
+        "view",
+        "procedure",
+        "function",
+        "package",
+        "trigger",
+        "sequence",
+        "type",
+    ] {
         assert!(found.contains(k), "{k}: {found:?}");
     }
-    assert!(all[0].iter().any(|h| h.kind == "trigger" && h.parent.as_deref() == Some("VENTAS")), "{:?}", all[0]);
-    assert!(all[7].iter().any(|h| h.kind == "procedure"), "a parameter the builder adds: {:?}", all[7]);
+    assert!(
+        all[0]
+            .iter()
+            .any(|h| h.kind == "trigger" && h.parent.as_deref() == Some("VENTAS")),
+        "{:?}",
+        all[0]
+    );
+    assert!(
+        all[7].iter().any(|h| h.kind == "procedure"),
+        "a parameter the builder adds: {:?}",
+        all[7]
+    );
     assert!(!all[5].is_empty(), "non-ASCII");
 
-    let q = CodeSearch { text: "ventas".into(), max_hits: 2, ..Default::default() };
+    let q = CodeSearch {
+        text: "ventas".into(),
+        max_hits: 2,
+        ..Default::default()
+    };
     let capped = s.search_code(&q).await.unwrap().unwrap();
     assert!(capped.truncated && capped.hits.len() == 2, "{capped:?}");
 

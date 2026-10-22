@@ -20,7 +20,9 @@ pub const NET_LIMIT: Duration = Duration::from_secs(900);
 
 pub fn git_path() -> CommandResult<PathBuf> {
     dbine_ai::env::find("git").ok_or_else(|| {
-        CommandError::BadRequest("no se encontró git en esta máquina: instalalo (git-scm.com) y volvé a intentar".into())
+        CommandError::BadRequest(
+            "no se encontró git en esta máquina: instalalo (git-scm.com) y volvé a intentar".into(),
+        )
     })
 }
 
@@ -47,7 +49,14 @@ pub struct RunOpts<'a> {
 
 impl Default for RunOpts<'_> {
     fn default() -> Self {
-        Self { limit: GIT_LIMIT, cancel: None, env: &[], progress: None, raw: false, input: None }
+        Self {
+            limit: GIT_LIMIT,
+            cancel: None,
+            env: &[],
+            progress: None,
+            raw: false,
+            input: None,
+        }
     }
 }
 
@@ -79,7 +88,11 @@ pub async fn output(dir: &Path, args: &[&str], o: RunOpts<'_>) -> CommandResult<
         // `:(glob)**`): as a pathspec they must match only that file, never
         // expand to every file of the tree (a Discard would wipe them all).
         .env("GIT_LITERAL_PATHSPECS", "1")
-        .stdin(if o.input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if o.input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -91,10 +104,18 @@ pub async fn output(dir: &Path, args: &[&str], o: RunOpts<'_>) -> CommandResult<
         // CREATE_NO_WINDOW: no console window next to the app.
         cmd.creation_flags(0x0800_0000);
     }
-    let mut child = cmd.spawn().map_err(|e| CommandError::Internal(format!("no se pudo ejecutar git: {e}")))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| CommandError::Internal(format!("no se pudo ejecutar git: {e}")))?;
     let stdin = child.stdin.take();
-    let mut stdout = child.stdout.take().ok_or_else(|| CommandError::Internal("git sin salida".into()))?;
-    let mut stderr = child.stderr.take().ok_or_else(|| CommandError::Internal("git sin salida".into()))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| CommandError::Internal("git sin salida".into()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| CommandError::Internal("git sin salida".into()))?;
     let (input, progress) = (o.input, o.progress);
     let work = async {
         let write = async move {
@@ -159,8 +180,13 @@ pub async fn output(dir: &Path, args: &[&str], o: RunOpts<'_>) -> CommandResult<
     };
     match end {
         End::Done((status, stdout, stderr)) => {
-            let status = status.map_err(|e| CommandError::Internal(format!("no se pudo ejecutar git: {e}")))?;
-            Ok(Output { code: status.code(), stdout, stderr: String::from_utf8_lossy(&stderr).trim().to_string() })
+            let status = status
+                .map_err(|e| CommandError::Internal(format!("no se pudo ejecutar git: {e}")))?;
+            Ok(Output {
+                code: status.code(),
+                stdout,
+                stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
+            })
         }
         stop => {
             // Killed and reaped before returning: whatever it was writing
@@ -185,9 +211,18 @@ pub async fn run_with(dir: &Path, args: &[&str], o: RunOpts<'_>) -> CommandResul
     let raw = o.raw;
     let out = output(dir, args, o).await?;
     if out.ok() {
-        Ok(if raw { out.stdout } else { String::from_utf8_lossy(&out.stdout).trim().as_bytes().to_vec() })
+        Ok(if raw {
+            out.stdout
+        } else {
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .as_bytes()
+                .to_vec()
+        })
     } else if out.stderr.is_empty() {
-        Err(CommandError::BadRequest(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+        Err(CommandError::BadRequest(
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        ))
     } else {
         Err(CommandError::BadRequest(out.stderr))
     }
@@ -195,13 +230,20 @@ pub async fn run_with(dir: &Path, args: &[&str], o: RunOpts<'_>) -> CommandResul
 
 /// Run git in `dir`; its output trimmed, or its message as the error.
 pub async fn run(dir: &Path, args: &[&str]) -> CommandResult<String> {
-    run_with(dir, args, RunOpts::default()).await.map(|b| String::from_utf8_lossy(&b).to_string())
+    run_with(dir, args, RunOpts::default())
+        .await
+        .map(|b| String::from_utf8_lossy(&b).to_string())
 }
 
 /// Commits need a name and an email; DBine's when git has none configured.
 /// For the Library's own working copy only: a project commits as the user.
 pub async fn identity(dir: &Path) -> Vec<String> {
-    let has = |key: &'static str| async move { run(dir, &["config", key]).await.map(|v| !v.is_empty()).unwrap_or(false) };
+    let has = |key: &'static str| async move {
+        run(dir, &["config", key])
+            .await
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+    };
     let mut args = Vec::new();
     if !has("user.name").await {
         args.extend(["-c".to_string(), "user.name=DBine".to_string()]);
@@ -215,7 +257,11 @@ pub async fn identity(dir: &Path) -> Vec<String> {
 /// Git knows the user's name and email (repo or global config).
 pub async fn has_identity(dir: &Path) -> bool {
     for key in ["user.name", "user.email"] {
-        if !run(dir, &["config", key]).await.map(|v| !v.is_empty()).unwrap_or(false) {
+        if !run(dir, &["config", key])
+            .await
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+        {
             return false;
         }
     }
@@ -226,14 +272,22 @@ pub async fn has_identity(dir: &Path) -> bool {
 pub fn map_error(stderr: &str) -> CommandError {
     let msg = redact_url(stderr.trim());
     let has = |s: &str| msg.contains(s);
-    if has("Authentication failed") || has("could not read Username") || has("Permission denied (publickey)") || has("terminal prompts disabled") {
+    if has("Authentication failed")
+        || has("could not read Username")
+        || has("Permission denied (publickey)")
+        || has("terminal prompts disabled")
+    {
         CommandError::AuthFailed(format!(
             "git no tiene credenciales para este remoto: configurá el credential helper o la clave SSH ({msg})"
         ))
     } else if has("Host key verification failed") {
-        CommandError::Connect("el host SSH no es de confianza todavía: conectate una vez desde una terminal".into())
+        CommandError::Connect(
+            "el host SSH no es de confianza todavía: conectate una vez desde una terminal".into(),
+        )
     } else if has("[rejected]") && (has("non-fast-forward") || has("fetch first")) {
-        CommandError::BadRequest("el remoto tiene cambios que no tenés: hacé Pull o Sincronizar primero".into())
+        CommandError::BadRequest(
+            "el remoto tiene cambios que no tenés: hacé Pull o Sincronizar primero".into(),
+        )
     } else if has("Could not resolve host") || has("unable to access") {
         CommandError::Connect(format!("no se pudo conectar con el remoto ({msg})"))
     } else if has("Please tell me who you are") || has("unable to auto-detect email address") {
@@ -261,7 +315,9 @@ pub fn redact_url(s: &str) -> String {
     while let Some(i) = rest.find("://") {
         out.push_str(&rest[..i + 3]);
         rest = &rest[i + 3..];
-        let end = rest.find(|c: char| c.is_whitespace() || c == '/' || c == '\'' || c == '"').unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == '/' || c == '\'' || c == '"')
+            .unwrap_or(rest.len());
         if let Some(at) = rest[..end].rfind('@') {
             rest = &rest[at + 1..];
         }
@@ -288,26 +344,55 @@ mod tests {
 
     #[test]
     fn urls_lose_their_credentials() {
-        assert_eq!(redact_url("fatal: unable to access 'https://ana:s3cr3t@git.example.com/r.git/': x"), "fatal: unable to access 'https://git.example.com/r.git/': x");
-        assert_eq!(redact_url("https://token@github.com/o/r"), "https://github.com/o/r");
-        assert_eq!(redact_url("git@github.com:o/r.git"), "git@github.com:o/r.git");
+        assert_eq!(
+            redact_url("fatal: unable to access 'https://ana:s3cr3t@git.example.com/r.git/': x"),
+            "fatal: unable to access 'https://git.example.com/r.git/': x"
+        );
+        assert_eq!(
+            redact_url("https://token@github.com/o/r"),
+            "https://github.com/o/r"
+        );
+        assert_eq!(
+            redact_url("git@github.com:o/r.git"),
+            "git@github.com:o/r.git"
+        );
         assert_eq!(redact_url("no url here"), "no url here");
     }
 
     #[test]
     fn errors_carry_a_hint() {
-        assert!(matches!(map_error("fatal: Authentication failed for 'https://u:p@h/r'"), CommandError::AuthFailed(m) if !m.contains("u:p")));
-        assert!(matches!(map_error("Host key verification failed."), CommandError::Connect(_)));
-        assert!(matches!(map_error(" ! [rejected]        main -> main (fetch first)"), CommandError::BadRequest(m) if m.contains("Pull")));
-        assert!(matches!(map_error("fatal: Could not resolve host: nope"), CommandError::Connect(_)));
-        assert!(matches!(map_error("something else"), CommandError::BadRequest(m) if m == "something else"));
-        assert!(matches!(remap(CommandError::BadRequest("operación cancelada".into())), CommandError::BadRequest(m) if m == "operación cancelada"));
+        assert!(
+            matches!(map_error("fatal: Authentication failed for 'https://u:p@h/r'"), CommandError::AuthFailed(m) if !m.contains("u:p"))
+        );
+        assert!(matches!(
+            map_error("Host key verification failed."),
+            CommandError::Connect(_)
+        ));
+        assert!(
+            matches!(map_error(" ! [rejected]        main -> main (fetch first)"), CommandError::BadRequest(m) if m.contains("Pull"))
+        );
+        assert!(matches!(
+            map_error("fatal: Could not resolve host: nope"),
+            CommandError::Connect(_)
+        ));
+        assert!(
+            matches!(map_error("something else"), CommandError::BadRequest(m) if m == "something else")
+        );
+        assert!(
+            matches!(remap(CommandError::BadRequest("operación cancelada".into())), CommandError::BadRequest(m) if m == "operación cancelada")
+        );
     }
 
     #[test]
     fn verbatim_prefix_is_stripped() {
-        assert_eq!(cwd(Path::new(r"\\?\C:\repos\x")), PathBuf::from(r"C:\repos\x"));
-        assert_eq!(cwd(Path::new(r"\\?\UNC\srv\share")), PathBuf::from(r"\\srv\share"));
+        assert_eq!(
+            cwd(Path::new(r"\\?\C:\repos\x")),
+            PathBuf::from(r"C:\repos\x")
+        );
+        assert_eq!(
+            cwd(Path::new(r"\\?\UNC\srv\share")),
+            PathBuf::from(r"\\srv\share")
+        );
         assert_eq!(cwd(Path::new("/tmp/x")), PathBuf::from("/tmp/x"));
     }
 
@@ -319,12 +404,32 @@ mod tests {
         let n = Arc::new(Notify::new());
         // Cancelled before it starts (the UI's cancel can arrive that early).
         n.notify_one();
-        let err = output(&std::env::temp_dir(), &["--version"], RunOpts { cancel: Some(n), ..Default::default() }).await.err().unwrap();
+        let err = output(
+            &std::env::temp_dir(),
+            &["--version"],
+            RunOpts {
+                cancel: Some(n),
+                ..Default::default()
+            },
+        )
+        .await
+        .err()
+        .unwrap();
         assert_eq!(err.to_string(), "operación cancelada");
         let lines = std::sync::Mutex::new(Vec::new());
         let cb = |l: &str| lines.lock().unwrap().push(l.to_string());
         // stderr lines reach the callback; stdout stays untrimmed with `raw`.
-        let out = run_with(&std::env::temp_dir(), &["--version"], RunOpts { raw: true, progress: Some(&cb), ..Default::default() }).await.unwrap();
+        let out = run_with(
+            &std::env::temp_dir(),
+            &["--version"],
+            RunOpts {
+                raw: true,
+                progress: Some(&cb),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         assert!(out.ends_with(b"\n"));
     }
 }

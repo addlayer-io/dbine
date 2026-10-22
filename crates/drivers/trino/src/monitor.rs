@@ -66,7 +66,9 @@ pub(crate) fn duration_secs(s: &str) -> Option<f64> {
 fn composite(s: &str, field: &str) -> Option<f64> {
     let at = s.find(&format!("{field}="))? + field.len() + 1;
     let rest = &s[at..];
-    let end = rest.find(|c: char| !c.is_ascii_digit() && c != '-').unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit() && c != '-')
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 
@@ -96,7 +98,11 @@ fn truncate(s: &str) -> String {
 
 impl TrinoSession {
     pub(crate) async fn get_json(&self, path: &str) -> Result<Value> {
-        let rb = self.conn.http.get(format!("{}{path}", self.conn.base)).header(self.flavor.header("user"), &self.conn.user);
+        let rb = self
+            .conn
+            .http
+            .get(format!("{}{path}", self.conn.base))
+            .header(self.flavor.header("user"), &self.conn.user);
         let resp = self.conn.auth(rb).send().await.map_err(http_error)?;
         if !resp.status().is_success() {
             return Err(Error::Query(format!("HTTP {}", resp.status())));
@@ -117,7 +123,10 @@ impl TrinoSession {
             .await?;
         let mut t = JmxTables::default();
         for r in rows.into_iter().filter(|r| r.len() == 2) {
-            t.columns.entry(r[0].clone()).or_default().insert(r[1].clone());
+            t.columns
+                .entry(r[0].clone())
+                .or_default()
+                .insert(r[1].clone());
         }
         let names: Vec<String> = t.columns.keys().cloned().collect();
         let found = JmxTables::from_names(&names);
@@ -131,17 +140,33 @@ impl TrinoSession {
     /// `agg(column)` of each column over the JMX table's rows (one per
     /// node); `None` where the table or the column doesn't exist in this
     /// product or version.
-    async fn jmx_values(&mut self, t: &JmxTables, table: Option<&str>, cols: &[(&str, &str)]) -> Vec<Option<f64>> {
+    async fn jmx_values(
+        &mut self,
+        t: &JmxTables,
+        table: Option<&str>,
+        cols: &[(&str, &str)],
+    ) -> Vec<Option<f64>> {
         let none = vec![None; cols.len()];
         let Some(table) = table else { return none };
         let have = t.columns.get(table);
         let sel = cols
             .iter()
-            .map(|(agg, c)| if have.is_some_and(|h| h.contains(*c)) { format!("{agg}({})", q(c)) } else { "NULL".into() })
+            .map(|(agg, c)| {
+                if have.is_some_and(|h| h.contains(*c)) {
+                    format!("{agg}({})", q(c))
+                } else {
+                    "NULL".into()
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ");
-        match self.strings(&format!("{TAG} SELECT {sel} FROM jmx.current.{}", q(table))).await {
-            Ok(rows) => rows.first().map_or(none, |r| r.iter().map(|v| num(v)).collect()),
+        match self
+            .strings(&format!("{TAG} SELECT {sel} FROM jmx.current.{}", q(table)))
+            .await
+        {
+            Ok(rows) => rows
+                .first()
+                .map_or(none, |r| r.iter().map(|v| num(v)).collect()),
             Err(e) => {
                 tracing::debug!("jmx {table}: {e}");
                 none
@@ -155,15 +180,25 @@ impl TrinoSession {
 
         // The coordinator itself.
         let info = self.get_json("/v1/info").await?;
-        let version = info.pointer("/nodeVersion/version").map(text).unwrap_or_default();
-        snap.info.push(("Versión".into(), format!("{} {version}", crate::info_name(self.flavor))));
+        let version = info
+            .pointer("/nodeVersion/version")
+            .map(text)
+            .unwrap_or_default();
+        snap.info.push((
+            "Versión".into(),
+            format!("{} {version}", crate::info_name(self.flavor)),
+        ));
         if let Some(e) = info.get("environment").map(text) {
             snap.info.push(("Entorno".into(), e));
         }
         if let Some(st) = info.get("state").map(text).filter(|s| !s.is_empty()) {
             snap.info.push(("Estado del coordinador".into(), st));
         }
-        if let Some(up) = info.get("uptime").and_then(Value::as_str).and_then(duration_secs) {
+        if let Some(up) = info
+            .get("uptime")
+            .and_then(Value::as_str)
+            .and_then(duration_secs)
+        {
             m.insert("uptime", up);
         }
         let status = self.get_json("/v1/status").await.ok();
@@ -172,13 +207,18 @@ impl TrinoSession {
                 snap.info.push(("Nodo coordinador".into(), n));
             }
             if let Some(p) = f(st, "/processors") {
-                snap.info.push(("Procesadores del coordinador".into(), p.to_string()));
+                snap.info
+                    .push(("Procesadores del coordinador".into(), p.to_string()));
             }
         }
 
         // Presto's cluster totals (Trino moved them to the web UI's API,
         // behind the UI login).
-        let cluster = if self.flavor == Flavor::Presto { self.get_json("/v1/cluster").await.ok() } else { None };
+        let cluster = if self.flavor == Flavor::Presto {
+            self.get_json("/v1/cluster").await.ok()
+        } else {
+            None
+        };
         if let Some(c) = &cluster {
             for (k, p) in [
                 ("running", "/runningQueries"),
@@ -309,7 +349,10 @@ impl TrinoSession {
             }
             if !m.contains_key("query_mem") {
                 // Trino has one pool; Presto, "general" and "reserved".
-                let pool = |k: &str| f(st, &format!("/memoryInfo/pool/{k}")).or_else(|| f(st, &format!("/memoryInfo/pools/general/{k}")));
+                let pool = |k: &str| {
+                    f(st, &format!("/memoryInfo/pool/{k}"))
+                        .or_else(|| f(st, &format!("/memoryInfo/pools/general/{k}")))
+                };
                 if let (Some(r), Some(x)) = (pool("reservedBytes"), pool("maxBytes")) {
                     m.insert("query_mem", r);
                     m.insert("query_mem_max", x);
@@ -334,12 +377,27 @@ impl TrinoSession {
                     .filter(|r| r.len() == 4)
                     .map(|r| (r[0].clone(), r[1..].to_vec()))
                     .collect();
-                let active = nodes.iter().filter(|r| r.get(4).is_some_and(|s| s.eq_ignore_ascii_case("active"))).count();
+                let active = nodes
+                    .iter()
+                    .filter(|r| r.get(4).is_some_and(|s| s.eq_ignore_ascii_case("active")))
+                    .count();
                 m.insert("nodes", active as f64);
                 let mut t = MonitorTable::new(
                     "nodes",
                     "Nodos del cluster",
-                    &["Nodo", "URI", "Versión", "Rol", "Estado", "CPU (%)", "Heap usado", "Heap máximo", "Tareas", "Splits en curso", "Splits en cola"],
+                    &[
+                        "Nodo",
+                        "URI",
+                        "Versión",
+                        "Rol",
+                        "Estado",
+                        "CPU (%)",
+                        "Heap usado",
+                        "Heap máximo",
+                        "Tareas",
+                        "Splits en curso",
+                        "Splits en cola",
+                    ],
                 );
                 for r in nodes.iter().filter(|r| r.len() == 5).take(200) {
                     let (cpu, used, max) = node_os.get(&r[0]).copied().unwrap_or_default();
@@ -349,7 +407,11 @@ impl TrinoSession {
                         cell(&r[0]),
                         cell(&r[1]),
                         cell(&r[2]),
-                        json!(if r[3] == "true" { "coordinador" } else { "worker" }),
+                        json!(if r[3] == "true" {
+                            "coordinador"
+                        } else {
+                            "worker"
+                        }),
                         cell(&r[4]),
                         cpu.map_or(Value::Null, |c| json!((c * 10.0).round() / 10.0)),
                         used.map_or(Value::Null, |v| json!(v)),
@@ -361,7 +423,9 @@ impl TrinoSession {
                 }
                 snap.tables.push(t);
             }
-            Err(e) => snap.notes.push(format!("No se pudo leer system.runtime.nodes: {e}")),
+            Err(e) => snap
+                .notes
+                .push(format!("No se pudo leer system.runtime.nodes: {e}")),
         }
 
         // Queries: state counts, the ones in flight and the latest finished.
@@ -428,26 +492,131 @@ impl TrinoSession {
         let g = |k: &str| m.get(k).copied();
         let pct = |k: &str| g(k).map(|v| (v * 10.0).round() / 10.0);
         snap.metrics = vec![
-            Metric::new("cpu", "CPU del cluster (promedio de nodos)", "CPU", MetricUnit::Percent, pct("cpu")).max(Some(100.0)),
-            Metric::new("cpu_time", "CPU de los procesos", "CPU", MetricUnit::Percent, g("cpu_time")).counter(),
-            Metric::new("query_cpu", "CPU de las consultas", "CPU", MetricUnit::Percent, g("query_cpu").map(|s| s * 100.0)).counter(),
-            Metric::new("mem_used", "Heap usado (JVM)", "Memoria", MetricUnit::Bytes, g("heap")).max(g("heap_max")),
-            Metric::new("query_memory", "Memoria reservada por consultas", "Memoria", MetricUnit::Bytes, g("query_mem"))
-                .max(g("query_mem_max")),
-            Metric::new("active_sessions", "Consultas en ejecución", "Conexiones", MetricUnit::Count, g("running")),
-            Metric::new("queued_queries", "Consultas en cola", "Conexiones", MetricUnit::Count, g("queued")),
-            Metric::new("blocked_queries", "Consultas bloqueadas", "Conexiones", MetricUnit::Count, g("blocked")),
-            Metric::new("queries", "Consultas iniciadas", "Actividad", MetricUnit::Count, g("started")).counter(),
-            Metric::new("failed_queries", "Consultas fallidas", "Actividad", MetricUnit::Count, g("failed")).counter(),
-            Metric::new("rows_read", "Filas leídas", "Actividad", MetricUnit::Count, g("rows_read")).counter(),
-            Metric::new("bytes_read", "Datos leídos", "Actividad", MetricUnit::Bytes, g("bytes_read")).counter(),
-            Metric::new("running_drivers", "Drivers en ejecución", "Actividad", MetricUnit::Count, g("drivers")),
-            Metric::new("nodes", "Nodos activos", "Cluster", MetricUnit::Count, g("nodes").or(g("workers"))),
-            Metric::new("oom_kills", "Consultas terminadas por falta de memoria", "Memoria", MetricUnit::Count, g("oom_kills")),
-            Metric::new("uptime", "Tiempo activo del coordinador", "Servidor", MetricUnit::Seconds, g("uptime")),
+            Metric::new(
+                "cpu",
+                "CPU del cluster (promedio de nodos)",
+                "CPU",
+                MetricUnit::Percent,
+                pct("cpu"),
+            )
+            .max(Some(100.0)),
+            Metric::new(
+                "cpu_time",
+                "CPU de los procesos",
+                "CPU",
+                MetricUnit::Percent,
+                g("cpu_time"),
+            )
+            .counter(),
+            Metric::new(
+                "query_cpu",
+                "CPU de las consultas",
+                "CPU",
+                MetricUnit::Percent,
+                g("query_cpu").map(|s| s * 100.0),
+            )
+            .counter(),
+            Metric::new(
+                "mem_used",
+                "Heap usado (JVM)",
+                "Memoria",
+                MetricUnit::Bytes,
+                g("heap"),
+            )
+            .max(g("heap_max")),
+            Metric::new(
+                "query_memory",
+                "Memoria reservada por consultas",
+                "Memoria",
+                MetricUnit::Bytes,
+                g("query_mem"),
+            )
+            .max(g("query_mem_max")),
+            Metric::new(
+                "active_sessions",
+                "Consultas en ejecución",
+                "Conexiones",
+                MetricUnit::Count,
+                g("running"),
+            ),
+            Metric::new(
+                "queued_queries",
+                "Consultas en cola",
+                "Conexiones",
+                MetricUnit::Count,
+                g("queued"),
+            ),
+            Metric::new(
+                "blocked_queries",
+                "Consultas bloqueadas",
+                "Conexiones",
+                MetricUnit::Count,
+                g("blocked"),
+            ),
+            Metric::new(
+                "queries",
+                "Consultas iniciadas",
+                "Actividad",
+                MetricUnit::Count,
+                g("started"),
+            )
+            .counter(),
+            Metric::new(
+                "failed_queries",
+                "Consultas fallidas",
+                "Actividad",
+                MetricUnit::Count,
+                g("failed"),
+            )
+            .counter(),
+            Metric::new(
+                "rows_read",
+                "Filas leídas",
+                "Actividad",
+                MetricUnit::Count,
+                g("rows_read"),
+            )
+            .counter(),
+            Metric::new(
+                "bytes_read",
+                "Datos leídos",
+                "Actividad",
+                MetricUnit::Bytes,
+                g("bytes_read"),
+            )
+            .counter(),
+            Metric::new(
+                "running_drivers",
+                "Drivers en ejecución",
+                "Actividad",
+                MetricUnit::Count,
+                g("drivers"),
+            ),
+            Metric::new(
+                "nodes",
+                "Nodos activos",
+                "Cluster",
+                MetricUnit::Count,
+                g("nodes").or(g("workers")),
+            ),
+            Metric::new(
+                "oom_kills",
+                "Consultas terminadas por falta de memoria",
+                "Memoria",
+                MetricUnit::Count,
+                g("oom_kills"),
+            ),
+            Metric::new(
+                "uptime",
+                "Tiempo activo del coordinador",
+                "Servidor",
+                MetricUnit::Seconds,
+                g("uptime"),
+            ),
         ];
         if let Some(p) = g("processors") {
-            snap.info.push(("Procesadores del cluster".into(), p.to_string()));
+            snap.info
+                .push(("Procesadores del cluster".into(), p.to_string()));
         }
         snap.notes.push(format!(
             "{} no informa el uso de disco ni de red por la API; el almacenamiento depende de cada conector (Hive, Iceberg…).",
@@ -481,7 +650,10 @@ mod tests {
             "com.facebook.presto.execution:name=querymanager".into(),
             "trino.memory:name=clustermemorymanager".into(),
         ]);
-        assert_eq!(t.query_manager.as_deref(), Some("com.facebook.presto.execution:name=querymanager"));
+        assert_eq!(
+            t.query_manager.as_deref(),
+            Some("com.facebook.presto.execution:name=querymanager")
+        );
         assert!(t.cluster_memory.is_some() && t.general_pool.is_none());
         assert_eq!(q("a\"b"), "\"a\"\"b\"");
     }

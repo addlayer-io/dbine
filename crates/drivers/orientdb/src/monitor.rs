@@ -33,19 +33,51 @@ pub(crate) fn busy(c: &Value) -> bool {
 }
 
 pub fn from_server(server: &Value, snap: &mut MonitorSnapshot) {
-    let conns: Vec<Value> = server.get("connections").and_then(Value::as_array).cloned().unwrap_or_default();
+    let conns: Vec<Value> = server
+        .get("connections")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let active = conns.iter().filter(|c| busy(c)).count();
-    snap.metrics.push(Metric::new("connections", "Conexiones", "Conexiones", MetricUnit::Count, Some(conns.len() as f64)));
-    snap.metrics.push(Metric::new("active_sessions", "Conexiones ejecutando", "Conexiones", MetricUnit::Count, Some(active as f64)));
+    snap.metrics.push(Metric::new(
+        "connections",
+        "Conexiones",
+        "Conexiones",
+        MetricUnit::Count,
+        Some(conns.len() as f64),
+    ));
+    snap.metrics.push(Metric::new(
+        "active_sessions",
+        "Conexiones ejecutando",
+        "Conexiones",
+        MetricUnit::Count,
+        Some(active as f64),
+    ));
     let mut t = MonitorTable::new(
         "sessions",
         "Sesiones",
-        &["id", "usuario", "base", "cliente", "protocolo", "estado", "última duración (ms)", "pedidos", "tiempo total (ms)", "conectada", "consulta actual"],
+        &[
+            "id",
+            "usuario",
+            "base",
+            "cliente",
+            "protocolo",
+            "estado",
+            "última duración (ms)",
+            "pedidos",
+            "tiempo total (ms)",
+            "conectada",
+            "consulta actual",
+        ],
     );
     for c in conns.iter().take(MAX_ROWS) {
         let g = |k: &str| c.get(k).cloned().unwrap_or(Value::Null);
         let n = |k: &str| f(c.get(k)).map(Value::from).unwrap_or(Value::Null);
-        let detail = c.get("commandDetail").map(as_text).filter(|d| d != "-").unwrap_or_default();
+        let detail = c
+            .get("commandDetail")
+            .map(as_text)
+            .filter(|d| d != "-")
+            .unwrap_or_default();
         t.rows.push(vec![
             g("connectionId"),
             g("user"),
@@ -62,9 +94,25 @@ pub fn from_server(server: &Value, snap: &mut MonitorSnapshot) {
     }
     snap.tables.push(t);
 
-    let mut dbs = MonitorTable::new("databases", "Bases abiertas", &["nombre", "tipo", "ruta", "usuarios activos"]);
-    for s in server.get("storages").and_then(Value::as_array).cloned().unwrap_or_default().iter().take(MAX_ROWS) {
-        dbs.rows.push(["name", "type", "path", "activeUsers"].iter().map(|k| s.get(*k).cloned().unwrap_or(Value::Null)).collect());
+    let mut dbs = MonitorTable::new(
+        "databases",
+        "Bases abiertas",
+        &["nombre", "tipo", "ruta", "usuarios activos"],
+    );
+    for s in server
+        .get("storages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .take(MAX_ROWS)
+    {
+        dbs.rows.push(
+            ["name", "type", "path", "activeUsers"]
+                .iter()
+                .map(|k| s.get(*k).cloned().unwrap_or(Value::Null))
+                .collect(),
+        );
     }
     snap.tables.push(dbs);
 
@@ -75,9 +123,17 @@ pub fn from_server(server: &Value, snap: &mut MonitorSnapshot) {
         ("query.timeout.defaultStrategy", "Estrategia de timeout"),
         ("storage.useWAL", "WAL"),
     ];
-    let globals: Vec<Value> = server.get("globalProperties").and_then(Value::as_array).cloned().unwrap_or_default();
+    let globals: Vec<Value> = server
+        .get("globalProperties")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     for (k, label) in KEYS {
-        if let Some(v) = globals.iter().find(|p| p.get("key").and_then(Value::as_str) == Some(k)).and_then(|p| p.get("value")) {
+        if let Some(v) = globals
+            .iter()
+            .find(|p| p.get("key").and_then(Value::as_str) == Some(k))
+            .and_then(|p| p.get("value"))
+        {
             snap.info.push((label.to_string(), as_text(v)));
         }
     }
@@ -97,14 +153,26 @@ pub async fn snapshot(s: &mut OrientSession) -> Result<MonitorSnapshot> {
     let meta = s.metadata().await?;
     if let Some(sv) = meta.get("server") {
         let v = |k: &str| sv.get(k).map(as_text).unwrap_or_default();
-        snap.info.insert(0, ("Versión".into(), format!("OrientDB {}", v("version"))));
-        snap.info.push(("Sistema operativo".into(), format!("{} {} ({})", v("osName"), v("osVersion"), v("osArch"))));
-        snap.info.push(("Java".into(), format!("{} {}", v("javaVendor"), v("javaVersion"))));
+        snap.info
+            .insert(0, ("Versión".into(), format!("OrientDB {}", v("version"))));
+        snap.info.push((
+            "Sistema operativo".into(),
+            format!("{} {} ({})", v("osName"), v("osVersion"), v("osArch")),
+        ));
+        snap.info.push((
+            "Java".into(),
+            format!("{} {}", v("javaVendor"), v("javaVersion")),
+        ));
     }
     snap.info.push(("Base actual".into(), s.db.clone()));
 
     // Records per class.
-    let classes = classify(meta.get("classes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]));
+    let classes = classify(
+        meta.get("classes")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+    );
     let (mut vertices, mut edges, mut total) = (0.0, 0.0, 0.0);
     let mut sizes: Vec<(String, &str, f64)> = Vec::new();
     for (name, kind, c) in &classes {
@@ -122,25 +190,63 @@ pub async fn snapshot(s: &mut OrientSession) -> Result<MonitorSnapshot> {
         sizes.push((name.clone(), kind, n));
     }
     sizes.sort_by(|a, b| b.2.total_cmp(&a.2));
-    let mut top = MonitorTable::new("top_objects", "Clases con más registros", &["clase", "tipo", "registros"]);
+    let mut top = MonitorTable::new(
+        "top_objects",
+        "Clases con más registros",
+        &["clase", "tipo", "registros"],
+    );
     for (name, kind, n) in sizes.iter().take(20) {
         let k = match *kind {
             VERTEX => "vértices",
             EDGE => "aristas",
             _ => "documentos",
         };
-        top.rows.push(vec![Value::String(name.clone()), Value::String(k.into()), Value::from(*n)]);
+        top.rows.push(vec![
+            Value::String(name.clone()),
+            Value::String(k.into()),
+            Value::from(*n),
+        ]);
     }
     snap.tables.push(top);
-    snap.metrics.push(Metric::new("nodes", "Vértices", "Almacenamiento", MetricUnit::Count, Some(vertices)));
-    snap.metrics.push(Metric::new("relationships", "Aristas", "Almacenamiento", MetricUnit::Count, Some(edges)));
-    snap.metrics.push(Metric::new("records", "Registros", "Almacenamiento", MetricUnit::Count, Some(total)));
+    snap.metrics.push(Metric::new(
+        "nodes",
+        "Vértices",
+        "Almacenamiento",
+        MetricUnit::Count,
+        Some(vertices),
+    ));
+    snap.metrics.push(Metric::new(
+        "relationships",
+        "Aristas",
+        "Almacenamiento",
+        MetricUnit::Count,
+        Some(edges),
+    ));
+    snap.metrics.push(Metric::new(
+        "records",
+        "Registros",
+        "Almacenamiento",
+        MetricUnit::Count,
+        Some(total),
+    ));
 
-    match s.command("SELECT size, totalClusters, type FROM metadata:storage", -1).await {
+    match s
+        .command("SELECT size, totalClusters, type FROM metadata:storage", -1)
+        .await
+    {
         Ok(r) => {
             let row = r.records.first();
-            let g = |k: &str| row.and_then(|r| r.iter().find(|(x, _)| x == k)).map(|(_, v)| v.clone());
-            snap.metrics.push(Metric::new("storage_used", "Espacio en disco", "Almacenamiento", MetricUnit::Bytes, f(g("size").as_ref())));
+            let g = |k: &str| {
+                row.and_then(|r| r.iter().find(|(x, _)| x == k))
+                    .map(|(_, v)| v.clone())
+            };
+            snap.metrics.push(Metric::new(
+                "storage_used",
+                "Espacio en disco",
+                "Almacenamiento",
+                MetricUnit::Bytes,
+                f(g("size").as_ref()),
+            ));
             if let Some(t) = g("type") {
                 snap.info.push(("Almacenamiento".into(), as_text(&t)));
             }
@@ -177,6 +283,9 @@ mod tests {
         assert_eq!(snap.metrics[1].value, Some(1.0));
         assert_eq!(snap.tables[0].rows[0][7], json!(7.0));
         assert_eq!(snap.tables[0].rows[0][10], json!("SELECT FROM X"));
-        assert_eq!(snap.info, vec![("Caché de disco (MB)".to_string(), "4096".to_string())]);
+        assert_eq!(
+            snap.info,
+            vec![("Caché de disco (MB)".to_string(), "4096".to_string())]
+        );
     }
 }

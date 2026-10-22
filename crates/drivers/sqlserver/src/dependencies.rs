@@ -17,7 +17,10 @@
 //! says they use the target.
 
 use crate::{text, SqlServerSession};
-use dbine_driver::dependencies::{find_mentions, schema_dependents, Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Relation};
+use dbine_driver::dependencies::{
+    find_mentions, schema_dependents, Confidence, DependencyReport, DependencyScan,
+    DependencyTarget, Dependent, Relation,
+};
 use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::{kinds, Result, Session};
 use tiberius::Row;
@@ -41,22 +44,43 @@ SELECT RTRIM(o.type), s.name, o.name, OBJECT_NAME(o.parent_object_id), m.definit
    AND (dep.referencing_id IS NOT NULL OR m.definition LIKE @P3 ESCAPE '\\')
  ORDER BY s.name, o.name";
 
-pub(crate) async fn dependents(s: &mut SqlServerSession, target: &DependencyTarget, scan: &DependencyScan) -> Result<DependencyReport> {
+pub(crate) async fn dependents(
+    s: &mut SqlServerSession,
+    target: &DependencyTarget,
+    scan: &DependencyScan,
+) -> Result<DependencyReport> {
     let mut report = DependencyReport::default();
-    report.items.extend(schema_dependents(&s.database_schema().await?, target));
+    report
+        .items
+        .extend(schema_dependents(&s.database_schema().await?, target));
     let object = qualified_name(Quote::Bracket, target.object.schema(), &target.object.name);
     let column = target.column.clone().unwrap_or_default();
-    let pattern = format!("%{}%", like_escape(target.column.as_deref().unwrap_or(&target.object.name)));
+    let pattern = format!(
+        "%{}%",
+        like_escape(target.column.as_deref().unwrap_or(&target.object.name))
+    );
     for r in s.rows(MODULES_SQL, &[&object, &column, &pattern]).await? {
         if let Some(d) = module(&r, target, scan, &mut report) {
             report.items.push(d);
         }
     }
-    report.items.sort_by_key(|d| (d.confidence, d.relation, d.schema.clone(), d.name.to_lowercase()));
+    report.items.sort_by_key(|d| {
+        (
+            d.confidence,
+            d.relation,
+            d.schema.clone(),
+            d.name.to_lowercase(),
+        )
+    });
     Ok(report)
 }
 
-fn module(r: &Row, target: &DependencyTarget, scan: &DependencyScan, report: &mut DependencyReport) -> Option<Dependent> {
+fn module(
+    r: &Row,
+    target: &DependencyTarget,
+    scan: &DependencyScan,
+    report: &mut DependencyReport,
+) -> Option<Dependent> {
     let kind = match text(r, 0)?.as_str() {
         "V" => kinds::VIEW,
         "P" | "PC" | "RF" => kinds::PROCEDURE,
@@ -68,7 +92,11 @@ fn module(r: &Row, target: &DependencyTarget, scan: &DependencyScan, report: &mu
     let column_recorded = r.get::<i32, _>(6).unwrap_or(0) == 1;
     let Some(body) = text(r, 4) else {
         if recorded {
-            report.unreadable.push(schema.as_deref().map_or(name.clone(), |s| format!("{s}.{name}")));
+            report.unreadable.push(
+                schema
+                    .as_deref()
+                    .map_or(name.clone(), |s| format!("{s}.{name}")),
+            );
         }
         return None;
     };
@@ -84,7 +112,11 @@ fn module(r: &Row, target: &DependencyTarget, scan: &DependencyScan, report: &mu
         kind: kind.into(),
         schema,
         name,
-        parent: if kind == kinds::TRIGGER { text(r, 3) } else { None },
+        parent: if kind == kinds::TRIGGER {
+            text(r, 3)
+        } else {
+            None
+        },
         relation: Relation::Code,
         confidence,
         detail: None,
@@ -103,4 +135,3 @@ fn like_escape(s: &str) -> String {
     }
     out
 }
-

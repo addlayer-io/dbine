@@ -49,7 +49,10 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 /// The types of an inferred field: `string|int`, `integer | string`,
 /// lower case, without `null` (nullability is its own flag).
 pub(crate) fn type_list(raw: &str) -> Vec<String> {
-    raw.split('|').map(|t| t.trim().to_ascii_lowercase()).filter(|t| !t.is_empty() && t != "null").collect()
+    raw.split('|')
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty() && t != "null")
+        .collect()
 }
 
 /// One logical type for a field seen with several: numbers widen to the
@@ -57,11 +60,16 @@ pub(crate) fn type_list(raw: &str) -> Vec<String> {
 /// value, and a JSON column is the SQL column that can too).
 pub(crate) fn unify(types: Vec<L>) -> L {
     let mut it = types.into_iter();
-    let Some(first) = it.next() else { return L::Text { unicode: true } };
+    let Some(first) = it.next() else {
+        return L::Text { unicode: true };
+    };
     it.fold(first, |a, b| match (a, b) {
         (a, b) if a == b => a,
         (L::Int { bytes: x, .. }, L::Int { bytes: y, .. }) => L::int(x.max(y)),
-        (L::Decimal { .. }, n) | (n, L::Decimal { .. }) if is_number(&n) => L::Decimal { precision: None, scale: None },
+        (L::Decimal { .. }, n) | (n, L::Decimal { .. }) if is_number(&n) => L::Decimal {
+            precision: None,
+            scale: None,
+        },
         (a, b) if is_number(&a) && is_number(&b) => L::Float { bytes: 8 },
         _ => L::Json { binary: true },
     })
@@ -86,16 +94,28 @@ fn bson(t: &str) -> L {
         "double" | "number" => L::Float { bytes: 8 },
         "int" | "integer" | "int32" => L::int(4),
         "long" | "int64" => L::int(8),
-        "decimal" | "decimal128" => L::Decimal { precision: None, scale: None },
+        "decimal" | "decimal128" => L::Decimal {
+            precision: None,
+            scale: None,
+        },
         "bool" | "boolean" => L::Bool,
-        "string" | "symbol" | "javascript" | "regex" | "minkey" | "maxkey" | "dbpointer" | "undefined" => L::Text { unicode: true },
+        "string" | "symbol" | "javascript" | "regex" | "minkey" | "maxkey" | "dbpointer"
+        | "undefined" => L::Text { unicode: true },
         // An internal (time, increment) pair, shown as `Timestamp(t, i)`.
         "timestamp" => L::Text { unicode: true },
-        "objectid" | "oid" => L::Char { len: Some(24), unicode: false },
-        "date" | "datetime" => L::Timestamp { precision: Some(3), tz: true },
+        "objectid" | "oid" => L::Char {
+            len: Some(24),
+            unicode: false,
+        },
+        "date" | "datetime" => L::Timestamp {
+            precision: Some(3),
+            tz: true,
+        },
         "bindata" | "binary" => L::Blob,
         "object" | "array" | "any" | "mixed" | "*" => L::Json { binary: true },
-        _ => L::Other { native: t.to_string() },
+        _ => L::Other {
+            native: t.to_string(),
+        },
     }
 }
 
@@ -110,7 +130,9 @@ impl Dialect for Mongo {
             return L::Json { binary: true };
         }
         match parse_list(raw, bson) {
-            L::Other { .. } => L::Other { native: raw.to_string() },
+            L::Other { .. } => L::Other {
+                native: raw.to_string(),
+            },
             l => l,
         }
     }
@@ -196,7 +218,10 @@ impl Dialect for Mongo {
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         // A collection read from a MongoDB-family server: already native.
-        if ["validate_fields", "validator", "viewOn"].iter().any(|k| t.options.contains_key(*k)) {
+        if ["validate_fields", "validator", "viewOn"]
+            .iter()
+            .any(|k| t.options.contains_key(*k))
+        {
             return;
         }
         t.kind = dbine_driver::kinds::COLLECTION.into();
@@ -214,7 +239,11 @@ impl Dialect for Mongo {
             if pk.columns == ["_id"] {
                 // Back from SQL: the hex text the driver showed is an ObjectId
                 // again when the copy writes it (and text otherwise).
-                if let Some(c) = t.columns.iter_mut().find(|c| c.name == "_id" && c.data_type == "string") {
+                if let Some(c) = t
+                    .columns
+                    .iter_mut()
+                    .find(|c| c.name == "_id" && c.data_type == "string")
+                {
                     c.data_type = "objectId|string".into();
                 }
                 t.primary_key = Some(pk);
@@ -230,8 +259,20 @@ impl Dialect for Mongo {
                         pk.columns.join(", ")
                     ),
                 );
-                if !t.indexes.iter().any(|i| i.unique && i.columns == pk.columns) {
-                    t.indexes.insert(0, IndexDef { name: ix, columns: pk.columns, unique: true, ..Default::default() });
+                if !t
+                    .indexes
+                    .iter()
+                    .any(|i| i.unique && i.columns == pk.columns)
+                {
+                    t.indexes.insert(
+                        0,
+                        IndexDef {
+                            name: ix,
+                            columns: pk.columns,
+                            unique: true,
+                            ..Default::default()
+                        },
+                    );
                 }
             }
         }
@@ -250,14 +291,32 @@ mod tests {
     #[test]
     fn parses_inferred_types() {
         assert_eq!(p("string"), L::Text { unicode: true });
-        assert_eq!(p("objectId"), L::Char { len: Some(24), unicode: false });
+        assert_eq!(
+            p("objectId"),
+            L::Char {
+                len: Some(24),
+                unicode: false
+            }
+        );
         assert_eq!(p("int"), L::int(4));
         assert_eq!(p("long"), L::int(8));
         assert_eq!(p("int|long"), L::int(8));
         assert_eq!(p("double|int"), L::Float { bytes: 8 });
-        assert_eq!(p("decimal|int"), L::Decimal { precision: None, scale: None });
+        assert_eq!(
+            p("decimal|int"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
         assert_eq!(p("string|int"), L::Json { binary: true });
-        assert_eq!(p("date"), L::Timestamp { precision: Some(3), tz: true });
+        assert_eq!(
+            p("date"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
         assert_eq!(p("bool"), L::Bool);
         assert_eq!(p("object"), L::Json { binary: true });
         assert_eq!(p("array"), L::Json { binary: true });
@@ -275,19 +334,58 @@ mod tests {
         let r = |t: L| d.render_type(&t).native;
         assert_eq!(r(L::Bool), "bool");
         assert_eq!(r(L::int(2)), "int");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }), "long");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "decimal");
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(2) }), "decimal");
-        assert!(!d.render_type(&L::Decimal { precision: Some(40), scale: Some(2) }).notes.is_empty());
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "long"
+        );
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "decimal"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }),
+            "decimal"
+        );
+        assert!(!d
+            .render_type(&L::Decimal {
+                precision: Some(40),
+                scale: Some(2)
+            })
+            .notes
+            .is_empty());
         assert_eq!(r(L::Float { bytes: 4 }), "double");
         assert_eq!(r(L::Money), "decimal");
-        assert_eq!(r(L::Varchar { len: Some(20), unicode: true }), "string");
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(20),
+                unicode: true
+            }),
+            "string"
+        );
         assert_eq!(r(L::Text { unicode: false }), "string");
         assert_eq!(r(L::Blob), "binData");
         assert_eq!(r(L::Bit { len: Some(3) }), "string");
         assert_eq!(r(L::Date), "date");
-        assert_eq!(r(L::Time { precision: None, tz: false }), "string");
-        let ts = d.render_type(&L::Timestamp { precision: Some(6), tz: false });
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            }),
+            "string"
+        );
+        let ts = d.render_type(&L::Timestamp {
+            precision: Some(6),
+            tz: false,
+        });
         assert_eq!(ts.native, "date");
         assert!(ts.notes.iter().any(|n| n.code == IssueCode::PrecisionLoss));
         assert!(ts.notes.iter().any(|n| n.code == IssueCode::TimeZoneLoss));
@@ -296,16 +394,47 @@ mod tests {
         assert_eq!(r(L::Uuid), "string");
         assert_eq!(r(L::Json { binary: true }), "object|array");
         assert_eq!(r(L::Xml), "string");
-        assert_eq!(r(L::Enum { values: vec!["a".into()] }), "string");
-        assert_eq!(r(L::Set { values: vec!["a".into()] }), "array");
-        assert_eq!(r(L::Array { of: Box::new(L::int(4)) }), "array");
-        assert_eq!(r(L::Map { key: Box::new(L::Text { unicode: true }), value: Box::new(L::int(4)) }), "object");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "object");
+        assert_eq!(
+            r(L::Enum {
+                values: vec!["a".into()]
+            }),
+            "string"
+        );
+        assert_eq!(
+            r(L::Set {
+                values: vec!["a".into()]
+            }),
+            "array"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(4))
+            }),
+            "array"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Text { unicode: true }),
+                value: Box::new(L::int(4))
+            }),
+            "object"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "object"
+        );
         assert_eq!(r(L::Inet), "string");
         assert_eq!(r(L::MacAddr), "string");
         assert_eq!(r(L::RowVersion), "binData");
         assert_eq!(r(L::Other { native: "x".into() }), "x");
-        assert_eq!(d.render_default(&DefaultValue::CurrentTimestamp, &L::Date), None);
+        assert_eq!(
+            d.render_default(&DefaultValue::CurrentTimestamp, &L::Date),
+            None
+        );
     }
 
     #[test]

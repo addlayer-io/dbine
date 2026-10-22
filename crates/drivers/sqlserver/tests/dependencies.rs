@@ -1,13 +1,20 @@
 //! What depends on a table or a column (`Session::dependents`), against a
 //! real server. Reads `DBINE_TEST_SQLSERVER_URL` like `integration.rs`.
 
-use dbine_driver::{kinds, Confidence, ConnectionConfig, DependencyReport, DependencyScan, DependencyTarget, ObjectRef, QueryOutcome, Relation, Session};
+use dbine_driver::{
+    kinds, Confidence, ConnectionConfig, DependencyReport, DependencyScan, DependencyTarget,
+    ObjectRef, QueryOutcome, Relation, Session,
+};
 
 fn parse_url(url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: "sqlserver".into(),
         host: host.into(),
@@ -24,11 +31,24 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) {
 }
 
 fn target(name: &str, column: Option<&str>) -> DependencyTarget {
-    DependencyTarget { object: ObjectRef { kind: kinds::TABLE.into(), schema: Some("dbo".into()), name: name.into() }, column: column.map(Into::into) }
+    DependencyTarget {
+        object: ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some("dbo".into()),
+            name: name.into(),
+        },
+        column: column.map(Into::into),
+    }
 }
 
-fn find<'a>(r: &'a DependencyReport, name: &str, relation: Relation) -> Option<&'a dbine_driver::Dependent> {
-    r.items.iter().find(|d| d.name == name && d.relation == relation)
+fn find<'a>(
+    r: &'a DependencyReport,
+    name: &str,
+    relation: Relation,
+) -> Option<&'a dbine_driver::Dependent> {
+    r.items
+        .iter()
+        .find(|d| d.name == name && d.relation == relation)
 }
 
 #[tokio::test]
@@ -73,31 +93,71 @@ async fn dependents() {
     .await;
     let scan = DependencyScan::new(d.info(), d.script_dialect(), d.capabilities().foreign_keys);
 
-    let table = s.dependents(&target("Clientes", None), &scan).await.unwrap();
+    let table = s
+        .dependents(&target("Clientes", None), &scan)
+        .await
+        .unwrap();
     eprintln!("{table:#?}");
-    assert_eq!(find(&table, "Pedidos", Relation::ForeignKey).unwrap().confidence, Confidence::Confirmed);
+    assert_eq!(
+        find(&table, "Pedidos", Relation::ForeignKey)
+            .unwrap()
+            .confidence,
+        Confidence::Confirmed
+    );
     for name in ["vPepe", "vNombres", "pPepe"] {
-        assert_eq!(find(&table, name, Relation::Code).unwrap_or_else(|| panic!("{name}")).confidence, Confidence::Confirmed, "{name}");
+        assert_eq!(
+            find(&table, name, Relation::Code)
+                .unwrap_or_else(|| panic!("{name}"))
+                .confidence,
+            Confidence::Confirmed,
+            "{name}"
+        );
     }
-    assert_eq!(find(&table, "pDinamico", Relation::Code).unwrap().confidence, Confidence::Review);
+    assert_eq!(
+        find(&table, "pDinamico", Relation::Code)
+            .unwrap()
+            .confidence,
+        Confidence::Review
+    );
     assert!(find(&table, "pOtraTabla", Relation::Code).is_none());
 
-    let pepe = s.dependents(&target("Clientes", Some("Pepe")), &scan).await.unwrap();
+    let pepe = s
+        .dependents(&target("Clientes", Some("Pepe")), &scan)
+        .await
+        .unwrap();
     eprintln!("{pepe:#?}");
-    assert_eq!(find(&pepe, "vPepe", Relation::Code).unwrap().confidence, Confidence::Confirmed);
+    assert_eq!(
+        find(&pepe, "vPepe", Relation::Code).unwrap().confidence,
+        Confidence::Confirmed
+    );
     let proc = find(&pepe, "pPepe", Relation::Code).unwrap();
     assert_eq!(proc.confidence, Confidence::Probable);
-    assert_eq!(proc.mentions.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["SELECT Pepe"]);
-    assert_eq!(find(&pepe, "pDinamico", Relation::Code).unwrap().confidence, Confidence::Review);
+    assert_eq!(
+        proc.mentions
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        ["SELECT Pepe"]
+    );
+    assert_eq!(
+        find(&pepe, "pDinamico", Relation::Code).unwrap().confidence,
+        Confidence::Review
+    );
     assert!(find(&pepe, "vNombres", Relation::Code).is_none());
     assert!(find(&pepe, "pOtraTabla", Relation::Code).is_none());
     assert!(find(&pepe, "Clientes", Relation::Index).is_some());
     assert!(find(&pepe, "Clientes", Relation::Check).is_some());
 
     // The generic scan (what every other engine gets) finds the same code.
-    let generic = dbine_driver::dependencies::scan(s.as_mut(), &target("Clientes", Some("Pepe")), &scan).await.unwrap();
+    let generic =
+        dbine_driver::dependencies::scan(s.as_mut(), &target("Clientes", Some("Pepe")), &scan)
+            .await
+            .unwrap();
     for name in ["vPepe", "pPepe", "pDinamico"] {
-        assert!(find(&generic, name, Relation::Code).is_some(), "generic: {name}");
+        assert!(
+            find(&generic, name, Relation::Code).is_some(),
+            "generic: {name}"
+        );
     }
     assert!(find(&generic, "pOtraTabla", Relation::Code).is_none());
 

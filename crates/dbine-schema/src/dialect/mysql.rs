@@ -7,7 +7,9 @@
 //! `enum('a','b')`, `set(…)`; MariaDB adds `uuid`, `inet4`, `inet6` and
 //! reports its JSON as `longtext`. The character set isn't part of it.
 
-use super::postgres::{fit_decimal, precision_loss, set_len, single_auto_increment, uuid_slot, UuidSlot};
+use super::postgres::{
+    fit_decimal, precision_loss, set_len, single_auto_increment, uuid_slot, UuidSlot,
+};
 use super::{standard_default, Caps, Dialect, IdentCase, Rendered};
 use crate::default::{quote, DefaultValue};
 use crate::issue::{IssueCode, Report, Severity};
@@ -34,7 +36,12 @@ impl Dialect for MySql {
         let frac = || p(0).map(|x| x.min(255) as u8);
         let unsigned = t.unsigned;
         // Character sets other than the unicode ones.
-        let unicode = !t.rest.iter().any(|w| matches!(w.as_str(), "latin1" | "ascii" | "binary" | "latin2" | "cp1252"));
+        let unicode = !t.rest.iter().any(|w| {
+            matches!(
+                w.as_str(),
+                "latin1" | "ascii" | "binary" | "latin2" | "cp1252"
+            )
+        });
         match t.name.as_str() {
             // MySQL's BOOL is TINYINT(1), and catalogs report it that way.
             "tinyint" if p(0) == Some(1) && !unsigned => L::Bool,
@@ -47,39 +54,76 @@ impl Dialect for MySql {
             "mediumint" | "int3" | "middleint" => L::Int { bytes: 3, unsigned },
             "int" | "integer" | "int4" => L::Int { bytes: 4, unsigned },
             "bigint" | "int8" => L::Int { bytes: 8, unsigned },
-            "serial" => L::Int { bytes: 8, unsigned: true },
-            "decimal" | "numeric" | "dec" | "fixed" => L::Decimal { precision: p(0).or(Some(10)), scale: p(1).or(Some(0)) },
+            "serial" => L::Int {
+                bytes: 8,
+                unsigned: true,
+            },
+            "decimal" | "numeric" | "dec" | "fixed" => L::Decimal {
+                precision: p(0).or(Some(10)),
+                scale: p(1).or(Some(0)),
+            },
             // FLOAT(p) chooses the size; FLOAT(M,D) is the deprecated display form.
-            "float" if t.args.len() == 1 => L::Float { bytes: if p(0).is_some_and(|b| b > 24) { 8 } else { 4 } },
+            "float" if t.args.len() == 1 => L::Float {
+                bytes: if p(0).is_some_and(|b| b > 24) { 8 } else { 4 },
+            },
             "float" | "float4" => L::Float { bytes: 4 },
             "double" | "double precision" | "real" | "float8" => L::Float { bytes: 8 },
-            "char" => L::Char { len: p(0).or(Some(1)), unicode },
+            "char" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode,
+            },
             "varchar" => L::Varchar { len: p(0), unicode },
-            "tinytext" => L::Varchar { len: Some(255), unicode },
+            "tinytext" => L::Varchar {
+                len: Some(255),
+                unicode,
+            },
             "text" | "mediumtext" | "longtext" | "long varchar" | "long" => L::Text { unicode },
-            "binary" => L::Binary { len: p(0).or(Some(1)) },
+            "binary" => L::Binary {
+                len: p(0).or(Some(1)),
+            },
             "varbinary" => L::Varbinary { len: p(0) },
             "tinyblob" => L::Varbinary { len: Some(255) },
             "blob" | "mediumblob" | "longblob" | "long varbinary" => L::Blob,
             "date" => L::Date,
-            "time" => L::Time { precision: frac(), tz: false },
-            "datetime" => L::Timestamp { precision: frac(), tz: false },
+            "time" => L::Time {
+                precision: frac(),
+                tz: false,
+            },
+            "datetime" => L::Timestamp {
+                precision: frac(),
+                tz: false,
+            },
             // TIMESTAMP is stored in UTC and shown in the session's zone.
-            "timestamp" => L::Timestamp { precision: frac(), tz: true },
+            "timestamp" => L::Timestamp {
+                precision: frac(),
+                tz: true,
+            },
             "year" => L::Year,
             "json" => L::Json { binary: true },
             // MariaDB 10.7+.
             "uuid" => L::Uuid,
             "inet4" | "inet6" => L::Inet,
-            "enum" => L::Enum { values: t.args.clone() },
-            "set" => L::Set { values: t.args.clone() },
-            "geometry" | "point" | "linestring" | "polygon" | "multipoint" | "multilinestring" | "multipolygon"
-            | "geometrycollection" | "geomcollection" => L::Geometry {
-                kind: (t.name != "geometry").then(|| if t.name == "geomcollection" { "geometrycollection".into() } else { t.name.clone() }),
+            "enum" => L::Enum {
+                values: t.args.clone(),
+            },
+            "set" => L::Set {
+                values: t.args.clone(),
+            },
+            "geometry" | "point" | "linestring" | "polygon" | "multipoint" | "multilinestring"
+            | "multipolygon" | "geometrycollection" | "geomcollection" => L::Geometry {
+                kind: (t.name != "geometry").then(|| {
+                    if t.name == "geomcollection" {
+                        "geometrycollection".into()
+                    } else {
+                        t.name.clone()
+                    }
+                }),
                 srid: None,
                 geography: false,
             },
-            _ => L::Other { native: t.raw.clone() },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -96,10 +140,17 @@ impl Dialect for MySql {
                     3 => Rendered::exact(format!("mediumint{u}")),
                     4 => Rendered::exact(format!("int{u}")),
                     8 => Rendered::exact(format!("bigint{u}")),
-                    _ => Rendered::exact(format!("decimal(39, 0){u}")).with(Info, TypeChanged, "Entero de 16 bytes como decimal(39, 0)."),
+                    _ => Rendered::exact(format!("decimal(39, 0){u}")).with(
+                        Info,
+                        TypeChanged,
+                        "Entero de 16 bytes como decimal(39, 0).",
+                    ),
                 }
             }
-            L::Decimal { precision: Some(p), scale } => {
+            L::Decimal {
+                precision: Some(p),
+                scale,
+            } => {
                 let s = scale.unwrap_or(0);
                 let (np, ns, lossy) = fit_decimal(*p, s, 65, 30);
                 let r = Rendered::exact(format!("decimal({np}, {ns})"));
@@ -109,48 +160,85 @@ impl Dialect for MySql {
                     r
                 }
             }
-            L::Decimal { precision: None, .. } => Rendered::exact("decimal(65, 30)")
-                .with(Loss, PrecisionLoss, "El origen no fija la precisión: se usa decimal(65, 30), el máximo de MySQL."),
+            L::Decimal {
+                precision: None, ..
+            } => Rendered::exact("decimal(65, 30)").with(
+                Loss,
+                PrecisionLoss,
+                "El origen no fija la precisión: se usa decimal(65, 30), el máximo de MySQL.",
+            ),
             L::Float { bytes: 4 } => Rendered::exact("float"),
             L::Float { .. } => Rendered::exact("double"),
-            L::Money => Rendered::exact("decimal(19, 4)").with(Info, TypeChanged, "Moneda como decimal(19, 4)."),
+            L::Money => Rendered::exact("decimal(19, 4)").with(
+                Info,
+                TypeChanged,
+                "Moneda como decimal(19, 4).",
+            ),
             L::Char { len, .. } => {
                 let n = len.unwrap_or(1);
                 if n <= 255 {
                     Rendered::exact(format!("char({n})"))
                 } else if n <= MAX_VARCHAR {
-                    Rendered::exact(format!("varchar({n})")).with(Info, TypeChanged, "CHAR de MySQL admite hasta 255: se usa varchar.")
+                    Rendered::exact(format!("varchar({n})")).with(
+                        Info,
+                        TypeChanged,
+                        "CHAR de MySQL admite hasta 255: se usa varchar.",
+                    )
                 } else {
-                    Rendered::exact("longtext").with(Info, TypeChanged, format!("char({n}) supera el máximo de MySQL: se usa longtext."))
+                    Rendered::exact("longtext").with(
+                        Info,
+                        TypeChanged,
+                        format!("char({n}) supera el máximo de MySQL: se usa longtext."),
+                    )
                 }
             }
-            L::Varchar { len: Some(n), .. } if *n <= MAX_VARCHAR => Rendered::exact(format!("varchar({n})")),
-            L::Varchar { len: Some(n), .. } => {
-                Rendered::exact("longtext").with(Info, TypeChanged, format!("varchar({n}) supera el máximo de MySQL en utf8mb4: se usa longtext."))
+            L::Varchar { len: Some(n), .. } if *n <= MAX_VARCHAR => {
+                Rendered::exact(format!("varchar({n})"))
             }
+            L::Varchar { len: Some(n), .. } => Rendered::exact("longtext").with(
+                Info,
+                TypeChanged,
+                format!("varchar({n}) supera el máximo de MySQL en utf8mb4: se usa longtext."),
+            ),
             L::Varchar { len: None, .. } | L::Text { .. } => Rendered::exact("longtext"),
             L::Binary { len } => match len.unwrap_or(1) {
                 n if n <= 255 => Rendered::exact(format!("binary({n})")),
-                n if n <= 65_000 => Rendered::exact(format!("varbinary({n})")).with(Info, TypeChanged, "BINARY de MySQL admite hasta 255: se usa varbinary."),
+                n if n <= 65_000 => Rendered::exact(format!("varbinary({n})")).with(
+                    Info,
+                    TypeChanged,
+                    "BINARY de MySQL admite hasta 255: se usa varbinary.",
+                ),
                 _ => Rendered::exact("longblob"),
             },
-            L::Varbinary { len: Some(n) } if *n <= 65_000 => Rendered::exact(format!("varbinary({n})")),
+            L::Varbinary { len: Some(n) } if *n <= 65_000 => {
+                Rendered::exact(format!("varbinary({n})"))
+            }
             L::Varbinary { .. } | L::Blob => Rendered::exact("longblob"),
             L::Bit { len } => match len {
                 Some(n) if *n <= 64 => Rendered::exact(format!("bit({n})")),
-                _ => Rendered::exact("longblob").with(Warning, TypeApproximated, "Cadena de bits de más de 64: se guarda como binario."),
+                _ => Rendered::exact("longblob").with(
+                    Warning,
+                    TypeApproximated,
+                    "Cadena de bits de más de 64: se guarda como binario.",
+                ),
             },
             L::Date => Rendered::exact("date"),
             L::Time { precision, tz } => {
-                let r = Rendered::exact(format!("time{}", fsp(*precision))).with_loss(precision_loss(*precision, 6));
+                let r = Rendered::exact(format!("time{}", fsp(*precision)))
+                    .with_loss(precision_loss(*precision, 6));
                 if *tz {
-                    r.with(Loss, TimeZoneLoss, "MySQL no guarda la zona horaria de una hora.")
+                    r.with(
+                        Loss,
+                        TimeZoneLoss,
+                        "MySQL no guarda la zona horaria de una hora.",
+                    )
                 } else {
                     r
                 }
             }
             L::Timestamp { precision, tz } => {
-                let r = Rendered::exact(format!("datetime{}", fsp(*precision))).with_loss(precision_loss(*precision, 6));
+                let r = Rendered::exact(format!("datetime{}", fsp(*precision)))
+                    .with_loss(precision_loss(*precision, 6));
                 if *tz {
                     r.with(
                         Loss,
@@ -161,18 +249,41 @@ impl Dialect for MySql {
                     r
                 }
             }
-            L::Interval => Rendered::exact("varchar(64)").with(Loss, TypeApproximated, "MySQL no tiene intervalos: queda como texto."),
+            L::Interval => Rendered::exact("varchar(64)").with(
+                Loss,
+                TypeApproximated,
+                "MySQL no tiene intervalos: queda como texto.",
+            ),
             L::Year => Rendered::exact("year"),
             L::Uuid => Rendered::exact("char(36)").with(Info, TypeChanged, "UUID como char(36)."),
             L::Json { .. } => Rendered::exact("json"),
             L::Xml => Rendered::exact("longtext").with(Info, TypeApproximated, "XML como texto."),
-            L::Enum { values } => Rendered::exact(format!("enum({})", values.iter().map(|v| quote(v)).collect::<Vec<_>>().join(", "))),
-            L::Set { values } if values.len() <= 64 => {
-                Rendered::exact(format!("set({})", values.iter().map(|v| quote(v)).collect::<Vec<_>>().join(", ")))
-            }
-            L::Set { values } => Rendered::exact(format!("varchar({})", set_len(values)))
-                .with(Warning, TypeApproximated, "SET de MySQL admite hasta 64 valores: queda como texto."),
-            L::Array { .. } | L::Map { .. } => Rendered::exact("json").with(Warning, TypeApproximated, "MySQL no tiene arreglos ni mapas: se guarda como JSON."),
+            L::Enum { values } => Rendered::exact(format!(
+                "enum({})",
+                values
+                    .iter()
+                    .map(|v| quote(v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            L::Set { values } if values.len() <= 64 => Rendered::exact(format!(
+                "set({})",
+                values
+                    .iter()
+                    .map(|v| quote(v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            L::Set { values } => Rendered::exact(format!("varchar({})", set_len(values))).with(
+                Warning,
+                TypeApproximated,
+                "SET de MySQL admite hasta 64 valores: queda como texto.",
+            ),
+            L::Array { .. } | L::Map { .. } => Rendered::exact("json").with(
+                Warning,
+                TypeApproximated,
+                "MySQL no tiene arreglos ni mapas: se guarda como JSON.",
+            ),
             L::Geometry { kind, srid, .. } => {
                 let r = Rendered::exact(kind.clone().unwrap_or_else(|| "geometry".into()));
                 if srid.is_some() {
@@ -181,9 +292,21 @@ impl Dialect for MySql {
                     r
                 }
             }
-            L::Inet => Rendered::exact("varchar(45)").with(Info, TypeApproximated, "Dirección IP como texto."),
-            L::MacAddr => Rendered::exact("varchar(17)").with(Info, TypeApproximated, "Dirección MAC como texto."),
-            L::RowVersion => Rendered::exact("binary(8)").with(Warning, TypeApproximated, "MySQL no tiene versión de fila automática: no se actualiza sola."),
+            L::Inet => Rendered::exact("varchar(45)").with(
+                Info,
+                TypeApproximated,
+                "Dirección IP como texto.",
+            ),
+            L::MacAddr => Rendered::exact("varchar(17)").with(
+                Info,
+                TypeApproximated,
+                "Dirección MAC como texto.",
+            ),
+            L::RowVersion => Rendered::exact("binary(8)").with(
+                Warning,
+                TypeApproximated,
+                "MySQL no tiene versión de fila automática: no se actualiza sola.",
+            ),
             L::Other { native } => Rendered::exact(native.clone()),
         }
     }
@@ -195,8 +318,12 @@ impl Dialect for MySql {
             // Only DATETIME and TIMESTAMP take CURRENT_TIMESTAMP as is, and
             // with the column's own fractional precision.
             DefaultValue::CurrentTimestamp => match ty {
-                L::Timestamp { precision: Some(0), .. } => "CURRENT_TIMESTAMP".into(),
-                L::Timestamp { precision, .. } => format!("CURRENT_TIMESTAMP({})", precision.unwrap_or(6).min(6)),
+                L::Timestamp {
+                    precision: Some(0), ..
+                } => "CURRENT_TIMESTAMP".into(),
+                L::Timestamp { precision, .. } => {
+                    format!("CURRENT_TIMESTAMP({})", precision.unwrap_or(6).min(6))
+                }
                 L::Date => "(CURRENT_DATE)".into(),
                 L::Time { .. } => "(CURRENT_TIME)".into(),
                 _ => "(CURRENT_TIMESTAMP)".into(),
@@ -213,7 +340,11 @@ impl Dialect for MySql {
             DefaultValue::Text(s) => quote(&s.replace('\\', "\\\\")),
             other => standard_default(other, ty, "CURRENT_TIMESTAMP", None, true)?,
         };
-        Some(if expr_only && !v.starts_with('(') && v != "NULL" { format!("({v})") } else { v })
+        Some(if expr_only && !v.starts_with('(') && v != "NULL" {
+            format!("({v})")
+        } else {
+            v
+        })
     }
 
     fn caps(&self) -> Caps {
@@ -247,22 +378,35 @@ impl Dialect for MySql {
                 continue;
             }
             let c = &mut t.columns[i];
-            if !matches!(self.parse_type(&parse(&c.data_type)), L::Int { bytes: 1..=8, .. }) {
+            if !matches!(
+                self.parse_type(&parse(&c.data_type)),
+                L::Int { bytes: 1..=8, .. }
+            ) {
                 report.push(
                     Severity::Loss,
                     IssueCode::RangeLoss,
                     &table,
                     Some(&c.name),
-                    format!("AUTO_INCREMENT de MySQL necesita un tipo entero: «{}» pasa a bigint.", c.data_type),
+                    format!(
+                        "AUTO_INCREMENT de MySQL necesita un tipo entero: «{}» pasa a bigint.",
+                        c.data_type
+                    ),
                 );
                 c.data_type = "bigint".into();
             }
             let name = c.name.clone();
-            let first_of_key = t.primary_key.as_ref().is_some_and(|k| k.columns.first() == Some(&name))
+            let first_of_key = t
+                .primary_key
+                .as_ref()
+                .is_some_and(|k| k.columns.first() == Some(&name))
                 || t.indexes.iter().any(|ix| ix.columns.first() == Some(&name));
             if !first_of_key {
                 let ix_name: String = format!("{table}_{name}_ai").chars().take(64).collect();
-                t.indexes.push(IndexDef { name: ix_name, columns: vec![name.clone()], ..Default::default() });
+                t.indexes.push(IndexDef {
+                    name: ix_name,
+                    columns: vec![name.clone()],
+                    ..Default::default()
+                });
                 report.push(
                     Severity::Info,
                     IssueCode::IndexChanged,
@@ -276,7 +420,11 @@ impl Dialect for MySql {
         // Row size: the widest VARCHARs become TEXT until the row fits.
         let null_bytes = (t.columns.len() as u64).div_ceil(8);
         loop {
-            let logical: Vec<L> = t.columns.iter().map(|c| self.parse_type(&parse(&c.data_type))).collect();
+            let logical: Vec<L> = t
+                .columns
+                .iter()
+                .map(|c| self.parse_type(&parse(&c.data_type)))
+                .collect();
             let total: u64 = logical.iter().map(row_bytes).sum::<u64>() + null_bytes;
             if total <= MAX_ROW {
                 break;
@@ -299,31 +447,51 @@ impl Dialect for MySql {
                 IssueCode::TypeChanged,
                 &table,
                 Some(&c.name),
-                format!("La fila supera los 65 535 bytes que admite MySQL: «{}» pasa a {to}.", c.data_type),
+                format!(
+                    "La fila supera los 65 535 bytes que admite MySQL: «{}» pasa a {to}.",
+                    c.data_type
+                ),
             );
             c.data_type = to.into();
-            if let Some(d) = c.default_value.as_mut().filter(|d| !d.starts_with('(') && *d != "NULL") {
+            if let Some(d) = c
+                .default_value
+                .as_mut()
+                .filter(|d| !d.starts_with('(') && *d != "NULL")
+            {
                 *d = format!("({d})");
             }
         }
 
         // Keys: a TEXT/BLOB column (or one too wide) can't be in a key in full.
         let logical_of = |t: &TableSchema, name: &str| {
-            t.columns.iter().find(|c| c.name == name).map(|c| self.parse_type(&parse(&c.data_type)))
+            t.columns
+                .iter()
+                .find(|c| c.name == name)
+                .map(|c| self.parse_type(&parse(&c.data_type)))
         };
         if let Some(pk) = t.primary_key.clone() {
             let budget = MAX_KEY / pk.columns.len().max(1) as u64;
             for name in &pk.columns {
-                let Some(l) = logical_of(t, name) else { continue };
+                let Some(l) = logical_of(t, name) else {
+                    continue;
+                };
                 let chars = budget / 4;
                 let narrow = match l {
                     L::Text { .. } => Some(format!("varchar({chars})")),
-                    L::Varchar { len: Some(n), .. } | L::Char { len: Some(n), .. } if u64::from(n) > chars => Some(format!("varchar({chars})")),
+                    L::Varchar { len: Some(n), .. } | L::Char { len: Some(n), .. }
+                        if u64::from(n) > chars =>
+                    {
+                        Some(format!("varchar({chars})"))
+                    }
                     L::Blob => Some(format!("varbinary({budget})")),
-                    L::Varbinary { len: Some(n) } if u64::from(n) > budget => Some(format!("varbinary({budget})")),
+                    L::Varbinary { len: Some(n) } if u64::from(n) > budget => {
+                        Some(format!("varbinary({budget})"))
+                    }
                     _ => None,
                 };
-                if let (Some(to), Some(c)) = (narrow, t.columns.iter_mut().find(|c| &c.name == name)) {
+                if let (Some(to), Some(c)) =
+                    (narrow, t.columns.iter_mut().find(|c| &c.name == name))
+                {
                     report.push(
                         Severity::Loss,
                         IssueCode::LengthLoss,
@@ -332,7 +500,11 @@ impl Dialect for MySql {
                         format!("La clave primaria de MySQL admite hasta {MAX_KEY} bytes: «{}» pasa a {to}.", c.data_type),
                     );
                     c.data_type = to;
-                    if let Some(d) = c.default_value.as_mut().filter(|d| d.starts_with("('") && d.ends_with("')")) {
+                    if let Some(d) = c
+                        .default_value
+                        .as_mut()
+                        .filter(|d| d.starts_with("('") && d.ends_with("')"))
+                    {
                         *d = d[1..d.len() - 1].to_string();
                     }
                 }
@@ -343,7 +515,9 @@ impl Dialect for MySql {
         for (k, ix) in t.indexes.iter_mut().enumerate() {
             let budget = MAX_KEY / ix.columns.len().max(1) as u64;
             for col in ix.columns.iter_mut() {
-                let Some(c) = columns.iter().find(|c| &c.name == col) else { continue };
+                let Some(c) = columns.iter().find(|c| &c.name == col) else {
+                    continue;
+                };
                 let l = self.parse_type(&parse(&c.data_type));
                 let prefix = match l {
                     L::Json { .. } => {
@@ -351,7 +525,9 @@ impl Dialect for MySql {
                         None
                     }
                     L::Text { .. } => Some(budget / 4),
-                    L::Varchar { len: Some(n), .. } if u64::from(n) * 4 > budget => Some(budget / 4),
+                    L::Varchar { len: Some(n), .. } if u64::from(n) * 4 > budget => {
+                        Some(budget / 4)
+                    }
                     L::Blob => Some(budget),
                     L::Varbinary { len: Some(n) } if u64::from(n) > budget => Some(budget),
                     _ => None,
@@ -374,7 +550,13 @@ impl Dialect for MySql {
         }
         for k in dropped.into_iter().rev() {
             let ix = t.indexes.remove(k);
-            report.push(Severity::Dropped, IssueCode::IndexDropped, &table, Some(&ix.name), "MySQL no indexa columnas JSON: se omite el índice.");
+            report.push(
+                Severity::Dropped,
+                IssueCode::IndexDropped,
+                &table,
+                Some(&ix.name),
+                "MySQL no indexa columnas JSON: se omite el índice.",
+            );
         }
     }
 }
@@ -393,7 +575,14 @@ fn fsp(p: Option<u8>) -> String {
 fn is_lob(ty: &L) -> bool {
     matches!(
         ty,
-        L::Text { .. } | L::Blob | L::Json { .. } | L::Varchar { len: None, .. } | L::Array { .. } | L::Map { .. } | L::Xml | L::Geometry { .. }
+        L::Text { .. }
+            | L::Blob
+            | L::Json { .. }
+            | L::Varchar { len: None, .. }
+            | L::Array { .. }
+            | L::Map { .. }
+            | L::Xml
+            | L::Geometry { .. }
     )
 }
 
@@ -428,35 +617,103 @@ mod tests {
     fn parses_column_type_spellings() {
         assert_eq!(ty("int(11)"), L::int(4));
         assert_eq!(ty("int"), L::int(4));
-        assert_eq!(ty("int(10) unsigned"), L::Int { bytes: 4, unsigned: true });
-        assert_eq!(ty("bigint(20) unsigned zerofill"), L::Int { bytes: 8, unsigned: true });
+        assert_eq!(
+            ty("int(10) unsigned"),
+            L::Int {
+                bytes: 4,
+                unsigned: true
+            }
+        );
+        assert_eq!(
+            ty("bigint(20) unsigned zerofill"),
+            L::Int {
+                bytes: 8,
+                unsigned: true
+            }
+        );
         assert_eq!(ty("tinyint(1)"), L::Bool);
-        assert_eq!(ty("tinyint(1) unsigned"), L::Int { bytes: 1, unsigned: true });
+        assert_eq!(
+            ty("tinyint(1) unsigned"),
+            L::Int {
+                bytes: 1,
+                unsigned: true
+            }
+        );
         assert_eq!(ty("tinyint(4)"), L::int(1));
         assert_eq!(ty("bit(1)"), L::Bool);
         assert_eq!(ty("bit(8)"), L::Bit { len: Some(8) });
-        assert_eq!(ty("decimal(65,30)"), L::Decimal { precision: Some(65), scale: Some(30) });
-        assert_eq!(ty("decimal(10,0) unsigned"), L::Decimal { precision: Some(10), scale: Some(0) });
+        assert_eq!(
+            ty("decimal(65,30)"),
+            L::Decimal {
+                precision: Some(65),
+                scale: Some(30)
+            }
+        );
+        assert_eq!(
+            ty("decimal(10,0) unsigned"),
+            L::Decimal {
+                precision: Some(10),
+                scale: Some(0)
+            }
+        );
         assert_eq!(ty("float"), L::Float { bytes: 4 });
         assert_eq!(ty("float(7,2)"), L::Float { bytes: 4 });
         assert_eq!(ty("float(30)"), L::Float { bytes: 8 });
         assert_eq!(ty("double"), L::Float { bytes: 8 });
-        assert_eq!(ty("datetime(6)"), L::Timestamp { precision: Some(6), tz: false });
-        assert_eq!(ty("timestamp(3)"), L::Timestamp { precision: Some(3), tz: true });
-        assert_eq!(ty("time(6)"), L::Time { precision: Some(6), tz: false });
+        assert_eq!(
+            ty("datetime(6)"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: false
+            }
+        );
+        assert_eq!(
+            ty("timestamp(3)"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
+        assert_eq!(
+            ty("time(6)"),
+            L::Time {
+                precision: Some(6),
+                tz: false
+            }
+        );
         assert_eq!(ty("year(4)"), L::Year);
-        assert_eq!(ty("enum('rojo','verde','it''s')"), L::Enum { values: vec!["rojo".into(), "verde".into(), "it's".into()] });
-        assert_eq!(ty("set('a','b')"), L::Set { values: vec!["a".into(), "b".into()] });
+        assert_eq!(
+            ty("enum('rojo','verde','it''s')"),
+            L::Enum {
+                values: vec!["rojo".into(), "verde".into(), "it's".into()]
+            }
+        );
+        assert_eq!(
+            ty("set('a','b')"),
+            L::Set {
+                values: vec!["a".into(), "b".into()]
+            }
+        );
         assert_eq!(ty("uuid"), L::Uuid);
         assert_eq!(ty("inet6"), L::Inet);
         assert_eq!(ty("longtext"), L::Text { unicode: true });
-        assert_eq!(ty("geomcollection"), L::Geometry { kind: Some("geometrycollection".into()), srid: None, geography: false });
+        assert_eq!(
+            ty("geomcollection"),
+            L::Geometry {
+                kind: Some("geometrycollection".into()),
+                srid: None,
+                geography: false
+            }
+        );
         assert_eq!(ty("int GENERATED ALWAYS AS ((`a` + 1)) VIRTUAL"), L::int(4));
     }
 
     #[test]
     fn decimals_keep_their_integer_digits() {
-        let r = MySql.render_type(&L::Decimal { precision: Some(40), scale: Some(35) });
+        let r = MySql.render_type(&L::Decimal {
+            precision: Some(40),
+            scale: Some(35),
+        });
         assert_eq!(r.native, "decimal(35, 30)");
         assert_eq!(r.notes[0].code, IssueCode::PrecisionLoss);
     }
@@ -464,18 +721,85 @@ mod tests {
     #[test]
     fn defaults_by_column_type() {
         let ts = DefaultValue::CurrentTimestamp;
-        assert_eq!(MySql.render_default(&ts, &L::Date).as_deref(), Some("(CURRENT_DATE)"));
-        assert_eq!(MySql.render_default(&ts, &L::Timestamp { precision: Some(3), tz: false }).as_deref(), Some("CURRENT_TIMESTAMP(3)"));
-        assert_eq!(MySql.render_default(&ts, &L::Timestamp { precision: None, tz: false }).as_deref(), Some("CURRENT_TIMESTAMP(6)"));
-        assert_eq!(MySql.render_type(&L::Timestamp { precision: None, tz: false }).native, "datetime(6)");
-        assert_eq!(MySql.render_type(&L::Timestamp { precision: Some(0), tz: false }).native, "datetime");
-        assert_eq!(MySql.render_default(&DefaultValue::Text("a\\b".into()), &L::Varchar { len: Some(9), unicode: true }).as_deref(), Some("'a\\\\b'"));
-        assert_eq!(MySql.render_default(&DefaultValue::Text("x".into()), &L::Text { unicode: true }).as_deref(), Some("('x')"));
-        assert_eq!(MySql.render_default(&DefaultValue::NewUuid, &L::Varbinary { len: Some(16) }).as_deref(), Some("(UNHEX(REPLACE(UUID(), '-', '')))"));
+        assert_eq!(
+            MySql.render_default(&ts, &L::Date).as_deref(),
+            Some("(CURRENT_DATE)")
+        );
+        assert_eq!(
+            MySql
+                .render_default(
+                    &ts,
+                    &L::Timestamp {
+                        precision: Some(3),
+                        tz: false
+                    }
+                )
+                .as_deref(),
+            Some("CURRENT_TIMESTAMP(3)")
+        );
+        assert_eq!(
+            MySql
+                .render_default(
+                    &ts,
+                    &L::Timestamp {
+                        precision: None,
+                        tz: false
+                    }
+                )
+                .as_deref(),
+            Some("CURRENT_TIMESTAMP(6)")
+        );
+        assert_eq!(
+            MySql
+                .render_type(&L::Timestamp {
+                    precision: None,
+                    tz: false
+                })
+                .native,
+            "datetime(6)"
+        );
+        assert_eq!(
+            MySql
+                .render_type(&L::Timestamp {
+                    precision: Some(0),
+                    tz: false
+                })
+                .native,
+            "datetime"
+        );
+        assert_eq!(
+            MySql
+                .render_default(
+                    &DefaultValue::Text("a\\b".into()),
+                    &L::Varchar {
+                        len: Some(9),
+                        unicode: true
+                    }
+                )
+                .as_deref(),
+            Some("'a\\\\b'")
+        );
+        assert_eq!(
+            MySql
+                .render_default(&DefaultValue::Text("x".into()), &L::Text { unicode: true })
+                .as_deref(),
+            Some("('x')")
+        );
+        assert_eq!(
+            MySql
+                .render_default(&DefaultValue::NewUuid, &L::Varbinary { len: Some(16) })
+                .as_deref(),
+            Some("(UNHEX(REPLACE(UUID(), '-', '')))")
+        );
     }
 
     fn col(name: &str, ty: &str) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -483,17 +807,34 @@ mod tests {
         let mut t = TableSchema {
             name: "t".into(),
             columns: vec![
-                ColumnDef { auto_increment: true, ..col("id", "decimal(39, 0)") },
-                ColumnDef { auto_increment: true, ..col("otro", "int") },
+                ColumnDef {
+                    auto_increment: true,
+                    ..col("id", "decimal(39, 0)")
+                },
+                ColumnDef {
+                    auto_increment: true,
+                    ..col("otro", "int")
+                },
                 col("k", "longtext"),
                 col("a", "varchar(10000)"),
                 col("b", "varchar(10000)"),
                 col("j", "json"),
             ],
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
             indexes: vec![
-                IndexDef { name: "ix_k".into(), columns: vec!["k".into()], ..Default::default() },
-                IndexDef { name: "ix_j".into(), columns: vec!["j".into()], ..Default::default() },
+                IndexDef {
+                    name: "ix_k".into(),
+                    columns: vec!["k".into()],
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "ix_j".into(),
+                    columns: vec!["j".into()],
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         };

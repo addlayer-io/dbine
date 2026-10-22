@@ -19,7 +19,10 @@ fn cfg() -> Option<ConnectionConfig> {
         read_only: true,
         ..Default::default()
     };
-    c.options.insert("mgmt_port".into(), std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()));
+    c.options.insert(
+        "mgmt_port".into(),
+        std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()),
+    );
     Some(c)
 }
 
@@ -37,10 +40,16 @@ async fn read_only_refuses_bucket_create_and_drop() {
     assert!(!before.iter().any(|b| b == probe));
 
     let r = s.create_database(probe).await;
-    assert!(matches!(&r, Err(Error::Query(m)) if m.contains("solo lectura")), "{r:?}");
+    assert!(
+        matches!(&r, Err(Error::Query(m)) if m.contains("solo lectura")),
+        "{r:?}"
+    );
     let victim = before.first().expect("a bucket to try to drop").clone();
     let r = s.drop_database(&victim).await;
-    assert!(matches!(&r, Err(Error::Query(m)) if m.contains("solo lectura")), "{r:?}");
+    assert!(
+        matches!(&r, Err(Error::Query(m)) if m.contains("solo lectura")),
+        "{r:?}"
+    );
 
     let after = s.list_databases().await.unwrap();
     assert!(!after.iter().any(|b| b == probe), "the bucket was created");

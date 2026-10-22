@@ -25,7 +25,13 @@ pub fn offset_of(text: &str, line: u32, col: u32) -> Option<usize> {
     }
     let line_text = &text[start..text[start..].find('\n').map_or(text.len(), |e| start + e)];
     let skip = col.saturating_sub(1) as usize;
-    Some(start + line_text.char_indices().nth(skip).map_or(line_text.len(), |(i, _)| i))
+    Some(
+        start
+            + line_text
+                .char_indices()
+                .nth(skip)
+                .map_or(line_text.len(), |(i, _)| i),
+    )
 }
 
 /// A statement error placed in `text` by its line and column.
@@ -57,7 +63,9 @@ pub fn shift(e: Error, unit: &ScriptStatement) -> Error {
 
 /// The first two words of a statement, upper-cased.
 pub fn head(stmt: &str) -> (String, String) {
-    let mut w = stmt.split(|c: char| c.is_whitespace() || c == ';' || c == '(').filter(|w| !w.is_empty());
+    let mut w = stmt
+        .split(|c: char| c.is_whitespace() || c == ';' || c == '(')
+        .filter(|w| !w.is_empty());
     let up = |s: Option<&str>| s.unwrap_or_default().to_ascii_uppercase();
     (up(w.next()), up(w.next()))
 }
@@ -68,19 +76,31 @@ mod tests {
 
     #[test]
     fn positions_from_messages() {
-        assert_eq!(line_col("line 1:8: Column 'x' cannot be resolved"), Some((1, 8)));
-        assert_eq!(line_col("SYNTAX_ERROR: line 2:13: mismatched input"), Some((2, 13)));
+        assert_eq!(
+            line_col("line 1:8: Column 'x' cannot be resolved"),
+            Some((1, 8))
+        );
+        assert_eq!(
+            line_col("SYNTAX_ERROR: line 2:13: mismatched input"),
+            Some((2, 13))
+        );
         assert_eq!(line_col("Table not found"), None);
         let t = "select 1;\nselect ñx from t";
         assert_eq!(offset_of(t, 2, 8), Some(17));
-        assert_eq!(&t[offset_of(t, 2, 9).unwrap()..offset_of(t, 2, 9).unwrap() + 1], "x");
+        assert_eq!(
+            &t[offset_of(t, 2, 9).unwrap()..offset_of(t, 2, 9).unwrap() + 1],
+            "x"
+        );
         assert_eq!(offset_of(t, 3, 1), None);
     }
 
     #[test]
     fn errors_shift_to_the_script() {
         let u = &units("select 1;\n\n  select x", &ScriptDialect::generic())[1];
-        let e = shift(placed(ScriptError::new("x"), &u.text, Some(1), Some(8)).into(), u);
+        let e = shift(
+            placed(ScriptError::new("x"), &u.text, Some(1), Some(8)).into(),
+            u,
+        );
         let Error::Statement(se) = e else { panic!() };
         assert_eq!((se.line, se.offset), (Some(3), Some(20)));
     }

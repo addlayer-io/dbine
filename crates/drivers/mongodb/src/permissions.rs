@@ -69,18 +69,23 @@ fn covers(r: &Resource, t: &Target) -> bool {
     match (r, t) {
         (Resource::Any, _) => true,
         (Resource::Cluster, Target::Cluster) => true,
-        (Resource::Ns { db, collection }, Target::Db(d)) => collection.is_empty() && (db.is_empty() || db == d),
+        (Resource::Ns { db, collection }, Target::Db(d)) => {
+            collection.is_empty() && (db.is_empty() || db == d)
+        }
         (Resource::Ns { db, collection }, Target::AnyDb) => collection.is_empty() && db.is_empty(),
         // An empty collection name doesn't cover the system collections.
         (Resource::Ns { db, collection }, Target::Collection(d, c)) => {
-            (db.is_empty() || db == d) && (collection == c || (collection.is_empty() && !c.starts_with("system.")))
+            (db.is_empty() || db == d)
+                && (collection == c || (collection.is_empty() && !c.starts_with("system.")))
         }
         _ => false,
     }
 }
 
 fn can(privileges: &[Privilege], action: &str, t: Target) -> bool {
-    privileges.iter().any(|p| p.actions.iter().any(|a| a == action) && covers(&p.resource, &t))
+    privileges
+        .iter()
+        .any(|p| p.actions.iter().any(|a| a == action) && covers(&p.resource, &t))
 }
 
 /// The login from a `connectionStatus` answer: `None` when it doesn't say
@@ -91,7 +96,9 @@ pub(crate) fn parse(status: &Document) -> Option<Login> {
     if users.is_empty() {
         return None;
     }
-    let Ok(list) = info.get_array("authenticatedUserPrivileges") else { return Some(Login::Unknown) };
+    let Ok(list) = info.get_array("authenticatedUserPrivileges") else {
+        return Some(Login::Unknown);
+    };
     let privileges = list
         .iter()
         .filter_map(Bson::as_document)
@@ -102,9 +109,17 @@ pub(crate) fn parse(status: &Document) -> Option<Login> {
             } else if r.get_bool("cluster").unwrap_or(false) {
                 Resource::Cluster
             } else {
-                Resource::Ns { db: r.get_str("db").ok()?.into(), collection: r.get_str("collection").ok()?.into() }
+                Resource::Ns {
+                    db: r.get_str("db").ok()?.into(),
+                    collection: r.get_str("collection").ok()?.into(),
+                }
             };
-            let actions = p.get_array("actions").ok()?.iter().filter_map(|a| a.as_str().map(str::to_string)).collect();
+            let actions = p
+                .get_array("actions")
+                .ok()?
+                .iter()
+                .filter_map(|a| a.as_str().map(str::to_string))
+                .collect();
             Some(Privilege { resource, actions })
         })
         .collect();
@@ -131,7 +146,11 @@ pub(crate) fn decide(
             profiler: Access::Allowed,
             kill_session: Access::Allowed,
             create_database: Access::Allowed,
-            drop_database: if database.is_some() { Access::Allowed } else { Access::Unknown },
+            drop_database: if database.is_some() {
+                Access::Allowed
+            } else {
+                Access::Unknown
+            },
             manage_security: Access::Allowed,
             ..Default::default()
         },
@@ -143,7 +162,10 @@ pub(crate) fn decide(
             } else if !(can(privs, "enableProfiler", Target::Db(db))
                 && can(privs, "find", Target::Collection(db, "system.profile")))
             {
-                Access::check(false, format!("inprog (o enableProfiler y find sobre {db}.system.profile)"))
+                Access::check(
+                    false,
+                    format!("inprog (o enableProfiler y find sobre {db}.system.profile)"),
+                )
             } else if can(privs, "enableProfiler", Target::AnyDb) {
                 Access::Allowed
             } else {
@@ -161,22 +183,32 @@ pub(crate) fn decide(
             };
             let create = if can(privs, "createCollection", Target::AnyDb) {
                 Access::Allowed
-            } else if privs.iter().any(|p| p.actions.iter().any(|a| a == "createCollection")) {
+            } else if privs
+                .iter()
+                .any(|p| p.actions.iter().any(|a| a == "createCollection"))
+            {
                 // Granted on some databases: those can still be created.
                 Access::Unknown
             } else {
                 Access::check(false, "createCollection (sobre cualquier base)")
             };
-            let security = ["createUser", "createRole", "grantRole"].iter().any(|a| can(privs, a, Target::Db(users_db)));
+            let security = ["createUser", "createRole", "grantRole"]
+                .iter()
+                .any(|a| can(privs, a, Target::Db(users_db)));
             Permissions {
                 profiler,
                 kill_session: Access::check(can(privs, "killop", Target::Cluster), "killop"),
                 create_database: create,
                 drop_database: match database {
-                    Some(d) => Access::check(can(privs, "dropDatabase", Target::Db(d)), "dropDatabase"),
+                    Some(d) => {
+                        Access::check(can(privs, "dropDatabase", Target::Db(d)), "dropDatabase")
+                    }
                     None => Access::Unknown,
                 },
-                manage_security: Access::check(security, format!("createUser o grantRole sobre {users_db}")),
+                manage_security: Access::check(
+                    security,
+                    format!("createUser o grantRole sobre {users_db}"),
+                ),
                 ..Default::default()
             }
         }
@@ -206,7 +238,10 @@ async fn login(s: &MongoSession) -> Result<Login> {
         return Ok(Login::Unrestricted);
     }
     let admin = s.client.database("admin");
-    let status = match admin.run_command(doc! { "connectionStatus": 1, "showPrivileges": true }).await {
+    let status = match admin
+        .run_command(doc! { "connectionStatus": 1, "showPrivileges": true })
+        .await
+    {
         Ok(d) => d,
         Err(e) => return refused(e),
     };
@@ -226,9 +261,18 @@ pub(crate) async fn check(s: &MongoSession, database: Option<&str>) -> Result<Pe
     let login = login(s).await?;
     let db = database.unwrap_or(s.db.name());
     let profiling = match (&login, s.flavor) {
-        (Login::Privileges(_), Flavor::Mongo) => match s.client.database(db).run_command(doc! { "profile": -1 }).await {
-            Ok(d) => crate::monitor::num(&d, &["was"])
-                .map(|v| (v as i32, crate::monitor::num(&d, &["sampleRate"]).unwrap_or(1.0))),
+        (Login::Privileges(_), Flavor::Mongo) => match s
+            .client
+            .database(db)
+            .run_command(doc! { "profile": -1 })
+            .await
+        {
+            Ok(d) => crate::monitor::num(&d, &["was"]).map(|v| {
+                (
+                    v as i32,
+                    crate::monitor::num(&d, &["sampleRate"]).unwrap_or(1.0),
+                )
+            }),
             Err(e) => {
                 refused(e)?;
                 None
@@ -270,11 +314,23 @@ mod tests {
     #[test]
     fn root_may_do_everything_offered() {
         let p = decide(Flavor::Mongo, &root(), Some("ventas"), "test", None);
-        assert_eq!((&p.profiler, &p.kill_session, &p.create_database), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.backup, &p.restore), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.profiler, &p.kill_session, &p.create_database),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
+        assert_eq!(
+            (&p.drop_database, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed)
+        );
+        assert_eq!(
+            (&p.backup, &p.restore),
+            (&Access::Unknown, &Access::Unknown)
+        );
         // No explorer database: nothing to drop.
-        assert_eq!(decide(Flavor::Mongo, &root(), None, "test", None).drop_database, Access::Unknown);
+        assert_eq!(
+            decide(Flavor::Mongo, &root(), None, "test", None).drop_database,
+            Access::Unknown
+        );
     }
 
     #[test]
@@ -289,7 +345,10 @@ mod tests {
         // It may create "ventas" if it doesn't exist yet.
         assert_eq!(p.create_database, Access::Unknown);
         assert!(denied(&p.drop_database, "dropDatabase"));
-        assert!(denied(&p.manage_security, "createUser o grantRole sobre ventas"));
+        assert!(denied(
+            &p.manage_security,
+            "createUser o grantRole sobre ventas"
+        ));
     }
 
     #[test]
@@ -299,53 +358,102 @@ mod tests {
             doc! { "resource": { "db": "ventas", "collection": "system.profile" }, "actions": ["find"] },
         ]);
         let p = decide(Flavor::Mongo, &l, Some("ventas"), "test", Some((1, 1.0)));
-        assert_eq!((&p.profiler, &p.drop_database), (&Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.profiler, &p.drop_database),
+            (&Access::Allowed, &Access::Allowed)
+        );
         // Profiling off: turning it on only sets the level while sampleRate
         // is 1; any other rate needs enableProfiler on every database
         // (sampleRate is server-wide). Unread level: unknown.
-        assert_eq!(decide(Flavor::Mongo, &l, Some("ventas"), "test", Some((0, 1.0))).profiler, Access::Allowed);
-        assert!(denied(&decide(Flavor::Mongo, &l, Some("ventas"), "test", Some((0, 0.5))).profiler, "está apagado"));
-        assert_eq!(decide(Flavor::Mongo, &l, Some("ventas"), "test", Some((1, 0.5))).profiler, Access::Allowed);
-        assert_eq!(decide(Flavor::Mongo, &l, Some("ventas"), "test", None).profiler, Access::Unknown);
+        assert_eq!(
+            decide(Flavor::Mongo, &l, Some("ventas"), "test", Some((0, 1.0))).profiler,
+            Access::Allowed
+        );
+        assert!(denied(
+            &decide(Flavor::Mongo, &l, Some("ventas"), "test", Some((0, 0.5))).profiler,
+            "está apagado"
+        ));
+        assert_eq!(
+            decide(Flavor::Mongo, &l, Some("ventas"), "test", Some((1, 0.5))).profiler,
+            Access::Allowed
+        );
+        assert_eq!(
+            decide(Flavor::Mongo, &l, Some("ventas"), "test", None).profiler,
+            Access::Unknown
+        );
         let mut any = l.clone();
         if let Login::Privileges(v) = &mut any {
-            v.push(Privilege { resource: Resource::Ns { db: "".into(), collection: "".into() }, actions: vec!["enableProfiler".into()] });
+            v.push(Privilege {
+                resource: Resource::Ns {
+                    db: "".into(),
+                    collection: "".into(),
+                },
+                actions: vec!["enableProfiler".into()],
+            });
         }
-        assert_eq!(decide(Flavor::Mongo, &any, Some("ventas"), "test", Some((0, 0.5))).profiler, Access::Allowed);
+        assert_eq!(
+            decide(Flavor::Mongo, &any, Some("ventas"), "test", Some((0, 0.5))).profiler,
+            Access::Allowed
+        );
         assert!(denied(&p.create_database, "createCollection"));
         // Another database: neither.
         let p = decide(Flavor::Mongo, &l, Some("otra"), "test", None);
         assert!(denied(&p.profiler, "otra.system.profile") && p.drop_database.is_denied());
         // DocumentDB never reads system.profile.
-        assert!(denied(&decide(Flavor::DocumentDb, &l, Some("ventas"), "test", None).profiler, "inprog"));
+        assert!(denied(
+            &decide(Flavor::DocumentDb, &l, Some("ventas"), "test", None).profiler,
+            "inprog"
+        ));
     }
 
     #[test]
     fn any_collection_is_not_a_system_collection() {
-        let r = Resource::Ns { db: "".into(), collection: "".into() };
+        let r = Resource::Ns {
+            db: "".into(),
+            collection: "".into(),
+        };
         assert!(covers(&r, &Target::Collection("a", "b")));
         assert!(!covers(&r, &Target::Collection("a", "system.profile")));
-        assert!(!covers(&Resource::Ns { db: "a".into(), collection: "b".into() }, &Target::Db("a")));
+        assert!(!covers(
+            &Resource::Ns {
+                db: "a".into(),
+                collection: "b".into()
+            },
+            &Target::Db("a")
+        ));
         assert!(covers(&Resource::Any, &Target::Cluster));
         assert!(!covers(&Resource::Cluster, &Target::Db("a")));
     }
 
     #[test]
     fn users_live_in_admin_on_documentdb() {
-        let l = login(vec![doc! { "resource": { "db": "admin", "collection": "" }, "actions": ["createUser"] }]);
-        assert_eq!(decide(Flavor::DocumentDb, &l, Some("ventas"), "ventas", None).manage_security, Access::Allowed);
-        assert!(decide(Flavor::Mongo, &l, Some("ventas"), "ventas", None).manage_security.is_denied());
+        let l = login(vec![
+            doc! { "resource": { "db": "admin", "collection": "" }, "actions": ["createUser"] },
+        ]);
+        assert_eq!(
+            decide(Flavor::DocumentDb, &l, Some("ventas"), "ventas", None).manage_security,
+            Access::Allowed
+        );
+        assert!(decide(Flavor::Mongo, &l, Some("ventas"), "ventas", None)
+            .manage_security
+            .is_denied());
     }
 
     #[test]
     fn unrestricted_and_unknown() {
         let p = decide(Flavor::Mongo, &Login::Unrestricted, Some("x"), "x", None);
-        assert_eq!((&p.profiler, &p.drop_database, &p.kill_session), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.profiler, &p.drop_database, &p.kill_session),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
         let p = decide(Flavor::Mongo, &Login::Unknown, Some("x"), "x", None);
         assert_eq!(p, Permissions::default());
         // FerretDB has no profiler nor killOp.
         let p = decide(Flavor::Ferret, &Login::Unrestricted, Some("x"), "x", None);
-        assert_eq!((&p.profiler, &p.kill_session), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.profiler, &p.kill_session),
+            (&Access::Unknown, &Access::Unknown)
+        );
         assert_eq!(p.create_database, Access::Allowed);
     }
 
@@ -355,8 +463,12 @@ mod tests {
         assert!(parse(&none).is_none());
         let bare = doc! { "authInfo": { "authenticatedUsers": [{ "user": "a", "db": "admin" }] }, "ok": 1.0 };
         assert!(matches!(parse(&bare), Some(Login::Unknown)));
-        let odd = status(vec![doc! { "resource": { "system_buckets": "x", "db": "y" }, "actions": ["find"] }]);
+        let odd = status(vec![
+            doc! { "resource": { "system_buckets": "x", "db": "y" }, "actions": ["find"] },
+        ]);
         assert!(matches!(parse(&odd), Some(Login::Privileges(v)) if v.is_empty()));
-        assert!(matches!(root(), Login::Privileges(v) if v.len() == 3 && v[0].resource == Resource::Cluster));
+        assert!(
+            matches!(root(), Login::Privileges(v) if v.len() == 3 && v[0].resource == Resource::Cluster)
+        );
     }
 }

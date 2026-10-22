@@ -5,11 +5,11 @@
 //! texts (i18n `lint:rules.<id>`): a finding carries its rule, its byte
 //! range and the values its message shows.
 
+mod console;
 mod cql;
 mod cypher;
 mod lex;
 mod mongo;
-mod console;
 mod shell;
 mod sql;
 
@@ -59,7 +59,11 @@ use Group as G;
 use Severity::{Error as E, Info as I, Warning as W};
 
 const fn rule(id: &'static str, severity: Severity, groups: &'static [Group]) -> Rule {
-    Rule { id, severity, groups }
+    Rule {
+        id,
+        severity,
+        groups,
+    }
 }
 
 /// Every rule, in the order Settings lists them.
@@ -105,7 +109,10 @@ pub const RULES: &[Rule] = &[
 ];
 
 pub fn severity(rule: &str) -> Severity {
-    RULES.iter().find(|r| r.id == rule).map_or(Severity::Info, |r| r.severity)
+    RULES
+        .iter()
+        .find(|r| r.id == rule)
+        .map_or(Severity::Info, |r| r.severity)
 }
 
 /// One problem: a rule, where (byte offsets in the script) and the values
@@ -120,7 +127,12 @@ pub struct Finding {
 
 impl Finding {
     pub fn new(rule: &'static str, start: usize, end: usize) -> Self {
-        Self { rule, start, end: end.max(start), params: Vec::new() }
+        Self {
+            rule,
+            start,
+            end: end.max(start),
+            params: Vec::new(),
+        }
     }
 
     pub fn param(mut self, key: &'static str, value: impl Into<String>) -> Self {

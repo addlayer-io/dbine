@@ -14,7 +14,8 @@ use dbine_driver::{kinds, ObjectRef};
 use std::collections::BTreeSet;
 
 /// schema, table, estimated rows (`?1`: the catalog).
-pub const ROWS: &str = "SELECT schema_name, table_name, estimated_size::VARCHAR FROM duckdb_tables()
+pub const ROWS: &str =
+    "SELECT schema_name, table_name, estimated_size::VARCHAR FROM duckdb_tables()
  WHERE database_name = ?1 AND NOT internal";
 
 /// kind, schema, name, comment (`?1`: the catalog).
@@ -35,7 +36,14 @@ pub fn row_estimates(rows: Vec<Vec<Option<String>>>) -> Vec<RowEstimate> {
         .filter_map(|r| {
             let mut r = r.into_iter();
             let (schema, name, rows) = (r.next()?, r.next()??, r.next()??);
-            Some(RowEstimate { object: ObjectRef { kind: kinds::TABLE.into(), schema, name }, rows: rows.trim().parse().ok()? })
+            Some(RowEstimate {
+                object: ObjectRef {
+                    kind: kinds::TABLE.into(),
+                    schema,
+                    name,
+                },
+                rows: rows.trim().parse().ok()?,
+            })
         })
         .collect()
 }
@@ -48,10 +56,15 @@ pub fn object_comments(rows: Vec<Vec<Option<String>>>) -> Vec<ObjectComment> {
         .filter_map(|r| {
             let mut r = r.into_iter();
             let (kind, schema, name, comment) = (r.next()??, r.next()?, r.next()??, r.next()??);
-            if comment.trim().is_empty() || !seen.insert((kind.clone(), schema.clone(), name.clone())) {
+            if comment.trim().is_empty()
+                || !seen.insert((kind.clone(), schema.clone(), name.clone()))
+            {
                 return None;
             }
-            Some(ObjectComment { object: ObjectRef { kind, schema, name }, comment })
+            Some(ObjectComment {
+                object: ObjectRef { kind, schema, name },
+                comment,
+            })
         })
         .collect()
 }
@@ -66,9 +79,20 @@ mod tests {
 
     #[test]
     fn rows_skip_unknown_sizes() {
-        let got = row_estimates(vec![row(&[Some("main"), Some("t"), Some("1000")]), row(&[Some("main"), Some("ext"), None])]);
+        let got = row_estimates(vec![
+            row(&[Some("main"), Some("t"), Some("1000")]),
+            row(&[Some("main"), Some("ext"), None]),
+        ]);
         assert_eq!(got.len(), 1);
-        assert_eq!((got[0].object.kind.as_str(), got[0].object.schema.as_deref(), got[0].object.name.as_str(), got[0].rows), ("table", Some("main"), "t", 1000));
+        assert_eq!(
+            (
+                got[0].object.kind.as_str(),
+                got[0].object.schema.as_deref(),
+                got[0].object.name.as_str(),
+                got[0].rows
+            ),
+            ("table", Some("main"), "t", 1000)
+        );
     }
 
     #[test]
@@ -79,7 +103,16 @@ mod tests {
             row(&[Some("function"), Some("main"), Some("m"), Some("dos")]),
             row(&[Some("type"), Some("main"), Some("mood"), Some(" ")]),
         ]);
-        let got: Vec<_> = got.iter().map(|c| (c.object.kind.as_str(), c.object.name.as_str(), c.comment.as_str())).collect();
+        let got: Vec<_> = got
+            .iter()
+            .map(|c| {
+                (
+                    c.object.kind.as_str(),
+                    c.object.name.as_str(),
+                    c.comment.as_str(),
+                )
+            })
+            .collect();
         assert_eq!(got, vec![("view", "v", "Ventas"), ("function", "m", "uno")]);
     }
 }

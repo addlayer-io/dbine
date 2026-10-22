@@ -33,10 +33,16 @@ pub struct ContainerStats {
 /// Throughput of an offer: (RU/s, autoscale).
 fn throughput(offer: &Value) -> Option<(f64, bool)> {
     let c = offer.get("content")?;
-    if let Some(max) = c.get("offerAutopilotSettings").and_then(|a| a.get("maxThroughput")).and_then(Value::as_f64) {
+    if let Some(max) = c
+        .get("offerAutopilotSettings")
+        .and_then(|a| a.get("maxThroughput"))
+        .and_then(Value::as_f64)
+    {
         return Some((max, true));
     }
-    c.get("offerThroughput").and_then(Value::as_f64).map(|t| (t, false))
+    c.get("offerThroughput")
+        .and_then(Value::as_f64)
+        .map(|t| (t, false))
 }
 
 pub struct Inputs<'a> {
@@ -64,7 +70,9 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
     let mut used_offers: Vec<String> = Vec::new();
     let offer_for = |r: &Option<String>| -> Option<&Value> {
         let r = r.as_deref()?;
-        offers.iter().find(|o| o.get("offerResourceId").and_then(Value::as_str) == Some(r))
+        offers
+            .iter()
+            .find(|o| o.get("offerResourceId").and_then(Value::as_str) == Some(r))
     };
 
     let mut total_ru = 0.0;
@@ -73,9 +81,17 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
     let mut ranges = MonitorTable::new(
         "partitions",
         "Particiones físicas (rangos de clave)",
-        &["contenedor", "rango", "desde", "hasta", "estado", "fracción del rendimiento"],
+        &[
+            "contenedor",
+            "rango",
+            "desde",
+            "hasta",
+            "estado",
+            "fracción del rendimiento",
+        ],
     );
-    let (mut docs_total, mut data_total, mut index_total, mut parts_total) = (None::<f64>, None::<f64>, None::<f64>, None::<f64>);
+    let (mut docs_total, mut data_total, mut index_total, mut parts_total) =
+        (None::<f64>, None::<f64>, None::<f64>, None::<f64>);
     let add = |acc: &mut Option<f64>, v: Option<f64>| {
         if let Some(v) = v {
             *acc = Some(acc.unwrap_or(0.0) + v);
@@ -93,12 +109,14 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
             total_ru += ru;
             any_ru = true;
         }
-        let docs = st.usage.as_ref().and_then(|u| u.get("documentsCount").copied());
-        let data = st.usage.as_ref().and_then(|u| kb(u, "documentsSize"));
-        let index = st
+        let docs = st
             .usage
             .as_ref()
-            .and_then(|u| Some((kb(u, "collectionSize")? - kb(u, "documentsSize").unwrap_or(0.0)).max(0.0)));
+            .and_then(|u| u.get("documentsCount").copied());
+        let data = st.usage.as_ref().and_then(|u| kb(u, "documentsSize"));
+        let index = st.usage.as_ref().and_then(|u| {
+            Some((kb(u, "collectionSize")? - kb(u, "documentsSize").unwrap_or(0.0)).max(0.0))
+        });
         let parts = st.ranges.as_ref().map(|r| r.len() as f64);
         add(&mut docs_total, docs);
         add(&mut data_total, data);
@@ -108,7 +126,12 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
             .get("partitionKey")
             .and_then(|p| p.get("paths"))
             .and_then(Value::as_array)
-            .map(|p| p.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
+            .map(|p| {
+                p.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
             .unwrap_or_default();
         let mode = match tp {
             Some((_, true)) => "autoescalado",
@@ -136,7 +159,14 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
                 break;
             }
             let g = |k: &str| r.get(k).cloned().unwrap_or(Value::Null);
-            ranges.rows.push(vec![json!(name), g("id"), g("minInclusive"), g("maxExclusive"), g("status"), g("throughputFraction")]);
+            ranges.rows.push(vec![
+                json!(name),
+                g("id"),
+                g("minInclusive"),
+                g("maxExclusive"),
+                g("status"),
+                g("throughputFraction"),
+            ]);
         }
     }
 
@@ -144,7 +174,10 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
     let db_offer = i.database_rid.and_then(|r| {
         offers.iter().find(|o| {
             o.get("offerResourceId").and_then(Value::as_str) == Some(r)
-                && !o.get("id").and_then(Value::as_str).is_some_and(|id| used_offers.iter().any(|u| u == id))
+                && !o
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| used_offers.iter().any(|u| u == id))
         })
     });
     let db_tp = db_offer.and_then(throughput);
@@ -155,20 +188,61 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
 
     let described = i.stats.len().min(i.containers.len());
     let m = &mut s.metrics;
-    m.push(Metric::new("storage_used", "Datos", "Almacenamiento", MetricUnit::Bytes, data_total));
-    m.push(Metric::new("index_size", "Índices", "Almacenamiento", MetricUnit::Bytes, index_total));
-    m.push(Metric::new("items", "Documentos", "Almacenamiento", MetricUnit::Count, docs_total));
-    let quota = |k: &str| i.account_quota.as_ref().and_then(|q| q.get(k).copied()).filter(|v| *v > 0.0);
+    m.push(Metric::new(
+        "storage_used",
+        "Datos",
+        "Almacenamiento",
+        MetricUnit::Bytes,
+        data_total,
+    ));
+    m.push(Metric::new(
+        "index_size",
+        "Índices",
+        "Almacenamiento",
+        MetricUnit::Bytes,
+        index_total,
+    ));
+    m.push(Metric::new(
+        "items",
+        "Documentos",
+        "Almacenamiento",
+        MetricUnit::Count,
+        docs_total,
+    ));
+    let quota = |k: &str| {
+        i.account_quota
+            .as_ref()
+            .and_then(|q| q.get(k).copied())
+            .filter(|v| *v > 0.0)
+    };
     let usage = |k: &str| i.account_usage.as_ref().and_then(|u| u.get(k).copied());
     m.push(
-        Metric::new("containers", "Contenedores", "Almacenamiento", MetricUnit::Count, Some(i.containers.len() as f64))
-            .max(quota("collections")),
+        Metric::new(
+            "containers",
+            "Contenedores",
+            "Almacenamiento",
+            MetricUnit::Count,
+            Some(i.containers.len() as f64),
+        )
+        .max(quota("collections")),
     );
     m.push(
-        Metric::new("databases", "Bases de datos", "Almacenamiento", MetricUnit::Count, usage("databases").or(Some(i.databases as f64)))
-            .max(quota("databases")),
+        Metric::new(
+            "databases",
+            "Bases de datos",
+            "Almacenamiento",
+            MetricUnit::Count,
+            usage("databases").or(Some(i.databases as f64)),
+        )
+        .max(quota("databases")),
     );
-    m.push(Metric::new("partitions", "Particiones físicas", "Almacenamiento", MetricUnit::Count, parts_total));
+    m.push(Metric::new(
+        "partitions",
+        "Particiones físicas",
+        "Almacenamiento",
+        MetricUnit::Count,
+        parts_total,
+    ));
     m.push(Metric::new(
         "throughput",
         "Rendimiento aprovisionado (RU/s)",
@@ -176,13 +250,29 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
         MetricUnit::Count,
         any_ru.then_some(total_ru),
     ));
-    m.push(Metric::new("monitor_charge", "RU de esta lectura del monitor", "Capacidad", MetricUnit::Count, Some(i.charge)));
+    m.push(Metric::new(
+        "monitor_charge",
+        "RU de esta lectura del monitor",
+        "Capacidad",
+        MetricUnit::Count,
+        Some(i.charge),
+    ));
 
     rows.sort_by(|a, b| b.0.total_cmp(&a.0));
     let mut t = MonitorTable::new(
         "top_objects",
         &format!("Contenedores de «{}»", i.database),
-        &["contenedor", "documentos", "datos (bytes)", "índices (bytes)", "RU/s", "rendimiento", "particiones", "clave de partición", "TTL (s)"],
+        &[
+            "contenedor",
+            "documentos",
+            "datos (bytes)",
+            "índices (bytes)",
+            "RU/s",
+            "rendimiento",
+            "particiones",
+            "clave de partición",
+            "TTL (s)",
+        ],
     );
     t.rows = rows.into_iter().take(200).map(|r| r.1).collect();
     s.tables.push(t);
@@ -199,27 +289,47 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
     let a = i.account;
     let names = |k: &str| {
         a.and_then(|a| a.get(k)).and_then(Value::as_array).map(|l| {
-            l.iter().filter_map(|x| x.get("name").and_then(Value::as_str)).collect::<Vec<_>>().join(", ")
+            l.iter()
+                .filter_map(|x| x.get("name").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(", ")
         })
     };
-    info("Cuenta", a.and_then(|a| a.get("id")).and_then(Value::as_str).map(str::to_string));
+    info(
+        "Cuenta",
+        a.and_then(|a| a.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    );
     info("Regiones de escritura", names("writableLocations"));
     info("Regiones de lectura", names("readableLocations"));
     info(
         "Consistencia",
-        a.and_then(|a| a.pointer("/userConsistencyPolicy/defaultConsistencyLevel")).and_then(Value::as_str).map(str::to_string),
+        a.and_then(|a| a.pointer("/userConsistencyPolicy/defaultConsistencyLevel"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
     );
     info(
         "Escritura multirregión",
-        a.and_then(|a| a.get("enableMultipleWriteLocations")).and_then(Value::as_bool).map(|b| if b { "sí" } else { "no" }.to_string()),
+        a.and_then(|a| a.get("enableMultipleWriteLocations"))
+            .and_then(Value::as_bool)
+            .map(|b| if b { "sí" } else { "no" }.to_string()),
     );
     info("Base de datos", Some(i.database.to_string()));
     info(
         "Rendimiento compartido de la base",
-        db_tp.map(|(ru, auto)| format!("{ru} RU/s{}", if auto { " (autoescalado, máximo)" } else { "" })),
+        db_tp.map(|(ru, auto)| {
+            format!(
+                "{ru} RU/s{}",
+                if auto { " (autoescalado, máximo)" } else { "" }
+            )
+        }),
     );
     if let Some(q) = &i.account_quota {
-        for (k, label) in [("collections", "Contenedores máximos"), ("databases", "Bases máximas")] {
+        for (k, label) in [
+            ("collections", "Contenedores máximos"),
+            ("databases", "Bases máximas"),
+        ] {
             info(label, q.get(k).filter(|v| **v > 0.0).map(|v| v.to_string()));
         }
     }
@@ -236,7 +346,10 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
         s.notes.push("No se pudieron leer las ofertas (/offers): en cuentas serverless no hay rendimiento aprovisionado.".into());
     }
     if described < i.containers.len() {
-        s.notes.push(format!("Se leen el uso y las particiones de los primeros {described} de {} contenedores.", i.containers.len()));
+        s.notes.push(format!(
+            "Se leen el uso y las particiones de los primeros {described} de {} contenedores.",
+            i.containers.len()
+        ));
     }
     s
 }
@@ -261,11 +374,17 @@ mod tests {
         ];
         let stats = vec![
             ContainerStats {
-                usage: Some(parse_usage("documentsSize=2;collectionSize=3;documentsCount=5")),
-                ranges: Some(vec![json!({"id": "0", "minInclusive": "", "maxExclusive": "FF", "status": "online"})]),
+                usage: Some(parse_usage(
+                    "documentsSize=2;collectionSize=3;documentsCount=5",
+                )),
+                ranges: Some(vec![
+                    json!({"id": "0", "minInclusive": "", "maxExclusive": "FF", "status": "online"}),
+                ]),
             },
             ContainerStats {
-                usage: Some(parse_usage("documentsSize=10;collectionSize=10;documentsCount=1")),
+                usage: Some(parse_usage(
+                    "documentsSize=10;collectionSize=10;documentsCount=1",
+                )),
                 ranges: Some(vec![json!({"id": "0"}), json!({"id": "1"})]),
             },
         ];
@@ -300,7 +419,13 @@ mod tests {
         assert_eq!(t.rows[0][4], json!(4000.0));
         assert_eq!(t.rows[0][5], json!("autoescalado"));
         assert_eq!(s.tables[1].rows.len(), 3);
-        assert!(s.info.iter().any(|(k, v)| k == "Consistencia" && v == "Session"));
-        assert!(s.info.iter().any(|(k, v)| k == "Rendimiento compartido de la base" && v == "1000 RU/s"));
+        assert!(s
+            .info
+            .iter()
+            .any(|(k, v)| k == "Consistencia" && v == "Session"));
+        assert!(s
+            .info
+            .iter()
+            .any(|(k, v)| k == "Rendimiento compartido de la base" && v == "1000 RU/s"));
     }
 }

@@ -49,11 +49,17 @@ type Objects = BTreeMap<(String, String), String>;
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<(), String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.map_err(|e| e.to_string())
+    s.execute(sql, 100, &mut out)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn squash(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").trim_end_matches(';').to_string()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches(';')
+        .to_string()
 }
 
 /// A schema's tables and objects, with the schema's name taken out.
@@ -79,9 +85,20 @@ async fn read(s: &mut Box<dyn Session>, schema: &str) -> (BTreeMap<String, Table
         if o.schema.as_deref() != Some(schema) || !["sequence", "type"].contains(&o.kind.as_str()) {
             continue;
         }
-        let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
-        let def = s.definition(&r).await.expect("definition").unwrap_or_else(|| panic!("no definition for {r:?}"));
-        objects.insert((o.kind, o.name), def.replace(&format!("\"{schema}\"."), "\"{s}\"."));
+        let r = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
+        let def = s
+            .definition(&r)
+            .await
+            .expect("definition")
+            .unwrap_or_else(|| panic!("no definition for {r:?}"));
+        objects.insert(
+            (o.kind, o.name),
+            def.replace(&format!("\"{schema}\"."), "\"{s}\"."),
+        );
     }
     (tables, objects)
 }
@@ -99,13 +116,26 @@ async fn compare_and_sync_everything() {
         return;
     };
     let (host, port) = url.split_once(':').unwrap();
-    let cfg = ConnectionConfig { driver: "dsql".into(), host: host.into(), port: port.parse().unwrap(), username: Some("postgres".into()), ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: "dsql".into(),
+        host: host.into(),
+        port: port.parse().unwrap(),
+        username: Some("postgres".into()),
+        ..Default::default()
+    };
     let d = dbine_driver_dsql::drivers().pop().unwrap();
     assert!(d.info().object_kinds.iter().any(|k| k.id == "type"));
-    let mut s = dbine_driver_dsql::connect_with_password(&cfg, "dbine").await.unwrap();
+    let mut s = dbine_driver_dsql::connect_with_password(&cfg, "dbine")
+        .await
+        .unwrap();
     let (a, b) = ("dq_cmp_a", "dq_cmp_b");
     for x in [a, b] {
-        run(&mut s, &format!("DROP SCHEMA IF EXISTS {x} CASCADE; CREATE SCHEMA {x}")).await.unwrap();
+        run(
+            &mut s,
+            &format!("DROP SCHEMA IF EXISTS {x} CASCADE; CREATE SCHEMA {x}"),
+        )
+        .await
+        .unwrap();
     }
     run(&mut s, &SCHEMA.replace("{s}", a)).await.unwrap();
     run(&mut s, &OTHER.replace("{s}", b)).await.unwrap();
@@ -116,13 +146,28 @@ async fn compare_and_sync_everything() {
         eprintln!("-- {k:?}\n{def}");
     }
     let docs = &ta["docs"];
-    let ix = |t: &TableSchema, n: &str| t.indexes.iter().find(|i| i.name == n).cloned().unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes));
+    let ix = |t: &TableSchema, n: &str| {
+        t.indexes
+            .iter()
+            .find(|i| i.name == n)
+            .cloned()
+            .unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes))
+    };
     let ux = ix(docs, "ux_codigo");
     assert_eq!(ux.include, ["titulo"]);
-    assert_eq!(ux.options.get("nulls_not_distinct").map(String::as_str), Some("true"));
+    assert_eq!(
+        ux.options.get("nulls_not_distinct").map(String::as_str),
+        Some("true")
+    );
     let fx = ix(docs, "ix_fecha");
     assert_eq!(fx.columns, ["fecha", "(lower(titulo))"]);
-    assert_eq!((fx.options.get("desc").map(String::as_str), fx.options.get("nulls_last").map(String::as_str)), (Some("fecha"), Some("fecha")));
+    assert_eq!(
+        (
+            fx.options.get("desc").map(String::as_str),
+            fx.options.get("nulls_last").map(String::as_str)
+        ),
+        (Some("fecha"), Some("fecha"))
+    );
     assert_eq!(fx.filter.as_deref(), Some("(fecha IS NOT NULL)"));
     assert_eq!(docs.checks.len(), 1);
     assert_eq!(
@@ -135,7 +180,10 @@ async fn compare_and_sync_everything() {
     let tables: Vec<TableChange> = ta
         .iter()
         .filter(|(n, t)| tb.get(*n) != Some(t))
-        .map(|(n, t)| TableChange::Alter { old: in_schema(tb[n].clone(), b), new: in_schema(t.clone(), b) })
+        .map(|(n, t)| TableChange::Alter {
+            old: in_schema(tb[n].clone(), b),
+            new: in_schema(t.clone(), b),
+        })
         .collect();
     assert_eq!(tables.len(), 1);
     let q = |k: &str, n: &str| format!("DROP {} IF EXISTS \"{b}\".\"{n}\";", k.to_uppercase());
@@ -157,19 +205,39 @@ async fn compare_and_sync_everything() {
     for w in &script.warnings {
         eprintln!("aviso: {w}");
     }
-    assert!(script.statements.iter().any(|s| s.ends_with("NOT VALID;")), "{:#?}", script.statements);
-    let statements: Vec<String> = before.into_iter().chain(early).chain(script.statements).chain(late).collect();
+    assert!(
+        script.statements.iter().any(|s| s.ends_with("NOT VALID;")),
+        "{:#?}",
+        script.statements
+    );
+    let statements: Vec<String> = before
+        .into_iter()
+        .chain(early)
+        .chain(script.statements)
+        .chain(late)
+        .collect();
     for (i, st) in statements.iter().enumerate() {
-        let st = st.replace(" INDEX ASYNC ", " INDEX ").replace("ALTER TABLE ASYNC ", "ALTER TABLE ");
+        let st = st
+            .replace(" INDEX ASYNC ", " INDEX ")
+            .replace("ALTER TABLE ASYNC ", "ALTER TABLE ");
         if let Err(e) = run(&mut s, &st).await {
-            panic!("statement {i} failed: {e}\n---\n{st}\n---\nwhole script:\n{}", statements.join("\n"));
+            panic!(
+                "statement {i} failed: {e}\n---\n{st}\n---\nwhole script:\n{}",
+                statements.join("\n")
+            );
         }
     }
     let (tb2, ob2) = read(&mut s, b).await;
     assert_eq!(tb2, ta);
-    let squashed = |o: &Objects| o.iter().map(|(k, v)| (k.clone(), squash(v))).collect::<Vec<_>>();
+    let squashed = |o: &Objects| {
+        o.iter()
+            .map(|(k, v)| (k.clone(), squash(v)))
+            .collect::<Vec<_>>()
+    };
     assert_eq!(squashed(&ob2), squashed(&oa));
     for x in [a, b] {
-        run(&mut s, &format!("DROP SCHEMA {x} CASCADE")).await.unwrap();
+        run(&mut s, &format!("DROP SCHEMA {x} CASCADE"))
+            .await
+            .unwrap();
     }
 }

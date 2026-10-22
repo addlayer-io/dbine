@@ -8,18 +8,47 @@ use std::time::Duration;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    RunStarted { run_id: String, tables: usize, parallel: usize },
+    RunStarted {
+        run_id: String,
+        tables: usize,
+        parallel: usize,
+    },
     /// An attempt at a table starts (`attempt` counts across resumes).
-    TableStarted { table: String, attempt: u32 },
-    TablePhase { table: String, phase: Phase },
+    TableStarted {
+        table: String,
+        attempt: u32,
+    },
+    TablePhase {
+        table: String,
+        phase: Phase,
+    },
     /// Committed rows; at most one every [`crate::PROGRESS_EVERY`] per
     /// table, plus the final one.
-    TableProgress { table: String, rows_done: u64, rows_total: Option<u64>, rows_per_s: f64 },
-    TableDone { table: String, rows: u64, stats: CopyStats },
-    TableFailed { table: String, error: String },
-    TableCancelled { table: String },
-    RunFinished { summary: RunSummary },
-    Log { level: LogLevel, text: String },
+    TableProgress {
+        table: String,
+        rows_done: u64,
+        rows_total: Option<u64>,
+        rows_per_s: f64,
+    },
+    TableDone {
+        table: String,
+        rows: u64,
+        stats: CopyStats,
+    },
+    TableFailed {
+        table: String,
+        error: String,
+    },
+    TableCancelled {
+        table: String,
+    },
+    RunFinished {
+        summary: RunSummary,
+    },
+    Log {
+        level: LogLevel,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,9 +122,18 @@ pub struct CopyStats {
 }
 
 impl CopyStats {
-    pub(crate) fn measure(path: CopyPath, rows: u64, elapsed: Duration, waited_on_source: Duration, waited_on_destination: Duration) -> Self {
+    pub(crate) fn measure(
+        path: CopyPath,
+        rows: u64,
+        elapsed: Duration,
+        waited_on_source: Duration,
+        waited_on_destination: Duration,
+    ) -> Self {
         let wall = elapsed.as_secs_f64();
-        let (src, dst) = (waited_on_source.as_secs_f64(), waited_on_destination.as_secs_f64());
+        let (src, dst) = (
+            waited_on_source.as_secs_f64(),
+            waited_on_destination.as_secs_f64(),
+        );
         let bottleneck = if wall <= 0.0 {
             None
         } else if dst >= 0.15 * wall && dst >= 2.0 * src {
@@ -119,7 +157,10 @@ impl CopyStats {
 
     /// A table copied before (a resume only ran its `post`).
     pub(crate) fn already(rows: u64) -> Self {
-        CopyStats { rows, ..Default::default() }
+        CopyStats {
+            rows,
+            ..Default::default()
+        }
     }
 }
 
@@ -154,12 +195,30 @@ mod tests {
 
     #[test]
     fn bottleneck_verdict() {
-        let s = CopyStats::measure(CopyPath::BulkLoad, 1000, Duration::from_secs(10), Duration::from_secs(1), Duration::from_secs(5));
+        let s = CopyStats::measure(
+            CopyPath::BulkLoad,
+            1000,
+            Duration::from_secs(10),
+            Duration::from_secs(1),
+            Duration::from_secs(5),
+        );
         assert_eq!(s.bottleneck, Some(Bottleneck::Destination));
         assert_eq!(s.rows_per_s, 100.0);
-        let s = CopyStats::measure(CopyPath::BulkLoad, 1, Duration::from_secs(10), Duration::from_secs(3), Duration::from_secs(2));
+        let s = CopyStats::measure(
+            CopyPath::BulkLoad,
+            1,
+            Duration::from_secs(10),
+            Duration::from_secs(3),
+            Duration::from_secs(2),
+        );
         assert_eq!(s.bottleneck, None);
-        let s = CopyStats::measure(CopyPath::BulkLoad, 1, Duration::from_secs(10), Duration::from_secs(2), Duration::ZERO);
+        let s = CopyStats::measure(
+            CopyPath::BulkLoad,
+            1,
+            Duration::from_secs(10),
+            Duration::from_secs(2),
+            Duration::ZERO,
+        );
         assert_eq!(s.bottleneck, Some(Bottleneck::Source));
     }
 }

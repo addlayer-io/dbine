@@ -25,9 +25,20 @@ fn num(v: Option<&Value>) -> Option<f64> {
 /// `_find` reply when the query ran.
 pub fn from_explain(statement: &str, explain: &Value, stats: Option<&Value>) -> Plan {
     let ix = explain.get("index").cloned().unwrap_or(Value::Null);
-    let ix_name = ix.get("name").and_then(Value::as_str).unwrap_or("?").to_string();
-    let ix_type = ix.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
-    let ddoc = ix.get("ddoc").and_then(Value::as_str).map(|d| d.trim_start_matches("_design/").to_string());
+    let ix_name = ix
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("?")
+        .to_string();
+    let ix_type = ix
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let ddoc = ix
+        .get("ddoc")
+        .and_then(Value::as_str)
+        .map(|d| d.trim_start_matches("_design/").to_string());
 
     // Index access.
     let mut scan = PlanNode::default();
@@ -35,7 +46,8 @@ pub fn from_explain(statement: &str, explain: &Value, stats: Option<&Value>) -> 
     if full {
         scan.op = "Full Scan".into();
         scan.object = Some("_all_docs".into());
-        scan.warnings.push("Sin índice: recorre todos los documentos (_all_docs)".into());
+        scan.warnings
+            .push("Sin índice: recorre todos los documentos (_all_docs)".into());
     } else {
         scan.op = match ix_type.as_str() {
             "text" => "Text Search",
@@ -61,19 +73,40 @@ pub fn from_explain(statement: &str, explain: &Value, stats: Option<&Value>) -> 
 
     let covering = explain.get("covering").and_then(Value::as_bool) == Some(true);
     let selector = explain.get("selector").cloned().unwrap_or(Value::Null);
-    let mut filter = PlanNode { op: "Filter".into(), detail: text(&selector), ..Default::default() };
+    let mut filter = PlanNode {
+        op: "Filter".into(),
+        detail: text(&selector),
+        ..Default::default()
+    };
     filter.props.push(("selector".into(), text(&selector)));
 
-    let mut root = PlanNode { op: "Mango query".into(), ..Default::default() };
-    root.object = explain.get("dbname").and_then(Value::as_str).map(str::to_string);
+    let mut root = PlanNode {
+        op: "Mango query".into(),
+        ..Default::default()
+    };
+    root.object = explain
+        .get("dbname")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     for k in ["fields", "limit", "skip"] {
         if let Some(v) = explain.get(k) {
             root.props.push((k.into(), text(v)));
         }
     }
     if let Some(o) = explain.get("opts").and_then(Value::as_object) {
-        for k in ["sort", "use_index", "r", "conflicts", "partition", "stable", "update"] {
-            if let Some(v) = o.get(k).filter(|v| !v.is_null() && *v != &Value::String(String::new())) {
+        for k in [
+            "sort",
+            "use_index",
+            "r",
+            "conflicts",
+            "partition",
+            "stable",
+            "update",
+        ] {
+            if let Some(v) = o
+                .get(k)
+                .filter(|v| !v.is_null() && *v != &Value::String(String::new()))
+            {
                 root.props.push((k.into(), text(v)));
             }
         }
@@ -89,18 +122,24 @@ pub fn from_explain(statement: &str, explain: &Value, stats: Option<&Value>) -> 
                     .and_then(Value::as_array)
                     .map(|a| a.iter().filter_map(|r| r.get("name").map(text)).collect())
                     .unwrap_or_default();
-                if reasons.is_empty() { name } else { format!("{name} ({})", reasons.join(", ")) }
+                if reasons.is_empty() {
+                    name
+                } else {
+                    format!("{name} ({})", reasons.join(", "))
+                }
             })
             .collect();
         if !list.is_empty() {
-            root.props.push(("index_candidates".into(), list.join("; ")));
+            root.props
+                .push(("index_candidates".into(), list.join("; ")));
         }
     }
 
     let mut fetch_rows = None;
     if let Some(s) = stats {
         let keys = num(s.get("total_keys_examined"));
-        let docs = num(s.get("total_docs_examined")).or_else(|| num(s.get("total_quorum_docs_examined")));
+        let docs =
+            num(s.get("total_docs_examined")).or_else(|| num(s.get("total_quorum_docs_examined")));
         let out = num(s.get("results_returned"));
         scan.actual_rows = if full { docs.or(keys) } else { keys.or(docs) };
         fetch_rows = docs;
@@ -124,8 +163,16 @@ pub fn from_explain(statement: &str, explain: &Value, stats: Option<&Value>) -> 
     if covering || full {
         filter.children.push(scan);
     } else {
-        let fetch = PlanNode { op: "Fetch".into(), detail: "documentos".into(), actual_rows: fetch_rows, ..Default::default() };
-        filter.children.push(PlanNode { children: vec![scan], ..fetch });
+        let fetch = PlanNode {
+            op: "Fetch".into(),
+            detail: "documentos".into(),
+            actual_rows: fetch_rows,
+            ..Default::default()
+        };
+        filter.children.push(PlanNode {
+            children: vec![scan],
+            ..fetch
+        });
     }
     root.children.push(filter);
     Plan {
@@ -198,6 +245,10 @@ mod tests {
         assert_eq!(scan.object.as_deref(), Some("by-year/year-idx"));
         assert_eq!(scan.detail, "[{\"year\":\"asc\"}]");
         assert!(scan.warnings.is_empty());
-        assert!(p.root.props.iter().any(|(k, v)| k == "index_candidates" && v.contains("unfavored_type")));
+        assert!(p
+            .root
+            .props
+            .iter()
+            .any(|(k, v)| k == "index_candidates" && v.contains("unfavored_type")));
     }
 }

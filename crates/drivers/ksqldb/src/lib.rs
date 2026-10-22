@@ -6,13 +6,16 @@
 //! The REST API is stateless: `SET` / `UNSET` of properties are kept here
 //! and sent with every request, as the ksqlDB CLI does.
 
-use dbine_driver::sql::{quote_ident, split_script, split_statements, Quote, ScriptDialect, ScriptMode, StatementKind};
-use dbine_driver::{
-    json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
-    DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result,
-    RowChange, ScriptError, Session, TableSchema,
-};
 use async_trait::async_trait;
+use dbine_driver::sql::{
+    quote_ident, split_script, split_statements, Quote, ScriptDialect, ScriptMode, StatementKind,
+};
+use dbine_driver::{
+    json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
+    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind,
+    Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange,
+    ScriptError, Session, TableSchema,
+};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,11 +24,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
 mod ddl;
-mod sync;
 mod monitor;
 mod plan;
 mod processes;
 mod steps;
+mod sync;
 mod transfer;
 
 const KSQL_JSON: &str = "application/vnd.ksql.v1+json";
@@ -52,10 +55,16 @@ fn info() -> DriverInfo {
             Field::password(),
             Field::encrypt(),
             Field::trust_cert(),
-            Field::new("push_timeout", "Límite de las consultas push (s)", FieldKind::Number)
-                .default_value("10")
-                .help("Una consulta EMIT CHANGES se corta al llegar al máximo de filas o a este tiempo.")
-                .advanced(),
+            Field::new(
+                "push_timeout",
+                "Límite de las consultas push (s)",
+                FieldKind::Number,
+            )
+            .default_value("10")
+            .help(
+                "Una consulta EMIT CHANGES se corta al llegar al máximo de filas o a este tiempo.",
+            )
+            .advanced(),
             Field::read_only(),
         ],
         databases_label: "",
@@ -70,7 +79,10 @@ fn info() -> DriverInfo {
 
 /// How the editor splits a ksqlDB script (also `execute`'s split).
 fn dialect() -> ScriptDialect {
-    ScriptDialect { compound_blocks: false, ..ScriptDialect::generic() }
+    ScriptDialect {
+        compound_blocks: false,
+        ..ScriptDialect::generic()
+    }
 }
 
 pub struct KsqlDriver {
@@ -108,7 +120,12 @@ impl Driver for KsqlDriver {
     /// has no foreign keys. Its running queries are listed and terminated
     /// (see [`processes`]); there are no client sessions to end.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, processes: true, cancel_query: true, ..Capabilities::default() }
+        Capabilities {
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Capabilities::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -123,7 +140,10 @@ impl Driver for KsqlDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -131,9 +151,16 @@ impl Driver for KsqlDriver {
         ddl::table_ddl(table, parts)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
         if target.kind == kinds::TOPIC {
-            return Err(Error::Unsupported("ksqlDB no inserta en topics: hay que hacerlo en un stream".into()));
+            return Err(Error::Unsupported(
+                "ksqlDB no inserta en topics: hay que hacerlo en un stream".into(),
+            ));
         }
         Ok(ddl::insert_script(&target.name, columns, rows))
     }
@@ -151,7 +178,11 @@ impl Driver for KsqlDriver {
         ))
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -159,9 +190,17 @@ impl Driver for KsqlDriver {
         ddl::sorted_browse(query, sort)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
+        let host = if cfg.host.trim().is_empty() {
+            "localhost"
+        } else {
+            cfg.host.trim()
+        };
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .danger_accept_invalid_certs(cfg.trust_server_certificate)
@@ -175,7 +214,11 @@ impl Driver for KsqlDriver {
                 password: cfg.password.clone(),
             }),
             properties: BTreeMap::new(),
-            push_timeout: Duration::from_secs(cfg.option("push_timeout").and_then(|v| v.parse().ok()).unwrap_or(10)),
+            push_timeout: Duration::from_secs(
+                cfg.option("push_timeout")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(10),
+            ),
             in_flight: Arc::new(InFlight::default()),
             rt: tokio::runtime::Handle::current(),
         };
@@ -243,7 +286,13 @@ async fn check(resp: reqwest::Response) -> Result<reqwest::Response> {
     let msg = v
         .as_ref()
         .and_then(|v| v.get("message").and_then(Value::as_str).map(str::to_string))
-        .unwrap_or_else(|| if text.trim().is_empty() { format!("HTTP {status}") } else { text.trim().to_string() });
+        .unwrap_or_else(|| {
+            if text.trim().is_empty() {
+                format!("HTTP {status}")
+            } else {
+                text.trim().to_string()
+            }
+        });
     Err(match status.as_u16() {
         401 | 403 => Error::AuthFailed(msg),
         _ => coded(msg, v.as_ref()),
@@ -252,7 +301,11 @@ async fn check(resp: reqwest::Response) -> Result<reqwest::Response> {
 
 /// A statement error with ksqlDB's `error_code`, when the reply has one.
 fn coded(msg: String, reply: Option<&Value>) -> Error {
-    match reply.and_then(|v| v.get("error_code")).filter(|c| !c.is_null()).map(text) {
+    match reply
+        .and_then(|v| v.get("error_code"))
+        .filter(|c| !c.is_null())
+        .map(text)
+    {
         Some(code) => Error::Statement(Box::new(ScriptError::new(msg).with_code(code))),
         None => Error::Query(msg),
     }
@@ -269,13 +322,17 @@ enum Route {
 }
 
 fn words(stmt: &str) -> Vec<String> {
-    stmt.split_whitespace().map(|w| w.to_ascii_uppercase()).collect()
+    stmt.split_whitespace()
+        .map(|w| w.to_ascii_uppercase())
+        .collect()
 }
 
 /// `'text'` → `text`.
 fn unquote(s: &str) -> String {
     let s = s.trim();
-    s.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')).map_or_else(|| s.to_string(), |s| s.replace("''", "'"))
+    s.strip_prefix('\'')
+        .and_then(|s| s.strip_suffix('\''))
+        .map_or_else(|| s.to_string(), |s| s.replace("''", "'"))
 }
 
 /// Statements `EXPLAIN` takes: queries and the ones that start a
@@ -302,7 +359,9 @@ fn short(stmt: &str) -> String {
 fn route(stmt: &str) -> Route {
     let w = words(stmt);
     match w.first().map(String::as_str) {
-        Some("SELECT") => Route::Query { push: w.windows(2).any(|p| p[0] == "EMIT" && p[1] == "CHANGES") },
+        Some("SELECT") => Route::Query {
+            push: w.windows(2).any(|p| p[0] == "EMIT" && p[1] == "CHANGES"),
+        },
         Some("PRINT") => Route::Print,
         Some("SET") => {
             let rest = stmt.trim()[3..].trim();
@@ -318,9 +377,14 @@ fn route(stmt: &str) -> Route {
 
 impl KsqlSession {
     fn props(&self) -> Value {
-        let mut p: Map<String, Value> = self.properties.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
+        let mut p: Map<String, Value> = self
+            .properties
+            .iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+            .collect();
         // Show what the stream already holds unless told otherwise.
-        p.entry("auto.offset.reset").or_insert_with(|| "earliest".into());
+        p.entry("auto.offset.reset")
+            .or_insert_with(|| "earliest".into());
         Value::Object(p)
     }
 
@@ -344,7 +408,12 @@ impl KsqlSession {
     }
 
     /// One editor statement into `out`.
-    async fn statement(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn statement(
+        &mut self,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         match route(stmt) {
             Route::Query { push } => self.query(stmt, push, max_rows, out).await?,
             Route::Print => self.print(stmt, max_rows, out).await?,
@@ -368,7 +437,9 @@ impl KsqlSession {
 
     /// One `DESCRIBE`'s source description.
     async fn describe(&mut self, name: &str) -> Result<Value> {
-        let ents = self.ksql(&format!("DESCRIBE {}", quote_ident(Quote::Backtick, name))).await?;
+        let ents = self
+            .ksql(&format!("DESCRIBE {}", quote_ident(Quote::Backtick, name)))
+            .await?;
         ents.into_iter()
             .find_map(|e| e.get("sourceDescription").cloned())
             .ok_or_else(|| Error::Query(format!("no se pudo describir {name}")))
@@ -379,7 +450,13 @@ impl KsqlSession {
     }
 
     /// A `SELECT` through `/query-stream`.
-    async fn query(&mut self, stmt: &str, push: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn query(
+        &mut self,
+        stmt: &str,
+        push: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         self.begin();
         let body = json!({ "sql": format!("{};", stmt.trim().trim_end_matches(';')), "properties": self.props() });
         let resp = self
@@ -399,7 +476,10 @@ impl KsqlSession {
                 Ok(Some(l)) => l,
                 Ok(None) => break Ok(()),
                 Err(Stop::Timeout) => {
-                    out.info(format!("La consulta push se detuvo a los {} s.", self.push_timeout.as_secs()));
+                    out.info(format!(
+                        "La consulta push se detuvo a los {} s.",
+                        self.push_timeout.as_secs()
+                    ));
                     break Ok(());
                 }
                 Err(Stop::Cancelled) => break Err(Error::Cancelled),
@@ -412,17 +492,33 @@ impl KsqlSession {
             if header {
                 header = false;
                 if let Some(id) = v.get("queryId").and_then(Value::as_str) {
-                    *self.in_flight.query_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
+                    *self
+                        .in_flight
+                        .query_id
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
                 }
-                let names = v.get("columnNames").and_then(Value::as_array).cloned().unwrap_or_default();
-                let types = v.get("columnTypes").and_then(Value::as_array).cloned().unwrap_or_default();
+                let names = v
+                    .get("columnNames")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let types = v
+                    .get("columnTypes")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
                 out.begin_result(
                     names
                         .iter()
                         .enumerate()
                         .map(|(i, n)| ResultColumn {
                             name: n.as_str().unwrap_or_default().to_string(),
-                            type_name: types.get(i).and_then(Value::as_str).unwrap_or_default().to_string(),
+                            type_name: types
+                                .get(i)
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string(),
                         })
                         .collect(),
                 );
@@ -438,8 +534,14 @@ impl KsqlSession {
                         break Ok(());
                     }
                 }
-                Value::Object(ref o) if o.contains_key("message") || o.contains_key("errorMessage") => {
-                    let msg = o.get("message").or(o.get("errorMessage")).map(text).unwrap_or_default();
+                Value::Object(ref o)
+                    if o.contains_key("message") || o.contains_key("errorMessage") =>
+                {
+                    let msg = o
+                        .get("message")
+                        .or(o.get("errorMessage"))
+                        .map(text)
+                        .unwrap_or_default();
                     break Err(coded(msg, Some(&v)));
                 }
                 // Final messages ("Limit Reached", "Query Completed"…).
@@ -469,7 +571,10 @@ impl KsqlSession {
             .await
             .map_err(http_error)?;
         let mut lines = Lines::new(check(resp).await?);
-        out.begin_result(vec![ResultColumn { name: "record".into(), type_name: String::new() }]);
+        out.begin_result(vec![ResultColumn {
+            name: "record".into(),
+            type_name: String::new(),
+        }]);
         let deadline = Some(Instant::now() + self.push_timeout);
         loop {
             match self.next_line(&mut lines, deadline).await {
@@ -484,7 +589,10 @@ impl KsqlSession {
                 }
                 Ok(None) => return Ok(()),
                 Err(Stop::Timeout) => {
-                    out.info(format!("PRINT se detuvo a los {} s.", self.push_timeout.as_secs()));
+                    out.info(format!(
+                        "PRINT se detuvo a los {} s.",
+                        self.push_timeout.as_secs()
+                    ));
                     return Ok(());
                 }
                 Err(Stop::Cancelled) => return Err(Error::Cancelled),
@@ -494,7 +602,11 @@ impl KsqlSession {
     }
 
     /// The next line, unless the deadline passes or the user cancels first.
-    async fn next_line(&self, lines: &mut Lines, deadline: Option<Instant>) -> std::result::Result<Option<String>, Stop> {
+    async fn next_line(
+        &self,
+        lines: &mut Lines,
+        deadline: Option<Instant>,
+    ) -> std::result::Result<Option<String>, Stop> {
         let notified = self.in_flight.notify.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
@@ -517,10 +629,23 @@ impl KsqlSession {
     /// Ask the server to end the transient query (dropping the connection
     /// also ends it; this makes it prompt).
     fn close_query(&self) {
-        let Some(id) = self.in_flight.query_id.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+        let Some(id) = self
+            .in_flight
+            .query_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        else {
+            return;
+        };
         let conn = self.conn.clone();
         self.rt.spawn(async move {
-            let _ = conn.post("/close-query").header("Content-Type", "application/json").body(json!({ "queryId": id }).to_string()).send().await;
+            let _ = conn
+                .post("/close-query")
+                .header("Content-Type", "application/json")
+                .body(json!({ "queryId": id }).to_string())
+                .send()
+                .await;
         });
     }
 
@@ -550,17 +675,27 @@ struct Lines {
 
 impl Lines {
     fn new(resp: reqwest::Response) -> Self {
-        Self { resp, buf: Vec::new(), eof: false }
+        Self {
+            resp,
+            buf: Vec::new(),
+            eof: false,
+        }
     }
 
     async fn next(&mut self) -> Result<Option<String>> {
         loop {
             if let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
                 let line: Vec<u8> = self.buf.drain(..=pos).collect();
-                return Ok(Some(String::from_utf8_lossy(&line).trim_end_matches(['\n', '\r']).to_string()));
+                return Ok(Some(
+                    String::from_utf8_lossy(&line)
+                        .trim_end_matches(['\n', '\r'])
+                        .to_string(),
+                ));
             }
             if self.eof {
-                return Ok((!self.buf.is_empty()).then(|| String::from_utf8_lossy(&std::mem::take(&mut self.buf)).into_owned()));
+                return Ok((!self.buf.is_empty()).then(|| {
+                    String::from_utf8_lossy(&std::mem::take(&mut self.buf)).into_owned()
+                }));
             }
             match self.resp.chunk().await.map_err(http_error)? {
                 Some(c) => self.buf.extend_from_slice(&c),
@@ -593,18 +728,37 @@ fn cell(v: Value) -> Value {
 fn schema_type(s: &Value) -> String {
     let ty = s.get("type").and_then(Value::as_str).unwrap_or_default();
     match ty {
-        "ARRAY" => format!("ARRAY<{}>", s.get("memberSchema").map(schema_type).unwrap_or_default()),
-        "MAP" => format!("MAP<STRING, {}>", s.get("memberSchema").map(schema_type).unwrap_or_default()),
+        "ARRAY" => format!(
+            "ARRAY<{}>",
+            s.get("memberSchema").map(schema_type).unwrap_or_default()
+        ),
+        "MAP" => format!(
+            "MAP<STRING, {}>",
+            s.get("memberSchema").map(schema_type).unwrap_or_default()
+        ),
         "STRUCT" => {
-            let fields = s.get("fields").and_then(Value::as_array).cloned().unwrap_or_default();
+            let fields = s
+                .get("fields")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             let inner: Vec<String> = fields
                 .iter()
-                .map(|f| format!("{} {}", text(&f["name"]), f.get("schema").map(schema_type).unwrap_or_default()))
+                .map(|f| {
+                    format!(
+                        "{} {}",
+                        text(&f["name"]),
+                        f.get("schema").map(schema_type).unwrap_or_default()
+                    )
+                })
                 .collect();
             format!("STRUCT<{}>", inner.join(", "))
         }
         "DECIMAL" => {
-            let p = s.pointer("/parameters/precision").map(text).unwrap_or_default();
+            let p = s
+                .pointer("/parameters/precision")
+                .map(text)
+                .unwrap_or_default();
             let sc = s.pointer("/parameters/scale").map(text).unwrap_or_default();
             format!("DECIMAL({p}, {sc})")
         }
@@ -619,14 +773,23 @@ fn entity_table(e: &Value, max_rows: usize, out: &mut QueryOutcome) {
     let list = obj
         .iter()
         .filter(|(k, _)| k.as_str() != "warnings")
-        .find_map(|(_, v)| v.as_array().filter(|a| a.iter().all(Value::is_object) && !a.is_empty()))
-        .or_else(|| obj.get("sourceDescription").and_then(|d| d.get("fields")).and_then(Value::as_array));
+        .find_map(|(_, v)| {
+            v.as_array()
+                .filter(|a| a.iter().all(Value::is_object) && !a.is_empty())
+        })
+        .or_else(|| {
+            obj.get("sourceDescription")
+                .and_then(|d| d.get("fields"))
+                .and_then(Value::as_array)
+        });
     let rows: Vec<Map<String, Value>> = match list {
         Some(a) => a.iter().filter_map(|x| x.as_object().cloned()).collect(),
         None => {
             let m: Map<String, Value> = obj
                 .iter()
-                .filter(|(k, v)| !k.starts_with('@') && k.as_str() != "statementText" && !v.is_array())
+                .filter(|(k, v)| {
+                    !k.starts_with('@') && k.as_str() != "statementText" && !v.is_array()
+                })
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             vec![m]
@@ -645,13 +808,22 @@ fn entity_table(e: &Value, max_rows: usize, out: &mut QueryOutcome) {
         let n = cols.remove(i);
         cols.insert(0, n);
     }
-    out.begin_result(cols.iter().map(|c| ResultColumn { name: c.clone(), type_name: String::new() }).collect());
+    out.begin_result(
+        cols.iter()
+            .map(|c| ResultColumn {
+                name: c.clone(),
+                type_name: String::new(),
+            })
+            .collect(),
+    );
     for r in rows {
         let row = cols
             .iter()
             .map(|c| match r.get(c) {
                 // DESCRIBE's field schemas read better as type names.
-                Some(s @ Value::Object(o)) if c == "schema" && o.contains_key("type") => Value::String(schema_type(s)),
+                Some(s @ Value::Object(o)) if c == "schema" && o.contains_key("type") => {
+                    Value::String(schema_type(s))
+                }
                 Some(v) => cell(v.clone()),
                 None => Value::Null,
             })
@@ -667,7 +839,12 @@ fn apply_entities(ents: Vec<Value>, stmt: &str, max_rows: usize, out: &mut Query
         out.push_affected(u64::from(one));
     }
     for e in ents {
-        for w in e.get("warnings").and_then(Value::as_array).into_iter().flatten() {
+        for w in e
+            .get("warnings")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             out.warning(text(w.get("message").unwrap_or(w)));
         }
         match e.get("@type").and_then(Value::as_str) {
@@ -685,10 +862,17 @@ fn apply_entities(ents: Vec<Value>, stmt: &str, max_rows: usize, out: &mut Query
 #[async_trait]
 impl Session for KsqlSession {
     async fn server_version(&mut self) -> Result<String> {
-        let rb = self.conn.auth(self.conn.http.get(format!("{}/info", self.conn.base)));
+        let rb = self
+            .conn
+            .auth(self.conn.http.get(format!("{}/info", self.conn.base)));
         let resp = check(rb.send().await.map_err(http_error)?).await?;
         let v: Value = resp.json().await.map_err(Error::query)?;
-        Ok(format!("ksqlDB {}", v.pointer("/KsqlServerInfo/version").map(text).unwrap_or_default()))
+        Ok(format!(
+            "ksqlDB {}",
+            v.pointer("/KsqlServerInfo/version")
+                .map(text)
+                .unwrap_or_default()
+        ))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
@@ -697,11 +881,22 @@ impl Session for KsqlSession {
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let mut out = Vec::new();
-        for (stmt, field, kind) in [("SHOW STREAMS", "streams", kinds::STREAM), ("SHOW TABLES", "tables", kinds::TABLE), ("SHOW TOPICS", "topics", kinds::TOPIC)] {
+        for (stmt, field, kind) in [
+            ("SHOW STREAMS", "streams", kinds::STREAM),
+            ("SHOW TABLES", "tables", kinds::TABLE),
+            ("SHOW TOPICS", "topics", kinds::TOPIC),
+        ] {
             let mut names = self.names(stmt, field).await?;
-            names.retain(|n| n != PROCESSING_LOG && !n.starts_with('_') && !n.ends_with("ksql_processing_log"));
+            names.retain(|n| {
+                n != PROCESSING_LOG && !n.starts_with('_') && !n.ends_with("ksql_processing_log")
+            });
             names.sort();
-            out.extend(names.into_iter().map(|name| DbObject { kind: kind.into(), schema: None, name, parent: None }));
+            out.extend(names.into_iter().map(|name| DbObject {
+                kind: kind.into(),
+                schema: None,
+                name,
+                parent: None,
+            }));
         }
         Ok(out)
     }
@@ -719,7 +914,10 @@ impl Session for KsqlSession {
                 name: text(&f["name"]),
                 data_type: f.get("schema").map(schema_type).unwrap_or_default(),
                 nullable: true,
-                primary_key: matches!(f.get("type").and_then(Value::as_str), Some("KEY" | "PRIMARY_KEY")),
+                primary_key: matches!(
+                    f.get("type").and_then(Value::as_str),
+                    Some("KEY" | "PRIMARY_KEY")
+                ),
                 auto_increment: false,
                 default_value: None,
             })
@@ -731,7 +929,10 @@ impl Session for KsqlSession {
             return Ok(None);
         }
         let d = self.describe(&obj.name).await?;
-        Ok(d.get("statement").and_then(Value::as_str).map(str::to_string).filter(|s| !s.is_empty()))
+        Ok(d.get("statement")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|s| !s.is_empty()))
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
@@ -747,7 +948,11 @@ impl Session for KsqlSession {
     }
 
     /// A pull query read to the end, typed by its column types.
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -762,9 +967,13 @@ impl Session for KsqlSession {
     }
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let ents = self.ksql("SHOW STREAMS EXTENDED; SHOW TABLES EXTENDED").await?;
+        let ents = self
+            .ksql("SHOW STREAMS EXTENDED; SHOW TABLES EXTENDED")
+            .await?;
         let mut out = ddl::from_descriptions(
-            ents.iter().filter_map(|e| e.get("sourceDescriptions").and_then(Value::as_array)).flatten(),
+            ents.iter()
+                .filter_map(|e| e.get("sourceDescriptions").and_then(Value::as_array))
+                .flatten(),
         );
         out.retain(|t| t.name != PROCESSING_LOG && !t.name.starts_with('_'));
         Ok(out)
@@ -772,15 +981,25 @@ impl Session for KsqlSession {
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
         if obj.kind == kinds::TOPIC {
-            return format!("PRINT '{}' FROM BEGINNING LIMIT {limit};", obj.name.replace('\'', "''"));
+            return format!(
+                "PRINT '{}' FROM BEGINNING LIMIT {limit};",
+                obj.name.replace('\'', "''")
+            );
         }
-        format!("SELECT * FROM {} EMIT CHANGES LIMIT {limit};", quote_ident(Quote::Backtick, &obj.name))
+        format!(
+            "SELECT * FROM {} EMIT CHANGES LIMIT {limit};",
+            quote_ident(Quote::Backtick, &obj.name)
+        )
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let own = out.current_statement.is_none();
         let units = split_script(text, &dialect());
-        for (i, u) in units.iter().filter(|u| u.kind != StatementKind::ClientCommand).enumerate() {
+        for (i, u) in units
+            .iter()
+            .filter(|u| u.kind != StatementKind::ClientCommand)
+            .enumerate()
+        {
             let step = steps::Step::start(out, own, i, u.start, u.line);
             let r = self.statement(&u.text, max_rows, out).await;
             step.end(out, r)?;
@@ -788,14 +1007,25 @@ impl Session for KsqlSession {
         Ok(())
     }
 
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let mut noted = false;
         for stmt in split_statements(text) {
             if explainable(&stmt) {
-                let ents = self.ksql(&format!("EXPLAIN {}", stmt.trim().trim_end_matches(';'))).await?;
+                let ents = self
+                    .ksql(&format!("EXPLAIN {}", stmt.trim().trim_end_matches(';')))
+                    .await?;
                 match ents.iter().find_map(|e| e.get("queryDescription")) {
                     Some(d) => out.plans.push(plan::from_description(&stmt, d)),
-                    None => out.info(format!("ksqlDB no devolvió un plan para «{}».", short(&stmt))),
+                    None => out.info(format!(
+                        "ksqlDB no devolvió un plan para «{}».",
+                        short(&stmt)
+                    )),
                 }
                 if analyze && !noted {
                     out.info(
@@ -804,7 +1034,10 @@ impl Session for KsqlSession {
                     noted = true;
                 }
             } else if !analyze && !matches!(route(&stmt), Route::Set(..) | Route::Unset(_)) {
-                out.info(format!("Sin plan para «{}»: ksqlDB solo explica consultas.", short(&stmt)));
+                out.info(format!(
+                    "Sin plan para «{}»: ksqlDB solo explica consultas.",
+                    short(&stmt)
+                ));
             }
             // SET / UNSET shape the plans after them; the rest only runs
             // when asked to.
@@ -830,9 +1063,16 @@ mod tests {
 
     #[test]
     fn deletes_are_unsupported() {
-        let t = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "t".into() };
+        let t = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: "t".into(),
+        };
         let d = &drivers()[0];
-        assert!(matches!(d.delete_script(&t, &[vec![("ID".into(), Value::from(1))]]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            d.delete_script(&t, &[vec![("ID".into(), Value::from(1))]]),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -840,17 +1080,31 @@ mod tests {
         assert!(explainable("select * from s emit changes"));
         assert!(explainable("CREATE STREAM s2 AS SELECT * FROM s"));
         assert!(explainable("INSERT INTO s2 SELECT * FROM s"));
-        assert!(!explainable("CREATE STREAM s (id INT) WITH (kafka_topic='t', value_format='JSON')"));
+        assert!(!explainable(
+            "CREATE STREAM s (id INT) WITH (kafka_topic='t', value_format='JSON')"
+        ));
         assert!(!explainable("SHOW STREAMS"));
     }
 
     #[test]
     fn statements_are_routed() {
-        assert_eq!(route("select * from s emit changes limit 3"), Route::Query { push: true });
-        assert_eq!(route("SELECT * FROM t WHERE id = 1"), Route::Query { push: false });
+        assert_eq!(
+            route("select * from s emit changes limit 3"),
+            Route::Query { push: true }
+        );
+        assert_eq!(
+            route("SELECT * FROM t WHERE id = 1"),
+            Route::Query { push: false }
+        );
         assert_eq!(route("PRINT 'x' FROM BEGINNING"), Route::Print);
-        assert_eq!(route("SET 'auto.offset.reset' = 'latest'"), Route::Set("auto.offset.reset".into(), "latest".into()));
-        assert_eq!(route("UNSET 'auto.offset.reset'"), Route::Unset("auto.offset.reset".into()));
+        assert_eq!(
+            route("SET 'auto.offset.reset' = 'latest'"),
+            Route::Set("auto.offset.reset".into(), "latest".into())
+        );
+        assert_eq!(
+            route("UNSET 'auto.offset.reset'"),
+            Route::Unset("auto.offset.reset".into())
+        );
         assert_eq!(route("SHOW STREAMS"), Route::Ksql);
     }
 
@@ -866,7 +1120,11 @@ mod tests {
         apply_entities(ents, "SHOW STREAMS", 10, &mut out);
         // "name" first; the rest keep the server's order only when serde_json's
         // preserve_order is on (it is in the app, through bson), so compare as a set.
-        let cols: Vec<&str> = out.results[0].columns.iter().map(|c| c.name.as_str()).collect();
+        let cols: Vec<&str> = out.results[0]
+            .columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
         assert_eq!(cols[0], "name");
         let mut rest = cols[1..].to_vec();
         rest.sort_unstable();

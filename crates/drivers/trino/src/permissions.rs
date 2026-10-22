@@ -16,19 +16,28 @@ use dbine_driver::{Access, Error, Permissions, Result};
 pub(crate) fn profiler_access(status: u16) -> Access {
     match status {
         200..=299 => Access::Allowed,
-        403 => Access::Denied { missing: "view query (control de acceso)".into() },
+        403 => Access::Denied {
+            missing: "view query (control de acceso)".into(),
+        },
         _ => Access::Unknown,
     }
 }
 
 pub(crate) async fn check(s: &TrinoSession) -> Result<Permissions> {
-    let rb = s.conn.http.get(format!("{}/v1/query", s.conn.base)).header(s.flavor.header("user"), &s.conn.user);
+    let rb = s
+        .conn
+        .http
+        .get(format!("{}/v1/query", s.conn.base))
+        .header(s.flavor.header("user"), &s.conn.user);
     let profiler = match s.conn.auth(rb).send().await {
         Ok(resp) => profiler_access(resp.status().as_u16()),
         Err(e) if e.is_connect() || e.is_timeout() => return Err(Error::Connect(e.to_string())),
         Err(_) => Access::Unknown,
     };
-    Ok(Permissions { profiler, ..Default::default() })
+    Ok(Permissions {
+        profiler,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]
@@ -38,7 +47,12 @@ mod tests {
     #[test]
     fn profiler_from_the_query_list_status() {
         assert_eq!(profiler_access(200), Access::Allowed);
-        assert_eq!(profiler_access(403), Access::Denied { missing: "view query (control de acceso)".into() });
+        assert_eq!(
+            profiler_access(403),
+            Access::Denied {
+                missing: "view query (control de acceso)".into()
+            }
+        );
         assert_eq!(profiler_access(500), Access::Unknown);
         assert_eq!(profiler_access(401), Access::Unknown);
     }

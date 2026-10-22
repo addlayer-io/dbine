@@ -36,7 +36,9 @@ fn json_type(t: &str) -> L {
         "number" | "float" | "double" => L::Float { bytes: 8 },
         "string" => L::Text { unicode: true },
         "object" | "array" | "any" | "json" => L::Json { binary: true },
-        _ => L::Other { native: t.to_string() },
+        _ => L::Other {
+            native: t.to_string(),
+        },
     }
 }
 
@@ -47,7 +49,9 @@ pub(crate) fn parse_json_type(t: &TypeSpec) -> L {
         return L::Json { binary: true };
     }
     match parse_list(raw, json_type) {
-        L::Other { .. } => L::Other { native: raw.to_string() },
+        L::Other { .. } => L::Other {
+            native: raw.to_string(),
+        },
         l => l,
     }
 }
@@ -144,11 +148,29 @@ pub(crate) fn unique_to_plain(t: &mut TableSchema, report: &mut Report, engine: 
 /// on those fields already exists), for engines whose documents are
 /// identified by their own key.
 pub(crate) fn key_as_index(t: &mut TableSchema, report: &mut Report, why: &str) {
-    let Some(pk) = t.primary_key.take().filter(|k| !k.columns.is_empty()) else { return };
+    let Some(pk) = t.primary_key.take().filter(|k| !k.columns.is_empty()) else {
+        return;
+    };
     let name = format!("{}_pk", t.name);
-    report.push(Severity::Warning, IssueCode::PrimaryKeyDropped, &t.name, Some(&name), format!("{why} La clave primaria ({}) queda como índice «{name}», sin controlar la unicidad.", pk.columns.join(", ")));
+    report.push(
+        Severity::Warning,
+        IssueCode::PrimaryKeyDropped,
+        &t.name,
+        Some(&name),
+        format!(
+            "{why} La clave primaria ({}) queda como índice «{name}», sin controlar la unicidad.",
+            pk.columns.join(", ")
+        ),
+    );
     if !t.indexes.iter().any(|i| i.columns == pk.columns) {
-        t.indexes.insert(0, IndexDef { name, columns: pk.columns, ..Default::default() });
+        t.indexes.insert(
+            0,
+            IndexDef {
+                name,
+                columns: pk.columns,
+                ..Default::default()
+            },
+        );
     }
 }
 
@@ -218,26 +240,76 @@ mod tests {
         let r = |t: L| render_json_type(&t, false).native;
         assert_eq!(r(L::Bool), "boolean");
         assert_eq!(r(L::int(8)), "integer");
-        assert!(render_json_type(&L::int(8), true).notes.iter().any(|n| n.code == IssueCode::RangeLoss));
+        assert!(render_json_type(&L::int(8), true)
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::RangeLoss));
         assert!(render_json_type(&L::int(4), true).notes.is_empty());
-        assert_eq!(r(L::Decimal { precision: Some(10), scale: Some(2) }), "number");
-        assert!(render_json_type(&L::Decimal { precision: Some(30), scale: Some(2) }, false).notes[0].severity == Severity::Loss);
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }),
+            "number"
+        );
+        assert!(
+            render_json_type(
+                &L::Decimal {
+                    precision: Some(30),
+                    scale: Some(2)
+                },
+                false
+            )
+            .notes[0]
+                .severity
+                == Severity::Loss
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "number");
         assert_eq!(r(L::Money), "number");
-        assert_eq!(r(L::Char { len: Some(2), unicode: true }), "string");
+        assert_eq!(
+            r(L::Char {
+                len: Some(2),
+                unicode: true
+            }),
+            "string"
+        );
         assert_eq!(r(L::Blob), "string");
         assert_eq!(r(L::Bit { len: None }), "string");
         assert_eq!(r(L::Date), "string");
-        assert_eq!(r(L::Timestamp { precision: None, tz: true }), "string");
+        assert_eq!(
+            r(L::Timestamp {
+                precision: None,
+                tz: true
+            }),
+            "string"
+        );
         assert_eq!(r(L::Year), "integer");
         assert_eq!(r(L::Uuid), "string");
         assert_eq!(r(L::Json { binary: false }), "object");
         assert_eq!(r(L::Xml), "string");
         assert_eq!(r(L::Enum { values: vec![] }), "string");
         assert_eq!(r(L::Set { values: vec![] }), "array");
-        assert_eq!(r(L::Array { of: Box::new(L::Bool) }), "array");
-        assert_eq!(r(L::Map { key: Box::new(L::Bool), value: Box::new(L::Bool) }), "object");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "object");
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Bool)
+            }),
+            "array"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Bool),
+                value: Box::new(L::Bool)
+            }),
+            "object"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "object"
+        );
         assert_eq!(r(L::Inet), "string");
         assert_eq!(r(L::RowVersion), "string");
         assert_eq!(r(L::Other { native: "x".into() }), "x");

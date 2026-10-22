@@ -61,7 +61,9 @@ use crate::catalog::{cell, lit};
 use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::{Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript, TableSchema};
+use dbine_driver::{
+    Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript, TableSchema,
+};
 use std::collections::HashMap;
 use tokio_postgres::SimpleQueryRow;
 
@@ -144,7 +146,10 @@ pub(crate) fn stat_views(v: Variant, version: i32) -> &'static [(&'static str, &
     }
     &[
         ("gp_stat_all_indexes_summary", "gp_stat_all_tables_summary"),
-        ("gp_toolkit.gp_stat_all_indexes_summary", "gp_toolkit.gp_stat_all_tables_summary"),
+        (
+            "gp_toolkit.gp_stat_all_indexes_summary",
+            "gp_toolkit.gp_stat_all_tables_summary",
+        ),
         ("pg_stat_all_indexes", "pg_stat_all_tables"),
     ]
 }
@@ -174,7 +179,11 @@ fn members(v: Variant, version: i32, of: &str, rel: &str, index: bool) -> String
 
 /// Per index: scans, last scan, bytes (its partitions and chunks added up).
 pub(crate) fn index_stats_sql(v: Variant, version: i32, rel: &str, ix_view: &str) -> String {
-    let last = if version >= 160000 && !v.mpp() { "max(s.last_idx_scan)::text" } else { "NULL::text" };
+    let last = if version >= 160000 && !v.mpp() {
+        "max(s.last_idx_scan)::text"
+    } else {
+        "NULL::text"
+    };
     let members = members(v, version, "x.indexrelid", rel, true);
     format!(
         "SELECT i.relname AS idx, COALESCE(sum(s.idx_scan), 0)::text AS scans, {last} AS last
@@ -210,7 +219,8 @@ pub(crate) fn table_stats_sql(v: Variant, version: i32, rel: &str, tbl_view: &st
     )
 }
 
-pub(crate) const SINCE_SQL: &str = "SELECT stats_reset::text AS since FROM pg_stat_database WHERE datname = current_database()";
+pub(crate) const SINCE_SQL: &str =
+    "SELECT stats_reset::text AS since FROM pg_stat_database WHERE datname = current_database()";
 
 /// CockroachDB: reads per index, cluster-wide.
 pub(crate) fn cockroach_sql(rel: &str) -> String {
@@ -242,23 +252,44 @@ pub(crate) fn toggle_supported(v: Variant) -> bool {
 
 /// "Deshabilitar / Habilitar índice" on CockroachDB: `NOT VISIBLE` /
 /// `VISIBLE`. The primary index can't be invisible.
-pub(crate) fn toggle_script(v: Variant, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+pub(crate) fn toggle_script(
+    v: Variant,
+    table: &ObjectRef,
+    index: &IndexUsage,
+    enable: bool,
+) -> Result<SyncScript> {
     if !toggle_supported(v) {
-        return Err(Error::Unsupported("este motor no deshabilita índices".into()));
+        return Err(Error::Unsupported(
+            "este motor no deshabilita índices".into(),
+        ));
     }
     if index.primary_key {
-        return Err(Error::Unsupported("CockroachDB no permite deshabilitar (ocultar) la clave primaria.".into()));
+        return Err(Error::Unsupported(
+            "CockroachDB no permite deshabilitar (ocultar) la clave primaria.".into(),
+        ));
     }
     let owner = qualified_name(Quote::Double, table.schema(), &table.name);
     let mut warnings = Vec::new();
     if !enable {
-        warnings.push("El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo.".to_string());
+        warnings.push(
+            "El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo."
+                .to_string(),
+        );
         if index.unique {
-            warnings.push("Al ser único, sigue impidiendo valores repetidos aunque esté deshabilitado.".to_string());
+            warnings.push(
+                "Al ser único, sigue impidiendo valores repetidos aunque esté deshabilitado."
+                    .to_string(),
+            );
         }
     }
     let state = if enable { "VISIBLE" } else { "NOT VISIBLE" };
-    Ok(SyncScript { statements: vec![format!("ALTER INDEX {owner}@{} {state}", quote_ident(Quote::Double, &index.name))], warnings })
+    Ok(SyncScript {
+        statements: vec![format!(
+            "ALTER INDEX {owner}@{} {state}",
+            quote_ident(Quote::Double, &index.name)
+        )],
+        warnings,
+    })
 }
 
 /// One `indexes_sql` row.
@@ -312,30 +343,49 @@ fn kind(am: Option<&str>) -> String {
 /// `writes` is the table's (every index pays it), except a partial index's:
 /// it only gets the rows its filter keeps, unknown, so it shows none and is
 /// never judged unused.
-pub(crate) fn assemble(columns: &[ColumnRow], usage: Option<&HashMap<String, UsageRow>>, sizes: Option<&HashMap<String, u64>>, writes: u64) -> Vec<IndexUsage> {
+pub(crate) fn assemble(
+    columns: &[ColumnRow],
+    usage: Option<&HashMap<String, UsageRow>>,
+    sizes: Option<&HashMap<String, u64>>,
+    writes: u64,
+) -> Vec<IndexUsage> {
     let mut out: Vec<IndexUsage> = Vec::new();
     for c in columns {
         if out.last().is_none_or(|i| i.name != c.index) {
-            let u = usage.and_then(|m| m.get(&c.index)).cloned().unwrap_or_default();
+            let u = usage
+                .and_then(|m| m.get(&c.index))
+                .cloned()
+                .unwrap_or_default();
             out.push(IndexUsage {
                 name: c.index.clone(),
                 kind: kind(c.am.as_deref()),
                 unique: c.unique || c.primary_key,
                 primary_key: c.primary_key,
                 filter: c.filter.clone(),
-                size_kb: sizes.and_then(|m| m.get(&c.index)).map(|b| b.div_ceil(1024)),
+                size_kb: sizes
+                    .and_then(|m| m.get(&c.index))
+                    .map(|b| b.div_ceil(1024)),
                 seeks: u.scans,
-                updates: if usage.is_some() && c.filter.is_none() { writes } else { 0 },
+                updates: if usage.is_some() && c.filter.is_none() {
+                    writes
+                } else {
+                    0
+                },
                 last_read: u.last_read,
                 ..Default::default()
             });
         }
         let ix = out.last_mut().expect("pushed above");
         if c.included {
-            ix.included_columns.push(c.att.clone().unwrap_or_else(|| c.expr.clone()));
+            ix.included_columns
+                .push(c.att.clone().unwrap_or_else(|| c.expr.clone()));
         } else {
             let name = column_name(c.att.as_deref(), &c.expr);
-            ix.key_columns.push(if c.descending { format!("{name} DESC") } else { name });
+            ix.key_columns.push(if c.descending {
+                format!("{name} DESC")
+            } else {
+                name
+            });
         }
     }
     out
@@ -358,7 +408,11 @@ pub(crate) fn from_structure(v: Variant, t: &TableSchema) -> Vec<IndexUsage> {
     for ix in &t.indexes {
         out.push(IndexUsage {
             name: ix.name.clone(),
-            kind: ix.kind.clone().unwrap_or_else(|| "INDEX".into()).to_ascii_uppercase(),
+            kind: ix
+                .kind
+                .clone()
+                .unwrap_or_else(|| "INDEX".into())
+                .to_ascii_uppercase(),
             unique: ix.unique,
             key_columns: ix.columns.clone(),
             included_columns: ix.include.clone(),
@@ -418,7 +472,10 @@ fn flag(r: &SimpleQueryRow, name: &str) -> bool {
 }
 
 fn num(r: &SimpleQueryRow, name: &str) -> u64 {
-    cell(r, name).and_then(|s| s.split('.').next().and_then(|n| n.parse::<i64>().ok())).unwrap_or(0).max(0) as u64
+    cell(r, name)
+        .and_then(|s| s.split('.').next().and_then(|n| n.parse::<i64>().ok()))
+        .unwrap_or(0)
+        .max(0) as u64
 }
 
 /// Foreign key rows grouped by constraint.
@@ -459,7 +516,10 @@ impl PgSession {
         }
     }
 
-    pub(crate) async fn index_usage_report(&mut self, table: &ObjectRef) -> Result<IndexUsageReport> {
+    pub(crate) async fn index_usage_report(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<IndexUsageReport> {
         let v = self.variant;
         if !pg_path(v) {
             return self.structure_report(table).await;
@@ -487,7 +547,12 @@ impl PgSession {
             Some(rows) => group_foreign_keys(&rows),
             None => Vec::new(),
         };
-        let mut report = IndexUsageReport { foreign_keys, seek_scan_split: false, writes_counted: false, ..Default::default() };
+        let mut report = IndexUsageReport {
+            foreign_keys,
+            seek_scan_split: false,
+            writes_counted: false,
+            ..Default::default()
+        };
         let mut notes: Vec<String> = Vec::new();
         if !has_counters(v) {
             report.indexes = assemble(&columns, None, None, 0);
@@ -498,14 +563,23 @@ impl PgSession {
         let mut table_view = "pg_stat_all_tables";
         let usage_rows = if v == Variant::Cockroach {
             // Since v25 crdb_internal is closed unless the session opts in.
-            let _ = self.client.batch_execute("SET allow_unsafe_internals = true").await;
+            let _ = self
+                .client
+                .batch_execute("SET allow_unsafe_internals = true")
+                .await;
             let rows = self.optional("counters", &cockroach_sql(&rel)).await;
-            let _ = self.client.batch_execute("RESET allow_unsafe_internals").await;
+            let _ = self
+                .client
+                .batch_execute("RESET allow_unsafe_internals")
+                .await;
             rows
         } else {
             let mut found = None;
             for &(ix_view, tbl_view) in stat_views(v, self.version) {
-                if let Some(rows) = self.optional("counters", &index_stats_sql(v, self.version, &rel, ix_view)).await {
+                if let Some(rows) = self
+                    .optional("counters", &index_stats_sql(v, self.version, &rel, ix_view))
+                    .await
+                {
                     found = Some((rows, tbl_view));
                     break;
                 }
@@ -517,7 +591,15 @@ impl PgSession {
         };
         let usage: Option<HashMap<String, UsageRow>> = usage_rows.map(|rows| {
             rows.iter()
-                .map(|r| (cell(r, "idx").unwrap_or_default(), UsageRow { scans: num(r, "scans"), last_read: timestamp(cell(r, "last")) }))
+                .map(|r| {
+                    (
+                        cell(r, "idx").unwrap_or_default(),
+                        UsageRow {
+                            scans: num(r, "scans"),
+                            last_read: timestamp(cell(r, "last")),
+                        },
+                    )
+                })
                 .collect()
         });
         let (mut writes, mut sizes) = (0, None);
@@ -531,7 +613,13 @@ impl PgSession {
             // YugabyteDB counts neither the table's writes nor its scans.
             if v == Variant::Yugabyte {
                 notes.push(YUGABYTE_NOTE.into());
-            } else if let Some(rows) = self.optional("table counters", &table_stats_sql(v, self.version, &rel, table_view)).await {
+            } else if let Some(rows) = self
+                .optional(
+                    "table counters",
+                    &table_stats_sql(v, self.version, &rel, table_view),
+                )
+                .await
+            {
                 if let Some(r) = rows.first() {
                     writes = num(r, "writes");
                     writes_counted = true;
@@ -541,7 +629,10 @@ impl PgSession {
                     notes.extend(seq_scan_note(num(r, "seq")));
                 }
             }
-            report.since = self.optional("stats reset", SINCE_SQL).await.and_then(|rows| timestamp(rows.first().and_then(|r| cell(r, "since"))));
+            report.since = self
+                .optional("stats reset", SINCE_SQL)
+                .await
+                .and_then(|rows| timestamp(rows.first().and_then(|r| cell(r, "since"))));
             // YugabyteDB keeps them in memory: a restart clears them.
             if report.since.is_none() && v != Variant::Yugabyte {
                 notes.push(NEVER_RESET_NOTE.into());
@@ -552,13 +643,23 @@ impl PgSession {
             sizes = self
                 .optional("sizes", &size_sql(v, self.version, &rel))
                 .await
-                .map(|rows| rows.iter().map(|r| (cell(r, "idx").unwrap_or_default(), num(r, "bytes"))).collect::<HashMap<_, _>>());
+                .map(|rows| {
+                    rows.iter()
+                        .map(|r| (cell(r, "idx").unwrap_or_default(), num(r, "bytes")))
+                        .collect::<HashMap<_, _>>()
+                });
         }
         report.stats_available = usage.is_some();
         report.writes_counted = writes_counted;
         report.indexes = assemble(&columns, usage.as_ref(), sizes.as_ref(), writes);
         if toggle_supported(v) {
-            if let Some(rows) = self.optional("visibility", &cockroach_invisible_sql(v, schema, &table.name)).await {
+            if let Some(rows) = self
+                .optional(
+                    "visibility",
+                    &cockroach_invisible_sql(v, schema, &table.name),
+                )
+                .await
+            {
                 let off: Vec<String> = rows.iter().filter_map(|r| cell(r, "idx")).collect();
                 for ix in &mut report.indexes {
                     ix.disabled = off.contains(&ix.name);
@@ -573,7 +674,10 @@ impl PgSession {
     async fn structure_report(&mut self, table: &ObjectRef) -> Result<IndexUsageReport> {
         let v = self.variant;
         let tables = self.schema_of_database().await?;
-        let t = tables.iter().find(|t| t.name == table.name && (table.schema().is_none() || t.schema.as_deref() == table.schema()));
+        let t = tables.iter().find(|t| {
+            t.name == table.name
+                && (table.schema().is_none() || t.schema.as_deref() == table.schema())
+        });
         Ok(IndexUsageReport {
             indexes: t.map(|t| from_structure(v, t)).unwrap_or_default(),
             foreign_keys: t.map(|t| t.foreign_keys.clone()).unwrap_or_default(),
@@ -591,37 +695,96 @@ mod tests {
     use dbine_driver::{IndexDef, KeyDef};
 
     fn col(index: &str, att: &str, included: bool, descending: bool) -> ColumnRow {
-        ColumnRow { index: index.into(), am: Some("btree".into()), att: Some(att.into()), expr: att.into(), included, descending, ..Default::default() }
+        ColumnRow {
+            index: index.into(),
+            am: Some("btree".into()),
+            att: Some(att.into()),
+            expr: att.into(),
+            included,
+            descending,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn cockroach_toggles_by_visibility() {
-        let t = ObjectRef { kind: "table".into(), schema: Some("ven tas".into()), name: "Pedidos".into() };
-        let ix = IndexUsage { name: "ix_fecha".into(), ..Default::default() };
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("ven tas".into()),
+            name: "Pedidos".into(),
+        };
+        let ix = IndexUsage {
+            name: "ix_fecha".into(),
+            ..Default::default()
+        };
         let off = toggle_script(Variant::Cockroach, &t, &ix, false).unwrap();
-        assert_eq!(off.statements, [r#"ALTER INDEX "ven tas"."Pedidos"@"ix_fecha" NOT VISIBLE"#]);
-        assert_eq!(off.warnings, ["El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo."]);
+        assert_eq!(
+            off.statements,
+            [r#"ALTER INDEX "ven tas"."Pedidos"@"ix_fecha" NOT VISIBLE"#]
+        );
+        assert_eq!(
+            off.warnings,
+            ["El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo."]
+        );
         let on = toggle_script(Variant::Cockroach, &t, &ix, true).unwrap();
-        assert_eq!(on.statements, [r#"ALTER INDEX "ven tas"."Pedidos"@"ix_fecha" VISIBLE"#]);
+        assert_eq!(
+            on.statements,
+            [r#"ALTER INDEX "ven tas"."Pedidos"@"ix_fecha" VISIBLE"#]
+        );
         assert!(on.warnings.is_empty());
-        let bare = ObjectRef { schema: None, ..t.clone() };
-        assert_eq!(toggle_script(Variant::Cockroach, &bare, &ix, true).unwrap().statements, [r#"ALTER INDEX "Pedidos"@"ix_fecha" VISIBLE"#]);
-        let uq = IndexUsage { unique: true, ..ix.clone() };
-        assert_eq!(toggle_script(Variant::Cockroach, &t, &uq, false).unwrap().warnings.len(), 2);
-        let pk = IndexUsage { name: "pedidos_pkey".into(), primary_key: true, unique: true, ..Default::default() };
-        assert!(matches!(toggle_script(Variant::Cockroach, &t, &pk, false), Err(Error::Unsupported(m)) if m.contains("clave primaria")));
+        let bare = ObjectRef {
+            schema: None,
+            ..t.clone()
+        };
+        assert_eq!(
+            toggle_script(Variant::Cockroach, &bare, &ix, true)
+                .unwrap()
+                .statements,
+            [r#"ALTER INDEX "Pedidos"@"ix_fecha" VISIBLE"#]
+        );
+        let uq = IndexUsage {
+            unique: true,
+            ..ix.clone()
+        };
+        assert_eq!(
+            toggle_script(Variant::Cockroach, &t, &uq, false)
+                .unwrap()
+                .warnings
+                .len(),
+            2
+        );
+        let pk = IndexUsage {
+            name: "pedidos_pkey".into(),
+            primary_key: true,
+            unique: true,
+            ..Default::default()
+        };
+        assert!(
+            matches!(toggle_script(Variant::Cockroach, &t, &pk, false), Err(Error::Unsupported(m)) if m.contains("clave primaria"))
+        );
         for v in Variant::ALL.iter().filter(|&&v| v != Variant::Cockroach) {
-            assert!(!toggle_supported(*v) && toggle_script(*v, &t, &ix, false).is_err(), "{v:?}");
+            assert!(
+                !toggle_supported(*v) && toggle_script(*v, &t, &ix, false).is_err(),
+                "{v:?}"
+            );
         }
         let sql = cockroach_invisible_sql(Variant::Cockroach, Some("s"), "t");
-        assert!(sql.contains("is_visible = 'NO'") && sql.contains("table_schema = E's'") && sql.contains("table_name = E't'"), "{sql}");
+        assert!(
+            sql.contains("is_visible = 'NO'")
+                && sql.contains("table_schema = E's'")
+                && sql.contains("table_name = E't'"),
+            "{sql}"
+        );
         assert!(cockroach_invisible_sql(Variant::Cockroach, None, "t").contains("current_schema()"));
     }
 
     #[test]
     fn the_table_is_found_by_schema_or_search_path() {
         let r = rel(Variant::Postgres, Some("ven'tas"), "t");
-        assert!(r.contains("c.relname = E't'") && r.contains("n.nspname = E'ven''tas'"), "{r}");
+        assert!(
+            r.contains("c.relname = E't'") && r.contains("n.nspname = E'ven''tas'"),
+            "{r}"
+        );
         assert!(rel(Variant::Postgres, None, "t").contains("pg_table_is_visible(c.oid)"));
         assert!(rel(Variant::Postgres, Some(""), "t").contains("pg_table_is_visible(c.oid)"));
     }
@@ -630,9 +793,18 @@ mod tests {
     fn index_columns_by_version() {
         let r = rel(Variant::Postgres, Some("s"), "t");
         let new = indexes_sql(Variant::Postgres, 160000, &r);
-        assert!(new.contains("COALESCE(x.indnkeyatts, x.indnatts)") && new.contains(&format!("x.indrelid = {r}")));
-        assert!(new.contains("x.indoption[k.ord - 1]::int & 1"), "descending keys");
-        assert!(!new.contains("NOT x.indisprimary"), "the primary key is listed too");
+        assert!(
+            new.contains("COALESCE(x.indnkeyatts, x.indnatts)")
+                && new.contains(&format!("x.indrelid = {r}"))
+        );
+        assert!(
+            new.contains("x.indoption[k.ord - 1]::int & 1"),
+            "descending keys"
+        );
+        assert!(
+            !new.contains("NOT x.indisprimary"),
+            "the primary key is listed too"
+        );
         assert!(indexes_sql(Variant::Greenplum, 90426, &r).contains("k.ord > x.indnatts"));
         assert!(indexes_sql(Variant::OpenGauss, 90204, &r).contains("indnkeyatts"));
         assert!(foreign_keys_sql(&r).contains("con.contype = 'f' AND con.conrelid = "));
@@ -642,24 +814,64 @@ mod tests {
     fn counters_add_partitions_and_chunks() {
         let r = rel(Variant::Postgres, Some("s"), "t");
         let pg16 = index_stats_sql(Variant::Postgres, 160000, &r, "pg_stat_all_indexes");
-        assert!(pg16.contains("pg_partition_tree(x.indexrelid)") && pg16.contains("max(s.last_idx_scan)"), "{pg16}");
-        assert!(pg16.contains("LEFT JOIN pg_stat_all_indexes s"), "never-scanned indexes still have a row");
+        assert!(
+            pg16.contains("pg_partition_tree(x.indexrelid)")
+                && pg16.contains("max(s.last_idx_scan)"),
+            "{pg16}"
+        );
+        assert!(
+            pg16.contains("LEFT JOIN pg_stat_all_indexes s"),
+            "never-scanned indexes still have a row"
+        );
         let pg11 = index_stats_sql(Variant::Postgres, 110000, &r, "pg_stat_all_indexes");
         assert!(!pg11.contains("pg_partition_tree") && pg11.contains("NULL::text AS last"));
         let ts = index_stats_sql(Variant::Timescale, 160000, &r, "pg_stat_all_indexes");
-        assert!(ts.contains("JOIN pg_index cx ON cx.indrelid = ch.inhrelid") && ts.contains("' USING .*$'"), "{ts}");
+        assert!(
+            ts.contains("JOIN pg_index cx ON cx.indrelid = ch.inhrelid")
+                && ts.contains("' USING .*$'"),
+            "{ts}"
+        );
         let ts_table = table_stats_sql(Variant::Timescale, 160000, &r, "pg_stat_all_tables");
-        assert!(ts_table.contains("SELECT ch.inhrelid FROM pg_inherits ch") && !ts_table.contains("pg_index cx"), "{ts_table}");
-        assert!(ts_table.contains("n_tup_ins + s.n_tup_upd - s.n_tup_hot_upd") && ts_table.contains("seq_scan"));
-        assert!(index_stats_sql(Variant::Greenplum, 160000, &r, "gp_stat_all_indexes_summary").contains("NULL::text AS last"));
-        assert!(table_stats_sql(Variant::Cloudberry, 140000, &r, "x_tables").contains("FROM x_tables s"));
-        assert_eq!(stat_views(Variant::Postgres, 90600), [("pg_stat_all_indexes", "pg_stat_all_tables")]);
-        assert!(stat_views(Variant::Greenplum, 90426).is_empty(), "Greenplum 6: the coordinator's only");
-        assert_eq!(stat_views(Variant::Cloudberry, 140000).last(), Some(&("pg_stat_all_indexes", "pg_stat_all_tables")));
+        assert!(
+            ts_table.contains("SELECT ch.inhrelid FROM pg_inherits ch")
+                && !ts_table.contains("pg_index cx"),
+            "{ts_table}"
+        );
+        assert!(
+            ts_table.contains("n_tup_ins + s.n_tup_upd - s.n_tup_hot_upd")
+                && ts_table.contains("seq_scan")
+        );
+        assert!(index_stats_sql(
+            Variant::Greenplum,
+            160000,
+            &r,
+            "gp_stat_all_indexes_summary"
+        )
+        .contains("NULL::text AS last"));
+        assert!(table_stats_sql(Variant::Cloudberry, 140000, &r, "x_tables")
+            .contains("FROM x_tables s"));
+        assert_eq!(
+            stat_views(Variant::Postgres, 90600),
+            [("pg_stat_all_indexes", "pg_stat_all_tables")]
+        );
+        assert!(
+            stat_views(Variant::Greenplum, 90426).is_empty(),
+            "Greenplum 6: the coordinator's only"
+        );
+        assert_eq!(
+            stat_views(Variant::Cloudberry, 140000).last(),
+            Some(&("pg_stat_all_indexes", "pg_stat_all_tables"))
+        );
         assert!(size_sql(Variant::Postgres, 160000, &r).contains("sum(pg_relation_size(mm.m))"));
         let crdb = cockroach_sql(&r);
-        assert!(crdb.contains("LEFT JOIN crdb_internal.index_usage_statistics u") && crdb.contains("::INT8"));
-        assert!(!index_stats_sql(Variant::Cockroach, 130000, &r, "pg_stat_all_indexes").contains("pg_partition_tree"));
+        assert!(
+            crdb.contains("LEFT JOIN crdb_internal.index_usage_statistics u")
+                && crdb.contains("::INT8")
+        );
+        assert!(
+            !index_stats_sql(Variant::Cockroach, 130000, &r, "pg_stat_all_indexes")
+                .contains("pg_partition_tree")
+        );
     }
 
     #[test]
@@ -668,32 +880,81 @@ mod tests {
         pk.primary_key = true;
         let mut a = col("ix_a", "a", false, true);
         a.filter = Some("(a > 0)".into());
-        let expr = ColumnRow { index: "ix_a".into(), att: None, expr: "lower(b)".into(), ..Default::default() };
-        let columns = [pk, a, expr, col("ix_a", "c", true, false), col("ix_never", "b", false, false)];
+        let expr = ColumnRow {
+            index: "ix_a".into(),
+            att: None,
+            expr: "lower(b)".into(),
+            ..Default::default()
+        };
+        let columns = [
+            pk,
+            a,
+            expr,
+            col("ix_a", "c", true, false),
+            col("ix_never", "b", false, false),
+        ];
         let usage = HashMap::from([
-            ("t_pkey".to_string(), UsageRow { scans: 9, last_read: Some("2026-10-01 10:00:00".into()) }),
-            ("ix_a".to_string(), UsageRow { scans: 4, last_read: None }),
+            (
+                "t_pkey".to_string(),
+                UsageRow {
+                    scans: 9,
+                    last_read: Some("2026-10-01 10:00:00".into()),
+                },
+            ),
+            (
+                "ix_a".to_string(),
+                UsageRow {
+                    scans: 4,
+                    last_read: None,
+                },
+            ),
             ("ix_never".to_string(), UsageRow::default()),
         ]);
         let sizes = HashMap::from([("t_pkey".to_string(), 16384u64), ("ix_a".to_string(), 8193)]);
         let out = assemble(&columns, Some(&usage), Some(&sizes), 7);
-        assert_eq!(out.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["t_pkey", "ix_a", "ix_never"]);
+        assert_eq!(
+            out.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+            ["t_pkey", "ix_a", "ix_never"]
+        );
         assert!(out[0].primary_key && out[0].unique && out[0].kind == "BTREE");
-        assert_eq!((out[0].seeks, out[0].scans, out[0].updates, out[0].size_kb), (9, 0, 7, Some(16)));
+        assert_eq!(
+            (out[0].seeks, out[0].scans, out[0].updates, out[0].size_kb),
+            (9, 0, 7, Some(16))
+        );
         assert_eq!(out[1].key_columns, ["a DESC", "(lower(b))"]);
         assert_eq!(out[1].included_columns, ["c"]);
-        assert_eq!((out[1].filter.as_deref(), out[1].size_kb), (Some("(a > 0)"), Some(9)));
-        assert_eq!(out[1].updates, 0, "a partial index isn't charged the table's writes");
+        assert_eq!(
+            (out[1].filter.as_deref(), out[1].size_kb),
+            (Some("(a > 0)"), Some(9))
+        );
+        assert_eq!(
+            out[1].updates, 0,
+            "a partial index isn't charged the table's writes"
+        );
         assert_eq!((out[2].seeks, out[2].updates, out[2].size_kb), (0, 7, None));
 
-        let r = IndexUsageReport { stats_available: true, seek_scan_split: false, indexes: out, ..Default::default() }.derived();
+        let r = IndexUsageReport {
+            stats_available: true,
+            seek_scan_split: false,
+            indexes: out,
+            ..Default::default()
+        }
+        .derived();
         assert!(r.indexes[2].unused, "written, never read");
-        assert!(r.indexes.iter().all(|i| i.seek_health.is_none()), "no seek/scan split: neutral");
-        assert_eq!(r.indexes[0].read_share.map(|s| (s * 100.0).round()), Some(69.0));
+        assert!(
+            r.indexes.iter().all(|i| i.seek_health.is_none()),
+            "no seek/scan split: neutral"
+        );
+        assert_eq!(
+            r.indexes[0].read_share.map(|s| (s * 100.0).round()),
+            Some(69.0)
+        );
 
         // No counters: listed, all zeros, nothing derived.
         let bare = assemble(&columns, None, None, 7);
-        assert!(bare.iter().all(|i| i.seeks == 0 && i.updates == 0 && i.size_kb.is_none()));
+        assert!(bare
+            .iter()
+            .all(|i| i.seeks == 0 && i.updates == 0 && i.size_kb.is_none()));
     }
 
     #[test]
@@ -702,7 +963,10 @@ mod tests {
         assert_eq!(column_name(Some("Mixed"), "\"Mixed\""), "Mixed");
         assert_eq!(column_name(None, "lower(a)"), "(lower(a))");
         assert_eq!(column_name(None, "((a + 1))"), "(a + 1)");
-        assert_eq!(timestamp(Some("2026-10-01 10:00:00.123456+00".into())).as_deref(), Some("2026-10-01 10:00:00"));
+        assert_eq!(
+            timestamp(Some("2026-10-01 10:00:00.123456+00".into())).as_deref(),
+            Some("2026-10-01 10:00:00")
+        );
         assert_eq!(timestamp(Some("".into())), None);
     }
 
@@ -710,25 +974,56 @@ mod tests {
     fn structure_engines_list_keys_and_indexes() {
         let t = TableSchema {
             name: "t".into(),
-            primary_key: Some(KeyDef { name: Some("t_pk".into()), columns: vec!["id".into()] }),
-            indexes: vec![IndexDef { name: "ix".into(), columns: vec!["a".into()], unique: true, ..Default::default() }],
+            primary_key: Some(KeyDef {
+                name: Some("t_pk".into()),
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "ix".into(),
+                columns: vec!["a".into()],
+                unique: true,
+                ..Default::default()
+            }],
             ..Default::default()
         };
         let out = from_structure(Variant::H2, &t);
-        assert_eq!(out.iter().map(|i| (i.name.as_str(), i.primary_key, i.unique)).collect::<Vec<_>>(), [("t_pk", true, true), ("ix", false, true)]);
+        assert_eq!(
+            out.iter()
+                .map(|i| (i.name.as_str(), i.primary_key, i.unique))
+                .collect::<Vec<_>>(),
+            [("t_pk", true, true), ("ix", false, true)]
+        );
         assert_eq!(out[1].kind, "INDEX");
         // Redshift's keys aren't indexes.
-        assert!(from_structure(Variant::Redshift, &t).iter().all(|i| !i.primary_key));
+        assert!(from_structure(Variant::Redshift, &t)
+            .iter()
+            .all(|i| !i.primary_key));
     }
 
     #[test]
     fn which_engines_have_what() {
         assert!(!supported(Variant::Denodo));
-        assert!(Variant::ALL.iter().filter(|v| **v != Variant::Denodo).all(|v| supported(*v)));
-        for v in [Variant::Postgres, Variant::Timescale, Variant::Yugabyte, Variant::Cockroach, Variant::Greenplum, Variant::OpenGauss, Variant::Aurora] {
+        assert!(Variant::ALL
+            .iter()
+            .filter(|v| **v != Variant::Denodo)
+            .all(|v| supported(*v)));
+        for v in [
+            Variant::Postgres,
+            Variant::Timescale,
+            Variant::Yugabyte,
+            Variant::Cockroach,
+            Variant::Greenplum,
+            Variant::OpenGauss,
+            Variant::Aurora,
+        ] {
             assert!(pg_path(v) && has_counters(v), "{v:?}");
         }
-        for v in [Variant::Redshift, Variant::CrateDb, Variant::RisingWave, Variant::H2] {
+        for v in [
+            Variant::Redshift,
+            Variant::CrateDb,
+            Variant::RisingWave,
+            Variant::H2,
+        ] {
             assert!(!pg_path(v), "{v:?}");
         }
         assert!(pg_path(Variant::Materialize) && !has_counters(Variant::Materialize));

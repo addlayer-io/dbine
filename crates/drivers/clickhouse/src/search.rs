@@ -15,9 +15,15 @@ use dbine_driver::{kinds, Result};
 /// every source comes back and the lines decide.
 fn narrow(col: &str, q: &CodeSearch) -> (String, Option<String>) {
     if q.case_sensitive {
-        (format!("position({col}, {{t:String}}) > 0"), Some(q.text.clone()))
+        (
+            format!("position({col}, {{t:String}}) > 0"),
+            Some(q.text.clone()),
+        )
     } else if q.text.is_ascii() {
-        (format!("positionCaseInsensitive({col}, {{t:String}}) > 0"), Some(q.text.clone()))
+        (
+            format!("positionCaseInsensitive({col}, {{t:String}}) > 0"),
+            Some(q.text.clone()),
+        )
     } else {
         ("1".into(), None)
     }
@@ -43,14 +49,19 @@ fn functions_sql(q: &CodeSearch) -> (String, Option<String>) {
 }
 
 impl ClickHouseSession {
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
         if q.text.is_empty() {
             return Ok(None);
         }
         let wanted = |kind: &str| q.kinds.is_empty() || q.kinds.iter().any(|k| k == kind);
         let mut report = CodeSearchReport::default();
         let push = |report: &mut CodeSearchReport, kind: &str, name: &str, source: &str| {
-            report.hits.extend(hits_in(kind, None, name, None, source, q));
+            report
+                .hits
+                .extend(hits_in(kind, None, name, None, source, q));
             if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                 report.hits.truncate(q.max_hits);
                 report.truncated = true;
@@ -81,7 +92,9 @@ impl ClickHouseSession {
             let params: Vec<(&str, &str)> = t.as_deref().map(|t| ("t", t)).into_iter().collect();
             // A server whose `system.functions` can't be read this way: the
             // scan reads each function on its own.
-            let Ok(rows) = self.rows(&sql, &params).await else { return Ok(None) };
+            let Ok(rows) = self.rows(&sql, &params).await else {
+                return Ok(None);
+            };
             for r in &rows {
                 report.scanned += 1;
                 push(&mut report, kinds::FUNCTION, &text(&r[0]), &text(&r[1]));
@@ -99,22 +112,39 @@ mod tests {
     use super::*;
 
     fn q(text: &str, case: bool) -> CodeSearch {
-        CodeSearch { text: text.into(), case_sensitive: case, ..Default::default() }
+        CodeSearch {
+            text: text.into(),
+            case_sensitive: case,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn text_goes_as_a_parameter() {
         let (sql, p) = tables_sql(&q("100%_x'", true));
-        assert!(sql.contains("position(create_table_query, {t:String}) > 0"), "{sql}");
+        assert!(
+            sql.contains("position(create_table_query, {t:String}) > 0"),
+            "{sql}"
+        );
         assert!(!sql.contains("100%"), "never in the SQL");
-        assert_eq!(p.as_deref(), Some("100%_x'"), "as is: position has no wildcards");
-        assert!(sql.contains("name NOT LIKE '.inner%'"), "the same objects as list_objects");
+        assert_eq!(
+            p.as_deref(),
+            Some("100%_x'"),
+            "as is: position has no wildcards"
+        );
+        assert!(
+            sql.contains("name NOT LIKE '.inner%'"),
+            "the same objects as list_objects"
+        );
     }
 
     #[test]
     fn case_insensitive_narrows_only_ascii() {
         let (sql, p) = functions_sql(&q("Ventas", false));
-        assert!(sql.contains("positionCaseInsensitive(create_query, {t:String}) > 0"), "{sql}");
+        assert!(
+            sql.contains("positionCaseInsensitive(create_query, {t:String}) > 0"),
+            "{sql}"
+        );
         assert_eq!(p.as_deref(), Some("Ventas"));
         let (sql, p) = tables_sql(&q("Año", false));
         assert!(sql.contains("AND 1\n"), "{sql}");

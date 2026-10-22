@@ -29,8 +29,15 @@ pub(crate) fn keys_in(keyspace: &str, db: i64) -> u64 {
 impl RedisSession {
     pub(crate) async fn stats_rows(&mut self) -> Result<Vec<RowEstimate>> {
         let keyspace = shape::text_of(&self.run(&[b"INFO", b"keyspace"]).await?);
-        let object = ObjectRef { kind: KIND_DATABASE.into(), schema: None, name: format!("db{}", self.db) };
-        Ok(vec![RowEstimate { object, rows: keys_in(&keyspace, self.db) }])
+        let object = ObjectRef {
+            kind: KIND_DATABASE.into(),
+            schema: None,
+            name: format!("db{}", self.db),
+        };
+        Ok(vec![RowEstimate {
+            object,
+            rows: keys_in(&keyspace, self.db),
+        }])
     }
 }
 

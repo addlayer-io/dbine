@@ -8,7 +8,10 @@
 //! REPLACE VIEW`. Dremio's DDL isn't transactional.
 
 use crate::ddl::{path, q};
-use dbine_driver::rename::{quote_new, rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
+use dbine_driver::rename::{
+    quote_new, rename_header, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget,
+    ReplaceStyle,
+};
 use dbine_driver::sql::split_script;
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
@@ -81,7 +84,10 @@ pub fn script(req: &RenameRequest) -> Result<SyncScript> {
 /// that dialect reads as a string or a comment (Dremio reading it as one)
 /// would run what follows as a statement of its own.
 fn one_unit_each(statements: &[String], what: &str) -> Result<()> {
-    if statements.iter().any(|s| split_script(s, &crate::dialect()).len() > 1) {
+    if statements
+        .iter()
+        .any(|s| split_script(s, &crate::dialect()).len() > 1)
+    {
         return Err(Error::Unsupported(format!(
             "{what} se partiría en varias sentencias al ejecutar el cambio de nombre, así que DBine no lo renombra: hacelo a mano"
         )));
@@ -93,9 +99,17 @@ fn one_unit_each(statements: &[String], what: &str) -> Result<()> {
 /// overwrite a view that already has it.
 fn plain_create(def: &str) -> String {
     let lead = def.len() - def.trim_start().len();
-    let words: Vec<(usize, &str)> = def[lead..].split_whitespace().take(3).map(|w| (w.as_ptr() as usize - def.as_ptr() as usize, w)).collect();
+    let words: Vec<(usize, &str)> = def[lead..]
+        .split_whitespace()
+        .take(3)
+        .map(|w| (w.as_ptr() as usize - def.as_ptr() as usize, w))
+        .collect();
     match words.as_slice() {
-        [(start, c), (_, o), (r_at, r)] if c.eq_ignore_ascii_case("create") && o.eq_ignore_ascii_case("or") && r.eq_ignore_ascii_case("replace") => {
+        [(start, c), (_, o), (r_at, r)]
+            if c.eq_ignore_ascii_case("create")
+                && o.eq_ignore_ascii_case("or")
+                && r.eq_ignore_ascii_case("replace") =>
+        {
             format!("{}CREATE{}", &def[..*start], &def[r_at + r.len()..])
         }
         _ => def.to_string(),
@@ -108,11 +122,20 @@ mod tests {
     use dbine_driver::{ColumnDef, ObjectRef, TableSchema};
 
     fn obj(kind: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: Some("ventas.crudo".into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: Some("ventas.crudo".into()),
+            name: name.into(),
+        }
     }
 
     fn req(target: RenameTarget, new: &str) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: None }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: None,
+        }
     }
 
     #[test]
@@ -120,30 +143,55 @@ mod tests {
         let s = spec().unwrap();
         assert_eq!(s.kinds, ["view"]);
         assert!(s.columns && !s.indexes && !s.constraints && !s.schemas && !s.transactional);
-        assert_eq!((s.replace, s.fold), (ReplaceStyle::CreateOrReplace, Fold::None));
+        assert_eq!(
+            (s.replace, s.fold),
+            (ReplaceStyle::CreateOrReplace, Fold::None)
+        );
     }
 
     #[test]
     fn views_are_created_again() {
-        let mut r = req(RenameTarget::Object { object: obj("view", "v"), parent: None }, "Ventas Netas");
-        r.definition = Some("CREATE OR REPLACE VIEW \"ventas\".\"crudo\".\"v\" AS\nSELECT id FROM \"$scratch\".t;".into());
+        let mut r = req(
+            RenameTarget::Object {
+                object: obj("view", "v"),
+                parent: None,
+            },
+            "Ventas Netas",
+        );
+        r.definition = Some(
+            "CREATE OR REPLACE VIEW \"ventas\".\"crudo\".\"v\" AS\nSELECT id FROM \"$scratch\".t;"
+                .into(),
+        );
         let s = script(&r).unwrap();
         assert_eq!(s.statements, ["CREATE VIEW \"ventas\".\"crudo\".\"Ventas Netas\" AS\nSELECT id FROM \"$scratch\".t;", "DROP VIEW \"ventas\".\"crudo\".\"v\";"]);
         assert_eq!(s.warnings, [VIEW_RECREATED]);
         // The header keeps the old name's quotes.
         r.new_name = "Netas".into();
-        assert_eq!(script(&r).unwrap().statements[0], "CREATE VIEW \"ventas\".\"crudo\".\"Netas\" AS\nSELECT id FROM \"$scratch\".t;");
+        assert_eq!(
+            script(&r).unwrap().statements[0],
+            "CREATE VIEW \"ventas\".\"crudo\".\"Netas\" AS\nSELECT id FROM \"$scratch\".t;"
+        );
         r.definition = None;
         assert!(matches!(script(&r), Err(Error::Query(_))));
     }
 
     #[test]
     fn columns_keep_their_type() {
-        let mut r = req(RenameTarget::Column { table: obj("table", "t"), column: "pepe".into() }, "Nuevo Pepe");
+        let mut r = req(
+            RenameTarget::Column {
+                table: obj("table", "t"),
+                column: "pepe".into(),
+            },
+            "Nuevo Pepe",
+        );
         assert!(matches!(script(&r), Err(Error::Query(_))));
         r.table = Some(TableSchema {
             name: "t".into(),
-            columns: vec![ColumnDef { name: "Pepe".into(), data_type: "DECIMAL(10, 2)".into(), ..Default::default() }],
+            columns: vec![ColumnDef {
+                name: "Pepe".into(),
+                data_type: "DECIMAL(10, 2)".into(),
+                ..Default::default()
+            }],
             ..Default::default()
         });
         assert_eq!(script(&r).unwrap().statements, ["ALTER TABLE \"ventas\".\"crudo\".\"t\" CHANGE COLUMN \"Pepe\" \"Nuevo Pepe\" DECIMAL(10, 2);"]);
@@ -151,17 +199,32 @@ mod tests {
         assert_eq!(script(&r).unwrap().statements, ["ALTER TABLE \"ventas\".\"crudo\".\"t\" CHANGE COLUMN \"Pepe\" importe DECIMAL(10, 2);"]);
         r.table.as_mut().unwrap().columns[0].data_type = "STRUCT".into();
         assert!(matches!(script(&r), Err(Error::Unsupported(_))));
-        r.target = RenameTarget::Column { table: obj("table", "t"), column: "nada".into() };
+        r.target = RenameTarget::Column {
+            table: obj("table", "t"),
+            column: "nada".into(),
+        };
         assert!(matches!(script(&r), Err(Error::Query(_))));
     }
 
     #[test]
     fn refused() {
         for t in [
-            RenameTarget::Object { object: obj("table", "t"), parent: None },
-            RenameTarget::Index { table: obj("table", "t"), index: "r".into() },
-            RenameTarget::Constraint { table: obj("table", "t"), constraint: "c".into() },
-            RenameTarget::Schema { database: None, schema: "ventas".into() },
+            RenameTarget::Object {
+                object: obj("table", "t"),
+                parent: None,
+            },
+            RenameTarget::Index {
+                table: obj("table", "t"),
+                index: "r".into(),
+            },
+            RenameTarget::Constraint {
+                table: obj("table", "t"),
+                constraint: "c".into(),
+            },
+            RenameTarget::Schema {
+                database: None,
+                schema: "ventas".into(),
+            },
         ] {
             assert!(matches!(script(&req(t, "x")), Err(Error::Unsupported(_))));
         }
@@ -169,7 +232,13 @@ mod tests {
 
     #[test]
     fn stored_text_that_would_split_is_refused() {
-        let mut r = req(RenameTarget::Object { object: obj("view", "v"), parent: None }, "w");
+        let mut r = req(
+            RenameTarget::Object {
+                object: obj("view", "v"),
+                parent: None,
+            },
+            "w",
+        );
         // A `;` outside strings and comments: the second statement would run alone.
         r.definition = Some("CREATE VIEW \"ventas\".\"crudo\".\"v\" AS SELECT 1 AS x; DROP TABLE \"$scratch\".secreta".into());
         assert!(matches!(script(&r), Err(Error::Unsupported(m)) if m.contains("«v»")));
@@ -186,20 +255,39 @@ mod tests {
 
     #[test]
     fn a_column_type_that_would_split_is_refused() {
-        let mut r = req(RenameTarget::Column { table: obj("table", "t"), column: "pepe".into() }, "nuevo");
+        let mut r = req(
+            RenameTarget::Column {
+                table: obj("table", "t"),
+                column: "pepe".into(),
+            },
+            "nuevo",
+        );
         r.table = Some(TableSchema {
             name: "t".into(),
-            columns: vec![ColumnDef { name: "pepe".into(), data_type: "INT; DROP TABLE \"$scratch\".secreta".into(), ..Default::default() }],
+            columns: vec![ColumnDef {
+                name: "pepe".into(),
+                data_type: "INT; DROP TABLE \"$scratch\".secreta".into(),
+                ..Default::default()
+            }],
             ..Default::default()
         });
         assert!(matches!(script(&r), Err(Error::Unsupported(m)) if m.contains("«pepe»")));
         r.table.as_mut().unwrap().columns[0].data_type = "VARCHAR".into();
-        assert_eq!(script(&r).unwrap().statements, ["ALTER TABLE \"ventas\".\"crudo\".\"t\" CHANGE COLUMN \"pepe\" nuevo VARCHAR;"]);
+        assert_eq!(
+            script(&r).unwrap().statements,
+            ["ALTER TABLE \"ventas\".\"crudo\".\"t\" CHANGE COLUMN \"pepe\" nuevo VARCHAR;"]
+        );
     }
 
     #[test]
     fn or_replace_is_dropped() {
-        assert_eq!(plain_create("  create  or replace VIEW a AS SELECT 1"), "  CREATE VIEW a AS SELECT 1");
-        assert_eq!(plain_create("CREATE VIEW a AS SELECT 1"), "CREATE VIEW a AS SELECT 1");
+        assert_eq!(
+            plain_create("  create  or replace VIEW a AS SELECT 1"),
+            "  CREATE VIEW a AS SELECT 1"
+        );
+        assert_eq!(
+            plain_create("CREATE VIEW a AS SELECT 1"),
+            "CREATE VIEW a AS SELECT 1"
+        );
     }
 }

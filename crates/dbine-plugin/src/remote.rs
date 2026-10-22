@@ -2,13 +2,21 @@
 //! `RemoteSession`, which implement the driver contract by forwarding each
 //! call to it. The rest of the app can't tell them from a built-in driver.
 
-use crate::proto::{read_frame, write_frame, Call, DriverMeta, FromHost, Hello, Ready, Reply, ToHost, WireError, BATCH_WINDOW, PROTOCOL};
-use dbine_driver::transfer::{self, BatchSinkRef, BatchSource, BucketSum, CloneScript, CopySpec, DeltaResult, DeltaSpec, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use crate::proto::{
+    read_frame, write_frame, Call, DriverMeta, FromHost, Hello, Ready, Reply, ToHost, WireError,
+    BATCH_WINDOW, PROTOCOL,
+};
 use dbine_driver::serde_static::intern;
+use dbine_driver::transfer::{
+    self, BatchSinkRef, BatchSource, BucketSum, CloneScript, CopySpec, DeltaResult, DeltaSpec,
+    LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{
-    async_trait, Capabilities, ColumnFilter, ColumnInfo, SortKey, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
-    DriverInfo, Error, KeyPage, KeyScan, KeySearch, MonitorSnapshot, ObjectRef, ProfiledStatement, ProfilerOptions, ProfilerStarted,
-    MessageSinkRef, ProgressSinkRef, QueryOutcome, Result, RowChange, RowSinkRef, Session, SyncScript, TableChange, TableSchema,
+    async_trait, Capabilities, ColumnFilter, ColumnInfo, ConnectionConfig, CreateTemplate,
+    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, KeyPage, KeyScan, KeySearch,
+    MessageSinkRef, MonitorSnapshot, ObjectRef, ProfiledStatement, ProfilerOptions,
+    ProfilerStarted, ProgressSinkRef, QueryOutcome, Result, RowChange, RowSinkRef, Session,
+    SortKey, SyncScript, TableChange, TableSchema,
 };
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter};
@@ -118,15 +126,28 @@ impl SpawnError {
 impl Host {
     /// Start `exe` (the host of `package`) and greet it. Blocking: call it
     /// off the async runtime.
-    pub fn spawn(package: &str, exe: &std::path::Path, args: &[String], components_dir: Option<PathBuf>) -> Result<Arc<Host>> {
+    pub fn spawn(
+        package: &str,
+        exe: &std::path::Path,
+        args: &[String],
+        components_dir: Option<PathBuf>,
+    ) -> Result<Arc<Host>> {
         Host::launch(package, exe, args, components_dir, None).map_err(SpawnError::into_error)
     }
 
     /// [`Host::spawn`], refusing a host that doesn't say it's `expect`.
-    fn launch(package: &str, exe: &std::path::Path, args: &[String], components_dir: Option<PathBuf>, expect: Option<&str>) -> std::result::Result<Arc<Host>, SpawnError> {
+    fn launch(
+        package: &str,
+        exe: &std::path::Path,
+        args: &[String],
+        components_dir: Option<PathBuf>,
+        expect: Option<&str>,
+    ) -> std::result::Result<Arc<Host>, SpawnError> {
         let mut cmd = Command::new(exe);
         cmd.args(args);
-        cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -148,14 +169,19 @@ impl Host {
             let _ = child.wait();
             SpawnError::Bad(reason.clone(), Error::Connect(format!("el driver «{package}» no arrancó bien ({reason}); el detalle está en el log de DBine")))
         };
-        let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
+        let (Some(stdin), Some(stdout), Some(stderr)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
             return Err(fail(&mut child, "sin entrada o salida".into()));
         };
 
         let log_pkg = package.to_string();
         std::thread::spawn(move || {
             use std::io::BufRead;
-            for line in std::io::BufReader::new(stderr).lines().map_while(std::result::Result::ok) {
+            for line in std::io::BufReader::new(stderr)
+                .lines()
+                .map_while(std::result::Result::ok)
+            {
                 tracing::info!(target: "dbine_plugin", "[{log_pkg}] {line}");
             }
         });
@@ -180,13 +206,29 @@ impl Host {
         let (reader, ready) = match rx.recv_timeout(HANDSHAKE) {
             Ok((reader, Some(ready))) => (reader, ready),
             Ok((_, None)) => {
-                let status = child.try_wait().ok().flatten().map(|s| format!(" ({s})")).unwrap_or_default();
-                return Err(fail(&mut child, format!("se cerró antes de estar listo{status}")));
+                let status = child
+                    .try_wait()
+                    .ok()
+                    .flatten()
+                    .map(|s| format!(" ({s})"))
+                    .unwrap_or_default();
+                return Err(fail(
+                    &mut child,
+                    format!("se cerró antes de estar listo{status}"),
+                ));
             }
-            Err(_) => return Err(fail(&mut child, format!("no respondió en {} s", HANDSHAKE.as_secs()))),
+            Err(_) => {
+                return Err(fail(
+                    &mut child,
+                    format!("no respondió en {} s", HANDSHAKE.as_secs()),
+                ))
+            }
         };
         if ready.protocol != PROTOCOL {
-            let reason = format!("habla el protocolo {} y esta versión de DBine el {PROTOCOL}", ready.protocol);
+            let reason = format!(
+                "habla el protocolo {} y esta versión de DBine el {PROTOCOL}",
+                ready.protocol
+            );
             let _ = child.kill();
             let _ = child.wait();
             return Err(SpawnError::Bad(
@@ -198,14 +240,26 @@ impl Host {
             ));
         }
         if let Some(expect) = expect.filter(|e| *e != ready.version) {
-            return Err(fail(&mut child, format!("dice ser la versión {} y se esperaba la {expect}", ready.version)));
+            return Err(fail(
+                &mut child,
+                format!(
+                    "dice ser la versión {} y se esperaba la {expect}",
+                    ready.version
+                ),
+            ));
         }
         tracing::info!(target: "dbine_plugin", "driver «{package}» {} listo", ready.version);
         Ok(Host::attach(package, &ready.version, writer, reader, child))
     }
 
     /// A greeted host: `stdin` takes the calls, `reader` gives its frames.
-    fn attach(package: &str, version: &str, stdin: BufWriter<ChildStdin>, mut reader: impl std::io::Read + Send + 'static, child: Child) -> Arc<Host> {
+    fn attach(
+        package: &str,
+        version: &str,
+        stdin: BufWriter<ChildStdin>,
+        mut reader: impl std::io::Read + Send + 'static,
+        child: Child,
+    ) -> Arc<Host> {
         let host = Arc::new(Host {
             package: package.to_string(),
             version: version.to_string(),
@@ -216,16 +270,14 @@ impl Host {
             child: Mutex::new(child),
         });
         let weak = Arc::downgrade(&host);
-        std::thread::spawn(move || {
-            loop {
-                let msg: Option<FromHost> = read_frame(&mut reader).ok().flatten();
-                let Some(host) = weak.upgrade() else { return };
-                match msg {
-                    Some(m) => host.dispatch(m),
-                    None => {
-                        host.fail_all();
-                        return;
-                    }
+        std::thread::spawn(move || loop {
+            let msg: Option<FromHost> = read_frame(&mut reader).ok().flatten();
+            let Some(host) = weak.upgrade() else { return };
+            match msg {
+                Some(m) => host.dispatch(m),
+                None => {
+                    host.fail_all();
+                    return;
                 }
             }
         });
@@ -248,7 +300,13 @@ impl Host {
 
     fn fail_all(&self) {
         self.alive.store(false, Ordering::Relaxed);
-        let pending: Vec<Pending> = self.pending.lock().unwrap().drain().map(|(_, p)| p).collect();
+        let pending: Vec<Pending> = self
+            .pending
+            .lock()
+            .unwrap()
+            .drain()
+            .map(|(_, p)| p)
+            .collect();
         for p in pending {
             p.waiter.send(Err(dead(&self.package)));
         }
@@ -261,8 +319,20 @@ impl Host {
                     p.waiter.send(result.map_err(|w: WireError| Error::from(w)));
                 }
             }
-            FromHost::SinkBegin { id, index, columns } => self.sink_event(id, |t| t.sink.0.lock().expect("sink").begin(t.base + index as usize, &columns)),
-            FromHost::SinkRow { id, index, row } => self.sink_event(id, |t| t.sink.0.lock().expect("sink").row(t.base + index as usize, &row)),
+            FromHost::SinkBegin { id, index, columns } => self.sink_event(id, |t| {
+                t.sink
+                    .0
+                    .lock()
+                    .expect("sink")
+                    .begin(t.base + index as usize, &columns)
+            }),
+            FromHost::SinkRow { id, index, row } => self.sink_event(id, |t| {
+                t.sink
+                    .0
+                    .lock()
+                    .expect("sink")
+                    .row(t.base + index as usize, &row)
+            }),
             FromHost::Progress(p) => dbine_driver::runtime::report_progress(&p),
             FromHost::Message { id, message } => {
                 if let Some(s) = self.live(id).and_then(|l| l.messages) {
@@ -283,16 +353,34 @@ impl Host {
 
     /// Never blocks: this runs on the host's reader thread.
     fn event(&self, id: u64, ev: Event) {
-        if let Some(tx) = self.pending.lock().unwrap().get(&id).and_then(|p| p.events.clone()) {
+        if let Some(tx) = self
+            .pending
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|p| p.events.clone())
+        {
             let _ = tx.send(ev);
         }
     }
 
     /// Start a transfer call; its events go to `events`.
-    fn start(&self, call: Call, events: tokio::sync::mpsc::UnboundedSender<Event>) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<Reply>>)> {
+    fn start(
+        &self,
+        call: Call,
+        events: tokio::sync::mpsc::UnboundedSender<Event>,
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<Reply>>)> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.pending.lock().unwrap().insert(id, Pending { waiter: Waiter::Async(tx), sink: None, live: None, events: Some(events) });
+        self.pending.lock().unwrap().insert(
+            id,
+            Pending {
+                waiter: Waiter::Async(tx),
+                sink: None,
+                live: None,
+                events: Some(events),
+            },
+        );
         if let Err(e) = self.send(&ToHost::Call { id, call }) {
             self.pending.lock().unwrap().remove(&id);
             return Err(e);
@@ -301,14 +389,22 @@ impl Host {
     }
 
     fn sink_event(&self, id: u64, f: impl FnOnce(&SinkTarget) -> std::io::Result<()>) {
-        let target = self.pending.lock().unwrap().get(&id).and_then(|p| p.sink.clone());
+        let target = self
+            .pending
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|p| p.sink.clone());
         let Some(t) = target else { return };
         if t.error.lock().unwrap().is_some() {
             return;
         }
         if let Err(e) = f(&t) {
             *t.error.lock().unwrap() = Some(e.to_string());
-            let _ = self.send(&ToHost::SinkFailed { id, error: e.to_string() });
+            let _ = self.send(&ToHost::SinkFailed {
+                id,
+                error: e.to_string(),
+            });
         }
     }
 
@@ -324,12 +420,24 @@ impl Host {
     }
 
     fn live(&self, id: u64) -> Option<Live> {
-        self.pending.lock().unwrap().get(&id).and_then(|p| p.live.clone())
+        self.pending
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|p| p.live.clone())
     }
 
     fn register(&self, waiter: Waiter, sink: Option<SinkTarget>, live: Option<Live>) -> u64 {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.pending.lock().unwrap().insert(id, Pending { waiter, sink, live, events: None });
+        self.pending.lock().unwrap().insert(
+            id,
+            Pending {
+                waiter,
+                sink,
+                live,
+                events: None,
+            },
+        );
         id
     }
 
@@ -337,7 +445,12 @@ impl Host {
         self.call_live(call, sink, None).await
     }
 
-    async fn call_live(&self, call: Call, sink: Option<SinkTarget>, live: Option<Live>) -> Result<Reply> {
+    async fn call_live(
+        &self,
+        call: Call,
+        sink: Option<SinkTarget>,
+        live: Option<Live>,
+    ) -> Result<Reply> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let id = self.register(Waiter::Async(tx), sink, live);
         // Dropped before the reply (the app gave up on it): stop it there too.
@@ -353,7 +466,11 @@ impl Host {
                 }
             }
         }
-        let mut guard = Guard { host: self, id, done: false };
+        let mut guard = Guard {
+            host: self,
+            id,
+            done: false,
+        };
         if let Err(e) = self.send(&ToHost::Call { id, call }) {
             self.pending.lock().unwrap().remove(&id);
             guard.done = true;
@@ -385,10 +502,19 @@ impl Host {
     /// Run a call that takes the app's batches (`BulkLoad`, `DeltaApply`):
     /// send them as the host takes them (at most `BATCH_WINDOW` ahead), pass
     /// its progress on, and return its reply.
-    async fn with_batches(&self, call: Call, source: &mut dyn BatchSource, progress: transfer::Progress<'_>) -> Result<Reply> {
+    async fn with_batches(
+        &self,
+        call: Call,
+        source: &mut dyn BatchSource,
+        progress: transfer::Progress<'_>,
+    ) -> Result<Reply> {
         let (etx, mut erx) = tokio::sync::mpsc::unbounded_channel();
         let (id, mut reply) = self.start(call, etx)?;
-        let mut guard = AbortGuard { host: self, id, done: false };
+        let mut guard = AbortGuard {
+            host: self,
+            id,
+            done: false,
+        };
         let (mut credits, mut sent_all) = (BATCH_WINDOW, false);
         let r = loop {
             tokio::select! {
@@ -453,8 +579,13 @@ fn count(r: Result<Reply>) -> Result<u64> {
 
 /// The host and id behind a session, for a native copy.
 fn remote_of(s: &mut dyn Session) -> Result<(u64, Arc<Host>)> {
-    let unsupported = || Error::Unsupported("la copia directa necesita dos sesiones del mismo driver".into());
-    let r = s.as_any().ok_or_else(unsupported)?.downcast_mut::<RemoteSession>().ok_or_else(unsupported)?;
+    let unsupported =
+        || Error::Unsupported("la copia directa necesita dos sesiones del mismo driver".into());
+    let r = s
+        .as_any()
+        .ok_or_else(unsupported)?
+        .downcast_mut::<RemoteSession>()
+        .ok_or_else(unsupported)?;
     Ok((r.id, r.host.clone()))
 }
 
@@ -490,7 +621,11 @@ struct Fixed(PathBuf);
 #[async_trait]
 impl HostSource for Fixed {
     async fn resolve(&self) -> Result<Target> {
-        Ok(Target { exe: self.0.clone(), id: None, check_version: false })
+        Ok(Target {
+            exe: self.0.clone(),
+            id: None,
+            check_version: false,
+        })
     }
 }
 
@@ -508,21 +643,47 @@ pub struct Launcher {
 }
 
 impl Launcher {
-    pub fn new(package: &str, components_dir: Option<PathBuf>, source: Arc<dyn HostSource>) -> Arc<Self> {
+    pub fn new(
+        package: &str,
+        components_dir: Option<PathBuf>,
+        source: Arc<dyn HostSource>,
+    ) -> Arc<Self> {
         Launcher::with_args(package, source, Vec::new(), components_dir)
     }
 
     /// A fixed executable (tests, `DBINE_DRIVERS_DIR`).
-    pub fn at(package: &str, exe: PathBuf, args: Vec<String>, components_dir: Option<PathBuf>) -> Arc<Self> {
+    pub fn at(
+        package: &str,
+        exe: PathBuf,
+        args: Vec<String>,
+        components_dir: Option<PathBuf>,
+    ) -> Arc<Self> {
         Launcher::with_args(package, Arc::new(Fixed(exe)), args, components_dir)
     }
 
-    pub fn with_args(package: &str, source: Arc<dyn HostSource>, args: Vec<String>, components_dir: Option<PathBuf>) -> Arc<Self> {
-        Arc::new(Launcher { package: package.to_string(), source, args, components_dir, host: tokio::sync::Mutex::new(None), current: Mutex::new(None) })
+    pub fn with_args(
+        package: &str,
+        source: Arc<dyn HostSource>,
+        args: Vec<String>,
+        components_dir: Option<PathBuf>,
+    ) -> Arc<Self> {
+        Arc::new(Launcher {
+            package: package.to_string(),
+            source,
+            args,
+            components_dir,
+            host: tokio::sync::Mutex::new(None),
+            current: Mutex::new(None),
+        })
     }
 
     async fn start(&self, t: &Target) -> std::result::Result<Arc<Host>, SpawnError> {
-        let (pkg, args, dir, exe) = (self.package.clone(), self.args.clone(), self.components_dir.clone(), t.exe.clone());
+        let (pkg, args, dir, exe) = (
+            self.package.clone(),
+            self.args.clone(),
+            self.components_dir.clone(),
+            t.exe.clone(),
+        );
         let expect = t.id.clone().filter(|_| t.check_version);
         tokio::task::spawn_blocking(move || Host::launch(&pkg, &exe, &args, dir, expect.as_deref()))
             .await
@@ -532,7 +693,10 @@ impl Launcher {
     pub async fn get(&self) -> Result<Arc<Host>> {
         let mut slot = self.host.lock().await;
         let target = self.source.resolve().await?;
-        if let Some(h) = slot.as_ref().filter(|h| h.is_alive() && target.id.as_deref().is_none_or(|id| h.version() == id)) {
+        if let Some(h) = slot
+            .as_ref()
+            .filter(|h| h.is_alive() && target.id.as_deref().is_none_or(|id| h.version() == id))
+        {
             return Ok(h.clone());
         }
         let host = match self.start(&target).await {
@@ -540,7 +704,9 @@ impl Launcher {
             // A broken version: drop it and try once with what the source
             // gives instead (the previous one, or the app's own).
             Err(SpawnError::Bad(reason, err)) => {
-                let Some(id) = target.id.as_deref() else { return Err(err) };
+                let Some(id) = target.id.as_deref() else {
+                    return Err(err);
+                };
                 tracing::warn!(target: "dbine_plugin", "driver «{}» {id} descartado: {reason}", self.package);
                 self.source.bad(id, &reason);
                 let retry = self.source.resolve().await?;
@@ -568,23 +734,42 @@ impl Launcher {
 
     /// The driver id of the host new calls go to, if one is running.
     pub fn running_version(&self) -> Option<String> {
-        self.current.lock().unwrap().as_ref().filter(|h| h.is_alive()).map(|h| h.version.clone())
+        self.current
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|h| h.is_alive())
+            .map(|h| h.version.clone())
     }
 
     /// The running host's process id, if one is running.
     pub fn pid(&self) -> Option<u32> {
-        self.current.lock().unwrap().as_ref().filter(|h| h.is_alive()).map(|h| h.pid())
+        self.current
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|h| h.is_alive())
+            .map(|h| h.pid())
     }
 
     /// For synchronous callers: the running host, or start one on a thread
     /// of its own.
     pub fn get_blocking(self: &Arc<Self>) -> Result<Arc<Host>> {
-        if let Some(h) = self.current.lock().unwrap().as_ref().filter(|h| h.is_alive()) {
+        if let Some(h) = self
+            .current
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|h| h.is_alive())
+        {
             return Ok(h.clone());
         }
         let me = self.clone();
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| Error::State(e.to_string()))?;
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| Error::State(e.to_string()))?;
             rt.block_on(me.get())
         })
         .join()
@@ -602,7 +787,12 @@ pub struct RemoteDriver {
 
 impl RemoteDriver {
     pub fn new(meta: DriverMeta, launcher: Arc<Launcher>) -> Self {
-        RemoteDriver { query_help: intern(&meta.query_help), script_separator: intern(&meta.script_separator), meta, launcher }
+        RemoteDriver {
+            query_help: intern(&meta.query_help),
+            script_separator: intern(&meta.script_separator),
+            meta,
+            launcher,
+        }
     }
 
     pub fn package(&self) -> &str {
@@ -641,8 +831,18 @@ impl Driver for RemoteDriver {
     fn supports_map_login(&self) -> bool {
         self.meta.supports_map_login
     }
-    fn map_login_script(&self, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
-        let call = Call::MapLoginScript { driver: self.id(), login: login.into(), user: user.into(), default_schema: default_schema.map(str::to_string) };
+    fn map_login_script(
+        &self,
+        login: &str,
+        user: &str,
+        default_schema: Option<&str>,
+    ) -> Result<String> {
+        let call = Call::MapLoginScript {
+            driver: self.id(),
+            login: login.into(),
+            user: user.into(),
+            default_schema: default_schema.map(str::to_string),
+        };
         text(self.blocking(call)?)
     }
     fn key_search(&self) -> Option<KeySearch> {
@@ -661,7 +861,9 @@ impl Driver for RemoteDriver {
         self.meta.supports_schema_sync
     }
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
-        self.meta.script_dialect.unwrap_or_else(|| dbine_driver::ScriptDialect::for_hint(self.meta.info.dialect))
+        self.meta
+            .script_dialect
+            .unwrap_or_else(|| dbine_driver::ScriptDialect::for_hint(self.meta.info.dialect))
     }
     fn script_mode(&self) -> dbine_driver::ScriptMode {
         self.meta.script_mode.unwrap_or_default()
@@ -670,7 +872,10 @@ impl Driver for RemoteDriver {
     /// that can't answer (published before the call, or failing) leaves it
     /// to the dialect, as before.
     fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
-        match self.blocking(Call::SplitScript { driver: self.id(), text: text.to_string() }) {
+        match self.blocking(Call::SplitScript {
+            driver: self.id(),
+            text: text.to_string(),
+        }) {
             Ok(Reply::Units(units)) => units,
             _ => dbine_driver::sql::split_script(text, &self.script_dialect()),
         }
@@ -681,7 +886,10 @@ impl Driver for RemoteDriver {
     /// of it (it errs only where the language has no way to write the
     /// value).
     fn param_literal(&self, value: &dbine_driver::ParamValue) -> Result<String> {
-        match self.blocking(Call::ParamLiteral { driver: self.id(), value: value.clone() }) {
+        match self.blocking(Call::ParamLiteral {
+            driver: self.id(),
+            value: value.clone(),
+        }) {
             Ok(Reply::Text(t)) => Ok(t),
             _ => {
                 let i = &self.meta.info;
@@ -690,7 +898,9 @@ impl Driver for RemoteDriver {
         }
     }
     fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
-        self.meta.script_defaults.unwrap_or_else(|| dbine_driver::ScriptDefaults::for_language(self.meta.info.language))
+        self.meta
+            .script_defaults
+            .unwrap_or_else(|| dbine_driver::ScriptDefaults::for_language(self.meta.info.language))
     }
     fn supports_manual_transactions(&self) -> bool {
         self.meta.supports_manual_transactions
@@ -699,13 +909,19 @@ impl Driver for RemoteDriver {
         self.meta.security.clone()
     }
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
-        text(self.blocking(Call::SecurityScript { driver: self.id(), action: action.clone() })?)
+        text(self.blocking(Call::SecurityScript {
+            driver: self.id(),
+            action: action.clone(),
+        })?)
     }
     fn backup(&self) -> Option<dbine_driver::BackupSpec> {
         self.meta.backup.clone()
     }
     fn backup_script(&self, action: &dbine_driver::BackupAction) -> Result<String> {
-        text(self.blocking(Call::BackupScript { driver: self.id(), action: action.clone() })?)
+        text(self.blocking(Call::BackupScript {
+            driver: self.id(),
+            action: action.clone(),
+        })?)
     }
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
         self.meta.schema_spec.clone()
@@ -716,18 +932,54 @@ impl Driver for RemoteDriver {
     fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
         self.meta.create_database_fields.clone()
     }
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
-        text(self.blocking(Call::CreateDatabaseScript { driver: self.id(), name: name.to_string(), options: options.clone() })?)
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
+        text(self.blocking(Call::CreateDatabaseScript {
+            driver: self.id(),
+            name: name.to_string(),
+            options: options.clone(),
+        })?)
     }
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
-        text(self.blocking(Call::AlterDatabaseScript { driver: self.id(), database: database.to_string(), changes: changes.clone() })?)
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
+        text(self.blocking(Call::AlterDatabaseScript {
+            driver: self.id(),
+            database: database.to_string(),
+            changes: changes.clone(),
+        })?)
     }
-    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         let database = database.map(str::to_string);
-        text(self.blocking(Call::CreateSchemaScript { driver: self.id(), name: name.to_string(), owner: owner.map(str::to_string), database })?)
+        text(self.blocking(Call::CreateSchemaScript {
+            driver: self.id(),
+            name: name.to_string(),
+            owner: owner.map(str::to_string),
+            database,
+        })?)
     }
-    fn schema_owner_script(&self, database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
-        let call = Call::SchemaOwnerScript { driver: self.id(), database: database.map(str::to_string), name: name.to_string(), owner: owner.to_string() };
+    fn schema_owner_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        owner: &str,
+    ) -> Result<Option<String>> {
+        let call = Call::SchemaOwnerScript {
+            driver: self.id(),
+            database: database.map(str::to_string),
+            name: name.to_string(),
+            owner: owner.to_string(),
+        };
         match self.blocking(call) {
             Ok(Reply::MaybeText(s)) => Ok(s),
             // A host built before the call: the owner goes in the create, as it did there.
@@ -736,7 +988,14 @@ impl Driver for RemoteDriver {
             Ok(_) => Err(unexpected()),
         }
     }
-    fn schema_grant_script(&self, database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
+    fn schema_grant_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        privileges: &[String],
+        to: &str,
+        grantable: bool,
+    ) -> Result<String> {
         let call = Call::SchemaGrantScript {
             driver: self.id(),
             database: database.map(str::to_string),
@@ -750,71 +1009,157 @@ impl Driver for RemoteDriver {
             // A host built before the call (or a driver without schema grants,
             // which answers the same through `SecurityScript`).
             Err(Error::Unsupported(_)) => {
-                let object = ObjectRef { kind: "schema".into(), schema: None, name: name.to_string() };
-                let action = dbine_driver::SecurityAction::Grant { privileges: privileges.to_vec(), object: Some(object), to: to.to_string(), grantable };
+                let object = ObjectRef {
+                    kind: "schema".into(),
+                    schema: None,
+                    name: name.to_string(),
+                };
+                let action = dbine_driver::SecurityAction::Grant {
+                    privileges: privileges.to_vec(),
+                    object: Some(object),
+                    to: to.to_string(),
+                    grantable,
+                };
                 self.security_script(&action)
             }
             Err(e) => Err(e),
         }
     }
-    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
         let database = database.map(str::to_string);
-        text(self.blocking(Call::DropSchemaScript { driver: self.id(), name: name.to_string(), cascade, database })?)
+        text(self.blocking(Call::DropSchemaScript {
+            driver: self.id(),
+            name: name.to_string(),
+            cascade,
+            database,
+        })?)
     }
     fn script_separator(&self) -> &'static str {
         self.script_separator
     }
     fn sync_script(&self, changes: &[TableChange]) -> Result<SyncScript> {
-        match self.blocking(Call::SyncScript { driver: self.id(), changes: changes.to_vec() })? {
+        match self.blocking(Call::SyncScript {
+            driver: self.id(),
+            changes: changes.to_vec(),
+        })? {
             Reply::Sync(s) => Ok(s),
             _ => Err(unexpected()),
         }
     }
-    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<SyncScript> {
-        match self.blocking(Call::IndexToggleScript { driver: self.id(), table: table.clone(), index: index.clone(), enable })? {
+    fn index_toggle_script(
+        &self,
+        table: &ObjectRef,
+        index: &dbine_driver::IndexUsage,
+        enable: bool,
+    ) -> Result<SyncScript> {
+        match self.blocking(Call::IndexToggleScript {
+            driver: self.id(),
+            table: table.clone(),
+            index: index.clone(),
+            enable,
+        })? {
             Reply::Sync(s) => Ok(s),
             _ => Err(unexpected()),
         }
     }
     fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<SyncScript> {
-        match self.blocking(Call::RenameScript { driver: self.id(), request: req.clone() })? {
+        match self.blocking(Call::RenameScript {
+            driver: self.id(),
+            request: req.clone(),
+        })? {
             Reply::Sync(s) => Ok(s),
             _ => Err(unexpected()),
         }
     }
-    fn rename_database_script(&self, database: &str, new_name: &str, objects: &[dbine_driver::rename::DatabaseObject]) -> Result<SyncScript> {
-        let call = Call::RenameDatabaseScript { driver: self.id(), database: database.into(), new_name: new_name.into(), objects: objects.to_vec() };
+    fn rename_database_script(
+        &self,
+        database: &str,
+        new_name: &str,
+        objects: &[dbine_driver::rename::DatabaseObject],
+    ) -> Result<SyncScript> {
+        let call = Call::RenameDatabaseScript {
+            driver: self.id(),
+            database: database.into(),
+            new_name: new_name.into(),
+            objects: objects.to_vec(),
+        };
         match self.blocking(call)? {
             Reply::Sync(s) => Ok(s),
             _ => Err(unexpected()),
         }
     }
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        text(self.blocking(Call::TableDdl { driver: self.id(), table: table.clone(), parts })?)
+        text(self.blocking(Call::TableDdl {
+            driver: self.id(),
+            table: table.clone(),
+            parts,
+        })?)
     }
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
-        text(self.blocking(Call::InsertScript { driver: self.id(), target: target.clone(), columns: columns.to_vec(), rows: rows.to_vec() })?)
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        text(self.blocking(Call::InsertScript {
+            driver: self.id(),
+            target: target.clone(),
+            columns: columns.to_vec(),
+            rows: rows.to_vec(),
+        })?)
     }
     fn filtered_browse(&self, browse: &str, filters: &[ColumnFilter]) -> Result<String> {
-        text(self.blocking(Call::FilteredBrowse { driver: self.id(), browse: browse.to_string(), filters: filters.to_vec() })?)
+        text(self.blocking(Call::FilteredBrowse {
+            driver: self.id(),
+            browse: browse.to_string(),
+            filters: filters.to_vec(),
+        })?)
     }
     fn sorted_browse(&self, query: &str, sort: &[SortKey]) -> Result<String> {
         if sort.is_empty() {
             return Ok(query.to_string());
         }
-        text(self.blocking(Call::SortedBrowse { driver: self.id(), query: query.to_string(), sort: sort.to_vec() })?)
+        text(self.blocking(Call::SortedBrowse {
+            driver: self.id(),
+            query: query.to_string(),
+            sort: sort.to_vec(),
+        })?)
     }
     fn aggregate_query(&self, query: &str, spec: &dbine_driver::AggregateSpec) -> Result<String> {
-        text(self.blocking(Call::AggregateQuery { driver: self.id(), query: query.to_string(), spec: spec.clone() })?)
+        text(self.blocking(Call::AggregateQuery {
+            driver: self.id(),
+            query: query.to_string(),
+            spec: spec.clone(),
+        })?)
     }
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
-        text(self.blocking(Call::UpdateScript { driver: self.id(), target: target.clone(), changes: changes.to_vec() })?)
+        text(self.blocking(Call::UpdateScript {
+            driver: self.id(),
+            target: target.clone(),
+            changes: changes.to_vec(),
+        })?)
     }
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
-        text(self.blocking(Call::DeleteScript { driver: self.id(), target: target.clone(), keys: keys.to_vec() })?)
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
+        text(self.blocking(Call::DeleteScript {
+            driver: self.id(),
+            target: target.clone(),
+            keys: keys.to_vec(),
+        })?)
     }
     fn data_load_wrap(&self, table: &TableSchema) -> (String, String) {
-        match self.blocking(Call::DataLoadWrap { driver: self.id(), table: table.clone() }) {
+        match self.blocking(Call::DataLoadWrap {
+            driver: self.id(),
+            table: table.clone(),
+        }) {
             Ok(Reply::Pair(a, b)) => (a, b),
             Ok(_) => (String::new(), String::new()),
             Err(e) => {
@@ -830,15 +1175,35 @@ impl Driver for RemoteDriver {
     fn supports_native_copy(&self, _target: &str) -> bool {
         self.meta.native_copy
     }
-    async fn copy_native(&self, source: &mut dyn Session, target: &mut dyn Session, spec: &CopySpec, progress: transfer::Progress<'_>) -> Result<u64> {
+    async fn copy_native(
+        &self,
+        source: &mut dyn Session,
+        target: &mut dyn Session,
+        spec: &CopySpec,
+        progress: transfer::Progress<'_>,
+    ) -> Result<u64> {
         let (from, host) = remote_of(source)?;
         let (to, other) = remote_of(target)?;
         if !Arc::ptr_eq(&host, &other) {
-            return Err(Error::Unsupported("la copia directa necesita que origen y destino usen el mismo driver".into()));
+            return Err(Error::Unsupported(
+                "la copia directa necesita que origen y destino usen el mismo driver".into(),
+            ));
         }
         let (etx, mut erx) = tokio::sync::mpsc::unbounded_channel();
-        let (id, mut reply) = host.start(Call::CopyNative { driver: self.id(), from, to, spec: spec.clone() }, etx)?;
-        let mut guard = AbortGuard { host: &host, id, done: false };
+        let (id, mut reply) = host.start(
+            Call::CopyNative {
+                driver: self.id(),
+                from,
+                to,
+                spec: spec.clone(),
+            },
+            etx,
+        )?;
+        let mut guard = AbortGuard {
+            host: &host,
+            id,
+            done: false,
+        };
         let r = loop {
             tokio::select! {
                 biased;
@@ -861,13 +1226,28 @@ impl Driver for RemoteDriver {
     fn supports_clone(&self) -> bool {
         self.meta.supports_clone
     }
-    async fn clone_script(&self, source: &mut dyn Session, target: &mut dyn Session, tables: &[ObjectRef]) -> Result<CloneScript> {
+    async fn clone_script(
+        &self,
+        source: &mut dyn Session,
+        target: &mut dyn Session,
+        tables: &[ObjectRef],
+    ) -> Result<CloneScript> {
         let (from, host) = remote_of(source)?;
         let (to, other) = remote_of(target)?;
         if !Arc::ptr_eq(&host, &other) {
-            return Err(Error::Unsupported("clonar necesita que origen y destino usen el mismo driver".into()));
+            return Err(Error::Unsupported(
+                "clonar necesita que origen y destino usen el mismo driver".into(),
+            ));
         }
-        match host.call(Call::CloneScript { driver: self.id(), from, to, tables: tables.to_vec() }).await? {
+        match host
+            .call(Call::CloneScript {
+                driver: self.id(),
+                from,
+                to,
+                tables: tables.to_vec(),
+            })
+            .await?
+        {
             Reply::Clone(c) => Ok(c),
             _ => Err(unexpected()),
         }
@@ -879,12 +1259,31 @@ impl Driver for RemoteDriver {
         self.meta.write_modes.clone()
     }
     fn delta_filter(&self, spec: &DeltaSpec, buckets: &[i64]) -> Result<String> {
-        text(self.blocking(Call::DeltaFilter { driver: self.id(), spec: spec.clone(), buckets: buckets.to_vec() })?)
+        text(self.blocking(Call::DeltaFilter {
+            driver: self.id(),
+            spec: spec.clone(),
+            buckets: buckets.to_vec(),
+        })?)
     }
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let host = self.launcher.get().await?;
-        match host.call(Call::Connect { driver: self.id(), config: cfg.clone(), database: database.map(String::from) }).await? {
-            Reply::Session { id, interruptible } => Ok(Box::new(RemoteSession { host, id, interruptible })),
+        match host
+            .call(Call::Connect {
+                driver: self.id(),
+                config: cfg.clone(),
+                database: database.map(String::from),
+            })
+            .await?
+        {
+            Reply::Session { id, interruptible } => Ok(Box::new(RemoteSession {
+                host,
+                id,
+                interruptible,
+            })),
             _ => Err(unexpected()),
         }
     }
@@ -910,7 +1309,9 @@ impl Relay {
         if let Some(e) = self.stop.lock().unwrap().clone() {
             return Err(std::io::Error::other(e));
         }
-        self.tx.send(ev).map_err(|_| std::io::Error::other("la lectura terminó"))
+        self.tx
+            .send(ev)
+            .map_err(|_| std::io::Error::other("la lectura terminó"))
     }
 }
 
@@ -939,17 +1340,32 @@ impl Drop for RemoteSession {
 impl RemoteSession {
     /// A batch or its columns reaching the app's sink; each batch is
     /// acknowledged so the host sends the next.
-    fn feed(&self, id: u64, ev: Event, sink: &BatchSinkRef, failed: &mut Option<String>, begun: &mut bool) {
+    fn feed(
+        &self,
+        id: u64,
+        ev: Event,
+        sink: &BatchSinkRef,
+        failed: &mut Option<String>,
+        begun: &mut bool,
+    ) {
         let r = match ev {
             Event::Begin(cols) => {
                 *begun = true;
                 if failed.is_some() {
                     return;
                 }
-                sink.lock().map_err(|_| std::io::Error::other("destino de lotes")).and_then(|mut s| s.begin(&cols))
+                sink.lock()
+                    .map_err(|_| std::io::Error::other("destino de lotes"))
+                    .and_then(|mut s| s.begin(&cols))
             }
             Event::Batch(b) => {
-                let r = if failed.is_some() { Ok(()) } else { sink.lock().map_err(|_| std::io::Error::other("destino de lotes")).and_then(|mut s| s.batch(b)) };
+                let r = if failed.is_some() {
+                    Ok(())
+                } else {
+                    sink.lock()
+                        .map_err(|_| std::io::Error::other("destino de lotes"))
+                        .and_then(|mut s| s.batch(b))
+                };
                 let _ = self.host.send(&ToHost::BatchAck { id });
                 r
             }
@@ -958,7 +1374,10 @@ impl RemoteSession {
         if let Err(e) = r {
             if failed.is_none() {
                 *failed = Some(e.to_string());
-                let _ = self.host.send(&ToHost::SinkFailed { id, error: e.to_string() });
+                let _ = self.host.send(&ToHost::SinkFailed {
+                    id,
+                    error: e.to_string(),
+                });
             }
         }
     }
@@ -974,17 +1393,23 @@ impl RemoteSession {
     async fn read_via_execute(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let stop = Arc::new(Mutex::new(None));
-        let relay: BatchSinkRef = Arc::new(Mutex::new(Relay { tx, stop: stop.clone() }));
+        let relay: BatchSinkRef = Arc::new(Mutex::new(Relay {
+            tx,
+            stop: stop.clone(),
+        }));
         let mut failed = None;
         let give = |ev: Event, failed: &mut Option<String>| {
             if failed.is_some() {
                 return;
             }
-            let r = sink.lock().map_err(|_| std::io::Error::other("destino de lotes")).and_then(|mut s| match ev {
-                Event::Begin(cols) => s.begin(&cols),
-                Event::Batch(b) => s.batch(b),
-                _ => Ok(()),
-            });
+            let r = sink
+                .lock()
+                .map_err(|_| std::io::Error::other("destino de lotes"))
+                .and_then(|mut s| match ev {
+                    Event::Begin(cols) => s.begin(&cols),
+                    Event::Batch(b) => s.batch(b),
+                    _ => Ok(()),
+                });
             if let Err(e) = r {
                 // The relay refuses the rest, so the host stops sending them.
                 *stop.lock().unwrap() = Some(e.to_string());
@@ -1016,12 +1441,20 @@ impl RemoteSession {
     }
 
     async fn run(&self, call: Call, out: &mut QueryOutcome) -> Result<()> {
-        let sink = out.sink.clone().map(|sink| SinkTarget { sink, base: out.sink_base + out.results.len(), error: Arc::new(Mutex::new(None)) });
+        let sink = out.sink.clone().map(|sink| SinkTarget {
+            sink,
+            base: out.sink_base + out.results.len(),
+            error: Arc::new(Mutex::new(None)),
+        });
         let error_slot = sink.as_ref().map(|s| s.error.clone());
-        let live = (out.message_sink.is_some() || out.progress_sink.is_some())
-            .then(|| Live { messages: out.message_sink.clone(), progress: out.progress_sink.clone() });
+        let live = (out.message_sink.is_some() || out.progress_sink.is_some()).then(|| Live {
+            messages: out.message_sink.clone(),
+            progress: out.progress_sink.clone(),
+        });
         let reply = self.host.call_live(call, sink, live).await?;
-        let Reply::Run(mut o, err) = reply else { return Err(unexpected()) };
+        let Reply::Run(mut o, err) = reply else {
+            return Err(unexpected());
+        };
         out.elapsed_ms += o.elapsed_ms;
         if out.error.is_none() {
             out.error = o.error.take();
@@ -1040,34 +1473,64 @@ impl RemoteSession {
 #[async_trait]
 impl Session for RemoteSession {
     async fn server_version(&mut self) -> Result<String> {
-        text(self.host.call(Call::ServerVersion { session: self.id }).await?)
+        text(
+            self.host
+                .call(Call::ServerVersion { session: self.id })
+                .await?,
+        )
     }
     async fn list_databases(&mut self) -> Result<Vec<String>> {
-        match self.host.call(Call::ListDatabases { session: self.id }).await? {
+        match self
+            .host
+            .call(Call::ListDatabases { session: self.id })
+            .await?
+        {
             Reply::Texts(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        match self.host.call(Call::ListObjects { session: self.id }).await? {
+        match self
+            .host
+            .call(Call::ListObjects { session: self.id })
+            .await?
+        {
             Reply::Objects(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
-        match self.host.call(Call::Columns { session: self.id, obj: obj.clone() }).await? {
+        match self
+            .host
+            .call(Call::Columns {
+                session: self.id,
+                obj: obj.clone(),
+            })
+            .await?
+        {
             Reply::Columns(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
-        match self.host.call(Call::Definition { session: self.id, obj: obj.clone() }).await? {
+        match self
+            .host
+            .call(Call::Definition {
+                session: self.id,
+                obj: obj.clone(),
+            })
+            .await?
+        {
             Reply::MaybeText(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        match self.host.call_blocking(Call::BrowseQuery { session: self.id, obj: obj.clone(), limit }) {
+        match self.host.call_blocking(Call::BrowseQuery {
+            session: self.id,
+            obj: obj.clone(),
+            limit,
+        }) {
             Ok(Reply::Text(s)) => s,
             Ok(_) => String::new(),
             Err(e) => {
@@ -1087,20 +1550,52 @@ impl Session for RemoteSession {
         };
         self.run(call, out).await
     }
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let call = Call::Explain { session: self.id, text: text.to_string(), analyze, max_rows: max_rows as u64, sink: out.sink.is_some() };
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        let call = Call::Explain {
+            session: self.id,
+            text: text.to_string(),
+            analyze,
+            max_rows: max_rows as u64,
+            sink: out.sink.is_some(),
+        };
         self.run(call, out).await
     }
-    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         // A host published before the call answers `Unsupported` (see
         // `proto::unknown_call`): the app then asks the user to approve the read.
-        let call = Call::RunReadOnly { session: self.id, statement: statement.to_string(), max_rows: max_rows as u64, sink: out.sink.is_some() };
+        let call = Call::RunReadOnly {
+            session: self.id,
+            statement: statement.to_string(),
+            max_rows: max_rows as u64,
+            sink: out.sink.is_some(),
+        };
         self.run(call, out).await
     }
-    async fn execute_bound(&mut self, statement: &dbine_driver::BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn execute_bound(
+        &mut self,
+        statement: &dbine_driver::BoundStatement,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         // A host published before the call answers `Unsupported`: the app
         // then runs the statement with the values as literals.
-        let call = Call::ExecuteBound { session: self.id, statement: statement.clone(), max_rows: max_rows as u64, sink: out.sink.is_some() };
+        let call = Call::ExecuteBound {
+            session: self.id,
+            statement: statement.clone(),
+            max_rows: max_rows as u64,
+            sink: out.sink.is_some(),
+        };
         self.run(call, out).await
     }
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
@@ -1113,16 +1608,32 @@ impl Session for RemoteSession {
         }))
     }
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        match self.host.call(Call::DatabaseSchema { session: self.id }).await? {
+        match self
+            .host
+            .call(Call::DatabaseSchema { session: self.id })
+            .await?
+        {
             Reply::Schema(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.host.call(Call::CreateDatabase { session: self.id, name: name.to_string() }).await.map(|_| ())
+        self.host
+            .call(Call::CreateDatabase {
+                session: self.id,
+                name: name.to_string(),
+            })
+            .await
+            .map(|_| ())
     }
     async fn drop_database(&mut self, name: &str) -> Result<()> {
-        self.host.call(Call::DropDatabase { session: self.id, name: name.to_string() }).await.map(|_| ())
+        self.host
+            .call(Call::DropDatabase {
+                session: self.id,
+                name: name.to_string(),
+            })
+            .await
+            .map(|_| ())
     }
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         match self.host.call(Call::Monitor { session: self.id }).await? {
@@ -1137,7 +1648,11 @@ impl Session for RemoteSession {
         }
     }
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
-        match self.host.call(Call::Principals { session: self.id }).await? {
+        match self
+            .host
+            .call(Call::Principals { session: self.id })
+            .await?
+        {
             Reply::Principals(v) => Ok(v),
             _ => Err(unexpected()),
         }
@@ -1145,25 +1660,49 @@ impl Session for RemoteSession {
     async fn unmapped_logins(&mut self) -> Result<Vec<String>> {
         // A host built before the call answers `Unsupported` (its manifest
         // doesn't offer "Asignar login…" anyway).
-        match self.host.call(Call::UnmappedLogins { session: self.id }).await? {
+        match self
+            .host
+            .call(Call::UnmappedLogins { session: self.id })
+            .await?
+        {
             Reply::Texts(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn grants(&mut self, principal: &str) -> Result<Vec<dbine_driver::Grant>> {
-        match self.host.call(Call::Grants { session: self.id, principal: principal.to_string() }).await? {
+        match self
+            .host
+            .call(Call::Grants {
+                session: self.id,
+                principal: principal.to_string(),
+            })
+            .await?
+        {
             Reply::Grants(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
-        match self.host.call(Call::Backups { session: self.id, database: database.map(str::to_string) }).await? {
+        match self
+            .host
+            .call(Call::Backups {
+                session: self.id,
+                database: database.map(str::to_string),
+            })
+            .await?
+        {
             Reply::Backups(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn kill_session(&mut self, id: &str) -> Result<()> {
-        self.host.call(Call::KillSession { session: self.id, id: id.to_string() }).await.map(|_| ())
+        self.host
+            .call(Call::KillSession {
+                session: self.id,
+                id: id.to_string(),
+            })
+            .await
+            .map(|_| ())
     }
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
         match self.host.call(Call::Processes { session: self.id }).await? {
@@ -1172,51 +1711,124 @@ impl Session for RemoteSession {
         }
     }
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
-        match self.host.call(Call::CreateDatabaseChoices { session: self.id }).await? {
+        match self
+            .host
+            .call(Call::CreateDatabaseChoices { session: self.id })
+            .await?
+        {
             Reply::Choices(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
-        self.host.call(Call::CreateDatabaseWith { session: self.id, name: name.to_string(), options: options.clone() }).await.map(|_| ())
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
+        self.host
+            .call(Call::CreateDatabaseWith {
+                session: self.id,
+                name: name.to_string(),
+                options: options.clone(),
+            })
+            .await
+            .map(|_| ())
     }
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
-        match self.host.call(Call::DatabaseProperties { session: self.id, database: database.to_string() }).await? {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
+        match self
+            .host
+            .call(Call::DatabaseProperties {
+                session: self.id,
+                database: database.to_string(),
+            })
+            .await?
+        {
             Reply::DatabaseProperties(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
-        self.host.call(Call::AlterDatabase { session: self.id, database: database.to_string(), changes: changes.clone() }).await.map(|_| ())
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
+        self.host
+            .call(Call::AlterDatabase {
+                session: self.id,
+                database: database.to_string(),
+                changes: changes.clone(),
+            })
+            .await
+            .map(|_| ())
     }
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
-        self.host.call(Call::CancelQuery { session: self.id, id: id.to_string() }).await.map(|_| ())
+        self.host
+            .call(Call::CancelQuery {
+                session: self.id,
+                id: id.to_string(),
+            })
+            .await
+            .map(|_| ())
     }
     async fn profiler_start(&mut self, opts: &ProfilerOptions) -> Result<ProfilerStarted> {
-        match self.host.call(Call::ProfilerStart { session: self.id, opts: opts.clone() }).await? {
+        match self
+            .host
+            .call(Call::ProfilerStart {
+                session: self.id,
+                opts: opts.clone(),
+            })
+            .await?
+        {
             Reply::ProfilerStarted(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn profiler_poll(&mut self) -> Result<Vec<ProfiledStatement>> {
-        match self.host.call(Call::ProfilerPoll { session: self.id }).await? {
+        match self
+            .host
+            .call(Call::ProfilerPoll { session: self.id })
+            .await?
+        {
             Reply::Profiled(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn profiler_stop(&mut self) -> Result<()> {
-        self.host.call(Call::ProfilerStop { session: self.id }).await.map(|_| ())
+        self.host
+            .call(Call::ProfilerStop { session: self.id })
+            .await
+            .map(|_| ())
     }
     async fn scan_keys(&mut self, scan: &KeyScan) -> Result<KeyPage> {
-        match self.host.call(Call::ScanKeys { session: self.id, scan: scan.clone() }).await? {
+        match self
+            .host
+            .call(Call::ScanKeys {
+                session: self.id,
+                scan: scan.clone(),
+            })
+            .await?
+        {
             Reply::Keys(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
     async fn read_batches(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
         let (etx, mut erx) = tokio::sync::mpsc::unbounded_channel();
-        let (id, mut reply) = self.host.start(Call::ReadBatches { session: self.id, spec: spec.clone() }, etx)?;
-        let mut guard = AbortGuard { host: &self.host, id, done: false };
+        let (id, mut reply) = self.host.start(
+            Call::ReadBatches {
+                session: self.id,
+                spec: spec.clone(),
+            },
+            etx,
+        )?;
+        let mut guard = AbortGuard {
+            host: &self.host,
+            id,
+            done: false,
+        };
         let (mut failed, mut begun) = (None, false);
         let r = loop {
             tokio::select! {
@@ -1235,7 +1847,9 @@ impl Session for RemoteSession {
         drop(guard);
         match r {
             // A driver published before batched reads: read through `execute`.
-            Err(Error::Unsupported(_)) if !begun && spec.filter.is_none() => self.read_via_execute(spec, sink).await,
+            Err(Error::Unsupported(_)) if !begun && spec.filter.is_none() => {
+                self.read_via_execute(spec, sink).await
+            }
             r => {
                 let n = count(r)?;
                 match failed {
@@ -1247,17 +1861,54 @@ impl Session for RemoteSession {
     }
     /// Only for drivers whose manifest says `supports_bulk_load` (an older
     /// host wouldn't understand the batches).
-    async fn bulk_load(&mut self, spec: &LoadSpec, columns: &[TransferColumn], source: &mut dyn BatchSource, progress: transfer::Progress<'_>) -> Result<u64> {
-        count(self.host.with_batches(Call::BulkLoad { session: self.id, spec: spec.clone(), columns: columns.to_vec() }, source, progress).await)
+    async fn bulk_load(
+        &mut self,
+        spec: &LoadSpec,
+        columns: &[TransferColumn],
+        source: &mut dyn BatchSource,
+        progress: transfer::Progress<'_>,
+    ) -> Result<u64> {
+        count(
+            self.host
+                .with_batches(
+                    Call::BulkLoad {
+                        session: self.id,
+                        spec: spec.clone(),
+                        columns: columns.to_vec(),
+                    },
+                    source,
+                    progress,
+                )
+                .await,
+        )
     }
-    async fn key_range(&mut self, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
-        match self.host.call(Call::KeyRange { session: self.id, table: table.clone(), column: column.to_string() }).await? {
+    async fn key_range(
+        &mut self,
+        table: &ObjectRef,
+        column: &str,
+    ) -> Result<Option<(i64, i64, u64)>> {
+        match self
+            .host
+            .call(Call::KeyRange {
+                session: self.id,
+                table: table.clone(),
+                column: column.to_string(),
+            })
+            .await?
+        {
             Reply::KeyRange(r) => Ok(r),
             _ => Err(unexpected()),
         }
     }
     async fn delta_summary(&mut self, spec: &DeltaSpec) -> Result<Vec<BucketSum>> {
-        match self.host.call(Call::DeltaSummary { session: self.id, spec: spec.clone() }).await? {
+        match self
+            .host
+            .call(Call::DeltaSummary {
+                session: self.id,
+                spec: spec.clone(),
+            })
+            .await?
+        {
             Reply::Buckets(v) => Ok(v),
             _ => Err(unexpected()),
         }
@@ -1270,7 +1921,12 @@ impl Session for RemoteSession {
         source: &mut dyn BatchSource,
         progress: transfer::Progress<'_>,
     ) -> Result<DeltaResult> {
-        let call = Call::DeltaApply { session: self.id, spec: spec.clone(), buckets: buckets.to_vec(), columns: columns.to_vec() };
+        let call = Call::DeltaApply {
+            session: self.id,
+            spec: spec.clone(),
+            buckets: buckets.to_vec(),
+            columns: columns.to_vec(),
+        };
         match self.host.with_batches(call, source, progress).await? {
             Reply::Delta(r) => Ok(r),
             _ => Err(unexpected()),
@@ -1285,14 +1941,25 @@ impl Session for RemoteSession {
         source: &mut dyn BatchSource,
         progress: transfer::Progress<'_>,
     ) -> Result<dbine_driver::WriteResult> {
-        let call = Call::WriteRows { session: self.id, spec: spec.clone(), columns: columns.to_vec() };
+        let call = Call::WriteRows {
+            session: self.id,
+            spec: spec.clone(),
+            columns: columns.to_vec(),
+        };
         match self.host.with_batches(call, source, progress).await? {
             Reply::Written(r) => Ok(r),
             _ => Err(unexpected()),
         }
     }
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
-        match self.host.call(Call::Permissions { session: self.id, database: database.map(str::to_string) }).await {
+        match self
+            .host
+            .call(Call::Permissions {
+                session: self.id,
+                database: database.map(str::to_string),
+            })
+            .await
+        {
             Ok(Reply::Permissions(p)) => Ok(p),
             // A host built before the check: nothing known, everything stays on.
             Err(Error::Unsupported(_)) => Ok(dbine_driver::Permissions::default()),
@@ -1301,7 +1968,11 @@ impl Session for RemoteSession {
         }
     }
     async fn transaction_state(&mut self) -> Result<Option<dbine_driver::TxState>> {
-        match self.host.call(Call::TransactionState { session: self.id }).await {
+        match self
+            .host
+            .call(Call::TransactionState { session: self.id })
+            .await
+        {
             Ok(Reply::TxState(t)) => Ok(t),
             // A host built before the call: not tracked.
             Err(Error::Unsupported(_)) => Ok(None),
@@ -1310,7 +1981,14 @@ impl Session for RemoteSession {
         }
     }
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
-        match self.host.call(Call::SetAutocommit { session: self.id, on }).await {
+        match self
+            .host
+            .call(Call::SetAutocommit {
+                session: self.id,
+                on,
+            })
+            .await
+        {
             Ok(_) => Ok(()),
             // A host built before the call: its sessions only autocommit.
             Err(Error::Unsupported(_)) if on => Ok(()),
@@ -1318,13 +1996,29 @@ impl Session for RemoteSession {
         }
     }
     async fn commit(&mut self) -> Result<()> {
-        self.host.call(Call::Commit { session: self.id }).await.map(|_| ())
+        self.host
+            .call(Call::Commit { session: self.id })
+            .await
+            .map(|_| ())
     }
     async fn rollback(&mut self) -> Result<()> {
-        self.host.call(Call::Rollback { session: self.id }).await.map(|_| ())
+        self.host
+            .call(Call::Rollback { session: self.id })
+            .await
+            .map(|_| ())
     }
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
-        match self.host.call(Call::HealthChecks { session: self.id, database: database.to_string() }).await {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        match self
+            .host
+            .call(Call::HealthChecks {
+                session: self.id,
+                database: database.to_string(),
+            })
+            .await
+        {
             Ok(Reply::HealthChecks(v)) => Ok(v),
             // A host built before the call: no checks of its own.
             Err(Error::Unsupported(_)) => Ok(Vec::new()),
@@ -1333,7 +2027,11 @@ impl Session for RemoteSession {
         }
     }
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
-        match self.host.call(Call::RowEstimates { session: self.id }).await {
+        match self
+            .host
+            .call(Call::RowEstimates { session: self.id })
+            .await
+        {
             Ok(Reply::RowEstimates(v)) => Ok(v),
             // A host built before the call: none known.
             Err(Error::Unsupported(_)) => Ok(Vec::new()),
@@ -1342,15 +2040,29 @@ impl Session for RemoteSession {
         }
     }
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
-        match self.host.call(Call::ObjectComments { session: self.id }).await {
+        match self
+            .host
+            .call(Call::ObjectComments { session: self.id })
+            .await
+        {
             Ok(Reply::ObjectComments(v)) => Ok(v),
             Err(Error::Unsupported(_)) => Ok(Vec::new()),
             Err(e) => Err(e),
             Ok(_) => Err(unexpected()),
         }
     }
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
-        match self.host.call(Call::SearchCode { session: self.id, query: query.clone() }).await {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        match self
+            .host
+            .call(Call::SearchCode {
+                session: self.id,
+                query: query.clone(),
+            })
+            .await
+        {
             Ok(Reply::CodeSearch(r)) => Ok(r),
             // A host built before the call: the app scans the definitions.
             Err(Error::Unsupported(_)) => Ok(None),
@@ -1358,8 +2070,18 @@ impl Session for RemoteSession {
             Ok(_) => Err(unexpected()),
         }
     }
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
-        match self.host.call(Call::IndexUsage { session: self.id, table: table.clone() }).await {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        match self
+            .host
+            .call(Call::IndexUsage {
+                session: self.id,
+                table: table.clone(),
+            })
+            .await
+        {
             Ok(Reply::IndexUsage(r)) => Ok(r),
             // A host built before the call: not reported.
             Err(Error::Unsupported(_)) => Ok(None),
@@ -1367,11 +2089,25 @@ impl Session for RemoteSession {
             Ok(_) => Err(unexpected()),
         }
     }
-    async fn dependents(&mut self, target: &dbine_driver::DependencyTarget, scan: &dbine_driver::DependencyScan) -> Result<dbine_driver::DependencyReport> {
-        match self.host.call(Call::Dependents { session: self.id, target: target.clone(), scan: scan.clone() }).await {
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        match self
+            .host
+            .call(Call::Dependents {
+                session: self.id,
+                target: target.clone(),
+                scan: scan.clone(),
+            })
+            .await
+        {
             Ok(Reply::Dependents(r)) => Ok(r),
             // A host built before the call: the generic scan, through its other calls.
-            Err(Error::Unsupported(_)) => dbine_driver::dependencies::scan(self, target, scan).await,
+            Err(Error::Unsupported(_)) => {
+                dbine_driver::dependencies::scan(self, target, scan).await
+            }
             Err(e) => Err(e),
             Ok(_) => Err(unexpected()),
         }
@@ -1409,25 +2145,51 @@ mod tests {
     /// A host published before `ReadBatches`: `cat` echoes the app's calls
     /// back to this thread, which answers them through `out`.
     fn old_host(rows: u64) -> Arc<Host> {
-        let mut child = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         let stdin = BufWriter::new(child.stdin.take().unwrap());
         let mut calls = BufReader::new(child.stdout.take().unwrap());
         let (theirs, ours) = UnixStream::pair().unwrap();
         let out: Out = Arc::new(Mutex::new(ours));
         std::thread::spawn(move || {
             while let Ok(Some(msg)) = read_frame::<ToHost>(&mut calls) {
-                let ToHost::Call { id, call } = msg else { continue };
+                let ToHost::Call { id, call } = msg else {
+                    continue;
+                };
                 match call {
-                    Call::ReadBatches { .. } => reply(&out, id, Err(WireError::from(&Error::Unsupported("versión vieja".into())))),
-                    Call::BrowseQuery { .. } => reply(&out, id, Ok(Reply::Text("SELECT * FROM t".into()))),
+                    Call::ReadBatches { .. } => reply(
+                        &out,
+                        id,
+                        Err(WireError::from(&Error::Unsupported("versión vieja".into()))),
+                    ),
+                    Call::BrowseQuery { .. } => {
+                        reply(&out, id, Ok(Reply::Text("SELECT * FROM t".into())))
+                    }
                     Call::ServerVersion { .. } => reply(&out, id, Ok(Reply::Text("1".into()))),
                     Call::Execute { .. } => {
                         let out = out.clone();
                         std::thread::spawn(move || {
-                            let columns = vec![ResultColumn { name: "id".into(), type_name: String::new() }];
-                            let _ = write_frame(&mut *out.lock().unwrap(), &FromHost::SinkBegin { id, index: 0, columns });
+                            let columns = vec![ResultColumn {
+                                name: "id".into(),
+                                type_name: String::new(),
+                            }];
+                            let _ = write_frame(
+                                &mut *out.lock().unwrap(),
+                                &FromHost::SinkBegin {
+                                    id,
+                                    index: 0,
+                                    columns,
+                                },
+                            );
                             for i in 0..rows {
-                                let row = FromHost::SinkRow { id, index: 0, row: vec![serde_json::json!(i)] };
+                                let row = FromHost::SinkRow {
+                                    id,
+                                    index: 0,
+                                    row: vec![serde_json::json!(i)],
+                                };
                                 if write_frame(&mut *out.lock().unwrap(), &row).is_err() {
                                     return;
                                 }
@@ -1458,7 +2220,11 @@ mod tests {
         enum OldToHost {
             Call { id: u64, call: OldCall },
         }
-        let mut child = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         let stdin = BufWriter::new(child.stdin.take().unwrap());
         let mut calls = BufReader::new(child.stdout.take().unwrap());
         let (theirs, ours) = UnixStream::pair().unwrap();
@@ -1466,10 +2232,15 @@ mod tests {
         std::thread::spawn(move || {
             while let Ok(Some(body)) = crate::proto::read_raw(&mut calls) {
                 match rmp_serde::from_slice::<OldToHost>(&body) {
-                    Ok(OldToHost::Call { id, call: OldCall::ServerVersion { .. } }) => reply(&out, id, Ok(Reply::Text("1".into()))),
+                    Ok(OldToHost::Call {
+                        id,
+                        call: OldCall::ServerVersion { .. },
+                    }) => reply(&out, id, Ok(Reply::Text("1".into()))),
                     Err(_) => {
                         if let Some((id, name)) = crate::proto::unknown_call(&body) {
-                            let e = Error::Unsupported(format!("esta versión del driver no tiene «{name}»"));
+                            let e = Error::Unsupported(format!(
+                                "esta versión del driver no tiene «{name}»"
+                            ));
                             reply(&out, id, Err(WireError::from(&e)));
                         }
                     }
@@ -1477,9 +2248,18 @@ mod tests {
             }
         });
         let host = Host::attach("viejo", "", stdin, BufReader::new(theirs), child);
-        let mut s = RemoteSession { host, id: 1, interruptible: false };
+        let mut s = RemoteSession {
+            host,
+            id: 1,
+            interruptible: false,
+        };
         let mut out = QueryOutcome::default();
-        let r = tokio::time::timeout(Duration::from_secs(5), s.run_read_only("SELECT 1", 10, &mut out)).await.unwrap();
+        let r = tokio::time::timeout(
+            Duration::from_secs(5),
+            s.run_read_only("SELECT 1", 10, &mut out),
+        )
+        .await
+        .unwrap();
         assert!(matches!(r, Err(Error::Unsupported(_))), "{r:?}");
         assert!(out.results.is_empty());
         // The channel is still up.
@@ -1523,13 +2303,32 @@ mod tests {
     async fn an_old_hosts_fallback_read_leaves_the_reader_free() {
         let rows = 5_000;
         let host = old_host(rows);
-        let mut reader = RemoteSession { host: host.clone(), id: 1, interruptible: false };
-        let mut other = RemoteSession { host: host.clone(), id: 2, interruptible: false };
+        let mut reader = RemoteSession {
+            host: host.clone(),
+            id: 1,
+            interruptible: false,
+        };
+        let mut other = RemoteSession {
+            host: host.clone(),
+            id: 2,
+            interruptible: false,
+        };
         let gate = Arc::new(Gate::default());
-        let held = Arc::new(Mutex::new(Held { gate: gate.clone(), rows: 0 }));
+        let held = Arc::new(Mutex::new(Held {
+            gate: gate.clone(),
+            rows: 0,
+        }));
         let sink: BatchSinkRef = held.clone();
         let read = tokio::spawn(async move {
-            let spec = ReadSpec { table: ObjectRef { kind: "table".into(), schema: None, name: "t".into() }, columns: None, filter: None };
+            let spec = ReadSpec {
+                table: ObjectRef {
+                    kind: "table".into(),
+                    schema: None,
+                    name: "t".into(),
+                },
+                columns: None,
+                filter: None,
+            };
             reader.read_batches(&spec, sink).await
         });
         {
@@ -1548,7 +2347,10 @@ mod tests {
         // Let the sink go before asserting, so a failure doesn't hang the test.
         gate.state.lock().unwrap().1 = true;
         gate.cv.notify_all();
-        assert!(matches!(answered, Ok(Ok(ref v)) if v == "1"), "the other call got no reply: {answered:?}");
+        assert!(
+            matches!(answered, Ok(Ok(ref v)) if v == "1"),
+            "the other call got no reply: {answered:?}"
+        );
         assert_eq!(read.await.unwrap().unwrap(), rows);
         assert_eq!(held.lock().unwrap().rows as u64, rows);
     }
@@ -1564,14 +2366,50 @@ mod tests {
             m(&mut v);
             v
         };
-        std::fs::write(data.join("ready.bin"), frame(&|v| write_frame(v, &Ready { protocol: PROTOCOL, version: version.into(), drivers: vec![] }).unwrap())).unwrap();
+        std::fs::write(
+            data.join("ready.bin"),
+            frame(&|v| {
+                write_frame(
+                    v,
+                    &Ready {
+                        protocol: PROTOCOL,
+                        version: version.into(),
+                        drivers: vec![],
+                    },
+                )
+                .unwrap()
+            }),
+        )
+        .unwrap();
         for (i, r) in replies.iter().enumerate() {
             let id = i as u64 + 1;
             let bytes = match r {
-                Reply::Session { id: s, interruptible } => {
-                    frame(&|v| write_frame(v, &FromHost::Reply { id, result: Ok(Reply::Session { id: *s, interruptible: *interruptible }) }).unwrap())
-                }
-                Reply::Text(t) => frame(&|v| write_frame(v, &FromHost::Reply { id, result: Ok(Reply::Text(t.clone())) }).unwrap()),
+                Reply::Session {
+                    id: s,
+                    interruptible,
+                } => frame(&|v| {
+                    write_frame(
+                        v,
+                        &FromHost::Reply {
+                            id,
+                            result: Ok(Reply::Session {
+                                id: *s,
+                                interruptible: *interruptible,
+                            }),
+                        },
+                    )
+                    .unwrap()
+                }),
+                Reply::Text(t) => frame(&|v| {
+                    write_frame(
+                        v,
+                        &FromHost::Reply {
+                            id,
+                            result: Ok(Reply::Text(t.clone())),
+                        },
+                    )
+                    .unwrap()
+                }),
                 _ => unreachable!(),
             };
             std::fs::write(data.join(format!("reply-{id}.bin")), bytes).unwrap();
@@ -1589,7 +2427,11 @@ mod tests {
              while frame() is not None:\n    k += 1\n    p = os.path.join(d, 'reply-%d.bin' % k)\n    if os.path.exists(p):\n        o.write(open(p, 'rb').read()); o.flush()\n",
         )
         .unwrap();
-        script(dir, name, &format!("exec python3 {} {}", py.display(), data.display()))
+        script(
+            dir,
+            name,
+            &format!("exec python3 {} {}", py.display(), data.display()),
+        )
     }
 
     fn script(dir: &std::path::Path, name: &str, body: &str) -> PathBuf {
@@ -1601,7 +2443,11 @@ mod tests {
     }
 
     fn target(exe: &std::path::Path, id: &str) -> Target {
-        Target { exe: exe.to_path_buf(), id: Some(id.into()), check_version: true }
+        Target {
+            exe: exe.to_path_buf(),
+            id: Some(id.into()),
+            check_version: true,
+        }
     }
 
     /// The test's source: gives `now`; a bad host switches it to `fallback`.
@@ -1625,7 +2471,11 @@ mod tests {
     }
 
     fn src(now: Target, fallback: Option<Target>) -> Arc<Src> {
-        Arc::new(Src { now: Mutex::new(now), fallback, bad: Mutex::new(Vec::new()) })
+        Arc::new(Src {
+            now: Mutex::new(now),
+            fallback,
+            bad: Mutex::new(Vec::new()),
+        })
     }
 
     fn text(r: Result<Reply>) -> String {
@@ -1639,7 +2489,15 @@ mod tests {
     #[tokio::test]
     async fn a_new_version_serves_new_connections_and_the_old_one_keeps_its_sessions() {
         let dir = tempfile::tempdir().unwrap();
-        let replies = |t: &str| [Reply::Session { id: 1, interruptible: false }, Reply::Text(t.into())];
+        let replies = |t: &str| {
+            [
+                Reply::Session {
+                    id: 1,
+                    interruptible: false,
+                },
+                Reply::Text(t.into()),
+            ]
+        };
         let a = fake_host(dir.path(), "a", "1.0.0+p1.e3", &replies("A"));
         let b = fake_host(dir.path(), "b", "1.0.1+p1.e3", &replies("B"));
         let source = src(target(&a, "1.0.0+p1.e3"), None);
@@ -1648,7 +2506,10 @@ mod tests {
         let old = launcher.get().await.unwrap();
         assert_eq!(old.version(), "1.0.0+p1.e3");
         assert_eq!(text(old.call(Call::Manifest).await), "session 1");
-        assert!(Arc::ptr_eq(&old, &launcher.get().await.unwrap()), "same version: same host");
+        assert!(
+            Arc::ptr_eq(&old, &launcher.get().await.unwrap()),
+            "same version: same host"
+        );
 
         // The update: the next connection gets B.
         *source.now.lock().unwrap() = target(&b, "1.0.1+p1.e3");
@@ -1671,14 +2532,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let broken = script(dir.path(), "broken", "exit 3");
         let prev = fake_host(dir.path(), "prev", "1.0.0+p1.e3", &[]);
-        let source = src(target(&broken, "1.0.1+p1.e3"), Some(target(&prev, "1.0.0+p1.e3")));
+        let source = src(
+            target(&broken, "1.0.1+p1.e3"),
+            Some(target(&prev, "1.0.0+p1.e3")),
+        );
         let launcher = Launcher::new("fake", None, source.clone());
         let h = launcher.get().await.unwrap();
         assert_eq!(h.version(), "1.0.0+p1.e3");
         let bad = source.bad.lock().unwrap().clone();
         assert_eq!(bad.len(), 1);
         assert_eq!(bad[0].0, "1.0.1+p1.e3");
-        assert!(bad[0].1.contains("se cerró antes de estar listo"), "{}", bad[0].1);
+        assert!(
+            bad[0].1.contains("se cerró antes de estar listo"),
+            "{}",
+            bad[0].1
+        );
     }
 
     #[tokio::test]
@@ -1686,12 +2554,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let liar = fake_host(dir.path(), "liar", "0.9.0+p1.e3", &[]);
         let prev = fake_host(dir.path(), "prev", "1.0.0+p1.e3", &[]);
-        let source = src(target(&liar, "1.0.1+p1.e3"), Some(target(&prev, "1.0.0+p1.e3")));
+        let source = src(
+            target(&liar, "1.0.1+p1.e3"),
+            Some(target(&prev, "1.0.0+p1.e3")),
+        );
         let launcher = Launcher::new("fake", None, source.clone());
         assert_eq!(launcher.get().await.unwrap().version(), "1.0.0+p1.e3");
         let bad = source.bad.lock().unwrap().clone();
         assert_eq!(bad.len(), 1);
-        assert!(bad[0].1.contains("dice ser la versión 0.9.0+p1.e3"), "{}", bad[0].1);
+        assert!(
+            bad[0].1.contains("dice ser la versión 0.9.0+p1.e3"),
+            "{}",
+            bad[0].1
+        );
 
         // Without anything else to go to, the error reaches the connection.
         let source = src(target(&liar, "1.0.1+p1.e3"), None);
@@ -1700,7 +2575,20 @@ mod tests {
         assert_eq!(source.bad.lock().unwrap().len(), 1);
 
         // Unchecked (the app's own version): taken as it is.
-        let source = src(Target { check_version: false, ..target(&liar, "1.0.1+p1.e3") }, None);
-        assert_eq!(Launcher::new("fake", None, source).get().await.unwrap().version(), "0.9.0+p1.e3");
+        let source = src(
+            Target {
+                check_version: false,
+                ..target(&liar, "1.0.1+p1.e3")
+            },
+            None,
+        );
+        assert_eq!(
+            Launcher::new("fake", None, source)
+                .get()
+                .await
+                .unwrap()
+                .version(),
+            "0.9.0+p1.e3"
+        );
     }
 }

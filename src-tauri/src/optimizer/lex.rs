@@ -45,15 +45,50 @@ pub struct Flavor {
 impl Flavor {
     pub fn for_dialect(dialect: &str) -> Self {
         match dialect {
-            "mssql" | "sybase" | "access" => Self { brackets: true, ..Self::default() },
-            "mysql" => Self { backticks: true, backslash_escapes: true, hash_comments: true, double_quoted_strings: true, ..Self::default() },
-            "bigquery" => Self { backticks: true, backslash_escapes: true, double_quoted_strings: true, ..Self::default() },
-            "clickhouse" => Self { backticks: true, backslash_escapes: true, ..Self::default() },
-            "hive" | "sparksql" | "databricks" => Self { backticks: true, backslash_escapes: true, ..Self::default() },
-            "postgres" | "standard" => Self { dollar_quotes: true, ..Self::default() },
-            "oracle" => Self { q_quotes: true, ..Self::default() },
-            "sqlite" => Self { brackets: true, backticks: true, ..Self::default() },
-            _ => Self { backticks: true, ..Self::default() },
+            "mssql" | "sybase" | "access" => Self {
+                brackets: true,
+                ..Self::default()
+            },
+            "mysql" => Self {
+                backticks: true,
+                backslash_escapes: true,
+                hash_comments: true,
+                double_quoted_strings: true,
+                ..Self::default()
+            },
+            "bigquery" => Self {
+                backticks: true,
+                backslash_escapes: true,
+                double_quoted_strings: true,
+                ..Self::default()
+            },
+            "clickhouse" => Self {
+                backticks: true,
+                backslash_escapes: true,
+                ..Self::default()
+            },
+            "hive" | "sparksql" | "databricks" => Self {
+                backticks: true,
+                backslash_escapes: true,
+                ..Self::default()
+            },
+            "postgres" | "standard" => Self {
+                dollar_quotes: true,
+                ..Self::default()
+            },
+            "oracle" => Self {
+                q_quotes: true,
+                ..Self::default()
+            },
+            "sqlite" => Self {
+                brackets: true,
+                backticks: true,
+                ..Self::default()
+            },
+            _ => Self {
+                backticks: true,
+                ..Self::default()
+            },
         }
     }
 }
@@ -113,7 +148,16 @@ pub fn lex(src: &str, f: Flavor) -> Vec<Tok> {
             }
             b'"' => {
                 i = quoted_end(b, i, b'"', f.double_quoted_strings && f.backslash_escapes);
-                push(&mut out, if f.double_quoted_strings { Kind::Str } else { Kind::Ident }, start, i);
+                push(
+                    &mut out,
+                    if f.double_quoted_strings {
+                        Kind::Str
+                    } else {
+                        Kind::Ident
+                    },
+                    start,
+                    i,
+                );
             }
             b'`' if f.backticks => {
                 i = quoted_end(b, i, b'`', false);
@@ -126,7 +170,9 @@ pub fn lex(src: &str, f: Flavor) -> Vec<Tok> {
             b'$' if f.dollar_quotes && dollar_tag(b, i).is_some() => {
                 let tag_end = dollar_tag(b, i).unwrap_or(i + 1);
                 let tag = &src[i..tag_end];
-                i = src[tag_end..].find(tag).map_or(b.len(), |p| tag_end + p + tag.len());
+                i = src[tag_end..]
+                    .find(tag)
+                    .map_or(b.len(), |p| tag_end + p + tag.len());
                 push(&mut out, Kind::Str, start, i);
             }
             b'$' if next.is_some_and(|n| n.is_ascii_digit()) => {
@@ -153,7 +199,9 @@ pub fn lex(src: &str, f: Flavor) -> Vec<Tok> {
                 push(&mut out, Kind::Semi, start, i);
             }
             b'.' if next.is_some_and(|n| n.is_ascii_digit())
-                && !out.last().is_some_and(|t| matches!(t.kind, Kind::Word | Kind::Ident | Kind::RParen) && t.end == i) =>
+                && !out.last().is_some_and(|t| {
+                    matches!(t.kind, Kind::Word | Kind::Ident | Kind::RParen) && t.end == i
+                }) =>
             {
                 i = number_end(b, i);
                 push(&mut out, Kind::Num, start, i);
@@ -170,7 +218,9 @@ pub fn lex(src: &str, f: Flavor) -> Vec<Tok> {
                 i += 1;
                 push(&mut out, Kind::Param, start, i);
             }
-            b':' if next.is_some_and(|n| n.is_ascii_alphabetic() || n == b'_') && !out.last().is_some_and(|t| t.end == i && t.kind == Kind::Op) => {
+            b':' if next.is_some_and(|n| n.is_ascii_alphabetic() || n == b'_')
+                && !out.last().is_some_and(|t| t.end == i && t.kind == Kind::Op) =>
+            {
                 i += 1;
                 while i < b.len() && word_byte(b[i]) {
                     i += 1;
@@ -197,13 +247,19 @@ pub fn lex(src: &str, f: Flavor) -> Vec<Tok> {
                         push(&mut out, Kind::Str, start, i);
                         continue;
                     }
-                    if matches!(lw.as_str(), "n" | "e" | "x" | "b" | "r" | "_utf8mb4" | "_utf8") {
+                    if matches!(
+                        lw.as_str(),
+                        "n" | "e" | "x" | "b" | "r" | "_utf8mb4" | "_utf8"
+                    ) {
                         i = quoted_end(b, i, b'\'', f.backslash_escapes || lw == "e");
                         push(&mut out, Kind::Str, start, i);
                         continue;
                     }
                 }
-                if w.eq_ignore_ascii_case("u") && b.get(i) == Some(&b'&') && b.get(i + 1) == Some(&b'\'') {
+                if w.eq_ignore_ascii_case("u")
+                    && b.get(i) == Some(&b'&')
+                    && b.get(i + 1) == Some(&b'\'')
+                {
                     i = quoted_end(b, i + 1, b'\'', false);
                     push(&mut out, Kind::Str, start, i);
                     continue;
@@ -211,8 +267,13 @@ pub fn lex(src: &str, f: Flavor) -> Vec<Tok> {
                 push(&mut out, Kind::Word, start, i);
             }
             _ => {
-                const OPS: &[&str] = &["<=>", "->>", "<=", ">=", "<>", "!=", "||", "::", "->", "=>", "**", "!<", "!>"];
-                let op = OPS.iter().find(|o| src[i..].starts_with(*o)).map_or(1, |o| o.len());
+                const OPS: &[&str] = &[
+                    "<=>", "->>", "<=", ">=", "<>", "!=", "||", "::", "->", "=>", "**", "!<", "!>",
+                ];
+                let op = OPS
+                    .iter()
+                    .find(|o| src[i..].starts_with(*o))
+                    .map_or(1, |o| o.len());
                 // A multi-byte character that isn't a word (a stray symbol).
                 let mut end = i + op;
                 while !src.is_char_boundary(end) {
@@ -272,7 +333,9 @@ fn number_end(b: &[u8], mut i: usize) -> usize {
 
 /// Oracle's `q'[ … ]'` starting at the quote after `q`.
 fn q_quote_end(b: &[u8], i: usize) -> usize {
-    let Some(&open) = b.get(i + 1) else { return b.len() };
+    let Some(&open) = b.get(i + 1) else {
+        return b.len();
+    };
     let close = match open {
         b'[' => b']',
         b'(' => b')',
@@ -315,12 +378,18 @@ mod tests {
     use super::*;
 
     fn kinds(src: &str, f: Flavor) -> Vec<(Kind, &str)> {
-        lex(src, f).into_iter().map(|t| (t.kind, &src[t.start..t.end])).collect()
+        lex(src, f)
+            .into_iter()
+            .map(|t| (t.kind, &src[t.start..t.end]))
+            .collect()
     }
 
     #[test]
     fn words_strings_and_punctuation() {
-        let k = kinds("SELECT a.b, 'it''s' FROM t -- x\nWHERE c >= 1.5e3;", Flavor::default());
+        let k = kinds(
+            "SELECT a.b, 'it''s' FROM t -- x\nWHERE c >= 1.5e3;",
+            Flavor::default(),
+        );
         assert_eq!(
             k,
             vec![
@@ -344,10 +413,29 @@ mod tests {
     #[test]
     fn quoting_per_dialect() {
         let ms = kinds("[dbo].[my t] = N'x'", Flavor::for_dialect("mssql"));
-        assert_eq!(ms, vec![(Kind::Ident, "[dbo]"), (Kind::Dot, "."), (Kind::Ident, "[my t]"), (Kind::Op, "="), (Kind::Str, "N'x'")]);
+        assert_eq!(
+            ms,
+            vec![
+                (Kind::Ident, "[dbo]"),
+                (Kind::Dot, "."),
+                (Kind::Ident, "[my t]"),
+                (Kind::Op, "="),
+                (Kind::Str, "N'x'")
+            ]
+        );
         let my = kinds("`a` = \"b\\\"c\" # c\n", Flavor::for_dialect("mysql"));
-        assert_eq!(my, vec![(Kind::Ident, "`a`"), (Kind::Op, "="), (Kind::Str, "\"b\\\"c\"")]);
-        let pg = kinds("x = $$a;b$$ AND y = $1::int", Flavor::for_dialect("postgres"));
+        assert_eq!(
+            my,
+            vec![
+                (Kind::Ident, "`a`"),
+                (Kind::Op, "="),
+                (Kind::Str, "\"b\\\"c\"")
+            ]
+        );
+        let pg = kinds(
+            "x = $$a;b$$ AND y = $1::int",
+            Flavor::for_dialect("postgres"),
+        );
         assert_eq!(
             pg,
             vec![
@@ -363,13 +451,34 @@ mod tests {
             ]
         );
         let ora = kinds("q'[it's]' || :p", Flavor::for_dialect("oracle"));
-        assert_eq!(ora, vec![(Kind::Str, "q'[it's]'"), (Kind::Op, "||"), (Kind::Param, ":p")]);
+        assert_eq!(
+            ora,
+            vec![
+                (Kind::Str, "q'[it's]'"),
+                (Kind::Op, "||"),
+                (Kind::Param, ":p")
+            ]
+        );
     }
 
     #[test]
     fn comments_are_skipped_and_numbers_after_names_are_dots() {
-        let k = kinds("/* a */ t.1 , .5 @v @@rowcount", Flavor::for_dialect("mssql"));
-        assert_eq!(k, vec![(Kind::Word, "t"), (Kind::Dot, "."), (Kind::Num, "1"), (Kind::Comma, ","), (Kind::Num, ".5"), (Kind::Param, "@v"), (Kind::Param, "@@rowcount")]);
+        let k = kinds(
+            "/* a */ t.1 , .5 @v @@rowcount",
+            Flavor::for_dialect("mssql"),
+        );
+        assert_eq!(
+            k,
+            vec![
+                (Kind::Word, "t"),
+                (Kind::Dot, "."),
+                (Kind::Num, "1"),
+                (Kind::Comma, ","),
+                (Kind::Num, ".5"),
+                (Kind::Param, "@v"),
+                (Kind::Param, "@@rowcount")
+            ]
+        );
     }
 
     #[test]

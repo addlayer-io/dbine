@@ -24,7 +24,10 @@ fn cfg() -> Option<ConnectionConfig> {
         password: Some(PASS.into()),
         ..Default::default()
     };
-    c.options.insert("mgmt_port".into(), std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()));
+    c.options.insert(
+        "mgmt_port".into(),
+        std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()),
+    );
     Some(c)
 }
 
@@ -36,7 +39,10 @@ async fn couchbase_options() {
         return;
     };
     let mgmt = format!("http://{}:{}", c.host, c.options["mgmt_port"]);
-    let d = dbine_driver_couchbase::drivers().into_iter().next().unwrap();
+    let d = dbine_driver_couchbase::drivers()
+        .into_iter()
+        .next()
+        .unwrap();
     let mut s = d.connect(&c, None).await.unwrap();
     let _ = s.drop_database("dbine_create_opts").await;
     let choices = s.create_database_choices().await.unwrap();
@@ -54,8 +60,13 @@ async fn couchbase_options() {
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &o).unwrap());
-    s.create_database_with("dbine_create_opts", &o).await.unwrap();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &o).unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &o)
+        .await
+        .unwrap();
     let b: Value = reqwest::Client::new()
         .get(format!("{mgmt}/pools/default/buckets/dbine_create_opts"))
         .basic_auth(USER, Some(PASS))
@@ -79,6 +90,8 @@ async fn couchbase_options() {
     }
 
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }

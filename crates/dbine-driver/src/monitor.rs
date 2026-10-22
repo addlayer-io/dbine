@@ -116,7 +116,9 @@ mod tests {
 
     #[test]
     fn builders() {
-        let m = Metric::new("q", "Consultas", "Actividad", MetricUnit::Count, Some(3.0)).counter().max(Some(9.0));
+        let m = Metric::new("q", "Consultas", "Actividad", MetricUnit::Count, Some(3.0))
+            .counter()
+            .max(Some(9.0));
         assert!(m.counter);
         assert_eq!(m.max, Some(9.0));
         assert_eq!(num(" 12.5% "), Some(12.5));

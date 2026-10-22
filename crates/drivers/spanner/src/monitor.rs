@@ -53,7 +53,12 @@ pub(crate) fn rfc3339(secs: u64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 /// The latest point of an aggregated `timeSeries.list` answer.
@@ -62,9 +67,13 @@ pub(crate) fn latest_point(v: &Json) -> Option<f64> {
     let mut total = None;
     for s in series {
         let p = s.get("points")?.as_array()?.first()?;
-        let val = p.pointer("/value/doubleValue").and_then(Json::as_f64).or_else(|| {
-            p.pointer("/value/int64Value").and_then(|x| x.as_str().and_then(|s| s.parse().ok()).or(x.as_f64()))
-        })?;
+        let val = p
+            .pointer("/value/doubleValue")
+            .and_then(Json::as_f64)
+            .or_else(|| {
+                p.pointer("/value/int64Value")
+                    .and_then(|x| x.as_str().and_then(|s| s.parse().ok()).or(x.as_f64()))
+            })?;
         *total.get_or_insert(0.0) += val;
     }
     total
@@ -73,8 +82,16 @@ pub(crate) fn latest_point(v: &Json) -> Option<f64> {
 impl SpannerSession {
     /// The last minute of a Cloud Monitoring metric of this instance,
     /// summed over its series.
-    async fn monitoring(&self, project: &str, instance_id: &str, metric: &str) -> Result<Option<f64>> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    async fn monitoring(
+        &self,
+        project: &str,
+        instance_id: &str,
+        metric: &str,
+    ) -> Result<Option<f64>> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let filter = format!("metric.type=\"spanner.googleapis.com/{metric}\" AND resource.labels.instance_id=\"{instance_id}\"");
         let url = reqwest::Url::parse_with_params(
             &format!("{MONITORING}/v3/projects/{project}/timeSeries"),
@@ -93,7 +110,12 @@ impl SpannerSession {
     }
 
     /// A SPANNER_SYS query; on failure, a note and no rows.
-    async fn sys(&mut self, what: &str, sql: &str, failures: &mut Vec<String>) -> Vec<Vec<Option<String>>> {
+    async fn sys(
+        &mut self,
+        what: &str,
+        sql: &str,
+        failures: &mut Vec<String>,
+    ) -> Vec<Vec<Option<String>>> {
         match self.text_rows(sql, &[]).await {
             Ok(r) => r,
             Err(e) => {
@@ -111,9 +133,15 @@ impl SpannerSession {
         // Instance and database.
         let inst = self.api.get(&self.instance).await?;
         let s = |v: &Json, k: &str| v.get(k).and_then(Json::as_str).map(str::to_string);
-        snap.info.push(("Instancia".into(), s(&inst, "displayName").unwrap_or_else(|| self.instance.clone())));
+        snap.info.push((
+            "Instancia".into(),
+            s(&inst, "displayName").unwrap_or_else(|| self.instance.clone()),
+        ));
         if let Some(c) = s(&inst, "config") {
-            snap.info.push(("Configuración".into(), c.rsplit('/').next().unwrap_or(&c).to_string()));
+            snap.info.push((
+                "Configuración".into(),
+                c.rsplit('/').next().unwrap_or(&c).to_string(),
+            ));
         }
         if let Some(e) = s(&inst, "edition") {
             snap.info.push(("Edición".into(), e));
@@ -123,11 +151,19 @@ impl SpannerSession {
             snap.info.push(("Nodos".into(), n.to_string()));
         }
         if let Some(p) = pu {
-            snap.info.push(("Unidades de procesamiento".into(), p.to_string()));
+            snap.info
+                .push(("Unidades de procesamiento".into(), p.to_string()));
         }
         if let Ok(db) = self.api.get(&self.database).await {
             if let Some(d) = s(&db, "databaseDialect") {
-                snap.info.push(("Dialecto".into(), if d == "POSTGRESQL" { "PostgreSQL".into() } else { "GoogleSQL".into() }));
+                snap.info.push((
+                    "Dialecto".into(),
+                    if d == "POSTGRESQL" {
+                        "PostgreSQL".into()
+                    } else {
+                        "GoogleSQL".into()
+                    },
+                ));
             }
             if let Some(r) = s(&db, "versionRetentionPeriod") {
                 snap.info.push(("Retención de versiones".into(), r));
@@ -151,7 +187,10 @@ impl SpannerSession {
             )
             .await;
         if let Some(r) = summary.first() {
-            for (k, v) in ["active", "older_1s", "older_10s", "older_100s"].into_iter().zip(r) {
+            for (k, v) in ["active", "older_1s", "older_10s", "older_100s"]
+                .into_iter()
+                .zip(r)
+            {
                 if let Some(v) = f(v) {
                     m.insert(k, v);
                 }
@@ -168,15 +207,29 @@ impl SpannerSession {
         let mut t = MonitorTable::new(
             "queries",
             "Consultas en curso",
-            &["Id", "Sesión", "Inicio", "Cliente", "Agente", "Prioridad", "Transacción", "Consulta"],
+            &[
+                "Id",
+                "Sesión",
+                "Inicio",
+                "Cliente",
+                "Agente",
+                "Prioridad",
+                "Transacción",
+                "Consulta",
+            ],
         );
         for r in active.iter().filter(|r| r.len() == 8) {
             // Leave out this very query.
-            if r[7].as_deref().is_some_and(|q| q.contains("SPANNER_SYS.OLDEST_ACTIVE_QUERIES")) {
+            if r[7]
+                .as_deref()
+                .is_some_and(|q| q.contains("SPANNER_SYS.OLDEST_ACTIVE_QUERIES"))
+            {
                 m.entry("active").and_modify(|v| *v = (*v - 1.0).max(0.0));
                 continue;
             }
-            let session = r[1].as_deref().map(|s| s.rsplit('/').next().unwrap_or(s).to_string());
+            let session = r[1]
+                .as_deref()
+                .map(|s| s.rsplit('/').next().unwrap_or(s).to_string());
             t.rows.push(vec![
                 cell(&r[0]),
                 cell(&session),
@@ -259,7 +312,14 @@ impl SpannerSession {
         let mut t = MonitorTable::new(
             "top_queries",
             "Consultas más costosas (último minuto)",
-            &["Consulta", "Ejecuciones", "Latencia prom. (s)", "CPU prom. (s)", "Filas escaneadas prom.", "Bytes prom."],
+            &[
+                "Consulta",
+                "Ejecuciones",
+                "Latencia prom. (s)",
+                "CPU prom. (s)",
+                "Filas escaneadas prom.",
+                "Bytes prom.",
+            ],
         );
         for r in top.iter().filter(|r| r.len() == 6) {
             t.rows.push(vec![
@@ -285,10 +345,24 @@ impl SpannerSession {
         let mut t = MonitorTable::new(
             "transactions",
             "Transacciones principales (último minuto)",
-            &["Huella", "Columnas leídas", "Columnas escritas", "Intentos de commit", "Abortos", "Latencia prom. (s)"],
+            &[
+                "Huella",
+                "Columnas leídas",
+                "Columnas escritas",
+                "Intentos de commit",
+                "Abortos",
+                "Latencia prom. (s)",
+            ],
         );
         for r in top_txn.iter().filter(|r| r.len() == 6) {
-            t.rows.push(vec![cell(&r[0]), cell(&r[1]), cell(&r[2]), cell_num(&r[3]), cell_num(&r[4]), cell_num(&r[5])]);
+            t.rows.push(vec![
+                cell(&r[0]),
+                cell(&r[1]),
+                cell(&r[2]),
+                cell_num(&r[3]),
+                cell_num(&r[4]),
+                cell_num(&r[5]),
+            ]);
         }
         snap.tables.push(t);
         let top_locks = self
@@ -300,9 +374,17 @@ impl SpannerSession {
                 &mut failures,
             )
             .await;
-        let mut t = MonitorTable::new("locks", "Esperas por bloqueos (último minuto)", &["Clave inicial", "Espera (s)", "Solicitudes de muestra"]);
+        let mut t = MonitorTable::new(
+            "locks",
+            "Esperas por bloqueos (último minuto)",
+            &["Clave inicial", "Espera (s)", "Solicitudes de muestra"],
+        );
         for r in top_locks.iter().filter(|r| r.len() == 3) {
-            t.rows.push(vec![cell(&r[0]), cell_num(&r[1]), json!(truncate(r[2].as_deref().unwrap_or("")))]);
+            t.rows.push(vec![
+                cell(&r[0]),
+                cell_num(&r[1]),
+                json!(truncate(r[2].as_deref().unwrap_or(""))),
+            ]);
         }
         snap.tables.push(t);
 
@@ -317,8 +399,18 @@ impl SpannerSession {
             )
             .await;
         if !sizes.is_empty() {
-            m.insert("db_bytes", sizes.iter().filter_map(|r| r.get(1).and_then(f)).fold(0.0, |a, b| a + b));
-            let mut t = MonitorTable::new("top_objects", "Tablas más grandes", &["Tabla", "Bytes usados"]);
+            m.insert(
+                "db_bytes",
+                sizes
+                    .iter()
+                    .filter_map(|r| r.get(1).and_then(f))
+                    .fold(0.0, |a, b| a + b),
+            );
+            let mut t = MonitorTable::new(
+                "top_objects",
+                "Tablas más grandes",
+                &["Tabla", "Bytes usados"],
+            );
             for r in sizes.iter().filter(|r| r.len() == 2).take(20) {
                 t.rows.push(vec![cell(&r[0]), cell_num(&r[1])]);
             }
@@ -328,7 +420,10 @@ impl SpannerSession {
         // The instance's CPU and storage, from Cloud Monitoring.
         if !emulated {
             let mut parts = self.instance.split('/');
-            let (project, instance_id) = (parts.nth(1).unwrap_or("").to_string(), parts.nth(1).unwrap_or("").to_string());
+            let (project, instance_id) = (
+                parts.nth(1).unwrap_or("").to_string(),
+                parts.nth(1).unwrap_or("").to_string(),
+            );
             match self.monitoring(&project, &instance_id, "instance/cpu/utilization").await {
                 Ok(v) => {
                     if let Some(v) = v {
@@ -346,27 +441,114 @@ impl SpannerSession {
                 )),
             }
         } else {
-            snap.notes.push("El emulador no tiene Cloud Monitoring: sin CPU ni almacenamiento de la instancia.".into());
+            snap.notes.push(
+                "El emulador no tiene Cloud Monitoring: sin CPU ni almacenamiento de la instancia."
+                    .into(),
+            );
         }
 
         let g = |k: &str| m.get(k).copied();
         snap.metrics = vec![
-            Metric::new("cpu", "CPU de la instancia", "CPU", MetricUnit::Percent, g("cpu").map(|v| (v * 10.0).round() / 10.0))
-                .max(Some(100.0)),
-            Metric::new("query_cpu", "CPU de consultas (último minuto, % de un núcleo)", "CPU", MetricUnit::Percent, g("q_cpu")),
-            Metric::new("active_sessions", "Consultas activas", "Conexiones", MetricUnit::Count, g("active")),
-            Metric::new("slow_queries", "Consultas activas hace más de 10 s", "Conexiones", MetricUnit::Count, g("older_10s")),
-            Metric::new("queries_minute", "Consultas (último minuto)", "Actividad", MetricUnit::Count, g("q_count")),
-            Metric::new("query_latency", "Latencia media de consultas", "Actividad", MetricUnit::Millis, g("q_latency")),
-            Metric::new("rows_scanned_minute", "Filas escaneadas (último minuto)", "Actividad", MetricUnit::Count, g("q_scanned")),
-            Metric::new("rows_returned_minute", "Filas devueltas (último minuto)", "Actividad", MetricUnit::Count, g("q_rows")),
-            Metric::new("transactions_minute", "Commits (último minuto)", "Actividad", MetricUnit::Count, g("t_commits")),
-            Metric::new("aborts_minute", "Transacciones abortadas (último minuto)", "Actividad", MetricUnit::Count, g("t_aborts")),
-            Metric::new("commit_latency", "Latencia media de commit", "Actividad", MetricUnit::Millis, g("t_latency")),
-            Metric::new("lock_wait", "Espera por bloqueos (último minuto)", "Bloqueos", MetricUnit::Seconds, g("lock_wait")),
-            Metric::new("storage_used", "Espacio usado por la instancia", "Almacenamiento", MetricUnit::Bytes, g("inst_bytes"))
-                .max(g("inst_limit")),
-            Metric::new("database_size", "Tamaño de la base (última hora)", "Almacenamiento", MetricUnit::Bytes, g("db_bytes")),
+            Metric::new(
+                "cpu",
+                "CPU de la instancia",
+                "CPU",
+                MetricUnit::Percent,
+                g("cpu").map(|v| (v * 10.0).round() / 10.0),
+            )
+            .max(Some(100.0)),
+            Metric::new(
+                "query_cpu",
+                "CPU de consultas (último minuto, % de un núcleo)",
+                "CPU",
+                MetricUnit::Percent,
+                g("q_cpu"),
+            ),
+            Metric::new(
+                "active_sessions",
+                "Consultas activas",
+                "Conexiones",
+                MetricUnit::Count,
+                g("active"),
+            ),
+            Metric::new(
+                "slow_queries",
+                "Consultas activas hace más de 10 s",
+                "Conexiones",
+                MetricUnit::Count,
+                g("older_10s"),
+            ),
+            Metric::new(
+                "queries_minute",
+                "Consultas (último minuto)",
+                "Actividad",
+                MetricUnit::Count,
+                g("q_count"),
+            ),
+            Metric::new(
+                "query_latency",
+                "Latencia media de consultas",
+                "Actividad",
+                MetricUnit::Millis,
+                g("q_latency"),
+            ),
+            Metric::new(
+                "rows_scanned_minute",
+                "Filas escaneadas (último minuto)",
+                "Actividad",
+                MetricUnit::Count,
+                g("q_scanned"),
+            ),
+            Metric::new(
+                "rows_returned_minute",
+                "Filas devueltas (último minuto)",
+                "Actividad",
+                MetricUnit::Count,
+                g("q_rows"),
+            ),
+            Metric::new(
+                "transactions_minute",
+                "Commits (último minuto)",
+                "Actividad",
+                MetricUnit::Count,
+                g("t_commits"),
+            ),
+            Metric::new(
+                "aborts_minute",
+                "Transacciones abortadas (último minuto)",
+                "Actividad",
+                MetricUnit::Count,
+                g("t_aborts"),
+            ),
+            Metric::new(
+                "commit_latency",
+                "Latencia media de commit",
+                "Actividad",
+                MetricUnit::Millis,
+                g("t_latency"),
+            ),
+            Metric::new(
+                "lock_wait",
+                "Espera por bloqueos (último minuto)",
+                "Bloqueos",
+                MetricUnit::Seconds,
+                g("lock_wait"),
+            ),
+            Metric::new(
+                "storage_used",
+                "Espacio usado por la instancia",
+                "Almacenamiento",
+                MetricUnit::Bytes,
+                g("inst_bytes"),
+            )
+            .max(g("inst_limit")),
+            Metric::new(
+                "database_size",
+                "Tamaño de la base (última hora)",
+                "Almacenamiento",
+                MetricUnit::Bytes,
+                g("db_bytes"),
+            ),
         ];
 
         if !failures.is_empty() {
@@ -402,7 +584,10 @@ mod tests {
             {"points": [{"value": {"doubleValue": 0.05}}]}
         ]});
         assert!((latest_point(&v).unwrap() - 0.3).abs() < 1e-9);
-        assert_eq!(latest_point(&json!({"timeSeries": [{"points": [{"value": {"int64Value": "1024"}}]}]})), Some(1024.0));
+        assert_eq!(
+            latest_point(&json!({"timeSeries": [{"points": [{"value": {"int64Value": "1024"}}]}]})),
+            Some(1024.0)
+        );
         assert_eq!(latest_point(&json!({})), None);
     }
 }

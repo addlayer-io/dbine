@@ -17,8 +17,8 @@
 use crate::{err, format_type, text, SqlServerSession};
 use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::transfer::{
-    BatchBuilder, BatchSink, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec, RowBatch, TransferColumn,
-    CHUNK_BYTES, CHUNK_ROWS,
+    BatchBuilder, BatchSink, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress,
+    ReadSpec, RowBatch, TransferColumn, CHUNK_BYTES, CHUNK_ROWS,
 };
 use dbine_driver::{async_trait, Error, ObjectRef, Result};
 use futures::TryStreamExt;
@@ -28,8 +28,8 @@ use tiberius::numeric::Numeric;
 use tiberius::time::{Date, DateTime, DateTime2, DateTimeOffset, SmallDateTime, Time};
 use tiberius::xml::XmlData;
 use tiberius::{
-    BulkLoadRequest, ColumnData, FixedLenType, QueryItem, RawItem, RawMetadata, SqlBulkCopyOption, SqlBulkCopyOptions, TokenRow, TypeInfo,
-    VarLenType,
+    BulkLoadRequest, ColumnData, FixedLenType, QueryItem, RawItem, RawMetadata, SqlBulkCopyOption,
+    SqlBulkCopyOptions, TokenRow, TypeInfo, VarLenType,
 };
 use tokio::net::TcpStream;
 use tokio_util::compat::Compat;
@@ -87,15 +87,25 @@ fn q(name: &str) -> String {
 /// [`COLUMNS_SQL`] for a `#temporary` table, which lives in `tempdb` (a
 /// notebook write's staging table).
 fn temp_columns_sql() -> String {
-    COLUMNS_SQL.replace("sys.columns", "tempdb.sys.columns").replace("sys.types", "tempdb.sys.types").replace("OBJECT_ID(@P1)", "OBJECT_ID(N'tempdb..' + @P1)")
+    COLUMNS_SQL
+        .replace("sys.columns", "tempdb.sys.columns")
+        .replace("sys.types", "tempdb.sys.types")
+        .replace("OBJECT_ID(@P1)", "OBJECT_ID(N'tempdb..' + @P1)")
 }
 
 async fn catalog(s: &mut SqlServerSession, table: &ObjectRef) -> Result<Vec<CatColumn>> {
     let temp = table.schema().is_none() && table.name.starts_with('#');
-    let sql = if temp { temp_columns_sql() } else { COLUMNS_SQL.to_string() };
+    let sql = if temp {
+        temp_columns_sql()
+    } else {
+        COLUMNS_SQL.to_string()
+    };
     let rows = s.rows(&sql, &[&table_name(table)]).await?;
     if rows.is_empty() {
-        return Err(Error::Query(format!("No existe la tabla {}", table_name(table))));
+        return Err(Error::Query(format!(
+            "No existe la tabla {}",
+            table_name(table)
+        )));
     }
     Ok(rows
         .iter()
@@ -103,7 +113,11 @@ async fn catalog(s: &mut SqlServerSession, table: &ObjectRef) -> Result<Vec<CatC
             let ty = text(r, 1).unwrap_or_default().to_ascii_lowercase();
             CatColumn {
                 name: text(r, 0).unwrap_or_default(),
-                ty: if ty == "sysname" { "nvarchar".into() } else { ty },
+                ty: if ty == "sysname" {
+                    "nvarchar".into()
+                } else {
+                    ty
+                },
                 max_len: r.get(2).unwrap_or(0),
                 precision: r.get(3).unwrap_or(0),
                 scale: r.get(4).unwrap_or(0),
@@ -120,7 +134,11 @@ async fn catalog(s: &mut SqlServerSession, table: &ObjectRef) -> Result<Vec<CatC
 /// column (no computed nor `rowversion` ones).
 pub(crate) fn pick(cat: &[CatColumn], requested: Option<&[String]>) -> Result<Vec<CatColumn>> {
     match requested {
-        None => Ok(cat.iter().filter(|c| !c.computed && !c.rowversion()).cloned().collect()),
+        None => Ok(cat
+            .iter()
+            .filter(|c| !c.computed && !c.rowversion())
+            .cloned()
+            .collect()),
         Some(names) => names
             .iter()
             .map(|n| {
@@ -193,7 +211,9 @@ pub(crate) fn raw_expr(source: &CatColumn, target: &CatColumn) -> Result<String>
     refuse_variant(source)?;
     let n = q(&source.name);
     Ok(match wire_type(source).or_else(|| wire_type(target)) {
-        Some(w) if !source.nullable && !target.nullable => format!("ISNULL(CAST({n} AS {w}), {}) AS {n}", neutral(w)),
+        Some(w) if !source.nullable && !target.nullable => {
+            format!("ISNULL(CAST({n} AS {w}), {}) AS {n}", neutral(w))
+        }
         Some(w) => format!("CAST({n} AS {w}) AS {n}"),
         None => n,
     })
@@ -215,21 +235,38 @@ struct Locked(BatchSinkRef);
 
 impl BatchSink for Locked {
     fn begin(&mut self, columns: &[TransferColumn]) -> io::Result<()> {
-        self.0.lock().map_err(|_| io::Error::other("destino de lotes"))?.begin(columns)
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("destino de lotes"))?
+            .begin(columns)
     }
     fn batch(&mut self, batch: RowBatch) -> io::Result<()> {
-        self.0.lock().map_err(|_| io::Error::other("destino de lotes"))?.batch(batch)
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("destino de lotes"))?
+            .batch(batch)
     }
 }
 
-pub(crate) async fn read_batches(s: &mut SqlServerSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut SqlServerSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let cat = catalog(s, &spec.table).await?;
     let cols = pick(&cat, spec.columns.as_deref())?;
     let list = cols.iter().map(read_expr).collect::<Result<Vec<_>>>()?;
     let sql = select_sql(&list, &spec.table, spec.filter.as_deref());
     let mut sink = Locked(sink);
     sink.begin(
-        &cols.iter().map(|c| TransferColumn { name: c.name.clone(), type_name: c.type_name(), nullable: c.nullable }).collect::<Vec<_>>(),
+        &cols
+            .iter()
+            .map(|c| TransferColumn {
+                name: c.name.clone(),
+                type_name: c.type_name(),
+                nullable: c.nullable,
+            })
+            .collect::<Vec<_>>(),
     )?;
     let mut builder = BatchBuilder::new();
     let res = async {
@@ -241,7 +278,11 @@ pub(crate) async fn read_batches(s: &mut SqlServerSession, spec: &ReadSpec, sink
                 // Only the SELECT's result set.
                 QueryItem::Metadata(_) => break,
                 QueryItem::Row(row) => {
-                    let cells = row.into_iter().map(to_cell).collect::<std::result::Result<Vec<_>, _>>().map_err(Error::Query)?;
+                    let cells = row
+                        .into_iter()
+                        .map(to_cell)
+                        .collect::<std::result::Result<Vec<_>, _>>()
+                        .map_err(Error::Query)?;
                     builder.push(cells, &mut sink)?;
                 }
             }
@@ -283,7 +324,11 @@ pub(crate) fn to_cell(d: ColumnData<'static>) -> std::result::Result<Cell, Strin
         ColumnData::Date(v) => or_null(v, |d| Cell::Date(fmt_date(d.days() as i64 + 1))),
         ColumnData::Time(v) => or_null(v, |t| Cell::Time(fmt_time(t.increments(), t.scale()))),
         ColumnData::DateTime2(v) => or_null(v, |d| {
-            Cell::DateTime(format!("{} {}", fmt_date(d.date().days() as i64 + 1), fmt_time(d.time().increments(), d.time().scale())))
+            Cell::DateTime(format!(
+                "{} {}",
+                fmt_date(d.date().days() as i64 + 1),
+                fmt_time(d.time().increments(), d.time().scale())
+            ))
         }),
         ColumnData::DateTimeOffset(v) => or_null(v, |d| Cell::DateTimeTz(fmt_datetimeoffset(d))),
     })
@@ -311,7 +356,11 @@ pub(crate) fn fmt_decimal(value: i128, scale: u8) -> String {
         out.push_str(&digits);
         return out;
     }
-    let padded = if digits.len() <= scale { format!("{}{digits}", "0".repeat(scale + 1 - digits.len())) } else { digits };
+    let padded = if digits.len() <= scale {
+        format!("{}{digits}", "0".repeat(scale + 1 - digits.len()))
+    } else {
+        digits
+    };
     let (int, frac) = padded.split_at(padded.len() - scale);
     out.push_str(int);
     out.push('.');
@@ -336,7 +385,10 @@ fn fmt_time(increments: u64, scale: u8) -> String {
     if scale == 0 {
         format!("{h:02}:{m:02}:{s:02}")
     } else {
-        format!("{h:02}:{m:02}:{s:02}.{frac:0width$}", width = scale as usize)
+        format!(
+            "{h:02}:{m:02}:{s:02}.{frac:0width$}",
+            width = scale as usize
+        )
     }
 }
 
@@ -344,12 +396,21 @@ fn fmt_time(increments: u64, scale: u8) -> String {
 /// to the same tick.
 fn fmt_datetime(d: DateTime) -> String {
     let ticks = (d.seconds_fragments() as u64 * 100_000 + 1) / 3;
-    format!("{} {}", fmt_date(d.days() as i64 + ce_1900()), fmt_time(ticks, 7))
+    format!(
+        "{} {}",
+        fmt_date(d.days() as i64 + ce_1900()),
+        fmt_time(ticks, 7)
+    )
 }
 
 fn fmt_smalldatetime(d: SmallDateTime) -> String {
     let m = d.seconds_fragments() as u64;
-    format!("{} {:02}:{:02}:00", fmt_date(d.days() as i64 + ce_1900()), m / 60, m % 60)
+    format!(
+        "{} {:02}:{:02}:00",
+        fmt_date(d.days() as i64 + ce_1900()),
+        m / 60,
+        m % 60
+    )
 }
 
 /// The local time and its offset (the wire carries UTC).
@@ -362,7 +423,13 @@ fn fmt_datetimeoffset(d: DateTimeOffset) -> String {
     let (days, ticks) = (local.div_euclid(per_day), local.rem_euclid(per_day));
     let sign = if offset < 0 { '-' } else { '+' };
     let off = offset.unsigned_abs();
-    format!("{} {}{sign}{:02}:{:02}", fmt_date(days as i64), fmt_time(ticks as u64, scale), off / 60, off % 60)
+    format!(
+        "{} {}{sign}{:02}:{:02}",
+        fmt_date(days as i64),
+        fmt_time(ticks as u64, scale),
+        off / 60,
+        off % 60
+    )
 }
 
 /// A parsed date/time: days from CE, nanoseconds into the day, offset in
@@ -375,12 +442,16 @@ pub(crate) struct Stamp {
 }
 
 fn parse_uint(s: &str) -> Option<u64> {
-    (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok()).flatten()
+    (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| s.parse().ok())
+        .flatten()
 }
 
 /// `HH:MM[:SS[.fffffffff]]` → nanoseconds, and the rest of the text.
 fn parse_clock(s: &str) -> Option<(u64, &str)> {
-    let end = s.find(|c: char| !(c.is_ascii_digit() || c == ':' || c == '.')).unwrap_or(s.len());
+    let end = s
+        .find(|c: char| !(c.is_ascii_digit() || c == ':' || c == '.'))
+        .unwrap_or(s.len());
     let (clock, rest) = s.split_at(end);
     let (hms, frac) = clock.split_once('.').unwrap_or((clock, ""));
     let mut parts = hms.split(':');
@@ -437,13 +508,25 @@ pub(crate) fn parse_stamp(s: &str) -> Option<Stamp> {
         let rest = &s[10..];
         let rest = rest.strip_prefix(['T', 't', ' ']).unwrap_or(rest);
         if rest.trim().is_empty() {
-            return Some(Stamp { ce, nanos: 0, offset: None });
+            return Some(Stamp {
+                ce,
+                nanos: 0,
+                offset: None,
+            });
         }
         let (nanos, rest) = parse_clock(rest)?;
-        return Some(Stamp { ce, nanos, offset: parse_offset(rest)? });
+        return Some(Stamp {
+            ce,
+            nanos,
+            offset: parse_offset(rest)?,
+        });
     }
     let (nanos, rest) = parse_clock(s)?;
-    Some(Stamp { ce: 1, nanos, offset: parse_offset(rest)? })
+    Some(Stamp {
+        ce: 1,
+        nanos,
+        offset: parse_offset(rest)?,
+    })
 }
 
 /// Nanoseconds rounded to `scale` digits (half up).
@@ -552,7 +635,9 @@ pub(crate) fn kind_of(ty: &TypeInfo) -> std::result::Result<Kind, String> {
             (V::Datetime2, s) => Kind::DateTime2(s as u8),
             (V::DatetimeOffsetn, s) => Kind::Dto(s as u8),
             (V::Guid, _) => Kind::Guid,
-            (V::BigVarChar | V::BigChar | V::NVarchar | V::NChar | V::Text | V::NText, _) => Kind::Str,
+            (V::BigVarChar | V::BigChar | V::NVarchar | V::NChar | V::Text | V::NText, _) => {
+                Kind::Str
+            }
             (V::BigVarBin | V::BigBinary | V::Image, _) => Kind::Bin,
             (V::Xml, _) => Kind::Xml,
             (other, _) => return Err(format!("tipo {other:?} no admitido en la carga masiva")),
@@ -565,7 +650,14 @@ pub(crate) fn kind_of(ty: &TypeInfo) -> std::result::Result<Kind, String> {
 
 fn cell_text(c: Cell) -> String {
     match c {
-        Cell::Text(s) | Cell::Decimal(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => s,
+        Cell::Text(s)
+        | Cell::Decimal(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => s,
         Cell::Int(i) => i.to_string(),
         Cell::UInt(u) => u.to_string(),
         Cell::Float(f) => f.to_string(),
@@ -594,7 +686,9 @@ fn int_of(c: Cell) -> std::result::Result<i128, String> {
             let t = s.trim();
             let digits = t.strip_prefix(['+', '-']).unwrap_or(t);
             let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
-            let whole = !int.is_empty() && int.bytes().all(|b| b.is_ascii_digit()) && frac.bytes().all(|b| b == b'0');
+            let whole = !int.is_empty()
+                && int.bytes().all(|b| b.is_ascii_digit())
+                && frac.bytes().all(|b| b == b'0');
             match parse_decimal(&s) {
                 Some(n) if whole && n.scale() == 0 => Ok(n.value()),
                 _ => Err(format!("«{s}» no es un entero")),
@@ -611,7 +705,9 @@ fn float_of(c: Cell) -> std::result::Result<f64, String> {
         Cell::Bool(b) => Ok(if b { 1.0 } else { 0.0 }),
         other => {
             let s = cell_text(other);
-            s.trim().parse().map_err(|_| format!("«{s}» no es un número"))
+            s.trim()
+                .parse()
+                .map_err(|_| format!("«{s}» no es un número"))
         }
     }
 }
@@ -640,7 +736,10 @@ fn fits<T: TryFrom<i128>>(v: i128) -> std::result::Result<T, String> {
 
 /// Split a count of ticks from CE into (days from CE, ticks into the day).
 fn split_day(total: i128, per_day: i128) -> (i64, u64) {
-    (total.div_euclid(per_day) as i64, total.rem_euclid(per_day) as u64)
+    (
+        total.div_euclid(per_day) as i64,
+        total.rem_euclid(per_day) as u64,
+    )
 }
 
 fn date_of(ce: i64) -> std::result::Result<Date, String> {
@@ -692,12 +791,18 @@ impl Kind {
             Kind::DateTime => val!(DateTime, {
                 let st = stamp_of(c)?;
                 // 1/300 s ticks, rounded to the nearest.
-                let (ce, frag) = split_day(st.ce as i128 * 25_920_000 + ((st.nanos * 3 + 5_000_000) / 10_000_000) as i128, 25_920_000);
+                let (ce, frag) = split_day(
+                    st.ce as i128 * 25_920_000 + ((st.nanos * 3 + 5_000_000) / 10_000_000) as i128,
+                    25_920_000,
+                );
                 DateTime::new(fits(ce as i128 - ce_1900() as i128)?, frag as u32)
             }),
             Kind::SmallDateTime => val!(SmallDateTime, {
                 let st = stamp_of(c)?;
-                let (ce, min) = split_day(st.ce as i128 * 1440 + ((st.nanos + 30_000_000_000) / 60_000_000_000) as i128, 1440);
+                let (ce, min) = split_day(
+                    st.ce as i128 * 1440 + ((st.nanos + 30_000_000_000) / 60_000_000_000) as i128,
+                    1440,
+                );
                 SmallDateTime::new(fits(ce as i128 - ce_1900() as i128)?, min as u16)
             }),
             Kind::Date => val!(Date, date_of(stamp_of(c)?.ce)?),
@@ -709,7 +814,10 @@ impl Kind {
             Kind::DateTime2(scale) => val!(DateTime2, {
                 let st = stamp_of(c)?;
                 let per_day = 86_400 * pow10(scale) as i128;
-                let (ce, ticks) = split_day(st.ce as i128 * per_day + round_to_scale(st.nanos, scale) as i128, per_day);
+                let (ce, ticks) = split_day(
+                    st.ce as i128 * per_day + round_to_scale(st.nanos, scale) as i128,
+                    per_day,
+                );
                 DateTime2::new(date_of(ce)?, Time::new(ticks, scale))
             }),
             Kind::Dto(scale) => val!(DateTimeOffset, {
@@ -717,8 +825,12 @@ impl Kind {
                 let offset = st.offset.unwrap_or(0);
                 let per_day = 86_400 * pow10(scale) as i128;
                 let local = st.ce as i128 * per_day + round_to_scale(st.nanos, scale) as i128;
-                let (ce, ticks) = split_day(local - offset as i128 * 60 * pow10(scale) as i128, per_day);
-                DateTimeOffset::new(DateTime2::new(date_of(ce)?, Time::new(ticks, scale)), offset)
+                let (ce, ticks) =
+                    split_day(local - offset as i128 * 60 * pow10(scale) as i128, per_day);
+                DateTimeOffset::new(
+                    DateTime2::new(date_of(ce)?, Time::new(ticks, scale)),
+                    offset,
+                )
             }),
         })
     }
@@ -743,9 +855,14 @@ pub(crate) struct Target {
 
 /// Whether a notebook write writes the table's identity column (its
 /// inserts then need `IDENTITY_INSERT`).
-pub(crate) async fn writes_identity(s: &mut SqlServerSession, spec: &dbine_driver::WriteSpec) -> Result<bool> {
+pub(crate) async fn writes_identity(
+    s: &mut SqlServerSession,
+    spec: &dbine_driver::WriteSpec,
+) -> Result<bool> {
     let cat = catalog(s, &spec.table).await?;
-    Ok(cat.iter().any(|c| c.identity && spec.columns.iter().any(|w| w.eq_ignore_ascii_case(&c.name))))
+    Ok(cat
+        .iter()
+        .any(|c| c.identity && spec.columns.iter().any(|w| w.eq_ignore_ascii_case(&c.name))))
 }
 
 pub(crate) async fn plan_target(s: &mut SqlServerSession, spec: &LoadSpec) -> Result<Target> {
@@ -753,7 +870,10 @@ pub(crate) async fn plan_target(s: &mut SqlServerSession, spec: &LoadSpec) -> Re
     for c in &cat {
         refuse_variant(c)?;
         if c.computed || c.rowversion() {
-            return Err(Error::Query(format!("La columna «{}» del destino es calculada o rowversion: no se puede cargar", c.name)));
+            return Err(Error::Query(format!(
+                "La columna «{}» del destino es calculada o rowversion: no se puede cargar",
+                c.name
+            )));
         }
         if c.identity && !spec.keep_identity {
             return Err(Error::Query(format!(
@@ -772,7 +892,10 @@ pub(crate) async fn plan_target(s: &mut SqlServerSession, spec: &LoadSpec) -> Re
     }
     let table = table_name(&spec.table);
     let quoted: Vec<String> = cat.iter().map(|c| q(&c.name)).collect();
-    let select = cat.iter().any(|c| wire_type(c).is_some()).then(|| cat.iter().map(declare_expr).collect::<Vec<_>>().join(", "));
+    let select = cat
+        .iter()
+        .any(|c| wire_type(c).is_some())
+        .then(|| cat.iter().map(declare_expr).collect::<Vec<_>>().join(", "));
     let meta = match &select {
         Some(list) => s.client.bulk_metadata_select(&table, list).await,
         None => {
@@ -792,15 +915,30 @@ pub(crate) async fn plan_target(s: &mut SqlServerSession, spec: &LoadSpec) -> Re
         .columns()
         .iter()
         .zip(&cat)
-        .map(|(m, c)| kind_of(&m.base.ty).map_err(|e| Error::Unsupported(format!("columna «{}»: {e}", c.name))))
+        .map(|(m, c)| {
+            kind_of(&m.base.ty)
+                .map_err(|e| Error::Unsupported(format!("columna «{}»: {e}", c.name)))
+        })
         .collect::<Result<Vec<_>>>()?;
-    Ok(Target { table, names: cat.iter().map(|c| c.name.clone()).collect(), quoted, select, options, kinds, meta, cat })
+    Ok(Target {
+        table,
+        names: cat.iter().map(|c| c.name.clone()).collect(),
+        quoted,
+        select,
+        options,
+        kinds,
+        meta,
+        cat,
+    })
 }
 
 /// Rows on their way into a load.
 pub(crate) enum Chunk {
     /// Complete ROW tokens, back to back, matching the target's metadata.
-    Raw { bytes: Vec<u8>, rows: u64 },
+    Raw {
+        bytes: Vec<u8>,
+        rows: u64,
+    },
     Cells(RowBatch),
 }
 
@@ -812,7 +950,11 @@ pub(crate) trait Chunks: Send {
 
 type Tds = Compat<TcpStream>;
 
-async fn send_chunk(req: &mut BulkLoadRequest<'_, Tds>, target: &Target, chunk: Chunk) -> Result<(u64, u64)> {
+async fn send_chunk(
+    req: &mut BulkLoadRequest<'_, Tds>,
+    target: &Target,
+    chunk: Chunk,
+) -> Result<(u64, u64)> {
     match chunk {
         Chunk::Raw { bytes, rows } => {
             req.send_raw_rows(&bytes).await.map_err(err)?;
@@ -823,11 +965,16 @@ async fn send_chunk(req: &mut BulkLoadRequest<'_, Tds>, target: &Target, chunk: 
             let width = target.kinds.len();
             for row in batch.rows {
                 if row.len() != width {
-                    return Err(Error::Query(format!("Una fila trae {} valores y la carga tiene {width} columnas", row.len())));
+                    return Err(Error::Query(format!(
+                        "Una fila trae {} valores y la carga tiene {width} columnas",
+                        row.len()
+                    )));
                 }
                 let mut tr = TokenRow::with_capacity(width);
                 for (i, cell) in row.into_iter().enumerate() {
-                    tr.push(target.kinds[i].data(cell).map_err(|e| Error::Query(format!("Columna «{}»: {e}", target.names[i])))?);
+                    tr.push(target.kinds[i].data(cell).map_err(|e| {
+                        Error::Query(format!("Columna «{}»: {e}", target.names[i]))
+                    })?);
                 }
                 req.send(tr).await.map_err(err)?;
             }
@@ -838,15 +985,29 @@ async fn send_chunk(req: &mut BulkLoadRequest<'_, Tds>, target: &Target, chunk: 
 
 /// Load `src` into `target`, one `INSERT BULK` per commit window (it commits
 /// on `finalize`). A window closes on a chunk boundary.
-async fn load(s: &mut SqlServerSession, target: &Target, spec: &LoadSpec, src: &mut dyn Chunks, progress: Progress<'_>) -> Result<u64> {
+async fn load(
+    s: &mut SqlServerSession,
+    target: &Target,
+    spec: &LoadSpec,
+    src: &mut dyn Chunks,
+    progress: Progress<'_>,
+) -> Result<u64> {
     let refs: Vec<&str> = target.quoted.iter().map(String::as_str).collect();
     let (max_rows, max_bytes) = (spec.commit_rows.max(1), spec.commit_bytes.max(1));
     let mut committed = 0u64;
     let mut next = src.next().await?;
     while next.is_some() {
         let mut req = match &target.select {
-            Some(list) => s.client.bulk_insert_with_select(&target.table, list, target.options, &[]).await,
-            None => s.client.bulk_insert_with_options(&target.table, &refs, target.options, &[]).await,
+            Some(list) => {
+                s.client
+                    .bulk_insert_with_select(&target.table, list, target.options, &[])
+                    .await
+            }
+            None => {
+                s.client
+                    .bulk_insert_with_options(&target.table, &refs, target.options, &[])
+                    .await
+            }
         }
         .map_err(err)?;
         let (mut rows, mut bytes) = (0u64, 0u64);
@@ -889,7 +1050,11 @@ pub(crate) async fn bulk_load(
     progress: Progress<'_>,
 ) -> Result<u64> {
     if !columns.is_empty() && columns.len() != spec.columns.len() {
-        return Err(Error::Query(format!("Se leen {} columnas y se cargan {}", columns.len(), spec.columns.len())));
+        return Err(Error::Query(format!(
+            "Se leen {} columnas y se cargan {}",
+            columns.len(),
+            spec.columns.len()
+        )));
     }
     let target = plan_target(s, spec).await?;
     let res = load(s, &target, spec, &mut FromSource(source), progress).await;
@@ -945,10 +1110,17 @@ impl Chunks for TypedChunks<'_> {
         if self.done {
             return Ok(None);
         }
-        let mut batch = RowBatch { rows: Vec::with_capacity(CHUNK_ROWS), bytes: 0 };
+        let mut batch = RowBatch {
+            rows: Vec::with_capacity(CHUNK_ROWS),
+            bytes: 0,
+        };
         while let Some(item) = self.stream.try_next().await.map_err(err)? {
             if let QueryItem::Row(row) = item {
-                let cells = row.into_iter().map(to_cell).collect::<std::result::Result<Vec<_>, _>>().map_err(Error::Query)?;
+                let cells = row
+                    .into_iter()
+                    .map(to_cell)
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Error::Query)?;
                 batch.bytes += cells.iter().map(Cell::size).sum::<usize>();
                 batch.rows.push(cells);
                 if batch.rows.len() >= CHUNK_ROWS || batch.bytes >= CHUNK_BYTES {
@@ -976,8 +1148,17 @@ const CHUNKS_IN_FLIGHT: usize = 16;
 
 /// Read `src` and load into `target` at the same time: the source server
 /// sends while the target one inserts.
-async fn pipe(dst: &mut SqlServerSession, target: &Target, spec: &LoadSpec, src: &mut dyn Chunks, progress: Progress<'_>) -> Result<u64> {
-    read_ahead(src, move |mut piped| async move { load(dst, target, spec, &mut piped, progress).await }).await
+async fn pipe(
+    dst: &mut SqlServerSession,
+    target: &Target,
+    spec: &LoadSpec,
+    src: &mut dyn Chunks,
+    progress: Progress<'_>,
+) -> Result<u64> {
+    read_ahead(src, move |mut piped| async move {
+        load(dst, target, spec, &mut piped, progress).await
+    })
+    .await
 }
 
 /// Run `consume` over `src` read ahead by a concurrent reader. `consume`
@@ -1011,13 +1192,26 @@ where
 
 /// The source's raw select list when its rows fit the target's bulk
 /// declaration byte for byte; `Err` says why not.
-async fn raw_plan(src: &mut SqlServerSession, spec: &CopySpec, cols: &[CatColumn], target: &Target) -> Result<std::result::Result<Vec<String>, String>> {
+async fn raw_plan(
+    src: &mut SqlServerSession,
+    spec: &CopySpec,
+    cols: &[CatColumn],
+    target: &Target,
+) -> Result<std::result::Result<Vec<String>, String>> {
     if std::env::var_os(NO_RAW_ENV).is_some_and(|v| !v.is_empty() && v != "0") {
         return Ok(Err(format!("{NO_RAW_ENV} está activo")));
     }
-    let list = cols.iter().zip(&target.cat).map(|(s, t)| raw_expr(s, t)).collect::<Result<Vec<_>>>()?;
+    let list = cols
+        .iter()
+        .zip(&target.cat)
+        .map(|(s, t)| raw_expr(s, t))
+        .collect::<Result<Vec<_>>>()?;
     // The source's wire types, without reading a row.
-    let probe = format!("SELECT TOP 0 {} FROM {}", list.join(", "), table_name(&spec.source.table));
+    let probe = format!(
+        "SELECT TOP 0 {} FROM {}",
+        list.join(", "),
+        table_name(&spec.source.table)
+    );
     let mut meta = None;
     {
         let mut stream = src.client.query_raw_rows(probe).await.map_err(err)?;
@@ -1033,10 +1227,22 @@ async fn raw_plan(src: &mut SqlServerSession, spec: &CopySpec, cols: &[CatColumn
     Ok(meta.check_compatible(&target.meta).map(|()| list))
 }
 
-pub(crate) async fn copy(src: &mut SqlServerSession, dst: &mut SqlServerSession, spec: &CopySpec, progress: Progress<'_>) -> Result<u64> {
-    let cols = pick(&catalog(src, &spec.source.table).await?, spec.source.columns.as_deref())?;
+pub(crate) async fn copy(
+    src: &mut SqlServerSession,
+    dst: &mut SqlServerSession,
+    spec: &CopySpec,
+    progress: Progress<'_>,
+) -> Result<u64> {
+    let cols = pick(
+        &catalog(src, &spec.source.table).await?,
+        spec.source.columns.as_deref(),
+    )?;
     if cols.len() != spec.target.columns.len() {
-        return Err(Error::Query(format!("Se leen {} columnas y se cargan {}", cols.len(), spec.target.columns.len())));
+        return Err(Error::Query(format!(
+            "Se leen {} columnas y se cargan {}",
+            cols.len(),
+            spec.target.columns.len()
+        )));
     }
     let target = plan_target(dst, &spec.target).await?;
     let raw = raw_plan(src, spec, &cols, &target).await?;
@@ -1046,18 +1252,50 @@ pub(crate) async fn copy(src: &mut SqlServerSession, dst: &mut SqlServerSession,
         Ok(list) => {
             tracing::info!(table = %table, mode = "raw", "sqlserver native copy: raw TDS rows");
             // The source only runs this SELECT.
-            let stream = src.client.query_raw_rows(select_sql(&list, &spec.source.table, filter)).await.map_err(err);
+            let stream = src
+                .client
+                .query_raw_rows(select_sql(&list, &spec.source.table, filter))
+                .await
+                .map_err(err);
             match stream {
-                Ok(stream) => pipe(dst, &target, &spec.target, &mut RawChunks { stream, done: false }, progress).await,
+                Ok(stream) => {
+                    pipe(
+                        dst,
+                        &target,
+                        &spec.target,
+                        &mut RawChunks {
+                            stream,
+                            done: false,
+                        },
+                        progress,
+                    )
+                    .await
+                }
                 Err(e) => Err(e),
             }
         }
         Err(why) => {
             tracing::info!(table = %table, mode = "decoded", reason = %why, "sqlserver native copy: decoded rows");
             let list = cols.iter().map(read_expr).collect::<Result<Vec<_>>>()?;
-            let stream = src.client.simple_query(select_sql(&list, &spec.source.table, filter)).await.map_err(err);
+            let stream = src
+                .client
+                .simple_query(select_sql(&list, &spec.source.table, filter))
+                .await
+                .map_err(err);
             match stream {
-                Ok(stream) => pipe(dst, &target, &spec.target, &mut TypedChunks { stream, done: false }, progress).await,
+                Ok(stream) => {
+                    pipe(
+                        dst,
+                        &target,
+                        &spec.target,
+                        &mut TypedChunks {
+                            stream,
+                            done: false,
+                        },
+                        progress,
+                    )
+                    .await
+                }
                 Err(e) => Err(e),
             }
         }
@@ -1096,38 +1334,103 @@ mod tests {
     fn default_columns_skip_computed_and_rowversion() {
         let mut calc = col("c", "int", true);
         calc.computed = true;
-        let cat = vec![col("a", "int", false), calc, col("rv", "timestamp", false), col("b", "nvarchar", true)];
+        let cat = vec![
+            col("a", "int", false),
+            calc,
+            col("rv", "timestamp", false),
+            col("b", "nvarchar", true),
+        ];
         let names = |v: Vec<CatColumn>| v.into_iter().map(|c| c.name).collect::<Vec<_>>();
         assert_eq!(names(pick(&cat, None).unwrap()), ["a", "b"]);
         // Asked for explicitly: kept.
-        assert_eq!(names(pick(&cat, Some(&["RV".into(), "c".into()])).unwrap()), ["rv", "c"]);
+        assert_eq!(
+            names(pick(&cat, Some(&["RV".into(), "c".into()])).unwrap()),
+            ["rv", "c"]
+        );
         assert!(pick(&cat, Some(&["zz".into()])).is_err());
     }
 
     #[test]
     fn select_lists() {
-        assert_eq!(read_expr(&col("m", "money", true)).unwrap(), "CAST([m] AS decimal(19,4)) AS [m]");
-        assert_eq!(read_expr(&col("g", "geography", true)).unwrap(), "CAST([g] AS varbinary(max)) AS [g]");
+        assert_eq!(
+            read_expr(&col("m", "money", true)).unwrap(),
+            "CAST([m] AS decimal(19,4)) AS [m]"
+        );
+        assert_eq!(
+            read_expr(&col("g", "geography", true)).unwrap(),
+            "CAST([g] AS varbinary(max)) AS [g]"
+        );
         assert_eq!(read_expr(&col("a]b", "int", true)).unwrap(), "[a]]b]");
-        assert!(matches!(read_expr(&col("v", "sql_variant", true)), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            read_expr(&col("v", "sql_variant", true)),
+            Err(Error::Unsupported(_))
+        ));
 
-        assert_eq!(declare_expr(&col("x", "xml", true)), "CAST(NULL AS nvarchar(max)) AS [x]");
-        assert_eq!(declare_expr(&col("x", "xml", false)), "ISNULL(CAST(NULL AS nvarchar(max)), N'') AS [x]");
-        assert_eq!(declare_expr(&col("t", "text", false)), "ISNULL(CAST(NULL AS varchar(max)), '') AS [t]");
-        assert_eq!(declare_expr(&col("i", "image", true)), "CAST(NULL AS varbinary(max)) AS [i]");
-        assert_eq!(declare_expr(&col("h", "hierarchyid", true)), "CAST(NULL AS varbinary(max)) AS [h]");
-        assert_eq!(declare_expr(&col("s", "smalldatetime", false)), "ISNULL(CAST(NULL AS datetime), CAST(0 AS datetime)) AS [s]");
+        assert_eq!(
+            declare_expr(&col("x", "xml", true)),
+            "CAST(NULL AS nvarchar(max)) AS [x]"
+        );
+        assert_eq!(
+            declare_expr(&col("x", "xml", false)),
+            "ISNULL(CAST(NULL AS nvarchar(max)), N'') AS [x]"
+        );
+        assert_eq!(
+            declare_expr(&col("t", "text", false)),
+            "ISNULL(CAST(NULL AS varchar(max)), '') AS [t]"
+        );
+        assert_eq!(
+            declare_expr(&col("i", "image", true)),
+            "CAST(NULL AS varbinary(max)) AS [i]"
+        );
+        assert_eq!(
+            declare_expr(&col("h", "hierarchyid", true)),
+            "CAST(NULL AS varbinary(max)) AS [h]"
+        );
+        assert_eq!(
+            declare_expr(&col("s", "smalldatetime", false)),
+            "ISNULL(CAST(NULL AS datetime), CAST(0 AS datetime)) AS [s]"
+        );
         assert_eq!(declare_expr(&col("n", "nvarchar", false)), "[n]");
 
         // Raw: NOT NULL only when both sides are.
-        assert_eq!(raw_expr(&col("s", "smalldatetime", false), &col("s", "smalldatetime", false)).unwrap(), "ISNULL(CAST([s] AS datetime), CAST(0 AS datetime)) AS [s]");
-        assert_eq!(raw_expr(&col("s", "smalldatetime", true), &col("s", "smalldatetime", false)).unwrap(), "CAST([s] AS datetime) AS [s]");
-        assert_eq!(raw_expr(&col("x", "nvarchar", true), &col("x", "xml", true)).unwrap(), "CAST([x] AS nvarchar(max)) AS [x]");
-        assert_eq!(raw_expr(&col("i", "int", true), &col("i", "int", true)).unwrap(), "[i]");
+        assert_eq!(
+            raw_expr(
+                &col("s", "smalldatetime", false),
+                &col("s", "smalldatetime", false)
+            )
+            .unwrap(),
+            "ISNULL(CAST([s] AS datetime), CAST(0 AS datetime)) AS [s]"
+        );
+        assert_eq!(
+            raw_expr(
+                &col("s", "smalldatetime", true),
+                &col("s", "smalldatetime", false)
+            )
+            .unwrap(),
+            "CAST([s] AS datetime) AS [s]"
+        );
+        assert_eq!(
+            raw_expr(&col("x", "nvarchar", true), &col("x", "xml", true)).unwrap(),
+            "CAST([x] AS nvarchar(max)) AS [x]"
+        );
+        assert_eq!(
+            raw_expr(&col("i", "int", true), &col("i", "int", true)).unwrap(),
+            "[i]"
+        );
 
-        let t = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() };
-        assert_eq!(select_sql(&["[a]".into(), "[b]".into()], &t, Some(" id > 5 ")), "SELECT [a], [b] FROM [dbo].[t] WHERE id > 5");
-        assert_eq!(select_sql(&["[a]".into()], &t, Some("")), "SELECT [a] FROM [dbo].[t]");
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "t".into(),
+        };
+        assert_eq!(
+            select_sql(&["[a]".into(), "[b]".into()], &t, Some(" id > 5 ")),
+            "SELECT [a], [b] FROM [dbo].[t] WHERE id > 5"
+        );
+        assert_eq!(
+            select_sql(&["[a]".into()], &t, Some("")),
+            "SELECT [a] FROM [dbo].[t]"
+        );
     }
 
     #[test]
@@ -1138,7 +1441,10 @@ mod tests {
         assert_eq!(fmt_decimal(0, 2), "0.00");
         assert_eq!(fmt_decimal(42, 0), "42");
         // money extremes as decimal(19,4)
-        assert_eq!(fmt_decimal(-9_223_372_036_854_775_808, 4), "-922337203685477.5808");
+        assert_eq!(
+            fmt_decimal(-9_223_372_036_854_775_808, 4),
+            "-922337203685477.5808"
+        );
         let n = parse_decimal("-922337203685477.5808").unwrap();
         assert_eq!((n.value(), n.scale()), (-9_223_372_036_854_775_808, 4));
         let n = parse_decimal("12.3400").unwrap();
@@ -1154,14 +1460,26 @@ mod tests {
         let n = parse_decimal(&fmt_decimal(max, 38)).unwrap();
         assert_eq!((n.value(), n.scale()), (max, 38));
         let n = parse_decimal("-0.12345678901234567890123456789012345678").unwrap();
-        assert_eq!((n.value(), n.scale()), (-12_345_678_901_234_567_890_123_456_789_012_345_678, 38));
+        assert_eq!(
+            (n.value(), n.scale()),
+            (-12_345_678_901_234_567_890_123_456_789_012_345_678, 38)
+        );
         // More digits than fit round half up instead of failing.
         let n = parse_decimal("0.123456789012345678901234567890123456785").unwrap();
-        assert_eq!((n.value(), n.scale()), (12_345_678_901_234_567_890_123_456_789_012_345_679, 38));
+        assert_eq!(
+            (n.value(), n.scale()),
+            (12_345_678_901_234_567_890_123_456_789_012_345_679, 38)
+        );
         let n = parse_decimal("0.123456789012345678901234567890123456784999").unwrap();
-        assert_eq!((n.value(), n.scale()), (12_345_678_901_234_567_890_123_456_789_012_345_678, 38));
+        assert_eq!(
+            (n.value(), n.scale()),
+            (12_345_678_901_234_567_890_123_456_789_012_345_678, 38)
+        );
         let n = parse_decimal("123456789012345678901234567890.1234567891").unwrap();
-        assert_eq!((n.value(), n.scale()), (12_345_678_901_234_567_890_123_456_789_012_345_679, 8));
+        assert_eq!(
+            (n.value(), n.scale()),
+            (12_345_678_901_234_567_890_123_456_789_012_345_679, 8)
+        );
         let n = parse_decimal("-0.999999999999999999999999999999999999995").unwrap();
         assert_eq!((n.value(), n.scale()), (-1, 0));
         assert!(parse_decimal("123456789012345678901234567890123456789").is_none());
@@ -1177,7 +1495,10 @@ mod tests {
         async fn next(&mut self) -> Result<Option<Chunk>> {
             self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             tokio::task::yield_now().await;
-            Ok(Some(Chunk::Raw { bytes: vec![0], rows: 1 }))
+            Ok(Some(Chunk::Raw {
+                bytes: vec![0],
+                rows: 1,
+            }))
         }
     }
 
@@ -1189,7 +1510,9 @@ mod tests {
             piped.next().await?;
             Err(Error::Query("PK violation".into()))
         });
-        let res = tokio::time::timeout(std::time::Duration::from_secs(5), run).await.expect("the copy hung after the load failed");
+        let res = tokio::time::timeout(std::time::Duration::from_secs(5), run)
+            .await
+            .expect("the copy hung after the load failed");
         assert!(matches!(res, Err(Error::Query(m)) if m == "PK violation"));
         assert!(read.load(std::sync::atomic::Ordering::Relaxed) <= CHUNKS_IN_FLIGHT + 3);
     }
@@ -1203,42 +1526,123 @@ mod tests {
 
     #[test]
     fn values_round_trip() {
-        assert_eq!(roundtrip(Kind::U8, ColumnData::U8(Some(255))), Cell::Int(255));
-        assert_eq!(roundtrip(Kind::I16, ColumnData::I16(Some(-32768))), Cell::Int(-32768));
-        assert_eq!(roundtrip(Kind::I64, ColumnData::I64(Some(i64::MIN))), Cell::Int(i64::MIN));
-        assert_eq!(roundtrip(Kind::Bit, ColumnData::Bit(Some(true))), Cell::Bool(true));
-        assert_eq!(roundtrip(Kind::F32, ColumnData::F32(Some(1.1))), Cell::Float(1.1f32 as f64));
-        assert_eq!(roundtrip(Kind::F64, ColumnData::F64(Some(f64::MAX))), Cell::Float(f64::MAX));
-        roundtrip(Kind::Decimal, ColumnData::Numeric(Some(Numeric::new_with_scale(-12345, 3))));
+        assert_eq!(
+            roundtrip(Kind::U8, ColumnData::U8(Some(255))),
+            Cell::Int(255)
+        );
+        assert_eq!(
+            roundtrip(Kind::I16, ColumnData::I16(Some(-32768))),
+            Cell::Int(-32768)
+        );
+        assert_eq!(
+            roundtrip(Kind::I64, ColumnData::I64(Some(i64::MIN))),
+            Cell::Int(i64::MIN)
+        );
+        assert_eq!(
+            roundtrip(Kind::Bit, ColumnData::Bit(Some(true))),
+            Cell::Bool(true)
+        );
+        assert_eq!(
+            roundtrip(Kind::F32, ColumnData::F32(Some(1.1))),
+            Cell::Float(1.1f32 as f64)
+        );
+        assert_eq!(
+            roundtrip(Kind::F64, ColumnData::F64(Some(f64::MAX))),
+            Cell::Float(f64::MAX)
+        );
+        roundtrip(
+            Kind::Decimal,
+            ColumnData::Numeric(Some(Numeric::new_with_scale(-12345, 3))),
+        );
         assert_eq!(roundtrip(Kind::I32, ColumnData::I32(None)), Cell::Null);
-        assert_eq!(roundtrip(Kind::Str, ColumnData::String(Some("ñandú".into()))), Cell::Text("ñandú".into()));
+        assert_eq!(
+            roundtrip(Kind::Str, ColumnData::String(Some("ñandú".into()))),
+            Cell::Text("ñandú".into())
+        );
         let big = vec![7u8; 5 * 1024 * 1024];
-        assert_eq!(roundtrip(Kind::Bin, ColumnData::Binary(Some(big.clone().into()))), Cell::Bytes(big));
+        assert_eq!(
+            roundtrip(Kind::Bin, ColumnData::Binary(Some(big.clone().into()))),
+            Cell::Bytes(big)
+        );
         let g = tiberius::Uuid::parse_str("6f9619ff-8b86-d011-b42d-00c04fc964ff").unwrap();
-        assert_eq!(roundtrip(Kind::Guid, ColumnData::Guid(Some(g))), Cell::Uuid("6F9619FF-8B86-D011-B42D-00C04FC964FF".into()));
+        assert_eq!(
+            roundtrip(Kind::Guid, ColumnData::Guid(Some(g))),
+            Cell::Uuid("6F9619FF-8B86-D011-B42D-00C04FC964FF".into())
+        );
 
         // Temporal values, full precision.
         let ce2024 = chrono::NaiveDate::from_ymd_opt(2024, 2, 29).unwrap();
         use chrono::Datelike;
         let d0001 = (ce2024.num_days_from_ce() - 1) as u32;
-        assert_eq!(roundtrip(Kind::Date, ColumnData::Date(Some(Date::new(d0001)))), Cell::Date("2024-02-29".into()));
-        assert_eq!(roundtrip(Kind::Date, ColumnData::Date(Some(Date::new(0)))), Cell::Date("0001-01-01".into()));
-        assert_eq!(roundtrip(Kind::Time(7), ColumnData::Time(Some(Time::new(863_999_999_999, 7)))), Cell::Time("23:59:59.9999999".into()));
-        assert_eq!(roundtrip(Kind::Time(0), ColumnData::Time(Some(Time::new(3661, 0)))), Cell::Time("01:01:01".into()));
         assert_eq!(
-            roundtrip(Kind::DateTime2(3), ColumnData::DateTime2(Some(DateTime2::new(Date::new(d0001), Time::new(45_296_789, 3))))),
+            roundtrip(Kind::Date, ColumnData::Date(Some(Date::new(d0001)))),
+            Cell::Date("2024-02-29".into())
+        );
+        assert_eq!(
+            roundtrip(Kind::Date, ColumnData::Date(Some(Date::new(0)))),
+            Cell::Date("0001-01-01".into())
+        );
+        assert_eq!(
+            roundtrip(
+                Kind::Time(7),
+                ColumnData::Time(Some(Time::new(863_999_999_999, 7)))
+            ),
+            Cell::Time("23:59:59.9999999".into())
+        );
+        assert_eq!(
+            roundtrip(Kind::Time(0), ColumnData::Time(Some(Time::new(3661, 0)))),
+            Cell::Time("01:01:01".into())
+        );
+        assert_eq!(
+            roundtrip(
+                Kind::DateTime2(3),
+                ColumnData::DateTime2(Some(DateTime2::new(
+                    Date::new(d0001),
+                    Time::new(45_296_789, 3)
+                )))
+            ),
             Cell::DateTime("2024-02-29 12:34:56.789".into())
         );
         // datetime: 1/300 s ticks; the last tick of 9999-12-31 and pre-1900.
-        assert_eq!(roundtrip(Kind::DateTime, ColumnData::DateTime(Some(DateTime::new(0, 1)))), Cell::DateTime("1900-01-01 00:00:00.0033333".into()));
-        roundtrip(Kind::DateTime, ColumnData::DateTime(Some(DateTime::new(2_958_463, 25_919_999))));
-        assert_eq!(roundtrip(Kind::DateTime, ColumnData::DateTime(Some(DateTime::new(-53_690, 0)))), Cell::DateTime("1753-01-01 00:00:00.0000000".into()));
-        assert_eq!(roundtrip(Kind::SmallDateTime, ColumnData::SmallDateTime(Some(SmallDateTime::new(1, 61)))), Cell::DateTime("1900-01-02 01:01:00".into()));
+        assert_eq!(
+            roundtrip(
+                Kind::DateTime,
+                ColumnData::DateTime(Some(DateTime::new(0, 1)))
+            ),
+            Cell::DateTime("1900-01-01 00:00:00.0033333".into())
+        );
+        roundtrip(
+            Kind::DateTime,
+            ColumnData::DateTime(Some(DateTime::new(2_958_463, 25_919_999))),
+        );
+        assert_eq!(
+            roundtrip(
+                Kind::DateTime,
+                ColumnData::DateTime(Some(DateTime::new(-53_690, 0)))
+            ),
+            Cell::DateTime("1753-01-01 00:00:00.0000000".into())
+        );
+        assert_eq!(
+            roundtrip(
+                Kind::SmallDateTime,
+                ColumnData::SmallDateTime(Some(SmallDateTime::new(1, 61)))
+            ),
+            Cell::DateTime("1900-01-02 01:01:00".into())
+        );
         // datetimeoffset: UTC on the wire, local text.
         let dto = DateTimeOffset::new(DateTime2::new(Date::new(d0001), Time::new(1_000, 3)), -180);
-        assert_eq!(roundtrip(Kind::Dto(3), ColumnData::DateTimeOffset(Some(dto))), Cell::DateTimeTz("2024-02-28 21:00:01.000-03:00".into()));
-        let dto = DateTimeOffset::new(DateTime2::new(Date::new(d0001), Time::new(863_999_999_999, 7)), 840);
-        assert_eq!(roundtrip(Kind::Dto(7), ColumnData::DateTimeOffset(Some(dto))), Cell::DateTimeTz("2024-03-01 13:59:59.9999999+14:00".into()));
+        assert_eq!(
+            roundtrip(Kind::Dto(3), ColumnData::DateTimeOffset(Some(dto))),
+            Cell::DateTimeTz("2024-02-28 21:00:01.000-03:00".into())
+        );
+        let dto = DateTimeOffset::new(
+            DateTime2::new(Date::new(d0001), Time::new(863_999_999_999, 7)),
+            840,
+        );
+        assert_eq!(
+            roundtrip(Kind::Dto(7), ColumnData::DateTimeOffset(Some(dto))),
+            Cell::DateTimeTz("2024-03-01 13:59:59.9999999+14:00".into())
+        );
     }
 
     #[test]
@@ -1247,17 +1651,47 @@ mod tests {
         assert_eq!(d(Kind::I32, Cell::Text("42".into())), "I32(Some(42))");
         assert!(Kind::U8.data(Cell::Int(300)).is_err());
         assert_eq!(d(Kind::Bit, Cell::Int(0)), "Bit(Some(false))");
-        assert_eq!(d(Kind::Str, Cell::Int(7)), d(Kind::Str, Cell::Text("7".into())));
-        assert_eq!(d(Kind::Money, Cell::Float(1.5)), format!("{:?}", ColumnData::Numeric(Some(Numeric::new_with_scale(15, 1)))));
+        assert_eq!(
+            d(Kind::Str, Cell::Int(7)),
+            d(Kind::Str, Cell::Text("7".into()))
+        );
+        assert_eq!(
+            d(Kind::Money, Cell::Float(1.5)),
+            format!(
+                "{:?}",
+                ColumnData::Numeric(Some(Numeric::new_with_scale(15, 1)))
+            )
+        );
         // ISO with a T and a Z; more digits than the scale round half up.
         assert_eq!(
-            d(Kind::DateTime2(2), Cell::Text("2024-01-01T23:59:59.995Z".into())),
-            d(Kind::DateTime2(2), Cell::DateTime("2024-01-02 00:00:00".into()))
+            d(
+                Kind::DateTime2(2),
+                Cell::Text("2024-01-01T23:59:59.995Z".into())
+            ),
+            d(
+                Kind::DateTime2(2),
+                Cell::DateTime("2024-01-02 00:00:00".into())
+            )
         );
-        assert_eq!(d(Kind::Dto(0), Cell::DateTime("2024-01-01 00:00:00".into())), d(Kind::Dto(0), Cell::DateTimeTz("2024-01-01 00:00:00+00:00".into())));
-        assert_eq!(d(Kind::Date, Cell::DateTimeTz("2024-05-06 10:00:00 -03:00".into())), d(Kind::Date, Cell::Date("2024-05-06".into())));
+        assert_eq!(
+            d(Kind::Dto(0), Cell::DateTime("2024-01-01 00:00:00".into())),
+            d(
+                Kind::Dto(0),
+                Cell::DateTimeTz("2024-01-01 00:00:00+00:00".into())
+            )
+        );
+        assert_eq!(
+            d(
+                Kind::Date,
+                Cell::DateTimeTz("2024-05-06 10:00:00 -03:00".into())
+            ),
+            d(Kind::Date, Cell::Date("2024-05-06".into()))
+        );
         assert!(Kind::Date.data(Cell::Text("mañana".into())).is_err());
-        assert_eq!(d(Kind::Time(3), Cell::Time("10:20".into())), format!("{:?}", ColumnData::Time(Some(Time::new(37_200_000, 3)))));
+        assert_eq!(
+            d(Kind::Time(3), Cell::Time("10:20".into())),
+            format!("{:?}", ColumnData::Time(Some(Time::new(37_200_000, 3))))
+        );
     }
 
     #[test]
@@ -1273,12 +1707,27 @@ mod tests {
     #[test]
     fn kinds_from_wire_types() {
         let v = |t, n| TypeInfo::VarLenSized(VarLenContext::new(t, n, None));
-        assert_eq!(kind_of(&TypeInfo::FixedLen(FixedLenType::Int4)).unwrap(), Kind::I32);
+        assert_eq!(
+            kind_of(&TypeInfo::FixedLen(FixedLenType::Int4)).unwrap(),
+            Kind::I32
+        );
         assert_eq!(kind_of(&v(VarLenType::Intn, 2)).unwrap(), Kind::I16);
-        assert_eq!(kind_of(&v(VarLenType::Datetimen, 4)).unwrap(), Kind::SmallDateTime);
-        assert_eq!(kind_of(&v(VarLenType::DatetimeOffsetn, 3)).unwrap(), Kind::Dto(3));
-        assert_eq!(kind_of(&v(VarLenType::NVarchar, 0xffff)).unwrap(), Kind::Str);
-        assert_eq!(kind_of(&TypeInfo::FixedLen(FixedLenType::Money4)).unwrap(), Kind::Money);
+        assert_eq!(
+            kind_of(&v(VarLenType::Datetimen, 4)).unwrap(),
+            Kind::SmallDateTime
+        );
+        assert_eq!(
+            kind_of(&v(VarLenType::DatetimeOffsetn, 3)).unwrap(),
+            Kind::Dto(3)
+        );
+        assert_eq!(
+            kind_of(&v(VarLenType::NVarchar, 0xffff)).unwrap(),
+            Kind::Str
+        );
+        assert_eq!(
+            kind_of(&TypeInfo::FixedLen(FixedLenType::Money4)).unwrap(),
+            Kind::Money
+        );
         assert!(kind_of(&v(VarLenType::SSVariant, 8016)).is_err());
     }
 }

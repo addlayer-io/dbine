@@ -24,7 +24,12 @@ pub(crate) fn classify(stmt: &str) -> StmtKind {
     match words.first().map(String::as_str) {
         Some("select" | "with" | "values" | "table") => {
             // A data-modifying CTE or SELECT INTO writes.
-            if words.iter().any(|w| matches!(w.as_str(), "insert" | "update" | "delete" | "merge" | "into" | "upsert")) {
+            if words.iter().any(|w| {
+                matches!(
+                    w.as_str(),
+                    "insert" | "update" | "delete" | "merge" | "into" | "upsert"
+                )
+            }) {
                 StmtKind::Write
             } else {
                 StmtKind::Read
@@ -73,7 +78,10 @@ pub(crate) fn short(stmt: &str) -> String {
 }
 
 fn num(v: Option<&Value>) -> Option<f64> {
-    v.and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+    v.and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    })
 }
 
 fn text(v: &Value) -> String {
@@ -97,8 +105,13 @@ fn fmt_num(n: f64) -> String {
 /// A warning when estimated and actual rows are 10x or more apart.
 pub(crate) fn estimate_warning(est: f64, act: f64) -> Option<String> {
     let (lo, hi) = if est < act { (est, act) } else { (act, est) };
-    (hi - lo >= 100.0 && hi >= 10.0 * lo.max(1.0))
-        .then(|| format!("Estimación de filas errada: {} estimadas, {} reales", fmt_num(est), fmt_num(act)))
+    (hi - lo >= 100.0 && hi >= 10.0 * lo.max(1.0)).then(|| {
+        format!(
+            "Estimación de filas errada: {} estimadas, {} reales",
+            fmt_num(est),
+            fmt_num(act)
+        )
+    })
 }
 
 /// Keys that already are node fields, or tree structure.
@@ -118,7 +131,13 @@ pub(crate) fn pg_json(statement: &str, raw: &str, actual: bool) -> Result<Plan, 
             }
         }
     }
-    Ok(Plan { statement: statement.into(), root, actual, raw_format: "json".into(), raw: raw.trim().into() })
+    Ok(Plan {
+        statement: statement.into(),
+        root,
+        actual,
+        raw_format: "json".into(),
+        raw: raw.trim().into(),
+    })
 }
 
 fn text_or_json(v: &Value) -> String {
@@ -163,20 +182,28 @@ fn pg_node(p: &Value) -> PlanNode {
         detail.push("Backward".into());
     }
 
-    let object = ["Relation Name", "CTE Name", "Function Name", "Table Function Name"]
-        .iter()
-        .find(|k| !s(k).is_empty())
-        .map(|k| {
-            let mut o = s(k).to_string();
-            if !s("Schema").is_empty() {
-                o = format!("{}.{o}", s("Schema"));
-            }
-            if !s("Alias").is_empty() && s("Alias") != s(k) {
-                o = format!("{o} {}", s("Alias"));
-            }
-            o
-        })
-        .or_else(|| (!s("Index Name").is_empty() && node_type.contains("Bitmap")).then(|| s("Index Name").to_string()));
+    let object = [
+        "Relation Name",
+        "CTE Name",
+        "Function Name",
+        "Table Function Name",
+    ]
+    .iter()
+    .find(|k| !s(k).is_empty())
+    .map(|k| {
+        let mut o = s(k).to_string();
+        if !s("Schema").is_empty() {
+            o = format!("{}.{o}", s("Schema"));
+        }
+        if !s("Alias").is_empty() && s("Alias") != s(k) {
+            o = format!("{o} {}", s("Alias"));
+        }
+        o
+    })
+    .or_else(|| {
+        (!s("Index Name").is_empty() && node_type.contains("Bitmap"))
+            .then(|| s("Index Name").to_string())
+    });
 
     let est_rows = num(p.get("Plan Rows"));
     let loops = num(p.get("Actual Loops"));
@@ -191,16 +218,24 @@ fn pg_node(p: &Value) -> PlanNode {
             _ => est_rows.unwrap_or(0.0),
         };
         if read >= BIG_SCAN {
-            warnings.push(format!("Seq Scan en tabla grande (~{} filas leídas)", fmt_num(read)));
+            warnings.push(format!(
+                "Seq Scan en tabla grande (~{} filas leídas)",
+                fmt_num(read)
+            ));
         }
     }
     if s("Sort Space Type") == "Disk" || s("Sort Method").starts_with("external") {
         warnings.push(format!("Sort derramó a disco ({})", s("Sort Method")));
     }
     if num(p.get("Hash Batches")).is_some_and(|b| b > 1.0) {
-        warnings.push(format!("Hash en {} lotes: derramó a disco", fmt_num(num(p.get("Hash Batches")).unwrap_or(0.0))));
+        warnings.push(format!(
+            "Hash en {} lotes: derramó a disco",
+            fmt_num(num(p.get("Hash Batches")).unwrap_or(0.0))
+        ));
     }
-    if num(p.get("HashAgg Batches")).is_some_and(|b| b > 1.0) || num(p.get("Disk Usage")).is_some_and(|d| d > 0.0) {
+    if num(p.get("HashAgg Batches")).is_some_and(|b| b > 1.0)
+        || num(p.get("Disk Usage")).is_some_and(|d| d > 0.0)
+    {
         warnings.push("Agregación derramó a disco".into());
     }
     if let (Some(e), Some(a), Some(l)) = (est_rows, per_loop_rows, loops) {
@@ -225,7 +260,11 @@ fn pg_node(p: &Value) -> PlanNode {
             props.push((k.clone(), text_or_json(v)));
         }
     }
-    let children = p.get("Plans").and_then(Value::as_array).map(|a| a.iter().map(pg_node).collect()).unwrap_or_default();
+    let children = p
+        .get("Plans")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(pg_node).collect())
+        .unwrap_or_default();
     PlanNode {
         op,
         detail: detail.join(" · "),
@@ -276,7 +315,11 @@ pub(crate) fn pg_text(statement: &str, raw: &str, actual: bool) -> Plan {
             items.push((indent + 1, pg_text_node(rest.trim())));
         } else if items.is_empty() {
             items.push((0, pg_text_node(t)));
-        } else if indent == 0 && (t.starts_with("Planning Time") || t.starts_with("Execution Time") || t.starts_with("Planning:")) {
+        } else if indent == 0
+            && (t.starts_with("Planning Time")
+                || t.starts_with("Execution Time")
+                || t.starts_with("Planning:"))
+        {
             trailer.push(split_prop(t));
         } else if let Some((_, n)) = items.last_mut() {
             let (k, v) = split_prop(t);
@@ -287,16 +330,28 @@ pub(crate) fn pg_text(statement: &str, raw: &str, actual: bool) -> Plan {
                 if let (Some(r), Ok(removed)) = (n.actual_rows, v.parse::<f64>()) {
                     let read = r + removed * n.executions.unwrap_or(1.0);
                     if read >= BIG_SCAN && n.warnings.iter().all(|w| !w.starts_with("Seq Scan")) {
-                        n.warnings.push(format!("Seq Scan en tabla grande (~{} filas leídas)", fmt_num(read)));
+                        n.warnings.push(format!(
+                            "Seq Scan en tabla grande (~{} filas leídas)",
+                            fmt_num(read)
+                        ));
                     }
                 }
             }
             n.props.push((k, v));
         }
     }
-    let mut root = build_tree(items).unwrap_or_else(|| PlanNode { op: "Plan".into(), ..Default::default() });
+    let mut root = build_tree(items).unwrap_or_else(|| PlanNode {
+        op: "Plan".into(),
+        ..Default::default()
+    });
     root.props.extend(trailer);
-    Plan { statement: statement.into(), root, actual, raw_format: "text".into(), raw: raw.trim_end().into() }
+    Plan {
+        statement: statement.into(),
+        root,
+        actual,
+        raw_format: "text".into(),
+        raw: raw.trim_end().into(),
+    }
 }
 
 fn split_prop(t: &str) -> (String, String) {
@@ -350,7 +405,9 @@ fn pg_text_node(header: &str) -> PlanNode {
         node.executions = Some(0.0);
         node.warnings.push("Nunca se ejecutó".into());
     } else if !act.is_empty() {
-        let loops: f64 = field(act, "loops=").and_then(|l| l.parse().ok()).unwrap_or(1.0);
+        let loops: f64 = field(act, "loops=")
+            .and_then(|l| l.parse().ok())
+            .unwrap_or(1.0);
         let rows: Option<f64> = field(act, "rows=").and_then(|r| r.parse().ok());
         node.executions = Some(loops);
         node.actual_rows = rows.map(|r| r * loops);
@@ -361,9 +418,17 @@ fn pg_text_node(header: &str) -> PlanNode {
             node.warnings.extend(estimate_warning(e, r));
         }
     }
-    if node.op.ends_with("Seq Scan") && node.actual_rows.or(node.est_rows).is_some_and(|r| r >= BIG_SCAN) {
+    if node.op.ends_with("Seq Scan")
+        && node
+            .actual_rows
+            .or(node.est_rows)
+            .is_some_and(|r| r >= BIG_SCAN)
+    {
         let r = node.actual_rows.or(node.est_rows).unwrap_or(0.0);
-        node.warnings.push(format!("Seq Scan en tabla grande (~{} filas leídas)", fmt_num(r)));
+        node.warnings.push(format!(
+            "Seq Scan en tabla grande (~{} filas leídas)",
+            fmt_num(r)
+        ));
     }
     node
 }
@@ -373,8 +438,15 @@ fn pg_text_node(header: &str) -> PlanNode {
 /// `/* public.PK_IX: ID = 1 */`). One node per table access under the
 /// statement.
 pub(crate) fn h2_text(statement: &str, raw: &str) -> Plan {
-    let op = raw.split_whitespace().next().unwrap_or("Plan").to_uppercase();
-    let mut root = PlanNode { op, ..Default::default() };
+    let op = raw
+        .split_whitespace()
+        .next()
+        .unwrap_or("Plan")
+        .to_uppercase();
+    let mut root = PlanNode {
+        op,
+        ..Default::default()
+    };
     let mut rest = raw;
     while let Some(i) = rest.find("/*") {
         let Some(j) = rest[i..].find("*/") else { break };
@@ -393,7 +465,13 @@ pub(crate) fn h2_text(statement: &str, raw: &str) -> Plan {
         }
         root.children.push(n);
     }
-    Plan { statement: statement.into(), root, actual: false, raw_format: "text".into(), raw: raw.trim_end().into() }
+    Plan {
+        statement: statement.into(),
+        root,
+        actual: false,
+        raw_format: "text".into(),
+        raw: raw.trim_end().into(),
+    }
 }
 
 /// Operator trees drawn as text, one operator per line: RisingWave
@@ -409,8 +487,14 @@ pub(crate) fn tree_text(statement: &str, raw: &str) -> Plan {
         if line.trim().is_empty() {
             continue;
         }
-        let body = line.trim_start_matches([' ', '│', '├', '└', '─', '→']).trim_end();
-        let depth = line.chars().count() - line.trim_start_matches([' ', '│', '├', '└', '─', '→']).chars().count();
+        let body = line
+            .trim_start_matches([' ', '│', '├', '└', '─', '→'])
+            .trim_end();
+        let depth = line.chars().count()
+            - line
+                .trim_start_matches([' ', '│', '├', '└', '─', '→'])
+                .chars()
+                .count();
         if !arrows {
             items.push((depth, tree_node(body)));
         } else if line.trim_start().starts_with('→') {
@@ -421,26 +505,45 @@ pub(crate) fn tree_text(statement: &str, raw: &str) -> Plan {
             plan_props.push(split_prop(body));
         }
     }
-    let mut root = build_tree(items).unwrap_or_else(|| PlanNode { op: "Plan".into(), ..Default::default() });
+    let mut root = build_tree(items).unwrap_or_else(|| PlanNode {
+        op: "Plan".into(),
+        ..Default::default()
+    });
     root.props.splice(0..0, plan_props);
-    Plan { statement: statement.into(), root, actual: false, raw_format: "text".into(), raw: raw.trim_end().into() }
+    Plan {
+        statement: statement.into(),
+        root,
+        actual: false,
+        raw_format: "text".into(),
+        raw: raw.trim_end().into(),
+    }
 }
 
 /// `BatchScan { table: t, … }`, `Collect[doc.t | [a] | true] (rows=12)`,
 /// `Read db.public.t`: the operator, its detail, the object it reads and
 /// the estimated rows when given.
 fn tree_node(text: &str) -> PlanNode {
-    let cut = [text.find(" {"), text.find('['), text.find(" (")].into_iter().flatten().min();
+    let cut = [text.find(" {"), text.find('['), text.find(" (")]
+        .into_iter()
+        .flatten()
+        .min();
     let (op, detail) = match cut {
         Some(i) => (text[..i].trim().to_string(), text[i..].trim().to_string()),
         None => (text.to_string(), String::new()),
     };
-    let mut n = PlanNode { op, detail, ..Default::default() };
+    let mut n = PlanNode {
+        op,
+        detail,
+        ..Default::default()
+    };
     if let Some(rest) = n.op.strip_prefix("Read ") {
         n.object = Some(rest.trim().to_string());
         n.op = "Read".into();
     } else if let Some(i) = n.detail.find("table: ") {
-        let t: String = n.detail[i + 7..].chars().take_while(|c| !matches!(c, ',' | ' ' | '}')).collect();
+        let t: String = n.detail[i + 7..]
+            .chars()
+            .take_while(|c| !matches!(c, ',' | ' ' | '}'))
+            .collect();
         n.object = Some(t);
     } else if let Some(inner) = n.detail.strip_prefix('[') {
         let first = inner.split([' ', '|', ']']).next().unwrap_or("");
@@ -449,7 +552,10 @@ fn tree_node(text: &str) -> PlanNode {
         }
     }
     if let Some(i) = n.detail.rfind("(rows=") {
-        let v: String = n.detail[i + 6..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        let v: String = n.detail[i + 6..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
         n.est_rows = v.parse().ok();
     }
     n
@@ -487,12 +593,25 @@ pub(crate) fn cockroach_text(statement: &str, raw: &str, actual: bool) -> Plan {
             _ => plan_props.push((k, v)),
         }
     }
-    let mut root = build_tree(items).unwrap_or_else(|| PlanNode { op: "plan".into(), ..Default::default() });
-    if let Some((_, n)) = plan_props.iter().find(|(k, _)| k == "index recommendations") {
-        root.warnings.push(format!("CockroachDB recomienda {n} índice(s)"));
+    let mut root = build_tree(items).unwrap_or_else(|| PlanNode {
+        op: "plan".into(),
+        ..Default::default()
+    });
+    if let Some((_, n)) = plan_props
+        .iter()
+        .find(|(k, _)| k == "index recommendations")
+    {
+        root.warnings
+            .push(format!("CockroachDB recomienda {n} índice(s)"));
     }
     root.props.splice(0..0, plan_props);
-    Plan { statement: statement.into(), root, actual, raw_format: "text".into(), raw: raw.trim_end().into() }
+    Plan {
+        statement: statement.into(),
+        root,
+        actual,
+        raw_format: "text".into(),
+        raw: raw.trim_end().into(),
+    }
 }
 
 /// `hash join (inner)` → op `hash join`, detail `inner`.
@@ -501,7 +620,11 @@ fn cockroach_node(text: &str) -> PlanNode {
         Some((o, d)) => (o.to_string(), d.trim_end_matches(')').to_string()),
         None => (text.to_string(), String::new()),
     };
-    PlanNode { op, detail, ..Default::default() }
+    PlanNode {
+        op,
+        detail,
+        ..Default::default()
+    }
 }
 
 /// `1,234 (100% of the table; stats collected…)` → 1234.
@@ -558,7 +681,10 @@ fn cockroach_prop(n: &mut PlanNode, k: String, v: String) {
         "spans" if v == "FULL SCAN" => {
             let rows = n.actual_rows.or(n.est_rows).unwrap_or(0.0);
             if rows >= BIG_SCAN {
-                n.warnings.push(format!("Recorrido completo de tabla grande (~{} filas)", fmt_num(rows)));
+                n.warnings.push(format!(
+                    "Recorrido completo de tabla grande (~{} filas)",
+                    fmt_num(rows)
+                ));
             }
         }
         _ => {}
@@ -626,22 +752,40 @@ mod tests {
         let root = &p.root;
         assert_eq!(root.op, "Sort");
         assert_eq!(root.total_cost, Some(531.86));
-        assert!(root.props.iter().any(|(k, v)| k == "Execution Time" && v == "1.158"));
-        assert!(root.props.iter().any(|(k, v)| k == "Sort Key" && v == "(count(*)) DESC"));
-        assert!(!root.props.iter().any(|(k, _)| k == "Shared Read Blocks" || k == "Triggers"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Execution Time" && v == "1.158"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Sort Key" && v == "(count(*)) DESC"));
+        assert!(!root
+            .props
+            .iter()
+            .any(|(k, _)| k == "Shared Read Blocks" || k == "Triggers"));
         let agg = &root.children[0];
         assert_eq!(agg.op, "HashAggregate");
         let join = &agg.children[0];
         assert_eq!(join.op, "Nested Loop");
         assert_eq!(join.detail, "Inner Join");
-        assert!(join.warnings.iter().any(|w| w.starts_with("Estimación")), "{:?}", join.warnings);
-        let [scan, idx, sort] = &join.children[..] else { panic!() };
+        assert!(
+            join.warnings.iter().any(|w| w.starts_with("Estimación")),
+            "{:?}",
+            join.warnings
+        );
+        let [scan, idx, sort] = &join.children[..] else {
+            panic!()
+        };
         assert_eq!(scan.op, "Parallel Seq Scan");
         assert_eq!(scan.object.as_deref(), Some("b"));
         assert_eq!(scan.actual_rows, Some(125_000.0));
         assert_eq!(scan.executions, Some(5.0));
         assert!((scan.actual_ms.unwrap() - 0.91).abs() < 1e-9);
-        assert!(scan.warnings.iter().any(|w| w.starts_with("Seq Scan en tabla grande")));
+        assert!(scan
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("Seq Scan en tabla grande")));
         assert_eq!(idx.detail, "a_pkey");
         assert_eq!(idx.object.as_deref(), Some("public.a x"));
         assert_eq!(idx.actual_rows, Some(310.0));
@@ -658,7 +802,10 @@ mod tests {
         assert_eq!(p.root.op, "Delete");
         assert_eq!(p.root.actual_rows, None);
         assert_eq!(p.root.children[0].est_rows, Some(9.0));
-        assert!(p.root.children[0].props.iter().any(|(k, v)| k == "Index Cond" && v == "(id < 10)"));
+        assert!(p.root.children[0]
+            .props
+            .iter()
+            .any(|(k, v)| k == "Index Cond" && v == "(id < 10)"));
     }
 
     #[test]
@@ -687,7 +834,10 @@ Execution Time: 1.158 ms";
         assert_eq!(join.children[0].object.as_deref(), Some("b"));
         assert_eq!(join.children[0].actual_rows, Some(5000.0));
         let idx = &join.children[1].children[0];
-        assert_eq!((idx.op.as_str(), idx.detail.as_str(), idx.object.as_deref()), ("Index Scan", "a_pkey", Some("a")));
+        assert_eq!(
+            (idx.op.as_str(), idx.detail.as_str(), idx.object.as_deref()),
+            ("Index Scan", "a_pkey", Some("a"))
+        );
         assert_eq!(idx.executions, Some(0.0));
     }
 
@@ -697,7 +847,10 @@ Execution Time: 1.158 ms";
         let p = pg_text("q", raw, false);
         assert_eq!(p.root.op, "XN Hash Join DS_DIST_NONE");
         assert_eq!(p.root.children.len(), 2);
-        assert_eq!(p.root.children[1].children[0].object.as_deref(), Some("users"));
+        assert_eq!(
+            p.root.children[1].children[0].object.as_deref(),
+            Some("users")
+        );
         assert_eq!(p.root.props[0].0, "Startup Cost");
     }
 
@@ -748,21 +901,33 @@ index recommendations: 1
         assert_eq!(root.op, "sort");
         assert_eq!(root.actual_ms, Some(0.006));
         assert_eq!(root.props[0], ("planning time".into(), "248µs".into()));
-        assert!(root.props.iter().any(|(_, v)| v.starts_with("CREATE INDEX")));
+        assert!(root
+            .props
+            .iter()
+            .any(|(_, v)| v.starts_with("CREATE INDEX")));
         assert!(root.warnings.iter().any(|w| w.contains("recomienda 1")));
         let group = &root.children[0];
-        assert_eq!((group.op.as_str(), group.detail.as_str()), ("group", "hash"));
+        assert_eq!(
+            (group.op.as_str(), group.detail.as_str()),
+            ("group", "hash")
+        );
         let join = &group.children[0];
         assert_eq!(join.children.len(), 2);
         let scan_b = &join.children[0];
         assert_eq!(scan_b.object.as_deref(), Some("b@b_pkey"));
         assert_eq!(scan_b.actual_rows, Some(5000.0));
-        assert!(scan_b.props.iter().any(|(k, v)| k.is_empty() && v == "missing stats"));
+        assert!(scan_b
+            .props
+            .iter()
+            .any(|(k, v)| k.is_empty() && v == "missing stats"));
         let filter = &join.children[1];
         assert!(filter.warnings.iter().any(|w| w.starts_with("Estimación")));
         let scan_a = &filter.children[0];
         assert_eq!(scan_a.actual_rows, Some(200_000.0));
-        assert!(scan_a.warnings.iter().any(|w| w.contains("Recorrido completo")));
+        assert!(scan_a
+            .warnings
+            .iter()
+            .any(|w| w.contains("Recorrido completo")));
     }
 
     #[test]
@@ -778,8 +943,14 @@ index recommendations: 1
     #[test]
     fn statement_kinds() {
         assert_eq!(classify("SELECT * FROM t"), StmtKind::Read);
-        assert_eq!(classify("with x as (select 1) select * from x"), StmtKind::Read);
-        assert_eq!(classify("with x as (delete from t returning *) select * from x"), StmtKind::Write);
+        assert_eq!(
+            classify("with x as (select 1) select * from x"),
+            StmtKind::Read
+        );
+        assert_eq!(
+            classify("with x as (delete from t returning *) select * from x"),
+            StmtKind::Write
+        );
         assert_eq!(classify("select * into t2 from t"), StmtKind::Write);
         assert_eq!(classify("select 'delete' from t"), StmtKind::Read);
         assert_eq!(classify("UPDATE t SET a = 1"), StmtKind::Write);
@@ -803,7 +974,8 @@ index recommendations: 1
         assert_eq!(scan.op, "BatchScan");
         assert_eq!(scan.object.as_deref(), Some("t1"));
 
-        let crate_db = "Eval[id, name] (rows=12)\n  └ Collect[doc.t1 | [id, name] | true] (rows=12)";
+        let crate_db =
+            "Eval[id, name] (rows=12)\n  └ Collect[doc.t1 | [id, name] | true] (rows=12)";
         let p = tree_text("q", crate_db);
         assert_eq!(p.root.op, "Eval");
         assert_eq!(p.root.est_rows, Some(12.0));
@@ -813,9 +985,20 @@ index recommendations: 1
         let p = tree_text("q", mz);
         assert_eq!(p.root.op, "Accumulable GroupAggregate");
         assert_eq!(p.root.children[0].op, "Read");
-        assert_eq!(p.root.children[0].object.as_deref(), Some("materialize.public.t1"));
-        assert!(p.root.props.iter().any(|(k, v)| k == "Target cluster" && v == "quickstart"));
-        assert!(p.root.props.iter().any(|(k, v)| k == "Simple aggregates" && v == "count(*)"));
+        assert_eq!(
+            p.root.children[0].object.as_deref(),
+            Some("materialize.public.t1")
+        );
+        assert!(p
+            .root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Target cluster" && v == "quickstart"));
+        assert!(p
+            .root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Simple aggregates" && v == "count(*)"));
     }
 
     #[test]

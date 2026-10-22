@@ -19,7 +19,9 @@
 //! The TiDB test turns `tidb_enable_check_constraint` on for the run and
 //! puts it back as it was.
 
-use dbine_driver::{ConnectionConfig, Driver, IndexDef, ObjectRef, QueryOutcome, Session, TableChange, TableSchema};
+use dbine_driver::{
+    ConnectionConfig, Driver, IndexDef, ObjectRef, QueryOutcome, Session, TableChange, TableSchema,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,8 +29,12 @@ use std::time::{Duration, Instant};
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
-    let (host, port) = hostport.rsplit_once(':').map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (host, port) = hostport
+        .rsplit_once(':')
+        .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
     ConnectionConfig {
         driver: driver.into(),
         host: host.into(),
@@ -40,12 +46,17 @@ fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.map_err(|e| e.to_string())?;
+    s.execute(sql, 100, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     match out.error.take() {
         Some(e) => Err(e),
         None => Ok(out),
@@ -61,25 +72,46 @@ fn normalized(mut t: TableSchema) -> TableSchema {
 }
 
 fn squash(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").trim_end_matches(';').to_string()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches(';')
+        .to_string()
 }
 
 async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objects) {
-    let tables = s.database_schema().await.expect("database_schema").into_iter().map(|t| (t.name.clone(), normalized(t))).collect();
+    let tables = s
+        .database_schema()
+        .await
+        .expect("database_schema")
+        .into_iter()
+        .map(|t| (t.name.clone(), normalized(t)))
+        .collect();
     let mut objects = Objects::new();
     for o in s.list_objects().await.expect("list_objects") {
         if o.kind != "sequence" {
             continue;
         }
-        let r = ObjectRef { kind: o.kind.clone(), schema: None, name: o.name.clone() };
-        let def = s.definition(&r).await.expect("definition").unwrap_or_else(|| panic!("no definition for {r:?}"));
+        let r = ObjectRef {
+            kind: o.kind.clone(),
+            schema: None,
+            name: o.name.clone(),
+        };
+        let def = s
+            .definition(&r)
+            .await
+            .expect("definition")
+            .unwrap_or_else(|| panic!("no definition for {r:?}"));
         objects.insert((o.kind, o.name), def);
     }
     (tables, objects)
 }
 
 fn ix<'a>(t: &'a TableSchema, n: &str) -> &'a IndexDef {
-    t.indexes.iter().find(|i| i.name == n).unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes))
+    t.indexes
+        .iter()
+        .find(|i| i.name == n)
+        .unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes))
 }
 
 fn opt<'a>(i: &'a IndexDef, k: &str) -> Option<&'a str> {
@@ -89,12 +121,21 @@ fn opt<'a>(i: &'a IndexDef, k: &str) -> Option<&'a str> {
 /// Tables by name and sequences by name, then the script src-tauri runs:
 /// object drops and replaced sequences first, new sequences, the tables'
 /// sync, dropped sequences last.
-fn plan(d: &dyn Driver, ta: &BTreeMap<String, TableSchema>, tb: &BTreeMap<String, TableSchema>, oa: &Objects, ob: &Objects) -> (Vec<String>, Vec<String>) {
+fn plan(
+    d: &dyn Driver,
+    ta: &BTreeMap<String, TableSchema>,
+    tb: &BTreeMap<String, TableSchema>,
+    oa: &Objects,
+    ob: &Objects,
+) -> (Vec<String>, Vec<String>) {
     let mut tables = Vec::new();
     for (name, t) in ta {
         match tb.get(name) {
             None => tables.push(TableChange::Create { table: t.clone() }),
-            Some(o) if o != t => tables.push(TableChange::Alter { old: o.clone(), new: t.clone() }),
+            Some(o) if o != t => tables.push(TableChange::Alter {
+                old: o.clone(),
+                new: t.clone(),
+            }),
             Some(_) => {}
         }
     }
@@ -106,7 +147,9 @@ fn plan(d: &dyn Driver, ta: &BTreeMap<String, TableSchema>, tb: &BTreeMap<String
     let changed = tables
         .iter()
         .map(|c| match c {
-            TableChange::Alter { new, .. } | TableChange::Create { table: new } | TableChange::Drop { table: new } => new.name.clone(),
+            TableChange::Alter { new, .. }
+            | TableChange::Create { table: new }
+            | TableChange::Drop { table: new } => new.name.clone(),
         })
         .collect();
     let drop = |n: &str| format!("DROP SEQUENCE IF EXISTS `{n}`;");
@@ -130,7 +173,15 @@ fn plan(d: &dyn Driver, ta: &BTreeMap<String, TableSchema>, tb: &BTreeMap<String
     for w in &script.warnings {
         eprintln!("aviso: {w}");
     }
-    (before.into_iter().chain(early).chain(script.statements).chain(late).collect(), changed)
+    (
+        before
+            .into_iter()
+            .chain(early)
+            .chain(script.statements)
+            .chain(late)
+            .collect(),
+        changed,
+    )
 }
 
 /// StarRocks: until no schema change or rollup job runs in the database.
@@ -140,7 +191,10 @@ async fn wait_jobs(s: &mut Box<dyn Session>, secs: u64) {
         let mut busy = false;
         for sql in ["SHOW ALTER TABLE COLUMN", "SHOW ALTER TABLE ROLLUP"] {
             let out = run(s, sql).await.unwrap();
-            busy |= out.results.iter().flat_map(|r| &r.rows).flatten().any(|v| ["PENDING", "RUNNING", "WAITING_TXN", "FINISHING"].contains(&v.to_string().trim_matches('"')));
+            busy |= out.results.iter().flat_map(|r| &r.rows).flatten().any(|v| {
+                ["PENDING", "RUNNING", "WAITING_TXN", "FINISHING"]
+                    .contains(&v.to_string().trim_matches('"'))
+            });
         }
         if !busy {
             return;
@@ -173,14 +227,18 @@ async fn compare(c: &Case) -> Option<(BTreeMap<String, TableSchema>, Objects)> {
     eprintln!("{}: {}", c.id, admin.server_version().await.unwrap());
     let (a_db, b_db) = ("dbine_cmp_a", "dbine_cmp_b");
     for db in [a_db, b_db] {
-        run(&mut admin, &format!("DROP DATABASE IF EXISTS {db}")).await.unwrap();
+        run(&mut admin, &format!("DROP DATABASE IF EXISTS {db}"))
+            .await
+            .unwrap();
         admin.create_database(db).await.expect("create_database");
     }
     let mut a = d.connect(&cfg, Some(a_db)).await.unwrap();
     let mut b = d.connect(&cfg, Some(b_db)).await.unwrap();
     for (s, sql) in [(&mut a, c.source), (&mut b, c.target)] {
         for stmt in sql.split(";\n").map(str::trim).filter(|x| !x.is_empty()) {
-            run(s, stmt).await.unwrap_or_else(|e| panic!("{}: {stmt}: {e}", c.id));
+            run(s, stmt)
+                .await
+                .unwrap_or_else(|e| panic!("{}: {stmt}: {e}", c.id));
         }
         if c.settle > 0 {
             wait_jobs(s, c.settle).await;
@@ -201,7 +259,13 @@ async fn compare(c: &Case) -> Option<(BTreeMap<String, TableSchema>, Objects)> {
     // The driver waits when the table is busy with a schema change; the
     // test also waits for each job to end, as the user would see it.
     for (i, s) in statements.iter().enumerate() {
-        run(&mut b, s).await.unwrap_or_else(|e| panic!("{}: statement {i} failed: {e}\n---\n{s}\n---\nwhole script:\n{}", c.id, statements.join("\n")));
+        run(&mut b, s).await.unwrap_or_else(|e| {
+            panic!(
+                "{}: statement {i} failed: {e}\n---\n{s}\n---\nwhole script:\n{}",
+                c.id,
+                statements.join("\n")
+            )
+        });
         if c.settle > 0 {
             wait_jobs(&mut b, c.settle).await;
         }
@@ -209,13 +273,22 @@ async fn compare(c: &Case) -> Option<(BTreeMap<String, TableSchema>, Objects)> {
     let start = Instant::now();
     loop {
         let (tb2, ob2) = read(&mut b).await;
-        let same = tb2 == ta && ob2.iter().map(|(k, v)| (k.clone(), squash(v))).eq(oa.iter().map(|(k, v)| (k.clone(), squash(v))));
+        let same = tb2 == ta
+            && ob2
+                .iter()
+                .map(|(k, v)| (k.clone(), squash(v)))
+                .eq(oa.iter().map(|(k, v)| (k.clone(), squash(v))));
         if same {
             break;
         }
         if start.elapsed() > Duration::from_secs(c.settle) {
             for (name, t) in &ta {
-                assert_eq!(tb2.get(name), Some(t), "{}: table {name} after the sync", c.id);
+                assert_eq!(
+                    tb2.get(name),
+                    Some(t),
+                    "{}: table {name} after the sync",
+                    c.id
+                );
             }
             assert_eq!(tb2.len(), ta.len());
             assert_eq!(ob2, oa, "{}: objects after the sync", c.id);
@@ -277,17 +350,58 @@ CREATE TABLE mem (id int, KEY ib (id), KEY ih (id)) ENGINE=MEMORY",
         changed: &["docs", "mem", "nuevo"],
         settle: 0,
     };
-    let Some((ta, _)) = compare(&case).await else { return };
+    let Some((ta, _)) = compare(&case).await else {
+        return;
+    };
     let docs = &ta["docs"];
     let pre = ix(docs, "ix_pre");
-    assert_eq!((pre.columns.as_slice(), opt(pre, "desc"), opt(pre, "COMMENT")), (&["titulo(20)".to_string(), "precio".into()][..], Some("titulo(20)"), Some("prefijo")));
+    assert_eq!(
+        (
+            pre.columns.as_slice(),
+            opt(pre, "desc"),
+            opt(pre, "COMMENT")
+        ),
+        (
+            &["titulo(20)".to_string(), "precio".into()][..],
+            Some("titulo(20)"),
+            Some("prefijo")
+        )
+    );
     let f = ix(docs, "ix_fn");
-    assert_eq!((f.columns[0].as_str(), opt(f, "INVISIBLE"), opt(f, "desc")), ("(lower(`titulo`))", Some("YES"), Some("precio")));
-    assert_eq!((ix(docs, "ft_ng").kind.as_deref(), opt(ix(docs, "ft_ng"), "WITH PARSER")), (Some("FULLTEXT"), Some("ngram")));
-    assert_eq!((ix(docs, "sp").kind.as_deref(), ix(docs, "sp").columns.as_slice()), (Some("SPATIAL"), &["g".to_string()][..]));
-    assert!(docs.columns.iter().any(|c| c.name == "g" && c.data_type == "point SRID 0"));
-    let checks: Vec<(&str, &str)> = docs.checks.iter().map(|c| (c.name.as_deref().unwrap(), c.expression.as_str())).collect();
-    assert_eq!(checks, [("ck_estado", "(`estado` <> _utf8mb4'x') NOT ENFORCED"), ("ck_precio", "(`precio` > 0)")]);
+    assert_eq!(
+        (f.columns[0].as_str(), opt(f, "INVISIBLE"), opt(f, "desc")),
+        ("(lower(`titulo`))", Some("YES"), Some("precio"))
+    );
+    assert_eq!(
+        (
+            ix(docs, "ft_ng").kind.as_deref(),
+            opt(ix(docs, "ft_ng"), "WITH PARSER")
+        ),
+        (Some("FULLTEXT"), Some("ngram"))
+    );
+    assert_eq!(
+        (
+            ix(docs, "sp").kind.as_deref(),
+            ix(docs, "sp").columns.as_slice()
+        ),
+        (Some("SPATIAL"), &["g".to_string()][..])
+    );
+    assert!(docs
+        .columns
+        .iter()
+        .any(|c| c.name == "g" && c.data_type == "point SRID 0"));
+    let checks: Vec<(&str, &str)> = docs
+        .checks
+        .iter()
+        .map(|c| (c.name.as_deref().unwrap(), c.expression.as_str()))
+        .collect();
+    assert_eq!(
+        checks,
+        [
+            ("ck_estado", "(`estado` <> _utf8mb4'x') NOT ENFORCED"),
+            ("ck_precio", "(`precio` > 0)")
+        ]
+    );
     assert_eq!(ix(&ta["mem"], "ib").kind.as_deref(), Some("BTREE"));
 }
 
@@ -335,19 +449,45 @@ CREATE TABLE docs (
         changed: &["docs"],
         settle: 0,
     };
-    let Some((ta, oa)) = compare(&case).await else { return };
+    let Some((ta, oa)) = compare(&case).await else {
+        return;
+    };
     let docs = &ta["docs"];
     let pre = ix(docs, "ix_pre");
-    assert_eq!((opt(pre, "desc"), opt(pre, "COMMENT")), (Some("titulo(20)"), Some("prefijo")));
+    assert_eq!(
+        (opt(pre, "desc"), opt(pre, "COMMENT")),
+        (Some("titulo(20)"), Some("prefijo"))
+    );
     assert_eq!(opt(ix(docs, "ix_ig"), "IGNORED"), Some("YES"));
     assert_eq!(ix(docs, "u").kind.as_deref(), Some("HASH"));
-    let checks: Vec<(&str, &str)> = docs.checks.iter().map(|c| (c.name.as_deref().unwrap(), c.expression.as_str())).collect();
+    let checks: Vec<(&str, &str)> = docs
+        .checks
+        .iter()
+        .map(|c| (c.name.as_deref().unwrap(), c.expression.as_str()))
+        .collect();
     assert_eq!(checks, [("ck_precio", "`precio` > 0")]);
     // Column CHECKs ride in the column.
-    let ty = |n: &str| docs.columns.iter().find(|c| c.name == n).unwrap().data_type.clone();
-    assert_eq!((ty("q").as_str(), ty("j").as_str()), ("int(11) CHECK (`q` < 20)", "longtext CHECK (json_valid(`j`))"));
+    let ty = |n: &str| {
+        docs.columns
+            .iter()
+            .find(|c| c.name == n)
+            .unwrap()
+            .data_type
+            .clone()
+    };
+    assert_eq!(
+        (ty("q").as_str(), ty("j").as_str()),
+        (
+            "int(11) CHECK (`q` < 20)",
+            "longtext CHECK (json_valid(`j`))"
+        )
+    );
     let seq = &oa[&("sequence".to_string(), "seq_folio".to_string())];
-    assert!(seq.starts_with("CREATE SEQUENCE `seq_folio` start with 100") && seq.contains("increment by 5 cache 10"), "{seq}");
+    assert!(
+        seq.starts_with("CREATE SEQUENCE `seq_folio` start with 100")
+            && seq.contains("increment by 5 cache 10"),
+        "{seq}"
+    );
 }
 
 #[tokio::test]
@@ -359,8 +499,17 @@ async fn tidb() {
     };
     let d = driver("tidb");
     let mut admin = d.connect(&parse_url("tidb", &url), None).await.unwrap();
-    let was = run(&mut admin, "SELECT @@GLOBAL.tidb_enable_check_constraint").await.unwrap().results[0].rows[0][0].to_string().trim_matches('"').to_string();
-    run(&mut admin, "SET GLOBAL tidb_enable_check_constraint = ON").await.unwrap();
+    let was = run(&mut admin, "SELECT @@GLOBAL.tidb_enable_check_constraint")
+        .await
+        .unwrap()
+        .results[0]
+        .rows[0][0]
+        .to_string()
+        .trim_matches('"')
+        .to_string();
+    run(&mut admin, "SET GLOBAL tidb_enable_check_constraint = ON")
+        .await
+        .unwrap();
     let case = Case {
         id: "tidb",
         env: "DBINE_TEST_TIDB_URL",
@@ -396,13 +545,48 @@ CREATE TABLE docs (
     };
     // In a task of its own, so the setting goes back even if it fails.
     let res = tokio::spawn(async move { compare(&case).await }).await;
-    run(&mut admin, &format!("SET GLOBAL tidb_enable_check_constraint = {}", if was == "1" || was.eq_ignore_ascii_case("on") { "ON" } else { "OFF" })).await.unwrap();
-    let Some((ta, oa)) = res.unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic())) else { return };
+    run(
+        &mut admin,
+        &format!(
+            "SET GLOBAL tidb_enable_check_constraint = {}",
+            if was == "1" || was.eq_ignore_ascii_case("on") {
+                "ON"
+            } else {
+                "OFF"
+            }
+        ),
+    )
+    .await
+    .unwrap();
+    let Some((ta, oa)) = res.unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic())) else {
+        return;
+    };
     let docs = &ta["docs"];
-    assert_eq!(docs.options.get("clustered_index").map(String::as_str), Some("NONCLUSTERED"));
-    assert_eq!(ta["agrupada"].options.get("clustered_index").map(String::as_str), Some("CLUSTERED"));
-    assert_eq!((ix(docs, "ix_pre").columns[0].as_str(), opt(ix(docs, "ix_pre"), "COMMENT")), ("titulo(20)", Some("prefijo")));
-    assert_eq!((ix(docs, "ix_fn").columns[0].as_str(), opt(ix(docs, "ix_fn"), "INVISIBLE")), ("(lower(`titulo`))", Some("YES")));
+    assert_eq!(
+        docs.options.get("clustered_index").map(String::as_str),
+        Some("NONCLUSTERED")
+    );
+    assert_eq!(
+        ta["agrupada"]
+            .options
+            .get("clustered_index")
+            .map(String::as_str),
+        Some("CLUSTERED")
+    );
+    assert_eq!(
+        (
+            ix(docs, "ix_pre").columns[0].as_str(),
+            opt(ix(docs, "ix_pre"), "COMMENT")
+        ),
+        ("titulo(20)", Some("prefijo"))
+    );
+    assert_eq!(
+        (
+            ix(docs, "ix_fn").columns[0].as_str(),
+            opt(ix(docs, "ix_fn"), "INVISIBLE")
+        ),
+        ("(lower(`titulo`))", Some("YES"))
+    );
     assert_eq!(docs.checks.len(), 1, "{:?}", docs.checks);
     assert_eq!(ta["agrupada"].checks.len(), 1);
     assert!(oa[&("sequence".to_string(), "seq_folio".to_string())].contains("start with 100"));
@@ -432,12 +616,35 @@ async fn starrocks() {
         changed: &["docs"],
         settle: 180,
     };
-    let Some((ta, _)) = compare(&case).await else { return };
+    let Some((ta, _)) = compare(&case).await else {
+        return;
+    };
     let docs = &ta["docs"];
-    assert_eq!((ix(docs, "ix_a").kind.as_deref(), opt(ix(docs, "ix_a"), "COMMENT")), (Some("BITMAP"), Some("bm")));
-    assert_eq!((ix(docs, "ng").kind.as_deref(), opt(ix(docs, "ng"), "gram_num")), (Some("NGRAMBF"), Some("4")));
-    assert_eq!(docs.options.get("bloom_filter_columns").map(String::as_str), Some("p"));
-    assert_eq!((ix(docs, "r_ab").kind.as_deref(), ix(docs, "r_ab").columns.as_slice()), (Some("ROLLUP"), &["a".to_string(), "b".into()][..]));
+    assert_eq!(
+        (
+            ix(docs, "ix_a").kind.as_deref(),
+            opt(ix(docs, "ix_a"), "COMMENT")
+        ),
+        (Some("BITMAP"), Some("bm"))
+    );
+    assert_eq!(
+        (
+            ix(docs, "ng").kind.as_deref(),
+            opt(ix(docs, "ng"), "gram_num")
+        ),
+        (Some("NGRAMBF"), Some("4"))
+    );
+    assert_eq!(
+        docs.options.get("bloom_filter_columns").map(String::as_str),
+        Some("p")
+    );
+    assert_eq!(
+        (
+            ix(docs, "r_ab").kind.as_deref(),
+            ix(docs, "r_ab").columns.as_slice()
+        ),
+        (Some("ROLLUP"), &["a".to_string(), "b".into()][..])
+    );
 }
 
 #[tokio::test]
@@ -451,12 +658,22 @@ async fn greptimedb() {
         changed: &["m"],
         settle: 0,
     };
-    let Some((ta, _)) = compare(&case).await else { return };
+    let Some((ta, _)) = compare(&case).await else {
+        return;
+    };
     let m = &ta["m"];
     assert_eq!(ix(m, "INVERTED_INDEX_host").columns, ["host"]);
-    assert_eq!(opt(ix(m, "FULLTEXT_INDEX_msg"), "analyzer"), Some("English"));
+    assert_eq!(
+        opt(ix(m, "FULLTEXT_INDEX_msg"), "analyzer"),
+        Some("English")
+    );
     assert_eq!(opt(ix(m, "SKIPPING_INDEX_tr"), "granularity"), Some("1024"));
-    assert_eq!(m.options.get("compaction.twcs.time_window").map(String::as_str), Some("1h"));
+    assert_eq!(
+        m.options
+            .get("compaction.twcs.time_window")
+            .map(String::as_str),
+        Some("1h")
+    );
     assert!(m.options.contains_key("ttl"));
 }
 
@@ -470,33 +687,82 @@ async fn manticore() {
         return;
     };
     let d = driver("manticore");
-    let mut s = d.connect(&parse_url("manticore", &url), None).await.expect("connect");
-    let read = |t: Vec<TableSchema>, n: &str| t.into_iter().find(|t| t.name == n).unwrap_or_else(|| panic!("{n}"));
-    run(&mut s, "DROP TABLE IF EXISTS dbine_cmp_src; DROP TABLE IF EXISTS dbine_cmp").await.unwrap();
-    run(&mut s, "CREATE TABLE dbine_cmp_src (title text, n integer) morphology='stem_en' min_infix_len='3'").await.unwrap();
-    run(&mut s, "CREATE TABLE dbine_cmp (title text, n integer) min_infix_len='2'").await.unwrap();
+    let mut s = d
+        .connect(&parse_url("manticore", &url), None)
+        .await
+        .expect("connect");
+    let read = |t: Vec<TableSchema>, n: &str| {
+        t.into_iter()
+            .find(|t| t.name == n)
+            .unwrap_or_else(|| panic!("{n}"))
+    };
+    run(
+        &mut s,
+        "DROP TABLE IF EXISTS dbine_cmp_src; DROP TABLE IF EXISTS dbine_cmp",
+    )
+    .await
+    .unwrap();
+    run(
+        &mut s,
+        "CREATE TABLE dbine_cmp_src (title text, n integer) morphology='stem_en' min_infix_len='3'",
+    )
+    .await
+    .unwrap();
+    run(
+        &mut s,
+        "CREATE TABLE dbine_cmp (title text, n integer) min_infix_len='2'",
+    )
+    .await
+    .unwrap();
     let mut src = read(s.database_schema().await.unwrap(), "dbine_cmp_src");
     let old = read(s.database_schema().await.unwrap(), "dbine_cmp");
     eprintln!("manticore: {src:#?}\n{old:#?}");
-    assert_eq!(src.options.get("morphology").map(String::as_str), Some("stem_en"));
+    assert_eq!(
+        src.options.get("morphology").map(String::as_str),
+        Some("stem_en")
+    );
     src.name = "dbine_cmp".into();
     assert_ne!(src, old);
-    let script = d.sync_script(&[TableChange::Alter { old, new: src.clone() }]).unwrap();
+    let script = d
+        .sync_script(&[TableChange::Alter {
+            old,
+            new: src.clone(),
+        }])
+        .unwrap();
     for st in &script.statements {
         eprintln!("{st}");
-        run(&mut s, st).await.unwrap_or_else(|e| panic!("{st}: {e}"));
+        run(&mut s, st)
+            .await
+            .unwrap_or_else(|e| panic!("{st}: {e}"));
     }
     let now = read(s.database_schema().await.unwrap(), "dbine_cmp");
     assert_eq!(now, src);
     // And a copy made from the DDL has them too.
     let mut copy = src.clone();
     copy.name = "dbine_cmp_src".into();
-    let ddl = d.table_ddl(&copy, dbine_driver::DdlParts { drop: true, if_exists: true, create: true, ..Default::default() }).unwrap();
+    let ddl = d
+        .table_ddl(
+            &copy,
+            dbine_driver::DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
     for st in ddl.split(";\n") {
-        run(&mut s, st).await.unwrap_or_else(|e| panic!("{st}: {e}"));
+        run(&mut s, st)
+            .await
+            .unwrap_or_else(|e| panic!("{st}: {e}"));
     }
-    assert_eq!(read(s.database_schema().await.unwrap(), "dbine_cmp_src").options, src.options);
-    run(&mut s, "DROP TABLE dbine_cmp_src; DROP TABLE dbine_cmp").await.unwrap();
+    assert_eq!(
+        read(s.database_schema().await.unwrap(), "dbine_cmp_src").options,
+        src.options
+    );
+    run(&mut s, "DROP TABLE dbine_cmp_src; DROP TABLE dbine_cmp")
+        .await
+        .unwrap();
 }
 
 /// Table and column comments: added, changed and removed by the sync, per
@@ -512,8 +778,18 @@ async fn comments() {
             format!("CREATE TABLE {name} (id int NOT NULL PRIMARY KEY, nombre varchar(50) NULL{cc}){tc}{table_opts}")
         };
         (
-            [t("c_add", Some("Clientes"), Some("El nombre")), t("c_change", Some("Nuevo"), Some("nuevo")), t("c_remove", None, None)].join(";\n"),
-            [t("c_add", None, None), t("c_change", Some("Viejo"), Some("viejo")), t("c_remove", Some("Se va"), Some("se va"))].join(";\n"),
+            [
+                t("c_add", Some("Clientes"), Some("El nombre")),
+                t("c_change", Some("Nuevo"), Some("nuevo")),
+                t("c_remove", None, None),
+            ]
+            .join(";\n"),
+            [
+                t("c_add", None, None),
+                t("c_change", Some("Viejo"), Some("viejo")),
+                t("c_remove", Some("Se va"), Some("se va")),
+            ]
+            .join(";\n"),
         )
     };
     let starrocks = {
@@ -523,19 +799,41 @@ async fn comments() {
             format!("CREATE TABLE {name} (id int NOT NULL, nombre varchar(50) NULL{cc}) DUPLICATE KEY(id){tc} DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')")
         };
         (
-            [t("c_add", Some("Clientes"), Some("El nombre")), t("c_change", Some("Nuevo"), Some("nuevo")), t("c_remove", None, None)].join(";\n"),
-            [t("c_add", None, None), t("c_change", Some("Viejo"), Some("viejo")), t("c_remove", Some("Se va"), Some("se va"))].join(";\n"),
+            [
+                t("c_add", Some("Clientes"), Some("El nombre")),
+                t("c_change", Some("Nuevo"), Some("nuevo")),
+                t("c_remove", None, None),
+            ]
+            .join(";\n"),
+            [
+                t("c_add", None, None),
+                t("c_change", Some("Viejo"), Some("viejo")),
+                t("c_remove", Some("Se va"), Some("se va")),
+            ]
+            .join(";\n"),
         )
     };
     let greptime = {
         let t = |name: &str, tc: Option<&str>, cc: Option<&str>| {
             let cc = cc.map(|c| format!(" COMMENT '{c}'")).unwrap_or_default();
-            let tc = tc.map(|c| format!(" WITH (comment = '{c}')")).unwrap_or_default();
+            let tc = tc
+                .map(|c| format!(" WITH (comment = '{c}')"))
+                .unwrap_or_default();
             format!("CREATE TABLE {name} (ts TIMESTAMP TIME INDEX, host STRING, v DOUBLE{cc}, PRIMARY KEY(host)){tc}")
         };
         (
-            [t("c_add", Some("Clientes"), Some("El valor")), t("c_change", Some("Nuevo"), Some("nuevo")), t("c_remove", None, None)].join(";\n"),
-            [t("c_add", None, None), t("c_change", Some("Viejo"), Some("viejo")), t("c_remove", Some("Se va"), Some("se va"))].join(";\n"),
+            [
+                t("c_add", Some("Clientes"), Some("El valor")),
+                t("c_change", Some("Nuevo"), Some("nuevo")),
+                t("c_remove", None, None),
+            ]
+            .join(";\n"),
+            [
+                t("c_add", None, None),
+                t("c_change", Some("Viejo"), Some("viejo")),
+                t("c_remove", Some("Se va"), Some("se va")),
+            ]
+            .join(";\n"),
         )
     };
     let cases = [
@@ -545,11 +843,29 @@ async fn comments() {
         ("greptimedb", "DBINE_TEST_GREPTIMEDB_URL", greptime, 0),
     ];
     for (id, env, (source, target), settle) in cases {
-        let case = Case { id, env, source: Box::leak(source.into_boxed_str()), target: Box::leak(target.into_boxed_str()), changed: &["c_add", "c_change", "c_remove"], settle };
-        let Some((ta, _)) = compare(&case).await else { continue };
+        let case = Case {
+            id,
+            env,
+            source: Box::leak(source.into_boxed_str()),
+            target: Box::leak(target.into_boxed_str()),
+            changed: &["c_add", "c_change", "c_remove"],
+            settle,
+        };
+        let Some((ta, _)) = compare(&case).await else {
+            continue;
+        };
         assert_eq!(ta["c_add"].comment.as_deref(), Some("Clientes"), "{id}");
-        assert!(ta["c_add"].columns.iter().any(|c| c.comment.is_some()), "{id}: {:#?}", ta["c_add"]);
-        assert!(ta["c_remove"].comment.is_none() && ta["c_remove"].columns.iter().all(|c| c.comment.is_none()), "{id}: {:#?}", ta["c_remove"]);
+        assert!(
+            ta["c_add"].columns.iter().any(|c| c.comment.is_some()),
+            "{id}: {:#?}",
+            ta["c_add"]
+        );
+        assert!(
+            ta["c_remove"].comment.is_none()
+                && ta["c_remove"].columns.iter().all(|c| c.comment.is_none()),
+            "{id}: {:#?}",
+            ta["c_remove"]
+        );
     }
 }
 
@@ -558,7 +874,12 @@ async fn comments() {
 /// without each FK that references it) and the objects dropped as
 /// src-tauri's `drop_other` writes them (`DROP <KIND> IF EXISTS `name``).
 /// Object drops go before the tables' statements, as `plan()` puts them.
-async fn drop_on(d: &dyn Driver, s: &mut Box<dyn Session>, tables: Vec<TableChange>, objects: &[(&str, &str)]) -> Result<Vec<String>, String> {
+async fn drop_on(
+    d: &dyn Driver,
+    s: &mut Box<dyn Session>,
+    tables: Vec<TableChange>,
+    objects: &[(&str, &str)],
+) -> Result<Vec<String>, String> {
     let keyword = |k: &str| match k {
         "view" => "VIEW",
         "procedure" => "PROCEDURE",
@@ -566,7 +887,10 @@ async fn drop_on(d: &dyn Driver, s: &mut Box<dyn Session>, tables: Vec<TableChan
         "trigger" => "TRIGGER",
         _ => unreachable!("{k}"),
     };
-    let mut statements: Vec<String> = objects.iter().map(|(k, n)| format!("DROP {} IF EXISTS `{n}`;", keyword(k))).collect();
+    let mut statements: Vec<String> = objects
+        .iter()
+        .map(|(k, n)| format!("DROP {} IF EXISTS `{n}`;", keyword(k)))
+        .collect();
     if !tables.is_empty() {
         let script = d.sync_script(&tables).map_err(|e| e.to_string())?;
         for w in &script.warnings {
@@ -583,12 +907,31 @@ async fn drop_on(d: &dyn Driver, s: &mut Box<dyn Session>, tables: Vec<TableChan
 
 /// The tables without the views (the compare lists views as objects).
 async fn tables_of(s: &mut Box<dyn Session>) -> BTreeMap<String, TableSchema> {
-    let views: Vec<String> = s.list_objects().await.unwrap().into_iter().filter(|o| o.kind == "view").map(|o| o.name).collect();
-    read(s).await.0.into_iter().filter(|(n, _)| !views.contains(n)).collect()
+    let views: Vec<String> = s
+        .list_objects()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|o| o.kind == "view")
+        .map(|o| o.name)
+        .collect();
+    read(s)
+        .await
+        .0
+        .into_iter()
+        .filter(|(n, _)| !views.contains(n))
+        .collect()
 }
 
 async fn code_objects(s: &mut Box<dyn Session>) -> Vec<(String, String)> {
-    let mut v: Vec<(String, String)> = s.list_objects().await.unwrap().into_iter().filter(|o| ["view", "procedure", "function", "trigger"].contains(&o.kind.as_str())).map(|o| (o.kind, o.name)).collect();
+    let mut v: Vec<(String, String)> = s
+        .list_objects()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|o| ["view", "procedure", "function", "trigger"].contains(&o.kind.as_str()))
+        .map(|o| (o.kind, o.name))
+        .collect();
     v.sort();
     v
 }
@@ -597,7 +940,10 @@ fn without(t: &TableSchema, f: impl FnOnce(&mut TableSchema)) -> TableChange {
     let mut new = t.clone();
     f(&mut new);
     assert_ne!(&new, t, "nothing removed from {}", t.name);
-    TableChange::Alter { old: t.clone(), new }
+    TableChange::Alter {
+        old: t.clone(),
+        new,
+    }
 }
 
 /// "Eliminar" in "Comparar esquemas": an index dropped on one side and on
@@ -629,7 +975,10 @@ CREATE VIEW v_v AS SELECT id FROM v_hijo;
 CREATE FUNCTION f_doble(x int) RETURNS int DETERMINISTIC RETURN x * 2;
 CREATE PROCEDURE p_nada() BEGIN SELECT 1; END;
 CREATE TRIGGER tg_hijo BEFORE INSERT ON hijo FOR EACH ROW SET NEW.n = f_doble(NEW.n)";
-    for (id, env) in [("mysql", "DBINE_TEST_MYSQL_URL"), ("mariadb", "DBINE_TEST_MARIADB_URL")] {
+    for (id, env) in [
+        ("mysql", "DBINE_TEST_MYSQL_URL"),
+        ("mariadb", "DBINE_TEST_MARIADB_URL"),
+    ] {
         let Ok(url) = std::env::var(env) else {
             eprintln!("{env} not set; skipping");
             continue;
@@ -640,14 +989,18 @@ CREATE TRIGGER tg_hijo BEFORE INSERT ON hijo FOR EACH ROW SET NEW.n = f_doble(NE
         eprintln!("{id}: {}", admin.server_version().await.unwrap());
         let (a_db, b_db) = ("dbine_drop_a", "dbine_drop_b");
         for db in [a_db, b_db] {
-            run(&mut admin, &format!("DROP DATABASE IF EXISTS {db}")).await.unwrap();
+            run(&mut admin, &format!("DROP DATABASE IF EXISTS {db}"))
+                .await
+                .unwrap();
             admin.create_database(db).await.expect("create_database");
         }
         let mut a = d.connect(&cfg, Some(a_db)).await.unwrap();
         let mut b = d.connect(&cfg, Some(b_db)).await.unwrap();
         for s in [&mut a, &mut b] {
             for stmt in SETUP.split(";\n").map(str::trim).filter(|x| !x.is_empty()) {
-                run(s, stmt).await.unwrap_or_else(|e| panic!("{id}: {stmt}: {e}"));
+                run(s, stmt)
+                    .await
+                    .unwrap_or_else(|e| panic!("{id}: {stmt}: {e}"));
             }
         }
         let d = d.as_ref();
@@ -657,37 +1010,84 @@ CREATE TRIGGER tg_hijo BEFORE INSERT ON hijo FOR EACH ROW SET NEW.n = f_doble(NE
         let (ta, tb) = (tables_of(&mut a).await, tables_of(&mut b).await);
         assert_eq!(ta, tb, "{id}: same setup");
         for (s, t) in [(&mut a, &ta), (&mut b, &tb)] {
-            drop_on(d, s, vec![without(&t["hijo"], |t| t.indexes.retain(|i| i.name != "ix_sin_uso"))], &[]).await.unwrap();
+            drop_on(
+                d,
+                s,
+                vec![without(&t["hijo"], |t| {
+                    t.indexes.retain(|i| i.name != "ix_sin_uso")
+                })],
+                &[],
+            )
+            .await
+            .unwrap();
         }
         let (ta, tb) = (tables_of(&mut a).await, tables_of(&mut b).await);
-        assert!(ta["hijo"].indexes.iter().all(|i| i.name != "ix_sin_uso"), "{id}: {:#?}", ta["hijo"]);
+        assert!(
+            ta["hijo"].indexes.iter().all(|i| i.name != "ix_sin_uso"),
+            "{id}: {:#?}",
+            ta["hijo"]
+        );
         assert_eq!(ta, tb, "{id}: both sides dropped it");
 
         // One side at a time: each item the detail pane can drop.
         type Edit = fn(&mut TableSchema);
         let steps: [(&str, &str, Edit); 5] = [
             ("index", "hijo", |t| t.indexes.retain(|i| i.name != "ix_n")),
-            ("column", "hijo", |t| t.columns.retain(|c| c.name != "extra")),
-            ("check", "hijo", |t| t.checks.retain(|c| c.name.as_deref() != Some("ck_n"))),
-            ("foreign key", "nieto", |t| t.foreign_keys.retain(|f| f.name.as_deref() != Some("fk_nieto_hijo"))),
+            ("column", "hijo", |t| {
+                t.columns.retain(|c| c.name != "extra")
+            }),
+            ("check", "hijo", |t| {
+                t.checks.retain(|c| c.name.as_deref() != Some("ck_n"))
+            }),
+            ("foreign key", "nieto", |t| {
+                t.foreign_keys
+                    .retain(|f| f.name.as_deref() != Some("fk_nieto_hijo"))
+            }),
             ("primary key", "suelta", |t| t.primary_key = None),
         ];
         for (what, table, edit) in steps {
             let ta = tables_of(&mut a).await;
             let change = without(&ta[table], edit);
-            let TableChange::Alter { new, .. } = &change else { unreachable!() };
+            let TableChange::Alter { new, .. } = &change else {
+                unreachable!()
+            };
             let new = new.clone();
-            drop_on(d, &mut a, vec![change], &[]).await.unwrap_or_else(|e| panic!("{id}: {what}: {e}"));
-            assert_eq!(tables_of(&mut a).await[table], new, "{id}: {what} after the drop");
+            drop_on(d, &mut a, vec![change], &[])
+                .await
+                .unwrap_or_else(|e| panic!("{id}: {what}: {e}"));
+            assert_eq!(
+                tables_of(&mut a).await[table],
+                new,
+                "{id}: {what} after the drop"
+            );
         }
         // B kept all of it.
-        assert_eq!(tables_of(&mut b).await, tb, "{id}: the other side is untouched");
+        assert_eq!(
+            tables_of(&mut b).await,
+            tb,
+            "{id}: the other side is untouched"
+        );
 
         // The index MySQL keeps for an FK can't go while the FK is there:
         // the compare only warns about it.
         let ta = tables_of(&mut a).await;
-        let backing = ta["hijo"].indexes.iter().find(|i| i.columns == ["padre_id"]).expect("FK index").name.clone();
-        let err = drop_on(d, &mut a, vec![without(&ta["hijo"], |t| t.indexes.retain(|i| i.name != backing))], &[]).await.expect_err("FK index");
+        let backing = ta["hijo"]
+            .indexes
+            .iter()
+            .find(|i| i.columns == ["padre_id"])
+            .expect("FK index")
+            .name
+            .clone();
+        let err = drop_on(
+            d,
+            &mut a,
+            vec![without(&ta["hijo"], |t| {
+                t.indexes.retain(|i| i.name != backing)
+            })],
+            &[],
+        )
+        .await
+        .expect_err("FK index");
         eprintln!("{id}: the FK's index: {err}");
 
         // A table two others reference: the UI takes their FKs out too,
@@ -695,22 +1095,70 @@ CREATE TRIGGER tg_hijo BEFORE INSERT ON hijo FOR EACH ROW SET NEW.n = f_doble(NE
         let ta = tables_of(&mut a).await;
         let refs = |t: &mut TableSchema| t.foreign_keys.retain(|f| f.ref_table != "padre");
         let (hijo, otro) = (without(&ta["hijo"], refs), without(&ta["otro"], refs));
-        let expected: Vec<TableSchema> = [&hijo, &otro].map(|c| match c {
-            TableChange::Alter { new, .. } => new.clone(),
-            _ => unreachable!(),
-        }).into();
-        let script = drop_on(d, &mut a, vec![TableChange::Drop { table: ta["padre"].clone() }, hijo, otro], &[]).await.unwrap_or_else(|e| panic!("{id}: table: {e}"));
-        let at = |p: &str| script.iter().position(|s| s.contains(p)).unwrap_or_else(|| panic!("{p} in {script:#?}"));
-        assert!(at("fk_hijo_padre") < at("DROP TABLE") && at("fk_otro_padre") < at("DROP TABLE"), "{id}: {script:#?}");
+        let expected: Vec<TableSchema> = [&hijo, &otro]
+            .map(|c| match c {
+                TableChange::Alter { new, .. } => new.clone(),
+                _ => unreachable!(),
+            })
+            .into();
+        let script = drop_on(
+            d,
+            &mut a,
+            vec![
+                TableChange::Drop {
+                    table: ta["padre"].clone(),
+                },
+                hijo,
+                otro,
+            ],
+            &[],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{id}: table: {e}"));
+        let at = |p: &str| {
+            script
+                .iter()
+                .position(|s| s.contains(p))
+                .unwrap_or_else(|| panic!("{p} in {script:#?}"))
+        };
+        assert!(
+            at("fk_hijo_padre") < at("DROP TABLE") && at("fk_otro_padre") < at("DROP TABLE"),
+            "{id}: {script:#?}"
+        );
         let now = tables_of(&mut a).await;
         assert!(!now.contains_key("padre"), "{id}");
-        assert_eq!([now["hijo"].clone(), now["otro"].clone()], expected[..], "{id}");
+        assert_eq!(
+            [now["hijo"].clone(), now["otro"].clone()],
+            expected[..],
+            "{id}"
+        );
 
         // Code objects, in an order that ignores what uses what: MySQL
         // drops them anyway.
-        drop_on(d, &mut a, Vec::new(), &[("function", "f_doble"), ("view", "v_hijo"), ("view", "v_v"), ("trigger", "tg_hijo"), ("procedure", "p_nada")]).await.unwrap_or_else(|e| panic!("{id}: objects: {e}"));
-        assert_eq!(code_objects(&mut a).await, Vec::<(String, String)>::new(), "{id}");
-        assert_eq!(code_objects(&mut b).await.len(), 5, "{id}: B keeps its objects");
+        drop_on(
+            d,
+            &mut a,
+            Vec::new(),
+            &[
+                ("function", "f_doble"),
+                ("view", "v_hijo"),
+                ("view", "v_v"),
+                ("trigger", "tg_hijo"),
+                ("procedure", "p_nada"),
+            ],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{id}: objects: {e}"));
+        assert_eq!(
+            code_objects(&mut a).await,
+            Vec::<(String, String)>::new(),
+            "{id}"
+        );
+        assert_eq!(
+            code_objects(&mut b).await.len(),
+            5,
+            "{id}: B keeps its objects"
+        );
 
         drop(a);
         drop(b);

@@ -11,7 +11,13 @@ pub fn offset_of(text: &str, line: u32, col: u32) -> Option<usize> {
     }
     let end = text[start..].find('\n').map_or(text.len(), |e| start + e);
     let skip = col.saturating_sub(1) as usize;
-    Some(start + text[start..end].char_indices().nth(skip).map_or(end - start, |(i, _)| i))
+    Some(
+        start
+            + text[start..end]
+                .char_indices()
+                .nth(skip)
+                .map_or(end - start, |(i, _)| i),
+    )
 }
 
 /// A statement error with its position in `text` (1-based line and column).
@@ -56,9 +62,22 @@ mod tests {
     fn errors_are_placed() {
         let s = "show databases;\nselect * fron root.x";
         let u = &split_script(s, &ScriptDialect::generic())[1];
-        let Error::Statement(e) = shift(error("line 1:14 no viable alternative at input 'select * fron root'", &u.text), u) else { panic!() };
-        assert_eq!((e.line, e.offset), (Some(2), Some(s.find("root.x").unwrap())));
-        let Error::Statement(e) = error("Unsupported datatype: NOPE", "x") else { panic!() };
+        let Error::Statement(e) = shift(
+            error(
+                "line 1:14 no viable alternative at input 'select * fron root'",
+                &u.text,
+            ),
+            u,
+        ) else {
+            panic!()
+        };
+        assert_eq!(
+            (e.line, e.offset),
+            (Some(2), Some(s.find("root.x").unwrap()))
+        );
+        let Error::Statement(e) = error("Unsupported datatype: NOPE", "x") else {
+            panic!()
+        };
         assert_eq!((e.line, e.offset), (None, None));
     }
 }

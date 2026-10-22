@@ -14,7 +14,10 @@ pub mod html;
 pub mod markdown;
 
 use dbine_driver::dependencies::{find_mentions, schema_dependents};
-use dbine_driver::{kinds, ColumnDef, Confidence, DependencyTarget, Driver, KeyDef, ObjectRef, Relation, Session, TableSchema};
+use dbine_driver::{
+    kinds, ColumnDef, Confidence, DependencyTarget, Driver, KeyDef, ObjectRef, Relation, Session,
+    TableSchema,
+};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
@@ -92,7 +95,9 @@ pub struct Labels(BTreeMap<String, String>);
 fn spanish() -> &'static BTreeMap<String, String> {
     static ES: OnceLock<BTreeMap<String, String>> = OnceLock::new();
     ES.get_or_init(|| {
-        let all: serde_json::Value = serde_json::from_str(include_str!("../../../web/src/locales/es/dbDocs.json")).unwrap_or_default();
+        let all: serde_json::Value =
+            serde_json::from_str(include_str!("../../../web/src/locales/es/dbDocs.json"))
+                .unwrap_or_default();
         let mut out = BTreeMap::new();
         flatten(&all["doc"], "", &mut out);
         out
@@ -103,7 +108,11 @@ fn flatten(v: &serde_json::Value, prefix: &str, out: &mut BTreeMap<String, Strin
     match v {
         serde_json::Value::Object(map) => {
             for (k, v) in map {
-                let key = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
                 flatten(v, &key, out);
             }
         }
@@ -117,7 +126,12 @@ fn flatten(v: &serde_json::Value, prefix: &str, out: &mut BTreeMap<String, Strin
 impl Labels {
     pub fn new(given: &BTreeMap<String, String>) -> Self {
         let mut all = spanish().clone();
-        all.extend(given.iter().filter(|(_, v)| !v.trim().is_empty()).map(|(k, v)| (k.clone(), v.clone())));
+        all.extend(
+            given
+                .iter()
+                .filter(|(_, v)| !v.trim().is_empty())
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
         Labels(all)
     }
 
@@ -136,7 +150,10 @@ impl Labels {
 
     /// A kind's plural title: ours when we have it, else the driver's.
     pub fn kind(&self, id: &str, driver_label: &str) -> String {
-        self.0.get(&format!("kinds.{id}")).cloned().unwrap_or_else(|| driver_label.to_string())
+        self.0
+            .get(&format!("kinds.{id}"))
+            .cloned()
+            .unwrap_or_else(|| driver_label.to_string())
     }
 }
 
@@ -164,7 +181,11 @@ impl Doc {
         self.schemas.iter().map(|s| s.tables.len()).sum()
     }
     pub fn object_count(&self) -> usize {
-        self.schemas.iter().flat_map(|s| &s.groups).map(|g| g.items.len()).sum()
+        self.schemas
+            .iter()
+            .flat_map(|s| &s.groups)
+            .map(|g| g.items.len())
+            .sum()
     }
 }
 
@@ -247,7 +268,9 @@ fn section_of(kind: &str, has_columns: bool) -> Section {
     match kind {
         kinds::TABLE | kinds::COLLECTION => Section::Table,
         kinds::VIEW | kinds::MATERIALIZED_VIEW => Section::View,
-        kinds::PROCEDURE | kinds::FUNCTION | "package" | "package_body" | "aggregate" => Section::Routine,
+        kinds::PROCEDURE | kinds::FUNCTION | "package" | "package_body" | "aggregate" => {
+            Section::Routine
+        }
         kinds::TRIGGER => Section::Trigger,
         _ if has_columns => Section::Table,
         _ => Section::Other,
@@ -286,7 +309,13 @@ fn shown(schema: Option<&str>, name: &str) -> String {
 
 /// Read everything the options ask for. Parts the engine doesn't have, or
 /// that fail, become notes; only the object list is required.
-pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions, labels: &Labels, cx: &Context<'_>) -> crate::error::CommandResult<Doc> {
+pub async fn collect(
+    s: &mut dyn Session,
+    driver: &dyn Driver,
+    opts: &DocOptions,
+    labels: &Labels,
+    cx: &Context<'_>,
+) -> crate::error::CommandResult<Doc> {
     let info = driver.info();
     let mut doc = Doc {
         database: cx.database.to_string(),
@@ -300,16 +329,40 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
         diagram: opts.diagram && opts.format == DocFormat::Html,
         ..Default::default()
     };
-    let cancelled = || -> crate::error::CommandResult<()> { if (cx.cancelled)() { Err(crate::error::CommandError::Cancelled) } else { Ok(()) } };
+    let cancelled = || -> crate::error::CommandResult<()> {
+        if (cx.cancelled)() {
+            Err(crate::error::CommandError::Cancelled)
+        } else {
+            Ok(())
+        }
+    };
     (cx.progress)(0, 0, "objects");
-    doc.version = s.server_version().await.ok().filter(|v| !v.trim().is_empty());
-    let kind_info: HashMap<&str, &dbine_driver::ObjectKindInfo> = info.object_kinds.iter().map(|k| (k.id, k)).collect();
+    doc.version = s
+        .server_version()
+        .await
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let kind_info: HashMap<&str, &dbine_driver::ObjectKindInfo> =
+        info.object_kinds.iter().map(|k| (k.id, k)).collect();
     let has_columns = |kind: &str| kind_info.get(kind).is_some_and(|k| k.has_columns);
     let has_source = |kind: &str| kind_info.get(kind).is_some_and(|k| k.has_definition);
-    let driver_label = |kind: &str| kind_info.get(kind).map(|k| k.label.to_string()).unwrap_or_else(|| kind.to_string());
-    let in_scope = |schema: Option<&str>| opts.schemas.is_empty() || schema.is_none_or(|sc| opts.schemas.iter().any(|w| w.eq_ignore_ascii_case(sc)));
+    let driver_label = |kind: &str| {
+        kind_info
+            .get(kind)
+            .map(|k| k.label.to_string())
+            .unwrap_or_else(|| kind.to_string())
+    };
+    let in_scope = |schema: Option<&str>| {
+        opts.schemas.is_empty()
+            || schema.is_none_or(|sc| opts.schemas.iter().any(|w| w.eq_ignore_ascii_case(sc)))
+    };
 
-    let objects: Vec<_> = s.list_objects().await?.into_iter().filter(|o| in_scope(o.schema.as_deref())).collect();
+    let objects: Vec<_> = s
+        .list_objects()
+        .await?
+        .into_iter()
+        .filter(|o| in_scope(o.schema.as_deref()))
+        .collect();
     cancelled()?;
 
     // Tables, keys and indexes from the catalog, when it has them.
@@ -318,13 +371,21 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
     if need_schema {
         (cx.progress)(0, 0, "schema");
         match s.database_schema().await {
-            Ok(list) => tables = list.into_iter().filter(|t| in_scope(t.schema.as_deref())).collect(),
+            Ok(list) => {
+                tables = list
+                    .into_iter()
+                    .filter(|t| in_scope(t.schema.as_deref()))
+                    .collect()
+            }
             Err(dbine_driver::Error::Unsupported(_)) => {}
             Err(e) => doc.notes.push(format!("{}: {e}", labels.get("tables"))),
         }
     }
     cancelled()?;
-    let known: HashSet<(String, String)> = tables.iter().map(|t| key(t.schema.as_deref(), &t.name)).collect();
+    let known: HashSet<(String, String)> = tables
+        .iter()
+        .map(|t| key(t.schema.as_deref(), &t.name))
+        .collect();
 
     // Columns of what the catalog read left out (views, measurements…).
     let missing: Vec<_> = objects
@@ -340,10 +401,13 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
     let code_kinds = dbine_driver::dependencies::code_kinds(info);
     let read_source: Vec<_> = objects
         .iter()
-        .filter(|o| has_source(&o.kind) && section_of(&o.kind, has_columns(&o.kind)) != Section::Table)
+        .filter(|o| {
+            has_source(&o.kind) && section_of(&o.kind, has_columns(&o.kind)) != Section::Table
+        })
         .filter(|o| {
             let sec = section_of(&o.kind, has_columns(&o.kind));
-            (opts.source && wanted(sec, &o.kind, opts)) || (doc.dependencies && code_kinds.contains(&o.kind))
+            (opts.source && wanted(sec, &o.kind, opts))
+                || (doc.dependencies && code_kinds.contains(&o.kind))
         })
         .collect();
     let total = missing.len() + read_source.len();
@@ -353,10 +417,18 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
     for o in &missing {
         cancelled()?;
         (cx.progress)(done, total, "columns");
-        let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+        let obj = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
         match s.columns(&obj).await {
             Ok(cols) => {
-                let pk = cols.iter().filter(|c| c.primary_key).map(|c| c.name.clone()).collect();
+                let pk = cols
+                    .iter()
+                    .filter(|c| c.primary_key)
+                    .map(|c| c.name.clone())
+                    .collect();
                 let defs = cols
                     .into_iter()
                     .map(|c| ColumnDef {
@@ -378,7 +450,11 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
     for o in &read_source {
         cancelled()?;
         (cx.progress)(done, total, "source");
-        let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+        let obj = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
         match s.definition(&obj).await {
             Ok(Some(text)) => {
                 let (sc, n) = key(o.schema.as_deref(), &o.name);
@@ -394,11 +470,16 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
         unreadable.sort();
         unreadable.dedup();
         let list = if unreadable.len() > 20 {
-            format!("{}, {}", unreadable[..20].join(", "), labels.fill("more", &[("count", (unreadable.len() - 20).to_string())]))
+            format!(
+                "{}, {}",
+                unreadable[..20].join(", "),
+                labels.fill("more", &[("count", (unreadable.len() - 20).to_string())])
+            )
         } else {
             unreadable.join(", ")
         };
-        doc.notes.push(format!("{}: {list}", labels.get("noSource")));
+        doc.notes
+            .push(format!("{}: {list}", labels.get("noSource")));
     }
 
     // Tables: the catalog's, then the ones read column by column.
@@ -409,7 +490,11 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
             view_columns.insert(key(t.schema.as_deref(), &t.name), t.columns.clone());
             continue;
         }
-        table_docs.push(TableDoc { kind_label: labels.kind(&t.kind, &driver_label(&t.kind)), table: t.clone(), ..Default::default() });
+        table_docs.push(TableDoc {
+            kind_label: labels.kind(&t.kind, &driver_label(&t.kind)),
+            table: t.clone(),
+            ..Default::default()
+        });
     }
     for o in &missing {
         let k = key(o.schema.as_deref(), &o.name);
@@ -425,19 +510,32 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
                 schema: o.schema.clone(),
                 name: o.name.clone(),
                 columns: cols,
-                primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk }),
+                primary_key: (!pk.is_empty()).then(|| KeyDef {
+                    name: None,
+                    columns: pk,
+                }),
                 ..Default::default()
             },
             ..Default::default()
         });
     }
     // Tables the object list has but nobody could read (no columns).
-    let have: HashSet<(String, String)> = table_docs.iter().map(|t| key(t.table.schema.as_deref(), &t.table.name)).collect();
-    for o in objects.iter().filter(|o| section_of(&o.kind, has_columns(&o.kind)) == Section::Table && !has_columns(&o.kind)) {
+    let have: HashSet<(String, String)> = table_docs
+        .iter()
+        .map(|t| key(t.table.schema.as_deref(), &t.table.name))
+        .collect();
+    for o in objects.iter().filter(|o| {
+        section_of(&o.kind, has_columns(&o.kind)) == Section::Table && !has_columns(&o.kind)
+    }) {
         if opts.tables && !have.contains(&key(o.schema.as_deref(), &o.name)) {
             table_docs.push(TableDoc {
                 kind_label: labels.kind(&o.kind, &driver_label(&o.kind)),
-                table: TableSchema { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone(), ..Default::default() },
+                table: TableSchema {
+                    kind: o.kind.clone(),
+                    schema: o.schema.clone(),
+                    name: o.name.clone(),
+                    ..Default::default()
+                },
                 ..Default::default()
             });
         }
@@ -450,15 +548,24 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
             .iter()
             .filter_map(|o| {
                 let (sc, n) = key(o.schema.as_deref(), &o.name);
-                sources.get(&(o.kind.clone(), sc, n)).map(|b| (o, b, b.to_lowercase()))
+                sources
+                    .get(&(o.kind.clone(), sc, n))
+                    .map(|b| (o, b, b.to_lowercase()))
             })
             .collect();
         for t in &mut table_docs {
             let target = DependencyTarget {
-                object: ObjectRef { kind: t.table.kind.clone(), schema: t.table.schema.clone(), name: t.table.name.clone() },
+                object: ObjectRef {
+                    kind: t.table.kind.clone(),
+                    schema: t.table.schema.clone(),
+                    name: t.table.name.clone(),
+                },
                 column: None,
             };
-            for d in schema_dependents(&tables, &target).into_iter().filter(|d| d.relation == Relation::ForeignKey) {
+            for d in schema_dependents(&tables, &target)
+                .into_iter()
+                .filter(|d| d.relation == Relation::ForeignKey)
+            {
                 t.used_by.push(UsedBy {
                     kind_label: labels.kind(&d.kind, &driver_label(&d.kind)),
                     schema: d.schema,
@@ -477,7 +584,13 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
                         kind_label: labels.kind(&o.kind, &driver_label(&o.kind)),
                         schema: o.schema.clone(),
                         name: o.name.clone(),
-                        how: labels.get(if confidence == Confidence::Review { "usedByReview" } else { "usedByCode" }).to_string(),
+                        how: labels
+                            .get(if confidence == Confidence::Review {
+                                "usedByReview"
+                            } else {
+                                "usedByCode"
+                            })
+                            .to_string(),
                         table: false,
                     });
                 }
@@ -486,17 +599,36 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
     }
 
     // Triggers listed on their table.
-    for o in objects.iter().filter(|o| opts.triggers && o.kind == kinds::TRIGGER) {
-        let Some(parent) = o.parent.as_deref() else { continue };
-        if let Some(t) = table_docs.iter_mut().find(|t| t.table.name.eq_ignore_ascii_case(parent) && t.table.schema.as_deref().unwrap_or("").eq_ignore_ascii_case(o.schema.as_deref().unwrap_or(""))) {
+    for o in objects
+        .iter()
+        .filter(|o| opts.triggers && o.kind == kinds::TRIGGER)
+    {
+        let Some(parent) = o.parent.as_deref() else {
+            continue;
+        };
+        if let Some(t) = table_docs.iter_mut().find(|t| {
+            t.table.name.eq_ignore_ascii_case(parent)
+                && t.table
+                    .schema
+                    .as_deref()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case(o.schema.as_deref().unwrap_or(""))
+        }) {
             t.triggers.push(o.name.clone());
         }
     }
     // Rows from the engine's statistics: no count, so no scan and no lock.
-    let estimates: HashMap<(String, String), u64> =
-        s.row_estimates().await.unwrap_or_default().into_iter().map(|e| (key(e.object.schema.as_deref(), &e.object.name), e.rows)).collect();
+    let estimates: HashMap<(String, String), u64> = s
+        .row_estimates()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| (key(e.object.schema.as_deref(), &e.object.name), e.rows))
+        .collect();
     for t in &mut table_docs {
-        t.rows = estimates.get(&key(t.table.schema.as_deref(), &t.table.name)).copied();
+        t.rows = estimates
+            .get(&key(t.table.schema.as_deref(), &t.table.name))
+            .copied();
     }
     if !opts.tables {
         table_docs.clear();
@@ -514,11 +646,19 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
         .collect();
 
     // Everything else, grouped by kind in the driver's order.
-    let order: HashMap<&str, usize> = info.object_kinds.iter().enumerate().map(|(i, k)| (k.id, i)).collect();
+    let order: HashMap<&str, usize> = info
+        .object_kinds
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.id, i))
+        .collect();
     let mut by_schema: BTreeMap<String, SchemaDoc> = BTreeMap::new();
     let schema_of = |m: &mut BTreeMap<String, SchemaDoc>, sc: Option<&str>| -> String {
         let k = sc.unwrap_or("").to_string();
-        m.entry(k.clone()).or_insert_with(|| SchemaDoc { name: sc.filter(|s| !s.is_empty()).map(str::to_string), ..Default::default() });
+        m.entry(k.clone()).or_insert_with(|| SchemaDoc {
+            name: sc.filter(|s| !s.is_empty()).map(str::to_string),
+            ..Default::default()
+        });
         k
     };
     for t in table_docs {
@@ -536,27 +676,59 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
             schema: o.schema.clone(),
             name: o.name.clone(),
             parent: o.parent.clone(),
-            columns: view_columns.get(&(sc.clone(), n.clone())).cloned().unwrap_or_default(),
-            source: if opts.source { sources.get(&(o.kind.clone(), sc.clone(), n.clone())).cloned() } else { None },
+            columns: view_columns
+                .get(&(sc.clone(), n.clone()))
+                .cloned()
+                .unwrap_or_default(),
+            source: if opts.source {
+                sources
+                    .get(&(o.kind.clone(), sc.clone(), n.clone()))
+                    .cloned()
+            } else {
+                None
+            },
             comment: comments.get(&(o.kind.clone(), sc, n)).cloned(),
         };
         let groups = &mut by_schema.get_mut(&k).unwrap().groups;
         match groups.iter_mut().find(|g| g.kind == o.kind) {
             Some(g) => g.items.push(item),
-            None => groups.push(ObjectGroup { kind: o.kind.clone(), label: labels.kind(&o.kind, &driver_label(&o.kind)), items: vec![item] }),
+            None => groups.push(ObjectGroup {
+                kind: o.kind.clone(),
+                label: labels.kind(&o.kind, &driver_label(&o.kind)),
+                items: vec![item],
+            }),
         }
     }
     for sd in by_schema.values_mut() {
         sd.tables.sort_by(|a, b| {
-            let rank = |t: &TableDoc| order.get(t.table.kind.as_str()).copied().unwrap_or(usize::MAX);
-            rank(a).cmp(&rank(b)).then_with(|| a.table.name.to_lowercase().cmp(&b.table.name.to_lowercase()))
+            let rank = |t: &TableDoc| {
+                order
+                    .get(t.table.kind.as_str())
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            };
+            rank(a).cmp(&rank(b)).then_with(|| {
+                a.table
+                    .name
+                    .to_lowercase()
+                    .cmp(&b.table.name.to_lowercase())
+            })
         });
-        sd.groups.sort_by_key(|g| (section_rank(&g.kind, has_columns(&g.kind)), order.get(g.kind.as_str()).copied().unwrap_or(usize::MAX)));
+        sd.groups.sort_by_key(|g| {
+            (
+                section_rank(&g.kind, has_columns(&g.kind)),
+                order.get(g.kind.as_str()).copied().unwrap_or(usize::MAX),
+            )
+        });
         for g in &mut sd.groups {
-            g.items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            g.items
+                .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         }
     }
-    doc.schemas = by_schema.into_values().filter(|s| !s.tables.is_empty() || !s.groups.is_empty()).collect();
+    doc.schemas = by_schema
+        .into_values()
+        .filter(|s| !s.tables.is_empty() || !s.groups.is_empty())
+        .collect();
     Ok(doc)
 }
 
@@ -593,18 +765,31 @@ impl Anchors {
         for s in &doc.schemas {
             for t in &s.tables {
                 n += 1;
-                tables.entry(key(t.table.schema.as_deref(), &t.table.name)).or_insert_with(|| format!("t{n}"));
+                tables
+                    .entry(key(t.table.schema.as_deref(), &t.table.name))
+                    .or_insert_with(|| format!("t{n}"));
             }
         }
         Anchors { tables }
     }
 
     /// A table's anchor; `schema` `None` falls back to `default_schema`.
-    pub fn table(&self, schema: Option<&str>, default_schema: Option<&str>, name: &str) -> Option<&str> {
+    pub fn table(
+        &self,
+        schema: Option<&str>,
+        default_schema: Option<&str>,
+        name: &str,
+    ) -> Option<&str> {
         let sc = schema.or(default_schema);
         self.tables
             .get(&key(sc, name))
-            .or_else(|| if schema.is_none() { self.tables.get(&key(None, name)) } else { None })
+            .or_else(|| {
+                if schema.is_none() {
+                    self.tables.get(&key(None, name))
+                } else {
+                    None
+                }
+            })
             .map(String::as_str)
     }
 }
@@ -616,8 +801,14 @@ pub fn qualified(schema: Option<&str>, name: &str) -> String {
 
 /// What a column is in its table's keys: `PK`, `FK`, `PK, FK`.
 pub fn key_marks(t: &TableSchema, column: &str) -> String {
-    let pk = t.primary_key.as_ref().is_some_and(|k| k.columns.iter().any(|c| c.eq_ignore_ascii_case(column)));
-    let fk = t.foreign_keys.iter().any(|f| f.columns.iter().any(|c| c.eq_ignore_ascii_case(column)));
+    let pk = t
+        .primary_key
+        .as_ref()
+        .is_some_and(|k| k.columns.iter().any(|c| c.eq_ignore_ascii_case(column)));
+    let fk = t
+        .foreign_keys
+        .iter()
+        .any(|f| f.columns.iter().any(|c| c.eq_ignore_ascii_case(column)));
     match (pk, fk) {
         (true, true) => "PK, FK".into(),
         (true, false) => "PK".into(),
@@ -637,10 +828,24 @@ pub(crate) mod tests {
             schema: Some("app".into()),
             name: "users<script>".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "int".into(), nullable: false, auto_increment: true, ..Default::default() },
-                ColumnDef { name: "name|x".into(), data_type: "varchar(50)".into(), comment: Some("<b>bold</b> & \"q\"\nline".into()), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    nullable: false,
+                    auto_increment: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "name|x".into(),
+                    data_type: "varchar(50)".into(),
+                    comment: Some("<b>bold</b> & \"q\"\nline".into()),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some("pk_users".into()), columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("pk_users".into()),
+                columns: vec!["id".into()],
+            }),
             comment: Some("Users <img src=x onerror=alert(1)>".into()),
             ..Default::default()
         };
@@ -649,10 +854,22 @@ pub(crate) mod tests {
             schema: Some("app".into()),
             name: "orders".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "int".into(), nullable: false, ..Default::default() },
-                ColumnDef { name: "user_id".into(), data_type: "int".into(), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "user_id".into(),
+                    data_type: "int".into(),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
             foreign_keys: vec![dbine_driver::ForeignKeyDef {
                 name: Some("fk_orders_users".into()),
                 columns: vec!["user_id".into()],
@@ -662,8 +879,15 @@ pub(crate) mod tests {
                 on_delete: Some("CASCADE".into()),
                 on_update: None,
             }],
-            indexes: vec![dbine_driver::IndexDef { name: "ix_orders_user".into(), columns: vec!["user_id".into()], ..Default::default() }],
-            checks: vec![dbine_driver::CheckDef { name: Some("ck".into()), expression: "id > 0 AND id < 10".into() }],
+            indexes: vec![dbine_driver::IndexDef {
+                name: "ix_orders_user".into(),
+                columns: vec!["user_id".into()],
+                ..Default::default()
+            }],
+            checks: vec![dbine_driver::CheckDef {
+                name: Some("ck".into()),
+                expression: "id > 0 AND id < 10".into(),
+            }],
             ..Default::default()
         };
         Doc {
@@ -675,11 +899,21 @@ pub(crate) mod tests {
             schemas: vec![SchemaDoc {
                 name: Some("app".into()),
                 tables: vec![
-                    TableDoc { table: orders, kind_label: "Tablas".into(), ..Default::default() },
+                    TableDoc {
+                        table: orders,
+                        kind_label: "Tablas".into(),
+                        ..Default::default()
+                    },
                     TableDoc {
                         table: users,
                         kind_label: "Tablas".into(),
-                        used_by: vec![UsedBy { kind_label: "Tablas".into(), schema: Some("app".into()), name: "orders".into(), how: "fk_orders_users (user_id) → app.users<script> (id)".into(), table: true }],
+                        used_by: vec![UsedBy {
+                            kind_label: "Tablas".into(),
+                            schema: Some("app".into()),
+                            name: "orders".into(),
+                            how: "fk_orders_users (user_id) → app.users<script> (id)".into(),
+                            table: true,
+                        }],
                         triggers: vec![],
                         rows: Some(1234567),
                     },
@@ -687,7 +921,12 @@ pub(crate) mod tests {
                 groups: vec![ObjectGroup {
                     kind: kinds::VIEW.into(),
                     label: "Vistas".into(),
-                    items: vec![ObjectDoc { schema: Some("app".into()), name: "v_orders".into(), source: Some("SELECT * FROM orders WHERE x < 1 -- ``` </pre>".into()), ..Default::default() }],
+                    items: vec![ObjectDoc {
+                        schema: Some("app".into()),
+                        name: "v_orders".into(),
+                        source: Some("SELECT * FROM orders WHERE x < 1 -- ``` </pre>".into()),
+                        ..Default::default()
+                    }],
                 }],
             }],
             notes: vec!["nota <i>".into()],
@@ -709,7 +948,12 @@ pub(crate) mod tests {
         assert_eq!(l.get("columns"), "Columnas");
         assert_eq!(l.kind("view", "x"), "Vistas");
         assert_eq!(l.kind("measurement", "Mediciones"), "Mediciones");
-        assert!(l.fill("diagramSkipped", &[("count", "200".into()), ("max", "150".into())]).contains("200"));
+        assert!(l
+            .fill(
+                "diagramSkipped",
+                &[("count", "200".into()), ("max", "150".into())]
+            )
+            .contains("200"));
     }
 
     #[test]
@@ -718,7 +962,10 @@ pub(crate) mod tests {
         assert_eq!(section_of("measurement", true), Section::Table);
         assert_eq!(section_of("materialized_view", true), Section::View);
         assert_eq!(section_of("sequence", false), Section::Other);
-        let o = DocOptions { indexes: false, ..Default::default() };
+        let o = DocOptions {
+            indexes: false,
+            ..Default::default()
+        };
         assert!(!wanted(Section::Other, "index", &o));
         assert!(wanted(Section::Other, "sequence", &o));
     }

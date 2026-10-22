@@ -67,19 +67,31 @@ pub fn granted(resp: &Json) -> BTreeSet<String> {
 /// The project's permissions and, if tested, a table's (effective there).
 pub fn map(project: &BTreeSet<String>, table: Option<&BTreeSet<String>>) -> Permissions {
     let has = |p: &str| project.contains(p);
-    let no_jobs = || Access::Denied { missing: JOBS_CREATE.into() };
+    let no_jobs = || Access::Denied {
+        missing: JOBS_CREATE.into(),
+    };
     let backup = if !has(JOBS_CREATE) {
         no_jobs()
     } else {
-        let missing = TABLE.iter().find(|p| !has(p) && !table.is_some_and(|t| t.contains(**p)));
+        let missing = TABLE
+            .iter()
+            .find(|p| !has(p) && !table.is_some_and(|t| t.contains(**p)));
         match (missing, table) {
             (None, _) => Access::Allowed,
-            (Some(p), Some(_)) => Access::Denied { missing: (*p).into() },
+            (Some(p), Some(_)) => Access::Denied {
+                missing: (*p).into(),
+            },
             (Some(_), None) => Access::Unknown,
         }
     };
     let if_granted = |ok: bool| if ok { Access::Allowed } else { Access::Unknown };
-    let with_jobs = |ok: bool| if has(JOBS_CREATE) { if_granted(ok) } else { no_jobs() };
+    let with_jobs = |ok: bool| {
+        if has(JOBS_CREATE) {
+            if_granted(ok)
+        } else {
+            no_jobs()
+        }
+    };
     Permissions {
         backup,
         restore: with_jobs(has(TABLES_CREATE)),
@@ -95,16 +107,41 @@ pub fn map(project: &BTreeSet<String>, table: Option<&BTreeSet<String>>) -> Perm
 impl BigQuerySession {
     async fn test_project(&self) -> Result<BTreeSet<String>> {
         let url = format!("{CRM}/{}:testIamPermissions", self.api.project);
-        Ok(granted(&self.api.send(self.api.http.post(url).json(&request(PROJECT))).await?))
+        Ok(granted(
+            &self
+                .api
+                .send(self.api.http.post(url).json(&request(PROJECT)))
+                .await?,
+        ))
     }
 
     /// The effective snapshot permissions on the dataset's first table;
     /// `None` when it has none.
     async fn test_table(&self, dataset: &str) -> Result<Option<BTreeSet<String>>> {
-        let list = self.api.get(&["datasets", dataset, "tables"], &[("maxResults", "1".into())]).await?;
-        let Some(table) = list.pointer("/tables/0/tableReference/tableId").and_then(Json::as_str) else { return Ok(None) };
+        let list = self
+            .api
+            .get(
+                &["datasets", dataset, "tables"],
+                &[("maxResults", "1".into())],
+            )
+            .await?;
+        let Some(table) = list
+            .pointer("/tables/0/tableReference/tableId")
+            .and_then(Json::as_str)
+        else {
+            return Ok(None);
+        };
         let verb = format!("{table}:testIamPermissions");
-        Ok(Some(granted(&self.api.post(&["datasets", dataset, "tables", &verb], &[], &request(TABLE)).await?)))
+        Ok(Some(granted(
+            &self
+                .api
+                .post(
+                    &["datasets", dataset, "tables", &verb],
+                    &[],
+                    &request(TABLE),
+                )
+                .await?,
+        )))
     }
 }
 
@@ -114,9 +151,15 @@ pub(crate) async fn check(s: &BigQuerySession, database: Option<&str>) -> Permis
     }
     let run = async {
         let project = s.test_project().await?;
-        let dataset = database.map(str::trim).filter(|d| !d.is_empty()).map(str::to_string).or_else(|| s.dataset.clone());
+        let dataset = database
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(str::to_string)
+            .or_else(|| s.dataset.clone());
         let table = match dataset {
-            Some(ds) if TABLE.iter().any(|p| !project.contains(*p)) => s.test_table(&ds).await.unwrap_or(None),
+            Some(ds) if TABLE.iter().any(|p| !project.contains(*p)) => {
+                s.test_table(&ds).await.unwrap_or(None)
+            }
             _ => None,
         };
         Ok::<_, dbine_driver::Error>(map(&project, table.as_ref()))
@@ -141,8 +184,14 @@ mod tests {
 
     #[test]
     fn request_and_response() {
-        assert_eq!(request(&[JOBS_CREATE])["permissions"], json!(["bigquery.jobs.create"]));
-        assert_eq!(granted(&json!({ "permissions": [JOBS_CREATE, DATASETS_CREATE] })), set(&[JOBS_CREATE, DATASETS_CREATE]));
+        assert_eq!(
+            request(&[JOBS_CREATE])["permissions"],
+            json!(["bigquery.jobs.create"])
+        );
+        assert_eq!(
+            granted(&json!({ "permissions": [JOBS_CREATE, DATASETS_CREATE] })),
+            set(&[JOBS_CREATE, DATASETS_CREATE])
+        );
         // None granted: the key is left out.
         assert!(granted(&json!({})).is_empty());
     }
@@ -150,7 +199,14 @@ mod tests {
     #[test]
     fn a_project_admin_may_do_everything_offered() {
         let p = map(&set(PROJECT), None);
-        for a in [&p.backup, &p.restore, &p.profiler, &p.create_database, &p.drop_database, &p.manage_security] {
+        for a in [
+            &p.backup,
+            &p.restore,
+            &p.profiler,
+            &p.create_database,
+            &p.drop_database,
+            &p.manage_security,
+        ] {
             assert_eq!(*a, Access::Allowed);
         }
         assert_eq!(p.kill_session, Access::Unknown);
@@ -158,12 +214,22 @@ mod tests {
 
     #[test]
     fn without_jobs_create_no_script_runs() {
-        let p = map(&set(&[TABLES_SNAPSHOT, TABLES_GET_DATA, TABLES_CREATE]), None);
-        let denied = Access::Denied { missing: JOBS_CREATE.into() };
+        let p = map(
+            &set(&[TABLES_SNAPSHOT, TABLES_GET_DATA, TABLES_CREATE]),
+            None,
+        );
+        let denied = Access::Denied {
+            missing: JOBS_CREATE.into(),
+        };
         assert_eq!(p.backup, denied);
         assert_eq!(p.restore, denied);
         assert_eq!(p.manage_security, denied);
-        assert_eq!(p.create_database, Access::Denied { missing: DATASETS_CREATE.into() });
+        assert_eq!(
+            p.create_database,
+            Access::Denied {
+                missing: DATASETS_CREATE.into()
+            }
+        );
     }
 
     #[test]
@@ -182,9 +248,18 @@ mod tests {
         assert_eq!(map(&project, Some(&set(TABLE))).backup, Access::Allowed);
         assert_eq!(
             map(&project, Some(&set(&[TABLES_GET_DATA]))).backup,
-            Access::Denied { missing: TABLES_SNAPSHOT.into() }
+            Access::Denied {
+                missing: TABLES_SNAPSHOT.into()
+            }
         );
         // Split between the project and the table.
-        assert_eq!(map(&set(&[JOBS_CREATE, TABLES_SNAPSHOT]), Some(&set(&[TABLES_GET_DATA]))).backup, Access::Allowed);
+        assert_eq!(
+            map(
+                &set(&[JOBS_CREATE, TABLES_SNAPSHOT]),
+                Some(&set(&[TABLES_GET_DATA]))
+            )
+            .backup,
+            Access::Allowed
+        );
     }
 }

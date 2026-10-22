@@ -84,7 +84,9 @@ pub(crate) fn decide(c: &Checks) -> Permissions {
             privilege.into()
         }
     };
-    let access = |v: Option<bool>, missing: String| v.map_or(Access::Unknown, |ok| Access::check(ok, missing));
+    let access = |v: Option<bool>, missing: String| {
+        v.map_or(Access::Unknown, |ok| Access::check(ok, missing))
+    };
     let backup = match (c.backup, any_or_skip(&c.write_dest)) {
         (Some(false), _) => Access::check(false, "BACKUP"),
         (Some(true), Some(false)) => Access::check(false, "WRITE ON DISK (o FILE / S3)"),
@@ -92,7 +94,9 @@ pub(crate) fn decide(c: &Checks) -> Permissions {
         _ => Access::Unknown,
     };
     let restore = match (c.restore, any_or_skip(&c.read_src)) {
-        (Some(false), _) => Access::check(false, write_missing("CREATE TABLE e INSERT sobre la base")),
+        (Some(false), _) => {
+            Access::check(false, write_missing("CREATE TABLE e INSERT sobre la base"))
+        }
         (Some(true), Some(false)) => Access::check(false, "READ ON DISK (o FILE / S3)"),
         (Some(true), Some(true)) => Access::Allowed,
         _ => Access::Unknown,
@@ -100,7 +104,10 @@ pub(crate) fn decide(c: &Checks) -> Permissions {
     Permissions {
         backup,
         restore,
-        profiler: access(any(&c.profiler), "SELECT ON system.query_log (o system.processes)".into()),
+        profiler: access(
+            any(&c.profiler),
+            "SELECT ON system.query_log (o system.processes)".into(),
+        ),
         create_database: match (c.create_database, c.create_database_named) {
             // Only named databases: those can still be created.
             (Some(false), named) if !readonly && named != Some(false) => Access::Unknown,
@@ -115,11 +122,20 @@ pub(crate) fn decide(c: &Checks) -> Permissions {
 /// A `SHOW GRANTS` line grants CREATE DATABASE (itself, or through CREATE
 /// or ALL) on something.
 pub(crate) fn grants_create_database(line: &str) -> bool {
-    let Some(rest) = line.trim().strip_prefix("GRANT ") else { return false };
-    let Some((privileges, _)) = rest.split_once(" ON ") else { return false };
-    privileges.split(", ").map(|p| p.split('(').next().unwrap_or(p).trim()).any(|p| {
-        p.eq_ignore_ascii_case("CREATE DATABASE") || p.eq_ignore_ascii_case("CREATE") || p.eq_ignore_ascii_case("ALL")
-    })
+    let Some(rest) = line.trim().strip_prefix("GRANT ") else {
+        return false;
+    };
+    let Some((privileges, _)) = rest.split_once(" ON ") else {
+        return false;
+    };
+    privileges
+        .split(", ")
+        .map(|p| p.split('(').next().unwrap_or(p).trim())
+        .any(|p| {
+            p.eq_ignore_ascii_case("CREATE DATABASE")
+                || p.eq_ignore_ascii_case("CREATE")
+                || p.eq_ignore_ascii_case("ALL")
+        })
 }
 
 fn truthy(v: &Value) -> Option<i64> {
@@ -145,7 +161,10 @@ impl ClickHouseSession {
     }
 
     async fn grant(&self, what: &str) -> Result<Option<bool>> {
-        Ok(self.permission_value(format!("CHECK GRANT {what}")).await?.map(|v| v == 1))
+        Ok(self
+            .permission_value(format!("CHECK GRANT {what}"))
+            .await?
+            .map(|v| v == 1))
     }
 
     async fn grants_of(&self, whats: &[String]) -> Result<Vec<Option<bool>>> {
@@ -181,13 +200,24 @@ pub(crate) async fn check(s: &ClickHouseSession, database: Option<&str>) -> Resu
         Some(true)
     } else {
         match s.rows("SHOW GRANTS FINAL", &[]).await {
-            Ok(rows) => Some(rows.iter().filter_map(|r| r.first()).any(|v| grants_create_database(&text(v)))),
+            Ok(rows) => Some(
+                rows.iter()
+                    .filter_map(|r| r.first())
+                    .any(|v| grants_create_database(&text(v))),
+            ),
             Err(e @ Error::Connect(_)) => return Err(e),
             Err(_) => None,
         }
     };
-    let db = database.map(str::trim).filter(|d| !d.is_empty()).map(|d| format!("{}.*", q(d)));
-    let sources = |op: &str| ["DISK", "FILE", "S3"].map(|src| format!("{op} ON {src}")).to_vec();
+    let db = database
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(|d| format!("{}.*", q(d)));
+    let sources = |op: &str| {
+        ["DISK", "FILE", "S3"]
+            .map(|src| format!("{op} ON {src}"))
+            .to_vec()
+    };
     let on_db = |what: &str| db.as_ref().map(|db| format!("{what} ON {db}"));
     let one = |w: Option<String>| async move {
         match w {
@@ -195,11 +225,21 @@ pub(crate) async fn check(s: &ClickHouseSession, database: Option<&str>) -> Resu
             None => Ok(None),
         }
     };
-    let (backup, restore, drop_database) =
-        futures::try_join!(one(on_db("BACKUP")), one(on_db("CREATE TABLE, INSERT")), one(on_db("DROP DATABASE")))?;
+    let (backup, restore, drop_database) = futures::try_join!(
+        one(on_db("BACKUP")),
+        one(on_db("CREATE TABLE, INSERT")),
+        one(on_db("DROP DATABASE"))
+    )?;
     let (writes, reads) = (sources("WRITE"), sources("READ"));
-    let logs = ["SELECT ON system.query_log".to_string(), "SELECT ON system.processes".into()];
-    let users = ["CREATE USER ON *.*".to_string(), "CREATE ROLE ON *.*".into(), "ROLE ADMIN ON *.*".into()];
+    let logs = [
+        "SELECT ON system.query_log".to_string(),
+        "SELECT ON system.processes".into(),
+    ];
+    let users = [
+        "CREATE USER ON *.*".to_string(),
+        "CREATE ROLE ON *.*".into(),
+        "ROLE ADMIN ON *.*".into(),
+    ];
     let (write_dest, read_src, profiler, security, readonly) = futures::try_join!(
         s.grants_of(&writes),
         s.grants_of(&reads),
@@ -247,8 +287,14 @@ mod tests {
     #[test]
     fn an_admin_may_do_everything_offered() {
         let p = decide(&all(true));
-        assert_eq!((&p.backup, &p.restore, &p.profiler), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.backup, &p.restore, &p.profiler),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
+        assert_eq!(
+            (&p.create_database, &p.drop_database, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
         assert_eq!(p.kill_session, Access::Unknown);
     }
 
@@ -265,18 +311,35 @@ mod tests {
 
     #[test]
     fn backup_needs_a_destination_and_restore_a_source() {
-        let c = Checks { write_dest: vec![Some(false), Some(false), Some(false)], read_src: vec![Some(false), Some(true), Some(false)], ..all(true) };
+        let c = Checks {
+            write_dest: vec![Some(false), Some(false), Some(false)],
+            read_src: vec![Some(false), Some(true), Some(false)],
+            ..all(true)
+        };
         let p = decide(&c);
         assert!(denied(&p.backup, "WRITE ON DISK"));
         assert_eq!(p.restore, Access::Allowed);
         // Servers without source privileges don't parse the check: skipped.
-        let c = Checks { write_dest: vec![None; 3], read_src: vec![None; 3], ..all(true) };
-        assert_eq!((decide(&c).backup, decide(&c).restore), (Access::Allowed, Access::Allowed));
+        let c = Checks {
+            write_dest: vec![None; 3],
+            read_src: vec![None; 3],
+            ..all(true)
+        };
+        assert_eq!(
+            (decide(&c).backup, decide(&c).restore),
+            (Access::Allowed, Access::Allowed)
+        );
     }
 
     #[test]
     fn readonly_names_the_setting() {
-        let c = Checks { readonly: Some(1), create_database: Some(false), drop_database: Some(false), create_database_named: None, ..all(true) };
+        let c = Checks {
+            readonly: Some(1),
+            create_database: Some(false),
+            drop_database: Some(false),
+            create_database_named: None,
+            ..all(true)
+        };
         let p = decide(&c);
         assert!(denied(&p.create_database, "readonly = 0"));
         assert!(denied(&p.drop_database, "perfil"));
@@ -285,24 +348,53 @@ mod tests {
 
     #[test]
     fn unanswered_checks_stay_unknown() {
-        let c = Checks { backup: None, restore: None, profiler: vec![Some(false), None], drop_database: None, security: vec![None; 3], ..all(false) };
+        let c = Checks {
+            backup: None,
+            restore: None,
+            profiler: vec![Some(false), None],
+            drop_database: None,
+            security: vec![None; 3],
+            ..all(false)
+        };
         let p = decide(&c);
-        assert_eq!((&p.backup, &p.restore, &p.profiler), (&Access::Unknown, &Access::Unknown, &Access::Unknown));
-        assert_eq!((&p.drop_database, &p.manage_security), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.backup, &p.restore, &p.profiler),
+            (&Access::Unknown, &Access::Unknown, &Access::Unknown)
+        );
+        assert_eq!(
+            (&p.drop_database, &p.manage_security),
+            (&Access::Unknown, &Access::Unknown)
+        );
         assert!(p.create_database.is_denied());
     }
 
     #[test]
     fn create_database_on_named_databases_is_unknown() {
-        let c = Checks { create_database_named: Some(true), ..all(false) };
+        let c = Checks {
+            create_database_named: Some(true),
+            ..all(false)
+        };
         assert_eq!(decide(&c).create_database, Access::Unknown);
-        let c = Checks { create_database_named: None, ..all(false) };
+        let c = Checks {
+            create_database_named: None,
+            ..all(false)
+        };
         assert_eq!(decide(&c).create_database, Access::Unknown);
-        assert!(grants_create_database("GRANT CREATE DATABASE ON sales.* TO ana"));
-        assert!(grants_create_database("GRANT SELECT, CREATE ON db.* TO ana"));
-        assert!(grants_create_database("GRANT ALL ON db.* TO ana WITH GRANT OPTION"));
-        assert!(!grants_create_database("GRANT SELECT(a, b), CREATE TABLE ON db.t TO ana"));
-        assert!(!grants_create_database("REVOKE CREATE DATABASE ON db.* FROM ana"));
+        assert!(grants_create_database(
+            "GRANT CREATE DATABASE ON sales.* TO ana"
+        ));
+        assert!(grants_create_database(
+            "GRANT SELECT, CREATE ON db.* TO ana"
+        ));
+        assert!(grants_create_database(
+            "GRANT ALL ON db.* TO ana WITH GRANT OPTION"
+        ));
+        assert!(!grants_create_database(
+            "GRANT SELECT(a, b), CREATE TABLE ON db.t TO ana"
+        ));
+        assert!(!grants_create_database(
+            "REVOKE CREATE DATABASE ON db.* FROM ana"
+        ));
         assert!(!grants_create_database("GRANT reader TO ana"));
     }
 

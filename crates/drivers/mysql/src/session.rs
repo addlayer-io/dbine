@@ -7,14 +7,15 @@ use crate::plan::{self, Flavor, StmtKind};
 use crate::{err, stmt_err, Variant};
 use dbine_driver::sql::{leading_keyword, quote_ident, select_top, Limit, Quote};
 use dbine_driver::{
-    async_trait, kinds, BoundStatement, ParamValue, ColumnDef, MonitorSnapshot, ColumnInfo, DbObject, Error, ForeignKeyDef, IndexDef, KeyDef, ObjectRef, Plan,
-    Message, MessageLevel, QueryOutcome, ResultColumn, Result, Session, StatementKind, TableSchema, TxState,
+    async_trait, kinds, BoundStatement, ColumnDef, ColumnInfo, DbObject, Error, ForeignKeyDef,
+    IndexDef, KeyDef, Message, MessageLevel, MonitorSnapshot, ObjectRef, ParamValue, Plan,
+    QueryOutcome, Result, ResultColumn, Session, StatementKind, TableSchema, TxState,
 };
 use mysql_async::consts::StatusFlags;
-use std::collections::{BTreeMap, HashMap};
 use mysql_async::prelude::Queryable;
-use mysql_async::{Conn, Opts, Row};
 use mysql_async::QueryResult;
+use mysql_async::{Conn, Opts, Row};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -52,10 +53,17 @@ pub struct MySqlSession {
 }
 
 /// `opts` with a fresh cloud token when the session signs in with one.
-pub(crate) async fn fresh_opts(opts: &Opts, relogin: Option<&(dbine_driver::ConnectionConfig, crate::cloud_auth::Spec)>) -> Result<Opts> {
-    let Some((cfg, spec)) = relogin else { return Ok(opts.clone()) };
+pub(crate) async fn fresh_opts(
+    opts: &Opts,
+    relogin: Option<&(dbine_driver::ConnectionConfig, crate::cloud_auth::Spec)>,
+) -> Result<Opts> {
+    let Some((cfg, spec)) = relogin else {
+        return Ok(opts.clone());
+    };
     match crate::cloud_auth::login(cfg, *spec).await? {
-        Some(login) => Ok(Opts::from(mysql_async::OptsBuilder::from_opts(opts.clone()).pass(Some(login.password)))),
+        Some(login) => Ok(Opts::from(
+            mysql_async::OptsBuilder::from_opts(opts.clone()).pass(Some(login.password)),
+        )),
         None => Ok(opts.clone()),
     }
 }
@@ -88,7 +96,10 @@ pub(crate) fn at(r: &Row, i: usize) -> Option<String> {
 
 /// A cell by column name (any of `names`, case-insensitive).
 pub(crate) fn named(r: &Row, names: &[&str]) -> Option<String> {
-    let i = r.columns_ref().iter().position(|c| names.iter().any(|n| c.name_str().eq_ignore_ascii_case(n)))?;
+    let i = r
+        .columns_ref()
+        .iter()
+        .position(|c| names.iter().any(|n| c.name_str().eq_ignore_ascii_case(n)))?;
     at(r, i)
 }
 
@@ -130,7 +141,10 @@ impl MySqlSession {
 
     pub(crate) async fn current_database(&mut self) -> Option<String> {
         match self.rows("SELECT DATABASE()").await {
-            Ok(rows) => rows.first().and_then(|r| at(r, 0)).or_else(|| self.database.clone()),
+            Ok(rows) => rows
+                .first()
+                .and_then(|r| at(r, 0))
+                .or_else(|| self.database.clone()),
             Err(_) => self.database.clone(),
         }
     }
@@ -138,7 +152,12 @@ impl MySqlSession {
     /// Tables and views: information_schema, else `SHOW FULL TABLES`,
     /// else `SHOW TABLES` (all tables).
     async fn relations(&mut self, db: &str) -> Result<Vec<DbObject>> {
-        let obj = |kind: &str, name: String| DbObject { kind: kind.into(), schema: None, name, parent: None };
+        let obj = |kind: &str, name: String| DbObject {
+            kind: kind.into(),
+            schema: None,
+            name,
+            parent: None,
+        };
         if self.variant != Variant::Manticore {
             let sql = format!(
                 "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = {}",
@@ -148,7 +167,9 @@ impl MySqlSession {
                 Ok(rows) if !rows.is_empty() => {
                     return Ok(rows
                         .iter()
-                        .filter_map(|r| Some(obj(table_kind(&at(r, 1).unwrap_or_default())?, at(r, 0)?)))
+                        .filter_map(|r| {
+                            Some(obj(table_kind(&at(r, 1).unwrap_or_default())?, at(r, 0)?))
+                        })
                         .collect())
                 }
                 Ok(_) => {}
@@ -158,14 +179,19 @@ impl MySqlSession {
                 Ok(rows) => {
                     return Ok(rows
                         .iter()
-                        .filter_map(|r| Some(obj(table_kind(&at(r, 1).unwrap_or_default())?, at(r, 0)?)))
+                        .filter_map(|r| {
+                            Some(obj(table_kind(&at(r, 1).unwrap_or_default())?, at(r, 0)?))
+                        })
                         .collect())
                 }
                 Err(e) => tracing::debug!("{:?}: SHOW FULL TABLES: {e}", self.variant),
             }
         }
         let rows = self.rows("SHOW TABLES").await?;
-        Ok(rows.iter().filter_map(|r| Some(obj(kinds::TABLE, at(r, 0)?))).collect())
+        Ok(rows
+            .iter()
+            .filter_map(|r| Some(obj(kinds::TABLE, at(r, 0)?)))
+            .collect())
     }
 
     async fn columns_from_info_schema(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -211,11 +237,14 @@ impl MySqlSession {
             .iter()
             .map(|r| {
                 let key = named(r, &["Key"]).unwrap_or_default().to_ascii_uppercase();
-                let extra = named(r, &["Extra", "Properties"]).unwrap_or_default().to_ascii_lowercase();
+                let extra = named(r, &["Extra", "Properties"])
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
                 ColumnInfo {
                     name: named(r, &["Field", "Column", "column_name", "Name"]).unwrap_or_default(),
                     data_type: named(r, &["Type", "data_type"]).unwrap_or_default(),
-                    nullable: named(r, &["Null", "is_nullable"]).is_none_or(|n| n.eq_ignore_ascii_case("YES")),
+                    nullable: named(r, &["Null", "is_nullable"])
+                        .is_none_or(|n| n.eq_ignore_ascii_case("YES")),
                     primary_key: key.starts_with("PRI"),
                     auto_increment: extra.contains("auto_increment"),
                     default_value: named(r, &["Default", "default"]),
@@ -225,7 +254,12 @@ impl MySqlSession {
     }
 
     /// `SHOW CREATE <what> <name>`, reading the column that holds the DDL.
-    async fn show_create(&mut self, what: &str, obj: &ObjectRef, column: &str) -> Result<Option<String>> {
+    async fn show_create(
+        &mut self,
+        what: &str,
+        obj: &ObjectRef,
+        column: &str,
+    ) -> Result<Option<String>> {
         let q = dbine_driver::sql::qualified_name(Quote::Backtick, obj.schema(), &obj.name);
         let rows = self.rows(&format!("SHOW CREATE {what} {q}")).await?;
         let Some(row) = rows.first() else {
@@ -235,12 +269,19 @@ impl MySqlSession {
         Ok(named(row, &[column]).or_else(|| {
             // Emulations name the column differently; the DDL is the last one
             // that starts with CREATE.
-            (0..row.len()).rev().filter_map(|i| at(row, i)).find(|s| s.trim_start().to_uppercase().starts_with("CREATE"))
+            (0..row.len())
+                .rev()
+                .filter_map(|i| at(row, i))
+                .find(|s| s.trim_start().to_uppercase().starts_with("CREATE"))
         }))
     }
 
     async fn run(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let result = self.conn.query_iter(sql).await.map_err(|e| stmt_err(sql, e))?;
+        let result = self
+            .conn
+            .query_iter(sql)
+            .await
+            .map_err(|e| stmt_err(sql, e))?;
         let warned = read_results(result, sql, max_rows, out).await?;
         self.report_warnings(warned, out).await;
         Ok(())
@@ -296,14 +337,19 @@ impl MySqlSession {
             Ok(rows) => rows,
             Err(_) => self.rows("SELECT @@session.tx_read_only").await?,
         };
-        Ok(rows.first().and_then(|r| at(r, 0)).is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("on")))
+        Ok(rows
+            .first()
+            .and_then(|r| at(r, 0))
+            .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("on")))
     }
 
     /// A protected read dropped half-way (a timeout): the connection may
     /// be mid-reply, out of step with the next command, so it's replaced
     /// (the old one is killed; the server rolls its transaction back).
     async fn settle_dropped_read(&mut self) -> Result<()> {
-        let Some(was_read_only) = self.read_only_pending else { return Ok(()) };
+        let Some(was_read_only) = self.read_only_pending else {
+            return Ok(());
+        };
         let old = self.conn.id();
         self.reconnect(was_read_only).await?;
         if let Err(e) = self.conn.query_drop(format!("KILL {old}")).await {
@@ -317,10 +363,17 @@ impl MySqlSession {
     /// session its access mode back; a connection that can't is replaced
     /// (the server rolls back the transaction of a closed one).
     async fn settle_read_only(&mut self) -> Result<()> {
-        let Some(was_read_only) = self.read_only_pending else { return Ok(()) };
+        let Some(was_read_only) = self.read_only_pending else {
+            return Ok(());
+        };
         // The mode is set back either way: what ran may have changed it.
-        let mode = if was_read_only { "SET SESSION TRANSACTION READ ONLY" } else { "SET SESSION TRANSACTION READ WRITE" };
-        let done = self.conn.query_drop("ROLLBACK").await.is_ok() && self.conn.query_drop(mode).await.is_ok();
+        let mode = if was_read_only {
+            "SET SESSION TRANSACTION READ ONLY"
+        } else {
+            "SET SESSION TRANSACTION READ WRITE"
+        };
+        let done = self.conn.query_drop("ROLLBACK").await.is_ok()
+            && self.conn.query_drop(mode).await.is_ok();
         if !done {
             self.reconnect(was_read_only).await?;
         }
@@ -332,16 +385,26 @@ impl MySqlSession {
     /// and access mode.
     async fn reconnect(&mut self, read_only: bool) -> Result<()> {
         self.opts = fresh_opts(&self.opts, self.relogin.as_deref()).await?;
-        let conn = tokio::time::timeout(std::time::Duration::from_secs(20), Conn::new(self.opts.clone()))
-            .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(err)?;
+        let conn = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            Conn::new(self.opts.clone()),
+        )
+        .await
+        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+        .map_err(err)?;
         // Dropping the old one closes it.
         drop(std::mem::replace(&mut self.conn, conn));
         self.conn_id.store(self.conn.id(), Ordering::SeqCst);
         let mut setup = vec!["SET NAMES utf8mb4".to_string()];
-        if let Some(db) = self.database.as_deref().filter(|_| !self.variant.single_namespace()) {
-            setup.push(format!("USE {}", quote_ident(dbine_driver::sql::Quote::Backtick, db)));
+        if let Some(db) = self
+            .database
+            .as_deref()
+            .filter(|_| !self.variant.single_namespace())
+        {
+            setup.push(format!(
+                "USE {}",
+                quote_ident(dbine_driver::sql::Quote::Backtick, db)
+            ));
         }
         if read_only {
             setup.push("SET SESSION TRANSACTION READ ONLY".into());
@@ -355,10 +418,17 @@ impl MySqlSession {
     /// `statement` with only the server's protection: no text checks
     /// (`read_only::refusal`), always rolled back and the session's access
     /// mode given back.
-    pub(crate) async fn server_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    pub(crate) async fn server_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let was_read_only = self.session_read_only().await?;
         self.read_only_pending = Some(was_read_only);
-        let res = self.read_in_read_only_transaction(statement, max_rows, out).await;
+        let res = self
+            .read_in_read_only_transaction(statement, max_rows, out)
+            .await;
         let settled = self.settle_read_only().await;
         res.and(settled)
     }
@@ -367,17 +437,37 @@ impl MySqlSession {
     /// a read-only transaction, with the session's access mode READ ONLY
     /// too, so a DDL's implicit commit or a COMMIT only opens another
     /// read-only transaction. The caller rolls back (`settle_read_only`).
-    async fn read_in_read_only_transaction(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        self.conn.query_drop("SET SESSION TRANSACTION READ ONLY").await.map_err(err)?;
-        self.conn.query_drop("START TRANSACTION READ ONLY").await.map_err(err)?;
+    async fn read_in_read_only_transaction(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        self.conn
+            .query_drop("SET SESSION TRANSACTION READ ONLY")
+            .await
+            .map_err(err)?;
+        self.conn
+            .query_drop("START TRANSACTION READ ONLY")
+            .await
+            .map_err(err)?;
         // The server says so in the OK packet; an emulation that accepts
         // the words and ignores them doesn't.
         let flags = self.conn.last_ok_packet().map(|ok| ok.status_flags());
-        if !flags.is_some_and(|f| f.contains(StatusFlags::SERVER_STATUS_IN_TRANS) && f.contains(StatusFlags::SERVER_STATUS_IN_TRANS_READONLY)) {
+        if !flags.is_some_and(|f| {
+            f.contains(StatusFlags::SERVER_STATUS_IN_TRANS)
+                && f.contains(StatusFlags::SERVER_STATUS_IN_TRANS_READONLY)
+        }) {
             self.protected_reads = Some(false);
-            return Err(Error::Unsupported("el servidor no confirmó la transacción de solo lectura".into()));
+            return Err(Error::Unsupported(
+                "el servidor no confirmó la transacción de solo lectura".into(),
+            ));
         }
-        let stmt = self.conn.prep(statement).await.map_err(|e| stmt_err(statement, e))?;
+        let stmt = self
+            .conn
+            .prep(statement)
+            .await
+            .map_err(|e| stmt_err(statement, e))?;
         let read = match self.conn.exec_iter(&stmt, ()).await {
             Ok(result) => read_results(result, statement, max_rows, out).await,
             Err(e) => Err(stmt_err(statement, e)),
@@ -395,7 +485,12 @@ impl MySqlSession {
 
 /// The result sets of a run into `out` (text or binary protocol): rows,
 /// affected counts, info. Returns each set's warning count, in order.
-async fn read_results<P: mysql_async::prelude::Protocol>(mut result: QueryResult<'_, 'static, P>, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<Vec<u16>> {
+async fn read_results<P: mysql_async::prelude::Protocol>(
+    mut result: QueryResult<'_, 'static, P>,
+    sql: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<Vec<u16>> {
     {
         // Warning counts of the result sets, in order.
         let mut warned: Vec<u16> = Vec::new();
@@ -415,13 +510,20 @@ async fn read_results<P: mysql_async::prelude::Protocol>(mut result: QueryResult
             } else {
                 out.begin_result(
                     cols.iter()
-                        .map(|c| ResultColumn { name: c.name_str().into_owned(), type_name: type_name(c.column_type()) })
+                        .map(|c| ResultColumn {
+                            name: c.name_str().into_owned(),
+                            type_name: type_name(c.column_type()),
+                        })
                         .collect(),
                 );
             }
             while let Some(row) = result.next().await.map_err(|e| stmt_err(sql, e))? {
                 let cols = row.columns();
-                let cells = cols.iter().zip(row.unwrap()).map(|(c, v)| cell(c, v)).collect();
+                let cells = cols
+                    .iter()
+                    .zip(row.unwrap())
+                    .map(|(c, v)| cell(c, v))
+                    .collect();
                 out.push_row(cells, max_rows);
             }
             warned.push(result.warnings());
@@ -448,10 +550,23 @@ impl MySqlSession {
             rows.iter()
                 .filter_map(|r| {
                     let text = named(r, &["Message"]).or_else(|| at(r, 2))?;
-                    let level = named(r, &["Level"]).or_else(|| at(r, 0)).unwrap_or_default();
-                    let level = if level.eq_ignore_ascii_case("note") { MessageLevel::Info } else { MessageLevel::Warning };
-                    let code = named(r, &["Code"]).or_else(|| at(r, 1)).filter(|c| !c.is_empty() && c != "0");
-                    Some(Message { level, text, code, ..Default::default() })
+                    let level = named(r, &["Level"])
+                        .or_else(|| at(r, 0))
+                        .unwrap_or_default();
+                    let level = if level.eq_ignore_ascii_case("note") {
+                        MessageLevel::Info
+                    } else {
+                        MessageLevel::Warning
+                    };
+                    let code = named(r, &["Code"])
+                        .or_else(|| at(r, 1))
+                        .filter(|c| !c.is_empty() && c != "0");
+                    Some(Message {
+                        level,
+                        text,
+                        code,
+                        ..Default::default()
+                    })
                 })
                 .collect(),
         )
@@ -484,11 +599,20 @@ impl MySqlSession {
 /// converts), dates as DATE / DATETIME values.
 fn bind_value(v: &ParamValue) -> mysql_async::Value {
     use mysql_async::Value as V;
-    let date = |d: &str| -> (u16, u8, u8) { (d[0..4].parse().unwrap_or(0), d[5..7].parse().unwrap_or(0), d[8..10].parse().unwrap_or(0)) };
+    let date = |d: &str| -> (u16, u8, u8) {
+        (
+            d[0..4].parse().unwrap_or(0),
+            d[5..7].parse().unwrap_or(0),
+            d[8..10].parse().unwrap_or(0),
+        )
+    };
     match v {
         ParamValue::Null => V::NULL,
         ParamValue::Text(s) => V::Bytes(s.as_bytes().to_vec()),
-        ParamValue::Number(n) => n.parse::<i64>().map(V::Int).unwrap_or_else(|_| V::Bytes(n.as_bytes().to_vec())),
+        ParamValue::Number(n) => n
+            .parse::<i64>()
+            .map(V::Int)
+            .unwrap_or_else(|_| V::Bytes(n.as_bytes().to_vec())),
         ParamValue::Bool(b) => V::Int(*b as i64),
         ParamValue::Date(d) => {
             let (y, m, dd) = date(d);
@@ -497,8 +621,15 @@ fn bind_value(v: &ParamValue) -> mysql_async::Value {
         ParamValue::DateTime(dt) => {
             let (y, m, dd) = date(dt);
             let t = &dt[11..];
-            let (h, mi, sec) = (t[0..2].parse().unwrap_or(0), t[3..5].parse().unwrap_or(0), t[6..8].parse().unwrap_or(0));
-            let micro = t.get(9..).map(|f| format!("{f:0<6}")[..6].parse().unwrap_or(0)).unwrap_or(0);
+            let (h, mi, sec) = (
+                t[0..2].parse().unwrap_or(0),
+                t[3..5].parse().unwrap_or(0),
+                t[6..8].parse().unwrap_or(0),
+            );
+            let micro = t
+                .get(9..)
+                .map(|f| format!("{f:0<6}")[..6].parse().unwrap_or(0))
+                .unwrap_or(0);
             V::Date(y, m, dd, h, mi, sec, micro)
         }
     }
@@ -509,9 +640,31 @@ fn numeric_type(ty: &str) -> bool {
     let base = ty.trim().to_ascii_lowercase();
     let base = base.split(['(', ' ']).next().unwrap_or("");
     [
-        "tinyint", "smallint", "mediumint", "int", "integer", "bigint", "largeint", "decimal", "numeric", "float",
-        "double", "real", "year", "boolean", "bool", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32",
-        "uint64", "float32", "float64",
+        "tinyint",
+        "smallint",
+        "mediumint",
+        "int",
+        "integer",
+        "bigint",
+        "largeint",
+        "decimal",
+        "numeric",
+        "float",
+        "double",
+        "real",
+        "year",
+        "boolean",
+        "bool",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float32",
+        "float64",
     ]
     .contains(&base)
 }
@@ -525,7 +678,12 @@ fn is_now(d: &str) -> bool {
 /// MariaDB already gives an SQL expression (`'x'`, `NULL`, `current_timestamp()`);
 /// MySQL gives the bare literal, and expressions (EXTRA `DEFAULT_GENERATED`)
 /// without their parentheses. `ON UPDATE` from EXTRA rides along.
-pub(crate) fn column_default(raw: Option<&str>, extra: &str, ty: &str, maria: bool) -> Option<String> {
+pub(crate) fn column_default(
+    raw: Option<&str>,
+    extra: &str,
+    ty: &str,
+    maria: bool,
+) -> Option<String> {
     let extra_l = extra.to_ascii_lowercase();
     let d = raw.and_then(|d| {
         if maria {
@@ -538,7 +696,12 @@ pub(crate) fn column_default(raw: Option<&str>, extra: &str, ty: &str, maria: bo
             format!("({})", d.replace("\\'", "'"))
         } else if (d.starts_with("b'") && ty.starts_with("bit")) || numeric_type(ty) {
             d.to_string()
-        } else if d.ends_with(')') && d.contains('(') && !d.contains(' ') && !ty.contains("char") && !ty.contains("text") {
+        } else if d.ends_with(')')
+            && d.contains('(')
+            && !d.contains(' ')
+            && !ty.contains("char")
+            && !ty.contains("text")
+        {
             // Function defaults of the emulations (GreptimeDB's current_timestamp()…).
             d.to_string()
         } else {
@@ -546,7 +709,11 @@ pub(crate) fn column_default(raw: Option<&str>, extra: &str, ty: &str, maria: bo
         })
     });
     match extra_l.find("on update ") {
-        Some(i) => Some(format!("{} ON UPDATE {}", d.as_deref().unwrap_or("NULL"), &extra[i + "on update ".len()..].trim())),
+        Some(i) => Some(format!(
+            "{} ON UPDATE {}",
+            d.as_deref().unwrap_or("NULL"),
+            &extra[i + "on update ".len()..].trim()
+        )),
         None => d,
     }
 }
@@ -557,7 +724,11 @@ fn manticore_statements(sql: &str) -> Vec<String> {
     let d = crate::script_dialect(Variant::Manticore);
     dbine_driver::sql::split_script(sql, &d)
         .into_iter()
-        .map(|u| dbine_driver::sql::strip_comments(&u.text, &d, false).trim().to_string())
+        .map(|u| {
+            dbine_driver::sql::strip_comments(&u.text, &d, false)
+                .trim()
+                .to_string()
+        })
         .filter(|s| !s.is_empty())
         .collect()
 }
@@ -569,13 +740,18 @@ const OLAP_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
 fn olap_schema_change(sql: &str) -> bool {
     let s = sql.trim().trim_end_matches(';').trim();
     let u = s.to_ascii_uppercase();
-    !s.contains(';') && (u.starts_with("ALTER TABLE") || u.starts_with("CREATE INDEX") || u.starts_with("DROP INDEX"))
+    !s.contains(';')
+        && (u.starts_with("ALTER TABLE")
+            || u.starts_with("CREATE INDEX")
+            || u.starts_with("DROP INDEX"))
 }
 
 /// StarRocks' and Doris' "the table is busy with another schema change".
 fn olap_busy(message: &str) -> bool {
     let m = message.to_ascii_lowercase();
-    m.contains("schema change operation is in progress") || m.contains("is not normal") || m.contains("do not allow doing alter ops")
+    m.contains("schema change operation is in progress")
+        || m.contains("is not normal")
+        || m.contains("do not allow doing alter ops")
 }
 
 fn fk_rule(r: Option<String>) -> Option<String> {
@@ -591,12 +767,24 @@ impl MySqlSession {
         };
         let dbl = lit(&db);
         let maria = v == Variant::MariaDb
-            || (v == Variant::MySql && self.server_version().await.unwrap_or_default().contains("MariaDB"));
+            || (v == Variant::MySql
+                && self
+                    .server_version()
+                    .await
+                    .unwrap_or_default()
+                    .contains("MariaDB"));
         let olap = matches!(v, Variant::StarRocks | Variant::Doris);
 
         let mut tables: BTreeMap<String, TableSchema> = BTreeMap::new();
-        for r in self.rows(&format!("SELECT * FROM information_schema.TABLES WHERE TABLE_SCHEMA = {dbl}")).await? {
-            let Some(name) = named(&r, &["TABLE_NAME"]) else { continue };
+        for r in self
+            .rows(&format!(
+                "SELECT * FROM information_schema.TABLES WHERE TABLE_SCHEMA = {dbl}"
+            ))
+            .await?
+        {
+            let Some(name) = named(&r, &["TABLE_NAME"]) else {
+                continue;
+            };
             if table_kind(&named(&r, &["TABLE_TYPE"]).unwrap_or_default()) != Some(kinds::TABLE) {
                 continue;
             }
@@ -611,16 +799,23 @@ impl MySqlSession {
                     t.options.insert("engine".into(), e);
                 }
             }
-            if matches!(v, Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase) {
+            if matches!(
+                v,
+                Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase
+            ) {
                 if let Some(c) = named(&r, &["TABLE_COLLATION"]).filter(|c| !c.is_empty()) {
-                    t.options.insert("charset".into(), c.split('_').next().unwrap_or_default().to_string());
+                    t.options.insert(
+                        "charset".into(),
+                        c.split('_').next().unwrap_or_default().to_string(),
+                    );
                     t.options.insert("collation".into(), c);
                 }
             }
             if v == Variant::TiDb {
                 // Kept only for tables with a primary key (below).
                 if let Some(pk) = named(&r, &["TIDB_PK_TYPE"]).filter(|p| !p.is_empty()) {
-                    t.options.insert("clustered_index".into(), pk.to_ascii_uppercase());
+                    t.options
+                        .insert("clustered_index".into(), pk.to_ascii_uppercase());
                 }
             }
             tables.insert(name, t);
@@ -629,8 +824,17 @@ impl MySqlSession {
         // Columns, plus key columns by COLUMN_KEY for engines without
         // KEY_COLUMN_USAGE.
         let mut cols: Vec<(String, u64, ColumnDef, String)> = Vec::new();
-        for r in self.rows(&format!("SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = {dbl}")).await? {
-            let (Some(table), Some(name)) = (named(&r, &["TABLE_NAME"]), named(&r, &["COLUMN_NAME"])) else { continue };
+        for r in self
+            .rows(&format!(
+                "SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = {dbl}"
+            ))
+            .await?
+        {
+            let (Some(table), Some(name)) =
+                (named(&r, &["TABLE_NAME"]), named(&r, &["COLUMN_NAME"]))
+            else {
+                continue;
+            };
             if !tables.contains_key(&table) {
                 continue;
             }
@@ -648,14 +852,29 @@ impl MySqlSession {
             let generated = named(&r, &["GENERATION_EXPRESSION"]).filter(|g| !g.is_empty());
             let extra_l = extra.to_ascii_lowercase();
             let raw_default = named(&r, &["COLUMN_DEFAULT"]);
-            let mut default_value = column_default(raw_default.as_deref(), &extra, &ty.to_ascii_lowercase(), maria);
-            if let Some(g) = generated.filter(|_| extra_l.contains("generated") && !extra_l.contains("default_generated")) {
-                let kind = if extra_l.contains("stored") || extra_l.contains("persistent") { "STORED" } else { "VIRTUAL" };
+            let mut default_value = column_default(
+                raw_default.as_deref(),
+                &extra,
+                &ty.to_ascii_lowercase(),
+                maria,
+            );
+            if let Some(g) = generated
+                .filter(|_| extra_l.contains("generated") && !extra_l.contains("default_generated"))
+            {
+                let kind = if extra_l.contains("stored") || extra_l.contains("persistent") {
+                    "STORED"
+                } else {
+                    "VIRTUAL"
+                };
                 ty = format!("{ty} GENERATED ALWAYS AS ({g}) {kind}");
                 default_value = None;
             }
-            let ord = named(&r, &["ORDINAL_POSITION"]).and_then(|o| o.parse().ok()).unwrap_or(0);
-            let key = named(&r, &["COLUMN_KEY"]).unwrap_or_default().to_ascii_uppercase();
+            let ord = named(&r, &["ORDINAL_POSITION"])
+                .and_then(|o| o.parse().ok())
+                .unwrap_or(0);
+            let key = named(&r, &["COLUMN_KEY"])
+                .unwrap_or_default()
+                .to_ascii_uppercase();
             let def = ColumnDef {
                 name,
                 data_type: ty,
@@ -676,16 +895,26 @@ impl MySqlSession {
                     t.options.insert("time_index".into(), def.name.clone());
                 }
                 "PRI" | "UNI" if olap => {
-                    t.primary_key.get_or_insert_with(Default::default).columns.push(def.name.clone());
+                    t.primary_key
+                        .get_or_insert_with(Default::default)
+                        .columns
+                        .push(def.name.clone());
                     if key == "UNI" {
                         t.options.insert("key_model".into(), "unique".into());
                     }
                 }
-                "PRI" => col_pk.entry(table.clone()).or_default().push(def.name.clone()),
+                "PRI" => col_pk
+                    .entry(table.clone())
+                    .or_default()
+                    .push(def.name.clone()),
                 "DUP" | "AGG" if olap => {
                     t.options.insert("key_model".into(), "duplicate".into());
                     let k = t.options.entry("key_columns".into()).or_default();
-                    k.push_str(&format!("{}{}", if k.is_empty() { "" } else { ", " }, def.name));
+                    k.push_str(&format!(
+                        "{}{}",
+                        if k.is_empty() { "" } else { ", " },
+                        def.name
+                    ));
                 }
                 _ => {}
             }
@@ -695,48 +924,79 @@ impl MySqlSession {
         if !olap {
             // Primary keys and foreign keys, columns in key order.
             let mut kcu = self
-                .optional_rows(&format!("SELECT * FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = {dbl}"))
+                .optional_rows(&format!(
+                    "SELECT * FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = {dbl}"
+                ))
                 .await;
-            let pos = |r: &Row| named(r, &["ORDINAL_POSITION"]).and_then(|o| o.parse::<u64>().ok()).unwrap_or(0);
+            let pos = |r: &Row| {
+                named(r, &["ORDINAL_POSITION"])
+                    .and_then(|o| o.parse::<u64>().ok())
+                    .unwrap_or(0)
+            };
             kcu.sort_by_key(pos);
-            let mut rules: HashMap<(String, String), (Option<String>, Option<String>)> = HashMap::new();
+            let mut rules: HashMap<(String, String), (Option<String>, Option<String>)> =
+                HashMap::new();
             if v.has_foreign_keys() {
                 let sql = format!("SELECT * FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = {dbl}");
                 for r in self.optional_rows(&sql).await {
-                    if let (Some(t), Some(c)) = (named(&r, &["TABLE_NAME"]), named(&r, &["CONSTRAINT_NAME"])) {
-                        rules.insert((t, c), (fk_rule(named(&r, &["DELETE_RULE"])), fk_rule(named(&r, &["UPDATE_RULE"]))));
+                    if let (Some(t), Some(c)) =
+                        (named(&r, &["TABLE_NAME"]), named(&r, &["CONSTRAINT_NAME"]))
+                    {
+                        rules.insert(
+                            (t, c),
+                            (
+                                fk_rule(named(&r, &["DELETE_RULE"])),
+                                fk_rule(named(&r, &["UPDATE_RULE"])),
+                            ),
+                        );
                     }
                 }
             }
             let mut fks: BTreeMap<(String, String), ForeignKeyDef> = BTreeMap::new();
             let mut pks: HashMap<String, Vec<String>> = HashMap::new();
             for r in &kcu {
-                let (Some(table), Some(cname), Some(col)) =
-                    (named(r, &["TABLE_NAME"]), named(r, &["CONSTRAINT_NAME"]), named(r, &["COLUMN_NAME"]))
-                else {
+                let (Some(table), Some(cname), Some(col)) = (
+                    named(r, &["TABLE_NAME"]),
+                    named(r, &["CONSTRAINT_NAME"]),
+                    named(r, &["COLUMN_NAME"]),
+                ) else {
                     continue;
                 };
                 if cname == "PRIMARY" {
                     pks.entry(table).or_default().push(col);
-                } else if let Some(ref_table) = named(r, &["REFERENCED_TABLE_NAME"]).filter(|_| v.has_foreign_keys()) {
-                    let (on_delete, on_update) = rules.get(&(table.clone(), cname.clone())).cloned().unwrap_or_default();
-                    let fk = fks.entry((table, cname.clone())).or_insert_with(|| ForeignKeyDef {
-                        name: Some(cname),
-                        ref_schema: named(r, &["REFERENCED_TABLE_SCHEMA"]).filter(|s| *s != db),
-                        ref_table,
-                        on_delete,
-                        on_update,
-                        ..Default::default()
-                    });
+                } else if let Some(ref_table) =
+                    named(r, &["REFERENCED_TABLE_NAME"]).filter(|_| v.has_foreign_keys())
+                {
+                    let (on_delete, on_update) = rules
+                        .get(&(table.clone(), cname.clone()))
+                        .cloned()
+                        .unwrap_or_default();
+                    let fk = fks
+                        .entry((table, cname.clone()))
+                        .or_insert_with(|| ForeignKeyDef {
+                            name: Some(cname),
+                            ref_schema: named(r, &["REFERENCED_TABLE_SCHEMA"]).filter(|s| *s != db),
+                            ref_table,
+                            on_delete,
+                            on_update,
+                            ..Default::default()
+                        });
                     fk.columns.push(col);
-                    fk.ref_columns.push(named(r, &["REFERENCED_COLUMN_NAME"]).unwrap_or_default());
+                    fk.ref_columns
+                        .push(named(r, &["REFERENCED_COLUMN_NAME"]).unwrap_or_default());
                 }
             }
             for (name, t) in tables.iter_mut() {
                 // Engines without KEY_COLUMN_USAGE: COLUMN_KEY, in column order.
-                let pk = pks.remove(name).or_else(|| col_pk.remove(name)).unwrap_or_default();
+                let pk = pks
+                    .remove(name)
+                    .or_else(|| col_pk.remove(name))
+                    .unwrap_or_default();
                 if !pk.is_empty() {
-                    t.primary_key = Some(KeyDef { name: None, columns: pk });
+                    t.primary_key = Some(KeyDef {
+                        name: None,
+                        columns: pk,
+                    });
                 }
             }
             for ((table, _), fk) in fks {
@@ -752,7 +1012,13 @@ impl MySqlSession {
             // Inverted, ngram and aggregating indexes.
             for r in self.optional_rows("SELECT * FROM system.indexes").await {
                 let s = |n: &str| named(&r, &[n]).unwrap_or_default();
-                if let Some((table, ix)) = crate::structure::databend_index(&db, &s("name"), &s("type"), &s("original"), &s("definition")) {
+                if let Some((table, ix)) = crate::structure::databend_index(
+                    &db,
+                    &s("name"),
+                    &s("type"),
+                    &s("original"),
+                    &s("definition"),
+                ) {
                     if let Some(t) = tables.get_mut(&table) {
                         t.indexes.push(ix);
                     }
@@ -787,26 +1053,54 @@ impl MySqlSession {
             let names: Vec<String> = tables.keys().cloned().collect();
             for n in names {
                 let sql = format!("SHOW INDEX FROM {}", quote_ident(Quote::Backtick, &n));
-                stats.extend(self.optional_rows(&sql).await.into_iter().map(|r| (n.clone(), r)));
+                stats.extend(
+                    self.optional_rows(&sql)
+                        .await
+                        .into_iter()
+                        .map(|r| (n.clone(), r)),
+                );
             }
         } else {
             // TiDB's STATISTICS leaves SUB_PART empty; TIDB_INDEXES has it.
-            let view = if v == Variant::TiDb { "TIDB_INDEXES" } else { "STATISTICS" };
-            let rows = self.optional_rows(&format!("SELECT * FROM information_schema.{view} WHERE TABLE_SCHEMA = {dbl}")).await;
-            stats.extend(rows.into_iter().filter_map(|r| Some((named(&r, &["TABLE_NAME"])?, r))));
+            let view = if v == Variant::TiDb {
+                "TIDB_INDEXES"
+            } else {
+                "STATISTICS"
+            };
+            let rows = self
+                .optional_rows(&format!(
+                    "SELECT * FROM information_schema.{view} WHERE TABLE_SCHEMA = {dbl}"
+                ))
+                .await;
+            stats.extend(
+                rows.into_iter()
+                    .filter_map(|r| Some((named(&r, &["TABLE_NAME"])?, r))),
+            );
         }
-        stats.sort_by_key(|(_, r)| named(r, &["SEQ_IN_INDEX"]).and_then(|o| o.parse::<u64>().ok()).unwrap_or(0));
-        let yes = |r: &Row, names: &[&str], value: &str| named(r, names).is_some_and(|x| x.eq_ignore_ascii_case(value));
+        stats.sort_by_key(|(_, r)| {
+            named(r, &["SEQ_IN_INDEX"])
+                .and_then(|o| o.parse::<u64>().ok())
+                .unwrap_or(0)
+        });
+        let yes = |r: &Row, names: &[&str], value: &str| {
+            named(r, names).is_some_and(|x| x.eq_ignore_ascii_case(value))
+        };
         let mut idx: BTreeMap<(String, String), Option<IndexDef>> = BTreeMap::new();
         let mut desc: HashMap<(String, String), Vec<String>> = HashMap::new();
         for (table, r) in &stats {
-            let Some(name) = named(r, &["INDEX_NAME", "KEY_NAME"]) else { continue };
+            let Some(name) = named(r, &["INDEX_NAME", "KEY_NAME"]) else {
+                continue;
+            };
             if name == "PRIMARY" || !tables.contains_key(table) {
                 continue;
             }
             let ty = named(r, &["INDEX_TYPE"]).filter(|k| !k.is_empty());
             // GreptimeDB also lists its primary key and time index.
-            if v == Variant::GreptimeDb && !ty.as_deref().is_some_and(|t| ["INVERTED", "FULLTEXT", "SKIPPING"].contains(&t.to_ascii_uppercase().as_str())) {
+            if v == Variant::GreptimeDb
+                && !ty.as_deref().is_some_and(|t| {
+                    ["INVERTED", "FULLTEXT", "SKIPPING"].contains(&t.to_ascii_uppercase().as_str())
+                })
+            {
                 continue;
             }
             let key = (table.clone(), name.clone());
@@ -821,7 +1115,11 @@ impl MySqlSession {
                         options.extend(crate::structure::key_values(&p));
                     }
                 }
-                let comment = if olap { named(r, &["Index_comment", "Comment"]) } else { named(r, &["INDEX_COMMENT"]) };
+                let comment = if olap {
+                    named(r, &["Index_comment", "Comment"])
+                } else {
+                    named(r, &["INDEX_COMMENT"])
+                };
                 if let Some(c) = comment.filter(|c| !c.is_empty()) {
                     options.insert("COMMENT".into(), c);
                 }
@@ -831,19 +1129,29 @@ impl MySqlSession {
                 if yes(r, &["IGNORED"], "YES") {
                     options.insert("IGNORED".into(), "YES".into());
                 }
-                Some(IndexDef { name, unique: !olap && named(r, &["NON_UNIQUE"]).as_deref() == Some("0"), kind, options, ..Default::default() })
+                Some(IndexDef {
+                    name,
+                    unique: !olap && named(r, &["NON_UNIQUE"]).as_deref() == Some("0"),
+                    kind,
+                    options,
+                    ..Default::default()
+                })
             });
-            let spatial = ty.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("SPATIAL"));
+            let spatial = ty
+                .as_deref()
+                .is_some_and(|t| t.eq_ignore_ascii_case("SPATIAL"));
             // TiDB's TIDB_INDEXES writes the text NULL in both columns.
             let expression = named(r, &["EXPRESSION"]).filter(|e| !e.is_empty() && e != "NULL");
             let part = match (named(r, &["COLUMN_NAME"]), expression) {
                 // Functional key part: MySQL shows its quotes escaped.
                 (_, Some(e)) => Some(format!("({})", e.replace("\\'", "'"))),
                 // A spatial index reports a SUB_PART it doesn't take.
-                (Some(col), None) => Some(match named(r, &["SUB_PART"]).filter(|n| !n.is_empty() && !spatial) {
-                    Some(n) => format!("{col}({n})"),
-                    None => col,
-                }),
+                (Some(col), None) => Some(
+                    match named(r, &["SUB_PART"]).filter(|n| !n.is_empty() && !spatial) {
+                        Some(n) => format!("{col}({n})"),
+                        None => col,
+                    },
+                ),
                 _ => None,
             };
             match (entry.as_mut(), part) {
@@ -876,20 +1184,31 @@ impl MySqlSession {
         if cc.is_empty() {
             return;
         }
-        let with_table = cc.first().is_some_and(|r| r.columns_ref().iter().any(|c| c.name_str().eq_ignore_ascii_case("TABLE_NAME")));
+        let with_table = cc.first().is_some_and(|r| {
+            r.columns_ref()
+                .iter()
+                .any(|c| c.name_str().eq_ignore_ascii_case("TABLE_NAME"))
+        });
         let mut owner: HashMap<String, (String, bool)> = HashMap::new();
         if !with_table {
             let sql = format!("SELECT * FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = {dbl} AND CONSTRAINT_TYPE = 'CHECK'");
             for r in self.optional_rows(&sql).await {
-                if let (Some(t), Some(n)) = (named(&r, &["TABLE_NAME"]), named(&r, &["CONSTRAINT_NAME"])) {
-                    let off = named(&r, &["ENFORCED"]).is_some_and(|e| e.eq_ignore_ascii_case("NO"));
+                if let (Some(t), Some(n)) =
+                    (named(&r, &["TABLE_NAME"]), named(&r, &["CONSTRAINT_NAME"]))
+                {
+                    let off =
+                        named(&r, &["ENFORCED"]).is_some_and(|e| e.eq_ignore_ascii_case("NO"));
                     owner.insert(n, (t, off));
                 }
             }
         }
         let mut unplaced = false;
         for r in &cc {
-            let (Some(name), Some(clause)) = (named(r, &["CONSTRAINT_NAME"]), named(r, &["CHECK_CLAUSE"])) else { continue };
+            let (Some(name), Some(clause)) =
+                (named(r, &["CONSTRAINT_NAME"]), named(r, &["CHECK_CLAUSE"]))
+            else {
+                continue;
+            };
             let (table, off) = match named(r, &["TABLE_NAME"]) {
                 Some(t) => (t, false),
                 None => match owner.get(&name) {
@@ -901,18 +1220,33 @@ impl MySqlSession {
                 },
             };
             // MySQL shows the condition's quotes escaped, like its defaults.
-            let clause = if v == Variant::MariaDb { clause } else { clause.replace("\\'", "'") };
-            let off = if off { crate::structure::NOT_ENFORCED } else { "" };
+            let clause = if v == Variant::MariaDb {
+                clause
+            } else {
+                clause.replace("\\'", "'")
+            };
+            let off = if off {
+                crate::structure::NOT_ENFORCED
+            } else {
+                ""
+            };
             // MariaDB's column CHECKs (named after the column) belong to the
             // column: only redefining it drops them.
             if named(r, &["LEVEL"]).is_some_and(|l| l.eq_ignore_ascii_case("Column")) {
-                if let Some(c) = tables.get_mut(&table).and_then(|t| t.columns.iter_mut().find(|c| c.name == name)) {
-                    c.data_type = format!("{}{}{clause})", c.data_type, crate::structure::COLUMN_CHECK);
+                if let Some(c) = tables
+                    .get_mut(&table)
+                    .and_then(|t| t.columns.iter_mut().find(|c| c.name == name))
+                {
+                    c.data_type =
+                        format!("{}{}{clause})", c.data_type, crate::structure::COLUMN_CHECK);
                     continue;
                 }
             }
             if let Some(t) = tables.get_mut(&table) {
-                t.checks.push(dbine_driver::CheckDef { name: Some(name), expression: format!("{clause}{off}") });
+                t.checks.push(dbine_driver::CheckDef {
+                    name: Some(name),
+                    expression: format!("{clause}{off}"),
+                });
             }
         }
         if unplaced {
@@ -937,14 +1271,22 @@ impl MySqlSession {
         let dbl = lit(db);
         match self.variant {
             Variant::OceanBase => {
-                let sql = format!("SELECT * FROM oceanbase.DBA_OB_SEQUENCE_OBJECTS WHERE DATABASE_NAME = {dbl}");
+                let sql = format!(
+                    "SELECT * FROM oceanbase.DBA_OB_SEQUENCE_OBJECTS WHERE DATABASE_NAME = {dbl}"
+                );
                 self.optional_rows(&sql)
                     .await
                     .iter()
                     .filter_map(|r| {
                         let name = named(r, &["SEQUENCE_NAME"])?;
                         let g = |n: &[&str], d: &str| named(r, n).unwrap_or_else(|| d.to_string());
-                        let flag = |n: &str| named(r, &[n]).is_some_and(|f| f.eq_ignore_ascii_case("YES") || f == "1" || f.eq_ignore_ascii_case("Y"));
+                        let flag = |n: &str| {
+                            named(r, &[n]).is_some_and(|f| {
+                                f.eq_ignore_ascii_case("YES")
+                                    || f == "1"
+                                    || f.eq_ignore_ascii_case("Y")
+                            })
+                        };
                         let ddl = crate::structure::oceanbase_sequence(
                             &name,
                             [
@@ -967,20 +1309,36 @@ impl MySqlSession {
                 .iter()
                 .filter_map(|r| {
                     let name = named(r, &["name"])?;
-                    let ddl = crate::structure::databend_sequence(&name, named(r, &["start"]).as_deref(), named(r, &["interval", "increment"]).as_deref(), named(r, &["comment"]).as_deref());
+                    let ddl = crate::structure::databend_sequence(
+                        &name,
+                        named(r, &["start"]).as_deref(),
+                        named(r, &["interval", "increment"]).as_deref(),
+                        named(r, &["comment"]).as_deref(),
+                    );
                     Some((name, Some(ddl)))
                 })
                 .collect(),
             _ => {
                 let sql = format!("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = {dbl} AND TABLE_TYPE = 'SEQUENCE'");
-                self.optional_rows(&sql).await.iter().filter_map(|r| Some((at(r, 0)?, None))).collect()
+                self.optional_rows(&sql)
+                    .await
+                    .iter()
+                    .filter_map(|r| Some((at(r, 0)?, None)))
+                    .collect()
             }
         }
     }
 
     async fn show_create_table(&mut self, name: &str) -> Option<String> {
-        let obj = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: name.to_string() };
-        self.show_create("TABLE", &obj, "Create Table").await.ok().flatten()
+        let obj = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: name.to_string(),
+        };
+        self.show_create("TABLE", &obj, "Create Table")
+            .await
+            .ok()
+            .flatten()
     }
 
     /// What only SHOW CREATE TABLE says: full-text parsers (MySQL,
@@ -988,18 +1346,29 @@ impl MySqlSession {
     /// filter columns.
     async fn show_create_details(&mut self, tables: &mut BTreeMap<String, TableSchema>) {
         let v = self.variant;
-        let fulltext = |t: &TableSchema| t.indexes.iter().any(|i| i.kind.as_deref().is_some_and(|k| k.eq_ignore_ascii_case("FULLTEXT")));
+        let fulltext = |t: &TableSchema| {
+            t.indexes.iter().any(|i| {
+                i.kind
+                    .as_deref()
+                    .is_some_and(|k| k.eq_ignore_ascii_case("FULLTEXT"))
+            })
+        };
         let names: Vec<String> = tables
             .iter()
             .filter(|(_, t)| match v {
                 Variant::MySql | Variant::MariaDb | Variant::OceanBase => fulltext(t),
-                Variant::GreptimeDb | Variant::StarRocks | Variant::Doris | Variant::SingleStore => true,
+                Variant::GreptimeDb
+                | Variant::StarRocks
+                | Variant::Doris
+                | Variant::SingleStore => true,
                 _ => false,
             })
             .map(|(n, _)| n.clone())
             .collect();
         for n in names {
-            let Some(create) = self.show_create_table(&n).await else { continue };
+            let Some(create) = self.show_create_table(&n).await else {
+                continue;
+            };
             // Rollups: DESC … ALL lists every index of the table with its fields.
             let mut desc_all = Vec::new();
             if matches!(v, Variant::StarRocks | Variant::Doris) {
@@ -1010,28 +1379,57 @@ impl MySqlSession {
                     if !index.is_empty() {
                         last = index.clone();
                     }
-                    desc_all.push((index, if last.is_empty() { String::new() } else { named(&r, &["Field"]).unwrap_or_default() }));
+                    desc_all.push((
+                        index,
+                        if last.is_empty() {
+                            String::new()
+                        } else {
+                            named(&r, &["Field"]).unwrap_or_default()
+                        },
+                    ));
                 }
             }
-            let Some(t) = tables.get_mut(&n) else { continue };
+            let Some(t) = tables.get_mut(&n) else {
+                continue;
+            };
             match v {
                 Variant::GreptimeDb => {
                     for (col, kind, opts) in crate::structure::greptime_indexes(&create) {
-                        if let Some(ix) = t.indexes.iter_mut().find(|i| i.kind.as_deref().is_some_and(|k| k.eq_ignore_ascii_case(&kind)) && i.columns == [col.clone()]) {
+                        if let Some(ix) = t.indexes.iter_mut().find(|i| {
+                            i.kind
+                                .as_deref()
+                                .is_some_and(|k| k.eq_ignore_ascii_case(&kind))
+                                && i.columns == [col.clone()]
+                        }) {
                             ix.options.extend(opts);
                         }
                     }
                     // Table options (ttl, append_mode, compaction…);
                     // compaction.override is the server's own mark.
-                    t.options.extend(crate::structure::greptime_with(&create).into_iter().filter(|(k, _)| k != "compaction.override"));
+                    t.options.extend(
+                        crate::structure::greptime_with(&create)
+                            .into_iter()
+                            .filter(|(k, _)| k != "compaction.override"),
+                    );
                 }
                 Variant::StarRocks | Variant::Doris => {
-                    if let Some(b) = crate::structure::olap_properties(&create).get("bloom_filter_columns").filter(|b| !b.trim().is_empty()) {
-                        t.options.insert("bloom_filter_columns".into(), crate::structure::column_set(b));
+                    if let Some(b) = crate::structure::olap_properties(&create)
+                        .get("bloom_filter_columns")
+                        .filter(|b| !b.trim().is_empty())
+                    {
+                        t.options.insert(
+                            "bloom_filter_columns".into(),
+                            crate::structure::column_set(b),
+                        );
                     }
                     let cols: Vec<String> = t.columns.iter().map(|c| c.name.clone()).collect();
                     for (name, columns) in crate::structure::olap_rollups(&n, &cols, &desc_all) {
-                        t.indexes.push(IndexDef { name, columns, kind: Some("ROLLUP".into()), ..Default::default() });
+                        t.indexes.push(IndexDef {
+                            name,
+                            columns,
+                            kind: Some("ROLLUP".into()),
+                            ..Default::default()
+                        });
                     }
                     t.indexes.sort_by(|a, b| a.name.cmp(&b.name));
                 }
@@ -1054,7 +1452,9 @@ impl MySqlSession {
                     for ix in &mut t.indexes {
                         if k.hash.contains(&ix.name) {
                             ix.kind = Some("HASH".into());
-                        } else if let Some((_, version)) = k.fulltext.iter().find(|(n, _)| *n == ix.name) {
+                        } else if let Some((_, version)) =
+                            k.fulltext.iter().find(|(n, _)| *n == ix.name)
+                        {
                             ix.kind = Some("FULLTEXT".into());
                             if let Some(ver) = version {
                                 ix.options.insert("VERSION".into(), ver.clone());
@@ -1079,11 +1479,20 @@ impl MySqlSession {
     /// Manticore: no catalog; DESCRIBE per table.
     async fn describe_schema(&mut self) -> Result<Vec<TableSchema>> {
         let mut out = Vec::new();
-        let mut tables: Vec<String> =
-            self.relations("").await?.into_iter().filter(|o| o.kind == kinds::TABLE).map(|o| o.name).collect();
+        let mut tables: Vec<String> = self
+            .relations("")
+            .await?
+            .into_iter()
+            .filter(|o| o.kind == kinds::TABLE)
+            .map(|o| o.name)
+            .collect();
         tables.sort();
         for name in tables {
-            let obj = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: name.clone() };
+            let obj = ObjectRef {
+                kind: kinds::TABLE.into(),
+                schema: None,
+                name: name.clone(),
+            };
             let cols = self.columns_from_describe(&obj).await?;
             // Table settings (morphology, min_infix_len…) change how it's indexed.
             let options = match self.show_create_table(&name).await {
@@ -1096,7 +1505,12 @@ impl MySqlSession {
                 name,
                 columns: cols
                     .into_iter()
-                    .map(|c| ColumnDef { name: c.name, data_type: c.data_type, nullable: c.nullable, ..Default::default() })
+                    .map(|c| ColumnDef {
+                        name: c.name,
+                        data_type: c.data_type,
+                        nullable: c.nullable,
+                        ..Default::default()
+                    })
                     .collect(),
                 ..Default::default()
             });
@@ -1104,20 +1518,30 @@ impl MySqlSession {
         Ok(out)
     }
 
-    async fn explain_script(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain_script(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let version = match self.rows("SELECT VERSION()").await {
             Ok(rows) => rows.first().and_then(|r| at(r, 0)).unwrap_or_default(),
             Err(_) => String::new(),
         };
         let flavor = Flavor::detect(self.variant, &version);
         if analyze && !flavor.can_analyze() {
-            out.messages.push("Este servidor no da cifras reales en EXPLAIN: se muestran los planes estimados.".into());
+            out.messages.push(
+                "Este servidor no da cifras reales en EXPLAIN: se muestran los planes estimados."
+                    .into(),
+            );
         }
         for stmt in plan::split_keeping_hints(self.variant, sql) {
             let kind = plan::classify(&stmt);
             match (analyze, kind) {
                 (false, StmtKind::Other) => {
-                    out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
+                    out.messages
+                        .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
                 }
                 (false, _) => {
                     let p = self.plan_of(flavor, &stmt, false).await?;
@@ -1142,7 +1566,11 @@ impl MySqlSession {
     async fn plan_of(&mut self, flavor: Flavor, stmt: &str, actual: bool) -> Result<Plan> {
         match flavor {
             Flavor::MySqlTree { .. } => {
-                let q = if actual { format!("EXPLAIN ANALYZE {stmt}") } else { format!("EXPLAIN FORMAT=TREE {stmt}") };
+                let q = if actual {
+                    format!("EXPLAIN ANALYZE {stmt}")
+                } else {
+                    format!("EXPLAIN FORMAT=TREE {stmt}")
+                };
                 let (_, rows) = self.string_rows(&q).await?;
                 let raw = first_column(&rows);
                 if raw.contains("not executable by iterator executor") {
@@ -1152,12 +1580,20 @@ impl MySqlSession {
                 Ok(plan::mysql_tree(stmt, &raw, actual))
             }
             Flavor::MariaDb => {
-                let q = if actual { format!("ANALYZE FORMAT=JSON {stmt}") } else { format!("EXPLAIN FORMAT=JSON {stmt}") };
+                let q = if actual {
+                    format!("ANALYZE FORMAT=JSON {stmt}")
+                } else {
+                    format!("EXPLAIN FORMAT=JSON {stmt}")
+                };
                 let (_, rows) = self.string_rows(&q).await?;
                 plan::maria_json(stmt, &first_column(&rows), actual).map_err(Error::Query)
             }
             Flavor::TiDb => {
-                let q = if actual { format!("EXPLAIN ANALYZE {stmt}") } else { format!("EXPLAIN FORMAT='brief' {stmt}") };
+                let q = if actual {
+                    format!("EXPLAIN ANALYZE {stmt}")
+                } else {
+                    format!("EXPLAIN FORMAT='brief' {stmt}")
+                };
                 let (header, rows) = self.string_rows(&q).await?;
                 Ok(plan::tidb(stmt, &header, &rows, actual))
             }
@@ -1175,11 +1611,17 @@ impl MySqlSession {
     /// Column names and every cell as text ("NULL" for NULL).
     async fn string_rows(&mut self, sql: &str) -> Result<(Vec<String>, Vec<Vec<String>>)> {
         let mut result = self.conn.query_iter(sql).await.map_err(err)?;
-        let header: Vec<String> =
-            result.columns().map(|c| c.iter().map(|c| c.name_str().into_owned()).collect()).unwrap_or_default();
+        let header: Vec<String> = result
+            .columns()
+            .map(|c| c.iter().map(|c| c.name_str().into_owned()).collect())
+            .unwrap_or_default();
         let mut rows = Vec::new();
         while let Some(row) = result.next().await.map_err(err)? {
-            rows.push((0..row.len()).map(|i| at(&row, i).unwrap_or_else(|| "NULL".into())).collect());
+            rows.push(
+                (0..row.len())
+                    .map(|i| at(&row, i).unwrap_or_else(|| "NULL".into()))
+                    .collect(),
+            );
         }
         result.drop_result().await.map_err(err)?;
         Ok((header, rows))
@@ -1188,12 +1630,19 @@ impl MySqlSession {
 
 /// The first cell of each row, one per line.
 fn first_column(rows: &[Vec<String>]) -> String {
-    rows.iter().filter_map(|r| r.first().cloned()).collect::<Vec<_>>().join("\n")
+    rows.iter()
+        .filter_map(|r| r.first().cloned())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A `DELIMITER` line (mysql CLI client command) in the script.
 fn has_delimiter_command(sql: &str) -> bool {
-    sql.lines().any(|l| l.trim_start().get(..10).is_some_and(|w| w.eq_ignore_ascii_case("delimiter ")))
+    sql.lines().any(|l| {
+        l.trim_start()
+            .get(..10)
+            .is_some_and(|w| w.eq_ignore_ascii_case("delimiter "))
+    })
 }
 
 fn warnings_note(n: u16) -> Option<String> {
@@ -1205,14 +1654,22 @@ impl Session for MySqlSession {
     async fn server_version(&mut self) -> Result<String> {
         let rows = self.rows("SELECT VERSION()").await?;
         let version = rows.first().and_then(|r| at(r, 0)).unwrap_or_default();
-        Ok(crate::cloud_auth::with_identity(version, self.identity.as_deref()))
+        Ok(crate::cloud_auth::with_identity(
+            version,
+            self.identity.as_deref(),
+        ))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         if self.variant.single_namespace() {
             return Ok(vec!["Manticore".into()]);
         }
-        Ok(self.rows("SHOW DATABASES").await?.iter().filter_map(|r| at(r, 0)).collect())
+        Ok(self
+            .rows("SHOW DATABASES")
+            .await?
+            .iter()
+            .filter_map(|r| at(r, 0))
+            .collect())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -1248,8 +1705,17 @@ impl Session for MySqlSession {
                 ))
                 .await;
             out.extend(rows.iter().filter_map(|r| {
-                let kind = if at(r, 1)?.eq_ignore_ascii_case("PROCEDURE") { kinds::PROCEDURE } else { kinds::FUNCTION };
-                Some(DbObject { kind: kind.into(), schema: None, name: at(r, 0)?, parent: None })
+                let kind = if at(r, 1)?.eq_ignore_ascii_case("PROCEDURE") {
+                    kinds::PROCEDURE
+                } else {
+                    kinds::FUNCTION
+                };
+                Some(DbObject {
+                    kind: kind.into(),
+                    schema: None,
+                    name: at(r, 0)?,
+                    parent: None,
+                })
             }));
         }
         if self.variant.has_triggers() {
@@ -1259,12 +1725,27 @@ impl Session for MySqlSession {
                 ))
                 .await;
             out.extend(rows.iter().filter_map(|r| {
-                Some(DbObject { kind: kinds::TRIGGER.into(), schema: None, name: at(r, 0)?, parent: at(r, 1) })
+                Some(DbObject {
+                    kind: kinds::TRIGGER.into(),
+                    schema: None,
+                    name: at(r, 0)?,
+                    parent: at(r, 1),
+                })
             }));
         }
         if self.variant.has_sequences() {
-            let names: Vec<String> = self.sequences(&db).await.into_iter().map(|(n, _)| n).collect();
-            out.extend(names.into_iter().map(|name| DbObject { kind: kinds::SEQUENCE.into(), schema: None, name, parent: None }));
+            let names: Vec<String> = self
+                .sequences(&db)
+                .await
+                .into_iter()
+                .map(|(n, _)| n)
+                .collect();
+            out.extend(names.into_iter().map(|name| DbObject {
+                kind: kinds::SEQUENCE.into(),
+                schema: None,
+                name,
+                parent: None,
+            }));
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
@@ -1283,14 +1764,24 @@ impl Session for MySqlSession {
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
         // OceanBase and Databend don't show a sequence's CREATE: it's built from the catalog.
-        if obj.kind == kinds::SEQUENCE && matches!(self.variant, Variant::OceanBase | Variant::Databend) {
+        if obj.kind == kinds::SEQUENCE
+            && matches!(self.variant, Variant::OceanBase | Variant::Databend)
+        {
             let db = self.current_database().await.unwrap_or_default();
-            return Ok(self.sequences(&db).await.into_iter().find(|(n, _)| *n == obj.name).and_then(|(_, d)| d));
+            return Ok(self
+                .sequences(&db)
+                .await
+                .into_iter()
+                .find(|(n, _)| *n == obj.name)
+                .and_then(|(_, d)| d));
         }
         let attempts: &[(&str, &str)] = match obj.kind.as_str() {
             kinds::TABLE => &[("TABLE", "Create Table")],
             kinds::VIEW => &[("VIEW", "Create View"), ("TABLE", "Create Table")],
-            kinds::MATERIALIZED_VIEW => &[("MATERIALIZED VIEW", "Create Materialized View"), ("TABLE", "Create Table")],
+            kinds::MATERIALIZED_VIEW => &[
+                ("MATERIALIZED VIEW", "Create Materialized View"),
+                ("TABLE", "Create Table"),
+            ],
             kinds::PROCEDURE => &[("PROCEDURE", "Create Procedure")],
             kinds::FUNCTION => &[("FUNCTION", "Create Function")],
             kinds::TRIGGER => &[("TRIGGER", "SQL Original Statement")],
@@ -1318,7 +1809,13 @@ impl Session for MySqlSession {
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        select_top(Quote::Backtick, Limit::Limit, obj.schema(), &obj.name, limit)
+        select_top(
+            Quote::Backtick,
+            Limit::Limit,
+            obj.schema(),
+            &obj.name,
+            limit,
+        )
     }
 
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -1329,7 +1826,11 @@ impl Session for MySqlSession {
             // One statement per request: Manticore takes no more, and a
             // `DELIMITER` is the client's to apply (the server reads it as
             // an error).
-            let stmts = if self.variant == Variant::Manticore { manticore_statements(sql) } else { self.statements(sql) };
+            let stmts = if self.variant == Variant::Manticore {
+                manticore_statements(sql)
+            } else {
+                self.statements(sql)
+            };
             let mut res = Ok(());
             for stmt in stmts {
                 res = self.run(&stmt, max_rows, out).await;
@@ -1338,14 +1839,21 @@ impl Session for MySqlSession {
                 }
             }
             res
-        } else if matches!(self.variant, Variant::StarRocks | Variant::Doris) && olap_schema_change(sql) {
+        } else if matches!(self.variant, Variant::StarRocks | Variant::Doris)
+            && olap_schema_change(sql)
+        {
             // A table takes one schema change job at a time: a single
             // ALTER / CREATE INDEX / DROP INDEX waits for the one running
             // (scripts like "Comparar esquemas" send several in a row).
             let start = std::time::Instant::now();
             loop {
                 match self.run(sql, max_rows, out).await {
-                    Err(e) if e.is_query() && olap_busy(&e.to_string()) && start.elapsed() < OLAP_WAIT && !self.cancelled.load(Ordering::SeqCst) => {
+                    Err(e)
+                        if e.is_query()
+                            && olap_busy(&e.to_string())
+                            && start.elapsed() < OLAP_WAIT
+                            && !self.cancelled.load(Ordering::SeqCst) =>
+                    {
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     }
                     res => break res,
@@ -1358,7 +1866,11 @@ impl Session for MySqlSession {
             return Err(Error::Cancelled);
         }
         // `USE other`: the tab follows the session's new database.
-        if !self.variant.single_namespace() && self.statements_of(sql).iter().any(|s| leading_keyword(s, &crate::script_dialect(self.variant)).as_deref() == Some("use")) {
+        if !self.variant.single_namespace()
+            && self.statements_of(sql).iter().any(|s| {
+                leading_keyword(s, &crate::script_dialect(self.variant)).as_deref() == Some("use")
+            })
+        {
             let before = self.database.clone();
             if let Ok(rows) = self.rows("SELECT DATABASE()").await {
                 if let Some(db) = rows.first().and_then(|r| at(r, 0)) {
@@ -1377,19 +1889,33 @@ impl Session for MySqlSession {
     /// emulations that don't (Manticore, the OLAP engines) answer
     /// `Unsupported` and get literals. More than one statement or a
     /// `DELIMITER`: `Unsupported`, before anything runs.
-    async fn execute_bound(&mut self, statement: &BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn execute_bound(
+        &mut self,
+        statement: &BoundStatement,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if !self.variant.binds() {
-            return Err(Error::Unsupported(format!("{} no recibe parámetros aparte del texto desde DBine", Variant::info(self.variant).name)));
+            return Err(Error::Unsupported(format!(
+                "{} no recibe parámetros aparte del texto desde DBine",
+                Variant::info(self.variant).name
+            )));
         }
         let (sql, values) = statement.positional();
         if has_delimiter_command(&sql) || self.statements(&sql).len() != 1 {
-            return Err(Error::Unsupported("MySQL recibe los parámetros de una sentencia por vez".into()));
+            return Err(Error::Unsupported(
+                "MySQL recibe los parámetros de una sentencia por vez".into(),
+            ));
         }
         self.settle_dropped_read().await?;
         self.cancelled.store(false, Ordering::SeqCst);
         let params = mysql_async::Params::Positional(values.into_iter().map(bind_value).collect());
         let res = async {
-            let stmt = self.conn.prep(sql.as_str()).await.map_err(|e| stmt_err(&sql, e))?;
+            let stmt = self
+                .conn
+                .prep(sql.as_str())
+                .await
+                .map_err(|e| stmt_err(&sql, e))?;
             let read = match self.conn.exec_iter(&stmt, params).await {
                 Ok(result) => read_results(result, &sql, max_rows, out).await,
                 Err(e) => Err(stmt_err(&sql, e)),
@@ -1411,9 +1937,16 @@ impl Session for MySqlSession {
     /// One statement as a read the server enforces (see `read_only.rs`):
     /// MySQL 5.6.5+ and MariaDB 10.0+; the other engines answer
     /// Unsupported and the app asks for approval instead.
-    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if !self.protected_reads().await {
-            return Err(Error::Unsupported("este motor no asegura lecturas de solo lectura en el servidor".into()));
+            return Err(Error::Unsupported(
+                "este motor no asegura lecturas de solo lectura en el servidor".into(),
+            ));
         }
         if let Some(word) = crate::read_only::refusal(statement, self.variant) {
             return Err(Error::Query(format!(
@@ -1442,7 +1975,10 @@ impl Session for MySqlSession {
         if self.conn.last_ok_packet().is_none() {
             self.conn.query_drop("DO 0").await.map_err(err)?;
         }
-        let open = self.conn.last_ok_packet().is_some_and(|ok| ok.status_flags().contains(StatusFlags::SERVER_STATUS_IN_TRANS));
+        let open = self.conn.last_ok_packet().is_some_and(|ok| {
+            ok.status_flags()
+                .contains(StatusFlags::SERVER_STATUS_IN_TRANS)
+        });
         Ok(Some(if open { TxState::Open } else { TxState::Idle }))
     }
 
@@ -1451,21 +1987,38 @@ impl Session for MySqlSession {
     /// open one (the server does).
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
         if !self.variant.has_transactions() {
-            return if on { Ok(()) } else { Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into())) };
+            return if on {
+                Ok(())
+            } else {
+                Err(Error::Unsupported(
+                    "este motor no permite transacciones manuales desde DBine".into(),
+                ))
+            };
         }
-        self.conn.query_drop(if on { "SET autocommit = 1" } else { "SET autocommit = 0" }).await.map_err(err)
+        self.conn
+            .query_drop(if on {
+                "SET autocommit = 1"
+            } else {
+                "SET autocommit = 0"
+            })
+            .await
+            .map_err(err)
     }
 
     async fn commit(&mut self) -> Result<()> {
         if !self.variant.has_transactions() {
-            return Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no permite transacciones manuales desde DBine".into(),
+            ));
         }
         self.conn.query_drop("COMMIT").await.map_err(err)
     }
 
     async fn rollback(&mut self) -> Result<()> {
         if !self.variant.has_transactions() {
-            return Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no permite transacciones manuales desde DBine".into(),
+            ));
         }
         self.conn.query_drop("ROLLBACK").await.map_err(err)
     }
@@ -1482,9 +2035,17 @@ impl Session for MySqlSession {
     /// `ANALYZE FORMAT=JSON` or TiDB's `EXPLAIN ANALYZE`. Writes get their
     /// estimated plan before they run (those commands would apply them
     /// again). Engines without an analyzing EXPLAIN give estimated plans.
-    async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if self.variant == Variant::Manticore {
-            return Err(Error::Unsupported("Manticore Search no ofrece planes de ejecución por SQL".into()));
+            return Err(Error::Unsupported(
+                "Manticore Search no ofrece planes de ejecución por SQL".into(),
+            ));
         }
         self.cancelled.store(false, Ordering::SeqCst);
         let res = self.explain_script(sql, analyze, max_rows, out).await;
@@ -1500,28 +2061,36 @@ impl Session for MySqlSession {
 
     async fn blocking(&mut self) -> Result<Vec<dbine_driver::BlockedSession>> {
         if !self.variant.has_lock_waits() {
-            return Err(Error::Unsupported("este motor no informa bloqueos entre sesiones".into()));
+            return Err(Error::Unsupported(
+                "este motor no informa bloqueos entre sesiones".into(),
+            ));
         }
         self.blocking_chains().await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
         if !crate::security::supported(self.variant) {
-            return Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no administra usuarios desde DBine".into(),
+            ));
         }
         crate::security::principals(self).await
     }
 
     async fn grants(&mut self, principal: &str) -> Result<Vec<dbine_driver::Grant>> {
         if !crate::security::supported(self.variant) {
-            return Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no administra usuarios desde DBine".into(),
+            ));
         }
         crate::security::grants(self, principal).await
     }
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         if !crate::processes::can_kill(self.variant) {
-            return Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no permite terminar sesiones desde DBine".into(),
+            ));
         }
         self.kill_connection(id).await
     }
@@ -1534,14 +2103,20 @@ impl Session for MySqlSession {
         crate::processes::cancel(self, id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = crate::profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = crate::profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1568,40 +2143,75 @@ impl Session for MySqlSession {
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
         if !crate::design::capabilities(self.variant).create_database {
-            return Err(Error::Unsupported("este motor no crea bases desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no crea bases desde DBine".into(),
+            ));
         }
-        self.conn.query_drop(format!("CREATE DATABASE {}", quote_ident(Quote::Backtick, name))).await.map_err(err)
+        self.conn
+            .query_drop(format!(
+                "CREATE DATABASE {}",
+                quote_ident(Quote::Backtick, name)
+            ))
+            .await
+            .map_err(err)
     }
 
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if !crate::design::capabilities(self.variant).drop_database {
-            return Err(Error::Unsupported("este motor no borra bases desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no borra bases desde DBine".into(),
+            ));
         }
-        if self.current_database().await.is_some_and(|db| db.eq_ignore_ascii_case(name)) {
+        if self
+            .current_database()
+            .await
+            .is_some_and(|db| db.eq_ignore_ascii_case(name))
+        {
             return Err(Error::Query(format!(
                 "No se puede borrar la base «{name}» porque es la de esta sesión; conéctese a otra base para borrarla."
             )));
         }
-        self.conn.query_drop(format!("DROP DATABASE {}", quote_ident(Quote::Backtick, name))).await.map_err(err)
+        self.conn
+            .query_drop(format!(
+                "DROP DATABASE {}",
+                quote_ident(Quote::Backtick, name)
+            ))
+            .await
+            .map_err(err)
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         crate::transfer::read_batches(self, spec, sink).await
     }
 
@@ -1625,9 +2235,20 @@ impl Session for MySqlSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::WriteResult> {
         if !self.variant.writes_staged() {
-            return Err(Error::Unsupported("este motor no escribe por modo desde un notebook".to_string()));
+            return Err(Error::Unsupported(
+                "este motor no escribe por modo desde un notebook".to_string(),
+            ));
         }
-        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::MySql, spec, columns, source, progress, true).await
+        dbine_driver::write::staged_write(
+            self,
+            dbine_driver::write::StageFlavor::MySql,
+            spec,
+            columns,
+            source,
+            progress,
+            true,
+        )
+        .await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
@@ -1640,12 +2261,25 @@ impl Session for MySqlSession {
         }
         // Dropping the connection leaves the statement running on the
         // server; KILL QUERY from a second connection stops it.
-        let (opts, conn_id, flag) = (self.opts.clone(), self.conn_id.clone(), self.cancelled.clone());
+        let (opts, conn_id, flag) = (
+            self.opts.clone(),
+            self.conn_id.clone(),
+            self.cancelled.clone(),
+        );
         let relogin = self.relogin.clone();
-        let kill = if self.variant == Variant::TiDb { "KILL TIDB QUERY" } else { "KILL QUERY" };
+        let kill = if self.variant == Variant::TiDb {
+            "KILL TIDB QUERY"
+        } else {
+            "KILL QUERY"
+        };
         let rt = tokio::runtime::Handle::try_current().ok()?;
         Some(Arc::new(move || {
-            let (opts, flag, id, relogin) = (opts.clone(), flag.clone(), conn_id.load(Ordering::SeqCst), relogin.clone());
+            let (opts, flag, id, relogin) = (
+                opts.clone(),
+                flag.clone(),
+                conn_id.load(Ordering::SeqCst),
+                relogin.clone(),
+            );
             rt.spawn(async move {
                 flag.store(true, Ordering::SeqCst);
                 let opts = match fresh_opts(&opts, relogin.as_deref()).await {
@@ -1669,7 +2303,10 @@ impl Session for MySqlSession {
     }
 
     /// `SHOW INDEX` plus the engine's usage counters (see `index_usage`).
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         if !crate::index_usage::supported(self.variant) {
             return Ok(None);
         }
@@ -1687,7 +2324,10 @@ impl Session for MySqlSession {
         self.object_comments_impl().await
     }
 
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
@@ -1725,24 +2365,55 @@ mod tests {
 
     #[test]
     fn delimiter_lines_are_found() {
-        assert!(has_delimiter_command("select 1;\n  DELIMITER //\ncreate procedure p() begin end//"));
+        assert!(has_delimiter_command(
+            "select 1;\n  DELIMITER //\ncreate procedure p() begin end//"
+        ));
         assert!(!has_delimiter_command("select 'delimiter x'"));
         assert!(!has_delimiter_command("select delimiter from t"));
     }
 
     #[test]
     fn defaults_become_sql() {
-        let d = |raw: Option<&str>, extra: &str, ty: &str, maria: bool| column_default(raw, extra, ty, maria);
-        assert_eq!(d(Some("x'y"), "", "varchar(10)", false).as_deref(), Some("'x''y'"));
-        assert_eq!(d(Some("0.00"), "", "decimal(10,2)", false).as_deref(), Some("0.00"));
-        assert_eq!(d(Some("concat(_utf8mb4\\'a\\')"), "DEFAULT_GENERATED", "varchar(9)", false).as_deref(), Some("(concat(_utf8mb4'a'))"));
+        let d = |raw: Option<&str>, extra: &str, ty: &str, maria: bool| {
+            column_default(raw, extra, ty, maria)
+        };
         assert_eq!(
-            d(Some("CURRENT_TIMESTAMP"), "DEFAULT_GENERATED on update CURRENT_TIMESTAMP", "timestamp", false).as_deref(),
+            d(Some("x'y"), "", "varchar(10)", false).as_deref(),
+            Some("'x''y'")
+        );
+        assert_eq!(
+            d(Some("0.00"), "", "decimal(10,2)", false).as_deref(),
+            Some("0.00")
+        );
+        assert_eq!(
+            d(
+                Some("concat(_utf8mb4\\'a\\')"),
+                "DEFAULT_GENERATED",
+                "varchar(9)",
+                false
+            )
+            .as_deref(),
+            Some("(concat(_utf8mb4'a'))")
+        );
+        assert_eq!(
+            d(
+                Some("CURRENT_TIMESTAMP"),
+                "DEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+                "timestamp",
+                false
+            )
+            .as_deref(),
             Some("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
         );
-        assert_eq!(d(Some("current_timestamp()"), "", "timestamp(3)", false).as_deref(), Some("current_timestamp()"));
+        assert_eq!(
+            d(Some("current_timestamp()"), "", "timestamp(3)", false).as_deref(),
+            Some("current_timestamp()")
+        );
         assert_eq!(d(Some("NULL"), "", "int(11)", true), None);
-        assert_eq!(d(Some("'a'"), "", "varchar(3)", true).as_deref(), Some("'a'"));
+        assert_eq!(
+            d(Some("'a'"), "", "varchar(3)", true).as_deref(),
+            Some("'a'")
+        );
         assert_eq!(d(None, "", "int", false), None);
     }
 
@@ -1750,10 +2421,16 @@ mod tests {
     fn olap_schema_changes_wait_only_when_alone() {
         assert!(olap_schema_change("ALTER TABLE `t` ADD ROLLUP `r` (`a`);"));
         assert!(olap_schema_change("create index i on t (a) using bitmap"));
-        assert!(!olap_schema_change("ALTER TABLE t ADD INDEX i (a); ALTER TABLE t SET (\"x\" = \"1\")"));
+        assert!(!olap_schema_change(
+            "ALTER TABLE t ADD INDEX i (a); ALTER TABLE t SET (\"x\" = \"1\")"
+        ));
         assert!(!olap_schema_change("SELECT 1"));
-        assert!(olap_busy("A schema change operation is in progress on the table docs. Please wait"));
-        assert!(olap_busy("Table[t]'s state is not NORMAL. Do not allow doing ALTER ops"));
+        assert!(olap_busy(
+            "A schema change operation is in progress on the table docs. Please wait"
+        ));
+        assert!(olap_busy(
+            "Table[t]'s state is not NORMAL. Do not allow doing ALTER ops"
+        ));
         assert!(!olap_busy("Unknown column"));
     }
 

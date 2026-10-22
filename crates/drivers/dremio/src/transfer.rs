@@ -43,7 +43,9 @@
 use crate::ddl::{lit, path, q};
 use crate::{text, Cancel, Conn, DremioSession};
 use base64::Engine as _;
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, Result, Session};
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -96,11 +98,20 @@ pub(crate) fn plain_decimal(s: &str, scale: Option<usize>) -> String {
     // The point sits `point` digits into `digits`.
     let point = ip.len() as i64 + exp;
     let (int, mut frac) = if point <= 0 {
-        ("0".to_string(), format!("{}{digits}", "0".repeat(point.unsigned_abs() as usize)))
+        (
+            "0".to_string(),
+            format!("{}{digits}", "0".repeat(point.unsigned_abs() as usize)),
+        )
     } else if point as usize >= digits.len() {
-        (format!("{digits}{}", "0".repeat(point as usize - digits.len())), String::new())
+        (
+            format!("{digits}{}", "0".repeat(point as usize - digits.len())),
+            String::new(),
+        )
     } else {
-        (digits[..point as usize].to_string(), digits[point as usize..].to_string())
+        (
+            digits[..point as usize].to_string(),
+            digits[point as usize..].to_string(),
+        )
     };
     let int = match int.trim_start_matches('0') {
         "" => "0",
@@ -129,10 +140,16 @@ pub(crate) fn plain_decimal(s: &str, scale: Option<usize>) -> String {
 pub(crate) fn to_cell(v: Value, ty: &str) -> Cell {
     match v {
         Value::Null => Cell::Null,
-        Value::String(s) if ty.starts_with("DECIMAL") => Cell::Decimal(plain_decimal(&s, scale_of(ty))),
+        Value::String(s) if ty.starts_with("DECIMAL") => {
+            Cell::Decimal(plain_decimal(&s, scale_of(ty)))
+        }
         Value::Bool(b) => Cell::Bool(b),
-        Value::Number(n) if ty == "FLOAT" || ty == "DOUBLE" => Cell::Float(n.as_f64().unwrap_or(f64::NAN)),
-        Value::Number(n) if ty.starts_with("DECIMAL") => Cell::Decimal(plain_decimal(&n.to_string(), scale_of(ty))),
+        Value::Number(n) if ty == "FLOAT" || ty == "DOUBLE" => {
+            Cell::Float(n.as_f64().unwrap_or(f64::NAN))
+        }
+        Value::Number(n) if ty.starts_with("DECIMAL") => {
+            Cell::Decimal(plain_decimal(&n.to_string(), scale_of(ty)))
+        }
         Value::Number(n) => match (n.as_i64(), n.as_u64()) {
             (Some(i), _) => Cell::Int(i),
             (None, Some(u)) => Cell::UInt(u),
@@ -188,7 +205,10 @@ pub(crate) fn to_utc(s: &str) -> Option<String> {
         None => {
             let i = s.rfind(['+', '-']).filter(|&i| i > 10)?;
             let z = s[i + 1..].replace(':', "");
-            let (h, m): (i64, i64) = (z.get(..2)?.parse().ok()?, if z.len() > 2 { z[2..].parse().ok()? } else { 0 });
+            let (h, m): (i64, i64) = (
+                z.get(..2)?.parse().ok()?,
+                if z.len() > 2 { z[2..].parse().ok()? } else { 0 },
+            );
             let sign = if &s[i..i + 1] == "-" { -1 } else { 1 };
             (s[..i].trim().to_string(), sign * (h * 60 + m))
         }
@@ -196,13 +216,19 @@ pub(crate) fn to_utc(s: &str) -> Option<String> {
     let (date, time) = local.split_once(' ')?;
     let mut dp = date.splitn(3, '-').map(|x| x.parse::<i64>().ok());
     let (y, mo, d) = (dp.next()??, dp.next()??, dp.next()??);
-    let (hms, frac) = time.split_once('.').map_or((time, None), |(a, b)| (a, Some(b)));
+    let (hms, frac) = time
+        .split_once('.')
+        .map_or((time, None), |(a, b)| (a, Some(b)));
     let mut tp = hms.splitn(3, ':').map(|x| x.parse::<i64>().ok());
     let (h, mi, sec) = (tp.next()??, tp.next()??, tp.next().flatten().unwrap_or(0));
     let minutes = days_from_civil(y, mo, d) * 1440 + h * 60 + mi - zone;
     let (days, mins) = (minutes.div_euclid(1440), minutes.rem_euclid(1440));
     let (y, mo, d) = civil_from_days(days);
-    let mut out = format!("{y:04}-{mo:02}-{d:02} {:02}:{:02}:{sec:02}", mins / 60, mins % 60);
+    let mut out = format!(
+        "{y:04}-{mo:02}-{d:02} {:02}:{:02}:{sec:02}",
+        mins / 60,
+        mins % 60
+    );
     if let Some(f) = frac {
         out.push('.');
         out.push_str(f);
@@ -260,12 +286,19 @@ pub(crate) fn value_sql(c: &Cell, kind: Kind) -> String {
             // DOUBLE)`…) to 0.0; a run-time negation keeps the sign.
             Some(f) if f == 0.0 && f.is_sign_negative() => return "-(RAND() * 0e0)".into(),
             Some(f) if f.is_finite() => return format!("{f:e}"),
-            Some(f) => return format!("CAST({} AS DOUBLE)", lit(&value_text(&Cell::Float(f), false).unwrap_or_default())),
+            Some(f) => {
+                return format!(
+                    "CAST({} AS DOUBLE)",
+                    lit(&value_text(&Cell::Float(f), false).unwrap_or_default())
+                )
+            }
             None => {}
         }
     }
     match value_text(c, kind == Kind::Binary) {
-        Some(t) if kind == Kind::Text && t.chars().all(|ch| u32::from(ch) <= 0xFF) => lit(&format!("p{t}")),
+        Some(t) if kind == Kind::Text && t.chars().all(|ch| u32::from(ch) <= 0xFF) => {
+            lit(&format!("p{t}"))
+        }
         Some(t) if kind == Kind::Text => format!("'h{}'", hex(t.as_bytes())),
         Some(t) => lit(&t),
         None => "NULL".into(),
@@ -286,7 +319,12 @@ pub(crate) fn value_text(c: &Cell, binary: bool) -> Option<String> {
         Cell::Float(f) => format!("{f:e}"),
         Cell::DateTime(s) => s.replacen('T', " ", 1),
         Cell::DateTimeTz(s) => to_utc(s).unwrap_or_else(|| s.clone()),
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::Uuid(s) | Cell::Json(s) => s.clone(),
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => s.clone(),
     };
     Some(if binary { hex(s.as_bytes()) } else { s })
 }
@@ -297,7 +335,10 @@ pub(crate) fn value_text(c: &Cell, binary: bool) -> Option<String> {
 /// as BIGINT, a table's INT field then mismatches), so loading into one
 /// is `Unsupported`.
 pub(crate) fn is_complex(data_type: &str) -> bool {
-    matches!(data_type.trim().to_ascii_uppercase().as_str(), "STRUCT" | "LIST" | "MAP" | "ARRAY" | "ROW")
+    matches!(
+        data_type.trim().to_ascii_uppercase().as_str(),
+        "STRUCT" | "LIST" | "MAP" | "ARRAY" | "ROW"
+    )
 }
 
 /// The SELECT expression that turns VALUES column `c` into the target
@@ -314,14 +355,20 @@ pub(crate) fn cast_expr(c: &str, data_type: &str) -> String {
     let text = format!("CASE WHEN SUBSTR({v}, 1, 1) = 'h' THEN CONVERT_FROM(FROM_HEX(SUBSTR({v}, 2)), 'UTF8') ELSE SUBSTR({v}, 2) END");
     match t.as_str() {
         "CHARACTER VARYING" | "VARCHAR" | "CHAR" | "CHARACTER" => text,
-        "BINARY VARYING" | "VARBINARY" | "BINARY" => format!("CASE WHEN {v} IS NULL THEN NULL ELSE FROM_HEX({v}) END"),
+        "BINARY VARYING" | "VARBINARY" | "BINARY" => {
+            format!("CASE WHEN {v} IS NULL THEN NULL ELSE FROM_HEX({v}) END")
+        }
         "" => c.to_string(),
         _ => format!("CAST({c} AS {t})"),
     }
 }
 
 impl DremioSession {
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         let schema = self.schema_of(&spec.table)?;
         let described = self.columns(&spec.table).await?;
@@ -330,7 +377,10 @@ impl DremioSession {
             None => described.iter().map(|c| c.name.clone()).collect(),
         };
         if names.is_empty() {
-            return Err(Error::Query(format!("No se encontraron las columnas de {}.", spec.table.name)));
+            return Err(Error::Query(format!(
+                "No se encontraron las columnas de {}.",
+                spec.table.name
+            )));
         }
         let info = |n: &str| described.iter().find(|c| c.name.eq_ignore_ascii_case(n));
         // Read as text (and typed back here): DECIMAL, which the JSON
@@ -364,14 +414,25 @@ impl DremioSession {
                 None => q(n),
             })
             .collect();
-        let mut sql = format!("SELECT {} FROM {}", list.join(", "), path(Some(&schema), &spec.table.name));
-        if let Some(f) = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        let mut sql = format!(
+            "SELECT {} FROM {}",
+            list.join(", "),
+            path(Some(&schema), &spec.table.name)
+        );
+        if let Some(f) = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
             sql.push_str(&format!(" WHERE {f}"));
         }
         let (id, st) = self.job(&sql).await?;
         let total = st.get("rowCount").and_then(Value::as_u64).unwrap_or(0) as usize;
 
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
         let mut builder = BatchBuilder::new();
         let mut pending: VecDeque<JoinHandle<Result<Value>>> = VecDeque::new();
         let mut next = 0usize;
@@ -380,11 +441,20 @@ impl DremioSession {
             while pending.len() < IN_FLIGHT && next < total {
                 let conn = self.conn.clone();
                 let p = format!("/api/v3/job/{id}/results?offset={next}&limit={PAGE}");
-                pending.push_back(tokio::spawn(async move { conn.send(reqwest::Method::GET, &p, None).await }));
+                pending.push_back(tokio::spawn(async move {
+                    conn.send(reqwest::Method::GET, &p, None).await
+                }));
                 next += PAGE;
             }
             let Some(h) = pending.pop_front() else { break };
-            let page = match self.cancel.run(async { h.await.map_err(|e| Error::State(format!("lectura interrumpida: {e}")))? }).await {
+            let page = match self
+                .cancel
+                .run(async {
+                    h.await
+                        .map_err(|e| Error::State(format!("lectura interrumpida: {e}")))?
+                })
+                .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     pending.iter().for_each(JoinHandle::abort);
@@ -397,14 +467,26 @@ impl DremioSession {
                     .and_then(Value::as_array)
                     .into_iter()
                     .flatten()
-                    .map(|c| (c.get("name").map(text).unwrap_or_default(), c.get("type").and_then(|t| t.get("name")).map(text).unwrap_or_default()))
+                    .map(|c| {
+                        (
+                            c.get("name").map(text).unwrap_or_default(),
+                            c.get("type")
+                                .and_then(|t| t.get("name"))
+                                .map(text)
+                                .unwrap_or_default(),
+                        )
+                    })
                     .collect();
                 names
                     .iter()
                     .zip(&textual)
                     .map(|(n, t)| match t {
                         Some(t) => t.to_string(),
-                        None => schema.iter().find(|(s, _)| s == n).map(|(_, t)| t.clone()).unwrap_or_default(),
+                        None => schema
+                            .iter()
+                            .find(|(s, _)| s == n)
+                            .map(|(_, t)| t.clone())
+                            .unwrap_or_default(),
                     })
                     .collect()
             });
@@ -412,17 +494,28 @@ impl DremioSession {
                 Some(Value::Array(r)) => r.clone(),
                 _ => Vec::new(),
             };
-            let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+            let mut s = sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?;
             for mut r in rows {
                 let row: Vec<Cell> = names
                     .iter()
                     .enumerate()
-                    .map(|(i, n)| to_cell(r.get_mut(n).map(Value::take).unwrap_or(Value::Null), &types[i]))
+                    .map(|(i, n)| {
+                        to_cell(
+                            r.get_mut(n).map(Value::take).unwrap_or(Value::Null),
+                            &types[i],
+                        )
+                    })
                     .collect();
                 builder.push(row, &mut *s)?;
             }
         }
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
@@ -435,17 +528,26 @@ impl DremioSession {
     ) -> Result<u64> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         let schema = self.schema_of(&spec.table)?;
-        let names: Vec<String> =
-            if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
         let described = self.columns(&spec.table).await?;
         if described.is_empty() {
-            return Err(Error::Query(format!("No se encontró la tabla {}.", spec.table.name)));
+            return Err(Error::Query(format!(
+                "No se encontró la tabla {}.",
+                spec.table.name
+            )));
         }
         let mut exprs = Vec::with_capacity(names.len());
         let mut kinds = Vec::with_capacity(names.len());
         for (i, n) in names.iter().enumerate() {
             let Some(c) = described.iter().find(|c| c.name.eq_ignore_ascii_case(n)) else {
-                return Err(Error::Query(format!("La tabla {} no tiene la columna {n}.", spec.table.name)));
+                return Err(Error::Query(format!(
+                    "La tabla {} no tiene la columna {n}.",
+                    spec.table.name
+                )));
             };
             if is_complex(&c.data_type) {
                 return Err(Error::Unsupported(format!(
@@ -462,7 +564,13 @@ impl DremioSession {
             names.iter().map(|n| q(n)).collect::<Vec<_>>().join(", "),
             exprs.join(", ")
         );
-        let tail = format!(") AS v({})", (0..names.len()).map(|i| format!("c{i}")).collect::<Vec<_>>().join(", "));
+        let tail = format!(
+            ") AS v({})",
+            (0..names.len())
+                .map(|i| format!("c{i}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
 
         let every = spec.commit_rows.max(1);
         let (mut done, mut reported) = (0u64, 0u64);
@@ -476,7 +584,11 @@ impl DremioSession {
                     if done > reported {
                         progress(done);
                     }
-                    return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), names.len())));
+                    return Err(Error::Query(format!(
+                        "la fila tiene {} valores y la carga {} columnas",
+                        row.len(),
+                        names.len()
+                    )));
                 }
                 stmt.push_str(if in_stmt == 0 { &head } else { ", " });
                 stmt.push('(');
@@ -539,8 +651,16 @@ impl DremioSession {
         let body = self.job_body(stmt);
         stmt.clear();
         let abandon = Arc::new(AtomicBool::new(false));
-        let task = self.rt.spawn(run_insert(self.conn.clone(), body, self.cancel.clone(), abandon.clone()));
-        let mut job = InsertJob { task: Some(task), abandon };
+        let task = self.rt.spawn(run_insert(
+            self.conn.clone(),
+            body,
+            self.cancel.clone(),
+            abandon.clone(),
+        ));
+        let mut job = InsertJob {
+            task: Some(task),
+            abandon,
+        };
         let r = match job.task.as_mut() {
             Some(t) => t.await,
             None => return Err(Error::State("carga interrumpida".into())),
@@ -563,7 +683,10 @@ impl Drop for InsertJob {
         let Some(task) = self.task.take() else { return };
         self.abandon.store(true, Ordering::SeqCst);
         let wait = async move {
-            if tokio::time::timeout(SETTLE + Duration::from_secs(10), task).await.is_err() {
+            if tokio::time::timeout(SETTLE + Duration::from_secs(10), task)
+                .await
+                .is_err()
+            {
                 tracing::warn!("dremio: an INSERT job didn't end after its load was dropped");
             }
         };
@@ -583,10 +706,20 @@ impl Drop for InsertJob {
 /// cancel it, and it's still followed until it ends; the job id is
 /// published for the interrupter only after the submit answered, so the
 /// flag is checked here too.
-async fn run_insert(conn: Arc<Conn>, body: Value, cancel: Arc<Cancel>, abandon: Arc<AtomicBool>) -> Result<()> {
-    let submitted = conn.send(reqwest::Method::POST, "/api/v3/sql", Some(&body)).await?;
+async fn run_insert(
+    conn: Arc<Conn>,
+    body: Value,
+    cancel: Arc<Cancel>,
+    abandon: Arc<AtomicBool>,
+) -> Result<()> {
+    let submitted = conn
+        .send(reqwest::Method::POST, "/api/v3/sql", Some(&body))
+        .await?;
     drop(body);
-    let id = submitted.get("id").map(text).ok_or_else(|| Error::Query("Dremio no devolvió el id del trabajo.".into()))?;
+    let id = submitted
+        .get("id")
+        .map(text)
+        .ok_or_else(|| Error::Query("Dremio no devolvió el id del trabajo.".into()))?;
     *cancel.job.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
     let r = follow(&conn, &id, &cancel, &abandon).await;
     let mut slot = cancel.job.lock().unwrap_or_else(|e| e.into_inner());
@@ -605,7 +738,14 @@ async fn follow(conn: &Conn, id: &str, cancel: &Cancel, abandon: &AtomicBool) ->
     loop {
         let stop = cancel.flag.load(Ordering::SeqCst) || abandon.load(Ordering::SeqCst);
         if asked.is_none() && (stop || poll_error.is_some()) {
-            if let Err(e) = conn.send(reqwest::Method::POST, &format!("/api/v3/job/{id}/cancel"), None).await {
+            if let Err(e) = conn
+                .send(
+                    reqwest::Method::POST,
+                    &format!("/api/v3/job/{id}/cancel"),
+                    None,
+                )
+                .await
+            {
                 tracing::debug!("dremio cancel of {id} failed: {e}");
             }
             asked = Some(Instant::now());
@@ -615,15 +755,26 @@ async fn follow(conn: &Conn, id: &str, cancel: &Cancel, abandon: &AtomicBool) ->
                 Error::Query(format!("Dremio no confirmó el fin del trabajo {id} después de cancelarlo; revisá la tabla de destino."))
             }));
         }
-        match conn.send(reqwest::Method::GET, &format!("/api/v3/job/{id}"), None).await {
+        match conn
+            .send(reqwest::Method::GET, &format!("/api/v3/job/{id}"), None)
+            .await
+        {
             Ok(st) => {
                 failed = 0;
                 match st.get("jobState").and_then(Value::as_str).unwrap_or("") {
                     "COMPLETED" => return Ok(()),
-                    "FAILED" => return Err(Error::Query(st.get("errorMessage").map(text).unwrap_or_else(|| "El trabajo falló.".into()))),
+                    "FAILED" => {
+                        return Err(Error::Query(
+                            st.get("errorMessage")
+                                .map(text)
+                                .unwrap_or_else(|| "El trabajo falló.".into()),
+                        ))
+                    }
                     "CANCELED" | "CANCELLED" => {
                         return Err(match poll_error {
-                            Some(e) => Error::Query(format!("no se pudo seguir el estado del trabajo y se canceló: {e}")),
+                            Some(e) => Error::Query(format!(
+                                "no se pudo seguir el estado del trabajo y se canceló: {e}"
+                            )),
                             None => Error::Cancelled,
                         })
                     }
@@ -650,48 +801,114 @@ mod tests {
 
     #[test]
     fn answers_become_typed_cells() {
-        assert_eq!(to_cell(json!(9007199254740993i64), "BIGINT"), Cell::Int(9007199254740993));
+        assert_eq!(
+            to_cell(json!(9007199254740993i64), "BIGINT"),
+            Cell::Int(9007199254740993)
+        );
         assert_eq!(to_cell(json!(1.5), "DOUBLE"), Cell::Float(1.5));
         assert_eq!(to_cell(json!(2), "FLOAT"), Cell::Float(2.0));
-        assert_eq!(to_cell(json!("Infinity"), "FLOAT"), Cell::Float(f64::INFINITY));
+        assert_eq!(
+            to_cell(json!("Infinity"), "FLOAT"),
+            Cell::Float(f64::INFINITY)
+        );
         // DOUBLE read as text keeps every bit (a JSON number may not).
-        assert_eq!(to_cell(json!("90.33333333333333"), "DOUBLE"), Cell::Float(271.0 / 3.0));
+        assert_eq!(
+            to_cell(json!("90.33333333333333"), "DOUBLE"),
+            Cell::Float(271.0 / 3.0)
+        );
         assert_eq!(to_cell(json!("1.0E300"), "DOUBLE"), Cell::Float(1e300));
         assert!(matches!(to_cell(json!("NaN"), "DOUBLE"), Cell::Float(f) if f.is_nan()));
-        assert_eq!(to_cell(json!("12345678901234.5678"), "DECIMAL"), Cell::Decimal("12345678901234.5678".into()));
-        assert_eq!(to_cell(json!("yv4A"), "VARBINARY"), Cell::Bytes(vec![0xCA, 0xFE, 0]));
-        assert_eq!(to_cell(json!("2024-01-31"), "DATE"), Cell::Date("2024-01-31".into()));
-        assert_eq!(to_cell(json!("13:45:00.500"), "TIME"), Cell::Time("13:45:00.500".into()));
-        assert_eq!(to_cell(json!("2024-01-31 13:45:00.123"), "TIMESTAMP"), Cell::DateTime("2024-01-31 13:45:00.123".into()));
+        assert_eq!(
+            to_cell(json!("12345678901234.5678"), "DECIMAL"),
+            Cell::Decimal("12345678901234.5678".into())
+        );
+        assert_eq!(
+            to_cell(json!("yv4A"), "VARBINARY"),
+            Cell::Bytes(vec![0xCA, 0xFE, 0])
+        );
+        assert_eq!(
+            to_cell(json!("2024-01-31"), "DATE"),
+            Cell::Date("2024-01-31".into())
+        );
+        assert_eq!(
+            to_cell(json!("13:45:00.500"), "TIME"),
+            Cell::Time("13:45:00.500".into())
+        );
+        assert_eq!(
+            to_cell(json!("2024-01-31 13:45:00.123"), "TIMESTAMP"),
+            Cell::DateTime("2024-01-31 13:45:00.123".into())
+        );
         assert_eq!(to_cell(json!(true), "BOOLEAN"), Cell::Bool(true));
-        assert_eq!(to_cell(json!({"a": [1]}), "STRUCT"), Cell::Json("{\"a\":[1]}".into()));
+        assert_eq!(
+            to_cell(json!({"a": [1]}), "STRUCT"),
+            Cell::Json("{\"a\":[1]}".into())
+        );
         assert_eq!(to_cell(Value::Null, "INTEGER"), Cell::Null);
     }
 
     #[test]
     fn zoned_times_go_as_utc() {
-        assert_eq!(to_utc("2024-01-31 22:30:00.5-03:00").as_deref(), Some("2024-02-01 01:30:00.5"));
-        assert_eq!(to_utc("2024-03-01 00:10:00+01:00").as_deref(), Some("2024-02-29 23:10:00"));
-        assert_eq!(to_utc("2023-12-31T23:00:00Z").as_deref(), Some("2023-12-31 23:00:00"));
+        assert_eq!(
+            to_utc("2024-01-31 22:30:00.5-03:00").as_deref(),
+            Some("2024-02-01 01:30:00.5")
+        );
+        assert_eq!(
+            to_utc("2024-03-01 00:10:00+01:00").as_deref(),
+            Some("2024-02-29 23:10:00")
+        );
+        assert_eq!(
+            to_utc("2023-12-31T23:00:00Z").as_deref(),
+            Some("2023-12-31 23:00:00")
+        );
         assert_eq!(to_utc("sin zona"), None);
-        assert_eq!(civil_from_days(days_from_civil(1969, 12, 31)), (1969, 12, 31));
+        assert_eq!(
+            civil_from_days(days_from_civil(1969, 12, 31)),
+            (1969, 12, 31)
+        );
     }
 
     #[test]
     fn values_and_casts() {
-        assert_eq!(value_text(&Cell::Float(1.5), false).as_deref(), Some("1.5e0"));
-        assert_eq!(value_text(&Cell::Float(1e300), false).as_deref(), Some("1e300"));
-        assert_eq!(value_text(&Cell::Float(f64::NEG_INFINITY), false).as_deref(), Some("-Infinity"));
-        assert_eq!(value_text(&Cell::Bytes(vec![0xCA, 0xFE]), true).as_deref(), Some("CAFE"));
-        assert_eq!(value_text(&Cell::Text("ab".into()), true).as_deref(), Some("6162"));
-        assert_eq!(value_text(&Cell::DateTimeTz("2024-01-31 22:30:00-03:00".into()), false).as_deref(), Some("2024-02-01 01:30:00"));
+        assert_eq!(
+            value_text(&Cell::Float(1.5), false).as_deref(),
+            Some("1.5e0")
+        );
+        assert_eq!(
+            value_text(&Cell::Float(1e300), false).as_deref(),
+            Some("1e300")
+        );
+        assert_eq!(
+            value_text(&Cell::Float(f64::NEG_INFINITY), false).as_deref(),
+            Some("-Infinity")
+        );
+        assert_eq!(
+            value_text(&Cell::Bytes(vec![0xCA, 0xFE]), true).as_deref(),
+            Some("CAFE")
+        );
+        assert_eq!(
+            value_text(&Cell::Text("ab".into()), true).as_deref(),
+            Some("6162")
+        );
+        assert_eq!(
+            value_text(&Cell::DateTimeTz("2024-01-31 22:30:00-03:00".into()), false).as_deref(),
+            Some("2024-02-01 01:30:00")
+        );
         assert_eq!(value_text(&Cell::Null, false), None);
-        assert_eq!(value_sql(&Cell::Float(90.33333333333333), Kind::Float), "9.033333333333333e1");
+        assert_eq!(
+            value_sql(&Cell::Float(90.33333333333333), Kind::Float),
+            "9.033333333333333e1"
+        );
         assert_eq!(value_sql(&Cell::Int(3), Kind::Float), "3e0");
-        assert_eq!(value_sql(&Cell::Float(f64::INFINITY), Kind::Float), "CAST('Infinity' AS DOUBLE)");
+        assert_eq!(
+            value_sql(&Cell::Float(f64::INFINITY), Kind::Float),
+            "CAST('Infinity' AS DOUBLE)"
+        );
         assert_eq!(value_sql(&Cell::Null, Kind::Float), "NULL");
         assert_eq!(value_sql(&Cell::Text("O'B".into()), Kind::Other), "'O''B'");
-        assert_eq!(cast_expr("c0", "DECIMAL(20,4)"), "CAST(c0 AS DECIMAL(20,4))");
+        assert_eq!(
+            cast_expr("c0", "DECIMAL(20,4)"),
+            "CAST(c0 AS DECIMAL(20,4))"
+        );
         assert_eq!(
             cast_expr("c1", "CHARACTER VARYING"),
             "CASE WHEN SUBSTR(CAST(c1 AS VARCHAR), 1, 1) = 'h' THEN CONVERT_FROM(FROM_HEX(SUBSTR(CAST(c1 AS VARCHAR), 2)), 'UTF8') ELSE SUBSTR(CAST(c1 AS VARCHAR), 2) END"
@@ -703,13 +920,31 @@ mod tests {
     #[test]
     fn decimals_come_as_plain_digits_with_their_scale() {
         // Java's BigDecimal.toString, as Dremio's CAST(… AS VARCHAR) writes it.
-        assert_eq!(to_cell(json!("1E-10"), "DECIMAL(38,10)"), Cell::Decimal("0.0000000001".into()));
-        assert_eq!(to_cell(json!("-1.000E-7"), "DECIMAL(38,10)"), Cell::Decimal("-0.0000001000".into()));
-        assert_eq!(to_cell(json!("0E-10"), "DECIMAL(38,10)"), Cell::Decimal("0.0000000000".into()));
-        assert_eq!(to_cell(json!("12.5"), "DECIMAL(10,3)"), Cell::Decimal("12.500".into()));
-        assert_eq!(to_cell(json!("-7"), "DECIMAL(10,0)"), Cell::Decimal("-7".into()));
+        assert_eq!(
+            to_cell(json!("1E-10"), "DECIMAL(38,10)"),
+            Cell::Decimal("0.0000000001".into())
+        );
+        assert_eq!(
+            to_cell(json!("-1.000E-7"), "DECIMAL(38,10)"),
+            Cell::Decimal("-0.0000001000".into())
+        );
+        assert_eq!(
+            to_cell(json!("0E-10"), "DECIMAL(38,10)"),
+            Cell::Decimal("0.0000000000".into())
+        );
+        assert_eq!(
+            to_cell(json!("12.5"), "DECIMAL(10,3)"),
+            Cell::Decimal("12.500".into())
+        );
+        assert_eq!(
+            to_cell(json!("-7"), "DECIMAL(10,0)"),
+            Cell::Decimal("-7".into())
+        );
         assert_eq!(plain_decimal("1.23E+3", Some(0)), "1230");
-        assert_eq!(plain_decimal("12345678901234567890.1234", Some(4)), "12345678901234567890.1234");
+        assert_eq!(
+            plain_decimal("12345678901234567890.1234", Some(4)),
+            "12345678901234567890.1234"
+        );
         assert_eq!(plain_decimal("0.00", None), "0.00");
         assert_eq!(plain_decimal("abc", Some(2)), "abc");
         assert_eq!(scale_of("DECIMAL(38,10)"), Some(10));
@@ -718,15 +953,24 @@ mod tests {
 
     #[test]
     fn text_outside_latin1_goes_as_utf8_bytes() {
-        assert_eq!(value_sql(&Cell::Text("😀 a".into()), Kind::Text), "'hF09F98802061'");
+        assert_eq!(
+            value_sql(&Cell::Text("😀 a".into()), Kind::Text),
+            "'hF09F98802061'"
+        );
         // Any character outside Latin-1, also in the BMP.
         assert_eq!(value_sql(&Cell::Text("Ω".into()), Kind::Text), "'hCEA9'");
         assert_eq!(value_sql(&Cell::Text("ñ'".into()), Kind::Text), "'pñ'''");
         assert_eq!(value_sql(&Cell::Text(String::new()), Kind::Text), "'p'");
         assert_eq!(value_sql(&Cell::Null, Kind::Text), "NULL");
-        assert_eq!(value_sql(&Cell::Json("{\"a\":\"中\"}".into()), Kind::Text), "'h7B2261223A22E4B8AD227D'");
+        assert_eq!(
+            value_sql(&Cell::Json("{\"a\":\"中\"}".into()), Kind::Text),
+            "'h7B2261223A22E4B8AD227D'"
+        );
         // Into a binary column it's hex already.
-        assert_eq!(value_sql(&Cell::Text("😀".into()), Kind::Binary), "'F09F9880'");
+        assert_eq!(
+            value_sql(&Cell::Text("😀".into()), Kind::Binary),
+            "'F09F9880'"
+        );
         assert_eq!(kind_of("CHARACTER VARYING"), Kind::Text);
         assert_eq!(kind_of("DECIMAL(10,2)"), Kind::Other);
         assert!(is_complex("ARRAY") && is_complex("ROW") && is_complex("map"));
@@ -735,7 +979,10 @@ mod tests {
 
     #[test]
     fn negative_zero_keeps_its_sign() {
-        assert_eq!(value_sql(&Cell::Float(-0.0), Kind::Float), "-(RAND() * 0e0)");
+        assert_eq!(
+            value_sql(&Cell::Float(-0.0), Kind::Float),
+            "-(RAND() * 0e0)"
+        );
         assert_eq!(value_sql(&Cell::Float(0.0), Kind::Float), "0e0");
     }
 }

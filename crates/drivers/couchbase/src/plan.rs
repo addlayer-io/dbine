@@ -63,13 +63,25 @@ fn text(v: &Value) -> String {
 
 /// One operator (without its inputs).
 fn node_of(op: &Value) -> PlanNode {
-    let name = op.get("#operator").and_then(Value::as_str).unwrap_or("?").to_string();
-    let mut n = PlanNode { op: name, ..Default::default() };
+    let name = op
+        .get("#operator")
+        .and_then(Value::as_str)
+        .unwrap_or("?")
+        .to_string();
+    let mut n = PlanNode {
+        op: name,
+        ..Default::default()
+    };
     if let Some(ks) = op.get("keyspace").and_then(Value::as_str) {
-        n.object = Some(match (op.get("bucket").and_then(Value::as_str), op.get("scope").and_then(Value::as_str)) {
-            (Some(b), Some(s)) => format!("{b}.{s}.{ks}"),
-            _ => ks.to_string(),
-        });
+        n.object = Some(
+            match (
+                op.get("bucket").and_then(Value::as_str),
+                op.get("scope").and_then(Value::as_str),
+            ) {
+                (Some(b), Some(s)) => format!("{b}.{s}.{ks}"),
+                _ => ks.to_string(),
+            },
+        );
     }
     n.detail = ["index", "condition", "on_clause", "on_keys", "as"]
         .iter()
@@ -105,7 +117,12 @@ fn convert(op: &Value, input: Option<PlanNode>) -> Option<PlanNode> {
     match name {
         "Sequence" => {
             let mut acc = input;
-            for c in op.get("~children").and_then(Value::as_array).into_iter().flatten() {
+            for c in op
+                .get("~children")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 acc = convert(c, acc);
             }
             acc
@@ -121,7 +138,12 @@ fn convert(op: &Value, input: Option<PlanNode>) -> Option<PlanNode> {
                 n.children.push(c);
             }
             if name != "Sequence" {
-                for c in op.get("~children").and_then(Value::as_array).into_iter().flatten() {
+                for c in op
+                    .get("~children")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
                     n.children.extend(convert(c, None));
                 }
             }
@@ -174,7 +196,10 @@ mod tests {
         let project = &r.children[0];
         assert_eq!(project.op, "InitialProject");
         let filter = &project.children[0];
-        assert_eq!((filter.op.as_str(), filter.total_cost, filter.est_rows), ("Filter", Some(5.5), Some(1.0)));
+        assert_eq!(
+            (filter.op.as_str(), filter.total_cost, filter.est_rows),
+            ("Filter", Some(5.5), Some(1.0))
+        );
         let scan = &filter.children[0].children[0];
         assert_eq!(scan.object.as_deref(), Some("b._default.c1"));
         assert_eq!((scan.actual_rows, scan.actual_ms), (Some(2.0), Some(1.5)));

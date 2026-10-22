@@ -40,11 +40,24 @@ async fn couchdb_options() {
     // `q` / `n` come only when the node's config sets them.
     eprintln!("{:?}", s.create_database_choices().await.unwrap());
 
-    let o: BTreeMap<String, String> = [("q", "4"), ("n", "1"), ("partitioned", "true")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &o).unwrap());
-    s.create_database_with("dbine_create_opts", &o).await.unwrap();
+    let o: BTreeMap<String, String> = [("q", "4"), ("n", "1"), ("partitioned", "true")]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &o).unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &o)
+        .await
+        .unwrap();
     // The database's own info says how it was made.
-    let info: serde_json::Value = reqwest::get(format!("{url}/dbine_create_opts")).await.unwrap().json().await.unwrap();
+    let info: serde_json::Value = reqwest::get(format!("{url}/dbine_create_opts"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     eprintln!("{info}");
     assert_eq!(info["cluster"]["q"], 4);
     assert_eq!(info["cluster"]["n"], 1);
@@ -52,6 +65,8 @@ async fn couchdb_options() {
     s.drop_database("dbine_create_opts").await.unwrap();
 
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }

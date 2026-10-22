@@ -32,7 +32,12 @@ const USER_PREFIX: &str = "org.couchdb.user:";
 const MAX_DATABASES: usize = 500;
 
 fn strs(v: Option<&Value>) -> Vec<String> {
-    v.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect()
+    v.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
 }
 
 /// What a server has: its admins, its `_users` documents and each
@@ -45,8 +50,14 @@ struct Snapshot {
 
 async fn snapshot(s: &CouchSession) -> Result<Snapshot> {
     // Only admins can read the config: others just don't see the admins.
-    let admins = match s.call(Method::GET, "/_node/_local/_config/admins", None).await {
-        Ok(v) => v.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default(),
+    let admins = match s
+        .call(Method::GET, "/_node/_local/_config/admins", None)
+        .await
+    {
+        Ok(v) => v
+            .as_object()
+            .map(|o| o.keys().cloned().collect())
+            .unwrap_or_default(),
         Err(_) => Vec::new(),
     };
     let all = s
@@ -58,23 +69,44 @@ async fn snapshot(s: &CouchSession) -> Result<Snapshot> {
         .into_iter()
         .flatten()
         .filter_map(|r| r.get("doc").cloned())
-        .filter(|d| d.get("_id").and_then(Value::as_str).is_some_and(|id| id.starts_with(USER_PREFIX)))
+        .filter(|d| {
+            d.get("_id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.starts_with(USER_PREFIX))
+        })
         .collect();
     let dbs = s.call(Method::GET, "/_all_dbs", None).await?;
     let mut security = Vec::new();
-    for db in strs(Some(&dbs)).into_iter().filter(|d| !d.starts_with('_')).take(MAX_DATABASES) {
-        if let Ok(v) = s.call(Method::GET, &format!("/{}/_security", seg(&db)), None).await {
+    for db in strs(Some(&dbs))
+        .into_iter()
+        .filter(|d| !d.starts_with('_'))
+        .take(MAX_DATABASES)
+    {
+        if let Ok(v) = s
+            .call(Method::GET, &format!("/{}/_security", seg(&db)), None)
+            .await
+        {
             security.push((db, v));
         }
     }
-    Ok(Snapshot { admins, users, security })
+    Ok(Snapshot {
+        admins,
+        users,
+        security,
+    })
 }
 
 fn user_name(doc: &Value) -> String {
     doc.get("name")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .unwrap_or_else(|| doc.get("_id").and_then(Value::as_str).unwrap_or_default().trim_start_matches(USER_PREFIX).to_string())
+        .unwrap_or_else(|| {
+            doc.get("_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim_start_matches(USER_PREFIX)
+                .to_string()
+        })
 }
 
 fn principals_of(snap: &Snapshot) -> Vec<Principal> {
@@ -137,7 +169,15 @@ fn principals_of(snap: &Snapshot) -> Vec<Principal> {
         out.push(Principal {
             superuser: Some(r == "_admin"),
             system: r.starts_with('_'),
-            details: vec![("Tipo".into(), if r == "_admin" { "Rol de los administradores del servidor" } else { "Rol" }.into())],
+            details: vec![(
+                "Tipo".into(),
+                if r == "_admin" {
+                    "Rol de los administradores del servidor"
+                } else {
+                    "Rol"
+                }
+                .into(),
+            )],
             name: r,
             kind: PrincipalKind::Role,
             ..Default::default()
@@ -156,7 +196,11 @@ fn grants_of(snap: &Snapshot, principal: &str) -> Vec<Grant> {
     }
     let mut out = Vec::new();
     if admin || (!is_user && principal == "_admin") {
-        out.push(Grant { privilege: "_admin".into(), via: None, ..Default::default() });
+        out.push(Grant {
+            privilege: "_admin".into(),
+            via: None,
+            ..Default::default()
+        });
     }
     for (db, sec) in &snap.security {
         for section in ["admins", "members"] {
@@ -168,7 +212,11 @@ fn grants_of(snap: &Snapshot, principal: &str) -> Vec<Grant> {
                 via,
                 ..Default::default()
             };
-            if is_user && strs(part.and_then(|p| p.get("names"))).iter().any(|n| n == principal) {
+            if is_user
+                && strs(part.and_then(|p| p.get("names")))
+                    .iter()
+                    .any(|n| n == principal)
+            {
                 out.push(db_grant(None));
             }
             for r in strs(part.and_then(|p| p.get("roles"))) {
@@ -237,24 +285,52 @@ mod tests {
 
     #[test]
     fn create_user_is_a_console_line() {
-        let s = script(&SecurityAction::CreateUser { name: "ana b".into(), password: Some("p\"w".into()) }).unwrap();
+        let s = script(&SecurityAction::CreateUser {
+            name: "ana b".into(),
+            password: Some("p\"w".into()),
+        })
+        .unwrap();
         let stmts = parse_script(&s).unwrap();
         assert_eq!(
             stmts,
             vec![Stmt::Http {
                 method: "PUT".into(),
                 path: "/_users/org.couchdb.user%3Aana%20b".into(),
-                body: Some(json!({ "name": "ana b", "password": "p\"w", "roles": [], "type": "user" })),
+                body: Some(
+                    json!({ "name": "ana b", "password": "p\"w", "roles": [], "type": "user" })
+                ),
             }]
         );
-        assert!(script(&SecurityAction::CreateUser { name: "_x".into(), password: Some("p".into()) }).is_err());
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: None }).is_err());
+        assert!(script(&SecurityAction::CreateUser {
+            name: "_x".into(),
+            password: Some("p".into())
+        })
+        .is_err());
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: None
+        })
+        .is_err());
         for a in [
-            SecurityAction::SetPassword { name: "a".into(), password: "p".into() },
-            SecurityAction::Drop { name: "a".into(), kind: PrincipalKind::User },
+            SecurityAction::SetPassword {
+                name: "a".into(),
+                password: "p".into(),
+            },
+            SecurityAction::Drop {
+                name: "a".into(),
+                kind: PrincipalKind::User,
+            },
             SecurityAction::CreateRole { name: "r".into() },
-            SecurityAction::AddMember { role: "r".into(), member: "a".into() },
-            SecurityAction::Grant { privileges: vec!["members".into()], object: None, to: "a".into(), grantable: false },
+            SecurityAction::AddMember {
+                role: "r".into(),
+                member: "a".into(),
+            },
+            SecurityAction::Grant {
+                privileges: vec!["members".into()],
+                object: None,
+                to: "a".into(),
+                grantable: false,
+            },
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
@@ -264,26 +340,43 @@ mod tests {
     fn reads_users_roles_and_database_permissions() {
         let snap = Snapshot {
             admins: vec!["admin".into()],
-            users: vec![json!({ "_id": "org.couchdb.user:ana", "name": "ana", "roles": ["ventas"], "type": "user" })],
+            users: vec![
+                json!({ "_id": "org.couchdb.user:ana", "name": "ana", "roles": ["ventas"], "type": "user" }),
+            ],
             security: vec![
-                ("facturas".into(), json!({ "admins": { "names": ["ana"], "roles": [] }, "members": { "names": [], "roles": ["ventas", "_admin"] } })),
+                (
+                    "facturas".into(),
+                    json!({ "admins": { "names": ["ana"], "roles": [] }, "members": { "names": [], "roles": ["ventas", "_admin"] } }),
+                ),
                 ("otra".into(), json!({})),
             ],
         };
         let p = principals_of(&snap);
-        assert!(p.iter().any(|p| p.name == "admin" && p.superuser == Some(true)));
+        assert!(p
+            .iter()
+            .any(|p| p.name == "admin" && p.superuser == Some(true)));
         let ana = p.iter().find(|p| p.name == "ana").unwrap();
         assert_eq!(ana.member_of, vec!["ventas".to_string()]);
-        assert!(p.iter().any(|p| p.name == "ventas" && p.kind == PrincipalKind::Role && !p.system));
+        assert!(p
+            .iter()
+            .any(|p| p.name == "ventas" && p.kind == PrincipalKind::Role && !p.system));
         assert!(p.iter().any(|p| p.name == "_admin" && p.system));
         let g = grants_of(&snap, "ana");
         assert_eq!(g.len(), 2);
-        assert!(g.iter().any(|g| g.privilege == "admins" && g.via.is_none() && g.object.as_deref() == Some("facturas")));
-        assert!(g.iter().any(|g| g.privilege == "members" && g.via.as_deref() == Some("ventas")));
+        assert!(g.iter().any(|g| g.privilege == "admins"
+            && g.via.is_none()
+            && g.object.as_deref() == Some("facturas")));
+        assert!(g
+            .iter()
+            .any(|g| g.privilege == "members" && g.via.as_deref() == Some("ventas")));
         let r = grants_of(&snap, "ventas");
         assert_eq!((r.len(), r[0].via.clone()), (1, None));
         let a = grants_of(&snap, "admin");
-        assert!(a.iter().any(|g| g.privilege == "_admin" && g.object.is_none()));
-        assert!(a.iter().any(|g| g.privilege == "members" && g.via.as_deref() == Some("_admin")));
+        assert!(a
+            .iter()
+            .any(|g| g.privilege == "_admin" && g.object.is_none()));
+        assert!(a
+            .iter()
+            .any(|g| g.privilege == "members" && g.via.as_deref() == Some("_admin")));
     }
 }

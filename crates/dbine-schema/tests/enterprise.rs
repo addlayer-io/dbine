@@ -27,7 +27,12 @@ use dbine_schema::{convert, Conversion, IssueCode, Options, Severity};
 // Helpers
 
 fn c(name: &str, ty: &str) -> ColumnDef {
-    ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() }
+    ColumnDef {
+        name: name.into(),
+        data_type: ty.into(),
+        nullable: true,
+        ..Default::default()
+    }
 }
 
 fn nn(mut c: ColumnDef) -> ColumnDef {
@@ -50,17 +55,27 @@ fn table(name: &str, cols: Vec<ColumnDef>, pk: &[&str]) -> TableSchema {
         kind: "table".into(),
         name: name.into(),
         columns: cols,
-        primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk.iter().map(|s| s.to_string()).collect() }),
+        primary_key: (!pk.is_empty()).then(|| KeyDef {
+            name: None,
+            columns: pk.iter().map(|s| s.to_string()).collect(),
+        }),
         ..Default::default()
     }
 }
 
 fn ty<'a>(t: &'a TableSchema, c: &str) -> &'a str {
-    &t.columns.iter().find(|x| x.name == c).unwrap_or_else(|| panic!("no column {c} in {t:?}")).data_type
+    &t.columns
+        .iter()
+        .find(|x| x.name == c)
+        .unwrap_or_else(|| panic!("no column {c} in {t:?}"))
+        .data_type
 }
 
 fn column<'a>(t: &'a TableSchema, c: &str) -> &'a ColumnDef {
-    t.columns.iter().find(|x| x.name == c).unwrap_or_else(|| panic!("no column {c}"))
+    t.columns
+        .iter()
+        .find(|x| x.name == c)
+        .unwrap_or_else(|| panic!("no column {c}"))
 }
 
 fn dflt<'a>(t: &'a TableSchema, c: &str) -> Option<&'a str> {
@@ -68,7 +83,9 @@ fn dflt<'a>(t: &'a TableSchema, c: &str) -> Option<&'a str> {
 }
 
 fn has(r: &Conversion, code: IssueCode, object: &str) -> bool {
-    r.issues.iter().any(|i| i.code == code && i.object.as_deref() == Some(object))
+    r.issues
+        .iter()
+        .any(|i| i.code == code && i.object.as_deref() == Some(object))
 }
 
 fn conv(tables: &[TableSchema], from: &str, to: &str) -> Conversion {
@@ -80,17 +97,43 @@ fn ddl(driver: &str, tables: &[TableSchema]) -> String {
     let d = dbine_drivers::find(driver).unwrap_or_else(|| panic!("no driver {driver}"));
     let mut out = Vec::new();
     for t in tables {
-        out.push(d.table_ddl(t, DdlParts { create: true, indexes: true, ..Default::default() }).unwrap());
+        out.push(
+            d.table_ddl(
+                t,
+                DdlParts {
+                    create: true,
+                    indexes: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
     }
     for t in tables {
-        out.push(d.table_ddl(t, DdlParts { foreign_keys: true, ..Default::default() }).unwrap());
+        out.push(
+            d.table_ddl(
+                t,
+                DdlParts {
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
     }
     out.join("\n")
 }
 
 /// PostgreSQL tables as its `database_schema` reports them.
 fn pg_tables() -> Vec<TableSchema> {
-    let clientes = table("clientes", vec![nn(c("id", "integer")), c("nombre", "character varying(120)")], &["id"]);
+    let clientes = table(
+        "clientes",
+        vec![
+            nn(c("id", "integer")),
+            c("nombre", "character varying(120)"),
+        ],
+        &["id"],
+    );
     let mut pedidos = table(
         "pedidos",
         vec![
@@ -102,7 +145,10 @@ fn pg_tables() -> Vec<TableSchema> {
             c("doble", "double precision"),
             def(c("activo", "boolean"), "true"),
             c("letra", "character(1)"),
-            def(c("estado", "character varying(20)"), "'nuevo'::character varying"),
+            def(
+                c("estado", "character varying(20)"),
+                "'nuevo'::character varying",
+            ),
             c("notas", "text"),
             c("bytes", "bytea"),
             def(c("dia", "date"), "CURRENT_DATE"),
@@ -124,7 +170,11 @@ fn pg_tables() -> Vec<TableSchema> {
         on_update: Some("RESTRICT".into()),
         ..Default::default()
     });
-    pedidos.indexes.push(IndexDef { name: "ix_pedidos_dia".into(), columns: vec!["dia".into()], ..Default::default() });
+    pedidos.indexes.push(IndexDef {
+        name: "ix_pedidos_dia".into(),
+        columns: vec!["dia".into()],
+        ..Default::default()
+    });
     pedidos.indexes.push(IndexDef {
         name: "ux_pedidos_codigo".into(),
         columns: vec!["codigo".into()],
@@ -200,7 +250,8 @@ fn every_enterprise_id_has_its_dialect() {
         ("exasol", "exasol"),
         ("netezza", "netezza"),
     ] {
-        let d = dbine_schema::dialect::for_driver(id).unwrap_or_else(|| panic!("sin dialecto: {id}"));
+        let d =
+            dbine_schema::dialect::for_driver(id).unwrap_or_else(|| panic!("sin dialecto: {id}"));
         assert_eq!(d.id(), family, "{id}");
         assert!(dbine_drivers::find(id).is_some(), "no hay driver {id}");
     }
@@ -241,12 +292,21 @@ fn postgres_to_db2_luw() {
     assert!(has(&r, IssueCode::TypeApproximated, "etiquetas"));
     // Db2 has ON UPDATE RESTRICT; the filtered unique index can't go.
     let fk = &p.foreign_keys[0];
-    assert_eq!((fk.on_delete.as_deref(), fk.on_update.as_deref()), (Some("CASCADE"), Some("RESTRICT")));
+    assert_eq!(
+        (fk.on_delete.as_deref(), fk.on_update.as_deref()),
+        (Some("CASCADE"), Some("RESTRICT"))
+    );
     assert!(!p.indexes.iter().any(|i| i.name == "UX_PEDIDOS_CODIGO"));
 
     let s = ddl("db2", &r.tables);
-    assert!(s.contains("\"ID\" BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"), "{s}");
-    assert!(s.contains("\"ESTADO\" VARCHAR(20 CODEUNITS32) DEFAULT 'nuevo'"), "{s}");
+    assert!(
+        s.contains("\"ID\" BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"),
+        "{s}"
+    );
+    assert!(
+        s.contains("\"ESTADO\" VARCHAR(20 CODEUNITS32) DEFAULT 'nuevo'"),
+        "{s}"
+    );
     assert!(s.contains("ON DELETE CASCADE ON UPDATE RESTRICT"), "{s}");
 }
 
@@ -297,8 +357,14 @@ fn postgres_to_firebird() {
     // No RESTRICT keyword in Firebird: NO ACTION.
     assert_eq!(p.foreign_keys[0].on_update.as_deref(), Some("NO ACTION"));
     let s = ddl("firebird", &r.tables);
-    assert!(s.contains("\"ID\" BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"), "{s}");
-    assert!(s.contains("\"CREADO\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"), "{s}");
+    assert!(
+        s.contains("\"ID\" BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"),
+        "{s}"
+    );
+    assert!(
+        s.contains("\"CREADO\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+        "{s}"
+    );
 }
 
 #[test]
@@ -320,7 +386,10 @@ fn postgres_to_hana() {
     assert_eq!(p.foreign_keys[0].on_update.as_deref(), Some("RESTRICT"));
     let s = ddl("hana", &r.tables);
     assert!(s.contains("CREATE COLUMN TABLE \"PEDIDOS\""), "{s}");
-    assert!(s.contains("\"ID\" BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"), "{s}");
+    assert!(
+        s.contains("\"ID\" BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"),
+        "{s}"
+    );
 }
 
 #[test]
@@ -343,10 +412,16 @@ fn postgres_to_informix_and_gbase() {
         assert_eq!(dflt(p, "creado"), Some("CURRENT YEAR TO FRACTION(5)"));
         assert!(has(&r, IssueCode::TimeZoneLoss, "creado"));
         assert_eq!(ty(p, "codigo"), "CHAR(36)");
-        assert!(!r.issues.iter().any(|i| i.code == IssueCode::ForeignKeyActionChanged));
+        assert!(!r
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::ForeignKeyActionChanged));
         let s = ddl(id, &r.tables);
         assert!(s.contains("\"id\" BIGSERIAL NOT NULL"), "{s}");
-        assert!(s.contains("ON DELETE CASCADE CONSTRAINT \"fk_pedidos_clientes\""), "{s}");
+        assert!(
+            s.contains("ON DELETE CASCADE CONSTRAINT \"fk_pedidos_clientes\""),
+            "{s}"
+        );
         assert!(!s.contains("COMMENT"));
     }
 }
@@ -371,8 +446,14 @@ fn postgres_to_sybase_ase() {
     assert_eq!(dflt(p, "codigo"), Some("newid(1)"));
     // ASE has no referential actions.
     let fk = &p.foreign_keys[0];
-    assert_eq!((fk.on_delete.as_deref(), fk.on_update.as_deref()), (None, None));
-    assert!(r.issues.iter().any(|i| i.code == IssueCode::ForeignKeyActionChanged && i.severity == Severity::Warning));
+    assert_eq!(
+        (fk.on_delete.as_deref(), fk.on_update.as_deref()),
+        (None, None)
+    );
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::ForeignKeyActionChanged && i.severity == Severity::Warning));
     let s = ddl("sybase", &r.tables);
     assert!(s.contains("[id] bigint IDENTITY,"), "{s}");
     assert!(s.contains("[activo] tinyint DEFAULT 1 NULL"), "{s}");
@@ -394,7 +475,10 @@ fn postgres_to_sql_anywhere() {
     assert_eq!(dflt(p, "codigo"), Some("NEWID()"));
     assert_eq!(p.foreign_keys[0].on_update.as_deref(), Some("RESTRICT"));
     let s = ddl("sqlanywhere", &r.tables);
-    assert!(s.contains("\"id\" bigint DEFAULT AUTOINCREMENT NOT NULL"), "{s}");
+    assert!(
+        s.contains("\"id\" bigint DEFAULT AUTOINCREMENT NOT NULL"),
+        "{s}"
+    );
 }
 
 #[test]
@@ -412,10 +496,16 @@ fn postgres_to_teradata() {
     assert_eq!(dflt(p, "creado"), Some("CURRENT_TIMESTAMP"));
     assert_eq!(ty(p, "datos"), "JSON(8388096) CHARACTER SET UNICODE");
     let fk = &p.foreign_keys[0];
-    assert_eq!((fk.on_delete.as_deref(), fk.on_update.as_deref()), (None, None));
+    assert_eq!(
+        (fk.on_delete.as_deref(), fk.on_update.as_deref()),
+        (None, None)
+    );
     let s = ddl("teradata", &r.tables);
     assert!(s.contains("CREATE MULTISET TABLE \"pedidos\""), "{s}");
-    assert!(s.contains("CREATE INDEX \"ix_pedidos_dia\" (\"dia\") ON \"pedidos\";"), "{s}");
+    assert!(
+        s.contains("CREATE INDEX \"ix_pedidos_dia\" (\"dia\") ON \"pedidos\";"),
+        "{s}"
+    );
 }
 
 #[test]
@@ -480,8 +570,14 @@ fn postgres_to_netezza() {
     assert_eq!(ty(p, "DATOS"), "NVARCHAR(16000)");
     assert!(p.indexes.is_empty());
     // Distributed on the primary key.
-    assert_eq!(p.options.get("distribute_on").map(String::as_str), Some("ID"));
-    assert!(r.issues.iter().any(|i| i.code == IssueCode::OptionAdded && i.object.as_deref() == Some("distribute_on")));
+    assert_eq!(
+        p.options.get("distribute_on").map(String::as_str),
+        Some("ID")
+    );
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::OptionAdded && i.object.as_deref() == Some("distribute_on")));
     let s = ddl("netezza", &r.tables);
     assert!(s.contains(") DISTRIBUTE ON (\"ID\");"), "{s}");
 }
@@ -500,7 +596,10 @@ fn mysql_to_enterprise() {
     assert_eq!(ty(p, "ACTIVO"), "BOOLEAN");
     assert_eq!(ty(p, "STOCK"), "INTEGER");
     assert_eq!(ty(p, "TIPO"), "VARCHAR(6)");
-    assert!(fb.issues.iter().any(|i| i.object.as_deref() == Some("tipo") && i.message.contains("chico, grande")));
+    assert!(fb
+        .issues
+        .iter()
+        .any(|i| i.object.as_deref() == Some("tipo") && i.message.contains("chico, grande")));
     assert_eq!(ty(p, "ALTA"), "TIMESTAMP");
     assert_eq!(ty(p, "TS"), "TIMESTAMP WITH TIME ZONE");
     assert_eq!(ty(p, "FOTO"), "BLOB SUB_TYPE BINARY");
@@ -520,7 +619,10 @@ fn mysql_to_enterprise() {
 
     let td = conv(&t, "mysql", "teradata");
     assert_eq!(ty(&td.tables[0], "alta"), "TIMESTAMP(3)");
-    assert_eq!(ty(&td.tables[0], "extra"), "JSON(8388096) CHARACTER SET UNICODE");
+    assert_eq!(
+        ty(&td.tables[0], "extra"),
+        "JSON(8388096) CHARACTER SET UNICODE"
+    );
 
     let v = conv(&t, "mysql", "vertica");
     assert_eq!(ty(&v.tables[0], "grande"), "NUMERIC(20, 0)");
@@ -529,7 +631,18 @@ fn mysql_to_enterprise() {
     let d = conv(&t, "mysql", "db2");
     assert_eq!(ty(&d.tables[0], "GRANDE"), "DECIMAL(20, 0)");
     assert_eq!(ty(&d.tables[0], "ALTA"), "TIMESTAMP(3)");
-    for id in ["db2", "firebird", "hana", "informix", "sybase", "sqlanywhere", "teradata", "vertica", "exasol", "netezza"] {
+    for id in [
+        "db2",
+        "firebird",
+        "hana",
+        "informix",
+        "sybase",
+        "sqlanywhere",
+        "teradata",
+        "vertica",
+        "exasol",
+        "netezza",
+    ] {
         let r = conv(&t, "mysql", id);
         ddl(id, &r.tables);
     }
@@ -588,7 +701,13 @@ fn sqlserver_to_enterprise() {
 
     let nz = conv(&t, "sqlserver", "netezza");
     assert_eq!(ty(&nz.tables[0], "Texto"), "NVARCHAR(16000)");
-    assert_eq!(nz.tables[0].options.get("distribute_on").map(String::as_str), Some("Id"));
+    assert_eq!(
+        nz.tables[0]
+            .options
+            .get("distribute_on")
+            .map(String::as_str),
+        Some("Id")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -920,7 +1039,15 @@ fn teradata_vertica_exasol_netezza_to_the_big_three() {
 #[test]
 fn between_enterprise_engines() {
     // Db2 → Informix: names fold from upper to lower, DECFLOAT has no room.
-    let t = table("T", vec![nn(auto(c("ID", "BIGINT"))), c("D", "DECFLOAT"), c("TS", "TIMESTAMP(12)")], &["ID"]);
+    let t = table(
+        "T",
+        vec![
+            nn(auto(c("ID", "BIGINT"))),
+            c("D", "DECFLOAT"),
+            c("TS", "TIMESTAMP(12)"),
+        ],
+        &["ID"],
+    );
     let r = conv(&[t], "db2", "informix");
     let x = &r.tables[0];
     assert_eq!(x.name, "t");
@@ -928,7 +1055,11 @@ fn between_enterprise_engines() {
     assert!(has(&r, IssueCode::PrecisionLoss, "TS"));
     // Teradata → Exasol: UNICODE text, no indexes, upper-case names.
     let mut t = table("t", vec![c("a", "VARCHAR(10) CHARACTER SET UNICODE")], &[]);
-    t.indexes.push(IndexDef { name: "ix".into(), columns: vec!["a".into()], ..Default::default() });
+    t.indexes.push(IndexDef {
+        name: "ix".into(),
+        columns: vec!["a".into()],
+        ..Default::default()
+    });
     let r = conv(&[t], "teradata", "exasol");
     assert_eq!(r.tables[0].name, "T");
     assert_eq!(ty(&r.tables[0], "A"), "VARCHAR(10) UTF8");
@@ -956,26 +1087,50 @@ async fn mssql() -> Option<Box<dyn dbine_driver::Session>> {
 
 fn show(rt: &RoundTrip) {
     for i in &rt.conversion.issues {
-        eprintln!("  {:?} {:?} {}.{}: {}", i.severity, i.code, i.table, i.object.as_deref().unwrap_or(""), i.message);
+        eprintln!(
+            "  {:?} {:?} {}.{}: {}",
+            i.severity,
+            i.code,
+            i.table,
+            i.object.as_deref().unwrap_or(""),
+            i.message
+        );
     }
     eprintln!("{}", rt.ddl.join("\n"));
     for t in &rt.back {
-        eprintln!("{}: {:?}", t.name, t.columns.iter().map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable)).collect::<Vec<_>>());
+        eprintln!(
+            "{}: {:?}",
+            t.name,
+            t.columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable))
+                .collect::<Vec<_>>()
+        );
     }
 }
 
 /// Assert the types read back, by column (case-insensitive).
 fn expect(t: &TableSchema, cols: &[(&str, &str)]) {
     for (c, want) in cols {
-        assert_eq!(col(t, c).data_type.to_ascii_lowercase(), want.to_ascii_lowercase(), "{}.{c}", t.name);
+        assert_eq!(
+            col(t, c).data_type.to_ascii_lowercase(),
+            want.to_ascii_lowercase(),
+            "{}.{c}",
+            t.name
+        );
     }
 }
 
 async fn count(s: &mut Box<dyn dbine_driver::Session>, sql: &str) -> String {
     let mut out = dbine_driver::QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n{sql}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{sql}"));
     let v = serde_json::to_value(&out).unwrap();
-    let found = v.pointer("/results/0/rows/0/0").cloned().unwrap_or_default();
+    let found = v
+        .pointer("/results/0/rows/0/0")
+        .cloned()
+        .unwrap_or_default();
     match found {
         serde_json::Value::String(s) => s,
         other => other.to_string(),
@@ -985,8 +1140,17 @@ async fn count(s: &mut Box<dyn dbine_driver::Session>, sql: &str) -> String {
 #[tokio::test]
 #[ignore]
 async fn live_postgres_firebird_both_ways() {
-    let (Some(mut p), Some(mut f)) = (pg().await, fb().await) else { return };
-    exec_quiet(&mut p, &["DROP TABLE IF EXISTS fbx_tipos", "DROP TABLE IF EXISTS fbx_clientes"]).await;
+    let (Some(mut p), Some(mut f)) = (pg().await, fb().await) else {
+        return;
+    };
+    exec_quiet(
+        &mut p,
+        &[
+            "DROP TABLE IF EXISTS fbx_tipos",
+            "DROP TABLE IF EXISTS fbx_clientes",
+        ],
+    )
+    .await;
     exec(
         &mut p,
         "CREATE TABLE fbx_clientes (id integer PRIMARY KEY, nombre varchar(80) NOT NULL);
@@ -1005,7 +1169,14 @@ async fn live_postgres_firebird_both_ways() {
     let original = read(&mut p, &["fbx_clientes", "fbx_tipos"]).await;
 
     // PostgreSQL → Firebird.
-    let rt = round_trip(&mut p, "postgres", &mut f, "firebird", &["fbx_clientes", "fbx_tipos"]).await;
+    let rt = round_trip(
+        &mut p,
+        "postgres",
+        &mut f,
+        "firebird",
+        &["fbx_clientes", "fbx_tipos"],
+    )
+    .await;
     show(&rt);
     let t = &rt.back[1];
     expect(
@@ -1037,7 +1208,10 @@ async fn live_postgres_firebird_both_ways() {
     assert!(!col(t, "ID").nullable);
     assert_eq!(col(t, "ACTIVO").default_value.as_deref(), Some("TRUE"));
     assert_eq!(col(t, "DIA").default_value.as_deref(), Some("CURRENT_DATE"));
-    assert_eq!(col(t, "CREADO").default_value.as_deref(), Some("LOCALTIMESTAMP"));
+    assert_eq!(
+        col(t, "CREADO").default_value.as_deref(),
+        Some("LOCALTIMESTAMP")
+    );
     assert_eq!(t.foreign_keys[0].on_delete.as_deref(), Some("CASCADE"));
     assert!(t.indexes.iter().any(|i| i.columns == ["DIA"]));
 
@@ -1063,10 +1237,33 @@ async fn live_postgres_firebird_both_ways() {
     assert_eq!(count(&mut f, "SELECT COUNT(*) FROM FBX_TIPOS WHERE NOMBRE = 'ñandú ☃ 😀' AND GRANDE = 9223372036854775807").await, "1");
 
     // …and back: Firebird → PostgreSQL, compared with the original.
-    let back = round_trip(&mut f, "firebird", &mut p, "postgres", &["FBX_CLIENTES", "FBX_TIPOS"]).await;
+    let back = round_trip(
+        &mut f,
+        "firebird",
+        &mut p,
+        "postgres",
+        &["FBX_CLIENTES", "FBX_TIPOS"],
+    )
+    .await;
     show(&back);
     let (o, b) = (&original[1], &back.back[1]);
-    for c in ["id", "cliente_id", "chico", "entero", "grande", "precio", "enorme", "real4", "doble", "activo", "codigo", "nombre", "notas", "datos", "dia"] {
+    for c in [
+        "id",
+        "cliente_id",
+        "chico",
+        "entero",
+        "grande",
+        "precio",
+        "enorme",
+        "real4",
+        "doble",
+        "activo",
+        "codigo",
+        "nombre",
+        "notas",
+        "datos",
+        "dia",
+    ] {
         assert_eq!(col(b, c).data_type, col(o, c).data_type, "{c}");
     }
     // Firebird keeps 1/10000 s; its BLOB text has no JSON; UUID bytes come back as CHAR(16).
@@ -1082,13 +1279,27 @@ async fn live_postgres_firebird_both_ways() {
     );
     assert!(col(b, "id").auto_increment);
     assert_eq!(b.foreign_keys[0].on_delete.as_deref(), Some("CASCADE"));
-    exec_quiet(&mut p, &["DROP TABLE IF EXISTS fbx_tipos", "DROP TABLE IF EXISTS fbx_clientes"]).await;
+    exec_quiet(
+        &mut p,
+        &[
+            "DROP TABLE IF EXISTS fbx_tipos",
+            "DROP TABLE IF EXISTS fbx_clientes",
+        ],
+    )
+    .await;
     exec_quiet(&mut f, &["DROP TABLE FBX_TIPOS", "DROP TABLE FBX_CLIENTES"]).await;
 }
 
 /// A Firebird table with its own types (INT128, DECFLOAT, time zones).
 async fn fb_seed(f: &mut Box<dyn dbine_driver::Session>, prefix: &str) {
-    exec_quiet(f, &[&format!("DROP TABLE {prefix}_TIPOS"), &format!("DROP TABLE {prefix}_CLIENTES")]).await;
+    exec_quiet(
+        f,
+        &[
+            &format!("DROP TABLE {prefix}_TIPOS"),
+            &format!("DROP TABLE {prefix}_CLIENTES"),
+        ],
+    )
+    .await;
     exec(
         f,
         &format!(
@@ -1112,12 +1323,21 @@ async fn fb_seed(f: &mut Box<dyn dbine_driver::Session>, prefix: &str) {
 #[tokio::test]
 #[ignore]
 async fn live_firebird_postgres_both_ways() {
-    let (Some(mut p), Some(mut f)) = (pg().await, fb().await) else { return };
+    let (Some(mut p), Some(mut f)) = (pg().await, fb().await) else {
+        return;
+    };
     fb_seed(&mut f, "FBP").await;
     let original = read(&mut f, &["FBP_CLIENTES", "FBP_TIPOS"]).await;
 
     // Firebird → PostgreSQL.
-    let rt = round_trip(&mut f, "firebird", &mut p, "postgres", &["FBP_CLIENTES", "FBP_TIPOS"]).await;
+    let rt = round_trip(
+        &mut f,
+        "firebird",
+        &mut p,
+        "postgres",
+        &["FBP_CLIENTES", "FBP_TIPOS"],
+    )
+    .await;
     show(&rt);
     let t = &rt.back[1];
     assert_eq!(t.name, "fbp_tipos");
@@ -1142,7 +1362,10 @@ async fn live_firebird_postgres_both_ways() {
         ],
     );
     assert!(col(t, "id").auto_increment);
-    assert!(col(t, "creado").default_value.as_deref().is_some_and(|d| d.to_ascii_uppercase().contains("CURRENT_TIMESTAMP")));
+    assert!(col(t, "creado")
+        .default_value
+        .as_deref()
+        .is_some_and(|d| d.to_ascii_uppercase().contains("CURRENT_TIMESTAMP")));
 
     exec(
         &mut f,
@@ -1164,32 +1387,65 @@ async fn live_firebird_postgres_both_ways() {
                  '23:59:59.9999+03', '9999-12-31 23:59:59.9999', '2024-06-01 10:00:00-03');",
     )
     .await;
-    assert_eq!(count(&mut p, "SELECT COUNT(*) FROM fbp_tipos WHERE enorme = 170141183460469231731687303715884105727").await, "1");
+    assert_eq!(
+        count(
+            &mut p,
+            "SELECT COUNT(*) FROM fbp_tipos WHERE enorme = 170141183460469231731687303715884105727"
+        )
+        .await,
+        "1"
+    );
 
     // …and back: PostgreSQL → Firebird, compared with the original.
-    let back = round_trip(&mut p, "postgres", &mut f, "firebird", &["fbp_clientes", "fbp_tipos"]).await;
+    let back = round_trip(
+        &mut p,
+        "postgres",
+        &mut f,
+        "firebird",
+        &["fbp_clientes", "fbp_tipos"],
+    )
+    .await;
     show(&back);
     let (o, b) = (&original[1], &back.back[1]);
-    for c in ["ID", "CHICO", "ENTERO", "GRANDE", "PRECIO", "AMPLIO", "DECF", "REAL4", "DOBLE", "ACTIVO", "CODIGO", "NOMBRE", "NOTAS", "DATOS", "DIA", "HORA", "HORA_Z", "CREADO", "ZONA"] {
+    for c in [
+        "ID", "CHICO", "ENTERO", "GRANDE", "PRECIO", "AMPLIO", "DECF", "REAL4", "DOBLE", "ACTIVO",
+        "CODIGO", "NOMBRE", "NOTAS", "DATOS", "DIA", "HORA", "HORA_Z", "CREADO", "ZONA",
+    ] {
         assert_eq!(col(b, c).data_type, col(o, c).data_type, "{c}");
     }
     // numeric(39,0) doesn't fit INT128 exactly: DECFLOAT(34).
     expect(b, &[("ENORME", "DECFLOAT(34)")]);
     assert!(col(b, "ID").auto_increment);
     assert_eq!(col(b, "ACTIVO").default_value.as_deref(), Some("TRUE"));
-    exec_quiet(&mut p, &["DROP TABLE IF EXISTS fbp_tipos", "DROP TABLE IF EXISTS fbp_clientes"]).await;
+    exec_quiet(
+        &mut p,
+        &[
+            "DROP TABLE IF EXISTS fbp_tipos",
+            "DROP TABLE IF EXISTS fbp_clientes",
+        ],
+    )
+    .await;
     exec_quiet(&mut f, &["DROP TABLE FBP_TIPOS", "DROP TABLE FBP_CLIENTES"]).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn live_firebird_sqlserver_both_ways() {
-    let (Some(mut m), Some(mut f)) = (mssql().await, fb().await) else { return };
+    let (Some(mut m), Some(mut f)) = (mssql().await, fb().await) else {
+        return;
+    };
     fb_seed(&mut f, "FBM").await;
     let original = read(&mut f, &["FBM_CLIENTES", "FBM_TIPOS"]).await;
 
     // Firebird → SQL Server.
-    let rt = round_trip(&mut f, "firebird", &mut m, "sqlserver", &["FBM_CLIENTES", "FBM_TIPOS"]).await;
+    let rt = round_trip(
+        &mut f,
+        "firebird",
+        &mut m,
+        "sqlserver",
+        &["FBM_CLIENTES", "FBM_TIPOS"],
+    )
+    .await;
     show(&rt);
     let t = &rt.back[1];
     expect(
@@ -1212,8 +1468,16 @@ async fn live_firebird_sqlserver_both_ways() {
             ("ZONA", "datetimeoffset(4)"),
         ],
     );
-    assert!(rt.conversion.issues.iter().any(|i| i.code == IssueCode::RangeLoss && i.object.as_deref() == Some("ENORME")));
-    assert!(rt.conversion.issues.iter().any(|i| i.code == IssueCode::TimeZoneLoss && i.object.as_deref() == Some("HORA_Z")));
+    assert!(rt
+        .conversion
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::RangeLoss && i.object.as_deref() == Some("ENORME")));
+    assert!(rt
+        .conversion
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::TimeZoneLoss && i.object.as_deref() == Some("HORA_Z")));
     assert!(col(t, "ID").auto_increment);
 
     // 38 digits: what decimal(38, 0) holds.
@@ -1237,17 +1501,42 @@ async fn live_firebird_sqlserver_both_ways() {
                  '23:59:59.9999', '9999-12-31 23:59:59.9999', '2024-06-01 10:00:00 -03:00');",
     )
     .await;
-    assert_eq!(count(&mut m, "SELECT COUNT(*) FROM FBM_TIPOS WHERE NOMBRE = N'ñandú ☃ 😀'").await, "1");
+    assert_eq!(
+        count(
+            &mut m,
+            "SELECT COUNT(*) FROM FBM_TIPOS WHERE NOMBRE = N'ñandú ☃ 😀'"
+        )
+        .await,
+        "1"
+    );
 
     // …and back: SQL Server → Firebird.
-    let back = round_trip(&mut m, "sqlserver", &mut f, "firebird", &["FBM_CLIENTES", "FBM_TIPOS"]).await;
+    let back = round_trip(
+        &mut m,
+        "sqlserver",
+        &mut f,
+        "firebird",
+        &["FBM_CLIENTES", "FBM_TIPOS"],
+    )
+    .await;
     show(&back);
     let (o, b) = (&original[1], &back.back[1]);
-    for c in ["ID", "CHICO", "ENTERO", "GRANDE", "PRECIO", "AMPLIO", "REAL4", "DOBLE", "ACTIVO", "CODIGO", "NOTAS", "DATOS", "DIA", "HORA", "CREADO", "ZONA"] {
+    for c in [
+        "ID", "CHICO", "ENTERO", "GRANDE", "PRECIO", "AMPLIO", "REAL4", "DOBLE", "ACTIVO",
+        "CODIGO", "NOTAS", "DATOS", "DIA", "HORA", "CREADO", "ZONA",
+    ] {
         assert_eq!(col(b, c).data_type, col(o, c).data_type, "{c}");
     }
     // What SQL Server narrowed stays narrowed.
-    expect(b, &[("ENORME", "NUMERIC(38,0)"), ("DECF", "NUMERIC(38,10)"), ("NOMBRE", "BLOB SUB_TYPE TEXT"), ("HORA_Z", "TIME")]);
+    expect(
+        b,
+        &[
+            ("ENORME", "NUMERIC(38,0)"),
+            ("DECF", "NUMERIC(38,10)"),
+            ("NOMBRE", "BLOB SUB_TYPE TEXT"),
+            ("HORA_Z", "TIME"),
+        ],
+    );
     exec_quiet(&mut m, &["DROP TABLE FBM_TIPOS", "DROP TABLE FBM_CLIENTES"]).await;
     exec_quiet(&mut f, &["DROP TABLE FBM_TIPOS", "DROP TABLE FBM_CLIENTES"]).await;
 }
@@ -1255,7 +1544,9 @@ async fn live_firebird_sqlserver_both_ways() {
 #[tokio::test]
 #[ignore]
 async fn live_sqlserver_firebird_both_ways() {
-    let (Some(mut m), Some(mut f)) = (mssql().await, fb().await) else { return };
+    let (Some(mut m), Some(mut f)) = (mssql().await, fb().await) else {
+        return;
+    };
     exec_quiet(&mut m, &["DROP TABLE fbz_tipos", "DROP TABLE fbz_clientes"]).await;
     exec(
         &mut m,
@@ -1272,7 +1563,14 @@ async fn live_sqlserver_firebird_both_ways() {
     let original = read(&mut m, &["fbz_clientes", "fbz_tipos"]).await;
 
     // SQL Server → Firebird.
-    let rt = round_trip(&mut m, "sqlserver", &mut f, "firebird", &["fbz_clientes", "fbz_tipos"]).await;
+    let rt = round_trip(
+        &mut m,
+        "sqlserver",
+        &mut f,
+        "firebird",
+        &["fbz_clientes", "fbz_tipos"],
+    )
+    .await;
     show(&rt);
     let t = &rt.back[1];
     assert_eq!(t.name, "FBZ_TIPOS");
@@ -1300,8 +1598,16 @@ async fn live_sqlserver_firebird_both_ways() {
     );
     assert!(col(t, "ID").auto_increment);
     assert_eq!(col(t, "ACTIVO").default_value.as_deref(), Some("TRUE"));
-    assert!(rt.conversion.issues.iter().any(|i| i.code == IssueCode::PrecisionLoss && i.object.as_deref() == Some("exacta")));
-    assert!(rt.conversion.issues.iter().any(|i| i.code == IssueCode::DefaultDropped && i.object.as_deref() == Some("codigo")));
+    assert!(rt
+        .conversion
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::PrecisionLoss && i.object.as_deref() == Some("exacta")));
+    assert!(rt
+        .conversion
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::DefaultDropped && i.object.as_deref() == Some("codigo")));
 
     exec(
         &mut m,
@@ -1320,13 +1626,36 @@ async fn live_sqlserver_firebird_both_ways() {
                  TRUE, '<a>ñ</a>', 999999999999999.9999, DATE '0001-01-01', TIME '23:59:59.9999', 'abc', 'simple');",
     )
     .await;
-    assert_eq!(count(&mut f, "SELECT COUNT(*) FROM FBZ_TIPOS WHERE MONTO = 922337203685477.5807").await, "1");
+    assert_eq!(
+        count(
+            &mut f,
+            "SELECT COUNT(*) FROM FBZ_TIPOS WHERE MONTO = 922337203685477.5807"
+        )
+        .await,
+        "1"
+    );
 
     // …and back: Firebird → SQL Server.
-    let back = round_trip(&mut f, "firebird", &mut m, "sqlserver", &["FBZ_CLIENTES", "FBZ_TIPOS"]).await;
+    let back = round_trip(
+        &mut f,
+        "firebird",
+        &mut m,
+        "sqlserver",
+        &["FBZ_CLIENTES", "FBZ_TIPOS"],
+    )
+    .await;
     show(&back);
     let (o, b) = (&original[1], &back.back[1]);
-    for c in ["id", "cliente_id", "nombre", "texto", "bytes", "activo", "precio", "dia"] {
+    for c in [
+        "id",
+        "cliente_id",
+        "nombre",
+        "texto",
+        "bytes",
+        "activo",
+        "precio",
+        "dia",
+    ] {
         assert_eq!(col(b, c).data_type, col(o, c).data_type, "{c}");
     }
     expect(

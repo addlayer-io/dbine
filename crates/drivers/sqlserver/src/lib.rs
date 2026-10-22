@@ -5,16 +5,16 @@ mod backup;
 mod clone;
 mod create_db;
 mod delta;
+mod dependencies;
 mod entra;
 mod health;
-mod dependencies;
 mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
 mod processes;
-mod properties;
 mod profiler;
+mod properties;
 mod rename;
 mod schema;
 mod script;
@@ -27,23 +27,33 @@ mod variant;
 
 use dbine_driver::sql::{qualified_name, select_top, Limit, Quote};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, json_spatial_bytes, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
-    ConnectFailure, ConnectFailureKind, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    async_trait, json_bytes, json_f64, json_i64, json_spatial_bytes, kinds, Capabilities,
+    ColumnDef, ColumnInfo, ConnectFailure, ConnectFailureKind, ConnectionConfig, CreateTemplate,
+    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, ObjectRef, QueryOutcome, Result,
+    ResultColumn, Session, TableSchema,
 };
 #[cfg(test)]
 use futures::TryStreamExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel, FromSql, Row, SqlBrowser};
 #[cfg(test)]
 use tiberius::QueryItem;
+use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel, FromSql, Row, SqlBrowser};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 use variant::{Login, Variant, DEFAULT_PORT};
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
-    Variant::ALL.iter().map(|v| Arc::new(SqlServerDriver { info: variant::info(*v), variant: *v }) as Arc<dyn Driver>).collect()
+    Variant::ALL
+        .iter()
+        .map(|v| {
+            Arc::new(SqlServerDriver {
+                info: variant::info(*v),
+                variant: *v,
+            }) as Arc<dyn Driver>
+        })
+        .collect()
 }
 
 pub struct SqlServerDriver {
@@ -93,8 +103,15 @@ impl Driver for SqlServerDriver {
         if !table.columns.iter().any(|c| c.auto_increment) {
             return (String::new(), String::new());
         }
-        let name = qualified_name(Quote::Bracket, table.schema.as_deref().filter(|s| !s.is_empty()), &table.name);
-        (format!("SET IDENTITY_INSERT {name} ON;"), format!("SET IDENTITY_INSERT {name} OFF;"))
+        let name = qualified_name(
+            Quote::Bracket,
+            table.schema.as_deref().filter(|s| !s.is_empty()),
+            &table.name,
+        );
+        (
+            format!("SET IDENTITY_INSERT {name} ON;"),
+            format!("SET IDENTITY_INSERT {name} OFF;"),
+        )
     }
 
     fn supports_explain(&self) -> bool {
@@ -111,9 +128,16 @@ impl Driver for SqlServerDriver {
         !matches!(self.variant, Variant::Fabric | Variant::Babelfish)
     }
 
-    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+    fn index_toggle_script(
+        &self,
+        table: &ObjectRef,
+        index: &dbine_driver::IndexUsage,
+        enable: bool,
+    ) -> Result<dbine_driver::SyncScript> {
         if !self.supports_index_toggle() {
-            return Err(dbine_driver::Error::Unsupported("este motor no deshabilita índices".into()));
+            return Err(dbine_driver::Error::Unsupported(
+                "este motor no deshabilita índices".into(),
+            ));
         }
         Ok(index_usage::toggle_script(table, index, enable))
     }
@@ -130,7 +154,12 @@ impl Driver for SqlServerDriver {
 
     /// `ALTER DATABASE … MODIFY NAME` from `master`, between SINGLE_USER and
     /// MULTI_USER on SQL Server (see `rename::database_script`).
-    fn rename_database_script(&self, database: &str, new_name: &str, _objects: &[dbine_driver::rename::DatabaseObject]) -> Result<dbine_driver::SyncScript> {
+    fn rename_database_script(
+        &self,
+        database: &str,
+        new_name: &str,
+        _objects: &[dbine_driver::rename::DatabaseObject],
+    ) -> Result<dbine_driver::SyncScript> {
         rename::database_script(self.variant, database, new_name)
     }
 
@@ -156,18 +185,31 @@ impl Driver for SqlServerDriver {
     /// Notebook writes stage through `INSERT BULK` into a `#temp` table:
     /// only where the bulk load is.
     fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
-        if self.variant.bulk_load() { dbine_driver::WriteMode::ALL.to_vec() } else { Vec::new() }
+        if self.variant.bulk_load() {
+            dbine_driver::WriteMode::ALL.to_vec()
+        } else {
+            Vec::new()
+        }
     }
 
-    fn delta_filter(&self, spec: &dbine_driver::transfer::DeltaSpec, buckets: &[i64]) -> Result<String> {
+    fn delta_filter(
+        &self,
+        spec: &dbine_driver::transfer::DeltaSpec,
+        buckets: &[i64],
+    ) -> Result<String> {
         if !self.variant.bulk_load() {
-            return Err(Error::Unsupported("este motor no sincroniza por filas".into()));
+            return Err(Error::Unsupported(
+                "este motor no sincroniza por filas".into(),
+            ));
         }
         delta::filter(spec, buckets)
     }
 
     fn supports_native_copy(&self, target: &str) -> bool {
-        self.variant.bulk_load() && Variant::ALL.iter().any(|v| v.bulk_load() && variant::info(*v).id == target)
+        self.variant.bulk_load()
+            && Variant::ALL
+                .iter()
+                .any(|v| v.bulk_load() && variant::info(*v).id == target)
     }
 
     /// Raw TDS rows from a `SELECT` straight into `INSERT BULK` when both
@@ -183,10 +225,14 @@ impl Driver for SqlServerDriver {
             s.as_any()?.downcast_mut::<SqlServerSession>()
         }
         let (Some(src), Some(dst)) = (own(source), own(target)) else {
-            return Err(Error::Unsupported("la copia directa necesita dos sesiones de SQL Server".into()));
+            return Err(Error::Unsupported(
+                "la copia directa necesita dos sesiones de SQL Server".into(),
+            ));
         };
         if !src.variant.bulk_load() || !dst.variant.bulk_load() {
-            return Err(Error::Unsupported("este motor no copia tablas directamente entre bases".into()));
+            return Err(Error::Unsupported(
+                "este motor no copia tablas directamente entre bases".into(),
+            ));
         }
         transfer::copy(src, dst, spec, progress).await
     }
@@ -215,11 +261,19 @@ impl Driver for SqlServerDriver {
         create_db::fields(self.variant)
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(self.variant, name, options)
     }
 
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(self.variant, database, changes)
     }
 
@@ -244,7 +298,11 @@ impl Driver for SqlServerDriver {
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
-        Some(if self.variant == Variant::Fabric { schema::fabric_designer() } else { schema::designer() })
+        Some(if self.variant == Variant::Fabric {
+            schema::fabric_designer()
+        } else {
+            schema::designer()
+        })
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -257,7 +315,11 @@ impl Driver for SqlServerDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        Ok(if self.variant == Variant::Fabric { schema::fabric_table_ddl(table, parts) } else { schema::table_ddl(table, parts) })
+        Ok(if self.variant == Variant::Fabric {
+            schema::fabric_table_ddl(table, parts)
+        } else {
+            schema::table_ddl(table, parts)
+        })
     }
 
     fn supports_schema_sync(&self) -> bool {
@@ -266,12 +328,26 @@ impl Driver for SqlServerDriver {
 
     /// `ALTER COLUMN` with the default constraints and indexes moved out of
     /// the way; Fabric only adds and drops columns.
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         use dbine_driver::alter::{AlterStyle, ColumnAlter, DropIndex};
         let fabric = self.variant == Variant::Fabric;
-        let cd = |t: &TableSchema, c: &dbine_driver::ColumnDef| dbine_driver::ddl::column_def(&schema::FLAVOR, t, c);
+        let cd = |t: &TableSchema, c: &dbine_driver::ColumnDef| {
+            dbine_driver::ddl::column_def(&schema::FLAVOR, t, c)
+        };
         let dd = |t: &TableSchema, p: DdlParts| self.table_ddl(t, p);
-        let mut st = AlterStyle::from_flavor(&schema::FLAVOR, if fabric { ColumnAlter::None } else { ColumnAlter::SqlServer }, &cd, &dd);
+        let mut st = AlterStyle::from_flavor(
+            &schema::FLAVOR,
+            if fabric {
+                ColumnAlter::None
+            } else {
+                ColumnAlter::SqlServer
+            },
+            &cd,
+            &dd,
+        );
         st.add_column = "ADD";
         st.drop_index = DropIndex::OnTable;
         // The primary key is planned as an index (a change of clustered
@@ -280,25 +356,55 @@ impl Driver for SqlServerDriver {
         // their own way; foreign keys on a remade key step aside meanwhile.
         let changes = structure::prepare_changes(changes, self.variant);
         // Comments are MS_Description extended properties (Fabric has none).
-        let comments = |t: &TableSchema, c: Option<&dbine_driver::ColumnDef>, v: Option<&str>| Some(schema::comment_change(t, c, v));
-        let mut script = dbine_driver::alter::sync_script_with_comments(&st, (!fabric).then_some(&comments as dbine_driver::alter::CommentSql), &changes)?;
+        let comments = |t: &TableSchema, c: Option<&dbine_driver::ColumnDef>, v: Option<&str>| {
+            Some(schema::comment_change(t, c, v))
+        };
+        let mut script = dbine_driver::alter::sync_script_with_comments(
+            &st,
+            (!fabric).then_some(&comments as dbine_driver::alter::CommentSql),
+            &changes,
+        )?;
         structure::fix_drops(&mut script.statements, &changes);
         if !fabric {
             structure::keep_referencing_fks(&mut script.statements, &mut script.warnings, &changes);
-            script.warnings.extend(structure::clustering_warnings(&changes));
+            script
+                .warnings
+                .extend(structure::clustering_warnings(&changes));
         }
         Ok(script)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
-        Ok(schema::insert_script(target.schema(), &target.name, columns, rows))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(schema::insert_script(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
-        Ok(schema::update_script(target.schema(), &target.name, changes))
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
+        Ok(schema::update_script(
+            target.schema(),
+            &target.name,
+            changes,
+        ))
     }
 
-    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
         Ok(schema::delete_script(target.schema(), &target.name, keys))
     }
 
@@ -314,7 +420,10 @@ impl Driver for SqlServerDriver {
 
     /// SSMS goes on with the next batch after an error.
     fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
-        dbine_driver::ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        dbine_driver::ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     /// `SET IMPLICIT_TRANSACTIONS ON`, `@@TRANCOUNT` / `XACT_STATE()`.
@@ -336,7 +445,12 @@ impl Driver for SqlServerDriver {
     fn supports_map_login(&self) -> bool {
         security::supports_map_login(self.variant)
     }
-    fn map_login_script(&self, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+    fn map_login_script(
+        &self,
+        login: &str,
+        user: &str,
+        default_schema: Option<&str>,
+    ) -> Result<String> {
         security::map_login(self.variant, login, user, default_schema)
     }
 
@@ -344,11 +458,21 @@ impl Driver for SqlServerDriver {
         Some(security::schema_spec(self.variant))
     }
 
-    fn create_schema_script(&self, _database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         security::create_schema(self.variant, name, owner)
     }
 
-    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
         security::drop_schema(self.variant, name, cascade)
     }
 
@@ -368,17 +492,28 @@ impl Driver for SqlServerDriver {
         }
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         Ok(Box::new(self.open(cfg, database).await?))
     }
 }
 
 impl SqlServerDriver {
-    async fn open(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<SqlServerSession> {
+    async fn open(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<SqlServerSession> {
         let login = variant::login(cfg, self.variant).await?;
         let config = build_config(cfg, database, self.variant, login)?;
         let (client, config) = connect_routed(config).await.map_err(connect_error)?;
-        let cancel = Arc::new(std::sync::Mutex::new(CancelTarget { attention: client.cancel_handle(), backend: None }));
+        let cancel = Arc::new(std::sync::Mutex::new(CancelTarget {
+            attention: client.cancel_handle(),
+            backend: None,
+        }));
         let mut s = SqlServerSession {
             client,
             config,
@@ -427,7 +562,10 @@ async fn connect_once(config: Config) -> tiberius::Result<Client<Compat<TcpStrea
             Ok(Err(e)) => return Err(unreachable(&config, e)),
             Err(_) if attempt < CONNECT_ATTEMPTS => attempt += 1,
             Err(_) => {
-                return Err(tiberius::error::Error::Io { kind: std::io::ErrorKind::TimedOut, message: no_answer(&config).into() })
+                return Err(tiberius::error::Error::Io {
+                    kind: std::io::ErrorKind::TimedOut,
+                    message: no_answer(&config).into(),
+                })
             }
         }
     };
@@ -528,7 +666,10 @@ fn kerberos_hint(gss: &str) -> String {
         || lower.contains("expired")
     {
         "no hay un ticket de Kerberos vigente"
-    } else if lower.contains("server not found") || lower.contains("unknown server") || lower.contains("not found in kerberos database") {
+    } else if lower.contains("server not found")
+        || lower.contains("unknown server")
+        || lower.contains("not found in kerberos database")
+    {
         "el dominio no conoce el servicio MSSQLSvc de ese servidor (usá el nombre completo del host, no la IP ni un alias)"
     } else if lower.contains("realm") || lower.contains("kdc") {
         "no se pudo llegar al controlador de dominio (KDC)"
@@ -565,7 +706,12 @@ fn is_desync(e: &tiberius::error::Error) -> bool {
     matches!(e, tiberius::error::Error::Protocol(m) if m.contains("can no longer be used"))
 }
 
-fn build_config(cfg: &ConnectionConfig, database: Option<&str>, variant: Variant, login: Login) -> Result<Config> {
+fn build_config(
+    cfg: &ConnectionConfig,
+    database: Option<&str>,
+    variant: Variant,
+    login: Login,
+) -> Result<Config> {
     let mut c = Config::new();
     let (host, instance, port) = parse_host(&cfg.host, cfg.port_or(DEFAULT_PORT));
     c.host(host);
@@ -646,7 +792,10 @@ pub(crate) fn cell(data: ColumnData<'static>) -> serde_json::Value {
     fn opt<T>(v: Option<T>, f: impl FnOnce(T) -> Value) -> Value {
         v.map_or(Value::Null, f)
     }
-    fn chrono_of<T: for<'a> FromSql<'a>>(d: &ColumnData<'static>, fmt: impl FnOnce(T) -> String) -> Value {
+    fn chrono_of<T: for<'a> FromSql<'a>>(
+        d: &ColumnData<'static>,
+        fmt: impl FnOnce(T) -> String,
+    ) -> Value {
         match T::from_sql(d) {
             Ok(Some(v)) => fmt(v).into(),
             Ok(None) => Value::Null,
@@ -669,11 +818,17 @@ pub(crate) fn cell(data: ColumnData<'static>) -> serde_json::Value {
         d @ (ColumnData::DateTime(_) | ColumnData::SmallDateTime(_) | ColumnData::DateTime2(_)) => {
             chrono_of::<chrono::NaiveDateTime>(&d, |v| v.format("%Y-%m-%d %H:%M:%S%.f").to_string())
         }
-        d @ ColumnData::Date(_) => chrono_of::<chrono::NaiveDate>(&d, |v| v.format("%Y-%m-%d").to_string()),
-        d @ ColumnData::Time(_) => chrono_of::<chrono::NaiveTime>(&d, |v| v.format("%H:%M:%S%.f").to_string()),
-        d @ ColumnData::DateTimeOffset(_) => chrono_of::<chrono::DateTime<chrono::FixedOffset>>(&d, |v| {
-            v.format("%Y-%m-%d %H:%M:%S%.f %:z").to_string()
-        }),
+        d @ ColumnData::Date(_) => {
+            chrono_of::<chrono::NaiveDate>(&d, |v| v.format("%Y-%m-%d").to_string())
+        }
+        d @ ColumnData::Time(_) => {
+            chrono_of::<chrono::NaiveTime>(&d, |v| v.format("%H:%M:%S%.f").to_string())
+        }
+        d @ ColumnData::DateTimeOffset(_) => {
+            chrono_of::<chrono::DateTime<chrono::FixedOffset>>(&d, |v| {
+                v.format("%Y-%m-%d %H:%M:%S%.f %:z").to_string()
+            })
+        }
     }
 }
 
@@ -701,14 +856,20 @@ impl SqlServerSession {
     }
 
     async fn try_rows(&mut self, sql: &str, params: &[&str]) -> tiberius::Result<Vec<Row>> {
-        let p: Vec<&dyn tiberius::ToSql> = params.iter().map(|s| s as &dyn tiberius::ToSql).collect();
+        let p: Vec<&dyn tiberius::ToSql> =
+            params.iter().map(|s| s as &dyn tiberius::ToSql).collect();
         self.client.query(sql, &p).await?.into_first_result().await
     }
 
     /// A new connection with the config the session logged in with.
     async fn reconnect(&mut self) -> Result<()> {
-        self.client = connect_once(self.config.clone()).await.map_err(connect_error)?;
-        let rows = self.try_rows("SELECT CAST(@@SPID AS int)", &[]).await.map_err(err)?;
+        self.client = connect_once(self.config.clone())
+            .await
+            .map_err(connect_error)?;
+        let rows = self
+            .try_rows("SELECT CAST(@@SPID AS int)", &[])
+            .await
+            .map_err(err)?;
         self.spid = rows.first().and_then(|r| r.get::<i32, _>(0)).unwrap_or(0);
         self.arm_cancel().await.map_err(err)?;
         // What the tab sees stays true: the database it followed and its
@@ -721,7 +882,13 @@ impl SqlServerSession {
             restore.push("SET IMPLICIT_TRANSACTIONS ON".into());
         }
         for sql in restore {
-            let run = async { self.client.simple_query(sql.as_str()).await?.into_results().await };
+            let run = async {
+                self.client
+                    .simple_query(sql.as_str())
+                    .await?
+                    .into_results()
+                    .await
+            };
             if let Err(e) = run.await {
                 tracing::debug!("could not restore `{sql}` after reconnecting: {e}");
             }
@@ -744,11 +911,16 @@ impl SqlServerSession {
     async fn arm_cancel(&mut self) -> tiberius::Result<()> {
         let backend = if self.variant == Variant::Babelfish {
             let rows = self.try_rows(BABELFISH_LOGIN_TIME, &[]).await?;
-            rows.first().and_then(|r| text(r, 0)).map(|t| (self.spid, t))
+            rows.first()
+                .and_then(|r| text(r, 0))
+                .map(|t| (self.spid, t))
         } else {
             None
         };
-        *self.cancel.lock().unwrap_or_else(|e| e.into_inner()) = CancelTarget { attention: self.client.cancel_handle(), backend };
+        *self.cancel.lock().unwrap_or_else(|e| e.into_inner()) = CancelTarget {
+            attention: self.client.cancel_handle(),
+            backend,
+        };
         Ok(())
     }
 
@@ -770,7 +942,8 @@ impl SqlServerSession {
 
 /// The online databases, by name, with what decides whether the explorer
 /// shows them: the login's access and the engine edition.
-const DATABASES_SQL: &str = "SELECT name, CAST(database_id AS int), CAST(HAS_DBACCESS(name) AS int),
+const DATABASES_SQL: &str =
+    "SELECT name, CAST(database_id AS int), CAST(HAS_DBACCESS(name) AS int),
        CAST(SERVERPROPERTY('EngineEdition') AS int)
   FROM sys.databases
  WHERE state_desc = 'ONLINE'
@@ -802,7 +975,16 @@ fn visible_databases(rows: Vec<DatabaseRow>, scoped: bool) -> Vec<String> {
     let mut dbs: Vec<(bool, String)> = rows
         .into_iter()
         .filter(|d| scoped || d.access == Some(1))
-        .map(|d| (if scoped { d.name.eq_ignore_ascii_case("master") } else { d.id <= 4 }, d.name))
+        .map(|d| {
+            (
+                if scoped {
+                    d.name.eq_ignore_ascii_case("master")
+                } else {
+                    d.id <= 4
+                },
+                d.name,
+            )
+        })
         .collect();
     dbs.sort_by_key(|(system, _)| *system);
     dbs.into_iter().map(|(_, name)| name).collect()
@@ -812,7 +994,15 @@ fn visible_databases(rows: Vec<DatabaseRow>, scoped: bool) -> Vec<String> {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 pub(crate) fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 fn text(r: &Row, i: usize) -> Option<String> {
@@ -822,7 +1012,9 @@ fn text(r: &Row, i: usize) -> Option<String> {
 #[async_trait]
 impl Session for SqlServerSession {
     async fn server_version(&mut self) -> Result<String> {
-        let rows = self.rows("SELECT CAST(@@VERSION AS nvarchar(4000))", &[]).await?;
+        let rows = self
+            .rows("SELECT CAST(@@VERSION AS nvarchar(4000))", &[])
+            .await?;
         let v = rows.first().and_then(|r| text(r, 0)).unwrap_or_default();
         Ok(v.lines().next().unwrap_or("SQL Server").trim().to_string())
     }
@@ -832,9 +1024,18 @@ impl Session for SqlServerSession {
         let edition = rows.first().and_then(|r| r.get::<i32, _>(3)).unwrap_or(0);
         let dbs = rows
             .iter()
-            .filter_map(|r| Some(DatabaseRow { name: text(r, 0)?, id: r.get::<i32, _>(1).unwrap_or(0), access: r.get::<i32, _>(2) }))
+            .filter_map(|r| {
+                Some(DatabaseRow {
+                    name: text(r, 0)?,
+                    id: r.get::<i32, _>(1).unwrap_or(0),
+                    access: r.get::<i32, _>(2),
+                })
+            })
             .collect();
-        Ok(visible_databases(dbs, database_scoped(self.variant, edition)))
+        Ok(visible_databases(
+            dbs,
+            database_scoped(self.variant, edition),
+        ))
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -863,7 +1064,11 @@ impl Session for SqlServerSession {
                     kind: kind.into(),
                     schema: text(r, 1),
                     name: text(r, 2)?,
-                    parent: if kind == kinds::TRIGGER { text(r, 3) } else { None },
+                    parent: if kind == kinds::TRIGGER {
+                        text(r, 3)
+                    } else {
+                        None
+                    },
                 })
             })
             .collect();
@@ -872,10 +1077,17 @@ impl Session for SqlServerSession {
     }
 
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
-        let rows = self.rows(&security::list_schemas_sql(self.variant), &[]).await?;
+        let rows = self
+            .rows(&security::list_schemas_sql(self.variant), &[])
+            .await?;
         Ok(Some(
             rows.iter()
-                .filter_map(|r| Some(dbine_driver::SchemaInfo { name: text(r, 0)?, system: r.get::<i32, _>(1).unwrap_or(0) == 1 }))
+                .filter_map(|r| {
+                    Some(dbine_driver::SchemaInfo {
+                        name: text(r, 0)?,
+                        system: r.get::<i32, _>(1).unwrap_or(0) == 1,
+                    })
+                })
                 .collect(),
         ))
     }
@@ -927,7 +1139,9 @@ impl Session for SqlServerSession {
             return structure::definition(self, obj).await;
         }
         let object = qualified_name(Quote::Bracket, obj.schema(), &obj.name);
-        let rows = self.rows("SELECT OBJECT_DEFINITION(OBJECT_ID(@P1))", &[&object]).await?;
+        let rows = self
+            .rows("SELECT OBJECT_DEFINITION(OBJECT_ID(@P1))", &[&object])
+            .await?;
         Ok(rows.first().and_then(|r| text(r, 0)))
     }
 
@@ -946,7 +1160,12 @@ impl Session for SqlServerSession {
 
     /// One batch with its values bound (`sp_executesql`, see
     /// [`SqlServerSession::run_bound`]).
-    async fn execute_bound(&mut self, statement: &dbine_driver::BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn execute_bound(
+        &mut self,
+        statement: &dbine_driver::BoundStatement,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         self.cancelled.store(false, Ordering::SeqCst);
         let res = self.run_bound(statement, max_rows, out).await;
         match res {
@@ -958,7 +1177,13 @@ impl Session for SqlServerSession {
     /// Estimated: `SET SHOWPLAN_XML ON` (nothing runs). Actual: `SET
     /// STATISTICS XML ON`, the script runs once and each statement's plan
     /// comes back with actual rows and times.
-    async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let babelfish = self.variant == Variant::Babelfish;
         let option = match (babelfish, analyze) {
             // PostgreSQL's EXPLAIN (ANALYZE) as text, per statement.
@@ -978,13 +1203,20 @@ impl Session for SqlServerSession {
         let mut xmls = Vec::new();
         let res = self.run_batches(sql, max_rows, out, Some(&mut xmls)).await;
         // Always switch it off: the session stays with this tab.
-        let off = async { self.client.simple_query(format!("SET {option} OFF")).await?.into_results().await };
+        let off = async {
+            self.client
+                .simple_query(format!("SET {option} OFF"))
+                .await?
+                .into_results()
+                .await
+        };
         if let Err(e) = off.await {
             tracing::debug!("could not reset {option}: {e}");
         }
         if babelfish {
             let text = xmls.concat();
-            out.plans.extend(babelfish::parse_text_plans(&text, analyze));
+            out.plans
+                .extend(babelfish::parse_text_plans(&text, analyze));
             xmls.clear();
         }
         for xml in &xmls {
@@ -1005,7 +1237,12 @@ impl Session for SqlServerSession {
 
     /// `@@TRANCOUNT` and `XACT_STATE()` (-1: only a rollback ends it).
     async fn transaction_state(&mut self) -> Result<Option<dbine_driver::TxState>> {
-        let rows = self.rows("SELECT CAST(@@TRANCOUNT AS int), CAST(XACT_STATE() AS int)", &[]).await?;
+        let rows = self
+            .rows(
+                "SELECT CAST(@@TRANCOUNT AS int), CAST(XACT_STATE() AS int)",
+                &[],
+            )
+            .await?;
         let r = rows.first();
         let open = r.and_then(|r| r.get::<i32, _>(0)).unwrap_or(0) > 0;
         let state = r.and_then(|r| r.get::<i32, _>(1)).unwrap_or(0);
@@ -1020,7 +1257,12 @@ impl Session for SqlServerSession {
     /// a transaction that stays open until Commit / Rollback (as SSMS's
     /// option of the same name).
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
-        self.batch(if on { "SET IMPLICIT_TRANSACTIONS OFF" } else { "SET IMPLICIT_TRANSACTIONS ON" }).await?;
+        self.batch(if on {
+            "SET IMPLICIT_TRANSACTIONS OFF"
+        } else {
+            "SET IMPLICIT_TRANSACTIONS ON"
+        })
+        .await?;
         self.autocommit = on;
         Ok(())
     }
@@ -1036,15 +1278,29 @@ impl Session for SqlServerSession {
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let mut b = schema::Builder::default();
         for r in self.rows(schema::TABLES_SQL, &[]).await? {
-            b.table(text(&r, 0).unwrap_or_default(), text(&r, 1).unwrap_or_default(), text(&r, 2));
+            b.table(
+                text(&r, 0).unwrap_or_default(),
+                text(&r, 1).unwrap_or_default(),
+                text(&r, 2),
+            );
         }
         for r in self.rows(schema::COLUMNS_SQL, &[]).await? {
-            let (s, t) = (text(&r, 0).unwrap_or_default(), text(&r, 1).unwrap_or_default());
+            let (s, t) = (
+                text(&r, 0).unwrap_or_default(),
+                text(&r, 1).unwrap_or_default(),
+            );
             let ty = text(&r, 3).unwrap_or_default();
             let data_type = match text(&r, 10) {
-                Some(expr) if r.get::<bool, _>(11).unwrap_or(false) => format!("AS {expr} PERSISTED"),
+                Some(expr) if r.get::<bool, _>(11).unwrap_or(false) => {
+                    format!("AS {expr} PERSISTED")
+                }
                 Some(expr) => format!("AS {expr}"),
-                None => format_type(&ty, r.get(4).unwrap_or(0), r.get(5).unwrap_or(0), r.get(6).unwrap_or(0)),
+                None => format_type(
+                    &ty,
+                    r.get(4).unwrap_or(0),
+                    r.get(5).unwrap_or(0),
+                    r.get(6).unwrap_or(0),
+                ),
             };
             b.column(
                 &s,
@@ -1104,7 +1360,10 @@ impl Session for SqlServerSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        let sql = format!("CREATE DATABASE {}", qualified_name(Quote::Bracket, None, name));
+        let sql = format!(
+            "CREATE DATABASE {}",
+            qualified_name(Quote::Bracket, None, name)
+        );
         let sent = self.client.simple_query(sql).await;
         if matches!(&sent, Err(e) if is_desync(e)) {
             drop(sent);
@@ -1114,7 +1373,10 @@ impl Session for SqlServerSession {
         Ok(())
     }
 
-    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+    async fn health_checks(
+        &mut self,
+        database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }
 
@@ -1128,15 +1390,25 @@ impl Session for SqlServerSession {
         self.object_comments_impl().await
     }
 
-    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+    async fn search_code(
+        &mut self,
+        query: &dbine_driver::search::CodeSearch,
+    ) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         self.search_code_impl(query).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -1144,14 +1416,23 @@ impl Session for SqlServerSession {
         self.create_database_choices_impl().await
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
     /// Other connections are rolled back and closed first (SINGLE_USER WITH
     /// ROLLBACK IMMEDIATE), as SSMS's "close existing connections" does.
     async fn drop_database(&mut self, name: &str) -> Result<()> {
-        let current = self.rows("SELECT DB_NAME()", &[]).await?.first().and_then(|r| text(r, 0)).unwrap_or_default();
+        let current = self
+            .rows("SELECT DB_NAME()", &[])
+            .await?
+            .first()
+            .and_then(|r| text(r, 0))
+            .unwrap_or_default();
         if current.eq_ignore_ascii_case(name) {
             return Err(Error::Query(format!(
                 "No se puede borrar «{name}»: es la base de esta conexión. Conectate a otra (por ejemplo master)."
@@ -1168,7 +1449,13 @@ impl Session for SqlServerSession {
             }
             Err(e) => tracing::debug!("sqlserver: SINGLE_USER refused: {e}"),
         }
-        self.client.simple_query(format!("DROP DATABASE {db}")).await.map_err(err)?.into_results().await.map_err(err)?;
+        self.client
+            .simple_query(format!("DROP DATABASE {db}"))
+            .await
+            .map_err(err)?
+            .into_results()
+            .await
+            .map_err(err)?;
         Ok(())
     }
 
@@ -1182,7 +1469,9 @@ impl Session for SqlServerSession {
     async fn blocking(&mut self) -> Result<Vec<dbine_driver::BlockedSession>> {
         match self.variant {
             Variant::SqlServer | Variant::AzureSql => monitor::blocking(self).await,
-            _ => Err(Error::Unsupported("este motor no informa bloqueos entre sesiones".into())),
+            _ => Err(Error::Unsupported(
+                "este motor no informa bloqueos entre sesiones".into(),
+            )),
         }
     }
 
@@ -1216,14 +1505,20 @@ impl Session for SqlServerSession {
         processes::cancel(self)
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1237,7 +1532,11 @@ impl Session for SqlServerSession {
     }
 
     /// Typed, lossless: one unordered `SELECT` (see `transfer`).
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         transfer::read_batches(self, spec, sink).await
     }
 
@@ -1249,7 +1548,9 @@ impl Session for SqlServerSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         if !self.variant.bulk_load() {
-            return Err(Error::Unsupported("este motor no tiene carga masiva".into()));
+            return Err(Error::Unsupported(
+                "este motor no tiene carga masiva".into(),
+            ));
         }
         transfer::bulk_load(self, spec, columns, source, progress).await
     }
@@ -1264,7 +1565,9 @@ impl Session for SqlServerSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::WriteResult> {
         if !self.variant.bulk_load() {
-            return Err(Error::Unsupported("este motor no tiene carga masiva".into()));
+            return Err(Error::Unsupported(
+                "este motor no tiene carga masiva".into(),
+            ));
         }
         let identity_insert = transfer::writes_identity(self, spec).await?;
         let flavor = dbine_driver::write::StageFlavor::SqlServer { identity_insert };
@@ -1275,16 +1578,27 @@ impl Session for SqlServerSession {
         Some(self)
     }
 
-    async fn key_range(&mut self, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
+    async fn key_range(
+        &mut self,
+        table: &ObjectRef,
+        column: &str,
+    ) -> Result<Option<(i64, i64, u64)>> {
         if !self.variant.bulk_load() {
-            return Err(Error::Unsupported("este motor no sincroniza por filas".into()));
+            return Err(Error::Unsupported(
+                "este motor no sincroniza por filas".into(),
+            ));
         }
         delta::key_range(self, table, column).await
     }
 
-    async fn delta_summary(&mut self, spec: &dbine_driver::transfer::DeltaSpec) -> Result<Vec<dbine_driver::transfer::BucketSum>> {
+    async fn delta_summary(
+        &mut self,
+        spec: &dbine_driver::transfer::DeltaSpec,
+    ) -> Result<Vec<dbine_driver::transfer::BucketSum>> {
         if !self.variant.bulk_load() {
-            return Err(Error::Unsupported("este motor no sincroniza por filas".into()));
+            return Err(Error::Unsupported(
+                "este motor no sincroniza por filas".into(),
+            ));
         }
         delta::summary(self, spec).await
     }
@@ -1298,7 +1612,9 @@ impl Session for SqlServerSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::transfer::DeltaResult> {
         if !self.variant.bulk_load() {
-            return Err(Error::Unsupported("este motor no sincroniza por filas".into()));
+            return Err(Error::Unsupported(
+                "este motor no sincroniza por filas".into(),
+            ));
         }
         delta::apply(self, spec, buckets, columns, source, progress).await
     }
@@ -1310,7 +1626,11 @@ impl Session for SqlServerSession {
     /// Babelfish: KILL of the verified session (see `CancelTarget`), which
     /// ends it.
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
-        let (target, flag, config) = (self.cancel.clone(), self.cancelled.clone(), self.config.clone());
+        let (target, flag, config) = (
+            self.cancel.clone(),
+            self.cancelled.clone(),
+            self.config.clone(),
+        );
         let rt = tokio::runtime::Handle::try_current().ok();
         Some(Arc::new(move || {
             flag.store(true, Ordering::SeqCst);
@@ -1330,17 +1650,26 @@ impl Session for SqlServerSession {
     }
 
     /// The catalog plus `sys.dm_db_index_usage_stats` (see `index_usage`).
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         if self.variant == Variant::Fabric {
             return Ok(None);
         }
         index_usage::report(self, table).await.map(Some)
     }
 
-    async fn dependents(&mut self, target: &dbine_driver::DependencyTarget, scan: &dbine_driver::DependencyScan) -> Result<dbine_driver::DependencyReport> {
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
         match dependencies::dependents(self, target, scan).await {
             // Babelfish and Fabric may lack sys.sql_expression_dependencies: the generic scan.
-            Err(_) if matches!(self.variant, Variant::Babelfish | Variant::Fabric) => dbine_driver::dependencies::scan(self, target, scan).await,
+            Err(_) if matches!(self.variant, Variant::Babelfish | Variant::Fabric) => {
+                dbine_driver::dependencies::scan(self, target, scan).await
+            }
             r => r,
         }
     }
@@ -1399,7 +1728,10 @@ mod tests {
 
     #[test]
     fn a_name_cannot_end_a_comment_line() {
-        let line = format!("-- DROP INDEX {};", comment_text("[ix\r\nDROP TABLE t;\u{85}\u{2028}\u{2029}] ON [s].[t]"));
+        let line = format!(
+            "-- DROP INDEX {};",
+            comment_text("[ix\r\nDROP TABLE t;\u{85}\u{2028}\u{2029}] ON [s].[t]")
+        );
         assert_eq!(line, "-- DROP INDEX [ix??DROP TABLE t;???] ON [s].[t];");
         assert_eq!(line.lines().count(), 1);
     }
@@ -1409,17 +1741,32 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
 
     #[test]
     fn go_splits_batches() {
-        let b: Vec<String> = script::batches("select 1\nGO\n  go  \nselect 2\n").into_iter().map(|u| u.text).collect();
+        let b: Vec<String> = script::batches("select 1\nGO\n  go  \nselect 2\n")
+            .into_iter()
+            .map(|u| u.text)
+            .collect();
         assert_eq!(b, vec!["select 1", "select 2"]);
     }
 
@@ -1440,23 +1787,73 @@ mod tests {
             40615,
             "Cannot open server 'ventas' requested by the login. Client with IP address '203.0.113.7' is not allowed to access the server.  To enable access, use the Azure Management Portal or run sp_set_firewall_rule on the master database to create a firewall rule for this IP address or address range.  It may take up to five minutes for this change to take effect.",
         );
-        assert_eq!((f.kind, f.code.as_deref(), f.client_ip.as_deref()), (ConnectFailureKind::Firewall, Some("40615"), Some("203.0.113.7")));
-        assert_eq!(server_refusal(40532, "Cannot open server 'x' requested by the login. The login failed.").kind, ConnectFailureKind::Auth);
-        let f = server_refusal(40613, "Database 'ventas' on server 'srv' is not currently available.");
-        assert_eq!((f.kind, f.code.as_deref()), (ConnectFailureKind::Unknown, Some("40613")));
+        assert_eq!(
+            (f.kind, f.code.as_deref(), f.client_ip.as_deref()),
+            (
+                ConnectFailureKind::Firewall,
+                Some("40615"),
+                Some("203.0.113.7")
+            )
+        );
+        assert_eq!(
+            server_refusal(
+                40532,
+                "Cannot open server 'x' requested by the login. The login failed."
+            )
+            .kind,
+            ConnectFailureKind::Auth
+        );
+        let f = server_refusal(
+            40613,
+            "Database 'ventas' on server 'srv' is not currently available.",
+        );
+        assert_eq!(
+            (f.kind, f.code.as_deref()),
+            (ConnectFailureKind::Unknown, Some("40613"))
+        );
         let kind = |e: tiberius::error::Error| match connect_error(e) {
             Error::ConnectFailed(f) => f.kind,
             other => panic!("{other:?}"),
         };
         let cfg = Config::new();
-        let io = |k: K, m: &str| tiberius::error::Error::Io { kind: k, message: m.into() };
-        assert_eq!(kind(unreachable(&cfg, io(K::ConnectionRefused, "refused"))), ConnectFailureKind::Refused);
-        assert_eq!(kind(unreachable(&cfg, io(K::Other, "failed to lookup address information: nodename nor servname provided"))), ConnectFailureKind::Dns);
-        assert_eq!(kind(unreachable(&cfg, io(K::HostUnreachable, "no route"))), ConnectFailureKind::Refused);
-        assert_eq!(kind(io(K::TimedOut, &no_answer(&cfg))), ConnectFailureKind::Timeout);
-        assert_eq!(kind(tiberius::error::Error::Tls("invalid peer certificate: UnknownIssuer".into())), ConnectFailureKind::Tls);
+        let io = |k: K, m: &str| tiberius::error::Error::Io {
+            kind: k,
+            message: m.into(),
+        };
+        assert_eq!(
+            kind(unreachable(&cfg, io(K::ConnectionRefused, "refused"))),
+            ConnectFailureKind::Refused
+        );
+        assert_eq!(
+            kind(unreachable(
+                &cfg,
+                io(
+                    K::Other,
+                    "failed to lookup address information: nodename nor servname provided"
+                )
+            )),
+            ConnectFailureKind::Dns
+        );
+        assert_eq!(
+            kind(unreachable(&cfg, io(K::HostUnreachable, "no route"))),
+            ConnectFailureKind::Refused
+        );
+        assert_eq!(
+            kind(io(K::TimedOut, &no_answer(&cfg))),
+            ConnectFailureKind::Timeout
+        );
+        assert_eq!(
+            kind(tiberius::error::Error::Tls(
+                "invalid peer certificate: UnknownIssuer".into()
+            )),
+            ConnectFailureKind::Tls
+        );
         // The messages stay the same Spanish ones.
-        assert!(connect_error(unreachable(&cfg, io(K::ConnectionRefused, "x"))).to_string().contains("rechazó la conexión"));
+        assert!(
+            connect_error(unreachable(&cfg, io(K::ConnectionRefused, "x")))
+                .to_string()
+                .contains("rechazó la conexión")
+        );
     }
 
     #[test]
@@ -1465,7 +1862,9 @@ mod tests {
             "connection was left out of sync with the server by a command timeout (the previous response is only partly read) and can no longer be used; open a new connection".into(),
         );
         assert!(is_desync(&e));
-        assert!(!is_desync(&tiberius::error::Error::Protocol("bad token".into())));
+        assert!(!is_desync(&tiberius::error::Error::Protocol(
+            "bad token".into()
+        )));
         // Half a message left on the wire by a cancelled write (the schema
         // compare report): the same, and a connection error for the app.
         let poisoned = tiberius::error::Error::Protocol(
@@ -1473,7 +1872,10 @@ mod tests {
         );
         assert!(is_desync(&poisoned));
         assert!(matches!(err(poisoned), Error::Connect(_)));
-        assert!(matches!(err(tiberius::error::Error::Protocol("bad token".into())), Error::Query(_)));
+        assert!(matches!(
+            err(tiberius::error::Error::Protocol("bad token".into())),
+            Error::Query(_)
+        ));
     }
 
     /// Each form login becomes the tiberius authentication it stands for.
@@ -1489,16 +1891,24 @@ mod tests {
             let cfg = cfg.clone();
             async move { auth_method(variant::login(&cfg, Variant::SqlServer).await?) }
         };
-        assert_eq!(method(&cfg).await.unwrap(), AuthMethod::sql_server("CONTOSO\\ana", "s3cret"));
+        assert_eq!(
+            method(&cfg).await.unwrap(),
+            AuthMethod::sql_server("CONTOSO\\ana", "s3cret")
+        );
 
-        cfg.options.insert("auth".into(), variant::WINDOWS_INTEGRATED.into());
+        cfg.options
+            .insert("auth".into(), variant::WINDOWS_INTEGRATED.into());
         assert_eq!(method(&cfg).await.unwrap(), AuthMethod::Integrated);
         // No user or password travels with the current user's login.
         let c = build_config(&cfg, None, Variant::SqlServer, Login::Integrated).unwrap();
         assert!(!format!("{c:?}").contains("s3cret"));
 
-        cfg.options.insert("auth".into(), variant::WINDOWS_NTLM.into());
-        assert_eq!(method(&cfg).await.unwrap(), AuthMethod::windows("CONTOSO\\ana", "s3cret"));
+        cfg.options
+            .insert("auth".into(), variant::WINDOWS_NTLM.into());
+        assert_eq!(
+            method(&cfg).await.unwrap(),
+            AuthMethod::windows("CONTOSO\\ana", "s3cret")
+        );
     }
 
     #[cfg(unix)]
@@ -1507,20 +1917,35 @@ mod tests {
         let e = connect_error(tiberius::error::Error::Gssapi(
             "gss_acquire_cred: No Kerberos credentials available (default cache: API:1234)".into(),
         ));
-        assert!(matches!(&e, Error::AuthFailed(m) if m.contains("no hay un ticket de Kerberos vigente") && m.contains("kinit usuario@DOMINIO")), "{e:?}");
-        let e = connect_error(tiberius::error::Error::Gssapi("Server not found in Kerberos database".into()));
-        assert!(matches!(&e, Error::AuthFailed(m) if m.contains("MSSQLSvc")), "{e:?}");
+        assert!(
+            matches!(&e, Error::AuthFailed(m) if m.contains("no hay un ticket de Kerberos vigente") && m.contains("kinit usuario@DOMINIO")),
+            "{e:?}"
+        );
+        let e = connect_error(tiberius::error::Error::Gssapi(
+            "Server not found in Kerberos database".into(),
+        ));
+        assert!(
+            matches!(&e, Error::AuthFailed(m) if m.contains("MSSQLSvc")),
+            "{e:?}"
+        );
     }
 
     #[test]
     fn host_forms() {
-        assert_eq!(parse_host("srv\\SQLEXPRESS", 1433), ("srv", Some("SQLEXPRESS"), 1433));
+        assert_eq!(
+            parse_host("srv\\SQLEXPRESS", 1433),
+            ("srv", Some("SQLEXPRESS"), 1433)
+        );
         assert_eq!(parse_host("srv,14330", 1433), ("srv", None, 14330));
         assert_eq!(parse_host("", 1433), ("localhost", None, 1433));
     }
 
     fn db(name: &str, id: i32, access: Option<i32>) -> DatabaseRow {
-        DatabaseRow { name: name.into(), id, access }
+        DatabaseRow {
+            name: name.into(),
+            id,
+            access,
+        }
     }
 
     #[test]
@@ -1529,8 +1954,17 @@ mod tests {
             assert!(!database_scoped(Variant::SqlServer, edition), "{edition}");
         }
         // Sorted by name, as the query returns them.
-        let rows = vec![db("master", 1, Some(1)), db("model", 3, Some(1)), db("sales", 7, Some(1)), db("secret", 6, Some(0)), db("tempdb", 2, Some(1))];
-        assert_eq!(visible_databases(rows, false), ["sales", "master", "model", "tempdb"]);
+        let rows = vec![
+            db("master", 1, Some(1)),
+            db("model", 3, Some(1)),
+            db("sales", 7, Some(1)),
+            db("secret", 6, Some(0)),
+            db("tempdb", 2, Some(1)),
+        ];
+        assert_eq!(
+            visible_databases(rows, false),
+            ["sales", "master", "model", "tempdb"]
+        );
     }
 
     #[test]
@@ -1542,8 +1976,16 @@ mod tests {
                 assert!(database_scoped(v, edition), "{v:?} {edition}");
             }
         }
-        let rows = vec![db("app", 3, Some(0)), db("Hyper", 4, None), db("master", 1, Some(1)), db("reports", 5, None)];
-        assert_eq!(visible_databases(rows, true), ["app", "Hyper", "reports", "master"]);
+        let rows = vec![
+            db("app", 3, Some(0)),
+            db("Hyper", 4, None),
+            db("master", 1, Some(1)),
+            db("reports", 5, None),
+        ];
+        assert_eq!(
+            visible_databases(rows, true),
+            ["app", "Hyper", "reports", "master"]
+        );
     }
 
     #[test]
@@ -1554,7 +1996,10 @@ mod tests {
 
     #[test]
     fn browse_uses_top_and_brackets() {
-        let s = SqlServerDriver { info: variant::info(Variant::SqlServer), variant: Variant::SqlServer };
+        let s = SqlServerDriver {
+            info: variant::info(Variant::SqlServer),
+            variant: Variant::SqlServer,
+        };
         assert_eq!(s.info().default_port, 1433);
         let q = select_top(Quote::Bracket, Limit::Top, Some("dbo"), "t", 5);
         assert_eq!(q, "SELECT TOP (5) *\nFROM [dbo].[t]");

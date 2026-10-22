@@ -11,7 +11,9 @@ use serde_json::json;
 
 fn config() -> ConnectionConfig {
     let url = std::env::var("DBINE_TEST_HANA_URL").expect("DBINE_TEST_HANA_URL");
-    let rest = url.strip_prefix("hana://").expect("hana://user:pass@host:port");
+    let rest = url
+        .strip_prefix("hana://")
+        .expect("hana://user:pass@host:port");
     let (rest, tls) = match rest.split_once('?') {
         Some((r, q)) => (r, q.contains("tls")),
         None => (rest, false),
@@ -38,8 +40,12 @@ async fn round_trip() {
     assert!(s.server_version().await.unwrap().starts_with("SAP HANA"));
     assert!(!s.list_databases().await.unwrap().is_empty());
 
-    let _ = s.execute("DROP TABLE DBINE_T", 10, &mut QueryOutcome::default()).await;
-    let _ = s.execute("DROP PROCEDURE DBINE_P", 10, &mut QueryOutcome::default()).await;
+    let _ = s
+        .execute("DROP TABLE DBINE_T", 10, &mut QueryOutcome::default())
+        .await;
+    let _ = s
+        .execute("DROP PROCEDURE DBINE_P", 10, &mut QueryOutcome::default())
+        .await;
     let mut out = QueryOutcome::default();
     s.execute(
         "CREATE COLUMN TABLE DBINE_T (ID INTEGER PRIMARY KEY, NAME NVARCHAR(20), AMOUNT DECIMAL(10,2), TS TIMESTAMP);
@@ -53,24 +59,49 @@ async fn round_trip() {
     .expect("script");
 
     let objs = s.list_objects().await.unwrap();
-    assert!(objs.iter().any(|o| o.kind == "table" && o.name == "DBINE_T"));
-    assert!(objs.iter().any(|o| o.kind == "procedure" && o.name == "DBINE_P"));
-    let t = ObjectRef { kind: "table".into(), schema: None, name: "DBINE_T".into() };
+    assert!(objs
+        .iter()
+        .any(|o| o.kind == "table" && o.name == "DBINE_T"));
+    assert!(objs
+        .iter()
+        .any(|o| o.kind == "procedure" && o.name == "DBINE_P"));
+    let t = ObjectRef {
+        kind: "table".into(),
+        schema: None,
+        name: "DBINE_T".into(),
+    };
     let cols = s.columns(&t).await.unwrap();
     assert!(cols[0].primary_key);
     assert_eq!(cols[2].data_type, "DECIMAL(10,2)");
 
     let mut out = QueryOutcome::default();
-    s.execute(&s.browse_query(&t, 10), 10, &mut out).await.unwrap();
+    s.execute(&s.browse_query(&t, 10), 10, &mut out)
+        .await
+        .unwrap();
     let row = &out.results[0].rows[0];
     assert_eq!(row[1], json!("uno;dos"));
     assert_eq!(row[2], json!("12.50"));
     assert_eq!(row[3], json!("2024-01-31 13:45:00.123"));
 
-    let p = ObjectRef { kind: "procedure".into(), schema: None, name: "DBINE_P".into() };
-    assert!(s.definition(&p).await.unwrap().unwrap().contains("CREATE PROCEDURE"));
+    let p = ObjectRef {
+        kind: "procedure".into(),
+        schema: None,
+        name: "DBINE_P".into(),
+    };
+    assert!(s
+        .definition(&p)
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("CREATE PROCEDURE"));
 
-    let _ = s.execute("DROP PROCEDURE DBINE_P; DROP TABLE DBINE_T", 10, &mut QueryOutcome::default()).await;
+    let _ = s
+        .execute(
+            "DROP PROCEDURE DBINE_P; DROP TABLE DBINE_T",
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await;
 }
 
 const DDL_TABLES: [&str; 3] = ["DBINE_CUSTOMERS", "DBINE_ORDERS", "DBINE_LINES"];
@@ -97,7 +128,9 @@ async fn schema_ddl_round_trip() {
     let driver = dbine_driver_hana::drivers().remove(0);
     let mut s = driver.connect(&config(), None).await.expect("connect");
     for t in DDL_TABLES.iter().rev() {
-        let _ = s.execute(&format!("DROP TABLE {t}"), 10, &mut QueryOutcome::default()).await;
+        let _ = s
+            .execute(&format!("DROP TABLE {t}"), 10, &mut QueryOutcome::default())
+            .await;
     }
     run(
         &mut s,
@@ -126,44 +159,115 @@ async fn schema_ddl_round_trip() {
     .await;
 
     let schema = ours(s.database_schema().await.unwrap());
-    assert_eq!(schema.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["DBINE_CUSTOMERS", "DBINE_LINES", "DBINE_ORDERS"]);
+    assert_eq!(
+        schema.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+        ["DBINE_CUSTOMERS", "DBINE_LINES", "DBINE_ORDERS"]
+    );
     let (cust, lines, orders) = (&schema[0], &schema[1], &schema[2]);
     assert_eq!(cust.comment.as_deref(), Some("Clientes"));
     assert_eq!(cust.columns[1].comment.as_deref(), Some("Correo"));
     assert!(cust.columns[0].auto_increment);
     assert_eq!(cust.columns[2].default_value.as_deref(), Some("'anon'"));
-    assert!(cust.indexes.iter().any(|i| i.name == "UQ_CUSTOMERS_EMAIL" && i.unique), "{:?}", cust.indexes);
+    assert!(
+        cust.indexes
+            .iter()
+            .any(|i| i.name == "UQ_CUSTOMERS_EMAIL" && i.unique),
+        "{:?}",
+        cust.indexes
+    );
     assert_eq!(lines.options.get("store").map(String::as_str), Some("ROW"));
-    assert_eq!(lines.primary_key.as_ref().unwrap().columns, ["ORDER_ID", "LINE_NO"]);
-    assert!(lines.indexes.iter().any(|i| i.name == "UX_LINES_QTY" && i.unique && i.columns == ["QTY", "LINE_NO"]));
-    assert!(orders.indexes.iter().any(|i| i.name == "IX_ORDERS_CREATED" && !i.unique));
+    assert_eq!(
+        lines.primary_key.as_ref().unwrap().columns,
+        ["ORDER_ID", "LINE_NO"]
+    );
+    assert!(lines
+        .indexes
+        .iter()
+        .any(|i| i.name == "UX_LINES_QTY" && i.unique && i.columns == ["QTY", "LINE_NO"]));
+    assert!(orders
+        .indexes
+        .iter()
+        .any(|i| i.name == "IX_ORDERS_CREATED" && !i.unique));
     assert_eq!(lines.foreign_keys[0].on_delete.as_deref(), Some("CASCADE"));
-    assert_eq!(orders.foreign_keys[0].on_delete.as_deref(), Some("SET NULL"));
+    assert_eq!(
+        orders.foreign_keys[0].on_delete.as_deref(),
+        Some("SET NULL")
+    );
     assert_eq!(orders.foreign_keys[0].ref_table, "DBINE_CUSTOMERS");
 
     // Round trip into a new schema.
     let _ = s.drop_database("DBINE_RT").await;
     s.create_database("DBINE_RT").await.expect("create schema");
-    let mut r = driver.connect(&config(), Some("DBINE_RT")).await.expect("connect to the new schema");
+    let mut r = driver
+        .connect(&config(), Some("DBINE_RT"))
+        .await
+        .expect("connect to the new schema");
     let mut script = String::new();
     for t in &schema {
-        script += &driver.table_ddl(t, dbine_driver::DdlParts { create: true, ..Default::default() }).unwrap();
+        script += &driver
+            .table_ddl(
+                t,
+                dbine_driver::DdlParts {
+                    create: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         script.push('\n');
     }
     for t in &schema {
-        script += &driver.table_ddl(t, dbine_driver::DdlParts { indexes: true, foreign_keys: true, ..Default::default() }).unwrap();
+        script += &driver
+            .table_ddl(
+                t,
+                dbine_driver::DdlParts {
+                    indexes: true,
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         script.push('\n');
     }
     run(&mut r, &script).await;
     assert_eq!(ours(r.database_schema().await.unwrap()), schema, "{script}");
-    let guarded = driver.table_ddl(&schema[1], dbine_driver::DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true }).unwrap();
+    let guarded = driver
+        .table_ddl(
+            &schema[1],
+            dbine_driver::DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                indexes: true,
+                foreign_keys: true,
+            },
+        )
+        .unwrap();
     run(&mut r, &guarded).await;
 
     let cols: Vec<String> = ["ID", "EMAIL", "NAME"].map(String::from).to_vec();
-    let rows = vec![vec![json!(1), json!("ana@x"), json!("Ana")], vec![json!(2), json!("o'brien@x"), json!("O'Brien")]];
-    let ins = driver.insert_script(&ObjectRef { kind: "table".into(), schema: None, name: "DBINE_CUSTOMERS".into() }, &cols, &rows).unwrap();
+    let rows = vec![
+        vec![json!(1), json!("ana@x"), json!("Ana")],
+        vec![json!(2), json!("o'brien@x"), json!("O'Brien")],
+    ];
+    let ins = driver
+        .insert_script(
+            &ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: "DBINE_CUSTOMERS".into(),
+            },
+            &cols,
+            &rows,
+        )
+        .unwrap();
     let out = run(&mut r, &ins).await;
-    assert_eq!(out.results.iter().filter_map(|x| x.rows_affected).sum::<u64>(), 2);
+    assert_eq!(
+        out.results
+            .iter()
+            .filter_map(|x| x.rows_affected)
+            .sum::<u64>(),
+        2
+    );
 
     let e = r.drop_database("DBINE_RT").await.unwrap_err();
     assert!(e.to_string().contains("conexión actual"), "{e}");
@@ -188,11 +292,19 @@ async fn monitor() {
         println!("tabla {} ({} filas)", t.key, t.rows.len());
     }
     println!("info: {:?}\nnotas: {:?}", snap.info, snap.notes);
-    let value = |k: &str| snap.metrics.iter().find(|m| m.key == k).and_then(|m| m.value);
+    let value = |k: &str| {
+        snap.metrics
+            .iter()
+            .find(|m| m.key == k)
+            .and_then(|m| m.value)
+    };
     assert!(value("uptime").is_some_and(|v| v > 0.0));
     assert!(value("connections").is_some_and(|v| v >= 1.0));
     assert!(value("mem_used").is_some_and(|v| v > 0.0));
-    assert!(snap.tables.iter().any(|t| t.key == "sessions" && !t.rows.is_empty()));
+    assert!(snap
+        .tables
+        .iter()
+        .any(|t| t.key == "sessions" && !t.rows.is_empty()));
 }
 
 /// The profiler: one session profiles its schema while another runs a slow
@@ -206,9 +318,14 @@ async fn profiler() {
     let mut p = driver.connect(&config(), None).await.expect("connect");
     let mut w = driver.connect(&config(), None).await.expect("connect");
     let mut out = QueryOutcome::default();
-    w.execute("SELECT CURRENT_SCHEMA FROM DUMMY", 10, &mut out).await.unwrap();
+    w.execute("SELECT CURRENT_SCHEMA FROM DUMMY", 10, &mut out)
+        .await
+        .unwrap();
     let schema = out.results[0].rows[0][0].as_str().unwrap().to_string();
-    let opts = dbine_driver::ProfilerOptions { database: schema, change_server: true };
+    let opts = dbine_driver::ProfilerOptions {
+        database: schema,
+        change_server: true,
+    };
     let started = p.profiler_start(&opts).await.expect("profiler_start");
     eprintln!("{started:?}");
     let complete = started.mode == dbine_driver::ProfilerMode::Complete;
@@ -217,17 +334,24 @@ async fn profiler() {
     let fast = format!("SELECT 1 AS {marker}_fast FROM DUMMY");
     let work = async {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        w.execute(&slow, 10, &mut QueryOutcome::default()).await.expect("slow");
+        w.execute(&slow, 10, &mut QueryOutcome::default())
+            .await
+            .expect("slow");
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        w.execute(&fast, 10, &mut QueryOutcome::default()).await.expect("fast");
+        w.execute(&fast, 10, &mut QueryOutcome::default())
+            .await
+            .expect("fast");
         tokio::time::sleep(std::time::Duration::from_millis(600)).await;
     };
     let watch = async {
         let mut got = Vec::new();
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(if complete { 10 } else { 4 });
+        let until = std::time::Instant::now()
+            + std::time::Duration::from_secs(if complete { 10 } else { 4 });
         while std::time::Instant::now() < until {
             got.extend(p.profiler_poll().await.expect("profiler_poll"));
-            if got.iter().filter(|s| s.text.contains(&marker)).count() >= if complete { 2 } else { 1 } {
+            if got.iter().filter(|s| s.text.contains(&marker)).count()
+                >= if complete { 2 } else { 1 }
+            {
                 break;
             }
             if complete {
@@ -242,11 +366,22 @@ async fn profiler() {
     eprintln!("{mine:#?}");
     let slow_seen: Vec<_> = mine.iter().filter(|s| s.text.contains("_slow")).collect();
     assert_eq!(slow_seen.len(), 1, "the slow statement once");
-    assert!(slow_seen[0].duration_ms.unwrap_or(0.0) >= 300.0, "duration {:?}", slow_seen[0].duration_ms);
+    assert!(
+        slow_seen[0].duration_ms.unwrap_or(0.0) >= 300.0,
+        "duration {:?}",
+        slow_seen[0].duration_ms
+    );
     if complete {
-        assert_eq!(mine.iter().filter(|s| s.text.contains("_fast")).count(), 1, "the fast statement once");
+        assert_eq!(
+            mine.iter().filter(|s| s.text.contains("_fast")).count(),
+            1,
+            "the fast statement once"
+        );
     }
-    assert!(got.iter().all(|s| !s.text.contains("M_EXPENSIVE_STATEMENTS") && !s.text.contains("M_ACTIVE_STATEMENTS")));
+    assert!(got
+        .iter()
+        .all(|s| !s.text.contains("M_EXPENSIVE_STATEMENTS")
+            && !s.text.contains("M_ACTIVE_STATEMENTS")));
 }
 
 /// The editor's script contract: errors with code, SQLSTATE and position in
@@ -256,11 +391,23 @@ async fn profiler() {
 async fn script_errors_and_transactions() {
     let driver = dbine_driver_hana::drivers().remove(0);
     let mut s = driver.connect(&config(), None).await.expect("connect");
-    let _ = s.execute("DROP TABLE DBINE_TX", 10, &mut QueryOutcome::default()).await;
-    s.execute("CREATE COLUMN TABLE DBINE_TX (ID INTEGER PRIMARY KEY)", 10, &mut QueryOutcome::default()).await.unwrap();
+    let _ = s
+        .execute("DROP TABLE DBINE_TX", 10, &mut QueryOutcome::default())
+        .await;
+    s.execute(
+        "CREATE COLUMN TABLE DBINE_TX (ID INTEGER PRIMARY KEY)",
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
     let script = "SELECT 1 FROM DUMMY;\nSELECT 2 FROM\n  NOPE_NOPE;";
     let mut out = QueryOutcome::default();
-    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
+    let e = s
+        .execute(script, 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
     eprintln!("{e:?}");
     assert_eq!(e.code.as_deref(), Some("259"), "{e:?}");
     assert_eq!(e.line, Some(3));
@@ -268,15 +415,37 @@ async fn script_errors_and_transactions() {
     assert_eq!(out.results.len(), 1);
 
     s.set_autocommit(false).await.unwrap();
-    s.execute("INSERT INTO DBINE_TX VALUES (1)", 10, &mut QueryOutcome::default()).await.unwrap();
-    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    s.execute(
+        "INSERT INTO DBINE_TX VALUES (1)",
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(dbine_driver::TxState::Open)
+    );
     s.rollback().await.unwrap();
-    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
-    s.execute("INSERT INTO DBINE_TX VALUES (2)", 10, &mut QueryOutcome::default()).await.unwrap();
+    assert_eq!(
+        s.transaction_state().await.unwrap(),
+        Some(dbine_driver::TxState::Idle)
+    );
+    s.execute(
+        "INSERT INTO DBINE_TX VALUES (2)",
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
     s.commit().await.unwrap();
     s.set_autocommit(true).await.unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("SELECT COUNT(*) FROM DBINE_TX", 10, &mut out).await.unwrap();
+    s.execute("SELECT COUNT(*) FROM DBINE_TX", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows[0][0], json!(1));
-    s.execute("DROP TABLE DBINE_TX", 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute("DROP TABLE DBINE_TX", 10, &mut QueryOutcome::default())
+        .await
+        .unwrap();
 }

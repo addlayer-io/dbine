@@ -49,7 +49,11 @@ pub(crate) fn num_rows(t: &Json) -> Option<u64> {
 }
 
 fn description(v: &Json) -> Option<String> {
-    v.get("description").and_then(Json::as_str).map(str::trim).filter(|d| !d.is_empty()).map(str::to_string)
+    v.get("description")
+        .and_then(Json::as_str)
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(str::to_string)
 }
 
 /// Each `(collection, id)` read with `<collection>.get`, [`PARALLEL`] at a
@@ -73,16 +77,27 @@ async fn get_each(api: &Api, ds: &str, collection: &'static str, ids: Vec<String
 
 /// The ids of the session dataset's tables of `kinds`.
 async fn tables_of(api: &Api, ds: &str, want: &[&str]) -> Vec<String> {
-    let list = api.list_all(&["datasets", ds, "tables"], "tables").await.unwrap_or_default();
+    let list = api
+        .list_all(&["datasets", ds, "tables"], "tables")
+        .await
+        .unwrap_or_default();
     list.iter()
         .filter(|t| want.contains(&table_kind(t)))
-        .filter_map(|t| t.pointer("/tableReference/tableId").and_then(Json::as_str).map(str::to_string))
+        .filter_map(|t| {
+            t.pointer("/tableReference/tableId")
+                .and_then(Json::as_str)
+                .map(str::to_string)
+        })
         .take(MAX_OBJECTS)
         .collect()
 }
 
 fn table_ref(kind: &str, t: &Json) -> Option<ObjectRef> {
-    Some(ObjectRef { kind: kind.into(), schema: None, name: t.pointer("/tableReference/tableId")?.as_str()?.to_string() })
+    Some(ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: t.pointer("/tableReference/tableId")?.as_str()?.to_string(),
+    })
 }
 
 pub(crate) fn estimate(t: &Json) -> Option<RowEstimate> {
@@ -90,7 +105,10 @@ pub(crate) fn estimate(t: &Json) -> Option<RowEstimate> {
     if kind == kinds::VIEW {
         return None;
     }
-    Some(RowEstimate { object: table_ref(kind, t)?, rows: num_rows(t)? })
+    Some(RowEstimate {
+        object: table_ref(kind, t)?,
+        rows: num_rows(t)?,
+    })
 }
 
 pub(crate) fn table_comment(t: &Json) -> Option<ObjectComment> {
@@ -98,12 +116,25 @@ pub(crate) fn table_comment(t: &Json) -> Option<ObjectComment> {
     if kind == kinds::TABLE {
         return None;
     }
-    Some(ObjectComment { object: table_ref(kind, t)?, comment: description(t)? })
+    Some(ObjectComment {
+        object: table_ref(kind, t)?,
+        comment: description(t)?,
+    })
 }
 
 pub(crate) fn routine_comment(r: &Json) -> Option<ObjectComment> {
-    let name = r.pointer("/routineReference/routineId")?.as_str()?.to_string();
-    Some(ObjectComment { object: ObjectRef { kind: routine_kind(r).into(), schema: None, name }, comment: description(r)? })
+    let name = r
+        .pointer("/routineReference/routineId")?
+        .as_str()?
+        .to_string();
+    Some(ObjectComment {
+        object: ObjectRef {
+            kind: routine_kind(r).into(),
+            schema: None,
+            name,
+        },
+        comment: description(r)?,
+    })
 }
 
 fn sorted<T>(mut v: Vec<T>, key: impl Fn(&T) -> &ObjectRef) -> Vec<T> {
@@ -112,24 +143,47 @@ fn sorted<T>(mut v: Vec<T>, key: impl Fn(&T) -> &ObjectRef) -> Vec<T> {
 }
 
 pub(crate) async fn row_estimates(s: &BigQuerySession) -> Result<Vec<RowEstimate>> {
-    let Some(ds) = s.dataset.clone() else { return Ok(Vec::new()) };
+    let Some(ds) = s.dataset.clone() else {
+        return Ok(Vec::new());
+    };
     let ids = tables_of(&s.api, &ds, &[kinds::TABLE, kinds::MATERIALIZED_VIEW]).await;
     let tables = get_each(&s.api, &ds, "tables", ids).await;
-    Ok(sorted(tables.iter().filter_map(estimate).collect(), |e| &e.object))
+    Ok(sorted(tables.iter().filter_map(estimate).collect(), |e| {
+        &e.object
+    }))
 }
 
 pub(crate) async fn object_comments(s: &BigQuerySession) -> Result<Vec<ObjectComment>> {
-    let Some(ds) = s.dataset.clone() else { return Ok(Vec::new()) };
+    let Some(ds) = s.dataset.clone() else {
+        return Ok(Vec::new());
+    };
     let ids = tables_of(&s.api, &ds, &[kinds::VIEW, kinds::MATERIALIZED_VIEW]).await;
-    let mut out: Vec<ObjectComment> = get_each(&s.api, &ds, "tables", ids).await.iter().filter_map(table_comment).collect();
+    let mut out: Vec<ObjectComment> = get_each(&s.api, &ds, "tables", ids)
+        .await
+        .iter()
+        .filter_map(table_comment)
+        .collect();
     // Emulators may not implement routines.
-    if let Ok(list) = s.api.list_all(&["datasets", &ds, "routines"], "routines").await {
+    if let Ok(list) = s
+        .api
+        .list_all(&["datasets", &ds, "routines"], "routines")
+        .await
+    {
         let ids: Vec<String> = list
             .iter()
-            .filter_map(|r| r.pointer("/routineReference/routineId").and_then(Json::as_str).map(str::to_string))
+            .filter_map(|r| {
+                r.pointer("/routineReference/routineId")
+                    .and_then(Json::as_str)
+                    .map(str::to_string)
+            })
             .take(MAX_OBJECTS)
             .collect();
-        out.extend(get_each(&s.api, &ds, "routines", ids).await.iter().filter_map(routine_comment));
+        out.extend(
+            get_each(&s.api, &ds, "routines", ids)
+                .await
+                .iter()
+                .filter_map(routine_comment),
+        );
     }
     Ok(sorted(out, |c| &c.object))
 }
@@ -141,23 +195,41 @@ mod tests {
 
     #[test]
     fn rows_of_tables_and_materialized_views() {
-        let t = json!({"type": "TABLE", "tableReference": {"tableId": "ventas"}, "numRows": "1200"});
+        let t =
+            json!({"type": "TABLE", "tableReference": {"tableId": "ventas"}, "numRows": "1200"});
         let e = estimate(&t).unwrap();
-        assert_eq!((e.object.kind.as_str(), e.object.name.as_str(), e.rows), ("table", "ventas", 1200));
+        assert_eq!(
+            (e.object.kind.as_str(), e.object.name.as_str(), e.rows),
+            ("table", "ventas", 1200)
+        );
         let mv = json!({"type": "MATERIALIZED_VIEW", "tableReference": {"tableId": "mv"}, "numRows": "3"});
         assert_eq!(estimate(&mv).unwrap().object.kind, kinds::MATERIALIZED_VIEW);
-        assert!(estimate(&json!({"type": "VIEW", "tableReference": {"tableId": "v"}, "numRows": "0"})).is_none());
-        assert!(estimate(&json!({"type": "EXTERNAL", "tableReference": {"tableId": "x"}})).is_none());
+        assert!(estimate(
+            &json!({"type": "VIEW", "tableReference": {"tableId": "v"}, "numRows": "0"})
+        )
+        .is_none());
+        assert!(
+            estimate(&json!({"type": "EXTERNAL", "tableReference": {"tableId": "x"}})).is_none()
+        );
     }
 
     #[test]
     fn descriptions() {
         let v = json!({"type": "VIEW", "tableReference": {"tableId": "v"}, "description": "ventas por día"});
         assert_eq!(table_comment(&v).unwrap().comment, "ventas por día");
-        assert!(table_comment(&json!({"type": "TABLE", "tableReference": {"tableId": "t"}, "description": "x"})).is_none());
-        assert!(table_comment(&json!({"type": "VIEW", "tableReference": {"tableId": "v"}, "description": " "})).is_none());
+        assert!(table_comment(
+            &json!({"type": "TABLE", "tableReference": {"tableId": "t"}, "description": "x"})
+        )
+        .is_none());
+        assert!(table_comment(
+            &json!({"type": "VIEW", "tableReference": {"tableId": "v"}, "description": " "})
+        )
+        .is_none());
         let r = json!({"routineReference": {"routineId": "p"}, "routineType": "PROCEDURE", "description": "carga"});
         let c = routine_comment(&r).unwrap();
-        assert_eq!((c.object.kind.as_str(), c.object.name.as_str()), ("procedure", "p"));
+        assert_eq!(
+            (c.object.kind.as_str(), c.object.name.as_str()),
+            ("procedure", "p")
+        );
     }
 }

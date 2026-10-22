@@ -54,18 +54,38 @@ pub(crate) fn stream_indices(ds: &J) -> Vec<(String, Vec<String>)> {
 }
 
 pub(crate) async fn row_estimates(s: &EsSession) -> Result<Vec<RowEstimate>> {
-    let cat = s.get_json("/_cat/indices?format=json&expand_wildcards=all&h=index,docs.count&s=index").await?;
+    let cat = s
+        .get_json("/_cat/indices?format=json&expand_wildcards=all&h=index,docs.count&s=index")
+        .await?;
     let counts = doc_counts(&cat);
-    let obj = |kind: &str, name: &str| ObjectRef { kind: kind.into(), schema: None, name: name.into() };
+    let obj = |kind: &str, name: &str| ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: name.into(),
+    };
     let mut names: Vec<&String> = counts.keys().filter(|n| s.visible(n)).collect();
     names.sort();
-    let mut out: Vec<RowEstimate> =
-        names.into_iter().map(|n| RowEstimate { object: obj(kinds::INDEX, n), rows: counts[n] }).collect();
+    let mut out: Vec<RowEstimate> = names
+        .into_iter()
+        .map(|n| RowEstimate {
+            object: obj(kinds::INDEX, n),
+            rows: counts[n],
+        })
+        .collect();
     if let Ok(ds) = s.get_json("/_data_stream").await {
-        for (name, indices) in stream_indices(&ds).into_iter().filter(|(n, _)| s.visible(n)) {
-            let known: Vec<u64> = indices.iter().filter_map(|i| counts.get(i).copied()).collect();
+        for (name, indices) in stream_indices(&ds)
+            .into_iter()
+            .filter(|(n, _)| s.visible(n))
+        {
+            let known: Vec<u64> = indices
+                .iter()
+                .filter_map(|i| counts.get(i).copied())
+                .collect();
             if !known.is_empty() {
-                out.push(RowEstimate { object: obj(kinds::STREAM, &name), rows: known.iter().sum() });
+                out.push(RowEstimate {
+                    object: obj(kinds::STREAM, &name),
+                    rows: known.iter().sum(),
+                });
             }
         }
     }
@@ -91,6 +111,12 @@ mod tests {
             r#"{"data_streams":[{"name":"logs-app","indices":[{"index_name":".ds-logs-app-1"},{"index_name":".ds-logs-app-2"}]}]}"#,
         )
         .unwrap();
-        assert_eq!(stream_indices(&ds), vec![("logs-app".to_string(), vec![".ds-logs-app-1".to_string(), ".ds-logs-app-2".to_string()])]);
+        assert_eq!(
+            stream_indices(&ds),
+            vec![(
+                "logs-app".to_string(),
+                vec![".ds-logs-app-1".to_string(), ".ds-logs-app-2".to_string()]
+            )]
+        );
     }
 }

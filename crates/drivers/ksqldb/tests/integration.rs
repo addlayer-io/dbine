@@ -18,7 +18,9 @@
 //! ```
 
 use dbine_driver::read_only::ReadOnlySession;
-use dbine_driver::{kinds, ConnectionConfig, DdlParts, Error, ObjectRef, QueryOutcome, Session, TableSchema};
+use dbine_driver::{
+    kinds, ConnectionConfig, DdlParts, Error, ObjectRef, QueryOutcome, Session, TableSchema,
+};
 use std::time::{Duration, Instant};
 
 fn cfg() -> Option<ConnectionConfig> {
@@ -34,7 +36,11 @@ fn cfg() -> Option<ConnectionConfig> {
 }
 
 fn obj(kind: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: None, name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: name.into(),
+    }
 }
 
 #[tokio::test]
@@ -44,7 +50,10 @@ async fn ksqldb() {
     let d = dbine_driver_ksqldb::drivers().remove(0);
     let mut s = d.connect(&c, None).await.unwrap();
     assert!(s.server_version().await.unwrap().starts_with("ksqlDB 7"));
-    assert_eq!(s.list_databases().await.unwrap(), vec!["default".to_string()]);
+    assert_eq!(
+        s.list_databases().await.unwrap(),
+        vec!["default".to_string()]
+    );
 
     let mut out = QueryOutcome::default();
     s.execute(
@@ -68,17 +77,36 @@ async fn ksqldb() {
     .await
     .unwrap();
     assert_eq!(out.results[1].rows_affected, Some(1));
-    assert!(out.messages.iter().any(|m| m.contains("Stream created")), "{:?}", out.messages);
+    assert!(
+        out.messages.iter().any(|m| m.contains("Stream created")),
+        "{:?}",
+        out.messages
+    );
 
     let objs = s.list_objects().await.unwrap();
     let has = |k: &str, n: &str| objs.iter().any(|o| o.kind == k && o.name == n);
-    assert!(has(kinds::STREAM, "DBINE_S") && has(kinds::TABLE, "DBINE_T") && has(kinds::TOPIC, "dbine_s"), "{objs:?}");
+    assert!(
+        has(kinds::STREAM, "DBINE_S")
+            && has(kinds::TABLE, "DBINE_T")
+            && has(kinds::TOPIC, "dbine_s"),
+        "{objs:?}"
+    );
     assert!(!objs.iter().any(|o| o.name == "KSQL_PROCESSING_LOG"));
 
     let cols = s.columns(&obj(kinds::STREAM, "DBINE_S")).await.unwrap();
-    assert_eq!(cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["ID", "NAME", "TAGS"]);
-    assert!(cols[0].primary_key && cols[2].data_type == "ARRAY<STRING>", "{cols:?}");
-    let def = s.definition(&obj(kinds::STREAM, "DBINE_S")).await.unwrap().unwrap();
+    assert_eq!(
+        cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["ID", "NAME", "TAGS"]
+    );
+    assert!(
+        cols[0].primary_key && cols[2].data_type == "ARRAY<STRING>",
+        "{cols:?}"
+    );
+    let def = s
+        .definition(&obj(kinds::STREAM, "DBINE_S"))
+        .await
+        .unwrap()
+        .unwrap();
     assert!(def.starts_with("CREATE STREAM"), "{def}");
 
     // Push query through browse: stops at max_rows.
@@ -94,15 +122,23 @@ async fn ksqldb() {
 
     // Push query with fewer rows than the limit: the time cap ends it.
     let mut out = QueryOutcome::default();
-    s.execute("SELECT * FROM DBINE_S EMIT CHANGES", 100, &mut out).await.unwrap();
+    s.execute("SELECT * FROM DBINE_S EMIT CHANGES", 100, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows.len(), 3);
-    assert!(out.messages.iter().any(|m| m.contains("se detuvo")), "{:?}", out.messages);
+    assert!(
+        out.messages.iter().any(|m| m.contains("se detuvo")),
+        "{:?}",
+        out.messages
+    );
 
     // Pull query on the materialized table (may take a moment to fill).
     let mut rows = 0;
     for _ in 0..20 {
         let mut out = QueryOutcome::default();
-        s.execute("SELECT * FROM DBINE_T;", 100, &mut out).await.unwrap();
+        s.execute("SELECT * FROM DBINE_T;", 100, &mut out)
+            .await
+            .unwrap();
         rows = out.results[0].rows.len();
         if rows == 3 {
             break;
@@ -119,15 +155,35 @@ async fn ksqldb() {
 
     // SHOW / DESCRIBE come back as tables; SET is kept client-side.
     let mut out = QueryOutcome::default();
-    s.execute("SET 'auto.offset.reset' = 'latest'; SHOW STREAMS; DESCRIBE DBINE_S;", 100, &mut out).await.unwrap();
-    assert!(out.results[1].rows.iter().any(|r| r[0] == serde_json::json!("DBINE_S")));
+    s.execute(
+        "SET 'auto.offset.reset' = 'latest'; SHOW STREAMS; DESCRIBE DBINE_S;",
+        100,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    assert!(out.results[1]
+        .rows
+        .iter()
+        .any(|r| r[0] == serde_json::json!("DBINE_S")));
     assert_eq!(out.results[2].rows.len(), 3);
 
     // Error mid-script.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SHOW TOPICS; SELECT * FROM NOPE; SHOW STREAMS", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute(
+            "SHOW TOPICS; SELECT * FROM NOPE; SHOW STREAMS",
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
     assert!(e.is_query(), "{e:?}");
-    assert_eq!(e.to_script_error().offset, Some(13), "the failing statement's place");
+    assert_eq!(
+        e.to_script_error().offset,
+        Some(13),
+        "the failing statement's place"
+    );
     assert_eq!(out.results.len(), 1);
 
     // Cancel a push query that would wait forever for new events.
@@ -141,18 +197,33 @@ async fn ksqldb() {
     });
     let t = Instant::now();
     let mut out = QueryOutcome::default();
-    let r = s2.execute("SET 'auto.offset.reset' = 'latest'; SELECT * FROM DBINE_S EMIT CHANGES;", 100, &mut out).await;
+    let r = s2
+        .execute(
+            "SET 'auto.offset.reset' = 'latest'; SELECT * FROM DBINE_S EMIT CHANGES;",
+            100,
+            &mut out,
+        )
+        .await;
     assert!(matches!(r, Err(Error::Cancelled)), "{r:?}");
     assert!(t.elapsed() < Duration::from_secs(10));
 
     // Read-only (the registry wraps SQL sessions).
     let mut ro = ReadOnlySession::new(d.connect(&c, None).await.unwrap());
     let mut out = QueryOutcome::default();
-    assert!(ro.execute("DROP STREAM DBINE_S", 10, &mut out).await.is_err());
+    assert!(ro
+        .execute("DROP STREAM DBINE_S", 10, &mut out)
+        .await
+        .is_err());
     ro.execute("SHOW STREAMS", 10, &mut out).await.unwrap();
 
     let mut out = QueryOutcome::default();
-    s.execute("DROP TABLE DBINE_T DELETE TOPIC; DROP STREAM DBINE_S DELETE TOPIC;", 10, &mut out).await.unwrap();
+    s.execute(
+        "DROP TABLE DBINE_T DELETE TOPIC; DROP STREAM DBINE_S DELETE TOPIC;",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -174,7 +245,14 @@ async fn plans() {
     let csas = "CREATE STREAM DBINE_P2 AS SELECT ID, UCASE(NAME) AS N FROM DBINE_P WHERE ID > 1 EMIT CHANGES";
 
     let mut out = QueryOutcome::default();
-    s.explain(&format!("SELECT * FROM DBINE_P EMIT CHANGES; {csas}"), false, 10, &mut out).await.unwrap();
+    s.explain(
+        &format!("SELECT * FROM DBINE_P EMIT CHANGES; {csas}"),
+        false,
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert!(out.results.is_empty(), "nothing ran");
     assert_eq!(out.plans.len(), 2, "{:?}", out.messages);
     let p = &out.plans[1];
@@ -184,7 +262,10 @@ async fn plans() {
     assert!(!p.root.children.is_empty());
     let mut out = QueryOutcome::default();
     s.execute("SHOW STREAMS", 10, &mut out).await.unwrap();
-    assert!(!format!("{:?}", out.results).contains("DBINE_P2"), "the estimated plan must not create the stream");
+    assert!(
+        !format!("{:?}", out.results).contains("DBINE_P2"),
+        "the estimated plan must not create the stream"
+    );
 
     // Run + plan: the statement runs once.
     let mut out = QueryOutcome::default();
@@ -206,11 +287,18 @@ async fn plans() {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
 }
 
 async fn ours(s: &mut Box<dyn Session>) -> Vec<TableSchema> {
-    s.database_schema().await.unwrap().into_iter().filter(|t| t.name.starts_with("DBINE_DDL")).collect()
+    s.database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.name.starts_with("DBINE_DDL"))
+        .collect()
 }
 
 #[tokio::test]
@@ -232,27 +320,80 @@ async fn schema_and_ddl() {
     .await;
 
     let src = ours(&mut s).await;
-    assert_eq!(src.iter().map(|t| (t.name.as_str(), t.kind.as_str())).collect::<Vec<_>>(), [("DBINE_DDL_S", "stream"), ("DBINE_DDL_T", "table")]);
+    assert_eq!(
+        src.iter()
+            .map(|t| (t.name.as_str(), t.kind.as_str()))
+            .collect::<Vec<_>>(),
+        [("DBINE_DDL_S", "stream"), ("DBINE_DDL_T", "table")]
+    );
     let st = &src[0];
     assert_eq!(st.primary_key.as_ref().unwrap().columns, ["ID"]);
-    assert_eq!(st.columns.iter().map(|c| c.data_type.as_str()).collect::<Vec<_>>(), [
-        "INTEGER", "STRING", "ARRAY<STRING>", "STRUCT<`A` INTEGER, `b` STRING>", "MAP<STRING, INTEGER>", "DECIMAL(10, 2)", "TIMESTAMP"
-    ]);
+    assert_eq!(
+        st.columns
+            .iter()
+            .map(|c| c.data_type.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "INTEGER",
+            "STRING",
+            "ARRAY<STRING>",
+            "STRUCT<`A` INTEGER, `b` STRING>",
+            "MAP<STRING, INTEGER>",
+            "DECIMAL(10, 2)",
+            "TIMESTAMP"
+        ]
+    );
     let o = |t: &TableSchema, k: &str| t.options.get(k).cloned().unwrap_or_default();
-    assert_eq!([o(st, "object"), o(st, "KAFKA_TOPIC"), o(st, "VALUE_FORMAT"), o(st, "KEY_FORMAT"), o(st, "PARTITIONS"), o(st, "TIMESTAMP")],
-        ["STREAM", "dbine_ddl_s", "JSON", "KAFKA", "2", "TS"]);
+    assert_eq!(
+        [
+            o(st, "object"),
+            o(st, "KAFKA_TOPIC"),
+            o(st, "VALUE_FORMAT"),
+            o(st, "KEY_FORMAT"),
+            o(st, "PARTITIONS"),
+            o(st, "TIMESTAMP")
+        ],
+        ["STREAM", "dbine_ddl_s", "JSON", "KAFKA", "2", "TS"]
+    );
     let tb = &src[1];
     assert_eq!(tb.primary_key.as_ref().unwrap().columns, ["ID"]);
-    assert_eq!([o(tb, "object"), o(tb, "KEY_FORMAT"), o(tb, "PARTITIONS")], ["TABLE", "JSON", "1"]);
+    assert_eq!(
+        [o(tb, "object"), o(tb, "KEY_FORMAT"), o(tb, "PARTITIONS")],
+        ["TABLE", "JSON", "1"]
+    );
 
     // Round trip: drop the sources (the topics stay) and create them again from the DDL.
     for t in &src {
-        run(&mut s, &d.table_ddl(t, DdlParts { drop: true, if_exists: true, ..Default::default() }).unwrap()).await;
+        run(
+            &mut s,
+            &d.table_ddl(
+                t,
+                DdlParts {
+                    drop: true,
+                    if_exists: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .await;
     }
     assert!(ours(&mut s).await.is_empty());
     let mut script = Vec::new();
     for t in &src {
-        script.push(d.table_ddl(t, DdlParts { create: true, if_exists: true, indexes: true, foreign_keys: true, ..Default::default() }).unwrap());
+        script.push(
+            d.table_ddl(
+                t,
+                DdlParts {
+                    create: true,
+                    if_exists: true,
+                    indexes: true,
+                    foreign_keys: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
     }
     let script = script.join("\n");
     println!("{script}");
@@ -264,22 +405,52 @@ async fn schema_and_ddl() {
     let ins = d
         .insert_script(
             &target,
-            &["ID".into(), "NAME".into(), "TAGS".into(), "AMT".into(), "TS".into()],
             &[
-                vec![1.into(), "O'Brien".into(), serde_json::json!(["x", "y"]), 1.5.into(), "2024-01-31T10:00:00".into()],
-                vec![2.into(), serde_json::Value::Null, serde_json::Value::Null, 2.into(), "2024-01-31T11:00:00".into()],
+                "ID".into(),
+                "NAME".into(),
+                "TAGS".into(),
+                "AMT".into(),
+                "TS".into(),
+            ],
+            &[
+                vec![
+                    1.into(),
+                    "O'Brien".into(),
+                    serde_json::json!(["x", "y"]),
+                    1.5.into(),
+                    "2024-01-31T10:00:00".into(),
+                ],
+                vec![
+                    2.into(),
+                    serde_json::Value::Null,
+                    serde_json::Value::Null,
+                    2.into(),
+                    "2024-01-31T11:00:00".into(),
+                ],
             ],
         )
         .unwrap();
     println!("{ins}");
     run(&mut s, &ins).await;
     let mut out = QueryOutcome::default();
-    s.execute("SELECT NAME FROM DBINE_DDL_S EMIT CHANGES LIMIT 2;", 10, &mut out).await.unwrap();
+    s.execute(
+        "SELECT NAME FROM DBINE_DDL_S EMIT CHANGES LIMIT 2;",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results[0].rows.len(), 2, "{:?}", out.results);
-    assert!(out.results[0].rows.iter().any(|r| r[0] == serde_json::json!("O'Brien")));
+    assert!(out.results[0]
+        .rows
+        .iter()
+        .any(|r| r[0] == serde_json::json!("O'Brien")));
 
     assert!(!d.capabilities().create_database);
-    assert!(matches!(s.create_database("X").await, Err(Error::Unsupported(_))));
+    assert!(matches!(
+        s.create_database("X").await,
+        Err(Error::Unsupported(_))
+    ));
     run(&mut s, cleanup).await;
 }
 
@@ -304,26 +475,48 @@ async fn monitor() {
     let deadline = Instant::now() + Duration::from_secs(60);
     let snap = loop {
         let snap = s.monitor().await.unwrap();
-        let consumed = snap.metrics.iter().find(|m| m.key == "messages_in").and_then(|m| m.value).unwrap_or(0.0);
+        let consumed = snap
+            .metrics
+            .iter()
+            .find(|m| m.key == "messages_in")
+            .and_then(|m| m.value)
+            .unwrap_or(0.0);
         if consumed > 0.0 || Instant::now() > deadline {
             break snap;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
     };
-    let v = |k: &str| snap.metrics.iter().find(|m| m.key == k).and_then(|m| m.value);
+    let v = |k: &str| {
+        snap.metrics
+            .iter()
+            .find(|m| m.key == k)
+            .and_then(|m| m.value)
+    };
     eprintln!(
         "{:?}\ninfo {:?}\nnotes {:?}\ntables {:?}",
-        snap.metrics.iter().map(|m| (m.key.as_str(), m.value)).collect::<Vec<_>>(),
+        snap.metrics
+            .iter()
+            .map(|m| (m.key.as_str(), m.value))
+            .collect::<Vec<_>>(),
         snap.info,
         snap.notes,
-        snap.tables.iter().map(|t| (t.key.as_str(), t.rows.len())).collect::<Vec<_>>()
+        snap.tables
+            .iter()
+            .map(|t| (t.key.as_str(), t.rows.len()))
+            .collect::<Vec<_>>()
     );
     assert!(v("active_sessions").unwrap() >= 1.0);
     assert!(v("messages_in").unwrap() > 0.0);
     assert!(v("streams").unwrap() >= 1.0 && v("tables").unwrap() >= 1.0);
     let q = snap.tables.iter().find(|t| t.key == "queries").unwrap();
-    assert!(q.rows.iter().any(|r| r[0].as_str().is_some_and(|id| id.contains("MON_T"))));
-    assert!(snap.tables.iter().any(|t| t.key == "sources" && t.rows.iter().any(|r| r[0] == "MON_S")));
+    assert!(q
+        .rows
+        .iter()
+        .any(|r| r[0].as_str().is_some_and(|id| id.contains("MON_T"))));
+    assert!(snap
+        .tables
+        .iter()
+        .any(|t| t.key == "sources" && t.rows.iter().any(|r| r[0] == "MON_S")));
     assert!(snap.info.iter().any(|(k, _)| k == "Versión"));
 }
 
@@ -339,7 +532,13 @@ async fn schema_sync() {
     let mut s = d.connect(&c, None).await.unwrap();
     let mut out = QueryOutcome::default();
     for t in ["SYNC_CLICKS", "SYNC_GONE", "SYNC_FRESH"] {
-        let _ = s.execute(&format!("DROP STREAM IF EXISTS {t} DELETE TOPIC;"), 10, &mut out).await;
+        let _ = s
+            .execute(
+                &format!("DROP STREAM IF EXISTS {t} DELETE TOPIC;"),
+                10,
+                &mut out,
+            )
+            .await;
     }
     s.execute(
         "CREATE STREAM SYNC_CLICKS (ID STRING KEY, URL STRING) WITH (KAFKA_TOPIC='sync_clicks', PARTITIONS=1, VALUE_FORMAT='JSON');
@@ -350,25 +549,61 @@ async fn schema_sync() {
     .await
     .unwrap();
     let schema = s.database_schema().await.unwrap();
-    let old = schema.iter().find(|t| t.name == "SYNC_CLICKS").unwrap().clone();
-    let gone = schema.iter().find(|t| t.name == "SYNC_GONE").unwrap().clone();
+    let old = schema
+        .iter()
+        .find(|t| t.name == "SYNC_CLICKS")
+        .unwrap()
+        .clone();
+    let gone = schema
+        .iter()
+        .find(|t| t.name == "SYNC_GONE")
+        .unwrap()
+        .clone();
     let mut new = old.clone();
-    new.columns.push(ColumnDef { name: "USER_ID".into(), data_type: "BIGINT".into(), nullable: true, ..Default::default() });
+    new.columns.push(ColumnDef {
+        name: "USER_ID".into(),
+        data_type: "BIGINT".into(),
+        nullable: true,
+        ..Default::default()
+    });
     let mut created = old.clone();
     created.name = "SYNC_FRESH".into();
-    created.options.insert("KAFKA_TOPIC".into(), "sync_fresh".into());
-    let script = d.sync_script(&[TableChange::Alter { old, new }, TableChange::Drop { table: gone }, TableChange::Create { table: created }]).unwrap();
+    created
+        .options
+        .insert("KAFKA_TOPIC".into(), "sync_fresh".into());
+    let script = d
+        .sync_script(&[
+            TableChange::Alter { old, new },
+            TableChange::Drop { table: gone },
+            TableChange::Create { table: created },
+        ])
+        .unwrap();
     println!("{script:#?}");
     for st in &script.statements {
         let mut out = QueryOutcome::default();
-        s.execute(st, 10, &mut out).await.unwrap_or_else(|e| panic!("{st}: {e}"));
+        s.execute(st, 10, &mut out)
+            .await
+            .unwrap_or_else(|e| panic!("{st}: {e}"));
     }
     let after = s.database_schema().await.unwrap();
     assert!(!after.iter().any(|t| t.name == "SYNC_GONE"));
     assert!(after.iter().any(|t| t.name == "SYNC_FRESH"));
     let clicks = after.iter().find(|t| t.name == "SYNC_CLICKS").unwrap();
-    assert!(clicks.columns.iter().any(|c| c.name == "USER_ID" && c.data_type == "BIGINT"), "{:?}", clicks.columns);
+    assert!(
+        clicks
+            .columns
+            .iter()
+            .any(|c| c.name == "USER_ID" && c.data_type == "BIGINT"),
+        "{:?}",
+        clicks.columns
+    );
     for t in ["SYNC_CLICKS", "SYNC_GONE", "SYNC_FRESH"] {
-        let _ = s.execute(&format!("DROP STREAM IF EXISTS {t} DELETE TOPIC;"), 10, &mut out).await;
+        let _ = s
+            .execute(
+                &format!("DROP STREAM IF EXISTS {t} DELETE TOPIC;"),
+                10,
+                &mut out,
+            )
+            .await;
     }
 }

@@ -38,11 +38,21 @@ fn norm(p: &str) -> String {
 }
 
 pub(crate) fn community() -> Permissions {
-    Permissions { create_database: Access::Allowed, drop_database: Access::Allowed, profiler: Access::Allowed, ..Default::default() }
+    Permissions {
+        create_database: Access::Allowed,
+        drop_database: Access::Allowed,
+        profiler: Access::Allowed,
+        ..Default::default()
+    }
 }
 
 /// Enterprise: from the privilege and membership rows.
-pub(crate) fn enterprise(user: &str, privileges: &[Row], members: &[Row], database: Option<&str>) -> Permissions {
+pub(crate) fn enterprise(
+    user: &str,
+    privileges: &[Row],
+    members: &[Row],
+    database: Option<&str>,
+) -> Permissions {
     // The login and every role it reaches (PUBLIC included).
     let mut grantees: HashSet<(String, &'static str)> = HashSet::new();
     let mut queue = VecDeque::from([(user.to_string(), "USER"), ("PUBLIC".to_string(), "ROLE")]);
@@ -50,12 +60,20 @@ pub(crate) fn enterprise(user: &str, privileges: &[Row], members: &[Row], databa
         if grantees.len() > 256 || !grantees.insert((n.clone(), ty)) {
             continue;
         }
-        for m in members.iter().filter(|m| field(m, "member_name") == n && field(m, "member_type").eq_ignore_ascii_case(ty)) {
+        for m in members.iter().filter(|m| {
+            field(m, "member_name") == n && field(m, "member_type").eq_ignore_ascii_case(ty)
+        }) {
             queue.push_back((field(m, "role_name"), "ROLE"));
         }
     }
-    if grantees.iter().any(|(n, ty)| *ty == "ROLE" && n.eq_ignore_ascii_case("ADMIN")) {
-        return Permissions { manage_security: Access::Allowed, ..community() };
+    if grantees
+        .iter()
+        .any(|(n, ty)| *ty == "ROLE" && n.eq_ignore_ascii_case("ADMIN"))
+    {
+        return Permissions {
+            manage_security: Access::Allowed,
+            ..community()
+        };
     }
     let mine = |r: &&Row| {
         let ty = field(r, "grantee_type").to_uppercase();
@@ -65,7 +83,12 @@ pub(crate) fn enterprise(user: &str, privileges: &[Row], members: &[Row], databa
     let system: HashSet<String> = privileges
         .iter()
         .filter(mine)
-        .filter(|r| matches!(field(r, "object_type").to_uppercase().as_str(), "SYSTEM" | ""))
+        .filter(|r| {
+            matches!(
+                field(r, "object_type").to_uppercase().as_str(),
+                "SYSTEM" | ""
+            )
+        })
         .map(|r| norm(&field(r, "privilege")))
         .collect();
     let has = |p: &str| system.contains(p) || system.contains("ALL");
@@ -78,7 +101,11 @@ pub(crate) fn enterprise(user: &str, privileges: &[Row], members: &[Row], databa
     });
     Permissions {
         create_database: Access::check(has("CREATE SPACE"), "CREATE SPACE"),
-        drop_database: if owns { Access::Allowed } else { Access::Unknown },
+        drop_database: if owns {
+            Access::Allowed
+        } else {
+            Access::Unknown
+        },
         profiler: Access::check(has("VIEW JOB HISTORY"), "VIEW JOB HISTORY"),
         manage_security: Access::check(
             has("CREATE USER") || has("CREATE ROLE") || has("MANAGE GRANTS"),
@@ -117,7 +144,11 @@ pub(crate) async fn check(s: &DremioSession, database: Option<&str>) -> Result<P
     let Some(privileges) = soft(s.records("SELECT grantee_type, grantee_id, privilege, object_type, object_id FROM sys.privileges").await)? else {
         return Ok(Permissions::default());
     };
-    let Some(members) = soft(s.records("SELECT role_name, member_name, member_type FROM sys.membership").await)? else {
+    let Some(members) = soft(
+        s.records("SELECT role_name, member_name, member_type FROM sys.membership")
+            .await,
+    )?
+    else {
         return Ok(Permissions::default());
     };
     Ok(enterprise(&user, &privileges, &members, database))
@@ -129,7 +160,11 @@ mod tests {
     use serde_json::json;
 
     fn rows(v: Value) -> Vec<Row> {
-        v.as_array().unwrap().iter().map(|r| r.as_object().unwrap().clone()).collect()
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r.as_object().unwrap().clone())
+            .collect()
     }
 
     #[test]
@@ -138,12 +173,19 @@ mod tests {
             {"role_name": "ops", "member_name": "ana", "member_type": "USER"},
             {"role_name": "ADMIN", "member_name": "ops", "member_type": "ROLE"},
         ]));
-        assert_eq!(enterprise("ana", &[], &members, Some("ventas")), Permissions { manage_security: Access::Allowed, ..community() });
+        assert_eq!(
+            enterprise("ana", &[], &members, Some("ventas")),
+            Permissions {
+                manage_security: Access::Allowed,
+                ..community()
+            }
+        );
     }
 
     #[test]
     fn system_privileges_of_the_user_its_roles_and_public() {
-        let members = rows(json!([{"role_name": "analistas", "member_name": "ana", "member_type": "USER"}]));
+        let members =
+            rows(json!([{"role_name": "analistas", "member_name": "ana", "member_type": "USER"}]));
         let privileges = rows(json!([
             {"grantee_type": "role", "grantee_id": "analistas", "privilege": "VIEW_JOB_HISTORY", "object_type": "SYSTEM", "object_id": ""},
             {"grantee_type": "role", "grantee_id": "PUBLIC", "privilege": "CREATE_SPACE", "object_type": "SYSTEM", "object_id": ""},
@@ -158,7 +200,12 @@ mod tests {
         assert_eq!(p.restore, Access::Unknown);
 
         let p = enterprise("luis", &privileges, &members, Some("ventas"));
-        assert_eq!(p.profiler, Access::Denied { missing: "VIEW JOB HISTORY".into() });
+        assert_eq!(
+            p.profiler,
+            Access::Denied {
+                missing: "VIEW JOB HISTORY".into()
+            }
+        );
         assert_eq!(p.create_database, Access::Allowed, "through PUBLIC");
         assert_eq!(p.drop_database, Access::Unknown);
     }
@@ -166,7 +213,10 @@ mod tests {
     #[test]
     fn community_is_all_admins() {
         let p = community();
-        assert_eq!((p.create_database, p.drop_database, p.profiler), (Access::Allowed, Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (p.create_database, p.drop_database, p.profiler),
+            (Access::Allowed, Access::Allowed, Access::Allowed)
+        );
         assert_eq!(p.manage_security, Access::Unknown);
     }
 }

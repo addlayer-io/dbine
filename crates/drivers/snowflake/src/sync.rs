@@ -18,11 +18,16 @@ fn display(t: &TableSchema) -> String {
 }
 
 fn default_of(c: &ColumnDef) -> Option<String> {
-    c.default_value.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    c.default_value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn is_sequence(d: &Option<String>) -> bool {
-    d.as_deref().is_some_and(|d| d.to_ascii_lowercase().contains("nextval"))
+    d.as_deref()
+        .is_some_and(|d| d.to_ascii_lowercase().contains("nextval"))
 }
 
 fn squash(t: &str) -> String {
@@ -34,7 +39,10 @@ fn squash(t: &str) -> String {
 fn only_unique(t: &mut TableSchema, warnings: &mut Vec<String>) {
     let tname = display(t);
     for ix in t.indexes.iter().filter(|i| !i.unique) {
-        warnings.push(format!("Snowflake no tiene índices: se omite {tname}.{}.", ix.name));
+        warnings.push(format!(
+            "Snowflake no tiene índices: se omite {tname}.{}.",
+            ix.name
+        ));
     }
     t.indexes.retain(|i| i.unique);
 }
@@ -42,16 +50,33 @@ fn only_unique(t: &mut TableSchema, warnings: &mut Vec<String>) {
 /// Snowflake has no CHECK constraints: left out, with a warning.
 fn no_checks(t: &mut TableSchema, warnings: &mut Vec<String>) {
     if !t.checks.is_empty() {
-        warnings.push(format!("Snowflake no tiene restricciones CHECK: se omiten las de {}.", display(t)));
+        warnings.push(format!(
+            "Snowflake no tiene restricciones CHECK: se omiten las de {}.",
+            display(t)
+        ));
         t.checks.clear();
     }
 }
 
 /// Clustering key changes (`ALTER TABLE … CLUSTER BY / DROP CLUSTERING KEY`);
 /// a table can't turn transient or permanent in place.
-fn table_options(old: &TableSchema, new: &TableSchema, post: &mut Vec<String>, warnings: &mut Vec<String>) {
-    let opt = |t: &TableSchema, k: &str| t.options.get(k).map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-    let name = dbine_driver::sql::qualified_name(Quote::Double, new.schema.as_deref().filter(|s| !s.is_empty()), &new.name);
+fn table_options(
+    old: &TableSchema,
+    new: &TableSchema,
+    post: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let opt = |t: &TableSchema, k: &str| {
+        t.options
+            .get(k)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let name = dbine_driver::sql::qualified_name(
+        Quote::Double,
+        new.schema.as_deref().filter(|s| !s.is_empty()),
+        &new.name,
+    );
     let (oc, nc) = (opt(old, ddl::CLUSTER_BY), opt(new, ddl::CLUSTER_BY));
     if oc.as_deref().map(squash) != nc.as_deref().map(squash) {
         post.push(match nc {
@@ -59,7 +84,9 @@ fn table_options(old: &TableSchema, new: &TableSchema, post: &mut Vec<String>, w
             None => format!("ALTER TABLE {name} DROP CLUSTERING KEY;"),
         });
     }
-    let transient = |t: &TableSchema| opt(t, ddl::TABLE_TYPE).is_some_and(|v| v.eq_ignore_ascii_case("transient"));
+    let transient = |t: &TableSchema| {
+        opt(t, ddl::TABLE_TYPE).is_some_and(|v| v.eq_ignore_ascii_case("transient"))
+    };
     if transient(old) != transient(new) {
         warnings.push(format!(
             "{}: Snowflake no convierte una tabla entre transitoria y permanente; hay que recrearla (CREATE TABLE … AS SELECT) a mano.",
@@ -116,7 +143,10 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
     let dd = |t: &TableSchema, p: DdlParts| Ok(ddl::table_ddl(t, p));
     let st = AlterStyle {
         quote: Quote::Double,
-        column: ColumnAlter::Standard { set_data_type: true, using_cast: false },
+        column: ColumnAlter::Standard {
+            set_data_type: true,
+            using_cast: false,
+        },
         add_column: "ADD COLUMN",
         // Rewritten below: UNIQUE constraints go with DROP CONSTRAINT.
         drop_index: DropIndex::AlterTable,
@@ -145,7 +175,12 @@ mod tests {
     use dbine_driver::{ForeignKeyDef, IndexDef, KeyDef};
 
     fn col(name: &str, ty: &str, nullable: bool) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: ty.into(), nullable, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable,
+            ..Default::default()
+        }
     }
 
     fn table(name: &str, cols: Vec<ColumnDef>) -> TableSchema {
@@ -154,20 +189,59 @@ mod tests {
             schema: Some("PUBLIC".into()),
             name: name.into(),
             columns: cols,
-            primary_key: Some(KeyDef { name: Some("PK_C".into()), columns: vec!["ID".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("PK_C".into()),
+                columns: vec!["ID".into()],
+            }),
             ..Default::default()
         }
     }
 
     #[test]
     fn alter_columns_constraints_and_defaults() {
-        let mut old = table("CLIENTES", vec![col("ID", "NUMBER(38,0)", false), col("NOMBRE", "VARCHAR(10)", true), col("BAJA", "DATE", true)]);
+        let mut old = table(
+            "CLIENTES",
+            vec![
+                col("ID", "NUMBER(38,0)", false),
+                col("NOMBRE", "VARCHAR(10)", true),
+                col("BAJA", "DATE", true),
+            ],
+        );
         old.columns[1].default_value = Some("'x'".into());
-        old.indexes.push(IndexDef { name: "UQ_NOMBRE".into(), columns: vec!["NOMBRE".into()], unique: true, kind: None, filter: None, ..Default::default() });
-        old.foreign_keys.push(ForeignKeyDef { name: Some("FK_V".into()), columns: vec!["ID".into()], ref_schema: None, ref_table: "V".into(), ref_columns: vec!["ID".into()], on_delete: None, on_update: None });
-        let mut new = table("CLIENTES", vec![col("ID", "NUMBER(38,0)", false), col("NOMBRE", "VARCHAR(20)", false), col("EMAIL", "VARCHAR", true)]);
+        old.indexes.push(IndexDef {
+            name: "UQ_NOMBRE".into(),
+            columns: vec!["NOMBRE".into()],
+            unique: true,
+            kind: None,
+            filter: None,
+            ..Default::default()
+        });
+        old.foreign_keys.push(ForeignKeyDef {
+            name: Some("FK_V".into()),
+            columns: vec!["ID".into()],
+            ref_schema: None,
+            ref_table: "V".into(),
+            ref_columns: vec!["ID".into()],
+            on_delete: None,
+            on_update: None,
+        });
+        let mut new = table(
+            "CLIENTES",
+            vec![
+                col("ID", "NUMBER(38,0)", false),
+                col("NOMBRE", "VARCHAR(20)", false),
+                col("EMAIL", "VARCHAR", true),
+            ],
+        );
         new.columns[1].default_value = Some("'y'".into());
-        new.indexes.push(IndexDef { name: "IX_EMAIL".into(), columns: vec!["EMAIL".into()], unique: false, kind: None, filter: None, ..Default::default() });
+        new.indexes.push(IndexDef {
+            name: "IX_EMAIL".into(),
+            columns: vec!["EMAIL".into()],
+            unique: false,
+            kind: None,
+            filter: None,
+            ..Default::default()
+        });
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
             s.statements,
@@ -181,22 +255,41 @@ mod tests {
             ]
         );
         let w = s.warnings.join("\n");
-        assert!(w.contains("no tiene índices: se omite PUBLIC.CLIENTES.IX_EMAIL"), "{w}");
+        assert!(
+            w.contains("no tiene índices: se omite PUBLIC.CLIENTES.IX_EMAIL"),
+            "{w}"
+        );
         assert!(w.contains("no agrega ni cambia valores por defecto"), "{w}");
         assert!(w.contains("solo agranda VARCHAR"), "{w}");
-        assert!(w.contains("Se borra la columna PUBLIC.CLIENTES.BAJA"), "{w}");
+        assert!(
+            w.contains("Se borra la columna PUBLIC.CLIENTES.BAJA"),
+            "{w}"
+        );
     }
 
     #[test]
     fn drop_default_primary_key_and_unique() {
-        let mut old = table("T", vec![col("ID", "NUMBER(38,0)", false), col("A", "VARCHAR", true)]);
+        let mut old = table(
+            "T",
+            vec![col("ID", "NUMBER(38,0)", false), col("A", "VARCHAR", true)],
+        );
         old.columns[1].default_value = Some("'x'".into());
         old.columns[1].comment = Some("viejo".into());
         let mut new = old.clone();
         new.columns[1].default_value = None;
         new.columns[1].comment = Some("nuevo".into());
-        new.primary_key = Some(KeyDef { name: None, columns: vec!["ID".into(), "A".into()] });
-        new.indexes.push(IndexDef { name: "UQ_A".into(), columns: vec!["A".into()], unique: true, kind: None, filter: None, ..Default::default() });
+        new.primary_key = Some(KeyDef {
+            name: None,
+            columns: vec!["ID".into(), "A".into()],
+        });
+        new.indexes.push(IndexDef {
+            name: "UQ_A".into(),
+            columns: vec!["A".into()],
+            unique: true,
+            kind: None,
+            filter: None,
+            ..Default::default()
+        });
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
             s.statements,
@@ -222,36 +315,85 @@ mod tests {
 
     #[test]
     fn clustering_keys_and_checks() {
-        let mut old = table("T", vec![col("ID", "NUMBER(38,0)", false), col("F", "DATE", true)]);
+        let mut old = table(
+            "T",
+            vec![col("ID", "NUMBER(38,0)", false), col("F", "DATE", true)],
+        );
         old.options.insert(ddl::CLUSTER_BY.into(), "F".into());
         let mut new = old.clone();
         new.options.insert(ddl::CLUSTER_BY.into(), "F, ID".into());
-        new.checks.push(dbine_driver::CheckDef { name: Some("CK".into()), expression: "ID > 0".into() });
-        let s = sync_script(&[TableChange::Alter { old: old.clone(), new: new.clone() }]).unwrap();
-        assert_eq!(s.statements, vec!["ALTER TABLE \"PUBLIC\".\"T\" CLUSTER BY (F, ID);"]);
-        assert!(s.warnings.join("\n").contains("no tiene restricciones CHECK"), "{:?}", s.warnings);
+        new.checks.push(dbine_driver::CheckDef {
+            name: Some("CK".into()),
+            expression: "ID > 0".into(),
+        });
+        let s = sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new: new.clone(),
+        }])
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            vec!["ALTER TABLE \"PUBLIC\".\"T\" CLUSTER BY (F, ID);"]
+        );
+        assert!(
+            s.warnings
+                .join("\n")
+                .contains("no tiene restricciones CHECK"),
+            "{:?}",
+            s.warnings
+        );
 
         new.options.remove(ddl::CLUSTER_BY);
-        new.options.insert(ddl::TABLE_TYPE.into(), "transient".into());
-        let s = sync_script(&[TableChange::Alter { old: old.clone(), new }]).unwrap();
-        assert_eq!(s.statements, vec!["ALTER TABLE \"PUBLIC\".\"T\" DROP CLUSTERING KEY;"]);
-        assert!(s.warnings.join("\n").contains("transitoria y permanente"), "{:?}", s.warnings);
+        new.options
+            .insert(ddl::TABLE_TYPE.into(), "transient".into());
+        let s = sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new,
+        }])
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            vec!["ALTER TABLE \"PUBLIC\".\"T\" DROP CLUSTERING KEY;"]
+        );
+        assert!(
+            s.warnings.join("\n").contains("transitoria y permanente"),
+            "{:?}",
+            s.warnings
+        );
 
         // Same key written differently: no change.
         let mut same = old.clone();
         same.options.insert(ddl::CLUSTER_BY.into(), " f ".into());
-        assert!(sync_script(&[TableChange::Alter { old, new: same }]).unwrap().statements.is_empty());
+        assert!(sync_script(&[TableChange::Alter { old, new: same }])
+            .unwrap()
+            .statements
+            .is_empty());
     }
 
     #[test]
     fn create_and_drop() {
         let mut a = table("NUEVA", vec![col("ID", "NUMBER(38,0)", false)]);
-        a.foreign_keys.push(ForeignKeyDef { name: Some("FK".into()), columns: vec!["ID".into()], ref_schema: None, ref_table: "VIEJA".into(), ref_columns: vec!["ID".into()], on_delete: None, on_update: None });
+        a.foreign_keys.push(ForeignKeyDef {
+            name: Some("FK".into()),
+            columns: vec!["ID".into()],
+            ref_schema: None,
+            ref_table: "VIEJA".into(),
+            ref_columns: vec!["ID".into()],
+            on_delete: None,
+            on_update: None,
+        });
         let b = table("VIEJA", vec![col("ID", "NUMBER(38,0)", false)]);
-        let s = sync_script(&[TableChange::Create { table: a }, TableChange::Drop { table: b }]).unwrap();
+        let s = sync_script(&[
+            TableChange::Create { table: a },
+            TableChange::Drop { table: b },
+        ])
+        .unwrap();
         assert_eq!(s.statements[0], "DROP TABLE \"PUBLIC\".\"VIEJA\";");
         assert!(s.statements[1].starts_with("CREATE TABLE \"PUBLIC\".\"NUEVA\" (\n    \"ID\" NUMBER(38,0) NOT NULL,\n    CONSTRAINT \"PK_C\" PRIMARY KEY (\"ID\")\n);"), "{}", s.statements[1]);
         assert_eq!(s.statements[2], "ALTER TABLE \"PUBLIC\".\"NUEVA\" ADD CONSTRAINT \"FK\" FOREIGN KEY (\"ID\") REFERENCES \"PUBLIC\".\"VIEJA\" (\"ID\");");
-        assert_eq!(s.warnings, vec!["Se borra la tabla PUBLIC.VIEJA con todos sus datos."]);
+        assert_eq!(
+            s.warnings,
+            vec!["Se borra la tabla PUBLIC.VIEJA con todos sus datos."]
+        );
     }
 }

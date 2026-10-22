@@ -40,7 +40,11 @@ fn non_empty(v: Option<&Value>) -> Option<&Value> {
 
 /// Estimated plan from a query plan reply (`Null` when the server gave none).
 pub fn from_query_plan(sql: &str, container: &str, qp: &Value) -> Plan {
-    let mut root = PlanNode { op: "SELECT".into(), object: Some(container.to_string()), ..Default::default() };
+    let mut root = PlanNode {
+        op: "SELECT".into(),
+        object: Some(container.to_string()),
+        ..Default::default()
+    };
     let info = qp.get("queryInfo").cloned().unwrap_or(Value::Null);
     if let Some(r) = non_empty(info.get("rewrittenQuery")) {
         root.props.push(("rewrittenQuery".into(), text(r)));
@@ -52,7 +56,11 @@ pub fn from_query_plan(sql: &str, container: &str, qp: &Value) -> Plan {
     }
     // Client-side operators, outermost first.
     let mut ops: Vec<PlanNode> = Vec::new();
-    let op = |name: &str, detail: String| PlanNode { op: name.into(), detail, ..Default::default() };
+    let op = |name: &str, detail: String| PlanNode {
+        op: name.into(),
+        detail,
+        ..Default::default()
+    };
     if let Some(t) = non_empty(info.get("top")) {
         ops.push(op("Top", text(t)));
     }
@@ -83,21 +91,34 @@ pub fn from_query_plan(sql: &str, container: &str, qp: &Value) -> Plan {
             n.props.push(("orderBy".into(), text(d)));
         }
         if info.get("hasNonStreamingOrderBy").and_then(Value::as_bool) == Some(true) {
-            n.warnings.push("ORDER BY sin índice que lo resuelva en streaming".into());
+            n.warnings
+                .push("ORDER BY sin índice que lo resuelva en streaming".into());
         }
         ops.push(n);
     }
     if let Some(dc) = non_empty(info.get("dCountInfo")) {
         ops.push(op("DCount", text(dc)));
     }
-    let ranges = qp.get("queryRanges").and_then(Value::as_array).cloned().unwrap_or_default();
-    let mut leaf = PlanNode { op: "Query Ranges".into(), object: Some(container.to_string()), ..Default::default() };
+    let ranges = qp
+        .get("queryRanges")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut leaf = PlanNode {
+        op: "Query Ranges".into(),
+        object: Some(container.to_string()),
+        ..Default::default()
+    };
     if qp.is_null() {
         leaf.op = "Query".into();
         leaf.detail = "sin plan del servidor".into();
     } else {
         leaf.detail = match ranges.len() {
-            1 if ranges[0].get("min").map(text).unwrap_or_default().is_empty()
+            1 if ranges[0]
+                .get("min")
+                .map(text)
+                .unwrap_or_default()
+                .is_empty()
                 && ranges[0].get("max").map(text).as_deref() == Some("FF") =>
             {
                 "todas las particiones".into()
@@ -139,8 +160,12 @@ pub fn parse_metrics(pages: &[String]) -> Vec<(String, f64)> {
     for page in pages {
         // Several partitions may come comma-separated in one header.
         for part in page.split([';', ',']) {
-            let Some((k, v)) = part.split_once('=') else { continue };
-            let Ok(v) = v.trim().parse::<f64>() else { continue };
+            let Some((k, v)) = part.split_once('=') else {
+                continue;
+            };
+            let Ok(v) = v.trim().parse::<f64>() else {
+                continue;
+            };
             let k = k.trim();
             match out.iter_mut().find(|(n, _, _)| n == k) {
                 Some(e) => {
@@ -151,12 +176,23 @@ pub fn parse_metrics(pages: &[String]) -> Vec<(String, f64)> {
             }
         }
     }
-    out.into_iter().map(|(k, v, n)| if k.to_ascii_lowercase().contains("ratio") { (k, v / n as f64) } else { (k, v) }).collect()
+    out.into_iter()
+        .map(|(k, v, n)| {
+            if k.to_ascii_lowercase().contains("ratio") {
+                (k, v / n as f64)
+            } else {
+                (k, v)
+            }
+        })
+        .collect()
 }
 
 /// The index metrics header: Base64 JSON (older servers: plain JSON).
 pub fn parse_index_metrics(raw: &str) -> Option<Value> {
-    let decoded = B64.decode(raw.trim()).ok().and_then(|b| String::from_utf8(b).ok());
+    let decoded = B64
+        .decode(raw.trim())
+        .ok()
+        .and_then(|b| String::from_utf8(b).ok());
     let s = decoded.as_deref().unwrap_or(raw);
     serde_json::from_str(s).ok()
 }
@@ -164,14 +200,25 @@ pub fn parse_index_metrics(raw: &str) -> Option<Value> {
 /// Index specs of a group of the index metrics (`Utilized…` / `Potential…`),
 /// in both the old flat shape and the newer nested one.
 fn index_specs(m: &Value, utilized: bool) -> Vec<String> {
-    let (flat, nested) = if utilized { ("Utilized", "UtilizedIndexes") } else { ("Potential", "PotentialIndexes") };
+    let (flat, nested) = if utilized {
+        ("Utilized", "UtilizedIndexes")
+    } else {
+        ("Potential", "PotentialIndexes")
+    };
     let mut out = Vec::new();
     let mut take = |list: Option<&Value>| {
-        for i in list.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+        for i in list
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
             if let Some(s) = i.get("IndexSpec").and_then(Value::as_str) {
                 out.push(s.to_string());
             } else if let Some(a) = i.get("IndexSpecs").and_then(Value::as_array) {
-                out.push(format!("({})", a.iter().map(text).collect::<Vec<_>>().join(", ")));
+                out.push(format!(
+                    "({})",
+                    a.iter().map(text).collect::<Vec<_>>().join(", ")
+                ));
             }
         }
     };
@@ -185,10 +232,26 @@ fn index_specs(m: &Value, utilized: bool) -> Vec<String> {
 }
 
 /// Actual plan from the metrics of a run.
-pub fn from_metrics(sql: &str, container: &str, metrics: &[String], index: &[String], charge: f64, pages: usize, by_range: usize) -> Plan {
+pub fn from_metrics(
+    sql: &str,
+    container: &str,
+    metrics: &[String],
+    index: &[String],
+    charge: f64,
+    pages: usize,
+    by_range: usize,
+) -> Plan {
     let m = parse_metrics(metrics);
-    let get = |k: &str| m.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| *v);
-    let node = |op: &str, ms: &str| PlanNode { op: op.into(), actual_ms: get(ms), ..Default::default() };
+    let get = |k: &str| {
+        m.iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(k))
+            .map(|(_, v)| *v)
+    };
+    let node = |op: &str, ms: &str| PlanNode {
+        op: op.into(),
+        actual_ms: get(ms),
+        ..Default::default()
+    };
 
     let mut lookup = node("Index Lookup", "indexLookupTimeInMs");
     lookup.object = Some(container.to_string());
@@ -211,7 +274,9 @@ pub fn from_metrics(sql: &str, container: &str, metrics: &[String], index: &[Str
         lookup.warnings.push(format!("Índice sugerido: {s}"));
     }
     if let Some(r) = get("indexUtilizationRatio") {
-        lookup.props.push(("indexUtilizationRatio".into(), format!("{r:.2}")));
+        lookup
+            .props
+            .push(("indexUtilizationRatio".into(), format!("{r:.2}")));
     }
     for k in ["indexHitDocumentCount", "indexHitRatio"] {
         if let Some(v) = get(k) {
@@ -223,13 +288,18 @@ pub fn from_metrics(sql: &str, container: &str, metrics: &[String], index: &[Str
     let mut load = node("Document Load", "documentLoadTimeInMs");
     load.actual_rows = get("retrievedDocumentCount");
     if let Some(v) = get("retrievedDocumentSize") {
-        load.props.push(("retrievedDocumentSize (bytes)".into(), v.to_string()));
+        load.props
+            .push(("retrievedDocumentSize (bytes)".into(), v.to_string()));
     }
     load.children.push(lookup);
 
     let mut vm = node("Runtime Execution", "VMExecutionTimeInMs");
     vm.actual_rows = get("outputDocumentCount");
-    for k in ["instructionCount", "systemFunctionExecuteTimeInMs", "userFunctionExecuteTimeInMs"] {
+    for k in [
+        "instructionCount",
+        "systemFunctionExecuteTimeInMs",
+        "userFunctionExecuteTimeInMs",
+    ] {
         if let Some(v) = get(k) {
             vm.props.push((k.into(), v.to_string()));
         }
@@ -239,17 +309,27 @@ pub fn from_metrics(sql: &str, container: &str, metrics: &[String], index: &[Str
     let mut output = node("Write Output", "writeOutputTimeInMs");
     output.actual_rows = get("outputDocumentCount");
     if let Some(v) = get("outputDocumentSize") {
-        output.props.push(("outputDocumentSize (bytes)".into(), v.to_string()));
+        output
+            .props
+            .push(("outputDocumentSize (bytes)".into(), v.to_string()));
     }
     output.children.push(vm);
 
-    let mut root = PlanNode { op: "SELECT".into(), object: Some(container.to_string()), ..Default::default() };
+    let mut root = PlanNode {
+        op: "SELECT".into(),
+        object: Some(container.to_string()),
+        ..Default::default()
+    };
     root.actual_ms = get("totalExecutionTimeInMs");
     root.actual_rows = get("outputDocumentCount");
-    root.props.push(("Costo (RU)".into(), format!("{charge:.2}")));
+    root.props
+        .push(("Costo (RU)".into(), format!("{charge:.2}")));
     root.props.push(("Páginas".into(), pages.to_string()));
     if by_range > 0 {
-        root.props.push(("Rangos de partición (consulta por rango)".into(), by_range.to_string()));
+        root.props.push((
+            "Rangos de partición (consulta por rango)".into(),
+            by_range.to_string(),
+        ));
     }
     for k in [
         "queryCompileTimeInMs",
@@ -264,13 +344,19 @@ pub fn from_metrics(sql: &str, container: &str, metrics: &[String], index: &[Str
     let read = get("retrievedDocumentCount").unwrap_or(0.0);
     let out = get("outputDocumentCount").unwrap_or(0.0);
     if read > RATIO_WARN && read / out.max(1.0) > RATIO_WARN {
-        root.warnings.push(format!("Lee {read} documentos para devolver {out}: falta un índice o un filtro más selectivo"));
+        root.warnings.push(format!(
+            "Lee {read} documentos para devolver {out}: falta un índice o un filtro más selectivo"
+        ));
     }
     if !suggested.is_empty() {
-        root.warnings.push(format!("El servidor sugiere índices: {}", suggested.join(", ")));
+        root.warnings.push(format!(
+            "El servidor sugiere índices: {}",
+            suggested.join(", ")
+        ));
     }
     root.children.push(output);
-    let raw = json!({ "queryMetrics": metrics, "indexMetrics": index_json, "requestCharge": charge });
+    let raw =
+        json!({ "queryMetrics": metrics, "indexMetrics": index_json, "requestCharge": charge });
     Plan {
         statement: sql.to_string(),
         root,
@@ -295,7 +381,11 @@ mod tests {
                 "hasSelectValue": false, "dCountInfo": null, "hasNonStreamingOrderBy": false },
             "queryRanges": [{ "min": "", "max": "FF", "isMinInclusive": true, "isMaxInclusive": false }]
         });
-        let p = from_query_plan("SELECT TOP 10 * FROM c ORDER BY c.price DESC", "products", &qp);
+        let p = from_query_plan(
+            "SELECT TOP 10 * FROM c ORDER BY c.price DESC",
+            "products",
+            &qp,
+        );
         assert!(!p.actual);
         let top = &p.root.children[0];
         assert_eq!(top.op, "Top");
@@ -329,7 +419,15 @@ indexUtilizationRatio=0.00"
         let idx = B64.encode(
             r#"{"UtilizedSingleIndexes":[],"PotentialSingleIndexes":[{"FilterExpression":"","IndexSpec":"/age/?","FilterPreciseSet":true,"IndexPreciseSet":true,"IndexImpactScore":"High"}],"UtilizedCompositeIndexes":[],"PotentialCompositeIndexes":[]}"#,
         );
-        let p = from_metrics("SELECT * FROM c WHERE c.age = 3", "people", &m, &[idx], 12.34, 2, 0);
+        let p = from_metrics(
+            "SELECT * FROM c WHERE c.age = 3",
+            "people",
+            &m,
+            &[idx],
+            12.34,
+            2,
+            0,
+        );
         assert!(p.actual);
         let r = &p.root;
         assert_eq!(r.actual_ms, Some(3.0));
@@ -346,7 +444,10 @@ indexUtilizationRatio=0.00"
         let lookup = &load.children[0];
         assert_eq!(lookup.op, "Index Lookup");
         assert_eq!(lookup.warnings, ["Índice sugerido: /age/?"]);
-        assert!(lookup.props.iter().any(|(k, v)| k == "indexUtilizationRatio" && v == "0.50"));
+        assert!(lookup
+            .props
+            .iter()
+            .any(|(k, v)| k == "indexUtilizationRatio" && v == "0.50"));
     }
 
     #[test]

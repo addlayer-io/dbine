@@ -30,20 +30,36 @@
 //!   `min`, `max`), JSON values or text.
 
 use crate::shell;
-use dbine_driver::{
-    kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, KeyDef, ObjectRef,
-    Result, RowChange, TableSchema,
-};
 use dbine_driver::filter::{ColumnFilter, FilterOp};
 use dbine_driver::SortKey;
+use dbine_driver::{
+    kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind,
+    IndexDef, KeyDef, ObjectRef, Result, RowChange, TableSchema,
+};
 use mongodb::bson::{Bson, Document};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 
 /// BSON type names `$jsonSchema` accepts (`number` = any numeric type).
 const BSON_TYPES: &[&str] = &[
-    "string", "int", "long", "double", "decimal", "number", "bool", "date", "objectId", "object", "array", "binData",
-    "timestamp", "regex", "null", "javascript", "minKey", "maxKey",
+    "string",
+    "int",
+    "long",
+    "double",
+    "decimal",
+    "number",
+    "bool",
+    "date",
+    "objectId",
+    "object",
+    "array",
+    "binData",
+    "timestamp",
+    "regex",
+    "null",
+    "javascript",
+    "minKey",
+    "maxKey",
 ];
 
 pub fn designer() -> DesignerSpec {
@@ -99,7 +115,11 @@ pub fn designer() -> DesignerSpec {
 }
 
 pub fn templates() -> Vec<CreateTemplate> {
-    let t = |kind, label, template: &str| CreateTemplate { kind, label, template: template.to_string() };
+    let t = |kind, label, template: &str| CreateTemplate {
+        kind,
+        label,
+        template: template.to_string(),
+    };
     vec![
         t(
             kinds::VIEW,
@@ -144,7 +164,10 @@ pub(crate) fn is_true(v: Option<&str>) -> bool {
 fn number(t: &TableSchema, k: &str) -> Result<Option<i64>> {
     match opt(t, k) {
         None => Ok(None),
-        Some(v) => v.parse::<i64>().map(Some).map_err(|_| Error::Query(format!("«{k}» tiene que ser un número entero: {v}"))),
+        Some(v) => v
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|_| Error::Query(format!("«{k}» tiene que ser un número entero: {v}"))),
     }
 }
 
@@ -157,7 +180,11 @@ pub(crate) fn relaxed(text: &str, fail: impl FnOnce(String) -> String) -> Result
 /// `string|null` → `["string", "null"]`; `None` = no type constraint.
 fn bson_types(data_type: &str, nullable: bool) -> Result<Option<Value>> {
     let mut types: Vec<String> = Vec::new();
-    for raw in data_type.split('|').map(str::trim).filter(|t| !t.is_empty()) {
+    for raw in data_type
+        .split('|')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
         let t = match raw.to_ascii_lowercase().as_str() {
             "any" | "mixed" | "*" => return Ok(None),
             "integer" | "int32" => "int".to_string(),
@@ -185,7 +212,11 @@ fn bson_types(data_type: &str, nullable: bool) -> Result<Option<Value>> {
     if nullable && !types.iter().any(|t| t == "null") {
         types.push("null".into());
     }
-    Ok(Some(if types.len() == 1 { Value::String(types.remove(0)) } else { json!(types) }))
+    Ok(Some(if types.len() == 1 {
+        Value::String(types.remove(0))
+    } else {
+        json!(types)
+    }))
 }
 
 /// The `$jsonSchema` validator built from the fields (`None` when they
@@ -228,7 +259,9 @@ pub(crate) fn collection_options(t: &TableSchema) -> Result<Map<String, Value>> 
     let ttl = number(t, "expireAfterSeconds")?;
     let clustered = is_true(opt(t, "clustered"));
     if is_true(opt(t, "capped")) {
-        let size = number(t, "size")?.ok_or_else(|| Error::Query("una colección capped necesita el tamaño máximo en bytes".into()))?;
+        let size = number(t, "size")?.ok_or_else(|| {
+            Error::Query("una colección capped necesita el tamaño máximo en bytes".into())
+        })?;
         o.insert("capped".into(), true.into());
         o.insert("size".into(), size.into());
         if let Some(m) = number(t, "max")? {
@@ -262,7 +295,12 @@ pub(crate) fn collection_options(t: &TableSchema) -> Result<Map<String, Value>> 
         o.insert("expireAfterSeconds".into(), s.into());
     }
     if let Some(c) = opt(t, "collation") {
-        o.insert("collation".into(), relaxed(c, |e| format!("la intercalación (collation) no es válida: {e}"))?);
+        o.insert(
+            "collation".into(),
+            relaxed(c, |e| {
+                format!("la intercalación (collation) no es válida: {e}")
+            })?,
+        );
     }
     // The CHECK (what `database_schema` reports) wins over the designer's
     // validator option and the fields.
@@ -277,7 +315,12 @@ pub(crate) fn collection_options(t: &TableSchema) -> Result<Map<String, Value>> 
         o.insert("validator".into(), v);
     }
     for k in ["validationLevel", "validationAction"] {
-        if let Some(v) = check.as_ref().and_then(|c| c.get(k)).cloned().or_else(|| opt(t, k).map(Value::from)) {
+        if let Some(v) = check
+            .as_ref()
+            .and_then(|c| c.get(k))
+            .cloned()
+            .or_else(|| opt(t, k).map(Value::from))
+        {
             o.insert(k.into(), v);
         }
     }
@@ -288,10 +331,20 @@ pub(crate) fn collection_options(t: &TableSchema) -> Result<Map<String, Value>> 
 pub(crate) fn index_parts(ix: &IndexDef) -> Result<(Map<String, Value>, Map<String, Value>)> {
     let mut default_type: Option<Value> = None;
     let mut o = Map::new();
-    for tok in ix.kind.as_deref().unwrap_or("").split(',').map(str::trim).filter(|t| !t.is_empty()) {
+    for tok in ix
+        .kind
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
         let l = tok.to_ascii_lowercase();
         if let Some(n) = l.strip_prefix("ttl:").or_else(|| l.strip_prefix("ttl=")) {
-            let s: i64 = n.trim().parse().map_err(|_| Error::Query(format!("índice {}: TTL inválido «{tok}»", ix.name)))?;
+            let s: i64 = n
+                .trim()
+                .parse()
+                .map_err(|_| Error::Query(format!("índice {}: TTL inválido «{tok}»", ix.name)))?;
             o.insert("expireAfterSeconds".into(), s.into());
         } else if l == "sparse" {
             o.insert("sparse".into(), true.into());
@@ -314,29 +367,55 @@ pub(crate) fn index_parts(ix: &IndexDef) -> Result<(Map<String, Value>, Map<Stri
         if k.trim().is_empty() || v.is_empty() {
             continue;
         }
-        let val = serde_json::from_str::<Value>(v).or_else(|_| if v.starts_with(['{', '[']) { relaxed(v, |e| format!("la opción {k} del índice {} no es válida: {e}", ix.name)) } else { Ok(Value::String(v.into())) })?;
+        let val = serde_json::from_str::<Value>(v).or_else(|_| {
+            if v.starts_with(['{', '[']) {
+                relaxed(v, |e| {
+                    format!("la opción {k} del índice {} no es válida: {e}", ix.name)
+                })
+            } else {
+                Ok(Value::String(v.into()))
+            }
+        })?;
         o.insert(k.trim().to_string(), val);
     }
     let mut key = Map::new();
-    for c in ix.columns.iter().map(|c| c.trim()).filter(|c| !c.is_empty()) {
+    for c in ix
+        .columns
+        .iter()
+        .map(|c| c.trim())
+        .filter(|c| !c.is_empty())
+    {
         let (field, dir) = match c.rsplit_once(':') {
             Some((f, d)) => {
                 let d = d.trim();
                 let v = match d.parse::<i64>() {
                     Ok(n @ (1 | -1)) => Value::from(n),
-                    _ if matches!(d, "text" | "2dsphere" | "2d" | "hashed") => Value::String(d.into()),
+                    _ if matches!(d, "text" | "2dsphere" | "2d" | "hashed") => {
+                        Value::String(d.into())
+                    }
                     _ if d.eq_ignore_ascii_case("desc") => Value::from(-1),
                     _ if d.eq_ignore_ascii_case("asc") => Value::from(1),
-                    _ => return Err(Error::Query(format!("índice {}: dirección «{d}» inválida en «{c}»", ix.name))),
+                    _ => {
+                        return Err(Error::Query(format!(
+                            "índice {}: dirección «{d}» inválida en «{c}»",
+                            ix.name
+                        )))
+                    }
                 };
                 (f.trim().to_string(), v)
             }
-            None => (c.to_string(), default_type.clone().unwrap_or(Value::from(1))),
+            None => (
+                c.to_string(),
+                default_type.clone().unwrap_or(Value::from(1)),
+            ),
         };
         key.insert(field, dir);
     }
     if key.is_empty() {
-        return Err(Error::Query(format!("el índice {} no tiene campos", ix.name)));
+        return Err(Error::Query(format!(
+            "el índice {} no tiene campos",
+            ix.name
+        )));
     }
     if !ix.name.trim().is_empty() {
         o.insert("name".into(), ix.name.trim().into());
@@ -344,8 +423,18 @@ pub(crate) fn index_parts(ix: &IndexDef) -> Result<(Map<String, Value>, Map<Stri
     if ix.unique {
         o.insert("unique".into(), true.into());
     }
-    if let Some(f) = ix.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
-        o.insert("partialFilterExpression".into(), relaxed(f, |e| format!("el filtro del índice {} no es válido: {e}", ix.name))?);
+    if let Some(f) = ix
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+    {
+        o.insert(
+            "partialFilterExpression".into(),
+            relaxed(f, |e| {
+                format!("el filtro del índice {} no es válido: {e}", ix.name)
+            })?,
+        );
     }
     // Put `name` first, as people write it.
     let mut ordered = Map::new();
@@ -369,15 +458,25 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     let view = t.kind == kinds::VIEW;
     if parts.create {
         if view {
-            let source = opt(t, "viewOn").ok_or_else(|| Error::Query(format!("la vista {name} no indica la colección de origen (viewOn)")))?;
+            let source = opt(t, "viewOn").ok_or_else(|| {
+                Error::Query(format!(
+                    "la vista {name} no indica la colección de origen (viewOn)"
+                ))
+            })?;
             let pipeline = match opt(t, "pipeline") {
                 Some(p) => relaxed(p, |e| format!("el pipeline de la vista no es válido: {e}"))?,
                 None => json!([]),
             };
             if !pipeline.is_array() {
-                return Err(Error::Query("el pipeline de la vista tiene que ser un array de etapas".into()));
+                return Err(Error::Query(
+                    "el pipeline de la vista tiene que ser un array de etapas".into(),
+                ));
             }
-            lines.push(format!("db.createView({}, {}, {pipeline})", q(name), q(source)));
+            lines.push(format!(
+                "db.createView({}, {}, {pipeline})",
+                q(name),
+                q(source)
+            ));
         } else {
             let o = collection_options(t)?;
             let mut line = format!("db.createCollection({}", q(name));
@@ -398,7 +497,11 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
             if o.is_empty() {
                 lines.push(format!("{coll}.createIndex({})", Value::Object(key)));
             } else {
-                lines.push(format!("{coll}.createIndex({}, {})", Value::Object(key), Value::Object(o)));
+                lines.push(format!(
+                    "{coll}.createIndex({}, {})",
+                    Value::Object(key),
+                    Value::Object(o)
+                ));
             }
         }
     }
@@ -415,7 +518,11 @@ fn is_object_id(s: &str) -> bool {
 /// `insertMany` batches. Null cells are left out of the document (a missing
 /// field reads back as null); an `_id` that is 24 hex digits becomes an
 /// `ObjectId` (that's how the grid shows them). Other values go as JSON.
-pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+pub fn insert_script(
+    target: &ObjectRef,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> Result<String> {
     let coll = format!("db.getCollection({})", q(&target.name));
     let mut out = Vec::new();
     for chunk in rows.chunks(BATCH) {
@@ -428,7 +535,9 @@ pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]
                     .filter(|(_, v)| !v.is_null())
                     .map(|(c, v)| {
                         let val = match v {
-                            Value::String(s) if c == "_id" && is_object_id(s) => format!("ObjectId(\"{s}\")"),
+                            Value::String(s) if c == "_id" && is_object_id(s) => {
+                                format!("ObjectId(\"{s}\")")
+                            }
                             other => other.to_string(),
                         };
                         format!("{}: {val}", q(c))
@@ -452,7 +561,10 @@ fn shell_value(field: &str, v: &Value) -> String {
 }
 
 fn shell_doc(pairs: &[(String, Value)]) -> String {
-    let fields: Vec<String> = pairs.iter().map(|(c, v)| format!("{}: {}", q(c), shell_value(c, v))).collect();
+    let fields: Vec<String> = pairs
+        .iter()
+        .map(|(c, v)| format!("{}: {}", q(c), shell_value(c, v)))
+        .collect();
     format!("{{ {} }}", fields.join(", "))
 }
 
@@ -466,7 +578,11 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
             Some(id) => vec![id.clone()],
             None => ch.key.clone(),
         };
-        out.push(format!("{coll}.updateOne({}, {{ $set: {} }})", shell_doc(&filter), shell_doc(&ch.set)));
+        out.push(format!(
+            "{coll}.updateOne({}, {{ $set: {} }})",
+            shell_doc(&filter),
+            shell_doc(&ch.set)
+        ));
     }
     Ok(out.join("\n"))
 }
@@ -479,7 +595,9 @@ pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Resul
     let mut out = Vec::new();
     for key in keys {
         if key.is_empty() {
-            return Err(Error::Unsupported("no se puede borrar un documento sin clave: el filtro quedaría vacío".into()));
+            return Err(Error::Unsupported(
+                "no se puede borrar un documento sin clave: el filtro quedaría vacío".into(),
+            ));
         }
         let filter: Vec<(String, Value)> = match key.iter().find(|(k, _)| k == "_id") {
             Some(id) => vec![id.clone()],
@@ -503,14 +621,33 @@ pub fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<String>
     for f in filters {
         let c = f.column.as_str();
         let v = |x: &Value| shell_value(c, x);
-        let first = || f.values.first().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)));
-        let regex = |pattern: String| format!("{{ $regex: {}, $options: \"i\" }}", Value::String(pattern));
-        let re = || first().map(|x| regex_escape(&x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string())));
+        let first = || {
+            f.values.first().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })
+        };
+        let regex =
+            |pattern: String| format!("{{ $regex: {}, $options: \"i\" }}", Value::String(pattern));
+        let re = || {
+            first().map(|x| {
+                regex_escape(
+                    &x.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| x.to_string()),
+                )
+            })
+        };
         let list = || {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{}» necesita al menos un valor", f.column)));
+                return Err(Error::Query(format!(
+                    "el filtro de «{}» necesita al menos un valor",
+                    f.column
+                )));
             }
-            Ok(format!("[{}]", f.values.iter().map(v).collect::<Vec<_>>().join(", ")))
+            Ok(format!(
+                "[{}]",
+                f.values.iter().map(v).collect::<Vec<_>>().join(", ")
+            ))
         };
         let cond = match f.op {
             FilterOp::Eq => v(first()?),
@@ -534,7 +671,9 @@ pub fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<String>
             FilterOp::TrueOrNull => "{ $in: [true, null] }".into(),
             FilterOp::FalseOrNull => "{ $in: [false, null] }".into(),
             FilterOp::Sql | FilterOp::SqlRight => {
-                return Err(Error::Unsupported("MongoDB no toma condiciones SQL: se filtran en la grilla".into()))
+                return Err(Error::Unsupported(
+                    "MongoDB no toma condiciones SQL: se filtran en la grilla".into(),
+                ))
             }
         };
         conds.push((q(c), cond));
@@ -542,12 +681,32 @@ pub fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<String>
     // One field per key; the same field twice goes through $and.
     let mut seen = std::collections::HashSet::new();
     let doc = if conds.iter().all(|(k, _)| seen.insert(k.clone())) {
-        format!("{{ {} }}", conds.iter().map(|(k, c)| format!("{k}: {c}")).collect::<Vec<_>>().join(", "))
+        format!(
+            "{{ {} }}",
+            conds
+                .iter()
+                .map(|(k, c)| format!("{k}: {c}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     } else {
-        format!("{{ $and: [{}] }}", conds.iter().map(|(k, c)| format!("{{ {k}: {c} }}")).collect::<Vec<_>>().join(", "))
+        format!(
+            "{{ $and: [{}] }}",
+            conds
+                .iter()
+                .map(|(k, c)| format!("{{ {k}: {c} }}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     };
-    let at = browse.find(".find({})").ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))?;
-    Ok(format!("{}.find({doc}){}", &browse[..at], &browse[at + ".find({})".len()..]))
+    let at = browse.find(".find({})").ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })?;
+    Ok(format!(
+        "{}.find({doc}){}",
+        &browse[..at],
+        &browse[at + ".find({})".len()..]
+    ))
 }
 
 /// The browse query (filtered or not) sorted by the grid's columns: a
@@ -576,10 +735,19 @@ pub fn sorted_browse(browse: &str, sort: &[SortKey]) -> Result<String> {
     // any text, so the last one is the query's.
     let at = browse
         .rfind(".limit(")
-        .filter(|&i| browse[i + 7..].trim_end().strip_suffix(')').is_some_and(|n| n.trim().parse::<i64>().is_ok()))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))?;
+        .filter(|&i| {
+            browse[i + 7..]
+                .trim_end()
+                .strip_suffix(')')
+                .is_some_and(|n| n.trim().parse::<i64>().is_ok())
+        })
+        .ok_or_else(|| {
+            Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+        })?;
     if !browse[..at].contains(".find(") {
-        return Err(Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()));
+        return Err(Error::Unsupported(
+            "no se pudo agregar el orden a la consulta de este objeto".into(),
+        ));
     }
     Ok(format!("{}{spec}{}", &browse[..at], &browse[at..]))
 }
@@ -606,7 +774,11 @@ fn num_text(b: &Bson) -> Option<String> {
     match b {
         Bson::Int32(n) => Some(n.to_string()),
         Bson::Int64(n) => Some(n.to_string()),
-        Bson::Double(n) => Some(if n.fract() == 0.0 { (*n as i64).to_string() } else { n.to_string() }),
+        Bson::Double(n) => Some(if n.fract() == 0.0 {
+            (*n as i64).to_string()
+        } else {
+            n.to_string()
+        }),
         _ => None,
     }
 }
@@ -660,21 +832,37 @@ pub fn index_def(spec: &Document) -> Option<IndexDef> {
                     if let Ok(w) = spec.get_document("weights") {
                         columns.extend(w.keys().cloned());
                         if w.values().any(|x| num_text(x).as_deref() != Some("1")) {
-                            options.insert("weights".to_string(), ext(&Bson::Document(w.clone())).to_string());
+                            options.insert(
+                                "weights".to_string(),
+                                ext(&Bson::Document(w.clone())).to_string(),
+                            );
                         }
                     }
                 }
-                _ => columns.push(format!("{k}:{}", if num_text(v).as_deref() == Some("-1") { "-1" } else { "1" })),
+                _ => columns.push(format!(
+                    "{k}:{}",
+                    if num_text(v).as_deref() == Some("-1") {
+                        "-1"
+                    } else {
+                        "1"
+                    }
+                )),
             }
         }
         for k in ["default_language", "language_override"] {
-            if let Some(v) = spec.get(k).filter(|v| !default_index_option(k, v)).and_then(Bson::as_str) {
+            if let Some(v) = spec
+                .get(k)
+                .filter(|v| !default_index_option(k, v))
+                .and_then(Bson::as_str)
+            {
                 options.insert(k.to_string(), v.to_string());
             }
         }
     } else {
         let strings: Vec<&str> = key.values().filter_map(Bson::as_str).collect();
-        let uniform = !strings.is_empty() && strings.len() == key.len() && strings.iter().all(|s| *s == strings[0]);
+        let uniform = !strings.is_empty()
+            && strings.len() == key.len()
+            && strings.iter().all(|s| *s == strings[0]);
         if uniform {
             kind_tokens.push(strings[0].to_string());
         }
@@ -689,7 +877,11 @@ pub fn index_def(spec: &Document) -> Option<IndexDef> {
         }
     }
     for k in ["expireAfterSeconds", "bits", "min", "max"] {
-        if let Some(n) = spec.get(k).filter(|v| !default_index_option(k, v)).and_then(num_text) {
+        if let Some(n) = spec
+            .get(k)
+            .filter(|v| !default_index_option(k, v))
+            .and_then(num_text)
+        {
             options.insert(k.to_string(), n);
         }
     }
@@ -702,9 +894,15 @@ pub fn index_def(spec: &Document) -> Option<IndexDef> {
         options.insert("collation".into(), collation_text(c));
     }
     if let Ok(p) = spec.get_document("wildcardProjection") {
-        options.insert("wildcardProjection".into(), ext(&Bson::Document(p.clone())).to_string());
+        options.insert(
+            "wildcardProjection".into(),
+            ext(&Bson::Document(p.clone())).to_string(),
+        );
     }
-    let filter = spec.get_document("partialFilterExpression").ok().map(|f| ext(&Bson::Document(f.clone())).to_string());
+    let filter = spec
+        .get_document("partialFilterExpression")
+        .ok()
+        .map(|f| ext(&Bson::Document(f.clone())).to_string());
     Some(IndexDef {
         name,
         columns,
@@ -783,7 +981,10 @@ pub fn table_schema(info: &Document, columns: Vec<ColumnDef>, indexes: &[Documen
                         }
                     }
                 }
-                checks.push(CheckDef { name: Some(VALIDATOR.into()), expression: Value::Object(w).to_string() });
+                checks.push(CheckDef {
+                    name: Some(VALIDATOR.into()),
+                    expression: Value::Object(w).to_string(),
+                });
                 describe_from_validator(v, &mut columns);
             }
             // Without a validator only a level or action that isn't the
@@ -803,13 +1004,16 @@ pub fn table_schema(info: &Document, columns: Vec<ColumnDef>, indexes: &[Documen
     // the collation of an index that has the simple one: created again
     // without it, the index would take the collection's (other uniqueness
     // and order), and a text index would fail. It's said explicitly.
-    let simple_by_default = !view && o.get_document("collation").is_ok_and(|c| c.get_str("locale") != Ok("simple"));
+    let simple_by_default = !view
+        && o.get_document("collation")
+            .is_ok_and(|c| c.get_str("locale") != Ok("simple"));
     let indexes: Vec<IndexDef> = indexes
         .iter()
         .filter_map(index_def)
         .map(|mut ix| {
             if simple_by_default && !ix.options.contains_key("collation") {
-                ix.options.insert("collation".into(), r#"{"locale":"simple"}"#.into());
+                ix.options
+                    .insert("collation".into(), r#"{"locale":"simple"}"#.into());
             }
             ix
         })
@@ -818,7 +1022,10 @@ pub fn table_schema(info: &Document, columns: Vec<ColumnDef>, indexes: &[Documen
     TableSchema {
         kind: if view { kinds::VIEW } else { kinds::COLLECTION }.to_string(),
         schema: None,
-        primary_key: (!view && has_id).then(|| KeyDef { name: None, columns: vec!["_id".into()] }),
+        primary_key: (!view && has_id).then(|| KeyDef {
+            name: None,
+            columns: vec!["_id".into()],
+        }),
         columns,
         foreign_keys: Vec::new(),
         indexes,
@@ -835,7 +1042,11 @@ pub fn view_definition(name: &str, o: Option<&Document>) -> String {
     let empty = Document::new();
     let o = o.unwrap_or(&empty);
     let pipeline = o.get("pipeline").map(ext).unwrap_or(json!([]));
-    let mut text = format!("db.createView({}, {}, {pipeline}", q(name), q(o.get_str("viewOn").unwrap_or_default()));
+    let mut text = format!(
+        "db.createView({}, {}, {pipeline}",
+        q(name),
+        q(o.get_str("viewOn").unwrap_or_default())
+    );
     if let Ok(c) = o.get_document("collation") {
         text.push_str(&format!(", {{\"collation\": {}}}", collation_text(c)));
     }
@@ -853,14 +1064,34 @@ pub(crate) const VALIDATOR: &str = "validator";
 /// collection. CHECKs that aren't a document (a SQL condition carried from
 /// another engine) aren't a validator and are left out, as before.
 pub(crate) fn validator_check(t: &TableSchema) -> Result<Option<Map<String, Value>>> {
-    let checks: Vec<_> = t.checks.iter().filter(|c| c.expression.trim_start().starts_with('{')).collect();
-    let Some(c) = checks.first() else { return Ok(None) };
+    let checks: Vec<_> = t
+        .checks
+        .iter()
+        .filter(|c| c.expression.trim_start().starts_with('{'))
+        .collect();
+    let Some(c) = checks.first() else {
+        return Ok(None);
+    };
     if checks.len() > 1 {
-        return Err(Error::Query(format!("MongoDB tiene un solo validador por colección y {} tiene {}", t.name, checks.len())));
+        return Err(Error::Query(format!(
+            "MongoDB tiene un solo validador por colección y {} tiene {}",
+            t.name,
+            checks.len()
+        )));
     }
     let v = relaxed(&c.expression, |e| format!("el validador no es válido: {e}"))?;
-    let Value::Object(m) = v else { return Err(Error::Query("el validador tiene que ser un documento".into())) };
-    let wrapped = m.contains_key("validator") && m.keys().all(|k| matches!(k.as_str(), "validator" | "validationLevel" | "validationAction"));
+    let Value::Object(m) = v else {
+        return Err(Error::Query(
+            "el validador tiene que ser un documento".into(),
+        ));
+    };
+    let wrapped = m.contains_key("validator")
+        && m.keys().all(|k| {
+            matches!(
+                k.as_str(),
+                "validator" | "validationLevel" | "validationAction"
+            )
+        });
     Ok(Some(if wrapped {
         m
     } else {
@@ -873,9 +1104,16 @@ pub(crate) fn validator_check(t: &TableSchema) -> Result<Option<Map<String, Valu
 /// Fields declared in a `$jsonSchema` validator enrich the sampled ones
 /// (description, required) and add those no sampled document has yet.
 fn describe_from_validator(v: &Document, columns: &mut Vec<ColumnDef>) {
-    let Ok(s) = v.get_document("$jsonSchema") else { return };
-    let required: Vec<&str> = s.get_array("required").map(|a| a.iter().filter_map(Bson::as_str).collect()).unwrap_or_default();
-    let Ok(props) = s.get_document("properties") else { return };
+    let Ok(s) = v.get_document("$jsonSchema") else {
+        return;
+    };
+    let required: Vec<&str> = s
+        .get_array("required")
+        .map(|a| a.iter().filter_map(Bson::as_str).collect())
+        .unwrap_or_default();
+    let Ok(props) = s.get_document("properties") else {
+        return;
+    };
     for (k, p) in props {
         let p = p.as_document();
         let idx = match columns.iter().position(|c| &c.name == k) {
@@ -883,12 +1121,25 @@ fn describe_from_validator(v: &Document, columns: &mut Vec<ColumnDef>) {
             None => {
                 let types: Vec<String> = match p.and_then(|p| p.get("bsonType")) {
                     Some(Bson::String(t)) => vec![t.clone()],
-                    Some(Bson::Array(a)) => a.iter().filter_map(Bson::as_str).map(str::to_string).collect(),
+                    Some(Bson::Array(a)) => a
+                        .iter()
+                        .filter_map(Bson::as_str)
+                        .map(str::to_string)
+                        .collect(),
                     _ => Vec::new(),
                 };
                 let nullable = types.is_empty() || types.iter().any(|t| t == "null");
-                let data_type = types.into_iter().filter(|t| t != "null").collect::<Vec<_>>().join("|");
-                columns.push(ColumnDef { name: k.clone(), data_type, nullable, ..Default::default() });
+                let data_type = types
+                    .into_iter()
+                    .filter(|t| t != "null")
+                    .collect::<Vec<_>>()
+                    .join("|");
+                columns.push(ColumnDef {
+                    name: k.clone(),
+                    data_type,
+                    nullable,
+                    ..Default::default()
+                });
                 columns.len() - 1
             }
         };
@@ -905,10 +1156,17 @@ fn describe_from_validator(v: &Document, columns: &mut Vec<ColumnDef>) {
 /// Database names MongoDB accepts (and that aren't its own).
 pub fn check_database_name(name: &str) -> Result<()> {
     if name.is_empty() || name.len() > 63 {
-        return Err(Error::Query("el nombre de la base tiene que tener entre 1 y 63 caracteres".into()));
+        return Err(Error::Query(
+            "el nombre de la base tiene que tener entre 1 y 63 caracteres".into(),
+        ));
     }
-    if let Some(c) = name.chars().find(|c| "/\\. \"$*<>:|?".contains(*c) || c.is_control()) {
-        return Err(Error::Query(format!("el nombre de la base no puede contener «{c}»")));
+    if let Some(c) = name
+        .chars()
+        .find(|c| "/\\. \"$*<>:|?".contains(*c) || c.is_control())
+    {
+        return Err(Error::Query(format!(
+            "el nombre de la base no puede contener «{c}»"
+        )));
     }
     Ok(())
 }
@@ -925,11 +1183,20 @@ mod tests {
 
     #[test]
     fn filtered_browse_builds_a_find_filter() {
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let got = filtered_browse(
             "db.users.find({}).limit(200)",
             &[
-                f("_id", FilterOp::In, vec![json!("65a1b2c3d4e5f60718293a00"), json!(7)]),
+                f(
+                    "_id",
+                    FilterOp::In,
+                    vec![json!("65a1b2c3d4e5f60718293a00"), json!(7)],
+                ),
                 f("name", FilterOp::Eq, vec![json!("O'Brien \"Bob\"")]),
                 f("email", FilterOp::EndsWith, vec![json!("@x.com")]),
                 f("age", FilterOp::Ge, vec![json!(18)]),
@@ -946,7 +1213,11 @@ mod tests {
         assert_eq!(st[0].cmd.get_str("find"), Ok("users"));
         let twice = filtered_browse(
             "db.getCollection(\"my-coll\").find({}).limit(5)",
-            &[f("n", FilterOp::Gt, vec![json!(1)]), f("n", FilterOp::Lt, vec![json!(9)]), f("s", FilterOp::NotContains, vec![json!("a")])],
+            &[
+                f("n", FilterOp::Gt, vec![json!(1)]),
+                f("n", FilterOp::Lt, vec![json!(9)]),
+                f("s", FilterOp::NotContains, vec![json!("a")]),
+            ],
         )
         .unwrap();
         assert_eq!(
@@ -954,21 +1225,47 @@ mod tests {
             "db.getCollection(\"my-coll\").find({ $and: [{ \"n\": { $gt: 1 } }, { \"n\": { $lt: 9 } }, { \"s\": { $not: { $regex: \"a\", $options: \"i\" } } }] }).limit(5)"
         );
         assert!(parse_script(&twice).is_ok());
-        assert!(matches!(filtered_browse("db.u.find({}).limit(5)", &[ColumnFilter { column: "x".into(), op: FilterOp::Sql, values: vec![], sql: Some("1".into()) }]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            filtered_browse(
+                "db.u.find({}).limit(5)",
+                &[ColumnFilter {
+                    column: "x".into(),
+                    op: FilterOp::Sql,
+                    values: vec![],
+                    sql: Some("1".into())
+                }]
+            ),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn sorted_browse_chains_a_sort() {
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
-        assert_eq!(sorted_browse("db.users.find({}).limit(200)", &[k("age", true)]).unwrap(), "db.users.find({}).sort({ \"age\": -1 }).limit(200)");
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         assert_eq!(
-            sorted_browse("db.users.find({}).limit(200)", &[k("age", true), k("name", false), k("age", false)]).unwrap(),
+            sorted_browse("db.users.find({}).limit(200)", &[k("age", true)]).unwrap(),
+            "db.users.find({}).sort({ \"age\": -1 }).limit(200)"
+        );
+        assert_eq!(
+            sorted_browse(
+                "db.users.find({}).limit(200)",
+                &[k("age", true), k("name", false), k("age", false)]
+            )
+            .unwrap(),
             "db.users.find({}).sort({ \"age\": -1, \"name\": 1 }).limit(200)"
         );
         // Over a filter whose text has `.limit(` in it.
         let f = filtered_browse(
             "db.getCollection(\"my-coll\").find({}).limit(5)",
-            &[ColumnFilter { column: "s".into(), op: FilterOp::Eq, values: vec![json!(".limit(3)")], sql: None }],
+            &[ColumnFilter {
+                column: "s".into(),
+                op: FilterOp::Eq,
+                values: vec![json!(".limit(3)")],
+                sql: None,
+            }],
         )
         .unwrap();
         let got = sorted_browse(&f, &[k("we\"ird 'n\\ame", false)]).unwrap();
@@ -977,21 +1274,47 @@ mod tests {
             "db.getCollection(\"my-coll\").find({ \"s\": \".limit(3)\" }).sort({ \"we\\\"ird 'n\\\\ame\": 1 }).limit(5)"
         );
         let st = parse_script(&got).unwrap();
-        assert_eq!(st[0].cmd.get_document("sort").unwrap(), &doc! { "we\"ird 'n\\ame": 1 });
-        assert_eq!(st[0].cmd.get_document("filter").unwrap(), &doc! { "s": ".limit(3)" });
+        assert_eq!(
+            st[0].cmd.get_document("sort").unwrap(),
+            &doc! { "we\"ird 'n\\ame": 1 }
+        );
+        assert_eq!(
+            st[0].cmd.get_document("filter").unwrap(),
+            &doc! { "s": ".limit(3)" }
+        );
         assert_eq!(st[0].cmd.get_i64("limit"), Ok(5));
         // Paths and operators aren't top-level fields.
-        assert!(matches!(sorted_browse("db.u.find({}).limit(5)", &[k("a.b", false)]), Err(Error::Unsupported(_))));
-        assert!(matches!(sorted_browse("db.u.find({}).limit(5)", &[k("$x", false)]), Err(Error::Unsupported(_))));
-        assert_eq!(sorted_browse("db.u.find({}).limit(5)", &[]).unwrap(), "db.u.find({}).limit(5)");
+        assert!(matches!(
+            sorted_browse("db.u.find({}).limit(5)", &[k("a.b", false)]),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            sorted_browse("db.u.find({}).limit(5)", &[k("$x", false)]),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(
+            sorted_browse("db.u.find({}).limit(5)", &[]).unwrap(),
+            "db.u.find({}).limit(5)"
+        );
     }
 
     fn col(name: &str, t: &str, nullable: bool) -> ColumnDef {
-        ColumnDef { name: name.into(), data_type: t.into(), nullable, ..Default::default() }
+        ColumnDef {
+            name: name.into(),
+            data_type: t.into(),
+            nullable,
+            ..Default::default()
+        }
     }
 
     fn all() -> DdlParts {
-        DdlParts { drop: false, if_exists: false, create: true, indexes: true, foreign_keys: true }
+        DdlParts {
+            drop: false,
+            if_exists: false,
+            create: true,
+            indexes: true,
+            foreign_keys: true,
+        }
     }
 
     #[test]
@@ -1002,22 +1325,42 @@ mod tests {
         let t = TableSchema {
             kind: "collection".into(),
             name: "people".into(),
-            columns: vec![col("_id", "objectId", false), name, col("age", "int", true), col("any", "", true)],
+            columns: vec![
+                col("_id", "objectId", false),
+                name,
+                col("age", "int", true),
+                col("any", "", true),
+            ],
             indexes: vec![
-                IndexDef { name: "name_age".into(), columns: vec!["name".into(), "age:-1".into()], unique: true, ..Default::default() },
-                IndexDef { name: "bio_text".into(), columns: vec!["bio".into()], kind: Some("text".into()), ..Default::default() },
+                IndexDef {
+                    name: "name_age".into(),
+                    columns: vec!["name".into(), "age:-1".into()],
+                    unique: true,
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "bio_text".into(),
+                    columns: vec!["bio".into()],
+                    kind: Some("text".into()),
+                    ..Default::default()
+                },
                 IndexDef {
                     name: "exp".into(),
                     columns: vec!["at".into()],
                     kind: Some("ttl:3600".into()),
-                    filter: Some("{ age: { $gt: 18 }, at: { $gte: ISODate('2024-01-01') } }".into()),
+                    filter: Some(
+                        "{ age: { $gt: 18 }, at: { $gte: ISODate('2024-01-01') } }".into(),
+                    ),
                     ..Default::default()
                 },
             ],
-            options: [("validationAction", "warn"), ("validationLevel", "moderate")]
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            options: [
+                ("validationAction", "warn"),
+                ("validationLevel", "moderate"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
             ..Default::default()
         };
         let text = table_ddl(&t, all()).unwrap();
@@ -1026,48 +1369,134 @@ mod tests {
         let c = &st[0].cmd;
         assert_eq!(c.get_str("create"), Ok("people"));
         assert_eq!(c.get_str("validationAction"), Ok("warn"));
-        let s = c.get_document("validator").unwrap().get_document("$jsonSchema").unwrap();
-        assert_eq!(s.get_array("required").unwrap(), &vec![Bson::String("name".into())]);
+        let s = c
+            .get_document("validator")
+            .unwrap()
+            .get_document("$jsonSchema")
+            .unwrap();
+        assert_eq!(
+            s.get_array("required").unwrap(),
+            &vec![Bson::String("name".into())]
+        );
         let p = s.get_document("properties").unwrap();
-        assert_eq!(p.get_document("name").unwrap(), &doc! { "bsonType": "string", "description": "Nombre" });
-        assert_eq!(p.get_document("age").unwrap().get_array("bsonType").unwrap().len(), 2);
+        assert_eq!(
+            p.get_document("name").unwrap(),
+            &doc! { "bsonType": "string", "description": "Nombre" }
+        );
+        assert_eq!(
+            p.get_document("age")
+                .unwrap()
+                .get_array("bsonType")
+                .unwrap()
+                .len(),
+            2
+        );
         assert!(!p.contains_key("any"));
-        let ix = st[1].cmd.get_array("indexes").unwrap()[0].as_document().unwrap().clone();
-        assert_eq!(ix.get_document("key").unwrap(), &doc! { "name": 1, "age": -1 });
+        let ix = st[1].cmd.get_array("indexes").unwrap()[0]
+            .as_document()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            ix.get_document("key").unwrap(),
+            &doc! { "name": 1, "age": -1 }
+        );
         assert_eq!(ix.get_str("name"), Ok("name_age"));
         assert_eq!(ix.get_bool("unique"), Ok(true));
-        let tx = st[2].cmd.get_array("indexes").unwrap()[0].as_document().unwrap().clone();
+        let tx = st[2].cmd.get_array("indexes").unwrap()[0]
+            .as_document()
+            .unwrap()
+            .clone();
         assert_eq!(tx.get_document("key").unwrap(), &doc! { "bio": "text" });
-        let ttl = st[3].cmd.get_array("indexes").unwrap()[0].as_document().unwrap().clone();
+        let ttl = st[3].cmd.get_array("indexes").unwrap()[0]
+            .as_document()
+            .unwrap()
+            .clone();
         assert_eq!(ttl.get_i32("expireAfterSeconds"), Ok(3600));
         let pf = ttl.get_document("partialFilterExpression").unwrap();
         assert!(pf.get_document("at").unwrap().get_datetime("$gte").is_ok());
         // Round trip: listIndexes-like specs map back to the same IndexDefs.
         for (i, st) in st[1..].iter().enumerate() {
-            let spec = st.cmd.get_array("indexes").unwrap()[0].as_document().unwrap();
+            let spec = st.cmd.get_array("indexes").unwrap()[0]
+                .as_document()
+                .unwrap();
             let back = index_def(spec).unwrap();
-            let again = table_ddl(&TableSchema { name: "people".into(), indexes: vec![back], ..Default::default() }, DdlParts { indexes: true, ..Default::default() }).unwrap();
+            let again = table_ddl(
+                &TableSchema {
+                    name: "people".into(),
+                    indexes: vec![back],
+                    ..Default::default()
+                },
+                DdlParts {
+                    indexes: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
             assert_eq!(parse_script(&again).unwrap()[0].cmd, st.cmd, "index {i}");
         }
     }
 
     #[test]
     fn drop_if_exists_and_special_collections() {
-        let mut t = TableSchema { name: "m".into(), ..Default::default() };
-        for (k, v) in [("timeField", "ts"), ("metaField", "sensor"), ("granularity", "hours"), ("expireAfterSeconds", "60")] {
+        let mut t = TableSchema {
+            name: "m".into(),
+            ..Default::default()
+        };
+        for (k, v) in [
+            ("timeField", "ts"),
+            ("metaField", "sensor"),
+            ("granularity", "hours"),
+            ("expireAfterSeconds", "60"),
+        ] {
             t.options.insert(k.into(), v.into());
         }
-        let text = table_ddl(&t, DdlParts { drop: true, if_exists: true, create: true, ..Default::default() }).unwrap();
+        let text = table_ddl(
+            &t,
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let st = parse_script(&text).unwrap();
         assert_eq!(st[0].cmd, doc! { "drop": "m" });
         assert_eq!(st[1].shape, Shape::Reply);
-        assert_eq!(st[1].cmd.get_document("timeseries").unwrap().get_str("granularity"), Ok("hours"));
+        assert_eq!(
+            st[1]
+                .cmd
+                .get_document("timeseries")
+                .unwrap()
+                .get_str("granularity"),
+            Ok("hours")
+        );
         // if_exists without drop: the ifNotExists extension.
-        let text = table_ddl(&TableSchema { name: "x".into(), ..Default::default() }, DdlParts { if_exists: true, create: true, ..Default::default() }).unwrap();
-        assert_eq!(text, "db.createCollection(\"x\", {}, { ifNotExists: true })");
-        assert_eq!(parse_script(&text).unwrap()[0].shape, Shape::CreateIfMissing);
+        let text = table_ddl(
+            &TableSchema {
+                name: "x".into(),
+                ..Default::default()
+            },
+            DdlParts {
+                if_exists: true,
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            text,
+            "db.createCollection(\"x\", {}, { ifNotExists: true })"
+        );
+        assert_eq!(
+            parse_script(&text).unwrap()[0].shape,
+            Shape::CreateIfMissing
+        );
         // Capped needs a size; TTL needs time-series or clustered.
-        let mut c = TableSchema { name: "c".into(), ..Default::default() };
+        let mut c = TableSchema {
+            name: "c".into(),
+            ..Default::default()
+        };
         c.options.insert("capped".into(), "true".into());
         assert!(table_ddl(&c, all()).is_err());
         c.options.insert("size".into(), "4096".into());
@@ -1075,13 +1504,25 @@ mod tests {
         let st = parse_script(&table_ddl(&c, all()).unwrap()).unwrap();
         assert_eq!(st[0].cmd.get_i32("size"), Ok(4096));
         assert!(st[0].cmd.contains_key("clusteredIndex"));
-        let mut bad = TableSchema { name: "b".into(), ..Default::default() };
+        let mut bad = TableSchema {
+            name: "b".into(),
+            ..Default::default()
+        };
         bad.options.insert("expireAfterSeconds".into(), "5".into());
         assert!(table_ddl(&bad, all()).is_err());
-        let mut badtype = TableSchema { name: "b".into(), columns: vec![col("a", "varchar", true)], ..Default::default() };
+        let mut badtype = TableSchema {
+            name: "b".into(),
+            columns: vec![col("a", "varchar", true)],
+            ..Default::default()
+        };
         assert!(table_ddl(&badtype, all()).is_err());
-        badtype.options.insert("validate_fields".into(), "false".into());
-        assert_eq!(table_ddl(&badtype, all()).unwrap(), "db.createCollection(\"b\")");
+        badtype
+            .options
+            .insert("validate_fields".into(), "false".into());
+        assert_eq!(
+            table_ddl(&badtype, all()).unwrap(),
+            "db.createCollection(\"b\")"
+        );
     }
 
     #[test]
@@ -1090,13 +1531,28 @@ mod tests {
         let t = table_schema(&info, vec![], &[]);
         assert_eq!(t.kind, "view");
         assert!(t.primary_key.is_none());
-        let text = table_ddl(&t, DdlParts { drop: true, create: true, indexes: true, ..Default::default() }).unwrap();
+        let text = table_ddl(
+            &t,
+            DdlParts {
+                drop: true,
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let st = parse_script(&text).unwrap();
-        assert_eq!(st[1].cmd, doc! { "create": "v", "viewOn": "people", "pipeline": [{ "$match": { "age": { "$gte": 30 } } }] });
+        assert_eq!(
+            st[1].cmd,
+            doc! { "create": "v", "viewOn": "people", "pipeline": [{ "$match": { "age": { "$gte": 30 } } }] }
+        );
         // The definition the compare runs makes the same view, collation included.
         let o = doc! { "viewOn": "people", "pipeline": [{ "$match": { "age": { "$gte": 30 } } }], "collation": { "locale": "fr", "version": "57.1" } };
         let st = parse_script(&view_definition("v", Some(&o))).unwrap();
-        assert_eq!(st[0].cmd, doc! { "create": "v", "viewOn": "people", "pipeline": [{ "$match": { "age": { "$gte": 30 } } }], "collation": { "locale": "fr" } });
+        assert_eq!(
+            st[0].cmd,
+            doc! { "create": "v", "viewOn": "people", "pipeline": [{ "$match": { "age": { "$gte": 30 } } }], "collation": { "locale": "fr" } }
+        );
     }
 
     #[test]
@@ -1110,12 +1566,22 @@ mod tests {
             doc! { "v": 2, "key": { "_fts": "text", "_ftsx": 1 }, "name": "t", "weights": { "bio": 1 } },
             doc! { "v": 2, "key": { "loc": "2dsphere", "a": -1 }, "name": "g", "sparse": true },
         ];
-        let t = table_schema(&info, vec![col("_id", "int", false), col("n", "string", false)], &ixs);
+        let t = table_schema(
+            &info,
+            vec![col("_id", "int", false), col("n", "string", false)],
+            &ixs,
+        );
         assert_eq!(t.primary_key.as_ref().unwrap().columns, vec!["_id"]);
         assert_eq!(t.options.get("size").map(String::as_str), Some("8192"));
-        assert_eq!(t.options.get("validate_fields").map(String::as_str), Some("false"));
+        assert_eq!(
+            t.options.get("validate_fields").map(String::as_str),
+            Some("false")
+        );
         assert_eq!(t.columns[1].comment.as_deref(), Some("d"));
-        assert_eq!(t.columns[1].options.get("required").map(String::as_str), Some("true"));
+        assert_eq!(
+            t.columns[1].options.get("required").map(String::as_str),
+            Some("true")
+        );
         assert_eq!(t.columns[2].name, "extra");
         assert!(t.columns[2].nullable);
         assert_eq!(t.indexes.len(), 2);
@@ -1123,16 +1589,36 @@ mod tests {
         assert_eq!(t.indexes[0].kind.as_deref(), Some("FULLTEXT"));
         assert_eq!(t.indexes[1].columns, vec!["loc:2dsphere", "a:-1"]);
         assert_eq!(t.indexes[1].kind, None);
-        assert_eq!(t.indexes[1].options.get("sparse").map(String::as_str), Some("true"));
+        assert_eq!(
+            t.indexes[1].options.get("sparse").map(String::as_str),
+            Some("true")
+        );
         // The validator is the CHECK, not an option; `strict` is the default.
         assert!(!t.options.contains_key("validator") && !t.options.contains_key("validationLevel"));
         assert_eq!(t.checks.len(), 1);
         assert_eq!(t.checks[0].name.as_deref(), Some(VALIDATOR));
-        assert!(t.checks[0].expression.starts_with("{\"validator\":{\"$jsonSchema\""), "{}", t.checks[0].expression);
+        assert!(
+            t.checks[0]
+                .expression
+                .starts_with("{\"validator\":{\"$jsonSchema\""),
+            "{}",
+            t.checks[0].expression
+        );
         let st = parse_script(&table_ddl(&t, all()).unwrap()).unwrap();
         assert_eq!(st[0].cmd.get_bool("capped"), Ok(true));
-        assert!(st[0].cmd.get_document("validator").unwrap().contains_key("$jsonSchema"));
-        assert_eq!(st[2].cmd.get_array("indexes").unwrap()[0].as_document().unwrap().get_document("key").unwrap(), &doc! { "loc": "2dsphere", "a": -1 });
+        assert!(st[0]
+            .cmd
+            .get_document("validator")
+            .unwrap()
+            .contains_key("$jsonSchema"));
+        assert_eq!(
+            st[2].cmd.get_array("indexes").unwrap()[0]
+                .as_document()
+                .unwrap()
+                .get_document("key")
+                .unwrap(),
+            &doc! { "loc": "2dsphere", "a": -1 }
+        );
     }
 
     /// "Clonar tabla": on a collection with a default collation, an index
@@ -1148,18 +1634,50 @@ mod tests {
             doc! { "v": 2, "key": { "_fts": "text", "_ftsx": 1 }, "name": "t", "weights": { "bio": 1 } },
         ];
         let t = table_schema(&info, vec![col("_id", "int", false)], &ixs);
-        let coll = |name: &str| t.indexes.iter().find(|i| i.name == name).unwrap().options.get("collation").cloned();
+        let coll = |name: &str| {
+            t.indexes
+                .iter()
+                .find(|i| i.name == name)
+                .unwrap()
+                .options
+                .get("collation")
+                .cloned()
+        };
         assert_eq!(coll("ix_es").as_deref(), Some("{\"locale\":\"es\"}"));
-        assert_eq!(coll("ix_simple").as_deref(), Some("{\"locale\":\"simple\"}"));
+        assert_eq!(
+            coll("ix_simple").as_deref(),
+            Some("{\"locale\":\"simple\"}")
+        );
         assert_eq!(coll("t").as_deref(), Some("{\"locale\":\"simple\"}"));
         let st = parse_script(&table_ddl(&t, all()).unwrap()).unwrap();
-        let created: Vec<Document> = st[1..].iter().flat_map(|s| s.cmd.get_array("indexes").unwrap().iter().map(|i| i.as_document().unwrap().clone())).collect();
+        let created: Vec<Document> = st[1..]
+            .iter()
+            .flat_map(|s| {
+                s.cmd
+                    .get_array("indexes")
+                    .unwrap()
+                    .iter()
+                    .map(|i| i.as_document().unwrap().clone())
+            })
+            .collect();
         for ix in &created {
-            let want = if ix.get_str("name") == Ok("ix_es") { "es" } else { "simple" };
-            assert_eq!(ix.get_document("collation").unwrap().get_str("locale"), Ok(want), "{ix}");
+            let want = if ix.get_str("name") == Ok("ix_es") {
+                "es"
+            } else {
+                "simple"
+            };
+            assert_eq!(
+                ix.get_document("collation").unwrap().get_str("locale"),
+                Ok(want),
+                "{ix}"
+            );
         }
         // Without a default collation nothing is added.
-        let plain = table_schema(&doc! { "name": "p", "type": "collection", "options": {} }, vec![], &ixs[2..3]);
+        let plain = table_schema(
+            &doc! { "name": "p", "type": "collection", "options": {} },
+            vec![],
+            &ixs[2..3],
+        );
         assert!(!plain.indexes[0].options.contains_key("collation"));
     }
 
@@ -1167,10 +1685,10 @@ mod tests {
     fn index_options_and_validator_round_trip() {
         let specs = [
             doc! { "v": 2, "key": { "cat": 1, "_fts": "text", "_ftsx": 1, "at": -1 }, "name": "t", "weights": { "bio": 5, "title": 1 },
-                   "default_language": "spanish", "language_override": "idioma", "textIndexVersion": 3 },
+            "default_language": "spanish", "language_override": "idioma", "textIndexVersion": 3 },
             doc! { "v": 2, "key": { "_fts": "text", "_ftsx": 1 }, "name": "plain", "weights": { "body": 1 }, "default_language": "english", "language_override": "language" },
             doc! { "v": 2, "key": { "email": 1 }, "name": "e", "unique": true, "hidden": true, "expireAfterSeconds": 60, "sparse": true,
-                   "collation": { "locale": "es", "strength": 2, "version": "57.1" }, "partialFilterExpression": { "age": { "$gt": 1 } } },
+            "collation": { "locale": "es", "strength": 2, "version": "57.1" }, "partialFilterExpression": { "age": { "$gt": 1 } } },
             doc! { "v": 2, "key": { "$**": 1 }, "name": "w", "wildcardProjection": { "a": 1 } },
             doc! { "v": 2, "key": { "p": "2d" }, "name": "g", "bits": 20, "min": -90, "max": 180 },
             doc! { "v": 2, "key": { "h": "hashed" }, "name": "h" },
@@ -1178,24 +1696,58 @@ mod tests {
         let defs: Vec<IndexDef> = specs.iter().filter_map(index_def).collect();
         assert_eq!(defs[0].kind.as_deref(), Some("FULLTEXT"));
         assert_eq!(defs[0].columns, vec!["cat:1", "bio", "title", "at:-1"]);
-        assert_eq!(defs[0].options.get("default_language").map(String::as_str), Some("spanish"));
-        assert_eq!(defs[0].options.get("language_override").map(String::as_str), Some("idioma"));
-        assert_eq!(defs[0].options.get("weights").map(String::as_str), Some("{\"bio\":5,\"title\":1}"));
-        assert!(defs[1].options.is_empty(), "defaults are left out: {:?}", defs[1].options);
+        assert_eq!(
+            defs[0].options.get("default_language").map(String::as_str),
+            Some("spanish")
+        );
+        assert_eq!(
+            defs[0].options.get("language_override").map(String::as_str),
+            Some("idioma")
+        );
+        assert_eq!(
+            defs[0].options.get("weights").map(String::as_str),
+            Some("{\"bio\":5,\"title\":1}")
+        );
+        assert!(
+            defs[1].options.is_empty(),
+            "defaults are left out: {:?}",
+            defs[1].options
+        );
         let e = &defs[2].options;
-        assert_eq!((e["hidden"].as_str(), e["sparse"].as_str(), e["expireAfterSeconds"].as_str()), ("true", "true", "60"));
+        assert_eq!(
+            (
+                e["hidden"].as_str(),
+                e["sparse"].as_str(),
+                e["expireAfterSeconds"].as_str()
+            ),
+            ("true", "true", "60")
+        );
         assert_eq!(e["collation"], "{\"locale\":\"es\",\"strength\":2}");
         assert_eq!(defs[3].columns, vec!["$**"]);
         assert_eq!(defs[4].options.len(), 2, "{:?}", defs[4].options);
         assert_eq!(defs[5].kind.as_deref(), Some("hashed"));
         // What the DDL writes reads back as the same definitions.
-        let t = TableSchema { name: "c".into(), indexes: defs.clone(), ..Default::default() };
-        let text = table_ddl(&t, DdlParts { indexes: true, ..Default::default() }).unwrap();
+        let t = TableSchema {
+            name: "c".into(),
+            indexes: defs.clone(),
+            ..Default::default()
+        };
+        let text = table_ddl(
+            &t,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let st = parse_script(&text).unwrap();
         let back: Vec<IndexDef> = st
             .iter()
             .map(|s| {
-                let mut spec = s.cmd.get_array("indexes").unwrap()[0].as_document().unwrap().clone();
+                let mut spec = s.cmd.get_array("indexes").unwrap()[0]
+                    .as_document()
+                    .unwrap()
+                    .clone();
                 // The server reports text indexes by `_fts` and `weights`.
                 let key = spec.get_document("key").unwrap().clone();
                 if key.values().any(|v| v.as_str() == Some("text")) {
@@ -1222,30 +1774,61 @@ mod tests {
             .collect();
         assert_eq!(back, defs);
         // The validator CHECK makes the validator, level and action.
-        let mut t = TableSchema { name: "c".into(), ..Default::default() };
+        let mut t = TableSchema {
+            name: "c".into(),
+            ..Default::default()
+        };
         t.options.insert("validator".into(), "{ \"a\": 1 }".into());
         t.checks.push(CheckDef { name: Some(VALIDATOR.into()), expression: "{\"validator\":{\"$jsonSchema\":{\"required\":[\"n\"]}},\"validationLevel\":\"moderate\"}".into() });
         let st = parse_script(&table_ddl(&t, all()).unwrap()).unwrap();
-        assert_eq!(st[0].cmd.get_document("validator").unwrap(), &doc! { "$jsonSchema": { "required": ["n"] } });
+        assert_eq!(
+            st[0].cmd.get_document("validator").unwrap(),
+            &doc! { "$jsonSchema": { "required": ["n"] } }
+        );
         assert_eq!(st[0].cmd.get_str("validationLevel"), Ok("moderate"));
         // A bare query document is the validator itself.
         t.checks[0].expression = "{ qty: { $gt: 0 } }".into();
         let st = parse_script(&table_ddl(&t, all()).unwrap()).unwrap();
-        assert_eq!(st[0].cmd.get_document("validator").unwrap(), &doc! { "qty": { "$gt": 0 } });
-        t.checks.push(CheckDef { name: None, expression: "{}".into() });
+        assert_eq!(
+            st[0].cmd.get_document("validator").unwrap(),
+            &doc! { "qty": { "$gt": 0 } }
+        );
+        t.checks.push(CheckDef {
+            name: None,
+            expression: "{}".into(),
+        });
         assert!(table_ddl(&t, all()).is_err());
     }
 
     #[test]
     fn update_script_filters_by_id() {
-        let target = ObjectRef { kind: "collection".into(), schema: None, name: "users".into() };
+        let target = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: "users".into(),
+        };
         let changes = vec![
             RowChange {
-                key: vec![("_id".into(), json!("65a1b2c3d4e5f60718293a00")), ("name".into(), json!("x"))],
-                set: vec![("name".into(), json!("O'Brien \"Bob\"")), ("age".into(), Value::Null)], ..Default::default()
+                key: vec![
+                    ("_id".into(), json!("65a1b2c3d4e5f60718293a00")),
+                    ("name".into(), json!("x")),
+                ],
+                set: vec![
+                    ("name".into(), json!("O'Brien \"Bob\"")),
+                    ("age".into(), Value::Null),
+                ],
+                ..Default::default()
             },
-            RowChange { key: vec![("code".into(), json!(7))], set: vec![], ..Default::default() },
-            RowChange { key: vec![("code".into(), json!(8))], set: vec![("n".into(), json!(1))], ..Default::default() },
+            RowChange {
+                key: vec![("code".into(), json!(7))],
+                set: vec![],
+                ..Default::default()
+            },
+            RowChange {
+                key: vec![("code".into(), json!(8))],
+                set: vec![("n".into(), json!(1))],
+                ..Default::default()
+            },
         ];
         let text = update_script(&target, &changes).unwrap();
         assert_eq!(
@@ -1260,10 +1843,20 @@ mod tests {
 
     #[test]
     fn delete_script_filters_by_id() {
-        let target = ObjectRef { kind: "collection".into(), schema: None, name: "users".into() };
+        let target = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: "users".into(),
+        };
         let keys = vec![
-            vec![("_id".into(), json!("65a1b2c3d4e5f60718293a00")), ("name".into(), json!("x"))],
-            vec![("code".into(), json!("O'Brien \"Bob\"")), ("n".into(), json!(2))],
+            vec![
+                ("_id".into(), json!("65a1b2c3d4e5f60718293a00")),
+                ("name".into(), json!("x")),
+            ],
+            vec![
+                ("code".into(), json!("O'Brien \"Bob\"")),
+                ("n".into(), json!(2)),
+            ],
         ];
         let text = delete_script(&target, &keys).unwrap();
         assert_eq!(
@@ -1274,8 +1867,13 @@ mod tests {
         let st = parse_script(&text).unwrap();
         assert_eq!(st.len(), 2);
         assert_eq!(st[0].shape, Shape::Write);
-        let del = st[1].cmd.get_array("deletes").unwrap()[0].as_document().unwrap();
-        assert_eq!(del.get_document("q").unwrap().get_str("code"), Ok("O'Brien \"Bob\""));
+        let del = st[1].cmd.get_array("deletes").unwrap()[0]
+            .as_document()
+            .unwrap();
+        assert_eq!(
+            del.get_document("q").unwrap().get_str("code"),
+            Ok("O'Brien \"Bob\"")
+        );
         assert_eq!(del.get_i32("limit"), Ok(1));
         assert!(delete_script(&target, &[vec![]]).is_err());
     }
@@ -1283,10 +1881,21 @@ mod tests {
     #[test]
     fn insert_script_batches_and_parses() {
         let rows: Vec<Vec<Value>> = (0..205)
-            .map(|i| vec![json!(format!("65a1b2c3d4e5f60718293a{:02x}", i % 256)), json!(format!("n'\"{i}")), if i % 2 == 0 { Value::Null } else { json!(i) }, json!("{\"a\":1}")])
+            .map(|i| {
+                vec![
+                    json!(format!("65a1b2c3d4e5f60718293a{:02x}", i % 256)),
+                    json!(format!("n'\"{i}")),
+                    if i % 2 == 0 { Value::Null } else { json!(i) },
+                    json!("{\"a\":1}"),
+                ]
+            })
             .collect();
         let cols = vec!["_id".to_string(), "name".into(), "n".into(), "raw".into()];
-        let target = ObjectRef { kind: "collection".into(), schema: None, name: "odd name".into() };
+        let target = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: "odd name".into(),
+        };
         let text = insert_script(&target, &cols, &rows).unwrap();
         let st = parse_script(&text).unwrap();
         assert_eq!(st.len(), 3);
@@ -1319,20 +1928,42 @@ mod tests {
             "db.a.dropIndex('x_1')",
             "db.runCommand({ collMod: 'a', validator: {} })",
         ] {
-            assert!(write_reason(&parse_script(w).unwrap()[0].cmd).is_some(), "{w}");
+            assert!(
+                write_reason(&parse_script(w).unwrap()[0].cmd).is_some(),
+                "{w}"
+            );
         }
     }
 
     #[test]
     fn shell_helpers_for_creation() {
-        let s = &parse_script("db.a.createIndex({ x: 1, 'y.z': -1 }, { unique: true })").unwrap()[0];
-        let ix = s.cmd.get_array("indexes").unwrap()[0].as_document().unwrap().clone();
+        let s =
+            &parse_script("db.a.createIndex({ x: 1, 'y.z': -1 }, { unique: true })").unwrap()[0];
+        let ix = s.cmd.get_array("indexes").unwrap()[0]
+            .as_document()
+            .unwrap()
+            .clone();
         assert_eq!(ix.get_str("name"), Ok("x_1_y.z_-1"));
         let s = &parse_script("db.a.createIndexes([{ x: 1 }, { t: 'text' }])").unwrap()[0];
-        assert_eq!(s.cmd.get_array("indexes").unwrap()[1].as_document().unwrap().get_str("name"), Ok("t_text"));
-        assert_eq!(parse_script("db.a.dropIndexes()").unwrap()[0].cmd, doc! { "dropIndexes": "a", "index": "*" });
-        assert_eq!(parse_script("db.dropDatabase()").unwrap()[0].cmd, doc! { "dropDatabase": 1 });
-        let v = &parse_script("db.createView('v', 'a', [{ $match: {} }], { collation: { locale: 'es' } })").unwrap()[0];
+        assert_eq!(
+            s.cmd.get_array("indexes").unwrap()[1]
+                .as_document()
+                .unwrap()
+                .get_str("name"),
+            Ok("t_text")
+        );
+        assert_eq!(
+            parse_script("db.a.dropIndexes()").unwrap()[0].cmd,
+            doc! { "dropIndexes": "a", "index": "*" }
+        );
+        assert_eq!(
+            parse_script("db.dropDatabase()").unwrap()[0].cmd,
+            doc! { "dropDatabase": 1 }
+        );
+        let v = &parse_script(
+            "db.createView('v', 'a', [{ $match: {} }], { collation: { locale: 'es' } })",
+        )
+        .unwrap()[0];
         assert_eq!(v.cmd.get_str("viewOn"), Ok("a"));
         assert!(v.cmd.contains_key("collation"));
         assert!(parse_script("db.createCollection()").is_err());
@@ -1357,14 +1988,28 @@ mod tests {
             doc! { "v": 2, "key": { "n": 1 }, "name": "n_1" },
         ];
         let t = table_schema(&info, vec![], &ixs);
-        assert_eq!(t.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["n_1"]);
+        assert_eq!(
+            t.indexes
+                .iter()
+                .map(|i| i.name.as_str())
+                .collect::<Vec<_>>(),
+            ["n_1"]
+        );
         assert_eq!(t.options.get("clustered").map(String::as_str), Some("true"));
         let st = parse_script(&table_ddl(&t, all()).unwrap()).unwrap();
         let ci = st[0].cmd.get_document("clusteredIndex").unwrap();
         assert_eq!(ci.get_str("name"), Ok("cl_id"));
-        assert_eq!(st.iter().filter(|s| s.cmd.contains_key("createIndexes")).count(), 1, "only n_1");
+        assert_eq!(
+            st.iter()
+                .filter(|s| s.cmd.contains_key("createIndexes"))
+                .count(),
+            1,
+            "only n_1"
+        );
         // The default name isn't kept (the server gives it again).
         let dflt = doc! { "name": "d", "type": "collection", "options": { "clusteredIndex": { "v": 2, "key": { "_id": 1 }, "name": "_id_", "unique": true } } };
-        assert!(!table_schema(&dflt, vec![], &[]).options.contains_key(CLUSTERED_NAME));
+        assert!(!table_schema(&dflt, vec![], &[])
+            .options
+            .contains_key(CLUSTERED_NAME));
     }
 }

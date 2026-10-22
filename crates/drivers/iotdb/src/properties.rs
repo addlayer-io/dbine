@@ -35,8 +35,14 @@ pub(crate) fn alter(database: &str, changes: &BTreeMap<String, String>) -> Resul
             } else {
                 format!("SET TTL TO {path} {}", millis(value, "TTL")?)
             }),
-            "schema_region_group_num" => with.push(format!("SCHEMA_REGION_GROUP_NUM={}", count(value, "grupos de regiones de esquema")?)),
-            "data_region_group_num" => with.push(format!("DATA_REGION_GROUP_NUM={}", count(value, "grupos de regiones de datos")?)),
+            "schema_region_group_num" => with.push(format!(
+                "SCHEMA_REGION_GROUP_NUM={}",
+                count(value, "grupos de regiones de esquema")?
+            )),
+            "data_region_group_num" => with.push(format!(
+                "DATA_REGION_GROUP_NUM={}",
+                count(value, "grupos de regiones de datos")?
+            )),
             k => return Err(Error::Query(format!("propiedad desconocida: {k}"))),
         }
     }
@@ -50,12 +56,22 @@ pub(crate) fn alter(database: &str, changes: &BTreeMap<String, String>) -> Resul
 }
 
 pub(crate) fn script(database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
-    Ok(alter(database, changes)?.iter().map(|s| format!("{s};")).collect::<Vec<_>>().join("\n"))
+    Ok(alter(database, changes)?
+        .iter()
+        .map(|s| format!("{s};"))
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 /// Milliseconds in the largest unit that divides them (`7d`, `90m`).
 fn human_ms(ms: u64) -> String {
-    for (unit, size) in [("w", 604_800_000), ("d", 86_400_000), ("h", 3_600_000), ("m", 60_000), ("s", 1_000)] {
+    for (unit, size) in [
+        ("w", 604_800_000),
+        ("d", 86_400_000),
+        ("h", 3_600_000),
+        ("m", 60_000),
+        ("s", 1_000),
+    ] {
         if ms >= size && ms.is_multiple_of(size) {
             return format!("{}{unit}", ms / size);
         }
@@ -73,7 +89,16 @@ fn text(v: Option<&J>) -> String {
 
 /// The first row as column → value.
 fn first_row(t: &Table) -> BTreeMap<String, String> {
-    t.rows.first().map(|r| t.columns.iter().map(|c| c.name.clone()).zip(r.iter().map(|v| text(Some(v)))).collect()).unwrap_or_default()
+    t.rows
+        .first()
+        .map(|r| {
+            t.columns
+                .iter()
+                .map(|c| c.name.clone())
+                .zip(r.iter().map(|v| text(Some(v))))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// A TTL as the field shows it: `INF` when a rule says the data never
@@ -93,7 +118,11 @@ fn ttl_value(v: &str) -> String {
 impl IotDbSession {
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         let path = database_path(database);
-        let d = first_row(&self.query(&format!("SHOW DATABASES DETAILS {path}"), 10).await?);
+        let d = first_row(
+            &self
+                .query(&format!("SHOW DATABASES DETAILS {path}"), 10)
+                .await?,
+        );
         if d.is_empty() {
             return Err(Error::Query(format!("no existe la base {path}")));
         }
@@ -103,35 +132,80 @@ impl IotDbSession {
             Some(t) => ttl_value(t),
             None => {
                 let t = self.query(&format!("SHOW TTL ON {path}.**"), 100).await?;
-                let rule = t.rows.iter().find(|r| text(r.first()) == format!("{path}.**")).or_else(|| t.rows.iter().find(|r| text(r.first()) == path));
+                let rule = t
+                    .rows
+                    .iter()
+                    .find(|r| text(r.first()) == format!("{path}.**"))
+                    .or_else(|| t.rows.iter().find(|r| text(r.first()) == path));
                 rule.map(|r| ttl_value(&text(r.get(1)))).unwrap_or_default()
             }
         };
         values.insert("ttl".to_string(), ttl);
-        for (key, col) in [("schema_region_group_num", "MinSchemaRegionGroupNum"), ("data_region_group_num", "MinDataRegionGroupNum")] {
+        for (key, col) in [
+            ("schema_region_group_num", "MinSchemaRegionGroupNum"),
+            ("data_region_group_num", "MinDataRegionGroupNum"),
+        ] {
             if let Some(v) = d.get(col).filter(|v| !v.is_empty()) {
                 values.insert(key.to_string(), v.clone());
             }
         }
 
-        let g = |group: &str, label: &str, value: String| PropertyInfo { group: group.into(), label: label.into(), value };
+        let g = |group: &str, label: &str, value: String| PropertyInfo {
+            group: group.into(),
+            label: label.into(),
+            value,
+        };
         let col = |k: &str| d.get(k).cloned().unwrap_or_default();
         let mut info = vec![
-            g("", "Réplicas del esquema (SchemaReplicationFactor)", col("SchemaReplicationFactor")),
-            g("", "Réplicas de los datos (DataReplicationFactor)", col("DataReplicationFactor")),
-            g("", "Intervalo de partición por tiempo (TimePartitionInterval)", col("TimePartitionInterval").parse::<u64>().map(human_ms).unwrap_or_default()),
+            g(
+                "",
+                "Réplicas del esquema (SchemaReplicationFactor)",
+                col("SchemaReplicationFactor"),
+            ),
+            g(
+                "",
+                "Réplicas de los datos (DataReplicationFactor)",
+                col("DataReplicationFactor"),
+            ),
+            g(
+                "",
+                "Intervalo de partición por tiempo (TimePartitionInterval)",
+                col("TimePartitionInterval")
+                    .parse::<u64>()
+                    .map(human_ms)
+                    .unwrap_or_default(),
+            ),
         ];
         if let Some(o) = d.get("TimePartitionOrigin") {
-            info.push(g("", "Origen de las particiones por tiempo (TimePartitionOrigin)", o.clone()));
+            info.push(g(
+                "",
+                "Origen de las particiones por tiempo (TimePartitionOrigin)",
+                o.clone(),
+            ));
         }
-        for (label, q) in [("Dispositivos", format!("COUNT DEVICES {path}.**")), ("Series temporales", format!("COUNT TIMESERIES {path}.**"))] {
+        for (label, q) in [
+            ("Dispositivos", format!("COUNT DEVICES {path}.**")),
+            ("Series temporales", format!("COUNT TIMESERIES {path}.**")),
+        ] {
             if let Ok(t) = self.query(&q, 10).await {
-                info.push(g("", label, t.rows.first().map(|r| text(r.last())).unwrap_or_default()));
+                info.push(g(
+                    "",
+                    label,
+                    t.rows.first().map(|r| text(r.last())).unwrap_or_default(),
+                ));
             }
         }
         for (label, cur, max) in [
-            ("Grupos de regiones de esquema", "SchemaRegionGroupNum", "MaxSchemaRegionGroupNum"),
-            ("Grupos de regiones de datos", "DataRegionGroupNum", "MaxDataRegionGroupNum"),
+            (
+                "Grupos de regiones de esquema",
+                "SchemaRegionGroupNum",
+                "MaxSchemaRegionGroupNum",
+            ),
+            (
+                "Grupos de regiones de datos",
+                "DataRegionGroupNum",
+                "MaxDataRegionGroupNum",
+            ),
         ] {
             info.push(g(REGIONS, &format!("{label}: actuales"), col(cur)));
             info.push(g(REGIONS, &format!("{label}: máximo"), col(max)));
@@ -153,17 +227,37 @@ impl IotDbSession {
             "Si la vida nueva es más corta, los datos más viejos que ella dejan de verse y se borran en la próxima compactación.".to_string(),
         )]
         .into();
-        Ok(DatabaseProperties { fields, values, info, choices: Vec::new(), warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices: Vec::new(),
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden modificar las propiedades de una base.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden modificar las propiedades de una base."
+                    .into(),
+            ));
         }
         let statements = alter(database, changes)?;
         for (i, sql) in statements.iter().enumerate() {
             if let Err(e) = self.non_query(sql).await {
-                return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+                return Err(if i == 0 {
+                    e
+                } else {
+                    Error::Query(format!(
+                        "se aplicaron {i} de {} cambios; falló: {sql}\n{e}",
+                        statements.len()
+                    ))
+                });
             }
         }
         Ok(())
@@ -175,7 +269,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -184,15 +281,31 @@ mod tests {
             script("planta", &c(&[("ttl", "7d"), ("data_region_group_num", "3"), ("schema_region_group_num", "2")])).unwrap(),
             "SET TTL TO root.planta 604800000;\nALTER DATABASE root.planta WITH SCHEMA_REGION_GROUP_NUM=2, DATA_REGION_GROUP_NUM=3;"
         );
-        assert_eq!(script("root.a.b", &c(&[("ttl", "")])).unwrap(), "UNSET TTL TO root.a.b;");
-        assert_eq!(script("p", &c(&[("ttl", "inf")])).unwrap(), "SET TTL TO root.p INF;");
-        assert_eq!(script("p", &c(&[("data_region_group_num", "4")])).unwrap(), "ALTER DATABASE root.p WITH DATA_REGION_GROUP_NUM=4;");
+        assert_eq!(
+            script("root.a.b", &c(&[("ttl", "")])).unwrap(),
+            "UNSET TTL TO root.a.b;"
+        );
+        assert_eq!(
+            script("p", &c(&[("ttl", "inf")])).unwrap(),
+            "SET TTL TO root.p INF;"
+        );
+        assert_eq!(
+            script("p", &c(&[("data_region_group_num", "4")])).unwrap(),
+            "ALTER DATABASE root.p WITH DATA_REGION_GROUP_NUM=4;"
+        );
         assert_eq!(script("p", &c(&[])).unwrap(), "");
     }
 
     #[test]
     fn values_are_checked() {
-        for bad in [("ttl", "0"), ("ttl", "1y"), ("ttl", "1h; DELETE DATABASE root.p"), ("data_region_group_num", "0"), ("schema_region_group_num", "x"), ("ttl_x", "1")] {
+        for bad in [
+            ("ttl", "0"),
+            ("ttl", "1y"),
+            ("ttl", "1h; DELETE DATABASE root.p"),
+            ("data_region_group_num", "0"),
+            ("schema_region_group_num", "x"),
+            ("ttl_x", "1"),
+        ] {
             assert!(script("p", &c(&[bad])).is_err(), "{bad:?}");
         }
     }

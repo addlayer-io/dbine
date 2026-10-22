@@ -113,7 +113,8 @@ const UNSUPPORTED: &[(&str, usize)] = &[
 
 /// `word` (upper case) abbreviates one of `list`'s commands.
 fn is_one_of(word: &str, list: &[(&str, usize)]) -> bool {
-    list.iter().any(|(c, min)| word.len() >= *min && c.starts_with(word))
+    list.iter()
+        .any(|(c, min)| word.len() >= *min && c.starts_with(word))
 }
 
 /// The SQL*Plus command on this (trimmed) line, if it is one. `EXEC` is
@@ -124,11 +125,17 @@ pub fn command(line: &str) -> Option<Command> {
     }
     // SQL*Plus takes an optional `;` after its commands (not after PROMPT,
     // whose text runs to the end of the line).
-    let words: Vec<String> =
-        line.trim_end_matches(';').split_whitespace().take(5).map(str::to_ascii_uppercase).collect();
+    let words: Vec<String> = line
+        .trim_end_matches(';')
+        .split_whitespace()
+        .take(5)
+        .map(str::to_ascii_uppercase)
+        .collect();
     let first = words.first()?.as_str();
     if first.len() >= 3 && "PROMPT".starts_with(first) {
-        let rest = line[first.len()..].strip_prefix(|c: char| c.is_whitespace()).unwrap_or("");
+        let rest = line[first.len()..]
+            .strip_prefix(|c: char| c.is_whitespace())
+            .unwrap_or("");
         return Some(Command::Prompt(rest.trim_end().to_string()));
     }
     if first == "SET" {
@@ -136,17 +143,27 @@ pub fn command(line: &str) -> Option<Command> {
         return match var {
             // SQL, not SQL*Plus.
             "TRANSACTION" | "ROLE" | "CONSTRAINT" | "CONSTRAINTS" => None,
-            v if v.len() >= 9 && "SERVEROUTPUT".starts_with(v) => match words.get(2).map(String::as_str) {
-                Some("ON") => Some(Command::ServerOutput(true)),
-                Some("OFF") => Some(Command::ServerOutput(false)),
-                _ => Some(Command::Ignored),
-            },
+            v if v.len() >= 9 && "SERVEROUTPUT".starts_with(v) => {
+                match words.get(2).map(String::as_str) {
+                    Some("ON") => Some(Command::ServerOutput(true)),
+                    Some("OFF") => Some(Command::ServerOutput(false)),
+                    _ => Some(Command::Ignored),
+                }
+            }
             _ => Some(Command::Ignored),
         };
     }
     if first.len() >= 3 && "SHOW".starts_with(first) {
-        if words.get(1).is_some_and(|w| w.len() >= 3 && "ERRORS".starts_with(w.as_str())) {
-            let after = line.trim_end_matches(';').split_whitespace().skip(2).collect::<Vec<_>>().join(" ");
+        if words
+            .get(1)
+            .is_some_and(|w| w.len() >= 3 && "ERRORS".starts_with(w.as_str()))
+        {
+            let after = line
+                .trim_end_matches(';')
+                .split_whitespace()
+                .skip(2)
+                .collect::<Vec<_>>()
+                .join(" ");
             return Some(Command::ShowErrors(show_errors_target(&after)));
         }
         return Some(Command::Unsupported);
@@ -166,13 +183,19 @@ fn show_errors_target(rest: &str) -> Option<Object> {
     let mut kind = words.next()?.to_ascii_uppercase();
     let mut name = words.next()?;
     if (matches!(kind.as_str(), "PACKAGE" | "TYPE") && name.eq_ignore_ascii_case("BODY"))
-        || (kind == "JAVA" && (name.eq_ignore_ascii_case("SOURCE") || name.eq_ignore_ascii_case("CLASS")))
+        || (kind == "JAVA"
+            && (name.eq_ignore_ascii_case("SOURCE") || name.eq_ignore_ascii_case("CLASS")))
     {
         kind = format!("{kind} {}", name.to_ascii_uppercase());
         name = words.next()?;
     }
     let (owner, name) = object_name(name)?;
-    Some(Object { kind, owner, name, source_line: None })
+    Some(Object {
+        kind,
+        owner,
+        name,
+        source_line: None,
+    })
 }
 
 /// `[schema.]name` as the dictionary stores it: unquoted parts upper-cased,
@@ -216,9 +239,10 @@ pub fn compiled_object(stmt: &str) -> Option<Object> {
         let u = w.to_ascii_uppercase();
         if kind.is_empty() {
             match u.as_str() {
-                "OR" | "REPLACE" | "EDITIONABLE" | "NONEDITIONABLE" | "EDITIONING" | "FORCE" | "NO" | "AND"
-                | "RESOLVE" | "COMPILE" | "NOFORCE" | "NAMED" => continue,
-                "PROCEDURE" | "FUNCTION" | "PACKAGE" | "TRIGGER" | "TYPE" | "VIEW" | "LIBRARY" | "JAVA" => {
+                "OR" | "REPLACE" | "EDITIONABLE" | "NONEDITIONABLE" | "EDITIONING" | "FORCE"
+                | "NO" | "AND" | "RESOLVE" | "COMPILE" | "NOFORCE" | "NAMED" => continue,
+                "PROCEDURE" | "FUNCTION" | "PACKAGE" | "TRIGGER" | "TYPE" | "VIEW" | "LIBRARY"
+                | "JAVA" => {
                     kind = u;
                     kind_at = Some(at);
                     continue;
@@ -226,7 +250,9 @@ pub fn compiled_object(stmt: &str) -> Option<Object> {
                 _ => return None,
             }
         }
-        if (matches!(kind.as_str(), "PACKAGE" | "TYPE") && u == "BODY") || (kind == "JAVA" && matches!(u.as_str(), "SOURCE" | "CLASS")) {
+        if (matches!(kind.as_str(), "PACKAGE" | "TYPE") && u == "BODY")
+            || (kind == "JAVA" && matches!(u.as_str(), "SOURCE" | "CLASS"))
+        {
             kind = format!("{kind} {u}");
             continue;
         }
@@ -241,7 +267,12 @@ pub fn compiled_object(stmt: &str) -> Option<Object> {
         } else {
             kind_at.map(|k| (stmt[..base + k].matches('\n').count() + 1) as u32)
         };
-        return Some(Object { kind, owner, name, source_line });
+        return Some(Object {
+            kind,
+            owner,
+            name,
+            source_line,
+        });
     }
     None
 }
@@ -254,11 +285,17 @@ fn trigger_block(stmt: &str) -> Option<usize> {
     let mut i = 0;
     while i < b.len() {
         match b[i] {
-            b'-' if b.get(i + 1) == Some(&b'-') => i = stmt[i..].find('\n').map_or(b.len(), |n| i + n),
-            b'/' if b.get(i + 1) == Some(&b'*') => i = stmt[i + 2..].find("*/").map_or(b.len(), |n| i + n + 4),
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                i = stmt[i..].find('\n').map_or(b.len(), |n| i + n)
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i = stmt[i + 2..].find("*/").map_or(b.len(), |n| i + n + 4)
+            }
             q @ (b'\'' | b'"') => i = stmt[i + 1..].find(q as char).map_or(b.len(), |n| i + n + 2),
             c if c.is_ascii_alphabetic() => {
-                let end = stmt[i..].find(|c: char| !is_ident(c)).map_or(b.len(), |n| i + n);
+                let end = stmt[i..]
+                    .find(|c: char| !is_ident(c))
+                    .map_or(b.len(), |n| i + n);
                 let w = &stmt[i..end];
                 if w.eq_ignore_ascii_case("COMPOUND") {
                     return None;
@@ -311,12 +348,39 @@ pub fn tag(stmt: &str) -> String {
         "WITH" => "SELECT".into(),
         "CREATE" | "ALTER" | "DROP" | "TRUNCATE" => {
             const MODIFIERS: &[&str] = &[
-                "OR", "REPLACE", "EDITIONABLE", "NONEDITIONABLE", "EDITIONING", "FORCE", "NO", "GLOBAL", "PRIVATE",
-                "TEMPORARY", "SHARDED", "DUPLICATED", "IMMUTABLE", "BLOCKCHAIN", "UNIQUE", "BITMAP", "MULTIVALUE",
-                "PUBLIC", "SHARED", "IF", "NOT", "EXISTS",
+                "OR",
+                "REPLACE",
+                "EDITIONABLE",
+                "NONEDITIONABLE",
+                "EDITIONING",
+                "FORCE",
+                "NO",
+                "GLOBAL",
+                "PRIVATE",
+                "TEMPORARY",
+                "SHARDED",
+                "DUPLICATED",
+                "IMMUTABLE",
+                "BLOCKCHAIN",
+                "UNIQUE",
+                "BITMAP",
+                "MULTIVALUE",
+                "PUBLIC",
+                "SHARED",
+                "IF",
+                "NOT",
+                "EXISTS",
             ];
-            let Some(k) = (1..words.len()).find(|&i| !MODIFIERS.contains(&w(i))) else { return w(0).into() };
-            let two = matches!((w(k), w(k + 1)), ("PACKAGE" | "TYPE", "BODY") | ("MATERIALIZED", "VIEW" | "ZONEMAP") | ("DATABASE", "LINK") | ("JAVA", _));
+            let Some(k) = (1..words.len()).find(|&i| !MODIFIERS.contains(&w(i))) else {
+                return w(0).into();
+            };
+            let two = matches!(
+                (w(k), w(k + 1)),
+                ("PACKAGE" | "TYPE", "BODY")
+                    | ("MATERIALIZED", "VIEW" | "ZONEMAP")
+                    | ("DATABASE", "LINK")
+                    | ("JAVA", _)
+            );
             if two {
                 format!("{} {} {}", w(0), w(k), w(k + 1))
             } else {
@@ -382,7 +446,10 @@ impl Splitter {
             }
             if strip_leading_comments(&self.cur).is_empty() {
                 let start = base + (line.len() - line.trim_start().len());
-                if let Some(head) = trimmed.strip_suffix('-').filter(|_| is_command_line(trimmed)) {
+                if let Some(head) = trimmed
+                    .strip_suffix('-')
+                    .filter(|_| is_command_line(trimmed))
+                {
                     // Comments before it are dropped with it.
                     self.cur.clear();
                     self.cont = Some((head.to_string(), start));
@@ -492,12 +559,26 @@ impl Splitter {
         if let Some(cmd) = command(text) {
             // Comments before it are dropped with it.
             self.cur.clear();
-            self.out.push(Statement { text: text.to_string(), plsql: false, start, end: self.line_end, verbatim, command: Some(cmd) });
+            self.out.push(Statement {
+                text: text.to_string(),
+                plsql: false,
+                start,
+                end: self.line_end,
+                verbatim,
+                command: Some(cmd),
+            });
             return true;
         }
         if let Some(call) = exec_call(text) {
             self.cur.clear();
-            self.out.push(Statement { text: format!("BEGIN {call}; END;"), plsql: true, start, end: self.line_end, verbatim: false, command: None });
+            self.out.push(Statement {
+                text: format!("BEGIN {call}; END;"),
+                plsql: true,
+                start,
+                end: self.line_end,
+                verbatim: false,
+                command: None,
+            });
             return true;
         }
         false
@@ -515,7 +596,14 @@ impl Splitter {
         let start = self.cur_start + (cur.len() - stripped.len());
         let text = stripped.trim_end();
         if !text.is_empty() {
-            self.out.push(Statement { text: text.to_string(), plsql, start, end: start + text.len(), verbatim: true, command: None });
+            self.out.push(Statement {
+                text: text.to_string(),
+                plsql,
+                start,
+                end: start + text.len(),
+                verbatim: true,
+                command: None,
+            });
         }
     }
 }
@@ -537,7 +625,11 @@ fn closing(open: char) -> char {
 /// The call of an `EXEC[UTE] call` line (`EXECUTE IMMEDIATE` is SQL's,
 /// not SQL*Plus's), without its `;`.
 fn exec_call(line: &str) -> Option<&str> {
-    let call = strip_word(line, "EXEC").or_else(|| strip_word(line, "EXECUTE"))?.trim().trim_end_matches(';').trim();
+    let call = strip_word(line, "EXEC")
+        .or_else(|| strip_word(line, "EXECUTE"))?
+        .trim()
+        .trim_end_matches(';')
+        .trim();
     (!call.is_empty() && !call.to_ascii_uppercase().starts_with("IMMEDIATE")).then_some(call)
 }
 
@@ -621,7 +713,11 @@ pub fn has_bind_like(sql: &str) -> bool {
 
 /// First word, upper-cased, ignoring leading comments.
 pub fn first_word(sql: &str) -> String {
-    strip_leading_comments(sql).chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_uppercase()
+    strip_leading_comments(sql)
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_uppercase()
 }
 
 /// Whether a statement is a PL/SQL unit (its `;`s don't end it): also a
@@ -642,12 +738,25 @@ fn is_plsql(stmt: &str) -> bool {
         Some(&"WITH") => {
             matches!(w.get(1), Some(&"FUNCTION" | &"PROCEDURE"))
                 && w.get(2) != Some(&"AS")
-                && body.to_ascii_uppercase().get(4..).and_then(|r| r.find(w[1]).map(|i| r[i + w[1].len()..].trim_start().starts_with('('))) == Some(false)
+                && body.to_ascii_uppercase().get(4..).and_then(|r| {
+                    r.find(w[1])
+                        .map(|i| r[i + w[1].len()..].trim_start().starts_with('('))
+                }) == Some(false)
         }
         Some(&"CREATE") => w[1..]
             .iter()
-            .find(|x| !matches!(**x, "OR" | "REPLACE" | "EDITIONABLE" | "NONEDITIONABLE" | "EDITIONING"))
-            .is_some_and(|x| matches!(*x, "PROCEDURE" | "FUNCTION" | "PACKAGE" | "TRIGGER" | "TYPE" | "LIBRARY")),
+            .find(|x| {
+                !matches!(
+                    **x,
+                    "OR" | "REPLACE" | "EDITIONABLE" | "NONEDITIONABLE" | "EDITIONING"
+                )
+            })
+            .is_some_and(|x| {
+                matches!(
+                    *x,
+                    "PROCEDURE" | "FUNCTION" | "PACKAGE" | "TRIGGER" | "TYPE" | "LIBRARY"
+                )
+            }),
         _ => false,
     }
 }
@@ -662,16 +771,22 @@ mod tests {
 
     #[test]
     fn plain_sql_splits_on_semicolons() {
-        assert_eq!(texts("select 1 from dual; select ';' from dual;\n"), vec![
-            "select 1 from dual",
-            "select ';' from dual"
-        ]);
-        assert_eq!(texts("-- lead\nselect 1 from dual -- x;\n;"), vec!["select 1 from dual -- x;"]);
-        assert_eq!(texts("select q'[a;b]' from dual; select 'it''s;' from dual"), vec![
-            "select q'[a;b]' from dual",
-            "select 'it''s;' from dual"
-        ]);
-        assert_eq!(texts("select /* ; */ 1 from dual"), vec!["select /* ; */ 1 from dual"]);
+        assert_eq!(
+            texts("select 1 from dual; select ';' from dual;\n"),
+            vec!["select 1 from dual", "select ';' from dual"]
+        );
+        assert_eq!(
+            texts("-- lead\nselect 1 from dual -- x;\n;"),
+            vec!["select 1 from dual -- x;"]
+        );
+        assert_eq!(
+            texts("select q'[a;b]' from dual; select 'it''s;' from dual"),
+            vec!["select q'[a;b]' from dual", "select 'it''s;' from dual"]
+        );
+        assert_eq!(
+            texts("select /* ; */ 1 from dual"),
+            vec!["select /* ; */ 1 from dual"]
+        );
     }
 
     #[test]
@@ -679,7 +794,10 @@ mod tests {
         let sql = "create or replace procedure p as\nbegin\n  null;\nend;\n/\nselect 1 from dual;\nbegin\n  p;\nend;\n/\n";
         let s = split(sql);
         assert_eq!(s.len(), 3);
-        assert_eq!(s[0].text, "create or replace procedure p as\nbegin\n  null;\nend;");
+        assert_eq!(
+            s[0].text,
+            "create or replace procedure p as\nbegin\n  null;\nend;"
+        );
         assert!(s[0].plsql);
         assert_eq!(s[1].text, "select 1 from dual");
         assert!(!s[1].plsql);
@@ -702,7 +820,9 @@ mod tests {
 
     #[test]
     fn sqlplus_commands() {
-        let s = split("SET SERVEROUTPUT ON\nexec dbms_output.put_line('hi');\nselect 1 from dual;\n/\n");
+        let s = split(
+            "SET SERVEROUTPUT ON\nexec dbms_output.put_line('hi');\nselect 1 from dual;\n/\n",
+        );
         assert_eq!(s.len(), 3);
         assert_eq!(s[0].command, Some(Command::ServerOutput(true)));
         assert_eq!(s[1].text, "BEGIN dbms_output.put_line('hi'); END;");
@@ -729,10 +849,19 @@ mod tests {
 
     #[test]
     fn command_lines() {
-        assert_eq!(command("PROMPT it's done; ok"), Some(Command::Prompt("it's done; ok".into())));
+        assert_eq!(
+            command("PROMPT it's done; ok"),
+            Some(Command::Prompt("it's done; ok".into()))
+        );
         assert_eq!(command("pro"), Some(Command::Prompt(String::new())));
-        assert_eq!(command("set serverout off;"), Some(Command::ServerOutput(false)));
-        assert_eq!(command("SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED"), Some(Command::ServerOutput(true)));
+        assert_eq!(
+            command("set serverout off;"),
+            Some(Command::ServerOutput(false))
+        );
+        assert_eq!(
+            command("SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED"),
+            Some(Command::ServerOutput(true))
+        );
         assert_eq!(command("SET DEFINE OFF"), Some(Command::Ignored));
         assert_eq!(command("REM a note"), Some(Command::Ignored));
         assert_eq!(command("col name format a20"), Some(Command::Ignored));
@@ -743,7 +872,10 @@ mod tests {
         assert_eq!(command("CALL p()"), None);
         assert_eq!(command("spool out.log"), Some(Command::Unsupported));
         assert_eq!(command("@install.sql"), Some(Command::Unsupported));
-        assert_eq!(command("WHENEVER SQLERROR EXIT"), Some(Command::Unsupported));
+        assert_eq!(
+            command("WHENEVER SQLERROR EXIT"),
+            Some(Command::Unsupported)
+        );
         assert_eq!(command("SHOW USER"), Some(Command::Unsupported));
         assert_eq!(command("SHO ERR"), Some(Command::ShowErrors(None)));
         assert_eq!(
@@ -757,7 +889,12 @@ mod tests {
         );
         assert_eq!(
             command("SHOW ERRORS PROCEDURE p"),
-            Some(Command::ShowErrors(Some(Object { kind: "PROCEDURE".into(), owner: None, name: "P".into(), source_line: None })))
+            Some(Command::ShowErrors(Some(Object {
+                kind: "PROCEDURE".into(),
+                owner: None,
+                name: "P".into(),
+                source_line: None
+            })))
         );
     }
 
@@ -776,9 +913,22 @@ mod tests {
     #[test]
     fn compiled_objects() {
         let o = compiled_object("CREATE OR REPLACE\nPROCEDURE p AS BEGIN NULL; END;").unwrap();
-        assert_eq!((o.kind.as_str(), o.owner, o.name.as_str(), o.source_line), ("PROCEDURE", None, "P", Some(2)));
-        let o = compiled_object("-- x\ncreate or replace editionable package body Hr.\"Pkg\" as end;").unwrap();
-        assert_eq!((o.kind.as_str(), o.owner.as_deref(), o.name.as_str(), o.source_line), ("PACKAGE BODY", Some("HR"), "Pkg", Some(2)));
+        assert_eq!(
+            (o.kind.as_str(), o.owner, o.name.as_str(), o.source_line),
+            ("PROCEDURE", None, "P", Some(2))
+        );
+        let o =
+            compiled_object("-- x\ncreate or replace editionable package body Hr.\"Pkg\" as end;")
+                .unwrap();
+        assert_eq!(
+            (
+                o.kind.as_str(),
+                o.owner.as_deref(),
+                o.name.as_str(),
+                o.source_line
+            ),
+            ("PACKAGE BODY", Some("HR"), "Pkg", Some(2))
+        );
         let o = compiled_object("create or replace force view v as select 1 x from dual").unwrap();
         assert_eq!((o.kind.as_str(), o.name.as_str()), ("VIEW", "V"));
         let o = compiled_object("create trigger t\nbefore insert on x -- begin\nfor each row when (new.a = 'begin')\nDECLARE n number;\nbegin null; end;").unwrap();
@@ -790,20 +940,35 @@ mod tests {
         let o = compiled_object("create type body t_point as member function x return number is begin return 1; end; end;").unwrap();
         assert_eq!((o.kind.as_str(), o.name.as_str()), ("TYPE BODY", "T_POINT"));
         assert_eq!(compiled_object("create table t (a number)"), None);
-        assert_eq!(compiled_object("alter session set nls_date_format = 'YYYY'"), None);
+        assert_eq!(
+            compiled_object("alter session set nls_date_format = 'YYYY'"),
+            None
+        );
         assert_eq!(compiled_object("begin null; end;"), None);
     }
 
     #[test]
     fn tags() {
-        assert_eq!(tag("create global temporary table t (a number)"), "CREATE TABLE");
-        assert_eq!(tag("CREATE OR REPLACE PACKAGE BODY p AS END;"), "CREATE PACKAGE BODY");
-        assert_eq!(tag("create materialized view mv as select 1 from dual"), "CREATE MATERIALIZED VIEW");
+        assert_eq!(
+            tag("create global temporary table t (a number)"),
+            "CREATE TABLE"
+        );
+        assert_eq!(
+            tag("CREATE OR REPLACE PACKAGE BODY p AS END;"),
+            "CREATE PACKAGE BODY"
+        );
+        assert_eq!(
+            tag("create materialized view mv as select 1 from dual"),
+            "CREATE MATERIALIZED VIEW"
+        );
         assert_eq!(tag("create unique index i on t (a)"), "CREATE INDEX");
         assert_eq!(tag("drop table t purge"), "DROP TABLE");
         assert_eq!(tag("truncate table t"), "TRUNCATE TABLE");
         assert_eq!(tag("/* x */ insert into t values (1)"), "INSERT");
-        assert_eq!(tag("with a as (select 1 from dual) select * from a"), "SELECT");
+        assert_eq!(
+            tag("with a as (select 1 from dual) select * from a"),
+            "SELECT"
+        );
         assert_eq!(tag("declare x number; begin null; end;"), "PL/SQL");
         assert_eq!(tag("set transaction read only"), "SET TRANSACTION");
         assert_eq!(tag("alter session set x = 1"), "ALTER SESSION");
@@ -812,9 +977,13 @@ mod tests {
 
     #[test]
     fn bind_like_colons() {
-        assert!(has_bind_like("create trigger t before insert on x for each row begin :new.a := 1; end;"));
+        assert!(has_bind_like(
+            "create trigger t before insert on x for each row begin :new.a := 1; end;"
+        ));
         assert!(!has_bind_like("begin x := 1; end;"));
-        assert!(!has_bind_like("select ':a', q'[:b]', \":c\" from dual -- :d\n/* :e */"));
+        assert!(!has_bind_like(
+            "select ':a', q'[:b]', \":c\" from dual -- :d\n/* :e */"
+        ));
     }
 
     #[test]
@@ -825,15 +994,27 @@ mod tests {
         assert!(!is_plsql("create or replace view v as select 1 from dual"));
         assert!(is_plsql("WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1"));
         assert!(is_plsql("with\n  procedure p is begin null"));
-        assert!(!is_plsql("with function as (select 1 a from dual) select a from function"));
-        assert!(!is_plsql("with function(a) as (select 1 from dual) select a from function"));
-        assert!(!is_plsql("with x as (select 1 a from dual) select a from x"));
+        assert!(!is_plsql(
+            "with function as (select 1 a from dual) select a from function"
+        ));
+        assert!(!is_plsql(
+            "with function(a) as (select 1 from dual) select a from function"
+        ));
+        assert!(!is_plsql(
+            "with x as (select 1 a from dual) select a from x"
+        ));
     }
 
     #[test]
     fn inline_plsql_in_a_query_ends_at_slash() {
         let sql = "WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END;\nSELECT f FROM dual\n/\nselect 2 from dual;\n";
-        assert_eq!(texts(sql), vec!["WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END;\nSELECT f FROM dual", "select 2 from dual"]);
+        assert_eq!(
+            texts(sql),
+            vec![
+                "WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END;\nSELECT f FROM dual",
+                "select 2 from dual"
+            ]
+        );
         assert!(split(sql)[0].plsql);
     }
 }

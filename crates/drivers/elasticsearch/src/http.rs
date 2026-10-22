@@ -15,9 +15,16 @@ pub fn base_url(cfg: &ConnectionConfig, default_port: u16) -> String {
     let host = if host.is_empty() { "localhost" } else { host };
     if let Some((scheme, rest)) = host.split_once("://") {
         let (authority, path) = rest.split_once('/').map_or((rest, ""), |(a, p)| (a, p));
-        let has_port = authority.rsplit_once(']').map_or(authority, |(_, r)| r).contains(':');
+        let has_port = authority
+            .rsplit_once(']')
+            .map_or(authority, |(_, r)| r)
+            .contains(':');
         if cfg.port != 0 && !has_port {
-            let path = if path.is_empty() { String::new() } else { format!("/{path}") };
+            let path = if path.is_empty() {
+                String::new()
+            } else {
+                format!("/{path}")
+            };
             return format!("{scheme}://{authority}:{}{path}", cfg.port);
         }
         return host.to_string();
@@ -45,13 +52,15 @@ pub fn client(cfg: &ConnectionConfig, auth: Auth<'_>) -> Result<reqwest::Client>
     let mut headers = HeaderMap::new();
     let value = match auth {
         Auth::None => None,
-        Auth::Basic(u, p) => {
-            Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{u}:{p}"))))
-        }
+        Auth::Basic(u, p) => Some(format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{u}:{p}"))
+        )),
         Auth::Token(scheme, t) => Some(format!("{scheme} {t}")),
     };
     if let Some(v) = value {
-        let mut hv = HeaderValue::from_str(&v).map_err(|_| Error::Connect("Credenciales con caracteres inválidos.".into()))?;
+        let mut hv = HeaderValue::from_str(&v)
+            .map_err(|_| Error::Connect("Credenciales con caracteres inválidos.".into()))?;
         hv.set_sensitive(true);
         headers.insert(AUTHORIZATION, hv);
     }
@@ -96,7 +105,10 @@ mod tests {
 
     #[test]
     fn base_urls() {
-        let mut cfg = ConnectionConfig { host: "es.local".into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            host: "es.local".into(),
+            ..Default::default()
+        };
         assert_eq!(base_url(&cfg, 9200), "http://es.local:9200");
         cfg.encrypt = true;
         cfg.port = 9300;

@@ -96,7 +96,13 @@ fn now() -> String {
 }
 
 impl SyncEngine {
-    pub fn new(store: Arc<StateStore>, secrets: Arc<dyn SecretsIo>, device: String, app_version: String, backup_dir: PathBuf) -> Self {
+    pub fn new(
+        store: Arc<StateStore>,
+        secrets: Arc<dyn SecretsIo>,
+        device: String,
+        app_version: String,
+        backup_dir: PathBuf,
+    ) -> Self {
         Self {
             store,
             secrets,
@@ -133,13 +139,21 @@ impl SyncEngine {
     /// only when `f` (the decryption) succeeds with it. Any failure clears
     /// the cache, so a forged header can never become the parameters the
     /// next upload is encrypted with.
-    fn with_key<T>(&self, passphrase: &str, kdf: Option<&Kdf>, f: impl FnOnce(&Kdf, &Key) -> Result<T>) -> Result<T> {
+    fn with_key<T>(
+        &self,
+        passphrase: &str,
+        kdf: Option<&Kdf>,
+        f: impl FnOnce(&Kdf, &Key) -> Result<T>,
+    ) -> Result<T> {
         let pass: [u8; 32] = Sha256::digest(passphrase.as_bytes()).into();
         let policy = self.policy();
-        let mut cache = self.key.lock().map_err(|_| SyncError::Local("clave en uso".into()))?;
-        let reusable = cache
-            .as_ref()
-            .is_some_and(|c| c.pass == pass && kdf.is_none_or(|k| *k == c.kdf) && c.kdf.check(&policy).is_ok());
+        let mut cache = self
+            .key
+            .lock()
+            .map_err(|_| SyncError::Local("clave en uso".into()))?;
+        let reusable = cache.as_ref().is_some_and(|c| {
+            c.pass == pass && kdf.is_none_or(|k| *k == c.kdf) && c.kdf.check(&policy).is_ok()
+        });
         let out = if reusable {
             let c = cache.as_ref().expect("checked above");
             f(&c.kdf, &c.key)
@@ -186,7 +200,9 @@ impl SyncEngine {
 
     fn open(&self, passphrase: &str, file: &[u8]) -> Result<(Header, Backup)> {
         let header = crypto::peek(file)?;
-        let plain = self.with_key(passphrase, Some(&header.kdf), |_, key| crypto::open(key, file))?;
+        let plain = self.with_key(passphrase, Some(&header.kdf), |_, key| {
+            crypto::open(key, file)
+        })?;
         Ok((header, serde_json::from_slice(&plain)?))
     }
 
@@ -195,7 +211,10 @@ impl SyncEngine {
         let mut secrets = BTreeMap::new();
         for c in state.connections.iter().filter(|c| c.save_password) {
             let s = self.secrets.read(&c.id).map_err(|e| {
-                SyncError::Local(format!("no se pudo leer la contraseña de «{}» del llavero: {e}", c.name))
+                SyncError::Local(format!(
+                    "no se pudo leer la contraseña de «{}» del llavero: {e}",
+                    c.name
+                ))
             })?;
             if !s.is_empty() {
                 secrets.insert(c.id.clone(), s);
@@ -205,11 +224,15 @@ impl SyncEngine {
     }
 
     fn setting(&self, key: &str) -> Option<String> {
-        self.store.get_setting(key).ok().flatten().and_then(|v| match v {
-            serde_json::Value::String(s) => Some(s),
-            serde_json::Value::Null => None,
-            other => Some(other.to_string()),
-        })
+        self.store
+            .get_setting(key)
+            .ok()
+            .flatten()
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s),
+                serde_json::Value::Null => None,
+                other => Some(other.to_string()),
+            })
     }
 
     fn set(&self, key: &str, v: impl Into<serde_json::Value>) -> Result<()> {
@@ -219,7 +242,10 @@ impl SyncEngine {
     /// Local changes not uploaded yet.
     pub fn is_dirty(&self) -> Result<bool> {
         let rev = self.store.revision()?;
-        Ok(self.setting(K_SYNCED_REV).and_then(|s| s.parse::<u64>().ok()) != Some(rev))
+        Ok(self
+            .setting(K_SYNCED_REV)
+            .and_then(|s| s.parse::<u64>().ok())
+            != Some(rev))
     }
 
     pub fn last_sync_at(&self) -> Option<String> {
@@ -245,13 +271,21 @@ impl SyncEngine {
 
     /// Check a passphrase against the stored backup.
     pub async fn verify(&self, cloud: &dyn CloudStore, passphrase: &str) -> Result<Header> {
-        let file = cloud.download(BACKUP_FILE).await?.ok_or_else(|| SyncError::Remote("no hay ningún backup guardado".into()))?;
+        let file = cloud
+            .download(BACKUP_FILE)
+            .await?
+            .ok_or_else(|| SyncError::Remote("no hay ningún backup guardado".into()))?;
         Ok(self.open(passphrase, &file)?.0)
     }
 
     /// Upload this machine's state now. `fresh_salt` re-keys (a new
     /// passphrase).
-    pub async fn push(&self, cloud: &dyn CloudStore, passphrase: &str, fresh_salt: bool) -> Result<SyncAction> {
+    pub async fn push(
+        &self,
+        cloud: &dyn CloudStore,
+        passphrase: &str,
+        fresh_salt: bool,
+    ) -> Result<SyncAction> {
         let rev = self.store.revision()?;
         let backup = self.build()?;
         let file = self.seal(passphrase, fresh_salt, &serde_json::to_vec(&backup)?)?;
@@ -275,19 +309,33 @@ impl SyncEngine {
     /// Replace this machine's state with the stored backup (this machine's
     /// state is saved locally first).
     pub async fn pull(&self, cloud: &dyn CloudStore, passphrase: &str) -> Result<SyncAction> {
-        let meta = cloud.stat(BACKUP_FILE).await?.ok_or_else(|| SyncError::Remote("no hay ningún backup guardado".into()))?;
-        let file = cloud.download(BACKUP_FILE).await?.ok_or_else(|| SyncError::Remote("no hay ningún backup guardado".into()))?;
+        let meta = cloud
+            .stat(BACKUP_FILE)
+            .await?
+            .ok_or_else(|| SyncError::Remote("no hay ningún backup guardado".into()))?;
+        let file = cloud
+            .download(BACKUP_FILE)
+            .await?
+            .ok_or_else(|| SyncError::Remote("no hay ningún backup guardado".into()))?;
         let (header, backup) = self.open(passphrase, &file)?;
         let local_backup = self.save_local_backup(passphrase)?;
         self.apply(backup)?;
         self.set(K_SYNCED_REV, self.store.revision()?.to_string())?;
         self.set(K_REMOTE_REV, meta.revision)?;
         self.set(K_LAST_SYNC, now())?;
-        Ok(SyncAction::Downloaded { local_backup: local_backup.map(|p| p.display().to_string()), device: header.device })
+        Ok(SyncAction::Downloaded {
+            local_backup: local_backup.map(|p| p.display().to_string()),
+            device: header.device,
+        })
     }
 
     fn apply(&self, backup: Backup) -> Result<()> {
-        let old: Vec<String> = self.store.list_connections()?.into_iter().map(|c| c.id).collect();
+        let old: Vec<String> = self
+            .store
+            .list_connections()?
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
         self.store.replace_all(&backup.state)?;
         for c in &backup.state.connections {
             match backup.secrets.get(&c.id) {
@@ -295,7 +343,12 @@ impl SyncEngine {
                 _ => self.secrets.remove(&c.id)?,
             }
         }
-        let kept: std::collections::HashSet<&str> = backup.state.connections.iter().map(|c| c.id.as_str()).collect();
+        let kept: std::collections::HashSet<&str> = backup
+            .state
+            .connections
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
         for id in old.iter().filter(|id| !kept.contains(id.as_str())) {
             self.secrets.remove(id)?;
         }
@@ -338,8 +391,14 @@ impl SyncEngine {
             return Ok(None);
         }
         std::fs::create_dir_all(&self.backup_dir)?;
-        let path = self.backup_dir.join(format!("dbine-local-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S%.3f")));
-        std::fs::write(&path, self.seal(passphrase, false, &serde_json::to_vec(&backup)?)?)?;
+        let path = self.backup_dir.join(format!(
+            "dbine-local-{}.json",
+            chrono::Utc::now().format("%Y%m%d-%H%M%S%.3f")
+        ));
+        std::fs::write(
+            &path,
+            self.seal(passphrase, false, &serde_json::to_vec(&backup)?)?,
+        )?;
         // Keep the newest few.
         let mut all = self.local_backups();
         if all.len() > KEEP_LOCAL_BACKUPS {
@@ -352,14 +411,21 @@ impl SyncEngine {
 
     /// Local copies saved before restores, newest first.
     pub fn local_backups(&self) -> Vec<LocalBackup> {
-        let Ok(dir) = std::fs::read_dir(&self.backup_dir) else { return vec![] };
+        let Ok(dir) = std::fs::read_dir(&self.backup_dir) else {
+            return vec![];
+        };
         let mut out: Vec<LocalBackup> = dir
             .flatten()
             .filter(|e| e.file_name().to_string_lossy().starts_with("dbine-local-"))
             .filter_map(|e| {
                 let bytes = std::fs::read(e.path()).ok()?;
                 let h = crypto::peek(&bytes).ok()?;
-                Some(LocalBackup { path: e.path().display().to_string(), updated_at: h.updated_at, device: h.device, size: bytes.len() as u64 })
+                Some(LocalBackup {
+                    path: e.path().display().to_string(),
+                    updated_at: h.updated_at,
+                    device: h.device,
+                    size: bytes.len() as u64,
+                })
             })
             .collect();
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -371,7 +437,9 @@ impl SyncEngine {
     pub fn restore_local(&self, path: &str, passphrase: &str) -> Result<()> {
         let p = std::path::Path::new(path);
         if p.parent() != Some(self.backup_dir.as_path()) {
-            return Err(SyncError::Local("esa copia no está en la carpeta de copias locales".into()));
+            return Err(SyncError::Local(
+                "esa copia no está en la carpeta de copias locales".into(),
+            ));
         }
         let (_, backup) = self.open(passphrase, &std::fs::read(p)?)?;
         self.save_local_backup(passphrase)?;
@@ -380,7 +448,9 @@ impl SyncEngine {
 }
 
 fn parse_ts(s: &str) -> i64 {
-    chrono::DateTime::parse_from_rfc3339(s).map(|t| t.timestamp_millis()).unwrap_or(0)
+    chrono::DateTime::parse_from_rfc3339(s)
+        .map(|t| t.timestamp_millis())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -416,9 +486,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let secrets = Arc::new(MemSecrets::default());
         let store = Arc::new(StateStore::open(&dir.path().join("state.db")).unwrap());
-        let mut engine = SyncEngine::new(store, secrets.clone(), name.into(), "0.1.0".into(), dir.path().join("backups"));
+        let mut engine = SyncEngine::new(
+            store,
+            secrets.clone(),
+            name.into(),
+            "0.1.0".into(),
+            dir.path().join("backups"),
+        );
         engine.fast_kdf = true;
-        Machine { engine, secrets, _dir: dir }
+        Machine {
+            engine,
+            secrets,
+            _dir: dir,
+        }
     }
 
     fn conn(id: &str) -> SavedConnection {
@@ -436,7 +516,15 @@ mod tests {
     }
 
     fn query(id: &str, conn: &str, sql: &str) -> SavedQuery {
-        SavedQuery { id: id.into(), connection_id: conn.into(), database: "app".into(), name: id.into(), sql: sql.into(), updated_at: String::new(), last_run_at: None }
+        SavedQuery {
+            id: id.into(),
+            connection_id: conn.into(),
+            database: "app".into(),
+            name: id.into(),
+            sql: sql.into(),
+            updated_at: String::new(),
+            last_run_at: None,
+        }
     }
 
     fn pw(p: &str) -> Secrets {
@@ -449,12 +537,24 @@ mod tests {
         let cloud = FolderStore::new(cloud_dir.path());
         let a = machine("mac-a");
         let s = &a.engine.store;
-        s.save_folder(&ConnectionFolder { id: "f1".into(), name: "Cliente".into(), parent_id: None, color: Some("#f00".into()) }).unwrap();
+        s.save_folder(&ConnectionFolder {
+            id: "f1".into(),
+            name: "Cliente".into(),
+            parent_id: None,
+            color: Some("#f00".into()),
+        })
+        .unwrap();
         s.save_connection(&conn("c1")).unwrap();
-        s.save_query(&query("q1", "c1", "select * from clientes")).unwrap();
+        s.save_query(&query("q1", "c1", "select * from clientes"))
+            .unwrap();
         s.set_setting("copy.format", Some(&"csv".into())).unwrap();
         a.secrets.write("c1", &pw("hunter2")).unwrap();
-        assert_eq!(a.engine.sync(&cloud, "frase secreta").await.unwrap(), SyncAction::Uploaded { previous_kept: false });
+        assert_eq!(
+            a.engine.sync(&cloud, "frase secreta").await.unwrap(),
+            SyncAction::Uploaded {
+                previous_kept: false
+            }
+        );
 
         // Nothing readable in the cloud file.
         let raw = std::fs::read_to_string(cloud_dir.path().join(BACKUP_FILE)).unwrap();
@@ -463,8 +563,17 @@ mod tests {
         }
 
         let b = machine("mac-b");
-        assert!(matches!(b.engine.pull(&cloud, "otra frase").await, Err(SyncError::WrongPassphrase)));
-        let SyncAction::Downloaded { device, local_backup } = b.engine.pull(&cloud, "frase secreta").await.unwrap() else { panic!() };
+        assert!(matches!(
+            b.engine.pull(&cloud, "otra frase").await,
+            Err(SyncError::WrongPassphrase)
+        ));
+        let SyncAction::Downloaded {
+            device,
+            local_backup,
+        } = b.engine.pull(&cloud, "frase secreta").await.unwrap()
+        else {
+            panic!()
+        };
         assert_eq!(device, "mac-a");
         assert!(local_backup.is_none(), "empty machine: nothing to keep");
         let got = b.engine.store.snapshot().unwrap();
@@ -474,7 +583,10 @@ mod tests {
         assert_eq!(got.settings["copy.format"], "csv");
         assert_eq!(b.secrets.read("c1").unwrap(), pw("hunter2"));
         // Just restored: nothing to do.
-        assert_eq!(b.engine.sync(&cloud, "frase secreta").await.unwrap(), SyncAction::UpToDate);
+        assert_eq!(
+            b.engine.sync(&cloud, "frase secreta").await.unwrap(),
+            SyncAction::UpToDate
+        );
     }
 
     #[tokio::test]
@@ -488,19 +600,50 @@ mod tests {
         b.engine.pull(&cloud, "p").await.unwrap();
 
         // b changes, uploads; a (clean) downloads it.
-        b.engine.store.save_query(&query("q1", "c1", "select 1")).unwrap();
-        assert!(matches!(b.engine.sync(&cloud, "p").await.unwrap(), SyncAction::Uploaded { previous_kept: false }));
-        assert!(matches!(a.engine.sync(&cloud, "p").await.unwrap(), SyncAction::Downloaded { .. }));
+        b.engine
+            .store
+            .save_query(&query("q1", "c1", "select 1"))
+            .unwrap();
+        assert!(matches!(
+            b.engine.sync(&cloud, "p").await.unwrap(),
+            SyncAction::Uploaded {
+                previous_kept: false
+            }
+        ));
+        assert!(matches!(
+            a.engine.sync(&cloud, "p").await.unwrap(),
+            SyncAction::Downloaded { .. }
+        ));
         assert_eq!(a.engine.store.snapshot().unwrap().queries.len(), 1);
 
         // Both change; b's is newer and uploads first; a's older change loses
         // but is kept in a local copy.
-        a.engine.store.save_query(&query("qa", "c1", "select 'a'")).unwrap();
+        a.engine
+            .store
+            .save_query(&query("qa", "c1", "select 'a'"))
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        b.engine.store.save_query(&query("qb", "c1", "select 'b'")).unwrap();
+        b.engine
+            .store
+            .save_query(&query("qb", "c1", "select 'b'"))
+            .unwrap();
         b.engine.sync(&cloud, "p").await.unwrap();
-        let SyncAction::Downloaded { local_backup: Some(_), .. } = a.engine.sync(&cloud, "p").await.unwrap() else { panic!() };
-        let ids: Vec<_> = a.engine.store.snapshot().unwrap().queries.into_iter().map(|q| q.id).collect();
+        let SyncAction::Downloaded {
+            local_backup: Some(_),
+            ..
+        } = a.engine.sync(&cloud, "p").await.unwrap()
+        else {
+            panic!()
+        };
+        let ids: Vec<_> = a
+            .engine
+            .store
+            .snapshot()
+            .unwrap()
+            .queries
+            .into_iter()
+            .map(|q| q.id)
+            .collect();
         assert_eq!(ids, ["q1", "qb"]);
         // One copy per restore (the earlier download saved one too), newest first.
         let copies = a.engine.local_backups();
@@ -514,7 +657,12 @@ mod tests {
         b.engine.sync(&cloud, "p").await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         a.engine.store.save_query(&query("qa2", "c1", "y")).unwrap();
-        assert_eq!(a.engine.sync(&cloud, "p").await.unwrap(), SyncAction::Uploaded { previous_kept: true });
+        assert_eq!(
+            a.engine.sync(&cloud, "p").await.unwrap(),
+            SyncAction::Uploaded {
+                previous_kept: true
+            }
+        );
         assert!(cloud_dir.path().join(PREVIOUS_FILE).exists());
     }
 
@@ -540,9 +688,23 @@ mod tests {
         let a = machine("a");
         a.engine.store.save_connection(&conn("c1")).unwrap();
         a.engine.push(&cloud, "vieja", false).await.unwrap();
-        let salt1 = a.engine.remote_header(&cloud).await.unwrap().unwrap().kdf.salt;
+        let salt1 = a
+            .engine
+            .remote_header(&cloud)
+            .await
+            .unwrap()
+            .unwrap()
+            .kdf
+            .salt;
         a.engine.push(&cloud, "nueva", true).await.unwrap();
-        let salt2 = a.engine.remote_header(&cloud).await.unwrap().unwrap().kdf.salt;
+        let salt2 = a
+            .engine
+            .remote_header(&cloud)
+            .await
+            .unwrap()
+            .unwrap()
+            .kdf
+            .salt;
         assert_ne!(salt1, salt2);
         let b = machine("b");
         assert!(b.engine.verify(&cloud, "vieja").await.is_err());
@@ -580,19 +742,44 @@ mod tests {
         // Parameters that pass the policy, attacker's salt: the key derives
         // but the file doesn't open, and the cache is cleared.
         let evil_salt = base64::engine::general_purpose::STANDARD.encode([0xEEu8; 16]);
-        let plausible = Kdf { salt: evil_salt.clone(), ..Kdf::fast() };
-        std::fs::write(cloud_dir.path().join(BACKUP_FILE), forged(plausible.clone())).unwrap();
-        assert!(matches!(a.engine.pull(&cloud, "p").await, Err(SyncError::WrongPassphrase)));
-        assert_eq!(cached_kdf(&a.engine), None, "a failed open must not leave a key cached");
+        let plausible = Kdf {
+            salt: evil_salt.clone(),
+            ..Kdf::fast()
+        };
+        std::fs::write(
+            cloud_dir.path().join(BACKUP_FILE),
+            forged(plausible.clone()),
+        )
+        .unwrap();
+        assert!(matches!(
+            a.engine.pull(&cloud, "p").await,
+            Err(SyncError::WrongPassphrase)
+        ));
+        assert_eq!(
+            cached_kdf(&a.engine),
+            None,
+            "a failed open must not leave a key cached"
+        );
 
         // Below the floor (8 KiB, t=1): refused before deriving anything.
-        let weak = Kdf { m_cost: 8, t_cost: 1, salt: evil_salt.clone(), ..Kdf::fast() };
+        let weak = Kdf {
+            m_cost: 8,
+            t_cost: 1,
+            salt: evil_salt.clone(),
+            ..Kdf::fast()
+        };
         std::fs::write(cloud_dir.path().join(BACKUP_FILE), forged(weak.clone())).unwrap();
-        assert!(matches!(a.engine.verify(&cloud, "p").await, Err(SyncError::Format(_))));
+        assert!(matches!(
+            a.engine.verify(&cloud, "p").await,
+            Err(SyncError::Format(_))
+        ));
         assert_eq!(cached_kdf(&a.engine), None);
 
         // The next upload uses fresh, policy-compliant parameters.
-        a.engine.store.save_query(&query("q1", "c1", "select 1")).unwrap();
+        a.engine
+            .store
+            .save_query(&query("q1", "c1", "select 1"))
+            .unwrap();
         a.engine.push(&cloud, "p", false).await.unwrap();
         let used = a.engine.remote_header(&cloud).await.unwrap().unwrap().kdf;
         assert_ne!(used.salt, evil_salt);
@@ -611,11 +798,30 @@ mod tests {
         // Without the test-only fast policy: the production floor applies.
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(StateStore::open(&dir.path().join("state.db")).unwrap());
-        let e = SyncEngine::new(store, Arc::new(MemSecrets::default()), "x".into(), "0.1.0".into(), dir.path().join("b"));
-        let weak = Kdf { m_cost: 8, t_cost: 1, ..Kdf::generate() };
-        assert!(matches!(e.open("p", &forged(weak)), Err(SyncError::Format(_))));
-        let huge = Kdf { m_cost: 4 * 1024 * 1024, ..Kdf::generate() };
-        assert!(matches!(e.open("p", &forged(huge)), Err(SyncError::Format(_))));
+        let e = SyncEngine::new(
+            store,
+            Arc::new(MemSecrets::default()),
+            "x".into(),
+            "0.1.0".into(),
+            dir.path().join("b"),
+        );
+        let weak = Kdf {
+            m_cost: 8,
+            t_cost: 1,
+            ..Kdf::generate()
+        };
+        assert!(matches!(
+            e.open("p", &forged(weak)),
+            Err(SyncError::Format(_))
+        ));
+        let huge = Kdf {
+            m_cost: 4 * 1024 * 1024,
+            ..Kdf::generate()
+        };
+        assert!(matches!(
+            e.open("p", &forged(huge)),
+            Err(SyncError::Format(_))
+        ));
         assert_eq!(cached_kdf(&e), None);
     }
 }

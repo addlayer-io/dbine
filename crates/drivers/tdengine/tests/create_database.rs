@@ -50,7 +50,9 @@ async fn tdengine_options() {
     .collect();
     let sql = d.create_database_script("dbine_create_opts", &o).unwrap();
     eprintln!("{sql}");
-    s.create_database_with("dbine_create_opts", &o).await.unwrap();
+    s.create_database_with("dbine_create_opts", &o)
+        .await
+        .unwrap();
 
     let mut out = QueryOutcome::default();
     s.execute(
@@ -62,15 +64,27 @@ async fn tdengine_options() {
     .await
     .unwrap();
     let r = &out.results.last().unwrap().rows[0];
-    let t: Vec<String> = r.iter().map(|v| match v { Value::String(s) => s.clone(), v => v.to_string() }).collect();
+    let t: Vec<String> = r
+        .iter()
+        .map(|v| match v {
+            Value::String(s) => s.clone(),
+            v => v.to_string(),
+        })
+        .collect();
     eprintln!("{t:?}");
     assert_eq!(t[0], "us");
     assert!(t[1].starts_with("30d"), "{t:?}");
     assert_eq!(t[2], "1d");
-    assert_eq!(&t[3..], ["1", "1", "16", "last_row", "2", "2", "1000", "1", "4", "true"].map(String::from), "{t:?}");
+    assert_eq!(
+        &t[3..],
+        ["1", "1", "16", "last_row", "2", "2", "1000", "1", "4", "true"].map(String::from),
+        "{t:?}"
+    );
     s.drop_database("dbine_create_opts").await.unwrap();
 
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }

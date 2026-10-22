@@ -14,9 +14,13 @@ pub(crate) fn fields() -> Vec<Field> {
         Field::new("location", "Ubicación en S3 (LOCATION)", FieldKind::Text)
             .placeholder("s3://bucket/ruta/")
             .help("Vacía: la que asigne el catálogo de datos."),
-        Field::new("properties", "Propiedades (DBPROPERTIES)", FieldKind::Textarea)
-            .placeholder("creador=ana\nequipo=ventas")
-            .help("Una por línea, como clave=valor."),
+        Field::new(
+            "properties",
+            "Propiedades (DBPROPERTIES)",
+            FieldKind::Textarea,
+        )
+        .placeholder("creador=ana\nequipo=ventas")
+        .help("Una por línea, como clave=valor."),
     ]
 }
 
@@ -28,13 +32,25 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
 pub(crate) fn properties(v: &str) -> Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for line in v.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let (k, val) = line.split_once('=').ok_or_else(|| Error::Query(format!("propiedades: «{line}» no tiene la forma clave=valor")))?;
+        let (k, val) = line.split_once('=').ok_or_else(|| {
+            Error::Query(format!(
+                "propiedades: «{line}» no tiene la forma clave=valor"
+            ))
+        })?;
         let k = k.trim();
-        if k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-')) {
-            return Err(Error::Query(format!("propiedades: «{k}» no es un nombre de propiedad válido")));
+        if k.is_empty()
+            || !k
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'))
+        {
+            return Err(Error::Query(format!(
+                "propiedades: «{k}» no es un nombre de propiedad válido"
+            )));
         }
         if val.chars().any(char::is_control) {
-            return Err(Error::Query(format!("propiedades: el valor de «{k}» tiene caracteres de control")));
+            return Err(Error::Query(format!(
+                "propiedades: el valor de «{k}» tiene caracteres de control"
+            )));
         }
         out.push((k.to_string(), val.trim().to_string()));
     }
@@ -50,16 +66,23 @@ pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String>
     if let Some(l) = opt(o, "location") {
         let ok = l.len() > "s3://".len()
             && l.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("s3://"))
-            && !l.chars().any(|c| c.is_control() || c.is_whitespace() || c == '\'' || c == '\\');
+            && !l
+                .chars()
+                .any(|c| c.is_control() || c.is_whitespace() || c == '\'' || c == '\\');
         if !ok {
-            return Err(Error::Query(format!("ubicación: «{l}» no es una ruta s3://")));
+            return Err(Error::Query(format!(
+                "ubicación: «{l}» no es una ruta s3://"
+            )));
         }
         sql.push_str(&format!("\nLOCATION {}", lit(l)));
     }
     if let Some(p) = opt(o, "properties") {
         let props = properties(p)?;
         if !props.is_empty() {
-            let list: Vec<String> = props.iter().map(|(k, v)| format!("{} = {}", lit(k), lit(v))).collect();
+            let list: Vec<String> = props
+                .iter()
+                .map(|(k, v)| format!("{} = {}", lit(k), lit(v)))
+                .collect();
             sql.push_str(&format!("\nWITH DBPROPERTIES ({})", list.join(", ")));
         }
     }
@@ -71,13 +94,22 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script("ventas", &o(&[])).unwrap(), "CREATE DATABASE `ventas`");
-        assert_eq!(script("ventas", &o(&[("properties", " \n ")])).unwrap(), "CREATE DATABASE `ventas`");
+        assert_eq!(
+            script("ventas", &o(&[])).unwrap(),
+            "CREATE DATABASE `ventas`"
+        );
+        assert_eq!(
+            script("ventas", &o(&[("properties", " \n ")])).unwrap(),
+            "CREATE DATABASE `ventas`"
+        );
     }
 
     #[test]

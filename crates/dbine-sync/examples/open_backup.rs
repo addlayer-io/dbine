@@ -12,7 +12,10 @@ fn main() {
     let path = std::env::args().nth(1).expect("uso: open_backup <archivo>");
     let file = std::fs::read(&path).expect("no se pudo leer el archivo");
     let header = crypto::peek(&file).unwrap_or_else(|e| panic!("{e}"));
-    eprintln!("backup de {} ({}), DBine {}", header.device, header.updated_at, header.app_version);
+    eprintln!(
+        "backup de {} ({}), DBine {}",
+        header.device, header.updated_at, header.app_version
+    );
     let pass = std::env::var("DBINE_BACKUP_PASSPHRASE").unwrap_or_else(|_| {
         eprint!("frase clave: ");
         let mut l = String::new();

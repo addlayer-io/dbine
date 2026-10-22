@@ -194,7 +194,12 @@ async fn target_column(t: &mut dyn Session, sql: &str) -> Option<Vec<String>> {
         return None;
     }
     let r = out.results.into_iter().next()?;
-    Some(r.rows.into_iter().filter_map(|row| row.into_iter().next()?.as_str().map(str::to_string)).collect())
+    Some(
+        r.rows
+            .into_iter()
+            .filter_map(|row| row.into_iter().next()?.as_str().map(str::to_string))
+            .collect(),
+    )
 }
 
 async fn target_info(t: &mut dyn Session) -> Target {
@@ -337,12 +342,20 @@ struct View {
     func_refs: Vec<u32>,
 }
 
-async fn query(s: &PgSession, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
+async fn query(
+    s: &PgSession,
+    sql: &str,
+    params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+) -> Result<Vec<tokio_postgres::Row>> {
     s.client.query(sql, params).await.map_err(err)
 }
 
 async fn tables(s: &PgSession, oids: &[u32]) -> Result<Vec<Table>> {
-    let am = if s.version >= 120000 { "(SELECT a.amname::text FROM pg_am a WHERE a.oid = c.relam)" } else { "NULL::text" };
+    let am = if s.version >= 120000 {
+        "(SELECT a.amname::text FROM pg_am a WHERE a.oid = c.relam)"
+    } else {
+        "NULL::text"
+    };
     let sql = format!(
         "SELECT c.oid, n.nspname::text, c.relname::text, c.relkind::text, c.relpersistence = 'u',
                 CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) END,
@@ -381,8 +394,16 @@ async fn tables(s: &PgSession, oids: &[u32]) -> Result<Vec<Table>> {
 }
 
 async fn columns(s: &PgSession, oids: &[u32]) -> Result<Vec<Column>> {
-    let generated = if s.version >= 120000 { "a.attgenerated::text" } else { "''::text" };
-    let compression = if s.version >= 140000 { "NULLIF(a.attcompression::text, '')" } else { "NULL::text" };
+    let generated = if s.version >= 120000 {
+        "a.attgenerated::text"
+    } else {
+        "''::text"
+    };
+    let compression = if s.version >= 140000 {
+        "NULLIF(a.attcompression::text, '')"
+    } else {
+        "NULL::text"
+    };
     let sql = format!(
         "SELECT a.attrelid, a.attname::text, format_type(a.atttypid, a.atttypmod), a.attnotnull,
                 pg_get_expr(d.adbin, d.adrelid), a.attidentity::text, {generated}, a.attislocal,
@@ -408,7 +429,9 @@ async fn columns(s: &PgSession, oids: &[u32]) -> Result<Vec<Column>> {
             identity: r.get(5),
             generated: r.get(6),
             local: r.get(7),
-            collation: r.get::<_, Option<String>>(8).zip(r.get::<_, Option<String>>(9)),
+            collation: r
+                .get::<_, Option<String>>(8)
+                .zip(r.get::<_, Option<String>>(9)),
             storage: r.get(10),
             compression: r.get(11),
             statistics: r.get(12),
@@ -463,7 +486,10 @@ async fn sequences(s: &PgSession, oids: &[u32], schemas: &[String]) -> Result<Ve
             comment: r.get(13),
         };
         // Owned (or identity) wins over "used by a default".
-        match out.iter_mut().find(|x| x.schema == seq.schema && x.name == seq.name) {
+        match out
+            .iter_mut()
+            .find(|x| x.schema == seq.schema && x.name == seq.name)
+        {
             Some(x) if x.dep == "n" && seq.dep != "n" => *x = seq,
             Some(_) => {}
             None => out.push(seq),
@@ -473,7 +499,11 @@ async fn sequences(s: &PgSession, oids: &[u32], schemas: &[String]) -> Result<Ve
 }
 
 async fn constraints(s: &PgSession, oids: &[u32]) -> Result<Vec<Constraint>> {
-    let parent = if s.version >= 110000 { "con.conparentid <> 0" } else { "false" };
+    let parent = if s.version >= 110000 {
+        "con.conparentid <> 0"
+    } else {
+        "false"
+    };
     let sql = format!(
         "SELECT con.conrelid, con.conname::text, con.contype::text, pg_get_constraintdef(con.oid), con.confrelid,
                 NOT con.conislocal OR {parent}, obj_description(con.oid, 'pg_constraint'),
@@ -535,7 +565,11 @@ struct Trigger {
 }
 
 async fn triggers(s: &PgSession, oids: &[u32]) -> Result<(Vec<Trigger>, Vec<u32>)> {
-    let cloned = if s.version >= 130000 { "AND t.tgparentid = 0" } else { "" };
+    let cloned = if s.version >= 130000 {
+        "AND t.tgparentid = 0"
+    } else {
+        ""
+    };
     let sql = format!(
         "SELECT t.tgrelid, t.tgname::text, pg_get_triggerdef(t.oid), t.tgenabled::text, obj_description(t.oid, 'pg_trigger'), t.tgfoid
          FROM pg_trigger t WHERE t.tgrelid = ANY($1::oid[]) AND NOT t.tgisinternal {cloned}
@@ -545,7 +579,13 @@ async fn triggers(s: &PgSession, oids: &[u32]) -> Result<(Vec<Trigger>, Vec<u32>
     let funcs = rows.iter().map(|r| r.get::<_, u32>(5)).collect();
     Ok((
         rows.iter()
-            .map(|r| Trigger { table: r.get(0), name: r.get(1), def: r.get(2), enabled: r.get(3), comment: r.get(4) })
+            .map(|r| Trigger {
+                table: r.get(0),
+                name: r.get(1),
+                def: r.get(2),
+                enabled: r.get(3),
+                comment: r.get(4),
+            })
             .collect(),
         funcs,
     ))
@@ -597,7 +637,11 @@ async fn used_functions(s: &PgSession, oids: &[u32]) -> Result<Vec<u32>> {
                  OR (d.classid = 'pg_class'::regclass AND d.objid IN (SELECT indexrelid FROM pg_index WHERE indrelid = ANY($1::oid[])))
                  OR (d.classid = 'pg_trigger'::regclass AND d.objid IN (SELECT oid FROM pg_trigger WHERE tgrelid = ANY($1::oid[])))
                  OR (d.classid = 'pg_policy'::regclass AND d.objid IN (SELECT oid FROM pg_policy WHERE polrelid = ANY($1::oid[]))))";
-    Ok(query(s, sql, &[&oids]).await?.iter().map(|r| r.get(0)).collect())
+    Ok(query(s, sql, &[&oids])
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect())
 }
 
 async fn functions(s: &PgSession, schemas: &[String], extra: &[u32]) -> Result<Vec<Function>> {
@@ -606,7 +650,11 @@ async fn functions(s: &PgSession, schemas: &[String], extra: &[u32]) -> Result<V
     } else {
         "CASE WHEN p.proisagg THEN 'a' WHEN p.proiswindow THEN 'w' ELSE 'f' END"
     };
-    let body = if s.version >= 140000 { "p.prosqlbody IS NOT NULL" } else { "false" };
+    let body = if s.version >= 140000 {
+        "p.prosqlbody IS NOT NULL"
+    } else {
+        "false"
+    };
     let sql = format!(
         "SELECT p.oid, {kind}, quote_ident(n.nspname) || '.' || quote_ident(p.proname) || '(' || pg_get_function_identity_arguments(p.oid) || ')',
                 CASE WHEN {kind} <> 'a' THEN pg_get_functiondef(p.oid) END,
@@ -643,11 +691,19 @@ async fn function_deps(s: &PgSession, oids: &[u32]) -> Result<Vec<(u32, bool, u3
     let sql = "SELECT d.objid, d.refclassid = 'pg_proc'::regclass, d.refobjid FROM pg_depend d
                WHERE d.classid = 'pg_proc'::regclass AND d.objid = ANY($1::oid[])
                  AND d.refclassid IN ('pg_proc'::regclass, 'pg_class'::regclass)";
-    Ok(query(s, sql, &[&oids]).await?.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect())
+    Ok(query(s, sql, &[&oids])
+        .await?
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .collect())
 }
 
 async fn views(s: &PgSession, schemas: &[String]) -> Result<Vec<View>> {
-    let am = if s.version >= 120000 { "(SELECT a.amname::text FROM pg_am a WHERE a.oid = c.relam)" } else { "NULL::text" };
+    let am = if s.version >= 120000 {
+        "(SELECT a.amname::text FROM pg_am a WHERE a.oid = c.relam)"
+    } else {
+        "NULL::text"
+    };
     let refs = |class: &str| {
         format!(
             "ARRAY(SELECT DISTINCT d.refobjid FROM pg_rewrite r JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass
@@ -672,7 +728,11 @@ async fn views(s: &PgSession, schemas: &[String]) -> Result<Vec<View>> {
             schema: r.get(1),
             name: r.get(2),
             kind: r.get(3),
-            def: r.get::<_, String>(4).trim().trim_end_matches(';').to_string(),
+            def: r
+                .get::<_, String>(4)
+                .trim()
+                .trim_end_matches(';')
+                .to_string(),
             options: r.get::<_, Option<String>>(5).filter(|s| !s.is_empty()),
             populated: r.get(6),
             access_method: r.get(7),
@@ -687,7 +747,11 @@ async fn column_comments(s: &PgSession, oids: &[u32]) -> Result<Vec<(u32, String
     let sql = "SELECT a.attrelid, a.attname::text, col_description(a.attrelid, a.attnum) FROM pg_attribute a
                WHERE a.attrelid = ANY($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped
                  AND col_description(a.attrelid, a.attnum) IS NOT NULL ORDER BY a.attrelid, a.attnum";
-    Ok(query(s, sql, &[&oids]).await?.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect())
+    Ok(query(s, sql, &[&oids])
+        .await?
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .collect())
 }
 
 struct UserType {
@@ -712,10 +776,20 @@ impl UserType {
         let name = qn(&self.schema, &self.name);
         let stmt = match self.kind.as_str() {
             "e" => {
-                let labels = self.labels.as_deref().unwrap_or_default().iter().map(|l| lit(l)).collect::<Vec<_>>().join(", ");
+                let labels = self
+                    .labels
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|l| lit(l))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 format!("CREATE TYPE {name} AS ENUM ({labels})")
             }
-            "c" => format!("CREATE TYPE {name} AS ({})", self.attributes.as_deref().unwrap_or_default()),
+            "c" => format!(
+                "CREATE TYPE {name} AS ({})",
+                self.attributes.as_deref().unwrap_or_default()
+            ),
             "d" => {
                 let mut s = format!("CREATE DOMAIN {name} AS {}", self.base.as_deref()?);
                 if let Some(c) = &self.collation {
@@ -732,7 +806,10 @@ impl UserType {
                 }
                 s
             }
-            "r" => format!("CREATE TYPE {name} AS RANGE (SUBTYPE = {})", self.range.as_deref()?),
+            "r" => format!(
+                "CREATE TYPE {name} AS RANGE (SUBTYPE = {})",
+                self.range.as_deref()?
+            ),
             _ => return None,
         };
         Some(guarded(&stmt))
@@ -820,7 +897,11 @@ async fn collations(s: &PgSession, tables: &[u32], types: &[u32]) -> Result<Vec<
     } else {
         "NULL::text"
     };
-    let det = if s.version >= 120000 { "co.collisdeterministic" } else { "true" };
+    let det = if s.version >= 120000 {
+        "co.collisdeterministic"
+    } else {
+        "true"
+    };
     let sql = format!(
         "SELECT DISTINCT n.nspname::text, co.collname::text, co.collprovider::text, co.collcollate::text, co.collctype::text, {locale}::text, {det}
          FROM pg_collation co JOIN pg_namespace n ON n.oid = co.collnamespace
@@ -850,14 +931,21 @@ impl Collation {
         let opts = match self.provider.as_str() {
             "i" => {
                 let locale = self.locale.clone().or_else(|| self.collate.clone())?;
-                format!("provider = icu, locale = {}, deterministic = {}", lit(&locale), self.deterministic)
+                format!(
+                    "provider = icu, locale = {}, deterministic = {}",
+                    lit(&locale),
+                    self.deterministic
+                )
             }
             "c" => format!(
                 "provider = libc, lc_collate = {}, lc_ctype = {}",
                 lit(self.collate.as_deref()?),
                 lit(self.ctype.as_deref().or(self.collate.as_deref())?)
             ),
-            "b" => format!("provider = builtin, locale = {}", lit(self.locale.as_deref()?)),
+            "b" => format!(
+                "provider = builtin, locale = {}",
+                lit(self.locale.as_deref()?)
+            ),
             _ => return None,
         };
         Some(format!("CREATE COLLATION IF NOT EXISTS {name} ({opts})"))
@@ -865,7 +953,12 @@ impl Collation {
 }
 
 /// The extensions (name, schema) the objects depend on.
-async fn extensions(s: &PgSession, rels: &[u32], funcs: &[u32], types: &[u32]) -> Result<Vec<(String, String)>> {
+async fn extensions(
+    s: &PgSession,
+    rels: &[u32],
+    funcs: &[u32],
+    types: &[u32],
+) -> Result<Vec<(String, String)>> {
     let sql = "WITH objs(classid, objid) AS (
                    SELECT 'pg_class'::regclass::oid, x FROM unnest($1::oid[]) x
                    UNION ALL SELECT 'pg_class'::regclass::oid, i.indexrelid FROM pg_index i WHERE i.indrelid = ANY($1::oid[])
@@ -886,13 +979,21 @@ async fn extensions(s: &PgSession, rels: &[u32], funcs: &[u32], types: &[u32]) -
                JOIN pg_depend x ON x.classid = r.refclassid AND x.objid = r.refobjid AND x.deptype = 'e'
                JOIN pg_extension e ON e.oid = x.refobjid JOIN pg_namespace n ON n.oid = e.extnamespace
                WHERE e.extname <> 'plpgsql' ORDER BY 1";
-    Ok(query(s, sql, &[&rels, &funcs, &types]).await?.iter().map(|r| (r.get(0), r.get(1))).collect())
+    Ok(query(s, sql, &[&rels, &funcs, &types])
+        .await?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect())
 }
 
 async fn schema_comments(s: &PgSession, schemas: &[String]) -> Result<Vec<(String, String)>> {
     let sql = "SELECT nspname::text, obj_description(oid, 'pg_namespace') FROM pg_namespace
                WHERE nspname = ANY($1::text[]) AND nspname <> 'public' AND obj_description(oid, 'pg_namespace') IS NOT NULL";
-    Ok(query(s, sql, &[&schemas]).await?.iter().map(|r| (r.get(0), r.get(1))).collect())
+    Ok(query(s, sql, &[&schemas])
+        .await?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect())
 }
 
 /// The listed tables' oids, and the partitions below / parents above them.
@@ -905,7 +1006,10 @@ async fn resolve(s: &PgSession, tables: &[ObjectRef]) -> Result<Vec<u32>> {
         };
         let row = s
             .client
-            .query_one("SELECT c.oid, c.relkind::text FROM pg_class c WHERE c.oid = to_regclass($1::text)", &[&name])
+            .query_one(
+                "SELECT c.oid, c.relkind::text FROM pg_class c WHERE c.oid = to_regclass($1::text)",
+                &[&name],
+            )
             .await
             .ok()
             .ok_or_else(|| Error::Query(format!("no existe la tabla {name}")))?;
@@ -934,8 +1038,16 @@ async fn partition_family(s: &PgSession, oids: &[u32]) -> Result<(Vec<u32>, Vec<
                      UNION SELECT i.inhparent FROM pg_inherits i JOIN a ON i.inhrelid = a.oid
                      JOIN pg_class c ON c.oid = i.inhrelid AND c.relispartition)
                  SELECT oid FROM a";
-    let b = query(s, below, &[&oids]).await?.iter().map(|r| r.get(0)).collect();
-    let a = query(s, above, &[&oids]).await?.iter().map(|r| r.get(0)).collect();
+    let b = query(s, below, &[&oids])
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let a = query(s, above, &[&oids])
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
     Ok((b, a))
 }
 
@@ -956,7 +1068,9 @@ impl Ctx<'_> {
         if created.contains(&full) || has(&self.target.collations, &full) {
             return true;
         }
-        self.notes.insert(format!("El destino no tiene la collation «{full}»: esas columnas usan la de la base."));
+        self.notes.insert(format!(
+            "El destino no tiene la collation «{full}»: esas columnas usan la de la base."
+        ));
         false
     }
 
@@ -968,15 +1082,31 @@ impl Ctx<'_> {
             }
         }
         match (c.generated.as_str(), c.identity.as_str()) {
-            ("s", _) => d.push_str(&format!(" GENERATED ALWAYS AS ({}) STORED", c.default.as_deref().unwrap_or("NULL"))),
-            ("v", _) => d.push_str(&format!(" GENERATED ALWAYS AS ({}) VIRTUAL", c.default.as_deref().unwrap_or("NULL"))),
+            ("s", _) => d.push_str(&format!(
+                " GENERATED ALWAYS AS ({}) STORED",
+                c.default.as_deref().unwrap_or("NULL")
+            )),
+            ("v", _) => d.push_str(&format!(
+                " GENERATED ALWAYS AS ({}) VIRTUAL",
+                c.default.as_deref().unwrap_or("NULL")
+            )),
             (_, "a" | "d") => {
-                let how = if c.identity == "a" { "ALWAYS" } else { "BY DEFAULT" };
+                let how = if c.identity == "a" {
+                    "ALWAYS"
+                } else {
+                    "BY DEFAULT"
+                };
                 d.push_str(&format!(" GENERATED {how} AS IDENTITY"));
-                if let Some(q) =
-                    self.sequences.iter().find(|q| q.dep == "i" && q.table == c.table && q.column.as_deref() == Some(c.name.as_str()))
-                {
-                    d.push_str(&format!(" (SEQUENCE NAME {} {})", qn(&q.schema, &q.name), q.options()));
+                if let Some(q) = self.sequences.iter().find(|q| {
+                    q.dep == "i"
+                        && q.table == c.table
+                        && q.column.as_deref() == Some(c.name.as_str())
+                }) {
+                    d.push_str(&format!(
+                        " (SEQUENCE NAME {} {})",
+                        qn(&q.schema, &q.name),
+                        q.options()
+                    ));
                 }
             }
             _ => {
@@ -995,7 +1125,10 @@ impl Ctx<'_> {
     fn create(&mut self, t: &Table, created: &HashSet<String>) -> String {
         let name = t.qname();
         let unlogged = if t.unlogged { "UNLOGGED " } else { "" };
-        let pk = self.constraints.iter().find(|c| c.table == t.oid && c.kind == "p" && !c.inherited);
+        let pk = self
+            .constraints
+            .iter()
+            .find(|c| c.table == t.oid && c.kind == "p" && !c.inherited);
         let pk = pk.map(|c| format!("CONSTRAINT {} {}", qi(&c.name), c.def));
         let mut tail = String::new();
         if let Some(k) = &t.partition_key {
@@ -1005,17 +1138,27 @@ impl Ctx<'_> {
             if has(&self.target.access_methods, am) {
                 tail.push_str(&format!(" USING {}", qi(am)));
             } else {
-                self.notes.insert(format!("El destino no tiene el método de acceso «{am}»: {name} queda como heap."));
+                self.notes.insert(format!(
+                    "El destino no tiene el método de acceso «{am}»: {name} queda como heap."
+                ));
             }
         }
         if let Some(o) = &t.options {
             tail.push_str(&format!(" WITH ({o})"));
         }
-        if let (Some(parent), Some(bound)) = (t.parent.and_then(|p| self.tables.get(&p)), &t.bound) {
+        if let (Some(parent), Some(bound)) = (t.parent.and_then(|p| self.tables.get(&p)), &t.bound)
+        {
             let elems = pk.map(|p| format!(" ({p})")).unwrap_or_default();
-            return format!("CREATE {unlogged}TABLE IF NOT EXISTS {name} PARTITION OF {}{elems} {bound}{tail}", parent.qname());
+            return format!(
+                "CREATE {unlogged}TABLE IF NOT EXISTS {name} PARTITION OF {}{elems} {bound}{tail}",
+                parent.qname()
+            );
         }
-        let parents: Vec<&Table> = t.inherits.iter().filter_map(|p| self.tables.get(p)).collect();
+        let parents: Vec<&Table> = t
+            .inherits
+            .iter()
+            .filter_map(|p| self.tables.get(p))
+            .collect();
         let inherits = !t.inherits.is_empty() && parents.len() == t.inherits.len();
         if !t.inherits.is_empty() && !inherits {
             self.notes.insert(format!("{name} hereda de tablas que no se clonan: se crea con todas sus columnas y sin INHERITS."));
@@ -1023,12 +1166,26 @@ impl Ctx<'_> {
         if t.typed {
             self.notes.insert(format!("{name} es una tabla con tipo (OF): se crea como tabla común con las mismas columnas."));
         }
-        let cols: Vec<&Column> = self.columns.iter().filter(|c| c.table == t.oid && (c.local || !inherits)).collect();
+        let cols: Vec<&Column> = self
+            .columns
+            .iter()
+            .filter(|c| c.table == t.oid && (c.local || !inherits))
+            .collect();
         let mut elems: Vec<String> = cols.iter().map(|c| self.column_def(c, created)).collect();
         elems.extend(pk);
-        let mut s = format!("CREATE {unlogged}TABLE IF NOT EXISTS {name} (\n    {}\n)", elems.join(",\n    "));
+        let mut s = format!(
+            "CREATE {unlogged}TABLE IF NOT EXISTS {name} (\n    {}\n)",
+            elems.join(",\n    ")
+        );
         if inherits {
-            s.push_str(&format!(" INHERITS ({})", parents.iter().map(|p| p.qname()).collect::<Vec<_>>().join(", ")));
+            s.push_str(&format!(
+                " INHERITS ({})",
+                parents
+                    .iter()
+                    .map(|p| p.qname())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         s.push_str(&tail);
         s
@@ -1040,16 +1197,26 @@ impl Ctx<'_> {
         let mut out = Vec::new();
         for c in self.columns.iter().filter(|c| c.table == t.oid) {
             if let Some(w) = c.storage.as_deref().and_then(storage_word) {
-                out.push(format!("ALTER TABLE {name} ALTER COLUMN {} SET STORAGE {w}", qi(&c.name)));
+                out.push(format!(
+                    "ALTER TABLE {name} ALTER COLUMN {} SET STORAGE {w}",
+                    qi(&c.name)
+                ));
             }
             if let Some(m) = &c.compression {
                 let m = if m == "l" { "lz4" } else { "pglz" };
                 if self.target.version == 0 || self.target.version >= 140000 {
-                    out.push(format!("ALTER TABLE {name} ALTER COLUMN {} SET COMPRESSION {m}", qi(&c.name)));
+                    out.push(format!(
+                        "ALTER TABLE {name} ALTER COLUMN {} SET COMPRESSION {m}",
+                        qi(&c.name)
+                    ));
                 }
             }
             if c.statistics >= 0 {
-                out.push(format!("ALTER TABLE {name} ALTER COLUMN {} SET STATISTICS {}", qi(&c.name), c.statistics));
+                out.push(format!(
+                    "ALTER TABLE {name} ALTER COLUMN {} SET STATISTICS {}",
+                    qi(&c.name),
+                    c.statistics
+                ));
             }
         }
         out
@@ -1065,7 +1232,10 @@ fn depth(tables: &HashMap<u32, Table>, oid: u32) -> usize {
         if !seen.insert(cur) {
             break;
         }
-        match t.parent.or_else(|| t.inherits.iter().copied().find(|p| tables.contains_key(p))) {
+        match t
+            .parent
+            .or_else(|| t.inherits.iter().copied().find(|p| tables.contains_key(p)))
+        {
             Some(p) => {
                 d += 1;
                 cur = p;
@@ -1076,9 +1246,17 @@ fn depth(tables: &HashMap<u32, Table>, oid: u32) -> usize {
     d
 }
 
-pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dyn Session, tables: &[ObjectRef]) -> Result<CloneScript> {
+pub(crate) async fn script(
+    v: Variant,
+    source: &mut dyn Session,
+    target: &mut dyn Session,
+    tables: &[ObjectRef],
+) -> Result<CloneScript> {
     if !capable(v) {
-        return Err(Error::Unsupported(format!("{} no clona bases", v.info().name)));
+        return Err(Error::Unsupported(format!(
+            "{} no clona bases",
+            v.info().name
+        )));
     }
     let tgt = target_info(target).await;
     let s = source
@@ -1087,7 +1265,9 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
         .ok_or_else(|| Error::Unsupported("el origen no es una sesión de PostgreSQL".into()))?;
     s.require_extended()?;
     if s.version > 0 && s.version < 100000 {
-        return Err(Error::Unsupported("clonar necesita PostgreSQL 10 o posterior en el origen".into()));
+        return Err(Error::Unsupported(
+            "clonar necesita PostgreSQL 10 o posterior en el origen".into(),
+        ));
     }
     let mut notes = BTreeSet::new();
     notes.insert("No se clonan dueños, permisos ni tablespaces: los objetos quedan del usuario que ejecuta el script.".to_string());
@@ -1100,7 +1280,10 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
     }
     match v {
         Variant::Timescale => {
-            notes.insert("Las hipertablas de TimescaleDB se clonan como tablas comunes (sus fragmentos no).".into());
+            notes.insert(
+                "Las hipertablas de TimescaleDB se clonan como tablas comunes (sus fragmentos no)."
+                    .into(),
+            );
         }
         Variant::Edb => {
             notes.insert("Los paquetes y sinónimos de EDB no se clonan.".into());
@@ -1117,17 +1300,28 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
             all.push(*o);
         }
     }
-    let table_map: HashMap<u32, Table> = self::tables(s, &all).await?.into_iter().map(|t| (t.oid, t)).collect();
+    let table_map: HashMap<u32, Table> = self::tables(s, &all)
+        .await?
+        .into_iter()
+        .map(|t| (t.oid, t))
+        .collect();
     let cols = columns(s, &all).await?;
-    let table_schemas: Vec<String> =
-        table_map.values().map(|t| t.schema.clone()).collect::<BTreeSet<_>>().into_iter().collect();
+    let table_schemas: Vec<String> = table_map
+        .values()
+        .map(|t| t.schema.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let seqs = sequences(s, &all, &table_schemas).await?;
     let cons = constraints(s, &all).await?;
     let idx = indexes(s, &all).await?;
     let (trgs, trigger_funcs) = triggers(s, &all).await?;
     let pols = policies(s, &all).await?;
     if table_map.values().any(|t| t.tablespace) {
-        notes.insert("Hay tablas en tablespaces propios: en el destino quedan en el tablespace por defecto.".into());
+        notes.insert(
+            "Hay tablas en tablespaces propios: en el destino quedan en el tablespace por defecto."
+                .into(),
+        );
     }
 
     // Schemas of the tables: their views and functions come along.
@@ -1140,7 +1334,11 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
         let bad: Vec<u32> = candidates
             .iter()
             .filter(|v| ok.contains(&v.oid))
-            .filter(|v| v.rel_refs.iter().any(|r| !table_map.contains_key(r) && !ok.contains(r)))
+            .filter(|v| {
+                v.rel_refs
+                    .iter()
+                    .any(|r| !table_map.contains_key(r) && !ok.contains(r))
+            })
             .map(|v| v.oid)
             .collect();
         if bad.is_empty() {
@@ -1150,12 +1348,21 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
             ok.remove(&b);
         }
     }
-    let skipped: Vec<String> =
-        candidates.iter().filter(|v| !ok.contains(&v.oid)).map(|v| format!("{}.{}", v.schema, v.name)).collect();
+    let skipped: Vec<String> = candidates
+        .iter()
+        .filter(|v| !ok.contains(&v.oid))
+        .map(|v| format!("{}.{}", v.schema, v.name))
+        .collect();
     if !skipped.is_empty() {
-        notes.insert(format!("No se clonan estas vistas porque usan tablas que no se clonan: {}.", skipped.join(", ")));
+        notes.insert(format!(
+            "No se clonan estas vistas porque usan tablas que no se clonan: {}.",
+            skipped.join(", ")
+        ));
     }
-    let views: Vec<View> = candidates.into_iter().filter(|v| ok.contains(&v.oid)).collect();
+    let views: Vec<View> = candidates
+        .into_iter()
+        .filter(|v| ok.contains(&v.oid))
+        .collect();
     let view_oids: Vec<u32> = views.iter().map(|v| v.oid).collect();
 
     // Functions: those in the schemas, and any the tables or views use.
@@ -1167,17 +1374,28 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
     if !aggregates.is_empty() {
         notes.insert(format!(
             "No se clonan las funciones de agregado: {}.",
-            aggregates.iter().map(|f| f.signature.as_str()).collect::<Vec<_>>().join(", ")
+            aggregates
+                .iter()
+                .map(|f| f.signature.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
-    let funcs: Vec<&Function> = funcs_all.iter().filter(|f| f.kind != "a" && f.def.is_some()).collect();
+    let funcs: Vec<&Function> = funcs_all
+        .iter()
+        .filter(|f| f.kind != "a" && f.def.is_some())
+        .collect();
     let func_oids: Vec<u32> = funcs.iter().map(|f| f.oid).collect();
     let fdeps = function_deps(s, &func_oids).await?;
 
     // Types the columns and functions use (and theirs).
     let seed: Vec<u32> = {
         let q = "SELECT DISTINCT a.atttypid FROM pg_attribute a WHERE a.attrelid = ANY($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped";
-        let mut v: Vec<u32> = query(s, q, &[&all]).await?.iter().map(|r| r.get(0)).collect();
+        let mut v: Vec<u32> = query(s, q, &[&all])
+            .await?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
         v.extend(funcs.iter().flat_map(|f| f.types.iter().copied()));
         v
     };
@@ -1214,13 +1432,20 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
 
     // ---- before
     for sc in &schemas {
-        out.before.push(format!("CREATE SCHEMA IF NOT EXISTS {}", qi(sc)));
+        out.before
+            .push(format!("CREATE SCHEMA IF NOT EXISTS {}", qi(sc)));
     }
     for (name, sc) in &exts {
         if has(&tgt.extensions, name) {
-            out.before.push(format!("CREATE EXTENSION IF NOT EXISTS {} WITH SCHEMA {} CASCADE", qi(name), qi(sc)));
+            out.before.push(format!(
+                "CREATE EXTENSION IF NOT EXISTS {} WITH SCHEMA {} CASCADE",
+                qi(name),
+                qi(sc)
+            ));
         } else {
-            notes.insert(format!("El destino no ofrece la extensión «{name}»: lo que la usa va a fallar."));
+            notes.insert(format!(
+                "El destino no ofrece la extensión «{name}»: lo que la usa va a fallar."
+            ));
         }
     }
     let mut created_colls = HashSet::new();
@@ -1230,16 +1455,29 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
             out.before.push(sql);
         }
     }
-    let type_index: HashMap<u32, usize> = types.iter().enumerate().map(|(i, t)| (t.oid, i)).collect();
-    let type_deps: Vec<Vec<usize>> =
-        types.iter().map(|t| t.deps.iter().filter_map(|d| type_index.get(d).copied()).collect()).collect();
+    let type_index: HashMap<u32, usize> =
+        types.iter().enumerate().map(|(i, t)| (t.oid, i)).collect();
+    let type_deps: Vec<Vec<usize>> = types
+        .iter()
+        .map(|t| {
+            t.deps
+                .iter()
+                .filter_map(|d| type_index.get(d).copied())
+                .collect()
+        })
+        .collect();
     for i in topo(&type_deps) {
         if let Some(sql) = types[i].create() {
             out.before.push(sql);
         }
     }
     for q in seqs.iter().filter(|q| q.dep != "i") {
-        out.before.push(format!("CREATE SEQUENCE IF NOT EXISTS {} AS {} {}", qn(&q.schema, &q.name), q.type_name, q.options()));
+        out.before.push(format!(
+            "CREATE SEQUENCE IF NOT EXISTS {} AS {} {}",
+            qn(&q.schema, &q.name),
+            q.type_name,
+            q.options()
+        ));
     }
     let (late, early): (Vec<&&Function>, Vec<&&Function>) = funcs.iter().partition(|f| f.late);
     if !early.is_empty() {
@@ -1249,13 +1487,27 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
         }
     }
 
-    let mut ctx = Ctx { tables: &table_map, columns: &cols, sequences: &seqs, constraints: &cons, target: &tgt, notes: &mut notes };
+    let mut ctx = Ctx {
+        tables: &table_map,
+        columns: &cols,
+        sequences: &seqs,
+        constraints: &cons,
+        target: &tgt,
+        notes: &mut notes,
+    };
 
     // Parents of listed partitions that weren't listed.
-    let mut parents: Vec<&Table> = above.iter().filter(|o| !listed.contains(o)).filter_map(|o| table_map.get(o)).collect();
+    let mut parents: Vec<&Table> = above
+        .iter()
+        .filter(|o| !listed.contains(o))
+        .filter_map(|o| table_map.get(o))
+        .collect();
     parents.sort_by_key(|t| depth(&table_map, t.oid));
     for p in parents {
-        ctx.notes.insert(format!("Se crea {} (sin sus otras particiones) porque se clona una de sus particiones.", p.qname()));
+        ctx.notes.insert(format!(
+            "Se crea {} (sin sus otras particiones) porque se clona una de sus particiones.",
+            p.qname()
+        ));
         let sql = ctx.create(p, &created_colls);
         out.before.push(sql);
     }
@@ -1273,17 +1525,34 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
     };
     let mut order = listed.clone();
     order.sort_by_key(|o| depth(&table_map, *o));
-    let mut partitions: Vec<u32> = below.iter().copied().filter(|o| !listed.contains(o)).collect();
+    let mut partitions: Vec<u32> = below
+        .iter()
+        .copied()
+        .filter(|o| !listed.contains(o))
+        .collect();
     partitions.sort_by_key(|o| depth(&table_map, *o));
     for &oid in &order {
-        let Some(t) = table_map.get(&oid) else { continue };
+        let Some(t) = table_map.get(&oid) else {
+            continue;
+        };
         let mut ct = CloneTable {
-            table: ObjectRef { kind: "table".into(), schema: Some(t.schema.clone()), name: t.name.clone() },
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: Some(t.schema.clone()),
+                name: t.name.clone(),
+            },
             create: ctx.create(t, &created_colls),
             before_data: ctx.column_settings(t),
             after_data: Vec::new(),
         };
-        let family: Vec<u32> = std::iter::once(oid).chain(partitions.iter().copied().filter(|p| owner(*p) == Some(oid))).collect();
+        let family: Vec<u32> = std::iter::once(oid)
+            .chain(
+                partitions
+                    .iter()
+                    .copied()
+                    .filter(|p| owner(*p) == Some(oid)),
+            )
+            .collect();
         for &p in &family[1..] {
             if let Some(pt) = table_map.get(&p) {
                 let sql = ctx.create(pt, &created_colls);
@@ -1292,8 +1561,13 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
             }
         }
         for &member in &family {
-            let Some(mt) = table_map.get(&member) else { continue };
-            for i in idx.iter().filter(|i| i.table == member && !i.backs_constraint) {
+            let Some(mt) = table_map.get(&member) else {
+                continue;
+            };
+            for i in idx
+                .iter()
+                .filter(|i| i.table == member && !i.backs_constraint)
+            {
                 // A partition's index attached to its parent's comes from it.
                 let parent_cloned = mt.parent.is_some_and(|p| table_map.contains_key(&p));
                 if i.attached && parent_cloned {
@@ -1301,11 +1575,23 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
                 }
                 ct.after_data.push(index_if_not_exists(&i.def));
             }
-            for c in cons.iter().filter(|c| c.table == member && c.kind == "u" && !c.inherited) {
-                ct.after_data.push(guarded(&format!("ALTER TABLE {} ADD CONSTRAINT {} {}", mt.qname(), qi(&c.name), c.def)));
+            for c in cons
+                .iter()
+                .filter(|c| c.table == member && c.kind == "u" && !c.inherited)
+            {
+                ct.after_data.push(guarded(&format!(
+                    "ALTER TABLE {} ADD CONSTRAINT {} {}",
+                    mt.qname(),
+                    qi(&c.name),
+                    c.def
+                )));
             }
             if let Some(i) = idx.iter().find(|i| i.table == member && i.clustered) {
-                ct.after_data.push(format!("ALTER TABLE {} CLUSTER ON {}", mt.qname(), qi(&i.name)));
+                ct.after_data.push(format!(
+                    "ALTER TABLE {} CLUSTER ON {}",
+                    mt.qname(),
+                    qi(&i.name)
+                ));
             }
         }
         out.tables.push(ct);
@@ -1315,17 +1601,33 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
     let mut after = Vec::new();
     for kind in ["f", "c", "x"] {
         for c in cons.iter().filter(|c| c.kind == kind && !c.inherited) {
-            let Some(t) = table_map.get(&c.table) else { continue };
+            let Some(t) = table_map.get(&c.table) else {
+                continue;
+            };
             if kind == "f" && !table_map.contains_key(&c.references) {
-                ctx.notes.insert(format!("No se crea la clave foránea {} de {}: apunta a una tabla que no se clona.", c.name, t.qname()));
+                ctx.notes.insert(format!(
+                    "No se crea la clave foránea {} de {}: apunta a una tabla que no se clona.",
+                    c.name,
+                    t.qname()
+                ));
                 continue;
             }
-            after.push(guarded(&format!("ALTER TABLE {} ADD CONSTRAINT {} {}", t.qname(), qi(&c.name), c.def)));
+            after.push(guarded(&format!(
+                "ALTER TABLE {} ADD CONSTRAINT {} {}",
+                t.qname(),
+                qi(&c.name),
+                c.def
+            )));
         }
     }
     for q in seqs.iter().filter(|q| q.dep == "a") {
         if let (Some(t), Some(c)) = (table_map.get(&q.table), &q.column) {
-            after.push(format!("ALTER SEQUENCE {} OWNED BY {}.{}", qn(&q.schema, &q.name), t.qname(), qi(c)));
+            after.push(format!(
+                "ALTER SEQUENCE {} OWNED BY {}.{}",
+                qn(&q.schema, &q.name),
+                t.qname(),
+                qi(c)
+            ));
         }
     }
 
@@ -1347,7 +1649,11 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
     let code_deps: Vec<Vec<usize>> = code
         .iter()
         .map(|c| match c {
-            Code::Func(f) => fdeps.iter().filter(|d| d.0 == f.oid).filter_map(|d| pos.get(&(d.1, d.2)).copied()).collect(),
+            Code::Func(f) => fdeps
+                .iter()
+                .filter(|d| d.0 == f.oid)
+                .filter_map(|d| pos.get(&(d.1, d.2)).copied())
+                .collect(),
             Code::View(v) => v
                 .rel_refs
                 .iter()
@@ -1365,7 +1671,11 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
             Code::Func(f) => after.push(f.def.clone().unwrap_or_default()),
             Code::View(v) => {
                 let name = qn(&v.schema, &v.name);
-                let with = v.options.as_ref().map(|o| format!(" WITH ({o})")).unwrap_or_default();
+                let with = v
+                    .options
+                    .as_ref()
+                    .map(|o| format!(" WITH ({o})"))
+                    .unwrap_or_default();
                 if v.kind == "m" {
                     let using = v
                         .access_method
@@ -1373,12 +1683,22 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
                         .filter(|a| *a != "heap" && has(&tgt.access_methods, a))
                         .map(|a| format!(" USING {}", qi(a)))
                         .unwrap_or_default();
-                    let data = if v.populated { "WITH DATA" } else { "WITH NO DATA" };
-                    after.push(format!("CREATE MATERIALIZED VIEW IF NOT EXISTS {name}{using}{with} AS\n{}\n{data}", v.def));
+                    let data = if v.populated {
+                        "WITH DATA"
+                    } else {
+                        "WITH NO DATA"
+                    };
+                    after.push(format!(
+                        "CREATE MATERIALIZED VIEW IF NOT EXISTS {name}{using}{with} AS\n{}\n{data}",
+                        v.def
+                    ));
                     for ix in view_idx.iter().filter(|x| x.table == v.oid) {
                         after.push(index_if_not_exists(&ix.def));
                         if ix.clustered {
-                            after.push(format!("ALTER MATERIALIZED VIEW {name} CLUSTER ON {}", qi(&ix.name)));
+                            after.push(format!(
+                                "ALTER MATERIALIZED VIEW {name} CLUSTER ON {}",
+                                qi(&ix.name)
+                            ));
                         }
                     }
                 } else {
@@ -1389,7 +1709,9 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
     }
 
     for t in &trgs {
-        let Some(tb) = table_map.get(&t.table) else { continue };
+        let Some(tb) = table_map.get(&t.table) else {
+            continue;
+        };
         after.push(guarded(&t.def));
         let state = match t.enabled.as_str() {
             "D" => Some("DISABLE TRIGGER"),
@@ -1403,23 +1725,37 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
     }
 
     for &oid in &all {
-        let Some(t) = table_map.get(&oid) else { continue };
+        let Some(t) = table_map.get(&oid) else {
+            continue;
+        };
         if t.rls {
-            after.push(format!("ALTER TABLE {} ENABLE ROW LEVEL SECURITY", t.qname()));
+            after.push(format!(
+                "ALTER TABLE {} ENABLE ROW LEVEL SECURITY",
+                t.qname()
+            ));
         }
         if t.force_rls {
-            after.push(format!("ALTER TABLE {} FORCE ROW LEVEL SECURITY", t.qname()));
+            after.push(format!(
+                "ALTER TABLE {} FORCE ROW LEVEL SECURITY",
+                t.qname()
+            ));
         }
     }
     for p in &pols {
-        let Some(t) = table_map.get(&p.table) else { continue };
+        let Some(t) = table_map.get(&p.table) else {
+            continue;
+        };
         let missing: Vec<&String> = p.roles.iter().filter(|r| !has(&tgt.roles, r)).collect();
         if !missing.is_empty() {
             ctx.notes.insert(format!(
                 "No se crea la política {} de {}: el destino no tiene {}.",
                 p.name,
                 t.qname(),
-                missing.iter().map(|r| format!("el rol «{r}»")).collect::<Vec<_>>().join(", ")
+                missing
+                    .iter()
+                    .map(|r| format!("el rol «{r}»"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
             continue;
         }
@@ -1431,7 +1767,11 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
             "CREATE POLICY {} ON {} AS {} FOR {} TO {}",
             qi(&p.name),
             t.qname(),
-            if p.permissive { "PERMISSIVE" } else { "RESTRICTIVE" },
+            if p.permissive {
+                "PERMISSIVE"
+            } else {
+                "RESTRICTIVE"
+            },
             policy_cmd(&p.cmd),
             roles.join(", ")
         );
@@ -1445,20 +1785,33 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
     }
 
     for &oid in &all {
-        let Some(t) = table_map.get(&oid) else { continue };
+        let Some(t) = table_map.get(&oid) else {
+            continue;
+        };
         if let Some(o) = &t.toast_options {
-            let opts = o.split(", ").map(|x| format!("toast.{x}")).collect::<Vec<_>>().join(", ");
+            let opts = o
+                .split(", ")
+                .map(|x| format!("toast.{x}"))
+                .collect::<Vec<_>>()
+                .join(", ");
             after.push(format!("ALTER TABLE {} SET ({opts})", t.qname()));
         }
         match t.replica_identity.as_str() {
             "f" => after.push(format!("ALTER TABLE {} REPLICA IDENTITY FULL", t.qname())),
-            "n" => after.push(format!("ALTER TABLE {} REPLICA IDENTITY NOTHING", t.qname())),
+            "n" => after.push(format!(
+                "ALTER TABLE {} REPLICA IDENTITY NOTHING",
+                t.qname()
+            )),
             "i" => {
                 // The index behind it (a unique constraint's or its own).
                 let q = "SELECT ic.relname::text FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid
                          WHERE i.indrelid = $1 AND i.indisreplident";
                 if let Ok(Some(r)) = s.client.query_opt(q, &[&oid]).await {
-                    after.push(format!("ALTER TABLE {} REPLICA IDENTITY USING INDEX {}", t.qname(), qi(&r.get::<_, String>(0))));
+                    after.push(format!(
+                        "ALTER TABLE {} REPLICA IDENTITY USING INDEX {}",
+                        t.qname(),
+                        qi(&r.get::<_, String>(0))
+                    ));
                 }
             }
             _ => {}
@@ -1482,18 +1835,26 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
         }
     }
     for &oid in &all {
-        let Some(t) = table_map.get(&oid) else { continue };
+        let Some(t) = table_map.get(&oid) else {
+            continue;
+        };
         if let Some(c) = &t.comment {
             after.push(comment(format!("TABLE {}", t.qname()), c));
         }
         for col in cols.iter().filter(|c| c.table == oid) {
             if let Some(c) = &col.comment {
-                after.push(comment(format!("COLUMN {}.{}", t.qname(), qi(&col.name)), c));
+                after.push(comment(
+                    format!("COLUMN {}.{}", t.qname(), qi(&col.name)),
+                    c,
+                ));
             }
         }
         for con in cons.iter().filter(|c| c.table == oid && !c.inherited) {
             if let Some(c) = &con.comment {
-                after.push(comment(format!("CONSTRAINT {} ON {}", qi(&con.name), t.qname()), c));
+                after.push(comment(
+                    format!("CONSTRAINT {} ON {}", qi(&con.name), t.qname()),
+                    c,
+                ));
             }
         }
         for i in idx.iter().filter(|i| i.table == oid && !i.backs_constraint) {
@@ -1503,24 +1864,38 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
         }
         for tr in trgs.iter().filter(|x| x.table == oid) {
             if let Some(c) = &tr.comment {
-                after.push(comment(format!("TRIGGER {} ON {}", qi(&tr.name), t.qname()), c));
+                after.push(comment(
+                    format!("TRIGGER {} ON {}", qi(&tr.name), t.qname()),
+                    c,
+                ));
             }
         }
         for p in pols.iter().filter(|p| p.table == oid) {
             if let Some(c) = &p.comment {
-                after.push(comment(format!("POLICY {} ON {}", qi(&p.name), t.qname()), c));
+                after.push(comment(
+                    format!("POLICY {} ON {}", qi(&p.name), t.qname()),
+                    c,
+                ));
             }
         }
     }
     for f in &funcs {
         if let Some(c) = &f.comment {
-            let what = if f.kind == "p" { "PROCEDURE" } else { "FUNCTION" };
+            let what = if f.kind == "p" {
+                "PROCEDURE"
+            } else {
+                "FUNCTION"
+            };
             after.push(comment(format!("{what} {}", f.signature), c));
         }
     }
     for v in &views {
         let name = qn(&v.schema, &v.name);
-        let what = if v.kind == "m" { "MATERIALIZED VIEW" } else { "VIEW" };
+        let what = if v.kind == "m" {
+            "MATERIALIZED VIEW"
+        } else {
+            "VIEW"
+        };
         if let Some(c) = &v.comment {
             after.push(comment(format!("{what} {name}"), c));
         }
@@ -1554,13 +1929,18 @@ mod tests {
 
     #[test]
     fn literals_keep_backslash_quotes_inside() {
-        assert_eq!(lit("x\\'; drop table t; --"), "E'x\\\\''; drop table t; --'");
+        assert_eq!(
+            lit("x\\'; drop table t; --"),
+            "E'x\\\\''; drop table t; --'"
+        );
     }
 
     #[test]
     fn statements_are_idempotent() {
         assert_eq!(
-            index_if_not_exists("CREATE INDEX t_a ON ONLY public.t USING btree (a) INCLUDE (b) WHERE (a > 0)"),
+            index_if_not_exists(
+                "CREATE INDEX t_a ON ONLY public.t USING btree (a) INCLUDE (b) WHERE (a > 0)"
+            ),
             "CREATE INDEX IF NOT EXISTS t_a ON public.t USING btree (a) INCLUDE (b) WHERE (a > 0)"
         );
         assert_eq!(
@@ -1579,17 +1959,34 @@ mod tests {
 
     #[test]
     fn constraint_definitions_keep_index_options() {
-        assert_eq!(constraint_def("PRIMARY KEY (a)", "p", Some("fillfactor='80'")), "PRIMARY KEY (a) WITH (fillfactor='80')");
         assert_eq!(
-            constraint_def("UNIQUE (a) INCLUDE (b) DEFERRABLE INITIALLY DEFERRED", "u", Some("fillfactor='70'")),
+            constraint_def("PRIMARY KEY (a)", "p", Some("fillfactor='80'")),
+            "PRIMARY KEY (a) WITH (fillfactor='80')"
+        );
+        assert_eq!(
+            constraint_def(
+                "UNIQUE (a) INCLUDE (b) DEFERRABLE INITIALLY DEFERRED",
+                "u",
+                Some("fillfactor='70'")
+            ),
             "UNIQUE (a) INCLUDE (b) WITH (fillfactor='70') DEFERRABLE INITIALLY DEFERRED"
         );
         assert_eq!(
-            constraint_def("EXCLUDE USING gist (r WITH &&) WHERE ((a > 0))", "x", Some("fillfactor='50'")),
+            constraint_def(
+                "EXCLUDE USING gist (r WITH &&) WHERE ((a > 0))",
+                "x",
+                Some("fillfactor='50'")
+            ),
             "EXCLUDE USING gist (r WITH &&) WITH (fillfactor='50') WHERE ((a > 0))"
         );
-        assert_eq!(constraint_def("PRIMARY KEY (a) USING INDEX TABLESPACE fast", "p", None), "PRIMARY KEY (a)");
-        assert_eq!(constraint_def("CHECK ((a > 0)) NOT VALID", "c", None), "CHECK ((a > 0)) NOT VALID");
+        assert_eq!(
+            constraint_def("PRIMARY KEY (a) USING INDEX TABLESPACE fast", "p", None),
+            "PRIMARY KEY (a)"
+        );
+        assert_eq!(
+            constraint_def("CHECK ((a > 0)) NOT VALID", "c", None),
+            "CHECK ((a > 0)) NOT VALID"
+        );
     }
 
     #[test]
@@ -1619,7 +2016,10 @@ mod tests {
             comment: None,
             deps: vec![],
         };
-        assert!(base.create().unwrap().contains("CREATE TYPE \"app\".\"mood\" AS ENUM (E'sad', E'it''s ok')"));
+        assert!(base
+            .create()
+            .unwrap()
+            .contains("CREATE TYPE \"app\".\"mood\" AS ENUM (E'sad', E'it''s ok')"));
         let d = UserType {
             kind: "d".into(),
             base: Some("integer".into()),

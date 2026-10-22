@@ -34,7 +34,12 @@ impl Set {
     }
     fn get(&self, row: usize, name: &str) -> Option<&str> {
         let i = self.idx(name)?;
-        self.rows.get(row)?.get(i)?.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        self.rows
+            .get(row)?
+            .get(i)?
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
     }
     fn num(&self, row: usize, name: &str) -> Option<f64> {
         self.get(row, name).and_then(num)
@@ -43,23 +48,37 @@ impl Set {
         self.get(0, name).map(str::to_string)
     }
     fn sum(&self, name: &str) -> Option<f64> {
-        let v: Vec<f64> = (0..self.rows.len()).filter_map(|r| self.num(r, name)).collect();
+        let v: Vec<f64> = (0..self.rows.len())
+            .filter_map(|r| self.num(r, name))
+            .collect();
         (!v.is_empty()).then(|| v.iter().sum())
     }
     fn count_where(&self, name: &str, pred: impl Fn(&str) -> bool) -> f64 {
-        (0..self.rows.len()).filter(|&r| self.get(r, name).is_some_and(&pred)).count() as f64
+        (0..self.rows.len())
+            .filter(|&r| self.get(r, name).is_some_and(&pred))
+            .count() as f64
     }
     fn select(&self, rows: &[usize]) -> Set {
-        Set { cols: self.cols.clone(), rows: rows.iter().filter_map(|&r| self.rows.get(r).cloned()).collect() }
+        Set {
+            cols: self.cols.clone(),
+            rows: rows
+                .iter()
+                .filter_map(|&r| self.rows.get(r).cloned())
+                .collect(),
+        }
     }
 }
 
 fn cell(v: Option<&str>) -> Value {
-    let Some(s) = v.map(str::trim).filter(|s| !s.is_empty()) else { return Value::Null };
+    let Some(s) = v.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Value::Null;
+    };
     if let Ok(i) = s.parse::<i64>() {
         return i.into();
     }
-    if s.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
+    if s.chars()
+        .all(|c| c.is_ascii_digit() || c == '.' || c == '-')
+    {
         if let Some(n) = s.parse::<f64>().ok().and_then(serde_json::Number::from_f64) {
             return Value::Number(n);
         }
@@ -79,7 +98,8 @@ fn table(key: &str, title: &str, cols: &[(&str, &str)], set: &Set) -> Option<Mon
     let labels: Vec<&str> = present.iter().map(|(_, l)| *l).collect();
     let mut t = MonitorTable::new(key, title, &labels);
     for r in 0..set.rows.len().min(MAX_ROWS) {
-        t.rows.push(present.iter().map(|(c, _)| cell(set.get(r, c))).collect());
+        t.rows
+            .push(present.iter().map(|(c, _)| cell(set.get(r, c))).collect());
     }
     Some(t)
 }
@@ -133,15 +153,41 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
     match r.rows("SHOW WAREHOUSES").await {
         Ok(w) => {
             let started = w.count_where("state", |v| v.eq_ignore_ascii_case("STARTED"));
-            s.metrics.push(Metric::new("warehouses_started", "Warehouses encendidos", "Warehouses", U::Count, Some(started)).max(Some(w.rows.len() as f64)));
-            s.metrics.push(Metric::new("active_sessions", "Consultas en ejecución", "Conexiones", U::Count, w.sum("running")));
-            s.metrics.push(Metric::new("queued", "Consultas en cola", "Conexiones", U::Count, w.sum("queued")));
+            s.metrics.push(
+                Metric::new(
+                    "warehouses_started",
+                    "Warehouses encendidos",
+                    "Warehouses",
+                    U::Count,
+                    Some(started),
+                )
+                .max(Some(w.rows.len() as f64)),
+            );
+            s.metrics.push(Metric::new(
+                "active_sessions",
+                "Consultas en ejecución",
+                "Conexiones",
+                U::Count,
+                w.sum("running"),
+            ));
+            s.metrics.push(Metric::new(
+                "queued",
+                "Consultas en cola",
+                "Conexiones",
+                U::Count,
+                w.sum("queued"),
+            ));
             let name = r.warehouse().or_else(|| {
-                (0..w.rows.len()).find(|&i| w.get(i, "is_current") == Some("Y")).and_then(|i| w.get(i, "name").map(str::to_string))
+                (0..w.rows.len())
+                    .find(|&i| w.get(i, "is_current") == Some("Y"))
+                    .and_then(|i| w.get(i, "name").map(str::to_string))
             });
             if let Some(n) = name {
-                let row = (0..w.rows.len()).find(|&i| w.get(i, "name").is_some_and(|x| x.eq_ignore_ascii_case(&n)));
-                let on = row.and_then(|i| w.get(i, "state")).is_some_and(|v| v.eq_ignore_ascii_case("STARTED"));
+                let row = (0..w.rows.len())
+                    .find(|&i| w.get(i, "name").is_some_and(|x| x.eq_ignore_ascii_case(&n)));
+                let on = row
+                    .and_then(|i| w.get(i, "state"))
+                    .is_some_and(|v| v.eq_ignore_ascii_case("STARTED"));
                 current = Some((n, on));
             }
             s.tables.extend(table(
@@ -199,7 +245,10 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
             false
         }
         None => {
-            s.notes.push("Sin un warehouse en la conexión, solo se muestran los warehouses y los bloqueos.".into());
+            s.notes.push(
+                "Sin un warehouse en la conexión, solo se muestran los warehouses y los bloqueos."
+                    .into(),
+            );
             false
         }
     };
@@ -213,7 +262,10 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
                   WHERE COALESCE(query_tag, '') <> '{TAG}' AND start_time >= DATEADD('hour', -1, CURRENT_TIMESTAMP())
                   ORDER BY start_time DESC"
             );
-            cache.history = Some((Instant::now(), r.rows(&sql).await.map_err(|e| e.to_string())));
+            cache.history = Some((
+                Instant::now(),
+                r.rows(&sql).await.map_err(|e| e.to_string()),
+            ));
         }
         if !fresh(&cache.load, LOAD_TTL) {
             let sql = format!(
@@ -222,14 +274,20 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
                    FROM TABLE({is}.WAREHOUSE_LOAD_HISTORY(DATE_RANGE_START => DATEADD('hour', -1, CURRENT_TIMESTAMP())))
                   GROUP BY 1 ORDER BY 1"
             );
-            cache.load = Some((Instant::now(), r.rows(&sql).await.map_err(|e| e.to_string())));
+            cache.load = Some((
+                Instant::now(),
+                r.rows(&sql).await.map_err(|e| e.to_string()),
+            ));
             let sql = format!(
                 "SELECT warehouse_name, SUM(credits_used) AS credits, SUM(credits_used_compute) AS compute,
                         SUM(credits_used_cloud_services) AS cloud
                    FROM TABLE({is}.WAREHOUSE_METERING_HISTORY(DATE_RANGE_START => DATEADD('day', -1, CURRENT_TIMESTAMP())))
                   GROUP BY 1 ORDER BY 2 DESC"
             );
-            cache.metering = Some((Instant::now(), r.rows(&sql).await.map_err(|e| e.to_string())));
+            cache.metering = Some((
+                Instant::now(),
+                r.rows(&sql).await.map_err(|e| e.to_string()),
+            ));
         }
         if !fresh(&cache.storage, STORAGE_TTL) {
             let sql = "SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.STORAGE_USAGE ORDER BY usage_date DESC LIMIT 1";
@@ -239,7 +297,10 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
                     "SELECT table_schema, table_name, row_count, bytes FROM {is}.TABLES
                       WHERE table_type = 'BASE TABLE' ORDER BY bytes DESC NULLS LAST LIMIT 20"
                 );
-                cache.tables = Some((Instant::now(), r.rows(&sql).await.map_err(|e| e.to_string())));
+                cache.tables = Some((
+                    Instant::now(),
+                    r.rows(&sql).await.map_err(|e| e.to_string()),
+                ));
             }
         }
     }
@@ -248,21 +309,39 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
         Some(Ok(h)) => {
             let running: Vec<usize> = (0..h.rows.len())
                 .filter(|&i| {
-                    h.get(i, "execution_status")
-                        .is_some_and(|v| matches!(v.to_ascii_uppercase().as_str(), "RUNNING" | "QUEUED" | "BLOCKED" | "RESUMING_WAREHOUSE"))
+                    h.get(i, "execution_status").is_some_and(|v| {
+                        matches!(
+                            v.to_ascii_uppercase().as_str(),
+                            "RUNNING" | "QUEUED" | "BLOCKED" | "RESUMING_WAREHOUSE"
+                        )
+                    })
                 })
                 .collect();
             let done: Vec<usize> = (0..h.rows.len()).filter(|i| !running.contains(i)).collect();
             let finished = h.select(&done);
-            s.metrics.push(Metric::new("queries_last_hour", "Consultas (última hora)", "Actividad", U::Count, Some(done.len() as f64)));
+            s.metrics.push(Metric::new(
+                "queries_last_hour",
+                "Consultas (última hora)",
+                "Actividad",
+                U::Count,
+                Some(done.len() as f64),
+            ));
             s.metrics.push(Metric::new(
                 "failed_last_hour",
                 "Consultas fallidas (última hora)",
                 "Actividad",
                 U::Count,
-                Some(finished.count_where("execution_status", |v| v.to_ascii_uppercase().starts_with("FAIL"))),
+                Some(finished.count_where("execution_status", |v| {
+                    v.to_ascii_uppercase().starts_with("FAIL")
+                })),
             ));
-            s.metrics.push(Metric::new("bytes_scanned", "Bytes escaneados (última hora)", "Actividad", U::Bytes, finished.sum("bytes_scanned")));
+            s.metrics.push(Metric::new(
+                "bytes_scanned",
+                "Bytes escaneados (última hora)",
+                "Actividad",
+                U::Bytes,
+                finished.sum("bytes_scanned"),
+            ));
             s.tables.extend(table(
                 "queries",
                 "Consultas en curso",
@@ -298,7 +377,9 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
                     .into(),
             );
         }
-        Some(Err(e)) => s.notes.push(format!("Historial de consultas: no disponible ({e}).")),
+        Some(Err(e)) => s
+            .notes
+            .push(format!("Historial de consultas: no disponible ({e}).")),
         None => {}
     }
     match cache.load.as_ref().map(|(_, r)| r) {
@@ -314,16 +395,29 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
             ],
             l,
         )),
-        Some(Err(e)) => s.notes.push(format!("Carga de warehouses: no disponible ({e}).")),
+        Some(Err(e)) => s
+            .notes
+            .push(format!("Carga de warehouses: no disponible ({e}).")),
         None => {}
     }
     match cache.metering.as_ref().map(|(_, r)| r) {
         Some(Ok(m)) => {
-            s.metrics.push(Metric::new("credits_24h", "Créditos (últimas 24 h)", "Créditos", U::Count, m.sum("credits")));
+            s.metrics.push(Metric::new(
+                "credits_24h",
+                "Créditos (últimas 24 h)",
+                "Créditos",
+                U::Count,
+                m.sum("credits"),
+            ));
             s.tables.extend(table(
                 "credits",
                 "Créditos por warehouse (últimas 24 h)",
-                &[("warehouse_name", "Warehouse"), ("credits", "Créditos"), ("compute", "Cómputo"), ("cloud", "Servicios en la nube")],
+                &[
+                    ("warehouse_name", "Warehouse"),
+                    ("credits", "Créditos"),
+                    ("compute", "Cómputo"),
+                    ("cloud", "Servicios en la nube"),
+                ],
                 m,
             ));
         }
@@ -353,10 +447,17 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
         Some(Ok(t)) => s.tables.extend(table(
             "top_objects",
             "Objetos más grandes (base actual)",
-            &[("table_schema", "Esquema"), ("table_name", "Tabla"), ("row_count", "Filas"), ("bytes", "Tamaño (bytes)")],
+            &[
+                ("table_schema", "Esquema"),
+                ("table_name", "Tabla"),
+                ("row_count", "Filas"),
+                ("bytes", "Tamaño (bytes)"),
+            ],
             t,
         )),
-        Some(Err(e)) => s.notes.push(format!("Tamaños de tablas: no disponible ({e}).")),
+        Some(Err(e)) => s
+            .notes
+            .push(format!("Tamaños de tablas: no disponible ({e}).")),
         None => {}
     }
     s.notes.push("Snowflake no expone CPU ni memoria de los warehouses: se informan consultas, carga, créditos y almacenamiento.".into());
@@ -399,12 +500,25 @@ mod tests {
     fn set(cols: &[&str], rows: &[&[&str]]) -> Set {
         Set {
             cols: cols.iter().map(|c| c.to_string()).collect(),
-            rows: rows.iter().map(|r| r.iter().map(|c| (!c.is_empty()).then(|| c.to_string())).collect()).collect(),
+            rows: rows
+                .iter()
+                .map(|r| {
+                    r.iter()
+                        .map(|c| (!c.is_empty()).then(|| c.to_string()))
+                        .collect()
+                })
+                .collect(),
         }
     }
 
     fn warehouses(state: &str) -> Set {
-        set(&["name", "state", "running", "queued", "is_current"], &[&["WH", state, "2", "1", "Y"], &["OTHER", "SUSPENDED", "0", "0", "N"]])
+        set(
+            &["name", "state", "running", "queued", "is_current"],
+            &[
+                &["WH", state, "2", "1", "Y"],
+                &["OTHER", "SUSPENDED", "0", "0", "N"],
+            ],
+        )
     }
 
     fn metric(s: &MonitorSnapshot, k: &str) -> Option<f64> {
@@ -413,28 +527,63 @@ mod tests {
 
     #[tokio::test]
     async fn a_suspended_warehouse_is_not_resumed() {
-        let f = Fake { wh: None, answers: vec![("SHOW WAREHOUSES", warehouses("SUSPENDED"))], seen: Mutex::new(Vec::new()) };
+        let f = Fake {
+            wh: None,
+            answers: vec![("SHOW WAREHOUSES", warehouses("SUSPENDED"))],
+            seen: Mutex::new(Vec::new()),
+        };
         let mut cache = Cache::default();
         let s = snapshot(&f, &mut cache).await;
         assert_eq!(metric(&s, "active_sessions"), Some(2.0));
         assert_eq!(metric(&s, "warehouses_started"), Some(0.0));
         assert!(s.notes.iter().any(|n| n.contains("WH está suspendido")));
-        assert!(!f.seen.lock().unwrap().iter().any(|q| q.contains("QUERY_HISTORY") || q.contains("ACCOUNT_USAGE")));
+        assert!(!f
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|q| q.contains("QUERY_HISTORY") || q.contains("ACCOUNT_USAGE")));
     }
 
     #[tokio::test]
     async fn a_running_warehouse_reads_history_once_per_ttl() {
         let history = set(
-            &["query_id", "execution_status", "bytes_scanned", "query_text"],
-            &[&["a", "RUNNING", "", "select 1"], &["b", "SUCCESS", "100", "select 2"], &["c", "FAILED_WITH_ERROR", "5", "x"]],
+            &[
+                "query_id",
+                "execution_status",
+                "bytes_scanned",
+                "query_text",
+            ],
+            &[
+                &["a", "RUNNING", "", "select 1"],
+                &["b", "SUCCESS", "100", "select 2"],
+                &["c", "FAILED_WITH_ERROR", "5", "x"],
+            ],
         );
         let f = Fake {
             wh: Some("wh".into()),
             answers: vec![
                 ("SHOW WAREHOUSES", warehouses("STARTED")),
                 ("QUERY_HISTORY", history),
-                ("WAREHOUSE_METERING_HISTORY", set(&["warehouse_name", "credits"], &[&["WH", "1.5"], &["OTHER", "0.5"]])),
-                ("STORAGE_USAGE", set(&["usage_date", "storage_bytes", "stage_bytes", "failsafe_bytes"], &[&["2026-09-26", "100", "10", "1"]])),
+                (
+                    "WAREHOUSE_METERING_HISTORY",
+                    set(
+                        &["warehouse_name", "credits"],
+                        &[&["WH", "1.5"], &["OTHER", "0.5"]],
+                    ),
+                ),
+                (
+                    "STORAGE_USAGE",
+                    set(
+                        &[
+                            "usage_date",
+                            "storage_bytes",
+                            "stage_bytes",
+                            "failsafe_bytes",
+                        ],
+                        &[&["2026-09-26", "100", "10", "1"]],
+                    ),
+                ),
             ],
             seen: Mutex::new(Vec::new()),
         };
@@ -447,11 +596,24 @@ mod tests {
         assert_eq!(metric(&s, "storage_used"), Some(111.0));
         let q = s.tables.iter().find(|t| t.key == "queries").unwrap();
         assert_eq!(q.rows.len(), 1);
-        assert!(s.notes.iter().any(|n| n.starts_with("Carga de warehouses: no disponible")));
-        assert!(f.seen.lock().unwrap().iter().any(|q| q.contains("'dbine-monitor'")));
+        assert!(s
+            .notes
+            .iter()
+            .any(|n| n.starts_with("Carga de warehouses: no disponible")));
+        assert!(f
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|q| q.contains("'dbine-monitor'")));
         let before = f.seen.lock().unwrap().len();
         let _ = snapshot(&f, &mut cache).await;
         let again: Vec<String> = f.seen.lock().unwrap()[before..].to_vec();
-        assert!(!again.iter().any(|q| q.contains("QUERY_HISTORY") || q.contains("STORAGE_USAGE")), "{again:?}");
+        assert!(
+            !again
+                .iter()
+                .any(|q| q.contains("QUERY_HISTORY") || q.contains("STORAGE_USAGE")),
+            "{again:?}"
+        );
     }
 }

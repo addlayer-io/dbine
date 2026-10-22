@@ -21,7 +21,10 @@ fn q(name: &str) -> String {
 }
 
 fn num(r: &tiberius::Row, i: usize) -> i64 {
-    text(r, i).and_then(|v| v.trim().parse::<f64>().ok()).map(|v| v as i64).unwrap_or(0)
+    text(r, i)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map(|v| v as i64)
+        .unwrap_or(0)
 }
 
 impl SqlServerSession {
@@ -104,7 +107,13 @@ impl SqlServerSession {
         }
 
         // Virtual log files: too many slow down recovery and log backups.
-        if let Ok(rows) = self.rows("SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.dm_db_log_info(DB_ID(@P1))", &[database]).await {
+        if let Ok(rows) = self
+            .rows(
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.dm_db_log_info(DB_ID(@P1))",
+                &[database],
+            )
+            .await
+        {
             let vlf = rows.first().map(|r| num(r, 0)).unwrap_or(0);
             if vlf > 0 {
                 out.push(

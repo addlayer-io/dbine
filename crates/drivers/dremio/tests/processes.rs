@@ -31,7 +31,13 @@ async fn bootstrap(c: &ConnectionConfig) {
     let http = reqwest::Client::new();
     let base = format!("http://{}:{}", c.host, c.port);
     for _ in 0..60 {
-        if http.get(format!("{base}/apiv2/server_status")).send().await.map(|r| r.status().is_success()).unwrap_or(false) {
+        if http
+            .get(format!("{base}/apiv2/server_status"))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+        {
             break;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -75,19 +81,46 @@ async fn dremio() {
     let list = admin.processes().await.unwrap();
     let w = list
         .iter()
-        .find(|p| p.sql.as_deref().unwrap_or("").contains("dbine_processes_test"))
+        .find(|p| {
+            p.sql
+                .as_deref()
+                .unwrap_or("")
+                .contains("dbine_processes_test")
+        })
         .expect("the running job is listed");
     eprintln!("{w:#?}");
     assert!(w.active && !w.own && !w.system, "{w:?}");
     assert_eq!(w.command.as_deref(), Some("SELECT"));
     assert_eq!(w.user.as_deref(), Some(USER));
-    assert!(!list.iter().any(|p| p.sql.as_deref().unwrap_or("").contains("dbine-processes-list")), "the list leaves itself out");
+    assert!(
+        !list.iter().any(|p| p
+            .sql
+            .as_deref()
+            .unwrap_or("")
+            .contains("dbine-processes-list")),
+        "the list leaves itself out"
+    );
 
     admin.cancel_query(&w.id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(30), running).await.expect("the job stopped").unwrap();
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(30), running)
+        .await
+        .expect("the job stopped")
+        .unwrap();
     assert!(r.is_err(), "the job was cancelled");
     let mut out = QueryOutcome::default();
-    worker.execute("SELECT 1", 10, &mut out).await.expect("the session still works");
-    assert!(admin.cancel_query("../../catalog").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query("1b2c3d4e-0000-0000-0000-000000000000").await.is_err(), "an unknown job");
+    worker
+        .execute("SELECT 1", 10, &mut out)
+        .await
+        .expect("the session still works");
+    assert!(
+        admin.cancel_query("../../catalog").await.is_err(),
+        "the id is validated"
+    );
+    assert!(
+        admin
+            .cancel_query("1b2c3d4e-0000-0000-0000-000000000000")
+            .await
+            .is_err(),
+        "an unknown job"
+    );
 }

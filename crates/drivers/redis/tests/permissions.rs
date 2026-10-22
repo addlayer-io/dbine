@@ -27,7 +27,9 @@ fn cfg(driver: &str, url: &str, user: Option<&str>, password: Option<&str>) -> C
 
 async fn run(s: &mut Box<dyn Session>, text: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(text, 100, &mut out).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
 }
 
 fn denied(a: &Access, what: &str) -> bool {
@@ -35,23 +37,56 @@ fn denied(a: &Access, what: &str) -> bool {
 }
 
 async fn check(driver: &str, url: &str) {
-    let d = dbine_driver_redis::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
-    let mut admin = d.connect(&cfg(driver, url, None, None), None).await.unwrap();
+    let d = dbine_driver_redis::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
+    let mut admin = d
+        .connect(&cfg(driver, url, None, None), None)
+        .await
+        .unwrap();
     let p = admin.permissions(Some("db0")).await.unwrap();
     eprintln!("{driver} default: {p:?}");
-    assert_eq!((&p.backup, &p.profiler, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-    assert_eq!((&p.restore, &p.kill_session, &p.drop_database), (&Access::Unknown, &Access::Unknown, &Access::Unknown));
+    assert_eq!(
+        (&p.backup, &p.profiler, &p.manage_security),
+        (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+    );
+    assert_eq!(
+        (&p.restore, &p.kill_session, &p.drop_database),
+        (&Access::Unknown, &Access::Unknown, &Access::Unknown)
+    );
 
     let users = "dbine_perm_ops dbine_perm_ask dbine_perm_plain";
-    let _ = admin.execute(&format!("ACL DELUSER {users}"), 10, &mut QueryOutcome::default()).await;
-    run(&mut admin, "ACL SETUSER dbine_perm_ops on >ops ~* &* +@all -monitor -bgsave -save").await;
-    run(&mut admin, "ACL SETUSER dbine_perm_plain on >plain ~* +@read").await;
+    let _ = admin
+        .execute(
+            &format!("ACL DELUSER {users}"),
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await;
+    run(
+        &mut admin,
+        "ACL SETUSER dbine_perm_ops on >ops ~* &* +@all -monitor -bgsave -save",
+    )
+    .await;
+    run(
+        &mut admin,
+        "ACL SETUSER dbine_perm_plain on >plain ~* +@read",
+    )
+    .await;
     let dragonfly = driver == "dragonfly";
     if !dragonfly {
-        run(&mut admin, "ACL SETUSER dbine_perm_ask on >ask ~* +@read +acl|whoami +acl|dryrun").await;
+        run(
+            &mut admin,
+            "ACL SETUSER dbine_perm_ask on >ask ~* +@read +acl|whoami +acl|dryrun",
+        )
+        .await;
     }
 
-    let mut s = d.connect(&cfg(driver, url, Some("dbine_perm_ops"), Some("ops")), None).await.unwrap();
+    let mut s = d
+        .connect(&cfg(driver, url, Some("dbine_perm_ops"), Some("ops")), None)
+        .await
+        .unwrap();
     let p = s.permissions(None).await.unwrap();
     eprintln!("{driver} ops: {p:?}");
     assert!(denied(&p.backup, "BGSAVE"), "{p:?}");
@@ -59,14 +94,28 @@ async fn check(driver: &str, url: &str) {
     assert_eq!(p.manage_security, Access::Allowed);
 
     if !dragonfly {
-        let mut s = d.connect(&cfg(driver, url, Some("dbine_perm_ask"), Some("ask")), None).await.unwrap();
+        let mut s = d
+            .connect(&cfg(driver, url, Some("dbine_perm_ask"), Some("ask")), None)
+            .await
+            .unwrap();
         let p = s.permissions(None).await.unwrap();
         eprintln!("{driver} ask: {p:?}");
-        assert!(denied(&p.backup, "BGSAVE") && denied(&p.profiler, "MONITOR") && denied(&p.manage_security, "ACL SETUSER"), "{p:?}");
+        assert!(
+            denied(&p.backup, "BGSAVE")
+                && denied(&p.profiler, "MONITOR")
+                && denied(&p.manage_security, "ACL SETUSER"),
+            "{p:?}"
+        );
     }
 
     // Can't run ACL DRYRUN: nothing is known, nothing is denied.
-    let mut s = d.connect(&cfg(driver, url, Some("dbine_perm_plain"), Some("plain")), None).await.unwrap();
+    let mut s = d
+        .connect(
+            &cfg(driver, url, Some("dbine_perm_plain"), Some("plain")),
+            None,
+        )
+        .await
+        .unwrap();
     let p = s.permissions(None).await.unwrap();
     eprintln!("{driver} plain: {p:?}");
     assert_eq!(p, dbine_driver::Permissions::default());

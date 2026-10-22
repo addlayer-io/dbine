@@ -48,7 +48,10 @@ pub struct HostAsset {
 
 /// The executable's file name for a driver crate's version.
 pub fn exe_name(package: &str, version: &str) -> String {
-    format!("dbine-driver-{package}-{version}{}", std::env::consts::EXE_SUFFIX)
+    format!(
+        "dbine-driver-{package}-{version}{}",
+        std::env::consts::EXE_SUFFIX
+    )
 }
 
 /// Where the hosts are.
@@ -59,7 +62,12 @@ pub fn hosts_dir() -> PathBuf {
 impl HostAsset {
     /// A host from the drivers index (`id` is its key there).
     pub fn from_entry(id: &str, e: &crate::index::IndexEntry) -> HostAsset {
-        HostAsset { version: id.to_string(), file: e.file.clone(), size: e.size, sha256: e.sha256.clone() }
+        HostAsset {
+            version: id.to_string(),
+            file: e.file.clone(),
+            size: e.size,
+            sha256: e.sha256.clone(),
+        }
     }
 }
 
@@ -67,7 +75,9 @@ impl HostAsset {
 /// the per-app-version folders of DBine 0.1.x. Other files (the state, the
 /// cached index) stay. A file in use (Windows) stays until next time.
 pub fn gc(dir: &Path, keep: &std::collections::HashSet<String>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let path = e.path();
         if path.is_dir() {
@@ -85,14 +95,22 @@ pub fn gc(dir: &Path, keep: &std::collections::HashSet<String>) {
 /// downloads). The app keeps more (the updater's [`gc`] keeps the active
 /// and previous versions too); this is the floor-only cleanup.
 pub fn remove_stale(catalog: &Catalog) {
-    let keep = catalog.hosts.iter().flat_map(|(p, h)| [exe_name(p, &h.version), format!("{}.part", h.file)]).collect();
+    let keep = catalog
+        .hosts
+        .iter()
+        .flat_map(|(p, h)| [exe_name(p, &h.version), format!("{}.part", h.file)])
+        .collect();
     gc(&hosts_dir(), &keep)
 }
 
 /// Installed hosts of the catalog's versions: (driver crate, bytes on disk).
 pub fn installed(catalog: &Catalog) -> Vec<(String, u64)> {
     let dir = hosts_dir();
-    let mut out: Vec<(String, u64)> = catalog.hosts.iter().filter_map(|(p, h)| installed_size(&dir, p, &h.version).map(|n| (p.clone(), n))).collect();
+    let mut out: Vec<(String, u64)> = catalog
+        .hosts
+        .iter()
+        .filter_map(|(p, h)| installed_size(&dir, p, &h.version).map(|n| (p.clone(), n)))
+        .collect();
     out.sort();
     out
 }
@@ -116,7 +134,9 @@ fn is_package_file(name: &str, package: &str) -> bool {
 /// when needed).
 pub fn remove(dir: &Path, package: &str) -> std::io::Result<()> {
     let mut first_err = None;
-    let Ok(rd) = std::fs::read_dir(dir) else { return Ok(()) };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
     for e in rd.flatten() {
         if is_package_file(&e.file_name().to_string_lossy(), package) {
             if let Err(err) = std::fs::remove_file(e.path()) {
@@ -128,33 +148,65 @@ pub fn remove(dir: &Path, package: &str) -> std::io::Result<()> {
 }
 
 fn install_lock(package: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
-    LOCKS.get_or_init(Default::default).lock().unwrap().entry(package.to_string()).or_default().clone()
+    static LOCKS: OnceLock<Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> =
+        OnceLock::new();
+    LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap()
+        .entry(package.to_string())
+        .or_default()
+        .clone()
 }
 
 /// The host of `package`, downloading it the first time. `label` names
 /// the engine in the progress ("SQL Server"); `drivers` are the ids that
 /// wait for it (the explorer shows the progress on their nodes).
-pub async fn ensure(catalog: &Catalog, package: &str, label: &str, drivers: Vec<String>) -> Result<PathBuf> {
-    let asset = catalog
-        .hosts
-        .get(package)
-        .ok_or_else(|| Error::Unsupported(format!("el driver de {label} no se publica para esta plataforma ({})", catalog.target)))?;
+pub async fn ensure(
+    catalog: &Catalog,
+    package: &str,
+    label: &str,
+    drivers: Vec<String>,
+) -> Result<PathBuf> {
+    let asset = catalog.hosts.get(package).ok_or_else(|| {
+        Error::Unsupported(format!(
+            "el driver de {label} no se publica para esta plataforma ({})",
+            catalog.target
+        ))
+    })?;
     if let Some(dir) = std::env::var_os("DBINE_DRIVERS_DIR") {
         let exe = PathBuf::from(dir).join(exe_name(package, &asset.version));
         return if exe.is_file() {
             Ok(exe)
         } else {
-            Err(Error::Connect(format!("no está el driver de {label} en DBINE_DRIVERS_DIR ({})", exe.display())))
+            Err(Error::Connect(format!(
+                "no está el driver de {label} en DBINE_DRIVERS_DIR ({})",
+                exe.display()
+            )))
         };
     }
-    ensure_asset(&hosts_dir(), &catalog.base_url, package, asset, label, drivers).await
+    ensure_asset(
+        &hosts_dir(),
+        &catalog.base_url,
+        package,
+        asset,
+        label,
+        drivers,
+    )
+    .await
 }
 
 /// The host `asset` of `package` (published under `base_url`) in `dir`, downloading
 /// it if it isn't on disk: resumable, checked against its SHA-256, unpacked
 /// beside its final name, one download per driver crate at a time.
-pub async fn ensure_asset(dir: &Path, base_url: &str, package: &str, asset: &HostAsset, label: &str, drivers: Vec<String>) -> Result<PathBuf> {
+pub async fn ensure_asset(
+    dir: &Path,
+    base_url: &str,
+    package: &str,
+    asset: &HostAsset,
+    label: &str,
+    drivers: Vec<String>,
+) -> Result<PathBuf> {
     let exe = dir.join(exe_name(package, &asset.version));
     if exe.is_file() {
         return Ok(exe);
@@ -165,37 +217,68 @@ pub async fn ensure_asset(dir: &Path, base_url: &str, package: &str, asset: &Hos
     if exe.is_file() {
         return Ok(exe);
     }
-    let io = |e: std::io::Error| Error::Connect(format!("no se pudo guardar el driver de {label} en {}: {e}", dir.display()));
+    let io = |e: std::io::Error| {
+        Error::Connect(format!(
+            "no se pudo guardar el driver de {label} en {}: {e}",
+            dir.display()
+        ))
+    };
     tokio::fs::create_dir_all(&dir).await.map_err(io)?;
     let url = format!("{}/{}", base_url.trim_end_matches('/'), asset.file);
     let part = dir.join(format!("{}.part", asset.file));
     download(&url, &part, asset, label, &drivers).await?;
     let (part2, exe2) = (part.clone(), exe.clone());
-    tokio::task::spawn_blocking(move || unpack(&part2, &exe2)).await.map_err(|e| Error::State(e.to_string()))?.map_err(io)?;
+    tokio::task::spawn_blocking(move || unpack(&part2, &exe2))
+        .await
+        .map_err(|e| Error::State(e.to_string()))?
+        .map_err(io)?;
     let _ = tokio::fs::remove_file(&part).await;
     Ok(exe)
 }
 
 /// Download (resuming a partial file) and check the SHA-256.
-async fn download(url: &str, part: &Path, a: &HostAsset, label: &str, drivers: &[String]) -> Result<()> {
+async fn download(
+    url: &str,
+    part: &Path,
+    a: &HostAsset,
+    label: &str,
+    drivers: &[String],
+) -> Result<()> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
-    let fail = |e: String| Error::Connect(format!("no se pudo descargar el driver de {label}: {e}"));
+    let fail =
+        |e: String| Error::Connect(format!("no se pudo descargar el driver de {label}: {e}"));
     let io = |e: std::io::Error| fail(e.to_string());
     let component = format!("el driver de {label}");
-    let progress = |done: u64| report_progress(&ComponentProgress { component: component.clone(), drivers: drivers.to_vec(), done, total: a.size });
-    let mut have = tokio::fs::metadata(part).await.map(|m| m.len()).unwrap_or(0);
+    let progress = |done: u64| {
+        report_progress(&ComponentProgress {
+            component: component.clone(),
+            drivers: drivers.to_vec(),
+            done,
+            total: a.size,
+        })
+    };
+    let mut have = tokio::fs::metadata(part)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
     if have > a.size {
         let _ = tokio::fs::remove_file(part).await;
         have = 0;
     }
     if have < a.size {
-        let client = reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(15)).build().unwrap_or_default();
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .build()
+            .unwrap_or_default();
         let mut req = client.get(url);
         if have > 0 {
             req = req.header("Range", format!("bytes={have}-"));
         }
-        let resp = req.send().await.map_err(|e| fail(format!("¿hay conexión a internet? ({e})")))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| fail(format!("¿hay conexión a internet? ({e})")))?;
         let status = resp.status();
         if !status.is_success() {
             return Err(fail(format!("HTTP {}", status.as_u16())));
@@ -204,13 +287,24 @@ async fn download(url: &str, part: &Path, a: &HostAsset, label: &str, drivers: &
         if have > 0 && status != reqwest::StatusCode::PARTIAL_CONTENT {
             have = 0;
         }
-        let mut file = tokio::fs::OpenOptions::new().create(true).write(true).append(have > 0).truncate(have == 0).open(part).await.map_err(io)?;
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(have > 0)
+            .truncate(have == 0)
+            .open(part)
+            .await
+            .map_err(io)?;
         let mut done = have;
         progress(done);
         let mut stream = resp.bytes_stream();
         let mut last = std::time::Instant::now();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| fail(format!("se cortó la descarga (se retoma al reintentar): {e}")))?;
+            let chunk = chunk.map_err(|e| {
+                fail(format!(
+                    "se cortó la descarga (se retoma al reintentar): {e}"
+                ))
+            })?;
             file.write_all(&chunk).await.map_err(io)?;
             done += chunk.len() as u64;
             if last.elapsed().as_millis() > 200 {
@@ -220,7 +314,10 @@ async fn download(url: &str, part: &Path, a: &HostAsset, label: &str, drivers: &
         }
         file.flush().await.map_err(io)?;
         if done != a.size {
-            return Err(fail(format!("quedó incompleta ({done} de {} bytes): reintentá para retomarla", a.size)));
+            return Err(fail(format!(
+                "quedó incompleta ({done} de {} bytes): reintentá para retomarla",
+                a.size
+            )));
         }
     }
     progress(a.size);
@@ -235,7 +332,9 @@ async fn download(url: &str, part: &Path, a: &HostAsset, label: &str, drivers: &
     .map_err(io)?;
     if sum != a.sha256 {
         let _ = tokio::fs::remove_file(part).await;
-        return Err(fail("el archivo no coincide con el publicado (SHA-256): se borró, reintentá".into()));
+        return Err(fail(
+            "el archivo no coincide con el publicado (SHA-256): se borró, reintentá".into(),
+        ));
     }
     Ok(())
 }
@@ -290,7 +389,10 @@ mod tests {
         .map(|s| s.to_string())
         .collect();
         gc(dir.path(), &keep);
-        let mut left: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+        let mut left: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
         left.sort();
         assert_eq!(
             left,
@@ -308,9 +410,18 @@ mod tests {
 
     #[test]
     fn package_files_by_name() {
-        assert!(is_package_file("dbine-driver-postgres-1.0.0+p1.e3", "postgres"));
-        assert!(is_package_file("dbine-driver-postgres-1.0.0+p1.e3-x.gz.part", "postgres"));
-        assert!(!is_package_file("dbine-driver-postgres-1.0.0+p1.e3", "postgre"));
+        assert!(is_package_file(
+            "dbine-driver-postgres-1.0.0+p1.e3",
+            "postgres"
+        ));
+        assert!(is_package_file(
+            "dbine-driver-postgres-1.0.0+p1.e3-x.gz.part",
+            "postgres"
+        ));
+        assert!(!is_package_file(
+            "dbine-driver-postgres-1.0.0+p1.e3",
+            "postgre"
+        ));
         assert!(!is_package_file("dbine-driver-my_sql-1.0.0+p1.e3", "my"));
         assert!(!is_package_file("state.json", "postgres"));
     }
@@ -319,7 +430,10 @@ mod tests {
     fn unpacks_an_executable() {
         let dir = tempfile::tempdir().unwrap();
         let gz = dir.path().join("x.gz");
-        let mut enc = flate2::write::GzEncoder::new(std::fs::File::create(&gz).unwrap(), flate2::Compression::default());
+        let mut enc = flate2::write::GzEncoder::new(
+            std::fs::File::create(&gz).unwrap(),
+            flate2::Compression::default(),
+        );
         enc.write_all(b"#!/bin/sh\necho hola\n").unwrap();
         enc.finish().unwrap();
         let exe = dir.path().join(exe_name("x", "1.0.0"));
@@ -328,7 +442,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&exe).unwrap().permissions().mode() & 0o777, 0o755);
+            assert_eq!(
+                std::fs::metadata(&exe).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
         }
     }
 }

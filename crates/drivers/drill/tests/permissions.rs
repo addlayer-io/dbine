@@ -11,10 +11,23 @@ use dbine_driver::{Access, ConnectionConfig, Permissions};
 #[tokio::test]
 #[ignore]
 async fn profiler_without_authentication() {
-    let Ok(url) = std::env::var("DBINE_TEST_DRILL_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_DRILL_URL") else {
+        return;
+    };
     let url = reqwest::Url::parse(&url).expect("URL");
-    let c = ConnectionConfig { driver: "drill".into(), host: url.host_str().unwrap().into(), port: url.port().unwrap_or(0), ..Default::default() };
+    let c = ConnectionConfig {
+        driver: "drill".into(),
+        host: url.host_str().unwrap().into(),
+        port: url.port().unwrap_or(0),
+        ..Default::default()
+    };
     let d = dbine_driver_drill::drivers().remove(0);
     let mut s = d.connect(&c, None).await.unwrap();
-    assert_eq!(s.permissions(Some("dfs.tmp")).await.unwrap(), Permissions { profiler: Access::Allowed, ..Default::default() });
+    assert_eq!(
+        s.permissions(Some("dfs.tmp")).await.unwrap(),
+        Permissions {
+            profiler: Access::Allowed,
+            ..Default::default()
+        }
+    );
 }

@@ -26,12 +26,17 @@ fn admin() -> Option<ConnectionConfig> {
 }
 
 fn driver() -> Arc<dyn Driver> {
-    dbine_driver_clickhouse::drivers().into_iter().find(|d| d.info().id == "clickhouse").unwrap()
+    dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "clickhouse")
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> Vec<Vec<Value>> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 1000, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 1000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     out.results.pop().map(|r| r.rows).unwrap_or_default()
 }
 
@@ -86,20 +91,46 @@ async fn readonly_profiles() {
         }
         rows
     };
-    assert_eq!(unquote(run(&mut a, "SELECT * FROM dbine_ro_it.t").await), expected);
+    assert_eq!(
+        unquote(run(&mut a, "SELECT * FROM dbine_ro_it.t").await),
+        expected
+    );
     // Nested 64-bit integers and decimals look the same for every user.
-    let nested = "SELECT [1.25::Decimal(16, 2), 99999999999999.99], map('k', 18446744073709551615::UInt64)";
+    let nested =
+        "SELECT [1.25::Decimal(16, 2), 99999999999999.99], map('k', 18446744073709551615::UInt64)";
     let nested_rows = run(&mut a, nested).await;
 
     // DBine's read-only mode on an admin: a statement's own `readonly = 0`
     // must not turn the server-side `readonly = 1` off.
-    let mut ro = d.connect(&ConnectionConfig { read_only: true, ..c.clone() }, None).await.unwrap();
-    assert_eq!(run(&mut ro, "SELECT getSetting('readonly')").await, vec![vec![json!(1)]]);
+    let mut ro = d
+        .connect(
+            &ConnectionConfig {
+                read_only: true,
+                ..c.clone()
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        run(&mut ro, "SELECT getSetting('readonly')").await,
+        vec![vec![json!(1)]]
+    );
     let mut out = QueryOutcome::default();
-    assert!(ro.execute("SELECT 1 SETTINGS readonly = 0", 10, &mut out).await.is_err());
-    assert_eq!(run(&mut ro, "SELECT getSetting('readonly')").await, vec![vec![json!(1)]]);
+    assert!(ro
+        .execute("SELECT 1 SETTINGS readonly = 0", 10, &mut out)
+        .await
+        .is_err());
+    assert_eq!(
+        run(&mut ro, "SELECT getSetting('readonly')").await,
+        vec![vec![json!(1)]]
+    );
     let e = ro
-        .execute("# c\nCREATE TABLE dbine_ro_it.bypass (x UInt8) ENGINE = Memory", 10, &mut out)
+        .execute(
+            "# c\nCREATE TABLE dbine_ro_it.bypass (x UInt8) ENGINE = Memory",
+            10,
+            &mut out,
+        )
         .await
         .expect_err("write in read-only mode");
     assert!(e.to_string().contains("readonly"), "{e}");
@@ -114,27 +145,67 @@ async fn readonly_profiles() {
                 ..c.clone()
             };
             let ctx = format!("{user}, read_only = {read_only}");
-            let mut s = d.connect(&cfg, None).await.unwrap_or_else(|e| panic!("{ctx}: {e}"));
-            assert_eq!(unquote(run(&mut s, "SELECT * FROM dbine_ro_it.t").await), expected, "{ctx}");
+            let mut s = d
+                .connect(&cfg, None)
+                .await
+                .unwrap_or_else(|e| panic!("{ctx}: {e}"));
+            assert_eq!(
+                unquote(run(&mut s, "SELECT * FROM dbine_ro_it.t").await),
+                expected,
+                "{ctx}"
+            );
             assert_eq!(run(&mut s, nested).await, nested_rows, "{ctx}");
-            assert!(s.list_databases().await.unwrap().contains(&"dbine_ro_it".to_string()), "{ctx}");
+            assert!(
+                s.list_databases()
+                    .await
+                    .unwrap()
+                    .contains(&"dbine_ro_it".to_string()),
+                "{ctx}"
+            );
             assert_eq!(s.list_objects().await.unwrap().len(), 1, "{ctx}");
-            let t = ObjectRef { kind: "table".into(), schema: Some("dbine_ro_it".into()), name: "t".into() };
+            let t = ObjectRef {
+                kind: "table".into(),
+                schema: Some("dbine_ro_it".into()),
+                name: "t".into(),
+            };
             assert_eq!(s.columns(&t).await.unwrap().len(), 7, "{ctx}");
             assert_eq!(s.database_schema().await.unwrap().len(), 1, "{ctx}");
             let mut out = QueryOutcome::default();
-            s.explain("SELECT * FROM dbine_ro_it.t", false, 10, &mut out).await.unwrap_or_else(|e| panic!("{ctx}: {e}"));
+            s.explain("SELECT * FROM dbine_ro_it.t", false, 10, &mut out)
+                .await
+                .unwrap_or_else(|e| panic!("{ctx}: {e}"));
             assert_eq!(out.plans.len(), 1, "{ctx}");
             // Errors still come through.
             let mut out = QueryOutcome::default();
-            assert!(s.execute("SELECT * FROM dbine_ro_it.missing", 10, &mut out).await.is_err(), "{ctx}");
-            assert!(s.execute("INSERT INTO dbine_ro_it.t (id) VALUES (2)", 10, &mut out).await.is_err(), "{ctx}");
+            assert!(
+                s.execute("SELECT * FROM dbine_ro_it.missing", 10, &mut out)
+                    .await
+                    .is_err(),
+                "{ctx}"
+            );
+            assert!(
+                s.execute("INSERT INTO dbine_ro_it.t (id) VALUES (2)", 10, &mut out)
+                    .await
+                    .is_err(),
+                "{ctx}"
+            );
             // Transfers read with RowBinary.
             let sink = Arc::new(Mutex::new(Count::default()));
-            let spec = ReadSpec { table: t.clone(), columns: None, filter: None };
-            assert_eq!(s.read_batches(&spec, sink.clone()).await.unwrap_or_else(|e| panic!("{ctx}: {e}")), 1);
+            let spec = ReadSpec {
+                table: t.clone(),
+                columns: None,
+                filter: None,
+            };
+            assert_eq!(
+                s.read_batches(&spec, sink.clone())
+                    .await
+                    .unwrap_or_else(|e| panic!("{ctx}: {e}")),
+                1
+            );
             assert_eq!(sink.lock().unwrap().0, 1, "{ctx}");
-            s.permissions(None).await.unwrap_or_else(|e| panic!("{ctx}: {e}"));
+            s.permissions(None)
+                .await
+                .unwrap_or_else(|e| panic!("{ctx}: {e}"));
         }
     }
 

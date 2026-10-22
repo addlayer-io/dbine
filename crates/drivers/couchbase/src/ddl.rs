@@ -10,8 +10,8 @@
 //! the designer's indexes become `CREATE INDEX` on their fields.
 
 use dbine_driver::{
-    kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, ObjectRef, Result, RowChange,
-    TableSchema,
+    kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, ObjectRef,
+    Result, RowChange, TableSchema,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -22,7 +22,9 @@ pub fn q(name: &str) -> String {
 
 /// `(bucket, scope)` of a `bucket.scope` schema.
 pub fn split_schema(schema: &str) -> Option<(&str, &str)> {
-    schema.rsplit_once('.').filter(|(b, s)| !b.is_empty() && !s.is_empty())
+    schema
+        .rsplit_once('.')
+        .filter(|(b, s)| !b.is_empty() && !s.is_empty())
 }
 
 /// The keyspace path of an object: `` `b`.`s`.`c` `` with a `bucket.scope`
@@ -39,9 +41,14 @@ pub fn path(schema: Option<&str>, name: &str) -> String {
 /// the session's query context is the bucket's `_default` scope, which
 /// can't resolve a bare scope name.
 pub fn scope_ref(schema: &str) -> Result<String> {
-    split_schema(schema.trim()).map(|(b, s)| format!("default:{}.{}", q(b), q(s))).ok_or_else(|| {
-        Error::Query(format!("escribí el scope con su bucket, «bucket.scope» (por ejemplo «mibucket.{}»)", schema.trim()))
-    })
+    split_schema(schema.trim())
+        .map(|(b, s)| format!("default:{}.{}", q(b), q(s)))
+        .ok_or_else(|| {
+            Error::Query(format!(
+                "escribí el scope con su bucket, «bucket.scope» (por ejemplo «mibucket.{}»)",
+                schema.trim()
+            ))
+        })
 }
 
 /// `bucket.scope` from the dialog's name: a bare scope (scopes have no
@@ -58,7 +65,9 @@ pub fn full_scope(database: Option<&str>, name: &str) -> String {
 /// "Nuevo esquema…": a scope in a bucket. Scopes have no owner.
 pub fn create_scope(schema: &str, owner: Option<&str>) -> Result<String> {
     if owner.is_some() {
-        return Err(Error::Unsupported("en Couchbase un scope no tiene dueño: otorgá roles sobre él".into()));
+        return Err(Error::Unsupported(
+            "en Couchbase un scope no tiene dueño: otorgá roles sobre él".into(),
+        ));
     }
     Ok(format!("CREATE SCOPE {}", scope_ref(schema)?))
 }
@@ -68,7 +77,9 @@ pub fn create_scope(schema: &str, owner: Option<&str>) -> Result<String> {
 pub fn drop_scope(schema: &str, cascade: bool) -> Result<String> {
     let path = scope_ref(schema)?;
     if split_schema(schema.trim()).is_some_and(|(_, s)| s == "_default") {
-        return Err(Error::Unsupported("el scope _default de un bucket no se puede borrar".into()));
+        return Err(Error::Unsupported(
+            "el scope _default de un bucket no se puede borrar".into(),
+        ));
     }
     if !cascade {
         return Err(Error::Unsupported("Couchbase borra el scope con todas sus colecciones: marcá «con su contenido» para confirmarlo".into()));
@@ -103,23 +114,49 @@ pub fn designer() -> DesignerSpec {
 
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     if t.schema.as_deref().and_then(split_schema).is_none() {
-        return Err(Error::Query("Elegí el bucket y el scope de la colección (bucket.scope).".into()));
+        return Err(Error::Query(
+            "Elegí el bucket y el scope de la colección (bucket.scope).".into(),
+        ));
     }
     let name = path(t.schema.as_deref(), &t.name);
     let mut out = Vec::new();
     if parts.drop {
-        out.push(format!("DROP COLLECTION {name}{};", if parts.if_exists { " IF EXISTS" } else { "" }));
+        out.push(format!(
+            "DROP COLLECTION {name}{};",
+            if parts.if_exists { " IF EXISTS" } else { "" }
+        ));
     }
     if parts.create {
-        let mut s = format!("CREATE COLLECTION {name}{}", if parts.if_exists && !parts.drop { " IF NOT EXISTS" } else { "" });
-        if let Some(ttl) = t.options.get("max_ttl").map(|v| v.trim()).filter(|v| !v.is_empty()) {
-            let n: i64 = ttl.parse().map_err(|_| Error::Query(format!("TTL inválido: {ttl}")))?;
+        let mut s = format!(
+            "CREATE COLLECTION {name}{}",
+            if parts.if_exists && !parts.drop {
+                " IF NOT EXISTS"
+            } else {
+                ""
+            }
+        );
+        if let Some(ttl) = t
+            .options
+            .get("max_ttl")
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+        {
+            let n: i64 = ttl
+                .parse()
+                .map_err(|_| Error::Query(format!("TTL inválido: {ttl}")))?;
             s.push_str(&format!(" WITH {{\"maxTTL\": {n}}}"));
         }
         s.push(';');
         out.push(s);
         if t.options.get("primary_index").is_some_and(|v| v == "true") {
-            out.push(format!("CREATE PRIMARY INDEX{} ON {name};", if parts.if_exists { " IF NOT EXISTS" } else { "" }));
+            out.push(format!(
+                "CREATE PRIMARY INDEX{} ON {name};",
+                if parts.if_exists {
+                    " IF NOT EXISTS"
+                } else {
+                    ""
+                }
+            ));
         }
     }
     if parts.indexes {
@@ -140,8 +177,16 @@ pub const PRIMARY: &str = "PRIMARY";
 /// settings that aren't the default (`num_replica`, `num_partition`,
 /// `retain_deleted_xattr`).
 pub fn index_from_row(r: &Value) -> IndexDef {
-    let s = |k: &str| r.get(k).and_then(Value::as_str).map(str::to_string).filter(|v| !v.is_empty());
-    let primary = r.get("is_primary").and_then(Value::as_bool).unwrap_or(false);
+    let s = |k: &str| {
+        r.get(k)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|v| !v.is_empty())
+    };
+    let primary = r
+        .get("is_primary")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let mut options = BTreeMap::new();
     let partition = s("partition");
     if let Some(p) = &partition {
@@ -164,7 +209,14 @@ pub fn index_from_row(r: &Value) -> IndexDef {
     }
     IndexDef {
         name: s("name").unwrap_or_default(),
-        columns: r.get("index_key").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect(),
+        columns: r
+            .get("index_key")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
         kind: primary.then(|| PRIMARY.to_string()),
         filter: s("condition"),
         options,
@@ -175,13 +227,23 @@ pub fn index_from_row(r: &Value) -> IndexDef {
 /// `CREATE [PRIMARY] INDEX … ON <keyspace>` for an index.
 pub fn index_ddl(keyspace: &str, ix: &IndexDef, if_not_exists: bool) -> Result<String> {
     let ine = if if_not_exists { " IF NOT EXISTS" } else { "" };
-    let primary = ix.kind.as_deref().is_some_and(|k| k.eq_ignore_ascii_case(PRIMARY));
-    let name = if ix.name.trim().is_empty() || ix.name == "#primary" { String::new() } else { format!(" {}", q(&ix.name)) };
+    let primary = ix
+        .kind
+        .as_deref()
+        .is_some_and(|k| k.eq_ignore_ascii_case(PRIMARY));
+    let name = if ix.name.trim().is_empty() || ix.name == "#primary" {
+        String::new()
+    } else {
+        format!(" {}", q(&ix.name))
+    };
     let mut s = if primary {
         format!("CREATE PRIMARY INDEX{name}{ine} ON {keyspace}")
     } else {
         if ix.columns.is_empty() {
-            return Err(Error::Query(format!("El índice {} no tiene campos.", ix.name)));
+            return Err(Error::Query(format!(
+                "El índice {} no tiene campos.",
+                ix.name
+            )));
         }
         let cols: Vec<String> = ix.columns.iter().map(|c| field_path(c)).collect();
         format!("CREATE INDEX{name}{ine} ON {keyspace}({})", cols.join(", "))
@@ -196,7 +258,13 @@ pub fn index_ddl(keyspace: &str, ix: &IndexDef, if_not_exists: bool) -> Result<S
         .options
         .iter()
         .filter(|(k, _)| *k != "partition")
-        .map(|(k, v)| format!("{}: {}", Value::String(k.clone()), serde_json::from_str::<Value>(v).unwrap_or_else(|_| Value::String(v.clone()))))
+        .map(|(k, v)| {
+            format!(
+                "{}: {}",
+                Value::String(k.clone()),
+                serde_json::from_str::<Value>(v).unwrap_or_else(|_| Value::String(v.clone()))
+            )
+        })
         .collect();
     if !with.is_empty() {
         s.push_str(&format!(" WITH {{{}}}", with.join(", ")));
@@ -216,7 +284,11 @@ fn field_path(f: &str) -> String {
 }
 
 pub fn templates() -> Vec<CreateTemplate> {
-    let t = |kind: &'static str, label: &'static str, template: &str| CreateTemplate { kind, label, template: template.into() };
+    let t = |kind: &'static str, label: &'static str, template: &str| CreateTemplate {
+        kind,
+        label,
+        template: template.into(),
+    };
     vec![
         t(
             kinds::INDEX,
@@ -253,9 +325,15 @@ fn json_value(v: &Value) -> Value {
 /// `INSERT INTO path (KEY, VALUE) VALUES (…), …`, 100 documents per
 /// statement. The key is the `_id` column (what browsing shows), else
 /// `id` / `key`, else `UUID()`; the other columns form the document.
-pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+pub fn insert_script(
+    target: &ObjectRef,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> Result<String> {
     let name = path(target.schema(), &target.name);
-    let key_col = ["_id", "id", "key", "meta_id"].iter().find_map(|k| columns.iter().position(|c| c == k));
+    let key_col = ["_id", "id", "key", "meta_id"]
+        .iter()
+        .find_map(|k| columns.iter().position(|c| c == k));
     let drop_key = key_col.is_some_and(|i| columns[i] == "_id" || columns[i] == "meta_id");
     let mut stmts = Vec::new();
     for chunk in rows.chunks(100) {
@@ -277,7 +355,10 @@ pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]
                 format!("({key}, {})", Value::Object(doc))
             })
             .collect();
-        stmts.push(format!("INSERT INTO {name} (KEY, VALUE) VALUES\n  {};", values.join(",\n  ")));
+        stmts.push(format!(
+            "INSERT INTO {name} (KEY, VALUE) VALUES\n  {};",
+            values.join(",\n  ")
+        ));
     }
     Ok(stmts.join("\n"))
 }
@@ -290,8 +371,15 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
     let name = path(target.schema(), &target.name);
     let mut stmts = Vec::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
-        let set: Vec<String> = ch.set.iter().map(|(c, v)| format!("{} = {}", q(c), json_value(v))).collect();
-        let doc_key = ch.key.iter().find(|(k, v)| (k == "_id" || k == "meta_id") && !v.is_null());
+        let set: Vec<String> = ch
+            .set
+            .iter()
+            .map(|(c, v)| format!("{} = {}", q(c), json_value(v)))
+            .collect();
+        let doc_key = ch
+            .key
+            .iter()
+            .find(|(k, v)| (k == "_id" || k == "meta_id") && !v.is_null());
         let (keys, filter) = match doc_key {
             Some((_, v)) => {
                 let id = match v {
@@ -301,18 +389,29 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
                 (format!(" USE KEYS {}", Value::String(id)), String::new())
             }
             None if ch.key.is_empty() => {
-                return Err(Error::Unsupported("no se puede identificar el documento a actualizar".into()));
+                return Err(Error::Unsupported(
+                    "no se puede identificar el documento a actualizar".into(),
+                ));
             }
             None => {
                 let conds: Vec<String> = ch
                     .key
                     .iter()
-                    .map(|(c, v)| if v.is_null() { format!("{} IS NULL", q(c)) } else { format!("{} = {}", q(c), json_value(v)) })
+                    .map(|(c, v)| {
+                        if v.is_null() {
+                            format!("{} IS NULL", q(c))
+                        } else {
+                            format!("{} = {}", q(c), json_value(v))
+                        }
+                    })
                     .collect();
                 (String::new(), format!(" WHERE {}", conds.join(" AND ")))
             }
         };
-        stmts.push(format!("UPDATE {name}{keys} SET {}{filter};", set.join(", ")));
+        stmts.push(format!(
+            "UPDATE {name}{keys} SET {}{filter};",
+            set.join(", ")
+        ));
     }
     Ok(stmts.join("\n"))
 }
@@ -324,7 +423,9 @@ pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Resul
     let name = path(target.schema(), &target.name);
     let mut stmts = Vec::new();
     for key in keys {
-        let doc_key = key.iter().find(|(k, v)| (k == "_id" || k == "meta_id") && !v.is_null());
+        let doc_key = key
+            .iter()
+            .find(|(k, v)| (k == "_id" || k == "meta_id") && !v.is_null());
         let tail = match doc_key {
             Some((_, v)) => {
                 let id = match v {
@@ -334,12 +435,20 @@ pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Resul
                 format!(" USE KEYS {}", Value::String(id))
             }
             None if key.is_empty() => {
-                return Err(Error::Unsupported("no se puede identificar el documento a borrar".into()));
+                return Err(Error::Unsupported(
+                    "no se puede identificar el documento a borrar".into(),
+                ));
             }
             None => {
                 let conds: Vec<String> = key
                     .iter()
-                    .map(|(c, v)| if v.is_null() { format!("{} IS NULL", q(c)) } else { format!("{} = {}", q(c), json_value(v)) })
+                    .map(|(c, v)| {
+                        if v.is_null() {
+                            format!("{} IS NULL", q(c))
+                        } else {
+                            format!("{} = {}", q(c), json_value(v))
+                        }
+                    })
                     .collect();
                 format!(" WHERE {}", conds.join(" AND "))
             }
@@ -358,17 +467,40 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     if filters.is_empty() {
         return Ok(browse.to_string());
     }
-    let like_escape = |s: &str| s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let like_escape = |s: &str| {
+        s.replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    };
     let mut parts = Vec::new();
     for f in filters {
-        let c = if f.column == "_id" { "META(d).id".to_string() } else { format!("d.{}", q(&f.column)) };
+        let c = if f.column == "_id" {
+            "META(d).id".to_string()
+        } else {
+            format!("d.{}", q(&f.column))
+        };
         let lit = |v: &Value| json_value(v).to_string();
-        let first = || f.values.first().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)));
-        let text = || first().map(|v| like_escape(&v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())));
+        let first = || {
+            f.values.first().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })
+        };
+        let text = || {
+            first().map(|v| {
+                like_escape(
+                    &v.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| v.to_string()),
+                )
+            })
+        };
         let like = |p: String| Value::String(p).to_string();
         let list = || {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{}» necesita al menos un valor", f.column)));
+                return Err(Error::Query(format!(
+                    "el filtro de «{}» necesita al menos un valor",
+                    f.column
+                )));
             }
             Ok(f.values.iter().map(lit).collect::<Vec<_>>().join(", "))
         };
@@ -398,8 +530,9 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
             FilterOp::SqlRight => format!("{c} {}", sql()),
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 /// The browse query (filtered or not) sorted by the grid's columns: an
@@ -412,13 +545,18 @@ pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<Str
     let order = sort
         .iter()
         .map(|k| {
-            let c = if k.column == "_id" { "META(d).id".to_string() } else { format!("d.{}", q(&k.column)) };
+            let c = if k.column == "_id" {
+                "META(d).id".to_string()
+            } else {
+                format!("d.{}", q(&k.column))
+            };
             format!("{c} {}", if k.descending { "DESC" } else { "ASC" })
         })
         .collect::<Vec<_>>()
         .join(", ");
-    dbine_driver::sort::set_order_by(browse, &order)
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+    dbine_driver::sort::set_order_by(browse, &order).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+    })
 }
 
 #[cfg(test)]
@@ -432,24 +570,46 @@ mod tests {
             "condition": "(`tipo` = \"x\")", "partition": "HASH(`fecha`)",
             "with": {"num_partition": 4, "num_replica": 0, "retain_deleted_xattr": false, "nodes": ["n1:8091"]}});
         let ix = index_from_row(&row);
-        assert_eq!(ix.columns, vec!["(distinct (array `t` for `t` in `tags` end))", "`fecha` DESC"]);
+        assert_eq!(
+            ix.columns,
+            vec![
+                "(distinct (array `t` for `t` in `tags` end))",
+                "`fecha` DESC"
+            ]
+        );
         assert_eq!(ix.filter.as_deref(), Some("(`tipo` = \"x\")"));
         assert_eq!(ix.options.len(), 2, "{:?}", ix.options);
         assert_eq!(
             index_ddl("`b`.`s`.`c`", &ix, false).unwrap(),
             "CREATE INDEX `ix_tags` ON `b`.`s`.`c`((distinct (array `t` for `t` in `tags` end)), `fecha` DESC) PARTITION BY HASH(`fecha`) WHERE (`tipo` = \"x\") WITH {\"num_partition\": 4};"
         );
-        let p = index_from_row(&json!({"name": "#primary", "is_primary": true, "with": {"num_replica": 1}}));
+        let p = index_from_row(
+            &json!({"name": "#primary", "is_primary": true, "with": {"num_replica": 1}}),
+        );
         assert_eq!(p.kind.as_deref(), Some(PRIMARY));
-        assert_eq!(index_ddl("k", &p, false).unwrap(), "CREATE PRIMARY INDEX ON k WITH {\"num_replica\": 1};");
-        let named = IndexDef { name: "pk".into(), ..p };
-        assert_eq!(index_ddl("k", &named, true).unwrap(), "CREATE PRIMARY INDEX `pk` IF NOT EXISTS ON k WITH {\"num_replica\": 1};");
+        assert_eq!(
+            index_ddl("k", &p, false).unwrap(),
+            "CREATE PRIMARY INDEX ON k WITH {\"num_replica\": 1};"
+        );
+        let named = IndexDef {
+            name: "pk".into(),
+            ..p
+        };
+        assert_eq!(
+            index_ddl("k", &named, true).unwrap(),
+            "CREATE PRIMARY INDEX `pk` IF NOT EXISTS ON k WITH {\"num_replica\": 1};"
+        );
     }
 
     #[test]
     fn filtered_browse_in_sqlpp() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         assert_eq!(
             filtered_browse(
                 "SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nLIMIT 200",
@@ -470,10 +630,22 @@ mod tests {
     #[test]
     fn sorted_browse_in_sqlpp() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let b = "SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nLIMIT 200";
         assert_eq!(sorted_browse(b, &[k("age", true)]).unwrap(), "SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nORDER BY d.`age` DESC\nLIMIT 200");
-        let f = filtered_browse(b, &[ColumnFilter { column: "g".into(), op: FilterOp::Eq, values: vec![json!(1)], sql: None }]).unwrap();
+        let f = filtered_browse(
+            b,
+            &[ColumnFilter {
+                column: "g".into(),
+                op: FilterOp::Eq,
+                values: vec![json!(1)],
+                sql: None,
+            }],
+        )
+        .unwrap();
         assert_eq!(
             sorted_browse(&f, &[k("we`ird \"n\"", false), k("_id", true)]).unwrap(),
             "SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nWHERE d.`g` = 1\nORDER BY d.`we``ird \"n\"` ASC, META(d).id DESC\nLIMIT 200"
@@ -483,14 +655,30 @@ mod tests {
 
     #[test]
     fn update_script_by_key_and_fields() {
-        let target = ObjectRef { kind: kinds::COLLECTION.into(), schema: Some("b.s".into()), name: "c".into() };
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "c".into(),
+        };
         let changes = vec![
             RowChange {
                 key: vec![("_id".into(), json!("k'1"))],
-                set: vec![("name".into(), json!("O'Brien \"Bob\"")), ("n".into(), Value::Null)], ..Default::default()
+                set: vec![
+                    ("name".into(), json!("O'Brien \"Bob\"")),
+                    ("n".into(), Value::Null),
+                ],
+                ..Default::default()
             },
-            RowChange { key: vec![("a".into(), json!(1)), ("b".into(), Value::Null)], set: vec![("x".into(), json!("{\"y\":2}"))], ..Default::default() },
-            RowChange { key: vec![("_id".into(), json!("z"))], set: vec![], ..Default::default() },
+            RowChange {
+                key: vec![("a".into(), json!(1)), ("b".into(), Value::Null)],
+                set: vec![("x".into(), json!("{\"y\":2}"))],
+                ..Default::default()
+            },
+            RowChange {
+                key: vec![("_id".into(), json!("z"))],
+                set: vec![],
+                ..Default::default()
+            },
         ];
         assert_eq!(
             update_script(&target, &changes).unwrap(),
@@ -501,7 +689,11 @@ mod tests {
 
     #[test]
     fn delete_script_by_key_and_fields() {
-        let target = ObjectRef { kind: kinds::COLLECTION.into(), schema: Some("b.s".into()), name: "c".into() };
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "c".into(),
+        };
         let keys = vec![
             vec![("_id".into(), json!("k'1 \"x\""))],
             vec![("a".into(), json!("O'Brien")), ("b".into(), Value::Null)],
@@ -516,7 +708,10 @@ mod tests {
 
     #[test]
     fn paths() {
-        assert_eq!(path(Some("travel.sample.inventory"), "hotel"), "`travel.sample`.`inventory`.`hotel`");
+        assert_eq!(
+            path(Some("travel.sample.inventory"), "hotel"),
+            "`travel.sample`.`inventory`.`hotel`"
+        );
         assert_eq!(path(None, "c"), "`c`");
         assert_eq!(split_schema("b._default"), Some(("b", "_default")));
         assert_eq!(split_schema("b"), None);
@@ -528,46 +723,116 @@ mod tests {
             kind: kinds::COLLECTION.into(),
             schema: Some("dbine.s1".into()),
             name: "pedidos".into(),
-            indexes: vec![IndexDef { name: "ix_cliente".into(), columns: vec!["cliente.id".into(), "fecha".into()], filter: Some("tipo = 'x'".into()), ..Default::default() }],
-            options: [("max_ttl".to_string(), "3600".to_string()), ("primary_index".to_string(), "true".to_string())].into(),
+            indexes: vec![IndexDef {
+                name: "ix_cliente".into(),
+                columns: vec!["cliente.id".into(), "fecha".into()],
+                filter: Some("tipo = 'x'".into()),
+                ..Default::default()
+            }],
+            options: [
+                ("max_ttl".to_string(), "3600".to_string()),
+                ("primary_index".to_string(), "true".to_string()),
+            ]
+            .into(),
             ..Default::default()
         };
-        let s = table_ddl(&t, DdlParts { drop: true, if_exists: true, create: true, indexes: true, ..Default::default() }).unwrap();
+        let s = table_ddl(
+            &t,
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(
             s,
             "DROP COLLECTION `dbine`.`s1`.`pedidos` IF EXISTS;\nCREATE COLLECTION `dbine`.`s1`.`pedidos` WITH {\"maxTTL\": 3600};\nCREATE PRIMARY INDEX IF NOT EXISTS ON `dbine`.`s1`.`pedidos`;\nCREATE INDEX `ix_cliente` IF NOT EXISTS ON `dbine`.`s1`.`pedidos`(`cliente`.`id`, `fecha`) WHERE tipo = 'x';"
         );
         let mut bad = t.clone();
         bad.schema = None;
-        assert!(table_ddl(&bad, DdlParts { create: true, ..Default::default() }).is_err());
+        assert!(table_ddl(
+            &bad,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            }
+        )
+        .is_err());
     }
 
     #[test]
     fn inserts_keep_keys_and_nesting() {
-        let target = ObjectRef { kind: kinds::COLLECTION.into(), schema: Some("b.s".into()), name: "c".into() };
-        let s = insert_script(&target, &["_id".into(), "nombre".into(), "tags".into(), "x".into()], &[
-            vec![json!("k1"), json!("O'Brien"), json!("[\"a\",\"b\"]"), Value::Null],
-            vec![Value::Null, json!("Ana"), json!("{no json"), json!(2)],
-        ])
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "c".into(),
+        };
+        let s = insert_script(
+            &target,
+            &["_id".into(), "nombre".into(), "tags".into(), "x".into()],
+            &[
+                vec![
+                    json!("k1"),
+                    json!("O'Brien"),
+                    json!("[\"a\",\"b\"]"),
+                    Value::Null,
+                ],
+                vec![Value::Null, json!("Ana"), json!("{no json"), json!(2)],
+            ],
+        )
         .unwrap();
         assert_eq!(
             s,
             "INSERT INTO `b`.`s`.`c` (KEY, VALUE) VALUES\n  (\"k1\", {\"nombre\":\"O'Brien\",\"tags\":[\"a\",\"b\"]}),\n  (UUID(), {\"nombre\":\"Ana\",\"tags\":\"{no json\",\"x\":2});"
         );
-        let s = insert_script(&target, &["id".into(), "v".into()], &[vec![json!(7), json!(1)]]).unwrap();
+        let s = insert_script(
+            &target,
+            &["id".into(), "v".into()],
+            &[vec![json!(7), json!(1)]],
+        )
+        .unwrap();
         assert!(s.contains("(\"7\", {\"id\":7,\"v\":1})"), "{s}");
     }
     #[test]
     fn scope_scripts() {
-        assert_eq!(create_scope("travel.sample.ventas", None).unwrap(), "CREATE SCOPE default:`travel.sample`.`ventas`");
-        assert_eq!(create_scope(" b.v`x ", None).unwrap(), "CREATE SCOPE default:`b`.`v``x`");
-        assert!(matches!(create_scope("ventas", None), Err(Error::Query(m)) if m.contains("bucket.scope")));
-        assert!(matches!(create_scope("b.ventas", Some("ana")), Err(Error::Unsupported(_))));
-        assert_eq!(drop_scope("b.ventas", true).unwrap(), "DROP SCOPE default:`b`.`ventas`");
-        assert!(matches!(drop_scope("b.ventas", false), Err(Error::Unsupported(_))));
-        assert!(matches!(drop_scope("b._default", true), Err(Error::Unsupported(_))));
-        assert_eq!(full_scope(Some("travel.sample"), " ventas "), "travel.sample.ventas");
-        assert_eq!(full_scope(Some("travel.sample"), "travel.sample.ventas"), "travel.sample.ventas");
+        assert_eq!(
+            create_scope("travel.sample.ventas", None).unwrap(),
+            "CREATE SCOPE default:`travel.sample`.`ventas`"
+        );
+        assert_eq!(
+            create_scope(" b.v`x ", None).unwrap(),
+            "CREATE SCOPE default:`b`.`v``x`"
+        );
+        assert!(
+            matches!(create_scope("ventas", None), Err(Error::Query(m)) if m.contains("bucket.scope"))
+        );
+        assert!(matches!(
+            create_scope("b.ventas", Some("ana")),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(
+            drop_scope("b.ventas", true).unwrap(),
+            "DROP SCOPE default:`b`.`ventas`"
+        );
+        assert!(matches!(
+            drop_scope("b.ventas", false),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            drop_scope("b._default", true),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(
+            full_scope(Some("travel.sample"), " ventas "),
+            "travel.sample.ventas"
+        );
+        assert_eq!(
+            full_scope(Some("travel.sample"), "travel.sample.ventas"),
+            "travel.sample.ventas"
+        );
         assert_eq!(full_scope(Some(" "), "ventas"), "ventas");
         assert_eq!(full_scope(None, "b.ventas"), "b.ventas");
     }

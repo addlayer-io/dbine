@@ -67,7 +67,14 @@ pub struct ProfilerStarted {
 
 impl ProfilerStarted {
     pub fn new(mode: ProfilerMode, source: impl Into<String>) -> Self {
-        Self { mode, source: source.into(), changes: Vec::new(), note: None, reads_unit: None, writes_unit: None }
+        Self {
+            mode,
+            source: source.into(),
+            changes: Vec::new(),
+            note: None,
+            reads_unit: None,
+            writes_unit: None,
+        }
     }
     /// What the engine's reads and writes count (see [`ProfilerStarted::reads_unit`]).
     pub fn units(mut self, reads: Option<&str>, writes: Option<&str>) -> Self {
@@ -200,7 +207,10 @@ struct Tracked {
 impl Sampler {
     /// `since`: the server's time when profiling began.
     pub fn new(since: impl Into<String>) -> Self {
-        Self { since: since.into(), seen: Default::default() }
+        Self {
+            since: since.into(),
+            seen: Default::default(),
+        }
     }
 
     /// One look at the server; returns the statements that finished since
@@ -240,7 +250,12 @@ impl Sampler {
             };
             self.seen.insert(session, Tracked { started, pending });
         }
-        let gone: Vec<String> = self.seen.keys().filter(|k| !present.contains(*k)).cloned().collect();
+        let gone: Vec<String> = self
+            .seen
+            .keys()
+            .filter(|k| !present.contains(*k))
+            .cloned()
+            .collect();
         for k in gone {
             if let Some(p) = self.seen.remove(&k).and_then(|t| t.pending) {
                 out.push(p.statement());
@@ -254,8 +269,12 @@ impl Sampler {
     /// Statements still running when profiling stops (with the time seen so
     /// far).
     pub fn finish(&mut self) -> Vec<ProfiledStatement> {
-        let mut out: Vec<ProfiledStatement> =
-            self.seen.drain().filter_map(|(_, t)| t.pending).map(Sample::statement).collect();
+        let mut out: Vec<ProfiledStatement> = self
+            .seen
+            .drain()
+            .filter_map(|(_, t)| t.pending)
+            .map(Sample::statement)
+            .collect();
         out.sort_by(|a, b| a.time.cmp(&b.time));
         out
     }
@@ -269,17 +288,31 @@ mod tests {
     fn a_finished_look_keeps_the_running_figures() {
         let mut sp = Sampler::new("2026-01-01 00:00:00.000");
         let running = Sample {
-            session: "1".into(), started: "2026-01-01 00:00:01.000".into(), text: "select 1".into(), running: true,
-            cpu_ms: Some(40.0), reads: Some(900), writes: Some(3), ..Default::default()
+            session: "1".into(),
+            started: "2026-01-01 00:00:01.000".into(),
+            text: "select 1".into(),
+            running: true,
+            cpu_ms: Some(40.0),
+            reads: Some(900),
+            writes: Some(3),
+            ..Default::default()
         };
         assert!(sp.feed(vec![running]).is_empty());
         let done = Sample {
-            session: "1".into(), started: "2026-01-01 00:00:01.000".into(), text: "select 1".into(), running: false,
-            duration_ms: Some(80.0), reads: Some(950), ..Default::default()
+            session: "1".into(),
+            started: "2026-01-01 00:00:01.000".into(),
+            text: "select 1".into(),
+            running: false,
+            duration_ms: Some(80.0),
+            reads: Some(950),
+            ..Default::default()
         };
         let out = sp.feed(vec![done]);
         assert_eq!(out.len(), 1);
-        assert_eq!((out[0].cpu_ms, out[0].reads, out[0].writes), (Some(40.0), Some(950), Some(3)));
+        assert_eq!(
+            (out[0].cpu_ms, out[0].reads, out[0].writes),
+            (Some(40.0), Some(950), Some(3))
+        );
     }
 
     fn s(session: &str, started: &str, text: &str, running: bool, ms: f64) -> Sample {
@@ -297,14 +330,35 @@ mod tests {
     fn sampler_reports_each_statement_once() {
         let mut p = Sampler::new("2024-01-01 10:00:00.000");
         // Already finished before profiling began: not reported.
-        assert!(p.feed(vec![s("1", "2024-01-01 09:59:00.000", "old", false, 5.0)]).is_empty());
+        assert!(p
+            .feed(vec![s("1", "2024-01-01 09:59:00.000", "old", false, 5.0)])
+            .is_empty());
         // A statement seen running, then finished.
-        assert!(p.feed(vec![s("1", "2024-01-01 10:00:01.000", "slow", true, 100.0)]).is_empty());
-        let out = p.feed(vec![s("1", "2024-01-01 10:00:01.000", "slow", false, 900.0)]);
+        assert!(p
+            .feed(vec![s("1", "2024-01-01 10:00:01.000", "slow", true, 100.0)])
+            .is_empty());
+        let out = p.feed(vec![s(
+            "1",
+            "2024-01-01 10:00:01.000",
+            "slow",
+            false,
+            900.0,
+        )]);
         assert_eq!(out.len(), 1);
-        assert_eq!((out[0].text.as_str(), out[0].duration_ms), ("slow", Some(900.0)));
+        assert_eq!(
+            (out[0].text.as_str(), out[0].duration_ms),
+            ("slow", Some(900.0))
+        );
         // Seen again, finished: not reported twice.
-        assert!(p.feed(vec![s("1", "2024-01-01 10:00:01.000", "slow", false, 900.0)]).is_empty());
+        assert!(p
+            .feed(vec![s(
+                "1",
+                "2024-01-01 10:00:01.000",
+                "slow",
+                false,
+                900.0
+            )])
+            .is_empty());
         // Finished between two looks: reported at once.
         let out = p.feed(vec![s("1", "2024-01-01 10:00:02.000", "fast", false, 3.0)]);
         assert_eq!(out[0].text, "fast");

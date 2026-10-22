@@ -55,7 +55,11 @@ fn proc_addr(s: &str) -> Option<SocketAddr> {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     let (ip, port) = s.split_once(':')?;
     let port = u16::from_str_radix(port, 16).ok()?;
-    let word = |i: usize| ip.get(i * 8..i * 8 + 8).and_then(|w| u32::from_str_radix(w, 16).ok()).map(u32::to_ne_bytes);
+    let word = |i: usize| {
+        ip.get(i * 8..i * 8 + 8)
+            .and_then(|w| u32::from_str_radix(w, 16).ok())
+            .map(u32::to_ne_bytes)
+    };
     let ip = match ip.len() {
         8 => IpAddr::V4(Ipv4Addr::from(word(0)?)),
         32 => {
@@ -78,7 +82,10 @@ mod imp {
         // SAFETY: geteuid has no preconditions.
         let me = unsafe { libc::geteuid() };
         for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
-            if let Some(owner) = std::fs::read_to_string(table).ok().and_then(|t| super::proc_net_tcp_uid(&t, peer, local)) {
+            if let Some(owner) = std::fs::read_to_string(table)
+                .ok()
+                .and_then(|t| super::proc_net_tcp_uid(&t, peer, local))
+            {
                 return owner == me;
             }
         }
@@ -190,7 +197,10 @@ mod imp {
         if owns(me, peer, local) {
             return true;
         }
-        all_pids().into_iter().filter(|&p| p > 0 && p != me && uid_of(p) == Some(uid)).any(|p| owns(p, peer, local))
+        all_pids()
+            .into_iter()
+            .filter(|&p| p > 0 && p != me && uid_of(p) == Some(uid))
+            .any(|p| owns(p, peer, local))
     }
 
     fn all_pids() -> Vec<pid_t> {
@@ -201,7 +211,10 @@ mod imp {
                 return Vec::new();
             }
             let mut pids: Vec<pid_t> = vec![0; n as usize + 64];
-            let n = libc::proc_listallpids(pids.as_mut_ptr().cast(), (pids.len() * size_of::<pid_t>()) as c_int);
+            let n = libc::proc_listallpids(
+                pids.as_mut_ptr().cast(),
+                (pids.len() * size_of::<pid_t>()) as c_int,
+            );
             pids.truncate(n.max(0) as usize);
             pids
         }
@@ -212,7 +225,14 @@ mod imp {
         unsafe {
             let mut info: libc::proc_bsdshortinfo = zeroed();
             let size = size_of::<libc::proc_bsdshortinfo>() as c_int;
-            (libc::proc_pidinfo(pid, libc::PROC_PIDT_SHORTBSDINFO, 0, (&raw mut info).cast::<c_void>(), size) == size).then_some(info.pbsi_uid)
+            (libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDT_SHORTBSDINFO,
+                0,
+                (&raw mut info).cast::<c_void>(),
+                size,
+            ) == size)
+                .then_some(info.pbsi_uid)
         }
     }
 
@@ -227,15 +247,32 @@ mod imp {
                 return false;
             }
             let mut fds: Vec<libc::proc_fdinfo> = vec![zeroed(); bytes as usize / fdsize + 32];
-            let bytes = libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), (fds.len() * fdsize) as c_int);
+            let bytes = libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDLISTFDS,
+                0,
+                fds.as_mut_ptr().cast(),
+                (fds.len() * fdsize) as c_int,
+            );
             if bytes <= 0 {
                 return false;
             }
             fds.truncate(bytes as usize / fdsize);
-            let need = (std::mem::offset_of!(SocketFdInfo, psi) + std::mem::offset_of!(SocketInfo, proto) + size_of::<InSockinfo>()) as c_int;
-            for fd in fds.iter().filter(|f| f.proc_fdtype == libc::PROX_FDTYPE_SOCKET as u32) {
+            let need = (std::mem::offset_of!(SocketFdInfo, psi)
+                + std::mem::offset_of!(SocketInfo, proto)
+                + size_of::<InSockinfo>()) as c_int;
+            for fd in fds
+                .iter()
+                .filter(|f| f.proc_fdtype == libc::PROX_FDTYPE_SOCKET as u32)
+            {
                 let mut info: SocketFdInfo = zeroed();
-                let got = libc::proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, (&raw mut info).cast::<c_void>(), size_of::<SocketFdInfo>() as c_int);
+                let got = libc::proc_pidfdinfo(
+                    pid,
+                    fd.proc_fd,
+                    PROC_PIDFDSOCKETINFO,
+                    (&raw mut info).cast::<c_void>(),
+                    size_of::<SocketFdInfo>() as c_int,
+                );
                 if got < need || !(info.psi.kind == SOCKINFO_TCP || info.psi.kind == SOCKINFO_IN) {
                     continue;
                 }
@@ -254,7 +291,11 @@ mod imp {
     /// or the 16 of IPv6; the port in network order.
     fn addr(vflag: u8, a: &[u8; 16], port: i32) -> SocketAddr {
         let port = u16::from_be(port as u16);
-        let ip = if vflag & INI_IPV4 != 0 { IpAddr::V4(Ipv4Addr::new(a[12], a[13], a[14], a[15])) } else { IpAddr::V6(Ipv6Addr::from(*a)) };
+        let ip = if vflag & INI_IPV4 != 0 {
+            IpAddr::V4(Ipv4Addr::new(a[12], a[13], a[14], a[15]))
+        } else {
+            IpAddr::V6(Ipv6Addr::from(*a))
+        };
         SocketAddr::new(ip, port)
     }
 }
@@ -265,17 +306,30 @@ mod imp {
     use std::mem::size_of;
     use std::net::{Ipv4Addr, SocketAddr};
     use std::ptr::null_mut;
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, HANDLE, NO_ERROR};
-    use windows_sys::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_INSUFFICIENT_BUFFER, HANDLE, NO_ERROR,
+    };
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL,
+    };
     use windows_sys::Win32::Networking::WinSock::AF_INET;
-    use windows_sys::Win32::Security::{EqualSid, GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
-    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows_sys::Win32::Security::{
+        EqualSid, GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
 
     pub fn same_user(peer: SocketAddr, local: SocketAddr) -> bool {
         // The local port is IPv4 (127.0.0.1); dual-stack sockets connected to
         // it are listed in the IPv4 table too.
-        let (SocketAddr::V4(peer), SocketAddr::V4(local)) = (peer, local) else { return false };
-        let Some(pid) = owner_pid(peer.ip(), peer.port(), local.ip(), local.port()) else { return false };
+        let (SocketAddr::V4(peer), SocketAddr::V4(local)) = (peer, local) else {
+            return false;
+        };
+        let Some(pid) = owner_pid(peer.ip(), peer.port(), local.ip(), local.port()) else {
+            return false;
+        };
         // SAFETY: no preconditions.
         if pid == unsafe { GetCurrentProcessId() } {
             return true;
@@ -289,7 +343,9 @@ mod imp {
             }
             let theirs = token_user(process);
             CloseHandle(process);
-            let (Some(theirs), Some(mine)) = (theirs, token_user(GetCurrentProcess())) else { return false };
+            let (Some(theirs), Some(mine)) = (theirs, token_user(GetCurrentProcess())) else {
+                return false;
+            };
             let sid = |b: &Vec<u64>| (*(b.as_ptr() as *const TOKEN_USER)).User.Sid;
             EqualSid(sid(&theirs), sid(&mine)) != 0
         }
@@ -301,12 +357,26 @@ mod imp {
         // 8-byte aligned buffer.
         unsafe {
             let mut size = 0u32;
-            GetExtendedTcpTable(null_mut(), &mut size, 0, AF_INET as u32, TCP_TABLE_OWNER_PID_ALL, 0);
+            GetExtendedTcpTable(
+                null_mut(),
+                &mut size,
+                0,
+                AF_INET as u32,
+                TCP_TABLE_OWNER_PID_ALL,
+                0,
+            );
             let mut buf: Vec<u64> = Vec::new();
             for _ in 0..4 {
                 buf = vec![0; (size as usize).div_ceil(8) + 64];
                 size = (buf.len() * 8) as u32;
-                match GetExtendedTcpTable(buf.as_mut_ptr().cast::<c_void>(), &mut size, 0, AF_INET as u32, TCP_TABLE_OWNER_PID_ALL, 0) {
+                match GetExtendedTcpTable(
+                    buf.as_mut_ptr().cast::<c_void>(),
+                    &mut size,
+                    0,
+                    AF_INET as u32,
+                    TCP_TABLE_OWNER_PID_ALL,
+                    0,
+                ) {
                     NO_ERROR => break,
                     ERROR_INSUFFICIENT_BUFFER => buf.clear(),
                     _ => return None,
@@ -317,7 +387,8 @@ mod imp {
             }
             let table = buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
             let n = (*table).dwNumEntries as usize;
-            let rows_bytes = std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table) + n * size_of::<MIB_TCPROW_OWNER_PID>();
+            let rows_bytes = std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table)
+                + n * size_of::<MIB_TCPROW_OWNER_PID>();
             if rows_bytes > buf.len() * 8 {
                 return None;
             }
@@ -325,7 +396,12 @@ mod imp {
             let ip = |a: u32| Ipv4Addr::from(a.to_ne_bytes());
             let port = |p: u32| u16::from_be(p as u16);
             rows.iter()
-                .find(|r| ip(r.dwLocalAddr) == *lip && port(r.dwLocalPort) == lport && ip(r.dwRemoteAddr) == *rip && port(r.dwRemotePort) == rport)
+                .find(|r| {
+                    ip(r.dwLocalAddr) == *lip
+                        && port(r.dwLocalPort) == lport
+                        && ip(r.dwRemoteAddr) == *rip
+                        && port(r.dwRemotePort) == rport
+                })
                 .map(|r| r.dwOwningPid)
         }
     }
@@ -339,7 +415,14 @@ mod imp {
         let mut len = 0u32;
         GetTokenInformation(token, TokenUser, null_mut(), 0, &mut len);
         let mut buf: Vec<u64> = vec![0; (len as usize).div_ceil(8).max(1)];
-        let ok = len != 0 && GetTokenInformation(token, TokenUser, buf.as_mut_ptr().cast::<c_void>(), (buf.len() * 8) as u32, &mut len) != 0;
+        let ok = len != 0
+            && GetTokenInformation(
+                token,
+                TokenUser,
+                buf.as_mut_ptr().cast::<c_void>(),
+                (buf.len() * 8) as u32,
+                &mut len,
+            ) != 0;
         CloseHandle(token);
         ok.then_some(buf)
     }
@@ -379,8 +462,14 @@ mod tests {
         // Little-endian words, as on every platform DBine ships for.
         if cfg!(target_endian = "little") {
             assert_eq!(proc_addr("0100007F:1F90"), Some(a("127.0.0.1:8080")));
-            assert_eq!(proc_addr("00000000000000000000000001000000:1F90"), Some(a("[::1]:8080")));
-            assert_eq!(proc_addr("0000000000000000FFFF00000100007F:0016"), Some(a("[::ffff:127.0.0.1]:22")));
+            assert_eq!(
+                proc_addr("00000000000000000000000001000000:1F90"),
+                Some(a("[::1]:8080"))
+            );
+            assert_eq!(
+                proc_addr("0000000000000000FFFF00000100007F:0016"),
+                Some(a("[::ffff:127.0.0.1]:22"))
+            );
         }
         assert_eq!(proc_addr("0100007F"), None);
         assert_eq!(proc_addr("0100:1F90"), None);
@@ -393,14 +482,26 @@ mod tests {
             return;
         }
         let listener = a("127.0.0.1:41394"); // 0xA1B2
-        // Another user's client (uid 1001) and ours (1000).
-        assert_eq!(proc_net_tcp_uid(TCP, a("127.0.0.1:54321"), listener), Some(1001));
-        assert_eq!(proc_net_tcp_uid(TCP, a("127.0.0.1:50000"), listener), Some(1000));
+                                             // Another user's client (uid 1001) and ours (1000).
+        assert_eq!(
+            proc_net_tcp_uid(TCP, a("127.0.0.1:54321"), listener),
+            Some(1001)
+        );
+        assert_eq!(
+            proc_net_tcp_uid(TCP, a("127.0.0.1:50000"), listener),
+            Some(1000)
+        );
         // A peer that isn't in the table: no owner.
         assert_eq!(proc_net_tcp_uid(TCP, a("127.0.0.1:1"), listener), None);
         // A dual-stack client, seen as IPv4-mapped in tcp6.
-        assert_eq!(proc_net_tcp_uid(TCP6, a("127.0.0.1:58000"), listener), Some(1000));
-        assert_eq!(proc_net_tcp_uid(TCP6, a("[::1]:58001"), a("[::1]:8080")), Some(1002));
+        assert_eq!(
+            proc_net_tcp_uid(TCP6, a("127.0.0.1:58000"), listener),
+            Some(1000)
+        );
+        assert_eq!(
+            proc_net_tcp_uid(TCP6, a("[::1]:58001"), a("[::1]:8080")),
+            Some(1002)
+        );
         assert_eq!(proc_net_tcp_uid("", a("127.0.0.1:1"), listener), None);
         // A client that already closed (TIME_WAIT, listed as uid 0) has no
         // owner, even for a DBine running as root.
@@ -417,6 +518,9 @@ mod tests {
         let (_server, peer) = listener.accept().unwrap();
         assert_eq!(client.local_addr().unwrap(), peer);
         assert!(same_user(peer, local));
-        assert!(!same_user(SocketAddr::new(peer.ip(), peer.port().wrapping_add(1).max(1)), local));
+        assert!(!same_user(
+            SocketAddr::new(peer.ip(), peer.port().wrapping_add(1).max(1)),
+            local
+        ));
     }
 }

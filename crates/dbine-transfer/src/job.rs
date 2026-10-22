@@ -147,7 +147,9 @@ pub(crate) fn sort_jobs(jobs: &mut [TransferJob], order: CopyOrder) {
     match order {
         // `None` sorts below any `Some`: reversed, unknown sizes go last.
         CopyOrder::LargestFirst => jobs.sort_by_key(|j| std::cmp::Reverse(j.row_estimate)),
-        CopyOrder::SmallestFirst => jobs.sort_by_key(|j| (j.row_estimate.is_none(), j.row_estimate)),
+        CopyOrder::SmallestFirst => {
+            jobs.sort_by_key(|j| (j.row_estimate.is_none(), j.row_estimate))
+        }
         CopyOrder::Alphabetical => jobs.sort_by_key(|j| j.name.to_lowercase()),
     }
 }
@@ -158,11 +160,26 @@ mod tests {
     use dbine_driver::ObjectRef;
 
     fn job(name: &str, rows: Option<u64>) -> TransferJob {
-        let table = ObjectRef { kind: "table".into(), schema: None, name: name.into() };
+        let table = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: name.into(),
+        };
         TransferJob {
             name: name.into(),
-            source: ReadSpec { table: table.clone(), columns: None, filter: None },
-            target: LoadSpec { table, columns: vec![], table_lock: false, keep_identity: false, commit_rows: 1, commit_bytes: 1 },
+            source: ReadSpec {
+                table: table.clone(),
+                columns: None,
+                filter: None,
+            },
+            target: LoadSpec {
+                table,
+                columns: vec![],
+                table_lock: false,
+                keep_identity: false,
+                commit_rows: 1,
+                commit_bytes: 1,
+            },
             row_estimate: rows,
             truncate: None,
             empty_first: false,
@@ -177,20 +194,47 @@ mod tests {
 
     #[test]
     fn orders() {
-        let mut jobs = vec![job("b", Some(10)), job("a", None), job("c", Some(300)), job("d", Some(10))];
+        let mut jobs = vec![
+            job("b", Some(10)),
+            job("a", None),
+            job("c", Some(300)),
+            job("d", Some(10)),
+        ];
         sort_jobs(&mut jobs, CopyOrder::LargestFirst);
-        assert_eq!(jobs.iter().map(|j| j.name.as_str()).collect::<Vec<_>>(), ["c", "b", "d", "a"]);
+        assert_eq!(
+            jobs.iter().map(|j| j.name.as_str()).collect::<Vec<_>>(),
+            ["c", "b", "d", "a"]
+        );
         sort_jobs(&mut jobs, CopyOrder::SmallestFirst);
-        assert_eq!(jobs.iter().map(|j| j.name.as_str()).collect::<Vec<_>>(), ["b", "d", "c", "a"]);
+        assert_eq!(
+            jobs.iter().map(|j| j.name.as_str()).collect::<Vec<_>>(),
+            ["b", "d", "c", "a"]
+        );
         sort_jobs(&mut jobs, CopyOrder::Alphabetical);
-        assert_eq!(jobs.iter().map(|j| j.name.as_str()).collect::<Vec<_>>(), ["a", "b", "c", "d"]);
+        assert_eq!(
+            jobs.iter().map(|j| j.name.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c", "d"]
+        );
     }
 
     #[test]
     fn options_in_range() {
-        let o = RunOptions { parallel: 99, commit_rows: 10, ..Default::default() }.normalized();
+        let o = RunOptions {
+            parallel: 99,
+            commit_rows: 10,
+            ..Default::default()
+        }
+        .normalized();
         assert_eq!(o.parallel, MAX_PARALLEL);
         assert_eq!(o.commit_rows, CHUNK_ROWS as u64);
-        assert_eq!(RunOptions { parallel: 0, ..Default::default() }.normalized().parallel, 1);
+        assert_eq!(
+            RunOptions {
+                parallel: 0,
+                ..Default::default()
+            }
+            .normalized()
+            .parallel,
+            1
+        );
     }
 }

@@ -11,12 +11,95 @@ pub type R = Range<usize>;
 
 /// Words that are never a name (a table alias, a column).
 const RESERVED: &[&str] = &[
-    "select", "from", "where", "and", "or", "not", "null", "true", "false", "is", "in", "exists", "between", "like", "ilike", "case", "when", "then",
-    "else", "end", "as", "on", "join", "inner", "left", "right", "full", "outer", "cross", "natural", "using", "group", "order", "by", "having",
-    "limit", "offset", "fetch", "union", "intersect", "except", "minus", "all", "any", "some", "distinct", "top", "into", "for", "window",
-    "qualify", "with", "apply", "lateral", "values", "interval", "date", "time", "timestamp", "current_date", "current_timestamp", "current_time",
-    "escape", "collate", "over", "partition", "set", "update", "delete", "insert", "option", "connect", "start", "prewhere", "sample", "final",
-    "straight_join", "pivot", "unpivot", "tablesample", "use", "force", "ignore", "returning", "rownum", "level", "settings", "array", "global",
+    "select",
+    "from",
+    "where",
+    "and",
+    "or",
+    "not",
+    "null",
+    "true",
+    "false",
+    "is",
+    "in",
+    "exists",
+    "between",
+    "like",
+    "ilike",
+    "case",
+    "when",
+    "then",
+    "else",
+    "end",
+    "as",
+    "on",
+    "join",
+    "inner",
+    "left",
+    "right",
+    "full",
+    "outer",
+    "cross",
+    "natural",
+    "using",
+    "group",
+    "order",
+    "by",
+    "having",
+    "limit",
+    "offset",
+    "fetch",
+    "union",
+    "intersect",
+    "except",
+    "minus",
+    "all",
+    "any",
+    "some",
+    "distinct",
+    "top",
+    "into",
+    "for",
+    "window",
+    "qualify",
+    "with",
+    "apply",
+    "lateral",
+    "values",
+    "interval",
+    "date",
+    "time",
+    "timestamp",
+    "current_date",
+    "current_timestamp",
+    "current_time",
+    "escape",
+    "collate",
+    "over",
+    "partition",
+    "set",
+    "update",
+    "delete",
+    "insert",
+    "option",
+    "connect",
+    "start",
+    "prewhere",
+    "sample",
+    "final",
+    "straight_join",
+    "pivot",
+    "unpivot",
+    "tablesample",
+    "use",
+    "force",
+    "ignore",
+    "returning",
+    "rownum",
+    "level",
+    "settings",
+    "array",
+    "global",
 ];
 
 pub fn is_reserved(word: &str) -> bool {
@@ -24,12 +107,18 @@ pub fn is_reserved(word: &str) -> bool {
 }
 
 /// Clause keywords after the select list.
-const CLAUSES: &[&str] = &["from", "where", "group", "having", "order", "limit", "offset", "fetch", "window", "qualify", "into", "for", "option", "connect", "start", "prewhere", "sample", "settings", "lock"];
+const CLAUSES: &[&str] = &[
+    "from", "where", "group", "having", "order", "limit", "offset", "fetch", "window", "qualify",
+    "into", "for", "option", "connect", "start", "prewhere", "sample", "settings", "lock",
+];
 
 const SET_OPS: &[&str] = &["union", "intersect", "except", "minus"];
 
 /// Statements that start a new one in scripts without `;` (T-SQL batches).
-const STATEMENT_STARTS: &[&str] = &["select", "insert", "update", "delete", "merge", "declare", "if", "begin", "print", "exec", "execute", "create", "alter", "drop", "use", "return", "go", "while", "truncate", "grant"];
+const STATEMENT_STARTS: &[&str] = &[
+    "select", "insert", "update", "delete", "merge", "declare", "if", "begin", "print", "exec",
+    "execute", "create", "alter", "drop", "use", "return", "go", "while", "truncate", "grant",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColRef {
@@ -75,10 +164,18 @@ pub struct FromItem {
 impl FromItem {
     /// What the query calls it: the alias, else the table's own name.
     pub fn label(&self) -> Option<&str> {
-        self.alias.as_deref().or_else(|| self.name.as_ref().and_then(|n| n.last()).map(String::as_str))
+        self.alias.as_deref().or_else(|| {
+            self.name
+                .as_ref()
+                .and_then(|n| n.last())
+                .map(String::as_str)
+        })
     }
     pub fn table(&self) -> Option<&str> {
-        self.name.as_ref().and_then(|n| n.last()).map(String::as_str)
+        self.name
+            .as_ref()
+            .and_then(|n| n.last())
+            .map(String::as_str)
     }
 }
 
@@ -139,8 +236,17 @@ impl<'a> Sql<'a> {
                 _ => depth.push(stack.len() as u32),
             }
         }
-        let mut sql = Sql { src, toks, depth, close, blocks: Vec::new() };
-        sql.blocks = (0..sql.toks.len()).filter(|&i| sql.kw(i, "select")).map(|i| sql.block(i)).collect();
+        let mut sql = Sql {
+            src,
+            toks,
+            depth,
+            close,
+            blocks: Vec::new(),
+        };
+        sql.blocks = (0..sql.toks.len())
+            .filter(|&i| sql.kw(i, "select"))
+            .map(|i| sql.block(i))
+            .collect();
         sql
     }
 
@@ -158,7 +264,9 @@ impl<'a> Sql<'a> {
     }
 
     pub fn kw(&self, i: usize, kw: &str) -> bool {
-        self.toks.get(i).is_some_and(|t| t.kind == Kind::Word && self.src[t.start..t.end].eq_ignore_ascii_case(kw))
+        self.toks.get(i).is_some_and(|t| {
+            t.kind == Kind::Word && self.src[t.start..t.end].eq_ignore_ascii_case(kw)
+        })
     }
 
     pub fn kw_any(&self, i: usize, kws: &[&str]) -> bool {
@@ -194,7 +302,9 @@ impl<'a> Sql<'a> {
         let t = self.toks.get(i)?;
         match t.kind {
             Kind::Ident => Some(unquote(self.text(i))),
-            Kind::Word if !RESERVED.contains(&self.text(i).to_ascii_lowercase().as_str()) => Some(self.text(i).to_string()),
+            Kind::Word if !RESERVED.contains(&self.text(i).to_ascii_lowercase().as_str()) => {
+                Some(self.text(i).to_string())
+            }
             _ => None,
         }
     }
@@ -205,7 +315,10 @@ impl<'a> Sql<'a> {
         let mut parts = vec![self.name(i)?];
         let mut j = i + 1;
         while self.is(j, Kind::Dot) {
-            match self.name(j + 1).or_else(|| (self.is(j + 1, Kind::Word)).then(|| self.text(j + 1).to_string())) {
+            match self
+                .name(j + 1)
+                .or_else(|| (self.is(j + 1, Kind::Word)).then(|| self.text(j + 1).to_string()))
+            {
                 Some(n) => parts.push(n),
                 None => break,
             }
@@ -217,7 +330,8 @@ impl<'a> Sql<'a> {
     /// The column reference that is exactly `r`.
     pub fn col_ref(&self, r: R) -> Option<ColRef> {
         let (parts, end) = self.dotted(r.start)?;
-        (end == r.end && !self.is(end, Kind::LParen) && !self.is(end, Kind::Str)).then(|| ColRef { parts, range: r })
+        (end == r.end && !self.is(end, Kind::LParen) && !self.is(end, Kind::Str))
+            .then(|| ColRef { parts, range: r })
     }
 
     /// Every column reference in `r` outside nested SELECTs.
@@ -247,7 +361,10 @@ impl<'a> Sql<'a> {
                 // `DATE '…'`, `x::type`: a type, not a column.
                 let typed = self.is(end, Kind::Str) || (i > r.start && self.op(i - 1, "::"));
                 if !call && !typed && end <= r.end {
-                    out.push(ColRef { parts, range: i..end });
+                    out.push(ColRef {
+                        parts,
+                        range: i..end,
+                    });
                 }
                 i = end.max(i + 1);
                 continue;
@@ -324,7 +441,10 @@ impl<'a> Sql<'a> {
 
     /// `( … )` around the whole of `r`: the inside.
     pub fn unwrap_parens(&self, r: &R) -> Option<R> {
-        (self.is(r.start, Kind::LParen) && self.close[r.start] == Some(r.end - 1) && r.end - r.start >= 2).then(|| r.start + 1..r.end - 1)
+        (self.is(r.start, Kind::LParen)
+            && self.close[r.start] == Some(r.end - 1)
+            && r.end - r.start >= 2)
+            .then(|| r.start + 1..r.end - 1)
     }
 
     /// Calls of `names` in `r` (outside nested SELECTs): the name tokens.
@@ -336,7 +456,10 @@ impl<'a> Sql<'a> {
                 i = self.close[i].map_or(r.end, |c| c + 1);
                 continue;
             }
-            if self.is(i + 1, Kind::LParen) && self.kw_any(i, names) && !(i > r.start && self.is(i - 1, Kind::Dot)) {
+            if self.is(i + 1, Kind::LParen)
+                && self.kw_any(i, names)
+                && !(i > r.start && self.is(i - 1, Kind::Dot))
+            {
                 out.push(i);
             }
             i += 1;
@@ -377,13 +500,43 @@ impl<'a> Sql<'a> {
                         && !self.is(j + 1, Kind::LParen)
                         && !self.is(j - 1, Kind::LParen)
                         && !(self.kw(j, "use") && self.kw_any(j + 1, &["index", "key"]))
-                        && !self.kw_any(j - 1, &["all", "distinct", "union", "intersect", "except", "minus", "for", "on"]);
+                        && !self.kw_any(
+                            j - 1,
+                            &[
+                                "all",
+                                "distinct",
+                                "union",
+                                "intersect",
+                                "except",
+                                "minus",
+                                "for",
+                                "on",
+                            ],
+                        );
                     // `WITH (NOLOCK)`, `WITH TIES`, `WITH ROLLUP`… belong to the block; `WITH x AS (` is a new statement.
                     let with = self.kw(j, "with")
                         && !self.is(j + 1, Kind::LParen)
-                        && !self.kw_any(j + 1, &["ties", "rollup", "cube", "check", "time", "local", "ordinality", "offset", "nowait"])
+                        && !self.kw_any(
+                            j + 1,
+                            &[
+                                "ties",
+                                "rollup",
+                                "cube",
+                                "check",
+                                "time",
+                                "local",
+                                "ordinality",
+                                "offset",
+                                "nowait",
+                            ],
+                        )
                         && !self.kw(j - 1, "start");
-                    if self.is(j, Kind::Semi) || self.kw_any(j, SET_OPS) || starts || with || self.kw(j, "end") {
+                    if self.is(j, Kind::Semi)
+                        || self.kw_any(j, SET_OPS)
+                        || starts
+                        || with
+                        || self.kw(j, "end")
+                    {
                         end = j;
                         break;
                     }
@@ -391,7 +544,12 @@ impl<'a> Sql<'a> {
             }
             j += 1;
         }
-        let mut b = Block { select, end, depth: d, ..Default::default() };
+        let mut b = Block {
+            select,
+            end,
+            depth: d,
+            ..Default::default()
+        };
         // DISTINCT / ALL / TOP.
         let mut k = select + 1;
         if self.kw(k, "distinct") {
@@ -436,7 +594,9 @@ impl<'a> Sql<'a> {
             if case > 0 {
                 continue;
             }
-            let Some(c) = CLAUSES.iter().find(|c| self.kw(i, c)) else { continue };
+            let Some(c) = CLAUSES.iter().find(|c| self.kw(i, c)) else {
+                continue;
+            };
             // GROUP / ORDER only with BY (`WITHIN GROUP (…)`); START only with WITH.
             if (*c == "group" || *c == "order") && !self.kw(i + 1, "by") {
                 continue;
@@ -476,7 +636,12 @@ impl<'a> Sql<'a> {
             Some((o, c)) => (o.checked_sub(1), c + 1),
             None => (select.checked_sub(1), end),
         };
-        let near_set_op = |i: usize| self.kw_any(i, SET_OPS) || ((self.kw(i, "all") || self.kw(i, "distinct")) && i > 0 && self.kw_any(i - 1, SET_OPS));
+        let near_set_op = |i: usize| {
+            self.kw_any(i, SET_OPS)
+                || ((self.kw(i, "all") || self.kw(i, "distinct"))
+                    && i > 0
+                    && self.kw_any(i - 1, SET_OPS))
+        };
         b.set_op = before.is_some_and(near_set_op) || near_set_op(after);
         b
     }
@@ -517,12 +682,21 @@ impl<'a> Sql<'a> {
             if self.kw(i, "with") && self.is(i + 1, Kind::LParen) {
                 i = self.close[i + 1]? + 1;
             }
-            let mut item = FromItem { name, alias, join, on: None, subquery };
+            let mut item = FromItem {
+                name,
+                alias,
+                join,
+                on: None,
+                subquery,
+            };
             // Its ON, up to the next join.
             if self.kw(i, "on") {
                 let on_start = i + 1;
                 let mut j = on_start;
-                while j < r.end && !(self.depth[j] == self.depth[r.start] && (self.is(j, Kind::Comma) || self.join_word(j))) {
+                while j < r.end
+                    && !(self.depth[j] == self.depth[r.start]
+                        && (self.is(j, Kind::Comma) || self.join_word(j)))
+                {
                     j += 1;
                 }
                 item.on = Some(on_start..j);
@@ -564,7 +738,11 @@ impl<'a> Sql<'a> {
         // An inner join needs its ON, a cross join none.
         for it in &out {
             match it.join {
-                JoinKind::Inner | JoinKind::Left | JoinKind::Right | JoinKind::Full if it.on.is_none() => return None,
+                JoinKind::Inner | JoinKind::Left | JoinKind::Right | JoinKind::Full
+                    if it.on.is_none() =>
+                {
+                    return None
+                }
                 JoinKind::Cross if it.on.is_some() => return None,
                 _ => {}
             }
@@ -573,7 +751,12 @@ impl<'a> Sql<'a> {
     }
 
     fn join_word(&self, i: usize) -> bool {
-        self.kw_any(i, &["join", "inner", "left", "right", "full", "outer", "cross", "natural"])
+        self.kw_any(
+            i,
+            &[
+                "join", "inner", "left", "right", "full", "outer", "cross", "natural",
+            ],
+        )
     }
 }
 
@@ -592,7 +775,10 @@ mod tests {
         let b = &s.blocks[0];
         assert_eq!(s.slice(b.list.clone()), "a, b");
         assert_eq!(s.slice(b.from.clone().unwrap()), "t");
-        assert_eq!(s.slice(b.where_.clone().unwrap()), "x = 1 AND y IN (SELECT y FROM u)");
+        assert_eq!(
+            s.slice(b.where_.clone().unwrap()),
+            "x = 1 AND y IN (SELECT y FROM u)"
+        );
         assert_eq!(s.slice(b.order_by.clone().unwrap()), "a");
         assert!(b.limit);
         let inner = &s.blocks[1];
@@ -605,7 +791,14 @@ mod tests {
         let s = sql("SELECT 1 FROM t WHERE a BETWEEN 1 AND 2 AND (b = 1 OR c = 2) AND CASE WHEN d = 1 AND e = 2 THEN 1 END = 1");
         let w = s.blocks[0].where_.clone().unwrap();
         let parts: Vec<&str> = s.conjuncts(w).into_iter().map(|r| s.slice(r)).collect();
-        assert_eq!(parts, vec!["a BETWEEN 1 AND 2", "(b = 1 OR c = 2)", "CASE WHEN d = 1 AND e = 2 THEN 1 END = 1"]);
+        assert_eq!(
+            parts,
+            vec![
+                "a BETWEEN 1 AND 2",
+                "(b = 1 OR c = 2)",
+                "CASE WHEN d = 1 AND e = 2 THEN 1 END = 1"
+            ]
+        );
         let s = sql("SELECT 1 FROM t WHERE a = 1 AND b = 2 OR c = 3");
         let w = s.blocks[0].where_.clone().unwrap();
         assert_eq!(s.conjuncts(w.clone()).len(), 1);
@@ -617,7 +810,10 @@ mod tests {
         let s = sql("SELECT * FROM sales.orders o JOIN customers AS c ON c.id = o.cid LEFT OUTER JOIN x ON x.k = o.k, y WHERE 1 = 1");
         let items = s.from_items(&s.blocks[0]).unwrap();
         assert_eq!(items.len(), 4);
-        assert_eq!(items[0].name.as_deref(), Some(&["sales".to_string(), "orders".to_string()][..]));
+        assert_eq!(
+            items[0].name.as_deref(),
+            Some(&["sales".to_string(), "orders".to_string()][..])
+        );
         assert_eq!(items[0].alias.as_deref(), Some("o"));
         assert_eq!(items[1].label(), Some("c"));
         assert_eq!(s.slice(items[1].on.clone().unwrap()), "c.id = o.cid");
@@ -636,10 +832,19 @@ mod tests {
 
     #[test]
     fn tsql_batches_without_semicolons_end_blocks() {
-        let s = Sql::parse("SELECT a FROM t WHERE x = 1\nSELECT b FROM u", Flavor::for_dialect("mssql"));
+        let s = Sql::parse(
+            "SELECT a FROM t WHERE x = 1\nSELECT b FROM u",
+            Flavor::for_dialect("mssql"),
+        );
         assert_eq!(s.blocks.len(), 2);
-        assert_eq!(s.slice(s.blocks[0].select..s.blocks[0].end), "SELECT a FROM t WHERE x = 1");
-        let s = Sql::parse("SELECT TOP (5) a FROM t WITH (NOLOCK) WHERE x = 1", Flavor::for_dialect("mssql"));
+        assert_eq!(
+            s.slice(s.blocks[0].select..s.blocks[0].end),
+            "SELECT a FROM t WHERE x = 1"
+        );
+        let s = Sql::parse(
+            "SELECT TOP (5) a FROM t WITH (NOLOCK) WHERE x = 1",
+            Flavor::for_dialect("mssql"),
+        );
         assert!(s.blocks[0].top);
         assert_eq!(s.slice(s.blocks[0].where_.clone().unwrap()), "x = 1");
         assert_eq!(s.from_items(&s.blocks[0]).unwrap()[0].label(), Some("t"));
@@ -655,9 +860,15 @@ mod tests {
 
     #[test]
     fn column_refs_skip_calls_types_and_subqueries() {
-        let s = sql("SELECT 1 FROM t WHERE o.a = f(b) AND DATE '2024-01-01' < c AND d IN (SELECT e FROM u)");
+        let s = sql(
+            "SELECT 1 FROM t WHERE o.a = f(b) AND DATE '2024-01-01' < c AND d IN (SELECT e FROM u)",
+        );
         let w = s.blocks[0].where_.clone().unwrap();
-        let refs: Vec<String> = s.col_refs(w).into_iter().map(|c| c.parts.join(".")).collect();
+        let refs: Vec<String> = s
+            .col_refs(w)
+            .into_iter()
+            .map(|c| c.parts.join("."))
+            .collect();
         assert_eq!(refs, vec!["o.a", "b", "c", "d"]);
     }
 }

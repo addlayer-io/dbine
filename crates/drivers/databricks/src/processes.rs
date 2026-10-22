@@ -22,7 +22,8 @@ const MAX_ROWS: usize = 1000;
 /// A query / statement id (`01ef…-…`: hex and dashes).
 pub(crate) fn valid_id(id: &str) -> Option<&str> {
     let id = id.trim();
-    (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')).then_some(id)
+    (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+        .then_some(id)
 }
 
 fn text(q: &Json, ptr: &str) -> Option<String> {
@@ -48,7 +49,10 @@ fn row(q: &Json, now: f64) -> ServerProcess {
         id: text(q, "/query_id").unwrap_or_default(),
         // Running or queued: both are in flight.
         active: true,
-        wait: status.as_deref().filter(|s| *s == "QUEUED").map(|_| "en cola del warehouse".to_string()),
+        wait: status
+            .as_deref()
+            .filter(|s| *s == "QUEUED")
+            .map(|_| "en cola del warehouse".to_string()),
         status,
         user: text(q, "/user_name"),
         program: text(q, "/client_application"),
@@ -71,7 +75,10 @@ impl DatabricksSession {
         let r = tokio::time::timeout(QUERY_LIMIT, self.api.get(&path))
             .await
             .map_err(|_| Error::Query("la lista de consultas tardó demasiado".into()))??;
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0);
         Ok(r.get("res")
             .and_then(Json::as_array)
             .into_iter()
@@ -82,7 +89,12 @@ impl DatabricksSession {
     }
 
     pub(crate) async fn cancel_running(&self, id: &str) -> Result<()> {
-        let id = valid_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta de Databricks", id.trim())))?;
+        let id = valid_id(id).ok_or_else(|| {
+            Error::Query(format!(
+                "«{}» no es un id de consulta de Databricks",
+                id.trim()
+            ))
+        })?;
         let failed = |m: String| {
             Error::Query(format!(
                 "no se pudo cancelar la consulta {id}: {m}. Por API solo se cancelan las sentencias enviadas con la \
@@ -91,8 +103,15 @@ impl DatabricksSession {
         };
         // The cancel is accepted even for an unknown id; asking for the
         // statement tells whether the API knows it.
-        self.api.post(&format!("/api/2.0/sql/statements/{id}/cancel"), &json!({})).await.map_err(|e| failed(e.to_string()))?;
-        self.api.get(&format!("/api/2.0/sql/statements/{id}")).await.map(|_| ()).map_err(|e| failed(e.to_string()))
+        self.api
+            .post(&format!("/api/2.0/sql/statements/{id}/cancel"), &json!({}))
+            .await
+            .map_err(|e| failed(e.to_string()))?;
+        self.api
+            .get(&format!("/api/2.0/sql/statements/{id}"))
+            .await
+            .map(|_| ())
+            .map_err(|e| failed(e.to_string()))
     }
 }
 
@@ -102,7 +121,10 @@ mod tests {
 
     #[test]
     fn ids_are_checked() {
-        assert_eq!(valid_id(" 01ef1234-abcd-1234-abcd-0123456789ab "), Some("01ef1234-abcd-1234-abcd-0123456789ab"));
+        assert_eq!(
+            valid_id(" 01ef1234-abcd-1234-abcd-0123456789ab "),
+            Some("01ef1234-abcd-1234-abcd-0123456789ab")
+        );
         assert_eq!(valid_id("../../jobs"), None);
         assert_eq!(valid_id(""), None);
     }

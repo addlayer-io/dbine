@@ -20,8 +20,8 @@
 
 use crate::json::{Obj, J};
 use dbine_driver::{
-    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, ObjectRef, Result, RowChange,
-    TableSchema,
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, ObjectRef,
+    Result, RowChange, TableSchema,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -34,7 +34,12 @@ pub(crate) const META_FIELDS: &[&str] = &["_id", "_index", "_score", "_routing",
 
 /// A yes / no option that can also be left to the engine's default.
 fn tri_field(key: &'static str, label: &'static str, help: &'static str) -> Field {
-    Field::new(key, label, FieldKind::Select(vec![("", "Por defecto"), ("true", "Sí"), ("false", "No")])).help(help)
+    Field::new(
+        key,
+        label,
+        FieldKind::Select(vec![("", "Por defecto"), ("true", "Sí"), ("false", "No")]),
+    )
+    .help(help)
 }
 
 pub fn designer(opensearch: bool) -> DesignerSpec {
@@ -76,7 +81,14 @@ pub fn designer(opensearch: bool) -> DesignerSpec {
     if opensearch {
         data_types.extend(["flat_object", "knn_vector"]);
     } else {
-        data_types.extend(["flattened", "constant_keyword", "dense_vector", "sparse_vector", "version", "histogram"]);
+        data_types.extend([
+            "flattened",
+            "constant_keyword",
+            "dense_vector",
+            "sparse_vector",
+            "version",
+            "histogram",
+        ]);
     }
     let dims_help = if opensearch {
         "`dimension` de un knn_vector (obligatorio)."
@@ -99,7 +111,11 @@ pub fn designer(opensearch: bool) -> DesignerSpec {
             .placeholder("1s")
             .help("Cada cuánto se vuelven visibles los documentos nuevos; -1 lo desactiva."),
         Field::new("aliases", "Alias", FieldKind::Text).help("Separados por coma."),
-        Field::new("dynamic", "Campos nuevos (dynamic)", FieldKind::Select(dynamic)),
+        Field::new(
+            "dynamic",
+            "Campos nuevos (dynamic)",
+            FieldKind::Select(dynamic),
+        ),
     ];
     if opensearch {
         table_options.push(tri_field(
@@ -294,10 +310,15 @@ pub(crate) fn check_index_name(name: &str) -> Result<()> {
         return Err(Error::Query("Falta el nombre del índice.".into()));
     }
     if name.chars().any(|c| c.is_uppercase()) {
-        return Err(Error::Query(format!("El nombre del índice «{name}» debe ir en minúsculas.")));
+        return Err(Error::Query(format!(
+            "El nombre del índice «{name}» debe ir en minúsculas."
+        )));
     }
     // Control characters too: a line break would start another console request.
-    if name.starts_with(['-', '_', '+']) || name.contains(BAD_NAME_CHARS) || name.chars().any(char::is_control) {
+    if name.starts_with(['-', '_', '+'])
+        || name.contains(BAD_NAME_CHARS)
+        || name.chars().any(char::is_control)
+    {
         return Err(Error::Query(format!(
             "El nombre del índice «{name}» no es válido: no puede empezar con -, _ o + ni tener espacios, comas ni \\ / * ? \" < > | # :"
         )));
@@ -330,8 +351,16 @@ pub(crate) fn field_mapping(c: &ColumnDef, opensearch: bool) -> Result<Obj> {
     if let Some(n) = num_opt(&c.options, "scaling_factor", &what("factor de escala"))? {
         m.push(("scaling_factor".into(), n));
     }
-    if let Some(d) = c.comment.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
-        m.push(("meta".into(), J::Obj(vec![("description".into(), J::Str(d.to_string()))])));
+    if let Some(d) = c
+        .comment
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+    {
+        m.push((
+            "meta".into(),
+            J::Obj(vec![("description".into(), J::Str(d.to_string()))]),
+        ));
     }
     if let Some(x) = opt(&c.options, "extra") {
         match J::parse(x) {
@@ -340,7 +369,12 @@ pub(crate) fn field_mapping(c: &ColumnDef, opensearch: bool) -> Result<Obj> {
                     set(&mut m, &k, v);
                 }
             }
-            _ => return Err(Error::Query(format!("Campo {}: el mapping extra debe ser un objeto JSON.", c.name))),
+            _ => {
+                return Err(Error::Query(format!(
+                    "Campo {}: el mapping extra debe ser un objeto JSON.",
+                    c.name
+                )))
+            }
         }
     }
     Ok(m)
@@ -355,12 +389,16 @@ fn has_children(ty: Option<&J>) -> bool {
 pub(crate) fn put_field(props: &mut Obj, path: &[&str], leaf: Obj, full: &str) -> Result<()> {
     let (head, rest) = path.split_first().expect("non-empty path");
     if head.is_empty() {
-        return Err(Error::Query(format!("El nombre de campo «{full}» tiene un tramo vacío.")));
+        return Err(Error::Query(format!(
+            "El nombre de campo «{full}» tiene un tramo vacío."
+        )));
     }
     if !props.iter().any(|(k, _)| k == head) {
         props.push((head.to_string(), J::Obj(Vec::new())));
     }
-    let Some((_, J::Obj(entry))) = props.iter_mut().find(|(k, _)| k == head) else { unreachable!() };
+    let Some((_, J::Obj(entry))) = props.iter_mut().find(|(k, _)| k == head) else {
+        unreachable!()
+    };
     if rest.is_empty() {
         let children = entry.iter().any(|(k, _)| k == "properties");
         let ty = leaf.iter().find(|(k, _)| k == "type").map(|(_, v)| v);
@@ -380,7 +418,11 @@ pub(crate) fn put_field(props: &mut Obj, path: &[&str], leaf: Obj, full: &str) -
     }
     let ty = entry.iter().find(|(k, _)| k == "type").map(|(_, v)| v);
     if !has_children(ty) {
-        let parent = full.split('.').take(path.len() - rest.len()).collect::<Vec<_>>().join(".");
+        let parent = full
+            .split('.')
+            .take(path.len() - rest.len())
+            .collect::<Vec<_>>()
+            .join(".");
         return Err(Error::Query(format!(
             "«{full}» no puede estar dentro de «{parent}»: solo los campos object o nested tienen subcampos."
         )));
@@ -389,7 +431,9 @@ pub(crate) fn put_field(props: &mut Obj, path: &[&str], leaf: Obj, full: &str) -
         entry.push(("properties".into(), J::Obj(Vec::new())));
     }
     let Some((_, J::Obj(sub))) = entry.iter_mut().find(|(k, _)| k == "properties") else {
-        return Err(Error::Query(format!("El mapping de «{full}» no es válido.")));
+        return Err(Error::Query(format!(
+            "El mapping de «{full}» no es válido."
+        )));
     };
     put_field(sub, rest, leaf, full)
 }
@@ -399,7 +443,10 @@ pub(crate) fn put_field(props: &mut Obj, path: &[&str], leaf: Obj, full: &str) -
 pub fn index_body(t: &TableSchema, opensearch: bool) -> Result<Obj> {
     let o = &t.options;
     let mut settings: Obj = Vec::new();
-    for (key, what) in [("number_of_shards", "Shards primarios"), ("number_of_replicas", "Réplicas")] {
+    for (key, what) in [
+        ("number_of_shards", "Shards primarios"),
+        ("number_of_replicas", "Réplicas"),
+    ] {
         if let Some(n) = num_opt(o, key, what)? {
             settings.push((key.into(), n));
         }
@@ -431,9 +478,18 @@ pub fn index_body(t: &TableSchema, opensearch: bool) -> Result<Obj> {
     // The mapping's other parameters (`dynamic_templates`, `_routing`,
     // `runtime`, `_source`…), `_meta` with the comment as its description.
     let mapping_extra = json_obj_opt(o, MAPPINGS_EXTRA)?.unwrap_or_default();
-    let mut meta: Obj = mapping_extra.iter().find(|(k, _)| k == "_meta").and_then(|(_, v)| v.as_obj().cloned()).unwrap_or_default();
+    let mut meta: Obj = mapping_extra
+        .iter()
+        .find(|(k, _)| k == "_meta")
+        .and_then(|(_, v)| v.as_obj().cloned())
+        .unwrap_or_default();
     meta.retain(|(k, _)| k != "description");
-    if let Some(c) = t.comment.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+    if let Some(c) = t
+        .comment
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
         meta.insert(0, ("description".into(), J::Str(c.to_string())));
     }
     if !meta.is_empty() {
@@ -464,7 +520,11 @@ pub fn index_body(t: &TableSchema, opensearch: bool) -> Result<Obj> {
         .collect();
 
     let mut body = Vec::new();
-    for (key, v) in [("settings", settings), ("mappings", mappings), ("aliases", aliases)] {
+    for (key, v) in [
+        ("settings", settings),
+        ("mappings", mappings),
+        ("aliases", aliases),
+    ] {
         if !v.is_empty() {
             body.push((key.to_string(), J::Obj(v)));
         }
@@ -479,7 +539,11 @@ pub fn index_ddl(t: &TableSchema, parts: DdlParts, opensearch: bool) -> Result<S
     let mut out = Vec::new();
     if parts.drop {
         let seg = path_segment(name);
-        out.push(if parts.if_exists { format!("DELETE /{seg}?ignore_unavailable=true") } else { format!("DELETE /{seg}") });
+        out.push(if parts.if_exists {
+            format!("DELETE /{seg}?ignore_unavailable=true")
+        } else {
+            format!("DELETE /{seg}")
+        });
     }
     if parts.create {
         let body = index_body(t, opensearch)?;
@@ -513,7 +577,11 @@ pub fn bulk_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) 
     if name.is_empty() {
         return Err(Error::Query("Falta el índice de destino.".into()));
     }
-    let op = if target.kind == kinds::STREAM { "create" } else { "index" };
+    let op = if target.kind == kinds::STREAM {
+        "create"
+    } else {
+        "index"
+    };
     let mut reqs = Vec::new();
     for chunk in rows.chunks(BULK_BATCH) {
         let mut s = String::from("POST /_bulk?refresh=true");
@@ -541,13 +609,16 @@ pub fn bulk_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) 
 
 /// Painless script of a data stream update: copies `params.doc` over the
 /// document's fields.
-const STREAM_UPDATE: &str = "for (e in params.doc.entrySet()) { ctx._source[e.getKey()] = e.getValue() }";
+const STREAM_UPDATE: &str =
+    "for (e in params.doc.entrySet()) { ctx._source[e.getKey()] = e.getValue() }";
 
 /// A URL path segment: everything but unreserved characters percent-encoded.
 pub(crate) fn path_segment(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -565,9 +636,16 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
     }
     let mut reqs = Vec::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
-        let key = |k: &str| ch.key.iter().find(|(c, v)| c == k && !v.is_null()).map(|(_, v)| scalar_text(v));
+        let key = |k: &str| {
+            ch.key
+                .iter()
+                .find(|(c, v)| c == k && !v.is_null())
+                .map(|(_, v)| scalar_text(v))
+        };
         let Some(id) = key("_id") else {
-            return Err(Error::Unsupported("para actualizar un documento hace falta su _id".into()));
+            return Err(Error::Unsupported(
+                "para actualizar un documento hace falta su _id".into(),
+            ));
         };
         let doc: Obj = ch
             .set
@@ -578,10 +656,18 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
         if doc.is_empty() {
             continue;
         }
-        let routing = key("_routing").map(|r| format!("&routing={}", path_segment(&r))).unwrap_or_default();
+        let routing = key("_routing")
+            .map(|r| format!("&routing={}", path_segment(&r)))
+            .unwrap_or_default();
         if target.kind == kinds::STREAM {
             let body = J::Obj(vec![
-                ("query".into(), J::Obj(vec![("ids".into(), J::Obj(vec![("values".into(), J::Arr(vec![J::Str(id)]))]))])),
+                (
+                    "query".into(),
+                    J::Obj(vec![(
+                        "ids".into(),
+                        J::Obj(vec![("values".into(), J::Arr(vec![J::Str(id)]))]),
+                    )]),
+                ),
                 (
                     "script".into(),
                     J::Obj(vec![
@@ -590,10 +676,21 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
                     ]),
                 ),
             ]);
-            reqs.push(format!("POST /{}/_update_by_query?refresh=true{routing}\n{}", path_segment(name), body.compact()));
+            reqs.push(format!(
+                "POST /{}/_update_by_query?refresh=true{routing}\n{}",
+                path_segment(name),
+                body.compact()
+            ));
         } else {
-            let path = format!("POST /{}/_update/{}?refresh=true{routing}", path_segment(name), path_segment(&id));
-            reqs.push(format!("{path}\n{}", J::Obj(vec![("doc".into(), J::Obj(doc))]).compact()));
+            let path = format!(
+                "POST /{}/_update/{}?refresh=true{routing}",
+                path_segment(name),
+                path_segment(&id)
+            );
+            reqs.push(format!(
+                "{path}\n{}",
+                J::Obj(vec![("doc".into(), J::Obj(doc))]).compact()
+            ));
         }
     }
     Ok(reqs.join("\n\n"))
@@ -610,16 +707,39 @@ pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Resul
     }
     let mut reqs = Vec::new();
     for k in keys {
-        let key = |f: &str| k.iter().find(|(c, v)| c == f && !v.is_null()).map(|(_, v)| scalar_text(v)).filter(|s| !s.is_empty());
-        let Some(id) = key("_id") else {
-            return Err(Error::Unsupported("para borrar un documento hace falta su _id".into()));
+        let key = |f: &str| {
+            k.iter()
+                .find(|(c, v)| c == f && !v.is_null())
+                .map(|(_, v)| scalar_text(v))
+                .filter(|s| !s.is_empty())
         };
-        let routing = key("_routing").map(|r| format!("&routing={}", path_segment(&r))).unwrap_or_default();
+        let Some(id) = key("_id") else {
+            return Err(Error::Unsupported(
+                "para borrar un documento hace falta su _id".into(),
+            ));
+        };
+        let routing = key("_routing")
+            .map(|r| format!("&routing={}", path_segment(&r)))
+            .unwrap_or_default();
         if target.kind == kinds::STREAM {
-            let body = J::Obj(vec![("query".into(), J::Obj(vec![("ids".into(), J::Obj(vec![("values".into(), J::Arr(vec![J::Str(id)]))]))]))]);
-            reqs.push(format!("POST /{}/_delete_by_query?refresh=true{routing}\n{}", path_segment(name), body.compact()));
+            let body = J::Obj(vec![(
+                "query".into(),
+                J::Obj(vec![(
+                    "ids".into(),
+                    J::Obj(vec![("values".into(), J::Arr(vec![J::Str(id)]))]),
+                )]),
+            )]);
+            reqs.push(format!(
+                "POST /{}/_delete_by_query?refresh=true{routing}\n{}",
+                path_segment(name),
+                body.compact()
+            ));
         } else {
-            reqs.push(format!("DELETE /{}/_doc/{}?refresh=true{routing}", path_segment(name), path_segment(&id)));
+            reqs.push(format!(
+                "DELETE /{}/_doc/{}?refresh=true{routing}",
+                path_segment(name),
+                path_segment(&id)
+            ));
         }
     }
     Ok(reqs.join("\n\n"))
@@ -633,7 +753,9 @@ pub(crate) fn analysis_opt(o: &BTreeMap<String, String>) -> Result<Option<J>> {
         None => Ok(None),
         Some(a) => match J::parse(a) {
             Ok(j @ J::Obj(_)) => Ok(Some(j)),
-            _ => Err(Error::Query("«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).".into())),
+            _ => Err(Error::Query(
+                "«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).".into(),
+            )),
         },
     }
 }
@@ -642,7 +764,9 @@ pub(crate) fn analysis_opt(o: &BTreeMap<String, String>) -> Result<Option<J>> {
 /// the index defines no analysis of its own).
 fn analysis_setting(settings: Option<&J>) -> Option<J> {
     fn put(obj: &mut Obj, path: &[&str], v: J) {
-        let Some((first, rest)) = path.split_first() else { return };
+        let Some((first, rest)) = path.split_first() else {
+            return;
+        };
         if rest.is_empty() {
             obj.push((first.to_string(), v));
             return;
@@ -660,7 +784,12 @@ fn analysis_setting(settings: Option<&J>) -> Option<J> {
         return Some(nested.clone());
     }
     let mut out: Obj = Vec::new();
-    let mut flat: Vec<(&String, &J)> = s.as_obj()?.iter().filter(|(k, _)| k.starts_with("index.analysis.")).map(|(k, v)| (k, v)).collect();
+    let mut flat: Vec<(&String, &J)> = s
+        .as_obj()?
+        .iter()
+        .filter(|(k, _)| k.starts_with("index.analysis."))
+        .map(|(k, v)| (k, v))
+        .collect();
     flat.sort_by(|a, b| a.0.cmp(b.0));
     for (k, v) in flat {
         let path: Vec<&str> = k["index.analysis.".len()..].split('.').collect();
@@ -702,7 +831,9 @@ pub(crate) fn json_obj_opt(o: &BTreeMap<String, String>, key: &str) -> Result<Op
         None => Ok(None),
         Some(a) => match J::parse(a) {
             Ok(J::Obj(m)) => Ok(Some(m)),
-            _ => Err(Error::Query(format!("«{key}» tiene que ser un objeto JSON."))),
+            _ => Err(Error::Query(format!(
+                "«{key}» tiene que ser un objeto JSON."
+            ))),
         },
     }
 }
@@ -728,15 +859,32 @@ fn other_settings(settings: Option<&J>, opensearch: bool) -> (Obj, Obj) {
     flat.sort_by(|a, b| a.0.cmp(&b.0));
     let (mut extra, mut lifecycle) = (Vec::new(), Vec::new());
     for (k, v) in flat {
-        let Some(rel) = k.strip_prefix("index.") else { continue };
-        let known = matches!(rel, "number_of_shards" | "number_of_replicas" | "refresh_interval")
-            || (opensearch && rel == "knn")
+        let Some(rel) = k.strip_prefix("index.") else {
+            continue;
+        };
+        let known = matches!(
+            rel,
+            "number_of_shards" | "number_of_replicas" | "refresh_interval"
+        ) || (opensearch && rel == "knn")
             || rel.starts_with("analysis.");
-        let system = SYSTEM_SETTINGS.iter().any(|s| if s.ends_with('.') { rel.starts_with(s) } else { rel == *s });
+        let system = SYSTEM_SETTINGS.iter().any(|s| {
+            if s.ends_with('.') {
+                rel.starts_with(s)
+            } else {
+                rel == *s
+            }
+        });
         if known || system {
             continue;
         }
-        if ["lifecycle.", "plugins.index_state_management.", "opendistro.index_state_management."].iter().any(|p| rel.starts_with(p)) {
+        if [
+            "lifecycle.",
+            "plugins.index_state_management.",
+            "opendistro.index_state_management.",
+        ]
+        .iter()
+        .any(|p| rel.starts_with(p))
+        {
             lifecycle.push((k, v));
         } else {
             extra.push((k, v));
@@ -747,26 +895,37 @@ fn other_settings(settings: Option<&J>, opensearch: bool) -> (Obj, Obj) {
 
 fn setting<'a>(settings: Option<&'a J>, key: &str) -> Option<&'a J> {
     let s = settings?;
-    s.get(&format!("index.{key}")).or_else(|| s.at(&["index", key])).or_else(|| s.get(key))
+    s.get(&format!("index.{key}"))
+        .or_else(|| s.at(&["index", key]))
+        .or_else(|| s.get(key))
 }
 
 fn read_props(props: Option<&J>, prefix: &str, out: &mut Vec<ColumnDef>) {
     for (name, f) in props.and_then(J::as_obj).into_iter().flatten() {
         let Some(fo) = f.as_obj() else { continue };
-        let full = if prefix.is_empty() { name.clone() } else { format!("{prefix}.{name}") };
+        let full = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}.{name}")
+        };
         let mut options = BTreeMap::new();
         let mut extra: Obj = Vec::new();
         let mut comment = None;
         for (k, v) in fo {
             match k.as_str() {
                 "type" | "properties" => {}
-                "analyzer" | "format" | "index" | "doc_values" | "scaling_factor" if v.is_scalar() => {
+                "analyzer" | "format" | "index" | "doc_values" | "scaling_factor"
+                    if v.is_scalar() =>
+                {
                     options.insert(k.clone(), v.text());
                 }
                 "dims" | "dimension" if v.is_scalar() => {
                     options.insert("dims".into(), v.text());
                 }
-                "meta" if v.as_obj().is_some_and(|m| m.len() == 1) && v.get("description").is_some() => {
+                "meta"
+                    if v.as_obj().is_some_and(|m| m.len() == 1)
+                        && v.get("description").is_some() =>
+                {
                     comment = v.get("description").map(J::text);
                 }
                 _ => extra.push((k.clone(), v.clone())),
@@ -824,7 +983,11 @@ pub fn index_schema(name: &str, idx: &J, opensearch: bool) -> TableSchema {
         .filter_map(|(k, v)| match v.as_obj() {
             // `_meta`'s description is the comment: the rest of it stays here.
             Some(meta) if k == "_meta" => {
-                let rest: Obj = meta.iter().filter(|(mk, _)| mk != "description").cloned().collect();
+                let rest: Obj = meta
+                    .iter()
+                    .filter(|(mk, _)| mk != "description")
+                    .cloned()
+                    .collect();
                 (!rest.is_empty()).then(|| (k.clone(), J::Obj(rest)))
             }
             _ => Some((k.clone(), v.clone())),
@@ -834,7 +997,13 @@ pub fn index_schema(name: &str, idx: &J, opensearch: bool) -> TableSchema {
     if !mapping_extra.is_empty() {
         options.insert(MAPPINGS_EXTRA.into(), J::Obj(mapping_extra).compact());
     }
-    let aliases: Vec<&str> = idx.get("aliases").and_then(J::as_obj).into_iter().flatten().map(|(k, _)| k.as_str()).collect();
+    let aliases: Vec<&str> = idx
+        .get("aliases")
+        .and_then(J::as_obj)
+        .into_iter()
+        .flatten()
+        .map(|(k, _)| k.as_str())
+        .collect();
     if !aliases.is_empty() {
         options.insert("aliases".into(), aliases.join(","));
     }
@@ -844,7 +1013,10 @@ pub fn index_schema(name: &str, idx: &J, opensearch: bool) -> TableSchema {
         name: name.to_string(),
         columns,
         // Taking the comment off leaves an empty description: there's none.
-        comment: m.at(&["_meta", "description"]).map(J::text).filter(|d| !d.trim().is_empty()),
+        comment: m
+            .at(&["_meta", "description"])
+            .map(J::text)
+            .filter(|d| !d.trim().is_empty()),
         options,
         ..Default::default()
     }
@@ -864,26 +1036,46 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     }
     let (head, body) = browse.split_once('\n').unwrap_or((browse, "{}"));
     let Ok(Value::Object(mut body)) = serde_json::from_str::<Value>(body) else {
-        return Err(Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()));
+        return Err(Error::Unsupported(
+            "no se pudo agregar el filtro a la consulta de este objeto".into(),
+        ));
     };
-    let wild = |s: &str| s.replace('\\', "\\\\").replace('*', "\\*").replace('?', "\\?");
+    let wild = |s: &str| {
+        s.replace('\\', "\\\\")
+            .replace('*', "\\*")
+            .replace('?', "\\?")
+    };
     let mut clauses = Vec::new();
     for f in filters {
         let c = f.column.as_str();
-        let first = || f.values.first().cloned().ok_or_else(|| Error::Query(format!("el filtro de «{c}» necesita un valor")));
-        let text = || first().map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()));
+        let first = || {
+            f.values
+                .first()
+                .cloned()
+                .ok_or_else(|| Error::Query(format!("el filtro de «{c}» necesita un valor")))
+        };
+        let text = || {
+            first().map(|v| {
+                v.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| v.to_string())
+            })
+        };
         let eq = |v: Value| match v {
             Value::String(_) if c != "_id" => json!({ "match_phrase": { c: v } }),
             other => json!({ "term": { c: other } }),
         };
         let not = |q: Value| json!({ "bool": { "must_not": [q] } });
         let range = |op: &str| -> Result<Value> { Ok(json!({ "range": { c: { op: first()? } } })) };
-        let wildcard = |p: String| json!({ "wildcard": { c: { "value": p, "case_insensitive": true } } });
+        let wildcard =
+            |p: String| json!({ "wildcard": { c: { "value": p, "case_insensitive": true } } });
         let exists = json!({ "exists": { "field": c } });
         let any = |vs: &[Value]| json!({ "bool": { "should": vs.iter().cloned().map(eq).collect::<Vec<_>>(), "minimum_should_match": 1 } });
         let list = || {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{c}» necesita al menos un valor")));
+                return Err(Error::Query(format!(
+                    "el filtro de «{c}» necesita al menos un valor"
+                )));
             }
             Ok(any(&f.values))
         };
@@ -916,7 +1108,8 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
         });
     }
     body.insert("query".into(), json!({ "bool": { "filter": clauses } }));
-    let body = serde_json::to_string_pretty(&Value::Object(body)).map_err(|e| Error::Query(e.to_string()))?;
+    let body = serde_json::to_string_pretty(&Value::Object(body))
+        .map_err(|e| Error::Query(e.to_string()))?;
     Ok(format!("{head}\n{body}"))
 }
 
@@ -924,31 +1117,42 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
 /// `sort` array in the body, `{ "field": { "order": "asc" } }` per key.
 /// Elasticsearch 8 can't sort by `_id` (no field data for it by default):
 /// refused there, so the grid sorts what it loaded.
-pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey], opensearch: bool) -> Result<String> {
+pub fn sorted_browse(
+    browse: &str,
+    sort: &[dbine_driver::SortKey],
+    opensearch: bool,
+) -> Result<String> {
     use serde_json::json;
     if sort.is_empty() {
         return Ok(browse.to_string());
     }
     let (head, body) = browse.split_once('\n').unwrap_or((browse, "{}"));
     let Ok(Value::Object(mut body)) = serde_json::from_str::<Value>(body) else {
-        return Err(Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()));
+        return Err(Error::Unsupported(
+            "no se pudo agregar el orden a la consulta de este objeto".into(),
+        ));
     };
     let mut keys: Vec<Value> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for k in sort {
         let c = k.column.as_str();
         if c == "_id" && !opensearch {
-            return Err(Error::Unsupported("Elasticsearch no ordena por «_id» en el servidor".into()));
+            return Err(Error::Unsupported(
+                "Elasticsearch no ordena por «_id» en el servidor".into(),
+            ));
         }
         if c.is_empty() {
-            return Err(Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()));
+            return Err(Error::Unsupported(
+                "no se pudo agregar el orden a la consulta de este objeto".into(),
+            ));
         }
         if seen.insert(c) {
             keys.push(json!({ c: { "order": if k.descending { "desc" } else { "asc" } } }));
         }
     }
     body.insert("sort".into(), Value::Array(keys));
-    let body = serde_json::to_string_pretty(&Value::Object(body)).map_err(|e| Error::Query(e.to_string()))?;
+    let body = serde_json::to_string_pretty(&Value::Object(body))
+        .map_err(|e| Error::Query(e.to_string()))?;
     Ok(format!("{head}\n{body}"))
 }
 
@@ -961,7 +1165,12 @@ mod tests {
     #[test]
     fn filtered_browse_builds_a_bool_query() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let got = filtered_browse(
             "GET /logs/_search\n{\n  \"size\": 200,\n  \"query\": { \"match_all\": {} }\n}",
             &[
@@ -987,7 +1196,15 @@ mod tests {
         );
         assert!(!console::parse(&got).unwrap().is_empty());
         assert!(matches!(
-            filtered_browse("GET /x/_search\n{}", &[ColumnFilter { column: "a".into(), op: FilterOp::Sql, values: vec![], sql: Some("1".into()) }]),
+            filtered_browse(
+                "GET /x/_search\n{}",
+                &[ColumnFilter {
+                    column: "a".into(),
+                    op: FilterOp::Sql,
+                    values: vec![],
+                    sql: Some("1".into())
+                }]
+            ),
             Err(Error::Unsupported(_))
         ));
     }
@@ -995,22 +1212,50 @@ mod tests {
     #[test]
     fn sorted_browse_adds_a_sort_array() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
-        let browse = "GET /logs/_search\n{\n  \"size\": 200,\n  \"query\": { \"match_all\": {} }\n}";
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
+        let browse =
+            "GET /logs/_search\n{\n  \"size\": 200,\n  \"query\": { \"match_all\": {} }\n}";
         let body = |q: &str| serde_json::from_str::<Value>(q.split_once('\n').unwrap().1).unwrap();
         let got = sorted_browse(browse, &[k("bytes", true)], false).unwrap();
         assert!(got.starts_with("GET /logs/_search\n"));
-        assert_eq!(body(&got), json!({ "size": 200, "query": { "match_all": {} }, "sort": [{ "bytes": { "order": "desc" } }] }));
+        assert_eq!(
+            body(&got),
+            json!({ "size": 200, "query": { "match_all": {} }, "sort": [{ "bytes": { "order": "desc" } }] })
+        );
         // Several keys, over a filter, and a name that needs escaping.
-        let f = filtered_browse(browse, &[ColumnFilter { column: "status".into(), op: FilterOp::Eq, values: vec![json!(200)], sql: None }]).unwrap();
-        let got = sorted_browse(&f, &[k("user.name", false), k("we\"ird\\", true), k("user.name", true)], false).unwrap();
+        let f = filtered_browse(
+            browse,
+            &[ColumnFilter {
+                column: "status".into(),
+                op: FilterOp::Eq,
+                values: vec![json!(200)],
+                sql: None,
+            }],
+        )
+        .unwrap();
+        let got = sorted_browse(
+            &f,
+            &[
+                k("user.name", false),
+                k("we\"ird\\", true),
+                k("user.name", true),
+            ],
+            false,
+        )
+        .unwrap();
         assert_eq!(
             body(&got),
             json!({ "size": 200, "query": { "bool": { "filter": [{ "term": { "status": 200 } }] } },
                     "sort": [{ "user.name": { "order": "asc" } }, { "we\"ird\\": { "order": "desc" } }] })
         );
         assert!(!console::parse(&got).unwrap().is_empty());
-        assert!(matches!(sorted_browse(browse, &[k("_id", false)], false), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            sorted_browse(browse, &[k("_id", false)], false),
+            Err(Error::Unsupported(_))
+        ));
         assert!(sorted_browse(browse, &[k("_id", false)], true).is_ok());
         assert_eq!(sorted_browse(browse, &[], false).unwrap(), browse);
     }
@@ -1019,7 +1264,10 @@ mod tests {
         ColumnDef {
             name: name.into(),
             data_type: ty.into(),
-            options: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            options: opts
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             ..Default::default()
         }
     }
@@ -1030,7 +1278,14 @@ mod tests {
             name: "books".into(),
             comment: Some("Catálogo".into()),
             columns: vec![
-                col("title", "text", &[("analyzer", "english"), ("extra", r#"{"fields":{"raw":{"type":"keyword"}}}"#)]),
+                col(
+                    "title",
+                    "text",
+                    &[
+                        ("analyzer", "english"),
+                        ("extra", r#"{"fields":{"raw":{"type":"keyword"}}}"#),
+                    ],
+                ),
                 col("author.name", "keyword", &[("doc_values", "false")]),
                 col("author", "object", &[]),
                 col("year", "integer", &[("index", "")]),
@@ -1068,28 +1323,60 @@ mod tests {
 
     #[test]
     fn index_ddl_parses_and_nests() {
-        let parts = DdlParts { drop: true, if_exists: true, create: true, ..Default::default() };
+        let parts = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            ..Default::default()
+        };
         let text = index_ddl(&books(), parts, false).unwrap();
         let reqs = one_request(&text);
         assert_eq!(reqs.len(), 2);
-        assert_eq!((reqs[0].method.as_str(), reqs[0].path.as_str()), ("DELETE", "/books?ignore_unavailable=true"));
-        assert_eq!((reqs[1].method.as_str(), reqs[1].path.as_str()), ("PUT", "/books"));
-        let body: serde_json::Value = serde_json::from_str(reqs[1].body.as_deref().unwrap()).unwrap();
-        assert_eq!(body["settings"], json!({"number_of_shards": 1, "number_of_replicas": 0}));
+        assert_eq!(
+            (reqs[0].method.as_str(), reqs[0].path.as_str()),
+            ("DELETE", "/books?ignore_unavailable=true")
+        );
+        assert_eq!(
+            (reqs[1].method.as_str(), reqs[1].path.as_str()),
+            ("PUT", "/books")
+        );
+        let body: serde_json::Value =
+            serde_json::from_str(reqs[1].body.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            body["settings"],
+            json!({"number_of_shards": 1, "number_of_replicas": 0})
+        );
         assert_eq!(body["aliases"], json!({"b1": {}, "b2": {}}));
         let m = &body["mappings"];
         assert_eq!(m["dynamic"], "strict");
         assert_eq!(m["_meta"]["description"], "Catálogo");
         let p = &m["properties"];
-        assert_eq!(p["title"], json!({"type": "text", "analyzer": "english", "fields": {"raw": {"type": "keyword"}}}));
-        assert_eq!(p["author"], json!({"type": "object", "properties": {"name": {"type": "keyword", "doc_values": false}}}));
+        assert_eq!(
+            p["title"],
+            json!({"type": "text", "analyzer": "english", "fields": {"raw": {"type": "keyword"}}})
+        );
+        assert_eq!(
+            p["author"],
+            json!({"type": "object", "properties": {"name": {"type": "keyword", "doc_values": false}}})
+        );
         assert_eq!(p["year"], json!({"type": "integer"}));
         assert_eq!(p["price"]["scaling_factor"], 100);
-        assert_eq!(p["tags"], json!({"type": "nested", "properties": {"label": {"type": "keyword"}}}));
+        assert_eq!(
+            p["tags"],
+            json!({"type": "nested", "properties": {"label": {"type": "keyword"}}})
+        );
         assert_eq!(p["vec"], json!({"type": "dense_vector", "dims": 3}));
         assert!(p.get("_id").is_none());
 
-        let os = index_ddl(&books(), DdlParts { create: true, ..Default::default() }, true).unwrap();
+        let os = index_ddl(
+            &books(),
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            true,
+        )
+        .unwrap();
         assert!(os.contains("\"dimension\": 3") && !os.contains("DELETE"));
     }
 
@@ -1097,19 +1384,65 @@ mod tests {
     fn index_ddl_errors() {
         let mut t = books();
         t.name = "Books".into();
-        assert!(index_ddl(&t, DdlParts { create: true, ..Default::default() }, false).is_err());
+        assert!(index_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            false
+        )
+        .is_err());
         let mut t = books();
         t.columns.push(col("year.x", "keyword", &[]));
-        let e = index_ddl(&t, DdlParts { create: true, ..Default::default() }, false).unwrap_err();
+        let e = index_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap_err();
         assert!(e.to_string().contains("year"), "{e}");
         let mut t = books();
         t.columns.push(col("title", "keyword", &[]));
-        assert!(index_ddl(&t, DdlParts { create: true, ..Default::default() }, false).is_err());
+        assert!(index_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            false
+        )
+        .is_err());
         let mut t = books();
         t.columns[0].options.insert("extra".into(), "[1]".into());
-        assert!(index_ddl(&t, DdlParts { create: true, ..Default::default() }, false).is_err());
-        let empty = TableSchema { name: "e".into(), ..Default::default() };
-        assert_eq!(index_ddl(&empty, DdlParts { create: true, ..Default::default() }, false).unwrap(), "PUT /e");
+        assert!(index_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            false
+        )
+        .is_err());
+        let empty = TableSchema {
+            name: "e".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            index_ddl(
+                &empty,
+                DdlParts {
+                    create: true,
+                    ..Default::default()
+                },
+                false
+            )
+            .unwrap(),
+            "PUT /e"
+        );
     }
 
     #[test]
@@ -1119,11 +1452,25 @@ mod tests {
         let back = index_schema("books", &body, false);
         let again = J::Obj(index_body(&back, false).unwrap());
         assert_eq!(body.get("mappings"), again.get("mappings"));
-        assert_eq!(back.options.get("aliases").map(String::as_str), Some("b1,b2"));
-        assert_eq!(back.options.get("number_of_shards").map(String::as_str), Some("1"));
+        assert_eq!(
+            back.options.get("aliases").map(String::as_str),
+            Some("b1,b2")
+        );
+        assert_eq!(
+            back.options.get("number_of_shards").map(String::as_str),
+            Some("1")
+        );
         assert_eq!(back.comment.as_deref(), Some("Catálogo"));
-        let names: Vec<_> = back.columns.iter().map(|c| format!("{}:{}", c.name, c.data_type)).collect();
-        assert!(names.contains(&"author:object".to_string()) && names.contains(&"author.name:keyword".to_string()), "{names:?}");
+        let names: Vec<_> = back
+            .columns
+            .iter()
+            .map(|c| format!("{}:{}", c.name, c.data_type))
+            .collect();
+        assert!(
+            names.contains(&"author:object".to_string())
+                && names.contains(&"author.name:keyword".to_string()),
+            "{names:?}"
+        );
 
         // What a server returns: flat settings, objects without "type".
         let got = J::parse(
@@ -1132,7 +1479,10 @@ mod tests {
         )
         .unwrap();
         let s = index_schema("i", &got, true);
-        assert_eq!(s.options.get("number_of_shards").map(String::as_str), Some("2"));
+        assert_eq!(
+            s.options.get("number_of_shards").map(String::as_str),
+            Some("2")
+        );
         assert_eq!(s.options.get("knn").map(String::as_str), Some("true"));
         assert_eq!(s.options.get("dynamic").map(String::as_str), Some("false"));
         assert_eq!(s.columns[0].data_type, "object");
@@ -1147,12 +1497,24 @@ mod tests {
         .unwrap();
         let s = index_schema("i", &got, false);
         let a = s.options.get("analysis").unwrap();
-        assert_eq!(a, r#"{"analyzer":{"es":{"filter":["lowercase","asciifolding"],"tokenizer":"standard","type":"custom"}},"normalizer":{"n":{"type":"custom"}}}"#);
+        assert_eq!(
+            a,
+            r#"{"analyzer":{"es":{"filter":["lowercase","asciifolding"],"tokenizer":"standard","type":"custom"}},"normalizer":{"n":{"type":"custom"}}}"#
+        );
         let body = J::Obj(index_body(&s, false).unwrap());
-        assert_eq!(body.at(&["settings", "analysis"]).map(J::compact).as_deref(), Some(a.as_str()));
+        assert_eq!(
+            body.at(&["settings", "analysis"])
+                .map(J::compact)
+                .as_deref(),
+            Some(a.as_str())
+        );
         // The nested form reads the same.
-        let nested = J::parse(&format!(r#"{{"settings":{{"index":{{"analysis":{a}}}}}}}"#)).unwrap();
-        assert_eq!(index_schema("i", &nested, false).options.get("analysis"), Some(a));
+        let nested =
+            J::parse(&format!(r#"{{"settings":{{"index":{{"analysis":{a}}}}}}}"#)).unwrap();
+        assert_eq!(
+            index_schema("i", &nested, false).options.get("analysis"),
+            Some(a)
+        );
     }
 
     /// "Clonar tabla": settings and mapping parameters without a designer
@@ -1174,31 +1536,78 @@ mod tests {
             extra,
             r#"{"index.blocks.write":"true","index.default_pipeline":"p","index.mapping.total_fields.limit":"2000","index.max_result_window":"50000","index.sort.field":["k"]}"#
         );
-        assert_eq!(s.options.get(LIFECYCLE).map(String::as_str), Some(r#"{"index.lifecycle.name":"pol"}"#));
+        assert_eq!(
+            s.options.get(LIFECYCLE).map(String::as_str),
+            Some(r#"{"index.lifecycle.name":"pol"}"#)
+        );
         assert_eq!(s.comment.as_deref(), Some("d"));
         // The description is the comment, not a mapping parameter too.
         let extra = s.options.get(MAPPINGS_EXTRA).unwrap();
         assert!(extra.contains(r#""_meta":{"owner":"x"}"#), "{extra}");
         let body = J::Obj(index_body(&s, true).unwrap());
-        assert_eq!(body.at(&["settings", "index.max_result_window"]).map(J::text).as_deref(), Some("50000"));
-        assert_eq!(body.at(&["settings", "index.lifecycle.name"]).map(J::text).as_deref(), Some("pol"));
-        assert!(body.at(&["settings", "index.uuid"]).is_none() && body.at(&["settings", "index.provided_name"]).is_none());
-        assert_eq!(body.at(&["mappings", "_routing", "required"]).and_then(J::as_bool), Some(true));
-        assert!(body.at(&["mappings", "dynamic_templates"]).is_some() && body.at(&["mappings", "runtime", "r"]).is_some());
-        assert_eq!(body.at(&["mappings", "_meta"]).map(J::compact).as_deref(), Some(r#"{"description":"d","owner":"x"}"#));
+        assert_eq!(
+            body.at(&["settings", "index.max_result_window"])
+                .map(J::text)
+                .as_deref(),
+            Some("50000")
+        );
+        assert_eq!(
+            body.at(&["settings", "index.lifecycle.name"])
+                .map(J::text)
+                .as_deref(),
+            Some("pol")
+        );
+        assert!(
+            body.at(&["settings", "index.uuid"]).is_none()
+                && body.at(&["settings", "index.provided_name"]).is_none()
+        );
+        assert_eq!(
+            body.at(&["mappings", "_routing", "required"])
+                .and_then(J::as_bool),
+            Some(true)
+        );
+        assert!(
+            body.at(&["mappings", "dynamic_templates"]).is_some()
+                && body.at(&["mappings", "runtime", "r"]).is_some()
+        );
+        assert_eq!(
+            body.at(&["mappings", "_meta"]).map(J::compact).as_deref(),
+            Some(r#"{"description":"d","owner":"x"}"#)
+        );
         // Read back, the same model.
         let back = index_schema("src", &body, true);
-        for k in [SETTINGS_EXTRA, LIFECYCLE, MAPPINGS_EXTRA, "number_of_shards"] {
+        for k in [
+            SETTINGS_EXTRA,
+            LIFECYCLE,
+            MAPPINGS_EXTRA,
+            "number_of_shards",
+        ] {
             assert_eq!(back.options.get(k), s.options.get(k), "{k}");
         }
     }
 
     #[test]
     fn bulk_script_is_ndjson() {
-        let target = ObjectRef { kind: kinds::INDEX.into(), schema: None, name: "books".into() };
-        let cols: Vec<String> = ["_index", "_id", "_score", "title", "author", "year"].iter().map(|s| s.to_string()).collect();
+        let target = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "books".into(),
+        };
+        let cols: Vec<String> = ["_index", "_id", "_score", "title", "author", "year"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let rows: Vec<Vec<Value>> = (0..501)
-            .map(|i| vec![json!("x"), json!(i), json!(1.0), json!("T\n\"q\""), json!(r#"{"name":"A"}"#), Value::Null])
+            .map(|i| {
+                vec![
+                    json!("x"),
+                    json!(i),
+                    json!(1.0),
+                    json!("T\n\"q\""),
+                    json!(r#"{"name":"A"}"#),
+                    Value::Null,
+                ]
+            })
             .collect();
         let text = bulk_script(&target, &cols, &rows).unwrap();
         let reqs = one_request(&text);
@@ -1211,21 +1620,46 @@ mod tests {
         assert_eq!(lines[1], r#"{"title":"T\n\"q\"","author":{"name":"A"}}"#);
         assert_eq!(reqs[1].body.as_deref().unwrap().lines().count(), 2);
 
-        let ds = ObjectRef { kind: kinds::STREAM.into(), schema: None, name: "logs".into() };
-        let text = bulk_script(&ds, &["@timestamp".to_string()], &[vec![json!("2024-01-01")]]).unwrap();
+        let ds = ObjectRef {
+            kind: kinds::STREAM.into(),
+            schema: None,
+            name: "logs".into(),
+        };
+        let text = bulk_script(
+            &ds,
+            &["@timestamp".to_string()],
+            &[vec![json!("2024-01-01")]],
+        )
+        .unwrap();
         assert!(text.contains(r#"{"create":{"_index":"logs"}}"#));
         assert_eq!(bulk_script(&target, &cols, &[]).unwrap(), "");
     }
 
     #[test]
     fn update_script_is_partial_doc() {
-        let target = ObjectRef { kind: kinds::INDEX.into(), schema: None, name: "books".into() };
+        let target = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "books".into(),
+        };
         let changes = vec![
             RowChange {
-                key: vec![("_id".into(), json!("a/b 1")), ("_routing".into(), json!("r"))],
-                set: vec![("title".into(), json!("O'Brien \"Bob\"")), ("year".into(), Value::Null), ("author".into(), json!(r#"{"name":"A"}"#))], ..Default::default()
+                key: vec![
+                    ("_id".into(), json!("a/b 1")),
+                    ("_routing".into(), json!("r")),
+                ],
+                set: vec![
+                    ("title".into(), json!("O'Brien \"Bob\"")),
+                    ("year".into(), Value::Null),
+                    ("author".into(), json!(r#"{"name":"A"}"#)),
+                ],
+                ..Default::default()
             },
-            RowChange { key: vec![("_id".into(), json!(2))], set: vec![], ..Default::default() },
+            RowChange {
+                key: vec![("_id".into(), json!(2))],
+                set: vec![],
+                ..Default::default()
+            },
         ];
         let text = update_script(&target, &changes).unwrap();
         assert_eq!(
@@ -1235,21 +1669,40 @@ mod tests {
         let reqs = one_request(&text);
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].method, "POST");
-        let ds = ObjectRef { kind: kinds::STREAM.into(), schema: None, name: "logs".into() };
-        let one = vec![RowChange { key: vec![("_id".into(), json!("x"))], set: vec![("msg".into(), json!("hi"))], ..Default::default() }];
+        let ds = ObjectRef {
+            kind: kinds::STREAM.into(),
+            schema: None,
+            name: "logs".into(),
+        };
+        let one = vec![RowChange {
+            key: vec![("_id".into(), json!("x"))],
+            set: vec![("msg".into(), json!("hi"))],
+            ..Default::default()
+        }];
         assert_eq!(
             update_script(&ds, &one).unwrap(),
             format!("POST /logs/_update_by_query?refresh=true\n{{\"query\":{{\"ids\":{{\"values\":[\"x\"]}}}},\"script\":{{\"source\":\"{STREAM_UPDATE}\",\"params\":{{\"doc\":{{\"msg\":\"hi\"}}}}}}}}")
         );
-        let no_id = vec![RowChange { key: vec![("title".into(), json!("x"))], set: vec![("year".into(), json!(1))], ..Default::default() }];
+        let no_id = vec![RowChange {
+            key: vec![("title".into(), json!("x"))],
+            set: vec![("year".into(), json!(1))],
+            ..Default::default()
+        }];
         assert!(update_script(&target, &no_id).is_err());
     }
 
     #[test]
     fn delete_script_by_id() {
-        let target = ObjectRef { kind: kinds::INDEX.into(), schema: None, name: "books".into() };
+        let target = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "books".into(),
+        };
         let keys = vec![
-            vec![("_id".into(), json!("O'Brien \"Bob\" a/b")), ("_routing".into(), json!("r"))],
+            vec![
+                ("_id".into(), json!("O'Brien \"Bob\" a/b")),
+                ("_routing".into(), json!("r")),
+            ],
             vec![("_id".into(), json!(2))],
         ];
         let text = delete_script(&target, &keys).unwrap();
@@ -1261,9 +1714,16 @@ mod tests {
         assert_eq!(reqs.len(), 2);
         assert_eq!(reqs[0].method, "DELETE");
         assert_eq!(reqs[1].path, "/books/_doc/2?refresh=true");
-        let ds = ObjectRef { kind: kinds::STREAM.into(), schema: None, name: "logs".into() };
+        let ds = ObjectRef {
+            kind: kinds::STREAM.into(),
+            schema: None,
+            name: "logs".into(),
+        };
         let text = delete_script(&ds, &[vec![("_id".into(), json!("x"))]]).unwrap();
-        assert_eq!(text, "POST /logs/_delete_by_query?refresh=true\n{\"query\":{\"ids\":{\"values\":[\"x\"]}}}");
+        assert_eq!(
+            text,
+            "POST /logs/_delete_by_query?refresh=true\n{\"query\":{\"ids\":{\"values\":[\"x\"]}}}"
+        );
         assert_eq!(one_request(&text).len(), 1);
         assert!(delete_script(&target, &[vec![("title".into(), json!("x"))]]).is_err());
         assert!(delete_script(&target, &[vec![]]).is_err());
@@ -1278,7 +1738,8 @@ mod tests {
                 assert!(!reqs.is_empty(), "{}", t.label);
                 for r in reqs {
                     if let Some(b) = &r.body {
-                        serde_json::from_str::<serde_json::Value>(b).unwrap_or_else(|e| panic!("{}: {e}", t.label));
+                        serde_json::from_str::<serde_json::Value>(b)
+                            .unwrap_or_else(|e| panic!("{}: {e}", t.label));
                     }
                 }
             }

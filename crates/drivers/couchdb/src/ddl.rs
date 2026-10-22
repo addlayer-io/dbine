@@ -22,12 +22,17 @@
 
 use crate::seg;
 use dbine_driver::{
-    kinds, CheckDef, CreateTemplate, DdlParts, Error, IndexDef, KeyDef, ObjectRef, Result, RowChange, TableSchema,
+    kinds, CheckDef, CreateTemplate, DdlParts, Error, IndexDef, KeyDef, ObjectRef, Result,
+    RowChange, TableSchema,
 };
 use serde_json::{json, Map, Value};
 
 pub fn templates() -> Vec<CreateTemplate> {
-    let t = |kind, label, template: &str| CreateTemplate { kind, label, template: template.to_string() };
+    let t = |kind, label, template: &str| CreateTemplate {
+        kind,
+        label,
+        template: template.to_string(),
+    };
     vec![
         t(
             kinds::VIEW,
@@ -74,25 +79,46 @@ pub(crate) fn index_body(ix: &IndexDef) -> Result<Value> {
         .map(|c| c.trim())
         .filter(|c| !c.is_empty())
         .map(|c| match c.rsplit_once(':') {
-            Some((f, d)) if d.eq_ignore_ascii_case("desc") || d == "-1" => json!({ f.trim(): "desc" }),
-            Some((f, d)) if d.eq_ignore_ascii_case("asc") || d == "1" => Value::String(f.trim().into()),
+            Some((f, d)) if d.eq_ignore_ascii_case("desc") || d == "-1" => {
+                json!({ f.trim(): "desc" })
+            }
+            Some((f, d)) if d.eq_ignore_ascii_case("asc") || d == "1" => {
+                Value::String(f.trim().into())
+            }
             _ => Value::String(c.into()),
         })
         .collect();
     if fields.is_empty() {
-        return Err(Error::Query(format!("el índice {} no tiene campos", ix.name)));
+        return Err(Error::Query(format!(
+            "el índice {} no tiene campos",
+            ix.name
+        )));
     }
     let mut index = Map::new();
     index.insert("fields".into(), Value::Array(fields));
-    if let Some(f) = ix.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
-        let sel: Value = serde_json::from_str(f)
-            .map_err(|e| Error::Query(format!("filtro del índice {}: JSON inválido ({e})", ix.name)))?;
+    if let Some(f) = ix
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+    {
+        let sel: Value = serde_json::from_str(f).map_err(|e| {
+            Error::Query(format!(
+                "filtro del índice {}: JSON inválido ({e})",
+                ix.name
+            ))
+        })?;
         index.insert("partial_filter_selector".into(), sel);
     }
     let kind = match ix.kind.as_deref().map(str::trim).unwrap_or("") {
         "" | "json" => "json",
         "text" => "text",
-        other => return Err(Error::Query(format!("índice {}: tipo «{other}» desconocido (json o text)", ix.name))),
+        other => {
+            return Err(Error::Query(format!(
+                "índice {}: tipo «{other}» desconocido (json o text)",
+                ix.name
+            )))
+        }
     };
     let mut body = Map::new();
     body.insert("index".into(), Value::Object(index));
@@ -109,13 +135,20 @@ pub(crate) const VALIDATE: &str = "validate_doc_update";
 /// The CHECKs that are validation functions (JavaScript); a SQL condition
 /// carried from another engine isn't one and is left out.
 pub(crate) fn validators(t: &TableSchema) -> impl Iterator<Item = &CheckDef> {
-    t.checks.iter().filter(|c| c.expression.trim_start().starts_with("function"))
+    t.checks
+        .iter()
+        .filter(|c| c.expression.trim_start().starts_with("function"))
 }
 
 /// The design document a validation CHECK belongs to (its name,
 /// `_design/…`).
 pub(crate) fn validator_id(c: &CheckDef) -> String {
-    let n = c.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or("validacion");
+    let n = c
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .unwrap_or("validacion");
     if n.starts_with("_design/") {
         n.to_string()
     } else {
@@ -127,11 +160,17 @@ pub(crate) fn validator_id(c: &CheckDef) -> String {
 /// function.
 pub(crate) fn validator_doc(c: &CheckDef) -> Result<String> {
     if c.expression.trim().is_empty() {
-        return Err(Error::Query(format!("la validación {} no tiene función", validator_id(c))));
+        return Err(Error::Query(format!(
+            "la validación {} no tiene función",
+            validator_id(c)
+        )));
     }
     let id = validator_id(c);
     let doc = json!({ "_id": id, VALIDATE: c.expression });
-    Ok(format!("PUT _design/{}\n{doc}", seg(id.trim_start_matches("_design/"))))
+    Ok(format!(
+        "PUT _design/{}\n{doc}",
+        seg(id.trim_start_matches("_design/"))
+    ))
 }
 
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
@@ -143,13 +182,23 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     let mut lines = Vec::new();
     if parts.create {
         let mut ids = Vec::new();
-        if let Some(text) = t.options.get("design_docs").filter(|s| !s.trim().is_empty()) {
-            let docs: Vec<Value> =
-                serde_json::from_str(text).map_err(|e| Error::Query(format!("design_docs: JSON inválido ({e})")))?;
+        if let Some(text) = t
+            .options
+            .get("design_docs")
+            .filter(|s| !s.trim().is_empty())
+        {
+            let docs: Vec<Value> = serde_json::from_str(text)
+                .map_err(|e| Error::Query(format!("design_docs: JSON inválido ({e})")))?;
             for mut d in docs {
-                let id = d.get("_id").and_then(Value::as_str).unwrap_or_default().to_string();
+                let id = d
+                    .get("_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
                 let Some(name) = id.strip_prefix("_design/").filter(|n| !n.is_empty()) else {
-                    return Err(Error::Query(format!("documento de diseño sin _id «_design/…»: {d}")));
+                    return Err(Error::Query(format!(
+                        "documento de diseño sin _id «_design/…»: {d}"
+                    )));
                 };
                 if let Some(m) = d.as_object_mut() {
                     m.remove("_rev");
@@ -179,9 +228,15 @@ const BATCH: usize = 500;
 
 /// `POST _bulk_docs` batches into the session's database. Null cells are
 /// left out and `_rev` is dropped (the revision belongs to the source).
-pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+pub fn insert_script(
+    target: &ObjectRef,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> Result<String> {
     if target.kind == kinds::VIEW {
-        return Err(Error::Unsupported("no se insertan documentos en una vista de CouchDB".into()));
+        return Err(Error::Unsupported(
+            "no se insertan documentos en una vista de CouchDB".into(),
+        ));
     }
     let mut out = Vec::new();
     for chunk in rows.chunks(BATCH) {
@@ -197,7 +252,10 @@ pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]
                 format!("  {}", Value::Object(m))
             })
             .collect();
-        out.push(format!("POST _bulk_docs\n{{\"docs\": [\n{}\n]}}", docs.join(",\n")));
+        out.push(format!(
+            "POST _bulk_docs\n{{\"docs\": [\n{}\n]}}",
+            docs.join(",\n")
+        ));
     }
     Ok(out.join("\n"))
 }
@@ -216,24 +274,39 @@ const UPDATE_FN: &str =
 /// edited fields into the stored revision. Null values are set to null.
 pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
     if target.kind == kinds::VIEW {
-        return Err(Error::Unsupported("no se editan documentos en una vista de CouchDB".into()));
+        return Err(Error::Unsupported(
+            "no se editan documentos en una vista de CouchDB".into(),
+        ));
     }
     let mut lines = Vec::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
         let id = match ch.key.iter().find(|(k, _)| k == "_id").map(|(_, v)| v) {
             Some(Value::String(s)) => s.clone(),
             Some(v) if !v.is_null() => v.to_string(),
-            _ => return Err(Error::Unsupported("para editar un documento de CouchDB hace falta su _id".into())),
+            _ => {
+                return Err(Error::Unsupported(
+                    "para editar un documento de CouchDB hace falta su _id".into(),
+                ))
+            }
         };
         // Sorted: the same text whether or not serde_json keeps insertion
         // order (a workspace feature can turn it on).
-        let mut fields: Vec<(String, Value)> = ch.set.iter().filter(|(c, _)| c != "_id" && c != "_rev").cloned().collect();
+        let mut fields: Vec<(String, Value)> = ch
+            .set
+            .iter()
+            .filter(|(c, _)| c != "_id" && c != "_rev")
+            .cloned()
+            .collect();
         fields.sort_by(|a, b| a.0.cmp(&b.0));
         let m: Map<String, Value> = fields.into_iter().collect();
         if m.is_empty() {
             continue;
         }
-        lines.push(format!("PUT _design/{UPDATE_DDOC}/_update/set/{}\n{}", seg(&id), Value::Object(m)));
+        lines.push(format!(
+            "PUT _design/{UPDATE_DDOC}/_update/set/{}\n{}",
+            seg(&id),
+            Value::Object(m)
+        ));
     }
     if lines.is_empty() {
         return Ok(String::new());
@@ -242,7 +315,10 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
     let head = format!(
         "// Crea la función de actualización (si _design/{UPDATE_DDOC} ya existe, borrá estas líneas)\nPUT _design/{UPDATE_DDOC}\n{ddoc}"
     );
-    Ok(std::iter::once(head).chain(lines).collect::<Vec<_>>().join("\n"))
+    Ok(std::iter::once(head)
+        .chain(lines)
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 /// Design document holding the update handler [`delete_script`] calls
@@ -262,16 +338,25 @@ const DELETE_FN: &str =
 /// stored revision. Only the `_id` addresses the document.
 pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
     if target.kind == kinds::VIEW {
-        return Err(Error::Unsupported("no se borran documentos en una vista de CouchDB".into()));
+        return Err(Error::Unsupported(
+            "no se borran documentos en una vista de CouchDB".into(),
+        ));
     }
     let mut lines = Vec::new();
     for key in keys {
         let id = match key.iter().find(|(k, _)| k == "_id").map(|(_, v)| v) {
             Some(Value::String(s)) if !s.is_empty() => s.clone(),
             Some(v) if !v.is_null() && !v.is_string() => v.to_string(),
-            _ => return Err(Error::Unsupported("para borrar un documento de CouchDB hace falta su _id".into())),
+            _ => {
+                return Err(Error::Unsupported(
+                    "para borrar un documento de CouchDB hace falta su _id".into(),
+                ))
+            }
         };
-        lines.push(format!("PUT _design/{DELETE_DDOC}/_update/delete/{}\n{{}}", seg(&id)));
+        lines.push(format!(
+            "PUT _design/{DELETE_DDOC}/_update/delete/{}\n{{}}",
+            seg(&id)
+        ));
     }
     if lines.is_empty() {
         return Ok(String::new());
@@ -280,7 +365,10 @@ pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Resul
     let head = format!(
         "// Crea la función de borrado (si _design/{DELETE_DDOC} ya existe, borrá estas líneas)\nPUT _design/{DELETE_DDOC}\n{ddoc}"
     );
-    Ok(std::iter::once(head).chain(lines).collect::<Vec<_>>().join("\n"))
+    Ok(std::iter::once(head)
+        .chain(lines)
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 /// A `GET /db/_index` entry as an [`IndexDef`] (`None` for `_all_docs`).
@@ -296,13 +384,26 @@ pub fn index_def(ix: &Value) -> Option<IndexDef> {
         .iter()
         .filter_map(|f| match f {
             Value::String(s) => Some(s.clone()),
-            Value::Object(m) => m.iter().next().map(|(k, d)| if d == "desc" { format!("{k}:desc") } else { k.clone() }),
+            Value::Object(m) => m.iter().next().map(|(k, d)| {
+                if d == "desc" {
+                    format!("{k}:desc")
+                } else {
+                    k.clone()
+                }
+            }),
             _ => None,
         })
         .collect();
-    let filter = def.get("partial_filter_selector").filter(|f| f.as_object().is_some_and(|m| !m.is_empty())).map(Value::to_string);
+    let filter = def
+        .get("partial_filter_selector")
+        .filter(|f| f.as_object().is_some_and(|m| !m.is_empty()))
+        .map(Value::to_string);
     Some(IndexDef {
-        name: ix.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
+        name: ix
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         columns,
         unique: false,
         kind: (kind != "json").then(|| kind.to_string()),
@@ -313,7 +414,11 @@ pub fn index_def(ix: &Value) -> Option<IndexDef> {
 
 /// The `_all_docs` pseudo-table: sampled fields, `_id` key, Mango indexes
 /// and the design documents to recreate.
-pub fn all_docs_schema(columns: Vec<dbine_driver::ColumnDef>, indexes: &Value, design_docs: &Value) -> TableSchema {
+pub fn all_docs_schema(
+    columns: Vec<dbine_driver::ColumnDef>,
+    indexes: &Value,
+    design_docs: &Value,
+) -> TableSchema {
     let ddocs: Vec<Value> = design_docs
         .get("rows")
         .and_then(Value::as_array)
@@ -334,21 +439,38 @@ pub fn all_docs_schema(columns: Vec<dbine_driver::ColumnDef>, indexes: &Value, d
     let checks = ddocs
         .iter()
         .filter_map(|d| {
-            let f = d.get(VALIDATE).and_then(Value::as_str).filter(|f| !f.trim().is_empty())?;
-            Some(CheckDef { name: d.get("_id").and_then(Value::as_str).map(str::to_string), expression: f.to_string() })
+            let f = d
+                .get(VALIDATE)
+                .and_then(Value::as_str)
+                .filter(|f| !f.trim().is_empty())?;
+            Some(CheckDef {
+                name: d.get("_id").and_then(Value::as_str).map(str::to_string),
+                expression: f.to_string(),
+            })
         })
         .collect();
     let mut t = TableSchema {
         kind: kinds::COLLECTION.into(),
         name: crate::ALL_DOCS.into(),
-        primary_key: Some(KeyDef { name: None, columns: vec!["_id".into()] }),
-        indexes: indexes.get("indexes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]).iter().filter_map(index_def).collect(),
+        primary_key: Some(KeyDef {
+            name: None,
+            columns: vec!["_id".into()],
+        }),
+        indexes: indexes
+            .get("indexes")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(index_def)
+            .collect(),
         checks,
         columns,
         ..Default::default()
     };
     if !ddocs.is_empty() {
-        t.options.insert("design_docs".into(), Value::Array(ddocs).to_string());
+        t.options
+            .insert("design_docs".into(), Value::Array(ddocs).to_string());
     }
     t
 }
@@ -358,7 +480,9 @@ pub fn all_docs_schema(columns: Vec<dbine_driver::ColumnDef>, indexes: &Value, d
 pub fn check_database_name(name: &str) -> Result<()> {
     let ok = name.len() <= 238
         && name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
-        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_$()+/-".contains(c));
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_$()+/-".contains(c));
     if ok {
         Ok(())
     } else {
@@ -379,7 +503,9 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
         return Ok(browse.to_string());
     }
     let Ok(Value::Object(mut body)) = serde_json::from_str::<Value>(browse) else {
-        return Err(Error::Unsupported("las vistas de CouchDB no filtran por campo: se filtra en la grilla".into()));
+        return Err(Error::Unsupported(
+            "las vistas de CouchDB no filtran por campo: se filtra en la grilla".into(),
+        ));
     };
     let escape = |s: &str| {
         let mut out = String::with_capacity(s.len());
@@ -394,11 +520,29 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     let mut conds = Vec::new();
     for f in filters {
         let c = f.column.as_str();
-        let first = || f.values.first().cloned().ok_or_else(|| Error::Query(format!("el filtro de «{c}» necesita un valor")));
-        let re = || first().map(|v| format!("(?i){}", escape(&v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))));
+        let first = || {
+            f.values
+                .first()
+                .cloned()
+                .ok_or_else(|| Error::Query(format!("el filtro de «{c}» necesita un valor")))
+        };
+        let re = || {
+            first().map(|v| {
+                format!(
+                    "(?i){}",
+                    escape(
+                        &v.as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| v.to_string())
+                    )
+                )
+            })
+        };
         let list = || {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{c}» necesita al menos un valor")));
+                return Err(Error::Query(format!(
+                    "el filtro de «{c}» necesita al menos un valor"
+                )));
             }
             Ok(Value::Array(f.values.clone()))
         };
@@ -426,11 +570,17 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
             FilterOp::TrueOrNull => json!({ "$or": [on(json!({ "$eq": true })), null] }),
             FilterOp::FalseOrNull => json!({ "$or": [on(json!({ "$eq": false })), null] }),
             FilterOp::Sql | FilterOp::SqlRight => {
-                return Err(Error::Unsupported("CouchDB no toma condiciones SQL: se filtran en la grilla".into()))
+                return Err(Error::Unsupported(
+                    "CouchDB no toma condiciones SQL: se filtran en la grilla".into(),
+                ))
             }
         });
     }
-    let selector = if conds.len() == 1 { conds.remove(0) } else { json!({ "$and": conds }) };
+    let selector = if conds.len() == 1 {
+        conds.remove(0)
+    } else {
+        json!({ "$and": conds })
+    };
     body.insert("selector".into(), selector);
     serde_json::to_string_pretty(&Value::Object(body)).map_err(|e| Error::Query(e.to_string()))
 }
@@ -446,7 +596,9 @@ pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<Str
         return Ok(browse.to_string());
     }
     let Ok(Value::Object(mut body)) = serde_json::from_str::<Value>(browse) else {
-        return Err(Error::Unsupported("las vistas de CouchDB vienen ordenadas por su clave: se ordena en la grilla".into()));
+        return Err(Error::Unsupported(
+            "las vistas de CouchDB vienen ordenadas por su clave: se ordena en la grilla".into(),
+        ));
     };
     let first = &sort[0];
     if first.column != "_id" || sort.iter().any(|k| k.column != "_id") {
@@ -461,7 +613,10 @@ pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<Str
         Some(other) => json!({ "$and": [all, other] }),
     };
     body.insert("selector".into(), selector);
-    body.insert("sort".into(), json!([{ "_id": if first.descending { "desc" } else { "asc" } }]));
+    body.insert(
+        "sort".into(),
+        json!([{ "_id": if first.descending { "desc" } else { "asc" } }]),
+    );
     serde_json::to_string_pretty(&Value::Object(body)).map_err(|e| Error::Query(e.to_string()))
 }
 
@@ -473,7 +628,12 @@ mod tests {
     #[test]
     fn filtered_browse_builds_a_selector() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         let got = filtered_browse(
             "{\n  \"selector\": {},\n  \"limit\": 200\n}",
             &[
@@ -497,20 +657,35 @@ mod tests {
         );
         assert!(parse_script(&got).is_ok());
         let view = "GET /db/_design/d/_view/v?limit=5";
-        assert!(matches!(filtered_browse(view, &[f("a", FilterOp::IsNull, vec![])]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            filtered_browse(view, &[f("a", FilterOp::IsNull, vec![])]),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn sorted_browse_only_by_id() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let b = "{\n  \"selector\": {},\n  \"limit\": 200\n}";
         let v = |q: &str| serde_json::from_str::<Value>(q).unwrap();
         assert_eq!(
             v(&sorted_browse(b, &[k("_id", true)]).unwrap()),
             json!({ "limit": 200, "selector": { "_id": { "$gt": null } }, "sort": [{ "_id": "desc" }] })
         );
-        let f = filtered_browse(b, &[ColumnFilter { column: "g".into(), op: FilterOp::Eq, values: vec![json!(1)], sql: None }]).unwrap();
+        let f = filtered_browse(
+            b,
+            &[ColumnFilter {
+                column: "g".into(),
+                op: FilterOp::Eq,
+                values: vec![json!(1)],
+                sql: None,
+            }],
+        )
+        .unwrap();
         let got = sorted_browse(&f, &[k("_id", false), k("_id", true)]).unwrap();
         assert_eq!(
             v(&got),
@@ -518,10 +693,20 @@ mod tests {
         );
         assert!(parse_script(&got).is_ok());
         // Any other field needs an index; views come sorted by key.
-        for keys in [vec![k("n", false)], vec![k("_id", false), k("n", true)], vec![k("we\"ird", false)]] {
-            assert!(matches!(sorted_browse(b, &keys), Err(Error::Unsupported(_))));
+        for keys in [
+            vec![k("n", false)],
+            vec![k("_id", false), k("n", true)],
+            vec![k("we\"ird", false)],
+        ] {
+            assert!(matches!(
+                sorted_browse(b, &keys),
+                Err(Error::Unsupported(_))
+            ));
         }
-        assert!(matches!(sorted_browse("GET /db/_design/d/_view/v?limit=5", &[k("_id", false)]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            sorted_browse("GET /db/_design/d/_view/v?limit=5", &[k("_id", false)]),
+            Err(Error::Unsupported(_))
+        ));
         assert_eq!(sorted_browse(b, &[]).unwrap(), b);
     }
 
@@ -542,17 +727,45 @@ mod tests {
         assert_eq!(t.indexes[0].columns, vec!["tipo", "fecha"]);
         assert_eq!(t.indexes[0].filter.as_deref(), Some("{\"activo\":true}"));
         assert_eq!(t.indexes[1].columns, vec!["age:desc"]);
-        let text = table_ddl(&t, DdlParts { drop: true, create: true, indexes: true, ..Default::default() }).unwrap();
+        let text = table_ddl(
+            &t,
+            DdlParts {
+                drop: true,
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let st = parse_script(&text).unwrap();
         assert_eq!(st.len(), 3, "{text}");
-        let Stmt::Http { method, path, body: Some(b) } = &st[0] else { panic!("{:?}", st[0]) };
+        let Stmt::Http {
+            method,
+            path,
+            body: Some(b),
+        } = &st[0]
+        else {
+            panic!("{:?}", st[0])
+        };
         assert_eq!((method.as_str(), path.as_str()), ("PUT", "_design/app"));
         assert!(b.get("_rev").is_none() && b.get("views").is_some());
-        let Stmt::Http { path, body: Some(b), .. } = &st[1] else { panic!() };
+        let Stmt::Http {
+            path,
+            body: Some(b),
+            ..
+        } = &st[1]
+        else {
+            panic!()
+        };
         assert_eq!(path, "_index");
         assert_eq!(b["index"]["fields"], json!(["tipo", "fecha"]));
-        assert_eq!(b["index"]["partial_filter_selector"], json!({ "activo": true }));
-        let Stmt::Http { body: Some(b), .. } = &st[2] else { panic!() };
+        assert_eq!(
+            b["index"]["partial_filter_selector"],
+            json!({ "activo": true })
+        );
+        let Stmt::Http { body: Some(b), .. } = &st[2] else {
+            panic!()
+        };
         assert_eq!(b["index"]["fields"], json!([{ "age": "desc" }]));
         assert!(st.iter().all(|s| write_reason(s).is_some()));
 
@@ -561,23 +774,69 @@ mod tests {
             { "doc": { "_id": "_design/app", "_rev": "1-a", "views": {}, "validate_doc_update": "function(){}" } },
         ] });
         let mut t = all_docs_schema(Vec::new(), &json!({}), &ddocs);
-        assert_eq!(t.checks, vec![CheckDef { name: Some("_design/app".into()), expression: "function(){}".into() }]);
+        assert_eq!(
+            t.checks,
+            vec![CheckDef {
+                name: Some("_design/app".into()),
+                expression: "function(){}".into()
+            }]
+        );
         t.checks[0].expression = "function(){ x }".into();
-        t.checks.push(CheckDef { name: Some("otra".into()), expression: "function(){ y }".into() });
-        let st = parse_script(&table_ddl(&t, DdlParts { create: true, ..Default::default() }).unwrap()).unwrap();
+        t.checks.push(CheckDef {
+            name: Some("otra".into()),
+            expression: "function(){ y }".into(),
+        });
+        let st = parse_script(
+            &table_ddl(
+                &t,
+                DdlParts {
+                    create: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(st.len(), 2);
-        let Stmt::Http { body: Some(b), .. } = &st[0] else { panic!() };
+        let Stmt::Http { body: Some(b), .. } = &st[0] else {
+            panic!()
+        };
         assert_eq!(b["validate_doc_update"], "function(){ x }");
-        let Stmt::Http { path, body: Some(b), .. } = &st[1] else { panic!() };
-        assert_eq!((path.as_str(), b["validate_doc_update"].as_str()), ("_design/otra", Some("function(){ y }")));
+        let Stmt::Http {
+            path,
+            body: Some(b),
+            ..
+        } = &st[1]
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (path.as_str(), b["validate_doc_update"].as_str()),
+            ("_design/otra", Some("function(){ y }"))
+        );
     }
 
     #[test]
     fn update_script_uses_update_handler() {
-        let target = ObjectRef { kind: "collection".into(), schema: None, name: crate::ALL_DOCS.into() };
+        let target = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: crate::ALL_DOCS.into(),
+        };
         let changes = vec![
-            RowChange { key: vec![("_id".into(), json!("a b"))], set: vec![("name".into(), json!("O'Brien \"Bob\"")), ("n".into(), Value::Null)], ..Default::default() },
-            RowChange { key: vec![("_id".into(), json!("c"))], set: vec![], ..Default::default() },
+            RowChange {
+                key: vec![("_id".into(), json!("a b"))],
+                set: vec![
+                    ("name".into(), json!("O'Brien \"Bob\"")),
+                    ("n".into(), Value::Null),
+                ],
+                ..Default::default()
+            },
+            RowChange {
+                key: vec![("_id".into(), json!("c"))],
+                set: vec![],
+                ..Default::default()
+            },
         ];
         let text = update_script(&target, &changes).unwrap();
         assert_eq!(
@@ -591,8 +850,18 @@ mod tests {
         );
         let st = parse_script(&text).unwrap();
         assert_eq!(st.len(), 2);
-        let Stmt::Http { method, path, body: Some(b) } = &st[1] else { panic!() };
-        assert_eq!((method.as_str(), path.as_str()), ("PUT", "_design/dbine_update/_update/set/a%20b"));
+        let Stmt::Http {
+            method,
+            path,
+            body: Some(b),
+        } = &st[1]
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (method.as_str(), path.as_str()),
+            ("PUT", "_design/dbine_update/_update/set/a%20b")
+        );
         assert_eq!(b, &json!({ "name": "O'Brien \"Bob\"", "n": null }));
         assert!(st.iter().all(|s| write_reason(s).is_some()));
         assert_eq!(update_script(&target, &changes[1..]).unwrap(), "");
@@ -600,8 +869,15 @@ mod tests {
 
     #[test]
     fn delete_script_uses_update_handler() {
-        let target = ObjectRef { kind: "collection".into(), schema: None, name: crate::ALL_DOCS.into() };
-        let keys = vec![vec![("_id".into(), json!("O'Brien \"Bob\"/1 ?x"))], vec![("_id".into(), json!("c")), ("_rev".into(), json!("1-x"))]];
+        let target = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: crate::ALL_DOCS.into(),
+        };
+        let keys = vec![
+            vec![("_id".into(), json!("O'Brien \"Bob\"/1 ?x"))],
+            vec![("_id".into(), json!("c")), ("_rev".into(), json!("1-x"))],
+        ];
         let text = delete_script(&target, &keys).unwrap();
         assert_eq!(
             text,
@@ -615,8 +891,17 @@ mod tests {
         );
         let st = parse_script(&text).unwrap();
         assert_eq!(st.len(), 3);
-        let Stmt::Http { method, path, body } = &st[1] else { panic!() };
-        assert_eq!((method.as_str(), path.as_str(), body), ("PUT", "_design/dbine_delete/_update/delete/O%27Brien%20%22Bob%22%2F1%20%3Fx", &Some(json!({}))));
+        let Stmt::Http { method, path, body } = &st[1] else {
+            panic!()
+        };
+        assert_eq!(
+            (method.as_str(), path.as_str(), body),
+            (
+                "PUT",
+                "_design/dbine_delete/_update/delete/O%27Brien%20%22Bob%22%2F1%20%3Fx",
+                &Some(json!({}))
+            )
+        );
         assert!(st.iter().all(|s| write_reason(s).is_some()));
         assert_eq!(delete_script(&target, &[]).unwrap(), "");
         assert!(delete_script(&target, &[vec![("name".into(), json!("x"))]]).is_err());
@@ -626,27 +911,53 @@ mod tests {
     #[test]
     fn insert_script_batches() {
         let cols = vec!["_id".to_string(), "_rev".into(), "name".into(), "n".into()];
-        let rows: Vec<Vec<Value>> =
-            (0..1001).map(|i| vec![json!(format!("d{i}")), json!("1-x"), json!(format!("line\nGET /x {i}")), if i % 2 == 0 { Value::Null } else { json!(i) }]).collect();
-        let target = ObjectRef { kind: "collection".into(), schema: None, name: crate::ALL_DOCS.into() };
+        let rows: Vec<Vec<Value>> = (0..1001)
+            .map(|i| {
+                vec![
+                    json!(format!("d{i}")),
+                    json!("1-x"),
+                    json!(format!("line\nGET /x {i}")),
+                    if i % 2 == 0 { Value::Null } else { json!(i) },
+                ]
+            })
+            .collect();
+        let target = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: crate::ALL_DOCS.into(),
+        };
         let st = parse_script(&insert_script(&target, &cols, &rows).unwrap()).unwrap();
         assert_eq!(st.len(), 3);
-        let Stmt::Http { method, path, body: Some(b) } = &st[0] else { panic!() };
+        let Stmt::Http {
+            method,
+            path,
+            body: Some(b),
+        } = &st[0]
+        else {
+            panic!()
+        };
         assert_eq!((method.as_str(), path.as_str()), ("POST", "_bulk_docs"));
         let docs = b["docs"].as_array().unwrap();
         assert_eq!(docs.len(), 500);
         assert_eq!(docs[0], json!({ "_id": "d0", "name": "line\nGET /x 0" }));
         assert_eq!(docs[1]["n"], json!(1));
-        let Stmt::Http { body: Some(b), .. } = &st[2] else { panic!() };
+        let Stmt::Http { body: Some(b), .. } = &st[2] else {
+            panic!()
+        };
         assert_eq!(b["docs"].as_array().unwrap().len(), 1);
     }
 
     #[test]
     fn templates_parse_as_writes() {
         for t in templates() {
-            let st = parse_script(&t.template.replace("{name}", "obj")).unwrap_or_else(|e| panic!("{}: {e}", t.label));
+            let st = parse_script(&t.template.replace("{name}", "obj"))
+                .unwrap_or_else(|e| panic!("{}: {e}", t.label));
             assert_eq!(st.len(), 1, "{}", t.label);
-            assert!(matches!(&st[0], Stmt::Http { body: Some(_), .. }), "{}", t.label);
+            assert!(
+                matches!(&st[0], Stmt::Http { body: Some(_), .. }),
+                "{}",
+                t.label
+            );
             assert!(write_reason(&st[0]).is_some());
         }
     }

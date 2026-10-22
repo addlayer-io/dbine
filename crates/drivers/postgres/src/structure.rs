@@ -8,14 +8,19 @@ use crate::design;
 use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{kinds, CheckDef, ColumnDef, Error, ForeignKeyDef, IndexDef, KeyDef, Result, TableSchema};
+use dbine_driver::{
+    kinds, CheckDef, ColumnDef, Error, ForeignKeyDef, IndexDef, KeyDef, Result, TableSchema,
+};
 use std::collections::BTreeMap;
 use tokio_postgres::SimpleQueryRow;
 
 type Key = (String, String);
 
 fn key(r: &SimpleQueryRow) -> Key {
-    (cell(r, "sch").unwrap_or_default(), cell(r, "tbl").unwrap_or_default())
+    (
+        cell(r, "sch").unwrap_or_default(),
+        cell(r, "tbl").unwrap_or_default(),
+    )
 }
 
 fn flag(r: &SimpleQueryRow, name: &str) -> bool {
@@ -46,9 +51,11 @@ fn is_serial_default(d: &str) -> bool {
 impl PgSession {
     pub(crate) async fn schema_of_database(&mut self) -> Result<Vec<TableSchema>> {
         match self.variant {
-            Variant::Redshift | Variant::Denodo | Variant::CrateDb | Variant::RisingWave | Variant::H2 => {
-                self.info_schema_structure().await
-            }
+            Variant::Redshift
+            | Variant::Denodo
+            | Variant::CrateDb
+            | Variant::RisingWave
+            | Variant::H2 => self.info_schema_structure().await,
             _ => self.pg_structure().await,
         }
     }
@@ -56,7 +63,11 @@ impl PgSession {
     async fn pg_structure(&self) -> Result<Vec<TableSchema>> {
         let v = self.variant;
         let filter = self.filter("n.nspname");
-        let partition = if self.version >= 100000 && v != Variant::Cockroach { " AND NOT c.relispartition" } else { "" };
+        let partition = if self.version >= 100000 && v != Variant::Cockroach {
+            " AND NOT c.relispartition"
+        } else {
+            ""
+        };
         let tables = format!(
             "SELECT n.nspname AS sch, c.relname AS tbl, obj_description(c.oid, 'pg_class') AS cmt
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -83,8 +94,16 @@ impl PgSession {
             return Ok(Vec::new());
         }
 
-        let identity = if self.version >= 100000 || v == Variant::Cockroach { "a.attidentity" } else { "''" };
-        let generated = if self.version >= 120000 && v != Variant::Cockroach { "a.attgenerated" } else { "''" };
+        let identity = if self.version >= 100000 || v == Variant::Cockroach {
+            "a.attidentity"
+        } else {
+            "''"
+        };
+        let generated = if self.version >= 120000 && v != Variant::Cockroach {
+            "a.attgenerated"
+        } else {
+            "''"
+        };
         let hidden = if v == Variant::Cockroach {
             " AND NOT EXISTS (SELECT 1 FROM information_schema.columns ic
                               WHERE ic.table_schema = n.nspname AND ic.table_name = c.relname
@@ -103,7 +122,9 @@ impl PgSession {
              ORDER BY 1, 2, a.attnum"
         );
         for r in self.text(&columns).await? {
-            let Some(t) = map.get_mut(&key(&r)) else { continue };
+            let Some(t) = map.get_mut(&key(&r)) else {
+                continue;
+            };
             let mut data_type = cell(&r, "typ").unwrap_or_default();
             let mut default_value = cell(&r, "def");
             let ident = cell(&r, "ident").is_some_and(|i| !i.is_empty());
@@ -145,15 +166,34 @@ impl PgSession {
             match self.text(&identities).await {
                 Ok(rows) => {
                     for r in rows {
-                        let Some(t) = map.get_mut(&key(&r)) else { continue };
+                        let Some(t) = map.get_mut(&key(&r)) else {
+                            continue;
+                        };
                         let col = cell(&r, "col").unwrap_or_default();
-                        let Some(c) = t.columns.iter_mut().find(|c| c.name == col && c.auto_increment) else { continue };
+                        let Some(c) = t
+                            .columns
+                            .iter_mut()
+                            .find(|c| c.name == col && c.auto_increment)
+                        else {
+                            continue;
+                        };
                         let n = |k: &str| cell(&r, k).and_then(|s| s.parse::<i128>().ok());
-                        let (Some(st), Some(inc), Some(mn), Some(mx), Some(cache)) = (n("st"), n("inc"), n("mn"), n("mx"), n("cache")) else {
+                        let (Some(st), Some(inc), Some(mn), Some(mx), Some(cache)) =
+                            (n("st"), n("inc"), n("mn"), n("mx"), n("cache"))
+                        else {
                             continue;
                         };
                         let typ = cell(&r, "typ").unwrap_or_default();
-                        if let Some(o) = design::identity_option(flag(&r, "always"), &typ, st, inc, mn, mx, cache, flag(&r, "cyc")) {
+                        if let Some(o) = design::identity_option(
+                            flag(&r, "always"),
+                            &typ,
+                            st,
+                            inc,
+                            mn,
+                            mx,
+                            cache,
+                            flag(&r, "cyc"),
+                        ) {
                             c.options.insert(design::IDENTITY_OPTION.into(), o);
                         }
                     }
@@ -178,11 +218,19 @@ impl PgSession {
              ORDER BY 1, 2, 3, k.ord"
         );
         for r in self.text(&constraints).await? {
-            let Some(t) = map.get_mut(&key(&r)) else { continue };
+            let Some(t) = map.get_mut(&key(&r)) else {
+                continue;
+            };
             let name = cell(&r, "con");
             let col = cell(&r, "col").unwrap_or_default();
             if cell(&r, "typ").as_deref() == Some("p") {
-                t.primary_key.get_or_insert_with(|| KeyDef { name: name.clone(), columns: Vec::new() }).columns.push(col);
+                t.primary_key
+                    .get_or_insert_with(|| KeyDef {
+                        name: name.clone(),
+                        columns: Vec::new(),
+                    })
+                    .columns
+                    .push(col);
                 continue;
             }
             match t.foreign_keys.last_mut() {
@@ -207,12 +255,17 @@ impl PgSession {
         // STORING); expressions come back in parentheses. The first row
         // carries the whole definition, storage parameters and constraint.
         // openGauss reports 9.2 but has INCLUDE (on ubtree indexes).
-        let key_atts = if self.version >= 110000 || matches!(v, Variant::Cockroach | Variant::OpenGauss) {
-            "COALESCE(ix.indnkeyatts, ix.indnatts)"
+        let key_atts =
+            if self.version >= 110000 || matches!(v, Variant::Cockroach | Variant::OpenGauss) {
+                "COALESCE(ix.indnkeyatts, ix.indnatts)"
+            } else {
+                "ix.indnatts"
+            };
+        let nnd = if self.version >= 150000 && v != Variant::Cockroach {
+            "ix.indnullsnotdistinct"
         } else {
-            "ix.indnatts"
+            "false"
         };
-        let nnd = if self.version >= 150000 && v != Variant::Cockroach { "ix.indnullsnotdistinct" } else { "false" };
         // CockroachDB's unique indexes are constraints too; Materialize has
         // neither constraints nor pg_get_constraintdef.
         let constraint = if matches!(v, Variant::Cockroach | Variant::Materialize) {
@@ -244,7 +297,9 @@ impl PgSession {
                 // Per index: its whole definition and its keys alone.
                 let mut defs: BTreeMap<(Key, String), (String, Vec<String>)> = BTreeMap::new();
                 for r in rows {
-                    let Some(t) = map.get_mut(&key(&r)) else { continue };
+                    let Some(t) = map.get_mut(&key(&r)) else {
+                        continue;
+                    };
                     let name = cell(&r, "idx").unwrap_or_default();
                     let expr = cell(&r, "expr").unwrap_or_default();
                     if t.indexes.last().is_none_or(|ix| ix.name != name) {
@@ -253,7 +308,13 @@ impl PgSession {
                             unique: flag(&r, "uniq"),
                             // Cockroach's `prefix` / `inverted` as PostgreSQL's btree / gin, so
                             // the explorer and the compare speak the same names.
-                            kind: cell(&r, "am").map(|a| if v == Variant::Cockroach { compare::crdb_index_method(&a).to_string() } else { a }),
+                            kind: cell(&r, "am").map(|a| {
+                                if v == Variant::Cockroach {
+                                    compare::crdb_index_method(&a).to_string()
+                                } else {
+                                    a
+                                }
+                            }),
                             filter: cell(&r, "pred"),
                             ..Default::default()
                         };
@@ -262,17 +323,24 @@ impl PgSession {
                             ix.options.insert(k, val);
                         }
                         if flag(&r, "nnd") {
-                            ix.options.insert(compare::NULLS_NOT_DISTINCT.into(), "on".into());
+                            ix.options
+                                .insert(compare::NULLS_NOT_DISTINCT.into(), "on".into());
                         }
                         if let (Some(ct), Some(cdef)) = (cell(&r, "ctype"), cell(&r, "cdef")) {
                             let with = opts.lines().collect::<Vec<_>>().join(", ");
-                            ix.options.insert(compare::CONSTRAINT.into(), crate::clone::constraint_def(&cdef, &ct, Some(&with)));
+                            ix.options.insert(
+                                compare::CONSTRAINT.into(),
+                                crate::clone::constraint_def(&cdef, &ct, Some(&with)),
+                            );
                             if ct == "x" {
                                 ix.kind = Some(compare::EXCLUDE.into());
                             }
                         }
                         t.indexes.push(ix);
-                        defs.insert((key(&r), name.clone()), (cell(&r, "def").unwrap_or_default(), Vec::new()));
+                        defs.insert(
+                            (key(&r), name.clone()),
+                            (cell(&r, "def").unwrap_or_default(), Vec::new()),
+                        );
                     }
                     let ix = t.indexes.last_mut().expect("pushed above");
                     if flag(&r, "inc") {
@@ -282,7 +350,9 @@ impl PgSession {
                     let col = match cell(&r, "att") {
                         Some(a) if a == expr || quote_ident(Quote::Double, &a) == expr => a,
                         // CockroachDB already wraps expressions.
-                        _ if expr.starts_with("((") && expr.ends_with("))") => expr[1..expr.len() - 1].to_string(),
+                        _ if expr.starts_with("((") && expr.ends_with("))") => {
+                            expr[1..expr.len() - 1].to_string()
+                        }
                         _ if expr.starts_with('(') && expr.ends_with(')') => expr.clone(),
                         _ => format!("({expr})"),
                     };
@@ -292,7 +362,12 @@ impl PgSession {
                     }
                 }
                 for ((k, name), (def, keys)) in defs {
-                    let Some(ix) = map.get_mut(&k).and_then(|t| t.indexes.iter_mut().find(|i| i.name == name)) else { continue };
+                    let Some(ix) = map
+                        .get_mut(&k)
+                        .and_then(|t| t.indexes.iter_mut().find(|i| i.name == name))
+                    else {
+                        continue;
+                    };
                     if ix.options.contains_key(compare::CONSTRAINT) {
                         continue;
                     }
@@ -313,16 +388,29 @@ impl PgSession {
              ORDER BY 1, 2, 3"
         );
         // Materialize has no CHECK constraints.
-        let checks = if v == Variant::Materialize { Ok(Vec::new()) } else { self.text(&checks).await };
+        let checks = if v == Variant::Materialize {
+            Ok(Vec::new())
+        } else {
+            self.text(&checks).await
+        };
         match checks {
             Ok(rows) => {
                 for r in rows {
-                    let Some(t) = map.get_mut(&key(&r)) else { continue };
+                    let Some(t) = map.get_mut(&key(&r)) else {
+                        continue;
+                    };
                     let name = cell(&r, "con");
-                    if v == Variant::Cockroach && name.as_deref().is_some_and(|n| n.starts_with("check_crdb_internal")) {
+                    if v == Variant::Cockroach
+                        && name
+                            .as_deref()
+                            .is_some_and(|n| n.starts_with("check_crdb_internal"))
+                    {
                         continue;
                     }
-                    t.checks.push(CheckDef { name, expression: compare::check_expression(&cell(&r, "def").unwrap_or_default()) });
+                    t.checks.push(CheckDef {
+                        name,
+                        expression: compare::check_expression(&cell(&r, "def").unwrap_or_default()),
+                    });
                 }
             }
             Err(e) => tracing::debug!("{v:?}: checks unavailable: {e}"),
@@ -331,7 +419,11 @@ impl PgSession {
         let mut out: Vec<TableSchema> = order.iter().filter_map(|k| map.remove(k)).collect();
         for t in &mut out {
             // CockroachDB's implicit key is on the hidden `rowid`.
-            if t.primary_key.as_ref().is_some_and(|pk| pk.columns.iter().any(|c| !t.columns.iter().any(|x| &x.name == c))) {
+            if t.primary_key.as_ref().is_some_and(|pk| {
+                pk.columns
+                    .iter()
+                    .any(|c| !t.columns.iter().any(|x| &x.name == c))
+            }) {
                 t.primary_key = None;
             }
         }
@@ -343,8 +435,16 @@ impl PgSession {
     /// keys when the engine reports them.
     async fn info_schema_structure(&self) -> Result<Vec<TableSchema>> {
         let v = self.variant;
-        let (columns_view, remarks) = if v == Variant::Redshift { ("svv_columns", "remarks") } else { ("information_schema.columns", "NULL") };
-        let db_filter = if v == Variant::Denodo { String::new() } else { format!(" AND {}", self.filter("c.table_schema")) };
+        let (columns_view, remarks) = if v == Variant::Redshift {
+            ("svv_columns", "remarks")
+        } else {
+            ("information_schema.columns", "NULL")
+        };
+        let db_filter = if v == Variant::Denodo {
+            String::new()
+        } else {
+            format!(" AND {}", self.filter("c.table_schema"))
+        };
         let columns = format!(
             "SELECT c.table_schema AS sch, c.table_name AS tbl, c.column_name AS col, c.data_type AS typ,
                     c.character_maximum_length AS len, c.numeric_precision AS prec, c.numeric_scale AS scale,
@@ -368,7 +468,9 @@ impl PgSession {
                 }
             });
             let mut default_value = cell(&r, "def");
-            let auto = default_value.as_deref().is_some_and(|d| is_serial_default(d) || d.contains("identity"));
+            let auto = default_value
+                .as_deref()
+                .is_some_and(|d| is_serial_default(d) || d.contains("identity"));
             if auto {
                 default_value = None;
             }
@@ -408,11 +510,16 @@ impl PgSession {
             match self.text(&keys).await {
                 Ok(rows) => {
                     for r in rows {
-                        let Some(t) = map.get_mut(&key(&r)) else { continue };
+                        let Some(t) = map.get_mut(&key(&r)) else {
+                            continue;
+                        };
                         let name = cell(&r, "con");
                         let col = cell(&r, "col").unwrap_or_default();
                         if cell(&r, "typ").as_deref() == Some("PRIMARY KEY") {
-                            let pk = t.primary_key.get_or_insert_with(|| KeyDef { name: name.clone(), columns: Vec::new() });
+                            let pk = t.primary_key.get_or_insert_with(|| KeyDef {
+                                name: name.clone(),
+                                columns: Vec::new(),
+                            });
                             if !pk.columns.contains(&col) {
                                 pk.columns.push(col);
                             }
@@ -530,6 +637,9 @@ mod tests {
         assert_eq!(fk_action(Some("n")).as_deref(), Some("SET NULL"));
         assert_eq!(fk_action(Some("a")), None);
         assert_eq!(info_action(Some("NO ACTION".into())), None);
-        assert_eq!(info_action(Some("CASCADE".into())).as_deref(), Some("CASCADE"));
+        assert_eq!(
+            info_action(Some("CASCADE".into())).as_deref(),
+            Some("CASCADE")
+        );
     }
 }

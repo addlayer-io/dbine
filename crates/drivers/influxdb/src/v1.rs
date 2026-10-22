@@ -8,9 +8,9 @@ use crate::plan;
 use crate::processes;
 use crate::profiler;
 use dbine_driver::{
-    async_trait, json_f64, json_i64, json_u64, kinds, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
-    DbObject, DriverInfo, Error, Family, Field, KeyDef, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, Plan, QueryOutcome,
-    Result, ResultColumn, Session, TableSchema,
+    async_trait, json_f64, json_i64, json_u64, kinds, ColumnDef, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DriverInfo, Error, Family, Field, KeyDef, Language, MonitorSnapshot,
+    ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
 };
 use serde_json::Value as J;
 use std::collections::BTreeMap;
@@ -26,7 +26,13 @@ pub fn info() -> DriverInfo {
         fields: Field::server_set(),
         databases_label: "Bases de datos",
         has_schemas: false,
-        object_kinds: vec![ObjectKindInfo::new(kinds::MEASUREMENT, "Measurements", true, true, false)],
+        object_kinds: vec![ObjectKindInfo::new(
+            kinds::MEASUREMENT,
+            "Measurements",
+            true,
+            true,
+            false,
+        )],
     }
 }
 
@@ -54,21 +60,39 @@ pub fn templates() -> Vec<CreateTemplate> {
 /// [`Session::columns`]: `time` and the tags key the series.
 pub fn schema_tables(results: &[J]) -> Vec<TableSchema> {
     let series = |i: usize| -> Vec<J> {
-        results.get(i).and_then(|r| r.get("series")).and_then(|s| s.as_array()).cloned().unwrap_or_default()
+        results
+            .get(i)
+            .and_then(|r| r.get("series"))
+            .and_then(|s| s.as_array())
+            .cloned()
+            .unwrap_or_default()
     };
     let rows = |s: &J| -> Vec<Vec<J>> {
-        s.get("values").and_then(|v| v.as_array()).into_iter().flatten().filter_map(|v| v.as_array().cloned()).collect()
+        s.get("values")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_array().cloned())
+            .collect()
     };
     let mut tables: BTreeMap<String, TableSchema> = BTreeMap::new();
     for s in series(0) {
         for r in rows(&s) {
             let name = str_at(&r, 0);
-            let time = ColumnDef { name: "time".into(), data_type: "time".into(), nullable: false, ..Default::default() };
+            let time = ColumnDef {
+                name: "time".into(),
+                data_type: "time".into(),
+                nullable: false,
+                ..Default::default()
+            };
             let t = TableSchema {
                 kind: kinds::MEASUREMENT.into(),
                 name: name.clone(),
                 columns: vec![time],
-                primary_key: Some(KeyDef { name: None, columns: vec!["time".into()] }),
+                primary_key: Some(KeyDef {
+                    name: None,
+                    columns: vec!["time".into()],
+                }),
                 ..Default::default()
             };
             tables.insert(name, t);
@@ -76,7 +100,13 @@ pub fn schema_tables(results: &[J]) -> Vec<TableSchema> {
     }
     for (i, tag) in [(1, true), (2, false)] {
         for s in series(i) {
-            let Some(t) = s.get("name").and_then(|n| n.as_str()).and_then(|n| tables.get_mut(n)) else { continue };
+            let Some(t) = s
+                .get("name")
+                .and_then(|n| n.as_str())
+                .and_then(|n| tables.get_mut(n))
+            else {
+                continue;
+            };
             for r in rows(&s) {
                 let name = str_at(&r, 0);
                 if tag {
@@ -84,9 +114,19 @@ pub fn schema_tables(results: &[J]) -> Vec<TableSchema> {
                         pk.columns.push(name.clone());
                     }
                     let options = [("tag".to_string(), "true".to_string())].into();
-                    t.columns.push(ColumnDef { name, data_type: "tag".into(), nullable: false, options, ..Default::default() });
+                    t.columns.push(ColumnDef {
+                        name,
+                        data_type: "tag".into(),
+                        nullable: false,
+                        options,
+                        ..Default::default()
+                    });
                 } else {
-                    t.columns.push(ColumnDef { name, data_type: str_at(&r, 1), ..Default::default() });
+                    t.columns.push(ColumnDef {
+                        name,
+                        data_type: str_at(&r, 1),
+                        ..Default::default()
+                    });
                 }
             }
         }
@@ -108,7 +148,9 @@ pub struct InfluxQlSession {
 }
 
 pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
-    let db = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
+    let db = database
+        .filter(|d| !d.is_empty())
+        .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
     let mut s = InfluxQlSession {
         http: http::client(cfg)?,
         base: http::base_url(cfg, 8086),
@@ -121,7 +163,9 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
     };
     // Checks the credentials (with auth disabled anything passes).
     s.query("SHOW DATABASES").await.map_err(|e| match e {
-        Error::Query(m) if m.contains("authorization") || m.contains("authentication") => Error::AuthFailed(m),
+        Error::Query(m) if m.contains("authorization") || m.contains("authentication") => {
+            Error::AuthFailed(m)
+        }
         e => e,
     })?;
     Ok(Box::new(s))
@@ -139,7 +183,12 @@ pub fn ident(name: &str) -> String {
 pub fn delete_script(measurement: &str, keys: &[Vec<(String, J)>]) -> Result<String> {
     let mut out = Vec::new();
     for key in keys {
-        let Some(time) = key.iter().find(|(k, _)| k.eq_ignore_ascii_case("time")).map(|(_, v)| v).filter(|v| !v.is_null()) else {
+        let Some(time) = key
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("time"))
+            .map(|(_, v)| v)
+            .filter(|v| !v.is_null())
+        else {
             return Err(Error::Unsupported(
                 "InfluxQL borra un punto por su marca de tiempo y sus tags: la clave de la fila tiene que incluir la columna time".into(),
             ));
@@ -149,12 +198,24 @@ pub fn delete_script(measurement: &str, keys: &[Vec<(String, J)>]) -> Result<Str
             J::String(s) => format!("time = '{}'", http::escape(s, '\'')),
             other => format!("time = '{}'", http::escape(&other.to_string(), '\'')),
         }];
-        conds.extend(key.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("time")).map(|(k, v)| match v {
-            J::Null => format!("{} = ''", ident(k)),
-            J::String(s) => format!("{} = '{}'", ident(k), http::escape(s, '\'')),
-            other => format!("{} = '{}'", ident(k), http::escape(&other.to_string(), '\'')),
-        }));
-        out.push(format!("DELETE FROM {} WHERE {};", ident(measurement), conds.join(" AND ")));
+        conds.extend(
+            key.iter()
+                .filter(|(k, _)| !k.eq_ignore_ascii_case("time"))
+                .map(|(k, v)| match v {
+                    J::Null => format!("{} = ''", ident(k)),
+                    J::String(s) => format!("{} = '{}'", ident(k), http::escape(s, '\'')),
+                    other => format!(
+                        "{} = '{}'",
+                        ident(k),
+                        http::escape(&other.to_string(), '\'')
+                    ),
+                }),
+        );
+        out.push(format!(
+            "DELETE FROM {} WHERE {};",
+            ident(measurement),
+            conds.join(" AND ")
+        ));
     }
     Ok(out.join("\n"))
 }
@@ -162,7 +223,10 @@ pub fn delete_script(measurement: &str, keys: &[Vec<(String, J)>]) -> Result<Str
 /// `USE db` / `USE db.rp` / `USE "d b"."r p"` (the influx CLI's).
 fn use_target(stmt: &str) -> Option<(String, Option<String>)> {
     let s = stmt.trim();
-    let rest = s.get(..4).filter(|h| h.eq_ignore_ascii_case("use ")).map(|_| s[4..].trim())?;
+    let rest = s
+        .get(..4)
+        .filter(|h| h.eq_ignore_ascii_case("use "))
+        .map(|_| s[4..].trim())?;
     let mut parts = Vec::new();
     let mut cur = String::new();
     let mut chars = rest.chars().peekable();
@@ -193,12 +257,16 @@ fn use_target(stmt: &str) -> Option<(String, Option<String>)> {
 /// A unit whose first line is a `USE` (the influx CLI reads a script line
 /// by line, so `USE db` needs no `;`): that line, and the rest of the unit
 /// as a unit of its own. `(None, None)` for any other unit.
-fn use_line(u: &dbine_driver::ScriptStatement) -> (Option<String>, Option<dbine_driver::ScriptStatement>) {
+fn use_line(
+    u: &dbine_driver::ScriptStatement,
+) -> (Option<String>, Option<dbine_driver::ScriptStatement>) {
     let first = u.text.split(char::is_whitespace).next().unwrap_or_default();
     if !first.eq_ignore_ascii_case("use") {
         return (None, None);
     }
-    let Some(nl) = u.text.find('\n') else { return (Some(u.text.clone()), None) };
+    let Some(nl) = u.text.find('\n') else {
+        return (Some(u.text.clone()), None);
+    };
     let rest = &u.text[nl + 1..];
     let trimmed = rest.trim_start();
     if trimmed.is_empty() {
@@ -219,9 +287,16 @@ fn use_line(u: &dbine_driver::ScriptStatement) -> (Option<String>, Option<dbine_
 fn parse_error(msg: &str, text: &str, base: usize) -> Error {
     let num = |key: &str| -> Option<usize> {
         let at = msg.rfind(key)?;
-        msg[at + key.len()..].chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+        msg[at + key.len()..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .ok()
     };
-    let (Some(line), Some(ch)) = (num("at line "), num(", char ")) else { return Error::Query(msg.to_string()) };
+    let (Some(line), Some(ch)) = (num("at line "), num(", char ")) else {
+        return Error::Query(msg.to_string());
+    };
     let q = &text[base..];
     let mut start = 0;
     for _ in 1..line.max(1) {
@@ -231,9 +306,17 @@ fn parse_error(msg: &str, text: &str, base: usize) -> Error {
         }
     }
     let end = q[start..].find('\n').map_or(q.len(), |e| start + e);
-    let off = base + start + q[start..end].char_indices().nth(ch.saturating_sub(1)).map_or(end - start, |(i, _)| i);
+    let off = base
+        + start
+        + q[start..end]
+            .char_indices()
+            .nth(ch.saturating_sub(1))
+            .map_or(end - start, |(i, _)| i);
     let line = text[..off].matches('\n').count() as u32 + 1;
-    dbine_driver::ScriptError::new(msg).at_offset(off).at_line(line).into()
+    dbine_driver::ScriptError::new(msg)
+        .at_offset(off)
+        .at_line(line)
+        .into()
 }
 
 /// Statement kinds that only read; `SELECT … INTO` writes and is refused too.
@@ -264,26 +347,52 @@ impl InfluxQlSession {
         let names = |rows: Vec<Vec<J>>| rows.iter().map(|r| str_at(r, 0)).collect::<Vec<_>>();
         let dbs = names(self.first_column("SHOW DATABASES").await.ok()?);
         if !dbs.iter().any(|d| d == db) {
-            return Some(format!("La base de datos «{db}» no existe. Ejecutá SHOW DATABASES para ver las que hay."));
+            return Some(format!(
+                "La base de datos «{db}» no existe. Ejecutá SHOW DATABASES para ver las que hay."
+            ));
         }
         let rp = rp?;
-        let rps = names(self.first_column(&format!("SHOW RETENTION POLICIES ON {}", ident(db))).await.ok()?);
-        (!rps.iter().any(|r| r == rp)).then(|| format!("La política de retención «{rp}» no existe en «{db}»."))
+        let rps = names(
+            self.first_column(&format!("SHOW RETENTION POLICIES ON {}", ident(db)))
+                .await
+                .ok()?,
+        );
+        (!rps.iter().any(|r| r == rp))
+            .then(|| format!("La política de retención «{rp}» no existe en «{db}»."))
     }
 
     /// Consecutive statements of `text` in one request; a failure placed
     /// in `text` (the parser's `at line L, char C`, or the statement the
     /// server stopped at).
-    async fn run_chunk(&self, text: &str, units: &[&dbine_driver::ScriptStatement], max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let (Some(first), Some(last)) = (units.first(), units.last()) else { return Ok(()) };
+    async fn run_chunk(
+        &self,
+        text: &str,
+        units: &[&dbine_driver::ScriptStatement],
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        let (Some(first), Some(last)) = (units.first(), units.last()) else {
+            return Ok(());
+        };
         let q = &text[first.start..last.end];
         let v = match self.raw(q, first_write(q).is_some()).await {
             Ok(v) => v,
             Err(Error::Query(m)) => return Err(parse_error(&m, text, first.start)),
             Err(e) => return Err(e),
         };
-        for (i, r) in v.get("results").and_then(|r| r.as_array()).into_iter().flatten().enumerate() {
-            for m in r.get("messages").and_then(|m| m.as_array()).into_iter().flatten() {
+        for (i, r) in v
+            .get("results")
+            .and_then(|r| r.as_array())
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            for m in r
+                .get("messages")
+                .and_then(|m| m.as_array())
+                .into_iter()
+                .flatten()
+            {
                 if let Some(t) = m.get("text").and_then(|t| t.as_str()) {
                     match m.get("level").and_then(|l| l.as_str()) {
                         Some("warning") => out.warning(t),
@@ -292,17 +401,31 @@ impl InfluxQlSession {
                 }
             }
             if let Some(e) = r.get("error").and_then(|e| e.as_str()) {
-                let n = r.get("statement_id").and_then(|n| n.as_u64()).map_or(i, |n| n as usize);
+                let n = r
+                    .get("statement_id")
+                    .and_then(|n| n.as_u64())
+                    .map_or(i, |n| n as usize);
                 let u = units.get(n).unwrap_or(first);
                 let line = text[..u.start].matches('\n').count() as u32 + 1;
-                return Err(dbine_driver::ScriptError::new(e).at_offset(u.start).at_line(line).into());
+                return Err(dbine_driver::ScriptError::new(e)
+                    .at_offset(u.start)
+                    .at_line(line)
+                    .into());
             }
             let tables = statement_tables(r);
             if tables.is_empty() {
                 out.push_affected(0);
             }
             for (header, rows) in tables {
-                out.begin_result(header.into_iter().map(|name| ResultColumn { name, type_name: String::new() }).collect());
+                out.begin_result(
+                    header
+                        .into_iter()
+                        .map(|name| ResultColumn {
+                            name,
+                            type_name: String::new(),
+                        })
+                        .collect(),
+                );
                 for row in rows {
                     out.push_row(row, max_rows);
                 }
@@ -326,7 +449,11 @@ impl InfluxQlSession {
         } else {
             self.http.get(format!("{}/query", self.base)).query(&params)
         };
-        let req = if self.username.is_empty() { req } else { req.basic_auth(&self.username, Some(&self.password)) };
+        let req = if self.username.is_empty() {
+            req
+        } else {
+            req.basic_auth(&self.username, Some(&self.password))
+        };
         let resp = req.send().await.map_err(send_err)?;
         let v: J = serde_json::from_str(&http::text(resp).await?)?;
         if let Some(e) = v.get("error").and_then(|e| e.as_str()) {
@@ -338,8 +465,15 @@ impl InfluxQlSession {
     /// A read with its results, stopping at the first failing statement.
     pub(crate) async fn query(&mut self, q: &str) -> Result<Vec<J>> {
         let v = self.raw(q, false).await?;
-        let results = v.get("results").and_then(|r| r.as_array()).cloned().unwrap_or_default();
-        if let Some(e) = results.iter().find_map(|r| r.get("error").and_then(|e| e.as_str())) {
+        let results = v
+            .get("results")
+            .and_then(|r| r.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if let Some(e) = results
+            .iter()
+            .find_map(|r| r.get("error").and_then(|e| e.as_str()))
+        {
             return Err(Error::Query(e.to_string()));
         }
         Ok(results)
@@ -348,8 +482,15 @@ impl InfluxQlSession {
     /// A statement that writes (by POST), failing on its error.
     pub(crate) async fn write_statement(&self, q: &str) -> Result<()> {
         let v = self.raw(q, true).await?;
-        let results = v.get("results").and_then(|r| r.as_array()).cloned().unwrap_or_default();
-        match results.iter().find_map(|r| r.get("error").and_then(|e| e.as_str())) {
+        let results = v
+            .get("results")
+            .and_then(|r| r.as_array())
+            .cloned()
+            .unwrap_or_default();
+        match results
+            .iter()
+            .find_map(|r| r.get("error").and_then(|e| e.as_str()))
+        {
             Some(e) => Err(Error::Query(e.to_string())),
             None => Ok(()),
         }
@@ -357,15 +498,36 @@ impl InfluxQlSession {
 
     /// The first column of every row, as text lines (EXPLAIN's answer).
     async fn lines(&mut self, q: &str) -> Result<Vec<String>> {
-        Ok(self.first_column(q).await?.iter().map(|r| r.first().and_then(|v| v.as_str()).unwrap_or_default().to_string()).collect())
+        Ok(self
+            .first_column(q)
+            .await?
+            .iter()
+            .map(|r| {
+                r.first()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect())
     }
 
     /// The first column of every series' rows.
     async fn first_column(&mut self, q: &str) -> Result<Vec<Vec<J>>> {
         let mut out = Vec::new();
         for r in self.query(q).await? {
-            for s in r.get("series").and_then(|s| s.as_array()).into_iter().flatten() {
-                out.extend(s.get("values").and_then(|v| v.as_array()).into_iter().flatten().filter_map(|v| v.as_array().cloned()));
+            for s in r
+                .get("series")
+                .and_then(|s| s.as_array())
+                .into_iter()
+                .flatten()
+            {
+                out.extend(
+                    s.get("values")
+                        .and_then(|v| v.as_array())
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|v| v.as_array().cloned()),
+                );
             }
         }
         Ok(out)
@@ -373,7 +535,10 @@ impl InfluxQlSession {
 }
 
 fn str_at(row: &[J], i: usize) -> String {
-    row.get(i).and_then(|v| v.as_str()).unwrap_or_default().to_string()
+    row.get(i)
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
 pub fn cell(v: &J) -> J {
@@ -397,11 +562,20 @@ pub fn cell(v: &J) -> J {
 /// table, with the measurement name and tags in front when there are
 /// several series or `GROUP BY` tags.
 pub fn statement_tables(result: &J) -> Vec<(Vec<String>, Vec<Vec<J>>)> {
-    let series = result.get("series").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+    let series = result
+        .get("series")
+        .and_then(|s| s.as_array())
+        .cloned()
+        .unwrap_or_default();
     let tag_keys: Vec<String> = {
         let mut keys: Vec<String> = Vec::new();
         for s in &series {
-            for k in s.get("tags").and_then(|t| t.as_object()).into_iter().flat_map(|t| t.keys()) {
+            for k in s
+                .get("tags")
+                .and_then(|t| t.as_object())
+                .into_iter()
+                .flat_map(|t| t.keys())
+            {
                 if !keys.contains(k) {
                     keys.push(k.clone());
                 }
@@ -412,8 +586,13 @@ pub fn statement_tables(result: &J) -> Vec<(Vec<String>, Vec<Vec<J>>)> {
     let with_name = series.len() > 1;
     let mut tables: Vec<(Vec<String>, Vec<Vec<J>>)> = Vec::new();
     for s in &series {
-        let cols: Vec<String> =
-            s.get("columns").and_then(|c| c.as_array()).into_iter().flatten().filter_map(|c| c.as_str().map(str::to_string)).collect();
+        let cols: Vec<String> = s
+            .get("columns")
+            .and_then(|c| c.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|c| c.as_str().map(str::to_string))
+            .collect();
         let mut header: Vec<String> = Vec::new();
         if with_name {
             header.push("name".into());
@@ -425,14 +604,24 @@ pub fn statement_tables(result: &J) -> Vec<(Vec<String>, Vec<Vec<J>>)> {
         let prefix: Vec<J> = with_name
             .then(|| name.clone())
             .into_iter()
-            .chain(tag_keys.iter().map(|k| tags.and_then(|t| t.get(k)).cloned().unwrap_or(J::Null)))
+            .chain(
+                tag_keys
+                    .iter()
+                    .map(|k| tags.and_then(|t| t.get(k)).cloned().unwrap_or(J::Null)),
+            )
             .collect();
         let rows: Vec<Vec<J>> = s
             .get("values")
             .and_then(|v| v.as_array())
             .into_iter()
             .flatten()
-            .map(|r| prefix.iter().cloned().chain(r.as_array().into_iter().flatten().map(cell)).collect())
+            .map(|r| {
+                prefix
+                    .iter()
+                    .cloned()
+                    .chain(r.as_array().into_iter().flatten().map(cell))
+                    .collect()
+            })
             .collect();
         match tables.iter_mut().find(|(h, _)| *h == header) {
             Some((_, existing)) => existing.extend(rows),
@@ -445,10 +634,19 @@ pub fn statement_tables(result: &J) -> Vec<(Vec<String>, Vec<Vec<J>>)> {
 #[async_trait]
 impl Session for InfluxQlSession {
     /// `SELECT *` chunked, in nanoseconds (see `transfer.rs`).
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         let cols = crate::transfer::read_columns(&self.columns(&spec.table).await?, &spec.columns)?;
         let mut q = format!("SELECT * FROM {}", ident(&spec.table.name));
-        if let Some(f) = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        if let Some(f) = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
             q.push_str(&format!(" WHERE {f}"));
         }
         let request = |params: &[(&str, &str)]| {
@@ -457,11 +655,20 @@ impl Session for InfluxQlSession {
                 params.push(("db", db.as_str()));
             }
             let req = self.http.get(format!("{}/query", self.base)).query(&params);
-            if self.username.is_empty() { req } else { req.basic_auth(&self.username, Some(&self.password)) }
+            if self.username.is_empty() {
+                req
+            } else {
+                req.basic_auth(&self.username, Some(&self.password))
+            }
         };
         // Chunks of any size in bytes: the read cuts their points out as they arrive.
         let chunk = crate::transfer::CHUNK_SIZE.to_string();
-        let req = request(&[("q", q.as_str()), ("chunked", "true"), ("chunk_size", chunk.as_str()), ("epoch", "ns")]);
+        let req = request(&[
+            ("q", q.as_str()),
+            ("chunked", "true"),
+            ("chunk_size", chunk.as_str()),
+            ("epoch", "ns"),
+        ]);
         crate::transfer::read_influxql(req, &cols, &sink).await
     }
 
@@ -474,30 +681,66 @@ impl Session for InfluxQlSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden escribir puntos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden escribir puntos.".into(),
+            ));
         }
-        let db = self.db.clone().ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
+        let db = self
+            .db
+            .clone()
+            .ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
         let target = self.columns(&spec.table).await?;
-        let url = reqwest::Url::parse_with_params(&format!("{}/write", self.base), &[("db", db.as_str()), ("precision", "ns")])
-            .map_err(|e| Error::Query(e.to_string()))?;
+        let url = reqwest::Url::parse_with_params(
+            &format!("{}/write", self.base),
+            &[("db", db.as_str()), ("precision", "ns")],
+        )
+        .map_err(|e| Error::Query(e.to_string()))?;
         let auth = if self.username.is_empty() {
             crate::transfer::Auth::None
         } else {
             crate::transfer::Auth::Basic(self.username.clone(), self.password.clone())
         };
-        let ep = crate::transfer::Endpoint { http: self.http.clone(), url: url.into(), auth, api: crate::Api::InfluxQl };
-        crate::transfer::load(ep, &spec.table.name, &target, spec, columns, source, progress).await
+        let ep = crate::transfer::Endpoint {
+            http: self.http.clone(),
+            url: url.into(),
+            auth,
+            api: crate::Api::InfluxQl,
+        };
+        crate::transfer::load(
+            ep,
+            &spec.table.name,
+            &target,
+            spec,
+            columns,
+            source,
+            progress,
+        )
+        .await
     }
 
     async fn server_version(&mut self) -> Result<String> {
-        let resp = self.http.get(format!("{}/ping", self.base)).send().await.map_err(send_err)?;
-        let v = resp.headers().get("X-Influxdb-Version").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let resp = self
+            .http
+            .get(format!("{}/ping", self.base))
+            .send()
+            .await
+            .map_err(send_err)?;
+        let v = resp
+            .headers()
+            .get("X-Influxdb-Version")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
         Ok(format!("InfluxDB {v}").trim().to_string())
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         let rows = self.first_column("SHOW DATABASES").await?;
-        let mut v: Vec<String> = rows.iter().map(|r| str_at(r, 0)).filter(|d| !d.is_empty() && d != "_internal").collect();
+        let mut v: Vec<String> = rows
+            .iter()
+            .map(|r| str_at(r, 0))
+            .filter(|d| !d.is_empty() && d != "_internal")
+            .collect();
         v.sort();
         Ok(v)
     }
@@ -509,14 +752,23 @@ impl Session for InfluxQlSession {
         let rows = self.first_column("SHOW MEASUREMENTS").await?;
         Ok(rows
             .iter()
-            .map(|r| DbObject { kind: kinds::MEASUREMENT.into(), schema: None, name: str_at(r, 0), parent: None })
+            .map(|r| DbObject {
+                kind: kinds::MEASUREMENT.into(),
+                schema: None,
+                name: str_at(r, 0),
+                parent: None,
+            })
             .collect())
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let m = ident(&obj.name);
-        let tags = self.first_column(&format!("SHOW TAG KEYS FROM {m}")).await?;
-        let fields = self.first_column(&format!("SHOW FIELD KEYS FROM {m}")).await?;
+        let tags = self
+            .first_column(&format!("SHOW TAG KEYS FROM {m}"))
+            .await?;
+        let fields = self
+            .first_column(&format!("SHOW FIELD KEYS FROM {m}"))
+            .await?;
         let col = |name: String, data_type: String, key: bool| ColumnInfo {
             name,
             data_type,
@@ -527,7 +779,11 @@ impl Session for InfluxQlSession {
         };
         let mut out = vec![col("time".into(), "time".into(), true)];
         out.extend(tags.iter().map(|r| col(str_at(r, 0), "tag".into(), true)));
-        out.extend(fields.iter().map(|r| col(str_at(r, 0), str_at(r, 1), false)));
+        out.extend(
+            fields
+                .iter()
+                .map(|r| col(str_at(r, 0), str_at(r, 1), false)),
+        );
         Ok(out)
     }
 
@@ -539,33 +795,53 @@ impl Session for InfluxQlSession {
         if self.db.is_none() {
             return Ok(Vec::new());
         }
-        Ok(schema_tables(&self.query("SHOW MEASUREMENTS; SHOW TAG KEYS; SHOW FIELD KEYS").await?))
+        Ok(schema_tables(
+            &self
+                .query("SHOW MEASUREMENTS; SHOW TAG KEYS; SHOW FIELD KEYS")
+                .await?,
+        ))
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.create_database_with(name, &std::collections::BTreeMap::new()).await
+        self.create_database_with(name, &std::collections::BTreeMap::new())
+            .await
     }
 
     /// `CREATE DATABASE … WITH …` (see [`crate::create_db`]).
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden crear bases.".into(),
+            ));
         }
-        self.write_statement(&crate::create_db::influxql(name, options)?).await
+        self.write_statement(&crate::create_db::influxql(name, options)?)
+            .await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden borrar bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden borrar bases.".into(),
+            ));
         }
         if self.db.as_deref() == Some(name) {
-            return Err(Error::Query(format!("No se puede borrar «{name}»: es la base de datos de esta conexión.")));
+            return Err(Error::Query(format!(
+                "No se puede borrar «{name}»: es la base de datos de esta conexión."
+            )));
         }
-        self.write_statement(&format!("DROP DATABASE {}", ident(name))).await
+        self.write_statement(&format!("DROP DATABASE {}", ident(name)))
+            .await
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        format!("SELECT * FROM {} ORDER BY time DESC LIMIT {limit}", ident(&obj.name))
+        format!(
+            "SELECT * FROM {} ORDER BY time DESC LIMIT {limit}",
+            ident(&obj.name)
+        )
     }
 
     /// Each statement goes to `/query` on its own, as the influx CLI sends
@@ -578,7 +854,8 @@ impl Session for InfluxQlSession {
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         // Units, with a `USE` line split off the statement under it.
         let mut units = Vec::new();
-        let mut queue: std::collections::VecDeque<_> = dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic()).into();
+        let mut queue: std::collections::VecDeque<_> =
+            dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic()).into();
         while let Some(u) = queue.pop_front() {
             let (head, rest) = use_line(&u);
             match head.as_deref().and_then(use_target) {
@@ -592,7 +869,11 @@ impl Session for InfluxQlSession {
             }
         }
         if self.read_only {
-            if let Some(kw) = units.iter().filter(|(t, _)| t.is_none()).find_map(|(_, u)| first_write(&u.text)) {
+            if let Some(kw) = units
+                .iter()
+                .filter(|(t, _)| t.is_none())
+                .find_map(|(_, u)| first_write(&u.text))
+            {
                 return Err(Error::Query(format!(
                     "Conexión de solo lectura: se bloqueó una sentencia {kw}. Solo se permiten lecturas (SELECT, SHOW, EXPLAIN)."
                 )));
@@ -604,7 +885,10 @@ impl Session for InfluxQlSession {
                 continue;
             };
             if let Some(msg) = self.missing(&db, rp.as_deref()).await {
-                return Err(dbine_driver::ScriptError::new(msg).at_offset(u.start).at_line(u.line).into());
+                return Err(dbine_driver::ScriptError::new(msg)
+                    .at_offset(u.start)
+                    .at_line(u.line)
+                    .into());
             }
             out.info(match &rp {
                 Some(rp) => format!("Base de datos: {db} (política de retención {rp})"),
@@ -641,14 +925,26 @@ impl Session for InfluxQlSession {
     /// `KILL QUERY`. The list's own `SHOW QUERIES` is over by the time
     /// anyone could pick it, so there's no own query to refuse.
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
-        let qid = processes::v1_qid(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta de InfluxDB (qid)", id.trim())))?;
+        let qid = processes::v1_qid(id).ok_or_else(|| {
+            Error::Query(format!(
+                "«{}» no es un id de consulta de InfluxDB (qid)",
+                id.trim()
+            ))
+        })?;
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden cancelar consultas de otros clientes.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden cancelar consultas de otros clientes."
+                    .into(),
+            ));
         }
-        self.write_statement(&format!("KILL QUERY {qid}")).await.map_err(|e| match e {
-            Error::Query(m) => Error::Query(format!("no se pudo cancelar la consulta {qid}: {m}")),
-            e => e,
-        })
+        self.write_statement(&format!("KILL QUERY {qid}"))
+            .await
+            .map_err(|e| match e {
+                Error::Query(m) => {
+                    Error::Query(format!("no se pudo cancelar la consulta {qid}: {m}"))
+                }
+                e => e,
+            })
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
@@ -660,17 +956,27 @@ impl Session for InfluxQlSession {
                 Err(_) => None,
             });
         }
-        Ok(monitor::v1_snapshot(answers[0].as_ref(), answers[1].as_ref(), answers[2].as_ref()))
+        Ok(monitor::v1_snapshot(
+            answers[0].as_ref(),
+            answers[1].as_ref(),
+            answers[2].as_ref(),
+        ))
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::v1_start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::v1_poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -681,7 +987,13 @@ impl Session for InfluxQlSession {
         Ok(())
     }
 
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if analyze && self.read_only {
             if let Some(kw) = first_write(text) {
                 return Err(Error::Query(format!(
@@ -703,30 +1015,51 @@ impl Session for InfluxQlSession {
             }
             if !select {
                 if !analyze {
-                    out.messages.push(format!("Sin plan para «{}»: InfluxQL solo explica SELECT.", stmt.trim()));
+                    out.messages.push(format!(
+                        "Sin plan para «{}»: InfluxQL solo explica SELECT.",
+                        stmt.trim()
+                    ));
                 }
                 continue;
             }
             let actual = analyze && !writes;
-            let lines = self.lines(&format!("EXPLAIN {}{stmt}", if actual { "ANALYZE " } else { "" })).await?;
+            let lines = self
+                .lines(&format!(
+                    "EXPLAIN {}{stmt}",
+                    if actual { "ANALYZE " } else { "" }
+                ))
+                .await?;
             let root = if actual {
                 plan::influxql_analyze_tree(&lines).unwrap_or_default()
             } else {
                 plan::influxql_explain_tree(&lines)
             };
             let raw = lines.join("\n").trim_end().to_string();
-            out.plans.push(Plan { statement: stmt.clone(), root, actual, raw_format: "text".into(), raw });
+            out.plans.push(Plan {
+                statement: stmt.clone(),
+                root,
+                actual,
+                raw_format: "text".into(),
+                raw,
+            });
         }
         Ok(())
     }
 
     /// Admin or not, from `SHOW USERS` (see `permissions`).
     /// "Propiedades" (see [`crate::properties`]).
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -765,14 +1098,40 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     };
     let mut parts = Vec::new();
     for f in filters {
-        let c = if f.column.eq_ignore_ascii_case("time") { "time".to_string() } else { ident(&f.column) };
-        let first = || f.values.first().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)));
-        let re = || first().map(|v| regex_literal(&v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())));
+        let c = if f.column.eq_ignore_ascii_case("time") {
+            "time".to_string()
+        } else {
+            ident(&f.column)
+        };
+        let first = || {
+            f.values.first().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })
+        };
+        let re = || {
+            first().map(|v| {
+                regex_literal(
+                    &v.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| v.to_string()),
+                )
+            })
+        };
         let list = |op: &str, join: &str| {
             if f.values.is_empty() {
-                return Err(Error::Query(format!("el filtro de «{}» necesita al menos un valor", f.column)));
+                return Err(Error::Query(format!(
+                    "el filtro de «{}» necesita al menos un valor",
+                    f.column
+                )));
             }
-            Ok(format!("({})", f.values.iter().map(|v| format!("{c} {op} {}", lit(v))).collect::<Vec<_>>().join(join)))
+            Ok(format!(
+                "({})",
+                f.values
+                    .iter()
+                    .map(|v| format!("{c} {op} {}", lit(v)))
+                    .collect::<Vec<_>>()
+                    .join(join)
+            ))
         };
         let sql = || f.sql.as_deref().unwrap_or("").trim().to_string();
         parts.push(match f.op {
@@ -795,12 +1154,15 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
             FilterOp::Sql => format!("({})", sql()),
             FilterOp::SqlRight => format!("{c} {}", sql()),
             FilterOp::IsNull | FilterOp::NotNull | FilterOp::TrueOrNull | FilterOp::FalseOrNull => {
-                return Err(Error::Unsupported("InfluxQL no compara con valores nulos".into()))
+                return Err(Error::Unsupported(
+                    "InfluxQL no compara con valores nulos".into(),
+                ))
             }
         });
     }
-    insert_where(browse, &parts.join("\n  AND "))
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    insert_where(browse, &parts.join("\n  AND ")).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+    })
 }
 
 /// The browse query (filtered or not) sorted by the grid's columns:
@@ -812,19 +1174,33 @@ pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<Stri
         return Ok(query.to_string());
     }
     let [k] = sort else {
-        return Err(Error::Unsupported("InfluxQL solo ordena por time: se ordenan las filas cargadas".into()));
+        return Err(Error::Unsupported(
+            "InfluxQL solo ordena por time: se ordenan las filas cargadas".into(),
+        ));
     };
     if !k.column.eq_ignore_ascii_case("time") {
-        return Err(Error::Unsupported("InfluxQL solo ordena por time: se ordenan las filas cargadas".into()));
+        return Err(Error::Unsupported(
+            "InfluxQL solo ordena por time: se ordenan las filas cargadas".into(),
+        ));
     }
     // The browse query's own `ORDER BY time DESC`, the last one: a filter
     // value comes before it.
     const ORDER: &str = "ORDER BY time";
-    let at = query.rfind(ORDER).ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))?;
+    let at = query.rfind(ORDER).ok_or_else(|| {
+        Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into())
+    })?;
     let rest = query[at + ORDER.len()..].trim_start();
-    let rest = rest.strip_prefix("DESC").or_else(|| rest.strip_prefix("ASC")).unwrap_or(rest).trim_start();
+    let rest = rest
+        .strip_prefix("DESC")
+        .or_else(|| rest.strip_prefix("ASC"))
+        .unwrap_or(rest)
+        .trim_start();
     let dir = if k.descending { "DESC" } else { "ASC" };
-    Ok(format!("{}{ORDER} {dir}{}{rest}", &query[..at], if rest.is_empty() { "" } else { " " }))
+    Ok(format!(
+        "{}{ORDER} {dir}{}{rest}",
+        &query[..at],
+        if rest.is_empty() { "" } else { " " }
+    ))
 }
 
 #[cfg(test)]
@@ -835,27 +1211,53 @@ mod tests {
     #[test]
     fn sorted_browse_only_by_time() {
         use dbine_driver::{ColumnFilter, FilterOp, SortKey};
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
         let q = "SELECT * FROM \"cpu\" ORDER BY time DESC LIMIT 200";
         assert_eq!(sorted_browse(q, &[]).unwrap(), q);
-        assert_eq!(sorted_browse(q, &[k("time", false)]).unwrap(), "SELECT * FROM \"cpu\" ORDER BY time ASC LIMIT 200");
+        assert_eq!(
+            sorted_browse(q, &[k("time", false)]).unwrap(),
+            "SELECT * FROM \"cpu\" ORDER BY time ASC LIMIT 200"
+        );
         assert_eq!(sorted_browse(q, &[k("Time", true)]).unwrap(), q);
         // With a filter whose value says ORDER BY time.
-        let f = filtered_browse(q, &[ColumnFilter { column: "host".into(), op: FilterOp::Eq, values: vec![json!("ORDER BY time DESC \"x\"")], sql: None }])
-            .unwrap();
+        let f = filtered_browse(
+            q,
+            &[ColumnFilter {
+                column: "host".into(),
+                op: FilterOp::Eq,
+                values: vec![json!("ORDER BY time DESC \"x\"")],
+                sql: None,
+            }],
+        )
+        .unwrap();
         assert_eq!(
             sorted_browse(&f, &[k("time", false)]).unwrap(),
             "SELECT * FROM \"cpu\"\nWHERE \"host\" = 'ORDER BY time DESC \"x\"'\nORDER BY time ASC LIMIT 200"
         );
-        for sort in [vec![k("host", false)], vec![k("time", true), k("host", false)], vec![k("we\"ird", true)]] {
-            assert!(matches!(sorted_browse(q, &sort), Err(Error::Unsupported(_))));
+        for sort in [
+            vec![k("host", false)],
+            vec![k("time", true), k("host", false)],
+            vec![k("we\"ird", true)],
+        ] {
+            assert!(matches!(
+                sorted_browse(q, &sort),
+                Err(Error::Unsupported(_))
+            ));
         }
     }
 
     #[test]
     fn filtered_browse_in_influxql() {
         use dbine_driver::{ColumnFilter, FilterOp};
-        let f = |column: &str, op: FilterOp, values: Vec<J>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<J>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         assert_eq!(
             filtered_browse(
                 "SELECT * FROM \"cpu\" ORDER BY time DESC LIMIT 200",
@@ -870,7 +1272,13 @@ mod tests {
             .unwrap(),
             "SELECT * FROM \"cpu\"\nWHERE \"host\" = 'O\\'Brien'\n  AND \"usage\" > 12.5\n  AND \"path\" =~ /^\\/var\\.log/\n  AND (\"region\" = 'a' OR \"region\" = 'b')\n  AND time >= '2024-01-01T00:00:00Z'\nORDER BY time DESC LIMIT 200"
         );
-        assert!(matches!(filtered_browse("SELECT * FROM \"cpu\" LIMIT 5", &[f("x", FilterOp::IsNull, vec![])]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            filtered_browse(
+                "SELECT * FROM \"cpu\" LIMIT 5",
+                &[f("x", FilterOp::IsNull, vec![])]
+            ),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -891,7 +1299,10 @@ mod tests {
         let t = statement_tables(&r);
         assert_eq!(t.len(), 1);
         assert_eq!(t[0].0, ["name", "host", "time", "mean"]);
-        assert_eq!(t[0].1[1], vec![json!("cpu"), json!("b"), json!(0), json!(2)]);
+        assert_eq!(
+            t[0].1[1],
+            vec![json!("cpu"), json!("b"), json!(0), json!(2)]
+        );
     }
 
     #[test]
@@ -903,10 +1314,28 @@ mod tests {
                              {"name":"mem","columns":["fieldKey","fieldType"],"values":[["used","integer"]]}]}),
         ];
         let t = schema_tables(&results);
-        assert_eq!(t.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["cpu", "mem"]);
-        let cols: Vec<(&str, &str)> = t[0].columns.iter().map(|c| (c.name.as_str(), c.data_type.as_str())).collect();
-        assert_eq!(cols, [("time", "time"), ("host", "tag"), ("region", "tag"), ("value", "float")]);
-        assert_eq!(t[0].primary_key.as_ref().unwrap().columns, ["time", "host", "region"]);
+        assert_eq!(
+            t.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+            ["cpu", "mem"]
+        );
+        let cols: Vec<(&str, &str)> = t[0]
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.data_type.as_str()))
+            .collect();
+        assert_eq!(
+            cols,
+            [
+                ("time", "time"),
+                ("host", "tag"),
+                ("region", "tag"),
+                ("value", "float")
+            ]
+        );
+        assert_eq!(
+            t[0].primary_key.as_ref().unwrap().columns,
+            ["time", "host", "region"]
+        );
         assert_eq!(t[0].columns[1].options["tag"], "true");
         assert_eq!(t[1].primary_key.as_ref().unwrap().columns, ["time"]);
     }
@@ -914,15 +1343,24 @@ mod tests {
     #[test]
     fn read_only_check() {
         assert_eq!(first_write("SELECT * FROM cpu; SHOW MEASUREMENTS"), None);
-        assert_eq!(first_write("select * into b from a").as_deref(), Some("SELECT … INTO"));
-        assert_eq!(first_write("SHOW DATABASES; DROP DATABASE x").as_deref(), Some("DROP"));
+        assert_eq!(
+            first_write("select * into b from a").as_deref(),
+            Some("SELECT … INTO")
+        );
+        assert_eq!(
+            first_write("SHOW DATABASES; DROP DATABASE x").as_deref(),
+            Some("DROP")
+        );
         assert_eq!(first_write("USE telegraf; SELECT * FROM cpu"), None);
     }
 
     #[test]
     fn use_and_errors() {
         assert_eq!(use_target("USE telegraf"), Some(("telegraf".into(), None)));
-        assert_eq!(use_target("use \"my db\".\"a.rp\""), Some(("my db".into(), Some("a.rp".into()))));
+        assert_eq!(
+            use_target("use \"my db\".\"a.rp\""),
+            Some(("my db".into(), Some("a.rp".into())))
+        );
         assert_eq!(use_target("USEFUL"), None);
         assert_eq!(use_target("USE"), None);
         // `USE` ends at its line, as in the influx CLI.
@@ -931,22 +1369,45 @@ mod tests {
         let (head, rest) = use_line(&units[1]);
         assert_eq!(head.as_deref(), Some("USE vwh.rp1"));
         let rest = rest.unwrap();
-        assert_eq!((rest.text.as_str(), rest.line, &t[rest.start..rest.end]), ("SHOW MEASUREMENTS\nLIMIT 1", 3, "SHOW MEASUREMENTS\nLIMIT 1"));
+        assert_eq!(
+            (rest.text.as_str(), rest.line, &t[rest.start..rest.end]),
+            (
+                "SHOW MEASUREMENTS\nLIMIT 1",
+                3,
+                "SHOW MEASUREMENTS\nLIMIT 1"
+            )
+        );
         assert_eq!(use_line(&units[0]), (None, None));
-        assert_eq!(use_line(&dbine_driver::sql::split_script("use x", &Default::default())[0]), (Some("use x".into()), None));
+        assert_eq!(
+            use_line(&dbine_driver::sql::split_script("use x", &Default::default())[0]),
+            (Some("use x".into()), None)
+        );
         let t = "USE a;\nSHOW DATABASES;\nSELECT * FROM;";
         let base = t.find("SHOW").unwrap();
         // The request was "SHOW DATABASES;\nSELECT * FROM": line 2, char 14.
-        let Error::Statement(e) = parse_error("error parsing query: found EOF, expected identifier at line 2, char 14", t, base) else { panic!() };
+        let Error::Statement(e) = parse_error(
+            "error parsing query: found EOF, expected identifier at line 2, char 14",
+            t,
+            base,
+        ) else {
+            panic!()
+        };
         assert_eq!((e.line, e.offset), (Some(3), Some(t.len() - 1)));
-        assert!(matches!(parse_error("database not found: x", t, 0), Error::Query(_)));
+        assert!(matches!(
+            parse_error("database not found: x", t, 0),
+            Error::Query(_)
+        ));
         assert_eq!(ident("a\"b"), r#""a\"b""#);
     }
 
     #[test]
     fn deletes_points_by_time_and_tags() {
         let keys = vec![
-            vec![("time".into(), json!("2024-01-31T13:45:00Z")), ("host".into(), json!("O'Brien")), ("region".into(), J::Null)],
+            vec![
+                ("time".into(), json!("2024-01-31T13:45:00Z")),
+                ("host".into(), json!("O'Brien")),
+                ("region".into(), J::Null),
+            ],
             vec![("time".into(), json!(1706708700000000000_i64))],
         ];
         assert_eq!(
@@ -954,7 +1415,13 @@ mod tests {
             "DELETE FROM \"cpu\" WHERE time = '2024-01-31T13:45:00Z' AND \"host\" = 'O\\'Brien' AND \"region\" = '';\n\
              DELETE FROM \"cpu\" WHERE time = 1706708700000000000;"
         );
-        assert!(matches!(delete_script("cpu", &[vec![("host".into(), json!("a"))]]), Err(Error::Unsupported(_))));
-        assert!(matches!(delete_script("cpu", &[vec![("time".into(), J::Null)]]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            delete_script("cpu", &[vec![("host".into(), json!("a"))]]),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            delete_script("cpu", &[vec![("time".into(), J::Null)]]),
+            Err(Error::Unsupported(_))
+        ));
     }
 }

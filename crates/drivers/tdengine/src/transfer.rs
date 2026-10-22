@@ -46,7 +46,9 @@
 
 use crate::ddl::{lit, q, qualified, SUBTABLE, SUPERTABLE};
 use crate::{encode, http_error, td_error, Answer, Cancel, Conn, TdSession};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{kinds, Error, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -101,7 +103,12 @@ impl Precision {
 
 /// A REST value as a cell, given its TDengine type (`column_meta`).
 pub(crate) fn to_cell(v: Value, ty: &str) -> Cell {
-    let base = ty.split('(').next().unwrap_or(ty).trim().to_ascii_uppercase();
+    let base = ty
+        .split('(')
+        .next()
+        .unwrap_or(ty)
+        .trim()
+        .to_ascii_uppercase();
     match v {
         Value::Null => Cell::Null,
         Value::Bool(b) => Cell::Bool(b),
@@ -145,7 +152,8 @@ pub(crate) fn to_cell(v: Value, ty: &str) -> Cell {
 /// `3.4028235e+38`): parsed as the `f32` it is and widened, exact. Parsed
 /// as an `f64` it would be another number, above `FLT_MAX` there.
 fn float_cell(s: String) -> Cell {
-    s.parse::<f32>().map_or(Cell::Text(s), |f| Cell::Float(f64::from(f)))
+    s.parse::<f32>()
+        .map_or(Cell::Text(s), |f| Cell::Float(f64::from(f)))
 }
 
 /// `2024-01-31T13:45:00.123456Z` → `2024-01-31 13:45:00.123456` (the
@@ -162,11 +170,17 @@ fn datetime_cell(s: &str) -> Cell {
 }
 
 fn unhex(s: &str) -> Option<Vec<u8>> {
-    let s = s.strip_prefix("\\x").or_else(|| s.strip_prefix("0x")).unwrap_or(s);
+    let s = s
+        .strip_prefix("\\x")
+        .or_else(|| s.strip_prefix("0x"))
+        .unwrap_or(s);
     if !s.len().is_multiple_of(2) {
         return None;
     }
-    (0..s.len()).step_by(2).map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok())).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect()
 }
 
 /// Days since 1970-01-01 of a civil date (proleptic Gregorian).
@@ -184,7 +198,11 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 /// (or a bare date); a value without a zone is UTC.
 pub(crate) fn epoch_nanos(s: &str) -> Option<i128> {
     let s = s.trim();
-    let num = |t: &str| -> Option<i64> { (!t.is_empty() && t.bytes().all(|b| b.is_ascii_digit())).then(|| t.parse().ok()).flatten() };
+    let num = |t: &str| -> Option<i64> {
+        (!t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| t.parse().ok())
+            .flatten()
+    };
     let (date, rest) = match s.find([' ', 'T']) {
         Some(i) => (&s[..i], s[i + 1..].trim()),
         None => (s, ""),
@@ -205,9 +223,15 @@ pub(crate) fn epoch_nanos(s: &str) -> Option<i128> {
         (t.trim(), 0i128)
     } else if let Some(i) = rest.rfind(['+', '-']) {
         let z = rest[i + 1..].replace(':', "");
-        let (h, mi) = (num(z.get(..2)?)?, if z.len() > 2 { num(&z[2..])? } else { 0 });
+        let (h, mi) = (
+            num(z.get(..2)?)?,
+            if z.len() > 2 { num(&z[2..])? } else { 0 },
+        );
         let sign = if rest.as_bytes()[i] == b'-' { -1 } else { 1 };
-        (rest[..i].trim(), sign * (h as i128 * 3600 + mi as i128 * 60) * 1_000_000_000)
+        (
+            rest[..i].trim(),
+            sign * (h as i128 * 3600 + mi as i128 * 60) * 1_000_000_000,
+        )
     } else {
         (rest, 0)
     };
@@ -233,7 +257,11 @@ pub(crate) fn epoch_nanos(s: &str) -> Option<i128> {
 /// nanosecond (`epoch_nanos` keeps nine).
 fn sub_nanos(s: &str) -> bool {
     let Some(i) = s.find('.') else { return false };
-    s[i + 1..].bytes().take_while(u8::is_ascii_digit).skip(9).any(|b| b != b'0')
+    s[i + 1..]
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .skip(9)
+        .any(|b| b != b'0')
 }
 
 impl Precision {
@@ -323,7 +351,8 @@ pub(crate) fn quote_floats(body: &str, depth: usize) -> String {
             b']' | b'}' => level = level.saturating_sub(1),
             b'-' | b'0'..=b'9' if level == depth => {
                 let start = i;
-                while i < b.len() && matches!(b[i], b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E') {
+                while i < b.len() && matches!(b[i], b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')
+                {
                     i += 1;
                 }
                 let token = &body[start..i];
@@ -346,9 +375,18 @@ pub(crate) fn quote_floats(body: &str, depth: usize) -> String {
 
 /// A statement over REST, its answer's floats kept exact (see
 /// [`quote_floats`]); like `Conn::sql` otherwise.
-async fn exact_sql(conn: &Conn, db: &str, stmt: String, timeout: Option<Duration>) -> Result<Answer> {
+async fn exact_sql(
+    conn: &Conn,
+    db: &str,
+    stmt: String,
+    timeout: Option<Duration>,
+) -> Result<Answer> {
     let url = format!("{}/rest/sql/{}", conn.base, encode(db));
-    let mut rb = conn.http.post(url).basic_auth(&conn.user, Some(&conn.password)).body(stmt);
+    let mut rb = conn
+        .http
+        .post(url)
+        .basic_auth(&conn.user, Some(&conn.password))
+        .body(stmt);
     if let Some(t) = timeout {
         rb = rb.timeout(t);
     }
@@ -370,14 +408,25 @@ async fn exact_sql(conn: &Conn, db: &str, stmt: String, timeout: Option<Duration
     drop(text);
     let code = v.get("code").and_then(Value::as_i64).unwrap_or(0);
     if code != 0 {
-        return Err(td_error(code, v.get("desc").and_then(Value::as_str).unwrap_or("error").to_string()));
+        return Err(td_error(
+            code,
+            v.get("desc")
+                .and_then(Value::as_str)
+                .unwrap_or("error")
+                .to_string(),
+        ));
     }
     let columns = v
         .get("column_meta")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .map(|c| (c.get(0).map(crate::text).unwrap_or_default(), c.get(1).map(crate::text).unwrap_or_default()))
+        .map(|c| {
+            (
+                c.get(0).map(crate::text).unwrap_or_default(),
+                c.get(1).map(crate::text).unwrap_or_default(),
+            )
+        })
         .collect();
     let data = match v.get_mut("data").map(Value::take) {
         Some(Value::Array(rows)) => rows
@@ -401,8 +450,16 @@ const JSON_ESCAPE: usize = 6;
 /// declared type (`VARCHAR(60000)`…): text as JSON (every byte escaped in
 /// the worst case), binaries as hex.
 fn value_width(ty: &str) -> usize {
-    let base = ty.split('(').next().unwrap_or(ty).trim().to_ascii_uppercase();
-    let n: usize = ty.split_once('(').and_then(|(_, r)| r.split([')', ',']).next()?.trim().parse().ok()).unwrap_or(0);
+    let base = ty
+        .split('(')
+        .next()
+        .unwrap_or(ty)
+        .trim()
+        .to_ascii_uppercase();
+    let n: usize = ty
+        .split_once('(')
+        .and_then(|(_, r)| r.split([')', ',']).next()?.trim().parse().ok())
+        .unwrap_or(0);
     32 + match base.trim_end_matches(" TAG") {
         "VARCHAR" | "BINARY" | "NCHAR" => JSON_ESCAPE * n,
         "VARBINARY" | "GEOMETRY" => 2 * n,
@@ -444,11 +501,26 @@ impl TdSession {
     }
 
     async fn precision(&self, db: &str) -> Result<Precision> {
-        let a = self.query(&format!("SELECT `precision` FROM information_schema.ins_databases WHERE name = {}", lit(db))).await?;
-        Ok(Precision::parse(a.data.first().and_then(|r| r.first()).and_then(Value::as_str).unwrap_or("ms")))
+        let a = self
+            .query(&format!(
+                "SELECT `precision` FROM information_schema.ins_databases WHERE name = {}",
+                lit(db)
+            ))
+            .await?;
+        Ok(Precision::parse(
+            a.data
+                .first()
+                .and_then(|r| r.first())
+                .and_then(Value::as_str)
+                .unwrap_or("ms"),
+        ))
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let kind = spec.table.kind.as_str();
         if !matches!(kind, kinds::TABLE | SUBTABLE | SUPERTABLE) {
             return dbine_driver::transfer::read_via_execute(self, spec, sink).await;
@@ -457,43 +529,88 @@ impl TdSession {
         let db = self.obj_db(&spec.table)?;
         let desc = self.describe(&db, &spec.table.name).await?;
         let Some(ts) = desc.first().map(|(c, _)| c.name.clone()) else {
-            return Err(Error::Query(format!("No se encontró la tabla {}.", spec.table.name)));
+            return Err(Error::Query(format!(
+                "No se encontró la tabla {}.",
+                spec.table.name
+            )));
         };
         let names: Vec<String> = match &spec.columns {
             Some(c) => c.clone(),
             None => {
-                let mut n: Vec<String> = if kind == SUPERTABLE { vec!["tbname".into()] } else { Vec::new() };
+                let mut n: Vec<String> = if kind == SUPERTABLE {
+                    vec!["tbname".into()]
+                } else {
+                    Vec::new()
+                };
                 n.extend(desc.iter().map(|(c, _)| c.name.clone()));
                 n
             }
         };
         let mut cols: Vec<TransferColumn> = Vec::with_capacity(names.len());
         for n in &names {
-            cols.push(match desc.iter().find(|(c, _)| c.name.eq_ignore_ascii_case(n)) {
-                Some((c, tag)) => TransferColumn {
-                    name: n.clone(),
-                    type_name: if *tag { format!("{} TAG", c.data_type) } else { c.data_type.clone() },
-                    nullable: c.nullable || *tag,
+            cols.push(
+                match desc.iter().find(|(c, _)| c.name.eq_ignore_ascii_case(n)) {
+                    Some((c, tag)) => TransferColumn {
+                        name: n.clone(),
+                        type_name: if *tag {
+                            format!("{} TAG", c.data_type)
+                        } else {
+                            c.data_type.clone()
+                        },
+                        nullable: c.nullable || *tag,
+                    },
+                    None if n.eq_ignore_ascii_case("tbname") => TransferColumn {
+                        name: n.clone(),
+                        type_name: "VARCHAR(192)".into(),
+                        nullable: false,
+                    },
+                    None => {
+                        return Err(Error::Query(format!(
+                            "La tabla {} no tiene la columna {n}.",
+                            spec.table.name
+                        )))
+                    }
                 },
-                None if n.eq_ignore_ascii_case("tbname") => TransferColumn { name: n.clone(), type_name: "VARCHAR(192)".into(), nullable: false },
-                None => return Err(Error::Query(format!("La tabla {} no tiene la columna {n}.", spec.table.name))),
-            });
+            );
         }
         let mut types: Vec<String> = cols.iter().map(|c| c.type_name.clone()).collect();
         types.push("TIMESTAMP".into());
         let page = page_rows(&types);
         // Inside one instant, rows are told apart by subtable and composite
         // key (`COMPOSITE KEY` in DESCRIBE's note).
-        let mut within: Vec<String> = if kind == SUPERTABLE { vec!["tbname".into()] } else { Vec::new() };
-        for r in self.strings(&format!("DESCRIBE {}", qualified(Some(&db), &spec.table.name))).await? {
-            if r.len() >= 4 && (r[3].contains("COMPOSITE KEY") || r[3].contains("PRIMARY KEY")) && !r[0].eq_ignore_ascii_case(&ts) {
+        let mut within: Vec<String> = if kind == SUPERTABLE {
+            vec!["tbname".into()]
+        } else {
+            Vec::new()
+        };
+        for r in self
+            .strings(&format!(
+                "DESCRIBE {}",
+                qualified(Some(&db), &spec.table.name)
+            ))
+            .await?
+        {
+            if r.len() >= 4
+                && (r[3].contains("COMPOSITE KEY") || r[3].contains("PRIMARY KEY"))
+                && !r[0].eq_ignore_ascii_case(&ts)
+            {
                 within.push(q(&r[0]));
             }
         }
         let list: Vec<String> = names.iter().map(|n| col(n)).collect();
         // The timestamp once more at the end: the page's walking key.
-        let select = format!("SELECT {}, {} FROM {}", list.join(", "), q(&ts), qualified(Some(&db), &spec.table.name));
-        let filter = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_string);
+        let select = format!(
+            "SELECT {}, {} FROM {}",
+            list.join(", "),
+            q(&ts),
+            qualified(Some(&db), &spec.table.name)
+        );
+        let filter = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+            .map(str::to_string);
         let stmt = |cur: &Cursor| -> String {
             let mut conds: Vec<String> = filter.iter().map(|f| format!("({f})")).collect();
             let mut order = vec![q(&ts)];
@@ -525,12 +642,21 @@ impl TdSession {
             tokio::spawn(async move { exact_sql(&conn, &db, s, None).await })
         };
 
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
         let mut builder = BatchBuilder::new();
         let mut cursor = Cursor::Start;
         let mut pending = fetch(&cursor);
         loop {
-            let got = self.cancel.run(async { (&mut pending).await.map_err(|e| Error::State(format!("lectura interrumpida: {e}")))? }).await;
+            let got = self
+                .cancel
+                .run(async {
+                    (&mut pending)
+                        .await
+                        .map_err(|e| Error::State(format!("lectura interrumpida: {e}")))?
+                })
+                .await;
             let answer = match got {
                 Ok(a) => a,
                 Err(e) => {
@@ -549,7 +675,10 @@ impl TdSession {
                 (_, false) => None,
                 (_, true) => {
                     let last = key(rows.last().expect("full page"));
-                    let keep = rows.iter().rposition(|r| key(r) != last).map_or(0, |i| i + 1);
+                    let keep = rows
+                        .iter()
+                        .rposition(|r| key(r) != last)
+                        .map_or(0, |i| i + 1);
                     if keep == 0 {
                         // One instant fills the page: it's read in pages of
                         // its own.
@@ -565,10 +694,16 @@ impl TdSession {
                 pending = fetch(n);
             }
             {
-                let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+                let mut s = sink
+                    .lock()
+                    .map_err(|_| Error::State("destino de lotes".into()))?;
                 for mut r in rows {
                     r.truncate(names.len());
-                    let row: Vec<Cell> = r.into_iter().enumerate().map(|(i, v)| to_cell(v, types.get(i).map_or("", String::as_str))).collect();
+                    let row: Vec<Cell> = r
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, v)| to_cell(v, types.get(i).map_or("", String::as_str)))
+                        .collect();
                     builder.push(row, &mut *s)?;
                 }
             }
@@ -577,7 +712,11 @@ impl TdSession {
                 None => break,
             }
         }
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
@@ -590,15 +729,23 @@ impl TdSession {
     ) -> Result<u64> {
         let kind = spec.table.kind.as_str();
         if !matches!(kind, kinds::TABLE | SUBTABLE | SUPERTABLE) {
-            return Err(Error::Unsupported("en TDengine solo se cargan filas en tablas, subtablas y supertablas".into()));
+            return Err(Error::Unsupported(
+                "en TDengine solo se cargan filas en tablas, subtablas y supertablas".into(),
+            ));
         }
         self.cancel.flag.store(false, Ordering::SeqCst);
         let db = self.obj_db(&spec.table)?;
-        let names: Vec<String> =
-            if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
         let desc = self.describe(&db, &spec.table.name).await?;
         if desc.is_empty() {
-            return Err(Error::Query(format!("No se encontró la tabla {}.", spec.table.name)));
+            return Err(Error::Query(format!(
+                "No se encontró la tabla {}.",
+                spec.table.name
+            )));
         }
         if kind == SUPERTABLE && !names.iter().any(|n| n.eq_ignore_ascii_case("tbname")) {
             return Err(Error::Query("Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).".into()));
@@ -611,7 +758,10 @@ impl TdSession {
                 continue;
             }
             let Some((c, _)) = desc.iter().find(|(c, _)| c.name.eq_ignore_ascii_case(n)) else {
-                return Err(Error::Query(format!("La tabla {} no tiene la columna {n}.", spec.table.name)));
+                return Err(Error::Query(format!(
+                    "La tabla {} no tiene la columna {n}.",
+                    spec.table.name
+                )));
             };
             stamps.push((c.data_type == "TIMESTAMP").then_some(precision));
         }
@@ -626,7 +776,11 @@ impl TdSession {
         // isn't atomic in TDengine, and one that fails can leave part of
         // its rows committed, uncounted. One subtable's statement is
         // all-or-nothing, like a normal table's.
-        let subtable = if kind == SUPERTABLE { names.iter().position(|n| n.eq_ignore_ascii_case("tbname")) } else { None };
+        let subtable = if kind == SUPERTABLE {
+            names.iter().position(|n| n.eq_ignore_ascii_case("tbname"))
+        } else {
+            None
+        };
         // Before anything is sent: a load that can't wait for its requests
         // when dropped isn't started.
         let mut inserts = Inserts::new(spec.commit_rows.max(1), progress)?;
@@ -638,10 +792,19 @@ impl TdSession {
             let mut buffered = 0usize;
             let mut row_sql = String::new();
             loop {
-                let Some(batch) = cancel.run(async { Ok::<_, Error>(source.next().await) }).await? else { break };
+                let Some(batch) = cancel
+                    .run(async { Ok::<_, Error>(source.next().await) })
+                    .await?
+                else {
+                    break;
+                };
                 for row in &batch.rows {
                     if row.len() != names.len() {
-                        return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), names.len())));
+                        return Err(Error::Query(format!(
+                            "la fila tiene {} valores y la carga {} columnas",
+                            row.len(),
+                            names.len()
+                        )));
                     }
                     row_sql.clear();
                     row_sql.push('(');
@@ -686,7 +849,10 @@ impl TdSession {
             for (_, g) in open.drain() {
                 inserts.send_waiting(&cancel, &conn, &db, g).await?;
             }
-            while let Some(r) = cancel.run(async { Ok::<_, Error>(inserts.set.join_next().await) }).await? {
+            while let Some(r) = cancel
+                .run(async { Ok::<_, Error>(inserts.set.join_next().await) })
+                .await?
+            {
                 inserts.add(joined(Some(r))?);
             }
             Ok(())
@@ -751,16 +917,28 @@ impl<'a> Inserts<'a> {
 
     /// Sends a statement and its row count (nothing when it has no rows),
     /// once fewer than [`IN_FLIGHT`] are on their way.
-    async fn send_waiting(&mut self, cancel: &Cancel, conn: &Arc<Conn>, db: &str, (stmt, rows): (String, u64)) -> Result<()> {
+    async fn send_waiting(
+        &mut self,
+        cancel: &Cancel,
+        conn: &Arc<Conn>,
+        db: &str,
+        (stmt, rows): (String, u64),
+    ) -> Result<()> {
         if rows == 0 {
             return Ok(());
         }
         while self.set.len() >= IN_FLIGHT {
-            let r = cancel.run(async { Ok::<_, Error>(self.set.join_next().await) }).await?;
+            let r = cancel
+                .run(async { Ok::<_, Error>(self.set.join_next().await) })
+                .await?;
             self.add(joined(r)?);
         }
         let (conn, db) = (conn.clone(), db.to_string());
-        self.set.spawn(async move { exact_sql(&conn, &db, stmt, Some(INSERT_TIMEOUT)).await.map(|_| rows) });
+        self.set.spawn(async move {
+            exact_sql(&conn, &db, stmt, Some(INSERT_TIMEOUT))
+                .await
+                .map(|_| rows)
+        });
         Ok(())
     }
 
@@ -820,24 +998,45 @@ mod tests {
 
     #[test]
     fn rest_values_become_typed_cells() {
-        assert_eq!(to_cell(json!("2023-11-14T22:13:20.123456Z"), "TIMESTAMP"), Cell::DateTime("2023-11-14 22:13:20.123456".into()));
-        assert_eq!(to_cell(json!("2023-11-14T22:13:20.123Z"), "TIMESTAMP"), Cell::DateTime("2023-11-14 22:13:20.123".into()));
+        assert_eq!(
+            to_cell(json!("2023-11-14T22:13:20.123456Z"), "TIMESTAMP"),
+            Cell::DateTime("2023-11-14 22:13:20.123456".into())
+        );
+        assert_eq!(
+            to_cell(json!("2023-11-14T22:13:20.123Z"), "TIMESTAMP"),
+            Cell::DateTime("2023-11-14 22:13:20.123".into())
+        );
         assert_eq!(
             to_cell(json!("2023-11-14T19:13:20.123456789-03:00"), "TIMESTAMP"),
             Cell::DateTimeTz("2023-11-14 19:13:20.123456789-03:00".into())
         );
         assert_eq!(to_cell(json!(-5), "INT"), Cell::Int(-5));
-        assert_eq!(to_cell(json!(18446744073709551614u64), "BIGINT UNSIGNED"), Cell::UInt(18446744073709551614));
+        assert_eq!(
+            to_cell(json!(18446744073709551614u64), "BIGINT UNSIGNED"),
+            Cell::UInt(18446744073709551614)
+        );
         assert_eq!(to_cell(json!(7), "TINYINT UNSIGNED"), Cell::UInt(7));
         assert_eq!(to_cell(json!(1.5), "FLOAT"), Cell::Float(1.5));
-        assert_eq!(to_cell(json!("90.33333333333333"), "DOUBLE"), Cell::Float(271.0 / 3.0));
+        assert_eq!(
+            to_cell(json!("90.33333333333333"), "DOUBLE"),
+            Cell::Float(271.0 / 3.0)
+        );
         assert_eq!(to_cell(json!("1e+300"), "DOUBLE"), Cell::Float(1e300));
         assert_eq!(to_cell(json!(3), "DOUBLE"), Cell::Float(3.0));
         assert_eq!(to_cell(json!(true), "BOOL"), Cell::Bool(true));
         assert_eq!(to_cell(json!("ñu"), "NCHAR"), Cell::Text("ñu".into()));
-        assert_eq!(to_cell(json!("cafe"), "VARBINARY"), Cell::Bytes(vec![0xCA, 0xFE]));
-        assert_eq!(to_cell(json!({"k": 1}), "JSON"), Cell::Json("{\"k\":1}".into()));
-        assert_eq!(to_cell(json!("12.340"), "DECIMAL(10,3)"), Cell::Decimal("12.340".into()));
+        assert_eq!(
+            to_cell(json!("cafe"), "VARBINARY"),
+            Cell::Bytes(vec![0xCA, 0xFE])
+        );
+        assert_eq!(
+            to_cell(json!({"k": 1}), "JSON"),
+            Cell::Json("{\"k\":1}".into())
+        );
+        assert_eq!(
+            to_cell(json!("12.340"), "DECIMAL(10,3)"),
+            Cell::Decimal("12.340".into())
+        );
         assert_eq!(to_cell(Value::Null, "INT"), Cell::Null);
     }
 
@@ -845,18 +1044,33 @@ mod tests {
     fn floats_are_quoted_for_an_exact_parse() {
         let body = r#"{"code":0,"column_meta":[["d","DOUBLE",8]],"data":[[90.33333333333333,-1e+300,5,"a]\"1.5",{"k":2.5}]],"rows":1}"#;
         let q = quote_floats(body, 3);
-        assert_eq!(q, r#"{"code":0,"column_meta":[["d","DOUBLE",8]],"data":[["90.33333333333333","-1e+300",5,"a]\"1.5",{"k":2.5}]],"rows":1}"#);
+        assert_eq!(
+            q,
+            r#"{"code":0,"column_meta":[["d","DOUBLE",8]],"data":[["90.33333333333333","-1e+300",5,"a]\"1.5",{"k":2.5}]],"rows":1}"#
+        );
         let v: Value = serde_json::from_str(&q).unwrap();
-        assert_eq!(to_cell(v["data"][0][0].clone(), "DOUBLE"), Cell::Float(271.0 / 3.0));
+        assert_eq!(
+            to_cell(v["data"][0][0].clone(), "DOUBLE"),
+            Cell::Float(271.0 / 3.0)
+        );
         assert_eq!(v["data"][0][4], json!({"k": 2.5}));
     }
 
     #[test]
     fn instants_parse_to_epoch() {
         assert_eq!(epoch_nanos("1970-01-01 00:00:00"), Some(0));
-        assert_eq!(epoch_nanos("2023-11-14 22:13:20.123456"), Some(1_700_000_000_123_456_000));
-        assert_eq!(epoch_nanos("2023-11-14T22:13:20.123456789Z"), Some(1_700_000_000_123_456_789));
-        assert_eq!(epoch_nanos("2023-11-14 19:13:20.5-03:00"), Some(1_700_000_000_500_000_000));
+        assert_eq!(
+            epoch_nanos("2023-11-14 22:13:20.123456"),
+            Some(1_700_000_000_123_456_000)
+        );
+        assert_eq!(
+            epoch_nanos("2023-11-14T22:13:20.123456789Z"),
+            Some(1_700_000_000_123_456_789)
+        );
+        assert_eq!(
+            epoch_nanos("2023-11-14 19:13:20.5-03:00"),
+            Some(1_700_000_000_500_000_000)
+        );
         assert_eq!(epoch_nanos("2023-11-14"), Some(1_699_920_000_000_000_000));
         assert_eq!(epoch_nanos("1969-12-31 23:59:59.999"), Some(-1_000_000));
         assert_eq!(epoch_nanos("no"), None);
@@ -868,10 +1082,22 @@ mod tests {
         let ms = Some(Precision::Ms);
         let us = Some(Precision::Us);
         let l = |c: Cell, p| literal(&c, p).unwrap();
-        assert_eq!(l(Cell::DateTime("2023-11-14 22:13:20.123456".into()), us), "1700000000123456");
-        assert_eq!(l(Cell::DateTime("2023-11-14 22:13:20.123".into()), ms), "1700000000123");
-        assert_eq!(l(Cell::DateTime("2023-11-14 22:13:20.123000000".into()), ms), "1700000000123");
-        assert_eq!(l(Cell::DateTime("1969-12-31 23:59:59.999".into()), ms), "-1");
+        assert_eq!(
+            l(Cell::DateTime("2023-11-14 22:13:20.123456".into()), us),
+            "1700000000123456"
+        );
+        assert_eq!(
+            l(Cell::DateTime("2023-11-14 22:13:20.123".into()), ms),
+            "1700000000123"
+        );
+        assert_eq!(
+            l(Cell::DateTime("2023-11-14 22:13:20.123000000".into()), ms),
+            "1700000000123"
+        );
+        assert_eq!(
+            l(Cell::DateTime("1969-12-31 23:59:59.999".into()), ms),
+            "-1"
+        );
         assert_eq!(l(Cell::Int(1700000000123), ms), "1700000000123");
         assert_eq!(l(Cell::Text("O'Brien \\".into()), None), "'O''Brien \\\\'");
         assert_eq!(l(Cell::Bytes(vec![0xCA, 0xFE]), None), "'\\xCAFE'");
@@ -890,15 +1116,31 @@ mod tests {
             ("2023-11-14 22:13:20.123456789", Precision::Us),
             ("2023-11-14 22:13:20.1234567891", Precision::Ns),
         ] {
-            assert!(matches!(literal(&Cell::DateTime(s.into()), Some(p)), Err(Error::Unsupported(_))), "{s}");
+            assert!(
+                matches!(
+                    literal(&Cell::DateTime(s.into()), Some(p)),
+                    Err(Error::Unsupported(_))
+                ),
+                "{s}"
+            );
         }
-        assert_eq!(literal(&Cell::DateTime("2023-11-14 22:13:20.1234567890".into()), Some(Precision::Ns)).unwrap(), "1700000000123456789");
+        assert_eq!(
+            literal(
+                &Cell::DateTime("2023-11-14 22:13:20.1234567890".into()),
+                Some(Precision::Ns)
+            )
+            .unwrap(),
+            "1700000000123456789"
+        );
     }
 
     #[test]
     fn nan_and_infinities_are_refused_not_nulled() {
         for f in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert!(matches!(literal(&Cell::Float(f), None), Err(Error::Unsupported(_))), "{f}");
+            assert!(
+                matches!(literal(&Cell::Float(f), None), Err(Error::Unsupported(_))),
+                "{f}"
+            );
         }
     }
 
@@ -907,9 +1149,18 @@ mod tests {
         // REST prints FLOAT as the f32's shortest text.
         let max = to_cell(json!("3.4028235e+38"), "FLOAT");
         assert_eq!(max, Cell::Float(f64::from(f32::MAX)));
-        assert_eq!(to_cell(json!("-3.4028235e+38"), "FLOAT"), Cell::Float(f64::from(f32::MIN)));
-        assert_eq!(to_cell(json!("1e-45"), "FLOAT"), Cell::Float(f64::from(f32::from_bits(1))));
-        assert_eq!(to_cell(json!("0.1"), "FLOAT"), Cell::Float(f64::from(0.1f32)));
+        assert_eq!(
+            to_cell(json!("-3.4028235e+38"), "FLOAT"),
+            Cell::Float(f64::from(f32::MIN))
+        );
+        assert_eq!(
+            to_cell(json!("1e-45"), "FLOAT"),
+            Cell::Float(f64::from(f32::from_bits(1)))
+        );
+        assert_eq!(
+            to_cell(json!("0.1"), "FLOAT"),
+            Cell::Float(f64::from(0.1f32))
+        );
         assert_eq!(to_cell(json!(3), "FLOAT"), Cell::Float(3.0));
         // Written back, it's FLT_MAX itself, not the f32's text read as a
         // double (above FLT_MAX: TDengine's 'illegal float data').
@@ -921,10 +1172,16 @@ mod tests {
 
     #[test]
     fn pages_are_bounded_by_bytes() {
-        let narrow: Vec<String> = ["TIMESTAMP", "INT", "DOUBLE", "VARCHAR(20)", "TIMESTAMP"].iter().map(|s| s.to_string()).collect();
+        let narrow: Vec<String> = ["TIMESTAMP", "INT", "DOUBLE", "VARCHAR(20)", "TIMESTAMP"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!((10_000..=PAGE).contains(&page_rows(&narrow)));
         assert_eq!(page_rows(&["TIMESTAMP".to_string()]), PAGE);
-        let wide: Vec<String> = ["TIMESTAMP", "VARCHAR(60000)", "TIMESTAMP"].iter().map(|s| s.to_string()).collect();
+        let wide: Vec<String> = ["TIMESTAMP", "VARCHAR(60000)", "TIMESTAMP"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let n = page_rows(&wide);
         // Every byte a control character: `\u0001` is 6 bytes of JSON.
         assert!(n * 60_000 * 6 <= PAGE_BYTES && n >= 1, "{n}");
@@ -936,9 +1193,18 @@ mod tests {
     #[test]
     fn value_width_covers_escaped_text() {
         // As REST answers it: control characters escaped, the rest raw.
-        for (text, ty) in [("\u{1}".repeat(100), "VARCHAR(100)"), ("😀\u{1}".repeat(5), "NCHAR(10)"), ("\u{1f}".repeat(10), "NCHAR(10)")] {
+        for (text, ty) in [
+            ("\u{1}".repeat(100), "VARCHAR(100)"),
+            ("😀\u{1}".repeat(5), "NCHAR(10)"),
+            ("\u{1f}".repeat(10), "NCHAR(10)"),
+        ] {
             let json = serde_json::to_string(&Value::String(text)).unwrap();
-            assert!(json.len() <= value_width(ty), "{ty}: {} > {}", json.len(), value_width(ty));
+            assert!(
+                json.len() <= value_width(ty),
+                "{ty}: {} > {}",
+                json.len(),
+                value_width(ty)
+            );
         }
     }
 

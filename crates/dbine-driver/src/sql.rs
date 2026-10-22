@@ -5,8 +5,9 @@ use crate::model::ColumnInfo;
 
 mod script;
 pub use script::{
-    expose_versioned, leading_keyword, split_script, strip_comments, unsafe_dml, unsafe_statements, BatchLine, ScriptDefaults, ScriptDialect, ScriptMode,
-    ScriptStatement, StatementKind, UnsafeStatement, GO_COUNT_ERROR, code_tokens, name_tokens, NameToken, TokenKind,
+    code_tokens, expose_versioned, leading_keyword, name_tokens, split_script, strip_comments,
+    unsafe_dml, unsafe_statements, BatchLine, NameToken, ScriptDefaults, ScriptDialect, ScriptMode,
+    ScriptStatement, StatementKind, TokenKind, UnsafeStatement, GO_COUNT_ERROR,
 };
 
 /// How a dialect quotes identifiers.
@@ -58,7 +59,12 @@ pub fn select_top(q: Quote, l: Limit, schema: Option<&str>, name: &str, limit: u
 
 /// A plain `CREATE TABLE` from the column list, for engines that don't
 /// hand one out. Keys, defaults and nullability; no indexes or foreign keys.
-pub fn create_table_from_columns(q: Quote, schema: Option<&str>, name: &str, cols: &[ColumnInfo]) -> String {
+pub fn create_table_from_columns(
+    q: Quote,
+    schema: Option<&str>,
+    name: &str,
+    cols: &[ColumnInfo],
+) -> String {
     let mut lines: Vec<String> = cols
         .iter()
         .map(|c| {
@@ -70,11 +76,19 @@ pub fn create_table_from_columns(q: Quote, schema: Option<&str>, name: &str, col
             l
         })
         .collect();
-    let pk: Vec<String> = cols.iter().filter(|c| c.primary_key).map(|c| quote_ident(q, &c.name)).collect();
+    let pk: Vec<String> = cols
+        .iter()
+        .filter(|c| c.primary_key)
+        .map(|c| quote_ident(q, &c.name))
+        .collect();
     if !pk.is_empty() {
         lines.push(format!("    PRIMARY KEY ({})", pk.join(", ")));
     }
-    format!("CREATE TABLE {} (\n{}\n);", qualified_name(q, schema, name), lines.join(",\n"))
+    format!(
+        "CREATE TABLE {} (\n{}\n);",
+        qualified_name(q, schema, name),
+        lines.join(",\n")
+    )
 }
 
 /// Split a script on `;` outside quotes and comments, dropping empty
@@ -104,8 +118,14 @@ mod tests {
 
     #[test]
     fn select_top_per_dialect() {
-        assert_eq!(select_top(Quote::Bracket, Limit::Top, Some("dbo"), "t", 10), "SELECT TOP (10) *\nFROM [dbo].[t]");
-        assert_eq!(select_top(Quote::Double, Limit::Limit, None, "t", 10), "SELECT *\nFROM \"t\"\nLIMIT 10");
+        assert_eq!(
+            select_top(Quote::Bracket, Limit::Top, Some("dbo"), "t", 10),
+            "SELECT TOP (10) *\nFROM [dbo].[t]"
+        );
+        assert_eq!(
+            select_top(Quote::Double, Limit::Limit, None, "t", 10),
+            "SELECT *\nFROM \"t\"\nLIMIT 10"
+        );
     }
 
     #[test]

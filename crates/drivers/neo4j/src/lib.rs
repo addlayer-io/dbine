@@ -66,16 +66,17 @@ mod value;
 
 use bolt::{Conn, Target};
 use dbine_driver::{
-    async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
-    DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, IndexDef, Language, MonitorSnapshot, ObjectKindInfo,
-    Message, MessageLevel, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
+    async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
+    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind,
+    IndexDef, Language, Message, MessageLevel, MonitorSnapshot, ObjectKindInfo, ObjectRef,
+    QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
 use packstream::{map, Value as Bolt};
-use steps::Step;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use steps::Step;
 
 pub use ddl::CONSTRAINT;
 
@@ -93,7 +94,12 @@ pub enum Flavor {
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     [Flavor::Neo4j, Flavor::Memgraph, Flavor::Neptune]
         .into_iter()
-        .map(|f| Arc::new(GraphDriver { flavor: f, info: info(f) }) as Arc<dyn Driver>)
+        .map(|f| {
+            Arc::new(GraphDriver {
+                flavor: f,
+                info: info(f),
+            }) as Arc<dyn Driver>
+        })
         .collect()
 }
 
@@ -112,8 +118,20 @@ fn kinds_for(f: Flavor) -> Vec<ObjectKindInfo> {
         ObjectKindInfo::new(RELATIONSHIP, "Relaciones", true, true, true),
     ];
     if f != Flavor::Neptune {
-        v.push(ObjectKindInfo::new(kinds::INDEX, "Índices", false, false, true));
-        v.push(ObjectKindInfo::new(CONSTRAINT, "Restricciones", false, false, true));
+        v.push(ObjectKindInfo::new(
+            kinds::INDEX,
+            "Índices",
+            false,
+            false,
+            true,
+        ));
+        v.push(ObjectKindInfo::new(
+            CONSTRAINT,
+            "Restricciones",
+            false,
+            false,
+            true,
+        ));
         v.push(ObjectKindInfo::procedures());
     }
     if f == Flavor::Memgraph {
@@ -187,7 +205,9 @@ fn info(f: Flavor) -> DriverInfo {
                 v.extend(neptune::aws_fields().into_iter().map(|f| match f.key {
                     "region" | "auth_mode" => f.when("iam", &["true"]),
                     "profile" => f.when("auth_mode", &["profile"]),
-                    "access_key_id" | "secret_access_key" | "session_token" => f.when("auth_mode", &["keys"]),
+                    "access_key_id" | "secret_access_key" | "session_token" => {
+                        f.when("auth_mode", &["keys"])
+                    }
                     _ => f,
                 }));
                 v.push(Field::read_only());
@@ -223,7 +243,11 @@ impl Driver for GraphDriver {
     /// END` bodies (for "run the statement at the cursor"; the driver
     /// splits editor scripts itself, with the client commands).
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
-        dbine_driver::ScriptDialect { backslash_escapes: true, compound_blocks: false, ..dbine_driver::ScriptDialect::generic() }
+        dbine_driver::ScriptDialect {
+            backslash_escapes: true,
+            compound_blocks: false,
+            ..dbine_driver::ScriptDialect::generic()
+        }
     }
 
     /// `:begin` … `:commit` and the Auto/Manual switch (Neo4j, Memgraph).
@@ -253,7 +277,11 @@ impl Driver for GraphDriver {
         create_db::fields(self.flavor)
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(self.flavor, name, options)
     }
 
@@ -280,7 +308,11 @@ impl Driver for GraphDriver {
     }
 
     /// `ALTER DATABASE …` on `system` (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(self.flavor, database, changes)
     }
 
@@ -301,15 +333,27 @@ impl Driver for GraphDriver {
         self.flavor != Flavor::Neptune
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(self.flavor, changes)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
         ddl::insert_script(self.flavor, target, columns, rows)
     }
 
-    fn update_script(&self, target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
         ddl::update_script(self.flavor, target, changes)
     }
 
@@ -317,7 +361,11 @@ impl Driver for GraphDriver {
         ddl::delete_script(self.flavor, target, keys)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
 
@@ -341,8 +389,15 @@ impl Driver for GraphDriver {
         backup::script(self.flavor, action)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
-        let db = database.filter(|d| !d.is_empty()).unwrap_or(cfg.database.trim()).to_string();
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
+        let db = database
+            .filter(|d| !d.is_empty())
+            .unwrap_or(cfg.database.trim())
+            .to_string();
         let tag = uuid::Uuid::new_v4().to_string();
         let (transport, target) = if self.flavor == Flavor::Neptune {
             let c = neptune::Client::new(cfg).await?;
@@ -433,7 +488,10 @@ struct Ran {
 
 impl GraphSession {
     fn run_extra(&self, db: Option<&str>) -> Bolt {
-        let mut extra = vec![("tx_metadata".to_string(), map([("dbine", Bolt::from(self.tag.as_str()))]))];
+        let mut extra = vec![(
+            "tx_metadata".to_string(),
+            map([("dbine", Bolt::from(self.tag.as_str()))]),
+        )];
         let db = db.unwrap_or(&self.db);
         let send_db = match self.flavor {
             Flavor::Neo4j => !db.is_empty(),
@@ -458,12 +516,20 @@ impl GraphSession {
     ) -> Result<Ran> {
         // Inside an explicit transaction RUN takes no extra: the database,
         // access mode and metadata went with BEGIN.
-        let extra = if self.tx { Bolt::Map(Vec::new()) } else { self.run_extra(db) };
+        let extra = if self.tx {
+            Bolt::Map(Vec::new())
+        } else {
+            self.run_extra(db)
+        };
         self.reconnect_if_dirty().await?;
         match &mut self.transport {
             Transport::Bolt(c) => {
                 self.dirty = true;
-                let r = c.run(q, params, extra, &mut |f, row| on_row(f, row.iter().map(value::to_json).collect())).await;
+                let r = c
+                    .run(q, params, extra, &mut |f, row| {
+                        on_row(f, row.iter().map(value::to_json).collect())
+                    })
+                    .await;
                 self.dirty = matches!(r, Err(Error::Connect(_)));
                 // A failure ends the transaction (the server rolls it back
                 // on the RESET that follows).
@@ -471,7 +537,10 @@ impl GraphSession {
                     self.tx = false;
                 }
                 let s = r?;
-                Ok(Ran { fields: s.fields, meta: Some(s.meta) })
+                Ok(Ran {
+                    fields: s.fields,
+                    meta: Some(s.meta),
+                })
             }
             Transport::Http(c) => {
                 *self.current.lock().expect("current") = q.to_string();
@@ -481,7 +550,10 @@ impl GraphSession {
                 for r in reply.rows {
                     on_row(&reply.columns, r);
                 }
-                Ok(Ran { fields: reply.columns, meta: None })
+                Ok(Ran {
+                    fields: reply.columns,
+                    meta: None,
+                })
             }
         }
     }
@@ -491,22 +563,35 @@ impl GraphSession {
         self.query_on(q, None).await
     }
 
-    async fn query_on(&mut self, q: &str, db: Option<&str>) -> Result<(Vec<String>, Vec<Vec<Value>>)> {
+    async fn query_on(
+        &mut self,
+        q: &str,
+        db: Option<&str>,
+    ) -> Result<(Vec<String>, Vec<Vec<Value>>)> {
         let mut rows = Vec::new();
-        let ran = self.run_with(q, db, Bolt::Map(Vec::new()), &mut |_, r| rows.push(r)).await?;
+        let ran = self
+            .run_with(q, db, Bolt::Map(Vec::new()), &mut |_, r| rows.push(r))
+            .await?;
         Ok((ran.fields, rows))
     }
 
     /// Rows as maps by column name.
     async fn records(&mut self, q: &str) -> Result<Vec<serde_json::Map<String, Value>>> {
         let (cols, rows) = self.query(q).await?;
-        Ok(rows.into_iter().map(|r| cols.iter().cloned().zip(r).collect()).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| cols.iter().cloned().zip(r).collect())
+            .collect())
     }
 
     /// First column of each row, as text.
     async fn strings(&mut self, q: &str) -> Result<Vec<String>> {
         let (_, rows) = self.query(q).await?;
-        Ok(rows.into_iter().filter_map(|r| r.into_iter().next()).map(|v| as_text(&v)).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.into_iter().next())
+            .map(|v| as_text(&v))
+            .collect())
     }
 
     fn check_read_only(&self, stmt: &str) -> Result<()> {
@@ -531,7 +616,12 @@ impl GraphSession {
 
     /// Run a statement into `out`: its rows, its counters and notifications
     /// as messages, and its plan when the server sent one.
-    async fn run_into(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<Ran> {
+    async fn run_into(
+        &mut self,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<Ran> {
         let mut begun = false;
         let params = Bolt::Map(self.params.clone());
         let ran = {
@@ -590,7 +680,12 @@ impl GraphSession {
                 let mut out = Vec::new();
                 for r in self.records("SHOW INDEX INFO").await? {
                     // Vector indexes: with their name and settings below.
-                    if !r.get("index type").map(as_text).unwrap_or_default().contains("vector") {
+                    if !r
+                        .get("index type")
+                        .map(as_text)
+                        .unwrap_or_default()
+                        .contains("vector")
+                    {
                         out.push(CatalogEntry::memgraph_index(&r));
                     }
                 }
@@ -619,7 +714,11 @@ impl GraphSession {
                 self.strings(q).await?
             }
             Flavor::Memgraph => {
-                let q = if rel { "SHOW EDGE_TYPES INFO" } else { "SHOW NODE_LABELS INFO" };
+                let q = if rel {
+                    "SHOW EDGE_TYPES INFO"
+                } else {
+                    "SHOW NODE_LABELS INFO"
+                };
                 match self.strings(q).await {
                     Ok(v) => v,
                     // Needs --storage-enable-schema-metadata: scan a sample instead.
@@ -630,7 +729,15 @@ impl GraphSession {
             Flavor::Neptune => match self.neptune_summary().await {
                 Some(s) => {
                     let key = if rel { "edgeLabels" } else { "nodeLabels" };
-                    s.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default()
+                    s.get(key)
+                        .and_then(Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default()
                 }
                 None => self.strings(scan_query(rel)).await?,
             },
@@ -644,19 +751,32 @@ impl GraphSession {
     /// Neptune's graph summary (`/propertygraph/statistics/summary`), when
     /// statistics are on.
     async fn neptune_summary(&mut self) -> Option<Value> {
-        let Transport::Http(c) = &self.transport else { return None };
+        let Transport::Http(c) = &self.transport else {
+            return None;
+        };
         let v = c.json("/propertygraph/statistics/summary").await.ok()?;
-        v.get("payload").and_then(|p| p.get("graphSummary")).cloned()
+        v.get("payload")
+            .and_then(|p| p.get("graphSummary"))
+            .cloned()
     }
 
     async fn sample(&mut self, obj: &ObjectRef) -> Result<Vec<Value>> {
         let q = if obj.kind == RELATIONSHIP {
-            format!("MATCH ()-[e:{}]->() WITH e LIMIT 100 RETURN properties(e) AS p", cypher::ident(&obj.name))
+            format!(
+                "MATCH ()-[e:{}]->() WITH e LIMIT 100 RETURN properties(e) AS p",
+                cypher::ident(&obj.name)
+            )
         } else {
-            format!("MATCH (e:{}) WITH e LIMIT 100 RETURN properties(e) AS p", cypher::ident(&obj.name))
+            format!(
+                "MATCH (e:{}) WITH e LIMIT 100 RETURN properties(e) AS p",
+                cypher::ident(&obj.name)
+            )
         };
         let (_, rows) = self.query(&q).await?;
-        Ok(rows.into_iter().filter_map(|r| r.into_iter().next()).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.into_iter().next())
+            .collect())
     }
 
     /// `:use db` switches the session's database.
@@ -666,13 +786,22 @@ impl GraphSession {
             Flavor::Neo4j => {
                 // Proves it exists. The system database only takes
                 // administration commands, so `RETURN 1` fails there.
-                let probe = if name.eq_ignore_ascii_case("system") { "SHOW DEFAULT DATABASE YIELD name" } else { "RETURN 1" };
+                let probe = if name.eq_ignore_ascii_case("system") {
+                    "SHOW DEFAULT DATABASE YIELD name"
+                } else {
+                    "RETURN 1"
+                };
                 self.query_on(probe, Some(&name)).await?;
             }
             Flavor::Memgraph => {
-                self.query(&format!("USE DATABASE {}", cypher::ident(&name))).await?;
+                self.query(&format!("USE DATABASE {}", cypher::ident(&name)))
+                    .await?;
             }
-            Flavor::Neptune => return Err(Error::Unsupported("Neptune tiene una sola base por cluster".into())),
+            Flavor::Neptune => {
+                return Err(Error::Unsupported(
+                    "Neptune tiene una sola base por cluster".into(),
+                ))
+            }
         }
         self.db = name;
         Ok(())
@@ -698,7 +827,9 @@ impl GraphSession {
         self.reconnect_if_dirty().await?;
         match &mut self.transport {
             Transport::Bolt(c) => Ok(c),
-            Transport::Http(_) => Err(Error::Unsupported("Neptune no tiene transacciones explícitas ni parámetros de sesión.".into())),
+            Transport::Http(_) => Err(Error::Unsupported(
+                "Neptune no tiene transacciones explícitas ni parámetros de sesión.".into(),
+            )),
         }
     }
 
@@ -715,7 +846,11 @@ impl GraphSession {
             return Ok(());
         }
         let c = self.bolt().await?;
-        let r = if commit { c.commit().await } else { c.rollback().await };
+        let r = if commit {
+            c.commit().await
+        } else {
+            c.rollback().await
+        };
         self.tx = false;
         r
     }
@@ -724,18 +859,23 @@ impl GraphSession {
     /// first in manual mode.
     async fn cypher(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.check_read_only(stmt)?;
-        if self.manual && !self.tx && self.flavor != Flavor::Neptune && !cypher::implicit_only(stmt) {
+        if self.manual && !self.tx && self.flavor != Flavor::Neptune && !cypher::implicit_only(stmt)
+        {
             self.begin_tx().await?;
             out.info("Transacción iniciada.");
         }
-        self.run_into(stmt, max_rows, out).await.map_err(security::edition_hint)?;
+        self.run_into(stmt, max_rows, out)
+            .await
+            .map_err(security::edition_hint)?;
         Ok(())
     }
 
     /// A cypher-shell client command (a line starting with `:`).
     async fn command(&mut self, line: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let body = line.trim_start_matches(':');
-        let (name, arg) = body.split_once(char::is_whitespace).map_or((body, ""), |(n, a)| (n, a.trim()));
+        let (name, arg) = body
+            .split_once(char::is_whitespace)
+            .map_or((body, ""), |(n, a)| (n, a.trim()));
         match name.to_ascii_lowercase().as_str() {
             "use" => {
                 if self.tx {
@@ -790,22 +930,33 @@ impl GraphSession {
             (None, arg)
         } else {
             let split = arg.split_once("=>").or_else(|| arg.split_once(':'));
-            let Some((n, e)) = split.filter(|(n, e)| !n.trim().is_empty() && !e.trim().is_empty()) else {
-                return Err(Error::Query("Usá :param nombre => valor (o :param {nombre: valor}).".into()));
+            let Some((n, e)) = split.filter(|(n, e)| !n.trim().is_empty() && !e.trim().is_empty())
+            else {
+                return Err(Error::Query(
+                    "Usá :param nombre => valor (o :param {nombre: valor}).".into(),
+                ));
             };
             (Some(n.trim().trim_matches('`').to_string()), e.trim())
         };
         let q = format!("RETURN {expr} AS value");
         self.check_read_only(&q)?;
         let params = Bolt::Map(self.params.clone());
-        let extra = if self.tx { Bolt::Map(Vec::new()) } else { self.run_extra(None) };
+        let extra = if self.tx {
+            Bolt::Map(Vec::new())
+        } else {
+            self.run_extra(None)
+        };
         let r = self.bolt().await?.query(&q, params, extra).await;
         if r.is_err() {
             // As any failed RUN, it ended an open transaction.
             self.tx = false;
         }
         let (_, rows) = r?;
-        let v = rows.into_iter().next().and_then(|r| r.into_iter().next()).unwrap_or(Bolt::Null);
+        let v = rows
+            .into_iter()
+            .next()
+            .and_then(|r| r.into_iter().next())
+            .unwrap_or(Bolt::Null);
         let set: Vec<(String, Bolt)> = match (name, v) {
             (Some(n), v) => vec![(n, v)],
             (None, Bolt::Map(m)) => m,
@@ -828,17 +979,25 @@ impl GraphSession {
 /// (offset: 7))`), relative to the statement.
 fn structured(e: Error, stmt: &str) -> Error {
     let Error::Query(m) = e else { return e };
-    let coded = m.strip_suffix(')').and_then(|s| s.rsplit_once(" (")).filter(|(_, code)| {
-        let parts: Vec<&str> = code.split('.').collect();
-        parts.len() >= 3 && !code.contains(' ') && parts[1].ends_with("Error")
-    });
+    let coded = m
+        .strip_suffix(')')
+        .and_then(|s| s.rsplit_once(" ("))
+        .filter(|(_, code)| {
+            let parts: Vec<&str> = code.split('.').collect();
+            parts.len() >= 3 && !code.contains(' ') && parts[1].ends_with("Error")
+        });
     let mut se = match coded {
         Some((msg, code)) => ScriptError::new(msg).with_code(code),
         None => ScriptError::new(m.clone()),
     };
-    let offset = m.rfind("(offset: ").and_then(|i| m[i + 9..].split(')').next()?.trim().parse::<usize>().ok());
+    let offset = m
+        .rfind("(offset: ")
+        .and_then(|i| m[i + 9..].split(')').next()?.trim().parse::<usize>().ok());
     if let Some(chars) = offset {
-        let at = stmt.char_indices().nth(chars).map_or(stmt.len(), |(i, _)| i);
+        let at = stmt
+            .char_indices()
+            .nth(chars)
+            .map_or(stmt.len(), |(i, _)| i);
         se = se.at_offset(at).at_line(steps::line_at(stmt, at));
     } else if let Some((line, col)) = memgraph_position(&m) {
         // Memgraph: "Error on line 3 position 13" (1-based, in the statement).
@@ -856,23 +1015,39 @@ fn memgraph_position(m: &str) -> Option<(u32, u32)> {
     if w.next()? != "position" {
         return None;
     }
-    let col = w.next()?.trim_end_matches(|c: char| !c.is_ascii_digit()).parse().ok()?;
+    let col = w
+        .next()?
+        .trim_end_matches(|c: char| !c.is_ascii_digit())
+        .parse()
+        .ok()?;
     Some((line, col))
 }
 
 /// Notifications of a Bolt summary as messages: warnings and information,
 /// with their code and line in the statement.
 fn notification_messages(meta: &Bolt) -> Vec<Message> {
-    let list = meta.get("notifications").map(Bolt::as_list).unwrap_or_default();
+    let list = meta
+        .get("notifications")
+        .map(Bolt::as_list)
+        .unwrap_or_default();
     list.iter()
         .zip(notifications(meta))
         .map(|(n, text)| {
             let sev = n.get("severity").and_then(Bolt::as_str).unwrap_or_default();
             Message {
-                level: if sev.eq_ignore_ascii_case("WARNING") { MessageLevel::Warning } else { MessageLevel::Info },
+                level: if sev.eq_ignore_ascii_case("WARNING") {
+                    MessageLevel::Warning
+                } else {
+                    MessageLevel::Info
+                },
                 text,
                 code: n.get("code").and_then(Bolt::as_str).map(str::to_string),
-                line: n.get("position").and_then(|p| p.get("line")).and_then(Bolt::as_i64).filter(|l| *l > 0).map(|l| l as u32),
+                line: n
+                    .get("position")
+                    .and_then(|p| p.get("line"))
+                    .and_then(Bolt::as_i64)
+                    .filter(|l| *l > 0)
+                    .map(|l| l as u32),
                 ..Default::default()
             }
         })
@@ -888,7 +1063,13 @@ fn scan_query(rel: bool) -> &'static str {
 }
 
 fn columns(fields: &[String]) -> Vec<ResultColumn> {
-    fields.iter().map(|f| ResultColumn { name: f.clone(), type_name: String::new() }).collect()
+    fields
+        .iter()
+        .map(|f| ResultColumn {
+            name: f.clone(),
+            type_name: String::new(),
+        })
+        .collect()
 }
 
 fn as_text(v: &Value) -> String {
@@ -915,7 +1096,9 @@ fn stats(meta: &Bolt) -> (String, u64) {
         ("constraints-removed", "restricciones borradas"),
         ("system-updates", "cambios de sistema"),
     ];
-    let Some(s) = meta.get("stats") else { return (String::new(), 0) };
+    let Some(s) = meta.get("stats") else {
+        return (String::new(), 0);
+    };
     let mut parts = Vec::new();
     let mut total = 0u64;
     for (k, label) in NAMES {
@@ -928,9 +1111,21 @@ fn stats(meta: &Bolt) -> (String, u64) {
     }
     // Only property / label changes: those are the "rows" affected.
     if total == 0 {
-        total = NAMES.iter().filter_map(|(k, _)| s.get(k).and_then(Bolt::as_i64)).filter(|n| *n > 0).map(|n| n as u64).sum();
+        total = NAMES
+            .iter()
+            .filter_map(|(k, _)| s.get(k).and_then(Bolt::as_i64))
+            .filter(|n| *n > 0)
+            .map(|n| n as u64)
+            .sum();
     }
-    (if parts.is_empty() { String::new() } else { format!("{}.", parts.join(", ")) }, total)
+    (
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!("{}.", parts.join(", "))
+        },
+        total,
+    )
 }
 
 fn notifications(meta: &Bolt) -> Vec<String> {
@@ -941,8 +1136,19 @@ fn notifications(meta: &Bolt) -> Vec<String> {
         .map(|n| {
             let sev = n.get("severity").and_then(Bolt::as_str).unwrap_or_default();
             let title = n.get("title").and_then(Bolt::as_str).unwrap_or_default();
-            let desc = n.get("description").and_then(Bolt::as_str).unwrap_or_default();
-            format!("{}{title}{}{desc}", if sev.is_empty() { String::new() } else { format!("[{sev}] ") }, if desc.is_empty() { "" } else { " — " })
+            let desc = n
+                .get("description")
+                .and_then(Bolt::as_str)
+                .unwrap_or_default();
+            format!(
+                "{}{title}{}{desc}",
+                if sev.is_empty() {
+                    String::new()
+                } else {
+                    format!("[{sev}] ")
+                },
+                if desc.is_empty() { "" } else { " — " }
+            )
         })
         .collect()
 }
@@ -963,13 +1169,24 @@ struct CatalogEntry {
 }
 
 fn strs(v: Option<&Value>) -> Vec<String> {
-    v.and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default()
+    v.and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Whether an `indexConfig` entry has Neo4j's default value (left out,
 /// so only real differences show).
 fn default_index_config(k: &str, v: &Value) -> bool {
-    let nums = |want: &[f64]| v.as_array().is_some_and(|a| a.len() == want.len() && a.iter().zip(want).all(|(x, w)| x.as_f64() == Some(*w)));
+    let nums = |want: &[f64]| {
+        v.as_array().is_some_and(|a| {
+            a.len() == want.len() && a.iter().zip(want).all(|(x, w)| x.as_f64() == Some(*w))
+        })
+    };
     const M: f64 = 1_000_000.0;
     match k {
         "fulltext.analyzer" => v.as_str() == Some("standard-no-stop-words"),
@@ -1007,9 +1224,19 @@ fn neo4j_options(spec_kind: &str, r: &serde_json::Map<String, Value>) -> BTreeMa
             o.insert(ddl::PROPERTY_TYPE.to_string(), option_text(t));
         }
     }
-    if matches!(spec_kind, "FULLTEXT" | "VECTOR" | "POINT" | "TEXT" | "RANGE") {
-        if let Some(cfg) = r.get("options").and_then(|x| x.get("indexConfig")).and_then(Value::as_object) {
-            for (k, v) in cfg.iter().filter(|(k, v)| !v.is_null() && !default_index_config(k, v)) {
+    if matches!(
+        spec_kind,
+        "FULLTEXT" | "VECTOR" | "POINT" | "TEXT" | "RANGE"
+    ) {
+        if let Some(cfg) = r
+            .get("options")
+            .and_then(|x| x.get("indexConfig"))
+            .and_then(Value::as_object)
+        {
+            for (k, v) in cfg
+                .iter()
+                .filter(|(k, v)| !v.is_null() && !default_index_config(k, v))
+            {
                 o.insert(k.clone(), option_text(v));
             }
         }
@@ -1063,23 +1290,56 @@ impl CatalogEntry {
         } else {
             "RANGE"
         };
-        let name = if properties.is_empty() { format!(":{target}") } else { format!(":{target}({})", properties.join(", ")) };
-        let spec = ddl::IndexSpec { name: String::new(), target: target.clone(), relationship, kind: spec_kind.into(), properties: properties.clone(), options: BTreeMap::new() };
+        let name = if properties.is_empty() {
+            format!(":{target}")
+        } else {
+            format!(":{target}({})", properties.join(", "))
+        };
+        let spec = ddl::IndexSpec {
+            name: String::new(),
+            target: target.clone(),
+            relationship,
+            kind: spec_kind.into(),
+            properties: properties.clone(),
+            options: BTreeMap::new(),
+        };
         let definition = if spec_kind == "VECTOR" {
             format!("// índice vectorial {}", cypher::comment_text(&name))
         } else {
-            ddl::create(Flavor::Memgraph, &spec, false).map(|s| format!("{s};")).unwrap_or_default()
+            ddl::create(Flavor::Memgraph, &spec, false)
+                .map(|s| format!("{s};"))
+                .unwrap_or_default()
         };
-        Self { kind: kinds::INDEX, name: format!("{} {name}", t), target, relationship, spec_kind: spec_kind.into(), properties, definition, options: BTreeMap::new() }
+        Self {
+            kind: kinds::INDEX,
+            name: format!("{} {name}", t),
+            target,
+            relationship,
+            spec_kind: spec_kind.into(),
+            properties,
+            definition,
+            options: BTreeMap::new(),
+        }
     }
 
     /// `SHOW VECTOR INDEX INFO`: `index_name`, `label` (`:L`), `property`,
     /// `dimension`, `capacity`, `metric`, `scalar_kind`, `index_type`.
     fn memgraph_vector(r: &serde_json::Map<String, Value>) -> Self {
         let g = |k: &str| r.get(k).filter(|v| !v.is_null());
-        let target = g("label").map(as_text).unwrap_or_default().trim_start_matches(':').to_string();
-        let relationship = g("index_type").map(as_text).unwrap_or_default().starts_with("edge");
-        let properties = g("property").map(as_text).into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>();
+        let target = g("label")
+            .map(as_text)
+            .unwrap_or_default()
+            .trim_start_matches(':')
+            .to_string();
+        let relationship = g("index_type")
+            .map(as_text)
+            .unwrap_or_default()
+            .starts_with("edge");
+        let properties = g("property")
+            .map(as_text)
+            .into_iter()
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>();
         let mut options = BTreeMap::new();
         // Not `capacity`: the server reports what it reserved (rounded up,
         // and growing), not what was asked, so it would never read the same.
@@ -1089,9 +1349,27 @@ impl CatalogEntry {
             }
         }
         let name = g("index_name").map(as_text).unwrap_or_default();
-        let spec = ddl::IndexSpec { name: name.clone(), target: target.clone(), relationship, kind: "VECTOR".into(), properties: properties.clone(), options: options.clone() };
-        let definition = ddl::create(Flavor::Memgraph, &spec, false).map(|s| format!("{s};")).unwrap_or_default();
-        Self { kind: kinds::INDEX, name, target, relationship, spec_kind: "VECTOR".into(), properties, definition, options }
+        let spec = ddl::IndexSpec {
+            name: name.clone(),
+            target: target.clone(),
+            relationship,
+            kind: "VECTOR".into(),
+            properties: properties.clone(),
+            options: options.clone(),
+        };
+        let definition = ddl::create(Flavor::Memgraph, &spec, false)
+            .map(|s| format!("{s};"))
+            .unwrap_or_default();
+        Self {
+            kind: kinds::INDEX,
+            name,
+            target,
+            relationship,
+            spec_kind: "VECTOR".into(),
+            properties,
+            definition,
+            options,
+        }
     }
 
     /// `SHOW CONSTRAINT INFO`: `constraint type` (unique, exists, data_type), `label`, `properties`.
@@ -1100,7 +1378,11 @@ impl CatalogEntry {
         let target = r.get("label").map(as_text).unwrap_or_default();
         let properties = match r.get("properties") {
             Some(Value::Array(_)) => strs(r.get("properties")),
-            Some(Value::String(s)) => s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect(),
+            Some(Value::String(s)) => s
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect(),
             _ => Vec::new(),
         };
         let mut options = BTreeMap::new();
@@ -1108,18 +1390,51 @@ impl CatalogEntry {
             "unique" => "UNIQUE",
             "exists" => "EXISTS",
             _ => {
-                options.insert(ddl::PROPERTY_TYPE.to_string(), r.get("data_type").map(as_text).unwrap_or_default());
+                options.insert(
+                    ddl::PROPERTY_TYPE.to_string(),
+                    r.get("data_type").map(as_text).unwrap_or_default(),
+                );
                 "TYPE"
             }
         };
         let name = format!("{t} :{target}({})", properties.join(", "));
-        let spec = ddl::IndexSpec { name: String::new(), target: target.clone(), relationship: false, kind: spec_kind.into(), properties: properties.clone(), options: options.clone() };
-        let definition = ddl::create(Flavor::Memgraph, &spec, false).ok().map(|s| format!("{s};"))?;
-        Some(Self { kind: CONSTRAINT, name, target, relationship: false, spec_kind: spec_kind.into(), properties, definition, options })
+        let spec = ddl::IndexSpec {
+            name: String::new(),
+            target: target.clone(),
+            relationship: false,
+            kind: spec_kind.into(),
+            properties: properties.clone(),
+            options: options.clone(),
+        };
+        let definition = ddl::create(Flavor::Memgraph, &spec, false)
+            .ok()
+            .map(|s| format!("{s};"))?;
+        Some(Self {
+            kind: CONSTRAINT,
+            name,
+            target,
+            relationship: false,
+            spec_kind: spec_kind.into(),
+            properties,
+            definition,
+            options,
+        })
     }
 
     fn index_def(&self) -> Option<IndexDef> {
-        matches!(self.spec_kind.as_str(), "RANGE" | "TEXT" | "POINT" | "FULLTEXT" | "VECTOR" | "UNIQUE" | "EXISTS" | "KEY" | "TYPE").then(|| IndexDef {
+        matches!(
+            self.spec_kind.as_str(),
+            "RANGE"
+                | "TEXT"
+                | "POINT"
+                | "FULLTEXT"
+                | "VECTOR"
+                | "UNIQUE"
+                | "EXISTS"
+                | "KEY"
+                | "TYPE"
+        )
+        .then(|| IndexDef {
             name: self.name.clone(),
             columns: self.properties.clone(),
             unique: matches!(self.spec_kind.as_str(), "UNIQUE" | "KEY"),
@@ -1136,7 +1451,11 @@ impl CatalogEntry {
 pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
     let mut names: Vec<String> = Vec::new();
     for s in samples {
-        for k in s.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
+        for k in s
+            .as_object()
+            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+        {
             if !names.contains(&k) {
                 names.push(k);
             }
@@ -1147,7 +1466,11 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
         .map(|name| {
             let mut types: Vec<(&'static str, usize)> = Vec::new();
             let mut present = 0;
-            for v in samples.iter().filter_map(|s| s.get(&name)).filter(|v| !v.is_null()) {
+            for v in samples
+                .iter()
+                .filter_map(|s| s.get(&name))
+                .filter(|v| !v.is_null())
+            {
                 present += 1;
                 let t = value::type_name(v);
                 match types.iter_mut().find(|(n, _)| *n == t) {
@@ -1157,7 +1480,11 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
             }
             types.sort_by(|a, b| b.1.cmp(&a.1));
             ColumnInfo {
-                data_type: if types.is_empty() { "NULL".into() } else { types.iter().map(|t| t.0).collect::<Vec<_>>().join("|") },
+                data_type: if types.is_empty() {
+                    "NULL".into()
+                } else {
+                    types.iter().map(|t| t.0).collect::<Vec<_>>().join("|")
+                },
                 nullable: present < samples.len(),
                 primary_key: false,
                 auto_increment: false,
@@ -1172,7 +1499,10 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
 fn strip_plan_prefix(stmt: &str) -> &str {
     let t = stmt.trim_start();
     for p in ["EXPLAIN", "PROFILE"] {
-        if t.len() > p.len() && t[..p.len()].eq_ignore_ascii_case(p) && t[p.len()..].starts_with(char::is_whitespace) {
+        if t.len() > p.len()
+            && t[..p.len()].eq_ignore_ascii_case(p)
+            && t[p.len()..].starts_with(char::is_whitespace)
+        {
             return t[p.len()..].trim_start();
         }
     }
@@ -1184,18 +1514,27 @@ impl Session for GraphSession {
     async fn server_version(&mut self) -> Result<String> {
         match self.flavor {
             Flavor::Neo4j => {
-                let r = self.records("CALL dbms.components() YIELD name, versions, edition").await?;
+                let r = self
+                    .records("CALL dbms.components() YIELD name, versions, edition")
+                    .await?;
                 let first = r.first().cloned().unwrap_or_default();
                 let v = strs(first.get("versions")).join(", ");
                 let ed = first.get("edition").map(as_text).unwrap_or_default();
                 Ok(format!("Neo4j {v} {ed}").trim().to_string())
             }
             Flavor::Memgraph => {
-                let v = self.strings("SHOW VERSION").await.ok().and_then(|v| v.into_iter().next()).unwrap_or_default();
+                let v = self
+                    .strings("SHOW VERSION")
+                    .await
+                    .ok()
+                    .and_then(|v| v.into_iter().next())
+                    .unwrap_or_default();
                 Ok(format!("Memgraph {v}").trim().to_string())
             }
             Flavor::Neptune => {
-                let Transport::Http(c) = &self.transport else { unreachable!() };
+                let Transport::Http(c) = &self.transport else {
+                    unreachable!()
+                };
                 let st = c.json("/status").await?;
                 let v = st.get("dbEngineVersion").map(as_text).unwrap_or_default();
                 Ok(format!("Amazon Neptune {v}").trim().to_string())
@@ -1206,12 +1545,20 @@ impl Session for GraphSession {
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         match self.flavor {
             Flavor::Neo4j => {
-                let r = self.query_on("SHOW DATABASES YIELD name, type RETURN DISTINCT name, type", Some("system")).await;
+                let r = self
+                    .query_on(
+                        "SHOW DATABASES YIELD name, type RETURN DISTINCT name, type",
+                        Some("system"),
+                    )
+                    .await;
                 match r {
                     Ok((_, rows)) => {
                         let mut v: Vec<String> = rows
                             .into_iter()
-                            .filter(|r| r.get(1).map(as_text).as_deref() != Some("system") && r.first().map(as_text).as_deref() != Some("system"))
+                            .filter(|r| {
+                                r.get(1).map(as_text).as_deref() != Some("system")
+                                    && r.first().map(as_text).as_deref() != Some("system")
+                            })
                             .filter_map(|r| r.into_iter().next().map(|v| as_text(&v)))
                             .collect();
                         v.sort();
@@ -1220,19 +1567,29 @@ impl Session for GraphSession {
                     // No access to the system database: the session's.
                     Err(Error::Query(_)) => {
                         let (_, rows) = self.query("CALL db.info() YIELD name RETURN name").await?;
-                        Ok(rows.into_iter().filter_map(|r| r.into_iter().next().map(|v| as_text(&v))).collect())
+                        Ok(rows
+                            .into_iter()
+                            .filter_map(|r| r.into_iter().next().map(|v| as_text(&v)))
+                            .collect())
                     }
                     Err(e) => Err(e),
                 }
             }
             Flavor::Memgraph => match self.records("SHOW DATABASES").await {
                 Ok(rows) => {
-                    let mut v: Vec<String> = rows.iter().filter_map(|r| r.values().next().map(as_text)).collect();
+                    let mut v: Vec<String> = rows
+                        .iter()
+                        .filter_map(|r| r.values().next().map(as_text))
+                        .collect();
                     v.sort();
                     Ok(v)
                 }
                 // Community edition: a single database.
-                Err(Error::Query(_)) => Ok(vec![if self.db.is_empty() { MEMGRAPH_DEFAULT_DB.into() } else { self.db.clone() }]),
+                Err(Error::Query(_)) => Ok(vec![if self.db.is_empty() {
+                    MEMGRAPH_DEFAULT_DB.into()
+                } else {
+                    self.db.clone()
+                }]),
                 Err(e) => Err(e),
             },
             Flavor::Neptune => Ok(vec!["default".into()]),
@@ -1250,10 +1607,25 @@ impl Session for GraphSession {
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let obj = |kind: &str, name: String, parent: Option<String>| DbObject { kind: kind.into(), schema: None, name, parent };
+        let obj = |kind: &str, name: String, parent: Option<String>| DbObject {
+            kind: kind.into(),
+            schema: None,
+            name,
+            parent,
+        };
         let mut out: Vec<DbObject> = Vec::new();
-        out.extend(self.labels(false).await?.into_iter().map(|n| obj(LABEL, n, None)));
-        out.extend(self.labels(true).await?.into_iter().map(|n| obj(RELATIONSHIP, n, None)));
+        out.extend(
+            self.labels(false)
+                .await?
+                .into_iter()
+                .map(|n| obj(LABEL, n, None)),
+        );
+        out.extend(
+            self.labels(true)
+                .await?
+                .into_iter()
+                .map(|n| obj(RELATIONSHIP, n, None)),
+        );
         if self.flavor == Flavor::Neptune {
             return Ok(out);
         }
@@ -1261,13 +1633,30 @@ impl Session for GraphSession {
         cat.sort_by(|a, b| a.name.cmp(&b.name));
         out.extend(cat.into_iter().map(|e| obj(e.kind, e.name, Some(e.target))));
         let procs = match self.flavor {
-            Flavor::Neo4j => self.strings("SHOW PROCEDURES YIELD name RETURN name ORDER BY name").await,
-            _ => self.strings("CALL mg.procedures() YIELD name RETURN name ORDER BY name").await,
+            Flavor::Neo4j => {
+                self.strings("SHOW PROCEDURES YIELD name RETURN name ORDER BY name")
+                    .await
+            }
+            _ => {
+                self.strings("CALL mg.procedures() YIELD name RETURN name ORDER BY name")
+                    .await
+            }
         };
-        out.extend(procs.unwrap_or_default().into_iter().map(|n| obj(kinds::PROCEDURE, n, None)));
+        out.extend(
+            procs
+                .unwrap_or_default()
+                .into_iter()
+                .map(|n| obj(kinds::PROCEDURE, n, None)),
+        );
         if self.flavor == Flavor::Memgraph {
             if let Ok(rows) = self.records("SHOW TRIGGERS").await {
-                out.extend(rows.iter().map(|r| obj(kinds::TRIGGER, r.get("trigger name").map(as_text).unwrap_or_default(), None)));
+                out.extend(rows.iter().map(|r| {
+                    obj(
+                        kinds::TRIGGER,
+                        r.get("trigger name").map(as_text).unwrap_or_default(),
+                        None,
+                    )
+                }));
             }
         }
         Ok(out)
@@ -1286,9 +1675,17 @@ impl Session for GraphSession {
             LABEL | RELATIONSHIP => {
                 let rel = obj.kind == RELATIONSHIP;
                 let n = cypher::ident(&obj.name);
-                let count_q =
-                    if rel { format!("MATCH ()-[e:{n}]->() RETURN count(e)") } else { format!("MATCH (e:{n}) RETURN count(e)") };
-                let count = self.strings(&count_q).await?.into_iter().next().unwrap_or_default();
+                let count_q = if rel {
+                    format!("MATCH ()-[e:{n}]->() RETURN count(e)")
+                } else {
+                    format!("MATCH (e:{n}) RETURN count(e)")
+                };
+                let count = self
+                    .strings(&count_q)
+                    .await?
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default();
                 let cols = infer_columns(&self.sample(obj).await?);
                 let mut text = {
                     let (n, count) = (cypher::comment_text(&n), cypher::comment_text(&count));
@@ -1301,7 +1698,12 @@ impl Session for GraphSession {
                 if !cols.is_empty() {
                     text.push_str("// Propiedades (muestra de 100):\n");
                     for c in &cols {
-                        text.push_str(&format!("//   {} {}{}\n", cypher::comment_text(&c.name), cypher::comment_text(&c.data_type), if c.nullable { "" } else { " (en todos)" }));
+                        text.push_str(&format!(
+                            "//   {} {}{}\n",
+                            cypher::comment_text(&c.name),
+                            cypher::comment_text(&c.data_type),
+                            if c.nullable { "" } else { " (en todos)" }
+                        ));
                     }
                 }
                 let defs: Vec<String> = self
@@ -1310,7 +1712,13 @@ impl Session for GraphSession {
                     .unwrap_or_default()
                     .into_iter()
                     .filter(|e| e.target.split(',').any(|t| t == obj.name) && e.relationship == rel)
-                    .map(|e| if e.definition.ends_with(';') { e.definition } else { format!("{};", e.definition) })
+                    .map(|e| {
+                        if e.definition.ends_with(';') {
+                            e.definition
+                        } else {
+                            format!("{};", e.definition)
+                        }
+                    })
                     .collect();
                 if !defs.is_empty() {
                     text.push_str("\n// Índices y restricciones\n");
@@ -1320,38 +1728,73 @@ impl Session for GraphSession {
                 text.push_str(&format!("\n{}", self.browse_query(obj, 25)));
                 Ok(Some(text))
             }
-            k if k == kinds::INDEX || k == CONSTRAINT => {
-                Ok(self.catalog().await?.into_iter().find(|e| e.kind == k && e.name == obj.name).map(|e| e.definition))
-            }
+            k if k == kinds::INDEX || k == CONSTRAINT => Ok(self
+                .catalog()
+                .await?
+                .into_iter()
+                .find(|e| e.kind == k && e.name == obj.name)
+                .map(|e| e.definition)),
             k if k == kinds::PROCEDURE => {
                 let rows = match self.flavor {
-                    Flavor::Neo4j => self.records("SHOW PROCEDURES YIELD name, signature, description, mode").await?,
-                    _ => self.records("CALL mg.procedures() YIELD name, signature, is_write, path").await?,
-                };
-                Ok(rows.into_iter().find(|r| r.get("name").map(as_text).as_deref() == Some(obj.name.as_str())).map(|r| {
-                    let mut t = format!("// {}\n", cypher::comment_text(&r.get("signature").map(as_text).unwrap_or_default()));
-                    for k in ["description", "mode", "is_write", "path"] {
-                        if let Some(v) = r.get(k).filter(|v| !v.is_null()) {
-                            t.push_str(&format!("// {k}: {}\n", cypher::comment_text(&as_text(v))));
-                        }
+                    Flavor::Neo4j => {
+                        self.records("SHOW PROCEDURES YIELD name, signature, description, mode")
+                            .await?
                     }
-                    // Each part of the dotted name quoted, so a name from the server is only a name.
-                    let name = obj.name.split('.').map(cypher::ident).collect::<Vec<_>>().join(".");
-                    t.push_str(&format!("CALL {name}()"));
-                    t
-                }))
+                    _ => {
+                        self.records("CALL mg.procedures() YIELD name, signature, is_write, path")
+                            .await?
+                    }
+                };
+                Ok(rows
+                    .into_iter()
+                    .find(|r| r.get("name").map(as_text).as_deref() == Some(obj.name.as_str()))
+                    .map(|r| {
+                        let mut t = format!(
+                            "// {}\n",
+                            cypher::comment_text(
+                                &r.get("signature").map(as_text).unwrap_or_default()
+                            )
+                        );
+                        for k in ["description", "mode", "is_write", "path"] {
+                            if let Some(v) = r.get(k).filter(|v| !v.is_null()) {
+                                t.push_str(&format!(
+                                    "// {k}: {}\n",
+                                    cypher::comment_text(&as_text(v))
+                                ));
+                            }
+                        }
+                        // Each part of the dotted name quoted, so a name from the server is only a name.
+                        let name = obj
+                            .name
+                            .split('.')
+                            .map(cypher::ident)
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        t.push_str(&format!("CALL {name}()"));
+                        t
+                    }))
             }
             k if k == kinds::TRIGGER => {
                 let rows = self.records("SHOW TRIGGERS").await?;
-                Ok(rows.into_iter().find(|r| r.get("trigger name").map(as_text).as_deref() == Some(obj.name.as_str())).map(|r| {
-                    let g = |k: &str| r.get(k).map(as_text).unwrap_or_default();
-                    let event = g("event type");
-                    let on = match event.as_str() {
-                        "ANY" | "" => String::new(),
-                        e => format!("ON {} ", e.replace('_', " ")),
-                    };
-                    format!("CREATE TRIGGER {}\n{on}{} COMMIT EXECUTE\n{}", cypher::ident(&obj.name), g("phase"), g("statement"))
-                }))
+                Ok(rows
+                    .into_iter()
+                    .find(|r| {
+                        r.get("trigger name").map(as_text).as_deref() == Some(obj.name.as_str())
+                    })
+                    .map(|r| {
+                        let g = |k: &str| r.get(k).map(as_text).unwrap_or_default();
+                        let event = g("event type");
+                        let on = match event.as_str() {
+                            "ANY" | "" => String::new(),
+                            e => format!("ON {} ", e.replace('_', " ")),
+                        };
+                        format!(
+                            "CREATE TRIGGER {}\n{on}{} COMMIT EXECUTE\n{}",
+                            cypher::ident(&obj.name),
+                            g("phase"),
+                            g("statement")
+                        )
+                    }))
             }
             _ => Ok(None),
         }
@@ -1365,7 +1808,11 @@ impl Session for GraphSession {
         for rel in [false, true] {
             for name in self.labels(rel).await? {
                 let kind = if rel { RELATIONSHIP } else { LABEL };
-                let obj = ObjectRef { kind: kind.into(), schema: None, name: name.clone() };
+                let obj = ObjectRef {
+                    kind: kind.into(),
+                    schema: None,
+                    name: name.clone(),
+                };
                 let cols = infer_columns(&self.sample(&obj).await?);
                 let indexes = cat
                     .iter()
@@ -1377,7 +1824,12 @@ impl Session for GraphSession {
                     name,
                     columns: cols
                         .into_iter()
-                        .map(|c| ColumnDef { name: c.name, data_type: c.data_type, nullable: c.nullable, ..Default::default() })
+                        .map(|c| ColumnDef {
+                            name: c.name,
+                            data_type: c.data_type,
+                            nullable: c.nullable,
+                            ..Default::default()
+                        })
                         .collect(),
                     indexes,
                     ..Default::default()
@@ -1388,7 +1840,8 @@ impl Session for GraphSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.create_database_with_impl(name, &std::collections::BTreeMap::new()).await
+        self.create_database_with_impl(name, &std::collections::BTreeMap::new())
+            .await
     }
 
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
@@ -1396,15 +1849,26 @@ impl Session for GraphSession {
     }
 
     /// `CREATE DATABASE … TOPOLOGY … OPTIONS {…}` (see [`create_db`]).
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
@@ -1412,9 +1876,16 @@ impl Session for GraphSession {
         self.refuse_if_read_only("Conexión de solo lectura: no se puede borrar una base.")?;
         let n = cypher::ident(name.trim());
         match self.flavor {
-            Flavor::Neo4j => self.query_on(&format!("DROP DATABASE {n} IF EXISTS WAIT"), Some("system")).await.map_err(enterprise_hint)?,
+            Flavor::Neo4j => self
+                .query_on(&format!("DROP DATABASE {n} IF EXISTS WAIT"), Some("system"))
+                .await
+                .map_err(enterprise_hint)?,
             Flavor::Memgraph => self.query(&format!("DROP DATABASE {n}")).await?,
-            Flavor::Neptune => return Err(Error::Unsupported("Neptune tiene una sola base por cluster".into())),
+            Flavor::Neptune => {
+                return Err(Error::Unsupported(
+                    "Neptune tiene una sola base por cluster".into(),
+                ))
+            }
         };
         Ok(())
     }
@@ -1442,11 +1913,17 @@ impl Session for GraphSession {
             let step = Step::start(out, own, i, u.start, u.line);
             let in_tx = self.tx;
             self.line_base = if own { u.line.saturating_sub(1) } else { 0 };
-            let r = if u.command { self.command(&u.text, max_rows, out).await } else { self.cypher(&u.text, max_rows, out).await };
+            let r = if u.command {
+                self.command(&u.text, max_rows, out).await
+            } else {
+                self.cypher(&u.text, max_rows, out).await
+            };
             self.line_base = 0;
             let r = r.map_err(|e| {
                 if in_tx && !self.tx {
-                    out.warning("La transacción se deshizo por el error: sus cambios no se guardaron.");
+                    out.warning(
+                        "La transacción se deshizo por el error: sus cambios no se guardaron.",
+                    );
                 }
                 if self.interrupted.load(Ordering::SeqCst) {
                     return Error::Cancelled;
@@ -1462,12 +1939,18 @@ impl Session for GraphSession {
         if self.flavor == Flavor::Neptune {
             return Ok(None);
         }
-        Ok(Some(if self.tx { TxState::Open } else { TxState::Idle }))
+        Ok(Some(if self.tx {
+            TxState::Open
+        } else {
+            TxState::Idle
+        }))
     }
 
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
         if !on && self.flavor == Flavor::Neptune {
-            return Err(Error::Unsupported("Neptune no tiene transacciones explícitas.".into()));
+            return Err(Error::Unsupported(
+                "Neptune no tiene transacciones explícitas.".into(),
+            ));
         }
         self.manual = !on;
         Ok(())
@@ -1481,7 +1964,13 @@ impl Session for GraphSession {
         self.end_tx(false).await
     }
 
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let stmts = cypher::split(text);
         if stmts.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
@@ -1503,7 +1992,10 @@ impl Session for GraphSession {
                                 p.statement = body.clone();
                             }
                         }
-                        Ok(_) => out.info(format!("`{}`: el servidor no devolvió un plan.", short(&body))),
+                        Ok(_) => out.info(format!(
+                            "`{}`: el servidor no devolvió un plan.",
+                            short(&body)
+                        )),
                         // Administration commands (SHOW, CREATE INDEX…) have no plan.
                         Err(Error::Query(m)) => {
                             out.info(format!("`{}`: sin plan de ejecución ({m}).", short(&body)));
@@ -1524,7 +2016,16 @@ impl Session for GraphSession {
                                 .map(|r| {
                                     let op = r.first().map(as_text).unwrap_or_default();
                                     let figures = profile.then(|| {
-                                        let n = |i: usize| r.get(i).map(|v| v.as_f64().unwrap_or_else(|| plan::leading_number(&as_text(v)).unwrap_or(0.0))).unwrap_or(0.0);
+                                        let n = |i: usize| {
+                                            r.get(i)
+                                                .map(|v| {
+                                                    v.as_f64().unwrap_or_else(|| {
+                                                        plan::leading_number(&as_text(v))
+                                                            .unwrap_or(0.0)
+                                                    })
+                                                })
+                                                .unwrap_or(0.0)
+                                        };
                                         (n(1), n(2), n(3))
                                     });
                                     (op, figures)
@@ -1532,7 +2033,9 @@ impl Session for GraphSession {
                                 .collect();
                             out.plans.push(plan::memgraph(&body, &lines, profile));
                         }
-                        Err(Error::Query(m)) => out.info(format!("`{}`: sin plan de ejecución ({m}).", short(&body))),
+                        Err(Error::Query(m)) => {
+                            out.info(format!("`{}`: sin plan de ejecución ({m}).", short(&body)))
+                        }
                         Err(e) => return Err(e),
                     }
                     if analyze {
@@ -1544,11 +2047,18 @@ impl Session for GraphSession {
                 }
                 Flavor::Neptune => {
                     let dynamic = analyze && !writes;
-                    let Transport::Http(c) = &self.transport else { unreachable!() };
+                    let Transport::Http(c) = &self.transport else {
+                        unreachable!()
+                    };
                     let c = c.clone();
-                    match c.explain(&body, if dynamic { "dynamic" } else { "static" }).await {
+                    match c
+                        .explain(&body, if dynamic { "dynamic" } else { "static" })
+                        .await
+                    {
                         Ok(t) => out.plans.push(plan::neptune(&body, &t, dynamic)),
-                        Err(Error::Query(m)) => out.info(format!("`{}`: sin plan de ejecución ({m}).", short(&body))),
+                        Err(Error::Query(m)) => {
+                            out.info(format!("`{}`: sin plan de ejecución ({m}).", short(&body)))
+                        }
                         Err(e) => return Err(e),
                     }
                     if analyze {
@@ -1563,7 +2073,11 @@ impl Session for GraphSession {
         Ok(())
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -1583,7 +2097,8 @@ impl Session for GraphSession {
         match &self.transport {
             Transport::Bolt(c) => {
                 let target = self.target.clone()?;
-                let (flavor, tag, conn_id) = (self.flavor, self.tag.clone(), c.connection_id.clone());
+                let (flavor, tag, conn_id) =
+                    (self.flavor, self.tag.clone(), c.connection_id.clone());
                 Some(Arc::new(move || {
                     interrupted.store(true, Ordering::SeqCst);
                     let (target, tag, conn_id) = (target.clone(), tag.clone(), conn_id.clone());
@@ -1639,20 +2154,28 @@ impl Session for GraphSession {
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         if self.flavor != Flavor::Neo4j {
-            return Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into()));
+            return Err(Error::Unsupported(
+                "este motor no permite terminar sesiones desde DBine".into(),
+            ));
         }
         self.refuse_if_read_only("Conexión de solo lectura: no se pueden terminar transacciones.")?;
         blocking::kill(self, id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -1680,15 +2203,23 @@ impl Session for GraphSession {
         permissions::check(self, database).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         self.index_usage_report(table).await
     }
 }
 
 fn enterprise_hint(e: Error) -> Error {
     match e {
-        Error::Query(m) if m.contains("Unsupported administration command") || m.contains("not available in community") => {
-            Error::Unsupported(format!("Crear y borrar bases requiere Neo4j Enterprise (o Aura Business Critical): {m}"))
+        Error::Query(m)
+            if m.contains("Unsupported administration command")
+                || m.contains("not available in community") =>
+        {
+            Error::Unsupported(format!(
+                "Crear y borrar bases requiere Neo4j Enterprise (o Aura Business Critical): {m}"
+            ))
         }
         e => e,
     }
@@ -1714,9 +2245,15 @@ async fn terminate(flavor: Flavor, target: &Target, tag: &str, conn_id: &str) ->
         .iter()
         .filter(|r| {
             let meta_col = col("metaData").or_else(|| col("metadata"));
-            let tagged = meta_col.and_then(|i| r.get(i)).map(value::to_json).is_some_and(|m| m.get("dbine").and_then(Value::as_str) == Some(tag));
+            let tagged = meta_col
+                .and_then(|i| r.get(i))
+                .map(value::to_json)
+                .is_some_and(|m| m.get("dbine").and_then(Value::as_str) == Some(tag));
             let same_conn = !conn_id.is_empty()
-                && col("connectionId").and_then(|i| r.get(i)).and_then(Bolt::as_str) == Some(conn_id);
+                && col("connectionId")
+                    .and_then(|i| r.get(i))
+                    .and_then(Bolt::as_str)
+                    == Some(conn_id);
             tagged || same_conn
         })
         .filter_map(|r| {
@@ -1725,7 +2262,11 @@ async fn terminate(flavor: Flavor, target: &Target, tag: &str, conn_id: &str) ->
         })
         .collect();
     if !ids.is_empty() {
-        let list = ids.iter().map(|i| cypher::string(i)).collect::<Vec<_>>().join(", ");
+        let list = ids
+            .iter()
+            .map(|i| cypher::string(i))
+            .collect::<Vec<_>>()
+            .join(", ");
         let q = match flavor {
             Flavor::Memgraph => format!("TERMINATE TRANSACTIONS {list}"),
             _ => format!("TERMINATE TRANSACTIONS {list}"),
@@ -1774,9 +2315,16 @@ mod tests {
 
     #[test]
     fn inference() {
-        let s = vec![json!({ "a": 1, "b": "x" }), json!({ "a": 2.5 }), json!({ "a": 3, "c": null })];
+        let s = vec![
+            json!({ "a": 1, "b": "x" }),
+            json!({ "a": 2.5 }),
+            json!({ "a": 3, "c": null }),
+        ];
         let c = infer_columns(&s);
-        assert_eq!(c.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(
+            c.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
         assert_eq!(c[0].data_type, "INTEGER|FLOAT");
         assert!(!c[0].nullable && c[1].nullable && c[2].nullable);
         assert_eq!(c[2].data_type, "NULL");
@@ -1786,37 +2334,89 @@ mod tests {
     fn errors_keep_code_and_place() {
         let m = "Invalid input 'RETRN': expected 'RETURN' (line 2, column 1 (offset: 10))\n\"RETRN 1\"\n ^ (Neo.ClientError.Statement.SyntaxError)";
         let e = structured(Error::Query(m.into()), "MATCH (n)\nRETRN 1").to_script_error();
-        assert_eq!(e.code.as_deref(), Some("Neo.ClientError.Statement.SyntaxError"));
-        assert!(e.message.starts_with("Invalid input 'RETRN'") && !e.message.contains("(Neo."), "{}", e.message);
+        assert_eq!(
+            e.code.as_deref(),
+            Some("Neo.ClientError.Statement.SyntaxError")
+        );
+        assert!(
+            e.message.starts_with("Invalid input 'RETRN'") && !e.message.contains("(Neo."),
+            "{}",
+            e.message
+        );
         assert_eq!((e.offset, e.line), (Some(10), Some(2)));
-        let e = structured(Error::Query("Unbound variable: x (Memgraph.ClientError.MemgraphError.MemgraphError)".into()), "RETURN x").to_script_error();
-        assert_eq!((e.message.as_str(), e.code.as_deref(), e.offset), ("Unbound variable: x", Some("Memgraph.ClientError.MemgraphError.MemgraphError"), None));
+        let e = structured(
+            Error::Query(
+                "Unbound variable: x (Memgraph.ClientError.MemgraphError.MemgraphError)".into(),
+            ),
+            "RETURN x",
+        )
+        .to_script_error();
+        assert_eq!(
+            (e.message.as_str(), e.code.as_deref(), e.offset),
+            (
+                "Unbound variable: x",
+                Some("Memgraph.ClientError.MemgraphError.MemgraphError"),
+                None
+            )
+        );
         let stmt = "MATCH (n)\nWITH n\nRETURN n.a +  ;";
-        let e = structured(Error::Query("Error on line 3 position 13. (Memgraph.ClientError.MemgraphError.MemgraphError)".into()), stmt).to_script_error();
+        let e = structured(
+            Error::Query(
+                "Error on line 3 position 13. (Memgraph.ClientError.MemgraphError.MemgraphError)"
+                    .into(),
+            ),
+            stmt,
+        )
+        .to_script_error();
         assert_eq!((e.line, e.offset), (Some(3), Some(29)));
         let e = structured(Error::Query("x (y z)".into()), "RETURN x").to_script_error();
         assert_eq!((e.message.as_str(), e.code), ("x (y z)", None));
-        assert!(matches!(structured(Error::Cancelled, "x"), Error::Cancelled));
+        assert!(matches!(
+            structured(Error::Cancelled, "x"),
+            Error::Cancelled
+        ));
         let meta = map([(
             "notifications",
             Bolt::List(vec![map([
                 ("severity", Bolt::from("WARNING")),
-                ("code", Bolt::from("Neo.ClientNotification.Statement.CartesianProduct")),
+                (
+                    "code",
+                    Bolt::from("Neo.ClientNotification.Statement.CartesianProduct"),
+                ),
                 ("title", Bolt::from("t")),
                 ("position", map([("line", Bolt::from(2i64))])),
             ])]),
         )]);
         let n = notification_messages(&meta);
-        assert_eq!((n[0].level, n[0].code.as_deref(), n[0].line), (MessageLevel::Warning, Some("Neo.ClientNotification.Statement.CartesianProduct"), Some(2)));
+        assert_eq!(
+            (n[0].level, n[0].code.as_deref(), n[0].line),
+            (
+                MessageLevel::Warning,
+                Some("Neo.ClientNotification.Statement.CartesianProduct"),
+                Some(2)
+            )
+        );
     }
 
     #[test]
     fn plan_prefix_and_stats() {
-        assert_eq!(strip_plan_prefix("  explain MATCH (n) RETURN n"), "MATCH (n) RETURN n");
+        assert_eq!(
+            strip_plan_prefix("  explain MATCH (n) RETURN n"),
+            "MATCH (n) RETURN n"
+        );
         assert_eq!(strip_plan_prefix("PROFILE\nMATCH (n)"), "MATCH (n)");
         assert_eq!(strip_plan_prefix("EXPLAINED"), "EXPLAINED");
-        let meta = map([("stats", map([("nodes-created", Bolt::Int(2)), ("properties-set", Bolt::Int(4))]))]);
-        assert_eq!(stats(&meta), ("2 nodos creados, 4 propiedades asignadas.".to_string(), 2));
+        let meta = map([(
+            "stats",
+            map([
+                ("nodes-created", Bolt::Int(2)),
+                ("properties-set", Bolt::Int(4)),
+            ]),
+        )]);
+        assert_eq!(
+            stats(&meta),
+            ("2 nodos creados, 4 propiedades asignadas.".to_string(), 2)
+        );
         let meta = map([("stats", map([("properties-set", Bolt::Int(3))]))]);
         assert_eq!(stats(&meta).1, 3);
     }
@@ -1829,16 +2429,26 @@ mod tests {
         }))
         .unwrap();
         let e = CatalogEntry::neo4j(CONSTRAINT, &r);
-        assert_eq!((e.spec_kind.as_str(), e.target.as_str(), e.relationship), ("UNIQUE", "P", false));
+        assert_eq!(
+            (e.spec_kind.as_str(), e.target.as_str(), e.relationship),
+            ("UNIQUE", "P", false)
+        );
         assert!(e.index_def().unwrap().unique);
-        let m: serde_json::Map<String, Value> =
-            serde_json::from_value(json!({ "index type": "label+property", "label": "P", "property": "name", "count": 3 })).unwrap();
+        let m: serde_json::Map<String, Value> = serde_json::from_value(
+            json!({ "index type": "label+property", "label": "P", "property": "name", "count": 3 }),
+        )
+        .unwrap();
         let e = CatalogEntry::memgraph_index(&m);
         assert_eq!(e.name, "label+property :P(name)");
         assert_eq!(e.definition, "CREATE INDEX ON :P(name);");
-        let m: serde_json::Map<String, Value> =
-            serde_json::from_value(json!({ "constraint type": "unique", "label": "P", "properties": ["a", "b"] })).unwrap();
+        let m: serde_json::Map<String, Value> = serde_json::from_value(
+            json!({ "constraint type": "unique", "label": "P", "properties": ["a", "b"] }),
+        )
+        .unwrap();
         let e = CatalogEntry::memgraph_constraint(&m).unwrap();
-        assert_eq!(e.definition, "CREATE CONSTRAINT ON (n:P) ASSERT n.a, n.b IS UNIQUE;");
+        assert_eq!(
+            e.definition,
+            "CREATE CONSTRAINT ON (n:P) ASSERT n.a, n.b IS UNIQUE;"
+        );
     }
 }

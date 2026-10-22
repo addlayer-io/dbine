@@ -7,9 +7,9 @@
 //! Only rsa-sha2-256 and rsa-sha2-512 (RFC 8332): aws-lc-rs has no SHA-1
 //! signing, and OpenSSH itself turned `ssh-rsa` off by default in 8.8.
 
-use russh::keys::{HashAlg, PrivateKey};
-use russh::keys::ssh_key::private::KeypairData;
 use russh::keys::agent::AgentIdentity;
+use russh::keys::ssh_key::private::KeypairData;
+use russh::keys::{HashAlg, PrivateKey};
 use russh::SendError;
 
 use aws_lc_rs::rand::SystemRandom;
@@ -82,7 +82,9 @@ impl russh::Signer for RsaSigner {
                 _ => ("rsa-sha2-256", &RSA_PKCS1_SHA256),
             };
             let mut sig = vec![0; self.pair.public_modulus_len()];
-            self.pair.sign(alg, &SystemRandom::new(), &to_sign, &mut sig).map_err(|_| SignError::Sign)?;
+            self.pair
+                .sign(alg, &SystemRandom::new(), &to_sign, &mut sig)
+                .map_err(|_| SignError::Sign)?;
             Ok(append_signature(to_sign, name, &sig))
         })();
         async move { signed }
@@ -93,8 +95,8 @@ impl russh::Signer for RsaSigner {
 mod tests {
     use super::*;
     use aws_lc_rs::encoding::AsDer;
-    use aws_lc_rs::signature::KeyPair as _;
     use aws_lc_rs::rsa::KeySize;
+    use aws_lc_rs::signature::KeyPair as _;
     use russh::keys::ssh_key::private::RsaKeypair;
     use russh::keys::ssh_key::Algorithm;
 
@@ -111,11 +113,27 @@ mod tests {
     fn signs_like_an_agent_and_the_public_key_verifies_it() {
         let key = rsa_key();
         let mut signer = RsaSigner::from_key(&key).unwrap().unwrap();
-        let id = AgentIdentity::PublicKey { key: key.public_key().clone(), comment: String::new() };
+        let id = AgentIdentity::PublicKey {
+            key: key.public_key().clone(),
+            comment: String::new(),
+        };
         let data = b"session data".to_vec();
-        for (hash, name) in [(Some(HashAlg::Sha256), "rsa-sha2-256"), (Some(HashAlg::Sha512), "rsa-sha2-512"), (None, "rsa-sha2-256")] {
-            let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-            let out = rt.block_on(russh::Signer::auth_sign(&mut signer, &id, hash, data.clone())).unwrap();
+        for (hash, name) in [
+            (Some(HashAlg::Sha256), "rsa-sha2-256"),
+            (Some(HashAlg::Sha512), "rsa-sha2-512"),
+            (None, "rsa-sha2-256"),
+        ] {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let out = rt
+                .block_on(russh::Signer::auth_sign(
+                    &mut signer,
+                    &id,
+                    hash,
+                    data.clone(),
+                ))
+                .unwrap();
             assert!(out.starts_with(&data));
             let blob = &out[data.len() + 4..];
             let n = u32::from_be_bytes(blob[..4].try_into().unwrap()) as usize;
@@ -123,7 +141,11 @@ mod tests {
             let sig = &blob[4 + n + 4..];
             // Checked with aws-lc-rs against the public half.
             let public = aws_lc_rs::signature::UnparsedPublicKey::new(
-                if name == "rsa-sha2-512" { &aws_lc_rs::signature::RSA_PKCS1_2048_8192_SHA512 } else { &aws_lc_rs::signature::RSA_PKCS1_2048_8192_SHA256 },
+                if name == "rsa-sha2-512" {
+                    &aws_lc_rs::signature::RSA_PKCS1_2048_8192_SHA512
+                } else {
+                    &aws_lc_rs::signature::RSA_PKCS1_2048_8192_SHA256
+                },
                 signer.pair.public_key().as_ref().to_vec(),
             );
             public.verify(&data, sig).unwrap();
@@ -133,7 +155,9 @@ mod tests {
     #[test]
     fn other_kinds_are_left_to_russh() {
         let key = PrivateKey::new(
-            KeypairData::Ed25519(russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&[7; 32])),
+            KeypairData::Ed25519(russh::keys::ssh_key::private::Ed25519Keypair::from_seed(
+                &[7; 32],
+            )),
             "test",
         )
         .unwrap();

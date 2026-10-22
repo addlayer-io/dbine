@@ -13,8 +13,9 @@
 //! exports no charts either: they show its data.
 
 use super::{
-    display_value, escape_html, html_table, preview, summary_line, CellKind, CellResult, Notebook, NotebookCell, NotebookTarget,
-    Preview, PreviewLimits, StoredStatement, write_cell_text, write_summary_line,
+    display_value, escape_html, html_table, preview, summary_line, write_cell_text,
+    write_summary_line, CellKind, CellResult, Notebook, NotebookCell, NotebookTarget, Preview,
+    PreviewLimits, StoredStatement,
 };
 use base64::Engine;
 use serde_json::Value;
@@ -70,7 +71,9 @@ pub fn decode_png(b64: &str) -> Result<Vec<u8>, String> {
     if raw.len() > MAX_IMAGE_BYTES / 3 * 4 + 4 {
         return Err("la imagen del gráfico es demasiado grande".into());
     }
-    let bytes = base64::engine::general_purpose::STANDARD.decode(raw.trim()).map_err(|e| format!("imagen de gráfico inválida: {e}"))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(raw.trim())
+        .map_err(|e| format!("imagen de gráfico inválida: {e}"))?;
     if !bytes.starts_with(PNG_SIGNATURE) || bytes.len() > MAX_IMAGE_BYTES {
         return Err("la imagen del gráfico no es un PNG válido".into());
     }
@@ -79,7 +82,11 @@ pub fn decode_png(b64: &str) -> Result<Vec<u8>, String> {
 
 /// The folder a Markdown export's images go in, next to it: `<stem>_files`.
 pub fn files_dir_name(md_file_name: &str) -> String {
-    let stem = md_file_name.rsplit_once('.').map(|(s, _)| s).filter(|s| !s.is_empty()).unwrap_or(md_file_name);
+    let stem = md_file_name
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(md_file_name);
     format!("{stem}_files")
 }
 
@@ -102,7 +109,10 @@ fn cell_images<'a>(c: &NotebookCell, nb: &Notebook, images: &'a CellImages) -> &
     if c.kind != CellKind::Sql || !(nb.save_results && c.keep_result) {
         return &[];
     }
-    images.get(&c.id).map(|v| &v[..v.len().min(MAX_IMAGES_PER_CELL)]).unwrap_or(&[])
+    images
+        .get(&c.id)
+        .map(|v| &v[..v.len().min(MAX_IMAGES_PER_CELL)])
+        .unwrap_or(&[])
 }
 
 /// A Markdown export's files: (name inside the `_files` folder, PNG bytes).
@@ -112,7 +122,12 @@ fn target_text(t: &NotebookTarget) -> String {
     if t.results {
         return "DataFrame SQL".into();
     }
-    [&t.environment, &t.connection, &t.database].iter().filter_map(|v| v.as_deref()).filter(|v| !v.is_empty()).collect::<Vec<_>>().join(" › ")
+    [&t.environment, &t.connection, &t.database]
+        .iter()
+        .filter_map(|v| v.as_deref())
+        .filter(|v| !v.is_empty())
+        .collect::<Vec<_>>()
+        .join(" › ")
 }
 
 fn cell_label(c: &NotebookCell, nb: &Notebook) -> String {
@@ -131,7 +146,11 @@ fn cell_label(c: &NotebookCell, nb: &Notebook) -> String {
 }
 
 /// What the file would keep of a cell's result, with the user's limits.
-fn stored<'a>(c: &'a NotebookCell, nb: &Notebook, limits: PreviewLimits) -> Option<(&'a CellResult, Preview, bool)> {
+fn stored<'a>(
+    c: &'a NotebookCell,
+    nb: &Notebook,
+    limits: PreviewLimits,
+) -> Option<(&'a CellResult, Preview, bool)> {
     let r = c.result.as_ref()?;
     let keep = nb.save_results && c.keep_result;
     Some((r, preview(r, keep, limits, c.execution_count), keep))
@@ -142,7 +161,11 @@ fn title(nb: &Notebook) -> String {
         .iter()
         .filter(|c| c.kind == CellKind::Markdown)
         .flat_map(|c| c.source.lines())
-        .find_map(|l| l.trim_start().strip_prefix('#').map(|h| h.trim_start_matches('#').trim().to_string()))
+        .find_map(|l| {
+            l.trim_start()
+                .strip_prefix('#')
+                .map(|h| h.trim_start_matches('#').trim().to_string())
+        })
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| "Notebook".into())
 }
@@ -160,18 +183,33 @@ pub fn html_with(nb: &Notebook, limits: PreviewLimits, images: &CellImages) -> S
 
 /// A cell with a chart but no image for it (a scheduled run renders no
 /// charts): `chart_note` under its result, when given.
-fn chart_missing<'a>(c: &NotebookCell, nb: &Notebook, images: &CellImages, chart_note: Option<&'a str>) -> Option<&'a str> {
+fn chart_missing<'a>(
+    c: &NotebookCell,
+    nb: &Notebook,
+    images: &CellImages,
+    chart_note: Option<&'a str>,
+) -> Option<&'a str> {
     let kept = nb.save_results && c.keep_result;
-    (kept && c.chart.is_some() && c.result.is_some() && cell_images(c, nb, images).is_empty()).then_some(chart_note).flatten()
+    (kept && c.chart.is_some() && c.result.is_some() && cell_images(c, nb, images).is_empty())
+        .then_some(chart_note)
+        .flatten()
 }
 
 /// [`html_with`], with `chart_note` where a chart has no image.
-pub fn html_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages, chart_note: Option<&str>) -> String {
+pub fn html_with_note(
+    nb: &Notebook,
+    limits: PreviewLimits,
+    images: &CellImages,
+    chart_note: Option<&str>,
+) -> String {
     let mut body = String::new();
     for c in &nb.cells {
         match c.kind {
             CellKind::Markdown => {
-                body.push_str(&format!("<section class=\"cell md\">{}</section>\n", markdown_to_html(&c.source)));
+                body.push_str(&format!(
+                    "<section class=\"cell md\">{}</section>\n",
+                    markdown_to_html(&c.source)
+                ));
             }
             CellKind::Foreign => {
                 let lang = c.language.as_deref().unwrap_or("");
@@ -183,10 +221,20 @@ pub fn html_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages,
             }
             CellKind::Write => {
                 body.push_str("<section class=\"cell write\">");
-                body.push_str(&format!("<pre><code>{}</code></pre>", escape_html(&write_cell_text(&c.write.clone().unwrap_or_default()))));
+                body.push_str(&format!(
+                    "<pre><code>{}</code></pre>",
+                    escape_html(&write_cell_text(&c.write.clone().unwrap_or_default()))
+                ));
                 if let Some(r) = &c.write_result {
-                    let class = if r.error.is_some() { "error" } else { "summary" };
-                    body.push_str(&format!("<div class=\"{class}\">{}</div>", escape_html(&write_summary_line(r))));
+                    let class = if r.error.is_some() {
+                        "error"
+                    } else {
+                        "summary"
+                    };
+                    body.push_str(&format!(
+                        "<div class=\"{class}\">{}</div>",
+                        escape_html(&write_summary_line(r))
+                    ));
                 }
                 body.push_str("</section>\n");
             }
@@ -194,18 +242,33 @@ pub fn html_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages,
                 body.push_str("<section class=\"cell sql\">");
                 let label = cell_label(c, nb);
                 if !label.is_empty() {
-                    body.push_str(&format!("<div class=\"meta\">{}</div>", escape_html(&label)));
+                    body.push_str(&format!(
+                        "<div class=\"meta\">{}</div>",
+                        escape_html(&label)
+                    ));
                 }
-                body.push_str(&format!("<pre><code>{}</code></pre>", escape_html(&c.source)));
+                body.push_str(&format!(
+                    "<pre><code>{}</code></pre>",
+                    escape_html(&c.source)
+                ));
                 if let Some((r, p, keep)) = stored(c, nb, limits) {
                     for s in &p.statements {
-                        body.push_str(&format!("<div class=\"summary\">{}</div>", escape_html(&summary_line(s, r))));
+                        body.push_str(&format!(
+                            "<div class=\"summary\">{}</div>",
+                            escape_html(&summary_line(s, r))
+                        ));
                         if keep && !s.columns.is_empty() {
-                            body.push_str(&format!("<div class=\"scroll\">{}</div>", html_table(&s.columns, &s.rows)));
+                            body.push_str(&format!(
+                                "<div class=\"scroll\">{}</div>",
+                                html_table(&s.columns, &s.rows)
+                            ));
                         }
                     }
                     if !p.messages.is_empty() {
-                        body.push_str(&format!("<pre class=\"messages\">{}</pre>", escape_html(&p.messages.join("\n"))));
+                        body.push_str(&format!(
+                            "<pre class=\"messages\">{}</pre>",
+                            escape_html(&p.messages.join("\n"))
+                        ));
                     }
                     if let Some(e) = &p.error {
                         body.push_str(&format!("<pre class=\"error\">{}</pre>", escape_html(e)));
@@ -216,7 +279,11 @@ pub fn html_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages,
                 }
                 for img in cell_images(c, nb, images) {
                     let data = base64::engine::general_purpose::STANDARD.encode(&img.png);
-                    let caption = if img.title.is_empty() { String::new() } else { format!("<figcaption>{}</figcaption>", escape_html(&img.title)) };
+                    let caption = if img.title.is_empty() {
+                        String::new()
+                    } else {
+                        format!("<figcaption>{}</figcaption>", escape_html(&img.title))
+                    };
                     body.push_str(&format!(
                         "<figure class=\"chart\"><img alt=\"{}\" src=\"data:image/png;base64,{data}\">{caption}</figure>",
                         escape_html(&img.title)
@@ -239,7 +306,10 @@ pub fn html_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages,
 
 fn safe_url(u: &str) -> bool {
     let l = u.to_ascii_lowercase();
-    (l.starts_with("http://") || l.starts_with("https://")) && !u.chars().any(|c| c.is_whitespace() || c == '"' || c == '<' || c == '>')
+    (l.starts_with("http://") || l.starts_with("https://"))
+        && !u
+            .chars()
+            .any(|c| c.is_whitespace() || c == '"' || c == '<' || c == '>')
 }
 
 /// `**bold**` and `*italic*` on escaped text.
@@ -272,8 +342,12 @@ fn links_and_emphasis(s: &str) -> String {
     let mut out = String::new();
     let mut rest = s;
     while let Some(open) = rest.find('[') {
-        let Some(close) = rest[open..].find("](").map(|i| open + i) else { break };
-        let Some(end) = rest[close + 2..].find(')').map(|i| close + 2 + i) else { break };
+        let Some(close) = rest[open..].find("](").map(|i| open + i) else {
+            break;
+        };
+        let Some(end) = rest[close + 2..].find(')').map(|i| close + 2 + i) else {
+            break;
+        };
         let text = &rest[open + 1..close];
         let url = &rest[close + 2..end];
         out.push_str(&emphasis(&escape_html(&rest[..open])));
@@ -305,7 +379,13 @@ fn inline(s: &str) -> String {
     }
     segs.iter()
         .enumerate()
-        .map(|(i, seg)| if i % 2 == 1 { format!("<code>{}</code>", escape_html(seg)) } else { links_and_emphasis(seg) })
+        .map(|(i, seg)| {
+            if i % 2 == 1 {
+                format!("<code>{}</code>", escape_html(seg))
+            } else {
+                links_and_emphasis(seg)
+            }
+        })
         .collect()
 }
 
@@ -318,7 +398,14 @@ enum Block {
 fn flush(out: &mut String, b: &mut Block) {
     match std::mem::replace(b, Block::None) {
         Block::None => {}
-        Block::Para(lines) => out.push_str(&format!("<p>{}</p>\n", lines.iter().map(|l| inline(l)).collect::<Vec<_>>().join("<br>\n"))),
+        Block::Para(lines) => out.push_str(&format!(
+            "<p>{}</p>\n",
+            lines
+                .iter()
+                .map(|l| inline(l))
+                .collect::<Vec<_>>()
+                .join("<br>\n")
+        )),
         Block::List(ordered, items) => {
             let tag = if ordered { "ol" } else { "ul" };
             out.push_str(&format!("<{tag}>"));
@@ -339,7 +426,10 @@ fn list_item(line: &str) -> Option<(bool, &str)> {
     }
     let digits = t.bytes().take_while(u8::is_ascii_digit).count();
     if digits > 0 {
-        if let Some(r) = t[digits..].strip_prefix(". ").or_else(|| t[digits..].strip_prefix(") ")) {
+        if let Some(r) = t[digits..]
+            .strip_prefix(". ")
+            .or_else(|| t[digits..].strip_prefix(") "))
+        {
             return Some((true, r));
         }
     }
@@ -353,8 +443,13 @@ pub fn markdown_to_html(src: &str) -> String {
     let mut fence: Option<(String, Vec<String>)> = None;
     for line in src.lines() {
         if let Some((marker, body)) = fence.as_mut() {
-            if line.trim_start().starts_with(marker.as_str()) && line.trim().chars().all(|c| c == '`' || c == '~') {
-                out.push_str(&format!("<pre><code>{}</code></pre>\n", escape_html(&body.join("\n"))));
+            if line.trim_start().starts_with(marker.as_str())
+                && line.trim().chars().all(|c| c == '`' || c == '~')
+            {
+                out.push_str(&format!(
+                    "<pre><code>{}</code></pre>\n",
+                    escape_html(&body.join("\n"))
+                ));
                 fence = None;
             } else {
                 body.push(line.to_string());
@@ -376,7 +471,10 @@ pub fn markdown_to_html(src: &str) -> String {
         let hashes = t.chars().take_while(|c| *c == '#').count();
         if (1..=6).contains(&hashes) && t[hashes..].starts_with(' ') {
             flush(&mut out, &mut block);
-            out.push_str(&format!("<h{hashes}>{}</h{hashes}>\n", inline(t[hashes..].trim().trim_end_matches('#').trim_end())));
+            out.push_str(&format!(
+                "<h{hashes}>{}</h{hashes}>\n",
+                inline(t[hashes..].trim().trim_end_matches('#').trim_end())
+            ));
             continue;
         }
         if let Some((ordered, item)) = list_item(line) {
@@ -404,7 +502,10 @@ pub fn markdown_to_html(src: &str) -> String {
         }
     }
     if let Some((_, body)) = fence {
-        out.push_str(&format!("<pre><code>{}</code></pre>\n", escape_html(&body.join("\n"))));
+        out.push_str(&format!(
+            "<pre><code>{}</code></pre>\n",
+            escape_html(&body.join("\n"))
+        ));
     }
     flush(&mut out, &mut block);
     out
@@ -454,7 +555,9 @@ fn md_table(s: &StoredStatement) -> String {
     t.push_str(&format!("| {} |\n", head.join(" | ")));
     t.push_str(&format!("|{}|\n", vec![" --- "; head.len()].join("|")));
     for r in &s.rows {
-        let cells: Vec<String> = (0..s.columns.len()).map(|i| md_text(&display_value(r.get(i).unwrap_or(&Value::Null)))).collect();
+        let cells: Vec<String> = (0..s.columns.len())
+            .map(|i| md_text(&display_value(r.get(i).unwrap_or(&Value::Null))))
+            .collect();
         t.push_str(&format!("| {} |\n", cells.join(" | ")));
     }
     t.push('\n');
@@ -468,12 +571,23 @@ pub fn markdown(nb: &Notebook, limits: PreviewLimits) -> String {
 
 /// The notebook as Markdown, each cell's charts as `![title](<dir>/chart-<cell>-<n>.png)`;
 /// with the files to write in `dir` (a folder next to the .md file).
-pub fn markdown_with(nb: &Notebook, limits: PreviewLimits, images: &CellImages, dir: &str) -> (String, ExportFiles) {
+pub fn markdown_with(
+    nb: &Notebook,
+    limits: PreviewLimits,
+    images: &CellImages,
+    dir: &str,
+) -> (String, ExportFiles) {
     markdown_with_note(nb, limits, images, dir, None)
 }
 
 /// [`markdown_with`], with `chart_note` where a chart has no image.
-pub fn markdown_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages, dir: &str, chart_note: Option<&str>) -> (String, ExportFiles) {
+pub fn markdown_with_note(
+    nb: &Notebook,
+    limits: PreviewLimits,
+    images: &CellImages,
+    dir: &str,
+    chart_note: Option<&str>,
+) -> (String, ExportFiles) {
     let mut out = String::new();
     let mut files = ExportFiles::new();
     for (ci, c) in nb.cells.iter().enumerate() {
@@ -482,9 +596,14 @@ pub fn markdown_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellIma
                 out.push_str(c.source.trim_end());
                 out.push_str("\n\n");
             }
-            CellKind::Foreign => out.push_str(&fenced(&c.source, c.language.as_deref().unwrap_or(""))),
+            CellKind::Foreign => {
+                out.push_str(&fenced(&c.source, c.language.as_deref().unwrap_or("")))
+            }
             CellKind::Write => {
-                out.push_str(&fenced(&write_cell_text(&c.write.clone().unwrap_or_default()), "text"));
+                out.push_str(&fenced(
+                    &write_cell_text(&c.write.clone().unwrap_or_default()),
+                    "text",
+                ));
                 if let Some(r) = &c.write_result {
                     out.push_str(&format!("*{}*\n\n", md_text(&write_summary_line(r))));
                 }
@@ -515,7 +634,11 @@ pub fn markdown_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellIma
                 }
                 for (k, img) in cell_images(c, nb, images).iter().enumerate() {
                     let name = format!("chart-{}-{}.png", ci + 1, k + 1);
-                    out.push_str(&format!("![{}]({}/{name})\n\n", md_text(&img.title), url_segment(dir)));
+                    out.push_str(&format!(
+                        "![{}]({}/{name})\n\n",
+                        md_text(&img.title),
+                        url_segment(dir)
+                    ));
                     files.push((name, img.png.clone()));
                 }
             }
@@ -533,7 +656,10 @@ mod tests {
     fn nb_with_script() -> Notebook {
         let r = CellResult {
             results: vec![StoredStatement {
-                columns: vec![StoredColumn { name: "<b>col</b>".into(), type_name: String::new() }],
+                columns: vec![StoredColumn {
+                    name: "<b>col</b>".into(),
+                    type_name: String::new(),
+                }],
                 rows: vec![vec![json!("<script>alert(1)</script>")], vec![Value::Null]],
                 rows_total: 2,
                 rows_kept: 2,
@@ -550,7 +676,8 @@ mod tests {
             truncated: false,
             params: None,
         };
-        let mut nb = parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}"#).unwrap();
+        let mut nb =
+            parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}"#).unwrap();
         nb.cells = vec![
             NotebookCell {
                 id: "m".into(),
@@ -593,13 +720,19 @@ mod tests {
         assert!(!h.contains("<b>col"));
         assert!(!h.contains("javascript:alert(1)\""));
         assert!(h.contains("<title>Hola &lt;script&gt;x&lt;/script&gt;</title>"));
-        assert!(h.contains("<strong>negrita</strong> y <em>it</em> y <code>&lt;script&gt;c&lt;/script&gt;</code>"));
-        assert!(h.contains("<a href=\"https://dbine.com/?a=1&amp;b=2\" rel=\"noopener noreferrer\">link</a>"));
+        assert!(h.contains(
+            "<strong>negrita</strong> y <em>it</em> y <code>&lt;script&gt;c&lt;/script&gt;</code>"
+        ));
+        assert!(h.contains(
+            "<a href=\"https://dbine.com/?a=1&amp;b=2\" rel=\"noopener noreferrer\">link</a>"
+        ));
         assert!(h.contains("<ul><li>a</li>"));
         assert!(h.contains("<pre><code>&lt;script&gt;f&lt;/script&gt;</code></pre>"));
         assert!(h.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(h.contains("<i>NULL</i>"));
-        assert!(h.contains("2 / 2 rows · 2026-10-18T14:32:05Z · 41.0 s · &lt;script&gt;t&lt;/script&gt;"));
+        assert!(h.contains(
+            "2 / 2 rows · 2026-10-18T14:32:05Z · 41.0 s · &lt;script&gt;t&lt;/script&gt;"
+        ));
         assert!(h.contains("prefers-color-scheme: dark"));
     }
 
@@ -621,24 +754,48 @@ mod tests {
 
     #[test]
     fn markdown_links_are_only_http() {
-        assert_eq!(markdown_to_html("[a](https://x.y/z)"), "<p><a href=\"https://x.y/z\" rel=\"noopener noreferrer\">a</a></p>\n");
-        assert_eq!(markdown_to_html("[a](javascript:alert(1))"), "<p>[a](javascript:alert(1))</p>\n");
-        assert_eq!(markdown_to_html("1. uno\n2. dos"), "<ol><li>uno</li><li>dos</li></ol>\n");
-        assert_eq!(markdown_to_html("## T\nx `a*b*` *c*"), "<h2>T</h2>\n<p>x <code>a*b*</code> <em>c</em></p>\n");
+        assert_eq!(
+            markdown_to_html("[a](https://x.y/z)"),
+            "<p><a href=\"https://x.y/z\" rel=\"noopener noreferrer\">a</a></p>\n"
+        );
+        assert_eq!(
+            markdown_to_html("[a](javascript:alert(1))"),
+            "<p>[a](javascript:alert(1))</p>\n"
+        );
+        assert_eq!(
+            markdown_to_html("1. uno\n2. dos"),
+            "<ol><li>uno</li><li>dos</li></ol>\n"
+        );
+        assert_eq!(
+            markdown_to_html("## T\nx `a*b*` *c*"),
+            "<h2>T</h2>\n<p>x <code>a*b*</code> <em>c</em></p>\n"
+        );
     }
 
     const PNG_1PX: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
     fn images(cell: &str, titles: &[&str]) -> CellImages {
         let png = decode_png(PNG_1PX).unwrap();
-        CellImages::from([(cell.to_string(), titles.iter().map(|t| ChartImage { title: t.to_string(), png: png.clone() }).collect())])
+        CellImages::from([(
+            cell.to_string(),
+            titles
+                .iter()
+                .map(|t| ChartImage {
+                    title: t.to_string(),
+                    png: png.clone(),
+                })
+                .collect(),
+        )])
     }
 
     #[test]
     fn chart_images_must_be_png() {
         let png = decode_png(PNG_1PX).unwrap();
         assert!(png.starts_with(b"\x89PNG"));
-        assert_eq!(decode_png(&format!("data:image/png;base64,{PNG_1PX}")).unwrap(), png);
+        assert_eq!(
+            decode_png(&format!("data:image/png;base64,{PNG_1PX}")).unwrap(),
+            png
+        );
         // Not base64, or not a PNG (an SVG, HTML…): refused.
         assert!(decode_png("%%%").is_err());
         let svg = base64::engine::general_purpose::STANDARD.encode("<svg onload=alert(1)>");
@@ -649,7 +806,11 @@ mod tests {
     #[test]
     fn html_embeds_each_cells_charts() {
         let nb = nb_with_script();
-        let h = html_with(&nb, PreviewLimits::default(), &images("c", &["Ventas <b>2026</b>", ""]));
+        let h = html_with(
+            &nb,
+            PreviewLimits::default(),
+            &images("c", &["Ventas <b>2026</b>", ""]),
+        );
         assert_eq!(h.matches("<img ").count(), 2);
         assert!(h.contains(&format!("src=\"data:image/png;base64,{PNG_1PX}\"")));
         assert!(h.contains("<figcaption>Ventas &lt;b&gt;2026&lt;/b&gt;</figcaption>"));
@@ -660,7 +821,9 @@ mod tests {
         assert!(!html_with(&nb, PreviewLimits::default(), &images("m", &["x"])).contains("<img"));
         let mut dropped = nb_with_script();
         dropped.cells[1].keep_result = false;
-        assert!(!html_with(&dropped, PreviewLimits::default(), &images("c", &["x"])).contains("<img"));
+        assert!(
+            !html_with(&dropped, PreviewLimits::default(), &images("c", &["x"])).contains("<img")
+        );
         let mut none = nb_with_script();
         none.save_results = false;
         assert!(!html_with(&none, PreviewLimits::default(), &images("c", &["x"])).contains("<img"));
@@ -673,28 +836,56 @@ mod tests {
         assert_eq!(dir, "Informe (final) v2_files");
         assert_eq!(files_dir_name("notas"), "notas_files");
         assert_eq!(files_dir_name(".md"), ".md_files");
-        let (md, files) = markdown_with(&nb, PreviewLimits::default(), &images("c", &["Por [mes]", "otro"]), &dir);
+        let (md, files) = markdown_with(
+            &nb,
+            PreviewLimits::default(),
+            &images("c", &["Por [mes]", "otro"]),
+            &dir,
+        );
         // The SQL cell is the second one: chart-2-<n>.png, linked relatively.
-        assert!(md.contains("![Por \\[mes\\]](Informe%20%28final%29%20v2_files/chart-2-1.png)"), "{md}");
+        assert!(
+            md.contains("![Por \\[mes\\]](Informe%20%28final%29%20v2_files/chart-2-1.png)"),
+            "{md}"
+        );
         assert!(md.contains("![otro](Informe%20%28final%29%20v2_files/chart-2-2.png)"));
-        assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["chart-2-1.png", "chart-2-2.png"]);
-        assert!(files.iter().all(|(n, b)| !n.contains('/') && !n.contains("..") && b.starts_with(b"\x89PNG")));
+        assert_eq!(
+            files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+            ["chart-2-1.png", "chart-2-2.png"]
+        );
+        assert!(files
+            .iter()
+            .all(|(n, b)| !n.contains('/') && !n.contains("..") && b.starts_with(b"\x89PNG")));
         // Without images: exactly the plain export.
-        assert_eq!(markdown_with(&nb, PreviewLimits::default(), &CellImages::new(), &dir).0, markdown(&nb, PreviewLimits::default()));
+        assert_eq!(
+            markdown_with(&nb, PreviewLimits::default(), &CellImages::new(), &dir).0,
+            markdown(&nb, PreviewLimits::default())
+        );
         // At most MAX_IMAGES_PER_CELL per cell.
-        let many: Vec<String> = (0..MAX_IMAGES_PER_CELL + 5).map(|i| i.to_string()).collect();
+        let many: Vec<String> = (0..MAX_IMAGES_PER_CELL + 5)
+            .map(|i| i.to_string())
+            .collect();
         let refs: Vec<&str> = many.iter().map(String::as_str).collect();
-        assert_eq!(markdown_with(&nb, PreviewLimits::default(), &images("c", &refs), &dir).1.len(), MAX_IMAGES_PER_CELL);
+        assert_eq!(
+            markdown_with(&nb, PreviewLimits::default(), &images("c", &refs), &dir)
+                .1
+                .len(),
+            MAX_IMAGES_PER_CELL
+        );
     }
 
     #[test]
     fn markdown_export_has_fences_and_tables() {
         let md = markdown(&nb_with_script(), PreviewLimits::default());
-        assert!(md.starts_with("# Hola <script>x</script>"), "markdown cells go as they are");
+        assert!(
+            md.starts_with("# Hola <script>x</script>"),
+            "markdown cells go as they are"
+        );
         assert!(md.contains("```sql\nSELECT '<script>s</script>'\n```"));
         assert!(md.contains("| &lt;b&gt;col&lt;/b&gt; |"));
         assert!(md.contains("| &lt;script&gt;alert(1)&lt;/script&gt; |"));
-        assert!(md.contains("*2 / 2 rows · 2026-10-18T14:32:05Z · 41.0 s · &lt;script&gt;t&lt;/script&gt;*"));
+        assert!(md.contains(
+            "*2 / 2 rows · 2026-10-18T14:32:05Z · 41.0 s · &lt;script&gt;t&lt;/script&gt;*"
+        ));
         assert!(md.contains("**Error**\n\n```text\n<script>err</script>\n```"));
         // Rows not kept: no table.
         let mut nb = nb_with_script();

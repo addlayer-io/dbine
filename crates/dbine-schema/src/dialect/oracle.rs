@@ -10,7 +10,9 @@
 //! Character data is read and written as unicode: the database character
 //! set is AL32UTF8 by default since 12.2, and lengths use CHAR semantics.
 
-use super::postgres::{fit_decimal, longest, precision_loss, prec, set_len, single_auto_increment, uuid_slot, UuidSlot};
+use super::postgres::{
+    fit_decimal, longest, prec, precision_loss, set_len, single_auto_increment, uuid_slot, UuidSlot,
+};
 use super::{standard_default, Caps, Dialect, IdentCase, Rendered};
 use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Report, Severity};
@@ -37,26 +39,51 @@ impl Dialect for Oracle {
     fn parse_type(&self, t: &TypeSpec) -> L {
         let p = |i| t.arg_u32(i);
         // `VARCHAR2(20 CHAR)` / `(20 BYTE)`: the number comes first.
-        let len = || t.args.first().and_then(|a| a.split_whitespace().next()).and_then(|n| n.parse::<u32>().ok());
+        let len = || {
+            t.args
+                .first()
+                .and_then(|a| a.split_whitespace().next())
+                .and_then(|n| n.parse::<u32>().ok())
+        };
         match t.name.as_str() {
             "number" | "numeric" | "decimal" | "dec" => {
-                let precision = t.args.first().filter(|a| a.trim() != "*").and_then(|a| a.trim().parse::<u32>().ok())
+                let precision = t
+                    .args
+                    .first()
+                    .filter(|a| a.trim() != "*")
+                    .and_then(|a| a.trim().parse::<u32>().ok())
                     .or(t.args.first().filter(|a| a.trim() == "*").map(|_| 38));
                 // A negative scale (NUMBER(10,-2)) rounds to tens, hundreds…: whole numbers.
-                let scale = t.args.get(1).and_then(|a| a.trim().parse::<i32>().ok()).map(|s| s.max(0) as u32);
+                let scale = t
+                    .args
+                    .get(1)
+                    .and_then(|a| a.trim().parse::<i32>().ok())
+                    .map(|s| s.max(0) as u32);
                 match (precision, scale) {
                     // NUMBER(p) / NUMBER(p, 0): a whole number of p digits.
                     (Some(pr), None | Some(0)) if pr <= 2 => L::int(1),
                     (Some(pr), None | Some(0)) if pr <= 4 => L::int(2),
                     (Some(pr), None | Some(0)) if pr <= 9 => L::int(4),
                     (Some(pr), None | Some(0)) if pr <= 18 => L::int(8),
-                    (Some(pr), s) => L::Decimal { precision: Some(pr), scale: s.or(Some(0)) },
-                    (None, Some(0)) if !t.args.is_empty() => L::Decimal { precision: Some(38), scale: Some(0) },
-                    (None, _) => L::Decimal { precision: None, scale: None },
+                    (Some(pr), s) => L::Decimal {
+                        precision: Some(pr),
+                        scale: s.or(Some(0)),
+                    },
+                    (None, Some(0)) if !t.args.is_empty() => L::Decimal {
+                        precision: Some(38),
+                        scale: Some(0),
+                    },
+                    (None, _) => L::Decimal {
+                        precision: None,
+                        scale: None,
+                    },
                 }
             }
             // INTEGER / INT / SMALLINT are NUMBER(38).
-            "integer" | "int" | "smallint" => L::Decimal { precision: Some(38), scale: Some(0) },
+            "integer" | "int" | "smallint" => L::Decimal {
+                precision: Some(38),
+                scale: Some(0),
+            },
             "binary_float" => L::Float { bytes: 4 },
             "binary_double" => L::Float { bytes: 8 },
             // FLOAT(b) is a *decimal* NUMBER with b binary digits (126 by
@@ -64,25 +91,52 @@ impl Dialect for Oracle {
             "float" | "real" | "double precision" => match p(0) {
                 Some(b) if b <= 24 => L::Float { bytes: 4 },
                 Some(b) if b <= 53 => L::Float { bytes: 8 },
-                _ => L::Decimal { precision: None, scale: None },
+                _ => L::Decimal {
+                    precision: None,
+                    scale: None,
+                },
             },
-            "char" | "character" | "nchar" => L::Char { len: len().or(Some(1)), unicode: true },
-            "varchar2" | "varchar" | "nvarchar2" => L::Varchar { len: len(), unicode: true },
+            "char" | "character" | "nchar" => L::Char {
+                len: len().or(Some(1)),
+                unicode: true,
+            },
+            "varchar2" | "varchar" | "nvarchar2" => L::Varchar {
+                len: len(),
+                unicode: true,
+            },
             "clob" | "long" | "nclob" => L::Text { unicode: true },
             "raw" => L::Varbinary { len: p(0) },
             "long raw" | "blob" => L::Blob,
             // Oracle's DATE carries a time of day, to the second.
-            "date" => L::Timestamp { precision: Some(0), tz: false },
-            "timestamp" => L::Timestamp { precision: Some(p(0).unwrap_or(6).min(9) as u8), tz: t.with_tz },
+            "date" => L::Timestamp {
+                precision: Some(0),
+                tz: false,
+            },
+            "timestamp" => L::Timestamp {
+                precision: Some(p(0).unwrap_or(6).min(9) as u8),
+                tz: t.with_tz,
+            },
             "boolean" => L::Bool,
             "json" => L::Json { binary: true },
             "xmltype" | "sys.xmltype" => L::Xml,
-            "sdo_geometry" | "mdsys.sdo_geometry" => L::Geometry { kind: None, srid: None, geography: false },
-            "rowid" => L::Varchar { len: Some(18), unicode: false },
-            "urowid" => L::Varchar { len: Some(p(0).unwrap_or(4000)), unicode: false },
+            "sdo_geometry" | "mdsys.sdo_geometry" => L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false,
+            },
+            "rowid" => L::Varchar {
+                len: Some(18),
+                unicode: false,
+            },
+            "urowid" => L::Varchar {
+                len: Some(p(0).unwrap_or(4000)),
+                unicode: false,
+            },
             // `INTERVAL DAY(2) TO SECOND(6)`, `INTERVAL YEAR(2) TO MONTH`.
             n if n.starts_with("interval") => L::Interval,
-            _ => L::Other { native: t.raw.clone() },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -225,7 +279,14 @@ impl Dialect for Oracle {
         single_auto_increment(t, report, "Oracle");
         let table = t.name.clone();
         for c in t.columns.iter_mut().filter(|c| c.auto_increment) {
-            let ok = matches!(self.parse_type(&parse(&c.data_type)), L::Int { .. } | L::Decimal { scale: Some(0) | None, .. });
+            let ok = matches!(
+                self.parse_type(&parse(&c.data_type)),
+                L::Int { .. }
+                    | L::Decimal {
+                        scale: Some(0) | None,
+                        ..
+                    }
+            );
             if !ok {
                 report.push(
                     Severity::Loss,
@@ -249,10 +310,14 @@ impl Dialect for Oracle {
             let budget = MAX_KEY / cols.len().max(1) as u32;
             let chars = budget / BYTES_PER_CHAR;
             for name in &cols {
-                let Some(c) = t.columns.iter_mut().find(|c| &c.name == name) else { continue };
+                let Some(c) = t.columns.iter_mut().find(|c| &c.name == name) else {
+                    continue;
+                };
                 let to = match self.parse_type(&parse(&c.data_type)) {
                     L::Text { .. } => format!("VARCHAR2({chars} CHAR)"),
-                    L::Varchar { len: Some(n), .. } | L::Char { len: Some(n), .. } if n > chars => format!("VARCHAR2({chars} CHAR)"),
+                    L::Varchar { len: Some(n), .. } | L::Char { len: Some(n), .. } if n > chars => {
+                        format!("VARCHAR2({chars} CHAR)")
+                    }
                     L::Blob => format!("RAW({})", budget.min(2000)),
                     _ => continue,
                 };
@@ -294,45 +359,172 @@ mod tests {
     fn parses_dictionary_spellings() {
         assert_eq!(ty("NUMBER(10)"), L::int(8));
         assert_eq!(ty("NUMBER(9)"), L::int(4));
-        assert_eq!(ty("NUMBER(12,2)"), L::Decimal { precision: Some(12), scale: Some(2) });
-        assert_eq!(ty("NUMBER"), L::Decimal { precision: None, scale: None });
-        assert_eq!(ty("INTEGER"), L::Decimal { precision: Some(38), scale: Some(0) });
+        assert_eq!(
+            ty("NUMBER(12,2)"),
+            L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }
+        );
+        assert_eq!(
+            ty("NUMBER"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
+        assert_eq!(
+            ty("INTEGER"),
+            L::Decimal {
+                precision: Some(38),
+                scale: Some(0)
+            }
+        );
         assert_eq!(ty("NUMBER(10,-2)"), L::int(8));
-        assert_eq!(ty("NUMBER(*,0)"), L::Decimal { precision: Some(38), scale: Some(0) });
-        assert_eq!(ty("FLOAT(126)"), L::Decimal { precision: None, scale: None });
+        assert_eq!(
+            ty("NUMBER(*,0)"),
+            L::Decimal {
+                precision: Some(38),
+                scale: Some(0)
+            }
+        );
+        assert_eq!(
+            ty("FLOAT(126)"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
         assert_eq!(ty("FLOAT(53)"), L::Float { bytes: 8 });
-        assert_eq!(ty("VARCHAR2(200)"), L::Varchar { len: Some(200), unicode: true });
-        assert_eq!(ty("VARCHAR2(100 CHAR)"), L::Varchar { len: Some(100), unicode: true });
-        assert_eq!(ty("NVARCHAR2(50)"), L::Varchar { len: Some(50), unicode: true });
-        assert_eq!(ty("CHAR(10)"), L::Char { len: Some(10), unicode: true });
+        assert_eq!(
+            ty("VARCHAR2(200)"),
+            L::Varchar {
+                len: Some(200),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            ty("VARCHAR2(100 CHAR)"),
+            L::Varchar {
+                len: Some(100),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            ty("NVARCHAR2(50)"),
+            L::Varchar {
+                len: Some(50),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            ty("CHAR(10)"),
+            L::Char {
+                len: Some(10),
+                unicode: true
+            }
+        );
         assert_eq!(ty("RAW(16)"), L::Varbinary { len: Some(16) });
-        assert_eq!(ty("DATE"), L::Timestamp { precision: Some(0), tz: false });
-        assert_eq!(ty("TIMESTAMP(6)"), L::Timestamp { precision: Some(6), tz: false });
-        assert_eq!(ty("TIMESTAMP(9) WITH TIME ZONE"), L::Timestamp { precision: Some(9), tz: true });
-        assert_eq!(ty("TIMESTAMP(6) WITH LOCAL TIME ZONE"), L::Timestamp { precision: Some(6), tz: true });
+        assert_eq!(
+            ty("DATE"),
+            L::Timestamp {
+                precision: Some(0),
+                tz: false
+            }
+        );
+        assert_eq!(
+            ty("TIMESTAMP(6)"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: false
+            }
+        );
+        assert_eq!(
+            ty("TIMESTAMP(9) WITH TIME ZONE"),
+            L::Timestamp {
+                precision: Some(9),
+                tz: true
+            }
+        );
+        assert_eq!(
+            ty("TIMESTAMP(6) WITH LOCAL TIME ZONE"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: true
+            }
+        );
         assert_eq!(ty("INTERVAL DAY(2) TO SECOND(6)"), L::Interval);
         assert_eq!(ty("INTERVAL YEAR(2) TO MONTH"), L::Interval);
         assert_eq!(ty("BINARY_FLOAT"), L::Float { bytes: 4 });
         assert_eq!(ty("LONG RAW"), L::Blob);
         assert_eq!(ty("BOOLEAN"), L::Bool);
         assert_eq!(ty("JSON"), L::Json { binary: true });
-        assert_eq!(ty("NUMBER(10) GENERATED ALWAYS AS (\"A\"+1) VIRTUAL"), L::int(8));
+        assert_eq!(
+            ty("NUMBER(10) GENERATED ALWAYS AS (\"A\"+1) VIRTUAL"),
+            L::int(8)
+        );
     }
 
     #[test]
     fn renders_character_semantics_within_limits() {
-        assert_eq!(Oracle.render_type(&L::Varchar { len: Some(200), unicode: true }).native, "VARCHAR2(200 CHAR)");
-        let r = Oracle.render_type(&L::Varchar { len: Some(4000), unicode: true });
+        assert_eq!(
+            Oracle
+                .render_type(&L::Varchar {
+                    len: Some(200),
+                    unicode: true
+                })
+                .native,
+            "VARCHAR2(200 CHAR)"
+        );
+        let r = Oracle.render_type(&L::Varchar {
+            len: Some(4000),
+            unicode: true,
+        });
         assert_eq!(r.native, "VARCHAR2(4000 CHAR)");
         assert_eq!(r.notes[0].code, IssueCode::LengthLoss);
-        assert_eq!(Oracle.render_type(&L::Char { len: Some(10), unicode: true }).native, "CHAR(10 CHAR)");
-        assert_eq!(Oracle.render_type(&L::Decimal { precision: Some(65), scale: Some(30) }).native, "NUMBER(38, 3)");
+        assert_eq!(
+            Oracle
+                .render_type(&L::Char {
+                    len: Some(10),
+                    unicode: true
+                })
+                .native,
+            "CHAR(10 CHAR)"
+        );
+        assert_eq!(
+            Oracle
+                .render_type(&L::Decimal {
+                    precision: Some(65),
+                    scale: Some(30)
+                })
+                .native,
+            "NUMBER(38, 3)"
+        );
     }
 
     #[test]
     fn defaults_by_column_type() {
-        assert_eq!(Oracle.render_default(&DefaultValue::CurrentTimestamp, &L::Date).as_deref(), Some("TRUNC(SYSDATE)"));
-        assert_eq!(Oracle.render_default(&DefaultValue::NewUuid, &L::Varbinary { len: Some(16) }).as_deref(), Some("SYS_GUID()"));
-        assert!(Oracle.render_default(&DefaultValue::NewUuid, &L::Char { len: Some(36), unicode: true }).unwrap().starts_with("LOWER("));
+        assert_eq!(
+            Oracle
+                .render_default(&DefaultValue::CurrentTimestamp, &L::Date)
+                .as_deref(),
+            Some("TRUNC(SYSDATE)")
+        );
+        assert_eq!(
+            Oracle
+                .render_default(&DefaultValue::NewUuid, &L::Varbinary { len: Some(16) })
+                .as_deref(),
+            Some("SYS_GUID()")
+        );
+        assert!(Oracle
+            .render_default(
+                &DefaultValue::NewUuid,
+                &L::Char {
+                    len: Some(36),
+                    unicode: true
+                }
+            )
+            .unwrap()
+            .starts_with("LOWER("));
     }
 }

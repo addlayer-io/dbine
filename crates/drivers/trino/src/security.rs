@@ -20,12 +20,22 @@
 
 use crate::{lit, TrinoSession};
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
+    SecuritySpec,
+};
 use std::collections::{HashSet, VecDeque};
 
 pub fn spec() -> SecuritySpec {
     SecuritySpec {
-        privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALL PRIVILEGES"],
+        privileges: vec![
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "CREATE",
+            "ALL PRIVILEGES",
+        ],
         object_kinds: vec!["schema", "table", "view"],
         create_user: false,
         create_role: true,
@@ -69,7 +79,9 @@ fn not_managed(catalog: &str) -> Error {
 // -- reading -----------------------------------------------------------------
 
 fn cell(r: &[String], i: usize) -> Option<String> {
-    r.get(i).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    r.get(i)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 pub async fn principals(s: &mut TrinoSession) -> Result<Vec<Principal>> {
@@ -84,7 +96,14 @@ pub async fn principals(s: &mut TrinoSession) -> Result<Vec<Principal>> {
                 // The connector's own: admin (Hive's) and public.
                 system: matches!(name.split(IN).next(), Some("admin" | "public")),
                 superuser: Some(name.split(IN).next() == Some("admin")),
-                details: vec![("Ámbito".into(), if catalog_role { format!("catálogo {cat}") } else { "sistema".into() })],
+                details: vec![(
+                    "Ámbito".into(),
+                    if catalog_role {
+                        format!("catálogo {cat}")
+                    } else {
+                        "sistema".into()
+                    },
+                )],
                 name,
                 ..Default::default()
             });
@@ -107,19 +126,43 @@ pub async fn principals(s: &mut TrinoSession) -> Result<Vec<Principal>> {
         }
     }
     // Memberships in the catalog's roles: grantee, grantee type, role.
-    let members = match s.strings(&format!("SELECT grantee, grantee_type, role_name FROM {is}.role_authorization_descriptors")).await {
+    let members = match s
+        .strings(&format!(
+            "SELECT grantee, grantee_type, role_name FROM {is}.role_authorization_descriptors"
+        ))
+        .await
+    {
         Ok(r) => r,
-        Err(_) => s.strings(&format!("SELECT grantee, grantee_type, role_name FROM {is}.applicable_roles")).await.unwrap_or_default(),
+        Err(_) => s
+            .strings(&format!(
+                "SELECT grantee, grantee_type, role_name FROM {is}.applicable_roles"
+            ))
+            .await
+            .unwrap_or_default(),
     };
-    let privileged = s.strings(&format!("SELECT DISTINCT grantee, grantee_type FROM {is}.table_privileges")).await.unwrap_or_default();
+    let privileged = s
+        .strings(&format!(
+            "SELECT DISTINCT grantee, grantee_type FROM {is}.table_privileges"
+        ))
+        .await
+        .unwrap_or_default();
     managed |= !privileged.is_empty();
     if !managed {
         return Err(not_managed(&cat));
     }
-    let me = s.strings("SELECT current_user").await?.first().and_then(|r| cell(r, 0)).unwrap_or_default();
+    let me = s
+        .strings("SELECT current_user")
+        .await?
+        .first()
+        .and_then(|r| cell(r, 0))
+        .unwrap_or_default();
     let named = |r: &[String], i: usize| -> Option<String> {
         let name = cell(r, i)?;
-        Some(if cell(r, i + 1).as_deref() == Some("ROLE") { role_name(&name, &cat) } else { name })
+        Some(if cell(r, i + 1).as_deref() == Some("ROLE") {
+            role_name(&name, &cat)
+        } else {
+            name
+        })
     };
     let mut users: Vec<String> = vec![me.clone()];
     for r in members.iter().chain(privileged.iter()) {
@@ -134,11 +177,19 @@ pub async fn principals(s: &mut TrinoSession) -> Result<Vec<Principal>> {
             if u == me {
                 details.push(("Nota".into(), "Usuario de esta conexión".into()));
             }
-            out.push(Principal { name: u, kind: PrincipalKind::User, can_login: Some(true), details, ..Default::default() });
+            out.push(Principal {
+                name: u,
+                kind: PrincipalKind::User,
+                can_login: Some(true),
+                details,
+                ..Default::default()
+            });
         }
     }
     for r in &members {
-        let (Some(member), Some(role)) = (named(r, 0), cell(r, 2)) else { continue };
+        let (Some(member), Some(role)) = (named(r, 0), cell(r, 2)) else {
+            continue;
+        };
         let role = role_name(&role, &cat);
         if let Some(p) = out.iter_mut().find(|p| p.name == member) {
             if !p.member_of.contains(&role) {
@@ -159,7 +210,8 @@ pub async fn grants(s: &mut TrinoSession, principal: &str) -> Result<Vec<Grant>>
     let kind = if catalog.is_some() { "ROLE" } else { "USER" };
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    let mut queue: VecDeque<(String, &str, Option<String>)> = VecDeque::from([(name.to_string(), kind, None)]);
+    let mut queue: VecDeque<(String, &str, Option<String>)> =
+        VecDeque::from([(name.to_string(), kind, None)]);
     while let Some((grantee, ty, via)) = queue.pop_front() {
         if !seen.insert((grantee.clone(), ty)) || seen.len() > 256 {
             continue;
@@ -187,7 +239,12 @@ pub async fn grants(s: &mut TrinoSession, principal: &str) -> Result<Vec<Grant>>
                 via: via.clone(),
             });
         }
-        let roles = s.strings(&format!("SELECT role_name FROM {is}.role_authorization_descriptors WHERE {who}")).await.unwrap_or_default();
+        let roles = s
+            .strings(&format!(
+                "SELECT role_name FROM {is}.role_authorization_descriptors WHERE {who}"
+            ))
+            .await
+            .unwrap_or_default();
         for role in roles.iter().filter_map(|r| cell(r, 0)) {
             let v = via.clone().unwrap_or_else(|| role_name(&role, &cat));
             queue.push_back((role, "ROLE", Some(v)));
@@ -212,7 +269,9 @@ fn in_catalog(catalog: Option<&str>) -> String {
 
 fn on(object: &Option<ObjectRef>) -> Result<String> {
     let Some(o) = object else {
-        return Err(Error::Query("en Trino los permisos se otorgan sobre un esquema o una tabla".into()));
+        return Err(Error::Query(
+            "en Trino los permisos se otorgan sobre un esquema o una tabla".into(),
+        ));
     };
     Ok(match o.kind.as_str() {
         "schema" | "database" => format!("SCHEMA {}", q(&o.name)),
@@ -231,10 +290,18 @@ fn privileges(p: &[String]) -> Result<String> {
     let mut out: Vec<String> = Vec::new();
     for x in p {
         let name = x.trim();
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_') {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
+        {
             return Err(Error::Query(format!("«{x}» no es un permiso de Trino")));
         }
-        let name = name.split_whitespace().collect::<Vec<_>>().join(" ").to_uppercase();
+        let name = name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_uppercase();
         if !out.contains(&name) {
             out.push(name);
         }
@@ -247,7 +314,10 @@ pub fn script(a: &SecurityAction) -> Result<String> {
         SecurityAction::CreateUser { .. }
         | SecurityAction::SetPassword { .. }
         | SecurityAction::SetLogin { .. }
-        | SecurityAction::Drop { kind: PrincipalKind::User, .. } => return Err(no_users()),
+        | SecurityAction::Drop {
+            kind: PrincipalKind::User,
+            ..
+        } => return Err(no_users()),
         SecurityAction::CreateRole { name } => {
             let (r, c) = split_role(name);
             if r.is_empty() {
@@ -255,18 +325,35 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             }
             format!("CREATE ROLE {}{};", q(r), in_catalog(c))
         }
-        SecurityAction::Drop { name, kind: PrincipalKind::Role } => {
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::Role,
+        } => {
             let (r, c) = split_role(name);
             format!("DROP ROLE {}{};", q(r), in_catalog(c))
         }
-        SecurityAction::Grant { privileges: p, object, to, grantable } => format!(
+        SecurityAction::Grant {
+            privileges: p,
+            object,
+            to,
+            grantable,
+        } => format!(
             "GRANT {} ON {} TO {}{};",
             privileges(p)?,
             on(object)?,
             grantee(to),
             if *grantable { " WITH GRANT OPTION" } else { "" }
         ),
-        SecurityAction::Revoke { privileges: p, object, from } => format!("REVOKE {} ON {} FROM {};", privileges(p)?, on(object)?, grantee(from)),
+        SecurityAction::Revoke {
+            privileges: p,
+            object,
+            from,
+        } => format!(
+            "REVOKE {} ON {} FROM {};",
+            privileges(p)?,
+            on(object)?,
+            grantee(from)
+        ),
         SecurityAction::AddMember { role, member } => {
             let (r, c) = split_role(role);
             format!("GRANT {} TO {}{};", q(r), grantee(member), in_catalog(c))
@@ -290,7 +377,20 @@ pub fn schema_spec(presto: bool) -> SchemaSpec {
     if presto {
         return SchemaSpec::default();
     }
-    SchemaSpec { owner: true, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: true, privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALL PRIVILEGES"], grant_option: true }
+    SchemaSpec {
+        owner: true,
+        owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+        cascade: true,
+        privileges: vec![
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "CREATE",
+            "ALL PRIVILEGES",
+        ],
+        grant_option: true,
+    }
 }
 
 /// The name as typed, quoted: the grants that follow name it the same way.
@@ -311,7 +411,11 @@ pub fn create_schema(name: &str) -> Result<String> {
 pub fn schema_owner(name: &str, owner: &str) -> Result<String> {
     match owner.trim() {
         "" => Err(Error::Query("elegí el dueño del esquema".into())),
-        o => Ok(format!("ALTER SCHEMA {} SET AUTHORIZATION {};", schema_name(name)?, grantee(o))),
+        o => Ok(format!(
+            "ALTER SCHEMA {} SET AUTHORIZATION {};",
+            schema_name(name)?,
+            grantee(o)
+        )),
     }
 }
 
@@ -330,43 +434,107 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        })
     }
 
     #[test]
     fn writes_the_scripts() {
         let s = |a| script(&a).unwrap();
-        assert_eq!(s(SecurityAction::CreateRole { name: "analistas IN hive".into() }), "CREATE ROLE \"analistas\" IN \"hive\";");
-        assert_eq!(s(SecurityAction::CreateRole { name: "global".into() }), "CREATE ROLE \"global\";");
-        assert!(script(&SecurityAction::CreateRole { name: " ".into() }).is_err());
-        assert_eq!(s(SecurityAction::Drop { name: "a\"b IN hive".into(), kind: PrincipalKind::Role }), "DROP ROLE \"a\"\"b\" IN \"hive\";");
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["select".into(), "INSERT".into()], object: obj("table", Some("ventas"), "fact"), to: "ana".into(), grantable: true }),
+            s(SecurityAction::CreateRole {
+                name: "analistas IN hive".into()
+            }),
+            "CREATE ROLE \"analistas\" IN \"hive\";"
+        );
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "global".into()
+            }),
+            "CREATE ROLE \"global\";"
+        );
+        assert!(script(&SecurityAction::CreateRole { name: " ".into() }).is_err());
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "a\"b IN hive".into(),
+                kind: PrincipalKind::Role
+            }),
+            "DROP ROLE \"a\"\"b\" IN \"hive\";"
+        );
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["select".into(), "INSERT".into()],
+                object: obj("table", Some("ventas"), "fact"),
+                to: "ana".into(),
+                grantable: true
+            }),
             "GRANT SELECT, INSERT ON TABLE \"ventas\".\"fact\" TO USER \"ana\" WITH GRANT OPTION;"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["SELECT".into()], object: obj("schema", None, "ventas"), to: "analistas IN hive".into(), grantable: false }),
+            s(SecurityAction::Grant {
+                privileges: vec!["SELECT".into()],
+                object: obj("schema", None, "ventas"),
+                to: "analistas IN hive".into(),
+                grantable: false
+            }),
             "GRANT SELECT ON SCHEMA \"ventas\" TO ROLE \"analistas\";"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["DELETE".into()], object: obj("view", Some("s"), "v"), from: "ana.b@x.com".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["DELETE".into()],
+                object: obj("view", Some("s"), "v"),
+                from: "ana.b@x.com".into()
+            }),
             "REVOKE DELETE ON TABLE \"s\".\"v\" FROM USER \"ana.b@x.com\";"
         );
         assert_eq!(
-            s(SecurityAction::AddMember { role: "analistas IN hive".into(), member: "ana".into() }),
+            s(SecurityAction::AddMember {
+                role: "analistas IN hive".into(),
+                member: "ana".into()
+            }),
             "GRANT \"analistas\" TO USER \"ana\" IN \"hive\";"
         );
         assert_eq!(
-            s(SecurityAction::RemoveMember { role: "analistas IN hive".into(), member: "jefes IN hive".into() }),
+            s(SecurityAction::RemoveMember {
+                role: "analistas IN hive".into(),
+                member: "jefes IN hive".into()
+            }),
             "REVOKE \"analistas\" FROM ROLE \"jefes\" IN \"hive\";"
         );
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT".into()], object: None, to: "a".into(), grantable: false }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT; DROP TABLE x".into()], object: obj("schema", None, "s"), to: "a".into(), grantable: false }).is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT".into()],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT; DROP TABLE x".into()],
+            object: obj("schema", None, "s"),
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
         for a in [
-            SecurityAction::CreateUser { name: "a".into(), password: Some("x".into()) },
-            SecurityAction::SetPassword { name: "a".into(), password: "x".into() },
-            SecurityAction::SetLogin { name: "a".into(), enabled: false },
-            SecurityAction::Drop { name: "a".into(), kind: PrincipalKind::User },
+            SecurityAction::CreateUser {
+                name: "a".into(),
+                password: Some("x".into()),
+            },
+            SecurityAction::SetPassword {
+                name: "a".into(),
+                password: "x".into(),
+            },
+            SecurityAction::SetLogin {
+                name: "a".into(),
+                enabled: false,
+            },
+            SecurityAction::Drop {
+                name: "a".into(),
+                kind: PrincipalKind::User,
+            },
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
@@ -382,19 +550,46 @@ mod tests {
 
     #[test]
     fn schema_scripts() {
-        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA \"ventas\";");
-        assert_eq!(schema_owner("ven\"tas", "ana").unwrap(), "ALTER SCHEMA \"ven\"\"tas\" SET AUTHORIZATION USER \"ana\";");
-        assert_eq!(schema_owner("ventas", "analistas IN hive").unwrap(), "ALTER SCHEMA \"ventas\" SET AUTHORIZATION ROLE \"analistas\";");
+        assert_eq!(
+            create_schema(" ventas ").unwrap(),
+            "CREATE SCHEMA \"ventas\";"
+        );
+        assert_eq!(
+            schema_owner("ven\"tas", "ana").unwrap(),
+            "ALTER SCHEMA \"ven\"\"tas\" SET AUTHORIZATION USER \"ana\";"
+        );
+        assert_eq!(
+            schema_owner("ventas", "analistas IN hive").unwrap(),
+            "ALTER SCHEMA \"ventas\" SET AUTHORIZATION ROLE \"analistas\";"
+        );
         assert!(create_schema(" ").is_err());
-        assert_eq!(drop_schema("ventas", true, false).unwrap(), "DROP SCHEMA \"ventas\" CASCADE;");
-        assert_eq!(drop_schema("ventas", false, false).unwrap(), "DROP SCHEMA \"ventas\" RESTRICT;");
-        assert_eq!(drop_schema("ventas", false, true).unwrap(), "DROP SCHEMA \"ventas\";");
+        assert_eq!(
+            drop_schema("ventas", true, false).unwrap(),
+            "DROP SCHEMA \"ventas\" CASCADE;"
+        );
+        assert_eq!(
+            drop_schema("ventas", false, false).unwrap(),
+            "DROP SCHEMA \"ventas\" RESTRICT;"
+        );
+        assert_eq!(
+            drop_schema("ventas", false, true).unwrap(),
+            "DROP SCHEMA \"ventas\";"
+        );
         assert_eq!(schema_spec(true), SchemaSpec::default());
         let spec = schema_spec(false);
         assert!(spec.owner && spec.cascade);
         for p in &spec.privileges {
-            let g = script(&SecurityAction::Grant { privileges: vec![p.to_string()], object: obj("schema", None, "ventas"), to: "ana".into(), grantable: true }).unwrap();
-            assert_eq!(g, format!("GRANT {p} ON SCHEMA \"ventas\" TO USER \"ana\" WITH GRANT OPTION;"));
+            let g = script(&SecurityAction::Grant {
+                privileges: vec![p.to_string()],
+                object: obj("schema", None, "ventas"),
+                to: "ana".into(),
+                grantable: true,
+            })
+            .unwrap();
+            assert_eq!(
+                g,
+                format!("GRANT {p} ON SCHEMA \"ventas\" TO USER \"ana\" WITH GRANT OPTION;")
+            );
         }
     }
 }

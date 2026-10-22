@@ -81,7 +81,12 @@ const NUMBERS: [(&str, &str, &str, (u64, u64)); 10] = [
     ("pages", "PAGES", "páginas", (64, 16384)),
     ("pagesize", "PAGESIZE", "tamaño de página", (1, 16384)),
     ("cachesize", "CACHESIZE", "memoria de la caché", (1, 65536)),
-    ("wal_fsync_period", "WAL_FSYNC_PERIOD", "período de fsync", (0, 180_000)),
+    (
+        "wal_fsync_period",
+        "WAL_FSYNC_PERIOD",
+        "período de fsync",
+        (0, 180_000),
+    ),
     ("minrows", "MINROWS", "filas mínimas", (10, 1_000_000)),
     ("maxrows", "MAXROWS", "filas máximas", (200, 10_000_000)),
     ("stt_trigger", "STT_TRIGGER", "archivos STT", (1, 16)),
@@ -105,7 +110,10 @@ pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String>
         if list.len() > 3 {
             return Err(bad("retención", k));
         }
-        let list = list.iter().map(|v| span(v, "retención")).collect::<Result<Vec<_>>>()?;
+        let list = list
+            .iter()
+            .map(|v| span(v, "retención"))
+            .collect::<Result<Vec<_>>>()?;
         parts.push(format!("KEEP {}", list.join(",")));
     }
     if let Some(d) = opt(o, "duration") {
@@ -131,7 +139,11 @@ pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String>
     }
     for (key, kw, what, (lo, hi)) in NUMBERS {
         if let Some(v) = opt(o, key) {
-            let n = v.parse::<u64>().ok().filter(|n| (lo..=hi).contains(n)).ok_or_else(|| bad(what, v))?;
+            let n = v
+                .parse::<u64>()
+                .ok()
+                .filter(|n| (lo..=hi).contains(n))
+                .ok_or_else(|| bad(what, v))?;
             parts.push(format!("{kw} {n}"));
         }
     }
@@ -140,7 +152,11 @@ pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String>
         Some("true") => parts.push("SINGLE_STABLE 1".into()),
         Some(v) => return Err(bad("un solo supertable", v)),
     }
-    let tail = if parts.is_empty() { String::new() } else { format!(" {}", parts.join(" ")) };
+    let tail = if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", parts.join(" "))
+    };
     Ok(format!("CREATE DATABASE {}{tail}", q(name)))
 }
 
@@ -149,7 +165,9 @@ pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String>
 pub(crate) fn grouped(f: Field) -> Field {
     let g = match f.key {
         "buffer" | "pages" | "pagesize" | "cachemodel" | "cachesize" => "Memoria y caché",
-        "wal_level" | "wal_fsync_period" | "comp" | "minrows" | "maxrows" | "stt_trigger" => "WAL y compresión",
+        "wal_level" | "wal_fsync_period" | "comp" | "minrows" | "maxrows" | "stt_trigger" => {
+            "WAL y compresión"
+        }
         _ => "Almacenamiento",
     };
     f.group(g)
@@ -160,12 +178,18 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script("planta", &o(&[("keep", " ")])).unwrap(), "CREATE DATABASE `planta`");
+        assert_eq!(
+            script("planta", &o(&[("keep", " ")])).unwrap(),
+            "CREATE DATABASE `planta`"
+        );
         assert_eq!(script("a`b", &o(&[])).unwrap(), "CREATE DATABASE `a``b`");
     }
 

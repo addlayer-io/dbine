@@ -46,27 +46,45 @@ pub(crate) fn map(g: &Grants, database: Option<&str>) -> Permissions {
     let any = |ps: &[&str]| ps.iter().any(|p| g.privileges.iter().any(|x| x == p));
     Permissions {
         backup: Access::check(
-            any(&["BACKUP ADMIN", "BACKUP OPERATOR", "DATABASE BACKUP ADMIN", "DATABASE BACKUP OPERATOR"]),
+            any(&[
+                "BACKUP ADMIN",
+                "BACKUP OPERATOR",
+                "DATABASE BACKUP ADMIN",
+                "DATABASE BACKUP OPERATOR",
+            ]),
             "BACKUP ADMIN o BACKUP OPERATOR",
         ),
         restore: Access::check(
             any(&["DATABASE ADMIN", "DATABASE RECOVERY OPERATOR"]),
             "DATABASE ADMIN o DATABASE RECOVERY OPERATOR (en SYSTEMDB)",
         ),
-        profiler: Access::check(any(&["CATALOG READ", "DATA ADMIN"]), "CATALOG READ (rol MONITORING)"),
+        profiler: Access::check(
+            any(&["CATALOG READ", "DATA ADMIN"]),
+            "CATALOG READ (rol MONITORING)",
+        ),
         kill_session: Access::check(any(&["SESSION ADMIN"]), "SESSION ADMIN"),
         create_database: Access::check(any(&["CREATE SCHEMA"]), "CREATE SCHEMA"),
         drop_database: match database.map(str::trim).filter(|d| !d.is_empty()) {
             Some(_) => Access::check(g.may_drop, "DROP sobre el esquema (o ser su dueño)"),
             None => Access::Unknown,
         },
-        manage_security: Access::check(any(&["USER ADMIN", "ROLE ADMIN"]), "USER ADMIN o ROLE ADMIN"),
+        manage_security: Access::check(
+            any(&["USER ADMIN", "ROLE ADMIN"]),
+            "USER ADMIN o ROLE ADMIN",
+        ),
         create_schema: Access::check(any(&["CREATE SCHEMA"]), "CREATE SCHEMA"),
     }
 }
 
 fn list(v: Option<String>) -> Vec<String> {
-    v.map(|s| s.split(',').map(str::trim).filter(|x| !x.is_empty()).map(str::to_string).collect()).unwrap_or_default()
+    v.map(|s| {
+        s.split(',')
+            .map(str::trim)
+            .filter(|x| !x.is_empty())
+            .map(str::to_string)
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub(crate) async fn check(s: &HanaSession, database: Option<&str>) -> Result<Permissions> {
@@ -77,7 +95,11 @@ pub(crate) async fn check(s: &HanaSession, database: Option<&str>) -> Result<Per
     }
     .await;
     let row: Vec<HdbValue<'static>> = match rows {
-        Ok(rows) => rows.into_iter().next().map(|r| r.into_iter().collect()).unwrap_or_default(),
+        Ok(rows) => rows
+            .into_iter()
+            .next()
+            .map(|r| r.into_iter().collect())
+            .unwrap_or_default(),
         Err(e) if e.server_error().is_some() => {
             tracing::debug!("hana: permissions check refused: {e}");
             return Ok(Permissions::default());
@@ -85,7 +107,10 @@ pub(crate) async fn check(s: &HanaSession, database: Option<&str>) -> Result<Per
         Err(e) => return Err(err(e)),
     };
     let n = |i: usize| row.get(i).and_then(int).unwrap_or(0);
-    let g = Grants { privileges: list(row.first().and_then(text)), may_drop: n(1) > 0 || n(2) > 0 };
+    let g = Grants {
+        privileges: list(row.first().and_then(text)),
+        may_drop: n(1) > 0 || n(2) > 0,
+    };
     Ok(map(&g, database))
 }
 
@@ -94,13 +119,24 @@ mod tests {
     use super::*;
 
     fn g(privileges: &[&str], may_drop: bool) -> Grants {
-        Grants { privileges: privileges.iter().map(|s| s.to_string()).collect(), may_drop }
+        Grants {
+            privileges: privileges.iter().map(|s| s.to_string()).collect(),
+            may_drop,
+        }
     }
 
     #[test]
     fn system_may_do_everything() {
         let all = g(
-            &["BACKUP ADMIN", "DATABASE ADMIN", "CATALOG READ", "SESSION ADMIN", "CREATE SCHEMA", "USER ADMIN", "ROLE ADMIN"],
+            &[
+                "BACKUP ADMIN",
+                "DATABASE ADMIN",
+                "CATALOG READ",
+                "SESSION ADMIN",
+                "CREATE SCHEMA",
+                "USER ADMIN",
+                "ROLE ADMIN",
+            ],
             true,
         );
         assert_eq!(map(&all, Some("VENTAS")), Permissions::all());
@@ -110,20 +146,59 @@ mod tests {
     #[test]
     fn a_plain_user_is_denied_what_it_lacks() {
         let p = map(&g(&[], false), Some("VENTAS"));
-        assert_eq!(p.backup, Access::Denied { missing: "BACKUP ADMIN o BACKUP OPERATOR".into() });
+        assert_eq!(
+            p.backup,
+            Access::Denied {
+                missing: "BACKUP ADMIN o BACKUP OPERATOR".into()
+            }
+        );
         assert!(p.restore.is_denied());
-        assert_eq!(p.profiler, Access::Denied { missing: "CATALOG READ (rol MONITORING)".into() });
-        assert_eq!(p.kill_session, Access::Denied { missing: "SESSION ADMIN".into() });
-        assert_eq!(p.create_database, Access::Denied { missing: "CREATE SCHEMA".into() });
-        assert_eq!(p.create_schema, Access::Denied { missing: "CREATE SCHEMA".into() });
+        assert_eq!(
+            p.profiler,
+            Access::Denied {
+                missing: "CATALOG READ (rol MONITORING)".into()
+            }
+        );
+        assert_eq!(
+            p.kill_session,
+            Access::Denied {
+                missing: "SESSION ADMIN".into()
+            }
+        );
+        assert_eq!(
+            p.create_database,
+            Access::Denied {
+                missing: "CREATE SCHEMA".into()
+            }
+        );
+        assert_eq!(
+            p.create_schema,
+            Access::Denied {
+                missing: "CREATE SCHEMA".into()
+            }
+        );
         assert!(p.drop_database.is_denied());
         assert!(p.manage_security.is_denied());
     }
 
     #[test]
     fn operators_and_owners() {
-        let p = map(&g(&["BACKUP OPERATOR", "DATA ADMIN", "ROLE ADMIN"], true), Some("MIO"));
-        assert_eq!((p.backup, p.profiler, p.manage_security, p.drop_database), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
-        assert_eq!(list(Some("A, B".into())), vec!["A".to_string(), "B".to_string()]);
+        let p = map(
+            &g(&["BACKUP OPERATOR", "DATA ADMIN", "ROLE ADMIN"], true),
+            Some("MIO"),
+        );
+        assert_eq!(
+            (p.backup, p.profiler, p.manage_security, p.drop_database),
+            (
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed,
+                Access::Allowed
+            )
+        );
+        assert_eq!(
+            list(Some("A, B".into())),
+            vec!["A".to_string(), "B".to_string()]
+        );
     }
 }

@@ -24,7 +24,10 @@ fn narrow(q: &CodeSearch) -> (&'static str, Option<String>) {
     if q.case_sensitive {
         ("STRPOS(ddl, @t) > 0", Some(q.text.clone()))
     } else if q.text.is_ascii() {
-        ("STRPOS(LOWER(ddl), @t) > 0", Some(q.text.to_ascii_lowercase()))
+        (
+            "STRPOS(LOWER(ddl), @t) > 0",
+            Some(q.text.to_ascii_lowercase()),
+        )
     } else {
         ("TRUE", None)
     }
@@ -32,7 +35,13 @@ fn narrow(q: &CodeSearch) -> (&'static str, Option<String>) {
 
 /// Every object of an INFORMATION_SCHEMA view (`TABLES` or `ROUTINES`):
 /// its name, whether it has no `ddl`, and the `ddl` where it may hold the text.
-fn source_sql(project: &str, dataset: &str, view: &str, name_col: &str, q: &CodeSearch) -> (String, Option<Json>) {
+fn source_sql(
+    project: &str,
+    dataset: &str,
+    view: &str,
+    name_col: &str,
+    q: &CodeSearch,
+) -> (String, Option<Json>) {
     let (cond, t) = narrow(q);
     let sql = format!(
         "SELECT {name_col}, ddl IS NULL, IF({cond}, ddl, NULL) FROM {}.{}.INFORMATION_SCHEMA.{view}",
@@ -51,7 +60,13 @@ fn is_routine(kind: &str) -> bool {
 }
 
 impl BigQuerySession {
-    async fn sources(&self, dataset: &str, view: &str, name_col: &str, q: &CodeSearch) -> Option<Sources> {
+    async fn sources(
+        &self,
+        dataset: &str,
+        view: &str,
+        name_col: &str,
+        q: &CodeSearch,
+    ) -> Option<Sources> {
         let (sql, params) = source_sql(&self.api.project, dataset, view, name_col, q);
         let r = self.query(&sql, 1_000_000, params).await.ok()?;
         if r.more {
@@ -60,37 +75,58 @@ impl BigQuerySession {
         let mut out = Sources::new();
         for row in &r.rows {
             let cell = |i: usize| row.pointer(&format!("/f/{i}/v"));
-            let Some(name) = cell(0).and_then(Json::as_str) else { continue };
-            let no_ddl = cell(1).and_then(Json::as_str).is_none_or(|b| b.eq_ignore_ascii_case("true"));
+            let Some(name) = cell(0).and_then(Json::as_str) else {
+                continue;
+            };
+            let no_ddl = cell(1)
+                .and_then(Json::as_str)
+                .is_none_or(|b| b.eq_ignore_ascii_case("true"));
             let ddl = cell(2).and_then(Json::as_str).map(str::to_string);
             out.entry(name.to_string()).or_default().push((no_ddl, ddl));
         }
         Some(out)
     }
 
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
-        let Some(ds) = self.dataset.clone() else { return Ok(None) };
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
+        let Some(ds) = self.dataset.clone() else {
+            return Ok(None);
+        };
         // The emulator has no INFORMATION_SCHEMA.
         if q.text.is_empty() || self.api.emulator {
             return Ok(None);
         }
         let wanted = |kind: &str| q.kinds.is_empty() || q.kinds.iter().any(|k| k == kind);
-        let objects: Vec<_> = dbine_driver::Session::list_objects(self).await?.into_iter().filter(|o| wanted(&o.kind)).collect();
+        let objects: Vec<_> = dbine_driver::Session::list_objects(self)
+            .await?
+            .into_iter()
+            .filter(|o| wanted(&o.kind))
+            .collect();
         let tables = if objects.iter().any(|o| !is_routine(&o.kind)) {
-            let Some(s) = self.sources(&ds, "TABLES", "table_name", q).await else { return Ok(None) };
+            let Some(s) = self.sources(&ds, "TABLES", "table_name", q).await else {
+                return Ok(None);
+            };
             s
         } else {
             Sources::new()
         };
         let routines = if objects.iter().any(|o| is_routine(&o.kind)) {
-            let Some(s) = self.sources(&ds, "ROUTINES", "routine_name", q).await else { return Ok(None) };
+            let Some(s) = self.sources(&ds, "ROUTINES", "routine_name", q).await else {
+                return Ok(None);
+            };
             s
         } else {
             Sources::new()
         };
         let mut report = CodeSearchReport::default();
         for o in &objects {
-            let from = if is_routine(&o.kind) { &routines } else { &tables };
+            let from = if is_routine(&o.kind) {
+                &routines
+            } else {
+                &tables
+            };
             // `definition` reads the REST resource for an object without a
             // `ddl` here; and the first of two rows of a name is anyone's.
             let source = match from.get(&o.name).map(Vec::as_slice) {
@@ -99,7 +135,9 @@ impl BigQuerySession {
             };
             report.scanned += 1;
             let Some(source) = source else { continue };
-            report.hits.extend(hits_in(&o.kind, None, &o.name, None, source, q));
+            report
+                .hits
+                .extend(hits_in(&o.kind, None, &o.name, None, source, q));
             if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                 report.hits.truncate(q.max_hits);
                 report.truncated = true;
@@ -115,24 +153,43 @@ mod tests {
     use super::*;
 
     fn q(text: &str, case: bool) -> CodeSearch {
-        CodeSearch { text: text.into(), case_sensitive: case, ..Default::default() }
+        CodeSearch {
+            text: text.into(),
+            case_sensitive: case,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn text_goes_as_a_parameter() {
-        let (sql, p) = source_sql("my-proj", "ds`1", "TABLES", "table_name", &q("100%_x'", true));
+        let (sql, p) = source_sql(
+            "my-proj",
+            "ds`1",
+            "TABLES",
+            "table_name",
+            &q("100%_x'", true),
+        );
         assert_eq!(
             sql,
             "SELECT table_name, ddl IS NULL, IF(STRPOS(ddl, @t) > 0, ddl, NULL) FROM `my-proj`.`ds``1`.INFORMATION_SCHEMA.TABLES"
         );
-        assert_eq!(p.unwrap().pointer("/0/parameterValue/value"), Some(&json!("100%_x'")));
+        assert_eq!(
+            p.unwrap().pointer("/0/parameterValue/value"),
+            Some(&json!("100%_x'"))
+        );
     }
 
     #[test]
     fn case_insensitive_narrows_only_ascii() {
         let (sql, p) = source_sql("p", "d", "ROUTINES", "routine_name", &q("Ventas", false));
-        assert!(sql.contains("IF(STRPOS(LOWER(ddl), @t) > 0, ddl, NULL)"), "{sql}");
-        assert_eq!(p.unwrap().pointer("/0/parameterValue/value"), Some(&json!("ventas")));
+        assert!(
+            sql.contains("IF(STRPOS(LOWER(ddl), @t) > 0, ddl, NULL)"),
+            "{sql}"
+        );
+        assert_eq!(
+            p.unwrap().pointer("/0/parameterValue/value"),
+            Some(&json!("ventas"))
+        );
         let (sql, p) = source_sql("p", "d", "ROUTINES", "routine_name", &q("Año", false));
         assert!(sql.contains("IF(TRUE, ddl, NULL)") && p.is_none(), "{sql}");
     }

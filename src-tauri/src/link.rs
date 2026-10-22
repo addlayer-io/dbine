@@ -18,11 +18,12 @@
 //! the port and the phones; DBine's private key is in the vault.
 
 use crate::state::AppState;
-use dbine_link::proto::{
-    Call, ConnectionItem, EventRow, Events, HealthRow, HealthView, Hello, LockRow, MetricRow, MonitorView, PairResult, ProcessRow, QueriesView, QueryRow, Request, Response, RunRow,
-    StepRow, TaskItem,
-};
 use dbine_link::net::Relays;
+use dbine_link::proto::{
+    Call, ConnectionItem, EventRow, Events, HealthRow, HealthView, Hello, LockRow, MetricRow,
+    MonitorView, PairResult, ProcessRow, QueriesView, QueryRow, Request, Response, RunRow, StepRow,
+    TaskItem,
+};
 use dbine_link::{Accepted, BoxIo, Invite, Keys, Remote};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -94,7 +95,12 @@ pub struct LinkSettings {
 
 impl Default for LinkSettings {
     fn default() -> Self {
-        LinkSettings { enabled: false, port: DEFAULT_PORT, devices: Vec::new(), remote: RemoteSetting::default() }
+        LinkSettings {
+            enabled: false,
+            port: DEFAULT_PORT,
+            devices: Vec::new(),
+            remote: RemoteSetting::default(),
+        }
     }
 }
 
@@ -200,12 +206,17 @@ pub struct QueryGuard {
 
 impl QueryGuard {
     pub fn finish(self, out: &dbine_driver::QueryOutcome) {
-        let Some(r) = self.inner.running.lock().unwrap().remove(&self.id) else { return };
+        let Some(r) = self.inner.running.lock().unwrap().remove(&self.id) else {
+            return;
+        };
         let ms = r.started.elapsed().as_millis() as u64;
         if Duration::from_millis(ms) < LONG_QUERY {
             return;
         }
-        let failed = out.error.clone().or_else(|| out.errors.first().map(|e| e.message.clone()));
+        let failed = out
+            .error
+            .clone()
+            .or_else(|| out.errors.first().map(|e| e.message.clone()));
         let took = took(ms);
         let summary = match &failed {
             Some(e) => e.chars().take(300).collect::<String>(),
@@ -222,7 +233,10 @@ impl QueryGuard {
             }
         };
         let body = match (&failed, summary.is_empty()) {
-            (Some(e), _) => format!("Falló después de {took}: {}", e.chars().take(200).collect::<String>()),
+            (Some(e), _) => format!(
+                "Falló después de {took}: {}",
+                e.chars().take(200).collect::<String>()
+            ),
             (None, true) => format!("Terminó en {took}"),
             (None, false) => format!("Terminó en {took} · {summary}"),
         };
@@ -258,7 +272,12 @@ impl Drop for QueryGuard {
 
 /// The first lines of a query, for a phone's screen.
 fn first_lines(sql: &str) -> String {
-    let lines: Vec<&str> = sql.lines().map(str::trim).filter(|l| !l.is_empty()).take(3).collect();
+    let lines: Vec<&str> = sql
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(3)
+        .collect();
     let s = lines.join(" ");
     if s.chars().count() > 160 {
         format!("{}…", s.chars().take(160).collect::<String>())
@@ -282,7 +301,10 @@ pub fn computer_name() -> String {
         return n;
     }
     #[cfg(target_os = "macos")]
-    if let Ok(o) = std::process::Command::new("/usr/sbin/scutil").args(["--get", "ComputerName"]).output() {
+    if let Ok(o) = std::process::Command::new("/usr/sbin/scutil")
+        .args(["--get", "ComputerName"])
+        .output()
+    {
         let n = String::from_utf8_lossy(&o.stdout).trim().to_string();
         if !n.is_empty() {
             return n;
@@ -301,7 +323,10 @@ pub fn computer_name() -> String {
 fn lan_address() -> Option<std::net::IpAddr> {
     let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     s.connect("192.0.2.1:9").ok()?;
-    s.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
+    s.local_addr()
+        .ok()
+        .map(|a| a.ip())
+        .filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
 }
 
 impl LinkRuntime {
@@ -321,7 +346,9 @@ impl LinkRuntime {
                 keys: Mutex::new(None),
                 events: Mutex::new(VecDeque::new()),
                 next_seq: Mutex::new(0),
-                boot: dbine_link::random::<8>().map(|b| b.iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default(),
+                boot: dbine_link::random::<8>()
+                    .map(|b| b.iter().map(|x| format!("{x:02x}")).collect())
+                    .unwrap_or_default(),
                 seen_runs: Mutex::new(std::collections::HashSet::new()),
                 running: Mutex::new(HashMap::new()),
                 recent: Mutex::new(VecDeque::new()),
@@ -348,17 +375,42 @@ impl LinkRuntime {
         tauri::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(10)).await;
-                let long = me.running.lock().unwrap().values().any(|r| r.started.elapsed() >= AWAKE_AFTER);
+                let long = me
+                    .running
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .any(|r| r.started.elapsed() >= AWAKE_AFTER);
                 me.awake.set(long);
             }
         });
     }
 
     /// An editor query starts: it shows on the phone while it runs.
-    pub fn query_started(&self, session_id: &str, connection_id: &str, database: &str, sql: &str) -> QueryGuard {
-        let id: String = dbine_link::random::<8>().map(|b| b.iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default();
-        let conn = self.inner.state.store.get_connection(connection_id).ok().flatten().map(|c| c.name).unwrap_or_else(|| connection_id.to_string());
-        let place = if database.is_empty() { conn } else { format!("{conn} › {database}") };
+    pub fn query_started(
+        &self,
+        session_id: &str,
+        connection_id: &str,
+        database: &str,
+        sql: &str,
+    ) -> QueryGuard {
+        let id: String = dbine_link::random::<8>()
+            .map(|b| b.iter().map(|x| format!("{x:02x}")).collect())
+            .unwrap_or_default();
+        let conn = self
+            .inner
+            .state
+            .store
+            .get_connection(connection_id)
+            .ok()
+            .flatten()
+            .map(|c| c.name)
+            .unwrap_or_else(|| connection_id.to_string());
+        let place = if database.is_empty() {
+            conn
+        } else {
+            format!("{conn} › {database}")
+        };
         self.inner.running.lock().unwrap().insert(
             id.clone(),
             Running_ {
@@ -370,7 +422,10 @@ impl LinkRuntime {
                 started_at: now(),
             },
         );
-        QueryGuard { inner: self.inner.clone(), id }
+        QueryGuard {
+            inner: self.inner.clone(),
+            id,
+        }
     }
 
     pub fn settings(&self) -> LinkSettings {
@@ -390,7 +445,11 @@ impl LinkRuntime {
         let mut s = self.inner.settings();
         f(&mut s);
         let v = serde_json::to_value(&s).map_err(|e| e.to_string())?;
-        self.inner.state.store.set_setting(SETTING, Some(&v)).map_err(|e| e.to_string())?;
+        self.inner
+            .state
+            .store
+            .set_setting(SETTING, Some(&v))
+            .map_err(|e| e.to_string())?;
         // Removed phones lose their open sessions now.
         let ids: Vec<String> = s.devices.iter().map(|d| d.id.clone()).collect();
         self.inner.live.lock().unwrap().retain(|id, tasks| {
@@ -411,17 +470,37 @@ impl LinkRuntime {
             return Err("activá «Permitir celulares» primero".into());
         }
         if self.inner.server.lock().unwrap().is_none() {
-            return Err(self.inner.last_error.lock().unwrap().clone().unwrap_or_else(|| "el servidor para celulares no está funcionando".into()));
+            return Err(self
+                .inner
+                .last_error
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| "el servidor para celulares no está funcionando".into()));
         }
         let keys = self.inner.keys()?;
         let secret: [u8; 32] = dbine_link::random()?;
-        let addrs: Vec<String> = lan_address().into_iter().map(|ip| std::net::SocketAddr::new(ip, s.port).to_string()).collect();
+        let addrs: Vec<String> = lan_address()
+            .into_iter()
+            .map(|ip| std::net::SocketAddr::new(ip, s.port).to_string())
+            .collect();
         let remote = self.inner.remote_info();
         if addrs.is_empty() && remote.is_none() {
             return Err("esta computadora no está conectada a una red".into());
         }
-        *self.inner.invite.lock().unwrap() = Some(OpenInvite { secret, until: Instant::now() + INVITE_LIFE });
-        Ok(Invite { v: dbine_link::VERSION, key: keys.public, secret: secret.to_vec(), addrs, name: computer_name(), remote }.encode())
+        *self.inner.invite.lock().unwrap() = Some(OpenInvite {
+            secret,
+            until: Instant::now() + INVITE_LIFE,
+        });
+        Ok(Invite {
+            v: dbine_link::VERSION,
+            key: keys.public,
+            secret: secret.to_vec(),
+            addrs,
+            name: computer_name(),
+            remote,
+        }
+        .encode())
     }
 
     pub fn cancel_invite(&self) {
@@ -467,13 +546,28 @@ fn run_row(r: dbine_core::tasks::TaskRun) -> RunRow {
         started_at: r.started_at,
         finished_at: r.finished_at,
         error: r.error,
-        steps: r.steps.into_iter().map(|s| StepRow { kind: s.kind, status: status_text(s.status).into(), summary: s.summary, alert: s.alert }).collect(),
+        steps: r
+            .steps
+            .into_iter()
+            .map(|s| StepRow {
+                kind: s.kind,
+                status: status_text(s.status).into(),
+                summary: s.summary,
+                alert: s.alert,
+            })
+            .collect(),
     }
 }
 
 /// A statement as the phone gets it: trimmed (docs/mobile-security.md).
 fn trimmed_sql(sql: Option<String>) -> Option<String> {
-    sql.map(|s| if s.chars().count() > 500 { format!("{}…", s.chars().take(500).collect::<String>()) } else { s })
+    sql.map(|s| {
+        if s.chars().count() > 500 {
+            format!("{}…", s.chars().take(500).collect::<String>())
+        } else {
+            s
+        }
+    })
 }
 
 /// The session key of a phone's calls on a connection › database.
@@ -483,8 +577,13 @@ fn key(connection_id: &str, database: &str) -> String {
 
 /// The QR code of `text`, as SVG.
 pub fn qr_svg(text: &str) -> Result<String, String> {
-    let code = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M).map_err(|e| e.to_string())?;
-    Ok(code.render::<qrcode::render::svg::Color>().min_dimensions(240, 240).quiet_zone(true).build())
+    let code = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M)
+        .map_err(|e| e.to_string())?;
+    Ok(code
+        .render::<qrcode::render::svg::Color>()
+        .min_dimensions(240, 240)
+        .quiet_zone(true)
+        .build())
 }
 
 impl Inner {
@@ -495,7 +594,14 @@ impl Inner {
             *n
         };
         let mut ev = self.events.lock().unwrap();
-        ev.push_back(EventRow { seq, kind: kind.into(), title, body, ok, at: now() });
+        ev.push_back(EventRow {
+            seq,
+            kind: kind.into(),
+            title,
+            body,
+            ok,
+            at: now(),
+        });
         while ev.len() > EVENTS_KEPT {
             ev.pop_front();
         }
@@ -505,13 +611,17 @@ impl Inner {
     /// says: on failure or alert (the default), always, or never.
     fn watch_tasks(&self, first: bool) {
         use dbine_core::tasks::{Notify, RunStatus};
-        let Ok(runs) = self.state.store.list_task_runs(None, 50) else { return };
+        let Ok(runs) = self.state.store.list_task_runs(None, 50) else {
+            return;
+        };
         let mut seen = self.seen_runs.lock().unwrap();
         for r in runs.into_iter().rev() {
             if r.status == RunStatus::Running || !seen.insert(r.id.clone()) || first {
                 continue;
             }
-            let Ok(Some(task)) = self.state.store.get_task(&r.task_id) else { continue };
+            let Ok(Some(task)) = self.state.store.get_task(&r.task_id) else {
+                continue;
+            };
             let alerts: Vec<&str> = r.steps.iter().filter_map(|s| s.alert.as_deref()).collect();
             let ok = r.status == RunStatus::Ok && alerts.is_empty();
             let tell = match task.notify {
@@ -525,11 +635,18 @@ impl Inner {
             let body = match r.status {
                 RunStatus::Ok if alerts.is_empty() => "Terminó bien.".to_string(),
                 RunStatus::Ok => alerts.join("\n"),
-                RunStatus::Partial => format!("Terminó con errores. {}", alerts.join("\n")).trim().to_string(),
+                RunStatus::Partial => format!("Terminó con errores. {}", alerts.join("\n"))
+                    .trim()
+                    .to_string(),
                 _ => r
                     .error
                     .clone()
-                    .or_else(|| r.steps.iter().find(|s| s.status == RunStatus::Failed).map(|s| format!("Falló: {}", s.summary)))
+                    .or_else(|| {
+                        r.steps
+                            .iter()
+                            .find(|s| s.status == RunStatus::Failed)
+                            .map(|s| format!("Falló: {}", s.summary))
+                    })
                     .unwrap_or_else(|| "Falló.".into()),
             };
             drop(seen);
@@ -539,7 +656,13 @@ impl Inner {
     }
 
     fn settings(&self) -> LinkSettings {
-        self.state.store.get_setting(SETTING).ok().flatten().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+        self.state
+            .store
+            .get_setting(SETTING)
+            .ok()
+            .flatten()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default()
     }
 
     /// DBine's key pair, made the first time.
@@ -548,11 +671,18 @@ impl Inner {
         if let Some(k) = cached.as_ref() {
             return Ok(k.clone());
         }
-        let k = match dbine_core::secrets::get_raw(KEYS).map_err(|e| e.to_string())?.and_then(|j| serde_json::from_str::<Keys>(&j).ok()) {
+        let k = match dbine_core::secrets::get_raw(KEYS)
+            .map_err(|e| e.to_string())?
+            .and_then(|j| serde_json::from_str::<Keys>(&j).ok())
+        {
             Some(k) => k,
             None => {
                 let k = Keys::generate()?;
-                dbine_core::secrets::set_raw(KEYS, &serde_json::to_string(&k).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                dbine_core::secrets::set_raw(
+                    KEYS,
+                    &serde_json::to_string(&k).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
                 k
             }
         };
@@ -570,7 +700,10 @@ impl Inner {
     /// Outside the local network: an iroh endpoint while turned on, with
     /// the chosen relays.
     fn apply_remote(self: &Arc<Self>, s: &LinkSettings) {
-        let want = s.enabled.then(|| s.remote.clone()).filter(|r| *r != RemoteSetting::Off);
+        let want = s
+            .enabled
+            .then(|| s.remote.clone())
+            .filter(|r| *r != RemoteSetting::Off);
         let mut remote = self.remote.lock().unwrap();
         if remote.as_ref().map(|r| &r.setting) == want.as_ref() {
             return;
@@ -583,7 +716,9 @@ impl Inner {
         }
         *self.remote_error.lock().unwrap() = None;
         let Some(setting) = want else { return };
-        let Some(relays) = setting.relays() else { return };
+        let Some(relays) = setting.relays() else {
+            return;
+        };
         let secret = match self.iroh_secret() {
             Ok(k) => k,
             Err(e) => {
@@ -618,14 +753,22 @@ impl Inner {
                 });
             }
         });
-        *remote = Some(RunningRemote { setting, endpoint, task });
+        *remote = Some(RunningRemote {
+            setting,
+            endpoint,
+            task,
+        });
     }
 
     /// DBine's iroh key, made the first time.
     fn iroh_secret(&self) -> Result<[u8; 32], String> {
         use base64::Engine;
         let b64e = base64::engine::general_purpose::STANDARD;
-        if let Some(k) = dbine_core::secrets::get_raw(IROH_KEY).map_err(|e| e.to_string())?.and_then(|t| b64e.decode(t).ok()).and_then(|v| <[u8; 32]>::try_from(v).ok()) {
+        if let Some(k) = dbine_core::secrets::get_raw(IROH_KEY)
+            .map_err(|e| e.to_string())?
+            .and_then(|t| b64e.decode(t).ok())
+            .and_then(|v| <[u8; 32]>::try_from(v).ok())
+        {
             return Ok(k);
         }
         let k = dbine_link::net::new_secret();
@@ -638,13 +781,24 @@ impl Inner {
         let r = self.remote.lock().unwrap();
         let r = r.as_ref()?;
         let ep = r.endpoint.lock().unwrap().clone()?;
-        Some(Remote { node: ep.id().to_string(), relays: r.setting.relays().map(|x| x.urls()).unwrap_or_default() })
+        Some(Remote {
+            node: ep.id().to_string(),
+            relays: r.setting.relays().map(|x| x.urls()).unwrap_or_default(),
+        })
     }
 
     /// The relay DBine is reachable through now, for the settings.
     fn remote_status(&self) -> (Option<String>, Option<String>) {
-        let ep = self.remote.lock().unwrap().as_ref().and_then(|r| r.endpoint.lock().unwrap().clone());
-        (ep.as_ref().and_then(dbine_link::net::home_relay), self.remote_error.lock().unwrap().clone())
+        let ep = self
+            .remote
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|r| r.endpoint.lock().unwrap().clone());
+        (
+            ep.as_ref().and_then(dbine_link::net::home_relay),
+            self.remote_error.lock().unwrap().clone(),
+        )
     }
 
     /// The local network: the TCP listener while turned on.
@@ -665,11 +819,16 @@ impl Inner {
             }
             return;
         }
-        let listener = match std::net::TcpListener::bind(("0.0.0.0", s.port)).and_then(|l| l.set_nonblocking(true).map(|_| l)) {
+        let listener = match std::net::TcpListener::bind(("0.0.0.0", s.port))
+            .and_then(|l| l.set_nonblocking(true).map(|_| l))
+        {
             Ok(l) => l,
             Err(e) => {
                 let msg = if e.kind() == std::io::ErrorKind::AddrInUse {
-                    format!("el puerto {} está en uso por otro programa: elegí otro", s.port)
+                    format!(
+                        "el puerto {} está en uso por otro programa: elegí otro",
+                        s.port
+                    )
                 } else {
                     format!("no se pudo abrir el puerto {}: {e}", s.port)
                 };
@@ -689,7 +848,9 @@ impl Inner {
             };
             tracing::info!(port = s.port, "phone link server listening");
             loop {
-                let Ok((stream, from)) = listener.accept().await else { continue };
+                let Ok((stream, from)) = listener.accept().await else {
+                    continue;
+                };
                 let _ = stream.set_nodelay(true);
                 let me = me.clone();
                 tauri::async_runtime::spawn(async move {
@@ -730,7 +891,9 @@ impl Inner {
             .iter()
             .filter_map(|d| {
                 use base64::Engine;
-                base64::engine::general_purpose::STANDARD.decode(&d.key).ok()
+                base64::engine::general_purpose::STANDARD
+                    .decode(&d.key)
+                    .ok()
             })
             .collect();
         // Rate-limit only what could be a pairing, before any crypto runs.
@@ -738,7 +901,15 @@ impl Inner {
         if pairing && (secret.is_none() || !self.allow_pairing()) {
             return Err("pairing refused (no open invite or too many attempts)".into());
         }
-        match dbine_link::accept_mode(stream, pairing, &keys, secret.as_ref().map(|s| s.as_slice()), |k| known.iter().any(|x| x == k)).await? {
+        match dbine_link::accept_mode(
+            stream,
+            pairing,
+            &keys,
+            secret.as_ref().map(|s| s.as_slice()),
+            |k| known.iter().any(|x| x == k),
+        )
+        .await?
+        {
             Accepted::Paired { channel, hello } => self.pair(channel, hello).await,
             Accepted::Connected(channel) => {
                 let id = dbine_link::fingerprint(&channel.peer);
@@ -757,17 +928,33 @@ impl Inner {
         }
     }
 
-    async fn pair(self: Arc<Self>, mut channel: dbine_link::Channel<BoxIo>, hello: Vec<u8>) -> Result<(), String> {
+    async fn pair(
+        self: Arc<Self>,
+        mut channel: dbine_link::Channel<BoxIo>,
+        hello: Vec<u8>,
+    ) -> Result<(), String> {
         // The phone proves it read the code: with a wrong secret it can't
         // decrypt our reply and never sends this.
-        let ready = tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.map_err(|_| "pairing: no confirmation".to_string())??;
+        let ready = tokio::time::timeout(Duration::from_secs(10), channel.recv())
+            .await
+            .map_err(|_| "pairing: no confirmation".to_string())??;
         if ready != b"ready" {
             return Err("pairing: unexpected message".into());
         }
         // One phone per code.
         *self.invite.lock().unwrap() = None;
-        let name: String = String::from_utf8_lossy(&hello).chars().filter(|c| !c.is_control()).take(60).collect::<String>().trim().to_string();
-        let name = if name.is_empty() { "Celular".to_string() } else { name };
+        let name: String = String::from_utf8_lossy(&hello)
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(60)
+            .collect::<String>()
+            .trim()
+            .to_string();
+        let name = if name.is_empty() {
+            "Celular".to_string()
+        } else {
+            name
+        };
         let id = dbine_link::fingerprint(&channel.peer);
         let (tx, rx) = oneshot::channel();
         if let Some(old) = self.pending.lock().unwrap().replace(tx) {
@@ -779,21 +966,43 @@ impl Inner {
                 name: String,
                 fingerprint: String,
             }
-            let _ = app.emit("link-pair-request", Ask { name: name.clone(), fingerprint: id.clone() });
+            let _ = app.emit(
+                "link-pair-request",
+                Ask {
+                    name: name.clone(),
+                    fingerprint: id.clone(),
+                },
+            );
         }
         let accepted = matches!(tokio::time::timeout(ANSWER_LIMIT, rx).await, Ok(Ok(true)));
         let desktop = computer_name();
         if accepted {
-            let device = Device { id: id.clone(), name: name.clone(), key: b64(&channel.peer), paired_at: now(), last_seen: None, can_kill: false, can_run_tasks: false };
+            let device = Device {
+                id: id.clone(),
+                name: name.clone(),
+                key: b64(&channel.peer),
+                paired_at: now(),
+                last_seen: None,
+                can_kill: false,
+                can_run_tasks: false,
+            };
             let mut s = self.settings();
             s.devices.retain(|d| d.id != id);
             s.devices.push(device);
             let v = serde_json::to_value(&s).map_err(|e| e.to_string())?;
-            self.state.store.set_setting(SETTING, Some(&v)).map_err(|e| e.to_string())?;
+            self.state
+                .store
+                .set_setting(SETTING, Some(&v))
+                .map_err(|e| e.to_string())?;
             tracing::info!(device = %id, "phone paired");
         }
         channel
-            .send_json(&PairResult { accepted, desktop, reason: (!accepted).then(|| "rechazado o sin respuesta en la computadora".to_string()) })
+            .send_json(&PairResult {
+                accepted,
+                desktop,
+                reason: (!accepted)
+                    .then(|| "rechazado o sin respuesta en la computadora".to_string()),
+            })
             .await?;
         if let Some(app) = self.app.lock().unwrap().clone() {
             let _ = app.emit("link-changed", ());
@@ -801,7 +1010,11 @@ impl Inner {
         Ok(())
     }
 
-    async fn session(self: Arc<Self>, mut channel: dbine_link::Channel<BoxIo>, id: &str) -> Result<(), String> {
+    async fn session(
+        self: Arc<Self>,
+        mut channel: dbine_link::Channel<BoxIo>,
+        id: &str,
+    ) -> Result<(), String> {
         let touch = |me: &Arc<Self>| {
             let mut s = me.settings();
             if let Some(d) = s.devices.iter_mut().find(|d| d.id == id) {
@@ -813,7 +1026,9 @@ impl Inner {
         };
         touch(&self);
         loop {
-            let req: Request = tokio::time::timeout(IDLE_LIMIT, channel.recv_json()).await.map_err(|_| "idle".to_string())??;
+            let req: Request = tokio::time::timeout(IDLE_LIMIT, channel.recv_json())
+                .await
+                .map_err(|_| "idle".to_string())??;
             // Removed meanwhile: stop answering.
             let Some(device) = self.settings().devices.into_iter().find(|d| d.id == id) else {
                 return Err("device removed".into());
@@ -822,7 +1037,10 @@ impl Inner {
             let resp = match tokio::time::timeout(CALL_LIMIT, self.call(&device, req.call)).await {
                 Ok(Ok(r)) => r,
                 Ok(Err(e)) => Response::error(id_n, e),
-                Err(_) => Response::error(id_n, format!("el servidor no respondió en {} s", CALL_LIMIT.as_secs())),
+                Err(_) => Response::error(
+                    id_n,
+                    format!("el servidor no respondió en {} s", CALL_LIMIT.as_secs()),
+                ),
             };
             let resp = Response { id: id_n, ..resp };
             channel.send_json(&resp).await?;
@@ -853,8 +1071,17 @@ impl Inner {
                     (Some(_), _) => Some(0),
                     (None, _) => None,
                 };
-                let events = after.map(|a| ev.iter().filter(|e| e.seq > a).cloned().collect()).unwrap_or_default();
-                Response::ok(0, &Events { events, last, boot: self.boot.clone() })
+                let events = after
+                    .map(|a| ev.iter().filter(|e| e.seq > a).cloned().collect())
+                    .unwrap_or_default();
+                Response::ok(
+                    0,
+                    &Events {
+                        events,
+                        last,
+                        boot: self.boot.clone(),
+                    },
+                )
             }
             Call::Tasks => {
                 let now_t = chrono::Local::now().naive_local();
@@ -866,10 +1093,29 @@ impl Inner {
                     .map(|t| {
                         let fp = crate::tasks::write_fingerprint(state, &t);
                         TaskItem {
-                            next_run: t.enabled.then(|| t.schedule.next_after(now_t)).flatten().map(|x| x.format("%Y-%m-%d %H:%M").to_string()),
-                            last: state.store.list_task_runs(Some(&t.id), 1).ok().and_then(|r| r.into_iter().next()).map(run_row),
+                            next_run: t
+                                .enabled
+                                .then(|| t.schedule.next_after(now_t))
+                                .flatten()
+                                .map(|x| x.format("%Y-%m-%d %H:%M").to_string()),
+                            last: state
+                                .store
+                                .list_task_runs(Some(&t.id), 1)
+                                .ok()
+                                .and_then(|r| r.into_iter().next())
+                                .map(run_row),
                             needs_approval: fp.is_some() && fp != t.approved_writes,
-                            steps: t.steps.iter().map(|s| if s.name.is_empty() { s.kind.clone() } else { s.name.clone() }).collect(),
+                            steps: t
+                                .steps
+                                .iter()
+                                .map(|s| {
+                                    if s.name.is_empty() {
+                                        s.kind.clone()
+                                    } else {
+                                        s.name.clone()
+                                    }
+                                })
+                                .collect(),
                             id: t.id,
                             name: t.name,
                             enabled: t.enabled,
@@ -879,7 +1125,13 @@ impl Inner {
                 Response::ok(0, &list)
             }
             Call::TaskRuns { task_id } => {
-                let runs: Vec<RunRow> = state.store.list_task_runs(Some(&task_id), 10).map_err(|e| e.to_string())?.into_iter().map(run_row).collect();
+                let runs: Vec<RunRow> = state
+                    .store
+                    .list_task_runs(Some(&task_id), 10)
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .map(run_row)
+                    .collect();
                 Response::ok(0, &runs)
             }
             Call::RunTask { task_id } => {
@@ -918,14 +1170,21 @@ impl Inner {
                     v.sort_by_key(|q| std::cmp::Reverse(q.elapsed_ms));
                     v
                 };
-                let recent: Vec<QueryRow> = self.recent.lock().unwrap().iter().rev().cloned().collect();
+                let recent: Vec<QueryRow> =
+                    self.recent.lock().unwrap().iter().rev().cloned().collect();
                 Response::ok(0, &QueriesView { running, recent })
             }
             Call::CancelQuery { query_id } => {
                 if !device.can_kill {
                     return Err("este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos".into());
                 }
-                let session_id = self.running.lock().unwrap().get(&query_id).map(|q| q.session_id.clone()).ok_or("la consulta ya terminó")?;
+                let session_id = self
+                    .running
+                    .lock()
+                    .unwrap()
+                    .get(&query_id)
+                    .map(|q| q.session_id.clone())
+                    .ok_or("la consulta ya terminó")?;
                 crate::commands::query::cancel_session(state, &session_id);
                 tracing::info!(device = %device.id, "query cancelled from a phone");
                 Response::ok(0, &true)
@@ -943,19 +1202,45 @@ impl Inner {
                 if !running {
                     return Err("la tarea ya terminó".into());
                 }
-                state.store.set_setting(&crate::tasks::cancel_key(&run_id), Some(&serde_json::json!(true))).map_err(|e| e.to_string())?;
+                state
+                    .store
+                    .set_setting(
+                        &crate::tasks::cancel_key(&run_id),
+                        Some(&serde_json::json!(true)),
+                    )
+                    .map_err(|e| e.to_string())?;
                 tracing::info!(device = %device.id, run = %run_id, "task run cancelled from a phone");
                 Response::ok(0, &true)
             }
-            Call::Health { connection_id, database } => {
-                let args = crate::commands::db_health::HealthArgs { connection_id, database, run_id: format!("phone-{}", device.id) };
-                let r = crate::commands::db_health::report(state, args).await.map_err(|e| e.to_string())?;
-                let sev = |s: dbine_driver::health::Severity| serde_json::to_value(s).ok().and_then(|v| v.as_str().map(str::to_lowercase)).unwrap_or_else(|| "info".into());
+            Call::Health {
+                connection_id,
+                database,
+            } => {
+                let args = crate::commands::db_health::HealthArgs {
+                    connection_id,
+                    database,
+                    run_id: format!("phone-{}", device.id),
+                };
+                let r = crate::commands::db_health::report(state, args)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let sev = |s: dbine_driver::health::Severity| {
+                    serde_json::to_value(s)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_lowercase))
+                        .unwrap_or_else(|| "info".into())
+                };
                 let view = HealthView {
                     checks: r
                         .checks
                         .into_iter()
-                        .map(|c| HealthRow { category: c.category, title: c.title, severity: sev(c.severity), detail: (!c.detail.is_empty()).then_some(c.detail), objects: c.objects.into_iter().take(20).collect() })
+                        .map(|c| HealthRow {
+                            category: c.category,
+                            title: c.title,
+                            severity: sev(c.severity),
+                            detail: (!c.detail.is_empty()).then_some(c.detail),
+                            objects: c.objects.into_iter().take(20).collect(),
+                        })
                         .collect(),
                     skipped: r.skipped,
                 };
@@ -985,12 +1270,27 @@ impl Inner {
                 Response::ok(0, &list)
             }
             Call::Databases { connection_id } => {
-                let entry = state.session(&key(&connection_id, ""), &connection_id, "").await.map_err(|e| e.to_string())?;
-                let dbs = entry.session.lock().await.list_databases().await.map_err(|e| e.to_string())?;
+                let entry = state
+                    .session(&key(&connection_id, ""), &connection_id, "")
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let dbs = entry
+                    .session
+                    .lock()
+                    .await
+                    .list_databases()
+                    .await
+                    .map_err(|e| e.to_string())?;
                 Response::ok(0, &dbs)
             }
-            Call::Locks { connection_id, database } => {
-                let entry = state.session(&key(&connection_id, &database), &connection_id, &database).await.map_err(|e| e.to_string())?;
+            Call::Locks {
+                connection_id,
+                database,
+            } => {
+                let entry = state
+                    .session(&key(&connection_id, &database), &connection_id, &database)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 let rows = entry.session.lock().await.blocking().await;
                 let rows = self.forget_if_dropped(&key(&connection_id, &database), rows)?;
                 let out: Vec<LockRow> = rows
@@ -1009,8 +1309,14 @@ impl Inner {
                     .collect();
                 Response::ok(0, &out)
             }
-            Call::Processes { connection_id, database } => {
-                let entry = state.session(&key(&connection_id, &database), &connection_id, &database).await.map_err(|e| e.to_string())?;
+            Call::Processes {
+                connection_id,
+                database,
+            } => {
+                let entry = state
+                    .session(&key(&connection_id, &database), &connection_id, &database)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 let rows = entry.session.lock().await.processes().await;
                 let rows = self.forget_if_dropped(&key(&connection_id, &database), rows)?;
                 let out: Vec<ProcessRow> = rows
@@ -1031,29 +1337,56 @@ impl Inner {
             }
             Call::Monitor { connection_id } => {
                 let k = key(&connection_id, "");
-                let entry = state.session(&k, &connection_id, "").await.map_err(|e| e.to_string())?;
+                let entry = state
+                    .session(&k, &connection_id, "")
+                    .await
+                    .map_err(|e| e.to_string())?;
                 let snap = entry.session.lock().await.monitor().await;
                 let snap = self.forget_if_dropped(&k, snap)?;
                 let unit = |u: &dbine_driver::MetricUnit| {
-                    serde_json::to_value(u).ok().and_then(|v| v.as_str().map(str::to_lowercase)).unwrap_or_else(|| "count".into())
+                    serde_json::to_value(u)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_lowercase))
+                        .unwrap_or_else(|| "count".into())
                 };
                 let view = MonitorView {
                     metrics: snap
                         .metrics
                         .iter()
-                        .map(|m| MetricRow { key: m.key.clone(), label: m.label.clone(), group: m.group.clone(), unit: unit(&m.unit), value: m.value, max: m.max, counter: m.counter })
+                        .map(|m| MetricRow {
+                            key: m.key.clone(),
+                            label: m.label.clone(),
+                            group: m.group.clone(),
+                            unit: unit(&m.unit),
+                            value: m.value,
+                            max: m.max,
+                            counter: m.counter,
+                        })
                         .collect(),
                     info: snap.info,
                     notes: snap.notes,
                 };
                 Response::ok(0, &view)
             }
-            Call::Kill { connection_id, database, session_id } => {
+            Call::Kill {
+                connection_id,
+                database,
+                session_id,
+            } => {
                 if !device.can_kill {
                     return Err("este celular no tiene permiso para terminar sesiones: se habilita en DBine, Configuración › Dispositivos".into());
                 }
-                let entry = state.session(&key(&connection_id, &database), &connection_id, &database).await.map_err(|e| e.to_string())?;
-                entry.session.lock().await.kill_session(&session_id).await.map_err(|e| e.to_string())?;
+                let entry = state
+                    .session(&key(&connection_id, &database), &connection_id, &database)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                entry
+                    .session
+                    .lock()
+                    .await
+                    .kill_session(&session_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 tracing::info!(device = %device.id, connection = %connection_id, session = %session_id, "session ended from a phone");
                 Response::ok(0, &true)
             }
@@ -1062,7 +1395,12 @@ impl Inner {
 
     /// A dropped connection would fail every call: reconnect next time.
     fn forget_if_dropped<T>(&self, key: &str, r: dbine_driver::Result<T>) -> Result<T, String> {
-        if matches!(r, Err(dbine_driver::Error::Connect(_) | dbine_driver::Error::ConnectFailed(_) | dbine_driver::Error::Io(_))) {
+        if matches!(
+            r,
+            Err(dbine_driver::Error::Connect(_)
+                | dbine_driver::Error::ConnectFailed(_)
+                | dbine_driver::Error::Io(_))
+        ) {
             self.state.sessions.remove(key);
         }
         r.map_err(|e| e.to_string())
@@ -1119,13 +1457,20 @@ pub mod commands {
     }
 
     #[tauri::command(rename_all = "camelCase")]
-    pub async fn link_configure(rt: State<'_, LinkRuntime>, args: ConfigureArgs) -> CommandResult<LinkStatus> {
+    pub async fn link_configure(
+        rt: State<'_, LinkRuntime>,
+        args: ConfigureArgs,
+    ) -> CommandResult<LinkStatus> {
         if args.port < 1024 {
-            return Err(CommandError::BadRequest("elegí un puerto de 1024 en adelante".into()));
+            return Err(CommandError::BadRequest(
+                "elegí un puerto de 1024 en adelante".into(),
+            ));
         }
         if let Some(RemoteSetting::Own { relays }) = &args.remote {
             if relays.is_empty() {
-                return Err(CommandError::BadRequest("indicá al menos un servidor de paso".into()));
+                return Err(CommandError::BadRequest(
+                    "indicá al menos un servidor de paso".into(),
+                ));
             }
             dbine_link::net::check_relays(relays).map_err(CommandError::BadRequest)?;
         }
@@ -1150,7 +1495,11 @@ pub mod commands {
     #[tauri::command(rename_all = "camelCase")]
     pub async fn link_invite(rt: State<'_, LinkRuntime>) -> CommandResult<InviteOut> {
         let text = rt.invite().map_err(CommandError::BadRequest)?;
-        Ok(InviteOut { svg: qr_svg(&text).map_err(CommandError::Internal)?, fingerprint: rt.desktop_fingerprint().map_err(CommandError::Internal)?, seconds: INVITE_LIFE.as_secs() })
+        Ok(InviteOut {
+            svg: qr_svg(&text).map_err(CommandError::Internal)?,
+            fingerprint: rt.desktop_fingerprint().map_err(CommandError::Internal)?,
+            seconds: INVITE_LIFE.as_secs(),
+        })
     }
 
     #[tauri::command(rename_all = "camelCase")]
@@ -1180,13 +1529,20 @@ pub mod commands {
     }
 
     #[tauri::command(rename_all = "camelCase")]
-    pub async fn link_remove_device(rt: State<'_, LinkRuntime>, args: DeviceArgs) -> CommandResult<LinkStatus> {
-        rt.save(|s| s.devices.retain(|d| d.id != args.id)).map_err(CommandError::Internal)?;
+    pub async fn link_remove_device(
+        rt: State<'_, LinkRuntime>,
+        args: DeviceArgs,
+    ) -> CommandResult<LinkStatus> {
+        rt.save(|s| s.devices.retain(|d| d.id != args.id))
+            .map_err(CommandError::Internal)?;
         status(&rt)
     }
 
     #[tauri::command(rename_all = "camelCase")]
-    pub async fn link_set_device(rt: State<'_, LinkRuntime>, args: DeviceArgs) -> CommandResult<LinkStatus> {
+    pub async fn link_set_device(
+        rt: State<'_, LinkRuntime>,
+        args: DeviceArgs,
+    ) -> CommandResult<LinkStatus> {
         rt.save(|s| {
             if let Some(d) = s.devices.iter_mut().find(|d| d.id == args.id) {
                 if let Some(k) = args.can_kill {
@@ -1205,13 +1561,17 @@ pub mod commands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::TcpStream;
     use dbine_core::state::SavedConnection;
     use dbine_core::StateStore;
     use dbine_driver::ConnectionConfig;
     use dbine_link::proto::{Call, ConnectionItem, Hello, PairResult, Request, Response};
+    use tokio::net::TcpStream;
 
-    async fn ask<S: dbine_link::Io>(ch: &mut dbine_link::Channel<S>, id: u64, call: Call) -> Response {
+    async fn ask<S: dbine_link::Io>(
+        ch: &mut dbine_link::Channel<S>,
+        id: u64,
+        call: Call,
+    ) -> Response {
         ch.send_json(&Request { id, call }).await.unwrap();
         let r: Response = ch.recv_json().await.unwrap();
         assert_eq!(r.id, id);
@@ -1224,7 +1584,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.sqlite");
-        rusqlite::Connection::open(&file).unwrap().execute_batch("CREATE TABLE t (x INTEGER);").unwrap();
+        rusqlite::Connection::open(&file)
+            .unwrap()
+            .execute_batch("CREATE TABLE t (x INTEGER);")
+            .unwrap();
         let state = AppState::new(StateStore::open_in_memory().unwrap());
         state
             .store
@@ -1232,7 +1595,11 @@ mod tests {
                 id: "a".into(),
                 name: "base a".into(),
                 color: None,
-                config: ConnectionConfig { driver: "sqlite".into(), host: file.to_string_lossy().into_owned(), ..Default::default() },
+                config: ConnectionConfig {
+                    driver: "sqlite".into(),
+                    host: file.to_string_lossy().into_owned(),
+                    ..Default::default()
+                },
                 save_password: false,
                 folder_id: None,
                 tags: vec![],
@@ -1248,7 +1615,11 @@ mod tests {
         // it: try another one then.
         let mut port = 0;
         for _ in 0..5 {
-            port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+            port = std::net::TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
             rt.save(|s| {
                 s.enabled = true;
                 s.port = port;
@@ -1270,11 +1641,15 @@ mod tests {
         // A stranger without the code is refused.
         let stranger = Keys::generate().unwrap();
         let s = TcpStream::connect(&addr).await.unwrap();
-        assert!(dbine_link::connect(s, &invite.key, &stranger).await.is_err());
+        assert!(dbine_link::connect(s, &invite.key, &stranger)
+            .await
+            .is_err());
 
         // Pairing: the user says yes on the computer.
         let s = TcpStream::connect(&addr).await.unwrap();
-        let mut ch = dbine_link::pair(s, &invite, &phone, b"Pixel de prueba").await.unwrap();
+        let mut ch = dbine_link::pair(s, &invite, &phone, b"Pixel de prueba")
+            .await
+            .unwrap();
         ch.send(b"ready").await.unwrap();
         for _ in 0..50 {
             if rt.inner.pending.lock().unwrap().is_some() {
@@ -1299,46 +1674,115 @@ mod tests {
         // Connected: what it may see and do.
         let s = TcpStream::connect(&addr).await.unwrap();
         let mut ch = dbine_link::connect(s, &invite.key, &phone).await.unwrap();
-        let hello: Hello = serde_json::from_value(ask(&mut ch, 1, Call::Hello).await.ok.unwrap()).unwrap();
+        let hello: Hello =
+            serde_json::from_value(ask(&mut ch, 1, Call::Hello).await.ok.unwrap()).unwrap();
         assert!(!hello.can_kill);
-        let conns: Vec<ConnectionItem> = serde_json::from_value(ask(&mut ch, 2, Call::Connections).await.ok.unwrap()).unwrap();
+        let conns: Vec<ConnectionItem> =
+            serde_json::from_value(ask(&mut ch, 2, Call::Connections).await.ok.unwrap()).unwrap();
         assert_eq!(conns.len(), 1);
         assert_eq!(conns[0].name, "base a");
         assert!(conns[0].monitor);
-        let mon: dbine_link::proto::MonitorView = serde_json::from_value(ask(&mut ch, 20, Call::Monitor { connection_id: "a".into() }).await.ok.unwrap()).unwrap();
+        let mon: dbine_link::proto::MonitorView = serde_json::from_value(
+            ask(
+                &mut ch,
+                20,
+                Call::Monitor {
+                    connection_id: "a".into(),
+                },
+            )
+            .await
+            .ok
+            .unwrap(),
+        )
+        .unwrap();
         assert!(!mon.metrics.is_empty(), "{mon:?}");
-        assert!(mon.metrics.iter().all(|m| ["percent", "bytes", "count", "millis", "seconds"].contains(&m.unit.as_str())));
-        let kill = ask(&mut ch, 3, Call::Kill { connection_id: "a".into(), database: "".into(), session_id: "1".into() }).await;
+        assert!(
+            mon.metrics
+                .iter()
+                .all(|m| ["percent", "bytes", "count", "millis", "seconds"]
+                    .contains(&m.unit.as_str()))
+        );
+        let kill = ask(
+            &mut ch,
+            3,
+            Call::Kill {
+                connection_id: "a".into(),
+                database: "".into(),
+                session_id: "1".into(),
+            },
+        )
+        .await;
         assert!(kill.error.unwrap().contains("no tiene permiso"));
         // Notices: a long query and a task that failed.
-        let first: Events = serde_json::from_value(ask(&mut ch, 21, Call::Events { after: None, boot: None }).await.ok.unwrap()).unwrap();
+        let first: Events = serde_json::from_value(
+            ask(
+                &mut ch,
+                21,
+                Call::Events {
+                    after: None,
+                    boot: None,
+                },
+            )
+            .await
+            .ok
+            .unwrap(),
+        )
+        .unwrap();
         assert!(first.events.is_empty());
         // An editor query: shown while it runs, then recorded with how it ended.
         let guard = rt.query_started("tab-1", "a", "", "SELECT *\nFROM ventas\nWHERE año = 2026");
-        let q: QueriesView = serde_json::from_value(ask(&mut ch, 30, Call::Queries).await.ok.unwrap()).unwrap();
+        let q: QueriesView =
+            serde_json::from_value(ask(&mut ch, 30, Call::Queries).await.ok.unwrap()).unwrap();
         assert_eq!(q.running.len(), 1);
         assert_eq!(q.running[0].sql, "SELECT * FROM ventas WHERE año = 2026");
         assert_eq!(q.running[0].place, "base a");
         // Cancelling needs the permission.
         let id = q.running[0].id.clone();
-        assert!(ask(&mut ch, 31, Call::CancelQuery { query_id: id.clone() }).await.error.unwrap().contains("no tiene permiso"));
+        assert!(ask(
+            &mut ch,
+            31,
+            Call::CancelQuery {
+                query_id: id.clone()
+            }
+        )
+        .await
+        .error
+        .unwrap()
+        .contains("no tiene permiso"));
         // It ran long (as if 200 s) and failed.
-        rt.inner.running.lock().unwrap().get_mut(&id).unwrap().started = Instant::now() - Duration::from_secs(200);
-        let out = dbine_driver::QueryOutcome { error: Some("relation \"x\" does not exist".into()), ..Default::default() };
+        rt.inner
+            .running
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .unwrap()
+            .started = Instant::now() - Duration::from_secs(200);
+        let out = dbine_driver::QueryOutcome {
+            error: Some("relation \"x\" does not exist".into()),
+            ..Default::default()
+        };
         guard.finish(&out);
-        let q: QueriesView = serde_json::from_value(ask(&mut ch, 32, Call::Queries).await.ok.unwrap()).unwrap();
+        let q: QueriesView =
+            serde_json::from_value(ask(&mut ch, 32, Call::Queries).await.ok.unwrap()).unwrap();
         assert!(q.running.is_empty());
         assert_eq!(q.recent.len(), 1);
         assert!(!q.recent[0].ok && q.recent[0].summary.contains("does not exist"));
         // A short one leaves no trace, and a run that failed early leaves the list.
-        rt.query_started("tab-2", "a", "", "SELECT 1").finish(&dbine_driver::QueryOutcome::default());
+        rt.query_started("tab-2", "a", "", "SELECT 1")
+            .finish(&dbine_driver::QueryOutcome::default());
         drop(rt.query_started("tab-3", "a", "", "SELECT 2"));
-        let q: QueriesView = serde_json::from_value(ask(&mut ch, 33, Call::Queries).await.ok.unwrap()).unwrap();
+        let q: QueriesView =
+            serde_json::from_value(ask(&mut ch, 33, Call::Queries).await.ok.unwrap()).unwrap();
         assert!(q.running.is_empty() && q.recent.len() == 1);
         rt.inner
             .state
             .store
-            .save_task(&dbine_core::tasks::ScheduledTask { id: "t1".into(), name: "backup nocturno".into(), steps: vec![dbine_core::tasks::Step::default()], ..Default::default() })
+            .save_task(&dbine_core::tasks::ScheduledTask {
+                id: "t1".into(),
+                name: "backup nocturno".into(),
+                steps: vec![dbine_core::tasks::Step::default()],
+                ..Default::default()
+            })
             .unwrap();
         rt.inner
             .state
@@ -1353,34 +1797,118 @@ mod tests {
             })
             .unwrap();
         rt.inner.watch_tasks(false);
-        let news: Events = serde_json::from_value(ask(&mut ch, 22, Call::Events { after: Some(first.last), boot: Some(first.boot.clone()) }).await.ok.unwrap()).unwrap();
+        let news: Events = serde_json::from_value(
+            ask(
+                &mut ch,
+                22,
+                Call::Events {
+                    after: Some(first.last),
+                    boot: Some(first.boot.clone()),
+                },
+            )
+            .await
+            .ok
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(news.events.len(), 2, "{news:?}");
         assert_eq!(news.events[0].kind, "query");
-        assert!(news.events[0].body.starts_with("Falló después de 3 min 20 s"), "{}", news.events[0].body);
+        assert!(
+            news.events[0]
+                .body
+                .starts_with("Falló después de 3 min 20 s"),
+            "{}",
+            news.events[0].body
+        );
         assert_eq!(news.events[1].title, "backup nocturno");
         assert_eq!(news.events[1].body, "sin espacio");
         // Seen once: not again.
         rt.inner.watch_tasks(false);
-        let again: Events = serde_json::from_value(ask(&mut ch, 23, Call::Events { after: Some(news.last), boot: Some(news.boot.clone()) }).await.ok.unwrap()).unwrap();
+        let again: Events = serde_json::from_value(
+            ask(
+                &mut ch,
+                23,
+                Call::Events {
+                    after: Some(news.last),
+                    boot: Some(news.boot.clone()),
+                },
+            )
+            .await
+            .ok
+            .unwrap(),
+        )
+        .unwrap();
         assert!(again.events.is_empty());
         // Tasks: listed; running one needs the permission.
-        let tasks: Vec<TaskItem> = serde_json::from_value(ask(&mut ch, 24, Call::Tasks).await.ok.unwrap()).unwrap();
+        let tasks: Vec<TaskItem> =
+            serde_json::from_value(ask(&mut ch, 24, Call::Tasks).await.ok.unwrap()).unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].last.as_ref().unwrap().status, "failed");
-        assert!(ask(&mut ch, 25, Call::RunTask { task_id: "t1".into() }).await.error.unwrap().contains("no tiene permiso"));
-        assert!(ask(&mut ch, 27, Call::CancelTaskRun { run_id: "r1".into() }).await.error.unwrap().contains("no tiene permiso"));
+        assert!(ask(
+            &mut ch,
+            25,
+            Call::RunTask {
+                task_id: "t1".into()
+            }
+        )
+        .await
+        .error
+        .unwrap()
+        .contains("no tiene permiso"));
+        assert!(ask(
+            &mut ch,
+            27,
+            Call::CancelTaskRun {
+                run_id: "r1".into()
+            }
+        )
+        .await
+        .error
+        .unwrap()
+        .contains("no tiene permiso"));
         assert_eq!(tasks[0].steps.len(), 1);
         // The health check of a database.
-        let health: HealthView = serde_json::from_value(ask(&mut ch, 26, Call::Health { connection_id: "a".into(), database: "".into() }).await.ok.unwrap()).unwrap();
-        assert!(!health.checks.is_empty() || !health.skipped.is_empty(), "{health:?}");
+        let health: HealthView = serde_json::from_value(
+            ask(
+                &mut ch,
+                26,
+                Call::Health {
+                    connection_id: "a".into(),
+                    database: "".into(),
+                },
+            )
+            .await
+            .ok
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            !health.checks.is_empty() || !health.skipped.is_empty(),
+            "{health:?}"
+        );
 
         // SQLite has no locks: an error, not a hang.
-        assert!(ask(&mut ch, 4, Call::Locks { connection_id: "a".into(), database: "".into() }).await.error.is_some());
+        assert!(ask(
+            &mut ch,
+            4,
+            Call::Locks {
+                connection_id: "a".into(),
+                database: "".into()
+            }
+        )
+        .await
+        .error
+        .is_some());
 
         // Removing the phone cuts it off.
         let id = devices[0].id.clone();
         rt.save(|s| s.devices.retain(|d| d.id != id)).unwrap();
-        ch.send_json(&Request { id: 5, call: Call::Hello }).await.ok();
+        ch.send_json(&Request {
+            id: 5,
+            call: Call::Hello,
+        })
+        .await
+        .ok();
         assert!(ch.recv_json::<Response>().await.is_err());
         let s = TcpStream::connect(&addr).await.unwrap();
         assert!(dbine_link::connect(s, &invite.key, &phone).await.is_err());
@@ -1398,7 +1926,10 @@ mod tests {
     #[test]
     fn internet_is_off_unless_chosen() {
         assert_eq!(LinkSettings::default().remote, RemoteSetting::Off);
-        let old: LinkSettings = serde_json::from_value(serde_json::json!({"enabled": true, "port": 27518, "devices": []})).unwrap();
+        let old: LinkSettings = serde_json::from_value(
+            serde_json::json!({"enabled": true, "port": 27518, "devices": []}),
+        )
+        .unwrap();
         assert_eq!(old.remote, RemoteSetting::Off);
         assert!(RemoteSetting::Off.relays().is_none());
     }

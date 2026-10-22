@@ -46,7 +46,11 @@ fn size(bytes: f64) -> String {
 
 /// `"DB"."SCHEMA"."TABLE"`.
 fn full(db: &str, r: &Row) -> String {
-    format!("{}.{}", qualified_name(Quote::Double, None, db), qualified_name(Quote::Double, Some(&get(r, "schema_name")), &get(r, "name")))
+    format!(
+        "{}.{}",
+        qualified_name(Quote::Double, None, db),
+        qualified_name(Quote::Double, Some(&get(r, "schema_name")), &get(r, "name"))
+    )
 }
 
 fn short(r: &Row) -> String {
@@ -57,8 +61,10 @@ fn short(r: &Row) -> String {
 /// (their storage and clustering work differently).
 fn plain_table(r: &Row) -> bool {
     let no = |k: &str| !get(r, k).eq_ignore_ascii_case("Y");
-    matches!(get(r, "kind").to_ascii_uppercase().as_str(), "TABLE" | "TRANSIENT")
-        && no("is_external")
+    matches!(
+        get(r, "kind").to_ascii_uppercase().as_str(),
+        "TABLE" | "TRANSIENT"
+    ) && no("is_external")
         && no("is_hybrid")
         && no("is_iceberg")
         && no("is_dynamic")
@@ -79,7 +85,12 @@ impl SnowflakeSession {
         let mut out = Vec::new();
         let dbq = qualified_name(Quote::Double, None, database);
 
-        if let Ok(rows) = self.named_rows(&format!("SHOW PARAMETERS LIKE 'DATA_RETENTION_TIME_IN_DAYS' IN DATABASE {dbq}")).await {
+        if let Ok(rows) = self
+            .named_rows(&format!(
+                "SHOW PARAMETERS LIKE 'DATA_RETENTION_TIME_IN_DAYS' IN DATABASE {dbq}"
+            ))
+            .await
+        {
             if let Some(r) = rows.first() {
                 let days = num(r, "value") as i64;
                 out.push(
@@ -93,18 +104,27 @@ impl SnowflakeSession {
                 );
                 if days == 0 {
                     if let Some(c) = out.last_mut() {
-                        c.fix = Some(format!("ALTER DATABASE {dbq} SET DATA_RETENTION_TIME_IN_DAYS = 1;"));
+                        c.fix = Some(format!(
+                            "ALTER DATABASE {dbq} SET DATA_RETENTION_TIME_IN_DAYS = 1;"
+                        ));
                     }
                 }
             }
         }
 
-        let tables = self.named_rows(&format!("SHOW TABLES IN DATABASE {dbq}")).await;
+        let tables = self
+            .named_rows(&format!("SHOW TABLES IN DATABASE {dbq}"))
+            .await;
         if let Ok(tables) = &tables {
             let plain: Vec<&Row> = tables.iter().filter(|r| plain_table(r)).collect();
 
             // Large tables without a clustering key.
-            let mut big: Vec<&&Row> = plain.iter().filter(|r| get(r, "cluster_by").trim().is_empty() && num(r, "bytes") >= CLUSTER_BYTES).collect();
+            let mut big: Vec<&&Row> = plain
+                .iter()
+                .filter(|r| {
+                    get(r, "cluster_by").trim().is_empty() && num(r, "bytes") >= CLUSTER_BYTES
+                })
+                .collect();
             big.sort_by(|a, b| num(b, "bytes").total_cmp(&num(a, "bytes")));
             out.push(
                 HealthCheck::new(
@@ -120,7 +140,11 @@ impl SnowflakeSession {
             // Small tables paying for automatic reclustering.
             let small: Vec<&&Row> = plain
                 .iter()
-                .filter(|r| !get(r, "cluster_by").trim().is_empty() && get(r, "automatic_clustering").eq_ignore_ascii_case("ON") && num(r, "bytes") < SMALL_BYTES)
+                .filter(|r| {
+                    !get(r, "cluster_by").trim().is_empty()
+                        && get(r, "automatic_clustering").eq_ignore_ascii_case("ON")
+                        && num(r, "bytes") < SMALL_BYTES
+                })
                 .collect();
             if !small.is_empty() {
                 out.push(
@@ -132,7 +156,10 @@ impl SnowflakeSession {
             }
 
             // Large tables with a long Time Travel retention.
-            let long: Vec<&&Row> = plain.iter().filter(|r| num(r, "retention_time") > 7.0 && num(r, "bytes") >= RETENTION_BYTES).collect();
+            let long: Vec<&&Row> = plain
+                .iter()
+                .filter(|r| num(r, "retention_time") > 7.0 && num(r, "bytes") >= RETENTION_BYTES)
+                .collect();
             if !long.is_empty() {
                 out.push(
                     HealthCheck::new("long_retention", "Costos", format!("{} tablas grandes con más de 7 días de Time Travel", long.len()), Severity::Info)
@@ -144,8 +171,14 @@ impl SnowflakeSession {
         }
 
         // Dropped tables still in Time Travel.
-        if let Ok(rows) = self.named_rows(&format!("SHOW TABLES HISTORY IN DATABASE {dbq}")).await {
-            let dropped: Vec<&Row> = rows.iter().filter(|r| !get(r, "dropped_on").trim().is_empty()).collect();
+        if let Ok(rows) = self
+            .named_rows(&format!("SHOW TABLES HISTORY IN DATABASE {dbq}"))
+            .await
+        {
+            let dropped: Vec<&Row> = rows
+                .iter()
+                .filter(|r| !get(r, "dropped_on").trim().is_empty())
+                .collect();
             if !dropped.is_empty() {
                 let bytes: f64 = dropped.iter().map(|r| num(r, "bytes")).sum();
                 out.push(
@@ -158,8 +191,15 @@ impl SnowflakeSession {
 
         // Warehouses that never suspend, or take long to.
         if let Ok(rows) = self.named_rows("SHOW WAREHOUSES").await {
-            let bad: Vec<&Row> = rows.iter().filter(|r| suspend_severity(&get(r, "auto_suspend")) != Severity::Ok).collect();
-            let sev = bad.iter().map(|r| suspend_severity(&get(r, "auto_suspend"))).max().unwrap_or(Severity::Ok);
+            let bad: Vec<&Row> = rows
+                .iter()
+                .filter(|r| suspend_severity(&get(r, "auto_suspend")) != Severity::Ok)
+                .collect();
+            let sev = bad
+                .iter()
+                .map(|r| suspend_severity(&get(r, "auto_suspend")))
+                .max()
+                .unwrap_or(Severity::Ok);
             if !rows.is_empty() {
                 out.push(
                     HealthCheck::new(
@@ -183,7 +223,12 @@ impl SnowflakeSession {
                     if let Some(c) = out.last_mut() {
                         c.fix = Some(
                             bad.iter()
-                                .map(|r| format!("ALTER WAREHOUSE {} SET AUTO_SUSPEND = 300;", qualified_name(Quote::Double, None, &get(r, "name"))))
+                                .map(|r| {
+                                    format!(
+                                        "ALTER WAREHOUSE {} SET AUTO_SUSPEND = 300;",
+                                        qualified_name(Quote::Double, None, &get(r, "name"))
+                                    )
+                                })
                                 .collect::<Vec<_>>()
                                 .join("\n"),
                         );
@@ -204,7 +249,10 @@ mod tests {
     use super::*;
 
     fn row(pairs: &[(&str, &str)]) -> Row {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -213,8 +261,14 @@ mod tests {
         assert_eq!(suspend_severity("0"), Severity::Warning);
         assert_eq!(suspend_severity("60"), Severity::Ok);
         assert_eq!(suspend_severity("3600"), Severity::Info);
-        assert!(plain_table(&row(&[("kind", "TABLE"), ("is_external", "N")])));
-        assert!(!plain_table(&row(&[("kind", "TABLE"), ("is_iceberg", "Y")])));
+        assert!(plain_table(&row(&[
+            ("kind", "TABLE"),
+            ("is_external", "N")
+        ])));
+        assert!(!plain_table(&row(&[
+            ("kind", "TABLE"),
+            ("is_iceberg", "Y")
+        ])));
         assert!(!plain_table(&row(&[("kind", "TEMPORARY")])));
         let r = row(&[("schema_name", "PUBLIC"), ("name", "a\"b")]);
         assert_eq!(full("DB", &r), "\"DB\".\"PUBLIC\".\"a\"\"b\"");

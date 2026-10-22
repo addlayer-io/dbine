@@ -47,8 +47,13 @@ impl Dialect for IotDb {
             "blob" => L::Blob,
             "date" => L::Date,
             // Epoch milliseconds by default (the server's timestamp_precision).
-            "timestamp" => L::Timestamp { precision: Some(3), tz: true },
-            _ => L::Other { native: t.raw.clone() },
+            "timestamp" => L::Timestamp {
+                precision: Some(3),
+                tz: true,
+            },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -148,7 +153,15 @@ impl Dialect for IotDb {
                     i
                 }
                 None => {
-                    t.columns.insert(0, ColumnDef { name: TIME.into(), data_type: "TIMESTAMP".into(), nullable: false, ..Default::default() });
+                    t.columns.insert(
+                        0,
+                        ColumnDef {
+                            name: TIME.into(),
+                            data_type: "TIMESTAMP".into(),
+                            nullable: false,
+                            ..Default::default()
+                        },
+                    );
                     report.push(Warning, PrimaryKeyAdded, &table, Some(TIME), format!(
                         "Cada dato de IoTDB lleva su tiempo: se agrega «{TIME}». Al copiar hay que darle un valor distinto por fila (repetir uno sobrescribe la fila)."
                     ));
@@ -158,13 +171,23 @@ impl Dialect for IotDb {
         };
         let c = t.columns.remove(time_at);
         let time = c.name.clone();
-        t.columns.insert(0, ColumnDef { data_type: "TIMESTAMP".into(), nullable: false, ..c });
+        t.columns.insert(
+            0,
+            ColumnDef {
+                data_type: "TIMESTAMP".into(),
+                nullable: false,
+                ..c
+            },
+        );
         if let Some(k) = t.primary_key.take().filter(|k| k.columns != [time.clone()]) {
             report.push(Warning, PrimaryKeyDropped, &table, Some(&k.columns.join(", ")), format!(
                 "IoTDB no tiene claves primarias: cada fila del dispositivo se identifica por «{time}»."
             ));
         }
-        t.primary_key = Some(KeyDef { name: None, columns: vec![time] });
+        t.primary_key = Some(KeyDef {
+            name: None,
+            columns: vec![time],
+        });
         if !t.options.contains_key("aligned") {
             t.options.insert("aligned".into(), "true".into());
             report.push(Info, OptionAdded, &table, Some("aligned"), "Dispositivo alineado: sus series comparten el tiempo, como las columnas de una fila.");
@@ -192,7 +215,13 @@ mod tests {
         assert_eq!(p("STRING"), L::Text { unicode: true });
         assert_eq!(p("BLOB"), L::Blob);
         assert_eq!(p("DATE"), L::Date);
-        assert_eq!(p("TIMESTAMP"), L::Timestamp { precision: Some(3), tz: true });
+        assert_eq!(
+            p("TIMESTAMP"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
         assert!(matches!(p("VECTOR"), L::Other { .. }));
     }
 
@@ -201,22 +230,64 @@ mod tests {
         let r = |t: L| IotDb.render_type(&t).native;
         assert_eq!(r(L::Bool), "BOOLEAN");
         assert_eq!(r(L::int(2)), "INT32");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }), "INT64");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "TEXT");
-        assert_eq!(r(L::Decimal { precision: Some(10), scale: Some(2) }), "DOUBLE");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "INT64"
+        );
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "TEXT"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }),
+            "DOUBLE"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "FLOAT");
         assert_eq!(r(L::Float { bytes: 8 }), "DOUBLE");
         assert_eq!(r(L::Money), "DOUBLE");
-        assert_eq!(r(L::Char { len: Some(2), unicode: true }), "TEXT");
-        assert_eq!(r(L::Varchar { len: Some(2), unicode: true }), "TEXT");
+        assert_eq!(
+            r(L::Char {
+                len: Some(2),
+                unicode: true
+            }),
+            "TEXT"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(2),
+                unicode: true
+            }),
+            "TEXT"
+        );
         assert_eq!(r(L::Text { unicode: true }), "TEXT");
         assert_eq!(r(L::Binary { len: Some(2) }), "BLOB");
         assert_eq!(r(L::Varbinary { len: None }), "BLOB");
         assert_eq!(r(L::Blob), "BLOB");
         assert_eq!(r(L::Bit { len: Some(2) }), "INT64");
         assert_eq!(r(L::Date), "DATE");
-        assert_eq!(r(L::Time { precision: None, tz: false }), "TEXT");
-        assert_eq!(r(L::Timestamp { precision: Some(3), tz: true }), "TIMESTAMP");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            }),
+            "TEXT"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }),
+            "TIMESTAMP"
+        );
         assert_eq!(r(L::Interval), "TEXT");
         assert_eq!(r(L::Year), "INT32");
         assert_eq!(r(L::Uuid), "TEXT");
@@ -224,9 +295,27 @@ mod tests {
         assert_eq!(r(L::Xml), "TEXT");
         assert_eq!(r(L::Enum { values: vec![] }), "TEXT");
         assert_eq!(r(L::Set { values: vec![] }), "TEXT");
-        assert_eq!(r(L::Array { of: Box::new(L::Bool) }), "TEXT");
-        assert_eq!(r(L::Map { key: Box::new(L::Bool), value: Box::new(L::Bool) }), "TEXT");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "TEXT");
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Bool)
+            }),
+            "TEXT"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Bool),
+                value: Box::new(L::Bool)
+            }),
+            "TEXT"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "TEXT"
+        );
         assert_eq!(r(L::Inet), "TEXT");
         assert_eq!(r(L::MacAddr), "TEXT");
         assert_eq!(r(L::RowVersion), "INT64");
@@ -234,18 +323,36 @@ mod tests {
 
     #[test]
     fn finalize_finds_or_adds_the_time() {
-        let col = |n: &str, ty: &str| ColumnDef { name: n.into(), data_type: ty.into(), ..Default::default() };
-        let mut t = TableSchema { name: "d".into(), columns: vec![col("v", "DOUBLE"), col("alta", "TIMESTAMP")], ..Default::default() };
+        let col = |n: &str, ty: &str| ColumnDef {
+            name: n.into(),
+            data_type: ty.into(),
+            ..Default::default()
+        };
+        let mut t = TableSchema {
+            name: "d".into(),
+            columns: vec![col("v", "DOUBLE"), col("alta", "TIMESTAMP")],
+            ..Default::default()
+        };
         let mut rep = Report::default();
         IotDb.finalize(&mut t, &mut rep);
         assert_eq!(t.columns[0].name, TIME);
         assert_eq!(t.options.get("aligned").map(String::as_str), Some("true"));
-        assert!(rep.issues.iter().any(|i| i.code == IssueCode::IdentifierRenamed));
+        assert!(rep
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IdentifierRenamed));
 
-        let mut t = TableSchema { name: "d".into(), columns: vec![col("v", "DOUBLE")], ..Default::default() };
+        let mut t = TableSchema {
+            name: "d".into(),
+            columns: vec![col("v", "DOUBLE")],
+            ..Default::default()
+        };
         let mut rep = Report::default();
         IotDb.finalize(&mut t, &mut rep);
         assert_eq!(t.columns.len(), 2);
-        assert_eq!(t.primary_key.as_ref().unwrap().columns, vec![TIME.to_string()]);
+        assert_eq!(
+            t.primary_key.as_ref().unwrap().columns,
+            vec![TIME.to_string()]
+        );
     }
 }

@@ -17,7 +17,9 @@ use std::collections::BTreeMap;
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<(), String> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.map_err(|e| e.to_string())?;
+    s.execute(sql, 100, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
     match out.error.take() {
         Some(e) => Err(e),
         None => Ok(()),
@@ -88,29 +90,60 @@ fn comparable(mut t: TableSchema) -> TableSchema {
 }
 
 fn squash(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").trim_end_matches(';').to_string()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches(';')
+        .to_string()
 }
 
 async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objects) {
-    let tables = s.database_schema().await.expect("database_schema").into_iter().map(|t| (t.name.clone(), normalized(t))).collect();
+    let tables = s
+        .database_schema()
+        .await
+        .expect("database_schema")
+        .into_iter()
+        .map(|t| (t.name.clone(), normalized(t)))
+        .collect();
     let mut objects = Objects::new();
     for o in s.list_objects().await.expect("list_objects") {
         if o.kind != "sequence" {
             continue;
         }
-        let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
-        let def = s.definition(&r).await.expect("definition").unwrap_or_else(|| panic!("no definition for {r:?}"));
+        let r = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
+        let def = s
+            .definition(&r)
+            .await
+            .expect("definition")
+            .unwrap_or_else(|| panic!("no definition for {r:?}"));
         objects.insert((o.kind, o.schema, o.name), def);
     }
     (tables, objects)
 }
 
 async fn connect(url: &str, db: &str) -> Box<dyn Session> {
-    let mut cfg = ConnectionConfig { driver: "spanner".into(), database: db.into(), ..Default::default() };
-    for (k, v) in [("project_id", "test"), ("instance", "i1"), ("endpoint_url", url)] {
+    let mut cfg = ConnectionConfig {
+        driver: "spanner".into(),
+        database: db.into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("project_id", "test"),
+        ("instance", "i1"),
+        ("endpoint_url", url),
+    ] {
         cfg.options.insert(k.into(), v.into());
     }
-    dbine_driver_spanner::drivers().pop().unwrap().connect(&cfg, None).await.expect("connect")
+    dbine_driver_spanner::drivers()
+        .pop()
+        .unwrap()
+        .connect(&cfg, None)
+        .await
+        .expect("connect")
 }
 
 #[tokio::test]
@@ -126,7 +159,11 @@ async fn compare_and_sync_everything() {
         .json(&json!({ "instanceId": "i1", "instance": { "config": "projects/test/instanceConfigs/emulator-config", "displayName": "i1", "nodeCount": 1 } }))
         .send()
         .await;
-    let _ = http.post(format!("{url}/v1/projects/test/instances/i1/databases")).json(&json!({ "createStatement": "CREATE DATABASE `db1`" })).send().await;
+    let _ = http
+        .post(format!("{url}/v1/projects/test/instances/i1/databases"))
+        .json(&json!({ "createStatement": "CREATE DATABASE `db1`" }))
+        .send()
+        .await;
     let d = dbine_driver_spanner::drivers().pop().unwrap();
     assert!(d.info().object_kinds.iter().any(|k| k.id == "sequence"));
     let mut admin = connect(&url, "db1").await;
@@ -148,37 +185,95 @@ async fn compare_and_sync_everything() {
 
     // What the catalog says.
     let docs = &ta["docs"];
-    let ix = |t: &TableSchema, n: &str| t.indexes.iter().find(|i| i.name == n).cloned().unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes));
+    let ix = |t: &TableSchema, n: &str| {
+        t.indexes
+            .iter()
+            .find(|i| i.name == n)
+            .cloned()
+            .unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes))
+    };
     let fecha = ix(docs, "ix_fecha");
-    assert_eq!((fecha.columns.as_slice(), fecha.include.as_slice()), (&["fecha".to_string(), "codigo".into()][..], &["titulo".to_string()][..]));
+    assert_eq!(
+        (fecha.columns.as_slice(), fecha.include.as_slice()),
+        (
+            &["fecha".to_string(), "codigo".into()][..],
+            &["titulo".to_string()][..]
+        )
+    );
     assert_eq!(fecha.options.get("desc").map(String::as_str), Some("fecha"));
     assert_eq!(ix(docs, "ux_codigo").kind.as_deref(), Some("NULL_FILTERED"));
-    assert_eq!(ix(docs, "ix_precio").filter.as_deref(), Some("precio IS NOT NULL"));
+    assert_eq!(
+        ix(docs, "ix_precio").filter.as_deref(),
+        Some("precio IS NOT NULL")
+    );
     let sx = ix(docs, "sx_titulo");
     assert_eq!(sx.kind.as_deref(), Some("SEARCH"));
-    assert_eq!(sx.options.get("sort_order_sharding").map(String::as_str), Some("true"), "{sx:?}");
-    assert!(docs.columns.iter().any(|c| c.name == "titulo_tokens" && c.options.get("hidden").is_some_and(|h| h == "true")));
-    assert_eq!(ix(&ta["lineas"], "ix_lineas_cant").options.get("interleave_in").map(String::as_str), Some("docs"));
+    assert_eq!(
+        sx.options.get("sort_order_sharding").map(String::as_str),
+        Some("true"),
+        "{sx:?}"
+    );
+    assert!(
+        docs.columns
+            .iter()
+            .any(|c| c.name == "titulo_tokens"
+                && c.options.get("hidden").is_some_and(|h| h == "true"))
+    );
+    assert_eq!(
+        ix(&ta["lineas"], "ix_lineas_cant")
+            .options
+            .get("interleave_in")
+            .map(String::as_str),
+        Some("docs")
+    );
     let vx = ix(&ta["vecs"], "vx_e");
-    assert_eq!((vx.kind.as_deref(), vx.options.get("distance_type").map(String::as_str)), (Some("VECTOR"), Some("'COSINE'")));
+    assert_eq!(
+        (
+            vx.kind.as_deref(),
+            vx.options.get("distance_type").map(String::as_str)
+        ),
+        (Some("VECTOR"), Some("'COSINE'"))
+    );
     assert_eq!(docs.checks.len(), 2, "{:?}", docs.checks);
-    assert!(docs.checks.iter().any(|c| c.name.as_deref() == Some("ck_precio") && c.expression == "precio > 0"));
-    assert!(docs.checks.iter().any(|c| c.name.as_deref().is_some_and(|n| n.starts_with("CK_docs_"))), "{:?}", docs.checks);
+    assert!(docs
+        .checks
+        .iter()
+        .any(|c| c.name.as_deref() == Some("ck_precio") && c.expression == "precio > 0"));
+    assert!(
+        docs.checks
+            .iter()
+            .any(|c| c.name.as_deref().is_some_and(|n| n.starts_with("CK_docs_"))),
+        "{:?}",
+        docs.checks
+    );
     let seq = &oa[&("sequence".into(), None, "seq_folio".into())];
-    assert!(seq.starts_with("CREATE SEQUENCE seq_folio") && seq.contains("skip_range_max = 1000"), "{seq}");
+    assert!(
+        seq.starts_with("CREATE SEQUENCE seq_folio") && seq.contains("skip_range_max = 1000"),
+        "{seq}"
+    );
 
     // The compare: tables by name (generated CHECK names by condition), sequences by name.
     let mut tables = Vec::new();
     for (name, t) in &ta {
         match tb.get(name) {
             None => tables.push(TableChange::Create { table: t.clone() }),
-            Some(o) if comparable(o.clone()) != comparable(t.clone()) => tables.push(TableChange::Alter { old: o.clone(), new: t.clone() }),
+            Some(o) if comparable(o.clone()) != comparable(t.clone()) => {
+                tables.push(TableChange::Alter {
+                    old: o.clone(),
+                    new: t.clone(),
+                })
+            }
             Some(_) => {}
         }
     }
-    let changed: Vec<&str> = tables.iter().map(|c| match c {
-        TableChange::Alter { new, .. } | TableChange::Create { table: new } | TableChange::Drop { table: new } => new.name.as_str(),
-    }).collect();
+    let changed: Vec<&str> = tables
+        .iter()
+        .map(|c| match c {
+            TableChange::Alter { new, .. }
+            | TableChange::Create { table: new }
+            | TableChange::Drop { table: new } => new.name.as_str(),
+        })
+        .collect();
     assert_eq!(changed, ["docs", "lineas", "vecs"]);
 
     // Sequences: drop what's gone or changed (src-tauri's drop_other, with
@@ -204,18 +299,34 @@ async fn compare_and_sync_everything() {
     for w in &script.warnings {
         eprintln!("aviso: {w}");
     }
-    let statements: Vec<String> = before.into_iter().chain(early).chain(script.statements).chain(late).collect();
+    let statements: Vec<String> = before
+        .into_iter()
+        .chain(early)
+        .chain(script.statements)
+        .chain(late)
+        .collect();
     for (i, s) in statements.iter().enumerate() {
         if let Err(e) = run(&mut b, s).await {
-            panic!("statement {i} failed: {e}\n---\n{s}\n---\nwhole script:\n{}", statements.join("\n"));
+            panic!(
+                "statement {i} failed: {e}\n---\n{s}\n---\nwhole script:\n{}",
+                statements.join("\n")
+            );
         }
     }
     let (tb2, ob2) = read(&mut b).await;
     for (name, t) in &ta {
-        assert_eq!(tb2.get(name).cloned().map(comparable), Some(comparable(t.clone())), "table {name} after the sync");
+        assert_eq!(
+            tb2.get(name).cloned().map(comparable),
+            Some(comparable(t.clone())),
+            "table {name} after the sync"
+        );
     }
     assert_eq!(tb2.len(), ta.len());
-    let squashed = |o: &Objects| o.iter().map(|(k, v)| (k.clone(), squash(v))).collect::<Vec<_>>();
+    let squashed = |o: &Objects| {
+        o.iter()
+            .map(|(k, v)| (k.clone(), squash(v)))
+            .collect::<Vec<_>>()
+    };
     assert_eq!(squashed(&ob2), squashed(&oa));
 
     drop(a);

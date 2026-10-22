@@ -39,10 +39,14 @@
 
 use crate::{err, is_header, row_values, AthenaSession};
 use aws_sdk_athena::error::{DisplayErrorContext, ProvideErrorMetadata, SdkError};
+use aws_sdk_athena::types::{
+    QueryExecutionContext, QueryExecutionState, ResultConfiguration, StatementType, TableMetadata,
+};
 use aws_sdk_athena::Client;
-use aws_sdk_athena::types::{QueryExecutionContext, QueryExecutionState, ResultConfiguration, StatementType, TableMetadata};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, ObjectRef, Result};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -302,7 +306,13 @@ pub(crate) fn read_expr(name: &str, ty: &str) -> Result<String> {
         // The engine can't cast a zoned timestamp to JSON: those leaves go
         // to text first (`2024-01-02 03:04:05.123456 UTC`, zone kept whole).
         Kind::Nested if any_leaf(&parse_ty(ty), &tz_leaf) => {
-            let staged = render(&parse_ty(ty), &|l| if tz_leaf(l) { "varchar".into() } else { engine_leaf(l) });
+            let staged = render(&parse_ty(ty), &|l| {
+                if tz_leaf(l) {
+                    "varchar".into()
+                } else {
+                    engine_leaf(l)
+                }
+            });
             format!("json_format(CAST(CAST({c} AS {staged}) AS JSON))")
         }
         Kind::Nested => format!("json_format(CAST({c} AS JSON))"),
@@ -334,7 +344,10 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return None;
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
+        .collect()
 }
 
 /// `2024-01-02T03:04:05.123-05:00` / `…Z` as `2024-01-02 03:04:05.123-05:00`.
@@ -394,7 +407,9 @@ fn hex(b: &[u8]) -> String {
 fn plain_number(s: &str) -> bool {
     let s = s.strip_prefix(['-', '+']).unwrap_or(s);
     let (i, f) = s.split_once('.').unwrap_or((s, ""));
-    !(i.is_empty() && f.is_empty()) && i.bytes().all(|b| b.is_ascii_digit()) && f.bytes().all(|b| b.is_ascii_digit())
+    !(i.is_empty() && f.is_empty())
+        && i.bytes().all(|b| b.is_ascii_digit())
+        && f.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn plain_integer(s: &str) -> bool {
@@ -413,7 +428,12 @@ fn as_text(c: &Cell) -> Option<String> {
         Cell::Float(f) if f.is_infinite() => if *f > 0.0 { "Infinity" } else { "-Infinity" }.into(),
         Cell::Float(f) => f.to_string(),
         Cell::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::Uuid(s) | Cell::Json(s) => s.clone(),
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => s.clone(),
         Cell::DateTime(s) | Cell::DateTimeTz(s) => s.replacen('T', " ", 1),
     })
 }
@@ -471,7 +491,8 @@ fn fits_micros(s: &str, ty: &str) -> Result<()> {
 /// Where the zone of a date-time text starts (`+01:00`, `Z`, ` UTC`…).
 fn zone_start(s: &str) -> Option<usize> {
     let t = s.get(11..)?;
-    t.find(|c: char| c == '+' || c == '-' || c == ' ' || c.is_ascii_alphabetic()).map(|i| i + 11)
+    t.find(|c: char| c == '+' || c == '-' || c == ' ' || c.is_ascii_alphabetic())
+        .map(|i| i + 11)
 }
 
 /// A date / time text inside a nested value, as the engine's cast from
@@ -522,26 +543,47 @@ fn exact_number(s: &str) -> Option<(String, String)> {
         None => (s, 0),
     };
     let (int, frac) = mant.split_once('.').unwrap_or((mant, ""));
-    if (int.is_empty() && frac.is_empty()) || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) || exp.abs() > 400 {
+    if (int.is_empty() && frac.is_empty())
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+        || exp.abs() > 400
+    {
         return None;
     }
     let digits = format!("{int}{frac}");
     // Where the point goes in `digits`, which may fall outside it.
     let point = int.len() as i64 + i64::from(exp);
     let (i, f) = if point <= 0 {
-        (String::new(), format!("{}{digits}", "0".repeat(point.unsigned_abs() as usize)))
+        (
+            String::new(),
+            format!("{}{digits}", "0".repeat(point.unsigned_abs() as usize)),
+        )
     } else if point as usize >= digits.len() {
-        (format!("{digits}{}", "0".repeat(point as usize - digits.len())), String::new())
+        (
+            format!("{digits}{}", "0".repeat(point as usize - digits.len())),
+            String::new(),
+        )
     } else {
-        (digits[..point as usize].to_string(), digits[point as usize..].to_string())
+        (
+            digits[..point as usize].to_string(),
+            digits[point as usize..].to_string(),
+        )
     };
-    Some((i.trim_start_matches('0').to_string(), f.trim_end_matches('0').to_string()))
+    Some((
+        i.trim_start_matches('0').to_string(),
+        f.trim_end_matches('0').to_string(),
+    ))
 }
 
 /// The `(p, s)` of `decimal(p, s)`; a bare `decimal` is `(38, 0)` in the engine.
 fn decimal_ps(engine: &str) -> (usize, usize) {
-    let inner = engine.split_once('(').and_then(|(_, r)| r.split_once(')')).map(|(i, _)| i);
-    let mut it = inner.unwrap_or("").split(',').map(|x| x.trim().parse::<usize>().ok());
+    let inner = engine
+        .split_once('(')
+        .and_then(|(_, r)| r.split_once(')'))
+        .map(|(i, _)| i);
+    let mut it = inner
+        .unwrap_or("")
+        .split(',')
+        .map(|x| x.trim().parse::<usize>().ok());
     match (it.next().flatten(), it.next().flatten()) {
         (Some(p), Some(s)) => (p, s),
         (Some(p), None) => (p, 0),
@@ -570,7 +612,13 @@ fn check_leaf(raw: &str, string: Option<&str>, leaf: &str) -> Result<()> {
     };
     let is_number = raw.starts_with(|c: char| c == '-' || c.is_ascii_digit());
     // The numeric text the engine would read: a number, or a string's text.
-    let numeric = || if is_number { Some(raw) } else { string.map(str::trim) };
+    let numeric = || {
+        if is_number {
+            Some(raw)
+        } else {
+            string.map(str::trim)
+        }
+    };
     match kind(&engine) {
         Kind::Int => {
             let Some((int, frac)) = numeric().and_then(exact_number) else {
@@ -582,7 +630,10 @@ fn check_leaf(raw: &str, string: Option<&str>, leaf: &str) -> Result<()> {
             // A JSON number written with a point or an exponent reaches the
             // integer through a double: past 2^53 its last digits change
             // (`12345678901234567.0` loads as 12345678901234568).
-            if is_number && raw.contains(['.', 'e', 'E']) && (int.len() > 16 || int.parse::<u64>().is_ok_and(|v| v > 1 << 53)) {
+            if is_number
+                && raw.contains(['.', 'e', 'E'])
+                && (int.len() > 16 || int.parse::<u64>().is_ok_and(|v| v > 1 << 53))
+            {
                 return bad("está escrito con decimales o exponente y pasa de 2^53 (pasaría por un double y cambiarían sus últimos dígitos); escribilo como entero".into());
             }
             let neg = numeric().is_some_and(|n| n.starts_with('-'));
@@ -592,7 +643,13 @@ fn check_leaf(raw: &str, string: Option<&str>, leaf: &str) -> Result<()> {
                 "integer" => (i32::MIN.into(), i32::MAX.into()),
                 _ => (i64::MIN.into(), i64::MAX.into()),
             };
-            let v = if int.is_empty() { Some(0) } else if int.len() > 20 { None } else { int.parse::<i128>().ok() };
+            let v = if int.is_empty() {
+                Some(0)
+            } else if int.len() > 20 {
+                None
+            } else {
+                int.parse::<i128>().ok()
+            };
             match v.map(|v| if neg { -v } else { v }) {
                 Some(v) if (lo..=hi).contains(&v) => Ok(()),
                 _ => bad(format!("no entra en {engine}")),
@@ -607,12 +664,17 @@ fn check_leaf(raw: &str, string: Option<&str>, leaf: &str) -> Result<()> {
                 return bad(format!("tiene más de {s} decimales (se redondearía)"));
             }
             if int.len() > p.saturating_sub(s) {
-                return bad(format!("tiene más de {} dígitos enteros", p.saturating_sub(s)));
+                return bad(format!(
+                    "tiene más de {} dígitos enteros",
+                    p.saturating_sub(s)
+                ));
             }
             Ok(())
         }
         Kind::Real | Kind::Double => {
-            let Some(n) = numeric() else { return bad("no es un número".into()) };
+            let Some(n) = numeric() else {
+                return bad("no es un número".into());
+            };
             if matches!(n, "NaN" | "Infinity" | "-Infinity") {
                 return Ok(());
             }
@@ -634,7 +696,9 @@ fn check_leaf(raw: &str, string: Option<&str>, leaf: &str) -> Result<()> {
                 return bad(format!("no entra en {engine} (se cargaría como Infinity)"));
             }
             if zero && nonzero {
-                return bad(format!("es demasiado chico para {engine} (se cargaría como 0)"));
+                return bad(format!(
+                    "es demasiado chico para {engine} (se cargaría como 0)"
+                ));
             }
             Ok(())
         }
@@ -644,9 +708,17 @@ fn check_leaf(raw: &str, string: Option<&str>, leaf: &str) -> Result<()> {
             _ => bad("no es true ni false".into()),
         },
         Kind::Char => {
-            let Some(text) = string else { return bad("no es texto (se reescribiría)".into()) };
-            let Some(n) = char_len(&engine) else { return Ok(()) };
-            let counted = if engine.starts_with("char") { text.trim_end_matches(' ') } else { text };
+            let Some(text) = string else {
+                return bad("no es texto (se reescribiría)".into());
+            };
+            let Some(n) = char_len(&engine) else {
+                return Ok(());
+            };
+            let counted = if engine.starts_with("char") {
+                text.trim_end_matches(' ')
+            } else {
+                text
+            };
             let len = counted.chars().count();
             if len > n {
                 return bad(format!("tiene {len} caracteres (se recortaría)"));
@@ -724,13 +796,18 @@ impl NestedJson<'_> {
 
     fn string(&mut self) -> Result<String> {
         let end = self.value_end();
-        let s = serde_json::from_str(&self.src[self.i..end]).map_err(|e| Error::Query(e.to_string()))?;
+        let s = serde_json::from_str(&self.src[self.i..end])
+            .map_err(|e| Error::Query(e.to_string()))?;
         self.i = end;
         Ok(s)
     }
 
     /// `[…]` / `{…}`, each item written by `item` (its position given).
-    fn items(&mut self, close: u8, mut item: impl FnMut(&mut Self, usize) -> Result<()>) -> Result<()> {
+    fn items(
+        &mut self,
+        close: u8,
+        mut item: impl FnMut(&mut Self, usize) -> Result<()>,
+    ) -> Result<()> {
         self.out.push(self.s[self.i] as char);
         self.i += 1;
         let mut n = 0;
@@ -779,7 +856,8 @@ impl NestedJson<'_> {
             (Ty::Leaf(l), Some(b'"')) if time_leaf(l) => {
                 let s = self.string()?;
                 let fixed = nested_time(&s, l)?;
-                self.out.push_str(&serde_json::Value::String(fixed).to_string());
+                self.out
+                    .push_str(&serde_json::Value::String(fixed).to_string());
                 Ok(())
             }
             (Ty::Leaf(l), Some(_)) if kind(&engine_leaf(l)) == Kind::Json => {
@@ -791,7 +869,14 @@ impl NestedJson<'_> {
             (Ty::Leaf(l), Some(b)) if b != b'[' && b != b'{' => {
                 let end = self.value_end();
                 let raw = &self.src[self.i..end];
-                let string = if b == b'"' { Some(serde_json::from_str::<String>(raw).map_err(|e| Error::Query(e.to_string()))?) } else { None };
+                let string = if b == b'"' {
+                    Some(
+                        serde_json::from_str::<String>(raw)
+                            .map_err(|e| Error::Query(e.to_string()))?,
+                    )
+                } else {
+                    None
+                };
                 check_leaf(raw, string.as_deref(), l)?;
                 self.copy();
                 Ok(())
@@ -878,7 +963,8 @@ fn number_runs(s: &str) -> Vec<(usize, usize)> {
             }
             b'-' | b'0'..=b'9' => {
                 let start = i;
-                while i < b.len() && matches!(b[i], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9') {
+                while i < b.len() && matches!(b[i], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+                {
                     i += 1;
                 }
                 runs.push((start, i));
@@ -934,7 +1020,11 @@ fn is_json(s: &str) -> bool {
     let mut last = 0;
     for (a, z) in number_runs(s) {
         out.push_str(&s[last..a]);
-        out.push_str(if is_number_token(&s.as_bytes()[a..z]) { "0" } else { &s[a..z] });
+        out.push_str(if is_number_token(&s.as_bytes()[a..z]) {
+            "0"
+        } else {
+            &s[a..z]
+        });
         last = z;
     }
     out.push_str(&s[last..]);
@@ -955,15 +1045,25 @@ fn check_json_leaf(raw: &str, leaf: &str) -> Result<()> {
         }
         // A subnormal double is printed back by the engine with other digits
         // (5e-324 comes back as 4.9E-324): never exact, so refused.
-        let kept = tok.parse::<f64>().ok().filter(|f| f.is_finite() && (*f == 0.0 || f.is_normal())).and_then(|f| {
-            let (want, got) = (exact_number(tok)?, exact_number(&f.abs().to_string())?);
-            // A negative zero comes back as 0.0: its sign is lost too.
-            (want == got && tok.starts_with('-') == (f < 0.0)).then_some(())
-        });
+        let kept = tok
+            .parse::<f64>()
+            .ok()
+            .filter(|f| f.is_finite() && (*f == 0.0 || f.is_normal()))
+            .and_then(|f| {
+                let (want, got) = (exact_number(tok)?, exact_number(&f.abs().to_string())?);
+                // A negative zero comes back as 0.0: its sign is lost too.
+                (want == got && tok.starts_with('-') == (f < 0.0)).then_some(())
+            });
         if kept.is_none() {
             let preview: String = tok.chars().take(60).collect();
             let shown = match tok.parse::<f64>() {
-                Ok(f) if f.is_infinite() => if f > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() },
+                Ok(f) if f.is_infinite() => {
+                    if f > 0.0 {
+                        "Infinity".to_string()
+                    } else {
+                        "-Infinity".to_string()
+                    }
+                }
                 Ok(f) => format!("{f:e}"),
                 Err(_) => "otro número".to_string(),
             };
@@ -994,7 +1094,8 @@ fn no_duplicate_keys(json: &str) -> Result<()> {
                 }
                 let end = (j + 1).min(s.len());
                 if want_key {
-                    let key: String = serde_json::from_str(&json[i..end]).map_err(|e| Error::Query(e.to_string()))?;
+                    let key: String = serde_json::from_str(&json[i..end])
+                        .map_err(|e| Error::Query(e.to_string()))?;
                     if let Some(Some(keys)) = stack.last_mut() {
                         if !keys.insert(key.clone()) {
                             return Err(duplicate_key_error(&key));
@@ -1035,7 +1136,12 @@ fn nested_json(json: String, ty: &str) -> Result<String> {
         return Ok(json);
     }
     no_duplicate_keys(&json)?;
-    let mut w = NestedJson { s: json.as_bytes(), src: &json, i: 0, out: String::with_capacity(json.len()) };
+    let mut w = NestedJson {
+        s: json.as_bytes(),
+        src: &json,
+        i: 0,
+        out: String::with_capacity(json.len()),
+    };
     w.value(&t)?;
     Ok(w.out)
 }
@@ -1043,7 +1149,10 @@ fn nested_json(json: String, ty: &str) -> Result<String> {
 /// The `n` of `char(n)` / `varchar(n)`.
 fn char_len(ty: &str) -> Option<usize> {
     let l = ty.trim().to_ascii_lowercase();
-    let inner = l.strip_prefix("varchar(").or_else(|| l.strip_prefix("char("))?.strip_suffix(')')?;
+    let inner = l
+        .strip_prefix("varchar(")
+        .or_else(|| l.strip_prefix("char("))?
+        .strip_suffix(')')?;
     inner.trim().parse().ok()
 }
 
@@ -1072,8 +1181,12 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
                 Cell::Int(i) => Some(i.to_string()),
                 Cell::UInt(u) => Some(u.to_string()),
                 Cell::Bool(b) => Some(u8::from(*b).to_string()),
-                Cell::Float(f) if f.is_finite() && f.fract() == 0.0 && f.abs() < 9.2e18 => Some((*f as i64).to_string()),
-                Cell::Text(s) | Cell::Decimal(s) if plain_integer(s.trim()) => Some(s.trim().trim_start_matches('+').to_string()),
+                Cell::Float(f) if f.is_finite() && f.fract() == 0.0 && f.abs() < 9.2e18 => {
+                    Some((*f as i64).to_string())
+                }
+                Cell::Text(s) | Cell::Decimal(s) if plain_integer(s.trim()) => {
+                    Some(s.trim().trim_start_matches('+').to_string())
+                }
                 _ => None,
             };
             match n {
@@ -1087,7 +1200,12 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
         Kind::Real | Kind::Double => {
             let v = match c {
                 Cell::Float(f) if f.is_nan() => "nan()".into(),
-                Cell::Float(f) if f.is_infinite() => if *f > 0.0 { "infinity()" } else { "-infinity()" }.into(),
+                Cell::Float(f) if f.is_infinite() => if *f > 0.0 {
+                    "infinity()"
+                } else {
+                    "-infinity()"
+                }
+                .into(),
                 // `{:e}` is the shortest form that reads back bit for bit.
                 Cell::Float(f) => format!("{f:e}"),
                 Cell::Int(i) => i.to_string(),
@@ -1106,7 +1224,9 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
             Cell::Int(i) => format!("DECIMAL '{i}'"),
             Cell::UInt(u) => format!("DECIMAL '{u}'"),
             Cell::Float(f) if f.is_finite() => format!("DECIMAL '{f}'"),
-            Cell::Decimal(s) | Cell::Text(s) if plain_number(s.trim()) => format!("DECIMAL '{}'", s.trim().trim_start_matches('+')),
+            Cell::Decimal(s) | Cell::Text(s) if plain_number(s.trim()) => {
+                format!("DECIMAL '{}'", s.trim().trim_start_matches('+'))
+            }
             _ => cast(c, ty),
         },
         Kind::Char => {
@@ -1128,7 +1248,11 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
                 // Only CHAR's trailing spaces are padding; VARCHAR(n) cuts them too.
                 Some(n) => {
                     let is_char = ty.trim().to_ascii_lowercase().starts_with("char");
-                    let counted = if is_char { text.trim_end_matches(' ') } else { text.as_str() };
+                    let counted = if is_char {
+                        text.trim_end_matches(' ')
+                    } else {
+                        text.as_str()
+                    };
                     let len = counted.chars().count();
                     if len > n {
                         let preview: String = text.chars().take(40).collect();
@@ -1147,14 +1271,20 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
         },
         Kind::Date => match c {
             Cell::Date(s) | Cell::Text(s) => format!("DATE {}", lit(s.trim())),
-            Cell::DateTime(s) => format!("CAST(TIMESTAMP {} AS date)", lit(&s.replacen('T', " ", 1))),
+            Cell::DateTime(s) => {
+                format!("CAST(TIMESTAMP {} AS date)", lit(&s.replacen('T', " ", 1)))
+            }
             _ => cast(c, ty),
         },
         Kind::Time => match c {
             Cell::Time(s) | Cell::Text(s) => format!("TIME {}", lit(s.trim())),
             // A bare `time` is time(3): keep the literal's own precision.
             Cell::DateTime(s) | Cell::DateTimeTz(s) => {
-                format!("CAST(TIMESTAMP {} AS time({}))", lit(&s.replacen('T', " ", 1)), fraction(s).len().min(12))
+                format!(
+                    "CAST(TIMESTAMP {} AS time({}))",
+                    lit(&s.replacen('T', " ", 1)),
+                    fraction(s).len().min(12)
+                )
             }
             _ => cast(c, ty),
         },
@@ -1183,7 +1313,10 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
             // A zoneless value is taken as UTC (never the session's zone).
             Cell::DateTime(s) => {
                 fits_micros(s, ty)?;
-                format!("TIMESTAMP {}", lit(&format!("{} UTC", s.replacen('T', " ", 1))))
+                format!(
+                    "TIMESTAMP {}",
+                    lit(&format!("{} UTC", s.replacen('T', " ", 1)))
+                )
             }
             Cell::Date(s) => format!("TIMESTAMP {}", lit(&format!("{s} 00:00:00 UTC"))),
             _ => cast(c, ty),
@@ -1191,7 +1324,14 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
         Kind::Uuid => match c {
             Cell::Bytes(b) if b.len() == 16 => {
                 let h = hex(b).to_ascii_lowercase();
-                format!("UUID '{}-{}-{}-{}-{}'", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+                format!(
+                    "UUID '{}-{}-{}-{}-{}'",
+                    &h[..8],
+                    &h[8..12],
+                    &h[12..16],
+                    &h[16..20],
+                    &h[20..]
+                )
             }
             _ => format!("UUID {}", lit(as_text(c).unwrap_or_default().trim())),
         },
@@ -1222,8 +1362,15 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
 
 /// `INSERT INTO db.t (cols) VALUES\n` (the rows follow, comma separated).
 pub(crate) fn insert_head(db: Option<&str>, table: &str, columns: &[String]) -> String {
-    let cols: Vec<String> = columns.iter().map(|c| quote_ident(Quote::Double, c)).collect();
-    format!("INSERT INTO {} ({}) VALUES\n", qualified_name(Quote::Double, db.filter(|s| !s.is_empty()), table), cols.join(", "))
+    let cols: Vec<String> = columns
+        .iter()
+        .map(|c| quote_ident(Quote::Double, c))
+        .collect();
+    format!(
+        "INSERT INTO {} ({}) VALUES\n",
+        qualified_name(Quote::Double, db.filter(|s| !s.is_empty()), table),
+        cols.join(", ")
+    )
 }
 
 /// `(v1, v2, …)` with each value typed for its column.
@@ -1241,7 +1388,8 @@ pub(crate) fn row_tuple(row: &[Cell], types: &[String]) -> Result<String> {
 
 /// The INSERT of `tuples` (rows already rendered by [`row_tuple`]).
 pub(crate) fn insert_sql(head: &str, tuples: &[String]) -> String {
-    let mut sql = String::with_capacity(head.len() + tuples.iter().map(|t| t.len() + 2).sum::<usize>());
+    let mut sql =
+        String::with_capacity(head.len() + tuples.iter().map(|t| t.len() + 2).sum::<usize>());
     sql.push_str(head);
     for (i, t) in tuples.iter().enumerate() {
         if i > 0 {
@@ -1274,7 +1422,9 @@ impl Statements {
             tuples: Vec::new(),
             bytes: 0,
             max_rows: usize::try_from(commit_rows).unwrap_or(usize::MAX).max(1),
-            max_bytes: usize::try_from(commit_bytes).unwrap_or(usize::MAX).min(STMT_BYTES),
+            max_bytes: usize::try_from(commit_bytes)
+                .unwrap_or(usize::MAX)
+                .min(STMT_BYTES),
         }
     }
 
@@ -1291,7 +1441,11 @@ impl Statements {
         if !self.tuples.is_empty() && self.bytes + 2 + tuple.len() > self.max_bytes {
             out.extend(self.take());
         }
-        self.bytes += if self.tuples.is_empty() { self.head_len + tuple.len() } else { 2 + tuple.len() };
+        self.bytes += if self.tuples.is_empty() {
+            self.head_len + tuple.len()
+        } else {
+            2 + tuple.len()
+        };
         self.tuples.push(tuple);
         if self.tuples.len() >= self.max_rows {
             out.extend(self.take());
@@ -1342,15 +1496,31 @@ impl Windows {
 pub(crate) fn not_writable(t: &TableMetadata) -> Option<String> {
     let name = t.name();
     if t.table_type() == Some("VIRTUAL_VIEW") {
-        return Some(format!("«{name}» es una vista: Athena no carga filas en vistas."));
+        return Some(format!(
+            "«{name}» es una vista: Athena no carga filas en vistas."
+        ));
     }
-    let param = |k: &str| t.parameters().and_then(|p| p.get(k)).map(|v| v.to_ascii_lowercase()).unwrap_or_default();
-    let formats = format!("{} {} {}", param("inputformat"), param("serde.serialization.lib"), param("spark.sql.sources.provider"));
+    let param = |k: &str| {
+        t.parameters()
+            .and_then(|p| p.get(k))
+            .map(|v| v.to_ascii_lowercase())
+            .unwrap_or_default()
+    };
+    let formats = format!(
+        "{} {} {}",
+        param("inputformat"),
+        param("serde.serialization.lib"),
+        param("spark.sql.sources.provider")
+    );
     if param("table_type") == "delta" || formats.contains("delta") {
-        return Some(format!("«{name}» es una tabla Delta Lake: Athena solo la lee, no puede insertar filas."));
+        return Some(format!(
+            "«{name}» es una tabla Delta Lake: Athena solo la lee, no puede insertar filas."
+        ));
     }
     if param("table_type") == "hudi" || formats.contains("hudi") {
-        return Some(format!("«{name}» es una tabla Apache Hudi: Athena solo la lee, no puede insertar filas."));
+        return Some(format!(
+            "«{name}» es una tabla Apache Hudi: Athena solo la lee, no puede insertar filas."
+        ));
     }
     if param("table_type") != "iceberg" {
         return Some(format!(
@@ -1392,16 +1562,29 @@ fn backoff(attempt: u32) -> Duration {
 /// A `ClientRequestToken` (32 to 128 characters), new for each statement.
 fn request_token() -> String {
     static N: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    format!("dbine-{nanos:032x}-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed))
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!(
+        "dbine-{nanos:032x}-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// A failure that may pass if the call is made again.
 fn transient<E: ProvideErrorMetadata, R>(e: &SdkError<E, R>) -> bool {
     match e {
-        SdkError::DispatchFailure(_) | SdkError::TimeoutError(_) | SdkError::ResponseError(_) => true,
+        SdkError::DispatchFailure(_) | SdkError::TimeoutError(_) | SdkError::ResponseError(_) => {
+            true
+        }
         SdkError::ServiceError(s) => {
-            matches!(s.err().code(), Some("ThrottlingException" | "TooManyRequestsException" | "InternalServerException"))
+            matches!(
+                s.err().code(),
+                Some(
+                    "ThrottlingException" | "TooManyRequestsException" | "InternalServerException"
+                )
+            )
         }
         _ => false,
     }
@@ -1424,14 +1607,24 @@ enum Final {
 
 /// The state of `id`, if final (`None` while it runs).
 async fn state(client: &Client, id: &str) -> Result<Option<Final>> {
-    let out = client.get_query_execution().query_execution_id(id).send().await.map_err(err)?;
+    let out = client
+        .get_query_execution()
+        .query_execution_id(id)
+        .send()
+        .await
+        .map_err(err)?;
     let qe = out.query_execution();
     let status = qe.and_then(|q| q.status());
     Ok(match status.and_then(|s| s.state()) {
-        Some(QueryExecutionState::Succeeded) => Some(Final::Succeeded(qe.and_then(|q| q.statement_type()).cloned())),
-        Some(QueryExecutionState::Failed) => {
-            Some(Final::Failed(status.and_then(|s| s.state_change_reason()).unwrap_or("la consulta falló").to_string()))
-        }
+        Some(QueryExecutionState::Succeeded) => Some(Final::Succeeded(
+            qe.and_then(|q| q.statement_type()).cloned(),
+        )),
+        Some(QueryExecutionState::Failed) => Some(Final::Failed(
+            status
+                .and_then(|s| s.state_change_reason())
+                .unwrap_or("la consulta falló")
+                .to_string(),
+        )),
         Some(QueryExecutionState::Cancelled) => Some(Final::Cancelled),
         _ => None,
     })
@@ -1442,7 +1635,12 @@ async fn state(client: &Client, id: &str) -> Result<Option<Final>> {
 /// [`SETTLE`].
 async fn settle(client: &Client, id: &str) -> Option<Final> {
     for attempt in 0..TRIES {
-        match client.stop_query_execution().query_execution_id(id).send().await {
+        match client
+            .stop_query_execution()
+            .query_execution_id(id)
+            .send()
+            .await
+        {
             Ok(_) => break,
             Err(e) => {
                 tracing::debug!("athena stop of {id} failed: {}", DisplayErrorContext(&e));
@@ -1493,7 +1691,10 @@ struct StopOnDrop {
 
 impl StopOnDrop {
     fn new(client: &Client) -> Self {
-        StopOnDrop { client: client.clone(), watched: Default::default() }
+        StopOnDrop {
+            client: client.clone(),
+            watched: Default::default(),
+        }
     }
 
     /// Nothing left to stop: the query ended while watched.
@@ -1509,7 +1710,9 @@ fn settle_in_background(client: Client, id: String) {
     if let Ok(rt) = tokio::runtime::Handle::try_current() {
         rt.spawn(async move {
             if settle(&client, &id).await.is_none() {
-                tracing::warn!("athena: couldn't confirm that query {id} ended after its transfer was dropped");
+                tracing::warn!(
+                    "athena: couldn't confirm that query {id} ended after its transfer was dropped"
+                );
             }
         });
     }
@@ -1554,20 +1757,32 @@ impl AthenaSession {
             .send()
             .await
             .map_err(crate::err)?;
-        resp.table_metadata().cloned().ok_or_else(|| Error::Query(format!("No se encontró la tabla {}.", table.name)))
+        resp.table_metadata()
+            .cloned()
+            .ok_or_else(|| Error::Query(format!("No se encontró la tabla {}.", table.name)))
     }
 
     /// The table's columns (partition keys last) with their catalog types,
     /// `wanted` in its order (all of them when `None`).
-    fn typed_columns(meta: &TableMetadata, wanted: Option<&[String]>) -> Result<Vec<TransferColumn>> {
+    fn typed_columns(
+        meta: &TableMetadata,
+        wanted: Option<&[String]>,
+    ) -> Result<Vec<TransferColumn>> {
         let all: Vec<TransferColumn> = meta
             .columns()
             .iter()
             .chain(meta.partition_keys())
-            .map(|c| TransferColumn { name: c.name().to_string(), type_name: c.r#type().unwrap_or("").to_string(), nullable: true })
+            .map(|c| TransferColumn {
+                name: c.name().to_string(),
+                type_name: c.r#type().unwrap_or("").to_string(),
+                nullable: true,
+            })
             .collect();
         if all.is_empty() {
-            return Err(Error::Query(format!("La tabla {} no tiene columnas.", meta.name())));
+            return Err(Error::Query(format!(
+                "La tabla {} no tiene columnas.",
+                meta.name()
+            )));
         }
         let Some(wanted) = wanted else { return Ok(all) };
         wanted
@@ -1577,7 +1792,9 @@ impl AthenaSession {
                     .find(|c| c.name == *w)
                     .or_else(|| all.iter().find(|c| c.name.eq_ignore_ascii_case(w)))
                     .cloned()
-                    .ok_or_else(|| Error::Query(format!("La columna {w} no existe en {}.", meta.name())))
+                    .ok_or_else(|| {
+                        Error::Query(format!("La columna {w} no existe en {}.", meta.name()))
+                    })
             })
             .collect()
     }
@@ -1585,7 +1802,10 @@ impl AthenaSession {
     /// Whether the interrupter took `armed` (what this transfer last left
     /// in `running`: [`IDLE`] or its last finished query) since: a cancel.
     fn cancelled(&self, armed: &str) -> bool {
-        self.running.lock().map(|r| r.as_deref() != Some(armed)).unwrap_or(true)
+        self.running
+            .lock()
+            .map(|r| r.as_deref() != Some(armed))
+            .unwrap_or(true)
     }
 
     /// Puts `to` in `running` in place of `from`, unless the interrupter took
@@ -1622,7 +1842,8 @@ impl AthenaSession {
             .work_group(&self.workgroup)
             .client_request_token(request_token());
         if let Some(o) = &self.output {
-            req = req.result_configuration(ResultConfiguration::builder().output_location(o).build());
+            req =
+                req.result_configuration(ResultConfiguration::builder().output_location(o).build());
         }
         // Armed before the start goes out: see [`StopOnDrop`].
         let guard = StopOnDrop::new(&self.client);
@@ -1660,19 +1881,27 @@ impl AthenaSession {
             }
             Ok(id)
         });
-        let id = start.await.map_err(|e| Error::Query(format!("No se pudo empezar la consulta en Athena: {e}")))??;
+        let id = start.await.map_err(|e| {
+            Error::Query(format!("No se pudo empezar la consulta en Athena: {e}"))
+        })??;
         let took = self.swap_running(armed, &id);
         let fin = if took {
             self.wait(&id).await
         } else {
             // The cancel came during the start's round trip: stop it here.
-            settle(&self.client, &id).await.ok_or_else(|| unknown(&id, &Error::Cancelled))
+            settle(&self.client, &id)
+                .await
+                .ok_or_else(|| unknown(&id, &Error::Cancelled))
         };
         guard.disarm();
         let cancelled = !took || self.cancelled(&id);
         match fin {
             Err(e) => Err(e),
-            Ok(Final::Succeeded(statement_type)) => Ok(Ran { id, statement_type, cancelled }),
+            Ok(Final::Succeeded(statement_type)) => Ok(Ran {
+                id,
+                statement_type,
+                cancelled,
+            }),
             Ok(_) if cancelled => Err(Error::Cancelled),
             Ok(Final::Failed(m)) => {
                 // Back to what was armed, unless the interrupter took the query.
@@ -1712,7 +1941,11 @@ impl AthenaSession {
             }
         }
     }
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         self.set_running(Some(IDLE.into()));
         let r = self.read_inner(spec, sink).await;
         self.set_running(None);
@@ -1723,14 +1956,25 @@ impl AthenaSession {
         let meta = self.table_meta(&spec.table).await?;
         let cols = Self::typed_columns(&meta, spec.columns.as_deref())?;
         let db = self.db_of(&spec.table)?;
-        let exprs: Vec<String> = cols.iter().map(|c| read_expr(&c.name, &c.type_name)).collect::<Result<_>>()?;
-        let mut sql = format!("SELECT {} FROM {}", exprs.join(", "), qualified_name(Quote::Double, Some(&db), &spec.table.name));
+        let exprs: Vec<String> = cols
+            .iter()
+            .map(|c| read_expr(&c.name, &c.type_name))
+            .collect::<Result<_>>()?;
+        let mut sql = format!(
+            "SELECT {} FROM {}",
+            exprs.join(", "),
+            qualified_name(Quote::Double, Some(&db), &spec.table.name)
+        );
         if let Some(f) = spec.filter.as_deref().filter(|f| !f.trim().is_empty()) {
             sql.push_str(&format!(" WHERE {f}"));
         }
         sink.lock().map_err(lock_err)?.begin(&cols)?;
         let types: Vec<String> = cols.iter().map(|c| c.type_name.clone()).collect();
-        let Ran { id, statement_type, cancelled } = self.start_and_wait(&sql, IDLE).await?;
+        let Ran {
+            id,
+            statement_type,
+            cancelled,
+        } = self.start_and_wait(&sql, IDLE).await?;
         if cancelled {
             return Err(Error::Cancelled);
         }
@@ -1758,17 +2002,29 @@ impl AthenaSession {
                 if first {
                     result_names = rs
                         .result_set_metadata()
-                        .map(|m| m.column_info().iter().map(|c| (c.name().to_string(), c.r#type().to_string())).collect())
+                        .map(|m| {
+                            m.column_info()
+                                .iter()
+                                .map(|c| (c.name().to_string(), c.r#type().to_string()))
+                                .collect()
+                        })
                         .unwrap_or_default();
                 }
                 let mut rows = rs.rows().iter().map(row_values).peekable();
                 // SELECT results repeat the column names as their first row.
-                if first && statement_type == Some(StatementType::Dml) && rows.peek().is_some_and(|h| is_header(h, &result_names)) {
+                if first
+                    && statement_type == Some(StatementType::Dml)
+                    && rows.peek().is_some_and(|h| is_header(h, &result_names))
+                {
                     rows.next();
                 }
                 let mut guard = sink.lock().map_err(lock_err)?;
                 for r in rows {
-                    let cells = r.into_iter().enumerate().map(|(i, v)| to_cell(v, types.get(i).map_or("", String::as_str))).collect();
+                    let cells = r
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, v)| to_cell(v, types.get(i).map_or("", String::as_str)))
+                        .collect();
                     builder.push(cells, &mut *guard)?;
                 }
             }
@@ -1795,7 +2051,12 @@ impl AthenaSession {
         r
     }
 
-    async fn load_inner(&self, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+    async fn load_inner(
+        &self,
+        spec: &LoadSpec,
+        source: &mut dyn BatchSource,
+        progress: Progress<'_>,
+    ) -> Result<u64> {
         let meta = self.table_meta(&spec.table).await?;
         if let Some(why) = not_writable(&meta) {
             return Err(Error::Unsupported(why));
@@ -1837,7 +2098,10 @@ impl AthenaSession {
                     if self.cancelled(&armed) {
                         return Err(Error::Cancelled);
                     }
-                    match self.start_and_wait(&insert_sql(&head, &tuples[a..b]), &armed).await {
+                    match self
+                        .start_and_wait(&insert_sql(&head, &tuples[a..b]), &armed)
+                        .await
+                    {
                         Ok(ran) => {
                             armed = ran.id;
                             committed += (b - a) as u64;
@@ -1891,7 +2155,10 @@ mod tests {
     fn catalog_types_in_engine_syntax() {
         assert_eq!(engine_type("string"), "varchar");
         assert_eq!(engine_type("array<int>"), "array(integer)");
-        assert_eq!(engine_type("map<string,array<binary>>"), "map(varchar, array(varbinary))");
+        assert_eq!(
+            engine_type("map<string,array<binary>>"),
+            "map(varchar, array(varbinary))"
+        );
         assert_eq!(
             engine_type("struct<Id:int,tags:array<string>,m:map<string,decimal(10,2)>>"),
             "row(\"Id\" integer, \"tags\" array(varchar), \"m\" map(varchar, decimal(10,2)))"
@@ -1901,9 +2168,18 @@ mod tests {
         assert_eq!(engine_type("float"), "real");
         assert_eq!(engine_type("timestamp"), "timestamp(6)");
         assert_eq!(engine_type("array<timestamp>"), "array(timestamp(6))");
-        assert_eq!(engine_type("row(\"a \"\"b\" integer, c timestamp(3) with time zone)"), "row(\"a \"\"b\" integer, \"c\" timestamp(3) with time zone)");
-        assert_eq!(engine_type("row(timestamp(3) with time zone)"), "row(timestamp(3) with time zone)");
-        assert_eq!(json_stage_type("map<string,struct<d:date,x:double>>"), "map(varchar, row(\"d\" varchar, \"x\" double))");
+        assert_eq!(
+            engine_type("row(\"a \"\"b\" integer, c timestamp(3) with time zone)"),
+            "row(\"a \"\"b\" integer, \"c\" timestamp(3) with time zone)"
+        );
+        assert_eq!(
+            engine_type("row(timestamp(3) with time zone)"),
+            "row(timestamp(3) with time zone)"
+        );
+        assert_eq!(
+            json_stage_type("map<string,struct<d:date,x:double>>"),
+            "map(varchar, row(\"d\" varchar, \"x\" double))"
+        );
         assert!(binary_inside("map<string,array<binary>>"));
         assert!(binary_inside("row(\"b\" varbinary)"));
         assert!(!binary_inside("struct<binary_flag:string>"));
@@ -1920,10 +2196,18 @@ mod tests {
         assert_eq!(re("a", "array<int>"), "json_format(CAST(\"a\" AS JSON))");
         assert_eq!(re("s", "struct<a:int>"), "json_format(CAST(\"s\" AS JSON))");
         // Binary inside a nested type is refused, not read as the engine prints it.
-        assert!(matches!(read_expr("m", "map<string,binary>"), Err(Error::Unsupported(m)) if m.contains("«m»")));
-        assert!(matches!(read_expr("a", "array<struct<x:binary>>"), Err(Error::Unsupported(_))));
+        assert!(
+            matches!(read_expr("m", "map<string,binary>"), Err(Error::Unsupported(m)) if m.contains("«m»"))
+        );
+        assert!(matches!(
+            read_expr("a", "array<struct<x:binary>>"),
+            Err(Error::Unsupported(_))
+        ));
         // …but a field *named* like binary is no binary.
-        assert_eq!(re("f", "struct<binary_flag:string>"), "json_format(CAST(\"f\" AS JSON))");
+        assert_eq!(
+            re("f", "struct<binary_flag:string>"),
+            "json_format(CAST(\"f\" AS JSON))"
+        );
         assert_eq!(re("x\"y", "bigint"), "\"x\"\"y\"");
         assert_eq!(re("n", "string"), "\"n\"");
     }
@@ -1933,28 +2217,61 @@ mod tests {
         let s = |v: &str| Some(v.to_string());
         assert_eq!(to_cell(None, "bigint"), Cell::Null);
         assert_eq!(to_cell(s(""), "string"), Cell::Text(String::new()));
-        assert_eq!(to_cell(s("9007199254740993"), "bigint"), Cell::Int(9007199254740993));
+        assert_eq!(
+            to_cell(s("9007199254740993"), "bigint"),
+            Cell::Int(9007199254740993)
+        );
         assert_eq!(to_cell(s("-4"), "int"), Cell::Int(-4));
         assert_eq!(to_cell(s("true"), "boolean"), Cell::Bool(true));
         assert_eq!(to_cell(s("1.0E-1"), "double"), Cell::Float(0.1));
-        assert_eq!(to_cell(s("-Infinity"), "float"), Cell::Float(f64::NEG_INFINITY));
+        assert_eq!(
+            to_cell(s("-Infinity"), "float"),
+            Cell::Float(f64::NEG_INFINITY)
+        );
         // A REAL prints as its shortest f32 text: read back as that f32, widened.
         assert_eq!(to_cell(s("0.1"), "float"), Cell::Float(f64::from(0.1f32)));
         assert_eq!(to_cell(s("0.1"), "double"), Cell::Float(0.1));
         assert!(matches!(to_cell(s("NaN"), "double"), Cell::Float(f) if f.is_nan()));
-        assert_eq!(to_cell(s("12345678901234567890.123456789"), "decimal(38,9)"), Cell::Decimal("12345678901234567890.123456789".into()));
-        assert_eq!(to_cell(s("CAFE"), "binary"), Cell::Bytes(vec![0xCA, 0xFE]));
-        assert_eq!(to_cell(s("ca fe"), "varbinary"), Cell::Bytes(vec![0xCA, 0xFE]));
-        assert_eq!(to_cell(s(""), "binary"), Cell::Bytes(vec![]));
-        assert_eq!(to_cell(s("2024-01-31"), "date"), Cell::Date("2024-01-31".into()));
-        assert_eq!(to_cell(s("2024-01-02 03:04:05.123456"), "timestamp"), Cell::DateTime("2024-01-02 03:04:05.123456".into()));
         assert_eq!(
-            to_cell(s("2024-01-02T03:04:05.123-05:00"), "timestamp with time zone"),
+            to_cell(s("12345678901234567890.123456789"), "decimal(38,9)"),
+            Cell::Decimal("12345678901234567890.123456789".into())
+        );
+        assert_eq!(to_cell(s("CAFE"), "binary"), Cell::Bytes(vec![0xCA, 0xFE]));
+        assert_eq!(
+            to_cell(s("ca fe"), "varbinary"),
+            Cell::Bytes(vec![0xCA, 0xFE])
+        );
+        assert_eq!(to_cell(s(""), "binary"), Cell::Bytes(vec![]));
+        assert_eq!(
+            to_cell(s("2024-01-31"), "date"),
+            Cell::Date("2024-01-31".into())
+        );
+        assert_eq!(
+            to_cell(s("2024-01-02 03:04:05.123456"), "timestamp"),
+            Cell::DateTime("2024-01-02 03:04:05.123456".into())
+        );
+        assert_eq!(
+            to_cell(
+                s("2024-01-02T03:04:05.123-05:00"),
+                "timestamp with time zone"
+            ),
             Cell::DateTimeTz("2024-01-02 03:04:05.123-05:00".into())
         );
-        assert_eq!(to_cell(s("2024-01-02T03:04:05Z"), "timestamptz"), Cell::DateTimeTz("2024-01-02 03:04:05+00:00".into()));
-        assert_eq!(to_cell(s("{\"a\":1,\"b\":[\"x\"]}"), "struct<a:int,b:array<string>>"), Cell::Json("{\"a\":1,\"b\":[\"x\"]}".into()));
-        assert_eq!(to_cell(s("{\"z\":1}"), "json"), Cell::Json("{\"z\":1}".into()));
+        assert_eq!(
+            to_cell(s("2024-01-02T03:04:05Z"), "timestamptz"),
+            Cell::DateTimeTz("2024-01-02 03:04:05+00:00".into())
+        );
+        assert_eq!(
+            to_cell(
+                s("{\"a\":1,\"b\":[\"x\"]}"),
+                "struct<a:int,b:array<string>>"
+            ),
+            Cell::Json("{\"a\":1,\"b\":[\"x\"]}".into())
+        );
+        assert_eq!(
+            to_cell(s("{\"z\":1}"), "json"),
+            Cell::Json("{\"z\":1}".into())
+        );
         assert_eq!(to_cell(s("ab "), "char(3)"), Cell::Text("ab ".into()));
     }
 
@@ -1974,58 +2291,139 @@ mod tests {
         assert_eq!(lt(&Cell::Float(0.1), "double"), "1e-1");
         assert_eq!(lt(&Cell::Float(f64::NAN), "float"), "CAST(nan() AS real)");
         assert_eq!(lt(&Cell::Float(0.1), "float"), "CAST(1e-1 AS real)");
-        assert_eq!(lt(&Cell::Float(f64::INFINITY), "real"), "CAST(infinity() AS real)");
+        assert_eq!(
+            lt(&Cell::Float(f64::INFINITY), "real"),
+            "CAST(infinity() AS real)"
+        );
         assert_eq!(lt(&Cell::Float(f64::NEG_INFINITY), "double"), "-infinity()");
         assert_eq!(lt(&Cell::Decimal("1.5".into()), "double"), "DOUBLE '1.5'");
-        assert_eq!(lt(&Cell::Decimal("-12.340".into()), "decimal(10,3)"), "DECIMAL '-12.340'");
-        assert_eq!(lt(&Cell::UInt(u64::MAX), "decimal(20,0)"), "DECIMAL '18446744073709551615'");
+        assert_eq!(
+            lt(&Cell::Decimal("-12.340".into()), "decimal(10,3)"),
+            "DECIMAL '-12.340'"
+        );
+        assert_eq!(
+            lt(&Cell::UInt(u64::MAX), "decimal(20,0)"),
+            "DECIMAL '18446744073709551615'"
+        );
         assert_eq!(lt(&t("O'Brien"), "string"), "'O''Brien'");
         assert_eq!(lt(&Cell::Int(5), "varchar(3)"), "CAST('5' AS varchar(3))");
         assert_eq!(lt(&t("ab"), "char(3)"), "CAST('ab' AS char(3))");
         assert_eq!(lt(&t("abc  "), "char(3)"), "CAST('abc  ' AS char(3))");
         // A cast would cut it silently: refused.
-        assert!(matches!(literal(&t("abcd"), "varchar(3)"), Err(Error::Query(m)) if m.contains("4 caracteres")));
+        assert!(
+            matches!(literal(&t("abcd"), "varchar(3)"), Err(Error::Query(m)) if m.contains("4 caracteres"))
+        );
         assert_eq!(lt(&t(""), "string"), "''");
         // VARCHAR(n) cuts trailing spaces too: they count (CHAR's are padding).
-        assert!(matches!(literal(&t("ab   "), "varchar(3)"), Err(Error::Query(m)) if m.contains("5 caracteres")));
+        assert!(
+            matches!(literal(&t("ab   "), "varchar(3)"), Err(Error::Query(m)) if m.contains("5 caracteres"))
+        );
         assert_eq!(lt(&t("ab "), "varchar(3)"), "CAST('ab ' AS varchar(3))");
         // Bytes that aren't UTF-8 into text: refused, not replaced with U+FFFD.
-        assert!(matches!(literal(&Cell::Bytes(vec![0xFF, 0x41]), "string"), Err(Error::Query(m)) if m.contains("UTF-8")));
-        assert!(matches!(literal(&Cell::Bytes(vec![0xFF]), "varchar(10)"), Err(Error::Query(_))));
+        assert!(
+            matches!(literal(&Cell::Bytes(vec![0xFF, 0x41]), "string"), Err(Error::Query(m)) if m.contains("UTF-8"))
+        );
+        assert!(matches!(
+            literal(&Cell::Bytes(vec![0xFF]), "varchar(10)"),
+            Err(Error::Query(_))
+        ));
         assert_eq!(lt(&Cell::Bytes(b"ok".to_vec()), "string"), "'ok'");
         assert_eq!(lt(&Cell::Bytes(vec![0xCA, 0xFE]), "binary"), "X'CAFE'");
         assert_eq!(lt(&Cell::Bytes(vec![]), "binary"), "X''");
         assert_eq!(lt(&t("ab"), "binary"), "X'6162'");
-        assert_eq!(lt(&Cell::Date("2024-01-31".into()), "date"), "DATE '2024-01-31'");
-        assert_eq!(lt(&Cell::DateTime("2024-01-31T10:00:00".into()), "date"), "CAST(TIMESTAMP '2024-01-31 10:00:00' AS date)");
-        assert_eq!(lt(&Cell::Time("10:00:00.123".into()), "time"), "TIME '10:00:00.123'");
-        assert_eq!(lt(&Cell::DateTime("2024-01-31T10:00:00.123456".into()), "timestamp"), "TIMESTAMP '2024-01-31 10:00:00.123456'");
         assert_eq!(
-            lt(&Cell::DateTimeTz("2024-01-31 10:00:00+01:00".into()), "timestamp"),
+            lt(&Cell::Date("2024-01-31".into()), "date"),
+            "DATE '2024-01-31'"
+        );
+        assert_eq!(
+            lt(&Cell::DateTime("2024-01-31T10:00:00".into()), "date"),
+            "CAST(TIMESTAMP '2024-01-31 10:00:00' AS date)"
+        );
+        assert_eq!(
+            lt(&Cell::Time("10:00:00.123".into()), "time"),
+            "TIME '10:00:00.123'"
+        );
+        assert_eq!(
+            lt(
+                &Cell::DateTime("2024-01-31T10:00:00.123456".into()),
+                "timestamp"
+            ),
+            "TIMESTAMP '2024-01-31 10:00:00.123456'"
+        );
+        assert_eq!(
+            lt(
+                &Cell::DateTimeTz("2024-01-31 10:00:00+01:00".into()),
+                "timestamp"
+            ),
             "CAST(TIMESTAMP '2024-01-31 10:00:00+01:00' AT TIME ZONE 'UTC' AS timestamp(0))"
         );
         // The instant keeps its microseconds (a bare `timestamp` would be timestamp(3)).
         assert_eq!(
-            lt(&Cell::DateTimeTz("2024-01-31 10:00:00.123456+01:00".into()), "timestamp"),
+            lt(
+                &Cell::DateTimeTz("2024-01-31 10:00:00.123456+01:00".into()),
+                "timestamp"
+            ),
             "CAST(TIMESTAMP '2024-01-31 10:00:00.123456+01:00' AT TIME ZONE 'UTC' AS timestamp(6))"
         );
         assert_eq!(
-            lt(&Cell::DateTimeTz("2024-01-31T10:00:00.123456Z".into()), "time"),
+            lt(
+                &Cell::DateTimeTz("2024-01-31T10:00:00.123456Z".into()),
+                "time"
+            ),
             "CAST(TIMESTAMP '2024-01-31 10:00:00.123456Z' AS time(6))"
         );
         // Nanoseconds don't fit Iceberg's microseconds: refused, not rounded.
-        assert!(matches!(literal(&Cell::DateTime("2024-01-31 10:00:00.123456789".into()), "timestamp"), Err(Error::Query(_))));
-        assert!(matches!(literal(&Cell::DateTimeTz("2024-01-31 10:00:00.1234567+00:00".into()), "timestamp"), Err(Error::Query(_))));
-        assert_eq!(lt(&Cell::DateTime("2024-01-31 10:00:00.123456000".into()), "timestamp"), "TIMESTAMP '2024-01-31 10:00:00.123456000'");
-        assert_eq!(lt(&Cell::DateTime("2024-01-31 10:00:00".into()), "timestamptz"), "TIMESTAMP '2024-01-31 10:00:00 UTC'");
-        assert_eq!(lt(&Cell::Uuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11".into()), "uuid"), "UUID 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'");
-        assert_eq!(lt(&Cell::Bytes((0..16).collect()), "uuid"), "UUID '00010203-0405-0607-0809-0a0b0c0d0e0f'");
-        assert_eq!(lt(&Cell::Json("{\"a\":1}".into()), "json"), "JSON '{\"a\":1}'");
+        assert!(matches!(
+            literal(
+                &Cell::DateTime("2024-01-31 10:00:00.123456789".into()),
+                "timestamp"
+            ),
+            Err(Error::Query(_))
+        ));
+        assert!(matches!(
+            literal(
+                &Cell::DateTimeTz("2024-01-31 10:00:00.1234567+00:00".into()),
+                "timestamp"
+            ),
+            Err(Error::Query(_))
+        ));
         assert_eq!(
-            lt(&Cell::Json("{\"a\":1,\"b\":\"it's\"}".into()), "struct<a:int,b:string>"),
+            lt(
+                &Cell::DateTime("2024-01-31 10:00:00.123456000".into()),
+                "timestamp"
+            ),
+            "TIMESTAMP '2024-01-31 10:00:00.123456000'"
+        );
+        assert_eq!(
+            lt(&Cell::DateTime("2024-01-31 10:00:00".into()), "timestamptz"),
+            "TIMESTAMP '2024-01-31 10:00:00 UTC'"
+        );
+        assert_eq!(
+            lt(
+                &Cell::Uuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11".into()),
+                "uuid"
+            ),
+            "UUID 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'"
+        );
+        assert_eq!(
+            lt(&Cell::Bytes((0..16).collect()), "uuid"),
+            "UUID '00010203-0405-0607-0809-0a0b0c0d0e0f'"
+        );
+        assert_eq!(
+            lt(&Cell::Json("{\"a\":1}".into()), "json"),
+            "JSON '{\"a\":1}'"
+        );
+        assert_eq!(
+            lt(
+                &Cell::Json("{\"a\":1,\"b\":\"it's\"}".into()),
+                "struct<a:int,b:string>"
+            ),
             "CAST(JSON '{\"a\":1,\"b\":\"it''s\"}' AS row(\"a\" integer, \"b\" varchar))"
         );
-        assert_eq!(lt(&Cell::Json("[1,2]".into()), "array<int>"), "CAST(JSON '[1,2]' AS array(integer))");
+        assert_eq!(
+            lt(&Cell::Json("[1,2]".into()), "array<int>"),
+            "CAST(JSON '[1,2]' AS array(integer))"
+        );
         // Dates and timestamps inside: cast from JSON to VARCHAR, then to the type.
         assert_eq!(
             lt(&Cell::Json("{\"d\":\"2024-01-02\",\"ts\":\"2024-01-02 03:04:05.123456\",\"n\":1}".into()), "struct<d:date,ts:timestamp,n:int>"),
@@ -2036,7 +2434,10 @@ mod tests {
             lt(&Cell::Json("[\"2024-01-02\"]".into()), "array<date>"),
             "CAST(CAST(JSON '[\"2024-01-02\"]' AS array(varchar)) AS array(date))"
         );
-        assert!(matches!(literal(&Cell::Json("[\"AA\"]".into()), "array<binary>"), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            literal(&Cell::Json("[\"AA\"]".into()), "array<binary>"),
+            Err(Error::Unsupported(_))
+        ));
         // Nested timestamps: nanoseconds refused (the cast would round them),
         // the ISO `T` taken, numbers elsewhere kept digit for digit.
         let ts = "struct<ts:timestamp,n:decimal(38,3),s:string>";
@@ -2049,9 +2450,13 @@ mod tests {
             "CAST(CAST(JSON '{\"TS\":\"2024-01-02 03:04:05.5\",\"n\":12345678901234567890.123,\"s\":\"2024-01-02T00:00:00\"}' \
              AS row(\"ts\" varchar, \"n\" decimal(38,3), \"s\" varchar)) AS row(\"ts\" timestamp(6), \"n\" decimal(38,3), \"s\" varchar))"
         );
-        assert!(lt(&Cell::Json("{\"ts\":null,\"n\":1}".into()), ts).contains("{\"ts\":null,\"n\":1}"));
+        assert!(
+            lt(&Cell::Json("{\"ts\":null,\"n\":1}".into()), ts).contains("{\"ts\":null,\"n\":1}")
+        );
         // A zone into a zoneless timestamp would be dropped: refused.
-        assert!(matches!(literal(&Cell::Json("[\"2024-01-02T03:04:05Z\"]".into()), "array<timestamp>"), Err(Error::Query(m)) if m.contains("zona")));
+        assert!(
+            matches!(literal(&Cell::Json("[\"2024-01-02T03:04:05Z\"]".into()), "array<timestamp>"), Err(Error::Query(m)) if m.contains("zona"))
+        );
         // Zoned: `Z` and no zone are UTC, an offset stays.
         assert!(lt(
             &Cell::Json("[\"2024-01-02T03:04:05Z\",\"2024-01-02T03:04:05\",\"2024-01-02 03:04:05.1+01:00\",\"2024-01-02\"]".into()),
@@ -2059,11 +2464,27 @@ mod tests {
         )
         .contains("[\"2024-01-02 03:04:05 UTC\",\"2024-01-02 03:04:05 UTC\",\"2024-01-02 03:04:05.1+01:00\",\"2024-01-02 00:00:00 UTC\"]"));
         // Rows as JSON arrays (by position) and maps (keys and values) too.
-        assert!(lt(&Cell::Json("[[\"2024-01-02T03:04:05\", 7]]".into()), "array<struct<t:timestamp,i:int>>").contains("[[\"2024-01-02 03:04:05\",7]]"));
-        assert!(lt(&Cell::Json("{\"k\":{\"x\":[\"2024-01-02T03:04:05\"]}}".into()), "map<string,map<string,array<timestamp>>>")
-            .contains("{\"k\":{\"x\":[\"2024-01-02 03:04:05\"]}}"));
-        assert!(matches!(literal(&Cell::Json("{\"k\":\"2024-01-02 03:04:05.0000001\"}".into()), "map<string,timestamp>"), Err(Error::Query(_))));
-        assert_eq!(lt(&t("10.0.0.1"), "ipaddress"), "CAST('10.0.0.1' AS ipaddress)");
+        assert!(lt(
+            &Cell::Json("[[\"2024-01-02T03:04:05\", 7]]".into()),
+            "array<struct<t:timestamp,i:int>>"
+        )
+        .contains("[[\"2024-01-02 03:04:05\",7]]"));
+        assert!(lt(
+            &Cell::Json("{\"k\":{\"x\":[\"2024-01-02T03:04:05\"]}}".into()),
+            "map<string,map<string,array<timestamp>>>"
+        )
+        .contains("{\"k\":{\"x\":[\"2024-01-02 03:04:05\"]}}"));
+        assert!(matches!(
+            literal(
+                &Cell::Json("{\"k\":\"2024-01-02 03:04:05.0000001\"}".into()),
+                "map<string,timestamp>"
+            ),
+            Err(Error::Query(_))
+        ));
+        assert_eq!(
+            lt(&t("10.0.0.1"), "ipaddress"),
+            "CAST('10.0.0.1' AS ipaddress)"
+        );
     }
 
     /// A local stand-in for Athena's endpoint: each call (by its
@@ -2091,8 +2512,13 @@ mod tests {
                             }
                         };
                         let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
-                        let header = |k: &str| head.lines().find_map(|l| l.strip_prefix(k).map(|v| v.trim().to_string()));
-                        let len: usize = header("content-length:").and_then(|v| v.parse().ok()).unwrap_or(0);
+                        let header = |k: &str| {
+                            head.lines()
+                                .find_map(|l| l.strip_prefix(k).map(|v| v.trim().to_string()))
+                        };
+                        let len: usize = header("content-length:")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(0);
                         let target = header("x-amz-target:").unwrap_or_default();
                         while buf.len() < end + len {
                             let mut tmp = [0u8; 8192];
@@ -2101,7 +2527,8 @@ mod tests {
                                 Ok(n) => buf.extend_from_slice(&tmp[..n]),
                             }
                         }
-                        let body: serde_json::Value = serde_json::from_slice(&buf[end..end + len]).unwrap_or_default();
+                        let body: serde_json::Value =
+                            serde_json::from_slice(&buf[end..end + len]).unwrap_or_default();
                         buf.drain(..end + len);
                         let op = target.rsplit('.').next().unwrap_or("").to_string();
                         let (status, resp) = h(&op, &body);
@@ -2164,8 +2591,13 @@ mod tests {
             let id = body["QueryExecutionId"].as_str().unwrap_or("").to_string();
             calls.lock().unwrap().push((op.to_string(), id.clone()));
             let log = calls.lock().unwrap().clone();
-            let stopped = log.iter().any(|(o, i)| o == "stopqueryexecution" && *i == id);
-            let gets = log.iter().filter(|(o, i)| o == "getqueryexecution" && *i == id).count();
+            let stopped = log
+                .iter()
+                .any(|(o, i)| o == "stopqueryexecution" && *i == id);
+            let gets = log
+                .iter()
+                .filter(|(o, i)| o == "getqueryexecution" && *i == id)
+                .count();
             match op {
                 "gettablemetadata" => (200, serde_json::json!({"TableMetadata": {"Name": "t", "TableType": "EXTERNAL_TABLE",
                     "Columns": [{"Name": "id", "Type": "bigint"}], "Parameters": {"table_type": "ICEBERG"}}}).to_string()),
@@ -2183,7 +2615,11 @@ mod tests {
 
     fn load_spec(commit_rows: u64) -> LoadSpec {
         LoadSpec {
-            table: ObjectRef { kind: dbine_driver::kinds::TABLE.into(), schema: Some("db".into()), name: "t".into() },
+            table: ObjectRef {
+                kind: dbine_driver::kinds::TABLE.into(),
+                schema: Some("db".into()),
+                name: "t".into(),
+            },
             columns: vec!["id".into()],
             table_lock: false,
             keep_identity: false,
@@ -2202,26 +2638,43 @@ mod tests {
     }
 
     fn rows(n: i64) -> Rows {
-        Rows(Some(dbine_driver::transfer::RowBatch { rows: (0..n).map(|i| vec![Cell::Int(i)]).collect(), bytes: 0 }))
+        Rows(Some(dbine_driver::transfer::RowBatch {
+            rows: (0..n).map(|i| vec![Cell::Int(i)]).collect(),
+            bytes: 0,
+        }))
     }
 
     async fn run_load(s: &mut AthenaSession, n: i64, commit_rows: u64) -> (Result<u64>, Vec<u64>) {
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen2 = seen.clone();
         let progress = move |c: u64| seen2.lock().unwrap().push(c);
-        let r = s.transfer_load(&load_spec(commit_rows), &[], &mut rows(n), &progress).await;
+        let r = s
+            .transfer_load(&load_spec(commit_rows), &[], &mut rows(n), &progress)
+            .await;
         let p = seen.lock().unwrap().clone();
         (r, p)
     }
 
     fn stops(calls: &Calls) -> Vec<String> {
-        calls.lock().unwrap().iter().filter(|(o, _)| o == "stopqueryexecution").map(|(_, i)| i.clone()).collect()
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(o, _)| o == "stopqueryexecution")
+            .map(|(_, i)| i.clone())
+            .collect()
     }
 
     fn last_get_after_stop(calls: &Calls, id: &str) -> bool {
         let log = calls.lock().unwrap();
-        let stop = log.iter().position(|(o, i)| o == "stopqueryexecution" && i == id);
-        stop.is_some_and(|p| log[p..].iter().any(|(o, i)| o == "getqueryexecution" && i == id))
+        let stop = log
+            .iter()
+            .position(|(o, i)| o == "stopqueryexecution" && i == id);
+        stop.is_some_and(|p| {
+            log[p..]
+                .iter()
+                .any(|(o, i)| o == "getqueryexecution" && i == id)
+        })
     }
 
     #[tokio::test]
@@ -2232,7 +2685,10 @@ mod tests {
             if stopped {
                 qe(id, "CANCELLED", "")
             } else {
-                (500, "{\"__type\":\"InternalServerException\",\"Message\":\"boom\"}".into())
+                (
+                    500,
+                    "{\"__type\":\"InternalServerException\",\"Message\":\"boom\"}".into(),
+                )
             }
         };
         let mut s = fake_session(&fake_athena(handler(calls.clone(), get, || {})).await);
@@ -2250,7 +2706,10 @@ mod tests {
             if stopped {
                 qe(id, "SUCCEEDED", "")
             } else {
-                (500, "{\"__type\":\"InternalServerException\",\"Message\":\"boom\"}".into())
+                (
+                    500,
+                    "{\"__type\":\"InternalServerException\",\"Message\":\"boom\"}".into(),
+                )
             }
         };
         let mut s = fake_session(&fake_athena(handler(calls.clone(), get, || {})).await);
@@ -2262,12 +2721,22 @@ mod tests {
     #[tokio::test]
     async fn a_dropped_load_stops_its_insert() {
         let calls: Calls = Default::default();
-        let get = |id: &str, stopped: bool, _| if stopped { qe(id, "CANCELLED", "") } else { qe(id, "RUNNING", "") };
+        let get = |id: &str, stopped: bool, _| {
+            if stopped {
+                qe(id, "CANCELLED", "")
+            } else {
+                qe(id, "RUNNING", "")
+            }
+        };
         let mut s = fake_session(&fake_athena(handler(calls.clone(), get, || {})).await);
         let spec = load_spec(100);
         let mut src = rows(3);
         let progress = |_: u64| {};
-        let r = tokio::time::timeout(Duration::from_millis(150), s.transfer_load(&spec, &[], &mut src, &progress)).await;
+        let r = tokio::time::timeout(
+            Duration::from_millis(150),
+            s.transfer_load(&spec, &[], &mut src, &progress),
+        )
+        .await;
         assert!(r.is_err(), "the load should still be polling");
         for _ in 0..200 {
             if last_get_after_stop(&calls, "q1") {
@@ -2284,7 +2753,13 @@ mod tests {
         for final_state in ["CANCELLED", "SUCCEEDED"] {
             let calls: Calls = Default::default();
             let running: Arc<std::sync::Mutex<Option<String>>> = Default::default();
-            let get = move |id: &str, stopped: bool, _| if stopped { qe(id, final_state, "") } else { qe(id, "RUNNING", "") };
+            let get = move |id: &str, stopped: bool, _| {
+                if stopped {
+                    qe(id, final_state, "")
+                } else {
+                    qe(id, "RUNNING", "")
+                }
+            };
             // The interrupter takes what's in `running` while the start is in flight.
             let taker = running.clone();
             let url = fake_athena(handler(calls.clone(), get, move || {
@@ -2298,7 +2773,11 @@ mod tests {
             assert_eq!(stops(&calls), ["q1"]);
             assert!(last_get_after_stop(&calls, "q1"));
             // Stopped too late (it committed): counted, still a cancel.
-            let expect: &[u64] = if final_state == "SUCCEEDED" { &[3] } else { &[] };
+            let expect: &[u64] = if final_state == "SUCCEEDED" {
+                &[3]
+            } else {
+                &[]
+            };
             assert_eq!(progress, expect);
         }
     }
@@ -2319,7 +2798,15 @@ mod tests {
         let (r, progress) = run_load(&mut s, 4, 100).await;
         assert!(matches!(r, Err(Error::Cancelled)), "{r:?}");
         assert!(progress.is_empty());
-        assert_eq!(calls.lock().unwrap().iter().filter(|(o, _)| o == "startqueryexecution").count(), 1);
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(o, _)| o == "startqueryexecution")
+                .count(),
+            1
+        );
 
         // Without the cancel, the halves run.
         let calls: Calls = Default::default();
@@ -2338,17 +2825,41 @@ mod tests {
 
     #[test]
     fn statements_stay_under_athenas_limit() {
-        let types = vec!["bigint".to_string(), "string".to_string(), "decimal(10,2)".to_string()];
-        let head = insert_head(Some("s"), "t", &["id".into(), "name".into(), "amount".into()]);
-        assert_eq!(head, "INSERT INTO \"s\".\"t\" (\"id\", \"name\", \"amount\") VALUES\n");
+        let types = vec![
+            "bigint".to_string(),
+            "string".to_string(),
+            "decimal(10,2)".to_string(),
+        ];
+        let head = insert_head(
+            Some("s"),
+            "t",
+            &["id".into(), "name".into(), "amount".into()],
+        );
+        assert_eq!(
+            head,
+            "INSERT INTO \"s\".\"t\" (\"id\", \"name\", \"amount\") VALUES\n"
+        );
         let big = LoadSpec::DEFAULT_COMMIT_BYTES;
         let mut st = Statements::new(&head, 100_000, big);
         let row = |cells: &[Cell]| row_tuple(cells, &types).unwrap();
-        assert!(st.push(row(&[Cell::Int(1), Cell::Text("a".into()), Cell::Decimal("1.50".into())])).unwrap().is_empty());
-        assert!(st.push(row(&[Cell::Int(2), Cell::Null, Cell::Null])).unwrap().is_empty());
+        assert!(st
+            .push(row(&[
+                Cell::Int(1),
+                Cell::Text("a".into()),
+                Cell::Decimal("1.50".into())
+            ]))
+            .unwrap()
+            .is_empty());
+        assert!(st
+            .push(row(&[Cell::Int(2), Cell::Null, Cell::Null]))
+            .unwrap()
+            .is_empty());
         let tuples = st.take().unwrap();
         assert_eq!(tuples.len(), 2);
-        assert_eq!(insert_sql(&head, &tuples), format!("{head}(1, 'a', DECIMAL '1.50'),\n(2, NULL, NULL)"));
+        assert_eq!(
+            insert_sql(&head, &tuples),
+            format!("{head}(1, 'a', DECIMAL '1.50'),\n(2, NULL, NULL)")
+        );
         assert!(st.take().is_none());
 
         // Split by bytes: no statement over the limit.
@@ -2365,7 +2876,9 @@ mod tests {
 
         // A row that can't fit alone is an error, not a rejected query.
         let mut st = Statements::new(&head, 100_000, big);
-        assert!(matches!(st.push(format!("('{}')", "x".repeat(STMT_BYTES))), Err(Error::Query(m)) if m.contains("262144")));
+        assert!(
+            matches!(st.push(format!("('{}')", "x".repeat(STMT_BYTES))), Err(Error::Query(m)) if m.contains("262144"))
+        );
     }
 
     #[test]
@@ -2399,7 +2912,9 @@ mod tests {
 
     #[test]
     fn partition_limit_splits_the_statement_in_order() {
-        let limit = || Error::Query("ICEBERG_TOO_MANY_OPEN_PARTITIONS: Exceeded limit of 100 open writers for partitions".into());
+        let limit = || {
+            Error::Query("ICEBERG_TOO_MANY_OPEN_PARTITIONS: Exceeded limit of 100 open writers for partitions".into())
+        };
         // A statement of 400 rows that fails on the limit until it is 100 rows or fewer.
         let mut w = Windows::new(400);
         let mut ran = Vec::new();
@@ -2414,7 +2929,9 @@ mod tests {
         // Any other failure ends the load; so does the limit on a single row.
         let mut w = Windows::new(10);
         let first = w.next().unwrap();
-        assert!(w.failed(first, Error::Query("TYPE_MISMATCH".into())).is_err());
+        assert!(w
+            .failed(first, Error::Query("TYPE_MISMATCH".into()))
+            .is_err());
         let mut w = Windows::new(1);
         let first = w.next().unwrap();
         assert!(w.failed(first, limit()).is_err());
@@ -2425,21 +2942,41 @@ mod tests {
         let hive = TableMetadata::builder()
             .name("h")
             .table_type("EXTERNAL_TABLE")
-            .parameters("inputformat", "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")
+            .parameters(
+                "inputformat",
+                "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+            )
             .build()
             .unwrap();
         // A failed INSERT into a Hive table can leave its files behind: refused.
         assert!(not_writable(&hive).unwrap().contains("Iceberg"));
-        let ice = TableMetadata::builder().name("i").table_type("EXTERNAL_TABLE").parameters("table_type", "ICEBERG").build().unwrap();
+        let ice = TableMetadata::builder()
+            .name("i")
+            .table_type("EXTERNAL_TABLE")
+            .parameters("table_type", "ICEBERG")
+            .build()
+            .unwrap();
         assert!(not_writable(&ice).is_none());
-        let view = TableMetadata::builder().name("v").table_type("VIRTUAL_VIEW").build().unwrap();
+        let view = TableMetadata::builder()
+            .name("v")
+            .table_type("VIRTUAL_VIEW")
+            .build()
+            .unwrap();
         assert!(not_writable(&view).unwrap().contains("vista"));
-        let delta = TableMetadata::builder().name("d").table_type("EXTERNAL_TABLE").parameters("table_type", "DELTA").build().unwrap();
+        let delta = TableMetadata::builder()
+            .name("d")
+            .table_type("EXTERNAL_TABLE")
+            .parameters("table_type", "DELTA")
+            .build()
+            .unwrap();
         assert!(not_writable(&delta).unwrap().contains("Delta Lake"));
         let hudi = TableMetadata::builder()
             .name("u")
             .table_type("EXTERNAL_TABLE")
-            .parameters("inputformat", "org.apache.hudi.hadoop.HoodieParquetInputFormat")
+            .parameters(
+                "inputformat",
+                "org.apache.hudi.hadoop.HoodieParquetInputFormat",
+            )
             .build()
             .unwrap();
         assert!(not_writable(&hudi).unwrap().contains("Hudi"));
@@ -2450,15 +2987,41 @@ mod tests {
         use aws_sdk_athena::types::Column;
         let meta = TableMetadata::builder()
             .name("t")
-            .columns(Column::builder().name("id").r#type("bigint").build().unwrap())
-            .columns(Column::builder().name("nombre").r#type("string").build().unwrap())
-            .partition_keys(Column::builder().name("dia").r#type("date").build().unwrap())
+            .columns(
+                Column::builder()
+                    .name("id")
+                    .r#type("bigint")
+                    .build()
+                    .unwrap(),
+            )
+            .columns(
+                Column::builder()
+                    .name("nombre")
+                    .r#type("string")
+                    .build()
+                    .unwrap(),
+            )
+            .partition_keys(
+                Column::builder()
+                    .name("dia")
+                    .r#type("date")
+                    .build()
+                    .unwrap(),
+            )
             .build()
             .unwrap();
         let all = AthenaSession::typed_columns(&meta, None).unwrap();
-        assert_eq!(all.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "nombre", "dia"]);
+        assert_eq!(
+            all.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["id", "nombre", "dia"]
+        );
         let some = AthenaSession::typed_columns(&meta, Some(&["DIA".into(), "id".into()])).unwrap();
-        assert_eq!(some.iter().map(|c| (c.name.as_str(), c.type_name.as_str())).collect::<Vec<_>>(), [("dia", "date"), ("id", "bigint")]);
+        assert_eq!(
+            some.iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str()))
+                .collect::<Vec<_>>(),
+            [("dia", "date"), ("id", "bigint")]
+        );
         assert!(AthenaSession::typed_columns(&meta, Some(&["zz".into()])).is_err());
     }
 
@@ -2493,9 +3056,16 @@ mod tests {
         assert!(literal(&j("{\"1\":\"x\"}"), "map<int,string>").is_ok());
         assert!(literal(&j("[0.1, 1e-300, \"NaN\"]"), "array<double>").is_ok());
         assert!(literal(&j("[true, \"false\"]"), "array<boolean>").is_ok());
-        assert!(literal(&j("[12345678901234567890123456789012345.12]"), "array<decimal(38,2)>").is_ok());
+        assert!(literal(
+            &j("[12345678901234567890123456789012345.12]"),
+            "array<decimal(38,2)>"
+        )
+        .is_ok());
         assert!(literal(&j("[1e-2]"), "array<decimal(4,2)>").is_ok());
-        assert_eq!(exact_number("-0012.500e1"), Some(("125".into(), String::new())));
+        assert_eq!(
+            exact_number("-0012.500e1"),
+            Some(("125".into(), String::new()))
+        );
         assert_eq!(exact_number("1.5e-3"), Some((String::new(), "0015".into())));
         assert_eq!(exact_number("1.2.3"), None);
     }
@@ -2521,9 +3091,21 @@ mod tests {
             // A key repeated with the same spelling: the engine's JSON
             // parser keeps only the last value.
             ("{\"a\":1,\"a\":2}", "struct<a:int>", "row(a integer)"),
-            ("[{\"a\":1,\"a\":2}]", "array<struct<a:int>>", "array(row(a integer))"),
-            ("{\"k\":1,\"k\":2}", "map<string,int>", "map(varchar, integer)"),
-            ("{\"k\":[1],\"k\":[2,3]}", "map<string,array<int>>", "map(varchar, array(integer))"),
+            (
+                "[{\"a\":1,\"a\":2}]",
+                "array<struct<a:int>>",
+                "array(row(a integer))",
+            ),
+            (
+                "{\"k\":1,\"k\":2}",
+                "map<string,int>",
+                "map(varchar, integer)",
+            ),
+            (
+                "{\"k\":[1],\"k\":[2,3]}",
+                "map<string,array<int>>",
+                "map(varchar, array(integer))",
+            ),
             ("{\"1\":1,\"1\":2}", "map<int,int>", "map(integer, integer)"),
             ("{\"a\":{\"k\":1,\"k\":2}}", "struct<a:json>", "row(a json)"),
             ("{\"k\":1,\"k\":2}", "json", "json"),
@@ -2534,44 +3116,103 @@ mod tests {
             ("[-1e400]", "array<double>", "array(double)"),
             ("[\"1e400\"]", "array<double>", "array(double)"),
             ("[1e400]", "array<float>", "array(real)"),
-            ("{\"k\":1,\"k\":2,\"z\":1e400}", "map<string,double>", "map(varchar, double)"),
+            (
+                "{\"k\":1,\"k\":2,\"z\":1e400}",
+                "map<string,double>",
+                "map(varchar, double)",
+            ),
             ("{\"k\":1,\"k\":2,\"z\":1e400}", "json", "json"),
-            ("{\"a\":1,\"x\":2,\"b\":1e400}", "struct<a:int,b:double>", "row(a integer, b double)"),
-            ("{\"a\":{\"k\":1,\"k\":2},\"b\":1e400}", "struct<a:json,b:json>", "row(a json, b json)"),
-            ("{\"a\":1.5,\"b\":[1e400]}", "struct<a:int,b:json>", "row(a integer, b json)"),
+            (
+                "{\"a\":1,\"x\":2,\"b\":1e400}",
+                "struct<a:int,b:double>",
+                "row(a integer, b double)",
+            ),
+            (
+                "{\"a\":{\"k\":1,\"k\":2},\"b\":1e400}",
+                "struct<a:json,b:json>",
+                "row(a json, b json)",
+            ),
+            (
+                "{\"a\":1.5,\"b\":[1e400]}",
+                "struct<a:int,b:json>",
+                "row(a integer, b json)",
+            ),
             // A JSON value inside a nested type is re-read with its decimal
             // numbers as doubles (at the top level it keeps its text).
             ("{\"a\":[1e400]}", "struct<a:json>", "row(a json)"),
             ("[1e-400]", "array<json>", "array(json)"),
             ("[[-1e400]]", "array<json>", "array(json)"),
             ("[{\"x\":-0.0}]", "array<json>", "array(json)"),
-            ("{\"a\":[123456789012345678.5]}", "struct<a:json>", "row(a json)"),
-            ("{\"k\":{\"x\":0.1000000000000000055511151231257827}}", "map<string,json>", "map(varchar, json)"),
+            (
+                "{\"a\":[123456789012345678.5]}",
+                "struct<a:json>",
+                "row(a json)",
+            ),
+            (
+                "{\"k\":{\"x\":0.1000000000000000055511151231257827}}",
+                "map<string,json>",
+                "map(varchar, json)",
+            ),
         ]
     }
 
     #[test]
     fn json_validity_does_not_depend_on_f64_range() {
-        for v in ["[1e400]", "[-1E+400, 0, -0.5e-7, 10]", "{\"a\":1e400,\"b\":\"1e400\"}", "1e400", "[\"a-1\", 2]", "[1e-400]"] {
+        for v in [
+            "[1e400]",
+            "[-1E+400, 0, -0.5e-7, 10]",
+            "{\"a\":1e400,\"b\":\"1e400\"}",
+            "1e400",
+            "[\"a-1\", 2]",
+            "[1e-400]",
+        ] {
             assert!(is_json(v), "{v}");
         }
-        for v in ["[01]", "[1.]", "[-]", "[1e]", "[+1]", "[.5]", "[1e400", "[1e4e4]", "[1-2]", "[nul1]", "[Infinity]", "{1e400:1}"] {
+        for v in [
+            "[01]",
+            "[1.]",
+            "[-]",
+            "[1e]",
+            "[+1]",
+            "[.5]",
+            "[1e400",
+            "[1e4e4]",
+            "[1-2]",
+            "[nul1]",
+            "[Infinity]",
+            "{1e400:1}",
+        ] {
             assert!(!is_json(v), "{v}");
         }
         // A text holding a document with such a number still counts as one.
-        assert!(matches!(literal(&Cell::Text("[1e400]".into()), "array<double>"), Err(Error::Query(_))));
-        assert!(matches!(literal(&Cell::Text("{\"k\":1,\"k\":2,\"z\":1e400}".into()), "json"), Err(Error::Query(_))));
+        assert!(matches!(
+            literal(&Cell::Text("[1e400]".into()), "array<double>"),
+            Err(Error::Query(_))
+        ));
+        assert!(matches!(
+            literal(&Cell::Text("{\"k\":1,\"k\":2,\"z\":1e400}".into()), "json"),
+            Err(Error::Query(_))
+        ));
     }
 
     #[test]
     fn nested_values_the_engine_would_change_are_refused() {
         for (v, ty, _) in silent_changes() {
-            assert!(matches!(literal(&Cell::Json(v.into()), ty), Err(Error::Query(_))), "{v} as {ty}");
+            assert!(
+                matches!(literal(&Cell::Json(v.into()), ty), Err(Error::Query(_))),
+                "{v} as {ty}"
+            );
         }
         // Keys that differ only in case name the same struct field (the
         // engine refuses those itself; refused here too).
-        assert!(matches!(literal(&Cell::Json("{\"a\":1,\"A\":2}".into()), "struct<a:int>"), Err(Error::Query(_))));
-        assert!(matches!(literal(&Cell::Text("{\"k\":1,\"k\":2}".into()), "json"), Err(Error::Query(_))));
+        assert!(matches!(
+            literal(&Cell::Json("{\"a\":1,\"A\":2}".into()), "struct<a:int>"),
+            Err(Error::Query(_))
+        ));
+        assert!(matches!(
+            literal(&Cell::Text("{\"k\":1,\"k\":2}".into()), "json"),
+            Err(Error::Query(_))
+        ));
         // Still exact: float-spelled integers up to 2^53, REAL in range
         // (subnormals too), the special values, keys in another case, a
         // struct with a missing field (NULL, as the source says).
@@ -2605,13 +3246,29 @@ mod tests {
         for (v, ty, engine) in silent_changes() {
             let q = format!("SELECT json_format(CAST(CAST(JSON '{v}' AS {engine}) AS JSON))");
             let out = std::process::Command::new("docker")
-                .args(["exec", "dbine-test-trino", "trino", "--output-format", "TSV", "--execute", &q])
+                .args([
+                    "exec",
+                    "dbine-test-trino",
+                    "trino",
+                    "--output-format",
+                    "TSV",
+                    "--execute",
+                    &q,
+                ])
                 .output()
                 .expect("docker");
-            assert!(out.status.success(), "{q}: {}", String::from_utf8_lossy(&out.stderr));
+            assert!(
+                out.status.success(),
+                "{q}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
             let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
             let norm = |s: &str| s.replace(' ', "");
-            assert_ne!(norm(&got), norm(v), "{q} kept the value, so refusing it isn't needed");
+            assert_ne!(
+                norm(&got),
+                norm(v),
+                "{q} kept the value, so refusing it isn't needed"
+            );
             eprintln!("{v} AS {engine} -> {got}");
             assert!(literal(&Cell::Json(v.into()), ty).is_err(), "{v} as {ty}");
         }
@@ -2628,20 +3285,42 @@ mod tests {
             "json_format(CAST(CAST(\"s\" AS row(\"t\" varchar, \"u\" timestamp(6), \"n\" varchar)) AS JSON))"
         );
         // What that read gives back loads again, zone and digits kept.
-        let back = literal(&Cell::Json("[\"2024-01-02 03:04:05.123456 America/New_York\"]".into()), "array<timestamptz>").unwrap();
-        assert!(back.contains("2024-01-02 03:04:05.123456 America/New_York"), "{back}");
+        let back = literal(
+            &Cell::Json("[\"2024-01-02 03:04:05.123456 America/New_York\"]".into()),
+            "array<timestamptz>",
+        )
+        .unwrap();
+        assert!(
+            back.contains("2024-01-02 03:04:05.123456 America/New_York"),
+            "{back}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_load_dropped_during_the_start_stops_that_query() {
         let calls: Calls = Default::default();
-        let get = |id: &str, stopped: bool, _| if stopped { qe(id, "CANCELLED", "") } else { qe(id, "RUNNING", "") };
+        let get = |id: &str, stopped: bool, _| {
+            if stopped {
+                qe(id, "CANCELLED", "")
+            } else {
+                qe(id, "RUNNING", "")
+            }
+        };
         // Athena takes the request, but its answer comes after the load is gone.
-        let mut s = fake_session(&fake_athena(handler(calls.clone(), get, || std::thread::sleep(Duration::from_millis(300)))).await);
+        let mut s = fake_session(
+            &fake_athena(handler(calls.clone(), get, || {
+                std::thread::sleep(Duration::from_millis(300))
+            }))
+            .await,
+        );
         let spec = load_spec(100);
         let mut src = rows(3);
         let progress = |_: u64| {};
-        let r = tokio::time::timeout(Duration::from_millis(50), s.transfer_load(&spec, &[], &mut src, &progress)).await;
+        let r = tokio::time::timeout(
+            Duration::from_millis(50),
+            s.transfer_load(&spec, &[], &mut src, &progress),
+        )
+        .await;
         assert!(r.is_err(), "the load should still be starting its INSERT");
         for _ in 0..300 {
             if last_get_after_stop(&calls, "q1") {

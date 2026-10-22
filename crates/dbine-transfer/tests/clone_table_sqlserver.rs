@@ -14,7 +14,9 @@
 //! ```
 
 use dbine_driver::{ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
-use dbine_transfer::clone_table::{clone_table, CloneControl, CloneOptions, CloneReport, CloneRequest, ConfigEndpoints};
+use dbine_transfer::clone_table::{
+    clone_table, CloneControl, CloneOptions, CloneReport, CloneRequest, ConfigEndpoints,
+};
 use std::sync::Arc;
 
 const DEFAULT_URL: &str = "mssql://sa:Pw_12345!@localhost:25013";
@@ -41,14 +43,24 @@ fn config() -> ConnectionConfig {
 
 async fn rows(s: &mut dyn Session, sql: &str) -> Vec<Vec<String>> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100_000, &mut out).await.unwrap_or_else(|e| panic!("{e}\n{sql}"));
+    s.execute(sql, 100_000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{sql}"));
     if let Some(e) = out.error {
         panic!("{e}\n{sql}");
     }
     out.results
         .iter()
         .flat_map(|r| r.rows.iter())
-        .map(|r| r.iter().map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())).collect())
+        .map(|r| {
+            r.iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| v.to_string())
+                })
+                .collect()
+        })
         .collect()
 }
 
@@ -56,15 +68,31 @@ fn lit(s: &str) -> String {
     s.replace('\'', "''")
 }
 
-async fn clone(endpoints: &Arc<ConfigEndpoints>, name: &str, with_data: bool) -> Result<CloneReport, String> {
+async fn clone(
+    endpoints: &Arc<ConfigEndpoints>,
+    name: &str,
+    with_data: bool,
+) -> Result<CloneReport, String> {
     let req = CloneRequest {
-        source: ObjectRef { kind: "table".into(), schema: Some(SCHEMA.into()), name: TABLE.into() },
+        source: ObjectRef {
+            kind: "table".into(),
+            schema: Some(SCHEMA.into()),
+            name: TABLE.into(),
+        },
         new_name: name.into(),
-        options: CloneOptions { with_data, with_indexes: true },
+        options: CloneOptions {
+            with_data,
+            with_indexes: true,
+        },
     };
-    clone_table(endpoints.clone() as Arc<dyn dbine_transfer::Endpoints>, req, &CloneControl::default(), |e| println!("{e:?}"))
-        .await
-        .map_err(|e| e.to_string())
+    clone_table(
+        endpoints.clone() as Arc<dyn dbine_transfer::Endpoints>,
+        req,
+        &CloneControl::default(),
+        |e| println!("{e:?}"),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// `(seed, increment)` of a table's IDENTITY.
@@ -96,11 +124,17 @@ async fn defaults(s: &mut dyn Session, table: &str) -> Vec<Vec<String>> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "needs a live SQL Server: see the top of the file"]
 async fn sql_server_clone_is_faithful() {
-    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver").expect("sqlserver driver").clone();
+    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver")
+        .expect("sqlserver driver")
+        .clone();
     let cfg = config();
     let mut master = driver.connect(&cfg, Some("master")).await.unwrap();
     rows(&mut *master, &format!("IF DB_ID(N'{DB}') IS NOT NULL BEGIN ALTER DATABASE [{DB}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB}]; END; CREATE DATABASE [{DB}];")).await;
-    let endpoints = Arc::new(ConfigEndpoints { driver: driver.clone(), config: cfg.clone(), database: Some(DB.into()) });
+    let endpoints = Arc::new(ConfigEndpoints {
+        driver: driver.clone(),
+        config: cfg.clone(),
+        database: Some(DB.into()),
+    });
     let mut w = driver.connect(&cfg, Some(DB)).await.unwrap();
     rows(&mut *w, &format!("EXEC (N'CREATE SCHEMA [{SCHEMA}]')")).await;
     rows(
@@ -131,19 +165,36 @@ async fn sql_server_clone_is_faithful() {
     )
     .await;
 
-    let report = clone(&endpoints, &name, true).await.unwrap_or_else(|e| panic!("clone failed: {e}"));
+    let report = clone(&endpoints, &name, true)
+        .await
+        .unwrap_or_else(|e| panic!("clone failed: {e}"));
     println!("{report:?}");
     assert_eq!(report.rows, 281);
-    assert!(report.notes.iter().any(|n| n.contains("ya usaba otro objeto")), "{:?}", report.notes);
+    assert!(
+        report
+            .notes
+            .iter()
+            .any(|n| n.contains("ya usaba otro objeto")),
+        "{:?}",
+        report.notes
+    );
     // Same rows.
-    let sum = |t: &str| format!("SELECT COUNT(*), CHECKSUM_AGG(CHECKSUM(id, codigo, nombre, monto, doble, creado, otro)) FROM [{SCHEMA}].[{t}]");
-    assert_eq!(rows(&mut *w, &sum(&name)).await, rows(&mut *w, &sum(TABLE)).await);
+    let sum = |t: &str| {
+        format!("SELECT COUNT(*), CHECKSUM_AGG(CHECKSUM(id, codigo, nombre, monto, doble, creado, otro)) FROM [{SCHEMA}].[{t}]")
+    };
+    assert_eq!(
+        rows(&mut *w, &sum(&name)).await,
+        rows(&mut *w, &sum(TABLE)).await
+    );
     // Same seed and increment; the next row gets the same id in both.
     assert_eq!(identity(&mut *w, &name).await, vec!["1000", "5"]);
     assert_eq!(next_id(&mut *w, &name).await, next_id(&mut *w, TABLE).await);
     // Named defaults keep a name of their own (renamed like the other
     // constraints), the unnamed one stays unnamed; same expressions.
-    let (a, b) = (defaults(&mut *w, TABLE).await, defaults(&mut *w, &name).await);
+    let (a, b) = (
+        defaults(&mut *w, TABLE).await,
+        defaults(&mut *w, &name).await,
+    );
     assert_eq!(a.len(), b.len());
     for (x, y) in a.iter().zip(&b) {
         assert_eq!((&x[0], &x[1], &x[3]), (&y[0], &y[1], &y[3]), "{a:?}\n{b:?}");
@@ -154,29 +205,59 @@ async fn sql_server_clone_is_faithful() {
 
     // Structure only: it starts where the original started.
     let bare = format!("{TABLE}_solo");
-    clone(&endpoints, &bare, false).await.unwrap_or_else(|e| panic!("clone failed: {e}"));
+    clone(&endpoints, &bare, false)
+        .await
+        .unwrap_or_else(|e| panic!("clone failed: {e}"));
     assert_eq!(identity(&mut *w, &bare).await, vec!["1000", "5"]);
     assert_eq!(next_id(&mut *w, &bare).await, "1000");
 
     // 100 characters (200 bytes): within sysname's 128.
     let long = "ñ".repeat(100);
-    clone(&endpoints, &long, false).await.unwrap_or_else(|e| panic!("clone failed: {e}"));
-    let e = clone(&endpoints, &"ñ".repeat(129), false).await.unwrap_err();
+    clone(&endpoints, &long, false)
+        .await
+        .unwrap_or_else(|e| panic!("clone failed: {e}"));
+    let e = clone(&endpoints, &"ñ".repeat(129), false)
+        .await
+        .unwrap_err();
     assert!(e.contains("128"), "{e}");
 
     drop(w);
-    rows(&mut *master, &format!("ALTER DATABASE [{DB}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB}];")).await;
+    rows(
+        &mut *master,
+        &format!(
+            "ALTER DATABASE [{DB}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB}];"
+        ),
+    )
+    .await;
 }
 
-async fn clone_of(endpoints: &Arc<ConfigEndpoints>, schema: &str, source: &str, name: &str, with_data: bool) -> Result<CloneReport, String> {
+async fn clone_of(
+    endpoints: &Arc<ConfigEndpoints>,
+    schema: &str,
+    source: &str,
+    name: &str,
+    with_data: bool,
+) -> Result<CloneReport, String> {
     let req = CloneRequest {
-        source: ObjectRef { kind: "table".into(), schema: Some(schema.into()), name: source.into() },
+        source: ObjectRef {
+            kind: "table".into(),
+            schema: Some(schema.into()),
+            name: source.into(),
+        },
         new_name: name.into(),
-        options: CloneOptions { with_data, with_indexes: true },
+        options: CloneOptions {
+            with_data,
+            with_indexes: true,
+        },
     };
-    clone_table(endpoints.clone() as Arc<dyn dbine_transfer::Endpoints>, req, &CloneControl::default(), |e| println!("{e:?}"))
-        .await
-        .map_err(|e| e.to_string())
+    clone_table(
+        endpoints.clone() as Arc<dyn dbine_transfer::Endpoints>,
+        req,
+        &CloneControl::default(),
+        |e| println!("{e:?}"),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// A decimal(38,0) IDENTITY past bigint, NOT FOR REPLICATION, and
@@ -185,11 +266,17 @@ async fn clone_of(endpoints: &Arc<ConfigEndpoints>, schema: &str, source: &str, 
 #[ignore = "needs a live SQL Server: see the top of the file"]
 async fn sql_server_big_identity_and_system_names() {
     const DB2: &str = "dbine_clone_table_ident";
-    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver").expect("sqlserver driver").clone();
+    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver")
+        .expect("sqlserver driver")
+        .clone();
     let cfg = config();
     let mut master = driver.connect(&cfg, Some("master")).await.unwrap();
     rows(&mut *master, &format!("IF DB_ID(N'{DB2}') IS NOT NULL BEGIN ALTER DATABASE [{DB2}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB2}]; END; CREATE DATABASE [{DB2}];")).await;
-    let endpoints = Arc::new(ConfigEndpoints { driver: driver.clone(), config: cfg.clone(), database: Some(DB2.into()) });
+    let endpoints = Arc::new(ConfigEndpoints {
+        driver: driver.clone(),
+        config: cfg.clone(),
+        database: Some(DB2.into()),
+    });
     let mut w = driver.connect(&cfg, Some(DB2)).await.unwrap();
     rows(
         &mut *w,
@@ -217,23 +304,42 @@ async fn sql_server_big_identity_and_system_names() {
         )
     };
     for (source, clone_name) in [("big dec", "big dec_c"), ("nfr", "nfr_c")] {
-        let report = clone_of(&endpoints, "dbo", source, clone_name, true).await.unwrap_or_else(|e| panic!("clone of {source} failed: {e}"));
+        let report = clone_of(&endpoints, "dbo", source, clone_name, true)
+            .await
+            .unwrap_or_else(|e| panic!("clone of {source} failed: {e}"));
         println!("{report:?}");
         let a = rows(&mut *w, &ident(source)).await;
         assert_eq!(rows(&mut *w, &ident(clone_name)).await, a, "{source}");
         assert_eq!(a[0][2], "1");
-        assert_eq!(rows(&mut *w, &named(clone_name)).await, rows(&mut *w, &named(source)).await, "{source}");
-        let sum = |t: &str| format!("SELECT COUNT(*), CAST(SUM(id) AS nvarchar(50)) FROM dbo.[{t}]");
-        assert_eq!(rows(&mut *w, &sum(clone_name)).await, rows(&mut *w, &sum(source)).await);
+        assert_eq!(
+            rows(&mut *w, &named(clone_name)).await,
+            rows(&mut *w, &named(source)).await,
+            "{source}"
+        );
+        let sum =
+            |t: &str| format!("SELECT COUNT(*), CAST(SUM(id) AS nvarchar(50)) FROM dbo.[{t}]");
+        assert_eq!(
+            rows(&mut *w, &sum(clone_name)).await,
+            rows(&mut *w, &sum(source)).await
+        );
         // Structure only too.
         let bare = format!("{source}_solo");
-        clone_of(&endpoints, "dbo", source, &bare, false).await.unwrap_or_else(|e| panic!("clone of {source} failed: {e}"));
+        clone_of(&endpoints, "dbo", source, &bare, false)
+            .await
+            .unwrap_or_else(|e| panic!("clone of {source} failed: {e}"));
         let b = rows(&mut *w, &ident(&bare)).await;
         assert_eq!(b[0][..3], a[0][..3], "{source}");
     }
     // The next row continues where the original's would.
-    let next = |t: &str| format!("INSERT INTO dbo.[{t}] (v) VALUES (9); SELECT CAST(SCOPE_IDENTITY() AS nvarchar(50));");
-    assert_eq!(rows(&mut *w, &next("big dec_c")).await.pop(), rows(&mut *w, &next("big dec")).await.pop());
+    let next = |t: &str| {
+        format!(
+            "INSERT INTO dbo.[{t}] (v) VALUES (9); SELECT CAST(SCOPE_IDENTITY() AS nvarchar(50));"
+        )
+    };
+    assert_eq!(
+        rows(&mut *w, &next("big dec_c")).await.pop(),
+        rows(&mut *w, &next("big dec")).await.pop()
+    );
 
     drop(w);
     rows(&mut *master, &format!("ALTER DATABASE [{DB2}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB2}];")).await;
@@ -246,11 +352,17 @@ async fn sql_server_big_identity_and_system_names() {
 #[ignore = "needs a live SQL Server: see the top of the file"]
 async fn sql_server_primary_key_options_and_server_named_uniques() {
     const DB3: &str = "dbine_clone_table_pk";
-    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver").expect("sqlserver driver").clone();
+    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver")
+        .expect("sqlserver driver")
+        .clone();
     let cfg = config();
     let mut master = driver.connect(&cfg, Some("master")).await.unwrap();
     rows(&mut *master, &format!("IF DB_ID(N'{DB3}') IS NOT NULL BEGIN ALTER DATABASE [{DB3}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB3}]; END; CREATE DATABASE [{DB3}];")).await;
-    let endpoints = Arc::new(ConfigEndpoints { driver: driver.clone(), config: cfg.clone(), database: Some(DB3.into()) });
+    let endpoints = Arc::new(ConfigEndpoints {
+        driver: driver.clone(),
+        config: cfg.clone(),
+        database: Some(DB3.into()),
+    });
     let mut w = driver.connect(&cfg, Some(DB3)).await.unwrap();
     for sql in [
         "CREATE TABLE dbo.pkopt (id int NOT NULL, k int NOT NULL, CONSTRAINT PK_pkopt PRIMARY KEY NONCLUSTERED (id DESC) WITH (DATA_COMPRESSION = ROW, FILLFACTOR = 80), \
@@ -287,7 +399,9 @@ async fn sql_server_primary_key_options_and_server_named_uniques() {
     };
     for t in ["pkopt", "pkfill", "pkheap", "pkcomp", "pkpart"] {
         let c = format!("{t}_c");
-        let report = clone_of(&endpoints, "dbo", t, &c, true).await.unwrap_or_else(|e| panic!("clone of {t} failed: {e}"));
+        let report = clone_of(&endpoints, "dbo", t, &c, true)
+            .await
+            .unwrap_or_else(|e| panic!("clone of {t} failed: {e}"));
         assert!(report.notes.is_empty(), "{t}: {:?}", report.notes);
         let a = rows(&mut *w, &key(t)).await;
         assert_eq!(a.len(), 1, "{t}");
@@ -303,8 +417,14 @@ async fn sql_server_primary_key_options_and_server_named_uniques() {
              FROM sys.key_constraints k WHERE k.parent_object_id = OBJECT_ID(N'dbo.[{t}]') AND k.type = 'UQ' ORDER BY 2"
         )
     };
-    let report = clone_of(&endpoints, "dbo", "uq", "uq_c", true).await.unwrap_or_else(|e| panic!("clone of uq failed: {e}"));
-    assert!(report.renames.iter().all(|r| !r.from.starts_with("UQ__")), "{:?}", report.renames);
+    let report = clone_of(&endpoints, "dbo", "uq", "uq_c", true)
+        .await
+        .unwrap_or_else(|e| panic!("clone of uq failed: {e}"));
+    assert!(
+        report.renames.iter().all(|r| !r.from.starts_with("UQ__")),
+        "{:?}",
+        report.renames
+    );
     let mut want = rows(&mut *w, &uniques("uq")).await;
     for r in &mut want {
         if let Some(x) = report.renames.iter().find(|x| x.from == r[2]) {
@@ -314,7 +434,11 @@ async fn sql_server_primary_key_options_and_server_named_uniques() {
     assert_eq!(report.renames.len(), 1, "{:?}", report.renames);
     assert_eq!(rows(&mut *w, &uniques("uq_c")).await, want);
 
-    let fulltext = rows(&mut *w, "SELECT CAST(ISNULL(FULLTEXTSERVICEPROPERTY('IsFullTextInstalled'), 0) AS nvarchar(1))").await;
+    let fulltext = rows(
+        &mut *w,
+        "SELECT CAST(ISNULL(FULLTEXTSERVICEPROPERTY('IsFullTextInstalled'), 0) AS nvarchar(1))",
+    )
+    .await;
     if fulltext[0][0] == "1" {
         rows(
             &mut *w,
@@ -323,7 +447,9 @@ async fn sql_server_primary_key_options_and_server_named_uniques() {
              EXEC(N'CREATE FULLTEXT INDEX ON dbo.ft_uq (t) KEY INDEX ' + @uq + N' ON cat_pk WITH CHANGE_TRACKING OFF, NO POPULATION');",
         )
         .await;
-        clone_of(&endpoints, "dbo", "ft_uq", "ft_uq_c", true).await.unwrap_or_else(|e| panic!("clone of ft_uq failed: {e}"));
+        clone_of(&endpoints, "dbo", "ft_uq", "ft_uq_c", true)
+            .await
+            .unwrap_or_else(|e| panic!("clone of ft_uq failed: {e}"));
         let ft = rows(
             &mut *w,
             "SELECT CAST(k.is_system_named AS nvarchar(1)), CAST((SELECT COUNT(*) FROM sys.key_constraints WHERE parent_object_id = f.object_id AND type = 'UQ') AS nvarchar(5))
@@ -331,7 +457,11 @@ async fn sql_server_primary_key_options_and_server_named_uniques() {
               WHERE f.object_id = OBJECT_ID(N'dbo.ft_uq_c')",
         )
         .await;
-        assert_eq!(ft, vec![vec!["1".to_string(), "1".to_string()]], "the full-text index's key is the clone's server-named UNIQUE");
+        assert_eq!(
+            ft,
+            vec![vec!["1".to_string(), "1".to_string()]],
+            "the full-text index's key is the clone's server-named UNIQUE"
+        );
     } else {
         println!("sin búsqueda de texto completo: no se prueba su KEY INDEX");
     }
@@ -348,11 +478,17 @@ async fn sql_server_primary_key_options_and_server_named_uniques() {
 #[ignore = "needs a live SQL Server: see the top of the file"]
 async fn sql_server_xml_indexes() {
     const DB4: &str = "dbine_clone_table_xml";
-    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver").expect("sqlserver driver").clone();
+    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver")
+        .expect("sqlserver driver")
+        .clone();
     let cfg = config();
     let mut master = driver.connect(&cfg, Some("master")).await.unwrap();
     rows(&mut *master, &format!("IF DB_ID(N'{DB4}') IS NOT NULL BEGIN ALTER DATABASE [{DB4}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB4}]; END; CREATE DATABASE [{DB4}];")).await;
-    let endpoints = Arc::new(ConfigEndpoints { driver: driver.clone(), config: cfg.clone(), database: Some(DB4.into()) });
+    let endpoints = Arc::new(ConfigEndpoints {
+        driver: driver.clone(),
+        config: cfg.clone(),
+        database: Some(DB4.into()),
+    });
     let mut w = driver.connect(&cfg, Some(DB4)).await.unwrap();
     for sql in [
         "CREATE SCHEMA [ventas odd];",
@@ -384,10 +520,37 @@ async fn sql_server_xml_indexes() {
     assert_eq!(original.len(), 5);
     let long = "k".repeat(124);
     for name in ["kinds_20260930_033332", "kc", "kx", long.as_str()] {
-        let report = clone_of(&endpoints, "ventas odd", "kinds", name, true).await.unwrap_or_else(|e| panic!("clone {name} failed: {e}"));
-        let to = |n: &str| report.renames.iter().find(|r| r.from == n).map_or(n.to_string(), |r| r.to.clone());
-        let want: Vec<Vec<String>> = original.iter().map(|r| vec![to(&r[0]), r[1].clone(), r[2].clone(), if r[3].is_empty() { String::new() } else { to(&r[3]) }]).collect();
-        assert_eq!(rows(&mut *w, &xml(name)).await, want, "{name}: {:?}", report.renames);
+        let report = clone_of(&endpoints, "ventas odd", "kinds", name, true)
+            .await
+            .unwrap_or_else(|e| panic!("clone {name} failed: {e}"));
+        let to = |n: &str| {
+            report
+                .renames
+                .iter()
+                .find(|r| r.from == n)
+                .map_or(n.to_string(), |r| r.to.clone())
+        };
+        let want: Vec<Vec<String>> = original
+            .iter()
+            .map(|r| {
+                vec![
+                    to(&r[0]),
+                    r[1].clone(),
+                    r[2].clone(),
+                    if r[3].is_empty() {
+                        String::new()
+                    } else {
+                        to(&r[3])
+                    },
+                ]
+            })
+            .collect();
+        assert_eq!(
+            rows(&mut *w, &xml(name)).await,
+            want,
+            "{name}: {:?}",
+            report.renames
+        );
         let n = rows(&mut *w, &format!("SELECT CAST(COUNT(*) AS nvarchar(5)) FROM [ventas odd].[{name}] WHERE x.exist('/a') = 1")).await;
         assert_eq!(n[0][0], "2", "{name}");
         rows(&mut *w, &format!("DROP TABLE [ventas odd].[{name}]")).await;
@@ -406,11 +569,17 @@ async fn sql_server_xml_indexes() {
 #[ignore = "needs a live SQL Server: see the top of the file"]
 async fn sql_server_sparse_columns_and_temporal_tables() {
     const DB5: &str = "dbine_clone_table_temporal";
-    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver").expect("sqlserver driver").clone();
+    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver")
+        .expect("sqlserver driver")
+        .clone();
     let cfg = config();
     let mut master = driver.connect(&cfg, Some("master")).await.unwrap();
     rows(&mut *master, &format!("IF DB_ID(N'{DB5}') IS NOT NULL BEGIN ALTER DATABASE [{DB5}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB5}]; END; CREATE DATABASE [{DB5}];")).await;
-    let endpoints = Arc::new(ConfigEndpoints { driver: driver.clone(), config: cfg.clone(), database: Some(DB5.into()) });
+    let endpoints = Arc::new(ConfigEndpoints {
+        driver: driver.clone(),
+        config: cfg.clone(),
+        database: Some(DB5.into()),
+    });
     let mut w = driver.connect(&cfg, Some(DB5)).await.unwrap();
     for sql in [
         "CREATE SCHEMA [ventas odd];",
@@ -437,7 +606,9 @@ async fn sql_server_sparse_columns_and_temporal_tables() {
     ] {
         rows(&mut *w, sql).await;
     }
-    let obj = |s: &str, t: &str| format!("[{}].[{}]", s.replace(']', "]]"), t.replace(']', "]]")).replace('\'', "''");
+    let obj = |s: &str, t: &str| {
+        format!("[{}].[{}]", s.replace(']', "]]"), t.replace(']', "]]")).replace('\'', "''")
+    };
 
     // Sparse: the flags, and the column set follows the sparse columns.
     let sparse = |t: &str| {
@@ -449,13 +620,24 @@ async fn sql_server_sparse_columns_and_temporal_tables() {
     };
     let want = rows(&mut *w, &sparse("esparsa")).await;
     for (name, with_data) in [("esparsa_c", true), ("esparsa_s", false)] {
-        let report = clone_of(&endpoints, "ventas odd", "esparsa", name, with_data).await.unwrap_or_else(|e| panic!("clone {name} failed: {e}"));
+        let report = clone_of(&endpoints, "ventas odd", "esparsa", name, with_data)
+            .await
+            .unwrap_or_else(|e| panic!("clone {name} failed: {e}"));
         println!("{report:?}");
         assert_eq!(rows(&mut *w, &sparse(name)).await, want, "{name}");
     }
-    let cs = |t: &str| format!("SELECT CAST(id AS nvarchar(5)), ISNULL(CAST(cs AS nvarchar(max)), N'-') FROM [ventas odd].[{t}] ORDER BY id");
-    assert_eq!(rows(&mut *w, &cs("esparsa_c")).await, rows(&mut *w, &cs("esparsa")).await);
-    rows(&mut *w, "UPDATE [ventas odd].esparsa_c SET s1 = 9 WHERE id = 3").await;
+    let cs = |t: &str| {
+        format!("SELECT CAST(id AS nvarchar(5)), ISNULL(CAST(cs AS nvarchar(max)), N'-') FROM [ventas odd].[{t}] ORDER BY id")
+    };
+    assert_eq!(
+        rows(&mut *w, &cs("esparsa_c")).await,
+        rows(&mut *w, &cs("esparsa")).await
+    );
+    rows(
+        &mut *w,
+        "UPDATE [ventas odd].esparsa_c SET s1 = 9 WHERE id = 3",
+    )
+    .await;
     assert_eq!(rows(&mut *w, &cs("esparsa_c")).await[2][1], "<s1>9</s1>");
 
     // Temporal: (temporal type, retention, each column's GENERATED ALWAYS
@@ -485,28 +667,68 @@ async fn sql_server_sparse_columns_and_temporal_tables() {
     };
     let want = rows(&mut *w, &temporal("ventas odd", "temporal")).await;
     assert_eq!(want[0], ["SYSTEM_VERSIONED_TEMPORAL_TABLE", "6MONTH"]);
-    let report = clone_of(&endpoints, "ventas odd", "temporal", "temporal_c", true).await.unwrap_or_else(|e| panic!("clone failed: {e}"));
+    let report = clone_of(&endpoints, "ventas odd", "temporal", "temporal_c", true)
+        .await
+        .unwrap_or_else(|e| panic!("clone failed: {e}"));
     println!("{report:?}");
-    assert_eq!(rows(&mut *w, &temporal("ventas odd", "temporal_c")).await, want);
-    assert_eq!(rows(&mut *w, &history("ventas odd", "temporal_c")).await, [["ventas odd", "temporal_c_hist"]]);
-    assert_eq!(rows(&mut *w, &all("ventas odd", "temporal_c")).await, rows(&mut *w, &all("ventas odd", "temporal")).await);
-    assert_eq!(rows(&mut *w, &all("ventas odd", "temporal_c")).await.len(), 3);
+    assert_eq!(
+        rows(&mut *w, &temporal("ventas odd", "temporal_c")).await,
+        want
+    );
+    assert_eq!(
+        rows(&mut *w, &history("ventas odd", "temporal_c")).await,
+        [["ventas odd", "temporal_c_hist"]]
+    );
+    assert_eq!(
+        rows(&mut *w, &all("ventas odd", "temporal_c")).await,
+        rows(&mut *w, &all("ventas odd", "temporal")).await
+    );
+    assert_eq!(
+        rows(&mut *w, &all("ventas odd", "temporal_c")).await.len(),
+        3
+    );
     // Versioned from then on.
-    rows(&mut *w, "UPDATE [ventas odd].temporal_c SET v = N'a3' WHERE id = 1").await;
-    assert_eq!(rows(&mut *w, "SELECT CAST(COUNT(*) AS nvarchar(5)) FROM [ventas odd].temporal_c_hist").await[0][0], "3");
+    rows(
+        &mut *w,
+        "UPDATE [ventas odd].temporal_c SET v = N'a3' WHERE id = 1",
+    )
+    .await;
+    assert_eq!(
+        rows(
+            &mut *w,
+            "SELECT CAST(COUNT(*) AS nvarchar(5)) FROM [ventas odd].temporal_c_hist"
+        )
+        .await[0][0],
+        "3"
+    );
     // Structure only: versioned, empty history; the history's name taken.
-    clone_of(&endpoints, "ventas odd", "temporal", "temporal_t", false).await.unwrap_or_else(|e| panic!("clone failed: {e}"));
-    assert_eq!(rows(&mut *w, &temporal("ventas odd", "temporal_t")).await, want);
-    assert_eq!(rows(&mut *w, &history("ventas odd", "temporal_t")).await, [["ventas odd", "temporal_t_hist_2"]]);
-    assert!(rows(&mut *w, &all("ventas odd", "temporal_t")).await.is_empty());
+    clone_of(&endpoints, "ventas odd", "temporal", "temporal_t", false)
+        .await
+        .unwrap_or_else(|e| panic!("clone failed: {e}"));
+    assert_eq!(
+        rows(&mut *w, &temporal("ventas odd", "temporal_t")).await,
+        want
+    );
+    assert_eq!(
+        rows(&mut *w, &history("ventas odd", "temporal_t")).await,
+        [["ventas odd", "temporal_t_hist_2"]]
+    );
+    assert!(rows(&mut *w, &all("ventas odd", "temporal_t"))
+        .await
+        .is_empty());
     // History named by the server: the clone's too.
     let want = rows(&mut *w, &temporal("dbo", "auto_h")).await;
-    clone_of(&endpoints, "dbo", "auto_h", "auto_h_c", true).await.unwrap_or_else(|e| panic!("clone failed: {e}"));
+    clone_of(&endpoints, "dbo", "auto_h", "auto_h_c", true)
+        .await
+        .unwrap_or_else(|e| panic!("clone failed: {e}"));
     assert_eq!(rows(&mut *w, &temporal("dbo", "auto_h_c")).await, want);
-    assert!(rows(&mut *w, &history("dbo", "auto_h_c")).await[0][1].starts_with("MSSQL_TemporalHistoryFor_"));
+    assert!(rows(&mut *w, &history("dbo", "auto_h_c")).await[0][1]
+        .starts_with("MSSQL_TemporalHistoryFor_"));
     // A period without versioning.
     let want = rows(&mut *w, &temporal("dbo", "periodo")).await;
-    clone_of(&endpoints, "dbo", "periodo", "periodo_c", true).await.unwrap_or_else(|e| panic!("clone failed: {e}"));
+    clone_of(&endpoints, "dbo", "periodo", "periodo_c", true)
+        .await
+        .unwrap_or_else(|e| panic!("clone failed: {e}"));
     assert_eq!(rows(&mut *w, &temporal("dbo", "periodo_c")).await, want);
     assert!(want.iter().any(|r| r[1] == "AS_ROW_START0"));
 
@@ -526,7 +748,9 @@ async fn sql_server_sparse_columns_and_temporal_tables() {
 #[ignore = "needs a live SQL Server: see the top of the file"]
 async fn sql_server_partitions_and_filegroups() {
     const DB7: &str = "dbine_clone_table_layout";
-    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver").expect("sqlserver driver").clone();
+    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver")
+        .expect("sqlserver driver")
+        .clone();
     let cfg = config();
     let mut master = driver.connect(&cfg, Some("master")).await.unwrap();
     rows(&mut *master, &format!("IF DB_ID(N'{DB7}') IS NOT NULL BEGIN ALTER DATABASE [{DB7}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB7}]; END; CREATE DATABASE [{DB7}];")).await;
@@ -538,7 +762,11 @@ async fn sql_server_partitions_and_filegroups() {
         ),
     )
     .await;
-    let endpoints = Arc::new(ConfigEndpoints { driver: driver.clone(), config: cfg.clone(), database: Some(DB7.into()) });
+    let endpoints = Arc::new(ConfigEndpoints {
+        driver: driver.clone(),
+        config: cfg.clone(),
+        database: Some(DB7.into()),
+    });
     let mut w = driver.connect(&cfg, Some(DB7)).await.unwrap();
     for sql in [
         "CREATE PARTITION FUNCTION pf_r3 (int) AS RANGE LEFT FOR VALUES (10, 20);",
@@ -587,13 +815,21 @@ async fn sql_server_partitions_and_filegroups() {
     };
     for t in ["cx", "cci", "heap", "fgtab", "pkp"] {
         let c = format!("{t}_c");
-        let report = clone_of(&endpoints, "dbo", t, &c, true).await.unwrap_or_else(|e| panic!("clone of {t} failed: {e}"));
+        let report = clone_of(&endpoints, "dbo", t, &c, true)
+            .await
+            .unwrap_or_else(|e| panic!("clone of {t} failed: {e}"));
         println!("{t}: {:?}", report.notes);
         let want = rows(&mut *w, &layout(t)).await;
         println!("{t}: {want:?}");
         assert_eq!(rows(&mut *w, &layout(&c)).await, want, "{t}");
-        let sum = |x: &str| format!("SELECT CAST(COUNT(*) AS nvarchar(10)), CAST(SUM(CAST(id AS bigint)) AS nvarchar(20)) FROM dbo.[{x}]");
-        assert_eq!(rows(&mut *w, &sum(&c)).await, rows(&mut *w, &sum(t)).await, "{t}");
+        let sum = |x: &str| {
+            format!("SELECT CAST(COUNT(*) AS nvarchar(10)), CAST(SUM(CAST(id AS bigint)) AS nvarchar(20)) FROM dbo.[{x}]")
+        };
+        assert_eq!(
+            rows(&mut *w, &sum(&c)).await,
+            rows(&mut *w, &sum(t)).await,
+            "{t}"
+        );
     }
     // The cases the fix is about: 3 partitions on the scheme, not PRIMARY.
     for t in ["cx_c", "cci_c"] {
@@ -609,7 +845,9 @@ async fn sql_server_partitions_and_filegroups() {
         assert_eq!(p, [["ps_r3", "3"]], "{t}");
     }
     // Structure only: the heap where the original's table is.
-    clone_of(&endpoints, "dbo", "cx", "cx_s", false).await.unwrap_or_else(|e| panic!("clone of cx failed: {e}"));
+    clone_of(&endpoints, "dbo", "cx", "cx_s", false)
+        .await
+        .unwrap_or_else(|e| panic!("clone of cx failed: {e}"));
     let heap = rows(&mut *w, "SELECT ds.name FROM sys.indexes i JOIN sys.data_spaces ds ON ds.data_space_id = i.data_space_id WHERE i.object_id = OBJECT_ID(N'dbo.cx_s') AND i.index_id IN (0, 1)").await;
     assert_eq!(heap, [["ps_r3"]]);
 
@@ -625,11 +863,17 @@ async fn sql_server_partitions_and_filegroups() {
 #[ignore = "needs a live SQL Server: see the top of the file"]
 async fn sql_server_graph_tables_and_history_indexes() {
     const DB6: &str = "dbine_clone_table_graph";
-    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver").expect("sqlserver driver").clone();
+    let driver: Arc<dyn Driver> = dbine_drivers::find("sqlserver")
+        .expect("sqlserver driver")
+        .clone();
     let cfg = config();
     let mut master = driver.connect(&cfg, Some("master")).await.unwrap();
     rows(&mut *master, &format!("IF DB_ID(N'{DB6}') IS NOT NULL BEGIN ALTER DATABASE [{DB6}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB6}]; END; CREATE DATABASE [{DB6}];")).await;
-    let endpoints = Arc::new(ConfigEndpoints { driver: driver.clone(), config: cfg.clone(), database: Some(DB6.into()) });
+    let endpoints = Arc::new(ConfigEndpoints {
+        driver: driver.clone(),
+        config: cfg.clone(),
+        database: Some(DB6.into()),
+    });
     let mut w = driver.connect(&cfg, Some(DB6)).await.unwrap();
     for sql in [
         "CREATE SCHEMA [ventas odd];",
@@ -648,17 +892,35 @@ async fn sql_server_graph_tables_and_history_indexes() {
     }
 
     for (t, what) in [("nodo v4", "AS NODE"), ("arista v4", "AS EDGE")] {
-        let e = clone_of(&endpoints, "ventas odd", t, &format!("{t} c"), true).await.unwrap_err();
+        let e = clone_of(&endpoints, "ventas odd", t, &format!("{t} c"), true)
+            .await
+            .unwrap_err();
         assert!(e.contains("no se puede clonar") && e.contains(what), "{e}");
-        let left = rows(&mut *w, &format!("SELECT CAST(COUNT(*) AS nvarchar(5)) FROM sys.tables WHERE name = N'{}'", lit(&format!("{t} c")))).await;
+        let left = rows(
+            &mut *w,
+            &format!(
+                "SELECT CAST(COUNT(*) AS nvarchar(5)) FROM sys.tables WHERE name = N'{}'",
+                lit(&format!("{t} c"))
+            ),
+        )
+        .await;
         assert_eq!(left[0][0], "0", "{t}");
     }
 
-    let report = clone_of(&endpoints, "ventas odd", "tv3", "tv3 c", true).await.unwrap_or_else(|e| panic!("clone failed: {e}"));
+    let report = clone_of(&endpoints, "ventas odd", "tv3", "tv3 c", true)
+        .await
+        .unwrap_or_else(|e| panic!("clone failed: {e}"));
     println!("{report:?}");
     let history = rows(&mut *w, "SELECT OBJECT_SCHEMA_NAME(history_table_id), OBJECT_NAME(history_table_id) FROM sys.tables WHERE object_id = OBJECT_ID(N'[ventas odd].[tv3 c]')").await;
     assert_eq!(history, [["hist ñ", "tv3 c hist"]]);
-    assert!(report.notes.iter().any(|n| n.contains("«hist ñ.tv3 c hist»")), "{:?}", report.notes);
+    assert!(
+        report
+            .notes
+            .iter()
+            .any(|n| n.contains("«hist ñ.tv3 c hist»")),
+        "{:?}",
+        report.notes
+    );
     let indexes = |t: &str| {
         format!(
             "SELECT i.type_desc COLLATE DATABASE_DEFAULT, CAST(i.is_unique AS nvarchar(1)), p.data_compression_desc COLLATE DATABASE_DEFAULT,
@@ -671,7 +933,14 @@ async fn sql_server_graph_tables_and_history_indexes() {
     let want = rows(&mut *w, &indexes("tv3 hist")).await;
     assert_eq!(want.len(), 2);
     assert_eq!(rows(&mut *w, &indexes("tv3 c hist")).await, want);
-    assert_eq!(rows(&mut *w, "SELECT CAST(COUNT(*) AS nvarchar(5)) FROM [hist ñ].[tv3 c hist]").await[0][0], "1");
+    assert_eq!(
+        rows(
+            &mut *w,
+            "SELECT CAST(COUNT(*) AS nvarchar(5)) FROM [hist ñ].[tv3 c hist]"
+        )
+        .await[0][0],
+        "1"
+    );
 
     drop(w);
     rows(&mut *master, &format!("ALTER DATABASE [{DB6}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB6}];")).await;

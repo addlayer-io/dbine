@@ -22,11 +22,20 @@
 //! `master` (see [`database_script`]).
 
 use crate::variant::{self, Variant};
-use dbine_driver::rename::{rename_header, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
-use dbine_driver::sql::{name_tokens, qualified_name, quote_ident, split_script, Quote, ScriptDialect, TokenKind};
+use dbine_driver::rename::{
+    rename_header, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
+use dbine_driver::sql::{
+    name_tokens, qualified_name, quote_ident, split_script, Quote, ScriptDialect, TokenKind,
+};
 use dbine_driver::{kinds, Error, IndexDef, ObjectRef, Result, SyncScript, TableSchema};
 
-const MODULES: [&str; 4] = [kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION, kinds::TRIGGER];
+const MODULES: [&str; 4] = [
+    kinds::VIEW,
+    kinds::PROCEDURE,
+    kinds::FUNCTION,
+    kinds::TRIGGER,
+];
 
 pub(crate) fn spec(v: Variant) -> RenameSpec {
     let note = database_note(v);
@@ -99,7 +108,11 @@ fn qn(schema: Option<&str>, name: &str) -> String {
 
 fn sp_rename(objname: &str, new_name: &str, objtype: &str) -> String {
     // @newname is taken literally: brackets there would end up in the name.
-    format!("EXEC sp_rename {}, {}, N'{objtype}';", nlit(objname), nlit(new_name))
+    format!(
+        "EXEC sp_rename {}, {}, N'{objtype}';",
+        nlit(objname),
+        nlit(new_name)
+    )
 }
 
 /// Why `target` isn't renamed on `v`.
@@ -122,22 +135,42 @@ pub(crate) fn script(v: Variant, req: &RenameRequest) -> Result<SyncScript> {
     }
     let new = req.new_name.as_str();
     match &req.target {
-        RenameTarget::Object { object, .. } if object.kind == kinds::TABLE || !MODULES.contains(&object.kind.as_str()) => {
-            Ok(SyncScript { statements: vec![sp_rename(&qn(object.schema(), &object.name), new, "OBJECT")], warnings: Vec::new() })
+        RenameTarget::Object { object, .. }
+            if object.kind == kinds::TABLE || !MODULES.contains(&object.kind.as_str()) =>
+        {
+            Ok(SyncScript {
+                statements: vec![sp_rename(&qn(object.schema(), &object.name), new, "OBJECT")],
+                warnings: Vec::new(),
+            })
         }
         RenameTarget::Object { object, .. } => module(v, object, req),
         RenameTarget::Column { table, column } => {
             if matches!(v, Variant::SqlServer | Variant::AzureSql) {
                 column_with_dependencies(table, column, new, req.table.as_ref())
             } else {
-                Ok(SyncScript { statements: vec![sp_rename(&format!("{}.{}", qn(table.schema(), &table.name), q(column)), new, "COLUMN")], warnings: Vec::new() })
+                Ok(SyncScript {
+                    statements: vec![sp_rename(
+                        &format!("{}.{}", qn(table.schema(), &table.name), q(column)),
+                        new,
+                        "COLUMN",
+                    )],
+                    warnings: Vec::new(),
+                })
             }
         }
-        RenameTarget::Index { table, index } => {
-            Ok(SyncScript { statements: vec![sp_rename(&format!("{}.{}", qn(table.schema(), &table.name), q(index)), new, "INDEX")], warnings: Vec::new() })
-        }
+        RenameTarget::Index { table, index } => Ok(SyncScript {
+            statements: vec![sp_rename(
+                &format!("{}.{}", qn(table.schema(), &table.name), q(index)),
+                new,
+                "INDEX",
+            )],
+            warnings: Vec::new(),
+        }),
         // Constraints live in the table's schema, as objects.
-        RenameTarget::Constraint { table, constraint } => Ok(SyncScript { statements: vec![sp_rename(&qn(table.schema(), constraint), new, "OBJECT")], warnings: Vec::new() }),
+        RenameTarget::Constraint { table, constraint } => Ok(SyncScript {
+            statements: vec![sp_rename(&qn(table.schema(), constraint), new, "OBJECT")],
+            warnings: Vec::new(),
+        }),
         RenameTarget::Schema { .. } => Err(refusal(v, &req.target)),
     }
 }
@@ -154,12 +187,20 @@ fn module(v: Variant, object: &ObjectRef, req: &RenameRequest) -> Result<SyncScr
             object.name
         ))
     })?;
-    let renamed = rename_header(definition, &d, Fold::None, &req.new_name)
-        .ok_or_else(|| Error::Unsupported(format!("no se encontró el encabezado CREATE de «{}» en su definición", object.name)))?;
+    let renamed = rename_header(definition, &d, Fold::None, &req.new_name).ok_or_else(|| {
+        Error::Unsupported(format!(
+            "no se encontró el encabezado CREATE de «{}» en su definición",
+            object.name
+        ))
+    })?;
     let renamed = qualify(&renamed, object.schema());
     let old = qn(object.schema(), &object.name);
     if v == Variant::Babelfish && object.kind != kinds::VIEW {
-        let kind = if object.kind == kinds::PROCEDURE { "PROCEDURE" } else { "FUNCTION" };
+        let kind = if object.kind == kinds::PROCEDURE {
+            "PROCEDURE"
+        } else {
+            "FUNCTION"
+        };
         return Ok(SyncScript {
             statements: vec![format!("DROP {kind} {old};"), one_batch(create_as(&renamed, &d, false), &object.name, &d)?],
             warnings: vec![format!(
@@ -168,7 +209,13 @@ fn module(v: Variant, object: &ObjectRef, req: &RenameRequest) -> Result<SyncScr
             )],
         });
     }
-    Ok(SyncScript { statements: vec![sp_rename(&old, &req.new_name, "OBJECT"), one_batch(create_as(&renamed, &d, true), &object.name, &d)?], warnings: Vec::new() })
+    Ok(SyncScript {
+        statements: vec![
+            sp_rename(&old, &req.new_name, "OBJECT"),
+            one_batch(create_as(&renamed, &d, true), &object.name, &d)?,
+        ],
+        warnings: Vec::new(),
+    })
 }
 
 /// A stored definition put back must be one batch: a line reading just `GO`
@@ -184,17 +231,31 @@ fn one_batch(sql: String, name: &str, d: &ScriptDialect) -> Result<String> {
 }
 
 fn create_as(definition: &str, d: &ScriptDialect, or_alter: bool) -> String {
-    let style = if or_alter { ReplaceStyle::CreateOrAlter } else { ReplaceStyle::DropCreate };
-    dbine_driver::rename::with_create_style(definition, d, style).trim().to_string()
+    let style = if or_alter {
+        ReplaceStyle::CreateOrAlter
+    } else {
+        ReplaceStyle::DropCreate
+    };
+    dbine_driver::rename::with_create_style(definition, d, style)
+        .trim()
+        .to_string()
 }
 
 /// The header's name with its schema: an unqualified `CREATE VIEW v` would
 /// otherwise go to the default schema of whoever runs the script.
 fn qualify(definition: &str, schema: Option<&str>) -> String {
-    let Some(schema) = schema.filter(|s| !s.is_empty()) else { return definition.to_string() };
+    let Some(schema) = schema.filter(|s| !s.is_empty()) else {
+        return definition.to_string();
+    };
     let toks = name_tokens(definition, &ScriptDialect::tsql());
-    let word = |i: usize, ws: &[&str]| toks.get(i).is_some_and(|t| t.kind == TokenKind::Name && ws.iter().any(|w| t.text.eq_ignore_ascii_case(w)));
-    let Some(c) = (0..toks.len()).find(|&i| word(i, &["create"])) else { return definition.to_string() };
+    let word = |i: usize, ws: &[&str]| {
+        toks.get(i).is_some_and(|t| {
+            t.kind == TokenKind::Name && ws.iter().any(|w| t.text.eq_ignore_ascii_case(w))
+        })
+    };
+    let Some(c) = (0..toks.len()).find(|&i| word(i, &["create"])) else {
+        return definition.to_string();
+    };
     let mut i = c + 1;
     if word(i, &["or"]) && word(i + 1, &["alter"]) {
         i += 2;
@@ -203,9 +264,16 @@ fn qualify(definition: &str, schema: Option<&str>) -> String {
         return definition.to_string();
     }
     let name = i + 1;
-    let dotted = toks.get(name + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".");
+    let dotted = toks
+        .get(name + 1)
+        .is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".");
     match toks.get(name) {
-        Some(t) if t.kind == TokenKind::Name && !dotted => format!("{}{}.{}", &definition[..t.start], q(schema), &definition[t.start..]),
+        Some(t) if t.kind == TokenKind::Name && !dotted => format!(
+            "{}{}.{}",
+            &definition[..t.start],
+            q(schema),
+            &definition[t.start..]
+        ),
         _ => definition.to_string(),
     }
 }
@@ -228,7 +296,8 @@ fn swap_column(expr: &str, old: &str, new: &str) -> String {
 }
 
 fn uses(expr: &str, column: &str) -> bool {
-    expr.to_ascii_lowercase().contains(&q(column).to_ascii_lowercase())
+    expr.to_ascii_lowercase()
+        .contains(&q(column).to_ascii_lowercase())
 }
 
 /// SQL Server and Azure SQL: a column used by a CHECK constraint, a
@@ -236,18 +305,46 @@ fn uses(expr: &str, column: &str) -> bool {
 /// from the catalog when it runs: `database_schema` doesn't list them) and
 /// the filtered indexes are dropped and created again around `sp_rename`,
 /// in one batch that undoes itself if anything fails.
-fn column_with_dependencies(table: &ObjectRef, column: &str, new: &str, schema: Option<&TableSchema>) -> Result<SyncScript> {
+fn column_with_dependencies(
+    table: &ObjectRef,
+    column: &str,
+    new: &str,
+    schema: Option<&TableSchema>,
+) -> Result<SyncScript> {
     let owner = qn(table.schema(), &table.name);
     let computed: Vec<&str> = schema
-        .map(|t| t.columns.iter().filter(|c| c.data_type.trim_start().to_ascii_uppercase().starts_with("AS ") && uses(&c.data_type, column)).map(|c| c.name.as_str()).collect())
+        .map(|t| {
+            t.columns
+                .iter()
+                .filter(|c| {
+                    c.data_type
+                        .trim_start()
+                        .to_ascii_uppercase()
+                        .starts_with("AS ")
+                        && uses(&c.data_type, column)
+                })
+                .map(|c| c.name.as_str())
+                .collect()
+        })
         .unwrap_or_default();
     if !computed.is_empty() {
-        let names = computed.iter().map(|c| format!("«{c}»")).collect::<Vec<_>>().join(", ");
+        let names = computed
+            .iter()
+            .map(|c| format!("«{c}»"))
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(Error::Unsupported(format!(
             "SQL Server no deja renombrar «{column}» porque la usa la columna calculada {names}: hay que quitar la columna calculada, renombrar y volver a crearla"
         )));
     }
-    let filtered: Vec<&IndexDef> = schema.map(|t| t.indexes.iter().filter(|i| i.filter.as_deref().is_some_and(|f| uses(f, column))).collect()).unwrap_or_default();
+    let filtered: Vec<&IndexDef> = schema
+        .map(|t| {
+            t.indexes
+                .iter()
+                .filter(|i| i.filter.as_deref().is_some_and(|f| uses(f, column)))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut warnings = vec![format!(
         "Las restricciones CHECK que usan «{column}» se borran antes de renombrarla y se vuelven a crear con el nombre nuevo: SQL Server no deja renombrar una columna que usan."
     )];
@@ -255,14 +352,29 @@ fn column_with_dependencies(table: &ObjectRef, column: &str, new: &str, schema: 
     let mut create_ix = String::new();
     for ix in &filtered {
         drop_ix.push_str(&format!("    DROP INDEX {} ON {owner};\n", q(&ix.name)));
-        let rename = |cols: &[String]| cols.iter().map(|c| if c.eq_ignore_ascii_case(column) { new.to_string() } else { c.clone() }).collect::<Vec<_>>();
+        let rename = |cols: &[String]| {
+            cols.iter()
+                .map(|c| {
+                    if c.eq_ignore_ascii_case(column) {
+                        new.to_string()
+                    } else {
+                        c.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
         let moved = IndexDef {
             columns: rename(&ix.columns),
             include: rename(&ix.include),
             filter: ix.filter.as_deref().map(|f| swap_column(f, column, new)),
             ..(*ix).clone()
         };
-        let one = TableSchema { schema: table.schema.clone(), name: table.name.clone(), indexes: vec![moved], ..Default::default() };
+        let one = TableSchema {
+            schema: table.schema.clone(),
+            name: table.name.clone(),
+            indexes: vec![moved],
+            ..Default::default()
+        };
         for s in crate::structure::index_statements(&owner, &one, false) {
             let s = s.trim().trim_end_matches(';');
             // Through EXEC: the batch is compiled before sp_rename runs,
@@ -305,7 +417,10 @@ END CATCH;",
         old_b = nlit(&q(column)),
         new_b = nlit(&q(new)),
     );
-    Ok(SyncScript { statements: vec![batch], warnings })
+    Ok(SyncScript {
+        statements: vec![batch],
+        warnings,
+    })
 }
 
 /// The system databases, never renamed (Babelfish has no `model`).
@@ -357,14 +472,21 @@ pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Res
         return Err(Error::Query("falta el nombre de la base".into()));
     }
     if new.chars().count() > 128 {
-        return Err(Error::Query("el nombre de una base no puede pasar de 128 caracteres".into()));
+        return Err(Error::Query(
+            "el nombre de una base no puede pasar de 128 caracteres".into(),
+        ));
     }
     if new == database {
         return Err(Error::Query("el nombre nuevo es igual al actual".into()));
     }
     for name in [database, new] {
-        if SYSTEM_DATABASES.iter().any(|s| s.eq_ignore_ascii_case(name)) {
-            return Err(Error::Unsupported(format!("«{name}» es una base del sistema: no se renombra ni se usa como nombre nuevo")));
+        if SYSTEM_DATABASES
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(name))
+        {
+            return Err(Error::Unsupported(format!(
+                "«{name}» es una base del sistema: no se renombra ni se usa como nombre nuevo"
+            )));
         }
     }
     let (old_q, new_q) = (q(database), q(new));
@@ -378,8 +500,15 @@ pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Res
             "Si el cambio de nombre falla (por ejemplo, otra sesión ocupó el único lugar de SINGLE_USER, o la base está en un grupo de \
              disponibilidad o en un mirroring), «{database}» queda en SINGLE_USER: se vuelve con ALTER DATABASE {old_q} SET MULTI_USER."
         ));
-        warnings.push("Al final la base queda en MULTI_USER, aunque antes estuviera en RESTRICTED_USER.".into());
-        vec![format!("ALTER DATABASE {old_q} SET SINGLE_USER WITH ROLLBACK IMMEDIATE"), rename, format!("ALTER DATABASE {new_q} SET MULTI_USER")]
+        warnings.push(
+            "Al final la base queda en MULTI_USER, aunque antes estuviera en RESTRICTED_USER."
+                .into(),
+        );
+        vec![
+            format!("ALTER DATABASE {old_q} SET SINGLE_USER WITH ROLLBACK IMMEDIATE"),
+            rename,
+            format!("ALTER DATABASE {new_q} SET MULTI_USER"),
+        ]
     } else {
         warnings.push(match v {
             Variant::AzureSql => format!("Azure SQL Database corta las demás sesiones conectadas a «{database}» al renombrarla."),
@@ -395,7 +524,10 @@ pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Res
     } else {
         warnings.push(format!("El código de otras bases y las cadenas de conexión que nombran «{database}» no cambian."));
     }
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 #[cfg(test)]
@@ -404,27 +536,60 @@ mod tests {
     use dbine_driver::ColumnDef;
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: Some(schema.into()),
+            name: name.into(),
+        }
     }
 
     fn req(target: RenameTarget, new: &str) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: None }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: None,
+        }
     }
 
     fn object(kind: &str, name: &str) -> RenameTarget {
-        RenameTarget::Object { object: obj(kind, "ventas", name), parent: None }
+        RenameTarget::Object {
+            object: obj(kind, "ventas", name),
+            parent: None,
+        }
     }
 
     #[test]
     fn table_is_sp_rename_with_the_new_name_literal() {
-        let s = script(Variant::SqlServer, &req(object(kinds::TABLE, "Clientes"), "Clientes Viejos")).unwrap();
-        assert_eq!(s.statements, ["EXEC sp_rename N'[ventas].[Clientes]', N'Clientes Viejos', N'OBJECT';"]);
+        let s = script(
+            Variant::SqlServer,
+            &req(object(kinds::TABLE, "Clientes"), "Clientes Viejos"),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["EXEC sp_rename N'[ventas].[Clientes]', N'Clientes Viejos', N'OBJECT';"]
+        );
         // Quotes and brackets: the old name bracketed, the new one as is.
-        let s = script(Variant::AzureSql, &req(object(kinds::TABLE, "a]b"), "O'Brien")).unwrap();
-        assert_eq!(s.statements, ["EXEC sp_rename N'[ventas].[a]]b]', N'O''Brien', N'OBJECT';"]);
+        let s = script(
+            Variant::AzureSql,
+            &req(object(kinds::TABLE, "a]b"), "O'Brien"),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["EXEC sp_rename N'[ventas].[a]]b]', N'O''Brien', N'OBJECT';"]
+        );
         // Case kept (the engine stores what it's given).
-        let s = script(Variant::Fabric, &req(object(kinds::TABLE, "t"), "NuevoNombre")).unwrap();
-        assert_eq!(s.statements, ["EXEC sp_rename N'[ventas].[t]', N'NuevoNombre', N'OBJECT';"]);
+        let s = script(
+            Variant::Fabric,
+            &req(object(kinds::TABLE, "t"), "NuevoNombre"),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["EXEC sp_rename N'[ventas].[t]', N'NuevoNombre', N'OBJECT';"]
+        );
     }
 
     #[test]
@@ -443,23 +608,41 @@ mod tests {
         let mut r = req(object(kinds::PROCEDURE, "p"), "p nuevo");
         r.definition = Some("create proc p @a int as select @a".into());
         let s = script(Variant::SqlServer, &r).unwrap();
-        assert_eq!(s.statements[1], "CREATE OR ALTER proc [ventas].[p nuevo] @a int as select @a");
+        assert_eq!(
+            s.statements[1],
+            "CREATE OR ALTER proc [ventas].[p nuevo] @a int as select @a"
+        );
         // Already CREATE OR ALTER, a function.
         let mut r = req(object(kinds::FUNCTION, "f"), "g");
-        r.definition = Some("CREATE OR ALTER FUNCTION ventas.f() RETURNS int AS BEGIN RETURN 1 END".into());
-        assert_eq!(script(Variant::AzureSql, &r).unwrap().statements[1], "CREATE OR ALTER FUNCTION ventas.g() RETURNS int AS BEGIN RETURN 1 END");
+        r.definition =
+            Some("CREATE OR ALTER FUNCTION ventas.f() RETURNS int AS BEGIN RETURN 1 END".into());
+        assert_eq!(
+            script(Variant::AzureSql, &r).unwrap().statements[1],
+            "CREATE OR ALTER FUNCTION ventas.g() RETURNS int AS BEGIN RETURN 1 END"
+        );
         // A trigger keeps its ON clause.
         let mut r = RenameRequest {
-            target: RenameTarget::Object { object: obj(kinds::TRIGGER, "dbo", "trg"), parent: Some("T".into()) },
+            target: RenameTarget::Object {
+                object: obj(kinds::TRIGGER, "dbo", "trg"),
+                parent: Some("T".into()),
+            },
             new_name: "trg2".into(),
             table: None,
             definition: Some("CREATE TRIGGER dbo.trg ON dbo.T AFTER INSERT AS SELECT 1".into()),
         };
         let s = script(Variant::SqlServer, &r).unwrap();
-        assert_eq!(s.statements, ["EXEC sp_rename N'[dbo].[trg]', N'trg2', N'OBJECT';", "CREATE OR ALTER TRIGGER dbo.trg2 ON dbo.T AFTER INSERT AS SELECT 1"]);
+        assert_eq!(
+            s.statements,
+            [
+                "EXEC sp_rename N'[dbo].[trg]', N'trg2', N'OBJECT';",
+                "CREATE OR ALTER TRIGGER dbo.trg2 ON dbo.T AFTER INSERT AS SELECT 1"
+            ]
+        );
         // Without its text (encrypted): refused.
         r.definition = None;
-        assert!(matches!(script(Variant::SqlServer, &r), Err(Error::Unsupported(m)) if m.contains("cifrada")));
+        assert!(
+            matches!(script(Variant::SqlServer, &r), Err(Error::Unsupported(m)) if m.contains("cifrada"))
+        );
     }
 
     #[test]
@@ -467,89 +650,209 @@ mod tests {
         let mut r = req(object(kinds::PROCEDURE, "p"), "p2");
         r.definition = Some("CREATE PROCEDURE ventas.p AS SELECT 1".into());
         let s = script(Variant::Babelfish, &r).unwrap();
-        assert_eq!(s.statements, ["DROP PROCEDURE [ventas].[p];", "CREATE PROCEDURE ventas.p2 AS SELECT 1"]);
+        assert_eq!(
+            s.statements,
+            [
+                "DROP PROCEDURE [ventas].[p];",
+                "CREATE PROCEDURE ventas.p2 AS SELECT 1"
+            ]
+        );
         assert!(s.warnings[0].contains("permisos"));
         let mut r = req(object(kinds::VIEW, "v"), "v2");
         r.definition = Some("CREATE VIEW ventas.v AS SELECT 1 AS a".into());
         let s = script(Variant::Babelfish, &r).unwrap();
-        assert_eq!(s.statements, ["EXEC sp_rename N'[ventas].[v]', N'v2', N'OBJECT';", "CREATE OR ALTER VIEW ventas.v2 AS SELECT 1 AS a"]);
+        assert_eq!(
+            s.statements,
+            [
+                "EXEC sp_rename N'[ventas].[v]', N'v2', N'OBJECT';",
+                "CREATE OR ALTER VIEW ventas.v2 AS SELECT 1 AS a"
+            ]
+        );
         assert!(s.warnings.is_empty());
     }
 
     #[test]
     fn index_and_constraint() {
         let t = obj(kinds::TABLE, "dbo", "T");
-        let s = script(Variant::SqlServer, &req(RenameTarget::Index { table: t.clone(), index: "IX_Pepe".into() }, "IX_Nuevo")).unwrap();
-        assert_eq!(s.statements, ["EXEC sp_rename N'[dbo].[T].[IX_Pepe]', N'IX_Nuevo', N'INDEX';"]);
-        let s = script(Variant::SqlServer, &req(RenameTarget::Constraint { table: t.clone(), constraint: "CK_Pepe".into() }, "CK_Nuevo")).unwrap();
-        assert_eq!(s.statements, ["EXEC sp_rename N'[dbo].[CK_Pepe]', N'CK_Nuevo', N'OBJECT';"]);
+        let s = script(
+            Variant::SqlServer,
+            &req(
+                RenameTarget::Index {
+                    table: t.clone(),
+                    index: "IX_Pepe".into(),
+                },
+                "IX_Nuevo",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["EXEC sp_rename N'[dbo].[T].[IX_Pepe]', N'IX_Nuevo', N'INDEX';"]
+        );
+        let s = script(
+            Variant::SqlServer,
+            &req(
+                RenameTarget::Constraint {
+                    table: t.clone(),
+                    constraint: "CK_Pepe".into(),
+                },
+                "CK_Nuevo",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["EXEC sp_rename N'[dbo].[CK_Pepe]', N'CK_Nuevo', N'OBJECT';"]
+        );
     }
 
     #[test]
     fn column_keeps_checks_and_filtered_indexes() {
         let t = obj(kinds::TABLE, "dbo", "T");
-        let target = RenameTarget::Column { table: t.clone(), column: "pepe".into() };
+        let target = RenameTarget::Column {
+            table: t.clone(),
+            column: "pepe".into(),
+        };
         // Babelfish and Fabric: just sp_rename.
         for v in [Variant::Babelfish, Variant::Fabric] {
             let s = script(v, &req(target.clone(), "Nuevo")).unwrap();
-            assert_eq!(s.statements, ["EXEC sp_rename N'[dbo].[T].[pepe]', N'Nuevo', N'COLUMN';"]);
+            assert_eq!(
+                s.statements,
+                ["EXEC sp_rename N'[dbo].[T].[pepe]', N'Nuevo', N'COLUMN';"]
+            );
         }
         let mut r = req(target.clone(), "Nuevo");
         r.table = Some(TableSchema {
             schema: Some("dbo".into()),
             name: "T".into(),
-            columns: vec![ColumnDef { name: "pepe".into(), data_type: "int".into(), ..Default::default() }],
+            columns: vec![ColumnDef {
+                name: "pepe".into(),
+                data_type: "int".into(),
+                ..Default::default()
+            }],
             indexes: vec![
-                IndexDef { name: "IX_f".into(), columns: vec!["id".into()], include: vec!["Pepe".into()], filter: Some("([PEPE]>(5))".into()), ..Default::default() },
-                IndexDef { name: "IX_plain".into(), columns: vec!["pepe".into()], ..Default::default() },
+                IndexDef {
+                    name: "IX_f".into(),
+                    columns: vec!["id".into()],
+                    include: vec!["Pepe".into()],
+                    filter: Some("([PEPE]>(5))".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "IX_plain".into(),
+                    columns: vec!["pepe".into()],
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         });
         let s = script(Variant::SqlServer, &r).unwrap();
         assert_eq!(s.statements.len(), 1);
         let b = &s.statements[0];
-        assert!(b.contains("EXEC sp_rename N'[dbo].[T].[pepe]', N'Nuevo', N'COLUMN';"), "{b}");
-        assert!(b.contains("COLUMNPROPERTY(cc.parent_object_id, N'pepe', 'ColumnId')"), "{b}");
-        assert!(b.contains("REPLACE(definition, N'[pepe]', N'[Nuevo]')"), "{b}");
+        assert!(
+            b.contains("EXEC sp_rename N'[dbo].[T].[pepe]', N'Nuevo', N'COLUMN';"),
+            "{b}"
+        );
+        assert!(
+            b.contains("COLUMNPROPERTY(cc.parent_object_id, N'pepe', 'ColumnId')"),
+            "{b}"
+        );
+        assert!(
+            b.contains("REPLACE(definition, N'[pepe]', N'[Nuevo]')"),
+            "{b}"
+        );
         assert!(b.contains("DROP INDEX [IX_f] ON [dbo].[T];"), "{b}");
         assert!(b.contains("EXEC (N'CREATE INDEX [IX_f] ON [dbo].[T] ([id]) INCLUDE ([Nuevo]) WHERE ([Nuevo]>(5))');"), "{b}");
         assert!(!b.contains("IX_plain"), "{b}");
-        let (drop, rename, create) = (b.find("DROP INDEX").unwrap(), b.find("sp_rename").unwrap(), b.find("CREATE").unwrap());
+        let (drop, rename, create) = (
+            b.find("DROP INDEX").unwrap(),
+            b.find("sp_rename").unwrap(),
+            b.find("CREATE").unwrap(),
+        );
         assert!(drop < rename && rename < create, "{b}");
         assert_eq!(s.warnings.len(), 2);
         // A computed column using it: refused.
-        r.table.as_mut().unwrap().columns.push(ColumnDef { name: "doble".into(), data_type: "AS ([pepe]*(2))".into(), ..Default::default() });
-        assert!(matches!(script(Variant::SqlServer, &r), Err(Error::Unsupported(m)) if m.contains("«doble»")));
+        r.table.as_mut().unwrap().columns.push(ColumnDef {
+            name: "doble".into(),
+            data_type: "AS ([pepe]*(2))".into(),
+            ..Default::default()
+        });
+        assert!(
+            matches!(script(Variant::SqlServer, &r), Err(Error::Unsupported(m)) if m.contains("«doble»"))
+        );
     }
 
     #[test]
     fn swaps_only_the_bracketed_column() {
-        assert_eq!(swap_column("([pepe]>(0) AND [pepe2]<[Pepe])", "pepe", "x"), "([x]>(0) AND [pepe2]<[x])");
+        assert_eq!(
+            swap_column("([pepe]>(0) AND [pepe2]<[Pepe])", "pepe", "x"),
+            "([x]>(0) AND [pepe2]<[x])"
+        );
         assert_eq!(swap_column("([a]]b]=(1))", "a]b", "c"), "([c]=(1))");
     }
 
     #[test]
     fn what_each_variant_refuses() {
         let t = obj(kinds::TABLE, "dbo", "T");
-        let schema = RenameTarget::Schema { database: None, schema: "ventas".into() };
+        let schema = RenameTarget::Schema {
+            database: None,
+            schema: "ventas".into(),
+        };
         for v in Variant::ALL {
-            assert!(matches!(script(v, &req(schema.clone(), "x")), Err(Error::Unsupported(m)) if m.contains("esquemas")), "{v:?}");
-            assert!(matches!(script(v, &req(object(kinds::SYNONYM, "s"), "x")), Err(Error::Unsupported(m)) if m.contains("sinónimos")), "{v:?}");
+            assert!(
+                matches!(script(v, &req(schema.clone(), "x")), Err(Error::Unsupported(m)) if m.contains("esquemas")),
+                "{v:?}"
+            );
+            assert!(
+                matches!(script(v, &req(object(kinds::SYNONYM, "s"), "x")), Err(Error::Unsupported(m)) if m.contains("sinónimos")),
+                "{v:?}"
+            );
         }
-        let trigger = RenameTarget::Object { object: obj(kinds::TRIGGER, "dbo", "trg"), parent: Some("T".into()) };
-        assert!(matches!(script(Variant::Babelfish, &req(trigger, "x")), Err(Error::Unsupported(m)) if m.ends_with("no renombra triggers")));
-        let ck = RenameTarget::Constraint { table: t.clone(), constraint: "CK".into() };
-        assert!(matches!(script(Variant::Babelfish, &req(ck.clone(), "x")), Err(Error::Unsupported(m)) if m.ends_with("no renombra restricciones")));
+        let trigger = RenameTarget::Object {
+            object: obj(kinds::TRIGGER, "dbo", "trg"),
+            parent: Some("T".into()),
+        };
+        assert!(
+            matches!(script(Variant::Babelfish, &req(trigger, "x")), Err(Error::Unsupported(m)) if m.ends_with("no renombra triggers"))
+        );
+        let ck = RenameTarget::Constraint {
+            table: t.clone(),
+            constraint: "CK".into(),
+        };
+        assert!(
+            matches!(script(Variant::Babelfish, &req(ck.clone(), "x")), Err(Error::Unsupported(m)) if m.ends_with("no renombra restricciones"))
+        );
         assert!(script(Variant::Fabric, &req(ck, "x")).is_err());
-        assert!(matches!(script(Variant::Babelfish, &req(RenameTarget::Index { table: t.clone(), index: "ix".into() }, "x")), Err(Error::Unsupported(m)) if m.ends_with("no renombra índices")));
-        assert!(script(Variant::Fabric, &req(RenameTarget::Index { table: t, index: "ix".into() }, "x")).is_err());
+        assert!(
+            matches!(script(Variant::Babelfish, &req(RenameTarget::Index { table: t.clone(), index: "ix".into() }, "x")), Err(Error::Unsupported(m)) if m.ends_with("no renombra índices"))
+        );
+        assert!(script(
+            Variant::Fabric,
+            &req(
+                RenameTarget::Index {
+                    table: t,
+                    index: "ix".into()
+                },
+                "x"
+            )
+        )
+        .is_err());
         assert!(script(Variant::Fabric, &req(object(kinds::VIEW, "v"), "x")).is_err());
         let s = spec(Variant::SqlServer);
-        assert_eq!((s.replace, s.fold, s.transactional, s.schemas), (ReplaceStyle::CreateOrAlter, Fold::None, true, false));
+        assert_eq!(
+            (s.replace, s.fold, s.transactional, s.schemas),
+            (ReplaceStyle::CreateOrAlter, Fold::None, true, false)
+        );
         assert!(s.tracked.is_empty());
         assert_eq!(spec(Variant::Babelfish).replace, ReplaceStyle::DropCreate);
-        assert_eq!(spec(Variant::Babelfish).replace_for(kinds::VIEW), ReplaceStyle::CreateOrAlter);
-        assert_eq!(spec(Variant::Babelfish).replace_for(kinds::PROCEDURE), ReplaceStyle::DropCreate);
+        assert_eq!(
+            spec(Variant::Babelfish).replace_for(kinds::VIEW),
+            ReplaceStyle::CreateOrAlter
+        );
+        assert_eq!(
+            spec(Variant::Babelfish).replace_for(kinds::PROCEDURE),
+            ReplaceStyle::DropCreate
+        );
         assert!(!spec(Variant::Fabric).transactional);
     }
 
@@ -568,7 +871,10 @@ mod tests {
         assert!(s.warnings.iter().any(|w| w.contains("jobs del Agente")));
         // `]` is doubled in both names.
         let s = database_script(Variant::SqlServer, "a]b", "c]]d").unwrap();
-        assert_eq!(s.statements[1], "ALTER DATABASE [a]]b] MODIFY NAME = [c]]]]d]");
+        assert_eq!(
+            s.statements[1],
+            "ALTER DATABASE [a]]b] MODIFY NAME = [c]]]]d]"
+        );
         assert_eq!(s.statements[2], "ALTER DATABASE [c]]]]d] SET MULTI_USER");
     }
 
@@ -576,26 +882,47 @@ mod tests {
     fn database_rename_on_azure_and_babelfish_is_modify_name_alone() {
         for v in [Variant::AzureSql, Variant::Babelfish] {
             let s = database_script(v, "app", "app_old").unwrap();
-            assert_eq!(s.statements, ["ALTER DATABASE [app] MODIFY NAME = [app_old]"], "{v:?}");
-            assert!(!s.warnings.iter().any(|w| w.contains("SINGLE_USER")), "{v:?}");
+            assert_eq!(
+                s.statements,
+                ["ALTER DATABASE [app] MODIFY NAME = [app_old]"],
+                "{v:?}"
+            );
+            assert!(
+                !s.warnings.iter().any(|w| w.contains("SINGLE_USER")),
+                "{v:?}"
+            );
         }
-        assert!(database_script(Variant::AzureSql, "app", "x").unwrap().warnings[0].contains("corta"));
-        assert!(database_script(Variant::Babelfish, "app", "x").unwrap().warnings[0].contains("se niega"));
+        assert!(database_script(Variant::AzureSql, "app", "x")
+            .unwrap()
+            .warnings[0]
+            .contains("corta"));
+        assert!(database_script(Variant::Babelfish, "app", "x")
+            .unwrap()
+            .warnings[0]
+            .contains("se niega"));
     }
 
     #[test]
     fn database_rename_refusals() {
         for v in [Variant::SqlServer, Variant::AzureSql, Variant::Babelfish] {
             for sys in ["master", "MODEL", "msdb", "TempDB"] {
-                assert!(matches!(database_script(v, sys, "x"), Err(Error::Unsupported(m)) if m.contains("del sistema")), "{v:?} {sys}");
-                assert!(matches!(database_script(v, "app", sys), Err(Error::Unsupported(_))), "{v:?} {sys}");
+                assert!(
+                    matches!(database_script(v, sys, "x"), Err(Error::Unsupported(m)) if m.contains("del sistema")),
+                    "{v:?} {sys}"
+                );
+                assert!(
+                    matches!(database_script(v, "app", sys), Err(Error::Unsupported(_))),
+                    "{v:?} {sys}"
+                );
             }
             assert!(database_script(v, "app", "app").is_err());
             assert!(database_script(v, "app", "  ").is_err());
             assert!(database_script(v, "app", &"x".repeat(129)).is_err());
             assert!(database_script(v, "app", &"x".repeat(128)).is_ok());
         }
-        assert!(matches!(database_script(Variant::Fabric, "wh", "x"), Err(Error::Unsupported(m)) if m.contains("portal")));
+        assert!(
+            matches!(database_script(Variant::Fabric, "wh", "x"), Err(Error::Unsupported(m)) if m.contains("portal"))
+        );
     }
 
     #[test]
@@ -605,11 +932,19 @@ mod tests {
             assert!(s.databases && !s.database_moves, "{v:?}");
             assert_eq!(s.database_from.as_deref(), Some("master"), "{v:?}");
             let note = s.database_note.unwrap();
-            assert!(note.contains("No es atómico") && note.contains("no cambian"), "{v:?}");
+            assert!(
+                note.contains("No es atómico") && note.contains("no cambian"),
+                "{v:?}"
+            );
         }
         let note = spec(Variant::SqlServer).database_note.unwrap();
-        assert!(note.contains("SINGLE_USER WITH ROLLBACK IMMEDIATE") && note.contains("MULTI_USER"));
-        assert!(spec(Variant::AzureSql).database_note.unwrap().contains("no admite SINGLE_USER"));
+        assert!(
+            note.contains("SINGLE_USER WITH ROLLBACK IMMEDIATE") && note.contains("MULTI_USER")
+        );
+        assert!(spec(Variant::AzureSql)
+            .database_note
+            .unwrap()
+            .contains("no admite SINGLE_USER"));
         let f = spec(Variant::Fabric);
         assert!(!f.databases && f.database_from.is_none() && f.database_note.is_none());
     }
@@ -617,13 +952,29 @@ mod tests {
     #[test]
     fn a_module_with_a_go_line_is_not_put_back() {
         let d = ScriptDialect::tsql();
-        assert!(one_batch("CREATE OR ALTER PROCEDURE dbo.p AS SELECT 1".into(), "p", &d).is_ok());
+        assert!(one_batch(
+            "CREATE OR ALTER PROCEDURE dbo.p AS SELECT 1".into(),
+            "p",
+            &d
+        )
+        .is_ok());
         // SQL Server stores this (`GO` is the column's alias); a GO-splitting
         // runner would send the GRANT as a batch of its own.
-        let body = "CREATE OR ALTER PROCEDURE dbo.p AS\nSELECT 1\nGO\nGRANT CONTROL TO public".to_string();
+        let body =
+            "CREATE OR ALTER PROCEDURE dbo.p AS\nSELECT 1\nGO\nGRANT CONTROL TO public".to_string();
         assert!(one_batch(body, "p", &d).is_err());
         // Inside a string the splitter doesn't cut, so that one is put back.
-        assert!(one_batch("CREATE OR ALTER PROCEDURE dbo.p AS\nSELECT 'x\nGO\ny'".into(), "p", &d).is_ok());
-        assert!(one_batch("CREATE OR ALTER VIEW dbo.v AS SELECT 1 AS go_live".into(), "v", &d).is_ok());
+        assert!(one_batch(
+            "CREATE OR ALTER PROCEDURE dbo.p AS\nSELECT 'x\nGO\ny'".into(),
+            "p",
+            &d
+        )
+        .is_ok());
+        assert!(one_batch(
+            "CREATE OR ALTER VIEW dbo.v AS SELECT 1 AS go_live".into(),
+            "v",
+            &d
+        )
+        .is_ok());
     }
 }

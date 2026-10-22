@@ -23,7 +23,12 @@ const MARK: &str = "dbine-processes-list";
 /// A `QUERY_ID` as the table shows it.
 pub(crate) fn valid_id(id: &str) -> Option<&str> {
     let id = id.trim();
-    (!id.is_empty() && id.len() <= 128 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')).then_some(id)
+    (!id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+    .then_some(id)
 }
 
 /// The last segment of a session name (`projects/…/sessions/<id>`).
@@ -33,7 +38,11 @@ fn short(session: &str) -> &str {
 
 /// The statement's first word, upper-cased ("SELECT", "UPDATE"…).
 fn command(sql: &str) -> Option<String> {
-    let word: String = sql.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let word: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     (!word.is_empty()).then(|| word.to_ascii_uppercase())
 }
 
@@ -41,7 +50,13 @@ fn command(sql: &str) -> Option<String> {
 /// USER_AGENT_HEADER, PRIORITY (unused), TRANSACTION_TYPE, TEXT`; `own` is this
 /// session's name.
 fn rows(rs: &[Vec<Option<String>>], own: &str) -> Vec<ServerProcess> {
-    let get = |r: &Vec<Option<String>>, i: usize| r.get(i).cloned().flatten().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    let get = |r: &Vec<Option<String>>, i: usize| {
+        r.get(i)
+            .cloned()
+            .flatten()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
     rs.iter()
         .filter(|r| !get(r, 7).is_some_and(|t| t.contains(MARK)))
         .map(|r| {
@@ -49,13 +64,17 @@ fn rows(rs: &[Vec<Option<String>>], own: &str) -> Vec<ServerProcess> {
             let session = get(r, 1);
             ServerProcess {
                 id: get(r, 0).unwrap_or_default(),
-                status: get(r, 6).map(|t| format!("en ejecución ({})", t.to_lowercase().replace('_', " "))).or(Some("en ejecución".into())),
+                status: get(r, 6)
+                    .map(|t| format!("en ejecución ({})", t.to_lowercase().replace('_', " ")))
+                    .or(Some("en ejecución".into())),
                 active: true,
                 own: session.as_deref().is_some_and(|s| short(s) == short(own)),
                 host: get(r, 3),
                 program: get(r, 4),
                 command: sql.as_deref().and_then(command),
-                elapsed_ms: get(r, 2).and_then(|v| v.parse::<f64>().ok()).map(|v| v.max(0.0) as u64),
+                elapsed_ms: get(r, 2)
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .map(|v| v.max(0.0) as u64),
                 sql,
                 ..Default::default()
             }
@@ -89,13 +108,23 @@ impl SpannerSession {
     }
 
     pub(crate) async fn cancel_running(&mut self, id: &str) -> Result<()> {
-        let id = valid_id(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta de Spanner", id.trim())))?;
+        let id = valid_id(id).ok_or_else(|| {
+            Error::Query(format!(
+                "«{}» no es un id de consulta de Spanner",
+                id.trim()
+            ))
+        })?;
         self.refuse_emulator()?;
         // Checked above: no quote can be in it.
-        self.text_rows(&format!("CALL cancel_query('{id}')"), &[]).await.map(|_| ()).map_err(|e| match e {
-            Error::Query(m) => Error::Query(format!("no se pudo cancelar la consulta {id}: {m}")),
-            e => e,
-        })
+        self.text_rows(&format!("CALL cancel_query('{id}')"), &[])
+            .await
+            .map(|_| ())
+            .map_err(|e| match e {
+                Error::Query(m) => {
+                    Error::Query(format!("no se pudo cancelar la consulta {id}: {m}"))
+                }
+                e => e,
+            })
     }
 }
 
@@ -114,10 +143,30 @@ mod tests {
     fn active_queries_become_processes() {
         let s = |v: &str| (!v.is_empty()).then(|| v.to_string());
         let rs = vec![
-            ["42", "projects/p/instances/i/databases/d/sessions/abc", "1500", "10.0.0.1", "go-client", "HIGH", "READ_ONLY", "select 1"]
-                .map(s)
-                .to_vec(),
-            ["43", "xyz", "10", "", "", "", "", "SELECT /* dbine-processes-list */ 1"].map(s).to_vec(),
+            [
+                "42",
+                "projects/p/instances/i/databases/d/sessions/abc",
+                "1500",
+                "10.0.0.1",
+                "go-client",
+                "HIGH",
+                "READ_ONLY",
+                "select 1",
+            ]
+            .map(s)
+            .to_vec(),
+            [
+                "43",
+                "xyz",
+                "10",
+                "",
+                "",
+                "",
+                "",
+                "SELECT /* dbine-processes-list */ 1",
+            ]
+            .map(s)
+            .to_vec(),
         ];
         let ps = rows(&rs, "projects/p/instances/i/databases/d/sessions/xyz");
         assert_eq!(ps.len(), 1, "the list leaves itself out");

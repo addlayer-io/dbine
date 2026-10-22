@@ -16,7 +16,10 @@ impl<'a> Catalog<'a> {
             "mssql" | "sybase" => Some("dbo"),
             _ => None,
         };
-        Self { tables, default_schema }
+        Self {
+            tables,
+            default_schema,
+        }
     }
 
     /// The table `parts` names (`[schema.]table`, the database part ignored).
@@ -27,7 +30,13 @@ impl<'a> Catalog<'a> {
             .tables
             .iter()
             .filter(|t| t.name.eq_ignore_ascii_case(name))
-            .filter(|t| schema.is_none_or(|s| t.schema.as_deref().is_some_and(|ts| ts.eq_ignore_ascii_case(s))))
+            .filter(|t| {
+                schema.is_none_or(|s| {
+                    t.schema
+                        .as_deref()
+                        .is_some_and(|ts| ts.eq_ignore_ascii_case(s))
+                })
+            })
             .collect();
         match matches.len() {
             0 => None,
@@ -38,18 +47,28 @@ impl<'a> Catalog<'a> {
                     return Some(exact[0]);
                 }
                 let d = self.default_schema?;
-                matches.into_iter().find(|t| t.schema.as_deref().is_some_and(|s| s.eq_ignore_ascii_case(d)))
+                matches.into_iter().find(|t| {
+                    t.schema
+                        .as_deref()
+                        .is_some_and(|s| s.eq_ignore_ascii_case(d))
+                })
             }
         }
     }
 
     pub fn column<'t>(t: &'t TableSchema, name: &str) -> Option<&'t ColumnDef> {
-        t.columns.iter().find(|c| c.name == name).or_else(|| t.columns.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
+        t.columns
+            .iter()
+            .find(|c| c.name == name)
+            .or_else(|| t.columns.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
     }
 
     /// The column can't hold NULL (NOT NULL, or part of the primary key).
     pub fn not_null(t: &TableSchema, name: &str) -> bool {
-        let in_pk = t.primary_key.as_ref().is_some_and(|k| k.columns.iter().any(|c| c.eq_ignore_ascii_case(name)));
+        let in_pk = t
+            .primary_key
+            .as_ref()
+            .is_some_and(|k| k.columns.iter().any(|c| c.eq_ignore_ascii_case(name)));
         in_pk || Self::column(t, name).is_some_and(|c| !c.nullable)
     }
 
@@ -61,7 +80,11 @@ impl<'a> Catalog<'a> {
             out.push(pk.columns.clone());
         }
         for ix in &t.indexes {
-            if ix.unique && ix.filter.as_deref().is_none_or(str::is_empty) && !ix.columns.is_empty() && ix.columns.iter().all(|c| Self::not_null(t, c)) {
+            if ix.unique
+                && ix.filter.as_deref().is_none_or(str::is_empty)
+                && !ix.columns.is_empty()
+                && ix.columns.iter().all(|c| Self::not_null(t, c))
+            {
                 out.push(ix.columns.clone());
             }
         }
@@ -74,13 +97,20 @@ impl<'a> Catalog<'a> {
         if let Some(pk) = t.primary_key.as_ref().filter(|k| !k.columns.is_empty()) {
             out.push(pk.columns.clone());
         }
-        out.extend(t.indexes.iter().filter(|i| !i.columns.is_empty()).map(|i| i.columns.iter().map(|c| index_column(c)).collect()));
+        out.extend(
+            t.indexes
+                .iter()
+                .filter(|i| !i.columns.is_empty())
+                .map(|i| i.columns.iter().map(|c| index_column(c)).collect()),
+        );
         out
     }
 
     /// Some index (or the primary key) starts with this column.
     pub fn leads_an_index(t: &TableSchema, column: &str) -> bool {
-        Self::index_columns(t).iter().any(|cols| cols.first().is_some_and(|c| c.eq_ignore_ascii_case(column)))
+        Self::index_columns(t)
+            .iter()
+            .any(|cols| cols.first().is_some_and(|c| c.eq_ignore_ascii_case(column)))
     }
 }
 
@@ -108,12 +138,60 @@ pub enum TypeClass {
 pub fn type_class(data_type: &str) -> TypeClass {
     let t = data_type.to_ascii_lowercase();
     let base = t.split(['(', ' ']).next().unwrap_or("");
-    const TEXT: &[&str] = &["char", "varchar", "nchar", "nvarchar", "text", "ntext", "tinytext", "mediumtext", "longtext", "string", "varchar2", "nvarchar2", "clob", "nclob", "character", "citext", "bpchar", "sysname"];
-    const NUMBER: &[&str] = &[
-        "int", "integer", "smallint", "tinyint", "bigint", "mediumint", "decimal", "numeric", "number", "float", "real", "double", "money", "smallmoney",
-        "int2", "int4", "int8", "float4", "float8", "serial", "bigserial", "smallserial", "binary_float", "binary_double",
+    const TEXT: &[&str] = &[
+        "char",
+        "varchar",
+        "nchar",
+        "nvarchar",
+        "text",
+        "ntext",
+        "tinytext",
+        "mediumtext",
+        "longtext",
+        "string",
+        "varchar2",
+        "nvarchar2",
+        "clob",
+        "nclob",
+        "character",
+        "citext",
+        "bpchar",
+        "sysname",
     ];
-    const DATES: &[&str] = &["date", "datetime", "datetime2", "smalldatetime", "timestamp", "timestamptz"];
+    const NUMBER: &[&str] = &[
+        "int",
+        "integer",
+        "smallint",
+        "tinyint",
+        "bigint",
+        "mediumint",
+        "decimal",
+        "numeric",
+        "number",
+        "float",
+        "real",
+        "double",
+        "money",
+        "smallmoney",
+        "int2",
+        "int4",
+        "int8",
+        "float4",
+        "float8",
+        "serial",
+        "bigserial",
+        "smallserial",
+        "binary_float",
+        "binary_double",
+    ];
+    const DATES: &[&str] = &[
+        "date",
+        "datetime",
+        "datetime2",
+        "smalldatetime",
+        "timestamp",
+        "timestamptz",
+    ];
     if TEXT.contains(&base) || t.starts_with("character varying") {
         TypeClass::Text
     } else if NUMBER.contains(&base) || t.starts_with("double precision") {
@@ -130,16 +208,38 @@ pub(crate) mod tests {
     use super::*;
     use dbine_driver::{IndexDef, KeyDef};
 
-    pub fn table(schema: Option<&str>, name: &str, cols: &[(&str, &str, bool)], pk: &[&str], indexes: &[(&[&str], bool)]) -> TableSchema {
+    pub fn table(
+        schema: Option<&str>,
+        name: &str,
+        cols: &[(&str, &str, bool)],
+        pk: &[&str],
+        indexes: &[(&[&str], bool)],
+    ) -> TableSchema {
         TableSchema {
             schema: schema.map(str::to_string),
             name: name.into(),
-            columns: cols.iter().map(|(n, t, null)| ColumnDef { name: n.to_string(), data_type: t.to_string(), nullable: *null, ..Default::default() }).collect(),
-            primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk.iter().map(|c| c.to_string()).collect() }),
+            columns: cols
+                .iter()
+                .map(|(n, t, null)| ColumnDef {
+                    name: n.to_string(),
+                    data_type: t.to_string(),
+                    nullable: *null,
+                    ..Default::default()
+                })
+                .collect(),
+            primary_key: (!pk.is_empty()).then(|| KeyDef {
+                name: None,
+                columns: pk.iter().map(|c| c.to_string()).collect(),
+            }),
             indexes: indexes
                 .iter()
                 .enumerate()
-                .map(|(i, (c, u))| IndexDef { name: format!("ix{i}"), columns: c.iter().map(|c| c.to_string()).collect(), unique: *u, ..Default::default() })
+                .map(|(i, (c, u))| IndexDef {
+                    name: format!("ix{i}"),
+                    columns: c.iter().map(|c| c.to_string()).collect(),
+                    unique: *u,
+                    ..Default::default()
+                })
                 .collect(),
             ..Default::default()
         }
@@ -147,18 +247,44 @@ pub(crate) mod tests {
 
     #[test]
     fn tables_by_name_and_schema() {
-        let ts = vec![table(Some("public"), "t", &[], &[], &[]), table(Some("other"), "t", &[], &[], &[]), table(Some("public"), "u", &[], &[], &[])];
+        let ts = vec![
+            table(Some("public"), "t", &[], &[], &[]),
+            table(Some("other"), "t", &[], &[], &[]),
+            table(Some("public"), "u", &[], &[], &[]),
+        ];
         let c = Catalog::new(&ts, "postgres");
-        assert_eq!(c.table(&["other".into(), "t".into()]).unwrap().schema.as_deref(), Some("other"));
-        assert_eq!(c.table(&["T".into()]).unwrap().schema.as_deref(), Some("public"));
+        assert_eq!(
+            c.table(&["other".into(), "t".into()])
+                .unwrap()
+                .schema
+                .as_deref(),
+            Some("other")
+        );
+        assert_eq!(
+            c.table(&["T".into()]).unwrap().schema.as_deref(),
+            Some("public")
+        );
         assert!(Catalog::new(&ts, "oracle").table(&["t".into()]).is_none());
         assert!(c.table(&["x".into()]).is_none());
     }
 
     #[test]
     fn keys_need_not_null_unique_columns() {
-        let t = table(None, "t", &[("id", "int", false), ("a", "int", true), ("b", "int", false)], &["id"], &[(&["a"], true), (&["b"], true), (&["b"], false)]);
-        assert_eq!(Catalog::keys(&t), vec![vec!["id".to_string()], vec!["b".to_string()]]);
+        let t = table(
+            None,
+            "t",
+            &[
+                ("id", "int", false),
+                ("a", "int", true),
+                ("b", "int", false),
+            ],
+            &["id"],
+            &[(&["a"], true), (&["b"], true), (&["b"], false)],
+        );
+        assert_eq!(
+            Catalog::keys(&t),
+            vec![vec!["id".to_string()], vec!["b".to_string()]]
+        );
         assert!(Catalog::leads_an_index(&t, "B"));
         assert!(!Catalog::leads_an_index(&t, "x"));
     }
@@ -168,7 +294,10 @@ pub(crate) mod tests {
         assert_eq!(type_class("nvarchar(50)"), TypeClass::Text);
         assert_eq!(type_class("character varying(20)"), TypeClass::Text);
         assert_eq!(type_class("DECIMAL(10,2)"), TypeClass::Number);
-        assert_eq!(type_class("timestamp without time zone"), TypeClass::DateTime);
+        assert_eq!(
+            type_class("timestamp without time zone"),
+            TypeClass::DateTime
+        );
         assert_eq!(type_class("time"), TypeClass::Other);
         assert_eq!(index_column("\"fecha\" DESC"), "fecha");
     }

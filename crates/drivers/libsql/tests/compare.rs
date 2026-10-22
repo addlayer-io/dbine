@@ -19,17 +19,33 @@ type Objects = BTreeMap<(String, String), String>;
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n---\n{sql}"));
 }
 
 async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objects) {
     let mine = |n: &str| n.starts_with("cmpx_");
-    let tables = s.database_schema().await.unwrap().into_iter().filter(|t| mine(&t.name)).map(|t| (t.name.clone(), t)).collect();
+    let tables = s
+        .database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|t| mine(&t.name))
+        .map(|t| (t.name.clone(), t))
+        .collect();
     let mut objects = Objects::new();
     for o in s.list_objects().await.unwrap() {
         if CODE_KINDS.contains(&o.kind.as_str()) && mine(&o.name) {
-            let r = ObjectRef { kind: o.kind.clone(), schema: None, name: o.name.clone() };
-            objects.insert((o.kind, o.name), s.definition(&r).await.unwrap().expect("definition"));
+            let r = ObjectRef {
+                kind: o.kind.clone(),
+                schema: None,
+                name: o.name.clone(),
+            };
+            objects.insert(
+                (o.kind, o.name),
+                s.definition(&r).await.unwrap().expect("definition"),
+            );
         }
     }
     (tables, objects)
@@ -37,7 +53,11 @@ async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objec
 
 /// What src-tauri's `drop_other` should write for these kinds.
 fn drop_other(kind: &str, name: &str) -> String {
-    let what = if kind == VIRTUAL_TABLE { "TABLE" } else { &kind.to_uppercase() };
+    let what = if kind == VIRTUAL_TABLE {
+        "TABLE"
+    } else {
+        &kind.to_uppercase()
+    };
     format!("DROP {what} IF EXISTS \"{name}\";")
 }
 
@@ -81,7 +101,11 @@ async fn compare_and_sync_everything() {
         eprintln!("DBINE_TEST_LIBSQL_URL not set; skipping");
         return;
     };
-    let mut cfg = ConnectionConfig { driver: "libsql".into(), host: url, ..Default::default() };
+    let mut cfg = ConnectionConfig {
+        driver: "libsql".into(),
+        host: url,
+        ..Default::default()
+    };
     if let Ok(t) = std::env::var("DBINE_TEST_LIBSQL_TOKEN") {
         cfg.options.insert("auth_token".into(), t);
     }
@@ -93,21 +117,40 @@ async fn compare_and_sync_everything() {
 
     let path = std::env::temp_dir().join(format!("dbine-libsql-cmp-{}.db", std::process::id()));
     let _ = std::fs::remove_file(&path);
-    let local = ConnectionConfig { driver: "sqlite".into(), host: path.to_string_lossy().into(), ..Default::default() };
-    let mut model = dbine_driver_sqlite::drivers().remove(0).connect(&local, None).await.unwrap();
+    let local = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: path.to_string_lossy().into(),
+        ..Default::default()
+    };
+    let mut model = dbine_driver_sqlite::drivers()
+        .remove(0)
+        .connect(&local, None)
+        .await
+        .unwrap();
     run(&mut model, MODEL).await;
 
     let (ta, oa) = read(&mut model).await;
     let (tb, ob) = read(&mut srv).await;
-    assert_eq!(tb.keys().collect::<Vec<_>>(), ["cmpx_docs"], "no virtual nor shadow tables");
-    assert_eq!(ob.keys().filter(|(k, _)| k == VIRTUAL_TABLE).count(), 2, "{ob:?}");
+    assert_eq!(
+        tb.keys().collect::<Vec<_>>(),
+        ["cmpx_docs"],
+        "no virtual nor shadow tables"
+    );
+    assert_eq!(
+        ob.keys().filter(|(k, _)| k == VIRTUAL_TABLE).count(),
+        2,
+        "{ob:?}"
+    );
     assert_eq!(tb["cmpx_docs"].checks.len(), 1);
 
     let tables: Vec<TableChange> = ta
         .iter()
         .filter_map(|(n, t)| match tb.get(n) {
             None => Some(TableChange::Create { table: t.clone() }),
-            Some(o) if o != t => Some(TableChange::Alter { old: o.clone(), new: t.clone() }),
+            Some(o) if o != t => Some(TableChange::Alter {
+                old: o.clone(),
+                new: t.clone(),
+            }),
             Some(_) => None,
         })
         .collect();
@@ -137,7 +180,9 @@ async fn compare_and_sync_everything() {
     assert_eq!(tb2, ta);
     assert_eq!(ob2, oa);
     let mut out = QueryOutcome::default();
-    srv.execute("SELECT titulo FROM cmpx_docs", 10, &mut out).await.unwrap();
+    srv.execute("SELECT titulo FROM cmpx_docs", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[0].rows, [[serde_json::json!("uno")]]);
 
     run(&mut srv, CLEAN).await;

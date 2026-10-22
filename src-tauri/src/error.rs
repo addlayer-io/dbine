@@ -59,7 +59,11 @@ pub enum CommandError {
     /// The SSH server of a tunnel isn't known: the UI shows the fingerprint
     /// and, if the user trusts it, saves it (`trust_ssh_host`) and retries.
     #[error("el servidor SSH {host}:{port} no es conocido. Verificá que su huella sea {fingerprint} y aceptala para conectarte.")]
-    SshUnknownHost { host: String, port: u16, fingerprint: String },
+    SshUnknownHost {
+        host: String,
+        port: u16,
+        fingerprint: String,
+    },
 
     /// A secret field's command or secret manager failed (not found, not
     /// signed in, permission denied, timeout…): the message says which and why.
@@ -134,8 +138,16 @@ pub struct ConnectDetail<'a> {
 impl CommandError {
     pub fn detail(&self) -> Option<ConnectDetail<'_>> {
         match self {
-            Self::ConnectFailed(f) => Some(ConnectDetail { kind: f.kind, code: f.code.as_deref(), client_ip: f.client_ip.as_deref() }),
-            Self::AuthFailed(_) => Some(ConnectDetail { kind: dbine_driver::ConnectFailureKind::Auth, code: None, client_ip: None }),
+            Self::ConnectFailed(f) => Some(ConnectDetail {
+                kind: f.kind,
+                code: f.code.as_deref(),
+                client_ip: f.client_ip.as_deref(),
+            }),
+            Self::AuthFailed(_) => Some(ConnectDetail {
+                kind: dbine_driver::ConnectFailureKind::Auth,
+                code: None,
+                client_ip: None,
+            }),
             _ => None,
         }
     }
@@ -186,16 +198,31 @@ mod tests {
 
     #[test]
     fn connect_failures_carry_their_detail() {
-        let mut f = ConnectFailure::from_message("Client with IP address '203.0.113.7' is not allowed to access the server.");
+        let mut f = ConnectFailure::from_message(
+            "Client with IP address '203.0.113.7' is not allowed to access the server.",
+        );
         f.code = Some("40615".into());
-        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::connect_failed(f))).unwrap();
+        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::connect_failed(f)))
+            .unwrap();
         assert_eq!(v["kind"], "connect");
-        assert_eq!(v["detail"], serde_json::json!({ "kind": "firewall", "code": "40615", "client_ip": "203.0.113.7" }));
+        assert_eq!(
+            v["detail"],
+            serde_json::json!({ "kind": "firewall", "code": "40615", "client_ip": "203.0.113.7" })
+        );
         // A driver's plain text, recognized.
-        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::Connect("Connection refused (os error 61)".into()))).unwrap();
-        assert_eq!((v["kind"].as_str(), v["detail"]["kind"].as_str()), (Some("connect"), Some("refused")));
+        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::Connect(
+            "Connection refused (os error 61)".into(),
+        )))
+        .unwrap();
+        assert_eq!(
+            (v["kind"].as_str(), v["detail"]["kind"].as_str()),
+            (Some("connect"), Some("refused"))
+        );
         // Not recognized: no detail, as before.
-        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::Connect("algo".into()))).unwrap();
+        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::Connect(
+            "algo".into(),
+        )))
+        .unwrap();
         assert!(v.get("detail").is_none());
         let v = serde_json::to_value(CommandError::AuthFailed("no".into())).unwrap();
         assert_eq!(v["detail"]["kind"], "auth");

@@ -79,7 +79,10 @@ pub fn connection_in_use(connection_id: &str) -> Option<bool> {
     use tauri::Manager;
     let app = APP.get()?;
     let state = app.try_state::<AppState>()?;
-    let open = state.sessions.iter().any(|e| e.connection_id == connection_id);
+    let open = state
+        .sessions
+        .iter()
+        .any(|e| e.connection_id == connection_id);
     Some(open)
 }
 
@@ -88,9 +91,9 @@ pub fn meta_key(connection_id: &str, database: &str) -> String {
 }
 
 pub fn driver_info(id: &str) -> CommandResult<&'static DriverInfo> {
-    dbine_drivers::find(id)
-        .map(|d| d.info())
-        .ok_or_else(|| CommandError::BadRequest(format!("esta versión no incluye el driver '{id}'")))
+    dbine_drivers::find(id).map(|d| d.info()).ok_or_else(|| {
+        CommandError::BadRequest(format!("esta versión no incluye el driver '{id}'"))
+    })
 }
 
 /// A saved connection's config with its stored secrets, and what's left
@@ -107,7 +110,14 @@ struct StoredConfig {
 /// a source: they're kept in the keychain even if the password isn't.
 fn other_secret_fields(cfg: &ConnectionConfig, sources: &SecretSources) -> bool {
     driver_info(&cfg.driver)
-        .map(|i| i.fields.iter().any(|f| f.secret && f.key != "password" && !sources.contains_key(f.key) && field_applies(&i.fields, cfg, f.key)))
+        .map(|i| {
+            i.fields.iter().any(|f| {
+                f.secret
+                    && f.key != "password"
+                    && !sources.contains_key(f.key)
+                    && field_applies(&i.fields, cfg, f.key)
+            })
+        })
         .unwrap_or(false)
 }
 
@@ -128,7 +138,11 @@ pub fn apply_secrets(cfg: &mut ConnectionConfig, secrets: &Secrets) {
 pub fn extract_secrets(cfg: &mut ConnectionConfig, info: &DriverInfo) -> Secrets {
     let mut out = Secrets::new();
     for f in info.fields.iter().filter(|f| f.secret) {
-        let v = if f.key == "password" { cfg.password.take() } else { cfg.options.remove(f.key) };
+        let v = if f.key == "password" {
+            cfg.password.take()
+        } else {
+            cfg.options.remove(f.key)
+        };
         if let Some(v) = v.filter(|v| !v.is_empty()) {
             out.insert(f.key.to_string(), v);
         }
@@ -160,8 +174,17 @@ impl AppState {
 
     /// Keep the server's answer for the explorer's next opening. A failure
     /// only costs the next opening its head start.
-    pub fn cache_put<T: serde::Serialize>(&self, connection_id: &str, database: &str, kind: &str, item: &str, value: &T) {
-        let Some(cache) = self.cache.get() else { return };
+    pub fn cache_put<T: serde::Serialize>(
+        &self,
+        connection_id: &str,
+        database: &str,
+        kind: &str,
+        item: &str,
+        value: &T,
+    ) {
+        let Some(cache) = self.cache.get() else {
+            return;
+        };
         match serde_json::to_string(value) {
             Ok(json) => {
                 if let Err(e) = cache.put(connection_id, database, kind, item, &json) {
@@ -190,19 +213,23 @@ impl AppState {
     /// fields' sources, resolved now (crate::secret_sources).
     pub async fn connect_config(&self, connection_id: &str) -> CommandResult<ConnectionConfig> {
         let mut s = self.stored_config(connection_id)?;
-        let origin = crate::secret_sources::Origin::Saved { id: connection_id, name: &s.name };
-        crate::secret_sources::fill(&self.store, &mut s.config, &s.sources, &s.tokens, origin).await?;
+        let origin = crate::secret_sources::Origin::Saved {
+            id: connection_id,
+            name: &s.name,
+        };
+        crate::secret_sources::fill(&self.store, &mut s.config, &s.sources, &s.tokens, origin)
+            .await?;
         Ok(s.config)
     }
 
     fn stored_config(&self, connection_id: &str) -> CommandResult<StoredConfig> {
-        let saved = self
-            .store
-            .get_connection(connection_id)?
-            .ok_or_else(|| CommandError::NotFound(format!("no existe la conexión '{connection_id}'")))?;
+        let saved = self.store.get_connection(connection_id)?.ok_or_else(|| {
+            CommandError::NotFound(format!("no existe la conexión '{connection_id}'"))
+        })?;
         let mut cfg = saved.config;
         // The definitions never reach the driver.
-        let sources = dbine_core::secret_sources::take(&mut cfg).map_err(|e| CommandError::BadRequest(e.to_string()))?;
+        let sources = dbine_core::secret_sources::take(&mut cfg)
+            .map_err(|e| CommandError::BadRequest(e.to_string()))?;
         let typed = self.typed_secrets.get(connection_id).map(|s| s.clone());
         // The keychain holds the saved password and also what's kept
         // whether or not it is: the tunnel's secrets, Vault tokens, the
@@ -212,13 +239,17 @@ impl AppState {
         let wants_keychain = if saved.save_password {
             !typed_password
         } else {
-            crate::tunnels::enabled(&cfg) || !sources.is_empty() || other_secret_fields(&cfg, &sources)
+            crate::tunnels::enabled(&cfg)
+                || !sources.is_empty()
+                || other_secret_fields(&cfg, &sources)
         };
         let mut stored = Secrets::new();
         if wants_keychain {
             match self.keychain_secrets(connection_id, &cfg, &sources) {
                 Ok(s) => stored = s,
-                Err(e) if typed_password || !saved.save_password => tracing::warn!(%e, "keychain read refused"),
+                Err(e) if typed_password || !saved.save_password => {
+                    tracing::warn!(%e, "keychain read refused")
+                }
                 Err(e) => return Err(e),
             }
         }
@@ -226,7 +257,9 @@ impl AppState {
             stored.remove("password");
         }
         let mut tokens = crate::secret_sources::tokens_of(&stored);
-        stored.retain(|k, _| !k.starts_with(dbine_core::secret_sources::TOKEN_PREFIX) && !sources.contains_key(k));
+        stored.retain(|k, _| {
+            !k.starts_with(dbine_core::secret_sources::TOKEN_PREFIX) && !sources.contains_key(k)
+        });
         apply_secrets(&mut cfg, &stored);
         // What was typed this run: the password, and master passwords asked
         // for a field's source (tokens, never in the driver's config).
@@ -238,20 +271,31 @@ impl AppState {
         if !typed_password && !saved.save_password && needs_password(&cfg, &sources)? {
             return Err(CommandError::PasswordRequired(None));
         }
-        Ok(StoredConfig { name: saved.name, config: cfg, sources, tokens })
+        Ok(StoredConfig {
+            name: saved.name,
+            config: cfg,
+            sources,
+            tokens,
+        })
     }
 
     /// The connection's secrets from the keychain (cached for the run). When
     /// the keychain refuses (macOS asks the user, and a development build
     /// asks again after every rebuild because its signature changes), the
     /// UI is asked for the password instead of failing.
-    fn keychain_secrets(&self, connection_id: &str, cfg: &ConnectionConfig, sources: &SecretSources) -> CommandResult<Secrets> {
+    fn keychain_secrets(
+        &self,
+        connection_id: &str,
+        cfg: &ConnectionConfig,
+        sources: &SecretSources,
+    ) -> CommandResult<Secrets> {
         if let Some(s) = self.keychain_cache.get(connection_id) {
             return Ok(s.clone());
         }
         match secrets::get(connection_id) {
             Ok(s) => {
-                self.keychain_cache.insert(connection_id.to_string(), s.clone());
+                self.keychain_cache
+                    .insert(connection_id.to_string(), s.clone());
                 Ok(s)
             }
             Err(e) if needs_password(cfg, sources)? => {
@@ -274,7 +318,12 @@ impl AppState {
     /// attempt in progress and share its session or its error, instead of
     /// stacking connects of up to 30 s each. A caller that arrives after an
     /// attempt failed starts a new one.
-    pub async fn session(&self, key: &str, connection_id: &str, database: &str) -> CommandResult<Arc<SessionEntry>> {
+    pub async fn session(
+        &self,
+        key: &str,
+        connection_id: &str,
+        database: &str,
+    ) -> CommandResult<Arc<SessionEntry>> {
         if let Some(e) = self.open_session_at(key, connection_id, database) {
             return Ok(e);
         }
@@ -296,7 +345,9 @@ impl AppState {
                 *last = None;
                 drop(last);
                 // Nobody else holds the gate: drop it (tab keys are many).
-                self.opening.remove_if(key, |_, g| Arc::ptr_eq(g, &gate) && Arc::strong_count(g) <= 2);
+                self.opening.remove_if(key, |_, g| {
+                    Arc::ptr_eq(g, &gate) && Arc::strong_count(g) <= 2
+                });
                 Ok(entry)
             }
             Err(e) => {
@@ -307,14 +358,30 @@ impl AppState {
     }
 
     /// The session under `key` if it's open on that connection and database.
-    fn open_session_at(&self, key: &str, connection_id: &str, database: &str) -> Option<Arc<SessionEntry>> {
+    fn open_session_at(
+        &self,
+        key: &str,
+        connection_id: &str,
+        database: &str,
+    ) -> Option<Arc<SessionEntry>> {
         let e = self.sessions.get(key)?;
         // Where the session is now: a `USE` may have moved it.
-        let now = e.switched_to.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        (e.connection_id == connection_id && now.as_deref().unwrap_or(e.database.as_str()) == database).then(|| e.clone())
+        let now = e
+            .switched_to
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        (e.connection_id == connection_id
+            && now.as_deref().unwrap_or(e.database.as_str()) == database)
+            .then(|| e.clone())
     }
 
-    async fn open_session(&self, key: &str, connection_id: &str, database: &str) -> CommandResult<Arc<SessionEntry>> {
+    async fn open_session(
+        &self,
+        key: &str,
+        connection_id: &str,
+        database: &str,
+    ) -> CommandResult<Arc<SessionEntry>> {
         let mut cfg = self.connect_config(connection_id).await?;
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
@@ -345,22 +412,41 @@ impl AppState {
     /// never interrupts that read: it has its own ceiling, also `limit`, after
     /// which this call gives up alone ("busy"). A read that fails because the
     /// connection broke drops the session too.
-    pub async fn meta_read<T, F>(&self, connection_id: &str, database: &str, limit: std::time::Duration, f: F) -> CommandResult<T>
+    pub async fn meta_read<T, F>(
+        &self,
+        connection_id: &str,
+        database: &str,
+        limit: std::time::Duration,
+        f: F,
+    ) -> CommandResult<T>
     where
-        F: for<'a> FnOnce(&'a mut Box<dyn Session>) -> std::pin::Pin<Box<dyn std::future::Future<Output = dbine_driver::Result<T>> + Send + 'a>>,
+        F: for<'a> FnOnce(
+            &'a mut Box<dyn Session>,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = dbine_driver::Result<T>> + Send + 'a>,
+        >,
     {
         let key = meta_key(connection_id, database);
         let entry = self.session(&key, connection_id, database).await?;
-        let on = if database.is_empty() { String::new() } else { format!(" de «{database}»") };
+        let on = if database.is_empty() {
+            String::new()
+        } else {
+            format!(" de «{database}»")
+        };
         let Ok(mut s) = tokio::time::timeout(limit, entry.session.lock()).await else {
             return Err(CommandError::Busy(format!(
                 "la conexión sigue ocupada leyendo la estructura{on} (por ejemplo, una comparación de esquemas en curso); volvé a intentar en un momento."
             )));
         };
         match tokio::time::timeout(limit, f(&mut s)).await {
-            Ok(Err(e @ (dbine_driver::Error::Connect(_) | dbine_driver::Error::ConnectFailed(_) | dbine_driver::Error::Io(_)))) => {
+            Ok(Err(
+                e @ (dbine_driver::Error::Connect(_)
+                | dbine_driver::Error::ConnectFailed(_)
+                | dbine_driver::Error::Io(_)),
+            )) => {
                 drop(s);
-                self.sessions.remove_if(&key, |_, held| Arc::ptr_eq(held, &entry));
+                self.sessions
+                    .remove_if(&key, |_, held| Arc::ptr_eq(held, &entry));
                 Err(e.into())
             }
             Ok(r) => Ok(r?),
@@ -444,7 +530,8 @@ fn needs_password(cfg: &ConnectionConfig, sources: &SecretSources) -> CommandRes
         return Ok(false);
     }
     let info = driver_info(&cfg.driver)?;
-    Ok(password_applies(&info.fields, cfg) && cfg.username.as_deref().is_some_and(|u| !u.is_empty()))
+    Ok(password_applies(&info.fields, cfg)
+        && cfg.username.as_deref().is_some_and(|u| !u.is_empty()))
 }
 
 /// The password field is there and its `when` holds (the controlling
@@ -459,7 +546,9 @@ fn password_applies(fields: &[dbine_driver::Field], cfg: &ConnectionConfig) -> b
 pub fn field_applies(fields: &[dbine_driver::Field], cfg: &ConnectionConfig, key: &str) -> bool {
     let mut key = key;
     for _ in 0..8 {
-        let Some(f) = fields.iter().find(|f| f.key == key) else { return false };
+        let Some(f) = fields.iter().find(|f| f.key == key) else {
+            return false;
+        };
         let Some(when) = &f.when else { return true };
         let value = cfg
             .option(when.key)
@@ -481,11 +570,19 @@ mod tests {
     #[test]
     fn the_password_is_asked_only_where_it_applies() {
         let fields = vec![
-            Field::new("auth", "Autenticación", FieldKind::Select(vec![("password", "p"), ("aws_iam", "a")])).default_value("password"),
+            Field::new(
+                "auth",
+                "Autenticación",
+                FieldKind::Select(vec![("password", "p"), ("aws_iam", "a")]),
+            )
+            .default_value("password"),
             Field::password().when("auth", &["password"]),
         ];
         let mut cfg = ConnectionConfig::default();
-        assert!(password_applies(&fields, &cfg), "the default sign-in takes a password");
+        assert!(
+            password_applies(&fields, &cfg),
+            "the default sign-in takes a password"
+        );
         cfg.options.insert("auth".into(), "aws_iam".into());
         assert!(!password_applies(&fields, &cfg));
         cfg.options.insert("auth".into(), "password".into());

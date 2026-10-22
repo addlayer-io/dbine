@@ -3,8 +3,8 @@
 //! is `sid,serial#`, as KILL SESSION takes it. Needs SELECT on the V$ views
 //! (SELECT_CATALOG_ROLE) and, to kill, the ALTER SYSTEM privilege.
 
-use crate::monitor::{num, rows, txt};
 use crate::err;
+use crate::monitor::{num, rows, txt};
 use dbine_driver::{BlockedSession, Error, Result};
 use oracledb::Connection;
 
@@ -62,7 +62,12 @@ pub fn blocking(c: &Connection) -> Result<Vec<BlockedSession>> {
         )),
         _ => err(e),
     })?;
-    let text = |r: &[serde_json::Value], i: usize| r.get(i).and_then(txt).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let text = |r: &[serde_json::Value], i: usize| {
+        r.get(i)
+            .and_then(txt)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
     let mut chain: Vec<BlockedSession> = found
         .iter()
         .map(|r| BlockedSession {
@@ -77,8 +82,13 @@ pub fn blocking(c: &Connection) -> Result<Vec<BlockedSession>> {
             sql: text(r, 8),
         })
         .collect();
-    for b in chain.iter_mut().filter(|b| b.blocked_by.is_none() && b.wait.as_deref() == Some(IDLE)) {
-        let Ok((sid, _)) = session_id(&b.id) else { continue };
+    for b in chain
+        .iter_mut()
+        .filter(|b| b.blocked_by.is_none() && b.wait.as_deref() == Some(IDLE))
+    {
+        let Ok((sid, _)) = session_id(&b.id) else {
+            continue;
+        };
         match rows(c, &last_statement_sql(sid)) {
             Ok(r) => {
                 if let Some(q) = r.first().and_then(|r| text(r, 0)) {
@@ -93,7 +103,11 @@ pub fn blocking(c: &Connection) -> Result<Vec<BlockedSession>> {
 
 /// `sid,serial#`: two unsigned integers, nothing else.
 pub(crate) fn session_id(id: &str) -> Result<(u32, u32)> {
-    let bad = || Error::Query(format!("«{id}» no es un id de sesión de Oracle (se espera «sid,serial#»)"));
+    let bad = || {
+        Error::Query(format!(
+            "«{id}» no es un id de sesión de Oracle (se espera «sid,serial#»)"
+        ))
+    };
     let (sid, serial) = id.trim().split_once(',').ok_or_else(bad)?;
     let n = |s: &str| {
         let s = s.trim();
@@ -107,7 +121,10 @@ pub(crate) fn session_id(id: &str) -> Result<(u32, u32)> {
 
 pub fn kill(c: &Connection, id: &str) -> Result<()> {
     let (sid, serial) = session_id(id)?;
-    match c.execute(&format!("ALTER SYSTEM KILL SESSION '{sid},{serial}' IMMEDIATE"), &[]) {
+    match c.execute(
+        &format!("ALTER SYSTEM KILL SESSION '{sid},{serial}' IMMEDIATE"),
+        &[],
+    ) {
         Ok(_) => Ok(()),
         // ORA-00031: busy in a wait it can't leave right now; marked, it
         // ends (and rolls back) as soon as it does.
@@ -123,7 +140,16 @@ mod tests {
     #[test]
     fn ids_are_sid_and_serial() {
         assert_eq!(session_id(" 12, 345 ").unwrap(), (12, 345));
-        for bad in ["12", "12,", ",3", "12,3,@1", "1; DROP TABLE x", "12,3' IMMEDIATE --", "-1,2", "+1,2"] {
+        for bad in [
+            "12",
+            "12,",
+            ",3",
+            "12,3,@1",
+            "1; DROP TABLE x",
+            "12,3' IMMEDIATE --",
+            "-1,2",
+            "+1,2",
+        ] {
             assert!(session_id(bad).is_err(), "{bad}");
         }
     }

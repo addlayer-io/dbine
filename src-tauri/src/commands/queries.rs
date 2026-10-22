@@ -11,8 +11,13 @@ pub struct ListArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn list_queries(state: State<'_, AppState>, args: ListArgs) -> CommandResult<Vec<SavedQuery>> {
-    Ok(state.store.list_queries(&args.connection_id, &args.database)?)
+pub async fn list_queries(
+    state: State<'_, AppState>,
+    args: ListArgs,
+) -> CommandResult<Vec<SavedQuery>> {
+    Ok(state
+        .store
+        .list_queries(&args.connection_id, &args.database)?)
 }
 
 #[derive(Deserialize)]
@@ -22,7 +27,10 @@ pub struct IdArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_query(state: State<'_, AppState>, args: IdArgs) -> CommandResult<SavedQuery> {
-    state.store.get_query(&args.id)?.ok_or_else(|| CommandError::NotFound("la query ya no existe".into()))
+    state
+        .store
+        .get_query(&args.id)?
+        .ok_or_else(|| CommandError::NotFound("la query ya no existe".into()))
 }
 
 #[derive(Deserialize)]
@@ -41,12 +49,17 @@ pub async fn save_query(state: State<'_, AppState>, args: SaveArgs) -> CommandRe
         q.id = uuid::Uuid::new_v4().to_string();
     }
     if q.name.trim().is_empty() {
-        return Err(CommandError::BadRequest("la query necesita un nombre".into()));
+        return Err(CommandError::BadRequest(
+            "la query necesita un nombre".into(),
+        ));
     }
     let before = state.store.get_query(&q.id)?;
     let saved = state.store.save_query(&q)?;
     // The timeline never fails a save.
-    if let Err(e) = state.store.version_query_save(&q.id, before.as_ref(), &q.sql, args.checkpoint) {
+    if let Err(e) = state
+        .store
+        .version_query_save(&q.id, before.as_ref(), &q.sql, args.checkpoint)
+    {
         tracing::warn!(%e, "could not record the query's version");
     }
     Ok(saved)
@@ -61,7 +74,10 @@ pub struct VersionsArgs {
 
 /// The saved query's versions, newest first (without their text).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn query_versions(state: State<'_, AppState>, args: VersionsArgs) -> CommandResult<Vec<QueryVersion>> {
+pub async fn query_versions(
+    state: State<'_, AppState>,
+    args: VersionsArgs,
+) -> CommandResult<Vec<QueryVersion>> {
     Ok(state.store.list_query_versions(&args.query_id)?)
 }
 
@@ -72,16 +88,30 @@ pub struct VersionArgs {
 
 /// One version, with its text.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn query_version(state: State<'_, AppState>, args: VersionArgs) -> CommandResult<QueryVersion> {
-    state.store.get_query_version(args.id)?.ok_or_else(|| CommandError::NotFound("esa versión ya no existe".into()))
+pub async fn query_version(
+    state: State<'_, AppState>,
+    args: VersionArgs,
+) -> CommandResult<QueryVersion> {
+    state
+        .store
+        .get_query_version(args.id)?
+        .ok_or_else(|| CommandError::NotFound("esa versión ya no existe".into()))
 }
 
 /// Keep the saved query's current text as a version (closing its tab,
 /// running it, before restoring an older one). `None` when it already is.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn query_version_checkpoint(state: State<'_, AppState>, args: VersionsArgs) -> CommandResult<Option<QueryVersion>> {
-    let q = state.store.get_query(&args.query_id)?.ok_or_else(|| CommandError::NotFound("la query ya no existe".into()))?;
-    Ok(state.store.add_query_version(&q.id, &q.sql, &chrono::Utc::now().to_rfc3339(), None)?)
+pub async fn query_version_checkpoint(
+    state: State<'_, AppState>,
+    args: VersionsArgs,
+) -> CommandResult<Option<QueryVersion>> {
+    let q = state
+        .store
+        .get_query(&args.query_id)?
+        .ok_or_else(|| CommandError::NotFound("la query ya no existe".into()))?;
+    Ok(state
+        .store
+        .add_query_version(&q.id, &q.sql, &chrono::Utc::now().to_rfc3339(), None)?)
 }
 
 #[tauri::command(rename_all = "camelCase")]

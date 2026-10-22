@@ -7,15 +7,22 @@
 //! nullability nor comments.
 
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, KeyDef, Result, RowChange,
-    TableSchema,
+use dbine_driver::{
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, KeyDef,
+    Result, RowChange, TableSchema,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// `WITH (…)` properties, in the order they are written. `object` (STREAM /
 /// TABLE) is the designer's choice, not a property.
-const PROPERTIES: [&str; 5] = ["KAFKA_TOPIC", "KEY_FORMAT", "VALUE_FORMAT", "PARTITIONS", "TIMESTAMP"];
+const PROPERTIES: [&str; 5] = [
+    "KAFKA_TOPIC",
+    "KEY_FORMAT",
+    "VALUE_FORMAT",
+    "PARTITIONS",
+    "TIMESTAMP",
+];
 
 pub(crate) fn q(s: &str) -> String {
     quote_ident(Quote::Backtick, s)
@@ -25,8 +32,14 @@ fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
-const FORMATS: [(&str, &str); 6] =
-    [("JSON", "JSON"), ("AVRO", "AVRO"), ("PROTOBUF", "PROTOBUF"), ("JSON_SR", "JSON_SR"), ("DELIMITED", "DELIMITED"), ("KAFKA", "KAFKA")];
+const FORMATS: [(&str, &str); 6] = [
+    ("JSON", "JSON"),
+    ("AVRO", "AVRO"),
+    ("PROTOBUF", "PROTOBUF"),
+    ("JSON_SR", "JSON_SR"),
+    ("DELIMITED", "DELIMITED"),
+    ("KAFKA", "KAFKA"),
+];
 
 pub fn designer() -> DesignerSpec {
     DesignerSpec {
@@ -39,18 +52,32 @@ pub fn designer() -> DesignerSpec {
         indexes: false,
         foreign_keys: false,
         table_options: vec![
-            Field::new("object", "Objeto", FieldKind::Select(vec![("STREAM", "Stream"), ("TABLE", "Tabla")]))
-                .default_value("STREAM")
-                .help("Un stream usa columnas KEY; una tabla exige PRIMARY KEY."),
+            Field::new(
+                "object",
+                "Objeto",
+                FieldKind::Select(vec![("STREAM", "Stream"), ("TABLE", "Tabla")]),
+            )
+            .default_value("STREAM")
+            .help("Un stream usa columnas KEY; una tabla exige PRIMARY KEY."),
             Field::new("KAFKA_TOPIC", "Topic de Kafka", FieldKind::Text)
                 .help("Si no existe se crea con PARTITIONS. Vacío = el nombre del objeto."),
-            Field::new("VALUE_FORMAT", "Formato del valor", FieldKind::Select(FORMATS.to_vec())).default_value("JSON"),
-            Field::new("KEY_FORMAT", "Formato de la clave", FieldKind::Select(FORMATS.iter().copied().chain([("NONE", "NONE")]).collect()))
-                .default_value("KAFKA"),
+            Field::new(
+                "VALUE_FORMAT",
+                "Formato del valor",
+                FieldKind::Select(FORMATS.to_vec()),
+            )
+            .default_value("JSON"),
+            Field::new(
+                "KEY_FORMAT",
+                "Formato de la clave",
+                FieldKind::Select(FORMATS.iter().copied().chain([("NONE", "NONE")]).collect()),
+            )
+            .default_value("KAFKA"),
             Field::new("PARTITIONS", "Particiones", FieldKind::Number)
                 .default_value("1")
                 .help("Solo para crear el topic; si ya existe debe coincidir o quedar vacío."),
-            Field::new("TIMESTAMP", "Columna de timestamp", FieldKind::Text).help("Opcional: columna que da el tiempo del evento."),
+            Field::new("TIMESTAMP", "Columna de timestamp", FieldKind::Text)
+                .help("Opcional: columna que da el tiempo del evento."),
         ],
         ..DesignerSpec::sql_table(vec![
             "INT",
@@ -103,7 +130,12 @@ pub fn templates() -> Vec<CreateTemplate> {
 
 /// Whether the source is a TABLE (else a STREAM).
 pub(crate) fn is_table(t: &TableSchema) -> bool {
-    match t.options.get("object").map(|o| o.trim()).filter(|o| !o.is_empty()) {
+    match t
+        .options
+        .get("object")
+        .map(|o| o.trim())
+        .filter(|o| !o.is_empty())
+    {
         Some(o) => o.eq_ignore_ascii_case("TABLE"),
         None => t.kind == kinds::TABLE,
     }
@@ -114,22 +146,56 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     let name = q(&t.name);
     let mut out = Vec::new();
     if parts.drop {
-        out.push(format!("DROP {object} {}{name};", if parts.if_exists { "IF EXISTS " } else { "" }));
+        out.push(format!(
+            "DROP {object} {}{name};",
+            if parts.if_exists { "IF EXISTS " } else { "" }
+        ));
     }
     if parts.create {
-        let keys: Vec<&str> = t.primary_key.iter().flat_map(|k| k.columns.iter().map(String::as_str)).collect();
+        let keys: Vec<&str> = t
+            .primary_key
+            .iter()
+            .flat_map(|k| k.columns.iter().map(String::as_str))
+            .collect();
         if object == "TABLE" && keys.is_empty() {
-            return Err(Error::Query(format!("una tabla de ksqlDB necesita una columna PRIMARY KEY: falta en {}", t.name)));
+            return Err(Error::Query(format!(
+                "una tabla de ksqlDB necesita una columna PRIMARY KEY: falta en {}",
+                t.name
+            )));
         }
-        let key_word = if object == "TABLE" { " PRIMARY KEY" } else { " KEY" };
+        let key_word = if object == "TABLE" {
+            " PRIMARY KEY"
+        } else {
+            " KEY"
+        };
         let cols: Vec<String> = t
             .columns
             .iter()
-            .map(|c| format!("    {} {}{}", q(&c.name), c.data_type, if keys.contains(&c.name.as_str()) { key_word } else { "" }))
+            .map(|c| {
+                format!(
+                    "    {} {}{}",
+                    q(&c.name),
+                    c.data_type,
+                    if keys.contains(&c.name.as_str()) {
+                        key_word
+                    } else {
+                        ""
+                    }
+                )
+            })
             .collect();
         let mut props: BTreeMap<&str, String> = PROPERTIES
             .iter()
-            .filter_map(|k| Some((*k, t.options.get(*k).map(|v| v.trim()).filter(|v| !v.is_empty())?.to_string())))
+            .filter_map(|k| {
+                Some((
+                    *k,
+                    t.options
+                        .get(*k)
+                        .map(|v| v.trim())
+                        .filter(|v| !v.is_empty())?
+                        .to_string(),
+                ))
+            })
             .collect();
         props.entry("KAFKA_TOPIC").or_insert_with(|| t.name.clone());
         props.entry("VALUE_FORMAT").or_insert_with(|| "JSON".into());
@@ -139,14 +205,20 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                 let v = props.get(k)?;
                 Some(match *k {
                     "PARTITIONS" => format!("{k}={v}"),
-                    "KEY_FORMAT" | "VALUE_FORMAT" => format!("{k}={}", lit(&v.to_ascii_uppercase())),
+                    "KEY_FORMAT" | "VALUE_FORMAT" => {
+                        format!("{k}={}", lit(&v.to_ascii_uppercase()))
+                    }
                     _ => format!("{k}={}", lit(v)),
                 })
             })
             .collect();
         out.push(format!(
             "CREATE {object} {}{name} (\n{}\n) WITH ({});",
-            if parts.if_exists && !parts.drop { "IF NOT EXISTS " } else { "" },
+            if parts.if_exists && !parts.drop {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             cols.join(",\n"),
             with.join(", ")
         ));
@@ -161,7 +233,10 @@ fn literal(v: &Value) -> String {
         Value::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => lit(s),
-        Value::Array(a) => format!("ARRAY[{}]", a.iter().map(literal).collect::<Vec<_>>().join(", ")),
+        Value::Array(a) => format!(
+            "ARRAY[{}]",
+            a.iter().map(literal).collect::<Vec<_>>().join(", ")
+        ),
         Value::Object(_) => lit(&v.to_string()),
     }
 }
@@ -186,23 +261,50 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     if filters.is_empty() {
         return Ok(browse.to_string());
     }
-    if browse.trim_start().to_ascii_uppercase().starts_with("PRINT") {
-        return Err(Error::Unsupported("PRINT de un topic no filtra por columnas: se filtra un stream".into()));
+    if browse
+        .trim_start()
+        .to_ascii_uppercase()
+        .starts_with("PRINT")
+    {
+        return Err(Error::Unsupported(
+            "PRINT de un topic no filtra por columnas: se filtra un stream".into(),
+        ));
     }
-    let style = SqlFilterStyle { quote: Quote::Backtick, literal: &literal, like: "LIKE", true_literal: "TRUE", false_literal: "FALSE" };
+    let style = SqlFilterStyle {
+        quote: Quote::Backtick,
+        literal: &literal,
+        like: "LIKE",
+        true_literal: "TRUE",
+        false_literal: "FALSE",
+    };
     let cond = sql_condition(filters, &style)?;
     let at = browse
         .to_ascii_uppercase()
         .find(" EMIT CHANGES")
-        .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))?;
-    Ok(format!("{}\nWHERE {cond}\n{}", &browse[..at], &browse[at + 1..]))
+        .ok_or_else(|| {
+            Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into())
+        })?;
+    Ok(format!(
+        "{}\nWHERE {cond}\n{}",
+        &browse[..at],
+        &browse[at + 1..]
+    ))
 }
 
 /// One `INSERT … VALUES` per row (ksqlDB takes a single row per statement).
 pub fn insert_script(name: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
-    let head = format!("INSERT INTO {} ({}) VALUES", q(name), columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(", "));
+    let head = format!(
+        "INSERT INTO {} ({}) VALUES",
+        q(name),
+        columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(", ")
+    );
     rows.iter()
-        .map(|r| format!("{head} ({});", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
+        .map(|r| {
+            format!(
+                "{head} ({});",
+                r.iter().map(literal).collect::<Vec<_>>().join(", ")
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -220,20 +322,36 @@ pub fn update_script(kind: &str, name: &str, changes: &[RowChange]) -> Result<St
     let mut out = Vec::new();
     for c in changes.iter().filter(|c| !c.set.is_empty()) {
         if c.key.is_empty() {
-            return Err(Error::Unsupported("ksqlDB reemplaza filas de una tabla por su PRIMARY KEY: falta la clave de la fila".into()));
+            return Err(Error::Unsupported(
+                "ksqlDB reemplaza filas de una tabla por su PRIMARY KEY: falta la clave de la fila"
+                    .into(),
+            ));
         }
         // The whole row when the grid sent it (an INSERT replaces the key's
         // whole value), else just the key and the edited columns.
         let full = c.new_row();
         let partial = full.is_empty();
         let pairs: Vec<(String, Value)> = if partial {
-            c.key.iter().chain(c.set.iter().filter(|(k, _)| !c.key.iter().any(|(kk, _)| kk == k))).cloned().collect()
+            c.key
+                .iter()
+                .chain(
+                    c.set
+                        .iter()
+                        .filter(|(k, _)| !c.key.iter().any(|(kk, _)| kk == k)),
+                )
+                .cloned()
+                .collect()
         } else {
             let mut v: Vec<(String, Value)> = c.key.clone();
             v.extend(
                 full.into_iter()
                     // Pseudo-columns ksqlDB doesn't take in an INSERT.
-                    .filter(|(k, _)| !matches!(k.to_ascii_uppercase().as_str(), "ROWPARTITION" | "ROWOFFSET"))
+                    .filter(|(k, _)| {
+                        !matches!(
+                            k.to_ascii_uppercase().as_str(),
+                            "ROWPARTITION" | "ROWOFFSET"
+                        )
+                    })
                     .filter(|(k, _)| !c.key.iter().any(|(kk, _)| kk == k)),
             );
             v
@@ -244,8 +362,16 @@ pub fn update_script(kind: &str, name: &str, changes: &[RowChange]) -> Result<St
         out.push(format!(
             "INSERT INTO {} ({}) VALUES ({});",
             q(name),
-            pairs.iter().map(|(k, _)| q(k)).collect::<Vec<_>>().join(", "),
-            pairs.iter().map(|(_, v)| literal(v)).collect::<Vec<_>>().join(", ")
+            pairs
+                .iter()
+                .map(|(k, _)| q(k))
+                .collect::<Vec<_>>()
+                .join(", "),
+            pairs
+                .iter()
+                .map(|(_, v)| literal(v))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     Ok(out.join("\n"))
@@ -263,12 +389,30 @@ fn text(v: Option<&Value>) -> String {
 /// names quoted (they keep their case).
 fn ddl_type(s: &Value) -> String {
     match s.get("type").and_then(Value::as_str).unwrap_or_default() {
-        "ARRAY" => format!("ARRAY<{}>", s.get("memberSchema").map(ddl_type).unwrap_or_default()),
-        "MAP" => format!("MAP<STRING, {}>", s.get("memberSchema").map(ddl_type).unwrap_or_default()),
+        "ARRAY" => format!(
+            "ARRAY<{}>",
+            s.get("memberSchema").map(ddl_type).unwrap_or_default()
+        ),
+        "MAP" => format!(
+            "MAP<STRING, {}>",
+            s.get("memberSchema").map(ddl_type).unwrap_or_default()
+        ),
         "STRUCT" => {
-            let fields = s.get("fields").and_then(Value::as_array).cloned().unwrap_or_default();
-            let inner: Vec<String> =
-                fields.iter().map(|f| format!("{} {}", q(&text(f.get("name"))), f.get("schema").map(ddl_type).unwrap_or_default())).collect();
+            let fields = s
+                .get("fields")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let inner: Vec<String> = fields
+                .iter()
+                .map(|f| {
+                    format!(
+                        "{} {}",
+                        q(&text(f.get("name"))),
+                        f.get("schema").map(ddl_type).unwrap_or_default()
+                    )
+                })
+                .collect();
             format!("STRUCT<{}>", inner.join(", "))
         }
         _ => crate::schema_type(s),
@@ -277,20 +421,40 @@ fn ddl_type(s: &Value) -> String {
 
 /// Sources from the `sourceDescriptions` of `SHOW STREAMS EXTENDED` /
 /// `SHOW TABLES EXTENDED`, sorted by name.
-pub fn from_descriptions<'a>(descriptions: impl IntoIterator<Item = &'a Value>) -> Vec<TableSchema> {
+pub fn from_descriptions<'a>(
+    descriptions: impl IntoIterator<Item = &'a Value>,
+) -> Vec<TableSchema> {
     let mut out: Vec<TableSchema> = descriptions
         .into_iter()
         .map(|d| {
             let table = text(d.get("type")) == "TABLE";
-            let fields = d.get("fields").and_then(Value::as_array).cloned().unwrap_or_default();
+            let fields = d
+                .get("fields")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             let keys: Vec<String> = fields
                 .iter()
-                .filter(|f| matches!(f.get("type").and_then(Value::as_str), Some("KEY" | "PRIMARY_KEY")))
+                .filter(|f| {
+                    matches!(
+                        f.get("type").and_then(Value::as_str),
+                        Some("KEY" | "PRIMARY_KEY")
+                    )
+                })
                 .map(|f| text(f.get("name")))
                 .collect();
             let mut options = BTreeMap::new();
-            options.insert("object".to_string(), if table { "TABLE" } else { "STREAM" }.to_string());
-            for (k, field) in [("KAFKA_TOPIC", "topic"), ("KEY_FORMAT", "keyFormat"), ("VALUE_FORMAT", "valueFormat"), ("PARTITIONS", "partitions"), ("TIMESTAMP", "timestamp")] {
+            options.insert(
+                "object".to_string(),
+                if table { "TABLE" } else { "STREAM" }.to_string(),
+            );
+            for (k, field) in [
+                ("KAFKA_TOPIC", "topic"),
+                ("KEY_FORMAT", "keyFormat"),
+                ("VALUE_FORMAT", "valueFormat"),
+                ("PARTITIONS", "partitions"),
+                ("TIMESTAMP", "timestamp"),
+            ] {
                 let v = text(d.get(field));
                 if !v.is_empty() && v != "0" {
                     options.insert(k.to_string(), v);
@@ -309,7 +473,10 @@ pub fn from_descriptions<'a>(descriptions: impl IntoIterator<Item = &'a Value>) 
                         ..Default::default()
                     })
                     .collect(),
-                primary_key: (!keys.is_empty()).then_some(KeyDef { name: None, columns: keys }),
+                primary_key: (!keys.is_empty()).then_some(KeyDef {
+                    name: None,
+                    columns: keys,
+                }),
                 options,
                 ..Default::default()
             }
@@ -326,11 +493,26 @@ mod tests {
     #[test]
     fn sorted_browse_is_left_to_the_grid() {
         use dbine_driver::SortKey;
-        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
-        assert_eq!(sorted_browse("SELECT * FROM `s` EMIT CHANGES LIMIT 50;", &[]).unwrap(), "SELECT * FROM `s` EMIT CHANGES LIMIT 50;");
+        let k = |c: &str, d: bool| SortKey {
+            column: c.into(),
+            descending: d,
+        };
+        assert_eq!(
+            sorted_browse("SELECT * FROM `s` EMIT CHANGES LIMIT 50;", &[]).unwrap(),
+            "SELECT * FROM `s` EMIT CHANGES LIMIT 50;"
+        );
         for sort in [vec![k("a", false)], vec![k("a", true), k("b\"`c", false)]] {
-            assert!(matches!(sorted_browse("SELECT * FROM `s` EMIT CHANGES LIMIT 50;", &sort), Err(Error::Unsupported(_))));
-            assert!(matches!(sorted_browse("SELECT * FROM `s`\nWHERE `a` = 1\nEMIT CHANGES LIMIT 50;", &sort), Err(Error::Unsupported(_))));
+            assert!(matches!(
+                sorted_browse("SELECT * FROM `s` EMIT CHANGES LIMIT 50;", &sort),
+                Err(Error::Unsupported(_))
+            ));
+            assert!(matches!(
+                sorted_browse(
+                    "SELECT * FROM `s`\nWHERE `a` = 1\nEMIT CHANGES LIMIT 50;",
+                    &sort
+                ),
+                Err(Error::Unsupported(_))
+            ));
         }
     }
 
@@ -338,7 +520,12 @@ mod tests {
     fn filtered_browse_before_emit_changes() {
         use dbine_driver::{ColumnFilter, FilterOp};
         use serde_json::json;
-        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        };
         assert_eq!(
             filtered_browse(
                 "SELECT * FROM `pageviews` EMIT CHANGES LIMIT 200;",
@@ -354,7 +541,10 @@ mod tests {
             "SELECT * FROM `pageviews`\nWHERE `USERID` = 'O''Brien'\n  AND `PAGE` LIKE 'home%'\n  AND `N` > 3\n  AND `REGION` IS NULL\n  AND `ID` IN (1, 2)\nEMIT CHANGES LIMIT 200;"
         );
         assert!(matches!(
-            filtered_browse("PRINT 'orders' FROM BEGINNING LIMIT 200;", &[f("x", FilterOp::IsNull, vec![])]),
+            filtered_browse(
+                "PRINT 'orders' FROM BEGINNING LIMIT 200;",
+                &[f("x", FilterOp::IsNull, vec![])]
+            ),
             Err(Error::Unsupported(_))
         ));
     }
@@ -373,7 +563,10 @@ mod tests {
         };
         let s = update_script(kinds::TABLE, "clientes", &[c]).unwrap();
         assert!(!s.contains("quedan en NULL"), "{s}");
-        assert!(s.contains("'O''Brien'") && s.contains("'Rosario'") && !s.contains("ROWOFFSET"), "{s}");
+        assert!(
+            s.contains("'O''Brien'") && s.contains("'Rosario'") && !s.contains("ROWOFFSET"),
+            "{s}"
+        );
     }
     use serde_json::json;
 
@@ -382,11 +575,26 @@ mod tests {
             kind: kinds::STREAM.into(),
             name: "PEDIDOS".into(),
             columns: vec![
-                ColumnDef { name: "ID".into(), data_type: "INT".into(), ..Default::default() },
-                ColumnDef { name: "ITEMS".into(), data_type: "ARRAY<VARCHAR>".into(), ..Default::default() },
+                ColumnDef {
+                    name: "ID".into(),
+                    data_type: "INT".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "ITEMS".into(),
+                    data_type: "ARRAY<VARCHAR>".into(),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: None, columns: vec!["ID".into()] }),
-            options: [("KAFKA_TOPIC".to_string(), "pedidos".to_string()), ("PARTITIONS".to_string(), "3".to_string())].into(),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["ID".into()],
+            }),
+            options: [
+                ("KAFKA_TOPIC".to_string(), "pedidos".to_string()),
+                ("PARTITIONS".to_string(), "3".to_string()),
+            ]
+            .into(),
             ..Default::default()
         }
     }
@@ -395,21 +603,41 @@ mod tests {
     fn update_script_replaces_table_rows() {
         let c = RowChange {
             key: vec![("ID".into(), json!(7))],
-            set: vec![("NOMBRE".into(), json!("O'Brien")), ("BAJA".into(), Value::Null)], ..Default::default()
+            set: vec![
+                ("NOMBRE".into(), json!("O'Brien")),
+                ("BAJA".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(kinds::TABLE, "CLIENTES", &[c.clone(), RowChange::default()]).unwrap(),
             "-- ksqlDB reemplaza el valor completo de la clave: las columnas que no figuran quedan en NULL.\n\
              INSERT INTO `CLIENTES` (`ID`, `NOMBRE`, `BAJA`) VALUES (7, 'O''Brien', NULL);"
         );
-        assert!(matches!(update_script(kinds::STREAM, "EVENTOS", &[c]), Err(Error::Unsupported(_))));
-        let no_key = RowChange { key: vec![], set: vec![("A".into(), json!(1))], ..Default::default() };
-        assert!(matches!(update_script(kinds::TABLE, "T", &[no_key]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            update_script(kinds::STREAM, "EVENTOS", &[c]),
+            Err(Error::Unsupported(_))
+        ));
+        let no_key = RowChange {
+            key: vec![],
+            set: vec![("A".into(), json!(1))],
+            ..Default::default()
+        };
+        assert!(matches!(
+            update_script(kinds::TABLE, "T", &[no_key]),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn create_stream_and_table() {
-        let all = DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true };
+        let all = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            indexes: true,
+            foreign_keys: true,
+        };
         assert_eq!(
             table_ddl(&stream(), all).unwrap(),
             "DROP STREAM IF EXISTS `PEDIDOS`;\nCREATE STREAM `PEDIDOS` (\n    `ID` INT KEY,\n    `ITEMS` ARRAY<VARCHAR>\n) \
@@ -418,21 +646,67 @@ mod tests {
         let mut t = stream();
         t.options.insert("object".into(), "TABLE".into());
         t.options.insert("KEY_FORMAT".into(), "json".into());
-        let s = table_ddl(&t, DdlParts { create: true, if_exists: true, ..Default::default() }).unwrap();
-        assert!(s.starts_with("CREATE TABLE IF NOT EXISTS `PEDIDOS` (\n    `ID` INT PRIMARY KEY,"), "{s}");
+        let s = table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            s.starts_with("CREATE TABLE IF NOT EXISTS `PEDIDOS` (\n    `ID` INT PRIMARY KEY,"),
+            "{s}"
+        );
         assert!(s.ends_with("WITH (KAFKA_TOPIC='pedidos', KEY_FORMAT='JSON', VALUE_FORMAT='JSON', PARTITIONS=3);"), "{s}");
         // A table needs a key; the stream designer's defaults fill topic and format.
         t.primary_key = None;
         assert!(table_ddl(&t, all).is_err());
-        let bare = TableSchema { kind: kinds::STREAM.into(), name: "S".into(), ..stream() };
-        let s = table_ddl(&TableSchema { options: BTreeMap::new(), ..bare }, DdlParts { create: true, ..Default::default() }).unwrap();
-        assert!(s.ends_with("WITH (KAFKA_TOPIC='S', VALUE_FORMAT='JSON');"), "{s}");
-        assert_eq!(table_ddl(&stream(), DdlParts { indexes: true, foreign_keys: true, ..Default::default() }).unwrap(), "");
+        let bare = TableSchema {
+            kind: kinds::STREAM.into(),
+            name: "S".into(),
+            ..stream()
+        };
+        let s = table_ddl(
+            &TableSchema {
+                options: BTreeMap::new(),
+                ..bare
+            },
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            s.ends_with("WITH (KAFKA_TOPIC='S', VALUE_FORMAT='JSON');"),
+            "{s}"
+        );
+        assert_eq!(
+            table_ddl(
+                &stream(),
+                DdlParts {
+                    indexes: true,
+                    foreign_keys: true,
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            ""
+        );
     }
 
     #[test]
     fn inserts_one_row_each() {
-        let s = insert_script("S", &["ID".into(), "N".into(), "T".into()], &[vec![json!(1), json!("O'k"), json!(["a"])], vec![json!(2), Value::Null, json!(true)]]);
+        let s = insert_script(
+            "S",
+            &["ID".into(), "N".into(), "T".into()],
+            &[
+                vec![json!(1), json!("O'k"), json!(["a"])],
+                vec![json!(2), Value::Null, json!(true)],
+            ],
+        );
         assert_eq!(s, "INSERT INTO `S` (`ID`, `N`, `T`) VALUES (1, 'O''k', ARRAY['a']);\nINSERT INTO `S` (`ID`, `N`, `T`) VALUES (2, NULL, TRUE);");
     }
 
@@ -447,14 +721,35 @@ mod tests {
                         {"name": "AMT", "schema": {"type": "DECIMAL", "parameters": {"precision": 10, "scale": 2}}}]}
         ]);
         let ts = from_descriptions(d.as_array().unwrap());
-        assert_eq!(ts.iter().map(|t| (t.name.as_str(), t.kind.as_str())).collect::<Vec<_>>(), [("S1", "stream"), ("T1", "table")]);
+        assert_eq!(
+            ts.iter()
+                .map(|t| (t.name.as_str(), t.kind.as_str()))
+                .collect::<Vec<_>>(),
+            [("S1", "stream"), ("T1", "table")]
+        );
         let s1 = &ts[0];
         assert_eq!(s1.columns[1].data_type, "STRUCT<`b` ARRAY<STRING>>");
         assert_eq!(s1.columns[2].data_type, "DECIMAL(10, 2)");
         assert_eq!(s1.primary_key.as_ref().unwrap().columns, ["ID"]);
         let o = |k: &str| s1.options.get(k).map(String::as_str);
-        assert_eq!((o("object"), o("KAFKA_TOPIC"), o("KEY_FORMAT"), o("PARTITIONS"), o("TIMESTAMP")), (Some("STREAM"), Some("s1"), Some("KAFKA"), Some("2"), None));
-        let s = table_ddl(&ts[1], DdlParts { create: true, ..Default::default() }).unwrap();
+        assert_eq!(
+            (
+                o("object"),
+                o("KAFKA_TOPIC"),
+                o("KEY_FORMAT"),
+                o("PARTITIONS"),
+                o("TIMESTAMP")
+            ),
+            (Some("STREAM"), Some("s1"), Some("KAFKA"), Some("2"), None)
+        );
+        let s = table_ddl(
+            &ts[1],
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(s, "CREATE TABLE `T1` (\n    `ID` STRING PRIMARY KEY,\n    `N` BIGINT\n) WITH (KAFKA_TOPIC='t1', KEY_FORMAT='JSON', VALUE_FORMAT='JSON', PARTITIONS=1);");
     }
 

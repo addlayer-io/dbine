@@ -30,7 +30,10 @@ pub struct LintFinding {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn lint_script(state: State<'_, AppState>, args: LintArgs) -> CommandResult<Vec<LintFinding>> {
+pub async fn lint_script(
+    state: State<'_, AppState>,
+    args: LintArgs,
+) -> CommandResult<Vec<LintFinding>> {
     let driver = driver_of(&state, &args.connection_id)?;
     let profile = Profile::of(driver.info(), driver.script_dialect());
     Ok(findings(&args.sql, profile))
@@ -50,7 +53,10 @@ fn findings(sql: &str, profile: Profile) -> Vec<LintFinding> {
         .into_iter()
         .map(|f| {
             // Findings come in text order: count newlines once.
-            line += sql.as_bytes()[at..f.start.max(at)].iter().filter(|&&c| c == b'\n').count() as u32;
+            line += sql.as_bytes()[at..f.start.max(at)]
+                .iter()
+                .filter(|&&c| c == b'\n')
+                .count() as u32;
             at = f.start.max(at);
             LintFinding {
                 rule: f.rule,
@@ -70,7 +76,10 @@ mod tests {
 
     #[test]
     fn offsets_are_utf16_and_lines_count() {
-        let p = Profile::of(dbine_drivers::find("postgres").unwrap().info(), dbine_drivers::find("postgres").unwrap().script_dialect());
+        let p = Profile::of(
+            dbine_drivers::find("postgres").unwrap().info(),
+            dbine_drivers::find("postgres").unwrap().script_dialect(),
+        );
         let f = findings("select 'ñandú😀';\n\nselect * from t", p);
         assert_eq!(f.len(), 1);
         assert_eq!(f[0].rule, "select-star");
@@ -88,12 +97,24 @@ mod tests {
             let d = dbine_drivers::find(id).unwrap();
             Profile::of(d.info(), d.script_dialect())
         };
-        assert!(matches!(profile("sqlserver"), Profile::Sql(_, Flavor::Tsql)));
-        assert!(matches!(profile("postgres"), Profile::Sql(_, Flavor::Postgres)));
+        assert!(matches!(
+            profile("sqlserver"),
+            Profile::Sql(_, Flavor::Tsql)
+        ));
+        assert!(matches!(
+            profile("postgres"),
+            Profile::Sql(_, Flavor::Postgres)
+        ));
         assert!(matches!(profile("mysql"), Profile::Sql(_, Flavor::Mysql)));
         assert!(matches!(profile("oracle"), Profile::Sql(_, Flavor::Oracle)));
-        assert!(matches!(profile("influxdb1"), Profile::Sql(_, Flavor::Influxql)));
-        assert!(matches!(profile("sqlite"), Profile::Sql(_, Flavor::Generic)));
+        assert!(matches!(
+            profile("influxdb1"),
+            Profile::Sql(_, Flavor::Influxql)
+        ));
+        assert!(matches!(
+            profile("sqlite"),
+            Profile::Sql(_, Flavor::Generic)
+        ));
         assert!(matches!(profile("cassandra"), Profile::Cql(_)));
         assert_eq!(profile("mongodb"), Profile::Mongodb);
         assert_eq!(profile("couchdb"), Profile::Couchdb);
@@ -112,7 +133,13 @@ mod tests {
     fn lint_mapping() {
         for d in dbine_drivers::all() {
             let i = d.info();
-            println!("{}\t{:?}\t{}\t{:?}", i.id, i.language, i.dialect, Profile::of(i, d.script_dialect()));
+            println!(
+                "{}\t{:?}\t{}\t{:?}",
+                i.id,
+                i.language,
+                i.dialect,
+                Profile::of(i, d.script_dialect())
+            );
         }
     }
 }

@@ -45,12 +45,20 @@ enum Group {
 }
 
 impl PgSession {
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
         let v = self.variant;
         if q.text.is_empty()
             || matches!(
                 v,
-                Variant::Redshift | Variant::Denodo | Variant::RisingWave | Variant::Materialize | Variant::CrateDb | Variant::H2
+                Variant::Redshift
+                    | Variant::Denodo
+                    | Variant::RisingWave
+                    | Variant::Materialize
+                    | Variant::CrateDb
+                    | Variant::H2
             )
         {
             return Ok(None);
@@ -59,14 +67,24 @@ impl PgSession {
         let wanted: Vec<&str> = info
             .object_kinds
             .iter()
-            .filter(|k| k.has_definition && (q.kinds.is_empty() || q.kinds.iter().any(|w| w == k.id)))
+            .filter(|k| {
+                k.has_definition && (q.kinds.is_empty() || q.kinds.iter().any(|w| w == k.id))
+            })
             .map(|k| k.id)
             .collect();
         // CockroachDB's tables and views come from SHOW CREATE, one by one.
-        if v == Variant::Cockroach && wanted.iter().any(|k| matches!(*k, kinds::TABLE | kinds::VIEW | kinds::MATERIALIZED_VIEW)) {
+        if v == Variant::Cockroach
+            && wanted
+                .iter()
+                .any(|k| matches!(*k, kinds::TABLE | kinds::VIEW | kinds::MATERIALIZED_VIEW))
+        {
             return Ok(None);
         }
-        let objects: Vec<_> = Session::list_objects(self).await?.into_iter().filter(|o| wanted.contains(&o.kind.as_str())).collect();
+        let objects: Vec<_> = Session::list_objects(self)
+            .await?
+            .into_iter()
+            .filter(|o| wanted.contains(&o.kind.as_str()))
+            .collect();
         let has = |ks: &[&str]| objects.iter().any(|o| ks.contains(&o.kind.as_str()));
 
         let mut sources: HashMap<(Group, String, String), Vec<String>> = HashMap::new();
@@ -91,7 +109,9 @@ impl PgSession {
             };
             let views = group == Group::View;
             for r in &rows {
-                let (Some(sch), Some(name)) = (cell(r, "sch"), cell(r, "name")) else { continue };
+                let (Some(sch), Some(name)) = (cell(r, "sch"), cell(r, "name")) else {
+                    continue;
+                };
                 let Some(def) = cell(r, "def") else { continue };
                 let def = if views {
                     // As `pg_view_definition` puts it.
@@ -107,7 +127,10 @@ impl PgSession {
             }
         }
 
-        let mut report = CodeSearchReport { scanned: objects.len(), ..Default::default() };
+        let mut report = CodeSearchReport {
+            scanned: objects.len(),
+            ..Default::default()
+        };
         for o in &objects {
             let schema = o.schema.clone().unwrap_or_default();
             let group = match o.kind.as_str() {
@@ -117,13 +140,23 @@ impl PgSession {
                 _ => None,
             };
             let source = match group {
-                Some(g) => sources.get(&(g, schema, o.name.clone())).and_then(|parts| crate::session::join_definitions(parts)),
+                Some(g) => sources
+                    .get(&(g, schema, o.name.clone()))
+                    .and_then(|parts| crate::session::join_definitions(parts)),
                 None if compare::KINDS.contains(&o.kind.as_str()) => {
-                    let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+                    let obj = ObjectRef {
+                        kind: o.kind.clone(),
+                        schema: o.schema.clone(),
+                        name: o.name.clone(),
+                    };
                     match self.compare_definition(&obj).await {
                         Ok(s) => s,
                         Err(_) => {
-                            report.unreadable.push(format!("{}.{}", o.schema.as_deref().unwrap_or_default(), o.name));
+                            report.unreadable.push(format!(
+                                "{}.{}",
+                                o.schema.as_deref().unwrap_or_default(),
+                                o.name
+                            ));
                             continue;
                         }
                     }
@@ -132,7 +165,14 @@ impl PgSession {
                 None => None,
             };
             let Some(source) = source else { continue };
-            report.hits.extend(hits_in(&o.kind, o.schema.as_deref(), &o.name, o.parent.as_deref(), &source, q));
+            report.hits.extend(hits_in(
+                &o.kind,
+                o.schema.as_deref(),
+                &o.name,
+                o.parent.as_deref(),
+                &source,
+                q,
+            ));
             if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                 report.hits.truncate(q.max_hits);
                 report.truncated = true;
@@ -177,7 +217,11 @@ impl PgSession {
     /// overload of a name that has the text (its line numbers count the
     /// overloads before it).
     fn routine_sources(&self, q: &CodeSearch) -> String {
-        let def = if self.variant == Variant::OpenGauss { "(pg_get_functiondef(p.oid)).definition" } else { "pg_get_functiondef(p.oid)" };
+        let def = if self.variant == Variant::OpenGauss {
+            "(pg_get_functiondef(p.oid)).definition"
+        } else {
+            "pg_get_functiondef(p.oid)"
+        };
         format!(
             "WITH r AS (
                SELECT p.oid AS id, n.nspname::text AS sch, p.proname::text AS name, {def} AS def

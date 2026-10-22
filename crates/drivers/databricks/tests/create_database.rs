@@ -16,11 +16,18 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn env(k: &str) -> Option<String> {
-    std::env::var(format!("DBINE_TEST_DATABRICKS_{k}")).ok().filter(|v| !v.is_empty())
+    std::env::var(format!("DBINE_TEST_DATABRICKS_{k}"))
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 fn cfg() -> Option<ConnectionConfig> {
-    let mut c = ConnectionConfig { driver: "databricks".into(), host: env("HOST")?, database: env("CATALOG")?, ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "databricks".into(),
+        host: env("HOST")?,
+        database: env("CATALOG")?,
+        ..Default::default()
+    };
     c.options.insert("warehouse".into(), env("WAREHOUSE")?);
     c.options.insert("token".into(), env("TOKEN")?);
     Some(c)
@@ -29,8 +36,19 @@ fn cfg() -> Option<ConnectionConfig> {
 /// `DESCRIBE CATALOG EXTENDED`'s `info_value` for `info_name`.
 async fn describe(s: &mut Box<dyn Session>, catalog: &str, name: &str) -> Option<String> {
     let mut out = QueryOutcome::default();
-    s.execute(&format!("DESCRIBE CATALOG EXTENDED `{catalog}`"), 100, &mut out).await.unwrap();
-    out.results.last()?.rows.iter().find(|r| r[0] == Value::String(name.into())).and_then(|r| r[1].as_str().map(str::to_string))
+    s.execute(
+        &format!("DESCRIBE CATALOG EXTENDED `{catalog}`"),
+        100,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    out.results
+        .last()?
+        .rows
+        .iter()
+        .find(|r| r[0] == Value::String(name.into()))
+        .and_then(|r| r[1].as_str().map(str::to_string))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -45,20 +63,36 @@ async fn databricks_options() {
     let _ = s.drop_database("dbine_create_opts").await;
     eprintln!("{:?}", s.create_database_choices().await.unwrap());
 
-    let mut options: BTreeMap<String, String> = BTreeMap::from([("comment".to_string(), "ventas 'históricas'".to_string())]);
+    let mut options: BTreeMap<String, String> =
+        BTreeMap::from([("comment".to_string(), "ventas 'históricas'".to_string())]);
     if let Some(l) = env("LOCATION") {
         options.insert("managed_location".into(), l);
     }
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
-    assert_eq!(describe(&mut s, "dbine_create_opts", "Comment").await.as_deref(), Some("ventas 'históricas'"));
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
+    assert_eq!(
+        describe(&mut s, "dbine_create_opts", "Comment")
+            .await
+            .as_deref(),
+        Some("ventas 'históricas'")
+    );
     if let Some(l) = options.get("managed_location") {
-        let root = describe(&mut s, "dbine_create_opts", "Storage Root").await.unwrap_or_default();
+        let root = describe(&mut s, "dbine_create_opts", "Storage Root")
+            .await
+            .unwrap_or_default();
         assert!(root.starts_with(l.trim_end_matches('/')), "{root}");
     }
     s.drop_database("dbine_create_opts").await.unwrap();
 
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("dbine_create_plain").await.unwrap();
 }

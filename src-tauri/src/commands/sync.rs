@@ -12,7 +12,10 @@ use tauri::{AppHandle, Emitter, State};
 const MIN_PASSPHRASE: usize = 10;
 
 fn mgr<'a>(state: &'a State<'_, AppState>) -> CommandResult<&'a SyncManager> {
-    state.sync.get().ok_or_else(|| CommandError::Internal("sincronización no iniciada".into()))
+    state
+        .sync
+        .get()
+        .ok_or_else(|| CommandError::Internal("sincronización no iniciada".into()))
 }
 
 #[derive(Serialize)]
@@ -38,17 +41,21 @@ pub async fn sync_status(state: State<'_, AppState>) -> CommandResult<SyncStatus
     let m = mgr(&state)?;
     Ok(SyncStatusOut {
         config: m.config(),
-        providers: [ProviderKind::GoogleDrive, ProviderKind::Onedrive, ProviderKind::Folder]
-            .into_iter()
-            .map(|kind| ProviderInfo {
-                kind,
-                label: match kind {
-                    ProviderKind::Folder => "Carpeta",
-                    k => k.label(),
-                },
-                available: m.available(kind),
-            })
-            .collect(),
+        providers: [
+            ProviderKind::GoogleDrive,
+            ProviderKind::Onedrive,
+            ProviderKind::Folder,
+        ]
+        .into_iter()
+        .map(|kind| ProviderInfo {
+            kind,
+            label: match kind {
+                ProviderKind::Folder => "Carpeta",
+                k => k.label(),
+            },
+            available: m.available(kind),
+        })
+        .collect(),
         status: m.status.lock().unwrap().clone(),
         dirty: m.engine.is_dirty().unwrap_or(false),
         last_sync_at: m.engine.last_sync_at(),
@@ -79,7 +86,11 @@ pub struct ConnectOut {
 /// Sign in (or pick the folder) and look for an existing backup. Nothing
 /// syncs until `sync_setup`.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn sync_connect(app: AppHandle, state: State<'_, AppState>, args: ConnectArgs) -> CommandResult<ConnectOut> {
+pub async fn sync_connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ConnectArgs,
+) -> CommandResult<ConnectOut> {
     let m = mgr(&state)?;
     if !m.available(args.provider) {
         return Err(CommandError::BadRequest(format!(
@@ -100,15 +111,22 @@ pub async fn sync_connect(app: AppHandle, state: State<'_, AppState>, args: Conn
     };
     let cloud = m.cloud(&cfg)?;
     cfg.account = Some(cloud.account().await?);
-    let remote = m.engine.remote_header(cloud.as_ref()).await?.map(|h| RemoteInfo {
-        updated_at: h.updated_at,
-        device: h.device,
-        app_version: h.app_version,
-    });
+    let remote = m
+        .engine
+        .remote_header(cloud.as_ref())
+        .await?
+        .map(|h| RemoteInfo {
+            updated_at: h.updated_at,
+            device: h.device,
+            app_version: h.app_version,
+        });
     // Pointed somewhere else: what was synced before doesn't apply.
     m.engine.reset()?;
     m.save_config(&cfg)?;
-    Ok(ConnectOut { account: cfg.account.unwrap_or_default(), remote })
+    Ok(ConnectOut {
+        account: cfg.account.unwrap_or_default(),
+        remote,
+    })
 }
 
 #[tauri::command]
@@ -136,18 +154,32 @@ pub struct SetupArgs {
 /// Finish setting up: first upload or restore, then keep the passphrase in
 /// the keychain and turn sync on.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn sync_setup(app: AppHandle, state: State<'_, AppState>, args: SetupArgs) -> CommandResult<SyncAction> {
+pub async fn sync_setup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: SetupArgs,
+) -> CommandResult<SyncAction> {
     let m = mgr(&state)?;
     let pass = args.passphrase;
     let engine = &m.engine;
     let action = match args.mode {
         SetupMode::Upload => {
             if pass.chars().count() < MIN_PASSPHRASE {
-                return Err(CommandError::BadRequest(format!("la frase clave tiene que tener al menos {MIN_PASSPHRASE} caracteres")));
+                return Err(CommandError::BadRequest(format!(
+                    "la frase clave tiene que tener al menos {MIN_PASSPHRASE} caracteres"
+                )));
             }
-            m.run_with(&app, Some(pass.clone()), |cloud, p| async move { engine.push(cloud.as_ref(), &p, true).await }).await?
+            m.run_with(&app, Some(pass.clone()), |cloud, p| async move {
+                engine.push(cloud.as_ref(), &p, true).await
+            })
+            .await?
         }
-        SetupMode::Restore => m.run_with(&app, Some(pass.clone()), |cloud, p| async move { engine.pull(cloud.as_ref(), &p).await }).await?,
+        SetupMode::Restore => {
+            m.run_with(&app, Some(pass.clone()), |cloud, p| async move {
+                engine.pull(cloud.as_ref(), &p).await
+            })
+            .await?
+        }
     };
     m.store_passphrase(&pass)?;
     let mut cfg = m.config();
@@ -161,23 +193,38 @@ pub async fn sync_setup(app: AppHandle, state: State<'_, AppState>, args: SetupA
 pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> CommandResult<SyncAction> {
     let m = mgr(&state)?;
     let engine = &m.engine;
-    m.run(&app, |cloud, p| async move { engine.sync(cloud.as_ref(), &p).await }).await
+    m.run(&app, |cloud, p| async move {
+        engine.sync(cloud.as_ref(), &p).await
+    })
+    .await
 }
 
 /// Upload this machine's state now, replacing the stored backup.
 #[tauri::command]
-pub async fn sync_upload_now(app: AppHandle, state: State<'_, AppState>) -> CommandResult<SyncAction> {
+pub async fn sync_upload_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<SyncAction> {
     let m = mgr(&state)?;
     let engine = &m.engine;
-    m.run(&app, |cloud, p| async move { engine.push(cloud.as_ref(), &p, false).await }).await
+    m.run(&app, |cloud, p| async move {
+        engine.push(cloud.as_ref(), &p, false).await
+    })
+    .await
 }
 
 /// Replace this machine's state with the stored backup.
 #[tauri::command]
-pub async fn sync_restore_now(app: AppHandle, state: State<'_, AppState>) -> CommandResult<SyncAction> {
+pub async fn sync_restore_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<SyncAction> {
     let m = mgr(&state)?;
     let engine = &m.engine;
-    m.run(&app, |cloud, p| async move { engine.pull(cloud.as_ref(), &p).await }).await
+    m.run(&app, |cloud, p| async move {
+        engine.pull(cloud.as_ref(), &p).await
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -201,7 +248,10 @@ pub struct PassphraseArgs {
 /// Type the passphrase on this machine (it was changed on another one, or
 /// the keychain lost it): checked against the stored backup first.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn sync_set_passphrase(state: State<'_, AppState>, args: PassphraseArgs) -> CommandResult<()> {
+pub async fn sync_set_passphrase(
+    state: State<'_, AppState>,
+    args: PassphraseArgs,
+) -> CommandResult<()> {
     let m = mgr(&state)?;
     let cloud = m.cloud(&m.config())?;
     m.engine.verify(cloud.as_ref(), &args.passphrase).await?;
@@ -217,16 +267,28 @@ pub struct ChangePassphraseArgs {
 /// Re-encrypt the backup with a new passphrase (other machines will ask
 /// for it).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn sync_change_passphrase(app: AppHandle, state: State<'_, AppState>, args: ChangePassphraseArgs) -> CommandResult<SyncAction> {
+pub async fn sync_change_passphrase(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ChangePassphraseArgs,
+) -> CommandResult<SyncAction> {
     let m = mgr(&state)?;
     if m.passphrase()?.as_deref() != Some(args.current.as_str()) {
-        return Err(CommandError::WrongPassphrase("la frase clave actual no es correcta".into()));
+        return Err(CommandError::WrongPassphrase(
+            "la frase clave actual no es correcta".into(),
+        ));
     }
     if args.new.chars().count() < MIN_PASSPHRASE {
-        return Err(CommandError::BadRequest(format!("la frase clave tiene que tener al menos {MIN_PASSPHRASE} caracteres")));
+        return Err(CommandError::BadRequest(format!(
+            "la frase clave tiene que tener al menos {MIN_PASSPHRASE} caracteres"
+        )));
     }
     let engine = &m.engine;
-    let action = m.run_with(&app, Some(args.new.clone()), |cloud, p| async move { engine.push(cloud.as_ref(), &p, true).await }).await?;
+    let action = m
+        .run_with(&app, Some(args.new.clone()), |cloud, p| async move {
+            engine.push(cloud.as_ref(), &p, true).await
+        })
+        .await?;
     m.store_passphrase(&args.new)?;
     Ok(action)
 }
@@ -241,7 +303,10 @@ pub struct DisconnectArgs {
 /// Turn sync off on this machine: forget the account and the passphrase
 /// (and, if asked, delete the stored backup). Local data stays.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn sync_disconnect(state: State<'_, AppState>, args: DisconnectArgs) -> CommandResult<()> {
+pub async fn sync_disconnect(
+    state: State<'_, AppState>,
+    args: DisconnectArgs,
+) -> CommandResult<()> {
     let m = mgr(&state)?;
     let cfg = m.config();
     if args.delete_remote && cfg.provider.is_some() {
@@ -268,9 +333,15 @@ pub struct RestoreLocalArgs {
 
 /// Put back a copy saved before a restore; the next sync uploads it.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn sync_restore_local(app: AppHandle, state: State<'_, AppState>, args: RestoreLocalArgs) -> CommandResult<()> {
+pub async fn sync_restore_local(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: RestoreLocalArgs,
+) -> CommandResult<()> {
     let m = mgr(&state)?;
-    let pass = m.passphrase()?.ok_or_else(|| CommandError::WrongPassphrase("falta la frase clave en esta máquina".into()))?;
+    let pass = m.passphrase()?.ok_or_else(|| {
+        CommandError::WrongPassphrase("falta la frase clave en esta máquina".into())
+    })?;
     m.engine.restore_local(&args.path, &pass)?;
     for c in state.store.list_connections()? {
         state.close_connection_sessions(&c.id);

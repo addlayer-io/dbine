@@ -16,13 +16,20 @@ fn cfg() -> Option<ConnectionConfig> {
     let conn = std::env::var("DBINE_TEST_ODBC_CONN").ok()?;
     Some(ConnectionConfig {
         driver: "odbc".into(),
-        options: [("connection_string".to_string(), conn), ("batch_mode".to_string(), "go".to_string())].into(),
+        options: [
+            ("connection_string".to_string(), conn),
+            ("batch_mode".to_string(), "go".to_string()),
+        ]
+        .into(),
         ..Default::default()
     })
 }
 
 async fn open(cfg: &ConnectionConfig, db: Option<&str>) -> Box<dyn Session> {
-    let d = dbine_driver_odbc::drivers().into_iter().find(|d| d.info().id == "odbc").unwrap();
+    let d = dbine_driver_odbc::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "odbc")
+        .unwrap();
     d.connect(cfg, db).await.expect("connect")
 }
 
@@ -40,36 +47,63 @@ async fn estimates_and_comments() {
         return;
     };
     let mut master = open(&cfg, None).await;
-    run(&mut master, &format!("IF DB_ID('{DB}') IS NOT NULL DROP DATABASE {DB}")).await;
+    run(
+        &mut master,
+        &format!("IF DB_ID('{DB}') IS NOT NULL DROP DATABASE {DB}"),
+    )
+    .await;
     run(&mut master, &format!("CREATE DATABASE {DB}")).await;
 
     let mut s = open(&cfg, Some(DB)).await;
-    run(&mut s, "CREATE TABLE dbo.clientes (id INT PRIMARY KEY, nombre NVARCHAR(40))").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbo.clientes (id INT PRIMARY KEY, nombre NVARCHAR(40))",
+    )
+    .await;
     run(&mut s, "INSERT INTO dbo.clientes SELECT TOP 250 ROW_NUMBER() OVER (ORDER BY (SELECT 1)), 'c' FROM sys.all_columns").await;
     run(&mut s, "UPDATE STATISTICS dbo.clientes").await;
-    run(&mut s, "CREATE VIEW dbo.v_clientes AS SELECT id, nombre FROM dbo.clientes").await;
+    run(
+        &mut s,
+        "CREATE VIEW dbo.v_clientes AS SELECT id, nombre FROM dbo.clientes",
+    )
+    .await;
     run(&mut s, "CREATE PROCEDURE dbo.p_hola AS SELECT 1").await;
     run(&mut s, "EXEC sp_addextendedproperty 'MS_Description', N'Clientes visibles', 'SCHEMA', 'dbo', 'VIEW', 'v_clientes'").await;
     run(&mut s, "EXEC sp_addextendedproperty 'MS_Description', N'Saluda', 'SCHEMA', 'dbo', 'PROCEDURE', 'p_hola'").await;
 
     let est = s.row_estimates().await.unwrap();
     eprintln!("{est:?}");
-    let e = est.iter().find(|e| e.object.name == "clientes").expect("clientes");
-    assert_eq!((e.object.kind.as_str(), e.object.schema.as_deref(), e.rows), ("table", Some("dbo"), 250));
+    let e = est
+        .iter()
+        .find(|e| e.object.name == "clientes")
+        .expect("clientes");
+    assert_eq!(
+        (e.object.kind.as_str(), e.object.schema.as_deref(), e.rows),
+        ("table", Some("dbo"), 250)
+    );
 
     let comments = s.object_comments().await.unwrap();
     eprintln!("{comments:?}");
     let objects = s.list_objects().await.unwrap();
     for (name, text) in [("v_clientes", "Clientes visibles"), ("p_hola", "Saluda")] {
-        let c = comments.iter().find(|c| c.object.name == name).unwrap_or_else(|| panic!("{name}"));
+        let c = comments
+            .iter()
+            .find(|c| c.object.name == name)
+            .unwrap_or_else(|| panic!("{name}"));
         assert_eq!(c.comment, text);
         assert!(
-            objects.iter().any(|o| o.kind == c.object.kind && o.schema == c.object.schema && o.name == c.object.name),
+            objects.iter().any(|o| o.kind == c.object.kind
+                && o.schema == c.object.schema
+                && o.name == c.object.name),
             "{c:?} not in list_objects"
         );
     }
     drop(s);
 
-    run(&mut master, &format!("ALTER DATABASE {DB} SET SINGLE_USER WITH ROLLBACK IMMEDIATE")).await;
+    run(
+        &mut master,
+        &format!("ALTER DATABASE {DB} SET SINGLE_USER WITH ROLLBACK IMMEDIATE"),
+    )
+    .await;
     run(&mut master, &format!("DROP DATABASE {DB}")).await;
 }

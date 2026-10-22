@@ -7,7 +7,8 @@
 
 use crate::command::quote_arg;
 use dbine_driver::{
-    kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, ObjectRef, Result, RowChange, TableSchema,
+    kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, ObjectRef, Result,
+    RowChange, TableSchema,
 };
 use serde_json::Value;
 
@@ -36,7 +37,11 @@ pub fn designer() -> DesignerSpec {
 }
 
 pub fn templates() -> Vec<CreateTemplate> {
-    let t = |label: &'static str, template: &str| CreateTemplate { kind: kinds::KEY, label, template: template.into() };
+    let t = |label: &'static str, template: &str| CreateTemplate {
+        kind: kinds::KEY,
+        label,
+        template: template.into(),
+    };
     vec![
         t("Nueva clave de configuración", "put {name} '{\"habilitado\": true, \"reintentos\": 3}'\nget {name}\n"),
         t(
@@ -52,7 +57,10 @@ pub fn templates() -> Vec<CreateTemplate> {
 }
 
 fn opt<'a>(t: &'a TableSchema, key: &str) -> Option<&'a str> {
-    t.options.get(key).map(String::as_str).filter(|s| !s.trim().is_empty())
+    t.options
+        .get(key)
+        .map(String::as_str)
+        .filter(|s| !s.trim().is_empty())
 }
 
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
@@ -68,7 +76,10 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
         let value = t.options.get("value").map(String::as_str).unwrap_or("");
         let mut line = format!("put {key} {}", quote_arg(value));
         if let Some(ttl) = opt(t, "ttl") {
-            let n: u64 = ttl.trim().parse().map_err(|_| Error::Query(format!("TTL inválido: {ttl}")))?;
+            let n: u64 = ttl
+                .trim()
+                .parse()
+                .map_err(|_| Error::Query(format!("TTL inválido: {ttl}")))?;
             line.push_str(&format!(" --ttl={n}"));
         }
         out.push(line);
@@ -87,7 +98,11 @@ fn text(v: &Value) -> String {
 /// `put` commands. Rows with `key` and `value` columns (what browsing etcd
 /// gives) go as they are; other rows become `<target>/<first column>` with
 /// the whole row as a JSON object.
-pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+pub fn insert_script(
+    target: &ObjectRef,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> Result<String> {
     let pos = |n: &str| columns.iter().position(|c| c.eq_ignore_ascii_case(n));
     let mut out = Vec::with_capacity(rows.len());
     if let (Some(k), Some(v)) = (pos("key"), pos("value")) {
@@ -96,17 +111,28 @@ pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]
             if key.is_empty() {
                 continue;
             }
-            out.push(format!("put {} {}", quote_arg(&key), quote_arg(&r.get(v).map(text).unwrap_or_default())));
+            out.push(format!(
+                "put {} {}",
+                quote_arg(&key),
+                quote_arg(&r.get(v).map(text).unwrap_or_default())
+            ));
         }
     } else {
         if columns.is_empty() {
-            return Err(Error::Query("No hay columnas para armar las claves.".into()));
+            return Err(Error::Query(
+                "No hay columnas para armar las claves.".into(),
+            ));
         }
         let base = target.name.trim_end_matches('/');
         for r in rows {
             let id = r.first().map(text).unwrap_or_default();
-            let obj: serde_json::Map<String, Value> = columns.iter().cloned().zip(r.iter().cloned()).collect();
-            out.push(format!("put {} {}", quote_arg(&format!("{base}/{id}")), quote_arg(&Value::Object(obj).to_string())));
+            let obj: serde_json::Map<String, Value> =
+                columns.iter().cloned().zip(r.iter().cloned()).collect();
+            out.push(format!(
+                "put {} {}",
+                quote_arg(&format!("{base}/{id}")),
+                quote_arg(&Value::Object(obj).to_string())
+            ));
         }
     }
     Ok(out.join("\n"))
@@ -120,27 +146,50 @@ const META_COLUMNS: &[&str] = &["create_revision", "mod_revision", "version", "l
 /// of the old one plus `put` of the new, with the edited value or else the
 /// original one.
 pub fn update_script(changes: &[RowChange]) -> Result<String> {
-    let get = |pairs: &[(String, Value)], c: &str| pairs.iter().find(|(k, _)| k.eq_ignore_ascii_case(c)).map(|(_, v)| v.clone());
+    let get = |pairs: &[(String, Value)], c: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(c))
+            .map(|(_, v)| v.clone())
+    };
     let mut out = Vec::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
-        if let Some((c, _)) = ch.set.iter().find(|(c, _)| META_COLUMNS.contains(&c.as_str())) {
-            return Err(Error::Unsupported(format!("{c} lo administra etcd; no se edita")));
+        if let Some((c, _)) = ch
+            .set
+            .iter()
+            .find(|(c, _)| META_COLUMNS.contains(&c.as_str()))
+        {
+            return Err(Error::Unsupported(format!(
+                "{c} lo administra etcd; no se edita"
+            )));
         }
-        let Some(key) = get(&ch.key, "key").map(|v| text(&v)).filter(|k| !k.is_empty()) else {
-            return Err(Error::Unsupported("solo se editan filas con las columnas key y value de etcd".into()));
+        let Some(key) = get(&ch.key, "key")
+            .map(|v| text(&v))
+            .filter(|k| !k.is_empty())
+        else {
+            return Err(Error::Unsupported(
+                "solo se editan filas con las columnas key y value de etcd".into(),
+            ));
         };
         let new_key = get(&ch.set, "key").map(|v| text(&v)).filter(|k| *k != key);
-        let value = get(&ch.set, "value").or_else(|| new_key.as_ref().and_then(|_| get(&ch.key, "value")));
+        let value =
+            get(&ch.set, "value").or_else(|| new_key.as_ref().and_then(|_| get(&ch.key, "value")));
         match (new_key, value) {
-            (Some(nk), _) if nk.is_empty() => return Err(Error::Query("La clave nueva está vacía.".into())),
+            (Some(nk), _) if nk.is_empty() => {
+                return Err(Error::Query("La clave nueva está vacía.".into()))
+            }
             (Some(_), None) => {
-                return Err(Error::Unsupported("para renombrar una clave de etcd hace falta también su valor".into()));
+                return Err(Error::Unsupported(
+                    "para renombrar una clave de etcd hace falta también su valor".into(),
+                ));
             }
             (Some(nk), Some(v)) => {
                 out.push(format!("del {}", quote_arg(&key)));
                 out.push(format!("put {} {}", quote_arg(&nk), quote_arg(&text(&v))));
             }
-            (None, Some(v)) => out.push(format!("put {} {}", quote_arg(&key), quote_arg(&text(&v)))),
+            (None, Some(v)) => {
+                out.push(format!("put {} {}", quote_arg(&key), quote_arg(&text(&v))))
+            }
             (None, None) => {}
         }
     }
@@ -152,8 +201,15 @@ pub fn update_script(changes: &[RowChange]) -> Result<String> {
 pub fn delete_script(keys: &[Vec<(String, Value)>]) -> Result<String> {
     let mut out = Vec::with_capacity(keys.len());
     for k in keys {
-        let Some(key) = k.iter().find(|(c, _)| c.eq_ignore_ascii_case("key")).map(|(_, v)| text(v)).filter(|k| !k.is_empty()) else {
-            return Err(Error::Unsupported("solo se borran filas con la columna key de etcd".into()));
+        let Some(key) = k
+            .iter()
+            .find(|(c, _)| c.eq_ignore_ascii_case("key"))
+            .map(|(_, v)| text(v))
+            .filter(|k| !k.is_empty())
+        else {
+            return Err(Error::Unsupported(
+                "solo se borran filas con la columna key de etcd".into(),
+            ));
         };
         out.push(format!("del {}", quote_arg(&key)));
     }
@@ -171,23 +227,51 @@ mod tests {
         let t = TableSchema {
             kind: kinds::KEY.into(),
             name: "/app/cfg".into(),
-            options: [("value".to_string(), "{\"a\": 1}".to_string()), ("ttl".to_string(), "30".to_string())].into(),
+            options: [
+                ("value".to_string(), "{\"a\": 1}".to_string()),
+                ("ttl".to_string(), "30".to_string()),
+            ]
+            .into(),
             ..Default::default()
         };
-        let s = table_ddl(&t, DdlParts { drop: true, create: true, ..Default::default() }).unwrap();
+        let s = table_ddl(
+            &t,
+            DdlParts {
+                drop: true,
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(s, "del /app/cfg\nput /app/cfg \"{\\\"a\\\": 1}\" --ttl=30");
         let parsed = parse_script(&s).unwrap();
         assert_eq!(parsed[1].args[2], b"{\"a\": 1}".to_vec());
         assert!(designer().table_options.iter().any(|f| f.key == "ttl"));
-        assert!(templates().iter().all(|t| t.template.contains("{name}") && parse_script(&t.template).is_ok()));
+        assert!(templates()
+            .iter()
+            .all(|t| t.template.contains("{name}") && parse_script(&t.template).is_ok()));
     }
 
     #[test]
     fn inserts_key_value_or_json_rows() {
-        let target = ObjectRef { kind: kinds::KEY.into(), schema: None, name: "/imp/".into() };
-        let s = insert_script(&target, &["key".into(), "value".into()], &[vec![json!("a"), json!("x y")]]).unwrap();
+        let target = ObjectRef {
+            kind: kinds::KEY.into(),
+            schema: None,
+            name: "/imp/".into(),
+        };
+        let s = insert_script(
+            &target,
+            &["key".into(), "value".into()],
+            &[vec![json!("a"), json!("x y")]],
+        )
+        .unwrap();
         assert_eq!(s, "put a \"x y\"");
-        let s = insert_script(&target, &["id".into(), "nombre".into()], &[vec![json!(7), json!("O'Brien")]]).unwrap();
+        let s = insert_script(
+            &target,
+            &["id".into(), "nombre".into()],
+            &[vec![json!(7), json!("O'Brien")]],
+        )
+        .unwrap();
         let c = parse_script(&s).unwrap();
         assert_eq!(c[0].word(1), "/imp/7");
         assert_eq!(c[0].word(2), "{\"id\":7,\"nombre\":\"O'Brien\"}");
@@ -196,8 +280,16 @@ mod tests {
     #[test]
     fn deletes_are_exact_dels() {
         let key = |k: Value| vec![("key".to_string(), k), ("value".to_string(), json!("v"))];
-        let s = delete_script(&[key(json!("/app/O'Brien \"Bob\"")), key(json!("--prefix")), key(json!("/a"))]).unwrap();
-        assert_eq!(s, "del \"/app/O'Brien \\\"Bob\\\"\"\ndel \"--prefix\"\ndel /a");
+        let s = delete_script(&[
+            key(json!("/app/O'Brien \"Bob\"")),
+            key(json!("--prefix")),
+            key(json!("/a")),
+        ])
+        .unwrap();
+        assert_eq!(
+            s,
+            "del \"/app/O'Brien \\\"Bob\\\"\"\ndel \"--prefix\"\ndel /a"
+        );
         let c = parse_script(&s).unwrap();
         assert_eq!(c.len(), 3);
         assert_eq!(c[0].word(1), "/app/O'Brien \"Bob\"");
@@ -211,20 +303,34 @@ mod tests {
     fn updates_are_puts() {
         let ch = |key: Vec<(&str, Value)>, set: Vec<(&str, Value)>| RowChange {
             key: key.into_iter().map(|(c, v)| (c.to_string(), v)).collect(),
-            set: set.into_iter().map(|(c, v)| (c.to_string(), v)).collect(), ..Default::default()
+            set: set.into_iter().map(|(c, v)| (c.to_string(), v)).collect(),
+            ..Default::default()
         };
         let s = update_script(&[
-            ch(vec![("key", json!("/app/a b"))], vec![("value", json!("O'Brien \"Bob\""))]),
+            ch(
+                vec![("key", json!("/app/a b"))],
+                vec![("value", json!("O'Brien \"Bob\""))],
+            ),
             ch(vec![("key", json!("/app/n"))], vec![("value", Value::Null)]),
-            ch(vec![("key", json!("/old")), ("value", json!("v"))], vec![("key", json!("/new"))]),
+            ch(
+                vec![("key", json!("/old")), ("value", json!("v"))],
+                vec![("key", json!("/new"))],
+            ),
             ch(vec![("key", json!("/x"))], vec![]),
         ])
         .unwrap();
-        assert_eq!(s, "put \"/app/a b\" \"O'Brien \\\"Bob\\\"\"\nput /app/n \"\"\ndel /old\nput /new v");
+        assert_eq!(
+            s,
+            "put \"/app/a b\" \"O'Brien \\\"Bob\\\"\"\nput /app/n \"\"\ndel /old\nput /new v"
+        );
         let c = parse_script(&s).unwrap();
         assert_eq!(c[0].word(2), "O'Brien \"Bob\"");
         assert_eq!(c[1].word(2), "");
-        assert!(update_script(&[ch(vec![("key", json!("/k"))], vec![("version", json!(3))])]).is_err());
-        assert!(update_script(&[ch(vec![("key", json!("/k"))], vec![("key", json!("/j"))])]).is_err());
+        assert!(
+            update_script(&[ch(vec![("key", json!("/k"))], vec![("version", json!(3))])]).is_err()
+        );
+        assert!(
+            update_script(&[ch(vec![("key", json!("/k"))], vec![("key", json!("/j"))])]).is_err()
+        );
     }
 }

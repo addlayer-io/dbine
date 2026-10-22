@@ -20,7 +20,9 @@ pub(crate) use steps::CHART_NOTE;
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
-use dbine_core::tasks::{self, kinds, Notify, OnError, RunStatus, ScheduledTask, Step, StepRun, TaskRun};
+use dbine_core::tasks::{
+    self, kinds, Notify, OnError, RunStatus, ScheduledTask, Step, StepRun, TaskRun,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -90,14 +92,22 @@ pub(crate) fn load_notebooks(task: &ScheduledTask) -> Notebooks {
         .map(|step| {
             (step.kind == kinds::RUN_NOTEBOOK).then(|| {
                 serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone())
-                    .map_err(|e| CommandError::BadRequest(format!("la configuración del paso no es válida: {e}")))
+                    .map_err(|e| {
+                        CommandError::BadRequest(format!(
+                            "la configuración del paso no es válida: {e}"
+                        ))
+                    })
                     .and_then(|o| crate::notebook::headless::load(&o))
             })
         })
         .collect()
 }
 
-fn write_scope_in(state: &AppState, task: &ScheduledTask, notebooks: &Notebooks) -> Vec<WriteScope> {
+fn write_scope_in(
+    state: &AppState,
+    task: &ScheduledTask,
+    notebooks: &Notebooks,
+) -> Vec<WriteScope> {
     let mut out = Vec::new();
     for (n, step) in task.steps.iter().enumerate() {
         match step.kind.as_str() {
@@ -116,10 +126,25 @@ fn write_scope_in(state: &AppState, task: &ScheduledTask, notebooks: &Notebooks)
 
 /// A notebook step's cells that write, in `nb` (the notebook as read now
 /// from disk), so editing those cells asks for the approval again.
-fn notebook_scope(state: &AppState, step: &Step, nb: &crate::notebook::Notebook, out: &mut Vec<WriteScope>) {
-    let Ok(opts) = serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone()) else { return };
+fn notebook_scope(
+    state: &AppState,
+    step: &Step,
+    nb: &crate::notebook::Notebook,
+    out: &mut Vec<WriteScope>,
+) {
+    let Ok(opts) =
+        serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone())
+    else {
+        return;
+    };
     for (cell, r, what, sql) in crate::notebook::headless::writing_cells(state, &opts, nb) {
-        let connection = state.store.get_connection(&r.connection_id).ok().flatten().map(|c| c.name).unwrap_or_default();
+        let connection = state
+            .store
+            .get_connection(&r.connection_id)
+            .ok()
+            .flatten()
+            .map(|c| c.name)
+            .unwrap_or_default();
         out.push(WriteScope {
             step_id: step.id.clone(),
             connection_id: r.connection_id.clone(),
@@ -135,7 +160,9 @@ fn notebook_scope(state: &AppState, step: &Step, nb: &crate::notebook::Notebook,
 
 fn script_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
     let t = target(step);
-    let Ok(Some(conn)) = state.store.get_connection(&t.connection_id) else { return };
+    let Ok(Some(conn)) = state.store.get_connection(&t.connection_id) else {
+        return;
+    };
     // A read-only connection stays read-only: nothing to approve.
     if conn.config.read_only {
         return;
@@ -150,7 +177,10 @@ fn script_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
         None => None,
     };
     let Some(what) = what else { return };
-    let production = conn.tags.iter().any(|t| PROD_TAGS.contains(&t.trim().to_lowercase().as_str()));
+    let production = conn
+        .tags
+        .iter()
+        .any(|t| PROD_TAGS.contains(&t.trim().to_lowercase().as_str()));
     out.push(WriteScope {
         step_id: step.id.clone(),
         connection_id: t.connection_id,
@@ -183,7 +213,12 @@ pub fn task_fingerprint(scope: &[WriteScope], task: &ScheduledTask) -> Option<St
     if scope.is_empty() {
         return None;
     }
-    fingerprint_with(scope, &message::destinations(task, &|name| dbine_core::secrets::get_raw(name).ok().flatten()))
+    fingerprint_with(
+        scope,
+        &message::destinations(task, &|name| {
+            dbine_core::secrets::get_raw(name).ok().flatten()
+        }),
+    )
 }
 
 /// Without destinations it is what it was before messages existed, so the
@@ -227,20 +262,36 @@ type NotebookSecrets = BTreeMap<String, Value>;
 /// its vault entry and the values to keep there (`None`: delete it). An
 /// empty value with one already kept means "unchanged", as a backup's
 /// secret options. `get`: a vault entry by name.
-pub(crate) fn notebook_secrets_apart(task: &mut ScheduledTask, get: &dyn Fn(&str) -> Option<String>) -> Vec<(String, Option<String>)> {
+pub(crate) fn notebook_secrets_apart(
+    task: &mut ScheduledTask,
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Vec<(String, Option<String>)> {
     let mut out = Vec::new();
-    for step in task.steps.iter_mut().filter(|s| s.kind == kinds::RUN_NOTEBOOK) {
+    for step in task
+        .steps
+        .iter_mut()
+        .filter(|s| s.kind == kinds::RUN_NOTEBOOK)
+    {
         let name = step_secret_name(&task.id, &step.id);
-        let mut kept: NotebookSecrets = get(&name).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+        let mut kept: NotebookSecrets = get(&name)
+            .and_then(|j| serde_json::from_str(&j).ok())
+            .unwrap_or_default();
         if let Some(params) = step.config.get_mut("params").and_then(Value::as_object_mut) {
-            let secret: Vec<String> = params.keys().filter(|k| crate::notebook::is_credential_param(k)).cloned().collect();
+            let secret: Vec<String> = params
+                .keys()
+                .filter(|k| crate::notebook::is_credential_param(k))
+                .cloned()
+                .collect();
             for k in secret {
                 if let Some(v) = params.remove(&k).filter(|v| !blank(v)) {
                     kept.insert(k, v);
                 }
             }
         }
-        out.push((name, (!kept.is_empty()).then(|| serde_json::to_string(&kept).unwrap_or_default())));
+        out.push((
+            name,
+            (!kept.is_empty()).then(|| serde_json::to_string(&kept).unwrap_or_default()),
+        ));
     }
     out
 }
@@ -249,20 +300,39 @@ pub(crate) fn notebook_secrets_apart(task: &mut ScheduledTask, get: &dyn Fn(&str
 /// back from the vault (where the step has none of its own): what the
 /// approval's fingerprint and the run use.
 pub fn with_secrets(task: &ScheduledTask) -> ScheduledTask {
-    with_secrets_from(task, &|name| dbine_core::secrets::get_raw(name).ok().flatten())
+    with_secrets_from(task, &|name| {
+        dbine_core::secrets::get_raw(name).ok().flatten()
+    })
 }
 
-pub(crate) fn with_secrets_from(task: &ScheduledTask, get: &dyn Fn(&str) -> Option<String>) -> ScheduledTask {
+pub(crate) fn with_secrets_from(
+    task: &ScheduledTask,
+    get: &dyn Fn(&str) -> Option<String>,
+) -> ScheduledTask {
     let mut task = task.clone();
     // A task not saved yet has nothing in the vault.
     if task.id.is_empty() {
         return task;
     }
-    for step in task.steps.iter_mut().filter(|s| s.kind == kinds::RUN_NOTEBOOK && !s.id.is_empty()) {
-        let Some(kept) = get(&step_secret_name(&task.id, &step.id)).and_then(|j| serde_json::from_str::<NotebookSecrets>(&j).ok()) else { continue };
-        let Some(config) = step.config.as_object_mut() else { continue };
-        let params = config.entry("params").or_insert_with(|| Value::Object(Default::default()));
-        let Some(params) = params.as_object_mut() else { continue };
+    for step in task
+        .steps
+        .iter_mut()
+        .filter(|s| s.kind == kinds::RUN_NOTEBOOK && !s.id.is_empty())
+    {
+        let Some(kept) = get(&step_secret_name(&task.id, &step.id))
+            .and_then(|j| serde_json::from_str::<NotebookSecrets>(&j).ok())
+        else {
+            continue;
+        };
+        let Some(config) = step.config.as_object_mut() else {
+            continue;
+        };
+        let params = config
+            .entry("params")
+            .or_insert_with(|| Value::Object(Default::default()));
+        let Some(params) = params.as_object_mut() else {
+            continue;
+        };
         for (k, v) in kept {
             if params.get(&k).is_none_or(blank) {
                 params.insert(k, v);
@@ -274,10 +344,18 @@ pub(crate) fn with_secrets_from(task: &ScheduledTask, get: &dyn Fn(&str) -> Opti
 
 /// The keys of a backup step's options that are secret.
 pub fn secret_option_keys(connection_id: &str, state: &AppState) -> Vec<&'static str> {
-    let Ok(driver) = crate::commands::schema::driver_of(state, connection_id) else { return Vec::new() };
+    let Ok(driver) = crate::commands::schema::driver_of(state, connection_id) else {
+        return Vec::new();
+    };
     driver
         .backup()
-        .map(|s| s.backup_options.iter().filter(|f| f.secret || matches!(f.kind, dbine_driver::FieldKind::Password)).map(|f| f.key).collect())
+        .map(|s| {
+            s.backup_options
+                .iter()
+                .filter(|f| f.secret || matches!(f.kind, dbine_driver::FieldKind::Password))
+                .map(|f| f.key)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -286,12 +364,20 @@ pub fn connections_of(state: &AppState, task: &ScheduledTask) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for step in &task.steps {
         let ids = match step.kind.as_str() {
-            kinds::RUN_NOTEBOOK => serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone())
-                .map(|o| crate::notebook::headless::connections(state, &o))
-                .unwrap_or_default(),
+            kinds::RUN_NOTEBOOK => {
+                serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone())
+                    .map(|o| crate::notebook::headless::connections(state, &o))
+                    .unwrap_or_default()
+            }
             kinds::COMPARE_SCHEMAS => ["source", "target"]
                 .iter()
-                .filter_map(|k| step.config.get(*k).and_then(|t| t.get("connection_id")).and_then(Value::as_str).map(str::to_string))
+                .filter_map(|k| {
+                    step.config
+                        .get(*k)
+                        .and_then(|t| t.get("connection_id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
                 .collect(),
             _ => vec![target(step).connection_id],
         };
@@ -329,7 +415,12 @@ pub fn cancel_key(run_id: &str) -> String {
 
 /// Run a task now. The run is saved as it goes; the result is the finished
 /// run (also when it failed: its `status` says so).
-pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &ScheduledTask, trigger: &str) -> TaskRun {
+pub async fn run_task(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    task: &ScheduledTask,
+    trigger: &str,
+) -> TaskRun {
     let started = chrono::Local::now().naive_local();
     let mut run = TaskRun {
         id: uuid::Uuid::new_v4().to_string(),
@@ -355,12 +446,22 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
     }
 
     let mut vars = tasks::base_vars(task, started);
-    let ctx = Ctx { state, app, task, run_key: format!("task:{}", run.id) };
+    let ctx = Ctx {
+        state,
+        app,
+        task,
+        run_key: format!("task:{}", run.id),
+    };
     // Cancelled from the phone app (or anywhere that sets the request): cut
     // the steps' sessions at once and run no further step.
     let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let watcher = {
-        let (state, cancelled, key, prefix) = (state.clone(), cancelled.clone(), cancel_key(&run.id), format!("{}:", ctx.run_key));
+        let (state, cancelled, key, prefix) = (
+            state.clone(),
+            cancelled.clone(),
+            cancel_key(&run.id),
+            format!("{}:", ctx.run_key),
+        );
         tauri::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -368,7 +469,12 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
                     cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
                     // A notebook step's DuckDB session is `nbx:<prefix>…`.
                     let duck = format!("nbx:{prefix}");
-                    let keys: Vec<String> = state.sessions.iter().map(|e| e.key().clone()).filter(|k| k.starts_with(&prefix) || k.starts_with(&duck)).collect();
+                    let keys: Vec<String> = state
+                        .sessions
+                        .iter()
+                        .map(|e| e.key().clone())
+                        .filter(|k| k.starts_with(&prefix) || k.starts_with(&duck))
+                        .collect();
                     for k in keys {
                         crate::commands::query::cancel_session(&state, &k);
                     }
@@ -384,15 +490,44 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
             break;
         }
         let step_started = tasks::now_text();
-        let label = if step.name.is_empty() { step.kind.clone() } else { step.name.clone() };
+        let label = if step.name.is_empty() {
+            step.kind.clone()
+        } else {
+            step.name.clone()
+        };
         // What the earlier steps did and raised (a message's or a mail's text).
         vars.insert("results".into(), results_text(task, &run.steps, &lang));
-        vars.insert("alerts".into(), run.steps.iter().filter_map(|s| s.alert.as_deref()).map(|a| i18n::translate(&lang, a)).collect::<Vec<_>>().join("\n"));
+        vars.insert(
+            "alerts".into(),
+            run.steps
+                .iter()
+                .filter_map(|s| s.alert.as_deref())
+                .map(|a| i18n::translate(&lang, a))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
         let result = match skipped(step, &run.steps) {
-            Some(why) => Ok(StepDone { summary: why.into(), ..Default::default() }),
-            None => steps::run(&ctx, step, &vars, notebooks.get_mut(n).and_then(Option::take)).await,
+            Some(why) => Ok(StepDone {
+                summary: why.into(),
+                ..Default::default()
+            }),
+            None => {
+                steps::run(
+                    &ctx,
+                    step,
+                    &vars,
+                    notebooks.get_mut(n).and_then(Option::take),
+                )
+                .await
+            }
         };
-        let mut sr = StepRun { step_id: step.id.clone(), kind: step.kind.clone(), started_at: step_started, finished_at: tasks::now_text(), ..Default::default() };
+        let mut sr = StepRun {
+            step_id: step.id.clone(),
+            kind: step.kind.clone(),
+            started_at: step_started,
+            finished_at: tasks::now_text(),
+            ..Default::default()
+        };
         let stop = match result {
             Ok(done) => {
                 sr.status = RunStatus::Ok;
@@ -420,12 +555,17 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
         }
     }
     watcher.abort();
-    let _ = state.store.set_setting(&cancel_key(&run.id), None::<&serde_json::Value>);
+    let _ = state
+        .store
+        .set_setting(&cancel_key(&run.id), None::<&serde_json::Value>);
     if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
         run.error = Some("Se canceló la tarea.".into());
         return finish(state, run, task);
     }
-    run.status = match (any_failed, run.steps.iter().any(|s| s.status == RunStatus::Ok)) {
+    run.status = match (
+        any_failed,
+        run.steps.iter().any(|s| s.status == RunStatus::Ok),
+    ) {
         (false, _) => RunStatus::Ok,
         (true, true) if run.steps.len() == task.steps.len() => RunStatus::Partial,
         (true, _) => RunStatus::Failed,
@@ -456,7 +596,10 @@ const DB_TEXT_VARS: [&str; 2] = ["results", "alerts"];
 /// The task's variables without [`DB_TEXT_VARS`], for everything that isn't
 /// a message's or a mail's text: `{results}` and `{alerts}` stay as written.
 pub(crate) fn without_db_text(vars: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    vars.iter().filter(|(k, _)| !DB_TEXT_VARS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+    vars.iter()
+        .filter(|(k, _)| !DB_TEXT_VARS.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }
 
 /// `{results}`: one line per step that ran before, with how it went (✓
@@ -466,13 +609,28 @@ fn results_text(task: &ScheduledTask, done: &[StepRun], lang: &str) -> String {
     done.iter()
         .enumerate()
         .map(|(n, r)| {
-            let name = task.steps.iter().find(|s| s.id == r.step_id).map(|s| if s.name.trim().is_empty() { s.kind.clone() } else { s.name.trim().to_string() }).unwrap_or_default();
+            let name = task
+                .steps
+                .iter()
+                .find(|s| s.id == r.step_id)
+                .map(|s| {
+                    if s.name.trim().is_empty() {
+                        s.kind.clone()
+                    } else {
+                        s.name.trim().to_string()
+                    }
+                })
+                .unwrap_or_default();
             let mark = match r.status {
                 RunStatus::Failed => "✗",
                 _ if [SKIPPED_NO_ALERT, SKIPPED_NO_ERROR].contains(&r.summary.as_str()) => "–",
                 _ => "✓",
             };
-            format!("{mark} {}. {name}: {}", n + 1, i18n::translate(lang, &r.summary))
+            format!(
+                "{mark} {}. {name}: {}",
+                n + 1,
+                i18n::translate(lang, &r.summary)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -491,7 +649,11 @@ fn finish(state: &AppState, mut run: TaskRun, task: &ScheduledTask) -> TaskRun {
     run.finished_at = tasks::now_text();
     save(state, &run);
     tracing::info!(task = %task.id, run = %run.id, status = ?run.status, "scheduled task finished");
-    let alerts: Vec<&str> = run.steps.iter().filter_map(|s| s.alert.as_deref()).collect();
+    let alerts: Vec<&str> = run
+        .steps
+        .iter()
+        .filter_map(|s| s.alert.as_deref())
+        .collect();
     let tell = match task.notify {
         Notify::Never => false,
         Notify::Always => true,
@@ -501,11 +663,18 @@ fn finish(state: &AppState, mut run: TaskRun, task: &ScheduledTask) -> TaskRun {
         let body = match run.status {
             RunStatus::Ok if alerts.is_empty() => "Terminó bien.".to_string(),
             RunStatus::Ok => alerts.join(" "),
-            RunStatus::Partial => format!("Terminó con errores. {}", alerts.join(" ")).trim().to_string(),
+            RunStatus::Partial => format!("Terminó con errores. {}", alerts.join(" "))
+                .trim()
+                .to_string(),
             _ => run
                 .error
                 .clone()
-                .or_else(|| run.steps.iter().find(|s| s.status == RunStatus::Failed).map(|s| format!("Falló: {}", s.summary)))
+                .or_else(|| {
+                    run.steps
+                        .iter()
+                        .find(|s| s.status == RunStatus::Failed)
+                        .map(|s| format!("Falló: {}", s.summary))
+                })
                 .unwrap_or_else(|| "Falló.".into()),
         };
         notify::send(&format!("DBine · {}", task.name), &body);
@@ -515,7 +684,10 @@ fn finish(state: &AppState, mut run: TaskRun, task: &ScheduledTask) -> TaskRun {
 
 /// The task, or a NotFound the caller can show.
 pub fn load(state: &AppState, id: &str) -> CommandResult<ScheduledTask> {
-    state.store.get_task(id)?.ok_or_else(|| CommandError::NotFound(format!("no existe la tarea programada '{id}'")))
+    state
+        .store
+        .get_task(id)?
+        .ok_or_else(|| CommandError::NotFound(format!("no existe la tarea programada '{id}'")))
 }
 
 #[cfg(test)]
@@ -568,11 +740,23 @@ mod tests {
     }
 
     fn step(id: &str, kind: &str, config: Value) -> Step {
-        Step { id: id.into(), kind: kind.into(), config, ..Default::default() }
+        Step {
+            id: id.into(),
+            kind: kind.into(),
+            config,
+            ..Default::default()
+        }
     }
 
     fn task(steps: Vec<Step>) -> ScheduledTask {
-        ScheduledTask { id: "t".into(), name: "prueba".into(), enabled: true, steps, notify: Notify::Never, ..Default::default() }
+        ScheduledTask {
+            id: "t".into(),
+            name: "prueba".into(),
+            enabled: true,
+            steps,
+            notify: Notify::Never,
+            ..Default::default()
+        }
     }
 
     /// A notebook step's credential parameters never stay in the task's
@@ -591,17 +775,28 @@ mod tests {
                 };
             }
         };
-        let mut t = task(vec![step("nb", kinds::RUN_NOTEBOOK, json!({"path": "/x.ipynb", "params": {"db_password": "hunter2-secret", "api_token": 42, "desde": "2026-01-01"}}))]);
+        let mut t = task(vec![step(
+            "nb",
+            kinds::RUN_NOTEBOOK,
+            json!({"path": "/x.ipynb", "params": {"db_password": "hunter2-secret", "api_token": 42, "desde": "2026-01-01"}}),
+        )]);
         save(&mut t);
         let stored = serde_json::to_string(&t).unwrap();
-        assert!(!stored.contains("hunter2") && !stored.contains("42"), "{stored}");
+        assert!(
+            !stored.contains("hunter2") && !stored.contains("42"),
+            "{stored}"
+        );
         assert_eq!(t.steps[0].config["params"], json!({"desde": "2026-01-01"}));
         assert!(vault.borrow()[&step_secret_name("t", "nb")].contains("hunter2-secret"));
 
         // The run (and the approval's fingerprint) see the values again.
         let run = with_secrets_from(&t, &get);
-        let opts: crate::notebook::headless::Options = serde_json::from_value(run.steps[0].config.clone()).unwrap();
-        assert_eq!(opts.params.get("db_password"), Some(&json!("hunter2-secret")));
+        let opts: crate::notebook::headless::Options =
+            serde_json::from_value(run.steps[0].config.clone()).unwrap();
+        assert_eq!(
+            opts.params.get("db_password"),
+            Some(&json!("hunter2-secret"))
+        );
         assert_eq!(opts.params.get("api_token"), Some(&json!(42)));
         assert_eq!(opts.params.get("desde"), Some(&json!("2026-01-01")));
 
@@ -610,13 +805,23 @@ mod tests {
         let mut again = t.clone();
         again.steps[0].config["params"]["db_password"] = json!("");
         save(&mut again);
-        assert_eq!(with_secrets_from(&again, &get).steps[0].config["params"]["db_password"], json!("hunter2-secret"));
+        assert_eq!(
+            with_secrets_from(&again, &get).steps[0].config["params"]["db_password"],
+            json!("hunter2-secret")
+        );
         again.steps[0].config["params"]["db_password"] = json!("new-pass");
         save(&mut again);
         assert!(!serde_json::to_string(&again).unwrap().contains("new-pass"));
-        assert_eq!(with_secrets_from(&again, &get).steps[0].config["params"]["db_password"], json!("new-pass"));
+        assert_eq!(
+            with_secrets_from(&again, &get).steps[0].config["params"]["db_password"],
+            json!("new-pass")
+        );
         // Other steps are left alone.
-        let mut other = task(vec![step("s", kinds::RUN_SCRIPT, json!({"connection_id": "a", "sql": "SELECT 1", "params": {"pwd": "x"}}))]);
+        let mut other = task(vec![step(
+            "s",
+            kinds::RUN_SCRIPT,
+            json!({"connection_id": "a", "sql": "SELECT 1", "params": {"pwd": "x"}}),
+        )]);
         assert!(notebook_secrets_apart(&mut other, &get).is_empty());
         assert_eq!(other.steps[0].config["params"]["pwd"], json!("x"));
     }
@@ -626,8 +831,16 @@ mod tests {
         let w = world("cancel");
         let long = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c LIMIT 400000000) SELECT count(*) FROM c";
         let t = task(vec![
-            step("s1", kinds::RUN_SCRIPT, json!({"connection_id": "b", "sql": long})),
-            step("s2", kinds::RUN_SCRIPT, json!({"connection_id": "b", "sql": "SELECT 1"})),
+            step(
+                "s1",
+                kinds::RUN_SCRIPT,
+                json!({"connection_id": "b", "sql": long}),
+            ),
+            step(
+                "s2",
+                kinds::RUN_SCRIPT,
+                json!({"connection_id": "b", "sql": "SELECT 1"}),
+            ),
         ]);
         let state = w.state.clone();
         let started = std::time::Instant::now();
@@ -643,31 +856,67 @@ mod tests {
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         };
-        w.state.store.set_setting(&cancel_key(&id), Some(&json!(true))).unwrap();
+        w.state
+            .store
+            .set_setting(&cancel_key(&id), Some(&json!(true)))
+            .unwrap();
         let run = run.await.unwrap();
         assert_eq!(run.status, RunStatus::Failed);
         assert_eq!(run.error.as_deref(), Some("Se canceló la tarea."));
-        assert!(run.steps.len() <= 1, "the next step doesn't run: {:?}", run.steps);
-        assert!(started.elapsed() < std::time::Duration::from_secs(20), "cut, not waited out: {:?}", started.elapsed());
-        assert!(w.state.store.get_setting(&cancel_key(&id)).unwrap().is_none(), "the request is cleared");
+        assert!(
+            run.steps.len() <= 1,
+            "the next step doesn't run: {:?}",
+            run.steps
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "cut, not waited out: {:?}",
+            started.elapsed()
+        );
+        assert!(
+            w.state
+                .store
+                .get_setting(&cancel_key(&id))
+                .unwrap()
+                .is_none(),
+            "the request is cleared"
+        );
     }
 
     #[tokio::test]
     async fn writes_need_approval() {
         let w = world("approval");
         let mut t = task(vec![
-            step("s1", kinds::RUN_SCRIPT, json!({"connection_id": "a", "database": "main", "sql": "SELECT 1"})),
-            step("s2", kinds::RUN_SCRIPT, json!({"connection_id": "a", "database": "main", "sql": "SELECT 1;\nDELETE FROM people"})),
+            step(
+                "s1",
+                kinds::RUN_SCRIPT,
+                json!({"connection_id": "a", "database": "main", "sql": "SELECT 1"}),
+            ),
+            step(
+                "s2",
+                kinds::RUN_SCRIPT,
+                json!({"connection_id": "a", "database": "main", "sql": "SELECT 1;\nDELETE FROM people"}),
+            ),
         ]);
         let scope = write_scope(&w.state, &t);
         assert_eq!(scope.len(), 1);
-        assert_eq!((scope[0].step_id.as_str(), scope[0].what.as_str(), scope[0].production), ("s2", "DELETE", true));
+        assert_eq!(
+            (
+                scope[0].step_id.as_str(),
+                scope[0].what.as_str(),
+                scope[0].production
+            ),
+            ("s2", "DELETE", true)
+        );
 
         // Not approved: nothing runs.
         let run = run_task(&w.state, None, &t, "manual").await;
         assert_eq!(run.status, RunStatus::Failed);
         assert!(run.steps.is_empty() && run.error.is_some());
-        let rows: i64 = rusqlite::Connection::open(w.dir.join("a.sqlite")).unwrap().query_row("SELECT COUNT(*) FROM people", [], |r| r.get(0)).unwrap();
+        let rows: i64 = rusqlite::Connection::open(w.dir.join("a.sqlite"))
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM people", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(rows, 2);
 
         // Approved: it runs; edited afterwards: it asks again.
@@ -677,7 +926,10 @@ mod tests {
         assert_eq!(run.steps[1].outputs["affected"], "2");
         t.steps[1].config["sql"] = json!("DELETE FROM extra");
         assert_ne!(write_fingerprint(&w.state, &t), t.approved_writes);
-        assert_eq!(w.state.store.list_task_runs(Some("t"), 10).unwrap().len(), 2);
+        assert_eq!(
+            w.state.store.list_task_runs(Some("t"), 10).unwrap().len(),
+            2
+        );
     }
 
     #[tokio::test]
@@ -686,9 +938,21 @@ mod tests {
         let out = w.dir.join("out");
         let folder = out.to_string_lossy().into_owned();
         let t = task(vec![
-            step("e", kinds::EXPORT, json!({"connection_id": "a", "database": "main", "sql": "SELECT name FROM people ORDER BY id", "folder": folder, "file_name": "{task}-gente", "options": {"format": "csv", "header": true}})),
-            step("c", kinds::COMPARE_SCHEMAS, json!({"source": {"connection_id": "a", "database": "main"}, "target": {"connection_id": "b", "database": "main"}, "folder": folder, "file_name": "sync"})),
-            step("b", kinds::BACKUP, json!({"connection_id": "b", "database": "main", "mode": "copy", "folder": folder, "file_name": "copia-{steps.1.rows}"})),
+            step(
+                "e",
+                kinds::EXPORT,
+                json!({"connection_id": "a", "database": "main", "sql": "SELECT name FROM people ORDER BY id", "folder": folder, "file_name": "{task}-gente", "options": {"format": "csv", "header": true}}),
+            ),
+            step(
+                "c",
+                kinds::COMPARE_SCHEMAS,
+                json!({"source": {"connection_id": "a", "database": "main"}, "target": {"connection_id": "b", "database": "main"}, "folder": folder, "file_name": "sync"}),
+            ),
+            step(
+                "b",
+                kinds::BACKUP,
+                json!({"connection_id": "b", "database": "main", "mode": "copy", "folder": folder, "file_name": "copia-{steps.1.rows}"}),
+            ),
         ]);
         let run = run_task(&w.state, None, &t, "manual").await;
         assert_eq!(run.status, RunStatus::Ok, "{run:#?}");
@@ -700,24 +964,57 @@ mod tests {
         assert_eq!(compare.outputs["differences"], "2");
         assert!(compare.alert.is_some());
         let script = std::fs::read_to_string(out.join("sync.sql")).unwrap();
-        assert!(script.contains("extra") && script.to_lowercase().contains("email"), "{script}");
+        assert!(
+            script.contains("extra") && script.to_lowercase().contains("email"),
+            "{script}"
+        );
 
         // The export's row count went into the copy's name.
         assert!(out.join("copia-2.sql").exists());
-        assert_eq!(run.steps[2].outputs["file"], out.join("copia-2.sql").to_string_lossy());
+        assert_eq!(
+            run.steps[2].outputs["file"],
+            out.join("copia-2.sql").to_string_lossy()
+        );
     }
 
     #[tokio::test]
     async fn failing_step_stops_or_continues() {
         let w = world("onerror");
-        let bad = |on_error| Step { on_error, ..step("x", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT * FROM nowhere"})) };
-        let good = step("y", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT 1"}));
+        let bad = |on_error| Step {
+            on_error,
+            ..step(
+                "x",
+                kinds::RUN_SCRIPT,
+                json!({"connection_id": "b", "database": "main", "sql": "SELECT * FROM nowhere"}),
+            )
+        };
+        let good = step(
+            "y",
+            kinds::RUN_SCRIPT,
+            json!({"connection_id": "b", "database": "main", "sql": "SELECT 1"}),
+        );
 
-        let run = run_task(&w.state, None, &task(vec![bad(OnError::Stop), good.clone()]), "manual").await;
+        let run = run_task(
+            &w.state,
+            None,
+            &task(vec![bad(OnError::Stop), good.clone()]),
+            "manual",
+        )
+        .await;
         assert_eq!((run.status, run.steps.len()), (RunStatus::Failed, 1));
-        assert!(run.steps[0].summary.contains("nowhere"), "{}", run.steps[0].summary);
+        assert!(
+            run.steps[0].summary.contains("nowhere"),
+            "{}",
+            run.steps[0].summary
+        );
 
-        let run = run_task(&w.state, None, &task(vec![bad(OnError::Continue), good]), "manual").await;
+        let run = run_task(
+            &w.state,
+            None,
+            &task(vec![bad(OnError::Continue), good]),
+            "manual",
+        )
+        .await;
         assert_eq!((run.status, run.steps.len()), (RunStatus::Partial, 2));
     }
 
@@ -727,20 +1024,54 @@ mod tests {
     #[tokio::test]
     async fn message_step_only_if_and_results() {
         let w = world("message-when");
-        let ok = step("ok", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT 1"}));
-        let bad = Step { on_error: OnError::Continue, name: "falla".into(), ..step("bad", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT * FROM nowhere"})) };
-        let message = |when: &str| step("", kinds::SEND_MESSAGE, json!({"channel": "slack", "url": "", "text": "{results}", "when": when}));
+        let ok = step(
+            "ok",
+            kinds::RUN_SCRIPT,
+            json!({"connection_id": "b", "database": "main", "sql": "SELECT 1"}),
+        );
+        let bad = Step {
+            on_error: OnError::Continue,
+            name: "falla".into(),
+            ..step(
+                "bad",
+                kinds::RUN_SCRIPT,
+                json!({"connection_id": "b", "database": "main", "sql": "SELECT * FROM nowhere"}),
+            )
+        };
+        let message = |when: &str| {
+            step(
+                "",
+                kinds::SEND_MESSAGE,
+                json!({"channel": "slack", "url": "", "text": "{results}", "when": when}),
+            )
+        };
 
         for when in ["alert", "errors"] {
-            let run = run_task(&w.state, None, &task(vec![ok.clone(), message(when)]), "manual").await;
+            let run = run_task(
+                &w.state,
+                None,
+                &task(vec![ok.clone(), message(when)]),
+                "manual",
+            )
+            .await;
             assert_eq!(run.status, RunStatus::Ok, "{when}");
-            assert!(run.steps[1].summary.starts_with("No se ejecutó"), "{when}: {}", run.steps[1].summary);
+            assert!(
+                run.steps[1].summary.starts_with("No se ejecutó"),
+                "{when}: {}",
+                run.steps[1].summary
+            );
         }
         // It runs: always, or after a failure (and fails here, with no webhook).
         for (before, when) in [(ok.clone(), "always"), (bad.clone(), "errors")] {
             let run = run_task(&w.state, None, &task(vec![before, message(when)]), "manual").await;
             assert_eq!(run.steps[1].status, RunStatus::Failed, "{when}");
-            assert!(run.steps[1].summary.contains("falta la URL del webhook de Slack"), "{}", run.steps[1].summary);
+            assert!(
+                run.steps[1]
+                    .summary
+                    .contains("falta la URL del webhook de Slack"),
+                "{}",
+                run.steps[1].summary
+            );
         }
 
         let t = task(vec![ok, bad, message("alert")]);
@@ -748,17 +1079,34 @@ mod tests {
         let results = results_text(&t, &run.steps[..2], "es");
         let lines: Vec<&str> = results.lines().collect();
         assert!(lines[0].starts_with("✓ 1. run_script: "), "{results}");
-        assert!(lines[1].starts_with("✗ 2. falla: ") && lines[1].contains("nowhere"), "{results}");
-        assert!(results_text(&t, &run.steps, "es").lines().nth(2).unwrap().starts_with("– 3. send_message: No se ejecutó"));
+        assert!(
+            lines[1].starts_with("✗ 2. falla: ") && lines[1].contains("nowhere"),
+            "{results}"
+        );
+        assert!(results_text(&t, &run.steps, "es")
+            .lines()
+            .nth(2)
+            .unwrap()
+            .starts_with("– 3. send_message: No se ejecutó"));
         // Text from the databases never reaches SQL, a path or an address.
         let mut vars = BTreeMap::new();
         vars.insert("results".to_string(), "x'); DROP TABLE t; --".to_string());
         vars.insert("alerts".to_string(), "../../etc".to_string());
         vars.insert("task".to_string(), "nightly".to_string());
         let plain = without_db_text(&vars);
-        assert_eq!(tasks::expand("INSERT INTO log VALUES ('{results}', '{alerts}', '{task}')", &plain), "INSERT INTO log VALUES ('{results}', '{alerts}', 'nightly')");
+        assert_eq!(
+            tasks::expand(
+                "INSERT INTO log VALUES ('{results}', '{alerts}', '{task}')",
+                &plain
+            ),
+            "INSERT INTO log VALUES ('{results}', '{alerts}', 'nightly')"
+        );
         // In another UI language the summaries are translated, the marks stay.
-        assert!(results_text(&t, &run.steps, "en").lines().nth(2).unwrap().starts_with("– 3. send_message: Not run: "));
+        assert!(results_text(&t, &run.steps, "en")
+            .lines()
+            .nth(2)
+            .unwrap()
+            .starts_with("– 3. send_message: Not run: "));
     }
 
     /// A task that writes asks for its approval again when a message's
@@ -767,45 +1115,116 @@ mod tests {
     #[test]
     fn message_destination_is_part_of_the_approval() {
         let w = world("message-fp");
-        let write = step("s", kinds::RUN_SCRIPT, json!({"connection_id": "a", "database": "main", "sql": "DELETE FROM people"}));
-        let message = |url: &str| step("m", kinds::SEND_MESSAGE, json!({"channel": "slack", "url": url}));
+        let write = step(
+            "s",
+            kinds::RUN_SCRIPT,
+            json!({"connection_id": "a", "database": "main", "sql": "DELETE FROM people"}),
+        );
+        let message = |url: &str| {
+            step(
+                "m",
+                kinds::SEND_MESSAGE,
+                json!({"channel": "slack", "url": url}),
+            )
+        };
         let none = |_: &str| None;
-        let fp = |t: &ScheduledTask| fingerprint_with(&write_scope(&w.state, t), &message::destinations(t, &none));
-        let a = fp(&task(vec![write.clone(), message("https://hooks.slack.com/services/T/B/one")]));
-        let same_host = fp(&task(vec![write.clone(), message("https://hooks.slack.com/services/T/B/two")]));
-        let teams = fp(&task(vec![write.clone(), step("m", kinds::SEND_MESSAGE, json!({"channel": "teams", "url": "https://x.webhook.office.com/a"}))]));
+        let fp = |t: &ScheduledTask| {
+            fingerprint_with(&write_scope(&w.state, t), &message::destinations(t, &none))
+        };
+        let a = fp(&task(vec![
+            write.clone(),
+            message("https://hooks.slack.com/services/T/B/one"),
+        ]));
+        let same_host = fp(&task(vec![
+            write.clone(),
+            message("https://hooks.slack.com/services/T/B/two"),
+        ]));
+        let teams = fp(&task(vec![
+            write.clone(),
+            step(
+                "m",
+                kinds::SEND_MESSAGE,
+                json!({"channel": "teams", "url": "https://x.webhook.office.com/a"}),
+            ),
+        ]));
         assert!(a.is_some());
         assert_eq!(a, same_host);
         assert_ne!(a, teams);
         // Without messages, the fingerprint is the one approvals already have.
-        assert_eq!(fp(&task(vec![write.clone()])), fingerprint_of(&write_scope(&w.state, &task(vec![write]))));
-        assert_eq!(fp(&task(vec![message("https://hooks.slack.com/services/T/B/one")])), None);
+        assert_eq!(
+            fp(&task(vec![write.clone()])),
+            fingerprint_of(&write_scope(&w.state, &task(vec![write])))
+        );
+        assert_eq!(
+            fp(&task(vec![message(
+                "https://hooks.slack.com/services/T/B/one"
+            )])),
+            None
+        );
     }
 
     #[tokio::test]
     async fn only_if_conditions() {
         let w = world("when");
-        let ok = step("ok", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT 1"}));
-        let bad = Step { on_error: OnError::Continue, ..step("bad", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT * FROM nowhere"})) };
-        let mail = |when: &str| step("m", kinds::SEND_MAIL, json!({"to": "a@example.com", "when": when}));
+        let ok = step(
+            "ok",
+            kinds::RUN_SCRIPT,
+            json!({"connection_id": "b", "database": "main", "sql": "SELECT 1"}),
+        );
+        let bad = Step {
+            on_error: OnError::Continue,
+            ..step(
+                "bad",
+                kinds::RUN_SCRIPT,
+                json!({"connection_id": "b", "database": "main", "sql": "SELECT * FROM nowhere"}),
+            )
+        };
+        let mail = |when: &str| {
+            step(
+                "m",
+                kinds::SEND_MAIL,
+                json!({"to": "a@example.com", "when": when}),
+            )
+        };
 
         // Nothing to tell: the mail doesn't go (and the step is fine).
-        let run = run_task(&w.state, None, &task(vec![ok.clone(), mail("alert")]), "manual").await;
+        let run = run_task(
+            &w.state,
+            None,
+            &task(vec![ok.clone(), mail("alert")]),
+            "manual",
+        )
+        .await;
         assert_eq!(run.status, RunStatus::Ok);
-        assert!(run.steps[1].summary.starts_with("No se ejecutó"), "{}", run.steps[1].summary);
+        assert!(
+            run.steps[1].summary.starts_with("No se ejecutó"),
+            "{}",
+            run.steps[1].summary
+        );
         let run = run_task(&w.state, None, &task(vec![ok, mail("errors")]), "manual").await;
         assert!(run.steps[1].summary.starts_with("No se ejecutó"));
 
         // An earlier failure: it runs (and fails here, with no server set).
         let run = run_task(&w.state, None, &task(vec![bad, mail("errors")]), "manual").await;
         assert_eq!(run.steps[1].status, RunStatus::Failed);
-        assert!(run.steps[1].summary.contains("Configuración › Correo"), "{}", run.steps[1].summary);
+        assert!(
+            run.steps[1].summary.contains("Configuración › Correo"),
+            "{}",
+            run.steps[1].summary
+        );
     }
 
     #[test]
     fn secrets_stay_out_of_the_config() {
-        let t = task(vec![step("s", kinds::BACKUP, json!({"connection_id": "a", "options": {"password": "x"}}))]);
-        assert_eq!(connections_of(&AppState::new(StateStore::open_in_memory().unwrap()), &t), ["a"]);
+        let t = task(vec![step(
+            "s",
+            kinds::BACKUP,
+            json!({"connection_id": "a", "options": {"password": "x"}}),
+        )]);
+        assert_eq!(
+            connections_of(&AppState::new(StateStore::open_in_memory().unwrap()), &t),
+            ["a"]
+        );
         assert_eq!(step_secret_name("t", "s"), "task-secret:t:s");
     }
 }

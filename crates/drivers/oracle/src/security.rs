@@ -9,7 +9,9 @@
 
 use crate::monitor::txt;
 use crate::{cell, err, quote as q, schema_name};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use oracledb::{Connection, ToDbValue};
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
@@ -18,12 +20,39 @@ pub fn spec() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
             // On objects.
-            "SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "REFERENCES", "ALTER", "INDEX", "READ", "DEBUG",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "EXECUTE",
+            "REFERENCES",
+            "ALTER",
+            "INDEX",
+            "READ",
+            "DEBUG",
             // System-wide (granted without an object).
-            "CREATE SESSION", "CREATE TABLE", "CREATE VIEW", "CREATE SEQUENCE", "CREATE PROCEDURE", "CREATE TRIGGER",
-            "CREATE SYNONYM", "CREATE MATERIALIZED VIEW", "UNLIMITED TABLESPACE", "SELECT ANY TABLE", "SELECT ANY DICTIONARY",
+            "CREATE SESSION",
+            "CREATE TABLE",
+            "CREATE VIEW",
+            "CREATE SEQUENCE",
+            "CREATE PROCEDURE",
+            "CREATE TRIGGER",
+            "CREATE SYNONYM",
+            "CREATE MATERIALIZED VIEW",
+            "UNLIMITED TABLESPACE",
+            "SELECT ANY TABLE",
+            "SELECT ANY DICTIONARY",
         ],
-        object_kinds: vec!["", "table", "view", "materialized_view", "procedure", "function", "package", "sequence"],
+        object_kinds: vec![
+            "",
+            "table",
+            "view",
+            "materialized_view",
+            "procedure",
+            "function",
+            "package",
+            "sequence",
+        ],
         create_user: true,
         create_role: true,
         passwords: true,
@@ -37,14 +66,28 @@ pub fn spec() -> SecuritySpec {
 /// Rows of a catalog query, kept out of the statement cache: the thin
 /// client would keep a statement whose parse failed (a DBA_ view without
 /// the grant) and report ORA-01003 the next time.
-fn rows(c: &Connection, sql: &str, params: &[&dyn ToDbValue]) -> std::result::Result<Vec<Vec<Value>>, oracledb::Error> {
-    let stmt = c.statement(sql).map(|b| b.exclude_from_cache()).and_then(|b| b.build())?;
+fn rows(
+    c: &Connection,
+    sql: &str,
+    params: &[&dyn ToDbValue],
+) -> std::result::Result<Vec<Vec<Value>>, oracledb::Error> {
+    let stmt = c
+        .statement(sql)
+        .map(|b| b.exclude_from_cache())
+        .and_then(|b| b.build())?;
     let cursor = stmt.query(params)?;
-    let types: Vec<&'static oracledb::DbType> = cursor.columns().iter().map(|m| m.db_type()).collect();
+    let types: Vec<&'static oracledb::DbType> =
+        cursor.columns().iter().map(|m| m.db_type()).collect();
     let mut out = Vec::new();
     for row in cursor {
         let row = row?;
-        out.push(types.iter().enumerate().map(|(i, t)| cell(&row, i, t)).collect());
+        out.push(
+            types
+                .iter()
+                .enumerate()
+                .map(|(i, t)| cell(&row, i, t))
+                .collect(),
+        );
     }
     Ok(out)
 }
@@ -54,7 +97,8 @@ fn at(r: &[Value], i: usize) -> Option<String> {
 }
 
 fn dba(c: &Connection) -> bool {
-    rows(c, "SELECT 1 FROM dba_users WHERE ROWNUM = 1", &[]).is_ok() && rows(c, "SELECT 1 FROM dba_role_privs WHERE ROWNUM = 1", &[]).is_ok()
+    rows(c, "SELECT 1 FROM dba_users WHERE ROWNUM = 1", &[]).is_ok()
+        && rows(c, "SELECT 1 FROM dba_role_privs WHERE ROWNUM = 1", &[]).is_ok()
 }
 
 const DBA_USERS: &str = "SELECT username, account_status, authentication_type, default_tablespace,
@@ -72,10 +116,12 @@ const DBA_MEMBERS: &str = "SELECT grantee, granted_role FROM dba_role_privs";
 
 const ALL_USERS: &str = "SELECT username, NULL, NULL, NULL, TO_CHAR(created, 'YYYY-MM-DD HH24:MI'), NULL, oracle_maintained
   FROM all_users ORDER BY username";
-const ALL_USERS_11G: &str = "SELECT username, NULL, NULL, NULL, TO_CHAR(created, 'YYYY-MM-DD HH24:MI'), NULL, 'N'
+const ALL_USERS_11G: &str =
+    "SELECT username, NULL, NULL, NULL, TO_CHAR(created, 'YYYY-MM-DD HH24:MI'), NULL, 'N'
   FROM all_users ORDER BY username";
 /// The roles the session's user has, directly or through other roles.
-const OWN_ROLES: &str = "SELECT granted_role FROM user_role_privs UNION SELECT granted_role FROM role_role_privs";
+const OWN_ROLES: &str =
+    "SELECT granted_role FROM user_role_privs UNION SELECT granted_role FROM role_role_privs";
 const OWN_MEMBERS: &str = "SELECT username, granted_role FROM user_role_privs UNION ALL SELECT role, granted_role FROM role_role_privs";
 
 pub fn principals(c: &Connection) -> Result<Vec<Principal>> {
@@ -87,15 +133,25 @@ pub fn principals(c: &Connection) -> Result<Vec<Principal>> {
     }
     .map_err(err)?;
     let roles: Vec<Vec<Value>> = if full {
-        rows(c, DBA_ROLES, &[]).or_else(|_| rows(c, DBA_ROLES_11G, &[])).map_err(err)?
+        rows(c, DBA_ROLES, &[])
+            .or_else(|_| rows(c, DBA_ROLES_11G, &[]))
+            .map_err(err)?
     } else {
-        rows(c, OWN_ROLES, &[]).map_err(err)?.into_iter().map(|mut r| {
-            r.push(Value::Null);
-            r
-        }).collect()
+        rows(c, OWN_ROLES, &[])
+            .map_err(err)?
+            .into_iter()
+            .map(|mut r| {
+                r.push(Value::Null);
+                r
+            })
+            .collect()
     };
     let members = rows(c, if full { DBA_MEMBERS } else { OWN_MEMBERS }, &[]).map_err(err)?;
-    let me = rows(c, "SELECT USER FROM dual", &[]).map_err(err)?.first().and_then(|r| at(r, 0)).unwrap_or_default();
+    let me = rows(c, "SELECT USER FROM dual", &[])
+        .map_err(err)?
+        .first()
+        .and_then(|r| at(r, 0))
+        .unwrap_or_default();
 
     let mut out = Vec::new();
     for r in &users {
@@ -119,7 +175,11 @@ pub fn principals(c: &Connection) -> Result<Vec<Principal>> {
             details.push(("Vence".into(), t));
         }
         if !full && name == me {
-            details.push(("Nota".into(), "Sin acceso a las vistas DBA_: se ven los roles y permisos del usuario propio".into()));
+            details.push((
+                "Nota".into(),
+                "Sin acceso a las vistas DBA_: se ven los roles y permisos del usuario propio"
+                    .into(),
+            ));
         }
         out.push(Principal {
             kind: PrincipalKind::User,
@@ -144,7 +204,9 @@ pub fn principals(c: &Connection) -> Result<Vec<Principal>> {
         });
     }
     for m in &members {
-        let (Some(member), Some(role)) = (at(m, 0), at(m, 1)) else { continue };
+        let (Some(member), Some(role)) = (at(m, 0), at(m, 1)) else {
+            continue;
+        };
         if let Some(p) = out.iter_mut().find(|p| p.name == member) {
             if !p.member_of.contains(&role) {
                 if role == "DBA" {
@@ -206,10 +268,15 @@ fn kind_of(object_type: &str) -> &'static str {
 
 pub fn grants(c: &Connection, principal: &str) -> Result<Vec<Grant>> {
     let full = dba(c);
-    let (grants_sql, roles_sql) = if full { (DBA_GRANTS, DBA_ROLES_OF) } else { (OWN_GRANTS, OWN_ROLES_OF) };
+    let (grants_sql, roles_sql) = if full {
+        (DBA_GRANTS, DBA_ROLES_OF)
+    } else {
+        (OWN_GRANTS, OWN_ROLES_OF)
+    };
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    let mut queue: VecDeque<(String, Option<String>)> = VecDeque::from([(principal.to_string(), None)]);
+    let mut queue: VecDeque<(String, Option<String>)> =
+        VecDeque::from([(principal.to_string(), None)]);
     while let Some((name, via)) = queue.pop_front() {
         if !seen.insert(name.clone()) || seen.len() > 256 {
             continue;
@@ -221,12 +288,27 @@ pub fn grants(c: &Connection, principal: &str) -> Result<Vec<Grant>> {
             let ty = at(&r, 5).unwrap_or_default();
             let (privilege, object, object_kind) = match (at(&r, 1), at(&r, 2)) {
                 (Some(owner), Some(obj)) => match at(&r, 3) {
-                    Some(col) => (format!("{privilege} ({col})"), Some(format!("{owner}.{obj}")), Some("table".to_string())),
-                    None => (privilege, Some(format!("{owner}.{obj}")), Some(kind_of(&ty).to_string())),
+                    Some(col) => (
+                        format!("{privilege} ({col})"),
+                        Some(format!("{owner}.{obj}")),
+                        Some("table".to_string()),
+                    ),
+                    None => (
+                        privilege,
+                        Some(format!("{owner}.{obj}")),
+                        Some(kind_of(&ty).to_string()),
+                    ),
                 },
                 _ => (privilege, None, None),
             };
-            out.push(Grant { privilege, object, object_kind, grantable: at(&r, 4).as_deref() == Some("YES"), denied: false, via: via.clone() });
+            out.push(Grant {
+                privilege,
+                object,
+                object_kind,
+                grantable: at(&r, 4).as_deref() == Some("YES"),
+                denied: false,
+                via: via.clone(),
+            });
         }
         for r in rows(c, roles_sql, &binds(roles_sql)).map_err(err)? {
             if let Some(role) = at(&r, 0) {
@@ -246,7 +328,9 @@ fn password(p: &str) -> Result<String> {
         return Err(Error::Query("escribí la contraseña del usuario".into()));
     }
     if p.contains('"') {
-        return Err(Error::Query("en Oracle la contraseña no puede tener comillas dobles (\")".into()));
+        return Err(Error::Query(
+            "en Oracle la contraseña no puede tener comillas dobles (\")".into(),
+        ));
     }
     Ok(format!("\"{p}\""))
 }
@@ -269,16 +353,28 @@ fn privileges(p: &[String], columns: bool) -> Result<String> {
     let mut out = Vec::new();
     for x in p {
         let (name, cols) = match x.split_once('(') {
-            Some((n, c)) => (n.trim(), Some(c.trim().strip_suffix(')').ok_or_else(|| bad(x))?)),
+            Some((n, c)) => (
+                n.trim(),
+                Some(c.trim().strip_suffix(')').ok_or_else(|| bad(x))?),
+            ),
             None => (x.trim(), None),
         };
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_') {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
+        {
             return Err(bad(x));
         }
         let name = name.to_uppercase();
         match cols.filter(|_| columns) {
             Some(c) => {
-                let cols: Vec<String> = c.split(',').map(|c| c.trim().trim_matches('"')).filter(|c| !c.is_empty()).map(q).collect();
+                let cols: Vec<String> = c
+                    .split(',')
+                    .map(|c| c.trim().trim_matches('"'))
+                    .filter(|c| !c.is_empty())
+                    .map(q)
+                    .collect();
                 if cols.is_empty() {
                     return Err(bad(x));
                 }
@@ -333,7 +429,15 @@ pub fn script(a: &SecurityAction) -> Result<String> {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -347,13 +451,41 @@ mod tests {
             s(SecurityAction::CreateUser { name: "ana".into(), password: Some("p'w".into()) }),
             "CREATE USER \"ANA\" IDENTIFIED BY \"p'w\";\n-- Sin CREATE SESSION no puede conectarse.\nGRANT CREATE SESSION TO \"ANA\";"
         );
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: Some("a\"b".into()) }).is_err());
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: None }).is_err());
-        assert_eq!(s(SecurityAction::CreateRole { name: "Mixed Name".into() }), "CREATE ROLE \"Mixed Name\";");
-        assert!(s(SecurityAction::Drop { name: "ANA".into(), kind: PrincipalKind::User }).starts_with("DROP USER \"ANA\";\n-- "));
-        assert_eq!(s(SecurityAction::SetLogin { name: "ANA".into(), enabled: false }), "ALTER USER \"ANA\" ACCOUNT LOCK;");
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: Some("a\"b".into())
+        })
+        .is_err());
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: None
+        })
+        .is_err());
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["create table".into()], object: None, to: "ANA".into(), grantable: true }),
+            s(SecurityAction::CreateRole {
+                name: "Mixed Name".into()
+            }),
+            "CREATE ROLE \"Mixed Name\";"
+        );
+        assert!(s(SecurityAction::Drop {
+            name: "ANA".into(),
+            kind: PrincipalKind::User
+        })
+        .starts_with("DROP USER \"ANA\";\n-- "));
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ANA".into(),
+                enabled: false
+            }),
+            "ALTER USER \"ANA\" ACCOUNT LOCK;"
+        );
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["create table".into()],
+                object: None,
+                to: "ANA".into(),
+                grantable: true
+            }),
             "GRANT CREATE TABLE TO \"ANA\" WITH ADMIN OPTION;"
         );
         assert_eq!(
@@ -368,13 +500,35 @@ mod tests {
         assert_eq!(
             s(SecurityAction::Revoke {
                 privileges: vec!["UPDATE (TOTAL)".into()],
-                object: Some(ObjectRef { kind: "table".into(), schema: Some("VENTAS".into()), name: "FACTURAS".into() }),
+                object: Some(ObjectRef {
+                    kind: "table".into(),
+                    schema: Some("VENTAS".into()),
+                    name: "FACTURAS".into()
+                }),
                 from: "ANA".into(),
             }),
             "REVOKE UPDATE ON \"VENTAS\".\"FACTURAS\" FROM \"ANA\";"
         );
-        assert_eq!(s(SecurityAction::AddMember { role: "LECT".into(), member: "ANA".into() }), "GRANT \"LECT\" TO \"ANA\";");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "LECT".into(), member: "ANA".into() }), "REVOKE \"LECT\" FROM \"ANA\";");
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT; DROP TABLE x".into()], object: None, to: "a".into(), grantable: false }).is_err());
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "LECT".into(),
+                member: "ANA".into()
+            }),
+            "GRANT \"LECT\" TO \"ANA\";"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "LECT".into(),
+                member: "ANA".into()
+            }),
+            "REVOKE \"LECT\" FROM \"ANA\";"
+        );
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT; DROP TABLE x".into()],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
     }
 }

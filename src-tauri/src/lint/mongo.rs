@@ -4,20 +4,35 @@ use super::lex::{closing, tokens, Options, Tok, C};
 use super::Finding;
 
 pub(super) fn lint(script: &str, out: &mut Vec<Finding>) {
-    let t = tokens(script, Options { regex: true, ..Options::default() });
+    let t = tokens(
+        script,
+        Options {
+            regex: true,
+            ..Options::default()
+        },
+    );
     for i in 0..t.len() {
         let x = &t[i];
-        let method = x.k == C::Word && i > 0 && t[i - 1].p('.') && t.get(i + 1).is_some_and(|n| n.p('('));
+        let method =
+            x.k == C::Word && i > 0 && t[i - 1].p('.') && t.get(i + 1).is_some_and(|n| n.p('('));
         if method {
             let open = i + 1;
             let close = closing(&t, open);
             let empty_filter = empty_first_arg(&t, open, close);
             match x.text {
-                "deleteMany" | "remove" | "updateMany" if empty_filter.is_some_and(|all| all || x.text != "updateMany") => {
-                    out.push(Finding::new("write-all", x.start, t.get(close).map_or(x.end, |c| c.end)).param("call", call(&t, i, close)));
+                "deleteMany" | "remove" | "updateMany"
+                    if empty_filter.is_some_and(|all| all || x.text != "updateMany") =>
+                {
+                    out.push(
+                        Finding::new("write-all", x.start, t.get(close).map_or(x.end, |c| c.end))
+                            .param("call", call(&t, i, close)),
+                    );
                 }
                 "find" if empty_filter.is_some() => {
-                    out.push(Finding::new("read-all", x.start, t.get(close).map_or(x.end, |c| c.end)).param("call", call(&t, i, close)));
+                    out.push(
+                        Finding::new("read-all", x.start, t.get(close).map_or(x.end, |c| c.end))
+                            .param("call", call(&t, i, close)),
+                    );
                 }
                 _ => {}
             }
@@ -34,14 +49,18 @@ fn empty_first_arg(t: &[Tok], open: usize, close: usize) -> Option<bool> {
     if close == open + 1 {
         return Some(false);
     }
-    let braces = t.get(open + 1).is_some_and(|x| x.p('{')) && t.get(open + 2).is_some_and(|x| x.p('}'));
+    let braces =
+        t.get(open + 1).is_some_and(|x| x.p('{')) && t.get(open + 2).is_some_and(|x| x.p('}'));
     (braces && t.get(open + 3).is_some_and(|x| x.p(',') || x.p(')'))).then_some(true)
 }
 
 /// `deleteMany({})` as written, spaces collapsed.
 fn call(t: &[Tok], method: usize, close: usize) -> String {
     let end = (method + 4).min(close);
-    let mut s: String = t[method..=end.min(t.len() - 1)].iter().map(|x| x.text).collect();
+    let mut s: String = t[method..=end.min(t.len() - 1)]
+        .iter()
+        .map(|x| x.text)
+        .collect();
     if end < close {
         s.push_str("…)");
     }

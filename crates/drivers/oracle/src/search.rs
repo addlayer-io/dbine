@@ -13,7 +13,9 @@
 //! describe yet…) the app's scan reads them one by one instead.
 
 use crate::structure::{sequence_sql, SequenceInfo};
-use crate::{err, object_kind, plsql_source, with_indexes, OracleSession, PACKAGE, SET_METADATA_TRANSFORMS};
+use crate::{
+    err, object_kind, plsql_source, with_indexes, OracleSession, PACKAGE, SET_METADATA_TRANSFORMS,
+};
 use dbine_driver::search::{hits_in, CodeSearch, CodeSearchReport};
 use dbine_driver::{kinds, Result, Session};
 use oracledb::{Connection, Row};
@@ -23,7 +25,8 @@ use std::collections::HashMap;
 type Sources = HashMap<(String, String, String), String>;
 
 /// The objects' common filter (as `LIST_OBJECTS`).
-const LISTED: &str = "o.owner = :1 AND o.generated = 'N' AND o.secondary = 'N' AND o.object_name NOT LIKE 'BIN$%'";
+const LISTED: &str =
+    "o.owner = :1 AND o.generated = 'N' AND o.secondary = 'N' AND o.object_name NOT LIKE 'BIN$%'";
 
 /// Standalone indexes of the owner's tables (as `TABLE_INDEXES`).
 const INDEXES: &str = "SELECT i.owner, i.index_name, i.table_name FROM all_indexes i
@@ -44,10 +47,12 @@ const SEQUENCES: &str = "SELECT sequence_name, TO_CHAR(min_value), TO_CHAR(max_v
 const SEQUENCES_EXTRA: &str =
     "SELECT sequence_name, scale_flag, extend_flag, session_flag, keep_value FROM all_sequences WHERE sequence_owner = :1";
 
-const SYNONYMS: &str = "SELECT owner, synonym_name, table_owner, table_name, db_link FROM all_synonyms
+const SYNONYMS: &str =
+    "SELECT owner, synonym_name, table_owner, table_name, db_link FROM all_synonyms
   WHERE owner = :1 OR (owner = 'PUBLIC' AND table_owner = :2)";
 
-const TYPES: &str = "SELECT name, line, text FROM all_source WHERE owner = :1 AND type IN ('TYPE', 'TYPE BODY')
+const TYPES: &str =
+    "SELECT name, line, text FROM all_source WHERE owner = :1 AND type IN ('TYPE', 'TYPE BODY')
   ORDER BY name, CASE WHEN type LIKE '% BODY' THEN 2 ELSE 1 END, line";
 
 /// Whether `expr` may hold `q`'s text, with DBMS_LOB.INSTR and the text
@@ -56,9 +61,15 @@ const TYPES: &str = "SELECT name, line, text FROM all_source WHERE owner = :1 AN
 /// the rest, and then nothing is narrowed).
 fn narrow(expr: &str, bind: &str, q: &CodeSearch) -> (String, Option<String>) {
     if q.case_sensitive {
-        (format!("DBMS_LOB.INSTR({expr}, {bind}) > 0"), Some(q.text.clone()))
+        (
+            format!("DBMS_LOB.INSTR({expr}, {bind}) > 0"),
+            Some(q.text.clone()),
+        )
     } else if q.text.is_ascii() {
-        (format!("DBMS_LOB.INSTR(UPPER({expr}), {bind}) > 0"), Some(q.text.to_ascii_uppercase()))
+        (
+            format!("DBMS_LOB.INSTR(UPPER({expr}), {bind}) > 0"),
+            Some(q.text.to_ascii_uppercase()),
+        )
     } else {
         ("1 = 1".into(), None)
     }
@@ -77,17 +88,37 @@ fn yes(v: Option<String>) -> bool {
 /// keeps the view from being merged): DBMS_METADATA would otherwise be
 /// asked about rows the filter drops, and fail on them.
 fn described(objects: &str, columns: &str, matches: &str) -> String {
-    format!("SELECT * FROM (SELECT {columns} AS ddl FROM ({objects} AND ROWNUM > 0) x) WHERE {matches}")
+    format!(
+        "SELECT * FROM (SELECT {columns} AS ddl FROM ({objects} AND ROWNUM > 0) x) WHERE {matches}"
+    )
 }
 
 /// The rows of `sql`, its binds in order (a name used twice is bound twice).
 fn rows(c: &Connection, sql: &str, binds: &[&str]) -> Result<Vec<Row>> {
-    let params: Vec<&dyn oracledb::ToDbValue> = binds.iter().map(|b| b as &dyn oracledb::ToDbValue).collect();
-    c.statement(sql).map_err(err)?.exclude_from_cache().build().map_err(err)?.query(&params).map_err(err)?.map(|r| r.map_err(err)).collect()
+    let params: Vec<&dyn oracledb::ToDbValue> = binds
+        .iter()
+        .map(|b| b as &dyn oracledb::ToDbValue)
+        .collect();
+    c.statement(sql)
+        .map_err(err)?
+        .exclude_from_cache()
+        .build()
+        .map_err(err)?
+        .query(&params)
+        .map_err(err)?
+        .map(|r| r.map_err(err))
+        .collect()
 }
 
 /// Every wanted kind's sources, read in bulk.
-fn sources(c: &Connection, owner: &str, schema: &str, wanted: &[String], tables: &[String], q: &CodeSearch) -> Result<Sources> {
+fn sources(
+    c: &Connection,
+    owner: &str,
+    schema: &str,
+    wanted: &[String],
+    tables: &[String],
+    q: &CodeSearch,
+) -> Result<Sources> {
     let want = |k: &str| wanted.iter().any(|w| w == k);
     let mut out = Sources::new();
     let ddl_types: Vec<&str> = [
@@ -104,7 +135,11 @@ fn sources(c: &Connection, owner: &str, schema: &str, wanted: &[String], tables:
     .collect();
     if !ddl_types.is_empty() {
         let (matches, needle) = narrow("ddl", ":2", q);
-        let list = ddl_types.iter().map(|t| format!("'{t}'")).collect::<Vec<_>>().join(", ");
+        let list = ddl_types
+            .iter()
+            .map(|t| format!("'{t}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let sql = described(
             &format!("SELECT o.object_type, o.object_name, o.owner FROM all_objects o WHERE {LISTED} AND o.object_type IN ({list})"),
             "x.object_type, x.object_name, DBMS_METADATA.GET_DDL(REPLACE(x.object_type, ' ', '_'), x.object_name, x.owner)",
@@ -112,8 +147,13 @@ fn sources(c: &Connection, owner: &str, schema: &str, wanted: &[String], tables:
         );
         let binds: Vec<&str> = std::iter::once(owner).chain(needle.as_deref()).collect();
         for r in rows(c, &sql, &binds)? {
-            let (Some(ty), Some(name), Some(ddl)) = (text(&r, 0)?, text(&r, 1)?, text(&r, 2)?) else { continue };
-            let Some(kind) = object_kind(&ty) else { continue };
+            let (Some(ty), Some(name), Some(ddl)) = (text(&r, 0)?, text(&r, 1)?, text(&r, 2)?)
+            else {
+                continue;
+            };
+            let Some(kind) = object_kind(&ty) else {
+                continue;
+            };
             out.insert((kind.into(), owner.into(), name), ddl.trim().to_string());
         }
     }
@@ -141,7 +181,11 @@ fn sources(c: &Connection, owner: &str, schema: &str, wanted: &[String], tables:
         let (matches, needle) = narrow("ddl", ":2", q);
         let sql = format!(
             "SELECT DISTINCT table_name FROM ({})",
-            described(INDEXES, "x.table_name, DBMS_METADATA.GET_DDL('INDEX', x.index_name, x.owner)", &matches)
+            described(
+                INDEXES,
+                "x.table_name, DBMS_METADATA.GET_DDL('INDEX', x.index_name, x.owner)",
+                &matches
+            )
         );
         let binds: Vec<&str> = std::iter::once(owner).chain(needle.as_deref()).collect();
         for r in rows(c, &sql, &binds)? {
@@ -150,7 +194,10 @@ fn sources(c: &Connection, owner: &str, schema: &str, wanted: &[String], tables:
                 continue;
             }
             let ddl = c
-                .query_row("SELECT DBMS_METADATA.GET_DDL('TABLE', :1, :2) FROM dual", &[&name.as_str(), &owner])
+                .query_row(
+                    "SELECT DBMS_METADATA.GET_DDL('TABLE', :1, :2) FROM dual",
+                    &[&name.as_str(), &owner],
+                )
                 .and_then(|r| r.get::<Option<String>>(0))
                 .map_err(err)?;
             if let Some(ddl) = ddl {
@@ -166,7 +213,10 @@ fn sources(c: &Connection, owner: &str, schema: &str, wanted: &[String], tables:
         let mut lines: HashMap<String, Vec<(i64, String)>> = HashMap::new();
         for r in rows(c, TYPES, &[owner])? {
             let Some(name) = text(&r, 0)? else { continue };
-            lines.entry(name).or_default().push((r.get::<i64>(1).map_err(err)?, text(&r, 2)?.unwrap_or_default()));
+            lines.entry(name).or_default().push((
+                r.get::<i64>(1).map_err(err)?,
+                text(&r, 2)?.unwrap_or_default(),
+            ));
         }
         for (name, lines) in lines {
             if let Some(src) = plsql_source(&lines) {
@@ -210,9 +260,18 @@ fn sources(c: &Connection, owner: &str, schema: &str, wanted: &[String], tables:
     }
     if want(kinds::SYNONYM) {
         for r in rows(c, SYNONYMS, &[owner, owner])? {
-            let (Some(syn_owner), Some(name)) = (text(&r, 0)?, text(&r, 1)?) else { continue };
+            let (Some(syn_owner), Some(name)) = (text(&r, 0)?, text(&r, 1)?) else {
+                continue;
+            };
             let target = text(&r, 3)?.unwrap_or_default();
-            let src = crate::structure::synonym_sql(syn_owner == "PUBLIC", &name, schema, text(&r, 2)?.as_deref(), &target, text(&r, 4)?.as_deref());
+            let src = crate::structure::synonym_sql(
+                syn_owner == "PUBLIC",
+                &name,
+                schema,
+                text(&r, 2)?.as_deref(),
+                &target,
+                text(&r, 4)?.as_deref(),
+            );
             out.insert((kinds::SYNONYM.into(), syn_owner, name), src);
         }
     }
@@ -220,19 +279,35 @@ fn sources(c: &Connection, owner: &str, schema: &str, wanted: &[String], tables:
 }
 
 impl OracleSession {
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
         if q.text.is_empty() {
             return Ok(None);
         }
         let wanted: Vec<String> = crate::info()
             .object_kinds
             .iter()
-            .filter(|k| k.has_definition && (q.kinds.is_empty() || q.kinds.iter().any(|w| w == k.id)))
+            .filter(|k| {
+                k.has_definition && (q.kinds.is_empty() || q.kinds.iter().any(|w| w == k.id))
+            })
             .map(|k| k.id.to_string())
             .collect();
-        let objects: Vec<_> = Session::list_objects(self).await?.into_iter().filter(|o| wanted.contains(&o.kind)).collect();
-        let present: Vec<String> = wanted.into_iter().filter(|k| objects.iter().any(|o| &o.kind == k)).collect();
-        let tables: Vec<String> = objects.iter().filter(|o| o.kind == kinds::TABLE).map(|o| o.name.clone()).collect();
+        let objects: Vec<_> = Session::list_objects(self)
+            .await?
+            .into_iter()
+            .filter(|o| wanted.contains(&o.kind))
+            .collect();
+        let present: Vec<String> = wanted
+            .into_iter()
+            .filter(|k| objects.iter().any(|o| &o.kind == k))
+            .collect();
+        let tables: Vec<String> = objects
+            .iter()
+            .filter(|o| o.kind == kinds::TABLE)
+            .map(|o| o.name.clone())
+            .collect();
         let schema = self.schema.clone();
         let prepare = !self.metadata_ready;
         self.metadata_ready = true;
@@ -254,11 +329,23 @@ impl OracleSession {
                 return Ok(None);
             }
         };
-        let mut report = CodeSearchReport { scanned: objects.len(), ..Default::default() };
+        let mut report = CodeSearchReport {
+            scanned: objects.len(),
+            ..Default::default()
+        };
         for o in &objects {
             let owner = o.schema.clone().unwrap_or_else(|| self.schema.clone());
-            let Some(source) = sources.get(&(o.kind.clone(), owner, o.name.clone())) else { continue };
-            report.hits.extend(hits_in(&o.kind, o.schema.as_deref(), &o.name, o.parent.as_deref(), source, q));
+            let Some(source) = sources.get(&(o.kind.clone(), owner, o.name.clone())) else {
+                continue;
+            };
+            report.hits.extend(hits_in(
+                &o.kind,
+                o.schema.as_deref(),
+                &o.name,
+                o.parent.as_deref(),
+                source,
+                q,
+            ));
             if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                 report.hits.truncate(q.max_hits);
                 report.truncated = true;

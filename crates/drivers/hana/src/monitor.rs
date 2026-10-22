@@ -26,7 +26,12 @@ impl Set {
     }
     pub(crate) fn get(&self, row: usize, name: &str) -> Option<&str> {
         let i = self.idx(name)?;
-        self.rows.get(row)?.get(i)?.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        self.rows
+            .get(row)?
+            .get(i)?
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
     }
     fn num(&self, row: usize, name: &str) -> Option<f64> {
         self.get(row, name).and_then(dbine_driver::monitor::num)
@@ -38,22 +43,32 @@ impl Set {
         self.get(0, name).map(str::to_string)
     }
     fn sum(&self, name: &str) -> Option<f64> {
-        let v: Vec<f64> = (0..self.rows.len()).filter_map(|r| self.num(r, name)).collect();
+        let v: Vec<f64> = (0..self.rows.len())
+            .filter_map(|r| self.num(r, name))
+            .collect();
         (!v.is_empty()).then(|| v.iter().sum())
     }
     fn sum_where(&self, name: &str, col: &str, pred: impl Fn(&str) -> bool) -> Option<f64> {
-        let v: Vec<f64> =
-            (0..self.rows.len()).filter(|&r| self.get(r, col).is_some_and(&pred)).filter_map(|r| self.num(r, name)).collect();
+        let v: Vec<f64> = (0..self.rows.len())
+            .filter(|&r| self.get(r, col).is_some_and(&pred))
+            .filter_map(|r| self.num(r, name))
+            .collect();
         (!v.is_empty()).then(|| v.iter().sum())
     }
     fn count_where(&self, name: &str, pred: impl Fn(&str) -> bool) -> f64 {
-        (0..self.rows.len()).filter(|&r| self.get(r, name).is_some_and(&pred)).count() as f64
+        (0..self.rows.len())
+            .filter(|&r| self.get(r, name).is_some_and(&pred))
+            .count() as f64
     }
 }
 
 pub(crate) async fn query(conn: &Connection, sql: &str) -> Result<Set> {
     let rs = conn.query(sql).await.map_err(err)?;
-    let cols = rs.metadata().iter().map(|f| f.displayname().to_string()).collect();
+    let cols = rs
+        .metadata()
+        .iter()
+        .map(|f| f.displayname().to_string())
+        .collect();
     let mut rows = Vec::new();
     for row in rs.into_rows().await.map_err(err)? {
         let mut r = Vec::new();
@@ -66,11 +81,15 @@ pub(crate) async fn query(conn: &Connection, sql: &str) -> Result<Set> {
 }
 
 fn cell(v: Option<&str>) -> Value {
-    let Some(s) = v.map(str::trim).filter(|s| !s.is_empty()) else { return Value::Null };
+    let Some(s) = v.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Value::Null;
+    };
     if let Ok(i) = s.parse::<i64>() {
         return i.into();
     }
-    if s.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
+    if s.chars()
+        .all(|c| c.is_ascii_digit() || c == '.' || c == '-')
+    {
         if let Some(n) = s.parse::<f64>().ok().and_then(serde_json::Number::from_f64) {
             return Value::Number(n);
         }
@@ -90,7 +109,8 @@ fn table(key: &str, title: &str, cols: &[(&str, &str)], set: &Set) -> Option<Mon
     let labels: Vec<&str> = present.iter().map(|(_, l)| *l).collect();
     let mut t = MonitorTable::new(key, title, &labels);
     for r in 0..set.rows.len().min(MAX_ROWS) {
-        t.rows.push(present.iter().map(|(c, _)| cell(set.get(r, c))).collect());
+        t.rows
+            .push(present.iter().map(|(c, _)| cell(set.get(r, c))).collect());
     }
     Some(t)
 }
@@ -111,7 +131,10 @@ impl Snap {
         if msg.contains("[258]") || msg.to_ascii_lowercase().contains("privilege") {
             self.denied = true;
         } else {
-            self.s.notes.push(format!("{what}: no disponible ({}).", msg.lines().next().unwrap_or("").trim()));
+            self.s.notes.push(format!(
+                "{what}: no disponible ({}).",
+                msg.lines().next().unwrap_or("").trim()
+            ));
         }
     }
     fn info(&mut self, label: &str, v: Option<String>) {
@@ -127,7 +150,10 @@ impl Snap {
 }
 
 pub(crate) async fn snapshot(conn: &Connection) -> MonitorSnapshot {
-    let mut s = Snap { s: MonitorSnapshot::default(), denied: false };
+    let mut s = Snap {
+        s: MonitorSnapshot::default(),
+        denied: false,
+    };
 
     match query(
         conn,
@@ -148,8 +174,19 @@ pub(crate) async fn snapshot(conn: &Connection) -> MonitorSnapshot {
     }
 
     // Current CPU (%) comes from the load history (HANA 2 SPS03+), sampled every 10 s.
-    if let Ok(l) = query(conn, "SELECT TOP 1 CPU FROM SYS.M_LOAD_HISTORY_HOST ORDER BY TIME DESC").await {
-        s.s.metrics.push(m("cpu", "CPU del servidor", "CPU", U::Percent, l.first("CPU")));
+    if let Ok(l) = query(
+        conn,
+        "SELECT TOP 1 CPU FROM SYS.M_LOAD_HISTORY_HOST ORDER BY TIME DESC",
+    )
+    .await
+    {
+        s.s.metrics.push(m(
+            "cpu",
+            "CPU del servidor",
+            "CPU",
+            U::Percent,
+            l.first("CPU"),
+        ));
     }
     match query(conn, "SELECT * FROM SYS.M_HOST_RESOURCE_UTILIZATION").await {
         Ok(h) => {
@@ -157,17 +194,31 @@ pub(crate) async fn snapshot(conn: &Connection) -> MonitorSnapshot {
                 (Some(u), Some(sy)) => Some((u + sy) / 1000.0 * 100.0),
                 _ => None,
             };
-            s.s.metrics.push(m("cpu_time", "CPU del host (tiempo)", "CPU", U::Percent, busy).counter());
+            s.s.metrics
+                .push(m("cpu_time", "CPU del host (tiempo)", "CPU", U::Percent, busy).counter());
             s.s.metrics.push(
-                m("mem_used", "Memoria usada por HANA", "Memoria", U::Bytes, h.sum("INSTANCE_TOTAL_MEMORY_USED_SIZE"))
-                    .max(h.sum("ALLOCATION_LIMIT")),
+                m(
+                    "mem_used",
+                    "Memoria usada por HANA",
+                    "Memoria",
+                    U::Bytes,
+                    h.sum("INSTANCE_TOTAL_MEMORY_USED_SIZE"),
+                )
+                .max(h.sum("ALLOCATION_LIMIT")),
             );
             let phys = match (h.sum("USED_PHYSICAL_MEMORY"), h.sum("FREE_PHYSICAL_MEMORY")) {
                 (Some(u), Some(f)) => Some(u + f),
                 _ => None,
             };
             s.s.metrics.push(
-                m("host_mem_used", "Memoria física del host", "Memoria", U::Bytes, h.sum("USED_PHYSICAL_MEMORY")).max(phys),
+                m(
+                    "host_mem_used",
+                    "Memoria física del host",
+                    "Memoria",
+                    U::Bytes,
+                    h.sum("USED_PHYSICAL_MEMORY"),
+                )
+                .max(phys),
             );
             s.info("Hosts", Some(h.rows.len().to_string()));
         }
@@ -197,10 +248,33 @@ pub(crate) async fn snapshot(conn: &Connection) -> MonitorSnapshot {
         )),
         Err(e) => s.failed("Memoria de los servicios (M_SERVICE_MEMORY)", e),
     }
-    match query(conn, "SELECT SUM(EXECUTION_COUNT) AS EXECS, SUM(TRANSACTION_COUNT) AS TXS FROM SYS.M_WORKLOAD").await {
+    match query(
+        conn,
+        "SELECT SUM(EXECUTION_COUNT) AS EXECS, SUM(TRANSACTION_COUNT) AS TXS FROM SYS.M_WORKLOAD",
+    )
+    .await
+    {
         Ok(w) => {
-            s.s.metrics.push(m("queries", "Sentencias", "Actividad", U::Count, w.first("EXECS")).counter());
-            s.s.metrics.push(m("transactions", "Transacciones", "Actividad", U::Count, w.first("TXS")).counter());
+            s.s.metrics.push(
+                m(
+                    "queries",
+                    "Sentencias",
+                    "Actividad",
+                    U::Count,
+                    w.first("EXECS"),
+                )
+                .counter(),
+            );
+            s.s.metrics.push(
+                m(
+                    "transactions",
+                    "Transacciones",
+                    "Actividad",
+                    U::Count,
+                    w.first("TXS"),
+                )
+                .counter(),
+            );
         }
         Err(e) => s.failed("Carga (M_WORKLOAD)", e),
     }
@@ -264,7 +338,13 @@ pub(crate) async fn snapshot(conn: &Connection) -> MonitorSnapshot {
     }
     match query(conn, "SELECT TOP 200 * FROM SYS.M_BLOCKED_TRANSACTIONS").await {
         Ok(b) => {
-            s.s.metrics.push(m("locks_waiting", "Bloqueos en espera", "Bloqueos", U::Count, Some(b.rows.len() as f64)));
+            s.s.metrics.push(m(
+                "locks_waiting",
+                "Bloqueos en espera",
+                "Bloqueos",
+                U::Count,
+                Some(b.rows.len() as f64),
+            ));
             s.table(table(
                 "locks",
                 "Bloqueos / esperas",
@@ -303,8 +383,16 @@ pub(crate) async fn snapshot(conn: &Connection) -> MonitorSnapshot {
     .await
     {
         if !r.rows.is_empty() {
-            let lag = (0..r.rows.len()).filter_map(|i| r.num(i, "LAG_S")).fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.max(v))));
-            s.s.metrics.push(m("replication_lag", "Retraso de réplica", "Replicación", U::Seconds, lag.map(|v| v.max(0.0))));
+            let lag = (0..r.rows.len())
+                .filter_map(|i| r.num(i, "LAG_S"))
+                .fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.max(v))));
+            s.s.metrics.push(m(
+                "replication_lag",
+                "Retraso de réplica",
+                "Replicación",
+                U::Seconds,
+                lag.map(|v| v.max(0.0)),
+            ));
             s.table(table(
                 "replication",
                 "Réplicas (System Replication)",
@@ -348,7 +436,8 @@ pub(crate) async fn snapshot(conn: &Connection) -> MonitorSnapshot {
                 .into(),
         );
     }
-    s.s.notes.push("M_CS_TABLES solo cuenta las tablas columnares cargadas en memoria.".into());
+    s.s.notes
+        .push("M_CS_TABLES solo cuenta las tablas columnares cargadas en memoria.".into());
     s.s
 }
 
@@ -362,7 +451,17 @@ mod tests {
             cols: vec!["CONNECTION_ID".into(), "SQL_TEXT".into()],
             rows: vec![vec![Some("42".into()), Some("x".repeat(3000))]],
         };
-        let t = table("queries", "Q", &[("CONNECTION_ID", "Conexión"), ("MISSING", "No"), ("SQL_TEXT", "Consulta")], &set).unwrap();
+        let t = table(
+            "queries",
+            "Q",
+            &[
+                ("CONNECTION_ID", "Conexión"),
+                ("MISSING", "No"),
+                ("SQL_TEXT", "Consulta"),
+            ],
+            &set,
+        )
+        .unwrap();
         assert_eq!(t.columns, vec!["Conexión", "Consulta"]);
         assert_eq!(t.rows[0][0], Value::from(42));
         assert_eq!(t.rows[0][1].as_str().unwrap().chars().count(), MAX_TEXT + 1);
@@ -380,7 +479,10 @@ mod tests {
             ],
         };
         assert_eq!(set.sum("used_size"), Some(125.0));
-        assert_eq!(set.sum_where("USED_SIZE", "USAGE_TYPE", |t| t == "DATA" || t == "LOG"), Some(120.0));
+        assert_eq!(
+            set.sum_where("USED_SIZE", "USAGE_TYPE", |t| t == "DATA" || t == "LOG"),
+            Some(120.0)
+        );
         assert_eq!(set.count_where("USAGE_TYPE", |t| t == "LOG"), 1.0);
     }
 }

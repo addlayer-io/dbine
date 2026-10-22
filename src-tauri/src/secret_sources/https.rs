@@ -10,8 +10,15 @@ use std::time::Duration;
 
 /// A client that only talks to `url`'s scheme (HTTPS unless it's this
 /// computer over HTTP).
-pub fn client(url: &str, what: &str, ca_file: &str, identity: Option<reqwest::Identity>) -> Result<reqwest::Client, String> {
-    let (https, _) = service_url(url).ok_or_else(|| format!("la URL de {what} tiene que ser https:// (http:// solo para esta computadora)"))?;
+pub fn client(
+    url: &str,
+    what: &str,
+    ca_file: &str,
+    identity: Option<reqwest::Identity>,
+) -> Result<reqwest::Client, String> {
+    let (https, _) = service_url(url).ok_or_else(|| {
+        format!("la URL de {what} tiene que ser https:// (http:// solo para esta computadora)")
+    })?;
     let mut b = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
@@ -19,8 +26,14 @@ pub fn client(url: &str, what: &str, ca_file: &str, identity: Option<reqwest::Id
         .redirect(reqwest::redirect::Policy::none());
     if !ca_file.trim().is_empty() {
         let path = expand_home(ca_file.trim());
-        let pem = std::fs::read(&path).map_err(|e| format!("no se pudo leer el certificado de la CA {}: {e}", path.display()))?;
-        let certs = reqwest::Certificate::from_pem_bundle(&pem).map_err(|e| format!("el certificado de la CA no es válido: {e}"))?;
+        let pem = std::fs::read(&path).map_err(|e| {
+            format!(
+                "no se pudo leer el certificado de la CA {}: {e}",
+                path.display()
+            )
+        })?;
+        let certs = reqwest::Certificate::from_pem_bundle(&pem)
+            .map_err(|e| format!("el certificado de la CA no es válido: {e}"))?;
         if certs.is_empty() {
             return Err("el archivo de la CA no tiene certificados (PEM)".into());
         }
@@ -62,14 +75,24 @@ fn looks_pem(b: &[u8]) -> bool {
 /// A client certificate: a PKCS#12 file (`.p12`/`.pfx`, opened with the
 /// passphrase), or PEM: the certificate and its key in one file, or the
 /// key in `key_file` (an encrypted PKCS#8 key is opened with the passphrase).
-pub fn identity(cert_file: &str, key_file: &str, passphrase: Option<&str>) -> Result<reqwest::Identity, String> {
+pub fn identity(
+    cert_file: &str,
+    key_file: &str,
+    passphrase: Option<&str>,
+) -> Result<reqwest::Identity, String> {
     let path = expand_home(cert_file.trim());
-    let mut cert = std::fs::read(&path).map_err(|e| format!("no se pudo leer el certificado de cliente {}: {e}", path.display()))?;
+    let mut cert = std::fs::read(&path).map_err(|e| {
+        format!(
+            "no se pudo leer el certificado de cliente {}: {e}",
+            path.display()
+        )
+    })?;
     let mut pem = if looks_pem(&cert) {
         let mut text = String::from_utf8(std::mem::take(&mut cert)).unwrap_or_default();
         if !key_file.trim().is_empty() {
             let kp = expand_home(key_file.trim());
-            let mut key = std::fs::read_to_string(&kp).map_err(|e| format!("no se pudo leer la clave privada {}: {e}", kp.display()))?;
+            let mut key = std::fs::read_to_string(&kp)
+                .map_err(|e| format!("no se pudo leer la clave privada {}: {e}", kp.display()))?;
             text.push('\n');
             text.push_str(&key);
             wipe(&mut key);
@@ -94,13 +117,28 @@ fn open_encrypted_key(text: &str, passphrase: Option<&str>) -> Result<String, St
     }
     const BEGIN: &str = "-----BEGIN ENCRYPTED PRIVATE KEY-----";
     const END: &str = "-----END ENCRYPTED PRIVATE KEY-----";
-    let Some(start) = text.find(BEGIN) else { return Ok(text.to_string()) };
-    let end = text[start..].find(END).map(|e| start + e).ok_or("la clave privada cifrada está incompleta")?;
-    let body: String = text[start + BEGIN.len()..end].chars().filter(|c| !c.is_whitespace()).collect();
-    let der = base64::engine::general_purpose::STANDARD.decode(body.as_bytes()).map_err(|_| "la clave privada cifrada no es válida")?;
-    let pass = passphrase.filter(|p| !p.is_empty()).ok_or("la clave privada está cifrada: escribí su frase de contraseña")?;
-    let info = pkcs8::EncryptedPrivateKeyInfoRef::try_from(der.as_slice()).map_err(|_| "la clave privada cifrada no es válida")?;
-    let doc = info.decrypt(pass).map_err(|_| "la frase de contraseña de la clave privada no es la correcta")?;
+    let Some(start) = text.find(BEGIN) else {
+        return Ok(text.to_string());
+    };
+    let end = text[start..]
+        .find(END)
+        .map(|e| start + e)
+        .ok_or("la clave privada cifrada está incompleta")?;
+    let body: String = text[start + BEGIN.len()..end]
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(body.as_bytes())
+        .map_err(|_| "la clave privada cifrada no es válida")?;
+    let pass = passphrase
+        .filter(|p| !p.is_empty())
+        .ok_or("la clave privada está cifrada: escribí su frase de contraseña")?;
+    let info = pkcs8::EncryptedPrivateKeyInfoRef::try_from(der.as_slice())
+        .map_err(|_| "la clave privada cifrada no es válida")?;
+    let doc = info
+        .decrypt(pass)
+        .map_err(|_| "la frase de contraseña de la clave privada no es la correcta")?;
     let mut out = String::with_capacity(text.len());
     out.push_str(&text[..start]);
     out.push_str(&pem_block("PRIVATE KEY", doc.as_bytes()));
@@ -109,9 +147,17 @@ fn open_encrypted_key(text: &str, passphrase: Option<&str>) -> Result<String, St
 }
 
 fn pkcs12_to_pem(data: &[u8], passphrase: &str) -> Result<String, String> {
-    let store = p12_keystore::KeyStore::from_pkcs12(data, passphrase, p12_keystore::Pkcs12ImportPolicy::Relaxed)
-        .map_err(|_| "no se pudo abrir el archivo PKCS#12 (¿la frase de contraseña es la correcta?)".to_string())?;
-    let (_, chain) = store.private_key_chain().ok_or("el archivo PKCS#12 no tiene una clave privada con su certificado")?;
+    let store = p12_keystore::KeyStore::from_pkcs12(
+        data,
+        passphrase,
+        p12_keystore::Pkcs12ImportPolicy::Relaxed,
+    )
+    .map_err(|_| {
+        "no se pudo abrir el archivo PKCS#12 (¿la frase de contraseña es la correcta?)".to_string()
+    })?;
+    let (_, chain) = store
+        .private_key_chain()
+        .ok_or("el archivo PKCS#12 no tiene una clave privada con su certificado")?;
     if chain.certs().is_empty() {
         return Err("el archivo PKCS#12 no tiene el certificado de la clave".into());
     }

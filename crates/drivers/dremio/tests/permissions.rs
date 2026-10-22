@@ -16,7 +16,9 @@ const PASS: &str = "secreto123";
 #[tokio::test]
 #[ignore]
 async fn community_users_are_admins() {
-    let Ok(url) = std::env::var("DBINE_TEST_DREMIO_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_DREMIO_URL") else {
+        return;
+    };
     let url = reqwest::Url::parse(&url).expect("URL");
     let c = ConnectionConfig {
         driver: "dremio".into(),
@@ -29,7 +31,13 @@ async fn community_users_are_admins() {
     let http = reqwest::Client::new();
     let base = format!("http://{}:{}", c.host, c.port);
     for _ in 0..60 {
-        if http.get(format!("{base}/apiv2/server_status")).send().await.map(|r| r.status().is_success()).unwrap_or(false) {
+        if http
+            .get(format!("{base}/apiv2/server_status"))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+        {
             break;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;

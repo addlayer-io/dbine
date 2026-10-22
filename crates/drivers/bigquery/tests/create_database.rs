@@ -13,14 +13,30 @@ use std::collections::BTreeMap;
 
 async fn open() -> Option<(Box<dyn Session>, String)> {
     let url = std::env::var("DBINE_TEST_BIGQUERY_URL").ok()?;
-    let mut c = ConnectionConfig { driver: "bigquery".into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "bigquery".into(),
+        ..Default::default()
+    };
     c.options.insert("project_id".into(), "test".into());
     c.options.insert("endpoint_url".into(), url.clone());
-    Some((dbine_driver_bigquery::drivers().pop().unwrap().connect(&c, None).await.unwrap(), url))
+    Some((
+        dbine_driver_bigquery::drivers()
+            .pop()
+            .unwrap()
+            .connect(&c, None)
+            .await
+            .unwrap(),
+        url,
+    ))
 }
 
 async fn dataset(url: &str, name: &str) -> Value {
-    reqwest::get(format!("{url}/bigquery/v2/projects/test/datasets/{name}")).await.unwrap().json().await.unwrap()
+    reqwest::get(format!("{url}/bigquery/v2/projects/test/datasets/{name}"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -34,7 +50,9 @@ async fn bigquery_options() {
     let _ = s.drop_database("dbine_create_opts").await;
 
     let choices = s.create_database_choices().await.unwrap();
-    assert!(choices.iter().any(|c| c.key == "location" && c.values.iter().any(|v| v == "EU")));
+    assert!(choices
+        .iter()
+        .any(|c| c.key == "location" && c.values.iter().any(|v| v == "EU")));
 
     let options: BTreeMap<String, String> = [
         ("location", "EU"),
@@ -46,8 +64,14 @@ async fn bigquery_options() {
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
     let ds = dataset(&url, "dbine_create_opts").await;
     eprintln!("{ds}");
     assert_eq!(ds["location"], "EU");
@@ -60,10 +84,19 @@ async fn bigquery_options() {
 
     // A bad value never reaches the API.
     let bad: BTreeMap<String, String> = [("labels".to_string(), "Equipo=x".to_string())].into();
-    assert!(s.create_database_with("dbine_create_opts", &bad).await.is_err());
+    assert!(s
+        .create_database_with("dbine_create_opts", &bad)
+        .await
+        .is_err());
 
     // Without options it's the plain create.
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
-    assert!(s.list_databases().await.unwrap().contains(&"dbine_create_plain".to_string()));
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
+    assert!(s
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_create_plain".to_string()));
     s.drop_database("dbine_create_plain").await.unwrap();
 }

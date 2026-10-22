@@ -23,7 +23,8 @@ fn text(r: &Row, i: usize) -> Result<Option<String>> {
 
 /// Index attributes that make two indexes different. PARAMETERS (a
 /// VARCHAR2) and the partitioning come along.
-const INDEX_ATTRS: &str = "SELECT i.index_name, i.index_type, i.compression, i.prefix_length, i.visibility,
+const INDEX_ATTRS: &str =
+    "SELECT i.index_name, i.index_type, i.compression, i.prefix_length, i.visibility,
         i.ityp_owner, i.ityp_name, i.parameters, p.locality, p.partitioning_type, p.partition_count
    FROM all_indexes i
    LEFT JOIN all_part_indexes p ON p.owner = i.owner AND p.index_name = i.index_name
@@ -34,12 +35,14 @@ const INDEX_PART_KEYS: &str = "SELECT name, column_name FROM all_part_key_column
   WHERE owner = :1 AND object_type LIKE 'INDEX%' ORDER BY name, column_position";
 
 /// Partitions of global range-partitioned indexes (HIGH_VALUE is a LONG: last).
-const INDEX_PARTITIONS: &str = "SELECT index_name, partition_name, high_value FROM all_ind_partitions
+const INDEX_PARTITIONS: &str =
+    "SELECT index_name, partition_name, high_value FROM all_ind_partitions
   WHERE index_owner = :1 ORDER BY index_name, partition_position";
 
 /// CHECK constraints (SEARCH_CONDITION is a LONG: last). NOT NULL ones are
 /// told apart afterwards: they're the columns' nullability.
-const CHECKS: &str = "SELECT table_name, constraint_name, generated, search_condition FROM all_constraints
+const CHECKS: &str =
+    "SELECT table_name, constraint_name, generated, search_condition FROM all_constraints
   WHERE owner = :1 AND constraint_type = 'C' AND table_name NOT LIKE 'BIN$%'
   ORDER BY table_name, constraint_name";
 
@@ -73,7 +76,12 @@ pub(crate) fn apply_attrs(ix: &mut IndexDef, a: &IndexAttrs) {
             .into(),
         );
         ix.options.insert("INDEXTYPE".into(), it);
-        if let Some(p) = a.parameters.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        if let Some(p) = a
+            .parameters
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
             ix.options.insert("PARAMETERS".into(), p.to_string());
         }
     }
@@ -82,7 +90,10 @@ pub(crate) fn apply_attrs(ix: &mut IndexDef, a: &IndexAttrs) {
     }
     match a.compression.as_deref() {
         Some("ENABLED") => {
-            ix.options.insert("COMPRESS".into(), a.prefix_length.map(|n| n.to_string()).unwrap_or_default());
+            ix.options.insert(
+                "COMPRESS".into(),
+                a.prefix_length.map(|n| n.to_string()).unwrap_or_default(),
+            );
         }
         Some(c) if c.starts_with("ADVANCED") => {
             ix.options.insert("COMPRESS".into(), c.to_string());
@@ -103,13 +114,27 @@ fn partition_clause(a: &IndexAttrs) -> Option<String> {
     if locality == "LOCAL" {
         return Some("LOCAL".into());
     }
-    let keys = a.part_keys.iter().map(|k| quote(k)).collect::<Vec<_>>().join(", ");
+    let keys = a
+        .part_keys
+        .iter()
+        .map(|k| quote(k))
+        .collect::<Vec<_>>()
+        .join(", ");
     match a.partitioning.as_deref() {
-        Some("HASH") => Some(format!("GLOBAL PARTITION BY HASH ({keys}) PARTITIONS {}", a.partition_count.unwrap_or(1))),
+        Some("HASH") => Some(format!(
+            "GLOBAL PARTITION BY HASH ({keys}) PARTITIONS {}",
+            a.partition_count.unwrap_or(1)
+        )),
         Some("RANGE") => {
-            let parts: Vec<String> =
-                a.partitions.iter().map(|(n, hv)| format!("PARTITION {} VALUES LESS THAN ({})", quote(n), hv.trim())).collect();
-            Some(format!("GLOBAL PARTITION BY RANGE ({keys}) ({})", parts.join(", ")))
+            let parts: Vec<String> = a
+                .partitions
+                .iter()
+                .map(|(n, hv)| format!("PARTITION {} VALUES LESS THAN ({})", quote(n), hv.trim()))
+                .collect();
+            Some(format!(
+                "GLOBAL PARTITION BY RANGE ({keys}) ({})",
+                parts.join(", ")
+            ))
         }
         _ => Some("GLOBAL".into()),
     }
@@ -124,7 +149,11 @@ fn not_null_of(expr: &str) -> Option<&str> {
 
 /// Fills in the CHECK constraints and index attributes of `tables`.
 pub(crate) fn complete(c: &Connection, owner: &str, tables: &mut [TableSchema]) -> Result<()> {
-    let at: HashMap<String, usize> = tables.iter().enumerate().map(|(i, t)| (t.name.clone(), i)).collect();
+    let at: HashMap<String, usize> = tables
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.name.clone(), i))
+        .collect();
 
     for row in c.query(CHECKS, &[&owner]).map_err(err)? {
         let row = row.map_err(err)?;
@@ -132,7 +161,12 @@ pub(crate) fn complete(c: &Connection, owner: &str, tables: &mut [TableSchema]) 
         let Some(&i) = at.get(&table) else { continue };
         let name: String = row.get(1).map_err(err)?;
         let generated = text(&row, 2)?.as_deref() == Some("GENERATED NAME");
-        let Some(expr) = text(&row, 3)?.map(|e| e.trim().to_string()).filter(|e| !e.is_empty()) else { continue };
+        let Some(expr) = text(&row, 3)?
+            .map(|e| e.trim().to_string())
+            .filter(|e| !e.is_empty())
+        else {
+            continue;
+        };
         let t = &mut tables[i];
         if let Some(col) = not_null_of(&expr) {
             if t.columns.iter().any(|c| c.name == col && !c.nullable) {
@@ -140,7 +174,10 @@ pub(crate) fn complete(c: &Connection, owner: &str, tables: &mut [TableSchema]) 
             }
         }
         // System names (SYS_C…) are left for the target database to pick.
-        t.checks.push(CheckDef { name: (!generated).then_some(name), expression: expr });
+        t.checks.push(CheckDef {
+            name: (!generated).then_some(name),
+            expression: expr,
+        });
     }
 
     let mut attrs: HashMap<String, IndexAttrs> = HashMap::new();
@@ -167,7 +204,10 @@ pub(crate) fn complete(c: &Connection, owner: &str, tables: &mut [TableSchema]) 
             },
         );
     }
-    if attrs.values().any(|a| a.locality.as_deref() == Some("GLOBAL")) {
+    if attrs
+        .values()
+        .any(|a| a.locality.as_deref() == Some("GLOBAL"))
+    {
         for row in c.query(INDEX_PART_KEYS, &[&owner]).map_err(err)? {
             let row = row.map_err(err)?;
             let name: String = row.get(0).map_err(err)?;
@@ -178,13 +218,21 @@ pub(crate) fn complete(c: &Connection, owner: &str, tables: &mut [TableSchema]) 
         for row in c.query(INDEX_PARTITIONS, &[&owner]).map_err(err)? {
             let row = row.map_err(err)?;
             let name: String = row.get(0).map_err(err)?;
-            if let Some(a) = attrs.get_mut(&name).filter(|a| a.locality.as_deref() == Some("GLOBAL") && a.partitioning.as_deref() == Some("RANGE")) {
-                a.partitions.push((row.get(1).map_err(err)?, text(&row, 2)?.unwrap_or_default()));
+            if let Some(a) = attrs.get_mut(&name).filter(|a| {
+                a.locality.as_deref() == Some("GLOBAL")
+                    && a.partitioning.as_deref() == Some("RANGE")
+            }) {
+                a.partitions
+                    .push((row.get(1).map_err(err)?, text(&row, 2)?.unwrap_or_default()));
             }
         }
     }
     for t in tables.iter_mut() {
-        for ix in t.indexes.iter_mut().filter(|ix| ix.kind.as_deref() != Some(crate::ddl::UNIQUE_CONSTRAINT)) {
+        for ix in t
+            .indexes
+            .iter_mut()
+            .filter(|ix| ix.kind.as_deref() != Some(crate::ddl::UNIQUE_CONSTRAINT))
+        {
             if let Some(a) = attrs.get(&ix.name) {
                 apply_attrs(ix, a);
             }
@@ -198,14 +246,24 @@ pub(crate) fn complete(c: &Connection, owner: &str, tables: &mut [TableSchema]) 
 /// `CREATE … INDEX` for a plain, bitmap, function-based or domain index,
 /// with its attributes.
 pub(crate) fn index_sql(table: &str, ix: &IndexDef, cols: &[String]) -> String {
-    let o = |k: &str| ix.options.get(k).map(|v| v.trim()).filter(|v| !v.is_empty());
-    let domain = matches!(ix.kind.as_deref(), Some(FULLTEXT | SPATIAL | DOMAIN)) || o("INDEXTYPE").is_some();
+    let o = |k: &str| {
+        ix.options
+            .get(k)
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+    };
+    let domain =
+        matches!(ix.kind.as_deref(), Some(FULLTEXT | SPATIAL | DOMAIN)) || o("INDEXTYPE").is_some();
     let prefix = match (ix.unique, ix.kind.as_deref()) {
         (true, _) => "UNIQUE ",
         (false, Some(k)) if k.eq_ignore_ascii_case("BITMAP") => "BITMAP ",
         _ => "",
     };
-    let mut s = format!("CREATE {prefix}INDEX {} ON {table} ({})", quote(&ix.name), cols.join(", "));
+    let mut s = format!(
+        "CREATE {prefix}INDEX {} ON {table} ({})",
+        quote(&ix.name),
+        cols.join(", ")
+    );
     if domain {
         if let Some(it) = o("INDEXTYPE") {
             s.push_str(&format!(" INDEXTYPE IS {it}"));
@@ -237,7 +295,8 @@ pub(crate) fn index_sql(table: &str, ix: &IndexDef, cols: &[String]) -> String {
 
 // ------------------------------------------------------------ objects
 
-const SEQUENCE: &str = "SELECT TO_CHAR(min_value), TO_CHAR(max_value), TO_CHAR(increment_by), cycle_flag, order_flag,
+const SEQUENCE: &str =
+    "SELECT TO_CHAR(min_value), TO_CHAR(max_value), TO_CHAR(increment_by), cycle_flag, order_flag,
         cache_size, TO_CHAR(last_number)
    FROM all_sequences WHERE sequence_owner = :1 AND sequence_name = :2";
 
@@ -269,7 +328,11 @@ pub(crate) fn sequence_sql(name: &str, s: &SequenceInfo) -> String {
         s.max,
         s.start
     );
-    out.push_str(&if s.cache > 0 { format!(" CACHE {}", s.cache) } else { " NOCACHE".into() });
+    out.push_str(&if s.cache > 0 {
+        format!(" CACHE {}", s.cache)
+    } else {
+        " NOCACHE".into()
+    });
     out.push_str(if s.order { " ORDER" } else { " NOORDER" });
     out.push_str(if s.cycle { " CYCLE" } else { " NOCYCLE" });
     if s.keep {
@@ -290,7 +353,9 @@ fn yes(v: Option<String>) -> bool {
 }
 
 pub(crate) fn sequence(c: &Connection, owner: &str, name: &str) -> Result<Option<String>> {
-    let Some(r) = c.query(SEQUENCE, &[&owner, &name]).map_err(err)?.next() else { return Ok(None) };
+    let Some(r) = c.query(SEQUENCE, &[&owner, &name]).map_err(err)?.next() else {
+        return Ok(None);
+    };
     let r = r.map_err(err)?;
     let mut s = SequenceInfo {
         min: text(&r, 0)?.unwrap_or_default(),
@@ -302,7 +367,10 @@ pub(crate) fn sequence(c: &Connection, owner: &str, name: &str) -> Result<Option
         start: text(&r, 6)?.unwrap_or_default(),
         ..Default::default()
     };
-    if let Ok(Some(Ok(r))) = c.query(SEQUENCE_EXTRA, &[&owner, &name]).map(|mut q| q.next()) {
+    if let Ok(Some(Ok(r))) = c
+        .query(SEQUENCE_EXTRA, &[&owner, &name])
+        .map(|mut q| q.next())
+    {
         s.scale = yes(text(&r, 0).unwrap_or(None));
         s.extend = yes(text(&r, 1).unwrap_or(None));
         s.session = yes(text(&r, 2).unwrap_or(None));
@@ -314,9 +382,22 @@ pub(crate) fn sequence(c: &Connection, owner: &str, name: &str) -> Result<Option
 /// `CREATE [PUBLIC] SYNONYM`. The target's owner is left out when it's
 /// the session's schema, so the synonym points at the same object on the
 /// side it's run on.
-pub(crate) fn synonym_sql(public: bool, name: &str, schema: &str, target_owner: Option<&str>, target: &str, link: Option<&str>) -> String {
-    let owner = target_owner.filter(|o| *o != schema).map(|o| format!("{}.", quote(o))).unwrap_or_default();
-    let link = link.filter(|l| !l.is_empty()).map(|l| format!("@{l}")).unwrap_or_default();
+pub(crate) fn synonym_sql(
+    public: bool,
+    name: &str,
+    schema: &str,
+    target_owner: Option<&str>,
+    target: &str,
+    link: Option<&str>,
+) -> String {
+    let owner = target_owner
+        .filter(|o| *o != schema)
+        .map(|o| format!("{}.", quote(o)))
+        .unwrap_or_default();
+    let link = link
+        .filter(|l| !l.is_empty())
+        .map(|l| format!("@{l}"))
+        .unwrap_or_default();
     format!(
         "CREATE OR REPLACE {}SYNONYM {} FOR {owner}{}{link};",
         if public { "PUBLIC " } else { "" },
@@ -325,7 +406,12 @@ pub(crate) fn synonym_sql(public: bool, name: &str, schema: &str, target_owner: 
     )
 }
 
-pub(crate) fn synonym(c: &Connection, owner: &str, name: &str, schema: &str) -> Result<Option<String>> {
+pub(crate) fn synonym(
+    c: &Connection,
+    owner: &str,
+    name: &str,
+    schema: &str,
+) -> Result<Option<String>> {
     let Some(r) = c
         .query("SELECT table_owner, table_name, db_link FROM all_synonyms WHERE owner = :1 AND synonym_name = :2", &[&owner, &name])
         .map_err(err)?
@@ -335,7 +421,14 @@ pub(crate) fn synonym(c: &Connection, owner: &str, name: &str, schema: &str) -> 
     };
     let r = r.map_err(err)?;
     let target = text(&r, 1)?.unwrap_or_default();
-    Ok(Some(synonym_sql(owner == "PUBLIC", name, schema, text(&r, 0)?.as_deref(), &target, text(&r, 2)?.as_deref())))
+    Ok(Some(synonym_sql(
+        owner == "PUBLIC",
+        name,
+        schema,
+        text(&r, 0)?.as_deref(),
+        &target,
+        text(&r, 2)?.as_deref(),
+    )))
 }
 
 /// Public synonyms for this schema's objects (they belong to PUBLIC).
@@ -347,7 +440,11 @@ mod tests {
     use super::*;
 
     fn ix(name: &str, cols: &[&str]) -> IndexDef {
-        IndexDef { name: name.into(), columns: cols.iter().map(|c| c.to_string()).collect(), ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -363,11 +460,21 @@ mod tests {
             },
         );
         assert_eq!(i.kind.as_deref(), Some(FULLTEXT));
-        assert_eq!(i.options.get("INDEXTYPE").map(String::as_str), Some("CTXSYS.CONTEXT"));
+        assert_eq!(
+            i.options.get("INDEXTYPE").map(String::as_str),
+            Some("CTXSYS.CONTEXT")
+        );
         assert_eq!(index_sql("\"DOCS\"", &i, &["\"CUERPO\"".into()]), "CREATE INDEX \"IX_TXT\" ON \"DOCS\" (\"CUERPO\") INDEXTYPE IS CTXSYS.CONTEXT PARAMETERS ('SYNC (ON COMMIT)')");
 
         let mut g = ix("IX_GEO", &["G"]);
-        apply_attrs(&mut g, &IndexAttrs { index_type: "DOMAIN".into(), indextype: Some("MDSYS.SPATIAL_INDEX_V2".into()), ..Default::default() });
+        apply_attrs(
+            &mut g,
+            &IndexAttrs {
+                index_type: "DOMAIN".into(),
+                indextype: Some("MDSYS.SPATIAL_INDEX_V2".into()),
+                ..Default::default()
+            },
+        );
         assert_eq!(g.kind.as_deref(), Some(SPATIAL));
         assert!(!g.options.contains_key("PARAMETERS"));
 
@@ -383,17 +490,33 @@ mod tests {
             },
         );
         assert_eq!(r.options.len(), 3);
-        assert_eq!(index_sql("\"T\"", &r, &["\"A\"".into(), "\"B\"".into()]), "CREATE INDEX \"IX_R\" ON \"T\" (\"A\", \"B\") REVERSE COMPRESS 1 INVISIBLE");
+        assert_eq!(
+            index_sql("\"T\"", &r, &["\"A\"".into(), "\"B\"".into()]),
+            "CREATE INDEX \"IX_R\" ON \"T\" (\"A\", \"B\") REVERSE COMPRESS 1 INVISIBLE"
+        );
 
         // Defaults leave no options.
         let mut n = ix("IX_N", &["A"]);
-        apply_attrs(&mut n, &IndexAttrs { index_type: "NORMAL".into(), compression: Some("DISABLED".into()), visibility: Some("VISIBLE".into()), ..Default::default() });
+        apply_attrs(
+            &mut n,
+            &IndexAttrs {
+                index_type: "NORMAL".into(),
+                compression: Some("DISABLED".into()),
+                visibility: Some("VISIBLE".into()),
+                ..Default::default()
+            },
+        );
         assert!(n.options.is_empty() && n.kind.is_none());
     }
 
     #[test]
     fn partitioned_indexes() {
-        let local = IndexAttrs { index_type: "NORMAL".into(), locality: Some("LOCAL".into()), partitioning: Some("RANGE".into()), ..Default::default() };
+        let local = IndexAttrs {
+            index_type: "NORMAL".into(),
+            locality: Some("LOCAL".into()),
+            partitioning: Some("RANGE".into()),
+            ..Default::default()
+        };
         assert_eq!(partition_clause(&local).as_deref(), Some("LOCAL"));
         let hash = IndexAttrs {
             locality: Some("GLOBAL".into()),
@@ -402,12 +525,18 @@ mod tests {
             part_keys: vec!["ID".into()],
             ..Default::default()
         };
-        assert_eq!(partition_clause(&hash).as_deref(), Some("GLOBAL PARTITION BY HASH (\"ID\") PARTITIONS 4"));
+        assert_eq!(
+            partition_clause(&hash).as_deref(),
+            Some("GLOBAL PARTITION BY HASH (\"ID\") PARTITIONS 4")
+        );
         let range = IndexAttrs {
             locality: Some("GLOBAL".into()),
             partitioning: Some("RANGE".into()),
             part_keys: vec!["ID".into()],
-            partitions: vec![("P1".into(), "100".into()), ("PMAX".into(), "MAXVALUE".into())],
+            partitions: vec![
+                ("P1".into(), "100".into()),
+                ("PMAX".into(), "MAXVALUE".into()),
+            ],
             ..Default::default()
         };
         let mut i = ix("IX_P", &["ID"]);
@@ -419,7 +548,10 @@ mod tests {
         let mut b = ix("IX_B", &["A"]);
         b.kind = Some("BITMAP".into());
         b.options.insert("LOCALITY".into(), "LOCAL".into());
-        assert_eq!(index_sql("\"T\"", &b, &["\"A\"".into()]), "CREATE BITMAP INDEX \"IX_B\" ON \"T\" (\"A\") LOCAL");
+        assert_eq!(
+            index_sql("\"T\"", &b, &["\"A\"".into()]),
+            "CREATE BITMAP INDEX \"IX_B\" ON \"T\" (\"A\") LOCAL"
+        );
     }
 
     #[test]
@@ -444,9 +576,24 @@ mod tests {
             sequence_sql("SEQ_FOLIO", &s),
             "CREATE SEQUENCE \"SEQ_FOLIO\" INCREMENT BY 5 MINVALUE 1 MAXVALUE 9999999999999999999999999999 START WITH 100 CACHE 10 NOORDER NOCYCLE;"
         );
-        let s = SequenceInfo { cache: 0, cycle: true, order: true, keep: true, scale: true, extend: true, session: true, ..s };
+        let s = SequenceInfo {
+            cache: 0,
+            cycle: true,
+            order: true,
+            keep: true,
+            scale: true,
+            extend: true,
+            session: true,
+            ..s
+        };
         assert!(sequence_sql("S", &s).ends_with(" NOCACHE ORDER CYCLE KEEP SCALE EXTEND SESSION;"));
-        assert_eq!(synonym_sql(false, "SYN", "APP", Some("APP"), "DOCS", None), "CREATE OR REPLACE SYNONYM \"SYN\" FOR \"DOCS\";");
-        assert_eq!(synonym_sql(true, "SYN", "APP", Some("HR"), "EMP", Some("REMOTO")), "CREATE OR REPLACE PUBLIC SYNONYM \"SYN\" FOR \"HR\".\"EMP\"@REMOTO;");
+        assert_eq!(
+            synonym_sql(false, "SYN", "APP", Some("APP"), "DOCS", None),
+            "CREATE OR REPLACE SYNONYM \"SYN\" FOR \"DOCS\";"
+        );
+        assert_eq!(
+            synonym_sql(true, "SYN", "APP", Some("HR"), "EMP", Some("REMOTO")),
+            "CREATE OR REPLACE PUBLIC SYNONYM \"SYN\" FOR \"HR\".\"EMP\"@REMOTO;"
+        );
     }
 }

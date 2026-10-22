@@ -19,7 +19,9 @@
 //! copied into it. The generated code reads each secret from an environment
 //! variable named after the connection (`DBINE_VENTAS_PG_PASSWORD`).
 
-use super::{local, preview, result_outputs, CellKind, Notebook, NotebookCell, NotebookTarget, PreviewLimits};
+use super::{
+    local, preview, result_outputs, CellKind, Notebook, NotebookCell, NotebookTarget, PreviewLimits,
+};
 use dbine_driver::{ConnectionConfig, DriverInfo};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -102,9 +104,21 @@ pub struct PyConn {
 /// Something that looks like a credential in a value we'd otherwise keep.
 fn looks_secret(v: &str) -> bool {
     let l = v.to_ascii_lowercase();
-    ["password", "pwd=", "passwd", "token", "secret", "apikey", "api_key", "api-key", "accountkey", "sharedaccess", "sig="]
-        .iter()
-        .any(|k| l.contains(k))
+    [
+        "password",
+        "pwd=",
+        "passwd",
+        "token",
+        "secret",
+        "apikey",
+        "api_key",
+        "api-key",
+        "accountkey",
+        "sharedaccess",
+        "sig=",
+    ]
+    .iter()
+    .any(|k| l.contains(k))
 }
 
 /// A URL without its user info, query string and fragment; anything else as it is.
@@ -117,7 +131,10 @@ pub fn strip_url_credentials(host: &str) -> String {
     let rest = rest.split(['?', '#']).next().unwrap_or("");
     let authority_end = rest.find('/').unwrap_or(rest.len());
     let (authority, path) = rest.split_at(authority_end);
-    let authority = authority.rsplit_once('@').map(|(_, a)| a).unwrap_or(authority);
+    let authority = authority
+        .rsplit_once('@')
+        .map(|(_, a)| a)
+        .unwrap_or(authority);
     format!("{scheme}{authority}{path}")
 }
 
@@ -126,30 +143,69 @@ impl PyConn {
     /// `cfg` (the password, secret options, tunnel credentials, the
     /// secret-manager definitions) are not copied, whether or not they're
     /// present.
-    pub fn new(key: &str, name: &str, cfg: &ConnectionConfig, info: Option<&DriverInfo>, database: &str) -> PyConn {
-        let secret_keys: HashSet<&str> = info.map(|i| i.fields.iter().filter(|f| f.secret).map(|f| f.key).collect()).unwrap_or_default();
+    pub fn new(
+        key: &str,
+        name: &str,
+        cfg: &ConnectionConfig,
+        info: Option<&DriverInfo>,
+        database: &str,
+    ) -> PyConn {
+        let secret_keys: HashSet<&str> = info
+            .map(|i| {
+                i.fields
+                    .iter()
+                    .filter(|f| f.secret)
+                    .map(|f| f.key)
+                    .collect()
+            })
+            .unwrap_or_default();
         let options = KEPT_OPTIONS
             .iter()
             .filter(|k| !secret_keys.contains(**k))
-            .filter_map(|k| cfg.option(k).map(|v| (k.to_string(), if v.contains("://") { strip_url_credentials(v) } else { v.trim().to_string() })))
+            .filter_map(|k| {
+                cfg.option(k).map(|v| {
+                    (
+                        k.to_string(),
+                        if v.contains("://") {
+                            strip_url_credentials(v)
+                        } else {
+                            v.trim().to_string()
+                        },
+                    )
+                })
+            })
             .filter(|(_, v)| !v.is_empty() && !looks_secret(v))
             .collect();
         let tunnel = (cfg.option("ssh.enabled") == Some("true")).then(|| Tunnel {
             host: cfg.option("ssh.host").unwrap_or("").to_string(),
             user: cfg.option("ssh.user").unwrap_or("").to_string(),
-            port: cfg.option("ssh.port").and_then(|p| p.parse().ok()).unwrap_or(22),
+            port: cfg
+                .option("ssh.port")
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(22),
         });
         // Only which fields: the definitions (where each secret is) stay out.
         let secret_fields = match cfg.option(dbine_core::secret_sources::OPTION) {
             None => Vec::new(),
             Some(json) => match serde_json::from_str::<Map<String, Value>>(json) {
-                Ok(m) => m.keys().filter(|k| k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')).cloned().collect(),
+                Ok(m) => m
+                    .keys()
+                    .filter(|k| {
+                        k.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+                    })
+                    .cloned()
+                    .collect(),
                 Err(_) => vec!["password".into()],
             },
         };
         let host = strip_url_credentials(&cfg.host);
         let username = cfg.username_or_empty().trim().to_string();
-        let database = if database.is_empty() { cfg.database.clone() } else { database.to_string() };
+        let database = if database.is_empty() {
+            cfg.database.clone()
+        } else {
+            database.to_string()
+        };
         PyConn {
             key: key.to_string(),
             name: name.to_string(),
@@ -158,19 +214,39 @@ impl PyConn {
             default_port: info.map(|i| i.default_port).unwrap_or(0),
             host,
             port: cfg.port,
-            database: if looks_secret(&database) { String::new() } else { database },
-            username: if looks_secret(&username) { String::new() } else { username },
+            database: if looks_secret(&database) {
+                String::new()
+            } else {
+                database
+            },
+            username: if looks_secret(&username) {
+                String::new()
+            } else {
+                username
+            },
             encrypt: cfg.encrypt,
             options,
-            auth: cfg.option("auth").or(cfg.option("auth_mode")).filter(|a| a.len() <= 40 && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')).map(str::to_string),
+            auth: cfg
+                .option("auth")
+                .or(cfg.option("auth_mode"))
+                .filter(|a| {
+                    a.len() <= 40
+                        && a.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                })
+                .map(str::to_string),
             tunnel,
             secret_fields,
-            odbc_extra: cfg.option("extra").is_some() && info.is_some_and(|i| i.fields.iter().any(|f| f.key == "extra")),
+            odbc_extra: cfg.option("extra").is_some()
+                && info.is_some_and(|i| i.fields.iter().any(|f| f.key == "extra")),
         }
     }
 
     fn opt(&self, k: &str) -> Option<&str> {
-        self.options.get(k).map(String::as_str).filter(|v| !v.is_empty())
+        self.options
+            .get(k)
+            .map(String::as_str)
+            .filter(|v| !v.is_empty())
     }
 
     fn port(&self) -> u16 {
@@ -188,9 +264,45 @@ impl PyConn {
 
 /// The drivers that connect through ODBC (crates/drivers/odbc).
 pub(crate) const ODBC_IDS: &[&str] = &[
-    "access", "altibase", "cache", "cloudera", "cubrid", "dameng", "db2", "db2i", "db2zos", "dbase", "exasol", "gbase8s", "heavydb", "hive", "ignite",
-    "ignite3", "impala", "informix", "ingres", "iris", "kyuubi", "machbase", "maxdb", "mimer", "monetdb", "netezza", "netsuite", "nuodb", "ocient", "odbc",
-    "openedge", "spark", "sqlanywhere", "sqream", "sybase", "teradata", "vertica", "virtuoso", "zen",
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen",
 ];
 
 // ---------------------------------------------------------------------------
@@ -284,14 +396,34 @@ pub fn py_value(v: &Value) -> String {
         Value::Bool(b) => (if *b { "True" } else { "False" }).into(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => py_lit(s),
-        Value::Array(a) => format!("[{}]", a.iter().map(py_value).collect::<Vec<_>>().join(", ")),
-        Value::Object(o) => format!("{{{}}}", o.iter().map(|(k, v)| format!("{}: {}", py_lit(k), py_value(v))).collect::<Vec<_>>().join(", ")),
+        Value::Array(a) => format!(
+            "[{}]",
+            a.iter().map(py_value).collect::<Vec<_>>().join(", ")
+        ),
+        Value::Object(o) => format!(
+            "{{{}}}",
+            o.iter()
+                .map(|(k, v)| format!("{}: {}", py_lit(k), py_value(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
 /// Every line of `s` as a Python comment.
 fn commented(s: &str) -> String {
-    s.replace("\r\n", "\n").trim_end().lines().map(|l| if l.is_empty() { "#".to_string() } else { format!("# {l}") }).collect::<Vec<_>>().join("\n")
+    s.replace("\r\n", "\n")
+        .trim_end()
+        .lines()
+        .map(|l| {
+            if l.is_empty() {
+                "#".to_string()
+            } else {
+                format!("# {l}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// One line of comment text (no line breaks get through).
@@ -300,16 +432,51 @@ fn comment_line(s: &str) -> String {
 }
 
 const PY_KEYWORDS: &[&str] = &[
-    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally",
-    "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
+    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
+    "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import",
+    "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while",
+    "with", "yield",
 ];
 
 /// The names the generated code itself uses at the top level.
 const RESERVED_NAMES: &[&str] = &[
-    "pd", "os", "duckdb", "text", "create_engine", "URL", "json", "json_util", "requests", "neo4j", "warnings", "shlex", "ssl", "redis", "boto3",
-    "pyodbc", "clickhouse_connect", "MongoClient", "GraphDatabase", "Cluster", "PlainTextAuthProvider", "dict_factory", "DCAwareRoundRobinPolicy",
-    "InfluxDBClient", "InfluxDBClient2", "InfluxDBClient3", "CouchbaseCluster", "CosmosClient", "ClusterOptions", "PasswordAuthenticator", "adbc_driver_flightsql", "TypeDeserializer",
-    "redis_frame", "http_frame", "dynamo_frame", "flight_frame", "display",
+    "pd",
+    "os",
+    "duckdb",
+    "text",
+    "create_engine",
+    "URL",
+    "json",
+    "json_util",
+    "requests",
+    "neo4j",
+    "warnings",
+    "shlex",
+    "ssl",
+    "redis",
+    "boto3",
+    "pyodbc",
+    "clickhouse_connect",
+    "MongoClient",
+    "GraphDatabase",
+    "Cluster",
+    "PlainTextAuthProvider",
+    "dict_factory",
+    "DCAwareRoundRobinPolicy",
+    "InfluxDBClient",
+    "InfluxDBClient2",
+    "InfluxDBClient3",
+    "CouchbaseCluster",
+    "CosmosClient",
+    "ClusterOptions",
+    "PasswordAuthenticator",
+    "adbc_driver_flightsql",
+    "TypeDeserializer",
+    "redis_frame",
+    "http_frame",
+    "dynamo_frame",
+    "flight_frame",
+    "display",
 ];
 
 /// Lowercase ASCII letters, digits and `_` (accents dropped), for a variable.
@@ -359,7 +526,8 @@ fn escape_binds(sql: &str, params: &HashSet<String>) -> String {
     let mut out = String::new();
     for (i, &c) in chars.iter().enumerate() {
         if c == ':' {
-            let prev_ok = i == 0 || !(chars[i - 1] == ':' || chars[i - 1] == '\\' || word(chars[i - 1]));
+            let prev_ok =
+                i == 0 || !(chars[i - 1] == ':' || chars[i - 1] == '\\' || word(chars[i - 1]));
             let mut j = i + 1;
             while j < chars.len() && word(chars[j]) {
                 j += 1;
@@ -431,11 +599,25 @@ struct Setup {
 
 impl Setup {
     fn new(kind: Kind) -> Self {
-        Setup { kind, code: Vec::new(), packages: Vec::new(), imports: vec!["import os"], helpers: Vec::new(), env: Vec::new(), notes: Vec::new(), reason: None, sa: None }
+        Setup {
+            kind,
+            code: Vec::new(),
+            packages: Vec::new(),
+            imports: vec!["import os"],
+            helpers: Vec::new(),
+            env: Vec::new(),
+            notes: Vec::new(),
+            reason: None,
+            sa: None,
+        }
     }
 
     fn none(reason: impl Into<String>) -> Self {
-        Setup { reason: Some(reason.into()), imports: Vec::new(), ..Setup::new(Kind::None) }
+        Setup {
+            reason: Some(reason.into()),
+            imports: Vec::new(),
+            ..Setup::new(Kind::None)
+        }
     }
 }
 
@@ -449,7 +631,8 @@ impl Secrets<'_> {
     fn get(&mut self, what: &str, desc: &str, required: bool) -> String {
         let name = env_var(&self.c.name, what);
         if !self.env.iter().any(|(n, _)| *n == name) {
-            self.env.push((name.clone(), format!("«{}»: {desc}", self.c.name)));
+            self.env
+                .push((name.clone(), format!("«{}»: {desc}", self.c.name)));
         }
         if required {
             format!("os.environ[{}]", py_lit(&name))
@@ -460,7 +643,11 @@ impl Secrets<'_> {
 
     fn password(&mut self) -> String {
         let required = !self.c.username.is_empty();
-        let desc = if self.c.username.is_empty() { "the password (optional)".to_string() } else { format!("the password of user `{}`", self.c.username) };
+        let desc = if self.c.username.is_empty() {
+            "the password (optional)".to_string()
+        } else {
+            format!("the password of user `{}`", self.c.username)
+        };
         self.get("PASSWORD", &desc, required)
     }
 
@@ -478,7 +665,10 @@ impl Secrets<'_> {
 
 /// `name=value` arguments, without the ones that are None.
 fn kwargs(args: &[(&str, Option<String>)]) -> String {
-    args.iter().filter_map(|(k, v)| v.as_ref().map(|v| format!("{k}={v}"))).collect::<Vec<_>>().join(", ")
+    args.iter()
+        .filter_map(|(k, v)| v.as_ref().map(|v| format!("{k}={v}")))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// A SQLAlchemy `URL.create(…)` and its `connect_args`. The values are
@@ -499,24 +689,49 @@ struct SaEngine {
 }
 
 /// `create_engine(URL.create(…))`, one argument per line.
-fn sa_engine(var: &str, drivername: &str, args: &[(&str, Option<String>)], query: &[(&str, String)], connect_args: &[(&str, String)]) -> SaEngine {
+fn sa_engine(
+    var: &str,
+    drivername: &str,
+    args: &[(&str, Option<String>)],
+    query: &[(&str, String)],
+    connect_args: &[(&str, String)],
+) -> SaEngine {
     let url = SaUrl {
         drivername: drivername.to_string(),
-        args: args.iter().filter_map(|(k, v)| v.as_ref().map(|v| (k.to_string(), v.clone()))).collect(),
-        query: query.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
-        connect_args: connect_args.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+        args: args
+            .iter()
+            .filter_map(|(k, v)| v.as_ref().map(|v| (k.to_string(), v.clone())))
+            .collect(),
+        query: query
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect(),
+        connect_args: connect_args
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect(),
     };
-    let mut lines = vec![format!("{var} = create_engine("), "    URL.create(".to_string(), format!("        {},", py_lit(drivername))];
+    let mut lines = vec![
+        format!("{var} = create_engine("),
+        "    URL.create(".to_string(),
+        format!("        {},", py_lit(drivername)),
+    ];
     for (k, v) in args.iter().filter_map(|(k, v)| v.as_ref().map(|v| (k, v))) {
         lines.push(format!("        {k}={v},"));
     }
     if !query.is_empty() {
-        let q: Vec<String> = query.iter().map(|(k, v)| format!("{}: {}", py_lit(k), py_lit(v))).collect();
+        let q: Vec<String> = query
+            .iter()
+            .map(|(k, v)| format!("{}: {}", py_lit(k), py_lit(v)))
+            .collect();
         lines.push(format!("        query={{{}}},", q.join(", ")));
     }
     lines.push("    ),".into());
     if !connect_args.is_empty() {
-        let a: Vec<String> = connect_args.iter().map(|(k, v)| format!("{}: {v}", py_lit(k))).collect();
+        let a: Vec<String> = connect_args
+            .iter()
+            .map(|(k, v)| format!("{}: {v}", py_lit(k)))
+            .collect();
         lines.push(format!("    connect_args={{{}}},", a.join(", ")));
     }
     lines.push(")".into());
@@ -552,7 +767,11 @@ pub(crate) fn http_base(c: &PyConn) -> String {
         c.host.trim_end_matches('/').to_string()
     } else {
         let scheme = if c.encrypt { "https" } else { "http" };
-        let host = if c.host.is_empty() { "localhost" } else { &c.host };
+        let host = if c.host.is_empty() {
+            "localhost"
+        } else {
+            &c.host
+        };
         match c.port() {
             0 => format!("{scheme}://{host}"),
             p => format!("{scheme}://{host}:{p}"),
@@ -579,8 +798,20 @@ fn sign_in_notes(c: &PyConn, s: &mut Setup) {
         s.notes.push(format!("«{name}» reads its secrets from a secret manager in DBine: fill the variables from there (the export doesn't say where they are)."));
     }
     if let Some(t) = &c.tunnel {
-        let target = format!("{}:{}", if c.host.is_empty() { "localhost" } else { &c.host }, c.port());
-        let at = if t.user.is_empty() { t.host.clone() } else { format!("{}@{}", t.user, t.host) };
+        let target = format!(
+            "{}:{}",
+            if c.host.is_empty() {
+                "localhost"
+            } else {
+                &c.host
+            },
+            c.port()
+        );
+        let at = if t.user.is_empty() {
+            t.host.clone()
+        } else {
+            format!("{}@{}", t.user, t.host)
+        };
         s.notes.push(format!(
             "«{name}» goes through an SSH tunnel in DBine: open one first (`ssh -N -L {p}:{target} {at} -p {sp}`) and change its host to `localhost` and port to `{p}` below.",
             p = c.port(),
@@ -632,8 +863,17 @@ fn setup_inner(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
     let host = some_lit(&c.host);
     let db = some_lit(&c.database);
     let id = c.driver.as_str();
-    let sa_imports = vec!["import os", "from sqlalchemy import URL, create_engine, text"];
-    let sa = |packages: Vec<&'static str>, e: SaEngine| Setup { packages, code: e.lines, sa: Some(e.url), imports: sa_imports.clone(), ..Setup::new(Kind::Sa) };
+    let sa_imports = vec![
+        "import os",
+        "from sqlalchemy import URL, create_engine, text",
+    ];
+    let sa = |packages: Vec<&'static str>, e: SaEngine| Setup {
+        packages,
+        code: e.lines,
+        sa: Some(e.url),
+        imports: sa_imports.clone(),
+        ..Setup::new(Kind::Sa)
+    };
 
     // Engines with their own way of naming the server first.
     match id {
@@ -945,12 +1185,31 @@ fn setup_inner(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
         let with = |drivername: &str, pkgs: Vec<&'static str>, sec: &mut Secrets| -> Setup {
             let user = sec.user();
             let pw = sec.password();
-            sa(pkgs, sa_engine(var, drivername, &[("username", user), ("password", Some(pw)), ("host", host.clone()), ("port", port_arg(c)), ("database", db.clone())], &[], &[]))
+            sa(
+                pkgs,
+                sa_engine(
+                    var,
+                    drivername,
+                    &[
+                        ("username", user),
+                        ("password", Some(pw)),
+                        ("host", host.clone()),
+                        ("port", port_arg(c)),
+                        ("database", db.clone()),
+                    ],
+                    &[],
+                    &[],
+                ),
+            )
         };
         return match id {
             "db2" | "db2i" | "db2zos" => with("db2+ibm_db", vec!["ibm-db-sa"], sec),
             "teradata" => with("teradatasql", vec!["teradatasqlalchemy"], sec),
-            "vertica" => with("vertica+vertica_python", vec!["sqlalchemy-vertica-python"], sec),
+            "vertica" => with(
+                "vertica+vertica_python",
+                vec!["sqlalchemy-vertica-python"],
+                sec,
+            ),
             "exasol" => with("exa+websocket", vec!["sqlalchemy-exasol"], sec),
             "hive" | "spark" | "kyuubi" => with("hive", vec!["pyhive[hive_pure_sasl]"], sec),
             "impala" => with("impala", vec!["impyla"], sec),
@@ -962,47 +1221,178 @@ fn setup_inner(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
 
     match c.dialect.as_str() {
         "postgres" => {
-            let q: Vec<(&str, String)> = if c.encrypt { vec![("sslmode", "require".into())] } else { vec![] };
+            let q: Vec<(&str, String)> = if c.encrypt {
+                vec![("sslmode", "require".into())]
+            } else {
+                vec![]
+            };
             let user = sec.user();
             let pw = sec.password();
-            sa(vec!["psycopg[binary]"], sa_engine(var, "postgresql+psycopg", &[("username", user), ("password", Some(pw)), ("host", host), ("port", port_arg(c)), ("database", db)], &q, &[]))
+            sa(
+                vec!["psycopg[binary]"],
+                sa_engine(
+                    var,
+                    "postgresql+psycopg",
+                    &[
+                        ("username", user),
+                        ("password", Some(pw)),
+                        ("host", host),
+                        ("port", port_arg(c)),
+                        ("database", db),
+                    ],
+                    &q,
+                    &[],
+                ),
+            )
         }
         "mysql" => {
             let user = sec.user();
             let pw = sec.password();
-            let ca: Vec<(&str, String)> = if c.encrypt { vec![("ssl", "{}".into())] } else { vec![] };
-            sa(vec!["pymysql"], sa_engine(var, "mysql+pymysql", &[("username", user), ("password", Some(pw)), ("host", host), ("port", port_arg(c)), ("database", db)], &[], &ca))
+            let ca: Vec<(&str, String)> = if c.encrypt {
+                vec![("ssl", "{}".into())]
+            } else {
+                vec![]
+            };
+            sa(
+                vec!["pymysql"],
+                sa_engine(
+                    var,
+                    "mysql+pymysql",
+                    &[
+                        ("username", user),
+                        ("password", Some(pw)),
+                        ("host", host),
+                        ("port", port_arg(c)),
+                        ("database", db),
+                    ],
+                    &[],
+                    &ca,
+                ),
+            )
         }
         "mssql" => {
             let user = sec.user();
             let pw = sec.password();
-            sa(vec!["pymssql"], sa_engine(var, "mssql+pymssql", &[("username", user), ("password", Some(pw)), ("host", host), ("port", port_arg(c)), ("database", db)], &[], &[]))
+            sa(
+                vec!["pymssql"],
+                sa_engine(
+                    var,
+                    "mssql+pymssql",
+                    &[
+                        ("username", user),
+                        ("password", Some(pw)),
+                        ("host", host),
+                        ("port", port_arg(c)),
+                        ("database", db),
+                    ],
+                    &[],
+                    &[],
+                ),
+            )
         }
         _ => match id {
             "hana" => {
                 let user = sec.user();
                 let pw = sec.password();
-                let q: Vec<(&str, String)> = if c.encrypt { vec![("encrypt", "true".into())] } else { vec![] };
-                sa(vec!["sqlalchemy-hana", "hdbcli"], sa_engine(var, "hana+hdbcli", &[("username", user), ("password", Some(pw)), ("host", host), ("port", port_arg(c)), ("database", db)], &q, &[]))
+                let q: Vec<(&str, String)> = if c.encrypt {
+                    vec![("encrypt", "true".into())]
+                } else {
+                    vec![]
+                };
+                sa(
+                    vec!["sqlalchemy-hana", "hdbcli"],
+                    sa_engine(
+                        var,
+                        "hana+hdbcli",
+                        &[
+                            ("username", user),
+                            ("password", Some(pw)),
+                            ("host", host),
+                            ("port", port_arg(c)),
+                            ("database", db),
+                        ],
+                        &q,
+                        &[],
+                    ),
+                )
             }
             "firebird" => {
                 let user = sec.user();
                 let pw = sec.password();
-                sa(vec!["sqlalchemy-firebird"], sa_engine(var, "firebird+firebird", &[("username", user), ("password", Some(pw)), ("host", host), ("port", port_arg(c)), ("database", db)], &[], &[]))
+                sa(
+                    vec!["sqlalchemy-firebird"],
+                    sa_engine(
+                        var,
+                        "firebird+firebird",
+                        &[
+                            ("username", user),
+                            ("password", Some(pw)),
+                            ("host", host),
+                            ("port", port_arg(c)),
+                            ("database", db),
+                        ],
+                        &[],
+                        &[],
+                    ),
+                )
             }
             "drill" => {
                 let user = sec.user();
                 let pw = user.is_some().then(|| sec.password());
-                let q = vec![("use_ssl", if c.encrypt { "True" } else { "False" }.to_string())];
-                sa(vec!["sqlalchemy-drill"], sa_engine(var, "drill+sadrill", &[("username", user), ("password", pw), ("host", host), ("port", port_arg(c)), ("database", db)], &q, &[]))
+                let q = vec![(
+                    "use_ssl",
+                    if c.encrypt { "True" } else { "False" }.to_string(),
+                )];
+                sa(
+                    vec!["sqlalchemy-drill"],
+                    sa_engine(
+                        var,
+                        "drill+sadrill",
+                        &[
+                            ("username", user),
+                            ("password", pw),
+                            ("host", host),
+                            ("port", port_arg(c)),
+                            ("database", db),
+                        ],
+                        &q,
+                        &[],
+                    ),
+                )
             }
-            "phoenix" | "avatica" => sa(vec!["phoenixdb"], sa_engine(var, "phoenix", &[("host", host), ("port", port_arg(c))], &[], &[])),
+            "phoenix" | "avatica" => sa(
+                vec!["phoenixdb"],
+                sa_engine(
+                    var,
+                    "phoenix",
+                    &[("host", host), ("port", port_arg(c))],
+                    &[],
+                    &[],
+                ),
+            ),
             "tdengine" => {
                 let user = sec.user();
                 let pw = sec.password();
-                sa(vec!["taospy"], sa_engine(var, "taosrest", &[("username", user), ("password", Some(pw)), ("host", host), ("port", port_arg(c)), ("database", db)], &[], &[]))
+                sa(
+                    vec!["taospy"],
+                    sa_engine(
+                        var,
+                        "taosrest",
+                        &[
+                            ("username", user),
+                            ("password", Some(pw)),
+                            ("host", host),
+                            ("port", port_arg(c)),
+                            ("database", db),
+                        ],
+                        &[],
+                        &[],
+                    ),
+                )
             }
-            _ => Setup::none(format!("DBine has no Python mapping for this engine ({id}) yet")),
+            _ => Setup::none(format!(
+                "DBine has no Python mapping for this engine ({id}) yet"
+            )),
         },
     }
 }
@@ -1030,7 +1420,11 @@ fn odbc_setup(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
             parts.push(format!("DATABASE={}", odbc_value(&c.database)));
         }
     }
-    let mut st = Setup { packages: vec!["pyodbc"], imports: vec!["import os", "import warnings", "import pyodbc"], ..Setup::new(Kind::Dbapi) };
+    let mut st = Setup {
+        packages: vec!["pyodbc"],
+        imports: vec!["import os", "import warnings", "import pyodbc"],
+        ..Setup::new(Kind::Dbapi)
+    };
     let user = sec.user();
     if let Some(u) = &user {
         // A literal user goes in the string; one from a variable is added to it.
@@ -1045,7 +1439,10 @@ fn odbc_setup(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
     let pw = sec.password();
     expr.push_str(&format!(" + \"PWD=\" + ({pw} or \"\") + \";\""));
     st.code.push(format!("{var} = pyodbc.connect({expr})"));
-    st.code.push("warnings.filterwarnings(\"ignore\", message=\".*pandas only supports SQLAlchemy.*\")".into());
+    st.code.push(
+        "warnings.filterwarnings(\"ignore\", message=\".*pandas only supports SQLAlchemy.*\")"
+            .into(),
+    );
     st
 }
 
@@ -1102,8 +1499,15 @@ const FLIGHT_HELPER: &str = r##"def flight_frame(conn, sql):
 /// A MongoDB shell call DBine accepts that maps to pymongo directly.
 #[derive(Debug, PartialEq)]
 enum MongoCall {
-    Find { coll: String, args: Vec<Value>, chain: Vec<(String, Value)> },
-    Aggregate { coll: String, pipeline: Value },
+    Find {
+        coll: String,
+        args: Vec<Value>,
+        chain: Vec<(String, Value)>,
+    },
+    Aggregate {
+        coll: String,
+        pipeline: Value,
+    },
 }
 
 /// The text of a balanced `( … )` starting at `open` (an index of `(`), and the index after it.
@@ -1140,7 +1544,11 @@ fn balanced(s: &[char], open: usize) -> Option<(String, usize)> {
 /// JSON arguments; anything else (relaxed JSON, shell constructors, several
 /// statements, other methods) isn't mapped.
 fn mongo_call(src: &str) -> Option<MongoCall> {
-    let text: String = src.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    let text: String = src
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
     let text = text.trim().trim_end_matches(';').trim();
     let rest = text.strip_prefix("db")?.trim_start();
     let chars: Vec<char> = rest.chars().collect();
@@ -1156,7 +1564,8 @@ fn mongo_call(src: &str) -> Option<MongoCall> {
         }
         i += 1;
         let start = i;
-        while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '-') {
+        while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '-')
+        {
             i += 1;
         }
         coll = chars[start..i].iter().collect();
@@ -1188,7 +1597,12 @@ fn mongo_call(src: &str) -> Option<MongoCall> {
         calls.push((name, arg));
         i = next;
     }
-    let parse_args = |a: &str| -> Option<Vec<Value>> { serde_json::from_str::<Value>(&format!("[{a}]")).ok()?.as_array().cloned() };
+    let parse_args = |a: &str| -> Option<Vec<Value>> {
+        serde_json::from_str::<Value>(&format!("[{a}]"))
+            .ok()?
+            .as_array()
+            .cloned()
+    };
     let (first, rest) = calls.split_first()?;
     match first.0.as_str() {
         "find" => {
@@ -1210,10 +1624,17 @@ fn mongo_call(src: &str) -> Option<MongoCall> {
         }
         "aggregate" => {
             let mut args = parse_args(&first.1)?;
-            if args.is_empty() || args.len() > 2 || !args[0].is_array() || rest.iter().any(|(m, _)| m != "toArray") {
+            if args.is_empty()
+                || args.len() > 2
+                || !args[0].is_array()
+                || rest.iter().any(|(m, _)| m != "toArray")
+            {
                 return None;
             }
-            Some(MongoCall::Aggregate { coll, pipeline: args.remove(0) })
+            Some(MongoCall::Aggregate {
+                coll,
+                pipeline: args.remove(0),
+            })
         }
         _ => None,
     }
@@ -1222,7 +1643,24 @@ fn mongo_call(src: &str) -> Option<MongoCall> {
 /// Extended JSON markers pymongo wouldn't read from a plain dict.
 fn has_extended_json(v: &Value) -> bool {
     match v {
-        Value::Object(o) => o.keys().any(|k| matches!(k.as_str(), "$oid" | "$date" | "$numberLong" | "$numberDecimal" | "$numberInt" | "$numberDouble" | "$regex" | "$regularExpression" | "$binary" | "$timestamp" | "$uuid")) || o.values().any(has_extended_json),
+        Value::Object(o) => {
+            o.keys().any(|k| {
+                matches!(
+                    k.as_str(),
+                    "$oid"
+                        | "$date"
+                        | "$numberLong"
+                        | "$numberDecimal"
+                        | "$numberInt"
+                        | "$numberDouble"
+                        | "$regex"
+                        | "$regularExpression"
+                        | "$binary"
+                        | "$timestamp"
+                        | "$uuid"
+                )
+            }) || o.values().any(has_extended_json)
+        }
         Value::Array(a) => a.iter().any(has_extended_json),
         _ => false,
     }
@@ -1239,8 +1677,15 @@ fn mongo_arg(v: &Value, imports: &mut BTreeSet<&'static str>) -> String {
 }
 
 /// An HTTP console request DBine accepts (Elasticsearch, OpenSearch, Solr, CouchDB).
-fn http_request(src: &str, flavor: Http, database: &str) -> Result<(String, String, Option<Value>), String> {
-    let lines: Vec<&str> = src.lines().filter(|l| !(l.trim_start().starts_with('#') || l.trim_start().starts_with("//"))).collect();
+fn http_request(
+    src: &str,
+    flavor: Http,
+    database: &str,
+) -> Result<(String, String, Option<Value>), String> {
+    let lines: Vec<&str> = src
+        .lines()
+        .filter(|l| !(l.trim_start().starts_with('#') || l.trim_start().starts_with("//")))
+        .collect();
     let text = lines.join("\n");
     let text = text.trim();
     if text.is_empty() {
@@ -1248,35 +1693,91 @@ fn http_request(src: &str, flavor: Http, database: &str) -> Result<(String, Stri
     }
     let first = text.lines().next().unwrap_or("").trim();
     let upper = first.to_ascii_uppercase();
-    if matches!(flavor, Http::Elastic | Http::OpenSearch) && ["SELECT", "SHOW", "DESCRIBE", "DESC "].iter().any(|k| upper.starts_with(k)) {
-        let path = if flavor == Http::Elastic { "/_sql?format=json" } else { "/_plugins/_sql" };
-        return Ok(("POST".into(), path.into(), Some(json!({ "query": text.trim_end_matches(';') }))));
+    if matches!(flavor, Http::Elastic | Http::OpenSearch)
+        && ["SELECT", "SHOW", "DESCRIBE", "DESC "]
+            .iter()
+            .any(|k| upper.starts_with(k))
+    {
+        let path = if flavor == Http::Elastic {
+            "/_sql?format=json"
+        } else {
+            "/_plugins/_sql"
+        };
+        return Ok((
+            "POST".into(),
+            path.into(),
+            Some(json!({ "query": text.trim_end_matches(';') })),
+        ));
     }
     if flavor == Http::Couch && text.starts_with('{') {
-        let body: Value = serde_json::from_str(text).map_err(|_| "the Mango query isn't strict JSON (or there are several)".to_string())?;
+        let body: Value = serde_json::from_str(text)
+            .map_err(|_| "the Mango query isn't strict JSON (or there are several)".to_string())?;
         return Ok(("POST".into(), format!("/{database}/_find"), Some(body)));
     }
     let mut it = first.splitn(3, char::is_whitespace);
     let method = it.next().unwrap_or("").to_ascii_uppercase();
     let path = it.next().unwrap_or("").to_string();
-    if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "PATCH") || path.is_empty() {
+    if !matches!(
+        method.as_str(),
+        "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "PATCH"
+    ) || path.is_empty()
+    {
         return Err("it isn't a single `METHOD /path` request".into());
     }
     let after_first = it.next().unwrap_or("").to_string();
-    let body_text = format!("{after_first}\n{}", text.lines().skip(1).collect::<Vec<_>>().join("\n"));
+    let body_text = format!(
+        "{after_first}\n{}",
+        text.lines().skip(1).collect::<Vec<_>>().join("\n")
+    );
     let body_text = body_text.trim();
-    let body = if body_text.is_empty() { None } else { Some(serde_json::from_str::<Value>(body_text).map_err(|_| "its body isn't one strict JSON document (or there are several requests)".to_string())?) };
+    let body = if body_text.is_empty() {
+        None
+    } else {
+        Some(serde_json::from_str::<Value>(body_text).map_err(|_| {
+            "its body isn't one strict JSON document (or there are several requests)".to_string()
+        })?)
+    };
     let read = method == "GET"
-        || (method == "POST" && ["_search", "_find", "_sql", "_count", "_msearch", "/select", "_all_docs", "_view", "/query", "_explain"].iter().any(|k| path.contains(k)));
+        || (method == "POST"
+            && [
+                "_search",
+                "_find",
+                "_sql",
+                "_count",
+                "_msearch",
+                "/select",
+                "_all_docs",
+                "_view",
+                "/query",
+                "_explain",
+            ]
+            .iter()
+            .any(|k| path.contains(k)));
     if !read {
-        return Err(format!("`{method} {path}` changes data or settings: it isn't run from the exported notebook"));
+        return Err(format!(
+            "`{method} {path}` changes data or settings: it isn't run from the exported notebook"
+        ));
     }
-    let path = if path.starts_with('/') { path } else if flavor == Http::Couch { format!("/{database}/{path}") } else { format!("/{path}") };
+    let path = if path.starts_with('/') {
+        path
+    } else if flavor == Http::Couch {
+        format!("/{database}/{path}")
+    } else {
+        format!("/{path}")
+    };
     Ok((method, path, body))
 }
 
 /// A SQL cell as Python: the code, or (commented) why it can't be mapped.
-fn query_code(kind: Kind, client: &str, var: &str, c: &PyConn, source: &str, params: &[(String, Value)], imports: &mut BTreeSet<&'static str>) -> Result<String, String> {
+fn query_code(
+    kind: Kind,
+    client: &str,
+    var: &str,
+    c: &PyConn,
+    source: &str,
+    params: &[(String, Value)],
+    imports: &mut BTreeSet<&'static str>,
+) -> Result<String, String> {
     // The notebook's `{{name}}`: SQLAlchemy binds (`:name`); no other client maps them.
     let names: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
     let marked = super::params::mentioned_names(source, &names);
@@ -1352,7 +1853,12 @@ fn bind_used(sql: &str, name: &str) -> bool {
 }
 
 /// A DataFrame SQL cell: DuckDB over the DataFrames above (by name).
-fn dataframe_code(c: &NotebookCell, var: &str, renamed: &HashMap<String, String>, known: &[String]) -> String {
+fn dataframe_code(
+    c: &NotebookCell,
+    var: &str,
+    renamed: &HashMap<String, String>,
+    known: &[String],
+) -> String {
     let mut lines = Vec::new();
     for r in local::references(&c.source, known) {
         if let Some(v) = renamed.get(&r.to_ascii_lowercase()) {
@@ -1374,8 +1880,15 @@ fn chart_code(chart: &Value, var: &str) -> Vec<String> {
     for ch in list {
         let kind = ch.get("type").and_then(Value::as_str).unwrap_or("");
         let x = ch.get("x").and_then(Value::as_str).unwrap_or("");
-        let ys: Vec<&str> = ch.get("y").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-        let split = ch.get("split").and_then(Value::as_str).filter(|s| !s.is_empty());
+        let ys: Vec<&str> = ch
+            .get("y")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let split = ch
+            .get("split")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty());
         let agg = ch.get("agg").and_then(Value::as_str).unwrap_or("none");
         let title = ch.get("title").and_then(Value::as_str).unwrap_or("");
         let pkind = match kind {
@@ -1390,10 +1903,21 @@ fn chart_code(chart: &Value, var: &str) -> Vec<String> {
         if x.is_empty() || ys.is_empty() || split.is_some() {
             continue;
         }
-        let title_arg = if title.is_empty() { String::new() } else { format!(", title={}", py_lit(title)) };
-        let ylist = format!("[{}]", ys.iter().map(|y| py_lit(y)).collect::<Vec<_>>().join(", "));
+        let title_arg = if title.is_empty() {
+            String::new()
+        } else {
+            format!(", title={}", py_lit(title))
+        };
+        let ylist = format!(
+            "[{}]",
+            ys.iter().map(|y| py_lit(y)).collect::<Vec<_>>().join(", ")
+        );
         let code = if pkind == "scatter" {
-            format!("{var}.plot(kind=\"scatter\", x={}, y={}{title_arg})", py_lit(x), py_lit(ys[0]))
+            format!(
+                "{var}.plot(kind=\"scatter\", x={}, y={}{title_arg})",
+                py_lit(x),
+                py_lit(ys[0])
+            )
         } else {
             let method = match agg {
                 "none" => None,
@@ -1414,7 +1938,10 @@ fn chart_code(chart: &Value, var: &str) -> Vec<String> {
                 Some(m) => format!("{var}.groupby({})[{ylist}].{m}(){sort}", py_lit(x)),
             };
             if pkind == "pie" {
-                format!("{frame}.plot(kind=\"pie\", y={}, legend=False{title_arg})", py_lit(ys[0]))
+                format!(
+                    "{frame}.plot(kind=\"pie\", y={}, legend=False{title_arg})",
+                    py_lit(ys[0])
+                )
             } else {
                 format!("{frame}.plot(kind={}{title_arg})", py_lit(pkind))
             }
@@ -1446,7 +1973,11 @@ pub fn parameters(nb: &Notebook) -> Vec<(String, Value)> {
     nb.parameters
         .iter()
         .map(|p| {
-            let default = if super::params::sensitive_default(p) { None } else { p.default.clone() };
+            let default = if super::params::sensitive_default(p) {
+                None
+            } else {
+                p.default.clone()
+            };
             (p.name.clone(), default.unwrap_or(Value::Null))
         })
         .collect()
@@ -1464,18 +1995,34 @@ fn parameter_line(name: &str, v: &Value) -> String {
 }
 
 fn empty_target(t: Option<&NotebookTarget>) -> bool {
-    t.is_none_or(|t| !t.results && t.connection.as_deref().unwrap_or("").is_empty() && t.environment.as_deref().unwrap_or("").is_empty())
+    t.is_none_or(|t| {
+        !t.results
+            && t.connection.as_deref().unwrap_or("").is_empty()
+            && t.environment.as_deref().unwrap_or("").is_empty()
+    })
 }
 
 /// The cell runs on DataFrames (its own target, else the notebook's).
 fn is_dataframe_sql(c: &NotebookCell, nb: &Notebook) -> bool {
-    let t = if !empty_target(c.target.as_ref()) { c.target.as_ref() } else { nb.target.as_ref() };
+    let t = if !empty_target(c.target.as_ref()) {
+        c.target.as_ref()
+    } else {
+        nb.target.as_ref()
+    };
     t.is_some_and(|t| t.results)
 }
 
 fn stored_target_name(c: &NotebookCell, nb: &Notebook) -> Option<String> {
-    let t = if !empty_target(c.target.as_ref()) { c.target.as_ref() } else { nb.target.as_ref() }?;
-    t.environment.clone().filter(|e| !e.is_empty()).or_else(|| t.connection.clone()).filter(|n| !n.is_empty())
+    let t = if !empty_target(c.target.as_ref()) {
+        c.target.as_ref()
+    } else {
+        nb.target.as_ref()
+    }?;
+    t.environment
+        .clone()
+        .filter(|e| !e.is_empty())
+        .or_else(|| t.connection.clone())
+        .filter(|n| !n.is_empty())
 }
 
 struct Cells {
@@ -1485,8 +2032,16 @@ struct Cells {
 
 impl Cells {
     fn id(&mut self, want: &str) -> String {
-        let ok = !want.is_empty() && want.len() <= 64 && want.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-        let mut id = if ok { want.to_string() } else { format!("cell-{}", self.out.len() + 1) };
+        let ok = !want.is_empty()
+            && want.len() <= 64
+            && want
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        let mut id = if ok {
+            want.to_string()
+        } else {
+            format!("cell-{}", self.out.len() + 1)
+        };
         let mut n = 2;
         while self.ids.contains(&id) {
             id = format!("cell-{}-{n}", self.out.len() + 1);
@@ -1505,7 +2060,14 @@ impl Cells {
         self.out.push(cell);
     }
 
-    fn code(&mut self, want: &str, source: &str, metadata: Value, outputs: Vec<Value>, execution_count: Option<u32>) {
+    fn code(
+        &mut self,
+        want: &str,
+        source: &str,
+        metadata: Value,
+        outputs: Vec<Value>,
+        execution_count: Option<u32>,
+    ) {
         let id = self.id(want);
         self.out.push(json!({
             "cell_type": "code",
@@ -1520,7 +2082,9 @@ impl Cells {
 
 /// The stored preview of a cell as Jupyter outputs (no DBine metadata).
 fn preview_outputs(c: &NotebookCell, nb: &Notebook, opts: &PyExport) -> (Vec<Value>, Option<u32>) {
-    let Some(r) = c.result.as_ref().filter(|_| opts.previews) else { return (Vec::new(), None) };
+    let Some(r) = c.result.as_ref().filter(|_| opts.previews) else {
+        return (Vec::new(), None);
+    };
     let keep = nb.save_results && c.keep_result;
     let p = preview(r, keep, opts.limits, c.execution_count);
     let mut outs = result_outputs(&p, r, keep, c.execution_count);
@@ -1537,7 +2101,11 @@ fn notebook_title(nb: &Notebook) -> String {
         .iter()
         .filter(|c| c.kind == CellKind::Markdown)
         .flat_map(|c| c.source.lines())
-        .find_map(|l| l.trim_start().strip_prefix('#').map(|h| h.trim_start_matches('#').trim().to_string()))
+        .find_map(|l| {
+            l.trim_start()
+                .strip_prefix('#')
+                .map(|h| h.trim_start_matches('#').trim().to_string())
+        })
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| "Notebook".into())
 }
@@ -1557,7 +2125,11 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
     }
     for c in nb.cells.iter().filter(|c| c.kind == CellKind::Sql) {
         sql_n += 1;
-        let name = c.name.clone().filter(|n| local::valid_name(n)).unwrap_or_else(|| format!("c{sql_n}"));
+        let name = c
+            .name
+            .clone()
+            .filter(|n| local::valid_name(n))
+            .unwrap_or_else(|| format!("c{sql_n}"));
         let mut var = name.clone();
         if PY_KEYWORDS.contains(&var.as_str()) || used.contains(&var) {
             var = format!("{name}_df");
@@ -1606,7 +2178,11 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
             Kind::Cosmos => "cosmos",
             Kind::None => "conn",
         };
-        let base = if several_dbs && !pc.database.is_empty() { format!("{prefix}_{}_{}", slug(&pc.name), slug(&pc.database)) } else { format!("{prefix}_{}", slug(&pc.name)) };
+        let base = if several_dbs && !pc.database.is_empty() {
+            format!("{prefix}_{}_{}", slug(&pc.name), slug(&pc.database))
+        } else {
+            format!("{prefix}_{}", slug(&pc.name))
+        };
         let mut var = base.clone();
         let mut n = 2;
         while used.contains(&var) {
@@ -1627,8 +2203,14 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
     let mut charts = false;
     let mut notes: Vec<String> = Vec::new();
     let mut needs_duckdb_15 = false;
-    let mut body = Cells { out: Vec::new(), ids: HashSet::new() };
-    let mut setup_cells = Cells { out: Vec::new(), ids: HashSet::new() };
+    let mut body = Cells {
+        out: Vec::new(),
+        ids: HashSet::new(),
+    };
+    let mut setup_cells = Cells {
+        out: Vec::new(),
+        ids: HashSet::new(),
+    };
     for c in &nb.cells {
         match c.kind {
             CellKind::Markdown => {
@@ -1640,8 +2222,22 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
                 if lang.eq_ignore_ascii_case("python") {
                     body.code(&c.id, &c.source, json!({}), Vec::new(), None);
                 } else {
-                    let label = if lang.is_empty() { "A cell of the original notebook".to_string() } else { format!("A {lang} cell of the original notebook") };
-                    body.code(&c.id, &format!("{}\n{}", comment_line(&format!("{label}: kept as a comment.")), commented(&c.source)), json!({}), Vec::new(), None);
+                    let label = if lang.is_empty() {
+                        "A cell of the original notebook".to_string()
+                    } else {
+                        format!("A {lang} cell of the original notebook")
+                    };
+                    body.code(
+                        &c.id,
+                        &format!(
+                            "{}\n{}",
+                            comment_line(&format!("{label}: kept as a comment.")),
+                            commented(&c.source)
+                        ),
+                        json!({}),
+                        Vec::new(),
+                        None,
+                    );
                 }
             }
             CellKind::Sql => {
@@ -1669,7 +2265,10 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
                     working = true;
                     format!("{}\n{var}", dataframe_code(c, &var, &renamed, &known))
                 } else {
-                    match conns.get(&c.id).and_then(|pc| client_var.get(&pc.key).map(|cv| (pc, cv))) {
+                    match conns
+                        .get(&c.id)
+                        .and_then(|pc| client_var.get(&pc.key).map(|cv| (pc, cv)))
+                    {
                         None => {
                             let name = stored_target_name(c, nb).unwrap_or_else(|| "(none)".into());
                             format!(
@@ -1679,20 +2278,35 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
                                 commented(&c.source)
                             )
                         }
-                        Some((pc, (client, kind))) => match query_code(*kind, client, &var, pc, &c.source, &opts.parameters, &mut imports) {
+                        Some((pc, (client, kind))) => match query_code(
+                            *kind,
+                            client,
+                            &var,
+                            pc,
+                            &c.source,
+                            &opts.parameters,
+                            &mut imports,
+                        ) {
                             Ok(code) => {
                                 working = true;
                                 format!("{code}\n{var}")
                             }
                             Err(why) => {
                                 let why = if why.is_empty() {
-                                    setups.iter().find(|(p, _, _)| p.key == pc.key).and_then(|(_, _, s)| s.reason.clone()).unwrap_or_default()
+                                    setups
+                                        .iter()
+                                        .find(|(p, _, _)| p.key == pc.key)
+                                        .and_then(|(_, _, s)| s.reason.clone())
+                                        .unwrap_or_default()
                                 } else {
                                     why
                                 };
                                 format!(
                                     "{}\n{}\n{}",
-                                    comment_line(&format!("TODO: not exported as Python ({}): {why}.", pc.name)),
+                                    comment_line(&format!(
+                                        "TODO: not exported as Python ({}): {why}.",
+                                        pc.name
+                                    )),
                                     comment_line(&format!("{var} = …")),
                                     commented(&c.source)
                                 )
@@ -1718,11 +2332,21 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
                 let src = w
                     .source
                     .as_deref()
-                    .and_then(|n| nb.cells.iter().find(|x| x.kind == CellKind::Sql && x.name.as_deref().is_some_and(|m| m.eq_ignore_ascii_case(n))))
+                    .and_then(|n| {
+                        nb.cells.iter().find(|x| {
+                            x.kind == CellKind::Sql
+                                && x.name.as_deref().is_some_and(|m| m.eq_ignore_ascii_case(n))
+                        })
+                    })
                     .and_then(|x| cell_var.get(&x.id).cloned())
                     .unwrap_or_else(|| "df".into());
                 let table = w.table.clone().unwrap_or_default();
-                let schema = w.schema.as_deref().filter(|s| !s.is_empty()).map(|s| format!(", schema={s:?}")).unwrap_or_default();
+                let schema = w
+                    .schema
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| format!(", schema={s:?}"))
+                    .unwrap_or_default();
                 let (if_exists, note) = match w.mode {
                     dbine_driver::WriteMode::Insert => ("append", None),
                     dbine_driver::WriteMode::Replace => ("append", Some("DBine's «replace» deletes the table's rows first (pandas' if_exists=\"replace\" would drop the table): run a DELETE before it.")),
@@ -1738,7 +2362,9 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
                 if let Some(n) = note {
                     lines.push(comment_line(n));
                 }
-                lines.push(commented(&format!("{src}.to_sql({table:?}, engine{schema}, if_exists={if_exists:?}, index=False)")));
+                lines.push(commented(&format!(
+                    "{src}.to_sql({table:?}, engine{schema}, if_exists={if_exists:?}, index=False)"
+                )));
                 body.code(&c.id, &lines.join("\n"), json!({}), Vec::new(), None);
                 notes.push(format!("A write cell into «{table}» is exported as a comment: it doesn't write unless you uncomment it."));
             }
@@ -1767,11 +2393,26 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
             }
         }
         notes.extend(s.notes.iter().cloned());
-        setup_code.push(comment_line(&format!("«{}»{}", pc.name, if pc.database.is_empty() { String::new() } else { format!(" › {}", pc.database) })));
+        setup_code.push(comment_line(&format!(
+            "«{}»{}",
+            pc.name,
+            if pc.database.is_empty() {
+                String::new()
+            } else {
+                format!(" › {}", pc.database)
+            }
+        )));
         match s.kind {
             Kind::None => {
-                setup_code.push(comment_line(&format!("Not exported: {}.", s.reason.as_deref().unwrap_or(""))));
-                notes.push(format!("«{}»: its cells are exported as comments ({}).", pc.name, s.reason.as_deref().unwrap_or("")));
+                setup_code.push(comment_line(&format!(
+                    "Not exported: {}.",
+                    s.reason.as_deref().unwrap_or("")
+                )));
+                notes.push(format!(
+                    "«{}»: its cells are exported as comments ({}).",
+                    pc.name,
+                    s.reason.as_deref().unwrap_or("")
+                ));
             }
             _ => setup_code.extend(s.code.iter().cloned()),
         }
@@ -1805,7 +2446,12 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
             let _ = writeln!(intro, "   - `{n}`: {d}");
         }
     }
-    if !duck_ext.is_empty() || nb.cells.iter().any(|c| c.kind == CellKind::Sql && is_dataframe_sql(c, nb)) {
+    if !duck_ext.is_empty()
+        || nb
+            .cells
+            .iter()
+            .any(|c| c.kind == CellKind::Sql && is_dataframe_sql(c, nb))
+    {
         intro.push_str("\nRelative paths in `read_csv` and the other readers are read from the folder the notebook runs in (DBine reads them from the notebook's folder): keep this notebook where the original is.\n");
     }
     if !notes.is_empty() {
@@ -1816,21 +2462,44 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
     }
     setup_cells.markdown("dbine-python-setup-notes", &intro, None);
     if !opts.parameters.is_empty() {
-        let lines: Vec<String> = opts.parameters.iter().map(|(n, v)| parameter_line(n, v)).collect();
-        setup_cells.code("dbine-python-parameters", &lines.join("\n"), json!({ "tags": ["parameters"] }), Vec::new(), None);
+        let lines: Vec<String> = opts
+            .parameters
+            .iter()
+            .map(|(n, v)| parameter_line(n, v))
+            .collect();
+        setup_cells.code(
+            "dbine-python-parameters",
+            &lines.join("\n"),
+            json!({ "tags": ["parameters"] }),
+            Vec::new(),
+            None,
+        );
     }
-    let mut first = imports.iter().map(|s| s.to_string()).collect::<Vec<_>>().join("\n");
+    let mut first = imports
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     first.push_str("\n\n");
     for h in &helpers {
         first.push_str(h);
         first.push_str("\n\n\n");
     }
     first.push_str(&setup_code.join("\n"));
-    setup_cells.code("dbine-python-setup", first.trim_end(), json!({}), Vec::new(), None);
+    setup_cells.code(
+        "dbine-python-setup",
+        first.trim_end(),
+        json!({}),
+        Vec::new(),
+        None,
+    );
 
     // Body ids mustn't clash with the setup cells'.
     let mut cells = setup_cells.out;
-    let taken: HashSet<String> = cells.iter().filter_map(|c| c["id"].as_str().map(String::from)).collect();
+    let taken: HashSet<String> = cells
+        .iter()
+        .filter_map(|c| c["id"].as_str().map(String::from))
+        .collect();
     for (i, mut c) in body.out.into_iter().enumerate() {
         if c["id"].as_str().is_some_and(|id| taken.contains(id)) {
             c["id"] = json!(format!("cell-body-{}", i + 1));
@@ -1838,7 +2507,10 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
         cells.push(c);
     }
     let mut meta = Map::new();
-    meta.insert("kernelspec".into(), json!({ "name": "python3", "display_name": "Python 3", "language": "python" }));
+    meta.insert(
+        "kernelspec".into(),
+        json!({ "name": "python3", "display_name": "Python 3", "language": "python" }),
+    );
     meta.insert("language_info".into(), json!({ "name": "python" }));
     json!({ "cells": cells, "metadata": meta, "nbformat": 4, "nbformat_minor": 5 })
 }
@@ -1848,7 +2520,10 @@ pub fn python(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport) -
     use serde::Serialize;
     let v = to_value(nb, conns, opts);
     let mut buf = Vec::new();
-    let mut ser = serde_json::Serializer::with_formatter(&mut buf, serde_json::ser::PrettyFormatter::with_indent(b" "));
+    let mut ser = serde_json::Serializer::with_formatter(
+        &mut buf,
+        serde_json::ser::PrettyFormatter::with_indent(b" "),
+    );
     let _ = v.serialize(&mut ser);
     let mut s = String::from_utf8(buf).unwrap_or_default();
     s.push('\n');
@@ -1861,8 +2536,15 @@ pub fn python(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport) -
 pub fn mapping_of(c: &PyConn) -> (String, Option<String>) {
     let s = setup_for(c, "x");
     if s.kind == Kind::Sa {
-        let driver = s.code.get(2).map(|l| l.trim().trim_end_matches(',').trim_matches('"').to_string()).unwrap_or_default();
-        return (format!("sqlalchemy {driver} ({})", s.packages.join(", ")), s.reason);
+        let driver = s
+            .code
+            .get(2)
+            .map(|l| l.trim().trim_end_matches(',').trim_matches('"').to_string())
+            .unwrap_or_default();
+        return (
+            format!("sqlalchemy {driver} ({})", s.packages.join(", ")),
+            s.reason,
+        );
     }
     let what = match s.kind {
         Kind::Sa => "sqlalchemy",

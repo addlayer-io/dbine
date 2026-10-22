@@ -20,24 +20,44 @@ use dbine_driver::{Error, Result};
 use serde_json::Value;
 
 impl DrillSession {
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let list = match &spec.columns {
             Some(c) if !c.is_empty() => {
                 // Drill answers an unknown column with NULLs instead of an error.
                 self.check_columns(spec, c).await?;
-                c.iter().map(|n| crate::quote(n)).collect::<Vec<_>>().join(", ")
+                c.iter()
+                    .map(|n| crate::quote(n))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             }
             _ => "*".to_string(),
         };
         let mut sql = format!("SELECT {list} FROM {}", self.name(&spec.table));
-        if let Some(f) = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        if let Some(f) = spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
             sql.push_str(&format!(" WHERE {f}"));
         }
         let body = self.body(&sql);
         let conn = self.conn.clone();
-        *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = Some(sql.clone());
+        *self
+            .cancel
+            .current
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(sql.clone());
         let r = self.cancel.run(read_stream(&conn, &body, sink)).await;
-        *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .cancel
+            .current
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         r
     }
 
@@ -46,41 +66,78 @@ impl DrillSession {
     /// in later records, it holds at least one value somewhere in the table.
     async fn check_columns(&self, spec: &ReadSpec, cols: &[String]) -> Result<()> {
         let table = self.name(&spec.table);
-        let sample = self.query(&format!("SELECT * FROM {table} LIMIT 1")).await?;
+        let sample = self
+            .query(&format!("SELECT * FROM {table} LIMIT 1"))
+            .await?;
         let missing = unknown_columns(cols, sample.columns.iter().map(|(n, _)| n.as_str()));
         if missing.is_empty() {
             return Ok(());
         }
-        let counts = missing.iter().map(|c| format!("COUNT({})", crate::quote(c))).collect::<Vec<_>>().join(", ");
+        let counts = missing
+            .iter()
+            .map(|c| format!("COUNT({})", crate::quote(c)))
+            .collect::<Vec<_>>()
+            .join(", ");
         let answer = self.query(&format!("SELECT {counts} FROM {table}")).await?;
         let row = answer.rows.into_iter().next().unwrap_or_default();
-        let absent: Vec<&str> =
-            missing.iter().enumerate().filter(|(i, _)| row.get(*i).is_none_or(|v| text(v).parse::<u64>().unwrap_or(0) == 0)).map(|(_, c)| *c).collect();
+        let absent: Vec<&str> = missing
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                row.get(*i)
+                    .is_none_or(|v| text(v).parse::<u64>().unwrap_or(0) == 0)
+            })
+            .map(|(_, c)| *c)
+            .collect();
         match absent.as_slice() {
             [] => Ok(()),
-            [c] => Err(Error::Query(format!("La tabla {} no tiene la columna {c}.", spec.table.name))),
-            cs => Err(Error::Query(format!("La tabla {} no tiene las columnas {}.", spec.table.name, cs.join(", ")))),
+            [c] => Err(Error::Query(format!(
+                "La tabla {} no tiene la columna {c}.",
+                spec.table.name
+            ))),
+            cs => Err(Error::Query(format!(
+                "La tabla {} no tiene las columnas {}.",
+                spec.table.name,
+                cs.join(", ")
+            ))),
         }
     }
 }
 
 /// The requested columns missing from `known` (Drill's names are
 /// case-insensitive).
-fn unknown_columns<'a, 'b>(requested: &'a [String], known: impl Iterator<Item = &'b str>) -> Vec<&'a str> {
+fn unknown_columns<'a, 'b>(
+    requested: &'a [String],
+    known: impl Iterator<Item = &'b str>,
+) -> Vec<&'a str> {
     let known: std::collections::HashSet<String> = known.map(str::to_lowercase).collect();
-    requested.iter().filter(|c| !known.contains(&c.to_lowercase())).map(String::as_str).collect()
+    requested
+        .iter()
+        .filter(|c| !known.contains(&c.to_lowercase()))
+        .map(String::as_str)
+        .collect()
 }
 
 async fn read_stream(conn: &Conn, body: &Value, sink: BatchSinkRef) -> Result<u64> {
     let mut resp = None;
     for attempt in 0..2 {
-        let r = conn.req(conn.http.post(format!("{}/query.json", conn.base)).json(body)).send().await.map_err(http_error)?;
+        let r = conn
+            .req(
+                conn.http
+                    .post(format!("{}/query.json", conn.base))
+                    .json(body),
+            )
+            .send()
+            .await
+            .map_err(http_error)?;
         if Conn::needs_login(r.status(), r.headers()) {
             if attempt == 0 && conn.password.is_some() {
                 conn.login().await?;
                 continue;
             }
-            return Err(Error::AuthFailed("Drill pide iniciar sesión: revisá el usuario y la contraseña.".into()));
+            return Err(Error::AuthFailed(
+                "Drill pide iniciar sesión: revisá el usuario y la contraseña.".into(),
+            ));
         }
         resp = Some(r);
         break;
@@ -155,12 +212,19 @@ impl Scanner {
                 }
                 b'{' | b'[' => {
                     self.depth += 1;
-                    if c == b'[' && self.depth == 2 && self.phase == Phase::Header && self.last_key == b"\"rows\"" {
+                    if c == b'['
+                        && self.depth == 2
+                        && self.phase == Phase::Header
+                        && self.last_key == b"\"rows\""
+                    {
                         // The header: everything before `,"rows"`.
                         let cut = self.buf[..i].iter().rposition(|&b| b == b'"').unwrap_or(0);
                         let key = cut.saturating_sub(5); // the `"rows"` key's opening quote
                         let mut h = self.buf[..key].to_vec();
-                        while h.last().is_some_and(|b| b.is_ascii_whitespace() || *b == b',') {
+                        while h
+                            .last()
+                            .is_some_and(|b| b.is_ascii_whitespace() || *b == b',')
+                        {
                             h.pop();
                         }
                         h.push(b'}');
@@ -196,12 +260,25 @@ impl Scanner {
         // servers (which send it after the rows).
         let rest: Value = match self.phase {
             Phase::Header => serde_json::from_slice(&self.buf).map_err(|_| {
-                Error::Query(format!("respuesta inesperada de Drill: {}", String::from_utf8_lossy(&self.buf).chars().take(500).collect::<String>()))
+                Error::Query(format!(
+                    "respuesta inesperada de Drill: {}",
+                    String::from_utf8_lossy(&self.buf)
+                        .chars()
+                        .take(500)
+                        .collect::<String>()
+                ))
             })?,
-            Phase::Rows => return Err(Error::Query("la respuesta de Drill terminó antes que las filas".into())),
+            Phase::Rows => {
+                return Err(Error::Query(
+                    "la respuesta de Drill terminó antes que las filas".into(),
+                ))
+            }
             Phase::Tail => {
-                let tail = String::from_utf8_lossy(&self.buf[self.tail_start.min(self.buf.len())..]).into_owned();
-                serde_json::from_str(&format!("{{{}", tail.trim_start().trim_start_matches(','))).unwrap_or(Value::Null)
+                let tail =
+                    String::from_utf8_lossy(&self.buf[self.tail_start.min(self.buf.len())..])
+                        .into_owned();
+                serde_json::from_str(&format!("{{{}", tail.trim_start().trim_start_matches(',')))
+                    .unwrap_or(Value::Null)
             }
         };
         let state = rest.get("queryState").and_then(Value::as_str).unwrap_or("");
@@ -209,7 +286,11 @@ impl Scanner {
             return Err(Error::Cancelled);
         }
         if state == "FAILED" || rest.get("errorMessage").is_some() {
-            return Err(Error::Query(rest.get("errorMessage").map(text).unwrap_or_else(|| "La consulta falló durante la ejecución.".into())));
+            return Err(Error::Query(
+                rest.get("errorMessage")
+                    .map(text)
+                    .unwrap_or_else(|| "La consulta falló durante la ejecución.".into()),
+            ));
         }
         if self.phase == Phase::Header {
             // No rows key at all (an empty answer).
@@ -235,7 +316,13 @@ struct RowReader {
 
 impl RowReader {
     fn new(sink: BatchSinkRef) -> RowReader {
-        RowReader { sink, builder: BatchBuilder::new(), columns: Vec::new(), begun: false, pending: Pending::new(SPILL_BYTES) }
+        RowReader {
+            sink,
+            builder: BatchBuilder::new(),
+            columns: Vec::new(),
+            begun: false,
+            pending: Pending::new(SPILL_BYTES),
+        }
     }
 
     fn header(&mut self, h: &[u8]) -> Result<()> {
@@ -243,9 +330,25 @@ impl RowReader {
         if let Some(m) = v.get("errorMessage") {
             return Err(Error::Query(text(m)));
         }
-        let names: Vec<String> = v.get("columns").and_then(Value::as_array).into_iter().flatten().map(text).collect();
-        let types: Vec<String> = v.get("metadata").and_then(Value::as_array).into_iter().flatten().map(text).collect();
-        self.columns = names.into_iter().enumerate().map(|(i, n)| (n, types.get(i).cloned().unwrap_or_default())).collect();
+        let names: Vec<String> = v
+            .get("columns")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(text)
+            .collect();
+        let types: Vec<String> = v
+            .get("metadata")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(text)
+            .collect();
+        self.columns = names
+            .into_iter()
+            .enumerate()
+            .map(|(i, n)| (n, types.get(i).cloned().unwrap_or_default()))
+            .collect();
         if !types.is_empty() {
             self.begin()?;
         }
@@ -261,9 +364,19 @@ impl RowReader {
     }
 
     fn begin(&mut self) -> Result<()> {
-        let cols: Vec<TransferColumn> =
-            self.columns.iter().map(|(n, t)| TransferColumn { name: n.clone(), type_name: t.clone(), nullable: true }).collect();
-        self.sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        let cols: Vec<TransferColumn> = self
+            .columns
+            .iter()
+            .map(|(n, t)| TransferColumn {
+                name: n.clone(),
+                type_name: t.clone(),
+                nullable: true,
+            })
+            .collect();
+        self.sink
+            .lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
         self.begun = true;
         Ok(())
     }
@@ -273,7 +386,10 @@ impl RowReader {
             return self.pending.push(raw);
         }
         let cells = row_cells(raw, &self.columns)?;
-        let mut s = self.sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+        let mut s = self
+            .sink
+            .lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?;
         self.builder.push(cells, &mut *s)?;
         Ok(())
     }
@@ -284,7 +400,10 @@ impl RowReader {
             let mut pending = std::mem::replace(&mut self.pending, Pending::new(0));
             pending.drain(|raw| self.row(raw))?;
         }
-        let mut s = self.sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+        let mut s = self
+            .sink
+            .lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?;
         self.builder.flush(&mut *s)?;
         Ok(self.builder.rows)
     }
@@ -315,12 +434,19 @@ impl Drop for Spill {
 }
 
 fn spill_error(e: std::io::Error) -> Error {
-    Error::Query(format!("no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {e}"))
+    Error::Query(format!(
+        "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {e}"
+    ))
 }
 
 impl Pending {
     fn new(limit: usize) -> Pending {
-        Pending { limit, mem: Vec::new(), bytes: 0, spill: None }
+        Pending {
+            limit,
+            mem: Vec::new(),
+            bytes: 0,
+            spill: None,
+        }
     }
 
     fn push(&mut self, raw: &[u8]) -> Result<()> {
@@ -334,8 +460,16 @@ impl Pending {
             self.spill = Some(Spill::create().map_err(spill_error)?);
         }
         let spill = self.spill.as_mut().expect("just created");
-        for row in std::mem::take(&mut self.mem).iter().map(Vec::as_slice).chain([raw]) {
-            spill.file.write_all(&(row.len() as u64).to_le_bytes()).and_then(|_| spill.file.write_all(row)).map_err(spill_error)?;
+        for row in std::mem::take(&mut self.mem)
+            .iter()
+            .map(Vec::as_slice)
+            .chain([raw])
+        {
+            spill
+                .file
+                .write_all(&(row.len() as u64).to_le_bytes())
+                .and_then(|_| spill.file.write_all(row))
+                .map_err(spill_error)?;
         }
         self.bytes = 0;
         Ok(())
@@ -347,10 +481,13 @@ impl Pending {
         for row in std::mem::take(&mut self.mem) {
             f(&row)?;
         }
-        let Some(spill) = self.spill.as_mut() else { return Ok(()) };
+        let Some(spill) = self.spill.as_mut() else {
+            return Ok(());
+        };
         std::io::Write::flush(&mut spill.file).map_err(spill_error)?;
         let mut file = std::io::BufReader::new(spill.file.get_ref());
-        file.seek(std::io::SeekFrom::Start(0)).map_err(spill_error)?;
+        file.seek(std::io::SeekFrom::Start(0))
+            .map_err(spill_error)?;
         let mut len = [0u8; 8];
         let mut row = Vec::new();
         loop {
@@ -370,14 +507,24 @@ impl Spill {
     fn create() -> std::io::Result<Spill> {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        let path = std::env::temp_dir().join(format!("dbine-drill-{}-{nanos}-{}.rows", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "dbine-drill-{}-{nanos}-{}.rows",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut open = std::fs::OpenOptions::new();
         open.read(true).write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
         let file = open.open(&path)?;
-        Ok(Spill { path, file: std::io::BufWriter::new(file) })
+        Ok(Spill {
+            path,
+            file: std::io::BufWriter::new(file),
+        })
     }
 }
 
@@ -393,7 +540,10 @@ fn pair(part: &str) -> Option<(String, &str)> {
             e = true;
         } else if c == '"' {
             let key = serde_json::from_str::<String>(&part[..i + 2]).ok()?;
-            return Some((key, rest[i + 1..].trim_start().trim_start_matches(':').trim()));
+            return Some((
+                key,
+                rest[i + 1..].trim_start().trim_start_matches(':').trim(),
+            ));
         }
     }
     None
@@ -459,7 +609,9 @@ fn unquote(raw: &str) -> String {
 
 /// `1E+2` → `100` (Java's `BigDecimal` text may carry an exponent).
 fn plain_decimal(s: &str) -> String {
-    let Some(e) = s.find(['E', 'e']) else { return s.to_string() };
+    let Some(e) = s.find(['E', 'e']) else {
+        return s.to_string();
+    };
     let (mant, exp) = (&s[..e], s[e + 1..].parse::<i64>().unwrap_or(0));
     let (neg, mant) = match mant.strip_prefix('-') {
         Some(m) => (true, m),
@@ -473,10 +625,18 @@ fn plain_decimal(s: &str) -> String {
     } else if point as usize >= digits.len() {
         format!("{digits}{}", "0".repeat(point as usize - digits.len()))
     } else {
-        format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+        format!(
+            "{}.{}",
+            &digits[..point as usize],
+            &digits[point as usize..]
+        )
     };
     let t = out.trim_start_matches('0');
-    let out = if t.is_empty() || t.starts_with('.') { format!("0{t}") } else { t.to_string() };
+    let out = if t.is_empty() || t.starts_with('.') {
+        format!("0{t}")
+    } else {
+        t.to_string()
+    };
     if neg {
         format!("-{out}")
     } else {
@@ -501,20 +661,31 @@ pub(crate) fn to_cell(raw: &str, ty: &str) -> Cell {
             "false" => Cell::Bool(false),
             _ => Cell::Text(unquote(raw)),
         },
-        "TINYINT" | "SMALLINT" | "INT" | "INTEGER" | "BIGINT" | "UINT1" | "UINT2" | "UINT4" => raw.parse().map(Cell::Int).unwrap_or_else(|_| Cell::Text(unquote(raw))),
-        "UINT8" => raw.parse().map(Cell::UInt).unwrap_or_else(|_| Cell::Text(unquote(raw))),
+        "TINYINT" | "SMALLINT" | "INT" | "INTEGER" | "BIGINT" | "UINT1" | "UINT2" | "UINT4" => raw
+            .parse()
+            .map(Cell::Int)
+            .unwrap_or_else(|_| Cell::Text(unquote(raw))),
+        "UINT8" => raw
+            .parse()
+            .map(Cell::UInt)
+            .unwrap_or_else(|_| Cell::Text(unquote(raw))),
         // NaN and ±Infinity come quoted (`"NaN"`, `"-Infinity"`).
         "FLOAT4" | "FLOAT" => {
             let s = unquote(raw);
-            s.parse::<f32>().map(|f| Cell::Float(f.to_string().parse().unwrap_or(f64::from(f)))).unwrap_or(Cell::Text(s))
+            s.parse::<f32>()
+                .map(|f| Cell::Float(f.to_string().parse().unwrap_or(f64::from(f))))
+                .unwrap_or(Cell::Text(s))
         }
         "FLOAT8" | "DOUBLE" => {
             let s = unquote(raw);
             s.parse().map(Cell::Float).unwrap_or(Cell::Text(s))
         }
-        "VARDECIMAL" | "DECIMAL" | "DECIMAL9" | "DECIMAL18" | "DECIMAL28SPARSE" | "DECIMAL38SPARSE" => Cell::Decimal(plain_decimal(raw.trim_matches('"'))),
+        "VARDECIMAL" | "DECIMAL" | "DECIMAL9" | "DECIMAL18" | "DECIMAL28SPARSE"
+        | "DECIMAL38SPARSE" => Cell::Decimal(plain_decimal(raw.trim_matches('"'))),
         "TIMESTAMP" => match ms().and_then(chrono::DateTime::from_timestamp_millis) {
-            Some(d) if d.timestamp_subsec_millis() == 0 => Cell::DateTime(d.format("%Y-%m-%d %H:%M:%S").to_string()),
+            Some(d) if d.timestamp_subsec_millis() == 0 => {
+                Cell::DateTime(d.format("%Y-%m-%d %H:%M:%S").to_string())
+            }
             Some(d) => Cell::DateTime(d.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
             None => Cell::DateTime(unquote(raw)),
         },
@@ -524,24 +695,43 @@ pub(crate) fn to_cell(raw: &str, ty: &str) -> Cell {
         },
         "TIME" => match ms() {
             Some(ms) => {
-                let base = format!("{:02}:{:02}:{:02}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60);
-                Cell::Time(if ms % 1000 == 0 { base } else { format!("{base}.{:03}", ms % 1000) })
+                let base = format!(
+                    "{:02}:{:02}:{:02}",
+                    ms / 3_600_000,
+                    ms / 60_000 % 60,
+                    ms / 1000 % 60
+                );
+                Cell::Time(if ms % 1000 == 0 {
+                    base
+                } else {
+                    format!("{base}.{:03}", ms % 1000)
+                })
             }
             None => Cell::Time(unquote(raw)),
         },
         "VARBINARY" | "BINARY" => {
             let s = unquote(raw);
-            base64::engine::general_purpose::STANDARD.decode(&s).map(Cell::Bytes).unwrap_or(Cell::Text(s))
+            base64::engine::general_purpose::STANDARD
+                .decode(&s)
+                .map(Cell::Bytes)
+                .unwrap_or(Cell::Text(s))
         }
         _ if raw.starts_with('{') || raw.starts_with('[') => Cell::Json(raw.to_string()),
         _ if raw.starts_with('"') => Cell::Text(unquote(raw)),
-        _ => raw.parse::<i64>().map(Cell::Int).unwrap_or_else(|_| Cell::Text(raw.to_string())),
+        _ => raw
+            .parse::<i64>()
+            .map(Cell::Int)
+            .unwrap_or_else(|_| Cell::Text(raw.to_string())),
     }
 }
 
 /// A list's elements as raw JSON text (`raw` starts with `[`).
 fn array_items(raw: &str) -> Vec<&str> {
-    let inner = raw.trim().strip_prefix('[').and_then(|r| r.strip_suffix(']')).unwrap_or("");
+    let inner = raw
+        .trim()
+        .strip_prefix('[')
+        .and_then(|r| r.strip_suffix(']'))
+        .unwrap_or("");
     let mut out = Vec::new();
     let (mut depth, mut in_str, mut esc, mut start) = (0i32, false, false, 0usize);
     for (i, c) in inner.char_indices() {
@@ -589,8 +779,20 @@ fn list_json(raw: &str, ty: &str) -> String {
             Cell::Json(j) => j,
             // Binaries stay as Drill's base64 text.
             Cell::Bytes(_) => item.to_string(),
-            Cell::Float(f) => Value::String(if f.is_nan() { "NaN".into() } else if f > 0.0 { "Infinity".into() } else { "-Infinity".into() }).to_string(),
-            Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => Value::String(s).to_string(),
+            Cell::Float(f) => Value::String(if f.is_nan() {
+                "NaN".into()
+            } else if f > 0.0 {
+                "Infinity".into()
+            } else {
+                "-Infinity".into()
+            })
+            .to_string(),
+            Cell::Text(s)
+            | Cell::Date(s)
+            | Cell::Time(s)
+            | Cell::DateTime(s)
+            | Cell::DateTimeTz(s)
+            | Cell::Uuid(s) => Value::String(s).to_string(),
         })
         .collect();
     format!("[{}]", items.join(","))
@@ -691,7 +893,10 @@ mod tests {
         let old = r#"{"queryId":"1","columns":["a","d"],"rows":[{"a":"1","d":1.50}],"metadata":["INT","VARDECIMAL(3, 2)"],"queryState":"COMPLETED"}"#;
         let (n, got) = scan(old, 4).unwrap();
         assert_eq!(n, 1);
-        assert_eq!(got.rows[0], vec![Cell::Text("1".into()), Cell::Decimal("1.50".into())]);
+        assert_eq!(
+            got.rows[0],
+            vec![Cell::Text("1".into()), Cell::Decimal("1.50".into())]
+        );
         // No rows.
         let (n, got) = scan(r#"{"queryId":"1","columns":["a"],"metadata":["INT"],"rows":[],"queryState":"COMPLETED"}"#, 2).unwrap();
         assert_eq!((n, got.columns.len()), (0, 1));
@@ -707,49 +912,100 @@ mod tests {
     #[test]
     fn repeated_columns_are_json() {
         // Drill's metadata gives the element type of a repeated column.
-        assert_eq!(to_cell("[true,false]", "BIT"), Cell::Json("[true,false]".into()));
-        assert_eq!(to_cell("[true,true]", "BIT"), Cell::Json("[true,true]".into()));
+        assert_eq!(
+            to_cell("[true,false]", "BIT"),
+            Cell::Json("[true,false]".into())
+        );
+        assert_eq!(
+            to_cell("[true,true]", "BIT"),
+            Cell::Json("[true,true]".into())
+        );
         assert_eq!(to_cell("[1,3]", "BIGINT"), Cell::Json("[1,3]".into()));
         assert_eq!(to_cell("[]", "BIGINT"), Cell::Json("[]".into()));
-        assert_eq!(to_cell("[1.5,2.25]", "FLOAT8"), Cell::Json("[1.5,2.25]".into()));
-        assert_eq!(to_cell(r#"[1.5,"NaN","-Infinity"]"#, "FLOAT8"), Cell::Json(r#"[1.5,"NaN","-Infinity"]"#.into()));
+        assert_eq!(
+            to_cell("[1.5,2.25]", "FLOAT8"),
+            Cell::Json("[1.5,2.25]".into())
+        );
+        assert_eq!(
+            to_cell(r#"[1.5,"NaN","-Infinity"]"#, "FLOAT8"),
+            Cell::Json(r#"[1.5,"NaN","-Infinity"]"#.into())
+        );
         assert_eq!(
             to_cell("[12345678901234567890.1234,1E+2,null]", "VARDECIMAL(38, 4)"),
             Cell::Json("[12345678901234567890.1234,100,null]".into())
         );
-        assert_eq!(to_cell("[1706708700123]", "TIMESTAMP"), Cell::Json(r#"["2024-01-31 13:45:00.123"]"#.into()));
-        assert_eq!(to_cell("[1706659200000]", "DATE"), Cell::Json(r#"["2024-01-31"]"#.into()));
-        assert_eq!(to_cell("[49507123]", "TIME"), Cell::Json(r#"["13:45:07.123"]"#.into()));
-        assert_eq!(to_cell(r#"["yv4="]"#, "VARBINARY"), Cell::Json(r#"["yv4="]"#.into()));
-        assert_eq!(to_cell("[[1,2],[3]]", "BIGINT"), Cell::Json("[[1,2],[3]]".into()));
-        assert_eq!(to_cell(r#"["a,]","b"]"#, "VARCHAR"), Cell::Json(r#"["a,]","b"]"#.into()));
+        assert_eq!(
+            to_cell("[1706708700123]", "TIMESTAMP"),
+            Cell::Json(r#"["2024-01-31 13:45:00.123"]"#.into())
+        );
+        assert_eq!(
+            to_cell("[1706659200000]", "DATE"),
+            Cell::Json(r#"["2024-01-31"]"#.into())
+        );
+        assert_eq!(
+            to_cell("[49507123]", "TIME"),
+            Cell::Json(r#"["13:45:07.123"]"#.into())
+        );
+        assert_eq!(
+            to_cell(r#"["yv4="]"#, "VARBINARY"),
+            Cell::Json(r#"["yv4="]"#.into())
+        );
+        assert_eq!(
+            to_cell("[[1,2],[3]]", "BIGINT"),
+            Cell::Json("[[1,2],[3]]".into())
+        );
+        assert_eq!(
+            to_cell(r#"["a,]","b"]"#, "VARCHAR"),
+            Cell::Json(r#"["a,]","b"]"#.into())
+        );
         // A list in a real answer (captured from Drill 1.22).
         let answer = r#"{"queryId":"1","columns":["ok","n"],"metadata":["BIT","BIGINT"],"rows":[{"ok":[true,false],"n":[1,3]}],"queryState":"COMPLETED"}"#;
         let (_, got) = scan(answer, 3).unwrap();
-        assert_eq!(got.rows[0], vec![Cell::Json("[true,false]".into()), Cell::Json("[1,3]".into())]);
+        assert_eq!(
+            got.rows[0],
+            vec![
+                Cell::Json("[true,false]".into()),
+                Cell::Json("[1,3]".into())
+            ]
+        );
     }
 
     #[test]
     fn nan_and_infinity_are_floats() {
         let answer = r#"{"queryId":"1","columns":["nan","i","i4"],"metadata":["FLOAT8","FLOAT8","FLOAT4"],"rows":[{"nan":"NaN","i":"Infinity","i4":"-Infinity"}],"queryState":"COMPLETED"}"#;
         let (_, got) = scan(answer, 5).unwrap();
-        assert!(matches!(got.rows[0][0], Cell::Float(f) if f.is_nan()), "{:?}", got.rows[0][0]);
+        assert!(
+            matches!(got.rows[0][0], Cell::Float(f) if f.is_nan()),
+            "{:?}",
+            got.rows[0][0]
+        );
         assert_eq!(got.rows[0][1], Cell::Float(f64::INFINITY));
         assert_eq!(got.rows[0][2], Cell::Float(f64::NEG_INFINITY));
         assert!(matches!(to_cell(r#""NaN""#, "FLOAT4"), Cell::Float(f) if f.is_nan()));
-        assert_eq!(to_cell(r#""Infinity""#, "FLOAT4"), Cell::Float(f64::INFINITY));
+        assert_eq!(
+            to_cell(r#""Infinity""#, "FLOAT4"),
+            Cell::Float(f64::INFINITY)
+        );
     }
 
     #[test]
     fn late_metadata_spills_to_disk() {
         // Types after the rows: past the bound the rows wait in a file, in order.
-        let rows: Vec<String> = (0..500).map(|i| format!(r#"{{"a":{i},"d":{i}.50}}"#)).collect();
-        let answer = format!(r#"{{"queryId":"1","columns":["a","d"],"rows":[{}],"metadata":["BIGINT","VARDECIMAL(9, 2)"],"queryState":"COMPLETED"}}"#, rows.join(","));
+        let rows: Vec<String> = (0..500)
+            .map(|i| format!(r#"{{"a":{i},"d":{i}.50}}"#))
+            .collect();
+        let answer = format!(
+            r#"{{"queryId":"1","columns":["a","d"],"rows":[{}],"metadata":["BIGINT","VARDECIMAL(9, 2)"],"queryState":"COMPLETED"}}"#,
+            rows.join(",")
+        );
         for spill in [0, 100, 1 << 20] {
             let (n, got) = scan_with(&answer, 13, spill).unwrap();
             assert_eq!(n, 500);
             for (i, r) in got.rows.iter().enumerate() {
-                assert_eq!(r, &vec![Cell::Int(i as i64), Cell::Decimal(format!("{i}.50"))]);
+                assert_eq!(
+                    r,
+                    &vec![Cell::Int(i as i64), Cell::Decimal(format!("{i}.50"))]
+                );
             }
         }
         let mut p = Pending::new(4);

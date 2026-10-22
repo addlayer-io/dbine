@@ -56,7 +56,9 @@
 
 use super::{is_record, is_repeated, str_of, BigQuerySession, JobRef, PAGE, WAIT_MS};
 use crate::ddl::ident;
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{json_i64, json_u64, Error, Result};
 use serde_json::{json, Value as Json};
 use std::time::Duration;
@@ -136,8 +138,14 @@ pub(crate) fn field_type(f: &Json) -> String {
         "FLOAT" | "FLOAT64" => "FLOAT64".to_string(),
         "BOOLEAN" | "BOOL" => "BOOL".to_string(),
         "RECORD" | "STRUCT" => {
-            let sub = f.get("fields").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
-            let parts: Vec<String> = sub.iter().map(|s| format!("{} {}", ident(str_of(s, "name")), field_type(s))).collect();
+            let sub = f
+                .get("fields")
+                .and_then(Json::as_array)
+                .map_or(&[][..], Vec::as_slice);
+            let parts: Vec<String> = sub
+                .iter()
+                .map(|s| format!("{} {}", ident(str_of(s, "name")), field_type(s)))
+                .collect();
             format!("STRUCT<{}>", parts.join(", "))
         }
         "NUMERIC" | "BIGNUMERIC" => match (num(f, "precision"), num(f, "scale")) {
@@ -146,7 +154,12 @@ pub(crate) fn field_type(f: &Json) -> String {
             _ => t,
         },
         "STRING" | "BYTES" => num(f, "maxLength").map_or(t.clone(), |l| format!("{t}({l})")),
-        "RANGE" => format!("RANGE<{}>", f.pointer("/rangeElementType/type").and_then(Json::as_str).unwrap_or("DATE")),
+        "RANGE" => format!(
+            "RANGE<{}>",
+            f.pointer("/rangeElementType/type")
+                .and_then(Json::as_str)
+                .unwrap_or("DATE")
+        ),
         _ => t,
     };
     if is_repeated(f) {
@@ -157,7 +170,11 @@ pub(crate) fn field_type(f: &Json) -> String {
 }
 
 pub(crate) fn transfer_column(f: &Json) -> TransferColumn {
-    TransferColumn { name: str_of(f, "name").to_string(), type_name: field_type(f), nullable: str_of(f, "mode") != "REQUIRED" }
+    TransferColumn {
+        name: str_of(f, "name").to_string(),
+        type_name: field_type(f),
+        nullable: str_of(f, "mode") != "REQUIRED",
+    }
 }
 
 /// Epoch microseconds from a TIMESTAMP value: integer microseconds (with
@@ -167,9 +184,15 @@ pub(crate) fn epoch_micros(s: &str) -> Option<i64> {
     if s.contains(['e', 'E']) {
         return Some((s.parse::<f64>().ok()? * 1e6).round() as i64);
     }
-    let Some((sec, frac)) = s.split_once('.') else { return s.parse().ok() };
+    let Some((sec, frac)) = s.split_once('.') else {
+        return s.parse().ok();
+    };
     let secs: i64 = sec.parse().ok()?;
-    let f: i64 = if frac.is_empty() { 0 } else { format!("{frac:0<6}").get(..6)?.parse().ok()? };
+    let f: i64 = if frac.is_empty() {
+        0
+    } else {
+        format!("{frac:0<6}").get(..6)?.parse().ok()?
+    };
     let f = if sec.starts_with('-') { -f } else { f };
     secs.checked_mul(1_000_000)?.checked_add(f)
 }
@@ -185,7 +208,11 @@ fn fraction(micros: u32) -> String {
 /// `YYYY-MM-DD HH:MM:SS[.ffffff]` in UTC.
 fn utc_text(micros: i64) -> Option<String> {
     let t = chrono::DateTime::from_timestamp_micros(micros)?;
-    Some(format!("{}{}", t.format("%Y-%m-%d %H:%M:%S"), fraction(t.timestamp_subsec_micros())))
+    Some(format!(
+        "{}{}",
+        t.format("%Y-%m-%d %H:%M:%S"),
+        fraction(t.timestamp_subsec_micros())
+    ))
 }
 
 fn b64_decode(s: &str) -> Option<Vec<u8>> {
@@ -208,10 +235,14 @@ pub(crate) fn read_cell(kind: Read, v: &Json, f: &Json) -> Cell {
         nested(v, f, is_repeated(f), &mut out);
         return Cell::Json(out);
     }
-    let Some(s) = v.as_str() else { return Cell::from_json(v) };
+    let Some(s) = v.as_str() else {
+        return Cell::from_json(v);
+    };
     let text = || Cell::Text(s.to_string());
     match kind {
-        Read::Int => s.parse::<i64>().map_or_else(|_| Cell::Decimal(s.to_string()), Cell::Int),
+        Read::Int => s
+            .parse::<i64>()
+            .map_or_else(|_| Cell::Decimal(s.to_string()), Cell::Int),
         Read::Float => s.parse::<f64>().map_or_else(|_| text(), Cell::Float),
         Read::Decimal => Cell::Decimal(s.to_string()),
         Read::Bool => Cell::Bool(s.eq_ignore_ascii_case("true")),
@@ -219,7 +250,9 @@ pub(crate) fn read_cell(kind: Read, v: &Json, f: &Json) -> Cell {
         Read::Date => Cell::Date(s.to_string()),
         Read::Time => Cell::Time(s.to_string()),
         Read::DateTime => Cell::DateTime(s.replacen('T', " ", 1)),
-        Read::Timestamp => epoch_micros(s).and_then(utc_text).map_or_else(text, |t| Cell::DateTimeTz(format!("{t}+00:00"))),
+        Read::Timestamp => epoch_micros(s)
+            .and_then(utc_text)
+            .map_or_else(text, |t| Cell::DateTimeTz(format!("{t}+00:00"))),
         Read::Json => Cell::Json(s.to_string()),
         Read::Nested | Read::Text => text(),
     }
@@ -235,7 +268,10 @@ fn is_json(s: &str) -> bool {
 /// valid JSON can only be whitespace (inside strings it's escaped).
 fn push_raw_json(out: &mut String, s: &str) {
     if s.contains(['\n', '\r']) {
-        out.extend(s.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }));
+        out.extend(
+            s.chars()
+                .map(|c| if c == '\n' || c == '\r' { ' ' } else { c }),
+        );
     } else {
         out.push_str(s);
     }
@@ -267,8 +303,14 @@ pub(crate) fn nested(v: &Json, f: &Json, repeated: bool, out: &mut String) {
         return;
     }
     if is_record(f) {
-        let sub = f.get("fields").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
-        let vals = v.get("f").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
+        let sub = f
+            .get("fields")
+            .and_then(Json::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        let vals = v
+            .get("f")
+            .and_then(Json::as_array)
+            .map_or(&[][..], Vec::as_slice);
         out.push('{');
         for (i, sf) in sub.iter().enumerate() {
             if i > 0 {
@@ -282,7 +324,9 @@ pub(crate) fn nested(v: &Json, f: &Json, repeated: bool, out: &mut String) {
         out.push('}');
         return;
     }
-    let Some(s) = v.as_str() else { return push_json(out, v) };
+    let Some(s) = v.as_str() else {
+        return push_json(out, v);
+    };
     let value = match scalar_kind(f) {
         Read::Int => s.parse::<i64>().map_or_else(|_| s.into(), json_i64),
         Read::Float => match s.parse::<f64>() {
@@ -290,7 +334,9 @@ pub(crate) fn nested(v: &Json, f: &Json, repeated: bool, out: &mut String) {
             _ => s.into(),
         },
         Read::Bool => Json::Bool(s.eq_ignore_ascii_case("true")),
-        Read::Timestamp => epoch_micros(s).and_then(utc_text).map_or_else(|| s.into(), |t| Json::String(format!("{t}+00:00"))),
+        Read::Timestamp => epoch_micros(s)
+            .and_then(utc_text)
+            .map_or_else(|| s.into(), |t| Json::String(format!("{t}+00:00"))),
         Read::DateTime => s.replacen('T', " ", 1).into(),
         Read::Json if is_json(s) => return push_raw_json(out, s),
         // Bytes stay in the API's base64.
@@ -306,8 +352,17 @@ pub(crate) fn select_sql(dataset: &str, spec: &ReadSpec) -> String {
         Some(c) if !c.is_empty() => c.iter().map(|c| ident(c)).collect::<Vec<_>>().join(", "),
         _ => "*".to_string(),
     };
-    let mut sql = format!("SELECT {cols} FROM {}.{}", ident(dataset), ident(&spec.table.name));
-    if let Some(f) = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+    let mut sql = format!(
+        "SELECT {cols} FROM {}.{}",
+        ident(dataset),
+        ident(&spec.table.name)
+    );
+    if let Some(f) = spec
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+    {
         sql.push_str(&format!(" WHERE {f}"));
     }
     sql
@@ -318,7 +373,11 @@ pub(crate) fn select_sql(dataset: &str, spec: &ReadSpec) -> String {
 /// and comments (`1=1; DELETE …`) would run more on the read-only source.
 /// Unclosed literals or comments are refused too (they'd hide the rest).
 pub(crate) fn check_filter(filter: &str) -> Result<()> {
-    let unclosed = || Error::Query("el filtro tiene un texto, un nombre entre comillas o un comentario sin cerrar".into());
+    let unclosed = || {
+        Error::Query(
+            "el filtro tiene un texto, un nombre entre comillas o un comentario sin cerrar".into(),
+        )
+    };
     let b = filter.as_bytes();
     let mut i = 0;
     while i < b.len() {
@@ -395,7 +454,10 @@ pub(crate) fn selected_fields(fields: &[Json], pick: &[usize]) -> Option<Selecte
     if names.iter().any(|n| n.is_empty() || n.contains([',', '.'])) {
         return None;
     }
-    Some(Selected { names: names.join(","), idx })
+    Some(Selected {
+        names: names.join(","),
+        idx,
+    })
 }
 
 impl Selected {
@@ -404,9 +466,13 @@ impl Selected {
     /// server that ignores `selectedFields` sends whole rows: kept as they
     /// are.
     pub(crate) fn narrow(&self, page: &mut Json, width: usize) -> Result<()> {
-        let Some(rows) = page.get_mut("rows").and_then(Json::as_array_mut) else { return Ok(()) };
+        let Some(rows) = page.get_mut("rows").and_then(Json::as_array_mut) else {
+            return Ok(());
+        };
         for row in rows {
-            let Some(vals) = row.get_mut("f").and_then(Json::as_array_mut) else { continue };
+            let Some(vals) = row.get_mut("f").and_then(Json::as_array_mut) else {
+                continue;
+            };
             if vals.len() == width {
                 continue;
             }
@@ -427,24 +493,43 @@ impl Selected {
     }
 }
 
-fn lock(sink: &BatchSinkRef) -> Result<std::sync::MutexGuard<'_, dyn dbine_driver::transfer::BatchSink + 'static>> {
-    sink.lock().map_err(|_| Error::State("destino de lotes".into()))
+fn lock(
+    sink: &BatchSinkRef,
+) -> Result<std::sync::MutexGuard<'_, dyn dbine_driver::transfer::BatchSink + 'static>> {
+    sink.lock()
+        .map_err(|_| Error::State("destino de lotes".into()))
 }
 
 /// Rows of one page into the builder (the sink may block: never across an
 /// await).
-fn push_page(page: &mut Json, fields: &[Json], pick: &[usize], kinds: &[Read], builder: &mut BatchBuilder, sink: &BatchSinkRef) -> Result<()> {
+fn push_page(
+    page: &mut Json,
+    fields: &[Json],
+    pick: &[usize],
+    kinds: &[Read],
+    builder: &mut BatchBuilder,
+    sink: &BatchSinkRef,
+) -> Result<()> {
     let rows = match page.get_mut("rows").map(Json::take) {
         Some(Json::Array(rows)) => rows,
         _ => return Ok(()),
     };
     let mut g = lock(sink)?;
     for row in rows {
-        let vals = row.get("f").and_then(Json::as_array).map_or(&[][..], Vec::as_slice);
+        let vals = row
+            .get("f")
+            .and_then(Json::as_array)
+            .map_or(&[][..], Vec::as_slice);
         let cells = pick
             .iter()
             .zip(kinds)
-            .map(|(&i, &k)| read_cell(k, vals.get(i).and_then(|c| c.get("v")).unwrap_or(&Json::Null), &fields[i]))
+            .map(|(&i, &k)| {
+                read_cell(
+                    k,
+                    vals.get(i).and_then(|c| c.get("v")).unwrap_or(&Json::Null),
+                    &fields[i],
+                )
+            })
             .collect();
         builder.push(cells, &mut *g)?;
     }
@@ -452,14 +537,24 @@ fn push_page(page: &mut Json, fields: &[Json], pick: &[usize], kinds: &[Read], b
 }
 
 fn next_token(page: &Json) -> Option<String> {
-    page.get("pageToken").and_then(Json::as_str).filter(|t| !t.is_empty()).map(str::to_string)
+    page.get("pageToken")
+        .and_then(Json::as_str)
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
 }
 
-pub(crate) async fn read_batches(s: &BigQuerySession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &BigQuerySession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let ds = s.dataset(&spec.table)?;
     let filtered = spec.filter.as_deref().is_some_and(|f| !f.trim().is_empty());
     if !filtered {
-        let meta = s.api.get(&["datasets", &ds, "tables", &spec.table.name], &[]).await?;
+        let meta = s
+            .api
+            .get(&["datasets", &ds, "tables", &spec.table.name], &[])
+            .await?;
         if meta.get("type").and_then(Json::as_str).unwrap_or("TABLE") == "TABLE" {
             return read_table(s, &ds, spec, &meta, sink).await;
         }
@@ -469,7 +564,10 @@ pub(crate) async fn read_batches(s: &BigQuerySession, spec: &ReadSpec, sink: Bat
         check_filter(spec.filter.as_deref().unwrap_or_default())?;
         // The dry run is free; a script shows as `SCRIPT`, DML as its verb.
         let dry = s.dry_run(&sql).await?;
-        let kind = dry.pointer("/statistics/query/statementType").and_then(Json::as_str).unwrap_or("");
+        let kind = dry
+            .pointer("/statistics/query/statementType")
+            .and_then(Json::as_str)
+            .unwrap_or("");
         if kind != "SELECT" {
             return Err(Error::Query(format!(
                 "el filtro tiene que ser la condición de un solo SELECT y BigQuery lo lee como «{}»: el origen es solo lectura",
@@ -484,8 +582,18 @@ pub(crate) async fn read_batches(s: &BigQuerySession, spec: &ReadSpec, sink: Bat
 }
 
 /// A base table through `tabledata.list`.
-async fn read_table(s: &BigQuerySession, ds: &str, spec: &ReadSpec, meta: &Json, sink: BatchSinkRef) -> Result<u64> {
-    let fields = meta.pointer("/schema/fields").and_then(Json::as_array).cloned().unwrap_or_default();
+async fn read_table(
+    s: &BigQuerySession,
+    ds: &str,
+    spec: &ReadSpec,
+    meta: &Json,
+    sink: BatchSinkRef,
+) -> Result<u64> {
+    let fields = meta
+        .pointer("/schema/fields")
+        .and_then(Json::as_array)
+        .cloned()
+        .unwrap_or_default();
     let pick = pick(&fields, spec.columns.as_deref())?;
     let kinds: Vec<Read> = pick.iter().map(|&i| read_kind(&fields[i])).collect();
     let columns: Vec<TransferColumn> = pick.iter().map(|&i| transfer_column(&fields[i])).collect();
@@ -495,14 +603,20 @@ async fn read_table(s: &BigQuerySession, ds: &str, spec: &ReadSpec, meta: &Json,
     let mut builder = BatchBuilder::new();
     let mut token: Option<String> = None;
     loop {
-        let mut q = vec![("maxResults", PAGE.to_string()), ("formatOptions.useInt64Timestamp", "true".to_string())];
+        let mut q = vec![
+            ("maxResults", PAGE.to_string()),
+            ("formatOptions.useInt64Timestamp", "true".to_string()),
+        ];
         if let Some(sel) = &selected {
             q.push(("selectedFields", sel.names.clone()));
         }
         if let Some(t) = token.take() {
             q.push(("pageToken", t));
         }
-        let mut page = s.api.get(&["datasets", ds, "tables", &spec.table.name, "data"], &q).await?;
+        let mut page = s
+            .api
+            .get(&["datasets", ds, "tables", &spec.table.name, "data"], &q)
+            .await?;
         if let Some(sel) = &selected {
             sel.narrow(&mut page, fields.len())?;
         }
@@ -530,8 +644,16 @@ async fn read_query(s: &BigQuerySession, sql: &str, sink: BatchSinkRef) -> Resul
     }
     let mut page = s.api.post(&["queries"], &[], &body).await?;
     let job = JobRef {
-        id: page.pointer("/jobReference/jobId").and_then(Json::as_str).unwrap_or_default().to_string(),
-        location: page.pointer("/jobReference/location").and_then(Json::as_str).map(str::to_string).or_else(|| s.api.location.clone()),
+        id: page
+            .pointer("/jobReference/jobId")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        location: page
+            .pointer("/jobReference/location")
+            .and_then(Json::as_str)
+            .map(str::to_string)
+            .or_else(|| s.api.location.clone()),
     };
     s.set_job(Some(job.clone()));
     let results = |token: Option<String>| {
@@ -551,7 +673,11 @@ async fn read_query(s: &BigQuerySession, sql: &str, sink: BatchSinkRef) -> Resul
     while page.get("jobComplete").and_then(Json::as_bool) == Some(false) {
         page = s.api.get(&["queries", &job.id], &results(None)).await?;
     }
-    let fields = page.pointer("/schema/fields").and_then(Json::as_array).cloned().unwrap_or_default();
+    let fields = page
+        .pointer("/schema/fields")
+        .and_then(Json::as_array)
+        .cloned()
+        .unwrap_or_default();
     let pick: Vec<usize> = (0..fields.len()).collect();
     let kinds: Vec<Read> = fields.iter().map(read_kind).collect();
     let columns: Vec<TransferColumn> = fields.iter().map(transfer_column).collect();
@@ -632,10 +758,15 @@ pub(crate) fn targets(fields: &[Json], columns: &[String]) -> Result<Vec<Target>
             let f = fields
                 .iter()
                 .find(|f| str_of(f, "name").eq_ignore_ascii_case(c))
-                .ok_or_else(|| Error::Query(format!("la tabla destino no tiene la columna «{c}»")))?;
+                .ok_or_else(|| {
+                    Error::Query(format!("la tabla destino no tiene la columna «{c}»"))
+                })?;
             let mut key = serde_json::to_vec(str_of(f, "name"))?;
             key.push(b':');
-            Ok(Target { key, load: load_kind(f) })
+            Ok(Target {
+                key,
+                load: load_kind(f),
+            })
         })
         .collect()
 }
@@ -643,7 +774,9 @@ pub(crate) fn targets(fields: &[Json], columns: &[String]) -> Result<Vec<Target>
 /// Temporal text cut to microseconds (`12:00:00.123456789+02:00` →
 /// `12:00:00.123456+02:00`).
 pub(crate) fn micros_text(s: &str) -> String {
-    let Some(dot) = s.find('.') else { return s.to_string() };
+    let Some(dot) = s.find('.') else {
+        return s.to_string();
+    };
     let digits = s[dot + 1..].bytes().take_while(u8::is_ascii_digit).count();
     if digits <= 6 {
         return s.to_string();
@@ -666,7 +799,10 @@ fn uuid_bytes(s: &str) -> Option<Vec<u8>> {
     if h.len() != 32 {
         return None;
     }
-    (0..32).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok()).collect()
+    (0..32)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok())
+        .collect()
 }
 
 /// A value ready for its NDJSON line.
@@ -764,12 +900,18 @@ pub(crate) fn load_value(cell: Cell, load: Load) -> Result<Option<Out>> {
 /// One NDJSON line (NULLs left out).
 pub(crate) fn write_row(buf: &mut Vec<u8>, targets: &[Target], row: Vec<Cell>) -> Result<()> {
     if row.len() != targets.len() {
-        return Err(Error::Query(format!("el lote trae {} valores por fila y la carga espera {}", row.len(), targets.len())));
+        return Err(Error::Query(format!(
+            "el lote trae {} valores por fila y la carga espera {}",
+            row.len(),
+            targets.len()
+        )));
     }
     buf.push(b'{');
     let mut first = true;
     for (cell, t) in row.into_iter().zip(targets) {
-        let Some(v) = load_value(cell, t.load)? else { continue };
+        let Some(v) = load_value(cell, t.load)? else {
+            continue;
+        };
         if !first {
             buf.push(b',');
         }
@@ -778,7 +920,12 @@ pub(crate) fn write_row(buf: &mut Vec<u8>, targets: &[Target], row: Vec<Cell>) -
         match v {
             Out::Val(v) => serde_json::to_writer(&mut *buf, &v)?,
             // A raw line break in valid JSON is whitespace: one line.
-            Out::Raw(s) => buf.extend(s.bytes().map(|c| if c == b'\n' || c == b'\r' { b' ' } else { c })),
+            Out::Raw(s) => {
+                buf.extend(
+                    s.bytes()
+                        .map(|c| if c == b'\n' || c == b'\r' { b' ' } else { c }),
+                )
+            }
         }
     }
     buf.extend_from_slice(b"}\n");
@@ -804,7 +951,11 @@ pub(crate) fn load_config(project: &str, dataset: &str, table: &str) -> Json {
 /// The reason a finished job failed, if it did.
 pub(crate) fn job_error(job: &Json) -> Option<String> {
     let first = job.pointer("/status/errorResult")?;
-    let mut msg = first.get("message").and_then(Json::as_str).unwrap_or("error desconocido").to_string();
+    let mut msg = first
+        .get("message")
+        .and_then(Json::as_str)
+        .unwrap_or("error desconocido")
+        .to_string();
     let detail: Vec<&str> = job
         .pointer("/status/errors")
         .and_then(Json::as_array)
@@ -821,7 +972,10 @@ pub(crate) fn job_error(job: &Json) -> Option<String> {
 }
 
 fn is_done(job: &Json) -> bool {
-    job.pointer("/status/state").or_else(|| job.get("state")).and_then(Json::as_str) == Some("DONE")
+    job.pointer("/status/state")
+        .or_else(|| job.get("state"))
+        .and_then(Json::as_str)
+        == Some("DONE")
 }
 
 /// Rows read from the source into load windows, a batch possibly split
@@ -872,7 +1026,11 @@ impl Windows<'_> {
 /// while the current one loads. `progress` gets the total after each
 /// window lands, also when reading the next one failed meanwhile (that
 /// window is already in the table).
-async fn run_windows<L, F>(windows: &mut Windows<'_>, mut load: L, progress: Progress<'_>) -> Result<u64>
+async fn run_windows<L, F>(
+    windows: &mut Windows<'_>,
+    mut load: L,
+    progress: Progress<'_>,
+) -> Result<u64>
 where
     L: FnMut(Vec<u8>) -> F,
     F: std::future::Future<Output = Result<()>>,
@@ -905,7 +1063,10 @@ where
 /// found again whatever happens to the upload's answer.
 fn new_job_id() -> String {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     format!("{JOB_PREFIX}{nanos}_{}_{seq}", std::process::id())
 }
@@ -926,7 +1087,9 @@ impl CancelUnlessDone {
 impl Drop for CancelUnlessDone {
     fn drop(&mut self) {
         let Some(api) = self.api.take() else { return };
-        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
         let job = self.job.clone();
         rt.spawn(async move { api.cancel(&job).await });
     }
@@ -956,12 +1119,23 @@ async fn find_job(s: &BigQuerySession, job: &JobRef) -> Option<Json> {
 /// job polled until it's done.
 async fn load_window(s: &BigQuerySession, ds: &str, table: &str, body: Vec<u8>) -> Result<()> {
     let api = &s.api;
-    let mut job_ref = JobRef { id: new_job_id(), location: api.location.clone() };
-    let mut url = reqwest::Url::parse(&api.base).map_err(|e| Error::Connect(format!("endpoint inválido: {e}")))?;
+    let mut job_ref = JobRef {
+        id: new_job_id(),
+        location: api.location.clone(),
+    };
+    let mut url = reqwest::Url::parse(&api.base)
+        .map_err(|e| Error::Connect(format!("endpoint inválido: {e}")))?;
     url.path_segments_mut()
         .map_err(|_| Error::Connect("endpoint inválido".into()))?
         .pop_if_empty()
-        .extend(["upload", "bigquery", "v2", "projects", api.project.as_str(), "jobs"]);
+        .extend([
+            "upload",
+            "bigquery",
+            "v2",
+            "projects",
+            api.project.as_str(),
+            "jobs",
+        ]);
     url.query_pairs_mut().append_pair("uploadType", "resumable");
     let mut config = load_config(&api.project, ds, table);
     config["jobReference"] = json!({ "projectId": api.project, "jobId": job_ref.id });
@@ -970,37 +1144,61 @@ async fn load_window(s: &BigQuerySession, ds: &str, table: &str, body: Vec<u8>) 
     }
     // Cancellable from here on (interrupter, or this future dropped).
     s.set_job(Some(job_ref.clone()));
-    let guard = CancelUnlessDone { api: Some(api.clone()), job: job_ref.clone() };
+    let guard = CancelUnlessDone {
+        api: Some(api.clone()),
+        job: job_ref.clone(),
+    };
     let bearer = api.tokens.bearer().await?;
     let with_auth = |r: reqwest::RequestBuilder| match &bearer {
         Some(b) => r.header("Authorization", b),
         None => r,
     };
-    let resp = with_auth(api.http.post(url.clone()).json(&config)).send().await.map_err(|e| Error::Connect(e.to_string()))?;
+    let resp = with_auth(api.http.post(url.clone()).json(&config))
+        .send()
+        .await
+        .map_err(|e| Error::Connect(e.to_string()))?;
     let status = resp.status();
-    let location = resp.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_string);
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         return Err(super::gcp::api_error(status.as_u16(), &text));
     }
-    let location = location.ok_or_else(|| Error::Query("BigQuery no devolvió la dirección de subida de la carga".into()))?;
-    let mut upload = reqwest::Url::parse(&location).map_err(|e| Error::Query(format!("dirección de subida inválida: {e}")))?;
+    let location = location.ok_or_else(|| {
+        Error::Query("BigQuery no devolvió la dirección de subida de la carga".into())
+    })?;
+    let mut upload = reqwest::Url::parse(&location)
+        .map_err(|e| Error::Query(format!("dirección de subida inválida: {e}")))?;
     if api.emulator {
         // The emulator answers with its own address inside the container.
         let _ = upload.set_scheme(url.scheme());
         let _ = upload.set_host(url.host_str());
         let _ = upload.set_port(url.port_or_known_default());
     }
-    let put = match with_auth(api.http.put(upload).header("Content-Type", "application/octet-stream").body(body)).send().await {
+    let put = match with_auth(
+        api.http
+            .put(upload)
+            .header("Content-Type", "application/octet-stream")
+            .body(body),
+    )
+    .send()
+    .await
+    {
         Err(e) => Put::Unknown(Error::Connect(e.to_string())),
         Ok(resp) => {
             let status = resp.status();
             match resp.text().await {
                 Err(e) => Put::Unknown(Error::Connect(e.to_string())),
-                Ok(text) if status.is_success() => serde_json::from_str(&text).map_or_else(|e| Put::Unknown(e.into()), Put::Job),
+                Ok(text) if status.is_success() => {
+                    serde_json::from_str(&text).map_or_else(|e| Put::Unknown(e.into()), Put::Job)
+                }
                 Ok(text) => {
                     let e = super::gcp::api_error(status.as_u16(), &text);
-                    if status.is_client_error() && status.as_u16() != 408 && status.as_u16() != 429 {
+                    if status.is_client_error() && status.as_u16() != 408 && status.as_u16() != 429
+                    {
                         Put::Rejected(e)
                     } else {
                         Put::Unknown(e)
@@ -1053,10 +1251,17 @@ async fn load_window(s: &BigQuerySession, ds: &str, table: &str, body: Vec<u8>) 
 /// Whether a `jobs.list` item is a DBine load into the table that hasn't
 /// finished.
 pub(crate) fn is_orphan(job: &Json, project: &str, ds: &str, table: &str) -> bool {
-    let id = job.pointer("/jobReference/jobId").and_then(Json::as_str).unwrap_or("");
+    let id = job
+        .pointer("/jobReference/jobId")
+        .and_then(Json::as_str)
+        .unwrap_or("");
     let dest = job.pointer("/configuration/load/destinationTable");
     let is = |k: &str, v: &str| dest.and_then(|d| d.get(k)).and_then(Json::as_str) == Some(v);
-    id.starts_with(JOB_PREFIX) && !is_done(job) && is("projectId", project) && is("datasetId", ds) && is("tableId", table)
+    id.starts_with(JOB_PREFIX)
+        && !is_done(job)
+        && is("projectId", project)
+        && is("datasetId", ds)
+        && is("tableId", table)
 }
 
 /// DBine's load jobs into the table still pending or running (left by a
@@ -1085,15 +1290,31 @@ async fn settle_orphans(s: &BigQuerySession, ds: &str, table: &str) -> Result<()
                 break;
             }
         };
-        for j in page.get("jobs").and_then(Json::as_array).into_iter().flatten() {
+        for j in page
+            .get("jobs")
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+        {
             if is_orphan(j, &s.api.project, ds, table) {
                 orphans.push(JobRef {
-                    id: j.pointer("/jobReference/jobId").and_then(Json::as_str).unwrap_or_default().to_string(),
-                    location: j.pointer("/jobReference/location").and_then(Json::as_str).map(str::to_string),
+                    id: j
+                        .pointer("/jobReference/jobId")
+                        .and_then(Json::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    location: j
+                        .pointer("/jobReference/location")
+                        .and_then(Json::as_str)
+                        .map(str::to_string),
                 });
             }
         }
-        match page.get("nextPageToken").and_then(Json::as_str).filter(|t| !t.is_empty()) {
+        match page
+            .get("nextPageToken")
+            .and_then(Json::as_str)
+            .filter(|t| !t.is_empty())
+        {
             Some(t) => token = Some(t.to_string()),
             None => break,
         }
@@ -1119,15 +1340,26 @@ async fn settle_orphans(s: &BigQuerySession, ds: &str, table: &str) -> Result<()
     Ok(())
 }
 
-pub(crate) async fn bulk_load(s: &BigQuerySession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &BigQuerySession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     let ds = s.dataset(&spec.table)?;
     let ds = ds.as_str();
     let table = spec.table.name.as_str();
     let meta = s.api.get(&["datasets", ds, "tables", table], &[]).await?;
     if meta.get("type").and_then(Json::as_str).unwrap_or("TABLE") != "TABLE" {
-        return Err(Error::Query(format!("«{table}» no es una tabla: la carga masiva solo escribe en tablas")));
+        return Err(Error::Query(format!(
+            "«{table}» no es una tabla: la carga masiva solo escribe en tablas"
+        )));
     }
-    let fields = meta.pointer("/schema/fields").and_then(Json::as_array).cloned().unwrap_or_default();
+    let fields = meta
+        .pointer("/schema/fields")
+        .and_then(Json::as_array)
+        .cloned()
+        .unwrap_or_default();
     let targets = targets(&fields, &spec.columns)?;
     settle_orphans(s, ds, table).await?;
     let mut windows = Windows {
@@ -1135,9 +1367,16 @@ pub(crate) async fn bulk_load(s: &BigQuerySession, spec: &LoadSpec, source: &mut
         pending: None,
         targets,
         max_rows: spec.commit_rows.max(1),
-        max_bytes: usize::try_from(spec.commit_bytes).unwrap_or(usize::MAX).clamp(1, LOAD_BYTES),
+        max_bytes: usize::try_from(spec.commit_bytes)
+            .unwrap_or(usize::MAX)
+            .clamp(1, LOAD_BYTES),
     };
-    let r = run_windows(&mut windows, |body| load_window(s, ds, table, body), progress).await;
+    let r = run_windows(
+        &mut windows,
+        |body| load_window(s, ds, table, body),
+        progress,
+    )
+    .await;
     s.set_job(None);
     r
 }
@@ -1194,14 +1433,23 @@ mod tests {
 
     #[test]
     fn timestamps_are_exact() {
-        assert_eq!(epoch_micros("1706708700123456"), Some(1_706_708_700_123_456));
-        assert_eq!(epoch_micros("1706708700.123456"), Some(1_706_708_700_123_456));
+        assert_eq!(
+            epoch_micros("1706708700123456"),
+            Some(1_706_708_700_123_456)
+        );
+        assert_eq!(
+            epoch_micros("1706708700.123456"),
+            Some(1_706_708_700_123_456)
+        );
         assert_eq!(epoch_micros("1706708700.5"), Some(1_706_708_700_500_000));
         assert_eq!(epoch_micros("-1.5"), Some(-1_500_000));
         assert_eq!(epoch_micros("1.7067087E9"), Some(1_706_708_700_000_000));
         // Near the epoch: integers are microseconds (useInt64Timestamp).
         assert_eq!(epoch_micros("5"), Some(5));
-        assert_eq!(utc_text(1_706_708_700_123_450).as_deref(), Some("2024-01-31 13:45:00.12345"));
+        assert_eq!(
+            utc_text(1_706_708_700_123_450).as_deref(),
+            Some("2024-01-31 13:45:00.12345")
+        );
         assert_eq!(utc_text(-1).as_deref(), Some("1969-12-31 23:59:59.999999"));
     }
 
@@ -1217,7 +1465,11 @@ mod tests {
         .unwrap();
         let f = fields();
         let vals = row["f"].as_array().unwrap();
-        let cells: Vec<Cell> = f.iter().zip(vals).map(|(f, v)| read_cell(read_kind(f), &v["v"], f)).collect();
+        let cells: Vec<Cell> = f
+            .iter()
+            .zip(vals)
+            .map(|(f, v)| read_cell(read_kind(f), &v["v"], f))
+            .collect();
         assert_eq!(
             cells,
             vec![
@@ -1235,24 +1487,47 @@ mod tests {
                 Cell::Json("{\"k\":[1,\"x\"]}".into()),
                 Cell::Text("POINT(1 2)".into()),
                 Cell::Json("[1,2]".into()),
-                Cell::Json(r#"{"x":5,"y":"YWI=","t":"1970-01-01 00:00:00+00:00","k":{"a":1}}"#.into()),
+                Cell::Json(
+                    r#"{"x":5,"y":"YWI=","t":"1970-01-01 00:00:00+00:00","k":{"a":1}}"#.into()
+                ),
                 Cell::Text("[2024-01-01, UNBOUNDED)".into()),
             ]
         );
         assert_eq!(read_cell(Read::Int, &Json::Null, &f[0]), Cell::Null);
-        assert_eq!(read_cell(Read::Float, &json!("NaN"), &f[1]).to_json(), json!("NaN"));
+        assert_eq!(
+            read_cell(Read::Float, &json!("NaN"), &f[1]).to_json(),
+            json!("NaN")
+        );
     }
 
     #[test]
     fn reads_select_only_the_columns_in_order() {
-        let t = ObjectRef { kind: kinds::TABLE.into(), schema: Some("ds".into()), name: "t`x".into() };
-        let spec = ReadSpec { table: t.clone(), columns: Some(vec!["b".into(), "a".into()]), filter: Some(" id > 5 ".into()) };
-        assert_eq!(select_sql("ds", &spec), "SELECT `b`, `a` FROM `ds`.`t\\`x` WHERE id > 5");
-        let spec = ReadSpec { table: t, columns: None, filter: Some("  ".into()) };
+        let t = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some("ds".into()),
+            name: "t`x".into(),
+        };
+        let spec = ReadSpec {
+            table: t.clone(),
+            columns: Some(vec!["b".into(), "a".into()]),
+            filter: Some(" id > 5 ".into()),
+        };
+        assert_eq!(
+            select_sql("ds", &spec),
+            "SELECT `b`, `a` FROM `ds`.`t\\`x` WHERE id > 5"
+        );
+        let spec = ReadSpec {
+            table: t,
+            columns: None,
+            filter: Some("  ".into()),
+        };
         assert_eq!(select_sql("ds", &spec), "SELECT * FROM `ds`.`t\\`x`");
 
         let f = fields();
-        assert_eq!(pick(&f, Some(&["S".into(), "id".into()])).unwrap(), vec![5, 0]);
+        assert_eq!(
+            pick(&f, Some(&["S".into(), "id".into()])).unwrap(),
+            vec![5, 0]
+        );
         assert_eq!(pick(&f, None).unwrap().len(), f.len());
         assert!(pick(&f, Some(&["nope".into()])).is_err());
     }
@@ -1269,42 +1544,105 @@ mod tests {
         };
         assert_eq!(v(Cell::Null, Int), None);
         assert_eq!(v(Cell::Int(5), Int), Some(json!(5)));
-        assert_eq!(v(Cell::Int(i64::MAX), Int), Some(json!("9223372036854775807")));
+        assert_eq!(
+            v(Cell::Int(i64::MAX), Int),
+            Some(json!("9223372036854775807"))
+        );
         assert_eq!(v(Cell::Int(5), Numeric), Some(json!("5")));
-        assert_eq!(v(Cell::UInt(u64::MAX), Numeric), Some(json!("18446744073709551615")));
+        assert_eq!(
+            v(Cell::UInt(u64::MAX), Numeric),
+            Some(json!("18446744073709551615"))
+        );
         assert_eq!(v(Cell::Bool(true), Int), Some(json!(1)));
         assert_eq!(v(Cell::Int(0), Bool), Some(json!(false)));
         assert_eq!(v(Cell::Float(1.5), Float), Some(json!(1.5)));
         assert_eq!(v(Cell::Float(f64::NAN), Float), Some(json!("NaN")));
-        assert_eq!(v(Cell::Float(f64::NEG_INFINITY), Float), Some(json!("-Infinity")));
-        assert_eq!(v(Cell::Decimal("-12.3400".into()), Numeric), Some(json!("-12.3400")));
+        assert_eq!(
+            v(Cell::Float(f64::NEG_INFINITY), Float),
+            Some(json!("-Infinity"))
+        );
+        assert_eq!(
+            v(Cell::Decimal("-12.3400".into()), Numeric),
+            Some(json!("-12.3400"))
+        );
         assert_eq!(v(Cell::Bytes(vec![0, 1, 255]), Bytes), Some(json!("AAH/")));
         assert_eq!(v(Cell::Bytes(b"hi".to_vec()), Str), Some(json!("hi")));
         assert!(load_value(Cell::Bytes(vec![0xff]), Str).is_err());
         assert_eq!(v(Cell::Text("ab".into()), Bytes), Some(json!("YWI=")));
-        assert_eq!(v(Cell::Uuid("00112233-4455-6677-8899-aabbccddeeff".into()), Bytes), Some(json!("ABEiM0RVZneImaq7zN3u/w==")));
-        assert_eq!(v(Cell::Uuid("00112233-4455-6677-8899-aabbccddeeff".into()), Str), Some(json!("00112233-4455-6677-8899-aabbccddeeff")));
-        assert_eq!(v(Cell::Json("{\"a\":[1]}".into()), Json), Some(json!({"a": [1]})));
-        assert_eq!(v(Cell::Json("[1,2]".into()), Nested), Some(json!([1, 2])));
-        assert_eq!(v(Cell::Json("{\"a\":1}".into()), Str), Some(json!("{\"a\":1}")));
-        assert_eq!(v(Cell::Text("{\"x\":5}".into()), Nested), Some(json!({"x": 5})));
-        assert_eq!(v(Cell::Time("12:00:00.123456789".into()), Time), Some(json!("12:00:00.123456")));
-        assert_eq!(v(Cell::DateTime("2024-01-31 13:45:00.1234567".into()), DateTime), Some(json!("2024-01-31 13:45:00.123456")));
-        assert_eq!(v(Cell::DateTime("2024-01-31 13:45:00".into()), Date), Some(json!("2024-01-31")));
         assert_eq!(
-            v(Cell::DateTimeTz("2024-01-31 13:45:00.123456789+02:00".into()), Timestamp),
+            v(
+                Cell::Uuid("00112233-4455-6677-8899-aabbccddeeff".into()),
+                Bytes
+            ),
+            Some(json!("ABEiM0RVZneImaq7zN3u/w=="))
+        );
+        assert_eq!(
+            v(
+                Cell::Uuid("00112233-4455-6677-8899-aabbccddeeff".into()),
+                Str
+            ),
+            Some(json!("00112233-4455-6677-8899-aabbccddeeff"))
+        );
+        assert_eq!(
+            v(Cell::Json("{\"a\":[1]}".into()), Json),
+            Some(json!({"a": [1]}))
+        );
+        assert_eq!(v(Cell::Json("[1,2]".into()), Nested), Some(json!([1, 2])));
+        assert_eq!(
+            v(Cell::Json("{\"a\":1}".into()), Str),
+            Some(json!("{\"a\":1}"))
+        );
+        assert_eq!(
+            v(Cell::Text("{\"x\":5}".into()), Nested),
+            Some(json!({"x": 5}))
+        );
+        assert_eq!(
+            v(Cell::Time("12:00:00.123456789".into()), Time),
+            Some(json!("12:00:00.123456"))
+        );
+        assert_eq!(
+            v(
+                Cell::DateTime("2024-01-31 13:45:00.1234567".into()),
+                DateTime
+            ),
+            Some(json!("2024-01-31 13:45:00.123456"))
+        );
+        assert_eq!(
+            v(Cell::DateTime("2024-01-31 13:45:00".into()), Date),
+            Some(json!("2024-01-31"))
+        );
+        assert_eq!(
+            v(
+                Cell::DateTimeTz("2024-01-31 13:45:00.123456789+02:00".into()),
+                Timestamp
+            ),
             Some(json!("2024-01-31 13:45:00.123456+02:00"))
         );
-        assert_eq!(v(Cell::DateTimeTz("2024-01-31 13:45:00.5-03:00".into()), DateTime), Some(json!("2024-01-31 16:45:00.5")));
-        assert_eq!(v(Cell::Date("2024-01-31".into()), Date), Some(json!("2024-01-31")));
-        assert_eq!(v(Cell::Text("POINT(1 2)".into()), Other), Some(json!("POINT(1 2)")));
+        assert_eq!(
+            v(
+                Cell::DateTimeTz("2024-01-31 13:45:00.5-03:00".into()),
+                DateTime
+            ),
+            Some(json!("2024-01-31 16:45:00.5"))
+        );
+        assert_eq!(
+            v(Cell::Date("2024-01-31".into()), Date),
+            Some(json!("2024-01-31"))
+        );
+        assert_eq!(
+            v(Cell::Text("POINT(1 2)".into()), Other),
+            Some(json!("POINT(1 2)"))
+        );
     }
 
     #[test]
     fn micros_text_keeps_the_offset() {
         assert_eq!(micros_text("12:00:00"), "12:00:00");
         assert_eq!(micros_text("12:00:00.5"), "12:00:00.5");
-        assert_eq!(micros_text("2024-01-01 12:00:00.123456789-03:00"), "2024-01-01 12:00:00.123456-03:00");
+        assert_eq!(
+            micros_text("2024-01-01 12:00:00.123456789-03:00"),
+            "2024-01-01 12:00:00.123456-03:00"
+        );
     }
 
     #[test]
@@ -1312,9 +1650,32 @@ mod tests {
         let f = fields();
         let t = targets(&f, &["ID".into(), "b".into(), "st".into(), "s".into()]).unwrap();
         let mut buf = Vec::new();
-        write_row(&mut buf, &t, vec![Cell::Int(1), Cell::Bytes(vec![1]), Cell::Json("{\"x\":2}".into()), Cell::Null]).unwrap();
-        write_row(&mut buf, &t, vec![Cell::Int(2), Cell::Null, Cell::Null, Cell::Text("a\"b\n".into())]).unwrap();
-        assert_eq!(String::from_utf8(buf).unwrap(), "{\"id\":1,\"b\":\"AQ==\",\"st\":{\"x\":2}}\n{\"id\":2,\"s\":\"a\\\"b\\n\"}\n");
+        write_row(
+            &mut buf,
+            &t,
+            vec![
+                Cell::Int(1),
+                Cell::Bytes(vec![1]),
+                Cell::Json("{\"x\":2}".into()),
+                Cell::Null,
+            ],
+        )
+        .unwrap();
+        write_row(
+            &mut buf,
+            &t,
+            vec![
+                Cell::Int(2),
+                Cell::Null,
+                Cell::Null,
+                Cell::Text("a\"b\n".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "{\"id\":1,\"b\":\"AQ==\",\"st\":{\"x\":2}}\n{\"id\":2,\"s\":\"a\\\"b\\n\"}\n"
+        );
         // A row of another width is an error, not a shifted load.
         assert!(write_row(&mut Vec::new(), &t, vec![Cell::Int(1)]).is_err());
         assert!(targets(&f, &["nope".into()]).is_err());
@@ -1328,7 +1689,10 @@ mod tests {
         assert_eq!(l["createDisposition"], "CREATE_NEVER");
         assert_eq!(l["sourceFormat"], "NEWLINE_DELIMITED_JSON");
         assert_eq!(l["maxBadRecords"], 0);
-        assert_eq!(l["destinationTable"], json!({"projectId": "p", "datasetId": "d", "tableId": "t"}));
+        assert_eq!(
+            l["destinationTable"],
+            json!({"projectId": "p", "datasetId": "d", "tableId": "t"})
+        );
     }
 
     #[test]
@@ -1353,10 +1717,19 @@ mod tests {
 
     #[tokio::test]
     async fn windows_split_batches_by_rows() {
-        let batch = |n: i64| RowBatch { rows: (0..n).map(|i| vec![Cell::Int(i)]).collect(), bytes: 0 };
+        let batch = |n: i64| RowBatch {
+            rows: (0..n).map(|i| vec![Cell::Int(i)]).collect(),
+            bytes: 0,
+        };
         let mut src = Src(vec![batch(5), batch(5)]);
         let t = targets(&fields(), &["id".into()]).unwrap();
-        let mut w = Windows { source: &mut src, pending: None, targets: t, max_rows: 3, max_bytes: usize::MAX };
+        let mut w = Windows {
+            source: &mut src,
+            pending: None,
+            targets: t,
+            max_rows: 3,
+            max_bytes: usize::MAX,
+        };
         let mut sizes = Vec::new();
         loop {
             let mut win = Window::default();
@@ -1405,12 +1778,27 @@ mod tests {
         let t = targets(&f, &["id".into(), "j".into(), "st".into()]).unwrap();
         let big = r#"{"a":100000000000000000000,"p":0.12345678901234567890123}"#;
         let mut buf = Vec::new();
-        write_row(&mut buf, &t, vec![Cell::Int(1), Cell::Json(big.into()), Cell::Text("{\n \"x\": 1e400\n}".into())]).unwrap();
+        write_row(
+            &mut buf,
+            &t,
+            vec![
+                Cell::Int(1),
+                Cell::Json(big.into()),
+                Cell::Text("{\n \"x\": 1e400\n}".into()),
+            ],
+        )
+        .unwrap();
         let line = String::from_utf8(buf).unwrap();
-        assert_eq!(line, format!("{{\"id\":1,\"j\":{big},\"st\":{{  \"x\": 1e400 }}}}\n"));
+        assert_eq!(
+            line,
+            format!("{{\"id\":1,\"j\":{big},\"st\":{{  \"x\": 1e400 }}}}\n")
+        );
         // Text into JSON is always a document: its type never depends on
         // the value, and text that isn't JSON is an error, not a string.
-        assert_eq!(load_value(Cell::Text("123".into()), Load::Json).unwrap(), Some(Out::Raw("123".into())));
+        assert_eq!(
+            load_value(Cell::Text("123".into()), Load::Json).unwrap(),
+            Some(Out::Raw("123".into()))
+        );
         assert!(load_value(Cell::Text("abc".into()), Load::Json).is_err());
         assert!(load_value(Cell::Json("{bad".into()), Load::Nested).is_err());
         // Reading keeps the digits of JSON nested in a STRUCT too.
@@ -1426,7 +1814,10 @@ mod tests {
 
     #[test]
     fn bytes_into_text_is_one_encoding() {
-        assert_eq!(load_value(Cell::Bytes(b"hola".to_vec()), Load::Str).unwrap(), Some(Out::Val(json!("hola"))));
+        assert_eq!(
+            load_value(Cell::Bytes(b"hola".to_vec()), Load::Str).unwrap(),
+            Some(Out::Val(json!("hola")))
+        );
         // Never base64 for some rows and text for others.
         assert!(load_value(Cell::Bytes(vec![0x68, 0xff]), Load::Str).is_err());
         assert!(load_value(Cell::Bytes(vec![0xc3]), Load::Other).is_err());
@@ -1444,22 +1835,44 @@ mod tests {
             Cell::DateTimeTz("1234".into()),
             Cell::Json("1234".into()),
         ] {
-            assert_eq!(load_value(c.clone(), Load::Bytes).unwrap(), Some(Out::Val(json!("MTIzNA=="))), "{c:?}");
+            assert_eq!(
+                load_value(c.clone(), Load::Bytes).unwrap(),
+                Some(Out::Val(json!("MTIzNA=="))),
+                "{c:?}"
+            );
         }
-        for c in [Cell::Int(1), Cell::UInt(1), Cell::Float(1.0), Cell::Bool(true)] {
+        for c in [
+            Cell::Int(1),
+            Cell::UInt(1),
+            Cell::Float(1.0),
+            Cell::Bool(true),
+        ] {
             assert!(load_value(c, Load::Bytes).is_err());
         }
     }
 
     #[test]
     fn zoned_values_are_the_same_instant_in_every_target() {
-        let v = |l: Load| load_value(Cell::DateTimeTz("2024-01-31 23:30:00-03:00".into()), l).unwrap();
-        assert_eq!(v(Load::DateTime), Some(Out::Val(json!("2024-02-01 02:30:00"))));
+        let v =
+            |l: Load| load_value(Cell::DateTimeTz("2024-01-31 23:30:00-03:00".into()), l).unwrap();
+        assert_eq!(
+            v(Load::DateTime),
+            Some(Out::Val(json!("2024-02-01 02:30:00")))
+        );
         assert_eq!(v(Load::Date), Some(Out::Val(json!("2024-02-01"))));
         assert_eq!(v(Load::Time), Some(Out::Val(json!("02:30:00"))));
-        assert_eq!(v(Load::Timestamp), Some(Out::Val(json!("2024-01-31 23:30:00-03:00"))));
-        assert_eq!(to_utc("2024-01-31T23:30:00.5Z").as_deref(), Some("2024-01-31 23:30:00.5"));
-        assert_eq!(to_utc("2024-01-31 23:30:00+0100").as_deref(), Some("2024-01-31 22:30:00"));
+        assert_eq!(
+            v(Load::Timestamp),
+            Some(Out::Val(json!("2024-01-31 23:30:00-03:00")))
+        );
+        assert_eq!(
+            to_utc("2024-01-31T23:30:00.5Z").as_deref(),
+            Some("2024-01-31 23:30:00.5")
+        );
+        assert_eq!(
+            to_utc("2024-01-31 23:30:00+0100").as_deref(),
+            Some("2024-01-31 22:30:00")
+        );
         assert!(load_value(Cell::DateTimeTz("ayer".into()), Load::Date).is_err());
     }
 
@@ -1468,11 +1881,23 @@ mod tests {
         // The second batch has the wrong width: reading it fails while the
         // first window loads, and that window already landed.
         let mut src = Src(vec![
-            RowBatch { rows: (0..3).map(|i| vec![Cell::Int(i)]).collect(), bytes: 0 },
-            RowBatch { rows: vec![vec![Cell::Int(1), Cell::Int(2)]], bytes: 0 },
+            RowBatch {
+                rows: (0..3).map(|i| vec![Cell::Int(i)]).collect(),
+                bytes: 0,
+            },
+            RowBatch {
+                rows: vec![vec![Cell::Int(1), Cell::Int(2)]],
+                bytes: 0,
+            },
         ]);
         let t = targets(&fields(), &["id".into()]).unwrap();
-        let mut w = Windows { source: &mut src, pending: None, targets: t, max_rows: 3, max_bytes: usize::MAX };
+        let mut w = Windows {
+            source: &mut src,
+            pending: None,
+            targets: t,
+            max_rows: 3,
+            max_bytes: usize::MAX,
+        };
         let loads = std::sync::Mutex::new(0);
         let seen = std::sync::Mutex::new(Vec::new());
         let progress = |n: u64| seen.lock().unwrap().push(n);
@@ -1507,7 +1932,10 @@ mod tests {
         let mut page = json!({"rows": [{"f": [{"v": "7"}, {"v": "x"}]}]});
         sel.narrow(&mut page, f.len()).unwrap();
         let row = &page["rows"][0]["f"];
-        assert_eq!((row[0]["v"].as_str(), row[5]["v"].as_str(), row[1].is_null()), (Some("7"), Some("x"), true));
+        assert_eq!(
+            (row[0]["v"].as_str(), row[5]["v"].as_str(), row[1].is_null()),
+            (Some("7"), Some("x"), true)
+        );
         // A server that ignores selectedFields sends whole rows: kept.
         let whole: Vec<Json> = (0..f.len()).map(|i| json!({"v": i.to_string()})).collect();
         let mut page = json!({"rows": [{"f": whole.clone()}]});

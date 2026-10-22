@@ -71,17 +71,18 @@ pub(crate) fn decide(f: &Facts, drop_target: bool) -> Permissions {
     } else {
         Access::check(false, "SYSDBA o rol RDB$ADMIN")
     };
-    let create_database = if admin || f.sec_admin == Some(true) || f.creator == Some(true) || sys.create {
-        Access::Allowed
-    } else if f.system.is_none() && f.sec_admin.is_some() && f.creator.is_some() {
-        // Firebird 3: administrators and GRANT CREATE DATABASE are the only
-        // ways. Firebird 4+ can also grant the CREATE_DATABASE system
-        // privilege through a role of the security database, which this
-        // database can't see: left unknown there.
-        Access::check(false, "CREATE DATABASE")
-    } else {
-        Access::Unknown
-    };
+    let create_database =
+        if admin || f.sec_admin == Some(true) || f.creator == Some(true) || sys.create {
+            Access::Allowed
+        } else if f.system.is_none() && f.sec_admin.is_some() && f.creator.is_some() {
+            // Firebird 3: administrators and GRANT CREATE DATABASE are the only
+            // ways. Firebird 4+ can also grant the CREATE_DATABASE system
+            // privilege through a role of the security database, which this
+            // database can't see: left unknown there.
+            Access::check(false, "CREATE DATABASE")
+        } else {
+            Access::Unknown
+        };
     let drop_database = if !drop_target {
         Access::Unknown
     } else if admin || owner || sys.drop {
@@ -94,11 +95,24 @@ pub(crate) fn decide(f: &Facts, drop_target: bool) -> Permissions {
     let manage_security = if admin || owner || f.sec_admin == Some(true) || sys.users {
         Access::Allowed
     } else if f.sec_admin.is_some() {
-        Access::check(false, if f.system.is_some() { "USER_MANAGEMENT o rol RDB$ADMIN" } else { "rol RDB$ADMIN" })
+        Access::check(
+            false,
+            if f.system.is_some() {
+                "USER_MANAGEMENT o rol RDB$ADMIN"
+            } else {
+                "rol RDB$ADMIN"
+            },
+        )
     } else {
         Access::Unknown
     };
-    Permissions { profiler, create_database, drop_database, manage_security, ..Default::default() }
+    Permissions {
+        profiler,
+        create_database,
+        drop_database,
+        manage_security,
+        ..Default::default()
+    }
 }
 
 /// The first row of `sql`, or `None` when the server refused it.
@@ -134,7 +148,9 @@ pub(crate) async fn check(s: &FirebirdSession, database: Option<&str>) -> Result
         creator: sec.as_deref().and_then(|r| flag(r, 1)),
         system,
     };
-    let drop_target = database.map(str::trim).is_some_and(|d| !d.is_empty() && d == s.database.trim());
+    let drop_target = database
+        .map(str::trim)
+        .is_some_and(|d| !d.is_empty() && d == s.database.trim());
     Ok(decide(&facts, drop_target))
 }
 
@@ -147,15 +163,48 @@ mod tests {
     }
 
     fn plain(system: Option<System>) -> Facts {
-        Facts { user: "ANA".into(), owner: "DBINE".into(), sec_admin: Some(false), creator: Some(false), system, ..Default::default() }
+        Facts {
+            user: "ANA".into(),
+            owner: "DBINE".into(),
+            sec_admin: Some(false),
+            creator: Some(false),
+            system,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn sysdba_and_rdb_admin_may_do_everything_offered() {
-        for f in [Facts { user: "SYSDBA".into(), ..Default::default() }, Facts { user: "ANA".into(), rdb_admin: true, ..Default::default() }] {
+        for f in [
+            Facts {
+                user: "SYSDBA".into(),
+                ..Default::default()
+            },
+            Facts {
+                user: "ANA".into(),
+                rdb_admin: true,
+                ..Default::default()
+            },
+        ] {
             let p = decide(&f, true);
-            assert_eq!((p.profiler, p.create_database, p.drop_database, p.manage_security), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
-            assert_eq!((p.backup, p.restore, p.kill_session), (Access::Unknown, Access::Unknown, Access::Unknown));
+            assert_eq!(
+                (
+                    p.profiler,
+                    p.create_database,
+                    p.drop_database,
+                    p.manage_security
+                ),
+                (
+                    Access::Allowed,
+                    Access::Allowed,
+                    Access::Allowed,
+                    Access::Allowed
+                )
+            );
+            assert_eq!(
+                (p.backup, p.restore, p.kill_session),
+                (Access::Unknown, Access::Unknown, Access::Unknown)
+            );
             assert_eq!(decide(&f, false).drop_database, Access::Unknown);
         }
     }
@@ -181,29 +230,54 @@ mod tests {
 
     #[test]
     fn owner_monitors_drops_and_manages_its_database() {
-        let f = Facts { user: "DBINE".into(), ..plain(Some(System::default())) };
+        let f = Facts {
+            user: "DBINE".into(),
+            ..plain(Some(System::default()))
+        };
         let p = decide(&f, true);
-        assert_eq!((p.profiler, p.drop_database, p.manage_security), (Access::Allowed, Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (p.profiler, p.drop_database, p.manage_security),
+            (Access::Allowed, Access::Allowed, Access::Allowed)
+        );
         assert_eq!(p.create_database, Access::Unknown);
     }
 
     #[test]
     fn grants_and_security_admins() {
-        let f = Facts { creator: Some(true), ..plain(Some(System::default())) };
+        let f = Facts {
+            creator: Some(true),
+            ..plain(Some(System::default()))
+        };
         assert_eq!(decide(&f, true).create_database, Access::Allowed);
-        let f = Facts { sec_admin: Some(true), ..plain(Some(System::default())) };
+        let f = Facts {
+            sec_admin: Some(true),
+            ..plain(Some(System::default()))
+        };
         let p = decide(&f, true);
-        assert_eq!((p.create_database, p.manage_security), (Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (p.create_database, p.manage_security),
+            (Access::Allowed, Access::Allowed)
+        );
         assert!(p.profiler.is_denied());
-        let f = plain(Some(System { monitor: true, ..Default::default() }));
+        let f = plain(Some(System {
+            monitor: true,
+            ..Default::default()
+        }));
         assert_eq!(decide(&f, true).profiler, Access::Allowed);
     }
 
     #[test]
     fn an_unreadable_security_database_stays_unknown() {
-        let f = Facts { sec_admin: None, creator: None, ..plain(Some(System::default())) };
+        let f = Facts {
+            sec_admin: None,
+            creator: None,
+            ..plain(Some(System::default()))
+        };
         let p = decide(&f, true);
-        assert_eq!((p.create_database, p.manage_security), (Access::Unknown, Access::Unknown));
+        assert_eq!(
+            (p.create_database, p.manage_security),
+            (Access::Unknown, Access::Unknown)
+        );
         assert!(p.profiler.is_denied());
     }
 }

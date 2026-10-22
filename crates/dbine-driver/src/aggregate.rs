@@ -279,7 +279,14 @@ fn numeric_text(s: &str) -> bool {
 /// NULL last.
 fn order_labels(a: &Option<String>, b: &Option<String>) -> Ordering {
     fn key(l: &Option<String>) -> Option<(Option<f64>, &str)> {
-        l.as_deref().map(|s| (numeric_text(s.trim()).then(|| s.trim().parse::<f64>().ok()).flatten(), s))
+        l.as_deref().map(|s| {
+            (
+                numeric_text(s.trim())
+                    .then(|| s.trim().parse::<f64>().ok())
+                    .flatten(),
+                s,
+            )
+        })
     }
     match (key(a), key(b)) {
         (None, None) => Ordering::Equal,
@@ -300,13 +307,17 @@ pub fn validate(spec: &AggregateSpec) -> Result<AggregateSpec> {
         return Err(Error::Query("falta la columna del eje X".into()));
     }
     if spec.measures.is_empty() || spec.measures.len() > MAX_MEASURES {
-        return Err(Error::Query(format!("el gráfico necesita entre 1 y {MAX_MEASURES} medidas")));
+        return Err(Error::Query(format!(
+            "el gráfico necesita entre 1 y {MAX_MEASURES} medidas"
+        )));
     }
     for m in &spec.measures {
         match (&m.column, m.func) {
             (None, AggFn::Count) => {}
             (None, _) => return Err(Error::Query("solo «Cantidad» puede ir sin columna".into())),
-            (Some(c), _) if c.trim().is_empty() => return Err(Error::Query("falta la columna de una medida".into())),
+            (Some(c), _) if c.trim().is_empty() => {
+                return Err(Error::Query("falta la columna de una medida".into()))
+            }
             _ => {}
         }
     }
@@ -314,7 +325,9 @@ pub fn validate(spec: &AggregateSpec) -> Result<AggregateSpec> {
     s.max_groups = s.max_groups.clamp(1, MAX_GROUPS);
     s.split = s.split.filter(|c| !c.trim().is_empty());
     if s.x.is_none() && s.split.is_some() {
-        return Err(Error::Query("un gráfico sin eje X no se separa en series".into()));
+        return Err(Error::Query(
+            "un gráfico sin eje X no se separa en series".into(),
+        ));
     }
     Ok(s)
 }
@@ -354,7 +367,14 @@ pub struct SqlShape {
 impl SqlShape {
     /// The usual shape: `"x"`, `LIMIT n`, `AS q`.
     pub const fn ansi() -> Self {
-        Self { quote: Quote::Double, limit: RowLimit::Limit, alias_as: true, float_avg: false, derived_order_by: true, derived_with: true }
+        Self {
+            quote: Quote::Double,
+            limit: RowLimit::Limit,
+            alias_as: true,
+            float_avg: false,
+            derived_order_by: true,
+            derived_with: true,
+        }
     }
 
     /// The shape of a [`crate::DriverInfo::dialect`]; `None` for dialects
@@ -364,7 +384,8 @@ impl SqlShape {
     pub fn for_dialect(dialect: &str) -> Option<Self> {
         let base = Self::ansi();
         Some(match dialect {
-            "cosmos" | "n1ql" | "partiql" | "ksql" | "influxql" | "iotdb" | "orientdb" | "tdengine" => return None,
+            "cosmos" | "n1ql" | "partiql" | "ksql" | "influxql" | "iotdb" | "orientdb"
+            | "tdengine" => return None,
             "mssql" | "sybase" => Self {
                 quote: Quote::Bracket,
                 limit: RowLimit::Top,
@@ -373,14 +394,38 @@ impl SqlShape {
                 derived_with: false,
                 ..base
             },
-            "access" => Self { quote: Quote::Bracket, limit: RowLimit::Top, derived_order_by: false, derived_with: false, ..base },
-            "teradata" => Self { limit: RowLimit::Top, derived_order_by: false, derived_with: false, ..base },
-            "oracle" => Self { limit: RowLimit::FetchFirst, alias_as: false, ..base },
-            "db2" => Self { limit: RowLimit::FetchFirst, float_avg: true, ..base },
-            "informix" => Self { limit: RowLimit::First, ..base },
-            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" | "spanner" | "drill" => {
-                Self { quote: Quote::Backtick, ..base }
-            }
+            "access" => Self {
+                quote: Quote::Bracket,
+                limit: RowLimit::Top,
+                derived_order_by: false,
+                derived_with: false,
+                ..base
+            },
+            "teradata" => Self {
+                limit: RowLimit::Top,
+                derived_order_by: false,
+                derived_with: false,
+                ..base
+            },
+            "oracle" => Self {
+                limit: RowLimit::FetchFirst,
+                alias_as: false,
+                ..base
+            },
+            "db2" => Self {
+                limit: RowLimit::FetchFirst,
+                float_avg: true,
+                ..base
+            },
+            "informix" => Self {
+                limit: RowLimit::First,
+                ..base
+            },
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks"
+            | "spanner" | "drill" => Self {
+                quote: Quote::Backtick,
+                ..base
+            },
             _ => base,
         })
     }
@@ -389,12 +434,20 @@ impl SqlShape {
 /// The one statement of `statements` (the query split as its driver
 /// does) if it is a read that starts with `SELECT` (or `WITH`, where
 /// `with` allows it): what goes inside the grouped statement.
-pub fn single_read(statements: &[ScriptStatement], dialect: &ScriptDialect, with: bool) -> Result<String> {
+pub fn single_read(
+    statements: &[ScriptStatement],
+    dialect: &ScriptDialect,
+    with: bool,
+) -> Result<String> {
     let [one] = statements else {
-        return Err(Error::Unsupported("el gráfico agrupa en el servidor una sola consulta".into()));
+        return Err(Error::Unsupported(
+            "el gráfico agrupa en el servidor una sola consulta".into(),
+        ));
     };
     if one.error.is_some() || one.repeat > 1 {
-        return Err(Error::Unsupported("el gráfico agrupa en el servidor una sola consulta".into()));
+        return Err(Error::Unsupported(
+            "el gráfico agrupa en el servidor una sola consulta".into(),
+        ));
     }
     let lead = leading_keyword(&one.text, dialect);
     let ok = match lead.as_deref() {
@@ -403,7 +456,9 @@ pub fn single_read(statements: &[ScriptStatement], dialect: &ScriptDialect, with
         _ => false,
     };
     if !ok || first_write_in(&one.text, dialect).is_some() {
-        return Err(Error::Unsupported("solo un SELECT se agrupa en el servidor".into()));
+        return Err(Error::Unsupported(
+            "solo un SELECT se agrupa en el servidor".into(),
+        ));
     }
     Ok(one.text.trim().trim_end_matches(';').trim_end().to_string())
 }
@@ -412,7 +467,9 @@ pub fn single_read(statements: &[ScriptStatement], dialect: &ScriptDialect, with
 /// DISTINCT] TOP …`): its `ORDER BY` is then valid in a derived table.
 fn has_top(query: &str) -> bool {
     let lower = query.to_ascii_lowercase();
-    let mut words = lower.split(|c: char| c.is_whitespace() || c == '(').filter(|w| !w.is_empty());
+    let mut words = lower
+        .split(|c: char| c.is_whitespace() || c == '(')
+        .filter(|w| !w.is_empty());
     if words.next() != Some("select") {
         return false;
     }
@@ -431,9 +488,15 @@ fn has_top(query: &str) -> bool {
 pub fn grouped_sql(shape: &SqlShape, query: &str, spec: &AggregateSpec) -> Result<String> {
     let spec = validate(spec)?;
     let q = |c: &str| quote_ident(shape.quote, c);
-    let lead = query.trim_start().get(..4).map(|s| s.eq_ignore_ascii_case("with")).unwrap_or(false);
+    let lead = query
+        .trim_start()
+        .get(..4)
+        .map(|s| s.eq_ignore_ascii_case("with"))
+        .unwrap_or(false);
     if lead && !shape.derived_with {
-        return Err(Error::Unsupported("este motor no agrupa en el servidor una consulta con WITH".into()));
+        return Err(Error::Unsupported(
+            "este motor no agrupa en el servidor una consulta con WITH".into(),
+        ));
     }
     let mut inner = query.trim().to_string();
     if !shape.derived_order_by && !has_top(&inner) {
@@ -461,9 +524,16 @@ pub fn grouped_sql(shape: &SqlShape, query: &str, spec: &AggregateSpec) -> Resul
         };
         cols.push(format!("{e} AS {}", q(&format!("dbine_m{i}"))));
     }
-    let alias = if shape.alias_as { "AS dbine_q" } else { "dbine_q" };
+    let alias = if shape.alias_as {
+        "AS dbine_q"
+    } else {
+        "dbine_q"
+    };
     if keys.is_empty() {
-        return Ok(format!("SELECT {}\nFROM (\n{inner}\n) {alias}", cols.join(", ")));
+        return Ok(format!(
+            "SELECT {}\nFROM (\n{inner}\n) {alias}",
+            cols.join(", ")
+        ));
     }
     let n = u64::from(spec.max_groups) + 1;
     let head = match shape.limit {
@@ -477,7 +547,10 @@ pub fn grouped_sql(shape: &SqlShape, query: &str, spec: &AggregateSpec) -> Resul
         _ => String::new(),
     };
     let keys = keys.join(", ");
-    Ok(format!("{head}{}\nFROM (\n{inner}\n) {alias}\nGROUP BY {keys}\nORDER BY {keys}{tail}", cols.join(", ")))
+    Ok(format!(
+        "{head}{}\nFROM (\n{inner}\n) {alias}\nGROUP BY {keys}\nORDER BY {keys}{tail}",
+        cols.join(", ")
+    ))
 }
 
 // -- shaping groups into categories and series --------------------------------------------
@@ -494,7 +567,12 @@ struct GroupRow {
 /// Rows (sorted by x, then split) into the answer, keeping `max_groups`
 /// of them. With a split, the last category is left out whole when the
 /// cut fell inside it (its series would be partial).
-fn shape(mut rows: Vec<GroupRow>, spec: &AggregateSpec, method: AggregateMethod, mut truncated: bool) -> ChartAggregate {
+fn shape(
+    mut rows: Vec<GroupRow>,
+    spec: &AggregateSpec,
+    method: AggregateMethod,
+    mut truncated: bool,
+) -> ChartAggregate {
     let max = spec.max_groups as usize;
     if rows.len() > max {
         truncated = true;
@@ -512,7 +590,8 @@ fn shape(mut rows: Vec<GroupRow>, spec: &AggregateSpec, method: AggregateMethod,
             categories.push(r.x.clone());
         }
     }
-    let at: HashMap<&Option<String>, usize> = categories.iter().enumerate().map(|(i, c)| (c, i)).collect();
+    let at: HashMap<&Option<String>, usize> =
+        categories.iter().enumerate().map(|(i, c)| (c, i)).collect();
     let mut series = Vec::new();
     if spec.split.is_some() {
         let mut splits: Vec<Option<String>> = Vec::new();
@@ -528,7 +607,11 @@ fn shape(mut rows: Vec<GroupRow>, spec: &AggregateSpec, method: AggregateMethod,
                 for r in rows.iter().filter(|r| &r.split == s) {
                     values[at[&r.x]] = r.values[m];
                 }
-                series.push(ChartSeries { measure: m, split: s.clone(), values });
+                series.push(ChartSeries {
+                    measure: m,
+                    split: s.clone(),
+                    values,
+                });
             }
         }
     } else {
@@ -537,11 +620,22 @@ fn shape(mut rows: Vec<GroupRow>, spec: &AggregateSpec, method: AggregateMethod,
             for r in &rows {
                 values[at[&r.x]] = r.values[m];
             }
-            series.push(ChartSeries { measure: m, split: None, values });
+            series.push(ChartSeries {
+                measure: m,
+                split: None,
+                values,
+            });
         }
     }
     let rows_scanned = (!truncated).then(|| rows.iter().map(|r| r.n).sum());
-    ChartAggregate { categories, series, method, rows_scanned, groups_truncated: truncated, ..Default::default() }
+    ChartAggregate {
+        categories,
+        series,
+        method,
+        rows_scanned,
+        groups_truncated: truncated,
+        ..Default::default()
+    }
 }
 
 /// The answer from the grouped statement's rows ([`grouped_sql`]'s
@@ -554,13 +648,17 @@ pub fn from_grouped(spec: &AggregateSpec, rows: &[Vec<Value>]) -> Result<ChartAg
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
         if r.len() < width {
-            return Err(Error::Query("el resultado agrupado no tiene las columnas esperadas".into()));
+            return Err(Error::Query(
+                "el resultado agrupado no tiene las columnas esperadas".into(),
+            ));
         }
         out.push(GroupRow {
             x: spec.x.as_ref().and_then(|_| label(&r[0])),
             split: spec.split.as_ref().and_then(|_| label(&r[at_split])),
             n: num(&r[base]).map_or(0, |n| n.max(0.0) as u64),
-            values: (0..spec.measures.len()).map(|i| num(&r[base + 1 + i])).collect(),
+            values: (0..spec.measures.len())
+                .map(|i| num(&r[base + 1 + i]))
+                .collect(),
         });
     }
     if spec.x.is_none() {
@@ -574,7 +672,16 @@ pub fn from_grouped(spec: &AggregateSpec, rows: &[Vec<Value>]) -> Result<ChartAg
 
 /// The total of no rows, as SQL gives it: counts 0, the rest none.
 fn empty_total(spec: &AggregateSpec) -> GroupRow {
-    GroupRow { x: None, split: None, n: 0, values: spec.measures.iter().map(|m| Acc::default().value(m.func)).collect() }
+    GroupRow {
+        x: None,
+        split: None,
+        n: 0,
+        values: spec
+            .measures
+            .iter()
+            .map(|m| Acc::default().value(m.func))
+            .collect(),
+    }
 }
 
 // -- client: aggregate the rows as they stream in -------------------------------------------
@@ -622,9 +729,18 @@ impl Acc {
 /// Column indices of the result set being aggregated.
 #[derive(Debug, Clone)]
 enum Cols {
-    Group { x: Option<usize>, split: Option<usize>, measures: Vec<Option<usize>> },
-    Histogram { column: usize },
-    Box { column: usize, by: Option<usize> },
+    Group {
+        x: Option<usize>,
+        split: Option<usize>,
+        measures: Vec<Option<usize>>,
+    },
+    Histogram {
+        column: usize,
+    },
+    Box {
+        column: usize,
+        by: Option<usize>,
+    },
 }
 
 type GroupKey = (Option<String>, Option<String>);
@@ -658,13 +774,24 @@ impl Aggregator {
                 if column.trim().is_empty() {
                     return Err(Error::Query("falta la columna del histograma".into()));
                 }
-                ChartKind::Histogram { column, bins: bins.clamp(1, MAX_BINS) }
+                ChartKind::Histogram {
+                    column,
+                    bins: bins.clamp(1, MAX_BINS),
+                }
             }
-            ChartKind::Box { column, by, max_groups } => {
+            ChartKind::Box {
+                column,
+                by,
+                max_groups,
+            } => {
                 if column.trim().is_empty() {
                     return Err(Error::Query("falta la columna del diagrama de caja".into()));
                 }
-                ChartKind::Box { column, by: by.filter(|b| !b.trim().is_empty()), max_groups: max_groups.clamp(1, MAX_GROUPS) }
+                ChartKind::Box {
+                    column,
+                    by: by.filter(|b| !b.trim().is_empty()),
+                    max_groups: max_groups.clamp(1, MAX_GROUPS),
+                }
             }
         };
         Ok(Self {
@@ -697,15 +824,29 @@ impl Aggregator {
     }
 
     fn resolve(&self, columns: &[ResultColumn]) -> std::result::Result<Cols, String> {
-        let find = |name: &str| columns.iter().position(|c| c.name == name).ok_or_else(|| name.to_string());
+        let find = |name: &str| {
+            columns
+                .iter()
+                .position(|c| c.name == name)
+                .ok_or_else(|| name.to_string())
+        };
         Ok(match &self.kind {
             ChartKind::Group(spec) => Cols::Group {
                 x: spec.x.as_deref().map(find).transpose()?,
                 split: spec.split.as_deref().map(find).transpose()?,
-                measures: spec.measures.iter().map(|m| m.column.as_deref().map(find).transpose()).collect::<std::result::Result<_, _>>()?,
+                measures: spec
+                    .measures
+                    .iter()
+                    .map(|m| m.column.as_deref().map(find).transpose())
+                    .collect::<std::result::Result<_, _>>()?,
             },
-            ChartKind::Histogram { column, .. } => Cols::Histogram { column: find(column)? },
-            ChartKind::Box { column, by, .. } => Cols::Box { column: find(column)?, by: by.as_deref().map(find).transpose()? },
+            ChartKind::Histogram { column, .. } => Cols::Histogram {
+                column: find(column)?,
+            },
+            ChartKind::Box { column, by, .. } => Cols::Box {
+                column: find(column)?,
+                by: by.as_deref().map(find).transpose()?,
+            },
         })
     }
 
@@ -713,7 +854,10 @@ impl Aggregator {
         let cell = |i: usize| row.get(i).unwrap_or(&Value::Null);
         match cols {
             Cols::Group { x, split, measures } => {
-                let key = (x.and_then(|x| label(cell(x))), split.and_then(|s| label(cell(s))));
+                let key = (
+                    x.and_then(|x| label(cell(x))),
+                    split.and_then(|s| label(cell(s))),
+                );
                 let i = match self.groups.get(&key) {
                     Some(i) => *i,
                     None if self.group_rows.len() >= GROUPS_IN_MEMORY => {
@@ -721,7 +865,11 @@ impl Aggregator {
                         return;
                     }
                     None => {
-                        self.group_rows.push((key.clone(), 0, vec![Acc::default(); measures.len()]));
+                        self.group_rows.push((
+                            key.clone(),
+                            0,
+                            vec![Acc::default(); measures.len()],
+                        ));
                         self.groups.insert(key, self.group_rows.len() - 1);
                         self.group_rows.len() - 1
                     }
@@ -769,17 +917,29 @@ impl Aggregator {
             ChartKind::Group(spec) => {
                 let mut rows: Vec<GroupRow> = std::mem::take(&mut self.group_rows)
                     .into_iter()
-                    .map(|((x, split), n, accs)| GroupRow { x, split, n, values: accs.iter().zip(&spec.measures).map(|(a, m)| a.value(m.func)).collect() })
+                    .map(|((x, split), n, accs)| GroupRow {
+                        x,
+                        split,
+                        n,
+                        values: accs
+                            .iter()
+                            .zip(&spec.measures)
+                            .map(|(a, m)| a.value(m.func))
+                            .collect(),
+                    })
                     .collect();
-                rows.sort_by(|a, b| order_labels(&a.x, &b.x).then_with(|| order_labels(&a.split, &b.split)));
+                rows.sort_by(|a, b| {
+                    order_labels(&a.x, &b.x).then_with(|| order_labels(&a.split, &b.split))
+                });
                 if spec.x.is_none() && rows.is_empty() {
                     rows.push(empty_total(spec));
                 }
                 shape(rows, spec, AggregateMethod::Client, self.groups_dropped)
             }
-            ChartKind::Histogram { bins, .. } => {
-                ChartAggregate { histogram: Some(histogram(&self.values, *bins, self.nulls, self.non_numeric)), ..Default::default() }
-            }
+            ChartKind::Histogram { bins, .. } => ChartAggregate {
+                histogram: Some(histogram(&self.values, *bins, self.nulls, self.non_numeric)),
+                ..Default::default()
+            },
             ChartKind::Box { max_groups, .. } => {
                 let mut keys: Vec<Option<String>> = self.boxes.keys().cloned().collect();
                 keys.sort_by(order_labels);
@@ -792,7 +952,11 @@ impl Aggregator {
                         box_stats(k, &mut v)
                     })
                     .collect();
-                ChartAggregate { boxes: Some(boxes), groups_truncated: truncated, ..Default::default() }
+                ChartAggregate {
+                    boxes: Some(boxes),
+                    groups_truncated: truncated,
+                    ..Default::default()
+                }
             }
         };
         out.method = AggregateMethod::Client;
@@ -838,16 +1002,32 @@ impl crate::model::RowSink for Aggregator {
 
 /// Equal-width bins between the minimum and the maximum.
 pub fn histogram(values: &[f64], bins: u32, nulls: u64, non_numeric: u64) -> Histogram {
-    let mut h = Histogram { nulls, non_numeric, ..Default::default() };
-    let Some((lo, hi)) = values.iter().fold(None, |acc: Option<(f64, f64)>, &v| Some(acc.map_or((v, v), |(a, b)| (a.min(v), b.max(v))))) else {
+    let mut h = Histogram {
+        nulls,
+        non_numeric,
+        ..Default::default()
+    };
+    let Some((lo, hi)) = values.iter().fold(None, |acc: Option<(f64, f64)>, &v| {
+        Some(acc.map_or((v, v), |(a, b)| (a.min(v), b.max(v))))
+    }) else {
         return h;
     };
-    let bins = if lo == hi { 1 } else { bins.clamp(1, MAX_BINS) as usize };
+    let bins = if lo == hi {
+        1
+    } else {
+        bins.clamp(1, MAX_BINS) as usize
+    };
     let width = (hi - lo) / bins as f64;
-    h.edges = (0..=bins).map(|i| if i == bins { hi } else { lo + width * i as f64 }).collect();
+    h.edges = (0..=bins)
+        .map(|i| if i == bins { hi } else { lo + width * i as f64 })
+        .collect();
     h.counts = vec![0; bins];
     for &v in values {
-        let i = if width > 0.0 { (((v - lo) / width) as usize).min(bins - 1) } else { 0 };
+        let i = if width > 0.0 {
+            (((v - lo) / width) as usize).min(bins - 1)
+        } else {
+            0
+        };
         h.counts[i] += 1;
     }
     h
@@ -865,7 +1045,11 @@ fn quantile(sorted: &[f64], p: f64) -> f64 {
     // `b - a` overflows to infinity when the values are near ±f64::MAX;
     // the weighted form can't overflow between two finite values.
     let d = b - a;
-    if d.is_finite() { a + f * d } else { a * (1.0 - f) + b * f }
+    if d.is_finite() {
+        a + f * d
+    } else {
+        a * (1.0 - f) + b * f
+    }
 }
 
 fn box_stats(category: Option<String>, values: &mut [f64]) -> Option<BoxStats> {
@@ -924,15 +1108,34 @@ mod tests {
     use serde_json::json;
 
     fn m(column: Option<&str>, func: AggFn) -> Measure {
-        Measure { column: column.map(Into::into), func }
+        Measure {
+            column: column.map(Into::into),
+            func,
+        }
     }
 
-    fn spec(x: &str, split: Option<&str>, measures: Vec<Measure>, max_groups: u32) -> AggregateSpec {
-        AggregateSpec { x: Some(x.into()), split: split.map(Into::into), measures, max_groups }
+    fn spec(
+        x: &str,
+        split: Option<&str>,
+        measures: Vec<Measure>,
+        max_groups: u32,
+    ) -> AggregateSpec {
+        AggregateSpec {
+            x: Some(x.into()),
+            split: split.map(Into::into),
+            measures,
+            max_groups,
+        }
     }
 
     fn cols(names: &[&str]) -> Vec<ResultColumn> {
-        names.iter().map(|n| ResultColumn { name: n.to_string(), type_name: String::new() }).collect()
+        names
+            .iter()
+            .map(|n| ResultColumn {
+                name: n.to_string(),
+                type_name: String::new(),
+            })
+            .collect()
     }
 
     #[test]
@@ -956,19 +1159,52 @@ mod tests {
         assert!(validate(&spec("", None, vec![m(None, AggFn::Count)], 10)).is_err());
         assert!(validate(&spec("x", None, vec![], 10)).is_err());
         assert!(validate(&spec("x", None, vec![m(None, AggFn::Sum)], 10)).is_err());
-        assert_eq!(validate(&spec("x", Some(""), vec![m(None, AggFn::Count)], 0)).unwrap().max_groups, 1);
-        assert_eq!(validate(&spec("x", None, vec![m(None, AggFn::Count)], 1 << 30)).unwrap().max_groups, MAX_GROUPS);
+        assert_eq!(
+            validate(&spec("x", Some(""), vec![m(None, AggFn::Count)], 0))
+                .unwrap()
+                .max_groups,
+            1
+        );
+        assert_eq!(
+            validate(&spec("x", None, vec![m(None, AggFn::Count)], 1 << 30))
+                .unwrap()
+                .max_groups,
+            MAX_GROUPS
+        );
         // The UI's JSON (snake_case, like the other contract types).
         let s: ChartKind = serde_json::from_value(json!({
             "kind": "group", "x": "region", "split": null,
             "measures": [{ "column": null, "func": "count" }, { "column": "total", "func": "avg" }], "max_groups": 50
         }))
         .unwrap();
-        assert_eq!(s, ChartKind::Group(spec("region", None, vec![m(None, AggFn::Count), m(Some("total"), AggFn::Avg)], 50)));
-        let h: ChartKind = serde_json::from_value(json!({ "kind": "histogram", "column": "v" })).unwrap();
-        assert_eq!(h, ChartKind::Histogram { column: "v".into(), bins: 20 });
-        let b: ChartKind = serde_json::from_value(json!({ "kind": "box", "column": "v", "by": "g" })).unwrap();
-        assert_eq!(b, ChartKind::Box { column: "v".into(), by: Some("g".into()), max_groups: 50 });
+        assert_eq!(
+            s,
+            ChartKind::Group(spec(
+                "region",
+                None,
+                vec![m(None, AggFn::Count), m(Some("total"), AggFn::Avg)],
+                50
+            ))
+        );
+        let h: ChartKind =
+            serde_json::from_value(json!({ "kind": "histogram", "column": "v" })).unwrap();
+        assert_eq!(
+            h,
+            ChartKind::Histogram {
+                column: "v".into(),
+                bins: 20
+            }
+        );
+        let b: ChartKind =
+            serde_json::from_value(json!({ "kind": "box", "column": "v", "by": "g" })).unwrap();
+        assert_eq!(
+            b,
+            ChartKind::Box {
+                column: "v".into(),
+                by: Some("g".into()),
+                max_groups: 50
+            }
+        );
     }
 
     fn stmt(text: &str) -> Vec<ScriptStatement> {
@@ -978,19 +1214,40 @@ mod tests {
     #[test]
     fn only_one_select_goes_to_the_server() {
         let d = ScriptDialect::generic();
-        assert_eq!(single_read(&stmt("SELECT * FROM t;"), &d, true).unwrap(), "SELECT * FROM t");
-        assert_eq!(single_read(&stmt("-- c\nWITH a AS (SELECT 1 x) SELECT * FROM a"), &d, true).unwrap(), "WITH a AS (SELECT 1 x) SELECT * FROM a");
+        assert_eq!(
+            single_read(&stmt("SELECT * FROM t;"), &d, true).unwrap(),
+            "SELECT * FROM t"
+        );
+        assert_eq!(
+            single_read(
+                &stmt("-- c\nWITH a AS (SELECT 1 x) SELECT * FROM a"),
+                &d,
+                true
+            )
+            .unwrap(),
+            "WITH a AS (SELECT 1 x) SELECT * FROM a"
+        );
         assert!(single_read(&stmt("WITH a AS (SELECT 1 x) SELECT * FROM a"), &d, false).is_err());
         assert!(single_read(&stmt("SELECT 1; SELECT 2"), &d, true).is_err());
         assert!(single_read(&stmt("SHOW TABLES"), &d, true).is_err());
-        assert!(single_read(&stmt("WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d"), &d, true).is_err());
+        assert!(single_read(
+            &stmt("WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d"),
+            &d,
+            true
+        )
+        .is_err());
         assert!(single_read(&stmt("SELECT * INTO t2 FROM t"), &d, true).is_err());
         assert!(single_read(&stmt("UPDATE t SET a = 1"), &d, true).is_err());
     }
 
     #[test]
     fn grouped_sql_per_quote_and_limit_family() {
-        let s = spec("region", None, vec![m(None, AggFn::Count), m(Some("total"), AggFn::Sum)], 100);
+        let s = spec(
+            "region",
+            None,
+            vec![m(None, AggFn::Count), m(Some("total"), AggFn::Sum)],
+            100,
+        );
         // postgres, sqlite, duckdb, trino, snowflake… : "x", LIMIT, AS.
         assert_eq!(
             grouped_sql(&SqlShape::for_dialect("postgres").unwrap(), "SELECT * FROM t", &s).unwrap(),
@@ -1013,9 +1270,20 @@ mod tests {
              FROM (\nSELECT r, v FROM t\n) AS dbine_q\nGROUP BY [r]\nORDER BY [r]"
         );
         // …kept with TOP or OFFSET, which make it valid there.
-        assert!(grouped_sql(&ms, "SELECT TOP 10 r, v FROM t ORDER BY v DESC", &s3).unwrap().contains("ORDER BY v DESC\n)"));
-        assert!(grouped_sql(&ms, "SELECT r, v FROM t ORDER BY v OFFSET 5 ROWS", &s3).unwrap().contains("OFFSET 5 ROWS\n)"));
-        assert!(matches!(grouped_sql(&ms, "WITH a AS (SELECT 1 r, 2 v) SELECT * FROM a", &s3), Err(Error::Unsupported(_))));
+        assert!(
+            grouped_sql(&ms, "SELECT TOP 10 r, v FROM t ORDER BY v DESC", &s3)
+                .unwrap()
+                .contains("ORDER BY v DESC\n)")
+        );
+        assert!(
+            grouped_sql(&ms, "SELECT r, v FROM t ORDER BY v OFFSET 5 ROWS", &s3)
+                .unwrap()
+                .contains("OFFSET 5 ROWS\n)")
+        );
+        assert!(matches!(
+            grouped_sql(&ms, "WITH a AS (SELECT 1 r, 2 v) SELECT * FROM a", &s3),
+            Err(Error::Unsupported(_))
+        ));
         // oracle: FETCH FIRST, no AS before the alias.
         assert_eq!(
             grouped_sql(&SqlShape::for_dialect("oracle").unwrap(), "SELECT * FROM emp ORDER BY sal", &s3).unwrap(),
@@ -1023,21 +1291,50 @@ mod tests {
              FROM (\nSELECT * FROM emp ORDER BY sal\n) dbine_q\nGROUP BY \"r\"\nORDER BY \"r\"\nFETCH FIRST 6 ROWS ONLY"
         );
         // db2: FETCH FIRST and AVG in float; informix / firebird: FIRST n.
-        let db2 = grouped_sql(&SqlShape::for_dialect("db2").unwrap(), "SELECT * FROM t", &s3).unwrap();
-        assert!(db2.contains("AVG(\"v\" * 1.0E0)") && db2.ends_with("FETCH FIRST 6 ROWS ONLY") && db2.contains(") AS dbine_q"));
-        assert!(grouped_sql(&SqlShape::for_dialect("informix").unwrap(), "SELECT * FROM t", &s3).unwrap().starts_with("SELECT FIRST 6 \"r\""));
+        let db2 = grouped_sql(
+            &SqlShape::for_dialect("db2").unwrap(),
+            "SELECT * FROM t",
+            &s3,
+        )
+        .unwrap();
+        assert!(
+            db2.contains("AVG(\"v\" * 1.0E0)")
+                && db2.ends_with("FETCH FIRST 6 ROWS ONLY")
+                && db2.contains(") AS dbine_q")
+        );
+        assert!(grouped_sql(
+            &SqlShape::for_dialect("informix").unwrap(),
+            "SELECT * FROM t",
+            &s3
+        )
+        .unwrap()
+        .starts_with("SELECT FIRST 6 \"r\""));
         // A trailing line comment can't swallow the closing parenthesis.
-        assert!(grouped_sql(&SqlShape::ansi(), "SELECT * FROM t -- all", &s3).unwrap().contains("-- all\n) AS dbine_q"));
+        assert!(
+            grouped_sql(&SqlShape::ansi(), "SELECT * FROM t -- all", &s3)
+                .unwrap()
+                .contains("-- all\n) AS dbine_q")
+        );
         // Dialects that aggregate in DBine.
-        for d in ["cosmos", "n1ql", "partiql", "ksql", "influxql", "iotdb", "orientdb", "tdengine"] {
+        for d in [
+            "cosmos", "n1ql", "partiql", "ksql", "influxql", "iotdb", "orientdb", "tdengine",
+        ] {
             assert!(SqlShape::for_dialect(d).is_none(), "{d}");
         }
     }
 
     #[test]
     fn grouped_rows_become_categories_and_series() {
-        let s = spec("r", None, vec![m(None, AggFn::Count), m(Some("v"), AggFn::Sum)], 10);
-        let rows = vec![vec![json!("a"), json!(2), json!(2), json!("10.5")], vec![json!(null), json!(1), json!(1), json!(null)]];
+        let s = spec(
+            "r",
+            None,
+            vec![m(None, AggFn::Count), m(Some("v"), AggFn::Sum)],
+            10,
+        );
+        let rows = vec![
+            vec![json!("a"), json!(2), json!(2), json!("10.5")],
+            vec![json!(null), json!(1), json!(1), json!(null)],
+        ];
         let out = from_grouped(&s, &rows).unwrap();
         assert_eq!(out.categories, vec![Some("a".into()), None]);
         assert_eq!(out.series[0].values, vec![Some(2.0), Some(1.0)]);
@@ -1048,13 +1345,21 @@ mod tests {
         // Split: one series per split value; a category cut in half is dropped.
         let s = spec("r", Some("k"), vec![m(None, AggFn::Count)], 3);
         let row = |r: &str, k: &str, n: i64| vec![json!(r), json!(k), json!(n), json!(n)];
-        let rows = vec![row("a", "x", 1), row("a", "y", 2), row("b", "x", 3), row("b", "y", 4)];
+        let rows = vec![
+            row("a", "x", 1),
+            row("a", "y", 2),
+            row("b", "x", 3),
+            row("b", "y", 4),
+        ];
         let out = from_grouped(&s, &rows).unwrap();
         assert!(out.groups_truncated);
         assert_eq!(out.rows_scanned, None);
         assert_eq!(out.categories, vec![Some("a".into())]);
         assert_eq!(out.series.len(), 2);
-        assert_eq!((out.series[1].split.as_deref(), &out.series[1].values), (Some("y"), &vec![Some(2.0)]));
+        assert_eq!(
+            (out.series[1].split.as_deref(), &out.series[1].values),
+            (Some("y"), &vec![Some(2.0)])
+        );
     }
 
     fn feed(kind: ChartKind, cap: u64, columns: &[&str], rows: &[Vec<Value>]) -> ChartAggregate {
@@ -1069,7 +1374,18 @@ mod tests {
 
     #[test]
     fn the_client_groups_like_sql() {
-        let s = spec("r", None, vec![m(None, AggFn::Count), m(Some("v"), AggFn::Count), m(Some("v"), AggFn::Avg), m(Some("v"), AggFn::Min), m(Some("v"), AggFn::Max)], 10);
+        let s = spec(
+            "r",
+            None,
+            vec![
+                m(None, AggFn::Count),
+                m(Some("v"), AggFn::Count),
+                m(Some("v"), AggFn::Avg),
+                m(Some("v"), AggFn::Min),
+                m(Some("v"), AggFn::Max),
+            ],
+            10,
+        );
         let rows = vec![
             vec![json!("b"), json!(1)],
             vec![json!("a"), json!("4")],
@@ -1081,14 +1397,35 @@ mod tests {
         ];
         let out = feed(ChartKind::Group(s), 1_000, &["r", "v"], &rows);
         // Numbers by value, then text, NULL last.
-        assert_eq!(out.categories, vec![Some("9".into()), Some("10".into()), Some("a".into()), Some("b".into()), None]);
-        assert_eq!(out.series[0].values, vec![Some(1.0), Some(1.0), Some(1.0), Some(3.0), Some(1.0)]);
+        assert_eq!(
+            out.categories,
+            vec![
+                Some("9".into()),
+                Some("10".into()),
+                Some("a".into()),
+                Some("b".into()),
+                None
+            ]
+        );
+        assert_eq!(
+            out.series[0].values,
+            vec![Some(1.0), Some(1.0), Some(1.0), Some(3.0), Some(1.0)]
+        );
         // COUNT(v): non-null cells, numeric or not.
-        assert_eq!(out.series[1].values, vec![Some(1.0), Some(1.0), Some(1.0), Some(2.0), Some(1.0)]);
-        assert_eq!(out.series[2].values, vec![None, Some(2.0), Some(4.0), Some(2.0), Some(5.0)]);
+        assert_eq!(
+            out.series[1].values,
+            vec![Some(1.0), Some(1.0), Some(1.0), Some(2.0), Some(1.0)]
+        );
+        assert_eq!(
+            out.series[2].values,
+            vec![None, Some(2.0), Some(4.0), Some(2.0), Some(5.0)]
+        );
         assert_eq!(out.series[3].values[3], Some(1.0));
         assert_eq!(out.series[4].values[3], Some(3.0));
-        assert_eq!((out.method, out.rows_scanned, out.rows_capped), (AggregateMethod::Client, Some(7), false));
+        assert_eq!(
+            (out.method, out.rows_scanned, out.rows_capped),
+            (AggregateMethod::Client, Some(7), false)
+        );
     }
 
     #[test]
@@ -1096,9 +1433,11 @@ mod tests {
         let fired = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let f = fired.clone();
         let s = spec("r", None, vec![m(None, AggFn::Count)], 10);
-        let mut a = Aggregator::new(ChartKind::Group(s), 3).unwrap().on_cap(move || {
-            f.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        });
+        let mut a = Aggregator::new(ChartKind::Group(s), 3)
+            .unwrap()
+            .on_cap(move || {
+                f.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            });
         a.begin(0, &cols(&["r"])).unwrap();
         for _ in 0..5 {
             a.row(0, &[json!("a")]).unwrap();
@@ -1112,7 +1451,14 @@ mod tests {
 
     #[test]
     fn a_missing_column_is_an_error() {
-        let mut a = Aggregator::new(ChartKind::Histogram { column: "v".into(), bins: 4 }, 10).unwrap();
+        let mut a = Aggregator::new(
+            ChartKind::Histogram {
+                column: "v".into(),
+                bins: 4,
+            },
+            10,
+        )
+        .unwrap();
         a.begin(0, &cols(&["w"])).unwrap();
         let e = a.finish().unwrap_err().to_string();
         assert!(e.contains("«v»"), "{e}");
@@ -1120,22 +1466,60 @@ mod tests {
 
     #[test]
     fn histogram_bins() {
-        let rows: Vec<Vec<Value>> = [json!(0), json!(1), json!(2.5), json!(10), json!(null), json!("x"), json!("7")].into_iter().map(|v| vec![v]).collect();
-        let out = feed(ChartKind::Histogram { column: "v".into(), bins: 4 }, 100, &["v"], &rows);
+        let rows: Vec<Vec<Value>> = [
+            json!(0),
+            json!(1),
+            json!(2.5),
+            json!(10),
+            json!(null),
+            json!("x"),
+            json!("7"),
+        ]
+        .into_iter()
+        .map(|v| vec![v])
+        .collect();
+        let out = feed(
+            ChartKind::Histogram {
+                column: "v".into(),
+                bins: 4,
+            },
+            100,
+            &["v"],
+            &rows,
+        );
         let h = out.histogram.unwrap();
         assert_eq!(h.edges, vec![0.0, 2.5, 5.0, 7.5, 10.0]);
         assert_eq!(h.counts, vec![2, 1, 1, 1]);
         assert_eq!((h.nulls, h.non_numeric), (1, 1));
         // One distinct value: one bin.
-        assert_eq!(histogram(&[3.0, 3.0], 10, 0, 0), Histogram { edges: vec![3.0, 3.0], counts: vec![2], nulls: 0, non_numeric: 0 });
+        assert_eq!(
+            histogram(&[3.0, 3.0], 10, 0, 0),
+            Histogram {
+                edges: vec![3.0, 3.0],
+                counts: vec![2],
+                nulls: 0,
+                non_numeric: 0
+            }
+        );
         assert_eq!(histogram(&[], 10, 2, 0).counts, Vec::<u64>::new());
     }
 
     #[test]
     fn box_plot_quartiles() {
-        let rows: Vec<Vec<Value>> =
-            [(1, "a"), (2, "a"), (3, "a"), (4, "a"), (10, "b")].into_iter().map(|(v, g)| vec![json!(v), json!(g)]).collect();
-        let out = feed(ChartKind::Box { column: "v".into(), by: Some("g".into()), max_groups: 1 }, 100, &["v", "g"], &rows);
+        let rows: Vec<Vec<Value>> = [(1, "a"), (2, "a"), (3, "a"), (4, "a"), (10, "b")]
+            .into_iter()
+            .map(|(v, g)| vec![json!(v), json!(g)])
+            .collect();
+        let out = feed(
+            ChartKind::Box {
+                column: "v".into(),
+                by: Some("g".into()),
+                max_groups: 1,
+            },
+            100,
+            &["v", "g"],
+            &rows,
+        );
         let b = out.boxes.unwrap();
         assert!(out.groups_truncated);
         assert_eq!(b.len(), 1);
@@ -1156,10 +1540,27 @@ mod tests {
             }
         );
         // One box over everything: 10 is past the upper fence (4 + 1.5 × 2).
-        let out = feed(ChartKind::Box { column: "v".into(), by: None, max_groups: 10 }, 100, &["v", "g"], &rows);
+        let out = feed(
+            ChartKind::Box {
+                column: "v".into(),
+                by: None,
+                max_groups: 10,
+            },
+            100,
+            &["v", "g"],
+            &rows,
+        );
         let b = &out.boxes.unwrap()[0];
         assert_eq!((b.median, b.min, b.max), (3.0, 1.0, 10.0));
-        assert_eq!((b.whisker_low, b.whisker_high, b.outlier_count, b.outliers.clone()), (1.0, 4.0, 1, vec![10.0]));
+        assert_eq!(
+            (
+                b.whisker_low,
+                b.whisker_high,
+                b.outlier_count,
+                b.outliers.clone()
+            ),
+            (1.0, 4.0, 1, vec![10.0])
+        );
     }
 
     #[test]
@@ -1172,8 +1573,14 @@ mod tests {
         let (q1, q3) = (b.q1, b.q3);
         let (lo, hi) = (q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1));
         let inside: Vec<f64> = v.iter().copied().filter(|x| *x >= lo && *x <= hi).collect();
-        assert_eq!(b.whisker_low, inside.iter().copied().fold(f64::INFINITY, f64::min));
-        assert_eq!(b.whisker_high, inside.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+        assert_eq!(
+            b.whisker_low,
+            inside.iter().copied().fold(f64::INFINITY, f64::min)
+        );
+        assert_eq!(
+            b.whisker_high,
+            inside.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+        );
         assert_eq!(b.outlier_count as usize, v.len() - inside.len());
         assert_eq!(b.outliers.len(), MAX_BOX_OUTLIERS);
         // Ascending, and the most extreme of each side.
@@ -1186,7 +1593,10 @@ mod tests {
         assert_eq!(b.outliers.last(), Some(&10_199.0));
         // A constant column: no outliers, the whiskers at the value.
         let b = box_stats(None, &mut [5.0, 5.0, 5.0]).unwrap();
-        assert_eq!((b.whisker_low, b.whisker_high, b.outlier_count), (5.0, 5.0, 0));
+        assert_eq!(
+            (b.whisker_low, b.whisker_high, b.outlier_count),
+            (5.0, 5.0, 0)
+        );
     }
 
     #[test]
@@ -1195,16 +1605,27 @@ mod tests {
         // whiskers are the extremes, with no outliers.
         let b = box_stats(None, &mut [-1e308, 1e308]).unwrap();
         assert!(b.q1.is_finite() && b.q3.is_finite() && b.median.is_finite());
-        assert_eq!((b.whisker_low, b.whisker_high, b.outlier_count), (-1e308, 1e308, 0));
+        assert_eq!(
+            (b.whisker_low, b.whisker_high, b.outlier_count),
+            (-1e308, 1e308, 0)
+        );
         let b = box_stats(None, &mut [-1e308, -1e308, 1e308, 1e308, 0.0]).unwrap();
         assert_eq!((b.whisker_low, b.whisker_high), (-1e308, 1e308));
         let b = box_stats(None, &mut [f64::NEG_INFINITY, 1.0, f64::INFINITY]).unwrap();
         assert_eq!(b.outlier_count, 0);
-        assert_eq!((b.whisker_low, b.whisker_high), (f64::NEG_INFINITY, f64::INFINITY));
+        assert_eq!(
+            (b.whisker_low, b.whisker_high),
+            (f64::NEG_INFINITY, f64::INFINITY)
+        );
     }
 
     fn total(measures: Vec<Measure>) -> AggregateSpec {
-        AggregateSpec { x: None, split: None, measures, max_groups: 1000 }
+        AggregateSpec {
+            x: None,
+            split: None,
+            measures,
+            max_groups: 1000,
+        }
     }
 
     #[test]
@@ -1215,31 +1636,77 @@ mod tests {
             "SELECT COUNT(*) AS \"dbine_n\", COUNT(*) AS \"dbine_m0\", AVG(\"v\") AS \"dbine_m1\"\nFROM (\nSELECT * FROM t\n) AS dbine_q"
         );
         // No TOP / FETCH FIRST / FIRST: one row anyway; T-SQL still drops the ORDER BY.
-        let ms = grouped_sql(&SqlShape::for_dialect("mssql").unwrap(), "SELECT v FROM t ORDER BY v", &s).unwrap();
+        let ms = grouped_sql(
+            &SqlShape::for_dialect("mssql").unwrap(),
+            "SELECT v FROM t ORDER BY v",
+            &s,
+        )
+        .unwrap();
         assert_eq!(ms, "SELECT COUNT(*) AS [dbine_n], COUNT(*) AS [dbine_m0], AVG([v] * 1.0E0) AS [dbine_m1]\nFROM (\nSELECT v FROM t\n) AS dbine_q");
-        let ora = grouped_sql(&SqlShape::for_dialect("oracle").unwrap(), "SELECT v FROM t", &s).unwrap();
-        assert!(ora.ends_with(") dbine_q") && !ora.contains("FETCH"), "{ora}");
-        assert!(!grouped_sql(&SqlShape::for_dialect("informix").unwrap(), "SELECT v FROM t", &s).unwrap().contains("FIRST"));
+        let ora = grouped_sql(
+            &SqlShape::for_dialect("oracle").unwrap(),
+            "SELECT v FROM t",
+            &s,
+        )
+        .unwrap();
+        assert!(
+            ora.ends_with(") dbine_q") && !ora.contains("FETCH"),
+            "{ora}"
+        );
+        assert!(!grouped_sql(
+            &SqlShape::for_dialect("informix").unwrap(),
+            "SELECT v FROM t",
+            &s
+        )
+        .unwrap()
+        .contains("FIRST"));
         // A split needs an X.
-        assert!(validate(&AggregateSpec { split: Some("k".into()), ..s.clone() }).is_err());
+        assert!(validate(&AggregateSpec {
+            split: Some("k".into()),
+            ..s.clone()
+        })
+        .is_err());
         // The UI's JSON: `x` null (or left out).
         let k: ChartKind = serde_json::from_value(json!({ "kind": "group", "x": null, "split": null, "measures": [{ "column": null, "func": "count" }] })).unwrap();
         assert_eq!(k, ChartKind::Group(total(vec![m(None, AggFn::Count)])));
         // The server's one row.
         let out = from_grouped(&s, &[vec![json!(7), json!(7), json!("2.5")]]).unwrap();
         assert_eq!(out.categories, vec![None]);
-        assert_eq!((out.series[0].values.clone(), out.series[1].values.clone()), (vec![Some(7.0)], vec![Some(2.5)]));
+        assert_eq!(
+            (out.series[0].values.clone(), out.series[1].values.clone()),
+            (vec![Some(7.0)], vec![Some(2.5)])
+        );
         assert_eq!(out.rows_scanned, Some(7));
     }
 
     #[test]
     fn the_client_totals_like_sql() {
-        let s = total(vec![m(None, AggFn::Count), m(Some("v"), AggFn::Count), m(Some("v"), AggFn::Sum), m(Some("v"), AggFn::Avg), m(Some("v"), AggFn::Min), m(Some("v"), AggFn::Max)]);
-        let rows: Vec<Vec<Value>> = [json!(1), json!(null), json!("4"), json!("x"), json!(-2)].into_iter().map(|v| vec![json!("g"), v]).collect();
+        let s = total(vec![
+            m(None, AggFn::Count),
+            m(Some("v"), AggFn::Count),
+            m(Some("v"), AggFn::Sum),
+            m(Some("v"), AggFn::Avg),
+            m(Some("v"), AggFn::Min),
+            m(Some("v"), AggFn::Max),
+        ]);
+        let rows: Vec<Vec<Value>> = [json!(1), json!(null), json!("4"), json!("x"), json!(-2)]
+            .into_iter()
+            .map(|v| vec![json!("g"), v])
+            .collect();
         let out = feed(ChartKind::Group(s.clone()), 100, &["g", "v"], &rows);
         assert_eq!(out.categories, vec![None]);
         let got: Vec<Option<f64>> = out.series.iter().map(|x| x.values[0]).collect();
-        assert_eq!(got, vec![Some(5.0), Some(4.0), Some(3.0), Some(1.0), Some(-2.0), Some(4.0)]);
+        assert_eq!(
+            got,
+            vec![
+                Some(5.0),
+                Some(4.0),
+                Some(3.0),
+                Some(1.0),
+                Some(-2.0),
+                Some(4.0)
+            ]
+        );
         // No rows: COUNT 0, the rest NULL (as SQL without GROUP BY).
         let out = feed(ChartKind::Group(s), 100, &["g", "v"], &[]);
         let got: Vec<Option<f64>> = out.series.iter().map(|x| x.values[0]).collect();

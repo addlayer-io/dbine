@@ -8,7 +8,9 @@
 //! `datetimeoffset(7)`; `float` / `real` / `datetime` bare. Computed
 //! columns arrive as `AS expr [PERSISTED]`.
 
-use super::postgres::{fit_decimal, longest, precision_loss, prec, set_len, single_auto_increment, uuid_slot, UuidSlot};
+use super::postgres::{
+    fit_decimal, longest, prec, precision_loss, set_len, single_auto_increment, uuid_slot, UuidSlot,
+};
 use super::{standard_default, Caps, Dialect, IdentCase, Rendered};
 use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Report, Severity};
@@ -35,43 +37,99 @@ impl Dialect for MsSql {
         match t.name.as_str() {
             "bit" => L::Bool,
             // TINYINT is 0–255 in SQL Server.
-            "tinyint" => L::Int { bytes: 1, unsigned: true },
+            "tinyint" => L::Int {
+                bytes: 1,
+                unsigned: true,
+            },
             "smallint" => L::int(2),
             "int" | "integer" => L::int(4),
             "bigint" => L::int(8),
-            "decimal" | "numeric" | "dec" => L::Decimal { precision: p(0).or(Some(18)), scale: p(1).or(Some(0)) },
+            "decimal" | "numeric" | "dec" => L::Decimal {
+                precision: p(0).or(Some(18)),
+                scale: p(1).or(Some(0)),
+            },
             "money" | "smallmoney" => L::Money,
             "real" => L::Float { bytes: 4 },
-            "float" | "double precision" => L::Float { bytes: if p(0).is_some_and(|b| b <= 24) { 4 } else { 8 } },
-            "char" | "character" => L::Char { len: p(0).or(Some(1)), unicode: false },
-            "nchar" | "national char" | "national character" => L::Char { len: p(0).or(Some(1)), unicode: true },
-            "varchar" | "character varying" | "char varying" if t.is_max() => L::Text { unicode: false },
-            "varchar" | "character varying" | "char varying" => L::Varchar { len: p(0).or(Some(1)), unicode: false },
-            "nvarchar" | "national character varying" | "national char varying" if t.is_max() => L::Text { unicode: true },
-            "nvarchar" | "national character varying" | "national char varying" => L::Varchar { len: p(0).or(Some(1)), unicode: true },
+            "float" | "double precision" => L::Float {
+                bytes: if p(0).is_some_and(|b| b <= 24) { 4 } else { 8 },
+            },
+            "char" | "character" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode: false,
+            },
+            "nchar" | "national char" | "national character" => L::Char {
+                len: p(0).or(Some(1)),
+                unicode: true,
+            },
+            "varchar" | "character varying" | "char varying" if t.is_max() => {
+                L::Text { unicode: false }
+            }
+            "varchar" | "character varying" | "char varying" => L::Varchar {
+                len: p(0).or(Some(1)),
+                unicode: false,
+            },
+            "nvarchar" | "national character varying" | "national char varying" if t.is_max() => {
+                L::Text { unicode: true }
+            }
+            "nvarchar" | "national character varying" | "national char varying" => L::Varchar {
+                len: p(0).or(Some(1)),
+                unicode: true,
+            },
             // Object names: nvarchar(128).
-            "sysname" => L::Varchar { len: Some(128), unicode: true },
+            "sysname" => L::Varchar {
+                len: Some(128),
+                unicode: true,
+            },
             "text" => L::Text { unicode: false },
             "ntext" => L::Text { unicode: true },
-            "binary" => L::Binary { len: p(0).or(Some(1)) },
+            "binary" => L::Binary {
+                len: p(0).or(Some(1)),
+            },
             "varbinary" | "binary varying" if t.is_max() => L::Blob,
-            "varbinary" | "binary varying" => L::Varbinary { len: len().or(Some(1)) },
+            "varbinary" | "binary varying" => L::Varbinary {
+                len: len().or(Some(1)),
+            },
             "image" => L::Blob,
             "date" => L::Date,
-            "time" => L::Time { precision: frac(7), tz: false },
-            "datetime" => L::Timestamp { precision: Some(3), tz: false },
-            "smalldatetime" => L::Timestamp { precision: Some(0), tz: false },
-            "datetime2" => L::Timestamp { precision: frac(7), tz: false },
-            "datetimeoffset" => L::Timestamp { precision: frac(7), tz: true },
+            "time" => L::Time {
+                precision: frac(7),
+                tz: false,
+            },
+            "datetime" => L::Timestamp {
+                precision: Some(3),
+                tz: false,
+            },
+            "smalldatetime" => L::Timestamp {
+                precision: Some(0),
+                tz: false,
+            },
+            "datetime2" => L::Timestamp {
+                precision: frac(7),
+                tz: false,
+            },
+            "datetimeoffset" => L::Timestamp {
+                precision: frac(7),
+                tz: true,
+            },
             "uniqueidentifier" => L::Uuid,
             "xml" => L::Xml,
             // SQL Server 2025 / Azure SQL.
             "json" => L::Json { binary: true },
             // In SQL Server `timestamp` is the old name of rowversion.
             "rowversion" | "timestamp" => L::RowVersion,
-            "geometry" => L::Geometry { kind: None, srid: None, geography: false },
-            "geography" => L::Geometry { kind: None, srid: None, geography: true },
-            _ => L::Other { native: t.raw.clone() },
+            "geometry" => L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false,
+            },
+            "geography" => L::Geometry {
+                kind: None,
+                srid: None,
+                geography: true,
+            },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -166,7 +224,9 @@ impl Dialect for MsSql {
         match d {
             DefaultValue::CurrentTimestamp => Some(match ty {
                 L::Timestamp { tz: true, .. } => "SYSDATETIMEOFFSET()".into(),
-                L::Timestamp { precision: Some(p), .. } if *p <= 3 => "GETDATE()".into(),
+                L::Timestamp {
+                    precision: Some(p), ..
+                } if *p <= 3 => "GETDATE()".into(),
                 L::Date => "CAST(GETDATE() AS date)".into(),
                 L::Time { .. } => "CAST(SYSDATETIME() AS time)".into(),
                 _ => "SYSDATETIME()".into(),
@@ -179,7 +239,14 @@ impl Dialect for MsSql {
                 UuidSlot::Binary => Some("CAST(NEWID() AS binary(16))".into()),
                 UuidSlot::None => None,
             },
-            DefaultValue::Text(s) if matches!(ty, L::Char { unicode: true, .. } | L::Varchar { unicode: true, .. } | L::Text { unicode: true }) => {
+            DefaultValue::Text(s)
+                if matches!(
+                    ty,
+                    L::Char { unicode: true, .. }
+                        | L::Varchar { unicode: true, .. }
+                        | L::Text { unicode: true }
+                ) =>
+            {
                 Some(format!("N{}", crate::default::quote(s)))
             }
             other => standard_default(other, ty, "SYSDATETIME()", Some("NEWID()"), true),
@@ -216,7 +283,11 @@ impl Dialect for MsSql {
         for c in t.columns.iter_mut().filter(|c| c.auto_increment) {
             let ok = matches!(
                 self.parse_type(&parse(&c.data_type)),
-                L::Int { .. } | L::Decimal { scale: Some(0) | None, .. }
+                L::Int { .. }
+                    | L::Decimal {
+                        scale: Some(0) | None,
+                        ..
+                    }
             );
             if !ok {
                 report.push(
@@ -224,7 +295,10 @@ impl Dialect for MsSql {
                     IssueCode::RangeLoss,
                     &table,
                     Some(&c.name),
-                    format!("IDENTITY de SQL Server necesita un tipo entero: «{}» pasa a bigint.", c.data_type),
+                    format!(
+                        "IDENTITY de SQL Server necesita un tipo entero: «{}» pasa a bigint.",
+                        c.data_type
+                    ),
                 );
                 c.data_type = "bigint".into();
             }
@@ -233,17 +307,29 @@ impl Dialect for MsSql {
         // Key columns can't be (max), text, xml…: sized types within the key limit.
         let mut keys: Vec<(Vec<String>, u32, String)> = Vec::new();
         if let Some(pk) = &t.primary_key {
-            keys.push((pk.columns.clone(), MAX_CLUSTERED_KEY, "la clave primaria".into()));
+            keys.push((
+                pk.columns.clone(),
+                MAX_CLUSTERED_KEY,
+                "la clave primaria".into(),
+            ));
         }
         for ix in &t.indexes {
-            keys.push((ix.columns.clone(), MAX_KEY, format!("el índice «{}»", ix.name)));
+            keys.push((
+                ix.columns.clone(),
+                MAX_KEY,
+                format!("el índice «{}»", ix.name),
+            ));
         }
         for (cols, limit, what) in keys {
             let budget = limit / cols.len().max(1) as u32;
             for name in &cols {
-                let Some(c) = t.columns.iter_mut().find(|c| &c.name == name) else { continue };
+                let Some(c) = t.columns.iter_mut().find(|c| &c.name == name) else {
+                    continue;
+                };
                 let to = match self.parse_type(&parse(&c.data_type)) {
-                    L::Text { unicode: true } | L::Xml | L::Json { .. } => format!("nvarchar({})", budget / 2),
+                    L::Text { unicode: true } | L::Xml | L::Json { .. } => {
+                        format!("nvarchar({})", budget / 2)
+                    }
                     L::Text { unicode: false } => format!("varchar({budget})"),
                     L::Blob => format!("varbinary({budget})"),
                     _ => continue,
@@ -253,7 +339,10 @@ impl Dialect for MsSql {
                     IssueCode::LengthLoss,
                     &table,
                     Some(name),
-                    format!("SQL Server no admite «{}» en {what} (hasta {limit} bytes): pasa a {to}.", c.data_type),
+                    format!(
+                        "SQL Server no admite «{}» en {what} (hasta {limit} bytes): pasa a {to}.",
+                        c.data_type
+                    ),
                 );
                 c.data_type = to;
             }
@@ -261,7 +350,10 @@ impl Dialect for MsSql {
 
         // A self-reference can't cascade (it would form a cycle).
         for fk in t.foreign_keys.iter_mut().filter(|fk| fk.ref_table == table) {
-            for (action, clause) in [(&mut fk.on_delete, "ON DELETE"), (&mut fk.on_update, "ON UPDATE")] {
+            for (action, clause) in [
+                (&mut fk.on_delete, "ON DELETE"),
+                (&mut fk.on_update, "ON UPDATE"),
+            ] {
                 if action.as_deref().is_some_and(|a| a != "NO ACTION") {
                     report.push(
                         Severity::Warning,
@@ -288,39 +380,113 @@ mod tests {
 
     #[test]
     fn parses_driver_spellings() {
-        assert_eq!(ty("nvarchar(50)"), L::Varchar { len: Some(50), unicode: true });
+        assert_eq!(
+            ty("nvarchar(50)"),
+            L::Varchar {
+                len: Some(50),
+                unicode: true
+            }
+        );
         assert_eq!(ty("nvarchar(max)"), L::Text { unicode: true });
         assert_eq!(ty("varchar(max)"), L::Text { unicode: false });
         assert_eq!(ty("varbinary(max)"), L::Blob);
         assert_eq!(ty("varbinary(16)"), L::Varbinary { len: Some(16) });
-        assert_eq!(ty("decimal(18,2)"), L::Decimal { precision: Some(18), scale: Some(2) });
-        assert_eq!(ty("datetime2(7)"), L::Timestamp { precision: Some(7), tz: false });
-        assert_eq!(ty("datetime2(0)"), L::Timestamp { precision: Some(0), tz: false });
-        assert_eq!(ty("datetimeoffset(3)"), L::Timestamp { precision: Some(3), tz: true });
-        assert_eq!(ty("time(7)"), L::Time { precision: Some(7), tz: false });
-        assert_eq!(ty("datetime"), L::Timestamp { precision: Some(3), tz: false });
+        assert_eq!(
+            ty("decimal(18,2)"),
+            L::Decimal {
+                precision: Some(18),
+                scale: Some(2)
+            }
+        );
+        assert_eq!(
+            ty("datetime2(7)"),
+            L::Timestamp {
+                precision: Some(7),
+                tz: false
+            }
+        );
+        assert_eq!(
+            ty("datetime2(0)"),
+            L::Timestamp {
+                precision: Some(0),
+                tz: false
+            }
+        );
+        assert_eq!(
+            ty("datetimeoffset(3)"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
+        assert_eq!(
+            ty("time(7)"),
+            L::Time {
+                precision: Some(7),
+                tz: false
+            }
+        );
+        assert_eq!(
+            ty("datetime"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: false
+            }
+        );
         assert_eq!(ty("float"), L::Float { bytes: 8 });
         assert_eq!(ty("real"), L::Float { bytes: 4 });
-        assert_eq!(ty("tinyint"), L::Int { bytes: 1, unsigned: true });
+        assert_eq!(
+            ty("tinyint"),
+            L::Int {
+                bytes: 1,
+                unsigned: true
+            }
+        );
         assert_eq!(ty("timestamp"), L::RowVersion);
-        assert_eq!(ty("sysname"), L::Varchar { len: Some(128), unicode: true });
+        assert_eq!(
+            ty("sysname"),
+            L::Varchar {
+                len: Some(128),
+                unicode: true
+            }
+        );
         assert!(matches!(ty("AS ([a]+(1)) PERSISTED"), L::Other { .. }));
     }
 
     #[test]
     fn sets_fit_every_member() {
-        let r = MsSql.render_type(&L::Set { values: vec!["a".into(), "bb".into()] });
+        let r = MsSql.render_type(&L::Set {
+            values: vec!["a".into(), "bb".into()],
+        });
         assert_eq!(r.native, "nvarchar(4)");
     }
 
     #[test]
     fn finalize_sizes_keys_and_self_references() {
-        let col = |n: &str, t: &str| ColumnDef { name: n.into(), data_type: t.into(), ..Default::default() };
+        let col = |n: &str, t: &str| ColumnDef {
+            name: n.into(),
+            data_type: t.into(),
+            ..Default::default()
+        };
         let mut t = TableSchema {
             name: "t".into(),
-            columns: vec![ColumnDef { auto_increment: true, ..col("id", "decimal(38, 10)") }, col("k", "nvarchar(max)"), col("p", "int")],
-            primary_key: Some(KeyDef { name: None, columns: vec!["id".into()] }),
-            indexes: vec![IndexDef { name: "ix".into(), columns: vec!["k".into()], ..Default::default() }],
+            columns: vec![
+                ColumnDef {
+                    auto_increment: true,
+                    ..col("id", "decimal(38, 10)")
+                },
+                col("k", "nvarchar(max)"),
+                col("p", "int"),
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "ix".into(),
+                columns: vec!["k".into()],
+                ..Default::default()
+            }],
             foreign_keys: vec![ForeignKeyDef {
                 columns: vec!["p".into()],
                 ref_table: "t".into(),

@@ -68,7 +68,9 @@ pub enum Schedule {
 
 impl Default for Schedule {
     fn default() -> Self {
-        Schedule::Daily { time: "08:00".into() }
+        Schedule::Daily {
+            time: "08:00".into(),
+        }
     }
 }
 
@@ -165,7 +167,11 @@ fn time_of(t: &str) -> Option<NaiveTime> {
 impl Schedule {
     /// What's wrong with it, in Spanish (`None`: fine).
     pub fn problem(&self) -> Option<String> {
-        let bad_time = |t: &str| time_of(t).is_none().then(|| format!("«{t}» no es una hora HH:MM"));
+        let bad_time = |t: &str| {
+            time_of(t)
+                .is_none()
+                .then(|| format!("«{t}» no es una hora HH:MM"))
+        };
         match self {
             Schedule::Daily { time } => bad_time(time),
             Schedule::Weekly { days, time } => {
@@ -182,7 +188,9 @@ impl Schedule {
                     bad_time(time)
                 }
             }
-            Schedule::Interval { minutes } => (*minutes < 5).then(|| "el intervalo mínimo es de 5 minutos".into()),
+            Schedule::Interval { minutes } => {
+                (*minutes < 5).then(|| "el intervalo mínimo es de 5 minutos".into())
+            }
         }
     }
 
@@ -190,17 +198,25 @@ impl Schedule {
     /// that runs it).
     pub fn next_after(&self, now: NaiveDateTime) -> Option<NaiveDateTime> {
         match self {
-            Schedule::Interval { minutes } => Some(now + chrono::Duration::minutes(*minutes as i64)),
-            Schedule::Daily { time } | Schedule::Weekly { time, .. } | Schedule::Monthly { time, .. } => {
+            Schedule::Interval { minutes } => {
+                Some(now + chrono::Duration::minutes(*minutes as i64))
+            }
+            Schedule::Daily { time }
+            | Schedule::Weekly { time, .. }
+            | Schedule::Monthly { time, .. } => {
                 let t = time_of(time)?;
-                (0..400).map(|d| (now.date() + chrono::Duration::days(d)).and_time(t)).find(|at| {
-                    *at > now
-                        && match self {
-                            Schedule::Weekly { days, .. } => days.contains(&(at.weekday().number_from_monday() as u8)),
-                            Schedule::Monthly { day, .. } => at.day() == *day as u32,
-                            _ => true,
-                        }
-                })
+                (0..400)
+                    .map(|d| (now.date() + chrono::Duration::days(d)).and_time(t))
+                    .find(|at| {
+                        *at > now
+                            && match self {
+                                Schedule::Weekly { days, .. } => {
+                                    days.contains(&(at.weekday().number_from_monday() as u8))
+                                }
+                                Schedule::Monthly { day, .. } => at.day() == *day as u32,
+                                _ => true,
+                            }
+                    })
             }
         }
     }
@@ -250,7 +266,10 @@ pub fn base_vars(task: &ScheduledTask, at: NaiveDateTime) -> BTreeMap<String, St
     let mut v = BTreeMap::new();
     v.insert("task".into(), task.name.clone());
     v.insert("date".into(), at.format("%Y-%m-%d").to_string());
-    v.insert("time".into(), format!("{:02}{:02}{:02}", at.hour(), at.minute(), at.second()));
+    v.insert(
+        "time".into(),
+        format!("{:02}{:02}{:02}", at.hour(), at.minute(), at.second()),
+    );
     v.insert("datetime".into(), at.format("%Y-%m-%d_%H%M%S").to_string());
     v.insert("year".into(), at.format("%Y").to_string());
     v.insert("month".into(), at.format("%m").to_string());
@@ -269,37 +288,96 @@ mod tests {
     use chrono::NaiveDate;
 
     fn at(y: i32, m: u32, d: u32, h: u32, mi: u32) -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, mi, 0).unwrap()
+        NaiveDate::from_ymd_opt(y, m, d)
+            .unwrap()
+            .and_hms_opt(h, mi, 0)
+            .unwrap()
     }
 
     #[test]
     fn next_runs() {
         // 2026-10-08 is a Thursday.
         let now = at(2026, 10, 8, 9, 0);
-        assert_eq!(Schedule::Daily { time: "08:30".into() }.next_after(now), Some(at(2026, 10, 9, 8, 30)));
-        assert_eq!(Schedule::Daily { time: "10:00".into() }.next_after(now), Some(at(2026, 10, 8, 10, 0)));
-        assert_eq!(Schedule::Weekly { days: vec![1], time: "07:00".into() }.next_after(now), Some(at(2026, 10, 12, 7, 0)));
-        assert_eq!(Schedule::Monthly { day: 1, time: "00:00".into() }.next_after(now), Some(at(2026, 11, 1, 0, 0)));
-        assert_eq!(Schedule::Interval { minutes: 30 }.next_after(now), Some(at(2026, 10, 8, 9, 30)));
+        assert_eq!(
+            Schedule::Daily {
+                time: "08:30".into()
+            }
+            .next_after(now),
+            Some(at(2026, 10, 9, 8, 30))
+        );
+        assert_eq!(
+            Schedule::Daily {
+                time: "10:00".into()
+            }
+            .next_after(now),
+            Some(at(2026, 10, 8, 10, 0))
+        );
+        assert_eq!(
+            Schedule::Weekly {
+                days: vec![1],
+                time: "07:00".into()
+            }
+            .next_after(now),
+            Some(at(2026, 10, 12, 7, 0))
+        );
+        assert_eq!(
+            Schedule::Monthly {
+                day: 1,
+                time: "00:00".into()
+            }
+            .next_after(now),
+            Some(at(2026, 11, 1, 0, 0))
+        );
+        assert_eq!(
+            Schedule::Interval { minutes: 30 }.next_after(now),
+            Some(at(2026, 10, 8, 9, 30))
+        );
     }
 
     #[test]
     fn validation() {
-        assert!(Schedule::Daily { time: "25:00".into() }.problem().is_some());
-        assert!(Schedule::Weekly { days: vec![], time: "08:00".into() }.problem().is_some());
-        assert!(Schedule::Monthly { day: 31, time: "08:00".into() }.problem().is_some());
+        assert!(Schedule::Daily {
+            time: "25:00".into()
+        }
+        .problem()
+        .is_some());
+        assert!(Schedule::Weekly {
+            days: vec![],
+            time: "08:00".into()
+        }
+        .problem()
+        .is_some());
+        assert!(Schedule::Monthly {
+            day: 31,
+            time: "08:00".into()
+        }
+        .problem()
+        .is_some());
         assert!(Schedule::Interval { minutes: 1 }.problem().is_some());
-        let t = ScheduledTask { name: "x".into(), steps: vec![Step::default()], ..Default::default() };
+        let t = ScheduledTask {
+            name: "x".into(),
+            steps: vec![Step::default()],
+            ..Default::default()
+        };
         assert!(t.problem().is_none());
     }
 
     #[test]
     fn variables() {
-        let t = ScheduledTask { name: "ventas".into(), ..Default::default() };
+        let t = ScheduledTask {
+            name: "ventas".into(),
+            ..Default::default()
+        };
         let mut v = base_vars(&t, at(2026, 1, 2, 3, 4));
         v.insert("steps.1.rows".into(), "42".into());
-        assert_eq!(expand("{task}-{date}_{time}.csv", &v), "ventas-2026-01-02_030400.csv");
-        assert_eq!(expand("{steps.1.rows} filas, {unknown} {", &v), "42 filas, {unknown} {");
+        assert_eq!(
+            expand("{task}-{date}_{time}.csv", &v),
+            "ventas-2026-01-02_030400.csv"
+        );
+        assert_eq!(
+            expand("{steps.1.rows} filas, {unknown} {", &v),
+            "42 filas, {unknown} {"
+        );
     }
 
     #[test]
@@ -308,8 +386,16 @@ mod tests {
             id: "a".into(),
             name: "Reporte".into(),
             enabled: true,
-            schedule: Schedule::Weekly { days: vec![1, 5], time: "08:00".into() },
-            steps: vec![Step { id: "s1".into(), kind: kinds::EXPORT.into(), config: serde_json::json!({"sql": "SELECT 1"}), ..Default::default() }],
+            schedule: Schedule::Weekly {
+                days: vec![1, 5],
+                time: "08:00".into(),
+            },
+            steps: vec![Step {
+                id: "s1".into(),
+                kind: kinds::EXPORT.into(),
+                config: serde_json::json!({"sql": "SELECT 1"}),
+                ..Default::default()
+            }],
             notify: Notify::Always,
             ..Default::default()
         };

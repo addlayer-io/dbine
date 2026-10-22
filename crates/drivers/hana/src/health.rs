@@ -31,7 +31,8 @@ fn qn(schema: &str, name: &str) -> String {
 /// have one (views and the rest are valid again when what they use is back,
 /// or must be created again).
 pub(crate) fn recompile_sql(kind: &str, schema: &str, name: &str) -> Option<String> {
-    matches!(kind, "PROCEDURE" | "FUNCTION").then(|| format!("ALTER {kind} {} RECOMPILE;", qn(schema, name)))
+    matches!(kind, "PROCEDURE" | "FUNCTION")
+        .then(|| format!("ALTER {kind} {} RECOMPILE;", qn(schema, name)))
 }
 
 /// Whether a column table's delta store calls for a merge: over 1 GB, or
@@ -67,13 +68,23 @@ const VIRTUAL_NO_STATS: &str = "SELECT TOP 200 v.TABLE_NAME FROM SYS.VIRTUAL_TAB
 
 impl HanaSession {
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
-        let schema = if database.is_empty() { self.schema.clone() } else { database.to_string() };
+        let schema = if database.is_empty() {
+            self.schema.clone()
+        } else {
+            database.to_string()
+        };
         let p: [&str; 1] = [&schema];
         let mut out = Vec::new();
 
         if let Ok(rows) = self.rows(INVALID, &p).await {
-            let objects: Vec<String> = rows.iter().map(|r| format!("{} ({})", s(r, 1), s(r, 0).to_lowercase())).collect();
-            let fixes: Vec<String> = rows.iter().filter_map(|r| recompile_sql(&s(r, 0), &schema, &s(r, 1))).collect();
+            let objects: Vec<String> = rows
+                .iter()
+                .map(|r| format!("{} ({})", s(r, 1), s(r, 0).to_lowercase()))
+                .collect();
+            let fixes: Vec<String> = rows
+                .iter()
+                .filter_map(|r| recompile_sql(&s(r, 0), &schema, &s(r, 1)))
+                .collect();
             let mut check = HealthCheck::new(
                 "invalid_objects",
                 "Integridad",
@@ -89,12 +100,26 @@ impl HanaSession {
         }
 
         if let Ok(rows) = self.rows(DELTA, &p).await {
-            let big: Vec<&Vec<HdbValue<'static>>> = rows.iter().filter(|r| needs_merge(n(r, 2), n(r, 3))).collect();
+            let big: Vec<&Vec<HdbValue<'static>>> = rows
+                .iter()
+                .filter(|r| needs_merge(n(r, 2), n(r, 3)))
+                .collect();
             let objects: Vec<String> = big
                 .iter()
-                .map(|r| format!("{} (delta {:.0} MB, {} filas)", s(r, 0), n(r, 2) / MIB, s(r, 1)))
+                .map(|r| {
+                    format!(
+                        "{} (delta {:.0} MB, {} filas)",
+                        s(r, 0),
+                        n(r, 2) / MIB,
+                        s(r, 1)
+                    )
+                })
                 .collect();
-            let fixes: Vec<String> = big.iter().take(MAX_OBJECTS).map(|r| format!("MERGE DELTA OF {};", qn(&schema, &s(r, 0)))).collect();
+            let fixes: Vec<String> = big
+                .iter()
+                .take(MAX_OBJECTS)
+                .map(|r| format!("MERGE DELTA OF {};", qn(&schema, &s(r, 0))))
+                .collect();
             let mut check = HealthCheck::new(
                 "delta_merge",
                 "Rendimiento",
@@ -112,7 +137,10 @@ impl HanaSession {
         if let Ok(rows) = self.rows(AUTOMERGE_OFF, &p).await {
             if !rows.is_empty() {
                 let objects: Vec<String> = rows.iter().map(|r| s(r, 0)).collect();
-                let fixes: Vec<String> = objects.iter().map(|t| format!("ALTER TABLE {} ENABLE AUTOMERGE;", qn(&schema, t))).collect();
+                let fixes: Vec<String> = objects
+                    .iter()
+                    .map(|t| format!("ALTER TABLE {} ENABLE AUTOMERGE;", qn(&schema, t)))
+                    .collect();
                 out.push(
                     HealthCheck::new("auto_merge_off", "Configuración", format!("{} tablas con la fusión automática apagada", objects.len()), Severity::Info)
                         .detail("Sin fusión automática el delta store solo se vacía con MERGE DELTA. Está bien si una carga lo hace a mano al terminar; si no, crece sin límite.")
@@ -139,7 +167,10 @@ impl HanaSession {
         if let Ok(rows) = self.rows(VIRTUAL_NO_STATS, &p).await {
             if !rows.is_empty() {
                 let objects: Vec<String> = rows.iter().map(|r| s(r, 0)).collect();
-                let fixes: Vec<String> = objects.iter().map(|t| format!("CREATE STATISTICS ON {} TYPE RECORD COUNT;", qn(&schema, t))).collect();
+                let fixes: Vec<String> = objects
+                    .iter()
+                    .map(|t| format!("CREATE STATISTICS ON {} TYPE RECORD COUNT;", qn(&schema, t)))
+                    .collect();
                 out.push(
                     HealthCheck::new("virtual_table_stats", "Rendimiento", format!("{} tablas virtuales sin estadísticas", objects.len()), Severity::Info)
                         .detail("Las tablas columnares no necesitan estadísticas, pero las virtuales (de una fuente remota) sí: sin ellas el optimizador no sabe cuántas filas trae y puede elegir mal dónde hacer los joins. Crear una de tipo HISTOGRAM sobre las columnas de filtro ayuda más.")
@@ -162,7 +193,10 @@ mod tests {
 
     #[test]
     fn recompile_and_merge_rules() {
-        assert_eq!(recompile_sql("PROCEDURE", "S", "p\"x").unwrap(), "ALTER PROCEDURE \"S\".\"p\"\"x\" RECOMPILE;");
+        assert_eq!(
+            recompile_sql("PROCEDURE", "S", "p\"x").unwrap(),
+            "ALTER PROCEDURE \"S\".\"p\"\"x\" RECOMPILE;"
+        );
         assert!(recompile_sql("VIEW", "S", "V").is_none());
         assert!(needs_merge(2048.0 * MIB, 1.0e12));
         assert!(needs_merge(200.0 * MIB, 500.0 * MIB));

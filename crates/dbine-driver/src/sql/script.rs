@@ -175,20 +175,34 @@ impl ScriptDialect {
             "oracle" => Self::oracle(),
             "db2" => Self::db2(),
             // `name` in backticks, '…' and "…" strings with backslash escapes.
-            "tdengine" => Self { backslash_escapes: true, ..Self::generic() },
+            "tdengine" => Self {
+                backslash_escapes: true,
+                ..Self::generic()
+            },
             _ => Self::generic(),
         }
     }
 
     /// psql: dollar quotes, `E'…'` escapes, nested comments.
     pub const fn postgres() -> Self {
-        Self { dollar_quotes: true, nested_comments: true, backtick_idents: false, ..Self::generic() }
+        Self {
+            dollar_quotes: true,
+            nested_comments: true,
+            backtick_idents: false,
+            ..Self::generic()
+        }
     }
 
     /// mysql CLI: backslash escapes, `#` comments, `-- ` comments only with
     /// the space, `DELIMITER`.
     pub const fn mysql() -> Self {
-        Self { backslash_escapes: true, hash_comments: true, delimiter_command: true, dash_comment_space: true, ..Self::generic() }
+        Self {
+            backslash_escapes: true,
+            hash_comments: true,
+            delimiter_command: true,
+            dash_comment_space: true,
+            ..Self::generic()
+        }
     }
 
     /// SSMS / sqlcmd: batches separated by `GO [N]` lines, `[ident]`,
@@ -220,19 +234,30 @@ impl ScriptDialect {
 
     /// Firebird isql: `SET TERM`.
     pub const fn firebird() -> Self {
-        Self { set_term: true, backtick_idents: false, ..Self::generic() }
+        Self {
+            set_term: true,
+            backtick_idents: false,
+            ..Self::generic()
+        }
     }
 
     /// DB2 CLP: `--#SET TERMINATOR`.
     pub const fn db2() -> Self {
-        Self { terminator_directive: true, backtick_idents: false, ..Self::generic() }
+        Self {
+            terminator_directive: true,
+            backtick_idents: false,
+            ..Self::generic()
+        }
     }
 
     /// The same dialect, also splitting on the terminator inside batches:
     /// statement by statement, for "run the statement at the cursor", the
     /// read-only guard and the UPDATE/DELETE check.
     pub const fn statements(self) -> Self {
-        Self { semicolons: true, ..self }
+        Self {
+            semicolons: true,
+            ..self
+        }
     }
 }
 
@@ -274,7 +299,10 @@ pub struct ScriptDefaults {
 impl ScriptDefaults {
     /// Stop on errors; ask about unsafe DML on SQL engines.
     pub fn for_language(language: crate::Language) -> Self {
-        Self { continue_on_error: false, confirm_unsafe_dml: language == crate::Language::Sql }
+        Self {
+            continue_on_error: false,
+            confirm_unsafe_dml: language == crate::Language::Sql,
+        }
     }
 }
 
@@ -289,7 +317,11 @@ pub fn split_script(script: &str, dialect: &ScriptDialect) -> Vec<ScriptStatemen
 /// them. `keep_hints`: optimizer hints (`/*+ … */`) and MySQL's versioned
 /// comments (`/*! … */`) stay, since they change what runs.
 pub fn strip_comments(text: &str, dialect: &ScriptDialect, keep_hints: bool) -> String {
-    let sc = Scanner { s: text, b: text.as_bytes(), d: *dialect };
+    let sc = Scanner {
+        s: text,
+        b: text.as_bytes(),
+        d: *dialect,
+    };
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < text.len() {
@@ -306,7 +338,11 @@ pub fn strip_comments(text: &str, dialect: &ScriptDialect, keep_hints: bool) -> 
             _ => out.push_str(&text[i..end]),
         }
         // A line comment ends before its newline: don't add it twice.
-        i = if tok == Tok::LineComment && text.as_bytes().get(end) == Some(&b'\n') { end + 1 } else { end };
+        i = if tok == Tok::LineComment && text.as_bytes().get(end) == Some(&b'\n') {
+            end + 1
+        } else {
+            end
+        };
     }
     out
 }
@@ -314,7 +350,10 @@ pub fn strip_comments(text: &str, dialect: &ScriptDialect, keep_hints: bool) -> 
 /// The first keyword of a statement, lowercase (`with`, `select`,
 /// `update`…), skipping comments. `None` when it starts with something else.
 pub fn leading_keyword(text: &str, dialect: &ScriptDialect) -> Option<String> {
-    words(text, dialect).into_iter().next().map(|w| w.text.to_ascii_lowercase())
+    words(text, dialect)
+        .into_iter()
+        .next()
+        .map(|w| w.text.to_ascii_lowercase())
 }
 
 /// An `UPDATE` or `DELETE` that would touch every row of its table.
@@ -343,8 +382,17 @@ pub fn unsafe_statements(script: &str, dialect: &ScriptDialect) -> Vec<UnsafeSta
         }
         for hit in unsafe_hits(&s.text, dialect) {
             let start = s.start + hit.start;
-            let line = s.line + s.text.as_bytes()[..hit.start].iter().filter(|&&c| c == b'\n').count() as u32;
-            out.push(UnsafeStatement { keyword: hit.keyword.to_string(), start, end: s.start + hit.end, line });
+            let line = s.line
+                + s.text.as_bytes()[..hit.start]
+                    .iter()
+                    .filter(|&&c| c == b'\n')
+                    .count() as u32;
+            out.push(UnsafeStatement {
+                keyword: hit.keyword.to_string(),
+                start,
+                end: s.start + hit.end,
+                line,
+            });
         }
     }
     out
@@ -363,13 +411,23 @@ pub fn expose_versioned<'a>(text: &'a str, dialect: &ScriptDialect) -> std::borr
     if !text.contains("/*!") && !text.contains("/*M!") {
         return std::borrow::Cow::Borrowed(text);
     }
-    let sc = Scanner { s: text, b: text.as_bytes(), d: *dialect };
+    let sc = Scanner {
+        s: text,
+        b: text.as_bytes(),
+        d: *dialect,
+    };
     let mut bytes = text.as_bytes().to_vec();
     let mut i = 0;
     while i < text.len() {
         let (tok, end) = sc.token(i);
         if tok == Tok::BlockComment {
-            let open = if sc.starts(i, "/*!") { Some(3) } else if sc.starts(i, "/*M!") { Some(4) } else { None };
+            let open = if sc.starts(i, "/*!") {
+                Some(3)
+            } else if sc.starts(i, "/*M!") {
+                Some(4)
+            } else {
+                None
+            };
             if let Some(n) = open {
                 let mut j = i + n;
                 while j < end && bytes[j].is_ascii_digit() {
@@ -400,15 +458,60 @@ struct Hit {
 /// `DO UPDATE` (ON CONFLICT), `GRANT UPDATE`, trigger events (`AFTER
 /// INSERT OR UPDATE OF`, `INSTEAD OF DELETE`), `UNION SELECT`…
 const NOT_A_START_AFTER: &[&str] = &[
-    "for", "on", "key", "then", "do", "also", "instead", "of", "or", "before", "after", "grant", "revoke", "deny", "audit", "noaudit", "as",
-    "union", "intersect", "except", "minus", "all", "distinct",
+    "for",
+    "on",
+    "key",
+    "then",
+    "do",
+    "also",
+    "instead",
+    "of",
+    "or",
+    "before",
+    "after",
+    "grant",
+    "revoke",
+    "deny",
+    "audit",
+    "noaudit",
+    "as",
+    "union",
+    "intersect",
+    "except",
+    "minus",
+    "all",
+    "distinct",
 ];
 
 /// Keywords that start the next statement of a T-SQL batch written without
 /// `;` (when they start one at all: see [`starts_statement`]).
 const STATEMENT_KEYWORDS: &[&str] = &[
-    "select", "insert", "update", "delete", "merge", "create", "alter", "drop", "truncate", "exec", "execute", "declare", "print", "grant",
-    "revoke", "deny", "begin", "end", "commit", "rollback", "if", "else", "while", "return", "raiserror", "throw",
+    "select",
+    "insert",
+    "update",
+    "delete",
+    "merge",
+    "create",
+    "alter",
+    "drop",
+    "truncate",
+    "exec",
+    "execute",
+    "declare",
+    "print",
+    "grant",
+    "revoke",
+    "deny",
+    "begin",
+    "end",
+    "commit",
+    "rollback",
+    "if",
+    "else",
+    "while",
+    "return",
+    "raiserror",
+    "throw",
 ];
 
 /// Whether `ws[k]` starts a statement rather than being part of one:
@@ -463,13 +566,17 @@ fn unsafe_hits(stmt: &str, dialect: &ScriptDialect) -> Vec<Hit> {
                     if x.keyword("end") {
                         case -= 1;
                     }
-                } else if x.is("where") || (x.is("use") && ws.get(j + 1).is_some_and(|n| n.is("keys"))) {
+                } else if x.is("where")
+                    || (x.is("use") && ws.get(j + 1).is_some_and(|n| n.is("keys")))
+                {
                     // SQL++ (Couchbase) `USE KEYS …` limits it to those
                     // documents, as a WHERE does.
                     has_where = true;
                     break;
                 } else if STATEMENT_KEYWORDS.iter().any(|s| x.is(s)) && starts_statement(&ws, j) {
-                    end = stmt[..x.start].trim_end_matches(|c: char| c.is_whitespace() || c == ';').len();
+                    end = stmt[..x.start]
+                        .trim_end_matches(|c: char| c.is_whitespace() || c == ';')
+                        .len();
                     break;
                 }
             }
@@ -495,7 +602,11 @@ fn unsafe_hits(stmt: &str, dialect: &ScriptDialect) -> Vec<Hit> {
                 }
             }
         }
-        hits.push(Hit { keyword, start, end: end.max(w.start + w.text.len()) });
+        hits.push(Hit {
+            keyword,
+            start,
+            end: end.max(w.start + w.text.len()),
+        });
     }
     hits
 }
@@ -530,7 +641,9 @@ impl Scanner<'_> {
     }
 
     fn starts(&self, i: usize, p: &str) -> bool {
-        self.b.get(i..i + p.len()).is_some_and(|x| x.eq_ignore_ascii_case(p.as_bytes()))
+        self.b
+            .get(i..i + p.len())
+            .is_some_and(|x| x.eq_ignore_ascii_case(p.as_bytes()))
     }
 
     /// The token at `i` and where it ends.
@@ -540,18 +653,29 @@ impl Scanner<'_> {
         let prev = if i == 0 { 0 } else { self.at(i - 1) };
         match c {
             b' ' | b'\t' | b'\r' | b'\n' | 0x0b | 0x0c => (Tok::Space, i + 1),
-            b'-' if n == b'-' && (!self.d.dash_comment_space || {
-                let c = self.at(i + 2);
-                c.is_ascii_whitespace() || c.is_ascii_control()
-            }) =>
+            b'-' if n == b'-'
+                && (!self.d.dash_comment_space || {
+                    let c = self.at(i + 2);
+                    c.is_ascii_whitespace() || c.is_ascii_control()
+                }) =>
             {
                 (Tok::LineComment, self.comment_end(i))
             }
             b'#' if self.d.hash_comments => (Tok::LineComment, self.comment_end(i)),
             b'/' if n == b'/' && self.d.slash_comments => (Tok::LineComment, self.comment_end(i)),
             b'/' if n == b'*' => (Tok::BlockComment, self.block_comment_end(i)),
-            b'\'' => (Tok::Quoted, self.quote_end(i + 1, b'\'', self.d.backslash_escapes)),
-            b'"' => (Tok::Quoted, self.quote_end(i + 1, b'"', self.d.backslash_escapes && !self.d.dquote_idents)),
+            b'\'' => (
+                Tok::Quoted,
+                self.quote_end(i + 1, b'\'', self.d.backslash_escapes),
+            ),
+            b'"' => (
+                Tok::Quoted,
+                self.quote_end(
+                    i + 1,
+                    b'"',
+                    self.d.backslash_escapes && !self.d.dquote_idents,
+                ),
+            ),
             b'`' if self.d.backtick_idents => (Tok::Quoted, self.quote_end(i + 1, b'`', false)),
             b'[' if self.d.bracket_idents => (Tok::Quoted, self.quote_end(i + 1, b']', false)),
             b'$' if self.d.dollar_quotes && !is_ident(prev) => match self.dollar_tag(i) {
@@ -589,7 +713,10 @@ impl Scanner<'_> {
 
     /// The newline (not included) or the end.
     fn line_end(&self, i: usize) -> usize {
-        self.b[i..].iter().position(|&c| c == b'\n').map_or(self.b.len(), |p| i + p)
+        self.b[i..]
+            .iter()
+            .position(|&c| c == b'\n')
+            .map_or(self.b.len(), |p| i + p)
     }
 
     fn block_comment_end(&self, i: usize) -> usize {
@@ -644,7 +771,13 @@ impl Scanner<'_> {
             return Some(self.quote_end(i + 2, b'\'', true));
         }
         if self.d.q_quotes {
-            let q = if c == b'q' { i } else if c == b'n' && self.at(i + 1).eq_ignore_ascii_case(&b'q') { i + 1 } else { return None };
+            let q = if c == b'q' {
+                i
+            } else if c == b'n' && self.at(i + 1).eq_ignore_ascii_case(&b'q') {
+                i + 1
+            } else {
+                return None;
+            };
             if self.at(q + 1) != b'\'' || q + 2 >= self.b.len() {
                 return None;
             }
@@ -677,7 +810,9 @@ impl Scanner<'_> {
         if self.at(j).is_ascii_digit() {
             return None; // $1: a parameter
         }
-        while j < self.b.len() && (self.b[j].is_ascii_alphanumeric() || self.b[j] == b'_' || self.b[j] >= 0x80) {
+        while j < self.b.len()
+            && (self.b[j].is_ascii_alphanumeric() || self.b[j] == b'_' || self.b[j] >= 0x80)
+        {
             j += 1;
         }
         (self.at(j) == b'$').then_some(j + 1)
@@ -685,7 +820,9 @@ impl Scanner<'_> {
 
     fn dollar_end(&self, i: usize, tag_end: usize) -> usize {
         let tag = &self.s[i..tag_end];
-        self.s[tag_end..].find(tag).map_or(self.b.len(), |p| tag_end + p + tag.len())
+        self.s[tag_end..]
+            .find(tag)
+            .map_or(self.b.len(), |p| tag_end + p + tag.len())
     }
 }
 
@@ -720,7 +857,10 @@ impl Word<'_> {
 fn keyword_at(b: &[u8], i: usize, end: usize) -> bool {
     let prev = if i == 0 { 0 } else { b[i - 1] };
     let next = b.get(end).copied().unwrap_or(0);
-    !is_ident(prev) && !matches!(prev, b'@' | b'.' | b'$' | b'#') && !(prev == b':' && !label_colon(b, i - 1)) && next != b'.'
+    !is_ident(prev)
+        && !matches!(prev, b'@' | b'.' | b'$' | b'#')
+        && !(prev == b':' && !label_colon(b, i - 1))
+        && next != b'.'
 }
 
 /// Whether the `:` at `at` ends a label: it follows a name, not a space or
@@ -731,7 +871,11 @@ fn label_colon(b: &[u8], at: usize) -> bool {
 
 /// The words of `text` outside strings and comments.
 fn words<'a>(text: &'a str, d: &ScriptDialect) -> Vec<Word<'a>> {
-    let sc = Scanner { s: text, b: text.as_bytes(), d: *d };
+    let sc = Scanner {
+        s: text,
+        b: text.as_bytes(),
+        d: *d,
+    };
     let mut out = Vec::new();
     let mut depth = 0u32;
     let mut prev = 0u8;
@@ -740,7 +884,12 @@ fn words<'a>(text: &'a str, d: &ScriptDialect) -> Vec<Word<'a>> {
         let (tok, end) = sc.token(i);
         match tok {
             Tok::Word => {
-                out.push(Word { text: &text[i..end], start: i, depth, prev });
+                out.push(Word {
+                    text: &text[i..end],
+                    start: i,
+                    depth,
+                    prev,
+                });
                 prev = 0;
             }
             Tok::Quoted => prev = 0,
@@ -751,7 +900,11 @@ fn words<'a>(text: &'a str, d: &ScriptDialect) -> Vec<Word<'a>> {
                 } else if c == b')' {
                     depth = depth.saturating_sub(1);
                 }
-                prev = if c == b':' && label_colon(text.as_bytes(), i) { 0 } else { c };
+                prev = if c == b':' && label_colon(text.as_bytes(), i) {
+                    0
+                } else {
+                    c
+                };
             }
             Tok::Space | Tok::LineComment | Tok::BlockComment => {}
         }
@@ -761,7 +914,18 @@ fn words<'a>(text: &'a str, d: &ScriptDialect) -> Vec<Word<'a>> {
 }
 
 /// Modifiers between `CREATE` and the kind of a PL/SQL unit.
-const PLSQL_MODIFIERS: &[&str] = &["or", "replace", "editionable", "noneditionable", "editioning", "and", "compile", "resolve", "noforce", "force"];
+const PLSQL_MODIFIERS: &[&str] = &[
+    "or",
+    "replace",
+    "editionable",
+    "noneditionable",
+    "editioning",
+    "and",
+    "compile",
+    "resolve",
+    "noforce",
+    "force",
+];
 
 /// The block a statement is, decided from its first words as they're read
 /// (once per statement, so splitting stays linear in the script's size),
@@ -802,13 +966,27 @@ impl<'a> Track<'a> {
         let is = |k: &str| w.eq_ignore_ascii_case(k);
         if self.pending_begin {
             self.pending_begin = false;
-            if !["tran", "transaction", "work", "distributed", "dialog", "conversation"].iter().any(|k| is(k)) {
+            if ![
+                "tran",
+                "transaction",
+                "work",
+                "distributed",
+                "dialog",
+                "conversation",
+            ]
+            .iter()
+            .any(|k| is(k))
+            {
                 self.open();
             }
         }
         if self.pending_end {
             self.pending_end = false;
-            if end_closers && ["if", "loop", "while", "repeat", "for", "case"].iter().any(|k| is(k)) {
+            if end_closers
+                && ["if", "loop", "while", "repeat", "for", "case"]
+                    .iter()
+                    .any(|k| is(k))
+            {
                 // END IF closes an IF (never counted); END CASE its CASE.
                 if is("case") {
                     self.close();
@@ -862,7 +1040,18 @@ impl<'a> Track<'a> {
             if self.head_any(k, PLSQL_MODIFIERS) {
                 continue;
             }
-            return self.head_any(k, &["procedure", "function", "package", "trigger", "type", "library", "java"]);
+            return self.head_any(
+                k,
+                &[
+                    "procedure",
+                    "function",
+                    "package",
+                    "trigger",
+                    "type",
+                    "library",
+                    "java",
+                ],
+            );
         }
         false
     }
@@ -878,7 +1067,18 @@ impl<'a> Track<'a> {
         }
         let mut k = 1;
         loop {
-            if self.head_any(k, &["or", "replace", "alter", "temp", "temporary", "aggregate", "constraint"]) {
+            if self.head_any(
+                k,
+                &[
+                    "or",
+                    "replace",
+                    "alter",
+                    "temp",
+                    "temporary",
+                    "aggregate",
+                    "constraint",
+                ],
+            ) {
                 k += 1;
             } else if self.head_is(k, "definer") {
                 // DEFINER = user[@host]: quoted parts aren't words; skip the
@@ -924,8 +1124,24 @@ struct Splitter<'a> {
 
 impl<'a> Splitter<'a> {
     fn new(s: &'a str, d: ScriptDialect) -> Self {
-        let newlines = s.bytes().enumerate().filter(|(_, c)| *c == b'\n').map(|(i, _)| i).collect();
-        Self { sc: Scanner { s, b: s.as_bytes(), d }, term: ";".into(), newlines, out: Vec::new(), start: None, track: Track::default() }
+        let newlines = s
+            .bytes()
+            .enumerate()
+            .filter(|(_, c)| *c == b'\n')
+            .map(|(i, _)| i)
+            .collect();
+        Self {
+            sc: Scanner {
+                s,
+                b: s.as_bytes(),
+                d,
+            },
+            term: ";".into(),
+            newlines,
+            out: Vec::new(),
+            start: None,
+            track: Track::default(),
+        }
     }
 
     fn line_of(&self, offset: usize) -> u32 {
@@ -957,11 +1173,15 @@ impl<'a> Splitter<'a> {
                 }
                 Tok::BlockComment => {
                     // MySQL's versioned comments run.
-                    if self.start.is_none() && (self.sc.starts(i, "/*!") || self.sc.starts(i, "/*M!")) {
+                    if self.start.is_none()
+                        && (self.sc.starts(i, "/*!") || self.sc.starts(i, "/*M!"))
+                    {
                         self.start = Some(i);
                     }
                 }
-                Tok::Punct if self.sc.d.semicolons && self.sc.s[i..].starts_with(self.term.as_str()) => {
+                Tok::Punct
+                    if self.sc.d.semicolons && self.sc.s[i..].starts_with(self.term.as_str()) =>
+                {
                     self.track.other(true);
                     if !self.holds_terminator() {
                         let kind = self.kind_at_end();
@@ -976,7 +1196,11 @@ impl<'a> Splitter<'a> {
                     // (`$$`, `@@`) and end a word (`END$$`).
                     if self.sc.d.semicolons && self.term != ";" {
                         let term = self.term.clone();
-                        let hit = if tok == Tok::Word { self.sc.s[i..end].find(term.as_str()) } else { self.sc.s[i..].starts_with(term.as_str()).then_some(0) };
+                        let hit = if tok == Tok::Word {
+                            self.sc.s[i..end].find(term.as_str())
+                        } else {
+                            self.sc.s[i..].starts_with(term.as_str()).then_some(0)
+                        };
                         if let Some(p) = hit {
                             let at = i + p;
                             if p > 0 {
@@ -1020,7 +1244,9 @@ impl<'a> Splitter<'a> {
             return false;
         }
         let (d, t) = (&self.sc.d, &self.track);
-        (d.plsql_blocks && t.plsql()) || (d.compound_blocks && t.depth > 0 && t.compound()) || (d.tsql_blocks && (t.depth > 0 || t.tsql_body()))
+        (d.plsql_blocks && t.plsql())
+            || (d.compound_blocks && t.depth > 0 && t.compound())
+            || (d.tsql_blocks && (t.depth > 0 || t.tsql_body()))
     }
 
     fn kind_at_end(&self) -> StatementKind {
@@ -1028,7 +1254,9 @@ impl<'a> Splitter<'a> {
         if self.start.is_some() && d.batch == BatchLine::Go && !d.semicolons {
             StatementKind::Batch
         } else if self.start.is_some()
-            && ((d.plsql_blocks && t.plsql()) || (d.compound_blocks && t.begins && t.compound()) || (d.tsql_blocks && t.tsql_body()))
+            && ((d.plsql_blocks && t.plsql())
+                || (d.compound_blocks && t.begins && t.compound())
+                || (d.tsql_blocks && t.tsql_body()))
         {
             StatementKind::Block
         } else {
@@ -1056,7 +1284,15 @@ impl<'a> Splitter<'a> {
                 }
             }
         }
-        self.out.push(ScriptStatement { text: text.to_string(), start: st, end: st + text.len(), line: self.line_of(st), kind, repeat, error: None });
+        self.out.push(ScriptStatement {
+            text: text.to_string(),
+            start: st,
+            end: st + text.len(),
+            line: self.line_of(st),
+            kind,
+            repeat,
+            error: None,
+        });
     }
 
     /// A whole-line directive at line start `i`: where the next line starts.
@@ -1100,7 +1336,10 @@ impl<'a> Splitter<'a> {
         }
         if self.sc.d.delimiter_command && self.start.is_none() {
             let mut parts = trimmed.split_whitespace();
-            if parts.next().is_some_and(|w| w.eq_ignore_ascii_case("delimiter")) {
+            if parts
+                .next()
+                .is_some_and(|w| w.eq_ignore_ascii_case("delimiter"))
+            {
                 if let Some(t) = parts.next() {
                     self.term = t.to_string();
                     let st = i + (line.len() - line.trim_start().len());
@@ -1123,9 +1362,15 @@ impl<'a> Splitter<'a> {
     /// `--#SET TERMINATOR x` in the comment at `i..end`.
     fn terminator_directive(&mut self, i: usize, end: usize) {
         let body = self.sc.s[i + 2..end].trim_start();
-        let Some(rest) = body.strip_prefix('#') else { return };
+        let Some(rest) = body.strip_prefix('#') else {
+            return;
+        };
         let mut parts = rest.split_whitespace();
-        if parts.next().is_some_and(|w| w.eq_ignore_ascii_case("set")) && parts.next().is_some_and(|w| w.eq_ignore_ascii_case("terminator")) {
+        if parts.next().is_some_and(|w| w.eq_ignore_ascii_case("set"))
+            && parts
+                .next()
+                .is_some_and(|w| w.eq_ignore_ascii_case("terminator"))
+        {
             if let Some(t) = parts.next() {
                 self.term = t.to_string();
             }
@@ -1142,14 +1387,27 @@ fn go_line(line: &str) -> Option<Option<u32>> {
         return None;
     }
     let mut rest = line[2..].trim_start();
-    if rest.len() == line.len() - 2 && !rest.is_empty() && !rest.starts_with("--") && !rest.starts_with("/*") {
+    if rest.len() == line.len() - 2
+        && !rest.is_empty()
+        && !rest.starts_with("--")
+        && !rest.starts_with("/*")
+    {
         return None; // GOTO, GO;, GOx
     }
     // A sign only before a digit: `GO --x` is a comment.
-    let sign = usize::from(rest.starts_with('-') && rest[1..].starts_with(|c: char| c.is_ascii_digit()));
+    let sign =
+        usize::from(rest.starts_with('-') && rest[1..].starts_with(|c: char| c.is_ascii_digit()));
     let digits = sign + rest[sign..].bytes().take_while(u8::is_ascii_digit).count();
     // SSMS rejects 0, negatives and counts past i32 (`None`: client error).
-    let repeat = if digits == 0 { Some(1) } else { rest[..digits].parse::<i32>().ok().filter(|&n| n >= 1).map(|n| n as u32) };
+    let repeat = if digits == 0 {
+        Some(1)
+    } else {
+        rest[..digits]
+            .parse::<i32>()
+            .ok()
+            .filter(|&n| n >= 1)
+            .map(|n| n as u32)
+    };
     rest = rest[digits..].trim_start();
     if rest.is_empty() || rest.starts_with("--") {
         return Some(repeat);
@@ -1175,12 +1433,18 @@ mod tests {
     #[test]
     fn generic_splits_on_semicolons_outside_quotes_and_comments() {
         let s = "select ';' ; -- x;\nselect \"a;b\", `c;d` from t; /* ; */ ;";
-        assert_eq!(texts(s, ScriptDialect::generic()), vec!["select ';'", "select \"a;b\", `c;d` from t"]);
+        assert_eq!(
+            texts(s, ScriptDialect::generic()),
+            vec!["select ';'", "select \"a;b\", `c;d` from t"]
+        );
     }
 
     #[test]
     fn doubled_quotes_stay_inside() {
-        assert_eq!(texts("select 'it''s; fine'; select 2", ScriptDialect::generic()), vec!["select 'it''s; fine'", "select 2"]);
+        assert_eq!(
+            texts("select 'it''s; fine'; select 2", ScriptDialect::generic()),
+            vec!["select 'it''s; fine'", "select 2"]
+        );
     }
 
     #[test]
@@ -1192,7 +1456,9 @@ mod tests {
         assert_eq!(st[0].line, 3);
         assert_eq!(&s[st[1].start..st[1].end], "select\n  2");
         assert_eq!(st[1].line, 4);
-        assert!(st.iter().all(|x| x.kind == StatementKind::Sql && x.repeat == 1));
+        assert!(st
+            .iter()
+            .all(|x| x.kind == StatementKind::Sql && x.repeat == 1));
     }
 
     #[test]
@@ -1214,64 +1480,118 @@ mod tests {
         let s = "create function f() returns int as $$ begin; return 1; end $$ language plpgsql;\ndo $body$ select ';' $body$; select $1";
         assert_eq!(
             texts(s, d),
-            vec!["create function f() returns int as $$ begin; return 1; end $$ language plpgsql", "do $body$ select ';' $body$", "select $1"]
+            vec![
+                "create function f() returns int as $$ begin; return 1; end $$ language plpgsql",
+                "do $body$ select ';' $body$",
+                "select $1"
+            ]
         );
         // Without the option, $$ is plain text.
-        assert_eq!(texts("select $$a;b$$", ScriptDialect::generic()), vec!["select $$a", "b$$"]);
+        assert_eq!(
+            texts("select $$a;b$$", ScriptDialect::generic()),
+            vec!["select $$a", "b$$"]
+        );
         // A $ inside an identifier doesn't open one.
-        assert_eq!(texts("select a$b$ from t; select 2", d), vec!["select a$b$ from t", "select 2"]);
+        assert_eq!(
+            texts("select a$b$ from t; select 2", d),
+            vec!["select a$b$ from t", "select 2"]
+        );
     }
 
     #[test]
     fn e_strings_and_backslash_escapes() {
-        assert_eq!(texts(r"select E'a\'; b'; select 2", ScriptDialect::postgres()), vec![r"select E'a\'; b'", "select 2"]);
-        assert_eq!(texts(r"select 'a\'; b'; select 2", ScriptDialect::mysql()), vec![r"select 'a\'; b'", "select 2"]);
+        assert_eq!(
+            texts(r"select E'a\'; b'; select 2", ScriptDialect::postgres()),
+            vec![r"select E'a\'; b'", "select 2"]
+        );
+        assert_eq!(
+            texts(r"select 'a\'; b'; select 2", ScriptDialect::mysql()),
+            vec![r"select 'a\'; b'", "select 2"]
+        );
         // Standard strings: the backslash is literal.
-        assert_eq!(texts(r"select 'a\'; select 2", ScriptDialect::postgres()), vec![r"select 'a\'", "select 2"]);
+        assert_eq!(
+            texts(r"select 'a\'; select 2", ScriptDialect::postgres()),
+            vec![r"select 'a\'", "select 2"]
+        );
     }
 
     #[test]
     fn nested_comments() {
         let s = "select 1 /* a /* b */ ; */; select 2";
-        assert_eq!(texts(s, ScriptDialect::postgres()), vec!["select 1 /* a /* b */ ; */", "select 2"]);
+        assert_eq!(
+            texts(s, ScriptDialect::postgres()),
+            vec!["select 1 /* a /* b */ ; */", "select 2"]
+        );
         // Not nested: the first */ closes it.
-        assert_eq!(texts(s, ScriptDialect::generic()), vec!["select 1 /* a /* b */", "*/", "select 2"]);
+        assert_eq!(
+            texts(s, ScriptDialect::generic()),
+            vec!["select 1 /* a /* b */", "*/", "select 2"]
+        );
     }
 
     #[test]
     fn hash_comments_in_mysql() {
-        assert_eq!(texts("select 1; # a;b\nselect 2", ScriptDialect::mysql()), vec!["select 1", "select 2"]);
+        assert_eq!(
+            texts("select 1; # a;b\nselect 2", ScriptDialect::mysql()),
+            vec!["select 1", "select 2"]
+        );
     }
 
     #[test]
     fn versioned_comments_run() {
-        let st = split_script("/*!40101 SET NAMES utf8 */;\nselect 1", &ScriptDialect::mysql());
+        let st = split_script(
+            "/*!40101 SET NAMES utf8 */;\nselect 1",
+            &ScriptDialect::mysql(),
+        );
         assert_eq!(st[0].text, "/*!40101 SET NAMES utf8 */");
     }
 
     #[test]
     fn oracle_q_quotes() {
         let d = ScriptDialect::oracle();
-        assert_eq!(texts("select q'[it's; ok]' from dual;\nselect nq'{a;b}' from dual;", d), vec!["select q'[it's; ok]' from dual", "select nq'{a;b}' from dual"]);
-        assert_eq!(texts("select q'!x;y!' from dual; select 1 from dual", d), vec!["select q'!x;y!' from dual", "select 1 from dual"]);
+        assert_eq!(
+            texts(
+                "select q'[it's; ok]' from dual;\nselect nq'{a;b}' from dual;",
+                d
+            ),
+            vec![
+                "select q'[it's; ok]' from dual",
+                "select nq'{a;b}' from dual"
+            ]
+        );
+        assert_eq!(
+            texts("select q'!x;y!' from dual; select 1 from dual", d),
+            vec!["select q'!x;y!' from dual", "select 1 from dual"]
+        );
     }
 
     #[test]
     fn brackets_in_tsql() {
         let d = ScriptDialect::tsql().statements();
-        assert_eq!(texts("select [a;b]]c] from t; select 2", d), vec!["select [a;b]]c] from t", "select 2"]);
+        assert_eq!(
+            texts("select [a;b]]c] from t; select 2", d),
+            vec!["select [a;b]]c] from t", "select 2"]
+        );
     }
 
     #[test]
     fn go_batches() {
         let s = "create table t (a int)\ngo\ninsert t values (1);\ninsert t values (2)\nGO 3 -- three times\nselect 1\n  Go  \nselect 2";
         let st = split_script(s, &ScriptDialect::tsql());
-        let got: Vec<_> = st.iter().map(|s| (s.text.as_str(), s.kind, s.repeat, s.line)).collect();
+        let got: Vec<_> = st
+            .iter()
+            .map(|s| (s.text.as_str(), s.kind, s.repeat, s.line))
+            .collect();
         assert_eq!(
             got,
             vec![
                 ("create table t (a int)", StatementKind::Batch, 1, 1),
-                ("insert t values (1);\ninsert t values (2)", StatementKind::Batch, 3, 3),
+                (
+                    "insert t values (1);\ninsert t values (2)",
+                    StatementKind::Batch,
+                    3,
+                    3
+                ),
                 ("select 1", StatementKind::Batch, 1, 6),
                 ("select 2", StatementKind::Batch, 1, 8),
             ]
@@ -1303,41 +1623,78 @@ mod tests {
         let s = "select 1 /*\nGO\n*/\nselect 'a\nGO\nb'\nselect [x\ngo\n]\nGO\nselect 2";
         let st = split_script(s, &ScriptDialect::tsql());
         assert_eq!(st.len(), 2);
-        assert_eq!(st[0].text, "select 1 /*\nGO\n*/\nselect 'a\nGO\nb'\nselect [x\ngo\n]");
+        assert_eq!(
+            st[0].text,
+            "select 1 /*\nGO\n*/\nselect 'a\nGO\nb'\nselect [x\ngo\n]"
+        );
         assert_eq!(st[1].text, "select 2");
         // A trailing GO with nothing after it adds nothing.
-        assert_eq!(split_script("select 1\nGO\n", &ScriptDialect::tsql()).len(), 1);
+        assert_eq!(
+            split_script("select 1\nGO\n", &ScriptDialect::tsql()).len(),
+            1
+        );
     }
 
     #[test]
     fn go_with_an_invalid_count_is_a_client_error() {
         let s = "select 1\nGO 99999999999\nselect 2";
         let st = split_script(s, &ScriptDialect::tsql());
-        let got: Vec<_> = st.iter().map(|s| (s.text.as_str(), s.line, s.repeat, s.error.as_deref())).collect();
-        assert_eq!(got, vec![("select 1", 1, 1, None), ("GO 99999999999", 2, 1, Some(GO_COUNT_ERROR)), ("select 2", 3, 1, None)]);
+        let got: Vec<_> = st
+            .iter()
+            .map(|s| (s.text.as_str(), s.line, s.repeat, s.error.as_deref()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("select 1", 1, 1, None),
+                ("GO 99999999999", 2, 1, Some(GO_COUNT_ERROR)),
+                ("select 2", 3, 1, None)
+            ]
+        );
         assert_eq!(&s[st[1].start..st[1].end], "GO 99999999999");
         // Not folded into the batch, also statement by statement and with
         // nothing before it.
-        let st = split_script("GO 99999999999\nselect 2", &ScriptDialect::tsql().statements());
-        assert_eq!(st.iter().map(|s| s.error.is_some()).collect::<Vec<_>>(), vec![true, false]);
+        let st = split_script(
+            "GO 99999999999\nselect 2",
+            &ScriptDialect::tsql().statements(),
+        );
+        assert_eq!(
+            st.iter().map(|s| s.error.is_some()).collect::<Vec<_>>(),
+            vec![true, false]
+        );
         // Zero and negative counts too; `GO --5` is still a plain GO.
         for go in ["GO 0", "GO -5", "go -1 -- x"] {
             let st = split_script(&format!("select 1\n{go}\nselect 2"), &ScriptDialect::tsql());
-            assert_eq!(st.iter().map(|s| s.error.is_some()).collect::<Vec<_>>(), vec![false, true, false], "{go}");
+            assert_eq!(
+                st.iter().map(|s| s.error.is_some()).collect::<Vec<_>>(),
+                vec![false, true, false],
+                "{go}"
+            );
         }
         let st = split_script("select 1\nGO --5\nselect 2", &ScriptDialect::tsql());
-        assert_eq!(st.iter().map(|s| (s.text.as_str(), s.error.is_some())).collect::<Vec<_>>(), vec![("select 1", false), ("select 2", false)]);
+        assert_eq!(
+            st.iter()
+                .map(|s| (s.text.as_str(), s.error.is_some()))
+                .collect::<Vec<_>>(),
+            vec![("select 1", false), ("select 2", false)]
+        );
         // The field stays off the wire when there's none, and defaults.
-        let json = serde_json::to_string(&split_script("select 1", &ScriptDialect::tsql())[0]).unwrap();
+        let json =
+            serde_json::to_string(&split_script("select 1", &ScriptDialect::tsql())[0]).unwrap();
         assert!(!json.contains("error"), "{json}");
-        let back: ScriptStatement = serde_json::from_str(r#"{"text":"x","start":0,"end":1,"line":1,"kind":"batch"}"#).unwrap();
+        let back: ScriptStatement =
+            serde_json::from_str(r#"{"text":"x","start":0,"end":1,"line":1,"kind":"batch"}"#)
+                .unwrap();
         assert_eq!((back.repeat, back.error), (1, None));
     }
 
     #[test]
     fn go_lines_also_split_statement_by_statement() {
         let d = ScriptDialect::tsql().statements();
-        assert_eq!(texts("select 1; select 2\nGO\nselect 3", d), vec!["select 1", "select 2", "select 3"]);
+        assert_eq!(
+            texts("select 1; select 2\nGO\nselect 3", d),
+            vec!["select 1", "select 2", "select 3"]
+        );
     }
 
     #[test]
@@ -1349,14 +1706,20 @@ mod tests {
             got,
             vec![
                 ("DELIMITER //", StatementKind::ClientCommand),
-                ("CREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END", StatementKind::Block),
+                (
+                    "CREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END",
+                    StatementKind::Block
+                ),
                 ("DELIMITER ;", StatementKind::ClientCommand),
                 ("CALL p()", StatementKind::Sql),
             ]
         );
         assert_eq!(st[1].line, 2);
         // $$ as a delimiter (a word-ish terminator).
-        let st = texts("delimiter $$\nselect 1$$\nselect 2$$", ScriptDialect::mysql());
+        let st = texts(
+            "delimiter $$\nselect 1$$\nselect 2$$",
+            ScriptDialect::mysql(),
+        );
         assert_eq!(st, vec!["delimiter $$", "select 1", "select 2"]);
     }
 
@@ -1369,7 +1732,10 @@ mod tests {
             got,
             vec![
                 ("SET TERM ^", StatementKind::ClientCommand),
-                ("CREATE TRIGGER t FOR x BEFORE INSERT AS BEGIN new.a = 1; END", StatementKind::Block),
+                (
+                    "CREATE TRIGGER t FOR x BEFORE INSERT AS BEGIN new.a = 1; END",
+                    StatementKind::Block
+                ),
                 ("SET TERM ;", StatementKind::ClientCommand),
                 ("select 1 from rdb$database", StatementKind::Sql),
             ]
@@ -1380,8 +1746,17 @@ mod tests {
     fn db2_terminator_directive() {
         let s = "--#SET TERMINATOR @\nCREATE PROCEDURE p() BEGIN DECLARE x INT; SET x = 1; END@\n--#SET TERMINATOR ;\nselect 1 from sysibm.sysdummy1;";
         assert_eq!(
-            texts(s, ScriptDialect { compound_blocks: false, ..ScriptDialect::db2() }),
-            vec!["CREATE PROCEDURE p() BEGIN DECLARE x INT; SET x = 1; END", "select 1 from sysibm.sysdummy1"]
+            texts(
+                s,
+                ScriptDialect {
+                    compound_blocks: false,
+                    ..ScriptDialect::db2()
+                }
+            ),
+            vec![
+                "CREATE PROCEDURE p() BEGIN DECLARE x INT; SET x = 1; END",
+                "select 1 from sysibm.sysdummy1"
+            ]
         );
     }
 
@@ -1389,23 +1764,36 @@ mod tests {
     fn oracle_blocks_end_at_a_slash_line() {
         let s = "create table t (a number);\nCREATE OR REPLACE PROCEDURE p IS\nBEGIN\n  insert into t values (1);\nEND;\n/\nbegin p; end;\n/\nselect * from t\n/\nselect 1 from dual;";
         let st = split_script(s, &ScriptDialect::oracle());
-        let got: Vec<_> = st.iter().map(|s| (s.text.as_str(), s.kind, s.line)).collect();
+        let got: Vec<_> = st
+            .iter()
+            .map(|s| (s.text.as_str(), s.kind, s.line))
+            .collect();
         assert_eq!(
             got,
             vec![
                 ("create table t (a number)", StatementKind::Sql, 1),
-                ("CREATE OR REPLACE PROCEDURE p IS\nBEGIN\n  insert into t values (1);\nEND;", StatementKind::Block, 2),
+                (
+                    "CREATE OR REPLACE PROCEDURE p IS\nBEGIN\n  insert into t values (1);\nEND;",
+                    StatementKind::Block,
+                    2
+                ),
                 ("begin p; end;", StatementKind::Block, 7),
                 ("select * from t", StatementKind::Sql, 9),
                 ("select 1 from dual", StatementKind::Sql, 11),
             ]
         );
         // A block without its slash runs to the end.
-        let st = split_script("declare x number; begin x := 1; end;", &ScriptDialect::oracle());
+        let st = split_script(
+            "declare x number; begin x := 1; end;",
+            &ScriptDialect::oracle(),
+        );
         assert_eq!(st.len(), 1);
         assert_eq!(st[0].kind, StatementKind::Block);
         // A / that isn't alone on its line is division.
-        assert_eq!(texts("select 4\n/ 2 from dual;", ScriptDialect::oracle()), vec!["select 4\n/ 2 from dual"]);
+        assert_eq!(
+            texts("select 4\n/ 2 from dual;", ScriptDialect::oracle()),
+            vec!["select 4\n/ 2 from dual"]
+        );
     }
 
     #[test]
@@ -1416,30 +1804,65 @@ mod tests {
         assert_eq!(st[0].kind, StatementKind::Block);
         assert!(st[0].text.ends_with("END"));
         // A PostgreSQL trigger has no body: it ends at its ;.
-        assert_eq!(texts("create trigger x after insert on t execute function f(); select 1", ScriptDialect::postgres()).len(), 2);
+        assert_eq!(
+            texts(
+                "create trigger x after insert on t execute function f(); select 1",
+                ScriptDialect::postgres()
+            )
+            .len(),
+            2
+        );
         // BEGIN TRANSACTION isn't a block, nor is BEGIN; on its own.
-        assert_eq!(texts("BEGIN; update t set a = 1 where b = 2; COMMIT;", ScriptDialect::generic()).len(), 3);
+        assert_eq!(
+            texts(
+                "BEGIN; update t set a = 1 where b = 2; COMMIT;",
+                ScriptDialect::generic()
+            )
+            .len(),
+            3
+        );
         // MySQL routines with IF … END IF.
         let s = "create procedure p() begin if 1 then select 1; end if; end; select 2";
-        assert_eq!(texts(s, ScriptDialect::mysql()), vec!["create procedure p() begin if 1 then select 1; end if; end", "select 2"]);
+        assert_eq!(
+            texts(s, ScriptDialect::mysql()),
+            vec![
+                "create procedure p() begin if 1 then select 1; end if; end",
+                "select 2"
+            ]
+        );
     }
 
     #[test]
     fn unclosed_quotes_run_to_the_end() {
-        assert_eq!(texts("select 'abc; select 2", ScriptDialect::generic()), vec!["select 'abc; select 2"]);
+        assert_eq!(
+            texts("select 'abc; select 2", ScriptDialect::generic()),
+            vec!["select 'abc; select 2"]
+        );
     }
 
     #[test]
     fn strip_comments_keeps_hints_on_demand() {
         let d = ScriptDialect::mysql();
-        assert_eq!(strip_comments("select /*+ X */ 1 -- c\n, 2 /* y */", &d, true), "select /*+ X */ 1 \n, 2  ");
-        assert_eq!(strip_comments("select /*+ X */ 1 # c\n", &d, false), "select   1 \n");
+        assert_eq!(
+            strip_comments("select /*+ X */ 1 -- c\n, 2 /* y */", &d, true),
+            "select /*+ X */ 1 \n, 2  "
+        );
+        assert_eq!(
+            strip_comments("select /*+ X */ 1 # c\n", &d, false),
+            "select   1 \n"
+        );
     }
 
     #[test]
     fn leading_keywords() {
-        assert_eq!(leading_keyword("  /* x */ -- y\n Select 1", &ScriptDialect::generic()).as_deref(), Some("select"));
-        assert_eq!(leading_keyword("(select 1)", &ScriptDialect::generic()).as_deref(), Some("select"));
+        assert_eq!(
+            leading_keyword("  /* x */ -- y\n Select 1", &ScriptDialect::generic()).as_deref(),
+            Some("select")
+        );
+        assert_eq!(
+            leading_keyword("(select 1)", &ScriptDialect::generic()).as_deref(),
+            Some("select")
+        );
     }
 
     #[test]
@@ -1447,12 +1870,27 @@ mod tests {
         let g = ScriptDialect::generic();
         assert_eq!(unsafe_dml("delete from t", &g), Some("DELETE"));
         assert_eq!(unsafe_dml("DELETE FROM t WHERE id = 1", &g), None);
-        assert_eq!(unsafe_dml("update t set a = (select max(b) from u where u.x = 1)", &g), Some("UPDATE"));
-        assert_eq!(unsafe_dml("update t set a = 1 -- where x\n", &g), Some("UPDATE"));
+        assert_eq!(
+            unsafe_dml("update t set a = (select max(b) from u where u.x = 1)", &g),
+            Some("UPDATE")
+        );
+        assert_eq!(
+            unsafe_dml("update t set a = 1 -- where x\n", &g),
+            Some("UPDATE")
+        );
         assert_eq!(unsafe_dml("update t set a = 'where'", &g), Some("UPDATE"));
         assert_eq!(unsafe_dml("delete from t limit 10", &g), Some("DELETE"));
-        assert_eq!(unsafe_dml("with x as (select 1 where true) delete from t", &g), Some("DELETE"));
-        assert_eq!(unsafe_dml("with x as (select 1) update t set a = 1 from x where t.id = x.id", &g), None);
+        assert_eq!(
+            unsafe_dml("with x as (select 1 where true) delete from t", &g),
+            Some("DELETE")
+        );
+        assert_eq!(
+            unsafe_dml(
+                "with x as (select 1) update t set a = 1 from x where t.id = x.id",
+                &g
+            ),
+            None
+        );
         assert_eq!(unsafe_dml("UPDATE STATISTICS t", &g), None);
         assert_eq!(unsafe_dml("select * from t", &g), None);
         assert_eq!(unsafe_dml("delete from t where current of c", &g), None);
@@ -1466,7 +1904,10 @@ mod tests {
         assert_eq!((u[0].keyword.as_str(), u[0].line), ("DELETE", 2));
         assert_eq!(&s[u[0].start..u[0].end], "delete from t");
         // T-SQL: looked at statement by statement inside a batch.
-        let u = unsafe_statements("begin tran; update t set a = 1; commit\nGO\ndelete t where a = 1", &ScriptDialect::tsql());
+        let u = unsafe_statements(
+            "begin tran; update t set a = 1; commit\nGO\ndelete t where a = 1",
+            &ScriptDialect::tsql(),
+        );
         assert_eq!(u.len(), 1);
         assert_eq!(u[0].keyword, "UPDATE");
     }
@@ -1489,7 +1930,10 @@ mod tests {
         assert_eq!(unsafe_statements(s, &ScriptDialect::generic()).len(), 1);
         // END; IF … : the ; ends the END too.
         let s = "create trigger tr after insert on t begin select 1; end; if x then delete from t; end if";
-        assert_eq!(texts(s, ScriptDialect::generic())[0], "create trigger tr after insert on t begin select 1; end");
+        assert_eq!(
+            texts(s, ScriptDialect::generic())[0],
+            "create trigger tr after insert on t begin select 1; end"
+        );
         // END IF, END LOOP, END WHILE on one line stay inside the routine.
         let s = "create procedure p() begin while 1 do loop leave; end loop; end while; repeat select 1; until 1 end repeat; end; select 2";
         assert_eq!(texts(s, ScriptDialect::mysql()).len(), 2);
@@ -1504,7 +1948,10 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                ("CREATE PROCEDURE p AS BEGIN SET NOCOUNT ON; UPDATE t SET a = 1; END", StatementKind::Block),
+                (
+                    "CREATE PROCEDURE p AS BEGIN SET NOCOUNT ON; UPDATE t SET a = 1; END",
+                    StatementKind::Block
+                ),
                 ("select 1", StatementKind::Sql),
                 ("select 2", StatementKind::Sql),
             ]
@@ -1512,16 +1959,32 @@ mod tests {
         // No BEGIN … END, CREATE OR ALTER, triggers: the body's DML isn't asked about.
         let s = "CREATE OR ALTER PROC p AS UPDATE t SET a = 1; DELETE FROM u;\nGO\ncreate trigger tr on t after insert as delete from l;\nGO\nDELETE FROM v";
         let u = unsafe_statements(s, &ScriptDialect::tsql());
-        assert_eq!(u.iter().map(|x| &s[x.start..x.end]).collect::<Vec<_>>(), vec!["DELETE FROM v"]);
+        assert_eq!(
+            u.iter().map(|x| &s[x.start..x.end]).collect::<Vec<_>>(),
+            vec!["DELETE FROM v"]
+        );
         // A BEGIN … END keeps its ; inside; its DML is looked into.
         let s = "IF @b = 1 BEGIN DELETE FROM t WHERE a = 1; DELETE FROM u; END\nSELECT 1";
         assert_eq!(texts(s, d).len(), 1);
         let u = unsafe_statements(s, &ScriptDialect::tsql());
-        assert_eq!(u.iter().map(|x| &s[x.start..x.end]).collect::<Vec<_>>(), vec!["DELETE FROM u"]);
+        assert_eq!(
+            u.iter().map(|x| &s[x.start..x.end]).collect::<Vec<_>>(),
+            vec!["DELETE FROM u"]
+        );
         // BEGIN TRAN isn't a block.
-        assert_eq!(texts("BEGIN TRAN; UPDATE t SET a = 1 WHERE b = 2; COMMIT", d).len(), 3);
+        assert_eq!(
+            texts("BEGIN TRAN; UPDATE t SET a = 1 WHERE b = 2; COMMIT", d).len(),
+            3
+        );
         // BEGIN TRY … END TRY BEGIN CATCH … END CATCH.
-        assert_eq!(texts("BEGIN TRY SELECT 1; END TRY BEGIN CATCH SELECT 2; END CATCH; SELECT 3", d).len(), 2);
+        assert_eq!(
+            texts(
+                "BEGIN TRY SELECT 1; END TRY BEGIN CATCH SELECT 2; END CATCH; SELECT 3",
+                d
+            )
+            .len(),
+            2
+        );
     }
 
     #[test]
@@ -1530,13 +1993,29 @@ mod tests {
         // The next statement's WHERE isn't the UPDATE's.
         let s = "UPDATE t SET a = 1\nSELECT * FROM t WHERE id = 1";
         let u = unsafe_statements(s, &t);
-        assert_eq!(u.iter().map(|x| (&s[x.start..x.end], x.line)).collect::<Vec<_>>(), vec![("UPDATE t SET a = 1", 1)]);
+        assert_eq!(
+            u.iter()
+                .map(|x| (&s[x.start..x.end], x.line))
+                .collect::<Vec<_>>(),
+            vec![("UPDATE t SET a = 1", 1)]
+        );
         // Two statements of a batch, the second one unsafe.
         let s = "UPDATE t SET a = 1 WHERE b = 2\nDELETE FROM u\nGO\nIF EXISTS (SELECT 1 FROM x) DELETE FROM w ELSE DELETE FROM w WHERE a = 1";
         let u = unsafe_statements(s, &t);
-        assert_eq!(u.iter().map(|x| (&s[x.start..x.end], x.line)).collect::<Vec<_>>(), vec![("DELETE FROM u", 2), ("DELETE FROM w", 4)]);
+        assert_eq!(
+            u.iter()
+                .map(|x| (&s[x.start..x.end], x.line))
+                .collect::<Vec<_>>(),
+            vec![("DELETE FROM u", 2), ("DELETE FROM w", 4)]
+        );
         // CASE … END isn't the end of the statement.
-        assert_eq!(unsafe_dml("UPDATE t SET a = CASE WHEN x THEN 1 ELSE 2 END WHERE id = 1", &t), None);
+        assert_eq!(
+            unsafe_dml(
+                "UPDATE t SET a = CASE WHEN x THEN 1 ELSE 2 END WHERE id = 1",
+                &t
+            ),
+            None
+        );
         // SQL++ USE KEYS limits a write as a WHERE does.
         let g = ScriptDialect::generic();
         assert_eq!(unsafe_dml("UPDATE ks USE KEYS 'h1' SET v = 2", &g), None);
@@ -1544,15 +2023,33 @@ mod tests {
         assert_eq!(unsafe_dml("DELETE FROM ks", &g), Some("DELETE"));
         // GO lines split under the generic dialect's guard? No (no GO there),
         // but T-SQL's does.
-        assert_eq!(unsafe_statements("select 1\nGO\ndelete from t", &t).len(), 1);
+        assert_eq!(
+            unsafe_statements("select 1\nGO\ndelete from t", &t).len(),
+            1
+        );
     }
 
     #[test]
     fn unsafe_dml_in_ctes_and_not_dml_at_all() {
         let g = ScriptDialect::postgres();
-        assert_eq!(unsafe_dml("WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d", &g), Some("DELETE"));
-        assert_eq!(unsafe_dml("WITH d AS (DELETE FROM t WHERE a = 1 RETURNING *) SELECT * FROM d", &g), None);
-        assert_eq!(unsafe_dml("with u as materialized (update t set a = 1 returning id) select 1", &g), Some("UPDATE"));
+        assert_eq!(
+            unsafe_dml("WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d", &g),
+            Some("DELETE")
+        );
+        assert_eq!(
+            unsafe_dml(
+                "WITH d AS (DELETE FROM t WHERE a = 1 RETURNING *) SELECT * FROM d",
+                &g
+            ),
+            None
+        );
+        assert_eq!(
+            unsafe_dml(
+                "with u as materialized (update t set a = 1 returning id) select 1",
+                &g
+            ),
+            Some("UPDATE")
+        );
         let s = "with x as (select 1) delete from t";
         let u = unsafe_statements(s, &g);
         assert_eq!(&s[u[0].start..u[0].end], s, "the WITH is part of it");
@@ -1578,18 +2075,40 @@ mod tests {
         assert!(unsafe_statements(s, &g).is_empty());
         assert_eq!(split_script(s, &g.statements()).len(), 2);
         // MySQL's versioned comments run.
-        assert_eq!(unsafe_statements("select 1; /*!50000 delete from t */;", &ScriptDialect::mysql()).len(), 1);
+        assert_eq!(
+            unsafe_statements(
+                "select 1; /*!50000 delete from t */;",
+                &ScriptDialect::mysql()
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
     fn mysql_double_dash_needs_a_space() {
         let m = ScriptDialect::mysql();
-        assert_eq!(texts("update t set a = a--1 where id = 1; delete from u where x = 1", m), vec!["update t set a = a--1 where id = 1", "delete from u where x = 1"]);
+        assert_eq!(
+            texts(
+                "update t set a = a--1 where id = 1; delete from u where x = 1",
+                m
+            ),
+            vec![
+                "update t set a = a--1 where id = 1",
+                "delete from u where x = 1"
+            ]
+        );
         assert!(unsafe_statements("update t set a = a--1 where id = 1", &m).is_empty());
-        assert_eq!(texts("select 1 -- c;\n;select 2 --\tx;\n", m), vec!["select 1 -- c;", "select 2 --\tx;"]);
+        assert_eq!(
+            texts("select 1 -- c;\n;select 2 --\tx;\n", m),
+            vec!["select 1 -- c;", "select 2 --\tx;"]
+        );
         assert_eq!(strip_comments("select 1 --", &m, false), "select 1 \n");
         // Elsewhere -- is always a comment.
-        assert_eq!(texts("select 1--1; select 2", ScriptDialect::postgres()), vec!["select 1--1; select 2"]);
+        assert_eq!(
+            texts("select 1--1; select 2", ScriptDialect::postgres()),
+            vec!["select 1--1; select 2"]
+        );
     }
 
     #[test]
@@ -1598,13 +2117,20 @@ mod tests {
         let s = "DECLARE @begin datetime2 = SYSDATETIME(); SELECT * FROM t; UPDATE t SET a = 1 WHERE id = 2; SELECT DATEDIFF(ms, @begin, SYSDATETIME());";
         assert_eq!(texts(s, ScriptDialect::tsql().statements()).len(), 4);
         assert!(unsafe_statements(s, &ScriptDialect::tsql()).is_empty());
-        let s = "SET @case = 1; SELECT #end.a FROM #end; SELECT [begin], \"end\" FROM t; DELETE FROM u";
+        let s =
+            "SET @case = 1; SELECT #end.a FROM #end; SELECT [begin], \"end\" FROM t; DELETE FROM u";
         assert_eq!(texts(s, ScriptDialect::tsql().statements()).len(), 4);
         // MySQL: user variables and NEW./OLD. columns inside a routine and a
         // trigger don't move the block's depth.
         let m = ScriptDialect::mysql();
         let s = "create procedure p() begin set @begin = now(); select @begin, @end; end; select 2";
-        assert_eq!(texts(s, m), vec!["create procedure p() begin set @begin = now(); select @begin, @end; end", "select 2"]);
+        assert_eq!(
+            texts(s, m),
+            vec![
+                "create procedure p() begin set @begin = now(); select @begin, @end; end",
+                "select 2"
+            ]
+        );
         let s = "create trigger tr before update on t for each row begin if new.begin > old.end then set new.`case` = 1; set new.case = 2; end if; end;\ndelete from t;";
         let st = split_script(s, &m);
         assert_eq!(st.len(), 2);
@@ -1612,31 +2138,98 @@ mod tests {
         assert_eq!(st[1].text, "delete from t");
         assert_eq!(unsafe_statements(s, &m).len(), 1);
         // `begin` as a backtick name and a qualifier: not a block either.
-        assert_eq!(texts("select `begin` from t; select begin.x from t begin; select 3", m).len(), 3);
+        assert_eq!(
+            texts(
+                "select `begin` from t; select begin.x from t begin; select 3",
+                m
+            )
+            .len(),
+            3
+        );
         // :end (a bind) and $begin aren't keywords either.
         let o = ScriptDialect::generic();
-        assert_eq!(texts("create trigger tr after insert on t begin select :end; select 1; end; select 2", o).len(), 2);
+        assert_eq!(
+            texts(
+                "create trigger tr after insert on t begin select :end; select 1; end; select 2",
+                o
+            )
+            .len(),
+            2
+        );
         // A label right before BEGIN (no space) is still a block.
         let s = "create trigger tr before insert on t for each row b:begin set new.a=1; set new.b=2; end b; select 3";
         assert_eq!(texts(s, m), vec!["create trigger tr before insert on t for each row b:begin set new.a=1; set new.b=2; end b", "select 3"]);
         let s = "create procedure p() begin outer_l:begin select 1; end outer_l; select 2; end; select 3";
-        assert_eq!(texts(s, m), vec!["create procedure p() begin outer_l:begin select 1; end outer_l; select 2; end", "select 3"]);
+        assert_eq!(
+            texts(s, m),
+            vec![
+                "create procedure p() begin outer_l:begin select 1; end outer_l; select 2; end",
+                "select 3"
+            ]
+        );
         let s = "CREATE PROCEDURE p() L1:BEGIN DECLARE x INT; SET x=1; END L1; VALUES 1";
-        assert_eq!(texts(s, ScriptDialect::db2()), vec!["CREATE PROCEDURE p() L1:BEGIN DECLARE x INT; SET x=1; END L1", "VALUES 1"]);
-        assert_eq!(texts("lbl:BEGIN SELECT 1; SELECT 2; END", ScriptDialect::tsql().statements()).len(), 1);
+        assert_eq!(
+            texts(s, ScriptDialect::db2()),
+            vec![
+                "CREATE PROCEDURE p() L1:BEGIN DECLARE x INT; SET x=1; END L1",
+                "VALUES 1"
+            ]
+        );
+        assert_eq!(
+            texts(
+                "lbl:BEGIN SELECT 1; SELECT 2; END",
+                ScriptDialect::tsql().statements()
+            )
+            .len(),
+            1
+        );
         // After a space or punctuation it's still a bind or a cast.
-        assert_eq!(texts("create trigger tr after insert on t begin select x::end; select 1; end; select 2", o).len(), 2);
-        assert_eq!(texts("create trigger tr after insert on t begin select (:end); select 1; end; select 2", o).len(), 2);
+        assert_eq!(
+            texts(
+                "create trigger tr after insert on t begin select x::end; select 1; end; select 2",
+                o
+            )
+            .len(),
+            2
+        );
+        assert_eq!(
+            texts(
+                "create trigger tr after insert on t begin select (:end); select 1; end; select 2",
+                o
+            )
+            .len(),
+            2
+        );
         // A CASE on a variable in the WHERE guard.
-        assert_eq!(unsafe_dml("update t set a = @case where id = 1", &ScriptDialect::tsql()), None);
+        assert_eq!(
+            unsafe_dml(
+                "update t set a = @case where id = 1",
+                &ScriptDialect::tsql()
+            ),
+            None
+        );
     }
 
     #[test]
     fn compound_headers_need_the_create_kind_shape() {
         let m = ScriptDialect::mysql();
         // A table named event with a column named begin isn't a routine.
-        assert_eq!(texts("create table event (id int, begin int); insert into event values (1, 2)", m).len(), 2);
-        assert_eq!(texts("create table trigger_log (begin int, procedure int); select 1", ScriptDialect::generic()).len(), 2);
+        assert_eq!(
+            texts(
+                "create table event (id int, begin int); insert into event values (1, 2)",
+                m
+            )
+            .len(),
+            2
+        );
+        assert_eq!(
+            texts(
+                "create table trigger_log (begin int, procedure int); select 1",
+                ScriptDialect::generic()
+            )
+            .len(),
+            2
+        );
         // The real shapes still hold their body.
         for s in [
             "CREATE DEFINER=`root`@`localhost` PROCEDURE p() BEGIN SELECT 1; SELECT 2; END; select 3",
@@ -1653,28 +2246,49 @@ mod tests {
 
     #[test]
     fn dialect_presets_for_editor_hints() {
-        assert_eq!(ScriptDialect::for_hint("postgres"), ScriptDialect::postgres());
+        assert_eq!(
+            ScriptDialect::for_hint("postgres"),
+            ScriptDialect::postgres()
+        );
         assert_eq!(ScriptDialect::for_hint("mysql"), ScriptDialect::mysql());
         assert_eq!(ScriptDialect::for_hint("mssql"), ScriptDialect::tsql());
         assert_eq!(ScriptDialect::for_hint("sybase"), ScriptDialect::tsql());
         assert_eq!(ScriptDialect::for_hint("oracle"), ScriptDialect::oracle());
         assert_eq!(ScriptDialect::for_hint("db2"), ScriptDialect::db2());
-        assert_eq!(ScriptDialect::for_hint("standard"), ScriptDialect::generic());
+        assert_eq!(
+            ScriptDialect::for_hint("standard"),
+            ScriptDialect::generic()
+        );
         assert_eq!(ScriptDialect::for_hint(""), ScriptDialect::generic());
         // TDengine: "…" is a string, `…` a name.
         let td = ScriptDialect::for_hint("tdengine");
         assert!(td.backslash_escapes && td.backtick_idents);
         let toks = name_tokens("SELECT `a`, \"b\" FROM t", &td);
-        assert!(toks.iter().any(|t| t.kind == TokenKind::String && t.text.contains('b')));
-        assert!(toks.iter().any(|t| t.kind == TokenKind::Name && t.text == "a"));
+        assert!(toks
+            .iter()
+            .any(|t| t.kind == TokenKind::String && t.text.contains('b')));
+        assert!(toks
+            .iter()
+            .any(|t| t.kind == TokenKind::Name && t.text == "a"));
     }
 
     #[test]
     fn unknown_wire_values_fall_back() {
-        assert_eq!(serde_json::from_str::<ScriptMode>("\"parallel\"").unwrap(), ScriptMode::Whole);
-        assert_eq!(serde_json::from_str::<ScriptMode>("\"batches\"").unwrap(), ScriptMode::Batches);
-        let d: ScriptDialect = serde_json::from_str(r#"{"batch":"semicolon_line","plsql_blocks":true,"new_flag":1}"#).unwrap();
-        assert_eq!((d.batch, d.plsql_blocks, d.semicolons), (BatchLine::None, true, true));
+        assert_eq!(
+            serde_json::from_str::<ScriptMode>("\"parallel\"").unwrap(),
+            ScriptMode::Whole
+        );
+        assert_eq!(
+            serde_json::from_str::<ScriptMode>("\"batches\"").unwrap(),
+            ScriptMode::Batches
+        );
+        let d: ScriptDialect =
+            serde_json::from_str(r#"{"batch":"semicolon_line","plsql_blocks":true,"new_flag":1}"#)
+                .unwrap();
+        assert_eq!(
+            (d.batch, d.plsql_blocks, d.semicolons),
+            (BatchLine::None, true, true)
+        );
         let d: ScriptDialect = serde_json::from_str(r#"{"batch":"go"}"#).unwrap();
         assert_eq!(d.batch, BatchLine::Go);
         let x: ScriptDefaults = serde_json::from_str(r#"{"continue_on_error":true}"#).unwrap();
@@ -1696,12 +2310,18 @@ mod tests {
         // Same shape as a MySQL routine.
         let mut r = String::from("create procedure p() begin\n");
         while r.len() < 400_000 {
-            r.push_str("  if a then update t set a = 1; end if; case b when 1 then select 1; end case;\n");
+            r.push_str(
+                "  if a then update t set a = 1; end if; case b when 1 then select 1; end case;\n",
+            );
         }
         r.push_str("end;\ndelete from t;");
         assert_eq!(split_script(&r, &ScriptDialect::mysql()).len(), 2);
         // Generous for a debug build; the quadratic version took minutes.
-        assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "{:?}",
+            started.elapsed()
+        );
     }
 }
 
@@ -1730,7 +2350,11 @@ pub struct NameToken<'a> {
 /// out: what the dependency scan searches. `"…"` is a name except where the
 /// dialect takes it as a string (MySQL, with backslash escapes).
 pub fn name_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
-    let sc = Scanner { s: text, b: text.as_bytes(), d: *d };
+    let sc = Scanner {
+        s: text,
+        b: text.as_bytes(),
+        d: *d,
+    };
     let mut out = Vec::new();
     let mut i = 0;
     while i < text.len() {
@@ -1754,10 +2378,17 @@ pub fn name_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
                 b => b as char,
             };
             let text = match raw.as_bytes().first() {
-                Some(&q @ (b'`' | b'[' | b'"')) if kind == TokenKind::Name => raw[1..].strip_suffix(close(q)).unwrap_or(&raw[1..]),
+                Some(&q @ (b'`' | b'[' | b'"')) if kind == TokenKind::Name => {
+                    raw[1..].strip_suffix(close(q)).unwrap_or(&raw[1..])
+                }
                 _ => raw,
             };
-            out.push(NameToken { kind, text, start: i, end });
+            out.push(NameToken {
+                kind,
+                text,
+                start: i,
+                end,
+            });
         }
         i = end.max(i + 1);
     }
@@ -1774,30 +2405,58 @@ pub fn code_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
     if !d.dollar_quotes {
         return toks;
     }
-    let word = |t: &NameToken<'_>, w: &str| t.kind == TokenKind::Name && t.text.eq_ignore_ascii_case(w) && !matches!(text.as_bytes()[t.start], b'"');
-    let creates: Vec<usize> = (0..toks.len()).filter(|&i| word(&toks[i], "create")).collect();
+    let word = |t: &NameToken<'_>, w: &str| {
+        t.kind == TokenKind::Name
+            && t.text.eq_ignore_ascii_case(w)
+            && !matches!(text.as_bytes()[t.start], b'"')
+    };
+    let creates: Vec<usize> = (0..toks.len())
+        .filter(|&i| word(&toks[i], "create"))
+        .collect();
     let mut out = Vec::with_capacity(toks.len());
     for (i, t) in toks.iter().enumerate() {
-        let body = t.kind == TokenKind::String && t.text.starts_with('$') && i > 0 && word(&toks[i - 1], "as") && {
-            // The CREATE it belongs to, and where the next one starts.
-            let from = creates.iter().rev().find(|&&c| c < i).copied();
-            let to = creates.iter().find(|&&c| c > i).copied().unwrap_or(toks.len());
-            from.is_some_and(|c| {
-                let head = &toks[c..i];
-                let routine = head.iter().take(6).any(|h| word(h, "function") || word(h, "procedure"));
-                let language = toks[c..to].windows(2).find(|w| word(&w[0], "language")).map(|w| w[1].text.trim_matches('\'').to_ascii_lowercase());
-                routine && matches!(language.as_deref(), Some("sql" | "plpgsql"))
-            })
-        };
+        let body = t.kind == TokenKind::String
+            && t.text.starts_with('$')
+            && i > 0
+            && word(&toks[i - 1], "as")
+            && {
+                // The CREATE it belongs to, and where the next one starts.
+                let from = creates.iter().rev().find(|&&c| c < i).copied();
+                let to = creates
+                    .iter()
+                    .find(|&&c| c > i)
+                    .copied()
+                    .unwrap_or(toks.len());
+                from.is_some_and(|c| {
+                    let head = &toks[c..i];
+                    let routine = head
+                        .iter()
+                        .take(6)
+                        .any(|h| word(h, "function") || word(h, "procedure"));
+                    let language = toks[c..to]
+                        .windows(2)
+                        .find(|w| word(&w[0], "language"))
+                        .map(|w| w[1].text.trim_matches('\'').to_ascii_lowercase());
+                    routine && matches!(language.as_deref(), Some("sql" | "plpgsql"))
+                })
+            };
         if !body {
             out.push(t.clone());
             continue;
         }
         let tag_len = t.text[1..].find('$').map_or(t.text.len(), |p| p + 2);
-        let inner_end = if t.text.len() >= 2 * tag_len && t.text.ends_with(&t.text[..tag_len]) { t.text.len() - tag_len } else { t.text.len() };
+        let inner_end = if t.text.len() >= 2 * tag_len && t.text.ends_with(&t.text[..tag_len]) {
+            t.text.len() - tag_len
+        } else {
+            t.text.len()
+        };
         let base = t.start + tag_len;
         for n in name_tokens(&text[base..t.start + inner_end], d) {
-            out.push(NameToken { start: n.start + base, end: n.end + base, ..n });
+            out.push(NameToken {
+                start: n.start + base,
+                end: n.end + base,
+                ..n
+            });
         }
     }
     out
@@ -1810,15 +2469,24 @@ mod unterminated_name_tests {
     #[test]
     fn an_unterminated_quoted_name_keeps_its_text() {
         let pg = ScriptDialect::postgres();
-        for text in ["SELECT 1 FROM t \"é", "SELECT [é", "SELECT `é", "SELECT \"\""] {
+        for text in [
+            "SELECT 1 FROM t \"é",
+            "SELECT [é",
+            "SELECT `é",
+            "SELECT \"\"",
+        ] {
             let _ = name_tokens(text, &pg);
             let _ = code_tokens(text, &pg);
             let _ = name_tokens(text, &ScriptDialect::tsql());
             let _ = name_tokens(text, &ScriptDialect::mysql());
         }
         let body = "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$SELECT 1 FROM t \"é$$";
-        assert!(code_tokens(body, &pg).iter().any(|t| t.kind == TokenKind::Name && t.text == "é"));
-        assert!(name_tokens("SELECT \"a b\"", &pg).iter().any(|t| t.text == "a b"));
+        assert!(code_tokens(body, &pg)
+            .iter()
+            .any(|t| t.kind == TokenKind::Name && t.text == "é"));
+        assert!(name_tokens("SELECT \"a b\"", &pg)
+            .iter()
+            .any(|t| t.text == "a b"));
     }
 }
 
@@ -1828,22 +2496,43 @@ mod slash_comment_tests {
 
     #[test]
     fn slash_comments_hide_quotes_and_semicolons_where_the_dialect_says() {
-        let sf = ScriptDialect { backslash_escapes: true, dquote_idents: true, dollar_quotes: true, slash_comments: true, ..ScriptDialect::generic() };
+        let sf = ScriptDialect {
+            backslash_escapes: true,
+            dquote_idents: true,
+            dollar_quotes: true,
+            slash_comments: true,
+            ..ScriptDialect::generic()
+        };
         // A quote in a `//` comment opens nothing: the DELETE is its own statement.
         let parts = split_script("SELECT 1 // it's\nDELETE FROM t; SELECT 2", &sf);
-        assert_eq!(parts.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), vec!["SELECT 1 // it's\nDELETE FROM t", "SELECT 2"]);
+        assert_eq!(
+            parts.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(),
+            vec!["SELECT 1 // it's\nDELETE FROM t", "SELECT 2"]
+        );
         let parts = split_script("SELECT 1 // '\n; DELETE FROM t; -- '", &sf);
         assert_eq!(parts.len(), 2, "{parts:?}");
         assert!(parts[1].text.starts_with("DELETE"), "{parts:?}");
         // A `;` in a `//` comment doesn't end the statement; the comment ends at LF.
-        assert_eq!(split_script("SELECT 1 // a; b\n, 2; SELECT \"x\"\"//\"", &sf).len(), 2);
-        assert_eq!(strip_comments("SELECT 1 // x\nFROM t", &sf, false), "SELECT 1 \nFROM t");
+        assert_eq!(
+            split_script("SELECT 1 // a; b\n, 2; SELECT \"x\"\"//\"", &sf).len(),
+            2
+        );
+        assert_eq!(
+            strip_comments("SELECT 1 // x\nFROM t", &sf, false),
+            "SELECT 1 \nFROM t"
+        );
         // Inside quotes and `$$` bodies `//` is text; `a/ /b` isn't a comment.
-        assert_eq!(split_script("SELECT '//'; SELECT $$ // ; $$; SELECT 4 / 2", &sf).len(), 3);
+        assert_eq!(
+            split_script("SELECT '//'; SELECT $$ // ; $$; SELECT 4 / 2", &sf).len(),
+            3
+        );
         // Without the flag `//` is two slashes (DuckDB's integer division).
         let g = ScriptDialect::generic();
         assert_eq!(split_script("SELECT 7 // 2; SELECT 'a;b'", &g).len(), 2);
-        assert_eq!(split_script("SELECT 1 // '\n; DELETE FROM t; -- '", &g).len(), 1);
+        assert_eq!(
+            split_script("SELECT 1 // '\n; DELETE FROM t; -- '", &g).len(),
+            1
+        );
     }
 }
 
@@ -1854,12 +2543,21 @@ mod dquote_ident_tests {
     #[test]
     fn double_quoted_identifiers_ignore_backslashes_where_the_dialect_says() {
         // Snowflake: '…' takes backslash escapes, "…" only doubles `""`.
-        let sf = ScriptDialect { backslash_escapes: true, dquote_idents: true, ..ScriptDialect::generic() };
+        let sf = ScriptDialect {
+            backslash_escapes: true,
+            dquote_idents: true,
+            ..ScriptDialect::generic()
+        };
         let parts = split_script("SELECT \"a\\\"; DELETE FROM t; SELECT 1", &sf);
         assert_eq!(parts.len(), 3, "{parts:?}");
-        assert!(name_tokens("select \"x\\\" from t", &sf).iter().any(|t| t.kind == TokenKind::Name && t.text == "x\\"));
+        assert!(name_tokens("select \"x\\\" from t", &sf)
+            .iter()
+            .any(|t| t.kind == TokenKind::Name && t.text == "x\\"));
         // MySQL-like: "…" is a string with backslash escapes, as before.
-        let my = ScriptDialect { backslash_escapes: true, ..ScriptDialect::generic() };
+        let my = ScriptDialect {
+            backslash_escapes: true,
+            ..ScriptDialect::generic()
+        };
         assert_eq!(split_script("SELECT \"a\\\"; b\"; SELECT 1", &my).len(), 2);
     }
 }
@@ -1873,16 +2571,26 @@ mod code_token_tests {
         let pg = ScriptDialect::postgres();
         let body = "CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'select 1 from clientes'; RETURN (SELECT count(*) FROM clientes); END $$";
         let toks = code_tokens(body, &pg);
-        let names: Vec<&str> = toks.iter().filter(|t| t.kind == TokenKind::Name).map(|t| t.text).collect();
+        let names: Vec<&str> = toks
+            .iter()
+            .filter(|t| t.kind == TokenKind::Name)
+            .map(|t| t.text)
+            .collect();
         assert!(names.contains(&"clientes"));
-        assert!(toks.iter().any(|t| t.kind == TokenKind::String && t.text.contains("from clientes")));
+        assert!(toks
+            .iter()
+            .any(|t| t.kind == TokenKind::String && t.text.contains("from clientes")));
         // Offsets point into the whole text.
         for t in &toks {
             assert!(body[t.start..t.end].contains(t.text), "{t:?}");
         }
         // Not a routine body: a plain dollar string, or another language.
-        assert!(!code_tokens("SELECT $$ from clientes $$", &pg).iter().any(|t| t.kind == TokenKind::Name && t.text == "clientes"));
+        assert!(!code_tokens("SELECT $$ from clientes $$", &pg)
+            .iter()
+            .any(|t| t.kind == TokenKind::Name && t.text == "clientes"));
         let js = "CREATE FUNCTION f() RETURNS int LANGUAGE plv8 AS $$ return clientes $$";
-        assert!(!code_tokens(js, &pg).iter().any(|t| t.kind == TokenKind::Name && t.text == "clientes"));
+        assert!(!code_tokens(js, &pg)
+            .iter()
+            .any(|t| t.kind == TokenKind::Name && t.text == "clientes"));
     }
 }

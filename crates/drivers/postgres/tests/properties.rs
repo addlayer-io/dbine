@@ -27,7 +27,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -42,7 +44,10 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn quiet(s: &mut Box<dyn Session>, sql: &str) {
@@ -52,12 +57,17 @@ async fn quiet(s: &mut Box<dyn Session>, sql: &str) {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
 fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 /// One engine: `setup` before the create (the owner role), `first` and
@@ -98,36 +108,65 @@ async fn exercise(
     }
     s.create_database(DB).await.unwrap();
 
-    let p = s.database_properties(DB).await.unwrap_or_else(|e| panic!("{id}: {e}"));
+    let p = s
+        .database_properties(DB)
+        .await
+        .unwrap_or_else(|e| panic!("{id}: {e}"));
     eprintln!(
         "{id}: tabs {:?}\n  info {:?}\n  values {:?}",
-        p.fields.iter().map(|f| f.group).collect::<std::collections::BTreeSet<_>>(),
-        p.info.iter().map(|i| format!("{}/{}={}", i.group, i.label, i.value)).collect::<Vec<_>>(),
+        p.fields
+            .iter()
+            .map(|f| f.group)
+            .collect::<std::collections::BTreeSet<_>>(),
+        p.info
+            .iter()
+            .map(|i| format!("{}/{}={}", i.group, i.label, i.value))
+            .collect::<Vec<_>>(),
         p.values
     );
     for f in &p.fields {
-        assert!(p.values.contains_key(f.key), "{id}: no current value for {}", f.key);
+        assert!(
+            p.values.contains_key(f.key),
+            "{id}: no current value for {}",
+            f.key
+        );
     }
     for round in [first, second] {
         if round.is_empty() {
             continue;
         }
         // REFRESH COLLATION VERSION is offered only with a recorded version.
-        let changes: BTreeMap<String, String> =
-            map(round).into_iter().filter(|(k, _)| k != "refresh_collation_version" || p.fields.iter().any(|f| f.key == k)).collect();
+        let changes: BTreeMap<String, String> = map(round)
+            .into_iter()
+            .filter(|(k, _)| {
+                k != "refresh_collation_version" || p.fields.iter().any(|f| f.key == k)
+            })
+            .collect();
         for k in changes.keys() {
-            assert!(p.fields.iter().any(|f| f.key == k), "{id}: {k} isn't one of its fields");
+            assert!(
+                p.fields.iter().any(|f| f.key == k),
+                "{id}: {k} isn't one of its fields"
+            );
         }
         let script = d.alter_database_script(DB, &changes).unwrap();
         eprintln!("{script}");
-        s.alter_database(DB, &changes).await.unwrap_or_else(|e| panic!("{id}: {e}\n{script}"));
+        s.alter_database(DB, &changes)
+            .await
+            .unwrap_or_else(|e| panic!("{id}: {e}\n{script}"));
         let after = s.database_properties(DB).await.unwrap();
         for (k, v) in &changes {
-            let want = expect.iter().find(|(ek, _)| ek == k && round == first).map_or(v.as_str(), |(_, ev)| *ev);
+            let want = expect
+                .iter()
+                .find(|(ek, _)| ek == k && round == first)
+                .map_or(v.as_str(), |(_, ev)| *ev);
             if k == "refresh_collation_version" {
                 continue;
             }
-            assert_eq!(after.values.get(k).map(String::as_str).unwrap_or(""), want, "{id}: {k}");
+            assert_eq!(
+                after.values.get(k).map(String::as_str).unwrap_or(""),
+                want,
+                "{id}: {k}"
+            );
         }
     }
     for sql in before_drop {
@@ -151,7 +190,13 @@ const PG_FIRST: &[(&str, &str)] = &[
     ("comment", "Base de prueba de o'DBine"),
     ("refresh_collation_version", "true"),
 ];
-const PG_SECOND: &[(&str, &str)] = &[("set:work_mem", ""), ("is_template", ""), ("allow_connections", "true"), ("comment", ""), ("connection_limit", "-1")];
+const PG_SECOND: &[(&str, &str)] = &[
+    ("set:work_mem", ""),
+    ("is_template", ""),
+    ("allow_connections", "true"),
+    ("comment", ""),
+    ("connection_limit", "-1"),
+];
 
 /// The PostgreSQL tests share one server and the same database and role
 /// names: one at a time.
@@ -195,7 +240,11 @@ async fn timescale() {
 #[ignore]
 async fn greengage() {
     // Greengage 7 (PostgreSQL 12): no REFRESH COLLATION VERSION.
-    let first: Vec<_> = PG_FIRST.iter().copied().filter(|(k, _)| *k != "refresh_collation_version").collect();
+    let first: Vec<_> = PG_FIRST
+        .iter()
+        .copied()
+        .filter(|(k, _)| *k != "refresh_collation_version")
+        .collect();
     exercise(
         "greengage",
         "DBINE_TEST_GREENGAGE_URL",
@@ -242,7 +291,13 @@ async fn opengauss() {
         "DBINE_TEST_OPENGAUSS_URL",
         false,
         &[&format!("CREATE USER {OWNER} PASSWORD 'Dbine@1234'")],
-        &[("owner", OWNER), ("connection_limit", "5"), ("set:work_mem", "64MB"), ("set:search_path", "public, x"), ("comment", "og")],
+        &[
+            ("owner", OWNER),
+            ("connection_limit", "5"),
+            ("set:work_mem", "64MB"),
+            ("set:search_path", "public, x"),
+            ("comment", "og"),
+        ],
         &[("set:work_mem", ""), ("comment", "")],
         &[],
         &[],

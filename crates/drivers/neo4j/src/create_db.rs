@@ -49,7 +49,10 @@ fn bad(what: &str, v: &str) -> Error {
 }
 
 pub(crate) fn count(v: &str, what: &str, min: u32) -> Result<u32> {
-    v.parse::<u32>().ok().filter(|n| (min..=100).contains(n)).ok_or_else(|| bad(what, v))
+    v.parse::<u32>()
+        .ok()
+        .filter(|n| (min..=100).contains(n))
+        .ok_or_else(|| bad(what, v))
 }
 
 /// A Cypher string literal.
@@ -61,18 +64,32 @@ fn literal(s: &str) -> String {
 pub(crate) fn script(f: Flavor, name: &str, o: &BTreeMap<String, String>) -> Result<String> {
     let n = cypher::ident(name.trim());
     match f {
-        Flavor::Neptune => return Err(Error::Unsupported("Neptune tiene una sola base por cluster".into())),
+        Flavor::Neptune => {
+            return Err(Error::Unsupported(
+                "Neptune tiene una sola base por cluster".into(),
+            ))
+        }
         Flavor::Memgraph => return Ok(format!("CREATE DATABASE {n}")),
         Flavor::Neo4j => {}
     }
     let mut out = format!("CREATE DATABASE {n} IF NOT EXISTS");
-    let primaries = opt(o, "primaries").map(|v| count(v, "primarios", 1)).transpose()?;
-    let secondaries = opt(o, "secondaries").map(|v| count(v, "secundarios", 0)).transpose()?;
+    let primaries = opt(o, "primaries")
+        .map(|v| count(v, "primarios", 1))
+        .transpose()?;
+    let secondaries = opt(o, "secondaries")
+        .map(|v| count(v, "secundarios", 0))
+        .transpose()?;
     if primaries.is_some() || secondaries.is_some() {
         let p = primaries.unwrap_or(1);
-        out.push_str(&format!(" TOPOLOGY {p} {}", if p == 1 { "PRIMARY" } else { "PRIMARIES" }));
+        out.push_str(&format!(
+            " TOPOLOGY {p} {}",
+            if p == 1 { "PRIMARY" } else { "PRIMARIES" }
+        ));
         if let Some(s) = secondaries {
-            out.push_str(&format!(" {s} {}", if s == 1 { "SECONDARY" } else { "SECONDARIES" }));
+            out.push_str(&format!(
+                " {s} {}",
+                if s == 1 { "SECONDARY" } else { "SECONDARIES" }
+            ));
         }
     }
     let mut options = Vec::new();
@@ -89,7 +106,9 @@ pub(crate) fn script(f: Flavor, name: &str, o: &BTreeMap<String, String>) -> Res
         options.push(format!("txLogEnrichment: '{t}'"));
     }
     if let Some(u) = opt(o, "seed_uri") {
-        let scheme_ok = ["file:", "s3:", "gs:", "azb:", "http:", "https:", "ftp:"].iter().any(|s| u.to_ascii_lowercase().starts_with(s));
+        let scheme_ok = ["file:", "s3:", "gs:", "azb:", "http:", "https:", "ftp:"]
+            .iter()
+            .any(|s| u.to_ascii_lowercase().starts_with(s));
         if !scheme_ok || u.chars().any(char::is_control) {
             return Err(bad("sembrar desde", u));
         }
@@ -108,15 +127,30 @@ impl GraphSession {
         if self.flavor != Flavor::Neo4j {
             return Ok(Vec::new());
         }
-        let format = self.strings("SHOW SETTINGS YIELD name, value WHERE name = 'db.format' RETURN value").await.ok().and_then(|v| v.into_iter().next());
-        Ok(vec![FieldChoices { key: "store_format".into(), default: format, values: Vec::new() }])
+        let format = self
+            .strings("SHOW SETTINGS YIELD name, value WHERE name = 'db.format' RETURN value")
+            .await
+            .ok()
+            .and_then(|v| v.into_iter().next());
+        Ok(vec![FieldChoices {
+            key: "store_format".into(),
+            default: format,
+            values: Vec::new(),
+        }])
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         self.refuse_if_read_only("Conexión de solo lectura: no se puede crear una base.")?;
         let q = script(self.flavor, name, o)?;
         match self.flavor {
-            Flavor::Neo4j => self.query_on(&q, Some("system")).await.map_err(enterprise_hint)?,
+            Flavor::Neo4j => self
+                .query_on(&q, Some("system"))
+                .await
+                .map_err(enterprise_hint)?,
             _ => self.query(&q).await?,
         };
         Ok(())
@@ -128,13 +162,22 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_is_the_old_create() {
-        assert_eq!(script(Flavor::Neo4j, "ventas", &o(&[("primaries", " ")])).unwrap(), "CREATE DATABASE ventas IF NOT EXISTS WAIT");
-        assert_eq!(script(Flavor::Memgraph, "ventas-2", &o(&[])).unwrap(), "CREATE DATABASE `ventas-2`");
+        assert_eq!(
+            script(Flavor::Neo4j, "ventas", &o(&[("primaries", " ")])).unwrap(),
+            "CREATE DATABASE ventas IF NOT EXISTS WAIT"
+        );
+        assert_eq!(
+            script(Flavor::Memgraph, "ventas-2", &o(&[])).unwrap(),
+            "CREATE DATABASE `ventas-2`"
+        );
         assert!(script(Flavor::Neptune, "v", &o(&[])).is_err());
     }
 
@@ -156,7 +199,10 @@ mod tests {
             "CREATE DATABASE v IF NOT EXISTS TOPOLOGY 3 PRIMARIES 1 SECONDARY \
              OPTIONS {storeFormat: 'block', txLogEnrichment: 'FULL', existingData: 'use', seedURI: 's3://b/it\\'s.backup'} WAIT"
         );
-        assert_eq!(script(Flavor::Neo4j, "v", &o(&[("secondaries", "0")])).unwrap(), "CREATE DATABASE v IF NOT EXISTS TOPOLOGY 1 PRIMARY 0 SECONDARIES WAIT");
+        assert_eq!(
+            script(Flavor::Neo4j, "v", &o(&[("secondaries", "0")])).unwrap(),
+            "CREATE DATABASE v IF NOT EXISTS TOPOLOGY 1 PRIMARY 0 SECONDARIES WAIT"
+        );
     }
 
     #[test]

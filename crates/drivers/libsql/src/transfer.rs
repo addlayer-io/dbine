@@ -58,7 +58,9 @@ use crate::hrana::{Client, B64};
 use crate::LibsqlSession;
 use base64::Engine;
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, Result};
 use dbine_driver_sqlite::transfer::{column_list, qualified_columns, select_sql, table_name};
 use serde::de::{self, Deserializer, MapAccess, Visitor};
@@ -124,21 +126,44 @@ fn json_str(s: &str) -> String {
 
 /// An `execute` request.
 fn execute_req(sql: &str, want_rows: bool) -> String {
-    format!(r#"{{"type":"execute","stmt":{{"sql":{},"want_rows":{want_rows}}}}}"#, json_str(sql))
+    format!(
+        r#"{{"type":"execute","stmt":{{"sql":{},"want_rows":{want_rows}}}}}"#,
+        json_str(sql)
+    )
 }
 
 /// POST a pipeline; `parse` decodes the response's bytes.
-async fn post<T>(w: Wire, body: String, with_baton: bool, parse: fn(&[u8]) -> Result<T>) -> std::result::Result<T, Fail> {
-    let mut req = w.http.post(&w.url).header(reqwest::header::CONTENT_TYPE, "application/json").body(body);
+async fn post<T>(
+    w: Wire,
+    body: String,
+    with_baton: bool,
+    parse: fn(&[u8]) -> Result<T>,
+) -> std::result::Result<T, Fail> {
+    let mut req = w
+        .http
+        .post(&w.url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(body);
     if let Some(t) = &w.token {
         req = req.bearer_auth(t);
     }
-    let resp = req.send().await.map_err(|e| Fail::Other(Error::Connect(format!("no se pudo llegar al servidor: {e}"))))?;
+    let resp = req.send().await.map_err(|e| {
+        Fail::Other(Error::Connect(format!(
+            "no se pudo llegar al servidor: {e}"
+        )))
+    })?;
     let status = resp.status();
-    let bytes = resp.bytes().await.map_err(|e| Fail::Other(Error::Connect(format!("se cortó la respuesta del servidor: {e}"))))?;
+    let bytes = resp.bytes().await.map_err(|e| {
+        Fail::Other(Error::Connect(format!(
+            "se cortó la respuesta del servidor: {e}"
+        )))
+    })?;
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         let text = String::from_utf8_lossy(&bytes);
-        return Err(Fail::Other(Error::AuthFailed(format!("el servidor rechazó el token ({status}): {}", text.trim()))));
+        return Err(Fail::Other(Error::AuthFailed(format!(
+            "el servidor rechazó el token ({status}): {}",
+            text.trim()
+        ))));
     }
     if !status.is_success() {
         let text = String::from_utf8_lossy(&bytes);
@@ -147,7 +172,10 @@ async fn post<T>(w: Wire, body: String, with_baton: bool, parse: fn(&[u8]) -> Re
         if with_baton && (lower.contains("baton") || lower.contains("stream_expired")) {
             return Err(Fail::Expired);
         }
-        return Err(Fail::Other(Error::Query(format!("HTTP {status}: {}", text.trim()))));
+        return Err(Fail::Other(Error::Query(format!(
+            "HTTP {status}: {}",
+            text.trim()
+        ))));
     }
     parse(&bytes).map_err(Fail::Other)
 }
@@ -172,7 +200,9 @@ impl<R> Entry<R> {
     fn into_result(self) -> std::result::Result<Option<R>, String> {
         match self.kind.as_str() {
             "ok" => Ok(self.response.and_then(|r| r.result)),
-            _ => Err(self.error.map_or_else(|| "error del servidor".into(), HError::text)),
+            _ => Err(self
+                .error
+                .map_or_else(|| "error del servidor".into(), HError::text)),
         }
     }
 }
@@ -190,7 +220,9 @@ struct HError {
 impl HError {
     fn text(self) -> String {
         let msg = self.message.unwrap_or_else(|| "error del servidor".into());
-        msg.strip_prefix("SQLite error: ").map(str::to_string).unwrap_or(msg)
+        msg.strip_prefix("SQLite error: ")
+            .map(str::to_string)
+            .unwrap_or(msg)
     }
 }
 
@@ -280,7 +312,10 @@ impl<'de> Deserialize<'de> for HCell {
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("a Hrana value")
             }
-            fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> std::result::Result<HCell, A::Error> {
+            fn visit_map<A: MapAccess<'de>>(
+                self,
+                mut m: A,
+            ) -> std::result::Result<HCell, A::Error> {
                 let (mut ty, mut value, mut b64) = (None::<String>, Scalar::Null, None::<String>);
                 while let Some(k) = m.next_key::<Key>()? {
                     match k {
@@ -294,17 +329,27 @@ impl<'de> Deserialize<'de> for HCell {
                 }
                 let cell = match (ty.as_deref(), value) {
                     (Some("null"), _) => Cell::Null,
-                    (Some("integer"), Scalar::Str(s)) => Cell::Int(s.parse().map_err(|_| de::Error::custom(format!("entero inválido: {s}")))?),
+                    (Some("integer"), Scalar::Str(s)) => Cell::Int(
+                        s.parse()
+                            .map_err(|_| de::Error::custom(format!("entero inválido: {s}")))?,
+                    ),
                     (Some("integer"), Scalar::Int(i)) => Cell::Int(i),
                     (Some("float"), Scalar::Num(f)) => Cell::Float(f),
                     (Some("float"), Scalar::Int(i)) => Cell::Float(i as f64),
                     (Some("float"), Scalar::Null) => Cell::Float(f64::NAN),
                     (Some("text"), Scalar::Str(s)) => Cell::Text(s),
                     (Some("blob"), _) => match b64 {
-                        Some(b) => Cell::Bytes(B64.decode(b).map_err(|e| de::Error::custom(format!("blob inválido: {e}")))?),
+                        Some(b) => Cell::Bytes(
+                            B64.decode(b)
+                                .map_err(|e| de::Error::custom(format!("blob inválido: {e}")))?,
+                        ),
                         None => Cell::Bytes(Vec::new()),
                     },
-                    (ty, _) => return Err(de::Error::custom(format!("valor inesperado del servidor (tipo {ty:?})"))),
+                    (ty, _) => {
+                        return Err(de::Error::custom(format!(
+                            "valor inesperado del servidor (tipo {ty:?})"
+                        )))
+                    }
                 };
                 Ok(HCell(cell))
             }
@@ -322,11 +367,16 @@ fn float_texts(json: &[u8]) -> Vec<&[u8]> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < json.len() {
-        let Some(p) = json[i..].iter().position(|&b| b == b'{') else { break };
+        let Some(p) = json[i..].iter().position(|&b| b == b'{') else {
+            break;
+        };
         let at = i + p;
         if json[at..].starts_with(FLOAT_TAG) {
             let start = at + FLOAT_TAG.len();
-            let end = json[start..].iter().position(|&b| b == b',' || b == b'}').map_or(json.len(), |e| start + e);
+            let end = json[start..]
+                .iter()
+                .position(|&b| b == b',' || b == b'}')
+                .map_or(json.len(), |e| start + e);
             out.push(&json[start..end]);
             i = end;
         } else {
@@ -339,14 +389,22 @@ fn float_texts(json: &[u8]) -> Vec<&[u8]> {
 /// Each float cell (in the response's order) takes its exact value from
 /// its own text; ±∞ (no value) stays NaN.
 fn exact_floats<'a>(cells: impl Iterator<Item = &'a mut Cell>, texts: &[&[u8]]) -> Result<()> {
-    let mismatch = || Error::Query("respuesta inesperada del servidor: no se pudieron leer los valores REAL exactos".into());
+    let mismatch = || {
+        Error::Query(
+            "respuesta inesperada del servidor: no se pudieron leer los valores REAL exactos"
+                .into(),
+        )
+    };
     let mut texts = texts.iter();
     for c in cells {
         if let Cell::Float(f) = c {
             let t = texts.next().ok_or_else(mismatch)?;
             *f = match *t {
                 b"null" => f64::NAN,
-                t => std::str::from_utf8(t).ok().and_then(|s| s.trim().parse::<f64>().ok()).ok_or_else(mismatch)?,
+                t => std::str::from_utf8(t)
+                    .ok()
+                    .and_then(|s| s.trim().parse::<f64>().ok())
+                    .ok_or_else(mismatch)?,
             };
         }
     }
@@ -357,7 +415,8 @@ fn exact_floats<'a>(cells: impl Iterator<Item = &'a mut Cell>, texts: &[&[u8]]) 
 }
 
 fn decode<T: serde::de::DeserializeOwned>(b: &[u8]) -> Result<T> {
-    serde_json::from_slice(b).map_err(|e| Error::Query(format!("respuesta inválida del servidor: {e}")))
+    serde_json::from_slice(b)
+        .map_err(|e| Error::Query(format!("respuesta inválida del servidor: {e}")))
 }
 
 /// A page's response, floats exact, and its size in bytes.
@@ -416,11 +475,17 @@ fn columns(cols: &[Col], not_null: &HashMap<String, bool>) -> Vec<TransferColumn
         .collect()
 }
 
-pub(crate) async fn read_batches(s: &mut LibsqlSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut LibsqlSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let not_null = not_null(&mut s.client, spec).await?;
     let mut builder = BatchBuilder::new();
     // The rowid under a name no column takes.
-    let key = ["rowid", "_rowid_", "oid"].into_iter().find(|k| !not_null.keys().any(|n| n.eq_ignore_ascii_case(k)));
+    let key = ["rowid", "_rowid_", "oid"]
+        .into_iter()
+        .find(|k| !not_null.keys().any(|n| n.eq_ignore_ascii_case(k)));
     let paged = match key {
         Some(key) => read_paged(s, spec, key, &not_null, &sink, &mut builder).await?,
         None => false,
@@ -429,7 +494,11 @@ pub(crate) async fn read_batches(s: &mut LibsqlSession, spec: &ReadSpec, sink: B
         let sql = select_sql(spec);
         match s.client.cursor(&sql).await? {
             Some(resp) => read_cursor(resp, &not_null, &sink, &mut builder).await?,
-            None => return Err(Error::Unsupported("el servidor no tiene cursores (Hrana 3) y la tabla no tiene rowid".into())),
+            None => {
+                return Err(Error::Unsupported(
+                    "el servidor no tiene cursores (Hrana 3) y la tabla no tiene rowid".into(),
+                ))
+            }
         }
     }
     builder.flush(&mut *sink.lock().map_err(lock_err)?)?;
@@ -440,7 +509,10 @@ pub(crate) async fn read_batches(s: &mut LibsqlSession, spec: &ReadSpec, sink: B
 fn no_such(msg: &str, key: &str) -> bool {
     let needle = format!("no such column: {key}");
     msg.match_indices(&needle).any(|(i, _)| {
-        msg[i + needle.len()..].chars().next().is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.' || c == '"'))
+        msg[i + needle.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.' || c == '"'))
     })
 }
 
@@ -458,8 +530,15 @@ async fn read_paged(
     let table = table_name(&spec.table);
     // Qualified: a bare `"nope"` that names no column would be read as a
     // string literal.
-    let cols = spec.columns.as_deref().map_or_else(|| "*".to_string(), |c| qualified_columns(&table, c));
-    let filter = spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty());
+    let cols = spec
+        .columns
+        .as_deref()
+        .map_or_else(|| "*".to_string(), |c| qualified_columns(&table, c));
+    let filter = spec
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty());
     let in_tx = s.client.execute("BEGIN").await.is_ok();
     let client = &mut s.client;
     let r: Result<bool> = async {
@@ -473,16 +552,24 @@ async fn read_paged(
             if let Some(f) = filter {
                 cond.push(format!("({f})"));
             }
-            let where_ = if cond.is_empty() { String::new() } else { format!(" WHERE {}", cond.join(" AND ")) };
-            let sql = format!("SELECT {key}, {cols} FROM {table}{where_} ORDER BY {key} LIMIT {limit}");
+            let where_ = if cond.is_empty() {
+                String::new()
+            } else {
+                format!(" WHERE {}", cond.join(" AND "))
+            };
+            let sql =
+                format!("SELECT {key}, {cols} FROM {table}{where_} ORDER BY {key} LIMIT {limit}");
             let baton = client.baton().map(str::to_string);
             let body = pipeline_body(baton.as_deref(), &[&execute_req(&sql, true)]);
-            let (reply, len) = match post(Wire::of(client), body, baton.is_some(), parse_rows).await {
+            let (reply, len) = match post(Wire::of(client), body, baton.is_some(), parse_rows).await
+            {
                 Ok(r) => r,
                 Err(Fail::Expired) => {
                     client.set_stream(None, None);
                     if in_tx {
-                        return Err(Error::Query("la sesión en el servidor venció en medio de la lectura".into()));
+                        return Err(Error::Query(
+                            "la sesión en el servidor venció en medio de la lectura".into(),
+                        ));
                     }
                     continue;
                 }
@@ -502,7 +589,9 @@ async fn read_paged(
             if !begun {
                 let all = columns(&result.cols, not_null);
                 names = all.iter().skip(1).map(|c| c.name.clone()).collect();
-                sink.lock().map_err(lock_err)?.begin(&all[1.min(all.len())..])?;
+                sink.lock()
+                    .map_err(lock_err)?
+                    .begin(&all[1.min(all.len())..])?;
                 begun = true;
             }
             let n = result.rows.len();
@@ -524,12 +613,24 @@ async fn read_paged(
                             None => names.get(j).cloned(),
                         }
                         .unwrap_or_default();
-                        let q = format!("SELECT {table}.{} > 0 FROM {table} WHERE {key} = {k}", quote_ident(Quote::Double, &col));
+                        let q = format!(
+                            "SELECT {table}.{} > 0 FROM {table} WHERE {key} = {k}",
+                            quote_ident(Quote::Double, &col)
+                        );
                         let r = client.execute(&q).await?;
-                        *c = match r.rows.first().and_then(|r| r.first()).and_then(Value::as_i64) {
+                        *c = match r
+                            .rows
+                            .first()
+                            .and_then(|r| r.first())
+                            .and_then(Value::as_i64)
+                        {
                             Some(1) => Cell::Float(f64::INFINITY),
                             Some(0) => Cell::Float(f64::NEG_INFINITY),
-                            _ => return Err(Error::Query(format!("no se pudo leer el valor infinito de la columna {col}"))),
+                            _ => {
+                                return Err(Error::Query(format!(
+                                    "no se pudo leer el valor infinito de la columna {col}"
+                                )))
+                            }
                         };
                     }
                 }
@@ -538,7 +639,8 @@ async fn read_paged(
             if n < limit {
                 return Ok(true);
             }
-            limit = ((PAGE_BYTES as u128 * n as u128 / len.max(1) as u128) as usize).clamp(1, MAX_PAGE);
+            limit =
+                ((PAGE_BYTES as u128 * n as u128 / len.max(1) as u128) as usize).clamp(1, MAX_PAGE);
         }
     }
     .await;
@@ -562,7 +664,12 @@ struct CursorLine {
 
 /// The cursor's lines: a header, then `step_begin`, `row`s and `step_end`
 /// (or `step_error` / `error`).
-async fn read_cursor(mut resp: reqwest::Response, not_null: &HashMap<String, bool>, sink: &BatchSinkRef, builder: &mut BatchBuilder) -> Result<()> {
+async fn read_cursor(
+    mut resp: reqwest::Response,
+    not_null: &HashMap<String, bool>,
+    sink: &BatchSinkRef,
+    builder: &mut BatchBuilder,
+) -> Result<()> {
     let mut buf: Vec<u8> = Vec::new();
     let (mut header, mut ended) = (false, false);
     let mut handle = |line: &[u8]| -> Result<()> {
@@ -573,13 +680,20 @@ async fn read_cursor(mut resp: reqwest::Response, not_null: &HashMap<String, boo
             header = true;
             return Ok(());
         }
-        let mut v: CursorLine = serde_json::from_slice(line).map_err(|e| Error::Query(format!("respuesta inválida del cursor: {e}")))?;
+        let mut v: CursorLine = serde_json::from_slice(line)
+            .map_err(|e| Error::Query(format!("respuesta inválida del cursor: {e}")))?;
         match v.kind.as_deref() {
-            Some("step_begin") => sink.lock().map_err(lock_err)?.begin(&columns(&v.cols, not_null))?,
+            Some("step_begin") => sink
+                .lock()
+                .map_err(lock_err)?
+                .begin(&columns(&v.cols, not_null))?,
             Some("row") => {
                 exact_floats(v.row.iter_mut().map(|h| &mut h.0), &float_texts(line))?;
                 let cells: Vec<Cell> = v.row.into_iter().map(|h| h.0).collect();
-                if cells.iter().any(|c| matches!(c, Cell::Float(f) if f.is_nan())) {
+                if cells
+                    .iter()
+                    .any(|c| matches!(c, Cell::Float(f) if f.is_nan()))
+                {
                     return Err(Error::Unsupported(
                         "la tabla no tiene rowid y trae un REAL infinito: el servidor lo envía sin valor ni signo y no hay \
                          forma de volver a pedir esa fila"
@@ -590,13 +704,21 @@ async fn read_cursor(mut resp: reqwest::Response, not_null: &HashMap<String, boo
             }
             Some("step_end") => ended = true,
             Some("step_error") | Some("error") => {
-                return Err(Error::Query(v.error.take().map_or_else(|| "error del servidor".into(), HError::text)));
+                return Err(Error::Query(
+                    v.error
+                        .take()
+                        .map_or_else(|| "error del servidor".into(), HError::text),
+                ));
             }
             _ => {}
         }
         Ok(())
     };
-    while let Some(chunk) = resp.chunk().await.map_err(|e| Error::Connect(format!("se cortó la lectura: {e}")))? {
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| Error::Connect(format!("se cortó la lectura: {e}")))?
+    {
         buf.extend_from_slice(&chunk);
         let mut start = 0;
         while let Some(nl) = buf[start..].iter().position(|&b| b == b'\n') {
@@ -607,7 +729,9 @@ async fn read_cursor(mut resp: reqwest::Response, not_null: &HashMap<String, boo
     }
     handle(&buf)?;
     if !ended {
-        return Err(Error::Query("el servidor cortó la lectura antes de terminar".into()));
+        return Err(Error::Query(
+            "el servidor cortó la lectura antes de terminar".into(),
+        ));
     }
     Ok(())
 }
@@ -622,7 +746,9 @@ async fn read_cursor(mut resp: reqwest::Response, not_null: &HashMap<String, boo
 /// would store NULL).
 fn float_parts(f: f64) -> Result<(i64, i32)> {
     if f.is_nan() {
-        return Err(Error::Unsupported("SQLite no puede guardar NaN (lo convertiría en NULL): la fila trae un REAL NaN".into()));
+        return Err(Error::Unsupported(
+            "SQLite no puede guardar NaN (lo convertiría en NULL): la fila trae un REAL NaN".into(),
+        ));
     }
     let sign = if f.is_sign_negative() { -1 } else { 1 };
     if f.is_infinite() {
@@ -634,7 +760,11 @@ fn float_parts(f: f64) -> Result<(i64, i32)> {
     let bits = f.to_bits();
     let exp = ((bits >> 52) & 0x7ff) as i32;
     let frac = bits & ((1u64 << 52) - 1);
-    let (mut m, mut e) = if exp == 0 { (frac, -1074) } else { (frac | (1u64 << 52), exp - 1075) };
+    let (mut m, mut e) = if exp == 0 {
+        (frac, -1074)
+    } else {
+        (frac | (1u64 << 52), exp - 1075)
+    };
     let tz = m.trailing_zeros();
     m >>= tz;
     e += tz as i32;
@@ -691,7 +821,14 @@ fn push_arg(out: &mut String, c: &Cell) {
             out.push_str(&B64.encode(b));
             out.push_str("\"}");
         }
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => {
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => {
             out.push_str(r#"{"type":"text","value":"#);
             out.push_str(&json_str(s));
             out.push('}');
@@ -733,8 +870,18 @@ const MAX_COLUMNS: usize = 2000;
 /// `m*pow(2,e)` per cell, 1.9–39 s with a chain of powers per cell.
 /// Without `pow`, or when the pairs would pass [`MAX_COLUMNS`], each float
 /// is an expression of its own ([`real_sql`]).
-fn insert_request(spec: &LoadSpec, rows: &[Vec<Cell>], begin: bool, per_stmt: usize, pow: bool) -> Result<(String, usize)> {
-    let into = format!("INSERT INTO {} ({}) ", table_name(&spec.table), column_list(&spec.columns));
+fn insert_request(
+    spec: &LoadSpec,
+    rows: &[Vec<Cell>],
+    begin: bool,
+    per_stmt: usize,
+    pow: bool,
+) -> Result<(String, usize)> {
+    let into = format!(
+        "INSERT INTO {} ({}) ",
+        table_name(&spec.table),
+        column_list(&spec.columns)
+    );
     let ncols = spec.columns.len();
     let mut steps = Vec::new();
     if begin {
@@ -748,7 +895,13 @@ fn insert_request(spec: &LoadSpec, rows: &[Vec<Cell>], begin: bool, per_stmt: us
         push_arg(args, c);
     };
     for chunk in rows.chunks(per_stmt) {
-        let mut pairs: Vec<bool> = (0..ncols).map(|i| pow && chunk.iter().any(|r| matches!(r.get(i), Some(Cell::Float(_))))).collect();
+        let mut pairs: Vec<bool> = (0..ncols)
+            .map(|i| {
+                pow && chunk
+                    .iter()
+                    .any(|r| matches!(r.get(i), Some(Cell::Float(_))))
+            })
+            .collect();
         if ncols + pairs.iter().filter(|p| **p).count() > MAX_COLUMNS {
             pairs.fill(false);
         }
@@ -806,7 +959,13 @@ fn insert_request(spec: &LoadSpec, rows: &[Vec<Cell>], begin: bool, per_stmt: us
         }
         push_step(&mut steps, &sql, &args);
     }
-    Ok((format!(r#"{{"type":"batch","batch":{{"steps":[{}]}}}}"#, steps.join(",")), first))
+    Ok((
+        format!(
+            r#"{{"type":"batch","batch":{{"steps":[{}]}}}}"#,
+            steps.join(",")
+        ),
+        first,
+    ))
 }
 
 type InFlight = tokio::task::JoinHandle<std::result::Result<Reply<BatchResult>, Fail>>;
@@ -832,12 +991,25 @@ impl Loader<'_> {
         let mut replaced = false;
         loop {
             let baton = self.client.baton().map(str::to_string);
-            let init: Vec<String> = if baton.is_none() { self.client.init.iter().map(|s| execute_req(s, false)).collect() } else { Vec::new() };
+            let init: Vec<String> = if baton.is_none() {
+                self.client
+                    .init
+                    .iter()
+                    .map(|s| execute_req(s, false))
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let mut reqs: Vec<&str> = init.iter().map(String::as_str).collect();
             reqs.push(batch);
             let body = pipeline_body(baton.as_deref(), &reqs);
             drop(reqs);
-            self.inflight = Some(tokio::spawn(post(Wire::of(self.client), body, baton.is_some(), parse_batch)));
+            self.inflight = Some(tokio::spawn(post(
+                Wire::of(self.client),
+                body,
+                baton.is_some(),
+                parse_batch,
+            )));
             let joined = match self.inflight.as_mut() {
                 Some(h) => h.await,
                 None => unreachable!(),
@@ -846,8 +1018,14 @@ impl Loader<'_> {
             let r = joined.map_err(|e| Error::State(format!("la carga se interrumpió: {e}")))?;
             match r {
                 Ok(reply) => {
-                    self.client.set_stream(reply.baton, reply.base_url.as_deref());
-                    return match reply.results.into_iter().nth(init.len()).map(Entry::into_result) {
+                    self.client
+                        .set_stream(reply.baton, reply.base_url.as_deref());
+                    return match reply
+                        .results
+                        .into_iter()
+                        .nth(init.len())
+                        .map(Entry::into_result)
+                    {
                         Some(Ok(r)) => Ok(r.unwrap_or_default()),
                         Some(Err(m)) => Err(Error::Query(m)),
                         None => Err(Error::Query("el servidor no respondió el lote".into())),
@@ -875,17 +1053,30 @@ impl Loader<'_> {
 
     /// `rows` into the window (opening it first when it isn't); `done`:
     /// rows of the load before them (for error messages).
-    async fn insert(&mut self, spec: &LoadSpec, rows: &[Vec<Cell>], per_stmt: usize, done: u64) -> Result<()> {
+    async fn insert(
+        &mut self,
+        spec: &LoadSpec,
+        rows: &[Vec<Cell>],
+        per_stmt: usize,
+        done: u64,
+    ) -> Result<()> {
         let pow = match self.pow {
             Some(p) => p,
-            None if rows.iter().flatten().any(|c| matches!(c, Cell::Float(_))) => self.has_pow().await?,
+            None if rows.iter().flatten().any(|c| matches!(c, Cell::Float(_))) => {
+                self.has_pow().await?
+            }
             None => false,
         };
         let begin = !self.open;
         let (req, first) = insert_request(spec, rows, begin, per_stmt, pow)?;
         self.open = true;
         let r = self.run(&req, begin).await?;
-        if let Some((i, e)) = r.step_errors.into_iter().enumerate().find_map(|(i, e)| e.map(|e| (i, e))) {
+        if let Some((i, e)) = r
+            .step_errors
+            .into_iter()
+            .enumerate()
+            .find_map(|(i, e)| e.map(|e| (i, e)))
+        {
             let msg = e.text();
             return Err(if i >= first {
                 let row = done + ((i - first) * per_stmt) as u64 + 1;
@@ -902,7 +1093,10 @@ impl Loader<'_> {
     async fn has_pow(&mut self) -> Result<bool> {
         let mut steps = Vec::new();
         push_step(&mut steps, "SELECT pow(2, -1074)", "");
-        let req = format!(r#"{{"type":"batch","batch":{{"steps":[{}]}}}}"#, steps.join(","));
+        let req = format!(
+            r#"{{"type":"batch","batch":{{"steps":[{}]}}}}"#,
+            steps.join(",")
+        );
         let r = self.run(&req, !self.open).await?;
         let pow = match r.step_errors.into_iter().flatten().next() {
             None => true,
@@ -932,11 +1126,19 @@ impl Loader<'_> {
         let reached = match self.client.baton().map(str::to_string) {
             Some(b) => {
                 let rollback = execute_req("ROLLBACK", false);
-                match post(Wire::of(self.client), pipeline_body(Some(&b), &[&rollback]), true, parse_batch).await {
+                match post(
+                    Wire::of(self.client),
+                    pipeline_body(Some(&b), &[&rollback]),
+                    true,
+                    parse_batch,
+                )
+                .await
+                {
                     // Rolled back, or no transaction was left (a failed
                     // statement can end it): either way, the stream's own.
                     Ok(reply) => {
-                        self.client.set_stream(reply.baton, reply.base_url.as_deref());
+                        self.client
+                            .set_stream(reply.baton, reply.base_url.as_deref());
                         true
                     }
                     Err(_) => {
@@ -957,7 +1159,10 @@ impl Loader<'_> {
     async fn commit(&mut self) -> Result<()> {
         let mut steps = Vec::new();
         push_step(&mut steps, "COMMIT", "");
-        let req = format!(r#"{{"type":"batch","batch":{{"steps":[{}]}}}}"#, steps.join(","));
+        let req = format!(
+            r#"{{"type":"batch","batch":{{"steps":[{}]}}}}"#,
+            steps.join(",")
+        );
         let r = self.run(&req, false).await?;
         if let Some(e) = r.step_errors.into_iter().flatten().next() {
             return Err(Error::Query(e.text()));
@@ -976,13 +1181,24 @@ const ORPHAN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 /// answers otherwise (another error, or no answer).
 async fn wait_unlocked(w: Wire) {
     let deadline = std::time::Instant::now() + ORPHAN_WAIT;
-    let reqs = [execute_req("BEGIN IMMEDIATE", false), execute_req("ROLLBACK", false), r#"{"type":"close"}"#.to_string()];
+    let reqs = [
+        execute_req("BEGIN IMMEDIATE", false),
+        execute_req("ROLLBACK", false),
+        r#"{"type":"close"}"#.to_string(),
+    ];
     let reqs: Vec<&str> = reqs.iter().map(String::as_str).collect();
     loop {
-        let Ok(reply) = post(w.clone(), pipeline_body(None, &reqs), false, parse_batch).await else { return };
-        let Some(Err(msg)) = reply.results.into_iter().next().map(Entry::into_result) else { return };
+        let Ok(reply) = post(w.clone(), pipeline_body(None, &reqs), false, parse_batch).await
+        else {
+            return;
+        };
+        let Some(Err(msg)) = reply.results.into_iter().next().map(Entry::into_result) else {
+            return;
+        };
         let msg = msg.to_ascii_lowercase();
-        if !(msg.contains("locked") || msg.contains("busy")) || std::time::Instant::now() >= deadline {
+        if !(msg.contains("locked") || msg.contains("busy"))
+            || std::time::Instant::now() >= deadline
+        {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -995,7 +1211,9 @@ impl Drop for Loader<'_> {
         if inflight.is_none() && !self.open {
             return;
         }
-        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
         // With a request in flight, the client's baton is stale; either
         // way this stream is left to the rollback below and the session's
         // next request starts a new one.
@@ -1019,9 +1237,16 @@ impl Drop for Loader<'_> {
     }
 }
 
-pub(crate) async fn bulk_load(s: &mut LibsqlSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &mut LibsqlSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if s.read_only {
-        return Err(Error::Query("La conexión es de solo lectura: no se permite cargar datos.".into()));
+        return Err(Error::Query(
+            "La conexión es de solo lectura: no se permite cargar datos.".into(),
+        ));
     }
     let ncols = spec.columns.len();
     if ncols == 0 {
@@ -1029,21 +1254,43 @@ pub(crate) async fn bulk_load(s: &mut LibsqlSession, spec: &LoadSpec, source: &m
     }
     // Up to two parameters per cell (a float as `m`, `e`).
     let per_stmt = ROWS_PER_STMT.min(MAX_PARAMS / (2 * ncols)).max(1);
-    let max_rows = if spec.commit_rows == 0 { u64::MAX } else { spec.commit_rows };
-    let max_bytes = if spec.commit_bytes == 0 { u64::MAX } else { spec.commit_bytes };
+    let max_rows = if spec.commit_rows == 0 {
+        u64::MAX
+    } else {
+        spec.commit_rows
+    };
+    let max_bytes = if spec.commit_bytes == 0 {
+        u64::MAX
+    } else {
+        spec.commit_bytes
+    };
     let (mut total, mut rows, mut bytes) = (0u64, 0u64, 0u64);
-    let mut ld = Loader { client: &mut s.client, inflight: None, open: false, pow: None };
+    let mut ld = Loader {
+        client: &mut s.client,
+        inflight: None,
+        open: false,
+        pow: None,
+    };
     let r: Result<()> = async {
         while let Some(batch) = source.next().await {
             let mut start = 0;
             for (i, row) in batch.rows.iter().enumerate() {
                 if row.len() != ncols {
-                    return Err(Error::Query(format!("una fila trae {} valores y la carga tiene {ncols} columnas", row.len())));
+                    return Err(Error::Query(format!(
+                        "una fila trae {} valores y la carga tiene {ncols} columnas",
+                        row.len()
+                    )));
                 }
                 rows += 1;
                 bytes += row.iter().map(Cell::size).sum::<usize>() as u64;
                 if rows >= max_rows || bytes >= max_bytes {
-                    ld.insert(spec, &batch.rows[start..=i], per_stmt, total + rows - (i + 1 - start) as u64).await?;
+                    ld.insert(
+                        spec,
+                        &batch.rows[start..=i],
+                        per_stmt,
+                        total + rows - (i + 1 - start) as u64,
+                    )
+                    .await?;
                     ld.commit().await?;
                     total += rows;
                     (rows, bytes) = (0, 0);
@@ -1053,7 +1300,8 @@ pub(crate) async fn bulk_load(s: &mut LibsqlSession, spec: &LoadSpec, source: &m
             }
             if start < batch.rows.len() {
                 let pending = &batch.rows[start..];
-                ld.insert(spec, pending, per_stmt, total + rows - pending.len() as u64).await?;
+                ld.insert(spec, pending, per_stmt, total + rows - pending.len() as u64)
+                    .await?;
             }
         }
         if ld.open {
@@ -1081,8 +1329,18 @@ mod tests {
 
     fn cells(json: &str) -> Vec<Vec<Cell>> {
         let (reply, _) = parse_rows(json.as_bytes()).unwrap();
-        let rows = reply.results.into_iter().next().unwrap().into_result().unwrap().unwrap();
-        rows.rows.into_iter().map(|r| r.into_iter().map(|h| h.0).collect()).collect()
+        let rows = reply
+            .results
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_result()
+            .unwrap()
+            .unwrap();
+        rows.rows
+            .into_iter()
+            .map(|r| r.into_iter().map(|h| h.0).collect())
+            .collect()
     }
 
     #[test]
@@ -1105,9 +1363,22 @@ mod tests {
     /// text (one ULP off); the cell must hold the value the text names.
     #[test]
     fn floats_are_exact() {
-        let texts = ["1.0715660391465826e-75", "5e-324", "1.7976931348623157e308", "-0.0", "0.1", "2.2250738585072014e-308"];
-        let row = texts.iter().map(|t| format!(r#"{{"type":"float","value":{t}}}"#)).collect::<Vec<_>>().join(",");
-        let body = format!(r#"{{"baton":null,"results":[{{"type":"ok","response":{{"type":"execute","result":{{"cols":[],"rows":[[{row}]]}}}}}}]}}"#);
+        let texts = [
+            "1.0715660391465826e-75",
+            "5e-324",
+            "1.7976931348623157e308",
+            "-0.0",
+            "0.1",
+            "2.2250738585072014e-308",
+        ];
+        let row = texts
+            .iter()
+            .map(|t| format!(r#"{{"type":"float","value":{t}}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = format!(
+            r#"{{"baton":null,"results":[{{"type":"ok","response":{{"type":"execute","result":{{"cols":[],"rows":[[{row}]]}}}}}}]}}"#
+        );
         let got = cells(&body).remove(0);
         for (t, c) in texts.iter().zip(got) {
             let Cell::Float(f) = c else { panic!("{c:?}") };
@@ -1123,8 +1394,19 @@ mod tests {
                 Some(f64::from_bits(x)).filter(|f| f.is_finite())
             })
             .collect();
-        let row = vals.iter().map(|f| format!(r#"{{"type":"float","value":{}}}"#, serde_json::to_string(f).unwrap())).collect::<Vec<_>>().join(",");
-        let body = format!(r#"{{"results":[{{"type":"ok","response":{{"result":{{"rows":[[{row}]]}}}}}}]}}"#);
+        let row = vals
+            .iter()
+            .map(|f| {
+                format!(
+                    r#"{{"type":"float","value":{}}}"#,
+                    serde_json::to_string(f).unwrap()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = format!(
+            r#"{{"results":[{{"type":"ok","response":{{"result":{{"rows":[[{row}]]}}}}}}]}}"#
+        );
         let got = cells(&body).remove(0);
         for (v, c) in vals.iter().zip(got) {
             assert_eq!(c, Cell::Float(*v));
@@ -1170,7 +1452,10 @@ mod tests {
                 continue;
             }
             let (m, e) = float_parts(f).unwrap();
-            assert!(m % 2 != 0 && m.unsigned_abs() < 1 << 53 && (-1074..=1023).contains(&e), "{f:e}: {m} {e}");
+            assert!(
+                m % 2 != 0 && m.unsigned_abs() < 1 << 53 && (-1074..=1023).contains(&e),
+                "{f:e}: {m} {e}"
+            );
             // One product, as the server does it (pow(2, e) is exact).
             assert_eq!((m as f64 * pow2(e)).to_bits(), f.to_bits(), "{f:e}");
         }
@@ -1181,7 +1466,10 @@ mod tests {
         assert_eq!(real_sql(f64::INFINITY, true).unwrap(), "9e999");
         assert_eq!(real_sql(f64::NEG_INFINITY, false).unwrap(), "-9e999");
         assert_eq!(real_sql(-0.0, true).unwrap(), "-0.0");
-        assert!(matches!(real_sql(f64::NAN, true), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            real_sql(f64::NAN, true),
+            Err(Error::Unsupported(_))
+        ));
         assert_eq!(real_sql(1.5, true).unwrap(), "3*pow(2,-1)");
         assert_eq!(real_sql(5e-324, true).unwrap(), "1*pow(2,-1074)");
         assert_eq!(real_sql(1.5, false).unwrap(), "CAST(3 AS REAL)/2");
@@ -1202,7 +1490,11 @@ mod tests {
                 continue;
             }
             let s = real_sql(f, false).unwrap();
-            let (cast, ops) = s.strip_prefix("CAST(").unwrap().split_once(" AS REAL)").unwrap();
+            let (cast, ops) = s
+                .strip_prefix("CAST(")
+                .unwrap()
+                .split_once(" AS REAL)")
+                .unwrap();
             let mut v = cast.parse::<i64>().unwrap() as f64;
             let mut rest = ops;
             while !rest.is_empty() {
@@ -1218,7 +1510,11 @@ mod tests {
 
     fn spec(cols: &[&str]) -> LoadSpec {
         LoadSpec {
-            table: dbine_driver::ObjectRef { kind: "table".into(), schema: None, name: "t\"x".into() },
+            table: dbine_driver::ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: "t\"x".into(),
+            },
             columns: cols.iter().map(|c| c.to_string()).collect(),
             table_lock: false,
             keep_identity: false,
@@ -1241,7 +1537,10 @@ mod tests {
         let steps = v["batch"]["steps"].as_array().unwrap();
         assert_eq!(steps.len(), 3);
         assert_eq!(steps[0]["stmt"]["sql"], "BEGIN IMMEDIATE");
-        assert_eq!(steps[1]["stmt"]["sql"], r#"INSERT INTO "t""x" ("a", "b") VALUES (9e999, ?), (?, ?)"#);
+        assert_eq!(
+            steps[1]["stmt"]["sql"],
+            r#"INSERT INTO "t""x" ("a", "b") VALUES (9e999, ?), (?, ?)"#
+        );
         assert_eq!(steps[1]["condition"]["step"], 0);
         assert_eq!(
             steps[1]["stmt"]["args"],
@@ -1251,9 +1550,30 @@ mod tests {
                 {"type": "text", "value": u64::MAX.to_string()},
             ])
         );
-        assert_eq!(steps[2]["stmt"]["args"], serde_json::json!([{"type": "null"}, {"type": "integer", "value": "1"}]));
-        assert!(matches!(insert_request(&spec, &[vec![Cell::Float(f64::NAN), Cell::Null]], false, 2, false), Err(Error::Unsupported(_))));
-        assert!(matches!(insert_request(&spec, &[vec![Cell::Float(f64::NAN), Cell::Null]], false, 2, true), Err(Error::Unsupported(_))));
+        assert_eq!(
+            steps[2]["stmt"]["args"],
+            serde_json::json!([{"type": "null"}, {"type": "integer", "value": "1"}])
+        );
+        assert!(matches!(
+            insert_request(
+                &spec,
+                &[vec![Cell::Float(f64::NAN), Cell::Null]],
+                false,
+                2,
+                false
+            ),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            insert_request(
+                &spec,
+                &[vec![Cell::Float(f64::NAN), Cell::Null]],
+                false,
+                2,
+                true
+            ),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     /// With `pow`, a float column goes as (m, e) parameters and the value
@@ -1288,7 +1608,10 @@ mod tests {
                 int(4), int(-1), int(2000), nul,
             ])
         );
-        assert_eq!(steps[1]["stmt"]["sql"], r#"INSERT INTO "t""x" ("a", "r", "s") VALUES (?, ?, ?)"#);
+        assert_eq!(
+            steps[1]["stmt"]["sql"],
+            r#"INSERT INTO "t""x" ("a", "r", "s") VALUES (?, ?, ?)"#
+        );
 
         // Pairs that would pass SQLite's column limit: an expression per float.
         let names: Vec<String> = (0..1500).map(|i| format!("c{i}")).collect();
@@ -1297,17 +1620,27 @@ mod tests {
         let (req, _) = insert_request(&wide, &[row], false, 1, true).unwrap();
         let v: Value = serde_json::from_str(&req).unwrap();
         let sql = v["batch"]["steps"][0]["stmt"]["sql"].as_str().unwrap();
-        assert!(sql.contains(" VALUES (1*pow(2,-1), 3*pow(2,-1), "), "{}", &sql[..200]);
+        assert!(
+            sql.contains(" VALUES (1*pow(2,-1), 3*pow(2,-1), "),
+            "{}",
+            &sql[..200]
+        );
         assert!(!sql.contains("SELECT"));
     }
 
     fn spec_owned(columns: Vec<String>) -> LoadSpec {
-        LoadSpec { columns, ..spec(&[]) }
+        LoadSpec {
+            columns,
+            ..spec(&[])
+        }
     }
 
     #[test]
     fn missing_rowid_message() {
-        assert!(no_such("SQL input error: no such column: rowid (at offset 7)", "rowid"));
+        assert!(no_such(
+            "SQL input error: no such column: rowid (at offset 7)",
+            "rowid"
+        ));
         assert!(no_such("no such column: rowid", "rowid"));
         assert!(!no_such("no such column: rowid_x", "rowid"));
         assert!(!no_such("no such column: \"t\".\"nope\"", "rowid"));

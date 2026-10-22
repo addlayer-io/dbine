@@ -49,10 +49,15 @@ pub fn run(task_id: &str) -> i32 {
     let logs_dir = dir.join("logs");
     let _ = std::fs::create_dir_all(&logs_dir);
     let _ = crate::LOG_DIR.set(logs_dir.clone());
-    let (writer, guard) = tracing_appender::non_blocking(tracing_appender::rolling::daily(&logs_dir, "app.log"));
+    let (writer, guard) =
+        tracing_appender::non_blocking(tracing_appender::rolling::daily(&logs_dir, "app.log"));
     let _ = tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(writer),
+        )
         .try_init();
     crate::identifier::log_report();
     let code = run_logged(task_id, &dir, &data_dir);
@@ -82,7 +87,10 @@ fn run_logged(task_id: &str, dir: &std::path::Path, data_dir: &std::path::Path) 
         tracing::info!(task = task_id, "scheduled task disabled: not run");
         return 0;
     }
-    let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(rt) => rt,
         Err(e) => {
             tracing::error!("scheduled task: no runtime: {e}");
@@ -98,7 +106,12 @@ fn run_logged(task_id: &str, dir: &std::path::Path, data_dir: &std::path::Path) 
                 continue;
             }
             let id = conn.clone();
-            match tokio::time::timeout(SECRETS_LIMIT, tokio::task::spawn_blocking(move || dbine_core::secrets::get(&id))).await {
+            match tokio::time::timeout(
+                SECRETS_LIMIT,
+                tokio::task::spawn_blocking(move || dbine_core::secrets::get(&id)),
+            )
+            .await
+            {
                 Ok(Ok(Ok(_))) => {}
                 Ok(Ok(Err(e))) => return Err(keychain_message(&e.to_string())),
                 Ok(Err(e)) => return Err(e.to_string()),
@@ -106,8 +119,14 @@ fn run_logged(task_id: &str, dir: &std::path::Path, data_dir: &std::path::Path) 
             }
         }
         // The mail server's password, the same way.
-        if task.steps.iter().any(|s| s.kind == dbine_core::tasks::kinds::SEND_MAIL) {
-            let read = tokio::task::spawn_blocking(|| dbine_core::secrets::get_raw(crate::tasks::mail::PASSWORD));
+        if task
+            .steps
+            .iter()
+            .any(|s| s.kind == dbine_core::tasks::kinds::SEND_MAIL)
+        {
+            let read = tokio::task::spawn_blocking(|| {
+                dbine_core::secrets::get_raw(crate::tasks::mail::PASSWORD)
+            });
             match tokio::time::timeout(SECRETS_LIMIT, read).await {
                 Ok(Ok(Ok(_))) => {}
                 Ok(Ok(Err(e))) => return Err(keychain_message(&e.to_string())),
@@ -135,7 +154,10 @@ fn run_logged(task_id: &str, dir: &std::path::Path, data_dir: &std::path::Path) 
                 ..Default::default()
             };
             let _ = state.store.save_task_run(&failed);
-            tracing::error!(task = task_id, "scheduled task failed before starting: {msg}");
+            tracing::error!(
+                task = task_id,
+                "scheduled task failed before starting: {msg}"
+            );
             if task.notify != dbine_core::tasks::Notify::Never {
                 crate::tasks::notify::send(&format!("DBine · {}", task.name), &msg);
             }

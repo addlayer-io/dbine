@@ -23,7 +23,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@')?;
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
         driver: driver.into(),
@@ -36,12 +38,17 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
@@ -54,7 +61,10 @@ async fn checks(s: &mut Box<dyn Session>) -> Vec<HealthCheck> {
 }
 
 fn get<'a>(checks: &'a [HealthCheck], id: &str) -> &'a HealthCheck {
-    checks.iter().find(|c| c.id == id).unwrap_or_else(|| panic!("no {id} check"))
+    checks
+        .iter()
+        .find(|c| c.id == id)
+        .unwrap_or_else(|| panic!("no {id} check"))
 }
 
 async fn finds_what_was_broken(id: &str, env: &str) {
@@ -72,12 +82,24 @@ async fn finds_what_was_broken(id: &str, env: &str) {
     }
     let mut s = d.connect(&cfg, Some(DB)).await.unwrap();
     // ix_a repeats the start of ix_ab.
-    run(&mut s, "CREATE TABLE clientes (id INT PRIMARY KEY, a INT, b INT, KEY ix_a (a), KEY ix_ab (a, b))").await;
+    run(
+        &mut s,
+        "CREATE TABLE clientes (id INT PRIMARY KEY, a INT, b INT, KEY ix_a (a), KEY ix_ab (a, b))",
+    )
+    .await;
     run(&mut s, "INSERT INTO clientes VALUES (1, 1, 1), (2, 2, 2)").await;
     run(&mut s, "CREATE TABLE sin_pk (v INT)").await;
-    run(&mut s, "CREATE TABLE latina (id INT PRIMARY KEY, t VARCHAR(10)) DEFAULT CHARSET = latin1").await;
+    run(
+        &mut s,
+        "CREATE TABLE latina (id INT PRIMARY KEY, t VARCHAR(10)) DEFAULT CHARSET = latin1",
+    )
+    .await;
     if server {
-        run(&mut s, "CREATE TABLE vieja (id INT PRIMARY KEY) ENGINE = MyISAM").await;
+        run(
+            &mut s,
+            "CREATE TABLE vieja (id INT PRIMARY KEY) ENGINE = MyISAM",
+        )
+        .await;
     } else {
         // TiDB only counts index use on tables with statistics.
         run(&mut s, "ANALYZE TABLE clientes").await;
@@ -86,27 +108,62 @@ async fn finds_what_was_broken(id: &str, env: &str) {
     run(&mut s, "SELECT id FROM clientes WHERE id = 1").await;
 
     let all = checks(&mut s).await;
-    assert_eq!(get(&all, "no_primary_key").objects, vec!["sin_pk".to_string()]);
+    assert_eq!(
+        get(&all, "no_primary_key").objects,
+        vec!["sin_pk".to_string()]
+    );
     let redundant = get(&all, "redundant_indexes");
-    assert_eq!(redundant.objects, vec!["clientes · ix_a (lo cubre ix_ab)".to_string()]);
-    assert_eq!(redundant.fix.as_deref(), Some("ALTER TABLE `dbine_health`.`clientes` DROP INDEX `ix_a`;"));
+    assert_eq!(
+        redundant.objects,
+        vec!["clientes · ix_a (lo cubre ix_ab)".to_string()]
+    );
+    assert_eq!(
+        redundant.fix.as_deref(),
+        Some("ALTER TABLE `dbine_health`.`clientes` DROP INDEX `ix_a`;")
+    );
     let unused = get(&all, "unused_indexes");
-    assert!(unused.objects.contains(&"clientes · ix_ab".to_string()), "{:?}", unused.objects);
+    assert!(
+        unused.objects.contains(&"clientes · ix_ab".to_string()),
+        "{:?}",
+        unused.objects
+    );
     assert!(unused.title.starts_with("No concluyente") && unused.fix.is_none());
-    assert!(get(&all, "mixed_collations").objects.iter().any(|o| o.starts_with("latina (latin1")));
+    assert!(get(&all, "mixed_collations")
+        .objects
+        .iter()
+        .any(|o| o.starts_with("latina (latin1")));
     if server {
-        assert!(get(&all, "mixed_collations").fix.as_deref().unwrap().contains("ALTER TABLE `dbine_health`.`latina` CONVERT TO CHARACTER SET utf8mb4 COLLATE "));
-        assert_eq!(get(&all, "myisam_tables").objects, vec!["vieja".to_string()]);
+        assert!(get(&all, "mixed_collations")
+            .fix
+            .as_deref()
+            .unwrap()
+            .contains(
+                "ALTER TABLE `dbine_health`.`latina` CONVERT TO CHARACTER SET utf8mb4 COLLATE "
+            ));
+        assert_eq!(
+            get(&all, "myisam_tables").objects,
+            vec!["vieja".to_string()]
+        );
         assert_eq!(get(&all, "fragmented_tables").severity, Severity::Ok);
     } else {
-        assert!(all.iter().all(|c| !matches!(c.id.as_str(), "myisam_tables" | "fragmented_tables")));
+        assert!(all
+            .iter()
+            .all(|c| !matches!(c.id.as_str(), "myisam_tables" | "fragmented_tables")));
     }
 
     // The fixes clear their findings.
     run(&mut s, redundant.fix.clone().unwrap().as_str()).await;
     if server {
-        run(&mut s, get(&all, "myisam_tables").fix.clone().unwrap().as_str()).await;
-        run(&mut s, get(&all, "mixed_collations").fix.clone().unwrap().as_str()).await;
+        run(
+            &mut s,
+            get(&all, "myisam_tables").fix.clone().unwrap().as_str(),
+        )
+        .await;
+        run(
+            &mut s,
+            get(&all, "mixed_collations").fix.clone().unwrap().as_str(),
+        )
+        .await;
     }
     let again = checks(&mut s).await;
     assert_eq!(get(&again, "redundant_indexes").severity, Severity::Ok);

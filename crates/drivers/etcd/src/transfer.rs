@@ -45,7 +45,9 @@
 
 use crate::command::parse_lease;
 use crate::{b64, int, is_auth_error, lease_hex, unb64, Cancel, Conn, EtcdSession};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, Result};
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -75,8 +77,14 @@ const IN_FLIGHT: usize = 16;
 /// base64 body while in flight: under ~2.5× this in memory).
 const IN_FLIGHT_BYTES: usize = 2 * 1024 * 1024;
 
-const COLUMNS: &[(&str, &str)] =
-    &[("key", "bytes"), ("value", "bytes"), ("create_revision", "int64"), ("mod_revision", "int64"), ("version", "int64"), ("lease", "lease")];
+const COLUMNS: &[(&str, &str)] = &[
+    ("key", "bytes"),
+    ("value", "bytes"),
+    ("create_revision", "int64"),
+    ("mod_revision", "int64"),
+    ("version", "int64"),
+    ("lease", "lease"),
+];
 
 fn text_or_bytes(b: Vec<u8>) -> Cell {
     match String::from_utf8(b) {
@@ -94,7 +102,11 @@ fn kv_cells(kv: &Value) -> Vec<Cell> {
         Cell::Int(int(kv.get("create_revision"))),
         Cell::Int(int(kv.get("mod_revision"))),
         Cell::Int(int(kv.get("version"))),
-        if lease == 0 { Cell::Null } else { Cell::Text(lease_hex(lease)) },
+        if lease == 0 {
+            Cell::Null
+        } else {
+            Cell::Text(lease_hex(lease))
+        },
     ]
 }
 
@@ -122,7 +134,11 @@ struct KvScanner {
 }
 
 impl KvScanner {
-    fn feed(&mut self, chunk: &[u8], on_kv: &mut (dyn FnMut(Value) -> Result<()> + Send)) -> Result<()> {
+    fn feed(
+        &mut self,
+        chunk: &[u8],
+        on_kv: &mut (dyn FnMut(Value) -> Result<()> + Send),
+    ) -> Result<()> {
         for &b in chunk {
             // Strings first: brackets inside them are text.
             if self.in_str {
@@ -151,8 +167,12 @@ impl KvScanner {
                         self.top_str.clear();
                     }
                 }
-                b'{' if self.in_kvs && self.depth == 2 && self.kv.is_none() => self.kv = Some(Vec::new()),
-                b'[' if self.depth == 1 && self.kv.is_none() && self.top_str == b"kvs" => self.in_kvs = true,
+                b'{' if self.in_kvs && self.depth == 2 && self.kv.is_none() => {
+                    self.kv = Some(Vec::new())
+                }
+                b'[' if self.depth == 1 && self.kv.is_none() && self.top_str == b"kvs" => {
+                    self.in_kvs = true
+                }
                 _ => {}
             }
             match b {
@@ -193,16 +213,26 @@ impl KvScanner {
 }
 
 fn bad_reply() -> Error {
-    Error::Query("etcd devolvió una respuesta de rango que no se pudo leer (JSON incompleto o inesperado).".into())
+    Error::Query(
+        "etcd devolvió una respuesta de rango que no se pudo leer (JSON incompleto o inesperado)."
+            .into(),
+    )
 }
 
 /// One `/v3/kv/range` call, its key-values handed to `on_kv` as they
 /// arrive; the rest of the reply (header, `more`). On an expired token it
 /// authenticates and retries once (an error comes before any key-value).
-async fn range_page(conn: &Conn, body: &Value, on_kv: &mut (dyn FnMut(Value) -> Result<()> + Send)) -> Result<Value> {
+async fn range_page(
+    conn: &Conn,
+    body: &Value,
+    on_kv: &mut (dyn FnMut(Value) -> Result<()> + Send),
+) -> Result<Value> {
     let mut retried = false;
     loop {
-        let mut rb = conn.http.post(format!("{}/v3/kv/range", conn.base)).json(body);
+        let mut rb = conn
+            .http
+            .post(format!("{}/v3/kv/range", conn.base))
+            .json(body);
         if let Some(t) = conn.token.lock().unwrap_or_else(|e| e.into_inner()).clone() {
             rb = rb.header("Authorization", t);
         }
@@ -210,9 +240,15 @@ async fn range_page(conn: &Conn, body: &Value, on_kv: &mut (dyn FnMut(Value) -> 
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.map_err(crate::http_error)?;
-            let v: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({"message": text.trim()}));
+            let v: Value =
+                serde_json::from_str(&text).unwrap_or_else(|_| json!({"message": text.trim()}));
             let code = v.get("code").and_then(Value::as_i64).unwrap_or(0);
-            let msg = v.get("message").or_else(|| v.get("error")).and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("HTTP {status}"));
+            let msg = v
+                .get("message")
+                .or_else(|| v.get("error"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("HTTP {status}"));
             if is_auth_error(code, &msg) {
                 if conn.user.is_some() && !retried {
                     retried = true;
@@ -229,20 +265,31 @@ async fn range_page(conn: &Conn, body: &Value, on_kv: &mut (dyn FnMut(Value) -> 
         }
         let rest = scan.finish()?;
         if let Some(e) = rest.get("error") {
-            return Err(Error::Query(e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string())));
+            return Err(Error::Query(
+                e.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| e.to_string()),
+            ));
         }
         return Ok(rest);
     }
 }
 
 /// Keys from `from` to `end` (exclusive), a page at a time.
-async fn read_range(s: &EtcdSession, from: Vec<u8>, end: Vec<u8>, pick: &Option<Vec<usize>>, sink: &BatchSinkRef) -> Result<u64> {
+async fn read_range(
+    s: &EtcdSession,
+    from: Vec<u8>,
+    end: Vec<u8>,
+    pick: &Option<Vec<usize>>,
+    sink: &BatchSinkRef,
+) -> Result<u64> {
     let mut builder = BatchBuilder::new();
     let mut from = from;
     let mut revision: Option<i64> = None;
     let mut limit = PAGE_FIRST;
     loop {
-        let mut body = json!({"key": b64(&from), "range_end": b64(&end), "limit": limit.to_string()});
+        let mut body =
+            json!({"key": b64(&from), "range_end": b64(&end), "limit": limit.to_string()});
         if let Some(r) = revision {
             body["revision"] = json!(r.to_string());
         }
@@ -261,7 +308,9 @@ async fn read_range(s: &EtcdSession, from: Vec<u8>, end: Vec<u8>, pick: &Option<
                 None => row,
                 Some(p) => p.iter().map(|&i| row[i].clone()).collect(),
             };
-            let mut sink = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+            let mut sink = sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?;
             builder.push(row, &mut *sink)?;
             Ok(())
         };
@@ -276,29 +325,43 @@ async fn read_range(s: &EtcdSession, from: Vec<u8>, end: Vec<u8>, pick: &Option<
         from.push(0);
         limit = next_page(limit, largest);
     }
-    let mut sink = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+    let mut sink = sink
+        .lock()
+        .map_err(|_| Error::State("destino de lotes".into()))?;
     builder.flush(&mut *sink)?;
     Ok(builder.rows)
 }
 
 pub async fn read(s: &mut EtcdSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
     if spec.filter.is_some() {
-        return Err(Error::Unsupported("etcd lee por clave o prefijo: no filtra la lectura por lotes".into()));
+        return Err(Error::Unsupported(
+            "etcd lee por clave o prefijo: no filtra la lectura por lotes".into(),
+        ));
     }
     s.cancel.flag.store(false, Ordering::SeqCst);
     let pick = match &spec.columns {
         None => None,
         Some(w) => Some(
             w.iter()
-                .map(|c| COLUMNS.iter().position(|(n, _)| n.eq_ignore_ascii_case(c)).ok_or_else(|| Error::Query(format!("etcd no tiene la columna {c}"))))
+                .map(|c| {
+                    COLUMNS
+                        .iter()
+                        .position(|(n, _)| n.eq_ignore_ascii_case(c))
+                        .ok_or_else(|| Error::Query(format!("etcd no tiene la columna {c}")))
+                })
                 .collect::<Result<Vec<_>>>()?,
         ),
     };
     let cols: Vec<TransferColumn> = match &pick {
         None => COLUMNS.iter().map(|(n, t)| column(n, t)).collect(),
-        Some(p) => p.iter().map(|&i| column(COLUMNS[i].0, COLUMNS[i].1)).collect(),
+        Some(p) => p
+            .iter()
+            .map(|&i| column(COLUMNS[i].0, COLUMNS[i].1))
+            .collect(),
     };
-    sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+    sink.lock()
+        .map_err(|_| Error::State("destino de lotes".into()))?
+        .begin(&cols)?;
     let name = spec.table.name.as_bytes();
     let prefix = |p: &[u8]| {
         let end = crate::command::prefix_end(p);
@@ -308,7 +371,12 @@ pub async fn read(s: &mut EtcdSession, spec: &ReadSpec, sink: BatchSinkRef) -> R
         let (from, end) = prefix(name);
         return read_range(s, from, end, &pick, &sink).await;
     }
-    let exact = s.call("/v3/kv/range", json!({"key": b64(name), "count_only": true})).await?;
+    let exact = s
+        .call(
+            "/v3/kv/range",
+            json!({"key": b64(name), "count_only": true}),
+        )
+        .await?;
     if int(exact.get("count")) > 0 {
         let mut end = name.to_vec();
         end.push(0);
@@ -319,7 +387,11 @@ pub async fn read(s: &mut EtcdSession, spec: &ReadSpec, sink: BatchSinkRef) -> R
 }
 
 fn column(name: &str, type_name: &str) -> TransferColumn {
-    TransferColumn { name: name.into(), type_name: type_name.into(), nullable: name == "lease" }
+    TransferColumn {
+        name: name.into(),
+        type_name: type_name.into(),
+        nullable: name == "lease",
+    }
 }
 
 /// A float as JSON text: the shortest one that reads back the same
@@ -334,9 +406,14 @@ fn float_text(f: f64) -> Option<String> {
 fn text(c: &Cell) -> Vec<u8> {
     match c {
         Cell::Bytes(b) => b.clone(),
-        Cell::Json(s) | Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => {
-            s.as_bytes().to_vec()
-        }
+        Cell::Json(s)
+        | Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s) => s.as_bytes().to_vec(),
         Cell::Bool(b) => b.to_string().into_bytes(),
         Cell::Int(i) => i.to_string().into_bytes(),
         Cell::UInt(u) => u.to_string().into_bytes(),
@@ -368,16 +445,24 @@ fn json_value(column: &str, c: &Cell, out: &mut String) -> Result<()> {
                 out.push_str(&json!({"$numberDouble": s}).to_string());
             }
         },
-        Cell::Bytes(b) => out.push_str(&json!({"$binary": {"base64": b64(b), "subType": "00"}}).to_string()),
+        Cell::Bytes(b) => {
+            out.push_str(&json!({"$binary": {"base64": b64(b), "subType": "00"}}).to_string())
+        }
         Cell::Json(s) => {
             // Only checked (one JSON value, nothing around it): what goes
             // in is the text itself.
-            serde_json::from_str::<Value>(s).map_err(|e| Error::Query(format!("La columna «{column}» trae un JSON inválido: {e}")))?;
+            serde_json::from_str::<Value>(s).map_err(|e| {
+                Error::Query(format!("La columna «{column}» trae un JSON inválido: {e}"))
+            })?;
             out.push_str(s);
         }
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => {
-            out.push_str(&serde_json::to_string(s.as_str()).map_err(Error::query)?)
-        }
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s) => out.push_str(&serde_json::to_string(s.as_str()).map_err(Error::query)?),
     }
     Ok(())
 }
@@ -398,37 +483,68 @@ pub struct Put {
 /// How rows become keys: by their `key` / `value` columns, or as JSON
 /// objects under the target.
 pub enum Rows {
-    KeyValue { base: Vec<u8>, key: usize, value: usize, lease: Option<usize> },
-    Json { base: String, columns: Vec<String> },
+    KeyValue {
+        base: Vec<u8>,
+        key: usize,
+        value: usize,
+        lease: Option<usize>,
+    },
+    Json {
+        base: String,
+        columns: Vec<String>,
+    },
 }
 
 impl Rows {
     pub fn new(target: &str, columns: &[String]) -> Result<Rows> {
         let pos = |n: &str| columns.iter().position(|c| c.eq_ignore_ascii_case(n));
-        let own = columns.iter().all(|c| COLUMNS.iter().any(|(n, _)| c.eq_ignore_ascii_case(n)));
+        let own = columns
+            .iter()
+            .all(|c| COLUMNS.iter().any(|(n, _)| c.eq_ignore_ascii_case(n)));
         let base = target.trim_end_matches('/').to_string();
-        if let Some(c) = columns.iter().enumerate().find_map(|(i, c)| columns[..i].contains(c).then_some(c)) {
+        if let Some(c) = columns
+            .iter()
+            .enumerate()
+            .find_map(|(i, c)| columns[..i].contains(c).then_some(c))
+        {
             return Err(Error::Query(format!("La columna «{c}» se repite: cada fila se guarda como un objeto JSON y sus claves no pueden repetirse.")));
         }
         if let (true, Some(key), Some(value)) = (own, pos("key"), pos("value")) {
-            return Ok(Rows::KeyValue { base: base.into_bytes(), key, value, lease: pos("lease") });
+            return Ok(Rows::KeyValue {
+                base: base.into_bytes(),
+                key,
+                value,
+                lease: pos("lease"),
+            });
         }
         if columns.is_empty() {
-            return Err(Error::Query("No hay columnas para armar las claves.".into()));
+            return Err(Error::Query(
+                "No hay columnas para armar las claves.".into(),
+            ));
         }
-        Ok(Rows::Json { base, columns: columns.to_vec() })
+        Ok(Rows::Json {
+            base,
+            columns: columns.to_vec(),
+        })
     }
 
     /// A row's put.
     pub fn put(&self, row: &[Cell]) -> Result<Put> {
         match self {
-            Rows::KeyValue { base, key, value, lease } => {
+            Rows::KeyValue {
+                base,
+                key,
+                value,
+                lease,
+            } => {
                 let k = match row.get(*key) {
                     None | Some(Cell::Null) => return Err(Error::Query("Una fila viene sin clave (la columna key es nula): etcd no tiene claves nulas.".into())),
                     Some(c) => text(c),
                 };
                 if k.is_empty() {
-                    return Err(Error::Query("Una fila viene con la clave vacía: etcd no admite claves vacías.".into()));
+                    return Err(Error::Query(
+                        "Una fila viene con la clave vacía: etcd no admite claves vacías.".into(),
+                    ));
                 }
                 let v = match row.get(*value) {
                     None | Some(Cell::Null) => {
@@ -444,9 +560,18 @@ impl Rows {
                     Some(Cell::Int(i)) => *i,
                     Some(Cell::UInt(u)) => *u as i64,
                     Some(Cell::Text(t)) => parse_lease(t).map_err(Error::Query)?,
-                    Some(other) => return Err(Error::Query(format!("La clave «{}» trae un lease que no es un id: {other:?}", shown(&k)))),
+                    Some(other) => {
+                        return Err(Error::Query(format!(
+                            "La clave «{}» trae un lease que no es un id: {other:?}",
+                            shown(&k)
+                        )))
+                    }
                 };
-                Ok(Put { key: placed(base, k), value: v, lease })
+                Ok(Put {
+                    key: placed(base, k),
+                    value: v,
+                    lease,
+                })
             }
             Rows::Json { base, columns } => {
                 let first = match row.first() {
@@ -470,7 +595,11 @@ impl Rows {
                     json_value(c, v, &mut obj)?;
                 }
                 obj.push('}');
-                Ok(Put { key: k, value: obj.into_bytes(), lease: 0 })
+                Ok(Put {
+                    key: k,
+                    value: obj.into_bytes(),
+                    lease: 0,
+                })
             }
         }
     }
@@ -525,7 +654,10 @@ impl Pending {
     }
 
     fn body(self) -> Txn {
-        Txn { puts: self.puts, bytes: self.bytes }
+        Txn {
+            puts: self.puts,
+            bytes: self.bytes,
+        }
     }
 }
 
@@ -550,7 +682,16 @@ impl Txn {
     fn split(mut self) -> (Txn, Txn) {
         let second = self.puts.split_off(self.puts.len() / 2);
         let bytes = self.bytes / 2;
-        (Txn { puts: self.puts, bytes }, Txn { puts: second, bytes: self.bytes - bytes })
+        (
+            Txn {
+                puts: self.puts,
+                bytes,
+            },
+            Txn {
+                puts: second,
+                bytes: self.bytes - bytes,
+            },
+        )
     }
 
     /// The request: each put only when no key exists, else a lookup of
@@ -560,12 +701,19 @@ impl Txn {
     fn body(&self) -> Vec<u8> {
         use base64::Engine as _;
         let b64len = |n: usize| n.div_ceil(3) * 4;
-        let cap = 64 + self.puts.iter().map(|p| 3 * b64len(p.key.len()) + b64len(p.value.len()) + 200).sum::<usize>();
+        let cap = 64
+            + self
+                .puts
+                .iter()
+                .map(|p| 3 * b64len(p.key.len()) + b64len(p.value.len()) + 200)
+                .sum::<usize>();
         let mut out = Vec::with_capacity(cap);
         let enc = |out: &mut Vec<u8>, b: &[u8]| {
             let at = out.len();
             out.resize(at + b64len(b.len()), 0);
-            let n = base64::engine::general_purpose::STANDARD.encode_slice(b, &mut out[at..]).unwrap_or(0);
+            let n = base64::engine::general_purpose::STANDARD
+                .encode_slice(b, &mut out[at..])
+                .unwrap_or(0);
             out.truncate(at + n);
         };
         out.extend_from_slice(b"{\"compare\":[");
@@ -575,7 +723,9 @@ impl Txn {
             }
             out.extend_from_slice(b"{\"key\":\"");
             enc(&mut out, &p.key);
-            out.extend_from_slice(b"\",\"target\":\"CREATE\",\"result\":\"EQUAL\",\"create_revision\":\"0\"}");
+            out.extend_from_slice(
+                b"\",\"target\":\"CREATE\",\"result\":\"EQUAL\",\"create_revision\":\"0\"}",
+            );
         }
         out.extend_from_slice(b"],\"success\":[");
         for (i, p) in self.puts.iter().enumerate() {
@@ -610,19 +760,29 @@ impl Txn {
 /// authenticating).
 async fn post(conn: &Conn, t: &Txn) -> Result<Value> {
     let once = |body: Vec<u8>| async move {
-        let mut rb = conn.http.post(format!("{}/v3/kv/txn", conn.base)).header("Content-Type", "application/json").body(body);
+        let mut rb = conn
+            .http
+            .post(format!("{}/v3/kv/txn", conn.base))
+            .header("Content-Type", "application/json")
+            .body(body);
         if let Some(tok) = conn.token.lock().unwrap_or_else(|e| e.into_inner()).clone() {
             rb = rb.header("Authorization", tok);
         }
         let resp = rb.send().await.map_err(crate::http_error)?;
         let status = resp.status();
         let text = resp.text().await.map_err(crate::http_error)?;
-        let v: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({"message": text.trim()}));
+        let v: Value =
+            serde_json::from_str(&text).unwrap_or_else(|_| json!({"message": text.trim()}));
         if status.is_success() && v.get("error").is_none() {
             return Ok(Ok(v));
         }
         let code = v.get("code").and_then(Value::as_i64).unwrap_or(0);
-        let msg = v.get("message").or_else(|| v.get("error")).and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("HTTP {status}"));
+        let msg = v
+            .get("message")
+            .or_else(|| v.get("error"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("HTTP {status}"));
         Ok::<_, Error>(Err((code, msg)))
     };
     match once(t.body()).await? {
@@ -642,7 +802,11 @@ async fn post(conn: &Conn, t: &Txn) -> Result<Value> {
 
 /// One transaction; when the server allows fewer operations per
 /// transaction, it lowers `max_ops` and goes in halves. Its rows.
-fn txn(conn: Arc<Conn>, t: Txn, max_ops: Arc<AtomicUsize>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64>> + Send>> {
+fn txn(
+    conn: Arc<Conn>,
+    t: Txn,
+    max_ops: Arc<AtomicUsize>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64>> + Send>> {
     Box::pin(async move {
         match post(&conn, &t).await {
             Err(Error::Query(m)) if m.contains("too many operations") && t.rows() > 1 => {
@@ -687,7 +851,9 @@ impl Drop for InFlight {
         if let Ok(h) = Handle::try_current() {
             if h.runtime_flavor() == RuntimeFlavor::MultiThread {
                 let set = &mut self.set;
-                tokio::task::block_in_place(|| h.block_on(async { while set.join_next().await.is_some() {} }));
+                tokio::task::block_in_place(|| {
+                    h.block_on(async { while set.join_next().await.is_some() {} })
+                });
             }
         }
         // A current-thread runtime can't be waited on from inside: the
@@ -709,7 +875,9 @@ impl Tally<'_> {
     fn ack(&mut self, rows: u64, bytes: usize) {
         self.done += rows;
         self.done_bytes += bytes as u64;
-        if self.done - self.reported >= self.spec.commit_rows.max(1) || self.done_bytes - self.reported_bytes >= self.spec.commit_bytes.max(1) {
+        if self.done - self.reported >= self.spec.commit_rows.max(1)
+            || self.done_bytes - self.reported_bytes >= self.spec.commit_bytes.max(1)
+        {
             self.report();
         }
     }
@@ -724,7 +892,11 @@ impl Tally<'_> {
 }
 
 impl InFlight {
-    fn joined(&mut self, r: std::result::Result<(Result<u64>, usize), tokio::task::JoinError>, tally: &mut Tally) -> Result<()> {
+    fn joined(
+        &mut self,
+        r: std::result::Result<(Result<u64>, usize), tokio::task::JoinError>,
+        tally: &mut Tally,
+    ) -> Result<()> {
         let (r, bytes) = r.map_err(|e| Error::State(format!("carga masiva interrumpida: {e}")))?;
         self.bytes -= bytes;
         tally.ack(r?, bytes);
@@ -759,20 +931,36 @@ impl InFlight {
         first
     }
 
-    async fn send(&mut self, conn: &Arc<Conn>, t: Txn, max_ops: &Arc<AtomicUsize>, tally: &mut Tally<'_>) -> Result<()> {
-        while !self.set.is_empty() && (self.set.len() >= IN_FLIGHT || self.bytes + t.bytes > IN_FLIGHT_BYTES) {
+    async fn send(
+        &mut self,
+        conn: &Arc<Conn>,
+        t: Txn,
+        max_ops: &Arc<AtomicUsize>,
+        tally: &mut Tally<'_>,
+    ) -> Result<()> {
+        while !self.set.is_empty()
+            && (self.set.len() >= IN_FLIGHT || self.bytes + t.bytes > IN_FLIGHT_BYTES)
+        {
             self.next(tally).await?;
         }
         let (conn, max_ops, bytes) = (conn.clone(), max_ops.clone(), t.bytes);
         self.bytes += bytes;
-        self.set.spawn(async move { (txn(conn, t, max_ops).await, bytes) });
+        self.set
+            .spawn(async move { (txn(conn, t, max_ops).await, bytes) });
         self.reap(tally)
     }
 }
 
-pub async fn load(s: &mut EtcdSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub async fn load(
+    s: &mut EtcdSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if s.read_only {
-        return Err(Error::Query("Conexión de solo lectura: no se puede cargar datos.".into()));
+        return Err(Error::Query(
+            "Conexión de solo lectura: no se puede cargar datos.".into(),
+        ));
     }
     let rows = Rows::new(&spec.table.name, &spec.columns)?;
     s.cancel.flag.store(false, Ordering::SeqCst);
@@ -780,16 +968,32 @@ pub async fn load(s: &mut EtcdSession, spec: &LoadSpec, source: &mut dyn BatchSo
     load_puts(&s.conn, &rows, spec, source, progress, &cancel).await
 }
 
-async fn load_puts(conn: &Arc<Conn>, rows: &Rows, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>, cancel: &Cancel) -> Result<u64> {
+async fn load_puts(
+    conn: &Arc<Conn>,
+    rows: &Rows,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+    cancel: &Cancel,
+) -> Result<u64> {
     let woken = cancel.notify.notified();
     tokio::pin!(woken);
     woken.as_mut().enable();
     if cancel.flag.load(Ordering::SeqCst) {
         return Err(Error::Cancelled);
     }
-    let mut tally = Tally { spec, progress, done: 0, done_bytes: 0, reported: 0, reported_bytes: 0 };
+    let mut tally = Tally {
+        spec,
+        progress,
+        done: 0,
+        done_bytes: 0,
+        reported: 0,
+        reported_bytes: 0,
+    };
     let mut fl = InFlight::default();
-    let max_ops = Arc::new(AtomicUsize::new(TXN_OPS.min(spec.commit_rows.clamp(1, TXN_OPS as u64) as usize)));
+    let max_ops = Arc::new(AtomicUsize::new(
+        TXN_OPS.min(spec.commit_rows.clamp(1, TXN_OPS as u64) as usize),
+    ));
     let max_bytes = TXN_BYTES.min(spec.commit_bytes.max(1).try_into().unwrap_or(usize::MAX));
     let sent = async {
         let mut pending = Pending::default();
@@ -797,8 +1001,17 @@ async fn load_puts(conn: &Arc<Conn>, rows: &Rows, spec: &LoadSpec, source: &mut 
             for row in batch.rows {
                 let put = rows.put(&row)?;
                 drop(row);
-                if !pending.is_empty() && (pending.len() >= max_ops.load(Ordering::SeqCst) || pending.bytes + Pending::size(&put) > max_bytes) {
-                    fl.send(conn, std::mem::take(&mut pending).body(), &max_ops, &mut tally).await?;
+                if !pending.is_empty()
+                    && (pending.len() >= max_ops.load(Ordering::SeqCst)
+                        || pending.bytes + Pending::size(&put) > max_bytes)
+                {
+                    fl.send(
+                        conn,
+                        std::mem::take(&mut pending).body(),
+                        &max_ops,
+                        &mut tally,
+                    )
+                    .await?;
                 }
                 pending.add(put)?;
             }
@@ -830,36 +1043,109 @@ mod tests {
     }
 
     fn put(k: &str, v: &str) -> Put {
-        Put { key: k.as_bytes().to_vec(), value: v.as_bytes().to_vec(), lease: 0 }
+        Put {
+            key: k.as_bytes().to_vec(),
+            value: v.as_bytes().to_vec(),
+            lease: 0,
+        }
     }
 
     #[test]
     fn key_value_rows_are_their_keys_under_the_target() {
         let c = cols(&["Key", "value", "version", "LEASE"]);
         let m = Rows::new("/t/", &c).unwrap();
-        let row = |k: &str, v: Cell, lease: Cell| vec![Cell::Text(k.into()), v, Cell::Int(3), lease];
+        let row =
+            |k: &str, v: Cell, lease: Cell| vec![Cell::Text(k.into()), v, Cell::Int(3), lease];
         // Under the target: as it is; elsewhere: under it, never outside.
-        assert_eq!(m.put(&row("/t/a b", Cell::Text("x \"y\" ñ".into()), Cell::Null)).unwrap(), put("/t/a b", "x \"y\" ñ"));
-        assert_eq!(m.put(&row("/src/0", Cell::Text("v".into()), Cell::Null)).unwrap(), put("/t/src/0", "v"));
-        assert_eq!(m.put(&row("rel", Cell::Text("v".into()), Cell::Null)).unwrap(), put("/t/rel", "v"));
-        assert_eq!(m.put(&row("/tx", Cell::Text("v".into()), Cell::Null)).unwrap(), put("/t/tx", "v"));
-        assert_eq!(m.put(&row("/t", Cell::Text("v".into()), Cell::Null)).unwrap(), put("/t", "v"));
-        assert_eq!(m.put(&row("/t/j", Cell::Json("{\"a\": 1}".into()), Cell::Null)).unwrap(), put("/t/j", "{\"a\": 1}"));
+        assert_eq!(
+            m.put(&row("/t/a b", Cell::Text("x \"y\" ñ".into()), Cell::Null))
+                .unwrap(),
+            put("/t/a b", "x \"y\" ñ")
+        );
+        assert_eq!(
+            m.put(&row("/src/0", Cell::Text("v".into()), Cell::Null))
+                .unwrap(),
+            put("/t/src/0", "v")
+        );
+        assert_eq!(
+            m.put(&row("rel", Cell::Text("v".into()), Cell::Null))
+                .unwrap(),
+            put("/t/rel", "v")
+        );
+        assert_eq!(
+            m.put(&row("/tx", Cell::Text("v".into()), Cell::Null))
+                .unwrap(),
+            put("/t/tx", "v")
+        );
+        assert_eq!(
+            m.put(&row("/t", Cell::Text("v".into()), Cell::Null))
+                .unwrap(),
+            put("/t", "v")
+        );
+        assert_eq!(
+            m.put(&row("/t/j", Cell::Json("{\"a\": 1}".into()), Cell::Null))
+                .unwrap(),
+            put("/t/j", "{\"a\": 1}")
+        );
         // JSON goes as its text: no f64 rounding, no key sorting.
-        let doc = r#"{"z":1,"n":123456789012345678901234567890,"d":0.10000000000000000000001,"a":2}"#;
-        assert_eq!(m.put(&row("/t/big", Cell::Json(doc.into()), Cell::Null)).unwrap().value, doc.as_bytes().to_vec());
-        assert_eq!(m.put(&row("/t/d", Cell::Decimal("0.10000000000000000000001".into()), Cell::Null)).unwrap().value, b"0.10000000000000000000001".to_vec());
-        assert_eq!(m.put(&row("/t/i", Cell::Int(i64::MAX), Cell::Null)).unwrap().value, i64::MAX.to_string().into_bytes());
-        assert_eq!(m.put(&row("/t/f", Cell::Float(0.1), Cell::Null)).unwrap().value, b"0.1".to_vec());
-        assert_eq!(m.put(&row("/t/f", Cell::Float(1.5), Cell::Null)).unwrap().value, b"1.5".to_vec());
-        assert_eq!(m.put(&row("/t/l", Cell::Text("".into()), Cell::Text("1a".into()))).unwrap().lease, 0x1a);
+        let doc =
+            r#"{"z":1,"n":123456789012345678901234567890,"d":0.10000000000000000000001,"a":2}"#;
+        assert_eq!(
+            m.put(&row("/t/big", Cell::Json(doc.into()), Cell::Null))
+                .unwrap()
+                .value,
+            doc.as_bytes().to_vec()
+        );
+        assert_eq!(
+            m.put(&row(
+                "/t/d",
+                Cell::Decimal("0.10000000000000000000001".into()),
+                Cell::Null
+            ))
+            .unwrap()
+            .value,
+            b"0.10000000000000000000001".to_vec()
+        );
+        assert_eq!(
+            m.put(&row("/t/i", Cell::Int(i64::MAX), Cell::Null))
+                .unwrap()
+                .value,
+            i64::MAX.to_string().into_bytes()
+        );
+        assert_eq!(
+            m.put(&row("/t/f", Cell::Float(0.1), Cell::Null))
+                .unwrap()
+                .value,
+            b"0.1".to_vec()
+        );
+        assert_eq!(
+            m.put(&row("/t/f", Cell::Float(1.5), Cell::Null))
+                .unwrap()
+                .value,
+            b"1.5".to_vec()
+        );
+        assert_eq!(
+            m.put(&row("/t/l", Cell::Text("".into()), Cell::Text("1a".into())))
+                .unwrap()
+                .lease,
+            0x1a
+        );
         // Null or empty keys, and null values, are errors, not skipped rows.
         assert!(m.put(&row("", Cell::Text("v".into()), Cell::Null)).is_err());
-        assert!(m.put(&[Cell::Null, Cell::Text("v".into()), Cell::Null, Cell::Null]).is_err());
-        assert!(matches!(m.put(&row("/t/n", Cell::Null, Cell::Null)), Err(Error::Unsupported(_))));
+        assert!(m
+            .put(&[Cell::Null, Cell::Text("v".into()), Cell::Null, Cell::Null])
+            .is_err());
+        assert!(matches!(
+            m.put(&row("/t/n", Cell::Null, Cell::Null)),
+            Err(Error::Unsupported(_))
+        ));
         // The root target keeps every key.
         let root = Rows::new("/", &cols(&["key", "value"])).unwrap();
-        assert_eq!(root.put(&[Cell::Text("/x".into()), Cell::Text("".into())]).unwrap(), put("/x", ""));
+        assert_eq!(
+            root.put(&[Cell::Text("/x".into()), Cell::Text("".into())])
+                .unwrap(),
+            put("/x", "")
+        );
     }
 
     #[test]
@@ -868,15 +1154,34 @@ mod tests {
         let c = cols(&["key", "value", "updated_at", "owner"]);
         let m = Rows::new("/cfg/", &c).unwrap();
         assert!(matches!(m, Rows::Json { .. }));
-        let p = m.put(&[Cell::Text("a".into()), Cell::Text("1".into()), Cell::DateTime("2024-01-02 03:04:05".into()), Cell::Null]).unwrap();
+        let p = m
+            .put(&[
+                Cell::Text("a".into()),
+                Cell::Text("1".into()),
+                Cell::DateTime("2024-01-02 03:04:05".into()),
+                Cell::Null,
+            ])
+            .unwrap();
         assert_eq!(p.key, b"/cfg/a".to_vec());
-        assert_eq!(String::from_utf8(p.value).unwrap(), r#"{"key":"a","value":"1","updated_at":"2024-01-02 03:04:05","owner":null}"#);
+        assert_eq!(
+            String::from_utf8(p.value).unwrap(),
+            r#"{"key":"a","value":"1","updated_at":"2024-01-02 03:04:05","owner":null}"#
+        );
 
         let c = cols(&["id", "nombre", "n"]);
         let m = Rows::new("/imp/", &c).unwrap();
-        let p = m.put(&[Cell::Int(7), Cell::Text("O'Brien".into()), Cell::Decimal("1.50".into())]).unwrap();
+        let p = m
+            .put(&[
+                Cell::Int(7),
+                Cell::Text("O'Brien".into()),
+                Cell::Decimal("1.50".into()),
+            ])
+            .unwrap();
         assert_eq!(p.key, b"/imp/7".to_vec());
-        assert_eq!(String::from_utf8(p.value).unwrap(), r#"{"id":7,"nombre":"O'Brien","n":"1.50"}"#);
+        assert_eq!(
+            String::from_utf8(p.value).unwrap(),
+            r#"{"id":7,"nombre":"O'Brien","n":"1.50"}"#
+        );
         assert!(Rows::new("/imp", &[]).is_err());
         // A repeated column would be a repeated key of the object.
         assert!(Rows::new("/imp", &cols(&["id", "a", "a"])).is_err());
@@ -884,14 +1189,21 @@ mod tests {
         // Column names are escaped as JSON keys.
         let m = Rows::new("/imp", &cols(&["id", "a\"b"])).unwrap();
         let p = m.put(&[Cell::Int(1), Cell::Text("\"}".into())]).unwrap();
-        assert_eq!(String::from_utf8(p.value).unwrap(), r#"{"id":1,"a\"b":"\"}"}"#);
+        assert_eq!(
+            String::from_utf8(p.value).unwrap(),
+            r#"{"id":1,"a\"b":"\"}"}"#
+        );
         // A null first column has no key.
         assert!(m.put(&[Cell::Null, Cell::Null, Cell::Null]).is_err());
     }
 
     #[test]
     fn json_values_keep_their_type() {
-        let m = Rows::new("/d", &cols(&["id", "b", "t", "big", "u", "nan", "inf", "j"])).unwrap();
+        let m = Rows::new(
+            "/d",
+            &cols(&["id", "b", "t", "big", "u", "nan", "inf", "j"]),
+        )
+        .unwrap();
         let p = m
             .put(&[
                 Cell::Int(1),
@@ -905,7 +1217,10 @@ mod tests {
             ])
             .unwrap();
         let v: Value = serde_json::from_slice(&p.value).unwrap();
-        assert_eq!(v["b"], json!({"$binary": {"base64": "qw==", "subType": "00"}}));
+        assert_eq!(
+            v["b"],
+            json!({"$binary": {"base64": "qw==", "subType": "00"}})
+        );
         assert_eq!(v["t"], json!("0xAB"));
         assert_eq!(v["big"].as_i64(), Some(i64::MAX));
         assert_eq!(v["u"].as_u64(), Some(u64::MAX));
@@ -913,7 +1228,15 @@ mod tests {
         assert_eq!(v["inf"], json!({"$numberDouble": "-Infinity"}));
         assert_eq!(v["j"], json!([1, {"a": null}]));
         let nulls = |j: &str| {
-            let mut r = vec![Cell::Int(2), Cell::Null, Cell::Null, Cell::Null, Cell::Null, Cell::Null, Cell::Null];
+            let mut r = vec![
+                Cell::Int(2),
+                Cell::Null,
+                Cell::Null,
+                Cell::Null,
+                Cell::Null,
+                Cell::Null,
+                Cell::Null,
+            ];
             r.push(Cell::Json(j.into()));
             r
         };
@@ -923,7 +1246,8 @@ mod tests {
         assert!(m.put(&nulls(r#"{"a":1}}"#)).is_err());
         // Nested JSON is its own text: big numbers, long decimals and key
         // order survive.
-        let doc = r#"{"z":1,"n":123456789012345678901234567890,"d":0.10000000000000000000001,"a":2}"#;
+        let doc =
+            r#"{"z":1,"n":123456789012345678901234567890,"d":0.10000000000000000000001,"a":2}"#;
         let p = m.put(&nulls(doc)).unwrap();
         let text = String::from_utf8(p.value).unwrap();
         assert!(text.ends_with(&format!(r#","j":{doc}}}"#)), "{text}");
@@ -935,14 +1259,31 @@ mod tests {
         p.add(put("/k/1", "a")).unwrap();
         assert!(p.add(put("/k/1", "b")).is_err());
         p.add(put("/k/2", "b")).unwrap();
-        p.add(Put { key: vec![0xff, b'"'], value: vec![0; 5], lease: 0x1a }).unwrap();
+        p.add(Put {
+            key: vec![0xff, b'"'],
+            value: vec![0; 5],
+            lease: 0x1a,
+        })
+        .unwrap();
         let t = p.body();
         assert_eq!(t.rows(), 3);
         let body: Value = serde_json::from_slice(&t.body()).unwrap();
-        assert_eq!(body["compare"][0], json!({"key": b64(b"/k/1"), "target": "CREATE", "result": "EQUAL", "create_revision": "0"}));
-        assert_eq!(body["success"][0], json!({"request_put": {"key": b64(b"/k/1"), "value": b64(b"a")}}));
-        assert_eq!(body["success"][2], json!({"request_put": {"key": b64(&[0xff, b'"']), "value": b64(&[0; 5]), "lease": "26"}}));
-        assert_eq!(body["failure"][1], json!({"request_range": {"key": b64(b"/k/2"), "count_only": true}}));
+        assert_eq!(
+            body["compare"][0],
+            json!({"key": b64(b"/k/1"), "target": "CREATE", "result": "EQUAL", "create_revision": "0"})
+        );
+        assert_eq!(
+            body["success"][0],
+            json!({"request_put": {"key": b64(b"/k/1"), "value": b64(b"a")}})
+        );
+        assert_eq!(
+            body["success"][2],
+            json!({"request_put": {"key": b64(&[0xff, b'"']), "value": b64(&[0; 5]), "lease": "26"}})
+        );
+        assert_eq!(
+            body["failure"][1],
+            json!({"request_range": {"key": b64(b"/k/2"), "count_only": true}})
+        );
         let (a, b) = t.split();
         assert_eq!((a.rows(), b.rows()), (1, 2));
         for (t, n) in [(&a, 1), (&b, 2)] {
@@ -952,7 +1293,10 @@ mod tests {
             }
         }
         let body: Value = serde_json::from_slice(&b.body()).unwrap();
-        assert_eq!(body["success"][0]["request_put"]["key"], json!(b64(b"/k/2")));
+        assert_eq!(
+            body["success"][0]["request_put"]["key"],
+            json!(b64(b"/k/2"))
+        );
     }
 
     #[test]
@@ -972,7 +1316,10 @@ mod tests {
             .map(|i| json!({"key": b64(format!("/k/{i}").as_bytes()), "value": b64(format!("v{i} ]}}\"[{{").as_bytes()), "create_revision": "2", "mod_revision": "3", "version": "1"}))
             .collect();
         let reply = json!({"header": {"cluster_id": "1", "revision": "42"}, "kvs": kvs, "more": true, "count": "9"}).to_string();
-        let reply = reply.replace("\"more\"", " \"x\" : [ { \"kvs\": [ {} ] } , \"kvs\" ] ,\n\"more\"");
+        let reply = reply.replace(
+            "\"more\"",
+            " \"x\" : [ { \"kvs\": [ {} ] } , \"kvs\" ] ,\n\"more\"",
+        );
         for cut in [1, 2, 3, 7, 64, reply.len()] {
             let mut scan = KvScanner::default();
             let mut got = Vec::new();
@@ -991,10 +1338,18 @@ mod tests {
         }
         // No key-values, and a cut reply.
         let mut scan = KvScanner::default();
-        scan.feed(br#"{"header":{"revision":"7"},"count":"0"}"#, &mut |_| panic!()).unwrap();
+        scan.feed(
+            br#"{"header":{"revision":"7"},"count":"0"}"#,
+            &mut |_| panic!(),
+        )
+        .unwrap();
         assert_eq!(scan.finish().unwrap()["count"], json!("0"));
         let mut scan = KvScanner::default();
-        scan.feed(br#"{"header":{"revision":"7"},"kvs":[{"key":"YQ=="#, &mut |_| panic!()).unwrap();
+        scan.feed(
+            br#"{"header":{"revision":"7"},"kvs":[{"key":"YQ=="#,
+            &mut |_| panic!(),
+        )
+        .unwrap();
         assert!(scan.finish().is_err());
         // An error from a key-value's consumer stops the reading.
         let mut scan = KvScanner::default();
@@ -1005,11 +1360,26 @@ mod tests {
     #[test]
     fn binaries_go_whole_and_reads_are_typed() {
         let m = Rows::new("", &cols(&["key", "value"])).unwrap();
-        assert_eq!(m.put(&[Cell::Bytes(vec![0xff, 1]), Cell::Bytes(vec![0, 0x80])]).unwrap(), Put { key: vec![0xff, 1], value: vec![0, 0x80], lease: 0 });
+        assert_eq!(
+            m.put(&[Cell::Bytes(vec![0xff, 1]), Cell::Bytes(vec![0, 0x80])])
+                .unwrap(),
+            Put {
+                key: vec![0xff, 1],
+                value: vec![0, 0x80],
+                lease: 0
+            }
+        );
         let kv = json!({"key": b64(b"/a"), "value": b64(&[0xff, 0x00]), "create_revision": "2", "mod_revision": "5", "version": "3", "lease": "26"});
         assert_eq!(
             kv_cells(&kv),
-            vec![Cell::Text("/a".into()), Cell::Bytes(vec![0xff, 0]), Cell::Int(2), Cell::Int(5), Cell::Int(3), Cell::Text("1a".into())]
+            vec![
+                Cell::Text("/a".into()),
+                Cell::Bytes(vec![0xff, 0]),
+                Cell::Int(2),
+                Cell::Int(5),
+                Cell::Int(3),
+                Cell::Text("1a".into())
+            ]
         );
         assert_eq!(kv_cells(&json!({"key": b64(b"k")}))[5], Cell::Null);
     }

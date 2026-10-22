@@ -145,27 +145,45 @@ pub const CODE_KINDS: &[&str] = &[
 
 /// The kinds of `info` whose source the generic scan searches.
 pub fn code_kinds(info: &DriverInfo) -> Vec<String> {
-    info.object_kinds.iter().filter(|k| k.has_definition && CODE_KINDS.contains(&k.id)).map(|k| k.id.to_string()).collect()
+    info.object_kinds
+        .iter()
+        .filter(|k| k.has_definition && CODE_KINDS.contains(&k.id))
+        .map(|k| k.id.to_string())
+        .collect()
 }
 
 impl DependencyScan {
     pub fn new(info: &DriverInfo, dialect: ScriptDialect, foreign_keys: bool) -> Self {
-        DependencyScan { source_kinds: code_kinds(info), dialect, foreign_keys }
+        DependencyScan {
+            source_kinds: code_kinds(info),
+            dialect,
+            foreign_keys,
+        }
     }
 }
 
 /// The generic scan: foreign keys, indexes and checks from the catalog
 /// (when the engine reports them), then every other object with source.
-pub async fn scan<S: Session + ?Sized>(s: &mut S, target: &DependencyTarget, ctx: &DependencyScan) -> Result<DependencyReport> {
+pub async fn scan<S: Session + ?Sized>(
+    s: &mut S,
+    target: &DependencyTarget,
+    ctx: &DependencyScan,
+) -> Result<DependencyReport> {
     let mut report = DependencyReport::default();
     if ctx.foreign_keys {
-        report.items.extend(schema_dependents(&s.database_schema().await?, target));
+        report
+            .items
+            .extend(schema_dependents(&s.database_schema().await?, target));
     }
     for o in s.list_objects().await? {
         if !ctx.source_kinds.contains(&o.kind) {
             continue;
         }
-        let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+        let obj = ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        };
         if same_object(&obj, &target.object) {
             continue;
         }
@@ -173,7 +191,9 @@ pub async fn scan<S: Session + ?Sized>(s: &mut S, target: &DependencyTarget, ctx
             Ok(Some(b)) => b,
             Ok(None) => continue,
             Err(_) => {
-                report.unreadable.push(display_name(o.schema.as_deref(), &o.name));
+                report
+                    .unreadable
+                    .push(display_name(o.schema.as_deref(), &o.name));
                 continue;
             }
         };
@@ -219,30 +239,74 @@ pub fn schema_dependents(tables: &[TableSchema], target: &DependencyTarget) -> V
             mentions: Vec::new(),
         };
         for fk in &table.foreign_keys {
-            let points_here = eq(&fk.ref_table, &t.name) && fk.ref_schema.as_deref().is_none_or(|s| t.schema().is_none_or(|ts| eq(s, ts)));
+            let points_here = eq(&fk.ref_table, &t.name)
+                && fk
+                    .ref_schema
+                    .as_deref()
+                    .is_none_or(|s| t.schema().is_none_or(|ts| eq(s, ts)));
             let hit = match col {
                 None => points_here && !is_target,
-                Some(c) => (points_here && fk.ref_columns.iter().any(|r| eq(r, c))) || (is_target && fk.columns.iter().any(|r| eq(r, c))),
+                Some(c) => {
+                    (points_here && fk.ref_columns.iter().any(|r| eq(r, c)))
+                        || (is_target && fk.columns.iter().any(|r| eq(r, c)))
+                }
             };
             if hit {
                 let to = display_name(fk.ref_schema.as_deref(), &fk.ref_table);
-                let name = fk.name.as_deref().map(|n| format!("{n} ")).unwrap_or_default();
-                out.push(holder(Relation::ForeignKey, format!("{name}({}) → {to} ({})", fk.columns.join(", "), fk.ref_columns.join(", "))));
+                let name = fk
+                    .name
+                    .as_deref()
+                    .map(|n| format!("{n} "))
+                    .unwrap_or_default();
+                out.push(holder(
+                    Relation::ForeignKey,
+                    format!(
+                        "{name}({}) → {to} ({})",
+                        fk.columns.join(", "),
+                        fk.ref_columns.join(", ")
+                    ),
+                ));
             }
         }
-        let Some(c) = col.filter(|_| is_target) else { continue };
+        let Some(c) = col.filter(|_| is_target) else {
+            continue;
+        };
         for ix in &table.indexes {
             let filter_hit = ix.filter.as_deref().is_some_and(|f| names_word(f, c));
-            if ix.columns.iter().chain(&ix.include).any(|k| eq(strip_order(k), c)) || filter_hit {
-                out.push(holder(Relation::Index, format!("{} ({})", ix.name, ix.columns.join(", "))));
+            if ix
+                .columns
+                .iter()
+                .chain(&ix.include)
+                .any(|k| eq(strip_order(k), c))
+                || filter_hit
+            {
+                out.push(holder(
+                    Relation::Index,
+                    format!("{} ({})", ix.name, ix.columns.join(", ")),
+                ));
             }
         }
-        if let Some(pk) = table.primary_key.as_ref().filter(|pk| pk.columns.iter().any(|k| eq(k, c))) {
+        if let Some(pk) = table
+            .primary_key
+            .as_ref()
+            .filter(|pk| pk.columns.iter().any(|k| eq(k, c)))
+        {
             let name = pk.name.clone().unwrap_or_else(|| "PRIMARY KEY".into());
-            out.push(holder(Relation::Index, format!("{name} ({})", pk.columns.join(", "))));
+            out.push(holder(
+                Relation::Index,
+                format!("{name} ({})", pk.columns.join(", ")),
+            ));
         }
-        for ck in table.checks.iter().filter(|ck| names_word(&ck.expression, c)) {
-            let name = ck.name.as_deref().map(|n| format!("{n}: ")).unwrap_or_default();
+        for ck in table
+            .checks
+            .iter()
+            .filter(|ck| names_word(&ck.expression, c))
+        {
+            let name = ck
+                .name
+                .as_deref()
+                .map(|n| format!("{n}: "))
+                .unwrap_or_default();
             out.push(holder(Relation::Check, format!("{name}{}", ck.expression)));
         }
     }
@@ -253,7 +317,11 @@ pub fn schema_dependents(tables: &[TableSchema], target: &DependencyTarget) -> V
 /// doesn't. A column counts only in a body that also names its table (a
 /// column called `id` is in every routine). A name qualified with another
 /// schema (`ventas.Clientes` for `dbo.Clientes`) doesn't count.
-pub fn find_mentions(body: &str, dialect: &ScriptDialect, target: &DependencyTarget) -> Option<(Confidence, Vec<Mention>)> {
+pub fn find_mentions(
+    body: &str,
+    dialect: &ScriptDialect,
+    target: &DependencyTarget,
+) -> Option<(Confidence, Vec<Mention>)> {
     let toks = code_tokens(body, dialect);
     let t = &target.object;
     // A schema counts only as a qualifier (`ventas.x`), not a column called that.
@@ -263,13 +331,23 @@ pub fn find_mentions(body: &str, dialect: &ScriptDialect, target: &DependencyTar
     let mut hits: Vec<(usize, bool)> = Vec::new();
     for (i, tok) in toks.iter().enumerate() {
         match tok.kind {
-            TokenKind::Name if eq(field(tok.text), &t.name) && qualifier_ok(&toks, i, t.schema()) && (!schema || qualifies_next(&toks, i)) => {
+            TokenKind::Name
+                if eq(field(tok.text), &t.name)
+                    && qualifier_ok(&toks, i, t.schema())
+                    && (!schema || qualifies_next(&toks, i)) =>
+            {
                 table_code = true;
                 if target.column.is_none() {
                     hits.push((tok.start, false));
                 }
             }
-            TokenKind::Name if target.column.as_deref().is_some_and(|c| eq(field(tok.text), c)) && !qualifies(&toks, i, &t.name) => {
+            TokenKind::Name
+                if target
+                    .column
+                    .as_deref()
+                    .is_some_and(|c| eq(field(tok.text), c))
+                    && !qualifies(&toks, i, &t.name) =>
+            {
                 hits.push((tok.start, false));
             }
             TokenKind::String => {
@@ -279,7 +357,11 @@ pub fn find_mentions(body: &str, dialect: &ScriptDialect, target: &DependencyTar
                         hits.push((tok.start, true));
                     }
                 }
-                if target.column.as_deref().is_some_and(|c| names_word(tok.text, c)) {
+                if target
+                    .column
+                    .as_deref()
+                    .is_some_and(|c| names_word(tok.text, c))
+                {
                     hits.push((tok.start, true));
                 }
             }
@@ -290,7 +372,11 @@ pub fn find_mentions(body: &str, dialect: &ScriptDialect, target: &DependencyTar
         return None;
     }
     let code = hits.iter().any(|&(_, dynamic)| !dynamic) && table_code;
-    let confidence = if code { Confidence::Probable } else { Confidence::Review };
+    let confidence = if code {
+        Confidence::Probable
+    } else {
+        Confidence::Review
+    };
     Some((confidence, mentions(body, &hits)))
 }
 
@@ -311,14 +397,20 @@ fn mentions(body: &str, hits: &[(usize, bool)]) -> Vec<Mention> {
         }
         let from = body[..start].rfind('\n').map_or(0, |p| p + 1);
         let to = body[start..].find('\n').map_or(body.len(), |p| start + p);
-        out.push(Mention { line, text: body[from..to].trim().chars().take(LINE_CHARS).collect(), dynamic });
+        out.push(Mention {
+            line,
+            text: body[from..to].trim().chars().take(LINE_CHARS).collect(),
+            dynamic,
+        });
     }
     out
 }
 
 /// `x.` follows the name at `i`, then a name.
 fn qualifies_next(toks: &[NameToken<'_>], i: usize) -> bool {
-    toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".") && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name)
+    toks.get(i + 1)
+        .is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".")
+        && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name)
 }
 
 /// The name at `i` isn't qualified (`x.name`, `a.b.name`) with a schema
@@ -327,7 +419,11 @@ pub(crate) fn qualifier_ok(toks: &[NameToken<'_>], i: usize, schema: Option<&str
     let Some(schema) = schema else { return true };
     let mut quals = Vec::new();
     let mut k = i;
-    while k >= 2 && toks[k - 1].kind == TokenKind::Punct && toks[k - 1].text == "." && toks[k - 2].kind == TokenKind::Name {
+    while k >= 2
+        && toks[k - 1].kind == TokenKind::Punct
+        && toks[k - 1].text == "."
+        && toks[k - 2].kind == TokenKind::Name
+    {
         quals.push(toks[k - 2].text.to_string());
         k -= 2;
     }
@@ -358,12 +454,19 @@ pub fn match_qualifiers(quals: &[String], schema: &str) -> Qualified {
     }
     let mut joined = String::new();
     for q in quals {
-        joined = if joined.is_empty() { q.clone() } else { format!("{q}.{joined}") };
+        joined = if joined.is_empty() {
+            q.clone()
+        } else {
+            format!("{q}.{joined}")
+        };
         if eq(&joined, schema) {
             return Qualified::Same;
         }
     }
-    if schema.to_lowercase().ends_with(&format!(".{}", joined.to_lowercase())) {
+    if schema
+        .to_lowercase()
+        .ends_with(&format!(".{}", joined.to_lowercase()))
+    {
         Qualified::Partial
     } else {
         Qualified::Other
@@ -373,8 +476,14 @@ pub fn match_qualifiers(quals: &[String], schema: &str) -> Qualified {
 /// The name at `i` isn't a column: it qualifies the next one
 /// (`alias.col`), or it's an alias (`AS x`, `Clientes x`).
 pub(crate) fn qualifies(toks: &[NameToken<'_>], i: usize, table: &str) -> bool {
-    let dot_after = toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".") && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name);
-    let alias = i.checked_sub(1).map(|k| &toks[k]).is_some_and(|p| p.kind == TokenKind::Name && (eq(p.text, "as") || eq(p.text, table)));
+    let dot_after = toks
+        .get(i + 1)
+        .is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".")
+        && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name);
+    let alias = i
+        .checked_sub(1)
+        .map(|k| &toks[k])
+        .is_some_and(|p| p.kind == TokenKind::Name && (eq(p.text, "as") || eq(p.text, table)));
     dot_after || alias
 }
 
@@ -382,8 +491,11 @@ pub(crate) fn qualifies(toks: &[NameToken<'_>], i: usize, table: &str) -> bool {
 /// an expression), ignoring case.
 pub(crate) fn names_word(text: &str, word: &str) -> bool {
     let (t, w) = (text.to_lowercase(), word.to_lowercase());
-    let ident = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '@' || c == '#' || c == '$');
-    t.match_indices(&w).any(|(p, _)| !ident(t[..p].chars().next_back()) && !ident(t[p + w.len()..].chars().next()))
+    let ident = |c: Option<char>| {
+        c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '@' || c == '#' || c == '$')
+    };
+    t.match_indices(&w)
+        .any(|(p, _)| !ident(t[..p].chars().next_back()) && !ident(t[p + w.len()..].chars().next()))
 }
 
 /// A field reference in a pipeline (`$total`) is the field.
@@ -394,11 +506,18 @@ fn field(name: &str) -> &str {
 /// An index key as the catalog spells it (`total DESC`).
 fn strip_order(key: &str) -> &str {
     let k = key.trim();
-    k.strip_suffix(" DESC").or_else(|| k.strip_suffix(" ASC")).or_else(|| k.strip_suffix(" desc")).or_else(|| k.strip_suffix(" asc")).unwrap_or(k)
+    k.strip_suffix(" DESC")
+        .or_else(|| k.strip_suffix(" ASC"))
+        .or_else(|| k.strip_suffix(" desc"))
+        .or_else(|| k.strip_suffix(" asc"))
+        .unwrap_or(k)
 }
 
 fn names_table(schema: Option<&str>, name: &str, t: &ObjectRef) -> bool {
-    eq(name, &t.name) && (schema.is_none() || t.schema().is_none() || eq(schema.unwrap_or_default(), t.schema().unwrap_or_default()))
+    eq(name, &t.name)
+        && (schema.is_none()
+            || t.schema().is_none()
+            || eq(schema.unwrap_or_default(), t.schema().unwrap_or_default()))
 }
 
 fn same_object(a: &ObjectRef, b: &ObjectRef) -> bool {
@@ -419,12 +538,18 @@ fn display_name(schema: Option<&str>, name: &str) -> String {
 /// Confirmed first, then by relation and name.
 fn sort(items: &mut [Dependent]) {
     items.sort_by(|a, b| {
-        (a.confidence, a.relation, a.schema.as_deref().unwrap_or(""), a.name.to_lowercase()).cmp(&(
-            b.confidence,
-            b.relation,
-            b.schema.as_deref().unwrap_or(""),
-            b.name.to_lowercase(),
-        ))
+        (
+            a.confidence,
+            a.relation,
+            a.schema.as_deref().unwrap_or(""),
+            a.name.to_lowercase(),
+        )
+            .cmp(&(
+                b.confidence,
+                b.relation,
+                b.schema.as_deref().unwrap_or(""),
+                b.name.to_lowercase(),
+            ))
     });
 }
 
@@ -434,11 +559,21 @@ mod tests {
     use crate::schema::{CheckDef, ForeignKeyDef, IndexDef, KeyDef};
 
     fn table(schema: &str, name: &str) -> DependencyTarget {
-        DependencyTarget { object: ObjectRef { kind: kinds::TABLE.into(), schema: Some(schema.into()), name: name.into() }, column: None }
+        DependencyTarget {
+            object: ObjectRef {
+                kind: kinds::TABLE.into(),
+                schema: Some(schema.into()),
+                name: name.into(),
+            },
+            column: None,
+        }
     }
 
     fn column(schema: &str, name: &str, col: &str) -> DependencyTarget {
-        DependencyTarget { column: Some(col.into()), ..table(schema, name) }
+        DependencyTarget {
+            column: Some(col.into()),
+            ..table(schema, name)
+        }
     }
 
     fn tsql() -> ScriptDialect {
@@ -481,7 +616,12 @@ mod tests {
         let (conf, m) = find_mentions(body, &tsql(), &column("dbo", "Clientes", "pepe")).unwrap();
         assert_eq!(conf, Confidence::Probable);
         assert_eq!(m.len(), 1);
-        assert!(find_mentions("SELECT PepeViejo FROM Clientes", &tsql(), &column("dbo", "Clientes", "Pepe")).is_none());
+        assert!(find_mentions(
+            "SELECT PepeViejo FROM Clientes",
+            &tsql(),
+            &column("dbo", "Clientes", "Pepe")
+        )
+        .is_none());
     }
 
     #[test]
@@ -502,35 +642,79 @@ mod tests {
         assert_eq!(conf, Confidence::Review);
         assert!(m[0].dynamic);
         // A dollar string that isn't a routine body stays a string.
-        let (conf, _) = find_mentions("SELECT $$ public.clientes $$", &pg, &table("public", "clientes")).unwrap();
+        let (conf, _) = find_mentions(
+            "SELECT $$ public.clientes $$",
+            &pg,
+            &table("public", "clientes"),
+        )
+        .unwrap();
         assert_eq!(conf, Confidence::Review);
     }
 
     #[test]
     fn a_schema_counts_only_as_a_qualifier() {
-        let target = DependencyTarget { object: ObjectRef { kind: SCHEMA.into(), schema: None, name: "ventas".into() }, column: None };
+        let target = DependencyTarget {
+            object: ObjectRef {
+                kind: SCHEMA.into(),
+                schema: None,
+                name: "ventas".into(),
+            },
+            column: None,
+        };
         assert!(find_mentions("SELECT ventas FROM dbo.t", &tsql(), &target).is_none());
         assert!(find_mentions("SELECT x FROM ventas.t", &tsql(), &target).is_some());
-        assert!(schema_dependents(&schema(), &DependencyTarget { object: ObjectRef { kind: SCHEMA.into(), schema: None, name: "Clientes".into() }, column: None }).is_empty());
+        assert!(schema_dependents(
+            &schema(),
+            &DependencyTarget {
+                object: ObjectRef {
+                    kind: SCHEMA.into(),
+                    schema: None,
+                    name: "Clientes".into()
+                },
+                column: None
+            }
+        )
+        .is_empty());
     }
 
     #[test]
     fn dotted_schemas_match_consecutive_qualifiers() {
         let g = ScriptDialect::generic();
         let target = || table("dfs.tmp", "v");
-        for body in ["SELECT * FROM dfs.tmp.v", "SELECT * FROM `dfs`.`tmp`.`v`", "SELECT * FROM `dfs.tmp`.v", "SELECT * FROM v", "SELECT * FROM tmp.v"] {
+        for body in [
+            "SELECT * FROM dfs.tmp.v",
+            "SELECT * FROM `dfs`.`tmp`.`v`",
+            "SELECT * FROM `dfs.tmp`.v",
+            "SELECT * FROM v",
+            "SELECT * FROM tmp.v",
+        ] {
             assert!(find_mentions(body, &g, &target()).is_some(), "{body}");
         }
-        for body in ["SELECT * FROM dfs.otro.v", "SELECT * FROM otro.v", "SELECT * FROM `cp`.`tmp2`.v"] {
+        for body in [
+            "SELECT * FROM dfs.otro.v",
+            "SELECT * FROM otro.v",
+            "SELECT * FROM `cp`.`tmp2`.v",
+        ] {
             assert!(find_mentions(body, &g, &target()).is_none(), "{body}");
         }
         let pg = ScriptDialect::postgres();
-        assert!(find_mentions("SELECT * FROM \"esp\".\"carpeta\".\"v\"", &pg, &table("esp.carpeta", "v")).is_some());
+        assert!(find_mentions(
+            "SELECT * FROM \"esp\".\"carpeta\".\"v\"",
+            &pg,
+            &table("esp.carpeta", "v")
+        )
+        .is_some());
         assert!(find_mentions("SELECT * FROM esp.v", &pg, &table("esp.carpeta", "v")).is_none());
         let q = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(match_qualifiers(&q(&["tmp", "dfs"]), "dfs.tmp"), Qualified::Same);
+        assert_eq!(
+            match_qualifiers(&q(&["tmp", "dfs"]), "dfs.tmp"),
+            Qualified::Same
+        );
         assert_eq!(match_qualifiers(&q(&["dbo", "db"]), "dbo"), Qualified::Same);
-        assert_eq!(match_qualifiers(&q(&["tmp"]), "dfs.tmp"), Qualified::Partial);
+        assert_eq!(
+            match_qualifiers(&q(&["tmp"]), "dfs.tmp"),
+            Qualified::Partial
+        );
         assert_eq!(match_qualifiers(&q(&["dfs"]), "dfs.tmp"), Qualified::Other);
         assert_eq!(match_qualifiers(&[], "dfs.tmp"), Qualified::None);
     }
@@ -538,7 +722,14 @@ mod tests {
     #[test]
     fn pipeline_fields() {
         let body = r#"[{"$lookup": {"from": "clientes"}}, {"$project": {"total": "$pepe"}}]"#;
-        let target = DependencyTarget { object: ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name: "clientes".into() }, column: Some("pepe".into()) };
+        let target = DependencyTarget {
+            object: ObjectRef {
+                kind: kinds::COLLECTION.into(),
+                schema: None,
+                name: "clientes".into(),
+            },
+            column: Some("pepe".into()),
+        };
         assert!(find_mentions(body, &ScriptDialect::generic(), &target).is_some());
     }
 
@@ -554,9 +745,19 @@ mod tests {
             TableSchema {
                 schema: Some("dbo".into()),
                 name: "Clientes".into(),
-                primary_key: Some(KeyDef { name: Some("PK_Clientes".into()), columns: vec!["id".into()] }),
-                indexes: vec![IndexDef { name: "IX_Pepe".into(), columns: vec!["Pepe DESC".into()], ..Default::default() }],
-                checks: vec![CheckDef { name: Some("CK_Pepe".into()), expression: "([Pepe]>(0))".into() }],
+                primary_key: Some(KeyDef {
+                    name: Some("PK_Clientes".into()),
+                    columns: vec!["id".into()],
+                }),
+                indexes: vec![IndexDef {
+                    name: "IX_Pepe".into(),
+                    columns: vec!["Pepe DESC".into()],
+                    ..Default::default()
+                }],
+                checks: vec![CheckDef {
+                    name: Some("CK_Pepe".into()),
+                    expression: "([Pepe]>(0))".into(),
+                }],
                 ..Default::default()
             },
             TableSchema {
@@ -580,14 +781,29 @@ mod tests {
         let deps = schema_dependents(&schema(), &table("dbo", "Clientes"));
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].name, "Pedidos");
-        assert_eq!(deps[0].detail.as_deref(), Some("FK_Pedidos_Clientes (cliente_id) → dbo.Clientes (id)"));
+        assert_eq!(
+            deps[0].detail.as_deref(),
+            Some("FK_Pedidos_Clientes (cliente_id) → dbo.Clientes (id)")
+        );
     }
 
     #[test]
     fn a_columns_keys_indexes_and_checks() {
-        let pepe: Vec<_> = schema_dependents(&schema(), &column("dbo", "Clientes", "Pepe")).into_iter().map(|d| d.relation).collect();
+        let pepe: Vec<_> = schema_dependents(&schema(), &column("dbo", "Clientes", "Pepe"))
+            .into_iter()
+            .map(|d| d.relation)
+            .collect();
         assert_eq!(pepe, vec![Relation::Index, Relation::Check]);
-        let id: Vec<_> = schema_dependents(&schema(), &column("dbo", "Clientes", "id")).into_iter().map(|d| (d.name, d.relation)).collect();
-        assert_eq!(id, vec![("Clientes".into(), Relation::Index), ("Pedidos".into(), Relation::ForeignKey)]);
+        let id: Vec<_> = schema_dependents(&schema(), &column("dbo", "Clientes", "id"))
+            .into_iter()
+            .map(|d| (d.name, d.relation))
+            .collect();
+        assert_eq!(
+            id,
+            vec![
+                ("Clientes".into(), Relation::Index),
+                ("Pedidos".into(), Relation::ForeignKey)
+            ]
+        );
     }
 }

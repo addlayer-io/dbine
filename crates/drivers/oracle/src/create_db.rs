@@ -38,10 +38,16 @@ pub(crate) fn quota(v: &str) -> Result<String> {
     }
     let digits = s.trim_end_matches(['K', 'M', 'G', 'T']);
     let unit = &s[digits.len()..];
-    if !digits.is_empty() && digits.len() <= 12 && digits.chars().all(|c| c.is_ascii_digit()) && unit.len() <= 1 {
+    if !digits.is_empty()
+        && digits.len() <= 12
+        && digits.chars().all(|c| c.is_ascii_digit())
+        && unit.len() <= 1
+    {
         Ok(s)
     } else {
-        Err(Error::Query(format!("cuota: «{v}» no es UNLIMITED ni un tamaño (500M, 10G…)")))
+        Err(Error::Query(format!(
+            "cuota: «{v}» no es UNLIMITED ni un tamaño (500M, 10G…)"
+        )))
     }
 }
 
@@ -62,7 +68,10 @@ pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String>
     if let Some(t) = opt(o, "temporary_tablespace") {
         sql.push_str(&format!("\nTEMPORARY TABLESPACE {}", tablespace(t)?));
     }
-    let quota = opt(o, "quota").map(quota).transpose()?.unwrap_or_else(|| "UNLIMITED".into());
+    let quota = opt(o, "quota")
+        .map(quota)
+        .transpose()?
+        .unwrap_or_else(|| "UNLIMITED".into());
     if let Some(ts) = &default {
         sql.push_str(&format!("\nQUOTA {quota} ON {ts}"));
         return Ok(sql);
@@ -110,9 +119,14 @@ impl OracleSession {
         .await
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let sql = script(name, o)?;
-        self.run(move |c| c.execute(&sql, &[]).map(|_| ()).map_err(err)).await
+        self.run(move |c| c.execute(&sql, &[]).map(|_| ()).map_err(err))
+            .await
     }
 }
 
@@ -121,17 +135,28 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn plain_name_reads_the_default_tablespace() {
         let s = script("ventas", &o(&[("quota", " ")])).unwrap();
         assert!(s.starts_with("DECLARE"), "{s}");
-        assert!(s.contains("EXECUTE IMMEDIATE 'CREATE USER \"VENTAS\" NO AUTHENTICATION'"), "{s}");
-        assert!(s.contains("' QUOTA UNLIMITED ON \"' || REPLACE(ts, '\"', '\"\"') || '\"'"), "{s}");
+        assert!(
+            s.contains("EXECUTE IMMEDIATE 'CREATE USER \"VENTAS\" NO AUTHENTICATION'"),
+            "{s}"
+        );
+        assert!(
+            s.contains("' QUOTA UNLIMITED ON \"' || REPLACE(ts, '\"', '\"\"') || '\"'"),
+            "{s}"
+        );
         // A quoted name with a single quote stays one literal.
-        assert!(script("it's", &o(&[])).unwrap().contains("'CREATE USER \"it''s\" NO AUTHENTICATION'"));
+        assert!(script("it's", &o(&[]))
+            .unwrap()
+            .contains("'CREATE USER \"it''s\" NO AUTHENTICATION'"));
     }
 
     #[test]
@@ -144,8 +169,16 @@ mod tests {
             script("v", &o(&[("default_tablespace", "DATA")])).unwrap(),
             "CREATE USER \"V\" NO AUTHENTICATION\nDEFAULT TABLESPACE \"DATA\"\nQUOTA UNLIMITED ON \"DATA\""
         );
-        let s = script("v", &o(&[("temporary_tablespace", "temp2"), ("quota", "10G")])).unwrap();
-        assert!(s.contains("'CREATE USER \"V\" NO AUTHENTICATION TEMPORARY TABLESPACE \"TEMP2\"'") && s.contains("QUOTA 10G ON"), "{s}");
+        let s = script(
+            "v",
+            &o(&[("temporary_tablespace", "temp2"), ("quota", "10G")]),
+        )
+        .unwrap();
+        assert!(
+            s.contains("'CREATE USER \"V\" NO AUTHENTICATION TEMPORARY TABLESPACE \"TEMP2\"'")
+                && s.contains("QUOTA 10G ON"),
+            "{s}"
+        );
     }
 
     #[test]
@@ -155,7 +188,9 @@ mod tests {
         }
         assert!(script("v", &o(&[("quota", "0")])).is_ok());
         // An odd tablespace name is quoted, never loose.
-        assert!(script("v", &o(&[("default_tablespace", "a\" b")])).unwrap().contains("DEFAULT TABLESPACE \"a\"\" b\""));
+        assert!(script("v", &o(&[("default_tablespace", "a\" b")]))
+            .unwrap()
+            .contains("DEFAULT TABLESPACE \"a\"\" b\""));
         assert!(script(" ", &o(&[])).is_err());
     }
 }

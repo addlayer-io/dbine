@@ -8,18 +8,23 @@ pub mod index_usage;
 pub mod monitor;
 mod permissions;
 pub mod plan;
-mod read_only;
 pub mod properties;
+mod read_only;
 pub mod rename;
 pub mod schema;
 pub mod stats;
 pub mod transfer;
 
-use dbine_driver::sql::{leading_keyword, quote_ident, select_top, split_statements, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode};
+use dbine_driver::sql::{
+    leading_keyword, quote_ident, select_top, split_statements, Limit, Quote, ScriptDefaults,
+    ScriptDialect, ScriptMode,
+};
 use dbine_driver::{
-    async_trait, BoundStatement, ParamValue, is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64, json_spatial_bytes, kinds, Capabilities,
-    ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef,
-    QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema, TxState,
+    async_trait, is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64,
+    json_spatial_bytes, kinds, BoundStatement, Capabilities, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
+    Language, ObjectKindInfo, ObjectRef, ParamValue, QueryOutcome, Result, ResultColumn,
+    ScriptError, Session, TableSchema, TxState,
 };
 use rusqlite::types::ValueRef;
 use rusqlite::{Batch, Connection, ErrorCode, InterruptHandle, OpenFlags, OptionalExtension};
@@ -41,7 +46,12 @@ fn info() -> DriverInfo {
         fields: vec![Field::file("Archivo de base de datos"), Field::read_only()],
         databases_label: "",
         has_schemas: false,
-        object_kinds: vec![ObjectKindInfo::tables(), schema::virtual_tables(), ObjectKindInfo::views(), ObjectKindInfo::triggers()],
+        object_kinds: vec![
+            ObjectKindInfo::tables(),
+            schema::virtual_tables(),
+            ObjectKindInfo::views(),
+            ObjectKindInfo::triggers(),
+        ],
     }
 }
 
@@ -76,12 +86,22 @@ fn err(e: rusqlite::Error) -> Error {
 /// the rest of `script` the statement was prepared from).
 fn stmt_err(e: rusqlite::Error, script: &str) -> Error {
     match e {
-        rusqlite::Error::SqlInputError { error, msg, sql, offset } => {
+        rusqlite::Error::SqlInputError {
+            error,
+            msg,
+            sql,
+            offset,
+        } => {
             let at = script.len().saturating_sub(sql.len()) + offset.max(0) as usize;
-            ScriptError::new(msg).with_code(error.extended_code.to_string()).at_offset(at.min(script.len())).into()
+            ScriptError::new(msg)
+                .with_code(error.extended_code.to_string())
+                .at_offset(at.min(script.len()))
+                .into()
         }
         rusqlite::Error::SqliteFailure(f, msg) if f.code != ErrorCode::OperationInterrupted => {
-            ScriptError::new(msg.unwrap_or_else(|| f.to_string())).with_code(f.extended_code.to_string()).into()
+            ScriptError::new(msg.unwrap_or_else(|| f.to_string()))
+                .with_code(f.extended_code.to_string())
+                .into()
         }
         other => err(other),
     }
@@ -100,7 +120,10 @@ impl Driver for SqliteDriver {
     /// sqlite3's: `;` outside quotes and comments (`[name]` and `` `name` ``
     /// too), trigger bodies kept whole until their `END`.
     fn script_dialect(&self) -> ScriptDialect {
-        ScriptDialect { bracket_idents: true, ..ScriptDialect::generic() }
+        ScriptDialect {
+            bracket_idents: true,
+            ..ScriptDialect::generic()
+        }
     }
 
     /// One statement per call on the tab's connection, which keeps its
@@ -111,7 +134,10 @@ impl Driver for SqliteDriver {
 
     /// sqlite3 goes on after an error unless `.bail on`.
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     fn supports_manual_transactions(&self) -> bool {
@@ -121,10 +147,21 @@ impl Driver for SqliteDriver {
     /// A database is a file: it's created by connecting to a new path and
     /// deleted from the file system, not by SQL.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: false, drop_database: false, foreign_keys: true, monitor: true, database_properties: true, ..Default::default() }
+        Capabilities {
+            create_database: false,
+            drop_database: false,
+            foreign_keys: true,
+            monitor: true,
+            database_properties: true,
+            ..Default::default()
+        }
     }
 
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(properties::Flavor::Sqlite, database, changes)
     }
 
@@ -184,7 +221,10 @@ impl Driver for SqliteDriver {
     }
 
     /// Columns are added in place; any other change rebuilds the table.
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
     }
 
@@ -199,7 +239,11 @@ impl Driver for SqliteDriver {
     }
 
     /// `cfg.host` is the database file; `database` doesn't apply.
-    async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let path = cfg.host.trim().to_string();
         if path.is_empty() {
             return Err(Error::Connect("falta la ruta del archivo SQLite".into()));
@@ -209,14 +253,17 @@ impl Driver for SqliteDriver {
             let conn = if read_only {
                 Connection::open_with_flags(
                     &path,
-                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                    OpenFlags::SQLITE_OPEN_READ_ONLY
+                        | OpenFlags::SQLITE_OPEN_URI
+                        | OpenFlags::SQLITE_OPEN_NO_MUTEX,
                 )
             } else {
                 Connection::open(&path)
             }
             .map_err(|e| Error::Connect(e.to_string()))?;
             conn.busy_timeout(Duration::from_secs(5)).map_err(err)?;
-            conn.execute_batch("PRAGMA foreign_keys = ON").map_err(err)?;
+            conn.execute_batch("PRAGMA foreign_keys = ON")
+                .map_err(err)?;
             Ok(conn)
         })
         .await?;
@@ -236,7 +283,9 @@ where
     T: Send + 'static,
     F: FnOnce() -> Result<T> + Send + 'static,
 {
-    tokio::task::spawn_blocking(f).await.map_err(|e| Error::State(e.to_string()))?
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| Error::State(e.to_string()))?
 }
 
 impl SqliteSession {
@@ -248,7 +297,9 @@ impl SqliteSession {
     {
         let conn = self.conn.clone();
         blocking(move || {
-            let c = conn.lock().map_err(|_| Error::State("conexión SQLite envenenada".into()))?;
+            let c = conn
+                .lock()
+                .map_err(|_| Error::State("conexión SQLite envenenada".into()))?;
             f(&c)
         })
         .await
@@ -348,9 +399,11 @@ impl Session for SqliteSession {
         let name = obj.name.clone();
         self.with(move |c| {
             let sql = c
-                .query_row(&format!("SELECT sql FROM {master} WHERE type = ?1 AND name = ?2"), [ty, &name], |r| {
-                    r.get::<_, Option<String>>(0)
-                })
+                .query_row(
+                    &format!("SELECT sql FROM {master} WHERE type = ?1 AND name = ?2"),
+                    [ty, &name],
+                    |r| r.get::<_, Option<String>>(0),
+                )
                 .optional()
                 .map_err(err)?;
             Ok(sql.flatten())
@@ -383,10 +436,17 @@ impl Session for SqliteSession {
     /// numbers as INTEGER or REAL, dates as their ISO text (what SQLite's
     /// date functions read), booleans as 1 / 0. More than one statement:
     /// `Unsupported`, before anything runs.
-    async fn execute_bound(&mut self, statement: &BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn execute_bound(
+        &mut self,
+        statement: &BoundStatement,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let sql = statement.numbered("?");
         if split_statements(&sql).len() != 1 {
-            return Err(Error::Unsupported("SQLite recibe los parámetros de una sentencia por vez".into()));
+            return Err(Error::Unsupported(
+                "SQLite recibe los parámetros de una sentencia por vez".into(),
+            ));
         }
         let values: Vec<rusqlite::types::Value> = statement.values.iter().map(bind_value).collect();
         let manual = self.manual;
@@ -404,9 +464,18 @@ impl Session for SqliteSession {
 
     /// One statement on a connection that can't write, under an authorizer
     /// that only lets it read (see [`read_only`]).
-    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let sql = statement.to_string();
-        let (main, ro, ro_interrupt) = (self.conn.clone(), self.ro.clone(), self.ro_interrupt.clone());
+        let (main, ro, ro_interrupt) = (
+            self.conn.clone(),
+            self.ro.clone(),
+            self.ro_interrupt.clone(),
+        );
         let fork = out.fork();
         let (local, res) = blocking(move || {
             let mut local = fork;
@@ -419,7 +488,14 @@ impl Session for SqliteSession {
     }
 
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
-        self.with(|c| Ok(Some(if c.is_autocommit() { TxState::Idle } else { TxState::Open }))).await
+        self.with(|c| {
+            Ok(Some(if c.is_autocommit() {
+                TxState::Idle
+            } else {
+                TxState::Open
+            }))
+        })
+        .await
     }
 
     /// Off: the next statement that writes opens a transaction (`BEGIN`),
@@ -428,24 +504,51 @@ impl Session for SqliteSession {
     /// (the UI asks Commit / Rollback first).
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
         if on {
-            self.with(|c| if c.is_autocommit() { Ok(()) } else { c.execute_batch("COMMIT").map_err(err) }).await?;
+            self.with(|c| {
+                if c.is_autocommit() {
+                    Ok(())
+                } else {
+                    c.execute_batch("COMMIT").map_err(err)
+                }
+            })
+            .await?;
         }
         self.manual = !on;
         Ok(())
     }
 
     async fn commit(&mut self) -> Result<()> {
-        self.with(|c| if c.is_autocommit() { Ok(()) } else { c.execute_batch("COMMIT").map_err(err) }).await
+        self.with(|c| {
+            if c.is_autocommit() {
+                Ok(())
+            } else {
+                c.execute_batch("COMMIT").map_err(err)
+            }
+        })
+        .await
     }
 
     async fn rollback(&mut self) -> Result<()> {
-        self.with(|c| if c.is_autocommit() { Ok(()) } else { c.execute_batch("ROLLBACK").map_err(err) }).await
+        self.with(|c| {
+            if c.is_autocommit() {
+                Ok(())
+            } else {
+                c.execute_batch("ROLLBACK").map_err(err)
+            }
+        })
+        .await
     }
 
     /// `EXPLAIN QUERY PLAN` per statement. SQLite has no costs, row
     /// estimates or measured figures, so with `analyze` the script runs as
     /// with `execute` and the plans are still the estimated ones.
-    async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        sql: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let sql = sql.to_string();
         let fork = out.fork();
         let (local, res) = self
@@ -463,15 +566,23 @@ impl Session for SqliteSession {
         self.with(|c| schema::read_schema(c).map_err(err)).await
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let name = table.name.clone();
-        self.with(move |c| index_usage::report_with(&mut |sql| schema::query_rows(c, sql), &name).map_err(err)).await.map(Some)
+        self.with(move |c| {
+            index_usage::report_with(&mut |sql| schema::query_rows(c, sql), &name).map_err(err)
+        })
+        .await
+        .map(Some)
     }
 
     /// From `sqlite_stat1` when `ANALYZE` has run; otherwise none (see [`stats`]).
     /// SQLite has no comments on objects, so `object_comments` stays empty.
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
-        self.with(|c| stats::row_estimates_with(&mut |sql| schema::query_rows(c, sql)).map_err(err)).await
+        self.with(|c| stats::row_estimates_with(&mut |sql| schema::query_rows(c, sql)).map_err(err))
+            .await
     }
 
     /// Embedded: no server, so no other sessions to list or stop.
@@ -483,21 +594,42 @@ impl Session for SqliteSession {
         Err(Error::Unsupported(NO_PROCESSES.into()))
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         let database = database.to_string();
-        self.with(move |c| Ok(properties::read(&mut |sql| schema::query_rows(c, sql), &database, properties::Flavor::Sqlite))).await
+        self.with(move |c| {
+            Ok(properties::read(
+                &mut |sql| schema::query_rows(c, sql),
+                &database,
+                properties::Flavor::Sqlite,
+            ))
+        })
+        .await
     }
 
     /// One statement at a time; then the settings SQLite may have accepted
     /// without applying (journal mode, page size, auto vacuum) are read back.
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         let statements = properties::alter(properties::Flavor::Sqlite, database, changes)?;
         let (database, changes) = (database.to_string(), changes.clone());
         self.with(move |c| {
             for (i, sql) in statements.iter().enumerate() {
                 if let Err(e) = schema::query_rows(c, sql) {
                     let e = err(e);
-                    return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+                    return Err(if i == 0 {
+                        e
+                    } else {
+                        Error::Query(format!(
+                            "se aplicaron {i} de {} cambios; falló: {sql}\n{e}",
+                            statements.len()
+                        ))
+                    });
                 }
             }
             let now = properties::values(&mut |sql| schema::query_rows(c, sql), &database);
@@ -505,7 +637,10 @@ impl Session for SqliteSession {
             if left.is_empty() {
                 Ok(())
             } else {
-                Err(Error::Query(format!("SQLite aceptó los cambios pero no aplicó todos: {}", left.join("; "))))
+                Err(Error::Query(format!(
+                    "SQLite aceptó los cambios pero no aplicó todos: {}",
+                    left.join("; ")
+                )))
             }
         })
         .await
@@ -531,7 +666,11 @@ impl Session for SqliteSession {
     }
 
     /// Typed cells straight from SQLite's values, blobs whole (see [`transfer`]).
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         let spec = spec.clone();
         self.with(move |c| transfer::read(c, &spec, &sink)).await
     }
@@ -554,7 +693,16 @@ impl Session for SqliteSession {
         source: &mut dyn dbine_driver::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::WriteResult> {
-        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::Sqlite, spec, columns, source, progress, true).await
+        dbine_driver::write::staged_write(
+            self,
+            dbine_driver::write::StageFlavor::Sqlite,
+            spec,
+            columns,
+            source,
+            progress,
+            true,
+        )
+        .await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
@@ -571,7 +719,13 @@ impl Session for SqliteSession {
 /// heap and this connection's page cache.
 fn local_figures(c: &Connection, snap: &mut dbine_driver::MonitorSnapshot) {
     use dbine_driver::monitor::{Metric, MetricUnit as U};
-    let file: Option<String> = c.query_row("SELECT file FROM pragma_database_list WHERE name = 'main'", [], |r| r.get(0)).ok();
+    let file: Option<String> = c
+        .query_row(
+            "SELECT file FROM pragma_database_list WHERE name = 'main'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
     let file = file.filter(|f| !f.is_empty());
     let size = |p: &str| std::fs::metadata(p).ok().map(|m| m.len() as f64);
     let (db, wal) = match &file {
@@ -598,16 +752,59 @@ fn local_figures(c: &Connection, snap: &mut dbine_driver::MonitorSnapshot) {
         _ => None,
     };
     let m = &mut snap.metrics;
-    m.insert(0, Metric::new("file_size", "Tamaño del archivo", "Almacenamiento", U::Bytes, db));
-    m.push(Metric::new("wal_size", "Tamaño del WAL", "Almacenamiento", U::Bytes, wal));
-    m.push(Metric::new("mem_used", "Memoria de SQLite (proceso)", "Memoria", U::Bytes, Some(heap)).max(Some(heap_peak)));
-    m.push(Metric::new("mem_cache", "Caché de páginas de la conexión", "Memoria", U::Bytes, cache));
-    m.push(Metric::new("cache_hit", "Aciertos de caché (esta conexión)", "Caché", U::Percent, hit).max(Some(100.0)));
+    m.insert(
+        0,
+        Metric::new(
+            "file_size",
+            "Tamaño del archivo",
+            "Almacenamiento",
+            U::Bytes,
+            db,
+        ),
+    );
+    m.push(Metric::new(
+        "wal_size",
+        "Tamaño del WAL",
+        "Almacenamiento",
+        U::Bytes,
+        wal,
+    ));
+    m.push(
+        Metric::new(
+            "mem_used",
+            "Memoria de SQLite (proceso)",
+            "Memoria",
+            U::Bytes,
+            Some(heap),
+        )
+        .max(Some(heap_peak)),
+    );
+    m.push(Metric::new(
+        "mem_cache",
+        "Caché de páginas de la conexión",
+        "Memoria",
+        U::Bytes,
+        cache,
+    ));
+    m.push(
+        Metric::new(
+            "cache_hit",
+            "Aciertos de caché (esta conexión)",
+            "Caché",
+            U::Percent,
+            hit,
+        )
+        .max(Some(100.0)),
+    );
     match file {
         Some(f) => snap.info.insert(0, ("Archivo".into(), f)),
-        None => snap.info.insert(0, ("Archivo".into(), "(en memoria)".into())),
+        None => snap
+            .info
+            .insert(0, ("Archivo".into(), "(en memoria)".into())),
     }
-    snap.notes.push("La caché y sus aciertos son de la conexión del monitor, no de las otras pestañas.".into());
+    snap.notes.push(
+        "La caché y sus aciertos son de la conexión del monitor, no de las otras pestañas.".into(),
+    );
 }
 
 fn run_script(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -617,13 +814,22 @@ fn run_script(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome
 /// Run every statement of `sql`. `manual`: a statement that writes opens a
 /// transaction first when none is open (transaction control, reads and
 /// ATTACH don't), as autocommit off does in other engines.
-fn run_script_tx(c: &Connection, sql: &str, max_rows: usize, manual: bool, out: &mut QueryOutcome) -> Result<()> {
+fn run_script_tx(
+    c: &Connection,
+    sql: &str,
+    max_rows: usize,
+    manual: bool,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     let mut batch = Batch::new(c, sql);
     while let Some(mut stmt) = batch.next().map_err(|e| stmt_err(e, sql))? {
         // Manual mode opens the transaction for the first statement that
         // writes; one opened here for a statement that then fails is
         // rolled back (it holds nothing else), so it isn't left open empty.
-        let opened = manual && c.is_autocommit() && !stmt.readonly() && !stmt.expanded_sql().is_some_and(|s| outside_transaction(&s));
+        let opened = manual
+            && c.is_autocommit()
+            && !stmt.readonly()
+            && !stmt.expanded_sql().is_some_and(|s| outside_transaction(&s));
         if opened {
             c.execute_batch("BEGIN").map_err(err)?;
         }
@@ -631,7 +837,11 @@ fn run_script_tx(c: &Connection, sql: &str, max_rows: usize, manual: bool, out: 
         let r = run_stmt(c, &mut stmt, sql, max_rows, out);
         if r.is_err() {
             // A query cancelled or failed mid-way leaves no empty grid.
-            if out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+            if out.results.len() > before
+                && out.results[before..]
+                    .iter()
+                    .all(|r| r.total_rows == 0 && r.rows_affected.is_none())
+            {
                 out.results.truncate(before);
             }
             if opened && !c.is_autocommit() {
@@ -648,7 +858,11 @@ fn bind_value(v: &ParamValue) -> rusqlite::types::Value {
     match v {
         ParamValue::Null => V::Null,
         ParamValue::Text(s) => V::Text(s.clone()),
-        ParamValue::Number(n) => n.parse::<i64>().map(V::Integer).unwrap_or_else(|_| n.parse::<f64>().map(V::Real).unwrap_or_else(|_| V::Text(n.clone()))),
+        ParamValue::Number(n) => n.parse::<i64>().map(V::Integer).unwrap_or_else(|_| {
+            n.parse::<f64>()
+                .map(V::Real)
+                .unwrap_or_else(|_| V::Text(n.clone()))
+        }),
         ParamValue::Bool(b) => V::Integer(*b as i64),
         // `2026-10-18 14:30:00`: the form SQLite's date functions write.
         ParamValue::Date(d) => V::Text(d.clone()),
@@ -657,10 +871,18 @@ fn bind_value(v: &ParamValue) -> rusqlite::types::Value {
 }
 
 /// [`run_script_tx`] for one prepared statement with its values bound.
-fn run_bound(c: &Connection, sql: &str, values: &[rusqlite::types::Value], max_rows: usize, manual: bool, out: &mut QueryOutcome) -> Result<()> {
+fn run_bound(
+    c: &Connection,
+    sql: &str,
+    values: &[rusqlite::types::Value],
+    max_rows: usize,
+    manual: bool,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     let mut stmt = c.prepare(sql).map_err(|e| stmt_err(e, sql))?;
     for (i, v) in values.iter().enumerate() {
-        stmt.raw_bind_parameter(i + 1, v).map_err(|e| stmt_err(e, sql))?;
+        stmt.raw_bind_parameter(i + 1, v)
+            .map_err(|e| stmt_err(e, sql))?;
     }
     let opened = manual && c.is_autocommit() && !stmt.readonly() && !outside_transaction(sql);
     if opened {
@@ -669,7 +891,11 @@ fn run_bound(c: &Connection, sql: &str, values: &[rusqlite::types::Value], max_r
     let before = out.results.len();
     let r = run_stmt(c, &mut stmt, sql, max_rows, out);
     if r.is_err() {
-        if out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+        if out.results.len() > before
+            && out.results[before..]
+                .iter()
+                .all(|r| r.total_rows == 0 && r.rows_affected.is_none())
+        {
             out.results.truncate(before);
         }
         if opened && !c.is_autocommit() {
@@ -685,24 +911,51 @@ fn run_bound(c: &Connection, sql: &str, values: &[rusqlite::types::Value], max_r
 fn outside_transaction(stmt: &str) -> bool {
     matches!(
         leading_keyword(stmt, &ScriptDialect::generic()).as_deref(),
-        Some("vacuum" | "attach" | "detach" | "begin" | "commit" | "end" | "rollback" | "savepoint" | "release")
+        Some(
+            "vacuum"
+                | "attach"
+                | "detach"
+                | "begin"
+                | "commit"
+                | "end"
+                | "rollback"
+                | "savepoint"
+                | "release"
+        )
     )
 }
 
-fn run_stmt(c: &Connection, stmt: &mut rusqlite::Statement<'_>, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+fn run_stmt(
+    c: &Connection,
+    stmt: &mut rusqlite::Statement<'_>,
+    sql: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     {
         let n = stmt.column_count();
         if n > 0 {
             let columns: Vec<ResultColumn> = stmt
                 .columns()
                 .into_iter()
-                .map(|c| ResultColumn { name: c.name().to_string(), type_name: c.decl_type().unwrap_or("").to_string() })
+                .map(|c| ResultColumn {
+                    name: c.name().to_string(),
+                    type_name: c.decl_type().unwrap_or("").to_string(),
+                })
                 .collect();
-            let spatial: Vec<bool> = columns.iter().map(|c| is_spatial_type(&c.type_name)).collect();
+            let spatial: Vec<bool> = columns
+                .iter()
+                .map(|c| is_spatial_type(&c.type_name))
+                .collect();
             out.begin_result(columns);
             let mut rows = stmt.raw_query();
             while let Some(row) = rows.next().map_err(|e| stmt_err(e, sql))? {
-                out.push_row((0..n).map(|i| result_cell(row.get_ref_unwrap(i), spatial[i])).collect(), max_rows);
+                out.push_row(
+                    (0..n)
+                        .map(|i| result_cell(row.get_ref_unwrap(i), spatial[i]))
+                        .collect(),
+                    max_rows,
+                );
             }
         } else {
             // changes() keeps the last DML's count across DDL; only trust it
@@ -716,21 +969,37 @@ fn run_stmt(c: &Connection, stmt: &mut rusqlite::Statement<'_>, sql: &str, max_r
     Ok(())
 }
 
-fn explain_script(c: &Connection, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+fn explain_script(
+    c: &Connection,
+    sql: &str,
+    analyze: bool,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     if analyze {
-        out.messages.push("SQLite no mide cifras reales: se muestran los planes estimados.".into());
+        out.messages
+            .push("SQLite no mide cifras reales: se muestran los planes estimados.".into());
     }
     for stmt in split_statements(sql) {
         if plan::explainable(&stmt) {
-            let mut q = c.prepare(&format!("EXPLAIN QUERY PLAN {stmt}")).map_err(err)?;
+            let mut q = c
+                .prepare(&format!("EXPLAIN QUERY PLAN {stmt}"))
+                .map_err(err)?;
             let rows = q
-                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(3)?)))
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, String>(3)?,
+                    ))
+                })
                 .map_err(err)?
                 .collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(err)?;
             out.plans.push(plan::query_plan(&stmt, &rows));
         } else if !analyze {
-            out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
+            out.messages
+                .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
         }
         if analyze {
             run_script(c, &stmt, max_rows, out)?;
@@ -740,7 +1009,8 @@ fn explain_script(c: &Connection, sql: &str, analyze: bool, max_rows: usize, out
 }
 
 fn total_changes(c: &Connection) -> Result<i64> {
-    c.query_row("SELECT total_changes()", [], |r| r.get(0)).map_err(err)
+    c.query_row("SELECT total_changes()", [], |r| r.get(0))
+        .map_err(err)
 }
 
 /// A result cell. Spatial blobs (a column declared GEOMETRY, POINT…, or a
@@ -785,7 +1055,11 @@ mod tests {
         run_bound(&c, &stmt.numbered("?"), &values, 10, false, &mut out).unwrap();
         assert_eq!(out.results[0].rows, vec![vec![serde_json::json!(2)]]);
         // The table is still there.
-        assert_eq!(c.query_row("SELECT count(*) FROM x", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM x", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
     }
 
     #[test]
@@ -806,7 +1080,15 @@ mod tests {
         assert_eq!(r.len(), 4);
         assert_eq!(r[1].rows_affected, Some(2));
         assert_eq!(r[2].rows_affected, Some(0));
-        assert_eq!(r[3].rows, vec![vec![serde_json::json!(1), "0xCAFE".into(), serde_json::json!(1.5), "x".into()]]);
+        assert_eq!(
+            r[3].rows,
+            vec![vec![
+                serde_json::json!(1),
+                "0xCAFE".into(),
+                serde_json::json!(1.5),
+                "x".into()
+            ]]
+        );
         assert_eq!(r[3].total_rows, 2);
         assert!(r[3].truncated);
     }
@@ -844,7 +1126,13 @@ mod tests {
     fn a_failing_statement_keeps_earlier_results() {
         let c = Connection::open_in_memory().unwrap();
         let mut out = QueryOutcome::default();
-        let e = run_script(&c, "SELECT 1; SELECT * FROM missing; SELECT 2;", 10, &mut out).unwrap_err();
+        let e = run_script(
+            &c,
+            "SELECT 1; SELECT * FROM missing; SELECT 2;",
+            10,
+            &mut out,
+        )
+        .unwrap_err();
         assert!(e.is_query());
         assert_eq!(out.results.len(), 1);
     }
@@ -854,12 +1142,17 @@ mod tests {
         let c = Connection::open_in_memory().unwrap();
         let mut out = QueryOutcome::default();
         let script = "SELECT 1;\nSELEC 2;";
-        let e = run_script(&c, script, 10, &mut out).unwrap_err().to_script_error();
+        let e = run_script(&c, script, 10, &mut out)
+            .unwrap_err()
+            .to_script_error();
         assert_eq!(e.code.as_deref(), Some("1"));
         assert_eq!(e.offset, Some(script.find("SELEC 2").unwrap()));
         assert!(e.message.contains("syntax error"), "{}", e.message);
-        c.execute_batch("CREATE TABLE u (id INTEGER PRIMARY KEY); INSERT INTO u VALUES (1)").unwrap();
-        let e = run_script(&c, "INSERT INTO u VALUES (1)", 10, &mut out).unwrap_err().to_script_error();
+        c.execute_batch("CREATE TABLE u (id INTEGER PRIMARY KEY); INSERT INTO u VALUES (1)")
+            .unwrap();
+        let e = run_script(&c, "INSERT INTO u VALUES (1)", 10, &mut out)
+            .unwrap_err()
+            .to_script_error();
         assert_eq!(e.code.as_deref(), Some("1555"), "{e:?}");
     }
 
@@ -870,13 +1163,27 @@ mod tests {
         run_script_tx(&c, "CREATE TABLE t (a)", 10, true, &mut out).unwrap();
         assert!(!c.is_autocommit());
         c.execute_batch("ROLLBACK").unwrap();
-        assert!(c.prepare("SELECT * FROM t").is_err(), "the CREATE was rolled back");
+        assert!(
+            c.prepare("SELECT * FROM t").is_err(),
+            "the CREATE was rolled back"
+        );
         run_script_tx(&c, "SELECT 1", 10, true, &mut out).unwrap();
         assert!(c.is_autocommit(), "a read opens nothing");
-        run_script_tx(&c, "BEGIN; CREATE TABLE t (a); INSERT INTO t VALUES (1)", 10, true, &mut out).unwrap();
+        run_script_tx(
+            &c,
+            "BEGIN; CREATE TABLE t (a); INSERT INTO t VALUES (1)",
+            10,
+            true,
+            &mut out,
+        )
+        .unwrap();
         run_script_tx(&c, "COMMIT", 10, true, &mut out).unwrap();
         assert!(c.is_autocommit());
-        assert_eq!(c.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
     }
 
     #[test]
@@ -892,6 +1199,14 @@ mod tests {
         let i = info();
         assert_eq!(i.id, "sqlite");
         let ids: Vec<_> = i.object_kinds.iter().map(|k| k.id).collect();
-        assert_eq!(ids, vec![kinds::TABLE, schema::VIRTUAL_TABLE, kinds::VIEW, kinds::TRIGGER]);
+        assert_eq!(
+            ids,
+            vec![
+                kinds::TABLE,
+                schema::VIRTUAL_TABLE,
+                kinds::VIEW,
+                kinds::TRIGGER
+            ]
+        );
     }
 }

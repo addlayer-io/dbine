@@ -16,7 +16,13 @@ pub struct SortKey {
 /// `"a" ASC, "b" DESC` with the engine's identifier quoting.
 pub fn order_list(sort: &[SortKey], quote: Quote) -> String {
     sort.iter()
-        .map(|k| format!("{} {}", quote_ident(quote, &k.column), if k.descending { "DESC" } else { "ASC" }))
+        .map(|k| {
+            format!(
+                "{} {}",
+                quote_ident(quote, &k.column),
+                if k.descending { "DESC" } else { "ASC" }
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -39,7 +45,9 @@ pub(crate) fn clauses(query: &str, backslash: bool) -> Clauses {
     let word_at = |i: usize, w: &str| -> bool {
         lower[i..].starts_with(w)
             && (i == 0 || !(lb[i - 1].is_ascii_alphanumeric() || lb[i - 1] == b'_'))
-            && lb.get(i + w.len()).is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == b'_'))
+            && lb
+                .get(i + w.len())
+                .is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == b'_'))
     };
     let mut c = Clauses::default();
     let mut depth = 0i32;
@@ -94,9 +102,15 @@ pub(crate) fn clauses(query: &str, backslash: bool) -> Clauses {
                         c.from = Some(i);
                     }
                 } else if c.tail.is_none() {
-                    if c.order_by.is_none() && word_at(i, "order") && lower[i + 5..].trim_start().starts_with("by") {
+                    if c.order_by.is_none()
+                        && word_at(i, "order")
+                        && lower[i + 5..].trim_start().starts_with("by")
+                    {
                         c.order_by = Some(i);
-                    } else if ["limit", "offset", "fetch", "allow"].iter().any(|w| word_at(i, w)) {
+                    } else if ["limit", "offset", "fetch", "allow"]
+                        .iter()
+                        .any(|w| word_at(i, w))
+                    {
                         c.tail = Some(i);
                     }
                 }
@@ -140,7 +154,12 @@ mod tests {
     use crate::sql::{select_top, Limit};
 
     fn keys(k: &[(&str, bool)]) -> Vec<SortKey> {
-        k.iter().map(|(c, d)| SortKey { column: c.to_string(), descending: *d }).collect()
+        k.iter()
+            .map(|(c, d)| SortKey {
+                column: c.to_string(),
+                descending: *d,
+            })
+            .collect()
     }
 
     fn sorted(q: &str, quote: Quote, k: &[(&str, bool)]) -> String {
@@ -159,7 +178,10 @@ mod tests {
     fn limit_shape() {
         // postgres, sqlite, duckdb, mysql, snowflake, trino, hana… (select_top Limit)
         let q = select_top(Quote::Double, Limit::Limit, Some("s"), "t", 200);
-        assert_eq!(sorted(&q, Quote::Double, &[("x", true)]), "SELECT *\nFROM \"s\".\"t\"\nORDER BY \"x\" DESC\nLIMIT 200");
+        assert_eq!(
+            sorted(&q, Quote::Double, &[("x", true)]),
+            "SELECT *\nFROM \"s\".\"t\"\nORDER BY \"x\" DESC\nLIMIT 200"
+        );
         let q = select_top(Quote::Backtick, Limit::Limit, Some("db"), "t", 200);
         let w = insert_where(&q, "`a` = 1").unwrap();
         assert_eq!(
@@ -172,22 +194,37 @@ mod tests {
     fn top_shape() {
         // sqlserver
         let q = select_top(Quote::Bracket, Limit::Top, Some("dbo"), "t", 200);
-        assert_eq!(sorted(&q, Quote::Bracket, &[("x", false)]), "SELECT TOP (200) *\nFROM [dbo].[t]\nORDER BY [x] ASC");
+        assert_eq!(
+            sorted(&q, Quote::Bracket, &[("x", false)]),
+            "SELECT TOP (200) *\nFROM [dbo].[t]\nORDER BY [x] ASC"
+        );
         let w = insert_where(&q, "[a] = 1").unwrap();
-        assert_eq!(sorted(&w, Quote::Bracket, &[("x", true)]), "SELECT TOP (200) *\nFROM [dbo].[t]\nWHERE [a] = 1\nORDER BY [x] DESC");
+        assert_eq!(
+            sorted(&w, Quote::Bracket, &[("x", true)]),
+            "SELECT TOP (200) *\nFROM [dbo].[t]\nWHERE [a] = 1\nORDER BY [x] DESC"
+        );
         // odbc presets: TOP n and FIRST n (sybase, access, teradata, informix, firebird)
         let q = "SELECT TOP 50 *\nFROM \"t\"";
-        assert_eq!(sorted(q, Quote::Double, &[("x", false)]), "SELECT TOP 50 *\nFROM \"t\"\nORDER BY \"x\" ASC");
+        assert_eq!(
+            sorted(q, Quote::Double, &[("x", false)]),
+            "SELECT TOP 50 *\nFROM \"t\"\nORDER BY \"x\" ASC"
+        );
         let q = "SELECT FIRST 50 *\nFROM \"T\"";
         let w = insert_where(q, "\"A\" = 1").unwrap();
-        assert_eq!(sorted(&w, Quote::Double, &[("X", true)]), "SELECT FIRST 50 *\nFROM \"T\"\nWHERE \"A\" = 1\nORDER BY \"X\" DESC");
+        assert_eq!(
+            sorted(&w, Quote::Double, &[("X", true)]),
+            "SELECT FIRST 50 *\nFROM \"T\"\nWHERE \"A\" = 1\nORDER BY \"X\" DESC"
+        );
     }
 
     #[test]
     fn fetch_first_shape() {
         // oracle, db2 and the odbc FetchFirst presets
         let q = select_top(Quote::Double, Limit::FetchFirst, Some("HR"), "EMP", 10);
-        assert_eq!(sorted(&q, Quote::Double, &[("SAL", true)]), "SELECT *\nFROM \"HR\".\"EMP\"\nORDER BY \"SAL\" DESC\nFETCH FIRST 10 ROWS ONLY");
+        assert_eq!(
+            sorted(&q, Quote::Double, &[("SAL", true)]),
+            "SELECT *\nFROM \"HR\".\"EMP\"\nORDER BY \"SAL\" DESC\nFETCH FIRST 10 ROWS ONLY"
+        );
         let w = insert_where(&q, "\"DEPT\" = 10").unwrap();
         assert_eq!(
             sorted(&w, Quote::Double, &[("SAL", true), ("ENAME", false)]),
@@ -199,25 +236,43 @@ mod tests {
     fn cql_and_semicolon_shape() {
         // cassandra: one line, LIMIT and `;`
         let q = "SELECT * FROM ks.t LIMIT 50;";
-        assert_eq!(sorted(q, Quote::Double, &[("ts", true)]), "SELECT * FROM ks.t\nORDER BY \"ts\" DESC\nLIMIT 50;");
+        assert_eq!(
+            sorted(q, Quote::Double, &[("ts", true)]),
+            "SELECT * FROM ks.t\nORDER BY \"ts\" DESC\nLIMIT 50;"
+        );
         let w = "SELECT * FROM ks.t WHERE \"k\" = 1 LIMIT 50 ALLOW FILTERING;";
-        assert_eq!(sorted(w, Quote::Double, &[("ts", false)]), "SELECT * FROM ks.t WHERE \"k\" = 1\nORDER BY \"ts\" ASC\nLIMIT 50 ALLOW FILTERING;");
-        assert_eq!(sorted("SELECT * FROM t;", Quote::Double, &[("a", false)]), "SELECT * FROM t\nORDER BY \"a\" ASC;");
+        assert_eq!(
+            sorted(w, Quote::Double, &[("ts", false)]),
+            "SELECT * FROM ks.t WHERE \"k\" = 1\nORDER BY \"ts\" ASC\nLIMIT 50 ALLOW FILTERING;"
+        );
+        assert_eq!(
+            sorted("SELECT * FROM t;", Quote::Double, &[("a", false)]),
+            "SELECT * FROM t\nORDER BY \"a\" ASC;"
+        );
     }
 
     #[test]
     fn replaces_the_query_own_order() {
         // influxdb3, iotdb: ORDER BY time DESC LIMIT n
         let q = "SELECT *\nFROM \"cpu\"\nORDER BY time DESC\nLIMIT 100";
-        assert_eq!(sorted(q, Quote::Double, &[("host", false)]), "SELECT *\nFROM \"cpu\"\nORDER BY \"host\" ASC\nLIMIT 100");
+        assert_eq!(
+            sorted(q, Quote::Double, &[("host", false)]),
+            "SELECT *\nFROM \"cpu\"\nORDER BY \"host\" ASC\nLIMIT 100"
+        );
         let w = insert_where(q, "\"host\" = 'a'").unwrap();
-        assert_eq!(sorted(&w, Quote::Double, &[("usage", true)]), "SELECT *\nFROM \"cpu\"\nWHERE \"host\" = 'a'\nORDER BY \"usage\" DESC\nLIMIT 100");
+        assert_eq!(
+            sorted(&w, Quote::Double, &[("usage", true)]),
+            "SELECT *\nFROM \"cpu\"\nWHERE \"host\" = 'a'\nORDER BY \"usage\" DESC\nLIMIT 100"
+        );
     }
 
     #[test]
     fn no_limit_shape() {
         // dynamodb (PartiQL), ODBC without a limit
-        assert_eq!(sorted("SELECT * FROM \"t\"", Quote::Double, &[("a", false)]), "SELECT * FROM \"t\"\nORDER BY \"a\" ASC");
+        assert_eq!(
+            sorted("SELECT * FROM \"t\"", Quote::Double, &[("a", false)]),
+            "SELECT * FROM \"t\"\nORDER BY \"a\" ASC"
+        );
     }
 
     #[test]
@@ -228,13 +283,22 @@ mod tests {
             "SELECT *\nFROM \"limit order\".\"fetch;from\"\nWHERE \"x\" = 'LIMIT 3; ORDER BY y'\nORDER BY \"offset\" DESC\nLIMIT 5"
         );
         let q = "SELECT TOP (5) *\nFROM [order].[limit]";
-        assert_eq!(sorted(q, Quote::Bracket, &[("a", false)]), "SELECT TOP (5) *\nFROM [order].[limit]\nORDER BY [a] ASC");
+        assert_eq!(
+            sorted(q, Quote::Bracket, &[("a", false)]),
+            "SELECT TOP (5) *\nFROM [order].[limit]\nORDER BY [a] ASC"
+        );
         // A subquery's own LIMIT isn't the outer one.
         let q = "SELECT * FROM (SELECT * FROM t LIMIT 3) s LIMIT 5";
-        assert_eq!(sorted(q, Quote::Double, &[("a", false)]), "SELECT * FROM (SELECT * FROM t LIMIT 3) s\nORDER BY \"a\" ASC\nLIMIT 5");
+        assert_eq!(
+            sorted(q, Quote::Double, &[("a", false)]),
+            "SELECT * FROM (SELECT * FROM t LIMIT 3) s\nORDER BY \"a\" ASC\nLIMIT 5"
+        );
         // The table is a function call (Timeplus streams).
         let q = "SELECT *\nFROM table(`s`)\nLIMIT 5";
-        assert_eq!(sorted(q, Quote::Backtick, &[("a", false)]), "SELECT *\nFROM table(`s`)\nORDER BY `a` ASC\nLIMIT 5");
+        assert_eq!(
+            sorted(q, Quote::Backtick, &[("a", false)]),
+            "SELECT *\nFROM table(`s`)\nORDER BY `a` ASC\nLIMIT 5"
+        );
     }
 
     #[test]
@@ -246,7 +310,10 @@ mod tests {
         );
         // Standard strings: the backslash is a plain character.
         let q = "SELECT * FROM \"t\" WHERE \"a\" = 'x\\' LIMIT 200";
-        assert_eq!(set_order_by_in(q, "\"b\" ASC", false).unwrap(), "SELECT * FROM \"t\" WHERE \"a\" = 'x\\'\nORDER BY \"b\" ASC\nLIMIT 200");
+        assert_eq!(
+            set_order_by_in(q, "\"b\" ASC", false).unwrap(),
+            "SELECT * FROM \"t\" WHERE \"a\" = 'x\\'\nORDER BY \"b\" ASC\nLIMIT 200"
+        );
     }
 
     #[test]

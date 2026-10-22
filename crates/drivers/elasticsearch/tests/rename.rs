@@ -31,7 +31,9 @@ POST /_aliases
 
 async fn run(s: &mut Box<dyn Session>, text: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(text, 100, &mut out).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
     out
 }
 
@@ -48,15 +50,35 @@ async fn count(s: &mut Box<dyn Session>, target: &str) -> String {
 
 fn request(kind: &str, name: &str, new: &str, definition: Option<String>) -> RenameRequest {
     RenameRequest {
-        target: RenameTarget::Object { object: ObjectRef { kind: kind.into(), schema: None, name: name.into() }, parent: None },
+        target: RenameTarget::Object {
+            object: ObjectRef {
+                kind: kind.into(),
+                schema: None,
+                name: name.into(),
+            },
+            parent: None,
+        },
         new_name: new.into(),
         table: None,
         definition,
     }
 }
 
-async fn rename(d: &dyn dbine_driver::Driver, s: &mut Box<dyn Session>, kind: &str, name: &str, new: &str) {
-    let def = s.definition(&ObjectRef { kind: kind.into(), schema: None, name: name.into() }).await.unwrap();
+async fn rename(
+    d: &dyn dbine_driver::Driver,
+    s: &mut Box<dyn Session>,
+    kind: &str,
+    name: &str,
+    new: &str,
+) {
+    let def = s
+        .definition(&ObjectRef {
+            kind: kind.into(),
+            schema: None,
+            name: name.into(),
+        })
+        .await
+        .unwrap();
     let script = d.rename_script(&request(kind, name, new, def)).unwrap();
     println!("{script:#?}");
     for st in &script.statements {
@@ -69,40 +91,97 @@ async fn check(id: &str, env: &str) {
         eprintln!("{env} not set; skipping");
         return;
     };
-    let d = dbine_driver_elasticsearch::drivers().into_iter().find(|d| d.info().id == id).unwrap();
-    let cfg = ConnectionConfig { driver: id.into(), host: url, ..Default::default() };
+    let d = dbine_driver_elasticsearch::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap();
+    let cfg = ConnectionConfig {
+        driver: id.into(),
+        host: url,
+        ..Default::default()
+    };
     let mut s = d.connect(&cfg, None).await.unwrap();
     run(&mut s, SEED).await;
 
     rename(d.as_ref(), &mut s, kinds::INDEX, "dbine_rn", "dbine_rn2").await;
-    let names: Vec<String> = s.list_objects().await.unwrap().into_iter().filter(|o| o.kind == kinds::INDEX).map(|o| o.name).collect();
-    assert!(names.contains(&"dbine_rn2".to_string()) && !names.contains(&"dbine_rn".to_string()), "{names:?}");
+    let names: Vec<String> = s
+        .list_objects()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|o| o.kind == kinds::INDEX)
+        .map(|o| o.name)
+        .collect();
+    assert!(
+        names.contains(&"dbine_rn2".to_string()) && !names.contains(&"dbine_rn".to_string()),
+        "{names:?}"
+    );
     assert_eq!(count(&mut s, "dbine_rn2").await, "2");
     // The filtered alias still filters; the write alias still takes writes.
     assert_eq!(count(&mut s, "dbine_rn_f").await, "1");
     run(&mut s, "POST /dbine_rn_w/_doc?refresh=true\n{\"x\": \"3\"}").await;
     assert_eq!(count(&mut s, "dbine_rn2").await, "3");
-    let def = s.definition(&ObjectRef { kind: kinds::INDEX.into(), schema: None, name: "dbine_rn2".into() }).await.unwrap().unwrap();
-    assert!(def.contains("\"is_write_index\" : true") || def.contains("\"is_write_index\": true"), "{def}");
+    let def = s
+        .definition(&ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "dbine_rn2".into(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        def.contains("\"is_write_index\" : true") || def.contains("\"is_write_index\": true"),
+        "{def}"
+    );
 
     // An alias on two indices, the write flag kept on the right one.
-    rename(d.as_ref(), &mut s, dbine_driver_elasticsearch::KIND_ALIAS, "dbine_rn_all", "dbine_rn_todo").await;
+    rename(
+        d.as_ref(),
+        &mut s,
+        dbine_driver_elasticsearch::KIND_ALIAS,
+        "dbine_rn_all",
+        "dbine_rn_todo",
+    )
+    .await;
     assert_eq!(count(&mut s, "dbine_rn_todo").await, "3");
-    run(&mut s, "POST /dbine_rn_todo/_doc?refresh=true\n{\"x\": \"4\"}").await;
+    run(
+        &mut s,
+        "POST /dbine_rn_todo/_doc?refresh=true\n{\"x\": \"4\"}",
+    )
+    .await;
     assert_eq!(count(&mut s, "dbine_rn2").await, "4");
     let mut out = QueryOutcome::default();
-    assert!(s.execute("GET /dbine_rn_all/_count", 100, &mut out).await.is_err());
+    assert!(s
+        .execute("GET /dbine_rn_all/_count", 100, &mut out)
+        .await
+        .is_err());
 
     // Fields aren't renamed.
     let col = RenameRequest {
-        target: RenameTarget::Column { table: ObjectRef { kind: kinds::INDEX.into(), schema: None, name: "dbine_rn2".into() }, column: "x".into() },
+        target: RenameTarget::Column {
+            table: ObjectRef {
+                kind: kinds::INDEX.into(),
+                schema: None,
+                name: "dbine_rn2".into(),
+            },
+            column: "x".into(),
+        },
         new_name: "y".into(),
         table: None,
         definition: None,
     };
-    assert!(d.rename_script(&col).unwrap_err().to_string().contains("reindexar"));
+    assert!(d
+        .rename_script(&col)
+        .unwrap_err()
+        .to_string()
+        .contains("reindexar"));
 
-    run(&mut s, "DELETE /dbine_rn,dbine_rn2,dbine_rn_b?ignore_unavailable=true").await;
+    run(
+        &mut s,
+        "DELETE /dbine_rn,dbine_rn2,dbine_rn_b?ignore_unavailable=true",
+    )
+    .await;
 }
 
 #[tokio::test]

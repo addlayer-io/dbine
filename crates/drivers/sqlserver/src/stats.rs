@@ -66,7 +66,11 @@ fn kind_of(code: &str) -> Option<&'static str> {
 }
 
 fn object(r: &tiberius::Row) -> Option<ObjectRef> {
-    Some(ObjectRef { kind: kind_of(&text(r, 0)?)?.to_string(), schema: text(r, 1), name: text(r, 2)? })
+    Some(ObjectRef {
+        kind: kind_of(&text(r, 0)?)?.to_string(),
+        schema: text(r, 1),
+        name: text(r, 2)?,
+    })
 }
 
 impl SqlServerSession {
@@ -76,7 +80,12 @@ impl SqlServerSession {
                 Ok(rows) => {
                     return Ok(rows
                         .iter()
-                        .filter_map(|r| Some(RowEstimate { object: object(r)?, rows: text(r, 3)?.trim().parse().ok()? }))
+                        .filter_map(|r| {
+                            Some(RowEstimate {
+                                object: object(r)?,
+                                rows: text(r, 3)?.trim().parse().ok()?,
+                            })
+                        })
                         .collect())
                 }
                 Err(e) => tracing::debug!("{:?}: row estimates unavailable: {e}", self.variant),
@@ -97,11 +106,17 @@ impl SqlServerSession {
                 }
             };
             for r in &rows {
-                let (Some(object), Some(comment)) = (object(r), text(r, 3)) else { continue };
+                let (Some(object), Some(comment)) = (object(r), text(r, 3)) else {
+                    continue;
+                };
                 if comment.trim().is_empty() {
                     continue;
                 }
-                if seen.insert((object.kind.clone(), object.schema.clone(), object.name.clone())) {
+                if seen.insert((
+                    object.kind.clone(),
+                    object.schema.clone(),
+                    object.name.clone(),
+                )) {
                     out.push(ObjectComment { object, comment });
                 }
             }

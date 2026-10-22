@@ -47,7 +47,10 @@ fn get(r: &Row, i: usize) -> String {
 }
 
 fn num(r: &Row, i: usize) -> i64 {
-    at(r, i).and_then(|v| v.trim().parse::<f64>().ok()).map(|v| v as i64).unwrap_or(0)
+    at(r, i)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map(|v| v as i64)
+        .unwrap_or(0)
 }
 
 fn mib(bytes: i64) -> String {
@@ -101,7 +104,11 @@ fn redundant(indexes: &[Index]) -> Vec<(String, String)> {
             continue;
         }
         let dominant = indexes.iter().find(|b| {
-            if b.name == a.name || b.kind != a.kind || b.parts.len() < a.parts.len() || b.parts[..a.parts.len()] != a.parts[..] {
+            if b.name == a.name
+                || b.kind != a.kind
+                || b.parts.len() < a.parts.len()
+                || b.parts[..a.parts.len()] != a.parts[..]
+            {
                 return false;
             }
             let equal = b.parts.len() == a.parts.len();
@@ -132,7 +139,10 @@ impl MySqlSession {
     }
 
     async fn check_value(&mut self, what: &str, sql: &str, col: usize) -> Option<String> {
-        self.check_rows(what, sql).await?.first().and_then(|r| at(r, col))
+        self.check_rows(what, sql)
+            .await?
+            .first()
+            .and_then(|r| at(r, col))
     }
 
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
@@ -177,7 +187,9 @@ impl MySqlSession {
              ORDER BY 1 LIMIT {MAX_OBJECTS}",
             db = lit(db)
         );
-        let Some(rows) = self.check_rows("tables without pk", &sql).await else { return };
+        let Some(rows) = self.check_rows("tables without pk", &sql).await else {
+            return;
+        };
         let objects: Vec<String> = rows.iter().map(|r| get(r, 0)).collect();
         out.push(
             HealthCheck::new(
@@ -195,7 +207,9 @@ impl MySqlSession {
     }
 
     async fn myisam_tables(&mut self, db: &str, out: &mut Vec<HealthCheck>) {
-        let default = self.check_value("default engine", "SELECT @@default_storage_engine", 0).await;
+        let default = self
+            .check_value("default engine", "SELECT @@default_storage_engine", 0)
+            .await;
         if !default.is_some_and(|e| e.eq_ignore_ascii_case("InnoDB")) {
             return;
         }
@@ -204,10 +218,19 @@ impl MySqlSession {
              ORDER BY 1 LIMIT {MAX_OBJECTS}",
             lit(db)
         );
-        let Some(rows) = self.check_rows("myisam", &sql).await else { return };
+        let Some(rows) = self.check_rows("myisam", &sql).await else {
+            return;
+        };
         let objects: Vec<String> = rows.iter().map(|r| get(r, 0)).collect();
-        let fixes: Vec<String> =
-            objects.iter().map(|t| format!("ALTER TABLE {} ENGINE=InnoDB;", qualified_name(Quote::Backtick, Some(db), t))).collect();
+        let fixes: Vec<String> = objects
+            .iter()
+            .map(|t| {
+                format!(
+                    "ALTER TABLE {} ENGINE=InnoDB;",
+                    qualified_name(Quote::Backtick, Some(db), t)
+                )
+            })
+            .collect();
         let mut c = HealthCheck::new(
             "myisam_tables",
             "Diseño",
@@ -250,8 +273,14 @@ impl MySqlSession {
                 not_unique("u.TABLE_SCHEMA", "u.TABLE_NAME", "u.INDEX_NAME")
             ));
         } else {
-            let on = |v: Option<String>| v.is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("ON") || v.eq_ignore_ascii_case("YES"));
-            if self.variant == Variant::MariaDb && on(self.check_value("userstat", "SELECT @@userstat", 0).await) {
+            let on = |v: Option<String>| {
+                v.is_some_and(|v| {
+                    v == "1" || v.eq_ignore_ascii_case("ON") || v.eq_ignore_ascii_case("YES")
+                })
+            };
+            if self.variant == Variant::MariaDb
+                && on(self.check_value("userstat", "SELECT @@userstat", 0).await)
+            {
                 // INDEX_STATISTICS only lists the indexes that were read.
                 queries.push(format!(
                     "SELECT s.TABLE_NAME, s.INDEX_NAME FROM information_schema.STATISTICS s
@@ -260,8 +289,12 @@ impl MySqlSession {
                                        WHERE x.TABLE_SCHEMA = s.TABLE_SCHEMA AND x.TABLE_NAME = s.TABLE_NAME AND x.INDEX_NAME = s.INDEX_NAME AND x.ROWS_READ > 0)
                      ORDER BY 1, 2 LIMIT {MAX_OBJECTS}"
                 ));
-            } else if on(self.check_value("performance_schema", "SELECT @@performance_schema", 0).await)
-                && on(self.check_value("instrument", crate::index_usage::PERF_INSTRUMENT_SQL, 0).await)
+            } else if on(self
+                .check_value("performance_schema", "SELECT @@performance_schema", 0)
+                .await)
+                && on(self
+                    .check_value("instrument", crate::index_usage::PERF_INSTRUMENT_SQL, 0)
+                    .await)
             {
                 // What sys.schema_unused_indexes reads, without the unique ones.
                 queries.push(format!(
@@ -281,8 +314,14 @@ impl MySqlSession {
             }
         }
         let Some(rows) = rows else { return };
-        let window = self.check_rows("uptime", "SHOW GLOBAL STATUS LIKE 'Uptime'").await.and_then(|r| r.first().map(|r| num(r, 1) / 86400));
-        let objects: Vec<String> = rows.iter().map(|r| format!("{} · {}", get(r, 0), get(r, 1))).collect();
+        let window = self
+            .check_rows("uptime", "SHOW GLOBAL STATUS LIKE 'Uptime'")
+            .await
+            .and_then(|r| r.first().map(|r| num(r, 1) / 86400));
+        let objects: Vec<String> = rows
+            .iter()
+            .map(|r| format!("{} · {}", get(r, 0), get(r, 1)))
+            .collect();
         let drops: Vec<String> = rows
             .iter()
             .map(|r| drop_comment(db, &get(r, 0), &get(r, 1)))
@@ -297,7 +336,9 @@ impl MySqlSession {
              ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX",
             lit(db)
         );
-        let Some(rows) = self.check_rows("redundant indexes", &sql).await else { return };
+        let Some(rows) = self.check_rows("redundant indexes", &sql).await else {
+            return;
+        };
         let mut tables: BTreeMap<String, Vec<Index>> = BTreeMap::new();
         for r in &rows {
             let (table, name) = (get(r, 0), get(r, 1));
@@ -310,7 +351,12 @@ impl MySqlSession {
             let list = tables.entry(table).or_default();
             match list.last_mut().filter(|i| i.name == name) {
                 Some(i) => i.parts.push(part),
-                None => list.push(Index { name, unique: num(r, 2) == 0, kind: get(r, 3).to_ascii_uppercase(), parts: vec![part] }),
+                None => list.push(Index {
+                    name,
+                    unique: num(r, 2) == 0,
+                    kind: get(r, 3).to_ascii_uppercase(),
+                    parts: vec![part],
+                }),
             }
         }
         let mut objects = Vec::new();
@@ -318,7 +364,11 @@ impl MySqlSession {
         for (table, indexes) in &tables {
             for (ix, kept) in redundant(indexes) {
                 objects.push(format!("{table} · {ix} (lo cubre {kept})"));
-                fixes.push(format!("ALTER TABLE {} DROP INDEX {};", qualified_name(Quote::Backtick, Some(db), table), quote_ident(Quote::Backtick, &ix)));
+                fixes.push(format!(
+                    "ALTER TABLE {} DROP INDEX {};",
+                    qualified_name(Quote::Backtick, Some(db), table),
+                    quote_ident(Quote::Backtick, &ix)
+                ));
             }
         }
         let mut c = HealthCheck::new(
@@ -341,7 +391,9 @@ impl MySqlSession {
     async fn fragmented_tables(&mut self, db: &str, out: &mut Vec<HealthCheck>) {
         // MySQL 8 caches these columns for a day unless asked otherwise.
         if self.variant == Variant::MySql {
-            let _ = self.rows("SET SESSION information_schema_stats_expiry = 0").await;
+            let _ = self
+                .rows("SET SESSION information_schema_stats_expiry = 0")
+                .await;
         }
         let sql = format!(
             "SELECT TABLE_NAME, DATA_LENGTH + INDEX_LENGTH, DATA_FREE FROM information_schema.TABLES
@@ -350,10 +402,29 @@ impl MySqlSession {
              ORDER BY DATA_FREE DESC LIMIT {MAX_OBJECTS}",
             lit(db)
         );
-        let Some(rows) = self.check_rows("fragmentation", &sql).await else { return };
-        let objects: Vec<String> = rows.iter().map(|r| format!("{} ({} libres, {} de datos)", get(r, 0), mib(num(r, 2)), mib(num(r, 1)))).collect();
-        let fixes: Vec<String> =
-            rows.iter().map(|r| format!("OPTIMIZE TABLE {};", qualified_name(Quote::Backtick, Some(db), &get(r, 0)))).collect();
+        let Some(rows) = self.check_rows("fragmentation", &sql).await else {
+            return;
+        };
+        let objects: Vec<String> = rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "{} ({} libres, {} de datos)",
+                    get(r, 0),
+                    mib(num(r, 2)),
+                    mib(num(r, 1))
+                )
+            })
+            .collect();
+        let fixes: Vec<String> = rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "OPTIMIZE TABLE {};",
+                    qualified_name(Quote::Backtick, Some(db), &get(r, 0))
+                )
+            })
+            .collect();
         let mut c = HealthCheck::new(
             "fragmented_tables",
             "Espacio",
@@ -378,23 +449,43 @@ impl MySqlSession {
             lit(db)
         );
         let lead_sql = format!("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = {} AND SEQ_IN_INDEX = 1", lit(db));
-        let (Some(fks), Some(leads)) = (self.check_rows("foreign keys", &fk_sql).await, self.check_rows("index columns", &lead_sql).await) else {
+        let (Some(fks), Some(leads)) = (
+            self.check_rows("foreign keys", &fk_sql).await,
+            self.check_rows("index columns", &lead_sql).await,
+        ) else {
             return;
         };
-        let leading: HashSet<(String, String)> = leads.iter().map(|r| (get(r, 0).to_lowercase(), get(r, 1).to_lowercase())).collect();
+        let leading: HashSet<(String, String)> = leads
+            .iter()
+            .map(|r| (get(r, 0).to_lowercase(), get(r, 1).to_lowercase()))
+            .collect();
         let mut keys: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
         for r in &fks {
-            keys.entry((get(r, 0), get(r, 1))).or_default().push(get(r, 2));
+            keys.entry((get(r, 0), get(r, 1)))
+                .or_default()
+                .push(get(r, 2));
         }
-        let missing: Vec<(&(String, String), &Vec<String>)> =
-            keys.iter().filter(|((t, _), cols)| !leading.contains(&(t.to_lowercase(), cols[0].to_lowercase()))).collect();
-        let objects: Vec<String> = missing.iter().map(|((t, name), cols)| format!("{t} ({}) · {name}", cols.join(", "))).collect();
+        let missing: Vec<(&(String, String), &Vec<String>)> = keys
+            .iter()
+            .filter(|((t, _), cols)| !leading.contains(&(t.to_lowercase(), cols[0].to_lowercase())))
+            .collect();
+        let objects: Vec<String> = missing
+            .iter()
+            .map(|((t, name), cols)| format!("{t} ({}) · {name}", cols.join(", ")))
+            .collect();
         let fixes: Vec<String> = missing
             .iter()
             .map(|((t, _), cols)| {
-                let list = cols.iter().map(|c| quote_ident(Quote::Backtick, c)).collect::<Vec<_>>().join(", ");
+                let list = cols
+                    .iter()
+                    .map(|c| quote_ident(Quote::Backtick, c))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 let name = quote_ident(Quote::Backtick, &format!("ix_{t}_{}", cols.join("_")));
-                format!("CREATE INDEX {name} ON {} ({list});", qualified_name(Quote::Backtick, Some(db), t))
+                format!(
+                    "CREATE INDEX {name} ON {} ({list});",
+                    qualified_name(Quote::Backtick, Some(db), t)
+                )
             })
             .collect();
         let mut c = HealthCheck::new(
@@ -437,14 +528,36 @@ impl MySqlSession {
         };
         let (charset, collation) = default;
         let distinct: BTreeSet<String> = rows.iter().map(|r| get(r, 1)).collect();
-        let odd: Vec<&Row> = rows.iter().filter(|r| !get(r, 1).eq_ignore_ascii_case(&collation)).collect();
-        let objects: Vec<String> = odd.iter().take(MAX_OBJECTS).map(|r| format!("{} ({})", get(r, 0), get(r, 1))).collect();
+        let odd: Vec<&Row> = rows
+            .iter()
+            .filter(|r| !get(r, 1).eq_ignore_ascii_case(&collation))
+            .collect();
+        let objects: Vec<String> = odd
+            .iter()
+            .take(MAX_OBJECTS)
+            .map(|r| format!("{} ({})", get(r, 0), get(r, 1)))
+            .collect();
         let (title, sev) = if odd.is_empty() {
-            (format!("Todas las tablas usan la collation de la base ({collation})"), Severity::Ok)
+            (
+                format!("Todas las tablas usan la collation de la base ({collation})"),
+                Severity::Ok,
+            )
         } else if distinct.len() > 1 {
-            (format!("{} tablas con una collation distinta de la base ({collation})", odd.len()), Severity::Warning)
+            (
+                format!(
+                    "{} tablas con una collation distinta de la base ({collation})",
+                    odd.len()
+                ),
+                Severity::Warning,
+            )
         } else {
-            (format!("Las tablas usan {} y la base, {collation}", distinct.iter().next().cloned().unwrap_or_default()), Severity::Info)
+            (
+                format!(
+                    "Las tablas usan {} y la base, {collation}",
+                    distinct.iter().next().cloned().unwrap_or_default()
+                ),
+                Severity::Info,
+            )
         };
         let mut c = HealthCheck::new("mixed_collations", "Diseño", title, sev)
             .detail(
@@ -452,12 +565,18 @@ impl MySqlSession {
                  Convertir una tabla reescribe sus datos y puede cambiar el largo máximo de sus índices: probalo antes en otro ambiente.",
             )
             .objects(objects);
-        let safe = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        let safe =
+            |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
         if !odd.is_empty() && self.variant.is_mysql_server() && safe(&charset) && safe(&collation) {
             let fixes: Vec<String> = odd
                 .iter()
                 .take(MAX_OBJECTS)
-                .map(|r| format!("ALTER TABLE {} CONVERT TO CHARACTER SET {charset} COLLATE {collation};", qualified_name(Quote::Backtick, Some(db), &get(r, 0))))
+                .map(|r| {
+                    format!(
+                        "ALTER TABLE {} CONVERT TO CHARACTER SET {charset} COLLATE {collation};",
+                        qualified_name(Quote::Backtick, Some(db), &get(r, 0))
+                    )
+                })
                 .collect();
             c = c.fix(fixes.join("\n"));
         }
@@ -471,12 +590,24 @@ impl MySqlSession {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// A commented `ALTER TABLE … DROP INDEX` for the unused-indexes fix.
 fn drop_comment(db: &str, table: &str, index: &str) -> String {
-    let stmt = format!("ALTER TABLE {} DROP INDEX {};", qualified_name(Quote::Backtick, Some(db), table), quote_ident(Quote::Backtick, index));
+    let stmt = format!(
+        "ALTER TABLE {} DROP INDEX {};",
+        qualified_name(Quote::Backtick, Some(db), table),
+        quote_ident(Quote::Backtick, index)
+    );
     format!("-- {}", comment_text(&stmt))
 }
 
@@ -489,9 +620,18 @@ fn unused_check(objects: Vec<String>, drops: Vec<String>, window: Option<i64>) -
     let (title, sev) = if objects.is_empty() {
         ("Todos los índices se usaron".to_string(), Severity::Ok)
     } else if conclusive {
-        (format!("{} índices sin lecturas ({since})", objects.len()), Severity::Warning)
+        (
+            format!("{} índices sin lecturas ({since})", objects.len()),
+            Severity::Warning,
+        )
     } else {
-        (format!("No concluyente: {} índices sin lecturas, pero {since}", objects.len()), Severity::Info)
+        (
+            format!(
+                "No concluyente: {} índices sin lecturas, pero {since}",
+                objects.len()
+            ),
+            Severity::Info,
+        )
     };
     let mut c = HealthCheck::new("unused_indexes", "Rendimiento", title, sev)
         .detail(
@@ -500,7 +640,10 @@ fn unused_check(objects: Vec<String>, drops: Vec<String>, window: Option<i64>) -
         )
         .objects(objects);
     if conclusive && !drops.is_empty() {
-        c = c.fix(format!("-- Revisá cada uno antes de borrarlo:\n{}", drops.join("\n")));
+        c = c.fix(format!(
+            "-- Revisá cada uno antes de borrarlo:\n{}",
+            drops.join("\n")
+        ));
     }
     c
 }
@@ -510,7 +653,12 @@ mod tests {
     use super::*;
 
     fn ix(name: &str, unique: bool, parts: &[&str]) -> Index {
-        Index { name: name.into(), unique, kind: "BTREE".into(), parts: parts.iter().map(|p| p.to_string()).collect() }
+        Index {
+            name: name.into(),
+            unique,
+            kind: "BTREE".into(),
+            parts: parts.iter().map(|p| p.to_string()).collect(),
+        }
     }
 
     #[test]
@@ -538,28 +686,54 @@ mod tests {
         // A unique index isn't redundant to a wider one; FULLTEXT never is.
         let mut ft = ix("ft", false, &["a"]);
         ft.kind = "FULLTEXT".into();
-        assert!(redundant(&[ix("ux_a", true, &["a"]), ix("ix_ab", false, &["a", "b"]), ft]).is_empty());
+        assert!(redundant(&[
+            ix("ux_a", true, &["a"]),
+            ix("ix_ab", false, &["a", "b"]),
+            ft
+        ])
+        .is_empty());
     }
 
     #[test]
     fn checks_by_engine() {
         let my = applies(Variant::MySql, Variant::MySql);
-        assert!(my.no_pk && my.myisam && my.unused && my.redundant && my.fragmentation && !my.fk && my.collations);
+        assert!(
+            my.no_pk
+                && my.myisam
+                && my.unused
+                && my.redundant
+                && my.fragmentation
+                && !my.fk
+                && my.collations
+        );
         assert!(!applies(Variant::MySql, Variant::AuroraMySql).fragmentation);
         let ti = applies(Variant::TiDb, Variant::TiDb);
         assert!(ti.no_pk && !ti.myisam && ti.unused && !ti.fragmentation && !ti.fk);
         let ob = applies(Variant::OceanBase, Variant::OceanBase);
         assert!(ob.fk && !ob.unused && ob.redundant);
-        for v in [Variant::SingleStore, Variant::StarRocks, Variant::Doris, Variant::Databend, Variant::Manticore, Variant::GreptimeDb] {
+        for v in [
+            Variant::SingleStore,
+            Variant::StarRocks,
+            Variant::Doris,
+            Variant::Databend,
+            Variant::Manticore,
+            Variant::GreptimeDb,
+        ] {
             let a = applies(v, v);
-            assert!(!a.no_pk && !a.redundant && !a.unused && !a.collations, "{v:?}");
+            assert!(
+                !a.no_pk && !a.redundant && !a.unused && !a.collations,
+                "{v:?}"
+            );
         }
     }
 
     #[test]
     fn a_name_cannot_end_the_commented_drop() {
         let line = drop_comment("d", "t\r\nDROP TABLE x;", "i`x\u{2028}\u{85}");
-        assert_eq!(line, "-- ALTER TABLE `d`.`t??DROP TABLE x;` DROP INDEX `i``x??`;");
+        assert_eq!(
+            line,
+            "-- ALTER TABLE `d`.`t??DROP TABLE x;` DROP INDEX `i``x??`;"
+        );
         assert_eq!(line.lines().count(), 1);
     }
 
@@ -568,7 +742,11 @@ mod tests {
         let objs = || vec!["t · ix".to_string()];
         let drops = || vec!["-- ALTER TABLE `d`.`t` DROP INDEX `ix`;".to_string()];
         let short = unused_check(objs(), drops(), Some(2));
-        assert!(short.title.starts_with("No concluyente") && short.fix.is_none() && short.severity == Severity::Info);
+        assert!(
+            short.title.starts_with("No concluyente")
+                && short.fix.is_none()
+                && short.severity == Severity::Info
+        );
         let long = unused_check(objs(), drops(), Some(20));
         assert_eq!(long.severity, Severity::Warning);
         assert!(long.fix.unwrap().contains("DROP INDEX `ix`"));

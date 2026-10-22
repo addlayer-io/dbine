@@ -11,7 +11,11 @@ fn conn(level: Option<&str>, tags: &[&str], read_only: bool) -> SavedConnection 
         id: "c".into(),
         name: "c".into(),
         color: None,
-        config: ConnectionConfig { driver: "sqlite".into(), read_only, ..Default::default() },
+        config: ConnectionConfig {
+            driver: "sqlite".into(),
+            read_only,
+            ..Default::default()
+        },
         save_password: false,
         folder_id: None,
         tags: tags.iter().map(|t| t.to_string()).collect(),
@@ -24,22 +28,64 @@ fn conn(level: Option<&str>, tags: &[&str], read_only: bool) -> SavedConnection 
 fn mcp_effective_level_resolution() {
     use McpLevel::*;
     // The default applies without an override; the override wins.
-    assert_eq!(effective_level(&conn(None, &[], false), Schema).level, Schema);
+    assert_eq!(
+        effective_level(&conn(None, &[], false), Schema).level,
+        Schema
+    );
     assert_eq!(effective_level(&conn(None, &[], false), Read).level, Read);
-    assert_eq!(effective_level(&conn(Some("disabled"), &[], false), Read).level, Disabled);
-    assert_eq!(effective_level(&conn(Some("read"), &[], false), Schema).level, Read);
-    assert_eq!(effective_level(&conn(Some("garbage"), &[], false), Schema).level, Schema);
+    assert_eq!(
+        effective_level(&conn(Some("disabled"), &[], false), Read).level,
+        Disabled
+    );
+    assert_eq!(
+        effective_level(&conn(Some("read"), &[], false), Schema).level,
+        Read
+    );
+    assert_eq!(
+        effective_level(&conn(Some("garbage"), &[], false), Schema).level,
+        Schema
+    );
     // prod (any case) and read-only cap at read, and say why.
     let prod = effective_level(&conn(Some("write"), &["PROD"], false), Schema);
-    assert_eq!(prod, Effective { level: Read, cap: Some(Cap::Prod) });
+    assert_eq!(
+        prod,
+        Effective {
+            level: Read,
+            cap: Some(Cap::Prod)
+        }
+    );
     let ro = effective_level(&conn(None, &[], true), Write);
-    assert_eq!(ro, Effective { level: Read, cap: Some(Cap::ReadOnly) });
+    assert_eq!(
+        ro,
+        Effective {
+            level: Read,
+            cap: Some(Cap::ReadOnly)
+        }
+    );
     // Below the cap nothing changes.
-    assert_eq!(effective_level(&conn(Some("schema"), &["prod"], true), Read), Effective { level: Schema, cap: None });
+    assert_eq!(
+        effective_level(&conn(Some("schema"), &["prod"], true), Read),
+        Effective {
+            level: Schema,
+            cap: None
+        }
+    );
     // Write is effective where no cap applies, from the override or the default.
-    assert_eq!(effective_level(&conn(Some("write"), &[], false), Schema), Effective { level: Write, cap: None });
+    assert_eq!(
+        effective_level(&conn(Some("write"), &[], false), Schema),
+        Effective {
+            level: Write,
+            cap: None
+        }
+    );
     assert_eq!(effective_level(&conn(None, &[], false), Write).level, Write);
-    assert_eq!(effective_level(&conn(None, &["prod"], false), Write), Effective { level: Read, cap: Some(Cap::Prod) });
+    assert_eq!(
+        effective_level(&conn(None, &["prod"], false), Write),
+        Effective {
+            level: Read,
+            cap: Some(Cap::Prod)
+        }
+    );
     assert!(check_override(Some("write")).is_ok() && check_level(Write).is_ok());
     assert!(check_override(Some("nope")).is_err());
     assert!(check_override(Some("read")).is_ok() && check_override(None).is_ok());
@@ -57,7 +103,10 @@ fn mcp_token_hashing_and_verification() {
     assert!(!verify_token(&new_token(), &h));
     assert!(!verify_token(&t, ""));
     // The known SHA-256 of "abc".
-    assert_eq!(hash_token("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    assert_eq!(
+        hash_token("abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
 }
 
 struct Server {
@@ -77,7 +126,11 @@ async fn server() -> Server {
     // A counter too: tests start in parallel within the clock's resolution.
     static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let dir = std::env::temp_dir().join(format!("dbine-mcp-test-{}-{}-{n}", std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+    let dir = std::env::temp_dir().join(format!(
+        "dbine-mcp-test-{}-{}-{n}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let db = dir.join("t.sqlite");
     {
@@ -105,7 +158,12 @@ async fn server() -> Server {
     let running = rt.start(0, false).unwrap();
     let url = format!("http://127.0.0.1:{}/mcp", running.port);
     *rt.inner.server.lock().unwrap() = Some(running);
-    Server { rt, url, http: reqwest::Client::new(), dir }
+    Server {
+        rt,
+        url,
+        http: reqwest::Client::new(),
+        dir,
+    }
 }
 
 impl Server {
@@ -121,15 +179,32 @@ impl Server {
     }
 
     async fn rpc(&self, token: &str, method: &str, params: Value) -> Value {
-        let r = self.post(token, json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params })).await;
+        let r = self
+            .post(
+                token,
+                json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }),
+            )
+            .await;
         assert_eq!(r.status(), 200);
         r.json().await.unwrap()
     }
 
     async fn call(&self, token: &str, tool: &str, args: Value) -> (String, bool) {
-        let v = self.rpc(token, "tools/call", json!({ "name": tool, "arguments": args })).await;
+        let v = self
+            .rpc(
+                token,
+                "tools/call",
+                json!({ "name": tool, "arguments": args }),
+            )
+            .await;
         let r = &v["result"];
-        (r["content"][0]["text"].as_str().unwrap_or_default().to_string(), r["isError"].as_bool().unwrap())
+        (
+            r["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            r["isError"].as_bool().unwrap(),
+        )
     }
 }
 
@@ -139,63 +214,141 @@ async fn mcp_server_end_to_end() {
     let (claude, token) = s.rt.inner.create_client("Claude Code").unwrap();
     // Whether SQLite enforces reads on the server or they need the user's
     // approval, they run here without a dialog (the routing has its own tests).
-    s.rt.inner.approvals.approve_all_for(&claude.id, approvals::ApprovalKind::Read);
+    s.rt.inner
+        .approvals
+        .approve_all_for(&claude.id, approvals::ApprovalKind::Read);
 
     // initialize → tools/list
     let init = s.rpc(&token, "initialize", json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "t", "version": "1" } })).await;
     assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
     assert!(init["result"]["capabilities"]["tools"].is_object());
-    let note = s.post(&token, json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await;
+    let note = s
+        .post(
+            &token,
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        )
+        .await;
     assert_eq!(note.status(), 202);
     let tools = s.rpc(&token, "tools/list", json!({})).await;
-    let names: Vec<&str> = tools["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = tools["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
     assert!(names.contains(&"run_query") && names.contains(&"describe_object"));
 
     // Only the visible connections, without paths.
     let (list, err) = s.call(&token, "list_connections", json!({})).await;
     assert!(!err, "{list}");
-    assert!(list.contains("solo esquema") && list.contains("lectura") && !list.contains("oculta"), "{list}");
+    assert!(
+        list.contains("solo esquema") && list.contains("lectura") && !list.contains("oculta"),
+        "{list}"
+    );
     assert!(!list.contains("t.sqlite"), "{list}");
 
     // Structure works at the schema level.
-    let (objects, err) = s.call(&token, "list_objects", json!({ "connection": "solo esquema", "database": "" })).await;
+    let (objects, err) = s
+        .call(
+            &token,
+            "list_objects",
+            json!({ "connection": "solo esquema", "database": "" }),
+        )
+        .await;
     assert!(!err && objects.contains("people"), "{objects}");
-    let (desc, err) = s.call(&token, "describe_object", json!({ "connection": "solo esquema", "database": "", "object": "people" })).await;
-    assert!(!err && desc.contains("name") && desc.contains("NOT NULL"), "{desc}");
+    let (desc, err) = s
+        .call(
+            &token,
+            "describe_object",
+            json!({ "connection": "solo esquema", "database": "", "object": "people" }),
+        )
+        .await;
+    assert!(
+        !err && desc.contains("name") && desc.contains("NOT NULL"),
+        "{desc}"
+    );
 
     // The schema level can't run queries.
     let (msg, err) = s.call(&token, "run_query", json!({ "connection": "solo esquema", "database": "", "query": "select * from people" })).await;
     assert!(err && msg.contains("lectura"), "{msg}");
     // A disabled connection isn't there at all.
-    let (_, err) = s.call(&token, "list_objects", json!({ "connection": "oculta", "database": "" })).await;
+    let (_, err) = s
+        .call(
+            &token,
+            "list_objects",
+            json!({ "connection": "oculta", "database": "" }),
+        )
+        .await;
     assert!(err);
 
     // The read level can, and writes are refused.
     let (rows, err) = s.call(&token, "run_query", json!({ "connection": "lectura", "database": "", "query": "select name from people order by id" })).await;
-    assert!(!err && rows.contains("ana") && rows.contains("beto"), "{rows}");
+    assert!(
+        !err && rows.contains("ana") && rows.contains("beto"),
+        "{rows}"
+    );
     let (rows, err) = s.call(&token, "run_query", json!({ "connection": "lectura", "database": "", "query": "select name from people order by id", "max_rows": 1 })).await;
-    assert!(!err && rows.contains("ana") && !rows.contains("beto"), "{rows}");
-    let (msg, err) = s.call(&token, "run_query", json!({ "connection": "lectura", "database": "", "query": "delete from people" })).await;
+    assert!(
+        !err && rows.contains("ana") && !rows.contains("beto"),
+        "{rows}"
+    );
+    let (msg, err) = s
+        .call(
+            &token,
+            "run_query",
+            json!({ "connection": "lectura", "database": "", "query": "delete from people" }),
+        )
+        .await;
     assert!(err && msg.contains("DELETE"), "{msg}");
-    let (sample, err) = s.call(&token, "sample_rows", json!({ "connection": "lectura", "database": "", "object": "people", "limit": 5 })).await;
+    let (sample, err) = s
+        .call(
+            &token,
+            "sample_rows",
+            json!({ "connection": "lectura", "database": "", "object": "people", "limit": 5 }),
+        )
+        .await;
     assert!(!err && sample.contains("beto"), "{sample}");
     let (plan, err) = s.call(&token, "explain", json!({ "connection": "lectura", "database": "", "query": "select * from people where id = 1" })).await;
     assert!(!err && !plan.is_empty(), "{plan}");
 
     // Every call is in the log, with the client's name.
-    let log = s.rt.inner.activity.list(Some("Claude Code"), Some("lectura"), 100).unwrap();
+    let log =
+        s.rt.inner
+            .activity
+            .list(Some("Claude Code"), Some("lectura"), 100)
+            .unwrap();
     assert!(log.iter().any(|e| e.tool == "run_query" && !e.ok));
     // A read says whether the server enforced it or it was approved.
-    let read = |e: &&activity::ActivityEntry| e.tool == "run_query:enforced" || e.tool == "run_query:auto_approved";
-    assert!(log.iter().filter(read).any(|e| e.ok && e.rows == Some(2)), "{log:?}");
+    let read = |e: &&activity::ActivityEntry| {
+        e.tool == "run_query:enforced" || e.tool == "run_query:auto_approved"
+    };
+    assert!(
+        log.iter().filter(read).any(|e| e.ok && e.rows == Some(2)),
+        "{log:?}"
+    );
 
     // Wrong token → 401; revoked token → 401.
-    let r = s.post("dbine_wrong", json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })).await;
+    let r = s
+        .post(
+            "dbine_wrong",
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }),
+        )
+        .await;
     assert_eq!(r.status(), 401);
     let (c2, t2) = s.rt.inner.create_client("Codex").unwrap();
-    assert_eq!(s.post(&t2, json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })).await.status(), 200);
+    assert_eq!(
+        s.post(&t2, json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }))
+            .await
+            .status(),
+        200
+    );
     s.rt.inner.revoke_client(&c2.id).unwrap();
-    assert_eq!(s.post(&t2, json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })).await.status(), 401);
+    assert_eq!(
+        s.post(&t2, json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }))
+            .await
+            .status(),
+        401
+    );
 
     // A browser origin → 403, even with a good token.
     let r = s
@@ -237,50 +390,110 @@ async fn mcp_write_needs_the_level_and_the_users_approval() {
     prod.name = "produccion".into();
     prod.tags = vec!["prod".into()];
     s.rt.inner.state.store.save_connection(&prod).unwrap();
-    s.rt.inner.approvals.approve_all_for(&claude.id, approvals::ApprovalKind::Read);
+    s.rt.inner
+        .approvals
+        .approve_all_for(&claude.id, approvals::ApprovalKind::Read);
     let args = |conn: &str, code: &str| json!({ "connection": conn, "database": "", "code": code });
 
     // Below write (and on prod, capped at read) it's refused without asking.
-    let (msg, err) = s.call(&token, "execute", args("lectura", "delete from people")).await;
+    let (msg, err) = s
+        .call(&token, "execute", args("lectura", "delete from people"))
+        .await;
     assert!(err && msg.contains("escritura"), "{msg}");
-    let (msg, err) = s.call(&token, "execute", args("produccion", "delete from people")).await;
+    let (msg, err) = s
+        .call(&token, "execute", args("produccion", "delete from people"))
+        .await;
     assert!(err && msg.contains("prod"), "{msg}");
     assert!(s.rt.inner.approvals.pending().is_empty());
     // The read tools keep refusing writes at the write level.
-    let (msg, err) = s.call(&token, "run_query", json!({ "connection": "escritura", "database": "", "query": "delete from people" })).await;
+    let (msg, err) = s
+        .call(
+            &token,
+            "run_query",
+            json!({ "connection": "escritura", "database": "", "query": "delete from people" }),
+        )
+        .await;
     assert!(err && msg.contains("DELETE"), "{msg}");
 
     // Rejected: nothing runs.
-    let (r, _) = tokio::join!(s.call(&token, "execute", args("escritura", "delete from people")), answer_next(&s.rt, Decision::Reject));
+    let (r, _) = tokio::join!(
+        s.call(&token, "execute", args("escritura", "delete from people")),
+        answer_next(&s.rt, Decision::Reject)
+    );
     assert!(r.1 && r.0.contains("Rechazado"), "{}", r.0);
     let (rows, _) = s.call(&token, "run_query", json!({ "connection": "escritura", "database": "", "query": "select count(*) as n from people" })).await;
     assert!(rows.contains("\n2\n"), "{rows}");
 
     // Approved: it runs and says how many rows changed.
     let (r, _) = tokio::join!(
-        s.call(&token, "execute", args("escritura", "insert into people (name) values ('carla')")),
+        s.call(
+            &token,
+            "execute",
+            args("escritura", "insert into people (name) values ('carla')")
+        ),
         answer_next(&s.rt, Decision::Approve)
     );
-    assert!(!r.1 && r.0.contains("Aprobado") && r.0.contains("1 rows affected"), "{}", r.0);
-    let req_seen = s.rt.inner.activity.list(Some("Claude Code"), Some("escritura"), 100).unwrap();
+    assert!(
+        !r.1 && r.0.contains("Aprobado") && r.0.contains("1 rows affected"),
+        "{}",
+        r.0
+    );
+    let req_seen =
+        s.rt.inner
+            .activity
+            .list(Some("Claude Code"), Some("escritura"), 100)
+            .unwrap();
     assert!(req_seen.iter().any(|e| e.tool == "execute:request"));
-    assert!(req_seen.iter().any(|e| e.tool == "execute:rejected" && !e.ok));
-    assert!(req_seen.iter().any(|e| e.tool == "execute:approved" && e.ok && e.rows == Some(1)));
+    assert!(req_seen
+        .iter()
+        .any(|e| e.tool == "execute:rejected" && !e.ok));
+    assert!(req_seen
+        .iter()
+        .any(|e| e.tool == "execute:approved" && e.ok && e.rows == Some(1)));
 
     // Approve all: the next one runs without asking, until it's removed.
     let (r, _) = tokio::join!(
-        s.call(&token, "execute", args("escritura", "update people set name = upper(name)")),
+        s.call(
+            &token,
+            "execute",
+            args("escritura", "update people set name = upper(name)")
+        ),
         answer_next(&s.rt, Decision::ApproveAll)
     );
     assert!(!r.1, "{}", r.0);
-    assert!(s.rt.inner.approvals.approves_all(&claude.id, approvals::ApprovalKind::Write));
-    let (r, err) = s.call(&token, "execute", args("escritura", "delete from people where name = 'CARLA'")).await;
+    assert!(s
+        .rt
+        .inner
+        .approvals
+        .approves_all(&claude.id, approvals::ApprovalKind::Write));
+    let (r, err) = s
+        .call(
+            &token,
+            "execute",
+            args("escritura", "delete from people where name = 'CARLA'"),
+        )
+        .await;
     assert!(!err && r.contains("1 rows affected"), "{r}");
-    assert!(s.rt.inner.activity.list(Some("Claude Code"), None, 100).unwrap().iter().any(|e| e.tool == "execute:auto_approved"));
+    assert!(s
+        .rt
+        .inner
+        .activity
+        .list(Some("Claude Code"), None, 100)
+        .unwrap()
+        .iter()
+        .any(|e| e.tool == "execute:auto_approved"));
     // Revoking the client ends approve-all.
     s.rt.inner.revoke_client(&claude.id).unwrap();
-    assert!(!s.rt.inner.approvals.approves_all(&claude.id, approvals::ApprovalKind::Write));
-    assert!(!s.rt.inner.approvals.approves_all(&claude.id, approvals::ApprovalKind::Read));
+    assert!(!s
+        .rt
+        .inner
+        .approvals
+        .approves_all(&claude.id, approvals::ApprovalKind::Write));
+    assert!(!s
+        .rt
+        .inner
+        .approvals
+        .approves_all(&claude.id, approvals::ApprovalKind::Read));
 }
 
 /// A read the engine can't enforce: an MCP client's waits for the user in
@@ -297,7 +510,17 @@ async fn mcp_unenforced_read_asks_the_user() {
     let args = json!({ "connection": "lectura", "database": "", "query": "select * from people" });
     let inner = &s.rt.inner;
 
-    let ask = || approve_read(inner, Who::Mcp(&claude), "run_query", &args, &conn, "", "select * from people");
+    let ask = || {
+        approve_read(
+            inner,
+            Who::Mcp(&claude),
+            "run_query",
+            &args,
+            &conn,
+            "",
+            "select * from people",
+        )
+    };
     let (r, _) = tokio::join!(ask(), async {
         for _ in 0..400 {
             if let Some(p) = inner.approvals.pending().first() {
@@ -322,16 +545,30 @@ async fn mcp_unenforced_read_asks_the_user() {
     let (r, _) = tokio::join!(ask(), answer_next(&s.rt, Decision::ApproveAll));
     assert_eq!(r.unwrap(), How::Approved);
     assert!(inner.approvals.approves_all(&claude.id, ApprovalKind::Read));
-    assert!(!inner.approvals.approves_all(&claude.id, ApprovalKind::Write));
+    assert!(!inner
+        .approvals
+        .approves_all(&claude.id, ApprovalKind::Write));
     assert_eq!(ask().await.unwrap(), How::AutoApproved);
 
     // DBine's assistant: approved in the chat, nothing pending here.
-    assert_eq!(approve_read(inner, Who::Chat, "run_query", &args, &conn, "", "select 1").await.unwrap(), How::ApprovedInChat);
+    assert_eq!(
+        approve_read(inner, Who::Chat, "run_query", &args, &conn, "", "select 1")
+            .await
+            .unwrap(),
+        How::ApprovedInChat
+    );
     assert!(inner.approvals.pending().is_empty());
 }
 
 fn load_connection(s: &Server, id: &str) -> SavedConnection {
-    s.rt.inner.state.store.list_connections().unwrap().into_iter().find(|c| c.id == id).unwrap()
+    s.rt.inner
+        .state
+        .store
+        .list_connections()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap()
 }
 
 /// DBine's own assistant (a local model): on its connection, whatever MCP's
@@ -340,21 +577,77 @@ fn load_connection(s: &Server, id: &str) -> SavedConnection {
 #[tokio::test]
 async fn assistant_reads_its_connection_at_the_chats_level() {
     let s = server().await;
-    let hidden = s.rt.inner.state.store.list_connections().unwrap().into_iter().find(|c| c.name == "oculta").unwrap();
+    let hidden =
+        s.rt.inner
+            .state
+            .store
+            .list_connections()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == "oculta")
+            .unwrap();
     let inner = &s.rt.inner;
-    let (desc, err) = super::tools::assistant_call(inner, &hidden, "describe_object", &json!({ "database": "", "object": "people" }), false).await;
+    let (desc, err) = super::tools::assistant_call(
+        inner,
+        &hidden,
+        "describe_object",
+        &json!({ "database": "", "object": "people" }),
+        false,
+    )
+    .await;
     assert!(!err && desc.contains("name"), "{desc}");
-    let (usage, err) = super::tools::assistant_call(inner, &hidden, "index_usage", &json!({ "database": "", "object": "people" }), false).await;
+    let (usage, err) = super::tools::assistant_call(
+        inner,
+        &hidden,
+        "index_usage",
+        &json!({ "database": "", "object": "people" }),
+        false,
+    )
+    .await;
     assert!(!err && usage.contains("indexes of people"), "{usage}");
-    let (msg, err) = super::tools::assistant_call(inner, &hidden, "run_query", &json!({ "database": "", "query": "select name from people" }), false).await;
-    assert!(err && msg.contains("lectura"), "no rows without «datos»: {msg}");
-    let (rows, err) = super::tools::assistant_call(inner, &hidden, "run_query", &json!({ "database": "", "query": "select name from people order by id" }), true).await;
+    let (msg, err) = super::tools::assistant_call(
+        inner,
+        &hidden,
+        "run_query",
+        &json!({ "database": "", "query": "select name from people" }),
+        false,
+    )
+    .await;
+    assert!(
+        err && msg.contains("lectura"),
+        "no rows without «datos»: {msg}"
+    );
+    let (rows, err) = super::tools::assistant_call(
+        inner,
+        &hidden,
+        "run_query",
+        &json!({ "database": "", "query": "select name from people order by id" }),
+        true,
+    )
+    .await;
     assert!(!err && rows.contains("ana"), "{rows}");
-    let (msg, err) = super::tools::assistant_call(inner, &hidden, "run_query", &json!({ "database": "", "query": "delete from people" }), true).await;
+    let (msg, err) = super::tools::assistant_call(
+        inner,
+        &hidden,
+        "run_query",
+        &json!({ "database": "", "query": "delete from people" }),
+        true,
+    )
+    .await;
     assert!(err && msg.contains("DELETE"), "{msg}");
-    let (msg, err) = super::tools::assistant_call(inner, &hidden, "execute", &json!({ "database": "", "code": "delete from people" }), true).await;
+    let (msg, err) = super::tools::assistant_call(
+        inner,
+        &hidden,
+        "execute",
+        &json!({ "database": "", "code": "delete from people" }),
+        true,
+    )
+    .await;
     assert!(err && msg.contains("desconocida"), "{msg}");
-    let log = inner.activity.list(Some("Asistente de DBine"), None, 100).unwrap();
+    let log = inner
+        .activity
+        .list(Some("Asistente de DBine"), None, 100)
+        .unwrap();
     assert!(log.len() >= 5, "{log:?}");
 }
 
@@ -362,7 +655,25 @@ async fn assistant_reads_its_connection_at_the_chats_level() {
 #[tokio::test]
 async fn index_usage_overview_of_a_database() {
     let s = server().await;
-    let conn = s.rt.inner.state.store.list_connections().unwrap().into_iter().find(|c| c.name == "lectura").unwrap();
-    let (text, err) = super::tools::assistant_call(&s.rt.inner, &conn, "index_usage", &json!({ "database": "" }), true).await;
-    assert!(!err && text.contains("tables read") && text.contains("UNUSED"), "{text}");
+    let conn =
+        s.rt.inner
+            .state
+            .store
+            .list_connections()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == "lectura")
+            .unwrap();
+    let (text, err) = super::tools::assistant_call(
+        &s.rt.inner,
+        &conn,
+        "index_usage",
+        &json!({ "database": "" }),
+        true,
+    )
+    .await;
+    assert!(
+        !err && text.contains("tables read") && text.contains("UNUSED"),
+        "{text}"
+    );
 }

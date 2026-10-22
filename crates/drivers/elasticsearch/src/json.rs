@@ -127,11 +127,19 @@ impl J {
             Value::Number(n) => J::Num(n.clone()),
             Value::String(s) => {
                 let t = s.trim();
-                let nested = (t.starts_with('{') && t.ends_with('}')) || (t.starts_with('[') && t.ends_with(']'));
-                nested.then(|| J::parse(t).ok()).flatten().unwrap_or_else(|| J::Str(s.clone()))
+                let nested = (t.starts_with('{') && t.ends_with('}'))
+                    || (t.starts_with('[') && t.ends_with(']'));
+                nested
+                    .then(|| J::parse(t).ok())
+                    .flatten()
+                    .unwrap_or_else(|| J::Str(s.clone()))
             }
             Value::Array(a) => J::Arr(a.iter().map(J::from_cell).collect()),
-            Value::Object(o) => J::Obj(o.iter().map(|(k, v)| (k.clone(), J::from_cell(v))).collect()),
+            Value::Object(o) => J::Obj(
+                o.iter()
+                    .map(|(k, v)| (k.clone(), J::from_cell(v)))
+                    .collect(),
+            ),
         }
     }
 }
@@ -227,7 +235,12 @@ mod tests {
     #[test]
     fn keeps_key_order() {
         let j = J::parse(r#"{"zeta":1,"alpha":{"y":2,"b":[1,"x"]},"mid":null}"#).unwrap();
-        let keys: Vec<_> = j.as_obj().unwrap().iter().map(|(k, _)| k.as_str()).collect();
+        let keys: Vec<_> = j
+            .as_obj()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect();
         assert_eq!(keys, ["zeta", "alpha", "mid"]);
         assert_eq!(j.get("alpha").unwrap().compact(), r#"{"y":2,"b":[1,"x"]}"#);
         assert_eq!(j.at(&["alpha", "y"]).unwrap().cell(), serde_json::json!(2));

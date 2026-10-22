@@ -40,7 +40,10 @@
 use crate::session::PgSession;
 use crate::{err, Variant};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec,
+    TransferColumn,
+};
 use dbine_driver::{Error, ObjectRef, Result, Session};
 use futures::{pin_mut, SinkExt, StreamExt};
 use std::borrow::Cow;
@@ -97,7 +100,10 @@ pub(crate) fn native_capable(source: Variant, target: Variant) -> bool {
 /// Variants read over the simple protocol (text values).
 fn text_read(v: Variant) -> bool {
     !v.has_pg_catalog()
-        || matches!(v, Variant::CrateDb | Variant::RisingWave | Variant::Materialize | Variant::Yellowbrick)
+        || matches!(
+            v,
+            Variant::CrateDb | Variant::RisingWave | Variant::Materialize | Variant::Yellowbrick
+        )
 }
 
 /// Column types with a binary codec here.
@@ -150,7 +156,10 @@ fn table_name(t: &ObjectRef) -> String {
 }
 
 fn column_list(cols: &[String]) -> String {
-    cols.iter().map(|c| quote_ident(Quote::Double, c)).collect::<Vec<_>>().join(", ")
+    cols.iter()
+        .map(|c| quote_ident(Quote::Double, c))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn select_sql(table: &str, cols: &str, filter: Option<&str>) -> String {
@@ -167,10 +176,22 @@ fn lock_err<T>(_: T) -> Error {
 // ---------------------------------------------------------------- reading
 
 /// Column names and types of the read: the spec's columns, or all of them.
-async fn probe(s: &PgSession, table: &str, columns: Option<&[String]>) -> Result<Vec<(String, Type)>> {
+async fn probe(
+    s: &PgSession,
+    table: &str,
+    columns: Option<&[String]>,
+) -> Result<Vec<(String, Type)>> {
     let cols = columns.map_or_else(|| "*".to_string(), column_list);
-    let stmt = s.client.prepare(&format!("SELECT {cols} FROM {table}")).await.map_err(err)?;
-    Ok(stmt.columns().iter().map(|c| (c.name().to_string(), c.type_().clone())).collect())
+    let stmt = s
+        .client
+        .prepare(&format!("SELECT {cols} FROM {table}"))
+        .await
+        .map_err(err)?;
+    Ok(stmt
+        .columns()
+        .iter()
+        .map(|c| (c.name().to_string(), c.type_().clone()))
+        .collect())
 }
 
 /// The catalog's spelling of each column's type and its nullability.
@@ -178,7 +199,10 @@ async fn describe(s: &PgSession, table: &str, cols: &[(String, Type)]) -> Vec<Tr
     let sql = "SELECT a.attname::text, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull
                FROM pg_attribute a WHERE a.attrelid = $1::text::regclass AND a.attnum > 0 AND NOT a.attisdropped";
     let catalog: Vec<(String, String, bool)> = match s.client.query(sql, &[&table]).await {
-        Ok(rows) => rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect(),
+        Ok(rows) => rows
+            .iter()
+            .map(|r| (r.get(0), r.get(1), r.get(2)))
+            .collect(),
         Err(e) => {
             tracing::debug!("{:?}: column types unavailable: {e}", s.variant);
             Vec::new()
@@ -186,8 +210,16 @@ async fn describe(s: &PgSession, table: &str, cols: &[(String, Type)]) -> Vec<Tr
     };
     cols.iter()
         .map(|(name, ty)| match catalog.iter().find(|c| &c.0 == name) {
-            Some((_, t, n)) => TransferColumn { name: name.clone(), type_name: t.clone(), nullable: *n },
-            None => TransferColumn { name: name.clone(), type_name: ty.name().to_string(), nullable: true },
+            Some((_, t, n)) => TransferColumn {
+                name: name.clone(),
+                type_name: t.clone(),
+                nullable: *n,
+            },
+            None => TransferColumn {
+                name: name.clone(),
+                type_name: ty.name().to_string(),
+                nullable: true,
+            },
         })
         .collect()
 }
@@ -207,18 +239,29 @@ async fn portable_text_output(s: &PgSession) {
         }
     }
     // 3 is the maximum since PostgreSQL 12; older servers and Redshift stop at 2.
-    if s.client.simple_query("SET extra_float_digits = 3").await.is_err() {
+    if s.client
+        .simple_query("SET extra_float_digits = 3")
+        .await
+        .is_err()
+    {
         if let Err(e) = s.client.simple_query("SET extra_float_digits = 2").await {
             tracing::debug!("{:?}: extra_float_digits: {e}", s.variant);
         }
     }
 }
 
-pub(crate) async fn read_batches(s: &mut PgSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut PgSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let table = table_name(&spec.table);
     portable_text_output(s).await;
     if text_read(s.variant) {
-        let cols = spec.columns.as_deref().map_or_else(|| "*".to_string(), column_list);
+        let cols = spec
+            .columns
+            .as_deref()
+            .map_or_else(|| "*".to_string(), column_list);
         return read_text(s, &select_sql(&table, &cols, spec.filter.as_deref()), sink).await;
     }
     let cols = probe(s, &table, spec.columns.as_deref()).await?;
@@ -277,14 +320,20 @@ async fn read_copy(
     Ok(builder.rows)
 }
 
-fn decode_row(buf: &[u8], fields: &[Option<Range<usize>>], kinds: &[Kind], cols: &[TransferColumn]) -> Result<Vec<Cell>> {
+fn decode_row(
+    buf: &[u8],
+    fields: &[Option<Range<usize>>],
+    kinds: &[Kind],
+    cols: &[TransferColumn],
+) -> Result<Vec<Cell>> {
     fields
         .iter()
         .zip(kinds)
         .enumerate()
         .map(|(i, (f, k))| match f {
             None => Ok(Cell::Null),
-            Some(r) => decode(*k, &buf[r.clone()]).map_err(|e| Error::Query(format!("columna «{}»: {e}", cols[i].name))),
+            Some(r) => decode(*k, &buf[r.clone()])
+                .map_err(|e| Error::Query(format!("columna «{}»: {e}", cols[i].name))),
         })
         .collect()
 }
@@ -293,7 +342,10 @@ fn decode_row(buf: &[u8], fields: &[Option<Range<usize>>], kinds: &[Kind], cols:
 struct Raw<'a>(&'a [u8]);
 
 impl<'a> FromSql<'a> for Raw<'a> {
-    fn from_sql(_: &Type, raw: &'a [u8]) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+    fn from_sql(
+        _: &Type,
+        raw: &'a [u8],
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
         Ok(Raw(raw))
     }
     fn accepts(_: &Type) -> bool {
@@ -302,9 +354,22 @@ impl<'a> FromSql<'a> for Raw<'a> {
 }
 
 /// The read through the extended protocol (binary results, same decoders).
-async fn read_rows(s: &PgSession, select: &str, cols: &[TransferColumn], kinds: &[Kind], sink: &BatchSinkRef) -> Result<u64> {
+async fn read_rows(
+    s: &PgSession,
+    select: &str,
+    cols: &[TransferColumn],
+    kinds: &[Kind],
+    sink: &BatchSinkRef,
+) -> Result<u64> {
     let stmt = s.client.prepare(select).await.map_err(err)?;
-    let rows = s.client.query_raw(&stmt, std::iter::empty::<&(dyn tokio_postgres::types::ToSql + Sync)>()).await.map_err(err)?;
+    let rows = s
+        .client
+        .query_raw(
+            &stmt,
+            std::iter::empty::<&(dyn tokio_postgres::types::ToSql + Sync)>(),
+        )
+        .await
+        .map_err(err)?;
     pin_mut!(rows);
     let mut builder = BatchBuilder::new();
     while let Some(row) = rows.next().await {
@@ -313,7 +378,8 @@ async fn read_rows(s: &PgSession, select: &str, cols: &[TransferColumn], kinds: 
         for (i, k) in kinds.iter().enumerate() {
             cells.push(match row.try_get::<_, Option<Raw>>(i).map_err(err)? {
                 None => Cell::Null,
-                Some(Raw(b)) => decode(*k, b).map_err(|e| Error::Query(format!("columna «{}»: {e}", cols[i].name)))?,
+                Some(Raw(b)) => decode(*k, b)
+                    .map_err(|e| Error::Query(format!("columna «{}»: {e}", cols[i].name)))?,
             });
         }
         builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
@@ -334,12 +400,18 @@ async fn read_text(s: &PgSession, select: &str, sink: BatchSinkRef) -> Result<u6
                 begun = true;
                 let cols: Vec<TransferColumn> = cols
                     .iter()
-                    .map(|c| TransferColumn { name: c.name().to_string(), type_name: String::new(), nullable: true })
+                    .map(|c| TransferColumn {
+                        name: c.name().to_string(),
+                        type_name: String::new(),
+                        nullable: true,
+                    })
                     .collect();
                 sink.lock().map_err(lock_err)?.begin(&cols)?;
             }
             SimpleQueryMessage::Row(r) => {
-                let cells = (0..r.len()).map(|i| r.get(i).map_or(Cell::Null, |t| Cell::Text(t.to_string()))).collect();
+                let cells = (0..r.len())
+                    .map(|i| r.get(i).map_or(Cell::Null, |t| Cell::Text(t.to_string())))
+                    .collect();
                 builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
             }
             _ => {}
@@ -360,7 +432,13 @@ pub(crate) struct CopyParser {
 
 impl CopyParser {
     pub(crate) fn new(columns: usize) -> Self {
-        CopyParser { buf: Vec::new(), pos: 0, columns, header: false, done: false }
+        CopyParser {
+            buf: Vec::new(),
+            pos: 0,
+            columns,
+            header: false,
+            done: false,
+        }
     }
 
     /// Bytes of `buf` taken by the header and the tuples read so far.
@@ -378,7 +456,10 @@ impl CopyParser {
 
     /// The next complete tuple's fields (ranges into `buf`); `false` when
     /// more bytes are needed or the trailer was read.
-    pub(crate) fn next_tuple(&mut self, fields: &mut Vec<Option<Range<usize>>>) -> std::result::Result<bool, String> {
+    pub(crate) fn next_tuple(
+        &mut self,
+        fields: &mut Vec<Option<Range<usize>>>,
+    ) -> std::result::Result<bool, String> {
         let b = &self.buf;
         if !self.header {
             if b.len() < 19 {
@@ -410,7 +491,10 @@ impl CopyParser {
             return Ok(false);
         }
         if n as usize != self.columns {
-            return Err(format!("el COPY trajo {n} columnas y se esperaban {}", self.columns));
+            return Err(format!(
+                "el COPY trajo {n} columnas y se esperaban {}",
+                self.columns
+            ));
         }
         fields.clear();
         for _ in 0..n {
@@ -442,7 +526,8 @@ fn utf8(b: &[u8]) -> std::result::Result<String, String> {
 }
 
 fn be<const N: usize>(b: &[u8], kind: Kind) -> std::result::Result<[u8; N], String> {
-    b.try_into().map_err(|_| format!("{} bytes inesperados para {kind:?}", b.len()))
+    b.try_into()
+        .map_err(|_| format!("{} bytes inesperados para {kind:?}", b.len()))
 }
 
 pub(crate) fn decode(kind: Kind, b: &[u8]) -> std::result::Result<Cell, String> {
@@ -464,7 +549,14 @@ pub(crate) fn decode(kind: Kind, b: &[u8]) -> std::result::Result<Cell, String> 
         Kind::Uuid => {
             let u = be::<16>(b, kind)?;
             let h: String = u.iter().map(|x| format!("{x:02x}")).collect();
-            Cell::Uuid(format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..]))
+            Cell::Uuid(format!(
+                "{}-{}-{}-{}-{}",
+                &h[..8],
+                &h[8..12],
+                &h[12..16],
+                &h[16..20],
+                &h[20..]
+            ))
         }
         Kind::Date => match i32::from_be_bytes(be(b, kind)?) {
             i32::MAX => Cell::Text("infinity".into()),
@@ -517,7 +609,10 @@ fn fmt_date(days: i64) -> (String, Era) {
     if y <= 0 {
         (format!("{:04}-{m:02}-{d:02}", 1 - y), Era::Bc)
     } else {
-        (format!("{y:04}-{m:02}-{d:02}"), if y <= 9999 { Era::Ad } else { Era::Far })
+        (
+            format!("{y:04}-{m:02}-{d:02}"),
+            if y <= 9999 { Era::Ad } else { Era::Far },
+        )
     }
 }
 
@@ -572,7 +667,13 @@ fn decode_numeric(b: &[u8]) -> std::result::Result<Cell, String> {
         0 | 0x4000 => {}
         _ => return Err("signo de numeric inválido".into()),
     }
-    let digit = |i: i64| if i >= 0 && (i as usize) < n { u16_at(8 + 2 * i as usize) } else { 0 };
+    let digit = |i: i64| {
+        if i >= 0 && (i as usize) < n {
+            u16_at(8 + 2 * i as usize)
+        } else {
+            0
+        }
+    };
     let mut s = String::with_capacity(4 * n + dscale + 2);
     if sign == 0x4000 && n > 0 {
         s.push('-');
@@ -582,7 +683,11 @@ fn decode_numeric(b: &[u8]) -> std::result::Result<Cell, String> {
     } else {
         for i in 0..=weight {
             let d = digit(i);
-            let _ = if i == 0 { write!(s, "{d}") } else { write!(s, "{d:04}") };
+            let _ = if i == 0 {
+                write!(s, "{d}")
+            } else {
+                write!(s, "{d:04}")
+            };
         }
     }
     if dscale > 0 {
@@ -628,9 +733,14 @@ fn cell_text(c: &Cell) -> Cow<'_, str> {
         Cell::UInt(u) => Cow::Owned(u.to_string()),
         Cell::Float(f) => Cow::Owned(float_text(*f)),
         Cell::Bytes(b) => Cow::Owned(hex(b)),
-        Cell::Decimal(s) | Cell::Text(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) | Cell::Json(s) => {
-            Cow::Borrowed(s)
-        }
+        Cell::Decimal(s)
+        | Cell::Text(s)
+        | Cell::Date(s)
+        | Cell::Time(s)
+        | Cell::DateTime(s)
+        | Cell::DateTimeTz(s)
+        | Cell::Uuid(s)
+        | Cell::Json(s) => Cow::Borrowed(s),
     }
 }
 
@@ -644,14 +754,21 @@ fn to_i64(c: &Cell, kind: Kind) -> std::result::Result<i64, String> {
         Cell::UInt(u) => i64::try_from(*u).map_err(|_| bad(c, kind)),
         Cell::Bool(b) => Ok(*b as i64),
         // [-2^63, 2^63): `as` would saturate anything outside.
-        Cell::Float(f) if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f < -(i64::MIN as f64) => Ok(*f as i64),
+        Cell::Float(f) if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f < -(i64::MIN as f64) => {
+            Ok(*f as i64)
+        }
         Cell::Decimal(s) | Cell::Text(s) => {
             let t = s.trim();
-            t.parse::<i64>().ok().or_else(|| {
-                let (i, f) = t.split_once('.')?;
-                f.bytes().all(|x| x == b'0').then(|| i.parse().ok()).flatten()
-            })
-            .ok_or_else(|| bad(c, kind))
+            t.parse::<i64>()
+                .ok()
+                .or_else(|| {
+                    let (i, f) = t.split_once('.')?;
+                    f.bytes()
+                        .all(|x| x == b'0')
+                        .then(|| i.parse().ok())
+                        .flatten()
+                })
+                .ok_or_else(|| bad(c, kind))
         }
         _ => Err(bad(c, kind)),
     }
@@ -698,14 +815,24 @@ pub(crate) fn encode(kind: Kind, c: &Cell, out: &mut Vec<u8>) -> std::result::Re
             };
             out.push(v as u8);
         }
-        Kind::Int2 => out.extend_from_slice(&i16::try_from(to_i64(c, kind)?).map_err(|_| bad(c, kind))?.to_be_bytes()),
-        Kind::Int4 => out.extend_from_slice(&i32::try_from(to_i64(c, kind)?).map_err(|_| bad(c, kind))?.to_be_bytes()),
+        Kind::Int2 => out.extend_from_slice(
+            &i16::try_from(to_i64(c, kind)?)
+                .map_err(|_| bad(c, kind))?
+                .to_be_bytes(),
+        ),
+        Kind::Int4 => out.extend_from_slice(
+            &i32::try_from(to_i64(c, kind)?)
+                .map_err(|_| bad(c, kind))?
+                .to_be_bytes(),
+        ),
         Kind::Int8 => out.extend_from_slice(&to_i64(c, kind)?.to_be_bytes()),
         Kind::Float4 => {
             let f = match c {
                 // Parsed as f32 directly: no double rounding through f64.
                 Cell::Text(s) | Cell::Decimal(s) => match parse_float(s) {
-                    Some(f) if f.is_finite() => s.trim().parse::<f32>().map_err(|_| bad(c, kind))?,
+                    Some(f) if f.is_finite() => {
+                        s.trim().parse::<f32>().map_err(|_| bad(c, kind))?
+                    }
                     Some(f) => f as f32,
                     None => return Err(bad(c, kind)),
                 },
@@ -720,7 +847,9 @@ pub(crate) fn encode(kind: Kind, c: &Cell, out: &mut Vec<u8>) -> std::result::Re
         }
         Kind::Float8 => out.extend_from_slice(&to_f64(c, kind)?.to_be_bytes()),
         Kind::Numeric => match c {
-            Cell::Decimal(_) | Cell::Text(_) | Cell::Int(_) | Cell::UInt(_) | Cell::Float(_) => encode_numeric(&cell_text(c), out)?,
+            Cell::Decimal(_) | Cell::Text(_) | Cell::Int(_) | Cell::UInt(_) | Cell::Float(_) => {
+                encode_numeric(&cell_text(c), out)?
+            }
             _ => return Err(bad(c, kind)),
         },
         Kind::Text | Kind::Json => out.extend_from_slice(cell_text(c).as_bytes()),
@@ -730,13 +859,20 @@ pub(crate) fn encode(kind: Kind, c: &Cell, out: &mut Vec<u8>) -> std::result::Re
         }
         Kind::Bytea => match c {
             Cell::Bytes(b) => out.extend_from_slice(b),
-            Cell::Text(s) if s.starts_with("\\x") => out.extend_from_slice(&unhex(&s[2..]).ok_or_else(|| bad(c, kind))?),
+            Cell::Text(s) if s.starts_with("\\x") => {
+                out.extend_from_slice(&unhex(&s[2..]).ok_or_else(|| bad(c, kind))?)
+            }
             other => out.extend_from_slice(cell_text(other).as_bytes()),
         },
         Kind::Uuid => match c {
             Cell::Bytes(b) if b.len() == 16 => out.extend_from_slice(b),
             Cell::Uuid(s) | Cell::Text(s) => {
-                let h: String = s.trim().trim_matches(|x| x == '{' || x == '}').chars().filter(|x| *x != '-').collect();
+                let h: String = s
+                    .trim()
+                    .trim_matches(|x| x == '{' || x == '}')
+                    .chars()
+                    .filter(|x| *x != '-')
+                    .collect();
                 match unhex(&h) {
                     Some(b) if b.len() == 16 => out.extend_from_slice(&b),
                     _ => return Err(bad(c, kind)),
@@ -760,7 +896,9 @@ pub(crate) fn encode(kind: Kind, c: &Cell, out: &mut Vec<u8>) -> std::result::Re
         },
         Kind::Time => match c {
             Cell::Time(s) | Cell::Text(s) => {
-                let us = parse_time(s.trim()).and_then(|(us, rest)| rest.trim().is_empty().then_some(us)).ok_or_else(|| bad(c, kind))?;
+                let us = parse_time(s.trim())
+                    .and_then(|(us, rest)| rest.trim().is_empty().then_some(us))
+                    .ok_or_else(|| bad(c, kind))?;
                 out.extend_from_slice(&us.to_be_bytes());
             }
             _ => return Err(bad(c, kind)),
@@ -774,8 +912,14 @@ pub(crate) fn encode(kind: Kind, c: &Cell, out: &mut Vec<u8>) -> std::result::Re
                         let (days, us, offset) = parse_timestamp(s).ok_or_else(|| bad(c, kind))?;
                         // Without a zone, a timestamptz is taken as UTC; a
                         // plain timestamp keeps the wall clock as written.
-                        let offset = if kind == Kind::Timestamptz { offset.unwrap_or(0) } else { 0 };
-                        (days * DAY_US + us).checked_sub(offset * 1_000_000).ok_or_else(|| bad(c, kind))?
+                        let offset = if kind == Kind::Timestamptz {
+                            offset.unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        (days * DAY_US + us)
+                            .checked_sub(offset * 1_000_000)
+                            .ok_or_else(|| bad(c, kind))?
                     }
                 };
                 out.extend_from_slice(&us.to_be_bytes());
@@ -794,7 +938,9 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
         return None;
     }
     let v = |x: u8| (x as char).to_digit(16).map(|d| d as u8);
-    b.chunks(2).map(|p| Some(v(p[0])? << 4 | v(p[1])?)).collect()
+    b.chunks(2)
+        .map(|p| Some(v(p[0])? << 4 | v(p[1])?))
+        .collect()
 }
 
 /// `HH:MM[:SS[.fff…]]` as microseconds (rounded to the microsecond), and
@@ -802,7 +948,9 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 fn parse_time(s: &str) -> Option<(i64, &str)> {
     let num = |s: &str| -> Option<(i64, usize)> {
         let n = s.bytes().take_while(u8::is_ascii_digit).count();
-        (n > 0).then(|| (s[..n].parse().ok(), n)).and_then(|(v, n)| Some((v?, n)))
+        (n > 0)
+            .then(|| (s[..n].parse().ok(), n))
+            .and_then(|(v, n)| Some((v?, n)))
     };
     let (h, n) = num(s)?;
     let s = s[n..].strip_prefix(':')?;
@@ -871,13 +1019,16 @@ fn parse_timestamp(s: &str) -> Option<(i64, i64, Option<i64>)> {
         };
         let r = &rest[1..];
         let parts: Vec<i64> = if r.contains(':') {
-            r.split(':').map(|p| p.parse().ok()).collect::<Option<_>>()?
+            r.split(':')
+                .map(|p| p.parse().ok())
+                .collect::<Option<_>>()?
         } else if r.len() == 4 {
             vec![r[..2].parse().ok()?, r[2..].parse().ok()?]
         } else {
             vec![r.parse().ok()?]
         };
-        let secs = parts.first()? * 3600 + parts.get(1).unwrap_or(&0) * 60 + parts.get(2).unwrap_or(&0);
+        let secs =
+            parts.first()? * 3600 + parts.get(1).unwrap_or(&0) * 60 + parts.get(2).unwrap_or(&0);
         Some(sign * secs)
     };
     Some((days, us, offset))
@@ -914,7 +1065,10 @@ fn encode_numeric(s: &str, out: &mut Vec<u8>) -> std::result::Result<(), String>
         _ => (false, t),
     };
     let (mant, exp) = match body.find(['e', 'E']) {
-        Some(i) => (&body[..i], body[i + 1..].parse::<i64>().map_err(|_| invalid())?),
+        Some(i) => (
+            &body[..i],
+            body[i + 1..].parse::<i64>().map_err(|_| invalid())?,
+        ),
         None => (body, 0),
     };
     let (ip, fp) = mant.split_once('.').unwrap_or((mant, ""));
@@ -940,7 +1094,10 @@ fn encode_numeric(s: &str, out: &mut Vec<u8>) -> std::result::Result<(), String>
     let point = point as usize + lead;
     let trail = (4 - (digits.len() - point) % 4) % 4;
     digits.resize(digits.len() + trail, 0);
-    let mut groups: Vec<u16> = digits.chunks(4).map(|c| c.iter().fold(0u16, |a, d| a * 10 + *d as u16)).collect();
+    let mut groups: Vec<u16> = digits
+        .chunks(4)
+        .map(|c| c.iter().fold(0u16, |a, d| a * 10 + *d as u16))
+        .collect();
     let mut weight = (point / 4) as i64 - 1;
     let first = groups.iter().position(|g| *g != 0).unwrap_or(groups.len());
     groups.drain(..first);
@@ -953,7 +1110,13 @@ fn encode_numeric(s: &str, out: &mut Vec<u8>) -> std::result::Result<(), String>
         return Ok(());
     }
     let weight = i16::try_from(weight).map_err(|_| invalid())?;
-    head(out, groups.len() as u16, weight, if neg { 0x4000 } else { 0 }, dscale as u16);
+    head(
+        out,
+        groups.len() as u16,
+        weight,
+        if neg { 0x4000 } else { 0 },
+        dscale as u16,
+    );
     for g in groups {
         out.extend_from_slice(&g.to_be_bytes());
     }
@@ -980,7 +1143,9 @@ fn encode_text_row(row: &[Cell], kinds: &[Option<Kind>], out: &mut Vec<u8>) {
             }
         }
         // A zone-less timestamp into a timestamptz is UTC, as in binary.
-        if kinds.get(i) == Some(&Some(Kind::Timestamptz)) && matches!(c, Cell::DateTime(_) | Cell::Date(_)) {
+        if kinds.get(i) == Some(&Some(Kind::Timestamptz))
+            && matches!(c, Cell::DateTime(_) | Cell::Date(_))
+        {
             out.extend_from_slice(b"+00");
         }
     }
@@ -999,9 +1164,17 @@ async fn send(sink: &mut Sink, buf: &mut Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn bulk_load(s: &mut PgSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &mut PgSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if !bulk_capable(s.variant) {
-        return Err(Error::Unsupported(format!("{} no tiene COPY FROM STDIN", s.variant.info().name)));
+        return Err(Error::Unsupported(format!(
+            "{} no tiene COPY FROM STDIN",
+            s.variant.info().name
+        )));
     }
     let table = table_name(&spec.table);
     let cols = column_list(&spec.columns);
@@ -1013,8 +1186,16 @@ pub(crate) async fn bulk_load(s: &mut PgSession, spec: &LoadSpec, source: &mut d
     } else {
         format!("COPY {table} ({cols}) FROM STDIN")
     };
-    let max_rows = if spec.commit_rows == 0 { u64::MAX } else { spec.commit_rows };
-    let max_bytes = if spec.commit_bytes == 0 { u64::MAX } else { spec.commit_bytes };
+    let max_rows = if spec.commit_rows == 0 {
+        u64::MAX
+    } else {
+        spec.commit_rows
+    };
+    let max_bytes = if spec.commit_bytes == 0 {
+        u64::MAX
+    } else {
+        spec.commit_bytes
+    };
 
     let mut total = 0u64;
     let mut sink: Option<Sink> = None;
@@ -1023,7 +1204,11 @@ pub(crate) async fn bulk_load(s: &mut PgSession, spec: &LoadSpec, source: &mut d
     while let Some(batch) = source.next().await {
         for row in &batch.rows {
             if row.len() != kinds.len() {
-                return Err(Error::Query(format!("una fila trae {} valores y la carga tiene {} columnas", row.len(), kinds.len())));
+                return Err(Error::Query(format!(
+                    "una fila trae {} valores y la carga tiene {} columnas",
+                    row.len(),
+                    kinds.len()
+                )));
             }
             if sink.is_none() {
                 sink = Some(Box::pin(s.client.copy_in(&copy).await.map_err(err)?));
@@ -1036,7 +1221,11 @@ pub(crate) async fn bulk_load(s: &mut PgSession, spec: &LoadSpec, source: &mut d
                 buf.extend_from_slice(&(kinds.len() as i16).to_be_bytes());
                 for (i, (c, k)) in row.iter().zip(&kinds).enumerate() {
                     encode(k.expect("binary kinds"), c, &mut buf).map_err(|e| {
-                        Error::Query(format!("fila {}, columna «{}»: {e}", total + rows + 1, spec.columns[i]))
+                        Error::Query(format!(
+                            "fila {}, columna «{}»: {e}",
+                            total + rows + 1,
+                            spec.columns[i]
+                        ))
                     })?;
                 }
             } else {
@@ -1085,15 +1274,27 @@ fn server_bound(ty: &Type) -> bool {
     };
     // regproc, oid, regprocedure…regtype, regconfig, regdictionary,
     // regnamespace, regrole, regcollation.
-    matches!(oid, MONEY | 24 | 26 | 2202..=2206 | 3734 | 3769 | 4089 | 4096 | 4191)
+    matches!(
+        oid,
+        MONEY | 24 | 26 | 2202..=2206 | 3734 | 3769 | 4089 | 4096 | 4191
+    )
 }
 
 fn pg_session(s: &mut dyn Session) -> Option<&mut PgSession> {
     s.as_any()?.downcast_mut::<PgSession>()
 }
 
-pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Session, spec: &CopySpec, progress: Progress<'_>) -> Result<u64> {
-    let unsupported = |why: &str| Err(Error::Unsupported(format!("copia directa no disponible: {why}")));
+pub(crate) async fn copy_native(
+    source: &mut dyn Session,
+    target: &mut dyn Session,
+    spec: &CopySpec,
+    progress: Progress<'_>,
+) -> Result<u64> {
+    let unsupported = |why: &str| {
+        Err(Error::Unsupported(format!(
+            "copia directa no disponible: {why}"
+        )))
+    };
     let (Some(src), Some(dst)) = (pg_session(source), pg_session(target)) else {
         return unsupported("las sesiones no son de PostgreSQL");
     };
@@ -1109,23 +1310,41 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
     }
     for ((sn, st), (dn, dt)) in src_cols.iter().zip(&dst_cols) {
         if st.oid() != dt.oid() || st.oid() >= FIRST_USER_OID {
-            return unsupported(&format!("la columna «{sn}» ({}) no tiene el mismo tipo nativo en «{dn}» ({})", st.name(), dt.name()));
+            return unsupported(&format!(
+                "la columna «{sn}» ({}) no tiene el mismo tipo nativo en «{dn}» ({})",
+                st.name(),
+                dt.name()
+            ));
         }
         if server_bound(st) {
-            return unsupported(&format!("el valor binario de la columna «{sn}» ({}) depende del servidor", st.name()));
+            return unsupported(&format!(
+                "el valor binario de la columna «{sn}» ({}) depende del servidor",
+                st.name()
+            ));
         }
     }
     let names: Vec<String> = src_cols.iter().map(|(n, _)| n.clone()).collect();
-    let select = select_sql(&src_table, &column_list(&names), spec.source.filter.as_deref());
+    let select = select_sql(
+        &src_table,
+        &column_list(&names),
+        spec.source.filter.as_deref(),
+    );
     let copy_out = format!("COPY ({select}) TO STDOUT (FORMAT binary)");
-    let copy_in = format!("COPY {dst_table} ({}) FROM STDIN (FORMAT binary)", column_list(&spec.target.columns));
+    let copy_in = format!(
+        "COPY {dst_table} ({}) FROM STDIN (FORMAT binary)",
+        column_list(&spec.target.columns)
+    );
 
     let stream = src.client.copy_out(&copy_out).await.map_err(err)?;
     pin_mut!(stream);
     // The first window opens now, so a target that refuses the COPY fails
     // before anything is read.
     let mut sink: Option<Sink> = Some(Box::pin(dst.client.copy_in(&copy_in).await.map_err(err)?));
-    let every = if spec.target.commit_rows == 0 { u64::MAX } else { spec.target.commit_rows };
+    let every = if spec.target.commit_rows == 0 {
+        u64::MAX
+    } else {
+        spec.target.commit_rows
+    };
     let mut parser = CopyParser::new(src_cols.len());
     let mut fields = Vec::new();
     // Rows committed, and rows sent to the open window.
@@ -1176,7 +1395,9 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
             }
         }
         if !parser.done {
-            return Err(Error::Query("el COPY de origen terminó sin su marca de fin".into()));
+            return Err(Error::Query(
+                "el COPY de origen terminó sin su marca de fin".into(),
+            ));
         }
         if let Some(w) = sink.as_mut() {
             send(w, &mut buf).await?;
@@ -1191,7 +1412,11 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
         // aborts the target's (CopyFail). The windows before it stay
         // committed, as in a load.
         drop(sink);
-        let _ = src.client.cancel_token().cancel_query(src.tls.clone()).await;
+        let _ = src
+            .client
+            .cancel_token()
+            .cancel_query(src.tls.clone())
+            .await;
         return Err(e);
     }
     progress(committed);
@@ -1200,7 +1425,12 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
 
 /// Opens the next window of a native copy: a new `COPY FROM` whose data
 /// starts with the binary header (the source's went to the first one).
-async fn open_window(sink: &mut Option<Sink>, dst: &PgSession, copy_in: &str, buf: &mut Vec<u8>) -> Result<()> {
+async fn open_window(
+    sink: &mut Option<Sink>,
+    dst: &PgSession,
+    copy_in: &str,
+    buf: &mut Vec<u8>,
+) -> Result<()> {
     *sink = Some(Box::pin(dst.client.copy_in(copy_in).await.map_err(err)?));
     buf.extend_from_slice(HEADER);
     Ok(())
@@ -1263,13 +1493,29 @@ mod tests {
         for t in ["NaN", "Infinity", "-Infinity"] {
             same(Kind::Numeric, Cell::Text(t.into()));
         }
-        assert_eq!(round(Kind::Numeric, Cell::Text("1.5e3".into())), Cell::Decimal("1500".into()));
-        assert_eq!(round(Kind::Numeric, Cell::Int(-7)), Cell::Decimal("-7".into()));
+        assert_eq!(
+            round(Kind::Numeric, Cell::Text("1.5e3".into())),
+            Cell::Decimal("1500".into())
+        );
+        assert_eq!(
+            round(Kind::Numeric, Cell::Int(-7)),
+            Cell::Decimal("-7".into())
+        );
         same(Kind::Text, Cell::Text("ñandú \t\n\\ 日本".into()));
         same(Kind::Bytea, Cell::Bytes((0..=255).collect()));
         same(Kind::Bytea, Cell::Bytes(Vec::new()));
-        same(Kind::Uuid, Cell::Uuid("123e4567-e89b-12d3-a456-426614174000".into()));
-        for d in ["2000-01-01", "1999-12-31", "0001-01-01", "9999-12-31", "1970-01-01", "2024-02-29"] {
+        same(
+            Kind::Uuid,
+            Cell::Uuid("123e4567-e89b-12d3-a456-426614174000".into()),
+        );
+        for d in [
+            "2000-01-01",
+            "1999-12-31",
+            "0001-01-01",
+            "9999-12-31",
+            "1970-01-01",
+            "2024-02-29",
+        ] {
             same(Kind::Date, Cell::Date(d.into()));
         }
         same(Kind::Date, Cell::Text("0044-03-15 BC".into()));
@@ -1277,18 +1523,32 @@ mod tests {
         for t in ["00:00:00", "23:59:59.999999", "12:34:56.000001", "24:00:00"] {
             same(Kind::Time, Cell::Time(t.into()));
         }
-        for t in ["2000-01-01 00:00:00", "1900-06-15 08:30:00.123456", "2262-04-11 23:47:16.854775", "0001-01-01 00:00:00"] {
+        for t in [
+            "2000-01-01 00:00:00",
+            "1900-06-15 08:30:00.123456",
+            "2262-04-11 23:47:16.854775",
+            "0001-01-01 00:00:00",
+        ] {
             same(Kind::Timestamp, Cell::DateTime(t.into()));
         }
         same(Kind::Timestamp, Cell::Text("-infinity".into()));
         same(Kind::Timestamp, Cell::Text("0100-01-01 10:00:00 BC".into()));
-        same(Kind::Timestamptz, Cell::DateTimeTz("2024-05-01 12:00:00.5+00:00".replace(".5", ".500000")));
+        same(
+            Kind::Timestamptz,
+            Cell::DateTimeTz("2024-05-01 12:00:00.5+00:00".replace(".5", ".500000")),
+        );
         assert_eq!(
-            round(Kind::Timestamptz, Cell::DateTimeTz("2024-05-01 09:00:00-03:00".into())),
+            round(
+                Kind::Timestamptz,
+                Cell::DateTimeTz("2024-05-01 09:00:00-03:00".into())
+            ),
             Cell::DateTimeTz("2024-05-01 12:00:00+00:00".into())
         );
         assert_eq!(
-            round(Kind::Timestamptz, Cell::DateTime("2024-05-01T12:00:00.1234567".into())),
+            round(
+                Kind::Timestamptz,
+                Cell::DateTime("2024-05-01T12:00:00.1234567".into())
+            ),
             Cell::DateTimeTz("2024-05-01 12:00:00.123457+00:00".into())
         );
         same(Kind::Json, Cell::Json("{\"a\": [1, 2]}".into()));
@@ -1311,9 +1571,15 @@ mod tests {
             same(Kind::Date, Cell::Text(d.into()));
         }
         same(Kind::Timestamp, Cell::Text("10000-01-01 00:00:00".into()));
-        same(Kind::Timestamptz, Cell::Text("294276-12-31 23:59:59.999999+00:00".into()));
+        same(
+            Kind::Timestamptz,
+            Cell::Text("294276-12-31 23:59:59.999999+00:00".into()),
+        );
         // The same instant parsed back by the loader is AD, not BC.
-        assert_eq!(parse_timestamp("10000-01-01").unwrap().0, days_from_civil(10000, 1, 1) - PG_EPOCH_DAYS);
+        assert_eq!(
+            parse_timestamp("10000-01-01").unwrap().0,
+            days_from_civil(10000, 1, 1) - PG_EPOCH_DAYS
+        );
     }
 
     #[test]
@@ -1324,20 +1590,44 @@ mod tests {
         assert!(encode(Kind::Float4, &Cell::Decimal("-1e40".into()), &mut b).is_err());
         same(Kind::Float4, Cell::Float(f64::INFINITY));
         same(Kind::Float4, Cell::Float(f64::NEG_INFINITY));
-        assert_eq!(round(Kind::Float4, Cell::Text("Infinity".into())), Cell::Float(f64::INFINITY));
+        assert_eq!(
+            round(Kind::Float4, Cell::Text("Infinity".into())),
+            Cell::Float(f64::INFINITY)
+        );
         assert!(encode(Kind::Int8, &Cell::Float(9.25e18), &mut b).is_err());
         assert!(encode(Kind::Int8, &Cell::Float(-(i64::MIN as f64)), &mut b).is_err());
         assert!(encode(Kind::Int8, &Cell::Float(-9.25e18), &mut b).is_err());
-        assert_eq!(round(Kind::Int8, Cell::Float(i64::MIN as f64)), Cell::Int(i64::MIN));
-        assert_eq!(round(Kind::Int8, Cell::Float((i64::MAX - 1023) as f64)), Cell::Int(i64::MAX - 1023));
+        assert_eq!(
+            round(Kind::Int8, Cell::Float(i64::MIN as f64)),
+            Cell::Int(i64::MIN)
+        );
+        assert_eq!(
+            round(Kind::Int8, Cell::Float((i64::MAX - 1023) as f64)),
+            Cell::Int(i64::MAX - 1023)
+        );
     }
 
     #[test]
     fn server_bound_types_skip_the_native_copy() {
-        for t in [Type::MONEY, Type::MONEY_ARRAY, Type::OID, Type::REGCLASS, Type::REGCLASS_ARRAY, Type::REGTYPE, Type::REGPROC, Type::REGROLE] {
+        for t in [
+            Type::MONEY,
+            Type::MONEY_ARRAY,
+            Type::OID,
+            Type::REGCLASS,
+            Type::REGCLASS_ARRAY,
+            Type::REGTYPE,
+            Type::REGPROC,
+            Type::REGROLE,
+        ] {
             assert!(server_bound(&t), "{t}");
         }
-        for t in [Type::INT4, Type::INT4_ARRAY, Type::NUMERIC, Type::TEXT, Type::TIMESTAMPTZ] {
+        for t in [
+            Type::INT4,
+            Type::INT4_ARRAY,
+            Type::NUMERIC,
+            Type::TEXT,
+            Type::TIMESTAMPTZ,
+        ] {
             assert!(!server_bound(&t), "{t}");
         }
     }
@@ -1346,7 +1636,11 @@ mod tests {
     fn a_copy_stream_parses_in_any_chunking() {
         let kinds = [Kind::Int4, Kind::Text, Kind::Bytea];
         let rows = vec![
-            vec![Cell::Int(1), Cell::Text("a".into()), Cell::Bytes(vec![0; 3000])],
+            vec![
+                Cell::Int(1),
+                Cell::Text("a".into()),
+                Cell::Bytes(vec![0; 3000]),
+            ],
             vec![Cell::Null, Cell::Null, Cell::Null],
             vec![Cell::Int(-5), Cell::Text("".into()), Cell::Bytes(vec![7])],
         ];
@@ -1365,8 +1659,14 @@ mod tests {
             for chunk in stream.chunks(size) {
                 p.feed(chunk);
                 while p.next_tuple(&mut fields).unwrap() {
-                    let cells: Vec<Cell> =
-                        fields.iter().zip(kinds).map(|(f, k)| f.clone().map_or(Cell::Null, |r| decode(k, &p.buf[r]).unwrap())).collect();
+                    let cells: Vec<Cell> = fields
+                        .iter()
+                        .zip(kinds)
+                        .map(|(f, k)| {
+                            f.clone()
+                                .map_or(Cell::Null, |r| decode(k, &p.buf[r]).unwrap())
+                        })
+                        .collect();
                     got.push(cells);
                 }
             }
@@ -1379,17 +1679,35 @@ mod tests {
     fn text_rows_escape_and_mark_nulls() {
         let mut out = Vec::new();
         encode_text_row(
-            &[Cell::Text("a\tb\\c\nd".into()), Cell::Null, Cell::Bytes(vec![1, 255]), Cell::DateTime("2024-01-01 00:00:00".into())],
-            &[Some(Kind::Text), None, Some(Kind::Bytea), Some(Kind::Timestamptz)],
+            &[
+                Cell::Text("a\tb\\c\nd".into()),
+                Cell::Null,
+                Cell::Bytes(vec![1, 255]),
+                Cell::DateTime("2024-01-01 00:00:00".into()),
+            ],
+            &[
+                Some(Kind::Text),
+                None,
+                Some(Kind::Bytea),
+                Some(Kind::Timestamptz),
+            ],
             &mut out,
         );
-        assert_eq!(out, b"a\\tb\\\\c\\nd\t\\N\t\\\\x01ff\t2024-01-01 00:00:00+00\n");
+        assert_eq!(
+            out,
+            b"a\\tb\\\\c\\nd\t\\N\t\\\\x01ff\t2024-01-01 00:00:00+00\n"
+        );
     }
 
     #[test]
     fn variants_with_copy() {
         assert!(bulk_capable(Variant::Postgres) && bulk_capable(Variant::Greenplum));
-        assert!(!bulk_capable(Variant::Cockroach) && !bulk_capable(Variant::Redshift) && !bulk_capable(Variant::CrateDb) && !bulk_capable(Variant::H2));
+        assert!(
+            !bulk_capable(Variant::Cockroach)
+                && !bulk_capable(Variant::Redshift)
+                && !bulk_capable(Variant::CrateDb)
+                && !bulk_capable(Variant::H2)
+        );
         assert!(native_capable(Variant::Postgres, Variant::Timescale));
         assert!(!native_capable(Variant::Postgres, Variant::Cockroach));
     }

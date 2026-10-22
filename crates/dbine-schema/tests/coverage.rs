@@ -15,7 +15,10 @@ fn every_driver_has_a_dialect() {
     let missing: Vec<&str> = dbine_drivers::all()
         .iter()
         .map(|d| d.info().id)
-        .filter(|id| dbine_schema::dialect::for_driver(id).is_none() && !NOT_APPLICABLE.iter().any(|(n, _)| n == id))
+        .filter(|id| {
+            dbine_schema::dialect::for_driver(id).is_none()
+                && !NOT_APPLICABLE.iter().any(|(n, _)| n == id)
+        })
         .collect();
     assert!(missing.is_empty(), "sin dialecto: {}", missing.join(" "));
 }

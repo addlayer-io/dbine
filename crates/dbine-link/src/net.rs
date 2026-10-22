@@ -13,8 +13,8 @@
 
 use crate::{Remote, Result};
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
-use iroh::{EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey};
 pub use iroh::Endpoint;
+use iroh::{EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -55,7 +55,13 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 
 fn relay_urls(urls: &[String]) -> Result<Vec<RelayUrl>> {
-    urls.iter().map(|u| u.trim().parse::<RelayUrl>().map_err(|e| format!("«{u}» no es una URL de servidor de paso válida: {e}"))).collect()
+    urls.iter()
+        .map(|u| {
+            u.trim()
+                .parse::<RelayUrl>()
+                .map_err(|e| format!("«{u}» no es una URL de servidor de paso válida: {e}"))
+        })
+        .collect()
 }
 
 /// Check a list of relay URLs before saving it.
@@ -72,10 +78,16 @@ pub fn check_relays(urls: &[String]) -> Result<()> {
 pub async fn endpoint(secret: [u8; 32], relays: &Relays, accept: bool) -> Result<Endpoint> {
     let b = match relays {
         Relays::Public => Endpoint::builder(presets::N0),
-        Relays::Own(urls) => Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Custom(relay_urls(urls)?.into_iter().collect::<RelayMap>())),
+        Relays::Own(urls) => Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Custom(
+            relay_urls(urls)?.into_iter().collect::<RelayMap>(),
+        )),
     };
     let b = b.secret_key(SecretKey::from_bytes(&secret));
-    let b = if accept { b.alpns(vec![ALPN.to_vec()]) } else { b };
+    let b = if accept {
+        b.alpns(vec![ALPN.to_vec()])
+    } else {
+        b
+    };
     b.bind().await.map_err(err)
 }
 
@@ -92,7 +104,10 @@ pub fn new_secret() -> [u8; 32] {
 /// Where DBine is: its id, plus its relays when they're one's own (with the
 /// public ones, iroh's lookup knows).
 fn addr_of(remote: &Remote) -> Result<EndpointAddr> {
-    let id: EndpointId = remote.node.parse().map_err(|e| format!("el código de DBine no es válido: {e}"))?;
+    let id: EndpointId = remote
+        .node
+        .parse()
+        .map_err(|e| format!("el código de DBine no es válido: {e}"))?;
     let mut addr = EndpointAddr::new(id);
     for u in relay_urls(&remote.relays)? {
         addr = addr.with_relay_url(u);
@@ -110,7 +125,11 @@ pub struct Stream {
 
 impl Stream {
     fn new(conn: Connection, send: SendStream, recv: RecvStream) -> Stream {
-        Stream { conn: Some(conn), send, recv }
+        Stream {
+            conn: Some(conn),
+            send,
+            recv,
+        }
     }
 }
 
@@ -129,20 +148,34 @@ impl Drop for Stream {
 }
 
 impl tokio::io::AsyncRead for Stream {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.recv).poll_read(cx, buf)
     }
 }
 
 impl tokio::io::AsyncWrite for Stream {
-    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.send).poll_write(cx, buf).map_err(std::io::Error::other)
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.send)
+            .poll_write(cx, buf)
+            .map_err(std::io::Error::other)
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.send).poll_flush(cx).map_err(std::io::Error::other)
+        Pin::new(&mut self.send)
+            .poll_flush(cx)
+            .map_err(std::io::Error::other)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.send).poll_shutdown(cx).map_err(std::io::Error::other)
+        Pin::new(&mut self.send)
+            .poll_shutdown(cx)
+            .map_err(std::io::Error::other)
     }
 }
 
@@ -153,7 +186,9 @@ pub async fn dial(ep: &Endpoint, remote: &Remote) -> Result<Stream> {
         let (send, recv) = conn.open_bi().await.map_err(err)?;
         Ok::<_, String>(Stream::new(conn, send, recv))
     };
-    tokio::time::timeout(CONNECT_LIMIT, run).await.map_err(|_| "DBine no respondió por internet".to_string())?
+    tokio::time::timeout(CONNECT_LIMIT, run)
+        .await
+        .map_err(|_| "DBine no respondió por internet".to_string())?
 }
 
 /// DBine takes the next phone that dials it. `None`: the endpoint closed.
@@ -163,7 +198,10 @@ pub async fn next(ep: &Endpoint) -> Option<Result<Stream>> {
         async {
             let conn = incoming.await.map_err(err)?;
             // The phone writes first (the mode byte), so the stream shows up.
-            let (send, recv) = tokio::time::timeout(crate::HANDSHAKE_LIMIT, conn.accept_bi()).await.map_err(|_| "sin stream".to_string())?.map_err(err)?;
+            let (send, recv) = tokio::time::timeout(crate::HANDSHAKE_LIMIT, conn.accept_bi())
+                .await
+                .map_err(|_| "sin stream".to_string())?
+                .map_err(err)?;
             Ok(Stream::new(conn, send, recv))
         }
         .await,
@@ -185,8 +223,18 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn the_channel_runs_over_iroh() {
         let desk_secret = new_secret();
-        let a = Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled).secret_key(SecretKey::from_bytes(&desk_secret)).alpns(vec![ALPN.to_vec()]).bind().await.unwrap();
-        let b = Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled).bind().await.unwrap();
+        let a = Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Disabled)
+            .secret_key(SecretKey::from_bytes(&desk_secret))
+            .alpns(vec![ALPN.to_vec()])
+            .bind()
+            .await
+            .unwrap();
+        let b = Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Disabled)
+            .bind()
+            .await
+            .unwrap();
         let desktop = Keys::generate().unwrap();
         let phone = Keys::generate().unwrap();
         let known = phone.public.clone();
@@ -194,14 +242,31 @@ mod tests {
         let a2 = a.clone();
         let server = tokio::spawn(async move {
             let s = next(&a2).await.unwrap().unwrap();
-            let Accepted::Connected(mut ch) = crate::accept(s, &d2, None, |k| k == known.as_slice()).await.unwrap() else { panic!() };
+            let Accepted::Connected(mut ch) =
+                crate::accept(s, &d2, None, |k| k == known.as_slice())
+                    .await
+                    .unwrap()
+            else {
+                panic!()
+            };
             let got = ch.recv().await.unwrap();
             ch.send(&got).await.unwrap();
         });
         // Dial its port on loopback: the machine's firewall may filter a
         // test binary's traffic on the network addresses.
-        let port = a.bound_sockets().iter().find(|s| s.is_ipv4()).unwrap().port();
-        let addr = EndpointAddr::from_parts(a.id(), [iroh::TransportAddr::Ip(std::net::SocketAddr::from(([127, 0, 0, 1], port)))]);
+        let port = a
+            .bound_sockets()
+            .iter()
+            .find(|s| s.is_ipv4())
+            .unwrap()
+            .port();
+        let addr = EndpointAddr::from_parts(
+            a.id(),
+            [iroh::TransportAddr::Ip(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                port,
+            )))],
+        );
         let conn = b.connect(addr, ALPN).await.unwrap();
         let (send, recv) = conn.open_bi().await.unwrap();
         let s = Stream::new(conn, send, recv);
@@ -220,4 +285,3 @@ mod tests {
         assert_eq!(Relays::from_urls(&[]), Relays::Public);
     }
 }
-

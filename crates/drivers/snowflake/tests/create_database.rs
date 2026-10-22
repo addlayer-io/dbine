@@ -13,19 +13,35 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn config() -> Option<ConnectionConfig> {
-    let var = |k: &str| std::env::var(format!("DBINE_TEST_SNOWFLAKE_{k}")).ok().filter(|v| !v.is_empty());
-    let mut options = BTreeMap::from([("account".to_string(), var("ACCOUNT")?), ("token".to_string(), var("TOKEN")?)]);
+    let var = |k: &str| {
+        std::env::var(format!("DBINE_TEST_SNOWFLAKE_{k}"))
+            .ok()
+            .filter(|v| !v.is_empty())
+    };
+    let mut options = BTreeMap::from([
+        ("account".to_string(), var("ACCOUNT")?),
+        ("token".to_string(), var("TOKEN")?),
+    ]);
     if let Some(w) = var("WAREHOUSE") {
         options.insert("warehouse".into(), w);
     }
-    Some(ConnectionConfig { driver: "snowflake".into(), username: var("USER"), options: options.into_iter().collect(), ..Default::default() })
+    Some(ConnectionConfig {
+        driver: "snowflake".into(),
+        username: var("USER"),
+        options: options.into_iter().collect(),
+        ..Default::default()
+    })
 }
 
 async fn column(s: &mut Box<dyn Session>, sql: &str, name: &str) -> String {
     let mut out = QueryOutcome::default();
     s.execute(sql, 10, &mut out).await.unwrap();
     let r = out.results.last().unwrap();
-    let i = r.columns.iter().position(|c| c.name.eq_ignore_ascii_case(name)).unwrap_or_else(|| panic!("{name}"));
+    let i = r
+        .columns
+        .iter()
+        .position(|c| c.name.eq_ignore_ascii_case(name))
+        .unwrap_or_else(|| panic!("{name}"));
     match &r.rows[0][i] {
         Value::String(v) => v.clone(),
         v => v.to_string(),
@@ -44,7 +60,12 @@ async fn snowflake_options() {
     let _ = s.drop_database("DBINE_CREATE_OPTS").await;
 
     let choices = s.create_database_choices().await.unwrap();
-    assert!(choices.iter().any(|c| c.key == "retention_days" && c.default.is_some()), "{choices:?}");
+    assert!(
+        choices
+            .iter()
+            .any(|c| c.key == "retention_days" && c.default.is_some()),
+        "{choices:?}"
+    );
 
     let options: BTreeMap<String, String> = [
         ("transient", "true"),
@@ -56,8 +77,14 @@ async fn snowflake_options() {
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    eprintln!("{}", d.create_database_script("DBINE_CREATE_OPTS", &options).unwrap());
-    s.create_database_with("DBINE_CREATE_OPTS", &options).await.unwrap();
+    eprintln!(
+        "{}",
+        d.create_database_script("DBINE_CREATE_OPTS", &options)
+            .unwrap()
+    );
+    s.create_database_with("DBINE_CREATE_OPTS", &options)
+        .await
+        .unwrap();
     let show = "SHOW DATABASES LIKE 'DBINE_CREATE_OPTS'";
     assert_eq!(column(&mut s, show, "options").await, "TRANSIENT");
     assert_eq!(column(&mut s, show, "retention_time").await, "0");
@@ -67,6 +94,8 @@ async fn snowflake_options() {
     s.drop_database("DBINE_CREATE_OPTS").await.unwrap();
 
     // Without options it's the plain create.
-    s.create_database_with("DBINE_CREATE_PLAIN", &BTreeMap::new()).await.unwrap();
+    s.create_database_with("DBINE_CREATE_PLAIN", &BTreeMap::new())
+        .await
+        .unwrap();
     s.drop_database("DBINE_CREATE_PLAIN").await.unwrap();
 }

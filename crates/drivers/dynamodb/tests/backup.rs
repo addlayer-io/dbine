@@ -8,11 +8,20 @@ use std::collections::BTreeMap;
 #[tokio::test]
 #[ignore]
 async fn local_endpoint_has_no_backups() {
-    let Ok(url) = std::env::var("DBINE_TEST_DYNAMODB_URL") else { return };
-    let mut c = dbine_driver::ConnectionConfig { driver: "dynamodb".into(), ..Default::default() };
-    for (k, v) in
-        [("region", "us-east-1"), ("auth_mode", "keys"), ("access_key_id", "dummy"), ("secret_access_key", "dummy"), ("endpoint_url", &url)]
-    {
+    let Ok(url) = std::env::var("DBINE_TEST_DYNAMODB_URL") else {
+        return;
+    };
+    let mut c = dbine_driver::ConnectionConfig {
+        driver: "dynamodb".into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("region", "us-east-1"),
+        ("auth_mode", "keys"),
+        ("access_key_id", "dummy"),
+        ("secret_access_key", "dummy"),
+        ("endpoint_url", &url),
+    ] {
         c.options.insert(k.into(), v.into());
     }
     let d = dbine_driver_dynamodb::drivers().pop().unwrap();
@@ -23,8 +32,16 @@ async fn local_endpoint_has_no_backups() {
     let e = s.backups(None).await.unwrap_err();
     assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
 
-    let options = BTreeMap::from([("table".to_string(), "dbine_bk".to_string()), ("name".to_string(), "b1".to_string())]);
-    let script = d.backup_script(&BackupAction::Backup { database: None, options }).unwrap();
+    let options = BTreeMap::from([
+        ("table".to_string(), "dbine_bk".to_string()),
+        ("name".to_string(), "b1".to_string()),
+    ]);
+    let script = d
+        .backup_script(&BackupAction::Backup {
+            database: None,
+            options,
+        })
+        .unwrap();
     let mut out = QueryOutcome::default();
     let e = s.execute(&script, 10, &mut out).await.unwrap_err();
     assert!(matches!(e, Error::Unsupported(_)), "{e:?}");

@@ -58,10 +58,20 @@ async fn export_import_delete() {
     // A small schema of its own to export.
     let mut out = QueryOutcome::default();
     for u in ["DBINE_BK_SRC", "DBINE_BK_DST"] {
-        let _ = s.execute(&format!("DROP USER {u} CASCADE"), 1, &mut out).await;
+        let _ = s
+            .execute(&format!("DROP USER {u} CASCADE"), 1, &mut out)
+            .await;
     }
-    run(&mut s, "CREATE USER DBINE_BK_SRC NO AUTHENTICATION QUOTA UNLIMITED ON USERS").await;
-    run(&mut s, "CREATE TABLE DBINE_BK_SRC.T (ID NUMBER PRIMARY KEY, V VARCHAR2(10))").await;
+    run(
+        &mut s,
+        "CREATE USER DBINE_BK_SRC NO AUTHENTICATION QUOTA UNLIMITED ON USERS",
+    )
+    .await;
+    run(
+        &mut s,
+        "CREATE TABLE DBINE_BK_SRC.T (ID NUMBER PRIMARY KEY, V VARCHAR2(10))",
+    )
+    .await;
     run(&mut s, "INSERT INTO DBINE_BK_SRC.T VALUES (1, 'uno')").await;
     run(&mut s, "INSERT INTO DBINE_BK_SRC.T VALUES (2, 'dos')").await;
     run(&mut s, "COMMIT").await;
@@ -74,7 +84,12 @@ async fn export_import_delete() {
     let caught_up = "SELECT CASE WHEN TIMESTAMP_TO_SCN(SYSTIMESTAMP) >= (SELECT MAX(ORA_ROWSCN) FROM DBINE_BK_SRC.T) THEN 1 ELSE 0 END FROM dual";
     for _ in 0..30 {
         let out = run(&mut s, caught_up).await;
-        if out.results.first().and_then(|r| r.rows.first()).is_some_and(|r| text(&r[0]) == "1") {
+        if out
+            .results
+            .first()
+            .and_then(|r| r.rows.first())
+            .is_some_and(|r| text(&r[0]) == "1")
+        {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -82,25 +97,46 @@ async fn export_import_delete() {
 
     let file = format!("dbine_bk_{}.dmp", std::process::id());
     let opts: BTreeMap<String, String> = [("file".to_string(), file.clone())].into();
-    let sql = driver.backup_script(&BackupAction::Backup { database: Some("DBINE_BK_SRC".into()), options: opts }).unwrap();
+    let sql = driver
+        .backup_script(&BackupAction::Backup {
+            database: Some("DBINE_BK_SRC".into()),
+            options: opts,
+        })
+        .unwrap();
     let out = run(&mut s, &sql).await;
-    assert!(out.messages.iter().any(|m| m.contains("COMPLETED")), "{:?}", out.messages);
+    assert!(
+        out.messages.iter().any(|m| m.contains("COMPLETED")),
+        "{:?}",
+        out.messages
+    );
 
     // History: the jobs the server keeps (none left once they finish).
     let h = s.backups(Some("DBINE_BK_SRC")).await.unwrap();
-    assert!(h.iter().all(|e| !e.restorable || e.id.contains('/')), "{h:?}");
+    assert!(
+        h.iter().all(|e| !e.restorable || e.id.contains('/')),
+        "{h:?}"
+    );
 
     // Into another schema, remapped.
-    let opts: BTreeMap<String, String> = [("source_schema".to_string(), "DBINE_BK_SRC".to_string())].into();
+    let opts: BTreeMap<String, String> =
+        [("source_schema".to_string(), "DBINE_BK_SRC".to_string())].into();
     let source = format!("DATA_PUMP_DIR/{file}");
     let sql = driver
-        .backup_script(&BackupAction::Restore { source: source.clone(), database: Some("DBINE_BK_DST".into()), options: opts })
+        .backup_script(&BackupAction::Restore {
+            source: source.clone(),
+            database: Some("DBINE_BK_DST".into()),
+            options: opts,
+        })
         .unwrap();
     run(&mut s, &sql).await;
     let out = run(&mut s, "SELECT COUNT(*) FROM DBINE_BK_DST.T").await;
     assert_eq!(text(&out.results[0].rows[0][0]), "2");
 
-    let sql = driver.backup_script(&BackupAction::Delete { source: source.clone() }).unwrap();
+    let sql = driver
+        .backup_script(&BackupAction::Delete {
+            source: source.clone(),
+        })
+        .unwrap();
     run(&mut s, &sql).await;
     // Gone: deleting it again fails.
     let mut out = QueryOutcome::default();

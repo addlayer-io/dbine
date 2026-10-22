@@ -11,7 +11,13 @@ pub fn offset_of(text: &str, line: u32, col: u32) -> Option<usize> {
     }
     let end = text[start..].find('\n').map_or(text.len(), |e| start + e);
     let skip = col.saturating_sub(1) as usize;
-    Some(start + text[start..end].char_indices().nth(skip).map_or(end - start, |(i, _)| i))
+    Some(
+        start
+            + text[start..end]
+                .char_indices()
+                .nth(skip)
+                .map_or(end - start, |(i, _)| i),
+    )
 }
 
 /// A statement error with its position in `text` (1-based line and column).
@@ -40,7 +46,11 @@ pub fn shift(e: Error, unit: &ScriptStatement) -> Error {
 /// spanner-cli's reading of GoogleSQL: backslash escapes, `#` comments,
 /// `` `ident` ``.
 pub fn dialect() -> dbine_driver::ScriptDialect {
-    dbine_driver::ScriptDialect { backslash_escapes: true, hash_comments: true, ..dbine_driver::ScriptDialect::generic() }
+    dbine_driver::ScriptDialect {
+        backslash_escapes: true,
+        hash_comments: true,
+        ..dbine_driver::ScriptDialect::generic()
+    }
 }
 
 /// A refused statement with its gRPC status as the code, placed by
@@ -62,16 +72,39 @@ pub fn error(message: &str, stmt: &str, code: Option<String>) -> Error {
 /// The gRPC status of an error body: `{"error": {"status": "NOT_FOUND"}}`
 /// (Google's REST API) or the emulator's `{"code": 5}`.
 pub fn grpc_status(body: &serde_json::Value) -> Option<String> {
-    if let Some(s) = body.pointer("/error/status").and_then(serde_json::Value::as_str) {
+    if let Some(s) = body
+        .pointer("/error/status")
+        .and_then(serde_json::Value::as_str)
+    {
         return Some(s.to_string());
     }
     const NAMES: [&str; 17] = [
-        "OK", "CANCELLED", "UNKNOWN", "INVALID_ARGUMENT", "DEADLINE_EXCEEDED", "NOT_FOUND", "ALREADY_EXISTS",
-        "PERMISSION_DENIED", "RESOURCE_EXHAUSTED", "FAILED_PRECONDITION", "ABORTED", "OUT_OF_RANGE", "UNIMPLEMENTED",
-        "INTERNAL", "UNAVAILABLE", "DATA_LOSS", "UNAUTHENTICATED",
+        "OK",
+        "CANCELLED",
+        "UNKNOWN",
+        "INVALID_ARGUMENT",
+        "DEADLINE_EXCEEDED",
+        "NOT_FOUND",
+        "ALREADY_EXISTS",
+        "PERMISSION_DENIED",
+        "RESOURCE_EXHAUSTED",
+        "FAILED_PRECONDITION",
+        "ABORTED",
+        "OUT_OF_RANGE",
+        "UNIMPLEMENTED",
+        "INTERNAL",
+        "UNAVAILABLE",
+        "DATA_LOSS",
+        "UNAUTHENTICATED",
     ];
-    let code = body.get("code").and_then(serde_json::Value::as_u64).filter(|_| body.get("error").is_none())?;
-    NAMES.get(code as usize).filter(|n| **n != "OK").map(|n| n.to_string())
+    let code = body
+        .get("code")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|_| body.get("error").is_none())?;
+    NAMES
+        .get(code as usize)
+        .filter(|n| **n != "OK")
+        .map(|n| n.to_string())
 }
 
 /// The transaction statements spanner-cli takes: `BEGIN [RW|TRANSACTION]`,
@@ -84,8 +117,13 @@ pub enum TxCommand {
 }
 
 pub fn tx_command(stmt: &str) -> Option<TxCommand> {
-    let words: Vec<String> = stmt.split_whitespace().map(str::to_ascii_uppercase).collect();
-    let rest_ok = |extra: &[&str]| words.len() == 1 || (words.len() == 2 && extra.contains(&words[1].as_str()));
+    let words: Vec<String> = stmt
+        .split_whitespace()
+        .map(str::to_ascii_uppercase)
+        .collect();
+    let rest_ok = |extra: &[&str]| {
+        words.len() == 1 || (words.len() == 2 && extra.contains(&words[1].as_str()))
+    };
     match words.first()?.as_str() {
         "BEGIN" if rest_ok(&["TRANSACTION", "RW", "WORK"]) => Some(TxCommand::Begin),
         "COMMIT" if rest_ok(&["TRANSACTION", "WORK"]) => Some(TxCommand::Commit),
@@ -104,12 +142,42 @@ mod tests {
         let s = "SELECT 1;\n# note\nSELECT x\nFROM nope";
         let u = &split_script(s, &dialect())[1];
         let code = grpc_status(&serde_json::json!({"code": 3, "message": "x"}));
-        let Error::Statement(e) = shift(error("Table not found: nope [at 2:6]\nFROM nope\n     ^", &u.text, code), u) else { panic!() };
-        assert_eq!((e.line, e.offset, e.code.as_deref()), (Some(4), Some(s.find("nope").unwrap()), Some("INVALID_ARGUMENT")));
-        assert!(matches!(error("Row [1] already exists", "x", None), Error::Query(m) if m == "Row [1] already exists"));
+        let Error::Statement(e) = shift(
+            error(
+                "Table not found: nope [at 2:6]\nFROM nope\n     ^",
+                &u.text,
+                code,
+            ),
+            u,
+        ) else {
+            panic!()
+        };
+        assert_eq!(
+            (e.line, e.offset, e.code.as_deref()),
+            (
+                Some(4),
+                Some(s.find("nope").unwrap()),
+                Some("INVALID_ARGUMENT")
+            )
+        );
+        assert!(
+            matches!(error("Row [1] already exists", "x", None), Error::Query(m) if m == "Row [1] already exists")
+        );
         // A code without a position: the error starts at its statement.
-        let Error::Statement(e) = shift(error("Row [1] already exists", &u.text, Some("ALREADY_EXISTS".into())), u) else { panic!() };
-        assert_eq!((e.line, e.offset, e.code.as_deref()), (Some(3), Some(u.start), Some("ALREADY_EXISTS")));
+        let Error::Statement(e) = shift(
+            error(
+                "Row [1] already exists",
+                &u.text,
+                Some("ALREADY_EXISTS".into()),
+            ),
+            u,
+        ) else {
+            panic!()
+        };
+        assert_eq!(
+            (e.line, e.offset, e.code.as_deref()),
+            (Some(3), Some(u.start), Some("ALREADY_EXISTS"))
+        );
         let rest = serde_json::json!({"error": {"code": 400, "message": "m", "status": "FAILED_PRECONDITION"}});
         assert_eq!(grpc_status(&rest).as_deref(), Some("FAILED_PRECONDITION"));
         assert_eq!(grpc_status(&serde_json::json!({"code": 0})), None);
@@ -122,9 +190,15 @@ mod tests {
         assert_eq!(tx_command("begin transaction"), Some(TxCommand::Begin));
         assert_eq!(tx_command("BEGIN RW"), Some(TxCommand::Begin));
         assert_eq!(tx_command("commit"), Some(TxCommand::Commit));
-        assert_eq!(tx_command("ROLLBACK TRANSACTION"), Some(TxCommand::Rollback));
+        assert_eq!(
+            tx_command("ROLLBACK TRANSACTION"),
+            Some(TxCommand::Rollback)
+        );
         assert_eq!(tx_command("BEGIN RO STALENESS 10s"), None);
         assert_eq!(tx_command("SELECT 1"), None);
-        assert_eq!(split_script("SELECT 'a\\';b'; SELECT 2 # x;\n; SELECT 3", &dialect()).len(), 3);
+        assert_eq!(
+            split_script("SELECT 'a\\';b'; SELECT 2 # x;\n; SELECT 3", &dialect()).len(),
+            3
+        );
     }
 }

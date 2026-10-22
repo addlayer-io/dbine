@@ -54,7 +54,11 @@ pub(crate) enum HttpOp {
 }
 
 /// A readable message for a failed provider response.
-pub(crate) async fn http_error(provider: ProviderKind, what: HttpOp, resp: reqwest::Response) -> crate::SyncError {
+pub(crate) async fn http_error(
+    provider: ProviderKind,
+    what: HttpOp,
+    resp: reqwest::Response,
+) -> crate::SyncError {
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     if status == reqwest::StatusCode::UNAUTHORIZED {
@@ -74,9 +78,13 @@ pub(crate) async fn http_error(provider: ProviderKind, what: HttpOp, resp: reqwe
     crate::SyncError::Remote(match what {
         HttpOp::ReadAccount => format!("{label}: no se pudo leer la cuenta (HTTP {code}): {msg}"),
         HttpOp::FindBackup => format!("{label}: no se pudo buscar el backup (HTTP {code}): {msg}"),
-        HttpOp::DownloadBackup => format!("{label}: no se pudo descargar el backup (HTTP {code}): {msg}"),
+        HttpOp::DownloadBackup => {
+            format!("{label}: no se pudo descargar el backup (HTTP {code}): {msg}")
+        }
         HttpOp::UploadBackup => format!("{label}: no se pudo subir el backup (HTTP {code}): {msg}"),
-        HttpOp::DeleteBackup => format!("{label}: no se pudo borrar el backup (HTTP {code}): {msg}"),
+        HttpOp::DeleteBackup => {
+            format!("{label}: no se pudo borrar el backup (HTTP {code}): {msg}")
+        }
     })
 }
 

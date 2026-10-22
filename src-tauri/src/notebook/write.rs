@@ -27,13 +27,18 @@
 //! Values never go into SQL text here: they travel as cells; the only SQL
 //! this module writes is DuckDB's over its own snapshot (identifiers quoted).
 
-use super::local::{exec, first_value, session_key, stage, LoadedTable, LocalSource, Staged, ROW_CAP_RANGE};
+use super::local::{
+    exec, first_value, session_key, stage, LoadedTable, LocalSource, Staged, ROW_CAP_RANGE,
+};
 use crate::commands::projects::sha256_hex;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::transfer::{BatchSource, ReadSpec, RowBatch, TransferColumn};
-use dbine_driver::{BatchSink, ColumnDef, DdlParts, Driver, KeyDef, ObjectRef, QueryOutcome, Session, TableSchema, WriteMode, WriteResult, WriteSpec};
+use dbine_driver::{
+    BatchSink, ColumnDef, DdlParts, Driver, KeyDef, ObjectRef, QueryOutcome, Session, TableSchema,
+    WriteMode, WriteResult, WriteSpec,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
@@ -191,13 +196,24 @@ struct Pending {
 static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(Default::default);
 
 fn pending() -> CommandResult<std::sync::MutexGuard<'static, HashMap<String, Pending>>> {
-    PENDING.lock().map_err(|_| CommandError::Internal("escrituras pendientes".into()))
+    PENDING
+        .lock()
+        .map_err(|_| CommandError::Internal("escrituras pendientes".into()))
 }
 
 /// What a token is bound to: the tab, the cell, the target, the mode, the
 /// keys, the mapping as the user set it, and the row count confirmed.
 pub fn binding(a: &WriteArgs, rows: u64) -> String {
-    let v = serde_json::json!([a.tab_id, a.cell_id, a.source.to_ascii_lowercase(), a.target, a.mode, a.keys, a.mapping, rows]);
+    let v = serde_json::json!([
+        a.tab_id,
+        a.cell_id,
+        a.source.to_ascii_lowercase(),
+        a.target,
+        a.mode,
+        a.keys,
+        a.mapping,
+        rows
+    ]);
     sha256_hex(v.to_string().as_bytes())
 }
 
@@ -223,9 +239,15 @@ fn issue(p: Pending) -> CommandResult<(String, Option<String>)> {
 fn take(token: &str, tab: &str, cell: &str, bind: &str) -> CommandResult<Pending> {
     let mut all = pending()?;
     all.retain(|_, x| x.at.elapsed() < TTL);
-    let p = all.remove(token).ok_or_else(|| CommandError::BadRequest("la confirmación de la escritura ya no vale: ejecutá la celda de nuevo".into()))?;
+    let p = all.remove(token).ok_or_else(|| {
+        CommandError::BadRequest(
+            "la confirmación de la escritura ya no vale: ejecutá la celda de nuevo".into(),
+        )
+    })?;
     if p.tab != tab || p.cell != cell || p.bind != bind {
-        return Err(CommandError::BadRequest("la escritura cambió desde que se confirmó: ejecutá la celda de nuevo".into()));
+        return Err(CommandError::BadRequest(
+            "la escritura cambió desde que se confirmó: ejecutá la celda de nuevo".into(),
+        ));
     }
     Ok(p)
 }
@@ -236,27 +258,51 @@ fn take(token: &str, tab: &str, cell: &str, bind: &str) -> CommandResult<Pending
 /// Pairs DataFrame columns with target columns: as the user mapped them,
 /// else by name (ignoring case). `free`: a schemaless target (documents,
 /// keys…), where a column without a match becomes a field of its name.
-pub fn pair_columns(source: &[String], target: &[String], mapping: Option<&[ColumnPair]>, free: bool) -> CommandResult<Vec<ColumnPair>> {
+pub fn pair_columns(
+    source: &[String],
+    target: &[String],
+    mapping: Option<&[ColumnPair]>,
+    free: bool,
+) -> CommandResult<Vec<ColumnPair>> {
     let find = |list: &[String], n: &str| list.iter().find(|c| c.eq_ignore_ascii_case(n)).cloned();
     let pairs: Vec<ColumnPair> = match mapping {
         None => source
             .iter()
             .filter_map(|s| match find(target, s) {
-                Some(t) => Some(ColumnPair { source: s.clone(), target: t }),
-                None if free => Some(ColumnPair { source: s.clone(), target: s.clone() }),
+                Some(t) => Some(ColumnPair {
+                    source: s.clone(),
+                    target: t,
+                }),
+                None if free => Some(ColumnPair {
+                    source: s.clone(),
+                    target: s.clone(),
+                }),
                 None => None,
             })
             .collect(),
         Some(m) => {
             let mut out = Vec::new();
             for p in m {
-                let s = find(source, &p.source).ok_or_else(|| CommandError::BadRequest(format!("el DataFrame no tiene la columna «{}»", p.source)))?;
+                let s = find(source, &p.source).ok_or_else(|| {
+                    CommandError::BadRequest(format!(
+                        "el DataFrame no tiene la columna «{}»",
+                        p.source
+                    ))
+                })?;
                 let t = match find(target, &p.target) {
                     Some(t) => t,
                     None if free && !p.target.trim().is_empty() => p.target.clone(),
-                    None => return Err(CommandError::BadRequest(format!("la tabla no tiene la columna «{}»", p.target))),
+                    None => {
+                        return Err(CommandError::BadRequest(format!(
+                            "la tabla no tiene la columna «{}»",
+                            p.target
+                        )))
+                    }
                 };
-                out.push(ColumnPair { source: s, target: t });
+                out.push(ColumnPair {
+                    source: s,
+                    target: t,
+                });
             }
             out
         }
@@ -264,7 +310,10 @@ pub fn pair_columns(source: &[String], target: &[String], mapping: Option<&[Colu
     let mut seen = std::collections::HashSet::new();
     for p in &pairs {
         if !seen.insert(p.target.to_lowercase()) {
-            return Err(CommandError::BadRequest(format!("dos columnas del DataFrame van a «{}»", p.target)));
+            return Err(CommandError::BadRequest(format!(
+                "dos columnas del DataFrame van a «{}»",
+                p.target
+            )));
         }
     }
     if pairs.is_empty() {
@@ -279,13 +328,17 @@ pub fn family(type_name: &str) -> &'static str {
     let base = t.split(['(', ' ']).next().unwrap_or("");
     match base {
         "bool" | "boolean" | "bit" => "bool",
-        "tinyint" | "smallint" | "int" | "integer" | "bigint" | "hugeint" | "ubigint" | "uinteger" | "usmallint" | "utinyint" | "uhugeint" | "int2" | "int4"
-        | "int8" | "serial" | "bigserial" | "mediumint" | "long" | "int32" | "int64" => "integer",
+        "tinyint" | "smallint" | "int" | "integer" | "bigint" | "hugeint" | "ubigint"
+        | "uinteger" | "usmallint" | "utinyint" | "uhugeint" | "int2" | "int4" | "int8"
+        | "serial" | "bigserial" | "mediumint" | "long" | "int32" | "int64" => "integer",
         "decimal" | "numeric" | "number" | "money" | "smallmoney" | "dec" => "decimal",
-        "real" | "float" | "float4" | "float8" | "double" | "binary_float" | "binary_double" => "float",
+        "real" | "float" | "float4" | "float8" | "double" | "binary_float" | "binary_double" => {
+            "float"
+        }
         "date" => "date",
         "time" | "timetz" => "time",
-        "timestamp" | "datetime" | "datetime2" | "smalldatetime" | "timestamptz" | "datetimeoffset" | "date32" | "datetime64" => "timestamp",
+        "timestamp" | "datetime" | "datetime2" | "smalldatetime" | "timestamptz"
+        | "datetimeoffset" | "date32" | "datetime64" => "timestamp",
         "uuid" | "uniqueidentifier" => "uuid",
         "json" | "jsonb" | "object" | "array" | "struct" | "map" | "list" => "json",
         "blob" | "bytea" | "binary" | "varbinary" | "raw" | "image" | "longblob" => "binary",
@@ -309,7 +362,13 @@ fn text_length(type_name: &str) -> Option<u64> {
         return None;
     }
     let inner = t.split_once('(')?.1.split(')').next()?;
-    inner.split([',', ' ']).next()?.trim().parse().ok().filter(|n| *n > 0)
+    inner
+        .split([',', ' '])
+        .next()?
+        .trim()
+        .parse()
+        .ok()
+        .filter(|n| *n > 0)
 }
 
 /// `(p, s)` of a decimal type.
@@ -336,18 +395,27 @@ fn type_warnings(c: &PlannedColumn, max_len: Option<u64>) -> Vec<String> {
     let (sf, tf) = (family(&c.source_type), family(&c.target_type));
     if let (Some(s), Some(t)) = (decimal_scale(&c.source_type), decimal_scale(&c.target_type)) {
         if s > t {
-            w.push(format!("«{}»: tiene {s} decimales y «{}» guarda {t}: se redondean", c.source, c.target));
+            w.push(format!(
+                "«{}»: tiene {s} decimales y «{}» guarda {t}: se redondean",
+                c.source, c.target
+            ));
         }
     }
     if matches!(sf, "float" | "decimal") && tf == "integer" {
-        w.push(format!("«{}»: es {} y «{}» es entero: se pierden los decimales", c.source, c.source_type, c.target));
+        w.push(format!(
+            "«{}»: es {} y «{}» es entero: se pierden los decimales",
+            c.source, c.source_type, c.target
+        ));
     }
     let tz = |t: &str| {
         let t = t.to_ascii_lowercase();
         t.contains("tz") || t.contains("with time zone") || t.contains("offset")
     };
     if sf == "timestamp" && tf == "timestamp" && tz(&c.source_type) && !tz(&c.target_type) {
-        w.push(format!("«{}»: tiene zona horaria y «{}» no: se guarda sin ella", c.source, c.target));
+        w.push(format!(
+            "«{}»: tiene zona horaria y «{}» no: se guarda sin ella",
+            c.source, c.target
+        ));
     }
     w
 }
@@ -368,9 +436,15 @@ pub fn modes_of(driver: &dyn Driver) -> Vec<WriteMode> {
 fn mode_refused(engine: &str, m: WriteMode) -> String {
     match m {
         WriteMode::Insert => format!("{engine} no escribe en modo «insertar» desde un notebook"),
-        WriteMode::Update => format!("{engine} no escribe en modo «actualizar por clave» desde un notebook"),
-        WriteMode::Upsert => format!("{engine} no escribe en modo «insertar o actualizar» desde un notebook"),
-        WriteMode::Replace => format!("{engine} no escribe en modo «reemplazar el contenido» desde un notebook"),
+        WriteMode::Update => {
+            format!("{engine} no escribe en modo «actualizar por clave» desde un notebook")
+        }
+        WriteMode::Upsert => {
+            format!("{engine} no escribe en modo «insertar o actualizar» desde un notebook")
+        }
+        WriteMode::Replace => {
+            format!("{engine} no escribe en modo «reemplazar el contenido» desde un notebook")
+        }
     }
 }
 
@@ -383,9 +457,20 @@ fn q(n: &str) -> String {
 
 async fn describe(s: &mut dyn Session, table: &str) -> CommandResult<Vec<(String, String)>> {
     let out = exec(s, &format!("DESCRIBE main.{}", q(table))).await?;
-    let r = out.results.iter().find(|r| !r.columns.is_empty()).ok_or_else(|| CommandError::Internal("DESCRIBE sin columnas".into()))?;
-    let col = |n: &str| r.columns.iter().position(|c| c.name.eq_ignore_ascii_case(n));
-    let (ni, ti) = (col("column_name").unwrap_or(0), col("column_type").unwrap_or(1));
+    let r = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .ok_or_else(|| CommandError::Internal("DESCRIBE sin columnas".into()))?;
+    let col = |n: &str| {
+        r.columns
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(n))
+    };
+    let (ni, ti) = (
+        col("column_name").unwrap_or(0),
+        col("column_type").unwrap_or(1),
+    );
     Ok(r.rows
         .iter()
         .map(|row| {
@@ -397,20 +482,46 @@ async fn describe(s: &mut dyn Session, table: &str) -> CommandResult<Vec<(String
 
 async fn count(s: &mut dyn Session, sql: &str) -> CommandResult<u64> {
     let out = exec(s, sql).await?;
-    Ok(first_value(&out).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|x| x.parse().ok()))).unwrap_or(0))
+    Ok(first_value(&out)
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|x| x.parse().ok()))
+        })
+        .unwrap_or(0))
 }
 
 /// The key columns (DataFrame side) have no repeated and no empty values.
 async fn check_keys(s: &mut dyn Session, snapshot: &str, keys: &[String]) -> CommandResult<()> {
     let cols = keys.iter().map(|k| q(k)).collect::<Vec<_>>().join(", ");
-    let nulls = keys.iter().map(|k| format!("{} IS NULL", q(k))).collect::<Vec<_>>().join(" OR ");
-    let n = count(s, &format!("SELECT count(*) FROM main.{} WHERE {nulls}", q(snapshot))).await?;
+    let nulls = keys
+        .iter()
+        .map(|k| format!("{} IS NULL", q(k)))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let n = count(
+        s,
+        &format!("SELECT count(*) FROM main.{} WHERE {nulls}", q(snapshot)),
+    )
+    .await?;
     if n > 0 {
-        return Err(CommandError::BadRequest(format!("{n} filas del DataFrame no tienen clave ({}): no se pueden buscar en la tabla", keys.join(", "))));
+        return Err(CommandError::BadRequest(format!(
+            "{n} filas del DataFrame no tienen clave ({}): no se pueden buscar en la tabla",
+            keys.join(", ")
+        )));
     }
-    let d = count(s, &format!("SELECT count(*) FROM (SELECT {cols} FROM main.{} GROUP BY {cols} HAVING count(*) > 1)", q(snapshot))).await?;
+    let d = count(
+        s,
+        &format!(
+            "SELECT count(*) FROM (SELECT {cols} FROM main.{} GROUP BY {cols} HAVING count(*) > 1)",
+            q(snapshot)
+        ),
+    )
+    .await?;
     if d > 0 {
-        return Err(CommandError::BadRequest(format!("el DataFrame repite {d} claves ({}): cada clave tiene que estar una sola vez", keys.join(", "))));
+        return Err(CommandError::BadRequest(format!(
+            "el DataFrame repite {d} claves ({}): cada clave tiene que estar una sola vez",
+            keys.join(", ")
+        )));
     }
     Ok(())
 }
@@ -451,7 +562,11 @@ impl BatchSource for Pages<'_> {
             }
             let (lo, hi) = (self.next_row, self.next_row + PAGE_ROWS);
             let spec = ReadSpec {
-                table: ObjectRef { kind: "table".into(), schema: Some("main".into()), name: self.table.clone() },
+                table: ObjectRef {
+                    kind: "table".into(),
+                    schema: Some("main".into()),
+                    name: self.table.clone(),
+                },
                 columns: Some(self.columns.clone()),
                 filter: Some(format!("rowid >= {lo} AND rowid < {hi}")),
             };
@@ -459,7 +574,12 @@ impl BatchSource for Pages<'_> {
             match self.s.read_batches(&spec, sink.clone()).await {
                 Ok(_) => {
                     self.next_row = hi;
-                    let got = std::mem::take(&mut sink.lock().map(|mut g| std::mem::take(&mut g.0)).unwrap_or_default());
+                    let got = std::mem::take(
+                        &mut sink
+                            .lock()
+                            .map(|mut g| std::mem::take(&mut g.0))
+                            .unwrap_or_default(),
+                    );
                     self.buf.extend(got.into_iter().filter(|b| !b.is_empty()));
                 }
                 Err(e) => {
@@ -478,7 +598,11 @@ impl BatchSource for Pages<'_> {
 // The target
 
 fn table_ref(t: &WriteTarget) -> ObjectRef {
-    ObjectRef { kind: "table".into(), schema: t.schema.clone().filter(|s| !s.trim().is_empty()), name: t.table.trim().to_string() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: t.schema.clone().filter(|s| !s.trim().is_empty()),
+        name: t.table.trim().to_string(),
+    }
 }
 
 fn qualified(t: &ObjectRef) -> String {
@@ -489,10 +613,19 @@ fn qualified(t: &ObjectRef) -> String {
 }
 
 /// The connection may be written to: it exists and isn't read-only.
-fn writable(state: &AppState, connection_id: &str) -> CommandResult<dbine_core::state::SavedConnection> {
-    let c = state.store.get_connection(connection_id)?.ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
+fn writable(
+    state: &AppState,
+    connection_id: &str,
+) -> CommandResult<dbine_core::state::SavedConnection> {
+    let c = state
+        .store
+        .get_connection(connection_id)?
+        .ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
     if c.config.read_only {
-        return Err(CommandError::BadRequest(format!("«{}» es de solo lectura: un notebook no escribe en ella", c.name)));
+        return Err(CommandError::BadRequest(format!(
+            "«{}» es de solo lectura: un notebook no escribe en ella",
+            c.name
+        )));
     }
     Ok(c)
 }
@@ -509,7 +642,11 @@ pub struct TargetInfo {
     pub columns: Option<Vec<dbine_driver::ColumnInfo>>,
 }
 
-pub async fn target_info(state: &AppState, tab: &str, target: &WriteTarget) -> CommandResult<TargetInfo> {
+pub async fn target_info(
+    state: &AppState,
+    tab: &str,
+    target: &WriteTarget,
+) -> CommandResult<TargetInfo> {
     writable(state, &target.connection_id)?;
     let driver = crate::commands::schema::driver_of(state, &target.connection_id)?;
     let modes = modes_of(driver.as_ref());
@@ -518,19 +655,33 @@ pub async fn target_info(state: &AppState, tab: &str, target: &WriteTarget) -> C
     let mut columns = None;
     if !target.table.trim().is_empty() {
         let key = format!("nbw-info:{tab}");
-        let entry = state.dedicated_session(&key, &target.connection_id, &target.database, true).await?;
+        let entry = state
+            .dedicated_session(&key, &target.connection_id, &target.database, true)
+            .await?;
         let r = entry.session.lock().await.columns(&table_ref(target)).await;
-        state.sessions.remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
+        state
+            .sessions
+            .remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
         columns = r.ok().filter(|c| !c.is_empty());
     }
-    Ok(TargetInfo { modes, atomic, schemaless, columns })
+    Ok(TargetInfo {
+        modes,
+        atomic,
+        schemaless,
+        columns,
+    })
 }
 
 /// The table "crear tabla nueva" makes: the DataFrame's columns in the
 /// target's types (dbine-schema's conversion from DuckDB), the keys as its
 /// primary key. Returns the statements, the table as created and each
 /// DataFrame column's name and type there.
-fn create_plan(driver: &dyn Driver, target: &WriteTarget, cols: &[(String, String)], keys: &[String]) -> CommandResult<(Vec<String>, ObjectRef, Vec<(String, String, String)>)> {
+fn create_plan(
+    driver: &dyn Driver,
+    target: &WriteTarget,
+    cols: &[(String, String)],
+    keys: &[String],
+) -> CommandResult<(Vec<String>, ObjectRef, Vec<(String, String, String)>)> {
     let t = table_ref(target);
     let table = TableSchema {
         kind: "table".into(),
@@ -538,27 +689,70 @@ fn create_plan(driver: &dyn Driver, target: &WriteTarget, cols: &[(String, Strin
         name: t.name.clone(),
         columns: cols
             .iter()
-            .map(|(n, ty)| ColumnDef { name: n.clone(), data_type: ty.clone(), nullable: !keys.iter().any(|k| k.eq_ignore_ascii_case(n)), ..Default::default() })
+            .map(|(n, ty)| ColumnDef {
+                name: n.clone(),
+                data_type: ty.clone(),
+                nullable: !keys.iter().any(|k| k.eq_ignore_ascii_case(n)),
+                ..Default::default()
+            })
             .collect(),
-        primary_key: (!keys.is_empty()).then(|| KeyDef { name: None, columns: keys.to_vec() }),
+        primary_key: (!keys.is_empty()).then(|| KeyDef {
+            name: None,
+            columns: keys.to_vec(),
+        }),
         ..Default::default()
     };
-    let opts = dbine_schema::Options { target_schema: t.schema.clone(), ..Default::default() };
-    let conv = dbine_schema::convert(&[table], "duckdb", driver.info().id, &opts).map_err(|e| CommandError::BadRequest(e.to_string()))?;
-    let made = conv.tables.into_iter().next().ok_or_else(|| CommandError::Internal("la conversión no dio la tabla".into()))?;
+    let opts = dbine_schema::Options {
+        target_schema: t.schema.clone(),
+        ..Default::default()
+    };
+    let conv = dbine_schema::convert(&[table], "duckdb", driver.info().id, &opts)
+        .map_err(|e| CommandError::BadRequest(e.to_string()))?;
+    let made = conv
+        .tables
+        .into_iter()
+        .next()
+        .ok_or_else(|| CommandError::Internal("la conversión no dio la tabla".into()))?;
     let ddl = driver
-        .table_ddl(&made, DdlParts { create: true, ..Default::default() })
-        .map_err(|e| CommandError::BadRequest(format!("no se puede crear la tabla en este motor: {e}")))?;
-    let stmts: Vec<String> = driver.split_script(&ddl).into_iter().map(|s| s.text.trim().trim_end_matches(';').trim().to_string()).filter(|s| !s.is_empty()).collect();
+        .table_ddl(
+            &made,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| {
+            CommandError::BadRequest(format!("no se puede crear la tabla en este motor: {e}"))
+        })?;
+    let stmts: Vec<String> = driver
+        .split_script(&ddl)
+        .into_iter()
+        .map(|s| s.text.trim().trim_end_matches(';').trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
     let mapped: Vec<(String, String, String)> = cols
         .iter()
         .map(|(n, _)| {
-            let to = conv.columns.iter().find(|m| m.column == *n).map(|m| m.target_column.clone()).unwrap_or_else(|| n.clone());
-            let ty = made.columns.iter().find(|c| c.name == to).map(|c| c.data_type.clone()).unwrap_or_default();
+            let to = conv
+                .columns
+                .iter()
+                .find(|m| m.column == *n)
+                .map(|m| m.target_column.clone())
+                .unwrap_or_else(|| n.clone());
+            let ty = made
+                .columns
+                .iter()
+                .find(|c| c.name == to)
+                .map(|c| c.data_type.clone())
+                .unwrap_or_default();
             (n.clone(), to, ty)
         })
         .collect();
-    let created = ObjectRef { kind: "table".into(), schema: made.schema.clone().or(t.schema), name: made.name.clone() };
+    let created = ObjectRef {
+        kind: "table".into(),
+        schema: made.schema.clone().or(t.schema),
+        name: made.name.clone(),
+    };
     Ok((stmts, created, mapped))
 }
 
@@ -567,7 +761,12 @@ fn create_plan(driver: &dyn Driver, target: &WriteTarget, cols: &[(String, Strin
 
 /// Load the DataFrame, check the target and the mapping, and issue the
 /// confirmation's token (see the module docs). Nothing is written.
-pub async fn prepare(state: &AppState, a: &WriteArgs, policy: super::access::Policy, net: super::remote::Net) -> CommandResult<PrepareResponse> {
+pub async fn prepare(
+    state: &AppState,
+    a: &WriteArgs,
+    policy: super::access::Policy,
+    net: super::remote::Net,
+) -> CommandResult<PrepareResponse> {
     let conn = writable(state, &a.target.connection_id)?;
     let driver = crate::commands::schema::driver_of(state, &a.target.connection_id)?;
     let modes = modes_of(driver.as_ref());
@@ -582,16 +781,47 @@ pub async fn prepare(state: &AppState, a: &WriteArgs, policy: super::access::Pol
         return Err(CommandError::BadRequest("elegí la tabla de destino".into()));
     }
     if a.mode.needs_key() && a.keys.is_empty() {
-        return Err(CommandError::BadRequest("elegí la columna clave para actualizar por clave".into()));
+        return Err(CommandError::BadRequest(
+            "elegí la columna clave para actualizar por clave".into(),
+        ));
     }
-    if !super::local::valid_name(&a.source) || !a.sources.iter().any(|s| s.name.eq_ignore_ascii_case(&a.source)) {
-        return Err(CommandError::BadRequest(format!("no hay una celda «{}» arriba de esta", a.source)));
+    if !super::local::valid_name(&a.source)
+        || !a
+            .sources
+            .iter()
+            .any(|s| s.name.eq_ignore_ascii_case(&a.source))
+    {
+        return Err(CommandError::BadRequest(format!(
+            "no hay una celda «{}» arriba de esta",
+            a.source
+        )));
     }
-    let cap = a.row_cap.unwrap_or(super::local::DEFAULT_ROW_CAP).clamp(ROW_CAP_RANGE.0, ROW_CAP_RANGE.1);
+    let cap = a
+        .row_cap
+        .unwrap_or(super::local::DEFAULT_ROW_CAP)
+        .clamp(ROW_CAP_RANGE.0, ROW_CAP_RANGE.1);
     let sql = format!("SELECT * FROM {}", q(&a.source));
-    let (entry, loaded) = match stage(state, &a.tab_id, &sql, cap, &a.sources, a.notebook_path.as_deref(), a.approval.as_deref(), policy, net).await? {
+    let (entry, loaded) = match stage(
+        state,
+        &a.tab_id,
+        &sql,
+        cap,
+        &a.sources,
+        a.notebook_path.as_deref(),
+        a.approval.as_deref(),
+        policy,
+        net,
+    )
+    .await?
+    {
         Staged::Ready { entry, loaded, .. } => (entry, loaded),
-        Staged::Ask(r) => return Ok(PrepareResponse { plan: None, loaded: Vec::new(), approval: Some(r) }),
+        Staged::Ask(r) => {
+            return Ok(PrepareResponse {
+                plan: None,
+                loaded: Vec::new(),
+                approval: Some(r),
+            })
+        }
     };
     // The whole DataFrame, or nothing.
     if let Some(t) = loaded.iter().find(|t| t.capped) {
@@ -600,7 +830,10 @@ pub async fn prepare(state: &AppState, a: &WriteArgs, policy: super::access::Pol
             t.name, t.rows
         )));
     }
-    let snapshot = format!("__dbine_w_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]);
+    let snapshot = format!(
+        "__dbine_w_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let mut warnings = Vec::new();
     let r = {
         let mut s = entry.session.lock().await;
@@ -636,7 +869,11 @@ pub async fn prepare(state: &AppState, a: &WriteArgs, policy: super::access::Pol
     if let Some(old) = old {
         drop_snapshot(&entry, &old).await;
     }
-    Ok(PrepareResponse { plan: Some(WritePlan { token, ..plan }), loaded, approval: None })
+    Ok(PrepareResponse {
+        plan: Some(WritePlan { token, ..plan }),
+        loaded,
+        approval: None,
+    })
 }
 
 type Checked = (Pending, Preview, Vec<String>, Vec<String>);
@@ -651,7 +888,15 @@ async fn snapshot_and_check(
     snapshot: &str,
     warnings: &mut Vec<String>,
 ) -> CommandResult<Checked> {
-    exec(s, &format!("CREATE OR REPLACE TABLE main.{} AS SELECT * FROM main.{}", q(snapshot), q(&a.source))).await?;
+    exec(
+        s,
+        &format!(
+            "CREATE OR REPLACE TABLE main.{} AS SELECT * FROM main.{}",
+            q(snapshot),
+            q(&a.source)
+        ),
+    )
+    .await?;
     let rows = count(s, &format!("SELECT count(*) FROM main.{}", q(snapshot))).await?;
     let src_cols = describe(s, snapshot).await?;
     let src_names: Vec<String> = src_cols.iter().map(|(n, _)| n.clone()).collect();
@@ -659,27 +904,66 @@ async fn snapshot_and_check(
 
     // The target's columns (or the table "crear tabla nueva" makes).
     let key = format!("nbw-plan:{}", a.tab_id);
-    let entry = state.dedicated_session(&key, &a.target.connection_id, &a.target.database, true).await?;
-    let existing = entry.session.lock().await.columns(&table_ref(&a.target)).await;
-    state.sessions.remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
+    let entry = state
+        .dedicated_session(&key, &a.target.connection_id, &a.target.database, true)
+        .await?;
+    let existing = entry
+        .session
+        .lock()
+        .await
+        .columns(&table_ref(&a.target))
+        .await;
+    state
+        .sessions
+        .remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
     let existing = existing.ok().filter(|c| !c.is_empty());
 
-    let (table, create, pairs): (ObjectRef, Option<Vec<String>>, Vec<PlannedColumn>) = if a.target.create {
+    let (table, create, pairs): (ObjectRef, Option<Vec<String>>, Vec<PlannedColumn>) = if a
+        .target
+        .create
+    {
         if existing.is_some() && !schemaless {
-            return Err(CommandError::BadRequest(format!("la tabla «{}» ya existe: elegila como tabla existente", qualified(&table_ref(&a.target)))));
+            return Err(CommandError::BadRequest(format!(
+                "la tabla «{}» ya existe: elegila como tabla existente",
+                qualified(&table_ref(&a.target))
+            )));
         }
         // Only the columns the mapping keeps (all of them by default).
         let keep: Vec<(String, String)> = match &a.mapping {
             None => src_cols.clone(),
-            Some(m) => src_cols.iter().filter(|(n, _)| m.iter().any(|p| p.source.eq_ignore_ascii_case(n))).cloned().collect(),
+            Some(m) => src_cols
+                .iter()
+                .filter(|(n, _)| m.iter().any(|p| p.source.eq_ignore_ascii_case(n)))
+                .cloned()
+                .collect(),
         };
-        let key_src: Vec<String> = a.keys.iter().map(|k| src_names.iter().find(|n| n.eq_ignore_ascii_case(k)).cloned().unwrap_or_else(|| k.clone())).collect();
+        let key_src: Vec<String> = a
+            .keys
+            .iter()
+            .map(|k| {
+                src_names
+                    .iter()
+                    .find(|n| n.eq_ignore_ascii_case(k))
+                    .cloned()
+                    .unwrap_or_else(|| k.clone())
+            })
+            .collect();
         let (stmts, created, mapped) = create_plan(driver.as_ref(), &a.target, &keep, &key_src)?;
         let pairs = mapped
             .into_iter()
             .map(|(src, to, ty)| {
-                let st = src_cols.iter().find(|(n, _)| *n == src).map(|(_, t)| t.clone()).unwrap_or_default();
-                PlannedColumn { converted: converted(&st, &ty), source: src, source_type: st, target: to, target_type: ty }
+                let st = src_cols
+                    .iter()
+                    .find(|(n, _)| *n == src)
+                    .map(|(_, t)| t.clone())
+                    .unwrap_or_default();
+                PlannedColumn {
+                    converted: converted(&st, &ty),
+                    source: src,
+                    source_type: st,
+                    target: to,
+                    target_type: ty,
+                }
             })
             .collect();
         // A schemaless target that exists already (a collection) is written as it is.
@@ -695,11 +979,34 @@ async fn snapshot_and_check(
                 let planned = pairs
                     .into_iter()
                     .map(|p| {
-                        let st = src_cols.iter().find(|(n, _)| *n == p.source).map(|(_, t)| t.clone()).unwrap_or_default();
-                        PlannedColumn { source: p.source, source_type: st, target: p.target, target_type: String::new(), converted: false }
+                        let st = src_cols
+                            .iter()
+                            .find(|(n, _)| *n == p.source)
+                            .map(|(_, t)| t.clone())
+                            .unwrap_or_default();
+                        PlannedColumn {
+                            source: p.source,
+                            source_type: st,
+                            target: p.target,
+                            target_type: String::new(),
+                            converted: false,
+                        }
                     })
                     .collect();
-                return finish(s, a, conn, snapshot, rows, table_ref(&a.target), None, planned, &src_names, &[], warnings).await;
+                return finish(
+                    s,
+                    a,
+                    conn,
+                    snapshot,
+                    rows,
+                    table_ref(&a.target),
+                    None,
+                    planned,
+                    &src_names,
+                    &[],
+                    warnings,
+                )
+                .await;
             }
             return Err(CommandError::BadRequest(format!("no existe la tabla «{}» (o no se puede leer): elegí otra o marcá «crear tabla nueva»", qualified(&table_ref(&a.target)))));
         };
@@ -708,15 +1015,45 @@ async fn snapshot_and_check(
         let planned = pairs
             .into_iter()
             .map(|p| {
-                let st = src_cols.iter().find(|(n, _)| *n == p.source).map(|(_, t)| t.clone()).unwrap_or_default();
-                let tt = cols.iter().find(|c| c.name == p.target).map(|c| c.data_type.clone()).unwrap_or_default();
-                PlannedColumn { converted: converted(&st, &tt), source: p.source, source_type: st, target: p.target, target_type: tt }
+                let st = src_cols
+                    .iter()
+                    .find(|(n, _)| *n == p.source)
+                    .map(|(_, t)| t.clone())
+                    .unwrap_or_default();
+                let tt = cols
+                    .iter()
+                    .find(|c| c.name == p.target)
+                    .map(|c| c.data_type.clone())
+                    .unwrap_or_default();
+                PlannedColumn {
+                    converted: converted(&st, &tt),
+                    source: p.source,
+                    source_type: st,
+                    target: p.target,
+                    target_type: tt,
+                }
             })
             .collect();
         (table_ref(&a.target), None, planned)
     };
-    let target_names: Vec<String> = existing.as_ref().map(|c| c.iter().map(|x| x.name.clone()).collect()).unwrap_or_default();
-    finish(s, a, conn, snapshot, rows, table, create, pairs, &src_names, &target_names, warnings).await
+    let target_names: Vec<String> = existing
+        .as_ref()
+        .map(|c| c.iter().map(|x| x.name.clone()).collect())
+        .unwrap_or_default();
+    finish(
+        s,
+        a,
+        conn,
+        snapshot,
+        rows,
+        table,
+        create,
+        pairs,
+        &src_names,
+        &target_names,
+        warnings,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -739,8 +1076,15 @@ async fn finish(
     for k in &a.keys {
         let p = pairs
             .iter()
-            .find(|p| p.target.eq_ignore_ascii_case(k) || (create.is_some() && p.source.eq_ignore_ascii_case(k)))
-            .ok_or_else(|| CommandError::BadRequest(format!("la clave «{k}» no es una de las columnas que se escriben")))?;
+            .find(|p| {
+                p.target.eq_ignore_ascii_case(k)
+                    || (create.is_some() && p.source.eq_ignore_ascii_case(k))
+            })
+            .ok_or_else(|| {
+                CommandError::BadRequest(format!(
+                    "la clave «{k}» no es una de las columnas que se escriben"
+                ))
+            })?;
         key_src.push(p.source.clone());
     }
     if a.mode.needs_key() {
@@ -748,7 +1092,17 @@ async fn finish(
     }
     for p in &pairs {
         let max_len = if text_length(&p.target_type).is_some() {
-            Some(count(s, &format!("SELECT coalesce(max(length(CAST({} AS VARCHAR))), 0) FROM main.{}", q(&p.source), q(snapshot))).await?)
+            Some(
+                count(
+                    s,
+                    &format!(
+                        "SELECT coalesce(max(length(CAST({} AS VARCHAR))), 0) FROM main.{}",
+                        q(&p.source),
+                        q(snapshot)
+                    ),
+                )
+                .await?,
+            )
         } else {
             None
         };
@@ -756,17 +1110,48 @@ async fn finish(
     }
     if rows == 0 {
         warnings.push(match a.mode {
-            WriteMode::Replace => "el DataFrame no tiene filas: reemplazar deja la tabla vacía".to_string(),
+            WriteMode::Replace => {
+                "el DataFrame no tiene filas: reemplazar deja la tabla vacía".to_string()
+            }
             _ => "el DataFrame no tiene filas: no se escribe nada".to_string(),
         });
     }
-    let cols = pairs.iter().map(|p| q(&p.source)).collect::<Vec<_>>().join(", ");
-    let out = exec(s, &format!("SELECT {cols} FROM main.{} ORDER BY rowid LIMIT {PREVIEW_ROWS}", q(snapshot))).await?;
-    let preview_rows = out.results.iter().find(|r| !r.columns.is_empty()).map(|r| r.rows.clone()).unwrap_or_default();
-    let preview = Preview { columns: pairs.iter().map(|p| p.target.clone()).collect(), rows: preview_rows };
-    let unmatched_source = src_names.iter().filter(|n| !pairs.iter().any(|p| p.source == **n)).cloned().collect();
-    let unmatched_target = target_names.iter().filter(|n| !pairs.iter().any(|p| p.target == **n)).cloned().collect();
-    let db = (!a.target.database.is_empty()).then(|| format!(" › {}", a.target.database)).unwrap_or_default();
+    let cols = pairs
+        .iter()
+        .map(|p| q(&p.source))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let out = exec(
+        s,
+        &format!(
+            "SELECT {cols} FROM main.{} ORDER BY rowid LIMIT {PREVIEW_ROWS}",
+            q(snapshot)
+        ),
+    )
+    .await?;
+    let preview_rows = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .map(|r| r.rows.clone())
+        .unwrap_or_default();
+    let preview = Preview {
+        columns: pairs.iter().map(|p| p.target.clone()).collect(),
+        rows: preview_rows,
+    };
+    let unmatched_source = src_names
+        .iter()
+        .filter(|n| !pairs.iter().any(|p| p.source == **n))
+        .cloned()
+        .collect();
+    let unmatched_target = target_names
+        .iter()
+        .filter(|n| !pairs.iter().any(|p| p.target == **n))
+        .cloned()
+        .collect();
+    let db = (!a.target.database.is_empty())
+        .then(|| format!(" › {}", a.target.database))
+        .unwrap_or_default();
     let label = format!("{}{db} › {}", conn.name, qualified(&table));
     let p = Pending {
         tab: a.tab_id.clone(),
@@ -786,7 +1171,11 @@ async fn finish(
 
 async fn drop_snapshot(entry: &SessionEntry, snapshot: &str) {
     let mut s = entry.session.lock().await;
-    let _ = exec(&mut **s, &format!("DROP TABLE IF EXISTS main.{}", q(snapshot))).await;
+    let _ = exec(
+        &mut **s,
+        &format!("DROP TABLE IF EXISTS main.{}", q(snapshot)),
+    )
+    .await;
 }
 
 // ---------------------------------------------------------------------------
@@ -799,10 +1188,18 @@ pub fn write_session_key(tab: &str) -> String {
 
 /// Write what `token` stands for (see the module docs). `rows`: the count
 /// the user confirmed.
-pub async fn run(state: &AppState, a: &WriteArgs, token: &str, rows: u64) -> CommandResult<WriteOutcome> {
+pub async fn run(
+    state: &AppState,
+    a: &WriteArgs,
+    token: &str,
+    rows: u64,
+) -> CommandResult<WriteOutcome> {
     let p = take(token, &a.tab_id, &a.cell_id, &binding(a, rows))?;
     let started = Instant::now();
-    let duck = state.sessions.get(&session_key(&a.tab_id)).map(|e| e.clone());
+    let duck = state
+        .sessions
+        .get(&session_key(&a.tab_id))
+        .map(|e| e.clone());
     let Some(duck) = duck else {
         return Err(CommandError::BadRequest("el DataFrame ya no está cargado (se cerró la sesión del notebook): ejecutá la celda de nuevo".into()));
     };
@@ -823,53 +1220,100 @@ pub async fn run(state: &AppState, a: &WriteArgs, token: &str, rows: u64) -> Com
     })
 }
 
-async fn write(state: &AppState, a: &WriteArgs, p: &Pending, duck: &Arc<SessionEntry>) -> CommandResult<(WriteResult, bool)> {
+async fn write(
+    state: &AppState,
+    a: &WriteArgs,
+    p: &Pending,
+    duck: &Arc<SessionEntry>,
+) -> CommandResult<(WriteResult, bool)> {
     // Checked again: the connection may have turned read-only since.
     writable(state, &a.target.connection_id)?;
     let driver = crate::commands::schema::driver_of(state, &a.target.connection_id)?;
     let modes = modes_of(driver.as_ref());
     if !modes.contains(&a.mode) {
-        return Err(CommandError::BadRequest(mode_refused(&driver.info().name, a.mode)));
+        return Err(CommandError::BadRequest(mode_refused(
+            &driver.info().name,
+            a.mode,
+        )));
     }
     let mut ds = duck.session.lock().await;
-    let n = count(&mut **ds, &format!("SELECT count(*) FROM main.{}", q(&p.snapshot))).await?;
+    let n = count(
+        &mut **ds,
+        &format!("SELECT count(*) FROM main.{}", q(&p.snapshot)),
+    )
+    .await?;
     if n != p.rows {
         return Err(CommandError::BadRequest(format!("el DataFrame cambió desde que se confirmó ({} filas, ahora {n}): ejecutá la celda de nuevo", p.rows)));
     }
-    let key_src: Vec<String> = a.keys.iter().filter_map(|k| p.pairs.iter().find(|c| c.target.eq_ignore_ascii_case(k) || c.source.eq_ignore_ascii_case(k)).map(|c| c.source.clone())).collect();
+    let key_src: Vec<String> = a
+        .keys
+        .iter()
+        .filter_map(|k| {
+            p.pairs
+                .iter()
+                .find(|c| c.target.eq_ignore_ascii_case(k) || c.source.eq_ignore_ascii_case(k))
+                .map(|c| c.source.clone())
+        })
+        .collect();
     if a.mode.needs_key() {
         check_keys(&mut **ds, &p.snapshot, &key_src).await?;
     }
-    let types: HashMap<String, String> = describe(&mut **ds, &p.snapshot).await?.into_iter().collect();
+    let types: HashMap<String, String> = describe(&mut **ds, &p.snapshot)
+        .await?
+        .into_iter()
+        .collect();
     let columns: Vec<TransferColumn> = p
         .pairs
         .iter()
-        .map(|c| TransferColumn { name: c.source.clone(), type_name: types.get(&c.source).cloned().unwrap_or_default(), nullable: true })
+        .map(|c| TransferColumn {
+            name: c.source.clone(),
+            type_name: types.get(&c.source).cloned().unwrap_or_default(),
+            nullable: true,
+        })
         .collect();
     let spec = WriteSpec {
         table: p.table.clone(),
         columns: p.pairs.iter().map(|c| c.target.clone()).collect(),
-        key: a.keys.iter().filter_map(|k| p.pairs.iter().find(|c| c.target.eq_ignore_ascii_case(k) || c.source.eq_ignore_ascii_case(k)).map(|c| c.target.clone())).collect(),
+        key: a
+            .keys
+            .iter()
+            .filter_map(|k| {
+                p.pairs
+                    .iter()
+                    .find(|c| c.target.eq_ignore_ascii_case(k) || c.source.eq_ignore_ascii_case(k))
+                    .map(|c| c.target.clone())
+            })
+            .collect(),
         mode: a.mode,
     };
-    spec.check().map_err(|e| CommandError::BadRequest(e.to_string()))?;
+    spec.check()
+        .map_err(|e| CommandError::BadRequest(e.to_string()))?;
 
     let key = write_session_key(&a.tab_id);
-    let entry = state.dedicated_session(&key, &a.target.connection_id, &a.target.database, false).await?;
+    let entry = state
+        .dedicated_session(&key, &a.target.connection_id, &a.target.database, false)
+        .await?;
     let result = async {
         let mut ts = entry.session.lock().await;
         let mut created = false;
         if let Some(stmts) = &p.create {
             for st in stmts {
                 let mut out = QueryOutcome::default();
-                ts.execute(st, 0, &mut out).await.map_err(|e| CommandError::Sql(format!("no se pudo crear la tabla: {e}")))?;
-                if let Some(e) = out.error.take().or_else(|| out.errors.first().map(|e| e.message.clone())) {
+                ts.execute(st, 0, &mut out)
+                    .await
+                    .map_err(|e| CommandError::Sql(format!("no se pudo crear la tabla: {e}")))?;
+                if let Some(e) = out
+                    .error
+                    .take()
+                    .or_else(|| out.errors.first().map(|e| e.message.clone()))
+                {
                     return Err(CommandError::Sql(format!("no se pudo crear la tabla: {e}")));
                 }
             }
             created = true;
         }
-        let failed: Arc<(Notify, Mutex<Option<String>>)> = Arc::new((Notify::new(), Mutex::new(None)));
+        let failed: Arc<(Notify, Mutex<Option<String>>)> =
+            Arc::new((Notify::new(), Mutex::new(None)));
         let mut src = Pages {
             s: &mut **ds,
             table: p.snapshot.clone(),
@@ -894,7 +1338,13 @@ async fn write(state: &AppState, a: &WriteArgs, p: &Pending, duck: &Arc<SessionE
                     commit_rows: dbine_driver::LoadSpec::DEFAULT_COMMIT_ROWS,
                     commit_bytes: dbine_driver::LoadSpec::DEFAULT_COMMIT_BYTES,
                 };
-                ts.bulk_load(&load, &columns, &mut src, &progress).await.map(|n| WriteResult { inserted: n, atomic: false, ..Default::default() })
+                ts.bulk_load(&load, &columns, &mut src, &progress)
+                    .await
+                    .map(|n| WriteResult {
+                        inserted: n,
+                        atomic: false,
+                        ..Default::default()
+                    })
             }
         };
         let r = tokio::select! {
@@ -915,10 +1365,14 @@ async fn write(state: &AppState, a: &WriteArgs, p: &Pending, duck: &Arc<SessionE
         };
         match r {
             Some(Ok(res)) => Ok((res, created)),
-            Some(Err(dbine_driver::Error::Cancelled)) => Err(CommandError::Sql(lost("se canceló la escritura".into()))),
+            Some(Err(dbine_driver::Error::Cancelled)) => {
+                Err(CommandError::Sql(lost("se canceló la escritura".into())))
+            }
             Some(Err(e)) => Err(CommandError::Sql(lost(e.to_string()))),
             None => match read_error {
-                Some(e) => Err(CommandError::Sql(lost(format!("no se pudo leer el DataFrame: {e}")))),
+                Some(e) => Err(CommandError::Sql(lost(format!(
+                    "no se pudo leer el DataFrame: {e}"
+                )))),
                 None => Err(CommandError::Sql(lost("se canceló la escritura".into()))),
             },
         }
@@ -926,7 +1380,9 @@ async fn write(state: &AppState, a: &WriteArgs, p: &Pending, duck: &Arc<SessionE
     .await;
     // The session goes: a write cut short leaves no transaction open (the
     // server rolls it back when the connection closes).
-    state.sessions.remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
+    state
+        .sessions
+        .remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
     result
 }
 

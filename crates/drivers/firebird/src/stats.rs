@@ -99,7 +99,11 @@ fn estimates(stats: impl IntoIterator<Item = (String, f64, bool)>) -> Vec<RowEst
     }
     best.into_iter()
         .map(|(name, (_, sel))| RowEstimate {
-            object: ObjectRef { kind: kinds::TABLE.into(), schema: None, name },
+            object: ObjectRef {
+                kind: kinds::TABLE.into(),
+                schema: None,
+                name,
+            },
             rows: (1.0 / sel).round() as u64,
         })
         .collect()
@@ -115,7 +119,11 @@ impl FirebirdSession {
             }
         };
         Ok(estimates(rows.iter().filter_map(|r| {
-            Some((text(r.first()?)?, float(r.get(1)?)?, r.get(2).and_then(int) == Some(1)))
+            Some((
+                text(r.first()?)?,
+                float(r.get(1)?)?,
+                r.get(2).and_then(int) == Some(1),
+            ))
         })))
     }
 
@@ -128,7 +136,11 @@ impl FirebirdSession {
                         let name = text(r.first()?)?;
                         let comment = text(r.get(1)?)?.trim().to_string();
                         (!comment.is_empty()).then(|| ObjectComment {
-                            object: ObjectRef { kind: kind.into(), schema: None, name },
+                            object: ObjectRef {
+                                kind: kind.into(),
+                                schema: None,
+                                name,
+                            },
                             comment,
                         })
                     })),
@@ -155,7 +167,13 @@ mod tests {
             ("PEDIDOS".to_string(), 1.0 / 80.0, false),
             ("VACIA".to_string(), 0.0, true),
         ]);
-        let got: Vec<_> = e.iter().map(|e| (e.object.name.as_str(), e.rows, e.object.kind.as_str())).collect();
-        assert_eq!(got, vec![("CLIENTES", 250, "table"), ("PEDIDOS", 80, "table")]);
+        let got: Vec<_> = e
+            .iter()
+            .map(|e| (e.object.name.as_str(), e.rows, e.object.kind.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![("CLIENTES", 250, "table"), ("PEDIDOS", 80, "table")]
+        );
     }
 }

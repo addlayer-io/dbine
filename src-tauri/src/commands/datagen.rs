@@ -65,23 +65,144 @@ impl Rng {
 }
 
 const FIRST: &[&str] = &[
-    "Ana", "Juan", "María", "Lucas", "Sofía", "Mateo", "Valentina", "Martín", "Camila", "Diego", "Lucía", "Tomás", "Julieta", "Nicolás",
-    "Emma", "Liam", "Olivia", "Noah", "Mia", "James", "Laura", "Pedro", "Carla", "Pablo", "Elena", "Andrés", "Paula", "Bruno",
+    "Ana",
+    "Juan",
+    "María",
+    "Lucas",
+    "Sofía",
+    "Mateo",
+    "Valentina",
+    "Martín",
+    "Camila",
+    "Diego",
+    "Lucía",
+    "Tomás",
+    "Julieta",
+    "Nicolás",
+    "Emma",
+    "Liam",
+    "Olivia",
+    "Noah",
+    "Mia",
+    "James",
+    "Laura",
+    "Pedro",
+    "Carla",
+    "Pablo",
+    "Elena",
+    "Andrés",
+    "Paula",
+    "Bruno",
 ];
 const LAST: &[&str] = &[
-    "García", "Fernández", "González", "Rodríguez", "López", "Martínez", "Pérez", "Gómez", "Díaz", "Romero", "Sosa", "Torres", "Álvarez",
-    "Ruiz", "Smith", "Johnson", "Brown", "Rossi", "Silva", "Costa", "Moreau", "Bianchi", "Müller", "Navarro",
+    "García",
+    "Fernández",
+    "González",
+    "Rodríguez",
+    "López",
+    "Martínez",
+    "Pérez",
+    "Gómez",
+    "Díaz",
+    "Romero",
+    "Sosa",
+    "Torres",
+    "Álvarez",
+    "Ruiz",
+    "Smith",
+    "Johnson",
+    "Brown",
+    "Rossi",
+    "Silva",
+    "Costa",
+    "Moreau",
+    "Bianchi",
+    "Müller",
+    "Navarro",
 ];
 const CITIES: &[&str] = &[
-    "Buenos Aires", "Córdoba", "Rosario", "Montevideo", "Santiago", "Lima", "Bogotá", "Ciudad de México", "Madrid", "Barcelona", "São Paulo",
-    "Lisboa", "Roma", "París", "Nueva York", "Londres",
+    "Buenos Aires",
+    "Córdoba",
+    "Rosario",
+    "Montevideo",
+    "Santiago",
+    "Lima",
+    "Bogotá",
+    "Ciudad de México",
+    "Madrid",
+    "Barcelona",
+    "São Paulo",
+    "Lisboa",
+    "Roma",
+    "París",
+    "Nueva York",
+    "Londres",
 ];
-const COUNTRIES: &[&str] = &["Argentina", "Uruguay", "Chile", "Perú", "Colombia", "México", "España", "Brasil", "Portugal", "Italia", "Francia", "Estados Unidos"];
-const COMPANIES: &[&str] = &["Acme", "Globex", "Initech", "Umbrella", "Stark", "Wayne", "Hooli", "Vandelay", "Soylent", "Tyrell", "Cyberdyne", "Wonka"];
-const STREETS: &[&str] = &["San Martín", "Belgrano", "Rivadavia", "Sarmiento", "Mitre", "Corrientes", "Main St", "Oak Ave", "Gran Vía", "Rua Augusta"];
+const COUNTRIES: &[&str] = &[
+    "Argentina",
+    "Uruguay",
+    "Chile",
+    "Perú",
+    "Colombia",
+    "México",
+    "España",
+    "Brasil",
+    "Portugal",
+    "Italia",
+    "Francia",
+    "Estados Unidos",
+];
+const COMPANIES: &[&str] = &[
+    "Acme",
+    "Globex",
+    "Initech",
+    "Umbrella",
+    "Stark",
+    "Wayne",
+    "Hooli",
+    "Vandelay",
+    "Soylent",
+    "Tyrell",
+    "Cyberdyne",
+    "Wonka",
+];
+const STREETS: &[&str] = &[
+    "San Martín",
+    "Belgrano",
+    "Rivadavia",
+    "Sarmiento",
+    "Mitre",
+    "Corrientes",
+    "Main St",
+    "Oak Ave",
+    "Gran Vía",
+    "Rua Augusta",
+];
 const WORDS: &[&str] = &[
-    "lorem", "ipsum", "dolor", "sit", "amet", "datos", "prueba", "cliente", "venta", "pedido", "rápido", "nuevo", "estado", "valor", "total",
-    "nota", "general", "activo", "pendiente", "servicio", "producto", "detalle", "orden", "registro",
+    "lorem",
+    "ipsum",
+    "dolor",
+    "sit",
+    "amet",
+    "datos",
+    "prueba",
+    "cliente",
+    "venta",
+    "pedido",
+    "rápido",
+    "nuevo",
+    "estado",
+    "valor",
+    "total",
+    "nota",
+    "general",
+    "activo",
+    "pendiente",
+    "servicio",
+    "producto",
+    "detalle",
+    "orden",
+    "registro",
 ];
 const DOMAINS: &[&str] = &["ejemplo.com", "example.org", "correo.test", "mail.test"];
 
@@ -109,13 +230,30 @@ enum Gen {
     Skip,
     Null,
     Fixed(String),
-    Seq { next: i64, step: i64 },
-    Int { min: i64, max: i64 },
-    Dec { min: f64, max: f64, scale: u32 },
+    Seq {
+        next: i64,
+        step: i64,
+    },
+    Int {
+        min: i64,
+        max: i64,
+    },
+    Dec {
+        min: f64,
+        max: f64,
+        scale: u32,
+    },
     Bool,
-    Date { from: NaiveDate, days: i64, time: bool },
+    Date {
+        from: NaiveDate,
+        days: i64,
+        time: bool,
+    },
     Uuid,
-    Text { min: usize, max: usize },
+    Text {
+        min: usize,
+        max: usize,
+    },
     First,
     Last,
     Full,
@@ -132,8 +270,28 @@ enum Gen {
 
 /// The generator ids the dialog offers (besides "auto").
 pub const GENERATORS: &[&str] = &[
-    "skip", "null", "fixed", "sequence", "integer", "decimal", "boolean", "date", "datetime", "uuid", "text", "first_name", "last_name",
-    "full_name", "email", "phone", "city", "country", "company", "address", "list", "foreign_key",
+    "skip",
+    "null",
+    "fixed",
+    "sequence",
+    "integer",
+    "decimal",
+    "boolean",
+    "date",
+    "datetime",
+    "uuid",
+    "text",
+    "first_name",
+    "last_name",
+    "full_name",
+    "email",
+    "phone",
+    "city",
+    "country",
+    "company",
+    "address",
+    "list",
+    "foreign_key",
 ];
 
 /// A column, with what the catalog says about it.
@@ -188,7 +346,12 @@ fn auto(m: &Meta, rng: &mut Rng) -> Gen {
     }
     let n = m.info.name.to_lowercase();
     let t = m.info.data_type.to_lowercase();
-    let texty = t.contains("char") || t.contains("text") || t.contains("string") || t.is_empty() || t.contains("clob") || t == "str";
+    let texty = t.contains("char")
+        || t.contains("text")
+        || t.contains("string")
+        || t.is_empty()
+        || t.contains("clob")
+        || t == "str";
     if texty {
         if has(&n, &["email", "mail", "correo"]) {
             return Gen::Email;
@@ -211,7 +374,10 @@ fn auto(m: &Meta, rng: &mut Rng) -> Gen {
         if has(&n, &["company", "empresa", "compania", "compañia", "razon"]) {
             return Gen::Company;
         }
-        if has(&n, &["address", "direccion", "dirección", "calle", "domicilio"]) {
+        if has(
+            &n,
+            &["address", "direccion", "dirección", "calle", "domicilio"],
+        ) {
             return Gen::Address;
         }
         if has(&n, &["uuid", "guid"]) {
@@ -233,20 +399,40 @@ fn auto(m: &Meta, rng: &mut Rng) -> Gen {
     }
     if t.contains("date") || t.contains("time") {
         let today = chrono::Local::now().date_naive();
-        return Gen::Date { from: today - Days::days(3 * 365), days: 3 * 365, time: t.contains("time") };
+        return Gen::Date {
+            from: today - Days::days(3 * 365),
+            days: 3 * 365,
+            time: t.contains("time"),
+        };
     }
-    if t.contains("int") || t.contains("serial") || t == "number" && scale(&t).unwrap_or(0) == 0 && !t.contains(',') {
+    if t.contains("int")
+        || t.contains("serial")
+        || t == "number" && scale(&t).unwrap_or(0) == 0 && !t.contains(',')
+    {
         if m.unique {
             let max = int_max(&t);
             // A random high start keeps clear of the ids a table usually has.
             let start = rng.range(max / 4, max / 2);
-            return Gen::Seq { next: start, step: 1 };
+            return Gen::Seq {
+                next: start,
+                step: 1,
+            };
         }
         let max = int_max(&t).min(100_000);
         return Gen::Int { min: 1, max };
     }
-    if t.contains("dec") || t.contains("num") || t.contains("money") || t.contains("float") || t.contains("real") || t.contains("double") {
-        return Gen::Dec { min: 0.0, max: 10_000.0, scale: scale(&t).unwrap_or(2).min(6) };
+    if t.contains("dec")
+        || t.contains("num")
+        || t.contains("money")
+        || t.contains("float")
+        || t.contains("real")
+        || t.contains("double")
+    {
+        return Gen::Dec {
+            min: 0.0,
+            max: 10_000.0,
+            scale: scale(&t).unwrap_or(2).min(6),
+        };
     }
     if t.contains("json") || t.contains("object") || t.contains("map") || t.contains("document") {
         return Gen::Fixed("{}".into());
@@ -261,23 +447,44 @@ fn param<T: std::str::FromStr>(g: &ColumnGen, k: &str) -> Option<T> {
 /// The user's choice, with its settings.
 fn chosen(g: &ColumnGen, m: &Meta, rng: &mut Rng) -> CommandResult<Gen> {
     let today = chrono::Local::now().date_naive();
-    let date = |k: &str| g.params.get(k).and_then(|v| NaiveDate::parse_from_str(v.trim(), "%Y-%m-%d").ok());
+    let date = |k: &str| {
+        g.params
+            .get(k)
+            .and_then(|v| NaiveDate::parse_from_str(v.trim(), "%Y-%m-%d").ok())
+    };
     Ok(match g.generator.as_str() {
         "" | "auto" => auto(m, rng),
         "skip" => Gen::Skip,
         "null" => Gen::Null,
         "fixed" => Gen::Fixed(g.params.get("value").cloned().unwrap_or_default()),
-        "sequence" => Gen::Seq { next: param(g, "start").unwrap_or(1), step: param(g, "step").unwrap_or(1) },
-        "integer" => Gen::Int { min: param(g, "min").unwrap_or(1), max: param(g, "max").unwrap_or(1000) },
-        "decimal" => Gen::Dec { min: param(g, "min").unwrap_or(0.0), max: param(g, "max").unwrap_or(1000.0), scale: param(g, "scale").unwrap_or(2) },
+        "sequence" => Gen::Seq {
+            next: param(g, "start").unwrap_or(1),
+            step: param(g, "step").unwrap_or(1),
+        },
+        "integer" => Gen::Int {
+            min: param(g, "min").unwrap_or(1),
+            max: param(g, "max").unwrap_or(1000),
+        },
+        "decimal" => Gen::Dec {
+            min: param(g, "min").unwrap_or(0.0),
+            max: param(g, "max").unwrap_or(1000.0),
+            scale: param(g, "scale").unwrap_or(2),
+        },
         "boolean" => Gen::Bool,
         "date" | "datetime" => {
             let from = date("from").unwrap_or(today - Days::days(365));
             let to = date("to").unwrap_or(today);
-            Gen::Date { from, days: (to - from).num_days().max(0), time: g.generator == "datetime" }
+            Gen::Date {
+                from,
+                days: (to - from).num_days().max(0),
+                time: g.generator == "datetime",
+            }
         }
         "uuid" => Gen::Uuid,
-        "text" => Gen::Text { min: param(g, "min").unwrap_or(1), max: param(g, "max").unwrap_or(5) },
+        "text" => Gen::Text {
+            min: param(g, "min").unwrap_or(1),
+            max: param(g, "max").unwrap_or(5),
+        },
         "first_name" => Gen::First,
         "last_name" => Gen::Last,
         "full_name" => Gen::Full,
@@ -288,17 +495,39 @@ fn chosen(g: &ColumnGen, m: &Meta, rng: &mut Rng) -> CommandResult<Gen> {
         "company" => Gen::Company,
         "address" => Gen::Address,
         "list" => {
-            let values: Vec<String> = g.params.get("values").map(|v| v.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
+            let values: Vec<String> = g
+                .params
+                .get("values")
+                .map(|v| {
+                    v.split(',')
+                        .map(|x| x.trim().to_string())
+                        .filter(|x| !x.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
             if values.is_empty() {
-                return Err(CommandError::BadRequest(format!("«{}»: la lista de valores está vacía", g.name)));
+                return Err(CommandError::BadRequest(format!(
+                    "«{}»: la lista de valores está vacía",
+                    g.name
+                )));
             }
             Gen::List(values)
         }
         "foreign_key" => match &m.pool {
             Some(p) if !p.is_empty() => Gen::Pool(p.clone()),
-            _ => return Err(CommandError::BadRequest(format!("«{}»: la tabla referenciada no tiene filas para tomar valores", g.name))),
+            _ => {
+                return Err(CommandError::BadRequest(format!(
+                    "«{}»: la tabla referenciada no tiene filas para tomar valores",
+                    g.name
+                )))
+            }
         },
-        other => return Err(CommandError::BadRequest(format!("«{}»: generador desconocido «{other}»", g.name))),
+        other => {
+            return Err(CommandError::BadRequest(format!(
+                "«{}»: generador desconocido «{other}»",
+                g.name
+            )))
+        }
     })
 }
 
@@ -358,7 +587,13 @@ fn value(g: &mut Gen, rng: &mut Rng, row: u64, len: Option<usize>) -> Value {
         Gen::Date { from, days, time } => {
             let d = *from + Days::days(rng.range(0, *days));
             if *time {
-                Value::String(format!("{} {:02}:{:02}:{:02}", d.format("%Y-%m-%d"), rng.range(0, 23), rng.range(0, 59), rng.range(0, 59)))
+                Value::String(format!(
+                    "{} {:02}:{:02}:{:02}",
+                    d.format("%Y-%m-%d"),
+                    rng.range(0, 23),
+                    rng.range(0, 59),
+                    rng.range(0, 59)
+                ))
             } else {
                 Value::String(d.format("%Y-%m-%d").to_string())
             }
@@ -378,13 +613,25 @@ fn value(g: &mut Gen, rng: &mut Rng, row: u64, len: Option<usize>) -> Value {
         Gen::Full => s(format!("{} {}", rng.pick(FIRST), rng.pick(LAST))),
         Gen::Email => {
             let user = format!("{}.{}{}", rng.pick(FIRST), rng.pick(LAST), row);
-            let user: String = user.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.').collect();
+            let user: String = user
+                .to_lowercase()
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '.')
+                .collect();
             s(format!("{user}@{}", rng.pick(DOMAINS)))
         }
-        Gen::Phone => s(format!("+54 11 {:04}-{:04}", rng.range(1000, 9999), rng.range(0, 9999))),
+        Gen::Phone => s(format!(
+            "+54 11 {:04}-{:04}",
+            rng.range(1000, 9999),
+            rng.range(0, 9999)
+        )),
         Gen::City => s(rng.pick(CITIES).to_string()),
         Gen::Country => s(rng.pick(COUNTRIES).to_string()),
-        Gen::Company => s(format!("{} {}", rng.pick(COMPANIES), rng.pick(&["S.A.", "SRL", "Inc.", "Ltd."]))),
+        Gen::Company => s(format!(
+            "{} {}",
+            rng.pick(COMPANIES),
+            rng.pick(&["S.A.", "SRL", "Inc.", "Ltd."])
+        )),
         Gen::Address => s(format!("{} {}", rng.pick(STREETS), rng.range(1, 9999))),
         Gen::List(v) => s(rng.pick(v).clone()),
         Gen::Pool(v) => rng.pick(v).clone(),
@@ -421,10 +668,15 @@ struct Plan {
 }
 
 fn plan(metas: &[Meta], specs: &[ColumnGen], rng: &mut Rng) -> CommandResult<Plan> {
-    let mut out = Plan { columns: Vec::new(), gens: Vec::new(), auto: BTreeMap::new() };
+    let mut out = Plan {
+        columns: Vec::new(),
+        gens: Vec::new(),
+        auto: BTreeMap::new(),
+    };
     for m in metas {
         let auto_gen = auto(m, rng);
-        out.auto.insert(m.info.name.clone(), id_of(&auto_gen).to_string());
+        out.auto
+            .insert(m.info.name.clone(), id_of(&auto_gen).to_string());
         let spec = specs.iter().find(|s| s.name == m.info.name);
         let g = match spec {
             Some(s) => chosen(s, m, rng)?,
@@ -434,22 +686,44 @@ fn plan(metas: &[Meta], specs: &[ColumnGen], rng: &mut Rng) -> CommandResult<Pla
             continue;
         }
         if matches!(g, Gen::Null) && !m.info.nullable {
-            return Err(CommandError::BadRequest(format!("«{}» no acepta nulos", m.info.name)));
+            return Err(CommandError::BadRequest(format!(
+                "«{}» no acepta nulos",
+                m.info.name
+            )));
         }
-        let nulls = if m.info.nullable && !m.unique { spec.map_or(0, |s| s.null_percent.min(100)) } else { 0 };
-        let texty = !matches!(g, Gen::Seq { .. } | Gen::Int { .. } | Gen::Dec { .. } | Gen::Bool | Gen::Pool(_));
-        let len = if texty { length(&m.info.data_type) } else { None };
+        let nulls = if m.info.nullable && !m.unique {
+            spec.map_or(0, |s| s.null_percent.min(100))
+        } else {
+            0
+        };
+        let texty = !matches!(
+            g,
+            Gen::Seq { .. } | Gen::Int { .. } | Gen::Dec { .. } | Gen::Bool | Gen::Pool(_)
+        );
+        let len = if texty {
+            length(&m.info.data_type)
+        } else {
+            None
+        };
         out.columns.push(m.info.name.clone());
         out.gens.push((g, len, nulls, m.unique));
     }
     if out.columns.is_empty() {
-        return Err(CommandError::BadRequest("no queda ninguna columna para llenar".into()));
+        return Err(CommandError::BadRequest(
+            "no queda ninguna columna para llenar".into(),
+        ));
     }
     Ok(out)
 }
 
 /// `n` rows; unique columns get distinct values (retried a few times).
-fn rows(plan: &mut Plan, rng: &mut Rng, from_row: u64, n: u64, seen: &mut [HashSet<String>]) -> Vec<Vec<Value>> {
+fn rows(
+    plan: &mut Plan,
+    rng: &mut Rng,
+    from_row: u64,
+    n: u64,
+    seen: &mut [HashSet<String>],
+) -> Vec<Vec<Value>> {
     (0..n)
         .map(|i| {
             let row = from_row + i;
@@ -522,21 +796,38 @@ pub struct PreviewColumn {
 
 /// The table's columns, its single-column unique keys, and each foreign
 /// key's parent values (a sample).
-async fn metas(s: &mut Box<dyn dbine_driver::Session>, driver: &dyn dbine_driver::Driver, table: &ObjectRef) -> CommandResult<(Vec<Meta>, BTreeMap<String, String>)> {
+async fn metas(
+    s: &mut Box<dyn dbine_driver::Session>,
+    driver: &dyn dbine_driver::Driver,
+    table: &ObjectRef,
+) -> CommandResult<(Vec<Meta>, BTreeMap<String, String>)> {
     let cols = s.columns(table).await?;
     if cols.is_empty() {
-        return Err(CommandError::BadRequest(format!("«{}» no tiene columnas conocidas", table.name)));
+        return Err(CommandError::BadRequest(format!(
+            "«{}» no tiene columnas conocidas",
+            table.name
+        )));
     }
     let mut fks: BTreeMap<String, (ObjectRef, String)> = BTreeMap::new();
-    let mut unique: HashSet<String> = cols.iter().filter(|c| c.primary_key).map(|c| c.name.clone()).collect();
+    let mut unique: HashSet<String> = cols
+        .iter()
+        .filter(|c| c.primary_key)
+        .map(|c| c.name.clone())
+        .collect();
     if cols.iter().filter(|c| c.primary_key).count() > 1 {
         unique.clear();
     }
     if driver.capabilities().foreign_keys {
         if let Ok(schema) = s.database_schema().await {
-            if let Some(t) = schema.iter().find(|t| t.name == table.name && (table.schema.is_none() || t.schema == table.schema)) {
+            if let Some(t) = schema.iter().find(|t| {
+                t.name == table.name && (table.schema.is_none() || t.schema == table.schema)
+            }) {
                 for fk in t.foreign_keys.iter().filter(|f| f.columns.len() == 1) {
-                    let parent = ObjectRef { kind: "table".into(), schema: fk.ref_schema.clone().or(t.schema.clone()), name: fk.ref_table.clone() };
+                    let parent = ObjectRef {
+                        kind: "table".into(),
+                        schema: fk.ref_schema.clone().or(t.schema.clone()),
+                        name: fk.ref_table.clone(),
+                    };
                     fks.insert(fk.columns[0].clone(), (parent, fk.ref_columns[0].clone()));
                 }
             }
@@ -554,23 +845,43 @@ async fn metas(s: &mut Box<dyn dbine_driver::Session>, driver: &dyn dbine_driver
                 let values: Vec<Value> = o
                     .results
                     .first()
-                    .and_then(|r| r.columns.iter().position(|x| x.name.eq_ignore_ascii_case(col)).map(|i| r.rows.iter().map(|row| row[i].clone()).filter(|v| !v.is_null()).collect()))
+                    .and_then(|r| {
+                        r.columns
+                            .iter()
+                            .position(|x| x.name.eq_ignore_ascii_case(col))
+                            .map(|i| {
+                                r.rows
+                                    .iter()
+                                    .map(|row| row[i].clone())
+                                    .filter(|v| !v.is_null())
+                                    .collect()
+                            })
+                    })
                     .unwrap_or_default();
                 Some(values)
             }
             None => None,
         };
         let is_unique = unique.contains(&c.name);
-        out.push(Meta { info: c, pool, unique: is_unique });
+        out.push(Meta {
+            info: c,
+            pool,
+            unique: is_unique,
+        });
     }
     Ok((out, labels))
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn datagen_preview(state: State<'_, AppState>, args: DataGenArgs) -> CommandResult<Preview> {
+pub async fn datagen_preview(
+    state: State<'_, AppState>,
+    args: DataGenArgs,
+) -> CommandResult<Preview> {
     let driver = driver_of(&state, &args.connection_id)?;
     let key = format!("datagen-preview:{}", uuid::Uuid::new_v4());
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, true)
+        .await?;
     let res = async {
         let mut s = entry.session.lock().await;
         let (metas, fk_labels) = metas(&mut s, driver.as_ref(), &args.table).await?;
@@ -590,7 +901,12 @@ pub async fn datagen_preview(state: State<'_, AppState>, args: DataGenArgs) -> C
                 auto: p.auto.get(&m.info.name).cloned().unwrap_or_default(),
             })
             .collect();
-        Ok(Preview { table_columns, generators: GENERATORS.to_vec(), columns: p.columns.clone(), rows: sample })
+        Ok(Preview {
+            table_columns,
+            generators: GENERATORS.to_vec(),
+            columns: p.columns.clone(),
+            rows: sample,
+        })
     }
     .await;
     state.sessions.remove(&key);
@@ -611,20 +927,41 @@ pub struct GenResult {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn datagen_run(app: AppHandle, state: State<'_, AppState>, args: DataGenArgs) -> CommandResult<GenResult> {
+pub async fn datagen_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: DataGenArgs,
+) -> CommandResult<GenResult> {
     let started = Instant::now();
     if args.rows == 0 || args.rows > MAX_ROWS {
-        return Err(CommandError::BadRequest(format!("la cantidad de filas tiene que estar entre 1 y {MAX_ROWS}")));
+        return Err(CommandError::BadRequest(format!(
+            "la cantidad de filas tiene que estar entre 1 y {MAX_ROWS}"
+        )));
     }
-    let conn = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
+    let conn = state
+        .store
+        .get_connection(&args.connection_id)?
+        .ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
     if conn.config.read_only {
-        return Err(CommandError::BadRequest(format!("«{}» es de solo lectura: no se pueden insertar datos", conn.name)));
+        return Err(CommandError::BadRequest(format!(
+            "«{}» es de solo lectura: no se pueden insertar datos",
+            conn.name
+        )));
     }
     let driver = driver_of(&state, &args.connection_id)?;
     let key = format!("datagen:{}", args.gen_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, false)
+        .await?;
     let emit = |rows: u64| {
-        let _ = app.emit("datagen-progress", GenProgress { id: &args.gen_id, rows, total: args.rows });
+        let _ = app.emit(
+            "datagen-progress",
+            GenProgress {
+                id: &args.gen_id,
+                rows,
+                total: args.rows,
+            },
+        );
     };
     let run = async {
         let mut s = entry.session.lock().await;
@@ -650,7 +987,11 @@ pub async fn datagen_run(app: AppHandle, state: State<'_, AppState>, args: DataG
             };
             r.map_err(|e| CommandError::Sql(format!("filas {}–{}: {e}", done + 1, done + n)))?;
             if let Some(e) = out.error.take() {
-                return Err(CommandError::Sql(format!("filas {}–{}: {e}", done + 1, done + n)));
+                return Err(CommandError::Sql(format!(
+                    "filas {}–{}: {e}",
+                    done + 1,
+                    done + n
+                )));
             }
             done += n;
             if last.elapsed() >= PROGRESS_EVERY {
@@ -663,7 +1004,10 @@ pub async fn datagen_run(app: AppHandle, state: State<'_, AppState>, args: DataG
     };
     let res = run.await;
     state.sessions.remove(&key);
-    Ok(GenResult { rows: res?, elapsed_ms: started.elapsed().as_millis() as u64 })
+    Ok(GenResult {
+        rows: res?,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
 }
 
 #[cfg(test)]
@@ -696,10 +1040,14 @@ mod tests {
             ..Default::default()
         };
         let driver = dbine_drivers::find("sqlserver").unwrap();
-        let mut s = dbine_drivers::open_session(&cfg, Some("master")).await.unwrap();
+        let mut s = dbine_drivers::open_session(&cfg, Some("master"))
+            .await
+            .unwrap();
         let _ = s.drop_database("dbine_datagen").await;
         s.create_database("dbine_datagen").await.unwrap();
-        let mut s = dbine_drivers::open_session(&cfg, Some("dbine_datagen")).await.unwrap();
+        let mut s = dbine_drivers::open_session(&cfg, Some("dbine_datagen"))
+            .await
+            .unwrap();
         let mut out = QueryOutcome::default();
         s.execute(
             "CREATE TABLE dbo.clientes (id int PRIMARY KEY, nombre nvarchar(60));
@@ -713,18 +1061,35 @@ mod tests {
         .unwrap();
         assert!(out.error.is_none(), "{:?}", out.error);
 
-        let table = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "pedidos".into() };
+        let table = ObjectRef {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: "pedidos".into(),
+        };
         let (metas, labels) = metas(&mut s, driver.as_ref(), &table).await.unwrap();
-        assert_eq!(labels.get("cliente_id").map(String::as_str), Some("clientes.id"));
+        assert_eq!(
+            labels.get("cliente_id").map(String::as_str),
+            Some("clientes.id")
+        );
         let mut rng = Rng::new(Some(42));
-        let specs = [ColumnGen { name: "nota".into(), null_percent: 30, ..Default::default() }];
+        let specs = [ColumnGen {
+            name: "nota".into(),
+            null_percent: 30,
+            ..Default::default()
+        }];
         let mut p = plan(&metas, &specs, &mut rng).unwrap();
         let mut seen = vec![HashSet::new(); p.columns.len()];
         let mut done = 0;
         while done < 1000 {
             let chunk = rows(&mut p, &mut rng, done + 1, 250, &mut seen);
             let mut o = QueryOutcome::default();
-            s.execute(&driver.insert_script(&table, &p.columns, &chunk).unwrap(), 1, &mut o).await.unwrap();
+            s.execute(
+                &driver.insert_script(&table, &p.columns, &chunk).unwrap(),
+                1,
+                &mut o,
+            )
+            .await
+            .unwrap();
             assert!(o.error.is_none(), "{:?}", o.error);
             done += 250;
         }
@@ -739,18 +1104,35 @@ mod tests {
         .await
         .unwrap();
         let r = &o.results[0].rows[0];
-        let n = |i: usize| r[i].as_i64().or_else(|| r[i].as_str().and_then(|v| v.parse().ok())).unwrap();
-        assert_eq!((n(0), n(1), n(2)), (1000, 1000, 1000), "count, distinct ids, valid foreign keys");
+        let n = |i: usize| {
+            r[i].as_i64()
+                .or_else(|| r[i].as_str().and_then(|v| v.parse().ok()))
+                .unwrap()
+        };
+        assert_eq!(
+            (n(0), n(1), n(2)),
+            (1000, 1000, 1000),
+            "count, distinct ids, valid foreign keys"
+        );
         assert!((200..400).contains(&n(3)), "about 30% NULL notes: {}", n(3));
         assert!(n(4) <= 30, "emails fit varchar(30)");
         drop(s);
-        let mut m = dbine_drivers::open_session(&cfg, Some("master")).await.unwrap();
+        let mut m = dbine_drivers::open_session(&cfg, Some("master"))
+            .await
+            .unwrap();
         m.drop_database("dbine_datagen").await.unwrap();
     }
 
     fn meta(name: &str, ty: &str, pk: bool) -> Meta {
         Meta {
-            info: ColumnInfo { name: name.into(), data_type: ty.into(), nullable: !pk, primary_key: pk, auto_increment: false, default_value: None },
+            info: ColumnInfo {
+                name: name.into(),
+                data_type: ty.into(),
+                nullable: !pk,
+                primary_key: pk,
+                auto_increment: false,
+                default_value: None,
+            },
             pool: None,
             unique: pk,
         }
@@ -772,7 +1154,19 @@ mod tests {
         .iter()
         .map(|m| id_of(&auto(m, &mut rng)))
         .collect();
-        assert_eq!(ids, ["email", "full_name", "last_name", "decimal", "boolean", "datetime", "sequence", "uuid"]);
+        assert_eq!(
+            ids,
+            [
+                "email",
+                "full_name",
+                "last_name",
+                "decimal",
+                "boolean",
+                "datetime",
+                "sequence",
+                "uuid"
+            ]
+        );
         let mut ai = meta("id", "int", true);
         ai.info.auto_increment = true;
         assert!(matches!(auto(&ai, &mut rng), Gen::Skip));
@@ -781,15 +1175,25 @@ mod tests {
     #[test]
     fn rows_respect_length_uniqueness_and_nulls() {
         let mut rng = Rng::new(Some(1));
-        let metas = [meta("id", "int", true), meta("nombre", "varchar(5)", false), meta("nota", "varchar(50)", false)];
-        let specs = [ColumnGen { name: "nota".into(), generator: "null".into(), ..Default::default() }];
+        let metas = [
+            meta("id", "int", true),
+            meta("nombre", "varchar(5)", false),
+            meta("nota", "varchar(50)", false),
+        ];
+        let specs = [ColumnGen {
+            name: "nota".into(),
+            generator: "null".into(),
+            ..Default::default()
+        }];
         let mut p = plan(&metas, &specs, &mut rng).unwrap();
         assert_eq!(p.columns, ["id", "nombre", "nota"]);
         let mut seen = vec![HashSet::new(); 3];
         let rs = rows(&mut p, &mut rng, 1, 200, &mut seen);
         let ids: HashSet<String> = rs.iter().map(|r| r[0].to_string()).collect();
         assert_eq!(ids.len(), 200, "the primary key doesn't repeat");
-        assert!(rs.iter().all(|r| r[1].as_str().unwrap().chars().count() <= 5));
+        assert!(rs
+            .iter()
+            .all(|r| r[1].as_str().unwrap().chars().count() <= 5));
         assert!(rs.iter().all(|r| r[2].is_null()));
     }
 
@@ -797,9 +1201,17 @@ mod tests {
     fn bad_settings_are_refused() {
         let mut rng = Rng::new(Some(1));
         let metas = [meta("id", "int", true)];
-        let null_pk = [ColumnGen { name: "id".into(), generator: "null".into(), ..Default::default() }];
+        let null_pk = [ColumnGen {
+            name: "id".into(),
+            generator: "null".into(),
+            ..Default::default()
+        }];
         assert!(plan(&metas, &null_pk, &mut rng).is_err());
-        let empty_list = [ColumnGen { name: "id".into(), generator: "list".into(), ..Default::default() }];
+        let empty_list = [ColumnGen {
+            name: "id".into(),
+            generator: "list".into(),
+            ..Default::default()
+        }];
         assert!(plan(&metas, &empty_list, &mut rng).is_err());
         assert_eq!(length("nvarchar(40)"), Some(40));
         assert_eq!(length("nvarchar(max)"), None);

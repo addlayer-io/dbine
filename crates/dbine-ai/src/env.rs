@@ -15,16 +15,27 @@ const SEP: char = ';';
 const SEP: char = ':';
 
 fn home() -> PathBuf {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from).unwrap_or_default()
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .unwrap_or_default()
 }
 
 /// Folders where these tools usually end up.
 fn usual_dirs() -> Vec<PathBuf> {
     let h = home();
     let mut v: Vec<PathBuf> = if cfg!(windows) {
-        let appdata = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_default();
-        let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
-        vec![appdata.join("npm"), local.join("Programs").join("Ollama"), h.join(".local").join("bin"), h.join(".bun").join("bin")]
+        let appdata = std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let local = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        vec![
+            appdata.join("npm"),
+            local.join("Programs").join("Ollama"),
+            h.join(".local").join("bin"),
+            h.join(".bun").join("bin"),
+        ]
     } else {
         vec![
             "/opt/homebrew/bin".into(),
@@ -67,7 +78,9 @@ fn shell_path() -> Option<String> {
         loop {
             match child.try_wait() {
                 Ok(Some(_)) => break,
-                Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(30)),
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(30))
+                }
                 _ => {
                     let _ = child.kill();
                     break;
@@ -76,7 +89,11 @@ fn shell_path() -> Option<String> {
         }
         let out = child.wait_with_output().ok()?;
         let s = String::from_utf8_lossy(&out.stdout);
-        if let Some(p) = s.split("__DBINE_PATH__").nth(1).and_then(|r| r.split("__END__").next()) {
+        if let Some(p) = s
+            .split("__DBINE_PATH__")
+            .nth(1)
+            .and_then(|r| r.split("__END__").next())
+        {
             if !p.is_empty() {
                 return Some(p.to_string());
             }
@@ -112,7 +129,9 @@ fn is_exec(p: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        p.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+        p.metadata()
+            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
     }
     #[cfg(not(unix))]
     {
@@ -126,9 +145,15 @@ pub fn find(name: &str) -> Option<PathBuf> {
 }
 
 pub fn find_in(name: &str, path: &str) -> Option<PathBuf> {
-    let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
+    let exts: &[&str] = if cfg!(windows) {
+        &[".exe", ".cmd", ".bat", ""]
+    } else {
+        &[""]
+    };
     path.split(SEP).filter(|d| !d.is_empty()).find_map(|dir| {
-        exts.iter().map(|e| Path::new(dir).join(format!("{name}{e}"))).find(|p| is_exec(p))
+        exts.iter()
+            .map(|e| Path::new(dir).join(format!("{name}{e}")))
+            .find(|p| is_exec(p))
     })
 }
 
@@ -144,7 +169,10 @@ mod tests {
         let tool = d.path().join("herramienta");
         std::fs::write(&tool, "#!/bin/sh\n").unwrap();
         let path = format!("/nonexistent:{}", d.path().display());
-        assert!(find_in("herramienta", &path).is_none(), "not executable yet");
+        assert!(
+            find_in("herramienta", &path).is_none(),
+            "not executable yet"
+        );
         std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(find_in("herramienta", &path).unwrap(), tool);
         assert!(find_in("otra", &path).is_none());

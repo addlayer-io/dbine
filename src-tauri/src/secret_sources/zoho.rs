@@ -77,13 +77,21 @@ impl Endpoints {
     /// outside the tests.
     pub fn of(data_center: &str) -> Option<Self> {
         let (accounts, vault) = zoho_hosts(data_center)?;
-        Some(Self { accounts: format!("https://{accounts}"), vault: format!("https://{vault}") })
+        Some(Self {
+            accounts: format!("https://{accounts}"),
+            vault: format!("https://{vault}"),
+        })
     }
 }
 
 /// `(value, username)`.
 pub async fn read(req: &Request<'_>, creds: &Creds) -> Result<(String, Option<String>), String> {
-    let ep = Endpoints::of(req.data_center).ok_or_else(|| format!("el centro de datos de Zoho «{}» no es válido", req.data_center.trim()))?;
+    let ep = Endpoints::of(req.data_center).ok_or_else(|| {
+        format!(
+            "el centro de datos de Zoho «{}» no es válido",
+            req.data_center.trim()
+        )
+    })?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
@@ -102,7 +110,11 @@ static TOKENS: LazyLock<Mutex<HashMap<String, (Instant, String)>>> = LazyLock::n
 
 fn token_cache_key(ep: &Endpoints, creds: &Creds) -> String {
     let mut h = Sha256::new();
-    for part in [ep.accounts.as_str(), creds.client_id.as_str(), creds.refresh_token.as_str()] {
+    for part in [
+        ep.accounts.as_str(),
+        creds.client_id.as_str(),
+        creds.refresh_token.as_str(),
+    ] {
         h.update((part.len() as u64).to_le_bytes());
         h.update(part.as_bytes());
     }
@@ -115,7 +127,11 @@ fn forget_token(key: &str) {
     }
 }
 
-async fn access_token(client: &reqwest::Client, ep: &Endpoints, creds: &Creds) -> Result<String, String> {
+async fn access_token(
+    client: &reqwest::Client,
+    ep: &Endpoints,
+    creds: &Creds,
+) -> Result<String, String> {
     let key = token_cache_key(ep, creds);
     {
         let mut c = TOKENS.lock().unwrap_or_else(|e| e.into_inner());
@@ -144,28 +160,62 @@ async fn access_token(client: &reqwest::Client, ep: &Endpoints, creds: &Creds) -
         .form(&form)
         .send()
         .await
-        .map_err(|e| format!("no se pudo conectar con Zoho ({}): {}", ep.accounts, e.without_url()))?;
+        .map_err(|e| {
+            format!(
+                "no se pudo conectar con Zoho ({}): {}",
+                ep.accounts,
+                e.without_url()
+            )
+        })?;
     let status = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-    if let Some(t) = json.get("access_token").and_then(Value::as_str).filter(|t| !t.is_empty()) {
-        let secs = json.get("expires_in").and_then(Value::as_u64).unwrap_or(3600).clamp(120, 3600);
-        TOKENS.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (Instant::now() + Duration::from_secs(secs - 60), t.to_string()));
+    if let Some(t) = json
+        .get("access_token")
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+    {
+        let secs = json
+            .get("expires_in")
+            .and_then(Value::as_u64)
+            .unwrap_or(3600)
+            .clamp(120, 3600);
+        TOKENS.lock().unwrap_or_else(|e| e.into_inner()).insert(
+            key,
+            (
+                Instant::now() + Duration::from_secs(secs - 60),
+                t.to_string(),
+            ),
+        );
         return Ok(t.to_string());
     }
     let code = json.get("error").and_then(Value::as_str).unwrap_or("");
-    let desc = json.get("error_description").and_then(Value::as_str).unwrap_or("");
+    let desc = json
+        .get("error_description")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     Err(oauth_error(status, code, desc))
 }
 
 pub fn oauth_error(status: u16, code: &str, desc: &str) -> String {
     match code {
-        "invalid_client" | "invalid_client_secret" => "Zoho rechazó el ID o el secreto del cliente (¿son de este centro de datos?)".into(),
-        "invalid_code" | "invalid_grant" => "el token de actualización de Zoho no es válido, venció o se revocó: generá uno nuevo".into(),
-        "Access Denied" | "access_denied" => format!("Zoho no permite pedir tokens tan seguido; probá en unos minutos ({})", super::exec::first_lines(desc, 200)),
+        "invalid_client" | "invalid_client_secret" => {
+            "Zoho rechazó el ID o el secreto del cliente (¿son de este centro de datos?)".into()
+        }
+        "invalid_code" | "invalid_grant" => {
+            "el token de actualización de Zoho no es válido, venció o se revocó: generá uno nuevo"
+                .into()
+        }
+        "Access Denied" | "access_denied" => format!(
+            "Zoho no permite pedir tokens tan seguido; probá en unos minutos ({})",
+            super::exec::first_lines(desc, 200)
+        ),
         "" if status == 200 => "Zoho no devolvió un token de acceso".into(),
         "" => format!("Zoho respondió {status} al pedir el token de acceso"),
-        _ => format!("Zoho rechazó el pedido del token de acceso: {}", super::exec::first_lines(code, 100)),
+        _ => format!(
+            "Zoho rechazó el pedido del token de acceso: {}",
+            super::exec::first_lines(code, 100)
+        ),
     }
 }
 
@@ -181,7 +231,13 @@ pub fn forget_token_of(data_center: &str, creds: &Creds) {
 /// use doesn't spend one of Zoho's refreshes.
 fn seed_token(ep: &Endpoints, creds: &Creds, token: &str, expires_in: u64) {
     let secs = expires_in.clamp(120, 3600);
-    TOKENS.lock().unwrap_or_else(|e| e.into_inner()).insert(token_cache_key(ep, creds), (Instant::now() + Duration::from_secs(secs - 60), token.to_string()));
+    TOKENS.lock().unwrap_or_else(|e| e.into_inner()).insert(
+        token_cache_key(ep, creds),
+        (
+            Instant::now() + Duration::from_secs(secs - 60),
+            token.to_string(),
+        ),
+    );
 }
 
 // ---- connecting an account (the wizard) -----------------------------------------
@@ -196,9 +252,11 @@ pub const SCOPES: &str = "ZohoVault.secrets.READ,ZohoVault.user.READ";
 pub const ACCOUNTS_WITHOUT_VAULT: &[(&str, &str)] = &[("inec", "accounts.zohohq.in")];
 
 /// The code expired or was already used: the user generates a new one.
-pub const CODE_EXPIRED: &str = "el código de Zoho venció o ya se usó: generá un código nuevo en la pestaña «Generate Code»";
+pub const CODE_EXPIRED: &str =
+    "el código de Zoho venció o ya se usó: generá un código nuevo en la pestaña «Generate Code»";
 pub const UNKNOWN_CLIENT: &str = "Zoho no reconoce ese ID de cliente en ningún centro de datos: copiá el «Client ID» de la pestaña «Client Secret» de tu Self Client";
-pub const WRONG_CLIENT_SECRET: &str = "Zoho rechazó el secreto del cliente: copiá de nuevo el «Client Secret» de tu Self Client";
+pub const WRONG_CLIENT_SECRET: &str =
+    "Zoho rechazó el secreto del cliente: copiá de nuevo el «Client Secret» de tu Self Client";
 
 /// What exchanging the code gave.
 pub struct Exchanged {
@@ -223,7 +281,11 @@ pub fn accounts_servers() -> Vec<(String, String)> {
     dbine_core::secret_sources::ZOHO_DATA_CENTERS
         .iter()
         .map(|(id, accounts, _)| (id.to_string(), format!("https://{accounts}")))
-        .chain(ACCOUNTS_WITHOUT_VAULT.iter().map(|(id, accounts)| (id.to_string(), format!("https://{accounts}"))))
+        .chain(
+            ACCOUNTS_WITHOUT_VAULT
+                .iter()
+                .map(|(id, accounts)| (id.to_string(), format!("https://{accounts}"))),
+        )
         .collect()
 }
 
@@ -242,21 +304,48 @@ pub fn https_client() -> Result<reqwest::Client, String> {
 /// Zoho's own data centres. A Self Client exists in its owner's data
 /// centre only, so the others answer `invalid_client`: the first that
 /// doesn't is the one.
-pub async fn exchange_code(client_id: &str, client_secret: &str, code: &str) -> Result<Exchanged, String> {
-    exchange_code_with(&https_client()?, &accounts_servers(), client_id, client_secret, code).await
+pub async fn exchange_code(
+    client_id: &str,
+    client_secret: &str,
+    code: &str,
+) -> Result<Exchanged, String> {
+    exchange_code_with(
+        &https_client()?,
+        &accounts_servers(),
+        client_id,
+        client_secret,
+        code,
+    )
+    .await
 }
 
 /// The same, against `servers` (`(data centre, accounts base URL)`).
-pub async fn exchange_code_with(client: &reqwest::Client, servers: &[(String, String)], client_id: &str, client_secret: &str, code: &str) -> Result<Exchanged, String> {
+pub async fn exchange_code_with(
+    client: &reqwest::Client,
+    servers: &[(String, String)],
+    client_id: &str,
+    client_secret: &str,
+    code: &str,
+) -> Result<Exchanged, String> {
     let (client_id, client_secret, code) = (client_id.trim(), client_secret.trim(), code.trim());
     if client_id.is_empty() || client_secret.is_empty() || code.is_empty() {
         return Err("faltan el ID del cliente, el secreto del cliente o el código de Zoho".into());
     }
-    let form = [("grant_type", "authorization_code"), ("client_id", client_id), ("client_secret", client_secret), ("code", code)];
+    let form = [
+        ("grant_type", "authorization_code"),
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("code", code),
+    ];
     let mut expired = false;
     let mut unreachable: Vec<String> = Vec::new();
     for (dc, base) in servers {
-        let resp = match client.post(format!("{base}/oauth/v2/token")).form(&form).send().await {
+        let resp = match client
+            .post(format!("{base}/oauth/v2/token"))
+            .form(&form)
+            .send()
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 tracing::debug!(dc = %dc, "zoho code exchange: {}", e.without_url());
@@ -265,15 +354,25 @@ pub async fn exchange_code_with(client: &reqwest::Client, servers: &[(String, St
             }
         };
         let status = resp.status().as_u16();
-        let json: Value = serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
-        let refresh = json.get("refresh_token").and_then(Value::as_str).filter(|t| !t.is_empty());
-        let access = json.get("access_token").and_then(Value::as_str).filter(|t| !t.is_empty());
+        let json: Value =
+            serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
+        let refresh = json
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty());
+        let access = json
+            .get("access_token")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty());
         if let (Some(r), Some(a)) = (refresh, access) {
             return Ok(Exchanged {
                 data_center: dc.clone(),
                 refresh_token: r.to_string(),
                 access_token: a.to_string(),
-                expires_in: json.get("expires_in").and_then(Value::as_u64).unwrap_or(3600),
+                expires_in: json
+                    .get("expires_in")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(3600),
             });
         }
         let error = json.get("error").and_then(Value::as_str).unwrap_or("");
@@ -296,7 +395,10 @@ pub async fn exchange_code_with(client: &reqwest::Client, servers: &[(String, St
         return Err(CODE_EXPIRED.into());
     }
     if !unreachable.is_empty() {
-        return Err(format!("no se pudo consultar a Zoho en {}: revisá la conexión a internet y volvé a intentar", unreachable.join(", ")));
+        return Err(format!(
+            "no se pudo consultar a Zoho en {}: revisá la conexión a internet y volvé a intentar",
+            unreachable.join(", ")
+        ));
     }
     Err(UNKNOWN_CLIENT.into())
 }
@@ -304,20 +406,47 @@ pub async fn exchange_code_with(client: &reqwest::Client, servers: &[(String, St
 /// `GET_LOGIN` with a just-issued access token: the passphrase's salt,
 /// iterations and check value, and the user. Says plainly when the code
 /// lacked Vault's scopes or the user has no Zoho Vault.
-pub async fn login_details_with(client: &reqwest::Client, vault_base: &str, access_token: &str) -> Result<Value, String> {
-    let ep = Endpoints { accounts: String::new(), vault: vault_base.to_string() };
-    match get(client, &ep, access_token, "/api/json/login?OPERATION_NAME=GET_LOGIN").await {
-        Ok(json) => json.pointer("/operation/details").cloned().ok_or_else(|| "Zoho Vault no devolvió los datos de la cuenta (GET_LOGIN)".to_string()),
+pub async fn login_details_with(
+    client: &reqwest::Client,
+    vault_base: &str,
+    access_token: &str,
+) -> Result<Value, String> {
+    let ep = Endpoints {
+        accounts: String::new(),
+        vault: vault_base.to_string(),
+    };
+    match get(
+        client,
+        &ep,
+        access_token,
+        "/api/json/login?OPERATION_NAME=GET_LOGIN",
+    )
+    .await
+    {
+        Ok(json) => json
+            .pointer("/operation/details")
+            .cloned()
+            .ok_or_else(|| "Zoho Vault no devolvió los datos de la cuenta (GET_LOGIN)".to_string()),
         Err(Some(e)) => Err(e),
-        Err(None) => Err(format!("Zoho Vault rechazó el token: generá el código con los permisos {SCOPES}")),
+        Err(None) => Err(format!(
+            "Zoho Vault rechazó el token: generá el código con los permisos {SCOPES}"
+        )),
     }
 }
 
 /// The user's e-mail (else their user name) in `GET_LOGIN`'s details.
 pub fn identity_of(details: &Value) -> String {
     let user = details.get("USER");
-    let pick = |k: &str| user.and_then(|u| u.get(k)).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && s.len() <= 320 && !s.chars().any(char::is_control));
-    pick("EMAIL").or_else(|| pick("USERNAME")).unwrap_or("").to_string()
+    let pick = |k: &str| {
+        user.and_then(|u| u.get(k))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 320 && !s.chars().any(char::is_control))
+    };
+    pick("EMAIL")
+        .or_else(|| pick("USERNAME"))
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Only what checks the passphrase, out of `GET_LOGIN`'s details.
@@ -333,8 +462,18 @@ pub fn passphrase_check(details: &Value) -> Value {
 
 /// Revoke a refresh token (a connect cancelled after the exchange). Best
 /// effort: Zoho keeps at most 20 per client and user anyway.
-pub async fn revoke_with(client: &reqwest::Client, accounts_base: &str, client_id: &str, client_secret: &str, refresh_token: &str) -> Result<(), String> {
-    let basic = base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", client_id.trim(), client_secret.trim()));
+pub async fn revoke_with(
+    client: &reqwest::Client,
+    accounts_base: &str,
+    client_id: &str,
+    client_secret: &str,
+    refresh_token: &str,
+) -> Result<(), String> {
+    let basic = base64::engine::general_purpose::STANDARD.encode(format!(
+        "{}:{}",
+        client_id.trim(),
+        client_secret.trim()
+    ));
     let resp = client
         .post(format!("{accounts_base}/oauth/v2/revoke/token"))
         .header("Authorization", format!("Basic {basic}"))
@@ -342,7 +481,11 @@ pub async fn revoke_with(client: &reqwest::Client, accounts_base: &str, client_i
         .send()
         .await
         .map_err(|e| e.without_url().to_string())?;
-    if resp.status().is_success() { Ok(()) } else { Err(format!("Zoho respondió {}", resp.status().as_u16())) }
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("Zoho respondió {}", resp.status().as_u16()))
+    }
 }
 
 /// The access token of an account just connected, kept for its first use.
@@ -356,21 +499,41 @@ pub fn keep_first_token(data_center: &str, creds: &Creds, ex: &Exchanged) {
 
 /// GET a Vault API path; `Err(None)` when Zoho says the access token is no
 /// longer valid (the caller asks for a new one once).
-async fn get(client: &reqwest::Client, ep: &Endpoints, token: &str, path_and_query: &str) -> Result<Value, Option<String>> {
+async fn get(
+    client: &reqwest::Client,
+    ep: &Endpoints,
+    token: &str,
+    path_and_query: &str,
+) -> Result<Value, Option<String>> {
     let resp = client
         .get(format!("{}{path_and_query}", ep.vault))
         .header("Authorization", format!("Zoho-oauthtoken {token}"))
         .send()
         .await
-        .map_err(|e| Some(format!("no se pudo conectar con Zoho Vault ({}): {}", ep.vault, e.without_url())))?;
+        .map_err(|e| {
+            Some(format!(
+                "no se pudo conectar con Zoho Vault ({}): {}",
+                ep.vault,
+                e.without_url()
+            ))
+        })?;
     let status = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     let result = json.pointer("/operation/result");
-    let failed = result.and_then(|r| r.get("status")).and_then(Value::as_str).is_some_and(|s| s.eq_ignore_ascii_case("failed"));
+    let failed = result
+        .and_then(|r| r.get("status"))
+        .and_then(Value::as_str)
+        .is_some_and(|s| s.eq_ignore_ascii_case("failed"));
     if failed || !(200..300).contains(&status) {
-        let code = result.and_then(|r| r.get("error_code")).and_then(Value::as_str).unwrap_or("");
-        let msg = result.and_then(|r| r.get("message")).and_then(Value::as_str).unwrap_or("");
+        let code = result
+            .and_then(|r| r.get("error_code"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let msg = result
+            .and_then(|r| r.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if matches!(code, "INVALID_OAUTHTOKEN" | "INVALID_TICKET") || status == 401 {
             return Err(None);
         }
@@ -406,7 +569,12 @@ pub fn api_error(status: u16, code: &str, msg: &str) -> String {
 
 /// GET with the access token, asking for a new one once if Zoho says it's
 /// no longer valid.
-async fn api(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, path_and_query: &str) -> Result<Value, String> {
+async fn api(
+    client: &reqwest::Client,
+    ep: &Endpoints,
+    creds: &Creds,
+    path_and_query: &str,
+) -> Result<Value, String> {
     for attempt in 0..2 {
         let token = access_token(client, ep, creds).await?;
         match get(client, ep, &token, path_and_query).await {
@@ -420,15 +588,35 @@ async fn api(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, path_and_q
 }
 
 /// `(value, username)` of the secret, talking to `ep`.
-pub async fn read_with(client: &reqwest::Client, ep: &Endpoints, req: &Request<'_>, creds: &Creds) -> Result<(String, Option<String>), String> {
-    let login = api(client, ep, creds, "/api/json/login?OPERATION_NAME=GET_LOGIN").await?;
-    let details = login.pointer("/operation/details").ok_or("Zoho Vault no devolvió los datos de la cuenta (GET_LOGIN)")?;
+pub async fn read_with(
+    client: &reqwest::Client,
+    ep: &Endpoints,
+    req: &Request<'_>,
+    creds: &Creds,
+) -> Result<(String, Option<String>), String> {
+    let login = api(
+        client,
+        ep,
+        creds,
+        "/api/json/login?OPERATION_NAME=GET_LOGIN",
+    )
+    .await?;
+    let details = login
+        .pointer("/operation/details")
+        .ok_or("Zoho Vault no devolvió los datos de la cuenta (GET_LOGIN)")?;
     let mut master = master_key(details, &creds.passphrase)?;
     let secret = find_secret(client, ep, creds, req.secret).await;
     let out = match secret {
         Ok(secret) => {
-            let shared = secret.get("isshared").and_then(Value::as_str).is_some_and(|s| s.eq_ignore_ascii_case("YES"));
-            let key = if shared { org_key(client, ep, creds, &master).await } else { Ok(master.clone()) };
+            let shared = secret
+                .get("isshared")
+                .and_then(Value::as_str)
+                .is_some_and(|s| s.eq_ignore_ascii_case("YES"));
+            let key = if shared {
+                org_key(client, ep, creds, &master).await
+            } else {
+                Ok(master.clone())
+            };
             key.and_then(|mut key| {
                 let r = values(&secret, &key, req);
                 wipe(&mut key);
@@ -448,13 +636,20 @@ pub fn master_key(details: &Value, passphrase: &str) -> Result<String, String> {
         return Err("falta la frase de contraseña maestra de Zoho Vault".into());
     }
     let salt = details.get("SALT").and_then(Value::as_str).unwrap_or("");
-    let check = details.get("PASSPHRASE").and_then(Value::as_str).unwrap_or("");
-    let kind = details.get("LOGIN").and_then(Value::as_str).unwrap_or("PBKDF2_AES");
+    let check = details
+        .get("PASSPHRASE")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let kind = details
+        .get("LOGIN")
+        .and_then(Value::as_str)
+        .unwrap_or("PBKDF2_AES");
     if kind.eq_ignore_ascii_case("SHA256") {
         let key = super::cloud_auth::hex(&Sha256::digest(passphrase.as_bytes()));
         // Older accounts: the check is SHA-256 of the passphrase and salt.
         if check.len() == 64 && check.chars().all(|c| c.is_ascii_hexdigit()) {
-            let auth = super::cloud_auth::hex(&Sha256::digest(format!("{passphrase}{salt}").as_bytes()));
+            let auth =
+                super::cloud_auth::hex(&Sha256::digest(format!("{passphrase}{salt}").as_bytes()));
             if !auth.eq_ignore_ascii_case(check) {
                 return Err(WRONG_PASSPHRASE.into());
             }
@@ -464,14 +659,26 @@ pub fn master_key(details: &Value, passphrase: &str) -> Result<String, String> {
     if salt.is_empty() {
         return Err("Zoho Vault no devolvió la sal de la cuenta (GET_LOGIN)".into());
     }
-    let iterations = details.get("ITERATION").and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))).unwrap_or(1000);
+    let iterations = details
+        .get("ITERATION")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        })
+        .unwrap_or(1000);
     if !(1..=10_000_000).contains(&iterations) {
-        return Err(format!("Zoho Vault devolvió una cantidad de iteraciones fuera de rango ({iterations})"));
+        return Err(format!(
+            "Zoho Vault devolvió una cantidad de iteraciones fuera de rango ({iterations})"
+        ));
     }
     let key = pbkdf2_key(passphrase, salt, iterations as u32);
     // The check value decrypts to a small JSON object with this key only.
     if !check.is_empty() {
-        let ok = decrypt(check, &key).ok().and_then(|b| String::from_utf8(b).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).is_some_and(|v| v.is_object());
+        let ok = decrypt(check, &key)
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .is_some_and(|v| v.is_object());
         if !ok {
             return Err(WRONG_PASSPHRASE.into());
         }
@@ -501,11 +708,22 @@ const MAX_PAGES: usize = super::browse::MAX_ENTRIES / PAGE + 1;
 /// on a short page, on the second page in a row with nothing new (one is
 /// skipped: if `pageNum` starts at 1, 0 may repeat it) or after
 /// [`MAX_PAGES`]; `Ok(true)` when it was cut there.
-async fn each_secret(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, mut each: impl FnMut(Value)) -> Result<bool, String> {
+async fn each_secret(
+    client: &reqwest::Client,
+    ep: &Endpoints,
+    creds: &Creds,
+    mut each: impl FnMut(Value),
+) -> Result<bool, String> {
     let mut seen = std::collections::HashSet::new();
     let mut stale = 0;
     for page in 0..MAX_PAGES {
-        let json = api(client, ep, creds, &format!("/api/rest/json/v1/secrets?isAsc=true&pageNum={page}&rowPerPage={PAGE}")).await?;
+        let json = api(
+            client,
+            ep,
+            creds,
+            &format!("/api/rest/json/v1/secrets?isAsc=true&pageNum={page}&rowPerPage={PAGE}"),
+        )
+        .await?;
         let list = match json.pointer("/operation/Details") {
             Some(Value::Array(a)) => a.clone(),
             _ => Vec::new(),
@@ -529,11 +747,23 @@ async fn each_secret(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, mu
 
 /// The secret's JSON: by ID (digits), else by name, looked for in the list
 /// (Zoho has no name filter it accepts): exactly, else ignoring case.
-async fn find_secret(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, wanted: &str) -> Result<Value, String> {
+async fn find_secret(
+    client: &reqwest::Client,
+    ep: &Endpoints,
+    creds: &Creds,
+    wanted: &str,
+) -> Result<Value, String> {
     let wanted = wanted.trim();
     if !wanted.is_empty() && wanted.chars().all(|c| c.is_ascii_digit()) {
-        let json = api(client, ep, creds, &format!("/api/rest/json/v1/secrets/{wanted}")).await?;
-        return first_detail(&json).ok_or_else(|| format!("Zoho Vault: no existe el secreto con el ID {wanted}"));
+        let json = api(
+            client,
+            ep,
+            creds,
+            &format!("/api/rest/json/v1/secrets/{wanted}"),
+        )
+        .await?;
+        return first_detail(&json)
+            .ok_or_else(|| format!("Zoho Vault: no existe el secreto con el ID {wanted}"));
     }
     let lower = wanted.to_lowercase();
     // The ones with that name, whole; the similar ones, by name only (for
@@ -544,14 +774,21 @@ async fn find_secret(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, wa
         let name = name_of(&s).to_lowercase();
         if name == lower {
             kept.push(s);
-        } else if similar < 8 && !name.is_empty() && !lower.is_empty() && (name.contains(&lower) || lower.contains(&name)) {
+        } else if similar < 8
+            && !name.is_empty()
+            && !lower.is_empty()
+            && (name.contains(&lower) || lower.contains(&name))
+        {
             similar += 1;
             kept.push(serde_json::json!({ "secretname": name_of(&s) }));
         }
     })
     .await?;
     if cut && !kept.iter().any(|s| name_of(s).to_lowercase() == lower) {
-        return Err(format!("Zoho Vault: no hay un secreto «{wanted}» entre los primeros {} (indicá su ID)", super::browse::MAX_ENTRIES));
+        return Err(format!(
+            "Zoho Vault: no hay un secreto «{wanted}» entre los primeros {} (indicá su ID)",
+            super::browse::MAX_ENTRIES
+        ));
     }
     pick_by_name(kept, wanted)
 }
@@ -581,17 +818,33 @@ fn id_of(v: &Value) -> String {
 pub fn pick_by_name(list: Vec<Value>, wanted: &str) -> Result<Value, String> {
     let exact: Vec<&Value> = list.iter().filter(|s| name_of(s) == wanted).collect();
     let lower = wanted.to_lowercase();
-    let found = if exact.is_empty() { list.iter().filter(|s| name_of(s).to_lowercase() == lower).collect() } else { exact };
+    let found = if exact.is_empty() {
+        list.iter()
+            .filter(|s| name_of(s).to_lowercase() == lower)
+            .collect()
+    } else {
+        exact
+    };
     match found.len() {
         1 => Ok(found[0].clone()),
         0 => {
-            let mut names: Vec<&str> = list.iter().map(name_of).filter(|n| !n.is_empty()).take(8).collect();
+            let mut names: Vec<&str> = list
+                .iter()
+                .map(name_of)
+                .filter(|n| !n.is_empty())
+                .take(8)
+                .collect();
             names.sort_unstable();
             names.dedup();
             if names.is_empty() {
-                Err(format!("Zoho Vault: no hay un secreto «{wanted}» (o el usuario no tiene acceso)"))
+                Err(format!(
+                    "Zoho Vault: no hay un secreto «{wanted}» (o el usuario no tiene acceso)"
+                ))
             } else {
-                Err(format!("Zoho Vault: no hay un secreto «{wanted}» (parecidos: {})", names.join(", ")))
+                Err(format!(
+                    "Zoho Vault: no hay un secreto «{wanted}» (parecidos: {})",
+                    names.join(", ")
+                ))
             }
         }
         n => {
@@ -603,11 +856,22 @@ pub fn pick_by_name(list: Vec<Value>, wanted: &str) -> Result<Value, String> {
 
 /// The organization key (shared secrets): the user's private key decrypted
 /// with the master key, then the RSA-encrypted shared key with it.
-async fn org_key(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, master: &str) -> Result<String, String> {
+async fn org_key(
+    client: &reqwest::Client,
+    ep: &Endpoints,
+    creds: &Creds,
+    master: &str,
+) -> Result<String, String> {
     let json = api(client, ep, creds, "/api/rest/json/v1/user/orgkey").await?;
     let d = first_detail(&json).ok_or("Zoho Vault no devolvió la clave de la organización")?;
-    let private = d.get("privateKey").and_then(Value::as_str).filter(|s| !s.is_empty() && *s != "null");
-    let shared = d.get("sharedKey").and_then(Value::as_str).filter(|s| !s.is_empty() && *s != "null");
+    let private = d
+        .get("privateKey")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty() && *s != "null");
+    let shared = d
+        .get("sharedKey")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty() && *s != "null");
     let kind = d.get("rsaKeyType").and_then(Value::as_str).unwrap_or("");
     match (private, shared) {
         (Some(p), Some(s)) => decrypt_org_key(p, s, kind, master),
@@ -617,13 +881,17 @@ async fn org_key(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, master
 
 /// The master passphrase opened the account but not the organization's
 /// private key.
-pub const ORG_PASSPHRASE: &str = "la frase de contraseña maestra no abre la clave privada de la organización de Zoho Vault";
+pub const ORG_PASSPHRASE: &str =
+    "la frase de contraseña maestra no abre la clave privada de la organización de Zoho Vault";
 /// The private key decrypted, but isn't any format Zoho's clients write.
-pub const ORG_PRIVATE_FORMAT: &str = "la clave privada de la organización de Zoho Vault tiene un formato que DBine no reconoce";
+pub const ORG_PRIVATE_FORMAT: &str =
+    "la clave privada de la organización de Zoho Vault tiene un formato que DBine no reconoce";
 /// The RSA-encrypted organization key isn't hex or base64 as expected.
-pub const ORG_SHARED_FORMAT: &str = "la clave de la organización de Zoho Vault viene cifrada en un formato que DBine no reconoce";
+pub const ORG_SHARED_FORMAT: &str =
+    "la clave de la organización de Zoho Vault viene cifrada en un formato que DBine no reconoce";
 /// RSA refused the shared key with that private key.
-pub const ORG_RSA: &str = "la clave de la organización de Zoho Vault no se pudo descifrar con la clave privada";
+pub const ORG_RSA: &str =
+    "la clave de la organización de Zoho Vault no se pudo descifrar con la clave privada";
 
 /// The organization key from `/user/orgkey`'s `privateKey` and `sharedKey`.
 /// Zoho's clients (the browser extension's VaultLogin.decryptOrgKey and
@@ -638,7 +906,12 @@ pub const ORG_RSA: &str = "la clave de la organización de Zoho Vault no se pudo
 ///
 /// Each stage fails with its own message, and the log says where it stopped
 /// with lengths and shapes only: never a key, a value or plaintext.
-pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, master: &str) -> Result<String, String> {
+pub fn decrypt_org_key(
+    private_key: &str,
+    shared_key: &str,
+    key_type: &str,
+    master: &str,
+) -> Result<String, String> {
     use rsa::pkcs8::DecodePrivateKey;
     use rsa::traits::PublicKeyParts;
     // Zoho's label, not the text Zoho sent (it goes to the log).
@@ -649,14 +922,25 @@ pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, mast
         _ => "(another)",
     };
     let stop = |stage: &str, msg: &str| {
-        tracing::warn!(rsa_key_type = kind, private_key_len = private_key.len(), shared_key_len = shared_key.len(), "zoho org key: {stage}");
+        tracing::warn!(
+            rsa_key_type = kind,
+            private_key_len = private_key.len(),
+            shared_key_len = shared_key.len(),
+            "zoho org key: {stage}"
+        );
         msg.to_string()
     };
     let Ok(mut bytes) = decrypt(private_key, master) else {
-        return Err(stop("privateKey is not base64 of a nonce and ciphertext", ORG_PRIVATE_FORMAT));
+        return Err(stop(
+            "privateKey is not base64 of a nonce and ciphertext",
+            ORG_PRIVATE_FORMAT,
+        ));
     };
     // The key text is ASCII either way; anything else is another key's garbage.
-    if !bytes.iter().all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace()) {
+    if !bytes
+        .iter()
+        .all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace())
+    {
         let n = bytes.len();
         wipe_bytes(&mut bytes);
         return Err(stop(&format!("privateKey decrypted to {n} bytes that are not text: the master key does not open it"), ORG_PASSPHRASE));
@@ -665,21 +949,39 @@ pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, mast
     let parts = text.trim().split(',').count();
     let key = if parts > 1 {
         let key = jsbn_private_key(&text);
-        let shape = format!("privateKey decrypted: {} chars, comma-separated: {parts} parts", text.trim().len());
+        let shape = format!(
+            "privateKey decrypted: {} chars, comma-separated: {parts} parts",
+            text.trim().len()
+        );
         wipe(&mut text);
         let Some(key) = key else {
-            return Err(stop(&format!("{shape}, not 8 hex parts of an RSA key"), ORG_PRIVATE_FORMAT));
+            return Err(stop(
+                &format!("{shape}, not 8 hex parts of an RSA key"),
+                ORG_PRIVATE_FORMAT,
+            ));
         };
         tracing::debug!("zoho org key: {shape} (jsbn RSAKey)");
         let Some(mut ct) = unhex(shared_key.trim()) else {
             return Err(stop("sharedKey is not hex (RSA_1024)", ORG_SHARED_FORMAT));
         };
-        let plain = left_pad(&ct, key.size()).and_then(|c| super::rsa_lc::decrypt(&key, super::rsa_lc::Padding::Pkcs1v15, &c));
+        let plain = left_pad(&ct, key.size())
+            .and_then(|c| super::rsa_lc::decrypt(&key, super::rsa_lc::Padding::Pkcs1v15, &c));
         wipe_bytes(&mut ct);
-        plain.ok_or_else(|| stop(&format!("sharedKey: {} hex chars, RSA PKCS#1 v1.5 refused it", shared_key.trim().len()), ORG_RSA))?
+        plain.ok_or_else(|| {
+            stop(
+                &format!(
+                    "sharedKey: {} hex chars, RSA PKCS#1 v1.5 refused it",
+                    shared_key.trim().len()
+                ),
+                ORG_RSA,
+            )
+        })?
     } else {
         let der = base64::engine::general_purpose::STANDARD.decode(text.trim().as_bytes());
-        let shape = format!("privateKey decrypted: {} chars, without commas", text.trim().len());
+        let shape = format!(
+            "privateKey decrypted: {} chars, without commas",
+            text.trim().len()
+        );
         wipe(&mut text);
         let Ok(mut der) = der else {
             return Err(stop(&format!("{shape}, not base64"), ORG_PRIVATE_FORMAT));
@@ -688,16 +990,30 @@ pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, mast
         let der_len = der.len();
         wipe_bytes(&mut der);
         let Ok(key) = key else {
-            return Err(stop(&format!("{shape}, base64 of {der_len} bytes that are not a PKCS#8 RSA key"), ORG_PRIVATE_FORMAT));
+            return Err(stop(
+                &format!("{shape}, base64 of {der_len} bytes that are not a PKCS#8 RSA key"),
+                ORG_PRIVATE_FORMAT,
+            ));
         };
         tracing::debug!("zoho org key: {shape} (PKCS#8, {der_len} bytes)");
-        let Ok(mut ct) = base64::engine::general_purpose::STANDARD.decode(shared_key.trim().as_bytes()) else {
-            return Err(stop("sharedKey is not base64 (RSA_4096)", ORG_SHARED_FORMAT));
+        let Ok(mut ct) =
+            base64::engine::general_purpose::STANDARD.decode(shared_key.trim().as_bytes())
+        else {
+            return Err(stop(
+                "sharedKey is not base64 (RSA_4096)",
+                ORG_SHARED_FORMAT,
+            ));
         };
-        let plain = left_pad(&ct, key.size()).and_then(|c| super::rsa_lc::decrypt(&key, super::rsa_lc::Padding::OaepSha256, &c));
+        let plain = left_pad(&ct, key.size())
+            .and_then(|c| super::rsa_lc::decrypt(&key, super::rsa_lc::Padding::OaepSha256, &c));
         let ct_len = ct.len();
         wipe_bytes(&mut ct);
-        plain.ok_or_else(|| stop(&format!("sharedKey: base64 of {ct_len} bytes, RSA-OAEP SHA-256 refused it"), ORG_RSA))?
+        plain.ok_or_else(|| {
+            stop(
+                &format!("sharedKey: base64 of {ct_len} bytes, RSA-OAEP SHA-256 refused it"),
+                ORG_RSA,
+            )
+        })?
     };
     String::from_utf8(key).map_err(|e| {
         wipe_bytes(&mut e.into_bytes());
@@ -710,12 +1026,21 @@ pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, mast
 /// (`n` must agree); the rest is derived again.
 fn jsbn_private_key(text: &str) -> Option<rsa::RsaPrivateKey> {
     use rsa::traits::PublicKeyParts;
-    let mut parts: Vec<Vec<u8>> = text.trim().split(',').map(|p| unhex(p.trim())).collect::<Option<_>>()?;
+    let mut parts: Vec<Vec<u8>> = text
+        .trim()
+        .split(',')
+        .map(|p| unhex(p.trim()))
+        .collect::<Option<_>>()?;
     let trim = |b: &[u8]| b[b.iter().position(|x| *x != 0).unwrap_or(b.len())..].to_vec();
     let key = (parts.len() == 8).then(|| {
         let e = rsa::BoxedUint::from_be_slice_vartime(&parts[1]);
-        let (p, q) = (rsa::BoxedUint::from_be_slice_vartime(&parts[3]), rsa::BoxedUint::from_be_slice_vartime(&parts[4]));
-        rsa::RsaPrivateKey::from_p_q(p, q, e).ok().filter(|k| trim(&k.n().as_ref().to_be_bytes()) == trim(&parts[0]))
+        let (p, q) = (
+            rsa::BoxedUint::from_be_slice_vartime(&parts[3]),
+            rsa::BoxedUint::from_be_slice_vartime(&parts[4]),
+        );
+        rsa::RsaPrivateKey::from_p_q(p, q, e)
+            .ok()
+            .filter(|k| trim(&k.n().as_ref().to_be_bytes()) == trim(&parts[0]))
     });
     parts.iter_mut().for_each(|p| wipe_bytes(p));
     key.flatten()
@@ -727,8 +1052,16 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    let padded = if s.len() % 2 == 1 { format!("0{s}") } else { s.to_string() };
-    padded.as_bytes().chunks(2).map(|c| u8::from_str_radix(std::str::from_utf8(c).ok()?, 16).ok()).collect()
+    let padded = if s.len() % 2 == 1 {
+        format!("0{s}")
+    } else {
+        s.to_string()
+    };
+    padded
+        .as_bytes()
+        .chunks(2)
+        .map(|c| u8::from_str_radix(std::str::from_utf8(c).ok()?, 16).ok())
+        .collect()
 }
 
 /// The ciphertext as the modulus' length: jsbn drops leading zero bytes.
@@ -746,7 +1079,9 @@ fn left_pad(ct: &[u8], size: usize) -> Option<Vec<u8>> {
 /// custom fields (`customcolumn`: base64 of `{"customcol":[{colname,value}]}`).
 fn fields_of(secret: &Value) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    let data = secret.get("secretData").or_else(|| secret.get("SECRETDATA"));
+    let data = secret
+        .get("secretData")
+        .or_else(|| secret.get("SECRETDATA"));
     let obj = match data {
         Some(Value::String(s)) => serde_json::from_str::<Value>(s).ok(),
         Some(v @ Value::Object(_)) => Some(v.clone()),
@@ -759,15 +1094,26 @@ fn fields_of(secret: &Value) -> Vec<(String, String)> {
             }
         }
     }
-    let custom = secret.get("customcolumn").or_else(|| secret.get("CUSTOMCOLUMN")).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let custom = secret
+        .get("customcolumn")
+        .or_else(|| secret.get("CUSTOMCOLUMN"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
     if let Some(c) = custom {
         let parsed = base64::engine::general_purpose::STANDARD
             .decode(c.trim().as_bytes())
             .ok()
             .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
-        if let Some(cols) = parsed.as_ref().and_then(|p| p.get("customcol")).and_then(Value::as_array) {
+        if let Some(cols) = parsed
+            .as_ref()
+            .and_then(|p| p.get("customcol"))
+            .and_then(Value::as_array)
+        {
             for col in cols {
-                if let (Some(n), Some(v)) = (col.get("colname").and_then(Value::as_str), col.get("value").and_then(Value::as_str)) {
+                if let (Some(n), Some(v)) = (
+                    col.get("colname").and_then(Value::as_str),
+                    col.get("value").and_then(Value::as_str),
+                ) {
                     out.push((n.to_string(), v.to_string()));
                 }
             }
@@ -787,18 +1133,37 @@ fn open_value(cipher: &str, key: &str, field: &str, secret: &str) -> Result<Stri
         .ok_or_else(|| format!("no se pudo descifrar el campo «{field}» del secreto «{secret}» de Zoho Vault (¿la frase de contraseña maestra es la correcta?)"))
 }
 
-pub fn values(secret: &Value, key: &str, req: &Request<'_>) -> Result<(String, Option<String>), String> {
+pub fn values(
+    secret: &Value,
+    key: &str,
+    req: &Request<'_>,
+) -> Result<(String, Option<String>), String> {
     let fields = fields_of(secret);
-    let name = Some(name_of(secret)).filter(|n| !n.is_empty()).unwrap_or(req.secret.trim()).to_string();
-    let want = Some(req.attribute.trim()).filter(|a| !a.is_empty()).unwrap_or("password");
-    let find = |w: &str| fields.iter().find(|(k, _)| k == w).or_else(|| fields.iter().find(|(k, _)| k.eq_ignore_ascii_case(w)));
+    let name = Some(name_of(secret))
+        .filter(|n| !n.is_empty())
+        .unwrap_or(req.secret.trim())
+        .to_string();
+    let want = Some(req.attribute.trim())
+        .filter(|a| !a.is_empty())
+        .unwrap_or("password");
+    let find = |w: &str| {
+        fields
+            .iter()
+            .find(|(k, _)| k == w)
+            .or_else(|| fields.iter().find(|(k, _)| k.eq_ignore_ascii_case(w)))
+    };
     let Some((k, c)) = find(want) else {
         let mut names: Vec<&str> = fields.iter().map(|(k, _)| k.as_str()).take(30).collect();
         names.sort_unstable();
-        return Err(format!("el secreto «{name}» de Zoho Vault no tiene el campo «{want}» (tiene: {})", names.join(", ")));
+        return Err(format!(
+            "el secreto «{name}» de Zoho Vault no tiene el campo «{want}» (tiene: {})",
+            names.join(", ")
+        ));
     };
     let value = open_value(c, key, k, &name)?;
-    let user_field = Some(req.user_field.trim()).filter(|f| !f.is_empty()).unwrap_or("username");
+    let user_field = Some(req.user_field.trim())
+        .filter(|f| !f.is_empty())
+        .unwrap_or("username");
     let username = if req.username {
         match find(user_field) {
             Some((k, c)) => Some(open_value(c, key, k, &name)?).filter(|u| !u.is_empty()),
@@ -808,7 +1173,9 @@ pub fn values(secret: &Value, key: &str, req: &Request<'_>) -> Result<(String, O
         None
     };
     if req.username && username.is_none() {
-        return Err(format!("el secreto «{name}» de Zoho Vault no tiene usuario ({user_field})"));
+        return Err(format!(
+            "el secreto «{name}» de Zoho Vault no tiene usuario ({user_field})"
+        ));
     }
     Ok((value, username))
 }
@@ -817,8 +1184,17 @@ pub fn values(secret: &Value, key: &str, req: &Request<'_>) -> Result<(String, O
 
 /// The secrets' names (paged), or a secret's field names (`item`, an ID or
 /// a name). Neither is encrypted: no passphrase, nothing decrypted.
-pub async fn browse(data_center: &str, creds: &Creds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
-    let ep = Endpoints::of(data_center).ok_or_else(|| format!("el centro de datos de Zoho «{}» no es válido", data_center.trim()))?;
+pub async fn browse(
+    data_center: &str,
+    creds: &Creds,
+    at: super::browse::At<'_>,
+) -> Result<super::browse::Listing, String> {
+    let ep = Endpoints::of(data_center).ok_or_else(|| {
+        format!(
+            "el centro de datos de Zoho «{}» no es válido",
+            data_center.trim()
+        )
+    })?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
@@ -829,28 +1205,46 @@ pub async fn browse(data_center: &str, creds: &Creds, at: super::browse::At<'_>)
     browse_with(&client, &ep, creds, at).await
 }
 
-pub async fn browse_with(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+pub async fn browse_with(
+    client: &reqwest::Client,
+    ep: &Endpoints,
+    creds: &Creds,
+    at: super::browse::At<'_>,
+) -> Result<super::browse::Listing, String> {
     use super::browse::{unique_names, wipe_json, Entry, Listing};
     if let Some(item) = at.item {
         let mut secret = find_secret(client, ep, creds, item).await?;
-        let mut names: Vec<String> = fields_of(&secret).into_iter().map(|(mut k, mut v)| {
-            wipe(&mut v);
-            std::mem::take(&mut k)
-        }).collect();
+        let mut names: Vec<String> = fields_of(&secret)
+            .into_iter()
+            .map(|(mut k, mut v)| {
+                wipe(&mut v);
+                std::mem::take(&mut k)
+            })
+            .collect();
         wipe_json(&mut secret);
         names.dedup();
         return Ok(Listing::fields(names));
     }
     // Names and IDs only; the rest (ciphertext) isn't kept.
     let mut all: Vec<Value> = Vec::new();
-    let cut = each_secret(client, ep, creds, |s| all.push(serde_json::json!({ "secretname": name_of(&s), "secretid": id_of(&s) }))).await?;
+    let cut = each_secret(client, ep, creds, |s| {
+        all.push(serde_json::json!({ "secretname": name_of(&s), "secretid": id_of(&s) }))
+    })
+    .await?;
     let unique = unique_names(all.iter().map(name_of));
     let mut out: Vec<Entry> = all
         .iter()
         .map(|s| {
             let (name, id) = (name_of(s).to_string(), id_of(s));
-            let by_name = !name.trim().is_empty() && !name.chars().all(|c| c.is_ascii_digit()) && unique.contains(&name);
-            Entry::item(if by_name { name.clone() } else { id.clone() }, if name.is_empty() { id.clone() } else { name }, "", id)
+            let by_name = !name.trim().is_empty()
+                && !name.chars().all(|c| c.is_ascii_digit())
+                && unique.contains(&name);
+            Entry::item(
+                if by_name { name.clone() } else { id.clone() },
+                if name.is_empty() { id.clone() } else { name },
+                "",
+                id,
+            )
         })
         .collect();
     out.sort_by_key(|e| e.name.to_lowercase());
@@ -894,7 +1288,9 @@ fn ctr(cipher: &Aes256, nonce: &[u8], data: &mut [u8]) {
 
 /// A value's bytes: base64 of the 8-byte nonce and the ciphertext.
 pub fn decrypt(b64: &str, key: &str) -> Result<Vec<u8>, ()> {
-    let mut data = base64::engine::general_purpose::STANDARD.decode(b64.trim().as_bytes()).map_err(|_| ())?;
+    let mut data = base64::engine::general_purpose::STANDARD
+        .decode(b64.trim().as_bytes())
+        .map_err(|_| ())?;
     if data.len() < 8 {
         wipe_bytes(&mut data);
         return Err(());
@@ -936,16 +1332,35 @@ mod tests {
     #[test]
     fn key_derivation_vectors() {
         let v = vectors();
-        assert_eq!(pbkdf2_key(s(&v, "passphrase"), s(&v, "salt"), v["iterations"].as_u64().unwrap() as u32), s(&v, "master"));
+        assert_eq!(
+            pbkdf2_key(
+                s(&v, "passphrase"),
+                s(&v, "salt"),
+                v["iterations"].as_u64().unwrap() as u32
+            ),
+            s(&v, "master")
+        );
         let details = json!({ "LOGIN": "PBKDF2_AES", "SALT": s(&v, "salt"), "ITERATION": v["iterations"], "PASSPHRASE": s(&v, "passphrase_check") });
-        assert_eq!(master_key(&details, s(&v, "passphrase")).unwrap(), s(&v, "master"));
-        assert_eq!(master_key(&details, "dummy-passphrase-n").unwrap_err(), WRONG_PASSPHRASE);
+        assert_eq!(
+            master_key(&details, s(&v, "passphrase")).unwrap(),
+            s(&v, "master")
+        );
+        assert_eq!(
+            master_key(&details, "dummy-passphrase-n").unwrap_err(),
+            WRONG_PASSPHRASE
+        );
         // The iteration count may come as text.
         let as_text = json!({ "SALT": s(&v, "salt"), "ITERATION": "1000", "PASSPHRASE": s(&v, "passphrase_check") });
-        assert_eq!(master_key(&as_text, s(&v, "passphrase")).unwrap(), s(&v, "master"));
+        assert_eq!(
+            master_key(&as_text, s(&v, "passphrase")).unwrap(),
+            s(&v, "master")
+        );
         // Older accounts: SHA-256.
         let legacy = json!({ "LOGIN": "SHA256", "SALT": s(&v, "salt"), "PASSPHRASE": s(&v, "legacy_passauth") });
-        assert_eq!(master_key(&legacy, s(&v, "legacy_passphrase")).unwrap(), s(&v, "legacy_master"));
+        assert_eq!(
+            master_key(&legacy, s(&v, "legacy_passphrase")).unwrap(),
+            s(&v, "legacy_master")
+        );
         assert_eq!(master_key(&legacy, "other").unwrap_err(), WRONG_PASSPHRASE);
         assert!(master_key(&details, "").is_err());
     }
@@ -955,14 +1370,31 @@ mod tests {
         let v = vectors();
         for a in v["aes"].as_array().unwrap() {
             let (key, plain, cipher) = (s(a, "key"), s(a, "plain"), s(a, "cipher"));
-            assert_eq!(String::from_utf8(decrypt(cipher, key).unwrap()).unwrap(), plain, "{plain}");
+            assert_eq!(
+                String::from_utf8(decrypt(cipher, key).unwrap()).unwrap(),
+                plain,
+                "{plain}"
+            );
             // Encrypting with the same nonce gives the same bytes.
-            let raw = base64::engine::general_purpose::STANDARD.decode(cipher).unwrap();
-            assert_eq!(encrypt(plain, key, raw[..8].try_into().unwrap()), cipher, "{plain}");
+            let raw = base64::engine::general_purpose::STANDARD
+                .decode(cipher)
+                .unwrap();
+            assert_eq!(
+                encrypt(plain, key, raw[..8].try_into().unwrap()),
+                cipher,
+                "{plain}"
+            );
         }
         // Another key gives other bytes (and, here, not even UTF-8 text).
         let a = &v["aes"][2];
-        assert_ne!(decrypt(s(a, "cipher"), "0000000000000000000000000000000000000000000000000000000000000000").unwrap(), s(a, "plain").as_bytes());
+        assert_ne!(
+            decrypt(
+                s(a, "cipher"),
+                "0000000000000000000000000000000000000000000000000000000000000000"
+            )
+            .unwrap(),
+            s(a, "plain").as_bytes()
+        );
         assert!(decrypt("not base64!", "k").is_err());
         assert!(decrypt("AAAA", "k").is_err(), "shorter than the nonce");
     }
@@ -973,16 +1405,68 @@ mod tests {
         let (master, org) = (s(&v, "master"), s(&v, "org_key"));
         // RSA_1024 (jsbn: hex components, hex PKCS#1 v1.5), with or without
         // rsaKeyType: the data says which.
-        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "", master).unwrap(), org);
-        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "RSA_1024", master).unwrap(), org);
-        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), &s(&v, "rsa1024_shared_key").to_uppercase(), "", master).unwrap(), org, "hex in either case");
+        assert_eq!(
+            decrypt_org_key(
+                s(&v, "rsa1024_private_key"),
+                s(&v, "rsa1024_shared_key"),
+                "",
+                master
+            )
+            .unwrap(),
+            org
+        );
+        assert_eq!(
+            decrypt_org_key(
+                s(&v, "rsa1024_private_key"),
+                s(&v, "rsa1024_shared_key"),
+                "RSA_1024",
+                master
+            )
+            .unwrap(),
+            org
+        );
+        assert_eq!(
+            decrypt_org_key(
+                s(&v, "rsa1024_private_key"),
+                &s(&v, "rsa1024_shared_key").to_uppercase(),
+                "",
+                master
+            )
+            .unwrap(),
+            org,
+            "hex in either case"
+        );
         // RSA_4096 (WebCrypto: base64 PKCS#8, base64 OAEP SHA-256).
-        assert_eq!(decrypt_org_key(s(&v, "rsa4096_private_key"), s(&v, "rsa4096_shared_key"), "RSA_4096", master).unwrap(), org);
+        assert_eq!(
+            decrypt_org_key(
+                s(&v, "rsa4096_private_key"),
+                s(&v, "rsa4096_shared_key"),
+                "RSA_4096",
+                master
+            )
+            .unwrap(),
+            org
+        );
         // The organization key opens the shared secrets.
         let shared = secret("org-db", "2", true, s(&v, "shared_secret_data"));
-        let key = decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "", master).unwrap();
-        let r = Request { data_center: "eu", secret: "org-db", attribute: "", username: true, user_field: "" };
-        assert_eq!(values(&shared, &key, &r).unwrap(), ("org-secret-9".to_string(), Some("org_user".to_string())));
+        let key = decrypt_org_key(
+            s(&v, "rsa1024_private_key"),
+            s(&v, "rsa1024_shared_key"),
+            "",
+            master,
+        )
+        .unwrap();
+        let r = Request {
+            data_center: "eu",
+            secret: "org-db",
+            attribute: "",
+            username: true,
+            user_field: "",
+        };
+        assert_eq!(
+            values(&shared, &key, &r).unwrap(),
+            ("org-secret-9".to_string(), Some("org_user".to_string()))
+        );
     }
 
     /// Each stage of the organization key fails with its own message, and
@@ -990,7 +1474,10 @@ mod tests {
     #[test]
     fn organization_key_stages() {
         // `cargo test organization_key_stages -- --nocapture` shows the log lines.
-        let _ = tracing_subscriber::fmt().with_test_writer().with_max_level(tracing::Level::DEBUG).try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_max_level(tracing::Level::DEBUG)
+            .try_init();
         let v = vectors();
         let (master, org) = (s(&v, "master"), s(&v, "org_key"));
         let (p1024, s1024) = (s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"));
@@ -1001,20 +1488,71 @@ mod tests {
         assert_eq!(fails(p4096, s4096, s(&v, "legacy_master")), ORG_PASSPHRASE);
         // The private key isn't any format Zoho writes.
         assert_eq!(fails("not base64!", s1024, master), ORG_PRIVATE_FORMAT);
-        assert_eq!(fails(&encrypt("a1,b2,c3", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "too few parts");
-        assert_eq!(fails(&encrypt("a1,b2,c3,d4,e5,f6,a7,zz", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "not hex");
-        assert_eq!(fails(&encrypt("a1,10001,c3,d5,e5,f7,a7,b9", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "not an RSA key");
-        assert_eq!(fails(&encrypt("!!no-commas!!", master, [1; 8]), s4096, master), ORG_PRIVATE_FORMAT);
-        assert_eq!(fails(&encrypt("AAAA", master, [1; 8]), s4096, master), ORG_PRIVATE_FORMAT, "base64, not PKCS#8");
+        assert_eq!(
+            fails(&encrypt("a1,b2,c3", master, [1; 8]), s1024, master),
+            ORG_PRIVATE_FORMAT,
+            "too few parts"
+        );
+        assert_eq!(
+            fails(
+                &encrypt("a1,b2,c3,d4,e5,f6,a7,zz", master, [1; 8]),
+                s1024,
+                master
+            ),
+            ORG_PRIVATE_FORMAT,
+            "not hex"
+        );
+        assert_eq!(
+            fails(
+                &encrypt("a1,10001,c3,d5,e5,f7,a7,b9", master, [1; 8]),
+                s1024,
+                master
+            ),
+            ORG_PRIVATE_FORMAT,
+            "not an RSA key"
+        );
+        assert_eq!(
+            fails(&encrypt("!!no-commas!!", master, [1; 8]), s4096, master),
+            ORG_PRIVATE_FORMAT
+        );
+        assert_eq!(
+            fails(&encrypt("AAAA", master, [1; 8]), s4096, master),
+            ORG_PRIVATE_FORMAT,
+            "base64, not PKCS#8"
+        );
         // The shared key isn't the encoding that key type uses.
-        assert_eq!(fails(p1024, s4096, master), ORG_SHARED_FORMAT, "base64 for a jsbn key");
+        assert_eq!(
+            fails(p1024, s4096, master),
+            ORG_SHARED_FORMAT,
+            "base64 for a jsbn key"
+        );
         assert_eq!(fails(p4096, "%%%", master), ORG_SHARED_FORMAT);
         // RSA refuses it: encrypted for another key, or tampered with.
-        let other = format!("{}{}", &s1024[..10], if &s1024[10..11] == "0" { "1" } else { "0" }) + &s1024[11..];
+        let other = format!(
+            "{}{}",
+            &s1024[..10],
+            if &s1024[10..11] == "0" { "1" } else { "0" }
+        ) + &s1024[11..];
         assert_eq!(fails(p1024, &other, master), ORG_RSA);
-        assert_eq!(fails(p4096, &base64::engine::general_purpose::STANDARD.encode([7u8; 256]), master), ORG_RSA);
-        assert_eq!(fails(p1024, &"ff".repeat(200), master), ORG_RSA, "longer than the modulus");
-        for m in [ORG_PASSPHRASE, ORG_PRIVATE_FORMAT, ORG_SHARED_FORMAT, ORG_RSA] {
+        assert_eq!(
+            fails(
+                p4096,
+                &base64::engine::general_purpose::STANDARD.encode([7u8; 256]),
+                master
+            ),
+            ORG_RSA
+        );
+        assert_eq!(
+            fails(p1024, &"ff".repeat(200), master),
+            ORG_RSA,
+            "longer than the modulus"
+        );
+        for m in [
+            ORG_PASSPHRASE,
+            ORG_PRIVATE_FORMAT,
+            ORG_SHARED_FORMAT,
+            ORG_RSA,
+        ] {
             assert!(!m.contains(org) && !m.contains(master), "{m}");
         }
     }
@@ -1027,56 +1565,149 @@ mod tests {
     fn fields_and_usernames() {
         let v = vectors();
         let personal = secret("pg-main", "1", false, s(&v, "personal_secret_data"));
-        let r = |attr: &'static str, username: bool| Request { data_center: "eu", secret: "pg-main", attribute: attr, username, user_field: "" };
-        assert_eq!(values(&personal, s(&v, "master"), &r("", true)).unwrap(), ("pg-secret-1".to_string(), Some("app_user".to_string())));
-        assert_eq!(values(&personal, s(&v, "master"), &r("username", false)).unwrap().0, "app_user");
-        assert_eq!(values(&personal, s(&v, "master"), &r("PASSWORD", false)).unwrap().0, "pg-secret-1", "case doesn't matter");
+        let r = |attr: &'static str, username: bool| Request {
+            data_center: "eu",
+            secret: "pg-main",
+            attribute: attr,
+            username,
+            user_field: "",
+        };
+        assert_eq!(
+            values(&personal, s(&v, "master"), &r("", true)).unwrap(),
+            ("pg-secret-1".to_string(), Some("app_user".to_string()))
+        );
+        assert_eq!(
+            values(&personal, s(&v, "master"), &r("username", false))
+                .unwrap()
+                .0,
+            "app_user"
+        );
+        assert_eq!(
+            values(&personal, s(&v, "master"), &r("PASSWORD", false))
+                .unwrap()
+                .0,
+            "pg-secret-1",
+            "case doesn't matter"
+        );
         let e = values(&personal, s(&v, "master"), &r("pin", false)).unwrap_err();
-        assert!(e.contains("no tiene el campo «pin»") && e.contains("password") && e.contains("username") && !e.contains("pg-secret"), "{e}");
+        assert!(
+            e.contains("no tiene el campo «pin»")
+                && e.contains("password")
+                && e.contains("username")
+                && !e.contains("pg-secret"),
+            "{e}"
+        );
         let e = values(&personal, s(&v, "legacy_master"), &r("", false)).unwrap_err();
-        assert!(e.contains("no se pudo descifrar"), "a wrong key never shows garbage: {e}");
+        assert!(
+            e.contains("no se pudo descifrar"),
+            "a wrong key never shows garbage: {e}"
+        );
         let mut shared = secret("org-db", "2", true, s(&v, "shared_secret_data"));
         shared["customcolumn"] = json!(s(&v, "shared_custom_column"));
-        assert_eq!(values(&shared, s(&v, "org_key"), &r("Port", false)).unwrap().0, "5432", "a custom field");
-        assert_eq!(values(&shared, s(&v, "org_key"), &r("", true)).unwrap(), ("org-secret-9".to_string(), Some("org_user".to_string())));
+        assert_eq!(
+            values(&shared, s(&v, "org_key"), &r("Port", false))
+                .unwrap()
+                .0,
+            "5432",
+            "a custom field"
+        );
+        assert_eq!(
+            values(&shared, s(&v, "org_key"), &r("", true)).unwrap(),
+            ("org-secret-9".to_string(), Some("org_user".to_string()))
+        );
     }
 
     #[test]
     fn names_and_ambiguity() {
-        let list = vec![secret("pg-main", "11", false, "{}"), secret("pg-main-old", "12", false, "{}"), secret("PG-MAIN", "13", false, "{}")];
-        assert_eq!(id_of(&pick_by_name(list.clone(), "pg-main").unwrap()), "11", "exact first");
-        assert_eq!(id_of(&pick_by_name(list.clone(), "pg-main-OLD").unwrap()), "12", "else ignoring case");
-        let twice = vec![secret("db", "21", false, "{}"), secret("db", "22", true, "{}")];
+        let list = vec![
+            secret("pg-main", "11", false, "{}"),
+            secret("pg-main-old", "12", false, "{}"),
+            secret("PG-MAIN", "13", false, "{}"),
+        ];
+        assert_eq!(
+            id_of(&pick_by_name(list.clone(), "pg-main").unwrap()),
+            "11",
+            "exact first"
+        );
+        assert_eq!(
+            id_of(&pick_by_name(list.clone(), "pg-main-OLD").unwrap()),
+            "12",
+            "else ignoring case"
+        );
+        let twice = vec![
+            secret("db", "21", false, "{}"),
+            secret("db", "22", true, "{}"),
+        ];
         let e = pick_by_name(twice, "db").unwrap_err();
-        assert!(e.contains("2 secretos «db»") && e.contains("21") && e.contains("22"), "{e}");
+        assert!(
+            e.contains("2 secretos «db»") && e.contains("21") && e.contains("22"),
+            "{e}"
+        );
         let e = pick_by_name(list, "mysql").unwrap_err();
-        assert!(e.contains("no hay un secreto «mysql»") && e.contains("pg-main"), "{e}");
-        assert!(pick_by_name(vec![], "x").unwrap_err().contains("no tiene acceso"));
+        assert!(
+            e.contains("no hay un secreto «mysql»") && e.contains("pg-main"),
+            "{e}"
+        );
+        assert!(pick_by_name(vec![], "x")
+            .unwrap_err()
+            .contains("no tiene acceso"));
     }
 
     #[test]
     fn errors() {
         assert!(oauth_error(200, "invalid_client", "").contains("ID o el secreto del cliente"));
         assert!(oauth_error(200, "invalid_code", "").contains("token de actualización"));
-        assert!(oauth_error(400, "Access Denied", "You have made too many requests continuously.").contains("tan seguido"));
-        assert_eq!(oauth_error(500, "", ""), "Zoho respondió 500 al pedir el token de acceso");
+        assert!(oauth_error(
+            400,
+            "Access Denied",
+            "You have made too many requests continuously."
+        )
+        .contains("tan seguido"));
+        assert_eq!(
+            oauth_error(500, "", ""),
+            "Zoho respondió 500 al pedir el token de acceso"
+        );
         assert!(api_error(200, "INVALID_OAUTHSCOPE", "").contains("ZohoVault.secrets.READ"));
         assert_eq!(api_error(500, "", ""), "Zoho Vault respondió 500");
-        assert_eq!(api_error(200, "SOMETHING", "went wrong"), "Zoho Vault rechazó el pedido (SOMETHING): went wrong");
-        assert_eq!(api_error(200, "SECRET_NOT_FOUND", "SECRET_NOT_FOUND"), "Zoho Vault rechazó el pedido (SECRET_NOT_FOUND)", "the code once");
+        assert_eq!(
+            api_error(200, "SOMETHING", "went wrong"),
+            "Zoho Vault rechazó el pedido (SOMETHING): went wrong"
+        );
+        assert_eq!(
+            api_error(200, "SECRET_NOT_FOUND", "SECRET_NOT_FOUND"),
+            "Zoho Vault rechazó el pedido (SECRET_NOT_FOUND)",
+            "the code once"
+        );
         let e = api_error(400, "EXTRA_PARAM_FOUND", "EXTRA_PARAM_FOUND");
-        assert!(e.starts_with("Zoho Vault rechazó el pedido (EXTRA_PARAM_FOUND)") && e.matches("EXTRA_PARAM_FOUND").count() == 1, "{e}");
-        assert!(api_error(200, "URL_ROLLING_THROTTLES_LIMIT_EXCEEDED", "").contains("probá en unos minutos"));
-        assert_eq!(api_error(200, "NO_PERMISSION", "no access to this secret"), "Zoho Vault: permiso denegado (NO_PERMISSION): no access to this secret");
+        assert!(
+            e.starts_with("Zoho Vault rechazó el pedido (EXTRA_PARAM_FOUND)")
+                && e.matches("EXTRA_PARAM_FOUND").count() == 1,
+            "{e}"
+        );
+        assert!(api_error(200, "URL_ROLLING_THROTTLES_LIMIT_EXCEEDED", "")
+            .contains("probá en unos minutos"));
+        assert_eq!(
+            api_error(200, "NO_PERMISSION", "no access to this secret"),
+            "Zoho Vault: permiso denegado (NO_PERMISSION): no access to this secret"
+        );
     }
 
     #[test]
     fn only_the_data_centres_hosts() {
         let ep = Endpoints::of("eu").unwrap();
-        assert_eq!((ep.accounts.as_str(), ep.vault.as_str()), ("https://accounts.zoho.eu", "https://vault.zoho.eu"));
+        assert_eq!(
+            (ep.accounts.as_str(), ep.vault.as_str()),
+            ("https://accounts.zoho.eu", "https://vault.zoho.eu")
+        );
         let ep = Endpoints::of("ca").unwrap();
         assert_eq!(ep.vault, "https://vault.zohocloud.ca");
-        for dc in ["", "evil.com", "https://evil.com", "eu.evil.com", "127.0.0.1"] {
+        for dc in [
+            "",
+            "evil.com",
+            "https://evil.com",
+            "eu.evil.com",
+            "127.0.0.1",
+        ] {
             assert!(Endpoints::of(dc).is_none(), "{dc}");
         }
     }
@@ -1106,15 +1737,23 @@ mod tests {
     /// Zoho's request filter: an argument the URL doesn't declare is
     /// refused (EXTRA_PARAM_FOUND, the code repeated as the message), and so
     /// is a missing mandatory one.
-    fn refused(q: &HashMap<String, String>, allowed: &[&str], required: &[&str]) -> Option<Json<Value>> {
+    fn refused(
+        q: &HashMap<String, String>,
+        allowed: &[&str],
+        required: &[&str],
+    ) -> Option<Json<Value>> {
         if q.keys().any(|k| !allowed.contains(&k.as_str())) {
             return Some(failed("EXTRA_PARAM_FOUND"));
         }
-        required.iter().any(|r| !q.contains_key(*r)).then(|| failed("LESS_THAN_MIN_OCCURANCE"))
+        required
+            .iter()
+            .any(|r| !q.contains_key(*r))
+            .then(|| failed("LESS_THAN_MIN_OCCURANCE"))
     }
 
     fn authorized(h: &HeaderMap, m: &Mock) -> bool {
-        let ok = h.get("authorization").and_then(|v| v.to_str().ok()) == Some("Zoho-oauthtoken at-1");
+        let ok =
+            h.get("authorization").and_then(|v| v.to_str().ok()) == Some("Zoho-oauthtoken at-1");
         if !ok {
             *m.bad_auth.lock().unwrap() += 1;
         }
@@ -1122,7 +1761,9 @@ mod tests {
     }
 
     fn failed(code: &str) -> Json<Value> {
-        Json(json!({ "operation": { "result": { "status": "failed", "error_code": code, "message": code } } }))
+        Json(
+            json!({ "operation": { "result": { "status": "failed", "error_code": code, "message": code } } }),
+        )
     }
 
     async fn mock_server() -> (String, Arc<Mock>) {
@@ -1245,7 +1886,12 @@ mod tests {
     }
 
     fn creds(passphrase: &str, refresh: &str) -> Creds {
-        Creds { client_id: "1000.CLIENT".into(), client_secret: "dummy-client-secret".into(), refresh_token: refresh.into(), passphrase: passphrase.into() }
+        Creds {
+            client_id: "1000.CLIENT".into(),
+            client_secret: "dummy-client-secret".into(),
+            refresh_token: refresh.into(),
+            passphrase: passphrase.into(),
+        }
     }
 
     /// Everything against a mock of Zoho's endpoints (no Zoho account was
@@ -1254,41 +1900,117 @@ mod tests {
     #[tokio::test]
     async fn against_a_mock_of_the_api() {
         let (base, mock) = mock_server().await;
-        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
-        let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+        let ep = Endpoints {
+            accounts: base.clone(),
+            vault: base.clone(),
+        };
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
         let v = vectors();
         let pass = s(&v, "passphrase").to_string();
-        let r = |secret: &'static str, attribute: &'static str, username: bool| Request { data_center: "eu", secret, attribute, username, user_field: "" };
+        let r = |secret: &'static str, attribute: &'static str, username: bool| Request {
+            data_center: "eu",
+            secret,
+            attribute,
+            username,
+            user_field: "",
+        };
         // Each test uses its own refresh token: the access token cache is
         // keyed by it.
         let c = creds(&pass, "1000.dummy-refresh");
         forget_token(&token_cache_key(&ep, &c));
-        assert_eq!(read_with(&client, &ep, &r("pg-main", "", true), &c).await.unwrap(), ("pg-secret-1".into(), Some("app_user".into())));
-        assert_eq!(read_with(&client, &ep, &r("2000000000001", "username", false), &c).await.unwrap().0, "app_user", "by ID");
-        assert_eq!(read_with(&client, &ep, &r("org-db", "", true), &c).await.unwrap(), ("org-secret-9".into(), Some("org_user".into())), "shared: the organization key");
-        assert_eq!(read_with(&client, &ep, &r("org-db", "Port", false), &c).await.unwrap().0, "5432");
-        assert_eq!(*mock.token_requests.lock().unwrap(), 1, "one access token for all of them");
+        assert_eq!(
+            read_with(&client, &ep, &r("pg-main", "", true), &c)
+                .await
+                .unwrap(),
+            ("pg-secret-1".into(), Some("app_user".into()))
+        );
+        assert_eq!(
+            read_with(&client, &ep, &r("2000000000001", "username", false), &c)
+                .await
+                .unwrap()
+                .0,
+            "app_user",
+            "by ID"
+        );
+        assert_eq!(
+            read_with(&client, &ep, &r("org-db", "", true), &c)
+                .await
+                .unwrap(),
+            ("org-secret-9".into(), Some("org_user".into())),
+            "shared: the organization key"
+        );
+        assert_eq!(
+            read_with(&client, &ep, &r("org-db", "Port", false), &c)
+                .await
+                .unwrap()
+                .0,
+            "5432"
+        );
+        assert_eq!(
+            *mock.token_requests.lock().unwrap(),
+            1,
+            "one access token for all of them"
+        );
         // Zoho says the access token expired: a new one, once.
         *mock.expire_once.lock().unwrap() = true;
-        assert_eq!(read_with(&client, &ep, &r("pg-main", "", false), &c).await.unwrap().0, "pg-secret-1");
+        assert_eq!(
+            read_with(&client, &ep, &r("pg-main", "", false), &c)
+                .await
+                .unwrap()
+                .0,
+            "pg-secret-1"
+        );
         assert_eq!(*mock.token_requests.lock().unwrap(), 2);
-        let e = read_with(&client, &ep, &r("twin", "", false), &c).await.unwrap_err();
-        assert!(e.contains("2 secretos «twin»") && e.contains("2000000000003"), "{e}");
-        let e = read_with(&client, &ep, &r("nothing", "", false), &c).await.unwrap_err();
+        let e = read_with(&client, &ep, &r("twin", "", false), &c)
+            .await
+            .unwrap_err();
+        assert!(
+            e.contains("2 secretos «twin»") && e.contains("2000000000003"),
+            "{e}"
+        );
+        let e = read_with(&client, &ep, &r("nothing", "", false), &c)
+            .await
+            .unwrap_err();
         assert!(e.contains("no hay un secreto «nothing»"), "{e}");
-        let e = read_with(&client, &ep, &r("2000000000999", "", false), &c).await.unwrap_err();
+        let e = read_with(&client, &ep, &r("2000000000999", "", false), &c)
+            .await
+            .unwrap_err();
         assert!(e.contains("SECRET_NOT_FOUND"), "{e}");
-        let e = read_with(&client, &ep, &r("pg-main", "", false), &creds("wrong passphrase", "1000.dummy-refresh")).await.unwrap_err();
+        let e = read_with(
+            &client,
+            &ep,
+            &r("pg-main", "", false),
+            &creds("wrong passphrase", "1000.dummy-refresh"),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(e, WRONG_PASSPHRASE);
         // A wrong refresh token or client secret: Zoho's answer, never the values.
         let bad = creds(&pass, "1000.revoked");
-        let e = read_with(&client, &ep, &r("pg-main", "", false), &bad).await.unwrap_err();
-        assert!(e.contains("token de actualización") && !e.contains("revoked"), "{e}");
+        let e = read_with(&client, &ep, &r("pg-main", "", false), &bad)
+            .await
+            .unwrap_err();
+        assert!(
+            e.contains("token de actualización") && !e.contains("revoked"),
+            "{e}"
+        );
         let mut bad = creds(&pass, "1000.dummy-refresh-2");
         bad.client_secret = "nope".into();
-        let e = read_with(&client, &ep, &r("pg-main", "", false), &bad).await.unwrap_err();
-        assert!(e.contains("secreto del cliente") && !e.contains("nope"), "{e}");
-        assert_eq!(*mock.bad_auth.lock().unwrap(), 0, "every API call carried the access token");
+        let e = read_with(&client, &ep, &r("pg-main", "", false), &bad)
+            .await
+            .unwrap_err();
+        assert!(
+            e.contains("secreto del cliente") && !e.contains("nope"),
+            "{e}"
+        );
+        assert_eq!(
+            *mock.bad_auth.lock().unwrap(),
+            0,
+            "every API call carried the access token"
+        );
         forget_token(&token_cache_key(&ep, &c));
     }
 
@@ -1297,16 +2019,36 @@ mod tests {
     #[tokio::test]
     async fn browse_against_the_mock() {
         let (base, _) = mock_server().await;
-        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let ep = Endpoints {
+            accounts: base.clone(),
+            vault: base.clone(),
+        };
         let client = reqwest::Client::new();
         let c = creds("", "1000.dummy-refresh");
-        let l = browse_with(&client, &ep, &c, Default::default()).await.unwrap();
+        let l = browse_with(&client, &ep, &c, Default::default())
+            .await
+            .unwrap();
         let ids: Vec<&str> = l.entries.iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ids, ["AZURE - BRAZIL- PROD - SQL - ADMIN", "org-db", "pg-main", "2000000000003", "2000000000004"]);
-        let at = crate::secret_sources::browse::At { item: Some("pg-main"), ..Default::default() };
+        assert_eq!(
+            ids,
+            [
+                "AZURE - BRAZIL- PROD - SQL - ADMIN",
+                "org-db",
+                "pg-main",
+                "2000000000003",
+                "2000000000004"
+            ]
+        );
+        let at = crate::secret_sources::browse::At {
+            item: Some("pg-main"),
+            ..Default::default()
+        };
         let l = browse_with(&client, &ep, &c, at).await.unwrap();
         let fields = l.fields.clone().unwrap();
-        assert!(fields.contains(&"password".to_string()) && fields.contains(&"username".to_string()), "{fields:?}");
+        assert!(
+            fields.contains(&"password".to_string()) && fields.contains(&"username".to_string()),
+            "{fields:?}"
+        );
         let v = vectors();
         let json = serde_json::to_string(&l).unwrap();
         assert!(!json.contains(s(&v, "personal_secret_data")), "{json}");
@@ -1319,24 +2061,63 @@ mod tests {
     #[tokio::test]
     async fn a_searched_name_with_spaces_and_hyphens() {
         let (base, _) = mock_server().await;
-        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let ep = Endpoints {
+            accounts: base.clone(),
+            vault: base.clone(),
+        };
         let client = reqwest::Client::new();
         let name = "AZURE - BRAZIL- PROD - SQL - ADMIN";
         let c = creds("", "1000.dummy-refresh");
-        let at = crate::secret_sources::browse::At { query: "AZURE - BRAZIL- PROD", ..Default::default() };
+        let at = crate::secret_sources::browse::At {
+            query: "AZURE - BRAZIL- PROD",
+            ..Default::default()
+        };
         let l = browse_with(&client, &ep, &c, at).await.unwrap();
-        assert!(l.complete && l.entries.iter().any(|e| e.id == name), "{:?}", l.entries);
-        let at = crate::secret_sources::browse::At { item: Some(name), query: "AZURE - BRAZIL- PROD", ..Default::default() };
-        let fields = browse_with(&client, &ep, &c, at).await.unwrap().fields.unwrap();
+        assert!(
+            l.complete && l.entries.iter().any(|e| e.id == name),
+            "{:?}",
+            l.entries
+        );
+        let at = crate::secret_sources::browse::At {
+            item: Some(name),
+            query: "AZURE - BRAZIL- PROD",
+            ..Default::default()
+        };
+        let fields = browse_with(&client, &ep, &c, at)
+            .await
+            .unwrap()
+            .fields
+            .unwrap();
         assert!(fields.contains(&"password".to_string()), "{fields:?}");
         forget_token(&token_cache_key(&ep, &c));
         let v = vectors();
         let c = creds(s(&v, "passphrase"), "1000.dummy-refresh");
-        let r = |secret: &'static str| Request { data_center: "eu", secret, attribute: "", username: true, user_field: "" };
-        assert_eq!(read_with(&client, &ep, &r(name), &c).await.unwrap(), ("pg-secret-1".into(), Some("app_user".into())));
-        assert_eq!(read_with(&client, &ep, &r("azure - brazil- prod - sql - admin"), &c).await.unwrap().0, "pg-secret-1", "ignoring case");
-        let e = read_with(&client, &ep, &r("AZURE - BRAZIL"), &c).await.unwrap_err();
-        assert!(e.contains("no hay un secreto «AZURE - BRAZIL»") && e.contains(name), "similar names: {e}");
+        let r = |secret: &'static str| Request {
+            data_center: "eu",
+            secret,
+            attribute: "",
+            username: true,
+            user_field: "",
+        };
+        assert_eq!(
+            read_with(&client, &ep, &r(name), &c).await.unwrap(),
+            ("pg-secret-1".into(), Some("app_user".into()))
+        );
+        assert_eq!(
+            read_with(&client, &ep, &r("azure - brazil- prod - sql - admin"), &c)
+                .await
+                .unwrap()
+                .0,
+            "pg-secret-1",
+            "ignoring case"
+        );
+        let e = read_with(&client, &ep, &r("AZURE - BRAZIL"), &c)
+            .await
+            .unwrap_err();
+        assert!(
+            e.contains("no hay un secreto «AZURE - BRAZIL»") && e.contains(name),
+            "similar names: {e}"
+        );
         forget_token(&token_cache_key(&ep, &c));
     }
 
@@ -1346,24 +2127,51 @@ mod tests {
     async fn by_name_across_pages() {
         let (base, mock) = mock_server().await;
         *mock.filler.lock().unwrap() = 250;
-        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let ep = Endpoints {
+            accounts: base.clone(),
+            vault: base.clone(),
+        };
         let client = reqwest::Client::new();
         let v = vectors();
         let c = creds(s(&v, "passphrase"), "1000.dummy-refresh");
-        let r = |secret: &'static str| Request { data_center: "eu", secret, attribute: "", username: false, user_field: "" };
-        assert_eq!(read_with(&client, &ep, &r("pg-main"), &c).await.unwrap().0, "pg-secret-1");
-        assert_eq!(*mock.list_calls.lock().unwrap(), 3, "255 secrets: pages 0, 1 and 2");
-        assert_eq!(read_with(&client, &ep, &r("org-db"), &c).await.unwrap().0, "org-secret-9", "shared, on the last page");
+        let r = |secret: &'static str| Request {
+            data_center: "eu",
+            secret,
+            attribute: "",
+            username: false,
+            user_field: "",
+        };
+        assert_eq!(
+            read_with(&client, &ep, &r("pg-main"), &c).await.unwrap().0,
+            "pg-secret-1"
+        );
+        assert_eq!(
+            *mock.list_calls.lock().unwrap(),
+            3,
+            "255 secrets: pages 0, 1 and 2"
+        );
+        assert_eq!(
+            read_with(&client, &ep, &r("org-db"), &c).await.unwrap().0,
+            "org-secret-9",
+            "shared, on the last page"
+        );
         let e = read_with(&client, &ep, &r("twin"), &c).await.unwrap_err();
         assert!(e.contains("2 secretos «twin»"), "{e}");
-        let l = browse_with(&client, &ep, &c, Default::default()).await.unwrap();
+        let l = browse_with(&client, &ep, &c, Default::default())
+            .await
+            .unwrap();
         assert_eq!(l.entries.len(), 255);
         assert!(!l.truncated);
         // If pageNum counted from 1, page 0 would repeat page 1: nothing twice.
         *mock.one_based.lock().unwrap() = true;
-        let l = browse_with(&client, &ep, &c, Default::default()).await.unwrap();
+        let l = browse_with(&client, &ep, &c, Default::default())
+            .await
+            .unwrap();
         assert_eq!(l.entries.len(), 255, "no repeated page");
-        assert_eq!(read_with(&client, &ep, &r("pg-main"), &c).await.unwrap().0, "pg-secret-1");
+        assert_eq!(
+            read_with(&client, &ep, &r("pg-main"), &c).await.unwrap().0,
+            "pg-secret-1"
+        );
         forget_token(&token_cache_key(&ep, &c));
     }
 
@@ -1371,13 +2179,33 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_argument_is_refused() {
         let (base, _) = mock_server().await;
-        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let ep = Endpoints {
+            accounts: base.clone(),
+            vault: base.clone(),
+        };
         let client = reqwest::Client::new();
         let c = creds("", "1000.dummy-refresh");
-        let e = api(&client, &ep, &c, "/api/rest/json/v1/secrets?isAsc=true&pageNum=0&rowPerPage=100&passwordName=x").await.unwrap_err();
-        assert!(e.starts_with("Zoho Vault rechazó el pedido (EXTRA_PARAM_FOUND)") && e.matches("EXTRA_PARAM_FOUND").count() == 1, "{e}");
-        assert!(api(&client, &ep, &c, "/api/rest/json/v1/user/orgkey?x=1").await.unwrap_err().contains("EXTRA_PARAM_FOUND"));
-        assert!(api(&client, &ep, &c, "/api/rest/json/v1/secrets?pageNum=0").await.unwrap_err().contains("LESS_THAN_MIN_OCCURANCE"));
+        let e = api(
+            &client,
+            &ep,
+            &c,
+            "/api/rest/json/v1/secrets?isAsc=true&pageNum=0&rowPerPage=100&passwordName=x",
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            e.starts_with("Zoho Vault rechazó el pedido (EXTRA_PARAM_FOUND)")
+                && e.matches("EXTRA_PARAM_FOUND").count() == 1,
+            "{e}"
+        );
+        assert!(api(&client, &ep, &c, "/api/rest/json/v1/user/orgkey?x=1")
+            .await
+            .unwrap_err()
+            .contains("EXTRA_PARAM_FOUND"));
+        assert!(api(&client, &ep, &c, "/api/rest/json/v1/secrets?pageNum=0")
+            .await
+            .unwrap_err()
+            .contains("LESS_THAN_MIN_OCCURANCE"));
         forget_token(&token_cache_key(&ep, &c));
     }
 
@@ -1415,7 +2243,10 @@ mod tests {
     }
 
     fn servers(base: &str) -> Vec<(String, String)> {
-        ["com", "eu", "in", "jp"].iter().map(|dc| (dc.to_string(), format!("{base}/{dc}"))).collect()
+        ["com", "eu", "in", "jp"]
+            .iter()
+            .map(|dc| (dc.to_string(), format!("{base}/{dc}")))
+            .collect()
     }
 
     /// The data centre is found by trying the code: `invalid_client`
@@ -1424,9 +2255,28 @@ mod tests {
     async fn the_data_centre_is_detected() {
         let (base, seen) = dc_mock().await;
         let client = reqwest::Client::new();
-        let ex = exchange_code_with(&client, &servers(&base), " 1000.CLIENT ", "dummy-client-secret", "1000.good-code\n").await.unwrap();
-        assert_eq!((ex.data_center.as_str(), ex.refresh_token.as_str(), ex.access_token.as_str()), ("eu", "1000.rt-new", "at-new"));
-        assert_eq!(seen.lock().unwrap().as_slice(), ["com", "eu"], "tried in order, stopped at the one");
+        let ex = exchange_code_with(
+            &client,
+            &servers(&base),
+            " 1000.CLIENT ",
+            "dummy-client-secret",
+            "1000.good-code\n",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (
+                ex.data_center.as_str(),
+                ex.refresh_token.as_str(),
+                ex.access_token.as_str()
+            ),
+            ("eu", "1000.rt-new", "at-new")
+        );
+        assert_eq!(
+            seen.lock().unwrap().as_slice(),
+            ["com", "eu"],
+            "tried in order, stopped at the one"
+        );
     }
 
     /// Expired or used codes, a wrong secret, an unknown client: each its
@@ -1435,18 +2285,56 @@ mod tests {
     async fn exchange_errors() {
         let (base, _) = dc_mock().await;
         let client = reqwest::Client::new();
-        let e = exchange_code_with(&client, &servers(&base), "1000.CLIENT", "dummy-client-secret", "1000.old-code").await.err().unwrap();
+        let e = exchange_code_with(
+            &client,
+            &servers(&base),
+            "1000.CLIENT",
+            "dummy-client-secret",
+            "1000.old-code",
+        )
+        .await
+        .err()
+        .unwrap();
         assert_eq!(e, CODE_EXPIRED);
         assert!(e.contains("generá un código nuevo"));
-        let e = exchange_code_with(&client, &servers(&base), "1000.CLIENT", "nope-secret", "1000.good-code").await.err().unwrap();
+        let e = exchange_code_with(
+            &client,
+            &servers(&base),
+            "1000.CLIENT",
+            "nope-secret",
+            "1000.good-code",
+        )
+        .await
+        .err()
+        .unwrap();
         assert_eq!(e, WRONG_CLIENT_SECRET);
-        let e = exchange_code_with(&client, &servers(&base), "1000.OTHER", "dummy-client-secret", "1000.good-code").await.err().unwrap();
+        let e = exchange_code_with(
+            &client,
+            &servers(&base),
+            "1000.OTHER",
+            "dummy-client-secret",
+            "1000.good-code",
+        )
+        .await
+        .err()
+        .unwrap();
         assert_eq!(e, UNKNOWN_CLIENT);
         assert!(!e.contains("1000.OTHER") && !e.contains("dummy-client-secret"));
-        assert!(exchange_code_with(&client, &servers(&base), "1000.CLIENT", "dummy-client-secret", "  ").await.is_err());
+        assert!(exchange_code_with(
+            &client,
+            &servers(&base),
+            "1000.CLIENT",
+            "dummy-client-secret",
+            "  "
+        )
+        .await
+        .is_err());
         // A server that can't be reached is skipped, and said when nothing answered.
         let down = vec![("com".to_string(), "http://127.0.0.1:9".to_string())];
-        let e = exchange_code_with(&client, &down, "1000.CLIENT", "s", "c").await.err().unwrap();
+        let e = exchange_code_with(&client, &down, "1000.CLIENT", "s", "c")
+            .await
+            .err()
+            .unwrap();
         assert!(e.contains("no se pudo consultar a Zoho en com"), "{e}");
     }
 
@@ -1459,17 +2347,40 @@ mod tests {
         let list = accounts_servers();
         assert!(list.len() >= 12);
         for (dc, url) in &list {
-            let host = url.strip_prefix("https://").unwrap_or_else(|| panic!("{dc}: {url}"));
+            let host = url
+                .strip_prefix("https://")
+                .unwrap_or_else(|| panic!("{dc}: {url}"));
             assert!(host.starts_with("accounts."), "{dc}: {host}");
             let domain = host.trim_start_matches("accounts.");
-            assert!(["zoho.", "zohocloud.ca", "zohohq.in"].iter().any(|d| domain.starts_with(d)), "{dc}: {domain}");
+            assert!(
+                ["zoho.", "zohocloud.ca", "zohohq.in"]
+                    .iter()
+                    .any(|d| domain.starts_with(d)),
+                "{dc}: {domain}"
+            );
             assert!(!host.contains(['/', '@', ':', '?']), "{dc}: {host}");
         }
-        assert!(list.iter().any(|(dc, u)| dc == "inec" && u == "https://accounts.zohohq.in"), "Zoho's live list has it");
+        assert!(
+            list.iter()
+                .any(|(dc, u)| dc == "inec" && u == "https://accounts.zohohq.in"),
+            "Zoho's live list has it"
+        );
         let (base, seen) = dc_mock().await;
-        let e = exchange_code_with(&https_client().unwrap(), &servers(&base), "1000.CLIENT", "dummy-client-secret", "1000.good-code").await.err().unwrap();
+        let e = exchange_code_with(
+            &https_client().unwrap(),
+            &servers(&base),
+            "1000.CLIENT",
+            "dummy-client-secret",
+            "1000.good-code",
+        )
+        .await
+        .err()
+        .unwrap();
         assert!(e.contains("no se pudo consultar"), "{e}");
-        assert!(seen.lock().unwrap().is_empty(), "nothing went over plain HTTP");
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "nothing went over plain HTTP"
+        );
     }
 
     /// GET_LOGIN with the new token: the user for the label, and only what
@@ -1481,12 +2392,23 @@ mod tests {
         let d = login_details_with(&client, &base, "at-1").await.unwrap();
         let v = vectors();
         assert_eq!(identity_of(&d), "", "the mock has no USER");
-        assert_eq!(identity_of(&json!({ "USER": { "USERNAME": "ana", "EMAIL": "ana@example.com" } })), "ana@example.com");
-        assert_eq!(identity_of(&json!({ "USER": { "USERNAME": "ana", "EMAIL": "" } })), "ana");
+        assert_eq!(
+            identity_of(&json!({ "USER": { "USERNAME": "ana", "EMAIL": "ana@example.com" } })),
+            "ana@example.com"
+        );
+        assert_eq!(
+            identity_of(&json!({ "USER": { "USERNAME": "ana", "EMAIL": "" } })),
+            "ana"
+        );
         let check = passphrase_check(&d);
-        assert_eq!(master_key(&check, s(&v, "passphrase")).unwrap(), s(&v, "master"));
+        assert_eq!(
+            master_key(&check, s(&v, "passphrase")).unwrap(),
+            s(&v, "master")
+        );
         assert_eq!(master_key(&check, "wrong").unwrap_err(), WRONG_PASSPHRASE);
-        let e = login_details_with(&client, &base, "bad-token").await.unwrap_err();
+        let e = login_details_with(&client, &base, "bad-token")
+            .await
+            .unwrap_err();
         assert!(e.contains(SCOPES), "{e}");
     }
 
@@ -1496,25 +2418,60 @@ mod tests {
     #[tokio::test]
     async fn one_access_token_per_account() {
         let (base, mock) = mock_server().await;
-        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let ep = Endpoints {
+            accounts: base.clone(),
+            vault: base.clone(),
+        };
         let client = reqwest::Client::new();
         let v = vectors();
         let account = || creds(s(&v, "passphrase"), "1000.dummy-refresh-acct");
         forget_token(&token_cache_key(&ep, &account()));
-        let conn_a = Request { data_center: "eu", secret: "pg-main", attribute: "", username: false, user_field: "" };
-        let conn_b = Request { data_center: "eu", secret: "org-db", attribute: "", username: false, user_field: "" };
+        let conn_a = Request {
+            data_center: "eu",
+            secret: "pg-main",
+            attribute: "",
+            username: false,
+            user_field: "",
+        };
+        let conn_b = Request {
+            data_center: "eu",
+            secret: "org-db",
+            attribute: "",
+            username: false,
+            user_field: "",
+        };
         let before = *mock.token_requests.lock().unwrap();
         // The mock only knows `1000.dummy-refresh`: seed as the wizard does.
         seed_token(&ep, &account(), "at-1", 3600);
-        assert_eq!(read_with(&client, &ep, &conn_a, &account()).await.unwrap().0, "pg-secret-1");
-        assert_eq!(read_with(&client, &ep, &conn_b, &account()).await.unwrap().0, "org-secret-9");
-        assert_eq!(*mock.token_requests.lock().unwrap(), before, "the token the exchange gave serves both connections");
+        assert_eq!(
+            read_with(&client, &ep, &conn_a, &account())
+                .await
+                .unwrap()
+                .0,
+            "pg-secret-1"
+        );
+        assert_eq!(
+            read_with(&client, &ep, &conn_b, &account())
+                .await
+                .unwrap()
+                .0,
+            "org-secret-9"
+        );
+        assert_eq!(
+            *mock.token_requests.lock().unwrap(),
+            before,
+            "the token the exchange gave serves both connections"
+        );
         forget_token(&token_cache_key(&ep, &account()));
         let c = creds(s(&v, "passphrase"), "1000.dummy-refresh");
         forget_token(&token_cache_key(&ep, &c));
         read_with(&client, &ep, &conn_a, &c).await.unwrap();
         read_with(&client, &ep, &conn_b, &c).await.unwrap();
-        assert_eq!(*mock.token_requests.lock().unwrap(), before + 1, "one refresh for both");
+        assert_eq!(
+            *mock.token_requests.lock().unwrap(),
+            before + 1,
+            "one refresh for both"
+        );
         forget_token(&token_cache_key(&ep, &c));
     }
 
@@ -1523,9 +2480,25 @@ mod tests {
     async fn production_client_is_https_only() {
         let (base, _) = mock_server().await;
         let client = reqwest::Client::builder().https_only(true).build().unwrap();
-        let ep = Endpoints { accounts: base.clone(), vault: base };
+        let ep = Endpoints {
+            accounts: base.clone(),
+            vault: base,
+        };
         let c = creds("x", "1000.dummy-refresh-https");
-        let e = read_with(&client, &ep, &Request { data_center: "eu", secret: "pg-main", attribute: "", username: false, user_field: "" }, &c).await.unwrap_err();
+        let e = read_with(
+            &client,
+            &ep,
+            &Request {
+                data_center: "eu",
+                secret: "pg-main",
+                attribute: "",
+                username: false,
+                user_field: "",
+            },
+            &c,
+        )
+        .await
+        .unwrap_err();
         assert!(e.starts_with("no se pudo conectar con Zoho"), "{e}");
     }
 }

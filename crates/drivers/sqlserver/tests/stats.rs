@@ -32,17 +32,29 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
 fn rows_of(est: &[RowEstimate], kind: &str, name: &str) -> Option<u64> {
-    est.iter().find(|e| e.object.kind == kind && e.object.name == name && e.object.schema.as_deref() == Some("dbo")).map(|e| e.rows)
+    est.iter()
+        .find(|e| {
+            e.object.kind == kind
+                && e.object.name == name
+                && e.object.schema.as_deref() == Some("dbo")
+        })
+        .map(|e| e.rows)
 }
 
 fn comment_of<'a>(c: &'a [ObjectComment], kind: &str, name: &str) -> Option<&'a str> {
     c.iter()
-        .find(|c| c.object.kind == kind && c.object.name == name && c.object.schema.as_deref() == Some("dbo"))
+        .find(|c| {
+            c.object.kind == kind
+                && c.object.name == name
+                && c.object.schema.as_deref() == Some("dbo")
+        })
         .map(|c| c.comment.as_str())
 }
 
@@ -57,7 +69,10 @@ async fn reads_partition_stats_and_descriptions() {
         eprintln!("DBINE_TEST_SQLSERVER_URL not set; skipping");
         return;
     };
-    let d = dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == "sqlserver").unwrap();
+    let d = dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "sqlserver")
+        .unwrap();
     let mut m = d.connect(&cfg, Some("master")).await.unwrap();
     let _ = m.drop_database(DB).await;
     m.create_database(DB).await.unwrap();
@@ -97,8 +112,16 @@ async fn reads_partition_stats_and_descriptions() {
     let est = s.row_estimates().await.unwrap();
     eprintln!("{est:?}");
     assert_eq!(rows_of(&est, "table", "clientes"), Some(1000));
-    assert_eq!(rows_of(&est, "table", "montones"), Some(250), "a heap counts too");
-    assert_eq!(rows_of(&est, "view", "v_clientes"), Some(300), "an indexed view keeps its rows");
+    assert_eq!(
+        rows_of(&est, "table", "montones"),
+        Some(250),
+        "a heap counts too"
+    );
+    assert_eq!(
+        rows_of(&est, "view", "v_clientes"),
+        Some(300),
+        "an indexed view keeps its rows"
+    );
     assert_eq!(rows_of(&est, "view", "v_simple"), None);
 
     let c = s.object_comments().await.unwrap();
@@ -106,15 +129,26 @@ async fn reads_partition_stats_and_descriptions() {
     assert_eq!(comment_of(&c, "view", "v_simple"), Some("Vista simple"));
     assert_eq!(comment_of(&c, "procedure", "limpiar"), Some("Limpia"));
     assert_eq!(comment_of(&c, "function", "doble"), Some("El doble"));
-    assert_eq!(comment_of(&c, "trigger", "tg_clientes"), Some("Al insertar"));
-    assert_eq!(comment_of(&c, "sequence", "seq_pedidos"), Some("Números de pedido"));
+    assert_eq!(
+        comment_of(&c, "trigger", "tg_clientes"),
+        Some("Al insertar")
+    );
+    assert_eq!(
+        comment_of(&c, "sequence", "seq_pedidos"),
+        Some("Números de pedido")
+    );
     assert_eq!(comment_of(&c, "synonym", "sin_clientes"), Some("Alias"));
     assert_eq!(comment_of(&c, "type", "codigo"), Some("Código"));
-    assert!(c.iter().all(|c| c.object.kind != "table"), "tables come with the schema");
+    assert!(
+        c.iter().all(|c| c.object.kind != "table"),
+        "tables come with the schema"
+    );
     let listed = s.list_objects().await.unwrap();
     for c in &c {
         assert!(
-            listed.iter().any(|o| o.kind == c.object.kind && o.schema == c.object.schema && o.name == c.object.name),
+            listed.iter().any(|o| o.kind == c.object.kind
+                && o.schema == c.object.schema
+                && o.name == c.object.name),
             "{:?} not in list_objects",
             c.object
         );

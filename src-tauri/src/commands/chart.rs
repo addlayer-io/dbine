@@ -58,21 +58,41 @@ pub struct ChartAggregateArgs {
 
 /// The chart's data over the whole result of `query`.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn chart_aggregate(state: State<'_, AppState>, args: ChartAggregateArgs) -> CommandResult<ChartAggregate> {
+pub async fn chart_aggregate(
+    state: State<'_, AppState>,
+    args: ChartAggregateArgs,
+) -> CommandResult<ChartAggregate> {
     if let Some(tab) = args.notebook_tab.as_deref().filter(|t| !t.is_empty()) {
-        return crate::notebook::local::aggregate_local(&state, tab, &args.query, &args.chart).await;
+        return crate::notebook::local::aggregate_local(&state, tab, &args.query, &args.chart)
+            .await;
     }
     let driver = driver_of(&state, &args.connection_id)?;
     let key = format!("chart:{}", args.chart_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, true)
+        .await?;
     let result = {
         let mut s = entry.session.lock().await;
-        let stop = Stop { cancel: &entry.cancel, cancelled: &entry.cancelled, interrupter: entry.interrupter.as_ref() };
-        aggregate_on(driver.as_ref(), &mut **s, &args.query, &args.chart, CLIENT_ROW_CAP, &stop).await
+        let stop = Stop {
+            cancel: &entry.cancel,
+            cancelled: &entry.cancelled,
+            interrupter: entry.interrupter.as_ref(),
+        };
+        aggregate_on(
+            driver.as_ref(),
+            &mut **s,
+            &args.query,
+            &args.chart,
+            CLIENT_ROW_CAP,
+            &stop,
+        )
+        .await
     };
     // The session was only for this chart (and a stopped statement leaves
     // it in an unknown state).
-    state.sessions.remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
+    state
+        .sessions
+        .remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
     result
 }
 
@@ -114,7 +134,9 @@ pub(crate) async fn aggregate_on(
 ) -> CommandResult<ChartAggregate> {
     let query = query.trim();
     if query.is_empty() {
-        return Err(CommandError::BadRequest("no hay consulta para el gráfico".into()));
+        return Err(CommandError::BadRequest(
+            "no hay consulta para el gráfico".into(),
+        ));
     }
     let language = driver.info().language;
     if matches!(language, Language::Sql | Language::Cql) && driver.split_script(query).len() > 1 {
@@ -123,12 +145,18 @@ pub(crate) async fn aggregate_on(
         ));
     }
     if let ChartKind::Group(spec) = chart {
-        let spec = aggregate::validate(spec).map_err(|e| CommandError::BadRequest(e.to_string()))?;
+        let spec =
+            aggregate::validate(spec).map_err(|e| CommandError::BadRequest(e.to_string()))?;
         if let Ok(statement) = driver.aggregate_query(query, &spec) {
             let max = spec.max_groups as usize + 1;
             match read(driver, s, query, &statement, max, None, None, stop).await {
                 Ok((out, _)) => {
-                    let rows = out.results.iter().find(|r| !r.columns.is_empty()).map(|r| r.rows.as_slice()).unwrap_or_default();
+                    let rows = out
+                        .results
+                        .iter()
+                        .find(|r| !r.columns.is_empty())
+                        .map(|r| r.rows.as_slice())
+                        .unwrap_or_default();
                     return Ok(aggregate::from_grouped(&spec, rows)?);
                 }
                 Err(Fail::Failed(e)) => {
@@ -143,11 +171,27 @@ pub(crate) async fn aggregate_on(
     }
     let capped = Arc::new(Notify::new());
     let wake = capped.clone();
-    let agg = Arc::new(Mutex::new(Aggregator::new(chart.clone(), cap).map_err(|e| CommandError::BadRequest(e.to_string()))?.on_cap(move || wake.notify_one())));
+    let agg = Arc::new(Mutex::new(
+        Aggregator::new(chart.clone(), cap)
+            .map_err(|e| CommandError::BadRequest(e.to_string()))?
+            .on_cap(move || wake.notify_one()),
+    ));
     let sink = RowSinkRef(agg.clone());
     let max = usize::try_from(cap.saturating_add(1)).unwrap_or(usize::MAX);
-    read(driver, s, query, query, max, Some(sink), Some(&capped), stop).await?;
-    let mut a = agg.lock().map_err(|_| CommandError::Internal("agregador del gráfico".into()))?;
+    read(
+        driver,
+        s,
+        query,
+        query,
+        max,
+        Some(sink),
+        Some(&capped),
+        stop,
+    )
+    .await?;
+    let mut a = agg
+        .lock()
+        .map_err(|_| CommandError::Internal("agregador del gráfico".into()))?;
     Ok(a.finish()?)
 }
 
@@ -176,15 +220,23 @@ pub(crate) async fn read(
     if stop.cancelled.load(Ordering::SeqCst) {
         return Err(Fail::Cancelled);
     }
-    let mut out = QueryOutcome { sink: sink.clone(), ..Default::default() };
+    let mut out = QueryOutcome {
+        sink: sink.clone(),
+        ..Default::default()
+    };
     match until(stop, capped, s.run_read_only(statement, max_rows, &mut out)).await {
         Until::Done(Err(Error::Unsupported(_))) => {}
         other => return settle(other, out),
     }
     if let Some(kw) = write_in(driver, query).or_else(|| write_in(driver, statement)) {
-        return Err(Fail::Refused(format!("el gráfico solo lee: la consulta tiene una sentencia {kw}")));
+        return Err(Fail::Refused(format!(
+            "el gráfico solo lee: la consulta tiene una sentencia {kw}"
+        )));
     }
-    let mut out = QueryOutcome { sink, ..Default::default() };
+    let mut out = QueryOutcome {
+        sink,
+        ..Default::default()
+    };
     let ran = until(stop, capped, s.execute(statement, max_rows, &mut out)).await;
     settle(ran, out)
 }
@@ -212,7 +264,11 @@ enum Until {
 
 /// Await `run` until it ends, is cancelled, or hits the row cap (then the
 /// statement is interrupted on the server and dropped).
-async fn until<F: Future<Output = dbine_driver::Result<()>>>(stop: &Stop<'_>, capped: Option<&Notify>, run: F) -> Until {
+async fn until<F: Future<Output = dbine_driver::Result<()>>>(
+    stop: &Stop<'_>,
+    capped: Option<&Notify>,
+    run: F,
+) -> Until {
     tokio::pin!(run);
     let cap = async {
         match capped {

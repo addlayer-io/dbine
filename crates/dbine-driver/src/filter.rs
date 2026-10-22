@@ -65,7 +65,9 @@ pub struct SqlFilterStyle<'a> {
 
 /// `%`, `_` and `\` inside a LIKE pattern, escaped with `\`.
 fn like_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn text_of(v: &Value) -> String {
@@ -82,10 +84,23 @@ pub fn sql_condition(filters: &[ColumnFilter], st: &SqlFilterStyle) -> Result<St
     for f in filters {
         let c = quote_ident(st.quote, &f.column);
         let lit = |v: &Value| (st.literal)(v);
-        let first = || f.values.first().cloned().ok_or_else(|| Error::Query(format!("el filtro de «{}» necesita un valor", f.column)));
+        let first = || {
+            f.values.first().cloned().ok_or_else(|| {
+                Error::Query(format!("el filtro de «{}» necesita un valor", f.column))
+            })
+        };
         let like = |pattern: String, not: bool| {
-            let esc = if pattern.contains('\\') { " ESCAPE '\\'" } else { "" };
-            format!("{c} {}{} {}{esc}", if not { "NOT " } else { "" }, st.like, lit(&Value::String(pattern)))
+            let esc = if pattern.contains('\\') {
+                " ESCAPE '\\'"
+            } else {
+                ""
+            };
+            format!(
+                "{c} {}{} {}{esc}",
+                if not { "NOT " } else { "" },
+                st.like,
+                lit(&Value::String(pattern))
+            )
         };
         let cond = match f.op {
             FilterOp::Eq => format!("{c} = {}", lit(&first()?)),
@@ -104,10 +119,17 @@ pub fn sql_condition(filters: &[ColumnFilter], st: &SqlFilterStyle) -> Result<St
             FilterOp::NotEmpty => format!("({c} IS NOT NULL AND {c} <> '')"),
             FilterOp::In | FilterOp::NotIn => {
                 if f.values.is_empty() {
-                    return Err(Error::Query(format!("el filtro de «{}» necesita al menos un valor", f.column)));
+                    return Err(Error::Query(format!(
+                        "el filtro de «{}» necesita al menos un valor",
+                        f.column
+                    )));
                 }
                 let list: Vec<String> = f.values.iter().map(lit).collect();
-                format!("{c} {}IN ({})", if f.op == FilterOp::NotIn { "NOT " } else { "" }, list.join(", "))
+                format!(
+                    "{c} {}IN ({})",
+                    if f.op == FilterOp::NotIn { "NOT " } else { "" },
+                    list.join(", ")
+                )
             }
             FilterOp::IsTrue => format!("{c} = {}", st.true_literal),
             FilterOp::IsFalse => format!("{c} = {}", st.false_literal),
@@ -142,7 +164,16 @@ pub fn insert_where(query: &str, cond: &str) -> Option<String> {
     }
     let at = after_from + end;
     let (head, tail) = query.split_at(at);
-    Some(format!("{}\nWHERE {cond}{}{}", head.trim_end(), if tail.starts_with('\n') || tail.is_empty() { "" } else { "\n" }, tail.trim_start_matches(' ')))
+    Some(format!(
+        "{}\nWHERE {cond}{}{}",
+        head.trim_end(),
+        if tail.starts_with('\n') || tail.is_empty() {
+            ""
+        } else {
+            "\n"
+        },
+        tail.trim_start_matches(' ')
+    ))
 }
 
 #[cfg(test)]
@@ -165,7 +196,12 @@ mod tests {
     }
 
     fn f(column: &str, op: FilterOp, values: Vec<Value>) -> ColumnFilter {
-        ColumnFilter { column: column.into(), op, values, sql: None }
+        ColumnFilter {
+            column: column.into(),
+            op,
+            values,
+            sql: None,
+        }
     }
 
     #[test]
@@ -176,7 +212,12 @@ mod tests {
                 f("id", FilterOp::In, vec![json!(1), json!(2)]),
                 f("activo", FilterOp::TrueOrNull, vec![]),
                 f("baja", FilterOp::IsNull, vec![]),
-                ColumnFilter { column: "total".into(), op: FilterOp::SqlRight, values: vec![], sql: Some("BETWEEN 1 AND 5".into()) },
+                ColumnFilter {
+                    column: "total".into(),
+                    op: FilterOp::SqlRight,
+                    values: vec![],
+                    sql: Some("BETWEEN 1 AND 5".into()),
+                },
             ],
             &style(),
         )
@@ -190,11 +231,24 @@ mod tests {
 
     #[test]
     fn where_goes_after_the_table() {
-        assert_eq!(insert_where("SELECT *\nFROM \"t\"\nLIMIT 200", "a = 1").unwrap(), "SELECT *\nFROM \"t\"\nWHERE a = 1\nLIMIT 200");
-        assert_eq!(insert_where("SELECT TOP (200) *\nFROM [dbo].[t]", "a = 1").unwrap(), "SELECT TOP (200) *\nFROM [dbo].[t]\nWHERE a = 1");
-        assert_eq!(insert_where("SELECT * FROM ks.t LIMIT 50;", "a = 1").unwrap(), "SELECT * FROM ks.t\nWHERE a = 1\nLIMIT 50;");
         assert_eq!(
-            insert_where("SELECT *\nFROM \"S\".\"T\"\nFETCH FIRST 10 ROWS ONLY", "a = 1").unwrap(),
+            insert_where("SELECT *\nFROM \"t\"\nLIMIT 200", "a = 1").unwrap(),
+            "SELECT *\nFROM \"t\"\nWHERE a = 1\nLIMIT 200"
+        );
+        assert_eq!(
+            insert_where("SELECT TOP (200) *\nFROM [dbo].[t]", "a = 1").unwrap(),
+            "SELECT TOP (200) *\nFROM [dbo].[t]\nWHERE a = 1"
+        );
+        assert_eq!(
+            insert_where("SELECT * FROM ks.t LIMIT 50;", "a = 1").unwrap(),
+            "SELECT * FROM ks.t\nWHERE a = 1\nLIMIT 50;"
+        );
+        assert_eq!(
+            insert_where(
+                "SELECT *\nFROM \"S\".\"T\"\nFETCH FIRST 10 ROWS ONLY",
+                "a = 1"
+            )
+            .unwrap(),
             "SELECT *\nFROM \"S\".\"T\"\nWHERE a = 1\nFETCH FIRST 10 ROWS ONLY"
         );
         assert!(insert_where("SHOW TABLES", "a = 1").is_none());

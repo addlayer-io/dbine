@@ -19,16 +19,18 @@ mod stats;
 mod sync;
 mod transfer;
 
+use async_trait::async_trait;
 use base64::Engine as _;
 use dbine_driver::sql::{
-    leading_keyword, select_top, split_script, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
+    leading_keyword, select_top, split_script, Limit, Quote, ScriptDefaults, ScriptDialect,
+    ScriptMode, StatementKind,
 };
 use dbine_driver::{
-    json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
-    Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn,
-    Result, RowChange, ScriptError, Session, TableSchema, TxState,
+    json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
+    FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange,
+    ScriptError, Session, TableSchema, TxState,
 };
-use async_trait::async_trait;
 use prost::Message;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -38,7 +40,16 @@ use std::time::Duration;
 const FRAME: i32 = 500;
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
-    vec![Arc::new(PhoenixDriver { info: info(), generic: false }), Arc::new(PhoenixDriver { info: avatica::info(), generic: true })]
+    vec![
+        Arc::new(PhoenixDriver {
+            info: info(),
+            generic: false,
+        }),
+        Arc::new(PhoenixDriver {
+            info: avatica::info(),
+            generic: true,
+        }),
+    ]
 }
 
 fn info() -> DriverInfo {
@@ -108,7 +119,10 @@ impl Driver for PhoenixDriver {
 
     /// sqlline / psql.py stop at the first error.
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: false,
+            confirm_unsafe_dml: true,
+        }
     }
 
     /// Autocommit off keeps UPSERTs and DELETEs on the server connection
@@ -128,7 +142,10 @@ impl Driver for PhoenixDriver {
     /// A generic Avatica server has nothing to monitor, and its DDL is the
     /// backend's.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: !self.generic, ..Capabilities::default() }
+        Capabilities {
+            monitor: !self.generic,
+            ..Capabilities::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -153,37 +170,70 @@ impl Driver for PhoenixDriver {
         !self.generic
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         if self.generic {
-            return Err(Error::Unsupported("el DDL depende de la base detrás del servidor Avatica".into()));
+            return Err(Error::Unsupported(
+                "el DDL depende de la base detrás del servidor Avatica".into(),
+            ));
         }
         sync::sync_script(changes)
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
         if self.generic {
-            return Err(Error::Unsupported("el DDL depende de la base detrás del servidor Avatica".into()));
+            return Err(Error::Unsupported(
+                "el DDL depende de la base detrás del servidor Avatica".into(),
+            ));
         }
         ddl::table_ddl(table, parts)
     }
 
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
         if self.generic {
             let flavor = dbine_driver::ddl::SqlFlavor::ansi();
-            return Ok(dbine_driver::ddl::insert_script(&flavor, target.schema(), &target.name, columns, rows, 100));
+            return Ok(dbine_driver::ddl::insert_script(
+                &flavor,
+                target.schema(),
+                &target.name,
+                columns,
+                rows,
+                100,
+            ));
         }
-        Ok(ddl::insert_script(target.schema(), &target.name, columns, rows))
+        Ok(ddl::insert_script(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         if self.generic {
             let flavor = dbine_driver::ddl::SqlFlavor::ansi();
-            return Ok(dbine_driver::ddl::update_script(&flavor, target.schema(), &target.name, changes));
+            return Ok(dbine_driver::ddl::update_script(
+                &flavor,
+                target.schema(),
+                &target.name,
+                changes,
+            ));
         }
         ddl::update_script(target.schema(), &target.name, changes)
     }
 
-    fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
+    fn filtered_browse(
+        &self,
+        browse: &str,
+        filters: &[dbine_driver::ColumnFilter],
+    ) -> Result<String> {
         ddl::filtered_browse(browse, filters, !self.generic)
     }
 
@@ -191,15 +241,31 @@ impl Driver for PhoenixDriver {
     /// empty, and HBase-ACL permissions (R, W, X, C, A) granted on them. A
     /// generic Avatica server's DDL is the backend's.
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
-        (!self.generic).then(|| dbine_driver::SchemaSpec { owner: false, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: false, privileges: ddl::SCHEMA_PERMISSIONS.to_vec(), grant_option: true })
+        (!self.generic).then(|| dbine_driver::SchemaSpec {
+            owner: false,
+            owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+            cascade: false,
+            privileges: ddl::SCHEMA_PERMISSIONS.to_vec(),
+            grant_option: true,
+        })
     }
 
-    fn create_schema_script(&self, _database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         self.phoenix_only()?;
         ddl::create_schema(name, owner)
     }
 
-    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
         self.phoenix_only()?;
         ddl::drop_schema(name, cascade)
     }
@@ -209,9 +275,17 @@ impl Driver for PhoenixDriver {
         ddl::schema_security(action)
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
+        let host = if cfg.host.trim().is_empty() {
+            "localhost"
+        } else {
+            cfg.host.trim()
+        };
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .danger_accept_invalid_certs(cfg.trust_server_certificate)
@@ -222,7 +296,11 @@ impl Driver for PhoenixDriver {
             url: format!(
                 "{scheme}://{host}:{}{}",
                 cfg.port_or(8765),
-                if self.generic { avatica::url_path(cfg.option("path")) } else { "/".into() }
+                if self.generic {
+                    avatica::url_path(cfg.option("path"))
+                } else {
+                    "/".into()
+                }
             ),
             user: cfg.username.clone().filter(|u| !u.is_empty()),
             password: cfg.password.clone(),
@@ -234,24 +312,43 @@ impl Driver for PhoenixDriver {
         };
         let open = async {
             client.call(Req::Open).await?;
-            client.call(Req::Sync { read_only: cfg.read_only }).await?;
+            client
+                .call(Req::Sync {
+                    read_only: cfg.read_only,
+                })
+                .await?;
             match client.call(Req::CreateStatement).await? {
                 Resp::Created(id) => Ok(id),
-                _ => Err(Error::Query("respuesta inesperada a createStatement".into())),
+                _ => Err(Error::Query(
+                    "respuesta inesperada a createStatement".into(),
+                )),
             }
         };
         let statement = tokio::time::timeout(Duration::from_secs(20), open)
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
-        let hbase = monitor::HBaseUis::from_config(host, cfg.option("hbase_master"), cfg.option("hbase_regionservers"));
-        Ok(Box::new(PhoenixSession { client, statement, hbase, generic: self.generic, manual: false, dirty: false }))
+        let hbase = monitor::HBaseUis::from_config(
+            host,
+            cfg.option("hbase_master"),
+            cfg.option("hbase_regionservers"),
+        );
+        Ok(Box::new(PhoenixSession {
+            client,
+            statement,
+            hbase,
+            generic: self.generic,
+            manual: false,
+            dirty: false,
+        }))
     }
 }
 
 impl PhoenixDriver {
     fn phoenix_only(&self) -> Result<()> {
         if self.generic {
-            return Err(Error::Unsupported("el DDL depende de la base detrás del servidor Avatica".into()));
+            return Err(Error::Unsupported(
+                "el DDL depende de la base detrás del servidor Avatica".into(),
+            ));
         }
         Ok(())
     }
@@ -270,16 +367,27 @@ struct Client {
 enum Req {
     Open,
     Close,
-    Sync { read_only: bool },
+    Sync {
+        read_only: bool,
+    },
     CreateStatement,
     CloseStatement(u32),
-    Execute { statement: u32, sql: String },
-    Fetch { statement: u32, offset: u64 },
+    Execute {
+        statement: u32,
+        sql: String,
+    },
+    Fetch {
+        statement: u32,
+        offset: u64,
+    },
     DatabaseProperties,
     /// Metadata: every table (Avatica `getTables`).
     Tables,
     /// Metadata: columns (Avatica `getColumns`); `None` = any.
-    Columns { schema: Option<String>, table: Option<String> },
+    Columns {
+        schema: Option<String>,
+        table: Option<String>,
+    },
 }
 
 /// Responses, the same whatever the serialization.
@@ -320,7 +428,11 @@ fn http_error(e: reqwest::Error) -> Error {
 }
 
 fn server_error(message: String, code: u32, state: &str) -> Error {
-    let msg = if message.is_empty() { format!("error {code} ({state})") } else { message };
+    let msg = if message.is_empty() {
+        format!("error {code} ({state})")
+    } else {
+        message
+    };
     // The Query Server wraps Phoenix's "ERROR 601 (42P00): …" in Java
     // exception names and leaves its own code at -1.
     let phoenix = msg.find("ERROR ").and_then(|i| {
@@ -347,18 +459,28 @@ fn server_error(message: String, code: u32, state: &str) -> Error {
 
 /// Phoenix's SQL: `;` outside quotes and comments, no procedural bodies.
 fn dialect() -> ScriptDialect {
-    ScriptDialect { backtick_idents: false, compound_blocks: false, ..ScriptDialect::generic() }
+    ScriptDialect {
+        backtick_idents: false,
+        compound_blocks: false,
+        ..ScriptDialect::generic()
+    }
 }
 
 /// The statements of a script with their byte offsets.
 fn statements(sql: &str) -> Vec<(String, usize)> {
-    split_script(sql, &dialect()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).map(|s| (s.text, s.start)).collect()
+    split_script(sql, &dialect())
+        .into_iter()
+        .filter(|s| s.kind != StatementKind::ClientCommand)
+        .map(|s| (s.text, s.start))
+        .collect()
 }
 
 /// A failed statement of `script` (at byte `start`), placed where Phoenix
 /// says ("… at line 2, column 7.").
 fn place(e: Error, script: &str, start: usize) -> Error {
-    let Error::Statement(mut se) = e else { return e };
+    let Error::Statement(mut se) = e else {
+        return e;
+    };
     let start = start.min(script.len());
     let pos = se.message.rsplit_once("at line ").and_then(|(_, r)| {
         let (l, rest) = r.split_once(", column ")?;
@@ -368,9 +490,18 @@ fn place(e: Error, script: &str, start: usize) -> Error {
     let stmt = &script[start..];
     let offset = match pos.filter(|(l, c)| *l >= 1 && *c >= 1) {
         Some((line, col)) => {
-            let line_start: usize = stmt.split_inclusive('\n').take(line - 1).map(str::len).sum();
+            let line_start: usize = stmt
+                .split_inclusive('\n')
+                .take(line - 1)
+                .map(str::len)
+                .sum();
             let rest = &stmt[line_start.min(stmt.len())..];
-            start + line_start.min(stmt.len()) + rest.char_indices().nth(col - 1).map_or(rest.len(), |(b, _)| b)
+            start
+                + line_start.min(stmt.len())
+                + rest
+                    .char_indices()
+                    .nth(col - 1)
+                    .map_or(rest.len(), |(b, _)| b)
         }
         None => start,
     };
@@ -387,9 +518,11 @@ impl Client {
             None => rb,
         };
         let rb = if self.json {
-            rb.header("Content-Type", "application/json").body(self.json_request(&req).to_string())
+            rb.header("Content-Type", "application/json")
+                .body(self.json_request(&req).to_string())
         } else {
-            rb.header("Content-Type", "application/octet-stream").body(self.proto_request(&req))
+            rb.header("Content-Type", "application/octet-stream")
+                .body(self.proto_request(&req))
         };
         let resp = rb.send().await.map_err(http_error)?;
         let status = resp.status();
@@ -398,12 +531,18 @@ impl Client {
         }
         let body = resp.bytes().await.map_err(http_error)?;
         if self.json {
-            let v: Value = serde_json::from_slice(&body)
-                .map_err(|_| Error::Query(format!("HTTP {status}: {}", String::from_utf8_lossy(&body).trim())))?;
+            let v: Value = serde_json::from_slice(&body).map_err(|_| {
+                Error::Query(format!(
+                    "HTTP {status}: {}",
+                    String::from_utf8_lossy(&body).trim()
+                ))
+            })?;
             parse_json(&req, v)
         } else {
             parse_proto(&req, &body).map_err(|e| match e {
-                Error::Serde(_) => Error::Query(format!("HTTP {status}: respuesta que no es protobuf; ¿el servidor usa JSON?")),
+                Error::Serde(_) => Error::Query(format!(
+                    "HTTP {status}: respuesta que no es protobuf; ¿el servidor usa JSON?"
+                )),
                 e => e,
             })
         }
@@ -414,27 +553,51 @@ impl Client {
         match req {
             Req::Open => json!({"request": "openConnection", "connectionId": c, "info": {}}),
             Req::Close => json!({"request": "closeConnection", "connectionId": c}),
-            Req::Sync { read_only } => json!({"request": "connectionSync", "connectionId": c, "connProps": {
-                "connProps": "connPropsImpl", "autoCommit": true, "readOnly": read_only, "dirty": true}}),
+            Req::Sync { read_only } => {
+                json!({"request": "connectionSync", "connectionId": c, "connProps": {
+                "connProps": "connPropsImpl", "autoCommit": true, "readOnly": read_only, "dirty": true}})
+            }
             Req::CreateStatement => json!({"request": "createStatement", "connectionId": c}),
-            Req::CloseStatement(s) => json!({"request": "closeStatement", "connectionId": c, "statementId": s}),
-            Req::Execute { statement, sql } => json!({"request": "prepareAndExecute", "connectionId": c,
-                "statementId": statement, "sql": sql, "maxRowCount": -1, "maxRowsTotal": -1, "maxRowsInFirstFrame": FRAME}),
-            Req::Fetch { statement, offset } => json!({"request": "fetch", "connectionId": c, "statementId": statement,
-                "offset": offset, "fetchMaxRowCount": FRAME, "frameMaxSize": FRAME}),
+            Req::CloseStatement(s) => {
+                json!({"request": "closeStatement", "connectionId": c, "statementId": s})
+            }
+            Req::Execute { statement, sql } => {
+                json!({"request": "prepareAndExecute", "connectionId": c,
+                "statementId": statement, "sql": sql, "maxRowCount": -1, "maxRowsTotal": -1, "maxRowsInFirstFrame": FRAME})
+            }
+            Req::Fetch { statement, offset } => {
+                json!({"request": "fetch", "connectionId": c, "statementId": statement,
+                "offset": offset, "fetchMaxRowCount": FRAME, "frameMaxSize": FRAME})
+            }
             Req::DatabaseProperties => json!({"request": "databaseProperties", "connectionId": c}),
-            Req::Tables => json!({"request": "getTables", "connectionId": c, "catalog": null, "schemaPattern": null,
-                "tableNamePattern": null, "typeList": null}),
-            Req::Columns { schema, table } => json!({"request": "getColumns", "connectionId": c, "catalog": null,
-                "schemaPattern": schema, "tableNamePattern": table, "columnNamePattern": null}),
+            Req::Tables => {
+                json!({"request": "getTables", "connectionId": c, "catalog": null, "schemaPattern": null,
+                "tableNamePattern": null, "typeList": null})
+            }
+            Req::Columns { schema, table } => {
+                json!({"request": "getColumns", "connectionId": c, "catalog": null,
+                "schemaPattern": schema, "tableNamePattern": table, "columnNamePattern": null})
+            }
         }
     }
 
     fn proto_request(&self, req: &Req) -> Vec<u8> {
         let c = self.connection_id.clone();
-        let id = || proto::ConnectionIdRequest { connection_id: c.clone() }.encode_to_vec();
+        let id = || {
+            proto::ConnectionIdRequest {
+                connection_id: c.clone(),
+            }
+            .encode_to_vec()
+        };
         let (name, bytes) = match req {
-            Req::Open => ("OpenConnectionRequest", proto::OpenConnectionRequest { connection_id: c.clone(), info: Default::default() }.encode_to_vec()),
+            Req::Open => (
+                "OpenConnectionRequest",
+                proto::OpenConnectionRequest {
+                    connection_id: c.clone(),
+                    info: Default::default(),
+                }
+                .encode_to_vec(),
+            ),
             Req::Close => ("CloseConnectionRequest", id()),
             Req::Sync { read_only } => (
                 "ConnectionSyncRequest",
@@ -451,9 +614,14 @@ impl Client {
                 .encode_to_vec(),
             ),
             Req::CreateStatement => ("CreateStatementRequest", id()),
-            Req::CloseStatement(s) => {
-                ("CloseStatementRequest", proto::CloseStatementRequest { connection_id: c.clone(), statement_id: *s }.encode_to_vec())
-            }
+            Req::CloseStatement(s) => (
+                "CloseStatementRequest",
+                proto::CloseStatementRequest {
+                    connection_id: c.clone(),
+                    statement_id: *s,
+                }
+                .encode_to_vec(),
+            ),
             Req::Execute { statement, sql } => (
                 "PrepareAndExecuteRequest",
                 proto::PrepareAndExecuteRequest {
@@ -478,7 +646,14 @@ impl Client {
                 .encode_to_vec(),
             ),
             Req::DatabaseProperties => ("DatabasePropertyRequest", id()),
-            Req::Tables => ("TablesRequest", proto::TablesRequest { connection_id: c.clone(), ..Default::default() }.encode_to_vec()),
+            Req::Tables => (
+                "TablesRequest",
+                proto::TablesRequest {
+                    connection_id: c.clone(),
+                    ..Default::default()
+                }
+                .encode_to_vec(),
+            ),
             Req::Columns { schema, table } => (
                 "ColumnsRequest",
                 proto::ColumnsRequest {
@@ -490,12 +665,19 @@ impl Client {
                 .encode_to_vec(),
             ),
         };
-        proto::WireMessage { name: format!("{}{name}", proto::REQ), wrapped_message: bytes }.encode_to_vec()
+        proto::WireMessage {
+            name: format!("{}{name}", proto::REQ),
+            wrapped_message: bytes,
+        }
+        .encode_to_vec()
     }
 }
 
 fn decode_err(e: prost::DecodeError) -> Error {
-    Error::Serde(serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
+    Error::Serde(serde_json::Error::io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        e,
+    )))
 }
 
 fn parse_proto(req: &Req, body: &[u8]) -> Result<Resp> {
@@ -507,30 +689,43 @@ fn parse_proto(req: &Req, body: &[u8]) -> Result<Resp> {
         return Err(server_error(e.error_message, e.error_code, &e.sql_state));
     }
     Ok(match req {
-        Req::CreateStatement => Resp::Created(proto::CreateStatementResponse::decode(msg).map_err(decode_err)?.statement_id),
+        Req::CreateStatement => Resp::Created(
+            proto::CreateStatementResponse::decode(msg)
+                .map_err(decode_err)?
+                .statement_id,
+        ),
         Req::Execute { .. } => {
             let r = proto::ExecuteResponse::decode(msg).map_err(decode_err)?;
             if r.missing_statement {
-                return Err(Error::Query("el servidor perdió la sentencia; reconectá".into()));
+                return Err(Error::Query(
+                    "el servidor perdió la sentencia; reconectá".into(),
+                ));
             }
             Resp::Execute(r.results.into_iter().map(proto_result_set).collect())
         }
         Req::Fetch { .. } => {
             let r = proto::FetchResponse::decode(msg).map_err(decode_err)?;
             if r.missing_statement || r.missing_results {
-                return Err(Error::Query("el servidor perdió el resultado; reconectá".into()));
+                return Err(Error::Query(
+                    "el servidor perdió el resultado; reconectá".into(),
+                ));
             }
             Resp::Fetch(r.frame.map(proto_frame))
         }
-        Req::Tables | Req::Columns { .. } => {
-            Resp::Execute(vec![proto_result_set(proto::ResultSetResponse::decode(msg).map_err(decode_err)?)])
-        }
+        Req::Tables | Req::Columns { .. } => Resp::Execute(vec![proto_result_set(
+            proto::ResultSetResponse::decode(msg).map_err(decode_err)?,
+        )]),
         Req::DatabaseProperties => {
             let r = proto::DatabasePropertyResponse::decode(msg).map_err(decode_err)?;
             Resp::Properties(
                 r.props
                     .into_iter()
-                    .filter_map(|p| Some((p.key?.name, p.value.map(|v| typed(&v)).unwrap_or(Value::Null))))
+                    .filter_map(|p| {
+                        Some((
+                            p.key?.name,
+                            p.value.map(|v| typed(&v)).unwrap_or(Value::Null),
+                        ))
+                    })
                     .collect(),
             )
         }
@@ -547,7 +742,11 @@ fn proto_result_set(rs: proto::ResultSetResponse) -> ResultSet {
         .map(|c| {
             let t = c.r#type.unwrap_or_default();
             Col {
-                name: if c.label.is_empty() { c.column_name } else { c.label },
+                name: if c.label.is_empty() {
+                    c.column_name
+                } else {
+                    c.label
+                },
                 rep: temporal_rep(t.rep, &t.name).to_string(),
                 type_name: t.name,
             }
@@ -556,7 +755,11 @@ fn proto_result_set(rs: proto::ResultSetResponse) -> ResultSet {
     ResultSet {
         statement: rs.statement_id,
         frame: rs.first_frame.map(proto_frame),
-        update_count: (columns.is_empty()).then_some(if rs.update_count == u64::MAX { 0 } else { rs.update_count }),
+        update_count: (columns.is_empty()).then_some(if rs.update_count == u64::MAX {
+            0
+        } else {
+            rs.update_count
+        }),
         columns,
     }
 }
@@ -572,7 +775,10 @@ fn proto_frame(f: proto::Frame) -> FrameData {
                     .into_iter()
                     .map(|cv| {
                         if cv.has_array_value {
-                            Value::String(Value::Array(cv.array_value.iter().map(typed).collect()).to_string())
+                            Value::String(
+                                Value::Array(cv.array_value.iter().map(typed).collect())
+                                    .to_string(),
+                            )
                         } else if let Some(v) = cv.scalar_value.as_ref().or(cv.value.first()) {
                             let v = typed(v);
                             if v.is_array() {
@@ -598,12 +804,16 @@ fn typed(v: &proto::TypedValue) -> Value {
     }
     match v.r#type {
         rep::BOOLEAN | rep::PRIMITIVE_BOOLEAN => v.bool_value.into(),
-        rep::FLOAT | rep::DOUBLE | rep::PRIMITIVE_FLOAT | rep::PRIMITIVE_DOUBLE => json_f64(v.double_value),
+        rep::FLOAT | rep::DOUBLE | rep::PRIMITIVE_FLOAT | rep::PRIMITIVE_DOUBLE => {
+            json_f64(v.double_value)
+        }
         rep::STRING | rep::BIG_DECIMAL | rep::BIG_INTEGER => v.string_value.clone().into(),
         rep::BYTE_STRING => json_bytes(&v.bytes_value),
         rep::JAVA_SQL_DATE => date_from_days(v.number_value).into(),
         rep::JAVA_SQL_TIME => time_from_millis(v.number_value).into(),
-        rep::JAVA_SQL_TIMESTAMP | rep::JAVA_UTIL_DATE => timestamp_from_millis(v.number_value).into(),
+        rep::JAVA_SQL_TIMESTAMP | rep::JAVA_UTIL_DATE => {
+            timestamp_from_millis(v.number_value).into()
+        }
         rep::ARRAY => Value::Array(v.array_value.iter().map(typed).collect()),
         _ => json_i64(v.number_value),
     }
@@ -612,25 +822,50 @@ fn typed(v: &proto::TypedValue) -> Value {
 fn parse_json(req: &Req, v: Value) -> Result<Resp> {
     if v.get("response").and_then(Value::as_str) == Some("error") {
         return Err(server_error(
-            v.get("errorMessage").and_then(Value::as_str).unwrap_or_default().to_string(),
+            v.get("errorMessage")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
             v.get("errorCode").and_then(Value::as_u64).unwrap_or(0) as u32,
-            v.get("sqlState").and_then(Value::as_str).unwrap_or_default(),
+            v.get("sqlState")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
         ));
     }
     Ok(match req {
-        Req::CreateStatement => Resp::Created(v.get("statementId").and_then(Value::as_u64).unwrap_or(0) as u32),
+        Req::CreateStatement => {
+            Resp::Created(v.get("statementId").and_then(Value::as_u64).unwrap_or(0) as u32)
+        }
         Req::Execute { .. } => {
             if v.get("missingStatement").and_then(Value::as_bool) == Some(true) {
-                return Err(Error::Query("el servidor perdió la sentencia; reconectá".into()));
+                return Err(Error::Query(
+                    "el servidor perdió la sentencia; reconectá".into(),
+                ));
             }
-            let results = v.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
+            let results = v
+                .get("results")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             Resp::Execute(results.iter().map(json_result_set).collect())
         }
         Req::Tables | Req::Columns { .. } => Resp::Execute(vec![json_result_set(&v)]),
-        Req::Fetch { .. } => Resp::Fetch(v.get("frame").filter(|f| !f.is_null()).map(|f| json_frame(f, &[]))),
+        Req::Fetch { .. } => Resp::Fetch(
+            v.get("frame")
+                .filter(|f| !f.is_null())
+                .map(|f| json_frame(f, &[])),
+        ),
         Req::DatabaseProperties => {
-            let map = v.get("map").and_then(Value::as_object).cloned().unwrap_or_default();
-            Resp::Properties(map.into_iter().map(|(k, v)| (k, v.get("value").cloned().unwrap_or(v))).collect())
+            let map = v
+                .get("map")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            Resp::Properties(
+                map.into_iter()
+                    .map(|(k, v)| (k, v.get("value").cloned().unwrap_or(v)))
+                    .collect(),
+            )
         }
         _ => Resp::Done,
     })
@@ -643,16 +878,37 @@ fn json_result_set(rs: &Value) -> ResultSet {
         .into_iter()
         .flatten()
         .map(|c| Col {
-            name: c.get("label").or(c.get("columnName")).and_then(Value::as_str).unwrap_or_default().to_string(),
-            type_name: c.pointer("/type/name").and_then(Value::as_str).unwrap_or_default().to_string(),
-            rep: c.pointer("/type/rep").and_then(Value::as_str).unwrap_or_default().to_string(),
+            name: c
+                .get("label")
+                .or(c.get("columnName"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            type_name: c
+                .pointer("/type/name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            rep: c
+                .pointer("/type/rep")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
         })
         .collect();
     let reps: Vec<String> = columns.iter().map(|c| c.rep.clone()).collect();
     ResultSet {
         statement: rs.get("statementId").and_then(Value::as_u64).unwrap_or(0) as u32,
-        frame: rs.get("firstFrame").filter(|f| !f.is_null()).map(|f| json_frame(f, &reps)),
-        update_count: columns.is_empty().then(|| rs.get("updateCount").and_then(Value::as_i64).unwrap_or(0).max(0) as u64),
+        frame: rs
+            .get("firstFrame")
+            .filter(|f| !f.is_null())
+            .map(|f| json_frame(f, &reps)),
+        update_count: columns.is_empty().then(|| {
+            rs.get("updateCount")
+                .and_then(Value::as_i64)
+                .unwrap_or(0)
+                .max(0) as u64
+        }),
         columns,
     }
 }
@@ -680,16 +936,24 @@ fn json_frame(f: &Value, reps: &[String]) -> FrameData {
 /// A JSON-serialized cell: temporal values come as numbers.
 fn json_cell(v: Value, rep: &str) -> Value {
     match (v, rep) {
-        (Value::Number(n), "JAVA_SQL_DATE") => n.as_i64().map_or(Value::Number(n.clone()), |d| date_from_days(d).into()),
-        (Value::Number(n), "JAVA_SQL_TIME") => n.as_i64().map_or(Value::Number(n.clone()), |d| time_from_millis(d).into()),
+        (Value::Number(n), "JAVA_SQL_DATE") => n
+            .as_i64()
+            .map_or(Value::Number(n.clone()), |d| date_from_days(d).into()),
+        (Value::Number(n), "JAVA_SQL_TIME") => n
+            .as_i64()
+            .map_or(Value::Number(n.clone()), |d| time_from_millis(d).into()),
         (Value::Number(n), "JAVA_SQL_TIMESTAMP" | "JAVA_UTIL_DATE") => {
-            n.as_i64().map_or(Value::Number(n.clone()), |d| timestamp_from_millis(d).into())
+            n.as_i64().map_or(Value::Number(n.clone()), |d| {
+                timestamp_from_millis(d).into()
+            })
         }
         (Value::Number(n), "BIG_DECIMAL") => Value::String(n.to_string()),
-        (Value::String(s), "BYTE_STRING") => match base64::engine::general_purpose::STANDARD.decode(&s) {
-            Ok(b) => json_bytes(&b),
-            Err(_) => Value::String(s),
-        },
+        (Value::String(s), "BYTE_STRING") => {
+            match base64::engine::general_purpose::STANDARD.decode(&s) {
+                Ok(b) => json_bytes(&b),
+                Err(_) => Value::String(s),
+            }
+        }
         (Value::Number(n), _) => n.as_i64().map_or(Value::Number(n), json_i64),
         (v @ (Value::Array(_) | Value::Object(_)), _) => Value::String(v.to_string()),
         (v, _) => v,
@@ -700,7 +964,9 @@ fn json_cell(v: Value, rep: &str) -> Value {
 fn temporal_rep(rep: i32, type_name: &str) -> &'static str {
     use proto::rep;
     match (rep, type_name.trim_start_matches("UNSIGNED_")) {
-        (rep::JAVA_SQL_TIMESTAMP, _) | (rep::JAVA_UTIL_DATE, _) | (_, "TIMESTAMP") => "JAVA_SQL_TIMESTAMP",
+        (rep::JAVA_SQL_TIMESTAMP, _) | (rep::JAVA_UTIL_DATE, _) | (_, "TIMESTAMP") => {
+            "JAVA_SQL_TIMESTAMP"
+        }
         (rep::JAVA_SQL_DATE, _) | (_, "DATE") => "JAVA_SQL_DATE",
         (rep::JAVA_SQL_TIME, _) | (_, "TIME") => "JAVA_SQL_TIME",
         _ => "",
@@ -708,7 +974,8 @@ fn temporal_rep(rep: i32, type_name: &str) -> &'static str {
 }
 
 fn date_from_days(days: i64) -> String {
-    chrono::DateTime::from_timestamp(days * 86_400, 0).map_or_else(|| days.to_string(), |t| t.format("%Y-%m-%d").to_string())
+    chrono::DateTime::from_timestamp(days * 86_400, 0)
+        .map_or_else(|| days.to_string(), |t| t.format("%Y-%m-%d").to_string())
 }
 
 fn time_from_millis(ms: i64) -> String {
@@ -783,20 +1050,38 @@ fn text(v: &Value) -> String {
 impl PhoenixSession {
     /// Run one statement to the end, appending its result to `out`.
     async fn run(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        self.run_req(Req::Execute { statement: self.statement, sql: sql.to_string() }, max_rows, out).await
+        self.run_req(
+            Req::Execute {
+                statement: self.statement,
+                sql: sql.to_string(),
+            },
+            max_rows,
+            out,
+        )
+        .await
     }
 
     /// A request that answers result sets (a statement, or a metadata
     /// call), read to the end into `out`.
     async fn run_req(&mut self, req: Req, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let resp = self.client.call(req).await?;
-        let Resp::Execute(results) = resp else { return Err(Error::Query("respuesta inesperada".into())) };
+        let Resp::Execute(results) = resp else {
+            return Err(Error::Query("respuesta inesperada".into()));
+        };
         for rs in results {
             if let Some(n) = rs.update_count {
                 out.push_affected(n);
                 continue;
             }
-            out.begin_result(rs.columns.iter().map(|c| ResultColumn { name: c.name.clone(), type_name: c.type_name.clone() }).collect());
+            out.begin_result(
+                rs.columns
+                    .iter()
+                    .map(|c| ResultColumn {
+                        name: c.name.clone(),
+                        type_name: c.type_name.clone(),
+                    })
+                    .collect(),
+            );
             let reps: Vec<String> = rs.columns.iter().map(|c| c.rep.clone()).collect();
             let mut frame = rs.frame;
             let mut offset = 0u64;
@@ -808,7 +1093,9 @@ impl PhoenixSession {
                         .into_iter()
                         .enumerate()
                         .map(|(i, c)| match reps.get(i).map(String::as_str) {
-                            Some(r) if self.client.json || r.starts_with("JAVA_") => json_cell(c, r),
+                            Some(r) if self.client.json || r.starts_with("JAVA_") => {
+                                json_cell(c, r)
+                            }
                             _ => c,
                         })
                         .collect();
@@ -817,7 +1104,14 @@ impl PhoenixSession {
                 if f.done {
                     break;
                 }
-                match self.client.call(Req::Fetch { statement: rs.statement, offset }).await? {
+                match self
+                    .client
+                    .call(Req::Fetch {
+                        statement: rs.statement,
+                        offset,
+                    })
+                    .await?
+                {
                     Resp::Fetch(next) => frame = next,
                     _ => return Err(Error::Query("respuesta inesperada a fetch".into())),
                 }
@@ -844,9 +1138,11 @@ impl Session for PhoenixSession {
             return self.avatica_version().await;
         }
         let v = match self.client.call(Req::DatabaseProperties).await? {
-            Resp::Properties(p) => {
-                p.into_iter().find(|(k, _)| k.contains("PRODUCT_VERSION")).map(|(_, v)| text(&v)).unwrap_or_default()
-            }
+            Resp::Properties(p) => p
+                .into_iter()
+                .find(|(k, _)| k.contains("PRODUCT_VERSION"))
+                .map(|(_, v)| text(&v))
+                .unwrap_or_default(),
             _ => String::new(),
         };
         Ok(format!("Apache Phoenix {v}").trim().to_string())
@@ -871,7 +1167,12 @@ impl Session for PhoenixSession {
         let mut out: Vec<DbObject> = rows
             .into_iter()
             .map(|r| DbObject {
-                kind: if text(&r[2]) == "v" { kinds::VIEW } else { kinds::TABLE }.into(),
+                kind: if text(&r[2]) == "v" {
+                    kinds::VIEW
+                } else {
+                    kinds::TABLE
+                }
+                .into(),
                 schema: Some(text(&r[0])).filter(|s| !s.is_empty()),
                 name: text(&r[1]),
                 parent: None,
@@ -909,7 +1210,15 @@ impl Session for PhoenixSession {
             }
         }
         names.sort();
-        Ok(Some(names.into_iter().map(|name| dbine_driver::SchemaInfo { system: name == "SYSTEM", name }).collect()))
+        Ok(Some(
+            names
+                .into_iter()
+                .map(|name| dbine_driver::SchemaInfo {
+                    system: name == "SYSTEM",
+                    name,
+                })
+                .collect(),
+        ))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -998,13 +1307,19 @@ impl Session for PhoenixSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         if self.generic {
-            return Err(Error::Unsupported("un servidor Avatica genérico no informa métricas".into()));
+            return Err(Error::Unsupported(
+                "un servidor Avatica genérico no informa métricas".into(),
+            ));
         }
         self.snapshot().await
     }
 
     /// Typed frames (`fetch`) straight into cells.
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -1025,14 +1340,19 @@ impl Session for PhoenixSession {
         Ok(ddl::from_catalog(self.rows(ddl::CATALOG_QUERY).await?))
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         if self.generic {
             return Ok(None);
         }
         let rows = self.rows(ddl::CATALOG_QUERY).await?;
         let covered = index_usage::covered(&rows);
         let tables = ddl::from_catalog(rows);
-        let found = tables.iter().find(|t| t.name == table.name && t.schema.as_deref() == table.schema());
+        let found = tables
+            .iter()
+            .find(|t| t.name == table.name && t.schema.as_deref() == table.schema());
         Ok(Some(index_usage::report(found, &covered)))
     }
 
@@ -1043,10 +1363,14 @@ impl Session for PhoenixSession {
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         for (stmt, start) in statements(text) {
             let before = out.results.len();
-            self.run(&stmt, max_rows, out).await.map_err(|e| place(e, text, start))?;
+            self.run(&stmt, max_rows, out)
+                .await
+                .map_err(|e| place(e, text, start))?;
             match leading_keyword(&stmt, &dialect()).as_deref() {
                 Some("commit" | "rollback") => self.dirty = false,
-                _ if self.manual && out.results[before..].iter().any(|r| r.columns.is_empty()) => self.dirty = true,
+                _ if self.manual && out.results[before..].iter().any(|r| r.columns.is_empty()) => {
+                    self.dirty = true
+                }
                 _ => {}
             }
         }
@@ -1054,7 +1378,11 @@ impl Session for PhoenixSession {
     }
 
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
-        Ok(Some(if self.manual && self.dirty { TxState::Open } else { TxState::Idle }))
+        Ok(Some(if self.manual && self.dirty {
+            TxState::Open
+        } else {
+            TxState::Idle
+        }))
     }
 
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
@@ -1078,25 +1406,52 @@ impl Session for PhoenixSession {
         Ok(())
     }
 
-    async fn explain(&mut self, script: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        script: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if self.generic {
             return self.avatica_explain(script, analyze, max_rows, out).await;
         }
         let mut noted = false;
         for (stmt, _) in statements(script) {
-            let first = stmt.split_whitespace().next().unwrap_or_default().to_ascii_uppercase();
+            let first = stmt
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_ascii_uppercase();
             if matches!(first.as_str(), "SELECT" | "UPSERT" | "DELETE" | "WITH") {
                 let mut local = QueryOutcome::default();
-                self.run(&format!("EXPLAIN {stmt}"), 10_000, &mut local).await?;
+                self.run(&format!("EXPLAIN {stmt}"), 10_000, &mut local)
+                    .await?;
                 let rs = local.results.pop().unwrap_or_default();
-                let col = |name: &str| rs.columns.iter().position(|c| c.name.eq_ignore_ascii_case(name));
+                let col = |name: &str| {
+                    rs.columns
+                        .iter()
+                        .position(|c| c.name.eq_ignore_ascii_case(name))
+                };
                 let plan_col = col("PLAN").unwrap_or(0);
-                let steps: Vec<String> = rs.rows.iter().map(|r| r.get(plan_col).map(text).unwrap_or_default()).collect();
+                let steps: Vec<String> = rs
+                    .rows
+                    .iter()
+                    .map(|r| r.get(plan_col).map(text).unwrap_or_default())
+                    .collect();
                 let first_num = |name: &str| {
                     let i = col(name)?;
-                    rs.rows.iter().find_map(|r| r.get(i).and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok())))
+                    rs.rows.iter().find_map(|r| {
+                        r.get(i)
+                            .and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok()))
+                    })
                 };
-                out.plans.push(plan::from_rows(&stmt, &steps, first_num("EST_ROWS_READ"), first_num("EST_BYTES_READ")));
+                out.plans.push(plan::from_rows(
+                    &stmt,
+                    &steps,
+                    first_num("EST_ROWS_READ"),
+                    first_num("EST_BYTES_READ"),
+                ));
                 if analyze && !noted {
                     out.messages.push(
                         "Phoenix no da cifras reales por paso: se muestra el plan estimado junto al resultado.".into(),
@@ -1104,7 +1459,10 @@ impl Session for PhoenixSession {
                     noted = true;
                 }
             } else if !analyze {
-                out.messages.push(format!("Sin plan para «{}»: Phoenix solo explica SELECT, UPSERT y DELETE.", stmt.trim()));
+                out.messages.push(format!(
+                    "Sin plan para «{}»: Phoenix solo explica SELECT, UPSERT y DELETE.",
+                    stmt.trim()
+                ));
             }
             if analyze {
                 self.run(&stmt, max_rows, out).await?;
@@ -1123,26 +1481,74 @@ mod tests {
     #[test]
     fn schema_grant_option_matches_the_script() {
         for d in crate::drivers() {
-            let Some(spec) = d.schema_spec() else { continue };
-            let Some(p) = spec.privileges.first() else { continue };
-            let grant = |grantable| d.schema_grant_script(None, "VENTAS", &[p.to_string()], "ana", grantable);
+            let Some(spec) = d.schema_spec() else {
+                continue;
+            };
+            let Some(p) = spec.privileges.first() else {
+                continue;
+            };
+            let grant = |grantable| {
+                d.schema_grant_script(None, "VENTAS", &[p.to_string()], "ana", grantable)
+            };
             assert!(grant(false).is_ok(), "{}", d.info().id);
-            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+            assert_eq!(
+                grant(true).is_ok(),
+                spec.grant_option,
+                "{}: {:?}",
+                d.info().id,
+                grant(true)
+            );
         }
     }
 
     #[test]
     fn typed_values_become_cells() {
-        let tv = |r#type: i32| proto::TypedValue { r#type, ..Default::default() };
-        assert_eq!(typed(&proto::TypedValue { number_value: 42, ..tv(12) }), json!(42));
-        assert_eq!(typed(&proto::TypedValue { string_value: "1.50".into(), ..tv(proto::rep::BIG_DECIMAL) }), json!("1.50"));
-        assert_eq!(typed(&proto::TypedValue { number_value: 19753, ..tv(proto::rep::JAVA_SQL_DATE) }), json!("2024-01-31"));
+        let tv = |r#type: i32| proto::TypedValue {
+            r#type,
+            ..Default::default()
+        };
         assert_eq!(
-            typed(&proto::TypedValue { number_value: 1_706_708_700_000, ..tv(proto::rep::JAVA_SQL_TIMESTAMP) }),
+            typed(&proto::TypedValue {
+                number_value: 42,
+                ..tv(12)
+            }),
+            json!(42)
+        );
+        assert_eq!(
+            typed(&proto::TypedValue {
+                string_value: "1.50".into(),
+                ..tv(proto::rep::BIG_DECIMAL)
+            }),
+            json!("1.50")
+        );
+        assert_eq!(
+            typed(&proto::TypedValue {
+                number_value: 19753,
+                ..tv(proto::rep::JAVA_SQL_DATE)
+            }),
+            json!("2024-01-31")
+        );
+        assert_eq!(
+            typed(&proto::TypedValue {
+                number_value: 1_706_708_700_000,
+                ..tv(proto::rep::JAVA_SQL_TIMESTAMP)
+            }),
             json!("2024-01-31 13:45:00")
         );
-        assert_eq!(typed(&proto::TypedValue { bytes_value: vec![0xCA, 0xFE], ..tv(proto::rep::BYTE_STRING) }), json!("0xCAFE"));
-        assert_eq!(typed(&proto::TypedValue { null: true, ..tv(proto::rep::STRING) }), Value::Null);
+        assert_eq!(
+            typed(&proto::TypedValue {
+                bytes_value: vec![0xCA, 0xFE],
+                ..tv(proto::rep::BYTE_STRING)
+            }),
+            json!("0xCAFE")
+        );
+        assert_eq!(
+            typed(&proto::TypedValue {
+                null: true,
+                ..tv(proto::rep::STRING)
+            }),
+            Value::Null
+        );
     }
 
     #[test]
@@ -1153,7 +1559,10 @@ mod tests {
                 signature: Some(proto::Signature {
                     columns: vec![proto::ColumnMetaData {
                         label: "A".into(),
-                        r#type: Some(proto::AvaticaType { name: "INTEGER".into(), ..Default::default() }),
+                        r#type: Some(proto::AvaticaType {
+                            name: "INTEGER".into(),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     }],
                 }),
@@ -1161,7 +1570,11 @@ mod tests {
                     done: true,
                     rows: vec![proto::Row {
                         value: vec![proto::ColumnValue {
-                            scalar_value: Some(proto::TypedValue { r#type: 12, number_value: 7, ..Default::default() }),
+                            scalar_value: Some(proto::TypedValue {
+                                r#type: 12,
+                                number_value: 7,
+                                ..Default::default()
+                            }),
                             ..Default::default()
                         }],
                     }],
@@ -1172,31 +1585,62 @@ mod tests {
             }],
             missing_statement: false,
         };
-        let wire = proto::WireMessage { name: format!("{}ExecuteResponse", proto::RESP), wrapped_message: rs.encode_to_vec() };
-        let Resp::Execute(r) = parse_proto(&Req::Execute { statement: 3, sql: String::new() }, &wire.encode_to_vec()).unwrap() else {
+        let wire = proto::WireMessage {
+            name: format!("{}ExecuteResponse", proto::RESP),
+            wrapped_message: rs.encode_to_vec(),
+        };
+        let Resp::Execute(r) = parse_proto(
+            &Req::Execute {
+                statement: 3,
+                sql: String::new(),
+            },
+            &wire.encode_to_vec(),
+        )
+        .unwrap() else {
             panic!()
         };
         assert_eq!(r[0].columns[0].name, "A");
         assert!(r[0].update_count.is_none());
         assert_eq!(r[0].frame.as_ref().unwrap().rows, vec![vec![json!(7)]]);
 
-        let err = proto::ErrorResponse { error_message: "ERROR 1012 (42M03): Table undefined.".into(), ..Default::default() };
-        let wire = proto::WireMessage { name: format!("{}ErrorResponse", proto::RESP), wrapped_message: err.encode_to_vec() };
-        let e = parse_proto(&Req::Close, &wire.encode_to_vec()).err().unwrap().to_script_error();
-        assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("1012"), Some("42M03")));
+        let err = proto::ErrorResponse {
+            error_message: "ERROR 1012 (42M03): Table undefined.".into(),
+            ..Default::default()
+        };
+        let wire = proto::WireMessage {
+            name: format!("{}ErrorResponse", proto::RESP),
+            wrapped_message: err.encode_to_vec(),
+        };
+        let e = parse_proto(&Req::Close, &wire.encode_to_vec())
+            .err()
+            .unwrap()
+            .to_script_error();
+        assert_eq!(
+            (e.code.as_deref(), e.sqlstate.as_deref()),
+            (Some("1012"), Some("42M03"))
+        );
         assert!(e.message.contains("Table undefined"));
 
         // Phoenix's own code inside the Query Server's wrapping, and where.
         let e = server_error("RuntimeException: x: ERROR 603 (42P00): Syntax error. Got \"x\" at line 2, column 3. -> y".into(), u32::MAX, "");
         let script = "SELECT 1;\nSELECT 2\n  x";
         let e = place(e, script, 10).to_script_error();
-        assert_eq!(e.message, "ERROR 603 (42P00): Syntax error. Got \"x\" at line 2, column 3.");
-        assert_eq!((e.code.as_deref(), e.offset, e.line), (Some("603"), Some(script.rfind('x').unwrap()), Some(3)));
+        assert_eq!(
+            e.message,
+            "ERROR 603 (42P00): Syntax error. Got \"x\" at line 2, column 3."
+        );
+        assert_eq!(
+            (e.code.as_deref(), e.offset, e.line),
+            (Some("603"), Some(script.rfind('x').unwrap()), Some(3))
+        );
     }
 
     #[test]
     fn json_cells_follow_reps() {
-        assert_eq!(json_cell(json!(1_706_708_700_000i64), "JAVA_SQL_TIMESTAMP"), json!("2024-01-31 13:45:00"));
+        assert_eq!(
+            json_cell(json!(1_706_708_700_000i64), "JAVA_SQL_TIMESTAMP"),
+            json!("2024-01-31 13:45:00")
+        );
         assert_eq!(json_cell(json!(1.5), "BIG_DECIMAL"), json!("1.5"));
         assert_eq!(json_cell(json!([1, 2]), "ARRAY"), json!("[1,2]"));
         assert_eq!(schema_cond("S", Some("o'k")), "S = 'o''k'");

@@ -16,7 +16,12 @@ use dbine_driver::{ConnectionConfig, QueryOutcome};
 fn cfg(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.trim_start_matches("redis://");
     let (host, port) = rest.split_once(':').unwrap_or((rest, "6379"));
-    ConnectionConfig { driver: driver.into(), host: host.into(), port: port.trim_end_matches('/').parse().unwrap(), ..Default::default() }
+    ConnectionConfig {
+        driver: driver.into(),
+        host: host.into(),
+        port: port.trim_end_matches('/').parse().unwrap(),
+        ..Default::default()
+    }
 }
 
 async fn check(driver: &str, env: &str) {
@@ -24,17 +29,36 @@ async fn check(driver: &str, env: &str) {
         eprintln!("{env} not set; skipping");
         return;
     };
-    let d = dbine_driver_redis::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_redis::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     let mut s = d.connect(&cfg(driver, &url), Some("db12")).await.unwrap();
     let mut out = QueryOutcome::default();
     // Never FLUSHDB: the server may hold someone else's data. Count before,
     // add three keys of our own, count again, delete only ours.
-    let before = s.row_estimates().await.unwrap().first().map_or(0, |r| r.rows);
-    s.execute("SET dbine:s:a 1\nHSET dbine:s:h f 1\nRPUSH dbine:s:l x y", 10, &mut out).await.unwrap();
+    let before = s
+        .row_estimates()
+        .await
+        .unwrap()
+        .first()
+        .map_or(0, |r| r.rows);
+    s.execute(
+        "SET dbine:s:a 1\nHSET dbine:s:h f 1\nRPUSH dbine:s:l x y",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     let rows = s.row_estimates().await.unwrap();
-    s.execute("DEL dbine:s:a dbine:s:h dbine:s:l", 10, &mut out).await.unwrap();
+    s.execute("DEL dbine:s:a dbine:s:h dbine:s:l", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 1, "{driver}: {rows:?}");
-    assert_eq!((rows[0].object.kind.as_str(), rows[0].object.name.as_str()), ("database", "db12"));
+    assert_eq!(
+        (rows[0].object.kind.as_str(), rows[0].object.name.as_str()),
+        ("database", "db12")
+    );
     assert_eq!(rows[0].rows, before + 3, "{driver}: {rows:?}");
     assert!(s.object_comments().await.unwrap().is_empty());
 }

@@ -60,25 +60,39 @@ pub(crate) fn storage_costs(t: &Json) -> (f64, f64) {
 
 impl BigQuerySession {
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
-        let ds = if database.is_empty() { self.dataset.clone().unwrap_or_default() } else { database.to_string() };
+        let ds = if database.is_empty() {
+            self.dataset.clone().unwrap_or_default()
+        } else {
+            database.to_string()
+        };
         let dsq = ident(&ds);
         let mut out = Vec::new();
         let dataset = self.api.get(&["datasets", &ds], &[]).await.ok();
 
         // Every table's metadata (sizes come only from tables.get).
         let mut tables: Vec<Json> = Vec::new();
-        if let Ok(list) = self.api.list_all(&["datasets", &ds, "tables"], "tables").await {
+        if let Ok(list) = self
+            .api
+            .list_all(&["datasets", &ds, "tables"], "tables")
+            .await
+        {
             let names: Vec<String> = list
                 .iter()
                 .filter(|t| t.get("type").and_then(Json::as_str) == Some("TABLE"))
-                .filter_map(|t| t.pointer("/tableReference/tableId").and_then(Json::as_str).map(str::to_string))
+                .filter_map(|t| {
+                    t.pointer("/tableReference/tableId")
+                        .and_then(Json::as_str)
+                        .map(str::to_string)
+                })
                 .take(MAX_TABLES)
                 .collect();
             for chunk in names.chunks(PARALLEL) {
                 let mut set = tokio::task::JoinSet::new();
                 for name in chunk {
                     let (api, ds, name) = (self.api.clone(), ds.clone(), name.clone());
-                    set.spawn(async move { api.get(&["datasets", &ds, "tables", &name], &[]).await });
+                    set.spawn(
+                        async move { api.get(&["datasets", &ds, "tables", &name], &[]).await },
+                    );
                 }
                 while let Some(r) = set.join_next().await {
                     if let Ok(Ok(t)) = r {
@@ -87,14 +101,24 @@ impl BigQuerySession {
                 }
             }
         }
-        let name = |t: &Json| t.pointer("/tableReference/tableId").and_then(Json::as_str).unwrap_or_default().to_string();
+        let name = |t: &Json| {
+            t.pointer("/tableReference/tableId")
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
         let full = |t: &Json| format!("{dsq}.{}", ident(&name(t)));
         let mut by_size: Vec<&Json> = tables.iter().collect();
         by_size.sort_by(|a, b| f(b, "numBytes").total_cmp(&f(a, "numBytes")));
 
         if !tables.is_empty() {
             // Large tables neither partitioned nor clustered.
-            let flat: Vec<&&Json> = by_size.iter().filter(|t| f(t, "numBytes") >= BIG && !partitioned(t) && t.get("clustering").is_none()).collect();
+            let flat: Vec<&&Json> = by_size
+                .iter()
+                .filter(|t| {
+                    f(t, "numBytes") >= BIG && !partitioned(t) && t.get("clustering").is_none()
+                })
+                .collect();
             out.push(
                 HealthCheck::new(
                     "no_partition_cluster",
@@ -111,7 +135,11 @@ impl BigQuerySession {
                 .iter()
                 .filter(|t| f(t, "numBytes") >= BIG && partitioned(t))
                 .filter(|t| t.get("requirePartitionFilter").and_then(Json::as_bool) != Some(true))
-                .filter(|t| t.pointer("/timePartitioning/requirePartitionFilter").and_then(Json::as_bool) != Some(true))
+                .filter(|t| {
+                    t.pointer("/timePartitioning/requirePartitionFilter")
+                        .and_then(Json::as_bool)
+                        != Some(true)
+                })
                 .collect();
             if !open.is_empty() {
                 out.push(
@@ -123,7 +151,9 @@ impl BigQuerySession {
             }
 
             // Time-partitioned tables whose partitions never expire.
-            let dataset_default = dataset.as_ref().is_some_and(|d| f(d, "defaultPartitionExpirationMs") > 0.0);
+            let dataset_default = dataset
+                .as_ref()
+                .is_some_and(|d| f(d, "defaultPartitionExpirationMs") > 0.0);
             if !dataset_default {
                 let forever: Vec<&&Json> = by_size
                     .iter()
@@ -145,14 +175,28 @@ impl BigQuerySession {
         }
 
         if let Some(d) = &dataset {
-            let model = d.get("storageBillingModel").and_then(Json::as_str).unwrap_or("LOGICAL").to_ascii_uppercase();
+            let model = d
+                .get("storageBillingModel")
+                .and_then(Json::as_str)
+                .unwrap_or("LOGICAL")
+                .to_ascii_uppercase();
             let physical_model = model == "PHYSICAL";
 
             // The billing model that would cost less.
-            let (logical, physical) = tables.iter().map(storage_costs).fold((0.0, 0.0), |(a, b), (x, y)| (a + x, b + y));
-            let logical_bytes: f64 = tables.iter().map(|t| f(t, "numTotalLogicalBytes").max(f(t, "numBytes"))).sum();
+            let (logical, physical) = tables
+                .iter()
+                .map(storage_costs)
+                .fold((0.0, 0.0), |(a, b), (x, y)| (a + x, b + y));
+            let logical_bytes: f64 = tables
+                .iter()
+                .map(|t| f(t, "numTotalLogicalBytes").max(f(t, "numBytes")))
+                .sum();
             if logical_bytes >= 100.0 * GB && logical > 0.0 && physical > 0.0 {
-                let (better, saving) = if physical_model { ("LOGICAL", 1.0 - logical / physical) } else { ("PHYSICAL", 1.0 - physical / logical) };
+                let (better, saving) = if physical_model {
+                    ("LOGICAL", 1.0 - logical / physical)
+                } else {
+                    ("PHYSICAL", 1.0 - physical / logical)
+                };
                 if saving >= 0.3 {
                     out.push(
                         HealthCheck::new("storage_billing", "Costos", format!("Facturar el almacenamiento como {better} costaría cerca de {:.0} % menos", saving * 100.0), Severity::Info)
@@ -169,7 +213,10 @@ impl BigQuerySession {
             let hours = f(d, "maxTimeTravelHours");
             let hours = if hours > 0.0 { hours } else { 168.0 };
             if physical_model && hours > 48.0 {
-                let tt: f64 = tables.iter().map(|t| f(t, "numTimeTravelPhysicalBytes")).sum();
+                let tt: f64 = tables
+                    .iter()
+                    .map(|t| f(t, "numTimeTravelPhysicalBytes"))
+                    .sum();
                 out.push(
                     HealthCheck::new("time_travel_window", "Costos", format!("Time travel de {hours:.0} horas con facturación física ({} hoy)", size(tt)), if tt >= 100.0 * GB { Severity::Warning } else { Severity::Info })
                         .detail("Con facturación física se pagan también los bytes que guarda el time travel (lo cambiado o borrado). Si no necesitás volver más de 2 días atrás, bajar la ventana a 48 horas reduce ese costo.")
@@ -189,7 +236,15 @@ impl BigQuerySession {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

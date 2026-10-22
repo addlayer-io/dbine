@@ -3,7 +3,9 @@
 //! have no keys, indexes, defaults or NOT NULL that it keeps; they take
 //! `PARTITION BY` and `LOCALSORT BY`.
 
-use dbine_driver::{kinds, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, RowChange, TableSchema};
+use dbine_driver::{
+    kinds, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, RowChange, TableSchema,
+};
 use serde_json::Value;
 
 pub fn q(s: &str) -> String {
@@ -12,7 +14,10 @@ pub fn q(s: &str) -> String {
 
 /// `"a"."b"."t"` from a dotted schema path and a name.
 pub fn path(schema: Option<&str>, name: &str) -> String {
-    let mut parts: Vec<String> = schema.filter(|s| !s.is_empty()).map(|s| s.split('.').map(q).collect()).unwrap_or_default();
+    let mut parts: Vec<String> = schema
+        .filter(|s| !s.is_empty())
+        .map(|s| s.split('.').map(q).collect())
+        .unwrap_or_default();
     parts.push(q(name));
     parts.join(".")
 }
@@ -35,7 +40,8 @@ pub fn designer() -> DesignerSpec {
             Field::new("partition_by", "Particionar por", FieldKind::Text)
                 .placeholder("anio, month(fecha)")
                 .help("Columnas o transformaciones de partición de Iceberg."),
-            Field::new("localsort_by", "Ordenar localmente por", FieldKind::Text).placeholder("cliente_id"),
+            Field::new("localsort_by", "Ordenar localmente por", FieldKind::Text)
+                .placeholder("cliente_id"),
         ],
         ..DesignerSpec::sql_table(vec![
             "BOOLEAN",
@@ -59,14 +65,40 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     let name = path(t.schema.as_deref(), &t.name);
     let mut out = Vec::new();
     if parts.drop {
-        out.push(format!("DROP TABLE {}{name};", if parts.if_exists { "IF EXISTS " } else { "" }));
+        out.push(format!(
+            "DROP TABLE {}{name};",
+            if parts.if_exists { "IF EXISTS " } else { "" }
+        ));
     }
     if parts.create {
-        let cols: Vec<String> = t.columns.iter().map(|c| format!("    {} {}", q(&c.name), c.data_type)).collect();
-        let mut s = format!("CREATE TABLE {}{name} (\n{}\n)", if parts.if_exists && !parts.drop { "IF NOT EXISTS " } else { "" }, cols.join(",\n"));
-        for (key, clause) in [("partition_by", "PARTITION BY"), ("localsort_by", "LOCALSORT BY")] {
-            if let Some(v) = t.options.get(key).map(|v| v.trim()).filter(|v| !v.is_empty()) {
-                let v = v.strip_prefix('(').and_then(|x| x.strip_suffix(')')).unwrap_or(v);
+        let cols: Vec<String> = t
+            .columns
+            .iter()
+            .map(|c| format!("    {} {}", q(&c.name), c.data_type))
+            .collect();
+        let mut s = format!(
+            "CREATE TABLE {}{name} (\n{}\n)",
+            if parts.if_exists && !parts.drop {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
+            cols.join(",\n")
+        );
+        for (key, clause) in [
+            ("partition_by", "PARTITION BY"),
+            ("localsort_by", "LOCALSORT BY"),
+        ] {
+            if let Some(v) = t
+                .options
+                .get(key)
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+            {
+                let v = v
+                    .strip_prefix('(')
+                    .and_then(|x| x.strip_suffix(')'))
+                    .unwrap_or(v);
                 s.push_str(&format!("\n{clause} ({v})"));
             }
         }
@@ -94,14 +126,29 @@ pub fn templates() -> Vec<CreateTemplate> {
 /// `YYYY-MM-DD` → `DATE`, `YYYY-MM-DD[ T]HH:MM[:SS[.f]]` → `TIMESTAMP`.
 fn temporal(s: &str) -> Option<&'static str> {
     let b = s.as_bytes();
-    let digits = |from: usize, to: usize| b.get(from..to).is_some_and(|x| x.iter().all(u8::is_ascii_digit));
-    if !(b.len() >= 10 && digits(0, 4) && b[4] == b'-' && digits(5, 7) && b[7] == b'-' && digits(8, 10)) {
+    let digits = |from: usize, to: usize| {
+        b.get(from..to)
+            .is_some_and(|x| x.iter().all(u8::is_ascii_digit))
+    };
+    if !(b.len() >= 10
+        && digits(0, 4)
+        && b[4] == b'-'
+        && digits(5, 7)
+        && b[7] == b'-'
+        && digits(8, 10))
+    {
         return None;
     }
     if b.len() == 10 {
         return Some("DATE");
     }
-    let ok = matches!(b[10], b' ' | b'T') && digits(11, 13) && b.get(13) == Some(&b':') && digits(14, 16) && b[16..].iter().all(|c| c.is_ascii_digit() || *c == b':' || *c == b'.');
+    let ok = matches!(b[10], b' ' | b'T')
+        && digits(11, 13)
+        && b.get(13) == Some(&b':')
+        && digits(14, 16)
+        && b[16..]
+            .iter()
+            .all(|c| c.is_ascii_digit() || *c == b':' || *c == b'.');
     ok.then_some("TIMESTAMP")
 }
 
@@ -119,13 +166,25 @@ pub fn literal(v: &Value) -> String {
 }
 
 /// Multi-row `INSERT … VALUES`, 100 rows per statement.
-pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
+pub fn insert_script(
+    schema: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> String {
     let name = path(schema, table);
     let cols: Vec<String> = columns.iter().map(|c| q(c)).collect();
     rows.chunks(100)
         .map(|chunk| {
-            let values: Vec<String> = chunk.iter().map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", "))).collect();
-            format!("INSERT INTO {name} ({}) VALUES\n  {};", cols.join(", "), values.join(",\n  "))
+            let values: Vec<String> = chunk
+                .iter()
+                .map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
+                .collect();
+            format!(
+                "INSERT INTO {name} ({}) VALUES\n  {};",
+                cols.join(", "),
+                values.join(",\n  ")
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -139,13 +198,30 @@ pub fn update_script(schema: Option<&str>, table: &str, changes: &[RowChange]) -
         .iter()
         .filter(|c| !c.set.is_empty())
         .map(|c| {
-            let set: Vec<String> = c.set.iter().map(|(k, v)| format!("{} = {}", q(k), literal(v))).collect();
-            let wh: Vec<String> =
-                c.key.iter().map(|(k, v)| if v.is_null() { format!("{} IS NULL", q(k)) } else { format!("{} = {}", q(k), literal(v)) }).collect();
+            let set: Vec<String> = c
+                .set
+                .iter()
+                .map(|(k, v)| format!("{} = {}", q(k), literal(v)))
+                .collect();
+            let wh: Vec<String> = c
+                .key
+                .iter()
+                .map(|(k, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", q(k))
+                    } else {
+                        format!("{} = {}", q(k), literal(v))
+                    }
+                })
+                .collect();
             if wh.is_empty() {
                 format!("UPDATE {name} SET {};", set.join(", "))
             } else {
-                format!("UPDATE {name} SET {} WHERE {};", set.join(", "), wh.join(" AND "))
+                format!(
+                    "UPDATE {name} SET {} WHERE {};",
+                    set.join(", "),
+                    wh.join(" AND ")
+                )
             }
         })
         .collect::<Vec<_>>()
@@ -160,8 +236,16 @@ pub fn delete_script(schema: Option<&str>, table: &str, keys: &[Vec<(String, Val
     keys.iter()
         .filter(|k| !k.is_empty())
         .map(|k| {
-            let wh: Vec<String> =
-                k.iter().map(|(c, v)| if v.is_null() { format!("{} IS NULL", q(c)) } else { format!("{} = {}", q(c), literal(v)) }).collect();
+            let wh: Vec<String> = k
+                .iter()
+                .map(|(c, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", q(c))
+                    } else {
+                        format!("{} = {}", q(c), literal(v))
+                    }
+                })
+                .collect();
             format!("DELETE FROM {name} WHERE {};", wh.join(" AND "))
         })
         .collect::<Vec<_>>()
@@ -178,7 +262,11 @@ mod tests {
     fn update_script_per_row() {
         let c = RowChange {
             key: vec![("id".into(), json!(7)), ("region".into(), Value::Null)],
-            set: vec![("nombre".into(), json!("O'Brien")), ("baja".into(), Value::Null)], ..Default::default()
+            set: vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("baja".into(), Value::Null),
+            ],
+            ..Default::default()
         };
         assert_eq!(
             update_script(Some("nessie.ventas"), "clientes", &[c, RowChange::default()]),
@@ -189,7 +277,13 @@ mod tests {
 
     #[test]
     fn delete_script_per_row() {
-        let keys = vec![vec![("nombre".into(), json!("O'Brien")), ("region".into(), Value::Null)], vec![]];
+        let keys = vec![
+            vec![
+                ("nombre".into(), json!("O'Brien")),
+                ("region".into(), Value::Null),
+            ],
+            vec![],
+        ];
         assert_eq!(
             delete_script(Some("nessie.ventas"), "clientes", &keys),
             "DELETE FROM \"nessie\".\"ventas\".\"clientes\" WHERE \"nombre\" = 'O''Brien' AND \"region\" IS NULL;"
@@ -203,18 +297,52 @@ mod tests {
             schema: Some("$scratch".into()),
             name: "pedidos".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "BIGINT".into(), ..Default::default() },
-                ColumnDef { name: "fecha".into(), data_type: "DATE".into(), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "BIGINT".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "fecha".into(),
+                    data_type: "DATE".into(),
+                    ..Default::default()
+                },
             ],
             options: [("partition_by".to_string(), "(month(fecha))".to_string())].into(),
             ..Default::default()
         };
-        let s = table_ddl(&t, DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true });
+        let s = table_ddl(
+            &t,
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                create: true,
+                indexes: true,
+                foreign_keys: true,
+            },
+        );
         assert_eq!(s, "DROP TABLE IF EXISTS \"$scratch\".\"pedidos\";\nCREATE TABLE \"$scratch\".\"pedidos\" (\n    \"id\" BIGINT,\n    \"fecha\" DATE\n)\nPARTITION BY (month(fecha));");
         assert_eq!(path(Some("sp.carpeta"), "t"), "\"sp\".\"carpeta\".\"t\"");
-        let ins = insert_script(Some("sp"), "t", &["a".into(), "b".into(), "c".into()], &[vec![json!("2024-01-31"), json!("2024-01-31T10:00:00"), json!("O'k")], vec![Value::Null, json!(true), json!(1.5)]]);
+        let ins = insert_script(
+            Some("sp"),
+            "t",
+            &["a".into(), "b".into(), "c".into()],
+            &[
+                vec![
+                    json!("2024-01-31"),
+                    json!("2024-01-31T10:00:00"),
+                    json!("O'k"),
+                ],
+                vec![Value::Null, json!(true), json!(1.5)],
+            ],
+        );
         assert_eq!(ins, "INSERT INTO \"sp\".\"t\" (\"a\", \"b\", \"c\") VALUES\n  (DATE '2024-01-31', TIMESTAMP '2024-01-31 10:00:00', 'O''k'),\n  (NULL, TRUE, 1.5);");
-        assert!(designer().table_options.iter().any(|f| f.key == "partition_by"));
-        assert!(templates().iter().all(|t| t.template.contains("{schema}") && t.template.contains("{name}")));
+        assert!(designer()
+            .table_options
+            .iter()
+            .any(|f| f.key == "partition_by"));
+        assert!(templates()
+            .iter()
+            .all(|t| t.template.contains("{schema}") && t.template.contains("{name}")));
     }
 }

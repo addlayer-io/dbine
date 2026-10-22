@@ -34,24 +34,42 @@ pub(crate) enum Auth {
 }
 
 fn has(grants: &[(String, String)], permission: &str, resources: &[String]) -> bool {
-    grants.iter().any(|(r, p)| p.eq_ignore_ascii_case(permission) && resources.iter().any(|x| x == r))
+    grants
+        .iter()
+        .any(|(r, p)| p.eq_ignore_ascii_case(permission) && resources.iter().any(|x| x == r))
 }
 
 /// The table and its parents, as resources.
 fn table_and_parents(ks: &str, table: &str) -> Vec<String> {
-    vec![format!("<table {ks}.{table}>"), format!("<keyspace {ks}>"), "<all keyspaces>".into()]
+    vec![
+        format!("<table {ks}.{table}>"),
+        format!("<keyspace {ks}>"),
+        "<all keyspaces>".into(),
+    ]
 }
 
 pub(crate) fn decide(flavor: Flavor, auth: &Auth, database: Option<&str>) -> Permissions {
     let database = database.map(str::trim).filter(|d| !d.is_empty());
-    let (profiler_ks, profiler_table) = if flavor == Flavor::Scylla { ("audit", "audit_log") } else { ("system_views", "queries") };
+    let (profiler_ks, profiler_table) = if flavor == Flavor::Scylla {
+        ("audit", "audit_log")
+    } else {
+        ("system_views", "queries")
+    };
     let grants = match auth {
         Auth::Open | Auth::Superuser => {
             return Permissions {
                 profiler: Access::Allowed,
                 create_database: Access::Allowed,
-                drop_database: if database.is_some() { Access::Allowed } else { Access::Unknown },
-                manage_security: if matches!(auth, Auth::Superuser) { Access::Allowed } else { Access::Unknown },
+                drop_database: if database.is_some() {
+                    Access::Allowed
+                } else {
+                    Access::Unknown
+                },
+                manage_security: if matches!(auth, Auth::Superuser) {
+                    Access::Allowed
+                } else {
+                    Access::Unknown
+                },
                 ..Default::default()
             }
         }
@@ -61,20 +79,34 @@ pub(crate) fn decide(flavor: Flavor, auth: &Auth, database: Option<&str>) -> Per
     let on_roles = |r: &str| r == "<all roles>" || r.starts_with("<role ");
     let security = if has(grants, "CREATE", &["<all roles>".into()]) {
         Access::Allowed
-    } else if grants.iter().any(|(r, p)| on_roles(r) || p.eq_ignore_ascii_case("AUTHORIZE")) {
+    } else if grants
+        .iter()
+        .any(|(r, p)| on_roles(r) || p.eq_ignore_ascii_case("AUTHORIZE"))
+    {
         Access::Unknown
     } else {
         Access::check(false, "CREATE ON ALL ROLES")
     };
     Permissions {
         profiler: Access::check(
-            has(grants, "SELECT", &table_and_parents(profiler_ks, profiler_table)),
+            has(
+                grants,
+                "SELECT",
+                &table_and_parents(profiler_ks, profiler_table),
+            ),
             format!("SELECT ON {profiler_ks}.{profiler_table}"),
         ),
-        create_database: Access::check(has(grants, "CREATE", &all_keyspaces), "CREATE ON ALL KEYSPACES"),
+        create_database: Access::check(
+            has(grants, "CREATE", &all_keyspaces),
+            "CREATE ON ALL KEYSPACES",
+        ),
         drop_database: match database {
             Some(ks) => Access::check(
-                has(grants, "DROP", &[format!("<keyspace {ks}>"), "<all keyspaces>".into()]),
+                has(
+                    grants,
+                    "DROP",
+                    &[format!("<keyspace {ks}>"), "<all keyspaces>".into()],
+                ),
                 format!("DROP ON KEYSPACE {}", cql::ident(ks)),
             ),
             None => Access::Unknown,
@@ -87,7 +119,9 @@ pub(crate) fn decide(flavor: Flavor, auth: &Auth, database: Option<&str>) -> Per
 /// Authentication or authorization is off (the server says so when asked).
 fn is_open(e: &Error) -> bool {
     let m = e.to_string().to_lowercase();
-    m.contains("anonymous") || m.contains("allowallauthenticator") || m.contains("allowallauthorizer")
+    m.contains("anonymous")
+        || m.contains("allowallauthenticator")
+        || m.contains("allowallauthorizer")
 }
 
 pub(crate) async fn check(s: &CassandraSession, database: Option<&str>) -> Result<Permissions> {
@@ -110,7 +144,10 @@ pub(crate) async fn check(s: &CassandraSession, database: Option<&str>) -> Resul
         Ok(rows) if rows.iter().any(|r| boolean(r, 1)) => Auth::Superuser,
         Ok(_) => {
             let user = s.user.as_deref().unwrap_or_default();
-            match s.rows(&format!("LIST ALL PERMISSIONS OF {}", cql::ident(user)), ()).await {
+            match s
+                .rows(&format!("LIST ALL PERMISSIONS OF {}", cql::ident(user)), ())
+                .await
+            {
                 Err(e) if is_open(&e) => Auth::Open,
                 Err(e) => {
                     tracing::debug!("cassandra: permissions check refused: {e}");
@@ -133,23 +170,53 @@ mod tests {
     }
 
     fn granted(g: &[(&str, &str)]) -> Auth {
-        Auth::Granted(g.iter().map(|(r, p)| (r.to_string(), p.to_string())).collect())
+        Auth::Granted(
+            g.iter()
+                .map(|(r, p)| (r.to_string(), p.to_string()))
+                .collect(),
+        )
     }
 
     #[test]
     fn superusers_and_open_servers() {
         let p = decide(Flavor::Cassandra, &Auth::Superuser, Some("ks"));
-        assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.backup, &p.restore, &p.kill_session), (&Access::Unknown, &Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (
+                &p.profiler,
+                &p.create_database,
+                &p.drop_database,
+                &p.manage_security
+            ),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
+        assert_eq!(
+            (&p.backup, &p.restore, &p.kill_session),
+            (&Access::Unknown, &Access::Unknown, &Access::Unknown)
+        );
         let p = decide(Flavor::Scylla, &Auth::Open, None);
-        assert_eq!((&p.profiler, &p.create_database), (&Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.profiler, &p.create_database),
+            (&Access::Allowed, &Access::Allowed)
+        );
         // No keyspace to drop, no users to manage.
-        assert_eq!((&p.drop_database, &p.manage_security), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(
+            (&p.drop_database, &p.manage_security),
+            (&Access::Unknown, &Access::Unknown)
+        );
     }
 
     #[test]
     fn a_role_with_nothing_is_denied() {
-        let p = decide(Flavor::Cassandra, &granted(&[("<keyspace ks>", "SELECT")]), Some("ks"));
+        let p = decide(
+            Flavor::Cassandra,
+            &granted(&[("<keyspace ks>", "SELECT")]),
+            Some("ks"),
+        );
         assert!(denied(&p.profiler, "SELECT ON system_views.queries"));
         assert!(denied(&p.create_database, "CREATE ON ALL KEYSPACES"));
         assert!(denied(&p.drop_database, "DROP ON KEYSPACE ks"));
@@ -168,25 +235,61 @@ mod tests {
             ("<all roles>", "CREATE"),
         ]);
         let p = decide(Flavor::Cassandra, &g, Some("ks"));
-        assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert!(denied(&decide(Flavor::Cassandra, &g, Some("other")).drop_database, "DROP ON KEYSPACE other"));
-        let g = granted(&[("<all keyspaces>", "DROP"), ("<table audit.audit_log>", "SELECT")]);
+        assert_eq!(
+            (
+                &p.profiler,
+                &p.create_database,
+                &p.drop_database,
+                &p.manage_security
+            ),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
+        assert!(denied(
+            &decide(Flavor::Cassandra, &g, Some("other")).drop_database,
+            "DROP ON KEYSPACE other"
+        ));
+        let g = granted(&[
+            ("<all keyspaces>", "DROP"),
+            ("<table audit.audit_log>", "SELECT"),
+        ]);
         let p = decide(Flavor::Scylla, &g, Some("any"));
-        assert_eq!((&p.profiler, &p.drop_database), (&Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.profiler, &p.drop_database),
+            (&Access::Allowed, &Access::Allowed)
+        );
     }
 
     #[test]
     fn partial_security_is_unknown() {
-        let p = decide(Flavor::Cassandra, &granted(&[("<role ana>", "ALTER")]), None);
+        let p = decide(
+            Flavor::Cassandra,
+            &granted(&[("<role ana>", "ALTER")]),
+            None,
+        );
         assert_eq!(p.manage_security, Access::Unknown);
-        let p = decide(Flavor::Cassandra, &granted(&[("<keyspace ks>", "AUTHORIZE")]), None);
+        let p = decide(
+            Flavor::Cassandra,
+            &granted(&[("<keyspace ks>", "AUTHORIZE")]),
+            None,
+        );
         assert_eq!(p.manage_security, Access::Unknown);
     }
 
     #[test]
     fn open_servers_are_recognized() {
-        assert!(is_open(&Error::Query("You have to be logged in and not anonymous to perform this request".into())));
-        assert!(is_open(&Error::Query("LIST PERMISSIONS operation is not supported by AllowAllAuthorizer".into())));
-        assert!(!is_open(&Error::Query("You are not authorized to view x's permissions".into())));
+        assert!(is_open(&Error::Query(
+            "You have to be logged in and not anonymous to perform this request".into()
+        )));
+        assert!(is_open(&Error::Query(
+            "LIST PERMISSIONS operation is not supported by AllowAllAuthorizer".into()
+        )));
+        assert!(!is_open(&Error::Query(
+            "You are not authorized to view x's permissions".into()
+        )));
     }
 }

@@ -9,7 +9,7 @@
 //! `DECIMAL(12,2)`), binary strings as `CHAR () FOR BIT DATA`, and
 //! timestamps without their precision.
 
-use super::postgres::{longest, precision_loss, prec};
+use super::postgres::{longest, prec, precision_loss};
 use super::{standard_default, Caps, Dialect, IdentCase, Rendered};
 use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Severity};
@@ -52,9 +52,33 @@ const TIMESTAMP_MAX: u8 = 12;
 impl Db2 {
     fn limits(&self) -> Limits {
         match self.platform {
-            Platform::Luw => Limits { char: 254, varchar: 32672, binary: 255, varbinary: 32672, decimal: 31, graphic: 127, vargraphic: 16336 },
-            Platform::I => Limits { char: 32765, varchar: 32739, binary: 32765, varbinary: 32739, decimal: 63, graphic: 16382, vargraphic: 16369 },
-            Platform::Zos => Limits { char: 255, varchar: 32704, binary: 255, varbinary: 32704, decimal: 31, graphic: 127, vargraphic: 16352 },
+            Platform::Luw => Limits {
+                char: 254,
+                varchar: 32672,
+                binary: 255,
+                varbinary: 32672,
+                decimal: 31,
+                graphic: 127,
+                vargraphic: 16336,
+            },
+            Platform::I => Limits {
+                char: 32765,
+                varchar: 32739,
+                binary: 32765,
+                varbinary: 32739,
+                decimal: 63,
+                graphic: 16382,
+                vargraphic: 16369,
+            },
+            Platform::Zos => Limits {
+                char: 255,
+                varchar: 32704,
+                binary: 255,
+                varbinary: 32704,
+                decimal: 31,
+                graphic: 127,
+                vargraphic: 16352,
+            },
         }
     }
 
@@ -87,12 +111,27 @@ impl Db2 {
                 Some(n) if n <= lim.varchar => {
                     let r = Rendered::exact(format!("VARCHAR({n})"));
                     if fixed {
-                        r.with(Info, TypeChanged, format!("CHAR({n}) supera el máximo de {} en {}: se usa VARCHAR.", lim.char, self.name()))
+                        r.with(
+                            Info,
+                            TypeChanged,
+                            format!(
+                                "CHAR({n}) supera el máximo de {} en {}: se usa VARCHAR.",
+                                lim.char,
+                                self.name()
+                            ),
+                        )
                     } else {
                         r
                     }
                 }
-                Some(n) => Rendered::exact(CLOB).with(Info, TypeChanged, format!("{n} caracteres superan el VARCHAR de {}: se usa CLOB.", self.name())),
+                Some(n) => Rendered::exact(CLOB).with(
+                    Info,
+                    TypeChanged,
+                    format!(
+                        "{n} caracteres superan el VARCHAR de {}: se usa CLOB.",
+                        self.name()
+                    ),
+                ),
                 None if fixed => Rendered::exact("CHAR(1)"),
                 None => Rendered::exact(CLOB),
             };
@@ -162,47 +201,93 @@ impl Dialect for Db2 {
         // `CHAR(16) FOR BIT DATA`, `CHAR () FOR BIT DATA`, `LONG VARCHAR FOR BIT DATA`.
         let (name, bit_data) = match t.name.strip_suffix(" for bit data") {
             Some(n) => (n, true),
-            None => (t.name.as_str(), t.has("for") && t.has("bit") && t.has("data")),
+            None => (
+                t.name.as_str(),
+                t.has("for") && t.has("bit") && t.has("data"),
+            ),
         };
         // No parentheses at all means the SQL default of 1; empty ones
         // (`CHAR ()`) mean the catalog didn't say.
         let fixed_len = || len().or((!t.raw.contains('(')).then_some(1));
-        let unicode = self.platform == Platform::Luw || t.rest.iter().any(|r| matches!(r.as_str(), "1200" | "1208" | "unicode"));
+        let unicode = self.platform == Platform::Luw
+            || t.rest
+                .iter()
+                .any(|r| matches!(r.as_str(), "1200" | "1208" | "unicode"));
         match name {
             "boolean" => L::Bool,
             "smallint" => L::int(2),
             "integer" | "int" => L::int(4),
             "bigint" => L::int(8),
-            "decimal" | "dec" | "numeric" | "num" => L::Decimal { precision: p(0).or(Some(5)), scale: p(1).or(Some(0)) },
+            "decimal" | "dec" | "numeric" | "num" => L::Decimal {
+                precision: p(0).or(Some(5)),
+                scale: p(1).or(Some(0)),
+            },
             // Decimal floating point: 16 or 34 significant digits.
-            "decfloat" => L::Decimal { precision: None, scale: None },
+            "decfloat" => L::Decimal {
+                precision: None,
+                scale: None,
+            },
             "real" => L::Float { bytes: 4 },
             "double" | "double precision" => L::Float { bytes: 8 },
-            "float" => L::Float { bytes: if p(0).is_some_and(|b| b <= 24) { 4 } else { 8 } },
+            "float" => L::Float {
+                bytes: if p(0).is_some_and(|b| b <= 24) { 4 } else { 8 },
+            },
             "char" | "character" if bit_data => L::Binary { len: fixed_len() },
-            "varchar" | "character varying" | "char varying" if bit_data => L::Varbinary { len: len() },
+            "varchar" | "character varying" | "char varying" if bit_data => {
+                L::Varbinary { len: len() }
+            }
             "long varchar" if bit_data => L::Blob,
-            "char" | "character" => L::Char { len: fixed_len(), unicode },
-            "varchar" | "character varying" | "char varying" => L::Varchar { len: len(), unicode },
+            "char" | "character" => L::Char {
+                len: fixed_len(),
+                unicode,
+            },
+            "varchar" | "character varying" | "char varying" => L::Varchar {
+                len: len(),
+                unicode,
+            },
             "long varchar" => L::Text { unicode },
             "clob" | "character large object" | "char large object" => L::Text { unicode },
-            "graphic" | "nchar" | "national character" | "national char" => L::Char { len: fixed_len(), unicode: true },
-            "vargraphic" | "nvarchar" | "national character varying" | "national char varying" | "nchar varying" => {
-                L::Varchar { len: len(), unicode: true }
-            }
-            "long vargraphic" | "dbclob" | "nclob" | "national character large object" | "nchar large object" => L::Text { unicode: true },
+            "graphic" | "nchar" | "national character" | "national char" => L::Char {
+                len: fixed_len(),
+                unicode: true,
+            },
+            "vargraphic"
+            | "nvarchar"
+            | "national character varying"
+            | "national char varying"
+            | "nchar varying" => L::Varchar {
+                len: len(),
+                unicode: true,
+            },
+            "long vargraphic"
+            | "dbclob"
+            | "nclob"
+            | "national character large object"
+            | "nchar large object" => L::Text { unicode: true },
             "binary" => L::Binary { len: fixed_len() },
             "varbinary" | "binary varying" => L::Varbinary { len: len() },
             "blob" | "binary large object" => L::Blob,
             "date" => L::Date,
             // Db2 TIME has no fractional seconds.
-            "time" => L::Time { precision: Some(0), tz: false },
-            "timestamp" | "timestmp" => L::Timestamp { precision: Some(p(0).unwrap_or(6).min(TIMESTAMP_MAX as u32) as u8), tz: t.with_tz },
+            "time" => L::Time {
+                precision: Some(0),
+                tz: false,
+            },
+            "timestamp" | "timestmp" => L::Timestamp {
+                precision: Some(p(0).unwrap_or(6).min(TIMESTAMP_MAX as u32) as u8),
+                tz: t.with_tz,
+            },
             "xml" => L::Xml,
             "rowid" => L::RowVersion,
             n => match spatial_kind(n) {
-                Some(kind) => L::Geometry { kind, srid: None, geography: false },
-                None => L::Other { native: t.raw.clone() },
+                Some(kind) => L::Geometry {
+                    kind,
+                    srid: None,
+                    geography: false,
+                },
+                None => L::Other {
+                    native: t.raw.clone(),
+                },
             },
         }
     }
@@ -318,7 +403,13 @@ impl Dialect for Db2 {
             DefaultValue::CurrentTime => Some("CURRENT TIME".into()),
             // GENERATE_UNIQUE() isn't allowed in a DEFAULT clause.
             DefaultValue::NewUuid => None,
-            other => standard_default(other, ty, "CURRENT TIMESTAMP", None, self.platform == Platform::Zos),
+            other => standard_default(
+                other,
+                ty,
+                "CURRENT TIMESTAMP",
+                None,
+                self.platform == Platform::Zos,
+            ),
         }
     }
 
@@ -336,16 +427,26 @@ impl Dialect for Db2 {
             nullability: true,
             comments: true,
             // z/OS column names: 30 bytes; the rest: 128.
-            max_identifier: if self.platform == Platform::Zos { 30 } else { 128 },
+            max_identifier: if self.platform == Platform::Zos {
+                30
+            } else {
+                128
+            },
             case: IdentCase::Upper,
         }
     }
 }
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
-    static LUW: Db2 = Db2 { platform: Platform::Luw };
-    static I: Db2 = Db2 { platform: Platform::I };
-    static ZOS: Db2 = Db2 { platform: Platform::Zos };
+    static LUW: Db2 = Db2 {
+        platform: Platform::Luw,
+    };
+    static I: Db2 = Db2 {
+        platform: Platform::I,
+    };
+    static ZOS: Db2 = Db2 {
+        platform: Platform::Zos,
+    };
     Some(match driver_id {
         "db2" => &LUW,
         "db2i" => &I,
@@ -381,24 +482,96 @@ mod tests {
         assert_eq!(p(d, "SMALLINT"), L::int(2));
         assert_eq!(p(d, "INTEGER"), L::int(4));
         assert_eq!(p(d, "BIGINT"), L::int(8));
-        assert_eq!(p(d, "DECIMAL(12,2)"), L::Decimal { precision: Some(12), scale: Some(2) });
-        assert_eq!(p(d, "DECIMAL"), L::Decimal { precision: Some(5), scale: Some(0) });
-        assert_eq!(p(d, "NUMERIC(31,0)"), L::Decimal { precision: Some(31), scale: Some(0) });
-        assert_eq!(p(d, "DECFLOAT"), L::Decimal { precision: None, scale: None });
-        assert_eq!(p(d, "DECFLOAT(16)"), L::Decimal { precision: None, scale: None });
+        assert_eq!(
+            p(d, "DECIMAL(12,2)"),
+            L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }
+        );
+        assert_eq!(
+            p(d, "DECIMAL"),
+            L::Decimal {
+                precision: Some(5),
+                scale: Some(0)
+            }
+        );
+        assert_eq!(
+            p(d, "NUMERIC(31,0)"),
+            L::Decimal {
+                precision: Some(31),
+                scale: Some(0)
+            }
+        );
+        assert_eq!(
+            p(d, "DECFLOAT"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
+        assert_eq!(
+            p(d, "DECFLOAT(16)"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
         assert_eq!(p(d, "REAL"), L::Float { bytes: 4 });
         assert_eq!(p(d, "DOUBLE"), L::Float { bytes: 8 });
         assert_eq!(p(d, "FLOAT(21)"), L::Float { bytes: 4 });
-        assert_eq!(p(d, "CHAR(10)"), L::Char { len: Some(10), unicode: true });
-        assert_eq!(p(d, "CHARACTER"), L::Char { len: Some(1), unicode: true });
-        assert_eq!(p(d, "VARCHAR(40)"), L::Varchar { len: Some(40), unicode: true });
-        assert_eq!(p(d, "VARCHAR(20 CODEUNITS32)"), L::Varchar { len: Some(20), unicode: true });
+        assert_eq!(
+            p(d, "CHAR(10)"),
+            L::Char {
+                len: Some(10),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p(d, "CHARACTER"),
+            L::Char {
+                len: Some(1),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p(d, "VARCHAR(40)"),
+            L::Varchar {
+                len: Some(40),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p(d, "VARCHAR(20 CODEUNITS32)"),
+            L::Varchar {
+                len: Some(20),
+                unicode: true
+            }
+        );
         assert_eq!(p(d, "LONG VARCHAR"), L::Text { unicode: true });
         assert_eq!(p(d, "CLOB"), L::Text { unicode: true });
         assert_eq!(p(d, "CLOB(1M)"), L::Text { unicode: true });
-        assert_eq!(p(d, "GRAPHIC(5)"), L::Char { len: Some(5), unicode: true });
-        assert_eq!(p(d, "VARGRAPHIC(100)"), L::Varchar { len: Some(100), unicode: true });
-        assert_eq!(p(d, "NVARCHAR(100)"), L::Varchar { len: Some(100), unicode: true });
+        assert_eq!(
+            p(d, "GRAPHIC(5)"),
+            L::Char {
+                len: Some(5),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p(d, "VARGRAPHIC(100)"),
+            L::Varchar {
+                len: Some(100),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p(d, "NVARCHAR(100)"),
+            L::Varchar {
+                len: Some(100),
+                unicode: true
+            }
+        );
         assert_eq!(p(d, "LONG VARGRAPHIC"), L::Text { unicode: true });
         assert_eq!(p(d, "DBCLOB"), L::Text { unicode: true });
         assert_eq!(p(d, "NCLOB"), L::Text { unicode: true });
@@ -408,29 +581,101 @@ mod tests {
         assert_eq!(p(d, "CHAR () FOR BIT DATA"), L::Binary { len: None });
         assert_eq!(p(d, "CHAR(16) FOR BIT DATA"), L::Binary { len: Some(16) });
         assert_eq!(p(d, "VARCHAR () FOR BIT DATA"), L::Varbinary { len: None });
-        assert_eq!(p(d, "VARCHAR(64) FOR BIT DATA"), L::Varbinary { len: Some(64) });
+        assert_eq!(
+            p(d, "VARCHAR(64) FOR BIT DATA"),
+            L::Varbinary { len: Some(64) }
+        );
         assert_eq!(p(d, "LONG VARCHAR FOR BIT DATA"), L::Blob);
         assert_eq!(p(d, "DATE"), L::Date);
-        assert_eq!(p(d, "TIME"), L::Time { precision: Some(0), tz: false });
-        assert_eq!(p(d, "TIMESTAMP"), L::Timestamp { precision: Some(6), tz: false });
-        assert_eq!(p(d, "TIMESTAMP(12)"), L::Timestamp { precision: Some(12), tz: false });
+        assert_eq!(
+            p(d, "TIME"),
+            L::Time {
+                precision: Some(0),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p(d, "TIMESTAMP"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p(d, "TIMESTAMP(12)"),
+            L::Timestamp {
+                precision: Some(12),
+                tz: false
+            }
+        );
         assert_eq!(p(d, "BOOLEAN"), L::Bool);
         assert_eq!(p(d, "XML"), L::Xml);
-        assert_eq!(p(d, "DB2GSE.ST_POINT"), L::Geometry { kind: Some("point".into()), srid: None, geography: false });
-        assert_eq!(p(d, "DB2GSE.ST_GEOMETRY"), L::Geometry { kind: None, srid: None, geography: false });
+        assert_eq!(
+            p(d, "DB2GSE.ST_POINT"),
+            L::Geometry {
+                kind: Some("point".into()),
+                srid: None,
+                geography: false
+            }
+        );
+        assert_eq!(
+            p(d, "DB2GSE.ST_GEOMETRY"),
+            L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }
+        );
         assert!(matches!(p(d, "DATALINK"), L::Other { .. }));
     }
 
     #[test]
     fn platform_differences_in_parsing() {
         // EBCDIC by default on i and z/OS; CCSID 1208/1200 is Unicode.
-        assert_eq!(p(i(), "VARCHAR(40)"), L::Varchar { len: Some(40), unicode: false });
-        assert_eq!(p(i(), "VARCHAR(40) CCSID 1208"), L::Varchar { len: Some(40), unicode: true });
-        assert_eq!(p(i(), "NCHAR(4)"), L::Char { len: Some(4), unicode: true });
-        assert_eq!(p(zos(), "CHAR(3)"), L::Char { len: Some(3), unicode: false });
-        assert_eq!(p(zos(), "TIMESTAMP(6) WITH TIME ZONE"), L::Timestamp { precision: Some(6), tz: true });
+        assert_eq!(
+            p(i(), "VARCHAR(40)"),
+            L::Varchar {
+                len: Some(40),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p(i(), "VARCHAR(40) CCSID 1208"),
+            L::Varchar {
+                len: Some(40),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p(i(), "NCHAR(4)"),
+            L::Char {
+                len: Some(4),
+                unicode: true
+            }
+        );
+        assert_eq!(
+            p(zos(), "CHAR(3)"),
+            L::Char {
+                len: Some(3),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p(zos(), "TIMESTAMP(6) WITH TIME ZONE"),
+            L::Timestamp {
+                precision: Some(6),
+                tz: true
+            }
+        );
         assert_eq!(p(zos(), "ROWID"), L::RowVersion);
-        assert_eq!(p(i(), "QSYS2.ST_POLYGON"), L::Geometry { kind: Some("polygon".into()), srid: None, geography: false });
+        assert_eq!(
+            p(i(), "QSYS2.ST_POLYGON"),
+            L::Geometry {
+                kind: Some("polygon".into()),
+                srid: None,
+                geography: false
+            }
+        );
     }
 
     #[test]
@@ -440,27 +685,171 @@ mod tests {
         assert_eq!(r(zos(), L::Bool), "SMALLINT");
         assert_eq!(r(d, L::int(1)), "SMALLINT");
         assert_eq!(r(d, L::int(4)), "INTEGER");
-        assert_eq!(r(d, L::Int { bytes: 4, unsigned: true }), "BIGINT");
-        assert_eq!(r(d, L::Int { bytes: 8, unsigned: true }), "DECIMAL(20, 0)");
+        assert_eq!(
+            r(
+                d,
+                L::Int {
+                    bytes: 4,
+                    unsigned: true
+                }
+            ),
+            "BIGINT"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Int {
+                    bytes: 8,
+                    unsigned: true
+                }
+            ),
+            "DECIMAL(20, 0)"
+        );
         assert_eq!(r(d, L::int(16)), "DECIMAL(31, 0)");
         assert_eq!(r(i(), L::int(16)), "DECIMAL(39, 0)");
-        assert_eq!(r(d, L::Decimal { precision: Some(12), scale: Some(2) }), "DECIMAL(12, 2)");
-        assert_eq!(r(d, L::Decimal { precision: Some(33), scale: Some(2) }), "DECFLOAT(34)");
-        assert_eq!(r(i(), L::Decimal { precision: Some(50), scale: Some(2) }), "DECIMAL(50, 2)");
-        assert_eq!(r(d, L::Decimal { precision: None, scale: None }), "DECFLOAT(34)");
+        assert_eq!(
+            r(
+                d,
+                L::Decimal {
+                    precision: Some(12),
+                    scale: Some(2)
+                }
+            ),
+            "DECIMAL(12, 2)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Decimal {
+                    precision: Some(33),
+                    scale: Some(2)
+                }
+            ),
+            "DECFLOAT(34)"
+        );
+        assert_eq!(
+            r(
+                i(),
+                L::Decimal {
+                    precision: Some(50),
+                    scale: Some(2)
+                }
+            ),
+            "DECIMAL(50, 2)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Decimal {
+                    precision: None,
+                    scale: None
+                }
+            ),
+            "DECFLOAT(34)"
+        );
         assert_eq!(r(d, L::Float { bytes: 4 }), "REAL");
         assert_eq!(r(d, L::Float { bytes: 8 }), "DOUBLE");
         assert_eq!(r(d, L::Money), "DECIMAL(19, 4)");
-        assert_eq!(r(d, L::Char { len: Some(3), unicode: false }), "CHAR(3)");
-        assert_eq!(r(d, L::Char { len: Some(300), unicode: false }), "VARCHAR(300)");
-        assert_eq!(r(d, L::Char { len: Some(3), unicode: true }), "CHAR(3 CODEUNITS32)");
-        assert_eq!(r(d, L::Varchar { len: Some(40), unicode: true }), "VARCHAR(40 CODEUNITS32)");
-        assert_eq!(r(d, L::Varchar { len: Some(9000), unicode: true }), "CLOB(1G)");
-        assert_eq!(r(d, L::Varchar { len: Some(9000), unicode: false }), "VARCHAR(9000)");
-        assert_eq!(r(d, L::Varchar { len: Some(40000), unicode: false }), "CLOB(1G)");
-        assert_eq!(r(i(), L::Varchar { len: Some(40), unicode: true }), "NVARCHAR(40)");
-        assert_eq!(r(i(), L::Char { len: Some(4), unicode: true }), "NCHAR(4)");
-        assert_eq!(r(zos(), L::Varchar { len: Some(40), unicode: true }), "VARGRAPHIC(40)");
+        assert_eq!(
+            r(
+                d,
+                L::Char {
+                    len: Some(3),
+                    unicode: false
+                }
+            ),
+            "CHAR(3)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Char {
+                    len: Some(300),
+                    unicode: false
+                }
+            ),
+            "VARCHAR(300)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Char {
+                    len: Some(3),
+                    unicode: true
+                }
+            ),
+            "CHAR(3 CODEUNITS32)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Varchar {
+                    len: Some(40),
+                    unicode: true
+                }
+            ),
+            "VARCHAR(40 CODEUNITS32)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Varchar {
+                    len: Some(9000),
+                    unicode: true
+                }
+            ),
+            "CLOB(1G)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Varchar {
+                    len: Some(9000),
+                    unicode: false
+                }
+            ),
+            "VARCHAR(9000)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Varchar {
+                    len: Some(40000),
+                    unicode: false
+                }
+            ),
+            "CLOB(1G)"
+        );
+        assert_eq!(
+            r(
+                i(),
+                L::Varchar {
+                    len: Some(40),
+                    unicode: true
+                }
+            ),
+            "NVARCHAR(40)"
+        );
+        assert_eq!(
+            r(
+                i(),
+                L::Char {
+                    len: Some(4),
+                    unicode: true
+                }
+            ),
+            "NCHAR(4)"
+        );
+        assert_eq!(
+            r(
+                zos(),
+                L::Varchar {
+                    len: Some(40),
+                    unicode: true
+                }
+            ),
+            "VARGRAPHIC(40)"
+        );
         assert_eq!(r(zos(), L::Text { unicode: true }), "DBCLOB(512M)");
         assert_eq!(r(d, L::Text { unicode: true }), "CLOB(1G)");
         assert_eq!(r(d, L::Binary { len: Some(16) }), "BINARY(16)");
@@ -471,28 +860,149 @@ mod tests {
         assert_eq!(r(d, L::Bit { len: Some(1) }), "BOOLEAN");
         assert_eq!(r(d, L::Bit { len: Some(12) }), "VARBINARY(2)");
         assert_eq!(r(d, L::Date), "DATE");
-        assert_eq!(r(d, L::Time { precision: Some(3), tz: true }), "TIME");
-        assert_eq!(d.render_type(&L::Time { precision: Some(3), tz: true }).notes.len(), 2);
-        assert_eq!(r(d, L::Timestamp { precision: None, tz: false }), "TIMESTAMP");
-        assert_eq!(r(d, L::Timestamp { precision: Some(3), tz: false }), "TIMESTAMP(3)");
-        assert_eq!(r(d, L::Timestamp { precision: Some(6), tz: true }), "TIMESTAMP(6)");
-        assert!(d.render_type(&L::Timestamp { precision: Some(6), tz: true }).notes.iter().any(|n| n.code == IssueCode::TimeZoneLoss));
-        assert_eq!(r(zos(), L::Timestamp { precision: Some(6), tz: true }), "TIMESTAMP(6) WITH TIME ZONE");
+        assert_eq!(
+            r(
+                d,
+                L::Time {
+                    precision: Some(3),
+                    tz: true
+                }
+            ),
+            "TIME"
+        );
+        assert_eq!(
+            d.render_type(&L::Time {
+                precision: Some(3),
+                tz: true
+            })
+            .notes
+            .len(),
+            2
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Timestamp {
+                    precision: None,
+                    tz: false
+                }
+            ),
+            "TIMESTAMP"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Timestamp {
+                    precision: Some(3),
+                    tz: false
+                }
+            ),
+            "TIMESTAMP(3)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Timestamp {
+                    precision: Some(6),
+                    tz: true
+                }
+            ),
+            "TIMESTAMP(6)"
+        );
+        assert!(d
+            .render_type(&L::Timestamp {
+                precision: Some(6),
+                tz: true
+            })
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::TimeZoneLoss));
+        assert_eq!(
+            r(
+                zos(),
+                L::Timestamp {
+                    precision: Some(6),
+                    tz: true
+                }
+            ),
+            "TIMESTAMP(6) WITH TIME ZONE"
+        );
         assert_eq!(r(d, L::Interval), "VARCHAR(100)");
         assert_eq!(r(d, L::Year), "SMALLINT");
         assert_eq!(r(d, L::Uuid), "CHAR(36)");
         assert_eq!(r(d, L::Json { binary: true }), "CLOB(1G)");
         assert_eq!(r(d, L::Xml), "XML");
-        assert_eq!(r(d, L::Enum { values: vec!["a".into(), "bcd".into()] }), "VARCHAR(3 CODEUNITS32)");
-        assert_eq!(r(d, L::Set { values: vec!["a".into()] }), "VARCHAR(1 CODEUNITS32)");
-        assert_eq!(r(d, L::Array { of: Box::new(L::int(4)) }), "CLOB(1G)");
-        assert_eq!(r(d, L::Map { key: Box::new(L::Text { unicode: true }), value: Box::new(L::int(4)) }), "CLOB(1G)");
-        assert_eq!(r(d, L::Geometry { kind: Some("point".into()), srid: Some(4326), geography: false }), "DB2GSE.ST_POINT");
-        assert_eq!(r(i(), L::Geometry { kind: None, srid: None, geography: true }), "QSYS2.ST_GEOMETRY");
+        assert_eq!(
+            r(
+                d,
+                L::Enum {
+                    values: vec!["a".into(), "bcd".into()]
+                }
+            ),
+            "VARCHAR(3 CODEUNITS32)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Set {
+                    values: vec!["a".into()]
+                }
+            ),
+            "VARCHAR(1 CODEUNITS32)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Array {
+                    of: Box::new(L::int(4))
+                }
+            ),
+            "CLOB(1G)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Map {
+                    key: Box::new(L::Text { unicode: true }),
+                    value: Box::new(L::int(4))
+                }
+            ),
+            "CLOB(1G)"
+        );
+        assert_eq!(
+            r(
+                d,
+                L::Geometry {
+                    kind: Some("point".into()),
+                    srid: Some(4326),
+                    geography: false
+                }
+            ),
+            "DB2GSE.ST_POINT"
+        );
+        assert_eq!(
+            r(
+                i(),
+                L::Geometry {
+                    kind: None,
+                    srid: None,
+                    geography: true
+                }
+            ),
+            "QSYS2.ST_GEOMETRY"
+        );
         assert_eq!(r(d, L::Inet), "VARCHAR(45)");
         assert_eq!(r(d, L::MacAddr), "VARCHAR(17)");
         assert_eq!(r(d, L::RowVersion), "CHAR(8) FOR BIT DATA");
-        assert_eq!(r(d, L::Other { native: "DATALINK".into() }), "DATALINK");
+        assert_eq!(
+            r(
+                d,
+                L::Other {
+                    native: "DATALINK".into()
+                }
+            ),
+            "DATALINK"
+        );
     }
 
     #[test]
@@ -502,13 +1012,25 @@ mod tests {
                 L::int(2),
                 L::int(4),
                 L::int(8),
-                L::Decimal { precision: Some(12), scale: Some(2) },
+                L::Decimal {
+                    precision: Some(12),
+                    scale: Some(2),
+                },
                 L::Float { bytes: 8 },
-                L::Varchar { len: Some(40), unicode: true },
-                L::Char { len: Some(3), unicode: true },
+                L::Varchar {
+                    len: Some(40),
+                    unicode: true,
+                },
+                L::Char {
+                    len: Some(3),
+                    unicode: true,
+                },
                 L::Blob,
                 L::Date,
-                L::Timestamp { precision: Some(3), tz: false },
+                L::Timestamp {
+                    precision: Some(3),
+                    tz: false,
+                },
                 L::Xml,
             ] {
                 let native = d.render_type(&t).native;
@@ -520,15 +1042,59 @@ mod tests {
     #[test]
     fn defaults() {
         let d = luw();
-        let ts = L::Timestamp { precision: Some(6), tz: false };
-        assert_eq!(d.render_default(&DefaultValue::CurrentTimestamp, &ts).as_deref(), Some("CURRENT TIMESTAMP"));
-        assert_eq!(d.render_default(&DefaultValue::CurrentTimestamp, &L::Date).as_deref(), Some("CURRENT DATE"));
-        assert_eq!(d.render_default(&DefaultValue::CurrentDate, &L::Date).as_deref(), Some("CURRENT DATE"));
-        assert_eq!(d.render_default(&DefaultValue::CurrentTime, &L::Time { precision: None, tz: false }).as_deref(), Some("CURRENT TIME"));
-        assert_eq!(d.render_default(&DefaultValue::Bool(true), &L::Bool).as_deref(), Some("TRUE"));
-        assert_eq!(zos().render_default(&DefaultValue::Bool(true), &L::Bool).as_deref(), Some("1"));
+        let ts = L::Timestamp {
+            precision: Some(6),
+            tz: false,
+        };
+        assert_eq!(
+            d.render_default(&DefaultValue::CurrentTimestamp, &ts)
+                .as_deref(),
+            Some("CURRENT TIMESTAMP")
+        );
+        assert_eq!(
+            d.render_default(&DefaultValue::CurrentTimestamp, &L::Date)
+                .as_deref(),
+            Some("CURRENT DATE")
+        );
+        assert_eq!(
+            d.render_default(&DefaultValue::CurrentDate, &L::Date)
+                .as_deref(),
+            Some("CURRENT DATE")
+        );
+        assert_eq!(
+            d.render_default(
+                &DefaultValue::CurrentTime,
+                &L::Time {
+                    precision: None,
+                    tz: false
+                }
+            )
+            .as_deref(),
+            Some("CURRENT TIME")
+        );
+        assert_eq!(
+            d.render_default(&DefaultValue::Bool(true), &L::Bool)
+                .as_deref(),
+            Some("TRUE")
+        );
+        assert_eq!(
+            zos()
+                .render_default(&DefaultValue::Bool(true), &L::Bool)
+                .as_deref(),
+            Some("1")
+        );
         assert_eq!(d.render_default(&DefaultValue::NewUuid, &L::Uuid), None);
-        assert_eq!(d.render_default(&DefaultValue::Text("it's".into()), &L::Varchar { len: Some(9), unicode: true }).as_deref(), Some("'it''s'"));
+        assert_eq!(
+            d.render_default(
+                &DefaultValue::Text("it's".into()),
+                &L::Varchar {
+                    len: Some(9),
+                    unicode: true
+                }
+            )
+            .as_deref(),
+            Some("'it''s'")
+        );
     }
 
     #[test]

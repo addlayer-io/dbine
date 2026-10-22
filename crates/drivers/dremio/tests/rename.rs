@@ -12,7 +12,10 @@
 //! Dremio has no keys, indexes, checks or routines.
 
 use dbine_driver::rename::{rewrite_references, with_create_style, RenameTarget, RewriteOptions};
-use dbine_driver::{Confidence, ConnectionConfig, DependencyScan, Driver, ObjectRef, QueryOutcome, Relation, RenameRequest, Session};
+use dbine_driver::{
+    Confidence, ConnectionConfig, DependencyScan, Driver, ObjectRef, QueryOutcome, Relation,
+    RenameRequest, Session,
+};
 use serde_json::Value;
 
 const SPACE: &str = "dbine_rename_sp";
@@ -31,8 +34,15 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn one(s: &mut dyn Session, sql: &str) -> String {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
-    match out.results.last().and_then(|r| r.rows.first()).and_then(|r| r.first()) {
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
+    match out
+        .results
+        .last()
+        .and_then(|r| r.rows.first())
+        .and_then(|r| r.first())
+    {
         Some(Value::String(v)) => v.clone(),
         Some(Value::Null) | None => String::new(),
         Some(v) => v.to_string(),
@@ -40,19 +50,32 @@ async fn one(s: &mut dyn Session, sql: &str) -> String {
 }
 
 fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: Some(schema.into()),
+        name: name.into(),
+    }
 }
 
 /// The driver's rename and the rewritten dependents found in the space.
 /// Returns the dependents left to the user.
-async fn rename(d: &dyn Driver, c: &ConnectionConfig, target: RenameTarget, new: &str) -> dbine_driver::Result<Vec<String>> {
+async fn rename(
+    d: &dyn Driver,
+    c: &ConnectionConfig,
+    target: RenameTarget,
+    new: &str,
+) -> dbine_driver::Result<Vec<String>> {
     let spec = d.rename_spec().unwrap();
     let dialect = d.script_dialect();
     // The table's own container, as the app reads it.
     let table = match target.table() {
         Some(t) => {
             let mut s = d.connect(c, t.schema()).await.unwrap();
-            s.database_schema().await.unwrap().into_iter().find(|x| x.name == t.name)
+            s.database_schema()
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|x| x.name == t.name)
         }
         None => None,
     };
@@ -61,9 +84,17 @@ async fn rename(d: &dyn Driver, c: &ConnectionConfig, target: RenameTarget, new:
         RenameTarget::Object { object, .. } => s.definition(object).await.unwrap(),
         _ => None,
     };
-    let script = d.rename_script(&RenameRequest { target: target.clone(), new_name: new.into(), table, definition })?;
+    let script = d.rename_script(&RenameRequest {
+        target: target.clone(),
+        new_name: new.into(),
+        table,
+        definition,
+    })?;
     let scan = DependencyScan::new(d.info(), dialect, d.capabilities().foreign_keys);
-    let report = s.dependents(&target.dependency_target(), &scan).await.unwrap();
+    let report = s
+        .dependents(&target.dependency_target(), &scan)
+        .await
+        .unwrap();
     let mut statements = script.statements;
     let mut manual = Vec::new();
     for dep in report.items.iter().filter(|x| x.relation == Relation::Code) {
@@ -71,17 +102,35 @@ async fn rename(d: &dyn Driver, c: &ConnectionConfig, target: RenameTarget, new:
             manual.push(dep.name.clone());
             continue;
         }
-        let def = s.definition(&ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() }).await.unwrap().unwrap();
-        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == "view", ..Default::default() };
+        let def = s
+            .definition(&ObjectRef {
+                kind: dep.kind.clone(),
+                schema: dep.schema.clone(),
+                name: dep.name.clone(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        let opts = RewriteOptions {
+            dependent_schema: dep.schema.clone(),
+            keep_view_columns: dep.kind == "view",
+            ..Default::default()
+        };
         let r = rewrite_references(&def, &dialect, &target.rewrite_target(), new, &spec, &opts);
         if r.edits.is_empty() {
             continue;
         }
         assert!(r.unresolved.is_empty(), "{}: {:?}", dep.name, r.unresolved);
-        statements.push(with_create_style(&r.text, &dialect, spec.replace_for(&dep.kind)));
+        statements.push(with_create_style(
+            &r.text,
+            &dialect,
+            spec.replace_for(&dep.kind),
+        ));
     }
     for st in &statements {
-        s.execute(st, 10, &mut QueryOutcome::default()).await.map_err(|e| dbine_driver::Error::Query(format!("{st}: {e}")))?;
+        s.execute(st, 10, &mut QueryOutcome::default())
+            .await
+            .map_err(|e| dbine_driver::Error::Query(format!("{st}: {e}")))?;
     }
     manual.sort();
     Ok(manual)
@@ -108,7 +157,11 @@ async fn folder(c: &ConnectionConfig, path: &[&str]) {
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_success(), "{}", r.text().await.unwrap_or_default());
+    assert!(
+        r.status().is_success(),
+        "{}",
+        r.text().await.unwrap_or_default()
+    );
 }
 
 #[tokio::test]
@@ -138,22 +191,66 @@ async fn dremio_rename_with_impact() {
 
     // Column: the view keeps its output name, the same-named column of
     // rn_t3 is left alone.
-    let column = RenameTarget::Column { table: obj("table", "$scratch", "rn_t"), column: "pepe".into() };
+    let column = RenameTarget::Column {
+        table: obj("table", "$scratch", "rn_t"),
+        column: "pepe".into(),
+    };
     let manual = rename(d.as_ref(), &c, column, "Nuevo Pepe").await.unwrap();
     assert!(manual.is_empty(), "{manual:?}");
-    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.v")).await, "a");
-    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.other")).await, "z");
-    assert_eq!(one(s.as_mut(), "SELECT \"Nuevo Pepe\" FROM \"$scratch\".rn_t").await, "a");
+    assert_eq!(
+        one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.v")).await,
+        "a"
+    );
+    assert_eq!(
+        one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.other")).await,
+        "z"
+    );
+    assert_eq!(
+        one(s.as_mut(), "SELECT \"Nuevo Pepe\" FROM \"$scratch\".rn_t").await,
+        "a"
+    );
 
     // A table is refused before reaching the server.
-    let table = RenameTarget::Object { object: obj("table", "$scratch", "rn_t"), parent: None };
-    assert!(matches!(rename(d.as_ref(), &c, table, "rn_u").await, Err(dbine_driver::Error::Unsupported(_))));
+    let table = RenameTarget::Object {
+        object: obj("table", "$scratch", "rn_t"),
+        parent: None,
+    };
+    assert!(matches!(
+        rename(d.as_ref(), &c, table, "rn_u").await,
+        Err(dbine_driver::Error::Unsupported(_))
+    ));
 
     // View, with a view on it: created again with the new name.
-    s.execute(&format!("CREATE VIEW {SPACE}.w AS SELECT pepe FROM {SPACE}.v"), 10, &mut out).await.unwrap();
-    rename(d.as_ref(), &c, RenameTarget::Object { object: obj("view", SPACE, "v"), parent: None }, "Ventas v2").await.unwrap();
-    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.w")).await, "a");
-    assert_eq!(one(s.as_mut(), &format!("SELECT count(*) FROM {SPACE}.\"Ventas v2\"")).await, "1");
+    s.execute(
+        &format!("CREATE VIEW {SPACE}.w AS SELECT pepe FROM {SPACE}.v"),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    rename(
+        d.as_ref(),
+        &c,
+        RenameTarget::Object {
+            object: obj("view", SPACE, "v"),
+            parent: None,
+        },
+        "Ventas v2",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.w")).await,
+        "a"
+    );
+    assert_eq!(
+        one(
+            s.as_mut(),
+            &format!("SELECT count(*) FROM {SPACE}.\"Ventas v2\"")
+        )
+        .await,
+        "1"
+    );
     assert_eq!(
         one(s.as_mut(), &format!("SELECT count(*) FROM INFORMATION_SCHEMA.\"TABLES\" WHERE TABLE_SCHEMA = '{SPACE}' AND TABLE_NAME = 'v'")).await,
         "0"
@@ -173,12 +270,37 @@ async fn dremio_rename_with_impact() {
     )
     .await
     .unwrap();
-    let manual = rename(d.as_ref(), &c, RenameTarget::Object { object: obj("view", &format!("{SPACE}.f"), "fv"), parent: None }, "fv2").await.unwrap();
+    let manual = rename(
+        d.as_ref(),
+        &c,
+        RenameTarget::Object {
+            object: obj("view", &format!("{SPACE}.f"), "fv"),
+            parent: None,
+        },
+        "fv2",
+    )
+    .await
+    .unwrap();
     assert!(manual.is_empty(), "{manual:?}");
-    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.top")).await, "a");
-    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.f.near")).await, "a");
-    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.f.fv2")).await, "a");
+    assert_eq!(
+        one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.top")).await,
+        "a"
+    );
+    assert_eq!(
+        one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.f.near")).await,
+        "a"
+    );
+    assert_eq!(
+        one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.f.fv2")).await,
+        "a"
+    );
 
-    s.execute("DROP TABLE \"$scratch\".rn_t; DROP TABLE \"$scratch\".rn_t3", 10, &mut out).await.unwrap();
+    s.execute(
+        "DROP TABLE \"$scratch\".rn_t; DROP TABLE \"$scratch\".rn_t3",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     s.drop_database(SPACE).await.unwrap();
 }

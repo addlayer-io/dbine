@@ -46,7 +46,9 @@
 
 use crate::{es_error_message, http, json::J, EsSession};
 use base64::Engine;
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{kinds, Error, Result};
 use serde_json::{json, Value};
 use std::borrow::Cow;
@@ -96,7 +98,11 @@ struct Scan<'a> {
 
 impl<'a> Scan<'a> {
     fn new(text: &'a str) -> Self {
-        Scan { s: text.as_bytes(), text, i: 0 }
+        Scan {
+            s: text.as_bytes(),
+            text,
+            i: 0,
+        }
     }
 
     fn err(&self, what: &str) -> String {
@@ -243,7 +249,9 @@ impl<'a> Scan<'a> {
                     escaped = true;
                     self.i += 2;
                 }
-                Some(c) if c < 0x20 => return Err(self.err("carácter de control dentro de un texto")),
+                Some(c) if c < 0x20 => {
+                    return Err(self.err("carácter de control dentro de un texto"))
+                }
                 Some(_) => self.i += 1,
             }
         }
@@ -251,7 +259,8 @@ impl<'a> Scan<'a> {
         // Both ends are quotes: char boundaries.
         let quoted = &self.text[start..self.i];
         if escaped {
-            serde_json::from_str::<serde::de::IgnoredAny>(quoted).map_err(|e| self.err(&e.to_string()))?;
+            serde_json::from_str::<serde::de::IgnoredAny>(quoted)
+                .map_err(|e| self.err(&e.to_string()))?;
         }
         Ok(&quoted[1..quoted.len() - 1])
     }
@@ -391,12 +400,21 @@ struct Hit<'a> {
 /// A string value as text; any other value, `None`.
 fn text_value(sc: &mut Scan<'_>, depth: usize) -> Parsed<Option<String>> {
     let v = sc.value(depth)?;
-    Ok(v.strip_prefix('"').and_then(|v| v.strip_suffix('"')).map(|s| unescape(s).into_owned()))
+    Ok(v.strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .map(|s| unescape(s).into_owned()))
 }
 
 /// One hit; `source` is an empty vector to fill (reused between hits).
-fn parse_hit<'a>(sc: &mut Scan<'a>, source: Vec<(&'a str, &'a str)>, depth: usize) -> Parsed<Hit<'a>> {
-    let mut h = Hit { source, ..Hit::default() };
+fn parse_hit<'a>(
+    sc: &mut Scan<'a>,
+    source: Vec<(&'a str, &'a str)>,
+    depth: usize,
+) -> Parsed<Hit<'a>> {
+    let mut h = Hit {
+        source,
+        ..Hit::default()
+    };
     if !sc.open(b'{') {
         sc.skip(depth)?;
         return Ok(h);
@@ -429,7 +447,9 @@ fn walk_page<'a>(text: &'a str, mut each: impl FnMut(&Hit<'a>) -> Result<()>) ->
     let bad = |e: String| Error::Query(format!("Respuesta inesperada de _search: {e}"));
     let mut sc = Scan::new(text);
     if !sc.open(b'{') {
-        return Err(Error::Query("Respuesta inesperada de _search: no es un objeto".into()));
+        return Err(Error::Query(
+            "Respuesta inesperada de _search: no es un objeto".into(),
+        ));
     }
     let mut end = PageEnd::default();
     let mut last_sort: Option<&str> = None;
@@ -453,7 +473,8 @@ fn walk_page<'a>(text: &'a str, mut each: impl FnMut(&Hit<'a>) -> Result<()>) ->
                         first = false;
                         sc.ws();
                         let start = sc.i;
-                        let hit = parse_hit(&mut sc, std::mem::take(&mut source), 3).map_err(bad)?;
+                        let hit =
+                            parse_hit(&mut sc, std::mem::take(&mut source), 3).map_err(bad)?;
                         end.hits += 1;
                         end.largest = end.largest.max(sc.i - start);
                         last_sort = hit.sort;
@@ -474,8 +495,13 @@ fn walk_page<'a>(text: &'a str, mut each: impl FnMut(&Hit<'a>) -> Result<()>) ->
 /// How the read pages.
 enum Cursor {
     /// `after`: the last hit's sort values, as JSON text.
-    Pit { id: String, after: Option<String> },
-    Scroll { id: Option<String> },
+    Pit {
+        id: String,
+        after: Option<String>,
+    },
+    Scroll {
+        id: Option<String>,
+    },
 }
 
 /// Whether a raw key is `name`.
@@ -496,7 +522,13 @@ fn lookup<'a>(src: &[(&'a str, &'a str)], name: &str) -> Option<(usize, &'a str,
         return Some((i, src[i].1, Vec::new()));
     }
     for (i, (k, v)) in src.iter().enumerate() {
-        let Some(rest) = name.strip_prefix(&*unescape(k)).and_then(|r| r.strip_prefix('.')).map(str::to_string) else { continue };
+        let Some(rest) = name
+            .strip_prefix(&*unescape(k))
+            .and_then(|r| r.strip_prefix('.'))
+            .map(str::to_string)
+        else {
+            continue;
+        };
         if !v.starts_with('{') {
             continue;
         }
@@ -526,7 +558,11 @@ fn without(raw: &str, paths: &[&[&str]]) -> Option<Vec<u8>> {
     };
     let mut out = Vec::new();
     for (k, v) in fields {
-        let under: Vec<&[&str]> = paths.iter().filter(|p| same(p[0], k)).map(|p| &p[1..]).collect();
+        let under: Vec<&[&str]> = paths
+            .iter()
+            .filter(|p| same(p[0], k))
+            .map(|p| &p[1..])
+            .collect();
         let kept = if under.is_empty() {
             let mut b = Vec::new();
             write_compact(&mut b, v);
@@ -680,19 +716,29 @@ fn source_fields(mapping: &J, out: &mut Vec<Field>) {
         }
     }
     fn walk(props: Option<&J>, prefix: &str, targets: &[&str], out: &mut Vec<Field>) {
-        let Some(o) = props.and_then(J::as_obj) else { return };
+        let Some(o) = props.and_then(J::as_obj) else {
+            return;
+        };
         for (name, f) in o {
             let ty = f.get("type").and_then(J::as_str).unwrap_or("object");
             if ty == "alias" {
                 continue;
             }
-            let full = if prefix.is_empty() { name.clone() } else { format!("{prefix}.{name}") };
+            let full = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}.{name}")
+            };
             if targets.contains(&full.as_str()) {
                 continue;
             }
             match out.iter_mut().find(|x| x.name == full) {
                 Some(x) => x.top |= prefix.is_empty(),
-                None => out.push(Field { name: full.clone(), ty: ty.to_string(), top: prefix.is_empty() }),
+                None => out.push(Field {
+                    name: full.clone(),
+                    ty: ty.to_string(),
+                    top: prefix.is_empty(),
+                }),
             }
             walk(f.get("properties"), &full, targets, out);
         }
@@ -708,15 +754,24 @@ fn source_fields(mapping: &J, out: &mut Vec<Field>) {
 fn read_columns(asked: Option<&[String]>, fields: &[Field]) -> Result<Vec<TransferColumn>> {
     let names: Vec<String> = match asked {
         Some(c) => {
-            if let Some(bad) = c.iter().find(|n| !META.contains(&n.as_str()) && *n != REST && !fields.iter().any(|f| f.name == **n)) {
-                return Err(Error::Query(format!("la lectura no trae la columna «{bad}»")));
+            if let Some(bad) = c.iter().find(|n| {
+                !META.contains(&n.as_str()) && *n != REST && !fields.iter().any(|f| f.name == **n)
+            }) {
+                return Err(Error::Query(format!(
+                    "la lectura no trae la columna «{bad}»"
+                )));
             }
             c.to_vec()
         }
         None => ["_id", "_routing"]
             .into_iter()
             .map(str::to_string)
-            .chain(fields.iter().filter(|f| f.top && !META.contains(&f.name.as_str()) && f.name != REST).map(|f| f.name.clone()))
+            .chain(
+                fields
+                    .iter()
+                    .filter(|f| f.top && !META.contains(&f.name.as_str()) && f.name != REST)
+                    .map(|f| f.name.clone()),
+            )
             .chain(std::iter::once(REST.to_string()))
             .collect(),
     };
@@ -727,9 +782,17 @@ fn read_columns(asked: Option<&[String]>, fields: &[Field]) -> Result<Vec<Transf
                 "_id" | "_index" | "_routing" => "keyword".to_string(),
                 "_score" => "float".to_string(),
                 REST => "object".to_string(),
-                _ => fields.iter().find(|f| f.name == n).map(|f| f.ty.clone()).unwrap_or_default(),
+                _ => fields
+                    .iter()
+                    .find(|f| f.name == n)
+                    .map(|f| f.ty.clone())
+                    .unwrap_or_default(),
             };
-            TransferColumn { nullable: n != "_id", name: n, type_name: ty }
+            TransferColumn {
+                nullable: n != "_id",
+                name: n,
+                type_name: ty,
+            }
         })
         .collect())
 }
@@ -767,9 +830,16 @@ pub(crate) fn bulk_errors(body: &str, rows: u64) -> Option<String> {
         .flatten()
         .filter_map(|i| i.as_object()?.values().next()?.get("error"))
         .collect();
-    let first: Vec<String> =
-        errors.iter().take(3).map(|e| es_error_message(400, &json!({ "error": e }).to_string())).collect();
-    Some(format!("_bulk: fallaron {} de {rows} documentos. Primeros errores: {}", errors.len(), first.join("; ")))
+    let first: Vec<String> = errors
+        .iter()
+        .take(3)
+        .map(|e| es_error_message(400, &json!({ "error": e }).to_string()))
+        .collect();
+    Some(format!(
+        "_bulk: fallaron {} de {rows} documentos. Primeros errores: {}",
+        errors.len(),
+        first.join("; ")
+    ))
 }
 
 /// A cell as the text of an `_id` / routing value.
@@ -790,12 +860,21 @@ fn write_json(buf: &mut Vec<u8>, col: &str, s: &str) -> Result<()> {
     check_json(s).map_err(|e| Error::Query(format!("«{col}» no es un JSON válido: {e}")))?;
     // Valid JSON has line breaks only between tokens (inside a string they
     // are escaped): as spaces, NDJSON's lines stay whole.
-    buf.extend(s.trim().bytes().map(|b| if b == b'\n' || b == b'\r' { b' ' } else { b }));
+    buf.extend(
+        s.trim()
+            .bytes()
+            .map(|b| if b == b'\n' || b == b'\r' { b' ' } else { b }),
+    );
     Ok(())
 }
 
 /// One row as an action line and a document line.
-pub(crate) fn encode_row(buf: &mut Vec<u8>, op: &str, names: &[String], row: &[Cell]) -> Result<()> {
+pub(crate) fn encode_row(
+    buf: &mut Vec<u8>,
+    op: &str,
+    names: &[String],
+    row: &[Cell],
+) -> Result<()> {
     buf.extend_from_slice(b"{\"");
     buf.extend_from_slice(op.as_bytes());
     buf.extend_from_slice(b"\":{");
@@ -827,7 +906,11 @@ pub(crate) fn encode_row(buf: &mut Vec<u8>, op: &str, names: &[String], row: &[C
         if n == REST {
             match c {
                 Cell::Json(s) | Cell::Text(s) => rest = Some((n, s)),
-                _ => return Err(Error::Query(format!("«{REST}» tiene que ser un objeto JSON"))),
+                _ => {
+                    return Err(Error::Query(format!(
+                        "«{REST}» tiene que ser un objeto JSON"
+                    )))
+                }
             }
             continue;
         }
@@ -851,20 +934,28 @@ pub(crate) fn encode_row(buf: &mut Vec<u8>, op: &str, names: &[String], row: &[C
             Cell::Bytes(b) => write_str(buf, &base64::engine::general_purpose::STANDARD.encode(b)),
             // Only a JSON cell is nested JSON: text is text, whatever it holds.
             Cell::Json(s) => write_json(buf, n, s)?,
-            Cell::Text(s) | Cell::Decimal(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => {
-                write_str(buf, s)
-            }
+            Cell::Text(s)
+            | Cell::Decimal(s)
+            | Cell::Date(s)
+            | Cell::Time(s)
+            | Cell::DateTime(s)
+            | Cell::DateTimeTz(s)
+            | Cell::Uuid(s) => write_str(buf, s),
             Cell::Null => {}
         }
     }
     // The `_source` fields no column holds.
     if let Some((n, s)) = rest {
         // Walked as text, never as a tree (see `Scan`).
-        let Ok(fields) = entries(s.trim()) else { return Err(Error::Query(format!("«{n}» tiene que ser un objeto JSON"))) };
+        let Ok(fields) = entries(s.trim()) else {
+            return Err(Error::Query(format!("«{n}» tiene que ser un objeto JSON")));
+        };
         for (k, v) in fields {
             let key = unescape(k);
             if written.contains(&key) {
-                return Err(Error::Query(format!("«{n}» repite el campo «{key}», que ya tiene su propia columna")));
+                return Err(Error::Query(format!(
+                    "«{n}» repite el campo «{key}», que ya tiene su propia columna"
+                )));
             }
             if !written.is_empty() {
                 buf.push(b',');
@@ -899,7 +990,9 @@ async fn send_bulk(to: Bulk, body: Vec<u8>, rows: u64, stop: Arc<AtomicBool>) ->
         .body(body);
     let mut wait = Duration::from_millis(500);
     for attempt in 0.. {
-        let Some(this) = rb.try_clone() else { return Err(Error::State("cuerpo de _bulk".into())) };
+        let Some(this) = rb.try_clone() else {
+            return Err(Error::State("cuerpo de _bulk".into()));
+        };
         let (status, text) = http::send(this).await?;
         if status == 429 && attempt < 6 {
             // A refused request indexed nothing.
@@ -952,7 +1045,9 @@ impl EsSession {
     /// The fields `_source` can hold, from the mapping of every index
     /// `index` names.
     async fn field_types(&self, index: &str) -> Result<Vec<Field>> {
-        let m = self.get_json(&format!("/{}/_mapping", crate::ddl::path_segment(index))).await?;
+        let m = self
+            .get_json(&format!("/{}/_mapping", crate::ddl::path_segment(index)))
+            .await?;
         let mut fields: Vec<Field> = Vec::new();
         for (name, idx) in m.as_obj().into_iter().flatten() {
             let mapping = idx.get("mappings").unwrap_or(&J::Null);
@@ -969,13 +1064,19 @@ impl EsSession {
     /// One page: `None` if its response goes over [`MAX_RESPONSE`] (it's
     /// not read further), else its text (walked with [`walk_page`]).
     async fn page(&self, path: &str, body: &Value) -> Result<Option<String>> {
-        let rb = self.request("POST", path).header("Content-Type", "application/json").timeout(TIMEOUT).body(body.to_string());
+        let rb = self
+            .request("POST", path)
+            .header("Content-Type", "application/json")
+            .timeout(TIMEOUT)
+            .body(body.to_string());
         let mut resp = rb.send().await.map_err(http::net_err)?;
         let status = resp.status().as_u16();
         let mut buf: Vec<u8> = Vec::new();
         while let Some(chunk) = resp.chunk().await.map_err(http::net_err)? {
             if status >= 400 {
-                buf.extend_from_slice(&chunk[..chunk.len().min(MAX_ERROR_BODY.saturating_sub(buf.len()))]);
+                buf.extend_from_slice(
+                    &chunk[..chunk.len().min(MAX_ERROR_BODY.saturating_sub(buf.len()))],
+                );
                 continue;
             }
             if buf.len() + chunk.len() > MAX_RESPONSE {
@@ -984,14 +1085,24 @@ impl EsSession {
             buf.extend_from_slice(&chunk);
         }
         if status >= 400 {
-            return Err(Error::Query(es_error_message(status, &String::from_utf8_lossy(&buf))));
+            return Err(Error::Query(es_error_message(
+                status,
+                &String::from_utf8_lossy(&buf),
+            )));
         }
-        String::from_utf8(buf).map(Some).map_err(|e| Error::Query(format!("Respuesta inesperada de _search: {e}")))
+        String::from_utf8(buf)
+            .map(Some)
+            .map_err(|e| Error::Query(format!("Respuesta inesperada de _search: {e}")))
     }
 
     /// Hits per scroll page: after the largest of a probe's documents.
     /// `None`: the read finds nothing.
-    async fn scroll_size(&self, index: &str, query: &Value, source: &Value) -> Result<Option<usize>> {
+    async fn scroll_size(
+        &self,
+        index: &str,
+        query: &Value,
+        source: &Value,
+    ) -> Result<Option<usize>> {
         let path = format!("/{}/_search", crate::ddl::path_segment(index));
         let mut n = PROBE;
         loop {
@@ -1015,8 +1126,13 @@ impl EsSession {
         if self.opensearch {
             return None;
         }
-        let path = format!("/{}/_pit?keep_alive={KEEP_ALIVE}", crate::ddl::path_segment(index));
-        let (status, text) = http::send(self.request("POST", &path).timeout(TIMEOUT)).await.ok()?;
+        let path = format!(
+            "/{}/_pit?keep_alive={KEEP_ALIVE}",
+            crate::ddl::path_segment(index)
+        );
+        let (status, text) = http::send(self.request("POST", &path).timeout(TIMEOUT))
+            .await
+            .ok()?;
         if status >= 400 {
             return None;
         }
@@ -1031,11 +1147,18 @@ impl EsSession {
             Cursor::Scroll { id: Some(id) } => ("/_search/scroll", json!({ "scroll_id": [id] })),
             Cursor::Scroll { id: None } => return,
         };
-        let rb = self.request("DELETE", path).header("Content-Type", "application/json").body(body.to_string());
+        let rb = self
+            .request("DELETE", path)
+            .header("Content-Type", "application/json")
+            .body(body.to_string());
         let _ = http::send(rb.timeout(Duration::from_secs(20))).await;
     }
 
-    pub(crate) async fn transfer_read(&mut self, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+    pub(crate) async fn transfer_read(
+        &mut self,
+        spec: &ReadSpec,
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         let index = spec.table.name.trim();
         if index.is_empty() {
             return Err(Error::Query("Falta el índice de origen.".into()));
@@ -1043,23 +1166,51 @@ impl EsSession {
         let fields = self.field_types(index).await?;
         let cols = read_columns(spec.columns.as_deref(), &fields)?;
         let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
-        let query: Value = match spec.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
-            Some(f) => serde_json::from_str(f)
-                .map_err(|e| Error::Query(format!("El filtro tiene que ser una consulta JSON del Query DSL: {e}")))?,
+        let query: Value = match spec
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
+            Some(f) => serde_json::from_str(f).map_err(|e| {
+                Error::Query(format!(
+                    "El filtro tiene que ser una consulta JSON del Query DSL: {e}"
+                ))
+            })?,
             None => json!({ "match_all": {} }),
         };
-        let source = if spec.columns.is_some() { source_filter(&names) } else { Value::Bool(true) };
+        let source = if spec.columns.is_some() {
+            source_filter(&names)
+        } else {
+            Value::Bool(true)
+        };
 
-        sink.lock().map_err(|_| Error::State("destino de lotes".into()))?.begin(&cols)?;
+        sink.lock()
+            .map_err(|_| Error::State("destino de lotes".into()))?
+            .begin(&cols)?;
         let mut cursor = match self.open_pit(index).await {
             Some(id) => Cursor::Pit { id, after: None },
             None => Cursor::Scroll { id: None },
         };
         let mut builder = BatchBuilder::new();
-        let r = self.read_pages(index, &query, &source, &cols, &mut cursor, &mut builder, &sink).await;
+        let r = self
+            .read_pages(
+                index,
+                &query,
+                &source,
+                &cols,
+                &mut cursor,
+                &mut builder,
+                &sink,
+            )
+            .await;
         self.close_cursor(&cursor).await;
         r?;
-        builder.flush(&mut *sink.lock().map_err(|_| Error::State("destino de lotes".into()))?)?;
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
         Ok(builder.rows)
     }
 
@@ -1091,7 +1242,8 @@ impl EsSession {
                         "sort": [{ "_shard_doc": "asc" }],
                     });
                     if let Some(a) = after {
-                        body["search_after"] = serde_json::from_str(a).map_err(|e| Error::Query(format!("search_after: {e}")))?;
+                        body["search_after"] = serde_json::from_str(a)
+                            .map_err(|e| Error::Query(format!("search_after: {e}")))?;
                     }
                     match self.page("/_search", &body).await {
                         Ok(Some(text)) => text,
@@ -1113,20 +1265,32 @@ impl EsSession {
                     }
                 }
                 Cursor::Scroll { id: None } => {
-                    let Some(n) = self.scroll_size(index, query, source).await? else { return Ok(()) };
-                    let body = json!({ "size": n, "query": query, "_source": source, "sort": ["_doc"] });
-                    let path = format!("/{}/_search?scroll={KEEP_ALIVE}", crate::ddl::path_segment(index));
+                    let Some(n) = self.scroll_size(index, query, source).await? else {
+                        return Ok(());
+                    };
+                    let body =
+                        json!({ "size": n, "query": query, "_source": source, "sort": ["_doc"] });
+                    let path = format!(
+                        "/{}/_search?scroll={KEEP_ALIVE}",
+                        crate::ddl::path_segment(index)
+                    );
                     self.page(&path, &body).await?.ok_or_else(uneven)?
                 }
-                Cursor::Scroll { id: Some(id) } => {
-                    self.page("/_search/scroll", &json!({ "scroll": KEEP_ALIVE, "scroll_id": id })).await?.ok_or_else(uneven)?
-                }
+                Cursor::Scroll { id: Some(id) } => self
+                    .page(
+                        "/_search/scroll",
+                        &json!({ "scroll": KEEP_ALIVE, "scroll_id": id }),
+                    )
+                    .await?
+                    .ok_or_else(uneven)?,
             };
             first = false;
             // Each hit becomes a row as it's read: the page in flight is its
             // text and one row (plus the batch being filled).
             let page = {
-                let mut s = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+                let mut s = sink
+                    .lock()
+                    .map_err(|_| Error::State("destino de lotes".into()))?;
                 walk_page(&text, |hit| Ok(builder.push(hit_row(hit, cols), &mut *s)?))?
             };
             let n = page.hits;
@@ -1165,15 +1329,24 @@ impl EsSession {
         progress: Progress<'_>,
     ) -> Result<u64> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden cargar datos.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden cargar datos.".into(),
+            ));
         }
         let index = spec.table.name.trim();
         if index.is_empty() {
             return Err(Error::Query("Falta el índice de destino.".into()));
         }
-        let names: Vec<String> =
-            if spec.columns.is_empty() { columns.iter().map(|c| c.name.clone()).collect() } else { spec.columns.clone() };
-        let op = if spec.table.kind == kinds::STREAM { "create" } else { "index" };
+        let names: Vec<String> = if spec.columns.is_empty() {
+            columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            spec.columns.clone()
+        };
+        let op = if spec.table.kind == kinds::STREAM {
+            "create"
+        } else {
+            "index"
+        };
         let seg = crate::ddl::path_segment(index);
         let to = Bulk {
             client: self.client.clone(),
@@ -1184,7 +1357,9 @@ impl EsSession {
         // A request is a commit window: `commit_rows` rows, `commit_bytes`
         // bytes, and never over REQUEST_BYTES (memory: IN_FLIGHT of them).
         let every = spec.commit_rows.max(1);
-        let limit = usize::try_from(spec.commit_bytes).unwrap_or(usize::MAX).clamp(1, REQUEST_BYTES);
+        let limit = usize::try_from(spec.commit_bytes)
+            .unwrap_or(usize::MAX)
+            .clamp(1, REQUEST_BYTES);
         let mut done = 0u64;
         let mut inflight = InFlight::new();
         let fed: Result<()> = async {
@@ -1194,25 +1369,53 @@ impl EsSession {
             while let Some(batch) = source.next().await {
                 for row in batch.rows {
                     if row.len() != names.len() {
-                        return Err(Error::Query(format!("la fila tiene {} valores y la carga {} columnas", row.len(), names.len())));
+                        return Err(Error::Query(format!(
+                            "la fila tiene {} valores y la carga {} columnas",
+                            row.len(),
+                            names.len()
+                        )));
                     }
                     row_buf.clear();
                     encode_row(&mut row_buf, op, &names, &row)?;
                     // The row would take the request over its bytes: send
                     // what's there first.
                     if buffered > 0 && buf.len() + row_buf.len() > limit {
-                        inflight.send(&to, take_body(&mut buf, limit), std::mem::take(&mut buffered), &mut done, progress).await?;
+                        inflight
+                            .send(
+                                &to,
+                                take_body(&mut buf, limit),
+                                std::mem::take(&mut buffered),
+                                &mut done,
+                                progress,
+                            )
+                            .await?;
                     }
                     buf.extend_from_slice(&row_buf);
                     buffered += 1;
                     if buffered >= every || buf.len() >= limit {
-                        inflight.send(&to, take_body(&mut buf, limit), std::mem::take(&mut buffered), &mut done, progress).await?;
+                        inflight
+                            .send(
+                                &to,
+                                take_body(&mut buf, limit),
+                                std::mem::take(&mut buffered),
+                                &mut done,
+                                progress,
+                            )
+                            .await?;
                     }
                 }
                 inflight.reap(&mut done, progress)?;
             }
             if buffered > 0 {
-                inflight.send(&to, take_body(&mut buf, limit), buffered, &mut done, progress).await?;
+                inflight
+                    .send(
+                        &to,
+                        take_body(&mut buf, limit),
+                        buffered,
+                        &mut done,
+                        progress,
+                    )
+                    .await?;
             }
             while let Some(r) = inflight.set.join_next().await {
                 done += joined(Some(r))?;
@@ -1286,11 +1489,22 @@ struct InFlight {
 
 impl InFlight {
     fn new() -> Self {
-        InFlight { set: JoinSet::new(), stop: Arc::new(AtomicBool::new(false)), live: Arc::new((Mutex::new(0), Condvar::new())) }
+        InFlight {
+            set: JoinSet::new(),
+            stop: Arc::new(AtomicBool::new(false)),
+            live: Arc::new((Mutex::new(0), Condvar::new())),
+        }
     }
 
     /// Send `body` once there's room, reporting what ends meanwhile.
-    async fn send(&mut self, to: &Bulk, body: Vec<u8>, rows: u64, done: &mut u64, progress: Progress<'_>) -> Result<()> {
+    async fn send(
+        &mut self,
+        to: &Bulk,
+        body: Vec<u8>,
+        rows: u64,
+        done: &mut u64,
+        progress: Progress<'_>,
+    ) -> Result<()> {
         if self.set.len() >= IN_FLIGHT {
             *done += joined(self.set.join_next().await)?;
             progress(*done);
@@ -1345,7 +1559,9 @@ impl Drop for InFlight {
             }
         };
         match tokio::runtime::Handle::try_current() {
-            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => tokio::task::block_in_place(wait),
+            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(wait)
+            }
             Ok(_) => {}
             Err(_) => wait(),
         }
@@ -1367,7 +1583,12 @@ mod tests {
     }
 
     fn doc(names_: &[&str], row: &[Cell]) -> String {
-        encode(names_, row).unwrap().lines().nth(1).unwrap().to_string()
+        encode(names_, row)
+            .unwrap()
+            .lines()
+            .nth(1)
+            .unwrap()
+            .to_string()
     }
 
     fn hit(json: &str) -> Hit<'_> {
@@ -1376,16 +1597,28 @@ mod tests {
 
     /// Fields as `source_fields` gives them (dotted names are nested).
     fn fields(f: &[(&str, &str)]) -> Vec<Field> {
-        f.iter().map(|(n, t)| Field { name: n.to_string(), ty: t.to_string(), top: !n.contains('.') }).collect()
+        f.iter()
+            .map(|(n, t)| Field {
+                name: n.to_string(),
+                ty: t.to_string(),
+                top: !n.contains('.'),
+            })
+            .collect()
     }
 
     fn col(n: &str, t: &str) -> TransferColumn {
-        TransferColumn { name: n.into(), type_name: t.into(), nullable: true }
+        TransferColumn {
+            name: n.into(),
+            type_name: t.into(),
+            nullable: true,
+        }
     }
 
     #[test]
     fn rows_become_bulk_lines() {
-        let cols = ["_id", "_score", "title", "meta", "tags", "n", "blob", "gone", "price"];
+        let cols = [
+            "_id", "_score", "title", "meta", "tags", "n", "blob", "gone", "price",
+        ];
         let row = vec![
             Cell::Int(7),
             Cell::Float(1.0),
@@ -1401,22 +1634,48 @@ mod tests {
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[0], r#"{"index":{"_id":"7"}}"#);
         let doc: Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(doc, json!({"title": "Dune \"1\"", "meta": {"x": 1}, "tags": [1, 2], "n": u64::MAX, "blob": "AQID", "price": "12.50"}));
+        assert_eq!(
+            doc,
+            json!({"title": "Dune \"1\"", "meta": {"x": 1}, "tags": [1, 2], "n": u64::MAX, "blob": "AQID", "price": "12.50"})
+        );
         let mut buf = Vec::new();
-        encode_row(&mut buf, "create", &names(&["a", "_routing"]), &[Cell::Text("{not json}".into()), Cell::Text("r1".into())]).unwrap();
-        assert_eq!(String::from_utf8(buf).unwrap(), "{\"create\":{\"routing\":\"r1\"}}\n{\"a\":\"{not json}\"}\n");
+        encode_row(
+            &mut buf,
+            "create",
+            &names(&["a", "_routing"]),
+            &[Cell::Text("{not json}".into()), Cell::Text("r1".into())],
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "{\"create\":{\"routing\":\"r1\"}}\n{\"a\":\"{not json}\"}\n"
+        );
     }
 
     /// Problem 2: text that holds valid JSON is still a string.
     #[test]
     fn text_is_never_nested() {
-        let row = [Cell::Text("[1,2]".into()), Cell::Text("  [3]  ".into()), Cell::Text("{}".into())];
-        assert_eq!(doc(&["k", "ws", "t"], &row), r#"{"k":"[1,2]","ws":"  [3]  ","t":"{}"}"#);
+        let row = [
+            Cell::Text("[1,2]".into()),
+            Cell::Text("  [3]  ".into()),
+            Cell::Text("{}".into()),
+        ];
+        assert_eq!(
+            doc(&["k", "ws", "t"], &row),
+            r#"{"k":"[1,2]","ws":"  [3]  ","t":"{}"}"#
+        );
         // A JSON cell is nested as written (numbers keep their text), on one line.
-        let row = [Cell::Json("{\n \"a\": 12345678901234567890123,\r\n \"b\": \"x\\ny\" }".into())];
-        assert_eq!(doc(&["j"], &row), "{\"j\":{  \"a\": 12345678901234567890123,   \"b\": \"x\\ny\" }}");
+        let row = [Cell::Json(
+            "{\n \"a\": 12345678901234567890123,\r\n \"b\": \"x\\ny\" }".into(),
+        )];
+        assert_eq!(
+            doc(&["j"], &row),
+            "{\"j\":{  \"a\": 12345678901234567890123,   \"b\": \"x\\ny\" }}"
+        );
         // …and an invalid one fails instead of being written raw.
-        let err = encode(&["j"], &[Cell::Json("{\"a\":1}\n{\"index\":{}}".into())]).unwrap_err().to_string();
+        let err = encode(&["j"], &[Cell::Json("{\"a\":1}\n{\"index\":{}}".into())])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("«j» no es un JSON válido"), "{err}");
         assert!(encode(&["j"], &[Cell::Json("[1,".into())]).is_err());
     }
@@ -1424,8 +1683,14 @@ mod tests {
     /// Problem 3: numbers an `f64` can't hold keep their text.
     #[test]
     fn numbers_are_lossless() {
-        assert_eq!(num_cell("12345678901234567890123"), Cell::Json("12345678901234567890123".into()));
-        assert_eq!(num_cell("3.14159265358979323846"), Cell::Json("3.14159265358979323846".into()));
+        assert_eq!(
+            num_cell("12345678901234567890123"),
+            Cell::Json("12345678901234567890123".into())
+        );
+        assert_eq!(
+            num_cell("3.14159265358979323846"),
+            Cell::Json("3.14159265358979323846".into())
+        );
         assert_eq!(num_cell("1.50"), Cell::Json("1.50".into()));
         assert_eq!(num_cell("1e400"), Cell::Json("1e400".into()));
         assert_eq!(num_cell("-0"), Cell::Json("-0".into()));
@@ -1433,21 +1698,46 @@ mod tests {
         assert_eq!(num_cell("-42"), Cell::Int(-42));
         assert_eq!(num_cell("18446744073709551615"), Cell::UInt(u64::MAX));
         // Read and written back: the same text.
-        let h = hit(r#"{"_id":"1","_source":{"code":12345678901234567890123,"f":0.1,"big":[1e400]}}"#);
-        let cols = [col("_id", "keyword"), col("code", "keyword"), col("f", "double"), col("big", "double")];
+        let h =
+            hit(r#"{"_id":"1","_source":{"code":12345678901234567890123,"f":0.1,"big":[1e400]}}"#);
+        let cols = [
+            col("_id", "keyword"),
+            col("code", "keyword"),
+            col("f", "double"),
+            col("big", "double"),
+        ];
         let row = hit_row(&h, &cols);
-        assert_eq!(doc(&["_id", "code", "f", "big"], &row), r#"{"code":12345678901234567890123,"f":0.1,"big":[1e400]}"#);
+        assert_eq!(
+            doc(&["_id", "code", "f", "big"], &row),
+            r#"{"code":12345678901234567890123,"f":0.1,"big":[1e400]}"#
+        );
     }
 
     /// Problem 4: an asked-for column that doesn't exist is an error.
     #[test]
     fn unknown_columns_fail() {
         let fields = fields(&[("k", "keyword"), ("a.b", "long")]);
-        let err = read_columns(Some(&names(&["_id", "no_such_column"])), &fields).unwrap_err().to_string();
-        assert!(err.contains("la lectura no trae la columna «no_such_column»"), "{err}");
+        let err = read_columns(Some(&names(&["_id", "no_such_column"])), &fields)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("la lectura no trae la columna «no_such_column»"),
+            "{err}"
+        );
         let cols = read_columns(Some(&names(&["a.b", "_id", "k", "_source"])), &fields).unwrap();
-        let got: Vec<(&str, &str)> = cols.iter().map(|c| (c.name.as_str(), c.type_name.as_str())).collect();
-        assert_eq!(got, [("a.b", "long"), ("_id", "keyword"), ("k", "keyword"), ("_source", "object")]);
+        let got: Vec<(&str, &str)> = cols
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("a.b", "long"),
+                ("_id", "keyword"),
+                ("k", "keyword"),
+                ("_source", "object")
+            ]
+        );
     }
 
     /// Round 2, problem 4: multi-fields (`title.keyword`) and aliases are
@@ -1462,11 +1752,26 @@ mod tests {
         .unwrap();
         let mut f = Vec::new();
         source_fields(&m, &mut f);
-        let got: Vec<(&str, &str, bool)> = f.iter().map(|f| (f.name.as_str(), f.ty.as_str(), f.top)).collect();
-        assert_eq!(got, [("title", "text", true), ("host", "object", true), ("host.name", "keyword", false)]);
+        let got: Vec<(&str, &str, bool)> = f
+            .iter()
+            .map(|f| (f.name.as_str(), f.ty.as_str(), f.top))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("title", "text", true),
+                ("host", "object", true),
+                ("host.name", "keyword", false)
+            ]
+        );
         for bad in ["title.keyword", "host.name.raw", "t2"] {
-            let err = read_columns(Some(&names(&["_id", bad])), &f).unwrap_err().to_string();
-            assert!(err.contains(&format!("la lectura no trae la columna «{bad}»")), "{err}");
+            let err = read_columns(Some(&names(&["_id", bad])), &f)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains(&format!("la lectura no trae la columna «{bad}»")),
+                "{err}"
+            );
         }
         assert!(read_columns(Some(&names(&["host.name"])), &f).is_ok());
     }
@@ -1475,16 +1780,26 @@ mod tests {
     /// the mapping shows as `host: {name}`) are neither lost nor reshaped.
     #[test]
     fn dotted_source_keys_survive_a_full_read() {
-        let f = fields(&[("host", "object"), ("host.name", "keyword"), ("k", "keyword")]);
+        let f = fields(&[
+            ("host", "object"),
+            ("host.name", "keyword"),
+            ("k", "keyword"),
+        ]);
         let cols = read_columns(None, &f).unwrap();
         let names_: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names_, ["_id", "_routing", "host", "k", "_source"]);
         let h = hit(r#"{"_id":"1","_source":{"host.name":"web-1","k":"x","a.b":{"c":[1, 2]}}}"#);
         let row = hit_row(&h, &cols);
         assert_eq!(row[2], Cell::Null);
-        assert_eq!(row[4], Cell::Json(r#"{"host.name":"web-1","a.b":{"c":[1,2]}}"#.into()));
+        assert_eq!(
+            row[4],
+            Cell::Json(r#"{"host.name":"web-1","a.b":{"c":[1,2]}}"#.into())
+        );
         // Written back with the same keys.
-        assert_eq!(doc(&names_, &row), r#"{"k":"x","host.name":"web-1","a.b":{"c":[1,2]}}"#);
+        assert_eq!(
+            doc(&names_, &row),
+            r#"{"k":"x","host.name":"web-1","a.b":{"c":[1,2]}}"#
+        );
         // Both shapes at once: each key where it belongs.
         let h = hit(r#"{"_id":"1","_source":{"host":{"ip":"1"},"host.name":"web-1"}}"#);
         let row = hit_row(&h, &cols);
@@ -1492,8 +1807,19 @@ mod tests {
         assert_eq!(row[4], Cell::Json(r#"{"host.name":"web-1"}"#.into()));
         // An asked-for dotted path finds a dotted key, and holds only it.
         let h = hit(r#"{"_id":"1","_source":{"a.b":{"c":7},"a":{"x":1},"host.name":"w"}}"#);
-        let asked = [col("a.b.c", "long"), col("host.name", "keyword"), col("_source", "object")];
-        assert_eq!(hit_row(&h, &asked), [Cell::Int(7), Cell::Text("w".into()), Cell::Json(r#"{"a":{"x":1}}"#.into())]);
+        let asked = [
+            col("a.b.c", "long"),
+            col("host.name", "keyword"),
+            col("_source", "object"),
+        ];
+        assert_eq!(
+            hit_row(&h, &asked),
+            [
+                Cell::Int(7),
+                Cell::Text("w".into()),
+                Cell::Json(r#"{"a":{"x":1}}"#.into())
+            ]
+        );
         // A longer key isn't held by a shorter column: `host` doesn't read `host.name`.
         assert_eq!(lookup(&h.source, "host"), None);
         assert_eq!(lookup(&h.source, "a.x"), Some((1, "1", vec!["x"])));
@@ -1507,46 +1833,71 @@ mod tests {
         let cols = read_columns(None, &fields).unwrap();
         let names_: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names_, ["_id", "_routing", "k", "o", "_source"]);
-        let h = hit(r#"{"_id":"1","_routing":"r7","_source":{"k":"a","extra":"unmapped value","o":{"x":1,"y":2},"more":{"z":[1]}}}"#);
+        let h = hit(
+            r#"{"_id":"1","_routing":"r7","_source":{"k":"a","extra":"unmapped value","o":{"x":1,"y":2},"more":{"z":[1]}}}"#,
+        );
         let row = hit_row(&h, &cols);
         assert_eq!(row[1], Cell::Text("r7".into()));
-        assert_eq!(row[4], Cell::Json(r#"{"extra":"unmapped value","more":{"z":[1]}}"#.into()));
+        assert_eq!(
+            row[4],
+            Cell::Json(r#"{"extra":"unmapped value","more":{"z":[1]}}"#.into())
+        );
         let text = encode(&names_, &row).unwrap();
         assert_eq!(
             text,
             "{\"index\":{\"_id\":\"1\",\"routing\":\"r7\"}}\n{\"k\":\"a\",\"o\":{\"x\":1,\"y\":2},\"extra\":\"unmapped value\",\"more\":{\"z\":[1]}}\n"
         );
         // Nothing unmapped: no `_source` value.
-        assert_eq!(hit_row(&hit(r#"{"_id":"2","_source":{"k":"b"}}"#), &cols)[4], Cell::Null);
+        assert_eq!(
+            hit_row(&hit(r#"{"_id":"2","_source":{"k":"b"}}"#), &cols)[4],
+            Cell::Null
+        );
         // A dotted column covers its root.
         let h = hit(r#"{"_id":"1","_source":{"o":{"x":1},"extra":1}}"#);
-        assert_eq!(hit_row(&h, &[col("o.x", "long"), col("_source", "object")])[1], Cell::Json(r#"{"extra":1}"#.into()));
+        assert_eq!(
+            hit_row(&h, &[col("o.x", "long"), col("_source", "object")])[1],
+            Cell::Json(r#"{"extra":1}"#.into())
+        );
         // `_source` repeating a column, or not an object, fails.
-        assert!(encode(&["k", "_source"], &[Cell::Text("a".into()), Cell::Json(r#"{"k":"b"}"#.into())]).is_err());
+        assert!(encode(
+            &["k", "_source"],
+            &[Cell::Text("a".into()), Cell::Json(r#"{"k":"b"}"#.into())]
+        )
+        .is_err());
         assert!(encode(&["_source"], &[Cell::Json("[1]".into())]).is_err());
         assert!(encode(&["_source"], &[Cell::Int(1)]).is_err());
         // The mapping flag.
-        assert!(unstored_source(&J::parse(r#"{"_source":{"enabled":false}}"#).unwrap()));
-        assert!(!unstored_source(&J::parse(r#"{"_source":{"excludes":["x"]}}"#).unwrap()));
+        assert!(unstored_source(
+            &J::parse(r#"{"_source":{"enabled":false}}"#).unwrap()
+        ));
+        assert!(!unstored_source(
+            &J::parse(r#"{"_source":{"excludes":["x"]}}"#).unwrap()
+        ));
     }
 
     /// Problem 6: an explicit null is not a missing field.
     #[test]
     fn explicit_nulls_survive() {
         let h = hit(r#"{"_id":"1","_source":{"nv":null,"arr":[null]}}"#);
-        let cols = [col("_id", "keyword"), col("nv", "keyword"), col("gone", "keyword"), col("arr", "keyword")];
+        let cols = [
+            col("_id", "keyword"),
+            col("nv", "keyword"),
+            col("gone", "keyword"),
+            col("arr", "keyword"),
+        ];
         let row = hit_row(&h, &cols);
         assert_eq!(row[1], Cell::Json("null".into()));
         assert_eq!(row[2], Cell::Null);
-        assert_eq!(doc(&["_id", "nv", "gone", "arr"], &row), r#"{"nv":null,"arr":[null]}"#);
+        assert_eq!(
+            doc(&["_id", "nv", "gone", "arr"], &row),
+            r#"{"nv":null,"arr":[null]}"#
+        );
     }
 
     #[test]
     fn hits_become_rows() {
-        let h = hit(
-            r#"{"_index":"i","_id":"1","_score":null,"sort":[3],
-                "_source":{"title":"a","author":{"name":"H"},"tags":["x"],"n":5,"f":1.5,"b":"AQID","nb":"AQI=\n","ok":true,"u":"é\"😀"}}"#,
-        );
+        let h = hit(r#"{"_index":"i","_id":"1","_score":null,"sort":[3],
+                "_source":{"title":"a","author":{"name":"H"},"tags":["x"],"n":5,"f":1.5,"b":"AQID","nb":"AQI=\n","ok":true,"u":"é\"😀"}}"#);
         assert_eq!(h.sort, Some("[3]"));
         let cols = [
             col("_id", "keyword"),
@@ -1587,12 +1938,22 @@ mod tests {
     #[test]
     fn round_trip_through_bulk() {
         let cols = ["_id", "title", "meta", "blob"];
-        let row = vec![Cell::Text("a1".into()), Cell::Text("x".into()), Cell::Json("{\"k\":[1,2],\"a\":{}}".into()), Cell::Bytes(vec![0, 255])];
+        let row = vec![
+            Cell::Text("a1".into()),
+            Cell::Text("x".into()),
+            Cell::Json("{\"k\":[1,2],\"a\":{}}".into()),
+            Cell::Bytes(vec![0, 255]),
+        ];
         let text = encode(&cols, &row).unwrap();
         let src = text.lines().nth(1).unwrap();
         let json = format!(r#"{{"_id":"a1","_source":{src}}}"#);
         let h = hit(&json);
-        let tcols = [col("_id", "keyword"), col("title", "text"), col("meta", "object"), col("blob", "binary")];
+        let tcols = [
+            col("_id", "keyword"),
+            col("title", "text"),
+            col("meta", "object"),
+            col("blob", "binary"),
+        ];
         assert_eq!(hit_row(&h, &tcols), row);
     }
 
@@ -1600,9 +1961,32 @@ mod tests {
     fn parses_json_losslessly() {
         let text = r#" {"b":[1,-2.5e-3,true,false,null],"a":"x\\y","":{}} "#;
         check_json(text).unwrap();
-        assert_eq!(compact(text.trim()), r#"{"b":[1,-2.5e-3,true,false,null],"a":"x\\y","":{}}"#);
-        assert_eq!(compact("{ \"a b\" : [ 1 , \" x \\\" \" ] }"), "{\"a b\":[1,\" x \\\" \"]}");
-        for bad in ["", "{", "[1,]", "{\"a\"}", "01", "1.", "-", "tru", "\"a", "{\"a\":1}x", "\"\u{1}\"", "[1 2]", "{,}", "[,1]", "\"\\q\"", "{\"a\":1,}"] {
+        assert_eq!(
+            compact(text.trim()),
+            r#"{"b":[1,-2.5e-3,true,false,null],"a":"x\\y","":{}}"#
+        );
+        assert_eq!(
+            compact("{ \"a b\" : [ 1 , \" x \\\" \" ] }"),
+            "{\"a b\":[1,\" x \\\" \"]}"
+        );
+        for bad in [
+            "",
+            "{",
+            "[1,]",
+            "{\"a\"}",
+            "01",
+            "1.",
+            "-",
+            "tru",
+            "\"a",
+            "{\"a\":1}x",
+            "\"\u{1}\"",
+            "[1 2]",
+            "{,}",
+            "[,1]",
+            "\"\\q\"",
+            "{\"a\":1,}",
+        ] {
             assert!(check_json(bad).is_err(), "{bad:?}");
         }
         let deep = "[".repeat(MAX_DEPTH + 2) + &"]".repeat(MAX_DEPTH + 2);
@@ -1614,14 +1998,20 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!((page.scroll_id.as_deref(), page.pit_id.as_deref(), page.hits), (Some("s1"), Some("p1"), 1));
+        assert_eq!(
+            (page.scroll_id.as_deref(), page.pit_id.as_deref(), page.hits),
+            (Some("s1"), Some("p1"), 1)
+        );
         assert_eq!(page.last_sort.as_deref(), Some("[5, 7]"));
         assert_eq!(ids, [Some("1".to_string())]);
         assert!(walk_page(r#"{"hits":{"hits":[{"_id":"1"}"#, |_| Ok(())).is_err());
         // Escaped keys and values are unescaped, and a key's raw text is kept.
         let h = hit(r#"{"_id":"a\"b","_source":{"k\u00e9":"\u00e9"}}"#);
         assert_eq!(h.id.as_deref(), Some("a\"b"));
-        assert_eq!(hit_row(&h, &[col("ké", "keyword")]), [Cell::Text("é".into())]);
+        assert_eq!(
+            hit_row(&h, &[col("ké", "keyword")]),
+            [Cell::Text("é".into())]
+        );
     }
 
     // ---- heap measured per thread (round 2, problem 2)
@@ -1674,11 +2064,22 @@ mod tests {
     /// parsed tree of it (a dense vector's tree was ~25 times its text).
     #[test]
     fn pages_cost_about_their_text() {
-        let vector = format!("[{}]", (0..1_000_000).map(|i| if i % 2 == 0 { "0" } else { "1" }).collect::<Vec<_>>().join(","));
+        let vector = format!(
+            "[{}]",
+            (0..1_000_000)
+                .map(|i| if i % 2 == 0 { "0" } else { "1" })
+                .collect::<Vec<_>>()
+                .join(",")
+        );
         let page = format!(
             r#"{{"pit_id":"p","hits":{{"hits":[{{"_id":"1","_source":{{"v":{vector},"k":"x"}},"sort":[1]}},{{"_id":"2","_source":{{"n":{vector}}},"sort":[2]}}]}}}}"#
         );
-        let cols = [col("_id", "keyword"), col("v", "dense_vector"), col("k", "keyword"), col("_source", "object")];
+        let cols = [
+            col("_id", "keyword"),
+            col("v", "dense_vector"),
+            col("k", "keyword"),
+            col("_source", "object"),
+        ];
         let ((cells, end), peak) = peak_of(|| {
             let mut cells = Vec::new();
             let end = walk_page(&page, |h| {
@@ -1692,9 +2093,16 @@ mod tests {
         assert_eq!(end.hits, 2);
         assert!(cells.iter().all(|c| *c >= vector.len()), "{cells:?}");
         // One row at a time, each about the vector's text.
-        assert!(peak < 3 * vector.len(), "peak {peak} B for a {} B vector", vector.len());
+        assert!(
+            peak < 3 * vector.len(),
+            "peak {peak} B for a {} B vector",
+            vector.len()
+        );
         // The load side checks and merges `_source` without a tree either.
-        let row = [Cell::Text("1".into()), Cell::Json(format!(r#"{{"n":{vector}}}"#))];
+        let row = [
+            Cell::Text("1".into()),
+            Cell::Json(format!(r#"{{"n":{vector}}}"#)),
+        ];
         // The request buffer (grown by doubling) is all it holds.
         let (_, peak) = peak_of(|| encode(&["_id", "_source"], &row).unwrap());
         assert!(peak < 3 * vector.len(), "peak {peak} B");
@@ -1728,7 +2136,10 @@ mod tests {
 
     #[test]
     fn source_filter_and_errors() {
-        assert_eq!(source_filter(&names(&["_id", "author.name", "title"])), json!({"includes": ["author.name", "author", "title"]}));
+        assert_eq!(
+            source_filter(&names(&["_id", "author.name", "title"])),
+            json!({"includes": ["author.name", "author", "title"]})
+        );
         assert_eq!(source_filter(&names(&["_id"])), json!(false));
         assert_eq!(source_filter(&names(&["_id", "k", "_source"])), json!(true));
         assert_eq!(bulk_errors(r#"{"errors":false}"#, 3), None);
@@ -1741,7 +2152,14 @@ mod tests {
     /// the rest of it in `_source`.
     #[test]
     fn a_partly_read_entry_keeps_the_rest() {
-        let f = fields(&[("k", "keyword")]).into_iter().chain([Field { name: "metrics.mem".into(), ty: "long".into(), top: true }]).collect::<Vec<_>>();
+        let f = fields(&[("k", "keyword")])
+            .into_iter()
+            .chain([Field {
+                name: "metrics.mem".into(),
+                ty: "long".into(),
+                top: true,
+            }])
+            .collect::<Vec<_>>();
         let cols = read_columns(None, &f).unwrap();
         let names_: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names_, ["_id", "_routing", "k", "metrics.mem", "_source"]);
@@ -1749,13 +2167,34 @@ mod tests {
         let row = hit_row(&h, &cols);
         assert_eq!(row[3], Cell::Int(2));
         assert_eq!(row[4], Cell::Json(r#"{"metrics":{"disk":3}}"#.into()));
-        assert_eq!(doc(&names_, &row), r#"{"k":"x","metrics.mem":2,"metrics":{"disk":3}}"#);
+        assert_eq!(
+            doc(&names_, &row),
+            r#"{"k":"x","metrics.mem":2,"metrics":{"disk":3}}"#
+        );
         // Deeper, several columns into one entry, dotted keys, and empty objects kept.
-        let h = hit(r#"{"_id":"1","_source":{"a":{"b.c":{"d":1,"e":2},"f":{},"g":{"h":3}},"z":1}}"#);
-        let cols = [col("a.b.c.d", "long"), col("a.g.h", "long"), col("_source", "object")];
-        assert_eq!(hit_row(&h, &cols), [Cell::Int(1), Cell::Int(3), Cell::Json(r#"{"a":{"b.c":{"e":2},"f":{}},"z":1}"#.into())]);
+        let h =
+            hit(r#"{"_id":"1","_source":{"a":{"b.c":{"d":1,"e":2},"f":{},"g":{"h":3}},"z":1}}"#);
+        let cols = [
+            col("a.b.c.d", "long"),
+            col("a.g.h", "long"),
+            col("_source", "object"),
+        ];
+        assert_eq!(
+            hit_row(&h, &cols),
+            [
+                Cell::Int(1),
+                Cell::Int(3),
+                Cell::Json(r#"{"a":{"b.c":{"e":2},"f":{}},"z":1}"#.into())
+            ]
+        );
         // Every part read: nothing left of the entry.
-        let cols = [col("a.b.c.d", "long"), col("a.b.c.e", "long"), col("a.f", "object"), col("a.g", "object"), col("_source", "object")];
+        let cols = [
+            col("a.b.c.d", "long"),
+            col("a.b.c.e", "long"),
+            col("a.f", "object"),
+            col("a.g", "object"),
+            col("_source", "object"),
+        ];
         assert_eq!(hit_row(&h, &cols)[4], Cell::Json(r#"{"z":1}"#.into()));
     }
 
@@ -1772,8 +2211,13 @@ mod tests {
         let got: Vec<&str> = f.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(got, ["first", "last", "o", "o.x"]);
         for bad in ["full", "o.all"] {
-            let err = read_columns(Some(&names(&["_id", bad])), &f).unwrap_err().to_string();
-            assert!(err.contains(&format!("la lectura no trae la columna «{bad}»")), "{err}");
+            let err = read_columns(Some(&names(&["_id", bad])), &f)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains(&format!("la lectura no trae la columna «{bad}»")),
+                "{err}"
+            );
         }
     }
 }

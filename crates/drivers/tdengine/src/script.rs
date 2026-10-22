@@ -19,7 +19,9 @@ pub fn shift(e: Error, unit: &ScriptStatement) -> Error {
 
 /// A refused statement, placed at the text its `near "…"` quotes.
 pub fn place(e: Error, stmt: &str) -> Error {
-    let Error::Statement(mut se) = e else { return e };
+    let Error::Statement(mut se) = e else {
+        return e;
+    };
     if let Some(i) = se.message.find("near \"") {
         let frag = &se.message[i + 6..];
         let frag = frag.rfind('"').map_or(frag, |j| &frag[..j]);
@@ -42,9 +44,16 @@ mod tests {
         let s = "show databases;\nselect *\nfron x";
         let u = &split_script(s, &ScriptDialect::generic())[1];
         let e = ScriptError::new("syntax error near \"fron x\"").with_code("0x2600");
-        let Error::Statement(e) = shift(place(e.into(), &u.text), u) else { panic!() };
-        assert_eq!((e.line, e.offset, e.code.as_deref()), (Some(3), Some(s.find("fron").unwrap()), Some("0x2600")));
-        let Error::Statement(e) = place(ScriptError::new("Database not exist").into(), "x") else { panic!() };
+        let Error::Statement(e) = shift(place(e.into(), &u.text), u) else {
+            panic!()
+        };
+        assert_eq!(
+            (e.line, e.offset, e.code.as_deref()),
+            (Some(3), Some(s.find("fron").unwrap()), Some("0x2600"))
+        );
+        let Error::Statement(e) = place(ScriptError::new("Database not exist").into(), "x") else {
+            panic!()
+        };
         assert_eq!((e.line, e.offset), (None, None));
     }
 }

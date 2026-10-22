@@ -79,7 +79,8 @@ pub(super) fn tokens(s: &str, o: Options) -> Vec<Tok<'_>> {
             i += 1;
             continue;
         }
-        if o.line_start_comments && at_line_start && (c == b'#' || (c == b'/' && at(i + 1) == b'/')) {
+        if o.line_start_comments && at_line_start && (c == b'#' || (c == b'/' && at(i + 1) == b'/'))
+        {
             i = s[i..].find('\n').map_or(b.len(), |p| i + p);
             continue;
         }
@@ -99,7 +100,11 @@ pub(super) fn tokens(s: &str, o: Options) -> Vec<Tok<'_>> {
                 i += if b[i] == b'\\' { 2 } else { 1 };
             }
             i = (i + 1).min(b.len());
-            if c == b'`' && o.backtick_names { C::Name } else { C::Str }
+            if c == b'`' && o.backtick_names {
+                C::Name
+            } else {
+                C::Str
+            }
         } else if c == b'/' && o.regex && regex_allowed(out.last()) {
             i += 1;
             let mut class = false;
@@ -121,7 +126,11 @@ pub(super) fn tokens(s: &str, o: Options) -> Vec<Tok<'_>> {
             while i < b.len() && is_ident(b[i]) {
                 i += 1;
             }
-            if c.is_ascii_digit() { C::Num } else { C::Word }
+            if c.is_ascii_digit() {
+                C::Num
+            } else {
+                C::Word
+            }
         } else {
             i += 1;
             while i < b.len() && !s.is_char_boundary(i) {
@@ -133,7 +142,13 @@ pub(super) fn tokens(s: &str, o: Options) -> Vec<Tok<'_>> {
         if k == C::Punct && matches!(text, ")" | "]" | "}") {
             depth = depth.saturating_sub(1);
         }
-        out.push(Tok { k, text, start, end: start + text.len(), depth });
+        out.push(Tok {
+            k,
+            text,
+            start,
+            end: start + text.len(),
+            depth,
+        });
         if k == C::Punct && matches!(text, "(" | "[" | "{") {
             depth += 1;
         }
@@ -145,12 +160,20 @@ pub(super) fn tokens(s: &str, o: Options) -> Vec<Tok<'_>> {
 fn regex_allowed(prev: Option<&Tok>) -> bool {
     match prev {
         None => true,
-        Some(t) => t.k == C::Punct && matches!(t.text, "(" | "," | "=" | ":" | "[" | "!" | "&" | "|" | "?" | "{" | "}" | ";"),
+        Some(t) => {
+            t.k == C::Punct
+                && matches!(
+                    t.text,
+                    "(" | "," | "=" | ":" | "[" | "!" | "&" | "|" | "?" | "{" | "}" | ";"
+                )
+        }
     }
 }
 
 /// The index of the bracket closing the one at `open`.
 pub(super) fn closing(t: &[Tok], open: usize) -> usize {
     let d = t[open].depth;
-    (open + 1..t.len()).find(|&j| t[j].depth == d && t[j].k == C::Punct && matches!(t[j].text, ")" | "]" | "}")).unwrap_or(t.len())
+    (open + 1..t.len())
+        .find(|&j| t[j].depth == d && t[j].k == C::Punct && matches!(t[j].text, ")" | "]" | "}"))
+        .unwrap_or(t.len())
 }

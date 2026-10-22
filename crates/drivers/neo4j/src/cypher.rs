@@ -51,7 +51,9 @@ fn scan(text: &str, mut on: impl FnMut(usize, usize, char) -> bool) {
             i = (i + 1).min(b.len());
             'q'
         } else if c.is_alphanumeric() || c == '_' || c == '$' {
-            while i < b.len() && (b[i].is_alphanumeric() || b[i] == '_' || b[i] == '$' || b[i] == '.') {
+            while i < b.len()
+                && (b[i].is_alphanumeric() || b[i] == '_' || b[i] == '$' || b[i] == '.')
+            {
                 i += 1;
             }
             'w'
@@ -133,12 +135,21 @@ pub fn script(text: &str) -> Vec<Unit> {
         if at >= text.len() {
             return out;
         }
-        let line = text.as_bytes()[..at].iter().filter(|&&c| c == b'\n').count() as u32 + 1;
+        let line = text.as_bytes()[..at]
+            .iter()
+            .filter(|&&c| c == b'\n')
+            .count() as u32
+            + 1;
         let rest = &text[at..];
         if rest.starts_with(':') {
             let end = rest.find('\n').unwrap_or(rest.len());
             let cmd = rest[..end].trim_end().trim_end_matches(';').trim_end();
-            out.push(Unit { text: cmd.to_string(), start: at, line, command: true });
+            out.push(Unit {
+                text: cmd.to_string(),
+                start: at,
+                line,
+                command: true,
+            });
             at += end;
             continue;
         }
@@ -154,7 +165,12 @@ pub fn script(text: &str) -> Vec<Unit> {
         let end = semi.unwrap_or(rest.len());
         let stmt = rest[..end].trim_end();
         if !stmt.is_empty() {
-            out.push(Unit { text: stmt.to_string(), start: at, line, command: false });
+            out.push(Unit {
+                text: stmt.to_string(),
+                start: at,
+                line,
+                command: false,
+            });
         }
         at += semi.map_or(rest.len(), |s| s + 1);
     }
@@ -172,9 +188,24 @@ pub fn implicit_only(stmt: &str) -> bool {
     let at = |i: usize| w.get(i).map(String::as_str).unwrap_or("");
     // `CREATE OR REPLACE DATABASE x`: the object is the fourth word.
     let object = if at(1) == "OR" { at(3) } else { at(1) };
-    matches!(at(0), "SHOW" | "GRANT" | "DENY" | "REVOKE" | "TERMINATE" | "ENABLE" | "DEALLOCATE" | "REALLOCATE" | "DRYRUN")
-        || (matches!(at(0), "CREATE" | "DROP" | "ALTER" | "START" | "STOP" | "RENAME")
-            && matches!(object, "DATABASE" | "COMPOSITE" | "ALIAS" | "USER" | "ROLE" | "SERVER"))
+    matches!(
+        at(0),
+        "SHOW"
+            | "GRANT"
+            | "DENY"
+            | "REVOKE"
+            | "TERMINATE"
+            | "ENABLE"
+            | "DEALLOCATE"
+            | "REALLOCATE"
+            | "DRYRUN"
+    ) || (matches!(
+        at(0),
+        "CREATE" | "DROP" | "ALTER" | "START" | "STOP" | "RENAME"
+    ) && matches!(
+        object,
+        "DATABASE" | "COMPOSITE" | "ALIAS" | "USER" | "ROLE" | "SERVER"
+    ))
 }
 
 /// Upper-cased words of a statement (outside strings/comments/quoted names).
@@ -192,19 +223,70 @@ pub fn words(stmt: &str) -> Vec<String> {
 
 /// Clauses and commands that change data, schema or the server.
 const WRITE_WORDS: &[&str] = &[
-    "CREATE", "MERGE", "DELETE", "DETACH", "SET", "REMOVE", "DROP", "FOREACH", "LOAD", "GRANT", "REVOKE", "DENY", "ALTER",
-    "RENAME", "START", "STOP", "TERMINATE", "ENABLE", "DEALLOCATE", "REALLOCATE", "IMPORT", "INSERT", "FREE", "ANALYZE",
-    "CLEAR", "RECOVER", "REGISTER", "UNREGISTER", "DEMOTE", "PROMOTE",
+    "CREATE",
+    "MERGE",
+    "DELETE",
+    "DETACH",
+    "SET",
+    "REMOVE",
+    "DROP",
+    "FOREACH",
+    "LOAD",
+    "GRANT",
+    "REVOKE",
+    "DENY",
+    "ALTER",
+    "RENAME",
+    "START",
+    "STOP",
+    "TERMINATE",
+    "ENABLE",
+    "DEALLOCATE",
+    "REALLOCATE",
+    "IMPORT",
+    "INSERT",
+    "FREE",
+    "ANALYZE",
+    "CLEAR",
+    "RECOVER",
+    "REGISTER",
+    "UNREGISTER",
+    "DEMOTE",
+    "PROMOTE",
 ];
 
 /// Procedures a read-only connection may call (prefixes).
 const READ_PROCEDURES: &[&str] = &[
-    "DB.LABELS", "DB.RELATIONSHIPTYPES", "DB.PROPERTYKEYS", "DB.SCHEMA.", "DB.INDEXES", "DB.CONSTRAINTS", "DB.INFO",
-    "DB.PING", "DB.STATS.RETRIEVE", "DB.STATS.STATUS", "DBMS.COMPONENTS", "DBMS.INFO", "DBMS.LISTCONFIG",
-    "DBMS.LISTCONNECTIONS", "DBMS.QUERYJMX", "DBMS.SHOWCURRENTUSER", "DBMS.LISTCAPABILITIES", "DBMS.PROCEDURES",
-    "DBMS.FUNCTIONS", "DBMS.ROUTING.GETROUTINGTABLE", "DBMS.CLUSTER.ROUTING.GETROUTINGTABLE", "MG.PROCEDURES", "MG.FUNCTIONS",
-    "MG.TRANSFORMATIONS", "SCHEMA.NODE_TYPE_PROPERTIES", "SCHEMA.REL_TYPE_PROPERTIES", "APOC.META.", "GDS.LIST",
-    "GDS.VERSION", "NEPTUNE.READ",
+    "DB.LABELS",
+    "DB.RELATIONSHIPTYPES",
+    "DB.PROPERTYKEYS",
+    "DB.SCHEMA.",
+    "DB.INDEXES",
+    "DB.CONSTRAINTS",
+    "DB.INFO",
+    "DB.PING",
+    "DB.STATS.RETRIEVE",
+    "DB.STATS.STATUS",
+    "DBMS.COMPONENTS",
+    "DBMS.INFO",
+    "DBMS.LISTCONFIG",
+    "DBMS.LISTCONNECTIONS",
+    "DBMS.QUERYJMX",
+    "DBMS.SHOWCURRENTUSER",
+    "DBMS.LISTCAPABILITIES",
+    "DBMS.PROCEDURES",
+    "DBMS.FUNCTIONS",
+    "DBMS.ROUTING.GETROUTINGTABLE",
+    "DBMS.CLUSTER.ROUTING.GETROUTINGTABLE",
+    "MG.PROCEDURES",
+    "MG.FUNCTIONS",
+    "MG.TRANSFORMATIONS",
+    "SCHEMA.NODE_TYPE_PROPERTIES",
+    "SCHEMA.REL_TYPE_PROPERTIES",
+    "APOC.META.",
+    "GDS.LIST",
+    "GDS.VERSION",
+    "NEPTUNE.READ",
 ];
 
 /// Why a statement isn't a read, or `None` when it only reads.
@@ -233,13 +315,24 @@ pub fn write_reason(stmt: &str) -> Option<String> {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 pub fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// A name between backticks when it isn't a plain identifier.
 pub fn ident(name: &str) -> String {
     let plain = !name.is_empty()
-        && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if plain {
         name.to_string()
@@ -277,7 +370,13 @@ pub fn literal(v: &Value) -> String {
         Value::String(s) => string(s),
         Value::Array(a) => format!("[{}]", a.iter().map(literal).collect::<Vec<_>>().join(", ")),
         Value::Object(o) => {
-            format!("{{{}}}", o.iter().map(|(k, v)| format!("{}: {}", ident(k), literal(v))).collect::<Vec<_>>().join(", "))
+            format!(
+                "{{{}}}",
+                o.iter()
+                    .map(|(k, v)| format!("{}: {}", ident(k), literal(v)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         }
     }
 }
@@ -287,7 +386,9 @@ pub fn literal(v: &Value) -> String {
 pub fn property(v: &Value) -> String {
     match v {
         Value::Object(_) => string(&v.to_string()),
-        Value::Array(a) if a.iter().any(|x| x.is_object() || x.is_array()) => string(&v.to_string()),
+        Value::Array(a) if a.iter().any(|x| x.is_object() || x.is_array()) => {
+            string(&v.to_string())
+        }
         other => literal(other),
     }
 }
@@ -298,7 +399,10 @@ mod tests {
 
     #[test]
     fn a_name_cannot_end_a_line_comment() {
-        let c = format!("// {}", comment_text("a\nMATCH (n) DETACH DELETE n\r\u{85}\u{2028}\u{2029}`x"));
+        let c = format!(
+            "// {}",
+            comment_text("a\nMATCH (n) DETACH DELETE n\r\u{85}\u{2028}\u{2029}`x")
+        );
         assert_eq!(c, "// a?MATCH (n) DETACH DELETE n????`x");
         assert_eq!(c.lines().count(), 1);
     }
@@ -307,7 +411,14 @@ mod tests {
     #[test]
     fn splits_outside_strings_and_comments() {
         let s = split("MATCH (n) RETURN n; // a; comment\nRETURN 'a;b', \"c\\\";\" /* ; */ ;\n;  \n// only a comment\nRETURN `x;y`");
-        assert_eq!(s, ["MATCH (n) RETURN n", "// a; comment\nRETURN 'a;b', \"c\\\";\" /* ; */", "// only a comment\nRETURN `x;y`"]);
+        assert_eq!(
+            s,
+            [
+                "MATCH (n) RETURN n",
+                "// a; comment\nRETURN 'a;b', \"c\\\";\" /* ; */",
+                "// only a comment\nRETURN `x;y`"
+            ]
+        );
         assert!(split("  ; // nothing\n").is_empty());
     }
 
@@ -315,7 +426,10 @@ mod tests {
     fn script_units_and_commands() {
         let s = ":use movies\nMATCH (n)\nRETURN n;\n  :begin\nCREATE (:A {t: 'x;y'}); // c; d\n:param n => 1 + 2;\n:commit\nRETURN 'é' AS a; RETURN 2";
         let u = script(s);
-        let t: Vec<(&str, u32, bool)> = u.iter().map(|u| (u.text.as_str(), u.line, u.command)).collect();
+        let t: Vec<(&str, u32, bool)> = u
+            .iter()
+            .map(|u| (u.text.as_str(), u.line, u.command))
+            .collect();
         assert_eq!(
             t,
             [
@@ -340,7 +454,9 @@ mod tests {
 
     #[test]
     fn implicit_only_statements() {
-        assert!(implicit_only("CALL { MATCH (n) DETACH DELETE n } IN TRANSACTIONS OF 100 ROWS"));
+        assert!(implicit_only(
+            "CALL { MATCH (n) DETACH DELETE n } IN TRANSACTIONS OF 100 ROWS"
+        ));
         assert!(implicit_only("CREATE DATABASE x IF NOT EXISTS"));
         assert!(implicit_only("create or replace database x"));
         assert!(implicit_only("show databases"));
@@ -352,16 +468,34 @@ mod tests {
     #[test]
     fn writes() {
         assert_eq!(write_reason("MATCH (n) RETURN n.set, 'CREATE'"), None);
-        assert_eq!(write_reason("MATCH (n) WHERE n.name = 'DELETE' RETURN `CREATE`"), None);
+        assert_eq!(
+            write_reason("MATCH (n) WHERE n.name = 'DELETE' RETURN `CREATE`"),
+            None
+        );
         assert_eq!(write_reason("SHOW INDEXES"), None);
-        assert_eq!(write_reason("CALL db.labels() YIELD label RETURN label"), None);
+        assert_eq!(
+            write_reason("CALL db.labels() YIELD label RETURN label"),
+            None
+        );
         assert_eq!(write_reason("CALL dbms.queryJmx('*:*')"), None);
         assert_eq!(write_reason("CALL { MATCH (n) RETURN n } RETURN n"), None);
-        assert_eq!(write_reason("match (n) detach delete n").as_deref(), Some("DETACH"));
+        assert_eq!(
+            write_reason("match (n) detach delete n").as_deref(),
+            Some("DETACH")
+        );
         assert_eq!(write_reason("MERGE (a:A)").as_deref(), Some("MERGE"));
-        assert_eq!(write_reason("CALL apoc.create.node(['A'], {})").as_deref(), Some("CALL apoc.create.node"));
-        assert_eq!(write_reason("CALL db.createLabel('X')").as_deref(), Some("CALL db.createlabel"));
-        assert_eq!(write_reason("CALL { CREATE (n) } IN TRANSACTIONS").as_deref(), Some("CREATE"));
+        assert_eq!(
+            write_reason("CALL apoc.create.node(['A'], {})").as_deref(),
+            Some("CALL apoc.create.node")
+        );
+        assert_eq!(
+            write_reason("CALL db.createLabel('X')").as_deref(),
+            Some("CALL db.createlabel")
+        );
+        assert_eq!(
+            write_reason("CALL { CREATE (n) } IN TRANSACTIONS").as_deref(),
+            Some("CREATE")
+        );
     }
 
     #[test]

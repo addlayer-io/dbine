@@ -47,9 +47,27 @@ async fn tdengine_object_comments() {
     .unwrap();
 
     let objects = s.list_objects().await.unwrap();
-    let got: Vec<_> = s.object_comments().await.unwrap().into_iter().map(|c| (c.object.kind, c.object.name, c.comment)).collect();
-    assert_eq!(got, vec![("subtable".to_string(), "c1".to_string(), "sensor uno".to_string())]);
-    assert!(objects.iter().any(|o| o.kind == got[0].0 && o.name == got[0].1), "{objects:?}");
+    let got: Vec<_> = s
+        .object_comments()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| (c.object.kind, c.object.name, c.comment))
+        .collect();
+    assert_eq!(
+        got,
+        vec![(
+            "subtable".to_string(),
+            "c1".to_string(),
+            "sensor uno".to_string()
+        )]
+    );
+    assert!(
+        objects
+            .iter()
+            .any(|o| o.kind == got[0].0 && o.name == got[0].1),
+        "{objects:?}"
+    );
     assert!(s.row_estimates().await.unwrap().is_empty());
 
     s.drop_database(db).await.unwrap();

@@ -33,29 +33,64 @@ pub(crate) struct State {
 }
 
 async fn post(s: &CbSession, stmt: &str, args: Value) -> Result<Vec<Value>> {
-    let mut body = json!({ "statement": stmt, "client_context_id": format!("{OWN}{}", context_id()) });
+    let mut body =
+        json!({ "statement": stmt, "client_context_id": format!("{OWN}{}", context_id()) });
     for (k, v) in args.as_object().into_iter().flatten() {
         body[format!("${k}")] = v.clone();
     }
     let v = s.cancel.run(s.conn.post_query(&body)).await?;
-    Ok(v.get("results").and_then(Value::as_array).cloned().unwrap_or_default())
+    Ok(v.get("results")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
 }
 
 async fn set_threshold(s: &CbSession, ms: i64) -> Result<()> {
     let url = format!("{}/settings/querySettings", s.conn.mgmt);
-    s.conn.mgmt_send(s.conn.http.post(url).form(&[("queryCompletedThreshold", ms.to_string())])).await.map(|_| ())
+    s.conn
+        .mgmt_send(
+            s.conn
+                .http
+                .post(url)
+                .form(&[("queryCompletedThreshold", ms.to_string())]),
+        )
+        .await
+        .map(|_| ())
 }
 
-pub(crate) async fn start(s: &CbSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
-    s.cancel.flag.store(false, std::sync::atomic::Ordering::SeqCst);
-    let bucket = Some(opts.database.trim()).filter(|b| !b.is_empty()).map(str::to_string).or_else(|| s.bucket.clone());
-    let since = post(s, "SELECT RAW NOW_MILLIS()", json!({})).await?.first().and_then(Value::as_f64).unwrap_or(0.0) as i64;
-    let mut started =
-        ProfilerStarted::new(ProfilerMode::Complete, "system:completed_requests").units(Some("documentos"), Some("documentos"));
-    let settings = s.cancel.run(s.conn.mgmt_get("/settings/querySettings")).await;
-    let was = settings.as_ref().ok().and_then(|v| v.get("queryCompletedThreshold")).and_then(Value::as_i64);
+pub(crate) async fn start(
+    s: &CbSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
+    s.cancel
+        .flag
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let bucket = Some(opts.database.trim())
+        .filter(|b| !b.is_empty())
+        .map(str::to_string)
+        .or_else(|| s.bucket.clone());
+    let since = post(s, "SELECT RAW NOW_MILLIS()", json!({}))
+        .await?
+        .first()
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0) as i64;
+    let mut started = ProfilerStarted::new(ProfilerMode::Complete, "system:completed_requests")
+        .units(Some("documentos"), Some("documentos"));
+    let settings = s
+        .cancel
+        .run(s.conn.mgmt_get("/settings/querySettings"))
+        .await;
+    let was = settings
+        .as_ref()
+        .ok()
+        .and_then(|v| v.get("queryCompletedThreshold"))
+        .and_then(Value::as_i64);
     let mut restore = None;
-    let partial = |ms: i64| format!("Couchbase solo registra las consultas de más de {ms} ms (queryCompletedThreshold).");
+    let partial = |ms: i64| {
+        format!(
+            "Couchbase solo registra las consultas de más de {ms} ms (queryCompletedThreshold)."
+        )
+    };
     match (was, &settings) {
         (Some(0), _) => {}
         (Some(ms), _) if opts.change_server => match set_threshold(s, 0).await {
@@ -73,7 +108,12 @@ pub(crate) async fn start(s: &CbSession, opts: &ProfilerOptions) -> Result<(Stat
         }
         (None, Ok(_)) => {}
     }
-    let state = State { since, bucket, seen: HashSet::new(), restore };
+    let state = State {
+        since,
+        bucket,
+        seen: HashSet::new(),
+        restore,
+    };
     Ok((state, started))
 }
 
@@ -98,7 +138,12 @@ pub(crate) async fn poll(s: &CbSession, state: &mut State) -> Result<Vec<Profile
            {scope} \
          ORDER BY STR_TO_MILLIS(r.requestTime)"
     );
-    let rows = post(s, &stmt, json!({ "since": state.since, "bucket": state.bucket })).await?;
+    let rows = post(
+        s,
+        &stmt,
+        json!({ "since": state.since, "bucket": state.bucket }),
+    )
+    .await?;
     let mut out = Vec::new();
     let mut present = HashSet::new();
     for r in rows {
@@ -117,14 +162,21 @@ pub(crate) async fn poll(s: &CbSession, state: &mut State) -> Result<Vec<Profile
 /// Put the threshold back.
 pub(crate) async fn stop(s: &CbSession, state: State) -> Result<()> {
     if let Some(ms) = state.restore {
-        s.cancel.flag.store(false, std::sync::atomic::Ordering::SeqCst);
+        s.cancel
+            .flag
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         set_threshold(s, ms).await?;
     }
     Ok(())
 }
 
 fn statement(r: &Value) -> ProfiledStatement {
-    let get = |k: &str| r.get(k).filter(|v| !v.is_null()).map(text).filter(|t| !t.is_empty());
+    let get = |k: &str| {
+        r.get(k)
+            .filter(|v| !v.is_null())
+            .map(text)
+            .filter(|t| !t.is_empty())
+    };
     let ms = r.get("ms").and_then(Value::as_f64).unwrap_or(0.0) as i64;
     let errors: Vec<String> = r
         .get("errors")
@@ -138,22 +190,43 @@ fn statement(r: &Value) -> ProfiledStatement {
         let c = c.strip_prefix("default:").unwrap_or(&c).replace('`', "");
         c.trim_end_matches("._default").to_string()
     });
-    let phase = |k: &str| r.get("phases").and_then(|p| p.get(k)).and_then(Value::as_u64);
+    let phase = |k: &str| {
+        r.get("phases")
+            .and_then(|p| p.get(k))
+            .and_then(Value::as_u64)
+    };
     // Index entries scanned stay in the detail; reads are the documents.
     let scanned = match (phase("indexScan"), phase("primaryScan")) {
         (None, None) => None,
-        (i, p) => Some(format!("entradas de índice: {}", i.unwrap_or(0) + p.unwrap_or(0))),
+        (i, p) => Some(format!(
+            "entradas de índice: {}",
+            i.unwrap_or(0) + p.unwrap_or(0)
+        )),
     };
-    let detail: Vec<String> =
-        [get("kind"), get("state").filter(|s| s != "completed"), scanned, get("node")].into_iter().flatten().collect();
+    let detail: Vec<String> = [
+        get("kind"),
+        get("state").filter(|s| s != "completed"),
+        scanned,
+        get("node"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     ProfiledStatement {
         time: stamp(ms),
         duration_ms: get("elapsed").as_deref().and_then(go_duration),
         text: get("stmt").unwrap_or_default(),
         database,
-        user: get("usr").map(|u| u.trim_start_matches("builtin:").trim_start_matches("local:").to_string()),
+        user: get("usr").map(|u| {
+            u.trim_start_matches("builtin:")
+                .trim_start_matches("local:")
+                .to_string()
+        }),
         client: get("addr"),
-        rows: r.get("mut").and_then(Value::as_u64).or_else(|| r.get("res").and_then(Value::as_u64)),
+        rows: r
+            .get("mut")
+            .and_then(Value::as_u64)
+            .or_else(|| r.get("res").and_then(Value::as_u64)),
         error: Some(errors.join("; ")).filter(|e| !e.is_empty()),
         detail: Some(detail.join(" · ")).filter(|d| !d.is_empty()),
         application: get("agent"),
@@ -171,10 +244,14 @@ fn go_duration(s: &str) -> Option<f64> {
         return None;
     }
     while !rest.is_empty() {
-        let n = rest.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(rest.len());
+        let n = rest
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .unwrap_or(rest.len());
         let value: f64 = rest[..n].parse().ok()?;
         rest = &rest[n..];
-        let u = rest.find(|c: char| c.is_ascii_digit() || c == '.').unwrap_or(rest.len());
+        let u = rest
+            .find(|c: char| c.is_ascii_digit() || c == '.')
+            .unwrap_or(rest.len());
         let factor = match &rest[..u] {
             "h" => 3_600_000.0,
             "m" => 60_000.0,
@@ -204,7 +281,12 @@ fn stamp(ms: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{milli:03}", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{milli:03}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 #[cfg(test)]
@@ -233,8 +315,14 @@ mod tests {
             "errors": [{ "code": 1, "msg": "boom" }]
         });
         let s = statement(&r);
-        assert_eq!((s.database.as_deref(), s.user.as_deref(), s.error.as_deref()), (Some("b"), Some("Administrator"), Some("boom")));
-        assert_eq!((s.duration_ms, s.rows, s.client.as_deref()), (Some(1.5), Some(1), Some("10.0.0.1:1")));
+        assert_eq!(
+            (s.database.as_deref(), s.user.as_deref(), s.error.as_deref()),
+            (Some("b"), Some("Administrator"), Some("boom"))
+        );
+        assert_eq!(
+            (s.duration_ms, s.rows, s.client.as_deref()),
+            (Some(1.5), Some(1), Some("10.0.0.1:1"))
+        );
         assert_eq!(s.application.as_deref(), Some("curl"));
         assert_eq!((s.cpu_ms, s.reads, s.writes), (None, None, None));
     }
@@ -246,7 +334,10 @@ mod tests {
             "phases": { "fetch": 50, "filter": 39, "primaryScan": 50, "primaryScan.GSI": 50 }
         });
         let s = statement(&r);
-        assert_eq!((s.cpu_ms, s.reads, s.writes, s.rows), (Some(2.0), Some(50), None, Some(39)));
+        assert_eq!(
+            (s.cpu_ms, s.reads, s.writes, s.rows),
+            (Some(2.0), Some(50), None, Some(39))
+        );
         assert_eq!(s.detail.as_deref(), Some("SELECT · entradas de índice: 50"));
         let del = json!({ "id": "c", "ms": 0, "stmt": "DELETE FROM b", "mut": 50, "res": 0, "phases": { "indexScan": 50 } });
         let s = statement(&del);

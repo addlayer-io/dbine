@@ -17,7 +17,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@')?;
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
         driver: driver.into(),
@@ -30,16 +32,27 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_mysql::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 fn changes(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 /// Create a temp database, check what "Propiedades" reads, apply
 /// `apply`, read again and expect `apply` back; then drop it.
-async fn round_trip(id: &str, env: &str, expect_fields: &[&str], apply: &[(&str, &str)]) -> Option<(Box<dyn Session>, Arc<dyn Driver>)> {
+async fn round_trip(
+    id: &str,
+    env: &str,
+    expect_fields: &[&str],
+    apply: &[(&str, &str)],
+) -> Option<(Box<dyn Session>, Arc<dyn Driver>)> {
     let Some(cfg) = cfg(id, env) else {
         eprintln!("{env} not set; skipping");
         return None;
@@ -48,7 +61,12 @@ async fn round_trip(id: &str, env: &str, expect_fields: &[&str], apply: &[(&str,
     assert!(d.capabilities().database_properties);
     let mut s = d.connect(&cfg, None).await.unwrap();
     let _ = s.drop_database("dbine_props").await;
-    s.create_database_with("dbine_props", &changes(&[("charset", "utf8mb4"), ("collation", "utf8mb4_general_ci")])).await.unwrap();
+    s.create_database_with(
+        "dbine_props",
+        &changes(&[("charset", "utf8mb4"), ("collation", "utf8mb4_general_ci")]),
+    )
+    .await
+    .unwrap();
 
     let p = s.database_properties("dbine_props").await.unwrap();
     eprintln!("{id}: {:?}\n{:?}", p.values, p.info);
@@ -58,7 +76,10 @@ async fn round_trip(id: &str, env: &str, expect_fields: &[&str], apply: &[(&str,
     }
     assert_eq!(p.values["charset"], "utf8mb4");
     assert!(p.info.iter().any(|i| i.label == "Tablas"), "{id}: facts");
-    assert!(p.choices.iter().any(|c| c.key == "collation" && !c.values.is_empty()));
+    assert!(p
+        .choices
+        .iter()
+        .any(|c| c.key == "collation" && !c.values.is_empty()));
 
     let ch = changes(apply);
     eprintln!("{}", d.alter_database_script("dbine_props", &ch).unwrap());
@@ -85,9 +106,17 @@ async fn mysql_properties() {
         return;
     };
     // Read-only blocks DDL: back to writable (first), with a charset change.
-    s.alter_database("dbine_props", &changes(&[("read_only", ""), ("charset", "latin1")])).await.unwrap();
+    s.alter_database(
+        "dbine_props",
+        &changes(&[("read_only", ""), ("charset", "latin1")]),
+    )
+    .await
+    .unwrap();
     let p = s.database_properties("dbine_props").await.unwrap();
-    assert_eq!((p.values["read_only"].as_str(), p.values["charset"].as_str()), ("", "latin1"));
+    assert_eq!(
+        (p.values["read_only"].as_str(), p.values["charset"].as_str()),
+        ("", "latin1")
+    );
     s.drop_database("dbine_props").await.unwrap();
 }
 
@@ -110,18 +139,53 @@ async fn mariadb_properties() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn tidb_properties() {
-    let Some((mut s, d)) = round_trip("tidb", "DBINE_TEST_TIDB_URL", &["charset", "collation", "placement_policy"], &[("collation", "utf8mb4_bin")]).await
+    let Some((mut s, d)) = round_trip(
+        "tidb",
+        "DBINE_TEST_TIDB_URL",
+        &["charset", "collation", "placement_policy"],
+        &[("collation", "utf8mb4_bin")],
+    )
+    .await
     else {
         return;
     };
     // A placement policy, then back to none.
     let mut out = dbine_driver::QueryOutcome::default();
-    s.execute("CREATE PLACEMENT POLICY IF NOT EXISTS dbine_props_p FOLLOWERS = 1", 10, &mut out).await.unwrap();
-    s.alter_database("dbine_props", &changes(&[("placement_policy", "dbine_props_p")])).await.unwrap();
-    assert_eq!(s.database_properties("dbine_props").await.unwrap().values["placement_policy"], "dbine_props_p");
-    eprintln!("{}", d.alter_database_script("dbine_props", &changes(&[("placement_policy", "")])).unwrap());
-    s.alter_database("dbine_props", &changes(&[("placement_policy", "")])).await.unwrap();
-    assert_eq!(s.database_properties("dbine_props").await.unwrap().values["placement_policy"], "");
+    s.execute(
+        "CREATE PLACEMENT POLICY IF NOT EXISTS dbine_props_p FOLLOWERS = 1",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    s.alter_database(
+        "dbine_props",
+        &changes(&[("placement_policy", "dbine_props_p")]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        s.database_properties("dbine_props").await.unwrap().values["placement_policy"],
+        "dbine_props_p"
+    );
+    eprintln!(
+        "{}",
+        d.alter_database_script("dbine_props", &changes(&[("placement_policy", "")]))
+            .unwrap()
+    );
+    s.alter_database("dbine_props", &changes(&[("placement_policy", "")]))
+        .await
+        .unwrap();
+    assert_eq!(
+        s.database_properties("dbine_props").await.unwrap().values["placement_policy"],
+        ""
+    );
     s.drop_database("dbine_props").await.unwrap();
-    let _ = s.execute("DROP PLACEMENT POLICY IF EXISTS dbine_props_p", 10, &mut out).await;
+    let _ = s
+        .execute(
+            "DROP PLACEMENT POLICY IF EXISTS dbine_props_p",
+            10,
+            &mut out,
+        )
+        .await;
 }

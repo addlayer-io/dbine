@@ -16,7 +16,10 @@ pub struct MailView {
 }
 
 fn view(state: &AppState) -> CommandResult<MailView> {
-    Ok(MailView { settings: mail::load(state)?, password_saved: mail::password()?.is_some() })
+    Ok(MailView {
+        settings: mail::load(state)?,
+        password_saved: mail::password()?.is_some(),
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -33,14 +36,25 @@ pub struct SaveArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn mail_settings_save(state: State<'_, AppState>, args: SaveArgs) -> CommandResult<MailView> {
+pub async fn mail_settings_save(
+    state: State<'_, AppState>,
+    args: SaveArgs,
+) -> CommandResult<MailView> {
     if let Some(p) = args.settings.problem() {
         return Err(CommandError::BadRequest(p));
     }
-    state.store.set_setting(mail::SETTING, Some(&serde_json::to_value(&args.settings).map_err(|e| CommandError::Internal(e.to_string()))?))?;
+    state.store.set_setting(
+        mail::SETTING,
+        Some(
+            &serde_json::to_value(&args.settings)
+                .map_err(|e| CommandError::Internal(e.to_string()))?,
+        ),
+    )?;
     match args.password.filter(|p| !p.is_empty()) {
         // No user: no login, so no password to keep.
-        _ if args.settings.user.trim().is_empty() => dbine_core::secrets::delete_raw(mail::PASSWORD)?,
+        _ if args.settings.user.trim().is_empty() => {
+            dbine_core::secrets::delete_raw(mail::PASSWORD)?
+        }
         Some(p) => dbine_core::secrets::set_raw(mail::PASSWORD, &p)?,
         None => {}
     }
@@ -71,7 +85,9 @@ pub async fn mail_test(args: TestArgs) -> CommandResult<String> {
     };
     let to = mail::addresses(&args.to);
     if to.is_empty() {
-        return Err(CommandError::BadRequest("escribí a quién mandar el mail de prueba".into()));
+        return Err(CommandError::BadRequest(
+            "escribí a quién mandar el mail de prueba".into(),
+        ));
     }
     let message = Outgoing {
         to,
@@ -79,7 +95,9 @@ pub async fn mail_test(args: TestArgs) -> CommandResult<String> {
         body: "Este es un mail de prueba de DBine. Si te llegó, las tareas programadas pueden enviar mails con este servidor.".into(),
         ..Default::default()
     };
-    let summary = mail::deliver(&args.settings, password, &message).await.map_err(CommandError::Connect)?;
+    let summary = mail::deliver(&args.settings, password, &message)
+        .await
+        .map_err(CommandError::Connect)?;
     tracing::info!("mail test sent to {}", message.to.join(", "));
     Ok(summary)
 }

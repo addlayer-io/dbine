@@ -24,9 +24,9 @@
 //! macOS prompt denied) writes nothing: the next start tries again. No
 //! migration when `DBINE_KEYCHAIN_SERVICE` is set (a test instance).
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use dbine_driver::{Error, Result};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -45,12 +45,19 @@ const AAD: &[u8] = b"dbine-secrets-v1";
 /// its secrets apart from the real app's (and not trigger its prompts).
 fn service() -> &'static str {
     static S: OnceLock<String> = OnceLock::new();
-    S.get_or_init(|| std::env::var("DBINE_KEYCHAIN_SERVICE").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| SERVICE.to_string()))
+    S.get_or_init(|| {
+        std::env::var("DBINE_KEYCHAIN_SERVICE")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| SERVICE.to_string())
+    })
 }
 
 /// Where items of an older version may still be: none with an override.
 fn legacy_service() -> Option<&'static str> {
-    let overridden = std::env::var("DBINE_KEYCHAIN_SERVICE").ok().is_some_and(|s| !s.is_empty());
+    let overridden = std::env::var("DBINE_KEYCHAIN_SERVICE")
+        .ok()
+        .is_some_and(|s| !s.is_empty());
     (!overridden).then_some(OLD_SERVICE)
 }
 
@@ -74,7 +81,10 @@ struct OsKeychain;
 
 impl Keychain for OsKeychain {
     fn get(&self, service: &str, name: &str) -> Result<Option<String>> {
-        match keyring::Entry::new(service, name).map_err(secrets_err)?.get_password() {
+        match keyring::Entry::new(service, name)
+            .map_err(secrets_err)?
+            .get_password()
+        {
             Ok(v) => Ok(Some(v)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(secrets_err(e)),
@@ -82,11 +92,17 @@ impl Keychain for OsKeychain {
     }
 
     fn set(&self, service: &str, name: &str, value: &str) -> Result<()> {
-        keyring::Entry::new(service, name).map_err(secrets_err)?.set_password(value).map_err(secrets_err)
+        keyring::Entry::new(service, name)
+            .map_err(secrets_err)?
+            .set_password(value)
+            .map_err(secrets_err)
     }
 
     fn delete(&self, service: &str, name: &str) -> Result<()> {
-        match keyring::Entry::new(service, name).map_err(secrets_err)?.delete_credential() {
+        match keyring::Entry::new(service, name)
+            .map_err(secrets_err)?
+            .delete_credential()
+        {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(secrets_err(e)),
         }
@@ -95,13 +111,22 @@ impl Keychain for OsKeychain {
 
 /// Read `name` under `service`, copying it from `legacy` when only there.
 /// The legacy item is only read.
-fn get_copying(kc: &dyn Keychain, service: &str, legacy: Option<&str>, name: &str) -> Result<Option<String>> {
+fn get_copying(
+    kc: &dyn Keychain,
+    service: &str,
+    legacy: Option<&str>,
+    name: &str,
+) -> Result<Option<String>> {
     if let Some(v) = kc.get(service, name)? {
         return Ok(Some(v));
     }
-    let Some(legacy) = legacy.filter(|l| *l != service) else { return Ok(None) };
+    let Some(legacy) = legacy.filter(|l| *l != service) else {
+        return Ok(None);
+    };
     // A failed read (denied) returns here: nothing is written.
-    let Some(v) = kc.get(legacy, name)? else { return Ok(None) };
+    let Some(v) = kc.get(legacy, name)? else {
+        return Ok(None);
+    };
     kc.set(service, name, &v)?;
     Ok(Some(v))
 }
@@ -123,12 +148,16 @@ fn keychain_delete(name: &str) -> Result<()> {
 /// `com.addlayer.dbine.sync.passphrase` and tokens): the current name of
 /// an old one, or `None`.
 fn renamed(name: &str) -> Option<String> {
-    name.strip_prefix(OLD_SERVICE).filter(|rest| rest.starts_with('.')).map(|rest| format!("{SERVICE}{rest}"))
+    name.strip_prefix(OLD_SERVICE)
+        .filter(|rest| rest.starts_with('.'))
+        .map(|rest| format!("{SERVICE}{rest}"))
 }
 
 /// The old name of a current one (`renamed`'s inverse).
 fn old_name(name: &str) -> Option<String> {
-    name.strip_prefix(SERVICE).filter(|rest| rest.starts_with('.')).map(|rest| format!("{OLD_SERVICE}{rest}"))
+    name.strip_prefix(SERVICE)
+        .filter(|rest| rest.starts_with('.'))
+        .map(|rest| format!("{OLD_SERVICE}{rest}"))
 }
 
 /// In a vault whose old names were copied: once only, so a secret deleted
@@ -143,7 +172,10 @@ fn copy_old_names(values: &mut BTreeMap<String, String>) -> bool {
     if values.contains_key(NAMES_COPIED) {
         return false;
     }
-    let old: Vec<(String, String)> = values.iter().filter_map(|(k, v)| Some((renamed(k)?, v.clone()))).collect();
+    let old: Vec<(String, String)> = values
+        .iter()
+        .filter_map(|(k, v)| Some((renamed(k)?, v.clone())))
+        .collect();
     for (k, v) in old {
         values.entry(k).or_insert(v);
     }
@@ -165,9 +197,19 @@ fn seal(key: &[u8; 32], values: &BTreeMap<String, String>) -> Result<Vec<u8>> {
     let mut nonce = [0u8; 24];
     rand::thread_rng().fill_bytes(&mut nonce);
     let data = XChaCha20Poly1305::new(key.into())
-        .encrypt(XNonce::from_slice(&nonce), Payload { msg: &plain, aad: AAD })
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &plain,
+                aad: AAD,
+            },
+        )
         .map_err(|_| secrets_err("no se pudieron cifrar las credenciales"))?;
-    Ok(serde_json::to_vec(&Envelope { v: 1, nonce: B64.encode(nonce), data: B64.encode(data) })?)
+    Ok(serde_json::to_vec(&Envelope {
+        v: 1,
+        nonce: B64.encode(nonce),
+        data: B64.encode(data),
+    })?)
 }
 
 fn open(key: &[u8; 32], bytes: &[u8]) -> Result<BTreeMap<String, String>> {
@@ -178,7 +220,13 @@ fn open(key: &[u8; 32], bytes: &[u8]) -> Result<BTreeMap<String, String>> {
         return Err(secrets_err("formato de credenciales desconocido"));
     }
     let plain = XChaCha20Poly1305::new(key.into())
-        .decrypt(XNonce::from_slice(&nonce), Payload { msg: &data, aad: AAD })
+        .decrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &data,
+                aad: AAD,
+            },
+        )
         .map_err(|_| secrets_err("no se pudieron descifrar las credenciales"))?;
     Ok(serde_json::from_slice(&plain)?)
 }
@@ -208,17 +256,29 @@ struct Vault {
 
 impl Vault {
     fn load(path: PathBuf) -> Result<Self> {
-        let stored = keychain_get(KEY_ITEM)?.and_then(|k| B64.decode(k).ok()).and_then(|k| <[u8; 32]>::try_from(k).ok());
+        let stored = keychain_get(KEY_ITEM)?
+            .and_then(|k| B64.decode(k).ok())
+            .and_then(|k| <[u8; 32]>::try_from(k).ok());
         if let Some(key) = stored {
             match std::fs::read(&path) {
                 Ok(bytes) => {
                     if let Ok(mut values) = open(&key, &bytes) {
                         let vault = if copy_old_names(&mut values) {
-                            let v = Self { path, key, values, checked: HashSet::new() };
+                            let v = Self {
+                                path,
+                                key,
+                                values,
+                                checked: HashSet::new(),
+                            };
                             v.save()?;
                             v
                         } else {
-                            Self { path, key, values, checked: HashSet::new() }
+                            Self {
+                                path,
+                                key,
+                                values,
+                                checked: HashSet::new(),
+                            }
                         };
                         return Ok(vault);
                     }
@@ -227,7 +287,12 @@ impl Vault {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(secrets_err(e)),
             }
-            return Ok(Self { path, key, values: BTreeMap::new(), checked: HashSet::new() });
+            return Ok(Self {
+                path,
+                key,
+                values: BTreeMap::new(),
+                checked: HashSet::new(),
+            });
         }
         // No key: a first start, or a vault this keychain can't open (another
         // machine's copy). The unreadable file is kept aside, never erased.
@@ -237,7 +302,12 @@ impl Vault {
         let mut key = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut key);
         keychain_set(KEY_ITEM, &B64.encode(key))?;
-        Ok(Self { path, key, values: BTreeMap::new(), checked: HashSet::new() })
+        Ok(Self {
+            path,
+            key,
+            values: BTreeMap::new(),
+            checked: HashSet::new(),
+        })
     }
 
     fn save(&self) -> Result<()> {
@@ -263,7 +333,9 @@ impl Vault {
             }
         }
         self.checked.insert(name.to_string());
-        let Some((item, v)) = found else { return Ok(None) };
+        let Some((item, v)) = found else {
+            return Ok(None);
+        };
         self.values.insert(name.to_string(), v.clone());
         self.save()?;
         let _ = keychain_delete(&item);
@@ -296,7 +368,10 @@ impl Vault {
 
 fn set_aside(path: &Path) {
     let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
-    let _ = std::fs::rename(path, path.with_extension(format!("vault.unreadable-{stamp}")));
+    let _ = std::fs::rename(
+        path,
+        path.with_extension(format!("vault.unreadable-{stamp}")),
+    );
 }
 
 static VAULT_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -309,7 +384,9 @@ pub fn set_vault_path(path: PathBuf) {
 
 /// The folder the vault is in (the app's config folder), if it was set.
 pub fn vault_dir() -> Option<PathBuf> {
-    VAULT_PATH.get().and_then(|p| p.parent().map(Path::to_path_buf))
+    VAULT_PATH
+        .get()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
 }
 
 /// Run `f` on the vault (opened on first use), or return `None` when there's
@@ -400,7 +477,10 @@ mod tests {
         // An item from before the vault moves in on first read.
         keychain_set("old-conn", r#"{"password":"viejo"}"#).unwrap();
         let mut v = Vault::load(path.clone()).unwrap();
-        assert_eq!(v.get("old-conn").unwrap().as_deref(), Some(r#"{"password":"viejo"}"#));
+        assert_eq!(
+            v.get("old-conn").unwrap().as_deref(),
+            Some(r#"{"password":"viejo"}"#)
+        );
         assert_eq!(keychain_get("old-conn").unwrap(), None);
         v.set("new-conn", "nuevo").unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains("nuevo"));
@@ -409,13 +489,20 @@ mod tests {
         let mut v = Vault::load(path.clone()).unwrap();
         assert_eq!(v.get("new-conn").unwrap().as_deref(), Some("nuevo"));
         v.delete("new-conn").unwrap();
-        assert_eq!(Vault::load(path.clone()).unwrap().get("new-conn").unwrap(), None);
+        assert_eq!(
+            Vault::load(path.clone()).unwrap().get("new-conn").unwrap(),
+            None
+        );
 
         // Without its key the file is set aside, not erased.
         keychain_delete(KEY_ITEM).unwrap();
         let v = Vault::load(path.clone()).unwrap();
         assert!(v.values.is_empty());
-        assert!(std::fs::read_dir(dir.path()).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains("unreadable")));
+        assert!(std::fs::read_dir(dir.path()).unwrap().any(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("unreadable")));
         keychain_delete(KEY_ITEM).unwrap();
     }
 
@@ -432,12 +519,16 @@ mod tests {
         fn with(items: &[(&str, &str, &str)]) -> Self {
             let m = Mock::default();
             for (s, n, v) in items {
-                m.items.borrow_mut().insert((s.to_string(), n.to_string()), v.to_string());
+                m.items
+                    .borrow_mut()
+                    .insert((s.to_string(), n.to_string()), v.to_string());
             }
             m
         }
         fn has(&self, service: &str, name: &str) -> bool {
-            self.items.borrow().contains_key(&(service.to_string(), name.to_string()))
+            self.items
+                .borrow()
+                .contains_key(&(service.to_string(), name.to_string()))
         }
     }
 
@@ -446,17 +537,25 @@ mod tests {
             if self.deny == Some(service) {
                 return Err(secrets_err("denied"));
             }
-            Ok(self.items.borrow().get(&(service.to_string(), name.to_string())).cloned())
+            Ok(self
+                .items
+                .borrow()
+                .get(&(service.to_string(), name.to_string()))
+                .cloned())
         }
         fn set(&self, service: &str, name: &str, value: &str) -> Result<()> {
             if self.fail_set {
                 return Err(secrets_err("write failed"));
             }
-            self.items.borrow_mut().insert((service.to_string(), name.to_string()), value.to_string());
+            self.items
+                .borrow_mut()
+                .insert((service.to_string(), name.to_string()), value.to_string());
             Ok(())
         }
         fn delete(&self, service: &str, name: &str) -> Result<()> {
-            self.items.borrow_mut().remove(&(service.to_string(), name.to_string()));
+            self.items
+                .borrow_mut()
+                .remove(&(service.to_string(), name.to_string()));
             Ok(())
         }
     }
@@ -471,16 +570,32 @@ mod tests {
             // An older version still finds it.
             assert!(kc.has(OLD_SERVICE, name));
         }
-        assert_eq!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).unwrap().as_deref(), Some("k"));
-        assert_eq!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), "missing").unwrap(), None);
+        assert_eq!(
+            get_copying(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM)
+                .unwrap()
+                .as_deref(),
+            Some("k")
+        );
+        assert_eq!(
+            get_copying(&kc, SERVICE, Some(OLD_SERVICE), "missing").unwrap(),
+            None
+        );
         assert!(!kc.has(SERVICE, "missing"));
     }
 
     #[test]
     fn current_service_wins() {
         let kc = Mock::with(&[(SERVICE, "n", "new"), (OLD_SERVICE, "n", "old")]);
-        assert_eq!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), "n").unwrap().as_deref(), Some("new"));
-        assert_eq!(kc.items.borrow()[&(OLD_SERVICE.to_string(), "n".to_string())], "old");
+        assert_eq!(
+            get_copying(&kc, SERVICE, Some(OLD_SERVICE), "n")
+                .unwrap()
+                .as_deref(),
+            Some("new")
+        );
+        assert_eq!(
+            kc.items.borrow()[&(OLD_SERVICE.to_string(), "n".to_string())],
+            "old"
+        );
     }
 
     #[test]
@@ -492,7 +607,12 @@ mod tests {
         assert!(kc.has(OLD_SERVICE, KEY_ITEM));
         // Allowed on the next start.
         kc.deny = None;
-        assert_eq!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).unwrap().as_deref(), Some("k"));
+        assert_eq!(
+            get_copying(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM)
+                .unwrap()
+                .as_deref(),
+            Some("k")
+        );
         assert!(kc.has(SERVICE, KEY_ITEM) && kc.has(OLD_SERVICE, KEY_ITEM));
     }
 
@@ -509,7 +629,10 @@ mod tests {
     fn no_migration_with_an_override() {
         // `legacy_service()` is `None` under DBINE_KEYCHAIN_SERVICE.
         let kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k")]);
-        assert_eq!(get_copying(&kc, "io.addlayer.dbine.e2etest", None, KEY_ITEM).unwrap(), None);
+        assert_eq!(
+            get_copying(&kc, "io.addlayer.dbine.e2etest", None, KEY_ITEM).unwrap(),
+            None
+        );
         assert!(kc.has(OLD_SERVICE, KEY_ITEM));
         assert!(!kc.has("io.addlayer.dbine.e2etest", KEY_ITEM));
     }
@@ -517,10 +640,22 @@ mod tests {
     #[test]
     fn vault_names_with_the_old_identifier_are_copied_once() {
         let mut values = BTreeMap::from([
-            ("com.addlayer.dbine.sync.passphrase".to_string(), "frase".to_string()),
-            ("com.addlayer.dbine.sync.token.gdrive".to_string(), "t-old".to_string()),
-            ("io.addlayer.dbine.sync.token.gdrive".to_string(), "t-new".to_string()),
-            ("com.addlayer.dbine.e2etest.sync.passphrase".to_string(), "e2e".to_string()),
+            (
+                "com.addlayer.dbine.sync.passphrase".to_string(),
+                "frase".to_string(),
+            ),
+            (
+                "com.addlayer.dbine.sync.token.gdrive".to_string(),
+                "t-old".to_string(),
+            ),
+            (
+                "io.addlayer.dbine.sync.token.gdrive".to_string(),
+                "t-new".to_string(),
+            ),
+            (
+                "com.addlayer.dbine.e2etest.sync.passphrase".to_string(),
+                "e2e".to_string(),
+            ),
             ("c1".to_string(), "conn".to_string()),
             ("smtp-password".to_string(), "mail".to_string()),
         ]);
@@ -537,7 +672,10 @@ mod tests {
         values.remove("io.addlayer.dbine.sync.passphrase");
         assert!(!copy_old_names(&mut values));
         assert!(!values.contains_key("io.addlayer.dbine.sync.passphrase"));
-        assert_eq!(old_name("io.addlayer.dbine.sync.passphrase").as_deref(), Some("com.addlayer.dbine.sync.passphrase"));
+        assert_eq!(
+            old_name("io.addlayer.dbine.sync.passphrase").as_deref(),
+            Some("com.addlayer.dbine.sync.passphrase")
+        );
         assert_eq!(old_name("c1"), None);
         assert_eq!(renamed("com.addlayer.dbinex"), None);
         assert_eq!(renamed(NAMES_COPIED), None);
@@ -550,7 +688,10 @@ mod tests {
         let key = [9u8; 32];
         let old_values = BTreeMap::from([
             ("c1".to_string(), r#"{"password":"p"}"#.to_string()),
-            ("com.addlayer.dbine.sync.passphrase".to_string(), "frase".to_string()),
+            (
+                "com.addlayer.dbine.sync.passphrase".to_string(),
+                "frase".to_string(),
+            ),
         ]);
         let old_file = seal(&key, &old_values).unwrap();
         let mut copy = open(&key, &old_file.clone()).unwrap();
@@ -569,11 +710,19 @@ mod tests {
     #[test]
     #[ignore]
     fn service_copy_with_keychain() {
-        let (old, new) = ("io.addlayer.dbine.migtest-old", "io.addlayer.dbine.migtest-new");
+        let (old, new) = (
+            "io.addlayer.dbine.migtest-old",
+            "io.addlayer.dbine.migtest-new",
+        );
         let kc = OsKeychain;
         let _ = kc.delete(new, KEY_ITEM);
         kc.set(old, KEY_ITEM, "clave").unwrap();
-        assert_eq!(get_copying(&kc, new, Some(old), KEY_ITEM).unwrap().as_deref(), Some("clave"));
+        assert_eq!(
+            get_copying(&kc, new, Some(old), KEY_ITEM)
+                .unwrap()
+                .as_deref(),
+            Some("clave")
+        );
         assert_eq!(kc.get(old, KEY_ITEM).unwrap().as_deref(), Some("clave"));
         assert_eq!(kc.get(new, KEY_ITEM).unwrap().as_deref(), Some("clave"));
         kc.delete(new, KEY_ITEM).unwrap();
@@ -584,6 +733,9 @@ mod tests {
     #[test]
     fn each_write_uses_a_new_nonce() {
         let values = BTreeMap::from([("c1".to_string(), "x".to_string())]);
-        assert_ne!(seal(&[1u8; 32], &values).unwrap(), seal(&[1u8; 32], &values).unwrap());
+        assert_ne!(
+            seal(&[1u8; 32], &values).unwrap(),
+            seal(&[1u8; 32], &values).unwrap()
+        );
     }
 }

@@ -59,7 +59,12 @@ pub struct Note {
 }
 
 /// The rule candidates and notes of a query in the driver's language.
-pub fn rewrites(src: &str, language: dbine_driver::Language, dialect: &str, tables: Option<&[dbine_driver::TableSchema]>) -> (Vec<Candidate>, Vec<Note>) {
+pub fn rewrites(
+    src: &str,
+    language: dbine_driver::Language,
+    dialect: &str,
+    tables: Option<&[dbine_driver::TableSchema]>,
+) -> (Vec<Candidate>, Vec<Note>) {
     match language {
         dbine_driver::Language::Sql => rules::analyze(src, dialect, tables),
         dbine_driver::Language::Json => (mongo::where_to_operators(src), Vec::new()),
@@ -73,7 +78,9 @@ pub fn ordered(src: &str, language: dbine_driver::Language, dialect: &str) -> bo
     match language {
         dbine_driver::Language::Sql => {
             let sql = parse::Sql::parse(src, lex::Flavor::for_dialect(dialect));
-            sql.blocks.iter().any(|b| b.depth == 0 && b.order_by.is_some())
+            sql.blocks
+                .iter()
+                .any(|b| b.depth == 0 && b.order_by.is_some())
         }
         dbine_driver::Language::Cypher => src.to_lowercase().contains("order by"),
         _ => src.contains(".sort(") || src.contains("$sort") || src.contains("\"sort\""),
@@ -87,16 +94,38 @@ mod tests {
 
     #[test]
     fn order_counts_only_at_the_top() {
-        assert!(ordered("SELECT a FROM t ORDER BY a", Language::Sql, "postgres"));
-        assert!(!ordered("SELECT * FROM (SELECT a FROM t ORDER BY a LIMIT 3) x", Language::Sql, "postgres"));
+        assert!(ordered(
+            "SELECT a FROM t ORDER BY a",
+            Language::Sql,
+            "postgres"
+        ));
+        assert!(!ordered(
+            "SELECT * FROM (SELECT a FROM t ORDER BY a LIMIT 3) x",
+            Language::Sql,
+            "postgres"
+        ));
         assert!(ordered("db.c.find({}).sort({a: 1})", Language::Json, ""));
         assert!(!ordered("db.c.find({})", Language::Json, ""));
     }
 
     #[test]
     fn rewrites_per_language() {
-        assert!(!rewrites("SELECT * FROM c WHERE (SELECT COUNT(*) FROM o) > 0", Language::Sql, "postgres", None).0.is_empty());
-        assert!(!rewrites("db.c.find({$where: 'this.a > 1'})", Language::Json, "", None).0.is_empty());
+        assert!(!rewrites(
+            "SELECT * FROM c WHERE (SELECT COUNT(*) FROM o) > 0",
+            Language::Sql,
+            "postgres",
+            None
+        )
+        .0
+        .is_empty());
+        assert!(!rewrites(
+            "db.c.find({$where: 'this.a > 1'})",
+            Language::Json,
+            "",
+            None
+        )
+        .0
+        .is_empty());
         assert!(rewrites("GET k", Language::Redis, "", None).0.is_empty());
     }
 }

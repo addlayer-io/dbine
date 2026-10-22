@@ -15,7 +15,9 @@ fn config() -> ConnectionConfig {
 }
 
 fn config_from(url: &str) -> ConnectionConfig {
-    let rest = url.strip_prefix("oracle://").expect("oracle://user:pass@host:port/service");
+    let rest = url
+        .strip_prefix("oracle://")
+        .expect("oracle://user:pass@host:port/service");
     let (cred, addr) = rest.split_once('@').unwrap();
     let (user, pass) = cred.split_once(':').unwrap();
     let (hostport, service) = addr.split_once('/').unwrap();
@@ -46,7 +48,11 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
 }
 
 fn obj(kind: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: None, name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: name.into(),
+    }
 }
 
 #[tokio::test]
@@ -57,9 +63,15 @@ async fn catalog_values_and_scripts() {
     assert!(v.contains("Oracle"), "{v}");
 
     // Clean slate (errors ignored: objects may not exist).
-    for d in ["DROP TABLE dbine_t PURGE", "DROP VIEW dbine_v", "DROP SEQUENCE dbine_seq", "DROP PACKAGE dbine_pkg",
-        "DROP PROCEDURE dbine_proc", "DROP FUNCTION dbine_fn", "DROP MATERIALIZED VIEW dbine_mv"]
-    {
+    for d in [
+        "DROP TABLE dbine_t PURGE",
+        "DROP VIEW dbine_v",
+        "DROP SEQUENCE dbine_seq",
+        "DROP PACKAGE dbine_pkg",
+        "DROP PROCEDURE dbine_proc",
+        "DROP FUNCTION dbine_fn",
+        "DROP MATERIALIZED VIEW dbine_mv",
+    ] {
         let _ = s.execute(d, 10, &mut QueryOutcome::default()).await;
     }
 
@@ -109,8 +121,16 @@ END;
 /
 "#;
     let out = run(&mut s, script).await;
-    assert!(out.messages.contains(&"proc 7".to_string()), "{:?}", out.messages);
-    assert!(out.messages.contains(&"hello; world".to_string()), "{:?}", out.messages);
+    assert!(
+        out.messages.contains(&"proc 7".to_string()),
+        "{:?}",
+        out.messages
+    );
+    assert!(
+        out.messages.contains(&"hello; world".to_string()),
+        "{:?}",
+        out.messages
+    );
     let affected: Vec<_> = out.results.iter().filter_map(|r| r.rows_affected).collect();
     assert_eq!(affected, vec![1, 1]);
 
@@ -128,18 +148,30 @@ END;
     assert!(has("table", "DBINE_T"));
     assert!(has("view", "DBINE_V"));
     assert!(has("materialized_view", "DBINE_MV"));
-    assert!(!has("table", "DBINE_MV"), "an MV is not listed as a table too");
+    assert!(
+        !has("table", "DBINE_MV"),
+        "an MV is not listed as a table too"
+    );
     assert!(has("sequence", "DBINE_SEQ"));
     assert!(has("procedure", "DBINE_PROC"));
     assert!(has("function", "DBINE_FN"));
     assert!(has("package", "DBINE_PKG"));
-    let trg = objs.iter().find(|o| o.kind == "trigger" && o.name == "DBINE_TRG").unwrap();
+    let trg = objs
+        .iter()
+        .find(|o| o.kind == "trigger" && o.name == "DBINE_TRG")
+        .unwrap();
     assert_eq!(trg.parent.as_deref(), Some("DBINE_T"));
-    assert!(!objs.iter().any(|o| o.name.starts_with("ISEQ$$")), "identity sequences are hidden");
+    assert!(
+        !objs.iter().any(|o| o.name.starts_with("ISEQ$$")),
+        "identity sequences are hidden"
+    );
 
     let cols = s.columns(&obj("table", "DBINE_T")).await.unwrap();
     let names: Vec<_> = cols.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names, ["ID", "NAME", "AMOUNT", "BIG", "TS", "D", "DOC", "BIN", "IDENT"]);
+    assert_eq!(
+        names,
+        ["ID", "NAME", "AMOUNT", "BIG", "TS", "D", "DOC", "BIN", "IDENT"]
+    );
     assert!(cols[0].primary_key && !cols[0].nullable);
     assert_eq!(cols[0].data_type, "NUMBER(10)");
     assert_eq!(cols[1].data_type, "VARCHAR2(50)");
@@ -147,15 +179,30 @@ END;
     assert_eq!(cols[2].data_type, "NUMBER(12,2)");
     assert!(cols[8].auto_increment);
 
-    let ddl = s.definition(&obj("table", "DBINE_T")).await.unwrap().unwrap();
+    let ddl = s
+        .definition(&obj("table", "DBINE_T"))
+        .await
+        .unwrap()
+        .unwrap();
     assert!(ddl.contains("CREATE TABLE"), "{ddl}");
-    let ddl = s.definition(&obj("package", "DBINE_PKG")).await.unwrap().unwrap();
+    let ddl = s
+        .definition(&obj("package", "DBINE_PKG"))
+        .await
+        .unwrap()
+        .unwrap();
     assert!(ddl.contains("PACKAGE BODY"), "{ddl}");
-    let ddl = s.definition(&obj("view", "DBINE_V")).await.unwrap().unwrap();
+    let ddl = s
+        .definition(&obj("view", "DBINE_V"))
+        .await
+        .unwrap()
+        .unwrap();
     assert!(ddl.to_uppercase().contains("VIEW"), "{ddl}");
 
     let q = s.browse_query(&obj("table", "DBINE_T"), 10);
-    assert_eq!(q, "SELECT *\nFROM \"DBINE\".\"DBINE_T\"\nFETCH FIRST 10 ROWS ONLY");
+    assert_eq!(
+        q,
+        "SELECT *\nFROM \"DBINE\".\"DBINE_T\"\nFETCH FIRST 10 ROWS ONLY"
+    );
     let out = run(&mut s, &q).await;
     let r = &out.results[0];
     assert_eq!(r.total_rows, 2);
@@ -170,18 +217,35 @@ END;
 
     // Errors stop the script and keep what ran.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT 1 FROM dual; SELECT * FROM no_such_table; SELECT 2 FROM dual", 10, &mut out).await;
+    let e = s
+        .execute(
+            "SELECT 1 FROM dual; SELECT * FROM no_such_table; SELECT 2 FROM dual",
+            10,
+            &mut out,
+        )
+        .await;
     assert!(e.unwrap_err().to_string().contains("ORA-00942"));
     assert_eq!(out.results.len(), 1);
 
     // Session on another schema.
     let driver = dbine_driver_oracle::drivers().remove(0);
     let mut sys = driver.connect(&config(), Some("DBINE")).await.unwrap();
-    assert!(sys.list_objects().await.unwrap().iter().any(|o| o.name == "DBINE_T"));
+    assert!(sys
+        .list_objects()
+        .await
+        .unwrap()
+        .iter()
+        .any(|o| o.name == "DBINE_T"));
 
-    for d in ["DROP TABLE dbine_t PURGE", "DROP VIEW dbine_v", "DROP SEQUENCE dbine_seq", "DROP PACKAGE dbine_pkg",
-        "DROP PROCEDURE dbine_proc", "DROP FUNCTION dbine_fn", "DROP MATERIALIZED VIEW dbine_mv"]
-    {
+    for d in [
+        "DROP TABLE dbine_t PURGE",
+        "DROP VIEW dbine_v",
+        "DROP SEQUENCE dbine_seq",
+        "DROP PACKAGE dbine_pkg",
+        "DROP PROCEDURE dbine_proc",
+        "DROP FUNCTION dbine_fn",
+        "DROP MATERIALIZED VIEW dbine_mv",
+    ] {
         let _ = s.execute(d, 10, &mut QueryOutcome::default()).await;
     }
 }
@@ -204,7 +268,9 @@ async fn bad_password_is_auth_failed() {
 #[tokio::test]
 #[ignore]
 async fn interrupter_cancels_a_running_statement() {
-    let Ok(url) = std::env::var("DBINE_TEST_ORACLE_ADMIN_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_ORACLE_ADMIN_URL") else {
+        return;
+    };
     std::env::set_var("DBINE_TEST_ORACLE_URL", url);
     let mut s = session().await;
     let stop = s.interrupter().expect("an interrupter");
@@ -214,7 +280,10 @@ async fn interrupter_cancels_a_running_statement() {
         stop();
     });
     let mut out = QueryOutcome::default();
-    let e = s.execute("BEGIN DBMS_SESSION.SLEEP(30); END;", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute("BEGIN DBMS_SESSION.SLEEP(30); END;", 10, &mut out)
+        .await
+        .unwrap_err();
     assert!(matches!(e, dbine_driver::Error::Cancelled), "{e:?}");
     assert!(started.elapsed().as_secs() < 15);
     // The session is still usable afterwards.
@@ -226,9 +295,19 @@ async fn interrupter_cancels_a_running_statement() {
 #[ignore]
 async fn compile_errors_come_back_as_messages() {
     let mut s = session().await;
-    let out = run(&mut s, "CREATE OR REPLACE PROCEDURE dbine_broken AS BEGIN no_such_thing; END;\n/").await;
+    let out = run(
+        &mut s,
+        "CREATE OR REPLACE PROCEDURE dbine_broken AS BEGIN no_such_thing; END;\n/",
+    )
+    .await;
     assert!(!out.messages.is_empty(), "a compilation warning");
-    let _ = s.execute("DROP PROCEDURE dbine_broken", 10, &mut QueryOutcome::default()).await;
+    let _ = s
+        .execute(
+            "DROP PROCEDURE dbine_broken",
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await;
 }
 
 /// Estimated plans run nothing; actual ones run the script once and read
@@ -238,7 +317,13 @@ async fn compile_errors_come_back_as_messages() {
 #[ignore]
 async fn plans() {
     let mut s = session().await;
-    let _ = s.execute("DROP TABLE dbine_plan PURGE", 10, &mut QueryOutcome::default()).await;
+    let _ = s
+        .execute(
+            "DROP TABLE dbine_plan PURGE",
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await;
     run(
         &mut s,
         "CREATE TABLE dbine_plan (id NUMBER PRIMARY KEY, g NUMBER);
@@ -276,8 +361,14 @@ async fn plans() {
     assert!(full.object.as_deref().unwrap().ends_with("DBINE_PLAN"));
     assert!(p.root.total_cost.is_some());
     assert_eq!(out.plans[1].root.op, "DELETE STATEMENT");
-    assert_eq!(count(&run(&mut s, "SELECT COUNT(*) FROM dbine_plan").await, 0), json!(1000));
-    assert_eq!(count(&run(&mut s, "SELECT COUNT(*) FROM plan_table").await, 0), json!(0));
+    assert_eq!(
+        count(&run(&mut s, "SELECT COUNT(*) FROM dbine_plan").await, 0),
+        json!(1000)
+    );
+    assert_eq!(
+        count(&run(&mut s, "SELECT COUNT(*) FROM plan_table").await, 0),
+        json!(0)
+    );
 
     let mut out = QueryOutcome::default();
     s.explain(
@@ -297,7 +388,11 @@ async fn plans() {
     if !fallback {
         // The last SELECT ran before without statistics: Oracle may reuse
         // that cursor, and then says so.
-        assert!(out.plans[0].actual && out.plans[1].actual, "{:#?}", out.plans);
+        assert!(
+            out.plans[0].actual && out.plans[1].actual,
+            "{:#?}",
+            out.plans
+        );
         assert!(out.plans[2].actual || out.messages.iter().any(|m| m.contains("reutilizó")));
         let scan = find(&out.plans[0].root, "TABLE ACCESS").unwrap();
         assert_eq!(scan.actual_rows, Some(100.0));
@@ -307,7 +402,15 @@ async fn plans() {
         assert!(out.plans.iter().all(|p| !p.actual));
     }
     let mut out = QueryOutcome::default();
-    assert!(s.explain("SELECT 1 FROM dual; SELECT * FROM dbine_missing", true, 10, &mut out).await.is_err());
+    assert!(s
+        .explain(
+            "SELECT 1 FROM dual; SELECT * FROM dbine_missing",
+            true,
+            10,
+            &mut out
+        )
+        .await
+        .is_err());
     assert_eq!(out.results.len(), 1);
     run(&mut s, "DROP TABLE dbine_plan PURGE").await;
 }
@@ -318,7 +421,9 @@ async fn plans() {
 #[tokio::test]
 #[ignore]
 async fn schema_ddl_round_trip() {
-    let Ok(url) = std::env::var("DBINE_TEST_ORACLE_ADMIN_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_ORACLE_ADMIN_URL") else {
+        return;
+    };
     let cfg = config_from(&url);
     let driver = dbine_driver_oracle::drivers().remove(0);
     assert!(driver.capabilities().create_database && driver.capabilities().foreign_keys);
@@ -375,48 +480,126 @@ COMMENT ON COLUMN clientes.email IS 'Correo';
     assert_eq!(names, ["CLIENTES", "LINEAS", "PEDIDOS"]);
     let (clientes, lineas, pedidos) = (&schema[0], &schema[1], &schema[2]);
     assert_eq!(clientes.comment.as_deref(), Some("Clientes del 'sistema'"));
-    let col = |t: &dbine_driver::TableSchema, n: &str| t.columns.iter().find(|c| c.name == n).unwrap().clone();
+    let col = |t: &dbine_driver::TableSchema, n: &str| {
+        t.columns.iter().find(|c| c.name == n).unwrap().clone()
+    };
     assert!(col(clientes, "ID").auto_increment && col(clientes, "ID").default_value.is_none());
     assert_eq!(col(clientes, "EMAIL").comment.as_deref(), Some("Correo"));
     // CHAR length semantics are part of the type (without them it would be recreated as 100 bytes).
     assert_eq!(col(clientes, "EMAIL").data_type, "VARCHAR2(100 CHAR)");
-    assert_eq!(col(clientes, "NOMBRE").default_value.as_deref(), Some("'anon'"));
+    assert_eq!(
+        col(clientes, "NOMBRE").default_value.as_deref(),
+        Some("'anon'")
+    );
     assert_eq!(col(clientes, "DATOS").data_type, "RAW(16)");
     assert_eq!(col(pedidos, "TOTAL").data_type, "NUMBER(10,2)");
     assert_eq!(col(pedidos, "CREADO").data_type, "TIMESTAMP(6)");
-    assert_eq!(clientes.primary_key.as_ref().unwrap().name.as_deref(), Some("PK_CLIENTES"));
-    assert_eq!(pedidos.primary_key.as_ref().unwrap().name, None, "system-named");
-    assert_eq!(lineas.primary_key.as_ref().unwrap().columns, ["PEDIDO_ID", "LINEA"]);
+    assert_eq!(
+        clientes.primary_key.as_ref().unwrap().name.as_deref(),
+        Some("PK_CLIENTES")
+    );
+    assert_eq!(
+        pedidos.primary_key.as_ref().unwrap().name,
+        None,
+        "system-named"
+    );
+    assert_eq!(
+        lineas.primary_key.as_ref().unwrap().columns,
+        ["PEDIDO_ID", "LINEA"]
+    );
     let fk = &pedidos.foreign_keys[0];
     assert_eq!(
-        (fk.name.as_deref(), fk.ref_table.as_str(), fk.ref_columns.clone(), fk.on_delete.as_deref()),
-        (Some("FK_PEDIDOS_CLIENTE"), "CLIENTES", vec!["ID".to_string()], Some("CASCADE"))
+        (
+            fk.name.as_deref(),
+            fk.ref_table.as_str(),
+            fk.ref_columns.clone(),
+            fk.on_delete.as_deref()
+        ),
+        (
+            Some("FK_PEDIDOS_CLIENTE"),
+            "CLIENTES",
+            vec!["ID".to_string()],
+            Some("CASCADE")
+        )
     );
-    let rules: Vec<_> = lineas.foreign_keys.iter().map(|f| (f.name.as_deref().unwrap(), f.on_delete.as_deref())).collect();
-    assert_eq!(rules, [("FK_LINEAS_CLIENTE", Some("SET NULL")), ("FK_LINEAS_PEDIDO", None)]);
-    let ix: Vec<_> = clientes.indexes.iter().map(|i| (i.name.as_str(), i.unique, i.columns.join(","))).collect();
-    assert_eq!(ix, [("IX_CLIENTES_NOMBRE_UP", false, "UPPER(\"NOMBRE\")".to_string()), ("UQ_CLIENTES_EMAIL", true, "EMAIL".into())]);
+    let rules: Vec<_> = lineas
+        .foreign_keys
+        .iter()
+        .map(|f| (f.name.as_deref().unwrap(), f.on_delete.as_deref()))
+        .collect();
+    assert_eq!(
+        rules,
+        [
+            ("FK_LINEAS_CLIENTE", Some("SET NULL")),
+            ("FK_LINEAS_PEDIDO", None)
+        ]
+    );
+    let ix: Vec<_> = clientes
+        .indexes
+        .iter()
+        .map(|i| (i.name.as_str(), i.unique, i.columns.join(",")))
+        .collect();
+    assert_eq!(
+        ix,
+        [
+            (
+                "IX_CLIENTES_NOMBRE_UP",
+                false,
+                "UPPER(\"NOMBRE\")".to_string()
+            ),
+            ("UQ_CLIENTES_EMAIL", true, "EMAIL".into())
+        ]
+    );
     assert_eq!(lineas.indexes[0].name, "UX_LINEAS_PRODUCTO");
     assert!(lineas.indexes[0].unique);
     assert_eq!(pedidos.indexes[0].columns, ["\"CREADO\" DESC"]);
 
     // Round trip: every CREATE (after guarded DROPs), then indexes and keys.
-    let create = DdlParts { drop: true, if_exists: true, create: true, ..Default::default() };
-    let rest = DdlParts { indexes: true, foreign_keys: true, ..Default::default() };
-    let mut script: Vec<String> = schema.iter().map(|t| driver.table_ddl(t, create).unwrap()).collect();
+    let create = DdlParts {
+        drop: true,
+        if_exists: true,
+        create: true,
+        ..Default::default()
+    };
+    let rest = DdlParts {
+        indexes: true,
+        foreign_keys: true,
+        ..Default::default()
+    };
+    let mut script: Vec<String> = schema
+        .iter()
+        .map(|t| driver.table_ddl(t, create).unwrap())
+        .collect();
     script.extend(schema.iter().map(|t| driver.table_ddl(t, rest).unwrap()));
     let script = script.join("\n");
     let mut dst = driver.connect(&cfg, Some("DBINE_DDL_DST")).await.unwrap();
     run(&mut dst, &script).await;
     assert_eq!(dst.database_schema().await.unwrap(), schema, "{script}");
     // With if_exists, indexes and keys that are already there are skipped.
-    let again: Vec<String> =
-        schema.iter().map(|t| driver.table_ddl(t, DdlParts { if_exists: true, ..rest }).unwrap()).collect();
+    let again: Vec<String> = schema
+        .iter()
+        .map(|t| {
+            driver
+                .table_ddl(
+                    t,
+                    DdlParts {
+                        if_exists: true,
+                        ..rest
+                    },
+                )
+                .unwrap()
+        })
+        .collect();
     run(&mut dst, &again.join("\n")).await;
 
     let cols = ["EMAIL".to_string(), "NOMBRE".into(), "ACTIVO".into()];
-    let rows = [vec![json!("a@x"), json!("O'Brien"), json!(true)], vec![json!("b@x"), json!("b"), json!(false)]];
-    let ins = driver.insert_script(&obj("table", "CLIENTES"), &cols, &rows).unwrap();
+    let rows = [
+        vec![json!("a@x"), json!("O'Brien"), json!(true)],
+        vec![json!("b@x"), json!("b"), json!(false)],
+    ];
+    let ins = driver
+        .insert_script(&obj("table", "CLIENTES"), &cols, &rows)
+        .unwrap();
     run(&mut dst, &ins).await;
     let out = run(&mut dst, "SELECT SUM(activo), COUNT(*) FROM clientes").await;
     assert_eq!(out.results[0].rows[0], vec![json!(1), json!(2)]);
@@ -426,7 +609,11 @@ COMMENT ON COLUMN clientes.email IS 'Correo';
     drop((src, dst));
     admin.drop_database("DBINE_DDL_SRC").await.unwrap();
     admin.drop_database("DBINE_DDL_DST").await.unwrap();
-    assert!(!admin.list_databases().await.unwrap().contains(&"DBINE_DDL_DST".to_string()));
+    assert!(!admin
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"DBINE_DDL_DST".to_string()));
 }
 
 /// The monitor. With a user that can read the V$ views (e.g. SYSTEM) every
@@ -442,25 +629,60 @@ async fn monitor() {
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     let snap2 = s.monitor().await.expect("monitor again");
     for m in &snap2.metrics {
-        eprintln!("{:<22} {:<36} {:?} max={:?}{}", m.key, m.label, m.value, m.max, if m.counter { " (counter)" } else { "" });
+        eprintln!(
+            "{:<22} {:<36} {:?} max={:?}{}",
+            m.key,
+            m.label,
+            m.value,
+            m.max,
+            if m.counter { " (counter)" } else { "" }
+        );
     }
     for t in &snap2.tables {
-        eprintln!("[{}] {} rows; first: {:?}", t.key, t.rows.len(), t.rows.first());
+        eprintln!(
+            "[{}] {} rows; first: {:?}",
+            t.key,
+            t.rows.len(),
+            t.rows.first()
+        );
     }
     eprintln!("info: {:?}\nnotes: {:?}", snap2.info, snap2.notes);
-    let has = |k: &str| snap2.metrics.iter().any(|m| m.key == k && m.value.is_some());
+    let has = |k: &str| {
+        snap2
+            .metrics
+            .iter()
+            .any(|m| m.key == k && m.value.is_some())
+    };
     if has("connections") {
-        for k in ["cpu", "cpu_time", "mem_used", "queries", "transactions", "disk_read", "uptime"] {
+        for k in [
+            "cpu",
+            "cpu_time",
+            "mem_used",
+            "queries",
+            "transactions",
+            "disk_read",
+            "uptime",
+        ] {
             assert!(has(k), "{k}");
         }
-        assert!(snap2.tables.iter().any(|t| t.key == "waits" && !t.rows.is_empty()));
+        assert!(snap2
+            .tables
+            .iter()
+            .any(|t| t.key == "waits" && !t.rows.is_empty()));
     } else {
-        assert!(snap.notes.iter().any(|n| n.contains("SELECT_CATALOG_ROLE")), "{:?}", snap.notes);
+        assert!(
+            snap.notes.iter().any(|n| n.contains("SELECT_CATALOG_ROLE")),
+            "{:?}",
+            snap.notes
+        );
     }
 }
 
 fn dbine_oracle_driver() -> std::sync::Arc<dyn dbine_driver::Driver> {
-    dbine_driver_oracle::drivers().into_iter().find(|d| d.info().id == "oracle").unwrap()
+    dbine_driver_oracle::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "oracle")
+        .unwrap()
 }
 
 /// Running a statement that failed to parse again reports the same error
@@ -471,7 +693,10 @@ async fn a_failed_statement_fails_the_same_way_twice() {
     let mut s = session().await;
     for _ in 0..3 {
         let mut out = QueryOutcome::default();
-        let e = s.execute("SELECT * FROM dbine_no_such_table", 10, &mut out).await.unwrap_err();
+        let e = s
+            .execute("SELECT * FROM dbine_no_such_table", 10, &mut out)
+            .await
+            .unwrap_err();
         assert!(e.to_string().contains("ORA-00942"), "{e}");
     }
     assert_eq!(run(&mut s, "SELECT 1 FROM dual").await.results.len(), 1);
@@ -488,7 +713,10 @@ async fn profiler() {
     assert!(driver.supports_profiler());
     let cfg = config();
     let schema = cfg.username.clone().unwrap().to_uppercase();
-    let opts = dbine_driver::ProfilerOptions { database: schema.clone(), change_server: true };
+    let opts = dbine_driver::ProfilerOptions {
+        database: schema.clone(),
+        change_server: true,
+    };
     let Ok(admin) = std::env::var("DBINE_TEST_ORACLE_ADMIN_URL") else {
         let mut p = driver.connect(&cfg, None).await.expect("connect");
         match p.profiler_start(&opts).await {
@@ -497,7 +725,10 @@ async fn profiler() {
         }
         return;
     };
-    let mut p = driver.connect(&config_from(&admin), None).await.expect("connect");
+    let mut p = driver
+        .connect(&config_from(&admin), None)
+        .await
+        .expect("connect");
     let mut w = driver.connect(&cfg, None).await.expect("connect");
     let started = p.profiler_start(&opts).await.expect("profiler_start");
     eprintln!("{started:?}");
@@ -516,7 +747,11 @@ async fn profiler() {
         let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while std::time::Instant::now() < until {
             got.extend(p.profiler_poll().await.expect("profiler_poll"));
-            if got.iter().any(|s| s.text.contains(&format!("{marker}_slow"))) && std::time::Instant::now() + std::time::Duration::from_secs(2) > until {
+            if got
+                .iter()
+                .any(|s| s.text.contains(&format!("{marker}_slow")))
+                && std::time::Instant::now() + std::time::Duration::from_secs(2) > until
+            {
                 break;
             }
         }
@@ -533,11 +768,19 @@ async fn profiler() {
     assert_eq!(slow_seen[0].database.as_deref(), Some(schema.as_str()));
     // CPU, buffer gets and direct writes from V$SQLSTATS, in blocks.
     assert_eq!(started.reads_unit.as_deref(), Some("bloques"));
-    assert!(slow_seen[0].cpu_ms.is_some() && slow_seen[0].reads.is_some() && slow_seen[0].writes.is_some(), "figures");
+    assert!(
+        slow_seen[0].cpu_ms.is_some()
+            && slow_seen[0].reads.is_some()
+            && slow_seen[0].writes.is_some(),
+        "figures"
+    );
     // The fast one is seen only if a look falls between it and DBine's own
     // DBMS_OUTPUT read that follows it: not asserted.
     assert!(mine.iter().filter(|s| s.text.contains("_fast")).count() <= 1);
-    assert!(got.iter().all(|s| !s.text.contains("v$session")), "its own statements are left out");
+    assert!(
+        got.iter().all(|s| !s.text.contains("v$session")),
+        "its own statements are left out"
+    );
 }
 
 /// Schema sync against the server: the generated script turns a table into
@@ -549,7 +792,10 @@ async fn schema_sync_applies() {
     let driver = dbine_oracle_driver();
     assert!(driver.supports_schema_sync());
     let mut s = session().await;
-    for d in ["DROP TABLE dbine_sync_hijo PURGE", "DROP TABLE dbine_sync_padre PURGE"] {
+    for d in [
+        "DROP TABLE dbine_sync_hijo PURGE",
+        "DROP TABLE dbine_sync_padre PURGE",
+    ] {
         let mut out = QueryOutcome::default();
         let _ = s.execute(d, 10, &mut out).await;
     }
@@ -571,7 +817,9 @@ INSERT INTO dbine_sync_hijo VALUES (1, 1, 'uno', NULL);
 "#,
     )
     .await;
-    let find = |schema: &[dbine_driver::TableSchema], n: &str| schema.iter().find(|t| t.name == n).unwrap().clone();
+    let find = |schema: &[dbine_driver::TableSchema], n: &str| {
+        schema.iter().find(|t| t.name == n).unwrap().clone()
+    };
     let old = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_HIJO");
     let mut new = old.clone();
     let nombre = new.columns.iter_mut().find(|c| c.name == "NOMBRE").unwrap();
@@ -579,33 +827,74 @@ INSERT INTO dbine_sync_hijo VALUES (1, 1, 'uno', NULL);
     nombre.nullable = true;
     nombre.default_value = Some("'x'".into());
     new.columns.retain(|c| c.name != "BAJA");
-    new.columns.push(dbine_driver::ColumnDef { name: "EMAIL".into(), data_type: "VARCHAR2(100)".into(), nullable: true, ..Default::default() });
-    new.indexes = vec![IndexDef { name: "IX_SYNC_HIJO_EMAIL".into(), columns: vec!["EMAIL".into()], unique: false, kind: None, filter: None, ..Default::default() }];
+    new.columns.push(dbine_driver::ColumnDef {
+        name: "EMAIL".into(),
+        data_type: "VARCHAR2(100)".into(),
+        nullable: true,
+        ..Default::default()
+    });
+    new.indexes = vec![IndexDef {
+        name: "IX_SYNC_HIJO_EMAIL".into(),
+        columns: vec!["EMAIL".into()],
+        unique: false,
+        kind: None,
+        filter: None,
+        ..Default::default()
+    }];
     new.foreign_keys[0].name = Some("FK_SYNC_HIJO_PADRE2".into());
     new.foreign_keys[0].on_delete = Some("CASCADE".into());
-    let script = driver.sync_script(&[TableChange::Alter { old, new: new.clone() }]).unwrap();
+    let script = driver
+        .sync_script(&[TableChange::Alter {
+            old,
+            new: new.clone(),
+        }])
+        .unwrap();
     eprintln!("{}\n{:?}", script.statements.join("\n"), script.warnings);
     for st in &script.statements {
         run(&mut s, st).await;
     }
     let after = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_HIJO");
-    let left = driver.sync_script(&[TableChange::Alter { old: after, new: new.clone() }]).unwrap();
+    let left = driver
+        .sync_script(&[TableChange::Alter {
+            old: after,
+            new: new.clone(),
+        }])
+        .unwrap();
     assert!(left.statements.is_empty(), "{:?}", left.statements);
 
     // A NOT NULL back, and the index and key dropped; then the tables go.
     let mut last = new.clone();
-    last.columns.iter_mut().find(|c| c.name == "NOMBRE").unwrap().nullable = false;
+    last.columns
+        .iter_mut()
+        .find(|c| c.name == "NOMBRE")
+        .unwrap()
+        .nullable = false;
     last.indexes.clear();
     last.foreign_keys.clear();
-    let script = driver.sync_script(&[TableChange::Alter { old: new, new: last.clone() }]).unwrap();
+    let script = driver
+        .sync_script(&[TableChange::Alter {
+            old: new,
+            new: last.clone(),
+        }])
+        .unwrap();
     for st in &script.statements {
         run(&mut s, st).await;
     }
     let after = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_HIJO");
-    let left = driver.sync_script(&[TableChange::Alter { old: after, new: last.clone() }]).unwrap();
+    let left = driver
+        .sync_script(&[TableChange::Alter {
+            old: after,
+            new: last.clone(),
+        }])
+        .unwrap();
     assert!(left.statements.is_empty(), "{:?}", left.statements);
     let padre = find(&s.database_schema().await.unwrap(), "DBINE_SYNC_PADRE");
-    let script = driver.sync_script(&[TableChange::Drop { table: last }, TableChange::Drop { table: padre }]).unwrap();
+    let script = driver
+        .sync_script(&[
+            TableChange::Drop { table: last },
+            TableChange::Drop { table: padre },
+        ])
+        .unwrap();
     for st in &script.statements {
         run(&mut s, st).await;
     }
@@ -618,15 +907,26 @@ INSERT INTO dbine_sync_hijo VALUES (1, 1, 'uno', NULL);
 #[tokio::test]
 #[ignore]
 async fn empty_schemas_are_listed() {
-    let Ok(url) = std::env::var("DBINE_TEST_ORACLE_ADMIN_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_ORACLE_ADMIN_URL") else {
+        return;
+    };
     let driver = dbine_driver_oracle::drivers().remove(0);
     let mut admin = driver.connect(&config_from(&url), None).await.unwrap();
-    let _ = admin.execute("DROP USER DBINE_VACIO CASCADE", 10, &mut QueryOutcome::default()).await;
+    let _ = admin
+        .execute(
+            "DROP USER DBINE_VACIO CASCADE",
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await;
     run(&mut admin, "CREATE USER DBINE_VACIO NO AUTHENTICATION").await;
 
     let mut s = session().await;
     let dbs = s.list_databases().await.unwrap();
-    assert!(dbs.contains(&"DBINE_VACIO".to_string()) && dbs.contains(&"DBINE".to_string()), "{dbs:?}");
+    assert!(
+        dbs.contains(&"DBINE_VACIO".to_string()) && dbs.contains(&"DBINE".to_string()),
+        "{dbs:?}"
+    );
     for sys in ["SYS", "SYSTEM", "XDB", "OUTLN", "AUDSYS"] {
         assert!(!dbs.contains(&sys.to_string()), "{sys}: {dbs:?}");
     }
@@ -634,5 +934,9 @@ async fn empty_schemas_are_listed() {
     assert!(driver.schema_spec().is_none());
 
     run(&mut admin, "DROP USER DBINE_VACIO CASCADE").await;
-    assert!(!s.list_databases().await.unwrap().contains(&"DBINE_VACIO".to_string()));
+    assert!(!s
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"DBINE_VACIO".to_string()));
 }

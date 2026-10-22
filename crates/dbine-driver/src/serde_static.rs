@@ -36,8 +36,11 @@ pub fn strs<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<&'static str>, D::Err
     Vec::<String>::deserialize(d).map(|v| v.iter().map(|s| intern(s)).collect())
 }
 
-pub fn pairs<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<(&'static str, &'static str)>, D::Error> {
-    Vec::<(String, String)>::deserialize(d).map(|v| v.iter().map(|(a, b)| (intern(a), intern(b))).collect())
+pub fn pairs<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<(&'static str, &'static str)>, D::Error> {
+    Vec::<(String, String)>::deserialize(d)
+        .map(|v| v.iter().map(|(a, b)| (intern(a), intern(b))).collect())
 }
 
 /// Metadata types (`Field`…) whose `&'static str`s serde only reads from

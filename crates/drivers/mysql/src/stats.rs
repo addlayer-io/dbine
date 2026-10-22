@@ -63,7 +63,11 @@ fn commented_kind(table_type: &str, is_mv: bool, has_sequences: bool) -> Option<
 }
 
 fn object(kind: &str, name: String) -> ObjectRef {
-    ObjectRef { kind: kind.to_string(), schema: None, name }
+    ObjectRef {
+        kind: kind.to_string(),
+        schema: None,
+        name,
+    }
 }
 
 impl MySqlSession {
@@ -73,14 +77,20 @@ impl MySqlSession {
             return HashSet::new();
         }
         let sql = format!("SELECT TABLE_NAME FROM information_schema.materialized_views WHERE TABLE_SCHEMA = {dbl}");
-        self.optional_rows(&sql).await.iter().filter_map(|r| at(r, 0)).collect()
+        self.optional_rows(&sql)
+            .await
+            .iter()
+            .filter_map(|r| at(r, 0))
+            .collect()
     }
 
     pub(crate) async fn row_estimates_impl(&mut self) -> Result<Vec<RowEstimate>> {
         if self.variant == Variant::Manticore {
             return Ok(self.manticore_rows().await);
         }
-        let Some(db) = self.current_database().await else { return Ok(Vec::new()) };
+        let Some(db) = self.current_database().await else {
+            return Ok(Vec::new());
+        };
         let dbl = lit(&db);
         let mvs = self.materialized_views(&dbl).await;
         let mut queries = vec![format!(
@@ -99,14 +109,21 @@ impl MySqlSession {
                         .iter()
                         .filter_map(|r| {
                             let name = at(r, 0)?;
-                            let kind = if mvs.contains(&name) { kinds::MATERIALIZED_VIEW } else { table_kind(&at(r, 1)?)? };
+                            let kind = if mvs.contains(&name) {
+                                kinds::MATERIALIZED_VIEW
+                            } else {
+                                table_kind(&at(r, 1)?)?
+                            };
                             // Plain views keep no rows; a value there isn't one.
                             if kind == kinds::VIEW {
                                 return None;
                             }
-                            Some(RowEstimate { object: object(kind, name), rows: parse_rows(&at(r, 2)?)? })
+                            Some(RowEstimate {
+                                object: object(kind, name),
+                                rows: parse_rows(&at(r, 2)?)?,
+                            })
                         })
-                        .collect())
+                        .collect());
                 }
                 Err(e) => tracing::debug!("{:?}: row estimates unavailable: {e}", self.variant),
             }
@@ -117,12 +134,25 @@ impl MySqlSession {
     /// `indexed_documents` of each table's status (Manticore keeps it per
     /// table; nothing is scanned).
     async fn manticore_rows(&mut self) -> Vec<RowEstimate> {
-        let tables: Vec<String> = self.optional_rows("SHOW TABLES").await.iter().filter_map(|r| at(r, 0)).collect();
+        let tables: Vec<String> = self
+            .optional_rows("SHOW TABLES")
+            .await
+            .iter()
+            .filter_map(|r| at(r, 0))
+            .collect();
         let mut out = Vec::new();
-        for name in tables.into_iter().filter(|n| plain_name(n)).take(MAX_STATUS_READS) {
-            let mut rows = self.optional_rows(&format!("SHOW TABLE {name} STATUS")).await;
+        for name in tables
+            .into_iter()
+            .filter(|n| plain_name(n))
+            .take(MAX_STATUS_READS)
+        {
+            let mut rows = self
+                .optional_rows(&format!("SHOW TABLE {name} STATUS"))
+                .await;
             if rows.is_empty() {
-                rows = self.optional_rows(&format!("SHOW INDEX {name} STATUS")).await;
+                rows = self
+                    .optional_rows(&format!("SHOW INDEX {name} STATUS"))
+                    .await;
             }
             let docs = rows
                 .iter()
@@ -130,7 +160,10 @@ impl MySqlSession {
                 .and_then(|r| at(r, 1))
                 .and_then(|v| parse_rows(&v));
             if let Some(rows) = docs {
-                out.push(RowEstimate { object: object(kinds::TABLE, name), rows });
+                out.push(RowEstimate {
+                    object: object(kinds::TABLE, name),
+                    rows,
+                });
             }
         }
         out
@@ -140,14 +173,21 @@ impl MySqlSession {
         if self.variant == Variant::Manticore {
             return Ok(Vec::new());
         }
-        let Some(db) = self.current_database().await else { return Ok(Vec::new()) };
+        let Some(db) = self.current_database().await else {
+            return Ok(Vec::new());
+        };
         let dbl = lit(&db);
         let mut out = Vec::new();
         let mut seen = HashSet::new();
         let mut push = |kind: &str, name: Option<String>, comment: Option<String>| {
-            let (Some(name), Some(comment)) = (name, comment) else { return };
+            let (Some(name), Some(comment)) = (name, comment) else {
+                return;
+            };
             if real_comment(&comment) && seen.insert((kind.to_string(), name.clone())) {
-                out.push(ObjectComment { object: object(kind, name), comment });
+                out.push(ObjectComment {
+                    object: object(kind, name),
+                    comment,
+                });
             }
         };
         if self.variant.has_routines() {
@@ -171,7 +211,9 @@ impl MySqlSession {
              WHERE TABLE_SCHEMA = {dbl} AND TABLE_COMMENT <> ''"
         );
         for r in self.optional_rows(&sql).await {
-            let (Some(name), Some(t)) = (at(&r, 0), at(&r, 1)) else { continue };
+            let (Some(name), Some(t)) = (at(&r, 0), at(&r, 1)) else {
+                continue;
+            };
             if let Some(kind) = commented_kind(&t, mvs.contains(&name), has_sequences) {
                 push(kind, Some(name), at(&r, 2));
             }
@@ -209,8 +251,14 @@ mod tests {
     #[test]
     fn commented_relations_take_the_explorer_kinds() {
         assert_eq!(commented_kind("VIEW", false, false), Some(kinds::VIEW));
-        assert_eq!(commented_kind("BASE TABLE", true, false), Some(kinds::MATERIALIZED_VIEW));
-        assert_eq!(commented_kind("SEQUENCE", false, true), Some(kinds::SEQUENCE));
+        assert_eq!(
+            commented_kind("BASE TABLE", true, false),
+            Some(kinds::MATERIALIZED_VIEW)
+        );
+        assert_eq!(
+            commented_kind("SEQUENCE", false, true),
+            Some(kinds::SEQUENCE)
+        );
         assert_eq!(commented_kind("SEQUENCE", false, false), None);
         assert_eq!(commented_kind("BASE TABLE", false, true), None);
         assert_eq!(commented_kind("SYSTEM VIEW", false, true), None);

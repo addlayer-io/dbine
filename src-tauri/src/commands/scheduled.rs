@@ -29,8 +29,16 @@ fn item(state: &AppState, task: ScheduledTask) -> TaskItem {
     let fingerprint = tasks::write_fingerprint(state, &task);
     TaskItem {
         registered: tasks::os::is_registered(&task.id),
-        next_run: task.enabled.then(|| task.schedule.next_after(now)).flatten().map(|t| t.format("%Y-%m-%d %H:%M").to_string()),
-        last_run: state.store.list_task_runs(Some(&task.id), 1).ok().and_then(|r| r.into_iter().next()),
+        next_run: task
+            .enabled
+            .then(|| task.schedule.next_after(now))
+            .flatten()
+            .map(|t| t.format("%Y-%m-%d %H:%M").to_string()),
+        last_run: state
+            .store
+            .list_task_runs(Some(&task.id), 1)
+            .ok()
+            .and_then(|r| r.into_iter().next()),
         writes: tasks::write_scope(state, &task),
         needs_approval: fingerprint.is_some() && fingerprint != task.approved_writes,
         task,
@@ -39,7 +47,12 @@ fn item(state: &AppState, task: ScheduledTask) -> TaskItem {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn scheduled_tasks_list(state: State<'_, AppState>) -> CommandResult<Vec<TaskItem>> {
-    Ok(state.store.list_tasks()?.into_iter().map(|t| item(&state, t)).collect())
+    Ok(state
+        .store
+        .list_tasks()?
+        .into_iter()
+        .map(|t| item(&state, t))
+        .collect())
 }
 
 #[derive(Deserialize)]
@@ -60,12 +73,19 @@ pub struct Check {
 
 /// What saving `task` would ask the user to approve.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn scheduled_task_check(state: State<'_, AppState>, args: CheckArgs) -> CommandResult<Check> {
+pub async fn scheduled_task_check(
+    state: State<'_, AppState>,
+    args: CheckArgs,
+) -> CommandResult<Check> {
     // The scope and its fingerprint from the same read of the notebooks.
     let scope = tasks::write_scope(&state, &args.task);
     let fingerprint = tasks::task_fingerprint(&scope, &args.task);
     let needs_approval = fingerprint.is_some() && fingerprint != args.task.approved_writes;
-    Ok(Check { scope, needs_approval, fingerprint })
+    Ok(Check {
+        scope,
+        needs_approval,
+        fingerprint,
+    })
 }
 
 #[derive(Deserialize)]
@@ -88,7 +108,10 @@ pub struct Saved {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> CommandResult<Saved> {
+pub async fn scheduled_task_save(
+    state: State<'_, AppState>,
+    args: SaveArgs,
+) -> CommandResult<Saved> {
     let mut task = args.task;
     // The ids the steps had when the user saw the approval (a new one's is empty).
     let ids_seen: Vec<String> = task.steps.iter().map(|s| s.id.clone()).collect();
@@ -101,7 +124,10 @@ pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> 
     if let Some(problem) = task.problem() {
         return Err(CommandError::BadRequest(problem));
     }
-    let approved = args.approve_writes.then_some(args.approved_fingerprint.as_deref()).flatten();
+    let approved = args
+        .approve_writes
+        .then_some(args.approved_fingerprint.as_deref())
+        .flatten();
     approve_writes(&state, &mut task, &ids_seen, approved)?;
     keep_secrets_apart(&state, &mut task)?;
     // A step that was removed takes its kept secrets with it.
@@ -114,12 +140,20 @@ pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> 
     if let Some(e) = &schedule_error {
         tracing::warn!(task = %saved.id, "scheduled task not registered: {e}");
     }
-    Ok(Saved { item: item(&state, saved), schedule_error })
+    Ok(Saved {
+        item: item(&state, saved),
+        schedule_error,
+    })
 }
 
 /// Sets `task.approved_writes` for the save, or refuses it ([`approval`]).
 /// `ids_seen`: the steps' ids when the user saw the check.
-fn approve_writes(state: &AppState, task: &mut ScheduledTask, ids_seen: &[String], approved: Option<&str>) -> CommandResult<()> {
+fn approve_writes(
+    state: &AppState,
+    task: &mut ScheduledTask,
+    ids_seen: &[String],
+    approved: Option<&str>,
+) -> CommandResult<()> {
     let scope = tasks::write_scope(state, task);
     let fingerprint = tasks::task_fingerprint(&scope, task);
     // The same read, as `scheduled_task_check` fingerprinted it: before the
@@ -136,7 +170,12 @@ fn approve_writes(state: &AppState, task: &mut ScheduledTask, ids_seen: &[String
             .collect::<Vec<_>>(),
         task,
     );
-    task.approved_writes = approval(fingerprint, seen.as_deref(), approved, task.approved_writes.as_deref())?;
+    task.approved_writes = approval(
+        fingerprint,
+        seen.as_deref(),
+        approved,
+        task.approved_writes.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -146,7 +185,12 @@ fn approve_writes(state: &AppState, task: &mut ScheduledTask, ids_seen: &[String
 /// showed); `standing`: the task's previous one. A yes to something else
 /// (a notebook edited between the check and the save) approves nothing:
 /// the user is asked again.
-fn approval(now: Option<String>, seen: Option<&str>, approved: Option<&str>, standing: Option<&str>) -> CommandResult<Option<String>> {
+fn approval(
+    now: Option<String>,
+    seen: Option<&str>,
+    approved: Option<&str>,
+    standing: Option<&str>,
+) -> CommandResult<Option<String>> {
     match now {
         None => Ok(None),
         Some(f) if approved.is_some() && approved == seen => Ok(Some(f)),
@@ -162,7 +206,9 @@ fn approval(now: Option<String>, seen: Option<&str>, approved: Option<&str>, sta
 /// The vault entries of the steps in `before` that are not in `after` (all
 /// of them when the task is deleted: `after` is `None`).
 fn forgotten_secrets(before: Option<&ScheduledTask>, after: Option<&ScheduledTask>) -> Vec<String> {
-    let Some(before) = before else { return Vec::new() };
+    let Some(before) = before else {
+        return Vec::new();
+    };
     before
         .steps
         .iter()
@@ -176,8 +222,15 @@ fn forgotten_secrets(before: Option<&ScheduledTask>, after: Option<&ScheduledTas
 /// them empty (a notebook step's, not at all). An empty value with a secret
 /// already kept means "unchanged".
 fn keep_secrets_apart(state: &AppState, task: &mut ScheduledTask) -> CommandResult<()> {
-    let messages = tasks::message::secrets_apart(task, &|n| dbine_core::secrets::get_raw(n).ok().flatten()).map_err(CommandError::BadRequest)?;
-    for (name, kept) in messages.into_iter().chain(tasks::notebook_secrets_apart(task, &|n| dbine_core::secrets::get_raw(n).ok().flatten())) {
+    let messages =
+        tasks::message::secrets_apart(task, &|n| dbine_core::secrets::get_raw(n).ok().flatten())
+            .map_err(CommandError::BadRequest)?;
+    for (name, kept) in messages
+        .into_iter()
+        .chain(tasks::notebook_secrets_apart(task, &|n| {
+            dbine_core::secrets::get_raw(n).ok().flatten()
+        }))
+    {
         match kept {
             Some(json) => dbine_core::secrets::set_raw(&name, &json)?,
             None => {
@@ -186,12 +239,26 @@ fn keep_secrets_apart(state: &AppState, task: &mut ScheduledTask) -> CommandResu
         }
     }
     for step in task.steps.iter_mut().filter(|s| s.kind == kinds::BACKUP) {
-        let conn = step.config.get("connection_id").and_then(Value::as_str).unwrap_or("").to_string();
+        let conn = step
+            .config
+            .get("connection_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let keys = tasks::secret_option_keys(&conn, state);
         let name = tasks::step_secret_name(&task.id, &step.id);
-        let mut kept: BTreeMap<String, String> =
-            dbine_core::secrets::get_raw(&name).ok().flatten().and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
-        let Some(options) = step.config.get_mut("options").and_then(Value::as_object_mut) else { continue };
+        let mut kept: BTreeMap<String, String> = dbine_core::secrets::get_raw(&name)
+            .ok()
+            .flatten()
+            .and_then(|j| serde_json::from_str(&j).ok())
+            .unwrap_or_default();
+        let Some(options) = step
+            .config
+            .get_mut("options")
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
         for key in keys {
             if let Some(v) = options.get_mut(key) {
                 let typed = v.as_str().unwrap_or("").to_string();
@@ -204,7 +271,8 @@ fn keep_secrets_apart(state: &AppState, task: &mut ScheduledTask) -> CommandResu
         if kept.is_empty() {
             let _ = dbine_core::secrets::delete_raw(&name);
         } else {
-            let json = serde_json::to_string(&kept).map_err(|e| CommandError::Internal(e.to_string()))?;
+            let json =
+                serde_json::to_string(&kept).map_err(|e| CommandError::Internal(e.to_string()))?;
             dbine_core::secrets::set_raw(&name, &json)?;
         }
     }
@@ -235,18 +303,28 @@ pub struct EnableArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn scheduled_task_enable(state: State<'_, AppState>, args: EnableArgs) -> CommandResult<Saved> {
+pub async fn scheduled_task_enable(
+    state: State<'_, AppState>,
+    args: EnableArgs,
+) -> CommandResult<Saved> {
     let mut task = tasks::load(&state, &args.id)?;
     task.enabled = args.enabled;
     let saved = state.store.save_task(&task)?;
     let schedule_error = tasks::os::sync(&saved).err();
-    Ok(Saved { item: item(&state, saved), schedule_error })
+    Ok(Saved {
+        item: item(&state, saved),
+        schedule_error,
+    })
 }
 
 /// "Ejecutar ahora": runs in the app, in the background; `task-run-finished`
 /// tells the windows (the history updates with `state-changed`).
 #[tauri::command(rename_all = "camelCase")]
-pub async fn scheduled_task_run_now(app: AppHandle, state: State<'_, AppState>, args: IdArgs) -> CommandResult<()> {
+pub async fn scheduled_task_run_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: IdArgs,
+) -> CommandResult<()> {
     let task = tasks::load(&state, &args.id)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn(async move {
@@ -264,15 +342,22 @@ pub struct RunsArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn scheduled_task_runs(state: State<'_, AppState>, args: RunsArgs) -> CommandResult<Vec<TaskRun>> {
-    Ok(state.store.list_task_runs(args.task_id.as_deref(), args.limit.unwrap_or(50).min(500))?)
+pub async fn scheduled_task_runs(
+    state: State<'_, AppState>,
+    args: RunsArgs,
+) -> CommandResult<Vec<TaskRun>> {
+    Ok(state
+        .store
+        .list_task_runs(args.task_id.as_deref(), args.limit.unwrap_or(50).min(500))?)
 }
 
 /// The OS scheduler entries match the list (after a restore, a move to a
 /// new folder, or an update that changed the app's path).
 #[cfg_attr(debug_assertions, allow(dead_code))]
 pub fn resync_all(state: &AppState) {
-    let Ok(list) = state.store.list_tasks() else { return };
+    let Ok(list) = state.store.list_tasks() else {
+        return;
+    };
     // Entries under the old identifier's label (macOS) move first.
     let moved = tasks::os::migrate_old_labels(&list);
     for task in list.iter().filter(|t| t.enabled && !moved.contains(&t.id)) {
@@ -287,13 +372,23 @@ pub fn resync_all(state: &AppState) {
 /// confirmar", the files it reads (and which lack "Permitir siempre"), its
 /// write cells and parameters. Reads the file; runs nothing.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn scheduled_notebook_plan(app: AppHandle, state: State<'_, AppState>, args: crate::notebook::headless::Options) -> CommandResult<crate::notebook::headless::Plan> {
+pub async fn scheduled_notebook_plan(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: crate::notebook::headless::Options,
+) -> CommandResult<crate::notebook::headless::Plan> {
     let mut dirs = crate::notebook::headless::own_dirs();
     dirs.extend(crate::commands::notebook::app_dirs(&app));
     let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || crate::notebook::headless::plan(&state, &args, crate::notebook::access::Policy::current(&dirs)))
-        .await
-        .map_err(|e| CommandError::Internal(e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::notebook::headless::plan(
+            &state,
+            &args,
+            crate::notebook::access::Policy::current(&dirs),
+        )
+    })
+    .await
+    .map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
 #[derive(Deserialize)]
@@ -329,11 +424,29 @@ mod tests {
     #[test]
     fn removed_steps_and_tasks_forget_their_secrets() {
         use dbine_core::tasks::Step;
-        let step = |id: &str| Step { id: id.into(), kind: kinds::SEND_MESSAGE.into(), ..Default::default() };
-        let before = ScheduledTask { id: "t".into(), steps: vec![step("a"), step("b")], ..Default::default() };
-        let after = ScheduledTask { id: "t".into(), steps: vec![step("b")], ..Default::default() };
-        assert_eq!(forgotten_secrets(Some(&before), Some(&after)), vec!["task-secret:t:a"]);
-        assert_eq!(forgotten_secrets(Some(&before), None), vec!["task-secret:t:a", "task-secret:t:b"]);
+        let step = |id: &str| Step {
+            id: id.into(),
+            kind: kinds::SEND_MESSAGE.into(),
+            ..Default::default()
+        };
+        let before = ScheduledTask {
+            id: "t".into(),
+            steps: vec![step("a"), step("b")],
+            ..Default::default()
+        };
+        let after = ScheduledTask {
+            id: "t".into(),
+            steps: vec![step("b")],
+            ..Default::default()
+        };
+        assert_eq!(
+            forgotten_secrets(Some(&before), Some(&after)),
+            vec!["task-secret:t:a"]
+        );
+        assert_eq!(
+            forgotten_secrets(Some(&before), None),
+            vec!["task-secret:t:a", "task-secret:t:b"]
+        );
         assert!(forgotten_secrets(None, Some(&after)).is_empty());
     }
 
@@ -344,16 +457,25 @@ mod tests {
         assert_eq!(approval(None, None, Some("a"), None).unwrap(), None);
         // The yes is to what is there now (`seen`: under the check's step
         // ids; `now`: the ids it is saved with).
-        assert_eq!(approval(f("a2"), Some("a"), Some("a"), None).unwrap(), f("a2"));
+        assert_eq!(
+            approval(f("a2"), Some("a"), Some("a"), None).unwrap(),
+            f("a2")
+        );
         // What writes changed after the check (the notebook was edited):
         // the yes was to something else, so it is asked again.
         let e = approval(f("b"), Some("b"), Some("a"), None).unwrap_err();
         assert!(e.to_string().contains("ya no es lo que se aprobó"), "{e}");
         assert!(approval(f("b"), Some("b"), Some("a"), Some("old")).is_err());
         // Back to what was approved before: that approval stands.
-        assert_eq!(approval(f("b"), Some("b"), Some("a"), Some("b")).unwrap(), f("b"));
+        assert_eq!(
+            approval(f("b"), Some("b"), Some("a"), Some("b")).unwrap(),
+            f("b")
+        );
         // No yes: only an approval that still stands.
-        assert_eq!(approval(f("a"), Some("a"), None, Some("a")).unwrap(), f("a"));
+        assert_eq!(
+            approval(f("a"), Some("a"), None, Some("a")).unwrap(),
+            f("a")
+        );
         assert!(approval(f("a"), Some("a"), None, Some("old")).is_err());
         assert!(approval(f("a"), Some("a"), None, None).is_err());
     }
@@ -368,16 +490,42 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dbine-sched-approve-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.sqlite");
-        rusqlite::Connection::open(&file).unwrap().execute_batch("CREATE TABLE IF NOT EXISTS t (x INTEGER);").unwrap();
+        rusqlite::Connection::open(&file)
+            .unwrap()
+            .execute_batch("CREATE TABLE IF NOT EXISTS t (x INTEGER);")
+            .unwrap();
         let state = AppState::new(dbine_core::StateStore::open_in_memory().unwrap());
-        let config = dbine_driver::ConnectionConfig { driver: "sqlite".into(), host: file.to_string_lossy().into_owned(), ..Default::default() };
-        let conn = SavedConnection { id: "a".into(), name: "a".into(), color: None, config, save_password: false, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() };
+        let config = dbine_driver::ConnectionConfig {
+            driver: "sqlite".into(),
+            host: file.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let conn = SavedConnection {
+            id: "a".into(),
+            name: "a".into(),
+            color: None,
+            config,
+            save_password: false,
+            folder_id: None,
+            tags: vec![],
+            mcp_level: None,
+            updated_at: String::new(),
+        };
         state.store.save_connection(&conn).unwrap();
-        let step = |sql: &str| Step { kind: kinds::RUN_SCRIPT.into(), config: serde_json::json!({"connection_id": "a", "sql": sql}), ..Default::default() };
-        let new_task = |sql: &str| ScheduledTask { name: "t".into(), steps: vec![step(sql)], ..Default::default() };
+        let step = |sql: &str| Step {
+            kind: kinds::RUN_SCRIPT.into(),
+            config: serde_json::json!({"connection_id": "a", "sql": sql}),
+            ..Default::default()
+        };
+        let new_task = |sql: &str| ScheduledTask {
+            name: "t".into(),
+            steps: vec![step(sql)],
+            ..Default::default()
+        };
 
         // What the UI checked, and the user said yes to.
-        let checked = tasks::fingerprint_of(&tasks::write_scope(&state, &new_task("DELETE FROM t"))).unwrap();
+        let checked =
+            tasks::fingerprint_of(&tasks::write_scope(&state, &new_task("DELETE FROM t"))).unwrap();
         let save = |sql: &str| {
             let mut task = new_task(sql);
             let ids_seen: Vec<String> = task.steps.iter().map(|s| s.id.clone()).collect();
@@ -387,7 +535,10 @@ mod tests {
         };
         let saved = save("DELETE FROM t").unwrap();
         // Stored as the run computes it (with the step's id).
-        assert_eq!(saved.approved_writes, tasks::write_fingerprint(&state, &saved));
+        assert_eq!(
+            saved.approved_writes,
+            tasks::write_fingerprint(&state, &saved)
+        );
         // Changed between the check and the save: refused, asked again.
         assert!(save("DROP TABLE t").is_err());
         let _ = std::fs::remove_dir_all(&dir);

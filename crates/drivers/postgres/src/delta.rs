@@ -46,7 +46,10 @@
 use crate::session::PgSession;
 use crate::{err, Variant};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::transfer::{BatchSource, BucketSum, Buckets, DeltaDepth, DeltaResult, DeltaSpec, LoadSpec, Progress, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSource, BucketSum, Buckets, DeltaDepth, DeltaResult, DeltaSpec, LoadSpec, Progress,
+    TransferColumn,
+};
 use dbine_driver::{Error, ObjectRef, Result};
 use tokio_postgres::SimpleQueryMessage;
 
@@ -78,10 +81,15 @@ fn table_name(t: &ObjectRef) -> String {
 
 fn check(s: &PgSession) -> Result<()> {
     if !capable(s.variant) {
-        return Err(Error::Unsupported(format!("{} no sincroniza por filas", s.variant.info().name)));
+        return Err(Error::Unsupported(format!(
+            "{} no sincroniza por filas",
+            s.variant.info().name
+        )));
     }
     if s.version > 0 && s.version < 110000 {
-        return Err(Error::Unsupported("sincronizar por filas necesita PostgreSQL 11 o posterior".into()));
+        return Err(Error::Unsupported(
+            "sincronizar por filas necesita PostgreSQL 11 o posterior".into(),
+        ));
     }
     Ok(())
 }
@@ -101,9 +109,17 @@ fn key_text(col: &str) -> String {
 /// The bucket of a row, as a `bigint`.
 pub(crate) fn bucket_expr(spec: &DeltaSpec) -> Result<String> {
     match &spec.buckets {
-        Buckets::Range { column, lo, hi, width, n } => {
+        Buckets::Range {
+            column,
+            lo,
+            hi,
+            width,
+            n,
+        } => {
             if *width <= 0 || *n == 0 || hi < lo {
-                return Err(Error::Query(format!("rangos inválidos: {lo}..{hi}, ancho {width}, {n} grupos")));
+                return Err(Error::Query(format!(
+                    "rangos inválidos: {lo}..{hi}, ancho {width}, {n} grupos"
+                )));
             }
             let c = q(column);
             // `k - lo` overflows a bigint when the range is wider than it.
@@ -112,11 +128,15 @@ pub(crate) fn bucket_expr(spec: &DeltaSpec) -> Result<String> {
             } else {
                 format!("div({c}::numeric - ({lo}), {width})::int8")
             };
-            Ok(format!("(CASE WHEN {c} < {lo} THEN -1 WHEN {c} > {hi} THEN {n} ELSE {offset} END)"))
+            Ok(format!(
+                "(CASE WHEN {c} < {lo} THEN -1 WHEN {c} > {hi} THEN {n} ELSE {offset} END)"
+            ))
         }
         Buckets::Hash { n } => {
             if *n == 0 || spec.key.is_empty() {
-                return Err(Error::Query("grupos por hash sin clave o sin cantidad".into()));
+                return Err(Error::Query(
+                    "grupos por hash sin clave o sin cantidad".into(),
+                ));
             }
             let text = if spec.key.len() == 1 {
                 key_text(&spec.key[0])
@@ -130,7 +150,9 @@ pub(crate) fn bucket_expr(spec: &DeltaSpec) -> Result<String> {
                     .collect::<Vec<_>>()
                     .join(" || ")
             };
-            Ok(format!("(((hashtextextended({text}, 0) % {n}) + {n}) % {n})"))
+            Ok(format!(
+                "(((hashtextextended({text}, 0) % {n}) + {n}) % {n})"
+            ))
         }
     }
 }
@@ -148,7 +170,13 @@ pub(crate) fn filter(spec: &DeltaSpec, buckets: &[i64]) -> Result<String> {
             let list = b.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
             Ok(format!("{} IN ({list})", bucket_expr(spec)?))
         }
-        Buckets::Range { column, lo, hi, width, n } => {
+        Buckets::Range {
+            column,
+            lo,
+            hi,
+            width,
+            n,
+        } => {
             bucket_expr(spec)?; // validates
             let c = q(column);
             let (lo, hi, w, n) = (*lo as i128, *hi as i128, *width as i128, *n as i128);
@@ -194,7 +222,11 @@ pub(crate) fn filter(spec: &DeltaSpec, buckets: &[i64]) -> Result<String> {
                     }
                 })
                 .collect();
-            Ok(if parts.len() == 1 { parts.into_iter().next().unwrap_or_default() } else { format!("({})", parts.join(" OR ")) })
+            Ok(if parts.len() == 1 {
+                parts.into_iter().next().unwrap_or_default()
+            } else {
+                format!("({})", parts.join(" OR "))
+            })
         }
     }
 }
@@ -216,7 +248,11 @@ pub(crate) struct ColMeta {
 }
 
 async fn columns(s: &PgSession, table: &str) -> Result<Vec<ColMeta>> {
-    let generated = if s.version >= 120000 { "a.attgenerated::text = 's'" } else { "false" };
+    let generated = if s.version >= 120000 {
+        "a.attgenerated::text = 's'"
+    } else {
+        "false"
+    };
     let sql = format!(
         "SELECT a.attname::text, bt.typname::text, t.typstorage::text IN ('x', 'e'), {generated}, a.attidentity::text = 'a',
                 pg_get_serial_sequence($1::text, a.attname::text)
@@ -241,7 +277,9 @@ async fn columns(s: &PgSession, table: &str) -> Result<Vec<ColMeta>> {
 }
 
 fn find<'a>(cols: &'a [ColMeta], name: &str) -> Result<&'a ColMeta> {
-    cols.iter().find(|c| c.name == name).ok_or_else(|| Error::Query(format!("la tabla no tiene la columna «{name}»")))
+    cols.iter()
+        .find(|c| c.name == name)
+        .ok_or_else(|| Error::Query(format!("la tabla no tiene la columna «{name}»")))
 }
 
 /// Types whose length comes from the TOAST header (`octet_length` without
@@ -252,7 +290,11 @@ fn cheap_length(base: &str) -> bool {
 
 /// The row hash, a `bigint` from the first 8 bytes of an `md5`.
 pub(crate) fn row_hash(spec: &DeltaSpec, cols: &[ColMeta]) -> Result<String> {
-    let names: &[String] = if spec.depth == DeltaDepth::Keys { &spec.key } else { &spec.columns };
+    let names: &[String] = if spec.depth == DeltaDepth::Keys {
+        &spec.key
+    } else {
+        &spec.columns
+    };
     let mut parts = Vec::with_capacity(names.len());
     for name in names {
         let col = find(cols, name)?;
@@ -266,12 +308,17 @@ pub(crate) fn row_hash(spec: &DeltaSpec, cols: &[ColMeta]) -> Result<String> {
         } else {
             format!("({c})::text")
         };
-        parts.push(format!("COALESCE(length({text})::text || ':' || {text}, 'N')"));
+        parts.push(format!(
+            "COALESCE(length({text})::text || ':' || {text}, 'N')"
+        ));
     }
     if parts.is_empty() {
         return Err(Error::Query("no hay columnas para comparar".into()));
     }
-    Ok(format!("('x' || substr(md5({}), 1, 16))::bit(64)::int8", parts.join(" || ")))
+    Ok(format!(
+        "('x' || substr(md5({}), 1, 16))::bit(64)::int8",
+        parts.join(" || ")
+    ))
 }
 
 pub(crate) fn summary_sql(table: &str, bucket: &str, hash: &str) -> String {
@@ -288,7 +335,8 @@ pub(crate) fn summary_sql(table: &str, bucket: &str, hash: &str) -> String {
 fn compared(alias: &str, col: &ColMeta) -> String {
     let c = format!("{alias}.{}", q(&col.name));
     match col.base.as_str() {
-        "int2" | "int4" | "int8" | "bool" | "uuid" | "bytea" | "date" | "timestamp" | "timestamptz" | "time" | "oid" => c,
+        "int2" | "int4" | "int8" | "bool" | "uuid" | "bytea" | "date" | "timestamp"
+        | "timestamptz" | "time" | "oid" => c,
         _ => format!("({c})::text COLLATE \"C\""),
     }
 }
@@ -304,45 +352,107 @@ pub(crate) struct ApplySql {
     pub merge: String,
 }
 
-pub(crate) fn apply_sql(table: &str, stage: &str, spec: &DeltaSpec, cols: &[ColMeta], scope: &str) -> Result<ApplySql> {
-    let key: Vec<&ColMeta> = spec.key.iter().map(|k| find(cols, k)).collect::<Result<_>>()?;
-    let written: Vec<&ColMeta> =
-        spec.columns.iter().map(|c| find(cols, c)).collect::<Result<Vec<_>>>()?.into_iter().filter(|c| !c.generated).collect();
-    let updatable: Vec<&ColMeta> =
-        written.iter().copied().filter(|c| !c.identity_always && !spec.key.contains(&c.name)).collect();
-    let on = key.iter().map(|k| format!("s.{0} = d.{0}", q(&k.name))).collect::<Vec<_>>().join(" AND ");
-    let list = written.iter().map(|c| q(&c.name)).collect::<Vec<_>>().join(", ");
-    let s_list = written.iter().map(|c| format!("s.{}", q(&c.name))).collect::<Vec<_>>().join(", ");
-    let overriding = if written.iter().any(|c| c.identity_always) { " OVERRIDING SYSTEM VALUE" } else { "" };
-    let row = |alias: &str| updatable.iter().map(|c| compared(alias, c)).collect::<Vec<_>>().join(", ");
+pub(crate) fn apply_sql(
+    table: &str,
+    stage: &str,
+    spec: &DeltaSpec,
+    cols: &[ColMeta],
+    scope: &str,
+) -> Result<ApplySql> {
+    let key: Vec<&ColMeta> = spec
+        .key
+        .iter()
+        .map(|k| find(cols, k))
+        .collect::<Result<_>>()?;
+    let written: Vec<&ColMeta> = spec
+        .columns
+        .iter()
+        .map(|c| find(cols, c))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|c| !c.generated)
+        .collect();
+    let updatable: Vec<&ColMeta> = written
+        .iter()
+        .copied()
+        .filter(|c| !c.identity_always && !spec.key.contains(&c.name))
+        .collect();
+    let on = key
+        .iter()
+        .map(|k| format!("s.{0} = d.{0}", q(&k.name)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let list = written
+        .iter()
+        .map(|c| q(&c.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let s_list = written
+        .iter()
+        .map(|c| format!("s.{}", q(&c.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let overriding = if written.iter().any(|c| c.identity_always) {
+        " OVERRIDING SYSTEM VALUE"
+    } else {
+        ""
+    };
+    let row = |alias: &str| {
+        updatable
+            .iter()
+            .map(|c| compared(alias, c))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     // A one-column row still needs ROW() to be a row.
     let distinct = format!("ROW({}) IS DISTINCT FROM ROW({})", row("d"), row("s"));
-    let set = updatable.iter().map(|c| format!("{0} = s.{0}", q(&c.name))).collect::<Vec<_>>().join(", ");
+    let set = updatable
+        .iter()
+        .map(|c| format!("{0} = s.{0}", q(&c.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let delete = format!("DELETE FROM {table} AS d WHERE ({scope}) AND NOT EXISTS (SELECT 1 FROM {stage} s WHERE {on})");
-    let update = (!updatable.is_empty()).then(|| format!("UPDATE {table} AS d SET {set} FROM {stage} s WHERE {on} AND {distinct}"));
+    let update = (!updatable.is_empty())
+        .then(|| format!("UPDATE {table} AS d SET {set} FROM {stage} s WHERE {on} AND {distinct}"));
     let insert = format!(
         "INSERT INTO {table} ({list}){overriding} SELECT {s_list} FROM {stage} s \
          WHERE NOT EXISTS (SELECT 1 FROM {table} d WHERE {on})"
     );
-    let matched = if updatable.is_empty() { String::new() } else { format!(" WHEN MATCHED AND {distinct} THEN UPDATE SET {set}") };
+    let matched = if updatable.is_empty() {
+        String::new()
+    } else {
+        format!(" WHEN MATCHED AND {distinct} THEN UPDATE SET {set}")
+    };
     let merge = format!(
         "WITH m AS (MERGE INTO {table} AS d USING {stage} AS s ON {on}{matched} \
          WHEN NOT MATCHED THEN INSERT ({list}){overriding} VALUES ({s_list}) RETURNING merge_action() AS a) \
          SELECT count(*) FILTER (WHERE a = 'UPDATE'), count(*) FILTER (WHERE a = 'INSERT') FROM m"
     );
-    Ok(ApplySql { delete, update, insert, merge })
+    Ok(ApplySql {
+        delete,
+        update,
+        insert,
+        merge,
+    })
 }
 
 // ---------------------------------------------------------------- session
 
-pub(crate) async fn key_range(s: &PgSession, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
+pub(crate) async fn key_range(
+    s: &PgSession,
+    table: &ObjectRef,
+    column: &str,
+) -> Result<Option<(i64, i64, u64)>> {
     let name = table_name(table);
     // Only an integer key makes ranges (a numeric one would be rounded).
     let cols = columns(s, &name).await?;
     let col = find(&cols, column)?;
     if !matches!(col.base.as_str(), "int2" | "int4" | "int8") {
-        return Err(Error::Unsupported(format!("la columna «{column}» no es entera ({})", col.base)));
+        return Err(Error::Unsupported(format!(
+            "la columna «{column}» no es entera ({})",
+            col.base
+        )));
     }
     let c = q(column);
     let sql = format!("SELECT min({c})::int8, max({c})::int8, count(*) FROM {name}");
@@ -363,17 +473,30 @@ pub(crate) async fn summary(s: &PgSession, spec: &DeltaSpec) -> Result<Vec<Bucke
         "BEGIN READ ONLY; SET LOCAL TimeZone = 'UTC'; SET LOCAL extra_float_digits = 3; SET LOCAL bytea_output = 'hex';",
     );
     if spec.max_cores > 0 {
-        setup.push_str(&format!(" SET LOCAL max_parallel_workers_per_gather = {};", spec.max_cores - 1));
+        setup.push_str(&format!(
+            " SET LOCAL max_parallel_workers_per_gather = {};",
+            spec.max_cores - 1
+        ));
     }
     s.client.batch_execute(&setup).await.map_err(err)?;
     let result = s.client.simple_query(&sql).await;
-    let _ = s.client.batch_execute(if result.is_ok() { "COMMIT" } else { "ROLLBACK" }).await;
+    let _ = s
+        .client
+        .batch_execute(if result.is_ok() { "COMMIT" } else { "ROLLBACK" })
+        .await;
     let mut out = Vec::new();
     for m in result.map_err(err)? {
         if let SimpleQueryMessage::Row(r) = m {
-            let bucket = r.get(0).and_then(|v| v.parse().ok()).ok_or_else(|| Error::Query("grupo inválido".into()))?;
+            let bucket = r
+                .get(0)
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| Error::Query("grupo inválido".into()))?;
             let rows = r.get(1).and_then(|v| v.parse().ok()).unwrap_or(0);
-            out.push(BucketSum { bucket, rows, sum: r.get(2).unwrap_or("0").to_string() });
+            out.push(BucketSum {
+                bucket,
+                rows,
+                sum: r.get(2).unwrap_or("0").to_string(),
+            });
         }
     }
     out.sort_by_key(|b| b.bucket);
@@ -392,17 +515,27 @@ pub(crate) async fn apply(
     let table = table_name(&spec.table);
     let cols = self::columns(s, &table).await?;
     // The source's cells come in the read's order.
-    let names: Vec<String> = if columns.is_empty() { spec.columns.clone() } else { columns.iter().map(|c| c.name.clone()).collect() };
+    let names: Vec<String> = if columns.is_empty() {
+        spec.columns.clone()
+    } else {
+        columns.iter().map(|c| c.name.clone()).collect()
+    };
     for n in names.iter().chain(&spec.key) {
         find(&cols, n)?;
     }
     for k in &spec.key {
         if !names.contains(k) {
-            return Err(Error::Query(format!("la lectura no trae la columna de clave «{k}»")));
+            return Err(Error::Query(format!(
+                "la lectura no trae la columna de clave «{k}»"
+            )));
         }
     }
     let stage = format!("pg_temp.{}", q(STAGE));
-    let scope = if buckets.is_empty() { "TRUE".to_string() } else { filter(spec, buckets)? };
+    let scope = if buckets.is_empty() {
+        "TRUE".to_string()
+    } else {
+        filter(spec, buckets)?
+    };
     let mut spec_w = spec.clone();
     spec_w.columns = names.clone();
     let sql = apply_sql(&table, &stage, &spec_w, &cols, &scope)?;
@@ -418,7 +551,11 @@ pub(crate) async fn apply(
         .await
         .map_err(err)?;
     let load = LoadSpec {
-        table: ObjectRef { kind: "table".into(), schema: Some("pg_temp".into()), name: STAGE.into() },
+        table: ObjectRef {
+            kind: "table".into(),
+            schema: Some("pg_temp".into()),
+            name: STAGE.into(),
+        },
         columns: names.clone(),
         table_lock: false,
         keep_identity: true,
@@ -427,30 +564,61 @@ pub(crate) async fn apply(
     };
     let result = async {
         crate::transfer::bulk_load(s, &load, source, progress).await?;
-        s.client.batch_execute(&format!("ANALYZE {stage}")).await.map_err(err)?;
+        s.client
+            .batch_execute(&format!("ANALYZE {stage}"))
+            .await
+            .map_err(err)?;
         run_apply(s, &sql, &cols, &table).await
     }
     .await;
-    if let Err(e) = s.client.batch_execute(&format!("DROP TABLE IF EXISTS {stage}")).await {
+    if let Err(e) = s
+        .client
+        .batch_execute(&format!("DROP TABLE IF EXISTS {stage}"))
+        .await
+    {
         tracing::debug!("delta staging not dropped: {e}");
     }
     result
 }
 
-async fn run_apply(s: &PgSession, sql: &ApplySql, cols: &[ColMeta], table: &str) -> Result<DeltaResult> {
+async fn run_apply(
+    s: &PgSession,
+    sql: &ApplySql,
+    cols: &[ColMeta],
+    table: &str,
+) -> Result<DeltaResult> {
     s.client.batch_execute("BEGIN").await.map_err(err)?;
     let r = async {
         // Triggers (and foreign key checks, which are triggers) off, when
         // the role may; a refusal only rolls back to the savepoint.
-        s.client.batch_execute("SAVEPOINT dbine_role").await.map_err(err)?;
-        match s.client.batch_execute("SET LOCAL session_replication_role = replica").await {
-            Ok(()) => s.client.batch_execute("RELEASE SAVEPOINT dbine_role").await.map_err(err)?,
+        s.client
+            .batch_execute("SAVEPOINT dbine_role")
+            .await
+            .map_err(err)?;
+        match s
+            .client
+            .batch_execute("SET LOCAL session_replication_role = replica")
+            .await
+        {
+            Ok(()) => s
+                .client
+                .batch_execute("RELEASE SAVEPOINT dbine_role")
+                .await
+                .map_err(err)?,
             Err(e) => {
-                tracing::info!("sync by rows: triggers stay on (session_replication_role refused: {e})");
-                s.client.batch_execute("ROLLBACK TO SAVEPOINT dbine_role").await.map_err(err)?;
+                tracing::info!(
+                    "sync by rows: triggers stay on (session_replication_role refused: {e})"
+                );
+                s.client
+                    .batch_execute("ROLLBACK TO SAVEPOINT dbine_role")
+                    .await
+                    .map_err(err)?;
             }
         }
-        let mut r = DeltaResult { deleted: s.client.execute(&sql.delete, &[]).await.map_err(err)?, ..Default::default() };
+        let mut r = DeltaResult {
+            deleted: s.client.execute(&sql.delete, &[]).await.map_err(err)?,
+            ..Default::default()
+        };
         if s.version >= 170000 {
             let row = s.client.query_one(&sql.merge, &[]).await.map_err(err)?;
             r.updated = row.get::<_, i64>(0) as u64;
@@ -504,7 +672,11 @@ mod tests {
 
     fn spec(buckets: Buckets, key: &[&str]) -> DeltaSpec {
         DeltaSpec {
-            table: ObjectRef { kind: "table".into(), schema: Some("public".into()), name: "t".into() },
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: Some("public".into()),
+                name: "t".into(),
+            },
             key: key.iter().map(|s| s.to_string()).collect(),
             columns: vec!["id".into(), "name".into(), "body".into()],
             buckets,
@@ -514,28 +686,72 @@ mod tests {
     }
 
     fn col(name: &str, base: &str, large: bool) -> ColMeta {
-        ColMeta { name: name.into(), base: base.into(), large, generated: false, identity_always: false, sequence: None }
+        ColMeta {
+            name: name.into(),
+            base: base.into(),
+            large,
+            generated: false,
+            identity_always: false,
+            sequence: None,
+        }
     }
 
     #[test]
     fn range_buckets_and_merged_filters() {
-        let s = spec(Buckets::Range { column: "id".into(), lo: 1, hi: 1000, width: 100, n: 10 }, &["id"]);
+        let s = spec(
+            Buckets::Range {
+                column: "id".into(),
+                lo: 1,
+                hi: 1000,
+                width: 100,
+                n: 10,
+            },
+            &["id"],
+        );
         assert_eq!(
             bucket_expr(&s).unwrap(),
             "(CASE WHEN \"id\" < 1 THEN -1 WHEN \"id\" > 1000 THEN 10 ELSE (\"id\"::int8 - (1)) / 100 END)"
         );
         // 2,3,4 merge; -1 is unbounded below; 9 stops at hi; 10 is unbounded above.
-        assert_eq!(filter(&s, &[3, 2, 4]).unwrap(), "\"id\" >= 201 AND \"id\" < 501");
+        assert_eq!(
+            filter(&s, &[3, 2, 4]).unwrap(),
+            "\"id\" >= 201 AND \"id\" < 501"
+        );
         assert_eq!(filter(&s, &[-1, 0]).unwrap(), "\"id\" < 101");
         assert_eq!(filter(&s, &[9, 10]).unwrap(), "\"id\" >= 901");
         assert_eq!(filter(&s, &[9]).unwrap(), "\"id\" >= 901 AND \"id\" < 1001");
-        assert_eq!(filter(&s, &[-1, 0, 5, 10]).unwrap(), "(\"id\" < 101 OR (\"id\" >= 501 AND \"id\" < 601) OR \"id\" >= 1001)");
-        assert_eq!(filter(&s, &[-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).unwrap(), "TRUE");
+        assert_eq!(
+            filter(&s, &[-1, 0, 5, 10]).unwrap(),
+            "(\"id\" < 101 OR (\"id\" >= 501 AND \"id\" < 601) OR \"id\" >= 1001)"
+        );
+        assert_eq!(
+            filter(&s, &[-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).unwrap(),
+            "TRUE"
+        );
         assert_eq!(filter(&s, &[]).unwrap(), "FALSE");
         // Wider than a bigint: numeric arithmetic.
-        let wide = spec(Buckets::Range { column: "id".into(), lo: i64::MIN, hi: i64::MAX, width: i64::MAX, n: 3 }, &["id"]);
+        let wide = spec(
+            Buckets::Range {
+                column: "id".into(),
+                lo: i64::MIN,
+                hi: i64::MAX,
+                width: i64::MAX,
+                n: 3,
+            },
+            &["id"],
+        );
         assert!(bucket_expr(&wide).unwrap().contains("div(\"id\"::numeric"));
-        assert!(bucket_expr(&spec(Buckets::Range { column: "id".into(), lo: 5, hi: 1, width: 1, n: 1 }, &["id"])).is_err());
+        assert!(bucket_expr(&spec(
+            Buckets::Range {
+                column: "id".into(),
+                lo: 5,
+                hi: 1,
+                width: 1,
+                n: 1
+            },
+            &["id"]
+        ))
+        .is_err());
     }
 
     #[test]
@@ -552,14 +768,21 @@ mod tests {
 
     #[test]
     fn row_hash_depths() {
-        let cols = vec![col("id", "int4", false), col("name", "varchar", true), col("body", "jsonb", true)];
+        let cols = vec![
+            col("id", "int4", false),
+            col("name", "varchar", true),
+            col("body", "jsonb", true),
+        ];
         let mut s = spec(Buckets::Hash { n: 7 }, &["id"]);
         let full = row_hash(&s, &cols).unwrap();
         assert!(full.starts_with("('x' || substr(md5(COALESCE(length((\"id\")::text)::text || ':' || (\"id\")::text, 'N')"));
         assert!(full.ends_with(", 1, 16))::bit(64)::int8"));
         s.depth = DeltaDepth::Sizes;
         let sizes = row_hash(&s, &cols).unwrap();
-        assert!(sizes.contains("octet_length(\"name\")::text") && sizes.contains("octet_length(\"body\"::text)::text"));
+        assert!(
+            sizes.contains("octet_length(\"name\")::text")
+                && sizes.contains("octet_length(\"body\"::text)::text")
+        );
         assert!(sizes.contains("(\"id\")::text"));
         s.depth = DeltaDepth::Keys;
         let keys = row_hash(&s, &cols).unwrap();
@@ -571,7 +794,12 @@ mod tests {
 
     #[test]
     fn apply_statements() {
-        let mut cols = vec![col("id", "int4", false), col("name", "varchar", true), col("body", "jsonb", true), col("g", "int4", false)];
+        let mut cols = vec![
+            col("id", "int4", false),
+            col("name", "varchar", true),
+            col("body", "jsonb", true),
+            col("g", "int4", false),
+        ];
         cols[0].identity_always = true;
         cols[3].generated = true;
         let mut s = spec(Buckets::Hash { n: 7 }, &["id"]);
@@ -582,11 +810,17 @@ mod tests {
             "DELETE FROM \"public\".\"t\" AS d WHERE (x IN (1)) AND NOT EXISTS (SELECT 1 FROM pg_temp.\"st\" s WHERE s.\"id\" = d.\"id\")"
         );
         let u = a.update.unwrap();
-        assert!(u.contains("SET \"name\" = s.\"name\", \"body\" = s.\"body\""), "{u}");
+        assert!(
+            u.contains("SET \"name\" = s.\"name\", \"body\" = s.\"body\""),
+            "{u}"
+        );
         assert!(u.contains("ROW((d.\"name\")::text COLLATE \"C\", (d.\"body\")::text COLLATE \"C\") IS DISTINCT FROM"), "{u}");
         assert!(!u.contains("\"g\""));
         assert!(a.insert.starts_with("INSERT INTO \"public\".\"t\" (\"id\", \"name\", \"body\") OVERRIDING SYSTEM VALUE SELECT s.\"id\""));
-        assert!(a.merge.contains("WHEN NOT MATCHED THEN INSERT") && a.merge.contains("RETURNING merge_action()"));
+        assert!(
+            a.merge.contains("WHEN NOT MATCHED THEN INSERT")
+                && a.merge.contains("RETURNING merge_action()")
+        );
         // Only the key: nothing to update.
         s.columns = vec!["id".into()];
         let a = apply_sql("t", "st", &s, &cols, "TRUE").unwrap();
@@ -598,7 +832,11 @@ mod tests {
         let mut cols = vec![col("id", "int8", false)];
         cols[0].sequence = Some("x\\'; drop table t; --".into());
         let r = resync("\"public\".\"t\"", &cols);
-        assert!(r[0].starts_with("SELECT setval(E'x\\\\''; drop table t; --', m)"), "{}", r[0]);
+        assert!(
+            r[0].starts_with("SELECT setval(E'x\\\\''; drop table t; --', m)"),
+            "{}",
+            r[0]
+        );
     }
 
     #[test]

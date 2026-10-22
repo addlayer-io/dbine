@@ -5,7 +5,10 @@ use dbine_plugin::DriverMeta;
 
 #[test]
 fn manifest_round_trips_every_driver() {
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_dbine-plugin-host")).arg("--manifest").output().unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_dbine-plugin-host"))
+        .arg("--manifest")
+        .output()
+        .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
     let read = dbine_plugin::parse_manifest(&text).unwrap();
@@ -17,7 +20,10 @@ fn manifest_round_trips_every_driver() {
     }
     assert_eq!(read.len(), expected.len());
     // Serialized again, what was read equals what the drivers say.
-    assert_eq!(serde_json::to_value(&read).unwrap(), serde_json::to_value(&expected).unwrap());
+    assert_eq!(
+        serde_json::to_value(&read).unwrap(),
+        serde_json::to_value(&expected).unwrap()
+    );
     // Reading it twice doesn't grow the interned strings.
     let before = dbine_driver::serde_static::interned();
     let _ = dbine_plugin::parse_manifest(&text).unwrap();

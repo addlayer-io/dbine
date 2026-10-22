@@ -14,10 +14,19 @@ const MAX_TEXT: usize = 2000;
 
 pub(crate) async fn snapshot(client: &Client) -> MonitorSnapshot {
     let mut snap = MonitorSnapshot::default();
-    match rows(client, "SELECT version() AS version, current_database() AS db, current_setting('TimeZone') AS tz").await {
+    match rows(
+        client,
+        "SELECT version() AS version, current_database() AS db, current_setting('TimeZone') AS tz",
+    )
+    .await
+    {
         Ok(r) => {
             if let Some(r) = r.first() {
-                for (label, col) in [("Versión", "version"), ("Base", "db"), ("Zona horaria", "tz")] {
+                for (label, col) in [
+                    ("Versión", "version"),
+                    ("Base", "db"),
+                    ("Zona horaria", "tz"),
+                ] {
                     if let Some(v) = text(r, col) {
                         snap.info.push((label.into(), v));
                     }
@@ -38,35 +47,93 @@ pub(crate) async fn snapshot(client: &Client) -> MonitorSnapshot {
     match rows(client, &activity).await {
         Ok(r) => {
             // This session isn't listed: count it.
-            let active = r.iter().filter(|r| text(r, "state").as_deref() == Some("active")).count() as f64;
-            snap.metrics.push(Metric::new("connections", "Conexiones", "Conexiones", U::Count, Some(r.len() as f64 + 1.0)));
-            snap.metrics.push(Metric::new("active_sessions", "Sesiones activas", "Conexiones", U::Count, Some(active)));
-            let longest = r.iter().filter_map(|r| text(r, "running").and_then(|v| num(&v))).fold(0.0, f64::max);
-            snap.metrics.push(Metric::new("longest_query", "Consulta más larga", "Actividad", U::Seconds, Some(longest)));
+            let active = r
+                .iter()
+                .filter(|r| text(r, "state").as_deref() == Some("active"))
+                .count() as f64;
+            snap.metrics.push(Metric::new(
+                "connections",
+                "Conexiones",
+                "Conexiones",
+                U::Count,
+                Some(r.len() as f64 + 1.0),
+            ));
+            snap.metrics.push(Metric::new(
+                "active_sessions",
+                "Sesiones activas",
+                "Conexiones",
+                U::Count,
+                Some(active),
+            ));
+            let longest = r
+                .iter()
+                .filter_map(|r| text(r, "running").and_then(|v| num(&v)))
+                .fold(0.0, f64::max);
+            snap.metrics.push(Metric::new(
+                "longest_query",
+                "Consulta más larga",
+                "Actividad",
+                U::Seconds,
+                Some(longest),
+            ));
             snap.tables.push(table(
                 "sessions",
                 "Sesiones",
-                &["PID", "Usuario", "Cliente", "Aplicación", "Estado", "Conectada (s)", "En curso (s)", "Consulta"],
+                &[
+                    "PID",
+                    "Usuario",
+                    "Cliente",
+                    "Aplicación",
+                    "Estado",
+                    "Conectada (s)",
+                    "En curso (s)",
+                    "Consulta",
+                ],
                 &r,
             ));
-            let running: Vec<SimpleQueryRow> = r.into_iter().filter(|r| text(r, "state").as_deref() == Some("active")).collect();
-            let mut t = table("queries", "Consultas en curso", &["PID", "Usuario", "Duración (s)", "Consulta"], &[]);
+            let running: Vec<SimpleQueryRow> = r
+                .into_iter()
+                .filter(|r| text(r, "state").as_deref() == Some("active"))
+                .collect();
+            let mut t = table(
+                "queries",
+                "Consultas en curso",
+                &["PID", "Usuario", "Duración (s)", "Consulta"],
+                &[],
+            );
             t.rows = running
                 .iter()
-                .map(|r| ["pid", "usename", "running", "query"].iter().map(|c| cell(text(r, c).as_deref())).collect())
+                .map(|r| {
+                    ["pid", "usename", "running", "query"]
+                        .iter()
+                        .map(|c| cell(text(r, c).as_deref()))
+                        .collect()
+                })
                 .collect();
             snap.tables.push(t);
         }
-        Err(e) => snap.notes.push(format!("No se pudieron leer las sesiones (pg_stat_activity): {e}")),
+        Err(e) => snap.notes.push(format!(
+            "No se pudieron leer las sesiones (pg_stat_activity): {e}"
+        )),
     }
 
     // Asynchronous index builds (CREATE INDEX ASYNC).
     match rows(client, &format!("SELECT * FROM sys.jobs LIMIT {MAX_ROWS}")).await {
         Ok(r) => {
-            let cols: Vec<String> = r.first().map(|f| f.columns().iter().map(|c| c.name().to_string()).collect()).unwrap_or_default();
+            let cols: Vec<String> = r
+                .first()
+                .map(|f| f.columns().iter().map(|c| c.name().to_string()).collect())
+                .unwrap_or_default();
             let refs: Vec<&str> = cols.iter().map(String::as_str).collect();
-            snap.metrics.push(Metric::new("jobs", "Jobs asíncronos", "Actividad", U::Count, Some(r.len() as f64)));
-            snap.tables.push(table("jobs", "Jobs asíncronos (índices)", &refs, &r));
+            snap.metrics.push(Metric::new(
+                "jobs",
+                "Jobs asíncronos",
+                "Actividad",
+                U::Count,
+                Some(r.len() as f64),
+            ));
+            snap.tables
+                .push(table("jobs", "Jobs asíncronos (índices)", &refs, &r));
         }
         Err(e) => tracing::debug!("dsql: sys.jobs unavailable: {e}"),
     }
@@ -80,10 +147,13 @@ pub(crate) async fn snapshot(client: &Client) -> MonitorSnapshot {
 }
 
 pub(crate) async fn rows(client: &Client, sql: &str) -> Result<Vec<SimpleQueryRow>, String> {
-    let msgs = client.simple_query(sql).await.map_err(|e| match e.as_db_error() {
-        Some(db) => db.message().to_string(),
-        None => e.to_string(),
-    })?;
+    let msgs = client
+        .simple_query(sql)
+        .await
+        .map_err(|e| match e.as_db_error() {
+            Some(db) => db.message().to_string(),
+            None => e.to_string(),
+        })?;
     Ok(msgs
         .into_iter()
         .filter_map(|m| match m {
@@ -99,14 +169,21 @@ fn text(r: &SimpleQueryRow, col: &str) -> Option<String> {
 
 fn table(key: &str, title: &str, cols: &[&str], rows: &[SimpleQueryRow]) -> MonitorTable {
     let mut t = MonitorTable::new(key, title, cols);
-    t.rows = rows.iter().take(MAX_ROWS).map(|r| (0..cols.len()).map(|i| cell(r.get(i))).collect()).collect();
+    t.rows = rows
+        .iter()
+        .take(MAX_ROWS)
+        .map(|r| (0..cols.len()).map(|i| cell(r.get(i))).collect())
+        .collect();
     t
 }
 
 /// Plain numbers as numbers, long texts cut.
 fn cell(v: Option<&str>) -> Value {
     let Some(t) = v else { return Value::Null };
-    let plain = !t.is_empty() && t.len() <= 16 && t.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-');
+    let plain = !t.is_empty()
+        && t.len() <= 16
+        && t.chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '-');
     if plain && !(t.len() > 1 && t.starts_with('0') && !t.starts_with("0.")) {
         if let Ok(i) = t.parse::<i64>() {
             return Value::from(i);

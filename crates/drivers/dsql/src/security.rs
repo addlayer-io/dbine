@@ -9,13 +9,26 @@
 
 use crate::{err, DATABASE, SYSTEM_SCHEMAS};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
+    SecuritySpec,
+};
 use std::collections::HashMap;
 use tokio_postgres::{Client, SimpleQueryMessage, SimpleQueryRow};
 
 pub fn spec() -> SecuritySpec {
     SecuritySpec {
-        privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "USAGE", "EXECUTE", "CREATE", "CONNECT", "ALL PRIVILEGES"],
+        privileges: vec![
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "USAGE",
+            "EXECUTE",
+            "CREATE",
+            "CONNECT",
+            "ALL PRIVILEGES",
+        ],
         object_kinds: vec!["", "schema", "table", "view", "sequence", "function"],
         create_user: true,
         create_role: true,
@@ -59,7 +72,10 @@ async fn memberships(c: &Client) -> Vec<(String, String)> {
                  JOIN pg_roles r ON r.oid = am.roleid
                  JOIN pg_roles m ON m.oid = am.member";
     match rows(c, sql).await {
-        Ok(r) => r.iter().filter_map(|r| Some((cell(r, "member")?, cell(r, "role")?))).collect(),
+        Ok(r) => r
+            .iter()
+            .filter_map(|r| Some((cell(r, "member")?, cell(r, "role")?)))
+            .collect(),
         Err(e) => {
             tracing::debug!("dsql: role memberships unavailable: {e}");
             Vec::new()
@@ -69,8 +85,16 @@ async fn memberships(c: &Client) -> Vec<(String, String)> {
 
 /// (database role, IAM ARN) pairs; none outside DSQL.
 async fn iam_mappings(c: &Client) -> Vec<(String, String)> {
-    match rows(c, "SELECT pg_role_name AS role, arn FROM sys.iam_pg_role_mappings ORDER BY arn").await {
-        Ok(r) => r.iter().filter_map(|r| Some((cell(r, "role")?, cell(r, "arn")?))).collect(),
+    match rows(
+        c,
+        "SELECT pg_role_name AS role, arn FROM sys.iam_pg_role_mappings ORDER BY arn",
+    )
+    .await
+    {
+        Ok(r) => r
+            .iter()
+            .filter_map(|r| Some((cell(r, "role")?, cell(r, "arn")?)))
+            .collect(),
         Err(e) => {
             tracing::debug!("dsql: IAM role mappings unavailable: {e}");
             Vec::new()
@@ -79,7 +103,11 @@ async fn iam_mappings(c: &Client) -> Vec<(String, String)> {
 }
 
 fn is_system(name: &str, oid: u64) -> bool {
-    oid < 16384 || name == "admin" || name.starts_with("pg_") || name.starts_with("sys_") || name.starts_with("rds")
+    oid < 16384
+        || name == "admin"
+        || name.starts_with("pg_")
+        || name.starts_with("sys_")
+        || name.starts_with("rds")
 }
 
 pub async fn principals(c: &Client) -> Result<Vec<Principal>> {
@@ -97,14 +125,25 @@ pub async fn principals(c: &Client) -> Result<Vec<Principal>> {
         .map(|r| {
             let name = cell(r, "name").unwrap_or_default();
             let login = yes(r, "login");
-            let arns: Vec<&str> = iam.iter().filter(|(role, _)| *role == name).map(|(_, a)| a.as_str()).collect();
+            let arns: Vec<&str> = iam
+                .iter()
+                .filter(|(role, _)| *role == name)
+                .map(|(_, a)| a.as_str())
+                .collect();
             // A role IAM can sign in as, even if its login is off, is a
             // (disabled) user.
             let user = login || !arns.is_empty();
-            let oid: u64 = cell(r, "oid").and_then(|o| o.parse().ok()).unwrap_or(u64::MAX);
+            let oid: u64 = cell(r, "oid")
+                .and_then(|o| o.parse().ok())
+                .unwrap_or(u64::MAX);
             let mut details = vec![(
                 "Tipo".to_string(),
-                if user { "Usuario (rol con ingreso por IAM)" } else { "Rol (sin ingreso)" }.to_string(),
+                if user {
+                    "Usuario (rol con ingreso por IAM)"
+                } else {
+                    "Rol (sin ingreso)"
+                }
+                .to_string(),
             )];
             if name == "admin" {
                 details.push(("Ingreso".into(), "token DbConnectAdmin".into()));
@@ -114,7 +153,10 @@ pub async fn principals(c: &Client) -> Result<Vec<Principal>> {
             if !arns.is_empty() {
                 details.push(("Roles de IAM".into(), arns.join("\n")));
             } else if login && name != "admin" {
-                details.push(("Roles de IAM".into(), "ninguno asociado: nadie puede ingresar con este rol".into()));
+                details.push((
+                    "Roles de IAM".into(),
+                    "ninguno asociado: nadie puede ingresar con este rol".into(),
+                ));
             }
             if yes(r, "createrole") {
                 details.push(("Puede crear roles".into(), "sí".into()));
@@ -122,10 +164,18 @@ pub async fn principals(c: &Client) -> Result<Vec<Principal>> {
             if let Some(n) = cell(r, "connlimit").filter(|n| n != "-1") {
                 details.push(("Límite de conexiones".into(), n));
             }
-            let mut member_of: Vec<String> = members.iter().filter(|(m, _)| *m == name).map(|(_, r)| r.clone()).collect();
+            let mut member_of: Vec<String> = members
+                .iter()
+                .filter(|(m, _)| *m == name)
+                .map(|(_, r)| r.clone())
+                .collect();
             member_of.sort();
             Principal {
-                kind: if user { PrincipalKind::User } else { PrincipalKind::Role },
+                kind: if user {
+                    PrincipalKind::User
+                } else {
+                    PrincipalKind::Role
+                },
                 can_login: Some(login),
                 superuser: Some(yes(r, "super") || name == "admin"),
                 disabled: user.then_some(!login),
@@ -142,13 +192,21 @@ pub async fn principals(c: &Client) -> Result<Vec<Principal>> {
 /// role it comes through.
 fn closure(principal: &str, members: &[(String, String)]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    let mut queue: Vec<(String, String)> =
-        members.iter().filter(|(m, _)| m == principal).map(|(_, r)| (r.clone(), r.clone())).collect();
+    let mut queue: Vec<(String, String)> = members
+        .iter()
+        .filter(|(m, _)| m == principal)
+        .map(|(_, r)| (r.clone(), r.clone()))
+        .collect();
     while let Some((role, via)) = queue.pop() {
         if role == principal || out.iter().any(|(r, _)| *r == role) {
             continue;
         }
-        queue.extend(members.iter().filter(|(m, _)| *m == role).map(|(_, r)| (r.clone(), via.clone())));
+        queue.extend(
+            members
+                .iter()
+                .filter(|(m, _)| *m == role)
+                .map(|(_, r)| (r.clone(), via.clone())),
+        );
         out.push((role, via));
     }
     out
@@ -224,7 +282,12 @@ pub async fn grants(c: &Client, principal: &str) -> Result<Vec<Grant>> {
         })
         .collect();
     out.sort_by(|a, b| {
-        (a.via.is_some(), &a.object_kind, &a.object, &a.privilege).cmp(&(b.via.is_some(), &b.object_kind, &b.object, &b.privilege))
+        (a.via.is_some(), &a.object_kind, &a.object, &a.privilege).cmp(&(
+            b.via.is_some(),
+            &b.object_kind,
+            &b.object,
+            &b.privilege,
+        ))
     });
     out.dedup();
     Ok(out)
@@ -245,7 +308,9 @@ fn privileges(p: &[String]) -> Result<String> {
     for x in p {
         let x = x.split_whitespace().collect::<Vec<_>>().join(" ");
         if x.is_empty() || !x.chars().all(|c| c.is_ascii_alphabetic() || c == ' ') {
-            return Err(Error::Query(format!("«{x}» no es un nombre de permiso válido")));
+            return Err(Error::Query(format!(
+                "«{x}» no es un nombre de permiso válido"
+            )));
         }
         out.push(x.to_uppercase());
     }
@@ -257,9 +322,16 @@ fn privileges(p: &[String]) -> Result<String> {
 fn routine_name(name: &str) -> Result<String> {
     match name.split_once('(') {
         Some((n, rest)) => {
-            let args = rest.strip_suffix(')').ok_or_else(|| Error::Query(format!("«{name}» no es un nombre de función válido")))?;
-            if !args.chars().all(|c| c.is_alphanumeric() || " ,._[]\"".contains(c)) {
-                return Err(Error::Query(format!("«{name}» no es un nombre de función válido")));
+            let args = rest.strip_suffix(')').ok_or_else(|| {
+                Error::Query(format!("«{name}» no es un nombre de función válido"))
+            })?;
+            if !args
+                .chars()
+                .all(|c| c.is_alphanumeric() || " ,._[]\"".contains(c))
+            {
+                return Err(Error::Query(format!(
+                    "«{name}» no es un nombre de función válido"
+                )));
             }
             Ok(format!("{}({args})", q(n)))
         }
@@ -269,7 +341,9 @@ fn routine_name(name: &str) -> Result<String> {
 
 /// What a privilege applies to: the database, a schema or an object.
 fn target(object: &Option<ObjectRef>) -> Result<String> {
-    let Some(o) = object else { return Ok(format!("DATABASE {}", q(DATABASE))) };
+    let Some(o) = object else {
+        return Ok(format!("DATABASE {}", q(DATABASE)));
+    };
     let qualified = |name: String| match o.schema() {
         Some(sc) => format!("{}.{name}", q(sc)),
         None => name,
@@ -279,7 +353,10 @@ fn target(object: &Option<ObjectRef>) -> Result<String> {
         "schema" => format!("SCHEMA {}", q(&o.name)),
         "sequence" => format!("SEQUENCE {}", qualified(q(&o.name))),
         "function" => format!("FUNCTION {}", qualified(routine_name(&o.name)?)),
-        _ => format!("TABLE {}", qualified_name(Quote::Double, o.schema(), &o.name)),
+        _ => format!(
+            "TABLE {}",
+            qualified_name(Quote::Double, o.schema(), &o.name)
+        ),
     })
 }
 
@@ -289,7 +366,9 @@ fn no_passwords() -> Error {
 
 pub fn script(a: &SecurityAction) -> Result<String> {
     Ok(match a {
-        SecurityAction::CreateUser { password: Some(p), .. } if !p.is_empty() => return Err(no_passwords()),
+        SecurityAction::CreateUser {
+            password: Some(p), ..
+        } if !p.is_empty() => return Err(no_passwords()),
         SecurityAction::CreateUser { name, .. } => format!(
             "CREATE ROLE {n} WITH LOGIN;\n\
              -- Para ingresar hace falta asociarle un rol de IAM (con permiso dsql:DbConnect):\n\
@@ -307,20 +386,42 @@ pub fn script(a: &SecurityAction) -> Result<String> {
         ),
         SecurityAction::SetPassword { .. } => return Err(no_passwords()),
         SecurityAction::SetLogin { name, enabled } => {
-            format!("ALTER ROLE {} WITH {};", q(name), if *enabled { "LOGIN" } else { "NOLOGIN" })
+            format!(
+                "ALTER ROLE {} WITH {};",
+                q(name),
+                if *enabled { "LOGIN" } else { "NOLOGIN" }
+            )
         }
-        SecurityAction::Grant { privileges: p, object, to, grantable } => format!(
+        SecurityAction::Grant {
+            privileges: p,
+            object,
+            to,
+            grantable,
+        } => format!(
             "GRANT {} ON {} TO {}{};",
             privileges(p)?,
             target(object)?,
             q(to),
             if *grantable { " WITH GRANT OPTION" } else { "" }
         ),
-        SecurityAction::Revoke { privileges: p, object, from } => {
-            format!("REVOKE {} ON {} FROM {};", privileges(p)?, target(object)?, q(from))
+        SecurityAction::Revoke {
+            privileges: p,
+            object,
+            from,
+        } => {
+            format!(
+                "REVOKE {} ON {} FROM {};",
+                privileges(p)?,
+                target(object)?,
+                q(from)
+            )
         }
-        SecurityAction::AddMember { role, member } => format!("GRANT {} TO {};", q(role), q(member)),
-        SecurityAction::RemoveMember { role, member } => format!("REVOKE {} FROM {};", q(role), q(member)),
+        SecurityAction::AddMember { role, member } => {
+            format!("GRANT {} TO {};", q(role), q(member))
+        }
+        SecurityAction::RemoveMember { role, member } => {
+            format!("REVOKE {} FROM {};", q(role), q(member))
+        }
     })
 }
 
@@ -333,7 +434,13 @@ pub fn script(a: &SecurityAction) -> Result<String> {
 /// statement per transaction and takes no DDL that drops other objects
 /// with it, so a schema is dropped once it's empty.
 pub fn schema_spec() -> SchemaSpec {
-    SchemaSpec { owner: true, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: false, privileges: vec!["USAGE", "CREATE", "ALL PRIVILEGES"], grant_option: true }
+    SchemaSpec {
+        owner: true,
+        owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+        cascade: false,
+        privileges: vec!["USAGE", "CREATE", "ALL PRIVILEGES"],
+        grant_option: true,
+    }
 }
 
 fn schema_name(name: &str) -> Result<String> {
@@ -351,7 +458,11 @@ pub fn create_schema(name: &str) -> Result<String> {
 pub fn schema_owner(name: &str, owner: &str) -> Result<String> {
     match owner.trim() {
         "" => Err(Error::Query("elegí el dueño del esquema".into())),
-        o => Ok(format!("ALTER SCHEMA {} OWNER TO {};", schema_name(name)?, q(o))),
+        o => Ok(format!(
+            "ALTER SCHEMA {} OWNER TO {};",
+            schema_name(name)?,
+            q(o)
+        )),
     }
 }
 
@@ -363,7 +474,15 @@ pub fn drop_schema(name: &str) -> Result<String> {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -371,46 +490,119 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        })
     }
 
     #[test]
     fn writes_the_scripts() {
         let s = |a| script(&a).unwrap();
         assert_eq!(
-            s(SecurityAction::CreateUser { name: "ana\"b".into(), password: None }),
+            s(SecurityAction::CreateUser {
+                name: "ana\"b".into(),
+                password: None
+            }),
             "CREATE ROLE \"ana\"\"b\" WITH LOGIN;\n\
              -- Para ingresar hace falta asociarle un rol de IAM (con permiso dsql:DbConnect):\n\
              -- AWS IAM GRANT \"ana\"\"b\" TO 'arn:aws:iam::<cuenta>:role/<rol-de-iam>';"
         );
-        assert!(s(SecurityAction::CreateUser { name: "ana".into(), password: Some(String::new()) }).starts_with("CREATE ROLE \"ana\" WITH LOGIN;"));
-        assert!(matches!(script(&SecurityAction::CreateUser { name: "a".into(), password: Some("x".into()) }), Err(Error::Unsupported(_))));
-        assert!(matches!(script(&SecurityAction::SetPassword { name: "a".into(), password: "x".into() }), Err(Error::Unsupported(_))));
-        assert_eq!(s(SecurityAction::CreateRole { name: "lectores".into() }), "CREATE ROLE \"lectores\";");
-        assert!(s(SecurityAction::Drop { name: "ana".into(), kind: PrincipalKind::User }).ends_with("\nDROP ROLE \"ana\";"));
-        assert_eq!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: false }), "ALTER ROLE \"ana\" WITH NOLOGIN;");
+        assert!(s(SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: Some(String::new())
+        })
+        .starts_with("CREATE ROLE \"ana\" WITH LOGIN;"));
+        assert!(matches!(
+            script(&SecurityAction::CreateUser {
+                name: "a".into(),
+                password: Some("x".into())
+            }),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            script(&SecurityAction::SetPassword {
+                name: "a".into(),
+                password: "x".into()
+            }),
+            Err(Error::Unsupported(_))
+        ));
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["select".into(), "UPDATE".into()], object: obj("table", Some("ventas"), "fac\"t"), to: "ana".into(), grantable: true }),
+            s(SecurityAction::CreateRole {
+                name: "lectores".into()
+            }),
+            "CREATE ROLE \"lectores\";"
+        );
+        assert!(s(SecurityAction::Drop {
+            name: "ana".into(),
+            kind: PrincipalKind::User
+        })
+        .ends_with("\nDROP ROLE \"ana\";"));
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ana".into(),
+                enabled: false
+            }),
+            "ALTER ROLE \"ana\" WITH NOLOGIN;"
+        );
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["select".into(), "UPDATE".into()],
+                object: obj("table", Some("ventas"), "fac\"t"),
+                to: "ana".into(),
+                grantable: true
+            }),
             "GRANT SELECT, UPDATE ON TABLE \"ventas\".\"fac\"\"t\" TO \"ana\" WITH GRANT OPTION;"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["CONNECT".into()], object: None, to: "ana".into(), grantable: false }),
+            s(SecurityAction::Grant {
+                privileges: vec!["CONNECT".into()],
+                object: None,
+                to: "ana".into(),
+                grantable: false
+            }),
             "GRANT CONNECT ON DATABASE \"postgres\" TO \"ana\";"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["USAGE".into()], object: obj("schema", None, "ventas"), to: "r".into(), grantable: false }),
+            s(SecurityAction::Grant {
+                privileges: vec!["USAGE".into()],
+                object: obj("schema", None, "ventas"),
+                to: "r".into(),
+                grantable: false
+            }),
             "GRANT USAGE ON SCHEMA \"ventas\" TO \"r\";"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["EXECUTE".into()], object: obj("function", Some("s"), "f(integer, text)"), from: "r".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["EXECUTE".into()],
+                object: obj("function", Some("s"), "f(integer, text)"),
+                from: "r".into()
+            }),
             "REVOKE EXECUTE ON FUNCTION \"s\".\"f\"(integer, text) FROM \"r\";"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["USAGE".into()], object: obj("sequence", Some("s"), "sq"), from: "r".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["USAGE".into()],
+                object: obj("sequence", Some("s"), "sq"),
+                from: "r".into()
+            }),
             "REVOKE USAGE ON SEQUENCE \"s\".\"sq\" FROM \"r\";"
         );
-        assert_eq!(s(SecurityAction::AddMember { role: "lectores".into(), member: "ana".into() }), "GRANT \"lectores\" TO \"ana\";");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "lectores".into(), member: "ana".into() }), "REVOKE \"lectores\" FROM \"ana\";");
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "lectores".into(),
+                member: "ana".into()
+            }),
+            "GRANT \"lectores\" TO \"ana\";"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "lectores".into(),
+                member: "ana".into()
+            }),
+            "REVOKE \"lectores\" FROM \"ana\";"
+        );
     }
 
     #[test]
@@ -428,8 +620,14 @@ mod tests {
 
     #[test]
     fn schema_scripts() {
-        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA \"ventas\";");
-        assert_eq!(schema_owner("Ven\"tas", " dq ana ").unwrap(), "ALTER SCHEMA \"Ven\"\"tas\" OWNER TO \"dq ana\";");
+        assert_eq!(
+            create_schema(" ventas ").unwrap(),
+            "CREATE SCHEMA \"ventas\";"
+        );
+        assert_eq!(
+            schema_owner("Ven\"tas", " dq ana ").unwrap(),
+            "ALTER SCHEMA \"Ven\"\"tas\" OWNER TO \"dq ana\";"
+        );
         assert!(schema_owner("ventas", "").is_err());
         assert!(create_schema(" ").is_err());
         assert_eq!(drop_schema("ventas").unwrap(), "DROP SCHEMA \"ventas\";");
@@ -442,6 +640,9 @@ mod tests {
             grantable: true,
         })
         .unwrap();
-        assert_eq!(g, "GRANT USAGE, CREATE, ALL PRIVILEGES ON SCHEMA \"ventas\" TO \"r\" WITH GRANT OPTION;");
+        assert_eq!(
+            g,
+            "GRANT USAGE, CREATE, ALL PRIVILEGES ON SCHEMA \"ventas\" TO \"r\" WITH GRANT OPTION;"
+        );
     }
 }

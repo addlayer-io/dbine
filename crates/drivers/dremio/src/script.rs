@@ -11,7 +11,13 @@ pub fn offset_of(text: &str, line: u32, col: u32) -> Option<usize> {
     }
     let end = text[start..].find('\n').map_or(text.len(), |e| start + e);
     let skip = col.saturating_sub(1) as usize;
-    Some(start + text[start..end].char_indices().nth(skip).map_or(end - start, |(i, _)| i))
+    Some(
+        start
+            + text[start..end]
+                .char_indices()
+                .nth(skip)
+                .map_or(end - start, |(i, _)| i),
+    )
 }
 
 /// A statement error with its position in `text` (1-based line and column).
@@ -40,7 +46,12 @@ pub fn shift(e: Error, unit: &ScriptStatement) -> Error {
 /// The number right after `key` in `msg` (`line 3` → 3).
 pub fn number_after(msg: &str, key: &str) -> Option<u32> {
     let at = msg.find(key)?;
-    msg[at + key.len()..].chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+    msg[at + key.len()..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()
 }
 
 /// A failed job: `Encountered "x" at line 1, column 15.` places it.
@@ -58,9 +69,23 @@ mod tests {
     fn job_errors_are_placed() {
         let s = "select 1;\n\nselect 1 fron x";
         let u = &split_script(s, &ScriptDialect::generic())[1];
-        let Error::Statement(e) = shift(job_error("Encountered \"x\" at line 1, column 15.\nWas expecting", &u.text), u) else { panic!() };
+        let Error::Statement(e) = shift(
+            job_error(
+                "Encountered \"x\" at line 1, column 15.\nWas expecting",
+                &u.text,
+            ),
+            u,
+        ) else {
+            panic!()
+        };
         assert_eq!((e.line, e.offset), (Some(3), Some(s.len() - 1)));
-        let Error::Statement(e) = job_error("Object 'nope' not found.", "select * from nope") else { panic!() };
-        assert_eq!((e.line, e.offset, e.message.as_str()), (None, None, "Object 'nope' not found."));
+        let Error::Statement(e) = job_error("Object 'nope' not found.", "select * from nope")
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (e.line, e.offset, e.message.as_str()),
+            (None, None, "Object 'nope' not found.")
+        );
     }
 }

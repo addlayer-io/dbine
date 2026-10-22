@@ -14,24 +14,25 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 #[path = "../../trino/src/script.rs"]
 mod script;
-mod rename;
 mod stats;
 mod sync;
 mod transfer;
 
 use aws_sdk_athena::error::{DisplayErrorContext, ProvideErrorMetadata, SdkError};
 use aws_sdk_athena::types::{
-    QueryExecutionContext, QueryExecutionState, QueryRuntimeStatistics, QueryStage, QueryStagePlanNode, ResultConfiguration, Row,
-    StatementType, TableMetadata,
+    QueryExecutionContext, QueryExecutionState, QueryRuntimeStatistics, QueryStage,
+    QueryStagePlanNode, ResultConfiguration, Row, StatementType, TableMetadata,
 };
 use aws_sdk_athena::Client;
 use dbine_driver::sql::{qualified_name, quote_ident, select_top, Limit, Quote, ScriptDialect};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
-    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef,
-    QueryOutcome, ResultColumn, Result, RowChange, Session, TableSchema,
+    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig,
+    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
+    FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange,
+    Session, TableSchema,
 };
 use serde_json::Value as Json;
 use std::sync::{Arc, Mutex};
@@ -50,10 +51,14 @@ fn info() -> DriverInfo {
     let mut fields = aws::fields_by_auth();
     fields.extend([
         Field::new("workgroup", "Workgroup", FieldKind::Text).default_value(DEFAULT_WORKGROUP),
-        Field::new("output_location", "Ubicación de resultados", FieldKind::Text)
-            .placeholder("s3://mi-bucket/athena-results/")
-            .help("Necesaria si el workgroup no define una.")
-            .advanced(),
+        Field::new(
+            "output_location",
+            "Ubicación de resultados",
+            FieldKind::Text,
+        )
+        .placeholder("s3://mi-bucket/athena-results/")
+        .help("Necesaria si el workgroup no define una.")
+        .advanced(),
         Field::new("catalog", "Catálogo de datos", FieldKind::Text).default_value(DEFAULT_CATALOG),
         Field::database().placeholder("default"),
         Field::read_only(),
@@ -94,7 +99,12 @@ where
     R: std::fmt::Debug,
 {
     let unreachable = matches!(e, SdkError::DispatchFailure(_) | SdkError::TimeoutError(_));
-    aws::classify(e.code(), e.message(), unreachable, DisplayErrorContext(&e).to_string())
+    aws::classify(
+        e.code(),
+        e.message(),
+        unreachable,
+        DisplayErrorContext(&e).to_string(),
+    )
 }
 
 #[async_trait]
@@ -108,12 +118,20 @@ impl Driver for AthenaDriver {
         create_db::fields()
     }
 
-    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn create_database_script(
+        &self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         create_db::script(name, options)
     }
 
     /// "Propiedades" (see [`properties`]).
-    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+    fn alter_database_script(
+        &self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
         properties::script(database, changes)
     }
 
@@ -171,7 +189,10 @@ impl Driver for AthenaDriver {
         true
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
     }
 
@@ -180,13 +201,27 @@ impl Driver for AthenaDriver {
     }
 
     /// DML runs on Trino: double quotes, typed date / timestamp literals.
-    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> Result<String> {
-        Ok(literal::insert_script(target.schema(), &target.name, columns, rows))
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Json>],
+    ) -> Result<String> {
+        Ok(literal::insert_script(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
     }
 
     /// Same as INSERT: runs on Trino; UPDATE works on Iceberg tables.
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
-        Ok(literal::update_script(target.schema(), &target.name, changes))
+        Ok(literal::update_script(
+            target.schema(),
+            &target.name,
+            changes,
+        ))
     }
 
     /// Same as UPDATE: runs on Trino; DELETE by key works on Iceberg tables
@@ -195,18 +230,29 @@ impl Driver for AthenaDriver {
         Ok(literal::delete_script(target.schema(), &target.name, keys))
     }
 
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         tls_provider();
         let conf = aws::sdk_config(cfg).await?;
         let region = conf.region().map(|r| r.to_string()).unwrap_or_default();
         let client = Client::new(&conf);
-        let workgroup = cfg.option("workgroup").unwrap_or(DEFAULT_WORKGROUP).trim().to_string();
+        let workgroup = cfg
+            .option("workgroup")
+            .unwrap_or(DEFAULT_WORKGROUP)
+            .trim()
+            .to_string();
         // Proves the endpoint and the credentials; a login without
         // athena:GetWorkGroup (a Query error) may still run queries.
-        match tokio::time::timeout(Duration::from_secs(20), client.get_work_group().work_group(&workgroup).send())
-            .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(err)
+        match tokio::time::timeout(
+            Duration::from_secs(20),
+            client.get_work_group().work_group(&workgroup).send(),
+        )
+        .await
+        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+        .map_err(err)
         {
             Ok(_) | Err(Error::Query(_)) => {}
             Err(e) => return Err(e),
@@ -214,10 +260,18 @@ impl Driver for AthenaDriver {
         Ok(Box::new(AthenaSession {
             client,
             region,
-            catalog: cfg.option("catalog").unwrap_or(DEFAULT_CATALOG).trim().to_string(),
+            catalog: cfg
+                .option("catalog")
+                .unwrap_or(DEFAULT_CATALOG)
+                .trim()
+                .to_string(),
             workgroup,
             output: cfg.option("output_location").map(|o| o.trim().to_string()),
-            database: database.or(Some(cfg.database.as_str())).map(str::trim).filter(|d| !d.is_empty()).map(Into::into),
+            database: database
+                .or(Some(cfg.database.as_str()))
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(Into::into),
             running: Arc::new(Mutex::new(None)),
             profiler: None,
         }))
@@ -251,11 +305,22 @@ impl AthenaSession {
         if let Some(d) = &self.database {
             ctx = ctx.database(d);
         }
-        let mut req = self.client.start_query_execution().query_string(sql).query_execution_context(ctx.build()).work_group(&self.workgroup);
+        let mut req = self
+            .client
+            .start_query_execution()
+            .query_string(sql)
+            .query_execution_context(ctx.build())
+            .work_group(&self.workgroup);
         if let Some(o) = &self.output {
-            req = req.result_configuration(ResultConfiguration::builder().output_location(o).build());
+            req =
+                req.result_configuration(ResultConfiguration::builder().output_location(o).build());
         }
-        let id = req.send().await.map_err(err)?.query_execution_id.unwrap_or_default();
+        let id = req
+            .send()
+            .await
+            .map_err(err)?
+            .query_execution_id
+            .unwrap_or_default();
         self.set_running(Some(id.clone()));
         let result = self.wait_and_fetch(&id, max_rows).await;
         self.set_running(None);
@@ -268,16 +333,32 @@ impl AthenaSession {
     /// `EXPLAIN (FORMAT JSON)`: the statement is only planned. Athena runs
     /// it as a query execution of its own (no data scanned).
     async fn estimated_plan(&self, stmt: &str) -> Result<dbine_driver::Plan> {
-        let ex = self.run(&format!("EXPLAIN (FORMAT JSON) {stmt}"), 100_000).await?;
+        let ex = self
+            .run(&format!("EXPLAIN (FORMAT JSON) {stmt}"), 100_000)
+            .await?;
         plan::plan_json(stmt, &plan::explain_text(&ex.rows)).map_err(Error::Query)
     }
 
     /// The measured plan of an execution that already finished.
     async fn runtime_plan(&self, id: &str, stmt: &str) -> Result<Option<dbine_driver::Plan>> {
-        let stats = self.client.get_query_runtime_statistics().query_execution_id(id).send().await.map_err(err)?;
-        let Some(rs) = stats.query_runtime_statistics() else { return Ok(None) };
+        let stats = self
+            .client
+            .get_query_runtime_statistics()
+            .query_execution_id(id)
+            .send()
+            .await
+            .map_err(err)?;
+        let Some(rs) = stats.query_runtime_statistics() else {
+            return Ok(None);
+        };
         let mut props = Vec::new();
-        if let Ok(q) = self.client.get_query_execution().query_execution_id(id).send().await {
+        if let Ok(q) = self
+            .client
+            .get_query_execution()
+            .query_execution_id(id)
+            .send()
+            .await
+        {
             if let Some(st) = q.query_execution().and_then(|q| q.statistics()) {
                 if let Some(b) = st.data_scanned_in_bytes() {
                     props.push(("Datos escaneados (bytes)".to_string(), b.to_string()));
@@ -296,9 +377,22 @@ impl AthenaSession {
             out.push_affected(ex.update_count.unwrap_or(0).max(0) as u64);
             return;
         }
-        out.begin_result(ex.columns.iter().map(|(n, t)| ResultColumn { name: n.clone(), type_name: t.clone() }).collect());
+        out.begin_result(
+            ex.columns
+                .iter()
+                .map(|(n, t)| ResultColumn {
+                    name: n.clone(),
+                    type_name: t.clone(),
+                })
+                .collect(),
+        );
         for r in &ex.rows {
-            let cells = ex.columns.iter().enumerate().map(|(i, (_, t))| cell(t, r.get(i).cloned().flatten())).collect();
+            let cells = ex
+                .columns
+                .iter()
+                .enumerate()
+                .map(|(i, (_, t))| cell(t, r.get(i).cloned().flatten()))
+                .collect();
             out.push_row(cells, max_rows);
         }
         if ex.more {
@@ -311,14 +405,26 @@ impl AthenaSession {
     async fn wait_and_fetch(&self, id: &str, max_rows: usize) -> Result<Execution> {
         let mut delay = Duration::from_millis(200);
         let statement_type = loop {
-            let out = self.client.get_query_execution().query_execution_id(id).send().await.map_err(err)?;
+            let out = self
+                .client
+                .get_query_execution()
+                .query_execution_id(id)
+                .send()
+                .await
+                .map_err(err)?;
             let qe = out.query_execution();
             let status = qe.and_then(|q| q.status());
             match status.and_then(|s| s.state()) {
-                Some(QueryExecutionState::Succeeded) => break qe.and_then(|q| q.statement_type()).cloned(),
+                Some(QueryExecutionState::Succeeded) => {
+                    break qe.and_then(|q| q.statement_type()).cloned()
+                }
                 Some(QueryExecutionState::Failed) => {
-                    let reason = status.and_then(|s| s.state_change_reason()).unwrap_or("la consulta falló");
-                    let kind = status.and_then(|s| s.athena_error()).and_then(|a| a.error_type());
+                    let reason = status
+                        .and_then(|s| s.state_change_reason())
+                        .unwrap_or("la consulta falló");
+                    let kind = status
+                        .and_then(|s| s.athena_error())
+                        .and_then(|a| a.error_type());
                     return Err(failed_error(reason, kind).into());
                 }
                 Some(QueryExecutionState::Cancelled) => return Err(Error::Cancelled),
@@ -346,7 +452,12 @@ impl AthenaSession {
                 if first {
                     ex.columns = rs
                         .result_set_metadata()
-                        .map(|m| m.column_info().iter().map(|c| (c.name().to_string(), c.r#type().to_string())).collect())
+                        .map(|m| {
+                            m.column_info()
+                                .iter()
+                                .map(|c| (c.name().to_string(), c.r#type().to_string()))
+                                .collect()
+                        })
                         .unwrap_or_default();
                     ex.has_result_set = !ex.columns.is_empty();
                 }
@@ -385,7 +496,12 @@ impl AthenaSession {
     /// query execution of its own in Athena: it changes the session's
     /// execution context, as the Trino CLI does, after checking the
     /// database exists.
-    async fn run_statement(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn run_statement(
+        &mut self,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         if let Some((catalog, db)) = use_target(stmt) {
             let catalog = catalog.unwrap_or_else(|| self.catalog.clone());
             let previous = std::mem::replace(&mut self.catalog, catalog);
@@ -397,9 +513,16 @@ impl AthenaSession {
                 }
             };
             let Some(db) = known else {
-                let msg = format!("La base de datos «{db}» no existe en el catálogo «{}».", self.catalog);
+                let msg = format!(
+                    "La base de datos «{db}» no existe en el catálogo «{}».",
+                    self.catalog
+                );
                 self.catalog = previous;
-                return Err(dbine_driver::ScriptError::new(msg).with_code("SCHEMA_NOT_FOUND").at_offset(0).at_line(1).into());
+                return Err(dbine_driver::ScriptError::new(msg)
+                    .with_code("SCHEMA_NOT_FOUND")
+                    .at_offset(0)
+                    .at_line(1)
+                    .into());
             };
             self.database = Some(db.clone());
             out.info(format!("Base de datos: {}.{db}", self.catalog));
@@ -418,7 +541,9 @@ impl AthenaSession {
     /// Every table and view of the session's database, as the catalog
     /// describes them.
     async fn table_metadata(&self) -> Result<Vec<TableMetadata>> {
-        let Some(db) = self.database.clone() else { return Ok(Vec::new()) };
+        let Some(db) = self.database.clone() else {
+            return Ok(Vec::new());
+        };
         let mut out = Vec::new();
         let mut token: Option<String> = None;
         loop {
@@ -443,8 +568,20 @@ impl AthenaSession {
     /// Text of a `SHOW CREATE …`, one line per row.
     async fn show_create(&self, what: &str, name: &str) -> Result<Option<String>> {
         let db = self.database.as_deref();
-        let ex = self.run(&format!("SHOW CREATE {what} {}", qualified_name(Quote::Backtick, db, name)), 10_000).await?;
-        let lines: Vec<String> = ex.rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect();
+        let ex = self
+            .run(
+                &format!(
+                    "SHOW CREATE {what} {}",
+                    qualified_name(Quote::Backtick, db, name)
+                ),
+                10_000,
+            )
+            .await?;
+        let lines: Vec<String> = ex
+            .rows
+            .into_iter()
+            .filter_map(|r| r.into_iter().next().flatten())
+            .collect();
         Ok((!lines.is_empty()).then(|| lines.join("\n")))
     }
 }
@@ -454,7 +591,10 @@ impl AthenaSession {
 /// error type.
 fn failed_error(reason: &str, error_type: Option<i32>) -> dbine_driver::ScriptError {
     let name = reason.split_once(": ").map(|(n, _)| n).filter(|n| {
-        !n.is_empty() && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') && n.contains(|c: char| c.is_ascii_uppercase())
+        !n.is_empty()
+            && n.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            && n.contains(|c: char| c.is_ascii_uppercase())
     });
     let se = dbine_driver::ScriptError::new(reason);
     match (name, error_type) {
@@ -532,17 +672,27 @@ fn use_target(stmt: &str) -> Option<(Option<String>, String)> {
 }
 
 fn row_values(r: &Row) -> Vec<Option<String>> {
-    r.data().iter().map(|d| d.var_char_value().map(str::to_string)).collect()
+    r.data()
+        .iter()
+        .map(|d| d.var_char_value().map(str::to_string))
+        .collect()
 }
 
 fn is_header(row: &[Option<String>], cols: &[(String, String)]) -> bool {
-    row.len() == cols.len() && row.iter().zip(cols).all(|(v, (name, _))| v.as_deref() == Some(name.as_str()))
+    row.len() == cols.len()
+        && row
+            .iter()
+            .zip(cols)
+            .all(|(v, (name, _))| v.as_deref() == Some(name.as_str()))
 }
 
 #[async_trait]
 impl Session for AthenaSession {
     async fn server_version(&mut self) -> Result<String> {
-        Ok(format!("Amazon Athena ({}, workgroup {})", self.region, self.workgroup))
+        Ok(format!(
+            "Amazon Athena ({}, workgroup {})",
+            self.region, self.workgroup
+        ))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
@@ -572,8 +722,17 @@ impl Session for AthenaSession {
             .await?
             .iter()
             .map(|t| {
-                let kind = if t.table_type() == Some("VIRTUAL_VIEW") { kinds::VIEW } else { kinds::TABLE };
-                DbObject { kind: kind.into(), schema: None, name: t.name().to_string(), parent: None }
+                let kind = if t.table_type() == Some("VIRTUAL_VIEW") {
+                    kinds::VIEW
+                } else {
+                    kinds::TABLE
+                };
+                DbObject {
+                    kind: kind.into(),
+                    schema: None,
+                    name: t.name().to_string(),
+                    parent: None,
+                }
             })
             .collect())
     }
@@ -582,7 +741,12 @@ impl Session for AthenaSession {
     /// comments, table type (Iceberg or the files' format), location and
     /// partitioning.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let mut out: Vec<TableSchema> = self.table_metadata().await?.iter().filter_map(ddl::table_schema).collect();
+        let mut out: Vec<TableSchema> = self
+            .table_metadata()
+            .await?
+            .iter()
+            .filter_map(ddl::table_schema)
+            .collect();
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
     }
@@ -601,14 +765,20 @@ impl Session for AthenaSession {
         self.cancel_running(id).await
     }
 
-    async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
+    async fn profiler_start(
+        &mut self,
+        opts: &dbine_driver::ProfilerOptions,
+    ) -> Result<dbine_driver::ProfilerStarted> {
         let (state, started) = profiler::start(self, opts).await?;
         self.profiler = Some(state);
         Ok(started)
     }
 
     async fn profiler_poll(&mut self) -> Result<Vec<dbine_driver::ProfiledStatement>> {
-        let mut state = self.profiler.take().ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
+        let mut state = self
+            .profiler
+            .take()
+            .ok_or_else(|| Error::State("el profiler no está iniciado".into()))?;
         let r = profiler::poll(self, &mut state).await;
         self.profiler = Some(state);
         r
@@ -620,11 +790,22 @@ impl Session for AthenaSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.run(&format!("CREATE DATABASE {}", quote_ident(Quote::Backtick, name)), 1).await.map(|_| ())
+        self.run(
+            &format!("CREATE DATABASE {}", quote_ident(Quote::Backtick, name)),
+            1,
+        )
+        .await
+        .map(|_| ())
     }
 
-    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
-        self.run(&create_db::script(name, options)?, 1).await.map(|_| ())
+    async fn create_database_with(
+        &mut self,
+        name: &str,
+        options: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
+        self.run(&create_db::script(name, options)?, 1)
+            .await
+            .map(|_| ())
     }
 
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
@@ -635,19 +816,40 @@ impl Session for AthenaSession {
         stats::object_comments(self).await
     }
 
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
-    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    async fn alter_database(
+        &mut self,
+        database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
         self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
-        if self.database.as_deref().is_some_and(|d| d.eq_ignore_ascii_case(name)) {
-            return Err(Error::Query(format!("No se puede borrar «{name}»: es la base de datos de esta sesión.")));
+        if self
+            .database
+            .as_deref()
+            .is_some_and(|d| d.eq_ignore_ascii_case(name))
+        {
+            return Err(Error::Query(format!(
+                "No se puede borrar «{name}»: es la base de datos de esta sesión."
+            )));
         }
-        self.run(&format!("DROP DATABASE {} CASCADE", quote_ident(Quote::Backtick, name)), 1).await.map(|_| ())
+        self.run(
+            &format!(
+                "DROP DATABASE {} CASCADE",
+                quote_ident(Quote::Backtick, name)
+            ),
+            1,
+        )
+        .await
+        .map(|_| ())
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -665,7 +867,9 @@ impl Session for AthenaSession {
             .send()
             .await
             .map_err(err)?;
-        let Some(t) = resp.table_metadata() else { return Ok(Vec::new()) };
+        let Some(t) = resp.table_metadata() else {
+            return Ok(Vec::new());
+        };
         Ok(t.columns()
             .iter()
             .chain(t.partition_keys())
@@ -681,18 +885,27 @@ impl Session for AthenaSession {
     }
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
-        let what = if obj.kind == kinds::VIEW { "VIEW" } else { "TABLE" };
+        let what = if obj.kind == kinds::VIEW {
+            "VIEW"
+        } else {
+            "TABLE"
+        };
         self.show_create(what, &obj.name).await
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        let db = obj.schema().map(str::to_string).or_else(|| self.database.clone());
+        let db = obj
+            .schema()
+            .map(str::to_string)
+            .or_else(|| self.database.clone());
         select_top(Quote::Double, Limit::Limit, db.as_deref(), &obj.name, limit)
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         for unit in script::units(text, &ScriptDialect::generic()) {
-            self.run_statement(&unit.text, max_rows, out).await.map_err(|e| script::shift(e, &unit))?;
+            self.run_statement(&unit.text, max_rows, out)
+                .await
+                .map_err(|e| script::shift(e, &unit))?;
         }
         Ok(())
     }
@@ -700,14 +913,21 @@ impl Session for AthenaSession {
     /// Estimated: `EXPLAIN (FORMAT JSON)`, nothing runs. Actual: each
     /// statement runs once and `GetQueryRuntimeStatistics` gives its stages
     /// with measured rows, bytes and time.
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         use plan::StmtKind;
         for unit in script::units(text, &ScriptDialect::generic()) {
             let stmt = unit.text;
             let kind = plan::classify(&stmt);
             if !analyze {
                 if kind == StmtKind::Other {
-                    out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
+                    out.messages
+                        .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt)));
                 } else {
                     out.plans.push(self.estimated_plan(&stmt).await?);
                 }
@@ -720,14 +940,23 @@ impl Session for AthenaSession {
             }
             match self.runtime_plan(&id, &stmt).await {
                 Ok(Some(p)) => out.plans.push(p),
-                Ok(None) => out.messages.push(format!("Athena no dio estadísticas de ejecución para: {}", plan::short(&stmt))),
-                Err(e) => out.messages.push(format!("No se pudieron leer las estadísticas de ejecución: {e}")),
+                Ok(None) => out.messages.push(format!(
+                    "Athena no dio estadísticas de ejecución para: {}",
+                    plan::short(&stmt)
+                )),
+                Err(e) => out.messages.push(format!(
+                    "No se pudieron leer las estadísticas de ejecución: {e}"
+                )),
             }
         }
         Ok(())
     }
 
-    async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
         self.transfer_read(spec, sink).await
     }
 
@@ -747,10 +976,17 @@ impl Session for AthenaSession {
         Some(Arc::new(move || {
             // Taken, not cloned: a transfer that keeps its finished query
             // here while it pages (or between INSERTs) sees it gone and stops.
-            let Some(id) = running.lock().ok().and_then(|mut r| r.take()) else { return };
+            let Some(id) = running.lock().ok().and_then(|mut r| r.take()) else {
+                return;
+            };
             let client = client.clone();
             rt.spawn(async move {
-                if let Err(e) = client.stop_query_execution().query_execution_id(id).send().await {
+                if let Err(e) = client
+                    .stop_query_execution()
+                    .query_execution_id(id)
+                    .send()
+                    .await
+                {
                     tracing::debug!("athena cancel failed: {}", DisplayErrorContext(&e));
                 }
             });
@@ -809,14 +1045,19 @@ fn cell(ty: &str, v: Option<String>) -> Json {
     let Some(v) = v else { return Json::Null };
     match ty.to_ascii_lowercase().as_str() {
         "boolean" => Json::Bool(v.eq_ignore_ascii_case("true")),
-        "tinyint" | "smallint" | "integer" | "int" | "bigint" => v.parse::<i64>().map_or(Json::String(v), json_i64),
+        "tinyint" | "smallint" | "integer" | "int" | "bigint" => {
+            v.parse::<i64>().map_or(Json::String(v), json_i64)
+        }
         "double" | "float" | "real" => match v.parse::<f64>() {
             Ok(f) if f.is_finite() => json_f64(f),
             _ => Json::String(v),
         },
         // "61 62 63": bytes as spaced hex.
         "varbinary" => {
-            let bytes: Option<Vec<u8>> = v.split_whitespace().map(|b| u8::from_str_radix(b, 16).ok()).collect();
+            let bytes: Option<Vec<u8>> = v
+                .split_whitespace()
+                .map(|b| u8::from_str_radix(b, 16).ok())
+                .collect();
             bytes.map_or(Json::String(v), |b| json_bytes(&b))
         }
         _ => Json::String(v),
@@ -844,19 +1085,28 @@ mod tests {
     #[test]
     fn cells_by_type() {
         assert_eq!(cell("boolean", Some("true".into())), json!(true));
-        assert_eq!(cell("bigint", Some("9007199254740993".into())), json!("9007199254740993"));
+        assert_eq!(
+            cell("bigint", Some("9007199254740993".into())),
+            json!("9007199254740993")
+        );
         assert_eq!(cell("integer", Some("-4".into())), json!(-4));
         assert_eq!(cell("double", Some("2.5".into())), json!(2.5));
         assert_eq!(cell("double", Some("NaN".into())), json!("NaN"));
         assert_eq!(cell("decimal", Some("1.10".into())), json!("1.10"));
         assert_eq!(cell("varbinary", Some("ca fe".into())), json!("0xCAFE"));
-        assert_eq!(cell("timestamp", Some("2024-01-31 13:45:00.000".into())), json!("2024-01-31 13:45:00.000"));
+        assert_eq!(
+            cell("timestamp", Some("2024-01-31 13:45:00.000".into())),
+            json!("2024-01-31 13:45:00.000")
+        );
         assert_eq!(cell("varchar", None), Json::Null);
     }
 
     #[test]
     fn header_row_detection() {
-        let cols = vec![("a".to_string(), "varchar".to_string()), ("b".to_string(), "integer".to_string())];
+        let cols = vec![
+            ("a".to_string(), "varchar".to_string()),
+            ("b".to_string(), "integer".to_string()),
+        ];
         assert!(is_header(&[Some("a".into()), Some("b".into())], &cols));
         assert!(!is_header(&[Some("a".into()), Some("1".into())], &cols));
     }
@@ -879,23 +1129,52 @@ mod tests {
             running: Arc::new(Mutex::new(None)),
             profiler: None,
         };
-        assert!(matches!(s.drop_database("Ventas").await, Err(Error::Query(m)) if m.contains("sesión")));
+        assert!(
+            matches!(s.drop_database("Ventas").await, Err(Error::Query(m)) if m.contains("sesión"))
+        );
         let d = AthenaDriver { info: info() };
-        assert!(d.capabilities().create_database && d.capabilities().drop_database && !d.capabilities().foreign_keys && d.capabilities().monitor);
-        let target = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "t".into() };
-        let ins = d.insert_script(&target, &["d".into()], &[vec![serde_json::json!("2024-01-31")]]).unwrap();
-        assert_eq!(ins, "INSERT INTO \"t\" (\"d\") VALUES\n  (DATE '2024-01-31');");
+        assert!(
+            d.capabilities().create_database
+                && d.capabilities().drop_database
+                && !d.capabilities().foreign_keys
+                && d.capabilities().monitor
+        );
+        let target = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let ins = d
+            .insert_script(
+                &target,
+                &["d".into()],
+                &[vec![serde_json::json!("2024-01-31")]],
+            )
+            .unwrap();
+        assert_eq!(
+            ins,
+            "INSERT INTO \"t\" (\"d\") VALUES\n  (DATE '2024-01-31');"
+        );
     }
 
     #[test]
     fn use_and_errors() {
         assert_eq!(use_target("USE ventas;"), Some((None, "ventas".into())));
-        assert_eq!(use_target("-- x\nuse AwsDataCatalog.Ventas"), Some((Some("awsdatacatalog".into()), "ventas".into())));
-        assert_eq!(use_target("USE \"Mi Cat\".`db`"), Some((Some("Mi Cat".into()), "db".into())));
+        assert_eq!(
+            use_target("-- x\nuse AwsDataCatalog.Ventas"),
+            Some((Some("awsdatacatalog".into()), "ventas".into()))
+        );
+        assert_eq!(
+            use_target("USE \"Mi Cat\".`db`"),
+            Some((Some("Mi Cat".into()), "db".into()))
+        );
         assert_eq!(use_target("USE a.b.c"), None);
         assert_eq!(use_target("SELECT 1"), None);
         assert_eq!(use_target("USE"), None);
-        let e = failed_error("COLUMN_NOT_FOUND: line 2:8: Column 'x' cannot be resolved", Some(1006));
+        let e = failed_error(
+            "COLUMN_NOT_FOUND: line 2:8: Column 'x' cannot be resolved",
+            Some(1006),
+        );
         assert_eq!(e.code.as_deref(), Some("COLUMN_NOT_FOUND"));
         let e = placed_error(e, "select 1,\nselect x");
         assert_eq!((e.line, e.offset), (Some(2), Some(17)));
@@ -909,7 +1188,10 @@ mod tests {
     fn form_and_browse() {
         let i = info();
         assert_eq!(i.id, "athena");
-        assert!(i.fields.iter().any(|f| f.key == "secret_access_key" && f.secret));
+        assert!(i
+            .fields
+            .iter()
+            .any(|f| f.key == "secret_access_key" && f.secret));
         assert_eq!(
             select_top(Quote::Double, Limit::Limit, Some("db"), "t", 5),
             "SELECT *\nFROM \"db\".\"t\"\nLIMIT 5"

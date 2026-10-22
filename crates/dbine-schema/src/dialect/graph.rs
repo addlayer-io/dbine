@@ -39,9 +39,15 @@ pub struct Cypher {
 pub struct OrientDb;
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
-    static NEO4J: Cypher = Cypher { flavor: Flavor::Neo4j };
-    static MEMGRAPH: Cypher = Cypher { flavor: Flavor::Memgraph };
-    static NEPTUNE: Cypher = Cypher { flavor: Flavor::Neptune };
+    static NEO4J: Cypher = Cypher {
+        flavor: Flavor::Neo4j,
+    };
+    static MEMGRAPH: Cypher = Cypher {
+        flavor: Flavor::Memgraph,
+    };
+    static NEPTUNE: Cypher = Cypher {
+        flavor: Flavor::Neptune,
+    };
     static ORIENT: OrientDb = OrientDb;
     match driver_id {
         "neo4j" => Some(&NEO4J),
@@ -57,7 +63,9 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 fn cypher_type(t: &str) -> L {
     let t = t.trim();
     if let Some(inner) = t.strip_prefix("list<").and_then(|r| r.strip_suffix('>')) {
-        return L::Array { of: Box::new(cypher_type(inner)) };
+        return L::Array {
+            of: Box::new(cypher_type(inner)),
+        };
     }
     match t {
         "boolean" => L::Bool,
@@ -65,14 +73,32 @@ fn cypher_type(t: &str) -> L {
         "float" => L::Float { bytes: 8 },
         "string" => L::Text { unicode: true },
         "date" => L::Date,
-        "local time" => L::Time { precision: Some(9), tz: false },
-        "zoned time" => L::Time { precision: Some(9), tz: true },
-        "local datetime" => L::Timestamp { precision: Some(9), tz: false },
-        "zoned datetime" => L::Timestamp { precision: Some(9), tz: true },
+        "local time" => L::Time {
+            precision: Some(9),
+            tz: false,
+        },
+        "zoned time" => L::Time {
+            precision: Some(9),
+            tz: true,
+        },
+        "local datetime" => L::Timestamp {
+            precision: Some(9),
+            tz: false,
+        },
+        "zoned datetime" => L::Timestamp {
+            precision: Some(9),
+            tz: true,
+        },
         "duration" => L::Interval,
-        "point" => L::Geometry { kind: Some("point".into()), srid: None, geography: false },
+        "point" => L::Geometry {
+            kind: Some("point".into()),
+            srid: None,
+            geography: false,
+        },
         "list" | "map" | "any" => L::Json { binary: true },
-        _ => L::Other { native: t.to_string() },
+        _ => L::Other {
+            native: t.to_string(),
+        },
     }
 }
 
@@ -128,7 +154,9 @@ impl Dialect for Cypher {
             return L::Json { binary: true };
         }
         match parse_list(raw, cypher_type) {
-            L::Other { .. } => L::Other { native: raw.to_string() },
+            L::Other { .. } => L::Other {
+                native: raw.to_string(),
+            },
             l => l,
         }
     }
@@ -174,7 +202,10 @@ impl Dialect for Cypher {
             "La tabla pasa a ser una etiqueta de nodos y sus columnas, propiedades: los tipos indican cómo quedan los valores, nada los controla.",
         );
         for fk in std::mem::take(&mut t.foreign_keys) {
-            let label = fk.name.clone().unwrap_or_else(|| format!("→ {}", fk.ref_table));
+            let label = fk
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("→ {}", fk.ref_table));
             report.push(
                 Severity::Dropped,
                 IssueCode::ForeignKeyDropped,
@@ -190,12 +221,22 @@ impl Dialect for Cypher {
         let pk = t.primary_key.take().filter(|k| !k.columns.is_empty());
         if self.flavor == Flavor::Neptune {
             if pk.is_some() {
-                report.push(Severity::Info, IssueCode::PrimaryKeyDropped, &name, None, "Neptune no tiene restricciones: la clave primaria no se controla.");
+                report.push(
+                    Severity::Info,
+                    IssueCode::PrimaryKeyDropped,
+                    &name,
+                    None,
+                    "Neptune no tiene restricciones: la clave primaria no se controla.",
+                );
             }
             return;
         }
         if let Some(pk) = pk {
-            if !t.indexes.iter().any(|i| i.unique && i.columns == pk.columns) {
+            if !t
+                .indexes
+                .iter()
+                .any(|i| i.unique && i.columns == pk.columns)
+            {
                 let ix = pk.name.clone().unwrap_or_else(|| format!("{name}_pk"));
                 report.push(
                     Severity::Info,
@@ -204,7 +245,17 @@ impl Dialect for Cypher {
                     Some(&ix),
                     format!("La clave primaria ({}) pasa a una restricción de unicidad; que no sea nula no se controla.", pk.columns.join(", ")),
                 );
-                t.indexes.insert(0, IndexDef { name: ix, columns: pk.columns, unique: true, kind: Some("UNIQUE".into()), filter: None, ..Default::default() });
+                t.indexes.insert(
+                    0,
+                    IndexDef {
+                        name: ix,
+                        columns: pk.columns,
+                        unique: true,
+                        kind: Some("UNIQUE".into()),
+                        filter: None,
+                        ..Default::default()
+                    },
+                );
             }
         }
         for ix in &mut t.indexes {
@@ -226,18 +277,28 @@ fn orient_type(t: &str) -> L {
         "long" => L::int(8),
         "float" => L::Float { bytes: 4 },
         "double" => L::Float { bytes: 8 },
-        "decimal" => L::Decimal { precision: None, scale: None },
+        "decimal" => L::Decimal {
+            precision: None,
+            scale: None,
+        },
         "string" => L::Text { unicode: true },
         "date" => L::Date,
         // Milliseconds since the epoch, shown in the database's time zone.
-        "datetime" => L::Timestamp { precision: Some(3), tz: true },
+        "datetime" => L::Timestamp {
+            precision: Some(3),
+            tz: true,
+        },
         "binary" | "custom" => L::Blob,
         // A record id (`#12:3`).
-        "link" => L::Varchar { len: Some(32), unicode: false },
-        "embedded" | "embeddedlist" | "embeddedset" | "embeddedmap" | "linklist" | "linkset" | "linkmap" | "linkbag" | "any" => {
-            L::Json { binary: true }
-        }
-        _ => L::Other { native: t.to_string() },
+        "link" => L::Varchar {
+            len: Some(32),
+            unicode: false,
+        },
+        "embedded" | "embeddedlist" | "embeddedset" | "embeddedmap" | "linklist" | "linkset"
+        | "linkmap" | "linkbag" | "any" => L::Json { binary: true },
+        _ => L::Other {
+            native: t.to_string(),
+        },
     }
 }
 
@@ -252,7 +313,9 @@ impl Dialect for OrientDb {
             return L::Json { binary: true };
         }
         match parse_list(raw, orient_type) {
-            L::Other { .. } => L::Other { native: raw.to_string() },
+            L::Other { .. } => L::Other {
+                native: raw.to_string(),
+            },
             l => l,
         }
     }
@@ -271,7 +334,11 @@ impl Dialect for OrientDb {
                     _ => Rendered::exact("DECIMAL"),
                 };
                 if *unsigned {
-                    r.with(Info, TypeChanged, "OrientDB no tiene enteros sin signo: se usa un tipo más grande con signo.")
+                    r.with(
+                        Info,
+                        TypeChanged,
+                        "OrientDB no tiene enteros sin signo: se usa un tipo más grande con signo.",
+                    )
                 } else {
                     r
                 }
@@ -279,16 +346,39 @@ impl Dialect for OrientDb {
             L::Decimal { .. } | L::Money => Rendered::exact("DECIMAL"),
             L::Float { bytes: 4 } => Rendered::exact("FLOAT"),
             L::Float { .. } => Rendered::exact("DOUBLE"),
-            L::Char { len: Some(_), .. } | L::Varchar { len: Some(_), .. } => Rendered::exact("STRING").with(Info, TypeChanged, "STRING no limita el largo."),
-            L::Char { .. } | L::Varchar { .. } | L::Text { .. } | L::Uuid | L::Xml | L::Inet | L::MacAddr => Rendered::exact("STRING"),
+            L::Char { len: Some(_), .. } | L::Varchar { len: Some(_), .. } => {
+                Rendered::exact("STRING").with(Info, TypeChanged, "STRING no limita el largo.")
+            }
+            L::Char { .. }
+            | L::Varchar { .. }
+            | L::Text { .. }
+            | L::Uuid
+            | L::Xml
+            | L::Inet
+            | L::MacAddr => Rendered::exact("STRING"),
             L::Binary { .. } | L::Varbinary { .. } | L::Blob => Rendered::exact("BINARY"),
-            L::Bit { .. } => Rendered::exact("STRING").with(Warning, TypeApproximated, "Cadena de bits como texto de 0 y 1."),
+            L::Bit { .. } => Rendered::exact("STRING").with(
+                Warning,
+                TypeApproximated,
+                "Cadena de bits como texto de 0 y 1.",
+            ),
             L::Date => Rendered::exact("DATE"),
-            L::Time { .. } => Rendered::exact("STRING").with(Warning, TypeApproximated, "OrientDB no tiene hora del día: queda como texto."),
+            L::Time { .. } => Rendered::exact("STRING").with(
+                Warning,
+                TypeApproximated,
+                "OrientDB no tiene hora del día: queda como texto.",
+            ),
             L::Timestamp { precision, tz } => {
                 let r = Rendered::exact("DATETIME");
                 let r = match precision {
-                    Some(p) if *p > 3 => r.with(Loss, PrecisionLoss, format!("DATETIME guarda milisegundos: se pierden {} decimales de segundo.", p - 3)),
+                    Some(p) if *p > 3 => r.with(
+                        Loss,
+                        PrecisionLoss,
+                        format!(
+                            "DATETIME guarda milisegundos: se pierden {} decimales de segundo.",
+                            p - 3
+                        ),
+                    ),
                     _ => r,
                 };
                 if *tz {
@@ -297,15 +387,33 @@ impl Dialect for OrientDb {
                     r.with(Warning, TimeZoneLoss, "DATETIME es un instante: la fecha y hora sin zona se toma en la zona horaria de la base.")
                 }
             }
-            L::Interval => Rendered::exact("STRING").with(Warning, TypeApproximated, "OrientDB no tiene intervalos: queda como texto."),
+            L::Interval => Rendered::exact("STRING").with(
+                Warning,
+                TypeApproximated,
+                "OrientDB no tiene intervalos: queda como texto.",
+            ),
             L::Year => Rendered::exact("SHORT").with(Info, TypeChanged, "Año como SHORT."),
-            L::Json { .. } => Rendered::exact("EMBEDDED").with(Info, TypeChanged, "JSON como documento embebido."),
-            L::Enum { values } => Rendered::exact("STRING").with(Info, TypeApproximated, format!("Enumerado como texto. Valores: {}.", values.join(", "))),
+            L::Json { .. } => {
+                Rendered::exact("EMBEDDED").with(Info, TypeChanged, "JSON como documento embebido.")
+            }
+            L::Enum { values } => Rendered::exact("STRING").with(
+                Info,
+                TypeApproximated,
+                format!("Enumerado como texto. Valores: {}.", values.join(", ")),
+            ),
             L::Set { .. } => Rendered::exact("EMBEDDEDSET"),
             L::Array { .. } => Rendered::exact("EMBEDDEDLIST"),
             L::Map { .. } => Rendered::exact("EMBEDDEDMAP"),
-            L::Geometry { .. } => Rendered::exact("STRING").with(Warning, TypeApproximated, "Dato espacial como texto (WKT)."),
-            L::RowVersion => Rendered::exact("BINARY").with(Warning, TypeApproximated, "OrientDB no tiene versión de fila automática: no se actualiza sola."),
+            L::Geometry { .. } => Rendered::exact("STRING").with(
+                Warning,
+                TypeApproximated,
+                "Dato espacial como texto (WKT).",
+            ),
+            L::RowVersion => Rendered::exact("BINARY").with(
+                Warning,
+                TypeApproximated,
+                "OrientDB no tiene versión de fila automática: no se actualiza sola.",
+            ),
             L::Other { native } => Rendered::exact(native.clone()),
         }
     }
@@ -317,7 +425,11 @@ impl Dialect for OrientDb {
             DefaultValue::Number(n) => n.clone(),
             DefaultValue::Text(s) => s.clone(),
             DefaultValue::Bool(b) => b.to_string(),
-            DefaultValue::CurrentTimestamp | DefaultValue::CurrentDate if matches!(ty, L::Date | L::Timestamp { .. }) => "sysdate()".into(),
+            DefaultValue::CurrentTimestamp | DefaultValue::CurrentDate
+                if matches!(ty, L::Date | L::Timestamp { .. }) =>
+            {
+                "sysdate()".into()
+            }
             _ => return None,
         })
     }
@@ -355,8 +467,19 @@ mod tests {
         assert_eq!(p("BOOLEAN"), L::Bool);
         assert_eq!(p("LIST"), L::Json { binary: true });
         assert_eq!(p("MAP"), L::Json { binary: true });
-        assert_eq!(p("LIST<INTEGER>"), L::Array { of: Box::new(L::int(8)) });
-        assert_eq!(p("ZONED DATETIME"), L::Timestamp { precision: Some(9), tz: true });
+        assert_eq!(
+            p("LIST<INTEGER>"),
+            L::Array {
+                of: Box::new(L::int(8))
+            }
+        );
+        assert_eq!(
+            p("ZONED DATETIME"),
+            L::Timestamp {
+                precision: Some(9),
+                tz: true
+            }
+        );
         assert!(matches!(p("POINT"), L::Geometry { .. }));
         assert_eq!(p("NULL"), L::Text { unicode: true });
         assert_eq!(p("STRING|INTEGER"), L::Json { binary: true });
@@ -368,16 +491,46 @@ mod tests {
         let r = |t: L| d.render_type(&t).native;
         assert_eq!(r(L::Bool), "BOOLEAN");
         assert_eq!(r(L::int(4)), "INTEGER");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "FLOAT");
-        assert_eq!(r(L::Decimal { precision: Some(10), scale: Some(2) }), "FLOAT");
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "FLOAT"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }),
+            "FLOAT"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "FLOAT");
         assert_eq!(r(L::Money), "FLOAT");
-        assert_eq!(r(L::Varchar { len: Some(2), unicode: true }), "STRING");
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(2),
+                unicode: true
+            }),
+            "STRING"
+        );
         assert_eq!(r(L::Blob), "LIST<INTEGER>");
         assert_eq!(r(L::Bit { len: None }), "STRING");
         assert_eq!(r(L::Date), "DATE");
-        assert_eq!(r(L::Time { precision: None, tz: true }), "ZONED TIME");
-        assert_eq!(r(L::Timestamp { precision: None, tz: false }), "LOCAL DATETIME");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: true
+            }),
+            "ZONED TIME"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: None,
+                tz: false
+            }),
+            "LOCAL DATETIME"
+        );
         assert_eq!(r(L::Interval), "DURATION");
         assert_eq!(r(L::Year), "INTEGER");
         assert_eq!(r(L::Uuid), "STRING");
@@ -385,11 +538,43 @@ mod tests {
         assert_eq!(r(L::Xml), "STRING");
         assert_eq!(r(L::Enum { values: vec![] }), "STRING");
         assert_eq!(r(L::Set { values: vec![] }), "LIST<STRING>");
-        assert_eq!(r(L::Array { of: Box::new(L::int(4)) }), "LIST<INTEGER>");
-        assert_eq!(r(L::Array { of: Box::new(L::Array { of: Box::new(L::int(4)) }) }), "STRING");
-        assert_eq!(r(L::Map { key: Box::new(L::Bool), value: Box::new(L::Bool) }), "STRING");
-        assert_eq!(r(L::Geometry { kind: Some("point".into()), srid: None, geography: false }), "POINT");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "STRING");
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(4))
+            }),
+            "LIST<INTEGER>"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Array {
+                    of: Box::new(L::int(4))
+                })
+            }),
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Bool),
+                value: Box::new(L::Bool)
+            }),
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: Some("point".into()),
+                srid: None,
+                geography: false
+            }),
+            "POINT"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "STRING"
+        );
         assert_eq!(r(L::Inet), "STRING");
         assert_eq!(r(L::MacAddr), "STRING");
         assert_eq!(r(L::RowVersion), "STRING");
@@ -404,17 +589,41 @@ mod tests {
         assert_eq!(p("STRING"), L::Text { unicode: true });
         assert_eq!(p("LONG"), L::int(8));
         assert_eq!(p("LONG|DOUBLE"), L::Float { bytes: 8 });
-        assert_eq!(p("DATETIME"), L::Timestamp { precision: Some(3), tz: true });
+        assert_eq!(
+            p("DATETIME"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
         assert_eq!(p("EMBEDDEDLIST"), L::Json { binary: true });
-        assert_eq!(p("LINK"), L::Varchar { len: Some(32), unicode: false });
+        assert_eq!(
+            p("LINK"),
+            L::Varchar {
+                len: Some(32),
+                unicode: false
+            }
+        );
         let r = |t: L| d.render_type(&t).native;
         assert_eq!(r(L::Bool), "BOOLEAN");
         assert_eq!(r(L::int(1)), "BYTE");
         assert_eq!(r(L::int(2)), "SHORT");
         assert_eq!(r(L::int(4)), "INTEGER");
         assert_eq!(r(L::int(8)), "LONG");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "DECIMAL");
-        assert_eq!(r(L::Decimal { precision: None, scale: None }), "DECIMAL");
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "DECIMAL"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: None,
+                scale: None
+            }),
+            "DECIMAL"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "FLOAT");
         assert_eq!(r(L::Float { bytes: 8 }), "DOUBLE");
         assert_eq!(r(L::Money), "DECIMAL");
@@ -422,8 +631,20 @@ mod tests {
         assert_eq!(r(L::Blob), "BINARY");
         assert_eq!(r(L::Bit { len: None }), "STRING");
         assert_eq!(r(L::Date), "DATE");
-        assert_eq!(r(L::Time { precision: None, tz: false }), "STRING");
-        assert_eq!(r(L::Timestamp { precision: None, tz: true }), "DATETIME");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            }),
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: None,
+                tz: true
+            }),
+            "DATETIME"
+        );
         assert_eq!(r(L::Interval), "STRING");
         assert_eq!(r(L::Year), "SHORT");
         assert_eq!(r(L::Uuid), "STRING");
@@ -431,13 +652,41 @@ mod tests {
         assert_eq!(r(L::Xml), "STRING");
         assert_eq!(r(L::Enum { values: vec![] }), "STRING");
         assert_eq!(r(L::Set { values: vec![] }), "EMBEDDEDSET");
-        assert_eq!(r(L::Array { of: Box::new(L::Bool) }), "EMBEDDEDLIST");
-        assert_eq!(r(L::Map { key: Box::new(L::Bool), value: Box::new(L::Bool) }), "EMBEDDEDMAP");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "STRING");
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Bool)
+            }),
+            "EMBEDDEDLIST"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Bool),
+                value: Box::new(L::Bool)
+            }),
+            "EMBEDDEDMAP"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "STRING"
+        );
         assert_eq!(r(L::Inet), "STRING");
         assert_eq!(r(L::MacAddr), "STRING");
         assert_eq!(r(L::RowVersion), "BINARY");
         assert_eq!(r(L::Other { native: "x".into() }), "x");
-        assert_eq!(d.render_default(&DefaultValue::CurrentTimestamp, &L::Timestamp { precision: None, tz: true }).as_deref(), Some("sysdate()"));
+        assert_eq!(
+            d.render_default(
+                &DefaultValue::CurrentTimestamp,
+                &L::Timestamp {
+                    precision: None,
+                    tz: true
+                }
+            )
+            .as_deref(),
+            Some("sysdate()")
+        );
     }
 }

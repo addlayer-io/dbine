@@ -28,7 +28,10 @@ fn cfg() -> Option<ConnectionConfig> {
 }
 
 fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[tokio::test]
@@ -45,36 +48,62 @@ async fn couchdb_properties() {
     let _ = s.drop_database(db).await;
     s.create_database(db).await.unwrap();
     let mut out = QueryOutcome::default();
-    s.execute(&format!("POST /{db} {{\"_id\": \"a\", \"n\": 1}}"), 10, &mut out).await.unwrap();
+    s.execute(
+        &format!("POST /{db} {{\"_id\": \"a\", \"n\": 1}}"),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
 
     let p = s.database_properties(db).await.unwrap();
     eprintln!("{:?}\n{:?}", p.values, p.info);
     assert_eq!(p.values.get("revs_limit").map(String::as_str), Some("1000"));
     assert!(p.values.contains_key("purged_infos_limit"));
-    assert!(p.info.iter().any(|i| i.label == "Documentos" && i.value == "1"), "{:?}", p.info);
+    assert!(
+        p.info
+            .iter()
+            .any(|i| i.label == "Documentos" && i.value == "1"),
+        "{:?}",
+        p.info
+    );
     assert!(p.warnings.contains_key("security"));
     let sec: Value = serde_json::from_str(&p.values["security"]).unwrap();
     assert!(sec["members"]["names"].is_array());
 
     let security = r#"{"admins": {"names": [], "roles": ["ops"]}, "members": {"names": ["ana"], "roles": ["_admin"]}}"#;
-    let changes = c(&[("revs_limit", "250"), ("purged_infos_limit", "500"), ("security", security)]);
+    let changes = c(&[
+        ("revs_limit", "250"),
+        ("purged_infos_limit", "500"),
+        ("security", security),
+    ]);
     eprintln!("{}", d.alter_database_script(db, &changes).unwrap());
     s.alter_database(db, &changes).await.unwrap();
 
     let p = s.database_properties(db).await.unwrap();
     assert_eq!(p.values.get("revs_limit").map(String::as_str), Some("250"));
-    assert_eq!(p.values.get("purged_infos_limit").map(String::as_str), Some("500"));
+    assert_eq!(
+        p.values.get("purged_infos_limit").map(String::as_str),
+        Some("500")
+    );
     let sec: Value = serde_json::from_str(&p.values["security"]).unwrap();
     assert_eq!(sec["members"]["names"][0], "ana");
     assert_eq!(sec["admins"]["roles"][0], "ops");
 
     // The server's refusal comes back; bad values never reach it.
-    let e = s.alter_database("dbine_props_missing", &c(&[("revs_limit", "10")])).await.unwrap_err();
+    let e = s
+        .alter_database("dbine_props_missing", &c(&[("revs_limit", "10")]))
+        .await
+        .unwrap_err();
     eprintln!("{e}");
-    assert!(d.alter_database_script(db, &c(&[("security", r#"{"members": {"names": [1]}}"#)])).is_err());
+    assert!(d
+        .alter_database_script(db, &c(&[("security", r#"{"members": {"names": [1]}}"#)]))
+        .is_err());
 
     // Back to public, then drop.
-    s.alter_database(db, &c(&[("security", "{}")])).await.unwrap();
+    s.alter_database(db, &c(&[("security", "{}")]))
+        .await
+        .unwrap();
     let p = s.database_properties(db).await.unwrap();
     let sec: Value = serde_json::from_str(&p.values["security"]).unwrap();
     assert_eq!(sec["members"]["names"], serde_json::json!([]));

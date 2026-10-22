@@ -13,7 +13,12 @@ use crate::error::{CommandError, CommandResult};
 use serde::{Deserialize, Serialize};
 
 const NEW_ISSUE: &str = "https://github.com/addlayer-io/dbine/issues/new?template=";
-const TEMPLATES: &[&str] = &["bug.yml", "enhancement.yml", "driver-request.yml", "question.yml"];
+const TEMPLATES: &[&str] = &[
+    "bug.yml",
+    "enhancement.yml",
+    "driver-request.yml",
+    "question.yml",
+];
 /// GitHub answers 414 a bit past 8 KB; the UI keeps the URL under 7500.
 const MAX_URL: usize = 8000;
 
@@ -44,10 +49,15 @@ pub struct OpenIssueFormArgs {
 
 /// Open the prefilled issue form in the browser.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn feedback_open_issue_form(app: tauri::AppHandle, args: OpenIssueFormArgs) -> CommandResult<()> {
+pub async fn feedback_open_issue_form(
+    app: tauri::AppHandle,
+    args: OpenIssueFormArgs,
+) -> CommandResult<()> {
     use tauri_plugin_opener::OpenerExt;
     if !is_issue_form_url(&args.url) {
-        return Err(CommandError::BadRequest("dirección de GitHub inválida".into()));
+        return Err(CommandError::BadRequest(
+            "dirección de GitHub inválida".into(),
+        ));
     }
     app.opener()
         .open_url(&args.url, None::<&str>)
@@ -56,7 +66,9 @@ pub async fn feedback_open_issue_form(app: tauri::AppHandle, args: OpenIssueForm
 
 /// One of this repository's issue forms, with an already encoded query.
 fn is_issue_form_url(url: &str) -> bool {
-    let Some(rest) = url.strip_prefix(NEW_ISSUE) else { return false };
+    let Some(rest) = url.strip_prefix(NEW_ISSUE) else {
+        return false;
+    };
     let template = rest.split('&').next().unwrap_or_default();
     url.len() <= MAX_URL
         && TEMPLATES.contains(&template)
@@ -71,15 +83,31 @@ mod tests {
 
     #[test]
     fn only_this_repos_issue_forms_open() {
-        assert!(is_issue_form_url("https://github.com/addlayer-io/dbine/issues/new?template=bug.yml&title=Hola%20mundo"));
-        assert!(is_issue_form_url("https://github.com/addlayer-io/dbine/issues/new?template=question.yml"));
-        assert!(!is_issue_form_url("https://github.com/addlayer-io/dbine/issues/new?template=evil.yml"));
-        assert!(!is_issue_form_url("https://github.com/addlayer-io/dbine/issues/new?template=bug.yml.evil"));
-        assert!(!is_issue_form_url("https://github.com/other/dbine/issues/new?template=bug.yml"));
-        assert!(!is_issue_form_url("https://github.com/addlayer-io/dbine/issues/new?template=bug.yml&title=a b"));
-        assert!(!is_issue_form_url("https://github.com/addlayer-io/dbine/issues/new?template=bug.yml&x=\"y\""));
+        assert!(is_issue_form_url(
+            "https://github.com/addlayer-io/dbine/issues/new?template=bug.yml&title=Hola%20mundo"
+        ));
+        assert!(is_issue_form_url(
+            "https://github.com/addlayer-io/dbine/issues/new?template=question.yml"
+        ));
+        assert!(!is_issue_form_url(
+            "https://github.com/addlayer-io/dbine/issues/new?template=evil.yml"
+        ));
+        assert!(!is_issue_form_url(
+            "https://github.com/addlayer-io/dbine/issues/new?template=bug.yml.evil"
+        ));
+        assert!(!is_issue_form_url(
+            "https://github.com/other/dbine/issues/new?template=bug.yml"
+        ));
+        assert!(!is_issue_form_url(
+            "https://github.com/addlayer-io/dbine/issues/new?template=bug.yml&title=a b"
+        ));
+        assert!(!is_issue_form_url(
+            "https://github.com/addlayer-io/dbine/issues/new?template=bug.yml&x=\"y\""
+        ));
         // What encodeURIComponent leaves as is.
-        assert!(is_issue_form_url("https://github.com/addlayer-io/dbine/issues/new?template=bug.yml&title=it's%20(ok)!*~"));
+        assert!(is_issue_form_url(
+            "https://github.com/addlayer-io/dbine/issues/new?template=bug.yml&title=it's%20(ok)!*~"
+        ));
         assert!(!is_issue_form_url("file:///etc/passwd"));
         let long = format!("{NEW_ISSUE}bug.yml&description={}", "a".repeat(MAX_URL));
         assert!(!is_issue_form_url(&long));

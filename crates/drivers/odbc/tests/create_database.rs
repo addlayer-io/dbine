@@ -24,7 +24,10 @@ fn cfg(preset: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 async fn open(preset: &str, cfg: &ConnectionConfig) -> Box<dyn Session> {
-    let d = dbine_driver_odbc::drivers().into_iter().find(|d| d.info().id == preset).unwrap();
+    let d = dbine_driver_odbc::drivers()
+        .into_iter()
+        .find(|d| d.info().id == preset)
+        .unwrap();
     d.connect(cfg, None).await.expect("connect")
 }
 
@@ -35,13 +38,29 @@ async fn generic_plain_create() {
         eprintln!("DBINE_TEST_ODBC_CONN not set; skipping");
         return;
     };
-    let d = dbine_driver_odbc::drivers().into_iter().find(|d| d.info().id == "odbc").unwrap();
+    let d = dbine_driver_odbc::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "odbc")
+        .unwrap();
     assert!(d.create_database_fields().is_empty());
     let mut s = open("odbc", &cfg).await;
     let _ = s.drop_database("dbine_create_plain").await;
-    assert!(s.create_database_with("dbine_create_plain", &[("x".to_string(), "y".to_string())].into()).await.is_err());
-    s.create_database_with("dbine_create_plain", &BTreeMap::new()).await.unwrap();
-    assert!(s.list_databases().await.unwrap().iter().any(|d| d == "dbine_create_plain"));
+    assert!(s
+        .create_database_with(
+            "dbine_create_plain",
+            &[("x".to_string(), "y".to_string())].into()
+        )
+        .await
+        .is_err());
+    s.create_database_with("dbine_create_plain", &BTreeMap::new())
+        .await
+        .unwrap();
+    assert!(s
+        .list_databases()
+        .await
+        .unwrap()
+        .iter()
+        .any(|d| d == "dbine_create_plain"));
     s.drop_database("dbine_create_plain").await.unwrap();
 }
 
@@ -52,17 +71,38 @@ async fn ase_devices() {
         eprintln!("DBINE_TEST_ODBC_ASE_CONN not set; skipping");
         return;
     };
-    let d = dbine_driver_odbc::drivers().into_iter().find(|d| d.info().id == "sybase").unwrap();
+    let d = dbine_driver_odbc::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "sybase")
+        .unwrap();
     let mut s = open("sybase", &cfg).await;
     let _ = s.drop_database("dbine_create_opts").await;
     let choices = s.create_database_choices().await.unwrap();
-    let device = choices.iter().find(|c| c.key == "data_device").and_then(|c| c.values.first().cloned()).expect("a database device");
+    let device = choices
+        .iter()
+        .find(|c| c.key == "data_device")
+        .and_then(|c| c.values.first().cloned())
+        .expect("a database device");
     let options: BTreeMap<String, String> =
-        [("data_device", device.as_str()), ("data_size", "20M")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    eprintln!("{}", d.create_database_script("dbine_create_opts", &options).unwrap());
-    s.create_database_with("dbine_create_opts", &options).await.unwrap();
+        [("data_device", device.as_str()), ("data_size", "20M")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+    eprintln!(
+        "{}",
+        d.create_database_script("dbine_create_opts", &options)
+            .unwrap()
+    );
+    s.create_database_with("dbine_create_opts", &options)
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("sp_helpdb dbine_create_opts", 10, &mut out).await.unwrap();
-    eprintln!("{:?}", out.results.iter().map(|r| &r.rows).collect::<Vec<_>>());
+    s.execute("sp_helpdb dbine_create_opts", 10, &mut out)
+        .await
+        .unwrap();
+    eprintln!(
+        "{:?}",
+        out.results.iter().map(|r| &r.rows).collect::<Vec<_>>()
+    );
     s.drop_database("dbine_create_opts").await.unwrap();
 }

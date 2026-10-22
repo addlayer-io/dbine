@@ -60,18 +60,48 @@ impl Dialect for GreptimeDb {
         let p = |i| t.arg_u32(i);
         let n = t.name.as_str();
         let u = t.unsigned;
-        let ts = |digits: u8| L::Timestamp { precision: Some(digits), tz: true };
+        let ts = |digits: u8| L::Timestamp {
+            precision: Some(digits),
+            tz: true,
+        };
         match n {
             "boolean" | "bool" => L::Bool,
-            "tinyint" | "int8" => L::Int { bytes: 1, unsigned: u },
-            "smallint" | "int16" => L::Int { bytes: 2, unsigned: u },
-            "int" | "integer" | "int32" => L::Int { bytes: 4, unsigned: u },
-            "bigint" | "int64" => L::Int { bytes: 8, unsigned: u },
-            "uint8" => L::Int { bytes: 1, unsigned: true },
-            "uint16" => L::Int { bytes: 2, unsigned: true },
-            "uint32" => L::Int { bytes: 4, unsigned: true },
-            "uint64" => L::Int { bytes: 8, unsigned: true },
-            "decimal" | "decimal128" | "numeric" => L::Decimal { precision: p(0).or(Some(38)), scale: p(1).or(Some(10)) },
+            "tinyint" | "int8" => L::Int {
+                bytes: 1,
+                unsigned: u,
+            },
+            "smallint" | "int16" => L::Int {
+                bytes: 2,
+                unsigned: u,
+            },
+            "int" | "integer" | "int32" => L::Int {
+                bytes: 4,
+                unsigned: u,
+            },
+            "bigint" | "int64" => L::Int {
+                bytes: 8,
+                unsigned: u,
+            },
+            "uint8" => L::Int {
+                bytes: 1,
+                unsigned: true,
+            },
+            "uint16" => L::Int {
+                bytes: 2,
+                unsigned: true,
+            },
+            "uint32" => L::Int {
+                bytes: 4,
+                unsigned: true,
+            },
+            "uint64" => L::Int {
+                bytes: 8,
+                unsigned: true,
+            },
+            "decimal" | "decimal128" | "numeric" => L::Decimal {
+                precision: p(0).or(Some(38)),
+                scale: p(1).or(Some(10)),
+            },
             "float" | "float32" | "real" => L::Float { bytes: 4 },
             "double" | "float64" => L::Float { bytes: 8 },
             "string" | "varchar" | "text" | "char" => L::Text { unicode: true },
@@ -84,10 +114,15 @@ impl Dialect for GreptimeDb {
             "timestamp_ms" | "timestamp_millisecond" | "timestampmillisecond" => ts(3),
             "timestamp_us" | "timestamp_microsecond" | "timestampmicrosecond" => ts(6),
             "timestamp_ns" | "timestamp_nanosecond" | "timestampnanosecond" => ts(9),
-            _ if n.starts_with("time") && !n.starts_with("timestamp") => L::Time { precision: None, tz: false },
+            _ if n.starts_with("time") && !n.starts_with("timestamp") => L::Time {
+                precision: None,
+                tz: false,
+            },
             _ if n.starts_with("interval") => L::Interval,
             "json" => L::Json { binary: true },
-            _ => L::Other { native: t.raw.clone() },
+            _ => L::Other {
+                native: t.raw.clone(),
+            },
         }
     }
 
@@ -157,9 +192,13 @@ impl Dialect for GreptimeDb {
             DefaultValue::Null => "NULL".into(),
             DefaultValue::Number(n) => n.clone(),
             DefaultValue::Text(s) => quote(s),
-            DefaultValue::Bool(b) if matches!(ty, L::Bool) => if *b { "true" } else { "false" }.into(),
+            DefaultValue::Bool(b) if matches!(ty, L::Bool) => {
+                if *b { "true" } else { "false" }.into()
+            }
             DefaultValue::Bool(b) => if *b { "1" } else { "0" }.into(),
-            DefaultValue::CurrentTimestamp if matches!(ty, L::Timestamp { .. }) => "current_timestamp()".into(),
+            DefaultValue::CurrentTimestamp if matches!(ty, L::Timestamp { .. }) => {
+                "current_timestamp()".into()
+            }
             _ => return None,
         })
     }
@@ -194,7 +233,13 @@ impl Dialect for GreptimeDb {
                 let name = match time_column(t, |s| s.name.starts_with("timestamp")) {
                     Some(i) => {
                         let name = t.columns[i].name.clone();
-                        report.push(Info, OptionAdded, &table, Some("time_index"), format!("«{name}» es el índice de tiempo (TIME INDEX) de la tabla."));
+                        report.push(
+                            Info,
+                            OptionAdded,
+                            &table,
+                            Some("time_index"),
+                            format!("«{name}» es el índice de tiempo (TIME INDEX) de la tabla."),
+                        );
                         name
                     }
                     None => {
@@ -219,11 +264,27 @@ impl Dialect for GreptimeDb {
                 name
             }
         };
-        if let Some(c) = t.columns.iter_mut().find(|c| c.name == ts_col && c.nullable) {
+        if let Some(c) = t
+            .columns
+            .iter_mut()
+            .find(|c| c.name == ts_col && c.nullable)
+        {
             c.nullable = false;
-            report.push(Info, NullabilityChanged, &table, Some(&ts_col), "El índice de tiempo no admite nulos: la columna queda NOT NULL.");
+            report.push(
+                Info,
+                NullabilityChanged,
+                &table,
+                Some(&ts_col),
+                "El índice de tiempo no admite nulos: la columna queda NOT NULL.",
+            );
         }
-        let tags: Vec<String> = t.primary_key.iter().flat_map(|k| &k.columns).filter(|c| **c != ts_col).cloned().collect();
+        let tags: Vec<String> = t
+            .primary_key
+            .iter()
+            .flat_map(|k| &k.columns)
+            .filter(|c| **c != ts_col)
+            .cloned()
+            .collect();
         if tags.is_empty() {
             report.push(
                 Warning,
@@ -255,21 +316,57 @@ mod tests {
 
     #[test]
     fn parses_catalog_spellings() {
-        assert_eq!(p("timestamp(3)"), L::Timestamp { precision: Some(3), tz: true });
-        assert_eq!(p("TimestampNanosecond"), L::Timestamp { precision: Some(9), tz: true });
+        assert_eq!(
+            p("timestamp(3)"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
+        assert_eq!(
+            p("TimestampNanosecond"),
+            L::Timestamp {
+                precision: Some(9),
+                tz: true
+            }
+        );
         assert_eq!(p("string"), L::Text { unicode: true });
         assert_eq!(p("boolean"), L::Bool);
         assert_eq!(p("tinyint"), L::int(1));
-        assert_eq!(p("int unsigned"), L::Int { bytes: 4, unsigned: true });
-        assert_eq!(p("UInt64"), L::Int { bytes: 8, unsigned: true });
+        assert_eq!(
+            p("int unsigned"),
+            L::Int {
+                bytes: 4,
+                unsigned: true
+            }
+        );
+        assert_eq!(
+            p("UInt64"),
+            L::Int {
+                bytes: 8,
+                unsigned: true
+            }
+        );
         assert_eq!(p("bigint"), L::int(8));
-        assert_eq!(p("decimal(10,2)"), L::Decimal { precision: Some(10), scale: Some(2) });
+        assert_eq!(
+            p("decimal(10,2)"),
+            L::Decimal {
+                precision: Some(10),
+                scale: Some(2)
+            }
+        );
         assert_eq!(p("float"), L::Float { bytes: 4 });
         assert_eq!(p("Float64"), L::Float { bytes: 8 });
         assert_eq!(p("date"), L::Date);
         assert_eq!(p("json"), L::Json { binary: true });
         assert_eq!(p("varbinary"), L::Blob);
-        assert_eq!(p("TimeMillisecond"), L::Time { precision: None, tz: false });
+        assert_eq!(
+            p("TimeMillisecond"),
+            L::Time {
+                precision: None,
+                tz: false
+            }
+        );
         assert!(matches!(p("vector(3)"), L::Other { .. }));
     }
 
@@ -277,36 +374,124 @@ mod tests {
     fn renders_every_variant() {
         let r = |t: L| GreptimeDb.render_type(&t).native;
         assert_eq!(r(L::Bool), "BOOLEAN");
-        assert_eq!(r(L::Int { bytes: 2, unsigned: true }), "SMALLINT UNSIGNED");
+        assert_eq!(
+            r(L::Int {
+                bytes: 2,
+                unsigned: true
+            }),
+            "SMALLINT UNSIGNED"
+        );
         assert_eq!(r(L::int(3)), "INT");
         assert_eq!(r(L::int(16)), "DECIMAL(38, 0)");
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(2) }), "DECIMAL(12, 2)");
-        assert_eq!(r(L::Decimal { precision: None, scale: None }), "DECIMAL(38, 10)");
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }),
+            "DECIMAL(12, 2)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: None,
+                scale: None
+            }),
+            "DECIMAL(38, 10)"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "FLOAT");
         assert_eq!(r(L::Float { bytes: 8 }), "DOUBLE");
         assert_eq!(r(L::Money), "DECIMAL(19, 4)");
-        assert_eq!(r(L::Char { len: Some(2), unicode: true }), "STRING");
-        assert_eq!(r(L::Varchar { len: Some(20), unicode: true }), "STRING");
+        assert_eq!(
+            r(L::Char {
+                len: Some(2),
+                unicode: true
+            }),
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(20),
+                unicode: true
+            }),
+            "STRING"
+        );
         assert_eq!(r(L::Text { unicode: true }), "STRING");
         assert_eq!(r(L::Binary { len: None }), "VARBINARY");
         assert_eq!(r(L::Blob), "VARBINARY");
         assert_eq!(r(L::Bit { len: Some(1) }), "BIGINT UNSIGNED");
         assert_eq!(r(L::Date), "DATE");
-        assert_eq!(r(L::Time { precision: None, tz: false }), "STRING");
-        assert_eq!(r(L::Timestamp { precision: None, tz: true }), "TIMESTAMP(6)");
-        assert_eq!(r(L::Timestamp { precision: Some(0), tz: true }), "TIMESTAMP(0)");
-        assert_eq!(r(L::Timestamp { precision: Some(2), tz: true }), "TIMESTAMP(3)");
-        assert_eq!(r(L::Timestamp { precision: Some(7), tz: true }), "TIMESTAMP(9)");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            }),
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: None,
+                tz: true
+            }),
+            "TIMESTAMP(6)"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(0),
+                tz: true
+            }),
+            "TIMESTAMP(0)"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(2),
+                tz: true
+            }),
+            "TIMESTAMP(3)"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(7),
+                tz: true
+            }),
+            "TIMESTAMP(9)"
+        );
         assert_eq!(r(L::Interval), "STRING");
         assert_eq!(r(L::Year), "SMALLINT");
         assert_eq!(r(L::Uuid), "STRING");
         assert_eq!(r(L::Json { binary: false }), "JSON");
         assert_eq!(r(L::Xml), "STRING");
-        assert_eq!(r(L::Enum { values: vec!["a".into()] }), "STRING");
-        assert_eq!(r(L::Set { values: vec!["a".into()] }), "STRING");
-        assert_eq!(r(L::Array { of: Box::new(L::Bool) }), "JSON");
-        assert_eq!(r(L::Map { key: Box::new(L::Bool), value: Box::new(L::Bool) }), "JSON");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: true }), "STRING");
+        assert_eq!(
+            r(L::Enum {
+                values: vec!["a".into()]
+            }),
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Set {
+                values: vec!["a".into()]
+            }),
+            "STRING"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Bool)
+            }),
+            "JSON"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Bool),
+                value: Box::new(L::Bool)
+            }),
+            "JSON"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: true
+            }),
+            "STRING"
+        );
         assert_eq!(r(L::Inet), "STRING");
         assert_eq!(r(L::MacAddr), "STRING");
         assert_eq!(r(L::RowVersion), "VARBINARY");
@@ -314,19 +499,47 @@ mod tests {
 
     #[test]
     fn finalize_picks_or_adds_the_time_index() {
-        let col = |n: &str, ty: &str| ColumnDef { name: n.into(), data_type: ty.into(), nullable: true, ..Default::default() };
-        let mut t = TableSchema { name: "t".into(), columns: vec![col("id", "BIGINT"), col("alta", "TIMESTAMP(6)")], ..Default::default() };
-        t.primary_key = Some(dbine_driver::KeyDef { name: None, columns: vec!["id".into()] });
+        let col = |n: &str, ty: &str| ColumnDef {
+            name: n.into(),
+            data_type: ty.into(),
+            nullable: true,
+            ..Default::default()
+        };
+        let mut t = TableSchema {
+            name: "t".into(),
+            columns: vec![col("id", "BIGINT"), col("alta", "TIMESTAMP(6)")],
+            ..Default::default()
+        };
+        t.primary_key = Some(dbine_driver::KeyDef {
+            name: None,
+            columns: vec!["id".into()],
+        });
         let mut rep = Report::default();
         GreptimeDb.finalize(&mut t, &mut rep);
-        assert_eq!(t.options.get("time_index").map(String::as_str), Some("alta"));
+        assert_eq!(
+            t.options.get("time_index").map(String::as_str),
+            Some("alta")
+        );
         assert!(!t.columns[1].nullable);
 
-        let mut t = TableSchema { name: "t".into(), columns: vec![col("id", "BIGINT")], ..Default::default() };
+        let mut t = TableSchema {
+            name: "t".into(),
+            columns: vec![col("id", "BIGINT")],
+            ..Default::default()
+        };
         let mut rep = Report::default();
         GreptimeDb.finalize(&mut t, &mut rep);
-        assert_eq!(t.options.get("time_index").map(String::as_str), Some(GREPTIME_TS));
-        assert_eq!(t.columns.last().unwrap().default_value.as_deref(), Some("current_timestamp()"));
-        assert!(rep.issues.iter().any(|i| i.code == IssueCode::OptionAdded && i.severity == Severity::Warning));
+        assert_eq!(
+            t.options.get("time_index").map(String::as_str),
+            Some(GREPTIME_TS)
+        );
+        assert_eq!(
+            t.columns.last().unwrap().default_value.as_deref(),
+            Some("current_timestamp()")
+        );
+        assert!(rep
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::OptionAdded && i.severity == Severity::Warning));
     }
 }

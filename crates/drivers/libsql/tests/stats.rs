@@ -16,7 +16,11 @@ use dbine_driver::{ConnectionConfig, QueryOutcome};
 
 fn config() -> Option<ConnectionConfig> {
     let url = std::env::var("DBINE_TEST_LIBSQL_URL").ok()?;
-    let mut cfg = ConnectionConfig { driver: "libsql".into(), host: url, ..Default::default() };
+    let mut cfg = ConnectionConfig {
+        driver: "libsql".into(),
+        host: url,
+        ..Default::default()
+    };
     if let Ok(t) = std::env::var("DBINE_TEST_LIBSQL_TOKEN") {
         cfg.options.insert("auth_token".into(), t);
     }
@@ -42,13 +46,29 @@ async fn libsql_row_estimates() {
     )
     .await
     .unwrap();
-    assert!(s.execute("ANALYZE stats_plain", 10, &mut out).await.is_err(), "sqld now runs ANALYZE: test the counts too");
+    assert!(
+        s.execute("ANALYZE stats_plain", 10, &mut out)
+            .await
+            .is_err(),
+        "sqld now runs ANALYZE: test the counts too"
+    );
 
-    let stat1 = s.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_stat1'", 10, &mut out).await;
+    let stat1 = s
+        .execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_stat1'",
+            10,
+            &mut out,
+        )
+        .await;
     assert!(stat1.is_ok());
     let got = s.row_estimates().await.unwrap();
-    assert!(got.iter().all(|e| e.object.name != "stats_plain"), "{got:?}");
+    assert!(
+        got.iter().all(|e| e.object.name != "stats_plain"),
+        "{got:?}"
+    );
     assert!(s.object_comments().await.unwrap().is_empty());
 
-    s.execute("DROP TABLE stats_plain;", 10, &mut out).await.unwrap();
+    s.execute("DROP TABLE stats_plain;", 10, &mut out)
+        .await
+        .unwrap();
 }

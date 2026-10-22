@@ -6,7 +6,10 @@
 //! ```
 
 use dbine_driver::read_only::ReadOnlySession;
-use dbine_driver::{kinds, ColumnDef, ConnectionConfig, DdlParts, Error, ObjectRef, QueryOutcome, Session, TableSchema};
+use dbine_driver::{
+    kinds, ColumnDef, ConnectionConfig, DdlParts, Error, ObjectRef, QueryOutcome, Session,
+    TableSchema,
+};
 use serde_json::json;
 use std::time::{Duration, Instant};
 
@@ -30,7 +33,13 @@ async fn bootstrap(c: &ConnectionConfig) {
     let http = reqwest::Client::new();
     let base = format!("http://{}:{}", c.host, c.port);
     for _ in 0..60 {
-        if http.get(format!("{base}/apiv2/server_status")).send().await.map(|r| r.status().is_success()).unwrap_or(false) {
+        if http
+            .get(format!("{base}/apiv2/server_status"))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+        {
             break;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -44,7 +53,11 @@ async fn bootstrap(c: &ConnectionConfig) {
 }
 
 fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: Some(schema.into()),
+        name: name.into(),
+    }
 }
 
 #[tokio::test]
@@ -56,16 +69,26 @@ async fn dremio() {
 
     let mut bad = c.clone();
     bad.password = Some("nope".into());
-    assert!(matches!(d.connect(&bad, None).await, Err(Error::AuthFailed(_))));
+    assert!(matches!(
+        d.connect(&bad, None).await,
+        Err(Error::AuthFailed(_))
+    ));
 
     let mut s = d.connect(&c, None).await.unwrap();
     assert!(s.server_version().await.unwrap().starts_with("Dremio "));
-    if s.list_databases().await.unwrap().contains(&"dbine_it".to_string()) {
+    if s.list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_it".to_string())
+    {
         s.drop_database("dbine_it").await.unwrap();
     }
     s.create_database("dbine_it").await.unwrap();
     let dbs = s.list_databases().await.unwrap();
-    assert!(dbs.contains(&"dbine_it".to_string()) && dbs.contains(&"$scratch".to_string()), "{dbs:?}");
+    assert!(
+        dbs.contains(&"dbine_it".to_string()) && dbs.contains(&"$scratch".to_string()),
+        "{dbs:?}"
+    );
 
     let mut s = d.connect(&c, Some("$scratch")).await.unwrap();
     let mut out = QueryOutcome::default();
@@ -83,43 +106,107 @@ async fn dremio() {
     assert_eq!(out.results[3].rows[0][0], json!(3), "rows inserted");
 
     let objs = s.list_objects().await.unwrap();
-    assert!(objs.iter().any(|o| o.kind == kinds::TABLE && o.name == "dbine_t" && o.schema.as_deref() == Some("$scratch")), "{objs:?}");
-    let cols = s.columns(&obj(kinds::TABLE, "$scratch", "dbine_t")).await.unwrap();
-    assert_eq!(cols.iter().map(|c| c.data_type.as_str()).collect::<Vec<_>>(), ["BIGINT", "CHARACTER VARYING", "DECIMAL(10,2)", "DATE", "TIMESTAMP", "BINARY VARYING", "BOOLEAN"]);
-    let def = s.definition(&obj(kinds::TABLE, "$scratch", "dbine_t")).await.unwrap().unwrap();
+    assert!(
+        objs.iter().any(|o| o.kind == kinds::TABLE
+            && o.name == "dbine_t"
+            && o.schema.as_deref() == Some("$scratch")),
+        "{objs:?}"
+    );
+    let cols = s
+        .columns(&obj(kinds::TABLE, "$scratch", "dbine_t"))
+        .await
+        .unwrap();
+    assert_eq!(
+        cols.iter()
+            .map(|c| c.data_type.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "BIGINT",
+            "CHARACTER VARYING",
+            "DECIMAL(10,2)",
+            "DATE",
+            "TIMESTAMP",
+            "BINARY VARYING",
+            "BOOLEAN"
+        ]
+    );
+    let def = s
+        .definition(&obj(kinds::TABLE, "$scratch", "dbine_t"))
+        .await
+        .unwrap()
+        .unwrap();
     assert!(def.starts_with("CREATE TABLE"), "{def}");
     let mut sp = d.connect(&c, Some("dbine_it")).await.unwrap();
     let objs = sp.list_objects().await.unwrap();
-    assert!(objs.iter().any(|o| o.kind == kinds::VIEW && o.name == "v"), "{objs:?}");
-    let vdef = sp.definition(&obj(kinds::VIEW, "dbine_it", "v")).await.unwrap().unwrap();
-    assert!(vdef.starts_with("CREATE OR REPLACE VIEW \"dbine_it\".\"v\" AS"), "{vdef}");
+    assert!(
+        objs.iter().any(|o| o.kind == kinds::VIEW && o.name == "v"),
+        "{objs:?}"
+    );
+    let vdef = sp
+        .definition(&obj(kinds::VIEW, "dbine_it", "v"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        vdef.starts_with("CREATE OR REPLACE VIEW \"dbine_it\".\"v\" AS"),
+        "{vdef}"
+    );
 
     let q = s.browse_query(&obj(kinds::TABLE, "$scratch", "dbine_t"), 10);
     let mut out = QueryOutcome::default();
-    s.execute(&format!("{q}; SELECT * FROM dbine_t WHERE id = 1"), 2, &mut out).await.unwrap();
+    s.execute(
+        &format!("{q}; SELECT * FROM dbine_t WHERE id = 1"),
+        2,
+        &mut out,
+    )
+    .await
+    .unwrap();
     let r = &out.results[0];
     assert_eq!((r.rows.len(), r.total_rows, r.truncated), (2, 3, true));
     assert_eq!(
         out.results[1].rows[0],
-        vec![json!(1), json!("Ana"), json!("10.5"), json!("2024-01-31"), json!("2024-01-31 13:45:00.123"), json!("0x616263"), json!(true)]
+        vec![
+            json!(1),
+            json!("Ana"),
+            json!("10.5"),
+            json!("2024-01-31"),
+            json!("2024-01-31 13:45:00.123"),
+            json!("0x616263"),
+            json!(true)
+        ]
     );
 
     // USE changes the context of later jobs.
     let mut out = QueryOutcome::default();
-    s.execute("USE dbine_it; SELECT count(*) FROM v", 10, &mut out).await.unwrap();
+    s.execute("USE dbine_it; SELECT count(*) FROM v", 10, &mut out)
+        .await
+        .unwrap();
     assert_eq!(out.results[1].rows[0][0], json!(1));
-    s.execute("USE \"$scratch\"", 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute("USE \"$scratch\"", 10, &mut QueryOutcome::default())
+        .await
+        .unwrap();
 
     // Errors stop the script.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out)
+        .await
+        .unwrap_err();
     assert!(e.is_query() && e.to_string().contains("nope"), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Plans.
-    let q = "SELECT a.nombre, count(*) FROM dbine_t a JOIN dbine_t b ON a.id = b.id GROUP BY a.nombre";
+    let q =
+        "SELECT a.nombre, count(*) FROM dbine_t a JOIN dbine_t b ON a.id = b.id GROUP BY a.nombre";
     let mut out = QueryOutcome::default();
-    s.explain(&format!("{q}; DROP TABLE IF EXISTS nada"), false, 10, &mut out).await.unwrap();
+    s.explain(
+        &format!("{q}; DROP TABLE IF EXISTS nada"),
+        false,
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.plans.len(), 1);
     assert!(out.results.is_empty());
     assert_eq!(out.plans[0].root.op, "Screen");
@@ -137,33 +224,104 @@ async fn dremio() {
     }
     let mut acc = Vec::new();
     scans(&p.root, &mut acc);
-    assert!(!acc.is_empty() && acc.iter().all(|r| *r == Some(3.0)), "{acc:?} {:#?}", p.root);
+    assert!(
+        !acc.is_empty() && acc.iter().all(|r| *r == Some(3.0)),
+        "{acc:?} {:#?}",
+        p.root
+    );
 
     // Designer round trip and INSERT scripts.
     let t = TableSchema {
         kind: kinds::TABLE.into(),
         schema: Some("$scratch".into()),
         name: "dbine_copia".into(),
-        columns: cols.iter().map(|c| ColumnDef { name: c.name.clone(), data_type: c.data_type.replace("CHARACTER VARYING", "VARCHAR").replace("BINARY VARYING", "VARBINARY"), ..Default::default() }).collect(),
+        columns: cols
+            .iter()
+            .map(|c| ColumnDef {
+                name: c.name.clone(),
+                data_type: c
+                    .data_type
+                    .replace("CHARACTER VARYING", "VARCHAR")
+                    .replace("BINARY VARYING", "VARBINARY"),
+                ..Default::default()
+            })
+            .collect(),
         options: [("partition_by".to_string(), "ok".to_string())].into(),
         ..Default::default()
     };
-    s.execute(&d.table_ddl(&t, DdlParts { create: true, if_exists: true, ..Default::default() }).unwrap(), 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(
+        &d.table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
     let mut browse = QueryOutcome::default();
-    s.execute("SELECT id, nombre, total, alta, ts, ok FROM dbine_t", 100, &mut browse).await.unwrap();
-    let names: Vec<String> = browse.results[0].columns.iter().map(|c| c.name.clone()).collect();
-    let ins = d.insert_script(&obj(kinds::TABLE, "$scratch", "dbine_copia"), &names, &browse.results[0].rows).unwrap();
-    s.execute(&ins, 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(
+        "SELECT id, nombre, total, alta, ts, ok FROM dbine_t",
+        100,
+        &mut browse,
+    )
+    .await
+    .unwrap();
+    let names: Vec<String> = browse.results[0]
+        .columns
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+    let ins = d
+        .insert_script(
+            &obj(kinds::TABLE, "$scratch", "dbine_copia"),
+            &names,
+            &browse.results[0].rows,
+        )
+        .unwrap();
+    s.execute(&ins, 10, &mut QueryOutcome::default())
+        .await
+        .unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("SELECT count(*), max(ts), sum(total) FROM dbine_copia", 10, &mut out).await.unwrap();
-    assert_eq!(out.results[0].rows[0], vec![json!(3), json!("2024-01-31 13:45:00.123"), json!("14.5")]);
+    s.execute(
+        "SELECT count(*), max(ts), sum(total) FROM dbine_copia",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        out.results[0].rows[0],
+        vec![json!(3), json!("2024-01-31 13:45:00.123"), json!("14.5")]
+    );
     let schema = s.database_schema().await.unwrap();
-    assert!(schema.iter().any(|t| t.name == "dbine_copia" && t.columns.len() == 7));
+    assert!(schema
+        .iter()
+        .any(|t| t.name == "dbine_copia" && t.columns.len() == 7));
 
     // Templates (in a space; CTAS needs an Iceberg-capable source).
-    for tpl in d.create_templates().iter().filter(|t| t.kind == kinds::VIEW) {
-        let sql = tpl.template.replace("{schema}", "dbine_it").replace("{name}", "v_tpl").replace("dbine_it.\"tabla\" t\nWHERE t.activo = true", "\"$scratch\".dbine_t t").replace("t.id,\n    t.nombre", "t.id, t.nombre");
-        sp.execute(&sql, 10, &mut QueryOutcome::default()).await.unwrap_or_else(|e| panic!("{}: {e}", tpl.label));
+    for tpl in d
+        .create_templates()
+        .iter()
+        .filter(|t| t.kind == kinds::VIEW)
+    {
+        let sql = tpl
+            .template
+            .replace("{schema}", "dbine_it")
+            .replace("{name}", "v_tpl")
+            .replace(
+                "dbine_it.\"tabla\" t\nWHERE t.activo = true",
+                "\"$scratch\".dbine_t t",
+            )
+            .replace("t.id,\n    t.nombre", "t.id, t.nombre");
+        sp.execute(&sql, 10, &mut QueryOutcome::default())
+            .await
+            .unwrap_or_else(|e| panic!("{}: {e}", tpl.label));
     }
 
     // Cancel: the job is cancelled on the server.
@@ -181,7 +339,18 @@ async fn dremio() {
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_millis(500)).await;
         let snap = s.monitor().await.unwrap();
-        if !snap.tables.iter().find(|t| t.key == "queries").unwrap().rows.iter().any(|r| r[8].as_str().is_some_and(|q| q.contains("JOIN sys.\"options\" e"))) {
+        if !snap
+            .tables
+            .iter()
+            .find(|t| t.key == "queries")
+            .unwrap()
+            .rows
+            .iter()
+            .any(|r| {
+                r[8].as_str()
+                    .is_some_and(|q| q.contains("JOIN sys.\"options\" e"))
+            })
+        {
             stopped = true;
             break;
         }
@@ -190,11 +359,24 @@ async fn dremio() {
 
     // Read-only (the registry wraps SQL sessions).
     let mut ro = ReadOnlySession::new(d.connect(&c, Some("$scratch")).await.unwrap());
-    assert!(ro.execute("DROP TABLE dbine_t", 10, &mut QueryOutcome::default()).await.is_err());
+    assert!(ro
+        .execute("DROP TABLE dbine_t", 10, &mut QueryOutcome::default())
+        .await
+        .is_err());
 
-    s.execute("DROP TABLE dbine_t; DROP TABLE dbine_copia", 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(
+        "DROP TABLE dbine_t; DROP TABLE dbine_copia",
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
     s.drop_database("dbine_it").await.unwrap();
-    assert!(!s.list_databases().await.unwrap().contains(&"dbine_it".to_string()));
+    assert!(!s
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_it".to_string()));
 }
 
 #[tokio::test]
@@ -204,14 +386,41 @@ async fn monitor() {
     bootstrap(&c).await;
     let d = dbine_driver_dremio::drivers().remove(0);
     let mut s = d.connect(&c, None).await.unwrap();
-    s.execute("SELECT count(*) FROM sys.\"options\"", 10, &mut QueryOutcome::default()).await.unwrap();
+    s.execute(
+        "SELECT count(*) FROM sys.\"options\"",
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
     let snap = s.monitor().await.unwrap();
-    let v = |k: &str| snap.metrics.iter().find(|m| m.key == k).and_then(|m| m.value);
-    for k in ["cpu", "mem_used", "direct_used", "active_sessions", "queries", "nodes_green", "uptime"] {
+    let v = |k: &str| {
+        snap.metrics
+            .iter()
+            .find(|m| m.key == k)
+            .and_then(|m| m.value)
+    };
+    for k in [
+        "cpu",
+        "mem_used",
+        "direct_used",
+        "active_sessions",
+        "queries",
+        "nodes_green",
+        "uptime",
+    ] {
         assert!(v(k).is_some(), "{k}: {:#?}", snap.metrics);
     }
     assert!(v("mem_used").unwrap() > 1e6 && v("queries").unwrap() >= 1.0);
-    assert_eq!(snap.tables.iter().find(|t| t.key == "nodes").unwrap().rows.len(), 1);
+    assert_eq!(
+        snap.tables
+            .iter()
+            .find(|t| t.key == "nodes")
+            .unwrap()
+            .rows
+            .len(),
+        1
+    );
     assert!(snap.info.iter().any(|(k, _)| k == "Versión"));
 }
 
@@ -227,18 +436,39 @@ async fn profiler() {
     assert!(d.supports_profiler());
     let mut p = d.connect(&c, None).await.unwrap();
     let mut w = d.connect(&c, Some("sys")).await.unwrap();
-    let opts = dbine_driver::ProfilerOptions { database: "sys".into(), change_server: false };
+    let opts = dbine_driver::ProfilerOptions {
+        database: "sys".into(),
+        change_server: false,
+    };
     let started = p.profiler_start(&opts).await.expect("profiler_start");
     eprintln!("{started:?}");
     let marker = format!("dbine_prof_{}", std::process::id());
     let mut out = QueryOutcome::default();
-    w.execute(&format!("SELECT version AS {marker}_ok FROM version"), 10, &mut out).await.unwrap();
-    assert!(w.execute(&format!("SELECT {marker}_bad FROM version"), 10, &mut out).await.is_err());
+    w.execute(
+        &format!("SELECT version AS {marker}_ok FROM version"),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    assert!(w
+        .execute(&format!("SELECT {marker}_bad FROM version"), 10, &mut out)
+        .await
+        .is_err());
     let mut other = d.connect(&c, None).await.unwrap();
-    other.execute(&format!("SELECT 1 AS {marker}_other"), 10, &mut out).await.unwrap();
+    other
+        .execute(&format!("SELECT 1 AS {marker}_other"), 10, &mut out)
+        .await
+        .unwrap();
     let mut got = Vec::new();
     let until = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < until && got.iter().filter(|s: &&dbine_driver::ProfiledStatement| s.text.contains(&marker)).count() < 2 {
+    while Instant::now() < until
+        && got
+            .iter()
+            .filter(|s: &&dbine_driver::ProfiledStatement| s.text.contains(&marker))
+            .count()
+            < 2
+    {
         got.extend(p.profiler_poll().await.expect("profiler_poll"));
     }
     got.extend(p.profiler_poll().await.expect("profiler_poll"));
@@ -247,10 +477,19 @@ async fn profiler() {
     eprintln!("{mine:#?}");
     let ok: Vec<_> = mine.iter().filter(|s| s.text.contains("_ok")).collect();
     assert_eq!(ok.len(), 1, "the job once");
-    assert_eq!((ok[0].rows, ok[0].database.as_deref(), ok[0].user.as_deref()), (Some(1), Some("sys"), Some(USER)));
+    assert_eq!(
+        (ok[0].rows, ok[0].database.as_deref(), ok[0].user.as_deref()),
+        (Some(1), Some("sys"), Some(USER))
+    );
     let bad: Vec<_> = mine.iter().filter(|s| s.text.contains("_bad")).collect();
     assert_eq!(bad.len(), 1, "the failed job once");
     assert!(bad[0].error.is_some());
-    assert!(!mine.iter().any(|s| s.text.contains("_other")), "other containers' jobs are left out");
-    assert!(got.iter().all(|s| !s.text.contains("dbine profiler")), "its own reads are left out");
+    assert!(
+        !mine.iter().any(|s| s.text.contains("_other")),
+        "other containers' jobs are left out"
+    );
+    assert!(
+        got.iter().all(|s| !s.text.contains("dbine profiler")),
+        "its own reads are left out"
+    );
 }

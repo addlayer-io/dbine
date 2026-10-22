@@ -44,19 +44,48 @@ fn human(bytes: f64) -> String {
 impl HanaSession {
     /// The first cell of an optional catalog query, as text.
     async fn cell(&self, sql: &str, schema: &str) -> Option<String> {
-        self.rows(sql, &[schema]).await.ok()?.first()?.first().and_then(text)
+        self.rows(sql, &[schema])
+            .await
+            .ok()?
+            .first()?
+            .first()
+            .and_then(text)
     }
 
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
-        let rows = self.rows("SELECT SCHEMA_OWNER FROM SYS.SCHEMAS WHERE SCHEMA_NAME = ?", &[database]).await?;
-        let owner = rows.first().ok_or_else(|| Error::Query(format!("no existe el esquema «{database}»")))?.first().and_then(text);
-        let fact = |group: &str, label: &str, value: String| PropertyInfo { group: group.into(), label: label.into(), value };
+        let rows = self
+            .rows(
+                "SELECT SCHEMA_OWNER FROM SYS.SCHEMAS WHERE SCHEMA_NAME = ?",
+                &[database],
+            )
+            .await?;
+        let owner = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe el esquema «{database}»")))?
+            .first()
+            .and_then(text);
+        let fact = |group: &str, label: &str, value: String| PropertyInfo {
+            group: group.into(),
+            label: label.into(),
+            value,
+        };
         let mut info = vec![fact("", "Dueño", owner.unwrap_or_default())];
         if let Some(c) = self.cell("SELECT TO_VARCHAR(CREATE_TIME, 'YYYY-MM-DD HH24:MI:SS') FROM SYS.SCHEMAS WHERE SCHEMA_NAME = ?", database).await {
             info.push(fact("", "Creado", c));
         }
-        for (label, view) in [("Tablas", "TABLES"), ("Vistas", "VIEWS"), ("Procedimientos", "PROCEDURES"), ("Funciones", "FUNCTIONS")] {
-            if let Some(n) = self.cell(&format!("SELECT TO_VARCHAR(COUNT(*)) FROM SYS.{view} WHERE SCHEMA_NAME = ?"), database).await {
+        for (label, view) in [
+            ("Tablas", "TABLES"),
+            ("Vistas", "VIEWS"),
+            ("Procedimientos", "PROCEDURES"),
+            ("Funciones", "FUNCTIONS"),
+        ] {
+            if let Some(n) = self
+                .cell(
+                    &format!("SELECT TO_VARCHAR(COUNT(*)) FROM SYS.{view} WHERE SCHEMA_NAME = ?"),
+                    database,
+                )
+                .await
+            {
                 info.push(fact("", label, n));
             }
         }
@@ -76,10 +105,17 @@ impl HanaSession {
         if let Some(d) = size(self.cell("SELECT TO_VARCHAR(COALESCE(SUM(DISK_SIZE), 0)) FROM SYS.M_TABLE_PERSISTENCE_STATISTICS WHERE SCHEMA_NAME = ?", database).await) {
             info.push(fact("Almacenamiento", "En disco", d));
         }
-        Ok(DatabaseProperties { info, ..Default::default() })
+        Ok(DatabaseProperties {
+            info,
+            ..Default::default()
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, _database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        _database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         alter(changes).map(|_| ())
     }
 }

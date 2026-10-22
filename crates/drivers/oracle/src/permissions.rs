@@ -64,17 +64,33 @@ pub(crate) fn map(g: &Grants, database: Option<&str>) -> Permissions {
         Some(false) => Access::check(g.any(full), full_name),
     };
     Permissions {
-        backup: data_pump(&["DATAPUMP_EXP_FULL_DATABASE", "EXP_FULL_DATABASE"], "DATAPUMP_EXP_FULL_DATABASE"),
-        restore: data_pump(&["DATAPUMP_IMP_FULL_DATABASE", "IMP_FULL_DATABASE"], "DATAPUMP_IMP_FULL_DATABASE"),
+        backup: data_pump(
+            &["DATAPUMP_EXP_FULL_DATABASE", "EXP_FULL_DATABASE"],
+            "DATAPUMP_EXP_FULL_DATABASE",
+        ),
+        restore: data_pump(
+            &["DATAPUMP_IMP_FULL_DATABASE", "IMP_FULL_DATABASE"],
+            "DATAPUMP_IMP_FULL_DATABASE",
+        ),
         profiler: Access::check(
             g.any(&["SELECT ANY DICTIONARY", "SELECT_CATALOG_ROLE"]) || g.v_views >= 2,
             "SELECT_CATALOG_ROLE o SELECT ANY DICTIONARY (leer V$SESSION y V$SQLSTATS)",
         ),
         kill_session: Access::check(g.has("ALTER SYSTEM"), "ALTER SYSTEM"),
         create_database: Access::check(g.has("CREATE USER"), "CREATE USER"),
-        drop_database: if schema.is_some() { Access::check(g.has("DROP USER"), "DROP USER") } else { Access::Unknown },
+        drop_database: if schema.is_some() {
+            Access::check(g.has("DROP USER"), "DROP USER")
+        } else {
+            Access::Unknown
+        },
         manage_security: Access::check(
-            g.any(&["CREATE USER", "ALTER USER", "CREATE ROLE", "GRANT ANY PRIVILEGE", "GRANT ANY ROLE"]),
+            g.any(&[
+                "CREATE USER",
+                "ALTER USER",
+                "CREATE ROLE",
+                "GRANT ANY PRIVILEGE",
+                "GRANT ANY ROLE",
+            ]),
             "CREATE USER, ALTER USER o GRANT ANY PRIVILEGE",
         ),
         // A schema is a user: creating one is CREATE USER.
@@ -83,7 +99,13 @@ pub(crate) fn map(g: &Grants, database: Option<&str>) -> Permissions {
 }
 
 fn list(v: Option<String>) -> Vec<String> {
-    v.map(|s| s.split(',').filter(|x| !x.is_empty()).map(str::to_string).collect()).unwrap_or_default()
+    v.map(|s| {
+        s.split(',')
+            .filter(|x| !x.is_empty())
+            .map(str::to_string)
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// Runs the check; `None` when the server refused it (an ORA- error).
@@ -93,7 +115,11 @@ pub(crate) fn grants(c: &Connection) -> Result<Option<Grants>> {
         .map(|b| b.exclude_from_cache())
         .and_then(|b| b.build())
         .and_then(|stmt| stmt.query_row(&[]))
-        .and_then(|r| (0..4).map(|i| r.get::<Option<String>>(i)).collect::<std::result::Result<Vec<_>, _>>());
+        .and_then(|r| {
+            (0..4)
+                .map(|i| r.get::<Option<String>>(i))
+                .collect::<std::result::Result<Vec<_>, _>>()
+        });
     let mut row = match row {
         Ok(r) => r.into_iter(),
         Err(e) if db_code(&e).is_some() => {
@@ -131,8 +157,19 @@ mod tests {
     #[test]
     fn a_dba_may_do_everything() {
         let dba = g(
-            &["ALTER SYSTEM", "CREATE USER", "DROP USER", "ALTER USER", "SELECT ANY DICTIONARY", "CREATE TABLE"],
-            &["DATAPUMP_EXP_FULL_DATABASE", "DATAPUMP_IMP_FULL_DATABASE", "SELECT_CATALOG_ROLE"],
+            &[
+                "ALTER SYSTEM",
+                "CREATE USER",
+                "DROP USER",
+                "ALTER USER",
+                "SELECT ANY DICTIONARY",
+                "CREATE TABLE",
+            ],
+            &[
+                "DATAPUMP_EXP_FULL_DATABASE",
+                "DATAPUMP_IMP_FULL_DATABASE",
+                "SELECT_CATALOG_ROLE",
+            ],
             0,
         );
         assert_eq!(map(&dba, Some("HR")), Permissions::all());
@@ -144,14 +181,47 @@ mod tests {
     fn a_plain_user_exports_only_its_own_schema() {
         let u = g(&["CREATE TABLE"], &[], 0);
         let own = map(&u, Some("ANA"));
-        assert_eq!((own.backup, own.restore), (Access::Allowed, Access::Allowed));
+        assert_eq!(
+            (own.backup, own.restore),
+            (Access::Allowed, Access::Allowed)
+        );
         let other = map(&u, Some("HR"));
-        assert_eq!(other.backup, Access::Denied { missing: "DATAPUMP_EXP_FULL_DATABASE".into() });
-        assert_eq!(other.restore, Access::Denied { missing: "DATAPUMP_IMP_FULL_DATABASE".into() });
-        assert_eq!(other.kill_session, Access::Denied { missing: "ALTER SYSTEM".into() });
-        assert_eq!(other.create_database, Access::Denied { missing: "CREATE USER".into() });
-        assert_eq!(other.create_schema, Access::Denied { missing: "CREATE USER".into() });
-        assert_eq!(other.drop_database, Access::Denied { missing: "DROP USER".into() });
+        assert_eq!(
+            other.backup,
+            Access::Denied {
+                missing: "DATAPUMP_EXP_FULL_DATABASE".into()
+            }
+        );
+        assert_eq!(
+            other.restore,
+            Access::Denied {
+                missing: "DATAPUMP_IMP_FULL_DATABASE".into()
+            }
+        );
+        assert_eq!(
+            other.kill_session,
+            Access::Denied {
+                missing: "ALTER SYSTEM".into()
+            }
+        );
+        assert_eq!(
+            other.create_database,
+            Access::Denied {
+                missing: "CREATE USER".into()
+            }
+        );
+        assert_eq!(
+            other.create_schema,
+            Access::Denied {
+                missing: "CREATE USER".into()
+            }
+        );
+        assert_eq!(
+            other.drop_database,
+            Access::Denied {
+                missing: "DROP USER".into()
+            }
+        );
         assert!(other.profiler.is_denied());
         assert!(other.manage_security.is_denied());
     }
@@ -160,12 +230,18 @@ mod tests {
     fn profiler_by_grants_on_both_views() {
         assert_eq!(map(&g(&[], &[], 2), None).profiler, Access::Allowed);
         assert!(map(&g(&[], &[], 1), None).profiler.is_denied());
-        assert_eq!(map(&g(&[], &["SELECT_CATALOG_ROLE"], 0), None).profiler, Access::Allowed);
+        assert_eq!(
+            map(&g(&[], &["SELECT_CATALOG_ROLE"], 0), None).profiler,
+            Access::Allowed
+        );
     }
 
     #[test]
     fn lists() {
-        assert_eq!(list(Some("A,B C".into())), vec!["A".to_string(), "B C".to_string()]);
+        assert_eq!(
+            list(Some("A,B C".into())),
+            vec!["A".to_string(), "B C".to_string()]
+        );
         assert!(list(None).is_empty());
     }
 }

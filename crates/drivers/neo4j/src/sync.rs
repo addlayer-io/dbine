@@ -11,7 +11,10 @@ use dbine_driver::{kinds, DdlParts, Error, Result, SyncScript, TableChange, Tabl
 
 fn specs(t: &TableSchema) -> Vec<IndexSpec> {
     let rel = t.kind == RELATIONSHIP;
-    t.indexes.iter().map(|ix| IndexSpec::from_index(&t.name, rel, ix)).collect()
+    t.indexes
+        .iter()
+        .map(|ix| IndexSpec::from_index(&t.name, rel, ix))
+        .collect()
 }
 
 fn is_designed(t: &TableSchema) -> bool {
@@ -19,8 +22,17 @@ fn is_designed(t: &TableSchema) -> bool {
 }
 
 fn same(a: &IndexSpec, b: &IndexSpec) -> bool {
-    let props = |s: &IndexSpec| s.properties.iter().map(|p| p.to_lowercase()).collect::<Vec<_>>();
-    a.kind.eq_ignore_ascii_case(&b.kind) && a.relationship == b.relationship && a.target == b.target && props(a) == props(b) && a.options == b.options
+    let props = |s: &IndexSpec| {
+        s.properties
+            .iter()
+            .map(|p| p.to_lowercase())
+            .collect::<Vec<_>>()
+    };
+    a.kind.eq_ignore_ascii_case(&b.kind)
+        && a.relationship == b.relationship
+        && a.target == b.target
+        && props(a) == props(b)
+        && a.options == b.options
 }
 
 /// Neo4j matches indexes by name; Memgraph's have none (its TEXT ones do),
@@ -43,15 +55,59 @@ pub fn sync_script(f: Flavor, changes: &[TableChange]) -> Result<SyncScript> {
         ));
     }
     let (mut drops, mut creates, mut warnings) = (Vec::new(), Vec::new(), Vec::new());
-    let what = |t: &TableSchema| if t.kind == RELATIONSHIP { "El tipo de relación" } else { "La etiqueta" };
+    let what = |t: &TableSchema| {
+        if t.kind == RELATIONSHIP {
+            "El tipo de relación"
+        } else {
+            "La etiqueta"
+        }
+    };
     for ch in changes {
         match ch {
-            TableChange::Create { table } if is_designed(table) => creates.push(table_ddl(f, table, DdlParts { create: true, ..Default::default() })?),
-            TableChange::Drop { table } if is_designed(table) => drops.push(table_ddl(f, table, DdlParts { drop: true, ..Default::default() })?),
+            TableChange::Create { table } if is_designed(table) => creates.push(table_ddl(
+                f,
+                table,
+                DdlParts {
+                    create: true,
+                    ..Default::default()
+                },
+            )?),
+            TableChange::Drop { table } if is_designed(table) => drops.push(table_ddl(
+                f,
+                table,
+                DdlParts {
+                    drop: true,
+                    ..Default::default()
+                },
+            )?),
             TableChange::Alter { old, new } if is_designed(old) || is_designed(new) => {
-                let (o, n) = (table_ddl(f, old, DdlParts { create: true, ..Default::default() })?, table_ddl(f, new, DdlParts { create: true, ..Default::default() })?);
+                let (o, n) = (
+                    table_ddl(
+                        f,
+                        old,
+                        DdlParts {
+                            create: true,
+                            ..Default::default()
+                        },
+                    )?,
+                    table_ddl(
+                        f,
+                        new,
+                        DdlParts {
+                            create: true,
+                            ..Default::default()
+                        },
+                    )?,
+                );
                 if o != n {
-                    drops.push(table_ddl(f, old, DdlParts { drop: true, ..Default::default() })?);
+                    drops.push(table_ddl(
+                        f,
+                        old,
+                        DdlParts {
+                            drop: true,
+                            ..Default::default()
+                        },
+                    )?);
                     creates.push(n);
                 }
             }
@@ -65,7 +121,11 @@ pub fn sync_script(f: Flavor, changes: &[TableChange]) -> Result<SyncScript> {
                     "{} {} no se borra: sus {} quedan. Solo se borran sus índices y restricciones.",
                     what(table),
                     table.name,
-                    if table.kind == RELATIONSHIP { "relaciones" } else { "nodos" }
+                    if table.kind == RELATIONSHIP {
+                        "relaciones"
+                    } else {
+                        "nodos"
+                    }
                 ));
                 for s in specs(table) {
                     drops.push(stmt(drop(f, &s, false)?));
@@ -84,7 +144,8 @@ pub fn sync_script(f: Flavor, changes: &[TableChange]) -> Result<SyncScript> {
                     }
                 }
                 let props = |t: &TableSchema| {
-                    let mut p: Vec<String> = t.columns.iter().map(|c| c.name.to_lowercase()).collect();
+                    let mut p: Vec<String> =
+                        t.columns.iter().map(|c| c.name.to_lowercase()).collect();
                     p.sort();
                     p
                 };
@@ -105,7 +166,10 @@ pub fn sync_script(f: Flavor, changes: &[TableChange]) -> Result<SyncScript> {
             statements.push(s);
         }
     }
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 #[cfg(test)]
@@ -115,14 +179,24 @@ mod tests {
     use dbine_driver::{ColumnDef, IndexDef};
 
     fn ix(name: &str, kind: &str, props: &[&str]) -> IndexDef {
-        IndexDef { name: name.into(), columns: props.iter().map(|p| p.to_string()).collect(), unique: kind == "UNIQUE", kind: Some(kind.into()), filter: None, ..Default::default() }
+        IndexDef {
+            name: name.into(),
+            columns: props.iter().map(|p| p.to_string()).collect(),
+            unique: kind == "UNIQUE",
+            kind: Some(kind.into()),
+            filter: None,
+            ..Default::default()
+        }
     }
 
     fn label(indexes: Vec<IndexDef>) -> TableSchema {
         TableSchema {
             kind: LABEL.into(),
             name: "Person".into(),
-            columns: vec![ColumnDef { name: "name".into(), ..Default::default() }],
+            columns: vec![ColumnDef {
+                name: "name".into(),
+                ..Default::default()
+            }],
             indexes,
             ..Default::default()
         }
@@ -130,9 +204,20 @@ mod tests {
 
     #[test]
     fn neo4j_indexes_and_constraints() {
-        let old = label(vec![ix("ix_name", "RANGE", &["name"]), ix("u_id", "UNIQUE", &["id"]), ix("gone", "TEXT", &["bio"])]);
-        let mut new = label(vec![ix("ix_name", "RANGE", &["name", "age"]), ix("u_id", "UNIQUE", &["id"]), ix("ex", "EXISTS", &["name"])]);
-        new.columns.push(ColumnDef { name: "age".into(), ..Default::default() });
+        let old = label(vec![
+            ix("ix_name", "RANGE", &["name"]),
+            ix("u_id", "UNIQUE", &["id"]),
+            ix("gone", "TEXT", &["bio"]),
+        ]);
+        let mut new = label(vec![
+            ix("ix_name", "RANGE", &["name", "age"]),
+            ix("u_id", "UNIQUE", &["id"]),
+            ix("ex", "EXISTS", &["name"]),
+        ]);
+        new.columns.push(ColumnDef {
+            name: "age".into(),
+            ..Default::default()
+        });
         let s = sync_script(Flavor::Neo4j, &[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
             s.statements,
@@ -150,16 +235,42 @@ mod tests {
     fn memgraph_and_labels() {
         let old = label(vec![ix("", "RANGE", &["name"])]);
         let new = label(vec![ix("", "RANGE", &["name"]), ix("", "UNIQUE", &["id"])]);
-        let s = sync_script(Flavor::Memgraph, &[TableChange::Alter { old: old.clone(), new }]).unwrap();
-        assert_eq!(s.statements, vec!["CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;"]);
+        let s = sync_script(
+            Flavor::Memgraph,
+            &[TableChange::Alter {
+                old: old.clone(),
+                new,
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            vec!["CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;"]
+        );
 
-        let s = sync_script(Flavor::Memgraph, &[TableChange::Drop { table: old.clone() }]).unwrap();
+        let s = sync_script(
+            Flavor::Memgraph,
+            &[TableChange::Drop { table: old.clone() }],
+        )
+        .unwrap();
         assert_eq!(s.statements, vec!["DROP INDEX ON :Person(name);"]);
         assert!(s.warnings[0].contains("no se borra"));
 
-        let s = sync_script(Flavor::Neo4j, &[TableChange::Create { table: label(vec![ix("u", "UNIQUE", &["id"])]) }]).unwrap();
-        assert_eq!(s.statements, vec!["CREATE CONSTRAINT u\nFOR (e:Person) REQUIRE e.id IS UNIQUE;"]);
+        let s = sync_script(
+            Flavor::Neo4j,
+            &[TableChange::Create {
+                table: label(vec![ix("u", "UNIQUE", &["id"])]),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            vec!["CREATE CONSTRAINT u\nFOR (e:Person) REQUIRE e.id IS UNIQUE;"]
+        );
 
-        assert!(matches!(sync_script(Flavor::Neptune, &[]), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            sync_script(Flavor::Neptune, &[]),
+            Err(Error::Unsupported(_))
+        ));
     }
 }

@@ -5,7 +5,10 @@
 //! SQLite runs everywhere; PostgreSQL needs its test container:
 //! `DBINE_TEST_POSTGRES_URL=postgres://postgres:pw@localhost:25010/postgres cargo test -p dbine-plugin-host -- --ignored`
 
-use dbine_driver::{ConnectionConfig, Driver, Error, ObjectRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, Session};
+use dbine_driver::{
+    ConnectionConfig, Driver, Error, ObjectRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef,
+    Session,
+};
 use dbine_plugin::{DriverMeta, Launcher, RemoteDriver};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -17,21 +20,49 @@ fn remote(package: &str, driver_id: &str) -> (Arc<dyn Driver>, Arc<dyn Driver>) 
     (local, remote)
 }
 
-fn remote_with_launcher(package: &str, driver_id: &str) -> (Arc<dyn Driver>, Arc<dyn Driver>, Arc<Launcher>) {
-    let (_, drivers) = dbine_drivers::packages().into_iter().find(|(p, _)| *p == package).expect("package");
-    let local = drivers.into_iter().find(|d| d.info().id == driver_id).expect("driver");
+fn remote_with_launcher(
+    package: &str,
+    driver_id: &str,
+) -> (Arc<dyn Driver>, Arc<dyn Driver>, Arc<Launcher>) {
+    let (_, drivers) = dbine_drivers::packages()
+        .into_iter()
+        .find(|(p, _)| *p == package)
+        .expect("package");
+    let local = drivers
+        .into_iter()
+        .find(|d| d.info().id == driver_id)
+        .expect("driver");
     let meta = DriverMeta::of(package, local.as_ref());
-    let launcher = Launcher::at(package, EXE.into(), vec!["--package".into(), package.into()], None);
-    (local, Arc::new(RemoteDriver::new(meta, launcher.clone())), launcher)
+    let launcher = Launcher::at(
+        package,
+        EXE.into(),
+        vec!["--package".into(), package.into()],
+        None,
+    );
+    (
+        local,
+        Arc::new(RemoteDriver::new(meta, launcher.clone())),
+        launcher,
+    )
 }
 
 /// What a session answers, as JSON (so both sides compare as data).
 async fn survey(s: &mut Box<dyn Session>, table: &str) -> Value {
-    let obj = ObjectRef { kind: "table".into(), schema: None, name: table.into() };
+    let obj = ObjectRef {
+        kind: "table".into(),
+        schema: None,
+        name: table.into(),
+    };
     let mut out = QueryOutcome::default();
-    let run = s.execute(&format!("SELECT * FROM {table} ORDER BY id"), 100, &mut out).await;
+    let run = s
+        .execute(&format!("SELECT * FROM {table} ORDER BY id"), 100, &mut out)
+        .await;
     let mut bad = QueryOutcome::default();
-    let err = s.execute("SELECT * FROM no_existe", 10, &mut bad).await.err().map(|e| e.to_string());
+    let err = s
+        .execute("SELECT * FROM no_existe", 10, &mut bad)
+        .await
+        .err()
+        .map(|e| e.to_string());
     serde_json::json!({
         "databases": s.list_databases().await.map_err(|e| e.to_string()),
         "objects": serde_json::to_value(s.list_objects().await.map_err(|e| e.to_string()).ok()).unwrap(),
@@ -52,7 +83,8 @@ struct Collect {
 }
 impl RowSink for Collect {
     fn begin(&mut self, index: usize, columns: &[ResultColumn]) -> std::io::Result<()> {
-        self.begins.push((index, columns.iter().map(|c| c.name.clone()).collect()));
+        self.begins
+            .push((index, columns.iter().map(|c| c.name.clone()).collect()));
         Ok(())
     }
     fn row(&mut self, index: usize, row: &[Value]) -> std::io::Result<()> {
@@ -63,25 +95,50 @@ impl RowSink for Collect {
 
 /// `run_read_only`'s answer as data: the error's kind (and whether it is
 /// `Unsupported`), and the rows.
-async fn read_only(s: &mut Box<dyn Session>, sql: &str) -> (Result<(), (std::mem::Discriminant<Error>, bool)>, Vec<Vec<Vec<Value>>>) {
+async fn read_only(
+    s: &mut Box<dyn Session>,
+    sql: &str,
+) -> (
+    Result<(), (std::mem::Discriminant<Error>, bool)>,
+    Vec<Vec<Vec<Value>>>,
+) {
     let mut out = QueryOutcome::default();
     let r = s.run_read_only(sql, 10, &mut out).await;
     let rows = out.results.iter().map(|r| r.rows.clone()).collect();
-    (r.map_err(|e| (std::mem::discriminant(&e), matches!(e, Error::Unsupported(_)))), rows)
+    (
+        r.map_err(|e| {
+            (
+                std::mem::discriminant(&e),
+                matches!(e, Error::Unsupported(_)),
+            )
+        }),
+        rows,
+    )
 }
 
 async fn streamed(s: &mut Box<dyn Session>, sql: &str) -> (Value, QueryOutcome) {
     let sink = Arc::new(Mutex::new(Collect::default()));
-    let mut out = QueryOutcome { sink: Some(RowSinkRef(sink.clone())), sink_base: 2, ..Default::default() };
+    let mut out = QueryOutcome {
+        sink: Some(RowSinkRef(sink.clone())),
+        sink_base: 2,
+        ..Default::default()
+    };
     s.execute(sql, 5, &mut out).await.unwrap();
     let c = sink.lock().unwrap();
-    (serde_json::json!({ "begins": c.begins, "rows": c.rows }), out)
+    (
+        serde_json::json!({ "begins": c.begins, "rows": c.rows }),
+        out,
+    )
 }
 
 fn sqlite_file() -> (tempfile::TempDir, ConnectionConfig) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("p.db");
-    let cfg = ConnectionConfig { driver: "sqlite".into(), host: path.display().to_string(), ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: path.display().to_string(),
+        ..Default::default()
+    };
     (dir, cfg)
 }
 
@@ -105,8 +162,14 @@ async fn sqlite_through_the_host_answers_the_same() {
 
     let mut a = local.connect(&cfg, None).await.unwrap();
     let mut b = remote.connect(&cfg, None).await.unwrap();
-    assert_eq!(survey(&mut a, "clientes").await, survey(&mut b, "clientes").await);
-    assert_eq!(a.server_version().await.unwrap(), b.server_version().await.unwrap());
+    assert_eq!(
+        survey(&mut a, "clientes").await,
+        survey(&mut b, "clientes").await
+    );
+    assert_eq!(
+        a.server_version().await.unwrap(),
+        b.server_version().await.unwrap()
+    );
 
     // Rows to a sink: the same result-set numbers (base 2) and rows; the
     // row limit doesn't apply to a sink.
@@ -115,17 +178,39 @@ async fn sqlite_through_the_host_answers_the_same() {
     let (sb, ob) = streamed(&mut b, sql).await;
     assert_eq!(sa, sb);
     assert_eq!(oa.results.len(), ob.results.len());
-    assert!(ob.results.iter().all(|r| r.rows.is_empty()), "streamed rows don't stay in the outcome");
+    assert!(
+        ob.results.iter().all(|r| r.rows.is_empty()),
+        "streamed rows don't stay in the outcome"
+    );
 
     // Driver-level methods go to the host too.
-    let table = a.database_schema().await.unwrap().into_iter().find(|t| t.name == "clientes").unwrap();
-    let parts = dbine_driver::DdlParts { create: true, indexes: true, ..Default::default() };
-    assert_eq!(local.table_ddl(&table, parts).unwrap(), remote.table_ddl(&table, parts).unwrap());
+    let table = a
+        .database_schema()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.name == "clientes")
+        .unwrap();
+    let parts = dbine_driver::DdlParts {
+        create: true,
+        indexes: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        local.table_ddl(&table, parts).unwrap(),
+        remote.table_ddl(&table, parts).unwrap()
+    );
 
     // A failing statement keeps what ran before it, on both sides.
     let (mut oa, mut ob) = (QueryOutcome::default(), QueryOutcome::default());
-    let ea = a.execute("SELECT 1 AS uno; SELECT * FROM no_existe;", 10, &mut oa).await.unwrap_err();
-    let eb = b.execute("SELECT 1 AS uno; SELECT * FROM no_existe;", 10, &mut ob).await.unwrap_err();
+    let ea = a
+        .execute("SELECT 1 AS uno; SELECT * FROM no_existe;", 10, &mut oa)
+        .await
+        .unwrap_err();
+    let eb = b
+        .execute("SELECT 1 AS uno; SELECT * FROM no_existe;", 10, &mut ob)
+        .await
+        .unwrap_err();
     assert_eq!(ea.to_string(), eb.to_string());
     assert_eq!(std::mem::discriminant(&ea), std::mem::discriminant(&eb));
     assert_eq!(oa.results.len(), ob.results.len());
@@ -162,10 +247,22 @@ async fn sqlite_through_the_host_answers_the_same() {
     let (mut oa, mut ob) = (QueryOutcome::default(), QueryOutcome::default());
     a.execute_bound(&bound, 10, &mut oa).await.unwrap();
     b.execute_bound(&bound, 10, &mut ob).await.unwrap();
-    assert_eq!(oa.results.iter().map(|r| &r.rows).collect::<Vec<_>>(), ob.results.iter().map(|r| &r.rows).collect::<Vec<_>>());
+    assert_eq!(
+        oa.results.iter().map(|r| &r.rows).collect::<Vec<_>>(),
+        ob.results.iter().map(|r| &r.rows).collect::<Vec<_>>()
+    );
     assert_eq!(ob.results[0].rows, vec![vec![serde_json::json!(3)]]);
-    for v in [evil, ParamValue::Number("-2.5".into()), ParamValue::Bool(true), ParamValue::DateTime("2026-10-18T14:30:00".into()), ParamValue::Null] {
-        assert_eq!(local.param_literal(&v).unwrap(), remote.param_literal(&v).unwrap());
+    for v in [
+        evil,
+        ParamValue::Number("-2.5".into()),
+        ParamValue::Bool(true),
+        ParamValue::DateTime("2026-10-18T14:30:00".into()),
+        ParamValue::Null,
+    ] {
+        assert_eq!(
+            local.param_literal(&v).unwrap(),
+            remote.param_literal(&v).unwrap()
+        );
     }
 }
 
@@ -177,7 +274,10 @@ async fn a_dead_host_is_an_error_then_starts_again() {
     assert!(s.server_version().await.is_ok());
     // Kill this driver's host, as a crash would.
     let pid = launcher.pid().expect("running");
-    let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+    let _ = std::process::Command::new("kill")
+        .arg("-9")
+        .arg(pid.to_string())
+        .status();
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let err = s.server_version().await.unwrap_err();
     assert!(matches!(err, Error::Connect(_)), "{err}");
@@ -218,14 +318,25 @@ async fn postgres_through_the_host_answers_the_same() {
         .unwrap();
     let mut a = local.connect(&cfg, None).await.unwrap();
     let mut b = remote.connect(&cfg, None).await.unwrap();
-    let (mut sa, mut sb) = (survey(&mut a, "plugin_parity").await, survey(&mut b, "plugin_parity").await);
+    let (mut sa, mut sb) = (
+        survey(&mut a, "plugin_parity").await,
+        survey(&mut b, "plugin_parity").await,
+    );
     // `alta` is now(): the same, but not worth comparing to the microsecond.
     for s in [&mut sa, &mut sb] {
         s["rows"] = Value::Null;
     }
     assert_eq!(sa, sb);
-    let (xa, _) = streamed(&mut a, "SELECT id, nombre, monto FROM plugin_parity ORDER BY id").await;
-    let (xb, _) = streamed(&mut b, "SELECT id, nombre, monto FROM plugin_parity ORDER BY id").await;
+    let (xa, _) = streamed(
+        &mut a,
+        "SELECT id, nombre, monto FROM plugin_parity ORDER BY id",
+    )
+    .await;
+    let (xb, _) = streamed(
+        &mut b,
+        "SELECT id, nombre, monto FROM plugin_parity ORDER BY id",
+    )
+    .await;
     assert_eq!(xa, xb);
     assert_eq!(xb["rows"].as_array().unwrap().len(), 50);
 
@@ -238,23 +349,37 @@ async fn postgres_through_the_host_answers_the_same() {
     let started = std::time::Instant::now();
     let mut o = QueryOutcome::default();
     let r = b.execute("SELECT pg_sleep(20)", 10, &mut o).await;
-    assert!(started.elapsed().as_secs() < 10, "cancel took {:?}", started.elapsed());
+    assert!(
+        started.elapsed().as_secs() < 10,
+        "cancel took {:?}",
+        started.elapsed()
+    );
     assert!(r.is_err() || o.error.is_some());
 
     // Monitor through the host.
-    let (ma, mb) = (a.monitor().await.map(|m| m.metrics.len()), b.monitor().await.map(|m| m.metrics.len()));
+    let (ma, mb) = (
+        a.monitor().await.map(|m| m.metrics.len()),
+        b.monitor().await.map(|m| m.metrics.len()),
+    );
     assert_eq!(ma.is_ok(), mb.is_ok());
     let mut clean = QueryOutcome::default();
-    setup.execute("DROP TABLE plugin_parity", 10, &mut clean).await.unwrap();
+    setup
+        .execute("DROP TABLE plugin_parity", 10, &mut clean)
+        .await
+        .unwrap();
 }
 
 #[test]
 fn a_driver_s_own_split_comes_through_the_host() {
     // Oracle cuts SQL*Plus lines itself, which the dialect alone can't.
     let (local, remote) = remote("oracle", "oracle");
-    let sql = "SET SERVEROUTPUT ON\nBEGIN NULL; END;\n/\nPROMPT a;\nEXEC p(1);\nSELECT 1 FROM dual;\n";
+    let sql =
+        "SET SERVEROUTPUT ON\nBEGIN NULL; END;\n/\nPROMPT a;\nEXEC p(1);\nSELECT 1 FROM dual;\n";
     let units = remote.split_script(sql);
     assert_eq!(units, local.split_script(sql));
     assert_eq!(units.len(), 5, "{units:?}");
-    assert_ne!(units, dbine_driver::sql::split_script(sql, &remote.script_dialect()));
+    assert_ne!(
+        units,
+        dbine_driver::sql::split_script(sql, &remote.script_dialect())
+    );
 }

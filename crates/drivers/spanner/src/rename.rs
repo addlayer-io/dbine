@@ -10,7 +10,9 @@
 //! can't be renamed. Each DDL statement is applied on its own: no atomic
 //! run.
 
-use dbine_driver::rename::{quote_new, rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
+use dbine_driver::rename::{
+    quote_new, rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
+};
 use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::{kinds, Error, ReferenceStyle, Result, SyncScript};
 
@@ -40,10 +42,14 @@ pub(crate) fn script(req: &RenameRequest) -> Result<SyncScript> {
     let spec = spec();
     if !spec.allows(&req.target) {
         let what = match &req.target {
-            RenameTarget::Object { object, .. } if object.kind == kinds::SEQUENCE => "secuencias".to_string(),
+            RenameTarget::Object { object, .. } if object.kind == kinds::SEQUENCE => {
+                "secuencias".to_string()
+            }
             RenameTarget::Object { object, .. } => format!("objetos de tipo «{}»", object.kind),
             RenameTarget::Column { .. } => "columnas".into(),
-            RenameTarget::Index { .. } => "índices (hay que borrarlos y crearlos con otro nombre)".into(),
+            RenameTarget::Index { .. } => {
+                "índices (hay que borrarlos y crearlos con otro nombre)".into()
+            }
             RenameTarget::Constraint { .. } => "restricciones".into(),
             RenameTarget::Schema { .. } => "esquemas".into(),
         };
@@ -51,16 +57,30 @@ pub(crate) fn script(req: &RenameRequest) -> Result<SyncScript> {
     }
     let dialect = crate::script::dialect();
     let new = quote_new(&req.new_name, &dialect, spec.fold, false);
-    let RenameTarget::Object { object, .. } = &req.target else { unreachable!("only objects are allowed") };
+    let RenameTarget::Object { object, .. } = &req.target else {
+        unreachable!("only objects are allowed")
+    };
     let schema = object.schema().filter(|s| !s.is_empty());
     let old = qualified_name(Quote::Backtick, schema, &object.name);
     let statements = if object.kind == kinds::VIEW {
-        let def = req
-            .definition
-            .as_deref()
-            .ok_or_else(|| Error::Unsupported(format!("no se leyó la definición de la vista «{}»", object.name)))?;
-        let create = rename_header(def.trim_end().trim_end_matches(';'), &dialect, spec.fold, &req.new_name)
-            .ok_or_else(|| Error::Unsupported(format!("no se encontró el nombre en la definición de la vista «{}»", object.name)))?;
+        let def = req.definition.as_deref().ok_or_else(|| {
+            Error::Unsupported(format!(
+                "no se leyó la definición de la vista «{}»",
+                object.name
+            ))
+        })?;
+        let create = rename_header(
+            def.trim_end().trim_end_matches(';'),
+            &dialect,
+            spec.fold,
+            &req.new_name,
+        )
+        .ok_or_else(|| {
+            Error::Unsupported(format!(
+                "no se encontró el nombre en la definición de la vista «{}»",
+                object.name
+            ))
+        })?;
         // Created first: if it fails, the old view is still there.
         vec![format!("{create};"), format!("DROP VIEW {old};")]
     } else {
@@ -76,7 +96,10 @@ pub(crate) fn script(req: &RenameRequest) -> Result<SyncScript> {
     } else {
         Vec::new()
     };
-    Ok(SyncScript { statements, warnings })
+    Ok(SyncScript {
+        statements,
+        warnings,
+    })
 }
 
 #[cfg(test)]
@@ -85,15 +108,31 @@ mod tests {
     use dbine_driver::ObjectRef;
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: (!schema.is_empty()).then(|| schema.into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: (!schema.is_empty()).then(|| schema.into()),
+            name: name.into(),
+        }
     }
 
     fn req(target: RenameTarget, new: &str, definition: Option<&str>) -> RenameRequest {
-        RenameRequest { target, new_name: new.into(), table: None, definition: definition.map(Into::into) }
+        RenameRequest {
+            target,
+            new_name: new.into(),
+            table: None,
+            definition: definition.map(Into::into),
+        }
     }
 
     fn object(kind: &str, schema: &str, name: &str, new: &str, def: Option<&str>) -> RenameRequest {
-        req(RenameTarget::Object { object: obj(kind, schema, name), parent: None }, new, def)
+        req(
+            RenameTarget::Object {
+                object: obj(kind, schema, name),
+                parent: None,
+            },
+            new,
+            def,
+        )
     }
 
     fn stmts(r: &RenameRequest) -> Vec<String> {
@@ -102,16 +141,29 @@ mod tests {
 
     #[test]
     fn tables_keep_their_schema_and_case() {
-        assert_eq!(stmts(&object(kinds::TABLE, "", "Singers", "Cantantes", None)), ["ALTER TABLE `Singers` RENAME TO Cantantes;"]);
-        assert_eq!(stmts(&object(kinds::TABLE, "ventas", "T", "U", None)), ["ALTER TABLE `ventas`.`T` RENAME TO `ventas`.U;"]);
+        assert_eq!(
+            stmts(&object(kinds::TABLE, "", "Singers", "Cantantes", None)),
+            ["ALTER TABLE `Singers` RENAME TO Cantantes;"]
+        );
+        assert_eq!(
+            stmts(&object(kinds::TABLE, "ventas", "T", "U", None)),
+            ["ALTER TABLE `ventas`.`T` RENAME TO `ventas`.U;"]
+        );
         // Reserved words and odd characters are quoted.
-        assert_eq!(stmts(&object(kinds::TABLE, "", "t", "select", None)), ["ALTER TABLE `t` RENAME TO `select`;"]);
-        assert_eq!(stmts(&object(kinds::TABLE, "", "t", "mi tabla", None)), ["ALTER TABLE `t` RENAME TO `mi tabla`;"]);
+        assert_eq!(
+            stmts(&object(kinds::TABLE, "", "t", "select", None)),
+            ["ALTER TABLE `t` RENAME TO `select`;"]
+        );
+        assert_eq!(
+            stmts(&object(kinds::TABLE, "", "t", "mi tabla", None)),
+            ["ALTER TABLE `t` RENAME TO `mi tabla`;"]
+        );
     }
 
     #[test]
     fn views_are_created_again_with_the_new_name() {
-        let def = "CREATE VIEW `ventas`.`V` SQL SECURITY INVOKER AS\nSELECT T.id, T.pepe FROM ventas.T";
+        let def =
+            "CREATE VIEW `ventas`.`V` SQL SECURITY INVOKER AS\nSELECT T.id, T.pepe FROM ventas.T";
         let s = script(&object(kinds::VIEW, "ventas", "V", "Vista2", Some(def))).unwrap();
         assert_eq!(
             s.statements,
@@ -119,26 +171,74 @@ mod tests {
         );
         assert_eq!(s.warnings.len(), 1);
         let def = "CREATE VIEW `V` SQL SECURITY DEFINER AS\nSELECT 1 AS x";
-        assert_eq!(stmts(&object(kinds::VIEW, "", "V", "w", Some(def))), ["CREATE VIEW `w` SQL SECURITY DEFINER AS\nSELECT 1 AS x;", "DROP VIEW `V`;"]);
+        assert_eq!(
+            stmts(&object(kinds::VIEW, "", "V", "w", Some(def))),
+            [
+                "CREATE VIEW `w` SQL SECURITY DEFINER AS\nSELECT 1 AS x;",
+                "DROP VIEW `V`;"
+            ]
+        );
         // Without its definition there's nothing to create.
-        assert!(matches!(script(&object(kinds::VIEW, "", "V", "w", None)), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            script(&object(kinds::VIEW, "", "V", "w", None)),
+            Err(Error::Unsupported(_))
+        ));
     }
 
     #[test]
     fn refuses_what_spanner_cant_rename() {
         let t = obj(kinds::TABLE, "", "T");
         for r in [
-            req(RenameTarget::Column { table: t.clone(), column: "pepe".into() }, "juan", None),
-            req(RenameTarget::Index { table: t.clone(), index: "ix".into() }, "iy", None),
-            req(RenameTarget::Constraint { table: t, constraint: "ck".into() }, "ck2", None),
-            req(RenameTarget::Schema { database: None, schema: "ventas".into() }, "v2", None),
+            req(
+                RenameTarget::Column {
+                    table: t.clone(),
+                    column: "pepe".into(),
+                },
+                "juan",
+                None,
+            ),
+            req(
+                RenameTarget::Index {
+                    table: t.clone(),
+                    index: "ix".into(),
+                },
+                "iy",
+                None,
+            ),
+            req(
+                RenameTarget::Constraint {
+                    table: t,
+                    constraint: "ck".into(),
+                },
+                "ck2",
+                None,
+            ),
+            req(
+                RenameTarget::Schema {
+                    database: None,
+                    schema: "ventas".into(),
+                },
+                "v2",
+                None,
+            ),
             object(kinds::SEQUENCE, "", "s", "s2", None),
         ] {
-            assert!(matches!(script(&r), Err(Error::Unsupported(_))), "{:?}", r.target);
+            assert!(
+                matches!(script(&r), Err(Error::Unsupported(_))),
+                "{:?}",
+                r.target
+            );
         }
         let s = spec();
         assert_eq!(s.kinds, ["table", "view"]);
-        assert!(!s.columns && !s.indexes && !s.constraints && !s.schemas && !s.transactional && s.tracked.is_empty());
+        assert!(
+            !s.columns
+                && !s.indexes
+                && !s.constraints
+                && !s.schemas
+                && !s.transactional
+                && s.tracked.is_empty()
+        );
         assert_eq!(s.replace, ReplaceStyle::DropCreate);
         assert_eq!(s.fold, Fold::None);
     }

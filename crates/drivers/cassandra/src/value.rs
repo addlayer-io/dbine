@@ -51,9 +51,17 @@ pub fn to_json(v: &CqlValue) -> J {
         CqlValue::List(items) | CqlValue::Set(items) | CqlValue::Vector(items) => {
             J::Array(items.iter().map(to_json).collect())
         }
-        CqlValue::Tuple(items) => J::Array(items.iter().map(|i| i.as_ref().map_or(J::Null, to_json)).collect()),
+        CqlValue::Tuple(items) => J::Array(
+            items
+                .iter()
+                .map(|i| i.as_ref().map_or(J::Null, to_json))
+                .collect(),
+        ),
         CqlValue::Map(pairs) => {
-            if pairs.iter().all(|(k, _)| matches!(k, CqlValue::Text(_) | CqlValue::Ascii(_))) {
+            if pairs
+                .iter()
+                .all(|(k, _)| matches!(k, CqlValue::Text(_) | CqlValue::Ascii(_)))
+            {
                 let mut o = serde_json::Map::new();
                 for (k, v) in pairs {
                     if let CqlValue::Text(k) | CqlValue::Ascii(k) = k {
@@ -62,7 +70,12 @@ pub fn to_json(v: &CqlValue) -> J {
                 }
                 J::Object(o)
             } else {
-                J::Array(pairs.iter().map(|(k, v)| J::Array(vec![to_json(k), to_json(v)])).collect())
+                J::Array(
+                    pairs
+                        .iter()
+                        .map(|(k, v)| J::Array(vec![to_json(k), to_json(v)]))
+                        .collect(),
+                )
             }
         }
         CqlValue::UserDefinedType { fields, .. } => {
@@ -190,13 +203,21 @@ pub(crate) fn time(ns: i64) -> String {
 /// CQL's own duration notation (`1mo2d3h4m5s6ms7us8ns`).
 pub(crate) fn duration(months: i32, days: i32, nanos: i64) -> String {
     let neg = months < 0 || days < 0 || nanos < 0;
-    let (months, days, mut n) = (months.unsigned_abs(), days.unsigned_abs(), nanos.unsigned_abs());
+    let (months, days, mut n) = (
+        months.unsigned_abs(),
+        days.unsigned_abs(),
+        nanos.unsigned_abs(),
+    );
     let mut s = String::new();
     if neg {
         s.push('-');
     }
     let (y, mo) = (months / 12, months % 12);
-    for (v, unit) in [(u64::from(y), "y"), (u64::from(mo), "mo"), (u64::from(days), "d")] {
+    for (v, unit) in [
+        (u64::from(y), "y"),
+        (u64::from(mo), "mo"),
+        (u64::from(days), "d"),
+    ] {
         if v > 0 {
             s.push_str(&format!("{v}{unit}"));
         }
@@ -229,21 +250,45 @@ mod tests {
     fn scalars() {
         assert_eq!(cell(None), J::Null);
         assert_eq!(cell(Some(&CqlValue::Int(5))), J::from(5));
-        assert_eq!(cell(Some(&CqlValue::BigInt(i64::MAX))), J::from("9223372036854775807"));
+        assert_eq!(
+            cell(Some(&CqlValue::BigInt(i64::MAX))),
+            J::from("9223372036854775807")
+        );
         assert_eq!(cell(Some(&CqlValue::Counter(Counter(3)))), J::from(3));
         assert_eq!(cell(Some(&CqlValue::Float(1.1))), J::from(1.1));
-        assert_eq!(cell(Some(&CqlValue::Blob(vec![0xca, 0xfe]))), J::from("0xCAFE"));
+        assert_eq!(
+            cell(Some(&CqlValue::Blob(vec![0xca, 0xfe]))),
+            J::from("0xCAFE")
+        );
         assert_eq!(cell(Some(&CqlValue::Text("x".into()))), J::from("x"));
     }
 
     #[test]
     fn dates_and_times() {
-        assert_eq!(cell(Some(&CqlValue::Date(CqlDate(1 << 31)))), J::from("1970-01-01"));
-        assert_eq!(cell(Some(&CqlValue::Date(CqlDate((1 << 31) + 19_753)))), J::from("2024-01-31"));
-        assert_eq!(cell(Some(&CqlValue::Timestamp(CqlTimestamp(1_706_708_700_000)))), J::from("2024-01-31 13:45:00"));
-        assert_eq!(cell(Some(&CqlValue::Timestamp(CqlTimestamp(1_706_708_700_123)))), J::from("2024-01-31 13:45:00.123"));
-        assert_eq!(cell(Some(&CqlValue::Time(CqlTime(3_723_000_000_000)))), J::from("01:02:03"));
-        assert_eq!(duration(14, 2, 3_600_000_000_000 + 5_000_000), "1y2mo2d1h5ms");
+        assert_eq!(
+            cell(Some(&CqlValue::Date(CqlDate(1 << 31)))),
+            J::from("1970-01-01")
+        );
+        assert_eq!(
+            cell(Some(&CqlValue::Date(CqlDate((1 << 31) + 19_753)))),
+            J::from("2024-01-31")
+        );
+        assert_eq!(
+            cell(Some(&CqlValue::Timestamp(CqlTimestamp(1_706_708_700_000)))),
+            J::from("2024-01-31 13:45:00")
+        );
+        assert_eq!(
+            cell(Some(&CqlValue::Timestamp(CqlTimestamp(1_706_708_700_123)))),
+            J::from("2024-01-31 13:45:00.123")
+        );
+        assert_eq!(
+            cell(Some(&CqlValue::Time(CqlTime(3_723_000_000_000)))),
+            J::from("01:02:03")
+        );
+        assert_eq!(
+            duration(14, 2, 3_600_000_000_000 + 5_000_000),
+            "1y2mo2d1h5ms"
+        );
         assert_eq!(duration(0, 0, 0), "0s");
     }
 
@@ -254,7 +299,10 @@ mod tests {
         assert_eq!(big_to_string(&[0xff, 0x00]).unwrap(), "-256");
         assert_eq!(big_to_string(&[0x00]).unwrap(), "0");
         // 2^64 needs 9 bytes.
-        assert_eq!(big_to_string(&[0x01, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap(), "18446744073709551616");
+        assert_eq!(
+            big_to_string(&[0x01, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap(),
+            "18446744073709551616"
+        );
         assert_eq!(decimal(&[0x04, 0xd2], 2), "12.34");
         assert_eq!(decimal(&[0xfb, 0x2e], 2), "-12.34");
         assert_eq!(decimal(&[0x05], 3), "0.005");
@@ -272,7 +320,10 @@ mod tests {
         let udt = CqlValue::UserDefinedType {
             keyspace: "ks".into(),
             name: "addr".into(),
-            fields: vec![("city".into(), Some(CqlValue::Text("x".into()))), ("zip".into(), None)],
+            fields: vec![
+                ("city".into(), Some(CqlValue::Text("x".into()))),
+                ("zip".into(), None),
+            ],
         };
         assert_eq!(cell(Some(&udt)), J::from(r#"{"city":"x","zip":null}"#));
     }

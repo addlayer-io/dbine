@@ -9,22 +9,42 @@
 //! `DBINE_TEST_CASSANDRA_URL` (tests/integration.rs, authentication off)
 //! checks the explanation `principals()` gives.
 
-use dbine_driver::{ConnectionConfig, Error, ObjectRef, PrincipalKind, QueryOutcome, SecurityAction, Session};
+use dbine_driver::{
+    ConnectionConfig, Error, ObjectRef, PrincipalKind, QueryOutcome, SecurityAction, Session,
+};
 
 fn cfg(id: &str, url: &str) -> ConnectionConfig {
-    let (auth, hp) = url.rsplit_once('@').map_or((None, url), |(a, h)| (Some(a), h));
+    let (auth, hp) = url
+        .rsplit_once('@')
+        .map_or((None, url), |(a, h)| (Some(a), h));
     let (host, port) = hp.rsplit_once(':').unwrap();
-    let (user, pass) = auth.and_then(|a| a.split_once(':')).map_or((None, None), |(u, p)| (Some(u.to_string()), Some(p.to_string())));
-    ConnectionConfig { driver: id.into(), host: host.into(), port: port.parse().unwrap(), username: user, password: pass, ..Default::default() }
+    let (user, pass) = auth
+        .and_then(|a| a.split_once(':'))
+        .map_or((None, None), |(u, p)| {
+            (Some(u.to_string()), Some(p.to_string()))
+        });
+    ConnectionConfig {
+        driver: id.into(),
+        host: host.into(),
+        port: port.parse().unwrap(),
+        username: user,
+        password: pass,
+        ..Default::default()
+    }
 }
 
 fn driver(id: &str) -> std::sync::Arc<dyn dbine_driver::Driver> {
-    dbine_driver_cassandra::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(text, 100, &mut out).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
     assert!(out.error.is_none(), "{text}: {:?}", out.error);
 }
 
@@ -53,42 +73,173 @@ async fn roles_and_permissions(id: &str, url: &str) {
     let mut s = d.connect(&cfg(id, url), Some("dbine_sec")).await.unwrap();
 
     let script = |a: SecurityAction| d.security_script(&a).unwrap();
-    run(&mut s, &script(SecurityAction::CreateUser { name: "dbine_ana".into(), password: Some("Pw_12345'x".into()) })).await;
-    run(&mut s, &script(SecurityAction::CreateRole { name: "dbine_lect".into() })).await;
-    run(&mut s, &script(SecurityAction::AddMember { role: "dbine_lect".into(), member: "dbine_ana".into() })).await;
-    run(&mut s, &script(SecurityAction::Grant { privileges: vec!["SELECT".into(), "CREATE".into()], object: None, to: "dbine_lect".into(), grantable: false })).await;
+    run(
+        &mut s,
+        &script(SecurityAction::CreateUser {
+            name: "dbine_ana".into(),
+            password: Some("Pw_12345'x".into()),
+        }),
+    )
+    .await;
+    run(
+        &mut s,
+        &script(SecurityAction::CreateRole {
+            name: "dbine_lect".into(),
+        }),
+    )
+    .await;
+    run(
+        &mut s,
+        &script(SecurityAction::AddMember {
+            role: "dbine_lect".into(),
+            member: "dbine_ana".into(),
+        }),
+    )
+    .await;
+    run(
+        &mut s,
+        &script(SecurityAction::Grant {
+            privileges: vec!["SELECT".into(), "CREATE".into()],
+            object: None,
+            to: "dbine_lect".into(),
+            grantable: false,
+        }),
+    )
+    .await;
     // Unqualified: the session's keyspace.
-    let table = ObjectRef { kind: "table".into(), schema: None, name: "facturas".into() };
-    run(&mut s, &script(SecurityAction::Grant { privileges: vec!["MODIFY".into()], object: Some(table), to: "dbine_ana".into(), grantable: false })).await;
+    let table = ObjectRef {
+        kind: "table".into(),
+        schema: None,
+        name: "facturas".into(),
+    };
+    run(
+        &mut s,
+        &script(SecurityAction::Grant {
+            privileges: vec!["MODIFY".into()],
+            object: Some(table),
+            to: "dbine_ana".into(),
+            grantable: false,
+        }),
+    )
+    .await;
 
     let all = s.principals().await.unwrap();
-    let ana = all.iter().find(|p| p.name == "dbine_ana").expect("the user");
-    assert_eq!((ana.kind, ana.can_login, ana.superuser, ana.disabled), (PrincipalKind::User, Some(true), Some(false), Some(false)));
+    let ana = all
+        .iter()
+        .find(|p| p.name == "dbine_ana")
+        .expect("the user");
+    assert_eq!(
+        (ana.kind, ana.can_login, ana.superuser, ana.disabled),
+        (PrincipalKind::User, Some(true), Some(false), Some(false))
+    );
     assert_eq!(ana.member_of, vec!["dbine_lect".to_string()]);
-    assert!(all.iter().any(|p| p.name == "dbine_lect" && p.kind == PrincipalKind::Role));
-    assert!(all.iter().any(|p| p.name == "cassandra" && p.system && p.superuser == Some(true)));
+    assert!(all
+        .iter()
+        .any(|p| p.name == "dbine_lect" && p.kind == PrincipalKind::Role));
+    assert!(all
+        .iter()
+        .any(|p| p.name == "cassandra" && p.system && p.superuser == Some(true)));
 
     let g = s.grants("dbine_ana").await.unwrap();
     println!("{g:#?}");
-    let m = g.iter().find(|x| x.privilege == "MODIFY").expect("direct MODIFY");
-    assert_eq!((m.object.as_deref(), m.object_kind.as_deref(), m.via.as_deref()), (Some("dbine_sec.facturas"), Some("table"), None));
-    let sel = g.iter().find(|x| x.privilege == "SELECT").expect("SELECT through the role");
-    assert_eq!((sel.object.as_deref(), sel.via.as_deref()), (None, Some("dbine_lect")));
+    let m = g
+        .iter()
+        .find(|x| x.privilege == "MODIFY")
+        .expect("direct MODIFY");
+    assert_eq!(
+        (
+            m.object.as_deref(),
+            m.object_kind.as_deref(),
+            m.via.as_deref()
+        ),
+        (Some("dbine_sec.facturas"), Some("table"), None)
+    );
+    let sel = g
+        .iter()
+        .find(|x| x.privilege == "SELECT")
+        .expect("SELECT through the role");
+    assert_eq!(
+        (sel.object.as_deref(), sel.via.as_deref()),
+        (None, Some("dbine_lect"))
+    );
 
     // Revoke as the UI does: the grant's object split at the first dot.
-    let table = ObjectRef { kind: "table".into(), schema: Some("dbine_sec".into()), name: "facturas".into() };
-    run(&mut s, &script(SecurityAction::Revoke { privileges: vec!["MODIFY".into()], object: Some(table), from: "dbine_ana".into() })).await;
-    assert!(s.grants("dbine_ana").await.unwrap().iter().all(|x| x.privilege != "MODIFY"));
+    let table = ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbine_sec".into()),
+        name: "facturas".into(),
+    };
+    run(
+        &mut s,
+        &script(SecurityAction::Revoke {
+            privileges: vec!["MODIFY".into()],
+            object: Some(table),
+            from: "dbine_ana".into(),
+        }),
+    )
+    .await;
+    assert!(s
+        .grants("dbine_ana")
+        .await
+        .unwrap()
+        .iter()
+        .all(|x| x.privilege != "MODIFY"));
     // Cassandra 5 takes one password change per role every 5 s.
     tokio::time::sleep(std::time::Duration::from_millis(5500)).await;
-    run(&mut s, &script(SecurityAction::SetPassword { name: "dbine_ana".into(), password: "Otra_Pw_987".into() })).await;
-    run(&mut s, &script(SecurityAction::SetLogin { name: "dbine_ana".into(), enabled: false })).await;
-    let ana = s.principals().await.unwrap().into_iter().find(|p| p.name == "dbine_ana").unwrap();
+    run(
+        &mut s,
+        &script(SecurityAction::SetPassword {
+            name: "dbine_ana".into(),
+            password: "Otra_Pw_987".into(),
+        }),
+    )
+    .await;
+    run(
+        &mut s,
+        &script(SecurityAction::SetLogin {
+            name: "dbine_ana".into(),
+            enabled: false,
+        }),
+    )
+    .await;
+    let ana = s
+        .principals()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.name == "dbine_ana")
+        .unwrap();
     assert_eq!((ana.kind, ana.disabled), (PrincipalKind::User, Some(true)));
-    run(&mut s, &script(SecurityAction::RemoveMember { role: "dbine_lect".into(), member: "dbine_ana".into() })).await;
-    run(&mut s, &script(SecurityAction::Drop { name: "dbine_ana".into(), kind: PrincipalKind::User })).await;
-    run(&mut s, &script(SecurityAction::Drop { name: "dbine_lect".into(), kind: PrincipalKind::Role })).await;
-    assert!(s.principals().await.unwrap().iter().all(|p| p.name != "dbine_ana" && p.name != "dbine_lect"));
+    run(
+        &mut s,
+        &script(SecurityAction::RemoveMember {
+            role: "dbine_lect".into(),
+            member: "dbine_ana".into(),
+        }),
+    )
+    .await;
+    run(
+        &mut s,
+        &script(SecurityAction::Drop {
+            name: "dbine_ana".into(),
+            kind: PrincipalKind::User,
+        }),
+    )
+    .await;
+    run(
+        &mut s,
+        &script(SecurityAction::Drop {
+            name: "dbine_lect".into(),
+            kind: PrincipalKind::Role,
+        }),
+    )
+    .await;
+    assert!(s
+        .principals()
+        .await
+        .unwrap()
+        .iter()
+        .all(|p| p.name != "dbine_ana" && p.name != "dbine_lect"));
     drop(s);
     run(&mut admin, "DROP KEYSPACE dbine_sec").await;
 }
@@ -96,8 +247,13 @@ async fn roles_and_permissions(id: &str, url: &str) {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn without_authentication() {
-    let Ok(url) = std::env::var("DBINE_TEST_CASSANDRA_URL") else { return };
-    let mut s = driver("cassandra").connect(&cfg("cassandra", &url), None).await.unwrap();
+    let Ok(url) = std::env::var("DBINE_TEST_CASSANDRA_URL") else {
+        return;
+    };
+    let mut s = driver("cassandra")
+        .connect(&cfg("cassandra", &url), None)
+        .await
+        .unwrap();
     match s.principals().await {
         Err(Error::Unsupported(m)) => assert!(m.contains("PasswordAuthenticator"), "{m}"),
         other => panic!("{other:?}"),

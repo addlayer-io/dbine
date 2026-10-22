@@ -3,7 +3,9 @@
 //! HMAC-SHA256, key = SHA-256 of the key text) under the key stored in
 //! `~/.dbgate/.key`, itself encrypted with DbGate's built-in key.
 
-use super::{color_of, home, libsql_url, oracle_target, parse_url, port_of, redact_url, Candidate, Found};
+use super::{
+    color_of, home, libsql_url, oracle_target, parse_url, port_of, redact_url, Candidate, Found,
+};
 use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
 use base64::Engine;
 use dbine_driver::{Error, Result};
@@ -37,30 +39,51 @@ fn decrypt(key: &str, text: &str) -> Option<Value> {
         None => text,
     };
     let iv = hex::decode(body.get(..32)?).ok()?;
-    let mut data = base64::engine::general_purpose::STANDARD.decode(body.get(32..)?).ok()?;
-    let plain = cbc::Decryptor::<aes::Aes256>::new_from_slices(&k, &iv).ok()?.decrypt_padded::<Pkcs7>(&mut data).ok()?;
+    let mut data = base64::engine::general_purpose::STANDARD
+        .decode(body.get(32..)?)
+        .ok()?;
+    let plain = cbc::Decryptor::<aes::Aes256>::new_from_slices(&k, &iv)
+        .ok()?
+        .decrypt_padded::<Pkcs7>(&mut data)
+        .ok()?;
     serde_json::from_slice(plain).ok()
 }
 
 pub fn read(path: &Path) -> Result<Found> {
-    let (dir, file) = if path.is_dir() { (path.to_path_buf(), path.join("connections.jsonl")) } else { (path.parent().unwrap_or(path).to_path_buf(), path.to_path_buf()) };
-    let text = std::fs::read_to_string(&file).map_err(|e| Error::Query(format!("no se pudo leer {}: {e}", file.display())))?;
+    let (dir, file) = if path.is_dir() {
+        (path.to_path_buf(), path.join("connections.jsonl"))
+    } else {
+        (
+            path.parent().unwrap_or(path).to_path_buf(),
+            path.to_path_buf(),
+        )
+    };
+    let text = std::fs::read_to_string(&file)
+        .map_err(|e| Error::Query(format!("no se pudo leer {}: {e}", file.display())))?;
     let mut warnings = Vec::new();
     let key = match std::fs::read_to_string(dir.join(".key")) {
-        Ok(k) => match decrypt(DEFAULT_KEY, k.trim()).and_then(|v| v.get("encryptionKey").and_then(|k| k.as_str()).map(String::from)) {
-            Some(k) => Some(k),
-            None => {
-                warnings.push("No se pudo leer la clave de DbGate (.key): las contraseñas no se importan.".into());
-                None
+        Ok(k) => {
+            match decrypt(DEFAULT_KEY, k.trim()).and_then(|v| {
+                v.get("encryptionKey")
+                    .and_then(|k| k.as_str())
+                    .map(String::from)
+            }) {
+                Some(k) => Some(k),
+                None => {
+                    warnings.push("No se pudo leer la clave de DbGate (.key): las contraseñas no se importan.".into());
+                    None
+                }
             }
-        },
+        }
         // Old installs encrypted with the built-in key.
         Err(_) => Some(DEFAULT_KEY.to_string()),
     };
     let mut candidates = Vec::new();
     let mut unreadable = 0;
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
         // Opened without saving: DbGate doesn't list them either.
         if v.get("unsaved").and_then(Value::as_bool) == Some(true) {
             continue;
@@ -93,7 +116,11 @@ pub fn read(path: &Path) -> Result<Found> {
     if unreadable > 0 {
         warnings.push(format!("{unreadable} contraseña(s) no se pudieron descifrar: habrá que escribirlas al conectar."));
     }
-    Ok(Found { path: file, candidates, warnings })
+    Ok(Found {
+        path: file,
+        candidates,
+        warnings,
+    })
 }
 
 fn s<'a>(v: &'a Value, k: &str) -> &'a str {
@@ -108,29 +135,54 @@ fn map(v: &Value, password: Option<String>) -> Candidate {
     let kind = engine.split('@').next().unwrap_or("");
     // The URL may carry a login or a token: never in the name.
     let url_name = redact_url(s(v, "databaseUrl"));
-    let name = [s(v, "displayName"), s(v, "server"), s(v, "databaseFile"), url_name.as_str()]
-        .into_iter()
-        .find(|x| !x.is_empty())
-        .unwrap_or(kind)
-        .to_string();
+    let name = [
+        s(v, "displayName"),
+        s(v, "server"),
+        s(v, "databaseFile"),
+        url_name.as_str(),
+    ]
+    .into_iter()
+    .find(|x| !x.is_empty())
+    .unwrap_or(kind)
+    .to_string();
     let mut c = Candidate::new(s(v, "_id").to_string(), name, kind.to_string());
-    c.folder = s(v, "parent").split('/').map(str::trim).filter(|x| !x.is_empty()).map(String::from).collect();
+    c.folder = s(v, "parent")
+        .split('/')
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+        .map(String::from)
+        .collect();
     c.color = color_of(s(v, "connectionColor"));
     let cfg = &mut c.config;
     cfg.host = s(v, "server").to_string();
-    cfg.port = v.get("port").map(|p| p.as_u64().map(|n| n as u16).unwrap_or_else(|| port_of(p.as_str().unwrap_or("")))).unwrap_or(0);
+    cfg.port = v
+        .get("port")
+        .map(|p| {
+            p.as_u64()
+                .map(|n| n as u16)
+                .unwrap_or_else(|| port_of(p.as_str().unwrap_or("")))
+        })
+        .unwrap_or(0);
     cfg.database = s(v, "defaultDatabase").to_string();
     cfg.username = Some(s(v, "user").to_string()).filter(|u| !u.is_empty());
     cfg.password = password;
     cfg.read_only = b(v, "isReadOnly");
     cfg.encrypt = b(v, "useSsl");
-    cfg.trust_server_certificate = b(v, "trustServerCertificate") || (cfg.encrypt && v.get("sslRejectUnauthorized").and_then(Value::as_bool) == Some(false));
+    cfg.trust_server_certificate = b(v, "trustServerCertificate")
+        || (cfg.encrypt && v.get("sslRejectUnauthorized").and_then(Value::as_bool) == Some(false));
     // SSH tunnel (docs/ssh-tunnels.md); its secrets are added by the caller.
     if b(v, "useSshTunnel") {
         let opts = &mut cfg.options;
         opts.insert("ssh.enabled".into(), "true".into());
         opts.insert("ssh.host".into(), s(v, "sshHost").to_string());
-        let port = v.get("sshPort").map(|p| p.as_u64().map(|n| n.to_string()).unwrap_or_else(|| p.as_str().unwrap_or("").to_string())).unwrap_or_default();
+        let port = v
+            .get("sshPort")
+            .map(|p| {
+                p.as_u64()
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| p.as_str().unwrap_or("").to_string())
+            })
+            .unwrap_or_default();
         if !port.is_empty() && port != "22" {
             opts.insert("ssh.port".into(), port);
         }
@@ -165,7 +217,9 @@ fn map(v: &Value, password: Option<String>) -> Candidate {
                 apply_url(&mut c, url);
             }
             if auth == "awsIam" {
-                c.notes.push("La autenticación IAM de AWS no se importa: usá usuario y contraseña.".into());
+                c.notes.push(
+                    "La autenticación IAM de AWS no se importa: usá usuario y contraseña.".into(),
+                );
             }
             match kind {
                 "cockroach" => "cockroachdb",
@@ -178,16 +232,26 @@ fn map(v: &Value, password: Option<String>) -> Candidate {
         }
         "libsql" => {
             // `?authToken=…` in the URL goes to the secret option, not the host.
-            let (base, url_token) = if url.is_empty() { (s(v, "databaseFile").to_string(), None) } else { libsql_url(url) };
+            let (base, url_token) = if url.is_empty() {
+                (s(v, "databaseFile").to_string(), None)
+            } else {
+                libsql_url(url)
+            };
             c.config.host = base;
-            if let Some(t) = Some(s(v, "authToken")).filter(|t| !t.is_empty()).map(String::from).or(url_token) {
+            if let Some(t) = Some(s(v, "authToken"))
+                .filter(|t| !t.is_empty())
+                .map(String::from)
+                .or(url_token)
+            {
                 c.config.options.insert("auth_token".into(), t);
             }
             "libsql"
         }
         "mongo" | "mongo-legacy" => {
             if use_url {
-                c.config.options.insert("connection_string".into(), url.to_string());
+                c.config
+                    .options
+                    .insert("connection_string".into(), url.to_string());
                 if let Some(u) = parse_url(url) {
                     c.config.host = u.host;
                 }
@@ -199,17 +263,31 @@ fn map(v: &Value, password: Option<String>) -> Candidate {
                 apply_url(&mut c, url);
             }
             if b(v, "cluster") {
-                c.notes.push("El modo clúster de Redis no se importa: se conecta al primer nodo.".into());
+                c.notes.push(
+                    "El modo clúster de Redis no se importa: se conecta al primer nodo.".into(),
+                );
             }
             "redis"
         }
         "oracle" => {
             let service = s(v, "serviceName");
             if use_url {
-                c.config.options.insert("connect_descriptor".into(), oracle_target(url));
+                c.config
+                    .options
+                    .insert("connect_descriptor".into(), oracle_target(url));
             } else if !service.is_empty() {
-                c.config.options.insert("service".into(), service.to_string());
-                c.config.options.insert("connect_by".into(), if s(v, "serviceNameType") == "sid" { "sid" } else { "service_name" }.into());
+                c.config
+                    .options
+                    .insert("service".into(), service.to_string());
+                c.config.options.insert(
+                    "connect_by".into(),
+                    if s(v, "serviceNameType") == "sid" {
+                        "sid"
+                    } else {
+                        "service_name"
+                    }
+                    .into(),
+                );
             }
             "oracle"
         }
@@ -271,8 +349,16 @@ mod tests {
         let iv = [7u8; 16];
         let json = serde_json::to_vec(value).unwrap();
         let mut buf = vec![0u8; json.len() + 16];
-        let ct = cbc::Encryptor::<aes::Aes256>::new_from_slices(&k, &iv).unwrap().encrypt_padded_b2b::<Pkcs7>(&json, &mut buf).unwrap().to_vec();
-        let body = format!("{}{}", hex::encode(iv), base64::engine::general_purpose::STANDARD.encode(ct));
+        let ct = cbc::Encryptor::<aes::Aes256>::new_from_slices(&k, &iv)
+            .unwrap()
+            .encrypt_padded_b2b::<Pkcs7>(&json, &mut buf)
+            .unwrap()
+            .to_vec();
+        let body = format!(
+            "{}{}",
+            hex::encode(iv),
+            base64::engine::general_purpose::STANDARD.encode(ct)
+        );
         let mut mac = <hmac::Hmac<Sha256> as KeyInit>::new_from_slice(&k).unwrap();
         mac.update(body.as_bytes());
         format!("{}{body}", hex::encode(mac.finalize().into_bytes()))
@@ -282,7 +368,11 @@ mod tests {
     fn reads_connections_and_passwords() {
         let dir = tempfile::tempdir().unwrap();
         let key = "0123abcd";
-        std::fs::write(dir.path().join(".key"), encrypt(DEFAULT_KEY, &serde_json::json!({ "encryptionKey": key }))).unwrap();
+        std::fs::write(
+            dir.path().join(".key"),
+            encrypt(DEFAULT_KEY, &serde_json::json!({ "encryptionKey": key })),
+        )
+        .unwrap();
         let pass = format!("crypt:{}", encrypt(key, &Value::String("s3cr3t'".into())));
         let lines = [
             serde_json::json!({ "_id": "a", "engine": "mssql@dbgate-plugin-mssql", "server": "sql.local", "port": "14330", "user": "sa", "password": pass, "displayName": "Ventas", "parent": "Clientes/Acme", "connectionColor": "red", "trustServerCertificate": true, "defaultDatabase": "ventas" }),
@@ -293,22 +383,74 @@ mod tests {
             serde_json::json!({ "_id": "e", "engine": "cloudflare-d1@dbgate-plugin-sqlite" }),
             serde_json::json!({ "_id": "f", "engine": "mysql@dbgate-plugin-mysql", "unsaved": true }),
         ];
-        std::fs::write(dir.path().join("connections.jsonl"), lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n")).unwrap();
+        std::fs::write(
+            dir.path().join("connections.jsonl"),
+            lines
+                .iter()
+                .map(|l| l.to_string())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
         let found = read(dir.path()).unwrap();
         let c = &found.candidates;
         assert_eq!(c.len(), 5);
-        assert_eq!((c[0].name.as_str(), c[0].config.driver.as_str(), c[0].config.port), ("Ventas", "sqlserver", 14330));
+        assert_eq!(
+            (
+                c[0].name.as_str(),
+                c[0].config.driver.as_str(),
+                c[0].config.port
+            ),
+            ("Ventas", "sqlserver", 14330)
+        );
         assert_eq!(c[0].config.password.as_deref(), Some("s3cr3t'"));
         assert_eq!(c[0].folder, ["Clientes", "Acme"]);
         assert_eq!(c[0].color.as_deref(), Some("#f14c4c"));
         assert!(c[0].config.trust_server_certificate);
-        assert_eq!((c[1].config.host.as_str(), c[1].config.port, c[1].config.database.as_str()), ("pg", 5433, "app"));
-        assert_eq!((c[1].config.username.as_deref(), c[1].config.password.as_deref(), c[1].config.read_only), (Some("ana"), Some("pw"), true));
+        assert_eq!(
+            (
+                c[1].config.host.as_str(),
+                c[1].config.port,
+                c[1].config.database.as_str()
+            ),
+            ("pg", 5433, "app")
+        );
+        assert_eq!(
+            (
+                c[1].config.username.as_deref(),
+                c[1].config.password.as_deref(),
+                c[1].config.read_only
+            ),
+            (Some("ana"), Some("pw"), true)
+        );
         let o = |k: &str| c[1].config.options.get(k).map(String::as_str);
-        assert_eq!((o("ssh.enabled"), o("ssh.host"), o("ssh.port"), o("ssh.user"), o("ssh.auth"), o("ssh.password")), (Some("true"), Some("bastion"), Some("2200"), Some("ops"), Some("password"), Some("sshpw")));
+        assert_eq!(
+            (
+                o("ssh.enabled"),
+                o("ssh.host"),
+                o("ssh.port"),
+                o("ssh.user"),
+                o("ssh.auth"),
+                o("ssh.password")
+            ),
+            (
+                Some("true"),
+                Some("bastion"),
+                Some("2200"),
+                Some("ops"),
+                Some("password"),
+                Some("sshpw")
+            )
+        );
         assert!(c[1].notes.is_empty(), "{:?}", c[1].notes);
-        assert_eq!((c[2].config.driver.as_str(), c[2].config.host.as_str()), ("sqlite", "/tmp/x.db"));
-        assert_eq!(c[3].config.options.get("connect_by").map(String::as_str), Some("sid"));
+        assert_eq!(
+            (c[2].config.driver.as_str(), c[2].config.host.as_str()),
+            ("sqlite", "/tmp/x.db")
+        );
+        assert_eq!(
+            c[3].config.options.get("connect_by").map(String::as_str),
+            Some("sid")
+        );
         assert_eq!(c[3].config.password, None);
         assert!(c[4].unsupported.is_some());
         assert_eq!(found.warnings.len(), 1, "{:?}", found.warnings);
@@ -323,16 +465,50 @@ mod tests {
             serde_json::json!({ "_id": "p", "engine": "postgres@dbgate-plugin-postgres", "useDatabaseUrl": true, "databaseUrl": "postgres://ana:s3cret@pg:5433/app?sslmode=require" }),
             serde_json::json!({ "_id": "o", "engine": "oracle@dbgate-plugin-oracle", "useDatabaseUrl": true, "databaseUrl": "scott/s3cret@//ora:1521/XE" }),
         ];
-        std::fs::write(dir.path().join("connections.jsonl"), lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n")).unwrap();
+        std::fs::write(
+            dir.path().join("connections.jsonl"),
+            lines
+                .iter()
+                .map(|l| l.to_string())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
         let c = read(dir.path()).unwrap().candidates;
-        assert_eq!((c[0].config.host.as_str(), c[0].name.as_str()), ("libsql://app-org.turso.io", "libsql://app-org.turso.io"));
-        assert_eq!(c[0].config.options.get("auth_token").map(String::as_str), Some("eyJtok"));
-        assert_eq!(c[1].config.options.get("auth_token").map(String::as_str), Some("field"));
-        assert_eq!((c[2].name.as_str(), c[2].config.password.as_deref()), ("postgres://pg:5433/app", Some("s3cret")));
-        assert_eq!(c[3].config.options.get("connect_descriptor").map(String::as_str), Some("//ora:1521/XE"));
+        assert_eq!(
+            (c[0].config.host.as_str(), c[0].name.as_str()),
+            ("libsql://app-org.turso.io", "libsql://app-org.turso.io")
+        );
+        assert_eq!(
+            c[0].config.options.get("auth_token").map(String::as_str),
+            Some("eyJtok")
+        );
+        assert_eq!(
+            c[1].config.options.get("auth_token").map(String::as_str),
+            Some("field")
+        );
+        assert_eq!(
+            (c[2].name.as_str(), c[2].config.password.as_deref()),
+            ("postgres://pg:5433/app", Some("s3cret"))
+        );
+        assert_eq!(
+            c[3].config
+                .options
+                .get("connect_descriptor")
+                .map(String::as_str),
+            Some("//ora:1521/XE")
+        );
         for c in &c {
-            let json = serde_json::to_string(&(&c.name, &c.config.host, c.config.options.get("connect_descriptor"))).unwrap();
-            assert!(!json.contains("eyJtok") && !json.contains("fromurl") && !json.contains("s3cret"), "{json}");
+            let json = serde_json::to_string(&(
+                &c.name,
+                &c.config.host,
+                c.config.options.get("connect_descriptor"),
+            ))
+            .unwrap();
+            assert!(
+                !json.contains("eyJtok") && !json.contains("fromurl") && !json.contains("s3cret"),
+                "{json}"
+            );
         }
     }
 }

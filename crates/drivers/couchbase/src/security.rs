@@ -14,16 +14,34 @@
 
 use crate::ddl::{q, scope_ref};
 use crate::{text, CbSession};
-use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use serde_json::Value;
 
 pub fn spec() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
-            "data_reader", "data_writer", "query_select", "query_insert", "query_update", "query_delete",
-            "query_manage_index", "query_execute_functions", "query_manage_functions", "bucket_full_access", "bucket_admin",
-            "scope_admin", "data_backup", "data_monitoring", "views_reader", "fts_searcher", "ro_admin", "cluster_admin",
-            "security_admin_local", "admin",
+            "data_reader",
+            "data_writer",
+            "query_select",
+            "query_insert",
+            "query_update",
+            "query_delete",
+            "query_manage_index",
+            "query_execute_functions",
+            "query_manage_functions",
+            "bucket_full_access",
+            "bucket_admin",
+            "scope_admin",
+            "data_backup",
+            "data_monitoring",
+            "views_reader",
+            "fts_searcher",
+            "ro_admin",
+            "cluster_admin",
+            "security_admin_local",
+            "admin",
         ],
         // "" = the cluster (roles without a bucket); a bucket; a collection.
         object_kinds: vec!["", "database", kinds::COLLECTION],
@@ -120,7 +138,9 @@ async fn users(c: &CbSession) -> Result<Vec<Value>> {
 
 /// Groups are an Enterprise Edition feature: none on Community.
 async fn groups(c: &CbSession) -> Vec<Value> {
-    c.results("SELECT RAW g FROM system:group_info AS g").await.unwrap_or_default()
+    c.results("SELECT RAW g FROM system:group_info AS g")
+        .await
+        .unwrap_or_default()
 }
 
 pub async fn principals(c: &CbSession) -> Result<Vec<Principal>> {
@@ -142,7 +162,10 @@ fn role_object(r: &Value) -> (Option<String>, Option<String>) {
     } else if c.is_empty() || c == "*" {
         (Some(format!("{b}.{sc}")), Some("schema".into()))
     } else {
-        (Some(format!("{b}.{sc}.{c}")), Some(kinds::COLLECTION.into()))
+        (
+            Some(format!("{b}.{sc}.{c}")),
+            Some(kinds::COLLECTION.into()),
+        )
     }
 }
 
@@ -152,13 +175,21 @@ fn grants_of(p: &Value, is_group: bool) -> Vec<Grant> {
     let mut out = Vec::new();
     for r in array(p, "roles") {
         let (object, object_kind) = role_object(r);
-        let grant = |via: Option<String>| Grant { privilege: s(r, "role"), object: object.clone(), object_kind: object_kind.clone(), via, ..Default::default() };
+        let grant = |via: Option<String>| Grant {
+            privilege: s(r, "role"),
+            object: object.clone(),
+            object_kind: object_kind.clone(),
+            via,
+            ..Default::default()
+        };
         let origins: Vec<&Value> = array(r, "origins").collect();
         if is_group || origins.is_empty() {
             out.push(grant(None));
         }
         for o in origins.into_iter().filter(|_| !is_group) {
-            out.push(grant((s(o, "type") == "group").then(|| group_name(&s(o, "name")))));
+            out.push(grant(
+                (s(o, "type") == "group").then(|| group_name(&s(o, "name"))),
+            ));
         }
     }
     out
@@ -200,8 +231,18 @@ fn roles(p: &[String]) -> Result<String> {
 /// what "Nuevo esquema…" offers to grant on the new scope.
 pub fn scope_roles() -> Vec<&'static str> {
     vec![
-        "data_reader", "data_writer", "query_select", "query_insert", "query_update", "query_delete", "query_manage_index",
-        "query_execute_functions", "query_manage_functions", "scope_admin", "data_monitoring", "fts_searcher",
+        "data_reader",
+        "data_writer",
+        "query_select",
+        "query_insert",
+        "query_update",
+        "query_delete",
+        "query_manage_index",
+        "query_execute_functions",
+        "query_manage_functions",
+        "scope_admin",
+        "data_monitoring",
+        "fts_searcher",
     ]
 }
 
@@ -209,7 +250,9 @@ pub fn scope_roles() -> Vec<&'static str> {
 /// namespace (the session's query context would otherwise read a bare name
 /// as a collection).
 fn on(object: &Option<ObjectRef>) -> Result<String> {
-    let Some(o) = object else { return Ok(String::new()) };
+    let Some(o) = object else {
+        return Ok(String::new());
+    };
     if o.kind == "database" {
         return Ok(format!(" ON default:{}", q(&o.name)));
     }
@@ -230,10 +273,14 @@ fn on(object: &Option<ObjectRef>) -> Result<String> {
     };
     let mut parts = full.rsplitn(3, '.');
     match (parts.next(), parts.next(), parts.next()) {
-        (Some(c), Some(sc), Some(b)) if o.kind == kinds::COLLECTION && ![c, sc, b].contains(&"") => {
+        (Some(c), Some(sc), Some(b))
+            if o.kind == kinds::COLLECTION && ![c, sc, b].contains(&"") =>
+        {
             Ok(format!(" ON default:{}.{}.{}", q(b), q(sc), q(c)))
         }
-        _ => Err(Error::Query(format!("«{full}» no es una colección (bucket.scope.colección)"))),
+        _ => Err(Error::Query(format!(
+            "«{full}» no es una colección (bucket.scope.colección)"
+        ))),
     }
 }
 
@@ -278,46 +325,148 @@ mod tests {
     use serde_json::json;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        })
     }
 
     #[test]
     fn writes_the_scripts() {
         let sc = |a| script(&a).unwrap();
-        assert_eq!(sc(SecurityAction::CreateUser { name: "ana`b".into(), password: Some("p\"w'\\".into()) }), r#"CREATE USER `ana``b` PASSWORD "p\"w'\\";"#);
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: None }).is_err());
-        assert_eq!(sc(SecurityAction::CreateRole { name: "lect".into() }), "CREATE GROUP `lect`;");
-        assert_eq!(sc(SecurityAction::Drop { name: "group:lect".into(), kind: PrincipalKind::Role }), "DROP GROUP `lect`;");
-        assert_eq!(sc(SecurityAction::Drop { name: "ana".into(), kind: PrincipalKind::User }), "DROP USER `ana`;");
-        assert_eq!(sc(SecurityAction::SetPassword { name: "ana".into(), password: "n".into() }), r#"ALTER USER `ana` PASSWORD "n";"#);
-        assert_eq!(sc(SecurityAction::Grant { privileges: vec!["ro_admin".into()], object: None, to: "ana".into(), grantable: false }), "GRANT ro_admin TO `ana`;");
         assert_eq!(
-            sc(SecurityAction::Grant { privileges: vec!["data_reader".into(), "query_select".into()], object: obj("database", None, "b.1"), to: "group:lect".into(), grantable: false }),
+            sc(SecurityAction::CreateUser {
+                name: "ana`b".into(),
+                password: Some("p\"w'\\".into())
+            }),
+            r#"CREATE USER `ana``b` PASSWORD "p\"w'\\";"#
+        );
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: None
+        })
+        .is_err());
+        assert_eq!(
+            sc(SecurityAction::CreateRole {
+                name: "lect".into()
+            }),
+            "CREATE GROUP `lect`;"
+        );
+        assert_eq!(
+            sc(SecurityAction::Drop {
+                name: "group:lect".into(),
+                kind: PrincipalKind::Role
+            }),
+            "DROP GROUP `lect`;"
+        );
+        assert_eq!(
+            sc(SecurityAction::Drop {
+                name: "ana".into(),
+                kind: PrincipalKind::User
+            }),
+            "DROP USER `ana`;"
+        );
+        assert_eq!(
+            sc(SecurityAction::SetPassword {
+                name: "ana".into(),
+                password: "n".into()
+            }),
+            r#"ALTER USER `ana` PASSWORD "n";"#
+        );
+        assert_eq!(
+            sc(SecurityAction::Grant {
+                privileges: vec!["ro_admin".into()],
+                object: None,
+                to: "ana".into(),
+                grantable: false
+            }),
+            "GRANT ro_admin TO `ana`;"
+        );
+        assert_eq!(
+            sc(SecurityAction::Grant {
+                privileges: vec!["data_reader".into(), "query_select".into()],
+                object: obj("database", None, "b.1"),
+                to: "group:lect".into(),
+                grantable: false
+            }),
             "GRANT data_reader, query_select ON default:`b.1` TO GROUP `lect`;"
         );
         // From the explorer (schema `bucket.scope`) and from a listed grant (split at the first dot).
         let want = "GRANT query_select ON default:`b.1`.`s`.`c` TO `ana`;";
-        assert_eq!(sc(SecurityAction::Grant { privileges: vec!["query_select".into()], object: obj(kinds::COLLECTION, Some("b.1.s"), "c"), to: "ana".into(), grantable: false }), want);
-        assert_eq!(sc(SecurityAction::Grant { privileges: vec!["query_select".into()], object: obj(kinds::COLLECTION, Some("b"), "1.s.c"), to: "ana".into(), grantable: false }), want);
         assert_eq!(
-            sc(SecurityAction::Revoke { privileges: vec!["bucket_full_access".into()], object: obj("database", None, "b1"), from: "ana".into() }),
+            sc(SecurityAction::Grant {
+                privileges: vec!["query_select".into()],
+                object: obj(kinds::COLLECTION, Some("b.1.s"), "c"),
+                to: "ana".into(),
+                grantable: false
+            }),
+            want
+        );
+        assert_eq!(
+            sc(SecurityAction::Grant {
+                privileges: vec!["query_select".into()],
+                object: obj(kinds::COLLECTION, Some("b"), "1.s.c"),
+                to: "ana".into(),
+                grantable: false
+            }),
+            want
+        );
+        assert_eq!(
+            sc(SecurityAction::Revoke {
+                privileges: vec!["bucket_full_access".into()],
+                object: obj("database", None, "b1"),
+                from: "ana".into()
+            }),
             "REVOKE bucket_full_access ON default:`b1` FROM `ana`;"
         );
         // A scope (Enterprise Edition's scope roles), as "Nuevo esquema…" and a listed grant name it.
         assert_eq!(
-            sc(SecurityAction::Grant { privileges: vec!["query_select".into(), "data_reader".into()], object: obj("schema", None, "b.1.s"), to: "ana".into(), grantable: false }),
+            sc(SecurityAction::Grant {
+                privileges: vec!["query_select".into(), "data_reader".into()],
+                object: obj("schema", None, "b.1.s"),
+                to: "ana".into(),
+                grantable: false
+            }),
             "GRANT query_select, data_reader ON default:`b.1`.`s` TO `ana`;"
         );
         assert_eq!(
-            sc(SecurityAction::Revoke { privileges: vec!["scope_admin".into()], object: obj("schema", Some("b"), "s"), from: "group:g".into() }),
+            sc(SecurityAction::Revoke {
+                privileges: vec!["scope_admin".into()],
+                object: obj("schema", Some("b"), "s"),
+                from: "group:g".into()
+            }),
             "REVOKE scope_admin ON default:`b`.`s` FROM GROUP `g`;"
         );
-        assert!(script(&SecurityAction::Grant { privileges: vec!["query_select".into()], object: obj("schema", None, "s"), to: "a".into(), grantable: false }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["admin TO x; DROP USER y".into()], object: None, to: "a".into(), grantable: false }).is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["query_select".into()],
+            object: obj("schema", None, "s"),
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["admin TO x; DROP USER y".into()],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
         for a in [
-            SecurityAction::SetLogin { name: "a".into(), enabled: false },
-            SecurityAction::AddMember { role: "group:g".into(), member: "a".into() },
-            SecurityAction::Grant { privileges: vec!["admin".into()], object: None, to: "a".into(), grantable: true },
+            SecurityAction::SetLogin {
+                name: "a".into(),
+                enabled: false,
+            },
+            SecurityAction::AddMember {
+                role: "group:g".into(),
+                member: "a".into(),
+            },
+            SecurityAction::Grant {
+                privileges: vec!["admin".into()],
+                object: None,
+                to: "a".into(),
+                grantable: true,
+            },
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
@@ -331,20 +480,42 @@ mod tests {
             {"role": "ro_admin", "origins": [{"type": "user"}]},
         ]});
         let p = user_principal(&u);
-        assert_eq!((p.name.as_str(), p.superuser, p.disabled, p.system), ("ana", Some(false), Some(false), false));
+        assert_eq!(
+            (p.name.as_str(), p.superuser, p.disabled, p.system),
+            ("ana", Some(false), Some(false), false)
+        );
         assert_eq!(p.member_of, vec!["group:lect".to_string()]);
-        let admin = user_principal(&json!({"domain": "builtin", "id": "Administrator", "roles": [{"role": "admin"}]}));
+        let admin = user_principal(
+            &json!({"domain": "builtin", "id": "Administrator", "roles": [{"role": "admin"}]}),
+        );
         assert!(admin.system && admin.superuser == Some(true));
         let g = grants_of(&u, false);
         assert_eq!(g.len(), 4);
-        assert!(g.iter().any(|x| x.privilege == "bucket_full_access" && x.via.is_none() && x.object.as_deref() == Some("b1") && x.object_kind.as_deref() == Some("database")));
-        assert!(g.iter().any(|x| x.privilege == "bucket_full_access" && x.via.as_deref() == Some("group:lect")));
-        assert!(g.iter().any(|x| x.privilege == "query_select" && x.object.as_deref() == Some("b1.s.c") && x.object_kind.as_deref() == Some(kinds::COLLECTION)));
-        assert!(g.iter().any(|x| x.privilege == "ro_admin" && x.object.is_none()));
+        assert!(g.iter().any(|x| x.privilege == "bucket_full_access"
+            && x.via.is_none()
+            && x.object.as_deref() == Some("b1")
+            && x.object_kind.as_deref() == Some("database")));
+        assert!(
+            g.iter()
+                .any(|x| x.privilege == "bucket_full_access"
+                    && x.via.as_deref() == Some("group:lect"))
+        );
+        assert!(g.iter().any(|x| x.privilege == "query_select"
+            && x.object.as_deref() == Some("b1.s.c")
+            && x.object_kind.as_deref() == Some(kinds::COLLECTION)));
+        assert!(g
+            .iter()
+            .any(|x| x.privilege == "ro_admin" && x.object.is_none()));
         let grp = json!({"id": "lect", "description": "lectores", "roles": [{"role": "data_reader", "bucket_name": "*"}]});
         let gp = group_principal(&grp);
-        assert_eq!((gp.name.as_str(), gp.kind), ("group:lect", PrincipalKind::Role));
+        assert_eq!(
+            (gp.name.as_str(), gp.kind),
+            ("group:lect", PrincipalKind::Role)
+        );
         let gg = grants_of(&grp, true);
-        assert_eq!((gg.len(), gg[0].object.clone(), gg[0].via.clone()), (1, None, None));
+        assert_eq!(
+            (gg.len(), gg[0].object.clone(), gg[0].via.clone()),
+            (1, None, None)
+        );
     }
 }

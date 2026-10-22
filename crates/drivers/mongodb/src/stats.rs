@@ -33,7 +33,14 @@ pub(crate) async fn row_estimates(s: &MongoSession) -> Result<Vec<RowEstimate>> 
     for name in countable(&specs) {
         let coll = s.db.collection::<Document>(&name);
         if let Ok(n) = coll.estimated_document_count().await {
-            out.push(RowEstimate { object: ObjectRef { kind: kinds::COLLECTION.into(), schema: None, name }, rows: n });
+            out.push(RowEstimate {
+                object: ObjectRef {
+                    kind: kinds::COLLECTION.into(),
+                    schema: None,
+                    name,
+                },
+                rows: n,
+            });
         }
     }
     Ok(out)
@@ -52,6 +59,9 @@ mod tests {
             doc! { "name": "legacy" },
             doc! { "name": "metrics", "type": "timeseries" },
         ];
-        assert_eq!(countable(&specs), vec!["orders".to_string(), "legacy".to_string()]);
+        assert_eq!(
+            countable(&specs),
+            vec!["orders".to_string(), "legacy".to_string()]
+        );
     }
 }

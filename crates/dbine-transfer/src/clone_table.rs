@@ -32,8 +32,9 @@ use crate::job::{RunOptions, TransferJob, TransferMode};
 use crate::state::{Store, TableStatus};
 use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::{
-    async_trait, kinds, ColumnDef, ConnectionConfig, DdlParts, Driver, Error, Family, KeyDef, Language, LoadSpec, ObjectRef, QueryOutcome, ReadSpec,
-    Result, Session, TableSchema, TransferColumn,
+    async_trait, kinds, ColumnDef, ConnectionConfig, DdlParts, Driver, Error, Family, KeyDef,
+    Language, LoadSpec, ObjectRef, QueryOutcome, ReadSpec, Result, Session, TableSchema,
+    TransferColumn,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -48,8 +49,8 @@ mod mssql;
 mod mysql;
 mod oracle;
 mod pg;
-mod triggers;
 mod timeseries;
+mod triggers;
 
 /// What to clone besides the structure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +64,10 @@ pub struct CloneOptions {
 
 impl Default for CloneOptions {
     fn default() -> Self {
-        CloneOptions { with_data: true, with_indexes: true }
+        CloneOptions {
+            with_data: true,
+            with_indexes: true,
+        }
     }
 }
 
@@ -98,11 +102,20 @@ pub enum ClonePhase {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum CloneEvent {
-    Phase { phase: ClonePhase },
+    Phase {
+        phase: ClonePhase,
+    },
     /// Committed rows (at most one every [`crate::PROGRESS_EVERY`], plus the
     /// final one).
-    Progress { rows_done: u64, rows_total: Option<u64>, rows_per_s: f64 },
-    Log { level: LogLevel, text: String },
+    Progress {
+        rows_done: u64,
+        rows_total: Option<u64>,
+        rows_per_s: f64,
+    },
+    Log {
+        level: LogLevel,
+        text: String,
+    },
 }
 
 /// A name the clone gave to one of its constraints or indexes.
@@ -177,14 +190,22 @@ pub fn default_clone_name(name: &str, at: chrono::NaiveDateTime) -> String {
 /// [`default_clone_name`] within the engine's identifier limit: a long
 /// name is cut before the suffix (the UI mirrors this in
 /// `web/src/api/cloneTable.ts`), so the proposal is never refused.
-pub fn default_clone_name_for(driver: &dyn Driver, name: &str, at: chrono::NaiveDateTime) -> String {
+pub fn default_clone_name_for(
+    driver: &dyn Driver,
+    name: &str,
+    at: chrono::NaiveDateTime,
+) -> String {
     let suffix = format!("_{}", at.format("%Y%m%d_%H%M%S"));
     let limit = identifier_limit(driver);
     if limit == 0 || name_length(driver, &format!("{name}{suffix}")) <= limit {
         return format!("{name}{suffix}");
     }
     let room = limit.saturating_sub(suffix.len());
-    let base: String = if counts_characters(driver) { name.chars().take(room).collect() } else { cut(name, room).to_string() };
+    let base: String = if counts_characters(driver) {
+        name.chars().take(room).collect()
+    } else {
+        cut(name, room).to_string()
+    };
     format!("{base}{suffix}")
 }
 
@@ -209,14 +230,35 @@ fn name_length(driver: &dyn Driver, name: &str) -> usize {
 /// Kinds that are not stored rows of their own (their clone would be a
 /// different thing): views, files, aliases, streams, dictionaries…
 const NOT_TABLES: &[(&str, &str)] = &[
-    (kinds::VIEW, "una vista no guarda filas propias: se copiaría su resultado, no la vista"),
-    (kinds::MATERIALIZED_VIEW, "una vista materializada depende de su consulta: se copiaría su resultado, no la vista"),
-    (kinds::STREAM, "un stream depende de su origen: clonarlo no copia sus datos de forma fiel"),
+    (
+        kinds::VIEW,
+        "una vista no guarda filas propias: se copiaría su resultado, no la vista",
+    ),
+    (
+        kinds::MATERIALIZED_VIEW,
+        "una vista materializada depende de su consulta: se copiaría su resultado, no la vista",
+    ),
+    (
+        kinds::STREAM,
+        "un stream depende de su origen: clonarlo no copia sus datos de forma fiel",
+    ),
     (kinds::TOPIC, "un topic no es una tabla"),
-    ("virtual_table", "una tabla virtual depende de su módulo (FTS, R*Tree…) y de sus tablas internas"),
-    ("alias", "un alias apunta a otros índices: no tiene datos propios"),
-    ("dictionary", "un diccionario se carga desde su origen: no tiene datos propios"),
-    ("source", "una fuente lee de un sistema externo: no tiene datos propios"),
+    (
+        "virtual_table",
+        "una tabla virtual depende de su módulo (FTS, R*Tree…) y de sus tablas internas",
+    ),
+    (
+        "alias",
+        "un alias apunta a otros índices: no tiene datos propios",
+    ),
+    (
+        "dictionary",
+        "un diccionario se carga desde su origen: no tiene datos propios",
+    ),
+    (
+        "source",
+        "una fuente lee de un sistema externo: no tiene datos propios",
+    ),
     ("file", "un archivo no es una tabla de la base"),
 ];
 
@@ -336,13 +378,24 @@ fn cut_to(s: &str, max: usize, chars: bool) -> &str {
 /// or the clone's name put in front when it isn't there. Longer than `max`
 /// bytes (0: no limit): cut and ended with `_` and a hash of the whole name,
 /// so two long names never end up equal.
-pub fn rename_constraint(name: &str, old_table: &str, new_table: &str, max: usize) -> (String, bool) {
+pub fn rename_constraint(
+    name: &str,
+    old_table: &str,
+    new_table: &str,
+    max: usize,
+) -> (String, bool) {
     rename_within(name, old_table, new_table, max, false)
 }
 
 /// [`rename_constraint`], with `max` in characters when `chars` (SQL
 /// Server's sysname).
-fn rename_within(name: &str, old_table: &str, new_table: &str, max: usize, chars: bool) -> (String, bool) {
+fn rename_within(
+    name: &str,
+    old_table: &str,
+    new_table: &str,
+    max: usize,
+    chars: bool,
+) -> (String, bool) {
     rename_capped(name, old_table, new_table, max, chars, 0)
 }
 
@@ -350,29 +403,61 @@ fn rename_within(name: &str, old_table: &str, new_table: &str, max: usize, chars
 /// 64 bytes for a CHECK's name: every name the clone makes up there fits
 /// both (shorter is always valid).
 pub(super) fn byte_cap(driver_id: &str) -> usize {
-    if driver_id == "tidb" { 64 } else { 0 }
+    if driver_id == "tidb" {
+        64
+    } else {
+        0
+    }
 }
 
 /// `s` within `max` (characters when `chars`, else bytes; 0: none) and
 /// within `bytes` bytes (0: none).
 pub(super) fn fit(s: &str, max: usize, chars: bool, bytes: usize) -> &str {
     let s = if max > 0 { cut_to(s, max, chars) } else { s };
-    if bytes > 0 { cut(s, bytes) } else { s }
+    if bytes > 0 {
+        cut(s, bytes)
+    } else {
+        s
+    }
 }
 
 /// [`rename_within`], also within `bytes` bytes (0: none; see [`byte_cap`]).
-pub(super) fn rename_capped(name: &str, old_table: &str, new_table: &str, max: usize, chars: bool, bytes: usize) -> (String, bool) {
+pub(super) fn rename_capped(
+    name: &str,
+    old_table: &str,
+    new_table: &str,
+    max: usize,
+    chars: bool,
+    bytes: usize,
+) -> (String, bool) {
     let lower = name.to_ascii_lowercase();
-    let full = match lower.find(&old_table.to_ascii_lowercase()).filter(|_| !old_table.is_empty()) {
-        Some(i) => format!("{}{}{}", &name[..i], new_table, &name[i + old_table.len()..]),
+    let full = match lower
+        .find(&old_table.to_ascii_lowercase())
+        .filter(|_| !old_table.is_empty())
+    {
+        Some(i) => format!(
+            "{}{}{}",
+            &name[..i],
+            new_table,
+            &name[i + old_table.len()..]
+        ),
         None => format!("{new_table}_{name}"),
     };
-    let len = if chars { full.chars().count() } else { full.len() };
+    let len = if chars {
+        full.chars().count()
+    } else {
+        full.len()
+    };
     if (max == 0 || len <= max) && (bytes == 0 || full.len() <= bytes) {
         return (full, false);
     }
     let suffix = format!("_{:08x}", fnv(&full));
-    let base = fit(&full, max.saturating_sub(suffix.len()), chars, bytes.saturating_sub(suffix.len()));
+    let base = fit(
+        &full,
+        max.saturating_sub(suffix.len()),
+        chars,
+        bytes.saturating_sub(suffix.len()),
+    );
     (format!("{base}{suffix}"), true)
 }
 
@@ -408,7 +493,12 @@ pub fn plan_clone(driver: &dyn Driver, source: &TableSchema, new_name: &str) -> 
 
 /// [`plan_clone`], never giving a constraint or index a name in `reserved`
 /// (other objects of the schema have them; compared ignoring case).
-pub fn plan_clone_with(driver: &dyn Driver, source: &TableSchema, new_name: &str, reserved: &[String]) -> Result<ClonePlan> {
+pub fn plan_clone_with(
+    driver: &dyn Driver,
+    source: &TableSchema,
+    new_name: &str,
+    reserved: &[String],
+) -> Result<ClonePlan> {
     plan_clone_within(driver, source, new_name, reserved, generated_limit(driver))
 }
 
@@ -416,13 +506,21 @@ pub fn plan_clone_with(driver: &dyn Driver, source: &TableSchema, new_name: &str
 /// names the clone makes up, when the server takes more than the
 /// conservative one (Oracle 12.2 and later: 128, see
 /// [`server_generated_limit`]).
-pub fn plan_clone_within(driver: &dyn Driver, source: &TableSchema, new_name: &str, reserved: &[String], max: usize) -> Result<ClonePlan> {
+pub fn plan_clone_within(
+    driver: &dyn Driver,
+    source: &TableSchema,
+    new_name: &str,
+    reserved: &[String],
+    max: usize,
+) -> Result<ClonePlan> {
     let new_name = new_name.trim();
     if new_name.is_empty() {
         return Err(Error::State("falta el nombre de la tabla nueva".into()));
     }
     if new_name == source.name {
-        return Err(Error::State("el nombre nuevo es igual al de la tabla original".into()));
+        return Err(Error::State(
+            "el nombre nuevo es igual al de la tabla original".into(),
+        ));
     }
     let info = driver.info();
     if let Some(r) = timeseries::name_problem(info, new_name) {
@@ -475,20 +573,38 @@ pub fn plan_clone_within(driver: &dyn Driver, source: &TableSchema, new_name: &s
         // Two originals that end up alike (only after shortening, or
         // differing in case): the later one gets its own hash.
         let mut n = 0u32;
-        while used.iter().chain(reserved).any(|u| u.eq_ignore_ascii_case(&to)) {
+        while used
+            .iter()
+            .chain(reserved)
+            .any(|u| u.eq_ignore_ascii_case(&to))
+        {
             n += 1;
             let suffix = format!("_{:08x}", fnv(&format!("{name}#{n}")));
-            let base = fit(&to, max.saturating_sub(suffix.len()), chars, bytes.saturating_sub(suffix.len())).to_string();
+            let base = fit(
+                &to,
+                max.saturating_sub(suffix.len()),
+                chars,
+                bytes.saturating_sub(suffix.len()),
+            )
+            .to_string();
             to = format!("{base}{suffix}");
         }
         used.push(to.clone());
-        renames.push(Rename { from: name.to_string(), to: to.clone(), shortened });
+        renames.push(Rename {
+            from: name.to_string(),
+            to: to.clone(),
+            shortened,
+        });
         to
     };
 
     if let Some(pk) = t.primary_key.as_mut() {
         // MySQL's primary key is always `PRIMARY` (the name is ignored).
-        if let Some(n) = pk.name.clone().filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("PRIMARY")) {
+        if let Some(n) = pk
+            .name
+            .clone()
+            .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("PRIMARY"))
+        {
             pk.name = Some(rename(&n, &mut renames));
         }
     }
@@ -505,14 +621,21 @@ pub fn plan_clone_within(driver: &dyn Driver, source: &TableSchema, new_name: &s
         }
     }
     for c in &mut t.columns {
-        if let Some(n) = c.options.get(DEFAULT_NAME_OPTION).cloned().filter(|n| !n.is_empty()) {
+        if let Some(n) = c
+            .options
+            .get(DEFAULT_NAME_OPTION)
+            .cloned()
+            .filter(|n| !n.is_empty())
+        {
             let to = rename(&n, &mut renames);
             c.options.insert(DEFAULT_NAME_OPTION.into(), to);
         }
     }
     let same_schema = |s: Option<&str>| {
         let s = s.filter(|s| !s.is_empty());
-        s.is_none() || s.map(str::to_ascii_lowercase) == source.schema.as_deref().map(str::to_ascii_lowercase)
+        s.is_none()
+            || s.map(str::to_ascii_lowercase)
+                == source.schema.as_deref().map(str::to_ascii_lowercase)
     };
     for fk in &mut t.foreign_keys {
         if let Some(n) = fk.name.clone().filter(|n| !n.is_empty()) {
@@ -545,11 +668,26 @@ pub fn plan_clone_within(driver: &dyn Driver, source: &TableSchema, new_name: &s
                 });
             }
         }
-        for c in t.columns.iter().filter(|c| generated(c, info.dialect) && embedded::reads_table(&c.data_type, &old)) {
-            notes.push(format!("la columna calculada {} lee la misma tabla: en el clon lee el clon", c.name));
+        for c in t
+            .columns
+            .iter()
+            .filter(|c| generated(c, info.dialect) && embedded::reads_table(&c.data_type, &old))
+        {
+            notes.push(format!(
+                "la columna calculada {} lee la misma tabla: en el clon lee el clon",
+                c.name
+            ));
         }
-        for ix in t.indexes.iter().filter(|ix| ix.columns.iter().chain(ix.filter.iter()).any(|e| embedded::reads_table(e, &old))) {
-            notes.push(format!("el índice {} lee la misma tabla: en el clon lee el clon", ix.name));
+        for ix in t.indexes.iter().filter(|ix| {
+            ix.columns
+                .iter()
+                .chain(ix.filter.iter())
+                .any(|e| embedded::reads_table(e, &old))
+        }) {
+            notes.push(format!(
+                "el índice {} lee la misma tabla: en el clon lee el clon",
+                ix.name
+            ));
         }
         for c in &mut t.checks {
             c.expression = rq(&c.expression);
@@ -558,7 +696,11 @@ pub fn plan_clone_within(driver: &dyn Driver, source: &TableSchema, new_name: &s
             c.data_type = rq(&c.data_type);
         }
         for ix in &mut t.indexes {
-            if ix.kind.as_deref().is_some_and(|k| k.to_ascii_uppercase().contains("COMPUTED")) {
+            if ix
+                .kind
+                .as_deref()
+                .is_some_and(|k| k.to_ascii_uppercase().contains("COMPUTED"))
+            {
                 ix.columns = ix.columns.iter().map(|c| rq(c)).collect();
             }
             ix.filter = ix.filter.as_deref().map(rq);
@@ -566,17 +708,36 @@ pub fn plan_clone_within(driver: &dyn Driver, source: &TableSchema, new_name: &s
     }
     let moved: Vec<String> = renames
         .iter()
-        .filter(|r| reserved.iter().any(|x| x.eq_ignore_ascii_case(&rename_capped(&r.from, &old, new_name, max, chars, bytes).0)))
+        .filter(|r| {
+            reserved.iter().any(|x| {
+                x.eq_ignore_ascii_case(&rename_capped(&r.from, &old, new_name, max, chars, bytes).0)
+            })
+        })
         .map(|r| format!("{} → {}", r.from, r.to))
         .collect();
     if !moved.is_empty() {
-        notes.push(format!("nombres que ya usaba otro objeto del esquema, cambiados: {}", moved.join(", ")));
+        notes.push(format!(
+            "nombres que ya usaba otro objeto del esquema, cambiados: {}",
+            moved.join(", ")
+        ));
     }
-    let short: Vec<String> = renames.iter().filter(|r| r.shortened).map(|r| format!("{} → {}", r.from, r.to)).collect();
+    let short: Vec<String> = renames
+        .iter()
+        .filter(|r| r.shortened)
+        .map(|r| format!("{} → {}", r.from, r.to))
+        .collect();
     if !short.is_empty() {
-        notes.push(format!("nombres acortados para entrar en el límite de {} del motor: {}", limit_text(max, chars, bytes), short.join(", ")));
+        notes.push(format!(
+            "nombres acortados para entrar en el límite de {} del motor: {}",
+            limit_text(max, chars, bytes),
+            short.join(", ")
+        ));
     }
-    Ok(ClonePlan { table: t, renames, notes })
+    Ok(ClonePlan {
+        table: t,
+        renames,
+        notes,
+    })
 }
 
 // -- SQL bits ---------------------------------------------------------------------------------------
@@ -584,13 +745,19 @@ pub fn plan_clone_within(driver: &dyn Driver, source: &TableSchema, new_name: &s
 fn quote_of(dialect: &str) -> Quote {
     match dialect {
         "mssql" | "sybase" => Quote::Bracket,
-        "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" | "tdengine" => Quote::Backtick,
+        "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" | "tdengine" => {
+            Quote::Backtick
+        }
         _ => Quote::Double,
     }
 }
 
 fn sql_name(driver: &dyn Driver, t: &TableSchema) -> String {
-    qualified_name(quote_of(driver.info().dialect), t.schema.as_deref().filter(|s| !s.is_empty()), &t.name)
+    qualified_name(
+        quote_of(driver.info().dialect),
+        t.schema.as_deref().filter(|s| !s.is_empty()),
+        &t.name,
+    )
 }
 
 /// A table's name as the engine's SQL takes it (quoted, with its schema).
@@ -624,7 +791,8 @@ fn truncate_sql(driver: &dyn Driver, t: &TableSchema) -> Option<String> {
         Language::Sql | Language::Cql => {
             let name = sql_name(driver, t);
             Some(match info.id {
-                "sqlite" | "libsql" | "firebird" | "access" | "dbase" | "dsql" | "iris" | "cache" | "openedge" | "zen" | "tdengine" => {
+                "sqlite" | "libsql" | "firebird" | "access" | "dbase" | "dsql" | "iris"
+                | "cache" | "openedge" | "zen" | "tdengine" => {
                     format!("DELETE FROM {name}")
                 }
                 "spanner" => format!("DELETE FROM {name} WHERE TRUE"),
@@ -632,7 +800,15 @@ fn truncate_sql(driver: &dyn Driver, t: &TableSchema) -> Option<String> {
             })
         }
         _ => driver
-            .table_ddl(t, DdlParts { drop: true, if_exists: true, create: true, ..Default::default() })
+            .table_ddl(
+                t,
+                DdlParts {
+                    drop: true,
+                    if_exists: true,
+                    create: true,
+                    ..Default::default()
+                },
+            )
             .ok()
             .filter(|s| !s.trim().is_empty()),
     }
@@ -655,13 +831,21 @@ async fn scalar(s: &mut dyn Session, sql: &str) -> Result<Option<i64>> {
         .rev()
         .find_map(|r| r.rows.first())
         .and_then(|row| row.first())
-        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| int_text(s.trim())))))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| int_text(s.trim())))
+        }))
 }
 
 /// A number the driver gave as text: exact when it's an integer (a BIGINT
 /// past 2^53 must not go through `f64`), else through `f64` ("12.0").
 fn int_text(s: &str) -> Option<i64> {
-    s.parse::<i64>().ok().or_else(|| s.parse::<f64>().ok().filter(|f| f.fract() == 0.0 && f.abs() < 9.0e15).map(|f| f as i64))
+    s.parse::<i64>().ok().or_else(|| {
+        s.parse::<f64>()
+            .ok()
+            .filter(|f| f.fract() == 0.0 && f.abs() < 9.0e15)
+            .map(|f| f as i64)
+    })
 }
 
 /// The first result with rows, as text (`None`: NULL).
@@ -676,7 +860,17 @@ async fn strings(s: &mut dyn Session, sql: &str) -> Result<Vec<Vec<Option<String
         serde_json::Value::String(s) => Some(s.clone()),
         other => Some(other.to_string()),
     };
-    Ok(out.results.iter().find(|r| !r.rows.is_empty()).map(|r| r.rows.iter().map(|row| row.iter().map(text).collect()).collect()).unwrap_or_default())
+    Ok(out
+        .results
+        .iter()
+        .find(|r| !r.rows.is_empty())
+        .map(|r| {
+            r.rows
+                .iter()
+                .map(|row| row.iter().map(text).collect())
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 /// How long a count that scans the whole table (CQL) may take before the
@@ -692,13 +886,21 @@ async fn source_rows(driver: &dyn Driver, s: &mut dyn Session, t: &TableSchema) 
     let info = driver.info();
     let text = count_text(driver, t)?;
     let n = if info.id == "dynamodb" {
-        let obj = ObjectRef { kind: t.kind.clone(), schema: t.schema.clone(), name: t.name.clone() };
+        let obj = ObjectRef {
+            kind: t.kind.clone(),
+            schema: t.schema.clone(),
+            name: t.name.clone(),
+        };
         let doc: serde_json::Value = serde_json::from_str(&s.definition(&obj).await.ok()??).ok()?;
         doc.get("ItemCount").and_then(serde_json::Value::as_i64)
     } else {
         let mut out = QueryOutcome::default();
         let run = s.execute(&text, 1, &mut out);
-        let r = if info.language == Language::Cql { tokio::time::timeout(COUNT_BUDGET, run).await.ok()? } else { run.await };
+        let r = if info.language == Language::Cql {
+            tokio::time::timeout(COUNT_BUDGET, run).await.ok()?
+        } else {
+            run.await
+        };
         if r.is_err() || out.error.is_some() {
             return None;
         }
@@ -716,10 +918,17 @@ fn count_text(driver: &dyn Driver, t: &TableSchema) -> Option<String> {
         (_, "dynamodb") => String::new(),
         // Cosmos DB's SQL runs inside a container, as `c`.
         (_, "cosmosdb") => format!("-- container: {}\nSELECT VALUE COUNT(1) FROM c", t.name),
-        (Language::Sql | Language::Cql, _) => format!("SELECT COUNT(*) FROM {}", sql_name(driver, t)),
+        (Language::Sql | Language::Cql, _) => {
+            format!("SELECT COUNT(*) FROM {}", sql_name(driver, t))
+        }
         // The collection's metadata count (`count` with no filter).
-        (Language::Json, "mongodb" | "ferretdb" | "documentdb") => format!("db.getCollection({}).estimatedDocumentCount()", quoted(&t.name)),
-        (Language::Json, "elasticsearch" | "opensearch" | "opendistro") => format!("GET /{}/_count", t.name),
+        (Language::Json, "mongodb" | "ferretdb" | "documentdb") => format!(
+            "db.getCollection({}).estimatedDocumentCount()",
+            quoted(&t.name)
+        ),
+        (Language::Json, "elasticsearch" | "opensearch" | "opendistro") => {
+            format!("GET /{}/_count", t.name)
+        }
         (Language::Json, "solr") => format!("GET /solr/{}/select?q=*:*&rows=0", t.name),
         _ => return None,
     })
@@ -729,21 +938,38 @@ fn count_text(driver: &dyn Driver, t: &TableSchema) -> Option<String> {
 /// first row, a JSON response's `count` (Elasticsearch's `_count`) or Solr's
 /// "N documentos coinciden" (its `numFound`, shown as a message).
 fn count_of(out: &QueryOutcome) -> Option<i64> {
-    let num = |v: &serde_json::Value| v.as_i64().or_else(|| v.as_str().and_then(|s| int_text(s.trim())));
+    let num = |v: &serde_json::Value| {
+        v.as_i64()
+            .or_else(|| v.as_str().and_then(|s| int_text(s.trim())))
+    };
     let found = out.results.iter().find_map(|r| {
         let row = r.rows.first()?;
-        let at = r.columns.iter().position(|c| c.name.eq_ignore_ascii_case("count")).unwrap_or(0);
+        let at = r
+            .columns
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case("count"))
+            .unwrap_or(0);
         let v = row.get(at)?;
         num(v).or_else(|| {
             let doc: serde_json::Value = serde_json::from_str(v.as_str()?).ok()?;
             doc.get("count").and_then(num)
         })
     });
-    found.or_else(|| out.messages.iter().find_map(|m| m.split_once(" documentos coinciden").and_then(|(n, _)| int_text(n.trim()))))
+    found.or_else(|| {
+        out.messages.iter().find_map(|m| {
+            m.split_once(" documentos coinciden")
+                .and_then(|(n, _)| int_text(n.trim()))
+        })
+    })
 }
 
 fn mssql_literal(t: &TableSchema) -> String {
-    qualified_name(Quote::Bracket, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name).replace('\'', "''")
+    qualified_name(
+        Quote::Bracket,
+        t.schema.as_deref().filter(|s| !s.is_empty()),
+        &t.name,
+    )
+    .replace('\'', "''")
 }
 
 /// An integer as SQL Server writes a decimal(38,0) (optional minus, digits).
@@ -766,10 +992,14 @@ async fn mssql_system_names(s: &mut dyn Session, t: &mut TableSchema) -> Vec<Str
          UNION ALL SELECT N'C', name FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N'{lit}') AND is_system_named = 1 \
          UNION ALL SELECT N'F', name FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID(N'{lit}') AND is_system_named = 1"
     );
-    let Ok(rows) = strings(s, &sql).await else { return Vec::new() };
+    let Ok(rows) = strings(s, &sql).await else {
+        return Vec::new();
+    };
     let mut unique = Vec::new();
     for r in rows {
-        let [Some(kind), Some(name)] = r.as_slice() else { continue };
+        let [Some(kind), Some(name)] = r.as_slice() else {
+            continue;
+        };
         let is = |n: &Option<String>| n.as_deref() == Some(name.as_str());
         match kind.as_str() {
             "PK" => {
@@ -782,8 +1012,16 @@ async fn mssql_system_names(s: &mut dyn Session, t: &mut TableSchema) -> Vec<Str
                     unique.push(name.clone());
                 }
             }
-            "C" => t.checks.iter_mut().filter(|c| is(&c.name)).for_each(|c| c.name = None),
-            _ => t.foreign_keys.iter_mut().filter(|f| is(&f.name)).for_each(|f| f.name = None),
+            "C" => t
+                .checks
+                .iter_mut()
+                .filter(|c| is(&c.name))
+                .for_each(|c| c.name = None),
+            _ => t
+                .foreign_keys
+                .iter_mut()
+                .filter(|f| is(&f.name))
+                .for_each(|f| f.name = None),
         }
     }
     unique
@@ -800,10 +1038,14 @@ async fn mssql_default_names(s: &mut dyn Session, t: &mut TableSchema) {
          WHERE dc.parent_object_id = OBJECT_ID(N'{}') AND dc.is_system_named = 0",
         mssql_literal(t)
     );
-    let Ok(rows) = strings(s, &sql).await else { return };
+    let Ok(rows) = strings(s, &sql).await else {
+        return;
+    };
     for r in rows {
         if let [Some(col), Some(name)] = r.as_slice() {
-            if let Some(c) = t.columns.iter_mut().find(|c| &c.name == col && c.default_value.as_deref().is_some_and(|d| !d.is_empty())) {
+            if let Some(c) = t.columns.iter_mut().find(|c| {
+                &c.name == col && c.default_value.as_deref().is_some_and(|d| !d.is_empty())
+            }) {
                 c.options.insert(DEFAULT_NAME_OPTION.into(), name.clone());
             }
         }
@@ -825,28 +1067,62 @@ async fn taken_names(driver: &dyn Driver, s: &mut dyn Session, p: &ClonePlan) ->
     }
     if driver.info().dialect == "oracle" {
         let names: Vec<String> = p.renames.iter().map(|r| r.to.clone()).collect();
-        return oracle_taken(s, p.table.schema.as_deref(), &names, true).await.unwrap_or_default();
+        return oracle_taken(s, p.table.schema.as_deref(), &names, true)
+            .await
+            .unwrap_or_default();
     }
     if driver.info().id == "firebird" {
         // Index and constraint names are unique per database.
         let names: Vec<String> = p.renames.iter().map(|r| r.to.clone()).collect();
-        return strings(s, &embedded::firebird_taken_sql(&names)).await.map(|rows| rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect()).unwrap_or_default();
+        return strings(s, &embedded::firebird_taken_sql(&names))
+            .await
+            .map(|rows| {
+                rows.into_iter()
+                    .filter_map(|r| r.into_iter().next().flatten())
+                    .collect()
+            })
+            .unwrap_or_default();
     }
     // TiDB takes the same constraint name on two tables.
     if driver.info().dialect == "mysql" && driver.info().id != "tidb" {
-        let sql = mysql_taken_sql(driver.info().id, p.table.schema.as_deref(), &p.renames.iter().map(|r| r.to.clone()).collect::<Vec<_>>());
-        return strings(s, &sql).await.map(|rows| rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect()).unwrap_or_default();
+        let sql = mysql_taken_sql(
+            driver.info().id,
+            p.table.schema.as_deref(),
+            &p.renames.iter().map(|r| r.to.clone()).collect::<Vec<_>>(),
+        );
+        return strings(s, &sql)
+            .await
+            .map(|rows| {
+                rows.into_iter()
+                    .filter_map(|r| r.into_iter().next().flatten())
+                    .collect()
+            })
+            .unwrap_or_default();
     }
     if driver.info().dialect != "mssql" {
         return Vec::new();
     }
-    let list: Vec<String> = p.renames.iter().map(|r| format!("N'{}'", r.to.replace('\'', "''"))).collect();
+    let list: Vec<String> = p
+        .renames
+        .iter()
+        .map(|r| format!("N'{}'", r.to.replace('\'', "''")))
+        .collect();
     let schema = match p.table.schema.as_deref().filter(|s| !s.is_empty()) {
         Some(x) => format!("SCHEMA_ID(N'{}')", x.replace('\'', "''")),
         None => "SCHEMA_ID()".into(),
     };
-    let sql = format!("SELECT name FROM sys.objects WHERE schema_id = {schema} AND name IN ({})", list.join(", "));
-    strings(s, &sql).await.map(|rows| rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect()).unwrap_or_default()
+    let sql = format!(
+        "SELECT name FROM sys.objects WHERE schema_id = {schema} AND name IN ({})",
+        list.join(", ")
+    );
+    strings(s, &sql)
+        .await
+        .map(|rows| {
+            rows.into_iter()
+                .filter_map(|r| r.into_iter().next().flatten())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// MySQL family: which of `names` another table of the schema (`None`: the
@@ -854,12 +1130,21 @@ async fn taken_names(driver: &dyn Driver, s: &mut dyn Session, p: &ClonePlan) ->
 /// a foreign key (InnoDB) or, except on MariaDB (per table there), a
 /// CHECK. Compared ignoring case, as the server does.
 fn mysql_taken_sql(id: &str, schema: Option<&str>, names: &[String]) -> String {
-    let lit = |v: &str| format!("'{}'", v.to_lowercase().replace('\\', "\\\\").replace('\'', "''"));
+    let lit = |v: &str| {
+        format!(
+            "'{}'",
+            v.to_lowercase().replace('\\', "\\\\").replace('\'', "''")
+        )
+    };
     let db = match schema.filter(|s| !s.is_empty()) {
         Some(x) => format!("'{}'", x.replace('\\', "\\\\").replace('\'', "''")),
         None => "DATABASE()".into(),
     };
-    let kinds = if id == "mariadb" { "'FOREIGN KEY'" } else { "'FOREIGN KEY', 'CHECK'" };
+    let kinds = if id == "mariadb" {
+        "'FOREIGN KEY'"
+    } else {
+        "'FOREIGN KEY', 'CHECK'"
+    };
     let list = names.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
     format!(
         "SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = {db} \
@@ -872,12 +1157,21 @@ fn mysql_taken_sql(id: &str, schema: Option<&str>, names: &[String]) -> String {
 /// synonyms… share one namespace; a primary key's or unique constraint's
 /// index takes the constraint's name) or, with `constraints`, for a
 /// constraint (ALL_CONSTRAINTS: unique per schema, whatever the table).
-async fn oracle_taken(s: &mut dyn Session, schema: Option<&str>, names: &[String], constraints: bool) -> Result<Vec<String>> {
+async fn oracle_taken(
+    s: &mut dyn Session,
+    schema: Option<&str>,
+    names: &[String],
+    constraints: bool,
+) -> Result<Vec<String>> {
     if names.is_empty() {
         return Ok(Vec::new());
     }
     let sql = oracle_taken_sql(schema, names, constraints);
-    Ok(strings(s, &sql).await?.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect())
+    Ok(strings(s, &sql)
+        .await?
+        .into_iter()
+        .filter_map(|r| r.into_iter().next().flatten())
+        .collect())
 }
 
 fn oracle_taken_sql(schema: Option<&str>, names: &[String], constraints: bool) -> String {
@@ -887,7 +1181,9 @@ fn oracle_taken_sql(schema: Option<&str>, names: &[String], constraints: bool) -
         None => "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".into(),
     };
     let list = names.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
-    let objects = format!("SELECT object_name FROM all_objects WHERE owner = {owner} AND object_name IN ({list})");
+    let objects = format!(
+        "SELECT object_name FROM all_objects WHERE owner = {owner} AND object_name IN ({list})"
+    );
     if constraints {
         format!("{objects} UNION SELECT constraint_name FROM all_constraints WHERE owner = {owner} AND constraint_name IN ({list})")
     } else {
@@ -899,27 +1195,49 @@ fn oracle_taken_sql(schema: Option<&str>, names: &[String], constraints: bool) -
 /// "… by an existing constraint" (ORA-02264) say neither which name nor
 /// in Spanish: the catalog tells which of the clone's names is taken
 /// (`table`: the table's own too, before it exists). `None`: another error.
-async fn oracle_clash(s: &mut dyn Session, e: &Error, plan: &ClonePlan, table: bool) -> Option<Error> {
+async fn oracle_clash(
+    s: &mut dyn Session,
+    e: &Error,
+    plan: &ClonePlan,
+    table: bool,
+) -> Option<Error> {
     let m = e.to_string();
     if !["ORA-00955", "ORA-02264"].iter().any(|c| m.contains(c)) {
         return None;
     }
     let schema = plan.table.schema.as_deref();
-    if table && oracle_taken(s, schema, std::slice::from_ref(&plan.table.name), false).await.is_ok_and(|t| !t.is_empty()) {
+    if table
+        && oracle_taken(s, schema, std::slice::from_ref(&plan.table.name), false)
+            .await
+            .is_ok_and(|t| !t.is_empty())
+    {
         return Some(Error::State(format!(
             "ya existe en el esquema otro objeto llamado «{}» (puede ser uno que el explorador no muestra, como una secuencia o un sinónimo); elegí otro nombre",
             plan.table.name
         )));
     }
     let names: Vec<String> = plan.renames.iter().map(|r| r.to.clone()).collect();
-    let taken = oracle_taken(s, schema, &names, true).await.unwrap_or_default();
-    Some(Error::State(oracle_clash_text(&plan.table.name, &names, &taken)))
+    let taken = oracle_taken(s, schema, &names, true)
+        .await
+        .unwrap_or_default();
+    Some(Error::State(oracle_clash_text(
+        &plan.table.name,
+        &names,
+        &taken,
+    )))
 }
 
 fn oracle_clash_text(table: &str, names: &[String], taken: &[String]) -> String {
-    let q = |v: &[String]| v.iter().map(|n| format!("«{n}»")).collect::<Vec<_>>().join(", ");
+    let q = |v: &[String]| {
+        v.iter()
+            .map(|n| format!("«{n}»"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     if taken.is_empty() {
-        let all: Vec<String> = std::iter::once(table.to_string()).chain(names.iter().cloned()).collect();
+        let all: Vec<String> = std::iter::once(table.to_string())
+            .chain(names.iter().cloned())
+            .collect();
         return format!("ya existe en el esquema otro objeto o restricción con uno de los nombres del clon ({}); elegí otro nombre para la tabla", q(&all));
     }
     format!(
@@ -932,12 +1250,20 @@ fn oracle_clash_text(table: &str, names: &[String], taken: &[String]) -> String 
 /// SQL Server: the clone's IDENTITY must start and step like the
 /// original's (a clone that numbers new rows differently is not the same
 /// table).
-async fn mssql_check_identity(s: &mut dyn Session, original: &TableSchema, clone: &TableSchema) -> Result<()> {
+async fn mssql_check_identity(
+    s: &mut dyn Session,
+    original: &TableSchema,
+    clone: &TableSchema,
+) -> Result<()> {
     let (a, b) = (mssql_literal(original), mssql_literal(clone));
     // NOT FOR REPLICATION: CREATE TABLE leaves it off; the original's is
     // set on the clone the way SSMS does it.
-    let nfr = |t: &str| format!("(SELECT CAST(MAX(CAST(is_not_for_replication AS int)) AS nvarchar(1)) FROM sys.identity_columns WHERE object_id = OBJECT_ID(N'{t}'))");
-    let flags = strings(s, &format!("SELECT {}, {}", nfr(&a), nfr(&b))).await.map_err(|e| Error::Query(format!("identidad: {e}")))?;
+    let nfr = |t: &str| {
+        format!("(SELECT CAST(MAX(CAST(is_not_for_replication AS int)) AS nvarchar(1)) FROM sys.identity_columns WHERE object_id = OBJECT_ID(N'{t}'))")
+    };
+    let flags = strings(s, &format!("SELECT {}, {}", nfr(&a), nfr(&b)))
+        .await
+        .map_err(|e| Error::Query(format!("identidad: {e}")))?;
     if let Some([Some(x), Some(y)]) = flags.first().map(Vec::as_slice) {
         if x != y && matches!(x.as_str(), "0" | "1") {
             exec(s, &format!("DECLARE @o int = OBJECT_ID(N'{b}'); EXEC sys.sp_identitycolumnforreplication @o, {x};"))
@@ -951,7 +1277,9 @@ async fn mssql_check_identity(s: &mut dyn Session, original: &TableSchema, clone
         nfr(&a),
         nfr(&b)
     );
-    let rows = strings(s, &sql).await.map_err(|e| Error::Query(format!("identidad: {e}")))?;
+    let rows = strings(s, &sql)
+        .await
+        .map_err(|e| Error::Query(format!("identidad: {e}")))?;
     if let Some([_, _, _, _, n1, n2]) = rows.first().map(Vec::as_slice) {
         if n1 != n2 {
             return Err(Error::State(
@@ -993,7 +1321,11 @@ fn in_spanish(e: Error) -> Error {
         .find(EN)
         .map(|i| &m[i + EN.len()..])
         .and_then(|r| r.find("' in the database").map(|j| r[..j].to_string()))
-        .or_else(|| m.find(PG).map(|i| &m[i + PG.len()..]).and_then(|r| r.find("\" already exists").map(|j| r[..j].to_string())));
+        .or_else(|| {
+            m.find(PG)
+                .map(|i| &m[i + PG.len()..])
+                .and_then(|r| r.find("\" already exists").map(|j| r[..j].to_string()))
+        });
     if let Some(n) = name {
         return Error::State(format!("ya existe en el esquema otro objeto llamado «{n}» (tabla, restricción o índice); no se clona"));
     }
@@ -1002,7 +1334,10 @@ fn in_spanish(e: Error) -> Error {
     // for a foreign key: `Can't create table … (errno: 121 "Duplicate key
     // on write or update")`. Names another table took meanwhile (the ones
     // taken before cloning were avoided).
-    for (en, what) in [("Duplicate check constraint name '", "restricción CHECK"), ("Duplicate foreign key constraint name '", "clave foránea")] {
+    for (en, what) in [
+        ("Duplicate check constraint name '", "restricción CHECK"),
+        ("Duplicate foreign key constraint name '", "clave foránea"),
+    ] {
         if let Some(r) = m.find(en).map(|i| &m[i + en.len()..]) {
             let n = &r[..r.find('\'').unwrap_or(r.len())];
             return Error::State(format!("otra tabla del esquema ya tiene una {what} llamada «{n}» (se creó mientras se clonaba); volvé a intentarlo o elegí otro nombre para la tabla"));
@@ -1049,12 +1384,24 @@ fn current_schema_sql(dialect: &str) -> Option<&'static str> {
 /// Which of the reported tables is `obj`: same name and kind, and the same
 /// schema; or no schema reported when `obj`'s is the session's current one
 /// (`current`, exact).
-fn find_table(all: Vec<TableSchema>, obj: &ObjectRef, current: Option<&str>) -> Option<TableSchema> {
+fn find_table(
+    all: Vec<TableSchema>,
+    obj: &ObjectRef,
+    current: Option<&str>,
+) -> Option<TableSchema> {
     let kind_ok = |t: &TableSchema| {
-        t.kind == obj.kind || (matches!(t.kind.as_str(), kinds::TABLE | kinds::COLLECTION) && matches!(obj.kind.as_str(), kinds::TABLE | kinds::COLLECTION))
+        t.kind == obj.kind
+            || (matches!(t.kind.as_str(), kinds::TABLE | kinds::COLLECTION)
+                && matches!(obj.kind.as_str(), kinds::TABLE | kinds::COLLECTION))
     };
-    let mut candidates: Vec<TableSchema> = all.into_iter().filter(|t| t.name == obj.name && kind_ok(t)).collect();
-    if let Some(i) = candidates.iter().position(|t| t.schema.as_deref().filter(|x| !x.is_empty()) == obj.schema()) {
+    let mut candidates: Vec<TableSchema> = all
+        .into_iter()
+        .filter(|t| t.name == obj.name && kind_ok(t))
+        .collect();
+    if let Some(i) = candidates
+        .iter()
+        .position(|t| t.schema.as_deref().filter(|x| !x.is_empty()) == obj.schema())
+    {
         return Some(candidates.swap_remove(i));
     }
     if obj.schema().is_none() && candidates.len() == 1 {
@@ -1066,7 +1413,9 @@ fn find_table(all: Vec<TableSchema>, obj: &ObjectRef, current: Option<&str>) -> 
     if current.filter(|c| !c.is_empty()) != Some(wanted) {
         return None;
     }
-    let i = candidates.iter().position(|t| t.schema.as_deref().filter(|x| !x.is_empty()).is_none())?;
+    let i = candidates
+        .iter()
+        .position(|t| t.schema.as_deref().filter(|x| !x.is_empty()).is_none())?;
     Some(candidates.swap_remove(i))
 }
 
@@ -1085,13 +1434,24 @@ fn reports_full_structure(all: &[TableSchema], dialect: &str) -> bool {
 
 /// The original's structure: from `database_schema`, or from its columns
 /// on engines that report nothing else.
-async fn read_schema(driver: &dyn Driver, s: &mut dyn Session, obj: &ObjectRef) -> Result<(TableSchema, Vec<String>)> {
+async fn read_schema(
+    driver: &dyn Driver,
+    s: &mut dyn Session,
+    obj: &ObjectRef,
+) -> Result<(TableSchema, Vec<String>)> {
     let all = s.database_schema().await?;
     let dialect = driver.info().dialect;
     let full = reports_full_structure(&all, dialect);
-    let unnamed = obj.schema().is_some() && all.iter().any(|t| t.name == obj.name && t.schema.as_deref().filter(|x| !x.is_empty()).is_none());
+    let unnamed = obj.schema().is_some()
+        && all
+            .iter()
+            .any(|t| t.name == obj.name && t.schema.as_deref().filter(|x| !x.is_empty()).is_none());
     let current = match current_schema_sql(dialect).filter(|_| unnamed) {
-        Some(sql) => strings(s, sql).await.ok().and_then(|r| r.into_iter().next()).and_then(|r| r.into_iter().next().flatten()),
+        Some(sql) => strings(s, sql)
+            .await
+            .ok()
+            .and_then(|r| r.into_iter().next())
+            .and_then(|r| r.into_iter().next().flatten()),
         None => None,
     };
     if let Some(t) = find_table(all, obj, current.as_deref()) {
@@ -1107,7 +1467,10 @@ async fn read_schema(driver: &dyn Driver, s: &mut dyn Session, obj: &ObjectRef) 
     };
     // Engines that list and describe only the session's database (none
     // selected: nothing): a table in another one is looked up in its own.
-    let in_catalog = match obj.schema().and_then(|db| analytics::exists_sql(driver.info(), db, &obj.name)) {
+    let in_catalog = match obj
+        .schema()
+        .and_then(|db| analytics::exists_sql(driver.info(), db, &obj.name))
+    {
         Some(sql) => scalar(s, &sql).await.ok().flatten(),
         None => None,
     };
@@ -1121,20 +1484,33 @@ async fn read_schema(driver: &dyn Driver, s: &mut dyn Session, obj: &ObjectRef) 
         // list just the session's schema, unnamed (MySQL family), say
         // nothing about a table in another one.
         let covered = match obj.schema() {
-            Some(wanted) if !objects.iter().any(|o| o.schema.as_deref() == Some(wanted)) => match current_schema_sql(dialect) {
-                Some(sql) => {
-                    let cur = match &current {
-                        Some(c) => Some(c.clone()),
-                        None => strings(s, sql).await.ok().and_then(|r| r.into_iter().next()).and_then(|r| r.into_iter().next().flatten()),
-                    };
-                    cur.is_some_and(|c| c == wanted)
+            Some(wanted) if !objects.iter().any(|o| o.schema.as_deref() == Some(wanted)) => {
+                match current_schema_sql(dialect) {
+                    Some(sql) => {
+                        let cur = match &current {
+                            Some(c) => Some(c.clone()),
+                            None => strings(s, sql)
+                                .await
+                                .ok()
+                                .and_then(|r| r.into_iter().next())
+                                .and_then(|r| r.into_iter().next().flatten()),
+                        };
+                        cur.is_some_and(|c| c == wanted)
+                    }
+                    None => true,
                 }
-                None => true,
-            },
+            }
             _ => true,
         };
         let exists = !covered
-            || objects.iter().any(|o| o.name == obj.name && (obj.schema().is_none() || o.schema.as_deref().filter(|x| !x.is_empty()).is_none_or(|x| Some(x) == obj.schema())));
+            || objects.iter().any(|o| {
+                o.name == obj.name
+                    && (obj.schema().is_none()
+                        || o.schema
+                            .as_deref()
+                            .filter(|x| !x.is_empty())
+                            .is_none_or(|x| Some(x) == obj.schema()))
+            });
         if !exists {
             return Err(gone());
         }
@@ -1151,19 +1527,30 @@ async fn read_schema(driver: &dyn Driver, s: &mut dyn Session, obj: &ObjectRef) 
     }
     if !matches!(obj.kind.as_str(), kinds::TABLE | kinds::COLLECTION) {
         return Err(Error::Unsupported(
-            "no se puede clonar: el motor no informa la estructura completa de este tipo de objeto".into(),
+            "no se puede clonar: el motor no informa la estructura completa de este tipo de objeto"
+                .into(),
         ));
     }
     let cols = s.columns(obj).await?;
     if cols.is_empty() {
-        return Err(Error::State(format!("no se encontró «{}» o no tiene columnas", obj.name)));
+        return Err(Error::State(format!(
+            "no se encontró «{}» o no tiene columnas",
+            obj.name
+        )));
     }
-    let pk: Vec<String> = cols.iter().filter(|c| c.primary_key).map(|c| c.name.clone()).collect();
+    let pk: Vec<String> = cols
+        .iter()
+        .filter(|c| c.primary_key)
+        .map(|c| c.name.clone())
+        .collect();
     let t = TableSchema {
         kind: obj.kind.clone(),
         schema: obj.schema.clone(),
         name: obj.name.clone(),
-        primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk }),
+        primary_key: (!pk.is_empty()).then(|| KeyDef {
+            name: None,
+            columns: pk,
+        }),
         columns: cols
             .into_iter()
             .map(|c| ColumnDef {
@@ -1186,7 +1573,11 @@ async fn check_complete(driver: &dyn Driver, s: &mut dyn Session, t: &TableSchem
     if driver.info().dialect == "oracle" {
         let invisible = oracle_invisible_columns(s, t).await;
         if !invisible.is_empty() {
-            let list = invisible.iter().map(|c| format!("«{c}»")).collect::<Vec<_>>().join(", ");
+            let list = invisible
+                .iter()
+                .map(|c| format!("«{c}»"))
+                .collect::<Vec<_>>()
+                .join(", ");
             return Err(Error::Unsupported(format!(
                 "no se puede clonar: {} {list} {} INVISIBLE y el clon {}; hacela visible (ALTER TABLE … MODIFY … VISIBLE) o clonala a mano",
                 if invisible.len() == 1 { "la columna" } else { "las columnas" },
@@ -1202,13 +1593,23 @@ async fn check_complete(driver: &dyn Driver, s: &mut dyn Session, t: &TableSchem
 
 /// Columns that differ between the original and the clone (name, type,
 /// nullability), as the engine reports them.
-fn column_differences(a: &[dbine_driver::ColumnInfo], b: &[dbine_driver::ColumnInfo]) -> Vec<String> {
+fn column_differences(
+    a: &[dbine_driver::ColumnInfo],
+    b: &[dbine_driver::ColumnInfo],
+) -> Vec<String> {
     let mut out = Vec::new();
     if a.len() != b.len() {
         let missing = |x: &[dbine_driver::ColumnInfo], y: &[dbine_driver::ColumnInfo]| {
-            x.iter().filter(|c| !y.iter().any(|d| d.name == c.name)).map(|c| format!("«{}»", c.name)).collect::<Vec<_>>()
+            x.iter()
+                .filter(|c| !y.iter().any(|d| d.name == c.name))
+                .map(|c| format!("«{}»", c.name))
+                .collect::<Vec<_>>()
         };
-        let mut s = format!("{} columnas en el original, {} en el clon", a.len(), b.len());
+        let mut s = format!(
+            "{} columnas en el original, {} en el clon",
+            a.len(),
+            b.len()
+        );
         let (lost, extra) = (missing(a, b), missing(b, a));
         if !lost.is_empty() {
             s.push_str(&format!("; faltan en el clon: {}", lost.join(", ")));
@@ -1223,9 +1624,17 @@ fn column_differences(a: &[dbine_driver::ColumnInfo], b: &[dbine_driver::ColumnI
         if x.name != y.name {
             out.push(format!("columna «{}» / «{}»", x.name, y.name));
         } else if !x.data_type.trim().eq_ignore_ascii_case(y.data_type.trim()) {
-            out.push(format!("{}: tipo {} / {}", x.name, x.data_type, y.data_type));
+            out.push(format!(
+                "{}: tipo {} / {}",
+                x.name, x.data_type, y.data_type
+            ));
         } else if x.nullable != y.nullable {
-            out.push(format!("{}: {} / {}", x.name, null_text(x.nullable), null_text(y.nullable)));
+            out.push(format!(
+                "{}: {} / {}",
+                x.name,
+                null_text(x.nullable),
+                null_text(y.nullable)
+            ));
         }
     }
     out
@@ -1251,10 +1660,21 @@ struct Ddl {
 /// the table itself on columns other than the primary key's would have
 /// nothing to point at (the engines refuse it). Refused before writing.
 fn self_references_without_indexes(t: &TableSchema) -> Result<()> {
-    let same_schema = |s: Option<&str>| s.filter(|s| !s.is_empty()).is_none_or(|s| t.schema.as_deref().is_none_or(|o| o.is_empty() || o == s));
-    let mut pk: Vec<&str> = t.primary_key.iter().flat_map(|k| k.columns.iter().map(String::as_str)).collect();
+    let same_schema = |s: Option<&str>| {
+        s.filter(|s| !s.is_empty())
+            .is_none_or(|s| t.schema.as_deref().is_none_or(|o| o.is_empty() || o == s))
+    };
+    let mut pk: Vec<&str> = t
+        .primary_key
+        .iter()
+        .flat_map(|k| k.columns.iter().map(String::as_str))
+        .collect();
     pk.sort_unstable();
-    for fk in t.foreign_keys.iter().filter(|f| f.ref_table == t.name && same_schema(f.ref_schema.as_deref())) {
+    for fk in t
+        .foreign_keys
+        .iter()
+        .filter(|f| f.ref_table == t.name && same_schema(f.ref_schema.as_deref()))
+    {
         let mut to: Vec<&str> = fk.ref_columns.iter().map(String::as_str).collect();
         to.sort_unstable();
         if to != pk {
@@ -1272,26 +1692,65 @@ fn ddl_of(driver: &dyn Driver, t: &TableSchema, o: &CloneOptions) -> Result<Ddl>
     if let Some(d) = timeseries::implicit_ddl(driver, t) {
         return Ok(d);
     }
-    let create = driver.table_ddl(t, DdlParts { create: true, ..Default::default() })?;
+    let create = driver.table_ddl(
+        t,
+        DdlParts {
+            create: true,
+            ..Default::default()
+        },
+    )?;
     if create.trim().is_empty() {
-        return Err(Error::Unsupported("no se puede clonar: este motor no genera el CREATE de la tabla".into()));
+        return Err(Error::Unsupported(
+            "no se puede clonar: este motor no genera el CREATE de la tabla".into(),
+        ));
     }
     let drop = driver
-        .table_ddl(t, DdlParts { drop: true, if_exists: true, ..Default::default() })
+        .table_ddl(
+            t,
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        )
         .ok()
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| Error::Unsupported("no se puede clonar: este motor no permite borrar un clon que quede a medias".into()))?;
+        .ok_or_else(|| {
+            Error::Unsupported(
+                "no se puede clonar: este motor no permite borrar un clon que quede a medias"
+                    .into(),
+            )
+        })?;
     let indexes = if o.with_indexes && !t.indexes.is_empty() {
-        Some(driver.table_ddl(t, DdlParts { indexes: true, ..Default::default() })?).filter(|s| !s.trim().is_empty())
+        Some(driver.table_ddl(
+            t,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        )?)
+        .filter(|s| !s.trim().is_empty())
     } else {
         None
     };
     let foreign_keys = if t.foreign_keys.is_empty() {
         None
     } else {
-        Some(driver.table_ddl(t, DdlParts { foreign_keys: true, ..Default::default() })?).filter(|s| !s.trim().is_empty())
+        Some(driver.table_ddl(
+            t,
+            DdlParts {
+                foreign_keys: true,
+                ..Default::default()
+            },
+        )?)
+        .filter(|s| !s.trim().is_empty())
     };
-    Ok(Ddl { create, indexes, foreign_keys, drop })
+    Ok(Ddl {
+        create,
+        indexes,
+        foreign_keys,
+        drop,
+    })
 }
 
 /// Endpoints for the clone: the caller's, with SQLite's foreign keys off on
@@ -1364,13 +1823,25 @@ pub async fn clone_table(
     check_complete(&*driver, &mut *src, &source_t).await?;
     // Oracle: each constraint's state (DISABLE, NOVALIDATE, DEFERRABLE,
     // RELY) and the keys' own indexes (see `oracle`).
-    let ora_t = if info.dialect == "oracle" { Some(oracle::inspect(&mut *src, &source_t).await?) } else { None };
+    let ora_t = if info.dialect == "oracle" {
+        Some(oracle::inspect(&mut *src, &source_t).await?)
+    } else {
+        None
+    };
     // Oracle: a global temporary table's rows are each session's.
     let mut req = req;
-    notes.extend(ora_t.as_ref().and_then(|o| oracle::session_rows(o, &mut req.options)));
+    notes.extend(
+        ora_t
+            .as_ref()
+            .and_then(|o| oracle::session_rows(o, &mut req.options)),
+    );
     // MySQL, MariaDB, TiDB: the clone comes from the original's own
     // definition (collations, INVISIBLE, partitions, AUTO_RANDOM…).
-    let my_t = if mysql::applies(&*driver) { Some(mysql::inspect(&*driver, &mut *src, &req.source.name).await?) } else { None };
+    let my_t = if mysql::applies(&*driver) {
+        Some(mysql::inspect(&*driver, &mut *src, &req.source.name).await?)
+    } else {
+        None
+    };
     // SQL Server: the primary key's clustering, key order and storage
     // options (`KeyDef` carries only its name and columns), and the
     // UNIQUE constraints the server named.
@@ -1414,16 +1885,35 @@ pub async fn clone_table(
     let mut plan = loop {
         let mut p = plan_clone_within(&*driver, &source_t, &new_name, &reserved, max_generated)?;
         if !mssql_uq.is_empty() {
-            server_uq = p.renames.iter().filter(|r| mssql_uq.contains(&r.from)).map(|r| r.to.clone()).collect();
+            server_uq = p
+                .renames
+                .iter()
+                .filter(|r| mssql_uq.contains(&r.from))
+                .map(|r| r.to.clone())
+                .collect();
             p.renames.retain(|r| !mssql_uq.contains(&r.from));
         }
         // MySQL, MariaDB, TiDB: the definition's names the catalog didn't
         // report are renamed now, so they're checked too.
         if let Some(m) = &my_t {
-            my_notes = mysql::complete(m, &mut p.renames, &source_t.name, &new_name, max_generated, &reserved);
+            my_notes = mysql::complete(
+                m,
+                &mut p.renames,
+                &source_t.name,
+                &new_name,
+                max_generated,
+                &reserved,
+            );
         }
         if let Some(o) = &ora_t {
-            oracle::complete(o, &mut p, &source_t.name, &new_name, max_generated, &reserved);
+            oracle::complete(
+                o,
+                &mut p,
+                &source_t.name,
+                &new_name,
+                max_generated,
+                &reserved,
+            );
         }
         let taken = taken_names(&*driver, &mut *src, &p).await;
         if taken.is_empty() {
@@ -1457,14 +1947,33 @@ pub async fn clone_table(
     };
     let mut ddl = ddl_of(&*driver, &plan.table, &req.options)?;
     if let Some(d) = &pg_deferred {
-        d.apply(&mut ddl.create, &mut ddl.foreign_keys, &mut ddl.indexes, req.options.with_indexes)?;
+        d.apply(
+            &mut ddl.create,
+            &mut ddl.foreign_keys,
+            &mut ddl.indexes,
+            req.options.with_indexes,
+        )?;
     }
     if !prelude.is_empty() {
         ddl.create = format!("{prelude}{}", ddl.create);
     }
     if let Some(m) = &my_t {
-        let auto: Vec<String> = source_t.columns.iter().filter(|c| c.auto_increment).map(|c| c.name.clone()).collect();
-        let d = mysql::ddl(m, &mut plan.renames, &source_t.name, &new_name, &sql_name(&*driver, &plan.table), &auto, req.options.with_indexes, max_generated);
+        let auto: Vec<String> = source_t
+            .columns
+            .iter()
+            .filter(|c| c.auto_increment)
+            .map(|c| c.name.clone())
+            .collect();
+        let d = mysql::ddl(
+            m,
+            &mut plan.renames,
+            &source_t.name,
+            &new_name,
+            &sql_name(&*driver, &plan.table),
+            &auto,
+            req.options.with_indexes,
+            max_generated,
+        );
         (ddl.create, ddl.indexes, ddl.foreign_keys) = (d.create, d.indexes, d.foreign_keys);
         notes.extend(std::mem::take(&mut my_notes));
         notes.extend(d.notes);
@@ -1472,7 +1981,9 @@ pub async fn clone_table(
     if info.dialect == "mssql" {
         // Added unchecked (the original's rows may not satisfy a disabled
         // key); `mssql::constraints` validates the trusted ones.
-        ddl.foreign_keys = ddl.foreign_keys.map(|s| mssql::foreign_keys_unchecked(&s, &plan.table));
+        ddl.foreign_keys = ddl
+            .foreign_keys
+            .map(|s| mssql::foreign_keys_unchecked(&s, &plan.table));
         let pk_placed = match &mssql_pk {
             Some(p) => mssql::patch_primary_key(&mut ddl.create, &plan.table, p)? && p.clustered(),
             None => false,
@@ -1495,42 +2006,107 @@ pub async fn clone_table(
         Some(o) => oracle::adjust(&*driver, o, &source_t, &plan, &req.options, &mut ddl)?,
         None => Default::default(),
     };
-    let native = timeseries::prepare(&*driver, &mut *src, &req.source, &source_t, &plan.table, &req.options, &mut ddl, &mut notes).await?;
+    let native = timeseries::prepare(
+        &*driver,
+        &mut *src,
+        &req.source,
+        &source_t,
+        &plan.table,
+        &req.options,
+        &mut ddl,
+        &mut notes,
+    )
+    .await?;
     // StarRocks, Doris, ClickHouse, GreptimeDB: the engine's own copy of the
     // definition; Trino too: the rows inside the server (see `analytics`).
-    let analytic = analytics::prepare(&*driver, &mut *src, &req.source, &mut source_t, &mut plan, &req.options, &mut ddl, &mut notes).await?;
+    let analytic = analytics::prepare(
+        &*driver,
+        &mut *src,
+        &req.source,
+        &mut source_t,
+        &mut plan,
+        &req.options,
+        &mut ddl,
+        &mut notes,
+    )
+    .await?;
     if !req.options.with_indexes {
-        let unique: Vec<&str> = source_t.indexes.iter().filter(|i| i.unique).map(|i| i.name.as_str()).collect();
+        let unique: Vec<&str> = source_t
+            .indexes
+            .iter()
+            .filter(|i| i.unique)
+            .map(|i| i.name.as_str())
+            .collect();
         if !unique.is_empty() {
-            notes.push(format!("sin índices: tampoco se crean las restricciones únicas ({})", unique.join(", ")));
+            notes.push(format!(
+                "sin índices: tampoco se crean las restricciones únicas ({})",
+                unique.join(", ")
+            ));
         }
         // PostgreSQL's EXCLUDE constraints live on an index too.
-        let exclude: Vec<&str> =
-            source_t.indexes.iter().filter(|i| i.kind.as_deref().is_some_and(|k| k.eq_ignore_ascii_case("EXCLUDE"))).map(|i| i.name.as_str()).collect();
+        let exclude: Vec<&str> = source_t
+            .indexes
+            .iter()
+            .filter(|i| {
+                i.kind
+                    .as_deref()
+                    .is_some_and(|k| k.eq_ignore_ascii_case("EXCLUDE"))
+            })
+            .map(|i| i.name.as_str())
+            .collect();
         if !exclude.is_empty() {
-            notes.push(format!("sin índices: tampoco se crean las restricciones de exclusión (EXCLUDE: {})", exclude.join(", ")));
+            notes.push(format!(
+                "sin índices: tampoco se crean las restricciones de exclusión (EXCLUDE: {})",
+                exclude.join(", ")
+            ));
         }
         self_references_without_indexes(&source_t)?;
     }
-    let target_ref = ObjectRef { kind: source_t.kind.clone(), schema: source_t.schema.clone(), name: new_name.clone() };
+    let target_ref = ObjectRef {
+        kind: source_t.kind.clone(),
+        schema: source_t.schema.clone(),
+        name: new_name.clone(),
+    };
     // The MySQL family and ClickHouse list only the session's database
     // (none selected: an error), unnamed: a table in another one is looked
     // up in its own, and the session's listing says nothing about it.
-    let other_db = source_t.schema.as_deref().filter(|s| !s.is_empty()).and_then(|db| analytics::exists_sql(info, db, &new_name));
+    let other_db = source_t
+        .schema
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|db| analytics::exists_sql(info, db, &new_name));
     let objects = match src.list_objects().await {
         Ok(o) => o,
         Err(_) if other_db.is_some() => Vec::new(),
         Err(e) => return Err(e),
     };
     if let Some(sql) = &other_db {
-        if scalar(&mut *src, sql).await.ok().flatten().is_some_and(|n| n > 0) {
-            return Err(Error::State(format!("ya existe un objeto llamado «{new_name}»; elegí otro nombre")));
+        if scalar(&mut *src, sql)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|n| n > 0)
+        {
+            return Err(Error::State(format!(
+                "ya existe un objeto llamado «{new_name}»; elegí otro nombre"
+            )));
         }
     }
     if let Some(o) = objects.iter().filter(|_| other_db.is_none()).find(|o| {
-        same_object(source_t.schema.as_deref(), &new_name, &ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() })
+        same_object(
+            source_t.schema.as_deref(),
+            &new_name,
+            &ObjectRef {
+                kind: o.kind.clone(),
+                schema: o.schema.clone(),
+                name: o.name.clone(),
+            },
+        )
     }) {
-        return Err(Error::State(format!("ya existe un objeto llamado «{}»; elegí otro nombre", o.name)));
+        return Err(Error::State(format!(
+            "ya existe un objeto llamado «{}»; elegí otro nombre",
+            o.name
+        )));
     }
     if let Some(p) = &pg_t {
         if p.taken.iter().any(|t| *t == new_name) {
@@ -1549,7 +2125,14 @@ pub async fn clone_table(
     // Oracle: a sequence, synonym, type… the explorer doesn't list, found
     // before creating (the engine's ORA-00955 names nothing).
     if info.dialect == "oracle"
-        && oracle_taken(&mut *src, plan.table.schema.as_deref(), std::slice::from_ref(&new_name), false).await.is_ok_and(|t| !t.is_empty())
+        && oracle_taken(
+            &mut *src,
+            plan.table.schema.as_deref(),
+            std::slice::from_ref(&new_name),
+            false,
+        )
+        .await
+        .is_ok_and(|t| !t.is_empty())
     {
         return Err(Error::State(format!(
             "ya existe en el esquema otro objeto llamado «{new_name}» (puede ser uno que el explorador no muestra, como una secuencia o un sinónimo); elegí otro nombre"
@@ -1557,7 +2140,16 @@ pub async fn clone_table(
     }
     // SQLite, libSQL, DuckDB: the original's own CREATE, renamed (the
     // catalog leaves out collations, computed columns…; see `embedded`).
-    if let Some(n) = embedded::native_ddl(&*driver, &mut *src, &source_t, &new_name, &objects, req.options.with_indexes).await? {
+    if let Some(n) = embedded::native_ddl(
+        &*driver,
+        &mut *src,
+        &source_t,
+        &new_name,
+        &objects,
+        req.options.with_indexes,
+    )
+    .await?
+    {
         embedded::apply(n, &mut ddl, &mut plan, &mut notes);
     }
     // Firebird: identity ALWAYS / BY DEFAULT, START WITH, INCREMENT BY.
@@ -1586,12 +2178,24 @@ pub async fn clone_table(
             .map(|c| c.name.clone())
             .collect()
     };
-    let skipped: Vec<&str> =
-        plan.table.columns.iter().filter(|c| generated(c, info.dialect) && !analytics::stored_computed(info, c)).map(|c| c.name.as_str()).collect();
+    let skipped: Vec<&str> = plan
+        .table
+        .columns
+        .iter()
+        .filter(|c| generated(c, info.dialect) && !analytics::stored_computed(info, c))
+        .map(|c| c.name.as_str())
+        .collect();
     if req.options.with_data && !skipped.is_empty() {
-        notes.push(format!("columnas calculadas por el motor (no se copian, se recalculan): {}", skipped.join(", ")));
+        notes.push(format!(
+            "columnas calculadas por el motor (no se copian, se recalculan): {}",
+            skipped.join(", ")
+        ));
     }
-    let rows_total = if req.options.with_data { source_rows(&*driver, &mut *src, &source_t).await } else { None };
+    let rows_total = if req.options.with_data {
+        source_rows(&*driver, &mut *src, &source_t).await
+    } else {
+        None
+    };
     notes.extend(triggers::note(&*driver, &mut *src, &source_t).await);
     control.check()?;
 
@@ -1792,13 +2396,22 @@ pub async fn clone_table(
     }
     .await;
     match result {
-        Ok(rows) => Ok(CloneReport { table: target_ref, rows, elapsed_ms: start.elapsed().as_millis() as u64, notes, renames: plan.renames }),
+        Ok(rows) => Ok(CloneReport {
+            table: target_ref,
+            rows,
+            elapsed_ms: start.elapsed().as_millis() as u64,
+            notes,
+            renames: plan.renames,
+        }),
         Err(e) => {
             // A fresh connection: the one in use may be the one that failed.
             drop(tgt);
             match endpoints.open_target().await {
                 Ok(mut t) => cleanup(&mut *t, &ddl.drop, &*events).await,
-                Err(ce) => events(CloneEvent::Log { level: LogLevel::Error, text: format!("no se pudo borrar el clon a medias «{new_name}»: {ce}") }),
+                Err(ce) => events(CloneEvent::Log {
+                    level: LogLevel::Error,
+                    text: format!("no se pudo borrar el clon a medias «{new_name}»: {ce}"),
+                }),
             }
             Err(e)
         }
@@ -1807,9 +2420,14 @@ pub async fn clone_table(
 
 /// Drop a clone left halfway (best effort; says so when it can't).
 async fn cleanup(s: &mut dyn Session, drop_sql: &str, events: &(dyn Fn(CloneEvent) + Send + Sync)) {
-    events(CloneEvent::Phase { phase: ClonePhase::Cleanup });
+    events(CloneEvent::Phase {
+        phase: ClonePhase::Cleanup,
+    });
     if let Err(e) = exec(s, drop_sql).await {
-        events(CloneEvent::Log { level: LogLevel::Error, text: format!("no se pudo borrar el clon a medias: {e}") });
+        events(CloneEvent::Log {
+            level: LogLevel::Error,
+            text: format!("no se pudo borrar el clon a medias: {e}"),
+        });
     }
 }
 
@@ -1834,11 +2452,19 @@ async fn copy_rows(
     // PostgreSQL's catalog: the same with its `setval(max + 1)` (a sequence
     // with default options, below the original's range: negative ids);
     // `pg::after_load` sets the original's options and current value.
-    let after = if restores_oracle_identity(&*driver) || pg::applies(&*driver) { String::new() } else { after };
+    let after = if restores_oracle_identity(&*driver) || pg::applies(&*driver) {
+        String::new()
+    } else {
+        after
+    };
     let job = TransferJob {
         name: target_ref.name.clone(),
         // No columns: whole documents, and the load takes the read's.
-        source: ReadSpec { table: req.source.clone(), columns: (!loaded.is_empty()).then(|| loaded.to_vec()), filter: None },
+        source: ReadSpec {
+            table: req.source.clone(),
+            columns: (!loaded.is_empty()).then(|| loaded.to_vec()),
+            filter: None,
+        },
         target: LoadSpec {
             table: target_ref.clone(),
             columns: loaded.to_vec(),
@@ -1858,17 +2484,36 @@ async fn copy_rows(
         mode: TransferMode::Copy,
     };
     let dir = std::env::temp_dir();
-    let tag = format!("dbine-clone-{}-{}", std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default());
+    let tag = format!(
+        "dbine-clone-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
     let path = dir.join(format!("{tag}.sqlite"));
     let store = Arc::new(Store::open(&path)?);
     let engine = Engine::new(store.clone(), tag.clone());
     control.set_engine(Some(engine.control()));
-    let options = RunOptions { parallel: 1, fail_fast: true, keep_identity: true, table_lock: true, ..Default::default() };
+    let options = RunOptions {
+        parallel: 1,
+        fail_fast: true,
+        keep_identity: true,
+        table_lock: true,
+        ..Default::default()
+    };
     let ev = events.clone();
     let wrapped: Arc<dyn Endpoints> = Arc::new(CloneEndpoints(endpoints.clone()));
     let report = engine
         .run(vec![job], options, wrapped, move |e| match e {
-            Event::TableProgress { rows_done, rows_total, rows_per_s, .. } => ev(CloneEvent::Progress { rows_done, rows_total, rows_per_s }),
+            Event::TableProgress {
+                rows_done,
+                rows_total,
+                rows_per_s,
+                ..
+            } => ev(CloneEvent::Progress {
+                rows_done,
+                rows_total,
+                rows_per_s,
+            }),
             Event::Log { level, text } => ev(CloneEvent::Log { level, text }),
             _ => {}
         })
@@ -1880,24 +2525,42 @@ async fn copy_rows(
         let _ = std::fs::remove_file(dir.join(format!("{tag}.sqlite{suffix}")));
     }
     let report = report?;
-    let t = report.tables.into_iter().next().ok_or_else(|| Error::State("la copia no informó la tabla".into()))?;
+    let t = report
+        .tables
+        .into_iter()
+        .next()
+        .ok_or_else(|| Error::State("la copia no informó la tabla".into()))?;
     match t.status {
         TableStatus::Done => Ok(t.rows_done),
         TableStatus::Cancelled => Err(Error::Cancelled),
         _ if control.is_cancelled() => Err(Error::Cancelled),
-        _ => Err(Error::State(t.error.unwrap_or_else(|| "la copia de las filas no terminó".into()))),
+        _ => {
+            Err(Error::State(t.error.unwrap_or_else(|| {
+                "la copia de las filas no terminó".into()
+            })))
+        }
     }
 }
 
 /// Move the clone's identity / sequence past the copied values where the
 /// driver's `data_load_wrap` doesn't (or the engine doesn't on its own),
 /// so the clone's next insert doesn't collide. A note when it can't.
-async fn resync_identity(driver: &dyn Driver, src: &mut dyn Session, tgt: &mut dyn Session, original: &TableSchema, clone: &TableSchema) -> Result<Option<String>> {
+async fn resync_identity(
+    driver: &dyn Driver,
+    src: &mut dyn Session,
+    tgt: &mut dyn Session,
+    original: &TableSchema,
+    clone: &TableSchema,
+) -> Result<Option<String>> {
     if matches!(driver.info().id, "sqlite" | "libsql") {
         // AUTOINCREMENT's counter, where the original's is (see `embedded`).
-        return embedded::copy_sqlite_sequence(src, tgt, original, clone).await.map(|_| None);
+        return embedded::copy_sqlite_sequence(src, tgt, original, clone)
+            .await
+            .map(|_| None);
     }
-    let Some(col) = clone.columns.iter().find(|c| c.auto_increment) else { return Ok(None) };
+    let Some(col) = clone.columns.iter().find(|c| c.auto_increment) else {
+        return Ok(None);
+    };
     let info = driver.info();
     let q = quote_of(info.dialect);
     let name = sql_name(driver, clone);
@@ -1969,7 +2632,12 @@ fn restores_oracle_identity(driver: &dyn Driver) -> bool {
 /// the CREATE still catches it).
 async fn oracle_invisible_columns(s: &mut dyn Session, t: &TableSchema) -> Vec<String> {
     let lit = |v: &str| format!("'{}'", v.replace('\'', "''"));
-    let owner = t.schema.as_deref().filter(|s| !s.is_empty()).map(lit).unwrap_or_else(|| "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".into());
+    let owner = t
+        .schema
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(lit)
+        .unwrap_or_else(|| "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".into());
     // user_generated = 'NO': the engine's own hidden columns (unused ones,
     // function-based indexes' expressions), not the table's.
     let sql = format!(
@@ -1977,7 +2645,14 @@ async fn oracle_invisible_columns(s: &mut dyn Session, t: &TableSchema) -> Vec<S
          AND hidden_column = 'YES' AND user_generated = 'YES' ORDER BY internal_column_id",
         lit(&t.name)
     );
-    strings(s, &sql).await.map(|rows| rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect()).unwrap_or_default()
+    strings(s, &sql)
+        .await
+        .map(|rows| {
+            rows.into_iter()
+                .filter_map(|r| r.into_iter().next().flatten())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The limit for the names the clone makes up, from the server: Oracle
@@ -2024,15 +2699,36 @@ fn oracle_identity_options(s: &str) -> Vec<(String, String)> {
 
 /// The identity clause that gives a column the original's identity:
 /// ALWAYS / BY DEFAULT [ON NULL] and its options, starting at `start`.
-fn oracle_identity_clause(generation: &str, on_null: bool, options: &[(String, String)], start: &str) -> Result<String> {
-    let get = |k: &str| options.iter().find(|(x, _)| x == k).map(|(_, v)| v.as_str());
-    let number = |k: &str| get(k).filter(|v| !v.is_empty() && v.trim_start_matches('-').chars().all(|c| c.is_ascii_digit()));
+fn oracle_identity_clause(
+    generation: &str,
+    on_null: bool,
+    options: &[(String, String)],
+    start: &str,
+) -> Result<String> {
+    let get = |k: &str| {
+        options
+            .iter()
+            .find(|(x, _)| x == k)
+            .map(|(_, v)| v.as_str())
+    };
+    let number = |k: &str| {
+        get(k).filter(|v| {
+            !v.is_empty()
+                && v.trim_start_matches('-')
+                    .chars()
+                    .all(|c| c.is_ascii_digit())
+        })
+    };
     let flag = |k: &str| get(k) == Some("Y");
     let generation = match generation.trim().to_ascii_uppercase().as_str() {
         "ALWAYS" => "ALWAYS",
         "BY DEFAULT" if on_null => "BY DEFAULT ON NULL",
         "BY DEFAULT" => "BY DEFAULT",
-        other => return Err(Error::Unsupported(format!("no se puede clonar: DBine no sabe recrear una identidad «{other}»"))),
+        other => {
+            return Err(Error::Unsupported(format!(
+                "no se puede clonar: DBine no sabe recrear una identidad «{other}»"
+            )))
+        }
     };
     let mut o = vec![format!("START WITH {start}")];
     if let Some(v) = number("INCREMENT BY") {
@@ -2044,25 +2740,58 @@ fn oracle_identity_clause(generation: &str, on_null: bool, options: &[(String, S
     if let Some(v) = number("MIN_VALUE") {
         o.push(format!("MINVALUE {v}"));
     }
-    o.push(if flag("CYCLE_FLAG") { "CYCLE" } else { "NOCYCLE" }.into());
+    o.push(
+        if flag("CYCLE_FLAG") {
+            "CYCLE"
+        } else {
+            "NOCYCLE"
+        }
+        .into(),
+    );
     match number("CACHE_SIZE").and_then(|v| v.parse::<i64>().ok()) {
         Some(n) if n >= 2 => o.push(format!("CACHE {n}")),
         _ => o.push("NOCACHE".into()),
     }
-    o.push(if flag("ORDER_FLAG") { "ORDER" } else { "NOORDER" }.into());
+    o.push(
+        if flag("ORDER_FLAG") {
+            "ORDER"
+        } else {
+            "NOORDER"
+        }
+        .into(),
+    );
     if flag("SCALE_FLAG") {
-        o.push(if flag("EXTEND_FLAG") { "SCALE EXTEND" } else { "SCALE NOEXTEND" }.into());
+        o.push(
+            if flag("EXTEND_FLAG") {
+                "SCALE EXTEND"
+            } else {
+                "SCALE NOEXTEND"
+            }
+            .into(),
+        );
     }
     if flag("KEEP_VALUE") {
         o.push("KEEP".into());
     }
-    Ok(format!("GENERATED {generation} AS IDENTITY ({})", o.join(" ")))
+    Ok(format!(
+        "GENERATED {generation} AS IDENTITY ({})",
+        o.join(" ")
+    ))
 }
 
 /// An Oracle identity column's (generation, ON NULL, options).
-async fn oracle_identity(s: &mut dyn Session, t: &TableSchema, column: &str) -> Result<Option<(String, bool, Vec<(String, String)>)>> {
+async fn oracle_identity(
+    s: &mut dyn Session,
+    t: &TableSchema,
+    column: &str,
+) -> Result<Option<(String, bool, Vec<(String, String)>)>> {
     let lit = |v: &str| format!("'{}'", v.replace('\'', "''"));
-    let owner = t.schema.as_deref().filter(|s| !s.is_empty()).map(lit).unwrap_or_else(|| "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".into());
+    let owner = t
+        .schema
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(lit)
+        .unwrap_or_else(|| "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".into());
     let sql = format!(
         "SELECT i.generation_type, i.identity_options, c.default_on_null FROM all_tab_identity_cols i \
          JOIN all_tab_columns c ON c.owner = i.owner AND c.table_name = i.table_name AND c.column_name = i.column_name \
@@ -2084,23 +2813,56 @@ async fn oracle_identity(s: &mut dyn Session, t: &TableSchema, column: &str) -> 
 /// starting one step past the loaded values (`loaded`) or where the
 /// original's definition starts; then check they came out the same, or
 /// refuse.
-async fn restore_oracle_identity(src: &mut dyn Session, tgt: &mut dyn Session, original: &TableSchema, clone: &TableSchema, loaded: bool) -> Result<()> {
-    let name = qualified_name(Quote::Double, clone.schema.as_deref().filter(|s| !s.is_empty()), &clone.name);
+async fn restore_oracle_identity(
+    src: &mut dyn Session,
+    tgt: &mut dyn Session,
+    original: &TableSchema,
+    clone: &TableSchema,
+    loaded: bool,
+) -> Result<()> {
+    let name = qualified_name(
+        Quote::Double,
+        clone.schema.as_deref().filter(|s| !s.is_empty()),
+        &clone.name,
+    );
     for col in clone.columns.iter().filter(|c| c.auto_increment) {
-        let fail = |why: String| Error::State(format!("la identidad de «{}» no quedó igual a la del original ({why}); no se clona", col.name));
-        let (generation, on_null, options) = oracle_identity(src, original, &col.name).await?.ok_or_else(|| fail("el motor no la informa".into()))?;
+        let fail = |why: String| {
+            Error::State(format!(
+                "la identidad de «{}» no quedó igual a la del original ({why}); no se clona",
+                col.name
+            ))
+        };
+        let (generation, on_null, options) = oracle_identity(src, original, &col.name)
+            .await?
+            .ok_or_else(|| fail("el motor no la informa".into()))?;
         let col_q = dbine_driver::sql::quote_ident(Quote::Double, &col.name);
-        let definition = options.iter().find(|(k, _)| k == "START WITH").map(|(_, v)| v.clone()).ok_or_else(|| fail("falta su valor inicial".into()))?;
+        let definition = options
+            .iter()
+            .find(|(k, _)| k == "START WITH")
+            .map(|(_, v)| v.clone())
+            .ok_or_else(|| fail("falta su valor inicial".into()))?;
         // Past the loaded values by one step, as the original would go on
         // (`START WITH LIMIT VALUE` restarts at the largest + 1).
-        let increment = options.iter().find(|(k, _)| k == "INCREMENT BY").map(|(_, v)| v.clone()).filter(|v| v.parse::<i128>().is_ok()).unwrap_or_else(|| "1".into());
-        let edge = if increment.starts_with('-') { "MIN" } else { "MAX" };
+        let increment = options
+            .iter()
+            .find(|(k, _)| k == "INCREMENT BY")
+            .map(|(_, v)| v.clone())
+            .filter(|v| v.parse::<i128>().is_ok())
+            .unwrap_or_else(|| "1".into());
+        let edge = if increment.starts_with('-') {
+            "MIN"
+        } else {
+            "MAX"
+        };
         let next = if loaded {
-            strings(tgt, &format!("SELECT TO_CHAR({edge}({col_q}) + ({increment})) FROM {name}"))
-                .await?
-                .into_iter()
-                .next()
-                .and_then(|r| r.into_iter().next().flatten())
+            strings(
+                tgt,
+                &format!("SELECT TO_CHAR({edge}({col_q}) + ({increment})) FROM {name}"),
+            )
+            .await?
+            .into_iter()
+            .next()
+            .and_then(|r| r.into_iter().next().flatten())
         } else {
             None
         };
@@ -2118,14 +2880,33 @@ async fn restore_oracle_identity(src: &mut dyn Session, tgt: &mut dyn Session, o
                 fail(format!("el motor no aceptó sus opciones: {}", in_spanish(e)))
             }
         })?;
-        let (g2, n2, o2) = oracle_identity(tgt, clone, &col.name).await?.ok_or_else(|| fail("el clon no la informa".into()))?;
+        let (g2, n2, o2) = oracle_identity(tgt, clone, &col.name)
+            .await?
+            .ok_or_else(|| fail("el clon no la informa".into()))?;
         // START WITH is where each one is now (the clone, past its rows).
-        let rest = |o: &[(String, String)]| o.iter().filter(|(k, _)| k != "START WITH").cloned().collect::<Vec<_>>();
+        let rest = |o: &[(String, String)]| {
+            o.iter()
+                .filter(|(k, _)| k != "START WITH")
+                .cloned()
+                .collect::<Vec<_>>()
+        };
         if !g2.eq_ignore_ascii_case(&generation) || n2 != on_null || rest(&o2) != rest(&options) {
             let show = |g: &str, n: bool, o: &[(String, String)]| {
-                format!("{g}{} {}", if n { " ON NULL" } else { "" }, rest(o).iter().map(|(k, v)| format!("{k}: {v}")).collect::<Vec<_>>().join(", "))
+                format!(
+                    "{g}{} {}",
+                    if n { " ON NULL" } else { "" },
+                    rest(o)
+                        .iter()
+                        .map(|(k, v)| format!("{k}: {v}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             };
-            return Err(fail(format!("original: {}; clon: {}", show(&generation, on_null, &options), show(&g2, n2, &o2))));
+            return Err(fail(format!(
+                "original: {}; clon: {}",
+                show(&generation, on_null, &options),
+                show(&g2, n2, &o2)
+            )));
         }
     }
     Ok(())
@@ -2154,16 +2935,28 @@ impl Endpoints for ConfigEndpoints {
         let mut cfg = self.config.clone();
         cfg.read_only = true;
         let s = self.driver.connect(&cfg, self.database.as_deref()).await?;
-        Ok(if self.driver.info().language == Language::Sql { Box::new(dbine_driver::read_only::ReadOnlySession::new(s)) } else { s })
+        Ok(if self.driver.info().language == Language::Sql {
+            Box::new(dbine_driver::read_only::ReadOnlySession::new(s))
+        } else {
+            s
+        })
     }
     async fn open_target(&self) -> Result<Box<dyn Session>> {
-        self.driver.connect(&self.config, self.database.as_deref()).await
+        self.driver
+            .connect(&self.config, self.database.as_deref())
+            .await
     }
 }
 
 /// Columns as the transfer describes them.
 pub fn transfer_columns(cols: Vec<dbine_driver::ColumnInfo>) -> Vec<TransferColumn> {
-    cols.into_iter().map(|c| TransferColumn { name: c.name, type_name: c.data_type, nullable: c.nullable }).collect()
+    cols.into_iter()
+        .map(|c| TransferColumn {
+            name: c.name,
+            type_name: c.data_type,
+            nullable: c.nullable,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -2204,7 +2997,11 @@ mod tests {
             fields: vec![],
             databases_label: "",
             has_schemas: true,
-            object_kinds: vec![ObjectKindInfo::tables(), ObjectKindInfo::views(), ObjectKindInfo::procedures()],
+            object_kinds: vec![
+                ObjectKindInfo::tables(),
+                ObjectKindInfo::views(),
+                ObjectKindInfo::procedures(),
+            ],
         })
     }
 
@@ -2218,36 +3015,119 @@ mod tests {
             schema: Some("public".into()),
             name: "clientes".into(),
             columns: vec![
-                ColumnDef { name: "id".into(), data_type: "integer".into(), nullable: false, auto_increment: true, ..Default::default() },
-                ColumnDef { name: "padre".into(), data_type: "integer".into(), ..Default::default() },
-                ColumnDef { name: "pais".into(), data_type: "integer".into(), ..Default::default() },
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "integer".into(),
+                    nullable: false,
+                    auto_increment: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "padre".into(),
+                    data_type: "integer".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "pais".into(),
+                    data_type: "integer".into(),
+                    ..Default::default()
+                },
             ],
-            primary_key: Some(KeyDef { name: Some("clientes_pkey".into()), columns: vec!["id".into()] }),
+            primary_key: Some(KeyDef {
+                name: Some("clientes_pkey".into()),
+                columns: vec!["id".into()],
+            }),
             foreign_keys: vec![
-                ForeignKeyDef { name: Some("fk_padre".into()), columns: vec!["padre".into()], ref_schema: Some("public".into()), ref_table: "clientes".into(), ref_columns: vec!["id".into()], ..Default::default() },
-                ForeignKeyDef { name: Some("clientes_pais_fkey".into()), columns: vec!["pais".into()], ref_schema: Some("public".into()), ref_table: "paises".into(), ref_columns: vec!["id".into()], ..Default::default() },
+                ForeignKeyDef {
+                    name: Some("fk_padre".into()),
+                    columns: vec!["padre".into()],
+                    ref_schema: Some("public".into()),
+                    ref_table: "clientes".into(),
+                    ref_columns: vec!["id".into()],
+                    ..Default::default()
+                },
+                ForeignKeyDef {
+                    name: Some("clientes_pais_fkey".into()),
+                    columns: vec!["pais".into()],
+                    ref_schema: Some("public".into()),
+                    ref_table: "paises".into(),
+                    ref_columns: vec!["id".into()],
+                    ..Default::default()
+                },
             ],
             indexes: vec![
-                IndexDef { name: "ix_Clientes_pais".into(), columns: vec!["pais".into()], ..Default::default() },
-                IndexDef { name: "otro".into(), columns: vec!["padre".into()], unique: true, ..Default::default() },
+                IndexDef {
+                    name: "ix_Clientes_pais".into(),
+                    columns: vec!["pais".into()],
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "otro".into(),
+                    columns: vec!["padre".into()],
+                    unique: true,
+                    ..Default::default()
+                },
             ],
-            checks: vec![CheckDef { name: Some("ck_id".into()), expression: "id > 0".into() }],
+            checks: vec![CheckDef {
+                name: Some("ck_id".into()),
+                expression: "id > 0".into(),
+            }],
             ..Default::default()
         }
     }
 
     #[test]
     fn rows_are_counted_in_each_engine_language() {
-        let t = TableSchema { schema: Some("ks".into()), name: "t".into(), ..sample() };
+        let t = TableSchema {
+            schema: Some("ks".into()),
+            name: "t".into(),
+            ..sample()
+        };
         let text = |d: D| count_text(&d, &t);
-        assert_eq!(text(pg()).as_deref(), Some(r#"SELECT COUNT(*) FROM "ks"."t""#));
-        assert_eq!(text(driver("cassandra", "", Family::WideColumn, Language::Cql)).as_deref(), Some(r#"SELECT COUNT(*) FROM "ks"."t""#));
-        assert_eq!(text(driver("mongodb", "", Family::Document, Language::Json)).as_deref(), Some(r#"db.getCollection("t").estimatedDocumentCount()"#));
-        assert_eq!(text(driver("opensearch", "", Family::Search, Language::Json)).as_deref(), Some("GET /t/_count"));
-        assert_eq!(text(driver("solr", "", Family::Search, Language::Json)).as_deref(), Some("GET /solr/t/select?q=*:*&rows=0"));
-        assert_eq!(text(driver("cosmosdb", "cosmos", Family::Document, Language::Sql)).as_deref(), Some("-- container: t\nSELECT VALUE COUNT(1) FROM c"));
-        assert_eq!(text(driver("dynamodb", "partiql", Family::KeyValue, Language::Sql)).as_deref(), Some(""));
-        assert_eq!(text(driver("influxdb", "", Family::TimeSeries, Language::Flux)), None);
+        assert_eq!(
+            text(pg()).as_deref(),
+            Some(r#"SELECT COUNT(*) FROM "ks"."t""#)
+        );
+        assert_eq!(
+            text(driver("cassandra", "", Family::WideColumn, Language::Cql)).as_deref(),
+            Some(r#"SELECT COUNT(*) FROM "ks"."t""#)
+        );
+        assert_eq!(
+            text(driver("mongodb", "", Family::Document, Language::Json)).as_deref(),
+            Some(r#"db.getCollection("t").estimatedDocumentCount()"#)
+        );
+        assert_eq!(
+            text(driver("opensearch", "", Family::Search, Language::Json)).as_deref(),
+            Some("GET /t/_count")
+        );
+        assert_eq!(
+            text(driver("solr", "", Family::Search, Language::Json)).as_deref(),
+            Some("GET /solr/t/select?q=*:*&rows=0")
+        );
+        assert_eq!(
+            text(driver(
+                "cosmosdb",
+                "cosmos",
+                Family::Document,
+                Language::Sql
+            ))
+            .as_deref(),
+            Some("-- container: t\nSELECT VALUE COUNT(1) FROM c")
+        );
+        assert_eq!(
+            text(driver(
+                "dynamodb",
+                "partiql",
+                Family::KeyValue,
+                Language::Sql
+            ))
+            .as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            text(driver("influxdb", "", Family::TimeSeries, Language::Flux)),
+            None
+        );
     }
 
     #[test]
@@ -2255,14 +3135,44 @@ mod tests {
         use dbine_driver::ResultColumn;
         let one = |cols: &[&str], row: Vec<serde_json::Value>| {
             let mut out = QueryOutcome::default();
-            out.begin_result(cols.iter().map(|c| ResultColumn { name: c.to_string(), type_name: String::new() }).collect());
+            out.begin_result(
+                cols.iter()
+                    .map(|c| ResultColumn {
+                        name: c.to_string(),
+                        type_name: String::new(),
+                    })
+                    .collect(),
+            );
             out.push_row(row, 10);
             out
         };
-        assert_eq!(count_of(&one(&["count"], vec![serde_json::json!(42)])), Some(42));
-        assert_eq!(count_of(&one(&["COUNT(*)"], vec![serde_json::json!("9007199254740993")])), Some(9007199254740993));
-        assert_eq!(count_of(&one(&["epoch", "count"], vec![serde_json::json!("1"), serde_json::json!("7")])), Some(7));
-        assert_eq!(count_of(&one(&["response"], vec![serde_json::json!("{\n  \"count\" : 12,\n  \"_shards\" : {}\n}")])), Some(12));
+        assert_eq!(
+            count_of(&one(&["count"], vec![serde_json::json!(42)])),
+            Some(42)
+        );
+        assert_eq!(
+            count_of(&one(
+                &["COUNT(*)"],
+                vec![serde_json::json!("9007199254740993")]
+            )),
+            Some(9007199254740993)
+        );
+        assert_eq!(
+            count_of(&one(
+                &["epoch", "count"],
+                vec![serde_json::json!("1"), serde_json::json!("7")]
+            )),
+            Some(7)
+        );
+        assert_eq!(
+            count_of(&one(
+                &["response"],
+                vec![serde_json::json!(
+                    "{\n  \"count\" : 12,\n  \"_shards\" : {}\n}"
+                )]
+            )),
+            Some(12)
+        );
         let mut solr = QueryOutcome::default();
         solr.messages.push("31 documentos coinciden (2 ms).".into());
         assert_eq!(count_of(&solr), Some(31));
@@ -2271,8 +3181,14 @@ mod tests {
 
     #[test]
     fn proposed_name() {
-        let at = chrono::NaiveDate::from_ymd_opt(2026, 9, 30).unwrap().and_hms_opt(7, 5, 9).unwrap();
-        assert_eq!(default_clone_name("clientes", at), "clientes_20260930_070509");
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 9, 30)
+            .unwrap()
+            .and_hms_opt(7, 5, 9)
+            .unwrap();
+        assert_eq!(
+            default_clone_name("clientes", at),
+            "clientes_20260930_070509"
+        );
     }
 
     #[test]
@@ -2281,14 +3197,26 @@ mod tests {
         let t = &p.table;
         assert_eq!(t.name, "clientes_20260930_070509");
         assert_eq!(t.schema.as_deref(), Some("public"));
-        assert_eq!(t.primary_key.as_ref().unwrap().name.as_deref(), Some("clientes_20260930_070509_pkey"));
+        assert_eq!(
+            t.primary_key.as_ref().unwrap().name.as_deref(),
+            Some("clientes_20260930_070509_pkey")
+        );
         // The table's name inside, matched ignoring case, keeps the rest.
         assert_eq!(t.indexes[0].name, "ix_clientes_20260930_070509_pais");
         // Not inside: the clone's name goes in front.
         assert_eq!(t.indexes[1].name, "clientes_20260930_070509_otro");
-        assert_eq!(t.checks[0].name.as_deref(), Some("clientes_20260930_070509_ck_id"));
-        assert_eq!(t.foreign_keys[0].name.as_deref(), Some("clientes_20260930_070509_fk_padre"));
-        assert_eq!(t.foreign_keys[1].name.as_deref(), Some("clientes_20260930_070509_pais_fkey"));
+        assert_eq!(
+            t.checks[0].name.as_deref(),
+            Some("clientes_20260930_070509_ck_id")
+        );
+        assert_eq!(
+            t.foreign_keys[0].name.as_deref(),
+            Some("clientes_20260930_070509_fk_padre")
+        );
+        assert_eq!(
+            t.foreign_keys[1].name.as_deref(),
+            Some("clientes_20260930_070509_pais_fkey")
+        );
         // A self reference points to the clone; others to the same parent.
         assert_eq!(t.foreign_keys[0].ref_table, "clientes_20260930_070509");
         assert_eq!(t.foreign_keys[1].ref_table, "paises");
@@ -2297,7 +3225,12 @@ mod tests {
         // Columns untouched.
         assert_eq!(t.columns, sample().columns);
         // Deterministic.
-        assert_eq!(plan_clone(&pg(), &sample(), "clientes_20260930_070509").unwrap().table, p.table);
+        assert_eq!(
+            plan_clone(&pg(), &sample(), "clientes_20260930_070509")
+                .unwrap()
+                .table,
+            p.table
+        );
     }
 
     #[test]
@@ -2314,7 +3247,11 @@ mod tests {
         let mut t = sample();
         t.schema = Some("APP".into());
         let p = plan_clone(&ora, &t, "clientes_20260930_070509").unwrap();
-        assert!(p.renames.iter().all(|r| r.to.len() <= 30), "{:?}", p.renames);
+        assert!(
+            p.renames.iter().all(|r| r.to.len() <= 30),
+            "{:?}",
+            p.renames
+        );
         assert!(p.renames.iter().any(|r| r.shortened));
         assert!(p.notes.iter().any(|n| n.contains("acortados")));
         // Unique after shortening.
@@ -2333,7 +3270,10 @@ mod tests {
         t.name = "mis \"clientes\"".into();
         t.primary_key.as_mut().unwrap().name = Some("pk mis \"clientes\"".into());
         let p = plan_clone(&pg(), &t, "copia ]de[ `x`").unwrap();
-        assert_eq!(p.table.primary_key.as_ref().unwrap().name.as_deref(), Some("pk copia ]de[ `x`"));
+        assert_eq!(
+            p.table.primary_key.as_ref().unwrap().name.as_deref(),
+            Some("pk copia ]de[ `x`")
+        );
         assert_eq!(sql_name(&pg(), &p.table), "\"public\".\"copia ]de[ `x`\"");
         let ms = driver("sqlserver", "mssql", Family::Relational, Language::Sql);
         assert_eq!(sql_name(&ms, &p.table), "[public].[copia ]]de[ `x`]");
@@ -2344,7 +3284,9 @@ mod tests {
         assert!(plan_clone(&pg(), &sample(), "  ").is_err());
         assert!(plan_clone(&pg(), &sample(), "clientes").is_err());
         // PostgreSQL would cut it silently: refused.
-        let e = plan_clone(&pg(), &sample(), &"x".repeat(64)).unwrap_err().to_string();
+        let e = plan_clone(&pg(), &sample(), &"x".repeat(64))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("63"), "{e}");
         assert!(plan_clone(&pg(), &sample(), &"x".repeat(63)).is_ok());
     }
@@ -2357,18 +3299,32 @@ mod tests {
         // 100 characters, 200 bytes: fits in sysname.
         assert!(plan_clone(&ms, &t, &"ñ".repeat(100)).is_ok());
         assert!(plan_clone(&ms, &t, &"ñ".repeat(128)).is_ok());
-        let e = plan_clone(&ms, &t, &"ñ".repeat(129)).unwrap_err().to_string();
+        let e = plan_clone(&ms, &t, &"ñ".repeat(129))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("128"), "{e}");
         // PostgreSQL's limit is in bytes: 32 × 2 = 64 > 63.
         assert!(plan_clone(&pg(), &sample(), &"ñ".repeat(32)).is_err());
         // The made-up names are counted in characters too: 200 bytes, not cut.
         let p = plan_clone(&ms, &t, &"ñ".repeat(100)).unwrap();
         assert!(p.renames.iter().all(|r| !r.shortened), "{:?}", p.renames);
-        assert!(p.notes.iter().all(|n| !n.contains("acortados")), "{:?}", p.notes);
+        assert!(
+            p.notes.iter().all(|n| !n.contains("acortados")),
+            "{:?}",
+            p.notes
+        );
         let p = plan_clone(&ms, &t, &"ñ".repeat(128)).unwrap();
         assert!(p.renames.iter().any(|r| r.shortened));
-        assert!(p.renames.iter().all(|r| r.to.chars().count() <= 128), "{:?}", p.renames);
-        assert!(p.notes.iter().any(|n| n.contains("128 caracteres")), "{:?}", p.notes);
+        assert!(
+            p.renames.iter().all(|r| r.to.chars().count() <= 128),
+            "{:?}",
+            p.renames
+        );
+        assert!(
+            p.notes.iter().any(|n| n.contains("128 caracteres")),
+            "{:?}",
+            p.notes
+        );
     }
 
     #[test]
@@ -2383,12 +3339,29 @@ mod tests {
     #[test]
     fn names_in_use_are_avoided() {
         let first = plan_clone(&pg(), &sample(), "clientes_2").unwrap();
-        let pk = first.table.primary_key.as_ref().unwrap().name.clone().unwrap();
+        let pk = first
+            .table
+            .primary_key
+            .as_ref()
+            .unwrap()
+            .name
+            .clone()
+            .unwrap();
         assert_eq!(pk, "clientes_2_pkey");
-        let p = plan_clone_with(&pg(), &sample(), "clientes_2", &["CLIENTES_2_PKEY".into()]).unwrap();
+        let p =
+            plan_clone_with(&pg(), &sample(), "clientes_2", &["CLIENTES_2_PKEY".into()]).unwrap();
         let pk2 = p.table.primary_key.as_ref().unwrap().name.clone().unwrap();
-        assert!(!pk2.eq_ignore_ascii_case(&pk) && pk2.starts_with("clientes_2_pkey_"), "{pk2}");
-        assert!(p.notes.iter().any(|n| n.contains("ya usaba otro objeto") && n.contains("clientes_pkey →")), "{:?}", p.notes);
+        assert!(
+            !pk2.eq_ignore_ascii_case(&pk) && pk2.starts_with("clientes_2_pkey_"),
+            "{pk2}"
+        );
+        assert!(
+            p.notes
+                .iter()
+                .any(|n| n.contains("ya usaba otro objeto") && n.contains("clientes_pkey →")),
+            "{:?}",
+            p.notes
+        );
         // The others keep their first choice.
         assert_eq!(p.table.indexes, first.table.indexes);
     }
@@ -2398,9 +3371,17 @@ mod tests {
         let ms = driver("sqlserver", "mssql", Family::Relational, Language::Sql);
         let mut t = sample();
         t.columns[2].default_value = Some("((0))".into());
-        t.columns[2].options.insert(DEFAULT_NAME_OPTION.into(), "DF_clientes_pais".into());
+        t.columns[2]
+            .options
+            .insert(DEFAULT_NAME_OPTION.into(), "DF_clientes_pais".into());
         let p = plan_clone(&ms, &t, "clientes_2").unwrap();
-        assert_eq!(p.table.columns[2].options.get(DEFAULT_NAME_OPTION).map(String::as_str), Some("DF_clientes_2_pais"));
+        assert_eq!(
+            p.table.columns[2]
+                .options
+                .get(DEFAULT_NAME_OPTION)
+                .map(String::as_str),
+            Some("DF_clientes_2_pais")
+        );
         assert!(p.renames.iter().any(|r| r.from == "DF_clientes_pais"));
     }
 
@@ -2408,13 +3389,22 @@ mod tests {
     fn taken_names_in_sql_server_messages() {
         let e = Error::Query("There is already an object named 'UQ_x' in the database.".into());
         assert!(name_taken(&e));
-        assert!(name_taken(&Error::Query("relation \"x\" already exists".into())));
-        assert!(!name_taken(&Error::Query("Incorrect syntax near 'x'.".into())));
+        assert!(name_taken(&Error::Query(
+            "relation \"x\" already exists".into()
+        )));
+        assert!(!name_taken(&Error::Query(
+            "Incorrect syntax near 'x'.".into()
+        )));
         let s = in_spanish(e).to_string();
         assert!(s.contains("«UQ_x»") && s.contains("ya existe"), "{s}");
-        assert_eq!(in_spanish(Error::Query("otro".into())).to_string(), Error::Query("otro".into()).to_string());
+        assert_eq!(
+            in_spanish(Error::Query("otro".into())).to_string(),
+            Error::Query("otro".into()).to_string()
+        );
         // Elasticsearch / OpenSearch, two clones with the same name at once.
-        let es = Error::Query("resource_already_exists_exception: index [clonef_r/Xy9_aBc] already exists".into());
+        let es = Error::Query(
+            "resource_already_exists_exception: index [clonef_r/Xy9_aBc] already exists".into(),
+        );
         assert!(name_taken(&es));
         let s = in_spanish(es).to_string();
         assert!(s.contains("ya existe un objeto llamado «clonef_r»"), "{s}");
@@ -2424,22 +3414,55 @@ mod tests {
     fn mysql_names_in_use_are_looked_up_schema_wide() {
         let names = vec!["c3x_ck".to_string(), "FK_O'K".to_string()];
         let sql = mysql_taken_sql("mysql", Some("rv"), &names);
-        assert!(sql.contains("CONSTRAINT_SCHEMA = 'rv'") && sql.contains("IN ('FOREIGN KEY', 'CHECK')"), "{sql}");
-        assert!(sql.contains("LOWER(CONSTRAINT_NAME) IN ('c3x_ck', 'fk_o''k')"), "{sql}");
+        assert!(
+            sql.contains("CONSTRAINT_SCHEMA = 'rv'") && sql.contains("IN ('FOREIGN KEY', 'CHECK')"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("LOWER(CONSTRAINT_NAME) IN ('c3x_ck', 'fk_o''k')"),
+            "{sql}"
+        );
         // MariaDB: CHECK names belong to the table; no schema: the session's.
         let sql = mysql_taken_sql("mariadb", None, &names[..1]);
-        assert!(sql.contains("CONSTRAINT_SCHEMA = DATABASE()") && sql.contains("IN ('FOREIGN KEY')") && !sql.contains("'CHECK'"), "{sql}");
+        assert!(
+            sql.contains("CONSTRAINT_SCHEMA = DATABASE()")
+                && sql.contains("IN ('FOREIGN KEY')")
+                && !sql.contains("'CHECK'"),
+            "{sql}"
+        );
         // A clash that slipped through (made meanwhile), told in Spanish.
-        let s = in_spanish(Error::Query("Duplicate check constraint name 'c3x_ck'.".into())).to_string();
-        assert!(s.contains("restricción CHECK llamada «c3x_ck»") && !s.contains("Duplicate"), "{s}");
-        let s = in_spanish(Error::Query("Duplicate foreign key constraint name 'fk_c3x_p'".into())).to_string();
+        let s = in_spanish(Error::Query(
+            "Duplicate check constraint name 'c3x_ck'.".into(),
+        ))
+        .to_string();
+        assert!(
+            s.contains("restricción CHECK llamada «c3x_ck»") && !s.contains("Duplicate"),
+            "{s}"
+        );
+        let s = in_spanish(Error::Query(
+            "Duplicate foreign key constraint name 'fk_c3x_p'".into(),
+        ))
+        .to_string();
         assert!(s.contains("clave foránea llamada «fk_c3x_p»"), "{s}");
-        let s = in_spanish(Error::Query("Can't create table `rv`.`c3x` (errno: 121 \"Duplicate key on write or update\")".into())).to_string();
-        assert!(s.contains("ya tiene una clave foránea") && !s.contains("errno"), "{s}");
+        let s = in_spanish(Error::Query(
+            "Can't create table `rv`.`c3x` (errno: 121 \"Duplicate key on write or update\")"
+                .into(),
+        ))
+        .to_string();
+        assert!(
+            s.contains("ya tiene una clave foránea") && !s.contains("errno"),
+            "{s}"
+        );
         // Taken names are avoided when planning.
         let my = driver("mysql", "mysql", Family::Relational, Language::Sql);
-        let mut t = TableSchema { name: "c3".into(), ..Default::default() };
-        t.checks.push(dbine_driver::CheckDef { name: Some("ck".into()), expression: "a > 0".into() });
+        let mut t = TableSchema {
+            name: "c3".into(),
+            ..Default::default()
+        };
+        t.checks.push(dbine_driver::CheckDef {
+            name: Some("ck".into()),
+            expression: "a > 0".into(),
+        });
         t.foreign_keys.push(dbine_driver::ForeignKeyDef {
             name: Some("fk_c3_p".into()),
             columns: vec!["p".into()],
@@ -2449,8 +3472,16 @@ mod tests {
         });
         let p = plan_clone_with(&my, &t, "c3x", &["C3X_CK".into(), "fk_c3x_p".into()]).unwrap();
         let to: Vec<&str> = p.renames.iter().map(|r| r.to.as_str()).collect();
-        assert!(to.iter().all(|n| !n.eq_ignore_ascii_case("c3x_ck") && *n != "fk_c3x_p"), "{to:?}");
-        assert!(p.notes.iter().any(|n| n.contains("ya usaba otro objeto")), "{:?}", p.notes);
+        assert!(
+            to.iter()
+                .all(|n| !n.eq_ignore_ascii_case("c3x_ck") && *n != "fk_c3x_p"),
+            "{to:?}"
+        );
+        assert!(
+            p.notes.iter().any(|n| n.contains("ya usaba otro objeto")),
+            "{:?}",
+            p.notes
+        );
     }
 
     #[test]
@@ -2460,11 +3491,18 @@ mod tests {
         assert!(sql.contains("FROM all_objects WHERE owner = 'DBINE' AND object_name IN ('PK_CLONV_COL_X', 'IX_O''K')"), "{sql}");
         assert!(sql.contains("FROM all_constraints WHERE owner = 'DBINE' AND constraint_name IN ('PK_CLONV_COL_X', 'IX_O''K')"), "{sql}");
         let sql = oracle_taken_sql(None, &names[..1], false);
-        assert!(sql.contains("owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')") && !sql.contains("all_constraints"), "{sql}");
+        assert!(
+            sql.contains("owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')")
+                && !sql.contains("all_constraints"),
+            "{sql}"
+        );
         // A clash found in the catalog is named, in Spanish; the table's
         // name isn't blamed for a constraint's.
         let s = oracle_clash_text("CLONV_COL_X", &names, &names[..1]);
-        assert!(s.contains("«PK_CLONV_COL_X»") && !s.contains("«CLONV_COL_X»") && !s.contains("ORA-"), "{s}");
+        assert!(
+            s.contains("«PK_CLONV_COL_X»") && !s.contains("«CLONV_COL_X»") && !s.contains("ORA-"),
+            "{s}"
+        );
         let s = oracle_clash_text("CLONV_COL_X", &names, &[]);
         assert!(s.contains("«CLONV_COL_X», «PK_CLONV_COL_X»"), "{s}");
     }
@@ -2475,7 +3513,10 @@ mod tests {
         let mut t = sample();
         t.primary_key.as_mut().unwrap().name = Some("PRIMARY".into());
         let p = plan_clone(&my, &t, "c2").unwrap();
-        assert_eq!(p.table.primary_key.unwrap().name.as_deref(), Some("PRIMARY"));
+        assert_eq!(
+            p.table.primary_key.unwrap().name.as_deref(),
+            Some("PRIMARY")
+        );
         // Index names belong to the collection there: kept.
         let mongo = driver("mongodb", "", Family::Document, Language::Json);
         let p = plan_clone(&mongo, &t, "c2").unwrap();
@@ -2499,7 +3540,11 @@ mod tests {
 
     #[test]
     fn existing_names_ignoring_case() {
-        let o = ObjectRef { kind: "table".into(), schema: Some("Public".into()), name: "Clientes_2".into() };
+        let o = ObjectRef {
+            kind: "table".into(),
+            schema: Some("Public".into()),
+            name: "Clientes_2".into(),
+        };
         assert!(same_object(Some("public"), "clientes_2", &o));
         assert!(!same_object(Some("otro"), "clientes_2", &o));
         assert!(same_object(None, "CLIENTES_2", &o));
@@ -2507,8 +3552,15 @@ mod tests {
 
     #[test]
     fn generated_columns_are_not_loaded() {
-        let c = |t: &str| ColumnDef { name: "x".into(), data_type: t.into(), ..Default::default() };
-        assert!(generated(&c("integer GENERATED ALWAYS AS (a + 1) STORED"), "postgres"));
+        let c = |t: &str| ColumnDef {
+            name: "x".into(),
+            data_type: t.into(),
+            ..Default::default()
+        };
+        assert!(generated(
+            &c("integer GENERATED ALWAYS AS (a + 1) STORED"),
+            "postgres"
+        ));
         assert!(generated(&c("AS ([a] * 2)"), "mssql"));
         assert!(generated(&c("rowversion"), "mssql"));
         assert!(!generated(&c("timestamp"), "postgres"));
@@ -2527,7 +3579,12 @@ mod tests {
         );
         // Empty clone: where the original's definition starts.
         let c = oracle_identity_clause("BY DEFAULT", true, &o, "100").unwrap();
-        assert!(c.starts_with("GENERATED BY DEFAULT ON NULL AS IDENTITY (START WITH 100 INCREMENT BY 5 "), "{c}");
+        assert!(
+            c.starts_with(
+                "GENERATED BY DEFAULT ON NULL AS IDENTITY (START WITH 100 INCREMENT BY 5 "
+            ),
+            "{c}"
+        );
         let o = oracle_identity_options("START WITH: 1, INCREMENT BY: -1, MAX_VALUE: -1, MIN_VALUE: -99, CYCLE_FLAG: Y, CACHE_SIZE: 0, ORDER_FLAG: Y, SCALE_FLAG: Y, EXTEND_FLAG: Y, KEEP_VALUE: Y");
         assert_eq!(
             oracle_identity_clause("BY DEFAULT", false, &o, "LIMIT VALUE").unwrap(),
@@ -2558,7 +3615,11 @@ mod tests {
         let mut t = sample();
         t.schema = None;
         t.name = "CLIENTES".into();
-        let obj = |s: Option<&str>| ObjectRef { kind: "table".into(), schema: s.map(Into::into), name: "CLIENTES".into() };
+        let obj = |s: Option<&str>| ObjectRef {
+            kind: "table".into(),
+            schema: s.map(Into::into),
+            name: "CLIENTES".into(),
+        };
         // Oracle reports its tables with no schema: DBINE.CLIENTES is the
         // session's when DBINE is the current schema...
         assert!(find_table(vec![t.clone()], &obj(Some("DBINE")), Some("DBINE")).is_some());
@@ -2576,7 +3637,11 @@ mod tests {
         bare.checks.clear();
         bare.primary_key.as_mut().unwrap().name = None;
         assert!(!reports_full_structure(&[bare.clone()], "postgres"));
-        bare.columns.push(ColumnDef { name: "MONTO".into(), data_type: "NUMBER GENERATED ALWAYS AS (1) VIRTUAL".into(), ..Default::default() });
+        bare.columns.push(ColumnDef {
+            name: "MONTO".into(),
+            data_type: "NUMBER GENERATED ALWAYS AS (1) VIRTUAL".into(),
+            ..Default::default()
+        });
         assert!(reports_full_structure(&[bare], "oracle"));
     }
 
@@ -2590,10 +3655,21 @@ mod tests {
             auto_increment: false,
             default_value: None,
         };
-        let d = column_differences(&[c("ID"), c("SECRETO"), c("NOMBRE")], &[c("ID"), c("NOMBRE")]);
-        assert_eq!(d, vec!["3 columnas en el original, 2 en el clon; faltan en el clon: «SECRETO»".to_string()]);
+        let d = column_differences(
+            &[c("ID"), c("SECRETO"), c("NOMBRE")],
+            &[c("ID"), c("NOMBRE")],
+        );
+        assert_eq!(
+            d,
+            vec![
+                "3 columnas en el original, 2 en el clon; faltan en el clon: «SECRETO»".to_string()
+            ]
+        );
         let d = column_differences(&[c("ID")], &[c("ID"), c("OTRA")]);
-        assert_eq!(d, vec!["1 columnas en el original, 2 en el clon; sobran en el clon: «OTRA»".to_string()]);
+        assert_eq!(
+            d,
+            vec!["1 columnas en el original, 2 en el clon; sobran en el clon: «OTRA»".to_string()]
+        );
     }
 
     #[test]
@@ -2609,7 +3685,10 @@ mod tests {
         let mut t = TableSchema {
             schema: Some("public".into()),
             name: "cat".into(),
-            primary_key: Some(dbine_driver::KeyDef { name: None, columns: vec!["id".into()] }),
+            primary_key: Some(dbine_driver::KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
             foreign_keys: vec![fk("cat", "id"), fk("other", "code")],
             ..Default::default()
         };

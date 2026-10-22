@@ -70,13 +70,21 @@ pub(crate) async fn route<T>(
         match enforced.await {
             Ok(Attempt::Done(out)) => return Ok((out, How::Enforced)),
             Ok(Attempt::NotEnforced) => {}
-            Err(message) => return Err(Refused { message, phase: How::Enforced.phase() }),
+            Err(message) => {
+                return Err(Refused {
+                    message,
+                    phase: How::Enforced.phase(),
+                })
+            }
         }
     }
     let how = approve.await?;
     match guarded.await {
         Ok(out) => Ok((out, how)),
-        Err(message) => Err(Refused { message, phase: how.phase() }),
+        Err(message) => Err(Refused {
+            message,
+            phase: how.phase(),
+        }),
     }
 }
 
@@ -155,7 +163,10 @@ mod tests {
             },
             async {
                 t.push("approve");
-                Err(Refused { message: "rechazado".into(), phase: "rejected" })
+                Err(Refused {
+                    message: "rechazado".into(),
+                    phase: "rejected",
+                })
             },
             async {
                 t.push("guarded");
@@ -163,7 +174,13 @@ mod tests {
             },
         )
         .await;
-        assert_eq!(r.unwrap_err(), Refused { message: "rechazado".into(), phase: "rejected" });
+        assert_eq!(
+            r.unwrap_err(),
+            Refused {
+                message: "rechazado".into(),
+                phase: "rejected"
+            }
+        );
         assert_eq!(t.get(), ["enforced", "approve"]);
     }
 
@@ -176,7 +193,9 @@ mod tests {
             true,
             async {
                 t.push("enforced");
-                Err::<Attempt<i32>, _>("Conexión de solo lectura: se bloqueó una sentencia DELETE.".to_string())
+                Err::<Attempt<i32>, _>(
+                    "Conexión de solo lectura: se bloqueó una sentencia DELETE.".to_string(),
+                )
             },
             async {
                 t.push("approve");
@@ -196,7 +215,12 @@ mod tests {
     async fn mcp_read_calling_unlisted_functions_asks_before_running_anything() {
         // The engine would enforce it, but `pg_wal_replay_pause()` acts
         // outside the read-only transaction: nothing runs before the approval.
-        let free = approval_free(dbine_driver::Language::Sql, "postgres", &dbine_driver::ScriptDialect::postgres(), "SELECT pg_wal_replay_pause()");
+        let free = approval_free(
+            dbine_driver::Language::Sql,
+            "postgres",
+            &dbine_driver::ScriptDialect::postgres(),
+            "SELECT pg_wal_replay_pause()",
+        );
         assert!(free.is_err());
         let t = Trace::default();
         let r = route(
@@ -230,7 +254,10 @@ mod tests {
             },
             async {
                 t.push("approve");
-                Err(Refused { message: "rechazado".into(), phase: "rejected" })
+                Err(Refused {
+                    message: "rechazado".into(),
+                    phase: "rejected",
+                })
             },
             async {
                 t.push("guarded");
@@ -244,7 +271,19 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_read_approved_but_failing_says_how_it_was_approved() {
-        let r = route(true, async { Ok(Attempt::<i32>::NotEnforced) }, async { Ok(How::ApprovedInChat) }, async { Err("no existe la tabla".to_string()) }).await;
-        assert_eq!(r.unwrap_err(), Refused { message: "no existe la tabla".into(), phase: "approved_in_chat" });
+        let r = route(
+            true,
+            async { Ok(Attempt::<i32>::NotEnforced) },
+            async { Ok(How::ApprovedInChat) },
+            async { Err("no existe la tabla".to_string()) },
+        )
+        .await;
+        assert_eq!(
+            r.unwrap_err(),
+            Refused {
+                message: "no existe la tabla".into(),
+                phase: "approved_in_chat"
+            }
+        );
     }
 }

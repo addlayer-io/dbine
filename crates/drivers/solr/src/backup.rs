@@ -81,13 +81,19 @@ fn enc(v: &str) -> String {
 /// A core or collection name as a path segment.
 fn segment(name: &str) -> Result<String> {
     if name.is_empty() || name.contains(['/', '?', '#', '&', ' ']) {
-        return Err(Error::Query(format!("'{name}' no es un nombre de colección o core válido")));
+        return Err(Error::Query(format!(
+            "'{name}' no es un nombre de colección o core válido"
+        )));
     }
     Ok(enc(name))
 }
 
 fn get(path: &str, params: &[(&str, &str)]) -> String {
-    let qs: Vec<String> = params.iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| format!("{k}={}", enc(v))).collect();
+    let qs: Vec<String> = params
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(k, v)| format!("{k}={}", enc(v)))
+        .collect();
     format!("GET {path}?{}\n", qs.join("&"))
 }
 
@@ -127,9 +133,16 @@ fn parse_source(source: &str) -> Result<Source<'_>> {
         )));
     }
     if !cloud && point.is_none() {
-        return Err(Error::Query(format!("'{source}' no dice el snapshot: core:<core>/<snapshot>")));
+        return Err(Error::Query(format!(
+            "'{source}' no dice el snapshot: core:<core>/<snapshot>"
+        )));
     }
-    Ok(Source { cloud, name, point, location })
+    Ok(Source {
+        cloud,
+        name,
+        point,
+        location,
+    })
 }
 
 pub fn script(action: &BackupAction) -> Result<String> {
@@ -142,11 +155,25 @@ pub fn script(action: &BackupAction) -> Result<String> {
             let location = opt(options, "location");
             if opt(options, "mode") == "standalone" {
                 let path = format!("/solr/{}/replication", segment(coll)?);
-                return Ok(get(&path, &[("command", "backup"), ("name", opt(options, "snapshot")), ("location", location)]));
+                return Ok(get(
+                    &path,
+                    &[
+                        ("command", "backup"),
+                        ("name", opt(options, "snapshot")),
+                        ("location", location),
+                    ],
+                ));
             }
             let mut out = String::new();
             if !location.is_empty() && opt(options, "set_default") != "false" {
-                out.push_str(&get(COLLECTIONS, &[("action", "CLUSTERPROP"), ("name", "location"), ("val", location)]));
+                out.push_str(&get(
+                    COLLECTIONS,
+                    &[
+                        ("action", "CLUSTERPROP"),
+                        ("name", "location"),
+                        ("val", location),
+                    ],
+                ));
                 out.push('\n');
             }
             let name = match opt(options, "name") {
@@ -155,7 +182,9 @@ pub fn script(action: &BackupAction) -> Result<String> {
             };
             let max = opt(options, "max_points");
             if !max.is_empty() && max.parse::<u32>().is_err() {
-                return Err(Error::Query(format!("'{max}' no es una cantidad de puntos válida")));
+                return Err(Error::Query(format!(
+                    "'{max}' no es una cantidad de puntos válida"
+                )));
             }
             out.push_str(&get(
                 COLLECTIONS,
@@ -170,12 +199,19 @@ pub fn script(action: &BackupAction) -> Result<String> {
             ));
             Ok(out)
         }
-        BackupAction::Restore { source, database, .. } => {
+        BackupAction::Restore {
+            source, database, ..
+        } => {
             let src = parse_source(source)?;
-            let target = database.as_deref().map(str::trim).filter(|d| !d.is_empty() && *d != "default");
+            let target = database
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty() && *d != "default");
             let location = src.location.unwrap_or_default();
             if src.cloud {
-                let target = target.ok_or_else(|| Error::Query("Falta la colección nueva donde restaurar".into()))?;
+                let target = target.ok_or_else(|| {
+                    Error::Query("Falta la colección nueva donde restaurar".into())
+                })?;
                 return Ok(get(
                     COLLECTIONS,
                     &[
@@ -191,10 +227,20 @@ pub fn script(action: &BackupAction) -> Result<String> {
             let mut out = String::new();
             if core != src.name {
                 // DBine's own request: creates the core (with _default) unless it exists.
-                out.push_str(&format!("PUT /solr/{}?if_not_exists=true\n\n", segment(core)?));
+                out.push_str(&format!(
+                    "PUT /solr/{}?if_not_exists=true\n\n",
+                    segment(core)?
+                ));
             }
             let path = format!("/solr/{}/replication", segment(core)?);
-            out.push_str(&get(&path, &[("command", "restore"), ("name", src.point.unwrap_or_default()), ("location", location)]));
+            out.push_str(&get(
+                &path,
+                &[
+                    ("command", "restore"),
+                    ("name", src.point.unwrap_or_default()),
+                    ("location", location),
+                ],
+            ));
             out.push('\n');
             out.push_str(&get(&path, &[("command", "restorestatus")]));
             Ok(out)
@@ -203,11 +249,30 @@ pub fn script(action: &BackupAction) -> Result<String> {
             let src = parse_source(source)?;
             let location = src.location.unwrap_or_default();
             if src.cloud {
-                let id = src.point.ok_or_else(|| Error::Query(format!("'{source}' no dice el backupId: cloud:<nombre>/<backupId>")))?;
-                return Ok(get(COLLECTIONS, &[("action", "DELETEBACKUP"), ("name", src.name), ("backupId", id), ("location", location)]));
+                let id = src.point.ok_or_else(|| {
+                    Error::Query(format!(
+                        "'{source}' no dice el backupId: cloud:<nombre>/<backupId>"
+                    ))
+                })?;
+                return Ok(get(
+                    COLLECTIONS,
+                    &[
+                        ("action", "DELETEBACKUP"),
+                        ("name", src.name),
+                        ("backupId", id),
+                        ("location", location),
+                    ],
+                ));
             }
             let path = format!("/solr/{}/replication", segment(src.name)?);
-            Ok(get(&path, &[("command", "deletebackup"), ("name", src.point.unwrap_or_default()), ("location", location)]))
+            Ok(get(
+                &path,
+                &[
+                    ("command", "deletebackup"),
+                    ("name", src.point.unwrap_or_default()),
+                    ("location", location),
+                ],
+            ))
         }
     }
 }
@@ -229,7 +294,11 @@ pub fn cloud_entries(name: &str, location: Option<&str>, resp: &J) -> Vec<Backup
         .map(|b| {
             let id = b.get("backupId").map(J::text).unwrap_or_default();
             let mut details = vec![("Nombre del backup".to_string(), name.to_string())];
-            for (k, label) in [("indexFileCount", "Archivos del índice"), ("indexVersion", "Versión del índice"), ("collection.configName", "Configset")] {
+            for (k, label) in [
+                ("indexFileCount", "Archivos del índice"),
+                ("indexVersion", "Versión del índice"),
+                ("collection.configName", "Configset"),
+            ] {
                 if let Some(v) = text(b, k) {
                     details.push((label.into(), v));
                 }
@@ -240,10 +309,17 @@ pub fn cloud_entries(name: &str, location: Option<&str>, resp: &J) -> Vec<Backup
                     None => format!("cloud:{name}/{id}"),
                 },
                 database: text(b, "collectionAlias").or_else(|| coll.clone()),
-                kind: Some(if id == "0" { "Completo".into() } else { "Incremental".into() }),
+                kind: Some(if id == "0" {
+                    "Completo".into()
+                } else {
+                    "Incremental".into()
+                }),
                 started: text(b, "startTime"),
                 finished: text(b, "endTime"),
-                size: b.get("indexSizeMB").and_then(|v| v.text().parse::<f64>().ok()).map(|mb| (mb * 1024.0 * 1024.0) as u64),
+                size: b
+                    .get("indexSizeMB")
+                    .and_then(|v| v.text().parse::<f64>().ok())
+                    .map(|mb| (mb * 1024.0 * 1024.0) as u64),
                 location: location.map(|l| format!("{}/{name}", l.trim_end_matches('/'))),
                 status: Some("completo".into()),
                 details,
@@ -293,11 +369,22 @@ pub async fn history(s: &SolrSession, database: Option<&str>) -> Result<Vec<Back
     let keep = |n: &str| !n.starts_with('.') && only.is_none_or(|o| o == n);
     let mut out = Vec::new();
     if s.cloud {
-        let status = s.get_json("/solr/admin/collections?action=CLUSTERSTATUS").await?;
-        let location = status.at(&["cluster", "properties", "location"]).map(J::text).filter(|l| !l.is_empty());
+        let status = s
+            .get_json("/solr/admin/collections?action=CLUSTERSTATUS")
+            .await?;
+        let location = status
+            .at(&["cluster", "properties", "location"])
+            .map(J::text)
+            .filter(|l| !l.is_empty());
         let list = s.get_json("/solr/admin/collections?action=LIST").await?;
-        for c in list.get("collections").and_then(J::as_arr).unwrap_or_default() {
-            let Some(name) = c.as_str().filter(|n| keep(n)) else { continue };
+        for c in list
+            .get("collections")
+            .and_then(J::as_arr)
+            .unwrap_or_default()
+        {
+            let Some(name) = c.as_str().filter(|n| keep(n)) else {
+                continue;
+            };
             match s.get_json(&format!("{COLLECTIONS}?action=LISTBACKUP&name={}", enc(name))).await {
                 Ok(r) => out.extend(cloud_entries(name, location.as_deref(), &r)),
                 Err(e) if e.to_string().contains("'location' is not specified") => {
@@ -310,13 +397,26 @@ pub async fn history(s: &SolrSession, database: Option<&str>) -> Result<Vec<Back
             }
         }
     } else {
-        let status = s.get_json("/solr/admin/cores?action=STATUS&indexInfo=false").await?;
-        for (core, info) in status.get("status").and_then(J::as_obj).into_iter().flatten() {
+        let status = s
+            .get_json("/solr/admin/cores?action=STATUS&indexInfo=false")
+            .await?;
+        for (core, info) in status
+            .get("status")
+            .and_then(J::as_obj)
+            .into_iter()
+            .flatten()
+        {
             if !keep(core) {
                 continue;
             }
-            let data_dir = info.get("dataDir").map(J::text).map(|d| d.trim_end_matches('/').to_string());
-            if let Ok(d) = s.get_json(&format!("/solr/{}/replication?command=details", enc(core))).await {
+            let data_dir = info
+                .get("dataDir")
+                .map(J::text)
+                .map(|d| d.trim_end_matches('/').to_string());
+            if let Ok(d) = s
+                .get_json(&format!("/solr/{}/replication?command=details", enc(core)))
+                .await
+            {
                 out.extend(core_entry(core, data_dir.as_deref(), &d));
             }
         }
@@ -331,7 +431,10 @@ mod tests {
     use dbine_driver_elasticsearch::console::{self, Command};
 
     fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn paths(script: &str) -> Vec<String> {
@@ -349,7 +452,13 @@ mod tests {
     fn cloud_backup() {
         let s = script(&BackupAction::Backup {
             database: None,
-            options: opts(&[("mode", "cloud"), ("collection", "films"), ("location", "/var/solr/data/backups"), ("set_default", "true"), ("max_points", "3")]),
+            options: opts(&[
+                ("mode", "cloud"),
+                ("collection", "films"),
+                ("location", "/var/solr/data/backups"),
+                ("set_default", "true"),
+                ("max_points", "3"),
+            ]),
         })
         .unwrap();
         assert_eq!(
@@ -359,30 +468,81 @@ mod tests {
                 "GET /solr/admin/collections?action=BACKUP&name=films&collection=films&location=/var/solr/data/backups&maxNumBackupPoints=3",
             ]
         );
-        let s = script(&BackupAction::Backup { database: None, options: opts(&[("collection", "a b&c"), ("set_default", "false"), ("name", "x")]) }).unwrap();
-        assert_eq!(paths(&s), ["GET /solr/admin/collections?action=BACKUP&name=x&collection=a%20b%26c"]);
-        assert!(script(&BackupAction::Backup { database: None, options: opts(&[("mode", "cloud")]) }).is_err());
-        assert!(script(&BackupAction::Backup { database: None, options: opts(&[("collection", "a"), ("max_points", "x")]) }).is_err());
+        let s = script(&BackupAction::Backup {
+            database: None,
+            options: opts(&[
+                ("collection", "a b&c"),
+                ("set_default", "false"),
+                ("name", "x"),
+            ]),
+        })
+        .unwrap();
+        assert_eq!(
+            paths(&s),
+            ["GET /solr/admin/collections?action=BACKUP&name=x&collection=a%20b%26c"]
+        );
+        assert!(script(&BackupAction::Backup {
+            database: None,
+            options: opts(&[("mode", "cloud")])
+        })
+        .is_err());
+        assert!(script(&BackupAction::Backup {
+            database: None,
+            options: opts(&[("collection", "a"), ("max_points", "x")])
+        })
+        .is_err());
     }
 
     #[test]
     fn standalone_backup() {
-        let s = script(&BackupAction::Backup { database: None, options: opts(&[("mode", "standalone"), ("collection", "core1"), ("snapshot", "s1")]) })
-            .unwrap();
-        assert_eq!(paths(&s), ["GET /solr/core1/replication?command=backup&name=s1"]);
-        assert!(script(&BackupAction::Backup { database: None, options: opts(&[("mode", "standalone"), ("collection", "a/b")]) }).is_err());
+        let s = script(&BackupAction::Backup {
+            database: None,
+            options: opts(&[
+                ("mode", "standalone"),
+                ("collection", "core1"),
+                ("snapshot", "s1"),
+            ]),
+        })
+        .unwrap();
+        assert_eq!(
+            paths(&s),
+            ["GET /solr/core1/replication?command=backup&name=s1"]
+        );
+        assert!(script(&BackupAction::Backup {
+            database: None,
+            options: opts(&[("mode", "standalone"), ("collection", "a/b")])
+        })
+        .is_err());
     }
 
     #[test]
     fn sources() {
         assert_eq!(
             parse_source("cloud:films/2@/var/b").unwrap(),
-            Source { cloud: true, name: "films", point: Some("2"), location: Some("/var/b") }
+            Source {
+                cloud: true,
+                name: "films",
+                point: Some("2"),
+                location: Some("/var/b")
+            }
         );
-        assert_eq!(parse_source("films").unwrap(), Source { cloud: true, name: "films", point: None, location: None });
+        assert_eq!(
+            parse_source("films").unwrap(),
+            Source {
+                cloud: true,
+                name: "films",
+                point: None,
+                location: None
+            }
+        );
         assert_eq!(
             parse_source("core:c1/snap").unwrap(),
-            Source { cloud: false, name: "c1", point: Some("snap"), location: None }
+            Source {
+                cloud: false,
+                name: "c1",
+                point: Some("snap"),
+                location: None
+            }
         );
         assert!(parse_source("core:c1").is_err());
         assert!(parse_source("").is_err());
@@ -390,7 +550,13 @@ mod tests {
 
     #[test]
     fn restore_and_delete() {
-        let r = |source: &str, db: Option<&str>| script(&BackupAction::Restore { source: source.into(), database: db.map(Into::into), options: BTreeMap::new() });
+        let r = |source: &str, db: Option<&str>| {
+            script(&BackupAction::Restore {
+                source: source.into(),
+                database: db.map(Into::into),
+                options: BTreeMap::new(),
+            })
+        };
         assert_eq!(
             paths(&r("cloud:films/2@/var/b", Some("films2")).unwrap()),
             ["GET /solr/admin/collections?action=RESTORE&name=films&collection=films2&backupId=2&location=/var/b"]
@@ -406,12 +572,25 @@ mod tests {
         );
         assert_eq!(
             paths(&r("core:c1/s1", None).unwrap()),
-            ["GET /solr/c1/replication?command=restore&name=s1", "GET /solr/c1/replication?command=restorestatus"]
+            [
+                "GET /solr/c1/replication?command=restore&name=s1",
+                "GET /solr/c1/replication?command=restorestatus"
+            ]
         );
-        let d = |source: &str| script(&BackupAction::Delete { source: source.into() });
-        assert_eq!(paths(&d("cloud:films/0").unwrap()), ["GET /solr/admin/collections?action=DELETEBACKUP&name=films&backupId=0"]);
+        let d = |source: &str| {
+            script(&BackupAction::Delete {
+                source: source.into(),
+            })
+        };
+        assert_eq!(
+            paths(&d("cloud:films/0").unwrap()),
+            ["GET /solr/admin/collections?action=DELETEBACKUP&name=films&backupId=0"]
+        );
         assert!(d("cloud:films").is_err());
-        assert_eq!(paths(&d("core:c1/s1@/x").unwrap()), ["GET /solr/c1/replication?command=deletebackup&name=s1&location=/x"]);
+        assert_eq!(
+            paths(&d("core:c1/s1@/x").unwrap()),
+            ["GET /solr/c1/replication?command=deletebackup&name=s1&location=/x"]
+        );
     }
 
     #[test]
@@ -430,7 +609,10 @@ mod tests {
         let d = J::parse(r#"{"details":{"backup":{"startTime":"2026-09-29T14:06:01Z","fileCount":16,"status":"success","snapshotCompletedAt":"2026-09-29T14:06:02Z","snapshotName":"b2","directoryName":"snapshot.b2"}}}"#).unwrap();
         let e = core_entry("c1", Some("/var/solr/data/c1/data"), &d).unwrap();
         assert_eq!(e.id, "core:c1/b2@/var/solr/data/c1/data");
-        assert_eq!(e.location.as_deref(), Some("/var/solr/data/c1/data/snapshot.b2"));
+        assert_eq!(
+            e.location.as_deref(),
+            Some("/var/solr/data/c1/data/snapshot.b2")
+        );
         assert_eq!(e.status.as_deref(), Some("success"));
         assert!(core_entry("c1", None, &J::parse(r#"{"details":{}}"#).unwrap()).is_none());
     }

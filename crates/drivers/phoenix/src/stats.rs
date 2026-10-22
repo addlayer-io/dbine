@@ -22,7 +22,9 @@ use std::collections::HashMap;
 
 fn count(v: &Value) -> Option<u64> {
     match v {
-        Value::Number(n) => n.as_u64().or_else(|| n.as_f64().filter(|f| *f >= 0.0).map(|f| f.round() as u64)),
+        Value::Number(n) => n
+            .as_u64()
+            .or_else(|| n.as_f64().filter(|f| *f >= 0.0).map(|f| f.round() as u64)),
         Value::String(s) => s.trim().parse().ok(),
         _ => None,
     }
@@ -33,7 +35,9 @@ fn count(v: &Value) -> Option<u64> {
 pub(crate) fn per_table(rows: &[Vec<Value>]) -> HashMap<String, u64> {
     let mut out: HashMap<String, u64> = HashMap::new();
     for r in rows.iter().filter(|r| r.len() == 3) {
-        let Some(n) = count(&r[2]).filter(|n| *n > 0) else { continue };
+        let Some(n) = count(&r[2]).filter(|n| *n > 0) else {
+            continue;
+        };
         let e = out.entry(text(&r[0])).or_default();
         *e = (*e).max(n);
     }
@@ -70,8 +74,17 @@ pub(crate) async fn row_estimates(s: &mut PhoenixSession) -> Result<Vec<RowEstim
         .iter()
         .filter(|o| o.kind == kinds::TABLE)
         .filter_map(|o| {
-            let rows = physical_names(o.schema.as_deref(), &o.name).iter().find_map(|p| counts.get(p).copied())?;
-            Some(RowEstimate { object: ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() }, rows })
+            let rows = physical_names(o.schema.as_deref(), &o.name)
+                .iter()
+                .find_map(|p| counts.get(p).copied())?;
+            Some(RowEstimate {
+                object: ObjectRef {
+                    kind: o.kind.clone(),
+                    schema: o.schema.clone(),
+                    name: o.name.clone(),
+                },
+                rows,
+            })
         })
         .collect())
 }
@@ -97,7 +110,10 @@ mod tests {
 
     #[test]
     fn physical() {
-        assert_eq!(physical_names(Some("S"), "T"), ["S.T".to_string(), "S:T".to_string()]);
+        assert_eq!(
+            physical_names(Some("S"), "T"),
+            ["S.T".to_string(), "S:T".to_string()]
+        );
         assert_eq!(physical_names(None, "T")[0], "T");
     }
 }

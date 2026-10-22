@@ -37,7 +37,10 @@ fn lit(s: &str) -> String {
 pub fn script(action: &BackupAction) -> Result<String> {
     match action {
         BackupAction::Backup { database, options } => {
-            let dir = options.get("dir").map(|d| d.trim()).filter(|d| !d.is_empty());
+            let dir = options
+                .get("dir")
+                .map(|d| d.trim())
+                .filter(|d| !d.is_empty());
             let dir = dir.ok_or_else(|| Error::Query("falta la carpeta de destino".into()))?;
             let format = match options.get("format").map(|f| f.trim()) {
                 Some("csv") => "CSV",
@@ -47,9 +50,14 @@ pub fn script(action: &BackupAction) -> Result<String> {
                 Some(d) => format!("{} TO ", quote_ident(Quote::Double, d)),
                 None => String::new(),
             };
-            Ok(format!("EXPORT DATABASE {db}{} (FORMAT {format});", lit(dir)))
+            Ok(format!(
+                "EXPORT DATABASE {db}{} (FORMAT {format});",
+                lit(dir)
+            ))
         }
-        BackupAction::Restore { source, database, .. } => {
+        BackupAction::Restore {
+            source, database, ..
+        } => {
             let dir = source.trim();
             if dir.is_empty() {
                 return Err(Error::Query("falta la carpeta del backup".into()));
@@ -60,9 +68,9 @@ pub fn script(action: &BackupAction) -> Result<String> {
             };
             Ok(format!("{target}IMPORT DATABASE {};", lit(dir)))
         }
-        BackupAction::Delete { .. } => {
-            Err(Error::Unsupported("DuckDB no borra exportaciones: son carpetas de esta computadora".into()))
-        }
+        BackupAction::Delete { .. } => Err(Error::Unsupported(
+            "DuckDB no borra exportaciones: son carpetas de esta computadora".into(),
+        )),
     }
 }
 
@@ -73,16 +81,33 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn opts(kv: &[(&str, &str)]) -> BTreeMap<String, String> {
-        kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        kv.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn writes_the_scripts() {
-        let b = |db: Option<&str>, kv: &[(&str, &str)]| script(&BackupAction::Backup { database: db.map(Into::into), options: opts(kv) });
-        assert_eq!(b(Some("my\"db"), &[("dir", "/b/o'k")]).unwrap(), "EXPORT DATABASE \"my\"\"db\" TO '/b/o''k' (FORMAT PARQUET);");
-        assert_eq!(b(None, &[("dir", "x"), ("format", "csv")]).unwrap(), "EXPORT DATABASE 'x' (FORMAT CSV);");
+        let b = |db: Option<&str>, kv: &[(&str, &str)]| {
+            script(&BackupAction::Backup {
+                database: db.map(Into::into),
+                options: opts(kv),
+            })
+        };
+        assert_eq!(
+            b(Some("my\"db"), &[("dir", "/b/o'k")]).unwrap(),
+            "EXPORT DATABASE \"my\"\"db\" TO '/b/o''k' (FORMAT PARQUET);"
+        );
+        assert_eq!(
+            b(None, &[("dir", "x"), ("format", "csv")]).unwrap(),
+            "EXPORT DATABASE 'x' (FORMAT CSV);"
+        );
         assert!(b(Some("d"), &[]).is_err());
-        let r = script(&BackupAction::Restore { source: " /b/x ".into(), database: Some("nueva".into()), options: opts(&[]) });
+        let r = script(&BackupAction::Restore {
+            source: " /b/x ".into(),
+            database: Some("nueva".into()),
+            options: opts(&[]),
+        });
         assert_eq!(r.unwrap(), "USE \"nueva\";\nIMPORT DATABASE '/b/x';");
         assert!(script(&BackupAction::Delete { source: "x".into() }).is_err());
     }
@@ -109,7 +134,8 @@ mod tests {
             .unwrap();
             c.execute_batch(&export).unwrap();
             let target = format!("dst_{format}");
-            c.execute_batch(&format!("ATTACH ':memory:' AS {target}")).unwrap();
+            c.execute_batch(&format!("ATTACH ':memory:' AS {target}"))
+                .unwrap();
             let import = script(&BackupAction::Restore {
                 source: out.to_str().unwrap().into(),
                 database: Some(target.clone()),
@@ -117,7 +143,11 @@ mod tests {
             })
             .unwrap();
             c.execute_batch(&import).unwrap();
-            let n: i64 = c.query_row(&format!("SELECT count(*) FROM {target}.main.v"), [], |r| r.get(0)).unwrap();
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {target}.main.v"), [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
             assert_eq!(n, 2, "{format}");
             c.execute_batch("USE memory").unwrap();
         }

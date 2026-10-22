@@ -20,12 +20,17 @@
 
 use crate::command::quote_arg;
 use dbine_driver::{
-    kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, ObjectRef, Result, RowChange, TableSchema,
+    kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, ObjectRef, Result,
+    RowChange, TableSchema,
 };
 use serde_json::Value;
 
 pub fn designer(driver_id: &str) -> DesignerSpec {
-    let json_label = if driver_id == "dragonfly" { "JSON" } else { "JSON (requiere el módulo JSON)" };
+    let json_label = if driver_id == "dragonfly" {
+        "JSON"
+    } else {
+        "JSON (requiere el módulo JSON)"
+    };
     DesignerSpec {
         kind: kinds::KEY,
         label: "Nueva key",
@@ -70,7 +75,11 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
 }
 
 pub fn templates() -> Vec<CreateTemplate> {
-    let t = |label: &'static str, template: &str| CreateTemplate { kind: kinds::KEY, label, template: template.into() };
+    let t = |label: &'static str, template: &str| CreateTemplate {
+        kind: kinds::KEY,
+        label,
+        template: template.into(),
+    };
     vec![
         t("Nuevo hash con vencimiento", "HSET {name} nombre Ana email ana@example.com visitas 0\nEXPIRE {name} 3600\nTTL {name}\n"),
         t("Nueva lista (cola)", "RPUSH {name} tarea-1 tarea-2 tarea-3\nLPOP {name}\nLRANGE {name} 0 -1\n"),
@@ -86,11 +95,17 @@ pub fn templates() -> Vec<CreateTemplate> {
 }
 
 fn opt<'a>(t: &'a TableSchema, key: &str) -> Option<&'a str> {
-    t.options.get(key).map(|s| s.as_str()).filter(|s| !s.trim().is_empty())
+    t.options
+        .get(key)
+        .map(|s| s.as_str())
+        .filter(|s| !s.trim().is_empty())
 }
 
 fn line(args: &[&str]) -> String {
-    args.iter().map(|a| quote_arg(a)).collect::<Vec<_>>().join(" ")
+    args.iter()
+        .map(|a| quote_arg(a))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
@@ -103,7 +118,10 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
         out.push(line(&["DEL", key]));
     }
     if parts.create {
-        let ty = opt(t, "type").unwrap_or("string").trim().to_ascii_lowercase();
+        let ty = opt(t, "type")
+            .unwrap_or("string")
+            .trim()
+            .to_ascii_lowercase();
         let value = t.options.get("value").map(String::as_str).unwrap_or("");
         let entries = |what: &str| -> Result<()> {
             if t.columns.is_empty() {
@@ -114,7 +132,12 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
             Ok(())
         };
         let default = |c: &dbine_driver::ColumnDef| c.default_value.clone().unwrap_or_default();
-        let element = |c: &dbine_driver::ColumnDef| c.default_value.clone().filter(|v| !v.is_empty()).unwrap_or_else(|| c.name.clone());
+        let element = |c: &dbine_driver::ColumnDef| {
+            c.default_value
+                .clone()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| c.name.clone())
+        };
         let mut args: Vec<String> = Vec::new();
         match ty.as_str() {
             "string" => args.extend(["SET".into(), key.into(), value.into()]),
@@ -128,18 +151,29 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
             }
             "list" | "set" => {
                 entries(&ty)?;
-                args.extend([if ty == "list" { "RPUSH" } else { "SADD" }.into(), key.into()]);
+                args.extend([
+                    if ty == "list" { "RPUSH" } else { "SADD" }.into(),
+                    key.into(),
+                ]);
                 args.extend(t.columns.iter().map(element));
             }
             "zset" => {
                 entries("sorted set")?;
                 args.extend(["ZADD".into(), key.into()]);
                 for c in &t.columns {
-                    let score = c.default_value.clone().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| "0".into());
+                    let score = c
+                        .default_value
+                        .clone()
+                        .filter(|v| !v.trim().is_empty())
+                        .unwrap_or_else(|| "0".into());
                     let s = score.trim();
-                    let ok = s.parse::<f64>().is_ok_and(|f| !f.is_nan()) || matches!(s.to_ascii_lowercase().as_str(), "+inf" | "-inf" | "inf");
+                    let ok = s.parse::<f64>().is_ok_and(|f| !f.is_nan())
+                        || matches!(s.to_ascii_lowercase().as_str(), "+inf" | "-inf" | "inf");
                     if !ok {
-                        return Err(Error::Query(format!("El score de '{}' no es un número: {score}", c.name)));
+                        return Err(Error::Query(format!(
+                            "El score de '{}' no es un número: {score}",
+                            c.name
+                        )));
                     }
                     args.push(s.to_string());
                     args.push(c.name.clone());
@@ -154,22 +188,38 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                 }
             }
             "json" => {
-                let doc = if value.trim().is_empty() { "{}" } else { value.trim() };
-                let parsed: Value =
-                    serde_json::from_str(doc).map_err(|e| Error::Query(format!("El valor no es un JSON válido: {e}")))?;
-                args.extend(["JSON.SET".into(), key.into(), "$".into(), parsed.to_string()]);
+                let doc = if value.trim().is_empty() {
+                    "{}"
+                } else {
+                    value.trim()
+                };
+                let parsed: Value = serde_json::from_str(doc)
+                    .map_err(|e| Error::Query(format!("El valor no es un JSON válido: {e}")))?;
+                args.extend([
+                    "JSON.SET".into(),
+                    key.into(),
+                    "$".into(),
+                    parsed.to_string(),
+                ]);
             }
             other => return Err(Error::Query(format!("Tipo de key desconocido: {other}"))),
         }
         out.push(line(&args.iter().map(String::as_str).collect::<Vec<_>>()));
         if let Some(ttl) = opt(t, "ttl") {
-            let secs: i64 = ttl.trim().parse().map_err(|_| Error::Query(format!("El TTL no es un número entero: {ttl}")))?;
+            let secs: i64 = ttl
+                .trim()
+                .parse()
+                .map_err(|_| Error::Query(format!("El TTL no es un número entero: {ttl}")))?;
             if secs > 0 {
                 out.push(line(&["EXPIRE", key, &secs.to_string()]));
             }
         }
     }
-    Ok(if out.is_empty() { String::new() } else { out.join("\n") + "\n" })
+    Ok(if out.is_empty() {
+        String::new()
+    } else {
+        out.join("\n") + "\n"
+    })
 }
 
 /// A cell as a Redis argument: text as is, the rest as JSON text.
@@ -182,7 +232,11 @@ fn cell_text(v: &Value) -> String {
 
 /// Each row as a hash: `HSET <target>:<first column's value> col value …`,
 /// null cells left out.
-pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
+pub fn insert_script(
+    target: &ObjectRef,
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> Result<String> {
     if columns.is_empty() {
         return Ok(String::new());
     }
@@ -224,11 +278,13 @@ if t == 'ReJSON-RL' then if new then return redis.call('JSON.SET', KEYS[1], '$',
 return redis.error_reply('tipo de key no editable: ' .. t)";
 
 /// Lua that renames a hash field keeping its value (ARGV: old, new).
-const HASH_RENAME: &str = "local v = redis.call('HGET', KEYS[1], ARGV[1]) if not v then return 0 end \
+const HASH_RENAME: &str =
+    "local v = redis.call('HGET', KEYS[1], ARGV[1]) if not v then return 0 end \
 redis.call('HDEL', KEYS[1], ARGV[1]) return redis.call('HSET', KEYS[1], ARGV[2], v)";
 
 /// Lua that renames a sorted set member keeping its score (ARGV: old, new).
-const ZSET_RENAME: &str = "local s = redis.call('ZSCORE', KEYS[1], ARGV[1]) if not s then return 0 end \
+const ZSET_RENAME: &str =
+    "local s = redis.call('ZSCORE', KEYS[1], ARGV[1]) if not s then return 0 end \
 redis.call('ZREM', KEYS[1], ARGV[1]) return redis.call('ZADD', KEYS[1], s, ARGV[2])";
 
 /// Commands for cells edited while browsing a key. The columns tell the
@@ -240,13 +296,18 @@ redis.call('ZREM', KEYS[1], ARGV[1]) return redis.call('ZADD', KEYS[1], s, ARGV[
 /// (also with `EVAL`). Stream entries can't be changed.
 pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
     let key = target.name.as_str();
-    let get = |pairs: &[(String, Value)], c: &str| pairs.iter().find(|(k, _)| k == c).map(|(_, v)| v.clone());
+    let get = |pairs: &[(String, Value)], c: &str| {
+        pairs.iter().find(|(k, _)| k == c).map(|(_, v)| v.clone())
+    };
     let mut out: Vec<String> = Vec::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
         let (k, s) = (&ch.key, &ch.set);
         if let Some(field) = get(k, "field").filter(|v| !v.is_null()) {
             let field = cell_text(&field);
-            let new_field = get(s, "field").filter(|v| !v.is_null()).map(|v| cell_text(&v)).filter(|f| *f != field);
+            let new_field = get(s, "field")
+                .filter(|v| !v.is_null())
+                .map(|v| cell_text(&v))
+                .filter(|f| *f != field);
             match (new_field, get(s, "value")) {
                 (_, Some(Value::Null)) => out.push(line(&["HDEL", key, &field])),
                 (None, Some(v)) => out.push(line(&["HSET", key, &field, &cell_text(&v)])),
@@ -259,7 +320,10 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
             }
         } else if let Some(member) = get(k, "member").filter(|v| !v.is_null()) {
             let member = cell_text(&member);
-            let new_member = get(s, "member").filter(|v| !v.is_null()).map(|v| cell_text(&v)).filter(|m| *m != member);
+            let new_member = get(s, "member")
+                .filter(|v| !v.is_null())
+                .map(|v| cell_text(&v))
+                .filter(|m| *m != member);
             match (new_member, get(s, "score")) {
                 (_, Some(Value::Null)) => out.push(line(&["ZREM", key, &member])),
                 (None, Some(sc)) => out.push(line(&["ZADD", key, &cell_text(&sc), &member])),
@@ -271,7 +335,9 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
                 (None, None) => {}
             }
         } else if get(k, "id").is_some() && get(k, "value").is_none() {
-            return Err(Error::Unsupported("las entradas de un stream de Redis no se pueden modificar".into()));
+            return Err(Error::Unsupported(
+                "las entradas de un stream de Redis no se pueden modificar".into(),
+            ));
         } else if let Some(new) = get(s, "value") {
             let old = get(k, "value").map(|v| cell_text(&v)).unwrap_or_default();
             let new = (!new.is_null()).then(|| cell_text(&new));
@@ -281,10 +347,16 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
             }
             out.push(line(&args));
         } else {
-            return Err(Error::Unsupported("no se reconoce el tipo de key de Redis a partir de sus columnas".into()));
+            return Err(Error::Unsupported(
+                "no se reconoce el tipo de key de Redis a partir de sus columnas".into(),
+            ));
         }
     }
-    Ok(if out.is_empty() { String::new() } else { out.join("\n") + "\n" })
+    Ok(if out.is_empty() {
+        String::new()
+    } else {
+        out.join("\n") + "\n"
+    })
 }
 
 /// Commands that remove rows of a browsed key, told apart by the key
@@ -295,7 +367,13 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
 /// (its only row).
 pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
     let key = target.name.as_str();
-    let get = |pairs: &[(String, Value)], c: &str| pairs.iter().find(|(k, _)| k == c).map(|(_, v)| v.clone()).filter(|v| !v.is_null());
+    let get = |pairs: &[(String, Value)], c: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k == c)
+            .map(|(_, v)| v.clone())
+            .filter(|v| !v.is_null())
+    };
     let mut out: Vec<String> = Vec::new();
     for k in keys {
         if let Some(field) = get(k, "field") {
@@ -307,10 +385,16 @@ pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Resul
         } else if let Some(old) = get(k, "value") {
             out.push(line(&["EVAL", VALUE_EDIT, "1", key, &cell_text(&old)]));
         } else {
-            return Err(Error::Unsupported("no se reconoce qué borrar de la key de Redis a partir de sus columnas".into()));
+            return Err(Error::Unsupported(
+                "no se reconoce qué borrar de la key de Redis a partir de sus columnas".into(),
+            ));
         }
     }
-    Ok(if out.is_empty() { String::new() } else { out.join("\n") + "\n" })
+    Ok(if out.is_empty() {
+        String::new()
+    } else {
+        out.join("\n") + "\n"
+    })
 }
 
 #[cfg(test)]
@@ -320,17 +404,28 @@ mod tests {
     use dbine_driver::ColumnDef;
 
     fn key(ty: &str, cols: &[(&str, Option<&str>)]) -> TableSchema {
-        let mut t = TableSchema { kind: kinds::KEY.into(), name: "my key".into(), ..Default::default() };
+        let mut t = TableSchema {
+            kind: kinds::KEY.into(),
+            name: "my key".into(),
+            ..Default::default()
+        };
         t.options.insert("type".into(), ty.into());
         t.columns = cols
             .iter()
-            .map(|(n, d)| ColumnDef { name: n.to_string(), default_value: d.map(str::to_string), ..Default::default() })
+            .map(|(n, d)| ColumnDef {
+                name: n.to_string(),
+                default_value: d.map(str::to_string),
+                ..Default::default()
+            })
             .collect();
         t
     }
 
     fn create() -> DdlParts {
-        DdlParts { create: true, ..Default::default() }
+        DdlParts {
+            create: true,
+            ..Default::default()
+        }
     }
 
     /// The script, parsed back by the editor's own parser.
@@ -338,39 +433,118 @@ mod tests {
         parse_script(text)
             .unwrap()
             .into_iter()
-            .map(|c| c.into_iter().map(|a| String::from_utf8(a).unwrap()).collect())
+            .map(|c| {
+                c.into_iter()
+                    .map(|a| String::from_utf8(a).unwrap())
+                    .collect()
+            })
             .collect()
     }
 
     #[test]
     fn each_type_round_trips_through_the_parser() {
         let mut s = key("string", &[]);
-        s.options.insert("value".into(), "hola \"mundo\"\nsegunda línea".into());
+        s.options
+            .insert("value".into(), "hola \"mundo\"\nsegunda línea".into());
         s.options.insert("ttl".into(), "60".into());
-        let ddl = table_ddl(&s, DdlParts { drop: true, create: true, ..Default::default() }).unwrap();
+        let ddl = table_ddl(
+            &s,
+            DdlParts {
+                drop: true,
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(
             parsed(&ddl),
-            [vec!["DEL", "my key"], vec!["SET", "my key", "hola \"mundo\"\nsegunda línea"], vec!["EXPIRE", "my key", "60"]]
+            [
+                vec!["DEL", "my key"],
+                vec!["SET", "my key", "hola \"mundo\"\nsegunda línea"],
+                vec!["EXPIRE", "my key", "60"]
+            ]
         );
 
-        let h = table_ddl(&key("hash", &[("name", Some("Ana María")), ("empty", None), ("#tag", Some("x"))]), create()).unwrap();
-        assert_eq!(parsed(&h), [vec!["HSET", "my key", "name", "Ana María", "empty", "", "#tag", "x"]]);
+        let h = table_ddl(
+            &key(
+                "hash",
+                &[
+                    ("name", Some("Ana María")),
+                    ("empty", None),
+                    ("#tag", Some("x")),
+                ],
+            ),
+            create(),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed(&h),
+            [vec![
+                "HSET",
+                "my key",
+                "name",
+                "Ana María",
+                "empty",
+                "",
+                "#tag",
+                "x"
+            ]]
+        );
 
-        let l = table_ddl(&key("list", &[("a", None), ("ignored", Some("b c"))]), create()).unwrap();
+        let l = table_ddl(
+            &key("list", &[("a", None), ("ignored", Some("b c"))]),
+            create(),
+        )
+        .unwrap();
         assert_eq!(parsed(&l), [vec!["RPUSH", "my key", "a", "b c"]]);
         let st = table_ddl(&key("set", &[("x", None), ("it's", None)]), create()).unwrap();
         assert_eq!(parsed(&st), [vec!["SADD", "my key", "x", "it's"]]);
 
-        let z = table_ddl(&key("zset", &[("ana", Some("1.5")), ("luis", None), ("max", Some("+inf"))]), create()).unwrap();
-        assert_eq!(parsed(&z), [vec!["ZADD", "my key", "1.5", "ana", "0", "luis", "+inf", "max"]]);
+        let z = table_ddl(
+            &key(
+                "zset",
+                &[("ana", Some("1.5")), ("luis", None), ("max", Some("+inf"))],
+            ),
+            create(),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed(&z),
+            [vec![
+                "ZADD", "my key", "1.5", "ana", "0", "luis", "+inf", "max"
+            ]]
+        );
         assert!(table_ddl(&key("zset", &[("a", Some("mucho"))]), create()).is_err());
 
-        let x = table_ddl(&key("stream", &[("evento", Some("alta")), ("usuario", Some("ana"))]), create()).unwrap();
-        assert_eq!(parsed(&x), [vec!["XADD", "my key", "*", "evento", "alta", "usuario", "ana"]]);
+        let x = table_ddl(
+            &key(
+                "stream",
+                &[("evento", Some("alta")), ("usuario", Some("ana"))],
+            ),
+            create(),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed(&x),
+            [vec![
+                "XADD", "my key", "*", "evento", "alta", "usuario", "ana"
+            ]]
+        );
 
         let mut j = key("json", &[]);
-        j.options.insert("value".into(), "{\"a\": [1, \"dos\"], \"b\": \"it's\"}".into());
-        assert_eq!(parsed(&table_ddl(&j, create()).unwrap()), [vec!["JSON.SET", "my key", "$", "{\"a\":[1,\"dos\"],\"b\":\"it's\"}"]]);
+        j.options.insert(
+            "value".into(),
+            "{\"a\": [1, \"dos\"], \"b\": \"it's\"}".into(),
+        );
+        assert_eq!(
+            parsed(&table_ddl(&j, create()).unwrap()),
+            [vec![
+                "JSON.SET",
+                "my key",
+                "$",
+                "{\"a\":[1,\"dos\"],\"b\":\"it's\"}"
+            ]]
+        );
         j.options.insert("value".into(), "{no".into());
         assert!(table_ddl(&j, create()).is_err());
     }
@@ -385,25 +559,61 @@ mod tests {
         s.options.insert("ttl".into(), "soon".into());
         assert!(table_ddl(&s, create()).is_err());
         s.options.insert("ttl".into(), "0".into());
-        assert_eq!(parsed(&table_ddl(&s, create()).unwrap()), [vec!["SET", "my key", ""]]);
+        assert_eq!(
+            parsed(&table_ddl(&s, create()).unwrap()),
+            [vec!["SET", "my key", ""]]
+        );
         // Only DROP.
-        let drop = table_ddl(&s, DdlParts { drop: true, if_exists: true, ..Default::default() }).unwrap();
+        let drop = table_ddl(
+            &s,
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(parsed(&drop), [vec!["DEL", "my key"]]);
     }
 
     #[test]
     fn rows_become_hashes() {
-        let target = ObjectRef { kind: kinds::KEY.into(), schema: None, name: "user".into() };
+        let target = ObjectRef {
+            kind: kinds::KEY.into(),
+            schema: None,
+            name: "user".into(),
+        };
         let cols = vec!["id".to_string(), "name".into(), "age".into(), "tags".into()];
         let rows = vec![
-            vec![Value::from(1), Value::from("Ana \"A\""), Value::from(30), serde_json::json!(["x", "y"])],
-            vec![Value::from("b 2"), Value::Null, Value::from(true), Value::Null],
+            vec![
+                Value::from(1),
+                Value::from("Ana \"A\""),
+                Value::from(30),
+                serde_json::json!(["x", "y"]),
+            ],
+            vec![
+                Value::from("b 2"),
+                Value::Null,
+                Value::from(true),
+                Value::Null,
+            ],
         ];
         let script = insert_script(&target, &cols, &rows).unwrap();
         assert_eq!(
             parsed(&script),
             [
-                vec!["HSET", "user:1", "id", "1", "name", "Ana \"A\"", "age", "30", "tags", "[\"x\",\"y\"]"],
+                vec![
+                    "HSET",
+                    "user:1",
+                    "id",
+                    "1",
+                    "name",
+                    "Ana \"A\"",
+                    "age",
+                    "30",
+                    "tags",
+                    "[\"x\",\"y\"]"
+                ],
                 vec!["HSET", "user:b 2", "id", "b 2", "age", "true"],
             ]
         );
@@ -413,13 +623,21 @@ mod tests {
 
     #[test]
     fn edits_by_key_type() {
-        let target = ObjectRef { kind: kinds::KEY.into(), schema: None, name: "k 1".into() };
+        let target = ObjectRef {
+            kind: kinds::KEY.into(),
+            schema: None,
+            name: "k 1".into(),
+        };
         let ch = |key: Vec<(&str, Value)>, set: Vec<(&str, Value)>| RowChange {
             key: key.into_iter().map(|(c, v)| (c.to_string(), v)).collect(),
-            set: set.into_iter().map(|(c, v)| (c.to_string(), v)).collect(), ..Default::default()
+            set: set.into_iter().map(|(c, v)| (c.to_string(), v)).collect(),
+            ..Default::default()
         };
         let changes = vec![
-            ch(vec![("field", "name".into())], vec![("value", "O'Brien \"Bob\"".into())]),
+            ch(
+                vec![("field", "name".into())],
+                vec![("value", "O'Brien \"Bob\"".into())],
+            ),
             ch(vec![("field", "age".into())], vec![("value", Value::Null)]),
             ch(vec![("member", "m".into())], vec![("score", 2.5.into())]),
             ch(vec![("value", "old".into())], vec![("value", "new".into())]),
@@ -437,17 +655,31 @@ mod tests {
                 vec!["EVAL", VALUE_EDIT, "1", "k 1", "old", "new"],
             ]
         );
-        let renames = vec![ch(vec![("field", "a".into())], vec![("field", "b".into())]), ch(vec![("member", "a".into())], vec![("score", Value::Null)])];
+        let renames = vec![
+            ch(vec![("field", "a".into())], vec![("field", "b".into())]),
+            ch(vec![("member", "a".into())], vec![("score", Value::Null)]),
+        ];
         assert_eq!(
             parsed(&update_script(&target, &renames).unwrap()),
-            [vec!["EVAL", HASH_RENAME, "1", "k 1", "a", "b"], vec!["ZREM", "k 1", "a"]]
+            [
+                vec!["EVAL", HASH_RENAME, "1", "k 1", "a", "b"],
+                vec!["ZREM", "k 1", "a"]
+            ]
         );
-        assert!(update_script(&target, &[ch(vec![("id", "1-0".into())], vec![("a", "y".into())])]).is_err());
+        assert!(update_script(
+            &target,
+            &[ch(vec![("id", "1-0".into())], vec![("a", "y".into())])]
+        )
+        .is_err());
     }
 
     #[test]
     fn delete_script_by_key_type() {
-        let target = ObjectRef { kind: kinds::KEY.into(), schema: None, name: "my key".into() };
+        let target = ObjectRef {
+            kind: kinds::KEY.into(),
+            schema: None,
+            name: "my key".into(),
+        };
         let keys = vec![
             vec![("field".to_string(), Value::from("O'Brien \"Bob\""))],
             vec![("member".to_string(), Value::from("m 1"))],

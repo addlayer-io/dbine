@@ -15,7 +15,8 @@
 use crate::SnowflakeSession;
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, QueryOutcome, Result, SchemaSpec, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, QueryOutcome, Result, SchemaSpec,
+    SecurityAction, SecuritySpec,
 };
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -24,14 +25,39 @@ pub fn spec() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
             // On objects.
-            "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "USAGE", "MONITOR", "OPERATE", "MODIFY",
-            "CREATE SCHEMA", "CREATE TABLE", "CREATE VIEW", "ALL PRIVILEGES",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "TRUNCATE",
+            "REFERENCES",
+            "USAGE",
+            "MONITOR",
+            "OPERATE",
+            "MODIFY",
+            "CREATE SCHEMA",
+            "CREATE TABLE",
+            "CREATE VIEW",
+            "ALL PRIVILEGES",
             // On the account (granted without an object).
-            "CREATE DATABASE", "CREATE WAREHOUSE", "CREATE ROLE", "CREATE USER", "MANAGE GRANTS", "MONITOR USAGE",
-            "EXECUTE TASK", "IMPORTED PRIVILEGES",
+            "CREATE DATABASE",
+            "CREATE WAREHOUSE",
+            "CREATE ROLE",
+            "CREATE USER",
+            "MANAGE GRANTS",
+            "MONITOR USAGE",
+            "EXECUTE TASK",
+            "IMPORTED PRIVILEGES",
         ],
         // "" = the account.
-        object_kinds: vec!["", "database", "schema", "table", "view", "materialized_view"],
+        object_kinds: vec![
+            "",
+            "database",
+            "schema",
+            "table",
+            "view",
+            "materialized_view",
+        ],
         create_user: true,
         create_role: true,
         passwords: true,
@@ -41,7 +67,15 @@ pub fn spec() -> SecuritySpec {
 }
 
 /// Roles every account has.
-const SYSTEM_ROLES: &[&str] = &["ACCOUNTADMIN", "SECURITYADMIN", "SYSADMIN", "USERADMIN", "ORGADMIN", "GLOBALORGADMIN", "PUBLIC"];
+const SYSTEM_ROLES: &[&str] = &[
+    "ACCOUNTADMIN",
+    "SECURITYADMIN",
+    "SYSADMIN",
+    "USERADMIN",
+    "ORGADMIN",
+    "GLOBALORGADMIN",
+    "PUBLIC",
+];
 
 fn q(name: &str) -> String {
     quote_ident(Quote::Double, name)
@@ -52,7 +86,9 @@ fn q(name: &str) -> String {
 type Row = HashMap<String, String>;
 
 fn get<'a>(r: &'a Row, k: &str) -> Option<&'a str> {
-    r.get(k).map(String::as_str).filter(|v| !v.is_empty() && *v != "null")
+    r.get(k)
+        .map(String::as_str)
+        .filter(|v| !v.is_empty() && *v != "null")
 }
 
 fn yes(v: Option<&str>) -> bool {
@@ -138,7 +174,11 @@ fn role_of(r: &Row) -> Principal {
 
 /// Whether a role has members worth asking for (SHOW ROLES counts them).
 fn has_members(r: &Row) -> bool {
-    ["assigned_to_users", "granted_to_roles"].iter().any(|k| get(r, k).and_then(|v| v.parse::<u64>().ok()).is_none_or(|n| n > 0))
+    ["assigned_to_users", "granted_to_roles"].iter().any(|k| {
+        get(r, k)
+            .and_then(|v| v.parse::<u64>().ok())
+            .is_none_or(|n| n > 0)
+    })
 }
 
 fn text(v: &Json) -> Option<String> {
@@ -155,17 +195,28 @@ async fn memberships(s: &SnowflakeSession, roles: &[String]) -> Vec<(String, Str
     let mut out = Vec::new();
     let collect = |o: &QueryOutcome, out: &mut Vec<(String, String)>| {
         for r in &o.results {
-            let col = |n: &str| r.columns.iter().position(|c| c.name.eq_ignore_ascii_case(n));
-            let (Some(ri), Some(gi)) = (col("role"), col("grantee_name")) else { continue };
+            let col = |n: &str| {
+                r.columns
+                    .iter()
+                    .position(|c| c.name.eq_ignore_ascii_case(n))
+            };
+            let (Some(ri), Some(gi)) = (col("role"), col("grantee_name")) else {
+                continue;
+            };
             for row in &r.rows {
-                if let (Some(role), Some(member)) = (row.get(ri).and_then(text), row.get(gi).and_then(text)) {
+                if let (Some(role), Some(member)) =
+                    (row.get(ri).and_then(text), row.get(gi).and_then(text))
+                {
                     out.push((role, member));
                 }
             }
         }
     };
     for chunk in roles.chunks(50) {
-        let script: String = chunk.iter().map(|r| format!("SHOW GRANTS OF ROLE {};\n", q(r))).collect();
+        let script: String = chunk
+            .iter()
+            .map(|r| format!("SHOW GRANTS OF ROLE {};\n", q(r)))
+            .collect();
         let mut o = QueryOutcome::default();
         if s.run_script(&script, 100_000, &mut o).await.is_ok() {
             collect(&o, &mut out);
@@ -173,7 +224,10 @@ async fn memberships(s: &SnowflakeSession, roles: &[String]) -> Vec<(String, Str
         }
         for r in chunk {
             let mut o = QueryOutcome::default();
-            if s.run_script(&format!("SHOW GRANTS OF ROLE {}", q(r)), 100_000, &mut o).await.is_ok() {
+            if s.run_script(&format!("SHOW GRANTS OF ROLE {}", q(r)), 100_000, &mut o)
+                .await
+                .is_ok()
+            {
                 collect(&o, &mut out);
             }
         }
@@ -186,18 +240,29 @@ pub async fn principals(s: &SnowflakeSession) -> Result<Vec<Principal>> {
         Ok(rows) => rows.iter().map(user_of).collect(),
         Err(_) => {
             let me = s.text_rows("SELECT CURRENT_USER()", &[]).await?;
-            let name = me.first().and_then(|r| r.first().cloned().flatten()).unwrap_or_default();
+            let name = me
+                .first()
+                .and_then(|r| r.first().cloned().flatten())
+                .unwrap_or_default();
             vec![Principal {
                 name,
                 kind: PrincipalKind::User,
                 can_login: Some(true),
-                details: vec![("Nota".into(), "El rol actual no puede listar usuarios (SHOW USERS): se ve solo el propio".into())],
+                details: vec![(
+                    "Nota".into(),
+                    "El rol actual no puede listar usuarios (SHOW USERS): se ve solo el propio"
+                        .into(),
+                )],
                 ..Default::default()
             }]
         }
     };
     let roles = s.named_rows("SHOW ROLES").await?;
-    let asked: Vec<String> = roles.iter().filter(|r| has_members(r)).filter_map(|r| get(r, "name").map(str::to_string)).collect();
+    let asked: Vec<String> = roles
+        .iter()
+        .filter(|r| has_members(r))
+        .filter_map(|r| get(r, "name").map(str::to_string))
+        .collect();
     out.extend(roles.iter().map(role_of));
     for (role, member) in memberships(s, &asked).await {
         // A user and a role can share a name: the membership row doesn't
@@ -211,7 +276,10 @@ pub async fn principals(s: &SnowflakeSession) -> Result<Vec<Principal>> {
             }
         }
     }
-    for p in out.iter_mut().filter(|p| p.kind == PrincipalKind::User && p.superuser.is_none()) {
+    for p in out
+        .iter_mut()
+        .filter(|p| p.kind == PrincipalKind::User && p.superuser.is_none())
+    {
         p.superuser = Some(false);
     }
     Ok(out)
@@ -242,13 +310,17 @@ fn split_name(s: &str) -> Vec<String> {
 /// Names in the session's database lose the database.
 fn grant_of(r: &Row, database: Option<&str>) -> std::result::Result<Grant, String> {
     let privilege = get(r, "privilege").unwrap_or_default().to_string();
-    let on = get(r, "granted_on").unwrap_or_default().to_ascii_uppercase();
+    let on = get(r, "granted_on")
+        .unwrap_or_default()
+        .to_ascii_uppercase();
     let name = get(r, "name").unwrap_or_default();
     if on == "ROLE" && privilege == "USAGE" {
         return Err(split_name(name).join("."));
     }
     let mut parts = split_name(name);
-    let in_db = |p: &[String]| database.is_some_and(|d| p.first().is_some_and(|f| f.eq_ignore_ascii_case(d)));
+    let in_db = |p: &[String]| {
+        database.is_some_and(|d| p.first().is_some_and(|f| f.eq_ignore_ascii_case(d)))
+    };
     let (object, object_kind) = match on.as_str() {
         "ACCOUNT" => (None, None),
         "DATABASE" => (Some(parts.join(".")), Some("database".to_string())),
@@ -259,7 +331,14 @@ fn grant_of(r: &Row, database: Option<&str>) -> std::result::Result<Grant, Strin
             (Some(parts.join(".")), Some(on.to_ascii_lowercase()))
         }
     };
-    Ok(Grant { privilege, object, object_kind, grantable: yes(get(r, "grant_option")), denied: false, via: None })
+    Ok(Grant {
+        privilege,
+        object,
+        object_kind,
+        grantable: yes(get(r, "grant_option")),
+        denied: false,
+        via: None,
+    })
 }
 
 pub async fn grants(s: &SnowflakeSession, principal: &str) -> Result<Vec<Grant>> {
@@ -268,7 +347,10 @@ pub async fn grants(s: &SnowflakeSession, principal: &str) -> Result<Vec<Grant>>
     let mut seen = HashSet::new();
     let mut queue: VecDeque<(String, Option<String>)> = VecDeque::new();
     // A user's grants are its roles; a name that isn't a user is a role.
-    match s.named_rows(&format!("SHOW GRANTS TO USER {}", q(principal))).await {
+    match s
+        .named_rows(&format!("SHOW GRANTS TO USER {}", q(principal)))
+        .await
+    {
         Ok(rows) => {
             for r in &rows {
                 if let Some(role) = get(r, "role") {
@@ -282,7 +364,10 @@ pub async fn grants(s: &SnowflakeSession, principal: &str) -> Result<Vec<Grant>>
         if !seen.insert(role.clone()) || seen.len() > 256 {
             continue;
         }
-        let rows = match s.named_rows(&format!("SHOW GRANTS TO ROLE {}", q(&role))).await {
+        let rows = match s
+            .named_rows(&format!("SHOW GRANTS TO ROLE {}", q(&role)))
+            .await
+        {
             Ok(r) => r,
             Err(e) if via.is_none() => return Err(e),
             Err(_) => continue,
@@ -312,9 +397,18 @@ fn new_name(name: &str) -> Result<String> {
     if name.is_empty() {
         return Err(Error::Query("escribí el nombre".into()));
     }
-    let plain = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-    Ok(q(&if plain { name.to_ascii_uppercase() } else { name.to_string() }))
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    Ok(q(&if plain {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_string()
+    }))
 }
 
 /// A string literal: Snowflake reads backslash escapes in them.
@@ -331,9 +425,14 @@ fn password(p: Option<&str>) -> Result<String> {
 
 /// What a privilege applies to: `ACCOUNT`, `DATABASE "x"`, `TABLE "s"."t"`…
 fn on(object: &Option<ObjectRef>) -> Result<String> {
-    let Some(o) = object else { return Ok("ACCOUNT".into()) };
+    let Some(o) = object else {
+        return Ok("ACCOUNT".into());
+    };
     if o.kind.is_empty() || !o.kind.chars().all(|c| c.is_ascii_alphabetic() || c == '_') {
-        return Err(Error::Query(format!("«{}» no es un tipo de objeto de Snowflake", o.kind)));
+        return Err(Error::Query(format!(
+            "«{}» no es un tipo de objeto de Snowflake",
+            o.kind
+        )));
     }
     let kind = o.kind.to_ascii_uppercase().replace('_', " ");
     Ok(match (o.kind.as_str(), o.schema()) {
@@ -350,10 +449,18 @@ fn privileges(p: &[String]) -> Result<String> {
     let mut out: Vec<String> = Vec::new();
     for x in p {
         let name = x.trim();
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_') {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
+        {
             return Err(Error::Query(format!("«{x}» no es un permiso de Snowflake")));
         }
-        let name = name.split_whitespace().collect::<Vec<_>>().join(" ").to_uppercase();
+        let name = name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_uppercase();
         if !out.contains(&name) {
             out.push(name);
         }
@@ -364,7 +471,9 @@ fn privileges(p: &[String]) -> Result<String> {
 /// A `SHOW … LIKE` pattern that matches only `name`: its wildcards (and
 /// the backslash that escapes them) escaped.
 fn like_exact(name: &str) -> String {
-    name.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    name.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 /// Grants (or revokes) a role to a member that may be a user or a role: the
@@ -376,7 +485,11 @@ fn membership(role: &str, member: &str, grant: bool) -> Result<String> {
         return Err(Error::Query("el nombre no puede contener «$$»".into()));
     }
     let (r, m) = (q(role), q(member));
-    let (verb, prep) = if grant { ("GRANT", "TO") } else { ("REVOKE", "FROM") };
+    let (verb, prep) = if grant {
+        ("GRANT", "TO")
+    } else {
+        ("REVOKE", "FROM")
+    };
     Ok(format!(
         "EXECUTE IMMEDIATE $$\n\
          DECLARE\n  users INTEGER DEFAULT 0;\n\
@@ -398,26 +511,58 @@ const TO_ROLES: &str = "-- En Snowflake los permisos se otorgan a roles: si es u
 pub fn script(a: &SecurityAction) -> Result<String> {
     Ok(match a {
         SecurityAction::CreateUser { name, password: pw } => {
-            format!("CREATE USER {} PASSWORD = {};", new_name(name)?, password(pw.as_deref())?)
+            format!(
+                "CREATE USER {} PASSWORD = {};",
+                new_name(name)?,
+                password(pw.as_deref())?
+            )
         }
         SecurityAction::CreateRole { name } => format!("CREATE ROLE {};", new_name(name)?),
-        SecurityAction::Drop { name, kind: PrincipalKind::Role } => format!("DROP ROLE {};", q(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::User } => format!("DROP USER {};", q(name)),
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::Role,
+        } => format!("DROP ROLE {};", q(name)),
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::User,
+        } => format!("DROP USER {};", q(name)),
         SecurityAction::SetPassword { name, password: pw } => {
-            format!("ALTER USER {} SET PASSWORD = {};", q(name), password(Some(pw))?)
+            format!(
+                "ALTER USER {} SET PASSWORD = {};",
+                q(name),
+                password(Some(pw))?
+            )
         }
         SecurityAction::SetLogin { name, enabled } => {
-            format!("ALTER USER {} SET DISABLED = {};", q(name), if *enabled { "FALSE" } else { "TRUE" })
+            format!(
+                "ALTER USER {} SET DISABLED = {};",
+                q(name),
+                if *enabled { "FALSE" } else { "TRUE" }
+            )
         }
-        SecurityAction::Grant { privileges: p, object, to, grantable } => format!(
+        SecurityAction::Grant {
+            privileges: p,
+            object,
+            to,
+            grantable,
+        } => format!(
             "{TO_ROLES}\nGRANT {} ON {} TO ROLE {}{};",
             privileges(p)?,
             on(object)?,
             q(to),
             if *grantable { " WITH GRANT OPTION" } else { "" }
         ),
-        SecurityAction::Revoke { privileges: p, object, from } => {
-            format!("REVOKE {} ON {} FROM ROLE {};", privileges(p)?, on(object)?, q(from))
+        SecurityAction::Revoke {
+            privileges: p,
+            object,
+            from,
+        } => {
+            format!(
+                "REVOKE {} ON {} FROM ROLE {};",
+                privileges(p)?,
+                on(object)?,
+                q(from)
+            )
         }
         SecurityAction::AddMember { role, member } => membership(role, member, true)?,
         SecurityAction::RemoveMember { role, member } => membership(role, member, false)?,
@@ -437,9 +582,21 @@ pub fn schema_spec() -> SchemaSpec {
         owner_kinds: dbine_driver::SchemaOwnerKinds::Roles,
         cascade: false,
         privileges: vec![
-            "USAGE", "MONITOR", "MODIFY", "CREATE TABLE", "CREATE VIEW", "CREATE MATERIALIZED VIEW", "CREATE SEQUENCE",
-            "CREATE FUNCTION", "CREATE PROCEDURE", "CREATE STAGE", "CREATE FILE FORMAT", "CREATE STREAM", "CREATE TASK",
-            "CREATE PIPE", "ALL PRIVILEGES",
+            "USAGE",
+            "MONITOR",
+            "MODIFY",
+            "CREATE TABLE",
+            "CREATE VIEW",
+            "CREATE MATERIALIZED VIEW",
+            "CREATE SEQUENCE",
+            "CREATE FUNCTION",
+            "CREATE PROCEDURE",
+            "CREATE STAGE",
+            "CREATE FILE FORMAT",
+            "CREATE STREAM",
+            "CREATE TASK",
+            "CREATE PIPE",
+            "ALL PRIVILEGES",
         ],
         grant_option: true,
     }
@@ -475,7 +632,10 @@ pub fn schema_owner(name: &str, owner: &str) -> Result<String> {
 }
 
 pub fn drop_schema(name: &str) -> Result<String> {
-    Ok(format!("-- En Snowflake, borrar un esquema borra también todo lo que contiene.\nDROP SCHEMA {};", schema_name(name)?))
+    Ok(format!(
+        "-- En Snowflake, borrar un esquema borra también todo lo que contiene.\nDROP SCHEMA {};",
+        schema_name(name)?
+    ))
 }
 
 #[cfg(test)]
@@ -483,42 +643,115 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        })
     }
 
     fn row(pairs: &[(&str, &str)]) -> Row {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn writes_the_scripts() {
         let s = |a| script(&a).unwrap();
         assert_eq!(
-            s(SecurityAction::CreateUser { name: "ana".into(), password: Some("p'w\\x".into()) }),
+            s(SecurityAction::CreateUser {
+                name: "ana".into(),
+                password: Some("p'w\\x".into())
+            }),
             "CREATE USER \"ANA\" PASSWORD = 'p\\'w\\\\x';"
         );
-        assert_eq!(s(SecurityAction::CreateUser { name: "ana.b".into(), password: Some("x".into()) }), "CREATE USER \"ana.b\" PASSWORD = 'x';");
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: None }).is_err());
-        assert_eq!(s(SecurityAction::CreateRole { name: "lectores".into() }), "CREATE ROLE \"LECTORES\";");
-        assert_eq!(s(SecurityAction::Drop { name: "A\"B".into(), kind: PrincipalKind::User }), "DROP USER \"A\"\"B\";");
-        assert_eq!(s(SecurityAction::Drop { name: "LECT".into(), kind: PrincipalKind::Role }), "DROP ROLE \"LECT\";");
-        assert_eq!(s(SecurityAction::SetPassword { name: "ANA".into(), password: "n'".into() }), "ALTER USER \"ANA\" SET PASSWORD = 'n\\'';");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ANA".into(), enabled: false }), "ALTER USER \"ANA\" SET DISABLED = TRUE;");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ANA".into(), enabled: true }), "ALTER USER \"ANA\" SET DISABLED = FALSE;");
+        assert_eq!(
+            s(SecurityAction::CreateUser {
+                name: "ana.b".into(),
+                password: Some("x".into())
+            }),
+            "CREATE USER \"ana.b\" PASSWORD = 'x';"
+        );
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: None
+        })
+        .is_err());
+        assert_eq!(
+            s(SecurityAction::CreateRole {
+                name: "lectores".into()
+            }),
+            "CREATE ROLE \"LECTORES\";"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "A\"B".into(),
+                kind: PrincipalKind::User
+            }),
+            "DROP USER \"A\"\"B\";"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "LECT".into(),
+                kind: PrincipalKind::Role
+            }),
+            "DROP ROLE \"LECT\";"
+        );
+        assert_eq!(
+            s(SecurityAction::SetPassword {
+                name: "ANA".into(),
+                password: "n'".into()
+            }),
+            "ALTER USER \"ANA\" SET PASSWORD = 'n\\'';"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ANA".into(),
+                enabled: false
+            }),
+            "ALTER USER \"ANA\" SET DISABLED = TRUE;"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ANA".into(),
+                enabled: true
+            }),
+            "ALTER USER \"ANA\" SET DISABLED = FALSE;"
+        );
         assert_eq!(
             s(SecurityAction::Grant { privileges: vec!["select".into(), "INSERT".into()], object: obj("table", Some("PUBLIC"), "fac\"t"), to: "LECT".into(), grantable: true }),
             format!("{TO_ROLES}\nGRANT SELECT, INSERT ON TABLE \"PUBLIC\".\"fac\"\"t\" TO ROLE \"LECT\" WITH GRANT OPTION;")
         );
-        assert!(s(SecurityAction::Grant { privileges: vec!["create database".into()], object: None, to: "R".into(), grantable: false })
-            .ends_with("\nGRANT CREATE DATABASE ON ACCOUNT TO ROLE \"R\";"));
-        assert!(s(SecurityAction::Grant { privileges: vec!["USAGE".into()], object: obj("database", None, "VENTAS"), to: "R".into(), grantable: false })
-            .ends_with("GRANT USAGE ON DATABASE \"VENTAS\" TO ROLE \"R\";"));
+        assert!(s(SecurityAction::Grant {
+            privileges: vec!["create database".into()],
+            object: None,
+            to: "R".into(),
+            grantable: false
+        })
+        .ends_with("\nGRANT CREATE DATABASE ON ACCOUNT TO ROLE \"R\";"));
+        assert!(s(SecurityAction::Grant {
+            privileges: vec!["USAGE".into()],
+            object: obj("database", None, "VENTAS"),
+            to: "R".into(),
+            grantable: false
+        })
+        .ends_with("GRANT USAGE ON DATABASE \"VENTAS\" TO ROLE \"R\";"));
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["SELECT".into()], object: obj("materialized_view", Some("S"), "MV"), from: "R".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["SELECT".into()],
+                object: obj("materialized_view", Some("S"), "MV"),
+                from: "R".into()
+            }),
             "REVOKE SELECT ON MATERIALIZED VIEW \"S\".\"MV\" FROM ROLE \"R\";"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["USAGE".into()], object: obj("schema", None, "S"), from: "R".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["USAGE".into()],
+                object: obj("schema", None, "S"),
+                from: "R".into()
+            }),
             "REVOKE USAGE ON SCHEMA \"S\" FROM ROLE \"R\";"
         );
         assert_eq!(
@@ -528,48 +761,155 @@ mod tests {
              IF (users > 0) THEN\n    GRANT ROLE \"LECT\" TO USER \"ANA\";\n  ELSE\n    GRANT ROLE \"LECT\" TO ROLE \"ANA\";\n  END IF;\nEND;\n$$;"
         );
         // Wildcards, backslashes and quotes in the member's name.
-        let r = s(SecurityAction::RemoveMember { role: "R\"1".into(), member: "a_b%c\\d'e\"f".into() });
-        assert!(r.contains("SHOW USERS LIKE 'a\\\\_b\\\\%c\\\\\\\\d\\'e\"f';"), "{r}");
+        let r = s(SecurityAction::RemoveMember {
+            role: "R\"1".into(),
+            member: "a_b%c\\d'e\"f".into(),
+        });
+        assert!(
+            r.contains("SHOW USERS LIKE 'a\\\\_b\\\\%c\\\\\\\\d\\'e\"f';"),
+            "{r}"
+        );
         assert!(r.contains("WHERE \"name\" = 'a_b%c\\\\d\\'e\"f';"), "{r}");
-        assert!(r.contains("REVOKE ROLE \"R\"\"1\" FROM USER \"a_b%c\\d'e\"\"f\";"), "{r}");
-        assert!(r.contains("REVOKE ROLE \"R\"\"1\" FROM ROLE \"a_b%c\\d'e\"\"f\";"), "{r}");
+        assert!(
+            r.contains("REVOKE ROLE \"R\"\"1\" FROM USER \"a_b%c\\d'e\"\"f\";"),
+            "{r}"
+        );
+        assert!(
+            r.contains("REVOKE ROLE \"R\"\"1\" FROM ROLE \"a_b%c\\d'e\"\"f\";"),
+            "{r}"
+        );
         // The block's $$ can't be closed by a name.
-        assert!(script(&SecurityAction::AddMember { role: "R".into(), member: "a$$b".into() }).is_err());
-        assert!(script(&SecurityAction::AddMember { role: "x$$".into(), member: "a".into() }).is_err());
-        assert!(s(SecurityAction::AddMember { role: "R".into(), member: "a$".into() }).ends_with("END;\n$$;"));
+        assert!(script(&SecurityAction::AddMember {
+            role: "R".into(),
+            member: "a$$b".into()
+        })
+        .is_err());
+        assert!(script(&SecurityAction::AddMember {
+            role: "x$$".into(),
+            member: "a".into()
+        })
+        .is_err());
+        assert!(s(SecurityAction::AddMember {
+            role: "R".into(),
+            member: "a$".into()
+        })
+        .ends_with("END;\n$$;"));
         // One statement for the driver (no MULTI_STATEMENT_COUNT).
         assert_eq!(crate::split_script(&r).len(), 1);
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT; DROP TABLE x".into()], object: None, to: "a".into(), grantable: false }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT".into()], object: obj("table; x", None, "t"), to: "a".into(), grantable: false }).is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT; DROP TABLE x".into()],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT".into()],
+            object: obj("table; x", None, "t"),
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
     }
 
     #[test]
     fn reads_show_grants() {
         assert_eq!(split_name("DB.\"My \"\"S\".T"), vec!["DB", "My \"S", "T"]);
-        let g = grant_of(&row(&[("privilege", "SELECT"), ("granted_on", "TABLE"), ("name", "VENTAS.PUBLIC.FACT"), ("grant_option", "true")]), Some("VENTAS")).unwrap();
-        assert_eq!((g.object.as_deref(), g.object_kind.as_deref(), g.grantable), (Some("PUBLIC.FACT"), Some("table"), true));
-        let g = grant_of(&row(&[("privilege", "SELECT"), ("granted_on", "VIEW"), ("name", "OTRA.PUBLIC.V"), ("grant_option", "false")]), Some("VENTAS")).unwrap();
-        assert_eq!((g.object.as_deref(), g.object_kind.as_deref()), (Some("OTRA.PUBLIC.V"), Some("view")));
-        let g = grant_of(&row(&[("privilege", "USAGE"), ("granted_on", "DATABASE"), ("name", "VENTAS")]), Some("VENTAS")).unwrap();
-        assert_eq!((g.object.as_deref(), g.object_kind.as_deref()), (Some("VENTAS"), Some("database")));
-        let g = grant_of(&row(&[("privilege", "CREATE ROLE"), ("granted_on", "ACCOUNT"), ("name", "AB12345")]), None).unwrap();
+        let g = grant_of(
+            &row(&[
+                ("privilege", "SELECT"),
+                ("granted_on", "TABLE"),
+                ("name", "VENTAS.PUBLIC.FACT"),
+                ("grant_option", "true"),
+            ]),
+            Some("VENTAS"),
+        )
+        .unwrap();
+        assert_eq!(
+            (g.object.as_deref(), g.object_kind.as_deref(), g.grantable),
+            (Some("PUBLIC.FACT"), Some("table"), true)
+        );
+        let g = grant_of(
+            &row(&[
+                ("privilege", "SELECT"),
+                ("granted_on", "VIEW"),
+                ("name", "OTRA.PUBLIC.V"),
+                ("grant_option", "false"),
+            ]),
+            Some("VENTAS"),
+        )
+        .unwrap();
+        assert_eq!(
+            (g.object.as_deref(), g.object_kind.as_deref()),
+            (Some("OTRA.PUBLIC.V"), Some("view"))
+        );
+        let g = grant_of(
+            &row(&[
+                ("privilege", "USAGE"),
+                ("granted_on", "DATABASE"),
+                ("name", "VENTAS"),
+            ]),
+            Some("VENTAS"),
+        )
+        .unwrap();
+        assert_eq!(
+            (g.object.as_deref(), g.object_kind.as_deref()),
+            (Some("VENTAS"), Some("database"))
+        );
+        let g = grant_of(
+            &row(&[
+                ("privilege", "CREATE ROLE"),
+                ("granted_on", "ACCOUNT"),
+                ("name", "AB12345"),
+            ]),
+            None,
+        )
+        .unwrap();
         assert_eq!(g.object, None);
-        assert_eq!(grant_of(&row(&[("privilege", "USAGE"), ("granted_on", "ROLE"), ("name", "SYSADMIN")]), None), Err("SYSADMIN".to_string()));
-        assert!(has_members(&row(&[("assigned_to_users", "0"), ("granted_to_roles", "1")])));
-        assert!(!has_members(&row(&[("assigned_to_users", "0"), ("granted_to_roles", "0")])));
+        assert_eq!(
+            grant_of(
+                &row(&[
+                    ("privilege", "USAGE"),
+                    ("granted_on", "ROLE"),
+                    ("name", "SYSADMIN")
+                ]),
+                None
+            ),
+            Err("SYSADMIN".to_string())
+        );
+        assert!(has_members(&row(&[
+            ("assigned_to_users", "0"),
+            ("granted_to_roles", "1")
+        ])));
+        assert!(!has_members(&row(&[
+            ("assigned_to_users", "0"),
+            ("granted_to_roles", "0")
+        ])));
     }
 
     #[test]
     fn schema_scripts() {
-        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA \"ventas\";");
-        assert_eq!(create_schema("Ven\"tas").unwrap(), "CREATE SCHEMA \"Ven\"\"tas\";");
+        assert_eq!(
+            create_schema(" ventas ").unwrap(),
+            "CREATE SCHEMA \"ventas\";"
+        );
+        assert_eq!(
+            create_schema("Ven\"tas").unwrap(),
+            "CREATE SCHEMA \"Ven\"\"tas\";"
+        );
         let o = schema_owner("Ven\"tas", " R1 ").unwrap();
         assert!(o.starts_with("-- ") && o.ends_with("\nGRANT OWNERSHIP ON SCHEMA \"Ven\"\"tas\" TO ROLE \"R1\" COPY CURRENT GRANTS;"), "{o}");
         assert!(schema_owner("ventas", " ").is_err());
         assert!(create_schema(" ").is_err());
-        assert!(drop_schema("ventas").unwrap().ends_with("\nDROP SCHEMA \"ventas\";"));
+        assert!(drop_schema("ventas")
+            .unwrap()
+            .ends_with("\nDROP SCHEMA \"ventas\";"));
         let spec = schema_spec();
-        assert!(spec.owner && !spec.cascade && spec.owner_kinds == dbine_driver::SchemaOwnerKinds::Roles);
+        assert!(
+            spec.owner
+                && !spec.cascade
+                && spec.owner_kinds == dbine_driver::SchemaOwnerKinds::Roles
+        );
         // Every offered privilege goes through the grant script on the schema.
         let g = script(&SecurityAction::Grant {
             privileges: spec.privileges.iter().map(|p| p.to_string()).collect(),
@@ -578,7 +918,13 @@ mod tests {
             grantable: true,
         })
         .unwrap();
-        assert!(g.ends_with("ON SCHEMA \"ventas\" TO ROLE \"LECT\" WITH GRANT OPTION;"), "{g}");
-        assert!(g.contains("GRANT USAGE, MONITOR, MODIFY, CREATE TABLE"), "{g}");
+        assert!(
+            g.ends_with("ON SCHEMA \"ventas\" TO ROLE \"LECT\" WITH GRANT OPTION;"),
+            "{g}"
+        );
+        assert!(
+            g.contains("GRANT USAGE, MONITOR, MODIFY, CREATE TABLE"),
+            "{g}"
+        );
     }
 }

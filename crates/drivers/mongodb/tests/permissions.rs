@@ -17,15 +17,23 @@ use std::sync::Arc;
 
 fn setup(var: &str, id: &str) -> Option<(Arc<dyn Driver>, ConnectionConfig)> {
     let url = std::env::var(var).ok()?;
-    let mut c = ConnectionConfig { driver: id.into(), database: "dbine_perm".into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: id.into(),
+        database: "dbine_perm".into(),
+        ..Default::default()
+    };
     c.options.insert("connection_string".into(), url);
-    let d = dbine_driver_mongodb::drivers().into_iter().find(|d| d.info().id == id)?;
+    let d = dbine_driver_mongodb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)?;
     Some((d, c))
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(text, 10, &mut out).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
     assert!(out.error.is_none(), "{text}: {:?}", out.error);
 }
 
@@ -43,13 +51,28 @@ async fn root_limited_users_and_read_only() {
     let mut admin = d.connect(&c, None).await.expect("connect");
     let p = admin.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("root: {p:?}");
-    assert_eq!((&p.profiler, &p.kill_session, &p.create_database), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
-    assert_eq!((&p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed));
-    assert_eq!(admin.permissions(None).await.unwrap().drop_database, Access::Unknown);
+    assert_eq!(
+        (&p.profiler, &p.kill_session, &p.create_database),
+        (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+    );
+    assert_eq!(
+        (&p.drop_database, &p.manage_security),
+        (&Access::Allowed, &Access::Allowed)
+    );
+    assert_eq!(
+        admin.permissions(None).await.unwrap().drop_database,
+        Access::Unknown
+    );
 
     let mut out = QueryOutcome::default();
     for u in ["perm_rw", "perm_dba"] {
-        let _ = admin.execute(&format!("db.runCommand({{ dropUser: '{u}' }})"), 10, &mut out).await;
+        let _ = admin
+            .execute(
+                &format!("db.runCommand({{ dropUser: '{u}' }})"),
+                10,
+                &mut out,
+            )
+            .await;
     }
     run(&mut admin, "db.runCommand({ createUser: 'perm_rw', pwd: 'rw', roles: [{ role: 'readWrite', db: 'dbine_perm' }] })").await;
     run(&mut admin, "db.runCommand({ createUser: 'perm_dba', pwd: 'dba', roles: [{ role: 'dbAdmin', db: 'dbine_perm' }] })").await;
@@ -57,12 +80,17 @@ async fn root_limited_users_and_read_only() {
         let mut c = c.clone();
         c.options.insert(
             "connection_string".into(),
-            c.options["connection_string"].replace("root:secret@", &format!("{u}:{pw}@")).replace("authSource=admin", "authSource=dbine_perm"),
+            c.options["connection_string"]
+                .replace("root:secret@", &format!("{u}:{pw}@"))
+                .replace("authSource=admin", "authSource=dbine_perm"),
         );
         c
     };
 
-    let mut s = d.connect(&user("perm_rw", "rw"), None).await.expect("connect as readWrite");
+    let mut s = d
+        .connect(&user("perm_rw", "rw"), None)
+        .await
+        .expect("connect as readWrite");
     let p = s.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("readWrite: {p:?}");
     assert!(denied(&p.profiler, "inprog"));
@@ -71,7 +99,10 @@ async fn root_limited_users_and_read_only() {
     assert!(denied(&p.drop_database, "dropDatabase"));
     assert!(denied(&p.manage_security, "createUser"));
 
-    let mut s = d.connect(&user("perm_dba", "dba"), None).await.expect("connect as dbAdmin");
+    let mut s = d
+        .connect(&user("perm_dba", "dba"), None)
+        .await
+        .expect("connect as dbAdmin");
     run(&mut admin, "db.runCommand({ profile: 0, sampleRate: 0.5 })").await;
     let p = s.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("dbAdmin, profiling off: {p:?}");
@@ -85,7 +116,10 @@ async fn root_limited_users_and_read_only() {
     eprintln!("dbAdmin, profiling on: {p:?}");
     assert_eq!(p.profiler, Access::Allowed);
     // What it says, the server does: the profiler reads system.profile.
-    let opts = dbine_driver::ProfilerOptions { database: "dbine_perm".into(), change_server: true };
+    let opts = dbine_driver::ProfilerOptions {
+        database: "dbine_perm".into(),
+        change_server: true,
+    };
     let started = s.profiler_start(&opts).await.expect("profiler as dbAdmin");
     eprintln!("dbAdmin profiler: {started:?}");
     assert_eq!(started.mode, dbine_driver::ProfilerMode::Complete);
@@ -99,7 +133,10 @@ async fn root_limited_users_and_read_only() {
     let p = s.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("read-only connection: {p:?}");
     // What the server grants, not DBine's read-only mode.
-    assert_eq!((&p.drop_database, &p.profiler), (&Access::Allowed, &Access::Allowed));
+    assert_eq!(
+        (&p.drop_database, &p.profiler),
+        (&Access::Allowed, &Access::Allowed)
+    );
 
     for u in ["perm_rw", "perm_dba"] {
         run(&mut admin, &format!("db.runCommand({{ dropUser: '{u}' }})")).await;
@@ -118,7 +155,9 @@ async fn db_admin_only_turns_the_profiler_on() {
     };
     let mut admin = d.connect(&c, None).await.expect("connect");
     let mut out = QueryOutcome::default();
-    let _ = admin.execute("db.runCommand({ dropUser: 'perm_dba_only' })", 10, &mut out).await;
+    let _ = admin
+        .execute("db.runCommand({ dropUser: 'perm_dba_only' })", 10, &mut out)
+        .await;
     run(
         &mut admin,
         "db.runCommand({ createUser: 'perm_dba_only', pwd: 'dba', roles: [{ role: 'dbAdmin', db: 'dbine_perm' }, { role: 'read', db: 'dbine_perm' }] })",
@@ -128,24 +167,50 @@ async fn db_admin_only_turns_the_profiler_on() {
     let mut u = c.clone();
     u.options.insert(
         "connection_string".into(),
-        c.options["connection_string"].replace("root:secret@", "perm_dba_only:dba@").replace("authSource=admin", "authSource=dbine_perm"),
+        c.options["connection_string"]
+            .replace("root:secret@", "perm_dba_only:dba@")
+            .replace("authSource=admin", "authSource=dbine_perm"),
     );
     let mut s = d.connect(&u, None).await.expect("connect as dbAdmin");
     let p = s.permissions(Some("dbine_perm")).await.unwrap();
     eprintln!("dbAdmin only, profiling off: {p:?}");
     assert_eq!(p.profiler, Access::Allowed);
-    let opts = dbine_driver::ProfilerOptions { database: "dbine_perm".into(), change_server: true };
+    let opts = dbine_driver::ProfilerOptions {
+        database: "dbine_perm".into(),
+        change_server: true,
+    };
     let started = s.profiler_start(&opts).await.expect("profiler as dbAdmin");
     eprintln!("dbAdmin only profiler: {started:?}");
     assert_eq!(started.mode, dbine_driver::ProfilerMode::Complete);
-    assert!(started.changes.iter().any(|c| c.contains("= 2 (estaba en 0)")), "{:?}", started.changes);
-    assert!(!started.changes.iter().any(|c| c.contains("sampleRate")), "{:?}", started.changes);
-    s.execute("db.perm_t.find({})", 10, &mut QueryOutcome::default()).await.expect("find");
+    assert!(
+        started
+            .changes
+            .iter()
+            .any(|c| c.contains("= 2 (estaba en 0)")),
+        "{:?}",
+        started.changes
+    );
+    assert!(
+        !started.changes.iter().any(|c| c.contains("sampleRate")),
+        "{:?}",
+        started.changes
+    );
+    s.execute("db.perm_t.find({})", 10, &mut QueryOutcome::default())
+        .await
+        .expect("find");
     s.profiler_poll().await.expect("poll as dbAdmin");
     s.profiler_stop().await.expect("stop as dbAdmin");
     let mut after = QueryOutcome::default();
-    admin.execute("db.runCommand({ profile: -1 })", 10, &mut after).await.unwrap();
-    assert_eq!(after.results[0].rows[0][0].to_string(), "0", "level restored: {:?}", after.results[0].rows[0]);
+    admin
+        .execute("db.runCommand({ profile: -1 })", 10, &mut after)
+        .await
+        .unwrap();
+    assert_eq!(
+        after.results[0].rows[0][0].to_string(),
+        "0",
+        "level restored: {:?}",
+        after.results[0].rows[0]
+    );
     run(&mut admin, "db.runCommand({ dropUser: 'perm_dba_only' })").await;
 }
 
@@ -156,13 +221,19 @@ async fn no_access_control_and_ferretdb() {
         let mut s = d.connect(&c, None).await.expect("connect");
         let p = s.permissions(Some("dbine_perm")).await.unwrap();
         eprintln!("no auth: {p:?}");
-        assert_eq!((&p.profiler, &p.kill_session, &p.drop_database), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.profiler, &p.kill_session, &p.drop_database),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
     }
     if let Some((d, c)) = setup("DBINE_TEST_FERRETDB_URL", "ferretdb") {
         let mut s = d.connect(&c, None).await.expect("connect");
         let p = s.permissions(Some("dbine_perm")).await.unwrap();
         eprintln!("ferretdb: {p:?}");
-        assert_eq!((&p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        assert_eq!(
+            (&p.create_database, &p.drop_database, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
         assert_eq!(p.profiler, Access::Unknown);
     }
 }

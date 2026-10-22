@@ -26,10 +26,12 @@ pub struct PreviewArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn preview_import_file(args: PreviewArgs) -> CommandResult<Preview> {
-    tokio::task::spawn_blocking(move || import::preview(&PathBuf::from(&args.path), args.format, &args.options, 50))
-        .await
-        .map_err(|e| CommandError::Internal(e.to_string()))?
-        .map_err(|e| CommandError::BadRequest(format!("no se pudo leer el archivo: {e}")))
+    tokio::task::spawn_blocking(move || {
+        import::preview(&PathBuf::from(&args.path), args.format, &args.options, 50)
+    })
+    .await
+    .map_err(|e| CommandError::Internal(e.to_string()))?
+    .map_err(|e| CommandError::BadRequest(format!("no se pudo leer el archivo: {e}")))
 }
 
 #[derive(Deserialize)]
@@ -106,13 +108,19 @@ fn count_records(mut r: impl Read, delim: u8, stop: &AtomicBool) -> std::io::Res
         let mut chunk = &buf[..n];
         if first {
             first = false;
-            chunk = chunk.strip_prefix(b"\xEF\xBB\xBF".as_slice()).unwrap_or(chunk);
+            chunk = chunk
+                .strip_prefix(b"\xEF\xBB\xBF".as_slice())
+                .unwrap_or(chunk);
         }
         for &b in chunk {
             let term = b == b'\n' || b == b'\r';
             st = match st {
                 St::Quoted => {
-                    if b == b'"' { St::QuoteInQuoted } else { St::Quoted }
+                    if b == b'"' {
+                        St::QuoteInQuoted
+                    } else {
+                        St::Quoted
+                    }
                 }
                 St::FieldStart if b == b'"' => {
                     has = true;
@@ -128,7 +136,11 @@ fn count_records(mut r: impl Read, delim: u8, stop: &AtomicBool) -> std::io::Res
                 }
                 _ => {
                     has = true;
-                    if b == delim { St::FieldStart } else { St::Field }
+                    if b == delim {
+                        St::FieldStart
+                    } else {
+                        St::Field
+                    }
                 }
             };
         }
@@ -149,7 +161,8 @@ fn csv_delimiter(path: &Path, format: ImportFormat, opts: &ImportOptions) -> u8 
         _ => {
             use std::io::BufRead;
             let mut line = String::new();
-            let _ = std::fs::File::open(path).map(|f| std::io::BufReader::new(f).read_line(&mut line));
+            let _ =
+                std::fs::File::open(path).map(|f| std::io::BufReader::new(f).read_line(&mut line));
             let count = |c: char| line.matches(c).count();
             if count(';') > count(',') {
                 b';'
@@ -163,15 +176,29 @@ fn csv_delimiter(path: &Path, format: ImportFormat, opts: &ImportOptions) -> u8 
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn import_file(app: AppHandle, state: State<'_, AppState>, args: ImportArgs) -> CommandResult<ImportResult> {
+pub async fn import_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ImportArgs,
+) -> CommandResult<ImportResult> {
     let started = std::time::Instant::now();
     let driver = driver_of(&state, &args.connection_id)?;
     let key = format!("import:{}", args.import_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
+    let entry = state
+        .dedicated_session(&key, &args.connection_id, &args.database, false)
+        .await?;
 
     let path = PathBuf::from(&args.path);
     let emit = |rows: u64, total: Option<u64>, phase: &'static str| {
-        let _ = app.emit("import-progress", ImportProgress { id: args.import_id.clone(), rows, total, phase });
+        let _ = app.emit(
+            "import-progress",
+            ImportProgress {
+                id: args.import_id.clone(),
+                rows,
+                total,
+                phase,
+            },
+        );
     };
     // CSV/TSV are read as a stream: a background pass counts their records
     // for the total and stops when the import ends.
@@ -180,47 +207,76 @@ pub async fn import_file(app: AppHandle, state: State<'_, AppState>, args: Impor
     let stop_count = Arc::new(AtomicBool::new(false));
     let run = async {
         emit(0, None, "reading");
-        let reader = tokio::task::block_in_place(|| import::open(&path, args.format, &args.options))
-            .map_err(|e| CommandError::BadRequest(format!("no se pudo leer el archivo: {e}")))?;
+        let reader =
+            tokio::task::block_in_place(|| import::open(&path, args.format, &args.options))
+                .map_err(|e| {
+                    CommandError::BadRequest(format!("no se pudo leer el archivo: {e}"))
+                })?;
         // Source positions of the mapped columns, in target order.
         let picks: Vec<(usize, String)> = args
             .mapping
             .iter()
             .filter(|m| !m.target.is_empty())
-            .filter_map(|m| reader.columns.iter().position(|c| *c == m.source).map(|i| (i, m.target.clone())))
+            .filter_map(|m| {
+                reader
+                    .columns
+                    .iter()
+                    .position(|c| *c == m.source)
+                    .map(|i| (i, m.target.clone()))
+            })
             .collect();
         if picks.is_empty() {
-            return Err(CommandError::BadRequest("no hay columnas para importar: revisá la correspondencia".into()));
+            return Err(CommandError::BadRequest(
+                "no hay columnas para importar: revisá la correspondencia".into(),
+            ));
         }
         let columns: Vec<String> = picks.iter().map(|(_, t)| t.clone()).collect();
 
         // Formats parsed whole into memory already hold every row: take them
         // out of the reader to know how many there are.
-        let mut source: Box<dyn Iterator<Item = std::io::Result<Vec<Value>>> + Send> = match reader.format {
-            ImportFormat::Json | ImportFormat::JsonLines | ImportFormat::Xlsx | ImportFormat::Xml => {
-                let all = reader.collect::<std::io::Result<Vec<_>>>().map_err(|e| CommandError::BadRequest(format!("error leyendo el archivo: {e}")))?;
-                total.store(all.len() as u64, Ordering::Relaxed);
-                Box::new(all.into_iter().map(Ok))
-            }
-            format => {
-                let (total, stop) = (total.clone(), stop_count.clone());
-                let delim = csv_delimiter(&path, format, &args.options);
-                let (path, header) = (path.clone(), args.options.header);
-                let (app, id, done) = (app.clone(), args.import_id.clone(), done.clone());
-                tokio::task::spawn_blocking(move || {
-                    let Ok(Some(records)) = std::fs::File::open(&path).and_then(|f| count_records(f, delim, &stop)) else { return };
-                    // The import's own events carry it from here; this one
-                    // only matters when batches are slow.
-                    let n = records.saturating_sub(header as u64);
-                    total.store(n, Ordering::Relaxed);
-                    if !stop.load(Ordering::Relaxed) {
-                        let rows = done.load(Ordering::Relaxed);
-                        let _ = app.emit("import-progress", ImportProgress { id, rows, total: Some(n), phase: "inserting" });
-                    }
-                });
-                Box::new(reader)
-            }
-        };
+        let mut source: Box<dyn Iterator<Item = std::io::Result<Vec<Value>>> + Send> =
+            match reader.format {
+                ImportFormat::Json
+                | ImportFormat::JsonLines
+                | ImportFormat::Xlsx
+                | ImportFormat::Xml => {
+                    let all = reader.collect::<std::io::Result<Vec<_>>>().map_err(|e| {
+                        CommandError::BadRequest(format!("error leyendo el archivo: {e}"))
+                    })?;
+                    total.store(all.len() as u64, Ordering::Relaxed);
+                    Box::new(all.into_iter().map(Ok))
+                }
+                format => {
+                    let (total, stop) = (total.clone(), stop_count.clone());
+                    let delim = csv_delimiter(&path, format, &args.options);
+                    let (path, header) = (path.clone(), args.options.header);
+                    let (app, id, done) = (app.clone(), args.import_id.clone(), done.clone());
+                    tokio::task::spawn_blocking(move || {
+                        let Ok(Some(records)) =
+                            std::fs::File::open(&path).and_then(|f| count_records(f, delim, &stop))
+                        else {
+                            return;
+                        };
+                        // The import's own events carry it from here; this one
+                        // only matters when batches are slow.
+                        let n = records.saturating_sub(header as u64);
+                        total.store(n, Ordering::Relaxed);
+                        if !stop.load(Ordering::Relaxed) {
+                            let rows = done.load(Ordering::Relaxed);
+                            let _ = app.emit(
+                                "import-progress",
+                                ImportProgress {
+                                    id,
+                                    rows,
+                                    total: Some(n),
+                                    phase: "inserting",
+                                },
+                            );
+                        }
+                    });
+                    Box::new(reader)
+                }
+            };
         let known = || Some(total.load(Ordering::Relaxed)).filter(|t| *t != u64::MAX);
         emit(0, known(), "inserting");
 
@@ -237,8 +293,17 @@ pub async fn import_file(app: AppHandle, state: State<'_, AppState>, args: Impor
         };
 
         if let Some(t) = &args.create_table {
-            let ddl = driver.table_ddl(t, DdlParts { create: true, indexes: true, ..Default::default() })?;
-            exec(ddl).await.map_err(|e| CommandError::Sql(format!("no se pudo crear {}: {e}", t.name)))?;
+            let ddl = driver.table_ddl(
+                t,
+                DdlParts {
+                    create: true,
+                    indexes: true,
+                    ..Default::default()
+                },
+            )?;
+            exec(ddl)
+                .await
+                .map_err(|e| CommandError::Sql(format!("no se pudo crear {}: {e}", t.name)))?;
         }
 
         let mut rows = 0u64;
@@ -252,16 +317,30 @@ pub async fn import_file(app: AppHandle, state: State<'_, AppState>, args: Impor
                 source
                     .by_ref()
                     .take(batch)
-                    .map(|r| r.map(|row| picks.iter().map(|(i, _)| row.get(*i).cloned().unwrap_or(Value::Null)).collect()))
+                    .map(|r| {
+                        r.map(|row| {
+                            picks
+                                .iter()
+                                .map(|(i, _)| row.get(*i).cloned().unwrap_or(Value::Null))
+                                .collect()
+                        })
+                    })
                     .collect::<std::io::Result<_>>()
             })
-            .map_err(|e| CommandError::BadRequest(format!("error leyendo el archivo (fila {}): {e}", rows + 1)))?;
+            .map_err(|e| {
+                CommandError::BadRequest(format!(
+                    "error leyendo el archivo (fila {}): {e}",
+                    rows + 1
+                ))
+            })?;
             if chunk.is_empty() {
                 break;
             }
             let n = chunk.len() as u64;
             let script = driver.insert_script(&args.target, &columns, &chunk)?;
-            exec(script).await.map_err(|e| CommandError::Sql(format!("filas {}–{}: {e}", rows + 1, rows + n)))?;
+            exec(script)
+                .await
+                .map_err(|e| CommandError::Sql(format!("filas {}–{}: {e}", rows + 1, rows + n)))?;
             rows += n;
             done.store(rows, Ordering::Relaxed);
             if last_emit.elapsed() >= PROGRESS_EVERY {
@@ -275,7 +354,10 @@ pub async fn import_file(app: AppHandle, state: State<'_, AppState>, args: Impor
     let res = run.await;
     stop_count.store(true, Ordering::Relaxed);
     state.sessions.remove(&key);
-    Ok(ImportResult { rows: res?, elapsed_ms: started.elapsed().as_millis() as u64 })
+    Ok(ImportResult {
+        rows: res?,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
 }
 
 #[cfg(test)]
@@ -283,7 +365,9 @@ mod tests {
     use super::*;
 
     fn count(text: &str, delim: u8) -> u64 {
-        count_records(text.as_bytes(), delim, &AtomicBool::new(false)).unwrap().unwrap()
+        count_records(text.as_bytes(), delim, &AtomicBool::new(false))
+            .unwrap()
+            .unwrap()
     }
 
     #[test]
@@ -294,7 +378,10 @@ mod tests {
         // Empty lines don't count; a line with only a delimiter does.
         assert_eq!(count("a\n\n\r\nb\n,\n", b','), 3);
         // Newlines and doubled quotes inside quotes.
-        assert_eq!(count("a,b\n\"x\ny\",2\n\"he said \"\"hi\n\"\"\",3\n", b','), 3);
+        assert_eq!(
+            count("a,b\n\"x\ny\",2\n\"he said \"\"hi\n\"\"\",3\n", b','),
+            3
+        );
         // A quote in the middle of a field doesn't open quoting.
         assert_eq!(count("a\"b,c\nd,e\n", b','), 2);
         // Quotes open only after this file's delimiter.
@@ -304,6 +391,9 @@ mod tests {
 
     #[test]
     fn stops_when_asked() {
-        assert_eq!(count_records("a\nb\n".as_bytes(), b',', &AtomicBool::new(true)).unwrap(), None);
+        assert_eq!(
+            count_records("a\nb\n".as_bytes(), b',', &AtomicBool::new(true)).unwrap(),
+            None
+        );
     }
 }

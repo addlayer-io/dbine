@@ -43,7 +43,9 @@
 //!   (`GENERATED ALWAYS AS <expr>`) are always left out.
 
 use super::{err, iso, quote, HanaSession};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, Result};
 use hdbconnect_async::{FieldMetadata, HdbValue, ParameterDescriptor, TypeId};
 use std::collections::HashMap;
@@ -71,7 +73,11 @@ const INLINE_MAX: usize = 16 * 1024 * 1024;
 
 const READ_SRIDS: &str = "SELECT COLUMN_NAME, SRS_ID FROM SYS.ST_GEOMETRY_COLUMNS WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?";
 
-pub(crate) async fn read_batches(s: &mut HanaSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut HanaSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let owner = s.owner(&spec.table);
     let table = format!("{}.{}", quote(&owner), quote(&spec.table.name));
     let cols = match &spec.columns {
@@ -79,12 +85,23 @@ pub(crate) async fn read_batches(s: &mut HanaSession, spec: &ReadSpec, sink: Bat
         _ => "*".to_string(),
     };
     // Described first: spatial columns are read through an expression.
-    let meta = s.conn.query(format!("SELECT {cols} FROM {table} WHERE 1 = 0")).await.map_err(err)?.metadata();
+    let meta = s
+        .conn
+        .query(format!("SELECT {cols} FROM {table} WHERE 1 = 0"))
+        .await
+        .map_err(err)?
+        .metadata();
     // The spatial columns' SRIDs, for their type names (WKB carries none).
     let mut srids: HashMap<String, i64> = HashMap::new();
-    if meta.iter().any(|m| matches!(m.type_id(), TypeId::GEOMETRY | TypeId::POINT)) {
+    if meta
+        .iter()
+        .any(|m| matches!(m.type_id(), TypeId::GEOMETRY | TypeId::POINT))
+    {
         for r in s.rows(READ_SRIDS, &[&owner, &spec.table.name]).await? {
-            if let (Some(col), Some(srid)) = (r.first().and_then(super::text), r.get(1).and_then(super::int)) {
+            if let (Some(col), Some(srid)) = (
+                r.first().and_then(super::text),
+                r.get(1).and_then(super::int),
+            ) {
                 srids.insert(col, srid);
             }
         }
@@ -99,12 +116,22 @@ pub(crate) async fn read_batches(s: &mut HanaSession, spec: &ReadSpec, sink: Bat
             if let Some(srid) = srids.get(&name) {
                 type_name = format!("{type_name}({srid})");
             }
-            TransferColumn { name, type_name, nullable: m.is_nullable() }
+            TransferColumn {
+                name,
+                type_name,
+                nullable: m.is_nullable(),
+            }
         })
         .collect();
-    let select: Vec<String> = meta.iter().map(|m| read_expr(m.displayname(), m.type_id())).collect();
+    let select: Vec<String> = meta
+        .iter()
+        .map(|m| read_expr(m.displayname(), m.type_id()))
+        .collect();
     let sql = select_sql(&select, &table, spec.filter.as_deref());
-    let widths: Vec<usize> = meta.iter().map(|m| wire_width(m.type_id(), m.precision())).collect();
+    let widths: Vec<usize> = meta
+        .iter()
+        .map(|m| wire_width(m.type_id(), m.precision()))
+        .collect();
 
     let (fetch, lob) = (s.conn.fetch_size().await, s.conn.lob_read_length().await);
     s.conn.set_fetch_size(fetch_rows(&widths)).await;
@@ -115,7 +142,12 @@ pub(crate) async fn read_batches(s: &mut HanaSession, spec: &ReadSpec, sink: Bat
     r
 }
 
-async fn read(s: &HanaSession, sql: &str, columns: &[TransferColumn], sink: &BatchSinkRef) -> Result<u64> {
+async fn read(
+    s: &HanaSession,
+    sql: &str,
+    columns: &[TransferColumn],
+    sink: &BatchSinkRef,
+) -> Result<u64> {
     let lock_err = |_| Error::State("destino de lotes".into());
     sink.lock().map_err(lock_err)?.begin(columns)?;
     let mut rs = s.conn.query(sql).await.map_err(err)?;
@@ -147,15 +179,29 @@ fn wire_width(t: TypeId, precision: i16) -> usize {
         TypeId::TINYINT | TypeId::BOOLEAN => 1,
         TypeId::SMALLINT => 2,
         TypeId::INT | TypeId::REAL | TypeId::DAYDATE | TypeId::SECONDTIME => 4,
-        TypeId::BIGINT | TypeId::DOUBLE | TypeId::LONGDATE | TypeId::SECONDDATE | TypeId::FIXED8 => 8,
+        TypeId::BIGINT
+        | TypeId::DOUBLE
+        | TypeId::LONGDATE
+        | TypeId::SECONDDATE
+        | TypeId::FIXED8 => 8,
         TypeId::FIXED12 => 12,
         TypeId::DECIMAL | TypeId::FIXED16 => 16,
         // CESU-8: up to 3 bytes a character.
-        TypeId::CHAR | TypeId::VARCHAR | TypeId::NCHAR | TypeId::NVARCHAR | TypeId::STRING | TypeId::NSTRING | TypeId::ALPHANUM | TypeId::SHORTTEXT => {
-            3 * len
-        }
+        TypeId::CHAR
+        | TypeId::VARCHAR
+        | TypeId::NCHAR
+        | TypeId::NVARCHAR
+        | TypeId::STRING
+        | TypeId::NSTRING
+        | TypeId::ALPHANUM
+        | TypeId::SHORTTEXT => 3 * len,
         TypeId::BINARY | TypeId::VARBINARY | TypeId::BSTRING => len,
-        TypeId::CLOB | TypeId::NCLOB | TypeId::TEXT | TypeId::BINTEXT | TypeId::BLOB | TypeId::BLOCATOR => 4096,
+        TypeId::CLOB
+        | TypeId::NCLOB
+        | TypeId::TEXT
+        | TypeId::BINTEXT
+        | TypeId::BLOB
+        | TypeId::BLOCATOR => 4096,
         TypeId::GEOMETRY | TypeId::POINT => 4096,
     }
 }
@@ -163,7 +209,9 @@ fn wire_width(t: TypeId, precision: i16) -> usize {
 /// Rows per fetch so a fetch stays near [`FETCH_BYTES`].
 fn fetch_rows(widths: &[usize]) -> u32 {
     let row: usize = widths.iter().sum::<usize>().max(1);
-    u32::try_from(FETCH_BYTES / row).unwrap_or(FETCH_ROWS).clamp(1, FETCH_ROWS)
+    u32::try_from(FETCH_BYTES / row)
+        .unwrap_or(FETCH_ROWS)
+        .clamp(1, FETCH_ROWS)
 }
 
 /// The select-list item of a column: spatial values as their WKB.
@@ -181,7 +229,13 @@ fn type_name(m: &FieldMetadata) -> String {
 }
 
 fn type_name_of(t: TypeId, precision: i16, scale: i16) -> String {
-    let sized = |name: &str| if precision > 0 { format!("{name}({precision})") } else { name.to_string() };
+    let sized = |name: &str| {
+        if precision > 0 {
+            format!("{name}({precision})")
+        } else {
+            name.to_string()
+        }
+    };
     match t {
         TypeId::TINYINT => "TINYINT".into(),
         TypeId::SMALLINT => "SMALLINT".into(),
@@ -283,7 +337,9 @@ fn plain_decimal(s: &str) -> std::result::Result<String, String> {
     let (mantissa, exp) = (&s[..e], &s[e + 1..]);
     let Ok(exp) = exp.trim_start_matches('+').parse::<i128>() else {
         // Not a number, or past i128: invalid either way.
-        return Err(format!("«{s}» no es un decimal válido o no entra en un DECIMAL"));
+        return Err(format!(
+            "«{s}» no es un decimal válido o no entra en un DECIMAL"
+        ));
     };
     let (neg, mantissa) = match mantissa.strip_prefix('-') {
         Some(m) => (true, m),
@@ -298,7 +354,11 @@ fn plain_decimal(s: &str) -> std::result::Result<String, String> {
     // Position of the point from the start of `digits`.
     let point = int.len() as i128 + exp;
     let len = digits.len() as i128;
-    let out_len = if point <= 0 { 1 - point + len } else { point.max(len) };
+    let out_len = if point <= 0 {
+        1 - point + len
+    } else {
+        point.max(len)
+    };
     if out_len > PLAIN_DECIMAL_MAX {
         if digits.bytes().all(|b| b == b'0') {
             return Ok("0".into());
@@ -306,16 +366,29 @@ fn plain_decimal(s: &str) -> std::result::Result<String, String> {
         return Err(format!("«{s}» no entra en un DECIMAL"));
     }
     let (int, frac) = if point <= 0 {
-        ("0".to_string(), format!("{}{digits}", "0".repeat((-point) as usize)))
+        (
+            "0".to_string(),
+            format!("{}{digits}", "0".repeat((-point) as usize)),
+        )
     } else if point as usize >= digits.len() {
-        (format!("{digits}{}", "0".repeat(point as usize - digits.len())), String::new())
+        (
+            format!("{digits}{}", "0".repeat(point as usize - digits.len())),
+            String::new(),
+        )
     } else {
-        (digits[..point as usize].to_string(), digits[point as usize..].to_string())
+        (
+            digits[..point as usize].to_string(),
+            digits[point as usize..].to_string(),
+        )
     };
     let int = int.trim_start_matches('0');
     let int = if int.is_empty() { "0" } else { int };
     let sign = if neg { "-" } else { "" };
-    Ok(if frac.is_empty() { format!("{sign}{int}") } else { format!("{sign}{int}.{frac}") })
+    Ok(if frac.is_empty() {
+        format!("{sign}{int}")
+    } else {
+        format!("{sign}{int}.{frac}")
+    })
 }
 
 // ---------------------------------------------------------------- loading
@@ -326,7 +399,9 @@ enum Mode {
     Plain,
     /// `ST_GEOMETRY` / `ST_POINT`: WKB through one parameter, WKT through
     /// another.
-    Spatial { srid: i64 },
+    Spatial {
+        srid: i64,
+    },
 }
 
 /// A target column being loaded.
@@ -352,22 +427,32 @@ struct Target {
     not_null: bool,
 }
 
-const LOAD_COLUMNS: &str = "SELECT COLUMN_NAME, DATA_TYPE_NAME, GENERATION_TYPE, IS_NULLABLE FROM SYS.TABLE_COLUMNS
+const LOAD_COLUMNS: &str =
+    "SELECT COLUMN_NAME, DATA_TYPE_NAME, GENERATION_TYPE, IS_NULLABLE FROM SYS.TABLE_COLUMNS
   WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?";
 const LOAD_SRIDS: &str = "SELECT COLUMN_NAME, SRS_ID FROM SYS.ST_GEOMETRY_COLUMNS WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?";
 
 /// The columns the load writes, checked against the target.
 fn plan(qualified: &str, targets: &HashMap<String, Target>, spec: &LoadSpec) -> Result<Vec<Col>> {
     if targets.is_empty() {
-        return Err(Error::Query(format!("No existe la tabla {qualified} o no se tiene acceso.")));
+        return Err(Error::Query(format!(
+            "No existe la tabla {qualified} o no se tiene acceso."
+        )));
     }
     let mut cols = Vec::new();
     for (index, name) in spec.columns.iter().enumerate() {
         let Some(t) = targets.get(name) else {
-            return Err(Error::Query(format!("La tabla {qualified} no tiene la columna {name}.")));
+            return Err(Error::Query(format!(
+                "La tabla {qualified} no tiene la columna {name}."
+            )));
         };
         let mut identity = false;
-        if let Some(g) = t.generation.as_deref().map(str::to_ascii_uppercase).filter(|g| !g.is_empty()) {
+        if let Some(g) = t
+            .generation
+            .as_deref()
+            .map(str::to_ascii_uppercase)
+            .filter(|g| !g.is_empty())
+        {
             if !g.contains("IDENTITY") {
                 continue; // computed: HANA fills it.
             }
@@ -382,9 +467,23 @@ fn plan(qualified: &str, targets: &HashMap<String, Target>, spec: &LoadSpec) -> 
             }
             identity = true;
         }
-        let spatial = matches!(t.data_type.to_ascii_uppercase().as_str(), "ST_GEOMETRY" | "ST_POINT");
-        let mode = if spatial { Mode::Spatial { srid: t.srid.unwrap_or(0) } } else { Mode::Plain };
-        cols.push(Col { name: name.clone(), index, mode, identity });
+        let spatial = matches!(
+            t.data_type.to_ascii_uppercase().as_str(),
+            "ST_GEOMETRY" | "ST_POINT"
+        );
+        let mode = if spatial {
+            Mode::Spatial {
+                srid: t.srid.unwrap_or(0),
+            }
+        } else {
+            Mode::Plain
+        };
+        cols.push(Col {
+            name: name.clone(),
+            index,
+            mode,
+            identity,
+        });
     }
     if cols.is_empty() {
         return Err(Error::Query("No hay columnas para cargar.".into()));
@@ -398,10 +497,16 @@ fn insert_sql(table: &str, cols: &[Col]) -> String {
         .iter()
         .map(|c| match c.mode {
             Mode::Plain => "?".to_string(),
-            Mode::Spatial { srid } => format!("COALESCE(ST_GeomFromWKB(?, {srid}), ST_GeomFromText(?, {srid}))"),
+            Mode::Spatial { srid } => {
+                format!("COALESCE(ST_GeomFromWKB(?, {srid}), ST_GeomFromText(?, {srid}))")
+            }
         })
         .collect();
-    format!("INSERT INTO {table} ({}) VALUES ({})", names.join(", "), values.join(", "))
+    format!(
+        "INSERT INTO {table} ({}) VALUES ({})",
+        names.join(", "),
+        values.join(", ")
+    )
 }
 
 /// Moves an identity's next value to `next` (past the loaded keys).
@@ -424,13 +529,21 @@ struct Slot {
 
 impl From<TypeId> for Slot {
     fn from(t: TypeId) -> Slot {
-        Slot { t, precision: 0, scale: 0 }
+        Slot {
+            t,
+            precision: 0,
+            scale: 0,
+        }
     }
 }
 
 impl From<&ParameterDescriptor> for Slot {
     fn from(d: &ParameterDescriptor) -> Slot {
-        Slot { t: d.type_id(), precision: d.precision(), scale: d.scale() }
+        Slot {
+            t: d.type_id(),
+            precision: d.precision(),
+            scale: d.scale(),
+        }
     }
 }
 
@@ -470,13 +583,17 @@ impl Param {
             Param::SmallInt(n) => HdbValue::SMALLINT(n),
             Param::Int(n) => HdbValue::INT(n),
             Param::BigInt(n) => HdbValue::BIGINT(n),
-            Param::Decimal(s) => d.parse_value(&s).map_err(|e| format!("«{s}» no es un decimal válido: {e}"))?,
+            Param::Decimal(s) => d
+                .parse_value(&s)
+                .map_err(|e| format!("«{s}» no es un decimal válido: {e}"))?,
             Param::Real(f) => HdbValue::REAL(f),
             Param::Double(f) => HdbValue::DOUBLE(f),
             Param::Bool(b) => HdbValue::BOOLEAN(b),
             Param::Text(s) => HdbValue::STRING(s),
             Param::Bytes(b) => HdbValue::BINARY(b),
-            Param::Stream(b) => HdbValue::ASYNC_LOBSTREAM(Some(Arc::new(tokio::sync::Mutex::new(std::io::Cursor::new(b))))),
+            Param::Stream(b) => HdbValue::ASYNC_LOBSTREAM(Some(Arc::new(tokio::sync::Mutex::new(
+                std::io::Cursor::new(b),
+            )))),
         })
     }
 }
@@ -496,7 +613,9 @@ fn param(c: &Cell, slot: impl Into<Slot>) -> std::result::Result<Param, String> 
     let p = match t {
         TypeId::TINYINT => {
             let n = integer(c)?;
-            Param::TinyInt(u8::try_from(n).map_err(|_| format!("{n} no entra en un TINYINT (0 a 255)"))?)
+            Param::TinyInt(
+                u8::try_from(n).map_err(|_| format!("{n} no entra en un TINYINT (0 a 255)"))?,
+            )
         }
         TypeId::SMALLINT => {
             let n = integer(c)?;
@@ -515,9 +634,13 @@ fn param(c: &Cell, slot: impl Into<Slot>) -> std::result::Result<Param, String> 
         TypeId::REAL => Param::Real(real(float(c)?)?),
         TypeId::DOUBLE => Param::Double(float(c)?),
         TypeId::BOOLEAN => Param::Bool(boolean(c)?),
-        TypeId::BINARY | TypeId::VARBINARY | TypeId::BSTRING | TypeId::BLOB | TypeId::BLOCATOR | TypeId::GEOMETRY | TypeId::POINT => {
-            Param::Bytes(bytes(c)?)
-        }
+        TypeId::BINARY
+        | TypeId::VARBINARY
+        | TypeId::BSTRING
+        | TypeId::BLOB
+        | TypeId::BLOCATOR
+        | TypeId::GEOMETRY
+        | TypeId::POINT => Param::Bytes(bytes(c)?),
         TypeId::LONGDATE => Param::Text(timestamp(c, 7, "TIMESTAMP")?),
         TypeId::SECONDDATE => Param::Text(timestamp(c, 0, "SECONDDATE")?),
         TypeId::DAYDATE => Param::Text(date(c)?),
@@ -543,7 +666,11 @@ fn param(c: &Cell, slot: impl Into<Slot>) -> std::result::Result<Param, String> 
 }
 
 /// A row's parameters, in the statement's order (two per spatial column).
-fn row_params(cols: &[Col], row: &[Cell], slots: &[Slot]) -> std::result::Result<Vec<Param>, (usize, String)> {
+fn row_params(
+    cols: &[Col],
+    row: &[Cell],
+    slots: &[Slot],
+) -> std::result::Result<Vec<Param>, (usize, String)> {
     let mut out = Vec::with_capacity(slots.len());
     for (ci, col) in cols.iter().enumerate() {
         let c = &row[col.index];
@@ -606,10 +733,16 @@ fn check_srid(value: i64, column: i64) -> std::result::Result<(), String> {
 
 /// Hex text that looks like (E)WKB (`0101000000…`, PostGIS's text form).
 fn hex_wkb(s: &str) -> Option<Vec<u8>> {
-    if s.len() < 10 || !s.len().is_multiple_of(2) || !(s.starts_with("00") || s.starts_with("01")) || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if s.len() < 10
+        || !s.len().is_multiple_of(2)
+        || !(s.starts_with("00") || s.starts_with("01"))
+        || !s.bytes().all(|b| b.is_ascii_hexdigit())
+    {
         return None;
     }
-    (0..s.len() / 2).map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()).collect()
+    (0..s.len() / 2)
+        .map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok())
+        .collect()
 }
 
 /// (E)WKB → ISO WKB: EWKB's Z / M / SRID flags become ISO type codes (the
@@ -628,24 +761,44 @@ fn iso_wkb(b: &[u8], srid: i64) -> std::result::Result<Vec<u8>, String> {
 }
 
 fn wkb_u32(b: &[u8], at: &mut usize, le: bool) -> std::result::Result<u32, String> {
-    let raw: [u8; 4] = b.get(*at..*at + 4).and_then(|s| s.try_into().ok()).ok_or("el WKB está cortado")?;
+    let raw: [u8; 4] = b
+        .get(*at..*at + 4)
+        .and_then(|s| s.try_into().ok())
+        .ok_or("el WKB está cortado")?;
     *at += 4;
-    Ok(if le { u32::from_le_bytes(raw) } else { u32::from_be_bytes(raw) })
+    Ok(if le {
+        u32::from_le_bytes(raw)
+    } else {
+        u32::from_be_bytes(raw)
+    })
 }
 
 fn wkb_put(out: &mut Vec<u8>, n: u32, le: bool) {
     out.extend_from_slice(&if le { n.to_le_bytes() } else { n.to_be_bytes() });
 }
 
-fn wkb_copy(b: &[u8], at: &mut usize, out: &mut Vec<u8>, len: usize) -> std::result::Result<(), String> {
-    let end = at.checked_add(len).filter(|e| *e <= b.len()).ok_or("el WKB está cortado")?;
+fn wkb_copy(
+    b: &[u8],
+    at: &mut usize,
+    out: &mut Vec<u8>,
+    len: usize,
+) -> std::result::Result<(), String> {
+    let end = at
+        .checked_add(len)
+        .filter(|e| *e <= b.len())
+        .ok_or("el WKB está cortado")?;
     out.extend_from_slice(&b[*at..end]);
     *at = end;
     Ok(())
 }
 
 /// Copies one geometry; its EWKB SRID, if it has one.
-fn wkb_geometry(b: &[u8], at: &mut usize, out: &mut Vec<u8>, top: bool) -> std::result::Result<Option<i64>, String> {
+fn wkb_geometry(
+    b: &[u8],
+    at: &mut usize,
+    out: &mut Vec<u8>,
+    top: bool,
+) -> std::result::Result<Option<i64>, String> {
     let order = *b.get(*at).ok_or("el WKB está cortado")?;
     if order > 1 {
         return Err("el valor no es WKB".into());
@@ -675,12 +828,23 @@ fn wkb_geometry(b: &[u8], at: &mut usize, out: &mut Vec<u8>, top: bool) -> std::
     } else {
         None
     };
-    wkb_put(out, base + if z { 1000 } else { 0 } + if m { 2000 } else { 0 }, le);
+    wkb_put(
+        out,
+        base + if z { 1000 } else { 0 } + if m { 2000 } else { 0 },
+        le,
+    );
     let point = 8 * (2 + usize::from(z) + usize::from(m));
     let points = |b: &[u8], at: &mut usize, out: &mut Vec<u8>| -> std::result::Result<(), String> {
         let n = wkb_u32(b, at, le)?;
         wkb_put(out, n, le);
-        wkb_copy(b, at, out, (n as usize).checked_mul(point).ok_or("el WKB está cortado")?)
+        wkb_copy(
+            b,
+            at,
+            out,
+            (n as usize)
+                .checked_mul(point)
+                .ok_or("el WKB está cortado")?,
+        )
     };
     match base {
         1 => wkb_copy(b, at, out, point)?,
@@ -716,7 +880,9 @@ fn integer(c: &Cell) -> std::result::Result<i64, String> {
             }
             // `12.000` is an integer.
             match t.split_once('.') {
-                Some((i, f)) if f.bytes().all(|b| b == b'0') => i.parse().map_err(|_| format!("«{s}» no es un entero")),
+                Some((i, f)) if f.bytes().all(|b| b == b'0') => {
+                    i.parse().map_err(|_| format!("«{s}» no es un entero"))
+                }
                 _ => Err(format!("«{s}» no es un entero")),
             }
         }
@@ -741,7 +907,9 @@ fn decimal(c: &Cell) -> std::result::Result<String, String> {
 fn check_decimal(s: &str, slot: Slot) -> std::result::Result<(), String> {
     let digits = s.strip_prefix(['-', '+']).unwrap_or(s);
     let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
-    if (int.is_empty() && frac.is_empty()) || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+    if (int.is_empty() && frac.is_empty())
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+    {
         return Err(format!("«{s}» no es un decimal válido"));
     }
     let (int, frac) = (int.trim_start_matches('0'), frac.trim_end_matches('0'));
@@ -753,18 +921,34 @@ fn check_decimal(s: &str, slot: Slot) -> std::result::Result<(), String> {
         // types): HANA rounds or cuts it to the scale, so it is checked
         // like a FIXED one. Floating DECIMAL / SMALLDECIMAL report a scale
         // outside 0..=precision.
-        TypeId::DECIMAL if slot.precision > 0 && slot.precision <= 38 && (0..=slot.precision).contains(&slot.scale) => 38,
+        TypeId::DECIMAL
+            if slot.precision > 0
+                && slot.precision <= 38
+                && (0..=slot.precision).contains(&slot.scale) =>
+        {
+            38
+        }
         _ => {
             // Floating DECIMAL (34 digits) or SMALLDECIMAL (16).
-            let max = if (1..=34).contains(&slot.precision) { slot.precision as usize } else { 34 };
+            let max = if (1..=34).contains(&slot.precision) {
+                slot.precision as usize
+            } else {
+                34
+            };
             let significant = format!("{int}{frac}");
             if significant.trim_matches('0').len() > max {
-                return Err(format!("«{s}» tiene más de {max} dígitos significativos y HANA lo redondearía"));
+                return Err(format!(
+                    "«{s}» tiene más de {max} dígitos significativos y HANA lo redondearía"
+                ));
             }
             return Ok(());
         }
     };
-    let precision = if slot.precision > 0 { slot.precision.min(cap) } else { cap };
+    let precision = if slot.precision > 0 {
+        slot.precision.min(cap)
+    } else {
+        cap
+    };
     let scale = slot.scale.clamp(0, precision);
     if frac.len() > scale as usize {
         return Err(format!("«{s}» tiene más decimales de los que admite DECIMAL({precision},{scale}); se perderían dígitos"));
@@ -811,7 +995,9 @@ fn float(c: &Cell) -> std::result::Result<f64, String> {
         other => return Err(format!("{other:?} no es un número")),
     };
     if !f.is_finite() {
-        return Err(format!("{f} no se puede guardar: HANA no tiene NaN ni infinito en REAL ni DOUBLE"));
+        return Err(format!(
+            "{f} no se puede guardar: HANA no tiene NaN ni infinito en REAL ni DOUBLE"
+        ));
     }
     Ok(f)
 }
@@ -821,7 +1007,10 @@ fn float(c: &Cell) -> std::result::Result<f64, String> {
 /// `(false, "", 0)`. `None` when it isn't plain decimal notation.
 fn significand(s: &str) -> Option<(bool, String, i128)> {
     let (mantissa, exp) = match s.find(['e', 'E']) {
-        Some(i) => (&s[..i], s[i + 1..].trim_start_matches('+').parse::<i128>().ok()?),
+        Some(i) => (
+            &s[..i],
+            s[i + 1..].trim_start_matches('+').parse::<i128>().ok()?,
+        ),
         None => (s, 0),
     };
     let (neg, mantissa) = match mantissa.strip_prefix('-') {
@@ -829,7 +1018,9 @@ fn significand(s: &str) -> Option<(bool, String, i128)> {
         None => (false, mantissa.strip_prefix('+').unwrap_or(mantissa)),
     };
     let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-    if (int.is_empty() && frac.is_empty()) || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+    if (int.is_empty() && frac.is_empty())
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let digits = format!("{int}{frac}");
@@ -845,7 +1036,9 @@ fn significand(s: &str) -> Option<(bool, String, i128)> {
 /// a REAL keeps (a value with up to 6 significant digits survives, as text).
 fn real(f: f64) -> std::result::Result<f32, String> {
     if !f.is_finite() {
-        return Err(format!("{f} no se puede guardar: HANA no tiene NaN ni infinito en un REAL"));
+        return Err(format!(
+            "{f} no se puede guardar: HANA no tiene NaN ni infinito en un REAL"
+        ));
     }
     let r = f as f32;
     if f64::from(r) == f {
@@ -855,13 +1048,17 @@ fn real(f: f64) -> std::result::Result<f32, String> {
         return Err(format!("{f} no entra en un REAL"));
     }
     if r.abs() < f32::MIN_POSITIVE {
-        return Err(format!("{f} es demasiado chico para un REAL sin perder precisión"));
+        return Err(format!(
+            "{f} es demasiado chico para un REAL sin perder precisión"
+        ));
     }
     // The REAL keeps the value when it reads back as the same decimal
     // number (`0.1`, `3.4028235e38`, the REAL's largest): only digits the
     // REAL can't show are lost.
     if significand(&format!("{r:e}")) != significand(&format!("{f:e}")) {
-        return Err(format!("{f} tiene más precisión de la que guarda un REAL (quedaría {r:e})"));
+        return Err(format!(
+            "{f} tiene más precisión de la que guarda un REAL (quedaría {r:e})"
+        ));
     }
     Ok(r)
 }
@@ -895,7 +1092,9 @@ fn uuid_bytes(u: &str) -> Option<Vec<u8>> {
     if hex.len() != 32 {
         return None;
     }
-    (0..16).map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()).collect()
+    (0..16)
+        .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok())
+        .collect()
 }
 
 fn text(c: &Cell) -> std::result::Result<String, String> {
@@ -930,7 +1129,9 @@ fn timestamp(c: &Cell, digits: usize, what: &str) -> std::result::Result<String,
         Cell::DateTime(s) | Cell::Text(s) => match split_clock(s) {
             Some((day, clock)) if is_zoned(&clock) => {
                 let joined = format!("{day} {clock}");
-                to_utc(&joined).map_err(|e| format!("«{}» no es una fecha y hora con zona válida: {e}", s.trim()))?
+                to_utc(&joined).map_err(|e| {
+                    format!("«{}» no es una fecha y hora con zona válida: {e}", s.trim())
+                })?
             }
             Some((day, clock)) => format!("{day} {clock}"),
             // A time of day HANA's implicit conversion could read otherwise
@@ -938,9 +1139,8 @@ fn timestamp(c: &Cell, digits: usize, what: &str) -> std::result::Result<String,
             None if s.contains(':') => return Err(unclear_clock(s)),
             None => s.trim().to_string(),
         },
-        Cell::DateTimeTz(s) => {
-            to_utc(&comma_fraction(s.trim())).map_err(|e| format!("«{}» no es una fecha y hora con zona válida: {e}", s.trim()))?
-        }
+        Cell::DateTimeTz(s) => to_utc(&comma_fraction(s.trim()))
+            .map_err(|e| format!("«{}» no es una fecha y hora con zona válida: {e}", s.trim()))?,
         other => return Err(format!("{other:?} no es una fecha y hora")),
     };
     fraction(&s, digits, what)
@@ -956,9 +1156,19 @@ fn split_clock(s: &str) -> Option<(String, String)> {
     let s = s.trim();
     let b = s.as_bytes();
     (1..b.len())
-        .filter(|&i| matches!(b[i], b' ' | b'T' | b't') && b.get(i + 1).is_some_and(u8::is_ascii_digit))
-        .map(|i| (i, s[..i].trim().to_string(), comma_fraction(s[i + 1..].trim())))
-        .find(|(i, _, clock)| clock_parts(clock).is_some() && (b[*i] != b' ' || clock.contains(':')))
+        .filter(|&i| {
+            matches!(b[i], b' ' | b'T' | b't') && b.get(i + 1).is_some_and(u8::is_ascii_digit)
+        })
+        .map(|i| {
+            (
+                i,
+                s[..i].trim().to_string(),
+                comma_fraction(s[i + 1..].trim()),
+            )
+        })
+        .find(|(i, _, clock)| {
+            clock_parts(clock).is_some() && (b[*i] != b' ' || clock.contains(':'))
+        })
         .map(|(_, day, clock)| (day, clock))
 }
 
@@ -967,7 +1177,9 @@ fn split_clock(s: &str) -> Option<(String, String)> {
 /// then optionally `Z`, `±HH`, `±HHMM` or `±HH:MM`. Anything else
 /// (`10:00 PM`, `10:00 UTC`, `10:00:00 +01:00`) is `None`.
 fn clock_parts(s: &str) -> Option<(&str, Option<&str>)> {
-    let digits = |t: &str, min: usize, max: usize| (min..=max).contains(&t.len()) && t.bytes().all(|b| b.is_ascii_digit());
+    let digits = |t: &str, min: usize, max: usize| {
+        (min..=max).contains(&t.len()) && t.bytes().all(|b| b.is_ascii_digit())
+    };
     let (clock, zone) = match s.strip_suffix(['Z', 'z']) {
         Some(c) => (c, Some(&s[c.len()..])),
         None => match s.find(['+', '-']) {
@@ -992,7 +1204,9 @@ fn clock_parts(s: &str) -> Option<(&str, Option<&str>)> {
     };
     let ok = if main.contains(':') {
         let parts: Vec<&str> = main.split(':').collect();
-        matches!(parts.len(), 2 | 3) && parts.iter().all(|p| digits(p, 1, 2)) && (!frac || parts.len() == 3)
+        matches!(parts.len(), 2 | 3)
+            && parts.iter().all(|p| digits(p, 1, 2))
+            && (!frac || parts.len() == 3)
     } else {
         digits(main, 6, 6) || (digits(main, 4, 4) && !frac)
     };
@@ -1010,7 +1224,9 @@ fn unclear_clock(s: &str) -> String {
 /// `10:00:00,5` → `10:00:00.5` (a comma as the seconds' decimal separator).
 fn comma_fraction(s: &str) -> String {
     match s.rfind(',') {
-        Some(i) if s[..i].contains(':') && s.as_bytes().get(i + 1).is_some_and(u8::is_ascii_digit) => {
+        Some(i)
+            if s[..i].contains(':') && s.as_bytes().get(i + 1).is_some_and(u8::is_ascii_digit) =>
+        {
             format!("{}.{}", &s[..i], &s[i + 1..])
         }
         _ => s.to_string(),
@@ -1032,9 +1248,16 @@ fn date(c: &Cell) -> std::result::Result<String, String> {
         Cell::Text(d) => match split_clock(d) {
             Some((day, clock)) => {
                 let joined = format!("{day} {clock}");
-                date(&if is_zoned(&clock) { Cell::DateTimeTz(joined) } else { Cell::DateTime(joined) })
+                date(&if is_zoned(&clock) {
+                    Cell::DateTimeTz(joined)
+                } else {
+                    Cell::DateTime(joined)
+                })
             }
-            None if d.contains(':') => Err(format!("«{}» no es una fecha que se pueda leer sin ambigüedad", d.trim())),
+            None if d.contains(':') => Err(format!(
+                "«{}» no es una fecha que se pueda leer sin ambigüedad",
+                d.trim()
+            )),
             None => Ok(d.trim().to_string()),
         },
         Cell::DateTime(_) | Cell::DateTimeTz(_) => {
@@ -1060,11 +1283,15 @@ fn time(c: &Cell) -> std::result::Result<String, String> {
             // implicit conversion: refused, like a date-time cell. So is a
             // clock HANA could read another way (`10:00:00 PM`).
             match clock_parts(&t) {
-                Some((_, Some(_))) => Err(format!("«{t}» tiene zona horaria y un TIME no la guarda")),
+                Some((_, Some(_))) => {
+                    Err(format!("«{t}» tiene zona horaria y un TIME no la guarda"))
+                }
                 Some((clock, None)) => fraction(clock, 0, "TIME"),
                 None => {
                     let head = t.split([' ', 'T', 't']).next().unwrap_or_default();
-                    if head.contains(['-', '/']) || (t.contains([' ', 'T', 't']) && clock_parts(head).is_none()) {
+                    if head.contains(['-', '/'])
+                        || (t.contains([' ', 'T', 't']) && clock_parts(head).is_none())
+                    {
                         Err(format!("«{t}» tiene fecha y un TIME no la guarda"))
                     } else {
                         Err(unclear_clock(&t))
@@ -1086,7 +1313,11 @@ fn fraction(s: &str, digits: usize, what: &str) -> std::result::Result<String, S
                 return Err(format!("«{s}» tiene más fracción de segundo de la que guarda un {what} ({digits} dígitos)"));
             }
             let kept = kept.trim_end_matches('0');
-            Ok(if kept.is_empty() { head.to_string() } else { format!("{head}.{kept}") })
+            Ok(if kept.is_empty() {
+                head.to_string()
+            } else {
+                format!("{head}.{kept}")
+            })
         }
         _ => Ok(s.to_string()),
     }
@@ -1109,7 +1340,10 @@ fn to_utc(s: &str) -> std::result::Result<String, String> {
     let (local, offset_min) = if let Some(l) = s.strip_suffix(['Z', 'z']) {
         (l.to_string(), 0i64)
     } else {
-        let at = s.rfind(['+', '-']).filter(|i| *i > 10).ok_or_else(|| bad("no tiene zona"))?;
+        let at = s
+            .rfind(['+', '-'])
+            .filter(|i| *i > 10)
+            .ok_or_else(|| bad("no tiene zona"))?;
         let (l, off) = s.split_at(at);
         let sign = if off.starts_with('-') { -1 } else { 1 };
         let off = &off[1..];
@@ -1119,7 +1353,10 @@ fn to_utc(s: &str) -> std::result::Result<String, String> {
             None if off.len() == 4 => off.split_at(2),
             None => return Err(bad("la zona no es ±HH:MM")),
         };
-        let (h, m) = (num(h).ok_or_else(|| bad("la zona no es ±HH:MM"))?, num(m).ok_or_else(|| bad("la zona no es ±HH:MM"))?);
+        let (h, m) = (
+            num(h).ok_or_else(|| bad("la zona no es ±HH:MM"))?,
+            num(m).ok_or_else(|| bad("la zona no es ±HH:MM"))?,
+        );
         if h > 23 || m > 59 {
             return Err(bad("la zona no existe"));
         }
@@ -1141,7 +1378,10 @@ fn to_utc(s: &str) -> std::result::Result<String, String> {
         [Some(h), Some(mi), Some(se)] => (h, mi, se),
         _ => return Err(bad("la hora no es HH:MM[:SS]")),
     };
-    if !(1..=9999).contains(&y) || !(1..=12).contains(&mo) || !(1..=days_in_month(y, mo)).contains(&da) {
+    if !(1..=9999).contains(&y)
+        || !(1..=12).contains(&mo)
+        || !(1..=days_in_month(y, mo)).contains(&da)
+    {
         return Err(format!("la fecha {y:04}-{mo:02}-{da:02} no existe"));
     }
     if h > 23 || mi > 59 || se > 59 {
@@ -1155,13 +1395,21 @@ fn to_utc(s: &str) -> std::result::Result<String, String> {
     // on another date than HANA's, so it is refused.
     let reform = days_from_civil(1582, 10, 15);
     if days != local_days && (days < reform || local_days < reform) {
-        return Err("pasarla a UTC cambia el día, y antes de 1582-10-15 los calendarios no coinciden".into());
+        return Err(
+            "pasarla a UTC cambia el día, y antes de 1582-10-15 los calendarios no coinciden"
+                .into(),
+        );
     }
     let (y, mo, da) = civil_from_days(days);
     if !(1..=9999).contains(&y) {
         return Err("en UTC queda fuera de los años 0001 a 9999".into());
     }
-    let mut out = format!("{y:04}-{mo:02}-{da:02} {:02}:{:02}:{:02}", rem / 3600, rem % 3600 / 60, rem % 60);
+    let mut out = format!(
+        "{y:04}-{mo:02}-{da:02} {:02}:{:02}:{:02}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    );
     if let Some(f) = frac {
         out.push('.');
         out.push_str(f);
@@ -1199,7 +1447,12 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
-pub(crate) async fn bulk_load(s: &mut HanaSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &mut HanaSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if spec.columns.is_empty() {
         return Err(Error::Query("La carga no tiene columnas.".into()));
     }
@@ -1223,14 +1476,28 @@ pub(crate) async fn bulk_load(s: &mut HanaSession, spec: &LoadSpec, source: &mut
         let t = |i: usize| r.get(i).and_then(super::text);
         if let Some(col) = t(0) {
             let not_null = t(3).is_some_and(|n| n.eq_ignore_ascii_case("FALSE"));
-            targets.insert(col, Target { data_type: t(1).unwrap_or_default(), generation: t(2), srid: None, not_null });
+            targets.insert(
+                col,
+                Target {
+                    data_type: t(1).unwrap_or_default(),
+                    generation: t(2),
+                    srid: None,
+                    not_null,
+                },
+            );
         }
     }
-    if targets.values().any(|t| t.data_type.to_ascii_uppercase().starts_with("ST_")) {
+    if targets
+        .values()
+        .any(|t| t.data_type.to_ascii_uppercase().starts_with("ST_"))
+    {
         // Without the view (older versions) the SRID is 0.
         if let Ok(rows) = s.rows(LOAD_SRIDS, &[&owner, &name]).await {
             for r in rows {
-                if let (Some(col), Some(srid)) = (r.first().and_then(super::text), r.get(1).and_then(super::int)) {
+                if let (Some(col), Some(srid)) = (
+                    r.first().and_then(super::text),
+                    r.get(1).and_then(super::int),
+                ) {
                     if let Some(t) = targets.get_mut(&col) {
                         t.srid = Some(srid);
                     }
@@ -1242,7 +1509,18 @@ pub(crate) async fn bulk_load(s: &mut HanaSession, spec: &LoadSpec, source: &mut
     let sql = insert_sql(&table, &cols);
 
     s.conn.set_auto_commit(false).await;
-    let r = load(s, spec, (&owner, &name), &table, &cols, &targets, &sql, source, progress).await;
+    let r = load(
+        s,
+        spec,
+        (&owner, &name),
+        &table,
+        &cols,
+        &targets,
+        &sql,
+        source,
+        progress,
+    )
+    .await;
     if r.is_err() {
         if let Err(e) = s.conn.rollback().await {
             tracing::debug!("hana: rollback after a failed load: {}", super::message(&e));
@@ -1284,15 +1562,22 @@ async fn load(
                 )));
             }
             if window_rows == 0 && spec.table_lock {
-                s.conn.exec(format!("LOCK TABLE {table} IN EXCLUSIVE MODE")).await.map_err(err)?;
+                s.conn
+                    .exec(format!("LOCK TABLE {table} IN EXCLUSIVE MODE"))
+                    .await
+                    .map_err(err)?;
             }
-            let params = row_params(cols, &row, &slots)
-                .map_err(|(ci, e)| Error::Query(format!("Fila {at}, columna «{}»: {e}", cols[ci].name)))?;
+            let params = row_params(cols, &row, &slots).map_err(|(ci, e)| {
+                Error::Query(format!("Fila {at}, columna «{}»: {e}", cols[ci].name))
+            })?;
             let size: usize = params.iter().map(Param::size).sum();
             let stream = params.iter().any(|p| matches!(p, Param::Stream(_)));
             let mut values = Vec::with_capacity(params.len());
             for (p, d) in params.into_iter().zip(&descs) {
-                values.push(p.into_hdb(d).map_err(|e| Error::Query(format!("Fila {at}: {e}")))?);
+                values.push(
+                    p.into_hdb(d)
+                        .map_err(|e| Error::Query(format!("Fila {at}: {e}")))?,
+                );
             }
             if stream {
                 // Streamed LOBs can't go in a batch: the row goes alone.
@@ -1346,24 +1631,49 @@ async fn load(
 
 /// A column's definition in the catalog, as far as redeclaring it for
 /// [`identity_sql`] could change it.
-const IDENTITY_COLUMN: &str = "SELECT DATA_TYPE_NAME, LENGTH, SCALE, IS_NULLABLE, GENERATION_TYPE, DEFAULT_VALUE, COMMENTS
+const IDENTITY_COLUMN: &str =
+    "SELECT DATA_TYPE_NAME, LENGTH, SCALE, IS_NULLABLE, GENERATION_TYPE, DEFAULT_VALUE, COMMENTS
   FROM SYS.TABLE_COLUMNS WHERE SCHEMA_NAME = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?";
 
-async fn column_definition(s: &HanaSession, (owner, name): (&str, &str), col: &str) -> Result<Vec<Option<String>>> {
+async fn column_definition(
+    s: &HanaSession,
+    (owner, name): (&str, &str),
+    col: &str,
+) -> Result<Vec<Option<String>>> {
     let rows = s.rows(IDENTITY_COLUMN, &[owner, name, col]).await?;
-    Ok(rows.into_iter().next().map(|r| r.iter().map(super::text).collect()).unwrap_or_default())
+    Ok(rows
+        .into_iter()
+        .next()
+        .map(|r| r.iter().map(super::text).collect())
+        .unwrap_or_default())
 }
 
 /// `COMMENT ON COLUMN` restoring a column's comment.
 fn comment_sql(table: &str, col: &str, comment: &str) -> String {
-    format!("COMMENT ON COLUMN {table}.{} IS '{}'", quote(col), comment.replace('\'', "''"))
+    format!(
+        "COMMENT ON COLUMN {table}.{} IS '{}'",
+        quote(col),
+        comment.replace('\'', "''")
+    )
 }
 
 /// What redeclaring the identity changed besides its next value, if
 /// anything (the comment is put back apart). Columns as [`IDENTITY_COLUMN`].
 fn identity_changes(before: &[Option<String>], after: &[Option<String>]) -> Vec<&'static str> {
-    const NAMES: [&str; 6] = ["el tipo", "el largo", "la escala", "la nulabilidad", "la generación", "el valor por defecto"];
-    NAMES.iter().enumerate().filter(|(i, _)| before.get(*i) != after.get(*i)).map(|(_, n)| *n).collect()
+    const NAMES: [&str; 6] = [
+        "el tipo",
+        "el largo",
+        "la escala",
+        "la nulabilidad",
+        "la generación",
+        "el valor por defecto",
+    ];
+    NAMES
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| before.get(*i) != after.get(*i))
+        .map(|(_, n)| *n)
+        .collect()
 }
 
 /// Moves a `GENERATED BY DEFAULT AS IDENTITY` column's next value past
@@ -1371,15 +1681,23 @@ fn identity_changes(before: &[Option<String>], after: &[Option<String>]) -> Vec<
 /// it by redeclaring the column: its definition is compared before and
 /// after, the comment is put back if it was lost, and any other change is
 /// reported as an error rather than left silently.
-async fn move_identity(s: &HanaSession, at: (&str, &str), table: &str, col: &str, t: &Target) -> Result<()> {
-    let Some(max) = super::single_text(&s.conn, &format!("SELECT MAX({}) FROM {table}", quote(col))).await? else {
+async fn move_identity(
+    s: &HanaSession,
+    at: (&str, &str),
+    table: &str,
+    col: &str,
+    t: &Target,
+) -> Result<()> {
+    let Some(max) =
+        super::single_text(&s.conn, &format!("SELECT MAX({}) FROM {table}", quote(col))).await?
+    else {
         return Ok(()); // Empty: the identity starts where it was.
     };
-    let next = max
-        .trim()
-        .parse::<i128>()
-        .map_err(|_| Error::Query(format!("La identidad {col} tiene un máximo que no es entero ({max}).")))?
-        + 1;
+    let next = max.trim().parse::<i128>().map_err(|_| {
+        Error::Query(format!(
+            "La identidad {col} tiene un máximo que no es entero ({max})."
+        ))
+    })? + 1;
     let before = column_definition(s, at, col).await?;
     s.conn.exec(identity_sql(table, col, t, next)).await.map_err(|e| {
         Error::Query(format!(
@@ -1395,7 +1713,10 @@ async fn move_identity(s: &HanaSession, at: (&str, &str), table: &str, col: &str
             changed.join(", ")
         )));
     }
-    if let Some(Some(comment)) = before.get(6).filter(|c| c.is_some() && after.get(6) != before.get(6)) {
+    if let Some(Some(comment)) = before
+        .get(6)
+        .filter(|c| c.is_some() && after.get(6) != before.get(6))
+    {
         s.conn.exec(comment_sql(table, col, comment)).await.map_err(|e| {
             Error::Query(format!(
                 "Al mover la identidad {col} se perdió el comentario de la columna y no se pudo volver a poner: {}",
@@ -1413,7 +1734,11 @@ mod tests {
 
     fn spec(columns: &[&str], keep_identity: bool) -> LoadSpec {
         LoadSpec {
-            table: ObjectRef { kind: "table".into(), schema: Some("APP".into()), name: "T".into() },
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: Some("APP".into()),
+                name: "T".into(),
+            },
             columns: columns.iter().map(|c| c.to_string()).collect(),
             table_lock: false,
             keep_identity,
@@ -1423,11 +1748,25 @@ mod tests {
     }
 
     fn targets() -> HashMap<String, Target> {
-        let t = |ty: &str, g: Option<&str>, srid: Option<i64>| Target { data_type: ty.into(), generation: g.map(Into::into), srid, not_null: true };
+        let t = |ty: &str, g: Option<&str>, srid: Option<i64>| Target {
+            data_type: ty.into(),
+            generation: g.map(Into::into),
+            srid,
+            not_null: true,
+        };
         HashMap::from([
-            ("ID".to_string(), t("INTEGER", Some("BY DEFAULT AS IDENTITY"), None)),
-            ("AID".to_string(), t("BIGINT", Some("ALWAYS AS IDENTITY"), None)),
-            ("CALC".to_string(), t("INTEGER", Some("ALWAYS AS (ID * 2)"), None)),
+            (
+                "ID".to_string(),
+                t("INTEGER", Some("BY DEFAULT AS IDENTITY"), None),
+            ),
+            (
+                "AID".to_string(),
+                t("BIGINT", Some("ALWAYS AS IDENTITY"), None),
+            ),
+            (
+                "CALC".to_string(),
+                t("INTEGER", Some("ALWAYS AS (ID * 2)"), None),
+            ),
             ("NAME".to_string(), t("NVARCHAR", None, None)),
             ("GEO".to_string(), t("ST_GEOMETRY", None, Some(4326))),
         ])
@@ -1435,20 +1774,52 @@ mod tests {
 
     #[test]
     fn plan_skips_identity_and_computed_columns() {
-        let cols = plan("APP.T", &targets(), &spec(&["ID", "CALC", "NAME", "GEO"], false)).unwrap();
+        let cols = plan(
+            "APP.T",
+            &targets(),
+            &spec(&["ID", "CALC", "NAME", "GEO"], false),
+        )
+        .unwrap();
         assert_eq!(
             cols,
             vec![
-                Col { name: "NAME".into(), index: 2, mode: Mode::Plain, identity: false },
-                Col { name: "GEO".into(), index: 3, mode: Mode::Spatial { srid: 4326 }, identity: false },
+                Col {
+                    name: "NAME".into(),
+                    index: 2,
+                    mode: Mode::Plain,
+                    identity: false
+                },
+                Col {
+                    name: "GEO".into(),
+                    index: 3,
+                    mode: Mode::Spatial { srid: 4326 },
+                    identity: false
+                },
             ]
         );
         let cols = plan("APP.T", &targets(), &spec(&["ID", "NAME"], true)).unwrap();
-        assert_eq!(cols.iter().map(|c| (c.name.as_str(), c.identity)).collect::<Vec<_>>(), [("ID", true), ("NAME", false)]);
-        assert!(matches!(plan("APP.T", &targets(), &spec(&["AID"], true)), Err(Error::Unsupported(_))));
-        assert!(matches!(plan("APP.T", &targets(), &spec(&["NOPE"], false)), Err(Error::Query(_))));
-        assert!(matches!(plan("APP.T", &HashMap::new(), &spec(&["ID"], false)), Err(Error::Query(_))));
-        assert!(matches!(plan("APP.T", &targets(), &spec(&["CALC"], false)), Err(Error::Query(_))));
+        assert_eq!(
+            cols.iter()
+                .map(|c| (c.name.as_str(), c.identity))
+                .collect::<Vec<_>>(),
+            [("ID", true), ("NAME", false)]
+        );
+        assert!(matches!(
+            plan("APP.T", &targets(), &spec(&["AID"], true)),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            plan("APP.T", &targets(), &spec(&["NOPE"], false)),
+            Err(Error::Query(_))
+        ));
+        assert!(matches!(
+            plan("APP.T", &HashMap::new(), &spec(&["ID"], false)),
+            Err(Error::Query(_))
+        ));
+        assert!(matches!(
+            plan("APP.T", &targets(), &spec(&["CALC"], false)),
+            Err(Error::Query(_))
+        ));
     }
 
     #[test]
@@ -1463,13 +1834,25 @@ mod tests {
 
     #[test]
     fn select_statements() {
-        assert_eq!(read_expr("G", TypeId::GEOMETRY), "\"G\".ST_AsWKB() AS \"G\"");
+        assert_eq!(
+            read_expr("G", TypeId::GEOMETRY),
+            "\"G\".ST_AsWKB() AS \"G\""
+        );
         assert_eq!(read_expr("P", TypeId::POINT), "\"P\".ST_AsWKB() AS \"P\"");
         assert_eq!(read_expr("N", TypeId::NCLOB), "\"N\"");
         let sel = vec!["\"A\"".to_string(), "\"B\"".to_string()];
-        assert_eq!(select_sql(&sel, "\"S\".\"T\"", None), "SELECT \"A\", \"B\" FROM \"S\".\"T\"");
-        assert_eq!(select_sql(&sel, "\"S\".\"T\"", Some("  ")), "SELECT \"A\", \"B\" FROM \"S\".\"T\"");
-        assert_eq!(select_sql(&sel, "\"S\".\"T\"", Some("\"A\" > 1")), "SELECT \"A\", \"B\" FROM \"S\".\"T\" WHERE \"A\" > 1");
+        assert_eq!(
+            select_sql(&sel, "\"S\".\"T\"", None),
+            "SELECT \"A\", \"B\" FROM \"S\".\"T\""
+        );
+        assert_eq!(
+            select_sql(&sel, "\"S\".\"T\"", Some("  ")),
+            "SELECT \"A\", \"B\" FROM \"S\".\"T\""
+        );
+        assert_eq!(
+            select_sql(&sel, "\"S\".\"T\"", Some("\"A\" > 1")),
+            "SELECT \"A\", \"B\" FROM \"S\".\"T\" WHERE \"A\" > 1"
+        );
     }
 
     #[test]
@@ -1496,7 +1879,10 @@ mod tests {
         assert_eq!(pd("-12E-4"), "-0.0012");
         assert_eq!(pd("1.23456e2"), "123.456");
         assert_eq!(pd("0E-10"), "0.0000000000");
-        assert_eq!(pd("99999999999999999999999999999999999999"), "99999999999999999999999999999999999999");
+        assert_eq!(
+            pd("99999999999999999999999999999999999999"),
+            "99999999999999999999999999999999999999"
+        );
         // The floating DECIMAL's range still fits.
         assert_eq!(pd("1E+6144").len(), 6145);
         assert_eq!(pd("1E-6111").len(), 6113);
@@ -1506,12 +1892,25 @@ mod tests {
     /// cell can't take 100 MB, nor panic on the allocation.
     #[test]
     fn huge_decimal_exponents_are_refused_without_building_them() {
-        for s in ["1E+100000000", "1E+9000000000000000000", "-1.5e-100000000", "1E+99999999999999999999999999999999999999999"] {
+        for s in [
+            "1E+100000000",
+            "1E+9000000000000000000",
+            "-1.5e-100000000",
+            "1E+99999999999999999999999999999999999999999",
+        ] {
             assert!(plain_decimal(s).is_err(), "{s}");
-            assert!(param(&Cell::Text(s.into()), TypeId::DECIMAL).is_err(), "{s}");
-            assert!(param(&Cell::Decimal(s.into()), fixed(TypeId::FIXED16, 38, 2)).is_err(), "{s}");
+            assert!(
+                param(&Cell::Text(s.into()), TypeId::DECIMAL).is_err(),
+                "{s}"
+            );
+            assert!(
+                param(&Cell::Decimal(s.into()), fixed(TypeId::FIXED16, 38, 2)).is_err(),
+                "{s}"
+            );
         }
-        assert!(param(&Cell::Text("1E+100000000".into()), TypeId::DECIMAL).unwrap_err().contains("no entra en un DECIMAL"));
+        assert!(param(&Cell::Text("1E+100000000".into()), TypeId::DECIMAL)
+            .unwrap_err()
+            .contains("no entra en un DECIMAL"));
         // Zero is zero whatever the exponent.
         assert_eq!(plain_decimal("0E+100000000"), Ok("0".into()));
         // Non-digits (cut by byte) are refused, not a panic.
@@ -1525,7 +1924,12 @@ mod tests {
     fn non_finite_floats_are_refused() {
         for t in [TypeId::REAL, TypeId::DOUBLE] {
             for f in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-                assert!(param(&Cell::Float(f), t).unwrap_err().contains("NaN ni infinito"), "{t:?} {f}");
+                assert!(
+                    param(&Cell::Float(f), t)
+                        .unwrap_err()
+                        .contains("NaN ni infinito"),
+                    "{t:?} {f}"
+                );
             }
             for s in ["NaN", "inf", "-Infinity", "infinity"] {
                 assert!(param(&Cell::Text(s.into()), t).is_err(), "{t:?} {s}");
@@ -1535,27 +1939,70 @@ mod tests {
         assert!(real(f64::NAN).is_err());
         assert!(real(f64::INFINITY).is_err());
         assert!(real(f64::NEG_INFINITY).is_err());
-        assert_eq!(param(&Cell::Float(f64::MAX), TypeId::DOUBLE), Ok(Param::Double(f64::MAX)));
+        assert_eq!(
+            param(&Cell::Float(f64::MAX), TypeId::DOUBLE),
+            Ok(Param::Double(f64::MAX))
+        );
     }
 
     /// Text goes through the same checks as the typed cells.
     #[test]
     fn temporal_text_is_checked_like_temporal_cells() {
         // DATE: a time of day in text is refused; midnight is fine.
-        assert!(param(&Cell::Text("2024-01-01 10:30:00".into()), TypeId::DAYDATE).unwrap_err().contains("DATE"));
+        assert!(
+            param(&Cell::Text("2024-01-01 10:30:00".into()), TypeId::DAYDATE)
+                .unwrap_err()
+                .contains("DATE")
+        );
         assert!(param(&Cell::Text("2024-01-01T10:30:00".into()), TypeId::DAYDATE).is_err());
-        assert_eq!(param(&Cell::Text(" 2024-01-01 00:00:00.000 ".into()), TypeId::DAYDATE), Ok(Param::Text("2024-01-01".into())));
-        assert_eq!(param(&Cell::Text("2024-01-01".into()), TypeId::DAYDATE), Ok(Param::Text("2024-01-01".into())));
+        assert_eq!(
+            param(
+                &Cell::Text(" 2024-01-01 00:00:00.000 ".into()),
+                TypeId::DAYDATE
+            ),
+            Ok(Param::Text("2024-01-01".into()))
+        );
+        assert_eq!(
+            param(&Cell::Text("2024-01-01".into()), TypeId::DAYDATE),
+            Ok(Param::Text("2024-01-01".into()))
+        );
         // With a zone: the UTC day, and only at UTC midnight.
-        assert_eq!(param(&Cell::Text("2024-03-01T00:00:00Z".into()), TypeId::DAYDATE), Ok(Param::Text("2024-03-01".into())));
-        assert!(param(&Cell::Text("2024-03-01 00:00:00+01:00".into()), TypeId::DAYDATE).is_err());
+        assert_eq!(
+            param(&Cell::Text("2024-03-01T00:00:00Z".into()), TypeId::DAYDATE),
+            Ok(Param::Text("2024-03-01".into()))
+        );
+        assert!(param(
+            &Cell::Text("2024-03-01 00:00:00+01:00".into()),
+            TypeId::DAYDATE
+        )
+        .is_err());
         // TIME: a date or a zone in text is refused.
-        assert!(param(&Cell::Text("2024-01-01 10:30:00".into()), TypeId::SECONDTIME).unwrap_err().contains("fecha"));
-        assert!(param(&Cell::Text("2024-01-01T10:30:00".into()), TypeId::SECONDTIME).is_err());
-        assert!(param(&Cell::Text("10:30:00+03:00".into()), TypeId::SECONDTIME).unwrap_err().contains("zona"));
-        assert!(param(&Cell::Text("10:30:00-03:00".into()), TypeId::SECONDTIME).unwrap_err().contains("zona"));
+        assert!(param(
+            &Cell::Text("2024-01-01 10:30:00".into()),
+            TypeId::SECONDTIME
+        )
+        .unwrap_err()
+        .contains("fecha"));
+        assert!(param(
+            &Cell::Text("2024-01-01T10:30:00".into()),
+            TypeId::SECONDTIME
+        )
+        .is_err());
+        assert!(
+            param(&Cell::Text("10:30:00+03:00".into()), TypeId::SECONDTIME)
+                .unwrap_err()
+                .contains("zona")
+        );
+        assert!(
+            param(&Cell::Text("10:30:00-03:00".into()), TypeId::SECONDTIME)
+                .unwrap_err()
+                .contains("zona")
+        );
         assert!(param(&Cell::Time("10:30:00Z".into()), TypeId::SECONDTIME).is_err());
-        assert_eq!(param(&Cell::Text("10:30:00".into()), TypeId::SECONDTIME), Ok(Param::Text("10:30:00".into())));
+        assert_eq!(
+            param(&Cell::Text("10:30:00".into()), TypeId::SECONDTIME),
+            Ok(Param::Text("10:30:00".into()))
+        );
         assert!(param(&Cell::Text("10:30:00.5".into()), TypeId::SECONDTIME).is_err());
     }
 
@@ -1570,13 +2017,22 @@ mod tests {
         assert_eq!(pc(HdbValue::REAL(1.5)), Cell::Float(1.5));
         assert_eq!(pc(HdbValue::DOUBLE(-2.25)), Cell::Float(-2.25));
         assert_eq!(pc(HdbValue::BOOLEAN(true)), Cell::Bool(true));
-        assert_eq!(pc(HdbValue::STRING("ñandú".into())), Cell::Text("ñandú".into()));
+        assert_eq!(
+            pc(HdbValue::STRING("ñandú".into())),
+            Cell::Text("ñandú".into())
+        );
         assert_eq!(pc(HdbValue::STR("x")), Cell::Text("x".into()));
         let big = vec![0xAB; 100_000];
         assert_eq!(pc(HdbValue::BINARY(big.clone())), Cell::Bytes(big));
-        assert_eq!(pc(HdbValue::GEOMETRY(vec![1, 1, 0, 0, 0])), Cell::Bytes(vec![1, 1, 0, 0, 0]));
+        assert_eq!(
+            pc(HdbValue::GEOMETRY(vec![1, 1, 0, 0, 0])),
+            Cell::Bytes(vec![1, 1, 0, 0, 0])
+        );
         // Undecodable text is refused, not decoded lossily.
-        assert!(matches!(plain_cell(HdbValue::DBSTRING(vec![0xFF, 0xFE])), Err(Error::Query(_))));
+        assert!(matches!(
+            plain_cell(HdbValue::DBSTRING(vec![0xFF, 0xFE])),
+            Err(Error::Query(_))
+        ));
         // Decimals: parsed through a descriptor-less route is not possible,
         // so the text form is checked through plain_decimal (above).
     }
@@ -1589,40 +2045,91 @@ mod tests {
 
     #[test]
     fn integer_params_check_their_range() {
-        assert_eq!(param(&Cell::Int(255), TypeId::TINYINT), Ok(Param::TinyInt(255)));
+        assert_eq!(
+            param(&Cell::Int(255), TypeId::TINYINT),
+            Ok(Param::TinyInt(255))
+        );
         assert!(param(&Cell::Int(-1), TypeId::TINYINT).is_err());
-        assert_eq!(param(&Cell::Int(-32768), TypeId::SMALLINT), Ok(Param::SmallInt(-32768)));
+        assert_eq!(
+            param(&Cell::Int(-32768), TypeId::SMALLINT),
+            Ok(Param::SmallInt(-32768))
+        );
         assert!(param(&Cell::Int(40_000), TypeId::SMALLINT).is_err());
-        assert_eq!(param(&Cell::Text("12.000".into()), TypeId::INT), Ok(Param::Int(12)));
+        assert_eq!(
+            param(&Cell::Text("12.000".into()), TypeId::INT),
+            Ok(Param::Int(12))
+        );
         assert!(param(&Cell::Text("12.5".into()), TypeId::INT).is_err());
         assert_eq!(param(&Cell::UInt(5), TypeId::BIGINT), Ok(Param::BigInt(5)));
         assert!(param(&Cell::UInt(u64::MAX), TypeId::BIGINT).is_err());
         assert_eq!(param(&Cell::Bool(true), TypeId::INT), Ok(Param::Int(1)));
-        assert_eq!(param(&Cell::Float(3.0), TypeId::BIGINT), Ok(Param::BigInt(3)));
-        assert_eq!(param(&Cell::Decimal("-9223372036854775808".into()), TypeId::BIGINT), Ok(Param::BigInt(i64::MIN)));
+        assert_eq!(
+            param(&Cell::Float(3.0), TypeId::BIGINT),
+            Ok(Param::BigInt(3))
+        );
+        assert_eq!(
+            param(
+                &Cell::Decimal("-9223372036854775808".into()),
+                TypeId::BIGINT
+            ),
+            Ok(Param::BigInt(i64::MIN))
+        );
         assert_eq!(param(&Cell::Null, TypeId::INT), Ok(Param::Null));
     }
 
     fn fixed(t: TypeId, precision: i16, scale: i16) -> Slot {
-        Slot { t, precision, scale }
+        Slot {
+            t,
+            precision,
+            scale,
+        }
     }
 
     #[test]
     fn decimal_float_and_bool_params() {
-        for t in [TypeId::DECIMAL, TypeId::FIXED8, TypeId::FIXED12, TypeId::FIXED16] {
-            assert_eq!(param(&Cell::Decimal("123.4500".into()), fixed(t, 18, 4)), Ok(Param::Decimal("123.4500".into())));
+        for t in [
+            TypeId::DECIMAL,
+            TypeId::FIXED8,
+            TypeId::FIXED12,
+            TypeId::FIXED16,
+        ] {
+            assert_eq!(
+                param(&Cell::Decimal("123.4500".into()), fixed(t, 18, 4)),
+                Ok(Param::Decimal("123.4500".into()))
+            );
         }
-        assert_eq!(param(&Cell::Int(-7), TypeId::DECIMAL), Ok(Param::Decimal("-7".into())));
-        assert_eq!(param(&Cell::UInt(u64::MAX), TypeId::DECIMAL), Ok(Param::Decimal("18446744073709551615".into())));
-        assert_eq!(param(&Cell::Float(0.1), TypeId::DECIMAL), Ok(Param::Decimal("0.1".into())));
-        assert_eq!(param(&Cell::Text("1E+2".into()), TypeId::DECIMAL), Ok(Param::Decimal("100".into())));
+        assert_eq!(
+            param(&Cell::Int(-7), TypeId::DECIMAL),
+            Ok(Param::Decimal("-7".into()))
+        );
+        assert_eq!(
+            param(&Cell::UInt(u64::MAX), TypeId::DECIMAL),
+            Ok(Param::Decimal("18446744073709551615".into()))
+        );
+        assert_eq!(
+            param(&Cell::Float(0.1), TypeId::DECIMAL),
+            Ok(Param::Decimal("0.1".into()))
+        );
+        assert_eq!(
+            param(&Cell::Text("1E+2".into()), TypeId::DECIMAL),
+            Ok(Param::Decimal("100".into()))
+        );
         assert!(param(&Cell::Float(f64::NAN), TypeId::DECIMAL).is_err());
         assert_eq!(param(&Cell::Float(1.5), TypeId::REAL), Ok(Param::Real(1.5)));
-        assert_eq!(param(&Cell::Decimal("2.5".into()), TypeId::DOUBLE), Ok(Param::Double(2.5)));
+        assert_eq!(
+            param(&Cell::Decimal("2.5".into()), TypeId::DOUBLE),
+            Ok(Param::Double(2.5))
+        );
         assert_eq!(param(&Cell::Int(3), TypeId::DOUBLE), Ok(Param::Double(3.0)));
-        assert_eq!(param(&Cell::Bool(false), TypeId::BOOLEAN), Ok(Param::Bool(false)));
+        assert_eq!(
+            param(&Cell::Bool(false), TypeId::BOOLEAN),
+            Ok(Param::Bool(false))
+        );
         assert_eq!(param(&Cell::Int(2), TypeId::BOOLEAN), Ok(Param::Bool(true)));
-        assert_eq!(param(&Cell::Text("t".into()), TypeId::BOOLEAN), Ok(Param::Bool(true)));
+        assert_eq!(
+            param(&Cell::Text("t".into()), TypeId::BOOLEAN),
+            Ok(Param::Bool(true))
+        );
         assert!(param(&Cell::Text("maybe".into()), TypeId::BOOLEAN).is_err());
     }
 
@@ -1631,14 +2138,30 @@ mod tests {
     #[test]
     fn decimals_past_the_scale_are_refused() {
         let s = fixed(TypeId::FIXED8, 10, 2);
-        assert_eq!(param(&Cell::Decimal("1.23".into()), s), Ok(Param::Decimal("1.23".into())));
-        assert_eq!(param(&Cell::Decimal("1.2300".into()), s), Ok(Param::Decimal("1.2300".into())));
-        assert_eq!(param(&Cell::Decimal("-1.20".into()), s), Ok(Param::Decimal("-1.20".into())));
-        assert!(param(&Cell::Decimal("1.239".into()), s).unwrap_err().contains("decimales"));
+        assert_eq!(
+            param(&Cell::Decimal("1.23".into()), s),
+            Ok(Param::Decimal("1.23".into()))
+        );
+        assert_eq!(
+            param(&Cell::Decimal("1.2300".into()), s),
+            Ok(Param::Decimal("1.2300".into()))
+        );
+        assert_eq!(
+            param(&Cell::Decimal("-1.20".into()), s),
+            Ok(Param::Decimal("-1.20".into()))
+        );
+        assert!(param(&Cell::Decimal("1.239".into()), s)
+            .unwrap_err()
+            .contains("decimales"));
         assert!(param(&Cell::Decimal("-1.239".into()), s).is_err());
         assert!(param(&Cell::Float(0.125), s).is_err());
-        assert_eq!(param(&Cell::Decimal("12345678.99".into()), s), Ok(Param::Decimal("12345678.99".into())));
-        assert!(param(&Cell::Decimal("123456789.99".into()), s).unwrap_err().contains("no entra"));
+        assert_eq!(
+            param(&Cell::Decimal("12345678.99".into()), s),
+            Ok(Param::Decimal("12345678.99".into()))
+        );
+        assert!(param(&Cell::Decimal("123456789.99".into()), s)
+            .unwrap_err()
+            .contains("no entra"));
         assert!(param(&Cell::Decimal("1.2.3".into()), s).is_err());
     }
 
@@ -1648,7 +2171,10 @@ mod tests {
     fn decimals_past_the_precision_are_refused() {
         let s = fixed(TypeId::FIXED12, 28, 0);
         let fits = "9".repeat(28);
-        assert_eq!(param(&Cell::Decimal(fits.clone()), s), Ok(Param::Decimal(fits)));
+        assert_eq!(
+            param(&Cell::Decimal(fits.clone()), s),
+            Ok(Param::Decimal(fits))
+        );
         assert!(param(&Cell::Decimal("39614081257132168796771975168".into()), s).is_err());
         assert!(param(&Cell::Decimal(format!("-{}", "9".repeat(29))), s).is_err());
         // Without a reported precision, the type's capacity bounds it.
@@ -1656,38 +2182,93 @@ mod tests {
         assert!(param(&Cell::Decimal("1".repeat(39)), fixed(TypeId::FIXED16, 0, 0)).is_err());
         // Floating DECIMAL: 34 significant digits; SMALLDECIMAL: 16.
         assert!(param(&Cell::Decimal("1".repeat(34)), TypeId::DECIMAL).is_ok());
-        assert!(param(&Cell::Decimal(format!("0.000{}", "1".repeat(34))), TypeId::DECIMAL).is_ok());
+        assert!(param(
+            &Cell::Decimal(format!("0.000{}", "1".repeat(34))),
+            TypeId::DECIMAL
+        )
+        .is_ok());
         assert!(param(&Cell::Decimal("1".repeat(35)), TypeId::DECIMAL).is_err());
-        assert!(param(&Cell::Decimal(format!("{}000000", "1".repeat(16))), fixed(TypeId::DECIMAL, 16, 32767)).is_ok());
-        assert!(param(&Cell::Decimal("1".repeat(17)), fixed(TypeId::DECIMAL, 16, 32767)).is_err());
+        assert!(param(
+            &Cell::Decimal(format!("{}000000", "1".repeat(16))),
+            fixed(TypeId::DECIMAL, 16, 32767)
+        )
+        .is_ok());
+        assert!(param(
+            &Cell::Decimal("1".repeat(17)),
+            fixed(TypeId::DECIMAL, 16, 32767)
+        )
+        .is_err());
     }
 
     #[test]
     fn reals_out_of_range_or_too_precise_are_refused() {
         assert_eq!(param(&Cell::Float(0.1), TypeId::REAL), Ok(Param::Real(0.1)));
-        assert_eq!(param(&Cell::Float(f64::from(0.1f32)), TypeId::REAL), Ok(Param::Real(0.1)));
-        assert_eq!(param(&Cell::Decimal("123.456".into()), TypeId::REAL), Ok(Param::Real(123.456)));
-        assert_eq!(param(&Cell::Float(f64::from(f32::MAX)), TypeId::REAL), Ok(Param::Real(f32::MAX)));
-        assert!(param(&Cell::Float(1e300), TypeId::REAL).unwrap_err().contains("no entra"));
+        assert_eq!(
+            param(&Cell::Float(f64::from(0.1f32)), TypeId::REAL),
+            Ok(Param::Real(0.1))
+        );
+        assert_eq!(
+            param(&Cell::Decimal("123.456".into()), TypeId::REAL),
+            Ok(Param::Real(123.456))
+        );
+        assert_eq!(
+            param(&Cell::Float(f64::from(f32::MAX)), TypeId::REAL),
+            Ok(Param::Real(f32::MAX))
+        );
+        assert!(param(&Cell::Float(1e300), TypeId::REAL)
+            .unwrap_err()
+            .contains("no entra"));
         assert!(param(&Cell::Float(-1e300), TypeId::REAL).is_err());
         assert!(param(&Cell::Float(1e-300), TypeId::REAL).is_err());
-        assert!(param(&Cell::Float(0.123456789), TypeId::REAL).unwrap_err().contains("precisión"));
+        assert!(param(&Cell::Float(0.123456789), TypeId::REAL)
+            .unwrap_err()
+            .contains("precisión"));
         assert!(param(&Cell::Int(16_777_217), TypeId::REAL).is_err());
-        assert_eq!(param(&Cell::Int(16_777_216), TypeId::REAL), Ok(Param::Real(16_777_216.0)));
+        assert_eq!(
+            param(&Cell::Int(16_777_216), TypeId::REAL),
+            Ok(Param::Real(16_777_216.0))
+        );
     }
 
     #[test]
     fn text_and_binary_params() {
-        assert_eq!(param(&Cell::Text("hola".into()), TypeId::NVARCHAR), Ok(Param::Text("hola".into())));
-        assert_eq!(param(&Cell::Int(5), TypeId::VARCHAR), Ok(Param::Text("5".into())));
-        assert_eq!(param(&Cell::Bool(true), TypeId::NVARCHAR), Ok(Param::Text("TRUE".into())));
-        assert_eq!(param(&Cell::Json("{\"a\":1}".into()), TypeId::NCLOB), Ok(Param::Text("{\"a\":1}".into())));
+        assert_eq!(
+            param(&Cell::Text("hola".into()), TypeId::NVARCHAR),
+            Ok(Param::Text("hola".into()))
+        );
+        assert_eq!(
+            param(&Cell::Int(5), TypeId::VARCHAR),
+            Ok(Param::Text("5".into()))
+        );
+        assert_eq!(
+            param(&Cell::Bool(true), TypeId::NVARCHAR),
+            Ok(Param::Text("TRUE".into()))
+        );
+        assert_eq!(
+            param(&Cell::Json("{\"a\":1}".into()), TypeId::NCLOB),
+            Ok(Param::Text("{\"a\":1}".into()))
+        );
         // Bytes that aren't UTF-8 are refused, not turned into hex text.
-        assert!(param(&Cell::Bytes(vec![0xFF, 0x00]), TypeId::NVARCHAR).unwrap_err().contains("UTF-8"));
-        assert_eq!(param(&Cell::Bytes(b"abc".to_vec()), TypeId::NVARCHAR), Ok(Param::Text("abc".into())));
-        assert_eq!(param(&Cell::Bytes(vec![1, 2]), TypeId::VARBINARY), Ok(Param::Bytes(vec![1, 2])));
-        assert_eq!(param(&Cell::Text("ab".into()), TypeId::BLOB), Ok(Param::Bytes(b"ab".to_vec())));
-        let u = param(&Cell::Uuid("00112233-4455-6677-8899-aabbccddeeff".into()), TypeId::VARBINARY).unwrap();
+        assert!(param(&Cell::Bytes(vec![0xFF, 0x00]), TypeId::NVARCHAR)
+            .unwrap_err()
+            .contains("UTF-8"));
+        assert_eq!(
+            param(&Cell::Bytes(b"abc".to_vec()), TypeId::NVARCHAR),
+            Ok(Param::Text("abc".into()))
+        );
+        assert_eq!(
+            param(&Cell::Bytes(vec![1, 2]), TypeId::VARBINARY),
+            Ok(Param::Bytes(vec![1, 2]))
+        );
+        assert_eq!(
+            param(&Cell::Text("ab".into()), TypeId::BLOB),
+            Ok(Param::Bytes(b"ab".to_vec()))
+        );
+        let u = param(
+            &Cell::Uuid("00112233-4455-6677-8899-aabbccddeeff".into()),
+            TypeId::VARBINARY,
+        )
+        .unwrap();
         assert_eq!(u, Param::Bytes((0..16u8).map(|i| i * 0x11).collect()));
         assert!(param(&Cell::Int(1), TypeId::VARBINARY).is_err());
     }
@@ -1695,49 +2276,118 @@ mod tests {
     #[test]
     fn large_lobs_are_streamed() {
         let big = vec![7u8; LOB_INLINE + 1];
-        assert_eq!(param(&Cell::Bytes(big.clone()), TypeId::BLOB), Ok(Param::Stream(big.clone())));
+        assert_eq!(
+            param(&Cell::Bytes(big.clone()), TypeId::BLOB),
+            Ok(Param::Stream(big.clone()))
+        );
         // Not a LOB: stays inline (the server rejects it if it's too long).
-        assert_eq!(param(&Cell::Bytes(big.clone()), TypeId::VARBINARY), Ok(Param::Bytes(big.clone())));
+        assert_eq!(
+            param(&Cell::Bytes(big.clone()), TypeId::VARBINARY),
+            Ok(Param::Bytes(big.clone()))
+        );
         let s = "é".repeat(LOB_INLINE);
-        assert_eq!(param(&Cell::Text(s.clone()), TypeId::NCLOB), Ok(Param::Stream(s.clone().into_bytes())));
-        assert_eq!(param(&Cell::Text(s.clone()), TypeId::CLOB), Ok(Param::Stream(s.clone().into_bytes())));
+        assert_eq!(
+            param(&Cell::Text(s.clone()), TypeId::NCLOB),
+            Ok(Param::Stream(s.clone().into_bytes()))
+        );
+        assert_eq!(
+            param(&Cell::Text(s.clone()), TypeId::CLOB),
+            Ok(Param::Stream(s.clone().into_bytes()))
+        );
         // The client's LOB writer only takes BLOB / CLOB / NCLOB: the rest
         // go inline.
-        assert_eq!(param(&Cell::Text(s.clone()), TypeId::TEXT), Ok(Param::Text(s.clone())));
-        assert_eq!(param(&Cell::Text(s.clone()), TypeId::BINTEXT), Ok(Param::Text(s)));
-        assert_eq!(param(&Cell::Bytes(big.clone()), TypeId::BLOCATOR), Ok(Param::Bytes(big)));
+        assert_eq!(
+            param(&Cell::Text(s.clone()), TypeId::TEXT),
+            Ok(Param::Text(s.clone()))
+        );
+        assert_eq!(
+            param(&Cell::Text(s.clone()), TypeId::BINTEXT),
+            Ok(Param::Text(s))
+        );
+        assert_eq!(
+            param(&Cell::Bytes(big.clone()), TypeId::BLOCATOR),
+            Ok(Param::Bytes(big))
+        );
         let small = vec![7u8; 10];
-        assert_eq!(param(&Cell::Bytes(small.clone()), TypeId::BLOB), Ok(Param::Bytes(small)));
+        assert_eq!(
+            param(&Cell::Bytes(small.clone()), TypeId::BLOB),
+            Ok(Param::Bytes(small))
+        );
     }
 
     #[test]
     fn temporal_params() {
         let dt = Cell::DateTime("2024-01-31 13:45:00.1234567".into());
-        assert_eq!(param(&dt, TypeId::LONGDATE), Ok(Param::Text("2024-01-31 13:45:00.1234567".into())));
         assert_eq!(
-            param(&Cell::DateTime("2024-01-31 13:45:00.123456700".into()), TypeId::LONGDATE),
+            param(&dt, TypeId::LONGDATE),
             Ok(Param::Text("2024-01-31 13:45:00.1234567".into()))
         );
         assert_eq!(
-            param(&Cell::DateTime("2024-01-31T13:45:00".into()), TypeId::LONGDATE),
+            param(
+                &Cell::DateTime("2024-01-31 13:45:00.123456700".into()),
+                TypeId::LONGDATE
+            ),
+            Ok(Param::Text("2024-01-31 13:45:00.1234567".into()))
+        );
+        assert_eq!(
+            param(
+                &Cell::DateTime("2024-01-31T13:45:00".into()),
+                TypeId::LONGDATE
+            ),
             Ok(Param::Text("2024-01-31 13:45:00".into()))
         );
-        assert_eq!(param(&Cell::DateTime("2024-01-31 13:45:07.000".into()), TypeId::SECONDDATE), Ok(Param::Text("2024-01-31 13:45:07".into())));
-        assert_eq!(param(&Cell::DateTime("2024-01-31 00:00:00".into()), TypeId::DAYDATE), Ok(Param::Text("2024-01-31".into())));
-        assert_eq!(param(&Cell::Date("2024-02-29".into()), TypeId::LONGDATE), Ok(Param::Text("2024-02-29 00:00:00".into())));
-        assert_eq!(param(&Cell::Date("2024-02-29".into()), TypeId::DAYDATE), Ok(Param::Text("2024-02-29".into())));
-        assert_eq!(param(&Cell::Time("23:59:59".into()), TypeId::SECONDTIME), Ok(Param::Text("23:59:59".into())));
-        assert_eq!(param(&Cell::Time("23:59:59.000000".into()), TypeId::SECONDTIME), Ok(Param::Text("23:59:59".into())));
+        assert_eq!(
+            param(
+                &Cell::DateTime("2024-01-31 13:45:07.000".into()),
+                TypeId::SECONDDATE
+            ),
+            Ok(Param::Text("2024-01-31 13:45:07".into()))
+        );
+        assert_eq!(
+            param(
+                &Cell::DateTime("2024-01-31 00:00:00".into()),
+                TypeId::DAYDATE
+            ),
+            Ok(Param::Text("2024-01-31".into()))
+        );
+        assert_eq!(
+            param(&Cell::Date("2024-02-29".into()), TypeId::LONGDATE),
+            Ok(Param::Text("2024-02-29 00:00:00".into()))
+        );
+        assert_eq!(
+            param(&Cell::Date("2024-02-29".into()), TypeId::DAYDATE),
+            Ok(Param::Text("2024-02-29".into()))
+        );
+        assert_eq!(
+            param(&Cell::Time("23:59:59".into()), TypeId::SECONDTIME),
+            Ok(Param::Text("23:59:59".into()))
+        );
+        assert_eq!(
+            param(&Cell::Time("23:59:59.000000".into()), TypeId::SECONDTIME),
+            Ok(Param::Text("23:59:59".into()))
+        );
         // Zoned values go in UTC, crossing the day (and the year) if needed.
         assert_eq!(
-            param(&Cell::DateTimeTz("2024-01-01 01:30:00.25-03:00".into()), TypeId::LONGDATE),
+            param(
+                &Cell::DateTimeTz("2024-01-01 01:30:00.25-03:00".into()),
+                TypeId::LONGDATE
+            ),
             Ok(Param::Text("2024-01-01 04:30:00.25".into()))
         );
         assert_eq!(
-            param(&Cell::DateTimeTz("2024-01-01 01:30:00+05:30".into()), TypeId::LONGDATE),
+            param(
+                &Cell::DateTimeTz("2024-01-01 01:30:00+05:30".into()),
+                TypeId::LONGDATE
+            ),
             Ok(Param::Text("2023-12-31 20:00:00".into()))
         );
-        assert_eq!(param(&Cell::DateTimeTz("2024-03-01T00:00:00Z".into()), TypeId::DAYDATE), Ok(Param::Text("2024-03-01".into())));
+        assert_eq!(
+            param(
+                &Cell::DateTimeTz("2024-03-01T00:00:00Z".into()),
+                TypeId::DAYDATE
+            ),
+            Ok(Param::Text("2024-03-01".into()))
+        );
         assert!(param(&Cell::Int(1), TypeId::LONGDATE).is_err());
         assert!(param(&Cell::Float(1.0), TypeId::SECONDTIME).is_err());
     }
@@ -1746,34 +2396,86 @@ mod tests {
     #[test]
     fn temporal_precision_loss_is_refused() {
         // TIME has no fraction of a second.
-        assert!(param(&Cell::Time("23:59:59.5".into()), TypeId::SECONDTIME).unwrap_err().contains("TIME"));
+        assert!(param(&Cell::Time("23:59:59.5".into()), TypeId::SECONDTIME)
+            .unwrap_err()
+            .contains("TIME"));
         // SECONDDATE neither.
-        assert!(param(&Cell::DateTime("2024-01-31 13:45:00.1".into()), TypeId::SECONDDATE).is_err());
+        assert!(param(
+            &Cell::DateTime("2024-01-31 13:45:00.1".into()),
+            TypeId::SECONDDATE
+        )
+        .is_err());
         // TIMESTAMP keeps 7 digits (100 ns).
-        assert!(param(&Cell::DateTime("2024-01-31 13:45:00.123456789".into()), TypeId::LONGDATE).is_err());
+        assert!(param(
+            &Cell::DateTime("2024-01-31 13:45:00.123456789".into()),
+            TypeId::LONGDATE
+        )
+        .is_err());
         // A time of day doesn't fit in a DATE, nor a date in a TIME.
-        assert!(param(&Cell::DateTime("2024-01-31 13:45:00".into()), TypeId::DAYDATE).is_err());
-        assert!(param(&Cell::DateTimeTz("2024-03-01 00:00:00+01:00".into()), TypeId::DAYDATE).is_err());
-        assert!(param(&Cell::DateTime("2024-01-31 13:45:00".into()), TypeId::SECONDTIME).is_err());
+        assert!(param(
+            &Cell::DateTime("2024-01-31 13:45:00".into()),
+            TypeId::DAYDATE
+        )
+        .is_err());
+        assert!(param(
+            &Cell::DateTimeTz("2024-03-01 00:00:00+01:00".into()),
+            TypeId::DAYDATE
+        )
+        .is_err());
+        assert!(param(
+            &Cell::DateTime("2024-01-31 13:45:00".into()),
+            TypeId::SECONDTIME
+        )
+        .is_err());
     }
 
     /// Round 3: a DOUBLE refuses what it can't hold exactly, like a REAL.
     #[test]
     fn doubles_refuse_lost_digits() {
-        assert!(param(&Cell::Int(9_007_199_254_740_993), TypeId::DOUBLE).unwrap_err().contains("DOUBLE"));
+        assert!(param(&Cell::Int(9_007_199_254_740_993), TypeId::DOUBLE)
+            .unwrap_err()
+            .contains("DOUBLE"));
         assert!(param(&Cell::UInt(u64::MAX), TypeId::DOUBLE).is_err());
         assert!(param(&Cell::Int(i64::MAX), TypeId::DOUBLE).is_err());
         assert!(param(&Cell::Decimal("1.00000000000000001".into()), TypeId::DOUBLE).is_err());
-        assert!(param(&Cell::Text("0.1000000000000000000001".into()), TypeId::DOUBLE).is_err());
+        assert!(param(
+            &Cell::Text("0.1000000000000000000001".into()),
+            TypeId::DOUBLE
+        )
+        .is_err());
         // What a DOUBLE holds (or reads back the same) goes through.
-        assert_eq!(param(&Cell::Int(9_007_199_254_740_992), TypeId::DOUBLE), Ok(Param::Double(9_007_199_254_740_992.0)));
-        assert_eq!(param(&Cell::Int(-42), TypeId::DOUBLE), Ok(Param::Double(-42.0)));
-        assert_eq!(param(&Cell::Decimal("0.1".into()), TypeId::DOUBLE), Ok(Param::Double(0.1)));
-        assert_eq!(param(&Cell::Decimal("-12.500".into()), TypeId::DOUBLE), Ok(Param::Double(-12.5)));
-        assert_eq!(param(&Cell::Decimal("0.000".into()), TypeId::DOUBLE), Ok(Param::Double(0.0)));
-        assert_eq!(param(&Cell::Text("1.5E+3".into()), TypeId::DOUBLE), Ok(Param::Double(1500.0)));
-        assert_eq!(param(&Cell::Text("0.30000000000000004".into()), TypeId::DOUBLE), Ok(Param::Double(0.30000000000000004)));
-        assert_eq!(param(&Cell::Float(1e300), TypeId::DOUBLE), Ok(Param::Double(1e300)));
+        assert_eq!(
+            param(&Cell::Int(9_007_199_254_740_992), TypeId::DOUBLE),
+            Ok(Param::Double(9_007_199_254_740_992.0))
+        );
+        assert_eq!(
+            param(&Cell::Int(-42), TypeId::DOUBLE),
+            Ok(Param::Double(-42.0))
+        );
+        assert_eq!(
+            param(&Cell::Decimal("0.1".into()), TypeId::DOUBLE),
+            Ok(Param::Double(0.1))
+        );
+        assert_eq!(
+            param(&Cell::Decimal("-12.500".into()), TypeId::DOUBLE),
+            Ok(Param::Double(-12.5))
+        );
+        assert_eq!(
+            param(&Cell::Decimal("0.000".into()), TypeId::DOUBLE),
+            Ok(Param::Double(0.0))
+        );
+        assert_eq!(
+            param(&Cell::Text("1.5E+3".into()), TypeId::DOUBLE),
+            Ok(Param::Double(1500.0))
+        );
+        assert_eq!(
+            param(&Cell::Text("0.30000000000000004".into()), TypeId::DOUBLE),
+            Ok(Param::Double(0.30000000000000004))
+        );
+        assert_eq!(
+            param(&Cell::Float(1e300), TypeId::DOUBLE),
+            Ok(Param::Double(1e300))
+        );
         assert!(param(&Cell::Text("1e400".into()), TypeId::DOUBLE).is_err());
         assert_eq!(significand("-12.50e1"), Some((true, "125".into(), 3)));
         assert_eq!(significand("0.0012"), Some((false, "12".into(), -2)));
@@ -1782,47 +2484,106 @@ mod tests {
     /// Round 3: a time of day in DATE text is found wherever it starts.
     #[test]
     fn date_text_time_is_found_without_padding() {
-        assert!(param(&Cell::Text("2024-1-1 10:30:00".into()), TypeId::DAYDATE).unwrap_err().contains("hora"));
+        assert!(
+            param(&Cell::Text("2024-1-1 10:30:00".into()), TypeId::DAYDATE)
+                .unwrap_err()
+                .contains("hora")
+        );
         assert!(param(&Cell::Text("20240101 10:00:00".into()), TypeId::DAYDATE).is_err());
         assert!(param(&Cell::Text("2024-1-1T10:30".into()), TypeId::DAYDATE).is_err());
         assert!(param(&Cell::Text("2024-01-0110:00".into()), TypeId::DAYDATE).is_err());
-        assert_eq!(param(&Cell::Text("2024-1-1 00:00:00".into()), TypeId::DAYDATE), Ok(Param::Text("2024-1-1".into())));
-        assert_eq!(param(&Cell::Text("20240101".into()), TypeId::DAYDATE), Ok(Param::Text("20240101".into())));
-        assert_eq!(param(&Cell::Text("01-Oct-2024".into()), TypeId::DAYDATE), Ok(Param::Text("01-Oct-2024".into())));
-        assert_eq!(param(&Cell::Text("2024-03-01T00:00:00Z".into()), TypeId::DAYDATE), Ok(Param::Text("2024-03-01".into())));
+        assert_eq!(
+            param(&Cell::Text("2024-1-1 00:00:00".into()), TypeId::DAYDATE),
+            Ok(Param::Text("2024-1-1".into()))
+        );
+        assert_eq!(
+            param(&Cell::Text("20240101".into()), TypeId::DAYDATE),
+            Ok(Param::Text("20240101".into()))
+        );
+        assert_eq!(
+            param(&Cell::Text("01-Oct-2024".into()), TypeId::DAYDATE),
+            Ok(Param::Text("01-Oct-2024".into()))
+        );
+        assert_eq!(
+            param(&Cell::Text("2024-03-01T00:00:00Z".into()), TypeId::DAYDATE),
+            Ok(Param::Text("2024-03-01".into()))
+        );
     }
 
     /// Round 3: zoned text into a timestamp goes in UTC, like a zoned cell.
     #[test]
     fn zoned_text_timestamps_go_in_utc() {
         assert_eq!(
-            param(&Cell::Text("2024-01-01 10:00:00+02:00".into()), TypeId::SECONDDATE),
+            param(
+                &Cell::Text("2024-01-01 10:00:00+02:00".into()),
+                TypeId::SECONDDATE
+            ),
             Ok(Param::Text("2024-01-01 08:00:00".into()))
         );
-        assert_eq!(param(&Cell::Text("2024-01-01T10:00:00Z".into()), TypeId::LONGDATE), Ok(Param::Text("2024-01-01 10:00:00".into())));
-        assert_eq!(param(&Cell::Text("2024-01-01t10:00:00z".into()), TypeId::LONGDATE), Ok(Param::Text("2024-01-01 10:00:00".into())));
         assert_eq!(
-            param(&Cell::Text("2024-01-01 01:30:00.5-0300".into()), TypeId::LONGDATE),
+            param(&Cell::Text("2024-01-01T10:00:00Z".into()), TypeId::LONGDATE),
+            Ok(Param::Text("2024-01-01 10:00:00".into()))
+        );
+        assert_eq!(
+            param(&Cell::Text("2024-01-01t10:00:00z".into()), TypeId::LONGDATE),
+            Ok(Param::Text("2024-01-01 10:00:00".into()))
+        );
+        assert_eq!(
+            param(
+                &Cell::Text("2024-01-01 01:30:00.5-0300".into()),
+                TypeId::LONGDATE
+            ),
             Ok(Param::Text("2024-01-01 04:30:00.5".into()))
         );
-        assert_eq!(param(&Cell::DateTime("2024-01-01 10:00:00+01:00".into()), TypeId::LONGDATE), Ok(Param::Text("2024-01-01 09:00:00".into())));
-        assert!(param(&Cell::Text("2024-01-01 10:00:00+xx".into()), TypeId::SECONDDATE).is_err());
+        assert_eq!(
+            param(
+                &Cell::DateTime("2024-01-01 10:00:00+01:00".into()),
+                TypeId::LONGDATE
+            ),
+            Ok(Param::Text("2024-01-01 09:00:00".into()))
+        );
+        assert!(param(
+            &Cell::Text("2024-01-01 10:00:00+xx".into()),
+            TypeId::SECONDDATE
+        )
+        .is_err());
         // Without a zone, unchanged.
-        assert_eq!(param(&Cell::Text("2024-01-01 10:00:00".into()), TypeId::SECONDDATE), Ok(Param::Text("2024-01-01 10:00:00".into())));
+        assert_eq!(
+            param(
+                &Cell::Text("2024-01-01 10:00:00".into()),
+                TypeId::SECONDDATE
+            ),
+            Ok(Param::Text("2024-01-01 10:00:00".into()))
+        );
     }
 
     /// Round 3: a comma fraction is read as a point (and checked like one).
     #[test]
     fn comma_fractions_are_read_as_points() {
-        assert_eq!(param(&Cell::Text("10:30:00,0".into()), TypeId::SECONDTIME), Ok(Param::Text("10:30:00".into())));
-        assert!(param(&Cell::Text("10:30:00,5".into()), TypeId::SECONDTIME).unwrap_err().contains("TIME"));
         assert_eq!(
-            param(&Cell::Text("2024-01-01 10:00:00,123".into()), TypeId::LONGDATE),
+            param(&Cell::Text("10:30:00,0".into()), TypeId::SECONDTIME),
+            Ok(Param::Text("10:30:00".into()))
+        );
+        assert!(param(&Cell::Text("10:30:00,5".into()), TypeId::SECONDTIME)
+            .unwrap_err()
+            .contains("TIME"));
+        assert_eq!(
+            param(
+                &Cell::Text("2024-01-01 10:00:00,123".into()),
+                TypeId::LONGDATE
+            ),
             Ok(Param::Text("2024-01-01 10:00:00.123".into()))
         );
-        assert!(param(&Cell::Text("2024-01-01 10:00:00,123".into()), TypeId::SECONDDATE).is_err());
+        assert!(param(
+            &Cell::Text("2024-01-01 10:00:00,123".into()),
+            TypeId::SECONDDATE
+        )
+        .is_err());
         assert_eq!(
-            param(&Cell::DateTimeTz("2024-01-01 10:00:00,5+01:00".into()), TypeId::LONGDATE),
+            param(
+                &Cell::DateTimeTz("2024-01-01 10:00:00,5+01:00".into()),
+                TypeId::LONGDATE
+            ),
             Ok(Param::Text("2024-01-01 09:00:00.5".into()))
         );
     }
@@ -1831,12 +2592,20 @@ mod tests {
     #[test]
     fn huge_unstreamable_values_are_refused() {
         let big = "a".repeat(INLINE_MAX + 1);
-        assert!(param(&Cell::Text(big.clone()), TypeId::TEXT).unwrap_err().contains("BLOB, CLOB y NCLOB"));
+        assert!(param(&Cell::Text(big.clone()), TypeId::TEXT)
+            .unwrap_err()
+            .contains("BLOB, CLOB y NCLOB"));
         assert!(param(&Cell::Bytes(vec![0; INLINE_MAX + 1]), TypeId::BINTEXT).is_err());
         assert!(param(&Cell::Bytes(vec![0; INLINE_MAX + 1]), TypeId::VARBINARY).is_err());
         // A LOB of the same size is streamed.
-        assert!(matches!(param(&Cell::Text(big), TypeId::NCLOB), Ok(Param::Stream(_))));
-        assert!(matches!(param(&Cell::Text("a".repeat(INLINE_MAX)), TypeId::TEXT), Ok(Param::Text(_))));
+        assert!(matches!(
+            param(&Cell::Text(big), TypeId::NCLOB),
+            Ok(Param::Stream(_))
+        ));
+        assert!(matches!(
+            param(&Cell::Text("a".repeat(INLINE_MAX)), TypeId::TEXT),
+            Ok(Param::Text(_))
+        ));
     }
 
     #[test]
@@ -1856,23 +2625,57 @@ mod tests {
     #[test]
     fn spatial_rows_take_two_parameters() {
         let cols = vec![
-            Col { name: "ID".into(), index: 0, mode: Mode::Plain, identity: false },
-            Col { name: "G".into(), index: 1, mode: Mode::Spatial { srid: 0 }, identity: false },
+            Col {
+                name: "ID".into(),
+                index: 0,
+                mode: Mode::Plain,
+                identity: false,
+            },
+            Col {
+                name: "G".into(),
+                index: 1,
+                mode: Mode::Spatial { srid: 0 },
+                identity: false,
+            },
         ];
         let types = slots(&[TypeId::INT, TypeId::BLOB, TypeId::NCLOB]);
-        let wkb = vec![1u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let wkb = vec![
+            1u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
         assert_eq!(
             row_params(&cols, &[Cell::Int(1), Cell::Bytes(wkb.clone())], &types),
             Ok(vec![Param::Int(1), Param::Bytes(wkb), Param::Null])
         );
         assert_eq!(
-            row_params(&cols, &[Cell::Int(2), Cell::Text("POINT (1 2)".into())], &types),
-            Ok(vec![Param::Int(2), Param::Null, Param::Text("POINT (1 2)".into())])
+            row_params(
+                &cols,
+                &[Cell::Int(2), Cell::Text("POINT (1 2)".into())],
+                &types
+            ),
+            Ok(vec![
+                Param::Int(2),
+                Param::Null,
+                Param::Text("POINT (1 2)".into())
+            ])
         );
-        assert_eq!(row_params(&cols, &[Cell::Null, Cell::Null], &types), Ok(vec![Param::Null, Param::Null, Param::Null]));
-        assert_eq!(row_params(&cols, &[Cell::Int(1), Cell::Int(5)], &types).unwrap_err().0, 1);
         assert_eq!(
-            row_params(&cols, &[Cell::Int(1000), Cell::Null], &slots(&[TypeId::TINYINT, TypeId::BLOB, TypeId::NCLOB])).unwrap_err().0,
+            row_params(&cols, &[Cell::Null, Cell::Null], &types),
+            Ok(vec![Param::Null, Param::Null, Param::Null])
+        );
+        assert_eq!(
+            row_params(&cols, &[Cell::Int(1), Cell::Int(5)], &types)
+                .unwrap_err()
+                .0,
+            1
+        );
+        assert_eq!(
+            row_params(
+                &cols,
+                &[Cell::Int(1000), Cell::Null],
+                &slots(&[TypeId::TINYINT, TypeId::BLOB, TypeId::NCLOB])
+            )
+            .unwrap_err()
+            .0,
             0
         );
         // Large WKB goes through the parameter's type: streamed as a BLOB.
@@ -1890,7 +2693,10 @@ mod tests {
         let code: u32 = 1 | 0x2000_0000 | if z { 0x8000_0000 } else { 0 };
         b.extend_from_slice(&code.to_le_bytes());
         b.extend_from_slice(&srid.to_le_bytes());
-        for c in [1.0f64, 2.0].iter().chain(if z { [3.0f64].iter() } else { [].iter() }) {
+        for c in [1.0f64, 2.0]
+            .iter()
+            .chain(if z { [3.0f64].iter() } else { [].iter() })
+        {
             b.extend_from_slice(&c.to_le_bytes());
         }
         b
@@ -1899,7 +2705,10 @@ mod tests {
     fn iso_point(z: bool) -> Vec<u8> {
         let mut b = vec![1u8];
         b.extend_from_slice(&(if z { 1001u32 } else { 1 }).to_le_bytes());
-        for c in [1.0f64, 2.0].iter().chain(if z { [3.0f64].iter() } else { [].iter() }) {
+        for c in [1.0f64, 2.0]
+            .iter()
+            .chain(if z { [3.0f64].iter() } else { [].iter() })
+        {
             b.extend_from_slice(&c.to_le_bytes());
         }
         b
@@ -1908,25 +2717,53 @@ mod tests {
     #[test]
     fn spatial_values_are_normalized_or_refused() {
         // EWKB → ISO WKB (SRID dropped when it matches, Z flag → 1001).
-        assert_eq!(spatial(&Cell::Bytes(ewkb_point(4326, false)), 4326), Ok((Some(iso_point(false)), None)));
-        assert_eq!(spatial(&Cell::Bytes(ewkb_point(4326, true)), 4326), Ok((Some(iso_point(true)), None)));
+        assert_eq!(
+            spatial(&Cell::Bytes(ewkb_point(4326, false)), 4326),
+            Ok((Some(iso_point(false)), None))
+        );
+        assert_eq!(
+            spatial(&Cell::Bytes(ewkb_point(4326, true)), 4326),
+            Ok((Some(iso_point(true)), None))
+        );
         // Plain (ISO) WKB goes unchanged; a big-endian one too.
-        assert_eq!(spatial(&Cell::Bytes(iso_point(true)), 0), Ok((Some(iso_point(true)), None)));
+        assert_eq!(
+            spatial(&Cell::Bytes(iso_point(true)), 0),
+            Ok((Some(iso_point(true)), None))
+        );
         let mut be = vec![0u8, 0, 0, 0, 1];
         be.extend_from_slice(&1.0f64.to_be_bytes());
         be.extend_from_slice(&2.0f64.to_be_bytes());
         assert_eq!(spatial(&Cell::Bytes(be.clone()), 0), Ok((Some(be), None)));
         // Another SRID would be stored under the column's: refused.
-        assert!(spatial(&Cell::Bytes(ewkb_point(3857, false)), 4326).unwrap_err().contains("SRID"));
+        assert!(spatial(&Cell::Bytes(ewkb_point(3857, false)), 4326)
+            .unwrap_err()
+            .contains("SRID"));
         // Hex (PostGIS's text form) is decoded.
-        let hex: String = ewkb_point(4326, false).iter().map(|b| format!("{b:02X}")).collect();
-        assert_eq!(spatial(&Cell::Text(hex), 4326), Ok((Some(iso_point(false)), None)));
+        let hex: String = ewkb_point(4326, false)
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect();
+        assert_eq!(
+            spatial(&Cell::Text(hex), 4326),
+            Ok((Some(iso_point(false)), None))
+        );
         // WKT and EWKT.
-        assert_eq!(spatial(&Cell::Text("POINT (1 2)".into()), 4326), Ok((None, Some("POINT (1 2)".into()))));
-        assert_eq!(spatial(&Cell::Text("SRID=4326;POINT (1 2)".into()), 4326), Ok((None, Some("POINT (1 2)".into()))));
+        assert_eq!(
+            spatial(&Cell::Text("POINT (1 2)".into()), 4326),
+            Ok((None, Some("POINT (1 2)".into())))
+        );
+        assert_eq!(
+            spatial(&Cell::Text("SRID=4326;POINT (1 2)".into()), 4326),
+            Ok((None, Some("POINT (1 2)".into())))
+        );
         assert!(spatial(&Cell::Text("SRID=3857;POINT (1 2)".into()), 4326).is_err());
         // GeoJSON is not WKT.
-        assert!(spatial(&Cell::Json("{\"type\":\"Point\",\"coordinates\":[1,2]}".into()), 0).unwrap_err().contains("GeoJSON"));
+        assert!(spatial(
+            &Cell::Json("{\"type\":\"Point\",\"coordinates\":[1,2]}".into()),
+            0
+        )
+        .unwrap_err()
+        .contains("GeoJSON"));
         // Broken WKB.
         assert!(spatial(&Cell::Bytes(vec![1, 1, 0, 0, 0, 0]), 0).is_err());
         assert!(spatial(&Cell::Bytes(vec![7, 1, 0, 0, 0]), 0).is_err());
@@ -1957,7 +2794,12 @@ mod tests {
 
     #[test]
     fn identity_is_moved_past_the_loaded_keys() {
-        let t = Target { data_type: "BIGINT".into(), generation: Some("BY DEFAULT AS IDENTITY".into()), srid: None, not_null: true };
+        let t = Target {
+            data_type: "BIGINT".into(),
+            generation: Some("BY DEFAULT AS IDENTITY".into()),
+            srid: None,
+            not_null: true,
+        };
         assert_eq!(
             identity_sql("\"APP\".\"T\"", "ID", &t, 101),
             "ALTER TABLE \"APP\".\"T\" ALTER (\"ID\" BIGINT GENERATED BY DEFAULT AS IDENTITY (START WITH 101) NOT NULL)"
@@ -1976,7 +2818,10 @@ mod tests {
                 .collect()
         };
         assert!(identity_changes(&def("FALSE", Some("id")), &def("FALSE", None)).is_empty());
-        assert_eq!(identity_changes(&def("FALSE", None), &def("TRUE", None)), vec!["la nulabilidad"]);
+        assert_eq!(
+            identity_changes(&def("FALSE", None), &def("TRUE", None)),
+            vec!["la nulabilidad"]
+        );
         assert_eq!(
             comment_sql("\"APP\".\"T\"", "ID", "it's the key"),
             "COMMENT ON COLUMN \"APP\".\"T\".\"ID\" IS 'it''s the key'"
@@ -2001,26 +2846,62 @@ mod tests {
             "1500-02-28 23:00:00-02:00",
         ] {
             for t in [TypeId::LONGDATE, TypeId::SECONDDATE] {
-                assert!(param(&Cell::Text(s.into()), t).unwrap_err().contains("no es una fecha y hora con zona válida"), "{s}");
+                assert!(
+                    param(&Cell::Text(s.into()), t)
+                        .unwrap_err()
+                        .contains("no es una fecha y hora con zona válida"),
+                    "{s}"
+                );
                 assert!(param(&Cell::DateTimeTz(s.into()), t).is_err(), "{s}");
                 assert!(param(&Cell::DateTime(s.into()), t).is_err(), "{s}");
             }
         }
-        assert!(param(&Cell::Text("2023-02-29T00:00:00Z".into()), TypeId::DAYDATE).unwrap_err().contains("2023-02-29 no existe"));
-        assert!(param(&Cell::DateTimeTz("2023-02-29T00:00:00Z".into()), TypeId::DAYDATE).is_err());
+        assert!(
+            param(&Cell::Text("2023-02-29T00:00:00Z".into()), TypeId::DAYDATE)
+                .unwrap_err()
+                .contains("2023-02-29 no existe")
+        );
+        assert!(param(
+            &Cell::DateTimeTz("2023-02-29T00:00:00Z".into()),
+            TypeId::DAYDATE
+        )
+        .is_err());
         // Real ones still go in UTC, including a leap day and 23:59:59.
-        assert_eq!(param(&Cell::Text("2024-02-29 23:59:59Z".into()), TypeId::SECONDDATE), Ok(Param::Text("2024-02-29 23:59:59".into())));
         assert_eq!(
-            param(&Cell::DateTimeTz("2024-02-29 23:30:00-01:00".into()), TypeId::SECONDDATE),
+            param(
+                &Cell::Text("2024-02-29 23:59:59Z".into()),
+                TypeId::SECONDDATE
+            ),
+            Ok(Param::Text("2024-02-29 23:59:59".into()))
+        );
+        assert_eq!(
+            param(
+                &Cell::DateTimeTz("2024-02-29 23:30:00-01:00".into()),
+                TypeId::SECONDDATE
+            ),
             Ok(Param::Text("2024-03-01 00:30:00".into()))
         );
         // Before the reform, only when the day doesn't change.
-        assert_eq!(param(&Cell::Text("1500-03-01 10:00:00+01:00".into()), TypeId::SECONDDATE), Ok(Param::Text("1500-03-01 09:00:00".into())));
+        assert_eq!(
+            param(
+                &Cell::Text("1500-03-01 10:00:00+01:00".into()),
+                TypeId::SECONDDATE
+            ),
+            Ok(Param::Text("1500-03-01 09:00:00".into()))
+        );
         // Compact clocks with a zone aren't read as 1030 hours.
         assert!(param(&Cell::Text("20240101T1030Z".into()), TypeId::SECONDDATE).is_err());
         // Out of HANA's years after the move.
-        assert!(param(&Cell::Text("0001-01-01 00:30:00+01:00".into()), TypeId::SECONDDATE).is_err());
-        assert!(param(&Cell::Text("9999-12-31 23:30:00-01:00".into()), TypeId::SECONDDATE).is_err());
+        assert!(param(
+            &Cell::Text("0001-01-01 00:30:00+01:00".into()),
+            TypeId::SECONDDATE
+        )
+        .is_err());
+        assert!(param(
+            &Cell::Text("9999-12-31 23:30:00-01:00".into()),
+            TypeId::SECONDDATE
+        )
+        .is_err());
     }
 
     /// Round 4: a DECIMAL(p,s) described as DECIMAL (servers without FIXED
@@ -2028,14 +2909,33 @@ mod tests {
     #[test]
     fn fixed_decimals_described_as_decimal_are_checked() {
         let s = fixed(TypeId::DECIMAL, 10, 2);
-        assert!(param(&Cell::Decimal("1.239".into()), s).unwrap_err().contains("DECIMAL(10,2)"));
-        assert!(param(&Cell::Decimal("123456789.99".into()), s).unwrap_err().contains("no entra"));
-        assert_eq!(param(&Cell::Decimal("12345678.9900".into()), s), Ok(Param::Decimal("12345678.9900".into())));
+        assert!(param(&Cell::Decimal("1.239".into()), s)
+            .unwrap_err()
+            .contains("DECIMAL(10,2)"));
+        assert!(param(&Cell::Decimal("123456789.99".into()), s)
+            .unwrap_err()
+            .contains("no entra"));
+        assert_eq!(
+            param(&Cell::Decimal("12345678.9900".into()), s),
+            Ok(Param::Decimal("12345678.9900".into()))
+        );
         assert!(param(&Cell::Decimal("0.5".into()), fixed(TypeId::DECIMAL, 5, 0)).is_err());
-        assert!(param(&Cell::Decimal("1".repeat(39)), fixed(TypeId::DECIMAL, 38, 0)).is_err());
+        assert!(param(
+            &Cell::Decimal("1".repeat(39)),
+            fixed(TypeId::DECIMAL, 38, 0)
+        )
+        .is_err());
         // Floating DECIMAL and SMALLDECIMAL keep the significant-digit rule.
-        assert!(param(&Cell::Decimal("1.239".into()), fixed(TypeId::DECIMAL, 34, 32767)).is_ok());
-        assert!(param(&Cell::Decimal("1.239".into()), fixed(TypeId::DECIMAL, 16, 32767)).is_ok());
+        assert!(param(
+            &Cell::Decimal("1.239".into()),
+            fixed(TypeId::DECIMAL, 34, 32767)
+        )
+        .is_ok());
+        assert!(param(
+            &Cell::Decimal("1.239".into()),
+            fixed(TypeId::DECIMAL, 16, 32767)
+        )
+        .is_ok());
         assert!(param(&Cell::Decimal("1.239".into()), TypeId::DECIMAL).is_ok());
     }
 
@@ -2044,39 +2944,87 @@ mod tests {
     #[test]
     fn date_names_real_max_and_unclear_clocks() {
         // The year isn't taken for a time of day.
-        assert_eq!(param(&Cell::Text("01 Oct 2024".into()), TypeId::DAYDATE), Ok(Param::Text("01 Oct 2024".into())));
-        assert_eq!(param(&Cell::Text("Oct 01 2024".into()), TypeId::DAYDATE), Ok(Param::Text("Oct 01 2024".into())));
-        assert!(param(&Cell::Text("01 Oct 2024 10:30".into()), TypeId::DAYDATE).unwrap_err().contains("hora"));
-        assert_eq!(param(&Cell::Text("01 Oct 2024 00:00:00".into()), TypeId::DAYDATE), Ok(Param::Text("01 Oct 2024".into())));
+        assert_eq!(
+            param(&Cell::Text("01 Oct 2024".into()), TypeId::DAYDATE),
+            Ok(Param::Text("01 Oct 2024".into()))
+        );
+        assert_eq!(
+            param(&Cell::Text("Oct 01 2024".into()), TypeId::DAYDATE),
+            Ok(Param::Text("Oct 01 2024".into()))
+        );
+        assert!(
+            param(&Cell::Text("01 Oct 2024 10:30".into()), TypeId::DAYDATE)
+                .unwrap_err()
+                .contains("hora")
+        );
+        assert_eq!(
+            param(&Cell::Text("01 Oct 2024 00:00:00".into()), TypeId::DAYDATE),
+            Ok(Param::Text("01 Oct 2024".into()))
+        );
         // The REAL's largest and smallest normal values, and 7 digits that read back.
-        assert_eq!(param(&Cell::Text("3.4028235e38".into()), TypeId::REAL), Ok(Param::Real(f32::MAX)));
-        assert_eq!(param(&Cell::Text("-3.4028235e38".into()), TypeId::REAL), Ok(Param::Real(f32::MIN)));
-        assert_eq!(param(&Cell::Text("1.1754944e-38".into()), TypeId::REAL), Ok(Param::Real(f32::MIN_POSITIVE)));
-        assert_eq!(param(&Cell::Text("0.1234567".into()), TypeId::REAL), Ok(Param::Real(0.1234567)));
+        assert_eq!(
+            param(&Cell::Text("3.4028235e38".into()), TypeId::REAL),
+            Ok(Param::Real(f32::MAX))
+        );
+        assert_eq!(
+            param(&Cell::Text("-3.4028235e38".into()), TypeId::REAL),
+            Ok(Param::Real(f32::MIN))
+        );
+        assert_eq!(
+            param(&Cell::Text("1.1754944e-38".into()), TypeId::REAL),
+            Ok(Param::Real(f32::MIN_POSITIVE))
+        );
+        assert_eq!(
+            param(&Cell::Text("0.1234567".into()), TypeId::REAL),
+            Ok(Param::Real(0.1234567))
+        );
         assert!(param(&Cell::Text("3.4028236e38".into()), TypeId::REAL).is_err());
-        assert!(param(&Cell::Text("0.123456789".into()), TypeId::REAL).unwrap_err().contains("precisión"));
+        assert!(param(&Cell::Text("0.123456789".into()), TypeId::REAL)
+            .unwrap_err()
+            .contains("precisión"));
         // AM/PM, zone names or a spaced zone: refused, not sent as is.
-        for s in ["2024-01-01 10:00:00 PM", "2024-01-01 10:00:00 UTC", "2024-01-01 10:00 am", "2024-01-01 10:00:00 +01:00"] {
+        for s in [
+            "2024-01-01 10:00:00 PM",
+            "2024-01-01 10:00:00 UTC",
+            "2024-01-01 10:00 am",
+            "2024-01-01 10:00:00 +01:00",
+        ] {
             for t in [TypeId::LONGDATE, TypeId::SECONDDATE, TypeId::DAYDATE] {
                 assert!(param(&Cell::Text(s.into()), t).is_err(), "{s} {t:?}");
             }
         }
-        assert!(param(&Cell::Text("2024-01-01 10:00:00 PM".into()), TypeId::LONGDATE).unwrap_err().contains("AM/PM"));
-        assert!(param(&Cell::Text("10:00:00 PM".into()), TypeId::SECONDTIME).unwrap_err().contains("AM/PM"));
+        assert!(param(
+            &Cell::Text("2024-01-01 10:00:00 PM".into()),
+            TypeId::LONGDATE
+        )
+        .unwrap_err()
+        .contains("AM/PM"));
+        assert!(param(&Cell::Text("10:00:00 PM".into()), TypeId::SECONDTIME)
+            .unwrap_err()
+            .contains("AM/PM"));
         assert!(param(&Cell::Text("10:00 UTC".into()), TypeId::SECONDTIME).is_err());
         assert!(param(&Cell::Time("10:00:00 PM".into()), TypeId::SECONDTIME).is_err());
-        assert_eq!(param(&Cell::Text("9:05".into()), TypeId::SECONDTIME), Ok(Param::Text("9:05".into())));
+        assert_eq!(
+            param(&Cell::Text("9:05".into()), TypeId::SECONDTIME),
+            Ok(Param::Text("9:05".into()))
+        );
     }
 
     #[test]
     fn fetch_size_follows_the_row_width() {
         // Narrow rows: the row cap.
-        assert_eq!(fetch_rows(&[wire_width(TypeId::INT, 10), wire_width(TypeId::BIGINT, 19)]), FETCH_ROWS);
+        assert_eq!(
+            fetch_rows(&[wire_width(TypeId::INT, 10), wire_width(TypeId::BIGINT, 19)]),
+            FETCH_ROWS
+        );
         // NVARCHAR(5000): about FETCH_BYTES per fetch, not 32,768 rows.
         let wide = fetch_rows(&[wire_width(TypeId::NVARCHAR, 5000)]);
         assert!(wide < 300, "{wide}");
         assert!(wide as usize * wire_width(TypeId::NVARCHAR, 5000) <= FETCH_BYTES);
         // Never zero.
-        assert_eq!(fetch_rows(&[wire_width(TypeId::VARBINARY, i16::MAX); 200]), 1);
+        assert_eq!(
+            fetch_rows(&[wire_width(TypeId::VARBINARY, i16::MAX); 200]),
+            1
+        );
     }
 }

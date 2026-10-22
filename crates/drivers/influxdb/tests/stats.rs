@@ -21,8 +21,15 @@ async fn influxdb3_row_estimates() {
         eprintln!("DBINE_TEST_INFLUXDB3_URL not set; skipping");
         return;
     };
-    let cfg = ConnectionConfig { driver: "influxdb3".into(), host: url, ..Default::default() };
-    let d = dbine_driver_influxdb::drivers().into_iter().find(|d| d.info().id == "influxdb3").unwrap();
+    let cfg = ConnectionConfig {
+        driver: "influxdb3".into(),
+        host: url,
+        ..Default::default()
+    };
+    let d = dbine_driver_influxdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "influxdb3")
+        .unwrap();
     let db = "dbine_stats";
     {
         let mut s = d.connect(&cfg, None).await.unwrap();
@@ -31,9 +38,20 @@ async fn influxdb3_row_estimates() {
     }
     let mut s = d.connect(&cfg, Some(db)).await.unwrap();
     let mut out = QueryOutcome::default();
-    let lp: Vec<String> = (0..50).map(|i| format!("cpu,h=h{} v={i} {}", i % 3, 1_700_000_000_000_000_000i64 + i)).collect();
+    let lp: Vec<String> = (0..50)
+        .map(|i| {
+            format!(
+                "cpu,h=h{} v={i} {}",
+                i % 3,
+                1_700_000_000_000_000_000i64 + i
+            )
+        })
+        .collect();
     reqwest::Client::new()
-        .post(format!("{}/api/v3/write_lp?db={db}&precision=nanosecond", cfg.host.trim_end_matches('/')))
+        .post(format!(
+            "{}/api/v3/write_lp?db={db}&precision=nanosecond",
+            cfg.host.trim_end_matches('/')
+        ))
         .body(lp.join("\n"))
         .send()
         .await
@@ -49,7 +67,12 @@ async fn influxdb3_row_estimates() {
     let got = s.row_estimates().await.unwrap();
     eprintln!("{got:?}");
     for e in &got {
-        assert!(objects.iter().any(|o| o.kind == e.object.kind && o.name == e.object.name), "{e:?} not in {objects:?}");
+        assert!(
+            objects
+                .iter()
+                .any(|o| o.kind == e.object.kind && o.name == e.object.name),
+            "{e:?} not in {objects:?}"
+        );
     }
     assert!(s.object_comments().await.unwrap().is_empty());
 

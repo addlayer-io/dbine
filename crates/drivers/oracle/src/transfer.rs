@@ -60,7 +60,10 @@
 //!   (timestamps, binaries, doubles…) keep their types.
 
 use super::{err, join_err, panic_text, poisoned, quote, OracleSession};
-use dbine_driver::transfer::{BatchBuilder, BatchSink, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSink, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress,
+    ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{Error, Result, Session};
 use oracledb::{Connection, DbType, Metadata, OracleNumber, OracleTimestamp, Row, ToDbValue};
 use std::sync::atomic::Ordering;
@@ -141,12 +144,18 @@ fn read_kind(m: &Metadata, native: bool) -> Read {
 fn read_expr(m: &Metadata, native: bool) -> String {
     let q = quote(m.name());
     match m.db_type().name() {
-        "DB_TYPE_TIMESTAMP_LTZ" => format!("SYS_EXTRACT_UTC(CAST({q} AS TIMESTAMP WITH TIME ZONE)) AS {q}"),
+        "DB_TYPE_TIMESTAMP_LTZ" => {
+            format!("SYS_EXTRACT_UTC(CAST({q} AS TIMESTAMP WITH TIME ZONE)) AS {q}")
+        }
         // As text: the client hands WITH TIME ZONE values over with their UTC
         // clock and the offset (not the local clock), and panics on the ones
         // with a region. `SYYYY`: the sign keeps BC years.
-        "DB_TYPE_TIMESTAMP_TZ" if native => format!("TO_CHAR({q}, 'SYYYY-MM-DD HH24:MI:SS.FF9 TZR TZD') AS {q}"),
-        "DB_TYPE_TIMESTAMP_TZ" => format!("TO_CHAR({q}, 'SYYYY-MM-DD HH24:MI:SS.FF9TZH:TZM') AS {q}"),
+        "DB_TYPE_TIMESTAMP_TZ" if native => {
+            format!("TO_CHAR({q}, 'SYYYY-MM-DD HH24:MI:SS.FF9 TZR TZD') AS {q}")
+        }
+        "DB_TYPE_TIMESTAMP_TZ" => {
+            format!("TO_CHAR({q}, 'SYYYY-MM-DD HH24:MI:SS.FF9TZH:TZM') AS {q}")
+        }
         // Serialized by the server: numbers exact and members in order (the
         // client's decoding keeps objects in a hash map); in a native copy,
         // extended scalars as Oracle's extended JSON.
@@ -157,11 +166,20 @@ fn read_expr(m: &Metadata, native: bool) -> String {
     }
 }
 
-pub(crate) async fn read_batches(s: &mut OracleSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut OracleSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     read_with(s, spec, sink, false).await
 }
 
-async fn read_with(s: &mut OracleSession, spec: &ReadSpec, sink: BatchSinkRef, native: bool) -> Result<u64> {
+async fn read_with(
+    s: &mut OracleSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+    native: bool,
+) -> Result<u64> {
     let (owner, name) = (s.owner(&spec.table), spec.table.name.clone());
     let table = format!("{}.{}", quote(&owner), quote(&name));
     let cols = match &spec.columns {
@@ -198,9 +216,21 @@ fn lob_columns(c: &Connection, owner: &str, table: &str) -> Result<Vec<String>> 
     Ok(out)
 }
 
-fn read(c: &Connection, table: &str, cols: &str, lobs: &[String], filter: Option<&str>, sink: &BatchSinkRef, native: bool) -> Result<u64> {
+fn read(
+    c: &Connection,
+    table: &str,
+    cols: &str,
+    lobs: &[String],
+    filter: Option<&str>,
+    sink: &BatchSinkRef,
+    native: bool,
+) -> Result<u64> {
     // Described first: the select list depends on the types.
-    let meta: Vec<Metadata> = c.query(&format!("SELECT {cols} FROM {table} WHERE 1 = 0"), &[]).map_err(err)?.columns().to_vec();
+    let meta: Vec<Metadata> = c
+        .query(&format!("SELECT {cols} FROM {table} WHERE 1 = 0"), &[])
+        .map_err(err)?
+        .columns()
+        .to_vec();
     let kinds: Vec<Read> = meta.iter().map(|m| read_kind(m, native)).collect();
     let mut select: Vec<String> = meta.iter().map(|m| read_expr(m, native)).collect();
     // The client gives an empty LOB as NULL: a flag per LOB column, after
@@ -209,7 +239,10 @@ fn read(c: &Connection, table: &str, cols: &str, lobs: &[String], filter: Option
     for (i, m) in meta.iter().enumerate() {
         if lobs.iter().any(|l| l == m.name()) {
             flags[i] = Some(select.len());
-            select.push(format!("CASE WHEN {} IS NULL THEN 0 ELSE 1 END", quote(m.name())));
+            select.push(format!(
+                "CASE WHEN {} IS NULL THEN 0 ELSE 1 END",
+                quote(m.name())
+            ));
         }
     }
     let mut sql = format!("SELECT {} FROM {table}", select.join(", "));
@@ -222,9 +255,17 @@ fn read(c: &Connection, table: &str, cols: &str, lobs: &[String], filter: Option
         .and_then(|b| b.build())
         .map_err(err)?;
     let cursor = stmt.query(&[]).map_err(err)?;
-    let columns: Vec<TransferColumn> =
-        meta.iter().map(|m| TransferColumn { name: m.name().to_string(), type_name: m.data_type(), nullable: m.nullable() }).collect();
-    let mut sink = sink.lock().map_err(|_| Error::State("destino de lotes".into()))?;
+    let columns: Vec<TransferColumn> = meta
+        .iter()
+        .map(|m| TransferColumn {
+            name: m.name().to_string(),
+            type_name: m.data_type(),
+            nullable: m.nullable(),
+        })
+        .collect();
+    let mut sink = sink
+        .lock()
+        .map_err(|_| Error::State("destino de lotes".into()))?;
     sink.begin(&columns)?;
     let mut builder = BatchBuilder::new();
     for row in cursor {
@@ -234,7 +275,11 @@ fn read(c: &Connection, table: &str, cols: &str, lobs: &[String], filter: Option
             let mut cell = read_cell(&mut row, i, *k).map_err(err)?;
             if let (Cell::Null, Some(f)) = (&cell, flags[i]) {
                 if row.get::<Option<i64>>(f).map_err(err)? == Some(1) {
-                    cell = if *k == Read::Bytes { Cell::Bytes(Vec::new()) } else { Cell::Text(String::new()) };
+                    cell = if *k == Read::Bytes {
+                        Cell::Bytes(Vec::new())
+                    } else {
+                        Cell::Text(String::new())
+                    };
                 }
             }
             cells.push(cell);
@@ -254,21 +299,37 @@ fn read_cell(row: &mut Row, i: usize, k: Read) -> std::result::Result<Cell, orac
             let s = n.to_string();
             s.parse::<i64>().map(Cell::Int).unwrap_or(Cell::Decimal(s))
         }),
-        Read::Decimal => opt(row.get::<Option<OracleNumber>>(i)?, |n| Cell::Decimal(n.to_string())),
+        Read::Decimal => opt(row.get::<Option<OracleNumber>>(i)?, |n| {
+            Cell::Decimal(n.to_string())
+        }),
         Read::F32 => opt(row.get::<Option<f32>>(i)?, |v| Cell::Float(v as f64)),
         Read::F64 => opt(row.get::<Option<f64>>(i)?, Cell::Float),
         Read::Bool => opt(row.get::<Option<bool>>(i)?, Cell::Bool),
-        Read::Date => opt(row.get::<Option<OracleTimestamp>>(i)?, |t| ts_cell(&t, false, false)),
-        Read::Timestamp => opt(row.get::<Option<OracleTimestamp>>(i)?, |t| ts_cell(&t, true, false)),
-        Read::TimestampUtc => opt(row.get::<Option<OracleTimestamp>>(i)?, |t| ts_cell(&t, true, true)),
+        Read::Date => opt(row.get::<Option<OracleTimestamp>>(i)?, |t| {
+            ts_cell(&t, false, false)
+        }),
+        Read::Timestamp => opt(row.get::<Option<OracleTimestamp>>(i)?, |t| {
+            ts_cell(&t, true, false)
+        }),
+        Read::TimestampUtc => opt(row.get::<Option<OracleTimestamp>>(i)?, |t| {
+            ts_cell(&t, true, true)
+        }),
         Read::TimestampTz => opt(row.take::<Option<String>>(i)?, |t| tz_cell(&t)),
-        Read::TimestampTzRegion => opt(row.take::<Option<String>>(i)?, |t| Cell::Text(t.trim().to_string())),
+        Read::TimestampTzRegion => opt(row.take::<Option<String>>(i)?, |t| {
+            Cell::Text(t.trim().to_string())
+        }),
         Read::Bytes => opt(row.take::<Option<Vec<u8>>>(i)?, Cell::Bytes),
         Read::Text => opt(row.take::<Option<String>>(i)?, Cell::Text),
-        Read::IntervalDs => opt(row.get::<Option<oracledb::OracleIntervalDS>>(i)?, |v| Cell::Text(fmt_interval_ds(&v))),
-        Read::IntervalYm => opt(row.get::<Option<oracledb::OracleIntervalYM>>(i)?, |v| Cell::Text(fmt_interval_ym(&v))),
+        Read::IntervalDs => opt(row.get::<Option<oracledb::OracleIntervalDS>>(i)?, |v| {
+            Cell::Text(fmt_interval_ds(&v))
+        }),
+        Read::IntervalYm => opt(row.get::<Option<oracledb::OracleIntervalYM>>(i)?, |v| {
+            Cell::Text(fmt_interval_ym(&v))
+        }),
         Read::Json => opt(row.take::<Option<String>>(i)?, Cell::Json),
-        Read::Vector => opt(row.get::<Option<oracledb::Vector>>(i)?, |v| Cell::Text(super::vector(&v))),
+        Read::Vector => opt(row.get::<Option<oracledb::Vector>>(i)?, |v| {
+            Cell::Text(super::vector(&v))
+        }),
     })
 }
 
@@ -319,8 +380,12 @@ fn fmt_ts(t: &OracleTimestamp, fraction: bool) -> String {
 /// `YYYY-MM-DD HH:MM:SS.fffffffff±HH:MM` with the fraction's trailing
 /// zeros (and a bare point) removed.
 fn trim_fraction(s: &str) -> String {
-    let Some(dot) = s.find('.') else { return s.to_string() };
-    let end = s[dot + 1..].find(|c: char| !c.is_ascii_digit()).map_or(s.len(), |i| dot + 1 + i);
+    let Some(dot) = s.find('.') else {
+        return s.to_string();
+    };
+    let end = s[dot + 1..]
+        .find(|c: char| !c.is_ascii_digit())
+        .map_or(s.len(), |i| dot + 1 + i);
     let frac = s[dot + 1..end].trim_end_matches('0');
     if frac.is_empty() {
         format!("{}{}", &s[..dot], &s[end..])
@@ -331,7 +396,8 @@ fn trim_fraction(s: &str) -> String {
 
 /// Oracle's own form, which `TO_DSINTERVAL` reads back: `+D HH:MM:SS.fffffffff`.
 fn fmt_interval_ds(v: &oracledb::OracleIntervalDS) -> String {
-    let neg = v.days() < 0 || v.hours() < 0 || v.minutes() < 0 || v.seconds() < 0 || v.nanoseconds() < 0;
+    let neg =
+        v.days() < 0 || v.hours() < 0 || v.minutes() < 0 || v.seconds() < 0 || v.nanoseconds() < 0;
     format!(
         "{}{} {:02}:{:02}:{:02}.{:09}",
         if neg { '-' } else { '+' },
@@ -346,7 +412,12 @@ fn fmt_interval_ds(v: &oracledb::OracleIntervalDS) -> String {
 /// `+Y-M`, as `TO_YMINTERVAL` reads it.
 fn fmt_interval_ym(v: &oracledb::OracleIntervalYM) -> String {
     let neg = v.years() < 0 || v.months() < 0;
-    format!("{}{}-{}", if neg { '-' } else { '+' }, v.years().unsigned_abs(), v.months().unsigned_abs())
+    format!(
+        "{}{}-{}",
+        if neg { '-' } else { '+' },
+        v.years().unsigned_abs(),
+        v.months().unsigned_abs()
+    )
 }
 
 // ---------------------------------------------------------------- loading
@@ -403,7 +474,12 @@ impl Kind {
             Kind::Raw => oracledb::DB_TYPE_RAW,
             Kind::Timestamp => oracledb::DB_TYPE_TIMESTAMP,
             Kind::Bool => oracledb::DB_TYPE_BOOLEAN,
-            Kind::Number | Kind::Text | Kind::TimestampTz | Kind::IntervalDs | Kind::IntervalYm | Kind::Json => oracledb::DB_TYPE_VARCHAR,
+            Kind::Number
+            | Kind::Text
+            | Kind::TimestampTz
+            | Kind::IntervalDs
+            | Kind::IntervalYm
+            | Kind::Json => oracledb::DB_TYPE_VARCHAR,
         }
     }
 
@@ -479,7 +555,9 @@ fn raw_text(source_type: &str) -> RawText {
     if t.trim().is_empty() {
         return RawText::Unknown;
     }
-    const BINARY: [&str; 9] = ["binary", "blob", "bytea", "raw", "bytes", "image", "objectid", "bindata", "uuid"];
+    const BINARY: [&str; 9] = [
+        "binary", "blob", "bytea", "raw", "bytes", "image", "objectid", "bindata", "uuid",
+    ];
     if BINARY.iter().any(|b| t.contains(b)) {
         RawText::Hex
     } else {
@@ -515,13 +593,31 @@ struct Plan {
 impl Plan {
     fn insert_sql(&self) -> String {
         let names: Vec<String> = self.cols.iter().map(|c| quote(&c.name)).collect();
-        let values: Vec<String> = self.cols.iter().enumerate().map(|(i, c)| c.kind.expr(&format!(":{}", i + 1), self.native)).collect();
-        let hint = if self.direct { "/*+ APPEND_VALUES */ " } else { "" };
-        format!("INSERT {hint}INTO {} ({}) VALUES ({})", self.table, names.join(", "), values.join(", "))
+        let values: Vec<String> = self
+            .cols
+            .iter()
+            .enumerate()
+            .map(|(i, c)| c.kind.expr(&format!(":{}", i + 1), self.native))
+            .collect();
+        let hint = if self.direct {
+            "/*+ APPEND_VALUES */ "
+        } else {
+            ""
+        };
+        format!(
+            "INSERT {hint}INTO {} ({}) VALUES ({})",
+            self.table,
+            names.join(", "),
+            values.join(", ")
+        )
     }
 
     fn array_rows(&self) -> usize {
-        let cap = if self.direct { DIRECT_ARRAY_ROWS } else { ARRAY_ROWS };
+        let cap = if self.direct {
+            DIRECT_ARRAY_ROWS
+        } else {
+            ARRAY_ROWS
+        };
         cap.min(self.commit_rows.max(1) as usize)
     }
 }
@@ -529,7 +625,14 @@ impl Plan {
 /// The target's columns and identities, checked against the load.
 /// `source_types`: the source columns' types, in the batches' order
 /// (empty when unknown).
-fn plan(c: &Connection, owner: &str, table: &str, spec: &LoadSpec, source_types: &[String], native: bool) -> Result<Plan> {
+fn plan(
+    c: &Connection,
+    owner: &str,
+    table: &str,
+    spec: &LoadSpec,
+    source_types: &[String],
+    native: bool,
+) -> Result<Plan> {
     let (o, t) = (owner.to_string(), table.to_string());
     let mut types = std::collections::HashMap::new();
     for row in c
@@ -541,7 +644,9 @@ fn plan(c: &Connection, owner: &str, table: &str, spec: &LoadSpec, source_types:
         types.insert(name, ty.unwrap_or_default());
     }
     if types.is_empty() {
-        return Err(Error::Query(format!("No existe la tabla {owner}.{table} o no se tiene acceso.")));
+        return Err(Error::Query(format!(
+            "No existe la tabla {owner}.{table} o no se tiene acceso."
+        )));
     }
     let mut identity = std::collections::HashMap::new();
     for row in c
@@ -556,7 +661,9 @@ fn plan(c: &Connection, owner: &str, table: &str, spec: &LoadSpec, source_types:
     let mut lobs = false;
     for (index, name) in spec.columns.iter().enumerate() {
         let Some(ty) = types.get(name) else {
-            return Err(Error::Query(format!("La tabla {owner}.{table} no tiene la columna {name}.")));
+            return Err(Error::Query(format!(
+                "La tabla {owner}.{table} no tiene la columna {name}."
+            )));
         };
         if let Some(gen) = identity.get(name) {
             if !spec.keep_identity {
@@ -571,24 +678,33 @@ fn plan(c: &Connection, owner: &str, table: &str, spec: &LoadSpec, source_types:
             }
         }
         let upper = ty.to_ascii_uppercase();
-        lobs |= matches!(upper.as_str(), "CLOB" | "NCLOB" | "BLOB" | "JSON" | "XMLTYPE" | "LONG" | "LONG RAW");
+        lobs |= matches!(
+            upper.as_str(),
+            "CLOB" | "NCLOB" | "BLOB" | "JSON" | "XMLTYPE" | "LONG" | "LONG RAW"
+        );
         cols.push(Col {
             name: name.clone(),
             kind: kind_of(ty),
             index,
             lob: matches!(upper.as_str(), "CLOB" | "NCLOB" | "BLOB"),
-            raw_text: source_types.get(index).map_or(RawText::Unknown, |t| raw_text(t)),
+            raw_text: source_types
+                .get(index)
+                .map_or(RawText::Unknown, |t| raw_text(t)),
         });
     }
     if cols.is_empty() {
         return Err(Error::Query("No hay columnas para cargar.".into()));
     }
     let nls: Option<String> = c
-        .query_row("SELECT value FROM nls_session_parameters WHERE parameter = 'NLS_NUMERIC_CHARACTERS'", &[])
+        .query_row(
+            "SELECT value FROM nls_session_parameters WHERE parameter = 'NLS_NUMERIC_CHARACTERS'",
+            &[],
+        )
         .and_then(|r| r.get(0))
         .map_err(err)?;
     if nls.as_deref() != Some(".,") {
-        c.execute("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'", &[]).map_err(err)?;
+        c.execute("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'", &[])
+            .map_err(err)?;
     }
     Ok(Plan {
         table: format!("{}.{}", quote(owner), quote(table)),
@@ -645,7 +761,9 @@ async fn load_with(
     let (owner, table, spec2) = (s.owner(&spec.table), spec.table.name.clone(), spec.clone());
     let source_types: Vec<String> = columns.iter().map(|c| c.type_name.clone()).collect();
     // Through `run`: reconnects first if the interrupter killed the session.
-    let plan = s.run(move |c| plan(c, &owner, &table, &spec2, &source_types, native)).await?;
+    let plan = s
+        .run(move |c| plan(c, &owner, &table, &spec2, &source_types, native))
+        .await?;
 
     let gate = Arc::new(Gate::default());
     let _close = CloseOnDrop(gate.clone());
@@ -676,13 +794,26 @@ async fn load_with(
         };
         // A panic here must not leave the connection's lock poisoned nor
         // the transaction open.
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| load(&conn, &plan, next, &ptx, &worker_gate)))
-            .unwrap_or_else(|p| Err(Error::State(format!("la carga en Oracle falló inesperadamente: {}", panic_text(&*p)))));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            load(&conn, &plan, next, &ptx, &worker_gate)
+        }))
+        .unwrap_or_else(|p| {
+            Err(Error::State(format!(
+                "la carga en Oracle falló inesperadamente: {}",
+                panic_text(&*p)
+            )))
+        });
         if r.is_err() {
             let _ = conn.rollback();
         }
         if let Some(v) = &plan.nls {
-            let _ = conn.execute(&format!("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '{}'", v.replace('\'', "''")), &[]);
+            let _ = conn.execute(
+                &format!(
+                    "ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '{}'",
+                    v.replace('\'', "''")
+                ),
+                &[],
+            );
         }
         r
     });
@@ -747,11 +878,17 @@ fn load(
             let mut bound = Vec::with_capacity(plan.cols.len());
             for col in &plan.cols {
                 // Taken, not copied: the batch's memory becomes the binds'.
-                let cell = row.get_mut(col.index).map_or(Cell::Null, |c| std::mem::replace(c, Cell::Null));
+                let cell = row
+                    .get_mut(col.index)
+                    .map_or(Cell::Null, |c| std::mem::replace(c, Cell::Null));
                 bound.push(bind(cell, col, plan.native)?);
             }
             let bytes: usize = bound.iter().map(B::size).sum();
-            if bound.iter().zip(&plan.cols).any(|(b, col)| b.is_big(col.lob)) {
+            if bound
+                .iter()
+                .zip(&plan.cols)
+                .any(|(b, col)| b.is_big(col.lob))
+            {
                 // Direct-path rows must be committed before a conventional
                 // insert into the same table (ORA-12838).
                 if plan.direct && !pending.is_empty() {
@@ -763,21 +900,24 @@ fn load(
                 total += 1;
                 since_rows += 1;
                 since_bytes += bytes as u64;
-                if plan.direct || since_rows >= plan.commit_rows || since_bytes >= plan.commit_bytes {
+                if plan.direct || since_rows >= plan.commit_rows || since_bytes >= plan.commit_bytes
+                {
                     commit(&mut since_rows, &mut since_bytes, total)?;
                 }
                 continue;
             }
             pending.push(bound);
             pending_bytes += bytes;
-            let window_full = since_rows + pending.len() as u64 >= plan.commit_rows || since_bytes + pending_bytes as u64 >= plan.commit_bytes;
+            let window_full = since_rows + pending.len() as u64 >= plan.commit_rows
+                || since_bytes + pending_bytes as u64 >= plan.commit_bytes;
             if pending.len() >= array_rows || pending_bytes >= ARRAY_BYTES || window_full {
                 let n = execute(&mut stmt, &mut pending)?;
                 total += n;
                 since_rows += n;
                 since_bytes += pending_bytes as u64;
                 pending_bytes = 0;
-                if plan.direct || since_rows >= plan.commit_rows || since_bytes >= plan.commit_bytes {
+                if plan.direct || since_rows >= plan.commit_rows || since_bytes >= plan.commit_bytes
+                {
                     commit(&mut since_rows, &mut since_bytes, total)?;
                 }
             }
@@ -798,7 +938,10 @@ fn load(
 fn execute(stmt: &mut oracledb::Statement, pending: &mut Vec<Vec<B>>) -> Result<u64> {
     let n = pending.len() as u64;
     {
-        let rows: Vec<Vec<&dyn ToDbValue>> = pending.iter().map(|r| r.iter().map(B::as_dyn).collect()).collect();
+        let rows: Vec<Vec<&dyn ToDbValue>> = pending
+            .iter()
+            .map(|r| r.iter().map(B::as_dyn).collect())
+            .collect();
         let slices: Vec<&[&dyn ToDbValue]> = rows.iter().map(Vec::as_slice).collect();
         stmt.execute_batch(slices.as_slice().into()).map_err(err)?;
     }
@@ -830,7 +973,10 @@ fn insert_big(c: &Connection, plan: &Plan, row: Vec<B>) -> Result<()> {
                     params.push(B::S(piece.to_string()));
                     // LENGTH2: a CLOB counts UTF-16 code units, so a
                     // character outside the BMP is 2 (LENGTH says 1).
-                    body.push_str(&format!("v := :p{}; DBMS_LOB.WRITEAPPEND({l}, LENGTH2(v), v); ", params.len()));
+                    body.push_str(&format!(
+                        "v := :p{}; DBMS_LOB.WRITEAPPEND({l}, LENGTH2(v), v); ",
+                        params.len()
+                    ));
                 }
             }
             B::R(bytes) => {
@@ -838,7 +984,10 @@ fn insert_big(c: &Connection, plan: &Plan, row: Vec<B>) -> Result<()> {
                 body.push_str(&format!("DBMS_LOB.CREATETEMPORARY({l}, TRUE); "));
                 for piece in bytes.chunks(LOB_CHUNK) {
                     params.push(B::R(piece.to_vec()));
-                    body.push_str(&format!("r := :p{}; DBMS_LOB.WRITEAPPEND({l}, UTL_RAW.LENGTH(r), r); ", params.len()));
+                    body.push_str(&format!(
+                        "r := :p{}; DBMS_LOB.WRITEAPPEND({l}, UTL_RAW.LENGTH(r), r); ",
+                        params.len()
+                    ));
                 }
             }
             _ => unreachable!("only text and bytes are big"),
@@ -855,8 +1004,16 @@ fn insert_big(c: &Connection, plan: &Plan, row: Vec<B>) -> Result<()> {
     );
     // By name: the pieces' binds come before the INSERT's in the text.
     let names: Vec<String> = (1..=params.len()).map(|i| format!("P{i}")).collect();
-    let named: Vec<(&str, &dyn ToDbValue)> = names.iter().map(String::as_str).zip(params.iter().map(B::as_dyn)).collect();
-    let mut stmt = c.statement(&block).map(|b| b.exclude_from_cache()).and_then(|b| b.build()).map_err(err)?;
+    let named: Vec<(&str, &dyn ToDbValue)> = names
+        .iter()
+        .map(String::as_str)
+        .zip(params.iter().map(B::as_dyn))
+        .collect();
+    let mut stmt = c
+        .statement(&block)
+        .map(|b| b.exclude_from_cache())
+        .and_then(|b| b.build())
+        .map_err(err)?;
     stmt.execute_named(&named).map_err(err)?;
     Ok(())
 }
@@ -880,13 +1037,20 @@ fn utf8_pieces(s: &str, max: usize) -> Vec<&str> {
 fn describe(cell: &Cell) -> String {
     match cell {
         Cell::Bytes(b) => format!("{} bytes", b.len()),
-        Cell::Text(s) | Cell::Json(s) | Cell::Decimal(s) if s.len() > 60 => format!("un texto de {} caracteres", s.chars().count()),
+        Cell::Text(s) | Cell::Json(s) | Cell::Decimal(s) if s.len() > 60 => {
+            format!("un texto de {} caracteres", s.chars().count())
+        }
         other => format!("{other:?}"),
     }
 }
 
 fn bad(cell: &Cell, col: &Col) -> Error {
-    Error::Query(format!("Columna {}: no se puede convertir {} al tipo de la columna ({:?}).", col.name, describe(cell), col.kind))
+    Error::Query(format!(
+        "Columna {}: no se puede convertir {} al tipo de la columna ({:?}).",
+        col.name,
+        describe(cell),
+        col.kind
+    ))
 }
 
 /// A cell bound for its target column (taken: its text or bytes move into
@@ -914,9 +1078,11 @@ fn bind(cell: Cell, col: &Col, native: bool) -> Result<B> {
                 Cell::UInt(u) => Some(*u as f64),
                 Cell::Bool(b) => Some(*b as u8 as f64),
                 // "1e400" parses as infinity: only an explicit infinity is one.
-                Cell::Decimal(s) | Cell::Text(s) => {
-                    s.trim().parse::<f64>().ok().filter(|f| f.is_finite() || s.to_ascii_lowercase().contains("inf"))
-                }
+                Cell::Decimal(s) | Cell::Text(s) => s
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|f| f.is_finite() || s.to_ascii_lowercase().contains("inf")),
                 _ => None,
             };
             B::F(v.ok_or_else(|| bad(&cell, col))?)
@@ -937,11 +1103,15 @@ fn bind(cell: Cell, col: &Col, native: bool) -> Result<B> {
         }
         Kind::Raw => B::R(match cell {
             Cell::Bytes(b) => b,
-            Cell::Uuid(s) => hex(&s.replace('-', "")).ok_or_else(|| bad(&Cell::Uuid(s.clone()), col))?,
+            Cell::Uuid(s) => {
+                hex(&s.replace('-', "")).ok_or_else(|| bad(&Cell::Uuid(s.clone()), col))?
+            }
             Cell::Text(s) => {
                 let h = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X"));
                 match col.raw_text {
-                    RawText::Hex => hex(h.unwrap_or(&s)).ok_or_else(|| bad(&Cell::Text(s.clone()), col))?,
+                    RawText::Hex => {
+                        hex(h.unwrap_or(&s)).ok_or_else(|| bad(&Cell::Text(s.clone()), col))?
+                    }
                     RawText::Utf8 => s.into_bytes(),
                     RawText::Unknown => match h.and_then(hex) {
                         Some(b) => b,
@@ -953,19 +1123,25 @@ fn bind(cell: Cell, col: &Col, native: bool) -> Result<B> {
         }),
         Kind::Timestamp => {
             let t = match &cell {
-                Cell::Date(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Text(s) => parse_ts(s),
+                Cell::Date(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Text(s) => {
+                    parse_ts(s)
+                }
                 Cell::Time(s) => parse_ts(&format!("1970-01-01 {s}")),
                 _ => None,
             }
             .ok_or_else(|| bad(&cell, col))?;
-            B::T(OracleTimestamp::new_timestamp(t.y, t.mo, t.d, t.h, t.mi, t.s, t.ns))
+            B::T(OracleTimestamp::new_timestamp(
+                t.y, t.mo, t.d, t.h, t.mi, t.s, t.ns,
+            ))
         }
         Kind::TimestampTz => match cell {
             // The native read's own text, with its region.
             Cell::Text(s) if native => B::S(s),
-            Cell::Date(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Text(s) => {
-                B::S(parse_ts(&s).ok_or_else(|| bad(&Cell::Text(s.clone()), col))?.tz_text())
-            }
+            Cell::Date(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Text(s) => B::S(
+                parse_ts(&s)
+                    .ok_or_else(|| bad(&Cell::Text(s.clone()), col))?
+                    .tz_text(),
+            ),
             other => return Err(bad(&other, col)),
         },
         Kind::IntervalDs => B::S(match cell {
@@ -978,7 +1154,14 @@ fn bind(cell: Cell, col: &Col, native: bool) -> Result<B> {
             other => return Err(bad(&other, col)),
         }),
         Kind::Text | Kind::Json => B::S(match cell {
-            Cell::Text(s) | Cell::Json(s) | Cell::Decimal(s) | Cell::Date(s) | Cell::Time(s) | Cell::DateTime(s) | Cell::DateTimeTz(s) | Cell::Uuid(s) => s,
+            Cell::Text(s)
+            | Cell::Json(s)
+            | Cell::Decimal(s)
+            | Cell::Date(s)
+            | Cell::Time(s)
+            | Cell::DateTime(s)
+            | Cell::DateTimeTz(s)
+            | Cell::Uuid(s) => s,
             Cell::Int(i) => i.to_string(),
             Cell::UInt(u) => u.to_string(),
             Cell::Float(f) => f.to_string(),
@@ -1005,7 +1188,10 @@ fn hex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+        .collect()
 }
 
 /// A decimal number as plain digits (`1.5e-3` → `0.0015`), `None` when it
@@ -1021,7 +1207,9 @@ fn plain_decimal(s: &str) -> Option<String> {
         None => (body, 0),
     };
     let (int, frac) = mant.split_once('.').unwrap_or((mant, ""));
-    if int.is_empty() && frac.is_empty() || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+    if int.is_empty() && frac.is_empty()
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let digits = format!("{int}{frac}");
@@ -1051,10 +1239,22 @@ fn plain_decimal(s: &str) -> Option<String> {
         out.push('.');
         out.push_str(&digits[point as usize..]);
     }
-    let out = if out.contains('.') { out.trim_end_matches('0').trim_end_matches('.').to_string() } else { out };
+    let out = if out.contains('.') {
+        out.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        out
+    };
     let out = out.trim_start_matches('0');
-    let out = if out.is_empty() || out.starts_with('.') { format!("0{out}") } else { out.to_string() };
-    Some(if neg && out != "0" { format!("-{out}") } else { out })
+    let out = if out.is_empty() || out.starts_with('.') {
+        format!("0{out}")
+    } else {
+        out.to_string()
+    };
+    Some(if neg && out != "0" {
+        format!("-{out}")
+    } else {
+        out
+    })
 }
 
 /// A parsed date-time.
@@ -1100,19 +1300,38 @@ fn parse_ts(s: &str) -> Option<Ts> {
     if bc {
         s = s[..s.len() - 3].trim_end();
     }
-    let num = |t: &str| -> Option<u32> { (!t.is_empty() && t.bytes().all(|b| b.is_ascii_digit())).then(|| t.parse().ok()).flatten() };
+    let num = |t: &str| -> Option<u32> {
+        (!t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| t.parse().ok())
+            .flatten()
+    };
     let date = s.get(..10)?;
     let mut parts = date.split('-');
-    let (y, mo, d) = (num(parts.next()?)?, num(parts.next()?)?, num(parts.next()?)?);
+    let (y, mo, d) = (
+        num(parts.next()?)?,
+        num(parts.next()?)?,
+        num(parts.next()?)?,
+    );
     // Oracle's years: 4712 BC to 9999 AD, no year 0.
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || y > 9999 || y == 0 || bc && y > 4712 {
         return None;
     }
     let y = if bc { -(y as i16) } else { y as i16 };
-    let mut t = Ts { y, mo: mo as u8, d: d as u8, h: 0, mi: 0, s: 0, ns: 0, tz: None };
+    let mut t = Ts {
+        y,
+        mo: mo as u8,
+        d: d as u8,
+        h: 0,
+        mi: 0,
+        s: 0,
+        ns: 0,
+        tz: None,
+    };
     let mut rest = &s[10..];
     if let Some(r) = rest.strip_prefix([' ', 'T']) {
-        let end = r.find(|c: char| !(c.is_ascii_digit() || c == ':' || c == '.')).unwrap_or(r.len());
+        let end = r
+            .find(|c: char| !(c.is_ascii_digit() || c == ':' || c == '.'))
+            .unwrap_or(r.len());
         let (time, tail) = r.split_at(end);
         let (hms, frac) = time.split_once('.').unwrap_or((time, ""));
         let mut f = hms.split(':');
@@ -1169,7 +1388,9 @@ impl BatchSink for NativeSink {
 
     fn batch(&mut self, batch: RowBatch) -> std::io::Result<()> {
         // On the read's blocking thread: waits while the load is behind.
-        self.tx.blocking_send(Some(batch)).map_err(|_| std::io::Error::other("se detuvo la escritura en el destino"))
+        self.tx
+            .blocking_send(Some(batch))
+            .map_err(|_| std::io::Error::other("se detuvo la escritura en el destino"))
     }
 }
 
@@ -1192,16 +1413,25 @@ impl BatchSource for NativeSource {
 /// Oracle to Oracle: the read and the load above, joined by a channel of
 /// [`NATIVE_BATCHES`], with time zone regions and extended JSON kept (see
 /// the module's docs). The source only runs a `SELECT`.
-pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Session, spec: &CopySpec, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn copy_native(
+    source: &mut dyn Session,
+    target: &mut dyn Session,
+    spec: &CopySpec,
+    progress: Progress<'_>,
+) -> Result<u64> {
     let (Some(src), Some(dst)) = (oracle(source), oracle(target)) else {
-        return Err(Error::Unsupported("copia directa no disponible: las sesiones no son de Oracle".into()));
+        return Err(Error::Unsupported(
+            "copia directa no disponible: las sesiones no son de Oracle".into(),
+        ));
     };
     let (tx, rx) = tokio::sync::mpsc::channel(NATIVE_BATCHES);
     let end = tx.clone();
     let sink: BatchSinkRef = Arc::new(Mutex::new(NativeSink { tx }));
     let reader = async move {
         let n = read_with(src, &spec.source, sink, true).await?;
-        end.send(None).await.map_err(|_| Error::State("se detuvo la escritura en el destino".into()))?;
+        end.send(None)
+            .await
+            .map_err(|_| Error::State("se detuvo la escritura en el destino".into()))?;
         Ok::<_, Error>(n)
     };
     let mut from = NativeSource { rx };
@@ -1230,23 +1460,38 @@ mod tests {
     use super::*;
 
     fn col(kind: Kind) -> Col {
-        Col { name: "c".into(), kind, index: 0, lob: false, raw_text: RawText::Unknown }
+        Col {
+            name: "c".into(),
+            kind,
+            index: 0,
+            lob: false,
+            raw_text: RawText::Unknown,
+        }
     }
 
     #[test]
     fn decimals_become_plain_digits() {
         assert_eq!(plain_decimal("1.5e-3").as_deref(), Some("0.0015"));
-        assert_eq!(plain_decimal("1e20").as_deref(), Some("100000000000000000000"));
+        assert_eq!(
+            plain_decimal("1e20").as_deref(),
+            Some("100000000000000000000")
+        );
         assert_eq!(plain_decimal("-12.3400").as_deref(), Some("-12.34"));
         assert_eq!(plain_decimal("0.000").as_deref(), Some("0"));
         assert_eq!(plain_decimal("-0").as_deref(), Some("0"));
         assert_eq!(plain_decimal("007").as_deref(), Some("7"));
         assert_eq!(plain_decimal(".5").as_deref(), Some("0.5"));
         assert_eq!(plain_decimal("0.0012e3").as_deref(), Some("1.2"));
-        assert_eq!(plain_decimal("12345678901234567890.123456789").as_deref(), Some("12345678901234567890.123456789"));
+        assert_eq!(
+            plain_decimal("12345678901234567890.123456789").as_deref(),
+            Some("12345678901234567890.123456789")
+        );
         assert_eq!(plain_decimal("abc"), None);
         assert_eq!(plain_decimal(""), None);
-        assert_eq!(plain_decimal(&format!("{:e}", 0.1f64)).as_deref(), Some("0.1"));
+        assert_eq!(
+            plain_decimal(&format!("{:e}", 0.1f64)).as_deref(),
+            Some("0.1")
+        );
     }
 
     #[test]
@@ -1269,10 +1514,16 @@ mod tests {
     #[test]
     fn date_times_parse_with_and_without_zone() {
         let t = parse_ts("2024-01-31 13:45:07.1234").unwrap();
-        assert_eq!((t.y, t.mo, t.d, t.h, t.mi, t.s, t.ns, t.tz), (2024, 1, 31, 13, 45, 7, 123_400_000, None));
+        assert_eq!(
+            (t.y, t.mo, t.d, t.h, t.mi, t.s, t.ns, t.tz),
+            (2024, 1, 31, 13, 45, 7, 123_400_000, None)
+        );
         assert_eq!(parse_ts("2024-01-31").unwrap().h, 0);
         assert_eq!(parse_ts("2024-01-31T01:02:03Z").unwrap().tz, Some(0));
-        assert_eq!(parse_ts("2024-01-31 01:02:03-03:00").unwrap().tz, Some(-180));
+        assert_eq!(
+            parse_ts("2024-01-31 01:02:03-03:00").unwrap().tz,
+            Some(-180)
+        );
         assert_eq!(parse_ts("2024-01-31 01:02:03 +0530").unwrap().tz, Some(330));
         assert_eq!(parse_ts("2024-01-31 01:02").unwrap().mi, 2);
         assert_eq!(parse_ts("2024-13-01"), None);
@@ -1281,25 +1532,52 @@ mod tests {
             parse_ts("2024-01-31 01:02:03.5-03:00").unwrap().tz_text(),
             "2024-01-31 01:02:03.500000000 -03:00"
         );
-        assert_eq!(parse_ts("2024-01-31 01:02:03").unwrap().tz_text(), "2024-01-31 01:02:03.000000000 +00:00");
+        assert_eq!(
+            parse_ts("2024-01-31 01:02:03").unwrap().tz_text(),
+            "2024-01-31 01:02:03.000000000 +00:00"
+        );
     }
 
     #[test]
     fn bc_dates_round_trip_as_text() {
         let t = OracleTimestamp::new_timestamp(-44, 3, 15, 12, 0, 0, 500_000_000);
-        assert_eq!(ts_cell(&t, true, false), Cell::Text("0044-03-15 12:00:00.5 BC".into()));
-        assert_eq!(ts_cell(&t, true, true), Cell::Text("0044-03-15 12:00:00.5+00:00 BC".into()));
+        assert_eq!(
+            ts_cell(&t, true, false),
+            Cell::Text("0044-03-15 12:00:00.5 BC".into())
+        );
+        assert_eq!(
+            ts_cell(&t, true, true),
+            Cell::Text("0044-03-15 12:00:00.5+00:00 BC".into())
+        );
         let t = OracleTimestamp::new_timestamp(2024, 1, 31, 0, 0, 0, 0);
-        assert_eq!(ts_cell(&t, false, false), Cell::DateTime("2024-01-31 00:00:00".into()));
-        assert_eq!(tz_cell("-0044-03-15 12:00:00.000000000+01:00"), Cell::Text("0044-03-15 12:00:00+01:00 BC".into()));
-        assert_eq!(tz_cell(" 2024-01-31 13:45:07.500000000-03:00"), Cell::DateTimeTz("2024-01-31 13:45:07.5-03:00".into()));
+        assert_eq!(
+            ts_cell(&t, false, false),
+            Cell::DateTime("2024-01-31 00:00:00".into())
+        );
+        assert_eq!(
+            tz_cell("-0044-03-15 12:00:00.000000000+01:00"),
+            Cell::Text("0044-03-15 12:00:00+01:00 BC".into())
+        );
+        assert_eq!(
+            tz_cell(" 2024-01-31 13:45:07.500000000-03:00"),
+            Cell::DateTimeTz("2024-01-31 13:45:07.5-03:00".into())
+        );
         let p = parse_ts("0044-03-15 12:00:00 BC").unwrap();
         assert_eq!((p.y, p.mo, p.d, p.h), (-44, 3, 15, 12));
-        assert_eq!(parse_ts("0044-03-15 12:00:00+01:00 BC").unwrap().tz_text(), "-0044-03-15 12:00:00.000000000 +01:00");
+        assert_eq!(
+            parse_ts("0044-03-15 12:00:00+01:00 BC").unwrap().tz_text(),
+            "-0044-03-15 12:00:00.000000000 +01:00"
+        );
         assert_eq!(parse_ts("0044-03-15 bc").unwrap().y, -44);
         assert_eq!(parse_ts("0000-01-01"), None);
         assert_eq!(parse_ts("4713-01-01 BC"), None);
-        match bind(Cell::Text("0044-03-15 12:00:00 BC".into()), &col(Kind::Timestamp), false).unwrap() {
+        match bind(
+            Cell::Text("0044-03-15 12:00:00 BC".into()),
+            &col(Kind::Timestamp),
+            false,
+        )
+        .unwrap()
+        {
             B::T(t) => assert_eq!((t.year(), t.month(), t.day(), t.hour()), (-44, 3, 15, 12)),
             _ => panic!(),
         }
@@ -1311,13 +1589,19 @@ mod tests {
         assert_eq!(kind_of("BINARY_FLOAT"), Kind::Double);
         assert_eq!(kind_of("TIMESTAMP(6)"), Kind::Timestamp);
         assert_eq!(kind_of("TIMESTAMP(6) WITH TIME ZONE"), Kind::TimestampTz);
-        assert_eq!(kind_of("TIMESTAMP(9) WITH LOCAL TIME ZONE"), Kind::TimestampTz);
+        assert_eq!(
+            kind_of("TIMESTAMP(9) WITH LOCAL TIME ZONE"),
+            Kind::TimestampTz
+        );
         assert_eq!(kind_of("INTERVAL DAY(2) TO SECOND(6)"), Kind::IntervalDs);
         assert_eq!(kind_of("INTERVAL YEAR(2) TO MONTH"), Kind::IntervalYm);
         assert_eq!(kind_of("BLOB"), Kind::Raw);
         assert_eq!(kind_of("NCLOB"), Kind::Text);
         assert_eq!(kind_of("DATE"), Kind::Timestamp);
-        assert_eq!(Kind::TimestampTz.expr(":3", false), "TO_TIMESTAMP_TZ(:3, 'SYYYY-MM-DD HH24:MI:SS.FF9 TZR TZD')");
+        assert_eq!(
+            Kind::TimestampTz.expr(":3", false),
+            "TO_TIMESTAMP_TZ(:3, 'SYYYY-MM-DD HH24:MI:SS.FF9 TZR TZD')"
+        );
         assert_eq!(Kind::Json.expr(":1", false), ":1");
         assert_eq!(Kind::Json.expr(":1", true), "JSON(:1 EXTENDED)");
     }
@@ -1330,42 +1614,96 @@ mod tests {
         };
         assert_eq!(n(Cell::Int(-5)), "-5");
         assert_eq!(n(Cell::UInt(u64::MAX)), u64::MAX.to_string());
-        assert_eq!(n(Cell::Decimal("123456789012345678901234567890.25".into())), "123456789012345678901234567890.25");
+        assert_eq!(
+            n(Cell::Decimal("123456789012345678901234567890.25".into())),
+            "123456789012345678901234567890.25"
+        );
         assert_eq!(n(Cell::Float(0.1)), "0.1");
         assert_eq!(n(Cell::Bool(true)), "1");
         assert!(bind(Cell::Text("x".into()), &col(Kind::Number), false).is_err());
         assert!(bind(Cell::Text("1e400".into()), &col(Kind::Double), false).is_err());
-        assert!(matches!(bind(Cell::Null, &col(Kind::Raw), false).unwrap(), B::Null(t) if t == oracledb::DB_TYPE_RAW));
-        assert!(matches!(bind(Cell::Uuid("00112233-4455-6677-8899-aabbccddeeff".into()), &col(Kind::Raw), false).unwrap(), B::R(r) if r.len() == 16));
-        assert!(matches!(bind(Cell::Text("0xABCD".into()), &col(Kind::Raw), false).unwrap(), B::R(r) if r == vec![0xAB, 0xCD]));
-        assert!(matches!(bind(Cell::Bytes(vec![1, 255]), &col(Kind::Text), false).unwrap(), B::S(s) if s == "01FF"));
-        match bind(Cell::DateTime("2024-02-29 23:59:58.000001".into()), &col(Kind::Timestamp), false).unwrap() {
+        assert!(
+            matches!(bind(Cell::Null, &col(Kind::Raw), false).unwrap(), B::Null(t) if t == oracledb::DB_TYPE_RAW)
+        );
+        assert!(
+            matches!(bind(Cell::Uuid("00112233-4455-6677-8899-aabbccddeeff".into()), &col(Kind::Raw), false).unwrap(), B::R(r) if r.len() == 16)
+        );
+        assert!(
+            matches!(bind(Cell::Text("0xABCD".into()), &col(Kind::Raw), false).unwrap(), B::R(r) if r == vec![0xAB, 0xCD])
+        );
+        assert!(
+            matches!(bind(Cell::Bytes(vec![1, 255]), &col(Kind::Text), false).unwrap(), B::S(s) if s == "01FF")
+        );
+        match bind(
+            Cell::DateTime("2024-02-29 23:59:58.000001".into()),
+            &col(Kind::Timestamp),
+            false,
+        )
+        .unwrap()
+        {
             B::T(t) => assert_eq!(fmt_ts(&t, true), "2024-02-29 23:59:58.000001"),
             _ => panic!(),
         }
-        assert!(matches!(bind(Cell::DateTimeTz("2024-02-29 23:59:58+02:00".into()), &col(Kind::TimestampTz), false).unwrap(),
-            B::S(s) if s == "2024-02-29 23:59:58.000000000 +02:00"));
+        assert!(
+            matches!(bind(Cell::DateTimeTz("2024-02-29 23:59:58+02:00".into()), &col(Kind::TimestampTz), false).unwrap(),
+            B::S(s) if s == "2024-02-29 23:59:58.000000000 +02:00")
+        );
         // A native copy's text keeps its region.
-        assert!(matches!(bind(Cell::Text("2024-07-01 10:00:00.5 EUROPE/MADRID CEST".into()), &col(Kind::TimestampTz), true).unwrap(),
-            B::S(s) if s == "2024-07-01 10:00:00.5 EUROPE/MADRID CEST"));
-        assert!(bind(Cell::Text("2024-07-01 10:00:00.5 EUROPE/MADRID CEST".into()), &col(Kind::TimestampTz), false).is_err());
-        assert!(matches!(bind(Cell::Time("01:02:03".into()), &col(Kind::IntervalDs), false).unwrap(), B::S(s) if s == "+0 01:02:03"));
-        assert!(bind(Cell::Text("x".repeat(LOB_INLINE + 1)), &col(Kind::Text), false).unwrap().is_big(false));
-        assert!(!bind(Cell::Text("x".repeat(LOB_INLINE)), &col(Kind::Text), false).unwrap().is_big(false));
+        assert!(
+            matches!(bind(Cell::Text("2024-07-01 10:00:00.5 EUROPE/MADRID CEST".into()), &col(Kind::TimestampTz), true).unwrap(),
+            B::S(s) if s == "2024-07-01 10:00:00.5 EUROPE/MADRID CEST")
+        );
+        assert!(bind(
+            Cell::Text("2024-07-01 10:00:00.5 EUROPE/MADRID CEST".into()),
+            &col(Kind::TimestampTz),
+            false
+        )
+        .is_err());
+        assert!(
+            matches!(bind(Cell::Time("01:02:03".into()), &col(Kind::IntervalDs), false).unwrap(), B::S(s) if s == "+0 01:02:03")
+        );
+        assert!(bind(
+            Cell::Text("x".repeat(LOB_INLINE + 1)),
+            &col(Kind::Text),
+            false
+        )
+        .unwrap()
+        .is_big(false));
+        assert!(
+            !bind(Cell::Text("x".repeat(LOB_INLINE)), &col(Kind::Text), false)
+                .unwrap()
+                .is_big(false)
+        );
     }
 
     #[test]
     fn text_into_raw_follows_the_source_type() {
-        let raw = |t: RawText, s: &str| match bind(Cell::Text(s.into()), &Col { raw_text: t, ..col(Kind::Raw) }, false) {
+        let raw = |t: RawText, s: &str| match bind(
+            Cell::Text(s.into()),
+            &Col {
+                raw_text: t,
+                ..col(Kind::Raw)
+            },
+            false,
+        ) {
             Ok(B::R(r)) => Some(r),
             _ => None,
         };
         // Text is its bytes, whatever it looks like.
-        assert_eq!(raw(raw_text("VARCHAR2(10)"), "cafe"), Some(b"cafe".to_vec()));
+        assert_eq!(
+            raw(raw_text("VARCHAR2(10)"), "cafe"),
+            Some(b"cafe".to_vec())
+        );
         assert_eq!(raw(raw_text("text"), "0xcafe"), Some(b"0xcafe".to_vec()));
         // Binary sources (an ObjectId too) are hex, or an error.
-        assert_eq!(raw(raw_text("objectId"), "65a1b2c3d4e5f60718293a4b").map(|r| r.len()), Some(12));
-        assert_eq!(raw(raw_text("varbinary(16)"), "0xCAFE"), Some(vec![0xCA, 0xFE]));
+        assert_eq!(
+            raw(raw_text("objectId"), "65a1b2c3d4e5f60718293a4b").map(|r| r.len()),
+            Some(12)
+        );
+        assert_eq!(
+            raw(raw_text("varbinary(16)"), "0xCAFE"),
+            Some(vec![0xCA, 0xFE])
+        );
         assert_eq!(raw(raw_text("bytea"), "hola"), None);
         // Unknown: only 0x… is hex.
         assert_eq!(raw(RawText::Unknown, "cafe"), Some(b"cafe".to_vec()));
@@ -1375,21 +1713,46 @@ mod tests {
 
     #[test]
     fn empty_values_are_refused_except_in_lobs() {
-        for (kind, cell) in [(Kind::Text, Cell::Text(String::new())), (Kind::Raw, Cell::Bytes(vec![])), (Kind::Text, Cell::Bytes(vec![]))] {
+        for (kind, cell) in [
+            (Kind::Text, Cell::Text(String::new())),
+            (Kind::Raw, Cell::Bytes(vec![])),
+            (Kind::Text, Cell::Bytes(vec![])),
+        ] {
             let e = bind(cell, &col(kind), false).err().expect("refused");
-            assert!(matches!(&e, Error::Unsupported(m) if m.contains("NULL")), "{e}");
+            assert!(
+                matches!(&e, Error::Unsupported(m) if m.contains("NULL")),
+                "{e}"
+            );
         }
-        let lob = |kind| Col { lob: true, ..col(kind) };
-        assert!(bind(Cell::Text(String::new()), &lob(Kind::Text), false).unwrap().is_big(true));
-        assert!(bind(Cell::Bytes(vec![]), &lob(Kind::Raw), false).unwrap().is_big(true));
-        assert!(!bind(Cell::Text("a".into()), &lob(Kind::Text), false).unwrap().is_big(true));
+        let lob = |kind| Col {
+            lob: true,
+            ..col(kind)
+        };
+        assert!(bind(Cell::Text(String::new()), &lob(Kind::Text), false)
+            .unwrap()
+            .is_big(true));
+        assert!(bind(Cell::Bytes(vec![]), &lob(Kind::Raw), false)
+            .unwrap()
+            .is_big(true));
+        assert!(!bind(Cell::Text("a".into()), &lob(Kind::Text), false)
+            .unwrap()
+            .is_big(true));
     }
 
     #[test]
     fn fractions_are_trimmed() {
-        assert_eq!(trim_fraction("2024-01-31 13:45:07.500000000-03:00"), "2024-01-31 13:45:07.5-03:00");
-        assert_eq!(trim_fraction("2024-01-31 13:45:07.000000000+00:00"), "2024-01-31 13:45:07+00:00");
-        assert_eq!(trim_fraction("2024-01-31 13:45:07+00:00"), "2024-01-31 13:45:07+00:00");
+        assert_eq!(
+            trim_fraction("2024-01-31 13:45:07.500000000-03:00"),
+            "2024-01-31 13:45:07.5-03:00"
+        );
+        assert_eq!(
+            trim_fraction("2024-01-31 13:45:07.000000000+00:00"),
+            "2024-01-31 13:45:07+00:00"
+        );
+        assert_eq!(
+            trim_fraction("2024-01-31 13:45:07+00:00"),
+            "2024-01-31 13:45:07+00:00"
+        );
     }
 
     #[test]
@@ -1421,18 +1784,35 @@ mod tests {
             table: "\"S\".\"T\"".into(),
             nls: None,
             cols: vec![
-                Col { name: "A".into(), kind: Kind::Number, index: 0, lob: false, raw_text: RawText::Unknown },
-                Col { name: "B".into(), kind: Kind::IntervalYm, index: 1, lob: false, raw_text: RawText::Unknown },
+                Col {
+                    name: "A".into(),
+                    kind: Kind::Number,
+                    index: 0,
+                    lob: false,
+                    raw_text: RawText::Unknown,
+                },
+                Col {
+                    name: "B".into(),
+                    kind: Kind::IntervalYm,
+                    index: 1,
+                    lob: false,
+                    raw_text: RawText::Unknown,
+                },
             ],
             direct: false,
             native: false,
             commit_rows: 100_000,
             commit_bytes: 1 << 29,
         };
-        assert_eq!(p.insert_sql(), "INSERT INTO \"S\".\"T\" (\"A\", \"B\") VALUES (TO_NUMBER(:1), TO_YMINTERVAL(:2))");
+        assert_eq!(
+            p.insert_sql(),
+            "INSERT INTO \"S\".\"T\" (\"A\", \"B\") VALUES (TO_NUMBER(:1), TO_YMINTERVAL(:2))"
+        );
         assert_eq!(p.array_rows(), ARRAY_ROWS);
         p.direct = true;
-        assert!(p.insert_sql().starts_with("INSERT /*+ APPEND_VALUES */ INTO"));
+        assert!(p
+            .insert_sql()
+            .starts_with("INSERT /*+ APPEND_VALUES */ INTO"));
         p.commit_rows = 500;
         assert_eq!(p.array_rows(), 500);
     }

@@ -19,7 +19,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -34,22 +36,37 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 }
 
 fn driver(id: &str) -> Arc<dyn Driver> {
-    dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
 fn rows_of(est: &[RowEstimate], kind: &str, name: &str) -> Option<u64> {
-    est.iter().find(|e| e.object.kind == kind && e.object.name == name && e.object.schema.as_deref() == Some("public")).map(|e| e.rows)
+    est.iter()
+        .find(|e| {
+            e.object.kind == kind
+                && e.object.name == name
+                && e.object.schema.as_deref() == Some("public")
+        })
+        .map(|e| e.rows)
 }
 
 fn comment_of<'a>(c: &'a [ObjectComment], kind: &str, name: &str) -> Option<&'a str> {
     c.iter()
-        .find(|c| c.object.kind == kind && c.object.name == name && c.object.schema.as_deref() == Some("public"))
+        .find(|c| {
+            c.object.kind == kind
+                && c.object.name == name
+                && c.object.schema.as_deref() == Some("public")
+        })
         .map(|c| c.comment.as_str())
 }
 
@@ -95,24 +112,45 @@ async fn postgres_reads_planner_stats_and_comments() {
     eprintln!("{est:?}");
     assert_eq!(rows_of(&est, "table", "clientes"), Some(1000));
     assert_eq!(rows_of(&est, "materialized_view", "mv_clientes"), Some(300));
-    assert_eq!(rows_of(&est, "table", "sin_analizar"), None, "never analyzed: no estimate");
+    assert_eq!(
+        rows_of(&est, "table", "sin_analizar"),
+        None,
+        "never analyzed: no estimate"
+    );
 
     let c = s.object_comments().await.unwrap();
     eprintln!("{c:?}");
-    assert_eq!(comment_of(&c, "view", "v_clientes"), Some("Vista de clientes"));
-    assert_eq!(comment_of(&c, "materialized_view", "mv_clientes"), Some("Primeros 300"));
-    assert_eq!(comment_of(&c, "sequence", "seq_pedidos"), Some("Números de pedido"));
+    assert_eq!(
+        comment_of(&c, "view", "v_clientes"),
+        Some("Vista de clientes")
+    );
+    assert_eq!(
+        comment_of(&c, "materialized_view", "mv_clientes"),
+        Some("Primeros 300")
+    );
+    assert_eq!(
+        comment_of(&c, "sequence", "seq_pedidos"),
+        Some("Números de pedido")
+    );
     assert_eq!(comment_of(&c, "type", "estado"), Some("Estado del pedido"));
     assert_eq!(comment_of(&c, "function", "doble"), Some("El doble"));
     assert_eq!(comment_of(&c, "procedure", "limpiar"), Some("Limpia"));
-    assert_eq!(comment_of(&c, "trigger", "tg_clientes"), Some("Antes de insertar"));
-    assert!(c.iter().all(|c| c.object.kind != "table"), "tables come with the schema");
+    assert_eq!(
+        comment_of(&c, "trigger", "tg_clientes"),
+        Some("Antes de insertar")
+    );
+    assert!(
+        c.iter().all(|c| c.object.kind != "table"),
+        "tables come with the schema"
+    );
 
     // Every commented object is one the explorer lists, with the same kind.
     let listed = s.list_objects().await.unwrap();
     for c in &c {
         assert!(
-            listed.iter().any(|o| o.kind == c.object.kind && o.schema == c.object.schema && o.name == c.object.name),
+            listed.iter().any(|o| o.kind == c.object.kind
+                && o.schema == c.object.schema
+                && o.name == c.object.name),
             "{:?} not in list_objects",
             c.object
         );
@@ -158,11 +196,18 @@ async fn cockroach_reads_table_statistics_and_comments() {
     }
     eprintln!("{est:?}");
     assert_eq!(rows_of(&est, "table", "clientes"), Some(400));
-    assert_eq!(rows_of(&est, "table", "sin_analizar"), None, "no statistics: no estimate");
+    assert_eq!(
+        rows_of(&est, "table", "sin_analizar"),
+        None,
+        "no statistics: no estimate"
+    );
 
     let c = s.object_comments().await.unwrap();
     eprintln!("{c:?}");
-    assert_eq!(comment_of(&c, "view", "v_clientes"), Some("Vista de clientes"));
+    assert_eq!(
+        comment_of(&c, "view", "v_clientes"),
+        Some("Vista de clientes")
+    );
     assert_eq!(comment_of(&c, "function", "doble"), Some("El doble"));
     drop(s);
     m.drop_database(DB).await.unwrap();

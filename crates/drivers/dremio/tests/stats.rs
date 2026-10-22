@@ -35,7 +35,13 @@ async fn dremio_comments() {
     let http = reqwest::Client::new();
     let base = format!("http://{}:{}", c.host, c.port);
     for _ in 0..60 {
-        if http.get(format!("{base}/apiv2/server_status")).send().await.map(|r| r.status().is_success()).unwrap_or(false) {
+        if http
+            .get(format!("{base}/apiv2/server_status"))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+        {
             break;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -52,13 +58,35 @@ async fn dremio_comments() {
     let _ = s.drop_database("dbine_st").await;
     s.create_database("dbine_st").await.unwrap();
     let mut out = QueryOutcome::default();
-    s.execute("CREATE VIEW dbine_st.v AS SELECT 1 AS id; CREATE VIEW dbine_st.sin AS SELECT 2 AS id", 10, &mut out).await.unwrap();
+    s.execute(
+        "CREATE VIEW dbine_st.v AS SELECT 1 AS id; CREATE VIEW dbine_st.sin AS SELECT 2 AS id",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert!(out.error.is_none(), "{:?}", out.error);
 
     // The wiki, written through the REST API.
-    let login: Value = http.post(format!("{base}/apiv2/login")).json(&json!({"userName": USER, "password": PASS})).send().await.unwrap().json().await.unwrap();
+    let login: Value = http
+        .post(format!("{base}/apiv2/login"))
+        .json(&json!({"userName": USER, "password": PASS}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let auth = format!("_dremio{}", login["token"].as_str().unwrap());
-    let v: Value = http.get(format!("{base}/api/v3/catalog/by-path/dbine_st/v")).header("Authorization", &auth).send().await.unwrap().json().await.unwrap();
+    let v: Value = http
+        .get(format!("{base}/api/v3/catalog/by-path/dbine_st/v"))
+        .header("Authorization", &auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let id = v["id"].as_str().unwrap();
     let r = http
         .post(format!("{base}/api/v3/catalog/{id}/collaboration/wiki"))
@@ -74,7 +102,12 @@ async fn dremio_comments() {
     eprintln!("{comments:?}");
     assert_eq!(comments.len(), 1, "{comments:?}");
     assert_eq!(
-        (comments[0].object.kind.as_str(), comments[0].object.schema.as_deref(), comments[0].object.name.as_str(), comments[0].comment.as_str()),
+        (
+            comments[0].object.kind.as_str(),
+            comments[0].object.schema.as_deref(),
+            comments[0].object.name.as_str(),
+            comments[0].comment.as_str()
+        ),
         (kinds::VIEW, Some("dbine_st"), "v", "Ventas por día")
     );
     assert!(s.row_estimates().await.unwrap().is_empty());

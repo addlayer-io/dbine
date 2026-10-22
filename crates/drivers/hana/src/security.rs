@@ -9,7 +9,9 @@
 //! with `GRANT`: they go through `_SYS_REPO.GRANT_ACTIVATED_ROLE`.
 
 use crate::{quote as q, text, HanaSession};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use hdbconnect_async::HdbValue;
 use std::collections::{HashSet, VecDeque};
 
@@ -17,15 +19,45 @@ pub fn spec() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
             // On schemas and objects.
-            "SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "ALTER", "DROP", "INDEX", "TRIGGER", "REFERENCES",
-            "CREATE ANY", "DEBUG", "ALL PRIVILEGES",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "EXECUTE",
+            "ALTER",
+            "DROP",
+            "INDEX",
+            "TRIGGER",
+            "REFERENCES",
+            "CREATE ANY",
+            "DEBUG",
+            "ALL PRIVILEGES",
             // System privileges (granted without an object).
-            "CATALOG READ", "CREATE SCHEMA", "USER ADMIN", "ROLE ADMIN", "DATA ADMIN", "BACKUP ADMIN", "MONITOR ADMIN",
-            "INIFILE ADMIN", "TRACE ADMIN", "AUDIT ADMIN", "SESSION ADMIN", "EXPORT", "IMPORT",
+            "CATALOG READ",
+            "CREATE SCHEMA",
+            "USER ADMIN",
+            "ROLE ADMIN",
+            "DATA ADMIN",
+            "BACKUP ADMIN",
+            "MONITOR ADMIN",
+            "INIFILE ADMIN",
+            "TRACE ADMIN",
+            "AUDIT ADMIN",
+            "SESSION ADMIN",
+            "EXPORT",
+            "IMPORT",
         ],
         // The objects of the explorer have no schema: they're in the
         // connection's schema, which names them.
-        object_kinds: vec!["", "schema", "table", "view", "procedure", "function", "sequence"],
+        object_kinds: vec![
+            "",
+            "schema",
+            "table",
+            "view",
+            "procedure",
+            "function",
+            "sequence",
+        ],
         create_user: true,
         create_role: true,
         passwords: true,
@@ -45,10 +77,12 @@ const USERS_OLD: &str = "SELECT USER_NAME, USER_DEACTIVATED, CREATOR, TO_VARCHAR
        TO_VARCHAR(VALID_UNTIL, 'YYYY-MM-DD HH24:MI'), TO_VARCHAR(LAST_SUCCESSFUL_CONNECT, 'YYYY-MM-DD HH24:MI'),
        CAST(NULL AS NVARCHAR(5)), CAST(NULL AS NVARCHAR(5)), CAST(NULL AS NVARCHAR(5))
   FROM SYS.USERS ORDER BY USER_NAME";
-const ROLES: &str = "SELECT ROLE_NAME, ROLE_SCHEMA_NAME, CREATOR, TO_VARCHAR(CREATE_TIME, 'YYYY-MM-DD HH24:MI')
+const ROLES: &str =
+    "SELECT ROLE_NAME, ROLE_SCHEMA_NAME, CREATOR, TO_VARCHAR(CREATE_TIME, 'YYYY-MM-DD HH24:MI')
   FROM SYS.ROLES ORDER BY ROLE_NAME";
 const MEMBERS: &str = "SELECT GRANTEE, ROLE_NAME FROM SYS.GRANTED_ROLES";
-const GRANTS: &str = "SELECT PRIVILEGE, OBJECT_TYPE, SCHEMA_NAME, OBJECT_NAME, COLUMN_NAME, IS_GRANTABLE
+const GRANTS: &str =
+    "SELECT PRIVILEGE, OBJECT_TYPE, SCHEMA_NAME, OBJECT_NAME, COLUMN_NAME, IS_GRANTABLE
   FROM SYS.GRANTED_PRIVILEGES WHERE GRANTEE = ?";
 const ROLES_OF: &str = "SELECT ROLE_NAME FROM SYS.GRANTED_ROLES WHERE GRANTEE = ?";
 
@@ -85,7 +119,14 @@ pub async fn principals(s: &HanaSession) -> Result<Vec<Principal>> {
             details.push(("Creado por".into(), c.clone()));
         }
         if let Some(v) = at(r, 6) {
-            details.push(("Contraseña".into(), if yes(Some(v)) { "habilitada".into() } else { "deshabilitada".into() }));
+            details.push((
+                "Contraseña".into(),
+                if yes(Some(v)) {
+                    "habilitada".into()
+                } else {
+                    "deshabilitada".into()
+                },
+            ));
         }
         if yes(at(r, 7)) {
             details.push(("Restringido".into(), "sí".into()));
@@ -130,7 +171,9 @@ pub async fn principals(s: &HanaSession) -> Result<Vec<Principal>> {
         });
     }
     for m in s.rows(MEMBERS, &[]).await.unwrap_or_default() {
-        let (Some(member), Some(role)) = (at(&m, 0), at(&m, 1)) else { continue };
+        let (Some(member), Some(role)) = (at(&m, 0), at(&m, 1)) else {
+            continue;
+        };
         if let Some(p) = out.iter_mut().find(|p| p.name == member) {
             if !p.member_of.contains(&role) {
                 p.member_of.push(role);
@@ -141,7 +184,14 @@ pub async fn principals(s: &HanaSession) -> Result<Vec<Principal>> {
 }
 
 /// One row of GRANTED_PRIVILEGES as a grant.
-fn grant_of(privilege: String, ty: &str, schema: Option<String>, object: Option<String>, column: Option<String>, grantable: bool) -> Grant {
+fn grant_of(
+    privilege: String,
+    ty: &str,
+    schema: Option<String>,
+    object: Option<String>,
+    column: Option<String>,
+    grantable: bool,
+) -> Grant {
     let (object, object_kind) = match ty {
         "SYSTEMPRIVILEGE" | "" => (None, None),
         "SCHEMA" => (schema.or(object), Some("schema".to_string())),
@@ -162,20 +212,35 @@ fn grant_of(privilege: String, ty: &str, schema: Option<String>, object: Option<
         Some(c) => format!("{privilege} ({c})"),
         None => privilege,
     };
-    Grant { privilege, object, object_kind, grantable, denied: false, via: None }
+    Grant {
+        privilege,
+        object,
+        object_kind,
+        grantable,
+        denied: false,
+        via: None,
+    }
 }
 
 pub async fn grants(s: &HanaSession, principal: &str) -> Result<Vec<Grant>> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    let mut queue: VecDeque<(String, Option<String>)> = VecDeque::from([(principal.to_string(), None)]);
+    let mut queue: VecDeque<(String, Option<String>)> =
+        VecDeque::from([(principal.to_string(), None)]);
     while let Some((name, via)) = queue.pop_front() {
         if !seen.insert(name.clone()) || seen.len() > 256 {
             continue;
         }
         for r in s.rows(GRANTS, &[&name]).await? {
             let ty = at(&r, 1).unwrap_or_default();
-            let mut g = grant_of(at(&r, 0).unwrap_or_default(), &ty, at(&r, 2), at(&r, 3), at(&r, 4), yes(at(&r, 5)));
+            let mut g = grant_of(
+                at(&r, 0).unwrap_or_default(),
+                &ty,
+                at(&r, 2),
+                at(&r, 3),
+                at(&r, 4),
+                yes(at(&r, 5)),
+            );
             g.via = via.clone();
             out.push(g);
         }
@@ -198,9 +263,16 @@ fn new_name(name: &str) -> Result<String> {
     if name.is_empty() {
         return Err(Error::Query("escribí el nombre".into()));
     }
-    let plain = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    Ok(q(&if plain { name.to_ascii_uppercase() } else { name.to_string() }))
+    Ok(q(&if plain {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_string()
+    }))
 }
 
 /// A password as HANA takes it: a quoted identifier, so it can't have `"`.
@@ -209,7 +281,9 @@ fn password(p: &str) -> Result<String> {
         return Err(Error::Query("escribí la contraseña del usuario".into()));
     }
     if p.contains('"') {
-        return Err(Error::Query("en SAP HANA la contraseña no puede tener comillas dobles (\")".into()));
+        return Err(Error::Query(
+            "en SAP HANA la contraseña no puede tener comillas dobles (\")".into(),
+        ));
     }
     Ok(format!("\"{p}\""))
 }
@@ -241,10 +315,18 @@ fn privileges(p: &[String]) -> Result<String> {
     let mut out: Vec<String> = Vec::new();
     for x in p {
         let name = x.trim();
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_') {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
+        {
             return Err(Error::Query(format!("«{x}» no es un permiso de SAP HANA")));
         }
-        let name = name.split_whitespace().collect::<Vec<_>>().join(" ").to_uppercase();
+        let name = name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_uppercase();
         if !out.contains(&name) {
             out.push(name);
         }
@@ -296,7 +378,15 @@ pub fn script(a: &SecurityAction) -> Result<String> {
 /// comment and turn the rest of the line into a statement. Line breaks
 /// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
 fn comment_text(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -304,64 +394,213 @@ mod tests {
     use super::*;
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> Option<ObjectRef> {
-        Some(ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() })
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        })
     }
 
     #[test]
     fn writes_the_scripts() {
         let s = |a| script(&a).unwrap();
-        assert!(s(SecurityAction::CreateUser { name: "ana".into(), password: Some("p'w\\1".into()) })
-            .starts_with("CREATE USER \"ANA\" PASSWORD \"p'w\\1\";\n-- "));
-        assert!(s(SecurityAction::CreateUser { name: "Ana López".into(), password: Some("x".into()) }).starts_with("CREATE USER \"Ana López\" PASSWORD"));
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: Some("a\"b".into()) }).is_err());
-        assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: None }).is_err());
+        assert!(s(SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: Some("p'w\\1".into())
+        })
+        .starts_with("CREATE USER \"ANA\" PASSWORD \"p'w\\1\";\n-- "));
+        assert!(s(SecurityAction::CreateUser {
+            name: "Ana López".into(),
+            password: Some("x".into())
+        })
+        .starts_with("CREATE USER \"Ana López\" PASSWORD"));
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: Some("a\"b".into())
+        })
+        .is_err());
+        assert!(script(&SecurityAction::CreateUser {
+            name: "ana".into(),
+            password: None
+        })
+        .is_err());
         assert!(script(&SecurityAction::CreateRole { name: "  ".into() }).is_err());
-        assert_eq!(s(SecurityAction::CreateRole { name: "lectores".into() }), "CREATE ROLE \"LECTORES\";");
-        assert_eq!(s(SecurityAction::Drop { name: "LECT\"X".into(), kind: PrincipalKind::Role }), "DROP ROLE \"LECT\"\"X\";");
-        assert!(s(SecurityAction::Drop { name: "ANA".into(), kind: PrincipalKind::User }).starts_with("DROP USER \"ANA\";\n-- "));
-        assert_eq!(s(SecurityAction::SetPassword { name: "ANA".into(), password: "n'1".into() }), "ALTER USER \"ANA\" PASSWORD \"n'1\";");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ANA".into(), enabled: false }), "ALTER USER \"ANA\" DEACTIVATE USER NOW;");
-        assert_eq!(s(SecurityAction::SetLogin { name: "ANA".into(), enabled: true }), "ALTER USER \"ANA\" ACTIVATE USER NOW;");
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["catalog  read".into()], object: None, to: "ANA".into(), grantable: true }),
+            s(SecurityAction::CreateRole {
+                name: "lectores".into()
+            }),
+            "CREATE ROLE \"LECTORES\";"
+        );
+        assert_eq!(
+            s(SecurityAction::Drop {
+                name: "LECT\"X".into(),
+                kind: PrincipalKind::Role
+            }),
+            "DROP ROLE \"LECT\"\"X\";"
+        );
+        assert!(s(SecurityAction::Drop {
+            name: "ANA".into(),
+            kind: PrincipalKind::User
+        })
+        .starts_with("DROP USER \"ANA\";\n-- "));
+        assert_eq!(
+            s(SecurityAction::SetPassword {
+                name: "ANA".into(),
+                password: "n'1".into()
+            }),
+            "ALTER USER \"ANA\" PASSWORD \"n'1\";"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ANA".into(),
+                enabled: false
+            }),
+            "ALTER USER \"ANA\" DEACTIVATE USER NOW;"
+        );
+        assert_eq!(
+            s(SecurityAction::SetLogin {
+                name: "ANA".into(),
+                enabled: true
+            }),
+            "ALTER USER \"ANA\" ACTIVATE USER NOW;"
+        );
+        assert_eq!(
+            s(SecurityAction::Grant {
+                privileges: vec!["catalog  read".into()],
+                object: None,
+                to: "ANA".into(),
+                grantable: true
+            }),
             "GRANT CATALOG READ TO \"ANA\" WITH ADMIN OPTION;"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["select".into(), "UPDATE".into()], object: obj("table", Some("VENTAS"), "FAC\"T"), to: "ANA".into(), grantable: true }),
+            s(SecurityAction::Grant {
+                privileges: vec!["select".into(), "UPDATE".into()],
+                object: obj("table", Some("VENTAS"), "FAC\"T"),
+                to: "ANA".into(),
+                grantable: true
+            }),
             "GRANT SELECT, UPDATE ON \"VENTAS\".\"FAC\"\"T\" TO \"ANA\" WITH GRANT OPTION;"
         );
         assert_eq!(
-            s(SecurityAction::Grant { privileges: vec!["SELECT".into()], object: obj("table", None, "T"), to: "R".into(), grantable: false }),
+            s(SecurityAction::Grant {
+                privileges: vec!["SELECT".into()],
+                object: obj("table", None, "T"),
+                to: "R".into(),
+                grantable: false
+            }),
             "GRANT SELECT ON \"T\" TO \"R\";"
         );
         assert_eq!(
-            s(SecurityAction::Revoke { privileges: vec!["INSERT".into()], object: obj("schema", None, "VENTAS"), from: "R".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["INSERT".into()],
+                object: obj("schema", None, "VENTAS"),
+                from: "R".into()
+            }),
             "REVOKE INSERT ON SCHEMA \"VENTAS\" FROM \"R\";"
         );
-        assert_eq!(s(SecurityAction::Revoke { privileges: vec!["USER ADMIN".into()], object: None, from: "R".into() }), "REVOKE USER ADMIN FROM \"R\";");
-        assert_eq!(s(SecurityAction::AddMember { role: "LECT".into(), member: "ANA".into() }), "GRANT \"LECT\" TO \"ANA\";");
-        assert_eq!(s(SecurityAction::RemoveMember { role: "LECT".into(), member: "ANA".into() }), "REVOKE \"LECT\" FROM \"ANA\";");
         assert_eq!(
-            s(SecurityAction::AddMember { role: "sap.hana::O'Admin".into(), member: "ANA".into() }),
+            s(SecurityAction::Revoke {
+                privileges: vec!["USER ADMIN".into()],
+                object: None,
+                from: "R".into()
+            }),
+            "REVOKE USER ADMIN FROM \"R\";"
+        );
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "LECT".into(),
+                member: "ANA".into()
+            }),
+            "GRANT \"LECT\" TO \"ANA\";"
+        );
+        assert_eq!(
+            s(SecurityAction::RemoveMember {
+                role: "LECT".into(),
+                member: "ANA".into()
+            }),
+            "REVOKE \"LECT\" FROM \"ANA\";"
+        );
+        assert_eq!(
+            s(SecurityAction::AddMember {
+                role: "sap.hana::O'Admin".into(),
+                member: "ANA".into()
+            }),
             "CALL \"_SYS_REPO\".\"GRANT_ACTIVATED_ROLE\"('sap.hana::O''Admin', 'ANA');"
         );
         assert_eq!(
-            s(SecurityAction::RemoveMember { role: "sap.hana::Admin".into(), member: "ANA".into() }),
+            s(SecurityAction::RemoveMember {
+                role: "sap.hana::Admin".into(),
+                member: "ANA".into()
+            }),
             "CALL \"_SYS_REPO\".\"REVOKE_ACTIVATED_ROLE\"('sap.hana::Admin', 'ANA');"
         );
-        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT; DROP TABLE x".into()], object: None, to: "a".into(), grantable: false }).is_err());
-        assert!(script(&SecurityAction::Grant { privileges: vec![], object: None, to: "a".into(), grantable: false }).is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec!["SELECT; DROP TABLE x".into()],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
+        assert!(script(&SecurityAction::Grant {
+            privileges: vec![],
+            object: None,
+            to: "a".into(),
+            grantable: false
+        })
+        .is_err());
     }
 
     #[test]
     fn reads_granted_privileges() {
-        let g = grant_of("CATALOG READ".into(), "SYSTEMPRIVILEGE", None, None, None, true);
+        let g = grant_of(
+            "CATALOG READ".into(),
+            "SYSTEMPRIVILEGE",
+            None,
+            None,
+            None,
+            true,
+        );
         assert_eq!((g.object, g.object_kind, g.grantable), (None, None, true));
-        let g = grant_of("SELECT".into(), "SCHEMA", Some("VENTAS".into()), None, None, false);
-        assert_eq!((g.object.as_deref(), g.object_kind.as_deref()), (Some("VENTAS"), Some("schema")));
-        let g = grant_of("UPDATE".into(), "TABLE", Some("VENTAS".into()), Some("FACT".into()), Some("TOTAL".into()), false);
-        assert_eq!((g.privilege.as_str(), g.object.as_deref(), g.object_kind.as_deref()), ("UPDATE (TOTAL)", Some("VENTAS.FACT"), Some("table")));
-        let g = grant_of("CREATE VIRTUAL TABLE".into(), "REMOTESOURCE", None, Some("HANA2".into()), None, false);
-        assert_eq!((g.object.as_deref(), g.object_kind.as_deref()), (Some("HANA2"), Some("remotesource")));
+        let g = grant_of(
+            "SELECT".into(),
+            "SCHEMA",
+            Some("VENTAS".into()),
+            None,
+            None,
+            false,
+        );
+        assert_eq!(
+            (g.object.as_deref(), g.object_kind.as_deref()),
+            (Some("VENTAS"), Some("schema"))
+        );
+        let g = grant_of(
+            "UPDATE".into(),
+            "TABLE",
+            Some("VENTAS".into()),
+            Some("FACT".into()),
+            Some("TOTAL".into()),
+            false,
+        );
+        assert_eq!(
+            (
+                g.privilege.as_str(),
+                g.object.as_deref(),
+                g.object_kind.as_deref()
+            ),
+            ("UPDATE (TOTAL)", Some("VENTAS.FACT"), Some("table"))
+        );
+        let g = grant_of(
+            "CREATE VIRTUAL TABLE".into(),
+            "REMOTESOURCE",
+            None,
+            Some("HANA2".into()),
+            None,
+            false,
+        );
+        assert_eq!(
+            (g.object.as_deref(), g.object_kind.as_deref()),
+            (Some("HANA2"), Some("remotesource"))
+        );
     }
 }

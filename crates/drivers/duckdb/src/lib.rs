@@ -19,23 +19,33 @@ mod schema;
 mod stats;
 mod transfer;
 
+use async_trait::async_trait;
 use dbine_driver::sql::{
-    leading_keyword, quote_ident, select_top, split_script, strip_comments, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode,
-    StatementKind,
+    leading_keyword, quote_ident, select_top, split_script, strip_comments, Limit, Quote,
+    ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
 };
 use dbine_driver::{
-    json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
-    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef,
-    QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema, TxState,
+    json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64, kinds, Capabilities, ColumnInfo,
+    ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
+    Family, Field, Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn,
+    ScriptError, Session, TableSchema, TxState,
 };
-use async_trait::async_trait;
 use duckdb::types::Value;
 use duckdb::{AccessMode, Config, Connection, InterruptHandle};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
-    vec![Arc::new(DuckDbDriver { info: info(), files: false }), Arc::new(DuckDbDriver { info: files::info(), files: true })]
+    vec![
+        Arc::new(DuckDbDriver {
+            info: info(),
+            files: false,
+        }),
+        Arc::new(DuckDbDriver {
+            info: files::info(),
+            files: true,
+        }),
+    ]
 }
 
 fn info() -> DriverInfo {
@@ -80,9 +90,16 @@ struct Database {
 /// The database for `key` (a file path, `:memory:`, or `files:<folder>`
 /// for the files preset, which lives in memory).
 fn open_database(key: &str, read_only: bool) -> Result<Arc<Database>> {
-    let path = if key.starts_with("files:") { ":memory:" } else { key };
+    let path = if key.starts_with("files:") {
+        ":memory:"
+    } else {
+        key
+    };
     static OPEN: OnceLock<Mutex<HashMap<String, Weak<Database>>>> = OnceLock::new();
-    let mut open = OPEN.get_or_init(Default::default).lock().map_err(|_| Error::State("caché de DuckDB envenenada".into()))?;
+    let mut open = OPEN
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| Error::State("caché de DuckDB envenenada".into()))?;
     open.retain(|_, w| w.strong_count() > 0);
     if let Some(db) = open.get(key).and_then(Weak::upgrade) {
         return Ok(db);
@@ -92,12 +109,16 @@ fn open_database(key: &str, read_only: bool) -> Result<Arc<Database>> {
     } else {
         let mut config = Config::default();
         if read_only {
-            config = config.access_mode(AccessMode::ReadOnly).map_err(Error::connect)?;
+            config = config
+                .access_mode(AccessMode::ReadOnly)
+                .map_err(Error::connect)?;
         }
         Connection::open_with_flags(path, config)
     }
     .map_err(Error::connect)?;
-    let db = Arc::new(Database { root: Mutex::new(conn) });
+    let db = Arc::new(Database {
+        root: Mutex::new(conn),
+    });
     open.insert(key.to_string(), Arc::downgrade(&db));
     Ok(db)
 }
@@ -124,7 +145,10 @@ impl Driver for DuckDbDriver {
 
     /// The duckdb CLI goes on after an error unless `-bail`.
     fn script_defaults(&self) -> ScriptDefaults {
-        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+        ScriptDefaults {
+            continue_on_error: true,
+            confirm_unsafe_dml: true,
+        }
     }
 
     fn supports_manual_transactions(&self) -> bool {
@@ -135,7 +159,14 @@ impl Driver for DuckDbDriver {
     /// file next to the main one, dropping it detaches it and deletes the
     /// file.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: true, monitor: true, database_properties: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: true,
+            monitor: true,
+            database_properties: true,
+            ..Default::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -168,12 +199,17 @@ impl Driver for DuckDbDriver {
 
     fn backup_script(&self, action: &dbine_driver::BackupAction) -> Result<String> {
         if self.files {
-            return Err(Error::Unsupported("los datos ya son los archivos de la carpeta: se copian tal cual".into()));
+            return Err(Error::Unsupported(
+                "los datos ya son los archivos de la carpeta: se copian tal cual".into(),
+            ));
         }
         backup::script(action)
     }
 
-    fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
+    fn sync_script(
+        &self,
+        changes: &[dbine_driver::TableChange],
+    ) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
     }
 
@@ -191,17 +227,37 @@ impl Driver for DuckDbDriver {
     /// logins, so no owner and no grants. The files preset's database lives
     /// in memory and is rebuilt on each connection: nothing to keep there.
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
-        (!self.files).then(|| dbine_driver::SchemaSpec { owner: false, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: true, privileges: Vec::new(), grant_option: true })
+        (!self.files).then(|| dbine_driver::SchemaSpec {
+            owner: false,
+            owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+            cascade: true,
+            privileges: Vec::new(),
+            grant_option: true,
+        })
     }
 
-    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+    fn create_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<String> {
         schema_guard(self.files, owner)?;
         Ok(format!("CREATE SCHEMA {}", schema_path(database, name)))
     }
 
-    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+    fn drop_schema_script(
+        &self,
+        database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
         schema_guard(self.files, None)?;
-        Ok(format!("DROP SCHEMA {}{}", schema_path(database, name), if cascade { " CASCADE" } else { "" }))
+        Ok(format!(
+            "DROP SCHEMA {}{}",
+            schema_path(database, name),
+            if cascade { " CASCADE" } else { "" }
+        ))
     }
 
     /// DuckDB's Appender, a transaction per commit window (see [`transfer`]).
@@ -233,7 +289,11 @@ impl Driver for DuckDbDriver {
     /// `cfg.host` is the database file (empty or `:memory:` for an in-memory
     /// one; ignored with the `isolated` option, always a new in-memory one);
     /// `database` is an attached catalog to `USE`.
-    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Session>> {
         loader::ensure().await?;
         if self.files {
             return connect_files(cfg).await;
@@ -249,20 +309,37 @@ impl Driver for DuckDbDriver {
         let database = database.filter(|d| !d.is_empty()).map(str::to_string);
         let (db, conn, catalog) = blocking(move || {
             let db = if isolated {
-                Arc::new(Database { root: Mutex::new(Connection::open_in_memory().map_err(Error::connect)?) })
+                Arc::new(Database {
+                    root: Mutex::new(Connection::open_in_memory().map_err(Error::connect)?),
+                })
             } else {
                 open_database(&path, read_only)?
             };
-            let conn = db.root.lock().map_err(|_| Error::State("conexión DuckDB envenenada".into()))?.try_clone().map_err(Error::connect)?;
+            let conn = db
+                .root
+                .lock()
+                .map_err(|_| Error::State("conexión DuckDB envenenada".into()))?
+                .try_clone()
+                .map_err(Error::connect)?;
             if let Some(d) = &database {
-                conn.execute_batch(&format!("USE {}", quote_ident(Quote::Double, d))).map_err(Error::query)?;
+                conn.execute_batch(&format!("USE {}", quote_ident(Quote::Double, d)))
+                    .map_err(Error::query)?;
             }
-            let catalog: String = conn.query_row("SELECT current_database()", [], |r| r.get(0)).map_err(Error::query)?;
+            let catalog: String = conn
+                .query_row("SELECT current_database()", [], |r| r.get(0))
+                .map_err(Error::query)?;
             Ok((db, conn, catalog))
         })
         .await?;
         let interrupt = conn.interrupt_handle();
-        Ok(Box::new(DuckDbSession { _db: db, conn: Arc::new(Mutex::new(conn)), interrupt, catalog, read_only, tx: Tx::default() }))
+        Ok(Box::new(DuckDbSession {
+            _db: db,
+            conn: Arc::new(Mutex::new(conn)),
+            interrupt,
+            catalog,
+            read_only,
+            tx: Tx::default(),
+        }))
     }
 }
 
@@ -272,28 +349,44 @@ impl Driver for DuckDbDriver {
 async fn connect_files(cfg: &ConnectionConfig) -> Result<Box<dyn Session>> {
     let dir = files::folder(&cfg.host);
     if cfg.host.trim().is_empty() || !dir.is_dir() {
-        return Err(Error::Connect(format!("no existe la carpeta «{}»", dir.display())));
+        return Err(Error::Connect(format!(
+            "no existe la carpeta «{}»",
+            dir.display()
+        )));
     }
     let recursive = cfg.option("recursive") == Some("true");
-    let file = (cfg.option(files::SINGLE) == Some("true")).then(|| std::path::PathBuf::from(cfg.host.trim()));
+    let file = (cfg.option(files::SINGLE) == Some("true"))
+        .then(|| std::path::PathBuf::from(cfg.host.trim()));
     let (db, conn, catalog) = blocking(move || {
         let (found, key) = match &file {
             Some(f) => {
                 if !f.is_file() {
-                    return Err(Error::Connect(format!("no existe el archivo «{}»", f.display())));
+                    return Err(Error::Connect(format!(
+                        "no existe el archivo «{}»",
+                        f.display()
+                    )));
                 }
-                let one = files::single(f).ok_or_else(|| Error::Connect(format!("no es un archivo de datos: «{}»", f.display())))?;
+                let one = files::single(f).ok_or_else(|| {
+                    Error::Connect(format!("no es un archivo de datos: «{}»", f.display()))
+                })?;
                 (vec![one], format!("files:{}", f.display()))
             }
             None => (
-                files::scan(&dir, recursive).map_err(|e| Error::Connect(format!("no se pudo leer la carpeta: {e}")))?,
+                files::scan(&dir, recursive)
+                    .map_err(|e| Error::Connect(format!("no se pudo leer la carpeta: {e}")))?,
                 format!("files:{}", dir.display()),
             ),
         };
         let single = file.is_some();
         let db = open_database(&key, false)?;
-        let conn = db.root.lock().map_err(|_| Error::State("conexión DuckDB envenenada".into()))?.try_clone().map_err(Error::connect)?;
-        conn.execute_batch(&files::session_sql(&dir)).map_err(Error::connect)?;
+        let conn = db
+            .root
+            .lock()
+            .map_err(|_| Error::State("conexión DuckDB envenenada".into()))?
+            .try_clone()
+            .map_err(Error::connect)?;
+        conn.execute_batch(&files::session_sql(&dir))
+            .map_err(Error::connect)?;
         for (name, path, format) in found {
             // A file DuckDB can't read (empty, corrupt…) is skipped; it can
             // still be queried by path to see the error. The one file of a
@@ -306,12 +399,21 @@ async fn connect_files(cfg: &ConnectionConfig) -> Result<Box<dyn Session>> {
                 tracing::debug!("duckdb files: {}: {e}", path.display());
             }
         }
-        let catalog: String = conn.query_row("SELECT current_database()", [], |r| r.get(0)).map_err(Error::query)?;
+        let catalog: String = conn
+            .query_row("SELECT current_database()", [], |r| r.get(0))
+            .map_err(Error::query)?;
         Ok((db, conn, catalog))
     })
     .await?;
     let interrupt = conn.interrupt_handle();
-    Ok(Box::new(DuckDbSession { _db: db, conn: Arc::new(Mutex::new(conn)), interrupt, catalog, read_only: cfg.read_only, tx: Tx::default() }))
+    Ok(Box::new(DuckDbSession {
+        _db: db,
+        conn: Arc::new(Mutex::new(conn)),
+        interrupt,
+        catalog,
+        read_only: cfg.read_only,
+        tx: Tx::default(),
+    }))
 }
 
 pub struct DuckDbSession {
@@ -342,7 +444,10 @@ struct Tx {
 
 impl Default for Tx {
     fn default() -> Self {
-        Self { manual: false, state: TxState::Idle }
+        Self {
+            manual: false,
+            state: TxState::Idle,
+        }
     }
 }
 
@@ -366,7 +471,9 @@ where
     T: Send + 'static,
     F: FnOnce() -> Result<T> + Send + 'static,
 {
-    tokio::task::spawn_blocking(f).await.map_err(|e| Error::State(e.to_string()))?
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| Error::State(e.to_string()))?
 }
 
 impl DuckDbSession {
@@ -376,7 +483,9 @@ impl DuckDbSession {
         if self.tx.state == TxState::Idle {
             return Ok(());
         }
-        let r = self.with(move |c| c.execute_batch(sql).map_err(duck_error)).await;
+        let r = self
+            .with(move |c| c.execute_batch(sql).map_err(duck_error))
+            .await;
         if !matches!(r, Err(Error::Cancelled)) {
             self.tx.state = TxState::Idle;
         }
@@ -390,28 +499,42 @@ impl DuckDbSession {
     {
         let conn = self.conn.clone();
         blocking(move || {
-            let c = conn.lock().map_err(|_| Error::State("conexión DuckDB envenenada".into()))?;
+            let c = conn
+                .lock()
+                .map_err(|_| Error::State("conexión DuckDB envenenada".into()))?;
             f(&c)
         })
         .await
     }
 
     /// Rows of a catalog query with one string parameter per `?`.
-    async fn strings(&self, sql: &'static str, params: Vec<String>, ncols: usize) -> Result<Vec<Vec<Option<String>>>> {
+    async fn strings(
+        &self,
+        sql: &'static str,
+        params: Vec<String>,
+        ncols: usize,
+    ) -> Result<Vec<Vec<Option<String>>>> {
         self.with(move |c| {
             let mut stmt = c.prepare(sql).map_err(Error::query)?;
             let rows = stmt
                 .query_map(duckdb::params_from_iter(params.iter()), |r| {
-                    (0..ncols).map(|i| r.get::<_, Option<String>>(i)).collect::<duckdb::Result<Vec<_>>>()
+                    (0..ncols)
+                        .map(|i| r.get::<_, Option<String>>(i))
+                        .collect::<duckdb::Result<Vec<_>>>()
                 })
                 .map_err(Error::query)?;
-            rows.collect::<duckdb::Result<Vec<_>>>().map_err(Error::query)
+            rows.collect::<duckdb::Result<Vec<_>>>()
+                .map_err(Error::query)
         })
         .await
     }
 
     fn params(&self, obj: &ObjectRef) -> Vec<String> {
-        vec![self.catalog.clone(), obj.schema().unwrap_or("main").to_string(), obj.name.clone()]
+        vec![
+            self.catalog.clone(),
+            obj.schema().unwrap_or("main").to_string(),
+            obj.name.clone(),
+        ]
     }
 
     /// `CREATE SEQUENCE` with the schema (the catalog's `sql` leaves it out).
@@ -426,7 +549,15 @@ impl DuckDbSession {
             .await?;
         Ok(rows.into_iter().next().map(|r| {
             let v = |i: usize| r[i].clone().unwrap_or_default();
-            schema::sequence_sql(obj.schema().unwrap_or("main"), &obj.name, &v(0), &v(1), &v(2), &v(3), v(4) == "true")
+            schema::sequence_sql(
+                obj.schema().unwrap_or("main"),
+                &obj.name,
+                &v(0),
+                &v(1),
+                &v(2),
+                &v(3),
+                v(4) == "true",
+            )
         }))
     }
 
@@ -443,10 +574,16 @@ impl DuckDbSession {
         if exists.is_empty() {
             return Ok(None);
         }
-        let name = dbine_driver::sql::qualified_name(Quote::Double, Some(obj.schema().unwrap_or("main")), &obj.name);
+        let name = dbine_driver::sql::qualified_name(
+            Quote::Double,
+            Some(obj.schema().unwrap_or("main")),
+            &obj.name,
+        );
         let catalog = quote_ident(Quote::Double, &self.catalog);
         let sql = format!("SELECT typeof(CAST(NULL AS {catalog}.{name}))");
-        let ty: Option<String> = self.with(move |c| c.query_row(&sql, [], |r| r.get(0)).map_err(Error::query)).await?;
+        let ty: Option<String> = self
+            .with(move |c| c.query_row(&sql, [], |r| r.get(0)).map_err(Error::query))
+            .await?;
         Ok(ty.map(|t| format!("CREATE TYPE {name} AS {t};")))
     }
 }
@@ -492,7 +629,12 @@ impl Session for DuckDbSession {
             .map(|r| {
                 let mut r = r.into_iter();
                 let kind = r.next().flatten().unwrap_or_default();
-                DbObject { kind, schema: r.next().flatten(), name: r.next().flatten().unwrap_or_default(), parent: None }
+                DbObject {
+                    kind,
+                    schema: r.next().flatten(),
+                    name: r.next().flatten().unwrap_or_default(),
+                    parent: None,
+                }
             })
             .collect())
     }
@@ -501,8 +643,22 @@ impl Session for DuckDbSession {
     /// "Nuevo esquema…") shows too. DuckDB's own (`information_schema`,
     /// `pg_catalog`) live in the `system` catalog, not here.
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
-        let rows = self.strings("SELECT schema_name FROM duckdb_schemas() WHERE database_name = ?1 ORDER BY 1", vec![self.catalog.clone()], 1).await?;
-        Ok(Some(rows.into_iter().filter_map(|mut r| r.remove(0)).map(|name| dbine_driver::SchemaInfo { name, system: false }).collect()))
+        let rows = self
+            .strings(
+                "SELECT schema_name FROM duckdb_schemas() WHERE database_name = ?1 ORDER BY 1",
+                vec![self.catalog.clone()],
+                1,
+            )
+            .await?;
+        Ok(Some(
+            rows.into_iter()
+                .filter_map(|mut r| r.remove(0))
+                .map(|name| dbine_driver::SchemaInfo {
+                    name,
+                    system: false,
+                })
+                .collect(),
+        ))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -528,7 +684,9 @@ impl Session for DuckDbSession {
                     data_type: r[1].clone().unwrap_or_default(),
                     nullable: r[2].as_deref() == Some("true"),
                     primary_key: r[4].as_deref() == Some("true"),
-                    auto_increment: default_value.as_deref().is_some_and(|d| d.starts_with("nextval(")),
+                    auto_increment: default_value
+                        .as_deref()
+                        .is_some_and(|d| d.starts_with("nextval(")),
                     default_value,
                 }
             })
@@ -575,7 +733,9 @@ impl Session for DuckDbSession {
                 let res = run_script_tx(c, &text, max_rows, &mut tx, &mut local);
                 // `USE other` switches the catalog: the tab follows it.
                 if switches_catalog(&text) {
-                    if let Ok(now) = c.query_row("SELECT current_database()", [], |r| r.get::<_, String>(0)) {
+                    if let Ok(now) =
+                        c.query_row("SELECT current_database()", [], |r| r.get::<_, String>(0))
+                    {
                         if now != catalog {
                             local.database = Some(now);
                         }
@@ -621,7 +781,13 @@ impl Session for DuckDbSession {
     /// runs again under `EXPLAIN (ANALYZE, FORMAT JSON)` for its figures,
     /// while a write gets its estimated plan before running (EXPLAIN
     /// ANALYZE would apply it twice).
-    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    async fn explain(
+        &mut self,
+        text: &str,
+        analyze: bool,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
         let text = text.to_string();
         let fork = out.fork();
         let (local, res) = self
@@ -645,7 +811,10 @@ impl Session for DuckDbSession {
     }
 
     /// Facts only: DuckDB keeps no settings per database (see [`properties`]).
-    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+    async fn database_properties(
+        &mut self,
+        database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
         self.properties(database).await
     }
 
@@ -662,12 +831,18 @@ impl Session for DuckDbSession {
 
     /// `estimated_size` from the catalog (see [`stats`]).
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
-        Ok(stats::row_estimates(self.strings(stats::ROWS, vec![self.catalog.clone()], 3).await?))
+        Ok(stats::row_estimates(
+            self.strings(stats::ROWS, vec![self.catalog.clone()], 3)
+                .await?,
+        ))
     }
 
     /// `COMMENT ON` views, macros, sequences and types (see [`stats`]).
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
-        Ok(stats::object_comments(self.strings(stats::COMMENTS, vec![self.catalog.clone()], 4).await?))
+        Ok(stats::object_comments(
+            self.strings(stats::COMMENTS, vec![self.catalog.clone()], 4)
+                .await?,
+        ))
     }
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
@@ -708,12 +883,23 @@ impl Session for DuckDbSession {
                 6,
             )
             .await?;
-        Ok(schema::assemble(schema::Catalog { tables, columns, constraints, indexes }))
+        Ok(schema::assemble(schema::Catalog {
+            tables,
+            columns,
+            constraints,
+            indexes,
+        }))
     }
 
-    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+    async fn index_usage(
+        &mut self,
+        table: &ObjectRef,
+    ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let tables = self.database_schema().await?;
-        let found = tables.iter().find(|t| t.name == table.name && (table.schema().is_none() || t.schema.as_deref() == table.schema()));
+        let found = tables.iter().find(|t| {
+            t.name == table.name
+                && (table.schema().is_none() || t.schema.as_deref() == table.schema())
+        });
         Ok(Some(index_usage::report(found)))
     }
 
@@ -721,14 +907,20 @@ impl Session for DuckDbSession {
     /// catalog when the main database is in memory).
     async fn create_database(&mut self, name: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden crear bases.".into(),
+            ));
         }
         let name = name.trim().to_string();
         if name.is_empty() {
             return Err(Error::Query("falta el nombre de la base".into()));
         }
         let main_path = self
-            .strings("SELECT path FROM duckdb_databases() WHERE database_name = current_database()", vec![], 1)
+            .strings(
+                "SELECT path FROM duckdb_databases() WHERE database_name = current_database()",
+                vec![],
+                1,
+            )
             .await?
             .into_iter()
             .next()
@@ -736,26 +928,41 @@ impl Session for DuckDbSession {
             .filter(|p| !p.is_empty() && p != ":memory:");
         let target = match main_path {
             Some(p) => {
-                let dir = std::path::Path::new(&p).parent().map(|d| d.to_path_buf()).unwrap_or_default();
+                let dir = std::path::Path::new(&p)
+                    .parent()
+                    .map(|d| d.to_path_buf())
+                    .unwrap_or_default();
                 let file = dir.join(format!("{name}.duckdb"));
                 if file.exists() {
-                    return Err(Error::Query(format!("ya existe el archivo {}", file.display())));
+                    return Err(Error::Query(format!(
+                        "ya existe el archivo {}",
+                        file.display()
+                    )));
                 }
                 file.to_string_lossy().to_string()
             }
             None => ":memory:".to_string(),
         };
-        let sql = format!("ATTACH '{}' AS {}", target.replace('\'', "''"), quote_ident(Quote::Double, &name));
-        self.with(move |c| c.execute_batch(&sql).map_err(Error::query)).await
+        let sql = format!(
+            "ATTACH '{}' AS {}",
+            target.replace('\'', "''"),
+            quote_ident(Quote::Double, &name)
+        );
+        self.with(move |c| c.execute_batch(&sql).map_err(Error::query))
+            .await
     }
 
     /// Detaches the catalog and deletes its file (and WAL).
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden borrar bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden borrar bases.".into(),
+            ));
         }
         if name == self.catalog {
-            return Err(Error::Query("no se puede borrar la base de esta sesión".into()));
+            return Err(Error::Query(
+                "no se puede borrar la base de esta sesión".into(),
+            ));
         }
         let rows = self
             .strings(
@@ -770,22 +977,32 @@ impl Session for DuckDbSession {
             return Err(Error::Query(format!("no existe la base {name}")));
         };
         if row[1].as_deref() == Some("true") {
-            return Err(Error::Query("no se puede borrar la base principal: es el archivo de la conexión".into()));
+            return Err(Error::Query(
+                "no se puede borrar la base principal: es el archivo de la conexión".into(),
+            ));
         }
         let sql = format!("DETACH DATABASE {}", quote_ident(Quote::Double, name));
-        self.with(move |c| c.execute_batch(&sql).map_err(Error::query)).await?;
+        self.with(move |c| c.execute_batch(&sql).map_err(Error::query))
+            .await?;
         if let Some(p) = row[0].clone().filter(|p| !p.is_empty() && p != ":memory:") {
-            std::fs::remove_file(&p).map_err(|e| Error::Query(format!("se desadjuntó, pero no se pudo borrar {p}: {e}")))?;
+            std::fs::remove_file(&p).map_err(|e| {
+                Error::Query(format!("se desadjuntó, pero no se pudo borrar {p}: {e}"))
+            })?;
             let _ = std::fs::remove_file(format!("{p}.wal"));
         }
         Ok(())
     }
 
     /// Typed cells read by column type, streaming (see [`transfer`]).
-    async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::ReadSpec,
+        sink: dbine_driver::BatchSinkRef,
+    ) -> Result<u64> {
         let spec = spec.clone();
         let catalog = self.catalog.clone();
-        self.with(move |c| transfer::read(c, &catalog, &spec, &sink)).await
+        self.with(move |c| transfer::read(c, &catalog, &spec, &sink))
+            .await
     }
 
     async fn bulk_load(
@@ -806,7 +1023,16 @@ impl Session for DuckDbSession {
         source: &mut dyn dbine_driver::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::WriteResult> {
-        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::DuckDb, spec, columns, source, progress, true).await
+        dbine_driver::write::staged_write(
+            self,
+            dbine_driver::write::StageFlavor::DuckDb,
+            spec,
+            columns,
+            source,
+            progress,
+            true,
+        )
+        .await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
@@ -816,7 +1042,8 @@ impl Session for DuckDbSession {
     /// No logins: only a read-only database stops the writes (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         let database = database.map(str::to_string);
-        self.with(move |c| Ok(permissions::check(c, database.as_deref()))).await
+        self.with(move |c| Ok(permissions::check(c, database.as_deref())))
+            .await
     }
 }
 
@@ -825,24 +1052,46 @@ impl Session for DuckDbSession {
 /// script lands there whatever the session `USE`s (a bare name without it).
 fn schema_path(database: Option<&str>, name: &str) -> String {
     match database {
-        Some(d) => format!("{}.{}", quote_ident(Quote::Double, d), quote_ident(Quote::Double, name)),
+        Some(d) => format!(
+            "{}.{}",
+            quote_ident(Quote::Double, d),
+            quote_ident(Quote::Double, name)
+        ),
         None => quote_ident(Quote::Double, name),
     }
 }
 
 fn schema_guard(files: bool, owner: Option<&str>) -> Result<()> {
     if files {
-        return Err(Error::Unsupported("la base de una carpeta de archivos vive en memoria: sus esquemas no se guardan".into()));
+        return Err(Error::Unsupported(
+            "la base de una carpeta de archivos vive en memoria: sus esquemas no se guardan".into(),
+        ));
     }
     if owner.is_some() {
-        return Err(Error::Unsupported("DuckDB no tiene usuarios: sus esquemas no tienen dueño".into()));
+        return Err(Error::Unsupported(
+            "DuckDB no tiene usuarios: sus esquemas no tienen dueño".into(),
+        ));
     }
     Ok(())
 }
 
 /// Statements that always return a result set.
-const QUERIES: &[&str] =
-    &["select", "with", "from", "values", "table", "show", "describe", "desc", "summarize", "pragma", "explain", "call", "pivot", "unpivot"];
+const QUERIES: &[&str] = &[
+    "select",
+    "with",
+    "from",
+    "values",
+    "table",
+    "show",
+    "describe",
+    "desc",
+    "summarize",
+    "pragma",
+    "explain",
+    "call",
+    "pivot",
+    "unpivot",
+];
 
 fn first_keyword(stmt: &str) -> String {
     leading_keyword(stmt, &dialect()).unwrap_or_default()
@@ -862,9 +1111,36 @@ fn split_statements(sql: &str) -> Vec<String> {
 /// Words that never open a transaction in manual mode: reads, transaction
 /// control, and what DuckDB refuses inside one.
 const NO_TRANSACTION: &[&str] = &[
-    "select", "with", "from", "values", "table", "show", "describe", "desc", "summarize", "explain", "pivot", "unpivot", "begin", "start",
-    "commit", "end", "rollback", "abort", "use", "set", "reset", "pragma", "checkpoint", "vacuum", "attach", "detach", "load", "install",
-    "prepare", "deallocate",
+    "select",
+    "with",
+    "from",
+    "values",
+    "table",
+    "show",
+    "describe",
+    "desc",
+    "summarize",
+    "explain",
+    "pivot",
+    "unpivot",
+    "begin",
+    "start",
+    "commit",
+    "end",
+    "rollback",
+    "abort",
+    "use",
+    "set",
+    "reset",
+    "pragma",
+    "checkpoint",
+    "vacuum",
+    "attach",
+    "detach",
+    "load",
+    "install",
+    "prepare",
+    "deallocate",
 ];
 
 /// A failed statement: DuckDB's error class as the code ("Parser",
@@ -882,16 +1158,28 @@ fn statement_error(e: duckdb::Error, script: &str, base: usize) -> Error {
     let base_line = script[..base].matches('\n').count() as u32;
     let mut lines = msg.lines();
     while let Some(l) = lines.next() {
-        let Some((n, shown)) = l.strip_prefix("LINE ").and_then(|r| r.split_once(": ")) else { continue };
+        let Some((n, shown)) = l.strip_prefix("LINE ").and_then(|r| r.split_once(": ")) else {
+            continue;
+        };
         let Ok(n) = n.parse::<u32>() else { continue };
         se = se.at_line(base_line + n);
         // The caret's column, when the excerpt is the line itself (DuckDB
         // cuts long lines).
         let prefix = l.len() - shown.len();
-        let caret = lines.next().and_then(|c| c.find('^')).and_then(|c| c.checked_sub(prefix));
-        let line_start = script[base..].split_inclusive('\n').take(n as usize - 1).map(str::len).sum::<usize>() + base;
+        let caret = lines
+            .next()
+            .and_then(|c| c.find('^'))
+            .and_then(|c| c.checked_sub(prefix));
+        let line_start = script[base..]
+            .split_inclusive('\n')
+            .take(n as usize - 1)
+            .map(str::len)
+            .sum::<usize>()
+            + base;
         let actual = script[line_start..].lines().next().unwrap_or("");
-        if let Some(col) = caret.filter(|&c| actual.starts_with(shown.trim_end()) && c <= actual.len()) {
+        if let Some(col) =
+            caret.filter(|&c| actual.starts_with(shown.trim_end()) && c <= actual.len())
+        {
             se = se.at_offset(line_start + col);
         }
         break;
@@ -905,17 +1193,36 @@ fn run_script(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome
 
 /// Run every statement of `sql`, following the session's transaction (see
 /// [`Tx`]).
-fn run_script_tx(c: &Connection, sql: &str, max_rows: usize, tx: &mut Tx, out: &mut QueryOutcome) -> Result<()> {
-    for unit in split_script(sql, &dialect()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand) {
+fn run_script_tx(
+    c: &Connection,
+    sql: &str,
+    max_rows: usize,
+    tx: &mut Tx,
+    out: &mut QueryOutcome,
+) -> Result<()> {
+    for unit in split_script(sql, &dialect())
+        .into_iter()
+        .filter(|s| s.kind != StatementKind::ClientCommand)
+    {
         let kw = first_keyword(&unit.text);
-        if tx.manual && tx.state == TxState::Idle && !kw.is_empty() && !NO_TRANSACTION.contains(&kw.as_str()) {
+        if tx.manual
+            && tx.state == TxState::Idle
+            && !kw.is_empty()
+            && !NO_TRANSACTION.contains(&kw.as_str())
+        {
             c.execute_batch("BEGIN TRANSACTION").map_err(duck_error)?;
             tx.state = TxState::Open;
         }
         let before = out.results.len();
-        let r = run_statement(c, &unit.text, &kw, max_rows, out).map_err(|e| statement_error(e, sql, unit.start));
+        let r = run_statement(c, &unit.text, &kw, max_rows, out)
+            .map_err(|e| statement_error(e, sql, unit.start));
         // A query cancelled or failed mid-way leaves no empty grid.
-        if r.is_err() && out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+        if r.is_err()
+            && out.results.len() > before
+            && out.results[before..]
+                .iter()
+                .all(|r| r.total_rows == 0 && r.rows_affected.is_none())
+        {
             out.results.truncate(before);
         }
         match (&r, kw.as_str()) {
@@ -936,34 +1243,60 @@ fn run_script_tx(c: &Connection, sql: &str, max_rows: usize, tx: &mut Tx, out: &
     Ok(())
 }
 
-fn run_statement(c: &Connection, stmt_sql: &str, kw: &str, max_rows: usize, out: &mut QueryOutcome) -> duckdb::Result<()> {
+fn run_statement(
+    c: &Connection,
+    stmt_sql: &str,
+    kw: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> duckdb::Result<()> {
     {
         let mut stmt = c.prepare(stmt_sql)?;
         let changed = stmt.execute([])?;
         let names = stmt.column_names();
         // DML without RETURNING and DDL come back as a lone "Count" (or
         // "Success") column, or no columns at all.
-        let status_only = names.is_empty() || (names.len() == 1 && (names[0] == "Count" || names[0] == "Success"));
+        let status_only = names.is_empty()
+            || (names.len() == 1 && (names[0] == "Count" || names[0] == "Success"));
         if status_only && !QUERIES.contains(&kw) {
             out.push_affected(changed as u64);
             return Ok(());
         }
         let types: Vec<String> = (0..names.len()).map(|i| type_name(&stmt, i)).collect();
-        out.begin_result(names.into_iter().zip(types).map(|(name, type_name)| ResultColumn { name, type_name }).collect());
+        out.begin_result(
+            names
+                .into_iter()
+                .zip(types)
+                .map(|(name, type_name)| ResultColumn { name, type_name })
+                .collect(),
+        );
         let n = stmt.column_count();
         let mut rows = stmt.raw_query();
         while let Some(row) = rows.next()? {
-            out.push_row((0..n).map(|i| cell(row.get_ref_unwrap(i).to_owned())).collect(), max_rows);
+            out.push_row(
+                (0..n)
+                    .map(|i| cell(row.get_ref_unwrap(i).to_owned()))
+                    .collect(),
+                max_rows,
+            );
         }
     }
     Ok(())
 }
 
-fn explain_script(c: &Connection, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+fn explain_script(
+    c: &Connection,
+    sql: &str,
+    analyze: bool,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     use plan::StmtKind;
     for stmt in split_statements(sql) {
         match (analyze, plan::classify(&stmt)) {
-            (false, StmtKind::Other) => out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt))),
+            (false, StmtKind::Other) => out
+                .messages
+                .push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt))),
             (false, _) => out.plans.push(plan_of(c, &stmt, false)?),
             (true, StmtKind::Read) => {
                 run_script(c, &stmt, max_rows, out)?;
@@ -981,7 +1314,11 @@ fn explain_script(c: &Connection, sql: &str, analyze: bool, max_rows: usize, out
 
 /// One statement's plan: the `explain_value` column of the EXPLAIN row.
 fn plan_of(c: &Connection, stmt: &str, actual: bool) -> Result<dbine_driver::Plan> {
-    let q = if actual { format!("EXPLAIN (ANALYZE, FORMAT JSON) {stmt}") } else { format!("EXPLAIN (FORMAT JSON) {stmt}") };
+    let q = if actual {
+        format!("EXPLAIN (ANALYZE, FORMAT JSON) {stmt}")
+    } else {
+        format!("EXPLAIN (FORMAT JSON) {stmt}")
+    };
     let raw: String = c.query_row(&q, [], |r| r.get(1)).map_err(duck_error)?;
     plan::duck_json(stmt, &raw, actual).map_err(Error::Query)
 }
@@ -1003,7 +1340,9 @@ fn duck_error(e: duckdb::Error) -> Error {
 /// A cell: scalars as JSON scalars, nested values as a compact JSON string.
 fn cell(v: Value) -> serde_json::Value {
     match v {
-        Value::List(_) | Value::Array(_) | Value::Struct(_) | Value::Map(_) => nested(v).to_string().into(),
+        Value::List(_) | Value::Array(_) | Value::Struct(_) | Value::Map(_) => {
+            nested(v).to_string().into()
+        }
         Value::Union(inner) => cell(*inner),
         v => nested(v),
     }
@@ -1036,22 +1375,45 @@ fn nested(v: Value) -> serde_json::Value {
             .map_or_else(|| d.to_string(), |t| t.format("%Y-%m-%d").to_string())
             .into(),
         Value::Time64(unit, t) => time_of_day(unit.to_micros(t)).into(),
-        Value::Interval { months, days, nanos } => interval(months, days, nanos).into(),
-        Value::List(items) | Value::Array(items) => J::Array(items.into_iter().map(nested).collect()),
-        Value::Struct(fields) => {
-            J::Object(fields.iter().map(|(k, v)| (k.clone(), nested(v.clone()))).collect())
+        Value::Interval {
+            months,
+            days,
+            nanos,
+        } => interval(months, days, nanos).into(),
+        Value::List(items) | Value::Array(items) => {
+            J::Array(items.into_iter().map(nested).collect())
         }
+        Value::Struct(fields) => J::Object(
+            fields
+                .iter()
+                .map(|(k, v)| (k.clone(), nested(v.clone())))
+                .collect(),
+        ),
         Value::Map(entries) => {
             // Keys may be any type; an object when they are all strings.
             if entries.keys().all(|k| matches!(k, Value::Text(_))) {
                 J::Object(
                     entries
                         .iter()
-                        .map(|(k, v)| (if let Value::Text(s) = k { s.clone() } else { String::new() }, nested(v.clone())))
+                        .map(|(k, v)| {
+                            (
+                                if let Value::Text(s) = k {
+                                    s.clone()
+                                } else {
+                                    String::new()
+                                },
+                                nested(v.clone()),
+                            )
+                        })
                         .collect(),
                 )
             } else {
-                J::Array(entries.iter().map(|(k, v)| J::Array(vec![nested(k.clone()), nested(v.clone())])).collect())
+                J::Array(
+                    entries
+                        .iter()
+                        .map(|(k, v)| J::Array(vec![nested(k.clone()), nested(v.clone())]))
+                        .collect(),
+                )
             }
         }
         Value::Union(inner) => nested(*inner),
@@ -1146,7 +1508,11 @@ mod tests {
     #[test]
     fn returning_and_show_are_result_sets() {
         let c = memory();
-        let (out, r) = run(&c, "CREATE TABLE t (a INT); INSERT INTO t VALUES (7) RETURNING a; SHOW TABLES;", 10);
+        let (out, r) = run(
+            &c,
+            "CREATE TABLE t (a INT); INSERT INTO t VALUES (7) RETURNING a; SHOW TABLES;",
+            10,
+        );
         r.unwrap();
         assert_eq!(out.results[1].rows, vec![vec![serde_json::json!(7)]]);
         assert_eq!(out.results[2].rows, vec![vec![serde_json::json!("t")]]);
@@ -1169,13 +1535,20 @@ mod tests {
         assert_eq!(e.line, Some(3));
         assert_eq!(e.offset, Some(script.find("missing").unwrap()), "{e:?}");
         let e = run(&c, "selec 1", 10).1.unwrap_err().to_script_error();
-        assert_eq!((e.code.as_deref(), e.line, e.offset), (Some("Parser"), Some(1), Some(0)));
+        assert_eq!(
+            (e.code.as_deref(), e.line, e.offset),
+            (Some("Parser"), Some(1), Some(0))
+        );
     }
 
     #[test]
     fn dollar_quotes_and_escapes_stay_in_their_statement() {
         let c = memory();
-        let (out, r) = run(&c, "SELECT $$a;b$$ AS x; SELECT $t$c;'d$t$; SELECT E'it\\'s;' AS y", 10);
+        let (out, r) = run(
+            &c,
+            "SELECT $$a;b$$ AS x; SELECT $t$c;'d$t$; SELECT E'it\\'s;' AS y",
+            10,
+        );
         r.unwrap();
         assert_eq!(out.results.len(), 3, "{:?}", out.results);
         assert_eq!(out.results[0].rows[0][0], serde_json::json!("a;b"));
@@ -1185,7 +1558,10 @@ mod tests {
     #[test]
     fn transactions_are_followed() {
         let c = memory();
-        let mut tx = Tx { manual: true, ..Default::default() };
+        let mut tx = Tx {
+            manual: true,
+            ..Default::default()
+        };
         let mut out = QueryOutcome::default();
         let mut go = |sql: &str, tx: &mut Tx| run_script_tx(&c, sql, 10, tx, &mut out);
         go("SELECT 1", &mut tx).unwrap();
@@ -1220,18 +1596,27 @@ mod tests {
     async fn isolated_sessions_share_nothing() {
         loader::ensure().await.unwrap();
         let [duck, _] = <[_; 2]>::try_from(drivers()).ok().unwrap();
-        let shared = ConnectionConfig { driver: "duckdb".into(), host: ":memory:".into(), ..Default::default() };
+        let shared = ConnectionConfig {
+            driver: "duckdb".into(),
+            host: ":memory:".into(),
+            ..Default::default()
+        };
         let mut isolated = shared.clone();
         isolated.options.insert("isolated".into(), "true".into());
         let mut a = duck.connect(&isolated, None).await.unwrap();
         let mut b = duck.connect(&isolated, None).await.unwrap();
         let mut plain = duck.connect(&shared, None).await.unwrap();
         let mut out = QueryOutcome::default();
-        a.execute("CREATE TABLE nbx_only_a AS SELECT 1 AS x", 10, &mut out).await.unwrap();
+        a.execute("CREATE TABLE nbx_only_a AS SELECT 1 AS x", 10, &mut out)
+            .await
+            .unwrap();
         for s in [&mut b, &mut plain] {
             let mut out = QueryOutcome::default();
             let r = s.execute("SELECT * FROM nbx_only_a", 10, &mut out).await;
-            assert!(r.is_err() || out.error.is_some(), "another session sees the isolated table");
+            assert!(
+                r.is_err() || out.error.is_some(),
+                "another session sees the isolated table"
+            );
         }
         // Nothing on disk: no file named after the host.
         assert!(!std::path::Path::new(":memory:").exists());
@@ -1248,13 +1633,29 @@ mod tests {
         std::fs::write(&file, "id,total\n1,10\n2,20\n").unwrap();
         std::fs::write(dir.join("otro.csv"), "x\n1\n").unwrap();
         let [_, files] = <[_; 2]>::try_from(drivers()).ok().unwrap();
-        let mut cfg = ConnectionConfig { driver: "duckdb_files".into(), host: file.to_string_lossy().into(), ..Default::default() };
+        let mut cfg = ConnectionConfig {
+            driver: "duckdb_files".into(),
+            host: file.to_string_lossy().into(),
+            ..Default::default()
+        };
         cfg.options.insert(files::SINGLE.into(), "true".into());
         let mut s = files.connect(&cfg, None).await.unwrap();
-        let views: Vec<String> = s.list_objects().await.unwrap().into_iter().map(|o| o.name).collect();
+        let views: Vec<String> = s
+            .list_objects()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|o| o.name)
+            .collect();
         assert_eq!(views, ["it's \"ventas\""], "only the file, not its folder");
         let mut out = QueryOutcome::default();
-        s.execute(r#"SELECT sum(total) AS t FROM "it's ""ventas""""#, 10, &mut out).await.unwrap();
+        s.execute(
+            r#"SELECT sum(total) AS t FROM "it's ""ventas""""#,
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.error, None);
         assert_eq!(out.results[0].rows, [[serde_json::json!(30)]]);
         // A file DuckDB can't read is the connection's error.
@@ -1270,14 +1671,35 @@ mod tests {
         let [db, files] = <[_; 2]>::try_from(drivers()).ok().unwrap();
         let spec = db.schema_spec().unwrap();
         assert!(!spec.owner && spec.cascade && spec.privileges.is_empty());
-        assert_eq!(db.create_schema_script(None, "ven\"tas", None).unwrap(), r#"CREATE SCHEMA "ven""tas""#);
-        assert!(matches!(db.create_schema_script(None, "v", Some("ana")), Err(Error::Unsupported(_))));
-        assert_eq!(db.drop_schema_script(None, "v", false).unwrap(), r#"DROP SCHEMA "v""#);
-        assert_eq!(db.drop_schema_script(None, "v", true).unwrap(), r#"DROP SCHEMA "v" CASCADE"#);
+        assert_eq!(
+            db.create_schema_script(None, "ven\"tas", None).unwrap(),
+            r#"CREATE SCHEMA "ven""tas""#
+        );
+        assert!(matches!(
+            db.create_schema_script(None, "v", Some("ana")),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(
+            db.drop_schema_script(None, "v", false).unwrap(),
+            r#"DROP SCHEMA "v""#
+        );
+        assert_eq!(
+            db.drop_schema_script(None, "v", true).unwrap(),
+            r#"DROP SCHEMA "v" CASCADE"#
+        );
         // The menu's catalog qualifies the schema.
-        assert_eq!(db.create_schema_script(Some("mi base"), "v", None).unwrap(), r#"CREATE SCHEMA "mi base"."v""#);
-        assert_eq!(db.drop_schema_script(Some("b\"x"), "v", true).unwrap(), r#"DROP SCHEMA "b""x"."v" CASCADE"#);
+        assert_eq!(
+            db.create_schema_script(Some("mi base"), "v", None).unwrap(),
+            r#"CREATE SCHEMA "mi base"."v""#
+        );
+        assert_eq!(
+            db.drop_schema_script(Some("b\"x"), "v", true).unwrap(),
+            r#"DROP SCHEMA "b""x"."v" CASCADE"#
+        );
         assert!(files.schema_spec().is_none());
-        assert!(matches!(files.create_schema_script(None, "v", None), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            files.create_schema_script(None, "v", None),
+            Err(Error::Unsupported(_))
+        ));
     }
 }

@@ -15,7 +15,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -50,7 +52,10 @@ async fn chain(driver: &str, env: &str) {
         eprintln!("{env} not set; skipping");
         return;
     };
-    let d = dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     assert!(d.capabilities().blocking && d.capabilities().kill_session);
     let (own_id, begin) = match driver {
         "cockroachdb" => ("SHOW session_id", "BEGIN"),
@@ -58,15 +63,26 @@ async fn chain(driver: &str, env: &str) {
         _ => ("SELECT pg_backend_pid()::text", "BEGIN"),
     };
     let mut admin = d.connect(&cfg, None).await.unwrap();
-    run(&mut admin, "DROP TABLE IF EXISTS dbine_lock").await.unwrap();
-    run(&mut admin, "CREATE TABLE dbine_lock (id int PRIMARY KEY, v int)").await.unwrap();
-    run(&mut admin, "INSERT INTO dbine_lock VALUES (1, 0)").await.unwrap();
+    run(&mut admin, "DROP TABLE IF EXISTS dbine_lock")
+        .await
+        .unwrap();
+    run(
+        &mut admin,
+        "CREATE TABLE dbine_lock (id int PRIMARY KEY, v int)",
+    )
+    .await
+    .unwrap();
+    run(&mut admin, "INSERT INTO dbine_lock VALUES (1, 0)")
+        .await
+        .unwrap();
 
     // The head: a transaction left open holding the row.
     let mut head = d.connect(&cfg, None).await.unwrap();
     let head_id = scalar(&mut head, own_id).await;
     run(&mut head, begin).await.unwrap();
-    run(&mut head, "UPDATE dbine_lock SET v = 1 WHERE id = 1").await.unwrap();
+    run(&mut head, "UPDATE dbine_lock SET v = 1 WHERE id = 1")
+        .await
+        .unwrap();
 
     // The waiter: blocks on the same row.
     let mut waiter = d.connect(&cfg, None).await.unwrap();
@@ -88,23 +104,52 @@ async fn chain(driver: &str, env: &str) {
         chain = admin.blocking().await.unwrap();
     }
     eprintln!("{driver}: {chain:#?}");
-    let w = chain.iter().find(|s| s.id == waiter_id).expect("the waiter is in the chain");
+    let w = chain
+        .iter()
+        .find(|s| s.id == waiter_id)
+        .expect("the waiter is in the chain");
     assert_eq!(w.blocked_by.as_deref(), Some(head_id.as_str()));
-    assert!(w.sql.as_deref().unwrap_or("").contains("SET v = 2"), "{w:?}");
+    assert!(
+        w.sql.as_deref().unwrap_or("").contains("SET v = 2"),
+        "{w:?}"
+    );
     assert!(w.waited_ms.unwrap_or(0) >= 500, "{w:?}");
-    let h = chain.iter().find(|s| s.id == head_id).expect("the head is in the chain");
+    let h = chain
+        .iter()
+        .find(|s| s.id == head_id)
+        .expect("the head is in the chain");
     assert_eq!(h.blocked_by, None);
-    assert!(h.wait.as_deref().unwrap_or("").contains("transacción abierta"), "{h:?}");
+    assert!(
+        h.wait
+            .as_deref()
+            .unwrap_or("")
+            .contains("transacción abierta"),
+        "{h:?}"
+    );
     assert!(h.waited_ms.unwrap_or(0) >= 1000, "{h:?}");
 
     // Killing the head frees the waiter.
     admin.kill_session(&head_id).await.unwrap();
-    let (r, _) = tokio::time::timeout(Duration::from_secs(15), waiting).await.expect("the waiter got through").unwrap();
+    let (r, _) = tokio::time::timeout(Duration::from_secs(15), waiting)
+        .await
+        .expect("the waiter got through")
+        .unwrap();
     r.unwrap();
-    assert!(admin.blocking().await.unwrap().iter().all(|s| s.id != waiter_id));
-    assert!(admin.kill_session("1; DROP TABLE x").await.is_err(), "the id is validated");
+    assert!(admin
+        .blocking()
+        .await
+        .unwrap()
+        .iter()
+        .all(|s| s.id != waiter_id));
+    assert!(
+        admin.kill_session("1; DROP TABLE x").await.is_err(),
+        "the id is validated"
+    );
     let own = scalar(&mut admin, own_id).await;
-    assert!(admin.kill_session(&own).await.is_err(), "not its own session");
+    assert!(
+        admin.kill_session(&own).await.is_err(),
+        "not its own session"
+    );
     let _ = run(&mut admin, "DROP TABLE IF EXISTS dbine_lock").await;
 }
 
@@ -160,7 +205,13 @@ async fn h2() {
 #[tokio::test]
 async fn lockless_engines_are_unsupported() {
     for id in ["materialize", "risingwave", "cratedb", "denodo"] {
-        let d = dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == id).unwrap();
-        assert!(!d.capabilities().blocking && !d.capabilities().kill_session, "{id}");
+        let d = dbine_driver_postgres::drivers()
+            .into_iter()
+            .find(|d| d.info().id == id)
+            .unwrap();
+        assert!(
+            !d.capabilities().blocking && !d.capabilities().kill_session,
+            "{id}"
+        );
     }
 }

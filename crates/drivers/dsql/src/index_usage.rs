@@ -32,17 +32,33 @@ pub const NOTE: &str = "Aurora DSQL no informa cuánto se usa cada índice. Se l
 
 /// Key columns with ` DESC` where `indoption` (bit 1) says so.
 pub fn keys(keys: Vec<String>, opts: &[i32]) -> Vec<String> {
-    keys.into_iter().enumerate().map(|(i, k)| if opts.get(i).is_some_and(|o| o & 1 != 0) { format!("{k} DESC") } else { k }).collect()
+    keys.into_iter()
+        .enumerate()
+        .map(|(i, k)| {
+            if opts.get(i).is_some_and(|o| o & 1 != 0) {
+                format!("{k} DESC")
+            } else {
+                k
+            }
+        })
+        .collect()
 }
 
 /// The access method as the index's kind.
 pub fn kind(am: &str) -> String {
-    if am.is_empty() { "INDEX".into() } else { am.to_ascii_uppercase() }
+    if am.is_empty() {
+        "INDEX".into()
+    } else {
+        am.to_ascii_uppercase()
+    }
 }
 
 pub async fn report(client: &Client, table: &ObjectRef) -> Result<IndexUsageReport> {
     let schema = table.schema().unwrap_or("");
-    let rows = client.query(INDEXES_SQL, &[&schema, &table.name]).await.map_err(err)?;
+    let rows = client
+        .query(INDEXES_SQL, &[&schema, &table.name])
+        .await
+        .map_err(err)?;
     let indexes = rows
         .iter()
         .map(|r| {
@@ -59,7 +75,12 @@ pub async fn report(client: &Client, table: &ObjectRef) -> Result<IndexUsageRepo
             }
         })
         .collect();
-    Ok(IndexUsageReport { indexes, note: Some(NOTE.into()), seek_scan_split: false, ..Default::default() })
+    Ok(IndexUsageReport {
+        indexes,
+        note: Some(NOTE.into()),
+        seek_scan_split: false,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]
@@ -68,14 +89,23 @@ mod tests {
 
     #[test]
     fn keys_carry_desc_and_kinds_their_method() {
-        assert_eq!(keys(vec!["a".into(), "(lower(b))".into()], &[1, 0]), ["a DESC", "(lower(b))"]);
+        assert_eq!(
+            keys(vec!["a".into(), "(lower(b))".into()], &[1, 0]),
+            ["a DESC", "(lower(b))"]
+        );
         assert_eq!(keys(vec!["a".into()], &[]), ["a"]);
-        assert_eq!((kind("btree"), kind("")), ("BTREE".to_string(), "INDEX".to_string()));
+        assert_eq!(
+            (kind("btree"), kind("")),
+            ("BTREE".to_string(), "INDEX".to_string())
+        );
     }
 
     #[test]
     fn one_table_by_schema_or_search_path() {
         assert!(INDEXES_SQL.contains("t.relname = $2 AND (n.nspname = $1 OR ($1 = '' AND pg_catalog.pg_table_is_visible(t.oid)))"));
-        assert!(INDEXES_SQL.contains("ORDER BY x.indisprimary DESC"), "primary key first");
+        assert!(
+            INDEXES_SQL.contains("ORDER BY x.indisprimary DESC"),
+            "primary key first"
+        );
     }
 }

@@ -78,9 +78,14 @@ impl MailSettings {
 
     fn sender(&self) -> Result<Mailbox, String> {
         let address = self.from_address.trim();
-        let address = address.parse().map_err(|_| format!("«{address}» no es una dirección de remitente válida"))?;
+        let address = address
+            .parse()
+            .map_err(|_| format!("«{address}» no es una dirección de remitente válida"))?;
         let name = self.from_name.trim();
-        Ok(Mailbox::new((!name.is_empty()).then(|| name.to_string()), address))
+        Ok(Mailbox::new(
+            (!name.is_empty()).then(|| name.to_string()),
+            address,
+        ))
     }
 
     fn at(&self) -> String {
@@ -90,7 +95,10 @@ impl MailSettings {
 
 /// The saved server, if there's one.
 pub fn load(state: &AppState) -> CommandResult<Option<MailSettings>> {
-    Ok(state.store.get_setting(SETTING)?.and_then(|v| serde_json::from_value(v).ok()))
+    Ok(state
+        .store
+        .get_setting(SETTING)?
+        .and_then(|v| serde_json::from_value(v).ok()))
 }
 
 pub fn password() -> CommandResult<Option<String>> {
@@ -112,15 +120,27 @@ pub struct Outgoing {
 
 /// The addresses in `text`, separated by commas, semicolons or lines.
 pub fn addresses(text: &str) -> Vec<String> {
-    text.split([',', ';', '\n']).map(str::trim).filter(|a| !a.is_empty()).map(str::to_string).collect()
+    text.split([',', ';', '\n'])
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn mailboxes(list: &[String]) -> Result<Vec<Mailbox>, String> {
-    list.iter().map(|a| a.parse::<Mailbox>().map_err(|_| format!("«{a}» no es una dirección de correo válida"))).collect()
+    list.iter()
+        .map(|a| {
+            a.parse::<Mailbox>()
+                .map_err(|_| format!("«{a}» no es una dirección de correo válida"))
+        })
+        .collect()
 }
 
 fn content_type(path: &Path) -> ContentType {
-    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     let mime = match ext.as_str() {
         "csv" => "text/csv",
         "tsv" => "text/tab-separated-values",
@@ -141,7 +161,9 @@ fn content_type(path: &Path) -> ContentType {
 }
 
 fn file_name(path: &Path) -> String {
-    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned())
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
 /// The message, ready to send. Fails on a bad address, a missing
@@ -150,7 +172,9 @@ pub fn build(settings: &MailSettings, mail: &Outgoing) -> Result<Message, String
     if mail.to.is_empty() {
         return Err("el mail no tiene destinatarios".into());
     }
-    let mut b = Message::builder().from(settings.sender()?).subject(mail.subject.trim());
+    let mut b = Message::builder()
+        .from(settings.sender()?)
+        .subject(mail.subject.trim());
     for m in mailboxes(&mail.to)? {
         b = b.to(m);
     }
@@ -159,7 +183,8 @@ pub fn build(settings: &MailSettings, mail: &Outgoing) -> Result<Message, String
     }
     let mut total = 0u64;
     for p in &mail.attachments {
-        let meta = std::fs::metadata(p).map_err(|_| format!("no existe el archivo adjunto {}", p.display()))?;
+        let meta = std::fs::metadata(p)
+            .map_err(|_| format!("no existe el archivo adjunto {}", p.display()))?;
         if !meta.is_file() {
             return Err(format!("el adjunto {} no es un archivo", p.display()));
         }
@@ -174,16 +199,23 @@ pub fn build(settings: &MailSettings, mail: &Outgoing) -> Result<Message, String
     }
     let message = if mail.attachments.is_empty() {
         match &mail.html {
-            Some(html) => b.multipart(MultiPart::alternative_plain_html(mail.body.clone(), html.clone())),
+            Some(html) => b.multipart(MultiPart::alternative_plain_html(
+                mail.body.clone(),
+                html.clone(),
+            )),
             None => b.header(ContentType::TEXT_PLAIN).body(mail.body.clone()),
         }
     } else {
         let mut parts = match &mail.html {
-            Some(html) => MultiPart::mixed().multipart(MultiPart::alternative_plain_html(mail.body.clone(), html.clone())),
+            Some(html) => MultiPart::mixed().multipart(MultiPart::alternative_plain_html(
+                mail.body.clone(),
+                html.clone(),
+            )),
             None => MultiPart::mixed().singlepart(SinglePart::plain(mail.body.clone())),
         };
         for p in &mail.attachments {
-            let bytes = std::fs::read(p).map_err(|e| format!("no se pudo leer el adjunto {}: {e}", p.display()))?;
+            let bytes = std::fs::read(p)
+                .map_err(|e| format!("no se pudo leer el adjunto {}: {e}", p.display()))?;
             parts = parts.singlepart(Attachment::new(file_name(p)).body(bytes, content_type(p)));
         }
         b.multipart(parts)
@@ -193,23 +225,35 @@ pub fn build(settings: &MailSettings, mail: &Outgoing) -> Result<Message, String
 
 /// Send `message` through the server; the error says what went wrong in
 /// words the user can act on.
-pub async fn send(settings: &MailSettings, password: Option<String>, message: Message) -> Result<(), String> {
+pub async fn send(
+    settings: &MailSettings,
+    password: Option<String>,
+    message: Message,
+) -> Result<(), String> {
     let host = settings.host.trim();
     let builder = match settings.security {
         Security::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(host),
         Security::Starttls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host),
-        Security::None => Ok(AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)),
+        Security::None => Ok(AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(
+            host,
+        )),
     }
     .map_err(|e| explain(&e, settings))?;
     let mut builder = builder.port(settings.port).timeout(Some(COMMAND_LIMIT));
     if !settings.user.trim().is_empty() {
-        builder = builder.credentials(Credentials::new(settings.user.trim().to_string(), password.unwrap_or_default()));
+        builder = builder.credentials(Credentials::new(
+            settings.user.trim().to_string(),
+            password.unwrap_or_default(),
+        ));
     }
     let transport = builder.build();
     match tokio::time::timeout(SEND_LIMIT, transport.send(message)).await {
         Ok(Ok(_)) => Ok(()),
         Ok(Err(e)) => Err(explain(&e, settings)),
-        Err(_) => Err(format!("el servidor de correo {} no terminó de recibir el mail a tiempo", settings.at())),
+        Err(_) => Err(format!(
+            "el servidor de correo {} no terminó de recibir el mail a tiempo",
+            settings.at()
+        )),
     }
 }
 
@@ -258,7 +302,11 @@ fn explain(e: &lettre::transport::smtp::Error, s: &MailSettings) -> String {
 
 /// Build and send `mail` with the saved server. The answer is the summary:
 /// recipients and attachments' names, never the body.
-pub async fn deliver(settings: &MailSettings, password: Option<String>, mail: &Outgoing) -> Result<String, String> {
+pub async fn deliver(
+    settings: &MailSettings,
+    password: Option<String>,
+    mail: &Outgoing,
+) -> Result<String, String> {
     let message = build(settings, mail)?;
     send(settings, password, message).await?;
     let mut summary = format!("Mail enviado a {}", mail.to.join(", "));
@@ -329,14 +377,20 @@ fn html_body(c: &MailConfig, vars: &Vars) -> Result<Option<String>, String> {
         return Ok(None);
     }
     let p = Path::new(&path);
-    let meta = std::fs::metadata(p).map_err(|_| format!("no existe el archivo HTML del cuerpo {path}"))?;
+    let meta =
+        std::fs::metadata(p).map_err(|_| format!("no existe el archivo HTML del cuerpo {path}"))?;
     if !meta.is_file() {
         return Err(format!("el cuerpo HTML {path} no es un archivo"));
     }
     if meta.len() > MAX_HTML_BODY {
-        return Err(format!("el cuerpo HTML {path} pasa de {} MB: adjuntalo en lugar de ponerlo en el cuerpo", MAX_HTML_BODY / 1048576));
+        return Err(format!(
+            "el cuerpo HTML {path} pasa de {} MB: adjuntalo en lugar de ponerlo en el cuerpo",
+            MAX_HTML_BODY / 1048576
+        ));
     }
-    std::fs::read_to_string(p).map(Some).map_err(|e| format!("no se pudo leer el cuerpo HTML {path}: {e}"))
+    std::fs::read_to_string(p)
+        .map(Some)
+        .map_err(|e| format!("no se pudo leer el cuerpo HTML {path}: {e}"))
 }
 
 fn outgoing(c: &MailConfig, vars: &Vars) -> Outgoing {
@@ -348,21 +402,43 @@ fn outgoing(c: &MailConfig, vars: &Vars) -> Outgoing {
         subject: expand(&c.subject, vars),
         body: expand(&c.body, vars),
         html: None,
-        attachments: c.attachments.iter().map(|a| expand(a.trim(), &plain)).filter(|a| !a.is_empty()).map(PathBuf::from).collect(),
+        attachments: c
+            .attachments
+            .iter()
+            .map(|a| expand(a.trim(), &plain))
+            .filter(|a| !a.is_empty())
+            .map(PathBuf::from)
+            .collect(),
     }
 }
 
 pub(super) async fn step(state: &AppState, step: &Step, vars: &Vars) -> CommandResult<StepDone> {
-    let c: MailConfig = serde_json::from_value(step.config.clone()).map_err(|e| CommandError::BadRequest(format!("la configuración del paso no es válida: {e}")))?;
+    let c: MailConfig = serde_json::from_value(step.config.clone()).map_err(|e| {
+        CommandError::BadRequest(format!("la configuración del paso no es válida: {e}"))
+    })?;
     let Some(settings) = load(state)? else {
-        return Err(CommandError::BadRequest("falta configurar el servidor de correo en Configuración › Correo".into()));
+        return Err(CommandError::BadRequest(
+            "falta configurar el servidor de correo en Configuración › Correo".into(),
+        ));
     };
     let mut mail = outgoing(&c, vars);
     mail.html = html_body(&c, vars).map_err(CommandError::BadRequest)?;
-    let password = if settings.user.trim().is_empty() { None } else { password()? };
-    let summary = deliver(&settings, password, &mail).await.map_err(CommandError::BadRequest)?;
-    let mut done = StepDone { summary, ..Default::default() };
-    done.outputs.insert("recipients".into(), (mail.to.len() + mail.cc.len()).to_string());
+    let password = if settings.user.trim().is_empty() {
+        None
+    } else {
+        password()?
+    };
+    let summary = deliver(&settings, password, &mail)
+        .await
+        .map_err(CommandError::BadRequest)?;
+    let mut done = StepDone {
+        summary,
+        ..Default::default()
+    };
+    done.outputs.insert(
+        "recipients".into(),
+        (mail.to.len() + mail.cc.len()).to_string(),
+    );
     Ok(done)
 }
 
@@ -388,15 +464,28 @@ mod tests {
 
     #[test]
     fn settings_parse_and_validate() {
-        let s: MailSettings = serde_json::from_value(json!({"host": "smtp.example.com", "from_address": "a@example.com"})).unwrap();
+        let s: MailSettings = serde_json::from_value(
+            json!({"host": "smtp.example.com", "from_address": "a@example.com"}),
+        )
+        .unwrap();
         assert_eq!((s.port, s.security), (587, Security::Starttls));
         assert!(s.problem().is_none());
-        let s: MailSettings = serde_json::from_value(json!({"host": "h", "port": 465, "security": "tls", "from_address": "nope"})).unwrap();
+        let s: MailSettings = serde_json::from_value(
+            json!({"host": "h", "port": 465, "security": "tls", "from_address": "nope"}),
+        )
+        .unwrap();
         assert_eq!(s.security, Security::Tls);
         assert!(s.problem().unwrap().contains("nope"));
-        assert!(MailSettings { host: " ".into(), ..server() }.problem().is_some());
+        assert!(MailSettings {
+            host: " ".into(),
+            ..server()
+        }
+        .problem()
+        .is_some());
         // Nothing secret in what's stored.
-        assert!(!serde_json::to_string(&server()).unwrap().contains("password"));
+        assert!(!serde_json::to_string(&server())
+            .unwrap()
+            .contains("password"));
     }
 
     #[test]
@@ -414,7 +503,10 @@ mod tests {
         let m = outgoing(&c, &vars);
         assert_eq!(m.to, ["ana@example.com", "beto@example.com"]);
         assert_eq!(m.cc, ["Ventas@example.com"]);
-        assert_eq!((m.subject.as_str(), m.body.as_str()), ("Ventas del 2026-10-08", "42 filas"));
+        assert_eq!(
+            (m.subject.as_str(), m.body.as_str()),
+            ("Ventas del 2026-10-08", "42 filas")
+        );
         assert_eq!(m.attachments, [PathBuf::from("/tmp/ventas.csv")]);
         // An empty config parses (the form saves it before it's filled).
         let c: MailConfig = serde_json::from_value(json!({})).unwrap();
@@ -436,17 +528,39 @@ mod tests {
             attachments: vec![csv.clone()],
         };
         let raw = text(&build(&server(), &mail).unwrap());
-        assert!(raw.contains("From: \"DBine Pruebas\" <dbine@example.com>"), "{raw}");
-        assert!(raw.contains("To: Ana <ana@example.com>") && raw.contains("Cc: beto@example.com"), "{raw}");
+        assert!(
+            raw.contains("From: \"DBine Pruebas\" <dbine@example.com>"),
+            "{raw}"
+        );
+        assert!(
+            raw.contains("To: Ana <ana@example.com>") && raw.contains("Cc: beto@example.com"),
+            "{raw}"
+        );
         // The subject is encoded, not raw UTF-8.
         let subject = raw.lines().find(|l| l.starts_with("Subject:")).unwrap();
         assert!(subject.contains("=?utf-8?"), "{subject}");
-        assert!(raw.contains("multipart/mixed") && raw.contains("Content-Type: text/csv"), "{raw}");
+        assert!(
+            raw.contains("multipart/mixed") && raw.contains("Content-Type: text/csv"),
+            "{raw}"
+        );
         assert!(raw.contains("Content-Disposition: attachment"), "{raw}");
 
         // Without attachments: one plain part.
-        let plain = text(&build(&server(), &Outgoing { attachments: vec![], ..mail }).unwrap());
-        assert!(!plain.contains("multipart") && plain.contains("Content-Type: text/plain; charset=utf-8"), "{plain}");
+        let plain = text(
+            &build(
+                &server(),
+                &Outgoing {
+                    attachments: vec![],
+                    ..mail
+                },
+            )
+            .unwrap(),
+        );
+        assert!(
+            !plain.contains("multipart")
+                && plain.contains("Content-Type: text/plain; charset=utf-8"),
+            "{plain}"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -463,33 +577,70 @@ mod tests {
         let mut m = outgoing(&c, &vars);
         m.html = html_body(&c, &vars).unwrap();
         let raw = text(&build(&server(), &m).unwrap());
-        assert!(raw.contains("multipart/mixed") && raw.contains("multipart/alternative"), "{raw}");
-        assert!(raw.contains("Content-Type: text/html") && raw.contains("Content-Type: text/plain"), "{raw}");
+        assert!(
+            raw.contains("multipart/mixed") && raw.contains("multipart/alternative"),
+            "{raw}"
+        );
+        assert!(
+            raw.contains("Content-Type: text/html") && raw.contains("Content-Type: text/plain"),
+            "{raw}"
+        );
         assert!(raw.contains("Content-Disposition: attachment"), "{raw}");
         // Without attachments: just the two versions of the body.
         m.attachments.clear();
         let raw = text(&build(&server(), &m).unwrap());
-        assert!(raw.contains("multipart/alternative") && !raw.contains("multipart/mixed"), "{raw}");
+        assert!(
+            raw.contains("multipart/alternative") && !raw.contains("multipart/mixed"),
+            "{raw}"
+        );
         // A missing file fails the step, naming it.
-        let missing: MailConfig = serde_json::from_value(json!({"to": "a@example.com", "html_body": "/no/existe.html"})).unwrap();
-        assert!(html_body(&missing, &vars).unwrap_err().contains("/no/existe.html"));
+        let missing: MailConfig =
+            serde_json::from_value(json!({"to": "a@example.com", "html_body": "/no/existe.html"}))
+                .unwrap();
+        assert!(html_body(&missing, &vars)
+            .unwrap_err()
+            .contains("/no/existe.html"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn bad_mails_fail_clearly() {
         let to = vec!["a@example.com".to_string()];
-        let missing = Outgoing { to: to.clone(), attachments: vec![PathBuf::from("/no/existe/reporte.csv")], ..Default::default() };
-        assert!(build(&server(), &missing).unwrap_err().contains("/no/existe/reporte.csv"));
-        assert!(build(&server(), &Outgoing::default()).unwrap_err().contains("destinatarios"));
-        let bad = Outgoing { to: vec!["no es un mail".into()], ..Default::default() };
-        assert!(build(&server(), &bad).unwrap_err().contains("no es un mail"));
+        let missing = Outgoing {
+            to: to.clone(),
+            attachments: vec![PathBuf::from("/no/existe/reporte.csv")],
+            ..Default::default()
+        };
+        assert!(build(&server(), &missing)
+            .unwrap_err()
+            .contains("/no/existe/reporte.csv"));
+        assert!(build(&server(), &Outgoing::default())
+            .unwrap_err()
+            .contains("destinatarios"));
+        let bad = Outgoing {
+            to: vec!["no es un mail".into()],
+            ..Default::default()
+        };
+        assert!(build(&server(), &bad)
+            .unwrap_err()
+            .contains("no es un mail"));
 
         let dir = std::env::temp_dir().join(format!("dbine-mail-big-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let big = dir.join("big.bin");
-        std::fs::File::create(&big).unwrap().set_len(MAX_ATTACHMENTS + 1).unwrap();
-        let err = build(&server(), &Outgoing { to, attachments: vec![big], ..Default::default() }).unwrap_err();
+        std::fs::File::create(&big)
+            .unwrap()
+            .set_len(MAX_ATTACHMENTS + 1)
+            .unwrap();
+        let err = build(
+            &server(),
+            &Outgoing {
+                to,
+                attachments: vec![big],
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
         assert!(err.contains("20 MB"), "{err}");
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -497,8 +648,18 @@ mod tests {
     #[tokio::test]
     async fn refused_connection_is_explained() {
         // Nothing listens on port 1 of this machine.
-        let s = MailSettings { port: 1, ..server() };
-        let m = build(&s, &Outgoing { to: vec!["a@example.com".into()], ..Default::default() }).unwrap();
+        let s = MailSettings {
+            port: 1,
+            ..server()
+        };
+        let m = build(
+            &s,
+            &Outgoing {
+                to: vec!["a@example.com".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let err = send(&s, None, m).await.unwrap_err();
         assert!(err.contains("rechazó la conexión"), "{err}");
     }
@@ -525,7 +686,10 @@ mod tests {
             attachments: vec![csv],
         };
         let summary = deliver(&server(), None, &mail).await.unwrap();
-        assert_eq!(summary, "Mail enviado a ana@example.com (cc: beto@example.com); adjuntos: ventas.csv.");
+        assert_eq!(
+            summary,
+            "Mail enviado a ana@example.com (cc: beto@example.com); adjuntos: ventas.csv."
+        );
 
         // Mailpit's API: find it, then read it and its attachment.
         let http = reqwest::Client::new();
@@ -538,8 +702,18 @@ mod tests {
             .json()
             .await
             .unwrap();
-        let id = found["messages"][0]["ID"].as_str().expect("the message reached Mailpit").to_string();
-        let msg: serde_json::Value = http.get(format!("http://localhost:8025/api/v1/message/{id}")).send().await.unwrap().json().await.unwrap();
+        let id = found["messages"][0]["ID"]
+            .as_str()
+            .expect("the message reached Mailpit")
+            .to_string();
+        let msg: serde_json::Value = http
+            .get(format!("http://localhost:8025/api/v1/message/{id}"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         assert_eq!(msg["Subject"], subject);
         assert_eq!(msg["From"]["Address"], "dbine@example.com");
         assert_eq!(msg["Cc"][0]["Address"], "beto@example.com");
@@ -547,13 +721,28 @@ mod tests {
         let att = &msg["Attachments"][0];
         assert_eq!(att["FileName"], "ventas.csv");
         let part = att["PartID"].as_str().unwrap();
-        let body = http.get(format!("http://localhost:8025/api/v1/message/{id}/part/{part}")).send().await.unwrap().text().await.unwrap();
+        let body = http
+            .get(format!(
+                "http://localhost:8025/api/v1/message/{id}/part/{part}"
+            ))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
         assert_eq!(body, "producto,total\nmate,3\n");
 
         // Mailpit speaks plain SMTP: asking for TLS says so.
-        let to = Outgoing { to: vec!["a@example.com".into()], ..Default::default() };
+        let to = Outgoing {
+            to: vec!["a@example.com".into()],
+            ..Default::default()
+        };
         for security in [Security::Tls, Security::Starttls] {
-            let s = MailSettings { security, ..server() };
+            let s = MailSettings {
+                security,
+                ..server()
+            };
             let err = deliver(&s, None, &to).await.unwrap_err();
             assert!(err.contains("conexión segura"), "{security:?}: {err}");
         }

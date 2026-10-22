@@ -16,7 +16,11 @@ use crate::IotDbSession;
 use dbine_driver::{Access, Error, Grant, Permissions, Result};
 
 pub(crate) fn decide(grants: &[Grant], database: Option<&str>) -> Permissions {
-    let has = |p: &str| grants.iter().any(|g| g.privilege.eq_ignore_ascii_case(p) || g.privilege.eq_ignore_ascii_case("ALL"));
+    let has = |p: &str| {
+        grants
+            .iter()
+            .any(|g| g.privilege.eq_ignore_ascii_case(p) || g.privilege.eq_ignore_ascii_case("ALL"))
+    };
     let databases = Access::check(has("MANAGE_DATABASE"), "MANAGE_DATABASE");
     let security = if has("MANAGE_USER") {
         Access::Allowed
@@ -28,7 +32,11 @@ pub(crate) fn decide(grants: &[Grant], database: Option<&str>) -> Permissions {
     Permissions {
         profiler: Access::check(has("MAINTAIN"), "MAINTAIN"),
         create_database: databases.clone(),
-        drop_database: if database.is_some_and(|d| !d.trim().is_empty()) { databases } else { Access::Unknown },
+        drop_database: if database.is_some_and(|d| !d.trim().is_empty()) {
+            databases
+        } else {
+            Access::Unknown
+        },
         manage_security: security,
         ..Default::default()
     }
@@ -54,22 +62,48 @@ mod tests {
     }
 
     fn g(privilege: &str, grantable: bool) -> Grant {
-        Grant { privilege: privilege.into(), grantable, ..Default::default() }
+        Grant {
+            privilege: privilege.into(),
+            grantable,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn root_may_do_everything() {
         let p = decide(&[g("ALL", false)], Some("root.sg"));
-        assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
-        assert_eq!((&p.backup, &p.kill_session), (&Access::Unknown, &Access::Unknown));
-        assert_eq!(decide(&[g("ALL", false)], None).drop_database, Access::Unknown);
+        assert_eq!(
+            (
+                &p.profiler,
+                &p.create_database,
+                &p.drop_database,
+                &p.manage_security
+            ),
+            (
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed,
+                &Access::Allowed
+            )
+        );
+        assert_eq!(
+            (&p.backup, &p.kill_session),
+            (&Access::Unknown, &Access::Unknown)
+        );
+        assert_eq!(
+            decide(&[g("ALL", false)], None).drop_database,
+            Access::Unknown
+        );
     }
 
     #[test]
     fn a_reader_is_denied() {
         let p = decide(&[g("READ_DATA", false)], Some("root.sg"));
         assert!(denied(&p.profiler, "MAINTAIN"));
-        assert!(denied(&p.create_database, "MANAGE_DATABASE") && denied(&p.drop_database, "MANAGE_DATABASE"));
+        assert!(
+            denied(&p.create_database, "MANAGE_DATABASE")
+                && denied(&p.drop_database, "MANAGE_DATABASE")
+        );
         assert!(denied(&p.manage_security, "MANAGE_USER"));
     }
 
@@ -79,7 +113,17 @@ mod tests {
         assert_eq!(p.manage_security, Access::Unknown);
         let p = decide(&[g("READ_DATA", true)], None);
         assert_eq!(p.manage_security, Access::Unknown);
-        let p = decide(&[g("MANAGE_DATABASE", false), g("MAINTAIN", false), g("MANAGE_USER", false)], Some("root.sg"));
-        assert_eq!((&p.profiler, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+        let p = decide(
+            &[
+                g("MANAGE_DATABASE", false),
+                g("MAINTAIN", false),
+                g("MANAGE_USER", false),
+            ],
+            Some("root.sg"),
+        );
+        assert_eq!(
+            (&p.profiler, &p.drop_database, &p.manage_security),
+            (&Access::Allowed, &Access::Allowed, &Access::Allowed)
+        );
     }
 }

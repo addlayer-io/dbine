@@ -11,9 +11,16 @@
 use dbine_driver::{ConnectionConfig, Error, Session};
 
 async fn open(driver: &str, url: &str) -> Box<dyn Session> {
-    let d = dbine_driver_cassandra::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     assert!(d.capabilities().processes && !d.capabilities().cancel_query);
-    let cfg = ConnectionConfig { driver: driver.into(), host: url.into(), ..Default::default() };
+    let cfg = ConnectionConfig {
+        driver: driver.into(),
+        host: url.into(),
+        ..Default::default()
+    };
     d.connect(&cfg, None).await.expect("connect")
 }
 
@@ -29,13 +36,34 @@ async fn lists_connections(driver: &str, env: &str, queries: bool) {
     eprintln!("{driver}: {list:#?}");
     let conns: Vec<_> = list.iter().filter(|p| !p.active).collect();
     assert!(conns.iter().any(|p| p.own), "the lister's connection");
-    assert!(conns.iter().any(|p| !p.own && p.program.as_deref() == Some("DBine")), "the other session's");
-    assert!(conns.iter().all(|p| p.id.rsplit_once(':').is_some_and(|(_, port)| port.parse::<u16>().is_ok())));
+    assert!(
+        conns
+            .iter()
+            .any(|p| !p.own && p.program.as_deref() == Some("DBine")),
+        "the other session's"
+    );
+    assert!(conns.iter().all(|p| p
+        .id
+        .rsplit_once(':')
+        .is_some_and(|(_, port)| port.parse::<u16>().is_ok())));
     if queries {
-        let q = list.iter().find(|p| p.active).expect("the listing is running");
-        assert!(q.own && q.sql.as_deref().unwrap_or("").contains("system_views.queries"), "{q:?}");
+        let q = list
+            .iter()
+            .find(|p| p.active)
+            .expect("the listing is running");
+        assert!(
+            q.own
+                && q.sql
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("system_views.queries"),
+            "{q:?}"
+        );
     }
-    assert!(matches!(admin.cancel_query(&conns[0].id).await, Err(Error::Unsupported(_))));
+    assert!(matches!(
+        admin.cancel_query(&conns[0].id).await,
+        Err(Error::Unsupported(_))
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread")]

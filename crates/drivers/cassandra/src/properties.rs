@@ -22,7 +22,9 @@
 use crate::create_db::{bad, dc_literal, factor, NTS};
 use crate::{ddl, is_system_keyspace, CassandraSession, Flavor};
 use dbine_driver::serde_static::intern;
-use dbine_driver::{DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result};
+use dbine_driver::{
+    DatabaseProperties, Error, Field, FieldChoices, FieldKind, PropertyInfo, Result,
+};
 use scylla::value::{CqlValue, Row};
 use std::collections::BTreeMap;
 
@@ -41,9 +43,15 @@ fn yes(v: &str) -> bool {
 fn dc_factors(list: &str) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for item in list.split(',').map(str::trim).filter(|i| !i.is_empty()) {
-        let (dc, n) = item.rsplit_once(':').ok_or_else(|| bad("factores por datacenter (datacenter:réplicas)", item))?;
+        let (dc, n) = item
+            .rsplit_once(':')
+            .ok_or_else(|| bad("factores por datacenter (datacenter:réplicas)", item))?;
         let n = n.trim();
-        let n: u32 = n.parse().ok().filter(|n| *n <= 100).ok_or_else(|| bad("réplicas del datacenter", n))?;
+        let n: u32 = n
+            .parse()
+            .ok()
+            .filter(|n| *n <= 100)
+            .ok_or_else(|| bad("réplicas del datacenter", n))?;
         out.push(format!("{}: {n}", dc_literal(dc.trim())?));
     }
     if out.is_empty() {
@@ -54,12 +62,27 @@ fn dc_factors(list: &str) -> Result<Vec<String>> {
 
 /// The statements for `changes`: `durable_writes` first, then the
 /// replication (Keyspaces: the regions).
-pub(crate) fn alter(f: Flavor, keyspace: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
+pub(crate) fn alter(
+    f: Flavor,
+    keyspace: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
     if is_system_keyspace(keyspace.trim()) {
-        return Err(Error::Query(format!("{keyspace} es un keyspace del sistema: no se modifica.")));
+        return Err(Error::Query(format!(
+            "{keyspace} es un keyspace del sistema: no se modifica."
+        )));
     }
     let ks = ddl::keyspace_name(keyspace)?;
-    let allowed: &[&str] = if f == Flavor::Keyspaces { &["regions"] } else { &["durable_writes", "class", "replication_factor", "datacenters"] };
+    let allowed: &[&str] = if f == Flavor::Keyspaces {
+        &["regions"]
+    } else {
+        &[
+            "durable_writes",
+            "class",
+            "replication_factor",
+            "datacenters",
+        ]
+    };
     let mut keep_non_durable = false;
     let mut plain = BTreeMap::new();
     for (k, v) in changes {
@@ -80,9 +103,15 @@ pub(crate) fn alter(f: Flavor, keyspace: &str, changes: &BTreeMap<String, String
     let mut out = Vec::new();
     if f == Flavor::Keyspaces {
         if let Some(list) = get("regions") {
-            let regions: Vec<&str> = list.split(',').map(str::trim).filter(|r| !r.is_empty()).collect();
+            let regions: Vec<&str> = list
+                .split(',')
+                .map(str::trim)
+                .filter(|r| !r.is_empty())
+                .collect();
             if regions.len() < 2 {
-                return Err(Error::Query("indicá las regiones actuales del keyspace y la nueva (al menos dos)".into()));
+                return Err(Error::Query(
+                    "indicá las regiones actuales del keyspace y la nueva (al menos dos)".into(),
+                ));
             }
             let mut parts = vec![format!("'class': '{NTS}'")];
             for r in regions {
@@ -103,11 +132,17 @@ pub(crate) fn alter(f: Flavor, keyspace: &str, changes: &BTreeMap<String, String
         let class = class.unwrap_or(if dcs.is_some() { NTS } else { SIMPLE });
         let replication = match class {
             SIMPLE => {
-                let rf = rf.ok_or_else(|| Error::Query("indicá el factor de replicación".into()))?;
-                format!("{{'class': '{SIMPLE}', 'replication_factor': {}}}", factor(rf, "factor de replicación")?)
+                let rf =
+                    rf.ok_or_else(|| Error::Query("indicá el factor de replicación".into()))?;
+                format!(
+                    "{{'class': '{SIMPLE}', 'replication_factor': {}}}",
+                    factor(rf, "factor de replicación")?
+                )
             }
             NTS => {
-                let dcs = dcs.ok_or_else(|| Error::Query("indicá el factor de cada datacenter (dc1:3, dc2:2)".into()))?;
+                let dcs = dcs.ok_or_else(|| {
+                    Error::Query("indicá el factor de cada datacenter (dc1:3, dc2:2)".into())
+                })?;
                 format!("{{'class': '{NTS}', {}}}", dc_factors(dcs)?.join(", "))
             }
             c => return Err(bad("replicación", c)),
@@ -118,13 +153,23 @@ pub(crate) fn alter(f: Flavor, keyspace: &str, changes: &BTreeMap<String, String
             (Flavor::Scylla, None) if keep_non_durable => " AND durable_writes = false".into(),
             _ => String::new(),
         };
-        out.push(format!("ALTER KEYSPACE {ks} WITH replication = {replication}{durable}"));
+        out.push(format!(
+            "ALTER KEYSPACE {ks} WITH replication = {replication}{durable}"
+        ));
     }
     Ok(out)
 }
 
-pub(crate) fn script(f: Flavor, keyspace: &str, changes: &BTreeMap<String, String>) -> Result<String> {
-    Ok(alter(f, keyspace, changes)?.iter().map(|s| format!("{s};")).collect::<Vec<_>>().join("\n"))
+pub(crate) fn script(
+    f: Flavor,
+    keyspace: &str,
+    changes: &BTreeMap<String, String>,
+) -> Result<String> {
+    Ok(alter(f, keyspace, changes)?
+        .iter()
+        .map(|s| format!("{s};"))
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 fn cql_text(v: &CqlValue) -> Option<String> {
@@ -142,32 +187,66 @@ fn col(r: &Row, i: usize) -> Option<&CqlValue> {
 }
 
 fn fact(group: &str, label: &str, value: impl Into<String>) -> PropertyInfo {
-    PropertyInfo { group: group.into(), label: label.into(), value: value.into() }
+    PropertyInfo {
+        group: group.into(),
+        label: label.into(),
+        value: value.into(),
+    }
 }
 
 impl CassandraSession {
     pub(crate) async fn properties(&mut self, keyspace: &str) -> Result<DatabaseProperties> {
         let name = keyspace.trim();
         let rows = self.rows("SELECT durable_writes, replication FROM system_schema.keyspaces WHERE keyspace_name = ?", (name,)).await?;
-        let r = rows.first().ok_or_else(|| Error::Query(format!("no existe el keyspace «{name}»")))?;
+        let r = rows
+            .first()
+            .ok_or_else(|| Error::Query(format!("no existe el keyspace «{name}»")))?;
         let durable = !matches!(col(r, 0), Some(CqlValue::Boolean(false)));
         let mut repl: BTreeMap<String, String> = match col(r, 1) {
-            Some(CqlValue::Map(pairs)) => pairs.iter().filter_map(|(k, v)| Some((cql_text(k)?, cql_text(v)?))).collect(),
+            Some(CqlValue::Map(pairs)) => pairs
+                .iter()
+                .filter_map(|(k, v)| Some((cql_text(k)?, cql_text(v)?)))
+                .collect(),
             _ => BTreeMap::new(),
         };
-        let class = repl.remove("class").map(|c| c.rsplit('.').next().unwrap_or_default().to_string()).unwrap_or_default();
+        let class = repl
+            .remove("class")
+            .map(|c| c.rsplit('.').next().unwrap_or_default().to_string())
+            .unwrap_or_default();
         let system = is_system_keyspace(name);
 
         let mut info = vec![fact("", "Replicación (class)", class.clone())];
-        let factors = repl.iter().map(|(k, v)| format!("{k}: {v}")).collect::<Vec<_>>().join(", ");
+        let factors = repl
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         if !factors.is_empty() {
             info.push(fact("", "Réplicas", factors));
         }
         if self.flavor != Flavor::Keyspaces {
-            info.push(fact("", "Escrituras durables (durable_writes)", if durable { "Sí" } else { "No" }));
+            info.push(fact(
+                "",
+                "Escrituras durables (durable_writes)",
+                if durable { "Sí" } else { "No" },
+            ));
         }
-        for (table, label) in [("tables", "Tablas"), ("views", "Vistas materializadas"), ("types", "Tipos"), ("functions", "Funciones"), ("aggregates", "Agregados")] {
-            if let Ok(rows) = self.rows(&format!("SELECT keyspace_name FROM system_schema.{table} WHERE keyspace_name = ?"), (name,)).await {
+        for (table, label) in [
+            ("tables", "Tablas"),
+            ("views", "Vistas materializadas"),
+            ("types", "Tipos"),
+            ("functions", "Funciones"),
+            ("aggregates", "Agregados"),
+        ] {
+            if let Ok(rows) = self
+                .rows(
+                    &format!(
+                        "SELECT keyspace_name FROM system_schema.{table} WHERE keyspace_name = ?"
+                    ),
+                    (name,),
+                )
+                .await
+            {
                 info.push(fact("", label, rows.len().to_string()));
             }
         }
@@ -192,14 +271,25 @@ impl CassandraSession {
         let mut warnings = BTreeMap::new();
         let mut choices = Vec::new();
         if system {
-            return Ok(DatabaseProperties { fields, values, info, choices, warnings });
+            return Ok(DatabaseProperties {
+                fields,
+                values,
+                info,
+                choices,
+                warnings,
+            });
         }
         if self.flavor == Flavor::Keyspaces {
             let regions: Vec<String> = if class == NTS {
                 repl.keys().cloned().collect()
             } else {
                 // A single-region keyspace lives in the endpoint's region.
-                self.rows("SELECT data_center FROM system.local", ()).await.ok().and_then(|r| r.first().and_then(|r| col(r, 0)).and_then(cql_text)).into_iter().collect()
+                self.rows("SELECT data_center FROM system.local", ())
+                    .await
+                    .ok()
+                    .and_then(|r| r.first().and_then(|r| col(r, 0)).and_then(cql_text))
+                    .into_iter()
+                    .collect()
             };
             fields.push(
                 Field::new("regions", "Regiones", FieldKind::Text)
@@ -212,14 +302,31 @@ impl CassandraSession {
                 "regions".into(),
                 "Agregar una región replica todas las tablas en ella (una restauración entre regiones, con costo por GB), activa los timestamps del lado del cliente (CLIENT_SIDE_TIMESTAMPS) en todas las tablas y no se puede deshacer.".into(),
             );
-            return Ok(DatabaseProperties { fields, values, info, choices, warnings });
+            return Ok(DatabaseProperties {
+                fields,
+                values,
+                info,
+                choices,
+                warnings,
+            });
         }
 
         fields.push(
-            Field::new("durable_writes", "Escrituras durables (durable_writes)", FieldKind::Bool)
-                .help("Desactivadas, las escrituras de este keyspace no pasan por el commit log."),
+            Field::new(
+                "durable_writes",
+                "Escrituras durables (durable_writes)",
+                FieldKind::Bool,
+            )
+            .help("Desactivadas, las escrituras de este keyspace no pasan por el commit log."),
         );
-        values.insert("durable_writes".into(), if durable { "true".into() } else { String::new() });
+        values.insert(
+            "durable_writes".into(),
+            if durable {
+                "true".into()
+            } else {
+                String::new()
+            },
+        );
         warnings.insert(
             "durable_writes".into(),
             "Sin escrituras durables (durable_writes = false) las escrituras no pasan por el commit log: si un nodo se cae, se pierde lo que aún no estaba en disco.".into(),
@@ -268,11 +375,25 @@ impl CassandraSession {
                     dcs(true),
                 ]);
                 values.insert(k_class.into(), class.clone());
-                values.insert(k_rf.into(), if class == SIMPLE { repl.get("replication_factor").cloned().unwrap_or_default() } else { String::new() });
+                values.insert(
+                    k_rf.into(),
+                    if class == SIMPLE {
+                        repl.get("replication_factor").cloned().unwrap_or_default()
+                    } else {
+                        String::new()
+                    },
+                );
             }
             values.insert(
                 k_dcs.into(),
-                if class == NTS { repl.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(", ") } else { String::new() },
+                if class == NTS {
+                    repl.iter()
+                        .map(|(k, v)| format!("{k}:{v}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                } else {
+                    String::new()
+                },
             );
             let repair = if tablets {
                 "Cambiar la replicación mueve los datos en segundo plano (tablets) y puede tardar; al subir el factor, conviene reiniciar las aplicaciones para que vean las réplicas nuevas."
@@ -283,21 +404,47 @@ impl CassandraSession {
                 warnings.insert(k.to_string(), repair.to_string());
             }
             if let Ok(c) = self.create_database_choices_impl().await {
-                choices.extend(c.into_iter().filter(|c| c.key == "datacenters").map(|c| FieldChoices { key: k_dcs.into(), default: None, ..c }));
+                choices.extend(c.into_iter().filter(|c| c.key == "datacenters").map(|c| {
+                    FieldChoices {
+                        key: k_dcs.into(),
+                        default: None,
+                        ..c
+                    }
+                }));
             }
         }
-        Ok(DatabaseProperties { fields, values, info, choices, warnings })
+        Ok(DatabaseProperties {
+            fields,
+            values,
+            info,
+            choices,
+            warnings,
+        })
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, keyspace: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        keyspace: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden modificar las propiedades de una base.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden modificar las propiedades de una base."
+                    .into(),
+            ));
         }
         let statements = alter(self.flavor, keyspace, changes)?;
         for (i, cql) in statements.iter().enumerate() {
             if let Err(e) = self.session.query_unpaged(cql.as_str(), ()).await {
                 let e = Error::Query(e.to_string());
-                return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {cql}\n{e}", statements.len())) });
+                return Err(if i == 0 {
+                    e
+                } else {
+                    Error::Query(format!(
+                        "se aplicaron {i} de {} cambios; falló: {cql}\n{e}",
+                        statements.len()
+                    ))
+                });
             }
         }
         Ok(())
@@ -309,7 +456,10 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -327,7 +477,10 @@ mod tests {
             script(Flavor::Cassandra, "a", &c(&[("replication_factor", "3")])).unwrap(),
             "ALTER KEYSPACE a WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};"
         );
-        assert_eq!(script(Flavor::Cassandra, "a", &c(&[("durable_writes", "true")])).unwrap(), "ALTER KEYSPACE a WITH durable_writes = true;");
+        assert_eq!(
+            script(Flavor::Cassandra, "a", &c(&[("durable_writes", "true")])).unwrap(),
+            "ALTER KEYSPACE a WITH durable_writes = true;"
+        );
         assert_eq!(script(Flavor::Cassandra, "a", &c(&[])).unwrap(), "");
     }
 
@@ -350,7 +503,10 @@ mod tests {
             script(Flavor::Scylla, "a", &c(&[("datacenters", "dc1:2")])).unwrap(),
             "ALTER KEYSPACE a WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': 2};"
         );
-        assert!(script(Flavor::Cassandra, "a", &c(&[("nd:datacenters", "dc1:2")])).is_err(), "only on ScyllaDB");
+        assert!(
+            script(Flavor::Cassandra, "a", &c(&[("nd:datacenters", "dc1:2")])).is_err(),
+            "only on ScyllaDB"
+        );
     }
 
     #[test]
@@ -379,9 +535,20 @@ mod tests {
             ("regions", "us-east-1, eu-west-1"),
             ("tablets", "true"),
         ] {
-            assert!(script(Flavor::Cassandra, "a", &c(&[bad])).is_err(), "{bad:?}");
+            assert!(
+                script(Flavor::Cassandra, "a", &c(&[bad])).is_err(),
+                "{bad:?}"
+            );
         }
-        assert!(script(Flavor::Cassandra, "system_auth", &c(&[("durable_writes", "true")])).is_err(), "system keyspace");
+        assert!(
+            script(
+                Flavor::Cassandra,
+                "system_auth",
+                &c(&[("durable_writes", "true")])
+            )
+            .is_err(),
+            "system keyspace"
+        );
         assert!(script(Flavor::Cassandra, "a-b", &c(&[("durable_writes", "true")])).is_err());
     }
 }

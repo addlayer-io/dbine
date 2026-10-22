@@ -20,7 +20,10 @@ pub(crate) fn classify(stmt: &str) -> StmtKind {
     let words = words(stmt);
     match words.first().map(String::as_str) {
         Some("select" | "with" | "from" | "values" | "table" | "pivot" | "unpivot") => {
-            if words.iter().any(|w| matches!(w.as_str(), "insert" | "update" | "delete" | "merge")) {
+            if words
+                .iter()
+                .any(|w| matches!(w.as_str(), "insert" | "update" | "delete" | "merge"))
+            {
                 StmtKind::Write
             } else {
                 StmtKind::Read
@@ -77,8 +80,13 @@ fn fmt_num(n: f64) -> String {
 
 fn estimate_warning(est: f64, act: f64) -> Option<String> {
     let (lo, hi) = if est < act { (est, act) } else { (act, est) };
-    (hi - lo >= 100.0 && hi >= 10.0 * lo.max(1.0))
-        .then(|| format!("Estimación de filas errada: {} estimadas, {} reales", fmt_num(est), fmt_num(act)))
+    (hi - lo >= 100.0 && hi >= 10.0 * lo.max(1.0)).then(|| {
+        format!(
+            "Estimación de filas errada: {} estimadas, {} reales",
+            fmt_num(est),
+            fmt_num(act)
+        )
+    })
 }
 
 fn text(v: &Value) -> String {
@@ -91,7 +99,10 @@ fn text(v: &Value) -> String {
 }
 
 fn num(v: Option<&Value>) -> Option<f64> {
-    v.and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+    v.and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+    })
 }
 
 /// The JSON of either form into a plan. Estimated plans are an array of
@@ -102,37 +113,64 @@ pub(crate) fn duck_json(statement: &str, raw: &str, actual: bool) -> Result<Plan
     let root = match &v {
         Value::Array(items) => match items.as_slice() {
             [one] => node(one),
-            many => PlanNode { op: "PLAN".into(), children: many.iter().map(node).collect(), ..Default::default() },
+            many => PlanNode {
+                op: "PLAN".into(),
+                children: many.iter().map(node).collect(),
+                ..Default::default()
+            },
         },
         Value::Object(m) => {
-            let mut top = m.get("children").and_then(Value::as_array).and_then(|c| c.first()).ok_or("plan sin operadores")?;
+            let mut top = m
+                .get("children")
+                .and_then(Value::as_array)
+                .and_then(|c| c.first())
+                .ok_or("plan sin operadores")?;
             // Skip the EXPLAIN_ANALYZE operator itself.
             while top.get("operator_type").and_then(Value::as_str) == Some("EXPLAIN_ANALYZE") {
-                match top.get("children").and_then(Value::as_array).and_then(|c| c.first()) {
+                match top
+                    .get("children")
+                    .and_then(Value::as_array)
+                    .and_then(|c| c.first())
+                {
                     Some(c) => top = c,
                     None => break,
                 }
             }
             let mut root = node(top);
             for (k, val) in m {
-                if !matches!(k.as_str(), "children" | "extra_info" | "query_name") && !val.is_object() {
+                if !matches!(k.as_str(), "children" | "extra_info" | "query_name")
+                    && !val.is_object()
+                {
                     root.props.push((format!("query {k}"), text(val)));
                 }
             }
             if let Some(latency) = num(m.get("latency")) {
-                root.props.push(("Tiempo total (ms)".into(), fmt_num(latency * 1000.0)));
+                root.props
+                    .push(("Tiempo total (ms)".into(), fmt_num(latency * 1000.0)));
             }
             root
         }
         _ => return Err("plan JSON inesperado".into()),
     };
-    Ok(Plan { statement: statement.into(), root, actual, raw_format: "json".into(), raw: raw.trim().into() })
+    Ok(Plan {
+        statement: statement.into(),
+        root,
+        actual,
+        raw_format: "json".into(),
+        raw: raw.trim().into(),
+    })
 }
 
 fn node(v: &Value) -> PlanNode {
     let extra = v.get("extra_info").cloned().unwrap_or(Value::Null);
     let e = |k: &str| extra.get(k).map(text).filter(|s| !s.is_empty());
-    let op = v.get("name").or_else(|| v.get("operator_name")).map(text).unwrap_or_default().trim().to_string();
+    let op = v
+        .get("name")
+        .or_else(|| v.get("operator_name"))
+        .map(text)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let mut detail = Vec::new();
     if let Some(j) = e("Join Type") {
         detail.push(j);
@@ -159,12 +197,20 @@ fn node(v: &Value) -> PlanNode {
     }
     if let Value::Object(m) = v {
         for (k, val) in m {
-            if !matches!(k.as_str(), "children" | "extra_info" | "name" | "operator_name") && !val.is_object() {
+            if !matches!(
+                k.as_str(),
+                "children" | "extra_info" | "name" | "operator_name"
+            ) && !val.is_object()
+            {
                 n.props.push((k.clone(), text(val)));
             }
         }
     }
-    n.children = v.get("children").and_then(Value::as_array).map(|c| c.iter().map(node).collect()).unwrap_or_default();
+    n.children = v
+        .get("children")
+        .and_then(Value::as_array)
+        .map(|c| c.iter().map(node).collect())
+        .unwrap_or_default();
     n
 }
 
@@ -196,11 +242,20 @@ mod tests {
         let p = duck_json("q", ESTIMATED, false).unwrap();
         assert_eq!(p.root.op, "HASH_GROUP_BY");
         let join = &p.root.children[0];
-        assert_eq!((join.op.as_str(), join.detail.as_str()), ("HASH_JOIN", "INNER"));
+        assert_eq!(
+            (join.op.as_str(), join.detail.as_str()),
+            ("HASH_JOIN", "INNER")
+        );
         assert_eq!(join.est_rows, Some(1290.0));
         let a = &join.children[0];
-        assert_eq!((a.op.as_str(), a.object.as_deref()), ("SEQ_SCAN", Some("memory.main.a")));
-        assert!(a.props.iter().any(|(k, v)| k == "Projections" && v == "id, g"));
+        assert_eq!(
+            (a.op.as_str(), a.object.as_deref()),
+            ("SEQ_SCAN", Some("memory.main.a"))
+        );
+        assert!(a
+            .props
+            .iter()
+            .any(|(k, v)| k == "Projections" && v == "id, g"));
         assert_eq!(a.actual_rows, None);
     }
 
@@ -235,10 +290,16 @@ mod tests {
         assert_eq!(root.actual_rows, Some(2500.0));
         assert!((root.actual_ms.unwrap() - 0.999377).abs() < 1e-9);
         assert!(root.warnings.iter().any(|w| w.starts_with("Estimación")));
-        assert!(root.props.iter().any(|(k, v)| k == "Tiempo total (ms)" && v == "5.20"));
+        assert!(root
+            .props
+            .iter()
+            .any(|(k, v)| k == "Tiempo total (ms)" && v == "5.20"));
         let scan = &root.children[0];
         assert_eq!(scan.actual_rows, Some(500.0));
-        assert!(scan.props.iter().any(|(k, v)| k == "operator_rows_scanned" && v == "96256"));
+        assert!(scan
+            .props
+            .iter()
+            .any(|(k, v)| k == "operator_rows_scanned" && v == "96256"));
         assert!(scan.warnings.iter().any(|w| w.starts_with("Estimación")));
     }
 

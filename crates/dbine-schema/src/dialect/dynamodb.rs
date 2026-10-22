@@ -34,14 +34,28 @@ fn code(t: &str) -> L {
     match t {
         "s" => L::Text { unicode: true },
         // Up to 38 significant digits, any scale.
-        "n" => L::Decimal { precision: None, scale: None },
+        "n" => L::Decimal {
+            precision: None,
+            scale: None,
+        },
         "b" => L::Blob,
         "bool" => L::Bool,
-        "ss" => L::Array { of: Box::new(L::Text { unicode: true }) },
-        "ns" => L::Array { of: Box::new(L::Decimal { precision: None, scale: None }) },
-        "bs" => L::Array { of: Box::new(L::Blob) },
+        "ss" => L::Array {
+            of: Box::new(L::Text { unicode: true }),
+        },
+        "ns" => L::Array {
+            of: Box::new(L::Decimal {
+                precision: None,
+                scale: None,
+            }),
+        },
+        "bs" => L::Array {
+            of: Box::new(L::Blob),
+        },
         "l" | "m" => L::Json { binary: true },
-        _ => L::Other { native: t.to_ascii_uppercase() },
+        _ => L::Other {
+            native: t.to_ascii_uppercase(),
+        },
     }
 }
 
@@ -52,7 +66,16 @@ fn is_key_type(t: &str) -> bool {
 /// Names DynamoDB accepts for tables and indexes: 3 to 255 of
 /// `a-z A-Z 0-9 _ - .`.
 fn valid_name(name: &str) -> String {
-    let mut s: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') { c } else { '_' }).collect();
+    let mut s: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     while s.len() < 3 {
         s.push('_');
     }
@@ -71,7 +94,9 @@ impl Dialect for DynamoDb {
             return L::Json { binary: true };
         }
         match parse_list(raw, code) {
-            L::Other { .. } => L::Other { native: raw.to_string() },
+            L::Other { .. } => L::Other {
+                native: raw.to_string(),
+            },
             l => l,
         }
     }
@@ -128,21 +153,43 @@ impl Dialect for DynamoDb {
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         let marked = |v: &str| v.eq_ignore_ascii_case("HASH") || v.eq_ignore_ascii_case("RANGE");
-        if t.columns.iter().any(|c| c.options.get(KEY_TYPE).is_some_and(|v| marked(v))) {
+        if t.columns
+            .iter()
+            .any(|c| c.options.get(KEY_TYPE).is_some_and(|v| marked(v)))
+        {
             return;
         }
         let source = t.name.clone();
         t.kind = dbine_driver::kinds::TABLE.into();
         let name = valid_name(&t.name);
         if name != t.name {
-            report.push(Severity::Info, IssueCode::IdentifierRenamed, &source, Some(&source), format!("Nombre de tabla válido para DynamoDB: «{name}»."));
+            report.push(
+                Severity::Info,
+                IssueCode::IdentifierRenamed,
+                &source,
+                Some(&source),
+                format!("Nombre de tabla válido para DynamoDB: «{name}»."),
+            );
             t.name = name;
         }
-        let mut key: Vec<String> = t.primary_key.as_ref().map(|k| k.columns.clone()).unwrap_or_default();
+        let mut key: Vec<String> = t
+            .primary_key
+            .as_ref()
+            .map(|k| k.columns.clone())
+            .unwrap_or_default();
         if key.is_empty() {
             if let Some(ix) = t.indexes.iter().find(|i| i.unique && !i.columns.is_empty()) {
                 key = ix.columns.clone();
-                report.push(Severity::Warning, IssueCode::PrimaryKeyAdded, &source, Some(&ix.name), format!("La tabla no tiene clave primaria: se usa la del índice único «{}».", ix.name));
+                report.push(
+                    Severity::Warning,
+                    IssueCode::PrimaryKeyAdded,
+                    &source,
+                    Some(&ix.name),
+                    format!(
+                        "La tabla no tiene clave primaria: se usa la del índice único «{}».",
+                        ix.name
+                    ),
+                );
             } else if let Some(c) = t.columns.first() {
                 key = vec![c.name.clone()];
                 report.push(
@@ -172,7 +219,16 @@ impl Dialect for DynamoDb {
         let retype = |col: &str, t: &mut TableSchema, report: &mut Report| {
             if let Some(c) = t.columns.iter_mut().find(|c| c.name == col) {
                 if !is_key_type(&c.data_type) {
-                    report.push(Severity::Warning, IssueCode::TypeChanged, &source, Some(col), format!("Un atributo clave es S, N o B: «{}» queda como S.", c.data_type));
+                    report.push(
+                        Severity::Warning,
+                        IssueCode::TypeChanged,
+                        &source,
+                        Some(col),
+                        format!(
+                            "Un atributo clave es S, N o B: «{}» queda como S.",
+                            c.data_type
+                        ),
+                    );
                     c.data_type = "S".into();
                 }
             }
@@ -193,17 +249,37 @@ impl Dialect for DynamoDb {
                 Some(r) => format!("Clave de partición (HASH): {h}; de ordenación (RANGE): {r}."),
                 None => format!("Clave de partición (HASH): {h}."),
             };
-            report.push(Severity::Info, IssueCode::OptionAdded, &source, Some(KEY_TYPE), msg);
+            report.push(
+                Severity::Info,
+                IssueCode::OptionAdded,
+                &source,
+                Some(KEY_TYPE),
+                msg,
+            );
         }
-        t.primary_key = (!key.is_empty()).then(|| KeyDef { name: None, columns: key.clone() });
+        t.primary_key = (!key.is_empty()).then(|| KeyDef {
+            name: None,
+            columns: key.clone(),
+        });
 
         let mut kept = Vec::new();
         for mut ix in std::mem::take(&mut t.indexes) {
             if ix.columns == key {
-                report.push(Severity::Info, IssueCode::IndexDropped, &source, Some(&ix.name), "El índice repite la clave de la tabla.");
+                report.push(
+                    Severity::Info,
+                    IssueCode::IndexDropped,
+                    &source,
+                    Some(&ix.name),
+                    "El índice repite la clave de la tabla.",
+                );
                 continue;
             }
-            let bad = ix.columns.iter().take(2).find(|c| t.columns.iter().find(|x| &x.name == *c).is_none_or(|x| !is_key_type(&x.data_type)));
+            let bad = ix.columns.iter().take(2).find(|c| {
+                t.columns
+                    .iter()
+                    .find(|x| &x.name == *c)
+                    .is_none_or(|x| !is_key_type(&x.data_type))
+            });
             if let Some(c) = bad {
                 report.push(
                     Severity::Dropped,
@@ -216,15 +292,36 @@ impl Dialect for DynamoDb {
             }
             if ix.unique {
                 ix.unique = false;
-                report.push(Severity::Warning, IssueCode::IndexChanged, &source, Some(&ix.name), "DynamoDB no tiene índices únicos: queda un índice global común.");
+                report.push(
+                    Severity::Warning,
+                    IssueCode::IndexChanged,
+                    &source,
+                    Some(&ix.name),
+                    "DynamoDB no tiene índices únicos: queda un índice global común.",
+                );
             }
             if ix.columns.len() > 2 {
-                report.push(Severity::Warning, IssueCode::IndexChanged, &source, Some(&ix.name), format!("Un índice global tiene hasta dos atributos: quedan {} y {}.", ix.columns[0], ix.columns[1]));
+                report.push(
+                    Severity::Warning,
+                    IssueCode::IndexChanged,
+                    &source,
+                    Some(&ix.name),
+                    format!(
+                        "Un índice global tiene hasta dos atributos: quedan {} y {}.",
+                        ix.columns[0], ix.columns[1]
+                    ),
+                );
                 ix.columns.truncate(2);
             }
             let n = valid_name(&ix.name);
             if n != ix.name {
-                report.push(Severity::Info, IssueCode::IdentifierRenamed, &source, Some(&ix.name), format!("Nombre de índice válido para DynamoDB: «{n}»."));
+                report.push(
+                    Severity::Info,
+                    IssueCode::IdentifierRenamed,
+                    &source,
+                    Some(&ix.name),
+                    format!("Nombre de índice válido para DynamoDB: «{n}»."),
+                );
                 ix.name = n;
             }
             ix.kind = Some("GSI".into());
@@ -243,10 +340,21 @@ mod tests {
     fn parses_type_codes() {
         let p = |s: &str| DynamoDb.parse_type(&parse(s));
         assert_eq!(p("S"), L::Text { unicode: true });
-        assert_eq!(p("N"), L::Decimal { precision: None, scale: None });
+        assert_eq!(
+            p("N"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
         assert_eq!(p("B"), L::Blob);
         assert_eq!(p("BOOL"), L::Bool);
-        assert_eq!(p("SS"), L::Array { of: Box::new(L::Text { unicode: true }) });
+        assert_eq!(
+            p("SS"),
+            L::Array {
+                of: Box::new(L::Text { unicode: true })
+            }
+        );
         assert_eq!(p("M"), L::Json { binary: true });
         assert_eq!(p("L"), L::Json { binary: true });
         assert_eq!(p("S | N"), L::Json { binary: true });
@@ -259,17 +367,51 @@ mod tests {
         let r = |t: L| DynamoDb.render_type(&t).native;
         assert_eq!(r(L::Bool), "BOOL");
         assert_eq!(r(L::int(8)), "N");
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(2) }), "N");
-        assert!(!DynamoDb.render_type(&L::Decimal { precision: None, scale: None }).notes.is_empty());
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }),
+            "N"
+        );
+        assert!(!DynamoDb
+            .render_type(&L::Decimal {
+                precision: None,
+                scale: None
+            })
+            .notes
+            .is_empty());
         assert_eq!(r(L::Float { bytes: 8 }), "N");
-        assert!(DynamoDb.render_type(&L::Float { bytes: 8 }).notes.iter().any(|n| n.code == IssueCode::RangeLoss));
+        assert!(DynamoDb
+            .render_type(&L::Float { bytes: 8 })
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::RangeLoss));
         assert_eq!(r(L::Money), "N");
-        assert_eq!(r(L::Varchar { len: Some(3), unicode: true }), "S");
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(3),
+                unicode: true
+            }),
+            "S"
+        );
         assert_eq!(r(L::Blob), "B");
         assert_eq!(r(L::Bit { len: None }), "S");
         assert_eq!(r(L::Date), "S");
-        assert_eq!(r(L::Time { precision: None, tz: false }), "S");
-        assert_eq!(r(L::Timestamp { precision: None, tz: true }), "S");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            }),
+            "S"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: None,
+                tz: true
+            }),
+            "S"
+        );
         assert_eq!(r(L::Interval), "S");
         assert_eq!(r(L::Year), "N");
         assert_eq!(r(L::Uuid), "S");
@@ -277,9 +419,27 @@ mod tests {
         assert_eq!(r(L::Xml), "S");
         assert_eq!(r(L::Enum { values: vec![] }), "S");
         assert_eq!(r(L::Set { values: vec![] }), "SS");
-        assert_eq!(r(L::Array { of: Box::new(L::Bool) }), "L");
-        assert_eq!(r(L::Map { key: Box::new(L::Bool), value: Box::new(L::Bool) }), "M");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "S");
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Bool)
+            }),
+            "L"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Bool),
+                value: Box::new(L::Bool)
+            }),
+            "M"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "S"
+        );
         assert_eq!(r(L::Inet), "S");
         assert_eq!(r(L::MacAddr), "S");
         assert_eq!(r(L::RowVersion), "B");

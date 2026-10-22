@@ -11,7 +11,8 @@ use crate::job::TransferJob;
 use crate::{lock, panic_text};
 use dbine_driver::transfer::{BatchSinkRef, Progress};
 use dbine_driver::{
-    async_trait, BatchSink, BatchSource, Cell, CopySpec, DeltaSpec, Driver, Error, LoadSpec, QueryOutcome, Result, RowBatch, Session, TransferColumn,
+    async_trait, BatchSink, BatchSource, Cell, CopySpec, DeltaSpec, Driver, Error, LoadSpec,
+    QueryOutcome, Result, RowBatch, Session, TransferColumn,
 };
 use std::io;
 use std::sync::{Arc, Condvar, Mutex};
@@ -45,17 +46,40 @@ pub(crate) struct DeltaWrite<'a> {
 }
 
 /// Copy the table's rows from `src` into `tgt`.
-pub(crate) async fn copy_table(input: CopyInput<'_>, mut src: Box<dyn Session>, tgt: &mut dyn Session) -> Result<CopyStats> {
+pub(crate) async fn copy_table(
+    input: CopyInput<'_>,
+    mut src: Box<dyn Session>,
+    tgt: &mut dyn Session,
+) -> Result<CopyStats> {
     let job = input.job;
     if input.native && input.delta.is_none() {
-        let spec = CopySpec { source: job.source.clone(), target: job.target.clone() };
+        let spec = CopySpec {
+            source: job.source.clone(),
+            target: job.target.clone(),
+        };
         let start = Instant::now();
-        match input.source_driver.copy_native(&mut *src, tgt, &spec, input.progress).await {
+        match input
+            .source_driver
+            .copy_native(&mut *src, tgt, &spec, input.progress)
+            .await
+        {
             Ok(rows) => {
                 after_load(job, tgt).await?;
-                return Ok(CopyStats::measure(CopyPath::Native, rows, start.elapsed(), Duration::ZERO, Duration::ZERO));
+                return Ok(CopyStats::measure(
+                    CopyPath::Native,
+                    rows,
+                    start.elapsed(),
+                    Duration::ZERO,
+                    Duration::ZERO,
+                ));
             }
-            Err(Error::Unsupported(why)) => (input.log)(LogLevel::Info, format!("{}: sin copia directa ({why}); se copia por lotes", job.name)),
+            Err(Error::Unsupported(why)) => (input.log)(
+                LogLevel::Info,
+                format!(
+                    "{}: sin copia directa ({why}); se copia por lotes",
+                    job.name
+                ),
+            ),
             Err(e) => return Err(e),
         }
     }
@@ -66,7 +90,12 @@ pub(crate) async fn copy_table(input: CopyInput<'_>, mut src: Box<dyn Session>, 
     // room stops waiting.
     let _close = CloseOnDrop(window.clone());
     let (tx, rx) = mpsc::unbounded_channel();
-    let sink = Arc::new(Mutex::new(ChannelSink { tx: Some(tx), window: window.clone(), waited: Duration::ZERO, began: false }));
+    let sink = Arc::new(Mutex::new(ChannelSink {
+        tx: Some(tx),
+        window: window.clone(),
+        waited: Duration::ZERO,
+        began: false,
+    }));
     let src_interrupt = src.interrupter();
 
     let mut spec = job.source.clone();
@@ -92,7 +121,14 @@ pub(crate) async fn copy_table(input: CopyInput<'_>, mut src: Box<dyn Session>, 
         })
     });
 
-    let mut source = ChannelSource { rx, first: None, held: None, ended: false, waited: Duration::ZERO, rows: 0 };
+    let mut source = ChannelSource {
+        rx,
+        first: None,
+        held: None,
+        ended: false,
+        waited: Duration::ZERO,
+        rows: 0,
+    };
     let (target_driver, progress, delta) = (input.target_driver, input.progress, input.delta);
     let delta_path = delta.is_some();
     let writer = async move {
@@ -104,17 +140,24 @@ pub(crate) async fn copy_table(input: CopyInput<'_>, mut src: Box<dyn Session>, 
         // to be (a whole-document copy: every field the documents have).
         let named;
         let target = if job.target.columns.is_empty() {
-            named = LoadSpec { columns: columns.iter().map(|c| c.name.clone()).collect(), ..job.target.clone() };
+            named = LoadSpec {
+                columns: columns.iter().map(|c| c.name.clone()).collect(),
+                ..job.target.clone()
+            };
             &named
         } else {
             &job.target
         };
         let mut result = None;
         let rows = if let Some(d) = &delta {
-            result = Some(tgt.delta_apply(d.spec, d.buckets, &columns, &mut source, progress).await?);
+            result = Some(
+                tgt.delta_apply(d.spec, d.buckets, &columns, &mut source, progress)
+                    .await?,
+            );
             source.rows
         } else if target_driver.supports_bulk_load() {
-            tgt.bulk_load(target, &columns, &mut source, progress).await?
+            tgt.bulk_load(target, &columns, &mut source, progress)
+                .await?
         } else {
             insert_batches(job, target, target_driver, tgt, &mut source, progress).await?
         };
@@ -177,7 +220,10 @@ async fn after_load(job: &TransferJob, tgt: &mut dyn Session) -> Result<()> {
 fn joined(r: std::result::Result<Result<Duration>, tokio::task::JoinError>) -> Result<Duration> {
     match r {
         Ok(r) => r,
-        Err(e) if e.is_panic() => Err(Error::State(format!("error inesperado leyendo el origen: {}", panic_text(&*e.into_panic())))),
+        Err(e) if e.is_panic() => Err(Error::State(format!(
+            "error inesperado leyendo el origen: {}",
+            panic_text(&*e.into_panic())
+        ))),
         Err(_) => Err(Error::Cancelled),
     }
 }
@@ -187,19 +233,38 @@ fn fallback_columns(job: &TransferJob) -> Vec<TransferColumn> {
     if !job.expected_columns.is_empty() {
         return job.expected_columns.clone();
     }
-    job.target.columns.iter().map(|c| TransferColumn { name: c.clone(), type_name: String::new(), nullable: true }).collect()
+    job.target
+        .columns
+        .iter()
+        .map(|c| TransferColumn {
+            name: c.clone(),
+            type_name: String::new(),
+            nullable: true,
+        })
+        .collect()
 }
 
 /// The path without a native bulk load: each batch as the driver's
 /// `insert_script`, after the job's `before` (its `after` runs on every
 /// path, in [`copy_table`]).
-async fn insert_batches(job: &TransferJob, target: &LoadSpec, driver: &dyn Driver, tgt: &mut dyn Session, source: &mut ChannelSource, progress: Progress<'_>) -> Result<u64> {
+async fn insert_batches(
+    job: &TransferJob,
+    target: &LoadSpec,
+    driver: &dyn Driver,
+    tgt: &mut dyn Session,
+    source: &mut ChannelSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if !job.before.trim().is_empty() {
         exec(tgt, &job.before).await?;
     }
     let mut done = 0u64;
     while let Some(batch) = source.next().await {
-        let rows: Vec<Vec<serde_json::Value>> = batch.rows.iter().map(|r| r.iter().map(Cell::to_json).collect()).collect();
+        let rows: Vec<Vec<serde_json::Value>> = batch
+            .rows
+            .iter()
+            .map(|r| r.iter().map(Cell::to_json).collect())
+            .collect();
         let sql = driver.insert_script(&target.table, &target.columns, &rows)?;
         exec(tgt, &sql).await?;
         done += batch.len() as u64;
@@ -241,7 +306,14 @@ struct WindowState {
 
 impl Window {
     fn new(cap: usize) -> Arc<Self> {
-        Arc::new(Window { state: Mutex::new(WindowState { used: 0, closed: false }), freed: Condvar::new(), cap })
+        Arc::new(Window {
+            state: Mutex::new(WindowState {
+                used: 0,
+                closed: false,
+            }),
+            freed: Condvar::new(),
+            cap,
+        })
     }
 
     /// Wait for room; `None` once closed.
@@ -296,7 +368,11 @@ fn stopped() -> io::Error {
 
 impl ChannelSink {
     fn send(&self, m: Msg) -> io::Result<()> {
-        self.tx.as_ref().ok_or_else(stopped)?.send(m).map_err(|_| stopped())
+        self.tx
+            .as_ref()
+            .ok_or_else(stopped)?
+            .send(m)
+            .map_err(|_| stopped())
     }
 }
 

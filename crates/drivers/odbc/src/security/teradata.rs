@@ -5,7 +5,9 @@
 
 use super::{add_member, first, get, ident, lit, privileges, role, rows, user, Dialect, Row};
 use crate::OdbcSession;
-use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use std::collections::{HashSet, VecDeque};
 
 const D: Dialect = Dialect::Teradata;
@@ -13,11 +15,38 @@ const D: Dialect = Dialect::Teradata;
 pub fn spec() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
-            "SELECT", "INSERT", "UPDATE", "DELETE", "REFERENCES", "INDEX", "EXECUTE", "EXECUTE PROCEDURE", "EXECUTE FUNCTION",
-            "CREATE TABLE", "CREATE VIEW", "CREATE MACRO", "CREATE PROCEDURE", "CREATE FUNCTION", "DROP TABLE", "DROP VIEW",
-            "DROP MACRO", "DROP PROCEDURE", "DROP FUNCTION", "SHOW", "STATISTICS", "DUMP", "RESTORE", "ALL",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "REFERENCES",
+            "INDEX",
+            "EXECUTE",
+            "EXECUTE PROCEDURE",
+            "EXECUTE FUNCTION",
+            "CREATE TABLE",
+            "CREATE VIEW",
+            "CREATE MACRO",
+            "CREATE PROCEDURE",
+            "CREATE FUNCTION",
+            "DROP TABLE",
+            "DROP VIEW",
+            "DROP MACRO",
+            "DROP PROCEDURE",
+            "DROP FUNCTION",
+            "SHOW",
+            "STATISTICS",
+            "DUMP",
+            "RESTORE",
+            "ALL",
         ],
-        object_kinds: vec!["schema", kinds::TABLE, kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION],
+        object_kinds: vec![
+            "schema",
+            kinds::TABLE,
+            kinds::VIEW,
+            kinds::PROCEDURE,
+            kinds::FUNCTION,
+        ],
         create_user: true,
         create_role: true,
         passwords: true,
@@ -84,7 +113,19 @@ pub(super) fn right(code: &str) -> String {
     .to_string()
 }
 
-const SYSTEM_USERS: &[&str] = &["DBC", "SYSTEMFE", "SYSADMIN", "TDWM", "SYSLIB", "SYSUDTLIB", "SYSSPATIAL", "TD_SYSFNLIB", "TDPUSER", "SYSDBA", "PUBLIC"];
+const SYSTEM_USERS: &[&str] = &[
+    "DBC",
+    "SYSTEMFE",
+    "SYSADMIN",
+    "TDWM",
+    "SYSLIB",
+    "SYSUDTLIB",
+    "SYSSPATIAL",
+    "TD_SYSFNLIB",
+    "TDPUSER",
+    "SYSDBA",
+    "PUBLIC",
+];
 
 pub async fn principals(s: &OdbcSession) -> Result<Vec<Principal>> {
     let mut out: Vec<Principal> = Vec::new();
@@ -112,19 +153,31 @@ pub async fn principals(s: &OdbcSession) -> Result<Vec<Principal>> {
             ..user(&name)
         });
     }
-    let roles: Vec<String> = first(s, "SELECT RoleName FROM DBC.RoleInfoV").await.unwrap_or_default();
+    let roles: Vec<String> = first(s, "SELECT RoleName FROM DBC.RoleInfoV")
+        .await
+        .unwrap_or_default();
     for r in &roles {
         out.push(role(D, r));
     }
     let known: HashSet<String> = roles.iter().map(|r| r.to_ascii_uppercase()).collect();
-    for m in rows(s, "SELECT * FROM DBC.RoleMembersV").await.unwrap_or_default() {
-        let (r, grantee) = (get(&m, "rolename").to_string(), get(&m, "grantee").to_string());
+    for m in rows(s, "SELECT * FROM DBC.RoleMembersV")
+        .await
+        .unwrap_or_default()
+    {
+        let (r, grantee) = (
+            get(&m, "rolename").to_string(),
+            get(&m, "grantee").to_string(),
+        );
         let is_role = match get(&m, "granteekind").to_ascii_uppercase().as_str() {
             "R" => true,
             "U" => false,
             _ => known.contains(&grantee.to_ascii_uppercase()),
         };
-        let member = if is_role { role(D, &grantee) } else { user(&grantee) };
+        let member = if is_role {
+            role(D, &grantee)
+        } else {
+            user(&grantee)
+        };
         add_member(&mut out, member, r);
     }
     Ok(out)
@@ -163,17 +216,32 @@ pub(super) fn grant_of(r: &Row, via: Option<String>) -> Option<Grant> {
 }
 
 pub async fn grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
-    let roles: HashSet<String> = first(s, "SELECT RoleName FROM DBC.RoleInfoV").await.unwrap_or_default().into_iter().map(|r| r.to_ascii_uppercase()).collect();
-    let members = rows(s, "SELECT * FROM DBC.RoleMembersV").await.unwrap_or_default();
+    let roles: HashSet<String> = first(s, "SELECT RoleName FROM DBC.RoleInfoV")
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| r.to_ascii_uppercase())
+        .collect();
+    let members = rows(s, "SELECT * FROM DBC.RoleMembersV")
+        .await
+        .unwrap_or_default();
     let name = super::grantee(principal).1;
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    let mut queue = VecDeque::from([(name.to_string(), roles.contains(&name.to_ascii_uppercase()), None::<String>)]);
+    let mut queue = VecDeque::from([(
+        name.to_string(),
+        roles.contains(&name.to_ascii_uppercase()),
+        None::<String>,
+    )]);
     while let Some((n, is_role, via)) = queue.pop_front() {
         if !seen.insert(n.to_ascii_uppercase()) || seen.len() > 64 {
             continue;
         }
-        let (view, key) = if is_role { ("DBC.AllRoleRightsV", "RoleName") } else { ("DBC.AllRightsV", "UserName") };
+        let (view, key) = if is_role {
+            ("DBC.AllRoleRightsV", "RoleName")
+        } else {
+            ("DBC.AllRightsV", "UserName")
+        };
         let sql = format!(
             "SELECT r.*, t.TableKind FROM {view} r LEFT JOIN DBC.TablesV t ON t.DatabaseName = r.DatabaseName AND t.TableName = r.TableName WHERE r.{key} = {}",
             lit(&n)
@@ -183,7 +251,10 @@ pub async fn grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
             Err(e) if via.is_none() => return Err(e),
             Err(_) => {}
         }
-        for m in members.iter().filter(|m| get(m, "grantee").eq_ignore_ascii_case(&n)) {
+        for m in members
+            .iter()
+            .filter(|m| get(m, "grantee").eq_ignore_ascii_case(&n))
+        {
             let r = get(m, "rolename").to_string();
             let v = via.clone().unwrap_or_else(|| r.clone());
             queue.push_back((r, true, Some(v)));
@@ -213,22 +284,70 @@ pub fn script(a: &SecurityAction) -> Result<String> {
     let id = |n: &str| ident(D, super::grantee(n).1);
     Ok(match a {
         SecurityAction::CreateUser { name, password: pw } => {
-            let pw = pw.as_deref().filter(|p| !p.is_empty()).ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))?;
-            format!("CREATE USER {} AS PERMANENT = 0, PASSWORD = {};", id(name), password(pw))
+            let pw = pw
+                .as_deref()
+                .filter(|p| !p.is_empty())
+                .ok_or_else(|| Error::Query("escribí la contraseña del usuario".into()))?;
+            format!(
+                "CREATE USER {} AS PERMANENT = 0, PASSWORD = {};",
+                id(name),
+                password(pw)
+            )
         }
-        SecurityAction::SetPassword { name, password: pw } => format!("MODIFY USER {} AS PASSWORD = {};", id(name), password(pw)),
-        SecurityAction::SetLogin { name, enabled: true } => {
-            format!("MODIFY USER {n} AS RELEASE PASSWORD LOCK;\nGRANT LOGON ON ALL TO {n};", n = id(name))
+        SecurityAction::SetPassword { name, password: pw } => {
+            format!("MODIFY USER {} AS PASSWORD = {};", id(name), password(pw))
         }
-        SecurityAction::SetLogin { name, enabled: false } => format!("REVOKE LOGON ON ALL FROM {};", id(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::User } => format!("DROP USER {};", id(name)),
+        SecurityAction::SetLogin {
+            name,
+            enabled: true,
+        } => {
+            format!(
+                "MODIFY USER {n} AS RELEASE PASSWORD LOCK;\nGRANT LOGON ON ALL TO {n};",
+                n = id(name)
+            )
+        }
+        SecurityAction::SetLogin {
+            name,
+            enabled: false,
+        } => format!("REVOKE LOGON ON ALL FROM {};", id(name)),
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::User,
+        } => format!("DROP USER {};", id(name)),
         SecurityAction::CreateRole { name } => format!("CREATE ROLE {};", id(name)),
-        SecurityAction::Drop { name, kind: PrincipalKind::Role } => format!("DROP ROLE {};", id(name)),
-        SecurityAction::Grant { privileges: p, object, to, grantable } => {
-            format!("GRANT {}{} TO {}{};", privileges(p)?, on(object)?, id(to), if *grantable { " WITH GRANT OPTION" } else { "" })
+        SecurityAction::Drop {
+            name,
+            kind: PrincipalKind::Role,
+        } => format!("DROP ROLE {};", id(name)),
+        SecurityAction::Grant {
+            privileges: p,
+            object,
+            to,
+            grantable,
+        } => {
+            format!(
+                "GRANT {}{} TO {}{};",
+                privileges(p)?,
+                on(object)?,
+                id(to),
+                if *grantable { " WITH GRANT OPTION" } else { "" }
+            )
         }
-        SecurityAction::Revoke { privileges: p, object, from } => format!("REVOKE {}{} FROM {};", privileges(p)?, on(object)?, id(from)),
-        SecurityAction::AddMember { role, member } => format!("GRANT {} TO {};", id(role), id(member)),
-        SecurityAction::RemoveMember { role, member } => format!("REVOKE {} FROM {};", id(role), id(member)),
+        SecurityAction::Revoke {
+            privileges: p,
+            object,
+            from,
+        } => format!(
+            "REVOKE {}{} FROM {};",
+            privileges(p)?,
+            on(object)?,
+            id(from)
+        ),
+        SecurityAction::AddMember { role, member } => {
+            format!("GRANT {} TO {};", id(role), id(member))
+        }
+        SecurityAction::RemoveMember { role, member } => {
+            format!("REVOKE {} FROM {};", id(role), id(member))
+        }
     })
 }

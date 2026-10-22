@@ -77,12 +77,21 @@ pub struct ConfigureArgs {
 /// Save the settings and start, stop or move the server to match. A busy
 /// port doesn't fail the call: the status says so.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn mcp_configure(rt: State<'_, McpRuntime>, args: ConfigureArgs) -> CommandResult<McpStatus> {
+pub async fn mcp_configure(
+    rt: State<'_, McpRuntime>,
+    args: ConfigureArgs,
+) -> CommandResult<McpStatus> {
     check_level(args.default_level)?;
     if args.port < 1024 {
-        return Err(CommandError::BadRequest("el puerto tiene que estar entre 1024 y 65535".into()));
+        return Err(CommandError::BadRequest(
+            "el puerto tiene que estar entre 1024 y 65535".into(),
+        ));
     }
-    let cfg = super::McpConfig { enabled: args.enabled, port: args.port, default_level: args.default_level };
+    let cfg = super::McpConfig {
+        enabled: args.enabled,
+        port: args.port,
+        default_level: args.default_level,
+    };
     save_config(&rt.inner.state, &cfg)?;
     rt.apply();
     Ok(status(&rt))
@@ -101,9 +110,22 @@ pub struct CreatedClient {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn mcp_create_client(rt: State<'_, McpRuntime>, args: CreateClientArgs) -> CommandResult<CreatedClient> {
+pub async fn mcp_create_client(
+    rt: State<'_, McpRuntime>,
+    args: CreateClientArgs,
+) -> CommandResult<CreatedClient> {
     let (c, token) = rt.inner.create_client(&args.name)?;
-    Ok(CreatedClient { client: ClientView { id: c.id, name: c.name, created_at: c.created_at, last_used_at: c.last_used_at, approve_all: false, approve_all_reads: false }, token })
+    Ok(CreatedClient {
+        client: ClientView {
+            id: c.id,
+            name: c.name,
+            created_at: c.created_at,
+            last_used_at: c.last_used_at,
+            approve_all: false,
+            approve_all_reads: false,
+        },
+        token,
+    })
 }
 
 #[derive(Deserialize)]
@@ -112,7 +134,10 @@ pub struct RevokeClientArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn mcp_revoke_client(rt: State<'_, McpRuntime>, args: RevokeClientArgs) -> CommandResult<()> {
+pub async fn mcp_revoke_client(
+    rt: State<'_, McpRuntime>,
+    args: RevokeClientArgs,
+) -> CommandResult<()> {
     rt.inner.revoke_client(&args.id)
 }
 
@@ -127,19 +152,28 @@ pub struct ActivityArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn mcp_activity(rt: State<'_, McpRuntime>, args: ActivityArgs) -> CommandResult<Vec<ActivityEntry>> {
+pub async fn mcp_activity(
+    rt: State<'_, McpRuntime>,
+    args: ActivityArgs,
+) -> CommandResult<Vec<ActivityEntry>> {
     let client = args.client.filter(|c| !c.is_empty());
     let connection = args.connection.filter(|c| !c.is_empty());
     rt.inner
         .activity
-        .list(client.as_deref(), connection.as_deref(), args.limit.unwrap_or(200))
+        .list(
+            client.as_deref(),
+            connection.as_deref(),
+            args.limit.unwrap_or(200),
+        )
         .map_err(|e| CommandError::State(e.to_string()))
 }
 
 /// The writes waiting for the user's answer (the UI also gets them as the
 /// `mcp-approvals` event).
 #[tauri::command]
-pub async fn mcp_pending_approvals(rt: State<'_, McpRuntime>) -> CommandResult<Vec<ApprovalRequest>> {
+pub async fn mcp_pending_approvals(
+    rt: State<'_, McpRuntime>,
+) -> CommandResult<Vec<ApprovalRequest>> {
     Ok(rt.inner.approvals.pending())
 }
 
@@ -151,7 +185,10 @@ pub struct AnswerArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn mcp_answer_approval(rt: State<'_, McpRuntime>, args: AnswerArgs) -> CommandResult<()> {
-    rt.inner.approvals.answer(&args.id, args.decision).map_err(CommandError::BadRequest)
+    rt.inner
+        .approvals
+        .answer(&args.id, args.decision)
+        .map_err(CommandError::BadRequest)
 }
 
 #[derive(Deserialize)]
@@ -164,7 +201,12 @@ pub struct ClearApproveAllArgs {
 
 /// Ask again before each write (or read) of this client.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn mcp_clear_approve_all(rt: State<'_, McpRuntime>, args: ClearApproveAllArgs) -> CommandResult<McpStatus> {
-    rt.inner.approvals.clear_approve_all(&args.client_id, args.kind);
+pub async fn mcp_clear_approve_all(
+    rt: State<'_, McpRuntime>,
+    args: ClearApproveAllArgs,
+) -> CommandResult<McpStatus> {
+    rt.inner
+        .approvals
+        .clear_approve_all(&args.client_id, args.kind);
     Ok(status(&rt))
 }

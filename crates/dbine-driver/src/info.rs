@@ -133,7 +133,9 @@ pub enum FieldKind {
     /// Multi-line text (e.g. a service-account JSON).
     Textarea,
     /// One of these `(value, label)` pairs.
-    Select(#[serde(deserialize_with = "crate::serde_static::pairs")] Vec<(&'static str, &'static str)>),
+    Select(
+        #[serde(deserialize_with = "crate::serde_static::pairs")] Vec<(&'static str, &'static str)>,
+    ),
 }
 
 impl Field {
@@ -189,13 +191,18 @@ impl Field {
     }
     /// Only when the field `key` has one of `values` (a checkbox: "true").
     pub fn when(mut self, key: &'static str, values: &[&'static str]) -> Self {
-        self.when = Some(FieldWhen { key, values: values.to_vec() });
+        self.when = Some(FieldWhen {
+            key,
+            values: values.to_vec(),
+        });
         self
     }
 
     // The usual ones.
     pub fn host() -> Self {
-        Self::new("host", "Servidor", FieldKind::Text).required().placeholder("localhost")
+        Self::new("host", "Servidor", FieldKind::Text)
+            .required()
+            .placeholder("localhost")
     }
     pub fn port() -> Self {
         Self::new("port", "Puerto", FieldKind::Number)
@@ -213,7 +220,12 @@ impl Field {
         Self::new("encrypt", "Cifrar la conexión (TLS)", FieldKind::Bool).ssl()
     }
     pub fn trust_cert() -> Self {
-        Self::new("trust_server_certificate", "Confiar en el certificado del servidor", FieldKind::Bool).ssl()
+        Self::new(
+            "trust_server_certificate",
+            "Confiar en el certificado del servidor",
+            FieldKind::Bool,
+        )
+        .ssl()
     }
     pub fn read_only() -> Self {
         Self::new("read_only", "Solo lectura", FieldKind::Bool)
@@ -274,8 +286,20 @@ pub struct ObjectKindInfo {
 }
 
 impl ObjectKindInfo {
-    pub const fn new(id: &'static str, label: &'static str, has_columns: bool, browsable: bool, has_definition: bool) -> Self {
-        Self { id, label, has_columns, browsable, has_definition }
+    pub const fn new(
+        id: &'static str,
+        label: &'static str,
+        has_columns: bool,
+        browsable: bool,
+        has_definition: bool,
+    ) -> Self {
+        Self {
+            id,
+            label,
+            has_columns,
+            browsable,
+            has_definition,
+        }
     }
     pub const fn tables() -> Self {
         Self::new(kinds::TABLE, "Tablas", true, true, true)
@@ -284,7 +308,13 @@ impl ObjectKindInfo {
         Self::new(kinds::VIEW, "Vistas", true, true, true)
     }
     pub const fn materialized_views() -> Self {
-        Self::new(kinds::MATERIALIZED_VIEW, "Vistas materializadas", true, true, true)
+        Self::new(
+            kinds::MATERIALIZED_VIEW,
+            "Vistas materializadas",
+            true,
+            true,
+            true,
+        )
     }
     pub const fn procedures() -> Self {
         Self::new(kinds::PROCEDURE, "Procedimientos", false, false, true)

@@ -7,7 +7,9 @@
 //!   cargo test -p dbine-driver-couchbase --test sort -- --ignored
 //! ```
 
-use dbine_driver::{ColumnFilter, ConnectionConfig, FilterOp, ObjectRef, QueryOutcome, Session, SortKey};
+use dbine_driver::{
+    ColumnFilter, ConnectionConfig, FilterOp, ObjectRef, QueryOutcome, Session, SortKey,
+};
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
@@ -21,13 +23,18 @@ fn cfg() -> Option<ConnectionConfig> {
         password: Some("secreto1".into()),
         ..Default::default()
     };
-    c.options.insert("mgmt_port".into(), std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()));
+    c.options.insert(
+        "mgmt_port".into(),
+        std::env::var("DBINE_TEST_COUCHBASE_MGMT_PORT").unwrap_or_else(|_| "8091".into()),
+    );
     Some(c)
 }
 
 async fn run(s: &mut Box<dyn Session>, q: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(q, 100, &mut out).await.unwrap_or_else(|e| panic!("{e}\n{q}"));
+    s.execute(q, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{q}"));
     out
 }
 
@@ -45,13 +52,18 @@ async fn couchbase_sorts_on_the_server() {
     let mut s = d.connect(&c, None).await.expect("connect");
     let coll = "dbine_script0._default.dbine_sort";
     let mut out = QueryOutcome::default();
-    s.execute(&format!("DROP COLLECTION {coll}"), 10, &mut out).await.ok();
+    s.execute(&format!("DROP COLLECTION {coll}"), 10, &mut out)
+        .await
+        .ok();
     run(&mut s, &format!("CREATE COLLECTION {coll}")).await;
     // The new collection takes a moment to accept an index.
     let start = Instant::now();
     loop {
         let mut out = QueryOutcome::default();
-        match s.execute(&format!("CREATE PRIMARY INDEX ON {coll}"), 10, &mut out).await {
+        match s
+            .execute(&format!("CREATE PRIMARY INDEX ON {coll}"), 10, &mut out)
+            .await
+        {
             Ok(()) => break,
             Err(e) if start.elapsed() < Duration::from_secs(60) => {
                 eprintln!("waiting: {e}");
@@ -72,17 +84,42 @@ async fn couchbase_sorts_on_the_server() {
         ),
     )
     .await;
-    let obj = ObjectRef { kind: "collection".into(), schema: Some("dbine_script0._default".into()), name: "dbine_sort".into() };
+    let obj = ObjectRef {
+        kind: "collection".into(),
+        schema: Some("dbine_script0._default".into()),
+        name: "dbine_sort".into(),
+    };
     let browse = s.browse_query(&obj, 50);
-    let filtered = d.filtered_browse(&browse, &[ColumnFilter { column: "g".into(), op: FilterOp::Eq, values: vec![json!("a")], sql: None }]).unwrap();
-    let k = |c: &str, desc: bool| SortKey { column: c.into(), descending: desc };
+    let filtered = d
+        .filtered_browse(
+            &browse,
+            &[ColumnFilter {
+                column: "g".into(),
+                op: FilterOp::Eq,
+                values: vec![json!("a")],
+                sql: None,
+            }],
+        )
+        .unwrap();
+    let k = |c: &str, desc: bool| SortKey {
+        column: c.into(),
+        descending: desc,
+    };
     let want = |v: &[u8]| v.iter().map(|n| json!(format!("d{n}"))).collect::<Vec<_>>();
-    let q = d.sorted_browse(&filtered, &[k("n", true), k("_id", true)]).unwrap();
+    let q = d
+        .sorted_browse(&filtered, &[k("n", true), k("_id", true)])
+        .unwrap();
     assert_eq!(ids(&run(&mut s, &q).await), want(&[5, 1, 4, 2]));
-    let q = d.sorted_browse(&filtered, &[k("n", false), k("_id", false)]).unwrap();
+    let q = d
+        .sorted_browse(&filtered, &[k("n", false), k("_id", false)])
+        .unwrap();
     assert_eq!(ids(&run(&mut s, &q).await), want(&[2, 4, 1, 5]));
-    let q = d.sorted_browse(&filtered, &[k("we`ird \"n\"", false)]).unwrap();
+    let q = d
+        .sorted_browse(&filtered, &[k("we`ird \"n\"", false)])
+        .unwrap();
     assert_eq!(ids(&run(&mut s, &q).await), want(&[5, 2, 4, 1]));
     let mut out = QueryOutcome::default();
-    s.execute(&format!("DROP COLLECTION {coll}"), 10, &mut out).await.ok();
+    s.execute(&format!("DROP COLLECTION {coll}"), 10, &mut out)
+        .await
+        .ok();
 }

@@ -5,9 +5,14 @@
 //! Netezza has groups instead of roles, and GRANT names them
 //! (`TO GROUP g`), so DBine lists them as `role:<name>`.
 
-use super::{get, grantee, ident, lit, option, password, privileges, role, rows, unsupported_action, user, Dialect, Row};
+use super::{
+    get, grantee, ident, lit, option, password, privileges, role, rows, unsupported_action, user,
+    Dialect, Row,
+};
 use crate::OdbcSession;
-use dbine_driver::{kinds, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    kinds, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+};
 use std::collections::HashMap;
 
 const D: Dialect = Dialect::Netezza;
@@ -15,9 +20,31 @@ const D: Dialect = Dialect::Netezza;
 pub fn spec() -> SecuritySpec {
     SecuritySpec {
         privileges: vec![
-            "LIST", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "LOCK", "ALTER", "DROP", "ABORT", "LOAD", "GENSTATS", "GROOM",
-            "EXECUTE", "ALL", "CREATE TABLE", "CREATE VIEW", "CREATE EXTERNAL TABLE", "CREATE SEQUENCE", "CREATE PROCEDURE",
-            "CREATE DATABASE", "CREATE USER", "CREATE GROUP", "BACKUP", "RESTORE",
+            "LIST",
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "TRUNCATE",
+            "LOCK",
+            "ALTER",
+            "DROP",
+            "ABORT",
+            "LOAD",
+            "GENSTATS",
+            "GROOM",
+            "EXECUTE",
+            "ALL",
+            "CREATE TABLE",
+            "CREATE VIEW",
+            "CREATE EXTERNAL TABLE",
+            "CREATE SEQUENCE",
+            "CREATE PROCEDURE",
+            "CREATE DATABASE",
+            "CREATE USER",
+            "CREATE GROUP",
+            "BACKUP",
+            "RESTORE",
         ],
         // "" = administration privileges.
         object_kinds: vec!["", kinds::TABLE, kinds::VIEW],
@@ -30,21 +57,35 @@ pub fn spec() -> SecuritySpec {
 }
 
 pub async fn principals(s: &OdbcSession) -> Result<Vec<Principal>> {
-    let members = rows(s, "SELECT GROUPNAME, USERNAME FROM _V_GROUPUSERS").await.unwrap_or_default();
+    let members = rows(s, "SELECT GROUPNAME, USERNAME FROM _V_GROUPUSERS")
+        .await
+        .unwrap_or_default();
     let of = |n: &str| -> Vec<String> {
-        members.iter().filter(|m| get(m, "username").eq_ignore_ascii_case(n)).map(|m| super::role_name(D, get(m, "groupname"))).collect()
+        members
+            .iter()
+            .filter(|m| get(m, "username").eq_ignore_ascii_case(n))
+            .map(|m| super::role_name(D, get(m, "groupname")))
+            .collect()
     };
     let mut out = Vec::new();
     for u in rows(s, "SELECT * FROM _V_USER").await? {
         let name = get(&u, "username").to_string();
         let mut details = Vec::new();
-        for (k, label) in [("valuntil", "Vence"), ("useauth", "Autenticación"), ("rowlimit", "Límite de filas"), ("pwd_last_chged", "Contraseña cambiada")] {
+        for (k, label) in [
+            ("valuntil", "Vence"),
+            ("useauth", "Autenticación"),
+            ("rowlimit", "Límite de filas"),
+            ("pwd_last_chged", "Contraseña cambiada"),
+        ] {
             let v = get(&u, k);
             if !v.is_empty() && v != "0" {
                 details.push((label.to_string(), v.to_string()));
             }
         }
-        let locked = ["account_locked", "locked"].iter().map(|k| get(&u, k)).find(|v| !v.is_empty());
+        let locked = ["account_locked", "locked"]
+            .iter()
+            .map(|k| get(&u, k))
+            .find(|v| !v.is_empty());
         out.push(Principal {
             superuser: Some(name.eq_ignore_ascii_case("ADMIN")),
             disabled: locked.map(super::yes),
@@ -54,9 +95,15 @@ pub async fn principals(s: &OdbcSession) -> Result<Vec<Principal>> {
             ..user(&name)
         });
     }
-    for g in rows(s, "SELECT GROUPNAME FROM _V_GROUP").await.unwrap_or_default() {
+    for g in rows(s, "SELECT GROUPNAME FROM _V_GROUP")
+        .await
+        .unwrap_or_default()
+    {
         let name = get(&g, "groupname");
-        out.push(Principal { system: name.eq_ignore_ascii_case("PUBLIC"), ..role(D, name) });
+        out.push(Principal {
+            system: name.eq_ignore_ascii_case("PUBLIC"),
+            ..role(D, name)
+        });
     }
     Ok(out)
 }
@@ -101,22 +148,43 @@ pub(super) fn grants_of(r: &Row, via: Option<String>) -> Vec<Grant> {
         (None, None)
     } else {
         let name = get(r, "objname");
-        let name = if name.is_empty() { format!("objeto {object_id}") } else { name.to_string() };
+        let name = if name.is_empty() {
+            format!("objeto {object_id}")
+        } else {
+            name.to_string()
+        };
         let db = get(r, "dbname");
         let schema = get(r, "objschema");
-        let full = [db, schema, name.as_str()].iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(".");
+        let full = [db, schema, name.as_str()]
+            .iter()
+            .filter(|p| !p.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(".");
         (Some(full), Some(kind(get(r, "objtype")).to_string()))
     };
     if admin {
         // The administration privileges' bits aren't the objects' ones.
         return (mask != 0)
-            .then(|| Grant { privilege: format!("ADMINISTRACIÓN (máscara {mask})"), grantable: gmask != 0, via: via.clone(), ..Default::default() })
+            .then(|| Grant {
+                privilege: format!("ADMINISTRACIÓN (máscara {mask})"),
+                grantable: gmask != 0,
+                via: via.clone(),
+                ..Default::default()
+            })
             .into_iter()
             .collect();
     }
     BITS.iter()
         .filter(|(b, _)| mask & b != 0)
-        .map(|(b, p)| Grant { privilege: p.to_string(), object: object.clone(), object_kind: object_kind.clone(), grantable: gmask & b != 0, denied: false, via: via.clone() })
+        .map(|(b, p)| Grant {
+            privilege: p.to_string(),
+            object: object.clone(),
+            object_kind: object_kind.clone(),
+            grantable: gmask & b != 0,
+            denied: false,
+            via: via.clone(),
+        })
         .collect()
 }
 
@@ -141,12 +209,18 @@ pub async fn grants(s: &OdbcSession, principal: &str) -> Result<Vec<Grant>> {
         out.extend(grants_of(&r, None));
     }
     if !is_group {
-        let groups: HashMap<String, ()> = rows(s, &format!("SELECT GROUPNAME FROM _V_GROUPUSERS WHERE USERNAME = {}", lit(name)))
-            .await
-            .unwrap_or_default()
-            .iter()
-            .map(|g| (get(g, "groupname").to_string(), ()))
-            .collect();
+        let groups: HashMap<String, ()> = rows(
+            s,
+            &format!(
+                "SELECT GROUPNAME FROM _V_GROUPUSERS WHERE USERNAME = {}",
+                lit(name)
+            ),
+        )
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|g| (get(g, "groupname").to_string(), ()))
+        .collect();
         for g in groups.keys() {
             for r in rows(s, &privs_sql(true, g)).await.unwrap_or_default() {
                 out.extend(grants_of(&r, Some(super::role_name(D, g))));
@@ -164,7 +238,9 @@ fn to_whom(n: &str) -> String {
 }
 
 fn on(o: &Option<ObjectRef>) -> String {
-    o.as_ref().map(|o| format!(" ON {}", super::qualified(D, o))).unwrap_or_default()
+    o.as_ref()
+        .map(|o| format!(" ON {}", super::qualified(D, o)))
+        .unwrap_or_default()
 }
 
 pub fn script(a: &SecurityAction) -> Result<String> {

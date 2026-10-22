@@ -11,8 +11,8 @@
 //! database's PSQL is small enough to read whole.
 
 use crate::{
-    domain_sql, function_sql, package_sql, param, procedure_sql, sequence_sql, text, trigger_sql, view_sql, Column,
-    Conn, FirebirdSession, PACKAGE,
+    domain_sql, function_sql, package_sql, param, procedure_sql, sequence_sql, text, trigger_sql,
+    view_sql, Column, Conn, FirebirdSession, PACKAGE,
 };
 use dbine_driver::search::{hits_in, CodeSearch, CodeSearchReport};
 use dbine_driver::{Result, Session};
@@ -48,7 +48,8 @@ SELECT TRIM(a.RDB$ARGUMENT_NAME), a.RDB$ARGUMENT_POSITION, f.RDB$FIELD_TYPE, f.R
 const PACKAGES: &str = "SELECT RDB$PACKAGE_HEADER_SOURCE, RDB$PACKAGE_BODY_SOURCE, TRIM(RDB$PACKAGE_NAME) FROM RDB$PACKAGES
   WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0";
 
-const TRIGGERS: &str = "SELECT RDB$TRIGGER_SOURCE, TRIM(RDB$RELATION_NAME), RDB$TRIGGER_TYPE, RDB$TRIGGER_SEQUENCE,
+const TRIGGERS: &str =
+    "SELECT RDB$TRIGGER_SOURCE, TRIM(RDB$RELATION_NAME), RDB$TRIGGER_TYPE, RDB$TRIGGER_SEQUENCE,
         RDB$TRIGGER_INACTIVE, TRIM(RDB$TRIGGER_NAME)
    FROM RDB$TRIGGERS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0";
 
@@ -66,8 +67,7 @@ SELECT f.RDB$FIELD_TYPE, f.RDB$FIELD_SUB_TYPE, f.RDB$FIELD_LENGTH, f.RDB$CHARACT
 
 /// The rows of `sql` by their last column (the name), without it.
 fn by_name(c: &mut Conn, sql: &str) -> Result<Vec<(String, Vec<Column>)>> {
-    Ok(c
-        .rows(sql, vec![])?
+    Ok(c.rows(sql, vec![])?
         .into_iter()
         .filter_map(|mut r| {
             let name = r.pop().as_ref().and_then(text)?;
@@ -106,7 +106,9 @@ fn sources(c: &mut Conn, wanted: &[String]) -> Result<HashMap<(String, String), 
     if want("procedure") {
         let params = params(c, PROCEDURE_PARAMS)?;
         for (name, r) in by_name(c, PROCEDURES)? {
-            let src = r.first().and_then(text).map(|s| procedure_sql(&name, &s, params.get(&name).map_or(&[][..], Vec::as_slice)));
+            let src = r.first().and_then(text).map(|s| {
+                procedure_sql(&name, &s, params.get(&name).map_or(&[][..], Vec::as_slice))
+            });
             put("procedure", name, src);
         }
     }
@@ -114,7 +116,10 @@ fn sources(c: &mut Conn, wanted: &[String]) -> Result<HashMap<(String, String), 
         let args = params(c, FUNCTION_ARGS)?;
         // Legacy UDFs and external functions have no PSQL source.
         for (name, r) in by_name(c, FUNCTIONS)? {
-            let src = r.first().and_then(text).map(|s| function_sql(&name, &s, args.get(&name).map_or(&[][..], Vec::as_slice)));
+            let src = r
+                .first()
+                .and_then(text)
+                .map(|s| function_sql(&name, &s, args.get(&name).map_or(&[][..], Vec::as_slice)));
             put("function", name, src);
         }
     }
@@ -146,18 +151,30 @@ fn sources(c: &mut Conn, wanted: &[String]) -> Result<HashMap<(String, String), 
 }
 
 impl FirebirdSession {
-    pub(crate) async fn search_code_impl(&mut self, q: &CodeSearch) -> Result<Option<CodeSearchReport>> {
+    pub(crate) async fn search_code_impl(
+        &mut self,
+        q: &CodeSearch,
+    ) -> Result<Option<CodeSearchReport>> {
         if q.text.is_empty() {
             return Ok(None);
         }
         let wanted: Vec<String> = crate::info()
             .object_kinds
             .iter()
-            .filter(|k| k.has_definition && (q.kinds.is_empty() || q.kinds.iter().any(|w| w == k.id)))
+            .filter(|k| {
+                k.has_definition && (q.kinds.is_empty() || q.kinds.iter().any(|w| w == k.id))
+            })
             .map(|k| k.id.to_string())
             .collect();
-        let objects: Vec<_> = Session::list_objects(self).await?.into_iter().filter(|o| wanted.contains(&o.kind)).collect();
-        let present: Vec<String> = wanted.into_iter().filter(|k| objects.iter().any(|o| &o.kind == k)).collect();
+        let objects: Vec<_> = Session::list_objects(self)
+            .await?
+            .into_iter()
+            .filter(|o| wanted.contains(&o.kind))
+            .collect();
+        let present: Vec<String> = wanted
+            .into_iter()
+            .filter(|k| objects.iter().any(|o| &o.kind == k))
+            .collect();
         let sources = match self.run(move |c| sources(c, &present)).await {
             Ok(s) => s,
             Err(e) => {
@@ -166,11 +183,23 @@ impl FirebirdSession {
                 return Ok(None);
             }
         };
-        let mut report = CodeSearchReport { scanned: objects.len(), ..Default::default() };
+        let mut report = CodeSearchReport {
+            scanned: objects.len(),
+            ..Default::default()
+        };
         for o in &objects {
             // Tables: Firebird has no DDL of its own (no source).
-            let Some(source) = sources.get(&(o.kind.clone(), o.name.clone())) else { continue };
-            report.hits.extend(hits_in(&o.kind, o.schema.as_deref(), &o.name, o.parent.as_deref(), source, q));
+            let Some(source) = sources.get(&(o.kind.clone(), o.name.clone())) else {
+                continue;
+            };
+            report.hits.extend(hits_in(
+                &o.kind,
+                o.schema.as_deref(),
+                &o.name,
+                o.parent.as_deref(),
+                source,
+                q,
+            ));
             if q.max_hits > 0 && report.hits.len() >= q.max_hits {
                 report.hits.truncate(q.max_hits);
                 report.truncated = true;
@@ -180,4 +209,3 @@ impl FirebirdSession {
         Ok(Some(report))
     }
 }
-

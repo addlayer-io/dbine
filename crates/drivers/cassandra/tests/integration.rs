@@ -20,7 +20,10 @@ fn cfg(driver: &str, url: &str, read_only: bool) -> ConnectionConfig {
 }
 
 async fn open(driver: &str, url: &str, ks: Option<&str>, read_only: bool) -> Box<dyn Session> {
-    let d = dbine_driver_cassandra::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     d.connect(&cfg(driver, url, read_only), ks).await.unwrap()
 }
 
@@ -33,14 +36,22 @@ async fn run(s: &mut Box<dyn Session>, text: &str, max_rows: usize) -> QueryOutc
 }
 
 fn obj(kind: &str, name: &str) -> ObjectRef {
-    ObjectRef { kind: kind.into(), schema: None, name: name.into() }
+    ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: name.into(),
+    }
 }
 
 async fn round_trip(driver: &str, url: &str) {
     let mut s = open(driver, url, None, false).await;
     println!("{driver}: {}", s.server_version().await.unwrap());
     // Scylla keeps materialized views off tablet keyspaces.
-    let tablets = if driver == "scylladb" { " AND tablets = {'enabled': false}" } else { "" };
+    let tablets = if driver == "scylladb" {
+        " AND tablets = {'enabled': false}"
+    } else {
+        ""
+    };
     run(
         &mut s,
         &format!(
@@ -92,7 +103,10 @@ async fn round_trip(driver: &str, url: &str) {
     assert_eq!(kind_of("events").as_deref(), Some(kinds::TABLE));
     assert_eq!(kind_of("address").as_deref(), Some("type"));
     if driver == "scylladb" {
-        assert_eq!(kind_of("events_by_n").as_deref(), Some(kinds::MATERIALIZED_VIEW));
+        assert_eq!(
+            kind_of("events_by_n").as_deref(),
+            Some(kinds::MATERIALIZED_VIEW)
+        );
     }
 
     let t = obj(kinds::TABLE, "events");
@@ -102,12 +116,28 @@ async fn round_trip(driver: &str, url: &str) {
     assert!(cols[..4].iter().all(|c| c.primary_key) && !cols[4].primary_key);
     let def = s.definition(&t).await.unwrap().unwrap();
     println!("{def}");
-    assert!(def.contains("CREATE TABLE dbine_it.events") && def.contains("PRIMARY KEY ((tenant, day), at, id)"));
+    assert!(
+        def.contains("CREATE TABLE dbine_it.events")
+            && def.contains("PRIMARY KEY ((tenant, day), at, id)")
+    );
     let ty = s.columns(&obj("type", "address")).await.unwrap();
-    assert_eq!(ty.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["city", "zip"]);
-    println!("{}", s.definition(&obj("type", "address")).await.unwrap().unwrap());
+    assert_eq!(
+        ty.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["city", "zip"]
+    );
+    println!(
+        "{}",
+        s.definition(&obj("type", "address"))
+            .await
+            .unwrap()
+            .unwrap()
+    );
     if driver == "scylladb" {
-        let def = s.definition(&obj(kinds::MATERIALIZED_VIEW, "events_by_n")).await.unwrap().unwrap();
+        let def = s
+            .definition(&obj(kinds::MATERIALIZED_VIEW, "events_by_n"))
+            .await
+            .unwrap()
+            .unwrap();
         println!("{def}");
         assert!(def.contains("MATERIALIZED VIEW"));
     }
@@ -148,7 +178,14 @@ async fn round_trip(driver: &str, url: &str) {
 
     // Errors keep what ran before.
     let mut out = QueryOutcome::default();
-    let e = s.execute("SELECT n FROM events LIMIT 1; SELECT nope FROM events", 10, &mut out).await.unwrap_err();
+    let e = s
+        .execute(
+            "SELECT n FROM events LIMIT 1; SELECT nope FROM events",
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
     assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
@@ -161,13 +198,26 @@ async fn round_trip(driver: &str, url: &str) {
     let mut ro = open(driver, url, Some("dbine_it"), true).await;
     run(&mut ro, "SELECT * FROM events LIMIT 1; USE dbine_it", 10).await;
     let mut out = QueryOutcome::default();
-    let e = ro.execute("SELECT * FROM events LIMIT 1; TRUNCATE events", 10, &mut out).await.unwrap_err();
+    let e = ro
+        .execute(
+            "SELECT * FROM events LIMIT 1; TRUNCATE events",
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
     assert!(matches!(e, Error::Query(ref m) if m.contains("TRUNCATE")));
     assert!(out.results.is_empty());
 
     // Nobody listening.
-    let d = dbine_driver_cassandra::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
-    assert!(matches!(d.connect(&cfg(driver, "localhost:1", false), None).await, Err(Error::Connect(_))));
+    let d = dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
+    assert!(matches!(
+        d.connect(&cfg(driver, "localhost:1", false), None).await,
+        Err(Error::Connect(_))
+    ));
 
     run(&mut s, "DROP KEYSPACE dbine_it", 10).await;
 }
@@ -213,19 +263,33 @@ async fn plans(driver: &str, url: &str) {
     assert!(out.results.is_empty());
     assert_eq!(out.plans[0].root.op, "Lectura por clave de partición");
     assert_eq!(out.plans[0].root.object.as_deref(), Some("dbine_plan.ev"));
-    assert_eq!(out.plans[1].root.warnings, ["ALLOW FILTERING: recorre todas las particiones"]);
+    assert_eq!(
+        out.plans[1].root.warnings,
+        ["ALLOW FILTERING: recorre todas las particiones"]
+    );
     assert_eq!(out.plans[2].root.op, "Borrado por clave de partición");
     let o = run(&mut s, "SELECT count(*) FROM ev", 10).await;
     assert_eq!(o.results[0].rows[0][0], json!(2), "the DELETE didn't run");
 
     let mut out = QueryOutcome::default();
-    s.explain("SELECT * FROM ev WHERE tenant = 'a' AND day = 1", true, 10, &mut out).await.unwrap();
+    s.explain(
+        "SELECT * FROM ev WHERE tenant = 'a' AND day = 1",
+        true,
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
     assert_eq!(out.results[0].rows.len(), 2);
     let p = &out.plans[0];
     println!("{}", p.raw);
     assert!(p.actual);
     assert!(p.root.actual_ms.is_some());
-    assert!(!p.root.children.is_empty() && !p.root.children[0].children.is_empty(), "{:#?}", p.root);
+    assert!(
+        !p.root.children.is_empty() && !p.root.children[0].children.is_empty(),
+        "{:#?}",
+        p.root
+    );
 
     run(&mut s, "DROP KEYSPACE dbine_plan", 10).await;
 }
@@ -233,14 +297,18 @@ async fn plans(driver: &str, url: &str) {
 #[tokio::test]
 #[ignore]
 async fn scylladb_plans() {
-    let Ok(url) = std::env::var("DBINE_TEST_SCYLLADB_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_SCYLLADB_URL") else {
+        return;
+    };
     plans("scylladb", &url).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn cassandra_plans() {
-    let Ok(url) = std::env::var("DBINE_TEST_CASSANDRA_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_CASSANDRA_URL") else {
+        return;
+    };
     plans("cassandra", &url).await;
 }
 
@@ -249,7 +317,10 @@ async fn cassandra_plans() {
 /// all through `execute`.
 async fn designer(driver: &str, url: &str) {
     use dbine_driver::{ColumnDef, DdlParts, IndexDef, TableSchema};
-    let d = dbine_driver_cassandra::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     let caps = d.capabilities();
     assert!(caps.create_database && caps.drop_database && !caps.foreign_keys);
 
@@ -258,23 +329,42 @@ async fn designer(driver: &str, url: &str) {
     s.create_database("dbine_ddl").await.unwrap();
     assert!(s.create_database("bad-name").await.is_err());
     assert!(s.drop_database("system_schema").await.is_err());
-    assert!(s.list_databases().await.unwrap().contains(&"dbine_ddl".to_string()));
+    assert!(s
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_ddl".to_string()));
 
     let mut s = open(driver, url, Some("dbine_ddl"), false).await;
     let c = |name: &str, ty: &str, opts: &[(&str, &str)]| ColumnDef {
         name: name.into(),
         data_type: ty.into(),
-        options: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        options: opts
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
         ..Default::default()
     };
-    let sai = if driver == "cassandra" { Some("sai".to_string()) } else { None };
-    let compaction = if driver == "cassandra" { "UnifiedCompactionStrategy" } else { "IncrementalCompactionStrategy" };
+    let sai = if driver == "cassandra" {
+        Some("sai".to_string())
+    } else {
+        None
+    };
+    let compaction = if driver == "cassandra" {
+        "UnifiedCompactionStrategy"
+    } else {
+        "IncrementalCompactionStrategy"
+    };
     let mut t = TableSchema {
         name: "Events".into(),
         columns: vec![
             c("tenant", "text", &[("partition_key", "true")]),
             c("day", "date", &[("partition_key", "true")]),
-            c("ts", "timestamp", &[("clustering_key", "true"), ("clustering_order", "DESC")]),
+            c(
+                "ts",
+                "timestamp",
+                &[("clustering_key", "true"), ("clustering_order", "DESC")],
+            ),
             c("id", "uuid", &[("clustering_key", "true")]),
             c("region", "text", &[("static", "true")]),
             c("Name", "text", &[]),
@@ -284,16 +374,32 @@ async fn designer(driver: &str, url: &str) {
             c("raw", "blob", &[]),
         ],
         indexes: vec![
-            IndexDef { name: "events_name".into(), columns: vec!["Name".into()], kind: sai.clone(), ..Default::default() },
-            IndexDef { name: "events_tags".into(), columns: vec!["values(tags)".into()], ..Default::default() },
+            IndexDef {
+                name: "events_name".into(),
+                columns: vec!["Name".into()],
+                kind: sai.clone(),
+                ..Default::default()
+            },
+            IndexDef {
+                name: "events_tags".into(),
+                columns: vec!["values(tags)".into()],
+                ..Default::default()
+            },
         ],
         ..Default::default()
     };
-    t.options.insert("default_time_to_live".into(), "86400".into());
+    t.options
+        .insert("default_time_to_live".into(), "86400".into());
     t.options.insert("gc_grace_seconds".into(), "3600".into());
     t.options.insert("compaction".into(), compaction.into());
     t.options.insert("comment".into(), "it's a log".into());
-    let all = DdlParts { drop: true, if_exists: true, create: true, indexes: true, foreign_keys: true };
+    let all = DdlParts {
+        drop: true,
+        if_exists: true,
+        create: true,
+        indexes: true,
+        foreign_keys: true,
+    };
     let ddl = d.table_ddl(&t, all).unwrap();
     println!("{ddl}");
     run(&mut s, &ddl, 10).await;
@@ -302,17 +408,47 @@ async fn designer(driver: &str, url: &str) {
     let got = schema.iter().find(|x| x.name == "Events").expect("Events");
     let names: Vec<_> = got.columns.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(&names[..4], ["tenant", "day", "ts", "id"]);
-    assert_eq!(got.primary_key.as_ref().unwrap().columns, ["tenant", "day", "ts", "id"]);
-    let opt = |col: &str, k: &str| got.columns.iter().find(|c| c.name == col).unwrap().options.get(k).cloned();
+    assert_eq!(
+        got.primary_key.as_ref().unwrap().columns,
+        ["tenant", "day", "ts", "id"]
+    );
+    let opt = |col: &str, k: &str| {
+        got.columns
+            .iter()
+            .find(|c| c.name == col)
+            .unwrap()
+            .options
+            .get(k)
+            .cloned()
+    };
     assert_eq!(opt("day", "partition_key").as_deref(), Some("true"));
     assert_eq!(opt("ts", "clustering_order").as_deref(), Some("DESC"));
     assert_eq!(opt("id", "clustering_order").as_deref(), Some("ASC"));
     assert_eq!(opt("region", "static").as_deref(), Some("true"));
-    assert_eq!(got.columns.iter().find(|c| c.name == "tags").unwrap().data_type, "set<text>");
-    assert_eq!(got.options.get("default_time_to_live").map(String::as_str), Some("86400"));
-    assert_eq!(got.options.get("gc_grace_seconds").map(String::as_str), Some("3600"));
-    assert_eq!(got.options.get("compaction").map(String::as_str), Some(compaction));
-    assert_eq!(got.options.get("comment").map(String::as_str), Some("it's a log"));
+    assert_eq!(
+        got.columns
+            .iter()
+            .find(|c| c.name == "tags")
+            .unwrap()
+            .data_type,
+        "set<text>"
+    );
+    assert_eq!(
+        got.options.get("default_time_to_live").map(String::as_str),
+        Some("86400")
+    );
+    assert_eq!(
+        got.options.get("gc_grace_seconds").map(String::as_str),
+        Some("3600")
+    );
+    assert_eq!(
+        got.options.get("compaction").map(String::as_str),
+        Some(compaction)
+    );
+    assert_eq!(
+        got.options.get("comment").map(String::as_str),
+        Some("it's a log")
+    );
     let mut ix = got.indexes.clone();
     ix.sort_by(|a, b| a.name.cmp(&b.name));
     assert_eq!(ix.len(), 2, "{ix:?}");
@@ -325,8 +461,12 @@ async fn designer(driver: &str, url: &str) {
     run(&mut s, &again, 10).await;
 
     // Rows through INSERT … JSON, with the driver's own cell shapes.
-    let cols: Vec<String> =
-        ["tenant", "day", "ts", "id", "region", "Name", "amount", "tags", "attrs", "raw"].iter().map(|c| c.to_string()).collect();
+    let cols: Vec<String> = [
+        "tenant", "day", "ts", "id", "region", "Name", "amount", "tags", "attrs", "raw",
+    ]
+    .iter()
+    .map(|c| c.to_string())
+    .collect();
     let rows = vec![
         vec![
             json!("acme"),
@@ -370,22 +510,42 @@ async fn designer(driver: &str, url: &str) {
     // The rows as the browse query reads them, scripted and loaded again.
     let browse = s.browse_query(&target, 100);
     let out = run(&mut s, &browse, 100).await;
-    let cols: Vec<String> = out.results[0].columns.iter().map(|c| c.name.clone()).collect();
+    let cols: Vec<String> = out.results[0]
+        .columns
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
     run(&mut s, "TRUNCATE \"Events\"", 10).await;
-    run(&mut s, &d.insert_script(&target, &cols, &out.results[0].rows).unwrap(), 10).await;
+    run(
+        &mut s,
+        &d.insert_script(&target, &cols, &out.results[0].rows)
+            .unwrap(),
+        10,
+    )
+    .await;
     let back = run(&mut s, &browse, 100).await;
     assert_eq!(back.results[0].rows, out.results[0].rows);
 
     // Templates, against a table with the names they use. Stock Cassandra
     // has UDFs and materialized views off in cassandra.yaml.
-    run(&mut s, "CREATE TABLE tabla (id int PRIMARY KEY, email text, columna text)", 10).await;
+    run(
+        &mut s,
+        "CREATE TABLE tabla (id int PRIMARY KEY, email text, columna text)",
+        10,
+    )
+    .await;
     for t in d.create_templates() {
         let text = t.template.replace("{name}", "tpl");
         let mut out = QueryOutcome::default();
         let res = s.execute(&text, 10, &mut out).await;
         println!("{}: {res:?}", t.label);
-        if driver == "cassandra" && (t.kind == kinds::FUNCTION || t.kind == kinds::MATERIALIZED_VIEW) {
-            assert!(matches!(res, Err(ref e) if e.is_query() && e.to_string().contains("cassandra.yaml")), "{res:?}");
+        if driver == "cassandra"
+            && (t.kind == kinds::FUNCTION || t.kind == kinds::MATERIALIZED_VIEW)
+        {
+            assert!(
+                matches!(res, Err(ref e) if e.is_query() && e.to_string().contains("cassandra.yaml")),
+                "{res:?}"
+            );
             continue;
         }
         res.unwrap_or_else(|e| panic!("{}: {e}\n{text}", t.label));
@@ -397,11 +557,33 @@ async fn designer(driver: &str, url: &str) {
     }
 
     // Only DROP.
-    run(&mut s, &d.table_ddl(&t, DdlParts { drop: true, if_exists: true, ..Default::default() }).unwrap(), 10).await;
-    assert!(!s.database_schema().await.unwrap().iter().any(|x| x.name == "Events"));
+    run(
+        &mut s,
+        &d.table_ddl(
+            &t,
+            DdlParts {
+                drop: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+        10,
+    )
+    .await;
+    assert!(!s
+        .database_schema()
+        .await
+        .unwrap()
+        .iter()
+        .any(|x| x.name == "Events"));
     let mut s = open(driver, url, None, false).await;
     s.drop_database("dbine_ddl").await.unwrap();
-    assert!(!s.list_databases().await.unwrap().contains(&"dbine_ddl".to_string()));
+    assert!(!s
+        .list_databases()
+        .await
+        .unwrap()
+        .contains(&"dbine_ddl".to_string()));
 }
 
 #[tokio::test]
@@ -419,12 +601,18 @@ async fn scylladb_designer() {
 }
 
 async fn monitor(driver: &str, url: &str) {
-    let d = dbine_driver_cassandra::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     assert!(d.capabilities().monitor);
     let mut s = open(driver, url, None, false).await;
     let snap = s.monitor().await.expect("monitor");
     for m in &snap.metrics {
-        eprintln!("{:<22} {:?} max={:?} counter={}", m.key, m.value, m.max, m.counter);
+        eprintln!(
+            "{:<22} {:?} max={:?} counter={}",
+            m.key, m.value, m.max, m.counter
+        );
     }
     for t in &snap.tables {
         eprintln!("table {} rows={}", t.key, t.rows.len());
@@ -435,8 +623,14 @@ async fn monitor(driver: &str, url: &str) {
         assert!(has(k), "{driver}: {k}");
     }
     let table = |k: &str| snap.tables.iter().find(|t| t.key == k);
-    assert!(table("sessions").is_some_and(|t| !t.rows.is_empty()), "{driver}: sessions");
-    assert!(table("nodes").is_some_and(|t| !t.rows.is_empty()), "{driver}: nodes");
+    assert!(
+        table("sessions").is_some_and(|t| !t.rows.is_empty()),
+        "{driver}: sessions"
+    );
+    assert!(
+        table("nodes").is_some_and(|t| !t.rows.is_empty()),
+        "{driver}: nodes"
+    );
     if driver == "scylladb" {
         assert!(has("mem_used"));
     } else {
@@ -448,14 +642,18 @@ async fn monitor(driver: &str, url: &str) {
 #[tokio::test]
 #[ignore]
 async fn cassandra_monitor() {
-    let Ok(url) = std::env::var("DBINE_TEST_CASSANDRA_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_CASSANDRA_URL") else {
+        return;
+    };
     monitor("cassandra", &url).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn scylladb_monitor() {
-    let Ok(url) = std::env::var("DBINE_TEST_SCYLLADB_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_SCYLLADB_URL") else {
+        return;
+    };
     monitor("scylladb", &url).await;
 }
 
@@ -465,7 +663,10 @@ async fn scylladb_monitor() {
 /// settings are back as they were at stop).
 async fn profile(driver: &str, url: &str) {
     use std::time::{Duration, Instant};
-    let d = dbine_driver_cassandra::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     assert!(d.supports_profiler());
     let mut w = open(driver, url, None, false).await;
     run(
@@ -478,21 +679,42 @@ async fn profile(driver: &str, url: &str) {
     if driver == "cassandra" {
         // Enough rows for a filtered count to take a while.
         for b in 0..1000 {
-            let rows: String =
-                (0..200).map(|i| format!("INSERT INTO dbine_prof.big (id, v) VALUES ({}, 'value {i}');\n", b * 200 + i)).collect();
-            run(&mut w, &format!("BEGIN UNLOGGED BATCH\n{rows}APPLY BATCH;"), 10).await;
+            let rows: String = (0..200)
+                .map(|i| {
+                    format!(
+                        "INSERT INTO dbine_prof.big (id, v) VALUES ({}, 'value {i}');\n",
+                        b * 200 + i
+                    )
+                })
+                .collect();
+            run(
+                &mut w,
+                &format!("BEGIN UNLOGGED BATCH\n{rows}APPLY BATCH;"),
+                10,
+            )
+            .await;
         }
     }
     let config = "SELECT name, value FROM system.config WHERE name IN ('audit_categories', 'audit_keyspaces')";
-    let before = if driver == "scylladb" { Some(run(&mut w, config, 10).await.results) } else { None };
+    let before = if driver == "scylladb" {
+        Some(run(&mut w, config, 10).await.results)
+    } else {
+        None
+    };
     let mut p = open(driver, url, None, false).await;
-    let opts = dbine_driver::ProfilerOptions { database: "dbine_prof".into(), change_server: true };
+    let opts = dbine_driver::ProfilerOptions {
+        database: "dbine_prof".into(),
+        change_server: true,
+    };
     let started = p.profiler_start(&opts).await.expect("profiler_start");
     eprintln!("{driver}: {started:?}");
     let complete = started.mode == dbine_driver::ProfilerMode::Complete;
     let marker = format!("dbine_prof_{}", std::process::id());
-    let slow = format!("SELECT count(*) FROM dbine_prof.big WHERE v = '{marker}_slow' ALLOW FILTERING");
-    let fast = format!("SELECT * FROM dbine_prof.big WHERE id = 1 AND v = '{marker}_fast' ALLOW FILTERING");
+    let slow =
+        format!("SELECT count(*) FROM dbine_prof.big WHERE v = '{marker}_slow' ALLOW FILTERING");
+    let fast = format!(
+        "SELECT * FROM dbine_prof.big WHERE id = 1 AND v = '{marker}_fast' ALLOW FILTERING"
+    );
     let work = async {
         tokio::time::sleep(Duration::from_millis(300)).await;
         let t = Instant::now();
@@ -519,17 +741,38 @@ async fn profile(driver: &str, url: &str) {
     eprintln!("{driver}: {mine:#?}");
     let slow_seen: Vec<_> = mine.iter().filter(|s| s.text.contains("_slow")).collect();
     assert_eq!(slow_seen.len(), 1, "{driver}: the slow statement once");
-    assert!(slow_seen[0].text.starts_with("SELECT count(*)"), "{}", slow_seen[0].text);
+    assert!(
+        slow_seen[0].text.starts_with("SELECT count(*)"),
+        "{}",
+        slow_seen[0].text
+    );
     if complete {
-        assert_eq!(mine.iter().filter(|s| s.text.contains("_fast")).count(), 1, "{driver}: the fast statement once");
+        assert_eq!(
+            mine.iter().filter(|s| s.text.contains("_fast")).count(),
+            1,
+            "{driver}: the fast statement once"
+        );
         assert_eq!(slow_seen[0].database.as_deref(), Some("dbine_prof"));
     } else {
-        assert!(slow_seen[0].duration_ms.unwrap_or(0.0) >= 50.0, "{driver}: duration {:?}", slow_seen[0].duration_ms);
+        assert!(
+            slow_seen[0].duration_ms.unwrap_or(0.0) >= 50.0,
+            "{driver}: duration {:?}",
+            slow_seen[0].duration_ms
+        );
     }
-    assert!(got.iter().all(|s| !s.text.contains("dbine profiler")), "{driver}: its own statements are left out");
+    assert!(
+        got.iter().all(|s| !s.text.contains("dbine profiler")),
+        "{driver}: its own statements are left out"
+    );
     if let Some(before) = before {
-        let rows = |r: &[dbine_driver::StatementResult]| r.iter().map(|r| r.rows.clone()).collect::<Vec<_>>();
-        assert_eq!(rows(&before), rows(&run(&mut w, config, 10).await.results), "settings restored");
+        let rows = |r: &[dbine_driver::StatementResult]| {
+            r.iter().map(|r| r.rows.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            rows(&before),
+            rows(&run(&mut w, config, 10).await.results),
+            "settings restored"
+        );
     }
     run(&mut w, "DROP KEYSPACE dbine_prof", 10).await;
 }
@@ -537,14 +780,18 @@ async fn profile(driver: &str, url: &str) {
 #[tokio::test]
 #[ignore]
 async fn cassandra_profiler() {
-    let Ok(url) = std::env::var("DBINE_TEST_CASSANDRA_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_CASSANDRA_URL") else {
+        return;
+    };
     profile("cassandra", &url).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn scylladb_profiler() {
-    let Ok(url) = std::env::var("DBINE_TEST_SCYLLADB_URL") else { return };
+    let Ok(url) = std::env::var("DBINE_TEST_SCYLLADB_URL") else {
+        return;
+    };
     profile("scylladb", &url).await;
 }
 
@@ -552,7 +799,10 @@ async fn scylladb_profiler() {
 /// added, dropped, retyped; index swapped; TTL) and the generated script runs.
 async fn schema_sync(driver: &str, url: &str) {
     use dbine_driver::{IndexDef, TableChange};
-    let d = dbine_driver_cassandra::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     assert!(d.supports_schema_sync());
     let mut s = open(driver, url, None, false).await;
     let _ = s.drop_database("dbine_sync").await;
@@ -571,19 +821,43 @@ async fn schema_sync(driver: &str, url: &str) {
     let gone = schema.iter().find(|t| t.name == "gone").unwrap().clone();
     let mut new = old.clone();
     new.columns.retain(|c| c.name != "legacy");
-    new.columns.iter_mut().find(|c| c.name == "age").unwrap().data_type = "bigint".into();
-    new.columns.push(dbine_driver::ColumnDef { name: "Email".into(), data_type: "text".into(), ..Default::default() });
-    new.indexes = vec![IndexDef { name: "users_email".into(), columns: vec!["Email".into()], ..Default::default() }];
-    new.options.insert("default_time_to_live".into(), "3600".into());
+    new.columns
+        .iter_mut()
+        .find(|c| c.name == "age")
+        .unwrap()
+        .data_type = "bigint".into();
+    new.columns.push(dbine_driver::ColumnDef {
+        name: "Email".into(),
+        data_type: "text".into(),
+        ..Default::default()
+    });
+    new.indexes = vec![IndexDef {
+        name: "users_email".into(),
+        columns: vec!["Email".into()],
+        ..Default::default()
+    }];
+    new.options
+        .insert("default_time_to_live".into(), "3600".into());
     let mut created = old.clone();
     created.name = "fresh".into();
     created.indexes.clear();
 
     let script = d
-        .sync_script(&[TableChange::Alter { old, new }, TableChange::Drop { table: gone }, TableChange::Create { table: created }])
+        .sync_script(&[
+            TableChange::Alter { old, new },
+            TableChange::Drop { table: gone },
+            TableChange::Create { table: created },
+        ])
         .unwrap();
     println!("{driver}: {script:#?}");
-    assert!(script.warnings.iter().any(|w| w.contains("age: int → bigint")), "{:?}", script.warnings);
+    assert!(
+        script
+            .warnings
+            .iter()
+            .any(|w| w.contains("age: int → bigint")),
+        "{:?}",
+        script.warnings
+    );
     for st in &script.statements {
         run(&mut s, st, 10).await;
     }
@@ -592,9 +866,25 @@ async fn schema_sync(driver: &str, url: &str) {
     assert!(after.iter().any(|t| t.name == "fresh"));
     let users = after.iter().find(|t| t.name == "users").unwrap();
     let cols: Vec<&str> = users.columns.iter().map(|c| c.name.as_str()).collect();
-    assert!(cols.contains(&"Email") && !cols.contains(&"legacy"), "{cols:?}");
-    assert_eq!(users.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), vec!["users_email"]);
-    assert_eq!(users.options.get("default_time_to_live").map(String::as_str), Some("3600"));
+    assert!(
+        cols.contains(&"Email") && !cols.contains(&"legacy"),
+        "{cols:?}"
+    );
+    assert_eq!(
+        users
+            .indexes
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["users_email"]
+    );
+    assert_eq!(
+        users
+            .options
+            .get("default_time_to_live")
+            .map(String::as_str),
+        Some("3600")
+    );
     s.drop_database("dbine_sync").await.unwrap();
 }
 

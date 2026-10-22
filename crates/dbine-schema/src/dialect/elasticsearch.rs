@@ -44,9 +44,15 @@ pub struct Search {
 }
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
-    static ES: Search = Search { flavor: Flavor::Elastic };
-    static OS: Search = Search { flavor: Flavor::OpenSearch };
-    static OD: Search = Search { flavor: Flavor::OpenDistro };
+    static ES: Search = Search {
+        flavor: Flavor::Elastic,
+    };
+    static OS: Search = Search {
+        flavor: Flavor::OpenSearch,
+    };
+    static OD: Search = Search {
+        flavor: Flavor::OpenDistro,
+    };
     match driver_id {
         "elasticsearch" => Some(&ES),
         "opensearch" => Some(&OS),
@@ -62,29 +68,53 @@ const DATE_FORMAT: &str = "strict_date_optional_time||yyyy-MM-dd HH:mm:ss[.SSSSS
 
 fn field_type(name: &str) -> L {
     match name {
-        "text" | "match_only_text" | "search_as_you_type" | "completion" | "wildcard" | "keyword" | "constant_keyword" | "version" => {
-            L::Text { unicode: true }
-        }
+        "text" | "match_only_text" | "search_as_you_type" | "completion" | "wildcard"
+        | "keyword" | "constant_keyword" | "version" => L::Text { unicode: true },
         "long" => L::int(8),
         "integer" | "token_count" => L::int(4),
         "short" => L::int(2),
         "byte" => L::int(1),
-        "unsigned_long" => L::Int { bytes: 8, unsigned: true },
+        "unsigned_long" => L::Int {
+            bytes: 8,
+            unsigned: true,
+        },
         "double" => L::Float { bytes: 8 },
         "float" | "half_float" | "rank_feature" => L::Float { bytes: 4 },
         // A long divided by the scaling factor: exact at that scale.
-        "scaled_float" => L::Decimal { precision: None, scale: None },
+        "scaled_float" => L::Decimal {
+            precision: None,
+            scale: None,
+        },
         "boolean" => L::Bool,
-        "date" => L::Timestamp { precision: Some(3), tz: true },
-        "date_nanos" => L::Timestamp { precision: Some(9), tz: true },
+        "date" => L::Timestamp {
+            precision: Some(3),
+            tz: true,
+        },
+        "date_nanos" => L::Timestamp {
+            precision: Some(9),
+            tz: true,
+        },
         "ip" => L::Inet,
         "binary" => L::Blob,
-        "geo_point" => L::Geometry { kind: Some("point".into()), srid: Some(4326), geography: true },
-        "geo_shape" => L::Geometry { kind: None, srid: Some(4326), geography: true },
-        "dense_vector" | "knn_vector" => L::Array { of: Box::new(L::Float { bytes: 4 }) },
-        "object" | "nested" | "flattened" | "flat_object" | "sparse_vector" | "rank_features" | "histogram" | "percolator"
-        | "integer_range" | "long_range" | "float_range" | "double_range" | "date_range" | "ip_range" => L::Json { binary: true },
-        _ => L::Other { native: name.to_string() },
+        "geo_point" => L::Geometry {
+            kind: Some("point".into()),
+            srid: Some(4326),
+            geography: true,
+        },
+        "geo_shape" => L::Geometry {
+            kind: None,
+            srid: Some(4326),
+            geography: true,
+        },
+        "dense_vector" | "knn_vector" => L::Array {
+            of: Box::new(L::Float { bytes: 4 }),
+        },
+        "object" | "nested" | "flattened" | "flat_object" | "sparse_vector" | "rank_features"
+        | "histogram" | "percolator" | "integer_range" | "long_range" | "float_range"
+        | "double_range" | "date_range" | "ip_range" => L::Json { binary: true },
+        _ => L::Other {
+            native: name.to_string(),
+        },
     }
 }
 
@@ -105,7 +135,9 @@ impl Dialect for Search {
 
     fn parse_type(&self, t: &TypeSpec) -> L {
         match field_type(&t.name) {
-            L::Other { .. } => L::Other { native: t.raw.clone() },
+            L::Other { .. } => L::Other {
+                native: t.raw.clone(),
+            },
             l => l,
         }
     }
@@ -222,7 +254,10 @@ impl Dialect for Search {
         }
         for c in &mut t.columns {
             let ty = c.data_type.trim().to_string();
-            if let Some(f) = ty.strip_prefix("scaled_float(").and_then(|r| r.strip_suffix(')')) {
+            if let Some(f) = ty
+                .strip_prefix("scaled_float(")
+                .and_then(|r| r.strip_suffix(')'))
+            {
                 c.options.insert("scaling_factor".into(), f.to_string());
                 c.data_type = "scaled_float".into();
             } else if (ty == "date" || ty == "date_nanos") && !c.options.contains_key("format") {
@@ -264,11 +299,35 @@ mod tests {
         assert_eq!(p("integer"), L::int(4));
         assert_eq!(p("short"), L::int(2));
         assert_eq!(p("byte"), L::int(1));
-        assert_eq!(p("unsigned_long"), L::Int { bytes: 8, unsigned: true });
-        assert_eq!(p("scaled_float"), L::Decimal { precision: None, scale: None });
+        assert_eq!(
+            p("unsigned_long"),
+            L::Int {
+                bytes: 8,
+                unsigned: true
+            }
+        );
+        assert_eq!(
+            p("scaled_float"),
+            L::Decimal {
+                precision: None,
+                scale: None
+            }
+        );
         assert_eq!(p("half_float"), L::Float { bytes: 4 });
-        assert_eq!(p("date"), L::Timestamp { precision: Some(3), tz: true });
-        assert_eq!(p("date_nanos"), L::Timestamp { precision: Some(9), tz: true });
+        assert_eq!(
+            p("date"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }
+        );
+        assert_eq!(
+            p("date_nanos"),
+            L::Timestamp {
+                precision: Some(9),
+                tz: true
+            }
+        );
         assert_eq!(p("ip"), L::Inet);
         assert_eq!(p("object"), L::Json { binary: true });
         assert_eq!(p("nested"), L::Json { binary: true });
@@ -283,37 +342,149 @@ mod tests {
         assert_eq!(r(L::Bool), "boolean");
         assert_eq!(r(L::int(2)), "short");
         assert_eq!(r(L::int(16)), "double");
-        assert_eq!(r(L::Int { bytes: 4, unsigned: true }), "long");
-        assert_eq!(r(L::Int { bytes: 8, unsigned: true }), "unsigned_long");
-        assert_eq!(lookup("opendistro").unwrap().render_type(&L::Int { bytes: 8, unsigned: true }).native, "double");
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(2) }), "scaled_float(100)");
-        assert_eq!(r(L::Decimal { precision: Some(12), scale: Some(0) }), "long");
-        assert_eq!(r(L::Decimal { precision: None, scale: None }), "double");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "long"
+        );
+        assert_eq!(
+            r(L::Int {
+                bytes: 8,
+                unsigned: true
+            }),
+            "unsigned_long"
+        );
+        assert_eq!(
+            lookup("opendistro")
+                .unwrap()
+                .render_type(&L::Int {
+                    bytes: 8,
+                    unsigned: true
+                })
+                .native,
+            "double"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(2)
+            }),
+            "scaled_float(100)"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(12),
+                scale: Some(0)
+            }),
+            "long"
+        );
+        assert_eq!(
+            r(L::Decimal {
+                precision: None,
+                scale: None
+            }),
+            "double"
+        );
         assert_eq!(r(L::Float { bytes: 4 }), "float");
         assert_eq!(r(L::Money), "scaled_float(10000)");
-        assert_eq!(r(L::Char { len: Some(2), unicode: true }), "keyword");
-        assert_eq!(r(L::Varchar { len: Some(256), unicode: true }), "keyword");
-        assert_eq!(r(L::Varchar { len: Some(257), unicode: true }), "text");
-        assert_eq!(r(L::Varchar { len: None, unicode: true }), "text");
+        assert_eq!(
+            r(L::Char {
+                len: Some(2),
+                unicode: true
+            }),
+            "keyword"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(256),
+                unicode: true
+            }),
+            "keyword"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(257),
+                unicode: true
+            }),
+            "text"
+        );
+        assert_eq!(
+            r(L::Varchar {
+                len: None,
+                unicode: true
+            }),
+            "text"
+        );
         assert_eq!(r(L::Text { unicode: true }), "text");
         assert_eq!(r(L::Blob), "binary");
         assert_eq!(r(L::Bit { len: None }), "keyword");
         assert_eq!(r(L::Date), "date");
-        assert_eq!(r(L::Time { precision: None, tz: false }), "keyword");
-        assert_eq!(r(L::Timestamp { precision: Some(3), tz: true }), "date");
-        assert_eq!(r(L::Timestamp { precision: Some(6), tz: true }), "date_nanos");
+        assert_eq!(
+            r(L::Time {
+                precision: None,
+                tz: false
+            }),
+            "keyword"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(3),
+                tz: true
+            }),
+            "date"
+        );
+        assert_eq!(
+            r(L::Timestamp {
+                precision: Some(6),
+                tz: true
+            }),
+            "date_nanos"
+        );
         assert_eq!(r(L::Interval), "keyword");
         assert_eq!(r(L::Year), "short");
         assert_eq!(r(L::Uuid), "keyword");
         assert_eq!(r(L::Json { binary: true }), "flattened");
-        assert_eq!(lookup("opensearch").unwrap().render_type(&L::Json { binary: true }).native, "flat_object");
+        assert_eq!(
+            lookup("opensearch")
+                .unwrap()
+                .render_type(&L::Json { binary: true })
+                .native,
+            "flat_object"
+        );
         assert_eq!(r(L::Xml), "text");
         assert_eq!(r(L::Enum { values: vec![] }), "keyword");
         assert_eq!(r(L::Set { values: vec![] }), "keyword");
-        assert_eq!(r(L::Array { of: Box::new(L::int(4)) }), "integer");
-        assert_eq!(r(L::Map { key: Box::new(L::Bool), value: Box::new(L::Bool) }), "flattened");
-        assert_eq!(r(L::Geometry { kind: Some("point".into()), srid: None, geography: false }), "geo_point");
-        assert_eq!(r(L::Geometry { kind: None, srid: None, geography: false }), "geo_shape");
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::int(4))
+            }),
+            "integer"
+        );
+        assert_eq!(
+            r(L::Map {
+                key: Box::new(L::Bool),
+                value: Box::new(L::Bool)
+            }),
+            "flattened"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: Some("point".into()),
+                srid: None,
+                geography: false
+            }),
+            "geo_point"
+        );
+        assert_eq!(
+            r(L::Geometry {
+                kind: None,
+                srid: None,
+                geography: false
+            }),
+            "geo_shape"
+        );
         assert_eq!(r(L::Inet), "ip");
         assert_eq!(r(L::MacAddr), "keyword");
         assert_eq!(r(L::RowVersion), "binary");

@@ -4,7 +4,7 @@
 //! the app's access (Drive › Settings › Manage apps).
 
 use crate::oauth::{authed, TokenSource};
-use crate::provider::{http_error, net_error, HttpOp, CloudStore, ProviderKind, RemoteMeta};
+use crate::provider::{http_error, net_error, CloudStore, HttpOp, ProviderKind, RemoteMeta};
 use crate::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -33,7 +33,11 @@ struct DriveFile {
 impl DriveFile {
     fn meta(&self) -> RemoteMeta {
         RemoteMeta {
-            revision: self.version.clone().or_else(|| self.modified_time.clone()).unwrap_or_default(),
+            revision: self
+                .version
+                .clone()
+                .or_else(|| self.modified_time.clone())
+                .unwrap_or_default(),
             modified: self.modified_time.clone(),
             size: self.size.as_deref().and_then(|s| s.parse().ok()),
         }
@@ -48,7 +52,10 @@ impl GoogleDrive {
     }
 
     pub fn with_api(auth: Arc<TokenSource>, api: &str) -> Self {
-        Self { auth, api: api.trim_end_matches('/').into() }
+        Self {
+            auth,
+            api: api.trim_end_matches('/').into(),
+        }
     }
 
     fn http(&self) -> &reqwest::Client {
@@ -59,10 +66,11 @@ impl GoogleDrive {
         let q = format!("name = '{}' and trashed = false", name.replace('\'', "\\'"));
         let url = format!("{}/drive/v3/files", self.api);
         let resp = authed(&self.auth, |t| {
-            self.http()
-                .get(&url)
-                .bearer_auth(t)
-                .query(&[("spaces", "appDataFolder"), ("q", q.as_str()), ("fields", &format!("files({FIELDS})"))])
+            self.http().get(&url).bearer_auth(t).query(&[
+                ("spaces", "appDataFolder"),
+                ("q", q.as_str()),
+                ("fields", &format!("files({FIELDS})")),
+            ])
         })
         .await?;
         if !resp.status().is_success() {
@@ -85,13 +93,21 @@ impl CloudStore for GoogleDrive {
 
     async fn account(&self) -> Result<String> {
         let url = format!("{}/drive/v3/about", self.api);
-        let resp = authed(&self.auth, |t| self.http().get(&url).bearer_auth(t).query(&[("fields", "user(displayName,emailAddress)")])).await?;
+        let resp = authed(&self.auth, |t| {
+            self.http()
+                .get(&url)
+                .bearer_auth(t)
+                .query(&[("fields", "user(displayName,emailAddress)")])
+        })
+        .await?;
         if !resp.status().is_success() {
             return Err(http_error(KIND, HttpOp::ReadAccount, resp).await);
         }
         let v: serde_json::Value = resp.json().await.map_err(|e| net_error(KIND, e))?;
         let s = |p: &str| v.pointer(p).and_then(|x| x.as_str()).map(str::to_string);
-        Ok(s("/user/emailAddress").or_else(|| s("/user/displayName")).unwrap_or_else(|| "Google Drive".into()))
+        Ok(s("/user/emailAddress")
+            .or_else(|| s("/user/displayName"))
+            .unwrap_or_else(|| "Google Drive".into()))
     }
 
     async fn stat(&self, name: &str) -> Result<Option<RemoteMeta>> {
@@ -99,16 +115,26 @@ impl CloudStore for GoogleDrive {
     }
 
     async fn download(&self, name: &str) -> Result<Option<Vec<u8>>> {
-        let Some(f) = self.find(name).await? else { return Ok(None) };
+        let Some(f) = self.find(name).await? else {
+            return Ok(None);
+        };
         let url = format!("{}/drive/v3/files/{}", self.api, f.id);
-        let resp = authed(&self.auth, |t| self.http().get(&url).bearer_auth(t).query(&[("alt", "media")])).await?;
+        let resp = authed(&self.auth, |t| {
+            self.http()
+                .get(&url)
+                .bearer_auth(t)
+                .query(&[("alt", "media")])
+        })
+        .await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
         if !resp.status().is_success() {
             return Err(http_error(KIND, HttpOp::DownloadBackup, resp).await);
         }
-        Ok(Some(resp.bytes().await.map_err(|e| net_error(KIND, e))?.to_vec()))
+        Ok(Some(
+            resp.bytes().await.map_err(|e| net_error(KIND, e))?.to_vec(),
+        ))
     }
 
     async fn upload(&self, name: &str, bytes: Vec<u8>) -> Result<RemoteMeta> {
@@ -138,7 +164,10 @@ impl CloudStore for GoogleDrive {
                         .post(&url)
                         .bearer_auth(t)
                         .query(&[("uploadType", "multipart"), ("fields", FIELDS)])
-                        .header("Content-Type", format!("multipart/related; boundary={boundary}"))
+                        .header(
+                            "Content-Type",
+                            format!("multipart/related; boundary={boundary}"),
+                        )
                         .body(body.clone())
                 })
                 .await?
@@ -152,7 +181,9 @@ impl CloudStore for GoogleDrive {
     }
 
     async fn delete(&self, name: &str) -> Result<()> {
-        let Some(f) = self.find(name).await? else { return Ok(()) };
+        let Some(f) = self.find(name).await? else {
+            return Ok(());
+        };
         let url = format!("{}/drive/v3/files/{}", self.api, f.id);
         let resp = authed(&self.auth, |t| self.http().delete(&url).bearer_auth(t)).await?;
         if !resp.status().is_success() && resp.status() != reqwest::StatusCode::NOT_FOUND {

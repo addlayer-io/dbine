@@ -9,12 +9,19 @@
 
 use dbine_driver::{ConnectionConfig, Permissions};
 
-const EMULATOR_KEY: &str = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
+const EMULATOR_KEY: &str =
+    "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
 
 fn cfg(read_only: bool) -> Option<ConnectionConfig> {
     let url = std::env::var("DBINE_TEST_COSMOSDB_URL").ok()?;
     let key = std::env::var("DBINE_TEST_COSMOSDB_KEY").unwrap_or_else(|_| EMULATOR_KEY.into());
-    let mut c = ConnectionConfig { driver: "cosmosdb".into(), host: url, trust_server_certificate: true, read_only, ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "cosmosdb".into(),
+        host: url,
+        trust_server_certificate: true,
+        read_only,
+        ..Default::default()
+    };
     c.options.insert("account_key".into(), key);
     Some(c)
 }
@@ -31,7 +38,10 @@ async fn key_and_read_only() {
     let p = s.permissions(None).await.unwrap();
     eprintln!("account key: {p:?}");
     assert_eq!(p, Permissions::default());
-    let mut s = d.connect(&cfg(true).unwrap(), None).await.expect("connect read-only");
+    let mut s = d
+        .connect(&cfg(true).unwrap(), None)
+        .await
+        .expect("connect read-only");
     let p = s.permissions(Some("x")).await.unwrap();
     eprintln!("read-only connection: {p:?}");
     assert_eq!(p, Permissions::default());

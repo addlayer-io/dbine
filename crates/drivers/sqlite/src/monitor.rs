@@ -38,7 +38,10 @@ const SETTINGS: &[(&str, &str)] = &[
     ("application_id", "ID de aplicación"),
     ("foreign_keys", "Claves foráneas activas"),
     ("locking_mode", "Modo de bloqueo"),
-    ("wal_autocheckpoint", "Checkpoint automático del WAL (páginas)"),
+    (
+        "wal_autocheckpoint",
+        "Checkpoint automático del WAL (páginas)",
+    ),
     ("mmap_size", "Memoria mapeada (mmap_size)"),
     ("busy_timeout", "Espera por bloqueos (ms)"),
     ("temp_store", "Almacenamiento temporal"),
@@ -46,7 +49,9 @@ const SETTINGS: &[(&str, &str)] = &[
 
 /// The part every SQLite-compatible engine answers with plain SQL.
 /// `q` runs a statement and returns its rows; failures leave a note.
-pub fn pragma_snapshot<E: std::fmt::Display>(q: &mut dyn FnMut(&str) -> Result<Rows, E>) -> MonitorSnapshot {
+pub fn pragma_snapshot<E: std::fmt::Display>(
+    q: &mut dyn FnMut(&str) -> Result<Rows, E>,
+) -> MonitorSnapshot {
     let mut snap = MonitorSnapshot::default();
     let mut one = |sql: &str, notes: &mut Vec<String>| -> Option<Value> {
         match q(sql) {
@@ -58,28 +63,68 @@ pub fn pragma_snapshot<E: std::fmt::Display>(q: &mut dyn FnMut(&str) -> Result<R
         }
     };
     let mut notes = Vec::new();
-    let page_size = one("PRAGMA page_size", &mut notes).as_ref().and_then(num).unwrap_or(4096.0);
+    let page_size = one("PRAGMA page_size", &mut notes)
+        .as_ref()
+        .and_then(num)
+        .unwrap_or(4096.0);
     let pages = one("PRAGMA page_count", &mut notes).as_ref().and_then(num);
-    let free = one("PRAGMA freelist_count", &mut notes).as_ref().and_then(num);
+    let free = one("PRAGMA freelist_count", &mut notes)
+        .as_ref()
+        .and_then(num);
     let cache = one("PRAGMA cache_size", &mut notes).as_ref().and_then(num);
-    let version = one("SELECT sqlite_version()", &mut notes).as_ref().and_then(text);
+    let version = one("SELECT sqlite_version()", &mut notes)
+        .as_ref()
+        .and_then(text);
     // Negative: KiB; positive: pages.
     let cache_bytes = cache.map(|c| if c < 0.0 { -c * 1024.0 } else { c * page_size });
     let used = pages.map(|p| (p - free.unwrap_or(0.0)) * page_size);
 
     let m = &mut snap.metrics;
-    m.push(Metric::new("storage_used", "Espacio usado por datos", "Almacenamiento", U::Bytes, used).max(pages.map(|p| p * page_size)));
-    m.push(Metric::new("free_space", "Páginas libres (recuperables con VACUUM)", "Almacenamiento", U::Bytes, free.map(|f| f * page_size)));
-    m.push(Metric::new("pages", "Páginas", "Almacenamiento", U::Count, pages));
-    m.push(Metric::new("cache_size", "Tamaño máximo de la caché", "Memoria", U::Bytes, cache_bytes));
+    m.push(
+        Metric::new(
+            "storage_used",
+            "Espacio usado por datos",
+            "Almacenamiento",
+            U::Bytes,
+            used,
+        )
+        .max(pages.map(|p| p * page_size)),
+    );
+    m.push(Metric::new(
+        "free_space",
+        "Páginas libres (recuperables con VACUUM)",
+        "Almacenamiento",
+        U::Bytes,
+        free.map(|f| f * page_size),
+    ));
+    m.push(Metric::new(
+        "pages",
+        "Páginas",
+        "Almacenamiento",
+        U::Count,
+        pages,
+    ));
+    m.push(Metric::new(
+        "cache_size",
+        "Tamaño máximo de la caché",
+        "Memoria",
+        U::Bytes,
+        cache_bytes,
+    ));
 
     if let Some(v) = version {
         snap.info.push(("Versión de SQLite".into(), v));
     }
-    snap.info.push(("Tamaño de página".into(), format!("{page_size} bytes")));
+    snap.info
+        .push(("Tamaño de página".into(), format!("{page_size} bytes")));
     for (pragma, label) in SETTINGS {
         if let Ok(rows) = q(&format!("PRAGMA {pragma}")) {
-            if let Some(v) = rows.into_iter().next().and_then(|r| r.into_iter().next()).and_then(|v| text(&v)) {
+            if let Some(v) = rows
+                .into_iter()
+                .next()
+                .and_then(|r| r.into_iter().next())
+                .and_then(|v| text(&v))
+            {
                 let v = match (*pragma, v.as_str()) {
                     ("synchronous", "0") => "OFF".into(),
                     ("synchronous", "1") => "NORMAL".into(),
@@ -102,15 +147,37 @@ pub fn pragma_snapshot<E: std::fmt::Display>(q: &mut dyn FnMut(&str) -> Result<R
 
     // Attached databases and their sizes.
     if let Ok(list) = q("SELECT name, file FROM pragma_database_list ORDER BY seq") {
-        let mut t = MonitorTable::new("databases", "Bases adjuntas y tamaños", &["Base", "Archivo", "Páginas", "Libres", "Tamaño (MB)"]);
+        let mut t = MonitorTable::new(
+            "databases",
+            "Bases adjuntas y tamaños",
+            &["Base", "Archivo", "Páginas", "Libres", "Tamaño (MB)"],
+        );
         for r in list {
-            let Some(name) = r.first().and_then(text) else { continue };
+            let Some(name) = r.first().and_then(text) else {
+                continue;
+            };
             let quoted = format!("\"{}\"", name.replace('"', "\"\""));
-            let pc = q(&format!("PRAGMA {quoted}.page_count")).ok().and_then(|r| r.into_iter().next()).and_then(|r| r.first().and_then(num));
-            let fc = q(&format!("PRAGMA {quoted}.freelist_count")).ok().and_then(|r| r.into_iter().next()).and_then(|r| r.first().and_then(num));
-            let ps = q(&format!("PRAGMA {quoted}.page_size")).ok().and_then(|r| r.into_iter().next()).and_then(|r| r.first().and_then(num)).unwrap_or(page_size);
+            let pc = q(&format!("PRAGMA {quoted}.page_count"))
+                .ok()
+                .and_then(|r| r.into_iter().next())
+                .and_then(|r| r.first().and_then(num));
+            let fc = q(&format!("PRAGMA {quoted}.freelist_count"))
+                .ok()
+                .and_then(|r| r.into_iter().next())
+                .and_then(|r| r.first().and_then(num));
+            let ps = q(&format!("PRAGMA {quoted}.page_size"))
+                .ok()
+                .and_then(|r| r.into_iter().next())
+                .and_then(|r| r.first().and_then(num))
+                .unwrap_or(page_size);
             let mb = pc.map(|p| ((p * ps / 1_048_576.0) * 100.0).round() / 100.0);
-            t.rows.push(vec![name.into(), r.get(1).cloned().unwrap_or(Value::Null), pc.into(), fc.into(), mb.into()]);
+            t.rows.push(vec![
+                name.into(),
+                r.get(1).cloned().unwrap_or(Value::Null),
+                pc.into(),
+                fc.into(),
+                mb.into(),
+            ]);
         }
         snap.tables.push(t);
     }
@@ -132,9 +199,13 @@ pub fn pragma_snapshot<E: std::fmt::Display>(q: &mut dyn FnMut(&str) -> Result<R
             Err(_) => notes.push("Esta compilación de SQLite no trae la tabla dbstat: no se ve el espacio por tabla.".into()),
         }
     } else if pages.is_some() {
-        notes.push("La base es grande: el espacio por tabla (dbstat) no se calcula en cada lectura.".into());
+        notes.push(
+            "La base es grande: el espacio por tabla (dbstat) no se calcula en cada lectura."
+                .into(),
+        );
     }
-    snap.notes.push("SQLite no es un servidor: no hay CPU, conexiones ni sesiones que informar.".into());
+    snap.notes
+        .push("SQLite no es un servidor: no hay CPU, conexiones ni sesiones que informar.".into());
     snap.notes.extend(notes);
     snap
 }

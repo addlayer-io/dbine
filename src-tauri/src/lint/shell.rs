@@ -48,7 +48,12 @@ fn lines(script: &str) -> Vec<Vec<Arg<'_>>> {
                 }
                 value.push_str(&line[start..i]);
             }
-            args.push(Arg { raw: &line[start..i], value, start: base + start, end: base + i });
+            args.push(Arg {
+                raw: &line[start..i],
+                value,
+                start: base + start,
+                end: base + i,
+            });
         }
         if !args.is_empty() {
             out.push(args);
@@ -64,12 +69,24 @@ pub(super) fn lint_redis(script: &str, out: &mut Vec<Finding>) {
         let name = cmd.value.to_ascii_uppercase();
         let last = args.last().map_or(cmd.end, |a| a.end);
         match name.as_str() {
-            "KEYS" => out.push(Finding::new("keys-command", cmd.start, last).param("pattern", args.get(1).map_or("", |a| a.raw))),
-            "FLUSHALL" | "FLUSHDB" => out.push(Finding::new("flush", cmd.start, last).param("command", name.clone())),
-            "HGETALL" | "SMEMBERS" => out.push(Finding::new("big-read", cmd.start, last).param("command", name.clone())),
+            "KEYS" => out.push(
+                Finding::new("keys-command", cmd.start, last)
+                    .param("pattern", args.get(1).map_or("", |a| a.raw)),
+            ),
+            "FLUSHALL" | "FLUSHDB" => {
+                out.push(Finding::new("flush", cmd.start, last).param("command", name.clone()))
+            }
+            "HGETALL" | "SMEMBERS" => {
+                out.push(Finding::new("big-read", cmd.start, last).param("command", name.clone()))
+            }
             // LRANGE / ZRANGE k 0 -1: the whole list or set.
-            "LRANGE" | "ZRANGE" if args.len() == 4 && args[2].value == "0" && args[3].value == "-1" => {
-                out.push(Finding::new("big-read", cmd.start, last).param("command", format!("{name} … 0 -1")))
+            "LRANGE" | "ZRANGE"
+                if args.len() == 4 && args[2].value == "0" && args[3].value == "-1" =>
+            {
+                out.push(
+                    Finding::new("big-read", cmd.start, last)
+                        .param("command", format!("{name} … 0 -1")),
+                )
             }
             _ => {}
         }
@@ -82,11 +99,19 @@ pub(super) fn lint_etcd(script: &str, out: &mut Vec<Finding>) {
         if cmd != "del" && cmd != "get" {
             continue;
         }
-        let flag = |f: &str| args.iter().any(|a| a.value == f || a.value.starts_with(&format!("{f}=")));
-        let keys: Vec<&Arg> = args[1..].iter().filter(|a| !a.value.starts_with("--")).collect();
+        let flag = |f: &str| {
+            args.iter()
+                .any(|a| a.value == f || a.value.starts_with(&format!("{f}=")))
+        };
+        let keys: Vec<&Arg> = args[1..]
+            .iter()
+            .filter(|a| !a.value.starts_with("--"))
+            .collect();
         let Some(key) = keys.first() else { continue };
         // "" with --prefix, or "" / "\0" with --from-key: every key.
-        let all = (flag("--prefix") && key.value.is_empty()) || (flag("--from-key") && (key.value.is_empty() || key.raw.trim_matches(['"', '\'']) == "\\0"));
+        let all = (flag("--prefix") && key.value.is_empty())
+            || (flag("--from-key")
+                && (key.value.is_empty() || key.raw.trim_matches(['"', '\'']) == "\\0"));
         if !all {
             continue;
         }

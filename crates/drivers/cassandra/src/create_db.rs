@@ -20,7 +20,10 @@ pub(crate) const NTS: &str = "NetworkTopologyStrategy";
 pub(crate) fn fields(f: Flavor) -> Vec<Field> {
     let yes_no = || FieldKind::Select(vec![("true", "Sí"), ("false", "No")]);
     let dcs = |label: &'static str, help: &'static str| {
-        Field::new("datacenters", label, FieldKind::Text).placeholder("dc1:3, dc2:2").help(help).when("class", &["", NTS])
+        Field::new("datacenters", label, FieldKind::Text)
+            .placeholder("dc1:3, dc2:2")
+            .help(help)
+            .when("class", &["", NTS])
     };
     match f {
         Flavor::Cassandra | Flavor::Scylla => {
@@ -72,12 +75,20 @@ pub(crate) fn bad(what: &str, v: &str) -> Error {
 }
 
 pub(crate) fn factor(v: &str, what: &str) -> Result<u32> {
-    v.parse::<u32>().ok().filter(|n| (1..=100).contains(n)).ok_or_else(|| bad(what, v))
+    v.parse::<u32>()
+        .ok()
+        .filter(|n| (1..=100).contains(n))
+        .ok_or_else(|| bad(what, v))
 }
 
 /// A datacenter or region name, as a CQL string literal.
 pub(crate) fn dc_literal(v: &str) -> Result<String> {
-    if v.is_empty() || v.len() > 128 || !v.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ' ')) {
+    if v.is_empty()
+        || v.len() > 128
+        || !v
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ' '))
+    {
         return Err(bad("datacenter", v));
     }
     Ok(format!("'{}'", v.replace('\'', "''")))
@@ -103,9 +114,12 @@ pub(crate) fn script(f: Flavor, name: &str, o: &BTreeMap<String, String>) -> Res
                 // Keyspaces had the generic create so far: keep it.
                 return Ok(format!("CREATE KEYSPACE {ks} WITH replication = {{'class': '{NTS}', 'replication_factor': 1}}"));
             }
-            Some("SingleRegionStrategy") => with.push("replication = {'class': 'SingleRegionStrategy'}".to_string()),
+            Some("SingleRegionStrategy") => {
+                with.push("replication = {'class': 'SingleRegionStrategy'}".to_string())
+            }
             Some(NTS) => {
-                let regions = opt(o, "datacenters").ok_or_else(|| Error::Query("indicá al menos una región".into()))?;
+                let regions = opt(o, "datacenters")
+                    .ok_or_else(|| Error::Query("indicá al menos una región".into()))?;
                 let mut parts = vec![format!("'class': '{NTS}'")];
                 for r in regions.split(',').map(str::trim).filter(|r| !r.is_empty()) {
                     parts.push(format!("{}: 3", dc_literal(r)?));
@@ -117,7 +131,10 @@ pub(crate) fn script(f: Flavor, name: &str, o: &BTreeMap<String, String>) -> Res
         return Ok(format!("CREATE KEYSPACE {ks} WITH {}", with.join(" AND ")));
     }
 
-    let rf = opt(o, "replication_factor").map(|v| factor(v, "factor de replicación")).transpose()?.unwrap_or(1);
+    let rf = opt(o, "replication_factor")
+        .map(|v| factor(v, "factor de replicación"))
+        .transpose()?
+        .unwrap_or(1);
     let class = class.unwrap_or(NTS);
     let replication = match class {
         "SimpleStrategy" => format!("{{'class': 'SimpleStrategy', 'replication_factor': {rf}}}"),
@@ -164,28 +181,56 @@ impl CassandraSession {
     /// and the defaults of a plain create.
     pub(crate) async fn create_database_choices_impl(&mut self) -> Result<Vec<FieldChoices>> {
         let mut dcs = Vec::new();
-        for cql in ["SELECT data_center FROM system.local", "SELECT data_center FROM system.peers"] {
+        for cql in [
+            "SELECT data_center FROM system.local",
+            "SELECT data_center FROM system.peers",
+        ] {
             if let Ok(rows) = self.rows(cql, ()).await {
                 dcs.extend(rows.iter().filter_map(text));
             }
         }
         dcs.sort();
         dcs.dedup();
-        let mut out = vec![FieldChoices { key: "datacenters".into(), default: None, values: dcs }];
+        let mut out = vec![FieldChoices {
+            key: "datacenters".into(),
+            default: None,
+            values: dcs,
+        }];
         if self.flavor != Flavor::Keyspaces {
-            out.push(FieldChoices { key: "class".into(), default: Some(NTS.into()), values: Vec::new() });
-            out.push(FieldChoices { key: "replication_factor".into(), default: Some("1".into()), values: Vec::new() });
-            out.push(FieldChoices { key: "durable_writes".into(), default: Some("true".into()), values: Vec::new() });
+            out.push(FieldChoices {
+                key: "class".into(),
+                default: Some(NTS.into()),
+                values: Vec::new(),
+            });
+            out.push(FieldChoices {
+                key: "replication_factor".into(),
+                default: Some("1".into()),
+                values: Vec::new(),
+            });
+            out.push(FieldChoices {
+                key: "durable_writes".into(),
+                default: Some("true".into()),
+                values: Vec::new(),
+            });
         }
         Ok(out)
     }
 
-    pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn create_database_with_impl(
+        &mut self,
+        name: &str,
+        o: &BTreeMap<String, String>,
+    ) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()));
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se pueden crear bases.".into(),
+            ));
         }
         let cql = script(self.flavor, name, o)?;
-        self.session.query_unpaged(cql, ()).await.map_err(|e| Error::Query(e.to_string()))?;
+        self.session
+            .query_unpaged(cql, ())
+            .await
+            .map_err(|e| Error::Query(e.to_string()))?;
         Ok(())
     }
 }
@@ -195,7 +240,10 @@ mod tests {
     use super::*;
 
     fn o(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -219,9 +267,16 @@ mod tests {
             "CREATE KEYSPACE a WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': 3, 'dc2': 2} AND tablets = {'enabled': false}"
         );
         // Tablets only on ScyllaDB.
-        assert!(!script(Flavor::Cassandra, "a", &o(&[("tablets", "false")])).unwrap().contains("tablets"));
+        assert!(!script(Flavor::Cassandra, "a", &o(&[("tablets", "false")]))
+            .unwrap()
+            .contains("tablets"));
         assert_eq!(
-            script(Flavor::Keyspaces, "a", &o(&[("class", "SingleRegionStrategy")])).unwrap(),
+            script(
+                Flavor::Keyspaces,
+                "a",
+                &o(&[("class", "SingleRegionStrategy")])
+            )
+            .unwrap(),
             "CREATE KEYSPACE a WITH replication = {'class': 'SingleRegionStrategy'}"
         );
         assert_eq!(
@@ -241,10 +296,16 @@ mod tests {
             ("datacenters", " , "),
             ("durable_writes", "maybe"),
         ] {
-            assert!(script(Flavor::Cassandra, "a", &o(&[bad])).is_err(), "{bad:?}");
+            assert!(
+                script(Flavor::Cassandra, "a", &o(&[bad])).is_err(),
+                "{bad:?}"
+            );
         }
         assert!(script(Flavor::Scylla, "a", &o(&[("tablets", "1")])).is_err());
-        assert!(script(Flavor::Keyspaces, "a", &o(&[("class", NTS)])).is_err(), "regions are required");
+        assert!(
+            script(Flavor::Keyspaces, "a", &o(&[("class", NTS)])).is_err(),
+            "regions are required"
+        );
         assert!(script(Flavor::Cassandra, "a-b", &o(&[])).is_err());
     }
 }

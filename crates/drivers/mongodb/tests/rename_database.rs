@@ -20,14 +20,20 @@ const OLD: &str = "dbine_dbr_old";
 const NEW: &str = "dbine_dbr_new";
 
 fn cfg(url: &str, database: &str) -> ConnectionConfig {
-    let mut c = ConnectionConfig { driver: "mongodb".into(), database: database.into(), ..Default::default() };
+    let mut c = ConnectionConfig {
+        driver: "mongodb".into(),
+        database: database.into(),
+        ..Default::default()
+    };
     c.options.insert("connection_string".into(), url.into());
     c
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(text, 100, &mut out).await.unwrap_or_else(|e| panic!("{text}: {e}"));
+    s.execute(text, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"));
     assert!(out.error.is_none(), "{text}: {:?}", out.error);
     out
 }
@@ -43,8 +49,13 @@ async fn databases(s: &mut Box<dyn Session>) -> Vec<String> {
 #[tokio::test]
 #[ignore]
 async fn rename_database_mongodb_live() {
-    let Ok(url) = std::env::var("DBINE_TEST_MONGODB_URL") else { return };
-    let d = dbine_driver_mongodb::drivers().into_iter().find(|d| d.info().id == "mongodb").unwrap();
+    let Ok(url) = std::env::var("DBINE_TEST_MONGODB_URL") else {
+        return;
+    };
+    let d = dbine_driver_mongodb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "mongodb")
+        .unwrap();
     let spec = d.rename_spec().unwrap();
     assert!(spec.databases && spec.database_moves);
     let from = spec.database_from.clone().unwrap();
@@ -70,20 +81,33 @@ db.createView("v_activos", "clientes", [{ $match: { activo: true } }])"#,
     let mut objects = Vec::new();
     for o in s.list_objects().await.unwrap() {
         let definition = if o.kind == kinds::VIEW {
-            let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+            let r = ObjectRef {
+                kind: o.kind.clone(),
+                schema: o.schema.clone(),
+                name: o.name.clone(),
+            };
             Some(s.definition(&r).await.unwrap().expect("view definition"))
         } else {
             assert_eq!(o.kind, kinds::COLLECTION);
             None
         };
-        objects.push(DatabaseObject { kind: o.kind, schema: o.schema, name: o.name, definition });
+        objects.push(DatabaseObject {
+            kind: o.kind,
+            schema: o.schema,
+            name: o.name,
+            definition,
+        });
     }
     assert_eq!(objects.len(), 3, "{objects:?}");
     // The app closes its own sessions on the old database first.
     drop(s);
 
     let script = d.rename_database_script(OLD, NEW, &objects).unwrap();
-    println!("statements:\n{}\nwarnings: {:?}", script.statements.join("\n"), script.warnings);
+    println!(
+        "statements:\n{}\nwarnings: {:?}",
+        script.statements.join("\n"),
+        script.warnings
+    );
     // `schema_sync_run`: each statement on one session opened in `database_from`.
     for st in &script.statements {
         run(&mut admin, st).await;
@@ -95,24 +119,48 @@ db.createView("v_activos", "clientes", [{ $match: { activo: true } }])"#,
     let mut admin = d.connect(&cfg(&url, &from), None).await.expect("connect");
     let names = databases(&mut admin).await;
     assert!(names.iter().any(|n| n == NEW), "{names:?}");
-    assert!(!names.iter().any(|n| n == OLD), "old database still there: {names:?}");
+    assert!(
+        !names.iter().any(|n| n == OLD),
+        "old database still there: {names:?}"
+    );
 
     let mut n = d.connect(&cfg(&url, NEW), None).await.expect("connect");
     assert_eq!(count(&mut n, "db.clientes.find({})").await, 3);
     assert_eq!(count(&mut n, "db.pedidos.find({})").await, 2);
     assert_eq!(count(&mut n, "db.v_activos.find({})").await, 2);
-    let listed: Vec<(String, String)> = n.list_objects().await.unwrap().into_iter().map(|o| (o.kind, o.name)).collect();
-    assert!(listed.contains(&(kinds::VIEW.into(), "v_activos".into())), "{listed:?}");
+    let listed: Vec<(String, String)> = n
+        .list_objects()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|o| (o.kind, o.name))
+        .collect();
+    assert!(
+        listed.contains(&(kinds::VIEW.into(), "v_activos".into())),
+        "{listed:?}"
+    );
     let ix = run(&mut n, "db.clientes.getIndexes()").await;
     let text = serde_json::to_string(&ix.results[0].rows).unwrap();
     // Rows of `v, key, name, unique`.
-    assert!(text.contains(r#""{\"email\":1}","ux_email",true"#), "{text}");
+    assert!(
+        text.contains(r#""{\"email\":1}","ux_email",true"#),
+        "{text}"
+    );
     // Still unique.
     let mut out = QueryOutcome::default();
-    let dup = n.execute(r#"db.clientes.insertOne({ _id: 9, email: "a@x" })"#, 10, &mut out).await;
+    let dup = n
+        .execute(
+            r#"db.clientes.insertOne({ _id: 9, email: "a@x" })"#,
+            10,
+            &mut out,
+        )
+        .await;
     assert!(dup.is_err() || out.error.is_some(), "duplicate accepted");
 
     // Clean up.
     run(&mut n, "db.dropDatabase()").await;
-    assert!(!databases(&mut admin).await.iter().any(|x| x == NEW || x == OLD));
+    assert!(!databases(&mut admin)
+        .await
+        .iter()
+        .any(|x| x == NEW || x == OLD));
 }

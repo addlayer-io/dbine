@@ -29,7 +29,9 @@ fn cfg() -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     out
 }
 
@@ -49,9 +51,16 @@ fn ring() -> String {
 #[ignore]
 async fn geometry_and_geography_come_whole_and_typed() {
     let Some(cfg) = cfg() else { return };
-    let d = dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == "sqlserver").unwrap();
+    let d = dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "sqlserver")
+        .unwrap();
     let mut s = d.connect(&cfg, Some("master")).await.unwrap();
-    run(&mut s, "IF OBJECT_ID('tempdb..#zonas') IS NOT NULL DROP TABLE #zonas").await;
+    run(
+        &mut s,
+        "IF OBJECT_ID('tempdb..#zonas') IS NOT NULL DROP TABLE #zonas",
+    )
+    .await;
     run(&mut s, "CREATE TABLE #zonas (id int, nombre nvarchar(40), lugar geography, zona geometry, area geography, h hierarchyid)").await;
     run(
         &mut s,
@@ -63,10 +72,17 @@ async fn geometry_and_geography_come_whole_and_typed() {
         ),
     )
     .await;
-    let out = run(&mut s, "SELECT id, nombre, lugar, zona, area, h FROM #zonas").await;
+    let out = run(
+        &mut s,
+        "SELECT id, nombre, lugar, zona, area, h FROM #zonas",
+    )
+    .await;
     let r = &out.results[0];
     let types: Vec<&str> = r.columns.iter().map(|c| c.type_name.as_str()).collect();
-    assert_eq!(&types[2..], ["geography", "geometry", "geography", "hierarchyid"]);
+    assert_eq!(
+        &types[2..],
+        ["geography", "geometry", "geography", "hierarchyid"]
+    );
     for (i, name) in [(2, "lugar"), (3, "zona"), (4, "area")] {
         let v = r.rows[0][i].as_str().unwrap();
         println!("SPATIAL sqlserver {name} {v}");

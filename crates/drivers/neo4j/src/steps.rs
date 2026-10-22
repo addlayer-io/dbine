@@ -23,12 +23,27 @@ pub struct Step {
 impl Step {
     /// Statement `index` starts. `own`: `out.current_statement` was `None`
     /// when `execute` began.
-    pub fn start(out: &mut QueryOutcome, own: bool, index: usize, offset: usize, line: u32) -> Self {
+    pub fn start(
+        out: &mut QueryOutcome,
+        own: bool,
+        index: usize,
+        offset: usize,
+        line: u32,
+    ) -> Self {
         if own {
             out.current_statement = Some(index);
         }
         out.adopt_plain_messages();
-        Step { own, index, r0: out.results.len(), l0: out.log.len(), e0: out.errors.len(), offset, line, started: Instant::now() }
+        Step {
+            own,
+            index,
+            r0: out.results.len(),
+            l0: out.log.len(),
+            e0: out.errors.len(),
+            offset,
+            line,
+            started: Instant::now(),
+        }
     }
 
     /// It ended with `r`: [`Self::finish`], then, on an editor run, its
@@ -101,7 +116,10 @@ impl Step {
             other => return other,
         };
         se.offset = Some(self.offset + se.offset.unwrap_or(0));
-        se.line = Some(se.line.map_or(self.line, |l| self.line + l.saturating_sub(1)));
+        se.line = Some(
+            se.line
+                .map_or(self.line, |l| self.line + l.saturating_sub(1)),
+        );
         Error::Statement(Box::new(se))
     }
 }
@@ -118,13 +136,20 @@ pub fn offset_of(text: &str, line: u32, column: u32) -> usize {
         }
     }
     let rest = &text[at..];
-    at + rest.char_indices().nth(column.saturating_sub(1) as usize).map_or(rest.len(), |(i, _)| i)
+    at + rest
+        .char_indices()
+        .nth(column.saturating_sub(1) as usize)
+        .map_or(rest.len(), |(i, _)| i)
 }
 
 /// 1-based line of byte `offset` in `text`.
 #[allow(dead_code)]
 pub fn line_at(text: &str, offset: usize) -> u32 {
-    text.as_bytes()[..offset.min(text.len())].iter().filter(|&&c| c == b'\n').count() as u32 + 1
+    text.as_bytes()[..offset.min(text.len())]
+        .iter()
+        .filter(|&&c| c == b'\n')
+        .count() as u32
+        + 1
 }
 
 #[cfg(test)]
@@ -138,11 +163,19 @@ mod tests {
         out.push_affected(1);
         s.finish(&mut out);
         let r = &out.results[0];
-        assert_eq!((r.statement, r.offset, r.line), (Some(2), Some(10), Some(3)));
+        assert_eq!(
+            (r.statement, r.offset, r.line),
+            (Some(2), Some(10), Some(3))
+        );
         assert!(r.elapsed_ms.is_some());
         let e = s.place(Error::Query("x".into())).to_script_error();
-        assert_eq!((e.offset, e.line, e.message.as_str()), (Some(10), Some(3), "x"));
-        let e = s.place(ScriptError::new("y").at_offset(4).at_line(2).into()).to_script_error();
+        assert_eq!(
+            (e.offset, e.line, e.message.as_str()),
+            (Some(10), Some(3), "x")
+        );
+        let e = s
+            .place(ScriptError::new("y").at_offset(4).at_line(2).into())
+            .to_script_error();
         assert_eq!((e.offset, e.line), (Some(14), Some(4)));
         assert!(matches!(s.place(Error::Cancelled), Error::Cancelled));
         // Inside an app-numbered run nothing is renumbered.
@@ -150,7 +183,10 @@ mod tests {
         let s = Step::start(&mut out, false, 5, 0, 1);
         out.push_affected(1);
         s.finish(&mut out);
-        assert_eq!((out.current_statement, out.results[0].statement), (None, None));
+        assert_eq!(
+            (out.current_statement, out.results[0].statement),
+            (None, None)
+        );
         assert_eq!(offset_of("ab\ncdé f", 2, 4), 7);
         assert_eq!(offset_of("abc", 1, 1), 0);
         assert_eq!(line_at("a\nb\nc", 4), 3);
@@ -169,9 +205,13 @@ mod tests {
         let s2 = seen.clone();
         let mut out = QueryOutcome {
             continue_on_error: Some(true),
-            progress_sink: Some(dbine_driver::ProgressSinkRef(Arc::new(move |e: &StatementEnd| {
-                s2.lock().unwrap().push((e.statement, e.errors.len(), e.results.len()))
-            }))),
+            progress_sink: Some(dbine_driver::ProgressSinkRef(Arc::new(
+                move |e: &StatementEnd| {
+                    s2.lock()
+                        .unwrap()
+                        .push((e.statement, e.errors.len(), e.results.len()))
+                },
+            ))),
             ..Default::default()
         };
         let s = Step::start(&mut out, true, 0, 0, 1);

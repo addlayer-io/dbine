@@ -35,7 +35,9 @@ pub(crate) enum Step {
 
 fn check_name(database: &str) -> Result<()> {
     if database.is_empty() || database.ends_with(' ') || database.contains(['/', '\\', '#', '?']) {
-        return Err(Error::Query(format!("nombre de base inválido: «{database}»")));
+        return Err(Error::Query(format!(
+            "nombre de base inválido: «{database}»"
+        )));
     }
     Ok(())
 }
@@ -44,14 +46,22 @@ fn manual_ru(v: &str) -> Result<u64> {
     v.parse::<u64>()
         .ok()
         .filter(|n| *n >= 400 && n % 100 == 0 && *n <= 1_000_000)
-        .ok_or_else(|| Error::Query(format!("RU/s: «{v}» no es un valor válido (desde 400, de a 100)")))
+        .ok_or_else(|| {
+            Error::Query(format!(
+                "RU/s: «{v}» no es un valor válido (desde 400, de a 100)"
+            ))
+        })
 }
 
 fn autoscale_ru(v: &str) -> Result<u64> {
     v.parse::<u64>()
         .ok()
         .filter(|n| *n >= 1000 && n % 1000 == 0 && *n <= 1_000_000)
-        .ok_or_else(|| Error::Query(format!("RU/s máximas: «{v}» no es un valor válido (desde 1000, de a 1000)")))
+        .ok_or_else(|| {
+            Error::Query(format!(
+                "RU/s máximas: «{v}» no es un valor válido (desde 1000, de a 1000)"
+            ))
+        })
 }
 
 /// The requests for `changes`, in order: the switch of mode first.
@@ -59,14 +69,19 @@ pub(crate) fn steps(database: &str, changes: &BTreeMap<String, String>) -> Resul
     check_name(database)?;
     let get = |k: &str| changes.get(k).map(|v| v.trim()).filter(|v| !v.is_empty());
     for k in changes.keys() {
-        if !matches!(k.as_str(), "throughput_mode" | "throughput" | "autoscale_max") {
+        if !matches!(
+            k.as_str(),
+            "throughput_mode" | "throughput" | "autoscale_max"
+        ) {
             return Err(Error::Query(format!("propiedad desconocida: {k}")));
         }
     }
     let mut out = Vec::new();
     match changes.get("throughput_mode").map(|v| v.trim()) {
         Some("manual") => {
-            out.push(Step::Migrate { to_autoscale: false });
+            out.push(Step::Migrate {
+                to_autoscale: false,
+            });
             if let Some(v) = get("throughput") {
                 out.push(Step::Manual(manual_ru(v)?));
             }
@@ -77,9 +92,17 @@ pub(crate) fn steps(database: &str, changes: &BTreeMap<String, String>) -> Resul
                 out.push(Step::Autoscale(autoscale_ru(v)?));
             }
         }
-        Some(m) => return Err(Error::Query(format!("modo de throughput: «{m}» no es un valor válido"))),
+        Some(m) => {
+            return Err(Error::Query(format!(
+                "modo de throughput: «{m}» no es un valor válido"
+            )))
+        }
         None => match (get("throughput"), get("autoscale_max")) {
-            (Some(_), Some(_)) => return Err(Error::Query("las RU/s son manuales o de autoescalado, no las dos".into())),
+            (Some(_), Some(_)) => {
+                return Err(Error::Query(
+                    "las RU/s son manuales o de autoescalado, no las dos".into(),
+                ))
+            }
             (Some(v), None) => out.push(Step::Manual(manual_ru(v)?)),
             (None, Some(v)) => out.push(Step::Autoscale(autoscale_ru(v)?)),
             (None, None) => {
@@ -98,15 +121,29 @@ fn request_text(database: &str, step: Step) -> String {
     let put = format!("PUT /offers/{{oferta de dbs/{database}}}");
     match step {
         Step::Migrate { to_autoscale } => {
-            format!("{put}\n{}: true\n(la oferta como está)", if to_autoscale { TO_AUTOSCALE } else { TO_MANUAL })
+            format!(
+                "{put}\n{}: true\n(la oferta como está)",
+                if to_autoscale {
+                    TO_AUTOSCALE
+                } else {
+                    TO_MANUAL
+                }
+            )
         }
         Step::Manual(n) => format!("{put}\n{}", json!({ "content": { "offerThroughput": n } })),
-        Step::Autoscale(n) => format!("{put}\n{}", json!({ "content": { "offerAutopilotSettings": { "maxThroughput": n } } })),
+        Step::Autoscale(n) => format!(
+            "{put}\n{}",
+            json!({ "content": { "offerAutopilotSettings": { "maxThroughput": n } } })
+        ),
     }
 }
 
 pub(crate) fn script(database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
-    Ok(steps(database, changes)?.into_iter().map(|s| request_text(database, s)).collect::<Vec<_>>().join("\n\n"))
+    Ok(steps(database, changes)?
+        .into_iter()
+        .map(|s| request_text(database, s))
+        .collect::<Vec<_>>()
+        .join("\n\n"))
 }
 
 /// The offer with `step` applied to its content.
@@ -121,7 +158,10 @@ fn apply(offer: &Value, step: Step) -> Value {
             }
             Step::Autoscale(n) => {
                 content.remove("offerThroughput");
-                content.insert("offerAutopilotSettings".into(), json!({ "maxThroughput": n }));
+                content.insert(
+                    "offerAutopilotSettings".into(),
+                    json!({ "maxThroughput": n }),
+                );
             }
         }
     }
@@ -129,50 +169,99 @@ fn apply(offer: &Value, step: Step) -> Value {
 }
 
 fn autoscale(offer: &Value) -> Option<u64> {
-    offer.pointer("/content/offerAutopilotSettings/maxThroughput").and_then(Value::as_u64)
+    offer
+        .pointer("/content/offerAutopilotSettings/maxThroughput")
+        .and_then(Value::as_u64)
 }
 
 fn fact(group: &str, label: &str, value: String) -> PropertyInfo {
-    PropertyInfo { group: group.into(), label: label.into(), value }
+    PropertyInfo {
+        group: group.into(),
+        label: label.into(),
+        value,
+    }
 }
 
 impl CosmosSession {
     async fn database_resource(&self, database: &str) -> Result<Value> {
         check_name(database)?;
-        Ok(self.call(Method::GET, "dbs", &format!("dbs/{database}"), &format!("/dbs/{}", enc(database)), None, &[]).await?.body)
+        Ok(self
+            .call(
+                Method::GET,
+                "dbs",
+                &format!("dbs/{database}"),
+                &format!("/dbs/{}", enc(database)),
+                None,
+                &[],
+            )
+            .await?
+            .body)
     }
 
     /// Every offer of the account (none on serverless accounts, which
     /// refuse the feed).
     async fn offers(&self) -> Vec<Value> {
-        self.list("/offers", "offers", "", "Offers").await.unwrap_or_default()
+        self.list("/offers", "offers", "", "Offers")
+            .await
+            .unwrap_or_default()
     }
 
     pub(crate) async fn properties(&mut self, database: &str) -> Result<DatabaseProperties> {
         let db = self.database_resource(database).await?;
-        let rid = db.get("_rid").and_then(Value::as_str).unwrap_or_default().to_string();
+        let rid = db
+            .get("_rid")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         let colls = self
-            .list(&format!("/dbs/{}/colls", enc(database)), "colls", &format!("dbs/{database}"), "DocumentCollections")
+            .list(
+                &format!("/dbs/{}/colls", enc(database)),
+                "colls",
+                &format!("dbs/{database}"),
+                "DocumentCollections",
+            )
             .await
             .unwrap_or_default();
         let offers = self.offers().await;
-        let own = offers.iter().find(|o| o.get("offerResourceId").and_then(Value::as_str) == Some(rid.as_str()));
-        let coll_rids: Vec<&str> = colls.iter().filter_map(|c| c.get("_rid")?.as_str()).collect();
+        let own = offers
+            .iter()
+            .find(|o| o.get("offerResourceId").and_then(Value::as_str) == Some(rid.as_str()));
+        let coll_rids: Vec<&str> = colls
+            .iter()
+            .filter_map(|c| c.get("_rid")?.as_str())
+            .collect();
         let dedicated = offers
             .iter()
-            .filter(|o| o.get("offerResourceId").and_then(Value::as_str).is_some_and(|r| coll_rids.contains(&r)))
+            .filter(|o| {
+                o.get("offerResourceId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|r| coll_rids.contains(&r))
+            })
             .count();
 
         let mut info = vec![
-            fact("", "Id", db.get("id").and_then(Value::as_str).unwrap_or(database).to_string()),
+            fact(
+                "",
+                "Id",
+                db.get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or(database)
+                    .to_string(),
+            ),
             fact("", "Identificador interno (_rid)", rid.clone()),
         ];
         if let Some(ts) = db.get("_ts").and_then(Value::as_i64) {
-            let when = chrono::DateTime::from_timestamp(ts, 0).map(|d| d.format("%Y-%m-%d %H:%M:%S UTC").to_string()).unwrap_or_else(|| ts.to_string());
+            let when = chrono::DateTime::from_timestamp(ts, 0)
+                .map(|d| d.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                .unwrap_or_else(|| ts.to_string());
             info.push(fact("", "Última modificación (_ts)", when));
         }
         info.push(fact("", "Contenedores", colls.len().to_string()));
-        info.push(fact("", "Contenedores con throughput propio", dedicated.to_string()));
+        info.push(fact(
+            "",
+            "Contenedores con throughput propio",
+            dedicated.to_string(),
+        ));
 
         let mut p = DatabaseProperties::default();
         let Some(offer) = own else {
@@ -184,18 +273,33 @@ impl CosmosSession {
             p.info = info;
             return Ok(p);
         };
-        info.push(fact(THROUGHPUT, "Throughput de la base", "Compartido por los contenedores que no tienen el suyo".into()));
+        info.push(fact(
+            THROUGHPUT,
+            "Throughput de la base",
+            "Compartido por los contenedores que no tienen el suyo".into(),
+        ));
         if let Some(id) = offer.get("id").and_then(Value::as_str) {
             info.push(fact(THROUGHPUT, "Oferta (offer)", id.to_string()));
         }
-        if let Some(v) = offer.pointer("/content/offerMinimumThroughputParameters/maxThroughputEverProvisioned").and_then(Value::as_u64) {
-            info.push(fact(THROUGHPUT, "Máximo de RU/s alguna vez asignado", v.to_string()));
+        if let Some(v) = offer
+            .pointer("/content/offerMinimumThroughputParameters/maxThroughputEverProvisioned")
+            .and_then(Value::as_u64)
+        {
+            info.push(fact(
+                THROUGHPUT,
+                "Máximo de RU/s alguna vez asignado",
+                v.to_string(),
+            ));
         }
         let (mode, manual, max) = match autoscale(offer) {
             Some(max) => ("autoscale", String::new(), max.to_string()),
             None => (
                 "manual",
-                offer.pointer("/content/offerThroughput").and_then(Value::as_u64).map(|n| n.to_string()).unwrap_or_default(),
+                offer
+                    .pointer("/content/offerThroughput")
+                    .and_then(Value::as_u64)
+                    .map(|n| n.to_string())
+                    .unwrap_or_default(),
                 String::new(),
             ),
         };
@@ -234,14 +338,22 @@ impl CosmosSession {
         Ok(p)
     }
 
-    pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+    pub(crate) async fn alter_database_impl(
+        &mut self,
+        database: &str,
+        changes: &BTreeMap<String, String>,
+    ) -> Result<()> {
         self.check_writable()?;
         let steps = steps(database, changes)?;
         if steps.is_empty() {
             return Ok(());
         }
         let db = self.database_resource(database).await?;
-        let rid = db.get("_rid").and_then(Value::as_str).unwrap_or_default().to_string();
+        let rid = db
+            .get("_rid")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         for (i, step) in steps.iter().enumerate() {
             let r = async {
                 // The offer as it is now (a previous step changed it).
@@ -274,7 +386,11 @@ impl CosmosSession {
                 return Err(if i == 0 {
                     e
                 } else {
-                    Error::Query(format!("se aplicaron {i} de {} cambios; falló: {}\n{e}", steps.len(), request_text(database, *step)))
+                    Error::Query(format!(
+                        "se aplicaron {i} de {} cambios; falló: {}\n{e}",
+                        steps.len(),
+                        request_text(database, *step)
+                    ))
                 });
             }
         }
@@ -287,13 +403,22 @@ mod tests {
     use super::*;
 
     fn c(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn ru_in_the_current_mode() {
-        assert_eq!(steps("v", &c(&[("throughput", "500")])).unwrap(), [Step::Manual(500)]);
-        assert_eq!(steps("v", &c(&[("autoscale_max", "4000")])).unwrap(), [Step::Autoscale(4000)]);
+        assert_eq!(
+            steps("v", &c(&[("throughput", "500")])).unwrap(),
+            [Step::Manual(500)]
+        );
+        assert_eq!(
+            steps("v", &c(&[("autoscale_max", "4000")])).unwrap(),
+            [Step::Autoscale(4000)]
+        );
         assert_eq!(
             script("ventas", &c(&[("throughput", "500")])).unwrap(),
             "PUT /offers/{oferta de dbs/ventas}\n{\"content\":{\"offerThroughput\":500}}"
@@ -304,10 +429,23 @@ mod tests {
     #[test]
     fn switching_mode_goes_first() {
         assert_eq!(
-            steps("v", &c(&[("throughput_mode", "autoscale"), ("autoscale_max", "5000"), ("throughput", "800")])).unwrap(),
+            steps(
+                "v",
+                &c(&[
+                    ("throughput_mode", "autoscale"),
+                    ("autoscale_max", "5000"),
+                    ("throughput", "800")
+                ])
+            )
+            .unwrap(),
             [Step::Migrate { to_autoscale: true }, Step::Autoscale(5000)]
         );
-        assert_eq!(steps("v", &c(&[("throughput_mode", "manual")])).unwrap(), [Step::Migrate { to_autoscale: false }]);
+        assert_eq!(
+            steps("v", &c(&[("throughput_mode", "manual")])).unwrap(),
+            [Step::Migrate {
+                to_autoscale: false
+            }]
+        );
         assert_eq!(
             script("v", &c(&[("throughput_mode", "manual"), ("throughput", "400")])).unwrap(),
             "PUT /offers/{oferta de dbs/v}\nx-ms-cosmos-migrate-offer-to-manual-throughput: true\n(la oferta como está)\n\n\
@@ -319,8 +457,14 @@ mod tests {
     fn content_is_replaced() {
         let offer = json!({ "id": "abcd", "content": { "offerThroughput": 400, "offerIsRUPerMinuteThroughputEnabled": false } });
         let o = apply(&offer, Step::Autoscale(4000));
-        assert_eq!(o["content"], json!({ "offerIsRUPerMinuteThroughputEnabled": false, "offerAutopilotSettings": { "maxThroughput": 4000 } }));
-        assert_eq!(apply(&o, Step::Manual(600))["content"]["offerThroughput"], 600);
+        assert_eq!(
+            o["content"],
+            json!({ "offerIsRUPerMinuteThroughputEnabled": false, "offerAutopilotSettings": { "maxThroughput": 4000 } })
+        );
+        assert_eq!(
+            apply(&o, Step::Manual(600))["content"]["offerThroughput"],
+            600
+        );
         assert_eq!(apply(&offer, Step::Migrate { to_autoscale: true }), offer);
     }
 

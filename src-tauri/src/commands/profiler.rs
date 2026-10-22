@@ -28,21 +28,37 @@ pub struct IdArgs {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn profiler_start(state: State<'_, AppState>, args: StartArgs) -> CommandResult<ProfilerStarted> {
+pub async fn profiler_start(
+    state: State<'_, AppState>,
+    args: StartArgs,
+) -> CommandResult<ProfilerStarted> {
     stop(&state, &args.profiler_id).await;
     let key = key(&args.profiler_id);
     // Server settings switched on by one profiler would be put back by the
     // other's stop while the first still runs: one per connection.
-    let busy = state.sessions.iter().find(|e| e.key().starts_with("profiler:") && e.connection_id == args.connection_id).map(|e| e.database.clone());
+    let busy = state
+        .sessions
+        .iter()
+        .find(|e| e.key().starts_with("profiler:") && e.connection_id == args.connection_id)
+        .map(|e| e.database.clone());
     if let Some(db) = busy {
-        let on = if db.is_empty() { String::new() } else { format!(" (sobre «{db}»)") };
+        let on = if db.is_empty() {
+            String::new()
+        } else {
+            format!(" (sobre «{db}»)")
+        };
         return Err(CommandError::BadRequest(format!(
             "ya hay un profiler capturando en esta conexión{on}: detenelo antes de iniciar otro"
         )));
     }
-    let entry = state.session(&key, &args.connection_id, &args.database).await?;
+    let entry = state
+        .session(&key, &args.connection_id, &args.database)
+        .await?;
     // A read-only connection's session refuses to change server settings.
-    let opts = ProfilerOptions { database: args.database.clone(), change_server: true };
+    let opts = ProfilerOptions {
+        database: args.database.clone(),
+        change_server: true,
+    };
     let started = entry.session.lock().await.profiler_start(&opts).await;
     if started.is_err() {
         state.sessions.remove(&key);
@@ -52,7 +68,10 @@ pub async fn profiler_start(state: State<'_, AppState>, args: StartArgs) -> Comm
 
 /// What arrived since the last poll.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn profiler_poll(state: State<'_, AppState>, args: IdArgs) -> CommandResult<Vec<ProfiledStatement>> {
+pub async fn profiler_poll(
+    state: State<'_, AppState>,
+    args: IdArgs,
+) -> CommandResult<Vec<ProfiledStatement>> {
     let entry = state
         .sessions
         .get(&key(&args.profiler_id))
@@ -79,8 +98,11 @@ async fn stop(state: &AppState, id: &str) {
 /// Stop every running profiler (the app is closing): server settings go
 /// back to how they were.
 pub async fn stop_all(state: &AppState) {
-    let ids: Vec<String> =
-        state.sessions.iter().filter_map(|e| e.key().strip_prefix("profiler:").map(str::to_string)).collect();
+    let ids: Vec<String> = state
+        .sessions
+        .iter()
+        .filter_map(|e| e.key().strip_prefix("profiler:").map(str::to_string))
+        .collect();
     for id in ids {
         stop(state, &id).await;
     }

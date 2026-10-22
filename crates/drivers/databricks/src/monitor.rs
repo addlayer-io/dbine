@@ -54,11 +54,19 @@ fn datetime(secs: u64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0)
 }
 
 /// The warehouse's facts and figures.
@@ -76,19 +84,32 @@ pub(crate) fn warehouse(w: &Json, snap: &mut MonitorSnapshot) {
         }
     }
     if let Some(b) = w.get("enable_serverless_compute").and_then(Json::as_bool) {
-        snap.info.push(("Serverless".into(), if b { "sí" } else { "no" }.into()));
+        snap.info
+            .push(("Serverless".into(), if b { "sí" } else { "no" }.into()));
     }
     if let Some(m) = n(w, "/auto_stop_mins") {
-        snap.info.push(("Detención automática".into(), if m == 0.0 { "nunca".into() } else { format!("{m} min") }));
+        snap.info.push((
+            "Detención automática".into(),
+            if m == 0.0 {
+                "nunca".into()
+            } else {
+                format!("{m} min")
+            },
+        ));
     }
     if let (Some(a), Some(b)) = (n(w, "/min_num_clusters"), n(w, "/max_num_clusters")) {
-        snap.info.push(("Clusters (mín.–máx.)".into(), format!("{a}–{b}")));
+        snap.info
+            .push(("Clusters (mín.–máx.)".into(), format!("{a}–{b}")));
     }
     if !s(w, "/health/status").is_empty() {
         let summary = s(w, "/health/summary");
         snap.info.push((
             "Salud".into(),
-            if summary.is_empty() { s(w, "/health/status").to_string() } else { format!("{} ({summary})", s(w, "/health/status")) },
+            if summary.is_empty() {
+                s(w, "/health/status").to_string()
+            } else {
+                format!("{} ({summary})", s(w, "/health/status"))
+            },
         ));
     }
     let running = s(w, "/state") == "RUNNING";
@@ -102,7 +123,13 @@ pub(crate) fn warehouse(w: &Json, snap: &mut MonitorSnapshot) {
         )
         .max(n(w, "/max_num_clusters")),
     );
-    snap.metrics.push(Metric::new("connections", "Sesiones abiertas", "Conexiones", MetricUnit::Count, n(w, "/num_active_sessions")));
+    snap.metrics.push(Metric::new(
+        "connections",
+        "Sesiones abiertas",
+        "Conexiones",
+        MetricUnit::Count,
+        n(w, "/num_active_sessions"),
+    ));
 }
 
 /// Running / queued queries and the recent ones, from the query history.
@@ -110,22 +137,90 @@ pub(crate) fn history(active: &[Json], recent: &[Json], now: f64, snap: &mut Mon
     let status = |q: &Json| s(q, "/status").to_string();
     let running = active.iter().filter(|q| status(q) == "RUNNING").count();
     let queued = active.iter().filter(|q| status(q) == "QUEUED").count();
-    let done: Vec<&Json> = recent.iter().filter(|q| matches!(status(q).as_str(), "FINISHED" | "FAILED" | "CANCELED")).collect();
+    let done: Vec<&Json> = recent
+        .iter()
+        .filter(|q| matches!(status(q).as_str(), "FINISHED" | "FAILED" | "CANCELED"))
+        .collect();
     let failed = done.iter().filter(|q| status(q) == "FAILED").count();
-    let sum = |ptr: &str| done.iter().filter_map(|q| n(q, ptr)).fold(0.0, |a, b| a + b);
-    let cached = done.iter().filter(|q| q.pointer("/metrics/result_from_cache").and_then(Json::as_bool) == Some(true)).count();
+    let sum = |ptr: &str| {
+        done.iter()
+            .filter_map(|q| n(q, ptr))
+            .fold(0.0, |a, b| a + b)
+    };
+    let cached = done
+        .iter()
+        .filter(|q| {
+            q.pointer("/metrics/result_from_cache")
+                .and_then(Json::as_bool)
+                == Some(true)
+        })
+        .count();
     let avg_ms = (!done.is_empty()).then(|| sum("/duration") / done.len() as f64);
 
     snap.metrics.extend([
-        Metric::new("active_sessions", "Consultas en ejecución", "Actividad", MetricUnit::Count, Some(running as f64)),
-        Metric::new("queued_queries", "Consultas en cola", "Actividad", MetricUnit::Count, Some(queued as f64)),
-        Metric::new("recent_queries", "Consultas terminadas (últimos 15 min)", "Últimos 15 minutos", MetricUnit::Count, Some(done.len() as f64)),
-        Metric::new("recent_failed", "Consultas fallidas (últimos 15 min)", "Últimos 15 minutos", MetricUnit::Count, Some(failed as f64)),
-        Metric::new("avg_duration", "Duración media (últimos 15 min)", "Últimos 15 minutos", MetricUnit::Millis, avg_ms),
-        Metric::new("bytes_read", "Datos leídos (últimos 15 min)", "Últimos 15 minutos", MetricUnit::Bytes, Some(sum("/metrics/read_bytes"))),
-        Metric::new("rows_read", "Filas leídas (últimos 15 min)", "Últimos 15 minutos", MetricUnit::Count, Some(sum("/metrics/rows_read_count"))),
-        Metric::new("task_time", "Tiempo de cómputo (últimos 15 min)", "Últimos 15 minutos", MetricUnit::Millis, Some(sum("/metrics/task_total_time_ms"))),
-        Metric::new("spill", "Derrame a disco (últimos 15 min)", "Últimos 15 minutos", MetricUnit::Bytes, Some(sum("/metrics/spill_to_disk_bytes"))),
+        Metric::new(
+            "active_sessions",
+            "Consultas en ejecución",
+            "Actividad",
+            MetricUnit::Count,
+            Some(running as f64),
+        ),
+        Metric::new(
+            "queued_queries",
+            "Consultas en cola",
+            "Actividad",
+            MetricUnit::Count,
+            Some(queued as f64),
+        ),
+        Metric::new(
+            "recent_queries",
+            "Consultas terminadas (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Count,
+            Some(done.len() as f64),
+        ),
+        Metric::new(
+            "recent_failed",
+            "Consultas fallidas (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Count,
+            Some(failed as f64),
+        ),
+        Metric::new(
+            "avg_duration",
+            "Duración media (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Millis,
+            avg_ms,
+        ),
+        Metric::new(
+            "bytes_read",
+            "Datos leídos (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Bytes,
+            Some(sum("/metrics/read_bytes")),
+        ),
+        Metric::new(
+            "rows_read",
+            "Filas leídas (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Count,
+            Some(sum("/metrics/rows_read_count")),
+        ),
+        Metric::new(
+            "task_time",
+            "Tiempo de cómputo (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Millis,
+            Some(sum("/metrics/task_total_time_ms")),
+        ),
+        Metric::new(
+            "spill",
+            "Derrame a disco (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Bytes,
+            Some(sum("/metrics/spill_to_disk_bytes")),
+        ),
         Metric::new(
             "cache_hit",
             "Resultados desde caché (últimos 15 min)",
@@ -136,7 +231,19 @@ pub(crate) fn history(active: &[Json], recent: &[Json], now: f64, snap: &mut Mon
         .max(Some(100.0)),
     ]);
 
-    let mut t = MonitorTable::new("queries", "Consultas en curso", &["Id", "Usuario", "Estado", "Inicio", "Duración (s)", "Tipo", "Consulta"]);
+    let mut t = MonitorTable::new(
+        "queries",
+        "Consultas en curso",
+        &[
+            "Id",
+            "Usuario",
+            "Estado",
+            "Inicio",
+            "Duración (s)",
+            "Tipo",
+            "Consulta",
+        ],
+    );
     for q in active.iter().take(200) {
         let start = n(q, "/query_start_time_ms");
         t.rows.push(vec![
@@ -154,7 +261,18 @@ pub(crate) fn history(active: &[Json], recent: &[Json], now: f64, snap: &mut Mon
     let mut t = MonitorTable::new(
         "recent_queries",
         "Consultas recientes (últimos 15 min)",
-        &["Id", "Usuario", "Estado", "Fin", "Duración (ms)", "Bytes leídos", "Filas producidas", "Caché", "Error", "Consulta"],
+        &[
+            "Id",
+            "Usuario",
+            "Estado",
+            "Fin",
+            "Duración (ms)",
+            "Bytes leídos",
+            "Filas producidas",
+            "Caché",
+            "Error",
+            "Consulta",
+        ],
     );
     for q in done.iter().take(100) {
         let err = s(q, "/error_message");
@@ -166,8 +284,20 @@ pub(crate) fn history(active: &[Json], recent: &[Json], now: f64, snap: &mut Mon
             opt(n(q, "/duration")),
             opt(n(q, "/metrics/read_bytes")),
             opt(n(q, "/rows_produced").or(n(q, "/metrics/rows_produced_count"))),
-            json!(if q.pointer("/metrics/result_from_cache").and_then(Json::as_bool) == Some(true) { "sí" } else { "no" }),
-            if err.is_empty() { Json::Null } else { json!(truncate(err)) },
+            json!(if q
+                .pointer("/metrics/result_from_cache")
+                .and_then(Json::as_bool)
+                == Some(true)
+            {
+                "sí"
+            } else {
+                "no"
+            }),
+            if err.is_empty() {
+                Json::Null
+            } else {
+                json!(truncate(err))
+            },
             json!(truncate(s(q, "/query_text"))),
         ]);
     }
@@ -183,7 +313,10 @@ impl DatabricksSession {
                 self.warehouse
             ))
             .await?;
-        Ok(r.get("res").and_then(Json::as_array).cloned().unwrap_or_default())
+        Ok(r.get("res")
+            .and_then(Json::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
 
     pub(crate) async fn snapshot(&mut self) -> Result<MonitorSnapshot> {
@@ -195,14 +328,25 @@ impl DatabricksSession {
             )),
         }
         let now = now_ms();
-        let active = self.history_page("&filter_by.statuses=RUNNING&filter_by.statuses=QUEUED").await;
+        let active = self
+            .history_page("&filter_by.statuses=RUNNING&filter_by.statuses=QUEUED")
+            .await;
         let since = (now - RECENT.as_millis() as f64) as u64;
-        let recent = self.history_page(&format!("&filter_by.query_start_time_range.start_time_ms={since}")).await;
+        let recent = self
+            .history_page(&format!(
+                "&filter_by.query_start_time_range.start_time_ms={since}"
+            ))
+            .await;
         match (active, recent) {
             (Ok(a), Ok(r)) => history(&a, &r, now, &mut snap),
             (a, r) => {
-                let e = a.err().or(r.err()).map(|e| e.to_string()).unwrap_or_default();
-                snap.notes.push(format!("No se pudo leer el historial de consultas: {e}"));
+                let e = a
+                    .err()
+                    .or(r.err())
+                    .map(|e| e.to_string())
+                    .unwrap_or_default();
+                snap.notes
+                    .push(format!("No se pudo leer el historial de consultas: {e}"));
             }
         }
         if snap.metrics.is_empty() && snap.tables.is_empty() {
@@ -216,7 +360,10 @@ impl DatabricksSession {
             "El monitor no ejecuta SQL en el warehouse (lo mantendría encendido y consumiría DBU); los tamaños de tablas no se informan."
                 .into(),
         );
-        snap.notes.push("Sin permiso de administrador del workspace, el historial muestra solo tus consultas.".into());
+        snap.notes.push(
+            "Sin permiso de administrador del workspace, el historial muestra solo tus consultas."
+                .into(),
+        );
         Ok(snap)
     }
 }
@@ -234,10 +381,18 @@ mod tests {
                     "health": {"status": "HEALTHY"}}),
             &mut snap,
         );
-        let m = |snap: &MonitorSnapshot, k: &str| snap.metrics.iter().find(|m| m.key == k).map(|m| (m.value, m.max));
+        let m = |snap: &MonitorSnapshot, k: &str| {
+            snap.metrics
+                .iter()
+                .find(|m| m.key == k)
+                .map(|m| (m.value, m.max))
+        };
         assert_eq!(m(&snap, "clusters"), Some((Some(1.0), Some(3.0))));
         assert_eq!(m(&snap, "connections"), Some((Some(4.0), None)));
-        assert!(snap.info.iter().any(|(k, v)| k == "Detención automática" && v == "10 min"));
+        assert!(snap
+            .info
+            .iter()
+            .any(|(k, v)| k == "Detención automática" && v == "10 min"));
         let active = vec![
             json!({"query_id": "a", "status": "RUNNING", "query_start_time_ms": 1_000_000.0, "query_text": "SELECT 1", "user_name": "u"}),
             json!({"query_id": "b", "status": "QUEUED", "query_start_time_ms": 1_005_000.0}),

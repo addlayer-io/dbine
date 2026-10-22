@@ -26,19 +26,39 @@ pub(crate) const SIZES_SQL: &str = "SELECT INDEX_NAME, SUM(INDEX_SIZE) FROM M_RS
 
 pub(crate) async fn report(s: &HanaSession, table: &ObjectRef) -> Result<IndexUsageReport> {
     let tables = crate::schema::read_tables(s, Some(&table.name)).await?;
-    let sizes: HashMap<String, u64> = match s.rows(SIZES_SQL, &[s.schema.as_str(), table.name.as_str()]).await {
-        Ok(rows) => rows.iter().filter_map(|r| Some((r.first().and_then(text)?, u64::try_from(r.get(1).and_then(int)?).ok()?))).collect(),
+    let sizes: HashMap<String, u64> = match s
+        .rows(SIZES_SQL, &[s.schema.as_str(), table.name.as_str()])
+        .await
+    {
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|r| {
+                Some((
+                    r.first().and_then(text)?,
+                    u64::try_from(r.get(1).and_then(int)?).ok()?,
+                ))
+            })
+            .collect(),
         Err(e) => {
             tracing::debug!("hana: M_RS_INDEXES not read: {e}");
             HashMap::new()
         }
     };
-    Ok(assemble(tables.iter().find(|t| t.name == table.name), &sizes))
+    Ok(assemble(
+        tables.iter().find(|t| t.name == table.name),
+        &sizes,
+    ))
 }
 
 /// The primary key first, then the indexes in the schema's order.
 pub(crate) fn assemble(t: Option<&TableSchema>, sizes: &HashMap<String, u64>) -> IndexUsageReport {
-    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() } };
+    let Some(t) = t else {
+        return IndexUsageReport {
+            note: Some(NOTE.into()),
+            writes_counted: false,
+            ..Default::default()
+        };
+    };
     let kb = |name: &str| sizes.get(name).map(|b| b.div_ceil(1024));
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
@@ -62,7 +82,14 @@ pub(crate) fn assemble(t: Option<&TableSchema>, sizes: &HashMap<String, u64>) ->
         size_kb: kb(&ix.name),
         ..Default::default()
     }));
-    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), writes_counted: false, ..Default::default() }.derived()
+    IndexUsageReport {
+        note: Some(NOTE.into()),
+        indexes,
+        foreign_keys: t.foreign_keys.clone(),
+        writes_counted: false,
+        ..Default::default()
+    }
+    .derived()
 }
 
 #[cfg(test)]
@@ -81,27 +108,66 @@ mod tests {
             one_table("SELECT 1 FROM SYS.INDEXES i JOIN c ON c.SCHEMA_NAME = i.SCHEMA_NAME WHERE i.SCHEMA_NAME = ? AND x"),
             "SELECT 1 FROM SYS.INDEXES i JOIN c ON c.SCHEMA_NAME = i.SCHEMA_NAME WHERE i.SCHEMA_NAME = ? AND i.TABLE_NAME = ? AND x"
         );
-        assert_eq!(one_table("SELECT * FROM SYS.FULLTEXT_INDEXES WHERE SCHEMA_NAME = ?"), "SELECT * FROM SYS.FULLTEXT_INDEXES WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?");
+        assert_eq!(
+            one_table("SELECT * FROM SYS.FULLTEXT_INDEXES WHERE SCHEMA_NAME = ?"),
+            "SELECT * FROM SYS.FULLTEXT_INDEXES WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?"
+        );
     }
 
     #[test]
     fn key_indexes_sizes_and_foreign_keys() {
         let t = TableSchema {
             name: "T".into(),
-            primary_key: Some(KeyDef { name: None, columns: vec!["ID".into()] }),
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["ID".into()],
+            }),
             indexes: vec![
-                IndexDef { name: "IX_A".into(), columns: vec!["A".into(), "B".into()], kind: Some("CPBTREE".into()), ..Default::default() },
-                IndexDef { name: "UK_T_1".into(), columns: vec!["C".into()], unique: true, kind: Some("INVERTED VALUE".into()), ..Default::default() },
-                IndexDef { name: "FTI".into(), columns: vec!["D".into()], kind: Some("FULLTEXT".into()), ..Default::default() },
+                IndexDef {
+                    name: "IX_A".into(),
+                    columns: vec!["A".into(), "B".into()],
+                    kind: Some("CPBTREE".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "UK_T_1".into(),
+                    columns: vec!["C".into()],
+                    unique: true,
+                    kind: Some("INVERTED VALUE".into()),
+                    ..Default::default()
+                },
+                IndexDef {
+                    name: "FTI".into(),
+                    columns: vec!["D".into()],
+                    kind: Some("FULLTEXT".into()),
+                    ..Default::default()
+                },
             ],
-            foreign_keys: vec![ForeignKeyDef { columns: vec!["P_ID".into()], ref_table: "P".into(), ref_columns: vec!["ID".into()], ..Default::default() }],
+            foreign_keys: vec![ForeignKeyDef {
+                columns: vec!["P_ID".into()],
+                ref_table: "P".into(),
+                ref_columns: vec!["ID".into()],
+                ..Default::default()
+            }],
             ..Default::default()
         };
         let sizes = HashMap::from([("IX_A".to_string(), 5000u64)]);
         let r = assemble(Some(&t), &sizes);
         assert!(!r.stats_available && r.note.is_some());
-        let got: Vec<(&str, &str, Option<u64>)> = r.indexes.iter().map(|i| (i.name.as_str(), i.kind.as_str(), i.size_kb)).collect();
-        assert_eq!(got, [("PRIMARY KEY", "PRIMARY KEY", None), ("IX_A", "CPBTREE", Some(5)), ("UK_T_1", "INVERTED VALUE", None), ("FTI", "FULLTEXT", None)]);
+        let got: Vec<(&str, &str, Option<u64>)> = r
+            .indexes
+            .iter()
+            .map(|i| (i.name.as_str(), i.kind.as_str(), i.size_kb))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("PRIMARY KEY", "PRIMARY KEY", None),
+                ("IX_A", "CPBTREE", Some(5)),
+                ("UK_T_1", "INVERTED VALUE", None),
+                ("FTI", "FULLTEXT", None)
+            ]
+        );
         assert!(r.indexes[0].primary_key && r.indexes[2].unique);
         assert_eq!(r.foreign_keys, t.foreign_keys);
         assert!(assemble(None, &sizes).indexes.is_empty());

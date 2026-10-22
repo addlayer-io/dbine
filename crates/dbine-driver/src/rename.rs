@@ -11,7 +11,9 @@
 //! rewritten (dynamic SQL), and anything it can't be sure of goes to
 //! [`Rewrite::unresolved`] for the user to look at instead of being guessed.
 
-use crate::dependencies::{eq, match_qualifiers, names_word, DependencyTarget, Qualified, CONSTRAINT, SCHEMA};
+use crate::dependencies::{
+    eq, match_qualifiers, names_word, DependencyTarget, Qualified, CONSTRAINT, SCHEMA,
+};
 use crate::kinds;
 use crate::model::ObjectRef;
 use crate::schema::TableSchema;
@@ -30,9 +32,18 @@ pub enum RenameTarget {
         #[serde(default)]
         parent: Option<String>,
     },
-    Column { table: ObjectRef, column: String },
-    Index { table: ObjectRef, index: String },
-    Constraint { table: ObjectRef, constraint: String },
+    Column {
+        table: ObjectRef,
+        column: String,
+    },
+    Index {
+        table: ObjectRef,
+        index: String,
+    },
+    Constraint {
+        table: ObjectRef,
+        constraint: String,
+    },
     Schema {
         #[serde(default)]
         database: Option<String>,
@@ -67,7 +78,9 @@ impl RenameTarget {
     /// The table of a column, index or constraint.
     pub fn table(&self) -> Option<&ObjectRef> {
         match self {
-            RenameTarget::Column { table, .. } | RenameTarget::Index { table, .. } | RenameTarget::Constraint { table, .. } => Some(table),
+            RenameTarget::Column { table, .. }
+            | RenameTarget::Index { table, .. }
+            | RenameTarget::Constraint { table, .. } => Some(table),
             _ => None,
         }
     }
@@ -76,13 +89,32 @@ impl RenameTarget {
     /// object of its kind (T-SQL `WITH (INDEX(ix))`, `ALTER INDEX` inside a
     /// procedure…), a schema as a qualifier.
     pub fn dependency_target(&self) -> DependencyTarget {
-        let named = |kind: &str, schema: Option<String>, name: &str| ObjectRef { kind: kind.into(), schema, name: name.into() };
+        let named = |kind: &str, schema: Option<String>, name: &str| ObjectRef {
+            kind: kind.into(),
+            schema,
+            name: name.into(),
+        };
         match self {
-            RenameTarget::Object { object, .. } => DependencyTarget { object: object.clone(), column: None },
-            RenameTarget::Column { table, column } => DependencyTarget { object: table.clone(), column: Some(column.clone()) },
-            RenameTarget::Index { table, index } => DependencyTarget { object: named(kinds::INDEX, table.schema.clone(), index), column: None },
-            RenameTarget::Constraint { table, constraint } => DependencyTarget { object: named(CONSTRAINT, table.schema.clone(), constraint), column: None },
-            RenameTarget::Schema { schema, .. } => DependencyTarget { object: named(SCHEMA, None, schema), column: None },
+            RenameTarget::Object { object, .. } => DependencyTarget {
+                object: object.clone(),
+                column: None,
+            },
+            RenameTarget::Column { table, column } => DependencyTarget {
+                object: table.clone(),
+                column: Some(column.clone()),
+            },
+            RenameTarget::Index { table, index } => DependencyTarget {
+                object: named(kinds::INDEX, table.schema.clone(), index),
+                column: None,
+            },
+            RenameTarget::Constraint { table, constraint } => DependencyTarget {
+                object: named(CONSTRAINT, table.schema.clone(), constraint),
+                column: None,
+            },
+            RenameTarget::Schema { schema, .. } => DependencyTarget {
+                object: named(SCHEMA, None, schema),
+                column: None,
+            },
         }
     }
 
@@ -90,8 +122,13 @@ impl RenameTarget {
     pub fn rewrite_target(&self) -> RewriteTarget {
         let t = self.dependency_target();
         match self {
-            RenameTarget::Column { table, column } => RewriteTarget::Column { table: table.clone(), column: column.clone() },
-            RenameTarget::Schema { schema, .. } => RewriteTarget::Schema { schema: schema.clone() },
+            RenameTarget::Column { table, column } => RewriteTarget::Column {
+                table: table.clone(),
+                column: column.clone(),
+            },
+            RenameTarget::Schema { schema, .. } => RewriteTarget::Schema {
+                schema: schema.clone(),
+            },
             _ => RewriteTarget::Object { object: t.object },
         }
     }
@@ -273,7 +310,9 @@ impl Default for RenameSpec {
 impl RenameSpec {
     /// The dependent kinds the engine follows by itself for that target.
     pub fn tracked_for_target(&self, target: &RenameTarget) -> &[String] {
-        self.tracked_for.get(target.spec_key()).unwrap_or(&self.tracked)
+        self.tracked_for
+            .get(target.spec_key())
+            .unwrap_or(&self.tracked)
     }
 
     /// Whether it renames that target.
@@ -289,7 +328,10 @@ impl RenameSpec {
 
     /// How a rewritten dependent of that kind is put back.
     pub fn replace_for(&self, kind: &str) -> ReplaceStyle {
-        self.replace_kinds.get(kind).copied().unwrap_or(self.replace)
+        self.replace_kinds
+            .get(kind)
+            .copied()
+            .unwrap_or(self.replace)
     }
 
     /// [`RenameSpec::epilogue`] for that target.
@@ -312,9 +354,16 @@ impl RenameSpec {
 #[serde(tag = "what", rename_all = "snake_case")]
 pub enum RewriteTarget {
     /// An object (an index or constraint as an object of that kind).
-    Object { object: ObjectRef },
-    Column { table: ObjectRef, column: String },
-    Schema { schema: String },
+    Object {
+        object: ObjectRef,
+    },
+    Column {
+        table: ObjectRef,
+        column: String,
+    },
+    Schema {
+        schema: String,
+    },
 }
 
 /// About the dependent being rewritten.
@@ -383,16 +432,75 @@ pub struct Rewrite {
 
 /// Words a new name can't be written bare as.
 const RESERVED: &[&str] = &[
-    "select", "from", "where", "table", "view", "order", "group", "by", "user", "index", "key", "primary", "foreign", "check", "default",
-    "column", "constraint", "create", "drop", "alter", "insert", "update", "delete", "into", "values", "and", "or", "not", "null", "as",
-    "on", "join", "union", "all", "distinct", "case", "when", "then", "else", "end", "begin", "grant", "to", "with", "having", "limit",
-    "procedure", "function", "trigger", "schema", "database", "in", "is", "like", "between", "exists", "references", "unique", "set",
+    "select",
+    "from",
+    "where",
+    "table",
+    "view",
+    "order",
+    "group",
+    "by",
+    "user",
+    "index",
+    "key",
+    "primary",
+    "foreign",
+    "check",
+    "default",
+    "column",
+    "constraint",
+    "create",
+    "drop",
+    "alter",
+    "insert",
+    "update",
+    "delete",
+    "into",
+    "values",
+    "and",
+    "or",
+    "not",
+    "null",
+    "as",
+    "on",
+    "join",
+    "union",
+    "all",
+    "distinct",
+    "case",
+    "when",
+    "then",
+    "else",
+    "end",
+    "begin",
+    "grant",
+    "to",
+    "with",
+    "having",
+    "limit",
+    "procedure",
+    "function",
+    "trigger",
+    "schema",
+    "database",
+    "in",
+    "is",
+    "like",
+    "between",
+    "exists",
+    "references",
+    "unique",
+    "set",
 ];
 
 /// The new name may be written bare: a plain identifier, not reserved, and
 /// already in the case the engine folds unquoted names to.
 pub fn needs_quotes(name: &str, fold: Fold) -> bool {
-    let plain = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     !plain || RESERVED.contains(&name.to_lowercase().as_str()) || fold.apply(name) != name
 }
 
@@ -437,7 +545,8 @@ impl Tok<'_> {
         match self.quote {
             Some(q) => {
                 let close = if q == b'[' { ']' } else { q as char };
-                self.text.replace(&format!("{close}{close}"), &close.to_string())
+                self.text
+                    .replace(&format!("{close}{close}"), &close.to_string())
             }
             None => self.text.to_string(),
         }
@@ -466,11 +575,20 @@ fn tokens<'a>(body: &'a str, d: &ScriptDialect) -> Vec<Tok<'a>> {
     let mut open: Vec<usize> = Vec::new();
     for t in code_tokens(body, d) {
         let first = body.as_bytes()[t.start];
-        let quote = (t.kind == TokenKind::Name && matches!(first, b'"' | b'[' | b'`')).then_some(first);
+        let quote =
+            (t.kind == TokenKind::Name && matches!(first, b'"' | b'[' | b'`')).then_some(first);
         if t.kind == TokenKind::Punct && t.text == ")" {
             open.pop();
         }
-        out.push(Tok { kind: t.kind, text: t.text, start: t.start, end: t.end, quote, depth: open.len() as u32, opener: open.last().copied() });
+        out.push(Tok {
+            kind: t.kind,
+            text: t.text,
+            start: t.start,
+            end: t.end,
+            quote,
+            depth: open.len() as u32,
+            opener: open.last().copied(),
+        });
         if t.kind == TokenKind::Punct && t.text == "(" {
             open.push(out.len() - 1);
         }
@@ -535,7 +653,10 @@ fn qualifiers(toks: &[Tok<'_>], i: usize) -> Vec<usize> {
 /// How the qualifiers before the name at `i` compare with `schema`
 /// ([`match_qualifiers`]: a schema with dots is several of them).
 fn qualified_as(toks: &[Tok<'_>], i: usize, schema: &str) -> Qualified {
-    let quals: Vec<String> = qualifiers(toks, i).into_iter().map(|q| toks[q].value()).collect();
+    let quals: Vec<String> = qualifiers(toks, i)
+        .into_iter()
+        .map(|q| toks[q].value())
+        .collect();
     match_qualifiers(&quals, schema)
 }
 
@@ -547,13 +668,57 @@ fn dotted_after(toks: &[Tok<'_>], i: usize) -> bool {
 /// and the indexes of the name's first and last parts.
 fn header(toks: &[Tok<'_>]) -> Option<(String, usize, usize)> {
     const KINDS: &[&str] = &[
-        "view", "procedure", "proc", "function", "trigger", "package", "type", "sequence", "synonym", "table", "index", "event", "macro",
-        "dictionary", "stream", "task", "sink", "alias",
+        "view",
+        "procedure",
+        "proc",
+        "function",
+        "trigger",
+        "package",
+        "type",
+        "sequence",
+        "synonym",
+        "table",
+        "index",
+        "event",
+        "macro",
+        "dictionary",
+        "stream",
+        "task",
+        "sink",
+        "alias",
     ];
     const SKIP: &[&str] = &[
-        "or", "replace", "alter", "temp", "temporary", "materialized", "recursive", "editionable", "noneditionable", "force", "noforce",
-        "constraint", "unique", "clustered", "nonclustered", "global", "local", "secure", "transient", "volatile", "external", "aggregate",
-        "public", "body", "if", "not", "exists", "live", "unlogged", "definer", "invoker",
+        "or",
+        "replace",
+        "alter",
+        "temp",
+        "temporary",
+        "materialized",
+        "recursive",
+        "editionable",
+        "noneditionable",
+        "force",
+        "noforce",
+        "constraint",
+        "unique",
+        "clustered",
+        "nonclustered",
+        "global",
+        "local",
+        "secure",
+        "transient",
+        "volatile",
+        "external",
+        "aggregate",
+        "public",
+        "body",
+        "if",
+        "not",
+        "exists",
+        "live",
+        "unlogged",
+        "definer",
+        "invoker",
     ];
     let c = toks.iter().position(|t| t.word("create"))?;
     let mut i = c + 1;
@@ -567,12 +732,20 @@ fn header(toks: &[Tok<'_>]) -> Option<(String, usize, usize)> {
             while toks.get(i).is_some_and(|x| x.punct("@")) {
                 i += 2;
             }
-            if toks.get(i).is_some_and(|x| x.punct("(")) && toks.get(i + 1).is_some_and(|x| x.punct(")")) {
+            if toks.get(i).is_some_and(|x| x.punct("("))
+                && toks.get(i + 1).is_some_and(|x| x.punct(")"))
+            {
                 i += 2;
             }
         } else if t.word("sql") && toks.get(i + 1).is_some_and(|x| x.word("security")) {
             i += 3;
-        } else if t.quote.is_none() && t.any(KINDS) && kind.as_deref().is_none_or(|k| k == "package" || k == "type") && !(kind.is_some() && !t.word("body")) {
+        } else if t.quote.is_none()
+            && t.any(KINDS)
+            && kind
+                .as_deref()
+                .is_none_or(|k| k == "package" || k == "type")
+            && !(kind.is_some() && !t.word("body"))
+        {
             kind = Some(t.text.to_ascii_lowercase());
             i += 1;
         } else if t.quote.is_none() && t.any(SKIP) {
@@ -594,11 +767,21 @@ fn header(toks: &[Tok<'_>]) -> Option<(String, usize, usize)> {
 /// `CREATE …` header) changed to `new_name`, its schema kept: for engines
 /// that rename a routine, view or trigger by creating it again. `None` when
 /// the header can't be read.
-pub fn rename_header(definition: &str, dialect: &ScriptDialect, fold: Fold, new_name: &str) -> Option<String> {
+pub fn rename_header(
+    definition: &str,
+    dialect: &ScriptDialect,
+    fold: Fold,
+    new_name: &str,
+) -> Option<String> {
     let toks = tokens(definition, dialect);
     let (_, _, last) = header(&toks)?;
     let t = &toks[last];
-    Some(format!("{}{}{}", &definition[..t.start], replacement(t, new_name, dialect, fold), &definition[t.end..]))
+    Some(format!(
+        "{}{}{}",
+        &definition[..t.start],
+        replacement(t, new_name, dialect, fold),
+        &definition[t.end..]
+    ))
 }
 
 /// `definition` with its `CREATE [OR REPLACE | OR ALTER]` made the
@@ -610,10 +793,24 @@ pub fn with_create_style(definition: &str, dialect: &ScriptDialect, style: Repla
         ReplaceStyle::CreateOrAlter => "CREATE OR ALTER",
     };
     let toks = tokens(definition, dialect);
-    let Some(c) = toks.iter().position(|t| t.word("create")) else { return definition.to_string() };
-    let end = if toks.get(c + 1).is_some_and(|t| t.word("or")) && toks.get(c + 2).is_some_and(|t| t.any(&["replace", "alter"])) { toks[c + 2].end } else { toks[c].end };
+    let Some(c) = toks.iter().position(|t| t.word("create")) else {
+        return definition.to_string();
+    };
+    let end = if toks.get(c + 1).is_some_and(|t| t.word("or"))
+        && toks
+            .get(c + 2)
+            .is_some_and(|t| t.any(&["replace", "alter"]))
+    {
+        toks[c + 2].end
+    } else {
+        toks[c].end
+    };
     // The engine's own spacing (`CREATE      VIEW`) doesn't pile up.
-    format!("{}{lead} {}", &definition[..toks[c].start], definition[end..].trim_start())
+    format!(
+        "{}{lead} {}",
+        &definition[..toks[c].start],
+        definition[end..].trim_start()
+    )
 }
 
 /// The definition is a view that writes `TO` another table (a ClickHouse
@@ -626,7 +823,9 @@ pub fn writes_to_table(definition: &str, dialect: &ScriptDialect) -> bool {
 /// The definition is a trigger on a table called `table` (any schema).
 pub fn trigger_on(definition: &str, dialect: &ScriptDialect, table: &str) -> bool {
     let toks = tokens(definition, dialect);
-    let Some(("trigger", last)) = header(&toks).as_ref().map(|(k, _, l)| (k.as_str(), *l)) else { return false };
+    let Some(("trigger", last)) = header(&toks).as_ref().map(|(k, _, l)| (k.as_str(), *l)) else {
+        return false;
+    };
     trigger_table(&toks, last).is_some_and(|mut n| {
         while dotted_after(&toks, n) {
             n += 2;
@@ -637,14 +836,24 @@ pub fn trigger_on(definition: &str, dialect: &ScriptDialect, table: &str) -> boo
 
 /// The body names `word` as code (not in a string or a comment).
 pub fn names_in_code(body: &str, dialect: &ScriptDialect, word: &str) -> bool {
-    tokens(body, dialect).iter().any(|t| t.is_name() && eq(&t.value(), word))
+    tokens(body, dialect)
+        .iter()
+        .any(|t| t.is_name() && eq(&t.value(), word))
 }
 
 /// The routine a trigger runs (`EXECUTE FUNCTION | PROCEDURE [s.]f(…)`,
 /// PostgreSQL and its family): its schema, if written, and its name.
-pub fn trigger_routine(definition: &str, dialect: &ScriptDialect) -> Option<(Option<String>, String)> {
+pub fn trigger_routine(
+    definition: &str,
+    dialect: &ScriptDialect,
+) -> Option<(Option<String>, String)> {
     let toks = tokens(definition, dialect);
-    let k = (0..toks.len()).find(|&k| toks[k].word("execute") && toks.get(k + 1).is_some_and(|t| t.any(&["function", "procedure"])))?;
+    let k = (0..toks.len()).find(|&k| {
+        toks[k].word("execute")
+            && toks
+                .get(k + 1)
+                .is_some_and(|t| t.any(&["function", "procedure"]))
+    })?;
     let first = k + 2;
     toks.get(first).filter(|t| t.is_name())?;
     let mut last = first;
@@ -668,7 +877,9 @@ pub fn routine_signatures(definition: &str, name: &str) -> Vec<(&'static str, St
     // An unquoted word (a quoted name's text has no quotes, so it's
     // shorter than what it spans).
     fn word(t: &NameToken<'_>, w: &str) -> bool {
-        t.kind == TokenKind::Name && t.end - t.start == t.text.len() && t.text.eq_ignore_ascii_case(w)
+        t.kind == TokenKind::Name
+            && t.end - t.start == t.text.len()
+            && t.text.eq_ignore_ascii_case(w)
     }
     fn punct(t: &NameToken<'_>, p: &str) -> bool {
         t.kind == TokenKind::Punct && t.text == p
@@ -718,7 +929,12 @@ pub fn routine_signatures(definition: &str, name: &str) -> Vec<(&'static str, St
         args.extend(current);
         let text = args
             .iter()
-            .map(|&(a, b)| body[toks[a].start..toks[b].end].split_whitespace().collect::<Vec<_>>().join(" "))
+            .map(|&(a, b)| {
+                body[toks[a].start..toks[b].end]
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
             .collect::<Vec<_>>()
             .join(", ");
         (text, end)
@@ -733,7 +949,9 @@ pub fn routine_signatures(definition: &str, name: &str) -> Vec<(&'static str, St
             continue;
         }
         let mut j = i + 1;
-        if toks.get(j).is_some_and(|t| word(t, "or")) && toks.get(j + 1).is_some_and(|t| word(t, "replace")) {
+        if toks.get(j).is_some_and(|t| word(t, "or"))
+            && toks.get(j + 1).is_some_and(|t| word(t, "replace"))
+        {
             j += 2;
         }
         let kind = match toks.get(j) {
@@ -747,10 +965,16 @@ pub fn routine_signatures(definition: &str, name: &str) -> Vec<(&'static str, St
         // schema.name, then "(".
         j += 1;
         let mut last = j;
-        while toks.get(last + 1).is_some_and(|t| punct(t, ".")) && toks.get(last + 2).is_some_and(|t| t.kind == TokenKind::Name) {
+        while toks.get(last + 1).is_some_and(|t| punct(t, "."))
+            && toks
+                .get(last + 2)
+                .is_some_and(|t| t.kind == TokenKind::Name)
+        {
             last += 2;
         }
-        let named = toks.get(last).is_some_and(|t| t.kind == TokenKind::Name && ident(t, definition).eq_ignore_ascii_case(name));
+        let named = toks.get(last).is_some_and(|t| {
+            t.kind == TokenKind::Name && ident(t, definition).eq_ignore_ascii_case(name)
+        });
         if !named || !toks.get(last + 1).is_some_and(|t| punct(t, "(")) {
             i = j;
             continue;
@@ -778,15 +1002,36 @@ pub async fn carried_dependents<S: crate::Session + ?Sized>(
     skip: &[ObjectRef],
     scan: &crate::DependencyScan,
 ) -> crate::Result<(Vec<(ObjectRef, String)>, Vec<String>)> {
-    let same = |a: &ObjectRef, b: &ObjectRef| a.kind == b.kind && eq(&a.name, &b.name) && a.schema() == b.schema();
+    let same = |a: &ObjectRef, b: &ObjectRef| {
+        a.kind == b.kind && eq(&a.name, &b.name) && a.schema() == b.schema()
+    };
     let mut out: Vec<(ObjectRef, String)> = Vec::new();
     let mut unreadable = Vec::new();
     let mut queue = std::collections::VecDeque::from([dropped.clone()]);
     while let Some(next) = queue.pop_front() {
-        let report = s.dependents(&DependencyTarget { object: next, column: None }, scan).await?;
-        for d in report.items.into_iter().filter(|d| d.relation == crate::Relation::Code) {
-            let o = ObjectRef { kind: d.kind, schema: d.schema, name: d.name };
-            if same(&o, dropped) || skip.iter().any(|k| same(k, &o)) || out.iter().any(|(k, _)| same(k, &o)) {
+        let report = s
+            .dependents(
+                &DependencyTarget {
+                    object: next,
+                    column: None,
+                },
+                scan,
+            )
+            .await?;
+        for d in report
+            .items
+            .into_iter()
+            .filter(|d| d.relation == crate::Relation::Code)
+        {
+            let o = ObjectRef {
+                kind: d.kind,
+                schema: d.schema,
+                name: d.name,
+            };
+            if same(&o, dropped)
+                || skip.iter().any(|k| same(k, &o))
+                || out.iter().any(|(k, _)| same(k, &o))
+            {
                 continue;
             }
             if out.len() == MAX_CARRIED {
@@ -797,7 +1042,10 @@ pub async fn carried_dependents<S: crate::Session + ?Sized>(
                     queue.push_back(o.clone());
                     out.push((o, def));
                 }
-                _ => unreadable.push(o.schema().map_or_else(|| o.name.clone(), |sc| format!("{sc}.{}", o.name))),
+                _ => unreadable.push(
+                    o.schema()
+                        .map_or_else(|| o.name.clone(), |sc| format!("{sc}.{}", o.name)),
+                ),
             }
         }
     }
@@ -849,22 +1097,39 @@ impl Writer<'_> {
         lines.dedup();
         let before: Vec<&str> = self.body.split('\n').collect();
         let after: Vec<&str> = text.split('\n').collect();
-        let cut = |s: &str| s.trim().chars().take(crate::dependencies::LINE_CHARS).collect::<String>();
+        let cut = |s: &str| {
+            s.trim()
+                .chars()
+                .take(crate::dependencies::LINE_CHARS)
+                .collect::<String>()
+        };
         let edits = lines
             .into_iter()
-            .map(|l| Edit { line: l, before: cut(before.get(l as usize - 1).unwrap_or(&"")), after: cut(after.get(l as usize - 1).unwrap_or(&"")) })
+            .map(|l| Edit {
+                line: l,
+                before: cut(before.get(l as usize - 1).unwrap_or(&"")),
+                after: cut(after.get(l as usize - 1).unwrap_or(&"")),
+            })
             .collect();
         let mut unresolved: Vec<Unresolved> = self
             .unresolved
             .iter()
             .map(|&(at, reason)| {
                 let line = line_of(self.body, at);
-                Unresolved { line, text: cut(before.get(line as usize - 1).unwrap_or(&"")), reason }
+                Unresolved {
+                    line,
+                    text: cut(before.get(line as usize - 1).unwrap_or(&"")),
+                    reason,
+                }
             })
             .collect();
         unresolved.sort_by_key(|u| (u.line, u.reason));
         unresolved.dedup_by(|a, b| a.line == b.line && a.reason == b.reason);
-        Rewrite { text, edits, unresolved }
+        Rewrite {
+            text,
+            edits,
+            unresolved,
+        }
     }
 }
 
@@ -876,7 +1141,9 @@ fn string_body(text: &str) -> &str {
     }
     let tag = text[1..].find('$').map_or(text.len(), |p| p + 2);
     let inner = &text[tag.min(text.len())..];
-    inner.strip_suffix(&text[..tag.min(text.len())]).unwrap_or(inner)
+    inner
+        .strip_suffix(&text[..tag.min(text.len())])
+        .unwrap_or(inner)
 }
 
 fn line_of(body: &str, at: usize) -> u32 {
@@ -896,14 +1163,27 @@ pub fn rewrite_references(
     opts: &RewriteOptions,
 ) -> Rewrite {
     let toks = tokens(body, dialect);
-    let mut w = Writer { body, subs: Vec::new(), unresolved: Vec::new(), kept: who_it_runs_as(&toks) };
+    let mut w = Writer {
+        body,
+        subs: Vec::new(),
+        unresolved: Vec::new(),
+        kept: who_it_runs_as(&toks),
+    };
     match (spec.references, target) {
         (ReferenceStyle::None, _) => {}
-        (ReferenceStyle::Pipeline, RewriteTarget::Object { object }) => pipeline(&mut w, &toks, &object.name, new_name),
+        (ReferenceStyle::Pipeline, RewriteTarget::Object { object }) => {
+            pipeline(&mut w, &toks, &object.name, new_name)
+        }
         (ReferenceStyle::Pipeline, _) => {}
-        (ReferenceStyle::Sql, RewriteTarget::Object { object }) => objects(&mut w, &toks, dialect, spec.fold, object, new_name, opts),
-        (ReferenceStyle::Sql, RewriteTarget::Column { table, column }) => columns(&mut w, &toks, dialect, spec.fold, table, column, new_name, opts),
-        (ReferenceStyle::Sql, RewriteTarget::Schema { schema }) => schemas(&mut w, &toks, dialect, spec.fold, schema, new_name),
+        (ReferenceStyle::Sql, RewriteTarget::Object { object }) => {
+            objects(&mut w, &toks, dialect, spec.fold, object, new_name, opts)
+        }
+        (ReferenceStyle::Sql, RewriteTarget::Column { table, column }) => columns(
+            &mut w, &toks, dialect, spec.fold, table, column, new_name, opts,
+        ),
+        (ReferenceStyle::Sql, RewriteTarget::Schema { schema }) => {
+            schemas(&mut w, &toks, dialect, spec.fold, schema, new_name)
+        }
     }
     w.finish()
 }
@@ -919,7 +1199,10 @@ fn who_it_runs_as(toks: &[Tok<'_>]) -> Vec<(usize, usize)> {
     let word = |i: usize, w: &str| toks.get(i).is_some_and(|t| t.word(w));
     let mut out = Vec::new();
     let mut keep = |from: usize, to: usize| {
-        if let (Some(a), Some(b)) = (toks.get(from), toks.get(to.min(toks.len().saturating_sub(1)))) {
+        if let (Some(a), Some(b)) = (
+            toks.get(from),
+            toks.get(to.min(toks.len().saturating_sub(1))),
+        ) {
             out.push((a.start, b.end.max(a.end)));
         }
     };
@@ -928,21 +1211,45 @@ fn who_it_runs_as(toks: &[Tok<'_>]) -> Vec<(usize, usize)> {
             // user, user@host, CURRENT_USER, CURRENT_USER()
             let at = i + 2;
             let host = toks.get(at + 1).is_some_and(|t| t.punct("@"));
-            let call = toks.get(at + 1).is_some_and(|t| t.punct("(")) && toks.get(at + 2).is_some_and(|t| t.punct(")"));
+            let call = toks.get(at + 1).is_some_and(|t| t.punct("("))
+                && toks.get(at + 2).is_some_and(|t| t.punct(")"));
             keep(at, if host || call { at + 2 } else { at });
-        } else if (word(i, "security") && (word(i + 1, "definer") || word(i + 1, "invoker"))) || word(i, "authid") {
+        } else if (word(i, "security") && (word(i + 1, "definer") || word(i + 1, "invoker")))
+            || word(i, "authid")
+        {
             keep(i + 1, i + 1);
         } else if (word(i, "execute") || word(i, "exec")) && word(i + 1, "as") {
-            keep(i + 2, if word(i + 2, "restricted") { i + 3 } else { i + 2 });
+            keep(
+                i + 2,
+                if word(i + 2, "restricted") {
+                    i + 3
+                } else {
+                    i + 2
+                },
+            );
         }
     }
     out
 }
 
 /// Kinds a `name(` may also be a same-named function for.
-const RELATION_KINDS: &[&str] = &[kinds::TABLE, kinds::VIEW, kinds::MATERIALIZED_VIEW, kinds::COLLECTION, "virtual_table"];
+const RELATION_KINDS: &[&str] = &[
+    kinds::TABLE,
+    kinds::VIEW,
+    kinds::MATERIALIZED_VIEW,
+    kinds::COLLECTION,
+    "virtual_table",
+];
 
-fn objects(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, object: &ObjectRef, new: &str, opts: &RewriteOptions) {
+fn objects(
+    w: &mut Writer<'_>,
+    toks: &[Tok<'_>],
+    d: &ScriptDialect,
+    fold: Fold,
+    object: &ObjectRef,
+    new: &str,
+    opts: &RewriteOptions,
+) {
     let own = header(toks).map(|(_, _, last)| last);
     let relation = RELATION_KINDS.contains(&object.kind.as_str());
     for (i, t) in toks.iter().enumerate() {
@@ -969,12 +1276,21 @@ fn objects(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
                 Qualified::Other => continue,
                 Qualified::Same | Qualified::None => {}
             },
-            (Some(q), None) if opts.database.as_deref().is_some_and(|db| eq(&toks[q].value(), db)) => {}
+            (Some(q), None)
+                if opts
+                    .database
+                    .as_deref()
+                    .is_some_and(|db| eq(&toks[q].value(), db)) => {}
             (Some(_), None) => {
                 w.unsure(t.start, UnresolvedReason::Qualified);
                 continue;
             }
-            (None, Some(s)) if opts.dependent_schema.as_deref().is_some_and(|ds| !ds.is_empty() && !eq(ds, s)) => {
+            (None, Some(s))
+                if opts
+                    .dependent_schema
+                    .as_deref()
+                    .is_some_and(|ds| !ds.is_empty() && !eq(ds, s)) =>
+            {
                 w.unsure(t.start, UnresolvedReason::OtherSchema);
                 continue;
             }
@@ -988,7 +1304,10 @@ fn objects(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
         if first > 0 && toks[first - 1].word("as") {
             continue; // an alias called like it
         }
-        if relation && toks.get(i + 1).is_some_and(|n| n.punct("(")) && !(first > 0 && toks[first - 1].any(&["into", "references", "table", "on"])) {
+        if relation
+            && toks.get(i + 1).is_some_and(|n| n.punct("("))
+            && !(first > 0 && toks[first - 1].any(&["into", "references", "table", "on"]))
+        {
             w.unsure(t.start, UnresolvedReason::MaybeFunction);
             continue;
         }
@@ -996,14 +1315,30 @@ fn objects(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
     }
 }
 
-fn schemas(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, schema: &str, new: &str) {
-    let aliases: Vec<String> = segments(toks).into_iter().flat_map(|(a, b)| relations(toks, a, b)).filter_map(|r| r.alias).collect();
+fn schemas(
+    w: &mut Writer<'_>,
+    toks: &[Tok<'_>],
+    d: &ScriptDialect,
+    fold: Fold,
+    schema: &str,
+    new: &str,
+) {
+    let aliases: Vec<String> = segments(toks)
+        .into_iter()
+        .flat_map(|(a, b)| relations(toks, a, b))
+        .filter_map(|r| r.alias)
+        .collect();
     let aliased = aliases.iter().any(|a| eq(a, schema));
     let dotted = format!("{}.", schema.to_lowercase());
     for (i, t) in toks.iter().enumerate() {
         if t.kind == TokenKind::String {
             let text = t.text.to_lowercase();
-            if text.match_indices(&dotted).any(|(p, _)| !text[..p].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_')) {
+            if text.match_indices(&dotted).any(|(p, _)| {
+                !text[..p]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            }) {
                 w.unsure(t.start, UnresolvedReason::InString);
             }
             continue;
@@ -1034,12 +1369,79 @@ struct Rel {
 
 /// Words that end a relation instead of aliasing it.
 const NOT_ALIAS: &[&str] = &[
-    "where", "join", "inner", "left", "right", "full", "cross", "outer", "on", "set", "group", "order", "having", "union", "except",
-    "intersect", "minus", "limit", "offset", "fetch", "for", "values", "select", "using", "with", "natural", "lateral", "apply", "when",
-    "then", "returning", "window", "qualify", "into", "from", "pivot", "unpivot", "tablesample", "go", "begin", "end", "if", "else",
-    "option", "straight_join", "partition", "and", "or", "not", "use", "ignore", "force", "default", "output", "insert", "update",
-    "delete", "merge", "declare", "return", "while", "exec", "execute", "as", "do", "loop", "after", "before", "instead", "each", "row",
-    "referencing", "execute",
+    "where",
+    "join",
+    "inner",
+    "left",
+    "right",
+    "full",
+    "cross",
+    "outer",
+    "on",
+    "set",
+    "group",
+    "order",
+    "having",
+    "union",
+    "except",
+    "intersect",
+    "minus",
+    "limit",
+    "offset",
+    "fetch",
+    "for",
+    "values",
+    "select",
+    "using",
+    "with",
+    "natural",
+    "lateral",
+    "apply",
+    "when",
+    "then",
+    "returning",
+    "window",
+    "qualify",
+    "into",
+    "from",
+    "pivot",
+    "unpivot",
+    "tablesample",
+    "go",
+    "begin",
+    "end",
+    "if",
+    "else",
+    "option",
+    "straight_join",
+    "partition",
+    "and",
+    "or",
+    "not",
+    "use",
+    "ignore",
+    "force",
+    "default",
+    "output",
+    "insert",
+    "update",
+    "delete",
+    "merge",
+    "declare",
+    "return",
+    "while",
+    "exec",
+    "execute",
+    "as",
+    "do",
+    "loop",
+    "after",
+    "before",
+    "instead",
+    "each",
+    "row",
+    "referencing",
+    "execute",
 ];
 
 /// The statements of a body, as token ranges: split at `;` and at the
@@ -1064,7 +1466,9 @@ fn segments(toks: &[Tok<'_>]) -> Vec<(usize, usize)> {
         let starts = if t.word("select") {
             !prev.any(&["union", "all", "except", "intersect", "minus", "distinct"])
         } else if t.any(&["insert", "update", "delete", "merge"]) {
-            !prev.any(&["then", "for", "on", "or", "of", "after", "before", "instead", "not"]) && !prev.punct(",")
+            !prev.any(&[
+                "then", "for", "on", "or", "of", "after", "before", "instead", "not",
+            ]) && !prev.punct(",")
         } else {
             t.any(&["begin", "declare", "if", "while", "return"]) && !prev.any(&["end", "exists"])
         };
@@ -1087,12 +1491,18 @@ fn relations(toks: &[Tok<'_>], a: usize, b: usize) -> Vec<Rel> {
     let mut k = a;
     while k < b {
         let t = &toks[k];
-        let from = t.word("from") && match t.opener {
-            // In parentheses: a subquery's FROM, not EXTRACT(x FROM y).
-            Some(o) => toks.get(o + 1).is_some_and(|n| n.any(&["select", "with"])),
-            None => true,
-        };
-        let into = t.word("into") && toks[a..k].iter().rev().take(3).any(|p| p.any(&["insert", "merge", "replace"]));
+        let from = t.word("from")
+            && match t.opener {
+                // In parentheses: a subquery's FROM, not EXTRACT(x FROM y).
+                Some(o) => toks.get(o + 1).is_some_and(|n| n.any(&["select", "with"])),
+                None => true,
+            };
+        let into = t.word("into")
+            && toks[a..k]
+                .iter()
+                .rev()
+                .take(3)
+                .any(|p| p.any(&["insert", "merge", "replace"]));
         let on = t.word("on") && trigger && !trigger_on;
         let opens = from || into || on || t.any(&["join", "using"]) || (t.word("update") && k == a);
         if !opens {
@@ -1102,18 +1512,32 @@ fn relations(toks: &[Tok<'_>], a: usize, b: usize) -> Vec<Rel> {
         trigger_on |= on;
         let mut j = k + 1;
         while let Some(n) = toks.get(j).filter(|_| j < b) {
-            let mut rel = Rel { name: None, alias: None, alias_at: None, columns: None };
+            let mut rel = Rel {
+                name: None,
+                alias: None,
+                alias_at: None,
+                columns: None,
+            };
             if n.punct("(") {
                 if t.word("using") {
                     break; // JOIN … USING (col)
                 }
                 // A subquery: skip to its `)`.
-                j = (j + 1..b).find(|&m| toks[m].punct(")") && toks[m].opener.is_none_or(|o| o < j) && toks[m].depth == n.depth).map_or(b, |m| m + 1);
+                j = (j + 1..b)
+                    .find(|&m| {
+                        toks[m].punct(")")
+                            && toks[m].opener.is_none_or(|o| o < j)
+                            && toks[m].depth == n.depth
+                    })
+                    .map_or(b, |m| m + 1);
             } else if let Some(last) = table_call(toks, j).filter(|_| !into) {
                 // `table(s)` (Proton): the stream read as a table.
                 rel.name = Some(last);
                 j = last + 2;
-            } else if n.is_name() && !n.text.as_bytes().first().is_none_or(|b| b.is_ascii_digit()) && !(n.quote.is_none() && n.any(NOT_ALIAS) && !dotted_after(toks, j)) {
+            } else if n.is_name()
+                && !n.text.as_bytes().first().is_none_or(|b| b.is_ascii_digit())
+                && !(n.quote.is_none() && n.any(NOT_ALIAS) && !dotted_after(toks, j))
+            {
                 // A keyword before a dot is a qualifier (`default.t`).
                 let mut last = j;
                 while dotted_after(toks, last) {
@@ -1122,7 +1546,9 @@ fn relations(toks: &[Tok<'_>], a: usize, b: usize) -> Vec<Rel> {
                 j = last + 1;
                 if toks.get(j).is_some_and(|x| x.punct("(")) && !into {
                     // A table function: its columns are its own.
-                    j = (j + 1..b).find(|&m| toks[m].punct(")") && toks[m].depth == toks[last].depth).map_or(b, |m| m + 1);
+                    j = (j + 1..b)
+                        .find(|&m| toks[m].punct(")") && toks[m].depth == toks[last].depth)
+                        .map_or(b, |m| m + 1);
                 } else {
                     rel.name = Some(last);
                 }
@@ -1134,7 +1560,10 @@ fn relations(toks: &[Tok<'_>], a: usize, b: usize) -> Vec<Rel> {
             if toks.get(x).is_some_and(|y| y.word("as")) && x < b {
                 x += 1;
             }
-            if let Some(y) = toks.get(x).filter(|y| x < b && y.is_name() && !(y.quote.is_none() && y.any(NOT_ALIAS))) {
+            if let Some(y) = toks
+                .get(x)
+                .filter(|y| x < b && y.is_name() && !(y.quote.is_none() && y.any(NOT_ALIAS)))
+            {
                 rel.alias = Some(y.value());
                 rel.alias_at = Some(x);
                 j = x + 1;
@@ -1156,14 +1585,19 @@ fn relations(toks: &[Tok<'_>], a: usize, b: usize) -> Vec<Rel> {
 
 /// `table(name)` at `j`: the last part of the name.
 fn table_call(toks: &[Tok<'_>], j: usize) -> Option<usize> {
-    if !(toks[j].word("table") && toks.get(j + 1).is_some_and(|t| t.punct("(")) && toks.get(j + 2).is_some_and(|t| t.is_name())) {
+    if !(toks[j].word("table")
+        && toks.get(j + 1).is_some_and(|t| t.punct("("))
+        && toks.get(j + 2).is_some_and(|t| t.is_name()))
+    {
         return None;
     }
     let mut last = j + 2;
     while dotted_after(toks, last) {
         last += 2;
     }
-    toks.get(last + 1).is_some_and(|t| t.punct(")")).then_some(last)
+    toks.get(last + 1)
+        .is_some_and(|t| t.punct(")"))
+        .then_some(last)
 }
 
 /// The table of a trigger whose name ends at `last`: after `ON` (most
@@ -1178,7 +1612,11 @@ fn trigger_table(toks: &[Tok<'_>], last: usize) -> Option<usize> {
         if t.any(&["as", "begin", "declare", "is", "set", "execute", "call"]) {
             return None;
         }
-        let on = t.word("on") || (t.word("for") && !toks.get(k + 1).is_some_and(|n| n.any(&["each", "row", "statement"])));
+        let on = t.word("on")
+            || (t.word("for")
+                && !toks
+                    .get(k + 1)
+                    .is_some_and(|n| n.any(&["each", "row", "statement"])));
         if on && toks.get(k + 1).is_some_and(|n| n.is_name()) {
             return Some(k + 1);
         }
@@ -1189,9 +1627,16 @@ fn trigger_table(toks: &[Tok<'_>], last: usize) -> Option<usize> {
 /// `REFERENCING NEW [ROW] AS n OLD AS o` (Oracle, Db2…): the row aliases.
 fn row_aliases(toks: &[Tok<'_>], last: usize) -> Vec<String> {
     let mut out = Vec::new();
-    let Some(r) = (last + 1..toks.len()).find(|&k| toks[k].depth == 0 && toks[k].word("referencing")) else { return out };
+    let Some(r) =
+        (last + 1..toks.len()).find(|&k| toks[k].depth == 0 && toks[k].word("referencing"))
+    else {
+        return out;
+    };
     let mut k = r + 1;
-    while toks.get(k).is_some_and(|t| t.any(&["new", "old", "new_table", "old_table", "parent"])) {
+    while toks
+        .get(k)
+        .is_some_and(|t| t.any(&["new", "old", "new_table", "old_table", "parent"]))
+    {
         k += 1;
         if toks.get(k).is_some_and(|t| t.any(&["row", "table"])) {
             k += 1;
@@ -1212,41 +1657,90 @@ fn row_aliases(toks: &[Tok<'_>], last: usize) -> Vec<String> {
 const ROW_TABLES: &[&str] = &["inserted", "deleted", "new", "old"];
 
 #[allow(clippy::too_many_arguments)]
-fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, table: &ObjectRef, column: &str, new: &str, opts: &RewriteOptions) {
+fn columns(
+    w: &mut Writer<'_>,
+    toks: &[Tok<'_>],
+    d: &ScriptDialect,
+    fold: Fold,
+    table: &ObjectRef,
+    column: &str,
+    new: &str,
+    opts: &RewriteOptions,
+) {
     let names_table = |idx: usize| {
         hit(&toks[idx], &table.name, d, fold) != Hit::No
-            && table.schema().is_none_or(|s| matches!(qualified_as(toks, idx, s), Qualified::Same | Qualified::None))
+            && table.schema().is_none_or(|s| {
+                matches!(
+                    qualified_as(toks, idx, s),
+                    Qualified::Same | Qualified::None
+                )
+            })
     };
     // A trigger on the table (or a routine one runs): NEW / OLD /
     // inserted / deleted, and the names REFERENCING gives them, are its rows.
     let head = header(toks);
-    let trigger = head.as_ref().filter(|(kind, _, _)| kind == "trigger").map(|(_, _, last)| *last);
+    let trigger = head
+        .as_ref()
+        .filter(|(kind, _, _)| kind == "trigger")
+        .map(|(_, _, last)| *last);
     let on_table = opts.row_table
-        || trigger.and_then(|last| trigger_table(toks, last)).is_some_and(|mut n| {
-            while dotted_after(toks, n) {
-                n += 2;
-            }
-            names_table(n)
-        });
-    let aliases = trigger.map(|last| row_aliases(toks, last)).unwrap_or_default();
-    let is_row = |t: &Tok<'_>| t.quote.is_none() && (t.any(ROW_TABLES) || aliases.iter().any(|a| eq(a, t.text)));
+        || trigger
+            .and_then(|last| trigger_table(toks, last))
+            .is_some_and(|mut n| {
+                while dotted_after(toks, n) {
+                    n += 2;
+                }
+                names_table(n)
+            });
+    let aliases = trigger
+        .map(|last| row_aliases(toks, last))
+        .unwrap_or_default();
+    let is_row = |t: &Tok<'_>| {
+        t.quote.is_none() && (t.any(ROW_TABLES) || aliases.iter().any(|a| eq(a, t.text)))
+    };
     let own = head.as_ref().map(|(_, _, last)| *last);
-    let view_list = if opts.keep_view_columns { view_select_list(toks, head.as_ref()) } else { None };
+    let view_list = if opts.keep_view_columns {
+        view_select_list(toks, head.as_ref())
+    } else {
+        None
+    };
     for (a, b) in segments(toks) {
         let rels = relations(toks, a, b);
         // `UPDATE c … FROM Clientes c`: `c` is the alias, not another table.
         let rels: Vec<&Rel> = rels
             .iter()
-            .filter(|r| !(r.name.is_some_and(|n| qualifier(toks, n).is_none() && rels.iter().any(|o| o.alias.as_deref().is_some_and(|al| eq(al, &toks[n].value()))))))
+            .filter(|r| {
+                !(r.name.is_some_and(|n| {
+                    qualifier(toks, n).is_none()
+                        && rels.iter().any(|o| {
+                            o.alias
+                                .as_deref()
+                                .is_some_and(|al| eq(al, &toks[n].value()))
+                        })
+                }))
+            })
             .collect();
-        let is_target = |r: &Rel| r.name.is_some_and(|n| names_table(n) || (on_table && is_row(&toks[n])));
+        let is_target = |r: &Rel| {
+            r.name
+                .is_some_and(|n| names_table(n) || (on_table && is_row(&toks[n])))
+        };
         let targets = rels.iter().filter(|r| is_target(r)).count();
-        let skip: Vec<usize> = rels.iter().flat_map(|r| r.name.into_iter().chain(r.alias_at)).collect();
-        let column_lists: Vec<usize> = rels.iter().filter(|r| is_target(r)).filter_map(|r| r.columns).collect();
+        let skip: Vec<usize> = rels
+            .iter()
+            .flat_map(|r| r.name.into_iter().chain(r.alias_at))
+            .collect();
+        let column_lists: Vec<usize> = rels
+            .iter()
+            .filter(|r| is_target(r))
+            .filter_map(|r| r.columns)
+            .collect();
         // The qualifier `q` names the table (or one of its rows).
         let resolves = |q: usize| -> Option<bool> {
             let v = toks[q].value();
-            if let Some(r) = rels.iter().find(|r| r.alias.as_deref().is_some_and(|al| eq(al, &v))) {
+            if let Some(r) = rels
+                .iter()
+                .find(|r| r.alias.as_deref().is_some_and(|al| eq(al, &v)))
+            {
                 return Some(is_target(r));
             }
             if on_table && is_row(&toks[q]) {
@@ -1255,7 +1749,9 @@ fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
             if names_table(q) {
                 return Some(true);
             }
-            rels.iter().find(|r| r.name.is_some_and(|n| eq(&toks[n].value(), &v))).map(|r| is_target(r))
+            rels.iter()
+                .find(|r| r.name.is_some_and(|n| eq(&toks[n].value(), &v)))
+                .map(|r| is_target(r))
         };
         let mut strings = false;
         for i in a..b {
@@ -1268,7 +1764,10 @@ fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
                 continue;
             }
             let h = hit(t, column, d, fold);
-            if h == Hit::No || dotted_after(toks, i) || toks.get(i + 1).is_some_and(|n| n.punct("(")) {
+            if h == Hit::No
+                || dotted_after(toks, i)
+                || toks.get(i + 1).is_some_and(|n| n.punct("("))
+            {
                 continue;
             }
             let first = qualifier(toks, i).unwrap_or(i);
@@ -1296,7 +1795,10 @@ fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
                 continue;
             }
             let mut repl = replacement(t, new, d, fold);
-            if view_list.as_ref().is_some_and(|items| items.iter().any(|&(s, e)| first == s && i + 1 == e)) {
+            if view_list
+                .as_ref()
+                .is_some_and(|items| items.iter().any(|&(s, e)| first == s && i + 1 == e))
+            {
                 // The view's output column keeps its name.
                 repl = format!("{repl} AS {}", &w.body[t.start..t.end]);
             }
@@ -1318,15 +1820,21 @@ fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
 /// output names come from the list, by position. A list with types
 /// (ClickHouse stores `v (`a` UInt64, …)`) is a structure the select is
 /// matched to by name, so the select keeps its names.
-fn view_select_list(toks: &[Tok<'_>], head: Option<&(String, usize, usize)>) -> Option<Vec<(usize, usize)>> {
+fn view_select_list(
+    toks: &[Tok<'_>],
+    head: Option<&(String, usize, usize)>,
+) -> Option<Vec<(usize, usize)>> {
     let (kind, _, last) = head?;
     if !kind.ends_with("view") && kind != "view" {
         return None;
     }
     if toks.get(last + 1).is_some_and(|t| t.punct("(")) {
         let open = &toks[last + 1];
-        let close = (last + 2..toks.len()).find(|&k| toks[k].punct(")") && toks[k].depth == open.depth)?;
-        let names_only = toks[last + 2..close].split(|t| t.punct(",") && t.depth == open.depth + 1).all(|item| item.len() == 1 && item[0].is_name());
+        let close =
+            (last + 2..toks.len()).find(|&k| toks[k].punct(")") && toks[k].depth == open.depth)?;
+        let names_only = toks[last + 2..close]
+            .split(|t| t.punct(",") && t.depth == open.depth + 1)
+            .all(|item| item.len() == 1 && item[0].is_name());
         if names_only {
             return None;
         }
@@ -1343,7 +1851,19 @@ fn view_select_list(toks: &[Tok<'_>], head: Option<&(String, usize, usize)>) -> 
     let mut start = k;
     while k < toks.len() {
         let t = &toks[k];
-        if t.depth == 0 && (t.punct(",") || t.any(&["from", "union", "except", "intersect", "minus", "into", "where"]) || t.punct(";")) {
+        if t.depth == 0
+            && (t.punct(",")
+                || t.any(&[
+                    "from",
+                    "union",
+                    "except",
+                    "intersect",
+                    "minus",
+                    "into",
+                    "where",
+                ])
+                || t.punct(";"))
+        {
             items.push((start, k));
             if !t.punct(",") {
                 break;
@@ -1356,7 +1876,22 @@ fn view_select_list(toks: &[Tok<'_>], head: Option<&(String, usize, usize)>) -> 
         items.push((start, k));
     }
     // Only items that are a column alone (`c`, `t.c`, `s.t.c`).
-    Some(items.into_iter().filter(|&(s, e)| e > s && (e - s) % 2 == 1 && (s..e).all(|k| if (k - s) % 2 == 0 { toks[k].is_name() } else { toks[k].punct(".") })).collect())
+    Some(
+        items
+            .into_iter()
+            .filter(|&(s, e)| {
+                e > s
+                    && (e - s) % 2 == 1
+                    && (s..e).all(|k| {
+                        if (k - s) % 2 == 0 {
+                            toks[k].is_name()
+                        } else {
+                            toks[k].punct(".")
+                        }
+                    })
+            })
+            .collect(),
+    )
 }
 
 /// MongoDB pipelines: the collection names in `viewOn`, `from`
@@ -1367,7 +1902,10 @@ fn pipeline(w: &mut Writer<'_>, toks: &[Tok<'_>], old: &str, new: &str) {
     let value = |t: &Tok<'_>| -> Option<(u8, String)> {
         match (t.kind, t.quote) {
             (TokenKind::Name, Some(b'"')) => Some((b'"', t.value())),
-            (TokenKind::String, _) if t.text.len() >= 2 => Some((t.text.as_bytes()[0], t.text.get(1..t.text.len() - 1)?.to_string())),
+            (TokenKind::String, _) if t.text.len() >= 2 => Some((
+                t.text.as_bytes()[0],
+                t.text.get(1..t.text.len() - 1)?.to_string(),
+            )),
             _ => None,
         }
     };
@@ -1385,13 +1923,16 @@ fn pipeline(w: &mut Writer<'_>, toks: &[Tok<'_>], old: &str, new: &str) {
             (TokenKind::String, _) => value(t).map(|v| v.1),
             _ => None,
         };
-        let is_key = key.as_deref().is_some_and(|k| KEYS.contains(&k)) && toks.get(i + 1).is_some_and(|n| n.punct(":"));
+        let is_key = key.as_deref().is_some_and(|k| KEYS.contains(&k))
+            && toks.get(i + 1).is_some_and(|n| n.punct(":"));
         let create_view = t.word("createView") && toks.get(i + 1).is_some_and(|n| n.punct("("));
         let at = if is_key {
             Some(i + 2)
         } else if create_view {
             // The second argument: after the first top-level comma.
-            (i + 2..toks.len()).find(|&k| toks[k].punct(",") && toks[k].depth == toks[i + 2].depth).map(|k| k + 1)
+            (i + 2..toks.len())
+                .find(|&k| toks[k].punct(",") && toks[k].depth == toks[i + 2].depth)
+                .map(|k| k + 1)
         } else {
             None
         };
@@ -1419,19 +1960,31 @@ mod tests {
     use super::*;
 
     fn spec(fold: Fold) -> RenameSpec {
-        RenameSpec { fold, ..Default::default() }
+        RenameSpec {
+            fold,
+            ..Default::default()
+        }
     }
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
-        ObjectRef { kind: kind.into(), schema: (!schema.is_empty()).then(|| schema.into()), name: name.into() }
+        ObjectRef {
+            kind: kind.into(),
+            schema: (!schema.is_empty()).then(|| schema.into()),
+            name: name.into(),
+        }
     }
 
     fn table(schema: &str, name: &str) -> RewriteTarget {
-        RewriteTarget::Object { object: obj(kinds::TABLE, schema, name) }
+        RewriteTarget::Object {
+            object: obj(kinds::TABLE, schema, name),
+        }
     }
 
     fn column(schema: &str, name: &str, col: &str) -> RewriteTarget {
-        RewriteTarget::Column { table: obj(kinds::TABLE, schema, name), column: col.into() }
+        RewriteTarget::Column {
+            table: obj(kinds::TABLE, schema, name),
+            column: col.into(),
+        }
     }
 
     fn tsql() -> ScriptDialect {
@@ -1439,11 +1992,28 @@ mod tests {
     }
 
     fn rw(body: &str, d: &ScriptDialect, target: &RewriteTarget, new: &str) -> Rewrite {
-        rewrite_references(body, d, target, new, &spec(Fold::None), &RewriteOptions::default())
+        rewrite_references(
+            body,
+            d,
+            target,
+            new,
+            &spec(Fold::None),
+            &RewriteOptions::default(),
+        )
     }
 
     fn view(body: &str, d: &ScriptDialect, target: &RewriteTarget, new: &str) -> Rewrite {
-        rewrite_references(body, d, target, new, &spec(Fold::None), &RewriteOptions { keep_view_columns: true, ..Default::default() })
+        rewrite_references(
+            body,
+            d,
+            target,
+            new,
+            &spec(Fold::None),
+            &RewriteOptions {
+                keep_view_columns: true,
+                ..Default::default()
+            },
+        )
     }
 
     #[test]
@@ -1480,8 +2050,15 @@ mod tests {
         ];
         for (name, d, body) in cases {
             let r = rw(body, &d, &table("", name), "nuevo");
-            let keyword = body.split_whitespace().find(|w| w.eq_ignore_ascii_case(name)).unwrap();
-            assert!(r.text.contains(keyword) && r.text.contains("nuevo"), "{body} => {}", r.text);
+            let keyword = body
+                .split_whitespace()
+                .find(|w| w.eq_ignore_ascii_case(name))
+                .unwrap();
+            assert!(
+                r.text.contains(keyword) && r.text.contains("nuevo"),
+                "{body} => {}",
+                r.text
+            );
             assert_eq!(r.text.matches("nuevo").count(), 1, "{}", r.text);
         }
     }
@@ -1498,18 +2075,43 @@ mod tests {
         ] {
             let _ = rw(body, &pg, &column("", "clientes", "nombre"), "nuevo");
             let _ = rw(body, &pg, &table("", "clientes"), "nuevo");
-            let _ = rewrite_references(body, &pg, &RewriteTarget::Schema { schema: "public".into() }, "otro", &spec(Fold::None), &RewriteOptions::default());
+            let _ = rewrite_references(
+                body,
+                &pg,
+                &RewriteTarget::Schema {
+                    schema: "public".into(),
+                },
+                "otro",
+                &spec(Fold::None),
+                &RewriteOptions::default(),
+            );
         }
-        let _ = rw("SELECT x FROM [] JOIN `` ON 1 = 1", &tsql(), &column("dbo", "t", "x"), "y");
+        let _ = rw(
+            "SELECT x FROM [] JOIN `` ON 1 = 1",
+            &tsql(),
+            &column("dbo", "t", "x"),
+            "y",
+        );
     }
 
     // 1
     #[test]
     fn comments_and_strings_are_not_touched() {
-        let body = "-- reads Clientes\nSELECT 1 FROM dbo.Clientes /* Clientes */ WHERE x = 'Clientes'";
+        let body =
+            "-- reads Clientes\nSELECT 1 FROM dbo.Clientes /* Clientes */ WHERE x = 'Clientes'";
         let r = rw(body, &tsql(), &table("dbo", "Clientes"), "Nuevo");
-        assert_eq!(r.text, "-- reads Clientes\nSELECT 1 FROM dbo.Nuevo /* Clientes */ WHERE x = 'Clientes'");
-        assert_eq!(r.edits, vec![Edit { line: 2, before: "SELECT 1 FROM dbo.Clientes /* Clientes */ WHERE x = 'Clientes'".into(), after: "SELECT 1 FROM dbo.Nuevo /* Clientes */ WHERE x = 'Clientes'".into() }]);
+        assert_eq!(
+            r.text,
+            "-- reads Clientes\nSELECT 1 FROM dbo.Nuevo /* Clientes */ WHERE x = 'Clientes'"
+        );
+        assert_eq!(
+            r.edits,
+            vec![Edit {
+                line: 2,
+                before: "SELECT 1 FROM dbo.Clientes /* Clientes */ WHERE x = 'Clientes'".into(),
+                after: "SELECT 1 FROM dbo.Nuevo /* Clientes */ WHERE x = 'Clientes'".into()
+            }]
+        );
         assert_eq!(r.unresolved.len(), 1);
         assert_eq!(r.unresolved[0].reason, UnresolvedReason::InString);
     }
@@ -1517,15 +2119,37 @@ mod tests {
     // 2
     #[test]
     fn other_schemas_quoting_and_case() {
-        let r = rw("SELECT * FROM ventas.Clientes JOIN [dbo].[Clientes] ON 1 = 1", &tsql(), &table("dbo", "Clientes"), "Nuevo");
-        assert_eq!(r.text, "SELECT * FROM ventas.Clientes JOIN [dbo].[Nuevo] ON 1 = 1");
+        let r = rw(
+            "SELECT * FROM ventas.Clientes JOIN [dbo].[Clientes] ON 1 = 1",
+            &tsql(),
+            &table("dbo", "Clientes"),
+            "Nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "SELECT * FROM ventas.Clientes JOIN [dbo].[Nuevo] ON 1 = 1"
+        );
         // PostgreSQL: quoted names are case-sensitive, unquoted ones fold.
         let pg = ScriptDialect::postgres();
         let p = spec(Fold::Lower);
-        let r = rewrite_references("SELECT * FROM \"Clientes\", CLIENTES, \"clientes\"", &pg, &table("", "clientes"), "nuevo", &p, &RewriteOptions::default());
+        let r = rewrite_references(
+            "SELECT * FROM \"Clientes\", CLIENTES, \"clientes\"",
+            &pg,
+            &table("", "clientes"),
+            "nuevo",
+            &p,
+            &RewriteOptions::default(),
+        );
         assert_eq!(r.text, "SELECT * FROM \"Clientes\", nuevo, \"nuevo\"");
         // A mixed-case name only matches quoted: unquoted it's another object.
-        let r = rewrite_references("SELECT * FROM \"Clientes\", clientes", &pg, &table("", "Clientes"), "Nuevo", &p, &RewriteOptions::default());
+        let r = rewrite_references(
+            "SELECT * FROM \"Clientes\", clientes",
+            &pg,
+            &table("", "Clientes"),
+            "Nuevo",
+            &p,
+            &RewriteOptions::default(),
+        );
         assert_eq!(r.text, "SELECT * FROM \"Nuevo\", clientes");
         assert_eq!(r.unresolved[0].reason, UnresolvedReason::Case);
     }
@@ -1533,31 +2157,76 @@ mod tests {
     // 3
     #[test]
     fn whole_names_only() {
-        let r = rw("SELECT * FROM ClientesViejos JOIN Clientes_hist ON 1=1 JOIN Clientes ON 1=1", &tsql(), &table("dbo", "Clientes"), "Nuevo");
-        assert_eq!(r.text, "SELECT * FROM ClientesViejos JOIN Clientes_hist ON 1=1 JOIN Nuevo ON 1=1");
+        let r = rw(
+            "SELECT * FROM ClientesViejos JOIN Clientes_hist ON 1=1 JOIN Clientes ON 1=1",
+            &tsql(),
+            &table("dbo", "Clientes"),
+            "Nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "SELECT * FROM ClientesViejos JOIN Clientes_hist ON 1=1 JOIN Nuevo ON 1=1"
+        );
     }
 
     // 4
     #[test]
     fn columns_through_aliases() {
         let t = column("dbo", "Clientes", "Pepe");
-        let r = rw("SELECT c.Pepe, p.Pepe FROM dbo.Clientes c JOIN Pedidos p ON p.id = c.id", &tsql(), &t, "Nuevo");
-        assert_eq!(r.text, "SELECT c.Nuevo, p.Pepe FROM dbo.Clientes c JOIN Pedidos p ON p.id = c.id");
+        let r = rw(
+            "SELECT c.Pepe, p.Pepe FROM dbo.Clientes c JOIN Pedidos p ON p.id = c.id",
+            &tsql(),
+            &t,
+            "Nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "SELECT c.Nuevo, p.Pepe FROM dbo.Clientes c JOIN Pedidos p ON p.id = c.id"
+        );
         assert!(r.unresolved.is_empty());
-        let r = rw("SELECT Pepe FROM dbo.Clientes c JOIN Pedidos p ON p.id = c.id", &tsql(), &t, "Nuevo");
-        assert_eq!(r.text, "SELECT Pepe FROM dbo.Clientes c JOIN Pedidos p ON p.id = c.id");
+        let r = rw(
+            "SELECT Pepe FROM dbo.Clientes c JOIN Pedidos p ON p.id = c.id",
+            &tsql(),
+            &t,
+            "Nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "SELECT Pepe FROM dbo.Clientes c JOIN Pedidos p ON p.id = c.id"
+        );
         assert_eq!(r.unresolved[0].reason, UnresolvedReason::AmbiguousColumn);
-        let r = rw("UPDATE dbo.Clientes SET Pepe = 1 WHERE Pepe > 0;\nSELECT Pepe FROM Pedidos", &tsql(), &t, "Nuevo");
-        assert_eq!(r.text, "UPDATE dbo.Clientes SET Nuevo = 1 WHERE Nuevo > 0;\nSELECT Pepe FROM Pedidos");
+        let r = rw(
+            "UPDATE dbo.Clientes SET Pepe = 1 WHERE Pepe > 0;\nSELECT Pepe FROM Pedidos",
+            &tsql(),
+            &t,
+            "Nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "UPDATE dbo.Clientes SET Nuevo = 1 WHERE Nuevo > 0;\nSELECT Pepe FROM Pedidos"
+        );
         // INSERT … SELECT: the column list is the table's.
-        let r = rw("INSERT INTO Clientes (id, Pepe) SELECT id, Pepe FROM Otra", &tsql(), &t, "Nuevo");
-        assert_eq!(r.text, "INSERT INTO Clientes (id, Nuevo) SELECT id, Pepe FROM Otra");
+        let r = rw(
+            "INSERT INTO Clientes (id, Pepe) SELECT id, Pepe FROM Otra",
+            &tsql(),
+            &t,
+            "Nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "INSERT INTO Clientes (id, Nuevo) SELECT id, Pepe FROM Otra"
+        );
     }
 
     // 5
     #[test]
     fn an_alias_is_not_the_column() {
-        let r = rw("SELECT pepe.total FROM dbo.Clientes pepe", &tsql(), &column("dbo", "Clientes", "Pepe"), "Nuevo");
+        let r = rw(
+            "SELECT pepe.total FROM dbo.Clientes pepe",
+            &tsql(),
+            &column("dbo", "Clientes", "Pepe"),
+            "Nuevo",
+        );
         assert_eq!(r.text, "SELECT pepe.total FROM dbo.Clientes pepe");
         assert!(r.edits.is_empty() && r.unresolved.is_empty());
     }
@@ -1571,10 +2240,20 @@ mod tests {
         assert_eq!(r.edits.len(), 1);
         assert_eq!(r.edits[0].line, 2);
         // Off: the names change too.
-        let r = rw("CREATE VIEW v AS SELECT Pepe FROM Clientes", &tsql(), &t, "Nuevo");
+        let r = rw(
+            "CREATE VIEW v AS SELECT Pepe FROM Clientes",
+            &tsql(),
+            &t,
+            "Nuevo",
+        );
         assert_eq!(r.text, "CREATE VIEW v AS SELECT Nuevo FROM Clientes");
         // A view that names its columns keeps them anyway.
-        let r = view("CREATE VIEW v (a) AS SELECT Pepe FROM Clientes", &tsql(), &t, "Nuevo");
+        let r = view(
+            "CREATE VIEW v (a) AS SELECT Pepe FROM Clientes",
+            &tsql(),
+            &t,
+            "Nuevo",
+        );
         assert_eq!(r.text, "CREATE VIEW v (a) AS SELECT Nuevo FROM Clientes");
     }
 
@@ -1583,14 +2262,28 @@ mod tests {
     fn plpgsql_bodies_are_rewritten_but_not_their_dynamic_sql() {
         let pg = ScriptDialect::postgres();
         let body = "CREATE OR REPLACE FUNCTION public.f() RETURNS bigint LANGUAGE plpgsql AS $$\nBEGIN\n  EXECUTE 'select count(*) from clientes';\n  RETURN (SELECT count(*) FROM public.clientes);\nEND $$";
-        let r = rewrite_references(body, &pg, &table("public", "clientes"), "nuevo", &spec(Fold::Lower), &RewriteOptions::default());
+        let r = rewrite_references(
+            body,
+            &pg,
+            &table("public", "clientes"),
+            "nuevo",
+            &spec(Fold::Lower),
+            &RewriteOptions::default(),
+        );
         assert!(r.text.contains("FROM public.nuevo);"), "{}", r.text);
         assert!(r.text.contains("'select count(*) from clientes'"));
         assert_eq!(r.unresolved.len(), 1);
         assert_eq!(r.unresolved[0].line, 3);
         // A `$q$` inside format() isn't a body.
         let body = "CREATE FUNCTION g() RETURNS text LANGUAGE plpgsql AS $$ BEGIN RETURN format($q$select 1 from clientes$q$); END $$";
-        let r = rewrite_references(body, &pg, &table("", "clientes"), "nuevo", &spec(Fold::Lower), &RewriteOptions::default());
+        let r = rewrite_references(
+            body,
+            &pg,
+            &table("", "clientes"),
+            "nuevo",
+            &spec(Fold::Lower),
+            &RewriteOptions::default(),
+        );
         assert!(r.text.contains("$q$select 1 from clientes$q$"));
         assert_eq!(r.unresolved[0].reason, UnresolvedReason::InString);
     }
@@ -1599,7 +2292,12 @@ mod tests {
     #[test]
     fn mysql_double_quotes_are_strings() {
         let my = ScriptDialect::mysql();
-        let r = rw("SELECT \"clientes\", `clientes`.id FROM `Clientes`", &my, &table("", "clientes"), "nuevo");
+        let r = rw(
+            "SELECT \"clientes\", `clientes`.id FROM `Clientes`",
+            &my,
+            &table("", "clientes"),
+            "nuevo",
+        );
         assert_eq!(r.text, "SELECT \"clientes\", `nuevo`.id FROM `nuevo`");
         assert_eq!(r.unresolved[0].reason, UnresolvedReason::InString);
     }
@@ -1609,26 +2307,63 @@ mod tests {
     fn oracle_q_quotes_and_hints() {
         let ora = ScriptDialect::oracle();
         let body = "SELECT /*+ INDEX(c IX_CLIENTES) */ q'[ CLIENTES ]' FROM CLIENTES c";
-        let r = rewrite_references(body, &ora, &table("", "CLIENTES"), "NUEVO", &spec(Fold::Upper), &RewriteOptions::default());
-        assert_eq!(r.text, "SELECT /*+ INDEX(c IX_CLIENTES) */ q'[ CLIENTES ]' FROM NUEVO c");
-        let ix = RewriteTarget::Object { object: obj(kinds::INDEX, "", "IX_CLIENTES") };
-        let r = rewrite_references(body, &ora, &ix, "IX_NUEVO", &spec(Fold::Upper), &RewriteOptions::default());
+        let r = rewrite_references(
+            body,
+            &ora,
+            &table("", "CLIENTES"),
+            "NUEVO",
+            &spec(Fold::Upper),
+            &RewriteOptions::default(),
+        );
+        assert_eq!(
+            r.text,
+            "SELECT /*+ INDEX(c IX_CLIENTES) */ q'[ CLIENTES ]' FROM NUEVO c"
+        );
+        let ix = RewriteTarget::Object {
+            object: obj(kinds::INDEX, "", "IX_CLIENTES"),
+        };
+        let r = rewrite_references(
+            body,
+            &ora,
+            &ix,
+            "IX_NUEVO",
+            &spec(Fold::Upper),
+            &RewriteOptions::default(),
+        );
         assert!(r.edits.is_empty());
     }
 
     // 10
     #[test]
     fn a_name_before_a_parenthesis_may_be_a_function() {
-        let r = rw("SELECT Clientes(1); INSERT INTO Clientes (a, b) VALUES (1, 2)", &tsql(), &table("dbo", "Clientes"), "Nuevo");
-        assert_eq!(r.text, "SELECT Clientes(1); INSERT INTO Nuevo (a, b) VALUES (1, 2)");
+        let r = rw(
+            "SELECT Clientes(1); INSERT INTO Clientes (a, b) VALUES (1, 2)",
+            &tsql(),
+            &table("dbo", "Clientes"),
+            "Nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "SELECT Clientes(1); INSERT INTO Nuevo (a, b) VALUES (1, 2)"
+        );
         assert_eq!(r.unresolved[0].reason, UnresolvedReason::MaybeFunction);
     }
 
     // 11
     #[test]
     fn unqualified_names_in_another_schema_are_left() {
-        let opts = RewriteOptions { dependent_schema: Some("ventas".into()), ..Default::default() };
-        let r = rewrite_references("SELECT * FROM Clientes JOIN dbo.Clientes x ON 1=1", &tsql(), &table("dbo", "Clientes"), "Nuevo", &spec(Fold::None), &opts);
+        let opts = RewriteOptions {
+            dependent_schema: Some("ventas".into()),
+            ..Default::default()
+        };
+        let r = rewrite_references(
+            "SELECT * FROM Clientes JOIN dbo.Clientes x ON 1=1",
+            &tsql(),
+            &table("dbo", "Clientes"),
+            "Nuevo",
+            &spec(Fold::None),
+            &opts,
+        );
         assert_eq!(r.text, "SELECT * FROM Clientes JOIN dbo.Nuevo x ON 1=1");
         assert_eq!(r.unresolved[0].reason, UnresolvedReason::OtherSchema);
     }
@@ -1636,27 +2371,66 @@ mod tests {
     // 12
     #[test]
     fn schema_renames_touch_qualifiers_only() {
-        let s = RewriteTarget::Schema { schema: "ventas".into() };
-        let r = rw("SELECT ventas, x.ventas FROM ventas.t x JOIN [ventas].u ON 1=1", &tsql(), &s, "comercial");
-        assert_eq!(r.text, "SELECT ventas, x.ventas FROM comercial.t x JOIN [comercial].u ON 1=1");
+        let s = RewriteTarget::Schema {
+            schema: "ventas".into(),
+        };
+        let r = rw(
+            "SELECT ventas, x.ventas FROM ventas.t x JOIN [ventas].u ON 1=1",
+            &tsql(),
+            &s,
+            "comercial",
+        );
+        assert_eq!(
+            r.text,
+            "SELECT ventas, x.ventas FROM comercial.t x JOIN [comercial].u ON 1=1"
+        );
         // An alias called like the schema: left to the user.
-        let r = rw("SELECT ventas.id FROM ventas.t ventas", &tsql(), &s, "comercial");
+        let r = rw(
+            "SELECT ventas.id FROM ventas.t ventas",
+            &tsql(),
+            &s,
+            "comercial",
+        );
         assert!(r.edits.is_empty());
-        assert!(r.unresolved.iter().all(|u| u.reason == UnresolvedReason::AliasNamedLikeSchema));
+        assert!(r
+            .unresolved
+            .iter()
+            .all(|u| u.reason == UnresolvedReason::AliasNamedLikeSchema));
     }
 
     // 13
     #[test]
     fn mongodb_pipelines() {
-        let p = RenameSpec { references: ReferenceStyle::Pipeline, ..Default::default() };
+        let p = RenameSpec {
+            references: ReferenceStyle::Pipeline,
+            ..Default::default()
+        };
         let body = r#"db.createView("v", "clientes", [{"$lookup": {"from": "clientes", "localField": "a", "foreignField": "b", "as": "c"}}, {"$unionWith": {"coll": "clientes"}}, {"$project": {"clientes": 1}}])"#;
-        let r = rewrite_references(body, &ScriptDialect::generic(), &RewriteTarget::Object { object: obj(kinds::COLLECTION, "", "clientes") }, "nuevos", &p, &RewriteOptions::default());
+        let r = rewrite_references(
+            body,
+            &ScriptDialect::generic(),
+            &RewriteTarget::Object {
+                object: obj(kinds::COLLECTION, "", "clientes"),
+            },
+            "nuevos",
+            &p,
+            &RewriteOptions::default(),
+        );
         assert_eq!(
             r.text,
             r#"db.createView("v", "nuevos", [{"$lookup": {"from": "nuevos", "localField": "a", "foreignField": "b", "as": "c"}}, {"$unionWith": {"coll": "nuevos"}}, {"$project": {"clientes": 1}}])"#
         );
         assert!(r.unresolved.is_empty());
-        let r = rewrite_references(r#"{"viewOn": "clientes", "pipeline": [{"$match": {"t": "clientes"}}]}"#, &ScriptDialect::generic(), &RewriteTarget::Object { object: obj(kinds::COLLECTION, "", "clientes") }, "nuevos", &p, &RewriteOptions::default());
+        let r = rewrite_references(
+            r#"{"viewOn": "clientes", "pipeline": [{"$match": {"t": "clientes"}}]}"#,
+            &ScriptDialect::generic(),
+            &RewriteTarget::Object {
+                object: obj(kinds::COLLECTION, "", "clientes"),
+            },
+            "nuevos",
+            &p,
+            &RewriteOptions::default(),
+        );
         assert!(r.text.starts_with(r#"{"viewOn": "nuevos""#));
         assert_eq!(r.unresolved.len(), 1);
     }
@@ -1664,10 +2438,22 @@ mod tests {
     // 14
     #[test]
     fn unicode_and_doubled_quotes_keep_offsets() {
-        let r = rw("SELECT 'ñandú' FROM [a]]b] JOIN Clientes ON 1=1", &tsql(), &table("dbo", "a]b"), "año");
+        let r = rw(
+            "SELECT 'ñandú' FROM [a]]b] JOIN Clientes ON 1=1",
+            &tsql(),
+            &table("dbo", "a]b"),
+            "año",
+        );
         assert_eq!(r.text, "SELECT 'ñandú' FROM [año] JOIN Clientes ON 1=1");
         let pg = ScriptDialect::postgres();
-        let r = rewrite_references("SELECT 'ü' FROM \"a\"\"b\"", &pg, &table("", "a\"b"), "c\"d", &spec(Fold::Lower), &RewriteOptions::default());
+        let r = rewrite_references(
+            "SELECT 'ü' FROM \"a\"\"b\"",
+            &pg,
+            &table("", "a\"b"),
+            "c\"d",
+            &spec(Fold::Lower),
+            &RewriteOptions::default(),
+        );
         assert_eq!(r.text, "SELECT 'ü' FROM \"c\"\"d\"");
     }
 
@@ -1675,20 +2461,67 @@ mod tests {
     #[test]
     fn headers() {
         let t = tsql();
-        assert_eq!(rename_header("CREATE OR ALTER PROC [dbo].[p] AS SELECT 1", &t, Fold::None, "q").unwrap(), "CREATE OR ALTER PROC [dbo].[q] AS SELECT 1");
+        assert_eq!(
+            rename_header(
+                "CREATE OR ALTER PROC [dbo].[p] AS SELECT 1",
+                &t,
+                Fold::None,
+                "q"
+            )
+            .unwrap(),
+            "CREATE OR ALTER PROC [dbo].[q] AS SELECT 1"
+        );
         let my = ScriptDialect::mysql();
         assert_eq!(
             rename_header("CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `v` AS select 1", &my, Fold::None, "w").unwrap(),
             "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `w` AS select 1"
         );
         let ora = ScriptDialect::oracle();
-        assert_eq!(rename_header("CREATE OR REPLACE PACKAGE BODY APP.PKG AS END;", &ora, Fold::Upper, "PKG2").unwrap(), "CREATE OR REPLACE PACKAGE BODY APP.PKG2 AS END;");
-        assert_eq!(rename_header("CREATE TRIGGER tg ON t AFTER INSERT AS SELECT 1", &t, Fold::None, "tg2").unwrap(), "CREATE TRIGGER tg2 ON t AFTER INSERT AS SELECT 1");
+        assert_eq!(
+            rename_header(
+                "CREATE OR REPLACE PACKAGE BODY APP.PKG AS END;",
+                &ora,
+                Fold::Upper,
+                "PKG2"
+            )
+            .unwrap(),
+            "CREATE OR REPLACE PACKAGE BODY APP.PKG2 AS END;"
+        );
+        assert_eq!(
+            rename_header(
+                "CREATE TRIGGER tg ON t AFTER INSERT AS SELECT 1",
+                &t,
+                Fold::None,
+                "tg2"
+            )
+            .unwrap(),
+            "CREATE TRIGGER tg2 ON t AFTER INSERT AS SELECT 1"
+        );
         assert!(rename_header("SELECT 1", &t, Fold::None, "x").is_none());
-        assert_eq!(with_create_style("CREATE VIEW v AS SELECT 1", &t, ReplaceStyle::CreateOrAlter), "CREATE OR ALTER VIEW v AS SELECT 1");
-        assert_eq!(with_create_style("create or replace view v as select 1", &t, ReplaceStyle::CreateOrAlter), "CREATE OR ALTER view v as select 1");
-        assert_eq!(with_create_style("CREATE VIEW v AS SELECT 1", &t, ReplaceStyle::CreateOrReplace), "CREATE OR REPLACE VIEW v AS SELECT 1");
-        assert_eq!(with_create_style("CREATE VIEW v AS SELECT 1", &t, ReplaceStyle::DropCreate), "CREATE VIEW v AS SELECT 1");
+        assert_eq!(
+            with_create_style("CREATE VIEW v AS SELECT 1", &t, ReplaceStyle::CreateOrAlter),
+            "CREATE OR ALTER VIEW v AS SELECT 1"
+        );
+        assert_eq!(
+            with_create_style(
+                "create or replace view v as select 1",
+                &t,
+                ReplaceStyle::CreateOrAlter
+            ),
+            "CREATE OR ALTER view v as select 1"
+        );
+        assert_eq!(
+            with_create_style(
+                "CREATE VIEW v AS SELECT 1",
+                &t,
+                ReplaceStyle::CreateOrReplace
+            ),
+            "CREATE OR REPLACE VIEW v AS SELECT 1"
+        );
+        assert_eq!(
+            with_create_style("CREATE VIEW v AS SELECT 1", &t, ReplaceStyle::DropCreate),
+            "CREATE VIEW v AS SELECT 1"
+        );
     }
 
     // 16
@@ -1697,11 +2530,23 @@ mod tests {
         let pg = ScriptDialect::postgres();
         assert_eq!(quote_new("nuevo", &pg, Fold::Lower, false), "nuevo");
         assert_eq!(quote_new("Nuevo", &pg, Fold::Lower, false), "\"Nuevo\"");
-        assert_eq!(quote_new("NUEVO", &ScriptDialect::oracle(), Fold::Upper, false), "NUEVO");
-        assert_eq!(quote_new("nuevo", &ScriptDialect::oracle(), Fold::Upper, false), "\"nuevo\"");
+        assert_eq!(
+            quote_new("NUEVO", &ScriptDialect::oracle(), Fold::Upper, false),
+            "NUEVO"
+        );
+        assert_eq!(
+            quote_new("nuevo", &ScriptDialect::oracle(), Fold::Upper, false),
+            "\"nuevo\""
+        );
         assert_eq!(quote_new("Nuevo", &tsql(), Fold::None, false), "Nuevo");
-        assert_eq!(quote_new("mi tabla", &tsql(), Fold::None, false), "[mi tabla]");
-        assert_eq!(quote_new("select", &ScriptDialect::mysql(), Fold::None, false), "`select`");
+        assert_eq!(
+            quote_new("mi tabla", &tsql(), Fold::None, false),
+            "[mi tabla]"
+        );
+        assert_eq!(
+            quote_new("select", &ScriptDialect::mysql(), Fold::None, false),
+            "`select`"
+        );
         assert_eq!(quote_new("x", &pg, Fold::Lower, true), "\"x\"");
     }
 
@@ -1710,9 +2555,19 @@ mod tests {
         // A trigger named like its table keeps its own name.
         let body = "CREATE TRIGGER Clientes ON dbo.Clientes AFTER UPDATE AS UPDATE c SET Pepe = i.Pepe FROM dbo.Clientes c JOIN inserted i ON i.id = c.id";
         let r = rw(body, &tsql(), &table("dbo", "Clientes"), "Nuevo");
-        assert!(r.text.starts_with("CREATE TRIGGER Clientes ON dbo.Nuevo"), "{}", r.text);
+        assert!(
+            r.text.starts_with("CREATE TRIGGER Clientes ON dbo.Nuevo"),
+            "{}",
+            r.text
+        );
         let r = rw(body, &tsql(), &column("dbo", "Clientes", "Pepe"), "Nuevo");
-        assert!(r.text.ends_with("SET Nuevo = i.Nuevo FROM dbo.Clientes c JOIN inserted i ON i.id = c.id"), "{}", r.text);
+        assert!(
+            r.text.ends_with(
+                "SET Nuevo = i.Nuevo FROM dbo.Clientes c JOIN inserted i ON i.id = c.id"
+            ),
+            "{}",
+            r.text
+        );
     }
 
     #[test]
@@ -1722,25 +2577,56 @@ mod tests {
         // ClickHouse stores the structure: the select keeps its output names.
         let body = "CREATE VIEW db.v (`id` UInt64, `pepe` String) AS SELECT id, pepe FROM db.t";
         let r = view(body, &ch, &t, "nuevo");
-        assert_eq!(r.text, "CREATE VIEW db.v (`id` UInt64, `pepe` String) AS SELECT id, nuevo AS pepe FROM db.t");
+        assert_eq!(
+            r.text,
+            "CREATE VIEW db.v (`id` UInt64, `pepe` String) AS SELECT id, nuevo AS pepe FROM db.t"
+        );
         // A list of names is positional: no alias needed.
-        let r = view("CREATE VIEW db.v (a, b) AS SELECT id, pepe FROM db.t", &ch, &t, "nuevo");
-        assert_eq!(r.text, "CREATE VIEW db.v (a, b) AS SELECT id, nuevo FROM db.t");
+        let r = view(
+            "CREATE VIEW db.v (a, b) AS SELECT id, pepe FROM db.t",
+            &ch,
+            &t,
+            "nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "CREATE VIEW db.v (a, b) AS SELECT id, nuevo FROM db.t"
+        );
         // A materialized view with TO: its list comes after the target table.
         let body = "CREATE MATERIALIZED VIEW db.mv TO db.dest (`id` UInt64, `pepe` String) AS SELECT id, pepe FROM db.t";
-        assert!(view(body, &ch, &t, "nuevo").text.ends_with("SELECT id, nuevo AS pepe FROM db.t"));
+        assert!(view(body, &ch, &t, "nuevo")
+            .text
+            .ends_with("SELECT id, nuevo AS pepe FROM db.t"));
     }
 
     #[test]
     fn keyword_qualifiers_and_table_calls() {
         let g = ScriptDialect::generic();
         let t = column("default", "s", "pepe");
-        let r = view("CREATE VIEW default.v AS SELECT id, pepe FROM default.s", &g, &t, "nuevo");
-        assert_eq!(r.text, "CREATE VIEW default.v AS SELECT id, nuevo AS pepe FROM default.s");
+        let r = view(
+            "CREATE VIEW default.v AS SELECT id, pepe FROM default.s",
+            &g,
+            &t,
+            "nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "CREATE VIEW default.v AS SELECT id, nuevo AS pepe FROM default.s"
+        );
         // Proton's table(s): the stream read as a table.
-        let r = view("CREATE VIEW v AS SELECT id, pepe FROM table(default.s) AS x WHERE x.pepe > ''", &g, &t, "nuevo");
+        let r = view(
+            "CREATE VIEW v AS SELECT id, pepe FROM table(default.s) AS x WHERE x.pepe > ''",
+            &g,
+            &t,
+            "nuevo",
+        );
         assert_eq!(r.text, "CREATE VIEW v AS SELECT id, nuevo AS pepe FROM table(default.s) AS x WHERE x.nuevo > ''");
-        let r = rw("SELECT * FROM table(default.s)", &g, &table("default", "s"), "s2");
+        let r = rw(
+            "SELECT * FROM table(default.s)",
+            &g,
+            &table("default", "s"),
+            "s2",
+        );
         assert_eq!(r.text, "SELECT * FROM table(default.s2)");
     }
 
@@ -1759,8 +2645,16 @@ mod tests {
         // Dremio: a space's folder; a column through the dotted table.
         let pg = ScriptDialect::postgres();
         let c = column("esp.carpeta", "t", "pepe");
-        let r = view("CREATE VIEW esp.carpeta.v AS SELECT pepe FROM esp.carpeta.t", &pg, &c, "nuevo");
-        assert_eq!(r.text, "CREATE VIEW esp.carpeta.v AS SELECT nuevo AS pepe FROM esp.carpeta.t");
+        let r = view(
+            "CREATE VIEW esp.carpeta.v AS SELECT pepe FROM esp.carpeta.t",
+            &pg,
+            &c,
+            "nuevo",
+        );
+        assert_eq!(
+            r.text,
+            "CREATE VIEW esp.carpeta.v AS SELECT nuevo AS pepe FROM esp.carpeta.t"
+        );
         let r = view("CREATE VIEW esp.carpeta.v AS SELECT x.pepe FROM \"esp\".\"carpeta\".t x JOIN esp.otra.t y ON 1 = 1", &pg, &c, "nuevo");
         assert_eq!(r.text, "CREATE VIEW esp.carpeta.v AS SELECT x.nuevo AS pepe FROM \"esp\".\"carpeta\".t x JOIN esp.otra.t y ON 1 = 1");
     }
@@ -1768,8 +2662,18 @@ mod tests {
     #[test]
     fn the_database_qualifies_a_target_without_schema() {
         let g = ScriptDialect::generic();
-        let opts = RewriteOptions { database: Some("db".into()), ..Default::default() };
-        let r = rewrite_references("SELECT * FROM db.t JOIN otra.t ON 1 = 1", &g, &table("", "t"), "n", &spec(Fold::None), &opts);
+        let opts = RewriteOptions {
+            database: Some("db".into()),
+            ..Default::default()
+        };
+        let r = rewrite_references(
+            "SELECT * FROM db.t JOIN otra.t ON 1 = 1",
+            &g,
+            &table("", "t"),
+            "n",
+            &spec(Fold::None),
+            &opts,
+        );
         assert_eq!(r.text, "SELECT * FROM db.n JOIN otra.t ON 1 = 1");
         assert_eq!(r.unresolved.len(), 1);
         assert_eq!(r.unresolved[0].reason, UnresolvedReason::Qualified);
@@ -1785,50 +2689,120 @@ mod tests {
         let r = rewrite_references(body, &fb, &column("", "RN_T", "PEPE"), "NOMBRE", &up, &none);
         assert_eq!(r.text, body.replace("PEPE", "NOMBRE"));
         let body = "CREATE OR ALTER TRIGGER RN_TRG ACTIVE BEFORE INSERT ON RN_T AS BEGIN NEW.PEPE = OLD.PEPE; END";
-        assert_eq!(rewrite_references(body, &fb, &column("", "RN_T", "PEPE"), "NOMBRE", &up, &none).text, body.replace("PEPE", "NOMBRE"));
+        assert_eq!(
+            rewrite_references(body, &fb, &column("", "RN_T", "PEPE"), "NOMBRE", &up, &none).text,
+            body.replace("PEPE", "NOMBRE")
+        );
         // Another table's trigger: left alone.
         let body = "CREATE TRIGGER X FOR OTRA BEFORE INSERT AS BEGIN NEW.PEPE = 0; END";
-        assert!(rewrite_references(body, &fb, &column("", "RN_T", "PEPE"), "NOMBRE", &up, &none).edits.is_empty());
+        assert!(
+            rewrite_references(body, &fb, &column("", "RN_T", "PEPE"), "NOMBRE", &up, &none)
+                .edits
+                .is_empty()
+        );
         // Oracle: :NEW, and the names REFERENCING gives.
         let ora = ScriptDialect::oracle();
         let body = "CREATE OR REPLACE TRIGGER APP.TG BEFORE INSERT OR UPDATE OF PEPE ON APP.T REFERENCING NEW AS N OLD AS O FOR EACH ROW\nBEGIN\n  :N.PEPE := :O.PEPE;\n  :NEW.PEPE := 1;\nEND;";
-        let r = rewrite_references(body, &ora, &column("APP", "T", "PEPE"), "NOMBRE", &up, &none);
+        let r = rewrite_references(
+            body,
+            &ora,
+            &column("APP", "T", "PEPE"),
+            "NOMBRE",
+            &up,
+            &none,
+        );
         assert_eq!(r.text, body.replace("PEPE", "NOMBRE"));
         // MySQL.
         let my = ScriptDialect::mysql();
         let body = "CREATE DEFINER=`root`@`%` TRIGGER `tg` BEFORE INSERT ON `t` FOR EACH ROW SET NEW.pepe = UPPER(NEW.pepe)";
-        assert_eq!(rw(body, &my, &column("", "t", "pepe"), "nuevo").text, body.replace("NEW.pepe", "NEW.nuevo"));
+        assert_eq!(
+            rw(body, &my, &column("", "t", "pepe"), "nuevo").text,
+            body.replace("NEW.pepe", "NEW.nuevo")
+        );
         // A PostgreSQL trigger function: only when the app knows a trigger on the table runs it.
         let pg = ScriptDialect::postgres();
         let body = "CREATE OR REPLACE FUNCTION public.f() RETURNS trigger LANGUAGE plpgsql AS $$\nBEGIN\n  NEW.pepe := lower(NEW.pepe);\n  RETURN NEW;\nEND $$";
         let lo = spec(Fold::Lower);
-        assert!(rewrite_references(body, &pg, &column("public", "t", "pepe"), "nuevo", &lo, &none).edits.is_empty());
-        let rows = RewriteOptions { row_table: true, ..Default::default() };
-        let r = rewrite_references(body, &pg, &column("public", "t", "pepe"), "nuevo", &lo, &rows);
-        assert!(r.text.contains("NEW.nuevo := lower(NEW.nuevo);"), "{}", r.text);
+        assert!(rewrite_references(
+            body,
+            &pg,
+            &column("public", "t", "pepe"),
+            "nuevo",
+            &lo,
+            &none
+        )
+        .edits
+        .is_empty());
+        let rows = RewriteOptions {
+            row_table: true,
+            ..Default::default()
+        };
+        let r = rewrite_references(
+            body,
+            &pg,
+            &column("public", "t", "pepe"),
+            "nuevo",
+            &lo,
+            &rows,
+        );
+        assert!(
+            r.text.contains("NEW.nuevo := lower(NEW.nuevo);"),
+            "{}",
+            r.text
+        );
     }
 
     #[test]
     fn triggers_and_their_routines() {
         let pg = ScriptDialect::postgres();
-        let tg = "CREATE TRIGGER tg BEFORE INSERT ON public.t FOR EACH ROW EXECUTE FUNCTION audit.f()";
-        assert_eq!(trigger_routine(tg, &pg), Some((Some("audit".into()), "f".into())));
-        assert_eq!(trigger_routine("CREATE TRIGGER tg AFTER UPDATE OF a ON t FOR EACH ROW EXECUTE PROCEDURE g()", &pg), Some((None, "g".into())));
+        let tg =
+            "CREATE TRIGGER tg BEFORE INSERT ON public.t FOR EACH ROW EXECUTE FUNCTION audit.f()";
+        assert_eq!(
+            trigger_routine(tg, &pg),
+            Some((Some("audit".into()), "f".into()))
+        );
+        assert_eq!(
+            trigger_routine(
+                "CREATE TRIGGER tg AFTER UPDATE OF a ON t FOR EACH ROW EXECUTE PROCEDURE g()",
+                &pg
+            ),
+            Some((None, "g".into()))
+        );
         assert!(trigger_on(tg, &pg, "t") && !trigger_on(tg, &pg, "u"));
         assert!(trigger_routine("CREATE VIEW v AS SELECT 1", &pg).is_none());
-        assert!(names_in_code("SELECT a FROM t -- pepe", &pg, "a") && !names_in_code("SELECT a FROM t -- pepe", &pg, "pepe"));
+        assert!(
+            names_in_code("SELECT a FROM t -- pepe", &pg, "a")
+                && !names_in_code("SELECT a FROM t -- pepe", &pg, "pepe")
+        );
         let g = ScriptDialect::generic();
-        assert!(writes_to_table("CREATE MATERIALIZED VIEW db.mv TO db.dest (`a` UInt8) AS SELECT 1 AS a", &g));
+        assert!(writes_to_table(
+            "CREATE MATERIALIZED VIEW db.mv TO db.dest (`a` UInt8) AS SELECT 1 AS a",
+            &g
+        ));
         assert!(!writes_to_table("CREATE MATERIALIZED VIEW db.mv (`a` UInt8) ENGINE = MergeTree ORDER BY a AS SELECT 1 AS a", &g));
     }
 
     #[test]
     fn create_style_collapses_spacing() {
         let t = tsql();
-        assert_eq!(with_create_style("CREATE      VIEW dbo.v AS SELECT 1", &t, ReplaceStyle::CreateOrAlter), "CREATE OR ALTER VIEW dbo.v AS SELECT 1");
-        let once = with_create_style("CREATE   OR   ALTER\n  VIEW v AS SELECT 1", &t, ReplaceStyle::CreateOrAlter);
+        assert_eq!(
+            with_create_style(
+                "CREATE      VIEW dbo.v AS SELECT 1",
+                &t,
+                ReplaceStyle::CreateOrAlter
+            ),
+            "CREATE OR ALTER VIEW dbo.v AS SELECT 1"
+        );
+        let once = with_create_style(
+            "CREATE   OR   ALTER\n  VIEW v AS SELECT 1",
+            &t,
+            ReplaceStyle::CreateOrAlter,
+        );
         assert_eq!(once, "CREATE OR ALTER VIEW v AS SELECT 1");
-        assert_eq!(with_create_style(&once, &t, ReplaceStyle::CreateOrAlter), once);
+        assert_eq!(
+            with_create_style(&once, &t, ReplaceStyle::CreateOrAlter),
+            once
+        );
     }
 
     #[test]
@@ -1841,19 +2815,47 @@ mod tests {
         };
         assert_eq!(s.replace_for("view"), ReplaceStyle::CreateOrReplace);
         assert_eq!(s.replace_for("procedure"), ReplaceStyle::DropCreate);
-        let col = RenameTarget::Column { table: obj(kinds::TABLE, "O'X", "t"), column: "c".into() };
-        assert_eq!(s.epilogue_for(&col).as_deref(), Some("BEGIN DBMS_UTILITY.COMPILE_SCHEMA('O''X', FALSE); END;"));
-        assert!(s.epilogue_for(&RenameTarget::Object { object: obj(kinds::TABLE, "", "t"), parent: None }).is_none());
+        let col = RenameTarget::Column {
+            table: obj(kinds::TABLE, "O'X", "t"),
+            column: "c".into(),
+        };
+        assert_eq!(
+            s.epilogue_for(&col).as_deref(),
+            Some("BEGIN DBMS_UTILITY.COMPILE_SCHEMA('O''X', FALSE); END;")
+        );
+        assert!(s
+            .epilogue_for(&RenameTarget::Object {
+                object: obj(kinds::TABLE, "", "t"),
+                parent: None
+            })
+            .is_none());
         assert!(RenameSpec::default().epilogue_for(&col).is_none());
         // Older specs (a plugin host's manifest) read without the new fields.
-        let old: RenameSpec = serde_json::from_str(r#"{"kinds":["table"],"replace":"drop_create","tracked":["view"]}"#).unwrap();
-        assert!(old.replace_kinds.is_empty() && old.holds_rows.is_empty() && old.epilogue.is_none());
+        let old: RenameSpec = serde_json::from_str(
+            r#"{"kinds":["table"],"replace":"drop_create","tracked":["view"]}"#,
+        )
+        .unwrap();
+        assert!(
+            old.replace_kinds.is_empty() && old.holds_rows.is_empty() && old.epilogue.is_none()
+        );
         assert!(old.tracked_for.is_empty() && old.grants_on_objects && !old.wants_table);
         // Per target tracked: the general list where the target has none.
-        let view = RenameTarget::Object { object: obj(kinds::VIEW, "", "v"), parent: None };
-        let t = RenameSpec { tracked_for: [("view".to_string(), vec![])].into(), ..old };
+        let view = RenameTarget::Object {
+            object: obj(kinds::VIEW, "", "v"),
+            parent: None,
+        };
+        let t = RenameSpec {
+            tracked_for: [("view".to_string(), vec![])].into(),
+            ..old
+        };
         assert!(t.tracked_for_target(&view).is_empty());
-        assert_eq!(t.tracked_for_target(&RenameTarget::Column { table: obj(kinds::TABLE, "", "t"), column: "c".into() }), ["view"]);
+        assert_eq!(
+            t.tracked_for_target(&RenameTarget::Column {
+                table: obj(kinds::TABLE, "", "t"),
+                column: "c".into()
+            }),
+            ["view"]
+        );
         assert_eq!(col.spec_key(), "column");
     }
 
@@ -1862,7 +2864,11 @@ mod tests {
         let def = "CREATE OR REPLACE FUNCTION public.f(a integer, b text DEFAULT 'x'::text)\n RETURNS int LANGUAGE sql AS $$ CREATE FUNCTION f(z int) $$;\n\nCREATE OR REPLACE PROCEDURE public.\"F\"(c numeric(10, 2)[]) LANGUAGE plpgsql AS $$ BEGIN END $$;\n\nCREATE FUNCTION public.f(VARIADIC n int[] = '{}') RETURNS int AS 'select 1' LANGUAGE sql";
         assert_eq!(
             routine_signatures(def, "f"),
-            [("FUNCTION", "a integer, b text".to_string()), ("PROCEDURE", "c numeric(10, 2)[]".to_string()), ("FUNCTION", "VARIADIC n int[]".to_string())]
+            [
+                ("FUNCTION", "a integer, b text".to_string()),
+                ("PROCEDURE", "c numeric(10, 2)[]".to_string()),
+                ("FUNCTION", "VARIADIC n int[]".to_string())
+            ]
         );
         assert!(routine_signatures(def, "g").is_empty());
         assert!(routine_signatures("CREATE VIEW f AS SELECT 1", "f").is_empty());
@@ -1870,13 +2876,27 @@ mod tests {
 
     #[test]
     fn targets_map_to_dependency_targets() {
-        let t = RenameTarget::Index { table: obj(kinds::TABLE, "dbo", "t"), index: "ix".into() };
+        let t = RenameTarget::Index {
+            table: obj(kinds::TABLE, "dbo", "t"),
+            index: "ix".into(),
+        };
         assert_eq!(t.dependency_target().object.kind, "index");
         assert_eq!(t.old_name(), "ix");
-        let s = RenameSpec { indexes: true, kinds: vec!["table".into()], ..Default::default() };
+        let s = RenameSpec {
+            indexes: true,
+            kinds: vec!["table".into()],
+            ..Default::default()
+        };
         assert!(s.allows(&t));
-        assert!(!s.allows(&RenameTarget::Column { table: obj(kinds::TABLE, "dbo", "t"), column: "c".into() }));
-        let json = serde_json::to_string(&RenameTarget::Schema { database: None, schema: "v".into() }).unwrap();
+        assert!(!s.allows(&RenameTarget::Column {
+            table: obj(kinds::TABLE, "dbo", "t"),
+            column: "c".into()
+        }));
+        let json = serde_json::to_string(&RenameTarget::Schema {
+            database: None,
+            schema: "v".into(),
+        })
+        .unwrap();
         assert_eq!(json, r#"{"what":"schema","database":null,"schema":"v"}"#);
     }
 }

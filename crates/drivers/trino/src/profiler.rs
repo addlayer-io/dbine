@@ -9,7 +9,9 @@
 
 use crate::monitor::duration_secs;
 use crate::TrinoSession;
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -24,17 +26,33 @@ fn finished(q: &Value) -> bool {
 }
 
 impl TrinoSession {
-    pub(crate) async fn profiler_begin(&self, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
-        let list = self
-            .get_json("/v1/query")
-            .await
-            .map_err(|e| Error::Query(format!("no se pudo leer la lista de consultas del coordinador (/v1/query): {e}")))?;
-        let seen = list.as_array().into_iter().flatten().filter(|q| finished(q)).filter_map(id).collect();
+    pub(crate) async fn profiler_begin(
+        &self,
+        opts: &ProfilerOptions,
+    ) -> Result<(State, ProfilerStarted)> {
+        let list = self.get_json("/v1/query").await.map_err(|e| {
+            Error::Query(format!(
+                "no se pudo leer la lista de consultas del coordinador (/v1/query): {e}"
+            ))
+        })?;
+        let seen = list
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|q| finished(q))
+            .filter_map(id)
+            .collect();
         let started = ProfilerStarted::new(ProfilerMode::Complete, "/v1/query").units(Some("filas"), Some("bytes")).note(
             "El coordinador guarda las últimas consultas (query.max-history, 100 por defecto): con más de 100 por segundo \
              pueden perderse algunas. Solo se ven las que el control de acceso deja ver a este usuario.",
         );
-        Ok((State { catalog: opts.database.clone(), seen }, started))
+        Ok((
+            State {
+                catalog: opts.database.clone(),
+                seen,
+            },
+            started,
+        ))
     }
 
     pub(crate) async fn profiler_next(&self, state: &mut State) -> Result<Vec<ProfiledStatement>> {
@@ -50,12 +68,19 @@ impl TrinoSession {
             if q["state"] == "FAILED" {
                 // The list has the error's name; the message is in the query's
                 // own info.
-                let code = q.pointer("/errorCode/name").and_then(Value::as_str).map(str::to_string);
+                let code = q
+                    .pointer("/errorCode/name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 let message = self
                     .get_json(&format!("/v1/query/{qid}"))
                     .await
                     .ok()
-                    .and_then(|full| full.pointer("/failureInfo/message").and_then(Value::as_str).map(str::to_string));
+                    .and_then(|full| {
+                        full.pointer("/failureInfo/message")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    });
                 s.error = message.or(code).or_else(|| Some("falló".into()));
             }
             out.push(s);
@@ -99,8 +124,12 @@ fn statement(q: &Value) -> ProfiledStatement {
         detail.push(format!("memoria pico: {mem}"));
     }
     ProfiledStatement {
-        time: text_of(&st["createTime"]).map(|t| iso_utc(&t)).unwrap_or_default(),
-        duration_ms: text_of(&st["elapsedTime"]).and_then(|d| duration_secs(&d)).map(|s| (s * 1e6).round() / 1000.0),
+        time: text_of(&st["createTime"])
+            .map(|t| iso_utc(&t))
+            .unwrap_or_default(),
+        duration_ms: text_of(&st["elapsedTime"])
+            .and_then(|d| duration_secs(&d))
+            .map(|s| (s * 1e6).round() / 1000.0),
         text: q["query"].as_str().unwrap_or_default().trim().to_string(),
         database: db,
         user: text_of(&s["user"]),
@@ -109,10 +138,14 @@ fn statement(q: &Value) -> ProfiledStatement {
         error: None,
         detail: (!detail.is_empty()).then(|| detail.join(", ")),
         application: text_of(&s["source"]).or_else(|| text_of(&s["userAgent"])),
-        cpu_ms: text_of(&st["totalCpuTime"]).and_then(|d| duration_secs(&d)).map(|s| (s * 1e6).round() / 1000.0),
+        cpu_ms: text_of(&st["totalCpuTime"])
+            .and_then(|d| duration_secs(&d))
+            .map(|s| (s * 1e6).round() / 1000.0),
         // Rows: the list has no input size in bytes the in-memory
         // connectors fill (physicalInputDataSize stays 0 for them).
-        reads: st["processedInputPositions"].as_u64().or_else(|| st["rawInputPositions"].as_u64()),
+        reads: st["processedInputPositions"]
+            .as_u64()
+            .or_else(|| st["rawInputPositions"].as_u64()),
         // Presto's list doesn't have it.
         writes: text_of(&st["physicalWrittenDataSize"]).and_then(|d| data_size_bytes(&d)),
         ..Default::default()
@@ -125,7 +158,9 @@ fn data_size_bytes(s: &str) -> Option<u64> {
     let split = s.find(|c: char| c.is_ascii_alphabetic())?;
     let (n, unit) = s.split_at(split);
     let n: f64 = n.trim().parse().ok()?;
-    let exp = ["B", "KB", "MB", "GB", "TB", "PB"].iter().position(|u| u.eq_ignore_ascii_case(unit))?;
+    let exp = ["B", "KB", "MB", "GB", "TB", "PB"]
+        .iter()
+        .position(|u| u.eq_ignore_ascii_case(unit))?;
     Some((n * 1024f64.powi(exp as i32)).round() as u64)
 }
 
@@ -133,7 +168,11 @@ fn data_size_bytes(s: &str) -> Option<u64> {
 fn iso_utc(t: &str) -> String {
     let t = t.trim_end_matches('Z').replace('T', " ");
     match t.find('.') {
-        Some(i) => format!("{}.{:0<3}", &t[..i], &t[i + 1..].chars().take(3).collect::<String>()),
+        Some(i) => format!(
+            "{}.{:0<3}",
+            &t[..i],
+            &t[i + 1..].chars().take(3).collect::<String>()
+        ),
         None => format!("{t}.000"),
     }
 }
@@ -145,7 +184,10 @@ mod tests {
 
     #[test]
     fn times_are_utc_milliseconds() {
-        assert_eq!(iso_utc("2026-09-27T21:16:59.499235395Z"), "2026-09-27 21:16:59.499");
+        assert_eq!(
+            iso_utc("2026-09-27T21:16:59.499235395Z"),
+            "2026-09-27 21:16:59.499"
+        );
         assert_eq!(iso_utc("2026-09-27T21:17:48.1Z"), "2026-09-27 21:17:48.100");
         assert_eq!(iso_utc("2026-09-27T21:17:48Z"), "2026-09-27 21:17:48.000");
     }
@@ -156,7 +198,10 @@ mod tests {
             "queryStats": {"createTime": "2026-09-30T11:24:09.401215051Z", "elapsedTime": "1.70s", "totalCpuTime": "1.02s",
                 "processedInputPositions": 60175, "physicalWrittenDataSize": "1.5kB", "peakUserMemoryReservation": "384B"}});
         let s = statement(&q);
-        assert_eq!((s.cpu_ms, s.reads, s.writes), (Some(1020.0), Some(60175), Some(1536)));
+        assert_eq!(
+            (s.cpu_ms, s.reads, s.writes),
+            (Some(1020.0), Some(60175), Some(1536))
+        );
         assert_eq!(s.detail.as_deref(), Some("memoria pico: 384B"));
         assert_eq!(data_size_bytes("0B"), Some(0));
         assert_eq!(data_size_bytes("2MB"), Some(2 * 1024 * 1024));

@@ -19,11 +19,18 @@ const MAX_TEXT: usize = 20000;
 const MAX_ROWS: usize = 2000;
 
 fn text(r: &SimpleQueryRow, name: &str) -> Option<String> {
-    r.try_get(name).ok().flatten().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+    r.try_get(name)
+        .ok()
+        .flatten()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 fn truthy(r: &SimpleQueryRow, name: &str) -> bool {
-    matches!(text(r, name).map(|v| v.to_ascii_lowercase()).as_deref(), Some("t" | "true" | "1"))
+    matches!(
+        text(r, name).map(|v| v.to_ascii_lowercase()).as_deref(),
+        Some("t" | "true" | "1")
+    )
 }
 
 /// A backend pid as the list shows it.
@@ -58,9 +65,16 @@ pub(crate) async fn processes(client: &Client) -> Result<Vec<ServerProcess>> {
                 program: text(r, "application_name"),
                 database: text(r, "datname"),
                 command: text(r, "command"),
-                elapsed_ms: text(r, "elapsed").and_then(|v| v.parse::<f64>().ok()).map(|v| v.max(0.0) as u64),
+                elapsed_ms: text(r, "elapsed")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .map(|v| v.max(0.0) as u64),
                 // An idle session's text is its last statement, not one running.
-                sql: text(r, "query").filter(|_| active || state.as_deref().is_some_and(|s| s.starts_with("idle in transaction"))),
+                sql: text(r, "query").filter(|_| {
+                    active
+                        || state
+                            .as_deref()
+                            .is_some_and(|s| s.starts_with("idle in transaction"))
+                }),
                 status: state,
                 ..Default::default()
             }
@@ -70,13 +84,27 @@ pub(crate) async fn processes(client: &Client) -> Result<Vec<ServerProcess>> {
 }
 
 pub(crate) async fn cancel(client: &Client, id: &str) -> Result<()> {
-    let n = pid(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de sesión (PID)", id.trim())))?;
+    let n = pid(id)
+        .ok_or_else(|| Error::Query(format!("«{}» no es un id de sesión (PID)", id.trim())))?;
     let first = |rs: Vec<SimpleQueryRow>| rs.first().and_then(|r| r.get(0).map(str::to_string));
-    let own = first(rows(client, "SELECT pg_backend_pid()::text").await.map_err(Error::Query)?);
+    let own = first(
+        rows(client, "SELECT pg_backend_pid()::text")
+            .await
+            .map_err(Error::Query)?,
+    );
     if own.as_deref() == Some(n.to_string().as_str()) {
-        return Err(Error::Query("esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá".into()));
+        return Err(Error::Query(
+            "esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá"
+                .into(),
+        ));
     }
-    let r = rows(client, &format!("SELECT pg_cancel_backend({n})::text")).await.map_err(|e| Error::Query(format!("no se pudo cancelar la consulta de la sesión {n}: {e}")))?;
+    let r = rows(client, &format!("SELECT pg_cancel_backend({n})::text"))
+        .await
+        .map_err(|e| {
+            Error::Query(format!(
+                "no se pudo cancelar la consulta de la sesión {n}: {e}"
+            ))
+        })?;
     match first(r).map(|v| v.trim().to_ascii_lowercase()).as_deref() {
         Some("t" | "true" | "1") => Ok(()),
         _ => Err(Error::Query(format!(

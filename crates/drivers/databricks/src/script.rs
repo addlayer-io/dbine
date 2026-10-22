@@ -9,13 +9,20 @@ use dbine_driver::ScriptError;
 
 /// The Databricks SQL editor's reading: backslash escapes, `` `ident` ``.
 pub fn dialect() -> ScriptDialect {
-    ScriptDialect { backslash_escapes: true, ..ScriptDialect::generic() }
+    ScriptDialect {
+        backslash_escapes: true,
+        ..ScriptDialect::generic()
+    }
 }
 
 /// The statements as the SQL editor runs them: compound `BEGIN … END`
 /// blocks (SQL scripting) whole.
 pub fn units(text: &str) -> Vec<ScriptStatement> {
-    blocks::merge(text, split_script(text, &dialect()), blocks::Rules::default())
+    blocks::merge(
+        text,
+        split_script(text, &dialect()),
+        blocks::Rules::default(),
+    )
 }
 
 /// What a `USE` / `SET CATALOG` changes.
@@ -30,11 +37,17 @@ pub enum Use {
 /// `SET SCHEMA s`.
 pub fn use_target(stmt: &str) -> Option<Use> {
     let words = idents(stmt);
-    let up: Vec<String> = words.iter().take(2).map(|w| w.to_ascii_uppercase()).collect();
+    let up: Vec<String> = words
+        .iter()
+        .take(2)
+        .map(|w| w.to_ascii_uppercase())
+        .collect();
     let kw = |i: usize, w: &str| up.get(i).is_some_and(|u| u == w);
     let (kind, skip) = match () {
         _ if (kw(0, "USE") || kw(0, "SET")) && kw(1, "CATALOG") => ("catalog", 2),
-        _ if (kw(0, "USE") || kw(0, "SET")) && (kw(1, "SCHEMA") || kw(1, "DATABASE")) => ("schema", 2),
+        _ if (kw(0, "USE") || kw(0, "SET")) && (kw(1, "SCHEMA") || kw(1, "DATABASE")) => {
+            ("schema", 2)
+        }
         _ if kw(0, "USE") => ("schema", 1),
         _ => return None,
     };
@@ -49,7 +62,9 @@ pub fn use_target(stmt: &str) -> Option<Use> {
 
 /// The plain words of a statement (enough to read its first keywords).
 fn idents(stmt: &str) -> Vec<&str> {
-    stmt.split(|c: char| c.is_whitespace()).filter(|w| !w.is_empty()).collect()
+    stmt.split(|c: char| c.is_whitespace())
+        .filter(|w| !w.is_empty())
+        .collect()
 }
 
 /// The text after the first `n` words.
@@ -95,13 +110,24 @@ fn name_parts(s: &str) -> Option<Vec<String>> {
 /// 14` (or `(line 1, pos 14)`, `== SQL (line 1, position 15) ==`).
 pub fn error(message: &str, stmt: &str) -> ScriptError {
     let mut e = ScriptError::new(message);
-    if let Some(class) = message.strip_prefix('[').and_then(|r| r.split_once(']')).map(|(c, _)| c) {
-        if !class.is_empty() && class.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' || c == '.') {
+    if let Some(class) = message
+        .strip_prefix('[')
+        .and_then(|r| r.split_once(']'))
+        .map(|(c, _)| c)
+    {
+        if !class.is_empty()
+            && class
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' || c == '.')
+        {
             e = e.with_code(class);
         }
     }
     if let Some(at) = message.find("SQLSTATE: ") {
-        let s: String = message[at + 10..].chars().take_while(char::is_ascii_alphanumeric).collect();
+        let s: String = message[at + 10..]
+            .chars()
+            .take_while(char::is_ascii_alphanumeric)
+            .collect();
         if s.len() == 5 {
             e = e.with_sqlstate(s);
         }
@@ -117,11 +143,19 @@ pub fn error(message: &str, stmt: &str) -> ScriptError {
 
 /// (line, 1-based column) of the message's position.
 fn position(msg: &str) -> Option<(u32, u32)> {
-    let num = |s: &str| -> Option<u32> { s.chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok() };
+    let num = |s: &str| -> Option<u32> {
+        s.chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .ok()
+    };
     let at = msg.find("line ")?;
     let rest = &msg[at + 5..];
     let line = num(rest)?;
-    let rest = rest.trim_start_matches(|c: char| c.is_ascii_digit()).trim_start_matches([',', ' ']);
+    let rest = rest
+        .trim_start_matches(|c: char| c.is_ascii_digit())
+        .trim_start_matches([',', ' ']);
     if let Some(p) = rest.strip_prefix("position ") {
         return Some((line, num(p)?));
     }
@@ -137,7 +171,13 @@ fn offset_of(text: &str, line: u32, col: u32) -> Option<usize> {
     }
     let end = text[start..].find('\n').map_or(text.len(), |e| start + e);
     let skip = col.saturating_sub(1) as usize;
-    Some(start + text[start..end].char_indices().nth(skip).map_or(end - start, |(i, _)| i))
+    Some(
+        start
+            + text[start..end]
+                .char_indices()
+                .nth(skip)
+                .map_or(end - start, |(i, _)| i),
+    )
 }
 
 /// An error of one unit moved to the text the driver got.
@@ -158,13 +198,34 @@ mod tests {
 
     #[test]
     fn use_statements() {
-        assert_eq!(use_target("USE CATALOG main"), Some(Use::Catalog("main".into())));
-        assert_eq!(use_target("set catalog `my cat`;"), Some(Use::Catalog("my cat".into())));
-        assert_eq!(use_target("USE SCHEMA ventas"), Some(Use::Schema("ventas".into())));
-        assert_eq!(use_target("use database ventas"), Some(Use::Schema("ventas".into())));
-        assert_eq!(use_target("USE main.ventas"), Some(Use::Both("main".into(), "ventas".into())));
-        assert_eq!(use_target("USE `a.b`.`c`"), Some(Use::Both("a.b".into(), "c".into())));
-        assert_eq!(use_target("USE SCHEMA 'ventas'"), Some(Use::Schema("ventas".into())));
+        assert_eq!(
+            use_target("USE CATALOG main"),
+            Some(Use::Catalog("main".into()))
+        );
+        assert_eq!(
+            use_target("set catalog `my cat`;"),
+            Some(Use::Catalog("my cat".into()))
+        );
+        assert_eq!(
+            use_target("USE SCHEMA ventas"),
+            Some(Use::Schema("ventas".into()))
+        );
+        assert_eq!(
+            use_target("use database ventas"),
+            Some(Use::Schema("ventas".into()))
+        );
+        assert_eq!(
+            use_target("USE main.ventas"),
+            Some(Use::Both("main".into(), "ventas".into()))
+        );
+        assert_eq!(
+            use_target("USE `a.b`.`c`"),
+            Some(Use::Both("a.b".into(), "c".into()))
+        );
+        assert_eq!(
+            use_target("USE SCHEMA 'ventas'"),
+            Some(Use::Schema("ventas".into()))
+        );
         assert_eq!(use_target("SET spark.sql.ansi.enabled = true"), None);
         assert_eq!(use_target("SELECT 1"), None);
         assert_eq!(use_target("USE"), None);
@@ -175,11 +236,20 @@ mod tests {
         let m = "[TABLE_OR_VIEW_NOT_FOUND] The table or view `nope` cannot be found. SQLSTATE: 42P01; line 2 pos 16";
         let stmt = "select 1,\n  2 from x join nope";
         let e = error(m, stmt);
-        assert_eq!((e.code.as_deref(), e.sqlstate.as_deref(), e.line), (Some("TABLE_OR_VIEW_NOT_FOUND"), Some("42P01"), Some(2)));
+        assert_eq!(
+            (e.code.as_deref(), e.sqlstate.as_deref(), e.line),
+            (Some("TABLE_OR_VIEW_NOT_FOUND"), Some("42P01"), Some(2))
+        );
         assert_eq!(&stmt[e.offset.unwrap()..], "nope");
-        let e = error("[PARSE_SYNTAX_ERROR] Syntax error at or near 'fron'. SQLSTATE: 42601 (line 1, pos 9)", "select 1 fron t");
+        let e = error(
+            "[PARSE_SYNTAX_ERROR] Syntax error at or near 'fron'. SQLSTATE: 42601 (line 1, pos 9)",
+            "select 1 fron t",
+        );
         assert_eq!((e.line, e.offset), (Some(1), Some(9)));
-        let e = error("[X] boom\n== SQL (line 1, position 10) ==", "select 1 fron t");
+        let e = error(
+            "[X] boom\n== SQL (line 1, position 10) ==",
+            "select 1 fron t",
+        );
         assert_eq!(e.offset, Some(9));
         let e = error("la sentencia falló", "x");
         assert_eq!((e.code, e.sqlstate, e.line), (None, None, None));
@@ -188,7 +258,13 @@ mod tests {
     #[test]
     fn compound_blocks_stay_whole() {
         let t = |s: &str| units(s).into_iter().map(|u| u.text).collect::<Vec<_>>();
-        assert_eq!(t("BEGIN\n  DECLARE x INT DEFAULT 1;\n  SELECT x;\nEND;\nSELECT 2"), vec!["BEGIN\n  DECLARE x INT DEFAULT 1;\n  SELECT x;\nEND", "SELECT 2"]);
+        assert_eq!(
+            t("BEGIN\n  DECLARE x INT DEFAULT 1;\n  SELECT x;\nEND;\nSELECT 2"),
+            vec![
+                "BEGIN\n  DECLARE x INT DEFAULT 1;\n  SELECT x;\nEND",
+                "SELECT 2"
+            ]
+        );
         assert_eq!(t("SELECT 'a\\';b'; SELECT 2").len(), 2);
         assert_eq!(t("BEGIN TRANSACTION; SELECT 1; COMMIT").len(), 3);
     }

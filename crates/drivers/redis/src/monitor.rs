@@ -35,7 +35,9 @@ fn n(info: &HashMap<String, String>, k: &str) -> Option<f64> {
 fn cell(v: Option<&str>) -> J {
     match v {
         None => J::Null,
-        Some(s) => num(s).map(|n| json!(n)).unwrap_or_else(|| J::String(s.to_string())),
+        Some(s) => num(s)
+            .map(|n| json!(n))
+            .unwrap_or_else(|| J::String(s.to_string())),
     }
 }
 
@@ -48,7 +50,11 @@ pub(crate) fn clip(s: &str, max: usize) -> String {
 }
 
 /// The metrics and tables `INFO all` gives.
-pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>, maxclients: Option<f64>) {
+pub(crate) fn from_info(
+    s: &mut MonitorSnapshot,
+    info: &HashMap<String, String>,
+    maxclients: Option<f64>,
+) {
     let product = if info.contains_key("dragonfly_version") {
         "Dragonfly"
     } else if info.contains_key("valkey_version") {
@@ -62,52 +68,162 @@ pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>,
         (Some(a), Some(b)) => Some((a + b) * 100.0),
         (a, b) => a.or(b).map(|x| x * 100.0),
     };
-    s.metrics.push(Metric::new("cpu_time", "CPU del proceso", "CPU", MetricUnit::Percent, cpu).counter());
+    s.metrics.push(
+        Metric::new(
+            "cpu_time",
+            "CPU del proceso",
+            "CPU",
+            MetricUnit::Percent,
+            cpu,
+        )
+        .counter(),
+    );
     s.notes.push(format!("{product} no informa el uso de CPU del host; se muestra el tiempo de CPU del proceso (la tasa es el % de un núcleo)."));
 
     // Memory.
     let maxmemory = n(info, "maxmemory").filter(|m| *m > 0.0);
     let ceiling = maxmemory.or_else(|| n(info, "total_system_memory").filter(|m| *m > 0.0));
-    s.metrics.push(Metric::new("mem_used", "Memoria usada", "Memoria", MetricUnit::Bytes, n(info, "used_memory")).max(ceiling));
+    s.metrics.push(
+        Metric::new(
+            "mem_used",
+            "Memoria usada",
+            "Memoria",
+            MetricUnit::Bytes,
+            n(info, "used_memory"),
+        )
+        .max(ceiling),
+    );
     if let Some(v) = n(info, "used_memory_rss") {
-        s.metrics.push(Metric::new("mem_rss", "Memoria residente (RSS)", "Memoria", MetricUnit::Bytes, Some(v)).max(ceiling));
+        s.metrics.push(
+            Metric::new(
+                "mem_rss",
+                "Memoria residente (RSS)",
+                "Memoria",
+                MetricUnit::Bytes,
+                Some(v),
+            )
+            .max(ceiling),
+        );
     }
     if let Some(v) = n(info, "used_memory_peak") {
-        s.metrics.push(Metric::new("mem_peak", "Pico de memoria", "Memoria", MetricUnit::Bytes, Some(v)));
+        s.metrics.push(Metric::new(
+            "mem_peak",
+            "Pico de memoria",
+            "Memoria",
+            MetricUnit::Bytes,
+            Some(v),
+        ));
     }
     if let Some(v) = n(info, "mem_fragmentation_ratio") {
-        s.metrics.push(Metric::new("mem_fragmentation", "Fragmentación (×100)", "Memoria", MetricUnit::Percent, Some(v * 100.0)));
+        s.metrics.push(Metric::new(
+            "mem_fragmentation",
+            "Fragmentación (×100)",
+            "Memoria",
+            MetricUnit::Percent,
+            Some(v * 100.0),
+        ));
     }
 
     // Clients.
     let maxclients = n(info, "maxclients").or(maxclients);
     s.metrics.push(
-        Metric::new("connections", "Conexiones", "Conexiones", MetricUnit::Count, n(info, "connected_clients")).max(maxclients),
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            MetricUnit::Count,
+            n(info, "connected_clients"),
+        )
+        .max(maxclients),
     );
     if let Some(v) = n(info, "blocked_clients") {
-        s.metrics.push(Metric::new("blocked_clients", "Clientes bloqueados", "Conexiones", MetricUnit::Count, Some(v)));
+        s.metrics.push(Metric::new(
+            "blocked_clients",
+            "Clientes bloqueados",
+            "Conexiones",
+            MetricUnit::Count,
+            Some(v),
+        ));
     }
     if let Some(v) = n(info, "total_connections_received") {
-        s.metrics.push(Metric::new("connections_received", "Conexiones recibidas", "Conexiones", MetricUnit::Count, Some(v)).counter());
+        s.metrics.push(
+            Metric::new(
+                "connections_received",
+                "Conexiones recibidas",
+                "Conexiones",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .counter(),
+        );
     }
     if let Some(v) = n(info, "rejected_connections") {
-        s.metrics.push(Metric::new("rejected_connections", "Conexiones rechazadas", "Conexiones", MetricUnit::Count, Some(v)).counter());
+        s.metrics.push(
+            Metric::new(
+                "rejected_connections",
+                "Conexiones rechazadas",
+                "Conexiones",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .counter(),
+        );
     }
 
     // Activity.
     s.metrics.push(
-        Metric::new("queries", "Comandos", "Actividad", MetricUnit::Count, n(info, "total_commands_processed")).counter(),
+        Metric::new(
+            "queries",
+            "Comandos",
+            "Actividad",
+            MetricUnit::Count,
+            n(info, "total_commands_processed"),
+        )
+        .counter(),
     );
     if let Some(v) = n(info, "instantaneous_ops_per_sec") {
-        s.metrics.push(Metric::new("ops_per_sec", "Operaciones por segundo", "Actividad", MetricUnit::Count, Some(v)));
+        s.metrics.push(Metric::new(
+            "ops_per_sec",
+            "Operaciones por segundo",
+            "Actividad",
+            MetricUnit::Count,
+            Some(v),
+        ));
     }
     if let Some(v) = n(info, "expired_keys") {
-        s.metrics.push(Metric::new("expired_keys", "Claves vencidas", "Actividad", MetricUnit::Count, Some(v)).counter());
+        s.metrics.push(
+            Metric::new(
+                "expired_keys",
+                "Claves vencidas",
+                "Actividad",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .counter(),
+        );
     }
 
     // Network.
-    s.metrics.push(Metric::new("net_in", "Red entrante", "Red", MetricUnit::Bytes, n(info, "total_net_input_bytes")).counter());
-    s.metrics.push(Metric::new("net_out", "Red saliente", "Red", MetricUnit::Bytes, n(info, "total_net_output_bytes")).counter());
+    s.metrics.push(
+        Metric::new(
+            "net_in",
+            "Red entrante",
+            "Red",
+            MetricUnit::Bytes,
+            n(info, "total_net_input_bytes"),
+        )
+        .counter(),
+    );
+    s.metrics.push(
+        Metric::new(
+            "net_out",
+            "Red saliente",
+            "Red",
+            MetricUnit::Bytes,
+            n(info, "total_net_output_bytes"),
+        )
+        .counter(),
+    );
 
     // Cache.
     let hits = n(info, "keyspace_hits");
@@ -116,12 +232,48 @@ pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>,
         (Some(h), Some(m)) if h + m > 0.0 => Some(h / (h + m) * 100.0),
         _ => None,
     };
-    s.metrics.push(Metric::new("cache_hit", "Aciertos de caché", "Caché", MetricUnit::Percent, ratio).max(Some(100.0)));
+    s.metrics.push(
+        Metric::new(
+            "cache_hit",
+            "Aciertos de caché",
+            "Caché",
+            MetricUnit::Percent,
+            ratio,
+        )
+        .max(Some(100.0)),
+    );
     if hits.is_some() {
-        s.metrics.push(Metric::new("keyspace_hits", "Aciertos", "Caché", MetricUnit::Count, hits).counter());
-        s.metrics.push(Metric::new("keyspace_misses", "Fallos", "Caché", MetricUnit::Count, misses).counter());
+        s.metrics.push(
+            Metric::new(
+                "keyspace_hits",
+                "Aciertos",
+                "Caché",
+                MetricUnit::Count,
+                hits,
+            )
+            .counter(),
+        );
+        s.metrics.push(
+            Metric::new(
+                "keyspace_misses",
+                "Fallos",
+                "Caché",
+                MetricUnit::Count,
+                misses,
+            )
+            .counter(),
+        );
     }
-    s.metrics.push(Metric::new("evictions", "Claves desalojadas", "Caché", MetricUnit::Count, n(info, "evicted_keys")).counter());
+    s.metrics.push(
+        Metric::new(
+            "evictions",
+            "Claves desalojadas",
+            "Caché",
+            MetricUnit::Count,
+            n(info, "evicted_keys"),
+        )
+        .counter(),
+    );
 
     // Keyspace.
     let mut dbs: Vec<(i64, HashMap<&str, &str>)> = info
@@ -129,12 +281,31 @@ pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>,
         .filter_map(|(k, v)| Some((k.strip_prefix("db")?.parse().ok()?, pairs(v))))
         .collect();
     dbs.sort_by_key(|(i, _)| *i);
-    let keys: f64 = dbs.iter().filter_map(|(_, p)| p.get("keys").and_then(|v| num(v))).sum();
-    s.metrics.push(Metric::new("keys", "Claves", "Almacenamiento", MetricUnit::Count, Some(keys)));
+    let keys: f64 = dbs
+        .iter()
+        .filter_map(|(_, p)| p.get("keys").and_then(|v| num(v)))
+        .sum();
+    s.metrics.push(Metric::new(
+        "keys",
+        "Claves",
+        "Almacenamiento",
+        MetricUnit::Count,
+        Some(keys),
+    ));
     if let Some(v) = n(info, "rdb_changes_since_last_save") {
-        s.metrics.push(Metric::new("unsaved_changes", "Cambios sin persistir", "Almacenamiento", MetricUnit::Count, Some(v)));
+        s.metrics.push(Metric::new(
+            "unsaved_changes",
+            "Cambios sin persistir",
+            "Almacenamiento",
+            MetricUnit::Count,
+            Some(v),
+        ));
     }
-    let mut table = MonitorTable::new("databases", "Bases (keyspace)", &["base", "claves", "con vencimiento", "TTL promedio (ms)"]);
+    let mut table = MonitorTable::new(
+        "databases",
+        "Bases (keyspace)",
+        &["base", "claves", "con vencimiento", "TTL promedio (ms)"],
+    );
     for (i, p) in &dbs {
         table.rows.push(vec![
             J::String(format!("db{i}")),
@@ -161,14 +332,23 @@ pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>,
                 info.get("master_port").map(String::as_str).unwrap_or("?")
             )),
             cell(link),
-            cell(info.get("slave_repl_offset").or_else(|| info.get("master_repl_offset")).map(String::as_str)),
+            cell(
+                info.get("slave_repl_offset")
+                    .or_else(|| info.get("master_repl_offset"))
+                    .map(String::as_str),
+            ),
             cell(info.get("master_last_io_seconds_ago").map(String::as_str)),
         ]);
         n(info, "master_last_io_seconds_ago").filter(|v| *v >= 0.0)
     } else {
         let mut worst: Option<f64> = None;
-        let mut replicas: Vec<(&String, &String)> =
-            info.iter().filter(|(k, _)| k.strip_prefix("slave").is_some_and(|r| r.parse::<u32>().is_ok())).collect();
+        let mut replicas: Vec<(&String, &String)> = info
+            .iter()
+            .filter(|(k, _)| {
+                k.strip_prefix("slave")
+                    .is_some_and(|r| r.parse::<u32>().is_ok())
+            })
+            .collect();
         replicas.sort();
         for (_, v) in replicas {
             let p = pairs(v);
@@ -177,7 +357,11 @@ pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>,
                 worst = Some(worst.map_or(l, |w| w.max(l)));
             }
             repl.rows.push(vec![
-                J::String(format!("{}:{}", p.get("ip").unwrap_or(&"?"), p.get("port").unwrap_or(&"?"))),
+                J::String(format!(
+                    "{}:{}",
+                    p.get("ip").unwrap_or(&"?"),
+                    p.get("port").unwrap_or(&"?")
+                )),
                 cell(p.get("state").copied()),
                 cell(p.get("offset").copied()),
                 cell(p.get("lag").copied()),
@@ -185,16 +369,34 @@ pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>,
         }
         worst
     };
-    s.metrics.push(Metric::new("replication_lag", "Retraso de réplica", "Replicación", MetricUnit::Seconds, lag));
+    s.metrics.push(Metric::new(
+        "replication_lag",
+        "Retraso de réplica",
+        "Replicación",
+        MetricUnit::Seconds,
+        lag,
+    ));
     if let Some(v) = n(info, "connected_slaves") {
-        s.metrics.push(Metric::new("replicas", "Réplicas conectadas", "Replicación", MetricUnit::Count, Some(v)));
+        s.metrics.push(Metric::new(
+            "replicas",
+            "Réplicas conectadas",
+            "Replicación",
+            MetricUnit::Count,
+            Some(v),
+        ));
     }
     if !repl.rows.is_empty() {
         s.tables.push(repl);
     }
 
     // Server.
-    s.metrics.push(Metric::new("uptime", "Tiempo activo", "Servidor", MetricUnit::Seconds, n(info, "uptime_in_seconds")));
+    s.metrics.push(Metric::new(
+        "uptime",
+        "Tiempo activo",
+        "Servidor",
+        MetricUnit::Seconds,
+        n(info, "uptime_in_seconds"),
+    ));
 
     // Command statistics, busiest first.
     let mut stats: Vec<(f64, Vec<J>)> = info
@@ -208,7 +410,10 @@ pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>,
                 vec![
                     J::String(name.to_string()),
                     json!(calls),
-                    p.get("usec").and_then(|x| num(x)).map(|u| json!(u / 1000.0)).unwrap_or(J::Null),
+                    p.get("usec")
+                        .and_then(|x| num(x))
+                        .map(|u| json!(u / 1000.0))
+                        .unwrap_or(J::Null),
                     cell(p.get("usec_per_call").copied()),
                     cell(p.get("failed_calls").copied()),
                     cell(p.get("rejected_calls").copied()),
@@ -221,7 +426,14 @@ pub(crate) fn from_info(s: &mut MonitorSnapshot, info: &HashMap<String, String>,
         let mut t = MonitorTable::new(
             "top_commands",
             "Comandos más usados",
-            &["comando", "llamadas", "tiempo total (ms)", "µs por llamada", "con error", "rechazadas"],
+            &[
+                "comando",
+                "llamadas",
+                "tiempo total (ms)",
+                "µs por llamada",
+                "con error",
+                "rechazadas",
+            ],
         );
         t.rows = stats.into_iter().take(20).map(|(_, r)| r).collect();
         s.tables.push(t);
@@ -279,16 +491,25 @@ pub(crate) fn clients(text: &str) -> MonitorTable {
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| {
-            let p: HashMap<&str, &str> = l.split_whitespace().filter_map(|f| f.split_once('=')).collect();
+            let p: HashMap<&str, &str> = l
+                .split_whitespace()
+                .filter_map(|f| f.split_once('='))
+                .collect();
             let idle = p.get("idle").and_then(|v| num(v)).unwrap_or(0.0);
             let cmd = p.get("cmd").copied().filter(|c| *c != "NULL");
-            let state = if cmd.is_some() && idle == 0.0 { "activa" } else { "inactiva" };
+            let state = if cmd.is_some() && idle == 0.0 {
+                "activa"
+            } else {
+                "inactiva"
+            };
             (
                 idle,
                 vec![
                     cell(p.get("id").copied()),
                     cell(p.get("user").copied()),
-                    p.get("db").map(|d| J::String(format!("db{d}"))).unwrap_or(J::Null),
+                    p.get("db")
+                        .map(|d| J::String(format!("db{d}")))
+                        .unwrap_or(J::Null),
                     cell(p.get("addr").copied()),
                     cell(p.get("name").copied().filter(|n| !n.is_empty())),
                     J::String(state.into()),
@@ -304,7 +525,18 @@ pub(crate) fn clients(text: &str) -> MonitorTable {
     let mut t = MonitorTable::new(
         "sessions",
         "Sesiones",
-        &["id", "usuario", "base", "cliente", "nombre", "estado", "duración (s)", "inactiva (s)", "flags", "último comando"],
+        &[
+            "id",
+            "usuario",
+            "base",
+            "cliente",
+            "nombre",
+            "estado",
+            "duración (s)",
+            "inactiva (s)",
+            "flags",
+            "último comando",
+        ],
     );
     t.rows = rows.into_iter().take(MAX_ROWS).map(|(_, r)| r).collect();
     t
@@ -315,7 +547,14 @@ pub(crate) fn slowlog(v: &Value) -> MonitorTable {
     let mut t = MonitorTable::new(
         "queries",
         "Consultas lentas (SLOWLOG)",
-        &["id", "fecha", "duración (ms)", "comando", "cliente", "nombre"],
+        &[
+            "id",
+            "fecha",
+            "duración (ms)",
+            "comando",
+            "cliente",
+            "nombre",
+        ],
     );
     let Value::Array(entries) = v else { return t };
     for e in entries.iter().take(MAX_ROWS) {
@@ -329,16 +568,27 @@ pub(crate) fn slowlog(v: &Value) -> MonitorTable {
             .map(J::String)
             .unwrap_or(J::Null);
         let cmd = match f.get(3) {
-            Some(Value::Array(args)) => args.iter().map(shape::text_of).collect::<Vec<_>>().join(" "),
+            Some(Value::Array(args)) => args
+                .iter()
+                .map(shape::text_of)
+                .collect::<Vec<_>>()
+                .join(" "),
             _ => String::new(),
         };
         t.rows.push(vec![
             int(0).map(|n| json!(n)).unwrap_or(J::Null),
             when,
-            int(2).map(|us| json!(us as f64 / 1000.0)).unwrap_or(J::Null),
+            int(2)
+                .map(|us| json!(us as f64 / 1000.0))
+                .unwrap_or(J::Null),
             J::String(clip(&cmd, 2000)),
-            f.get(4).map(|v| J::String(shape::text_of(v))).unwrap_or(J::Null),
-            f.get(5).map(|v| J::String(shape::text_of(v))).filter(|v| v != "").unwrap_or(J::Null),
+            f.get(4)
+                .map(|v| J::String(shape::text_of(v)))
+                .unwrap_or(J::Null),
+            f.get(5)
+                .map(|v| J::String(shape::text_of(v)))
+                .filter(|v| v != "")
+                .unwrap_or(J::Null),
         ]);
     }
     t
@@ -362,23 +612,40 @@ fn chrono_like(ts: i64) -> Option<String> {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
-    Some(format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}", rem / 3600, rem % 3600 / 60, rem % 60))
+    Some(format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    ))
 }
 
 /// `CLUSTER NODES` text → the nodes table.
 pub(crate) fn cluster_nodes(text: &str) -> MonitorTable {
-    let mut t = MonitorTable::new("nodes", "Nodos del cluster", &["id", "dirección", "rol", "primario", "estado", "slots"]);
+    let mut t = MonitorTable::new(
+        "nodes",
+        "Nodos del cluster",
+        &["id", "dirección", "rol", "primario", "estado", "slots"],
+    );
     for l in text.lines().filter(|l| !l.trim().is_empty()).take(MAX_ROWS) {
         let f: Vec<&str> = l.split_whitespace().collect();
         if f.len() < 8 {
             continue;
         }
-        let role = f[2].split(',').filter(|x| *x != "myself").collect::<Vec<_>>().join(",");
+        let role = f[2]
+            .split(',')
+            .filter(|x| *x != "myself")
+            .collect::<Vec<_>>()
+            .join(",");
         t.rows.push(vec![
             J::String(f[0].chars().take(12).collect()),
             J::String(f[1].split('@').next().unwrap_or(f[1]).into()),
             J::String(role),
-            J::String(if f[3] == "-" { String::new() } else { f[3].chars().take(12).collect() }),
+            J::String(if f[3] == "-" {
+                String::new()
+            } else {
+                f[3].chars().take(12).collect()
+            }),
             J::String(f[7].into()),
             J::String(f[8..].join(" ")),
         ]);
@@ -400,7 +667,10 @@ impl RedisSession {
         } else {
             match self.run(&[b"CONFIG", b"GET", b"maxclients"]).await {
                 Ok(Value::Array(a)) => a.get(1).map(shape::text_of).and_then(|v| num(&v)),
-                Ok(Value::Map(m)) => m.first().map(|(_, v)| shape::text_of(v)).and_then(|v| num(&v)),
+                Ok(Value::Map(m)) => m
+                    .first()
+                    .map(|(_, v)| shape::text_of(v))
+                    .and_then(|v| num(&v)),
                 _ => None,
             }
         };
@@ -483,7 +753,10 @@ cmdstat_set:calls=20,usec=300,usec_per_call=15.00,rejected_calls=0,failed_calls=
             Value::Int(1),
             Value::Int(1_700_000_000),
             Value::Int(2500),
-            Value::Array(vec![Value::BulkString(b"KEYS".to_vec()), Value::BulkString(b"*".to_vec())]),
+            Value::Array(vec![
+                Value::BulkString(b"KEYS".to_vec()),
+                Value::BulkString(b"*".to_vec()),
+            ]),
             Value::BulkString(b"127.0.0.1:1".to_vec()),
             Value::BulkString(b"".to_vec()),
         ])]);

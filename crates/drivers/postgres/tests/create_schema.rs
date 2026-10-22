@@ -26,7 +26,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
     let url = std::env::var(env).ok()?;
     let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
     let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+    let (user, pass) = auth
+        .split_once(':')
+        .map_or((auth, None), |(u, p)| (u, Some(p)));
     let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
     let (host, port) = hostport.rsplit_once(':')?;
     Some(ConnectionConfig {
@@ -42,7 +44,9 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 100, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 100, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
 }
 
@@ -55,14 +59,24 @@ async fn attempt(s: &mut Box<dyn Session>, sql: &str) -> bool {
 /// Every row of the query's first result, cells as text.
 async fn rows(s: &mut Box<dyn Session>, sql: &str) -> Vec<Vec<String>> {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 1000, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 1000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
     assert!(out.error.is_none(), "{sql}: {:?}", out.error);
     out.results
         .first()
         .map(|r| {
             r.rows
                 .iter()
-                .map(|row| row.iter().map(|c| c.as_str().map(str::to_string).unwrap_or_else(|| c.to_string())).collect())
+                .map(|row| {
+                    row.iter()
+                        .map(|c| {
+                            c.as_str()
+                                .map(str::to_string)
+                                .unwrap_or_else(|| c.to_string())
+                        })
+                        .collect()
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -131,12 +145,26 @@ async fn create_and_drop(c: Case) {
         eprintln!("{} not set; skipping", c.env);
         return;
     };
-    let d: Arc<dyn Driver> = dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == c.id).unwrap();
+    let d: Arc<dyn Driver> = dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == c.id)
+        .unwrap();
     let spec = d.schema_spec().expect("schema spec");
     let mut s = d.connect(&cfg, None).await.unwrap();
-    let n = |x: &str| if c.upper { x.to_uppercase() } else { x.to_string() };
-    let (schema, owner, reader, table, creator) =
-        (n("dbine_sch_ventas"), n("dbine_sch_owner"), n("dbine_sch_reader"), n("facturas"), n("dbine_sch_creator"));
+    let n = |x: &str| {
+        if c.upper {
+            x.to_uppercase()
+        } else {
+            x.to_string()
+        }
+    };
+    let (schema, owner, reader, table, creator) = (
+        n("dbine_sch_ventas"),
+        n("dbine_sch_owner"),
+        n("dbine_sch_reader"),
+        n("facturas"),
+        n("dbine_sch_creator"),
+    );
     let q = |x: &str| format!("\"{x}\"");
     let db = q(&cfg.database);
 
@@ -155,7 +183,10 @@ async fn create_and_drop(c: Case) {
     }
     for p in [&owner, &reader] {
         let a = match c.password {
-            Some(pw) => SecurityAction::CreateUser { name: p.clone(), password: Some(pw.into()) },
+            Some(pw) => SecurityAction::CreateUser {
+                name: p.clone(),
+                password: Some(pw.into()),
+            },
             None => SecurityAction::CreateRole { name: p.clone() },
         };
         run(&mut s, &d.security_script(&a).unwrap()).await;
@@ -164,38 +195,90 @@ async fn create_and_drop(c: Case) {
     // Who runs the script: the admin, or a login that isn't superuser.
     let member = format!("GRANT {} TO {}", q(&owner), q(&creator));
     let md5 = match c.creator {
-        Creator::NoInheritMd5 => rows(&mut s, &format!("SELECT 'md5' || md5('{CREATOR_PASSWORD}{creator}')")).await[0][0].clone(),
+        Creator::NoInheritMd5 => rows(
+            &mut s,
+            &format!("SELECT 'md5' || md5('{CREATOR_PASSWORD}{creator}')"),
+        )
+        .await[0][0]
+            .clone(),
         _ => String::new(),
     };
     let setup = match c.creator {
         Creator::Admin => vec![],
-        Creator::NoInherit => vec![format!("CREATE ROLE {} LOGIN NOINHERIT PASSWORD '{CREATOR_PASSWORD}'", q(&creator)), member],
-        Creator::NoInheritMd5 => vec![format!("CREATE ROLE {} LOGIN NOINHERIT PASSWORD '{md5}'", q(&creator)), member],
+        Creator::NoInherit => vec![
+            format!(
+                "CREATE ROLE {} LOGIN NOINHERIT PASSWORD '{CREATOR_PASSWORD}'",
+                q(&creator)
+            ),
+            member,
+        ],
+        Creator::NoInheritMd5 => vec![
+            format!(
+                "CREATE ROLE {} LOGIN NOINHERIT PASSWORD '{md5}'",
+                q(&creator)
+            ),
+            member,
+        ],
         Creator::Member => vec![format!("CREATE USER {}", q(&creator)), member],
         Creator::MzRole => vec![format!("CREATE ROLE {}", q(&creator)), member],
-        Creator::User => vec![format!("CREATE USER {} WITH PASSWORD '{CREATOR_PASSWORD}'", q(&creator))],
+        Creator::User => vec![format!(
+            "CREATE USER {} WITH PASSWORD '{CREATOR_PASSWORD}'",
+            q(&creator)
+        )],
     };
     let mut as_creator = if setup.is_empty() {
         None
     } else {
-        for stmt in setup.iter().chain([&format!("GRANT CREATE ON DATABASE {db} TO {}", q(&creator))]) {
+        for stmt in setup
+            .iter()
+            .chain([&format!("GRANT CREATE ON DATABASE {db} TO {}", q(&creator))])
+        {
             run(&mut s, stmt).await;
         }
         let mut cc = cfg.clone();
         cc.username = Some(creator.clone());
-        cc.password = matches!(c.creator, Creator::NoInherit | Creator::NoInheritMd5 | Creator::User).then(|| CREATOR_PASSWORD.into());
-        Some(d.connect(&cc, None).await.unwrap_or_else(|e| panic!("{}: login as {creator}: {e}", c.id)))
+        cc.password = matches!(
+            c.creator,
+            Creator::NoInherit | Creator::NoInheritMd5 | Creator::User
+        )
+        .then(|| CREATOR_PASSWORD.into());
+        Some(
+            d.connect(&cc, None)
+                .await
+                .unwrap_or_else(|e| panic!("{}: login as {creator}: {e}", c.id)),
+        )
     };
 
     // What the dialog builds (src-tauri commands/schemas.rs): the create,
     // the grants, then the owner change when the driver hands it over last.
     let privileges: Vec<String> = spec.privileges.iter().map(|p| p.to_string()).collect();
     let owner_change = d.schema_owner_script(None, &schema, &owner).unwrap();
-    let mut parts = vec![d.create_schema_script(None, &schema, if owner_change.is_some() { None } else { Some(&owner) }).unwrap()];
-    parts.push(d.schema_grant_script(None, &schema, &privileges, &reader, c.grantable).unwrap());
+    let mut parts = vec![d
+        .create_schema_script(
+            None,
+            &schema,
+            if owner_change.is_some() {
+                None
+            } else {
+                Some(&owner)
+            },
+        )
+        .unwrap()];
+    parts.push(
+        d.schema_grant_script(None, &schema, &privileges, &reader, c.grantable)
+            .unwrap(),
+    );
     parts.extend(owner_change);
     let script = parts.join("\n");
-    eprintln!("{} (as {}):\n{script}", c.id, if as_creator.is_some() { creator.as_str() } else { "admin" });
+    eprintln!(
+        "{} (as {}):\n{script}",
+        c.id,
+        if as_creator.is_some() {
+            creator.as_str()
+        } else {
+            "admin"
+        }
+    );
     run(as_creator.as_mut().unwrap_or(&mut s), &script).await;
 
     let lit = |x: &str| format!("'{}'", x.replace('\'', "''"));
@@ -240,15 +323,33 @@ async fn create_and_drop(c: Case) {
                 )
                 .await;
                 // All four together read back as ALL.
-                g.iter().any(|r| r[0].split(',').any(|x| x.trim() == p || x.trim() == "ALL"))
+                g.iter()
+                    .any(|r| r[0].split(',').any(|x| x.trim() == p || x.trim() == "ALL"))
             }
             _ => {
-                let what = if c.grantable { format!("{p} WITH GRANT OPTION") } else { p.clone() };
-                let g = rows(&mut s, &format!("SELECT has_schema_privilege({}, {}, {})::text", lit(&reader), lit(&schema), lit(&what))).await;
+                let what = if c.grantable {
+                    format!("{p} WITH GRANT OPTION")
+                } else {
+                    p.clone()
+                };
+                let g = rows(
+                    &mut s,
+                    &format!(
+                        "SELECT has_schema_privilege({}, {}, {})::text",
+                        lit(&reader),
+                        lit(&schema),
+                        lit(&what)
+                    ),
+                )
+                .await;
                 truthy(&g[0][0])
             }
         };
-        assert!(held, "{}: {reader} should hold {p} (grantable: {}) on {schema}", c.id, c.grantable);
+        assert!(
+            held,
+            "{}: {reader} should hold {p} (grantable: {}) on {schema}",
+            c.id, c.grantable
+        );
     }
 
     // The explorer lists the new schema while it's empty, and tells the
@@ -256,39 +357,124 @@ async fn create_and_drop(c: Case) {
     let listed = s.list_schemas().await.unwrap().expect("list_schemas");
     let names: Vec<&str> = listed.iter().map(|x| x.name.as_str()).collect();
     eprintln!("{}: {names:?}", c.id);
-    assert!(listed.iter().any(|x| x.name == schema && !x.system), "{}: {schema} missing from {names:?}", c.id);
-    assert!(listed.iter().any(|x| x.name.eq_ignore_ascii_case("information_schema") && x.system), "{}: information_schema not a system schema", c.id);
+    assert!(
+        listed.iter().any(|x| x.name == schema && !x.system),
+        "{}: {schema} missing from {names:?}",
+        c.id
+    );
+    assert!(
+        listed
+            .iter()
+            .any(|x| x.name.eq_ignore_ascii_case("information_schema") && x.system),
+        "{}: information_schema not a system schema",
+        c.id
+    );
     for o in s.list_objects().await.unwrap() {
         if let Some(sch) = o.schema.as_deref() {
-            assert!(listed.iter().any(|x| x.name == sch && !x.system), "{}: {sch} (of {}) not listed as a user schema", c.id, o.name);
+            assert!(
+                listed.iter().any(|x| x.name == sch && !x.system),
+                "{}: {sch} (of {}) not listed as a user schema",
+                c.id,
+                o.name
+            );
         }
     }
 
     // Not empty: refused without CASCADE, dropped with it.
-    run(&mut s, &format!("CREATE TABLE {}.{} (id int)", q(&schema), q(&table))).await;
-    assert!(!attempt(&mut s, &d.drop_schema_script(None, &schema, false).unwrap()).await, "{}: dropped a schema with a table", c.id);
+    run(
+        &mut s,
+        &format!("CREATE TABLE {}.{} (id int)", q(&schema), q(&table)),
+    )
+    .await;
+    assert!(
+        !attempt(&mut s, &d.drop_schema_script(None, &schema, false).unwrap()).await,
+        "{}: dropped a schema with a table",
+        c.id
+    );
     assert!(spec.cascade);
     run(&mut s, &d.drop_schema_script(None, &schema, true).unwrap()).await;
     // Empty, without owner: dropped without CASCADE.
-    run(&mut s, &d.create_schema_script(None, &schema, None).unwrap()).await;
+    run(
+        &mut s,
+        &d.create_schema_script(None, &schema, None).unwrap(),
+    )
+    .await;
     run(&mut s, &d.drop_schema_script(None, &schema, false).unwrap()).await;
     let left = match c.catalog {
-        Catalog::H2 => rows(&mut s, &format!("SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = {}", lit(&schema))).await,
-        Catalog::Materialize => rows(&mut s, &format!("SELECT count(*) FROM mz_schemas WHERE name = {}", lit(&schema))).await,
-        Catalog::RisingWave => rows(&mut s, &format!("SELECT count(*) FROM rw_catalog.rw_schemas WHERE name = {}", lit(&schema))).await,
-        _ => rows(&mut s, &format!("SELECT count(*) FROM pg_namespace WHERE nspname = {}", lit(&schema))).await,
+        Catalog::H2 => {
+            rows(
+                &mut s,
+                &format!(
+                    "SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = {}",
+                    lit(&schema)
+                ),
+            )
+            .await
+        }
+        Catalog::Materialize => {
+            rows(
+                &mut s,
+                &format!(
+                    "SELECT count(*) FROM mz_schemas WHERE name = {}",
+                    lit(&schema)
+                ),
+            )
+            .await
+        }
+        Catalog::RisingWave => {
+            rows(
+                &mut s,
+                &format!(
+                    "SELECT count(*) FROM rw_catalog.rw_schemas WHERE name = {}",
+                    lit(&schema)
+                ),
+            )
+            .await
+        }
+        _ => {
+            rows(
+                &mut s,
+                &format!(
+                    "SELECT count(*) FROM pg_namespace WHERE nspname = {}",
+                    lit(&schema)
+                ),
+            )
+            .await
+        }
     };
-    assert_eq!(left, vec![vec!["0".to_string()]], "{}: schema left behind", c.id);
+    assert_eq!(
+        left,
+        vec![vec!["0".to_string()]],
+        "{}: schema left behind",
+        c.id
+    );
 
     drop(as_creator);
     if c.creator != Creator::Admin {
-        run(&mut s, &format!("REVOKE CREATE ON DATABASE {db} FROM {}", q(&creator))).await;
-        let kind = if c.creator == Creator::User { "USER" } else { "ROLE" };
+        run(
+            &mut s,
+            &format!("REVOKE CREATE ON DATABASE {db} FROM {}", q(&creator)),
+        )
+        .await;
+        let kind = if c.creator == Creator::User {
+            "USER"
+        } else {
+            "ROLE"
+        };
         run(&mut s, &format!("DROP {kind} {}", q(&creator))).await;
     }
     for p in [&owner, &reader] {
-        let kind = if c.password.is_some() { dbine_driver::PrincipalKind::User } else { dbine_driver::PrincipalKind::Role };
-        let drop = d.security_script(&SecurityAction::Drop { name: p.clone(), kind }).unwrap();
+        let kind = if c.password.is_some() {
+            dbine_driver::PrincipalKind::User
+        } else {
+            dbine_driver::PrincipalKind::Role
+        };
+        let drop = d
+            .security_script(&SecurityAction::Drop {
+                name: p.clone(),
+                kind,
+            })
+            .unwrap();
         run(&mut s, &drop).await;
     }
 }
@@ -296,21 +482,46 @@ async fn create_and_drop(c: Case) {
 #[tokio::test]
 #[ignore]
 async fn postgres() {
-    create_and_drop(Case { id: "postgres", env: "DBINE_TEST_POSTGRES_URL", catalog: Catalog::Pg, password: None, grantable: true, upper: false, creator: Creator::NoInherit }).await;
+    create_and_drop(Case {
+        id: "postgres",
+        env: "DBINE_TEST_POSTGRES_URL",
+        catalog: Catalog::Pg,
+        password: None,
+        grantable: true,
+        upper: false,
+        creator: Creator::NoInherit,
+    })
+    .await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn timescaledb() {
-    create_and_drop(Case { id: "timescaledb", env: "DBINE_TEST_TIMESCALEDB_URL", catalog: Catalog::Pg, password: None, grantable: true, upper: false, creator: Creator::NoInherit })
-        .await;
+    create_and_drop(Case {
+        id: "timescaledb",
+        env: "DBINE_TEST_TIMESCALEDB_URL",
+        catalog: Catalog::Pg,
+        password: None,
+        grantable: true,
+        upper: false,
+        creator: Creator::NoInherit,
+    })
+    .await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn yugabytedb() {
-    create_and_drop(Case { id: "yugabytedb", env: "DBINE_TEST_YUGABYTE_URL", catalog: Catalog::Pg, password: None, grantable: true, upper: false, creator: Creator::NoInherit })
-        .await;
+    create_and_drop(Case {
+        id: "yugabytedb",
+        env: "DBINE_TEST_YUGABYTE_URL",
+        catalog: Catalog::Pg,
+        password: None,
+        grantable: true,
+        upper: false,
+        creator: Creator::NoInherit,
+    })
+    .await;
 }
 
 /// The image's user is SYSADMIN.
@@ -333,8 +544,16 @@ async fn opengauss() {
 #[tokio::test]
 #[ignore]
 async fn cockroachdb() {
-    create_and_drop(Case { id: "cockroachdb", env: "DBINE_TEST_COCKROACH_URL", catalog: Catalog::Cockroach, password: None, grantable: true, upper: false, creator: Creator::Member })
-        .await;
+    create_and_drop(Case {
+        id: "cockroachdb",
+        env: "DBINE_TEST_COCKROACH_URL",
+        catalog: Catalog::Cockroach,
+        password: None,
+        grantable: true,
+        upper: false,
+        creator: Creator::Member,
+    })
+    .await;
 }
 
 /// No WITH GRANT OPTION on Materialize.
@@ -374,13 +593,34 @@ async fn risingwave() {
 #[tokio::test]
 #[ignore]
 async fn h2() {
-    create_and_drop(Case { id: "h2", env: "DBINE_TEST_H2_URL", catalog: Catalog::H2, password: Some("pw"), grantable: false, upper: false, creator: Creator::Admin }).await;
+    create_and_drop(Case {
+        id: "h2",
+        env: "DBINE_TEST_H2_URL",
+        catalog: Catalog::H2,
+        password: Some("pw"),
+        grantable: false,
+        upper: false,
+        creator: Creator::Admin,
+    })
+    .await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn greenplum_family() {
-    for (id, env) in [("cloudberry", "DBINE_TEST_CLOUDBERRY_URL"), ("greengage", "DBINE_TEST_GREENGAGE_URL")] {
-        create_and_drop(Case { id, env, catalog: Catalog::Pg, password: None, grantable: true, upper: false, creator: Creator::NoInherit }).await;
+    for (id, env) in [
+        ("cloudberry", "DBINE_TEST_CLOUDBERRY_URL"),
+        ("greengage", "DBINE_TEST_GREENGAGE_URL"),
+    ] {
+        create_and_drop(Case {
+            id,
+            env,
+            catalog: Catalog::Pg,
+            password: None,
+            grantable: true,
+            upper: false,
+            creator: Creator::NoInherit,
+        })
+        .await;
     }
 }

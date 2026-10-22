@@ -34,8 +34,15 @@ impl DriverId {
         let (p, e) = v.build.as_str().split_once('.')?;
         let protocol = p.strip_prefix('p')?.parse().ok()?;
         let epoch = e.strip_prefix('e')?.parse().ok()?;
-        let version = semver::Version { build: semver::BuildMetadata::EMPTY, ..v };
-        Some(DriverId { version, protocol, epoch })
+        let version = semver::Version {
+            build: semver::BuildMetadata::EMPTY,
+            ..v
+        };
+        Some(DriverId {
+            version,
+            protocol,
+            epoch,
+        })
     }
 
     /// Same protocol and epoch: a host this app can talk to.
@@ -117,7 +124,9 @@ impl fmt::Display for VerifyError {
 
 fn b64_text(s: &str) -> Result<String, VerifyError> {
     use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(s.trim()).map_err(|e| VerifyError::Signature(e.to_string()))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(s.trim())
+        .map_err(|e| VerifyError::Signature(e.to_string()))?;
     String::from_utf8(bytes).map_err(|e| VerifyError::Signature(e.to_string()))
 }
 
@@ -131,7 +140,10 @@ fn b64_text(s: &str) -> Result<String, VerifyError> {
 /// app was released with ([`crate::install::Catalog::min_index_seq`]), so a
 /// fresh install can't be handed an index older than its own release.
 pub fn verify(bytes: &[u8], sig: &str, pubkey: &str, min_seq: u64) -> Result<Index, VerifyError> {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     verify_at(bytes, sig, pubkey, min_seq, now)
 }
 
@@ -139,13 +151,26 @@ pub fn verify(bytes: &[u8], sig: &str, pubkey: &str, min_seq: u64) -> Result<Ind
 pub const EXPIRY_GRACE: u64 = 7 * 24 * 3600;
 
 /// [`verify`] at the unix time `now`.
-pub fn verify_at(bytes: &[u8], sig: &str, pubkey: &str, min_seq: u64, now: u64) -> Result<Index, VerifyError> {
-    let pk = minisign_verify::PublicKey::decode(&b64_text(pubkey)?).map_err(|e| VerifyError::Signature(e.to_string()))?;
-    let signature = minisign_verify::Signature::decode(&b64_text(sig)?).map_err(|e| VerifyError::Signature(e.to_string()))?;
-    pk.verify(bytes, &signature, true).map_err(|e| VerifyError::Signature(e.to_string()))?;
-    let index: Index = serde_json::from_slice(bytes).map_err(|e| VerifyError::Parse(e.to_string()))?;
+pub fn verify_at(
+    bytes: &[u8],
+    sig: &str,
+    pubkey: &str,
+    min_seq: u64,
+    now: u64,
+) -> Result<Index, VerifyError> {
+    let pk = minisign_verify::PublicKey::decode(&b64_text(pubkey)?)
+        .map_err(|e| VerifyError::Signature(e.to_string()))?;
+    let signature = minisign_verify::Signature::decode(&b64_text(sig)?)
+        .map_err(|e| VerifyError::Signature(e.to_string()))?;
+    pk.verify(bytes, &signature, true)
+        .map_err(|e| VerifyError::Signature(e.to_string()))?;
+    let index: Index =
+        serde_json::from_slice(bytes).map_err(|e| VerifyError::Parse(e.to_string()))?;
     if index.seq < min_seq {
-        return Err(VerifyError::OldSeq { got: index.seq, have: min_seq });
+        return Err(VerifyError::OldSeq {
+            got: index.seq,
+            have: min_seq,
+        });
     }
     check_fresh(&index, now)?;
     Ok(index)
@@ -154,7 +179,9 @@ pub fn verify_at(bytes: &[u8], sig: &str, pubkey: &str, min_seq: u64, now: u64) 
 /// Refuse an index past its `expires` (plus [`EXPIRY_GRACE`]) at `now`.
 pub fn check_fresh(index: &Index, now: u64) -> Result<(), VerifyError> {
     match index.expires {
-        Some(expires) if now > expires.saturating_add(EXPIRY_GRACE) => Err(VerifyError::Expired { expires, now }),
+        Some(expires) if now > expires.saturating_add(EXPIRY_GRACE) => {
+            Err(VerifyError::Expired { expires, now })
+        }
         _ => Ok(()),
     }
 }
@@ -180,19 +207,32 @@ impl Eq for IndexEntry {}
 /// The newest usable version of a driver crate: same protocol and epoch as
 /// `floor`, not older than it, not yanked, not in `bad`, and `min_app` at
 /// most `app`. The floor when nothing is (or the index has nothing).
-pub fn resolve(floor: &DriverId, entries: Option<&BTreeMap<String, IndexEntry>>, app: &semver::Version, bad: &BTreeMap<String, String>) -> Choice {
+pub fn resolve(
+    floor: &DriverId,
+    entries: Option<&BTreeMap<String, IndexEntry>>,
+    app: &semver::Version,
+    bad: &BTreeMap<String, String>,
+) -> Choice {
     let mut best: Option<(DriverId, &IndexEntry)> = None;
     let mut blocked: Option<(DriverId, String)> = None;
     for (key, entry) in entries.into_iter().flatten() {
-        let Some(id) = DriverId::parse(key) else { continue };
+        let Some(id) = DriverId::parse(key) else {
+            continue;
+        };
         // An empty `yanked` or `min_app` counts as none (as the scripts read them).
         let yanked = entry.yanked.as_deref().is_some_and(|y| !y.is_empty());
-        if !id.same_line(floor) || id.version < floor.version || yanked || bad.contains_key(&id.to_string()) {
+        if !id.same_line(floor)
+            || id.version < floor.version
+            || yanked
+            || bad.contains_key(&id.to_string())
+        {
             continue;
         }
         let runs = match entry.min_app.as_deref().filter(|m| !m.is_empty()) {
             None => true,
-            Some(m) => semver::Version::parse(m).map(|m| m <= *app).unwrap_or(false),
+            Some(m) => semver::Version::parse(m)
+                .map(|m| m <= *app)
+                .unwrap_or(false),
         };
         if runs {
             if best.as_ref().is_none_or(|(b, _)| id.version > b.version) {
@@ -207,7 +247,11 @@ pub fn resolve(floor: &DriverId, entries: Option<&BTreeMap<String, IndexEntry>>,
         None => (floor.clone(), None),
     };
     let needs_app = blocked.filter(|(b, _)| b.version > id.version);
-    Choice { id, entry, needs_app }
+    Choice {
+        id,
+        entry,
+        needs_app,
+    }
 }
 
 #[cfg(test)]
@@ -233,13 +277,24 @@ mod tests {
     #[test]
     fn parses_driver_ids() {
         let d = id("1.2.3+p1.e3");
-        assert_eq!((d.version.to_string(), d.protocol, d.epoch), ("1.2.3".into(), 1, 3));
+        assert_eq!(
+            (d.version.to_string(), d.protocol, d.epoch),
+            ("1.2.3".into(), 1, 3)
+        );
         assert_eq!(d.to_string(), "1.2.3+p1.e3");
         assert_eq!(id("0.1.0-rc.1+p2.e10").to_string(), "0.1.0-rc.1+p2.e10");
         assert!(id("1.0.0+p1.e3").same_line(&id("2.0.0+p1.e3")));
         assert!(!id("1.0.0+p1.e3").same_line(&id("1.0.0+p2.e3")));
         assert!(!id("1.0.0+p1.e3").same_line(&id("1.0.0+p1.e4")));
-        for bad in ["1.2.3", "1.2.3+p1", "1.2.3+x1.e3", "1.2.3+p1.x3", "1.2+p1.e3", "", "1.2.3+p.e3"] {
+        for bad in [
+            "1.2.3",
+            "1.2.3+p1",
+            "1.2.3+x1.e3",
+            "1.2.3+p1.x3",
+            "1.2+p1.e3",
+            "",
+            "1.2.3+p.e3",
+        ] {
             assert_eq!(DriverId::parse(bad), None, "{bad}");
         }
     }
@@ -250,43 +305,113 @@ mod tests {
         let app = semver::Version::parse("0.2.0").unwrap();
         let none = BTreeMap::new();
         let pick = |entries: &[(&str, IndexEntry)], bad: &BTreeMap<String, String>| {
-            let m: BTreeMap<String, IndexEntry> = entries.iter().map(|(k, e)| (k.to_string(), e.clone())).collect();
+            let m: BTreeMap<String, IndexEntry> = entries
+                .iter()
+                .map(|(k, e)| (k.to_string(), e.clone()))
+                .collect();
             let c = resolve(&floor, Some(&m), &app, bad);
-            (c.id.to_string(), c.needs_app.map(|(i, m)| format!("{i} {m}")))
+            (
+                c.id.to_string(),
+                c.needs_app.map(|(i, m)| format!("{i} {m}")),
+            )
         };
         // Empty index, or none at all: the floor.
         assert_eq!(pick(&[], &none), ("1.0.0+p1.e3".into(), None));
         assert_eq!(resolve(&floor, None, &app, &none).id, floor);
         // Highest semver, not lexicographic.
-        assert_eq!(pick(&[("1.0.2+p1.e3", entry(None, None)), ("1.0.10+p1.e3", entry(None, None))], &none).0, "1.0.10+p1.e3");
+        assert_eq!(
+            pick(
+                &[
+                    ("1.0.2+p1.e3", entry(None, None)),
+                    ("1.0.10+p1.e3", entry(None, None))
+                ],
+                &none
+            )
+            .0,
+            "1.0.10+p1.e3"
+        );
         // min_app: equal runs, higher doesn't and is reported.
         assert_eq!(
-            pick(&[("1.0.1+p1.e3", entry(Some("0.2.0"), None)), ("1.0.2+p1.e3", entry(Some("0.3.0"), None))], &none),
+            pick(
+                &[
+                    ("1.0.1+p1.e3", entry(Some("0.2.0"), None)),
+                    ("1.0.2+p1.e3", entry(Some("0.3.0"), None))
+                ],
+                &none
+            ),
             ("1.0.1+p1.e3".into(), Some("1.0.2+p1.e3 0.3.0".into()))
         );
         // Empty yanked / min_app: none.
-        assert_eq!(pick(&[("1.0.1+p1.e3", entry(Some(""), Some("")))], &none).0, "1.0.1+p1.e3");
+        assert_eq!(
+            pick(&[("1.0.1+p1.e3", entry(Some(""), Some("")))], &none).0,
+            "1.0.1+p1.e3"
+        );
         // An unreadable min_app is never satisfied.
-        assert_eq!(pick(&[("1.0.1+p1.e3", entry(Some("nope"), None))], &none).0, "1.0.0+p1.e3");
+        assert_eq!(
+            pick(&[("1.0.1+p1.e3", entry(Some("nope"), None))], &none).0,
+            "1.0.0+p1.e3"
+        );
         // Yanked.
-        assert_eq!(pick(&[("1.0.1+p1.e3", entry(None, None)), ("1.0.2+p1.e3", entry(None, Some("crash")))], &none).0, "1.0.1+p1.e3");
+        assert_eq!(
+            pick(
+                &[
+                    ("1.0.1+p1.e3", entry(None, None)),
+                    ("1.0.2+p1.e3", entry(None, Some("crash")))
+                ],
+                &none
+            )
+            .0,
+            "1.0.1+p1.e3"
+        );
         // Bad here.
         let bad = BTreeMap::from([("1.0.2+p1.e3".to_string(), "exited".to_string())]);
-        assert_eq!(pick(&[("1.0.1+p1.e3", entry(None, None)), ("1.0.2+p1.e3", entry(None, None))], &bad).0, "1.0.1+p1.e3");
+        assert_eq!(
+            pick(
+                &[
+                    ("1.0.1+p1.e3", entry(None, None)),
+                    ("1.0.2+p1.e3", entry(None, None))
+                ],
+                &bad
+            )
+            .0,
+            "1.0.1+p1.e3"
+        );
         // Other protocol or epoch.
-        assert_eq!(pick(&[("2.0.0+p2.e3", entry(None, None)), ("2.0.0+p1.e4", entry(None, None))], &none).0, "1.0.0+p1.e3");
+        assert_eq!(
+            pick(
+                &[
+                    ("2.0.0+p2.e3", entry(None, None)),
+                    ("2.0.0+p1.e4", entry(None, None))
+                ],
+                &none
+            )
+            .0,
+            "1.0.0+p1.e3"
+        );
         // Floor newer than the index: never below it.
-        assert_eq!(pick(&[("0.9.0+p1.e3", entry(None, None))], &none).0, "1.0.0+p1.e3");
+        assert_eq!(
+            pick(&[("0.9.0+p1.e3", entry(None, None))], &none).0,
+            "1.0.0+p1.e3"
+        );
         // The floor's own entry is returned with its data.
         let m = BTreeMap::from([("1.0.0+p1.e3".to_string(), entry(None, None))]);
         assert!(resolve(&floor, Some(&m), &app, &none).entry.is_some());
         // A blocked version older than the pick isn't reported.
         assert_eq!(
-            pick(&[("1.0.1+p1.e3", entry(Some("9.0.0"), None)), ("1.0.2+p1.e3", entry(None, None))], &none),
+            pick(
+                &[
+                    ("1.0.1+p1.e3", entry(Some("9.0.0"), None)),
+                    ("1.0.2+p1.e3", entry(None, None))
+                ],
+                &none
+            ),
             ("1.0.2+p1.e3".into(), None)
         );
         // Garbage keys are skipped.
-        assert_eq!(pick(&[("latest", entry(None, None))], &none).0, "1.0.0+p1.e3");
+        assert_eq!(
+            pick(&[("latest", entry(None, None))], &none).0,
+            "1.0.0+p1.e3"
+        );
     }
 
     const PK: &str = include_str!("testdata/test.key.pub");
@@ -300,19 +425,40 @@ mod tests {
         let i = verify(IDX100, SIG100, PK, 0).unwrap();
         assert_eq!((i.target.as_str(), i.schema, i.seq), ("test", 2, 100));
         let e = &i.drivers["postgres"]["0.1.10+p1.e3"];
-        assert_eq!((e.min_app.as_deref(), e.yanked.as_deref()), (Some("0.1.9"), None));
+        assert_eq!(
+            (e.min_app.as_deref(), e.yanked.as_deref()),
+            (Some("0.1.9"), None)
+        );
         // Same seq again is fine; a lower one is a replay.
         assert!(verify(IDX100, SIG100, PK, 100).is_ok());
-        assert_eq!(verify(IDX50, SIG50, PK, 100).unwrap_err(), VerifyError::OldSeq { got: 50, have: 100 });
+        assert_eq!(
+            verify(IDX50, SIG50, PK, 100).unwrap_err(),
+            VerifyError::OldSeq { got: 50, have: 100 }
+        );
         // Tampered bytes, a signature of other bytes, another key, garbage.
         let mut tampered = IDX100.to_vec();
         let n = tampered.len();
         tampered[n - 2] = b' ';
-        assert!(matches!(verify(&tampered, SIG100, PK, 0), Err(VerifyError::Signature(_))));
-        assert!(matches!(verify(IDX100, SIG50, PK, 0), Err(VerifyError::Signature(_))));
-        assert!(matches!(verify(IDX100, SIG100, UPDATER_PUBKEY, 0), Err(VerifyError::Signature(_))));
-        assert!(matches!(verify(IDX100, "no", PK, 0), Err(VerifyError::Signature(_))));
-        assert!(matches!(verify(IDX100, "", PK, 0), Err(VerifyError::Signature(_))));
+        assert!(matches!(
+            verify(&tampered, SIG100, PK, 0),
+            Err(VerifyError::Signature(_))
+        ));
+        assert!(matches!(
+            verify(IDX100, SIG50, PK, 0),
+            Err(VerifyError::Signature(_))
+        ));
+        assert!(matches!(
+            verify(IDX100, SIG100, UPDATER_PUBKEY, 0),
+            Err(VerifyError::Signature(_))
+        ));
+        assert!(matches!(
+            verify(IDX100, "no", PK, 0),
+            Err(VerifyError::Signature(_))
+        ));
+        assert!(matches!(
+            verify(IDX100, "", PK, 0),
+            Err(VerifyError::Signature(_))
+        ));
     }
 
     #[test]
@@ -320,14 +466,29 @@ mod tests {
         // A fresh install (nothing accepted yet) released when seq 100 was
         // published: an older signed index (a replay, a rolled-back mirror)
         // is refused; the same or newer is taken.
-        assert_eq!(verify(IDX50, SIG50, PK, 0u64.max(100)).unwrap_err(), VerifyError::OldSeq { got: 50, have: 100 });
+        assert_eq!(
+            verify(IDX50, SIG50, PK, 0u64.max(100)).unwrap_err(),
+            VerifyError::OldSeq { got: 50, have: 100 }
+        );
         assert_eq!(verify(IDX100, SIG100, PK, 0u64.max(100)).unwrap().seq, 100);
-        assert_eq!(verify(IDX100, SIG100, PK, 0u64.max(101)).unwrap_err(), VerifyError::OldSeq { got: 100, have: 101 });
+        assert_eq!(
+            verify(IDX100, SIG100, PK, 0u64.max(101)).unwrap_err(),
+            VerifyError::OldSeq {
+                got: 100,
+                have: 101
+            }
+        );
     }
 
     #[test]
     fn an_expired_index_is_refused() {
-        let i = |expires| Index { target: "t".into(), schema: 2, seq: 1, expires, drivers: BTreeMap::new() };
+        let i = |expires| Index {
+            target: "t".into(),
+            schema: 2,
+            seq: 1,
+            expires,
+            drivers: BTreeMap::new(),
+        };
         let day = 24 * 3600;
         // No `expires` (older indexes): never stale.
         assert!(check_fresh(&i(None), u64::MAX).is_ok());
@@ -336,17 +497,28 @@ mod tests {
         assert!(check_fresh(&i(Some(1000 * day)), 1000 * day + EXPIRY_GRACE).is_ok());
         assert_eq!(
             check_fresh(&i(Some(1000 * day)), 1000 * day + EXPIRY_GRACE + 1),
-            Err(VerifyError::Expired { expires: 1000 * day, now: 1000 * day + EXPIRY_GRACE + 1 })
+            Err(VerifyError::Expired {
+                expires: 1000 * day,
+                now: 1000 * day + EXPIRY_GRACE + 1
+            })
         );
         // It's parsed from the signed bytes; the fixtures have none.
-        let parsed: Index = serde_json::from_str(r#"{"target":"t","seq":5,"expires":42,"drivers":{}}"#).unwrap();
+        let parsed: Index =
+            serde_json::from_str(r#"{"target":"t","seq":5,"expires":42,"drivers":{}}"#).unwrap();
         assert_eq!(parsed.expires, Some(42));
-        assert_eq!(verify_at(IDX100, SIG100, PK, 0, u64::MAX).unwrap().expires, None);
+        assert_eq!(
+            verify_at(IDX100, SIG100, PK, 0, u64::MAX).unwrap().expires,
+            None
+        );
     }
 
     #[test]
     fn the_embedded_key_is_the_updaters() {
-        let conf: serde_json::Value = serde_json::from_str(include_str!("../../../src-tauri/tauri.conf.json")).unwrap();
-        assert_eq!(conf["plugins"]["updater"]["pubkey"].as_str(), Some(UPDATER_PUBKEY));
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../../../src-tauri/tauri.conf.json")).unwrap();
+        assert_eq!(
+            conf["plugins"]["updater"]["pubkey"].as_str(),
+            Some(UPDATER_PUBKEY)
+        );
     }
 }

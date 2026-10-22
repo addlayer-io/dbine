@@ -112,7 +112,11 @@ fn assemble(edges: &[Edge], info: &HashMap<String, Info>) -> Vec<BlockedSession>
                     user: i.user,
                     client: i.client,
                     database: i.database,
-                    wait: if i.idle_in_txn { Some(IDLE_IN_TXN.into()) } else { i.state },
+                    wait: if i.idle_in_txn {
+                        Some(IDLE_IN_TXN.into())
+                    } else {
+                        i.state
+                    },
                     waited_ms: i.txn_ms.or(i.wait_ms),
                     object: None,
                     sql: i.sql,
@@ -167,7 +171,10 @@ struct LockRow {
 fn pair_locks(locks: &[LockRow]) -> Vec<Edge> {
     let mut edges: Vec<Edge> = Vec::new();
     for w in locks.iter().filter(|l| !l.granted) {
-        for h in locks.iter().filter(|h| h.granted && h.key == w.key && h.id != w.id && conflicts(&w.mode, &h.mode)) {
+        for h in locks
+            .iter()
+            .filter(|h| h.granted && h.key == w.key && h.id != w.id && conflicts(&w.mode, &h.mode))
+        {
             if !edges.iter().any(|e| e.waiter == w.id && e.blocker == h.id) {
                 edges.push(Edge {
                     waiter: w.id.clone(),
@@ -183,15 +190,22 @@ fn pair_locks(locks: &[LockRow]) -> Vec<Edge> {
 }
 
 fn ms(r: &SimpleQueryRow, name: &str) -> Option<u64> {
-    cell(r, name).and_then(|v| v.trim().parse::<f64>().ok()).map(|v| v.max(0.0) as u64)
+    cell(r, name)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map(|v| v.max(0.0) as u64)
 }
 
 fn text(r: &SimpleQueryRow, name: &str) -> Option<String> {
-    cell(r, name).map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+    cell(r, name)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 fn truthy(v: Option<String>) -> bool {
-    matches!(v.as_deref().map(str::to_ascii_lowercase).as_deref(), Some("t" | "true" | "1"))
+    matches!(
+        v.as_deref().map(str::to_ascii_lowercase).as_deref(),
+        Some("t" | "true" | "1")
+    )
 }
 
 pub(crate) async fn blocking(s: &PgSession) -> Result<Vec<BlockedSession>> {
@@ -231,7 +245,12 @@ async fn postgres(s: &PgSession) -> Result<Vec<BlockedSession>> {
             .await?;
         rows.iter()
             .filter_map(|r| {
-                Some(Edge { waiter: text(r, "waiter")?, blocker: text(r, "blocker")?, wait: text(r, "wait"), ..Default::default() })
+                Some(Edge {
+                    waiter: text(r, "waiter")?,
+                    blocker: text(r, "blocker")?,
+                    wait: text(r, "wait"),
+                    ..Default::default()
+                })
             })
             .collect()
     } else {
@@ -285,7 +304,13 @@ async fn yugabyte_edges(s: &PgSession) -> Result<Vec<Edge>> {
     };
     // Active Session History may be off: then only the waiters with a
     // transaction id show.
-    let rows = match s.text_within(&sql(&format!("{FROM_XID} UNION ALL {FROM_ASH}")), QUERY_LIMIT).await {
+    let rows = match s
+        .text_within(
+            &sql(&format!("{FROM_XID} UNION ALL {FROM_ASH}")),
+            QUERY_LIMIT,
+        )
+        .await
+    {
         Ok(rows) => rows,
         Err(e) => {
             tracing::debug!("yugabyte: blocking without ASH: {e}");
@@ -384,7 +409,9 @@ async fn pg_info(s: &PgSession, edges: &[Edge]) -> Result<HashMap<String, Info>>
                     user: text(r, "usr"),
                     client: text(r, "client"),
                     database: text(r, "db"),
-                    idle_in_txn: state.as_deref().is_some_and(|st| st.starts_with("idle in transaction")),
+                    idle_in_txn: state
+                        .as_deref()
+                        .is_some_and(|st| st.starts_with("idle in transaction")),
                     state,
                     wait_ms: ms(r, "wait_ms"),
                     txn_ms: ms(r, "txn_ms"),
@@ -399,7 +426,10 @@ async fn pg_info(s: &PgSession, edges: &[Edge]) -> Result<HashMap<String, Info>>
 /// Every session id in the edges, once.
 /// CockroachDB session ids as a list of string literals.
 fn id_list(ids: &[String]) -> String {
-    ids.iter().map(|i| crate::catalog::lit(Variant::Cockroach, i)).collect::<Vec<_>>().join(",")
+    ids.iter()
+        .map(|i| crate::catalog::lit(Variant::Cockroach, i))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn ids(edges: &[Edge]) -> Vec<String> {
@@ -422,7 +452,9 @@ fn ids(edges: &[Edge]) -> Vec<String> {
 /// mapped to their sessions through `cluster_sessions.kv_txn`.
 async fn cockroach(s: &PgSession) -> Result<Vec<BlockedSession>> {
     // Since v25, crdb_internal is closed unless the session opts in.
-    let _ = s.text_within("SET allow_unsafe_internals = true", QUERY_LIMIT).await;
+    let _ = s
+        .text_within("SET allow_unsafe_internals = true", QUERY_LIMIT)
+        .await;
     let rows = s
         .text_within(
             "WITH l AS (SELECT * FROM crdb_internal.cluster_locks WHERE contended AND txn_id IS NOT NULL),
@@ -543,7 +575,12 @@ async fn redshift(s: &PgSession) -> Result<Vec<BlockedSession>> {
     }
     // Statements running now; a session without one is idle in its
     // transaction.
-    let pids = ids(&edges).iter().filter_map(|i| i.parse::<i64>().ok()).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let pids = ids(&edges)
+        .iter()
+        .filter_map(|i| i.parse::<i64>().ok())
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let running = match s
         .text_within(
             &format!(
@@ -577,7 +614,11 @@ async fn redshift(s: &PgSession) -> Result<Vec<BlockedSession>> {
         }
     }
     // Relation ids into names (pg_class is on the leader: a query of its own).
-    let rels: Vec<String> = edges.iter().filter_map(|e| e.object.clone()).filter(|o| o.parse::<i64>().is_ok()).collect();
+    let rels: Vec<String> = edges
+        .iter()
+        .filter_map(|e| e.object.clone())
+        .filter(|o| o.parse::<i64>().is_ok())
+        .collect();
     if !rels.is_empty() {
         if let Ok(names) = s
             .text_within(
@@ -618,13 +659,24 @@ async fn yellowbrick(s: &PgSession) -> Result<Vec<BlockedSession>> {
     let mut edges: Vec<Edge> = rows
         .iter()
         .filter_map(|r| {
-            Some(Edge { waiter: text(r, "waiter")?, blocker: text(r, "blocker")?, wait: text(r, "wait"), object: text(r, "object"), waited_ms: None })
+            Some(Edge {
+                waiter: text(r, "waiter")?,
+                blocker: text(r, "blocker")?,
+                wait: text(r, "wait"),
+                object: text(r, "object"),
+                waited_ms: None,
+            })
         })
         .collect();
     if edges.is_empty() {
         return Ok(Vec::new());
     }
-    let list = ids(&edges).iter().filter_map(|i| i.parse::<i64>().ok()).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let list = ids(&edges)
+        .iter()
+        .filter_map(|i| i.parse::<i64>().ok())
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let mut info: HashMap<String, Info> = HashMap::new();
     if let Ok(rows) = s
         .text_within(
@@ -678,12 +730,26 @@ async fn yellowbrick(s: &PgSession) -> Result<Vec<BlockedSession>> {
             }
         }
     }
-    let tables: Vec<String> = edges.iter().filter_map(|e| e.object.clone()).filter(|o| o.parse::<i64>().is_ok()).collect();
+    let tables: Vec<String> = edges
+        .iter()
+        .filter_map(|e| e.object.clone())
+        .filter(|o| o.parse::<i64>().is_ok())
+        .collect();
     if !tables.is_empty() {
-        if let Ok(names) =
-            s.text_within(&format!("SELECT table_id::varchar AS id, name FROM sys.table WHERE table_id IN ({})", tables.join(",")), QUERY_LIMIT).await
+        if let Ok(names) = s
+            .text_within(
+                &format!(
+                    "SELECT table_id::varchar AS id, name FROM sys.table WHERE table_id IN ({})",
+                    tables.join(",")
+                ),
+                QUERY_LIMIT,
+            )
+            .await
         {
-            let names: HashMap<String, String> = names.iter().filter_map(|r| Some((text(r, "id")?, text(r, "name")?))).collect();
+            let names: HashMap<String, String> = names
+                .iter()
+                .filter_map(|r| Some((text(r, "id")?, text(r, "name")?)))
+                .collect();
             for e in &mut edges {
                 if let Some(n) = e.object.as_ref().and_then(|o| names.get(o)) {
                     e.object = Some(n.clone());
@@ -716,7 +782,14 @@ async fn h2(s: &PgSession) -> Result<Vec<BlockedSession>> {
         .await?;
     let mut edges: Vec<Edge> = rows
         .iter()
-        .filter_map(|r| Some(Edge { waiter: text(r, "id")?, blocker: text(r, "blocker")?, wait: Some("Lock".into()), ..Default::default() }))
+        .filter_map(|r| {
+            Some(Edge {
+                waiter: text(r, "id")?,
+                blocker: text(r, "blocker")?,
+                wait: Some("Lock".into()),
+                ..Default::default()
+            })
+        })
         .collect();
     if edges.is_empty() {
         return Ok(Vec::new());
@@ -735,7 +808,11 @@ async fn h2(s: &PgSession) -> Result<Vec<BlockedSession>> {
                     idle_in_txn: sleeping && truthy(text(r, "uncommitted")),
                     state,
                     wait_ms: ms(r, "wait_ms"),
-                    txn_ms: if sleeping { ms(r, "idle_ms") } else { ms(r, "wait_ms") },
+                    txn_ms: if sleeping {
+                        ms(r, "idle_ms")
+                    } else {
+                        ms(r, "wait_ms")
+                    },
                     object: None,
                     sql: text(r, "sql"),
                 },
@@ -774,20 +851,34 @@ pub(crate) async fn kill(s: &PgSession, id: &str) -> Result<()> {
     match s.variant {
         Variant::Cockroach => {
             if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit()) {
-                return Err(Error::Query(format!("«{id}» no es un id de sesión de CockroachDB")));
+                return Err(Error::Query(format!(
+                    "«{id}» no es un id de sesión de CockroachDB"
+                )));
             }
             own(first(s.text("SHOW session_id").await?))?;
             s.text(&format!("CANCEL SESSION '{id}'")).await.map(|_| ())
         }
         Variant::H2 => {
-            let n: i64 = id.parse().map_err(|_| Error::Query(format!("«{id}» no es un id de sesión de H2")))?;
+            let n: i64 = id
+                .parse()
+                .map_err(|_| Error::Query(format!("«{id}» no es un id de sesión de H2")))?;
             own(first(s.text("SELECT CAST(SESSION_ID() AS VARCHAR)").await?))?;
-            let r = first(s.text(&format!("SELECT CASE WHEN ABORT_SESSION({n}) THEN 't' ELSE 'f' END")).await?);
+            let r = first(
+                s.text(&format!(
+                    "SELECT CASE WHEN ABORT_SESSION({n}) THEN 't' ELSE 'f' END"
+                ))
+                .await?,
+            );
             ended(r, id)
         }
         Variant::Yellowbrick => {
-            let n: i64 = id.parse().map_err(|_| Error::Query(format!("«{id}» no es un id de sesión de Yellowbrick")))?;
-            let r = first(s.text(&format!("SELECT yb_terminate_session({n})::varchar")).await?);
+            let n: i64 = id.parse().map_err(|_| {
+                Error::Query(format!("«{id}» no es un id de sesión de Yellowbrick"))
+            })?;
+            let r = first(
+                s.text(&format!("SELECT yb_terminate_session({n})::varchar"))
+                    .await?,
+            );
             ended(r, id)
         }
         v => {
@@ -829,11 +920,19 @@ mod tests {
 
     #[test]
     fn session_ids_stay_inside_their_literals() {
-        assert_eq!(id_list(&["ab".into(), "x\\'; drop table t; --".into()]), "E'ab',E'x\\\\''; drop table t; --'");
+        assert_eq!(
+            id_list(&["ab".into(), "x\\'; drop table t; --".into()]),
+            "E'ab',E'x\\\\''; drop table t; --'"
+        );
     }
 
     fn edge(w: &str, b: &str) -> Edge {
-        Edge { waiter: w.into(), blocker: b.into(), wait: Some("Lock: transactionid".into()), ..Default::default() }
+        Edge {
+            waiter: w.into(),
+            blocker: b.into(),
+            wait: Some("Lock: transactionid".into()),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -843,13 +942,28 @@ mod tests {
         assert!(!conflicts("AccessShareLock", "RowExclusiveLock"));
         assert!(!conflicts("RowExclusiveLock", "RowExclusiveLock"));
         assert!(conflicts("RowExclusiveLock", "ShareLock"));
-        assert!(conflicts("ShareUpdateExclusiveLock", "ShareUpdateExclusiveLock"));
+        assert!(conflicts(
+            "ShareUpdateExclusiveLock",
+            "ShareUpdateExclusiveLock"
+        ));
         assert!(!conflicts("ShareLock", "ShareLock"));
         assert!(conflicts("ShareRowExclusiveLock", "ShareRowExclusiveLock"));
         assert!(!conflicts("RowShareLock", "ShareLock"));
-        assert!(conflicts("SIReadLock?", "AccessShareLock"), "unknown modes conflict");
+        assert!(
+            conflicts("SIReadLock?", "AccessShareLock"),
+            "unknown modes conflict"
+        );
         // Symmetric.
-        let modes = ["AccessShareLock", "RowShareLock", "RowExclusiveLock", "ShareUpdateExclusiveLock", "ShareLock", "ShareRowExclusiveLock", "ExclusiveLock", "AccessExclusiveLock"];
+        let modes = [
+            "AccessShareLock",
+            "RowShareLock",
+            "RowExclusiveLock",
+            "ShareUpdateExclusiveLock",
+            "ShareLock",
+            "ShareRowExclusiveLock",
+            "ExclusiveLock",
+            "AccessExclusiveLock",
+        ];
         for a in modes {
             for b in modes {
                 assert_eq!(conflicts(a, b), conflicts(b, a), "{a} {b}");
@@ -873,19 +987,55 @@ mod tests {
             l("3", "ShareLock", false),
             l("3", "ShareLock", false),
         ]);
-        let pairs: Vec<_> = edges.iter().map(|e| (e.waiter.as_str(), e.blocker.as_str())).collect();
+        let pairs: Vec<_> = edges
+            .iter()
+            .map(|e| (e.waiter.as_str(), e.blocker.as_str()))
+            .collect();
         assert_eq!(pairs, [("3", "1"), ("3", "2")]);
-        assert!(pair_locks(&[l("1", "AccessShareLock", true), l("2", "RowExclusiveLock", false)]).is_empty());
+        assert!(pair_locks(&[
+            l("1", "AccessShareLock", true),
+            l("2", "RowExclusiveLock", false)
+        ])
+        .is_empty());
     }
 
     #[test]
     fn heads_and_waiters() {
         let mut info = HashMap::new();
-        info.insert("10".to_string(), Info { idle_in_txn: true, state: Some("idle in transaction".into()), txn_ms: Some(9000), wait_ms: Some(10), ..Default::default() });
-        info.insert("20".to_string(), Info { state: Some("active".into()), wait_ms: Some(1500), txn_ms: Some(1600), object: Some("t (fila 0,1)".into()), sql: Some("UPDATE t".into()), ..Default::default() });
-        info.insert("30".to_string(), Info { state: Some("active".into()), wait_ms: Some(700), ..Default::default() });
+        info.insert(
+            "10".to_string(),
+            Info {
+                idle_in_txn: true,
+                state: Some("idle in transaction".into()),
+                txn_ms: Some(9000),
+                wait_ms: Some(10),
+                ..Default::default()
+            },
+        );
+        info.insert(
+            "20".to_string(),
+            Info {
+                state: Some("active".into()),
+                wait_ms: Some(1500),
+                txn_ms: Some(1600),
+                object: Some("t (fila 0,1)".into()),
+                sql: Some("UPDATE t".into()),
+                ..Default::default()
+            },
+        );
+        info.insert(
+            "30".to_string(),
+            Info {
+                state: Some("active".into()),
+                wait_ms: Some(700),
+                ..Default::default()
+            },
+        );
         // 30 waits on 20 and on 10; 20 waits on 10.
-        let chain = assemble(&[edge("20", "10"), edge("30", "20"), edge("30", "10")], &info);
+        let chain = assemble(
+            &[edge("20", "10"), edge("30", "20"), edge("30", "10")],
+            &info,
+        );
         let ids: Vec<_> = chain.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, ["20", "10", "30"]);
         let head = &chain[1];
@@ -903,7 +1053,10 @@ mod tests {
     #[test]
     fn engines_without_locks_say_why() {
         for v in Variant::ALL {
-            let unsupported = matches!(v, Variant::Materialize | Variant::RisingWave | Variant::CrateDb | Variant::Denodo);
+            let unsupported = matches!(
+                v,
+                Variant::Materialize | Variant::RisingWave | Variant::CrateDb | Variant::Denodo
+            );
             assert_eq!(supported(v), !unsupported, "{v:?}");
         }
         assert!(unsupported_reason(Variant::Postgres).is_none());

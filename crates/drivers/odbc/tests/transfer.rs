@@ -8,7 +8,9 @@
 //!
 //! `DBINE_TEST_ODBC_CONN` overrides the connection string.
 
-use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{async_trait, ConnectionConfig, ObjectRef, QueryOutcome, Session};
 use std::collections::VecDeque;
 use std::io;
@@ -22,24 +24,37 @@ fn cfg() -> ConnectionConfig {
     let conn = std::env::var("DBINE_TEST_ODBC_CONN").unwrap_or_else(|_| DEFAULT_CONN.into());
     ConnectionConfig {
         driver: "odbc".into(),
-        options: [("connection_string".to_string(), conn), ("batch_mode".to_string(), "go".to_string())].into(),
+        options: [
+            ("connection_string".to_string(), conn),
+            ("batch_mode".to_string(), "go".to_string()),
+        ]
+        .into(),
         ..Default::default()
     }
 }
 
 async fn open(db: Option<&str>) -> Box<dyn Session> {
-    let d = dbine_driver_odbc::drivers().into_iter().find(|d| d.info().id == "odbc").unwrap();
+    let d = dbine_driver_odbc::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "odbc")
+        .unwrap();
     assert!(d.supports_bulk_load());
     d.connect(&cfg(), db).await.expect("connect")
 }
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: name.into() }
+    ObjectRef {
+        kind: "table".into(),
+        schema: Some("dbo".into()),
+        name: name.into(),
+    }
 }
 
 #[derive(Default)]
@@ -68,16 +83,27 @@ impl BatchSource for Source {
     }
 }
 
-async fn read(s: &mut Box<dyn Session>, name: &str, columns: Option<Vec<&str>>, filter: Option<&str>) -> (Vec<TransferColumn>, Vec<RowBatch>) {
+async fn read(
+    s: &mut Box<dyn Session>,
+    name: &str,
+    columns: Option<Vec<&str>>,
+    filter: Option<&str>,
+) -> (Vec<TransferColumn>, Vec<RowBatch>) {
     let sink = Arc::new(Mutex::new(Collect::default()));
     let spec = ReadSpec {
         table: table(name),
         columns: columns.map(|c| c.into_iter().map(String::from).collect()),
         filter: filter.map(String::from),
     };
-    let n = s.read_batches(&spec, sink.clone()).await.unwrap_or_else(|e| panic!("read {name}: {e}"));
+    let n = s
+        .read_batches(&spec, sink.clone())
+        .await
+        .unwrap_or_else(|e| panic!("read {name}: {e}"));
     let c = std::mem::take(&mut *sink.lock().unwrap());
-    assert_eq!(n as usize, c.batches.iter().map(RowBatch::len).sum::<usize>());
+    assert_eq!(
+        n as usize,
+        c.batches.iter().map(RowBatch::len).sum::<usize>()
+    );
     (c.columns, c.batches)
 }
 
@@ -91,7 +117,13 @@ fn sorted(batches: &[RowBatch]) -> Vec<Vec<Cell>> {
     rows
 }
 
-async fn load(s: &mut Box<dyn Session>, name: &str, columns: &[TransferColumn], batches: Vec<RowBatch>, keep_identity: bool) -> (u64, Vec<u64>) {
+async fn load(
+    s: &mut Box<dyn Session>,
+    name: &str,
+    columns: &[TransferColumn],
+    batches: Vec<RowBatch>,
+    keep_identity: bool,
+) -> (u64, Vec<u64>) {
     let spec = LoadSpec {
         table: table(name),
         columns: columns.iter().map(|c| c.name.clone()).collect(),
@@ -117,13 +149,31 @@ const LONG: &str = "(id int NOT NULL PRIMARY KEY, txt nvarchar(max), blob varbin
 #[ignore]
 async fn sql_server_bulk_transfer_through_odbc() {
     let mut s = open(None).await;
-    run(&mut s, &format!("IF DB_ID('{DB}') IS NULL CREATE DATABASE {DB}")).await;
+    run(
+        &mut s,
+        &format!("IF DB_ID('{DB}') IS NULL CREATE DATABASE {DB}"),
+    )
+    .await;
     drop(s);
     let mut s = open(Some(DB)).await;
-    for t in ["src_narrow", "dst_narrow", "src_long", "dst_long", "dst_ident"] {
-        run(&mut s, &format!("IF OBJECT_ID('dbo.{t}') IS NOT NULL DROP TABLE dbo.{t}")).await;
+    for t in [
+        "src_narrow",
+        "dst_narrow",
+        "src_long",
+        "dst_long",
+        "dst_ident",
+    ] {
+        run(
+            &mut s,
+            &format!("IF OBJECT_ID('dbo.{t}') IS NOT NULL DROP TABLE dbo.{t}"),
+        )
+        .await;
     }
-    run(&mut s, &format!("CREATE TABLE dbo.src_narrow {NARROW}\nGO\nCREATE TABLE dbo.dst_narrow {NARROW}")).await;
+    run(
+        &mut s,
+        &format!("CREATE TABLE dbo.src_narrow {NARROW}\nGO\nCREATE TABLE dbo.dst_narrow {NARROW}"),
+    )
+    .await;
     run(
         &mut s,
         "WITH n AS (SELECT TOP (2500) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS i FROM sys.all_objects a CROSS JOIN sys.all_objects b)
@@ -137,7 +187,11 @@ async fn sql_server_bulk_transfer_through_odbc() {
          INSERT INTO dbo.src_narrow (id) VALUES (-1)",
     )
     .await;
-    run(&mut s, &format!("CREATE TABLE dbo.src_long {LONG}\nGO\nCREATE TABLE dbo.dst_long {LONG}")).await;
+    run(
+        &mut s,
+        &format!("CREATE TABLE dbo.src_long {LONG}\nGO\nCREATE TABLE dbo.dst_long {LONG}"),
+    )
+    .await;
     run(
         &mut s,
         "INSERT INTO dbo.src_long VALUES
@@ -148,8 +202,17 @@ async fn sql_server_bulk_transfer_through_odbc() {
     .await;
 
     // Requested columns, in the requested order, filtered: bound in blocks.
-    let (cols, batches) = read(&mut s, "src_narrow", Some(vec!["s", "id", "d"]), Some("id BETWEEN 1 AND 10")).await;
-    assert_eq!(cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["s", "id", "d"]);
+    let (cols, batches) = read(
+        &mut s,
+        "src_narrow",
+        Some(vec!["s", "id", "d"]),
+        Some("id BETWEEN 1 AND 10"),
+    )
+    .await;
+    assert_eq!(
+        cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["s", "id", "d"]
+    );
     assert_eq!(cols[0].type_name, "nvarchar(50)");
     assert_eq!(cols[2].type_name, "decimal(38,10)");
     let mut rows: Vec<Vec<Cell>> = batches.iter().flat_map(|b| b.rows.clone()).collect();
@@ -158,7 +221,14 @@ async fn sql_server_bulk_transfer_through_odbc() {
         _ => 0,
     });
     assert_eq!(rows.len(), 10);
-    assert_eq!(rows[6], vec![Cell::Text("fila ñ 7".into()), Cell::Int(7), Cell::Decimal("-999.0000000000".into())]);
+    assert_eq!(
+        rows[6],
+        vec![
+            Cell::Text("fila ñ 7".into()),
+            Cell::Int(7),
+            Cell::Decimal("-999.0000000000".into())
+        ]
+    );
 
     // Every column, typed.
     let (cols, batches) = read(&mut s, "src_narrow", None, None).await;
@@ -176,8 +246,15 @@ async fn sql_server_bulk_transfer_through_odbc() {
     assert_eq!(r[5], Cell::Date("2006-11-04".into()));
     assert_eq!(r[6], Cell::DateTime("2024-02-29 23:59:58.1237067".into()));
     assert_eq!(r[7], Cell::Time("13:45:00.1234567".into()));
-    assert_eq!(r[8], Cell::DateTimeTz("2024-01-02 03:04:05.1234567-03:00".into()));
-    assert!(matches!(&r[9], Cell::Uuid(u) if u.len() == 36 && u == &u.to_lowercase()), "{:?}", r[9]);
+    assert_eq!(
+        r[8],
+        Cell::DateTimeTz("2024-01-02 03:04:05.1234567-03:00".into())
+    );
+    assert!(
+        matches!(&r[9], Cell::Uuid(u) if u.len() == 36 && u == &u.to_lowercase()),
+        "{:?}",
+        r[9]
+    );
     assert_eq!(r[11], Cell::Bytes(vec![0, 0, 0, 0, 0, 0, 0x09, 0xC4])); // ROW_NUMBER is a bigint
 
     // Load them back with parameter arrays, a commit every 1 000 rows.
@@ -202,7 +279,10 @@ async fn sql_server_bulk_transfer_through_odbc() {
         }
         other => panic!("{other:?}"),
     }
-    assert_eq!(lsrc[1][1..], [Cell::Text(String::new()), Cell::Bytes(Vec::new())]);
+    assert_eq!(
+        lsrc[1][1..],
+        [Cell::Text(String::new()), Cell::Bytes(Vec::new())]
+    );
     assert_eq!(lsrc[2][1..], [Cell::Null, Cell::Null]);
     let (n, _) = load(&mut s, "dst_long", &lcols, lbatches, false).await;
     assert_eq!(n, 3);
@@ -210,13 +290,38 @@ async fn sql_server_bulk_transfer_through_odbc() {
     assert_eq!(sorted(&lback), lsrc);
 
     // Identity values kept (IDENTITY_INSERT around the load).
-    run(&mut s, "CREATE TABLE dbo.dst_ident (id int IDENTITY(1,1) PRIMARY KEY, s nvarchar(10))").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbo.dst_ident (id int IDENTITY(1,1) PRIMARY KEY, s nvarchar(10))",
+    )
+    .await;
     let icols = vec![
-        TransferColumn { name: "id".into(), type_name: "int".into(), nullable: false },
-        TransferColumn { name: "s".into(), type_name: "nvarchar(10)".into(), nullable: true },
+        TransferColumn {
+            name: "id".into(),
+            type_name: "int".into(),
+            nullable: false,
+        },
+        TransferColumn {
+            name: "s".into(),
+            type_name: "nvarchar(10)".into(),
+            nullable: true,
+        },
     ];
-    let rows = vec![vec![Cell::Int(40), Cell::Text("a".into())], vec![Cell::Int(7), Cell::Text("b".into())]];
-    let (n, _) = load(&mut s, "dst_ident", &icols, vec![RowBatch { rows: rows.clone(), bytes: 0 }], true).await;
+    let rows = vec![
+        vec![Cell::Int(40), Cell::Text("a".into())],
+        vec![Cell::Int(7), Cell::Text("b".into())],
+    ];
+    let (n, _) = load(
+        &mut s,
+        "dst_ident",
+        &icols,
+        vec![RowBatch {
+            rows: rows.clone(),
+            bytes: 0,
+        }],
+        true,
+    )
+    .await;
     assert_eq!(n, 2);
     let (_, iback) = read(&mut s, "dst_ident", None, None).await;
     let mut expect = rows;
@@ -225,7 +330,10 @@ async fn sql_server_bulk_transfer_through_odbc() {
 
     // A bad value fails the load and rolls back its open window: nothing
     // of that window stays.
-    let bad = vec![vec![Cell::Int(1), Cell::Text("ok".into())], vec![Cell::Text("x".into()), Cell::Text("no".into())]];
+    let bad = vec![
+        vec![Cell::Int(1), Cell::Text("ok".into())],
+        vec![Cell::Text("x".into()), Cell::Text("no".into())],
+    ];
     let spec = LoadSpec {
         table: table("dst_ident"),
         columns: vec!["id".into(), "s".into()],
@@ -234,12 +342,31 @@ async fn sql_server_bulk_transfer_through_odbc() {
         commit_rows: 1_000,
         commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
     };
-    let r = s.bulk_load(&spec, &icols, &mut Source(vec![RowBatch { rows: bad, bytes: 0 }].into()), &|_| {}).await;
+    let r = s
+        .bulk_load(
+            &spec,
+            &icols,
+            &mut Source(
+                vec![RowBatch {
+                    rows: bad,
+                    bytes: 0,
+                }]
+                .into(),
+            ),
+            &|_| {},
+        )
+        .await;
     assert!(r.is_err());
     let (_, after) = read(&mut s, "dst_ident", None, None).await;
     assert_eq!(after.iter().map(RowBatch::len).sum::<usize>(), 2);
 
-    for t in ["src_narrow", "dst_narrow", "src_long", "dst_long", "dst_ident"] {
+    for t in [
+        "src_narrow",
+        "dst_narrow",
+        "src_long",
+        "dst_long",
+        "dst_ident",
+    ] {
         run(&mut s, &format!("DROP TABLE dbo.{t}")).await;
     }
 }
@@ -247,9 +374,18 @@ async fn sql_server_bulk_transfer_through_odbc() {
 /// First number of the first result of `sql`.
 async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> u64 {
     let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
-    let v = out.results.iter().find(|r| !r.rows.is_empty()).map(|r| r.rows[0][0].clone()).unwrap_or_else(|| panic!("{sql}"));
-    v.as_u64().or_else(|| v.as_str()?.trim().parse().ok()).unwrap_or_else(|| panic!("{sql}: {v}"))
+    s.execute(sql, 10, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
+    let v = out
+        .results
+        .iter()
+        .find(|r| !r.rows.is_empty())
+        .map(|r| r.rows[0][0].clone())
+        .unwrap_or_else(|| panic!("{sql}"));
+    v.as_u64()
+        .or_else(|| v.as_str()?.trim().parse().ok())
+        .unwrap_or_else(|| panic!("{sql}: {v}"))
 }
 
 fn spec(name: &str, columns: &[&str], commit_rows: u64) -> LoadSpec {
@@ -265,7 +401,12 @@ fn spec(name: &str, columns: &[&str], commit_rows: u64) -> LoadSpec {
 
 fn int_batches(batches: i64, rows: i64) -> Vec<RowBatch> {
     (0..batches)
-        .map(|b| RowBatch { rows: (0..rows).map(|r| vec![Cell::Int(b * rows + r + 1)]).collect(), bytes: 0 })
+        .map(|b| RowBatch {
+            rows: (0..rows)
+                .map(|r| vec![Cell::Int(b * rows + r + 1)])
+                .collect(),
+            bytes: 0,
+        })
         .collect()
 }
 
@@ -308,18 +449,36 @@ impl BatchSource for Probe {
 #[ignore]
 async fn sql_server_bulk_load_edge_cases() {
     let mut s = open(None).await;
-    run(&mut s, &format!("IF DB_ID('{DB}') IS NULL CREATE DATABASE {DB}")).await;
+    run(
+        &mut s,
+        &format!("IF DB_ID('{DB}') IS NULL CREATE DATABASE {DB}"),
+    )
+    .await;
     drop(s);
     let mut s = open(Some(DB)).await;
-    let tables = ["fix_late", "fix_mem", "fix_utf8", "fix_ts", "fix_vsrc", "fix_vdst", "fix_usrc", "fix_udst"];
+    let tables = [
+        "fix_late", "fix_mem", "fix_utf8", "fix_ts", "fix_vsrc", "fix_vdst", "fix_usrc", "fix_udst",
+    ];
     for t in tables {
-        run(&mut s, &format!("IF OBJECT_ID('dbo.{t}') IS NOT NULL DROP TABLE dbo.{t}")).await;
+        run(
+            &mut s,
+            &format!("IF OBJECT_ID('dbo.{t}') IS NOT NULL DROP TABLE dbo.{t}"),
+        )
+        .await;
     }
-    let id = TransferColumn { name: "id".into(), type_name: "int".into(), nullable: false };
+    let id = TransferColumn {
+        name: "id".into(),
+        type_name: "int".into(),
+        nullable: false,
+    };
 
     // 1. A load dropped while its source stalls commits nothing afterwards:
     // what's in the table right after the drop is what stays.
-    run(&mut s, "CREATE TABLE dbo.fix_late (id int NOT NULL PRIMARY KEY)").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbo.fix_late (id int NOT NULL PRIMARY KEY)",
+    )
+    .await;
     let (hung_tx, hung_rx) = tokio::sync::oneshot::channel();
     let mut src = Probe {
         batches: int_batches(8, 1000).into(),
@@ -340,19 +499,33 @@ async fn sql_server_bulk_load_edge_cases() {
             _ = hung_rx => {}
         }
     }
-    let at_drop = scalar(&mut src.peek, "SELECT COUNT(*) FROM dbo.fix_late WITH (READPAST)").await;
+    let at_drop = scalar(
+        &mut src.peek,
+        "SELECT COUNT(*) FROM dbo.fix_late WITH (READPAST)",
+    )
+    .await;
     // The session's next statement waits for the loading thread to finish.
     let after = scalar(&mut s, "SELECT COUNT(*) FROM dbo.fix_late").await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let later = scalar(&mut src.peek, "SELECT COUNT(*) FROM dbo.fix_late").await;
     let reported = seen.lock().unwrap().last().copied().unwrap_or(0);
-    println!("late commits: progress {:?}, at drop {at_drop}, after {after}, later {later}", seen.lock().unwrap());
+    println!(
+        "late commits: progress {:?}, at drop {at_drop}, after {after}, later {later}",
+        seen.lock().unwrap()
+    );
     assert_eq!((after, later), (at_drop, at_drop));
-    assert!(at_drop % 1000 == 0 && at_drop >= reported, "{at_drop} vs {reported}");
+    assert!(
+        at_drop % 1000 == 0 && at_drop >= reported,
+        "{at_drop} vs {reported}"
+    );
 
     // 6. The next batch is only read once the last one was executed (and
     // freed): nothing waits outside the orchestrator's window.
-    run(&mut s, "CREATE TABLE dbo.fix_mem (id int NOT NULL PRIMARY KEY)").await;
+    run(
+        &mut s,
+        "CREATE TABLE dbo.fix_mem (id int NOT NULL PRIMARY KEY)",
+    )
+    .await;
     let mut src = Probe {
         batches: int_batches(6, 500).into(),
         peek: src.peek,
@@ -361,29 +534,88 @@ async fn sql_server_bulk_load_edge_cases() {
         seen: Vec::new(),
         hang: None,
     };
-    let n = s.bulk_load(&spec("fix_mem", &["id"], 100_000), std::slice::from_ref(&id), &mut src, &|_| {}).await.expect("load");
+    let n = s
+        .bulk_load(
+            &spec("fix_mem", &["id"], 100_000),
+            std::slice::from_ref(&id),
+            &mut src,
+            &|_| {},
+        )
+        .await
+        .expect("load");
     assert_eq!(n, 3000);
     assert_eq!(src.seen, [500, 1000, 1500, 2000, 2500, 3000]);
 
     // 2. Non-ASCII text into a narrow UTF-8 column arrives whole.
     run(&mut s, "CREATE TABLE dbo.fix_utf8 (id int NOT NULL PRIMARY KEY, v varchar(10) COLLATE Latin1_General_100_CI_AS_SC_UTF8)").await;
-    let cols = vec![id.clone(), TransferColumn { name: "v".into(), type_name: "varchar(10)".into(), nullable: true }];
-    let rows = vec![vec![Cell::Int(1), Cell::Text("ñ€𝄞".into())], vec![Cell::Int(2), Cell::Text("abc".into())]];
-    load(&mut s, "fix_utf8", &cols, vec![RowBatch { rows: rows.clone(), bytes: 0 }], false).await;
+    let cols = vec![
+        id.clone(),
+        TransferColumn {
+            name: "v".into(),
+            type_name: "varchar(10)".into(),
+            nullable: true,
+        },
+    ];
+    let rows = vec![
+        vec![Cell::Int(1), Cell::Text("ñ€𝄞".into())],
+        vec![Cell::Int(2), Cell::Text("abc".into())],
+    ];
+    load(
+        &mut s,
+        "fix_utf8",
+        &cols,
+        vec![RowBatch {
+            rows: rows.clone(),
+            bytes: 0,
+        }],
+        false,
+    )
+    .await;
     let (_, back) = read(&mut s, "fix_utf8", None, None).await;
     assert_eq!(sorted(&back), rows);
 
     // 3. Nine fraction digits into datetime2(7): cut to the column's seven.
-    run(&mut s, "CREATE TABLE dbo.fix_ts (id int NOT NULL PRIMARY KEY, ts datetime2(7))").await;
-    let cols = vec![id.clone(), TransferColumn { name: "ts".into(), type_name: "datetime2(7)".into(), nullable: true }];
-    let rows = vec![vec![Cell::Int(1), Cell::DateTime("2024-01-01 00:00:00.123456789".into())]];
-    load(&mut s, "fix_ts", &cols, vec![RowBatch { rows, bytes: 0 }], false).await;
+    run(
+        &mut s,
+        "CREATE TABLE dbo.fix_ts (id int NOT NULL PRIMARY KEY, ts datetime2(7))",
+    )
+    .await;
+    let cols = vec![
+        id.clone(),
+        TransferColumn {
+            name: "ts".into(),
+            type_name: "datetime2(7)".into(),
+            nullable: true,
+        },
+    ];
+    let rows = vec![vec![
+        Cell::Int(1),
+        Cell::DateTime("2024-01-01 00:00:00.123456789".into()),
+    ]];
+    load(
+        &mut s,
+        "fix_ts",
+        &cols,
+        vec![RowBatch { rows, bytes: 0 }],
+        false,
+    )
+    .await;
     let (_, back) = read(&mut s, "fix_ts", None, None).await;
-    assert_eq!(sorted(&back), [vec![Cell::Int(1), Cell::DateTime("2024-01-01 00:00:00.1234567".into())]]);
+    assert_eq!(
+        sorted(&back),
+        [vec![
+            Cell::Int(1),
+            Cell::DateTime("2024-01-01 00:00:00.1234567".into())
+        ]]
+    );
 
     // 4. Vendor types: xml past 4 000 characters and sql_variant.
     for t in ["fix_vsrc", "fix_vdst"] {
-        run(&mut s, &format!("CREATE TABLE dbo.{t} (id int NOT NULL PRIMARY KEY, x xml, v sql_variant)")).await;
+        run(
+            &mut s,
+            &format!("CREATE TABLE dbo.{t} (id int NOT NULL PRIMARY KEY, x xml, v sql_variant)"),
+        )
+        .await;
     }
     run(
         &mut s,
@@ -399,11 +631,24 @@ async fn sql_server_bulk_load_edge_cases() {
     let (_, vback) = read(&mut s, "fix_vdst", None, None).await;
     assert_eq!(sorted(&vback), vsrc);
     let rows = vec![vec![Cell::Int(4), Cell::Null, Cell::Text("a".into())]];
-    load(&mut s, "fix_vdst", &vcols, vec![RowBatch { rows, bytes: 0 }], false).await;
+    load(
+        &mut s,
+        "fix_vdst",
+        &vcols,
+        vec![RowBatch { rows, bytes: 0 }],
+        false,
+    )
+    .await;
 
     // 5. CLR types travel as their binary form and load back.
     for t in ["fix_usrc", "fix_udst"] {
-        run(&mut s, &format!("CREATE TABLE dbo.{t} (id int NOT NULL PRIMARY KEY, h hierarchyid, g geography)")).await;
+        run(
+            &mut s,
+            &format!(
+                "CREATE TABLE dbo.{t} (id int NOT NULL PRIMARY KEY, h hierarchyid, g geography)"
+            ),
+        )
+        .await;
     }
     run(
         &mut s,
@@ -412,8 +657,16 @@ async fn sql_server_bulk_load_edge_cases() {
     .await;
     let (ucols, ubatches) = read(&mut s, "fix_usrc", None, None).await;
     let usrc = sorted(&ubatches);
-    assert!(matches!(&usrc[0][1], Cell::Bytes(b) if !b.is_empty()), "{:?}", usrc[0]);
-    assert!(matches!(&usrc[0][2], Cell::Bytes(b) if !b.is_empty()), "{:?}", usrc[0]);
+    assert!(
+        matches!(&usrc[0][1], Cell::Bytes(b) if !b.is_empty()),
+        "{:?}",
+        usrc[0]
+    );
+    assert!(
+        matches!(&usrc[0][2], Cell::Bytes(b) if !b.is_empty()),
+        "{:?}",
+        usrc[0]
+    );
     load(&mut s, "fix_udst", &ucols, ubatches, false).await;
     let (_, uback) = read(&mut s, "fix_udst", None, None).await;
     assert_eq!(sorted(&uback), usrc);

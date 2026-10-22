@@ -25,7 +25,9 @@
 //! rolled back before the connection is used for anything else.
 
 use super::{err, join_err, message, poisoned, q, Conn, FirebirdSession, StmtHandle};
-use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn};
+use dbine_driver::transfer::{
+    BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
+};
 use dbine_driver::{Error, Result};
 use rsfbclient_core::{Column, FirebirdClientSqlOps, SqlType, TrOp};
 use std::sync::{Arc, Mutex};
@@ -145,11 +147,14 @@ fn catalog(c: &mut Conn, table: &str) -> Result<Vec<Col>> {
 
 /// The server's major version (3, 4, 5…).
 fn major(c: &mut Conn) -> u32 {
-    c.rows("SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE", vec![])
-        .ok()
-        .and_then(|r| r.first().and_then(|r| r.first()).and_then(super::text))
-        .and_then(|v| v.split('.').next()?.parse().ok())
-        .unwrap_or(3)
+    c.rows(
+        "SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE",
+        vec![],
+    )
+    .ok()
+    .and_then(|r| r.first().and_then(|r| r.first()).and_then(super::text))
+    .and_then(|v| v.split('.').next()?.parse().ok())
+    .unwrap_or(3)
 }
 
 fn lock_err<T>(_: T) -> Error {
@@ -163,7 +168,9 @@ fn select_expr(c: &Col, major: u32) -> String {
     let n = q(&c.name);
     match c.kind {
         Kind::Exact | Kind::DecFloat => format!("CAST({n} AS VARCHAR(64))"),
-        Kind::Date | Kind::Time | Kind::Timestamp | Kind::TimeTz => format!("CAST({n} AS VARCHAR(64))"),
+        Kind::Date | Kind::Time | Kind::Timestamp | Kind::TimeTz => {
+            format!("CAST({n} AS VARCHAR(64))")
+        }
         // In its own zone: `… +02:00` or `… America/Sao_Paulo`.
         Kind::TimestampTz => format!("CAST({n} AS VARCHAR(64))"),
         // Bytes as they are: never through the connection's decoder.
@@ -178,7 +185,10 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return None;
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
+        .collect()
 }
 
 fn hex(b: &[u8]) -> String {
@@ -193,11 +203,17 @@ fn plain_decimal(s: &str) -> Option<String> {
         None => ("", s.strip_prefix('+').unwrap_or(s)),
     };
     let (int, frac) = body.split_once('.').unwrap_or((body, ""));
-    if (int.is_empty() && frac.is_empty()) || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+    if (int.is_empty() && frac.is_empty())
+        || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let int = if int.is_empty() { "0" } else { int };
-    Some(if frac.is_empty() { format!("{sign}{int}") } else { format!("{sign}{int}.{frac}") })
+    Some(if frac.is_empty() {
+        format!("{sign}{int}")
+    } else {
+        format!("{sign}{int}.{frac}")
+    })
 }
 
 /// `2024-01-01 08:00:00.0000 +02:00` → a `DateTimeTz`
@@ -207,7 +223,9 @@ fn plain_decimal(s: &str) -> Option<String> {
 fn tz_cell(s: &str) -> Cell {
     let s = s.trim();
     match s.rfind(' ') {
-        Some(i) if s[i + 1..].starts_with(['+', '-']) => Cell::DateTimeTz(format!("{}{}", &s[..i], &s[i + 1..])),
+        Some(i) if s[i + 1..].starts_with(['+', '-']) => {
+            Cell::DateTimeTz(format!("{}{}", &s[..i], &s[i + 1..]))
+        }
         _ => Cell::Text(s.to_string()),
     }
 }
@@ -222,7 +240,9 @@ pub(crate) fn cell(kind: Kind, v: SqlType) -> Cell {
     match (kind, v) {
         (_, SqlType::Null) => Cell::Null,
         (Kind::Exact, SqlType::Text(s)) => plain_decimal(&s).map_or(Cell::Text(s), Cell::Decimal),
-        (Kind::DecFloat, SqlType::Text(s)) => plain_decimal(&s).map_or(Cell::Text(s), Cell::Decimal),
+        (Kind::DecFloat, SqlType::Text(s)) => {
+            plain_decimal(&s).map_or(Cell::Text(s), Cell::Decimal)
+        }
         (Kind::Date, SqlType::Text(s)) => Cell::Date(s.trim().to_string()),
         (Kind::Time, SqlType::Text(s)) => Cell::Time(s.trim().to_string()),
         (Kind::Timestamp, SqlType::Text(s)) => Cell::DateTime(s.trim().to_string()),
@@ -241,7 +261,11 @@ pub(crate) fn cell(kind: Kind, v: SqlType) -> Cell {
     }
 }
 
-pub(crate) async fn read_batches(s: &mut FirebirdSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
+pub(crate) async fn read_batches(
+    s: &mut FirebirdSession,
+    spec: &ReadSpec,
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let table = spec.table.name.clone();
     let wanted = spec.columns.clone();
     let filter = spec.filter.clone().filter(|f| !f.trim().is_empty());
@@ -251,7 +275,12 @@ pub(crate) async fn read_batches(s: &mut FirebirdSession, spec: &ReadSpec, sink:
         let cols: Vec<Col> = match &wanted {
             Some(names) => names
                 .iter()
-                .map(|n| cat.iter().find(|c| &c.name == n).cloned().ok_or_else(|| Error::Query(format!("no existe la columna «{n}»"))))
+                .map(|n| {
+                    cat.iter()
+                        .find(|c| &c.name == n)
+                        .cloned()
+                        .ok_or_else(|| Error::Query(format!("no existe la columna «{n}»")))
+                })
                 .collect::<Result<_>>()?,
             // Computed columns can't be written: they aren't copied.
             None => cat.into_iter().filter(|c| !c.computed).collect(),
@@ -261,15 +290,31 @@ pub(crate) async fn read_batches(s: &mut FirebirdSession, spec: &ReadSpec, sink:
         if let Some(f) = &filter {
             sql.push_str(&format!(" WHERE ({f})"));
         }
-        let described: Vec<TransferColumn> =
-            cols.iter().map(|c| TransferColumn { name: c.name.clone(), type_name: c.type_name.clone(), nullable: c.nullable }).collect();
+        let described: Vec<TransferColumn> = cols
+            .iter()
+            .map(|c| TransferColumn {
+                name: c.name.clone(),
+                type_name: c.type_name.clone(),
+                nullable: c.nullable,
+            })
+            .collect();
         sink.lock().map_err(lock_err)?.begin(&described)?;
         let (_, mut stmt) = c.prepare(&sql).map_err(err)?;
         let result = (|| -> Result<u64> {
-            c.client.execute(&mut c.db, &mut c.tr, &mut stmt, vec![]).map_err(err)?;
+            c.client
+                .execute(&mut c.db, &mut c.tr, &mut stmt, vec![])
+                .map_err(err)?;
             let mut builder = BatchBuilder::new();
-            while let Some(row) = c.client.fetch(&mut c.db, &mut c.tr, &mut stmt).map_err(err)? {
-                let cells = row.into_iter().zip(&cols).map(|(v, col): (Column, _)| cell(col.kind, v.value)).collect();
+            while let Some(row) = c
+                .client
+                .fetch(&mut c.db, &mut c.tr, &mut stmt)
+                .map_err(err)?
+            {
+                let cells = row
+                    .into_iter()
+                    .zip(&cols)
+                    .map(|(v, col): (Column, _)| cell(col.kind, v.value))
+                    .collect();
                 builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
             }
             builder.flush(&mut *sink.lock().map_err(lock_err)?)?;
@@ -325,13 +370,20 @@ fn offset_secs(o: &str) -> Option<i64> {
 
 /// A timestamp with an offset as UTC, for a column without a zone.
 fn to_utc(date: &str, time: &str, offset: &str) -> Option<String> {
-    let t = chrono::NaiveDateTime::parse_from_str(&format!("{date} {time}"), "%Y-%m-%d %H:%M:%S%.f").ok()?;
+    let t =
+        chrono::NaiveDateTime::parse_from_str(&format!("{date} {time}"), "%Y-%m-%d %H:%M:%S%.f")
+            .ok()?;
     let utc = t - chrono::Duration::seconds(offset_secs(offset)?);
     Some(short_time(&utc.format("%Y-%m-%d %H:%M:%S%.f").to_string()))
 }
 
 fn uuid_bytes(s: &str) -> Option<Vec<u8>> {
-    let h: String = s.trim().trim_matches(['{', '}']).chars().filter(|c| *c != '-').collect();
+    let h: String = s
+        .trim()
+        .trim_matches(['{', '}'])
+        .chars()
+        .filter(|c| *c != '-')
+        .collect();
     if h.len() == 32 {
         unhex(&h)
     } else {
@@ -343,32 +395,48 @@ fn uuid_bytes(s: &str) -> Option<Vec<u8>> {
 /// [`Col::hex`]) octets and `NONE` columns take hex text the INSERT decodes;
 /// otherwise their bytes go as a blob parameter. Text into them is its UTF-8
 /// bytes; other text the server converts.
-pub(crate) fn param(kind: Kind, c: &Cell, hex_octets: bool) -> std::result::Result<SqlType, String> {
+pub(crate) fn param(
+    kind: Kind,
+    c: &Cell,
+    hex_octets: bool,
+) -> std::result::Result<SqlType, String> {
     let bytes = matches!(kind, Kind::Octets | Kind::Raw | Kind::RawBlob);
     Ok(match c {
         Cell::Null => SqlType::Null,
         Cell::Bool(b) => match kind {
-            Kind::Int | Kind::Exact | Kind::Float | Kind::DecFloat => SqlType::Integer(i64::from(*b)),
+            Kind::Int | Kind::Exact | Kind::Float | Kind::DecFloat => {
+                SqlType::Integer(i64::from(*b))
+            }
             Kind::Bool => SqlType::Boolean(*b),
             _ => SqlType::Text(if *b { "true" } else { "false" }.into()),
         },
         // 0 / 1 into BOOLEAN (engines without a boolean type).
         Cell::Int(i @ (0 | 1)) if kind == Kind::Bool => SqlType::Boolean(*i == 1),
-        Cell::Text(s) if kind == Kind::Bool && matches!(s.trim(), "0" | "1") => SqlType::Boolean(s.trim() == "1"),
+        Cell::Text(s) if kind == Kind::Bool && matches!(s.trim(), "0" | "1") => {
+            SqlType::Boolean(s.trim() == "1")
+        }
         Cell::Int(i) => SqlType::Integer(*i),
-        Cell::UInt(u) => i64::try_from(*u).map_or_else(|_| SqlType::Text(u.to_string()), SqlType::Integer),
+        Cell::UInt(u) => {
+            i64::try_from(*u).map_or_else(|_| SqlType::Text(u.to_string()), SqlType::Integer)
+        }
         Cell::Float(f) => SqlType::Floating(*f),
         Cell::Decimal(s) => match kind {
             // `12.00` into an integer column.
             Kind::Int => {
-                let whole = s.split_once('.').filter(|(_, f)| f.bytes().all(|b| b == b'0')).map_or(s.as_str(), |(i, _)| i);
-                whole.parse().map_or_else(|_| SqlType::Text(s.clone()), SqlType::Integer)
+                let whole = s
+                    .split_once('.')
+                    .filter(|(_, f)| f.bytes().all(|b| b == b'0'))
+                    .map_or(s.as_str(), |(i, _)| i);
+                whole
+                    .parse()
+                    .map_or_else(|_| SqlType::Text(s.clone()), SqlType::Integer)
             }
             _ => SqlType::Text(s.clone()),
         },
         Cell::Bytes(b) if hex_octets => SqlType::Text(hex(b)),
         Cell::Bytes(b) => match kind {
-            Kind::Text | Kind::TextBlob => String::from_utf8(b.clone()).map_or_else(|e| SqlType::Binary(e.into_bytes()), SqlType::Text),
+            Kind::Text | Kind::TextBlob => String::from_utf8(b.clone())
+                .map_or_else(|e| SqlType::Binary(e.into_bytes()), SqlType::Text),
             _ => SqlType::Binary(b.clone()),
         },
         Cell::Uuid(s) if kind == Kind::Octets => match uuid_bytes(s) {
@@ -376,21 +444,30 @@ pub(crate) fn param(kind: Kind, c: &Cell, hex_octets: bool) -> std::result::Resu
             Some(b) => SqlType::Binary(b),
             None => return Err(format!("«{s}» no es un UUID")),
         },
-        Cell::Text(s) | Cell::Json(s) | Cell::Uuid(s) if hex_octets => SqlType::Text(hex(s.as_bytes())),
-        Cell::Text(s) | Cell::Json(s) | Cell::Uuid(s) if bytes => SqlType::Binary(s.as_bytes().to_vec()),
+        Cell::Text(s) | Cell::Json(s) | Cell::Uuid(s) if hex_octets => {
+            SqlType::Text(hex(s.as_bytes()))
+        }
+        Cell::Text(s) | Cell::Json(s) | Cell::Uuid(s) if bytes => {
+            SqlType::Binary(s.as_bytes().to_vec())
+        }
         Cell::Text(s) | Cell::Json(s) | Cell::Uuid(s) | Cell::Date(s) => SqlType::Text(s.clone()),
         Cell::Time(s) => SqlType::Text(short_time(s.trim())),
         Cell::DateTime(s) | Cell::DateTimeTz(s) => {
-            let (date, time, offset) = split_timestamp(s).ok_or_else(|| format!("«{s}» no es una fecha y hora"))?;
+            let (date, time, offset) =
+                split_timestamp(s).ok_or_else(|| format!("«{s}» no es una fecha y hora"))?;
             SqlType::Text(match (kind, offset) {
                 (Kind::Date, _) => date.to_string(),
                 (Kind::Time, _) => time,
                 (Kind::TimeTz, Some(o)) => format!("{time} {o}"),
                 (Kind::TimeTz, None) => time,
-                (Kind::TimestampTz, Some(o)) => format!("{date} {time} {}", if o == "Z" { "+00:00" } else { o }),
+                (Kind::TimestampTz, Some(o)) => {
+                    format!("{date} {time} {}", if o == "Z" { "+00:00" } else { o })
+                }
                 (Kind::TimestampTz, None) | (_, None) => format!("{date} {time}"),
                 // A zone into a column without one: the same instant in UTC.
-                (_, Some(o)) => to_utc(date, &time, o).ok_or_else(|| format!("«{s}» no es una fecha y hora"))?,
+                (_, Some(o)) => {
+                    to_utc(date, &time, o).ok_or_else(|| format!("«{s}» no es una fecha y hora"))?
+                }
             })
         }
     })
@@ -411,26 +488,55 @@ fn statements(table: &str, cols: &[Col], major: u32, overriding: bool) -> Statem
         "INSERT INTO {} ({}){} VALUES",
         q(table),
         names.join(", "),
-        if overriding { " OVERRIDING SYSTEM VALUE" } else { "" }
+        if overriding {
+            " OVERRIDING SYSTEM VALUE"
+        } else {
+            ""
+        }
     );
     // A bare `?` inside HEX_DECODE has no type: cast it. A blob parameter
     // into a `NONE` column would be transliterated: through OCTETS, its
     // bytes are copied.
     let value = |c: &Col, p: String| {
         if c.hex(major) {
-            format!("HEX_DECODE(CAST({p} AS VARCHAR({}) CHARACTER SET ASCII))", c.length * 2)
+            format!(
+                "HEX_DECODE(CAST({p} AS VARCHAR({}) CHARACTER SET ASCII))",
+                c.length * 2
+            )
         } else if c.kind == Kind::Raw {
             format!("CAST({p} AS VARCHAR({}) CHARACTER SET OCTETS)", c.length)
         } else {
             p
         }
     };
-    let single = format!("{insert} ({})", cols.iter().map(|c| value(c, "?".into())).collect::<Vec<_>>().join(", "));
+    let single = format!(
+        "{insert} ({})",
+        cols.iter()
+            .map(|c| value(c, "?".into()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     // Input parameters are declared as their column (hex text for octets),
     // so the block's message size is known.
-    let row_bytes: i64 = cols.iter().map(|c| if c.hex(major) { c.length * 2 + 4 } else { c.length + 4 }).sum();
-    let rows = ((BLOCK_MESSAGE / row_bytes.max(1)) as usize).min(BLOCK_ROWS).min(BLOCK_PARAMS / cols.len().max(1));
-    let blobs = cols.iter().any(|c| matches!(c.kind, Kind::TextBlob | Kind::RawBlob | Kind::BinaryBlob | Kind::Other));
+    let row_bytes: i64 = cols
+        .iter()
+        .map(|c| {
+            if c.hex(major) {
+                c.length * 2 + 4
+            } else {
+                c.length + 4
+            }
+        })
+        .sum();
+    let rows = ((BLOCK_MESSAGE / row_bytes.max(1)) as usize)
+        .min(BLOCK_ROWS)
+        .min(BLOCK_PARAMS / cols.len().max(1));
+    let blobs = cols.iter().any(|c| {
+        matches!(
+            c.kind,
+            Kind::TextBlob | Kind::RawBlob | Kind::BinaryBlob | Kind::Other
+        )
+    });
     let block = (rows >= 8 && !blobs).then(|| {
         let mut decl = Vec::with_capacity(rows * cols.len());
         let mut body = String::new();
@@ -450,7 +556,10 @@ fn statements(table: &str, cols: &[Col], major: u32, overriding: bool) -> Statem
             }
             body.push_str(&format!("{insert} ({});\n", vals.join(", ")));
         }
-        (format!("EXECUTE BLOCK ({}) AS BEGIN\n{body}END", decl.join(", ")), rows)
+        (
+            format!("EXECUTE BLOCK ({}) AS BEGIN\n{body}END", decl.join(", ")),
+            rows,
+        )
     });
     Statements { single, block }
 }
@@ -507,7 +616,9 @@ struct Gate(Mutex<GateState>);
 
 impl Gate {
     fn state(&self) -> std::sync::MutexGuard<'_, GateState> {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn closed(&self) -> bool {
@@ -561,8 +672,15 @@ impl Drop for Guard {
     }
 }
 
-fn exec(c: &mut Conn, stmt: &mut StmtHandle, params: Vec<SqlType>) -> std::result::Result<(), String> {
-    c.client.execute(&mut c.db, &mut c.tr, stmt, params).map(|_| ()).map_err(|e| message(&e))
+fn exec(
+    c: &mut Conn,
+    stmt: &mut StmtHandle,
+    params: Vec<SqlType>,
+) -> std::result::Result<(), String> {
+    c.client
+        .execute(&mut c.db, &mut c.tr, stmt, params)
+        .map(|_| ())
+        .map_err(|e| message(&e))
 }
 
 /// Send the pending rows: whole blocks, and with `all`, the rest one by one.
@@ -577,7 +695,9 @@ fn drain(c: &mut Conn, st: &mut State, stmts: &Statements, gate: &Gate, all: boo
             }
             let first = st.total + st.window_rows - st.pending.len() as u64 + 1;
             let params: Vec<SqlType> = st.pending.drain(..*rows).flatten().collect();
-            exec(c, stmt, params).map_err(|e| Error::Query(format!("filas {first}–{}: {e}", first + *rows as u64 - 1)))?;
+            exec(c, stmt, params).map_err(|e| {
+                Error::Query(format!("filas {first}–{}: {e}", first + *rows as u64 - 1))
+            })?;
         }
     }
     if all || st.prepared.block.is_none() {
@@ -590,7 +710,8 @@ fn drain(c: &mut Conn, st: &mut State, stmts: &Statements, gate: &Gate, all: boo
                 return Err(cancelled());
             }
             let stmt = st.prepared.single.as_mut().expect("prepared");
-            exec(c, stmt, row).map_err(|e| Error::Query(format!("fila {}: {e}", first + i as u64)))?;
+            exec(c, stmt, row)
+                .map_err(|e| Error::Query(format!("fila {}: {e}", first + i as u64)))?;
         }
     }
     Ok(())
@@ -608,11 +729,19 @@ struct Slot {
 /// The columns loaded, of `names` (the batches' cells): identity columns
 /// are left out without `keep_identity`. Also whether the INSERT needs
 /// `OVERRIDING SYSTEM VALUE`.
-fn loaded(cat: &[Col], names: &[String], table: &str, keep_identity: bool) -> Result<(Vec<Col>, Vec<usize>, bool)> {
+fn loaded(
+    cat: &[Col],
+    names: &[String],
+    table: &str,
+    keep_identity: bool,
+) -> Result<(Vec<Col>, Vec<usize>, bool)> {
     let mut cols = Vec::new();
     let mut cells = Vec::new();
     for (i, n) in names.iter().enumerate() {
-        let c = cat.iter().find(|c| &c.name == n).ok_or_else(|| Error::Query(format!("no existe la columna «{n}» en «{table}»")))?;
+        let c = cat
+            .iter()
+            .find(|c| &c.name == n)
+            .ok_or_else(|| Error::Query(format!("no existe la columna «{n}» en «{table}»")))?;
         if c.identity.is_some() && !keep_identity {
             continue; // Firebird generates it.
         }
@@ -628,7 +757,12 @@ fn loaded(cat: &[Col], names: &[String], table: &str, keep_identity: bool) -> Re
     Ok((cols, cells, overriding))
 }
 
-pub(crate) async fn bulk_load(s: &mut FirebirdSession, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
+pub(crate) async fn bulk_load(
+    s: &mut FirebirdSession,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
     if spec.columns.is_empty() {
         return Err(Error::Query("la carga no tiene columnas".into()));
     }
@@ -647,7 +781,12 @@ pub(crate) async fn bulk_load(s: &mut FirebirdSession, spec: &LoadSpec, source: 
             let slots = cols
                 .iter()
                 .zip(cells)
-                .map(|(c, cell)| Slot { cell, kind: c.kind, hex: c.hex(major), name: c.name.clone() })
+                .map(|(c, cell)| Slot {
+                    cell,
+                    kind: c.kind,
+                    hex: c.hex(major),
+                    name: c.name.clone(),
+                })
                 .collect();
             Ok((slots, stmts))
         })
@@ -657,12 +796,27 @@ pub(crate) async fn bulk_load(s: &mut FirebirdSession, spec: &LoadSpec, source: 
     let width = spec.columns.len();
     let slots = Arc::new(slots);
     let stmts = Arc::new(stmts);
-    let max_rows = if spec.commit_rows == 0 { u64::MAX } else { spec.commit_rows };
-    let max_bytes = if spec.commit_bytes == 0 { u64::MAX } else { spec.commit_bytes };
+    let max_rows = if spec.commit_rows == 0 {
+        u64::MAX
+    } else {
+        spec.commit_rows
+    };
+    let max_bytes = if spec.commit_bytes == 0 {
+        u64::MAX
+    } else {
+        spec.commit_bytes
+    };
     let gate = Arc::new(Gate::default());
-    let mut guard = Guard { conn: conn.clone(), gate: gate.clone(), armed: true };
+    let mut guard = Guard {
+        conn: conn.clone(),
+        gate: gate.clone(),
+        armed: true,
+    };
     let mut state = Some(State {
-        prepared: Prepared { single: None, block: None },
+        prepared: Prepared {
+            single: None,
+            block: None,
+        },
         pending: Vec::new(),
         window_rows: 0,
         window_bytes: 0,
@@ -713,14 +867,21 @@ pub(crate) async fn bulk_load(s: &mut FirebirdSession, spec: &LoadSpec, source: 
                 };
                 for row in rows {
                     if row.len() != width {
-                        return Err(Error::Query(format!("una fila trae {} valores y la carga tiene {width} columnas", row.len())));
+                        return Err(Error::Query(format!(
+                            "una fila trae {} valores y la carga tiene {width} columnas",
+                            row.len()
+                        )));
                     }
                     st.window_bytes += row.iter().map(Cell::size).sum::<usize>() as u64;
                     let params = slots
                         .iter()
                         .map(|sl| {
                             param(sl.kind, &row[sl.cell], sl.hex).map_err(|e| {
-                                Error::Query(format!("fila {}, columna «{}»: {e}", st.total + st.window_rows + 1, sl.name))
+                                Error::Query(format!(
+                                    "fila {}, columna «{}»: {e}",
+                                    st.total + st.window_rows + 1,
+                                    sl.name
+                                ))
                             })
                         })
                         .collect::<Result<Vec<_>>>()?;
@@ -764,7 +925,17 @@ pub(crate) async fn bulk_load(s: &mut FirebirdSession, spec: &LoadSpec, source: 
         let batch = source.next().await;
         let end = batch.is_none();
         let st = state.take().expect("state");
-        let (r, commits) = step(&conn, &gate, st, batch.map(|b| b.rows), &slots, &stmts, limits).await.inspect_err(|_| {
+        let (r, commits) = step(
+            &conn,
+            &gate,
+            st,
+            batch.map(|b| b.rows),
+            &slots,
+            &stmts,
+            limits,
+        )
+        .await
+        .inspect_err(|_| {
             // The step panicked or the connection is poisoned.
             guard.armed = false;
         })?;
@@ -808,7 +979,15 @@ mod tests {
     }
 
     fn col(name: &str, kind: Kind, length: i64) -> Col {
-        Col { name: name.into(), type_name: String::new(), nullable: true, kind, computed: false, identity: None, length }
+        Col {
+            name: name.into(),
+            type_name: String::new(),
+            nullable: true,
+            kind,
+            computed: false,
+            identity: None,
+            length,
+        }
     }
 
     #[test]
@@ -831,30 +1010,80 @@ mod tests {
     #[test]
     fn charset_none_is_never_decoded() {
         // Latin-1 'élev' isn't UTF-8: its bytes, not `0x…` text.
-        assert_eq!(cell(Kind::Raw, SqlType::Text("E96C6576".into())), Cell::Bytes(vec![0xE9, 0x6C, 0x65, 0x76]));
-        assert_eq!(cell(Kind::Raw, SqlType::Text("C3A9".into())), Cell::Text("é".into()));
-        assert_eq!(cell(Kind::Raw, SqlType::Binary(vec![0xE9])), Cell::Bytes(vec![0xE9]));
-        assert_eq!(cell(Kind::RawBlob, SqlType::Binary(b"ab".to_vec())), Cell::Text("ab".into()));
-        assert_eq!(select_expr(&col("V", Kind::Raw, 10), 5), r#"HEX_ENCODE("V")"#);
-        assert_eq!(select_expr(&col("V", Kind::Raw, 10), 3), r#"CAST("V" AS BLOB SUB_TYPE BINARY)"#);
-        assert_eq!(select_expr(&col("B", Kind::RawBlob, 8), 5), r#"CAST("B" AS BLOB SUB_TYPE BINARY)"#);
+        assert_eq!(
+            cell(Kind::Raw, SqlType::Text("E96C6576".into())),
+            Cell::Bytes(vec![0xE9, 0x6C, 0x65, 0x76])
+        );
+        assert_eq!(
+            cell(Kind::Raw, SqlType::Text("C3A9".into())),
+            Cell::Text("é".into())
+        );
+        assert_eq!(
+            cell(Kind::Raw, SqlType::Binary(vec![0xE9])),
+            Cell::Bytes(vec![0xE9])
+        );
+        assert_eq!(
+            cell(Kind::RawBlob, SqlType::Binary(b"ab".to_vec())),
+            Cell::Text("ab".into())
+        );
+        assert_eq!(
+            select_expr(&col("V", Kind::Raw, 10), 5),
+            r#"HEX_ENCODE("V")"#
+        );
+        assert_eq!(
+            select_expr(&col("V", Kind::Raw, 10), 3),
+            r#"CAST("V" AS BLOB SUB_TYPE BINARY)"#
+        );
+        assert_eq!(
+            select_expr(&col("B", Kind::RawBlob, 8), 5),
+            r#"CAST("B" AS BLOB SUB_TYPE BINARY)"#
+        );
         // Back into NONE: the same bytes, whatever the connection's charset.
-        assert_sql!(param(Kind::Raw, &Cell::Bytes(vec![0xE9, 0x6C]), true).unwrap(), SqlType::Text("E96C".into()));
-        assert_sql!(param(Kind::Raw, &Cell::Text("é".into()), true).unwrap(), SqlType::Text("C3A9".into()));
-        assert_sql!(param(Kind::RawBlob, &Cell::Bytes(vec![0xE9]), false).unwrap(), SqlType::Binary(vec![0xE9]));
-        assert_sql!(param(Kind::RawBlob, &Cell::Text("é".into()), false).unwrap(), SqlType::Binary(vec![0xC3, 0xA9]));
+        assert_sql!(
+            param(Kind::Raw, &Cell::Bytes(vec![0xE9, 0x6C]), true).unwrap(),
+            SqlType::Text("E96C".into())
+        );
+        assert_sql!(
+            param(Kind::Raw, &Cell::Text("é".into()), true).unwrap(),
+            SqlType::Text("C3A9".into())
+        );
+        assert_sql!(
+            param(Kind::RawBlob, &Cell::Bytes(vec![0xE9]), false).unwrap(),
+            SqlType::Binary(vec![0xE9])
+        );
+        assert_sql!(
+            param(Kind::RawBlob, &Cell::Text("é".into()), false).unwrap(),
+            SqlType::Binary(vec![0xC3, 0xA9])
+        );
     }
 
     #[test]
     fn time_zones_keep_their_zone() {
-        assert_eq!(select_expr(&col("TSZ", Kind::TimestampTz, 12), 5), r#"CAST("TSZ" AS VARCHAR(64))"#);
-        assert_eq!(cell(Kind::TimestampTz, SqlType::Text("2024-07-01 10:00:00.0000 +02:00".into())), Cell::DateTimeTz("2024-07-01 10:00:00.0000+02:00".into()));
         assert_eq!(
-            cell(Kind::TimestampTz, SqlType::Text("2024-01-01 10:00:00.0000 America/Sao_Paulo".into())),
+            select_expr(&col("TSZ", Kind::TimestampTz, 12), 5),
+            r#"CAST("TSZ" AS VARCHAR(64))"#
+        );
+        assert_eq!(
+            cell(
+                Kind::TimestampTz,
+                SqlType::Text("2024-07-01 10:00:00.0000 +02:00".into())
+            ),
+            Cell::DateTimeTz("2024-07-01 10:00:00.0000+02:00".into())
+        );
+        assert_eq!(
+            cell(
+                Kind::TimestampTz,
+                SqlType::Text("2024-01-01 10:00:00.0000 America/Sao_Paulo".into())
+            ),
             Cell::Text("2024-01-01 10:00:00.0000 America/Sao_Paulo".into())
         );
         assert_sql!(
-            param(Kind::TimestampTz, &Cell::Text("2024-01-01 10:00:00.0000 America/Sao_Paulo".into()), false).unwrap(),
+            param(
+                Kind::TimestampTz,
+                &Cell::Text("2024-01-01 10:00:00.0000 America/Sao_Paulo".into()),
+                false
+            )
+            .unwrap(),
             SqlType::Text("2024-01-01 10:00:00.0000 America/Sao_Paulo".into())
         );
     }
@@ -868,11 +1097,19 @@ mod tests {
         let (cols, cells, overriding) = loaded(&cat, &names, "T", true).unwrap();
         assert_eq!((cols.len(), cells, overriding), (2, vec![0, 1], true));
         let s = statements("T", &cols, 5, overriding);
-        assert_eq!(s.single, r#"INSERT INTO "T" ("ID", "V") OVERRIDING SYSTEM VALUE VALUES (?, ?)"#);
-        assert!(s.block.unwrap().0.contains(r#"INSERT INTO "T" ("ID", "V") OVERRIDING SYSTEM VALUE VALUES (:P0_0, :P0_1);"#));
+        assert_eq!(
+            s.single,
+            r#"INSERT INTO "T" ("ID", "V") OVERRIDING SYSTEM VALUE VALUES (?, ?)"#
+        );
+        assert!(s.block.unwrap().0.contains(
+            r#"INSERT INTO "T" ("ID", "V") OVERRIDING SYSTEM VALUE VALUES (:P0_0, :P0_1);"#
+        ));
         // Without keep_identity Firebird generates it: the column is left out.
         let (cols, cells, overriding) = loaded(&cat, &names, "T", false).unwrap();
-        assert_eq!((cols[0].name.as_str(), cells, overriding), ("V", vec![1], false));
+        assert_eq!(
+            (cols[0].name.as_str(), cells, overriding),
+            ("V", vec![1], false)
+        );
         // BY DEFAULT takes the values without OVERRIDING.
         let mut cat = cat;
         cat[0].identity = Some(false);
@@ -885,7 +1122,16 @@ mod tests {
     fn block_errors_name_their_rows() {
         // 1 000 rows pushed, blocks of 133: after three blocks, the fourth
         // holds rows 400–532.
-        let st = State { prepared: Prepared { single: None, block: None }, pending: vec![vec![]; 601], window_rows: 1_000, window_bytes: 0, total: 0 };
+        let st = State {
+            prepared: Prepared {
+                single: None,
+                block: None,
+            },
+            pending: vec![vec![]; 601],
+            window_rows: 1_000,
+            window_bytes: 0,
+            total: 0,
+        };
         assert_eq!(st.first_pending(), 400);
         let st = State { total: 2_000, ..st };
         assert_eq!(st.first_pending(), 2_400);
@@ -893,66 +1139,186 @@ mod tests {
 
     #[test]
     fn values_read_typed() {
-        assert_eq!(cell(Kind::Exact, SqlType::Text("-.50".into())), Cell::Decimal("-0.50".into()));
-        assert_eq!(cell(Kind::Exact, SqlType::Text("170141183460469231731687303715884105727".into())), Cell::Decimal("170141183460469231731687303715884105727".into()));
-        assert_eq!(cell(Kind::DecFloat, SqlType::Text("1.5E+300".into())), Cell::Text("1.5E+300".into()));
-        assert_eq!(cell(Kind::Date, SqlType::Text("2024-01-31".into())), Cell::Date("2024-01-31".into()));
-        assert_eq!(cell(Kind::Timestamp, SqlType::Text("2024-01-31 13:45:00.1234".into())), Cell::DateTime("2024-01-31 13:45:00.1234".into()));
-        assert_eq!(cell(Kind::TimestampTz, SqlType::Text("2024-01-31 13:45:00.1234 +00:00".into())), Cell::DateTimeTz("2024-01-31 13:45:00.1234+00:00".into()));
-        assert_eq!(cell(Kind::Octets, SqlType::Text("00FF10".into())), Cell::Bytes(vec![0, 255, 16]));
+        assert_eq!(
+            cell(Kind::Exact, SqlType::Text("-.50".into())),
+            Cell::Decimal("-0.50".into())
+        );
+        assert_eq!(
+            cell(
+                Kind::Exact,
+                SqlType::Text("170141183460469231731687303715884105727".into())
+            ),
+            Cell::Decimal("170141183460469231731687303715884105727".into())
+        );
+        assert_eq!(
+            cell(Kind::DecFloat, SqlType::Text("1.5E+300".into())),
+            Cell::Text("1.5E+300".into())
+        );
+        assert_eq!(
+            cell(Kind::Date, SqlType::Text("2024-01-31".into())),
+            Cell::Date("2024-01-31".into())
+        );
+        assert_eq!(
+            cell(
+                Kind::Timestamp,
+                SqlType::Text("2024-01-31 13:45:00.1234".into())
+            ),
+            Cell::DateTime("2024-01-31 13:45:00.1234".into())
+        );
+        assert_eq!(
+            cell(
+                Kind::TimestampTz,
+                SqlType::Text("2024-01-31 13:45:00.1234 +00:00".into())
+            ),
+            Cell::DateTimeTz("2024-01-31 13:45:00.1234+00:00".into())
+        );
+        assert_eq!(
+            cell(Kind::Octets, SqlType::Text("00FF10".into())),
+            Cell::Bytes(vec![0, 255, 16])
+        );
         assert_eq!(cell(Kind::Int, SqlType::Integer(-5)), Cell::Int(-5));
         assert_eq!(cell(Kind::Bool, SqlType::Boolean(true)), Cell::Bool(true));
-        assert_eq!(cell(Kind::BinaryBlob, SqlType::Binary(vec![1, 2])), Cell::Bytes(vec![1, 2]));
+        assert_eq!(
+            cell(Kind::BinaryBlob, SqlType::Binary(vec![1, 2])),
+            Cell::Bytes(vec![1, 2])
+        );
         assert_eq!(cell(Kind::Text, SqlType::Null), Cell::Null);
     }
 
     #[test]
     fn params_convert_for_the_column() {
         let p = |k: Kind, c: Cell| param(k, &c, matches!(k, Kind::Octets | Kind::Raw)).unwrap();
-        assert_sql!(p(Kind::Int, Cell::Decimal("12.00".into())), SqlType::Integer(12));
-        assert_sql!(p(Kind::Exact, Cell::Decimal("12.345".into())), SqlType::Text("12.345".into()));
-        assert_sql!(p(Kind::Octets, Cell::Bytes(vec![0, 255])), SqlType::Text("00FF".into()));
-        assert_sql!(param(Kind::Octets, &Cell::Bytes(vec![0, 255]), false).unwrap(), SqlType::Binary(vec![0, 255]));
-        assert_sql!(param(Kind::Octets, &Cell::Text("ab".into()), false).unwrap(), SqlType::Binary(b"ab".to_vec()));
         assert_sql!(
-            p(Kind::Octets, Cell::Uuid("61f0c404-5cb3-11e7-907b-a6006ad3dba0".into())),
+            p(Kind::Int, Cell::Decimal("12.00".into())),
+            SqlType::Integer(12)
+        );
+        assert_sql!(
+            p(Kind::Exact, Cell::Decimal("12.345".into())),
+            SqlType::Text("12.345".into())
+        );
+        assert_sql!(
+            p(Kind::Octets, Cell::Bytes(vec![0, 255])),
+            SqlType::Text("00FF".into())
+        );
+        assert_sql!(
+            param(Kind::Octets, &Cell::Bytes(vec![0, 255]), false).unwrap(),
+            SqlType::Binary(vec![0, 255])
+        );
+        assert_sql!(
+            param(Kind::Octets, &Cell::Text("ab".into()), false).unwrap(),
+            SqlType::Binary(b"ab".to_vec())
+        );
+        assert_sql!(
+            p(
+                Kind::Octets,
+                Cell::Uuid("61f0c404-5cb3-11e7-907b-a6006ad3dba0".into())
+            ),
             SqlType::Text("61F0C4045CB311E7907BA6006AD3DBA0".into())
         );
-        assert_sql!(p(Kind::Timestamp, Cell::DateTime("2024-01-01T10:00:00.123456789".into())), SqlType::Text("2024-01-01 10:00:00.1234".into()));
-        assert_sql!(p(Kind::Timestamp, Cell::DateTimeTz("2024-01-01 01:00:00+02:00".into())), SqlType::Text("2023-12-31 23:00:00".into()));
-        assert_sql!(p(Kind::TimestampTz, Cell::DateTimeTz("2024-01-01 10:00:00.5-03:00".into())), SqlType::Text("2024-01-01 10:00:00.5 -03:00".into()));
-        assert_sql!(p(Kind::Date, Cell::DateTimeTz("2024-01-01 10:00:00+00:00".into())), SqlType::Text("2024-01-01".into()));
-        assert_sql!(p(Kind::Time, Cell::Time("10:00:00.1234567".into())), SqlType::Text("10:00:00.1234".into()));
+        assert_sql!(
+            p(
+                Kind::Timestamp,
+                Cell::DateTime("2024-01-01T10:00:00.123456789".into())
+            ),
+            SqlType::Text("2024-01-01 10:00:00.1234".into())
+        );
+        assert_sql!(
+            p(
+                Kind::Timestamp,
+                Cell::DateTimeTz("2024-01-01 01:00:00+02:00".into())
+            ),
+            SqlType::Text("2023-12-31 23:00:00".into())
+        );
+        assert_sql!(
+            p(
+                Kind::TimestampTz,
+                Cell::DateTimeTz("2024-01-01 10:00:00.5-03:00".into())
+            ),
+            SqlType::Text("2024-01-01 10:00:00.5 -03:00".into())
+        );
+        assert_sql!(
+            p(
+                Kind::Date,
+                Cell::DateTimeTz("2024-01-01 10:00:00+00:00".into())
+            ),
+            SqlType::Text("2024-01-01".into())
+        );
+        assert_sql!(
+            p(Kind::Time, Cell::Time("10:00:00.1234567".into())),
+            SqlType::Text("10:00:00.1234".into())
+        );
         assert_sql!(p(Kind::Bool, Cell::Bool(true)), SqlType::Boolean(true));
         assert_sql!(p(Kind::Int, Cell::Bool(true)), SqlType::Integer(1));
         assert_sql!(p(Kind::Bool, Cell::Int(1)), SqlType::Boolean(true));
-        assert_sql!(p(Kind::Bool, Cell::Text("0".into())), SqlType::Boolean(false));
-        assert_sql!(p(Kind::Exact, Cell::UInt(u64::MAX)), SqlType::Text("18446744073709551615".into()));
-        assert_sql!(p(Kind::TextBlob, Cell::Bytes(vec![0xff])), SqlType::Binary(vec![0xff]));
+        assert_sql!(
+            p(Kind::Bool, Cell::Text("0".into())),
+            SqlType::Boolean(false)
+        );
+        assert_sql!(
+            p(Kind::Exact, Cell::UInt(u64::MAX)),
+            SqlType::Text("18446744073709551615".into())
+        );
+        assert_sql!(
+            p(Kind::TextBlob, Cell::Bytes(vec![0xff])),
+            SqlType::Binary(vec![0xff])
+        );
         assert!(param(Kind::Timestamp, &Cell::DateTime("nope".into()), false).is_err());
     }
 
     #[test]
     fn blocks_fit_the_message_limit() {
-        let cols = vec![col("ID", Kind::Int, 8), col("NAME", Kind::Text, 400), col("BIN", Kind::Octets, 16)];
+        let cols = vec![
+            col("ID", Kind::Int, 8),
+            col("NAME", Kind::Text, 400),
+            col("BIN", Kind::Octets, 16),
+        ];
         let s = statements("T", &cols, 5, false);
-        assert_eq!(s.single, r#"INSERT INTO "T" ("ID", "NAME", "BIN") VALUES (?, ?, HEX_DECODE(CAST(? AS VARCHAR(32) CHARACTER SET ASCII)))"#);
+        assert_eq!(
+            s.single,
+            r#"INSERT INTO "T" ("ID", "NAME", "BIN") VALUES (?, ?, HEX_DECODE(CAST(? AS VARCHAR(32) CHARACTER SET ASCII)))"#
+        );
         let (sql, rows) = s.block.unwrap();
         assert_eq!(rows, (60_000 / (12 + 404 + 36)) as usize);
         assert!(sql.starts_with(r#"EXECUTE BLOCK (P0_0 TYPE OF COLUMN "T"."ID" = ?, P0_1 TYPE OF COLUMN "T"."NAME" = ?, P0_2 VARCHAR(32) CHARACTER SET ASCII = ?"#));
-        assert!(sql.contains(r#"VALUES (:P0_0, :P0_1, HEX_DECODE(CAST(:P0_2 AS VARCHAR(32) CHARACTER SET ASCII)));"#));
+        assert!(sql.contains(
+            r#"VALUES (:P0_0, :P0_1, HEX_DECODE(CAST(:P0_2 AS VARCHAR(32) CHARACTER SET ASCII)));"#
+        ));
         // Wide rows or blobs: single-row inserts only.
-        assert!(statements("T", &[col("X", Kind::Text, 32_000)], 5, false).block.is_none());
-        assert!(statements("T", &[col("X", Kind::TextBlob, 8)], 5, false).block.is_none());
+        assert!(statements("T", &[col("X", Kind::Text, 32_000)], 5, false)
+            .block
+            .is_none());
+        assert!(statements("T", &[col("X", Kind::TextBlob, 8)], 5, false)
+            .block
+            .is_none());
         // Octets too wide for hex in a VARCHAR go as a blob parameter.
-        let wide = statements("T", &[col("ID", Kind::Int, 8), col("W", Kind::Octets, 20_000)], 5, false);
+        let wide = statements(
+            "T",
+            &[col("ID", Kind::Int, 8), col("W", Kind::Octets, 20_000)],
+            5,
+            false,
+        );
         assert_eq!(wide.single, r#"INSERT INTO "T" ("ID", "W") VALUES (?, ?)"#);
         assert!(wide.block.is_none());
-        assert!(col("W", Kind::Octets, MAX_HEX_BYTES).hex(4) && !col("W", Kind::Octets, MAX_HEX_BYTES + 1).hex(4));
+        assert!(
+            col("W", Kind::Octets, MAX_HEX_BYTES).hex(4)
+                && !col("W", Kind::Octets, MAX_HEX_BYTES + 1).hex(4)
+        );
         assert!(!col("W", Kind::Octets, 16).hex(3));
         // NONE without hex: through OCTETS (a blob into NONE is transliterated).
-        let raw = statements("T", &[col("ID", Kind::Int, 8), col("N", Kind::Raw, 20)], 3, false);
-        assert_eq!(raw.single, r#"INSERT INTO "T" ("ID", "N") VALUES (?, CAST(? AS VARCHAR(20) CHARACTER SET OCTETS))"#);
-        assert!(raw.block.unwrap().0.contains("P0_1 VARCHAR(20) CHARACTER SET OCTETS = ?"));
+        let raw = statements(
+            "T",
+            &[col("ID", Kind::Int, 8), col("N", Kind::Raw, 20)],
+            3,
+            false,
+        );
+        assert_eq!(
+            raw.single,
+            r#"INSERT INTO "T" ("ID", "N") VALUES (?, CAST(? AS VARCHAR(20) CHARACTER SET OCTETS))"#
+        );
+        assert!(raw
+            .block
+            .unwrap()
+            .0
+            .contains("P0_1 VARCHAR(20) CHARACTER SET OCTETS = ?"));
     }
 }

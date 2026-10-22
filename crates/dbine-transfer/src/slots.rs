@@ -32,7 +32,10 @@ pub(crate) struct Slot {
 impl Slots {
     pub fn new(n: usize) -> Arc<Self> {
         let n = n.clamp(1, MAX_PARALLEL);
-        Arc::new(Slots { sem: Arc::new(Semaphore::new(n)), state: Mutex::new(SlotState { target: n, debt: 0 }) })
+        Arc::new(Slots {
+            sem: Arc::new(Semaphore::new(n)),
+            state: Mutex::new(SlotState { target: n, debt: 0 }),
+        })
     }
 
     pub fn target(&self) -> usize {
@@ -60,13 +63,19 @@ impl Slots {
     pub async fn acquire(self: &Arc<Self>) -> Slot {
         // The semaphore is never closed.
         let permit = self.sem.clone().acquire_owned().await.ok();
-        Slot { permit, slots: self.clone() }
+        Slot {
+            permit,
+            slots: self.clone(),
+        }
     }
 
     #[cfg(test)]
     fn try_acquire(self: &Arc<Self>) -> Option<Slot> {
         let permit = self.sem.clone().try_acquire_owned().ok()?;
-        Some(Slot { permit: Some(permit), slots: self.clone() })
+        Some(Slot {
+            permit: Some(permit),
+            slots: self.clone(),
+        })
     }
 
     #[cfg(test)]

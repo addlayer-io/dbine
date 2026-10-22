@@ -13,7 +13,9 @@
 
 use crate::command::{parse_line, quote_arg};
 use crate::{db_index, err, shape, RedisSession};
-use dbine_driver::{Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result};
+use dbine_driver::{
+    Error, ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted, Result,
+};
 use redis::aio::MultiplexedConnection;
 use redis::Value;
 use std::collections::VecDeque;
@@ -49,15 +51,26 @@ impl Drop for State {
         if let (Some(id), Ok(rt)) = (self.id, tokio::runtime::Handle::try_current()) {
             let mut conn = self.conn.clone();
             rt.spawn(async move {
-                let _: redis::RedisResult<Value> =
-                    redis::cmd("CLIENT").arg("KILL").arg("ID").arg(id).query_async(&mut conn).await;
+                let _: redis::RedisResult<Value> = redis::cmd("CLIENT")
+                    .arg("KILL")
+                    .arg("ID")
+                    .arg(id)
+                    .query_async(&mut conn)
+                    .await;
             });
         }
     }
 }
 
-pub(crate) async fn start(s: &mut RedisSession, opts: &ProfilerOptions) -> Result<(State, ProfilerStarted)> {
-    let db = if opts.database.trim().is_empty() { None } else { Some(db_index(&opts.database)?) };
+pub(crate) async fn start(
+    s: &mut RedisSession,
+    opts: &ProfilerOptions,
+) -> Result<(State, ProfilerStarted)> {
+    let db = if opts.database.trim().is_empty() {
+        None
+    } else {
+        Some(db_index(&opts.database)?)
+    };
     // This session's address, to leave out its own commands.
     let own = match s.run(&[b"CLIENT", b"INFO"]).await {
         Ok(v) => field(&shape::text_of(&v), "addr"),
@@ -92,7 +105,9 @@ pub(crate) async fn start(s: &mut RedisSession, opts: &ProfilerOptions) -> Resul
                 Ok(_) => continue,
                 Err(e) => break Some(e.to_string()),
             };
-            let Some(stmt) = parse(&line, db, own.as_deref()) else { continue };
+            let Some(stmt) = parse(&line, db, own.as_deref()) else {
+                continue;
+            };
             let mut sh = sh.lock().unwrap_or_else(|e| e.into_inner());
             if sh.seen.len() == KEEP {
                 sh.seen.pop_front();
@@ -101,7 +116,12 @@ pub(crate) async fn start(s: &mut RedisSession, opts: &ProfilerOptions) -> Resul
         };
         sh.lock().unwrap_or_else(|e| e.into_inner()).error = error;
     });
-    let state = State { shared, stop, id, conn: s.conn.clone() };
+    let state = State {
+        shared,
+        stop,
+        id,
+        conn: s.conn.clone(),
+    };
     let started = ProfilerStarted::new(ProfilerMode::Complete, "MONITOR").note(
         "MONITOR tiene un costo en servidores con mucho tráfico y no informa la duración ni el resultado de cada comando.",
     );
@@ -112,7 +132,9 @@ pub(crate) fn poll(state: &mut State) -> Result<Vec<ProfiledStatement>> {
     let mut sh = state.shared.lock().unwrap_or_else(|e| e.into_inner());
     if sh.seen.is_empty() {
         if let Some(e) = &sh.error {
-            return Err(Error::Connect(format!("se cortó la conexión de MONITOR: {e}")));
+            return Err(Error::Connect(format!(
+                "se cortó la conexión de MONITOR: {e}"
+            )));
         }
     }
     Ok(sh.seen.drain(..).collect())
@@ -124,15 +146,21 @@ pub(crate) async fn stop(mut state: State) -> Result<()> {
     if let Some(id) = state.id {
         // Without CLIENT KILL (a restricted ACL), the thread ends with the
         // next command the server sees.
-        let _: redis::RedisResult<Value> =
-            redis::cmd("CLIENT").arg("KILL").arg("ID").arg(id).query_async(&mut state.conn).await;
+        let _: redis::RedisResult<Value> = redis::cmd("CLIENT")
+            .arg("KILL")
+            .arg("ID")
+            .arg(id)
+            .query_async(&mut state.conn)
+            .await;
     }
     Ok(())
 }
 
 /// `key=value` out of a `CLIENT INFO` line.
 fn field(info: &str, key: &str) -> Option<String> {
-    info.split_whitespace().find_map(|kv| kv.strip_prefix(key)?.strip_prefix('=')).map(str::to_string)
+    info.split_whitespace()
+        .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('='))
+        .map(str::to_string)
 }
 
 /// One `MONITOR` line, unless it's from another database or from `own`.
@@ -149,13 +177,21 @@ fn parse(line: &str, db: Option<i64>, own: Option<&str>) -> Option<ProfiledState
     if args.is_empty() {
         return None;
     }
-    let text = args.iter().map(|a| quote_arg(&String::from_utf8_lossy(a))).collect::<Vec<_>>().join(" ");
+    let text = args
+        .iter()
+        .map(|a| quote_arg(&String::from_utf8_lossy(a)))
+        .collect::<Vec<_>>()
+        .join(" ");
     Some(ProfiledStatement {
         time: stamp(time)?,
         text,
         database: Some(format!("db{in_db}")),
         // Commands a Lua script runs show `lua` as the client.
-        client: Some(if addr == "lua" { "lua (script)".to_string() } else { addr.to_string() }),
+        client: Some(if addr == "lua" {
+            "lua (script)".to_string()
+        } else {
+            addr.to_string()
+        }),
         ..Default::default()
     })
 }
@@ -176,7 +212,12 @@ pub(crate) fn stamp(unix: &str) -> Option<String> {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    Some(format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{ms}", rem / 3600, rem % 3600 / 60, rem % 60))
+    Some(format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.{ms}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    ))
 }
 
 #[cfg(test)]
@@ -185,20 +226,54 @@ mod tests {
 
     #[test]
     fn monitor_lines() {
-        let s = parse(r#"1706708700.601523 [2 127.0.0.1:34520] "set" "a b" "x\"y z""#, None, None).unwrap();
+        let s = parse(
+            r#"1706708700.601523 [2 127.0.0.1:34520] "set" "a b" "x\"y z""#,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(s.time, "2024-01-31 13:45:00.601");
         assert_eq!(s.text, r#"set "a b" "x\"y z""#);
-        assert_eq!((s.database.as_deref(), s.client.as_deref()), (Some("db2"), Some("127.0.0.1:34520")));
+        assert_eq!(
+            (s.database.as_deref(), s.client.as_deref()),
+            (Some("db2"), Some("127.0.0.1:34520"))
+        );
         // Dragonfly gives seven decimals.
-        assert_eq!(parse(r#"1706708700.7797346 [0 127.0.0.1:1] "GET" "k""#, None, None).unwrap().time, "2024-01-31 13:45:00.779");
+        assert_eq!(
+            parse(
+                r#"1706708700.7797346 [0 127.0.0.1:1] "GET" "k""#,
+                None,
+                None
+            )
+            .unwrap()
+            .time,
+            "2024-01-31 13:45:00.779"
+        );
         assert!(parse(r#"1706708700.1 [2 127.0.0.1:1] "get" "k""#, Some(0), None).is_none());
-        assert!(parse(r#"1706708700.1 [0 127.0.0.1:1] "get" "k""#, None, Some("127.0.0.1:1")).is_none());
-        assert_eq!(parse(r#"1706708700.1 [0 lua] "get" "k""#, None, None).unwrap().client.as_deref(), Some("lua (script)"));
-        assert_eq!(stamp("951782400.5").as_deref(), Some("2000-02-29 00:00:00.500"));
+        assert!(parse(
+            r#"1706708700.1 [0 127.0.0.1:1] "get" "k""#,
+            None,
+            Some("127.0.0.1:1")
+        )
+        .is_none());
+        assert_eq!(
+            parse(r#"1706708700.1 [0 lua] "get" "k""#, None, None)
+                .unwrap()
+                .client
+                .as_deref(),
+            Some("lua (script)")
+        );
+        assert_eq!(
+            stamp("951782400.5").as_deref(),
+            Some("2000-02-29 00:00:00.500")
+        );
     }
 
     #[test]
     fn client_info_fields() {
-        assert_eq!(field("id=6 addr=127.0.0.1:34548 laddr=127.0.0.1:6379", "addr").as_deref(), Some("127.0.0.1:34548"));
+        assert_eq!(
+            field("id=6 addr=127.0.0.1:34548 laddr=127.0.0.1:6379", "addr").as_deref(),
+            Some("127.0.0.1:34548")
+        );
     }
 }

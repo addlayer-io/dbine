@@ -65,9 +65,18 @@ pub struct BackupEntry {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum BackupAction {
     /// Back up `database` (`None`: the server, when `server_wide`).
-    Backup { database: Option<String>, options: BTreeMap<String, String> },
+    Backup {
+        database: Option<String>,
+        options: BTreeMap<String, String>,
+    },
     /// Restore `source` (a `BackupEntry::id`, or a location the user typed)
     /// into `database`, which may be a new name.
-    Restore { source: String, database: Option<String>, options: BTreeMap<String, String> },
-    Delete { source: String },
+    Restore {
+        source: String,
+        database: Option<String>,
+        options: BTreeMap<String, String>,
+    },
+    Delete {
+        source: String,
+    },
 }

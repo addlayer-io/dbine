@@ -25,7 +25,6 @@ const CALL_LIMIT: Duration = Duration::from_secs(70);
 /// runs) while it's running, in front or behind.
 const NEWS_EVERY: Duration = Duration::from_secs(20);
 
-
 /// What the phone keeps (in its private app folder).
 #[derive(Clone, Serialize, Deserialize)]
 struct Pairing {
@@ -63,8 +62,16 @@ fn pending_link() -> Option<String> {
 fn device_name(app: AppHandle) -> Option<String> {
     let base = app.path().app_data_dir().ok()?;
     // The app's folder (Android's dataDir) is this one or one of its parents.
-    let name = base.ancestors().take(3).find_map(|d| std::fs::read_to_string(d.join("device_name.txt")).ok())?;
-    let name: String = name.trim().chars().filter(|c| !c.is_control()).take(60).collect();
+    let name = base
+        .ancestors()
+        .take(3)
+        .find_map(|d| std::fs::read_to_string(d.join("device_name.txt")).ok())?;
+    let name: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(60)
+        .collect();
     (!name.is_empty()).then_some(name)
 }
 
@@ -81,7 +88,9 @@ fn open_release(app: AppHandle, url: String) -> Result<(), String> {
     if !url.starts_with("https://github.com/addlayer-io/dbine/releases/") {
         return Err("solo se abren las versiones de DBine".into());
     }
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Default)]
@@ -95,7 +104,8 @@ struct App {
 
 /// The phone's iroh endpoint, made on first use and kept for the relays it
 /// was made for.
-static IROH: tokio::sync::Mutex<Option<(Relays, dbine_link::net::Endpoint)>> = tokio::sync::Mutex::const_new(None);
+static IROH: tokio::sync::Mutex<Option<(Relays, dbine_link::net::Endpoint)>> =
+    tokio::sync::Mutex::const_new(None);
 
 async fn iroh_endpoint(relays: &Relays) -> Result<dbine_link::net::Endpoint, String> {
     let mut slot = IROH.lock().await;
@@ -150,7 +160,9 @@ fn file_key() -> Option<[u8; 32]> {
 fn seal(key: &[u8; 32], plain: &[u8]) -> Result<Vec<u8>, String> {
     use chacha20poly1305::aead::{Aead, KeyInit};
     let nonce: [u8; 12] = dbine_link::random()?;
-    let ct = chacha20poly1305::ChaCha20Poly1305::new(key.into()).encrypt((&nonce).into(), plain).map_err(|_| "no se pudo cifrar la vinculación".to_string())?;
+    let ct = chacha20poly1305::ChaCha20Poly1305::new(key.into())
+        .encrypt((&nonce).into(), plain)
+        .map_err(|_| "no se pudo cifrar la vinculación".to_string())?;
     Ok([SEALED.as_slice(), &nonce, &ct].concat())
 }
 
@@ -161,7 +173,9 @@ fn unseal(key: &[u8; 32], sealed: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let (nonce, ct) = rest.split_at(12);
-    chacha20poly1305::ChaCha20Poly1305::new(key.into()).decrypt(nonce.into(), ct).ok()
+    chacha20poly1305::ChaCha20Poly1305::new(key.into())
+        .decrypt(nonce.into(), ct)
+        .ok()
 }
 
 /// A pairing file's contents: sealed (with the key), or the plain JSON of
@@ -182,7 +196,9 @@ fn write_pairing(path: &std::path::Path, p: &Pairing) -> Result<(), String> {
     let json = serde_json::to_vec(p).map_err(|e| e.to_string())?;
     let bytes = match file_key() {
         Some(k) => seal(&k, &json)?,
-        None if cfg!(target_os = "android") => return Err("no se pudo acceder al almacén seguro del celular (Keystore)".into()),
+        None if cfg!(target_os = "android") => {
+            return Err("no se pudo acceder al almacén seguro del celular (Keystore)".into())
+        }
         None => json,
     };
     let tmp = path.with_extension("tmp");
@@ -249,7 +265,10 @@ async fn status(app: AppHandle, state: State<'_, Shared>) -> Result<Status, Stri
     Ok(Status {
         paired: s.pairing.is_some(),
         desktop: s.pairing.as_ref().map(|p| p.desktop.clone()),
-        fingerprint: s.pairing.as_ref().map(|p| dbine_link::fingerprint(&p.phone.public)),
+        fingerprint: s
+            .pairing
+            .as_ref()
+            .map(|p| dbine_link::fingerprint(&p.phone.public)),
         via: s.via,
     })
 }
@@ -263,23 +282,43 @@ struct Waiting {
 /// Pair with the DBine whose QR code was read. Emits `pair-waiting` with
 /// this phone's fingerprint while the user confirms on the computer.
 #[tauri::command]
-async fn pair(app: AppHandle, state: State<'_, Shared>, code: String, name: String) -> Result<String, String> {
+async fn pair(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    code: String,
+    name: String,
+) -> Result<String, String> {
     let invite = Invite::decode(&code)?;
     let phone = Keys::generate()?;
     let (stream, _) = reach(&invite.addrs, invite.remote.as_ref()).await?;
     let name: String = name.trim().chars().take(60).collect();
     let mut ch = dbine_link::pair(stream, &invite, &phone, name.as_bytes())
         .await
-        .map_err(|_| "DBine no aceptó el código: puede haber vencido. Generá uno nuevo en la computadora.".to_string())?;
+        .map_err(|_| {
+            "DBine no aceptó el código: puede haber vencido. Generá uno nuevo en la computadora."
+                .to_string()
+        })?;
     ch.send(b"ready").await?;
-    let _ = app.emit("pair-waiting", Waiting { desktop: invite.name.clone(), fingerprint: dbine_link::fingerprint(&phone.public) });
+    let _ = app.emit(
+        "pair-waiting",
+        Waiting {
+            desktop: invite.name.clone(),
+            fingerprint: dbine_link::fingerprint(&phone.public),
+        },
+    );
     let result: PairResult = tokio::time::timeout(PAIR_ANSWER, ch.recv_json())
         .await
         .map_err(|_| "la computadora no respondió a tiempo".to_string())??;
     if !result.accepted {
         return Err("se rechazó la vinculación en la computadora".into());
     }
-    let p = Pairing { phone, desktop_key: invite.key.clone(), desktop: result.desktop.clone(), addrs: invite.addrs.clone(), remote: invite.remote.clone() };
+    let p = Pairing {
+        phone,
+        desktop_key: invite.key.clone(),
+        desktop: result.desktop.clone(),
+        addrs: invite.addrs.clone(),
+        remote: invite.remote.clone(),
+    };
     store(&app, &p)?;
     let mut s = state.lock().await;
     s.pairing = Some(p);
@@ -311,7 +350,11 @@ async fn ask(s: &mut App, call: &Call) -> Result<Response, String> {
     s.next_id += 1;
     let id = s.next_id;
     let ch = s.channel.as_mut().expect("just opened");
-    ch.send_json(&Request { id, call: call.clone() }).await?;
+    ch.send_json(&Request {
+        id,
+        call: call.clone(),
+    })
+    .await?;
     loop {
         let r: Response = ch.recv_json().await?;
         if r.id == id {
@@ -323,19 +366,36 @@ async fn ask(s: &mut App, call: &Call) -> Result<Response, String> {
 /// One request to DBine. A dropped channel is reopened once, except for a
 /// kill: that one is never sent twice.
 #[tauri::command]
-async fn call(app: AppHandle, state: State<'_, Shared>, call: Call) -> Result<serde_json::Value, String> {
+async fn call(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    call: Call,
+) -> Result<serde_json::Value, String> {
     let mut s = state.lock().await;
     ensure_loaded(&app, &mut s);
-    let once = matches!(call, Call::Kill { .. } | Call::CancelQuery { .. } | Call::RunTask { .. } | Call::CancelTaskRun { .. });
-    let first = tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call)).await.unwrap_or_else(|_| Err("DBine no respondió".into()));
+    let once = matches!(
+        call,
+        Call::Kill { .. }
+            | Call::CancelQuery { .. }
+            | Call::RunTask { .. }
+            | Call::CancelTaskRun { .. }
+    );
+    let first = tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call))
+        .await
+        .unwrap_or_else(|_| Err("DBine no respondió".into()));
     let r = match first {
         Ok(r) => r,
         Err(e) => {
             s.channel = None;
             if once {
-                return Err(format!("{e}. No se reintentó: revisá en DBine si la sesión terminó."));
+                return Err(format!(
+                    "{e}. No se reintentó: revisá en DBine si la sesión terminó."
+                ));
             }
-            tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call)).await.unwrap_or_else(|_| Err("DBine no respondió".into())).inspect_err(|_| s.channel = None)?
+            tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call))
+                .await
+                .unwrap_or_else(|_| Err("DBine no respondió".into()))
+                .inspect_err(|_| s.channel = None)?
         }
     };
     // DBine says how to reach it from outside now (its relays may have
@@ -371,19 +431,41 @@ struct Position {
 /// since the saved position (none the very first time: old news isn't
 /// news). Used by the app and by `NewsWorker` (Android, app closed).
 async fn news_from(dir: &std::path::Path) -> Result<Vec<EventRow>, String> {
-    let pairing = read_pairing(&dir.join("pairing.json")).ok_or("este celular no está vinculado")?;
+    let pairing =
+        read_pairing(&dir.join("pairing.json")).ok_or("este celular no está vinculado")?;
     let pos_file = dir.join("news.json");
-    let pos: Position = std::fs::read(&pos_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let pos: Position = std::fs::read(&pos_file)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
     let (stream, _) = reach(&pairing.addrs, pairing.remote.as_ref()).await?;
     let mut ch = dbine_link::connect(stream, &pairing.desktop_key, &pairing.phone).await?;
-    ch.send_json(&Request { id: 1, call: Call::Events { after: pos.after, boot: pos.boot.clone() } }).await?;
-    let r: Response = tokio::time::timeout(CALL_LIMIT, ch.recv_json()).await.map_err(|_| "DBine no respondió".to_string())??;
-    let ev: Events = serde_json::from_value(r.ok.ok_or_else(|| r.error.unwrap_or_default())?).map_err(|e| e.to_string())?;
-    let next = Position { after: Some(ev.last), boot: Some(ev.boot) };
+    ch.send_json(&Request {
+        id: 1,
+        call: Call::Events {
+            after: pos.after,
+            boot: pos.boot.clone(),
+        },
+    })
+    .await?;
+    let r: Response = tokio::time::timeout(CALL_LIMIT, ch.recv_json())
+        .await
+        .map_err(|_| "DBine no respondió".to_string())??;
+    let ev: Events = serde_json::from_value(r.ok.ok_or_else(|| r.error.unwrap_or_default())?)
+        .map_err(|e| e.to_string())?;
+    let next = Position {
+        after: Some(ev.last),
+        boot: Some(ev.boot),
+    };
     let tmp = pos_file.with_extension("tmp");
-    std::fs::write(&tmp, serde_json::to_vec(&next).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, serde_json::to_vec(&next).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &pos_file).map_err(|e| e.to_string())?;
-    Ok(if pos.after.is_some() { ev.events } else { Vec::new() })
+    Ok(if pos.after.is_some() {
+        ev.events
+    } else {
+        Vec::new()
+    })
 }
 
 async fn check_news(app: &AppHandle) {
@@ -393,11 +475,20 @@ async fn check_news(app: &AppHandle) {
     if !file.exists() {
         return;
     }
-    let Ok(events) = news_from(dir).await else { return };
+    let Ok(events) = news_from(dir).await else {
+        return;
+    };
     for e in &events {
         // DBine's glass as the small icon (res/drawable-*/ic_notification.png:
         // white on transparent, as Android wants), in DBine's blue.
-        let _ = app.notification().builder().title(&e.title).body(&e.body).icon("ic_notification").icon_color("#3794FF").show();
+        let _ = app
+            .notification()
+            .builder()
+            .title(&e.title)
+            .body(&e.body)
+            .icon("ic_notification")
+            .icon_color("#3794FF")
+            .show();
     }
 }
 
@@ -411,15 +502,34 @@ pub extern "system" fn Java_io_addlayer_dbine_mobile_NewsWorker_check<'a>(
     _class: jni::objects::JClass<'a>,
     data_dir: jni::objects::JString<'a>,
 ) -> jni::sys::jstring {
-    let dir: String = env.get_string(&data_dir).map(Into::into).unwrap_or_default();
+    let dir: String = env
+        .get_string(&data_dir)
+        .map(Into::into)
+        .unwrap_or_default();
     let json = std::panic::catch_unwind(|| {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?;
         let dir = std::path::PathBuf::from(dir);
         // The app keeps its files in Tauri's app data folder, inside the
         // app's own: look there and one or two levels down.
         let mut look = vec![dir.clone()];
-        for d in std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
-            look.extend(std::fs::read_dir(&d).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()));
+        for d in std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+        {
+            look.extend(
+                std::fs::read_dir(&d)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir()),
+            );
             look.push(d);
         }
         let found = look.into_iter().find(|d| d.join("pairing.json").exists())?;
@@ -429,14 +539,19 @@ pub extern "system" fn Java_io_addlayer_dbine_mobile_NewsWorker_check<'a>(
     .ok()
     .flatten()
     .unwrap_or_else(|| "[]".into());
-    env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    env.new_string(json)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(mobile)]
-    let builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init()).plugin(tauri_plugin_deep_link::init());
+    let builder = builder
+        .plugin(tauri_plugin_barcode_scanner::init())
+        .plugin(tauri_plugin_biometric::init())
+        .plugin(tauri_plugin_deep_link::init());
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -450,16 +565,23 @@ pub fn run() {
                     urls.iter().for_each(|u| take_link(u.as_str(), &handle));
                 }
                 let h2 = handle.clone();
-                app.deep_link().on_open_url(move |e| e.urls().iter().for_each(|u| take_link(u.as_str(), &h2)));
+                app.deep_link()
+                    .on_open_url(move |e| e.urls().iter().for_each(|u| take_link(u.as_str(), &h2)));
             }
             let pairing = load(app.handle());
-            app.manage::<Shared>(Mutex::new(App { pairing, ..Default::default() }));
+            app.manage::<Shared>(Mutex::new(App {
+                pairing,
+                ..Default::default()
+            }));
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Android 13 and later ask the user once.
                 {
                     use tauri_plugin_notification::{NotificationExt, PermissionState};
-                    if !matches!(handle.notification().permission_state(), Ok(PermissionState::Granted)) {
+                    if !matches!(
+                        handle.notification().permission_state(),
+                        Ok(PermissionState::Granted)
+                    ) {
                         let _ = handle.notification().request_permission();
                     }
                 }
@@ -470,7 +592,16 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, pair, unpair, call, pending_link, invite_name, open_release, device_name])
+        .invoke_handler(tauri::generate_handler![
+            status,
+            pair,
+            unpair,
+            call,
+            pending_link,
+            invite_name,
+            open_release,
+            device_name
+        ])
         .run(tauri::generate_context!())
         .expect("error while running DBine mobile");
 }
@@ -484,7 +615,11 @@ mod tests {
 
     /// A DBine that answers `events` from a list it is given, like the
     /// desktop's (`after` within the same `boot`, everything from another).
-    async fn fake_dbine(keys: Keys, phone: Vec<u8>, state: Arc<StdMutex<(String, Vec<EventRow>)>>) -> String {
+    async fn fake_dbine(
+        keys: Keys,
+        phone: Vec<u8>,
+        state: Arc<StdMutex<(String, Vec<EventRow>)>>,
+    ) -> String {
         let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap().to_string();
         tokio::spawn(async move {
@@ -492,18 +627,35 @@ mod tests {
                 let (s, _) = l.accept().await.unwrap();
                 let (keys, phone, state) = (keys.clone(), phone.clone(), state.clone());
                 tokio::spawn(async move {
-                    let Ok(Accepted::Connected(mut ch)) = dbine_link::accept(s, &keys, None, |k| k == phone.as_slice()).await else { return };
+                    let Ok(Accepted::Connected(mut ch)) =
+                        dbine_link::accept(s, &keys, None, |k| k == phone.as_slice()).await
+                    else {
+                        return;
+                    };
                     while let Ok(req) = ch.recv_json::<Request>().await {
-                        let Call::Events { after, boot } = req.call else { continue };
+                        let Call::Events { after, boot } = req.call else {
+                            continue;
+                        };
                         let (b, list) = state.lock().unwrap().clone();
                         let after = match (after, boot) {
                             (Some(a), Some(x)) if x == b => Some(a),
                             (Some(_), _) => Some(0),
                             (None, _) => None,
                         };
-                        let events = after.map(|a| list.iter().filter(|e| e.seq > a).cloned().collect()).unwrap_or_default();
+                        let events = after
+                            .map(|a| list.iter().filter(|e| e.seq > a).cloned().collect())
+                            .unwrap_or_default();
                         let last = list.last().map(|e| e.seq).unwrap_or(0);
-                        let _ = ch.send_json(&Response::ok(req.id, &Events { events, last, boot: b })).await;
+                        let _ = ch
+                            .send_json(&Response::ok(
+                                req.id,
+                                &Events {
+                                    events,
+                                    last,
+                                    boot: b,
+                                },
+                            ))
+                            .await;
                     }
                 });
             }
@@ -512,7 +664,14 @@ mod tests {
     }
 
     fn ev(seq: u64, title: &str) -> EventRow {
-        EventRow { seq, kind: "query".into(), title: title.into(), body: "Terminó".into(), ok: true, at: String::new() }
+        EventRow {
+            seq,
+            kind: "query".into(),
+            title: title.into(),
+            body: "Terminó".into(),
+            ok: true,
+            at: String::new(),
+        }
     }
 
     /// The file key is process-wide: tests that touch pairing files take turns.
@@ -525,7 +684,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("pairing.json");
-        let p = Pairing { phone: Keys::generate().unwrap(), desktop_key: vec![7; 32], desktop: "mac".into(), addrs: vec![], remote: None };
+        let p = Pairing {
+            phone: Keys::generate().unwrap(),
+            desktop_key: vec![7; 32],
+            desktop: "mac".into(),
+            addrs: vec![],
+            remote: None,
+        };
         // A pairing from before sealing: plain JSON, read and sealed on the spot.
         std::fs::write(&path, serde_json::to_vec(&p).unwrap()).unwrap();
         *FILE_KEY.lock().unwrap() = Some([3; 32]);
@@ -533,7 +698,10 @@ mod tests {
         let raw = std::fs::read(&path).unwrap();
         assert!(raw.starts_with(SEALED));
         let private = p.phone.private.clone();
-        assert!(!raw.windows(private.len()).any(|w| w == private.as_slice()), "the private key isn't on disk in the clear");
+        assert!(
+            !raw.windows(private.len()).any(|w| w == private.as_slice()),
+            "the private key isn't on disk in the clear"
+        );
         assert!(!String::from_utf8_lossy(&raw).contains("mac"));
         assert_eq!(read_pairing(&path).unwrap().desktop, "mac");
         // Another key (the Keystore lost its own): unreadable, never wrong.
@@ -553,7 +721,13 @@ mod tests {
         let phone = Keys::generate().unwrap();
         let state = Arc::new(StdMutex::new(("boot1".to_string(), vec![ev(1, "vieja")])));
         let addr = fake_dbine(desktop.clone(), phone.public.clone(), state.clone()).await;
-        let p = Pairing { phone, desktop_key: desktop.public.clone(), desktop: "mac".into(), addrs: vec![addr], remote: None };
+        let p = Pairing {
+            phone,
+            desktop_key: desktop.public.clone(),
+            desktop: "mac".into(),
+            addrs: vec![addr],
+            remote: None,
+        };
         std::fs::write(dir.join("pairing.json"), serde_json::to_vec(&p).unwrap()).unwrap();
 
         // First look: learns where the list is; old news isn't news.
@@ -561,17 +735,24 @@ mod tests {
         // A query ends: it arrives once.
         state.lock().unwrap().1.push(ev(2, "ventas"));
         let got = news_from(&dir).await.unwrap();
-        assert_eq!(got.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["ventas"]);
+        assert_eq!(
+            got.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(),
+            ["ventas"]
+        );
         assert!(news_from(&dir).await.unwrap().is_empty(), "not twice");
         // The position is on disk: a new process (the app restarted, or
         // Android's check) carries on from it.
         state.lock().unwrap().1.push(ev(3, "stock"));
-        let pos: Position = serde_json::from_slice(&std::fs::read(dir.join("news.json")).unwrap()).unwrap();
+        let pos: Position =
+            serde_json::from_slice(&std::fs::read(dir.join("news.json")).unwrap()).unwrap();
         assert_eq!(pos.after, Some(2));
         assert_eq!(news_from(&dir).await.unwrap()[0].title, "stock");
         // DBine restarted: everything of its new run is new to the phone.
         *state.lock().unwrap() = ("boot2".to_string(), vec![ev(1, "después del reinicio")]);
-        assert_eq!(news_from(&dir).await.unwrap()[0].title, "después del reinicio");
+        assert_eq!(
+            news_from(&dir).await.unwrap()[0].title,
+            "después del reinicio"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

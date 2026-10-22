@@ -18,7 +18,9 @@
 //!   cargo test -p dbine-driver-trino -- --ignored transfer --nocapture --test-threads=1
 //! ```
 
-use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn};
+use dbine_driver::transfer::{
+    BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
 use dbine_driver::{async_trait, kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -26,7 +28,10 @@ use std::time::Instant;
 /// Rows of the volume test (`DBINE_TEST_TRANSFER_ROWS`, 100,000 by default;
 /// less for a small test server: Presto's image runs with 1 GB of heap).
 fn volume() -> usize {
-    std::env::var("DBINE_TEST_TRANSFER_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(100_000)
+    std::env::var("DBINE_TEST_TRANSFER_ROWS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100_000)
 }
 
 struct Batches(std::vec::IntoIter<RowBatch>);
@@ -68,12 +73,22 @@ fn cfg(driver: &str, var: &str) -> Option<ConnectionConfig> {
 }
 
 fn batches(rows: Vec<Vec<Cell>>) -> Batches {
-    let v: Vec<RowBatch> = rows.chunks(1_000).map(|c| RowBatch { rows: c.to_vec(), bytes: 0 }).collect();
+    let v: Vec<RowBatch> = rows
+        .chunks(1_000)
+        .map(|c| RowBatch {
+            rows: c.to_vec(),
+            bytes: 0,
+        })
+        .collect();
     Batches(v.into_iter())
 }
 
 fn table(name: &str) -> ObjectRef {
-    ObjectRef { kind: kinds::TABLE.into(), schema: Some("dbine_tr".into()), name: name.into() }
+    ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: Some("dbine_tr".into()),
+        name: name.into(),
+    }
 }
 
 fn load_spec(name: &str, columns: &[&str]) -> LoadSpec {
@@ -89,7 +104,11 @@ fn load_spec(name: &str, columns: &[&str]) -> LoadSpec {
 
 async fn read_all(s: &mut Box<dyn Session>, name: &str, filter: Option<&str>) -> Collect {
     let sink = Arc::new(Mutex::new(Collect::default()));
-    let spec = ReadSpec { table: table(name), columns: None, filter: filter.map(str::to_string) };
+    let spec = ReadSpec {
+        table: table(name),
+        columns: None,
+        filter: filter.map(str::to_string),
+    };
     let n = s.read_batches(&spec, sink.clone()).await.unwrap();
     let c = std::mem::take(&mut *sink.lock().unwrap());
     assert_eq!(n as usize, c.rows.len());
@@ -104,10 +123,35 @@ async fn exec(s: &mut Box<dyn Session>, sql: &str) {
 /// Presto has no `DROP SCHEMA … CASCADE` (and its `IF EXISTS` fails
 /// without the schema): each drop on its own, errors ignored.
 async fn clean(s: &mut Box<dyn Session>) {
-    for t in ["all_types", "big", "slow", "nest", "nest2", "late", "odd", "frac", "lone", "lone2", "lone_t", "days"] {
-        let _ = s.execute(&format!("DROP TABLE IF EXISTS dbine_tr.{t}"), 1, &mut QueryOutcome::default()).await;
+    for t in [
+        "all_types",
+        "big",
+        "slow",
+        "nest",
+        "nest2",
+        "late",
+        "odd",
+        "frac",
+        "lone",
+        "lone2",
+        "lone_t",
+        "days",
+    ] {
+        let _ = s
+            .execute(
+                &format!("DROP TABLE IF EXISTS dbine_tr.{t}"),
+                1,
+                &mut QueryOutcome::default(),
+            )
+            .await;
     }
-    let _ = s.execute("DROP SCHEMA IF EXISTS dbine_tr", 1, &mut QueryOutcome::default()).await;
+    let _ = s
+        .execute(
+            "DROP SCHEMA IF EXISTS dbine_tr",
+            1,
+            &mut QueryOutcome::default(),
+        )
+        .await;
 }
 
 #[tokio::test]
@@ -126,14 +170,22 @@ async fn run(driver: &str, var: &str) {
     let Some(c) = cfg(driver, var) else { return };
     let presto = driver == "presto";
     let rows_n = volume();
-    let d = dbine_driver_trino::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_trino::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     assert!(d.supports_bulk_load());
     let mut s = d.connect(&c, None).await.unwrap();
     // Presto: no parametric times, no TIME WITH TIME ZONE literal read back as written.
     let (tm, tmz, ts, tsz) = if presto {
         ("time", "varchar", "timestamp", "timestamp with time zone")
     } else {
-        ("time(12)", "time(0) with time zone", "timestamp(9)", "timestamp(6) with time zone")
+        (
+            "time(12)",
+            "time(0) with time zone",
+            "timestamp(9)",
+            "timestamp(6) with time zone",
+        )
     };
     clean(&mut s).await;
     exec(
@@ -149,7 +201,13 @@ async fn run(driver: &str, var: &str) {
         ),
     )
     .await;
-    let frac = |f: &str| if presto { f[..3].to_string() } else { f.to_string() };
+    let frac = |f: &str| {
+        if presto {
+            f[..3].to_string()
+        } else {
+            f.to_string()
+        }
+    };
 
     // Every type, NULLs, and a binary that needs from_base64 to fit.
     let big: Vec<u8> = (0..500_000u32).map(|i| (i * 7 % 251) as u8).collect();
@@ -190,12 +248,18 @@ async fn run(driver: &str, var: &str) {
     let mut nulls = vec![Cell::Null; full.len()];
     nulls[0] = Cell::Int(3);
     let names = [
-        "id", "b", "ti", "si", "i", "r", "dbl", "dec", "v", "ch", "bin", "dt", "tm", "tmz", "ts", "tsz", "u", "j", "a", "m", "rw", "ip",
+        "id", "b", "ti", "si", "i", "r", "dbl", "dec", "v", "ch", "bin", "dt", "tm", "tmz", "ts",
+        "tsz", "u", "j", "a", "m", "rw", "ip",
     ];
     let rows = vec![full, edge, nulls];
     let calls = Mutex::new(Vec::new());
     let n = s
-        .bulk_load(&load_spec("all_types", &names), &[], &mut batches(rows.clone()), &|n| calls.lock().unwrap().push(n))
+        .bulk_load(
+            &load_spec("all_types", &names),
+            &[],
+            &mut batches(rows.clone()),
+            &|n| calls.lock().unwrap().push(n),
+        )
         .await
         .unwrap();
     assert_eq!(n, 3);
@@ -213,7 +277,13 @@ async fn run(driver: &str, var: &str) {
         }
     }
     // A filter reads only its rows.
-    assert_eq!(read_all(&mut s, "all_types", Some("id >= 2")).await.rows.len(), 2);
+    assert_eq!(
+        read_all(&mut s, "all_types", Some("id >= 2"))
+            .await
+            .rows
+            .len(),
+        2
+    );
 
     // 100k rows: load, read back, compare.
     let ts6 = if presto { "timestamp" } else { "timestamp(6)" };
@@ -224,7 +294,11 @@ async fn run(driver: &str, var: &str) {
                 Cell::Int(i),
                 Cell::Text(format!("nombre {i}")),
                 Cell::Decimal(format!("{}.{:02}", i, i % 100)),
-                Cell::DateTime(format!("2024-01-01 00:00:{:02}.{}", i % 60, frac(&format!("{:06}", i % 1_000_000)))),
+                Cell::DateTime(format!(
+                    "2024-01-01 00:00:{:02}.{}",
+                    i % 60,
+                    frac(&format!("{:06}", i % 1_000_000))
+                )),
                 Cell::Bool(i % 2 == 0),
                 Cell::Float(i as f64 / 3.0),
             ]
@@ -232,15 +306,29 @@ async fn run(driver: &str, var: &str) {
         .collect();
     let cols = ["id", "name", "amount", "ts", "flag", "x"];
     let t0 = Instant::now();
-    let n = s.bulk_load(&load_spec("big", &cols), &[], &mut batches(data.clone()), &|_| {}).await.unwrap();
+    let n = s
+        .bulk_load(
+            &load_spec("big", &cols),
+            &[],
+            &mut batches(data.clone()),
+            &|_| {},
+        )
+        .await
+        .unwrap();
     let load = t0.elapsed();
     assert_eq!(n, rows_n as u64);
-    println!("{driver} bulk_load: {rows_n} rows in {load:?} = {:.0} rows/s", rows_n as f64 / load.as_secs_f64());
+    println!(
+        "{driver} bulk_load: {rows_n} rows in {load:?} = {:.0} rows/s",
+        rows_n as f64 / load.as_secs_f64()
+    );
 
     let t0 = Instant::now();
     let mut back = read_all(&mut s, "big", None).await;
     let read = t0.elapsed();
-    println!("{driver} read_batches: {rows_n} rows in {read:?} = {:.0} rows/s", rows_n as f64 / read.as_secs_f64());
+    println!(
+        "{driver} read_batches: {rows_n} rows in {read:?} = {:.0} rows/s",
+        rows_n as f64 / read.as_secs_f64()
+    );
     back.rows.sort_by_key(|r| match r[0] {
         Cell::Int(i) => i,
         _ => -1,
@@ -249,18 +337,31 @@ async fn run(driver: &str, var: &str) {
 
     // The insert_script path, for comparison (a tenth of the rows; only
     // the columns it can type: its decimals and doubles don't insert).
-    exec(&mut s, &format!("CREATE TABLE dbine_tr.slow (id bigint, name varchar, ts {ts6}, flag boolean)")).await;
+    exec(
+        &mut s,
+        &format!("CREATE TABLE dbine_tr.slow (id bigint, name varchar, ts {ts6}, flag boolean)"),
+    )
+    .await;
     let target = table("slow");
-    let cols: Vec<String> = ["id", "name", "ts", "flag"].iter().map(|c| c.to_string()).collect();
-    let json: Vec<Vec<serde_json::Value>> =
-        data[..rows_n / 10].iter().map(|r| [0, 1, 3, 4].iter().map(|&i| r[i].to_json()).collect()).collect();
+    let cols: Vec<String> = ["id", "name", "ts", "flag"]
+        .iter()
+        .map(|c| c.to_string())
+        .collect();
+    let json: Vec<Vec<serde_json::Value>> = data[..rows_n / 10]
+        .iter()
+        .map(|r| [0, 1, 3, 4].iter().map(|&i| r[i].to_json()).collect())
+        .collect();
     let t0 = Instant::now();
     for chunk in json.chunks(500) {
         let script = d.insert_script(&target, &cols, chunk).unwrap();
         exec(&mut s, &script).await;
     }
     let slow = t0.elapsed();
-    println!("{driver} insert_script: {} rows in {slow:?} = {:.0} rows/s", rows_n / 10, (rows_n / 10) as f64 / slow.as_secs_f64());
+    println!(
+        "{driver} insert_script: {} rows in {slow:?} = {:.0} rows/s",
+        rows_n / 10,
+        (rows_n / 10) as f64 / slow.as_secs_f64()
+    );
 
     clean(&mut s).await;
 }
@@ -269,7 +370,9 @@ async fn count(s: &mut Box<dyn Session>, sql: &str) -> u64 {
     let mut out = QueryOutcome::default();
     s.execute(sql, 10, &mut out).await.unwrap();
     let v = &out.results[0].rows[0][0];
-    v.as_u64().or_else(|| v.as_str().and_then(|x| x.parse().ok())).unwrap()
+    v.as_u64()
+        .or_else(|| v.as_str().and_then(|x| x.parse().ok()))
+        .unwrap()
 }
 
 /// INSERTs of this run's `late` table the server still hasn't ended.
@@ -289,7 +392,11 @@ fn late_rows(statements: usize, bad: Option<usize>) -> Vec<Vec<Cell>> {
     let per = 2_000;
     (0..statements * per)
         .map(|i| {
-            let id = if bad == Some(i / per) && i % per == per / 2 { Cell::Text("no es un número".into()) } else { Cell::Int(i as i64) };
+            let id = if bad == Some(i / per) && i % per == per / 2 {
+                Cell::Text("no es un número".into())
+            } else {
+                Cell::Int(i as i64)
+            };
             vec![id, Cell::Text(format!("{i:0>200}"))]
         })
         .collect()
@@ -311,48 +418,124 @@ async fn transfer_fixes_presto() {
 async fn fixes(driver: &str, var: &str) {
     let Some(c) = cfg(driver, var) else { return };
     let presto = driver == "presto";
-    let d = dbine_driver_trino::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_trino::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     let mut s = d.connect(&c, None).await.unwrap();
     clean(&mut s).await;
     exec(&mut s, "CREATE SCHEMA dbine_tr").await;
 
     // 1. A failed load leaves nothing running that could commit later.
-    exec(&mut s, "CREATE TABLE dbine_tr.late (id bigint, pad varchar)").await;
-    let r = s.bulk_load(&load_spec("late", &["id", "pad"]), &[], &mut batches(late_rows(12, Some(6))), &|_| {}).await;
+    exec(
+        &mut s,
+        "CREATE TABLE dbine_tr.late (id bigint, pad varchar)",
+    )
+    .await;
+    let r = s
+        .bulk_load(
+            &load_spec("late", &["id", "pad"]),
+            &[],
+            &mut batches(late_rows(12, Some(6))),
+            &|_| {},
+        )
+        .await;
     assert!(r.is_err(), "the bad value must fail the load");
-    assert_eq!(live_inserts(&mut s).await, 0, "an INSERT is still running after bulk_load returned");
+    assert_eq!(
+        live_inserts(&mut s).await,
+        0,
+        "an INSERT is still running after bulk_load returned"
+    );
     let after = count(&mut s, "SELECT count(*) FROM dbine_tr.late").await;
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    assert_eq!(count(&mut s, "SELECT count(*) FROM dbine_tr.late").await, after, "rows committed after the failed load returned");
+    assert_eq!(
+        count(&mut s, "SELECT count(*) FROM dbine_tr.late").await,
+        after,
+        "rows committed after the failed load returned"
+    );
     println!("{driver}: failed load left {after} rows, none after it returned");
 
     // …and a cancelled one (the interrupter fires on the first commit).
     exec(&mut s, "DROP TABLE dbine_tr.late").await;
-    exec(&mut s, "CREATE TABLE dbine_tr.late (id bigint, pad varchar)").await;
+    exec(
+        &mut s,
+        "CREATE TABLE dbine_tr.late (id bigint, pad varchar)",
+    )
+    .await;
     let stop = s.interrupter().unwrap();
-    let r = s.bulk_load(&load_spec("late", &["id", "pad"]), &[], &mut batches(late_rows(12, None)), &|_| stop()).await;
+    let r = s
+        .bulk_load(
+            &load_spec("late", &["id", "pad"]),
+            &[],
+            &mut batches(late_rows(12, None)),
+            &|_| stop(),
+        )
+        .await;
     assert!(r.is_err(), "the load must stop");
-    assert_eq!(live_inserts(&mut s).await, 0, "an INSERT is still running after the cancel returned");
+    assert_eq!(
+        live_inserts(&mut s).await,
+        0,
+        "an INSERT is still running after the cancel returned"
+    );
     let after = count(&mut s, "SELECT count(*) FROM dbine_tr.late").await;
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    assert_eq!(count(&mut s, "SELECT count(*) FROM dbine_tr.late").await, after, "rows committed after the cancel returned");
+    assert_eq!(
+        count(&mut s, "SELECT count(*) FROM dbine_tr.late").await,
+        after,
+        "rows committed after the cancel returned"
+    );
     println!("{driver}: cancelled load left {after} rows ({r:?})");
 
     // 6. Inside an explicit transaction nothing would be committed: refused.
     exec(&mut s, "START TRANSACTION").await;
-    let r = s.bulk_load(&load_spec("late", &["id", "pad"]), &[], &mut batches(late_rows(1, None)), &|_| {}).await;
-    assert!(matches!(r, Err(dbine_driver::Error::Unsupported(_))), "{r:?}");
+    let r = s
+        .bulk_load(
+            &load_spec("late", &["id", "pad"]),
+            &[],
+            &mut batches(late_rows(1, None)),
+            &|_| {},
+        )
+        .await;
+    assert!(
+        matches!(r, Err(dbine_driver::Error::Unsupported(_))),
+        "{r:?}"
+    );
     exec(&mut s, "ROLLBACK").await;
 
     // 7, 8, 9, 10: no rounding, zones as UTC, texts stay strings, years past 9999.
-    let (ts, tsz) = if presto { ("timestamp", "timestamp with time zone") } else { ("timestamp(3)", "timestamp(3) with time zone") };
-    exec(&mut s, &format!("CREATE TABLE dbine_tr.odd (id bigint, dec decimal(10,2), ts {ts}, j json, tsz {tsz})")).await;
+    let (ts, tsz) = if presto {
+        ("timestamp", "timestamp with time zone")
+    } else {
+        ("timestamp(3)", "timestamp(3) with time zone")
+    };
+    exec(
+        &mut s,
+        &format!(
+            "CREATE TABLE dbine_tr.odd (id bigint, dec decimal(10,2), ts {ts}, j json, tsz {tsz})"
+        ),
+    )
+    .await;
     let cols = ["id", "dec", "ts", "j", "tsz"];
     let r = s
-        .bulk_load(&load_spec("odd", &cols), &[], &mut batches(vec![vec![Cell::Int(0), Cell::Decimal("1.239".into()), Cell::Null, Cell::Null, Cell::Null]]), &|_| {})
+        .bulk_load(
+            &load_spec("odd", &cols),
+            &[],
+            &mut batches(vec![vec![
+                Cell::Int(0),
+                Cell::Decimal("1.239".into()),
+                Cell::Null,
+                Cell::Null,
+                Cell::Null,
+            ]]),
+            &|_| {},
+        )
         .await;
     assert!(r.is_err(), "1.239 into decimal(10,2) must not be rounded");
-    let far = if presto { None } else { Some(Cell::DateTimeTz("12024-01-02 03:04:05.000+00:00".into())) };
+    let far = if presto {
+        None
+    } else {
+        Some(Cell::DateTimeTz("12024-01-02 03:04:05.000+00:00".into()))
+    };
     let row = vec![
         Cell::Int(1),
         Cell::Decimal("1.230".into()),
@@ -360,7 +543,14 @@ async fn fixes(driver: &str, var: &str) {
         Cell::Text("123".into()),
         far.clone().unwrap_or(Cell::Null),
     ];
-    s.bulk_load(&load_spec("odd", &cols), &[], &mut batches(vec![row]), &|_| {}).await.unwrap();
+    s.bulk_load(
+        &load_spec("odd", &cols),
+        &[],
+        &mut batches(vec![row]),
+        &|_| {},
+    )
+    .await
+    .unwrap();
     let back = read_all(&mut s, "odd", None).await.rows;
     assert_eq!(back.len(), 1);
     assert_eq!(back[0][1], Cell::Decimal("1.23".into()));
@@ -389,7 +579,15 @@ async fn fixes(driver: &str, var: &str) {
         let first = read_all(&mut s, "nest", None).await;
         let names: Vec<String> = first.columns.iter().map(|c| c.name.clone()).collect();
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let n = s.bulk_load(&load_spec("nest2", &names), &first.columns, &mut batches(first.rows.clone()), &|_| {}).await.unwrap();
+        let n = s
+            .bulk_load(
+                &load_spec("nest2", &names),
+                &first.columns,
+                &mut batches(first.rows.clone()),
+                &|_| {},
+            )
+            .await
+            .unwrap();
         assert_eq!(n, 2);
         let mut a = first.rows;
         let mut b = read_all(&mut s, "nest2", None).await.rows;
@@ -436,13 +634,28 @@ async fn transfer_times_presto() {
 async fn times(driver: &str, var: &str) {
     let Some(c) = cfg(driver, var) else { return };
     let presto = driver == "presto";
-    let d = dbine_driver_trino::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_trino::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     let mut s = d.connect(&c, None).await.unwrap();
     clean(&mut s).await;
     exec(&mut s, "CREATE SCHEMA dbine_tr").await;
-    let (ts, tsz) = if presto { ("timestamp", "timestamp with time zone") } else { ("timestamp(3)", "timestamp(3) with time zone") };
-    let (t3, tz3) = if presto { ("time", "time with time zone") } else { ("time(3)", "time(3) with time zone") };
-    exec(&mut s, &format!("CREATE TABLE dbine_tr.frac (id bigint, t {t3}, ts {ts}, tsz {tsz}, ttz {tz3})")).await;
+    let (ts, tsz) = if presto {
+        ("timestamp", "timestamp with time zone")
+    } else {
+        ("timestamp(3)", "timestamp(3) with time zone")
+    };
+    let (t3, tz3) = if presto {
+        ("time", "time with time zone")
+    } else {
+        ("time(3)", "time(3) with time zone")
+    };
+    exec(
+        &mut s,
+        &format!("CREATE TABLE dbine_tr.frac (id bigint, t {t3}, ts {ts}, tsz {tsz}, ttz {tz3})"),
+    )
+    .await;
     let fcols = ["id", "t", "ts", "tsz", "ttz"];
     let lossy = [
         (1, Cell::Time("23:59:59.9999".into())),
@@ -451,10 +664,26 @@ async fn times(driver: &str, var: &str) {
         (4, Cell::Time("10:00:00.1234+01:00".into())),
     ];
     for (col, cell) in lossy {
-        let mut row = vec![Cell::Int(col as i64), Cell::Null, Cell::Null, Cell::Null, Cell::Null];
+        let mut row = vec![
+            Cell::Int(col as i64),
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+            Cell::Null,
+        ];
         row[col] = cell;
-        let r = s.bulk_load(&load_spec("frac", &fcols), &[], &mut batches(vec![row]), &|_| {}).await;
-        assert!(matches!(&r, Err(dbine_driver::Error::Query(m)) if m.contains("no se redondea")), "column {col}: {r:?}");
+        let r = s
+            .bulk_load(
+                &load_spec("frac", &fcols),
+                &[],
+                &mut batches(vec![row]),
+                &|_| {},
+            )
+            .await;
+        assert!(
+            matches!(&r, Err(dbine_driver::Error::Query(m)) if m.contains("no se redondea")),
+            "column {col}: {r:?}"
+        );
     }
     assert_eq!(count(&mut s, "SELECT count(*) FROM dbine_tr.frac").await, 0);
     let row = vec![
@@ -464,7 +693,14 @@ async fn times(driver: &str, var: &str) {
         Cell::DateTimeTz("2024-06-01 12:00:00.500+00:00".into()),
         Cell::Time("10:00:00.250+00:00".into()),
     ];
-    s.bulk_load(&load_spec("frac", &fcols), &[], &mut batches(vec![row]), &|_| {}).await.unwrap();
+    s.bulk_load(
+        &load_spec("frac", &fcols),
+        &[],
+        &mut batches(vec![row]),
+        &|_| {},
+    )
+    .await
+    .unwrap();
     let back = read_all(&mut s, "frac", None).await.rows;
     assert_eq!(back[0][1], Cell::Time("23:59:59.999".into()));
     assert_eq!(back[0][2], Cell::DateTime("2024-06-01 12:00:00.123".into()));
@@ -490,29 +726,75 @@ async fn transfer_lone_rows_and_dates_presto() {
 async fn lone_rows_and_dates(driver: &str, var: &str) {
     let Some(c) = cfg(driver, var) else { return };
     let presto = driver == "presto";
-    let d = dbine_driver_trino::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
+    let d = dbine_driver_trino::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
     let mut s = d.connect(&c, None).await.unwrap();
     clean(&mut s).await;
     exec(&mut s, "CREATE SCHEMA dbine_tr").await;
 
-    exec(&mut s, "CREATE TABLE dbine_tr.lone (r row(a integer, b varchar))").await;
-    exec(&mut s, "CREATE TABLE dbine_tr.lone2 (r row(a integer, b varchar))").await;
+    exec(
+        &mut s,
+        "CREATE TABLE dbine_tr.lone (r row(a integer, b varchar))",
+    )
+    .await;
+    exec(
+        &mut s,
+        "CREATE TABLE dbine_tr.lone2 (r row(a integer, b varchar))",
+    )
+    .await;
     exec(&mut s, "INSERT INTO dbine_tr.lone VALUES ROW(CAST(ROW(1, 'x') AS row(a integer, b varchar))), ROW(NULL), ROW(CAST(ROW(2, NULL) AS row(a integer, b varchar)))").await;
     let first = read_all(&mut s, "lone", None).await;
-    let n = s.bulk_load(&load_spec("lone2", &["r"]), &first.columns, &mut batches(first.rows.clone()), &|_| {}).await.unwrap();
+    let n = s
+        .bulk_load(
+            &load_spec("lone2", &["r"]),
+            &first.columns,
+            &mut batches(first.rows.clone()),
+            &|_| {},
+        )
+        .await
+        .unwrap();
     assert_eq!(n, 3);
     let key = |mut v: Vec<Vec<Cell>>| {
         v.sort_by_key(|r| format!("{r:?}"));
         v
     };
-    assert_eq!(key(read_all(&mut s, "lone2", None).await.rows), key(first.rows), "the ROW values must come back identical");
+    assert_eq!(
+        key(read_all(&mut s, "lone2", None).await.rows),
+        key(first.rows),
+        "the ROW values must come back identical"
+    );
     // One row alone, too.
-    let n = s.bulk_load(&load_spec("lone2", &["r"]), &[], &mut batches(vec![vec![Cell::Json("{\"a\":3,\"b\":\"z\"}".into())]]), &|_| {}).await.unwrap();
+    let n = s
+        .bulk_load(
+            &load_spec("lone2", &["r"]),
+            &[],
+            &mut batches(vec![vec![Cell::Json("{\"a\":3,\"b\":\"z\"}".into())]]),
+            &|_| {},
+        )
+        .await
+        .unwrap();
     assert_eq!(n, 1);
-    assert_eq!(count(&mut s, "SELECT count(*) FROM dbine_tr.lone2 WHERE r.a = 3 AND r.b = 'z'").await, 1);
+    assert_eq!(
+        count(
+            &mut s,
+            "SELECT count(*) FROM dbine_tr.lone2 WHERE r.a = 3 AND r.b = 'z'"
+        )
+        .await,
+        1
+    );
     if !presto {
         exec(&mut s, "CREATE TABLE dbine_tr.lone_t (r row(t time(3)))").await;
-        let n = s.bulk_load(&load_spec("lone_t", &["r"]), &[], &mut batches(vec![vec![Cell::Json("{\"t\":\"10:00:00.250\"}".into())]]), &|_| {}).await.unwrap();
+        let n = s
+            .bulk_load(
+                &load_spec("lone_t", &["r"]),
+                &[],
+                &mut batches(vec![vec![Cell::Json("{\"t\":\"10:00:00.250\"}".into())]]),
+                &|_| {},
+            )
+            .await
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -525,15 +807,35 @@ async fn lone_rows_and_dates(driver: &str, var: &str) {
     .into_iter()
     .enumerate()
     {
-        let r = s.bulk_load(&load_spec("days", &["id", "d"]), &[], &mut batches(vec![vec![Cell::Int(i as i64), cell]]), &|_| {}).await;
-        assert!(matches!(&r, Err(dbine_driver::Error::Query(m)) if m.contains("se perdería la hora")), "{r:?}");
+        let r = s
+            .bulk_load(
+                &load_spec("days", &["id", "d"]),
+                &[],
+                &mut batches(vec![vec![Cell::Int(i as i64), cell]]),
+                &|_| {},
+            )
+            .await;
+        assert!(
+            matches!(&r, Err(dbine_driver::Error::Query(m)) if m.contains("se perdería la hora")),
+            "{r:?}"
+        );
     }
     assert_eq!(count(&mut s, "SELECT count(*) FROM dbine_tr.days").await, 0);
     let rows = vec![
         vec![Cell::Int(1), Cell::DateTime("2024-01-01 00:00:00".into())],
-        vec![Cell::Int(2), Cell::DateTimeTz("2024-01-01 21:00:00-03:00".into())],
+        vec![
+            Cell::Int(2),
+            Cell::DateTimeTz("2024-01-01 21:00:00-03:00".into()),
+        ],
     ];
-    s.bulk_load(&load_spec("days", &["id", "d"]), &[], &mut batches(rows), &|_| {}).await.unwrap();
+    s.bulk_load(
+        &load_spec("days", &["id", "d"]),
+        &[],
+        &mut batches(rows),
+        &|_| {},
+    )
+    .await
+    .unwrap();
     let mut back = read_all(&mut s, "days", None).await.rows;
     back.sort_by_key(|r| match r[0] {
         Cell::Int(i) => i,
